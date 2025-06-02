@@ -1,0 +1,960 @@
+Newsgroups: comp.sources.misc
+From: wilson@wakeman.europarc.xerox.com (Tim Wilson)
+Subject: v37i085:  rslink - recursive symbolic link, shadow directory trees, Part01/01
+Message-ID: <1993May25.192243.29358@sparky.imd.sterling.com>
+Summary: Copy directory hierarchy populating with symbolic links to originals
+X-Md4-Signature: e0535ba251101100d14bd634e96f4910
+Keywords: links, symbolic links, copying, shadow directory trees, directory hierarchy
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Reply-To: Tim Wilson <wilson@europarc.xerox.com>
+Organization: Rank Xerox Cambridge EuroPARC, UK
+Date: Tue, 25 May 1993 19:22:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wilson@wakeman.europarc.xerox.com (Tim Wilson)
+Posting-number: Volume 37, Issue 85
+Archive-name: rslink/part01
+Environment: UNIX, Perl, symlink
+
+NAME
+     rslink - Recursive symbolic link (relative or absolute)
+
+SYNOPSIS
+     rslink [-a] [-q] [-r] [-s] [-u] [-v] fromdir todir [ ignore ... ]
+
+DESCRIPTION
+     Rslink creates a shadow directory tree:  a  replica  of  the
+     source  directory  tree  structure,  populated with symbolic
+     links to the original non-directory files.
+
+     Shadow trees are useful, for example,
+
+     o    for compiling a source tree for  several  architectures
+          (each has its own shadow tree of the sources), and
+
+     o    in shared development by several programmers from a set
+          of  master  sources:  each developer makes local copies
+          only of files he wishes to modify.
+
+     Relative symbolic links are useful because  they  are  still
+     valid if the tree rooted at the common ancestor is moved.
+
+     Why use rslink?  Rslink is much faster  than  similar  shell
+     scripts.  How much faster depends on the speed of your discs
+     and  file  servers.    It  is  very  nearly  as  fast  as an 
+     equivalent C program I wrote just to compare performance!
+
+I hope you find this as useful as we have!
+
+Tim Wilson
+- Cut here -----------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 1)."
+# Contents:  ChangeLog MANIFEST Makefile README rslink rslink.1
+# Wrapped by wilson@wakeman on Fri May 21 10:29:57 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f ChangeLog -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"ChangeLog\"
+else
+echo shar: Extracting \"ChangeLog\" \(882 characters\)
+sed "s/^X//" >ChangeLog <<'END_OF_ChangeLog'
+XFri May 21 10:02:43 1993  Tim Wilson  (wilson@europarc.xerox.com)
+X
+X	* Version 1.20 released.  Submitted to comp.sources.misc.
+X
+XMon May 10 15:18:09 1993  Tim Wilson (wilson@europarc.xerox.com)
+X
+X	* Incompatible change: symbolic links to directories are now
+X	treated like symbolic links rather than like directories.  This is
+X	useful, whereas the original behaviour was never useful.  Clarify
+X	man page.
+X
+XThu Apr  9 14:28:17 1992  Tim Wilson  (tdw@cl.cam.ac.uk)
+X
+X	* David Kaelbling (drk@rational.com) suggests special treatment
+X	for symbolic links.  Add -r and -s options, which cause rslink to
+X	copy the _contents_ of relative and absolute symbolic links
+X	respectively. 
+X
+X	Add -u option -- update target tree, ignoring files that exist
+X	already.
+X
+X	Add -q (quiet) option.
+X
+X
+XWed Mar 11 11:50:41 1992  Tim Wilson  (tdw at cl.cam.ac.uk)
+X
+X	* Version 1.00 released.  Posted to alt.sources.
+END_OF_ChangeLog
+if test 882 -ne `wc -c <ChangeLog`; then
+    echo shar: \"ChangeLog\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f MANIFEST -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"MANIFEST\"
+else
+echo shar: Extracting \"MANIFEST\" \(430 characters\)
+sed "s/^X//" >MANIFEST <<'END_OF_MANIFEST'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X ChangeLog                 1	History file
+X MANIFEST                  1	This shipping list
+X Makefile                  1	Maintenance commands only
+X README                    1	Installation notes
+X rslink                    1	Perl script that creates shadow trees
+X rslink.1                  1	Man page for rslink (format with nroff -man)
+END_OF_MANIFEST
+if test 430 -ne `wc -c <MANIFEST`; then
+    echo shar: \"MANIFEST\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f Makefile -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile\"
+else
+echo shar: Extracting \"Makefile\" \(321 characters\)
+sed "s/^X//" >Makefile <<'END_OF_Makefile'
+X# Release 1.20.
+X# Last edited: Fri May 21 10:18:14 1993 by Tim Wilson
+X# $Id: Makefile,v 0.3 1993/05/21 09:27:54 wilson Exp $
+X
+X
+X           SRCS	= README Makefile rslink rslink.1
+X      SHARFILES	= $(SRCS)
+X
+Xall:
+X	@echo "Please select an explicit target"
+X
+Xshar: $(SHARFILES)
+X	makekit -m
+X
+Xclean:
+X	rm -f Part?? MANIFEST.BAK *~
+END_OF_Makefile
+if test 321 -ne `wc -c <Makefile`; then
+    echo shar: \"Makefile\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"README\"
+else
+echo shar: Extracting \"README\" \(1718 characters\)
+sed "s/^X//" >README <<'END_OF_README'
+X$Id: README,v 0.2 1993/05/21 09:26:54 wilson Exp $
+X
+XWELCOME TO RSLINK RELEASE 1.20.
+X
+XThis is the second general posting of rslink. 
+X
+XPlease report bugs, enhancement, suggestions and comments to the
+Xauthor (address below).
+X
+XRslink is documented in the accompanying manual page in file rslink.1.
+X
+X
+XINSTALLATION
+X
+XTo install rslink:
+X
+X 1. Ensure that you have installed perl version 4.003 or higher.
+X
+X 2. If perl is installed somewhere other than /usr/local/bin/perl,
+X    edit the path name in the first line of "rslink" to point to your
+X    perl executable.
+X
+X 3. Copy the script "rslink" to the installation directory (eg
+X    /usr/local/bin) and make it executable (eg "chmod +x /usr/local/bin").
+X
+X 4. Copy the man page "rslink.1" to your man1 directory (eg
+X    /usr/local/man/man1). 
+X
+X
+XAVAILABILITY
+X
+XI can no longer offer rslink by FTP -- but it is probably available by
+XFTP from other sites.  Try a host that archives
+Xcomp.sources.misc.
+X
+X
+XCOPYRIGHT
+X
+XRslink is copyright (C) 1992, 1993 T D Wilson.  All rights reserved.
+XPermission to copy without fee all or part of this material is granted
+Xprovided that the copies are not made or distributed for direct
+Xcommercial advantage, the copyright notice and the title and date
+Xappear, and notice is given that copying is by permission of the
+Xauthor.  To copy otherwise, or to republish, requires specific
+Xpermission.  
+X
+X
+XNO WARRANTY
+X
+XT D Wilson makes no representations about the suitability
+Xof this software for any purpose.  It is provided "as is" without
+Xexpress or implied warranty.
+X
+X
+XAUTHOR
+X
+XInternet email address:
+X    wilson@europarc.xerox.com (until September 1993)
+X
+XPostal address:
+X    Tim Wilson
+X    c/o 43 Byron Avenue,
+X    Winchester
+X    Hants SO22 5AT
+X    England
+END_OF_README
+if test 1718 -ne `wc -c <README`; then
+    echo shar: \"README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f rslink -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"rslink\"
+else
+echo shar: Extracting \"rslink\" \(12446 characters\)
+sed "s/^X//" >rslink <<'END_OF_rslink'
+X#!/usr/local/bin/perl -w
+X#
+X# usage: rslink [-aqrsuv] fromdir todir [ignore ...]
+X#
+X# Performs recursive symbolic link .
+X# See man page for documentation.
+X#
+X# Release 1.20.
+X# Last edited: Fri May 21 10:17:23 1993 by Tim Wilson
+X# $Id: rslink,v 1.5 1993/05/21 09:17:31 wilson Exp $
+X#
+X# Modification summary
+X## Release 1.20.  Submitted to comp.sources.misc 21 May 1993.
+X#  10 May 1993	wilson	Incompatible change: symbolic links to directories
+X#			are now treated like symbolic links rather than
+X#			like directories.  This is useful, whereas the original
+X#			behaviour was never useful.
+X## Release 1.10.  Not posted.
+X#   9 Apr 1992	tdw	Add r (copy contents of relative symbolic
+X#			links), s (copy contents of absolute symbolic
+X#			links), u (update -- allow target to
+X#			exist), and q (quiet) options.
+X#			Idea for r and s from drk@COM.Rational (David
+X#			Kaelbling).
+X## Release 1.00.  Posted to alt.sources 11 March 1992.
+X#  20 Sep 1991	tdw	if -a and todir does not start with `/' (previously an
+X#			error), make relative via cwd.
+X#			Ignore list changed to be regexps.
+X#			Slight restructuring.
+X#  15 May 1991	tdw	Add -a (absolute) option
+X#   2 Nov 1990	tdw	Ignore `file exists' for directories too
+X#  25 Aug 1990	tdw	Ignore spurious `file exists' errors
+X#  17 Aug 1990	tdw	Created by Tim Wilson.
+X#
+X# Author: Tim Wilson, c/o 43 Byron Avenue, Winchester, Hants, SO22 5AT, UK.
+X#         wilson@europarc.xerox.com, tdw@cl.cam.ac.uk
+X#
+X######################################################################
+X#
+X# Symlink on NFS file systems is seen to give spurious `file exists'
+X# errors from time to time, which rslink just ignores, except for
+X# warning (suppressed by quiet mode).
+X#
+X# The errors are probably due to low-level retrys (because of network
+X# timeouts) of the non-idempotent NFS symlink operation.
+X#
+X######################################################################
+X#
+X# TO DO:
+X#  + Copy mode of created directories?  Not sure if this is a good idea.
+X#
+X######################################################################
+X#
+X# Copyright (C) 1992, 1993 T D Wilson.  All rights reserved.
+X#
+X# Permission to copy without fee all or part of this material is
+X# granted provided that the copies are not made or distributed for
+X# direct commercial advantage, the copyright notice and the title and
+X# date appear, and notice is given that copying is by permission of
+X# the author.  To copy otherwise, or to republish, requires specific
+X# permission.
+X#
+X# T D Wilson makes no representations about the suitability of this
+X# software for any purpose.  It is provided "as is" without express or
+X# implied warranty.
+X#
+X######################################################################
+X#
+X# Implementation contants
+X#
+X
+X$dirmode = 0755;		# Mode in which directories are created
+X
+X$EEXIST = 17;			# From Ultrix 3.1C errno.h
+X
+X
+X######################################################################
+X#
+X# Eliminate one-mention warnings
+X
+Xdefined $opt_a;
+X
+X######################################################################
+X#
+X# Parse options -- set $opt_a to 1 if -a present (etc)
+X#
+X
+X$0 =~ m|([^/]*)$|;		# progname is last component
+X$progname = $1;
+X
+X$options = "aqrsuv";
+X$usage = "usage: $progname [-$options] fromdir todir [ignore ...]";
+X
+X# Unset all option variables
+X
+X@flags = split (//, $options);
+Xforeach $letter (@flags) {
+X	eval "\$opt_$letter = 0";
+X}
+X
+X# Set from command line
+X
+X$usage_error = 0;
+XARG:
+Xwhile (@ARGV) {
+X	$arg = $ARGV[0];
+X	last ARG unless $arg =~ /^-/;
+X	shift @ARGV;
+X
+X	@flags = split (//, $arg);	# Get individual letters
+X	shift @flags;			# Drop leading -
+X	foreach $letter (@flags) {
+X		if (index ($options, $letter) >= $[) {
+X			eval "\$opt_$letter = 1";
+X		} else {
+X			warn "$progname: Unknown option -$letter\n";
+X			$usage_error++;
+X		}
+X	}
+X}
+Xdie "$usage\n" if ($usage_error || @ARGV < 2);
+X
+X($fromdir,$todir,@ignore) = @ARGV;
+X
+Xdefined($debug) || ($debug = 0);	# Boolean: don't actually make links
+X
+X
+X######################################################################
+X# 
+X# Subroutine to create a symbolic link
+X#
+X# arg 0: Contents of new symbolic link
+X# arg 1: Path name of new symbolic link that should not exist already
+X#
+X# Globals:
+X#   $debug
+X#   $opt_q -- quiet
+X#   $opt_v -- verbose
+X
+X
+Xsub dolink {
+X	local ($contents,$path) = @_;
+X
+X	$opt_v && print "ln -s $contents $path\n";
+X	unless ($debug || symlink($contents, $path)) {
+X		if ($! == $EEXIST) { # Assume NFS problem
+X			$opt_q || warn "$progname: symlink $path -> $contents:"
+X				. " $! -- IGNORING SPURIOUS ERROR\n";
+X		} else {	# Some other error
+X			die "$progname: Can't symlink "
+X				. "$path -> $contents: $!\n";
+X		}
+X	}
+X}
+X
+X
+X######################################################################
+X#
+X# Subroutine to test if file is required or should be omitted
+X#
+X# arg 0: file name -- just base name, not whole path
+X# arg 1: name of file for omitting message (see $opt_v below)
+X#
+X# Returns: True if file should be omitted
+X#
+X# Side effects: if $opt_v, prints message
+X#
+X# Global variables:
+X#  @ignore: the list of regexps matching files to be omitted
+X
+Xsub should_omit {
+X	local ($file,$name) = @_;
+X
+X	if (grep($file =~ /$_/, @ignore)) {
+X		if ($opt_v) { print "[Omitting $name]\n"; }
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X
+X######################################################################
+X# 
+X# Subroutine to recursively link a directory tree
+X#
+X# arg 0: path to destination directory from cwd;
+X#        which should not exist (unless $opt_u), with no trailing `/'
+X# arg 1: path from cwd to source directory, with no trailing `/'
+X# arg 2: depth: n "../"s are required to get back from the source to cd.
+X#        If depth is ABSOLUTE, the paths are assumed to be absolute.
+X#
+X# Create the destination directory.
+X#
+X# For each entry in the source directory (except . and .., and ignored files)
+X#   if it's a directory, recurse
+X#   else make a symbolic link
+X#
+X# Affected by the following global variables:
+X#   $debug
+X#   @ignore
+X#   $opt_q -- quiet
+X#   $opt_r -- copy contents of relative symbolic links
+X#   $opt_s -- copy contents of absolute symbolic links
+X#   $opt_u -- create files if they don't exist already
+X#   $opt_v -- verbose
+X#   $progname
+X
+X$ABSOLUTE = -1;
+X
+Xsub rslink {
+X	$debug && warn "$progname: DB: rslink @_\n";
+X
+X	local($todest,$tosource,$depth) = @_;
+X	local($d,$s,$f,$fromdst,$newdepth,@dir,@components);
+X
+X	if ($depth == $ABSOLUTE) {	# Using absolute paths
+X		$newdepth = $depth;	# Continue using them
+X		$fromdst = "";
+X	} else {			# Relative paths
+X		$newdepth = $depth + 1;
+X		$fromdst = "../" x $depth;
+X	}
+X
+X	# Get last component of directory name
+X	# and check whether we should ignore it.
+X
+X	@components = split ('/', $tosource);
+X	$f = @components[$#components];
+X	&should_omit ($f, $tosource) && return;
+X
+X	# Create destination directory,
+X	# unless we are only updating and it exists already.
+X
+X	if (-e $todest) {
+X		unless (-d _ && $opt_u) {	# The only good combination
+X			# All others die
+X			-d _ && die "$progname: $todest directory "
+X					. "exists already (see -u option)\n";
+X			$opt_u && die "$progname: Update failed: "
+X					. "$todest is not a directory\n";
+X			die "$progname: $todest exists\n";
+X			# NOTREACHED
+X		}
+X		# (Destination directory exists already.)
+X	} else {
+X		$opt_v && print "mkdir $todest\n";
+X		unless (mkdir($todest, $dirmode)) {
+X			if ($! == $EEXIST) { # Assume NFS problem
+X				$opt_q || warn "$progname: mkdir $todest: $! "
+X					. "-- IGNORING SPURIOUS ERROR\n";
+X			} else {	# Some other error
+X				die "$progname: Can't create directory "
+X					. "$todest: $!\n";
+X			}
+X		}
+X	}
+X
+X	opendir(DIR, $tosource) || die "$progname: Can't open $tosource: $!";
+X	@dir = readdir(DIR);
+X	closedir(DIR);
+X
+X	FILE:
+X	foreach $f (@dir) {
+X
+X		# Discard irrelevant directory entries
+X		($f eq "." || $f eq "..") && next FILE;
+X
+X		$s = $tosource . "/" . $f;	# Full source path name
+X		$d = $todest . "/" . $f;	# Full destination path name
+X
+X		# If the file is a symbolic link
+X		#   (and not ignorable, and destination does not exist)
+X		#   if $opt_r and relative symblink, copy contents
+X		#   elsif $opt_r and absolute symblink, copy contents
+X                #   else make link to link
+X		# elsif the file is a directory
+X		#   recurse (to create dir and contents, unless ignorable)
+X		# else
+X		#   make symbolic link
+X		#   (unless ignorable or exists already)
+X
+X		if (-l $s) {
+X			&should_omit ($f, $s) && next FILE;
+X			# Unless $opt_u, the directory was newly
+X			# created so should be empty -- so it
+X			# shouldn't contain any files -- unless some
+X			# other program has created a file meanwhile.
+X			if (-e $d) {
+X				die "$progname: $d exists already\n"
+X					unless ($opt_u);
+X			} else {	# Create a link
+X				$spath = $fromdst . $s;
+X				# Maybe we are treating symblinks specially
+X				if ($opt_r || $opt_s) {
+X					# Some sorts of link-to-links special
+X					# Check type of link
+X					$link = (readlink ($s) ||
+X						die ("$progname: Can't read "
+X							."link $s: $!\n"));
+X					if ($link =~ m|^/|) {
+X						# It is an absolute link
+X						$opt_s	? &dolink ($link, $d)
+X							: &dolink ($spath, $d);
+X					} else {
+X						# It is a relative link
+X						$opt_r	? &dolink ($link, $d)
+X							: &dolink ($spath, $d);
+X					}
+X				} else { # No special link treatment
+X					&dolink ($spath, $d);
+X				}
+X			}
+X		} elsif (-d $s) {	# It's a directory
+X			&rslink($d, $s, $newdepth);
+X		} else {		# It's something else
+X			&should_omit ($f, $s) && next FILE;
+X			if (-e $d) {
+X				die "$progname: $d exists already\n"
+X					unless ($opt_u);
+X			} else {	# Create a link
+X				$spath = $fromdst . $s;
+X				&dolink ($spath, $d);
+X			} 
+X		}
+X	}
+X}	
+X
+X######################################################################
+X#
+X# Main program
+X#
+X
+X# A few checks
+X
+X-r $fromdir || die "$progname: Can't read $fromdir\n";
+X-d $fromdir || die "$progname: $fromdir is not a directory\n";
+X
+X$debug && warn "$progname: DEBUGGING MODE\n";
+X
+Xif ($opt_a) {	# Don't automatically find ancestor
+X	# Remove any `/' from directory names
+X	chop $todir if (substr($todir, -1) eq "/");
+X	chop $fromdir if (substr($fromdir, -1) eq "/");
+X
+X	if ($fromdir =~ m|^/|) {	# Create absolute symlinks (via root)
+X
+X		# Make absolute symbolic links
+X
+X		&rslink($todir, $fromdir, $ABSOLUTE);
+X
+X	} else {		# Create symlinks via cwd
+X
+X		unless ($opt_q) {
+X			# Check whether todir path contains symbolic links
+X
+X			@todir = split(/\//, $todir);
+X
+X			# Perl wierdness?  If foo is a symbolic link
+X			# to a directory, then -l "foo" && -d "foo" is
+X			# true, but -l "foo/" is false.  Maybe not
+X			# perl; ls does the same.
+X
+X			$nextdir = ".";
+X			foreach $dir (@todir) {
+X				$nextdir .= "/" . $dir;
+X				-l $nextdir && warn ("$progname: Warning: "
+X					. " $nextdir is a symbolic link\n");
+X			}
+X		}
+X
+X		&rslink($todir, $fromdir, $#todir + 1);
+X	}
+X} else {
+X	# Do relative symbolic link via common ancestor
+X
+X	# Work out path from destination to source:
+X	#   canonicalize the paths
+X	#   ignore common initial directories
+X	#   add "../"s to get back to common starting point
+X
+X	# Canonicalize names with cd $path; pwd
+X	# It might be better to remember the current directory with
+X	# pwd and then use chdir; or to fork.
+X
+X	open (FROMDIR, "cd $fromdir; pwd|")
+X		|| die "$progname: Can't find absolute path of $fromdir\n";
+X	$fromdir = <FROMDIR>;
+X	chop $fromdir;
+X
+X	# We can't cd to $todir since it may not exist yet,
+X	# so cd to the parent.
+X
+X	$todir =~ m|[^/]*$|;	# Match last component
+X	$tonewdir = $&;
+X	$toparent = $` || ".";	# Supply "." if $todir is simple name
+X	$toparent_saved = $toparent;
+X
+X	open (TODIR, "cd $toparent; pwd|")
+X		|| die "$progname: Can't find absolute path of " . 
+X			"$toparent_saved\n";
+X	$toparent = <TODIR>;
+X	defined ($toparent) 
+X		|| die "$progname: Can't find absolute path of "
+X			. "$toparent_saved\n";
+X	chop $toparent;
+X
+X	# Now work out relative path from dir2 (dest) to dir1 (source)
+X
+X	# Delete leading '/' from path names
+X
+X	substr($fromdir,0,1) = "";
+X	substr($toparent,0,1) = "";
+X
+X	# Split into directory names
+X
+X	@fromdir = split(/\//, $fromdir);
+X	@toparent = split(/\//, $toparent);
+X
+X	# Remove common initial path
+X
+X	while (@fromdir != 0 && @toparent != 0
+X		&& $fromdir[0] eq $toparent[0]) {
+X		shift(@fromdir);
+X		shift(@toparent);
+X	}
+X
+X	# Sensible arguments?
+X
+X	(@fromdir == 0)
+X		&& die "$progname: Won't link child to parent directory\n";
+X
+X	# For every remaining component in toparent, we have to go up
+X
+X	$rel = "../" x @toparent;
+X
+X	# Join on rest of fromdir
+X
+X	if (@fromdir != 0) {
+X		$rel .= join("/", @fromdir);
+X	}
+X
+X	$opt_v && print "cd /$toparent\n";
+X	chdir "/".$toparent || die "$progname: Can't cd to /$toparent: $!\n";
+X	&rslink($tonewdir, $rel, 1);
+X}
+X
+X# End of rslink
+END_OF_rslink
+if test 12446 -ne `wc -c <rslink`; then
+    echo shar: \"rslink\" unpacked with wrong size!
+fi
+chmod +x rslink
+# end of overwriting check
+fi
+if test -f rslink.1 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"rslink.1\"
+else
+echo shar: Extracting \"rslink.1\" \(6062 characters\)
+sed "s/^X//" >rslink.1 <<'END_OF_rslink.1'
+X.\" Last edited: Fri May 21 10:19:55 1993 by Tim Wilson
+X.\" There is an ident at the end of this man page.
+X.TH RSLINK 1 "Release 1.20" "Tim Wilson's commands"
+X.SH NAME
+Xrslink \- Recursive symbolic link (relative or absolute)
+X.SH SYNOPSIS
+X.B rslink
+X[
+X.B -a
+X] [
+X.B -q
+X] [
+X.B -r
+X] [
+X.B -s
+X] [
+X.B -u
+X] [
+X.B -v
+X]
+X.I fromdir todir
+X[ 
+X.I ignore ...
+X]
+X.SH DESCRIPTION
+X.B Rslink
+Xcreates a shadow directory tree:
+Xa replica of the source directory tree structure, populated with symbolic
+Xlinks to the original non-directory files.
+X.PP
+XShadow trees are useful, for example, 
+X.IP \(bu
+Xfor compiling a source tree for several architectures (each has its
+Xown shadow tree of the sources), and
+X.IP \(bu
+Xin shared development by several programmers from a set of master
+Xsources:  each developer makes local
+Xcopies only of files he wishes to modify.
+X.PP
+XRelative symbolic links are useful because they are still valid if the tree
+Xrooted at the common ancestor is moved.
+X.PP
+X.I
+XWhy use rslink?
+X.B Rslink
+Xis much faster than similar shell scripts.  How much faster
+Xdepends on the speed of your discs and file servers.
+X.PP
+X.B Rslink
+Xcreates a copy of the existing directory tree rooted at directory 
+X.IR fromdir .
+XThe root of the new directory tree is the new directory
+X.IR todir .
+X.I Todir
+Xshould not exist already
+X(unless the
+X.B \-u
+Xoption is given).
+XThe
+X.I todir
+Xtree
+Xcontains a symbolic link back to every non-directory under
+X.IR fromdir ,
+Xexcept that the
+X.BR \-r " and " \-s
+Xoptions cause
+X.B rslink
+Xto copy the contents of links rather than make links to links (see
+X.SM OPTIONS
+Xfor details).
+X.PP
+X.B Rslink 
+Xcan create several styles of link:
+X.IP \(bu
+XRelative symbolic links via the common ancestor directory of
+X.I fromdir
+Xand
+X.IR todir .
+XThis is the default.
+X.IP \(bu
+XAbsolute symbolic links\(emthe contents of the symbolic link is a
+Xabsolute pathname starting from the root directory 
+X.RB ` / '.
+XThis style of link is created under the
+X.B \-a
+Xoption when
+X.I fromdir
+Xis an absolute pathname (starts with
+X.RB ` / ').
+X.IP \(bu
+XRelative symbolic links via the current working directory.
+XThis style of link is created under the 
+X.B \-a
+Xoption when 
+X.I fromdir
+Xis a relative path.
+X.IP \(bu
+XThe
+X.BR \-r " and " \-s
+Xoptions tell
+X.B rslink
+Xnot to make symbolic links to symbolic links, 
+Xbut instead to copy the contents of relative
+X.RB ( \-r )
+Xor absolute
+X.RB ( \-s )
+Xsymbolic links (see below).
+X.PP
+XThe optional arguments
+X.I ignore ...
+Xare
+X.BR perl (1)
+Xregular expressions.
+XAny file or directory name from the source tree that matches any of the
+Xregular expressions will be ignored by 
+X.BR rslink .  
+XThe regular expressions are matched against the final,
+Xfile name component, not the whole path.
+X.SH OPTIONS
+X.TP
+X.B \-a
+XDo not make links via the first common ancestor directory.  
+X.IP
+XIf
+X.I fromdir
+Xis an absolute pathname, then the links will contain absolute
+Xpathnames. 
+X.IP
+XIf 
+X.I fromdir
+Xis a relative pathname, then the link will be a relative link via
+Xthe current working directory. 
+XThis option may be useful if 
+X.I fromdir
+Xand
+X.I todir
+Xare on different file systems, and 
+X.I fromdir
+Xcontains a symbolic link from
+X.IR todir 's
+Xfile system to
+X.IR fromdir 's
+Xfile system.
+XIf
+X.I todir
+Xcontains a symbolic link, 
+X.B rslink
+Xwill issue a warning (see
+X.SM DIAGNOSTICS 
+Xbelow).  
+XThe resulting link may not point where you expect, since 
+X.B dir/..
+Xis not (in general) the current directory if
+X.B dir
+Xis a symbolic link to a directory.
+X.TP
+X.B \-q
+XBe quiet; suppress warning messages.
+X.TP
+X.B \-r
+XCopy the contents of relative symbolic links from the source tree,
+Xrather than linking to them.  A symbolic link is relative if its
+Xcontents do not start with 
+X.RB ` / '.
+XThis option is useful if the source tree
+Xcontains relative links to other parts of the source tree, and you
+Xwant the corresponding files in the shadow tree to refer to other
+Xfiles in the shadow tree rather than back to the source tree.
+X.TP
+X.B \-s
+XCopy the contents of absolute symbolic links from the source tree,
+Xrather than linking to them.  A symbolic link is absolute if its
+Xcontents starts with
+X.RB ` / '.
+X.TP
+X.B \-u
+XUpdate the shadow tree.
+X.B Rslink
+Xonly creates directories and links files that do
+Xnot exist already in the shadow tree.
+XIt is an error if a directory in the source tree is a non-directory
+Xfile in the shadow tree.
+X.TP
+X.B \-v
+XSelect verbose mode.  In verbose mode,
+X.B rslink
+Xprints messages describing its actions and  files matching the
+X.I ignore
+Xlist.
+X.SH DIAGNOSTICS
+X.TP
+X.B "mkdir \fIdirectory:\fP file exists -- IGNORING SPURIOUS ERROR"
+X.TP
+X.B "symlink \fIfile1\fP -> \fIfile1\fP: file exists -- IGNORING SPURIOUS ERROR"
+XThese messages may occur only when creating links on 
+X.SM NFS 
+Xfile systems.
+XThey are due to problems with the 
+X.SM NFS
+Xprotocol and non-idempotent
+Xoperations (such as
+X.BR symlink (2)
+Xand 
+X.BR mkdir (2)).
+X.TP
+X.B "rslink: Warning: \fIdirectory\fP is a symbolic link"
+XThis warning occurs under the
+X.B \-a
+Xoption if any element of the path
+X.I todir
+Xis a symbolic link.
+X.PP
+XYou will get an error message from 
+X.B perl
+Xif an
+X.I ignore
+Xregexp is invalid.
+X.SH BUGS
+X.B Rslink
+Xalways creates directories with mode 0755.
+X.PP
+X.I The value of
+X.SM EEXIST
+Xis hard-coded into
+X.B rslink
+X(as 17).
+X.SH SEE ALSO
+Xln(1),
+Xown(1L),
+Xperl(1),
+Xsymlink(2)
+X.SH AUTHOR
+XTim Wilson, Rank Xerox Cambridge EuroPARC, UK
+X.RI ( wilson@europarc.xerox.com ).
+XOriginally written by the author while at the University of Cambridge
+XComputer Laboratory, UK
+X.RI ( tdw@cl.cam.ac.uk ).
+X.PP
+X.SH COPYRIGHT
+XCopyright (C) 1992, 1993 T D Wilson.  All rights reserved.
+XPermission to copy without fee all or part of this material is granted
+Xprovided that the copies are not made or distributed for direct
+Xcommercial advantage, the copyright notice and the title and date
+Xappear, and notice is given that copying is by permission of the
+Xauthor.  To copy otherwise, or to republish, requires specific
+Xpermission.  
+XT\ D\ Wilson makes no representations about the suitability
+Xof this software for any purpose.  It is provided ``as is'' without
+Xexpress or implied warranty.
+X.PP
+X$Id: rslink.1,v 0.5 1993/05/21 09:20:05 wilson Exp $
+END_OF_rslink.1
+if test 6062 -ne `wc -c <rslink.1`; then
+    echo shar: \"rslink.1\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 1 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

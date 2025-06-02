@@ -1,0 +1,3060 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i102:  wwfs - WorldWide File System, Part17/22
+Message-ID: <1994Jan17.202504.20436@sparky.sterling.com>
+X-Md4-Signature: d96e2809df0a93766cf13d738c852a9f
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Nara Institute of Science and Technology, Japan
+Date: Mon, 17 Jan 1994 20:25:04 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 102
+Archive-name: wwfs/part17
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config/arch.sh config/mount_aix.c config/os-bsd44.h
+#   config/os-defaults.h config/os-hpux.h config/os-irix4.h
+#   config/os-type.sh config/os-u2_2.h config/os-u3_0.h
+#   config/os-u4_0.h config/os-u4_2.h csd/Makefile.build csd/parse.c
+#   csd/ufs.c gtr/draft-youki-gtr-00.txt gtr/gtr.pl rpc/cs_prot_clnt.c
+#   saps/csd-nanny.pl
+# Wrapped by kent@sparky on Sun Jan 16 17:48:38 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 22)."'
+if test -f 'config/arch.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/arch.sh'\"
+else
+  echo shar: Extracting \"'config/arch.sh'\" \(4021 characters\)
+  sed "s/^X//" >'config/arch.sh' <<'END_OF_FILE'
+X#! /bin/sh
+X#
+X# Copyright (c) 1989 Jan-Simon Pendry
+X# Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X# Copyright (c) 1989 The Regents of the University of California.
+X# All rights reserved.
+X#
+X# This code is derived from software contributed to Berkeley by
+X# Jan-Simon Pendry at Imperial College, London.
+X#
+X# Redistribution and use in source and binary forms, with or without
+X# modification, are permitted provided that the following conditions
+X# are met:
+X# 1. Redistributions of source code must retain the above copyright
+X#    notice, this list of conditions and the following disclaimer.
+X# 2. Redistributions in binary form must reproduce the above copyright
+X#    notice, this list of conditions and the following disclaimer in the
+X#    documentation and/or other materials provided with the distribution.
+X# 3. All advertising materials mentioning features or use of this software
+X#    must display the following acknowledgement:
+X#      This product includes software developed by the University of
+X#      California, Berkeley and its contributors.
+X# 4. Neither the name of the University nor the names of its contributors
+X#    may be used to endorse or promote products derived from this software
+X#    without specific prior written permission.
+X#
+X# THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X# ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X# SUCH DAMAGE.
+X#
+X#	%W% (Berkeley) %G%
+X#
+X# $Id: arch,v 5.2.2.2 1992/05/31 16:45:35 jsp Exp $
+X#
+X# Figure out machine architecture
+X#
+X
+XPATH=/bin:/usr/bin:/usr/ucb:/etc:/usr/local/bin:${PATH} export PATH
+X
+X#
+X# First try to find a standard command
+X#
+Xa=arch		# Sun compat
+Xm=machine	# BSD compat
+Xu=uname		# Sys5 compat
+X
+Xif [ -f /etc/$a -o -f /bin/$a -o -f /usr/bin/$a -o -f /usr/local/bin/$a ]
+Xthen
+X	exec $a
+Xelif [ -f /etc/$m -o -f /bin/$m -o -f /usr/bin/$m -o -f /usr/ucb/$m -o -f /usr/local/bin/$m ]
+Xthen
+X	exec $m
+Xelif [ -f /etc/$u -o -f /bin/$u -o -f /usr/bin/$u -o -f /usr/local/bin/$u ]
+Xthen
+X	ARCH="`uname`"
+X	case "$ARCH" in
+X		"HP-UX") echo hp9000; exit 0;;
+X		AIX*) MACH="`uname -m`"
+X			case "$MACH" in
+X			00*) echo ibm6000; exit 0;;
+X			10*) echo ibm032; exit 0;;
+X			20*) echo ibm032; exit 0;;
+X			esac
+X			;;
+X		A/UX) echo macII ; exit 0 ;;
+X		dgux) MACH="`uname -m`"
+X			case "$MACH" in
+X			AViiON) echo aviion; exit 0;;
+X			esac
+X			;;
+X		*) MACH="`uname -m`"
+X			case "$MACH" in
+X			IP6) echo mips; exit 0;;
+X			IP7) echo mips; exit 0;;
+X			IP20) echo mips; exit 0;;
+X			*) ;;
+X			esac
+X			;;
+X	esac
+Xfi
+X
+X#
+X# Take a pot-shot at your machine architecture
+X#
+Xecho "#	... No ARCH= option specified; dynamically determining architecture" >&2
+X
+Xcase "`exec 2>/dev/null; head -2 /etc/motd`" in
+X*"HP-UX"*)		ARCH=hp9000;;
+X*"Iris"*)		ARCH=iris4d;;
+X*"Ultrix"*)		ARCH=vax;;
+X*"RISC iX"*)		ARCH=arm;;
+X*"Umax 4.2"*)		ARCH=encore;;
+X*"Alliant Concentrix"*)	ARCH=alliant;;
+X*"FPS Model 500"*)	ARCH=fps500;;
+X*"HCX/UX"*)		ARCH=harris;;
+X*"UNIOS-B"*)		ARCH=luna;;
+X*"LUNA-88K Mach 2.5"*)	ARCH=luna88k;;
+X*"LUNA-II Mach 2.5"*)	ARCH=luna2;;
+X*)			ARCH=unknown;
+X			if [ -d /usr/include/caif ]; then
+X				ARCH=ibm032
+X			elif [ -f /bin/pyr ]; then
+X				if /bin/pyr; then
+X					ARCH=pyr
+X				fi
+X			elif [ -d /NextApps ]; then
+X				ARCH=next
+X			elif [ -f /etc/comply ]; then
+X				# Tex 4300 is essentially a sun 3.
+X				ARCH=sun3
+X			fi
+X			;;
+Xesac
+X
+Xecho "#	... architecture appears to be \"${ARCH}\"" >&2
+Xecho $ARCH
+X
+Xcase "$ARCH" in
+Xunknown) exit 1
+Xesac
+X
+Xexit 0
+END_OF_FILE
+  if test 4021 -ne `wc -c <'config/arch.sh'`; then
+    echo shar: \"'config/arch.sh'\" unpacked with wrong size!
+  fi
+  chmod +x 'config/arch.sh'
+  # end of 'config/arch.sh'
+fi
+if test -f 'config/mount_aix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/mount_aix.c'\"
+else
+  echo shar: Extracting \"'config/mount_aix.c'\" \(4390 characters\)
+  sed "s/^X//" >'config/mount_aix.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: mount_aix.c,v 5.2.2.1 1992/02/09 15:10:08 jsp beta $
+X *
+X */
+X
+X
+X/*
+X * AIX 3 Mount helper
+X */
+X
+X#include "misc-aix3.h"
+X
+Xstatic int aix3_mkvp(p, gfstype, flags, object, stub, host, info, info_size, args)
+Xchar *p;
+Xint gfstype;
+Xint flags;
+Xchar *object;
+Xchar *stub;
+Xchar *host;
+Xchar *info;
+Xint info_size;
+Xchar *args;
+X{
+X	struct vmount *vp = (struct vmount *) p;
+X	bzero((voidp) vp, sizeof(*vp));
+X	/*
+X	 * Fill in standard fields
+X	 */
+X	vp->vmt_revision = VMT_REVISION;
+X	vp->vmt_flags = flags;
+X	vp->vmt_gfstype = gfstype;
+X
+X#define	VMT_ROUNDUP(len) (4 * ((len + 3) / 4))
+X#define VMT_ASSIGN(vp, idx, data, size) \
+X	vp->vmt_data[idx].vmt_off = p - (char *) vp; \
+X	vp->vmt_data[idx].vmt_size = size; \
+X	bcopy(data, p, size); \
+X	p += VMT_ROUNDUP(size);
+X
+X	/*
+X	 * Fill in all variable length data
+X	 */
+X	p += sizeof(*vp);
+X
+X	VMT_ASSIGN(vp, VMT_OBJECT, object, strlen(object) + 1);
+X	VMT_ASSIGN(vp, VMT_STUB, stub, strlen(stub) + 1);
+X	VMT_ASSIGN(vp, VMT_HOST, host, strlen(host) + 1);
+X	VMT_ASSIGN(vp, VMT_HOSTNAME, host, strlen(host) + 1);
+X	VMT_ASSIGN(vp, VMT_INFO, info, info_size);
+X	VMT_ASSIGN(vp, VMT_ARGS, args, strlen(args) + 1);
+X
+X#undef VMT_ASSIGN
+X#undef VMT_ROUNDUP
+X
+X	/*
+X	 * Return length
+X	 */
+X	return vp->vmt_length = p - (char *) vp;
+X}
+X
+X/*
+X * Map from conventional mount arguments
+X * to AIX 3-style arguments.
+X */
+Xaix3_mount(fsname, dir, flags, type, data, args)
+Xchar *fsname;
+Xchar *dir;
+Xint flags;
+Xint type;
+Xvoid *data;
+Xchar *args;
+X{
+X	char buf[4096];
+X	int size;
+X
+X#ifdef DEBUG
+X	dlog("aix3_mount: fsname %s, dir %s, type %d", fsname, dir, type);
+X#endif /* DEBUG */
+X
+X/* aix3_mkvp(p, gfstype, flags, object, stub, host, info, info_size, args) */
+X
+X	switch (type) {
+X
+X	case MOUNT_TYPE_NFS: {
+X		char *host = strdup(fsname);
+X		char *rfs = strchr(host, ':');
+X		int free_rfs = 0;
+X		if (rfs) {
+X			*rfs++ = '\0';
+X		} else {
+X			rfs = host;
+X			free_rfs = 1;
+X			host = strdup(hostname);
+X		}
+X
+X		size = aix3_mkvp(buf, type, flags, rfs, dir, host, data, sizeof(struct nfs_args), args);
+X		if (free_rfs)
+X			free((voidp) rfs);
+X		free(host);
+X
+X		} break;
+X
+X	case MOUNT_TYPE_UFS:
+X		/* Need to open block device and extract log device info from sblk. */
+X		return EINVAL;
+X
+X	default:
+X		return EINVAL;
+X	}
+X#ifdef DEBUG
+X	/*dlog("aix3_mkvp: flags %#x, size %d, args %s", flags, size, args);*/
+X#endif /* DEBUG */
+X
+X	return vmount(buf, size);
+X}
+END_OF_FILE
+  if test 4390 -ne `wc -c <'config/mount_aix.c'`; then
+    echo shar: \"'config/mount_aix.c'\" unpacked with wrong size!
+  fi
+  # end of 'config/mount_aix.c'
+fi
+if test -f 'config/os-bsd44.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-bsd44.h'\"
+else
+  echo shar: Extracting \"'config/os-bsd44.h'\" \(5150 characters\)
+  sed "s/^X//" >'config/os-bsd44.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-bsd44.h,v 5.2.2.1 1992/02/09 15:10:11 jsp beta $
+X *
+X * 4.4 BSD definitions for Amd (automounter)
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#define	VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_4
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_44
+X#define HAS_TCP_NFS
+X
+X/*
+X * Does this OS have NDBM support?
+X */
+X#define OS_HAS_NDBM
+X
+X/*
+X * 4.4 doesn't provide NIS.
+X */
+X#undef HAS_NIS_MAPS
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on 4.4 BSD
+X */
+X#undef	MNTENT_HDR
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	MOUNT_NFS
+X#define	MOUNT_TYPE_UFS	MOUNT_UFS
+X#undef MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X#define	MTAB_TYPE_MFS	"mfs"
+X
+X/*
+X * How to unmount filesystems
+X */
+X#undef UNMOUNT_TRAP
+X#undef	NEED_UMOUNT_FS
+X#define	NEED_UMOUNT_BSD
+X
+X/*
+X * How to copy an address into an NFS filehandle
+X */
+X#undef NFS_SA_DREF
+X#define	NFS_SA_DREF(dst, src) { \
+X		(dst).addr = (struct sockaddr *) (src); \
+X		(dst).addrlen = sizeof(*src); \
+X		(dst).sotype = SOCK_DGRAM; \
+X		(dst).proto = 0; \
+X	}
+X
+X/*
+X * Byte ordering
+X */
+X#ifndef BYTE_ORDER
+X#include <machine/endian.h>
+X#endif /* BYTE_ORDER */
+X
+X#undef ARCH_ENDIAN
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X#define ARCH_ENDIAN "little"
+X#else
+X#if BYTE_ORDER == BIG_ENDIAN
+X#define ARCH_ENDIAN "big"
+X#else
+XXXX - Probably no hope of running Amd on this machine!
+X#endif /* BIG */
+X#endif /* LITTLE */
+X
+X/*
+X * Miscellaneous 4.4 BSD bits
+X */
+X#define	NEED_MNTOPT_PARSER
+X#define	SHORT_MOUNT_NAME
+X
+X#define	MNTMAXSTR       128
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_MFS	"mfs"		/* memory file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	M_RDONLY	MNT_RDONLY
+X#define	M_SYNC		MNT_SYNCHRONOUS
+X#define	M_NOEXEC	MNT_NOEXEC
+X#define	M_NOSUID	MNT_NOSUID
+X#define	M_NODEV		MNT_NODEV
+X
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+X#define NFSMNT_HOSTNAME	0		/* hostname on 4.4 is not optional */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X
+X/*
+X * Type of a file handle
+X */
+X#undef NFS_FH_TYPE
+X#define	NFS_FH_TYPE	nfsv2fh_t *
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_BSD_STYLE
+X
+X/*
+X * The data for the mount syscall needs the path in addition to the
+X * host name since that is the only source of information about the
+X * mounted filesystem.
+X */
+X#define	NFS_ARGS_NEEDS_PATH
+X
+X/*
+X * struct statfs is in <sys/mount.h>
+X */
+X#undef STATFS_HDR
+X
+X/*
+X * 4.4 has RE support built in
+X */
+X#undef RE_HDR
+X#define RE_HDR <regexp.h>
+END_OF_FILE
+  if test 5150 -ne `wc -c <'config/os-bsd44.h'`; then
+    echo shar: \"'config/os-bsd44.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-bsd44.h'
+fi
+if test -f 'config/os-defaults.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-defaults.h'\"
+else
+  echo shar: Extracting \"'config/os-defaults.h'\" \(4166 characters\)
+  sed "s/^X//" >'config/os-defaults.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-defaults.h,v 5.2.2.1 1992/02/09 15:10:17 jsp beta $
+X *
+X * Common OS definitions.  These may be overridden in
+X * the OS specific files ("os-foo.h").
+X */
+X
+X/*
+X * What level of AMD are we backward compatible with?
+X * This only applies to externally visible characteristics.
+X * Rev.Minor.Branch.Patch (2 digits each)
+X */
+X#define	AMD_COMPAT	5000000		/* 5.0 */
+X
+X/*
+X * What type is free(void*) returning?
+X */
+X#define FREE_RETURN_TYPE	void
+X
+X/*
+X * Is the mount table mirrored in software
+X */
+X#define	UPDATE_MTAB
+X
+X/*
+X * Where to get union wait
+X */
+X#define	WAIT	<sys/wait.h>
+X
+X/*
+X * Where to get mount entry info
+X */
+X#define	MNTENT_HDR	<mntent.h>
+X
+X/*
+X * struct statfs
+X */
+X#define STATFS_HDR <sys/vfs.h>
+X
+X/*
+X * Include support for syslog()
+X */
+X#define	HAS_SYSLOG
+X
+X/*
+X * Byte ordering
+X */
+X#define	ARCH_ENDIAN	"unknown"
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MTAB_TYPE_NFS	"nfs"
+X#define	MTAB_TYPE_UFS	"4.2"
+X
+X/*
+X * Name of mount & unmount system calls
+X *
+X * NOTE:
+X *  UNMOUNT_TRAP takes a struct mntent *
+X */
+X#define	MOUNT_TRAP(type, mnt, flags, mnt_data) \
+X	mount(type, mnt->mnt_dir, flags, mnt_data)
+X#define	UNMOUNT_TRAP(mnt)	unmount(mnt->mnt_dir)
+X
+X/*
+X * How to unmount filesystems.
+X * NEED_UMOUNT_FS includes code to scan the mount table
+X * to find the correct information for the unmount system
+X * call.  Some systems, such as 4.4bsd, do not require
+X * this - they can just do an unmount system call directly.
+X */
+X#define	NEED_UMOUNT_FS
+X#define	UMOUNT_FS(dir)	umount_fs(dir)
+X
+X/*
+X * Type of a file handle
+X */
+X#define	NFS_FH_TYPE	fhandle_t *
+X#define	NFS_FH_DREF(dst, src) { (dst) = (src); }
+X
+X/*
+X * How to copy an address into an NFS filehandle
+X */
+X#define	NFS_SA_DREF(dst, src) { (dst).addr = (src); }
+X
+X/*
+X * Type of filesystem type
+X */
+X#define	MTYPE_TYPE	int
+X
+X/*
+X * How to get a mount list
+X */
+X#define	READ_MTAB_FROM_FILE
+X
+X/*
+X * Make Amd automount points appear
+X * to be zero sized.  undef this
+X * if the O/S has a divide by zero
+X * problem in df et al.
+X */
+X#define	HAS_EMPTY_AUTOMOUNTS
+X
+X/*
+X * For the RE matcher
+X */
+X#define	CHARBITS 0377
+X#define STRCSPN
+X#define RE_HDR "re.h"
+END_OF_FILE
+  if test 4166 -ne `wc -c <'config/os-defaults.h'`; then
+    echo shar: \"'config/os-defaults.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-defaults.h'
+fi
+if test -f 'config/os-hpux.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-hpux.h'\"
+else
+  echo shar: Extracting \"'config/os-hpux.h'\" \(4105 characters\)
+  sed "s/^X//" >'config/os-hpux.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-hpux.h,v 5.2.2.1 1992/02/09 15:10:23 jsp beta $
+X *
+X * HP/9000 HP-UX definitions for Amd (automounter)
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#ifdef __GNUC__
+X#define	VOIDP
+X#endif
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_3
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef ARCH_ENDIAN
+X#if defined(hp9000s200) || defined(hp9000s300) || defined(hp9000s800)
+X#define	ARCH_ENDIAN	"big"
+X#endif
+X
+X#ifndef __hpux
+X#define	HPUX_VERSION_6
+X#endif
+X
+X/*
+X * No support for syslog() prior to 7.0
+X */
+X#ifdef HPUX_VERSION_6
+X#undef HAS_SYSLOG
+X#endif
+X
+X/*
+X * No support for ndbm
+X */
+X#undef OS_HAS_NDBM
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_UFS	MOUNT_UFS
+X#define MOUNT_TYPE_NFS MOUNT_NFS
+X#undef MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"hfs"
+X
+X/*
+X * Where to get NFS definitions
+X */
+X#define	NFS_HDR "misc-hpux.h"
+X
+X/*
+X * Where to get union wait
+X */
+X#undef WAIT
+X#define	WAIT	"uwait.h"
+X#ifdef HPUX_VERSION_6
+X#define SIGCHLD	SIGCLD
+X#endif
+X#define	SYS5_SIGNALS
+X
+X/*
+X * Miscellaneous HP-UX definitions
+X */
+X
+X#define NEED_XDR_POINTER
+X#define	NEED_CLNT_SPERRNO
+X
+X/*
+X * Use <fcntl.h> rather than <sys/file.h>
+X */
+X#define USE_FCNTL
+X
+X/*
+X * Use fcntl() rather than flock()
+X */
+X#define LOCK_FCNTL
+X
+X/*
+X * Additional fields in struct mntent
+X * are fixed up here
+X */
+X#define FIXUP_MNTENT(mntp) { \
+X	(mntp)->mnt_time = time(NULL); \
+X}
+X#define FIXUP_MNTENT_DUP(mntp, mp) { \
+X	(mntp)->mnt_time = (mp)->mnt_time; \
+X}
+X
+X#define	bzero(ptr, len)	memset(ptr, 0, len)
+X#define bcopy(from, to, len) memcpy(to, from, len)
+X#define getpagesize() (2048)
+X#undef MOUNT_TRAP
+X#define MOUNT_TRAP(type, mnt, flags, mnt_data) \
+X	vfsmount(type, mnt->mnt_dir, flags, mnt_data)
+X#undef UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	umount(mnt->mnt_dir)
+X#define NFDS	30	/* conservative */
+X#define	MOUNTED MNT_MNTTAB
+END_OF_FILE
+  if test 4105 -ne `wc -c <'config/os-hpux.h'`; then
+    echo shar: \"'config/os-hpux.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-hpux.h'
+fi
+if test -f 'config/os-irix4.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-irix4.h'\"
+else
+  echo shar: Extracting \"'config/os-irix4.h'\" \(4523 characters\)
+  sed "s/^X//" >'config/os-irix4.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-irix4.h,v 5.2 1992/05/31 16:40:22 jsp Exp $
+X *
+X * IRIX 4.0.X definitions for Amd (automounter)
+X * Contributed by Scott R. Presnell <srp@cgl.ucsf.edu>
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#define VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define RPC_3
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef ARCH_ENDIAN
+X#define ARCH_ENDIAN	"big"
+X
+X/*
+X * Has support for syslog()
+X */
+X#define HAS_SYSLOG
+X
+X#define M_RDONLY	MS_RDONLY
+X#define M_GRPID		MS_GRPID
+X#define M_NOSUID	MS_NOSUID
+X#define M_NONDEV	MS_NODEV
+X
+X/*
+X * Support for ndbm
+X */
+X#define OS_HAS_NDBM
+X
+X#define UPDATE_MTAB
+X
+X#undef	MTAB_TYPE_NFS
+X#define MTAB_TYPE_NFS	"nfs"
+X
+X#undef	MTAB_TYPE_UFS
+X#define MTAB_TYPE_UFS	"efs"
+X
+X#define NMOUNT	40	/* The std sun value */
+X/*
+X * Name of filesystem types
+X */
+X#define MOUNT_TYPE_UFS	sysfs(GETFSIND, FSID_EFS)
+X#define MOUNT_TYPE_NFS	sysfs(GETFSIND, FSID_NFS)
+X
+X#define SYS5_SIGNALS
+X
+X/*
+X * Use <fcntl.h> rather than <sys/file.h>
+X */
+X/*#define USE_FCNTL*/
+X
+X/*
+X * struct statfs
+X */
+X#undef STATFS_HDR
+X#define STATFS_HDR <sys/statfs.h>
+X
+X/*
+X * Use fcntl() rather than flock()
+X */
+X/*#define LOCK_FCNTL*/
+X
+X#ifdef __GNUC__
+X#define alloca(sz) __builtin_alloca(sz)
+X#endif
+X
+X#define bzero(ptr, len) memset(ptr, 0, len)
+X#define bcopy(from, to, len) memcpy(to, from, len)
+X
+X#undef MOUNT_TRAP
+X#define MOUNT_TRAP(type, mnt, flags, mnt_data) \
+X	irix_mount(mnt->mnt_fsname, mnt->mnt_dir,flags, type, mnt_data)
+X#undef UNMOUNT_TRAP
+X#define UNMOUNT_TRAP(mnt)	umount(mnt->mnt_dir)
+X#define NFDS	30	/* conservative */
+X
+X#define NFS_HDR "misc-irix.h"
+X#define UFS_HDR "misc-irix.h"
+X
+X/* not included in sys/param.h */
+X#include <sys/types.h>
+X
+X#define MOUNT_HELPER_SOURCE "mount_irix.c"
+X
+X/*
+X * Under 4.0.X this information is in /usr/include/mntent.h
+X * Below is what is used to be for Irix 3.3.X.
+X */
+X/*#define	MNTINFO_DEV	"fsid"*/
+X/*#define	MNTINFO_PREF	"0x"*/
+X
+X#define	MNTINFO_PREF	""
+X
+X/*
+X * Under Irix, mount type "auto" is probed by statfs() in df.  A statfs() of
+X * a direct mount causes that mount to fire.  So change the  mount type in
+X * /etc/mtab to "ignore" to stop that (this is what SGI does for their 
+X * automounter.  Use the old FASCIST define for this.
+X */
+X#define FASCIST_DF_COMMAND MNTTYPE_IGNORE
+END_OF_FILE
+  if test 4523 -ne `wc -c <'config/os-irix4.h'`; then
+    echo shar: \"'config/os-irix4.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-irix4.h'
+fi
+if test -f 'config/os-type.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-type.sh'\"
+else
+  echo shar: Extracting \"'config/os-type.sh'\" \(4660 characters\)
+  sed "s/^X//" >'config/os-type.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X# Copyright (c) 1989 Jan-Simon Pendry
+X# Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X# Copyright (c) 1989 The Regents of the University of California.
+X# All rights reserved.
+X#
+X# This code is derived from software contributed to Berkeley by
+X# Jan-Simon Pendry at Imperial College, London.
+X#
+X# Redistribution and use in source and binary forms, with or without
+X# modification, are permitted provided that the following conditions
+X# are met:
+X# 1. Redistributions of source code must retain the above copyright
+X#    notice, this list of conditions and the following disclaimer.
+X# 2. Redistributions in binary form must reproduce the above copyright
+X#    notice, this list of conditions and the following disclaimer in the
+X#    documentation and/or other materials provided with the distribution.
+X# 3. All advertising materials mentioning features or use of this software
+X#    must display the following acknowledgement:
+X#      This product includes software developed by the University of
+X#      California, Berkeley and its contributors.
+X# 4. Neither the name of the University nor the names of its contributors
+X#    may be used to endorse or promote products derived from this software
+X#    without specific prior written permission.
+X#
+X# THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X# ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X# SUCH DAMAGE.
+X#
+X#	%W% (Berkeley) %G%
+X#
+X# $Id: os-type,v 5.2.2.2 1992/05/31 16:45:46 jsp Exp $
+X#
+X
+X#
+X# Take a pot-shot at your os type
+X#
+Xecho "#	... No OS= option specified; dynamically determining OS type" >&2
+X
+X#
+X# First try poking around in /etc/motd
+X#
+X
+Xcase "`exec 2>/dev/null; head -2 /etc/motd`" in
+X*"Sun UNIX 4.2 Release 3."*)	OS=sos3;;
+X*"SunOS Release 4."*)		OS=sos4;;
+X*"HP-UX on the HP"*)		OS=hpux;;
+X*"Ultrix V2."*)			OS=u2_2;;
+X*"Ultrix V3."*)			OS=u3_0;;
+X*"Ultrix-32 V3."*)		OS=u3_0;;
+X*"Ultrix Worksystem V2."*)	OS=u3_0;;
+X*"ULTRIX V4.3"*)		OS=u4_2;;
+X*"ULTRIX V4.2"*)		OS=u4_2;;
+X*"ULTRIX V4."*)			OS=u4_0;;
+X*"DEC OSF/1"*)			OS=osf1;;
+X*"HLH OTS Version 1."*)		OS=hlh42;;
+X*"RISC iX release 1."*)		OS=riscix;;
+X*"FPX 4."*)			OS=fpx4;;
+X*"HCX/UX"*)			OS=hcx;;
+X*"4.4 BSD UNIX"*)		OS=bsd44;;
+X*"4.3 BSD Reno UNIX"*)		OS=bsd44;;
+X*"4.3 BSD UNIX"*)		if [ -f /etc/minidisk ]; then
+X					OS=acis43
+X				elif [ -f /sbin/nfsiod ]; then
+X					OS=bsd44	# prototype
+X				else
+X					OS=xinu43
+X				fi;;
+X*"Alliant Concentrix"*)		OS=concentrix;;
+X*"Umax 4.3"*)			OS=umax43;;
+X*"BSDI BSD/386"*)		OS=bsd386;;
+X*"NEWS-OS Release 4"*)		OS=newsos4;;
+X*"SEIUX"*)			OS=riscos4;;
+X*"UNIOS-B"*)			OS=uniosb;;
+X*"LUNA-88K Mach 2.5"*)		OS=luna88k;;
+X*"LUNA-II Mach 2.5"*)		OS=luna2M;;
+X*)
+X#
+X# Well, that didn't work so apply some heuristics
+X# to the filesystem name space...
+X#
+X				echo "#	... inspecting File system ..." >&2
+X				if [ -f /bsd43 ]; then
+X					OS=riscos4
+X				elif [ -f /etc/comply ]; then
+X					OS=utek
+X				elif [ -d /usr/lib/methods -o -d /etc/methods ]; then
+X					OS=aix3
+X				elif [ -f /osf_boot ]; then
+X					OS=osf1
+X				elif [ -f /usr/bin/cat ]; then
+X					OS=sos4
+X				elif [ -f /etc/nd ]; then
+X					OS=sos3
+X				elif [ -f /etc/elcsd ]; then
+X					echo "#	... Ultrix - assuming U4.3 ..." >&2
+X					OS=u4_2
+X				elif [ -f /hp-ux ]; then
+X					OS=hpux
+X				elif [ -f /etc/ttylocal ]; then
+X					OS=xinu43
+X				elif [ -f /etc/minidisk ]; then
+X					OS=acis43
+X				elif [ -f /etc/toolboxdaemon ]; then
+X					OS=aux
+X				elif [ -f /usr/bin/rundos ]; then
+X					OS=bsd386
+X				elif [ -f /sbin/nfsiod ]; then
+X					OS=bsd44
+X				elif [ -d /vrm ]; then
+X					OS=aix2
+X				elif [ -f /bin/pyr ] && /bin/pyr; then
+X					OS=pyrOSx
+X				elif [ -d /NextApps ]; then
+X					OS=next
+X				elif [ -f /etc/gl/ucode ]; then
+X					OS=irix3
+X				elif [ -d /usr/gfx/ucode ]; then
+X					OS=irix4
+X				elif [ -f /stellix ]; then
+X					OS=stellix
+X				elif [ -f /usr/sony ]; then
+X					OS=newsos4
+X				else
+X					case "`(sh ../config/arch.sh)2>/dev/null`" in
+X					ibm032)    OS=acis43;;
+X					aviion)    OS=dgux;;
+X					*)	   OS=unknown;;
+X					esac
+X				fi;;
+Xesac
+X
+Xecho "#	... OS appears to be \"${OS}\"" >&2
+Xecho "${OS}"
+Xexit 0
+END_OF_FILE
+  if test 4660 -ne `wc -c <'config/os-type.sh'`; then
+    echo shar: \"'config/os-type.sh'\" unpacked with wrong size!
+  fi
+  chmod +x 'config/os-type.sh'
+  # end of 'config/os-type.sh'
+fi
+if test -f 'config/os-u2_2.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-u2_2.h'\"
+else
+  echo shar: Extracting \"'config/os-u2_2.h'\" \(4666 characters\)
+  sed "s/^X//" >'config/os-u2_2.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-u2_2.h,v 5.2.2.1 1992/02/09 15:10:48 jsp beta $
+X *
+X * Ultrix 2.2 definitions for Amd (automounter)
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#undef	VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_3
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef	ARCH_ENDIAN
+X#if defined(vax)
+X#define	ARCH_ENDIAN "little"
+X#endif
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on Ultrix
+X  */
+X#undef	MNTENT_HDR
+X
+X/*
+X * No support for syslog()
+X */
+X#undef	HAS_SYSLOG
+X
+X/*
+X * No support for ndbm
+X */
+X#undef	HAS_NDBM_MAPS
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	GT_NFS
+X#define	MOUNT_TYPE_UFS	GT_ULTRIX
+X#undef	MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X
+X/*
+X * Name of mount & unmount system calls
+X */
+X#undef	MOUNT_TRAP
+X#define	MOUNT_TRAP(type, mnt, flag, mnt_data) \
+X	mount(mnt->mnt_fsname, mnt->mnt_dir, flag, type, mnt_data)
+X#undef	UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	umount(mnt->mnt_passno)
+X
+X/*
+X * Miscellaneous Ultrix bits
+X */
+X#define	M_RDONLY	M_RONLY
+X
+X#ifndef MNTMAXSTR
+X#define	MNTMAXSTR       128
+X#endif
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	MNTOPT_RO	"ro"		/* read only */
+X#define	MNTOPT_RW	"rw"		/* read/write */
+X#define	MNTOPT_QUOTA	"quota"		/* quotas */
+X#define	MNTOPT_NOQUOTA	"noquota"	/* no quotas */
+X#define	MNTOPT_HARD	"hard"		/* hard mount */
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+X#define	MNTOPT_NOSUID	"nosuid"	/* no set uid allowed */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X#define	MOUNTED		"/etc/mtab"
+X
+X#define	NFS_HDR	"misc-ultrix.h"
+X#define	UFS_HDR	"misc-ultrix.h"
+X
+X#define NEED_XDR_POINTER
+X#define	NEED_CLNT_SPERRNO
+X
+X#define	nfs_args	nfs_gfs_mount
+X#define	ULTRIX_HACK	/* Should be handled better than this !! */
+X#define	NEED_MNTOPT_PARSER
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_ULTRIX_STYLE
+X
+X/*
+X * Need precise length links
+X */
+X#define	PRECISE_SYMLINKS
+END_OF_FILE
+  if test 4666 -ne `wc -c <'config/os-u2_2.h'`; then
+    echo shar: \"'config/os-u2_2.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-u2_2.h'
+fi
+if test -f 'config/os-u3_0.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-u3_0.h'\"
+else
+  echo shar: Extracting \"'config/os-u3_0.h'\" \(4600 characters\)
+  sed "s/^X//" >'config/os-u3_0.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-u3_0.h,v 5.2.2.1 1992/02/09 15:10:52 jsp beta $
+X *
+X * Ultrix 3.0 definitions for Amd (automounter)
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#undef	VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_3
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef ARCH_ENDIAN
+X#if defined(vax) || defined(mips)
+X#define	ARCH_ENDIAN "little"
+X#endif
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on Ultrix
+X  */
+X#undef	MNTENT_HDR
+X
+X/*
+X * No support for syslog()
+X */
+X#undef	HAS_SYSLOG
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	GT_NFS
+X#define	MOUNT_TYPE_UFS	GT_ULTRIX
+X#undef	MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X
+X/*
+X * Name of mount & unmount system calls
+X */
+X#undef	MOUNT_TRAP
+X#define	MOUNT_TRAP(type, mnt, flag, mnt_data) \
+X	mount(mnt->mnt_fsname, mnt->mnt_dir, flag, type, mnt_data)
+X#undef	UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	umount(mnt->mnt_passno)
+X
+X/*
+X * Miscellaneous Ultrix bits
+X */
+X#define	M_RDONLY	M_RONLY
+X
+X#define	MNTMAXSTR	128
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	MNTOPT_RO	"ro"		/* read only */
+X#define	MNTOPT_RW	"rw"		/* read/write */
+X#define	MNTOPT_QUOTA	"quota"		/* quotas */
+X#define	MNTOPT_NOQUOTA	"noquota"	/* no quotas */
+X#define	MNTOPT_HARD	"hard"		/* hard mount */
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+X#define	MNTOPT_NOSUID	"nosuid"	/* no set uid allowed */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X#define	MOUNTED		"/etc/mtab"
+X
+X#define	NFS_HDR	"misc-ultrix.h"
+X#define	UFS_HDR	"misc-ultrix.h"
+X
+X#define NEED_XDR_POINTER
+X#define	NEED_CLNT_SPERRNO
+X
+X#define	nfs_args	nfs_gfs_mount
+X#define	ULTRIX_HACK	/* Should be handled better than this !! */
+X#define	NEED_MNTOPT_PARSER
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_ULTRIX_STYLE
+X
+X/*
+X * Need precise length links
+X */
+X#define	PRECISE_SYMLINKS
+END_OF_FILE
+  if test 4600 -ne `wc -c <'config/os-u3_0.h'`; then
+    echo shar: \"'config/os-u3_0.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-u3_0.h'
+fi
+if test -f 'config/os-u4_0.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-u4_0.h'\"
+else
+  echo shar: Extracting \"'config/os-u4_0.h'\" \(4660 characters\)
+  sed "s/^X//" >'config/os-u4_0.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-u4_0.h,v 5.2.2.1 1992/02/09 15:10:53 jsp beta $
+X *
+X * Ultrix 4.0 definitions for Amd (automounter)
+X *		from Chris Lindblad <cjl@ai.mit.edu>
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#ifdef __STDC__
+X#define VOIDP
+X#else
+X#undef VOIDP
+X#endif
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_3
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef ARCH_ENDIAN
+X#if defined(vax) || defined(mips)
+X#define	ARCH_ENDIAN "little"
+X#endif
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on Ultrix
+X  */
+X#undef	MNTENT_HDR
+X
+X/*
+X * No support for syslog()
+X */
+X#define	HAS_SYSLOG
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	GT_NFS
+X#define	MOUNT_TYPE_UFS	GT_ULTRIX
+X#undef	MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X
+X/*
+X * Name of mount & unmount system calls
+X */
+X#undef	MOUNT_TRAP
+X#define	MOUNT_TRAP(type, mnt, flag, mnt_data) \
+X	mount(mnt->mnt_fsname, mnt->mnt_dir, flag, type, mnt_data)
+X#undef	UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	umount(mnt->mnt_passno)
+X
+X/*
+X * Miscellaneous Ultrix bits
+X */
+X#define	M_RDONLY	M_RONLY
+X
+X#define	MNTMAXSTR	128
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	MNTOPT_RO	"ro"		/* read only */
+X#define	MNTOPT_RW	"rw"		/* read/write */
+X#define	MNTOPT_QUOTA	"quota"		/* quotas */
+X#define	MNTOPT_NOQUOTA	"noquota"	/* no quotas */
+X#define	MNTOPT_HARD	"hard"		/* hard mount */
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+X#define	MNTOPT_NOSUID	"nosuid"	/* no set uid allowed */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X#define	MOUNTED		"/etc/mtab"
+X
+X#define	NFS_HDR	"misc-ultrix.h"
+X#define	UFS_HDR	"misc-ultrix.h"
+X
+X#define	NEED_CLNT_SPERRNO
+X
+X#define	nfs_args	nfs_gfs_mount
+X#define	ULTRIX_HACK	/* Should be handled better than this !! */
+X#define	NEED_MNTOPT_PARSER
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_ULTRIX_STYLE
+X
+X/*
+X * Need precise length links
+X */
+X#define	PRECISE_SYMLINKS
+END_OF_FILE
+  if test 4660 -ne `wc -c <'config/os-u4_0.h'`; then
+    echo shar: \"'config/os-u4_0.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-u4_0.h'
+fi
+if test -f 'config/os-u4_2.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-u4_2.h'\"
+else
+  echo shar: Extracting \"'config/os-u4_2.h'\" \(4734 characters\)
+  sed "s/^X//" >'config/os-u4_2.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-u4_2.h,v 5.2.2.1 1992/02/09 15:10:54 jsp beta $
+X *
+X * Ultrix 4.2 definitions for Amd (automounter)
+X *		from Chris Lindblad <cjl@ai.mit.edu>
+X *		and Chris Metcalf <metcalf@lcs.mit.edu>
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#define VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_4
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_3
+X
+X/*
+X * Byte ordering
+X */
+X#undef ARCH_ENDIAN
+X#if defined(vax) || defined(mips)
+X#define	ARCH_ENDIAN "little"
+X#endif
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on Ultrix
+X */
+X#undef	MNTENT_HDR
+X
+X/*
+X * struct statfs is no longer used in Ultrix. Use struct fs_data instead.
+X */
+X#undef STATFS_HDR
+X
+X/*
+X * No support for syslog()
+X */
+X#define	HAS_SYSLOG
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	GT_NFS
+X#define	MOUNT_TYPE_UFS	GT_ULTRIX
+X#undef	MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X
+X/*
+X * Name of mount & unmount system calls
+X */
+X#undef	MOUNT_TRAP
+X#define	MOUNT_TRAP(type, mnt, flag, mnt_data) \
+X	mount(mnt->mnt_fsname, mnt->mnt_dir, flag, type, mnt_data)
+X#undef	UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	umount(mnt->mnt_passno)
+X
+X/*
+X * Miscellaneous Ultrix bits
+X */
+X#define	M_RDONLY	M_RONLY
+X
+X#define	MNTMAXSTR	128
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	MNTOPT_RO	"ro"		/* read only */
+X#define	MNTOPT_RW	"rw"		/* read/write */
+X#define	MNTOPT_QUOTA	"quota"		/* quotas */
+X#define	MNTOPT_NOQUOTA	"noquota"	/* no quotas */
+X#define	MNTOPT_HARD	"hard"		/* hard mount */
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+X#define	MNTOPT_NOSUID	"nosuid"	/* no set uid allowed */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X#define	MOUNTED		"/etc/mtab"
+X
+X#define	NFS_HDR	"misc-ultrix.h"
+X#define	UFS_HDR	"misc-ultrix.h"
+X
+X#define	nfs_args	nfs_gfs_mount
+X#define	ULTRIX_HACK	/* Should be handled better than this !! */
+X#define	NEED_MNTOPT_PARSER
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_ULTRIX_STYLE
+X
+X/*
+X * Need precise length links
+X */
+X#define	PRECISE_SYMLINKS
+END_OF_FILE
+  if test 4734 -ne `wc -c <'config/os-u4_2.h'`; then
+    echo shar: \"'config/os-u4_2.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-u4_2.h'
+fi
+if test -f 'csd/Makefile.build' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/Makefile.build'\"
+else
+  echo shar: Extracting \"'csd/Makefile.build'\" \(4348 characters\)
+  sed "s/^X//" >'csd/Makefile.build' <<'END_OF_FILE'
+X#
+X# Makefile.build for csd (Cluster Server); part of Worldwide File System.
+X#
+X# Author:	Youki Kadobayashi, Osaka University, Japan
+X#		E-mail: <youki@wide.ad.jp>
+X#
+X# 
+X# WorldWide File System
+X# Copyright (c) 1992,1993 Youki Kadobayashi
+X# Copyright (c) 1992,1993 Osaka University
+X# All rights reserved.
+X#
+X# Permission to use, copy, modify and distribute this software and its
+X# documentation is hereby granted, provided that the following conditions
+X# are met:
+X# 1. Both the copyright notice and this permission notice appear in
+X#    all copies of the software, derivative works or modified versions,
+X#    and any portions thereof, and that both notices appear in
+X#    supporting documentation.
+X# 2. All advertising materials mentioning features or use of this software
+X#    must display the following acknowledgement:
+X#      This product includes software developed by the Osaka University
+X#      and its contributors.
+X# 3. Neither the name of the University nor the names of its contributors
+X#    may be used to endorse or promote products derived from this software
+X#    without specific prior written permission.
+X#
+X# THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X# UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X#
+X# Osaka University requests users of this software to return to
+X#
+X#  Youki Kadobayashi
+X#  Department of Information and Computer Sciences
+X#  Osaka University, Toyonaka 560, Osaka, Japan
+X#
+X# any improvements or extensions that they make and grant Osaka
+X# University the rights to redistribute these changes.
+X
+X# $Header: Makefile.build[109.0] Wed Nov 24 03:47:21 1993 youki-k@is.aist-nara.ac.jp saved $
+X#
+X
+X# -------- YOU SHOULD NOT NEED TO CHANGE ANYTHING BELOW THIS LINE --------
+X
+XCSSRC_H=	auto.h global.h cs_prot.h nfs_prot.h util.h wfs.h
+X
+XCSSRC_C=	acc.c bfs.c callout.c cmfs.c conn.c crc32.c cs.c cs_subr.c \
+X		dir.c dumpvar.c err.c file.c ftp.c ftp_list.c ftp_retr.c \
+X		icmp.c log.c main.c nfs_reply.c nfs_start.c \
+X		nfs_subr.c parse.c pol.c proto.c root.c sched.c srv.c \
+X		thrd.c trace.c ufs.c uip.c util.c vol.c
+X
+XCSSVC=		cs_prot_svc.c nfs_prot_svc.c
+X
+XCSXDR=		cs_prot_xdr.c nfs_prot_xdr.c
+X
+XCSOBJS=		$(CSSRC_C:.c=.o) $(CSSVC:.c=.o) $(CSXDR:.c=.o)
+X
+XXDRS=		cs_prot.x nfs_prot.x
+X
+XSRCS=		$(CSSRC_H) $(CSSRC_C) $(CSSVC) $(CSXDR)
+X
+XAUX=		$(XDRS) Makefile Makefile.build
+X
+Xcsd:	$(CSOBJS)
+X	$(CC) -o csd $(CSOBJS) $(RPCLIB) $(RESOLV) $(SYSLIB)
+X
+Xinstall-server:	csd ../config/csd.conf
+X	@if [ -d $(WWFSDIR)/usr ]; then \
+X		echo "WWFSDIR should be correctly set"; \
+X		exit 1; \
+X	else \
+X		exit 0; \
+X	fi
+X	$(INSTBIN) csd $(WWFSDIR)/bin
+X
+Xclean::
+X	-rm -f csd
+X
+X## TARGET FOR DEVELOPERS
+X
+X# 'apply' kind of macro; e.g., "make doit CMD=wc"
+Xdoit:
+X	$(CMD) $(SRCS)
+X
+Xauto.h:		$(CSSRC_C)
+X	cextract +PE -D__STDC__ $(CXOPTS) -o auto.h $(CSSRC_C)
+X
+Xoverview:       $(CSJUNK) $(CSSRC_C)
+X	rm -f overview
+X	for i in $(CSJUNK) $(CSSRC_C); do \
+X		echo "// $$i" >> overview ;\
+X		cextract -PE +ps $$i >> overview ;\
+X	done
+X
+Xabbrevs:	overview
+X	../misc/mkabbrev.pl < overview > abbrevs
+X
+X# makedepend?
+X# .c files
+Xacc.o:		acc.c wfs.h util.h global.h
+Xbfs.o:		bfs.c wfs.h util.h global.h
+Xcallout.o:	callout.c wfs.h util.h global.h
+Xcmfs.o:		cmfs.c wfs.h util.h global.h
+Xconn.o:		conn.c wfs.h util.h global.h
+Xcrc32.o:	crc32.c
+Xcs.o:		cs.c cs_prot.h wfs.h util.h global.h
+Xcs_subr.o:	cs_subr.c cs_prot.h wfs.h util.h global.h
+Xdir.o:		dir.c wfs.h util.h global.h
+Xdumpvar.o:	dumpvar.c wfs.h util.h global.h
+Xerr.o:		err.c wfs.h util.h global.h
+Xfile.o:		file.c wfs.h util.h global.h
+Xftp.o:		ftp.c wfs.h util.h global.h
+Xftp_list.o:	ftp_list.c wfs.h util.h global.h
+Xftp_retr.o:	ftp_retr.c wfs.h util.h global.h
+Xicmp.o:		icmp.c wfs.h util.h global.h
+Xlog.o:		log.c wfs.h util.h global.h
+Xmain.o:		main.c wfs.h util.h global.h
+Xnfs_reply.o:	nfs_reply.c wfs.h util.h
+Xnfs_start.o:	nfs_start.c wfs.h util.h global.h
+Xnfs_subr.o:	nfs_subr.c nfs_prot.h wfs.h util.h global.h
+Xparse.o:	parse.c wfs.h util.h global.h
+Xpol.o:		pol.c wfs.h util.h global.h
+Xproto.o:	proto.c wfs.h util.h global.h
+Xroot.o:		root.c wfs.h util.h global.h
+Xsched.o:	sched.c util.h
+Xsrv.o:		srv.c wfs.h util.h global.h
+Xthrd.o:		thrd.c wfs.h util.h global.h
+Xtrace.o:	trace.c wfs.h util.h global.h
+Xufs.o:		ufs.c wfs.h util.h global.h
+Xuip.o:		uip.c wfs.h util.h global.h
+Xutil.o:		util.c wfs.h util.h global.h
+Xvol.o:		vol.c wfs.h util.h global.h
+END_OF_FILE
+  if test 4348 -ne `wc -c <'csd/Makefile.build'`; then
+    echo shar: \"'csd/Makefile.build'\" unpacked with wrong size!
+  fi
+  # end of 'csd/Makefile.build'
+fi
+if test -f 'csd/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/parse.c'\"
+else
+  echo shar: Extracting \"'csd/parse.c'\" \(4120 characters\)
+  sed "s/^X//" >'csd/parse.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* Read configuration files */
+Xstatic char *AtFSid = "$Header: parse.c[109.0] Wed Nov 24 03:47:14 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <ctype.h>
+X#include <stdio.h>
+X#include <string.h>		/* for strchr */
+X#include "parse.h"
+X
+X/* Debugging malloc library of Conor P. Cahill */
+X#ifdef DEBUG_MALLOC
+X#include "/usr/local/include/dbmalloc/malloc.h"
+X#endif
+X
+X/*
+X * Loosely based on STIF (structured text interchange format), which is
+X * currently an Internet Draft.
+X * We will eventually adopt STIF when RFC comes out.
+X */
+Xint
+Xparse_conf(conf, bind_func)
+Xchar *conf;
+Xint (*bind_func)();
+X{
+X	char line[256];
+X	int linenum = 0, nerr = 0;
+X	FILE *fp;
+X	char *p, *eq;
+X	char *name, *value;
+X
+X	fp = fopen(conf, "r");
+X	if (fp == NULL)
+X		return -1;
+X
+X	while (fgets(line, sizeof(line), fp) != NULL) {
+X		++linenum;
+X		if ((p = strchr(line, '\n')) != NULL) {
+X			*p = '\0';
+X		} else {
+X			dlog("%s:%d: line too long", conf, linenum);
+X			++nerr;
+X		}
+X		if ((p = strchr(line, '#')) || (p = strchr(line, ';')))
+X			*p = '\0';
+X		if (*line == '\0')
+X			continue;
+X
+X#define SKIP_SPACE(p, start) \
+X		for ((p) = (start); *(p) && isspace(*(p)); ++(p))	\
+X			;
+X#define TRIM_SPACE(p, start) \
+X		for ((p) = (start) + strlen(start) - 1;			\
+X		     (p) >= (start); --(p)) {				\
+X			if (isspace(*(p)))				\
+X				*(p) = '\0';				\
+X		}
+X
+X		if ((eq = strchr(line, '=')) || (eq = strchr(line, ':'))
+X		    || (eq = strchr(line, '\t'))) {
+X			*eq = '\0';
+X			SKIP_SPACE(p, line);
+X			name = p;
+X			TRIM_SPACE(p, name);
+X			SKIP_SPACE(p, eq+1);
+X			value = p;
+X			TRIM_SPACE(p, value);
+X			if ((*bind_func)(name, value) < 0) {
+X				dlog("%s:%d: invalid assignment \"%s=%s\"", conf, linenum, name, value);
+X				++nerr;
+X			}
+X		} else {
+X			dlog("%s:%d: parse error", conf, linenum);
+X			++nerr;
+X		}
+X	}
+X	fclose(fp);
+X	if (nerr)
+X		return -1;
+X	return 0;
+X}
+X
+Xint
+Xparse_tailor(tailor, name, value)
+Xwf_tailor *tailor;
+Xchar *name;
+Xchar *value;
+X{
+X	int i, found = 0, ret, len;
+X	char *p;
+X
+X	for (i = 0; tailor[i].name; ++i) {
+X		if (strcasecmp(tailor[i].name, name) == 0) {
+X			len = strlen(value)+1;
+X			p = malloc(len);
+X			bcopy(value, p, len);
+X			ret = (*tailor[i].assign)(p);
+X			if (ret < 0) break;	/* invalid parameter */
+X			found = 1;
+X			break;
+X		}
+X	}
+X	if (! found) return -1;
+X	return 0;
+X}
+X
+Xlong
+Xparse_cap(cap, str)		/* comma-separated list of capabilities */
+Xwf_cap *cap;
+Xchar *str;
+X{
+X	char *p, *p2;
+X	int i;
+X	long value = 0;
+X
+X	p = str;
+X	do {
+X		while (isspace(*p)) ++p;
+X		p2 = strchr(p, ',');
+X		if (p2) *p2 = '\0';
+X		for (i = 0; cap[i].name; ++i) {
+X			if (strcasecmp(cap[i].name, p) == 0) {
+X				value |= cap[i].value;
+X				break;
+X			}
+X		}
+X		if (p2) *p2 = ',';
+X	} while (p2 && (p = p2+1));
+X	return value;
+X}
+X
+END_OF_FILE
+  if test 4120 -ne `wc -c <'csd/parse.c'`; then
+    echo shar: \"'csd/parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/parse.c'
+fi
+if test -f 'csd/ufs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/ufs.c'\"
+else
+  echo shar: Extracting \"'csd/ufs.c'\" \(4546 characters\)
+  sed "s/^X//" >'csd/ufs.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* cached local filesystem */
+Xstatic char *AtFSid = "$Header: ufs.c[109.0] Wed Nov 24 03:47:18 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#ifdef _POSIX_SOURCE
+X#include <dirent.h>
+X#define	DIRENT	struct dirent
+X#else
+X#include <sys/dir.h>
+X#define	DIRENT	struct direct
+X#endif
+X
+X#include <sys/stat.h>
+X#include <fcntl.h>		/* for O_WRONLY etc. */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X/* public functions  */
+Xvoid ufs_read_miss(), ufs_readdir_miss();
+X
+Xwf_proto proto_ufs = {
+X	"UFS", cmfs_getattr, err_getattr_miss,
+X	cmfs_lookup, err_lookup_miss, cmfs_readlink,
+X	cmfs_read, ufs_read_miss, cmfs_readdir, ufs_readdir_miss,
+X	err_getuda, err_keepalive, err_close, err_shutdown, 0
+X};
+X
+Xvoid
+Xufs_read_miss(c)
+Xwf_thrd *c;
+X/* in: rqstp, volp, offset, count, totalcount, dirp, filep */
+X/* out: */
+X{
+X	dlog("ufs_read_miss: should not be called...");
+X}
+X
+Xvoid
+Xufs_readdir_miss(c)
+Xwf_thrd *c;
+X/* in: rqstp, volp, filep, fhp, cookie, count, dotdotp, olddirp */
+X/* out: */
+X{
+X	DIR *dp;
+X	struct direct *p;
+X	struct stat s;
+X	wf_file *f;
+X	ftype f_type;
+X	u_int f_id, namelen;
+X	char *f_name, *f_link, link[MAXPATHLEN];
+X	char path[MAXPATHLEN], path2[MAXPATHLEN];
+X	char *topdir = c->child_volp->topdir;
+X
+X	/*
+X	 * create the missing directory first
+X	 */
+X	if (c->fhp->child_dir > WF_VOL_BASE) {
+X		if (c->olddirp) {
+X			c->dirp = dir_new(c->child_volp, c->fhp->child_dir,
+X					  c->dotdotp->name, "");
+X		} else {
+X			c->dirp = vol_newroot(c->child_volp);
+X		}
+X	} else {
+X		c->dirp = dir_new(c->child_volp, c->fhp->child_dir,
+X				  c->dotdotp->name, c->filep->name);
+X	}
+X	f = dir_adddir(c->dirp, ".", c->child_volp->id, c->dirp->id);
+X	attr_touch(&f->fattr);
+X	f = dir_adddir(c->dirp, "..", c->parent_volp->id, c->dotdotp->id);
+X	attr_touch(&f->fattr);
+X	/*
+X	 * read the corresponding UFS directory...
+X	 */
+X	sprintf(path, "%s%s", topdir, c->dirp->name);
+X	dp = opendir(path);
+X	if (! dp) {
+X		dlog("could not opendir \"%s\"", path);
+X		return;
+X	}
+X	while (p = readdir(dp)) {
+X		f_name = strdup(p->d_name);
+X		f_link = NULL;
+X		if (strcmp(f_name, ".") == 0 || strcmp(f_name, "..") == 0)
+X			continue;	/* ignore "." and ".." */
+X		sprintf(path2, "%s/%s", path, f_name);
+X		lstat(path2, &s);
+X		/*
+X		 * compute attributes for each cached directory entry
+X		 */
+X		f_id = 0;
+X		if (s.st_mode & S_IFREG) {
+X			f_type = NFREG;
+X		} else if (s.st_mode & S_IFLNK) {
+X			f_type = NFLNK;
+X			namelen = readlink(path2, link, MAXPATHLEN);
+X			if (namelen > 0) {
+X				link[namelen-1] = '\0';
+X				f_link = strdup(link);
+X			} else {
+X				/* could not stat it; return fake entry */
+X				f_link = strdup("/???");
+X			}
+X		} else if (s.st_mode & S_IFDIR) {
+X			f_type = NFDIR;
+X			if (c->olddirp &&
+X			    (f = file_findname(c->olddirp, f_name))) {
+X				f_id = f->id;
+X			} else {
+X				f_id = vol_allocid(c->child_volp);
+X			}
+X		}
+X		/*
+X		 * append it to the newly created directory
+X		 */
+X		f = file_new(f_name, f_link, f_type,
+X			 s.st_nlink, s.st_mode, s.st_uid, s.st_gid,
+X			 s.st_size, s.st_mtime, f_id, c->child_volp->id);
+X		dir_addfile(c->dirp, f);
+X	}
+X	closedir(dp);
+X	dir_save(c->child_volp, c->dirp, c->olddirp);
+X}
+END_OF_FILE
+  if test 4546 -ne `wc -c <'csd/ufs.c'`; then
+    echo shar: \"'csd/ufs.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/ufs.c'
+fi
+if test -f 'gtr/draft-youki-gtr-00.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gtr/draft-youki-gtr-00.txt'\"
+else
+  echo shar: Extracting \"'gtr/draft-youki-gtr-00.txt'\" \(4021 characters\)
+  sed "s/^X//" >'gtr/draft-youki-gtr-00.txt' <<'END_OF_FILE'
+X      Using DNS To Store Geographical / Topological Information
+X				DRAFT
+X	    Youki Kadobayashi <youki-k@is.aist-nara.ac.jp>
+X			     Nov 3, 1993
+X
+X1. INTRODUCTION
+X
+XToday's digital media exhibits strong commonality among Internauts.
+XThey can be found on dozens of file servers in the Internet; the
+Xauthor would like to invent another buzzword for this phenomena:
+X"information ubiquity".
+X
+XIncrease in information ubiquity directly affects information services
+Xin several ways: improved response time, higher availability and
+Xreduced load on servers and networks.
+X
+XTo exploit these desirable aspects, information retrieval systems
+Xrequires high-level semantics of underlying networks, such as network
+Xtopology and geographical location.
+X
+XWhile traditional DNS resource records provide vital information for
+Xdecentralized operation of the Internet, they do not provide
+Xhigh-level semantics that can exploit information ubiquity.
+X
+XWe hereby define a new attribute "GTR" (which stands for geographical
+X/ topological region) in the DNS TXT resource record, that encourages
+Xinformation retrieval systems to exploit information ubiquity.
+X
+X2. The TXT GTR RR
+X
+XThe TXT GTR RR is defined with the scheme proposed in [3].
+X
+XTXT GTR has the following format:
+X
+X	<reversed-host-zero-number> <ttl> <class> TXT "GTR=<region>"
+X
+XAll fields are required.
+X
+X<reversed-host-zero-number> represents host or network address encoded
+Xusing the scheme proposed in [2].
+X
+X<region> consists of the following three components, each separated by
+Xa dash:
+X	g:	geographical information
+X	n:	topology (e.g., network body or service provider)
+X	c:	country
+Xcase is not significant.
+X
+XTXT GTR record is designed to be used in conjunction with network name
+Xmapping scheme proposed in Section 4 of [2].  However, TXT GTR record
+Xdoes not mandate deployment of the mapping scheme whatsoever.
+X
+XSimplest Example:
+X	0.0.221.163.in-addr.arpa.	TXT	"GTR=Nara-SENTAN-JP"
+X
+XComplex Example:
+X	0.0.1.133.in-addr.arpa.		PTR	osaka-u.ac.jp
+X					A	255.255.255.0
+X					TXT	"GTR=Osaka-WIDE-JP"
+X	0.192.1.133.in-addr.arpa.	TXT	"GTR=Osaka-SENTAN-JP"
+X	0.12.1.133.in-addr.arpa.	TXT	"GTR=Osaka-SINET-JP"
+X
+XIn general, this information will be added to an existing master file
+Xfor some IN-ADDR.ARPA domain for each network involved.  
+X
+X3. DISCUSSION
+X
+XGeographical information can be useful only if regional internet
+Xexchange exists.  Similarly, country code will not make sense if
+Xnational internet exchange does not exist.  We could generalize these
+Xconcepts and devise a scheme for representing routing architecture and
+Xnetwork topology, at an abstract level, in a human-readable octect
+Xstream.
+X
+XReferences
+X  [1] Mockapetris, P., "Domain Names - Implementation and Specification",
+X      RFC 1035.
+X
+X  [2] Mockapetris, P., "DNS Encoding of Network Names and Other Types",
+X      RFC 1101.
+X
+X  [3] Rosenbaum, R., "Using the Domain Name System To Store Arbitrary String
+X      Attributes", RFC 1464.
+X
+XDeployment guideline
+X
+X- Do not encode redundant information -- minimize administrative overhead
+X
+X- Allow gradual change --   server selection should work without TXT GTR record
+X
+X- Sort servers by:
+X	region
+X	domain name?
+X	other information via other protocols?
+X
+XImplementation details
+X
+X- Sort-by-gtr configuration file (/etc/gtr.conf)
+X
+X	region Osaka-OUATM-JP		# Osaka-U ATM BB
+X	region Osaka-SENTAN-JP		# 768K local
+X	region *-SENTAN-JP		# 768K / T1 BB
+X	region *-WIDE-JP		# slow
+X	region *-ORIONS-JP		# slower
+X	region *-JP			# domestic
+X	region *-BARRNET-USA		# west coast
+X	region *-JVNCNET-USA		# west coast via GIX
+X	region *-NSFNET-USA		# prefer T3 BB
+X
+X- short-term implementation (for gradual transition while in operation)
+X  prepare /etc/gtr.txt which enumerates all GTR records
+X  (analogous to host.txt in pre-DNS era)
+X
+X	getgtrbyhost(hostname) -> (char *) region
+X
+X- GTR mapping table (/etc/gtr.txt)
+X
+X	163.221		Nara-SENTAN-JP
+X	133.1.4		Osaka-OUATM-JP
+X	133.4		WIDE-JP
+X  CIDR ready.
+X
+X- Implementation in WWFS
+X	static server selection at volume file
+X		-- sortvol.pl
+X	"make sort" target at $WWFSDIR/Makefile
+END_OF_FILE
+  if test 4021 -ne `wc -c <'gtr/draft-youki-gtr-00.txt'`; then
+    echo shar: \"'gtr/draft-youki-gtr-00.txt'\" unpacked with wrong size!
+  fi
+  # end of 'gtr/draft-youki-gtr-00.txt'
+fi
+if test -f 'gtr/gtr.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gtr/gtr.pl'\"
+else
+  echo shar: Extracting \"'gtr/gtr.pl'\" \(3895 characters\)
+  sed "s/^X//" >'gtr/gtr.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X#
+X# gtr.pl -- GTR library.  GTR stands for geographical / topological region.
+X# Author: Youki Kadobayashi <youki@wide.ad.jp>
+X# This file is part of WWFS.
+X#
+Xpackage gtr;
+X
+X# configuration parameters:
+X# $gtr'dir	gtr directory; "/etc" by default.
+X# $gtr'conf	configuration file. "/etc/gtr.conf" by default.
+X# $gtr'txt	address-to-GTR mapping table. "/etc/gtr.txt" by default.
+X
+X$conf = $dir ? "$dir/gtr.conf" : "/etc/gtr.conf";
+X$txt = $dir ? "$dir/gtr.txt" : "/etc/gtr.txt";
+X
+X#
+X# @sorted_hostnames = gtr'sort(@hostnames);
+X# get a list of hostnames and sort them according to /etc/gtr.*
+X#
+Xsub sort {
+X    local (@hosts) = @_;
+X    local (@hostlist, @sorted, @gtrs, @addrs, @list);
+X    local ($name, $aliases, $addrtype, $length);
+X    local ($host, $ip, $rating, $entry);
+X
+X    foreach $host (@hosts) {
+X	($name,$aliases,$addrtype,$length,@addrs) = gethostbyname($host);
+X	@gtrs = ();
+X	# each host may have multiple interfaces...
+X	foreach $addr (@addrs) {
+X	    # For now, assume IPv4 address and bypass checking.
+X	    # need to adapt to IPv7 in near future.
+X	    $ip = join('.', unpack('C4', $addr));
+X	    push(@gtrs, &gtr'byaddr($ip));
+X	}
+X	$rating = &gtr'select(@gtrs);
+X	$list[$rating] .= "$host:";
+X    }
+X
+X    foreach $entry (@list) {
+X	chop $entry;		# trailing colon
+X	@hostlist = split(/:/, $entry);
+X	if ($#hostlist >= 0) {
+X	    push(@sorted, @hostlist);
+X	    #  print join(' ', @hostlist), "\n";
+X	}
+X    }
+X    return @sorted;
+X}
+X
+Xsub ip2long {
+X    local ($str) = @_;
+X    local (@a);
+X    # ip address to long conversion.
+X
+X    @a = split(/\./, $str);
+X    push(@a, (0, 0, 0));	# permit "133.1" style of abbreviation
+X    return $a[0] * 0x01000000 + $a[1] * 0x010000 + $a[2] * 0x0100 + $a[3];
+X}
+X
+X#
+X# @gtrs = gtr'byaddr($ip_addr_string);
+X# get a list of GTR from an IP address.
+X#
+Xsub byaddr {
+X    local ($addr_string) = @_;
+X    local ($addr, @gtrs, @line);
+X    local ($gtr_addr, $gtr_mask, $gtr_name);
+X
+X    $addr = &ip2long($addr_string);
+X    open(GTR, $txt) || return undef;
+X    while (<GTR>) {
+X	chop;
+X	s/#.*$//;		# ignore comments
+X	next if /^\s*$/;
+X	@line = split(/\s+/, $_);
+X
+X	if ($line[0] =~ /^[0-9.]+$/) {
+X	    $gtr_addr = &ip2long($line[0]);
+X	} else {
+X	    warn "$txt line $.: IP address expected.\n";
+X	    next;
+X	}
+X
+X	# for abbreviation & fool-proof purpose.
+X	if ($#line >= 2) {
+X	    if ($line[1] =~ /^255/) {
+X		$gtr_mask = &ip2long($line[1]);
+X	    } else {
+X		warn "$txt line $.: address mask expected.\n";
+X		next;
+X	    }
+X	    $gtr_name = $line[2];
+X	} elsif ($#line == 1) {
+X	    if ($line[1] =~ /^[0-9.]+$/) {
+X		# you nuts!
+X		warn "$txt line $.: GTR expected.\n";
+X		next;
+X	    }
+X	    $gtr_name = $line[1];
+X	    # assume implicit address mask.
+X	    ($gtr_addr & 0x80000000) == 0 && do {
+X		$gtr_mask = &ip2long("255.0.0.0");
+X	    };
+X	    ($gtr_addr & 0xc0000000) == 0x80000000 && do {
+X		$gtr_mask = &ip2long("255.255.0.0");
+X	    };
+X	    ($gtr_addr & 0xe0000000) == 0xc0000000 && do {
+X		$gtr_mask = &ip2long("255.255.255.0");
+X	    }
+X	} else {
+X	    warn "$txt line $.: syntax error.\n";
+X	}
+X
+X	# test if this GTR matches specified IP address & mask.
+X	if (($addr & $gtr_mask) == $gtr_addr) {
+X	    push(@gtrs, $gtr_name);
+X	}
+X    }
+X    close(GTR);
+X    return (@gtrs);
+X
+X# Example of /etc/gtr.txt:
+X#	133.1.192	255.255.255.0	Osaka-ODINS-JP
+X#	133.1		255.255.0.0	Osaka-WIDE-JP
+X#	133.4		255.255.0.0	Japan-WIDE-JP
+X#	192.1.192	255.255.192.0	Foo-Bar-JP
+X}
+X
+X#
+X# $rating = gtr'select(@gtrs)
+X# select a best-maching GTR (wrt /etc/gtr.conf) from a list of GTRs.
+X# return a preference value in integer; smaller is better.
+X#
+Xsub select {
+X    local (@gtrs) = @_;
+X    local ($i, $region, $gtr);
+X
+X    open(CONF, $conf) || return 1000;
+X    $i = 0;
+X    while (<CONF>) {
+X	chop;
+X	/region\s+/ && do {
+X	    $region = $';
+X	    ++$i;
+X
+X	    foreach $gtr (@gtrs) {
+X		if ($gtr =~ /$region/) {
+X		    close(CONF);
+X		    return $i;
+X		}
+X	    }
+X	};
+X	# otherwise ignore lines for now.
+X    }
+X    close(CONF);
+X    return 1000;
+X}
+X
+X1;
+END_OF_FILE
+  if test 3895 -ne `wc -c <'gtr/gtr.pl'`; then
+    echo shar: \"'gtr/gtr.pl'\" unpacked with wrong size!
+  fi
+  # end of 'gtr/gtr.pl'
+fi
+if test -f 'rpc/cs_prot_clnt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/cs_prot_clnt.c'\"
+else
+  echo shar: Extracting \"'rpc/cs_prot_clnt.c'\" \(3888 characters\)
+  sed "s/^X//" >'rpc/cs_prot_clnt.c' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/rpc.h>
+X#include "cs_prot.h"
+X#ifndef NFS_FH_DEFINED
+X#define NFS_FH_DEFINED
+X#endif
+X
+X/* Default timeout can be changed using clnt_control() */
+Xstatic struct timeval TIMEOUT = { 25, 0 };
+X
+Xvoid *
+Xcs_proc_null_1(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static char res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_NULL, xdr_void, argp, xdr_void, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return ((void *)&res);
+X}
+X
+Xint *
+Xcs_proc_getport_1(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static int res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_GETPORT, xdr_void, argp, xdr_int, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_fhres *
+Xcs_proc_register_1(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_fhres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_REGISTER, xdr_void, argp, xdr_cs_fhres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_res *
+Xcs_proc_unregister_1(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_res res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_UNREGISTER, xdr_void, argp, xdr_cs_res, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_res *
+Xcs_proc_mount_1(argp, clnt)
+X	cs_volargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_res res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_MOUNT, xdr_cs_volargs, argp, xdr_cs_res, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_res *
+Xcs_proc_umount_1(argp, clnt)
+X	cs_volargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_res res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_UMOUNT, xdr_cs_volargs, argp, xdr_cs_res, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_diropres *
+Xcs_proc_lookup_1(argp, clnt)
+X	cs_diropargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_diropres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_LOOKUP, xdr_cs_diropargs, argp, xdr_cs_diropres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_readdirres *
+Xcs_proc_readdir_1(argp, clnt)
+X	cs_readdirargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_readdirres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_READDIR, xdr_cs_readdirargs, argp, xdr_cs_readdirres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_readres *
+Xcs_proc_read_1(argp, clnt)
+X	cs_readargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_readres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_READ, xdr_cs_readargs, argp, xdr_cs_readres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_volres *
+Xcs_proc_getvol_1(argp, clnt)
+X	cs_volargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_volres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_GETVOL, xdr_cs_volargs, argp, xdr_cs_volres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_xferres *
+Xcs_proc_getxfer_1(argp, clnt)
+X	nfs_fh *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_xferres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_GETXFER, xdr_nfs_fh, argp, xdr_cs_xferres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_udares *
+Xcs_proc_getuda_1(argp, clnt)
+X	cs_udaargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_udares res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_GETUDA, xdr_cs_udaargs, argp, xdr_cs_udares, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xcs_geterrres *
+Xcs_proc_geterr_1(argp, clnt)
+X	cs_geterrargs *argp;
+X	CLIENT *clnt;
+X{
+X	static cs_geterrres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, CS_PROC_GETERR, xdr_cs_geterrargs, argp, xdr_cs_geterrres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+END_OF_FILE
+  if test 3888 -ne `wc -c <'rpc/cs_prot_clnt.c'`; then
+    echo shar: \"'rpc/cs_prot_clnt.c'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/cs_prot_clnt.c'
+fi
+if test -f 'saps/csd-nanny.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'saps/csd-nanny.pl'\"
+else
+  echo shar: Extracting \"'saps/csd-nanny.pl'\" \(4704 characters\)
+  sed "s/^X//" >'saps/csd-nanny.pl' <<'END_OF_FILE'
+X#! /usr/local/bin/perl
+X#
+X#	csd-nanny --- csd OKIAGARI KOBOUSHI Project   Version 1.4
+X#
+X# Author: DEMIZU Noritoshi <demizu@nff.ncl.omron.co.jp>
+X#
+X# People trying to port csd to new platforms will find this script
+X# extremely useful --- it was originally written to port csd on
+X# Luna-II/Mach at OMRON Corporation.
+X#
+X# This perl script does the following things:
+X# 1. If csd ran already, just quit.
+X# 2. Start csd.
+X# 3. Wait for the csd to core dump.
+X# 4. Inspects core file and then takes snapshot of the debug session.
+X# 5. Send resulting report mail to $csd_admmin.
+X# 6. goto 2
+X#
+X# Debug session consists of: 1) stack trace using gdb, 2) last some lines
+X# of wwfs.log.  Site administrators might want to insert dlog() around
+X# the source code so that internal status can be obtained from wwfs.log.
+X
+Xrequire '/etc/csd.pl';
+X
+X
+X# site configuration part
+X$csd_path	= "$WWFSDIR/bin/csd";		# path of csd
+X$csd_log	= "$WWFSDIR/log/wwfs.log";	# log of csd
+X$csd_core	= "$WWFSDIR/core";		# core of csd
+X$csd_uip_port	= 8002;				# csd UIP port number
+X$csd_tmp	= "/tmp/csd-nanny-work$$";	# working file to report
+X$csd_admin	= "wwfs";			# e-mail address of admin
+X
+X$log_lines	= 200;				# reported lines from wwfs.log
+X$log_expired	= 28;				# older files will be expired
+X
+X$dbg_path	= "/usr/local/bin/gdb";		# debugger name
+X$dbg_options	= "-q";				# options for the debugger
+X$dbg_command	= "where\nquit\n";		# commands to the debugger
+X$dbg_prompt	= "\\(gdb\\)";			# prompt of the debugger
+X
+X
+X# check whether csd runs already or not.
+Xif (&check_csd) {
+X    print STDERR "csd is already running.\n";
+X    exit 1;
+X}
+X
+X# become daemon
+X$nanny_pid = fork;
+Xif ($nanny_pid < 0) {
+X    die "can't fork $!, stopped";
+X} elsif ($nanny_pid > 0) {
+X    exit 0;
+X}
+Xclose(STDIN); close(STDOUT); close(STDERR);
+X
+X
+X# infinite loop to keep csd running.
+Xfor (;;) {
+X    &launch;	# launch csd
+X    &notify;	# notify this accident to csd admin.
+X    &clean;	# remove old logs and cores
+X    sleep 3;	# notify this accident to wwfs user :-)
+X}
+X
+Xexit 1;		# will never reach.
+X
+X
+X# launch csd and probe it periodically.
+Xsub launch {
+X    local($pid);
+X
+X    # check whether csd runs already or not.
+X    if (&check_csd) {
+X	print STDERR "csd is already running.\n";
+X	exit 1;
+X    }
+X
+X    # launch csd and wait for the csd to core dump.
+X    $pid = fork;
+X    die "can't fork $!, stopped" if ($pid < 0);
+X    if ($pid == 0) {
+X	# child process
+X	exec $csd_path, "foreground";
+X	die "can't exec $csd_path: $!, stopped";	# will never reach
+X    } else {
+X	# parent process
+X	waitpid($pid, 0);				# wait for child
+X	#&probe;
+X    }
+X}
+X
+X
+X# notify this accident to csd administrator
+X# by sending report on csd stack trace and tailing $log_lines lines of wwfs.log
+Xsub notify {
+X    local($year, $mon, $day, $hour, $min, $sec)
+X					= (localtime(time))[5,4,3,2,1,0];
+X    local($date) = sprintf("%02d%02d%02d-%02d%02d%02d",
+X			$year, $mon+1, $day, $hour, $min, $sec);
+X
+X    &dbg_info($date);
+X    system("tail -$log_lines $csd_log >> $csd_tmp");
+X    system("/usr/ucb/mail -s csd-down-info.$date $csd_admin < $csd_tmp");
+X    unlink($csd_tmp);
+X
+X    rename($csd_log, "$csd_log.$date")   if (-f $csd_log);
+X    rename($csd_core,"$csd_core.$date")  if (-f $csd_core);
+X}
+X
+X
+X
+X# save debugging information into a file "$csd_tmp",
+X# if core and debugger were available.
+Xsub dbg_info {
+X    local($id) = @_;
+X    local(@cmds, $cmd);
+X
+X    return if (!-r $csd_core || !-x $dbg_path);
+X    open(DEBUG, "| $dbg_path $dbg_options $csd_path $csd_core > $csd_tmp-d")
+X								|| return;
+X    print DEBUG $dbg_command;
+X    close(DEBUG);
+X
+X    if (!defined($dbg_prompt) || $dbg_prompt eq "") {
+X	rename("$csd_tmp-d", $csd_tmp);
+X	return;
+X    }
+X
+X    @cmds = split(/\n/, $dbg_command);
+X    open(TMPD, "$csd_tmp-d") || return;
+X    open(TMP, ">$csd_tmp") || return;
+X    print TMP "% $dbg_path $dbg_options $csd_path $csd_core.$id\n";
+X    while (<TMPD>) {
+X	if (/($dbg_prompt)/i) {
+X	    # replace prompt with prompt+command
+X	    $cmd = shift(@cmds);
+X	    s/($dbg_prompt)\s+/$1 $cmd\n/i;
+X	}
+X	print TMP;
+X    }
+X    print TMP "\n\n\n";
+X    print TMP "---- $csd_log.$id\n";
+X    close(TMPD);
+X    close(TMP);
+X    unlink("$csd_tmp-d");
+X}
+X
+X
+X# checks whether csd is already running or not.
+X# return code means:
+X#	1: csd is running already
+X#	0: csd isn't running yet.
+Xsub check_csd {
+X    require "sys/socket.ph";
+X    socket(SOCK, &AF_INET, &SOCK_STREAM, 0) || die "socket: $!";
+X    $dstaddr = pack('S n a4 x8', &AF_INET,
+X		$csd_uip_port, (gethostbyname("localhost"))[4]);
+X    $result = connect(SOCK, $dstaddr);
+X    print SOCK "QUIT\n" if ($result);
+X    close(SOCK);
+X    return $result;
+X}
+X
+X
+Xsub clean {
+X    while (<$csd_log.*>) {
+X	unlink if (-M $_ > $log_expired);
+X    }
+X    while (<$csd_core.*>) {
+X	unlink if (-M $_ > $log_expired);
+X    }
+X}
+END_OF_FILE
+  if test 4704 -ne `wc -c <'saps/csd-nanny.pl'`; then
+    echo shar: \"'saps/csd-nanny.pl'\" unpacked with wrong size!
+  fi
+  chmod +x 'saps/csd-nanny.pl'
+  # end of 'saps/csd-nanny.pl'
+fi
+echo shar: End of archive 17 \(of 22\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

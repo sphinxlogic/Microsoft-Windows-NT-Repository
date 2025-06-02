@@ -1,0 +1,985 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:48 EST 1993
+Submit chipset-2 10/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 10)."
+# Contents:  src/list/test.c
+# Wrapped by paul@sander on Sun Nov 22 15:41:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f src/list/test.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/test.c\"
+else
+echo shar: Extracting \"src/list/test.c\" \(23698 characters\)
+sed "s/^X//" >src/list/test.c <<'END_OF_src/list/test.c'
+X/************************************************************************
+X *
+X * test.c -- This program tests the doubly-linked list implementation.  It
+X *           attempts to cover all branches of control less those taken
+X *           when malloc fails.  Perhaps one day a debugging allocator can
+X *           be hooked in to test those as well.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ************************************************************************/
+X
+X#include <stdio.h>
+X#include "dlist.h"
+X
+X/* These are the list operations that the program tests */
+X
+Xenum ops { SETUP, FREESETUP, NEW, DESTROY, INSERT, DELETE, SEARCH,
+X           TRAVERSE, FIRST, LAST, NEXT, PREV, RANK, DELRANK, DATA, SETDATA,
+X           PUSH, PUSHF, PUSHR, POP, POPF, POPR, PEEK, PEEKF, PEEKR,
+X           END
+X};
+X
+Xtypedef enum ops OP;
+X
+Xchar *opnames[] = {"setup","freesetup","new","destroy","insert","delete",
+X                   "search","traverse","first","last","next","prev","rank",
+X                   "delrank","data","setdata","push","pushf","pushr","pop",
+X                   "popf","popr","peek","peekf","peekr","end"
+X};
+X
+X/*
+X * The following structure describes a test case.  An array of these
+X * is given to an interpreter which performs each test and reports the
+X * results.
+X */
+X
+Xstruct testcase {
+X	OP	op;		/* Operation */
+X	int	key;		/* Insertion/seek key */
+X	int	data;		/* Application-specific or expected data */
+X	int	data2;		/* Secondary data */
+X	int	result;		/* Return code or expected result */
+X	int	dump;		/* If not zero, dumps list for debugging */
+X};
+X
+Xtypedef struct testcase CASE;
+X
+X/* Value of "key" when calling dll_destroy */
+X#define	FREEKEY		1	/* call freeKey() */
+X#define	FREEDATA	2	/* call freeData() */
+X
+X/* Invalid value of "key" when calling the push, pop, or peek functions */
+X#define	DLL_INVALID	2
+X
+X/* This is the list of test cases that make up the suite. */
+X
+XCASE suite[] = {
+X/* ------------	OP		key	data	data2	result	dump	*/
+X	{	DATA,		0,	0,	0,	0,	0	},
+X	{	SETDATA,	0,	0,	0,	0,	0	},
+X	{	DELETE,		0,	0,	0,	0,	0	},
+X	{	DELRANK,	0,	0,	0,	0,	0	},
+X	{	DESTROY,	0,	0,	0,	0,	0	},
+X	{	DESTROY,	1,	0,	0,	0,	0	},
+X	{	DESTROY,	2,	0,	0,	0,	0	},
+X	{	DESTROY,	3,	0,	0,	0,	0	},
+X	{	FIRST,		0,	0,	0,	0,	0	},
+X	{	INSERT,		0,	0,	0,	0,	0	},
+X	{	LAST,		0,	0,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	PEEK,		0,	0,	0,	0,	0	},
+X	{	PEEK,		0,	0,	1,	0,	0	},
+X	{	PEEK,		0,	0,	2,	0,	0	},
+X	{	PEEKF,		0,	0,	0,	0,	0	},
+X	{	PEEKR,		0,	0,	0,	0,	0	},
+X	{	POP,		0,	0,	0,	0,	0	},
+X	{	POP,		0,	0,	1,	0,	0	},
+X	{	POP,		0,	0,	2,	0,	0	},
+X	{	POPF,		0,	0,	0,	0,	0	},
+X	{	POPR,		0,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	PUSH,		0,	0,	0,	0,	0	},
+X	{	PUSH,		0,	0,	1,	0,	0	},
+X	{	PUSH,		0,	0,	2,	0,	0	},
+X	{	PUSHF,		0,	0,	0,	0,	0	},
+X	{	PUSHR,		0,	0,	0,	0,	0	},
+X	{	RANK,		0,	0,	0,	0,	0	},
+X	{	SEARCH,		0,	0,	0,	0,	0	},
+X	{	FREESETUP,	0,	0,	0,	0,	0	},
+X	{	TRAVERSE,	1,	0,	0,	0,	0	},
+X	{	SETUP,		0,	0,	0,	1,	0	},
+X	{	NEW,		0,	0,	0,	1,	0	},
+X	{	DATA,		0,	0,	0,	0,	0	},
+X	{	SETDATA,	0,	0,	0,	0,	0	},
+X	{	DELETE,		0,	0,	0,	0,	0	},
+X	{	DELRANK,	0,	0,	0,	0,	0	},
+X	{	DELRANK,	-1,	0,	0,	0,	0	},
+X	{	FIRST,		0,	0,	0,	0,	0	},
+X	{	INSERT,		0,	0,	0,	0,	0	},
+X	{	LAST,		0,	0,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	PEEKF,		0,	0,	0,	0,	0	},
+X	{	PEEKR,		0,	0,	0,	0,	0	},
+X	{	POPF,		0,	0,	0,	0,	0	},
+X	{	POPR,		0,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	RANK,		0,	0,	0,	0,	0	},
+X	{	RANK,		-1,	0,	0,	0,	0	},
+X	{	SEARCH,		0,	0,	0,	0,	0	},
+X	{	TRAVERSE,	1,	0,	0,	0,	0	},
+X	{	FREESETUP,	0,	0,	0,	0,	0	},
+X	{	DESTROY,	0,	50,	0,	0,	0	},
+X	{	SETUP,		0,	23,	1,	1,	0	},
+X	{	NEW,		0,	0,	0,	1,	0	},
+X	{	INSERT,		1000,	100,	0,	1,	0	},
+X	{	INSERT,		3000,	300,	0,	1,	0	},
+X	{	INSERT,		2000,	200,	0,	1,	0	},
+X	{	INSERT,		4000,	400,	0,	1,	0	},
+X	{	INSERT,		2000,	0,	0,	-1,	0	},
+X	{	INSERT,		0,	0,	0,	0,	0	},
+X	{	DATA,		0,	23,	0,	0,	0	},
+X	{	SETDATA,	0,	75,	0,	0,	0	},
+X	{	DATA,		0,	75,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	FIRST,		1000,	0,	0,	1,	0	},
+X	{	FIRST,		1000,	100,	0,	1,	0	},
+X	{	NEXT,		2000,	200,	0,	1,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	NEXT,		4000,	400,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	SEARCH,		1000,	100,	0,	1,	0	},
+X	{	SEARCH,		2000,	200,	0,	1,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	SEARCH,		4000,	400,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	SEARCH,		2500,	0,	0,	0,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	SEARCH,		500,	0,	0,	0,	0	},
+X	{	NEXT,		1000,	0,	0,	1,	0	},
+X	{	SEARCH,		4500,	0,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	LAST,		4000,	0,	0,	1,	0	},
+X	{	LAST,		4000,	400,	0,	1,	0	},
+X	{	PREV,		3000,	300,	0,	1,	0	},
+X	{	PREV,		2000,	0,	0,	1,	0	},
+X	{	PREV,		1000,	100,	0,	1,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	SEARCH,		3000,	300,	0,	1,	0	},
+X	{	PREV,		2000,	0,	0,	1,	0	},
+X	{	SEARCH,		1000,	100,	0,	1,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	SEARCH,		2500,	0,	0,	0,	0	},
+X	{	PREV,		2000,	0,	0,	1,	0	},
+X	{	SEARCH,		4500,	0,	0,	0,	0	},
+X	{	PREV,		4000,	0,	0,	1,	0	},
+X	{	SEARCH,		500,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	TRAVERSE,	1,	83,	0,	4,	0	},
+X	{	TRAVERSE,	0,	0,	0,	0,	0	},
+X	{	RANK,		-1,	0,	0,	0,	0	},
+X	{	RANK,		0,	100,	0,	1000,	0	},
+X	{	RANK,		0,	0,	0,	1000,	0	},
+X	{	RANK,		1,	200,	0,	2000,	0	},
+X	{	RANK,		2,	300,	0,	3000,	0	},
+X	{	RANK,		3,	400,	0,	4000,	0	},
+X	{	RANK,		4,	0,	0,	0,	0	},
+X	{	SEARCH,		2000,	200,	0,	0,	0	},
+X	{	INSERT,		6000,	600,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	DESTROY,	3,	0,	0,	5,	0	},
+X	{	NEW,		0,	0,	0,	1,	0	},
+X	{	INSERT,		1000,	100,	0,	1,	0	},
+X	{	INSERT,		2000,	200,	0,	1,	0	},
+X	{	INSERT,		3000,	300,	0,	1,	0	},
+X	{	INSERT,		4000,	400,	0,	1,	0	},
+X	{	INSERT,		5000,	500,	0,	1,	0	},
+X	{	DELETE,		500,	0,	0,	0,	0	},
+X	{	DELETE,		2500,	0,	0,	0,	0	},
+X	{	DELETE,		5500,	0,	0,	0,	0	},
+X	{	DELETE,		2000,	200,	0,	1,	0	},
+X	{	DELETE,		3000,	0,	0,	1,	0	},
+X	{	DELETE,		5000,	500,	0,	1,	0	},
+X	{	DELETE,		1000,	100,	0,	1,	0	},
+X	{	DELETE,		4000,	400,	0,	1,	0	},
+X	{	INSERT,		1000,	100,	0,	1,	0	},
+X	{	INSERT,		2000,	200,	0,	1,	0	},
+X	{	INSERT,		3000,	300,	0,	1,	0	},
+X	{	INSERT,		4000,	400,	0,	1,	0	},
+X	{	INSERT,		5000,	500,	0,	1,	0	},
+X	{	DELRANK,	-1,	0,	0,	0,	0	},
+X	{	DELRANK,	5,	0,	0,	0,	0	},
+X	{	DELRANK,	1,	200,	0,	2000,	0	},
+X	{	DELRANK,	1,	0,	0,	3000,	0	},
+X	{	DELRANK,	2,	500,	0,	5000,	0	},
+X	{	DELRANK,	0,	100,	0,	1000,	0	},
+X	{	DELRANK,	0,	400,	0,	4000,	0	},
+X	{	DESTROY,	0,	0,	0,	0,	0	},
+X	{	FREESETUP,	0,	0,	0,	0,	0	},
+X	{	SETUP,		0,	0,	0,	1,	0	},
+X	{	NEW,		0,	0,	0,	1,	0	},
+X	{	PEEKF,		0,	0,	0,	0,	0	},
+X	{	PEEKR,		0,	0,	0,	0,	0	},
+X	{	PUSHF,		3000,	300,	0,	1,	0	},
+X	{	INSERT,		4000,	0,	0,	0,	0	},
+X	{	SEARCH,		3000,	0,	0,	0,	0	},
+X	{	DELETE,		4000,	0,	0,	0,	0	},
+X	{	PUSHF,		2000,	200,	0,	1,	0	},
+X	{	PEEKF,		2000,	200,	0,	1,	0	},
+X	{	PEEKF,		2000,	0,	0,	1,	0	},
+X	{	FIRST,		2000,	0,	0,	1,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	POPF,		2000,	0,	0,	1,	0	},
+X	{	POPF,		3000,	300,	0,	1,	0	},
+X	{	POPF,		0,	0,	0,	0,	0	},
+X	{	PUSHR,		2000,	200,	0,	1,	0	},
+X	{	PEEKR,		2000,	200,	0,	1,	0	},
+X	{	PEEKF,		2000,	200,	0,	1,	0	},
+X	{	PUSHR,		3000,	0,	0,	1,	0	},
+X	{	FIRST,		2000,	0,	0,	1,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	FIRST,		2000,	0,	0,	1,	0	},
+X	{	PUSHR,		4000,	0,	0,	1,	0	},
+X	{	NEXT,		0,	0,	0,	0,	0	},
+X	{	LAST,		4000,	0,	0,	1,	0	},
+X	{	PUSHF,		1000,	0,	0,	1,	0	},
+X	{	PREV,		0,	0,	0,	0,	0	},
+X	{	FIRST,		1000,	0,	0,	1,	0	},
+X	{	NEXT,		2000,	0,	0,	1,	0	},
+X	{	PEEKF,		1000,	0,	0,	1,	0	},
+X	{	PEEKR,		4000,	0,	0,	1,	0	},
+X	{	NEXT,		3000,	0,	0,	1,	0	},
+X	{	POPR,		4000,	0,	0,	1,	0	},
+X	{	POPR,		3000,	0,	0,	1,	0	},
+X	{	POPR,		2000,	200,	0,	1,	0	},
+X	{	POPR,		1000,	0,	0,	1,	0	},
+X	{	POPR,		0,	0,	0,	0,	0	},
+X/* ------------	OP		key	data	data2	result	dump	*/
+X	{	END,		0,	0,	0,	0,	0	}
+X};
+X
+X/* This is the comparison function */
+X
+X#ifdef __STDC__
+Xint comp(void *key1, void *key2)
+X#else
+Xint comp(key1,key2)
+Xvoid	*key1;
+Xvoid	*key2;
+X#endif
+X{
+X	return *((int*)key1) - *((int*)key2);
+X}
+X
+X/* This function displays a key and its data */
+X#ifdef __STDC__
+Xvoid dumpKey(void *key,void *data,void *info)
+X#else
+Xvoid dumpKey(key,data,info)
+Xvoid	*key;
+Xvoid	*data;
+Xvoid	*info;
+X#endif
+X{
+X	printf("key = %4.4d, data = ",*(int*)key);
+X	if (data != NULL) printf("%4.4d\n",*(int*)data);
+X	else printf("(NULL)\n");
+X	return;
+X}
+X
+X/*
+X * These functions are called by dll_destroy, and count the number of
+X * key and data structures are freed, and also verify that the info
+X * parameter is passed properly.  Some attempt is made to be sure that
+X * the data are freed before the key.
+X */
+X
+Xint	freedKeys;	/* Number of keys freed */
+Xint	freedData;	/* Number of data records freed */
+Xint	*expInfo;	/* Expected value of info */
+Xint	infoOk;		/* Indicates that the info was always correct */
+Xint	freeOk;		/* Indicates that the freeKey and freeData functions
+X			 * were called correctly
+X			 */
+X
+X#ifdef __STDC__
+Xvoid freeKey(void *key, void *info)
+X#else
+Xvoid freeKey(key,info)
+Xvoid	*key;
+Xvoid	*info;
+X#endif
+X{
+X	freedKeys++;
+X	if ((int*) info != expInfo) infoOk = 0;
+X	if ((freedData >= 0) && (freedKeys != freedData)) freeOk = 0;
+X}
+X
+X#ifdef __STDC__
+Xvoid freeData(void *key, void *info)
+X#else
+Xvoid freeData(key,info)
+Xvoid	*key;
+Xvoid	*info;
+X#endif
+X{
+X	if ((freedKeys >= 0) && (freedKeys != freedData)) freeOk = 0;
+X	freedData++;
+X	if ((int*) info != expInfo) infoOk = 0;
+X}
+X
+X/*
+X * The following variables and the visit() function are used for testing
+X * the dll_traverse() function.
+X */
+X
+Xint	lastKey;	/* Last key encountered by dll_traverse */
+Xint	travOk;		/* Traversal successful */
+Xint	visited;	/* Number of nodes visited */
+X
+X#ifdef __STDC__
+Xvoid visit(void *key, void *info, void *data)
+X#else
+Xvoid visit(key,info,data)
+Xvoid	*key;
+Xvoid	*info;
+Xvoid	*data;
+X#endif
+X{
+X	visited++;
+X	if ((lastKey != 0) && (*(int*)key <= lastKey)) travOk = 0;
+X	else if ((int*) info != expInfo) travOk = 0;
+X	lastKey = *(int*) key;
+X	return;
+X}
+X
+X/* The test suite starts here... */
+X
+X#ifdef __STDC__
+Xint main(int argc, char **argv)
+X#else
+Xint main(argc,argv)
+Xint	argc;
+Xchar	**argv;
+X#endif
+X{
+X	int		i;		/* Loop counter */
+X	int		ok;		/* Current test succeeded */
+X	int		fail;		/* Any test failed */
+X	int		done;		/* Holds size of test table */
+X	int		intval;		/* Integer value */
+X	void		*ptrval;	/* Pointer value */
+X	void		*ptrval2;	/* Pointer value */
+X	DL_LIST		list;		/* B-list under test */
+X	DLL_SETUP	setup;		/* Configuration data for B-list */
+X
+X	/* Initialization */
+X	fail = 0;
+X	list = (DL_LIST) NULL;
+X	setup = (DLL_SETUP) NULL;
+X
+X	/* Compute the number of test cases there are */
+X	done = sizeof(suite)/sizeof(CASE);
+X
+X	/* Display heading */
+X	printf("test OP         key   data  data2  result  intval ptrval  ptrval2  pass\n");
+X	for (i = 0; (i < done) && (suite[i].op != END); i++)
+X	{
+X		/* Initialize test case */
+X		ok = 1;
+X		intval = 0;
+X		ptrval = NULL;
+X		ptrval2 = NULL;
+X
+X		/* Perform test */
+X		switch (suite[i].op)
+X		{
+X	case SETUP:
+X			/*
+X			 * Test case:  data2 = 0 if no comparison function,
+X			 *             data = global data,
+X			 *             result = 0 if NULL expected
+X			 */
+X			setup = dll_setup(
+X			          (suite[i].data2 ? comp : (int (*)()) NULL),
+X			          (void*) (suite[i].data ? &suite[i].data
+X			                                 : NULL));
+X			ok = (suite[i].result != (setup == (DLL_SETUP) NULL));
+X			break;
+X
+X	case FREESETUP:
+X			dll_freeSetup(setup);
+X			setup = (DLL_SETUP) NULL;
+X			break;
+X
+X	case NEW:
+X			/* Test case:  result = 0 if NULL expected */
+X			list = dll_new(setup);
+X			ok = (suite[i].result != (list == (DL_LIST) NULL));
+X			break;
+X
+X	case DESTROY:
+X			/* Test case:  result = number of keys to be freed,
+X			 *             key    = 0 if neither free fn is called,
+X			 *                      FREEKEY if freeKey() only
+X			 *                      FREEDATA if freeData() only
+X			 *                      FREEKEY+FREEDATA if both
+X			 *             data   = info parameter
+X			 */
+X			infoOk = 1;
+X			freeOk = 1;
+X			expInfo = &suite[i].data;
+X			switch (suite[i].key)
+X			{
+X		case 0:
+X				/* Fails only if dumps core or hangs */
+X				freedKeys = -1;
+X				freedData = -1;
+X				dll_destroy(list,NULL,NULL,&suite[i].data);
+X				break;
+X		case FREEKEY:
+X				freedKeys = 0;
+X				freedData = -1;
+X				dll_destroy(list,freeKey,NULL,&suite[i].data);
+X				break;
+X		case FREEDATA:
+X				freedKeys = -1;
+X				freedData = 0;
+X				dll_destroy(list,NULL,freeData,&suite[i].data);
+X				break;
+X		default:
+X				freedKeys = 0;
+X				freedData = 0;
+X				dll_destroy(list,freeKey,freeData,
+X				           &suite[i].data);
+X				break;
+X			}
+X			list = NULL;
+X			if (!freeOk || !infoOk) ok = 0;
+X			if ((freedKeys >= 0) && (freedKeys != suite[i].result))
+X				ok = 0;
+X			if ((freedData >= 0) && (freedData != suite[i].result))
+X				ok = 0;
+X			break;
+X
+X	case INSERT:
+X			/* Test case:  key    = key to be inserted
+X			 *             data   = data to be stored with it
+X			 *             result = expected val of dll_insert()
+X			 */
+X			intval = dll_insert(list,
+X			                suite[i].key ? &suite[i].key : NULL,
+X			                suite[i].data ? &suite[i].data : NULL);
+X			if (intval != suite[i].result) ok = 0;
+X			break;
+X
+X	case PUSHF:
+X			/* Test case:  key    = key to be inserted
+X			 *             data   = data to be stored with it
+X			 *             result = 0 if failure expected
+X			 */
+X			ptrval = (suite[i].key ? &suite[i].key : NULL);
+X			ptrval2 = dll_pushf(list, ptrval,
+X			                suite[i].data ? &suite[i].data : NULL);
+X			if ((suite[i].result && (ptrval != ptrval2)) ||
+X			    (!suite[i].result && (ptrval2 != NULL))) ok = 0;
+X			break;
+X
+X	case PUSHR:
+X			/* Test case:  key    = key to be inserted
+X			 *             data   = data to be stored with it
+X			 *             result = 0 if failure expected
+X			 */
+X			ptrval = (suite[i].key ? &suite[i].key : NULL);
+X			ptrval2 = dll_pushr(list, ptrval,
+X			                suite[i].data ? &suite[i].data : NULL);
+X			if ((suite[i].result && (ptrval != ptrval2)) ||
+X			    (!suite[i].result && (ptrval2 != NULL))) ok = 0;
+X			break;
+X
+X	case PUSH:
+X			/* Test case:  key    = key to be inserted
+X			 *             data   = data to be stored with it
+X			 *             data2  = which end to push onto
+X			 *             result = 0 if failure expected
+X			 */
+X			ptrval = (suite[i].key ? &suite[i].key : NULL);
+X			ptrval2 = dll_push(list, suite[i].data2, ptrval,
+X			                suite[i].data ? &suite[i].data : NULL);
+X			if ((suite[i].result && (ptrval != ptrval2)) ||
+X			    (!suite[i].result && (ptrval2 != NULL))) ok = 0;
+X			break;
+X
+X	case DELETE:
+X			/* Test case:  key    = key to be deleted
+X			 *             data   = expected data returned by
+X			 *                      dll_delete
+X			 *             result = 0 if failure expected
+X			 */
+X			ptrval2 = dll_delete(list,
+X			                  suite[i].key ? &suite[i].key : NULL,
+X			                  suite[i].data ? &ptrval : NULL);
+X			if (suite[i].key == 0)
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 == NULL)
+X				{
+X					if (suite[i].result) ok = 0;
+X				}
+X				else
+X				{
+X					if (*(int*)ptrval2 != suite[i].key)
+X					{
+X						ok = 0;
+X					}
+X				}
+X			}
+X			if (suite[i].data != 0)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case SEARCH:
+X			/* Test case:  key    = key to be sought
+X			 *             data   = expected data returned by
+X			 *                      dll_search
+X			 *             result = 0 if failure expected
+X			 */
+X			ptrval2 = dll_search(list,
+X			                  suite[i].key ? &suite[i].key : NULL,
+X			                  suite[i].data ? &ptrval : NULL);
+X			if (suite[i].key == 0)
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 == NULL)
+X				{
+X					if (suite[i].result) ok = 0;
+X				}
+X				else
+X				{
+X					if (*(int*)ptrval2 != suite[i].key)
+X					{
+X						ok = 0;
+X					}
+X				}
+X			}
+X			if (suite[i].data != 0)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case TRAVERSE:
+X			/* Test case:  data   = info passed to dll_traverse
+X			 *             key    = 0 if NULL passed as fn
+X			 *             result = the expected number of times
+X			 *                      visit() is called
+X			 */
+X			visited = 0;
+X			travOk = 1;
+X			expInfo = &suite[i].data;
+X			lastKey = 0;
+X			dll_traverse(list, (suite[i].key ? visit : NULL),
+X			             &suite[i].data);
+X			ok = travOk;
+X			if (visited != suite[i].result) ok = 0;
+X			break;
+X
+X	case FIRST:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_first(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case LAST:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_last(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case NEXT:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if last key was found
+X			 */
+X			ptrval2 = dll_next(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case PREV:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if first key was found
+X			 */
+X			ptrval2 = dll_prev(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case RANK:
+X			/* Test case:  key    = rank searched for
+X			 *             data   = expected data
+X			 *             result = expected key
+X			 */
+X			ptrval2 = dll_rank(list,suite[i].key,
+X			                  suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result != 0)
+X			{
+X				if (*(int*)ptrval2 != suite[i].result) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data != 0)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			break;
+X
+X	case DELRANK:
+X			/* Test case:  key    = rank to be deleted
+X			 *             data   = expected data
+X			 *             result = expected key
+X			 */
+X			ptrval2 = dll_delRank(list,suite[i].key,
+X			                     suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result != 0)
+X			{
+X				if (*(int*)ptrval2 != suite[i].result) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data != 0)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			break;
+X
+X	case DATA:
+X			/* Test case:  data = expected data */
+X			ptrval = dll_data(list);
+X			if (suite[i].data != 0)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case SETDATA:
+X			/* Test case:  data = new data */
+X			dll_setData(list,&suite[i].data);
+X			break;
+X
+X	case POPF:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_popf(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case POPR:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_popr(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case POP:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             data2  = end to pop from
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_pop(list,suite[i].data2,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case PEEKF:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_peekf(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case PEEKR:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_peekr(list,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	case PEEK:
+X			/* Test case:  key    = expected key returned
+X			 *             data   = expected data
+X			 *             data2  = end to peek into
+X			 *             result = 0 if list is empty
+X			 */
+X			ptrval2 = dll_peek(list,suite[i].data2,
+X			                   suite[i].data ? &ptrval : NULL);
+X			if (suite[i].result)
+X			{
+X				if (*(int*)ptrval2 != suite[i].key) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval2 != NULL) ok = 0;
+X			}
+X			if (suite[i].data)
+X			{
+X				if (*(int*)ptrval != suite[i].data) ok = 0;
+X			}
+X			else
+X			{
+X				if (ptrval != NULL) ok = 0;
+X			}
+X			break;
+X
+X	default:
+X			break;
+X		}
+X
+X		/* Note test case failure */
+X		if (!ok) fail = 1;
+X
+X		/* Display result of test case */
+X		printf("%4.4d %-9.9s %5.4d %5.4d %5.4d  %5.4d   %5.4d   ",
+X		       i,opnames[suite[i].op],suite[i].key,suite[i].data,
+X		       suite[i].data2,suite[i].result,intval);
+X		if (ptrval == NULL) printf(" NULL   ");
+X		else printf("%5.4d   ",*(int*)ptrval);
+X		if (ptrval2 == NULL) printf(" NULL    ");
+X		else printf("%5.4d    ",*(int*)ptrval2);
+X		if (ok) printf("yes  ");
+X		else printf("no   ");
+X		printf("\n");
+X
+X		/* Dump the list if requested */
+X		if ((suite[i].dump) && (list != NULL))
+X		{
+X			printf("Contents of list:\n");
+X			dll_dump(list,dumpKey,NULL);
+X		}
+X	}
+X	if (suite[i].op == END)
+X	{
+X		i = done;
+X	}
+X
+X	/* Display summary */
+X	printf("TEST %s\n",(fail ? "FAILED" : "PASSED"));
+X
+X	/* Return 0 on success, non-zero on failure */
+X	return ((i != done) || fail);
+X}
+X
+X/********* End of file *********/
+X
+END_OF_src/list/test.c
+if test 23698 -ne `wc -c <src/list/test.c`; then
+    echo shar: \"src/list/test.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 10 \(of 10\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

@@ -1,0 +1,808 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i015:  dbmalloc - Debug Malloc Library PL14, Part10/10
+Message-ID: <1992Sep4.152431.13635@sparky.imd.sterling.com>
+X-Md4-Signature: 292b637028fb8f72ad1ac5da5c4a4bd3
+Date: Fri, 4 Sep 1992 15:24:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 15
+Archive-name: dbmalloc/part10
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 10 (of 10)."
+# Contents:  testmem.c
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'testmem.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testmem.c'\"
+else
+echo shar: Extracting \"'testmem.c'\" \(24605 characters\)
+sed "s/^X//" >'testmem.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X/* 
+X * This stuff is all stolen (with permission, since it was in the public
+X * domain) from Henry Spencer's string and memory library.  Thanks Henry.
+X */
+X
+X/*
+X * Test program for string(3) routines.
+X * 
+X * Note that at least one Bell Labs implementation of the string
+X * routines flunks a couple of these tests -- the ones which test
+X * behavior on "negative" characters.
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include "malloc.h"
+X
+X#ifndef index
+Xchar * index();
+Xchar * rindex();
+X#endif
+X
+XVOIDTYPE	first();
+XVOIDTYPE	second();
+X
+X#define	STREQ(a, b)	(strcmp((a), (b)) == 0)
+X
+Xchar *it = "<UNSET>";		/* Routine name for message routines. */
+Xint waserror = 0;		/* For exit status. */
+X
+XSTRCMPTYPE structest[] = "\004\203";	/* For testing signedness of chars. */
+XMEMCMPTYPE memuctest[] = "\004\203";	/* For testing signedness of chars. */
+Xint strcharsigned;			/* Result. */
+Xint memcharsigned;			/* Result. */
+X
+X/*
+X - check - complain if condition is not true
+X */
+XVOIDTYPE
+Xcheck(thing, number)
+Xint thing;
+Xint number;			/* Test number for error message. */
+X{
+X	if (!thing) {
+X		printf("%s flunked test %d\n", it, number);
+X		waserror = 1;
+X	}
+X}
+X
+X/*
+X - equal - complain if first two args don't strcmp as equal
+X */
+XVOIDTYPE
+Xequal(a, b, number)
+Xchar *a;
+Xchar *b;
+Xint number;			/* Test number for error message. */
+X{
+X	check(a != NULL && b != NULL && STREQ(a, b), number);
+X}
+X
+Xchar one[50];
+Xchar two[50];
+X
+X#ifdef UNIXERR
+X#define ERR 1
+X#endif
+X#ifdef BERKERR
+X#define ERR 1
+X#endif
+X#ifdef ERR
+Xint f;
+Xextern char *sys_errlist[];
+Xextern int sys_nerr;
+Xextern int errno;
+X#endif
+X
+X/* ARGSUSED */
+Xint
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	/*
+X	 * First, establish whether string chars are signed.
+X	 */
+X	if (structest[0] < structest[1])
+X		strcharsigned = 0;
+X	else
+X		strcharsigned = 1;
+X
+X	/*
+X	 * then establish whether memory chars are signed.
+X	 */
+X	if (memuctest[0] < memuctest[1])
+X		memcharsigned = 0;
+X	else
+X		memcharsigned = 1;
+X
+X	/*
+X	 * Then, do the rest of the work.  Split into two functions because
+X	 * some compilers get unhappy about a single immense function.
+X	 */
+X	first();
+X	second();
+X
+X	exit((waserror) ? 1 : 0);
+X	/*NOTREACHED*/
+X}
+X
+XVOIDTYPE
+Xfirst()
+X{
+X	/*
+X	 * Test strcmp first because we use it to test other things.
+X	 */
+X	it = "strcmp";
+X	check(strcmp("", "") == 0, 1);		/* Trivial case. */
+X	check(strcmp("a", "a") == 0, 2);	/* Identity. */
+X	check(strcmp("abc", "abc") == 0, 3);	/* Multicharacter. */
+X	check(strcmp("abc", "abcd") < 0, 4);	/* Length mismatches. */
+X	check(strcmp("abcd", "abc") > 0, 5);
+X	check(strcmp("abcd", "abce") < 0, 6);	/* Honest miscompares. */
+X	check(strcmp("abce", "abcd") > 0, 7);
+X	check(strcmp("a\203", "a") > 0, 8);	/* Tricky if char signed. */
+X	if (strcharsigned)			/* Sign-bit comparison. */
+X		check(strcmp("a\203", "a\003") < 0, 9);
+X	else
+X		check(strcmp("a\203", "a\003") > 0, 9);
+X	check(strcmp("a", "a\203") < 0, 10);	/* Tricky if char signed. */
+X
+X	/*
+X	 * now test stricmp (make sure it does everything of strcmp and then
+X	 * some)
+X	 */
+X	it = "stricmp";
+X	check(stricmp("", "") == 0, 1);		/* Trivial case. */
+X	check(stricmp("a", "a") == 0, 2);	/* Identity. */
+X	check(stricmp("abc", "abc") == 0, 3);	/* Multicharacter. */
+X	check(stricmp("abc", "abcd") < 0, 4);	/* Length mismatches. */
+X	check(stricmp("abcd", "abc") > 0, 5);
+X	check(stricmp("abcd", "abce") < 0, 6);	/* Honest miscompares. */
+X	check(stricmp("abce", "abcd") > 0, 7);
+X	check(stricmp("a\203", "a") > 0, 8);	/* Tricky if char signed. */
+X	if (strcharsigned)			/* Sign-bit comparison. */
+X		check(stricmp("a\203", "a\003") < 0, 9);
+X	else
+X		check(stricmp("a\203", "a\003") > 0, 9);
+X	check(stricmp("a", "a\203") < 0, 10);	/* Tricky if char signed. */
+X	check(stricmp("a", "A") == 0, 11);	/* Identity. */
+X	check(stricmp("aBc", "abc") == 0, 12);	/* Multicharacter. */
+X	check(stricmp("abC", "abcd") < 0, 13);	/* Length mismatches. */
+X	check(stricmp("abcD", "abc") > 0, 14);
+X	check(stricmp("abcD", "abce") < 0, 15);	/* Honest miscompares. */
+X	check(stricmp("abcd", "abcE") < 0, 16);	/* Honest miscompares. */
+X
+X	/*
+X	 * Test strcpy next because we need it to set up other tests.
+X	 */
+X	it = "strcpy";
+X	check(strcpy(one, "abcd") == one, 1);	/* Returned value. */
+X	equal(one, "abcd", 2);			/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "x");
+X	equal(one, "x", 3);			/* Writeover. */
+X	equal(one+2, "cd", 4);			/* Wrote too much? */
+X
+X	VOIDCAST strcpy(two, "hi there");
+X	VOIDCAST strcpy(one, two);
+X	equal(one, "hi there", 5);		/* Basic test encore. */
+X	equal(two, "hi there", 6);		/* Stomped on source? */
+X
+X	VOIDCAST strcpy(one, "");
+X	equal(one, "", 7);			/* Boundary condition. */
+X
+X	/*
+X	 * strcat
+X	 */
+X	it = "strcat";
+X	VOIDCAST strcpy(one, "ijk");
+X	check(strcat(one, "lmn") == one, 1);	/* Returned value. */
+X	equal(one, "ijklmn", 2);		/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "x");
+X	VOIDCAST strcat(one, "yz");
+X	equal(one, "xyz", 3);			/* Writeover. */
+X	equal(one+4, "mn", 4);			/* Wrote too much? */
+X
+X	VOIDCAST strcpy(one, "gh");
+X	VOIDCAST strcpy(two, "ef");
+X	VOIDCAST strcat(one, two);
+X	equal(one, "ghef", 5);			/* Basic test encore. */
+X	equal(two, "ef", 6);			/* Stomped on source? */
+X
+X	VOIDCAST strcpy(one, "");
+X	VOIDCAST strcat(one, "");
+X	equal(one, "", 7);			/* Boundary conditions. */
+X	VOIDCAST strcpy(one, "ab");
+X	VOIDCAST strcat(one, "");
+X	equal(one, "ab", 8);
+X	VOIDCAST strcpy(one, "");
+X	VOIDCAST strcat(one, "cd");
+X	equal(one, "cd", 9);
+X
+X	/*
+X	 * strncat - first test it as strcat, with big counts, then
+X	 * test the count mechanism.
+X	 */
+X	it = "strncat";
+X	VOIDCAST strcpy(one, "ijk");
+X	check(strncat(one, "lmn", 99) == one, 1);	/* Returned value. */
+X	equal(one, "ijklmn", 2);		/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "x");
+X	VOIDCAST strncat(one, "yz", 99);
+X	equal(one, "xyz", 3);			/* Writeover. */
+X	equal(one+4, "mn", 4);			/* Wrote too much? */
+X
+X	VOIDCAST strcpy(one, "gh");
+X	VOIDCAST strcpy(two, "ef");
+X	VOIDCAST strncat(one, two, 99);
+X	equal(one, "ghef", 5);			/* Basic test encore. */
+X	equal(two, "ef", 6);			/* Stomped on source? */
+X
+X	VOIDCAST strcpy(one, "");
+X	VOIDCAST strncat(one, "", 99);
+X	equal(one, "", 7);			/* Boundary conditions. */
+X	VOIDCAST strcpy(one, "ab");
+X	VOIDCAST strncat(one, "", 99);
+X	equal(one, "ab", 8);
+X	VOIDCAST strcpy(one, "");
+X	VOIDCAST strncat(one, "cd", 99);
+X	equal(one, "cd", 9);
+X
+X	VOIDCAST strcpy(one, "ab");
+X	VOIDCAST strncat(one, "cdef", 2);
+X	equal(one, "abcd", 10);			/* Count-limited. */
+X
+X	VOIDCAST strncat(one, "gh", 0);
+X	equal(one, "abcd", 11);			/* Zero count. */
+X
+X	VOIDCAST strncat(one, "gh", 2);
+X	equal(one, "abcdgh", 12);		/* Count and length equal. */
+X
+X	/*
+X	 * strncmp - first test as strcmp with big counts, then test
+X	 * count code.
+X	 */
+X	it = "strncmp";
+X	check(strncmp("", "", 99) == 0, 1);	/* Trivial case. */
+X	check(strncmp("a", "a", 99) == 0, 2);	/* Identity. */
+X	check(strncmp("abc", "abc", 99) == 0, 3);	/* Multicharacter. */
+X	check(strncmp("abc", "abcd", 99) < 0, 4);	/* Length unequal. */
+X	check(strncmp("abcd", "abc", 99) > 0, 5);
+X	check(strncmp("abcd", "abce", 99) < 0, 6);	/* Honestly unequal. */
+X	check(strncmp("abce", "abcd", 99) > 0, 7);
+X	check(strncmp("a\203", "a", 2) > 0, 8);	/* Tricky if '\203' < 0 */
+X	if (strcharsigned)			/* Sign-bit comparison. */
+X		check(strncmp("a\203", "a\003", 2) < 0, 9);
+X	else
+X		check(strncmp("a\203", "a\003", 2) > 0, 9);
+X	check(strncmp("abce", "abcd", 3) == 0, 10);	/* Count limited. */
+X	check(strncmp("abce", "abc", 3) == 0, 11);	/* Count == length. */
+X	check(strncmp("abcd", "abce", 4) < 0, 12);	/* Nudging limit. */
+X	check(strncmp("abc", "def", 0) == 0, 13);	/* Zero count. */
+X
+X	/*
+X	 * strincmp - first test as strincmp with big counts, then test
+X	 * count code, then test with different cases
+X	 */
+X	it = "strincmp";
+X	check(strincmp("", "", 99) == 0, 1);	/* Trivial case. */
+X	check(strincmp("a", "a", 99) == 0, 2);	/* Identity. */
+X	check(strincmp("abc", "abc", 99) == 0, 3);	/* Multicharacter. */
+X	check(strincmp("abc", "abcd", 99) < 0, 4);	/* Length unequal. */
+X	check(strincmp("abcd", "abc", 99) > 0, 5);
+X	check(strincmp("abcd", "abce", 99) < 0, 6);	/* Honestly unequal. */
+X	check(strincmp("abce", "abcd", 99) > 0, 7);
+X	check(strincmp("a\203", "a", 2) > 0, 8);/* Tricky if '\203' < 0 */
+X	if (strcharsigned)			/* Sign-bit comparison. */
+X		check(strincmp("a\203", "a\003", 2) < 0, 9);
+X	else
+X		check(strincmp("a\203", "a\003", 2) > 0, 9);
+X	check(strincmp("abce", "abcd", 3) == 0, 10);	/* Count limited. */
+X	check(strincmp("abce", "abc", 3) == 0, 11);	/* Count == length. */
+X	check(strincmp("abcd", "abce", 4) < 0, 12);	/* Nudging limit. */
+X	check(strincmp("abc", "def", 0) == 0, 13);	/* Zero count. */
+X
+X	check(strincmp("a", "A", 99) == 0, 14);	/* Identity. */
+X	check(strincmp("abC", "abc", 99) == 0, 15);	/* Multicharacter. */
+X	check(strincmp("abC", "abcd", 99) < 0, 16);	/* Length unequal. */
+X	check(strincmp("abcd", "Abc", 99) > 0, 17);
+X	check(strincmp("abcD", "abce", 99) < 0, 18);	/* Honestly unequal. */
+X	check(strincmp("abcE", "abcd", 99) > 0, 19);
+X	check(strincmp("abce", "abcd", 99) > 0, 20);
+X
+X	/*
+X	 * strncpy - testing is a bit different because of odd semantics
+X	 */
+X	it = "strncpy";
+X	check(strncpy(one, "abc", 4) == one, 1);	/* Returned value. */
+X	equal(one, "abc", 2);			/* Did the copy go right? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strncpy(one, "xyz", 2);
+X	equal(one, "xycdefgh", 3);		/* Copy cut by count. */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strncpy(one, "xyz", 3);	/* Copy cut just before NUL. */
+X	equal(one, "xyzdefgh", 4);
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strncpy(one, "xyz", 4);	/* Copy just includes NUL. */
+X	equal(one, "xyz", 5);
+X	equal(one+4, "efgh", 6);		/* Wrote too much? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strncpy(one, "xyz", 5);	/* Copy includes padding. */
+X	equal(one, "xyz", 7);
+X	equal(one+4, "", 8);
+X	equal(one+5, "fgh", 9);
+X
+X	VOIDCAST strcpy(one, "abc");
+X	VOIDCAST strncpy(one, "xyz", 0);	/* Zero-length copy. */
+X	equal(one, "abc", 10);	
+X
+X	VOIDCAST strncpy(one, "", 2);		/* Zero-length source. */
+X	equal(one, "", 11);
+X	equal(one+1, "", 12);	
+X	equal(one+2, "c", 13);
+X
+X	VOIDCAST strcpy(one, "hi there");
+X	VOIDCAST strncpy(two, one, 9);
+X	equal(two, "hi there", 14);		/* Just paranoia. */
+X	equal(one, "hi there", 15);		/* Stomped on source? */
+X
+X	/*
+X	 * strlen
+X	 */
+X	it = "strlen";
+X	check(strlen("") == 0, 1);		/* Empty. */
+X	check(strlen("a") == 1, 2);		/* Single char. */
+X	check(strlen("abcd") == 4, 3);		/* Multiple chars. */
+X
+X	/*
+X	 * strchr
+X	 */
+X	it = "strchr";
+X	check(strchr("abcd", 'z') == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(strchr(one, 'c') == one+2, 2);	/* Basic test. */
+X	check(strchr(one, 'd') == one+3, 3);	/* End of string. */
+X	check(strchr(one, 'a') == one, 4);	/* Beginning. */
+X	check(strchr(one, '\0') == one+4, 5);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(strchr(one, 'b') == one+1, 6);	/* Finding first. */
+X	VOIDCAST strcpy(one, "");
+X	check(strchr(one, 'b') == NULL, 7);	/* Empty string. */
+X	check(strchr(one, '\0') == one, 8);	/* NUL in empty string. */
+X
+X	/*
+X	 * strstr (minimal testing added by cpc)
+X	 */
+X	it = "strstr";
+X	check(strstr("abcd", "z") == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(strstr(one, "c") == one+2, 2);	/* Basic test. */
+X	check(strstr(one, "cd") == one+2, 3);	/* Basic test. */
+X	check(strstr(one, "d") == one+3, 4);	/* End of string. */
+X	check(strstr(one, "a") == one, 5);	/* Beginning. */
+X	check(strstr(one, "") == one, 6);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(strstr(one, "b") == one+1, 7);	/* Finding first. */
+X	VOIDCAST strcpy(one, "");
+X	check(strstr(one, "b") == NULL, 8);	/* Empty string. */
+X	check(strstr(one, "") == one, 9);	/* NUL in empty string. */
+X
+X	/*
+X	 * index - just like strchr
+X	 */
+X	it = "index";
+X	check(index("abcd", 'z') == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(index(one, 'c') == one+2, 2);	/* Basic test. */
+X	check(index(one, 'd') == one+3, 3);	/* End of string. */
+X	check(index(one, 'a') == one, 4);	/* Beginning. */
+X	check(index(one, '\0') == one+4, 5);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(index(one, 'b') == one+1, 6);	/* Finding first. */
+X	VOIDCAST strcpy(one, "");
+X	check(index(one, 'b') == NULL, 7);	/* Empty string. */
+X	check(index(one, '\0') == one, 8);	/* NUL in empty string. */
+X
+X	/*
+X	 * strrchr
+X	 */
+X	it = "strrchr";
+X	check(strrchr("abcd", 'z') == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(strrchr(one, 'c') == one+2, 2);	/* Basic test. */
+X	check(strrchr(one, 'd') == one+3, 3);	/* End of string. */
+X	check(strrchr(one, 'a') == one, 4);	/* Beginning. */
+X	check(strrchr(one, '\0') == one+4, 5);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(strrchr(one, 'b') == one+3, 6);	/* Finding last. */
+X	VOIDCAST strcpy(one, "");
+X	check(strrchr(one, 'b') == NULL, 7);	/* Empty string. */
+X	check(strrchr(one, '\0') == one, 8);	/* NUL in empty string. */
+X
+X	/*
+X	 * rindex - just like strrchr
+X	 */
+X	it = "rindex";
+X	check(rindex("abcd", 'z') == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(rindex(one, 'c') == one+2, 2);	/* Basic test. */
+X	check(rindex(one, 'd') == one+3, 3);	/* End of string. */
+X	check(rindex(one, 'a') == one, 4);	/* Beginning. */
+X	check(rindex(one, '\0') == one+4, 5);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(rindex(one, 'b') == one+3, 6);	/* Finding last. */
+X	VOIDCAST strcpy(one, "");
+X	check(rindex(one, 'b') == NULL, 7);	/* Empty string. */
+X	check(rindex(one, '\0') == one, 8);	/* NUL in empty string. */
+X}
+X
+XVOIDTYPE
+Xsecond()
+X{
+X	/*
+X	 * strpbrk - somewhat like strchr
+X	 */
+X	it = "strpbrk";
+X	check(strpbrk("abcd", "z") == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(strpbrk(one, "c") == one+2, 2);	/* Basic test. */
+X	check(strpbrk(one, "d") == one+3, 3);	/* End of string. */
+X	check(strpbrk(one, "a") == one, 4);	/* Beginning. */
+X	check(strpbrk(one, "") == NULL, 5);	/* Empty search list. */
+X	check(strpbrk(one, "cb") == one+1, 6);	/* Multiple search. */
+X	VOIDCAST strcpy(one, "abcabdea");
+X	check(strpbrk(one, "b") == one+1, 7);	/* Finding first. */
+X	check(strpbrk(one, "cb") == one+1, 8);	/* With multiple search. */
+X	check(strpbrk(one, "db") == one+1, 9);	/* Another variant. */
+X	VOIDCAST strcpy(one, "");
+X	check(strpbrk(one, "bc") == NULL, 10);	/* Empty string. */
+X	check(strpbrk(one, "") == NULL, 11);	/* Both strings empty. */
+X
+X#if 0
+X	/*
+X	 * strstr - somewhat like strchr
+X	 */
+X	it = "strstr";
+X	check(strstr("abcd", "z") == NULL, 1);	/* Not found. */
+X	check(strstr("abcd", "abx") == NULL, 2);	/* Dead end. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(strstr(one, "c") == one+2, 3);	/* Basic test. */
+X	check(strstr(one, "bc") == one+1, 4);	/* Multichar. */
+X	check(strstr(one, "d") == one+3, 5);	/* End of string. */
+X	check(strstr(one, "cd") == one+2, 6);	/* Tail of string. */
+X	check(strstr(one, "abc") == one, 7);	/* Beginning. */
+X	check(strstr(one, "abcd") == one, 8);	/* Exact match. */
+X	check(strstr(one, "abcde") == NULL, 9);	/* Too long. */
+X	check(strstr(one, "de") == NULL, 10);	/* Past end. */
+X	check(strstr(one, "") == one+4, 11);	/* Finding empty. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(strstr(one, "ba") == one+1, 12);	/* Finding first. */
+X	VOIDCAST strcpy(one, "");
+X	check(strstr(one, "b") == NULL, 13);	/* Empty string. */
+X	check(strstr(one, "") == one, 14);	/* Empty in empty string. */
+X	VOIDCAST strcpy(one, "bcbca");
+X	check(strstr(one, "bca") == one+2, 15);	/* False start. */
+X	VOIDCAST strcpy(one, "bbbcabbca");
+X	check(strstr(one, "bbca") == one+1, 16);	/* With overlap. */
+X#endif
+X
+X	/*
+X	 * strspn
+X	 */
+X	it = "strspn";
+X	check(strspn("abcba", "abc") == 5, 1);	/* Whole string. */
+X	check(strspn("abcba", "ab") == 2, 2);	/* Partial. */
+X	check(strspn("abc", "qx") == 0, 3);	/* None. */
+X	check(strspn("", "ab") == 0, 4);	/* Null string. */
+X	check(strspn("abc", "") == 0, 5);	/* Null search list. */
+X
+X	/*
+X	 * strcspn
+X	 */
+X	it = "strcspn";
+X	check(strcspn("abcba", "qx") == 5, 1);	/* Whole string. */
+X	check(strcspn("abcba", "cx") == 2, 2);	/* Partial. */
+X	check(strcspn("abc", "abc") == 0, 3);	/* None. */
+X	check(strcspn("", "ab") == 0, 4);	/* Null string. */
+X	check(strcspn("abc", "") == 3, 5);	/* Null search list. */
+X
+X	/*
+X	 * strtok - the hard one
+X	 */
+X	it = "strtok";
+X	VOIDCAST strcpy(one, "first, second, third");
+X	equal(strtok(one, ", "), "first", 1);	/* Basic test. */
+X	equal(one, "first", 2);
+X	equal(strtok((char *)NULL, ", "), "second", 3);
+X	equal(strtok((char *)NULL, ", "), "third", 4);
+X	check(strtok((char *)NULL, ", ") == NULL, 5);
+X	VOIDCAST strcpy(one, ", first, ");
+X	equal(strtok(one, ", "), "first", 6);	/* Extra delims, 1 tok. */
+X	check(strtok((char *)NULL, ", ") == NULL, 7);
+X	VOIDCAST strcpy(one, "1a, 1b; 2a, 2b");
+X	equal(strtok(one, ", "), "1a", 8);	/* Changing delim lists. */
+X	equal(strtok((char *)NULL, "; "), "1b", 9);
+X	equal(strtok((char *)NULL, ", "), "2a", 10);
+X	VOIDCAST strcpy(two, "x-y");
+X	equal(strtok(two, "-"), "x", 11);	/* New string before done. */
+X	equal(strtok((char *)NULL, "-"), "y", 12);
+X	check(strtok((char *)NULL, "-") == NULL, 13);
+X	VOIDCAST strcpy(one, "a,b, c,, ,d");
+X	equal(strtok(one, ", "), "a", 14);	/* Different separators. */
+X	equal(strtok((char *)NULL, ", "), "b", 15);
+X	equal(strtok((char *)NULL, " ,"), "c", 16);	/* Permute list too. */
+X	equal(strtok((char *)NULL, " ,"), "d", 17);
+X	check(strtok((char *)NULL, ", ") == NULL, 18);
+X	check(strtok((char *)NULL, ", ") == NULL, 19);	/* Persistence. */
+X	VOIDCAST strcpy(one, ", ");
+X	check(strtok(one, ", ") == NULL, 20);	/* No tokens. */
+X	VOIDCAST strcpy(one, "");
+X	check(strtok(one, ", ") == NULL, 21);	/* Empty string. */
+X	VOIDCAST strcpy(one, "abc");
+X	equal(strtok(one, ", "), "abc", 22);	/* No delimiters. */
+X	check(strtok((char *)NULL, ", ") == NULL, 23);
+X	VOIDCAST strcpy(one, "abc");
+X	equal(strtok(one, ""), "abc", 24);	/* Empty delimiter list. */
+X	check(strtok((char *)NULL, "") == NULL, 25);
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strcpy(one, "a,b,c");
+X	equal(strtok(one, ","), "a", 26);	/* Basics again... */
+X	equal(strtok((char *)NULL, ","), "b", 27);
+X	equal(strtok((char *)NULL, ","), "c", 28);
+X	check(strtok((char *)NULL, ",") == NULL, 29);
+X	equal(one+6, "gh", 30);			/* Stomped past end? */
+X	equal(one, "a", 31);			/* Stomped old tokens? */
+X	equal(one+2, "b", 32);
+X	equal(one+4, "c", 33);
+X
+X	/*
+X	 * memcmp
+X	 */
+X	it = "memcmp";
+X	check(memcmp("a", "a", 1) == 0, 1);	/* Identity. */
+X	check(memcmp("abc", "abc", 3) == 0, 2);	/* Multicharacter. */
+X	check(memcmp("abcd", "abce", 4) < 0, 3);	/* Honestly unequal. */
+X	check(memcmp("abce", "abcd", 4) > 0, 4);
+X	check(memcmp("alph", "beta", 4) < 0, 5);
+X	if (memcharsigned)			/* Sign-bit comparison. */
+X		check(memcmp("a\203", "a\003", 2) < 0, 6);
+X	else
+X		check(memcmp("a\203", "a\003", 2) > 0, 6);
+X	check(memcmp("abce", "abcd", 3) == 0, 7);	/* Count limited. */
+X	check(memcmp("abc", "def", 0) == 0, 8);	/* Zero count. */
+X
+X	/*
+X	 * memchr
+X	 */
+X	it = "memchr";
+X	check(memchr("abcd", 'z', 4) == NULL, 1);	/* Not found. */
+X	VOIDCAST strcpy(one, "abcd");
+X	check(memchr(one, 'c', 4) == one+2, 2);	/* Basic test. */
+X	check(memchr(one, 'd', 4) == one+3, 3);	/* End of string. */
+X	check(memchr(one, 'a', 4) == one, 4);	/* Beginning. */
+X	check(memchr(one, '\0', 5) == one+4, 5);	/* Finding NUL. */
+X	VOIDCAST strcpy(one, "ababa");
+X	check(memchr(one, 'b', 5) == one+1, 6);	/* Finding first. */
+X	check(memchr(one, 'b', 0) == NULL, 7);	/* Zero count. */
+X	check(memchr(one, 'a', 1) == one, 8);	/* Singleton case. */
+X	VOIDCAST strcpy(one, "a\203b");
+X	check(memchr(one, 0203, 3) == one+1, 9);	/* Unsignedness. */
+X
+X	/*
+X	 * memcpy
+X	 *
+X	 * Note that X3J11 says memcpy must work regardless of overlap.
+X	 * The SVID says it might fail.
+X	 */
+X	it = "memcpy";
+X	check(memcpy(one, "abc", 4) == one, 1);	/* Returned value. */
+X	equal(one, "abc", 2);			/* Did the copy go right? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST memcpy(one+1, "xyz", 2);
+X	equal(one, "axydefgh", 3);		/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "abc");
+X	VOIDCAST memcpy(one, "xyz", 0);
+X	equal(one, "abc", 4);			/* Zero-length copy. */
+X
+X	VOIDCAST strcpy(one, "hi there");
+X	VOIDCAST strcpy(two, "foo");
+X	VOIDCAST memcpy(two, one, 9);
+X	equal(two, "hi there", 5);		/* Just paranoia. */
+X	equal(one, "hi there", 6);		/* Stomped on source? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST memcpy(one+1, one, 9);
+X	equal(one, "aabcdefgh", 7);		/* Overlap, right-to-left. */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST memcpy(one+1, one+2, 7);
+X	equal(one, "acdefgh", 8);		/* Overlap, left-to-right. */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST memcpy(one, one, 9);
+X	equal(one, "abcdefgh", 9);		/* 100% overlap. */
+X
+X	/*
+X	 * memccpy - first test like memcpy, then the search part
+X	 *
+X	 * The SVID, the only place where memccpy is mentioned, says
+X	 * overlap might fail, so we don't try it.  Besides, it's hard
+X	 * to see the rationale for a non-left-to-right memccpy.
+X	 */
+X	it = "memccpy";
+X	check(memccpy(one, "abc", 'q', 4) == NULL, 1);	/* Returned value. */
+X	equal(one, "abc", 2);			/* Did the copy go right? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST memccpy(one+1, "xyz", 'q', 2);
+X	equal(one, "axydefgh", 3);		/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "abc");
+X	VOIDCAST memccpy(one, "xyz", 'q', 0);
+X	equal(one, "abc", 4);			/* Zero-length copy. */
+X
+X	VOIDCAST strcpy(one, "hi there");
+X	VOIDCAST strcpy(two, "foo");
+X	VOIDCAST memccpy(two, one, 'q', 9);
+X	equal(two, "hi there", 5);		/* Just paranoia. */
+X	equal(one, "hi there", 6);		/* Stomped on source? */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST strcpy(two, "horsefeathers");
+X	check(memccpy(two, one, 'f', 9) == two+6, 7);	/* Returned value. */
+X	equal(one, "abcdefgh", 8);		/* Source intact? */
+X	equal(two, "abcdefeathers", 9);		/* Copy correct? */
+X
+X	VOIDCAST strcpy(one, "abcd");
+X	VOIDCAST strcpy(two, "bumblebee");
+X	check(memccpy(two, one, 'a', 4) == two+1, 10);	/* First char. */
+X	equal(two, "aumblebee", 11);
+X	check(memccpy(two, one, 'd', 4) == two+4, 12);	/* Last char. */
+X	equal(two, "abcdlebee", 13);
+X	VOIDCAST strcpy(one, "xyz");
+X	check(memccpy(two, one, 'x', 1) == two+1, 14);	/* Singleton. */
+X	equal(two, "xbcdlebee", 15);
+X
+X	/*
+X	 * memset
+X	 */
+X	it = "memset";
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	check(memset(one+1, 'x', 3) == one+1, 1);	/* Return value. */
+X	equal(one, "axxxefgh", 2);		/* Basic test. */
+X
+X	VOIDCAST memset(one+2, 'y', 0);
+X	equal(one, "axxxefgh", 3);		/* Zero-length set. */
+X
+X	VOIDCAST memset(one+5, 0, 1);
+X	equal(one, "axxxe", 4);			/* Zero fill. */
+X	equal(one+6, "gh", 5);			/* And the leftover. */
+X
+X	VOIDCAST memset(one+2, 010045, 1);
+X	equal(one, "ax\045xe", 6);		/* Unsigned char convert. */
+X
+X	/*
+X	 * bcopy - much like memcpy
+X	 *
+X	 * Berklix manual is silent about overlap, so don't test it.
+X	 */
+X	it = "bcopy";
+X	VOIDCAST bcopy("abc", one, 4);
+X	equal(one, "abc", 1);			/* Simple copy. */
+X
+X	VOIDCAST strcpy(one, "abcdefgh");
+X	VOIDCAST bcopy("xyz", one+1, 2);
+X	equal(one, "axydefgh", 2);		/* Basic test. */
+X
+X	VOIDCAST strcpy(one, "abc");
+X	VOIDCAST bcopy("xyz", one, 0);
+X	equal(one, "abc", 3);			/* Zero-length copy. */
+X
+X	VOIDCAST strcpy(one, "hi there");
+X	VOIDCAST strcpy(two, "foo");
+X	VOIDCAST bcopy(one, two, 9);
+X	equal(two, "hi there", 4);		/* Just paranoia. */
+X	equal(one, "hi there", 5);		/* Stomped on source? */
+X
+X	/*
+X	 * bzero
+X	 */
+X	it = "bzero";
+X	VOIDCAST strcpy(one, "abcdef");
+X	bzero(one+2, 2);
+X	equal(one, "ab", 1);			/* Basic test. */
+X	equal(one+3, "", 2);
+X	equal(one+4, "ef", 3);
+X
+X	VOIDCAST strcpy(one, "abcdef");
+X	bzero(one+2, 0);
+X	equal(one, "abcdef", 4);		/* Zero-length copy. */
+X
+X	/*
+X	 * bcmp - somewhat like memcmp
+X	 */
+X	it = "bcmp";
+X	check(bcmp("a", "a", 1) == 0, 1);	/* Identity. */
+X	check(bcmp("abc", "abc", 3) == 0, 2);	/* Multicharacter. */
+X	check(bcmp("abcd", "abce", 4) != 0, 3);	/* Honestly unequal. */
+X	check(bcmp("abce", "abcd", 4) != 0, 4);
+X	check(bcmp("alph", "beta", 4) != 0, 5);
+X	check(bcmp("abce", "abcd", 3) == 0, 6);	/* Count limited. */
+X	check(bcmp("abc", "def", 0) == 0, 8);	/* Zero count. */
+X
+X#ifdef ERR
+X	/*
+X	 * strerror - VERY system-dependent
+X	 */
+X	it = "strerror";
+X	f = open("/", 1);	/* Should always fail. */
+X	check(f < 0 && errno > 0 && errno < sys_nerr, 1);
+X	equal(strerror(errno), sys_errlist[errno], 2);
+X#ifdef UNIXERR
+X	equal(strerror(errno), "Is a directory", 3);
+X#endif
+X#ifdef BERKERR
+X	equal(strerror(errno), "Permission denied", 3);
+X#endif
+X#endif
+X}
+END_OF_FILE
+if test 24605 -ne `wc -c <'testmem.c'`; then
+    echo shar: \"'testmem.c'\" unpacked with wrong size!
+fi
+# end of 'testmem.c'
+fi
+echo shar: End of archive 10 \(of 10\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

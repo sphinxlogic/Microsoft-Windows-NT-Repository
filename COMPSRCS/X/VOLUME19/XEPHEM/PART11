@@ -1,0 +1,2646 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i099:  xephem - astronomical ephemeris program, Part11/21
+Message-ID: <1993May10.221054.8740@sparky.imd.sterling.com>
+X-Md4-Signature: 8b17db69a88b9a02042a2a6b2441b3ab
+Date: Mon, 10 May 1993 22:10:54 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 99
+Archive-name: xephem/part11
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  cal_mjd.c datamenu.c xephem.c
+# Wrapped by chris@nova on Mon May 10 16:41:48 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 21)."'
+if test -f 'cal_mjd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cal_mjd.c'\"
+else
+  echo shar: Extracting \"'cal_mjd.c'\" \(3726 characters\)
+  sed "s/^X//" >'cal_mjd.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* given a date in months, mn, days, dy, years, yr,
+X * return the modified Julian date (number of days elapsed since 1900 jan 0.5),
+X * *mjd.
+X */
+Xvoid
+Xcal_mjd (mn, dy, yr, mjd)
+Xint mn, yr;
+Xdouble dy;
+Xdouble *mjd;
+X{
+X	static double last_mjd, last_dy;
+X	static int last_mn, last_yr;
+X	int b, d, m, y;
+X	long c;
+X
+X	if (mn == last_mn && yr == last_yr && dy == last_dy) {
+X	    *mjd = last_mjd;
+X	    return;
+X	}
+X
+X	m = mn;
+X	y = (yr < 0) ? yr + 1 : yr;
+X	if (mn < 3) {
+X	    m += 12;
+X	    y -= 1;
+X	}
+X
+X	if (yr < 1582 || yr == 1582 && (mn < 10 || mn == 10 && dy < 15)) 
+X	    b = 0;
+X	else {
+X	    int a;
+X	    a = y/100;
+X	    b = 2 - a + a/4;
+X	}
+X
+X	if (y < 0)
+X	    c = (long)((365.25*y) - 0.75) - 694025L;
+X	else
+X	    c = (long)(365.25*y) - 694025L;
+X
+X	d = 30.6001*(m+1);
+X
+X	*mjd = b + c + d + dy - 0.5;
+X
+X	last_mn = mn;
+X	last_dy = dy;
+X	last_yr = yr;
+X	last_mjd = *mjd;
+X}
+X
+X/* given the modified Julian date (number of days elapsed since 1900 jan 0.5,),
+X * mjd, return the calendar date in months, *mn, days, *dy, and years, *yr.
+X */
+Xvoid
+Xmjd_cal (mjd, mn, dy, yr)
+Xdouble mjd;
+Xint *mn, *yr;
+Xdouble *dy;
+X{
+X	static double last_mjd, last_dy;
+X	static int last_mn, last_yr;
+X	double d, f;
+X	double i, a, b, ce, g;
+X
+X	if (mjd == last_mjd) {
+X	    *mn = last_mn;
+X	    *yr = last_yr;
+X	    *dy = last_dy;
+X	    return;
+X	}
+X
+X	d = mjd + 0.5;
+X	i = floor(d);
+X	f = d-i;
+X	if (f == 1) {
+X	    f = 0;
+X	    i += 1;
+X	}
+X
+X	if (i > -115860.0) {
+X	    a = floor((i/36524.25)+.9983573)+14;
+X	    i += 1 + a - floor(a/4.0);
+X	}
+X
+X	b = floor((i/365.25)+.802601);
+X	ce = i - floor((365.25*b)+.750001)+416;
+X	g = floor(ce/30.6001);
+X	*mn = g - 1;
+X	*dy = ce - floor(30.6001*g)+f;
+X	*yr = b + 1899;
+X
+X	if (g > 13.5)
+X	    *mn = g - 13;
+X	if (*mn < 2.5)
+X	    *yr = b + 1900;
+X	if (*yr < 1)
+X	    *yr -= 1;
+X
+X	last_mn = *mn;
+X	last_dy = *dy;
+X	last_yr = *yr;
+X	last_mjd = mjd;
+X}
+X
+X/* given an mjd, set *dow to 0..6 according to which day of the week it falls
+X * on (0=sunday) or set it to -1 if can't figure it out.
+X */
+Xvoid
+Xmjd_dow (mjd, dow)
+Xdouble mjd;
+Xint *dow;
+X{
+X	/* cal_mjd() uses Gregorian dates on or after Oct 15, 1582.
+X	 * (Pope Gregory XIII dropped 10 days, Oct 5..14, and improved the leap-
+X	 * year algorithm). however, Great Britian and the colonies did not
+X	 * adopt it until Sept 14, 1752 (they dropped 11 days, Sept 3-13,
+X	 * due to additional accumulated error). leap years before 1752 thus
+X	 * can not easily be accounted for from the cal_mjd() number...
+X	 */
+X	if (mjd < -53798.5) {
+X	    /* pre sept 14, 1752 too hard to correct */
+X	    *dow = -1;
+X	    return;
+X	}
+X	*dow = ((long)floor(mjd-.5) + 1) % 7;/* 1/1/1900 (mjd 0.5) is a Monday*/
+X	if (*dow < 0)
+X	    *dow += 7;
+X}
+X
+X/* given a mjd, return the the number of days in the month.  */
+Xvoid
+Xmjd_dpm (mjd, ndays)
+Xdouble mjd;
+Xint *ndays;
+X{
+X	static short dpm[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+X	int m, y;
+X	double d;
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	*ndays = (m==2 && ((y%4==0 && y%100!=0)||y%400==0)) ? 29 : dpm[m-1];
+X}
+X
+X/* given a mjd, return the year as a double. */
+Xvoid
+Xmjd_year (mjd, yr)
+Xdouble mjd;
+Xdouble *yr;
+X{
+X	static double last_mjd, last_yr;
+X	int m, y;
+X	double d;
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X
+X	if (mjd == last_mjd) {
+X	    *yr = last_yr;
+X	    return;
+X	}
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	if (y == -1) y = -2;
+X	cal_mjd (1, 1.0, y, &e0);
+X	cal_mjd (1, 1.0, y+1, &e1);
+X	*yr = y + (mjd - e0)/(e1 - e0);
+X
+X	last_mjd = mjd;
+X	last_yr = *yr;
+X}
+X
+X/* given a decimal year, return mjd */
+Xvoid
+Xyear_mjd (y, mjd)
+Xdouble y;
+Xdouble *mjd;
+X{
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X	int yf = floor (y);
+X	if (yf == -1) yf = -2;
+X
+X	cal_mjd (1, 1.0, yf, &e0);
+X	cal_mjd (1, 1.0, yf+1, &e1);
+X	*mjd = e0 + (y - yf)*(e1-e0);
+X}
+END_OF_FILE
+  if test 3726 -ne `wc -c <'cal_mjd.c'`; then
+    echo shar: \"'cal_mjd.c'\" unpacked with wrong size!
+  fi
+  # end of 'cal_mjd.c'
+fi
+if test -f 'datamenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'datamenu.c'\"
+else
+  echo shar: Extracting \"'datamenu.c'\" \(47722 characters\)
+  sed "s/^X//" >'datamenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "data" menu.
+X * functions for the main data table are prefixed with dm.
+X * functions for the setup menu are prefixed with ds.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/Separator.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+Xextern Widget	toplevel_w;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern Obj *db_basic P_((int id));
+Xextern int any_ison P_((void));
+Xextern void confnd P_((double r, double d, double e, char **name));
+Xextern void db_update P_((Obj *op));
+Xextern void f_angle P_((Widget w, double a));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void f_mtime P_((Widget w, double t));
+Xextern void f_ra P_((Widget w, double ra));
+Xextern void f_showit P_((Widget w, char *s));
+Xextern void f_string P_((Widget w, char *s));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void get_xmstring P_((Widget w, char *resource, char **txtp));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xextern void register_selection P_((char *name));
+Xextern void riset_cir P_((Now *np, Obj *op, double dis, RiseSet *rp));
+Xextern void set_something P_((Widget w, char *resource, char *value));
+Xextern void timestamp P_((Now *np, Widget w));
+Xextern void unrefract P_((double pr, double tr, double aa, double *ta));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid dm_manage P_((void));
+Xvoid dm_newobj P_((int dbidx));
+Xvoid dm_update P_((Now *np, int how_much));
+Xvoid dm_selection_mode P_((int whether));
+Xvoid dm_cursor P_((Cursor c));
+Xstatic void dm_create_form P_((void));
+Xstatic void dm_set_buttons P_((int whether));
+Xstatic void dm_create_table P_((Widget parent));
+Xstatic void dm_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void dm_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void dm_setup_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void dm_help_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void dm_compute P_((int r, int force, Now *np));
+Xstatic void dm_format P_((Now *np, Obj *op, RiseSet *rp, int c, Widget w));
+Xstatic void dm_rs_addplus P_((Widget w, int addplus));
+Xstatic void dm_rs_hrsup P_((Widget w, RiseSet *rp));
+Xstatic void show_constellation P_((Now *np, Obj *op, Widget w));
+Xstatic void dm_separation P_((Obj *p, Obj *q, int how, Widget w));
+Xstatic void ds_create_selection P_((Widget parent));
+Xstatic void ds_setup_row_selections P_((void));
+Xstatic void ds_setup_col_selections P_((int what));
+Xstatic void ds_apply_selections P_((void));
+Xstatic void ds_ctl_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_help P_((void));
+Xstatic void ds_row_toggle_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_col_toggle_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_row_all_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_col_all_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_row_reset_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void ds_col_reset_cb P_((Widget w, XtPointer client, XtPointer call));
+X
+X#undef P_
+X
+Xtypedef struct {
+X    int dbidx;		/* db index of object on this row */
+X    int on;		/* whether this row is currently to be on */
+X    Widget lw;		/* label widget for this row's header */
+X    Widget sw;		/* pushbutton widget for this row in selection menu */
+X} RowHdr;
+X
+Xstatic RowHdr row[NOBJ] = {
+X    {SUN},
+X    {MOON},
+X    {MERCURY},
+X    {VENUS},
+X    {MARS},
+X    {JUPITER},
+X    {SATURN},
+X    {URANUS},
+X    {NEPTUNE},
+X    {PLUTO},
+X    {OBJX},
+X    {OBJY},
+X};
+X
+Xtypedef struct {
+X    int type;		/* one of XXX_COL, below */
+X    char *name;		/* name of column, unless SEP_COL then use db_name */
+X    int dbidx;		/* if type == SEP_COL, db index of cross object */
+X    int on;		/* whether this column is currently to be on */
+X    Widget rcw;		/* RowColumn widget for this column */
+X    Widget lw;		/* label widget for this column's header */
+X    Widget sw;		/* pushbutton widget for this col in selection menu */
+X} ColHdr;
+X
+X/* possible values for ColHdr.type. */
+Xenum {
+X    MISC_COL, RISET_COL, SEP_COL
+X};
+X
+X/* identifiers for each entry in col[]. these must match the order therein.
+X */
+Xenum {
+X    CONSTEL_ID, RA_ID, DEC_ID, AZ_ID, ALT_ID, HLONG_ID, HLAT_ID,
+X    EDST_ID, SDST_ID, ELONG_ID, SIZE_ID, VMAG_ID, PHS_ID, RSTIME_ID,
+X    RSAZ_ID, TRTIME_ID, TRALT_ID, SETTIME_ID, SETAZ_ID, HRSUP_ID
+X};
+X
+X/* tags for the various Data Selection control panel buttons */
+Xenum {OK, APPLY, CANCEL, HELP};
+X
+Xstatic ColHdr col[] = {
+X    {MISC_COL,	"Cns"},
+X    {MISC_COL,	"R_A"},
+X    {MISC_COL,	"Dec"},
+X    {MISC_COL,	"Az"},
+X    {MISC_COL,	"Alt"},
+X    {MISC_COL,	"HeLong"},
+X    {MISC_COL,	"HeLat"},
+X    {MISC_COL,	"EaDst"},
+X    {MISC_COL,	"SnDst"},
+X    {MISC_COL,	"Elong"},
+X    {MISC_COL,	"Size"},
+X    {MISC_COL,	"VMag"},
+X    {MISC_COL,	"Phase"},
+X    {RISET_COL,	"RiseTm"},
+X    {RISET_COL,	"RiseAz"},
+X    {RISET_COL,	"TrnTm"},
+X    {RISET_COL,	"TrnAlt"},
+X    {RISET_COL,	"SetTm"},
+X    {RISET_COL,	"SetAz"},
+X    {RISET_COL,	"HrsUp"},
+X    {SEP_COL, (char *)0, SUN},
+X    {SEP_COL, (char *)0, MOON},
+X    {SEP_COL, (char *)0, MERCURY},
+X    {SEP_COL, (char *)0, VENUS},
+X    {SEP_COL, (char *)0, MARS},
+X    {SEP_COL, (char *)0, JUPITER},
+X    {SEP_COL, (char *)0, SATURN},
+X    {SEP_COL, (char *)0, URANUS},
+X    {SEP_COL, (char *)0, NEPTUNE},
+X    {SEP_COL, (char *)0, PLUTO},
+X    {SEP_COL, (char *)0, OBJX},
+X    {SEP_COL, (char *)0, OBJY},
+X};
+X
+X#define	NR	XtNumber(row)
+X#define	NC	XtNumber(col)
+X
+Xstatic Widget t_w[NR][NC];	/* pushbuttons within table */
+Xstatic Widget dataform_w;	/* the overall table form */
+Xstatic Widget table_w;		/* the overall RowColumn table */
+Xstatic Widget corner_w;		/* upper left corner of table */
+Xstatic Widget hdrcol_w;		/* RowColumn for first column */
+Xstatic Widget sel_w;		/* setup menu */
+Xstatic Widget dt_w;		/* date/time stamp label widget */
+X
+X/* separation perspective */
+Xenum {GEO_CEN, TOPO_CEN};
+X
+Xenum {STDREFR, ADPREFR};
+Xenum {LIMB, CENTER};
+X
+Xstatic Widget stdrefr_w;	/* the StdRefr toggle button */
+Xstatic Widget limb_w;		/* the Center/Limb toggle button */
+Xstatic Widget refr_w;		/* the horizon label on the data table */
+Xstatic Widget limbl_w;		/* the Limb label on the data table */
+Xstatic int horizon;		/* one of STDREFR or ADPREFR */
+Xstatic int limb;		/* one of CENTER or LIMB */
+Xstatic Widget geocen_w;		/* the Geocentric toggle button */
+Xstatic Widget centric_w;	/* the centric label on the data table */
+Xstatic int centric;		/* one of GEO_CEN or TOPO_CEN */
+X
+Xstatic int dm_selecting;	/* set while our fields are being selected */
+X
+X/* called when the data menu is activated via the main menu pulldown.
+X * if never called before, create all the widgets form;
+X * otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xdm_manage ()
+X{
+X	if (!dataform_w)
+X	    dm_create_form();
+X	
+X	if (XtIsManaged(dataform_w)) {
+X	    XtUnmanageChild (dataform_w);
+X	    if (XtIsManaged(sel_w))
+X		XtUnmanageChild(sel_w);
+X	} else {
+X	    XtManageChild (dataform_w);
+X	    dm_update (mm_get_now(), 1);
+X	    dm_set_buttons (dm_selecting);
+X	}
+X}
+X
+X/* user-defined object dbidx has changed.
+X * might have a new name, or might be defined or undefined now.
+X * must check both the data table and the selection menu.
+X * N.B. no need to recompute math -- dm_update() will be called for us.
+X */
+Xvoid
+Xdm_newobj(dbidx)
+Xint dbidx;
+X{
+X	static char me[] = "dm_newobj()";
+X	int i, c;
+X
+X	/* might get called before we have been managed the first time */
+X	if (!dataform_w)
+X	    return;
+X
+X	for (i = 0; i < NR; i++)
+X	    if (row[i].dbidx == dbidx) {
+X		Obj *op = db_basic (dbidx);
+X		if (op->type == UNDEFOBJ) {
+X		    /* it's now undefined so turn off */
+X		    row[i].on = False;
+X		    for (c = 0; c < NC; c++)
+X			XtUnmanageChild (t_w[i][c]);
+X		    XtUnmanageChild (row[i].lw);
+X		    XtUnmanageChild (row[i].sw);
+X		    XmToggleButtonSetState (row[i].sw, False, False);
+X		} else {
+X		    f_string (row[i].lw, op->o_name);
+X		    XtManageChild (row[i].sw);
+X		    f_string (row[i].sw, op->o_name);
+X		}
+X		break;
+X	    }
+X	if (i == NR) {
+X	    printf ("Bug: %s: dbidx not in row[]: 0x%x\n", me, dbidx);
+X	    exit (1);
+X	}
+X
+X	for (i = 0; i < NC; i++)
+X	    if (col[i].type == SEP_COL && col[i].dbidx == dbidx) {
+X		Obj *op = db_basic (dbidx);
+X		if (op->type == UNDEFOBJ) {
+X		    /* it's now undefined so turn off */
+X		    col[i].on = False;
+X		    XtUnmanageChild (col[i].rcw);
+X		    XtUnmanageChild (col[i].sw);
+X		    XmToggleButtonSetState (col[i].sw, False, False);
+X		} else {
+X		    f_string (col[i].lw, op->o_name);
+X		    XtManageChild (col[i].sw);
+X		    f_string (col[i].sw, op->o_name);
+X		}
+X		break;
+X	    }
+X	if (i == NC) {
+X	    printf ("Bug: %s: dbidx not in col[]: 0x%x\n", me, dbidx);
+X	    exit (1);
+X	}
+X}
+X
+X/* called to recompute and fill in values for the data menu.
+X * don't bother if it doesn't exist or is unmanaged now or no one is logging.
+X */
+Xvoid
+Xdm_update (np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	int i;
+X
+X	if (!dataform_w)
+X	    return;
+X	if (!XtIsManaged(dataform_w) && !any_ison() && !how_much)
+X	    return;
+X
+X	/* update each row that is on */
+X	for (i = 0; i < NR; i++)
+X	    if (row[i].on)
+X		dm_compute (i, how_much, np);
+X
+X	/* update the datestamp */
+X	timestamp (np, dt_w);
+X}
+X
+X/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+Xvoid
+Xdm_selection_mode (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	dm_selecting += whether ? 1 : -1;
+X
+X	if (dataform_w && XtIsManaged(dataform_w))
+X	    if (whether && dm_selecting == 1     /* first one to want on */
+X		|| !whether && dm_selecting == 0 /* last one to want off */)
+X		dm_set_buttons (whether);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xdm_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (dataform_w && (win = XtWindow(dataform_w))) {
+X	    Display *dsp = XtDisplay(dataform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X
+X	if (sel_w && (win = XtWindow(sel_w))) {
+X	    Display *dsp = XtDisplay(sel_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xdm_create_form()
+X{
+X	Widget ctlrc_w, w;
+X	Arg args[20];
+X	int n;
+X
+X	/* create the form */
+X	n = 0;
+X	XtSetArg (args[n], XmNallowShellResize, True); n++;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	dataform_w = XmCreateFormDialog (toplevel_w, "Data", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem General Data Table"); n++;
+X	XtSetValues (XtParent(dataform_w), args, n);
+X
+X	/* make a rowcolumn for the bottom control panel */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	ctlrc_w = XmCreateRowColumn (dataform_w, "DataTblRC", args, n);
+X	XtManageChild (ctlrc_w);
+X
+X	    /* make the Setup button */
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (ctlrc_w, "Setup", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, dm_setup_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the close button */
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (ctlrc_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, dm_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the help pushbutton */
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (ctlrc_w, "Help", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, dm_help_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the horizon, limb and centric indicators in frames.
+X	     * turn them on and off by managing the frames -- but not yet!
+X	     */
+X
+X	    n = 0;
+X	    w = XmCreateFrame (ctlrc_w, "DRefrF", args, n);
+X	    n = 0;
+X	    refr_w = XmCreateLabel (w, "DRefrL", args, n);
+X	    XtManageChild (refr_w);
+X	    n = 0;
+X	    w = XmCreateFrame (ctlrc_w, "DLimblF", args, n);
+X	    n = 0;
+X	    limbl_w = XmCreateLabel (w, "DLimblL", args, n);
+X	    XtManageChild (limbl_w);
+X	    n = 0;
+X	    w = XmCreateFrame (ctlrc_w, "DCentricF", args, n);
+X	    n = 0;
+X	    centric_w = XmCreateLabel (w, "DCentricL", args, n);
+X	    XtManageChild (centric_w);
+X
+X	    /* make a label for the date/time stamp */
+X
+X	    n = 0;
+X	    dt_w = XmCreateLabel (ctlrc_w, "DateStamp", args, n);
+X	    timestamp (mm_get_now(), dt_w);	/* sets initial size correctly*/
+X	    XtManageChild (dt_w);
+X
+X	/* create the table */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlrc_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	table_w = XmCreateRowColumn (dataform_w, "DataTable", args, n);
+X	XtManageChild (table_w);
+X
+X	dm_create_table (table_w);
+X
+X	/* create the selection dialog.
+X	 * don't manage it yet but its state info is used right off.
+X	 */
+X	ds_create_selection(toplevel_w);
+X	ds_apply_selections();
+X}
+X
+X/* go through all the buttons and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+Xstatic void
+Xdm_set_buttons (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	int r, c;
+X	Arg *ap;
+X	int na;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     * also make the corner and headers look like labels forever.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    int n;
+X	    int i;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (corner_w, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	    XtSetValues (corner_w, ap, na);
+X	    for (i = 0; i < NR; i++)
+X		XtSetValues (row[i].lw, ap, na);
+X	    for (i = 0; i < NC; i++)
+X		XtSetValues (col[i].lw, ap, na);
+X
+X	    called = 1;
+X	}
+X
+X	if (whether) {
+X	    ap = look_like_button;
+X	    na = XtNumber(look_like_button);
+X	} else {
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	}
+X	for (r = 0; r < NR; r++)
+X	    for (c = 0; c < NC; c++)
+X		if (t_w[r][c])
+X		    XtSetValues (t_w[r][c], ap, na);
+X}
+X
+X/* create the main data table - everything but the first column is unmanaged.
+X */
+Xstatic void
+Xdm_create_table(parent)
+XWidget parent;	/* overall RowColumn */
+X{
+X	Arg args[20];
+X	XmString str;
+X	Widget w;
+X	int r, c;
+X	int n;
+X
+X	/* first column is the row headers.
+X	 * it's always managed so init what rows we can too.
+X	 */
+X	n = 0;
+X	hdrcol_w = XmCreateRowColumn (parent, "DataHdrC", args, n);
+X	XtManageChild (hdrcol_w);
+X
+X	    /* first row is a dummy */
+X	    n = 0;
+X	    str = XmStringCreateLtoR (" ", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    corner_w = XmCreatePushButton (hdrcol_w, "DataCorner", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (corner_w);
+X
+X	    /* remaining rows are per object */
+X	    for (r = 0; r < NR; r++) {
+X		Obj *op = db_basic (row[r].dbidx);
+X		n = 0;
+X		if (op->type != UNDEFOBJ)
+X		    w = XmCreatePushButton (hdrcol_w, op->o_name, args, n);
+X		else
+X		    w = XmCreatePushButton (hdrcol_w, "DRow", args, n);
+X		row[r].lw = w;
+X
+X	    }
+X
+X	/* remaining columns.
+X	 * don't manage any but set names of what we can now too.
+X	 */
+X	for (c = 0; c < NC; c++) {
+X	    Widget rcw;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	    XtSetArg (args[n], XmNisAligned, False); n++;
+X	    rcw = col[c].rcw = XmCreateRowColumn (parent, "DataCol", args, n);
+X
+X	    /* first row is column header */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    if (col[c].type != SEP_COL)
+X		w = XmCreatePushButton (rcw, col[c].name, args, n);
+X	    else {
+X		Obj *op = db_basic (col[c].dbidx);
+X		if (op->type != UNDEFOBJ)
+X		    w = XmCreatePushButton (rcw, op->o_name, args, n);
+X		else
+X		    w = XmCreatePushButton (rcw, "DCHdr", args, n);
+X	    }
+X	    col[c].lw = w;
+X	    XtManageChild (w);
+X
+X	    /* remaining rows are per object */
+X	    for (r = 0; r < NR; r++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		w = t_w[r][c] = XmCreatePushButton (rcw, "DataPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, dm_activate_cb,
+X					(XtPointer)((c<<8)|r));
+X	    }
+X	}
+X}
+X
+X/* callback from any of the data menu buttons being activated.
+X * do nothing unless we are being used to set up a selection collection.
+X * if the latter, make a name for our field, put it in UserData and inform
+X * all interested parties.
+X * to form the name, client data is (col<<8)|row
+X * N.B. we assume we can't be called if our row and column are not on.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xdm_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char me[] = "dm_activate_cb()";
+X
+X	if (dm_selecting) {
+X	    int r = (unsigned)client & 0xff;
+X	    int c = (unsigned)client >> 8;
+X	    char *name, *rname, *cname;
+X	    Obj *op;
+X	    char *userD;   /* Heller, pg 852, say's this is type Pointer?? */
+X	    int len;
+X
+X	    /* figure out our row name */
+X	    if (!row[r].on) {
+X		printf ("Bug: %s: row[%d] not on\n", me, r);
+X		exit (1);
+X	    }
+X	    op = db_basic (row[r].dbidx);
+X	    rname = op->o_name;
+X	    len = strlen (rname);
+X
+X	    /* figure out our col name */
+X	    if (!col[c].on) {
+X		printf ("Bug: %s: col[%d] not on\n", me, c);
+X		exit (1);
+X	    }
+X	    if (col[c].type == SEP_COL) {
+X		op = db_basic (col[c].dbidx);
+X		cname = op->o_name;
+X	    } else
+X		cname = col[c].name;
+X	    len += strlen(cname);
+X
+X	    name = XtMalloc (len + 2);	/* '.' plus '\0' */
+X	    (void) sprintf (name, "%s.%s", rname, cname);
+X
+X	    /* set XmNuserData to be the name we want to go by */
+X	    get_something (w, XmNuserData, (char *)&userD);
+X	    if (userD)
+X		XtFree (userD);
+X	    userD = name;
+X	    set_something (w, XmNuserData, userD);
+X
+X	    /* tell the world our name */
+X	    register_selection (name);
+X	}
+X}
+X
+X/* callback from the Data table Close button
+X */
+Xstatic void
+X/* ARGSUSED */
+Xdm_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (dataform_w);
+X	if (XtIsManaged (sel_w))
+X	    XtUnmanageChild (sel_w);
+X}
+X
+X/* callback from the Data table Setup button.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xdm_setup_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (XtIsManaged(sel_w))
+X	    XtUnmanageChild (sel_w);
+X	else {
+X	    ds_setup_row_selections();
+X	    ds_setup_col_selections(MISC_COL);
+X	    ds_setup_col_selections(RISET_COL);
+X	    ds_setup_col_selections(SEP_COL);
+X	    XtManageChild (sel_w);
+X	}
+X}
+X
+X/* callback from the Data table Help button
+X */
+Xstatic void
+X/* ARGSUSED */
+Xdm_help_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char *msg[] = {
+X"This table displays various information about the planets and objects.",
+X"To reduce computation and save screen space, each row and column may be",
+X"individually turned off or on using the Select button."
+X};
+X
+X	hlp_dialog ("Data Table", msg, XtNumber(msg));
+X}
+X
+X/* compute and print body info in data menu format */
+X/* ARGSUSED */
+Xstatic void
+Xdm_compute (r, force, np)
+Xint r;		/* which row */
+Xint force;	/* whether to print for sure or only if things have changed */
+XNow *np;
+X{
+X	RiseSet rs;
+X	Obj *op;
+X	int c;
+X	int did_rs = 0;
+X
+X	op = db_basic (row[r].dbidx);
+X	db_update (op);
+X
+X	for (c = 0; c < NC; c++)
+X	    if (col[c].on) {
+X		if (col[c].type == RISET_COL && !did_rs) {
+X		    double dis = 0;	/* rads apparent horizon is from true */
+X		    int close = is_planet(op,MOON) || is_planet(op,SUN); 
+X
+X		    /* refraction correction */
+X		    if (horizon == STDREFR) {
+X			/* `nominal' atmospheric refraction. */
+X			dis += STDREF;
+X		    } else {
+X			/* `Adaptive:' actual refraction conditions  */
+X			double ref;
+X			unrefract (pressure, temp, 0.0, &ref);
+X			dis -= ref;	/* downwards */
+X		    }
+X
+X		    /* add object's semi-diameter if want upper limb.
+X		     * only worth it for SUN and MOON.
+X		     */
+X		    if (limb == LIMB && close)
+X			dis += degrad((double)op->s_size/3600./2.0);
+X
+X		    /* add effect of being above surface
+X		     * TODO: this works but refraction model breaks down.
+X		    dis += asin (sqrt(surfalt*surfalt + 2.0*ERAD*surfalt)
+X				  /(ERAD + surfalt));
+X		     */
+X			
+X		    riset_cir (np, op, dis, &rs);
+X		    did_rs = 1;
+X		}
+X		dm_format(np, op, &rs, c, t_w[r][c]);
+X	    }
+X}
+X
+Xstatic void
+Xdm_format (np, op, rp, c, w)
+XNow *np;
+XObj *op;
+XRiseSet *rp;
+Xint c;
+XWidget w;
+X{
+X	static char me[] = "dm_format()";
+X
+X	switch (c) {
+X	case CONSTEL_ID:
+X	    show_constellation (np, op, w);
+X	    break;
+X	case RA_ID:
+X	    f_ra (w, op->s_ra);
+X	    break;
+X	case DEC_ID:
+X	    f_angle (w, op->s_dec);
+X	    break;
+X	case AZ_ID:
+X	    f_angle (w, op->s_az);
+X	    break;
+X	case ALT_ID:
+X	    f_angle (w, op->s_alt);
+X	    break;
+X	case HLONG_ID:
+X	    if (is_ssobj(op))
+X		f_angle (w, op->s_hlong);
+X	    else
+X		f_string (w, " ");
+X	    break;
+X	case HLAT_ID:
+X	    if (is_ssobj(op))
+X		f_angle (w, op->s_hlat);
+X	    else
+X		f_string (w, " ");
+X	    break;
+X	case EDST_ID:
+X	    if (is_planet(op, MOON)) {
+X		double tmp = op->s_edist;
+X		if (pref_get(PREF_UNITS) == PREF_ENGLISH) {
+X		    /* s_edist is stored in km, show in miles */
+X		    tmp /= 1.609344;
+X		}
+X		f_double (w, "%6.0f", tmp);
+X	    } else if (is_ssobj(op)) {
+X		/* show distance in au */
+X		f_double (w, op->s_edist >= 9.99995 ? "%6.3f" : "%6.4f",
+X								op->s_edist);
+X	    } else
+X		f_string (w, " ");
+X	    break;
+X	case SDST_ID:
+X	    if (is_ssobj(op) && !is_planet(op, SUN))
+X		f_double (w, op->s_sdist >= 9.99995 ? "%6.3f" : "%6.4f",
+X								op->s_sdist);
+X	    else
+X		f_string (w, "      ");
+X	    break;
+X	case ELONG_ID:
+X	    if (is_ssobj(op) && !is_planet(op, SUN))
+X		f_double (w, "%6.1f", op->s_elong);
+X	    else
+X		f_string (w, " ");
+X	    break;
+X	case SIZE_ID:
+X	    f_double (w, "%4.0f", (double)(op->s_size));
+X	    break;
+X	case VMAG_ID: {
+X	    double m = (double) (op->s_mag / MAGSCALE);
+X	    f_double (w, m <= -9.95 ? "%4.0f" : "%4.1f", m);
+X	}
+X	    break;
+X	case PHS_ID:
+X	    if (is_ssobj(op) && !is_planet(op, SUN))
+X		f_double (w, "%3.0f", op->s_phase);
+X	    else
+X		f_string (w, "   ");
+X	    break;
+X
+X	case RSTIME_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_CIRCUMPOLAR)
+X		f_string (w, "CirPol");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NORISE)
+X		f_string (w, "NoRise");
+X	    else {
+X		f_mtime (w, rp->rs_risetm);	/* 5 chars wide */
+X		dm_rs_addplus (w, rp->rs_flags & RS_2RISES);	/* adds 1 */
+X	    }
+X	    break;
+X
+X	case RSAZ_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_CIRCUMPOLAR)
+X		f_string (w, "CirPol");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NORISE)
+X		f_string (w, "NoRise");
+X	    else
+X		f_angle (w, rp->rs_riseaz);	/* 6 chars wide */
+X	    break;
+X
+X	case SETTIME_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_CIRCUMPOLAR)
+X		f_string (w, "CirPol");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NOSET)
+X		f_string (w, "NoSet ");
+X	    else {
+X		f_mtime (w, rp->rs_settm);	/* 5 chars wide */
+X		dm_rs_addplus (w, rp->rs_flags & RS_2SETS);	/* adds 1 */
+X	    }
+X	    break;
+X
+X	case SETAZ_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_CIRCUMPOLAR)
+X		f_string (w, "CirPol");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NOSET)
+X		f_string (w, "NoSet ");
+X	    else
+X		f_angle (w, rp->rs_setaz);	/* 6 chars wide */
+X	    break;
+X
+X	case TRTIME_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NOTRANS)
+X		f_string (w, "NoTran");
+X	    else {
+X		f_mtime (w, rp->rs_trantm);	/* 5 chars wide */
+X		dm_rs_addplus (w, rp->rs_flags & RS_2TRANS);	/* adds 1 */
+X	    }
+X	    break;
+X
+X	case TRALT_ID:
+X	    if (rp->rs_flags & RS_ERROR)
+X		f_string (w, "Error ");
+X	    else if (rp->rs_flags & RS_NEVERUP)
+X		f_string (w, "NvrUp ");
+X	    else if (rp->rs_flags & RS_NOTRANS)
+X		f_string (w, "NoTran");
+X	    else {
+X		f_angle (w, rp->rs_tranalt);	/* 6 chars wide */
+X	    }
+X	    break;
+X
+X	case HRSUP_ID:
+X	    dm_rs_hrsup (w, rp);
+X	    break;
+X
+X	default:
+X	    /* these are effectively all the separation columns */
+X	    if (c < 0 || c >= NC) {
+X		printf ("Bug: %s: c = %d but max = %d\n", me, c, NC-1);
+X		exit (1);
+X	    }
+X	    if (col[c].type != SEP_COL) {
+X		printf ("Bug: %s: col[%d].type = 0x%x\n", me, c, col[c].type);
+X		exit (1);
+X	    }
+X	    if (op != db_basic(col[c].dbidx)) {
+X		db_update(db_basic(col[c].dbidx));
+X		dm_separation (op, db_basic(col[c].dbidx), centric, w);
+X	    } else
+X		f_string (w, " ");
+X	    break;
+X	}
+X}
+X
+Xstatic void
+Xdm_rs_addplus (w, addplus)
+XWidget w;
+Xint addplus;
+X{
+X	char *orig, *new;
+X
+X	get_xmstring (w, XmNlabelString, &orig);
+X	new = XtMalloc(strlen(orig)+2); /* '+' plus the '\0' */
+X	(void) sprintf (new, addplus ? "%s+" : "%s ", orig);
+X	f_string (w, new);
+X	XtFree (orig);
+X	XtFree (new);
+X}
+X
+X/* display the total hours this object has been up.
+X * N.B. insure string length is always 6 chars wide.
+X */
+Xstatic void
+Xdm_rs_hrsup (w, rp)
+XWidget w;
+XRiseSet *rp;
+X{
+X	double r, s, hrs;
+X
+X	if (rp->rs_flags & (RS_ERROR|RS_RISERR)) {
+X	    f_string (w, "Error ");
+X	    return;
+X	}
+X	if (rp->rs_flags & RS_CIRCUMPOLAR) {
+X	    f_double (w, "%3.0f:00", 24.0); /* f_mtime() changes to 00:00 */
+X	    return;
+X	}
+X	if (rp->rs_flags & RS_NEVERUP) {
+X	    f_mtime (w, 0.0);		/* 5 chars wide */
+X	    dm_rs_addplus(w, 0);	/* adds 1 */
+X	    return;
+X	}
+X
+X	r = (rp->rs_flags & RS_NORISE) ?  0.0 : rp->rs_risetm;
+X	s = (rp->rs_flags & RS_NOSET)  ? 24.0 : rp->rs_settm;
+X	hrs = s - r;
+X	if (hrs < 0)
+X	    hrs += 24.0;
+X	f_mtime (w, hrs);	/* 5 chars wide */
+X	dm_rs_addplus(w, rp->rs_flags&(RS_NORISE|RS_NOSET|RS_2RISES|RS_2SETS));
+X}
+X
+Xstatic void
+Xshow_constellation (np, op, w)
+XNow *np;
+XObj *op;
+XWidget w;
+X{
+X	char nm[10], *name;
+X
+X        confnd (op->s_ra, op->s_dec, epoch == EOD ? mjd : epoch, &name);
+X	(void) sprintf (nm, "%.3s", name);
+X	f_string(w, nm);
+X}
+X
+X/* compute and display the separation between the two sky locations */
+Xstatic void
+Xdm_separation (p, q, how, w)
+XObj *p, *q;
+Xint how;	/* GEO_CEN or TOPO_CEN */
+XWidget w;
+X{
+X	double spy, cpy, px, qx, sqy, cqy;
+X	double sep;
+X
+X	if (how == GEO_CEN) {
+X	    /* use ra for "x", dec for "y". */
+X	    spy = sin (p->s_dec);
+X	    cpy = cos (p->s_dec);
+X	    px = p->s_ra;
+X	    qx = q->s_ra;
+X	    sqy = sin (q->s_dec);
+X	    cqy = cos (q->s_dec);
+X	} else {
+X	    /* use azimuth for "x", altitude for "y". */
+X	    spy = sin (p->s_alt);
+X	    cpy = cos (p->s_alt);
+X	    px = p->s_az;
+X	    qx = q->s_az;
+X	    sqy = sin (q->s_alt);
+X	    cqy = cos (q->s_alt);
+X	}
+X
+X	sep = acos(spy*sqy + cpy*cqy*cos(px-qx));
+X	f_angle (w, sep);
+X}
+X
+X/* create the selections dialog */
+Xstatic void
+Xds_create_selection(parent)
+XWidget parent;
+X{
+X	static char me[] = "ds_create_selection()";
+X	static struct { /* info to streamline creation of control buttons */
+X	    int id;
+X	    int lpos, rpos;
+X	    char *name;
+X	} ctlbtns[] = {
+X	    {OK, 1, 3, "Ok"},
+X	    {APPLY, 4, 6, "Apply"},
+X	    {CANCEL, 7, 9, "Close"},
+X	    {HELP, 10, 12, "Help"}
+X	};
+X	Arg args[20];
+X	XmString str;
+X	Widget rl_w, cl_w;
+X	Widget rf_w, mf_w, rsf_w, sf_w, ctlf_w, rowrc_w, mrc_w, rsrc_w, src_w;
+X	Widget sep_w, w, tb1, tb2;
+X	Widget rb_w;
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNallowShellResize, True); n++;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	sel_w = XmCreateFormDialog (parent, "DataSelection", args, n);
+X	XtAddCallback (sel_w, XmNmapCallback, prompt_map_cb, NULL);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Data Table setup"); n++;
+X	XtSetValues (XtParent(sel_w), args, n);
+X
+X	/* make a form for bottom control panel */
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNfractionBase, 13); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	ctlf_w = XmCreateForm (sel_w, "DataSelF", args, n);
+X	XtManageChild (ctlf_w);
+X
+X	    /* make the control buttons */
+X
+X	    for (i = 0; i < XtNumber(ctlbtns); i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, ctlbtns[i].lpos); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, ctlbtns[i].rpos); n++;
+X		w = XmCreatePushButton (ctlf_w, ctlbtns[i].name, args, n);
+X		XtAddCallback (w, XmNactivateCallback, ds_ctl_cb,
+X						    (XtPointer)ctlbtns[i].id);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make a top separator */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	sep_w = XmCreateSeparator (sel_w, "DSSep", args, n);
+X	XtManageChild (sep_w);
+X
+X	/* make the Rows heading */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	rl_w = XmCreateLabel (sel_w, "Rows:", args, n);
+X	XtManageChild (rl_w);
+X
+X	/* make the row selection rc in a frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, rl_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	rf_w = XmCreateFrame (sel_w, "DSRFrame", args, n);
+X	XtManageChild (rf_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	rowrc_w = XmCreateRowColumn (rf_w, "DataSelRows", args, n);
+X	XtManageChild (rowrc_w);
+X
+X	    /* fill up with buttons for each possible row.
+X	     * fill in name if it's a planet since that won't change.
+X	     */
+X
+X	    /* make the "Toggle" push button */
+X
+X	    str = XmStringCreate("Toggle", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rowrc_w, "DSRToggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_row_toggle_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the "All" push button */
+X
+X	    str = XmStringCreate("All", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rowrc_w, "DSRAll", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_row_all_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the "Reset" push button */
+X
+X	    str = XmStringCreate("Reset", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rowrc_w, "DSRReset", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_row_reset_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    for (i = 0; i < NR; i++) {
+X		Obj *op = db_basic(row[i].dbidx);
+X		n = 0;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		if (op->type != UNDEFOBJ) {
+X		    w = row[i].sw = XmCreateToggleButton(rowrc_w, op->o_name,
+X								    args, n);
+X		    XtManageChild (w);
+X		} else
+X		    row[i].sw = XmCreateToggleButton(rowrc_w, "RowSelObj",
+X								    args, n);
+X	    }
+X
+X	/* make the Columns heading */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, rf_w); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	cl_w = XmCreateLabel (sel_w, "Columns:", args, n);
+X	XtManageChild (cl_w);
+X
+X	/* make the misc col selection rc in a frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, cl_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, rf_w); n++;
+X	mf_w = XmCreateFrame (sel_w, "DSMCFrame", args, n);
+X	XtManageChild (mf_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	mrc_w = XmCreateRowColumn (mf_w, "DataSelMiscCols", args, n);
+X	XtManageChild (mrc_w);
+X
+X	    /* fill up with buttons for each possible col in misc range.
+X	     * set those columns names that are stable.
+X	     */
+X
+X	    /* make the "Toggle" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (mrc_w, "Toggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_toggle_cb,
+X							(XtPointer)MISC_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "All" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (mrc_w, "All", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_all_cb,
+X							(XtPointer)MISC_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "Reset" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (mrc_w, "Reset", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_reset_cb,
+X							(XtPointer)MISC_COL);
+X	    XtManageChild (w);
+X
+X	/* make the rise/set col selection rc in a frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, cl_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, mf_w); n++;
+X	rsf_w = XmCreateFrame (sel_w, "DSRCFrame", args, n);
+X	XtManageChild (rsf_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	rsrc_w = XmCreateRowColumn (rsf_w, "DataSelRisetCols", args, n);
+X	XtManageChild (rsrc_w);
+X
+X	    /* fill up with buttons for each possible col in rise/set range.
+X	     * set those columns names that are stable.
+X	     */
+X
+X	    /* make the "Toggle" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rsrc_w, "Toggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_toggle_cb,
+X							(XtPointer)RISET_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "All" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rsrc_w, "All", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_all_cb,
+X							(XtPointer)RISET_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "Reset" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (rsrc_w, "Reset", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_reset_cb,
+X							(XtPointer)RISET_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the STDREFR/ADPREFR radio box */
+X
+X	    n = 0;
+X	    w = XmCreateFrame (rsrc_w, "DSRefrF", args, n);
+X	    XtManageChild (w);
+X	    n = 0;
+X	    rb_w = XmCreateRadioBox (w, "DSRefrRB", args, n);
+X	    XtManageChild (rb_w);
+X
+X		n = 0;
+X		stdrefr_w = tb1 = XmCreateToggleButton (rb_w, "StdRefr",args,n);
+X		XtManageChild (tb1);
+X		n = 0;
+X		tb2 = XmCreateToggleButton (rb_w, "AdpRefr", args, n);
+X		XtManageChild (tb2);
+X		/* if neither or both is set up in defaults, set for StdRefr */
+X		if (XmToggleButtonGetState(tb1) == XmToggleButtonGetState(tb2)){
+X		    xe_msg (
+X		     "Conflicting Refraction resources -- defaulting to StdRefr\n",
+X									    0);
+X		    XmToggleButtonSetState (tb1, True, True);
+X		}
+X
+X	    /* make the CENTER/LIMB radio box */
+X
+X	    n = 0;
+X	    w = XmCreateFrame (rsrc_w, "DSLimbF", args, n);
+X	    XtManageChild (w);
+X	    n = 0;
+X	    rb_w = XmCreateRadioBox (w, "DSLimbRB", args, n);
+X	    XtManageChild (rb_w);
+X
+X		n = 0;
+X		limb_w = tb1 = XmCreateToggleButton (rb_w, "Limb", args, n);
+X		XtManageChild (tb1);
+X		n = 0;
+X		tb2 = XmCreateToggleButton (rb_w, "Center", args, n);
+X		XtManageChild (tb2);
+X		/* if neither or both is set up in defaults, set for Limb */
+X		if (XmToggleButtonGetState(tb1) == XmToggleButtonGetState(tb2)){
+X		    xe_msg (
+X		      "Conflicting Limb resources -- defaulting to Limb\n",
+X									    0);
+X		    XmToggleButtonSetState (tb1, True, True);
+X		}
+X
+X	/* make the separations col selection rc in a frame */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, cl_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ctlf_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, rsf_w); n++;
+X	sf_w = XmCreateFrame (sel_w, "DSRCFrame", args, n);
+X	XtManageChild (sf_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNpacking, XmPACK_TIGHT); n++;
+X	src_w = XmCreateRowColumn (sf_w, "DataSelSepCols", args, n);
+X	XtManageChild (src_w);
+X
+X	    /* fill up with buttons for each possible col in sep range.
+X	     * set those columns names that are stable.
+X	     */
+X
+X	    /* make the "Toggle" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (src_w, "Toggle", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_toggle_cb,
+X							(XtPointer)SEP_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "All" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (src_w, "All", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_all_cb,
+X							(XtPointer)SEP_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the "Reset" push button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	    w = XmCreatePushButton (src_w, "Reset", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, ds_col_reset_cb,
+X							(XtPointer)SEP_COL);
+X	    XtManageChild (w);
+X
+X	    /* make the GEOCENTRIC/TOPOCENTRIC radio box */
+X
+X	    n = 0;
+X	    w = XmCreateFrame (src_w, "DSCentricF", args, n);
+X	    XtManageChild (w);
+X	    n = 0;
+X	    rb_w = XmCreateRadioBox (w, "DSCentricRB", args, n);
+X	    XtManageChild (rb_w);
+X
+X		n = 0;
+X		geocen_w = tb1 = XmCreateToggleButton (rb_w, "Geocentric",
+X								    args, n);
+X		XtManageChild (tb1);
+X		n = 0;
+X		tb2 = XmCreateToggleButton (rb_w, "Topocentric", args, n);
+X		XtManageChild (tb2);
+X		/* if neither or both is set up in defaults, set for geocntrc */
+X		if (XmToggleButtonGetState(tb1) == XmToggleButtonGetState(tb2)){
+X		    xe_msg ("conflicting Centric resources -- defaulting to Geocentric\n", 0);
+X		    XmToggleButtonSetState (tb1, True, True);
+X		}
+X
+X	/* now fill in the column entries */
+X	for (i = 0; i < NC; i++) {
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    switch (col[i].type) {
+X	    case MISC_COL:
+X		/* one of the misc columns */
+X		w = col[i].sw = XmCreateToggleButton(mrc_w, col[i].name,args,n);
+X		XtManageChild (w);
+X		break;
+X	    case RISET_COL:
+X		/* one of the rise/set columns */
+X		w = col[i].sw = XmCreateToggleButton(rsrc_w,col[i].name,args,n);
+X		XtManageChild (w);
+X		break;
+X	    case SEP_COL: {
+X		/* one of the separation columns */
+X		Obj *op = db_basic (col[i].dbidx);
+X		if (op->type != UNDEFOBJ) {
+X		    w = col[i].sw = XmCreateToggleButton(src_w,op->o_name,args,n);
+X		    XtManageChild (w);
+X		} else
+X		    col[i].sw = XmCreateToggleButton(src_w, "ColSelObj",args,n);
+X		break;
+X		}
+X	    default:
+X		printf ("Bug: %s: col[%d].type = 0x%x\n", me, i, col[i].type);
+X		exit (1);
+X		break;
+X	    }
+X	}
+X}
+X
+X/* set up the Data selection row menu based on what is currently on and defined.
+X */
+Xstatic void
+Xds_setup_row_selections()
+X{
+X	int i;
+X
+X	for (i = 0; i < NR; i++) {
+X	    Widget sw = row[i].sw;
+X	    Obj *op = db_basic (row[i].dbidx);
+X	    if (op->type == UNDEFOBJ)
+X		XtUnmanageChild (sw);
+X	    else 
+X		XtManageChild (sw);
+X	    XmToggleButtonSetState (sw, row[i].on, False);
+X	}
+X}
+X
+X/* set up a Data selection col menu based on what is currently on and defined.
+X */
+Xstatic void
+Xds_setup_col_selections(what)
+Xint what;
+X{
+X	int i;
+X
+X	for (i = 0; i < NC; i++) {
+X	    if (col[i].type == what) {
+X		Widget sw = col[i].sw;
+X		if (col[i].type == SEP_COL) {
+X		    Obj *op = db_basic (col[i].dbidx);
+X		    if (op->type == UNDEFOBJ)
+X			XtUnmanageChild (sw);
+X		    else 
+X			XtManageChild (sw);
+X		}
+X		XmToggleButtonSetState (sw, col[i].on, False);
+X	    }
+X	}
+X
+X	switch (what) {
+X	case RISET_COL:
+X	    XmToggleButtonSetState (stdrefr_w, horizon == STDREFR, True);
+X	    XmToggleButtonSetState (limb_w, limb == LIMB, True);
+X	    break;
+X	case SEP_COL:
+X	    XmToggleButtonSetState (geocen_w, centric == GEO_CEN, True);
+X	    break;
+X	}
+X}
+X
+X
+X/* change the Data table according to what is now defined and set up in the
+X * Selection menu.
+X * N.B. can be called before we are managed.
+X */
+Xstatic void
+Xds_apply_selections()
+X{
+X	int i, c;
+X	int n_riset, n_sep;
+X	int wasman;
+X
+X	watch_cursor(1);
+X
+X	if (wasman = XtIsManaged(dataform_w))
+X	    XtUnmanageChild (dataform_w);
+X
+X	for (i = 0; i < NR; i++) {
+X	    int wantset = XmToggleButtonGetState(row[i].sw);
+X	    if (wantset != row[i].on) {
+X		if (wantset) {
+X		    for (c = 0; c < NC; c++)
+X			XtManageChild (t_w[i][c]);
+X		    XtManageChild (row[i].lw);
+X		} else {
+X		    for (c = 0; c < NC; c++)
+X			XtUnmanageChild (t_w[i][c]);
+X		    XtUnmanageChild (row[i].lw);
+X		}
+X		row[i].on = wantset;
+X	    }
+X	}
+X
+X	n_riset = n_sep = 0;
+X	for (i = 0; i < NC; i++) {
+X	    int wantset = XmToggleButtonGetState(col[i].sw);
+X	    if (wantset != col[i].on) {
+X		if (wantset)
+X		    XtManageChild (col[i].rcw);
+X		else
+X		    XtUnmanageChild (col[i].rcw);
+X		col[i].on = wantset;
+X	    }
+X	    if (col[i].type == RISET_COL && col[i].on)
+X		n_riset++;
+X	    if (col[i].type == SEP_COL && col[i].on)
+X		n_sep++;
+X	}
+X
+X	horizon = XmToggleButtonGetState (stdrefr_w) ? STDREFR : ADPREFR;
+X	limb = XmToggleButtonGetState (limb_w) ? LIMB : CENTER;
+X	if (n_riset) {
+X	    f_showit (refr_w, horizon==STDREFR ? "StdRefr" : "AdpRefr");
+X	    XtManageChild (XtParent(refr_w));
+X	    f_showit (limbl_w, limb==LIMB ? "UpLimb" : "Center");
+X	    XtManageChild (XtParent(limbl_w));
+X	} else {
+X	    XtUnmanageChild (XtParent(refr_w));
+X	    XtUnmanageChild (XtParent(limbl_w));
+X	}
+X
+X	centric = XmToggleButtonGetState (geocen_w) ? GEO_CEN : TOPO_CEN;
+X	if (n_sep) {
+X	    f_string (centric_w,
+X		    centric==GEO_CEN ? "GeoSeps" : "TopoSeps");
+X	    XtManageChild (XtParent(centric_w));
+X	} else
+X	    XtUnmanageChild (XtParent(centric_w));
+X
+X	if (wasman)
+X	    XtManageChild (dataform_w);
+X
+X	watch_cursor(0);
+X}
+X
+X/* callback from any of the Data selection control panel buttons.
+X * which is in client.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_ctl_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int id = (int) client;
+X
+X	switch (id) {
+X	case OK:
+X	    ds_apply_selections();
+X	    dm_update (mm_get_now(), 1);
+X	    XtUnmanageChild (sel_w);
+X	    break;
+X	case APPLY:
+X	    ds_apply_selections();
+X	    dm_update (mm_get_now(), 1);
+X	    break;
+X	case CANCEL:
+X	    XtUnmanageChild (sel_w);
+X	    break;
+X	case HELP:
+X	    ds_help();
+X	    break;
+X	}
+X}
+X
+X/* called from the Data selection table Help button
+X */
+Xstatic void
+Xds_help ()
+X{
+X	static char *msg[] = {
+X"This table lets you configure the rows and columns of the data table."
+X};
+X
+X	hlp_dialog ("DataSelection Table", msg, XtNumber(msg));
+X}
+X
+X/* callback from the Data selection row toggle button.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_row_toggle_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int i;
+X
+X	for (i = 0; i < NR; i++) {
+X	    Widget sw = row[i].sw;
+X	    if (XtIsManaged(sw))
+X		XmToggleButtonSetState (sw,
+X		    !XmToggleButtonGetState(sw), False);
+X	}
+X}
+X
+X/* callback from any of the Data selection col toggle button.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_col_toggle_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int what = (int)client;
+X	int i;
+X
+X	for (i = 0; i < NC; i++)
+X	    if (col[i].type == what) {
+X		Widget sw = col[i].sw;
+X		if (XtIsManaged(sw))
+X		    XmToggleButtonSetState (sw,
+X			!XmToggleButtonGetState(sw), False);
+X	    }
+X}
+X
+X/* callback from the Data selection row all toggle button.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_row_all_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int i;
+X
+X	for (i = 0; i < NR; i++) {
+X	    Widget sw = row[i].sw;
+X	    if (XtIsManaged(sw) && !XmToggleButtonGetState (sw))
+X		XmToggleButtonSetState(sw, True, False);
+X	}
+X}
+X
+X/* callback from any of the Data selection col all toggle buttons.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_col_all_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int what = (int)client;
+X	int i;
+X
+X	for (i = 0; i < NC; i++)
+X	    if (col[i].type == what) {
+X	        Widget sw = col[i].sw;
+X		if (XtIsManaged(sw) && !XmToggleButtonGetState (sw))
+X		    XmToggleButtonSetState(sw, True, False);
+X	    }
+X}
+X
+X/* callback from the Data selection row reset button.
+X */
+Xstatic void
+X/* ARGSUSED */
+Xds_row_reset_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	ds_setup_row_selections();
+X}
+X
+X/* callback from any of the Data selection col reset buttons.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xds_col_reset_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	ds_setup_col_selections((int)client);
+X}
+END_OF_FILE
+  if test 47722 -ne `wc -c <'datamenu.c'`; then
+    echo shar: \"'datamenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'datamenu.c'
+fi
+if test -f 'xephem.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xephem.c'\"
+else
+  echo shar: Extracting \"'xephem.c'\" \(20922 characters\)
+  sed "s/^X//" >'xephem.c' <<'END_OF_FILE'
+X/* main() for xephem.
+X * Copyright (c) 1990,1991,1992,1993 by Elwood Charles Downey
+X * Permission is granted to make and distribute copies of this program free of
+X * charge, provided the copyright notice and this permission notice are
+X * preserved on all copies.  All other rights reserved.  No representation is
+X * made about the suitability of this software for any purpose.  It is provided
+X * "as is" without express or implied warranty, to the extent permitted by
+X * applicable law.
+X */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X
+X#include <X11/Xlib.h>
+X#include <X11/IntrinsicP.h> /* for XT_REVISION */
+X
+X/* define WANT_EDITRES if want to try and support X11R5's EditRes feature.
+X * this will require linking with -lXmu and -lXext too.
+X */
+X#if defined(WANT_EDITRES) && (XT_REVISION >= 5)
+X#define	DO_EDITRES
+X#endif
+X
+X#ifdef DO_EDITRES
+X#include <X11/Xmu/Editres.h>
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include <X11/Shell.h>
+X#include <Xm/PushB.h>
+X#include <Xm/CascadeB.h>
+X#include <Xm/Form.h>
+X#include <Xm/Separator.h>
+X#include <Xm/MainW.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/ToggleB.h>
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void config_help P_((void));
+Xextern void datetime_help P_((void));
+Xextern void db_manage P_((void));
+Xextern void dm_manage P_((void));
+Xextern void e_manage P_((void));
+Xextern void intro_help P_((void));
+Xextern void jm_manage P_((void));
+Xextern void lst_manage P_((void));
+Xextern void m_manage P_((void));
+Xextern void mainmenu_help P_((void));
+Xextern void mars_manage P_((void));
+Xextern void mm_manage P_((Widget main_window));
+Xextern void mm_reset P_((void));
+Xextern void msg_manage P_((void));
+Xextern void notes_help P_((void));
+Xextern void obj_manage P_((void));
+Xextern void operation_help P_((void));
+Xextern void plot_manage P_((void));
+Xextern void pref_create_pulldown P_((Widget menu_bar));
+Xextern void references_help P_((void));
+Xextern void sm_manage P_((void));
+Xextern void srch_manage P_((void));
+Xextern void ss_manage P_((void));
+Xextern void sv_manage P_((void));
+Xextern void version P_((void));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid main_cursor P_((Cursor c));
+Xstatic void on_fpe P_((void));
+Xstatic Widget make_main_window P_((void));
+Xstatic void setup_window_properties P_((Widget w));
+Xstatic void m_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+X
+X#undef P_
+X
+X
+X/* client arg to m_activate_cb().
+X */
+Xenum {
+X    QUIT, XRESET, MSGTXT,
+X    DATA, MOON, EARTH, MARS, JUPMOON, SATMOON, SKYVIEW, SOLARSYS,
+X    PLOT, LIST, SEARCH,
+X    OBJS,
+X    DB,
+X    VERSION, REFERENCES, INTRO, MAINMENU, CONFIGFILE, OPERATION, DATETIME, NOTES
+X};
+X
+XWidget toplevel_w;
+XXtAppContext xe_app;
+Xchar *myclass = "XEphem";
+X
+X#define xephem_width 50
+X#define xephem_height 50
+Xstatic unsigned char xephem_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00,
+X   0x00, 0x00, 0xf8, 0xff, 0xff, 0x7f, 0x00, 0x00, 0xc0, 0x07, 0x00, 0x00,
+X   0xa0, 0x0f, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x10, 0xf0, 0x00, 0x02, 0x00,
+X   0x00, 0x00, 0x0c, 0x00, 0x01, 0x01, 0x00, 0x00, 0x08, 0x0c, 0x00, 0x02,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xfc, 0xff, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x03,
+X   0x00, 0x0f, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0xf0, 0x0c, 0x00, 0x00,
+X   0x03, 0x00, 0x00, 0x00, 0x1f, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x1e,
+X   0x00, 0x30, 0x00, 0xf8, 0x7f, 0x00, 0x3c, 0x00, 0x08, 0xb0, 0x07, 0x80,
+X   0x07, 0x40, 0x00, 0x04, 0x78, 0x00, 0x00, 0x18, 0x80, 0x00, 0x04, 0x78,
+X   0x00, 0x00, 0x20, 0x80, 0x00, 0x02, 0x30, 0x00, 0x02, 0x20, 0x00, 0x01,
+X   0x02, 0x08, 0x80, 0x0f, 0x40, 0x00, 0x01, 0x82, 0x08, 0x00, 0x07, 0x40,
+X   0x00, 0x01, 0x02, 0x08, 0x80, 0x0f, 0x40, 0x00, 0x01, 0x02, 0x10, 0x00,
+X   0x02, 0x20, 0x04, 0x01, 0x04, 0x10, 0x00, 0x00, 0x20, 0x80, 0x00, 0x04,
+X   0x60, 0x00, 0x00, 0x18, 0x80, 0x00, 0x08, 0x80, 0x07, 0x80, 0x07, 0x40,
+X   0x00, 0x30, 0x00, 0xf8, 0x7f, 0x00, 0x30, 0x00, 0xc0, 0x00, 0x00, 0x00,
+X   0x00, 0x0c, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x3c,
+X   0x00, 0x00, 0xf0, 0x00, 0x00, 0x00, 0xc0, 0x03, 0x00, 0x0f, 0x00, 0x00,
+X   0x00, 0x00, 0xfc, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x3c,
+X   0x00, 0x00, 0x00, 0x60, 0xf0, 0x00, 0xc0, 0x07, 0x00, 0x00, 0xf0, 0x0f,
+X   0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x20, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00};
+X
+Xstatic String fallbacks[] = {
+X    "XEphem*Algorithms.Fast.set: true",
+X    "XEphem*DBPromptD.textString: ephem.db",
+X    "XEphem*DataSelMiscCols.Alt.set: true",
+X    "XEphem*DataSelMiscCols.Az.set: true",
+X    "XEphem*DataSelMiscCols.Cns.set: true",
+X    "XEphem*DataSelMiscCols.Dec.set: true",
+X    "XEphem*DataSelMiscCols.R_A.set: true",
+X    "XEphem*DataSelRisetCols*Limb.set: true",
+X    "XEphem*DataSelRisetCols.RiseTm.set: true",
+X    "XEphem*DataSelRisetCols.SetTm.set: true",
+X    "XEphem*DataSelRows.Moon.set: true",
+X    "XEphem*DataSelRows.Sun.set: true",
+X    "XEphem*DateFormat.MDY.set: True",
+X    "XEphem*Earth*Map.height: 300",
+X    "XEphem*Help*ScrolledText.columns: 80",
+X    "XEphem*Help*ScrolledText.rows: 24",
+X    "XEphem*Help.verticalSpacing: 20",
+X    "XEphem*Jupiter*BigDots.set: True",
+X    "XEphem*Jupiter*Map.height: 100",
+X    "XEphem*Jupiter*Tags.set: True",
+X    "XEphem*Mars*Map.height: 300",
+X    "XEphem*Message*ScrolledText.columns: 80",
+X    "XEphem*Message*ScrolledText.rows: 10",
+X    "XEphem*Message.verticalSpacing: 20",
+X    "XEphem*PlotDA.height: 300",
+X    "XEphem*Saturn*BigDots.set: True",
+X    "XEphem*Saturn*CtlForm.verticalSpacing: 5",
+X    "XEphem*Saturn*Map.height: 100",
+X    "XEphem*Saturn*Tags.set: True",
+X    "XEphem*SkyFilter*Binary.set: True",
+X    "XEphem*SkyFilter*BrightNeb.set: True",
+X    "XEphem*SkyFilter*ClInNeb.set: True",
+X    "XEphem*SkyFilter*DarkNeb.set: True",
+X    "XEphem*SkyFilter*DiffuseNeb.set: True",
+X    "XEphem*SkyFilter*Double.set: True",
+X    "XEphem*SkyFilter*Elliptical.set: True",
+X    "XEphem*SkyFilter*GalClusters.set: True",
+X    "XEphem*SkyFilter*GlobularCl.set: True",
+X    "XEphem*SkyFilter*Hyperbolic.set: True",
+X    "XEphem*SkyFilter*Multiple.set: True",
+X    "XEphem*SkyFilter*OpenCl.set: True",
+X    "XEphem*SkyFilter*Parabolic.set: True",
+X    "XEphem*SkyFilter*PlanetaryNeb.set: True",
+X    "XEphem*SkyFilter*Planets.set: True",
+X    "XEphem*SkyFilter*Quasars.set: True",
+X    "XEphem*SkyFilter*SphericalGal.set: True",
+X    "XEphem*SkyFilter*SpiralGal.set: True",
+X    "XEphem*SkyFilter*Stars.set: True",
+X    "XEphem*SkyFilter*Stellar.set: True",
+X    "XEphem*SkyFilter*Undefined.set: True",
+X    "XEphem*SkyFilter*Variable.set: True",
+X    "XEphem*SkyView*AltAzMode.set: true",
+X    "XEphem*SkyView*AltDecScale.value: 90",
+X    "XEphem*SkyView*AzRAScale.maximum: 360",
+X    "XEphem*SkyView*AzRAScale.value: 180",
+X    "XEphem*SkyView*BrightMagScale.value: -28",
+X    "XEphem*SkyView*FOVScale.value: 180",
+X    "XEphem*SkyView*FaintMagScale.value: 6",
+X    "XEphem*SkyView*JustDots.set: True",
+X    "XEphem*SkyView*Map.height: 300",
+X    "XEphem*SkyView*Map.width: 300",
+X    "XEphem*SolarSystem*BigDots.set: true",
+X    "XEphem*SolarSystem*HLatScale.value: 90",
+X    "XEphem*SolarSystem*Names.set: true",
+X    "XEphem*SolarSystem*SolarDA.height: 300",
+X    "XEphem*SolarSystem*SolarDA.width: 300",
+X    "XEphem*StdRefr.set: true",
+X    "XEphem*Topocentric.set: true",
+X    "XEphem*Units.English.set: True",
+X    "XEphem*XmText*highlightOnEnter: false",
+X    "XEphem*XmText*highlightThickness: 0",
+X    "XEphem*XmText*traversalOn: true",
+X    "XEphem*background: black",
+X    "XEphem*fontList: fixed",
+X    "XEphem*foreground: white",
+X    "XEphem*highlightOnEnter: false",
+X    "XEphem*highlightThickness: 0",
+X    "XEphem*marginHeight: 1",
+X    "XEphem*spacing: 1",
+X    "XEphem*traversalOn: false",
+X    "XEphem.Elevation: 800",
+X    "XEphem.Epoch: 2000",
+X    "XEphem.HELPFILE: xephem.hlp",
+X    "XEphem.Lat: 41:51:0",
+X    "XEphem.Long: 91:40:0",
+X    "XEphem.NSteps: 1",
+X    "XEphem.Pause: 0",
+X    "XEphem.Pressure: 29.5",
+X    "XEphem.StepSize: RTC",
+X    "XEphem.TZName: CST",
+X    "XEphem.TZone: 6",
+X    "XEphem.Temp: 60",
+X    "XEphem.TwilightDip: 18",
+X    "XEphem.UT: Now",
+X    "XEphem.allowShellResize: True",
+X    "XEphem.viewsFont: fixed",
+X    NULL
+X};
+X
+Xstatic Widget main_window_w;
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	toplevel_w = XtAppInitialize (&xe_app, myclass, NULL, 0,
+X					    &argc, argv, fallbacks, NULL, 0);
+X
+X#ifdef DO_EDITRES
+X	XtAddEventHandler (toplevel_w, (EventMask)0, True,
+X					_XEditResCheckMessages, NULL);
+X	xe_msg ("Can editres!\n", 0);
+X#endif
+X
+X	/* report FPE errors, though we don't do anything about them */
+X	(void) signal (SIGFPE, on_fpe);
+X
+X	/* make the main menu bar and form (other stuff is in mainmenu.c) */
+X	main_window_w = make_main_window ();
+X
+X	XtManageChild(main_window_w);
+X	XtRealizeWidget(toplevel_w);
+X
+X	/* connect up the icon pixmap */
+X	setup_window_properties (toplevel_w);
+X
+X	XtAppMainLoop(xe_app);
+X
+X	printf ("XtAppMainLoop returned :-)\n");
+X	return (1);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xmain_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (main_window_w && (win = XtWindow(main_window_w))) {
+X	    Display *dsp = XtDisplay(main_window_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xon_fpe()
+X{
+X	(void) signal (SIGFPE, (void (*)())on_fpe);
+X	xe_msg ("FP Error\n", 0);
+X}
+X
+X/* put together the menu bar, the main form, and fill in the form with the
+X * initial xephem buttons.
+X */
+Xstatic Widget
+Xmake_main_window ()
+X{
+X
+X	Widget main_window;
+X	Widget menu_bar;
+X	Widget menu_pane;
+X	Widget button;
+X	Widget cascade;
+X	Widget w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X
+X	/*	Create MainWindow.  */
+X	n = 0;
+X	main_window = XmCreateMainWindow (toplevel_w, "xephem_main", args, n);
+X	XtManageChild (main_window);
+X
+X	/*	Create MenuBar in MainWindow.  */
+X	n = 0;
+X	menu_bar = XmCreateMenuBar (main_window, "menu_bar", args, n); 
+X	XtManageChild (menu_bar);
+X
+X	/*	Create "File" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "file_pane", args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'R'); n++;
+X	button = XmCreatePushButton (menu_pane, "Reset", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, 
+X							(XtPointer)XRESET);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'M'); n++;
+X	button = XmCreatePushButton (menu_pane, "Messages", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)MSGTXT);
+X
+X	str = XmStringCreate ("Ctrl/d", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNaccelerator, "Ctrl<Key>d:"); n++;
+X	XtSetArg (args[n], XmNacceleratorText, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'Q'); n++;
+X	button = XmCreatePushButton (menu_pane, "Quit", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)QUIT);
+X	XmStringFree (str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'F'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "File", args, n);
+X	XtManageChild (cascade);
+X	
+X	/*	Create "View" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "view_pane", args, n);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Data Table", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'D'); n++;
+X	button = XmCreatePushButton (menu_pane, "GenData", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)DATA);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	w = XmCreateSeparator (menu_pane, "ViewSep1", args, n);
+X	XtManageChild (w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'M'); n++;
+X	button = XmCreatePushButton (menu_pane, "Moon", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)MOON);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'E'); n++;
+X	button = XmCreatePushButton (menu_pane, "Earth", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)EARTH);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'r'); n++;
+X	button = XmCreatePushButton (menu_pane, "Mars", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)MARS);
+X
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'J'); n++;
+X	button = XmCreatePushButton (menu_pane, "Jupiter", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)JUPMOON);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'a'); n++;
+X	button = XmCreatePushButton (menu_pane, "Saturn", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)SATMOON);
+X	
+X	n = 0;
+X	w = XmCreateSeparator (menu_pane, "ViewSep2", args, n);
+X	XtManageChild (w);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Sky View", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+X	button = XmCreatePushButton (menu_pane, "SkyV", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)SKYVIEW);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Solar system", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'S'); n++;
+X	button = XmCreatePushButton (menu_pane, "SolSys", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)SOLARSYS);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "View", args, n);
+X	XtManageChild (cascade);
+X	
+X	/*	Create "Control" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "control_pane", args, n);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'P'); n++;
+X	button = XmCreatePushButton (menu_pane, "Plot", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)PLOT);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'L'); n++;
+X	button = XmCreatePushButton (menu_pane, "Listing", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)LIST);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'S'); n++;
+X	button = XmCreatePushButton (menu_pane, "Search", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)SEARCH);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'C'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "Control", args, n);
+X	XtManageChild (cascade);
+X
+X	/*	Create "ObjX/Y..." Cascade Button.  */
+X	str = XmStringCreate ("ObjX/Y...", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'O'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "ObjXY", args, n);
+X	XtManageChild (cascade);
+X	XtAddCallback (cascade, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)OBJS);
+X	XmStringFree (str);
+X
+X	/*	Create "DB..." Cascade Button.  */
+X	str = XmStringCreate ("DB...", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'D'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "DB", args, n);
+X	XtManageChild (cascade);
+X	XtAddCallback (cascade, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)DB);
+X	XmStringFree (str);
+X
+X	/*	Create "Preferences" PulldownMenu.  */
+X
+X	pref_create_pulldown (menu_bar);
+X	
+X	/*	Create "Help" button.  */
+X
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "help_pane", args, n);
+X	
+X	n = 0;
+X	str = XmStringCreate ("on Version", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+X	button = XmCreatePushButton (menu_pane, "onVersion", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)VERSION);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Credits", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'C'); n++;
+X	button = XmCreatePushButton (menu_pane, "onReferences", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)REFERENCES);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'I'); n++;
+X	button = XmCreatePushButton (menu_pane, "Introduction", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)INTRO);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Initialization", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'z'); n++;
+X	button = XmCreatePushButton (menu_pane, "onInitialization", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)CONFIGFILE);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Main Menu", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'M'); n++;
+X	button = XmCreatePushButton (menu_pane, "onMainMenu", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)MAINMENU);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Operation", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'O'); n++;
+X	button = XmCreatePushButton (menu_pane, "onOperation", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)OPERATION);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Triad formats", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'T'); n++;
+X	button = XmCreatePushButton (menu_pane, "onTriad", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)DATETIME);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'N'); n++;
+X	button = XmCreatePushButton (menu_pane, "Notes", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb,
+X							(XtPointer)NOTES);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'H'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "Help", args, n);
+X	XtManageChild (cascade);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmenuHelpWidget, cascade);  n++;
+X	XtSetValues (menu_bar, args, n);
+X
+X	/* create and manage the main form */
+X	mm_manage(main_window);
+X
+X	return (main_window);
+X}
+X
+Xstatic void
+Xsetup_window_properties (w)
+XWidget w;
+X{
+X	Pixmap icon_pm;
+X	XSizeHints xsh;
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow (w);
+X
+X	icon_pm = XCreateBitmapFromData (dsp, win, (char *)xephem_bits,
+X						xephem_width, xephem_height);
+X	/* can set window size hints here if we like */
+X	xsh.flags = 0;
+X
+X	XSetStandardProperties (dsp, win, "xephem", "xephem", icon_pm,
+X	    (char **)0, 0, &xsh);
+X}
+X
+X/* ARGSUSED */
+Xstatic void
+Xm_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int code = (int)client;
+X
+X	watch_cursor(1);
+X
+X	switch (code) {
+X	case XRESET:	mm_reset(); break;
+X	case MSGTXT:	msg_manage(); break;
+X	case QUIT:	exit(0); break;
+X	case DATA:	dm_manage(); break;
+X	case EARTH:	e_manage(); break;
+X	case MOON:	m_manage(); break;
+X	case MARS:	mars_manage(); break;
+X	case JUPMOON:	jm_manage(); break;
+X	case SATMOON:	sm_manage(); break;
+X	case SKYVIEW:	sv_manage(); break;
+X	case SOLARSYS:	ss_manage(); break;
+X	case PLOT:	plot_manage(); break;
+X	case LIST:	lst_manage(); break;
+X	case SEARCH:	srch_manage(); break;
+X	case OBJS:	obj_manage(); break;
+X	case DB:	db_manage(); break;
+X	case VERSION:	version(); break;
+X	case REFERENCES:references_help(); break;
+X	case INTRO:	intro_help(); break;
+X	case CONFIGFILE:config_help(); break;
+X	case MAINMENU:	mainmenu_help(); break;
+X	case OPERATION:	operation_help(); break;
+X	case DATETIME:	datetime_help(); break;
+X	case NOTES:	notes_help(); break;
+X	default: 	printf ("Main menu bug: code=%d\n", code); exit(1);
+X	}
+X
+X	watch_cursor(0);
+X}
+END_OF_FILE
+  if test 20922 -ne `wc -c <'xephem.c'`; then
+    echo shar: \"'xephem.c'\" unpacked with wrong size!
+  fi
+  # end of 'xephem.c'
+fi
+echo shar: End of archive 11 \(of 21\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

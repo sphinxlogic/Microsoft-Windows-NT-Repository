@@ -1,0 +1,1870 @@
+Newsgroups: comp.sources.misc
+From: cthuang@zerosan.uucp (Chin Huang)
+Subject:  v29i062:  cproto - generate C function prototypes v3PL2, Part02/02
+Message-ID: <1992Apr5.042540.2917@sparky.imd.sterling.com>
+X-Md4-Signature: df31176d341169ca37cd34bf02348d4f
+Date: Sun, 5 Apr 1992 04:25:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cthuang@zerosan.uucp (Chin Huang)
+Posting-number: Volume 29, Issue 62
+Archive-name: cproto/part02
+Environment: UNIX, MS-DOS, getopt, lex, yacc
+Supersedes: cproto: Volume 28, Issue 100-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  config.h cproto.h patchlev.h semantic.h symbol.h cproto.c
+#   popen.c semantic.c strstr.c symbol.c
+# Wrapped by cthuang@zerosan.UUCP on Sat Apr 04 14:07:39 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f config.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"config.h\"
+else
+echo shar: Extracting \"config.h\" \(877 characters\)
+sed "s/^X//" >config.h <<'END_OF_config.h'
+X/* $Id: config.h 3.3 92/04/04 13:59:06 cthuang Exp $
+X *
+X * cproto configuration and system dependencies
+X */
+X
+X/* maximum include file nesting */
+X#ifndef MAX_INC_DEPTH
+X#define MAX_INC_DEPTH 15
+X#endif
+X
+X/* maximum number of include directories */
+X#ifndef MAX_INC_DIR
+X#define MAX_INC_DIR 15
+X#endif
+X
+X/* maximum text buffer size */
+X#ifndef MAX_TEXT_SIZE
+X#define MAX_TEXT_SIZE 256
+X#endif
+X
+X/* Borland C predefines __MSDOS__ */
+X#ifdef __MSDOS__
+X#ifndef MSDOS
+X#define MSDOS
+X#endif
+X#endif
+X
+X#ifdef MSDOS
+X#include <malloc.h>
+X#include <stdlib.h>
+X#else
+Xextern char *malloc();
+Xextern char *getenv();
+X#endif
+X
+X#ifdef BSD
+X#include <strings.h>
+X#define strchr index
+X#define strrchr rindex
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifndef MSDOS
+Xextern char *strstr();
+X#endif
+X
+X/* C preprocessor */
+X#ifdef TURBO_CPP
+X#define CPP "cpp -P-"
+X#endif
+X
+X#ifndef MSDOS
+X#ifndef CPP
+X#define CPP "/lib/cpp"
+X#endif
+X#endif
+END_OF_config.h
+if test 877 -ne `wc -c <config.h`; then
+    echo shar: \"config.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f cproto.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"cproto.h\"
+else
+echo shar: Extracting \"cproto.h\" \(4976 characters\)
+sed "s/^X//" >cproto.h <<'END_OF_cproto.h'
+X/* $Id: cproto.h 3.4 92/04/04 13:59:08 cthuang Exp $
+X *
+X * Declarations for C function prototype generator
+X */
+X#include "config.h"
+X
+X/* Boolean type */
+Xtypedef char boolean;
+X#define FALSE	0
+X#define TRUE	1
+X
+X/* Source file text */
+Xtypedef struct text {
+X    char text[MAX_TEXT_SIZE];	/* source text */
+X    long begin; 		/* offset in temporary file */
+X} Text;
+X
+X/* This is a list of function parameters. */
+Xtypedef struct parameter_list {
+X    struct parameter *first;	/* pointer to first parameter in list */
+X    struct parameter *last;	/* pointer to last parameter in list */  
+X    long begin_comment; 	/* begin offset of comment */
+X    long end_comment;		/* end offset of comment */
+X    char *comment;		/* comment at start of parameter list */
+X} ParameterList;
+X
+X/* Declaration specifier flags */
+X#define DS_EXTERN	0	/* default: external declaration */
+X#define DS_STATIC	1	/* visible only in current file */
+X#define DS_CHAR 	2	/* "char" type specifier in declaration */
+X#define DS_SHORT	4	/* "short" type specifier in declaration */
+X#define DS_FLOAT	8	/* "float" type specifier in declaration */
+X#define DS_JUNK 	16	/* we're not interested in this declaration */
+X
+X/* This structure stores information about a declaration specifier. */
+Xtypedef struct decl_spec {
+X    unsigned short flags;	/* flags defined above */
+X    char *text; 		/* source text */
+X    long begin; 		/* offset in temporary file */
+X} DeclSpec;
+X
+X/* Styles of function definitions */
+X#define FUNC_NONE		0	/* not a function definition */
+X#define FUNC_TRADITIONAL	1	/* traditional style */
+X#define FUNC_ANSI		2	/* ANSI style */
+Xtypedef int FuncDefStyle;
+X
+X/* This structure stores information about a declarator. */
+Xtypedef struct declarator {
+X    char *name; 			/* name of variable or function */
+X    char *text; 			/* source text */
+X    long begin; 			/* offset in temporary file */
+X    long begin_comment; 		/* begin offset of comment */
+X    long end_comment;			/* end offset of comment */
+X    FuncDefStyle func_def;		/* style of function definition */
+X    ParameterList params;		/* function parameters */
+X    struct declarator *head;		/* head function declarator */
+X    struct declarator *func_stack;	/* stack of function declarators */
+X    struct declarator *next;		/* next declarator in list */
+X} Declarator;
+X
+X/* This is a list of declarators. */
+Xtypedef struct declarator_list {
+X    Declarator *first;		/* pointer to first declarator in list */
+X    Declarator *last;		/* pointer to last declarator in list */  
+X} DeclaratorList;
+X
+X/* This structure stores information about a function parameter. */
+Xtypedef struct parameter {
+X    struct parameter *next;	/* next parameter in list */
+X    DeclSpec decl_spec;
+X    Declarator *declarator;
+X    char *comment;		/* comment following the parameter */
+X} Parameter;
+X
+X/* parser stack entry type */
+Xtypedef union {
+X    Text text;
+X    DeclSpec decl_spec;
+X    Parameter parameter;
+X    ParameterList param_list;
+X    Declarator *declarator;
+X    DeclaratorList decl_list;
+X} YYSTYPE;
+X
+X/* Prototype styles */
+X#define PROTO_NONE		0	/* do not output any prototypes */
+X#define PROTO_TRADITIONAL	1	/* comment out parameters */
+X#define PROTO_ABSTRACT		2	/* comment out parameter names */
+X#define PROTO_ANSI		3	/* ANSI C prototype */
+X#define PROTO_MACRO		4	/* macro around parameters */
+Xtypedef int PrototypeStyle;
+X
+X/* The role of a function declarator */
+X#define FUNC_OTHER	0	/* miscellaneous declaration */
+X#define FUNC_PROTO	1	/* prototype */
+X#define FUNC_DEF	2	/* function definition */
+Xtypedef int FuncDeclRole;
+X
+X/* Prototype/function definition output formats */
+X#define FMT_OTHER		0	/* miscellaneous */
+X#define FMT_PROTO		1	/* prototype */
+X#define FMT_FUNC		2	/* function definition */
+X#define FMT_FUNC_COMMENT	3	/* func. def. with parameter comments */
+Xtypedef int FuncFormatType;
+X
+X/* Prototype/function definition output format */
+Xtypedef struct {
+X    char *decl_spec_prefix;	/* output before declaration specifier */
+X    char *declarator_prefix;	/* output before declarator name */
+X    char *declarator_suffix;	/* output before '(' of parameter list */
+X    char *first_param_prefix;	/* output before first parameter */
+X    char *middle_param_prefix;	/* output before each subsequent parameter */
+X    char *last_param_suffix;	/* output after last parameter */
+X} FuncFormat;
+X
+X/* Program options */
+Xextern boolean extern_out;
+Xextern boolean static_out;
+Xextern boolean variables_out;
+Xextern boolean promote_param;
+Xextern PrototypeStyle proto_style;
+Xextern FuncDefStyle func_style;
+Xextern boolean define_macro;
+Xextern char *macro_name;
+Xextern boolean proto_comments;
+Xextern int num_inc_dir;
+Xextern char *inc_dir[];
+Xextern FuncFormat fmt[4];
+X
+X/* Global declarations */
+Xextern char progname[];
+X
+Xextern char *xmalloc(), *xstrdup(), *trim_path_sep();
+Xextern void put_error();
+Xextern void init_parser(), process_file(), pop_file();
+Xextern char *cur_file_name();
+Xextern unsigned cur_line_num();
+Xextern FILE *cur_tmp_file();
+Xextern void cur_file_changed();
+Xextern long cur_begin_comment();
+END_OF_cproto.h
+if test 4976 -ne `wc -c <cproto.h`; then
+    echo shar: \"cproto.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f patchlev.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"patchlev.h\"
+else
+echo shar: Extracting \"patchlev.h\" \(21 characters\)
+sed "s/^X//" >patchlev.h <<'END_OF_patchlev.h'
+X#define PATCHLEVEL 2
+END_OF_patchlev.h
+if test 21 -ne `wc -c <patchlev.h`; then
+    echo shar: \"patchlev.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f semantic.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"semantic.h\"
+else
+echo shar: Extracting \"semantic.h\" \(1823 characters\)
+sed "s/^X//" >semantic.h <<'END_OF_semantic.h'
+X/* $Id: semantic.h 3.2 92/03/06 00:54:38 cthuang Exp $
+X *
+X * Declarations of semantic action routines
+X */
+X
+Xextern void new_decl_spec(/*
+X    DeclSpec *decl_spec, char *text, long offset, int flags*/);
+Xextern void free_decl_spec(/*
+X    DeclSpec *decl_spec*/);
+Xextern void join_decl_specs(/*
+X    DeclSpec *result, DeclSpec *a, DeclSpec *b*/);
+Xextern void check_untagged(/*
+X    DeclSpec *decl_spec*/);
+Xextern Declarator *new_declarator(/*
+X    char *text, char *name, long offset*/);
+Xextern void free_declarator(/*
+X    Declarator *d*/);
+Xextern void new_decl_list(/*
+X    DeclaratorList *decl_list, Declarator *declarator*/);
+Xextern void free_decl_list(/*
+X    DeclaratorList *decl_list*/);
+Xextern void add_decl_list(/*
+X    DeclaratorList *to, DeclaratorList *from, Declarator *declarator*/);
+Xextern void new_parameter(/*
+X    Parameter *param, DeclSpec *decl_spec, Declarator *declarator*/);
+Xextern void free_parameter(/*
+X    Parameter *param*/);
+Xextern boolean is_void_parameter(/*
+X    Parameter *p*/);
+Xextern void new_param_list(/*
+X    ParameterList *param_list, Parameter *param*/);
+Xextern void free_param_list(/*
+X    ParameterList *param_list*/);
+Xextern void add_param_list(/*
+X    ParameterList *to, ParameterList *from, Parameter *param*/);
+Xextern void new_ident_list(/*
+X    ParameterList *param_list*/);
+Xextern void add_ident_list(/*
+X    ParameterList *to, ParameterList *from, char *name*/);
+Xextern void set_param_types(/*
+X    ParameterList *params, DeclSpec *decl_spec, DeclaratorList *declarators*/);
+Xextern void gen_declarations(/*
+X    DeclSpec *decl_spec, DeclaratorList *decl_list*/);
+Xextern void gen_prototype(/*
+X    DeclSpec *decl_spec, Declarator *declarator*/);
+Xextern void gen_func_declarator(/*
+X    Declarator *declarator*/);
+Xextern void gen_func_definition(/*
+X    DeclSpec *decl_spec, Declarator *declarator*/);
+END_OF_semantic.h
+if test 1823 -ne `wc -c <semantic.h`; then
+    echo shar: \"semantic.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f symbol.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"symbol.h\"
+else
+echo shar: Extracting \"symbol.h\" \(776 characters\)
+sed "s/^X//" >symbol.h <<'END_OF_symbol.h'
+X/* $Id: symbol.h 3.3 92/03/14 11:57:48 cthuang Exp $
+X *
+X * A symbol table is a collection of string identifiers stored in a
+X * hash table.
+X */
+X#ifndef SYMBOL_H
+X#define SYMBOL_H
+X
+Xtypedef struct symbol {
+X    struct symbol *next;	/* next symbol in list */
+X    char *name; 		/* name of symbol */
+X    unsigned short flags;	/* symbol attributes */
+X} Symbol;
+X
+X/* The hash table length should be a prime number. */
+X#define SYM_MAX_HASH 251
+X
+Xtypedef struct symbol_table {
+X    Symbol *bucket[SYM_MAX_HASH];	/* hash buckets */
+X} SymbolTable;
+X
+Xextern SymbolTable *new_symbol_table(); /* Create symbol table */
+Xextern void free_symbol_table();	/* Destroy symbol table */
+Xextern Symbol *find_symbol();		/* Lookup symbol name */
+Xextern Symbol *new_symbol();		/* Define new symbol */
+X
+X#endif
+END_OF_symbol.h
+if test 776 -ne `wc -c <symbol.h`; then
+    echo shar: \"symbol.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f cproto.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"cproto.c\"
+else
+echo shar: Extracting \"cproto.c\" \(10377 characters\)
+sed "s/^X//" >cproto.c <<'END_OF_cproto.c'
+X/* $Id: cproto.c 3.4 92/04/04 13:59:22 cthuang Exp $
+X *
+X * C function prototype generator and function definition converter
+X */
+X#ifndef lint
+Xstatic char rcsid[] = "$Id: cproto.c 3.4 92/04/04 13:59:22 cthuang Exp $";
+X#endif
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "cproto.h"
+X#include "patchlev.h"
+X
+X/* getopt declarations */
+Xextern int getopt();
+Xextern char *optarg;
+Xextern int optind;
+X
+X/* Name of the program */
+Xchar progname[] = "cproto";
+X
+X/* Program options */
+X
+X/* If TRUE, output "extern" before global declarations */
+Xboolean extern_out = FALSE;
+X
+X/* If TRUE, generate static declarations */
+Xboolean static_out = FALSE;
+X
+X/* If TRUE, generate variable declarations */
+Xboolean variables_out = FALSE;
+X
+X/* If TRUE, enable formal parameter promotion */
+Xboolean promote_param = TRUE;
+X
+X/* Style of function prototype to generate */
+XPrototypeStyle proto_style = PROTO_ANSI;
+X
+X/* Function definition style converted to */
+XFuncDefStyle func_style = FUNC_NONE;
+X
+X/* Name of macro to guard prototypes */
+Xchar *macro_name = "P_";
+X
+X/* If TRUE, output prototype macro definition */
+Xboolean define_macro = TRUE;
+X
+X/* If TRUE, output comments in prototypes */
+Xboolean proto_comments = TRUE;
+X
+X/* Output formats for function declarators */
+XFuncFormat fmt[] = {
+X    /* miscellaneous function declarator */
+X    { "", " ", "", "", " ", "" },
+X    /* prototype */
+X    { "", " ", "", "", " ", "" },
+X    /* function definition */
+X    { "", "\n", " ", "", " ", "" },
+X    /* function definition with parameter comments */
+X    { "", "\n", " ", "\n    ", "\n    ", "\n" },
+X};
+X
+X/* Include file directories */
+X#ifdef MSDOS
+Xint num_inc_dir = 1;
+Xchar *inc_dir[MAX_INC_DIR] = { "" };
+X#else
+Xint num_inc_dir = 2;
+Xchar *inc_dir[MAX_INC_DIR] = { "", "/usr/include" };
+X#endif
+X
+X/* Run the C preprocessor */
+X#ifdef CPP
+Xextern FILE *popen();
+Xextern int pclose();
+Xstatic char *cpp_cmd, *cmd;
+X#endif
+X
+X
+X/* Try to allocate some memory.
+X * If unsuccessful, output an error message and exit.
+X */
+Xchar *
+Xxmalloc (n)
+Xunsigned n;
+X{
+X    char *p;
+X
+X    if ((p = malloc(n)) == NULL) {
+X	fprintf(stderr, "%s: out of memory\n", progname);
+X	exit(1);
+X    }
+X    return p;
+X}
+X
+X/* Copy the string into allocated memory.
+X * If unsuccessful, output an error message and exit.
+X */
+Xchar *
+Xxstrdup (src)
+Xchar *src;
+X{
+X    return strcpy(xmalloc(strlen(src)+1), src);
+X}
+X
+X/* Output the current source file name and line number.
+X */
+Xvoid
+Xput_error ()
+X{
+X    fprintf(stderr, "\"%s\", line %d: ", cur_file_name(), cur_line_num());
+X}
+X
+X/* Scan for options from a string.
+X */
+Xstatic void
+Xparse_options (src, maxargc, pargc, argv)
+Xchar *src;
+Xint maxargc, *pargc;
+Xchar **argv;
+X{
+X    char *g, *p, c;
+X    int argc;
+X
+X    argc = 0;
+X    g = xstrdup(src);
+X    c = *g;
+X    while (c != '\0' && argc < maxargc) {
+X	while (c == ' ' || c == '\t')
+X	    c = *++g;
+X	if (c == '\0')
+X	    break;
+X	argv[argc++] = g;
+X
+X	p = g;
+X	while (1) {
+X	    if (c == ' ' || c == '\t' || c == '\0') {
+X		*p = '\0';
+X		break;
+X	    } else if (c == '"') {
+X		while (1) {
+X		    c = *++g;
+X		    if (c == '"') {
+X			c = *++g;
+X			break;
+X		    } else if (c == '\0') {
+X			break;
+X		    } else {
+X			*p++ = c;
+X		    }
+X		}
+X	    } else {
+X		*p++ = c;
+X		c = *++g;
+X	    }
+X	}
+X	if (c != '\0')
+X	    c = *++g;
+X    }
+X
+X    *pargc = argc;
+X}
+X
+X/* Replace any character escape sequences in a string with the actual
+X * characters.	Return a pointer to malloc'ed memory containing the result.
+X * This function knows only a few escape sequences.
+X */
+Xstatic char *
+Xescape_string (src)
+Xchar *src;
+X{
+X    char *result, *get, *put;
+X
+X    result = xstrdup(src);
+X    put = result;
+X    get = src;
+X    while (*get != '\0') {
+X	if (*get == '\\') {
+X	    switch (*(++get)) {
+X	    case 'n':
+X		*put++ = '\n';
+X		++get;
+X		break;
+X	    case 't':
+X		*put++ = '\t';
+X		++get;
+X		break;
+X	    default:
+X		if (*get != '\0')
+X		    *put++ = *get++;
+X	    }
+X	} else {
+X	    *put++ = *get++;
+X	}
+X    }
+X    *put = *get;
+X    return result;
+X}
+X
+X/* Trim any path name separator from the end of the string.
+X * Return a pointer to the string.
+X */
+Xchar *
+Xtrim_path_sep (s)
+Xchar *s;
+X{
+X    char ch;
+X    int n;
+X
+X    n = strlen(s);
+X    if (n > 0) {
+X	ch = s[n-1];
+X	if (ch == '/' || ch == '\\')
+X	    s[n-1] = '\0';
+X    }
+X    return s;
+X}
+X
+X/* Output usage message and exit.
+X */
+Xstatic void
+Xusage ()
+X{
+X    fprintf(stderr, "usage: %s [ option ... ] [ file ... ]\n", progname);
+X    fputs("Options:\n", stderr);
+X    fputs("  -a       Convert function definitions to ANSI style\n", stderr);
+X    fputs("  -c       Omit comments in generated prototypes\n", stderr);
+X    fputs("  -e       Output \"extern\" keyword before global declarations\n",
+X	stderr);
+X    fputs("  -f n     Set function prototype style (0 to 4)\n", stderr);
+X    fputs("  -p       Disable formal parameter promotion\n", stderr);
+X    fputs("  -s       Output static declarations\n", stderr);
+X    fputs("  -t       Convert function definitions to traditional style\n",
+X	stderr);
+X    fputs("  -v       Output variable declarations\n", stderr);
+X    fputs("  -m name  Set name of prototype macro\n", stderr);
+X    fputs("  -d       Omit prototype macro definition\n", stderr);
+X    fputs("  -P fmt   Set prototype format template \"int main (a, b)\"\n",
+X	stderr);
+X    fputs("  -F fmt   Set function definition format template \"int main (a, b)\"\n",
+X	stderr);
+X    fputs("  -C fmt   Set format for function definition with parameter comments\n",
+X	stderr);
+X    fputs("  -V       Print version information\n", stderr);
+X    fputs("  -D name[=value]\n", stderr);
+X    fputs("  -U name\n", stderr);
+X    fputs("  -I directory\n", stderr);
+X    fputs("           Set C preprocessor options\n", stderr);
+X    exit(1);
+X}
+X
+X#define MAX_OPTIONS 40
+X
+X/* Process the command line options.
+X */
+Xstatic void
+Xprocess_options (pargc, pargv)
+Xint *pargc;
+Xchar ***pargv;
+X{
+X    int argc, eargc, nargc;
+X    char **argv, *eargv[MAX_OPTIONS], **nargv;
+X    int i, c;
+X    char *s;
+X#ifdef CPP
+X    unsigned n;
+X    char tmp[MAX_TEXT_SIZE];
+X#endif
+X
+X    argc = *pargc;
+X    argv = *pargv;
+X    if ((s = getenv("CPROTO")) != NULL) {
+X	parse_options(s, MAX_OPTIONS, &eargc, eargv);
+X	nargv = (char **)xmalloc((eargc+argc+1)*sizeof(char *));
+X	nargv[0] = argv[0];
+X	nargc = 1;
+X	for (i = 0; i < eargc; ++i)
+X	    nargv[nargc++] = eargv[i];
+X	for (i = 1; i < argc; ++i)
+X	    nargv[nargc++] = argv[i];
+X	nargv[nargc] = NULL;
+X	argc = nargc;
+X	argv = nargv;
+X    }
+X
+X#ifdef CPP
+X    /* Allocate buffer for C preprocessor command line. */
+X    n = strlen(CPP) + 1;
+X    for (i = 0; i < argc; ++i) {
+X	n += strlen(argv[i]) + 1;
+X    }
+X    cpp_cmd = xmalloc(n);
+X    strcpy(cpp_cmd, CPP);
+X    cmd = xmalloc(n);
+X#endif
+X
+X    while ((c = getopt(argc, argv, "aC:cD:deF:f:I:m:P:pstU:Vv")) != EOF) {
+X	switch (c) {
+X	case 'I':
+X	    if (num_inc_dir < MAX_INC_DIR) {
+X		inc_dir[num_inc_dir++] = trim_path_sep(xstrdup(optarg));
+X	    } else {
+X		fprintf(stderr, "%s: too many include directories\n",
+X		    progname);
+X	    }
+X	case 'D':
+X	case 'U':
+X#ifdef CPP
+X	    sprintf(tmp, " -%c%s", c, optarg);
+X	    strcat(cpp_cmd, tmp);
+X#endif
+X	    break;
+X	case 'a':
+X	    func_style = FUNC_ANSI;
+X	    break;
+X	case 'c':
+X	    proto_comments = FALSE;
+X	    break;
+X	case 'd':
+X	    define_macro = FALSE;
+X	    break;
+X	case 'e':
+X	    extern_out = TRUE;
+X	    break;
+X	case 'C':
+X	case 'F':
+X	case 'P':
+X	    s = escape_string(optarg);
+X	    i = (c == 'C') ? FMT_FUNC_COMMENT :
+X		((c == 'F') ? FMT_FUNC : FMT_PROTO);
+X
+X	    fmt[i].decl_spec_prefix = s;
+X	    while (*s != '\0' && isascii(*s) && !isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X	    *s++ = '\0';
+X	    while (*s != '\0' && isascii(*s) && isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X
+X	    fmt[i].declarator_prefix = s;
+X	    while (*s != '\0' && isascii(*s) && !isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X	    *s++ = '\0';
+X	    while (*s != '\0' && isascii(*s) && isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X
+X	    fmt[i].declarator_suffix = s;
+X	    while (*s != '\0' && *s != '(') ++s;
+X	    if (*s == '\0') usage();
+X	    *s++ = '\0';
+X
+X	    fmt[i].first_param_prefix = s;
+X	    while (*s != '\0' && isascii(*s) && !isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X	    *s++ = '\0';
+X	    while (*s != '\0' && *s != ',') ++s;
+X	    if (*s == '\0') usage();
+X
+X	    fmt[i].middle_param_prefix = ++s;
+X	    while (*s != '\0' && isascii(*s) && !isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X	    *s++ = '\0';
+X	    while (*s != '\0' && isascii(*s) && isalnum(*s)) ++s;
+X	    if (*s == '\0') usage();
+X
+X	    fmt[i].last_param_suffix = s;
+X	    while (*s != '\0' && *s != ')') ++s;
+X	    *s = '\0';
+X
+X	    break;
+X	case 'f':
+X	    proto_style = atoi(optarg);
+X	    if (proto_style < 0 || proto_style > PROTO_MACRO)
+X		usage();
+X	    break;
+X	case 'm':
+X	    macro_name = optarg;
+X	    break;
+X	case 'p':
+X	    promote_param = FALSE;
+X	    break;
+X	case 's':
+X	    static_out = TRUE;
+X	    break;
+X	case 't':
+X	    func_style = FUNC_TRADITIONAL;
+X	    break;
+X	case 'V':
+X	    fprintf(stderr, "%s patchlevel %d\n", rcsid, PATCHLEVEL);
+X	    break;
+X	case 'v':
+X	    variables_out = TRUE;
+X	    break;
+X	default:
+X	    usage();
+X	}
+X    }
+X
+X    *pargc = argc;
+X    *pargv = argv;
+X}
+X
+Xint
+Xmain (argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X    int i;
+X    FILE *inf;
+X
+X    process_options(&argc, &argv);
+X
+X    if (proto_style == PROTO_MACRO && define_macro) {
+X	printf("#if defined(__STDC__) || defined(__cplusplus)\n");
+X	printf("#define %s(s) s\n", macro_name);
+X	printf("#else\n");
+X	printf("#define %s(s) ()\n", macro_name);
+X	printf("#endif\n\n");
+X    }
+X
+X    init_parser();
+X    if (optind == argc) {
+X	if (func_style != FUNC_NONE) {
+X	    proto_style = PROTO_NONE;
+X	    variables_out = FALSE;
+X	    proto_comments = FALSE;
+X	}
+X	process_file(stdin, "stdin");
+X	pop_file();
+X    } else {
+X	for (i = optind; i < argc; ++i) {
+X#ifdef CPP
+X	    if (func_style == FUNC_NONE) {
+X		sprintf(cmd, "%s %s", cpp_cmd, argv[i]);
+X		if ((inf = popen(cmd, "r")) == NULL) {
+X		    fprintf(stderr, "%s: error running cpp\n", progname);
+X		    continue;
+X		}
+X	    } else {
+X		if ((inf = fopen(argv[i], "r")) == NULL) {
+X		    fprintf(stderr, "%s: cannot read file %s\n", progname,
+X			argv[i]);
+X		    continue;
+X		}
+X	    }
+X#else
+X	    if ((inf = fopen(argv[i], "r")) == NULL) {
+X		fprintf(stderr, "%s: cannot read file %s\n", progname, argv[i]);
+X		continue;
+X	    }
+X#endif
+X	    process_file(inf, argv[i]);
+X#ifdef CPP
+X	    if (func_style == FUNC_NONE) {
+X		pclose(inf);
+X	    } else {
+X		pop_file();
+X	    }
+X#else
+X	    pop_file();
+X#endif
+X	}
+X    }
+X
+X    if (proto_style == PROTO_MACRO && define_macro) {
+X	printf("\n#undef %s\n", macro_name);
+X    }
+X
+X    return 0;
+X}
+END_OF_cproto.c
+if test 10377 -ne `wc -c <cproto.c`; then
+    echo shar: \"cproto.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f popen.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"popen.c\"
+else
+echo shar: Extracting \"popen.c\" \(1567 characters\)
+sed "s/^X//" >popen.c <<'END_OF_popen.c'
+X/* $Id: popen.c 3.2 92/03/14 11:58:07 cthuang Exp $
+X *
+X * Imitate a UNIX pipe in MS-DOS.
+X */
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <process.h>
+X#include <io.h>
+X#include "cproto.h"
+X
+Xstatic char pipe_name[FILENAME_MAX];	/* name of the temporary file */
+X
+X/* Open a pipe for reading.
+X */
+XFILE *
+Xpopen (cmd, type)
+Xchar *cmd, *type;
+X{
+X    char *tmpdir, *argv[30], **arg, *cmdline, *s, opt[FILENAME_MAX];
+X    int ostdout, status;
+X
+X    /* Set temporary file name. */
+X    if ((tmpdir = getenv("TMP")) == NULL) {
+X	pipe_name[0] = '\0';
+X    } else {
+X	strcpy(pipe_name, tmpdir);
+X	trim_path_sep(pipe_name);
+X	strcat(pipe_name, "/");
+X    }
+X    strcat(pipe_name, tmpnam(NULL));
+X
+X    /* Split the command into an argument array. */
+X    cmdline = xstrdup(cmd);
+X    arg = argv;
+X    s = strtok(cmdline, " ");
+X    *arg++ = s;
+X#ifdef M_I86
+X    sprintf(opt, "-o%s.", pipe_name);
+X#else
+X    sprintf(opt, "-o%s", pipe_name);
+X#endif
+X    *arg++ = opt;
+X    while ((s = strtok(NULL, " ")) != NULL) {
+X	*arg++ = s;
+X    }
+X    *arg = NULL;
+X 
+X    /* Redirect the program's stdout to /dev/null. */
+X    ostdout = dup(fileno(stdout));
+X    freopen("nul", "w", stdout);
+X 
+X    /* Run the program. */
+X    status = spawnvp(P_WAIT, argv[0], argv);
+X 
+X    /* Restore stdout. */
+X    dup2(ostdout, fileno(stdout));
+X    free(cmdline);
+X
+X    if (status != 0)
+X	return NULL;
+X 
+X    /* Open the intermediate file and return the stream. */
+X    return fopen(pipe_name, type) ;
+X}
+X 
+X/* Close the pipe.
+X */
+Xint
+Xpclose (f)
+XFILE *f;
+X{
+X    int status;
+X 
+X    status = fclose(f);
+X    unlink(pipe_name);
+X    return status;
+X}
+END_OF_popen.c
+if test 1567 -ne `wc -c <popen.c`; then
+    echo shar: \"popen.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f semantic.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"semantic.c\"
+else
+echo shar: Extracting \"semantic.c\" \(18606 characters\)
+sed "s/^X//" >semantic.c <<'END_OF_semantic.c'
+X/* $Id: semantic.c 3.4 92/04/04 13:59:28 cthuang Exp $
+X *
+X * Semantic actions executed by the parser of the
+X * C function prototype generator.
+X */
+X#include <stdio.h>
+X#include "cproto.h"
+X#include "semantic.h"
+X
+X/* Head function declarator in a prototype or function definition */
+Xstatic Declarator *func_declarator;
+X
+X/* Where the declarator appears */
+Xstatic int where;
+X
+X/* Output format to use */
+Xstatic int format;
+X
+X/* Initialize a new declaration specifier part.
+X */
+Xvoid
+Xnew_decl_spec (decl_spec, text, offset, flags)
+XDeclSpec *decl_spec;
+Xchar *text;
+Xlong offset;
+Xint flags;
+X{
+X    decl_spec->text = xstrdup(text);
+X    decl_spec->begin = offset;
+X    decl_spec->flags = flags;
+X}
+X
+X/* Free storage used by a declaration specifier part.
+X */
+Xvoid
+Xfree_decl_spec (decl_spec)
+XDeclSpec *decl_spec;
+X{
+X    free(decl_spec->text);
+X}
+X
+X/* Create a new string by joining two strings with a space between them.
+X * Return a pointer to the resultant string.
+X * If out of memory, output an error message and exit.
+X */
+Xstatic char *
+Xconcat_string (a, b)
+Xchar *a, *b;
+X{
+X    char *result;
+X
+X    result = xmalloc(strlen(a) + strlen(b) + 2);
+X    strcpy(result, a);
+X    strcat(result, " ");
+X    strcat(result, b);
+X    return result;
+X}
+X
+X/* Append two declaration specifier parts together.
+X */
+Xvoid
+Xjoin_decl_specs (result, a, b)
+XDeclSpec *result, *a, *b;
+X{
+X    result->text = concat_string(a->text, b->text);
+X    result->flags = a->flags | b->flags;
+X    result->begin = a->begin;
+X}
+X
+X/* Output an error message if the declaration specifier is an untagged
+X * struct, union or enum.
+X */
+Xvoid
+Xcheck_untagged (decl_spec)
+XDeclSpec *decl_spec;
+X{
+X    if (strstr(decl_spec->text, "struct {}") != NULL) {
+X	put_error();
+X	fputs("untagged struct declaration\n", stderr);
+X    } else if (strstr(decl_spec->text, "union {}") != NULL) {
+X	put_error();
+X	fputs("untagged union declaration\n", stderr);
+X    } else if (strstr(decl_spec->text, "enum {}") != NULL) {
+X	put_error();
+X	fputs("untagged enum declaration\n", stderr);
+X    }
+X}
+X
+X/* Allocate and initialize a declarator.
+X */
+XDeclarator *
+Xnew_declarator (text, name, offset)
+Xchar *text, *name;
+Xlong offset;
+X{
+X    Declarator *d;
+X
+X    d = (Declarator *)xmalloc(sizeof(Declarator));
+X    d->text = xstrdup(text);
+X    d->name = xstrdup(name);
+X    d->begin = offset;
+X    d->begin_comment = d->end_comment = 0;
+X    d->func_def = FUNC_NONE;
+X    new_ident_list(&d->params);
+X    d->head = d;
+X    d->func_stack = NULL;
+X    return d;
+X}
+X
+X/* Free storage used by a declarator.
+X */
+Xvoid
+Xfree_declarator (d)
+XDeclarator *d;
+X{
+X    free(d->text);
+X    free(d->name);
+X    free_param_list(&(d->params));
+X    if (d->func_stack != NULL)
+X	free_declarator(d->func_stack);
+X    free(d);
+X}
+X
+X/* Initialize a declarator list and add the given declarator to it.
+X */
+Xvoid
+Xnew_decl_list (decl_list, declarator)
+XDeclaratorList *decl_list;
+XDeclarator *declarator;
+X{
+X    decl_list->first = decl_list->last = declarator;
+X    declarator->next = NULL;
+X}
+X
+X/* Free storage used by the declarators in the declarator list.
+X */
+Xvoid
+Xfree_decl_list (decl_list)
+XDeclaratorList *decl_list;
+X{
+X    Declarator *d, *next;
+X
+X    d = decl_list->first;
+X    while (d != NULL) {
+X	next = d->next;
+X	free_declarator(d);
+X	d = next;
+X    }
+X}
+X
+X/* Add the declarator to the declarator list.
+X */
+Xvoid
+Xadd_decl_list (to, from, declarator)
+XDeclaratorList *to, *from;
+XDeclarator *declarator;
+X{
+X    to->first = from->first;
+X    from->last->next = declarator;
+X    to->last = declarator;
+X    to->last->next = NULL;
+X}
+X
+X/* Initialize the parameter structure.
+X */
+Xvoid
+Xnew_parameter (param, decl_spec, declarator)
+XParameter *param;		/* parameter to be initialized */
+XDeclSpec *decl_spec;
+XDeclarator *declarator;
+X{
+X    if (decl_spec == NULL) {
+X	new_decl_spec(&(param->decl_spec), "", 0L, DS_JUNK);
+X    } else {
+X	param->decl_spec = *decl_spec;
+X    }
+X
+X    if (declarator == NULL) {
+X	declarator = new_declarator("", "", 0L);
+X    }
+X    param->declarator = declarator;
+X
+X    param->comment = NULL;
+X}
+X
+X/* Free the storage used by the parameter.
+X */
+Xvoid
+Xfree_parameter (param)
+XParameter *param;
+X{
+X    free_decl_spec(&(param->decl_spec));
+X    free_declarator(param->declarator);
+X    if (param->comment != NULL)
+X	free(param->comment);
+X}
+X
+X/* Return TRUE if the parameter is void.
+X */
+Xboolean
+Xis_void_parameter (p)
+XParameter *p;
+X{
+X    return p == NULL || (strcmp(p->decl_spec.text, "void") == 0 &&
+X	strlen(p->declarator->text) == 0);
+X}
+X
+X/* Initialize a list of function parameters.
+X */
+Xvoid
+Xnew_param_list (param_list, param)
+XParameterList *param_list;
+XParameter *param;
+X{
+X    Parameter *p;
+X
+X    p = (Parameter *)xmalloc(sizeof(Parameter));
+X    *p = *param;
+X    
+X    param_list->first = param_list->last = p;
+X    p->next = NULL;
+X
+X    param_list->begin_comment = param_list->end_comment = 0;
+X    param_list->comment = NULL;
+X}
+X
+X/* Free storage used by the elements in the function parameter list.
+X */
+Xvoid
+Xfree_param_list (param_list)
+XParameterList *param_list;
+X{
+X    Parameter *p, *next;
+X
+X    p = param_list->first;
+X    while (p != NULL) {
+X	next = p->next;
+X	free_parameter(p);
+X	free(p);
+X	p = next;
+X    }
+X
+X    if (param_list->comment != NULL)
+X	free(param_list->comment);
+X}
+X
+X/* Add the function parameter declaration to the list.
+X */
+Xvoid
+Xadd_param_list (to, from, param)
+XParameterList *to, *from;
+XParameter *param;
+X{
+X    Parameter *p;
+X
+X    p = (Parameter *)xmalloc(sizeof(Parameter));
+X    *p = *param;
+X
+X    to->first = from->first;
+X    from->last->next = p;
+X    to->last = p;
+X    p->next = NULL;
+X}
+X
+X/* Initialize an empty list of function parameter names.
+X */
+Xvoid
+Xnew_ident_list (param_list)
+XParameterList *param_list;
+X{
+X    param_list->first = param_list->last = NULL;
+X    param_list->begin_comment = param_list->end_comment = 0;
+X    param_list->comment = NULL;
+X}
+X
+X/* Add an item to the list of function parameter declarations but set only
+X * the parameter name field.
+X */
+Xvoid
+Xadd_ident_list (to, from, name)
+XParameterList *to, *from;
+Xchar *name;
+X{
+X    Parameter *p;
+X    Declarator *declarator;
+X
+X    p = (Parameter *)xmalloc(sizeof(Parameter));
+X    declarator = new_declarator(name, name, 0L);
+X    new_parameter(p, NULL, declarator);
+X
+X    to->first = from->first;
+X    if (to->first == NULL) {
+X	to->first = p;
+X    } else {
+X	from->last->next = p;
+X    }
+X    to->last = p;
+X    p->next = NULL;
+X}
+X
+X/* Search the list of parameters for a matching parameter name.
+X * Return a pointer to the matching parameter or NULL if not found.
+X */
+Xstatic Parameter *
+Xsearch_parameter_list (params, name)
+XParameterList *params;
+Xchar *name;
+X{
+X    Parameter *p;
+X
+X    for (p = params->first; p != NULL; p = p->next) {
+X	if (strcmp(p->declarator->name, name) == 0)
+X	    return p;
+X    }
+X    return (Parameter *)NULL;
+X}
+X
+X/* For each name in the declarator list <declarators>, set the declaration
+X * specifier part of the parameter in <params> having the same name.
+X * This is also where we promote formal parameters.  Parameters of type
+X * "char", "unsigned char", "short", or "unsigned short" are promoted to
+X * "int".  Parameters of type "float" are promoted to "double".
+X */
+Xvoid
+Xset_param_types (params, decl_spec, declarators)
+XParameterList *params;
+XDeclSpec *decl_spec;
+XDeclaratorList *declarators;
+X{
+X    Declarator *d;
+X    Parameter *p;
+X    char *decl_spec_text;
+X
+X    for (d = declarators->first; d != NULL; d = d->next) {
+X	/* Search the parameter list for a matching name. */
+X	p = search_parameter_list(params, d->name);
+X	if (p == NULL) {
+X	    put_error();
+X	    fprintf(stderr, "declared argument \"%s\" is missing\n", d->name);
+X	} else {
+X	    decl_spec_text = decl_spec->text;
+X	    if (promote_param && strcmp(d->text, d->name) == 0) {
+X		if (decl_spec->flags & (DS_CHAR | DS_SHORT))
+X		    decl_spec_text = "int";
+X		else if (decl_spec->flags & DS_FLOAT)
+X		    decl_spec_text = "double";
+X	    }
+X	    free(p->decl_spec.text);
+X	    p->decl_spec.text = xstrdup(decl_spec_text);
+X
+X	    free_declarator(p->declarator);
+X	    p->declarator = d;
+X	}
+X    }
+X}
+X
+Xstatic void put_declarator();
+X
+X/* Output a function parameter.
+X */
+Xstatic void
+Xput_parameter (outf, p)
+XFILE *outf;
+XParameter *p;
+X{
+X    fputs(p->decl_spec.text, outf);
+X    if (strlen(p->declarator->text) > 0) {
+X	if (strcmp(p->declarator->text, "...") != 0)
+X	    if (where != FUNC_PROTO || proto_comments)
+X		fputc(' ', outf);
+X	put_declarator(outf, p->declarator);
+X    }
+X}
+X
+X/* Output a parameter list.
+X */
+Xstatic void
+Xput_param_list (outf, declarator)
+XFILE *outf;
+XDeclarator *declarator;
+X{
+X    Parameter *p;
+X    int f;
+X
+X    p = declarator->params.first;
+X    if (is_void_parameter(p)) {
+X	if (p != NULL || ((where == FUNC_PROTO || where == FUNC_DEF) &&
+X	 declarator == func_declarator))
+X	    fputs("void", outf);
+X    } else {
+X	f = (declarator == func_declarator) ? format : FMT_OTHER;
+X
+X	if (where == FUNC_DEF && declarator->params.comment != NULL)
+X	    fputs(declarator->params.comment, outf);
+X		
+X	fputs(fmt[f].first_param_prefix, outf);
+X	put_parameter(outf, p);
+X
+X	while (p->next != NULL) {
+X	    fputc(',', outf);
+X	    if (where == FUNC_DEF && p->comment != NULL)
+X		fputs(p->comment, outf);
+X
+X	    p = p->next;
+X	    fputs(fmt[f].middle_param_prefix, outf);
+X	    put_parameter(outf, p);
+X	}
+X	if (where == FUNC_DEF && p->comment != NULL)
+X	    fputs(p->comment, outf);
+X
+X	fputs(fmt[f].last_param_suffix, outf);
+X    }
+X}
+X
+X/* Output function parameters.
+X */
+Xstatic void
+Xput_parameters (outf, declarator)
+XFILE *outf;
+XDeclarator *declarator;
+X{
+X    Parameter *p;
+X
+X    if (where == FUNC_DEF && func_style == FUNC_TRADITIONAL) {
+X
+X	/* Output parameter name list for traditional function definition. */
+X	p = declarator->params.first;
+X
+X	/* Output paramter name list only for head function declarator. */
+X	if (!is_void_parameter(p) && declarator == func_declarator) {
+X	    fputs(fmt[format].first_param_prefix, outf);
+X	    fputs(p->declarator->name, outf);
+X	    p = p->next;
+X	    while (p != NULL && strcmp(p->declarator->text, "...") != 0) {
+X		fputc(',', outf);
+X		fputs(fmt[format].middle_param_prefix, outf);
+X		fputs(p->declarator->name, outf);
+X		p = p->next;
+X	    }
+X	    fputs(fmt[format].last_param_suffix, outf);
+X	}
+X    } else {
+X
+X	/* Output parameter type list. */
+X	if (where == FUNC_PROTO && proto_style == PROTO_TRADITIONAL &&
+X	 declarator == func_declarator) {
+X	    if (proto_comments) {
+X		fputs("/*", outf);
+X		put_param_list(outf, declarator);
+X		fputs("*/", outf);
+X	    }
+X	} else {
+X	    put_param_list(outf, declarator);
+X	}
+X    }
+X}
+X
+X/* Output a function declarator.
+X */
+Xstatic void
+Xput_func_declarator (outf, declarator)
+XFILE *outf;
+XDeclarator *declarator;
+X{
+X    char *s, *t, *decl_text;
+X    int f;
+X
+X    /* Output declarator text before function declarator place holder. */
+X    if ((s = strstr(declarator->text, "%s")) == NULL)
+X	return;
+X    *s = '\0';
+X    fputs(declarator->text, outf);
+X
+X    /* Substitute place holder with function declarator. */
+X    if (declarator->func_stack->func_def == FUNC_NONE) {
+X
+X	decl_text = declarator->func_stack->text;
+X	if (strlen(declarator->name) == 0) {
+X	    fputs(decl_text, outf);
+X	} else {
+X
+X	    /* Output the declarator text before the declarator name. */
+X	    if ((t = strstr(decl_text, declarator->name)) == NULL)
+X		return;
+X	    *t = '\0';
+X	    fputs(decl_text, outf);
+X	    *t = declarator->name[0];
+X
+X	    /* Output the declarator prefix before the name. */
+X	    f = (declarator == func_declarator) ? format : FMT_OTHER;
+X	    if (strcmp(fmt[f].declarator_prefix, " ") != 0)
+X		fputs(fmt[f].declarator_prefix, outf);
+X
+X	    /* Output the declarator name. */
+X	    if (where == FUNC_PROTO && proto_style == PROTO_ABSTRACT &&
+X	     declarator != func_declarator) {
+X		if (proto_comments) {
+X		    fputs("/*", outf);
+X		    fputs(declarator->name, outf);
+X		    fputs("*/", outf);
+X		}
+X	    } else {
+X		fputs(declarator->name, outf);
+X	    }
+X
+X	    /* Output the remaining declarator text. */
+X	    fputs(t + strlen(declarator->name), outf);
+X
+X	    /* Output the declarator suffix. */
+X	    fputs(fmt[f].declarator_suffix, outf);
+X	}
+X    } else {
+X	put_func_declarator(outf, declarator->func_stack);
+X    }
+X    *s = '%';
+X    s += 2;
+X
+X    /* Output declarator text up to but before parameters place holder. */
+X    if ((t = strstr(s, "()")) == NULL)
+X	return;
+X    *t = '\0';
+X    fputs(s, outf);
+X
+X    if (where == FUNC_PROTO && proto_style == PROTO_MACRO &&
+X     declarator == func_declarator) {
+X	fprintf(outf, " %s(", macro_name);
+X    }
+X
+X    /* Substitute place holder with function parameters. */
+X    fputc(*t++ = '(', outf);
+X    put_parameters(outf, declarator);
+X    fputs(t, outf);
+X
+X    if (where == FUNC_PROTO && proto_style == PROTO_MACRO &&
+X     declarator == func_declarator) {
+X	fputc(')', outf);
+X    }
+X}
+X
+X/* Output a declarator.
+X */
+Xstatic void
+Xput_declarator (outf, declarator)
+XFILE *outf;
+XDeclarator *declarator;
+X{
+X    char *s;
+X
+X    if (declarator->func_def == FUNC_NONE) {
+X	if (where == FUNC_PROTO && proto_style == PROTO_ABSTRACT &&
+X	 strlen(declarator->name) > 0) {
+X	    if ((s = strstr(declarator->text, declarator->name)) == NULL)
+X		return;
+X	    *s = '\0';
+X	    if (proto_comments) {
+X		fprintf(outf, "%s/*%s*/%s", declarator->text, declarator->name,
+X		 s + strlen(declarator->name));
+X	    } else {
+X		fprintf(outf, "%s%s", declarator->text,
+X		 s + strlen(declarator->name));
+X	    }
+X	    *s = declarator->name[0];
+X	} else {
+X	    fputs(declarator->text, outf);
+X	}
+X    } else {
+X	put_func_declarator(outf, declarator);
+X    }
+X}
+X
+X/* Output a declaration specifier for an external declaration.
+X */
+Xstatic void
+Xput_decl_spec (outf, decl_spec)
+XFILE *outf;
+XDeclSpec *decl_spec;
+X{
+X    if (extern_out && (decl_spec->flags & DS_STATIC) == 0) {
+X	if (strstr(decl_spec->text, "extern") == NULL) {
+X	    fputs("extern ", outf);
+X	}
+X    }
+X    fputs(decl_spec->text, outf);
+X    fputc(' ', outf);
+X}
+X
+X/* Generate variable declarations.
+X */
+Xvoid
+Xgen_declarations (decl_spec, decl_list)
+XDeclSpec *decl_spec;		/* declaration specifier */
+XDeclaratorList *decl_list;	/* list of declared variables */
+X{
+X    Declarator *d;
+X
+X    if (!variables_out || (decl_spec->flags & DS_JUNK))
+X	return;
+X    if (!static_out && (decl_spec->flags & DS_STATIC))
+X	return;
+X
+X    func_declarator = NULL;
+X    where = FUNC_OTHER;
+X    format = FMT_OTHER;
+X    for (d = decl_list->first; d != NULL; d = d->next) {
+X	if (d->func_def == FUNC_NONE) {
+X	    fputs(fmt[FMT_PROTO].decl_spec_prefix, stdout);
+X	    put_decl_spec(stdout, decl_spec);
+X	    put_declarator(stdout, d);
+X	    fputs(";\n", stdout);
+X	}
+X    }
+X}
+X
+X/* If a parameter name appears in the parameter list of a traditional style
+X * function definition but is not declared in the parameter declarations,
+X * then assign it the default type "int".
+X */
+Xstatic void
+Xset_param_decl_spec (declarator)
+XDeclarator *declarator;
+X{
+X    Parameter *p;
+X
+X    for (p = declarator->params.first; p != NULL; p = p->next) {
+X	if (strlen(p->decl_spec.text) == 0 &&
+X	    strcmp(p->declarator->text, "...") != 0) {
+X	    free(p->decl_spec.text);
+X	    p->decl_spec.text = xstrdup("int");
+X	}
+X    }
+X}
+X
+X/* Generate a function prototype.
+X */
+Xvoid
+Xgen_prototype (decl_spec, declarator)
+XDeclSpec *decl_spec;
+XDeclarator *declarator;
+X{
+X    if (proto_style == PROTO_NONE)
+X	return;
+X    if (decl_spec->flags & DS_JUNK)
+X	return;
+X    if (!static_out && (decl_spec->flags & DS_STATIC))
+X	return;
+X
+X    func_declarator = declarator->head;
+X    set_param_decl_spec(func_declarator);
+X
+X    where = FUNC_PROTO;
+X    format = FMT_PROTO;
+X    fputs(fmt[format].decl_spec_prefix, stdout);
+X    put_decl_spec(stdout, decl_spec);
+X    put_func_declarator(stdout, declarator);
+X    fputs(";\n", stdout);
+X}
+X
+X/* Generate a declarator for a function pointer declarator or prototype.
+X */
+Xvoid
+Xgen_func_declarator (declarator)
+XDeclarator *declarator;
+X{
+X    /* Go to the beginning of the function declarator in the temporary
+X     * file and overwrite it with the converted declarator.
+X     */
+X    fseek(cur_tmp_file(), declarator->begin, 0);
+X    func_declarator = NULL;
+X    where = FUNC_DEF;
+X    format = FMT_FUNC;
+X    put_func_declarator(cur_tmp_file(), declarator);
+X    cur_file_changed();
+X}
+X
+X/* Generate a function definition head.
+X */
+Xvoid
+Xgen_func_definition (decl_spec, declarator)
+XDeclSpec *decl_spec;
+XDeclarator *declarator;
+X{
+X    Parameter *p;
+X    ParameterList *params;
+X    char *comment;
+X    int comment_len, n;
+X
+X    /* Return if the function is already defined in the desired style. */
+X    if (declarator->func_def == func_style)
+X	return;
+X
+X    /* Save the text between the function head and the function body.
+X     * Read the temporary file from after the last ) or ; to the
+X     * end of the file.
+X     */
+X    comment_len = (int)(ftell(cur_tmp_file()) - cur_begin_comment());
+X    comment = xmalloc(comment_len);
+X    fseek(cur_tmp_file(), cur_begin_comment(), 0);
+X    fread(comment, sizeof(char), comment_len, cur_tmp_file());
+X
+X    func_declarator = declarator->head;
+X    format = FMT_FUNC;
+X
+X    /* Save the text before the parameter declarations. */
+X    if (func_style == FUNC_ANSI) {
+X	params = &func_declarator->params;
+X	n = (int)(params->end_comment - params->begin_comment);
+X	if (n > 0) {
+X	    params->comment = xmalloc(n+1);
+X	    fseek(cur_tmp_file(), params->begin_comment, 0);
+X	    fread(params->comment, sizeof(char), n, cur_tmp_file());
+X	    params->comment[n] = '\0';
+X	    format = FMT_FUNC_COMMENT;
+X	}
+X    }
+X
+X    /* Get the parameter comments. */
+X    for (p = func_declarator->params.first; p != NULL; p = p->next) {
+X	n = (int)(p->declarator->end_comment - p->declarator->begin_comment);
+X	if (n > 0) {
+X	    p->comment = xmalloc(n+1);
+X	    fseek(cur_tmp_file(), p->declarator->begin_comment, 0);
+X	    fread(p->comment, sizeof(char), n, cur_tmp_file());
+X	    p->comment[n] = '\0';
+X	    format = FMT_FUNC_COMMENT;
+X	}
+X    }
+X
+X    set_param_decl_spec(func_declarator);
+X
+X    /* Go to the beginning of the function head in the temporary file
+X     * and overwrite it with the converted function head.
+X     */
+X    fseek(cur_tmp_file(), decl_spec->begin, 0);
+X
+X    /* Output declarator specifiers. */
+X    fputs(fmt[format].decl_spec_prefix, cur_tmp_file());
+X    fputs(decl_spec->text, cur_tmp_file());
+X    fputc(' ', cur_tmp_file());
+X
+X    /* Output function declarator. */
+X    where = FUNC_DEF;
+X    put_func_declarator(cur_tmp_file(), declarator);
+X
+X    if (func_style == FUNC_TRADITIONAL) {
+X	/* Output traditional style parameter declarations. */
+X	p = func_declarator->params.first;
+X	if (!is_void_parameter(p)) {
+X	    fputc('\n', cur_tmp_file());
+X	    put_parameter(cur_tmp_file(), p);
+X	    fputc(';', cur_tmp_file());
+X	    p = p->next;
+X	    while (p != NULL && strcmp(p->declarator->text, "...") != 0) {
+X		fputc('\n', cur_tmp_file());
+X		put_parameter(cur_tmp_file(), p);
+X		fputc(';', cur_tmp_file());
+X		p = p->next;
+X	    }
+X	}
+X    }
+X
+X    /* Output text between function head and body. */
+X    fwrite(comment, sizeof(char), comment_len, cur_tmp_file());
+X    free(comment);
+X
+X    cur_file_changed();
+X}
+END_OF_semantic.c
+if test 18606 -ne `wc -c <semantic.c`; then
+    echo shar: \"semantic.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f strstr.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"strstr.c\"
+else
+echo shar: Extracting \"strstr.c\" \(547 characters\)
+sed "s/^X//" >strstr.c <<'END_OF_strstr.c'
+X/* $Id: strstr.c 3.2 92/03/06 00:51:10 cthuang Exp $
+X *
+X * Simple implementation of the ANSI strstr() function
+X */
+X#include <stdio.h>
+X#include "config.h"
+X
+X/* Search for a substring within the given string.
+X * Return a pointer to the first occurence within the string,
+X * or NULL if not found.
+X */
+Xchar *
+Xstrstr (src, key)
+Xchar *src, *key;
+X{
+X    char *s;
+X    int keylen;
+X
+X    keylen = strlen(key);
+X    s = strchr(src, *key);
+X    while (s != NULL) {
+X	if (strncmp(s, key, keylen) == 0)
+X	    return s;
+X	s = strchr(s+1, *key);
+X    }
+X    return NULL;
+X}
+END_OF_strstr.c
+if test 547 -ne `wc -c <strstr.c`; then
+    echo shar: \"strstr.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f symbol.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"symbol.c\"
+else
+echo shar: Extracting \"symbol.c\" \(2326 characters\)
+sed "s/^X//" >symbol.c <<'END_OF_symbol.c'
+X/* $Id: symbol.c 3.1 92/03/03 10:43:52 cthuang Exp $
+X *
+X * Implements a symbol table abstract data type.
+X */
+X#include <stdio.h>
+X#include "cproto.h"
+X#include "symbol.h"
+X
+X
+X/* Create a symbol table.
+X * Return a pointer to the symbol table or NULL if an error occurs.
+X */
+XSymbolTable *
+Xnew_symbol_table ()
+X{
+X    SymbolTable *symtab;
+X    int i;
+X
+X    if ((symtab = (SymbolTable *)xmalloc(sizeof(SymbolTable))) != NULL) {
+X	for (i = 0; i < SYM_MAX_HASH; ++i)
+X	    symtab->bucket[i] = NULL;
+X    }
+X    return symtab;
+X}
+X
+X
+X/* Free the memory allocated to the symbol table.
+X */
+Xvoid
+Xfree_symbol_table (symtab)
+XSymbolTable *symtab;
+X{
+X    int i;
+X    Symbol *sym, *next;
+X
+X    for (i = 0; i < SYM_MAX_HASH; ++i) {
+X	sym = symtab->bucket[i];
+X	while (sym != NULL) {
+X	    next = sym->next;
+X	    free(sym->name);
+X	    free(sym);
+X	    sym = next;
+X	}
+X    }
+X}
+X
+X
+X/* This is a simple hash function mapping a symbol name to a hash bucket. */
+X
+Xstatic unsigned
+Xhash (name)
+Xchar *name;
+X{
+X    char *s;
+X    unsigned h;
+X
+X    h = 0;
+X    s = name;
+X    while (*s != '\0')
+X	h = (h << 1) ^ *s++;
+X    return h % SYM_MAX_HASH;
+X}
+X
+X
+X/* Search the list of symbols <list> for the symbol <name>.
+X * Return a pointer to the symbol or NULL if not found.
+X */
+Xstatic Symbol *
+Xsearch_symbol_list (list, name)
+XSymbol *list;
+Xchar *name;
+X{
+X    Symbol *sym;
+X
+X    for (sym = list; sym != NULL; sym = sym->next) {
+X	if (strcmp(sym->name, name) == 0)
+X	    return sym;
+X    }
+X    return NULL;
+X}
+X
+X
+X/* Look for symbol <name> in symbol table <symtab>.
+X * Return a pointer to the symbol or NULL if not found.
+X */
+XSymbol *
+Xfind_symbol (symtab, name)
+XSymbolTable *symtab;
+Xchar *name;
+X{
+X    return search_symbol_list(symtab->bucket[hash(name)], name);
+X}
+X
+X
+X/* If the symbol <name> does not already exist in symbol table <symtab>,
+X * then add the symbol to the symbol table.
+X * Return a pointer to the symbol or NULL on an error.
+X */
+XSymbol *
+Xnew_symbol (symtab, name, flags)
+XSymbolTable *symtab;	/* symbol table */
+Xchar *name;		/* symbol name */
+Xint flags;		/* symbol attributes */
+X{
+X    Symbol *sym;
+X    int i;
+X
+X    if ((sym = find_symbol(symtab, name)) == NULL) {
+X	if ((sym = (Symbol *)xmalloc(sizeof(Symbol))) != NULL) {
+X	    sym->name = xstrdup(name);
+X	    sym->flags = flags;
+X	    i = hash(name);
+X	    sym->next = symtab->bucket[i];
+X	    symtab->bucket[i] = sym;
+X	}
+X    }
+X    return sym;
+X}
+END_OF_symbol.c
+if test 2326 -ne `wc -c <symbol.c`; then
+    echo shar: \"symbol.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2496 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Michael Gleason)
+Subject: v35i004:  ncftp - Alternative User Interface for FTP, Part01/04
+Message-ID: <csm-v35i004=ncftp.095334@sparky.IMD.Sterling.COM>
+X-Md4-Signature: e3a2b18b99720bdd10123e1feb0d6783
+Date: Mon, 25 Jan 1993 15:54:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Michael Gleason)
+Posting-number: Volume 35, Issue 4
+Archive-name: ncftp/part01
+Environment: UNIX, ANSI-C, getopt
+Supersedes: ncftp: Volume 34, Issue 14-16
+
+ncftp - Alternative user interface for FTP
+version 1.0 PL 2 by Mike Gleason, NCEMRSoft.
+
+Changes from 1.0 PL 1:
+
+  * ls is more flexible, so now you can do things like "ls -flags directory."
+	Previous versions of ncftp (and ftp) only allowed "ls -flags" or
+	"ls directory."
+
+  * Some new progress meters, a fancy bargraph and another similar to the
+	original % meter that shows how many kilobytes have been transferred.
+	This meter is also used when the remote site doesn't support the SIZE
+	command, so you can always have a progress meter.
+
+  * If you don't want ftp and ncftp to share an rc, you can use a '.ncftprc'
+	for ncftp and a '.netrc' for ftp.
+
+  * Better portability; in addition to support for DG/UX, NeXT, and DYNIX,
+	the getpass2() function which was causing problems has been replaced
+	by a more portable version.  Also using a private getopt which can be
+	called more than once.
+
+  * Syslog'ging capability added for system administrators.
+
+  * So many small enhancements and bug fixes that the patch is almost as
+	large as the shar-chive.  See patchlevel.h for the gory details.
+
+
+ncftp was created out of disgust with using the regular 'ftp'
+command found on many brands of Unix.  People who spend a lot
+of time in ftp will want to install ncftp.
+
+Features:
+
+ * No more typing 'anonymous' and your email address every time
+   you want to ftp anonymously.  You don't need to have the
+   site in your .netrc.
+   
+ * No more typing complete site names.  Sites in your .netrc
+   can be abbreviated.  Type 'o wuar' to call wuarchive.wustl.edu.
+ 
+ * Use your pager (like 'more') to read remote files (and also
+   compressed files).
+
+ * Use your pager to view remote directory listings.
+
+ * Transfers feature a progress meter.
+ 
+ * Implicit cd.
+ 
+ * Fancy prompts.
+ 
+ * You can keep a log of your actions.  See what the path was of
+   that file you downloaded yesterday so you don't have to
+   look for it today.
+ 
+ * Built-in mini-nslookup.
+ 
+ * The 'ls' command is ls -CF.  Some ftp's ls was identical to 'dir.'
+ 
+ * You can 'redial' a remote host until you connect.
+
+ * Don't need to 'close' a site, just open a new one.
+ 
+ * Don't feel like typing a long filename?  Use a wildcard in single
+   file commands like get and page.
+ 
+ * You can create empty remote files.
+
+ * Supports 'colon mode', so you can type 'ncftp cse.unl.edu:/pub/foo',
+   to copy foo into your current directory.
+
+ * You can re-display the last directory listing without getting it
+   across the network.
+
+ * Detects when new mail arrives.
+
+ * ncftp is quieter by default -- who cares if the PORT command was
+   successful (if you do, turn verbose on :-).
+
+ * It can be compiled to log transfers, etc., to the system log.
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  cmds.c ftp.h
+# Wrapped by kent@sparky on Mon Jan 25 09:48:02 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 4)."'
+if test -f 'cmds.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmds.c'\"
+else
+  echo shar: Extracting \"'cmds.c'\" \(48279 characters\)
+  sed "s/^X//" >'cmds.c' <<'END_OF_FILE'
+X/* cmds.c */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X
+X#include <sys/wait.h>
+X
+X#include <sys/stat.h>
+X#include <sys/socket.h>
+X#include <arpa/ftp.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <netdb.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <ctype.h>
+X#include <sys/time.h>
+X#include <time.h>
+X
+X#ifdef SYSLOG
+X#	include <syslog.h>
+X#endif
+X
+X#ifndef NO_UNISTDH
+X#	include <unistd.h>
+X#endif
+X
+X#include "ftpdefs.h"
+X#include "defaults.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "getpass.h"
+X#include "glob.h"
+X#include "copyright.h"
+X
+X/* cmds.c globals */
+Xint					curtype;			/* file transfer type */
+Xstr32				curtypename;		/* name of file transfer type */
+Xint					verbose;			/* print messages coming back from server */
+Xint					mprompt;			/* interactively prompt on m* cmds */
+Xint					debug;				/* debugging level */
+Xint					options;			/* used during socket creation */
+Xint					macnum;				/* number of defined macros */
+Xint					paging = 0;
+Xint					creating = 0;
+Xstruct macel		macros[16];
+Xchar				*macbuf;			/* holds ALL macros */
+Xjmp_buf				jabort;
+Xchar				*mname;				/* name of current m* command */
+Xint					activemcmd;			/* flag: if != 0, then active multi command */
+Xstring				cwd;				/* current remote directory */
+Xstring				lcwd;				/* current local directory */
+Xchar				lasthostname[64];	/* name of last host w/ lookup(). */
+Xint					remote_is_unix;		/* TRUE if remote host is unix. */
+Xint					auto_binary = dAUTOBINARY;	/* If TRUE, set binary each connection. */
+Xint					Opterr = 1;			/* if error message should be printed */
+Xint					Optind = 1;			/* index into parent argv vector */
+Xint					Optopt;				/* character checked for validity */
+Xchar				*Optarg;			/* argument associated with option */
+Xchar				*Optplace = EMSG;	/* saved position in an arg */
+X
+X#ifdef REDIR
+Xint							is_ls = 0;		/* are we doing an ls?  if so, then buffer */
+Xstruct lslist       		*lshead = NULL;	/* hold last output from host */
+Xstruct lslist       		*lstail = NULL;
+X#endif
+X
+X/* cmds.c externs */
+Xextern char					*globerr, *home, *reply_string;
+Xextern int					code, margc, connected, ansi_escapes;
+Xextern int					connected, fromatty, data, progress_meter;
+Xextern int					parsing_rc;
+Xextern char					*altarg, *line, *margv[];
+Xextern char					*globchars;
+Xextern string				hostname, progname, pager, anon_password;
+Xextern string				prompt, logfname, version;
+Xextern long					logsize, eventnumber;
+Xextern size_t				xferbufsize;
+Xextern struct servent		*sp;
+Xextern struct cmd			cmdtab[];
+Xextern struct userinfo		uinfo;
+Xextern FILE					*cin, *cout, *logf;
+Xextern int					Optind;
+Xextern char					*Optarg;
+Xextern int gethostname (char *, int);
+Xextern int ioctl (int, int, ...);
+X
+Xstruct var vars[] = {
+X	{ "anon-password",		STR,	0,	anon_password,	(setvarproc) 0	},
+X	{ "ansi-escapes",		INT,	0,	&ansi_escapes,	(setvarproc) 0	},
+X	{ "auto-binary",		INT,	0,	&auto_binary,	(setvarproc) 0	},
+X	{ "debug",				INT,	0,	&debug,			(setvarproc) 0	},
+X	{ "local-dir",			STR,	0,	lcwd,			set_ldir 		},
+X	{ "logfile",			STR,	0,	logfname,		set_log			},
+X	{ "logsize",			LONG,	0,	&logsize,		(setvarproc) 0	},
+X	{ "mprompt",			INT,	0,	&mprompt,		(setvarproc) 0	},
+X	{ "pager",				STR,	0,	pager + 1,		set_pager		},
+X	{ "prompt",				STR,	0,	prompt,			set_prompt		},
+X	{ "progress-reports",	INT,	0,	&progress_meter,(setvarproc) 0	},
+X	{ "remote-is-unix",		INT,	1,	&remote_is_unix,(setvarproc) 0	},
+X	{ "type",				STR,	1,	curtypename,	set_type		},
+X	{ "verbose",			INT,	0,	&verbose,		set_verbose		}
+X};
+X
+Xstruct types types[] = {
+X    { "ascii",  "A",    TYPE_A, 0 },
+X    { "binary", "I",    TYPE_I, 0 },
+X    { "image",  "I",    TYPE_I, 0 },
+X    { "ebcdic", "E",    TYPE_E, 0 },
+X    { "tenex",  "L",    TYPE_L, "8" },
+X    0
+X};
+X
+X
+X
+Xvoid Getopt_Reset(void)
+X{
+X	Optind = 1;
+X	Optplace = "";
+X}	/* Getopt_Reset */
+X
+X
+X
+Xint Getopt(int nargc, char **nargv, char *ostr)
+X{
+X	register char *oli;				   /* Option letter list index */
+X
+X	if (!*Optplace) {					   /* update scanning pointer */
+X		if (Optind >= nargc || *(Optplace = nargv[Optind]) != '-')
+X			return (EOF);
+X		if (Optplace[1] && *++Optplace == '-') {	/* found "--" */
+X			++Optind;
+X			return (EOF);
+X		}
+X	}								   /* Option letter okay? */
+X	if ((Optopt = (int) *Optplace++) == (int) ':' ||
+X		!(oli = index(ostr, Optopt))) {
+X		if (!*Optplace)
+X			++Optind;
+X		if (Opterr) {
+X			fprintf(stderr, "%s%s%c\n", *nargv, ": illegal option -- ", Optopt);
+X			return(BADCH);
+X		}
+X	}
+X	if (*++oli != ':') {			   /* don't need argument */
+X		Optarg = NULL;
+X		if (!*Optplace)
+X			++Optind;
+X	} else {						   /* need an argument */
+X		if (*Optplace)					   /* no white space */
+X			Optarg = Optplace;
+X		else if (nargc <= ++Optind) {  /* no arg */
+X			Optplace = EMSG;
+X			if (Opterr) {
+X				fprintf(stderr, "%s%s%c\n", *nargv, ": option requires an argument -- ", Optopt);
+X				return(BADCH);
+X			}
+X		} else						   /* white space */
+X			Optarg = nargv[Optind];
+X		Optplace = EMSG;
+X		++Optind;
+X	}
+X	return (Optopt);				   /* dump back Option letter */
+X}									   /* Getopt */
+X
+X
+X
+X
+Xchar *Gets(char *sline, size_t size)
+X{
+X	char *cp = fgets(sline, (int) (size - 1), stdin);
+X	if (cp != NULL) {
+X		cp += strlen(cp) - 1;
+X		if (*cp == '\n')
+X			*cp = 0;	/* get rid of the newline. */
+X	}
+X	return cp;
+X}	/* Gets */
+X
+X
+X
+X
+Xchar **re_makeargv(char *promptstr, int *argc)
+X{
+X	size_t sz;
+X
+X	(void) strcat(line, " ");
+X	(void) printf(promptstr);
+X	sz = strlen(line);
+X	(void) Gets(&line[sz], (size_t) (CMDLINELEN - sz)) ;
+X	(void) makeargv();
+X	*argc = margc;
+X	return (margv);
+X}	/* re_makeargv */
+X
+X
+X
+X
+Xchar *get_cwd(char *buf, int size)
+X{
+X#ifdef SYSV
+X#	ifdef NO_UNISTDH
+X#		ifdef GETCWDSIZET
+X	extern char *getcwd(char *, size_t);
+X#		else
+X	extern char *getcwd(char *, int);
+X#		endif
+X#	endif
+X	return (getcwd(buf, size - 1));
+X#else
+X	extern char *getwd(char *);
+X	return (getwd(buf));
+X#endif
+X}   /* get_cwd */
+X
+X/*
+X * Connect to peer server and
+X * auto-login, if possible.
+X */
+X
+Xint setpeer(int argc, char **argv)
+X{
+X	char				*path;
+X	unsigned int		port;
+X	time_t				now;
+X	int					openmode = 1, tmpverbose, opt, hErr;
+X	int					redial_delay = dREDIALDELAY;
+X	int					ignore_rc = 0, dials, max_dials = 1;
+X	string				pathname, newhost;
+X	char				*cmdname = argv[0];
+X
+X	port = sp->s_port;
+X	Getopt_Reset();
+X	while ((opt = Getopt(argc, argv, "aiup:rd:g:")) >= 0) {
+X		switch (opt) {
+X			case 'a': openmode = OPEN_A; break;
+X			case 'u': openmode = OPEN_U; break;
+X			case 'i': ignore_rc = 1; break;
+X			case 'p':
+X				port = atoi(Optarg);
+X				if (port <= 0) {
+X					(void) printf("%s: bad port number (%s).\n", cmdname, Optarg);
+X					goto usage;
+X				}
+X				port = htons(port);
+X				break;
+X			case 'd': redial_delay = atoi(Optarg); break;
+X			case 'g': max_dials = atoi(Optarg);  break;
+X			case 'r': max_dials = -1; break;
+X			default:
+X			usage:
+X				(void) printf("usage: %s [-a | -u] [-i] [-p N] [-r [-d N] [-g N]] hostname[:pathname]\n\
+X    -a     : Open anonymously (this is the default).\n\
+X    -u     : Open, specify user/password.\n\
+X    -i     : Ignore machine entry in your .netrc.\n\
+X    -p N   : Use port #N for connection.\n\
+X    -r     : \"Redial\" until connected.\n\
+X    -d N   : Redial, pausing N seconds between tries.\n\
+X    -g N   : Redial, giving up after N tries.\n\
+X    :path  : Open site, then retrieve file \"path.\"\n", cmdname);
+X				code = -1;
+X				return;
+X		}
+X	}
+X
+X	if (argv[Optind] == NULL)
+X		goto usage;
+X	(void) Strncpy(newhost, argv[Optind]);
+X	if (connected) {
+X		if (NOT_VQUIET && hostname != NULL)
+X			(void) printf("Closing %s...\n", hostname);
+X		(void) disconnect(0, NULL);
+X	}
+X
+X	/*
+X	 *	If we are given something like wuarchive.wustl.edu:/pub/foo,
+X	 *	try to connect to the site then first try to cd to /pub/foo,
+X	 *	or if that fails, assume it is a file then try to fetch
+X	 *	/pub/foo and write foo in the current local directory.
+X	 */
+X	if ((path = index(newhost, ':')) != NULL) {
+X		*path++ = 0;
+X		(void) Strncpy(pathname, path);
+X	}
+X
+X	GetFullSiteName(newhost);
+X	for (dials = 0; max_dials < 0 || dials < max_dials; dials++) {
+X		if (dials > 0) {
+X			(void) sleep(redial_delay);
+X			(void) fprintf(stderr, "Retry Number: %d\n", dials + 1);
+X		}
+X		hErr = hookup(newhost, port);
+X		if (hErr == -2)		/* Recoverable, so we can try again. */
+X			continue;
+X		else if (hErr == 0) {
+X			connected = 1;
+X			tmpverbose = verbose;
+X			if (debug == 0)
+X				verbose = V_QUIET;
+X			remote_is_unix = 1;
+X			if (command("SYST") == COMPLETE) {
+X				if (tmpverbose == V_VERBOSE) {
+X					register char *cp, c;
+X					cp = index(reply_string+4, ' ');
+X					if (cp == NULL)
+X						cp = index(reply_string+4, '\r');
+X					if (cp) {
+X						if (cp[-1] == '.')
+X							cp--;
+X						c = *cp;
+X						*cp = '\0';
+X					}
+X	
+X					(void) printf("Remote system type is %s.\n",
+X						reply_string+4);
+X					if (cp)
+X						*cp = c;
+X				}
+X				remote_is_unix = !strncmp(reply_string + 4, "UNIX", (size_t) 4);
+X			}
+X	
+X			if (auto_binary || path || !strncmp(reply_string, "215 UNIX Type: L8", (size_t) 17)) {
+X				_settype("binary");
+X				if (tmpverbose > V_TERSE)
+X				    (void) printf("Using %s mode to transfer files.\n", curtypename);
+X			}
+X			if (tmpverbose >= V_ERRS && 
+X			    !strncmp(reply_string, "215 TOPS20", (size_t) 10)) {
+X				(void) printf(
+X	"Remember to set tenex mode when transfering _binary_ files from this machine.\n");
+X			}
+X			verbose = tmpverbose;
+X
+X			if (!login(newhost, openmode, ignore_rc) || cout == NULL)
+X				goto nextdial;		/* error! */
+X			if (logf != NULL) {
+X				(void) time(&now);
+X				(void) fprintf(logf, "%s opened at %s",
+X					hostname,
+X					ctime(&now));
+X			}
+X
+X			/* Freshen 'cwd' variable for the prompt. */
+X			(void) _cd(NULL);
+X			if (path != NULL) {
+X				if (! _cd(pathname)) {
+X					/* Couldn't cd to this path, must be a file then. */
+X					(void) sprintf(line, "get %s", pathname);
+X					makeargv();
+X					(void) get(margc, margv);
+X					/* If we were invoked from the command line, quit
+X					 * after we got this file.
+X					 */
+X					if (eventnumber == 0L) {
+X						(void) quit(0, NULL);
+X					}
+X				}
+X			}
+X			break;
+X			/* end if we are connected */
+X		} else {
+X			/* Irrecoverable error, so don't bother redialing. */
+X			break;
+X		}
+Xnextdial: continue;
+X	}
+X}	/* setpeer */
+X
+X
+X/*
+X * Set transfer type.
+X */
+Xint settype(int argc, char **argv)
+X{
+X	if (argc > 2) {
+X		(void) printf("usage: %s [ ascii | binary | ebcdic | image | tenex ]\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	code = 0;
+X	if (argc < 2) {
+Xxx:		(void) printf("Using %s mode to transfer files.\n", curtypename);
+X		return;
+X	}
+X	_settype(argv[1]);
+X	if (IS_VVERBOSE)
+X		goto xx;
+X}	/* settype */
+X
+X
+X
+X
+Xvoid _settype(char *typename)
+X{
+X	register struct types	*p;
+X	int						comret, i;
+X	string					cmd;
+X 
+X	*cmd = 0;
+X	switch (isupper(*typename) ? tolower(*typename) : (*typename)) {
+X		case 'a': i = 0; break;
+X		case 'b': i = 1; break;
+X		case 'i': i = 2; break;
+X		case 'e': i = 3; break;
+X		case 't': i = 4;
+X			(void) strcpy(cmd, "TYPE L 8");
+X			break;
+X		default:
+X			(void) printf("%s: unknown type\n", typename);
+X			code = -1;
+X			return;
+X	}
+X	p = &types[i];
+X	if (*cmd == 0)
+X		(void) sprintf(cmd, "TYPE %s", p->t_mode);
+X	comret = command(cmd);
+X	if (comret == COMPLETE) {
+X		(void) Strncpy(curtypename, p->t_name);
+X		curtype = p->t_type;
+X	}
+X}	/* _settype */
+X
+X
+X
+X
+X/*ARGSUSED*/
+Xint setbinary(int argc, char **argv) {	_settype("binary");	}
+X/*ARGSUSED*/
+Xint setascii(int argc, char **argv) {	_settype("ascii");	}
+X
+X
+X
+Xchar *verbose_msgs[] = {
+X	"Only printing necessary error messages.\n",
+X	"Printing error messages and announcements from the remote host.\n",
+X	"Printing all messages, errors, acknowledgments, and announcements.\n"
+X};
+X
+Xvoid set_verbose(char *new, int unset)
+X{
+X	int i;
+X
+X	if (unset == -1) verbose = !verbose;
+X	else if (unset || !new || !*new) verbose = V_ERRS;
+X	else {
+X		i = StrToBool(new);
+X		if (i < V_QUIET) i = V_QUIET;
+X		else if (i > V_VERBOSE) i = V_VERBOSE;
+X		verbose = i;
+X	}
+X	if (!parsing_rc && NOT_VQUIET) 
+X		fputs(verbose_msgs[verbose], stdout);
+X}	/* set_verbose */
+X
+X
+X
+X
+Xvoid set_prompt(char *new, int unset)
+X{
+X	(void) Strncpy(prompt, (unset || !new || !*new) ? dPROMPT : new);
+X	init_prompt();
+X}	/* set_prompt */
+X
+X
+X
+X
+Xvoid set_log(char *fname, int unset)
+X{
+X	if (logf) {
+X		(void) fclose(logf);
+X		logf = NULL;
+X	}
+X	if (!unset && fname && *fname) {
+X		(void) Strncpy(logfname, fname);
+X		logf = fopen (logfname, "a");
+X	}
+X}	/* set_log */
+X
+X
+X
+X
+Xvoid set_pager(char *new, int unset)
+X{
+X	if (unset)
+X		(void) strcpy(pager, "-");
+X	else {
+X		if (!new)
+X			new = dPAGER;
+X		if (!*new)
+X			(void) strcpy(pager, "-");
+X		else if (*new != '-')
+X			(void) sprintf(pager, "|%s", (*new == '|' ? new + 1 : new));
+X	}
+X}	/* set_pager */
+X
+X
+X
+X
+Xvoid set_type(char *newtype, int unset)
+X{
+X	int t = verbose;
+X	verbose = V_QUIET;
+X	if (!connected && t > V_QUIET)
+X		(void) printf("Not connected.\n");
+X	else
+X		_settype(newtype && !unset ? newtype : "image");
+X	verbose = t;
+X}	/* set_type */
+X
+X
+X
+X
+Xvoid set_ldir(char *ldir, int unset)
+X{
+X	int t = verbose;
+X	char *argv[2];
+X
+X	if (ldir && !unset) {
+X		verbose = V_QUIET;
+X		argv[1] = ldir;
+X		lcd(2, argv);
+X		verbose = t;
+X	}
+X}	/* set_ldir */
+X
+X
+X
+X
+Xint set(int argc, char **argv)
+X{
+X	int unset, i, c;
+X	struct var *v;
+X	char *var, *val = NULL;
+X
+X	if (argc < 2 || strncmp(argv[1], "all", (size_t)3) == 0) {
+X		/* Show all variables. */
+X		for (i=0; i<sizeof(vars)/sizeof(struct var); i++) {
+X			(void) printf("%-20s= ", vars[i].name);
+X			c = vars[i].type;
+X			if (c < 0) c = -c;
+X			if (vars[i].conn_required && !connected)
+X				(void) printf("(not connected)\n");
+X			else switch (c) {
+X				case INT:
+X					(void) printf("%d\n", *(int *)vars[i].var); break;
+X				case LONG:
+X					(void) printf("%ld\n", *(long *)vars[i].var); break;
+X				case STR:
+X					(void) printf("\"%s\"\n", (char *) vars[i].var); break;
+X			}
+X		}
+X	} else {
+X		unset = argv[0][0] == 'u';
+X		var = argv[1];
+X		if (argc == 2)
+X			val = NULL;
+X		else if (argc > 2) {
+X			/* could be =, value or just value. */
+X			if (*argv[2] == '=') {
+X				if (argc > 3)
+X					val = argv[3];
+X				else return;	/* can't do 'set var =' */
+X			} else
+X				val = argv[2];
+X		}
+X		for (i=0, v=NULL; i<sizeof(vars)/sizeof(struct var); i++) {
+X			if (strncmp(vars[i].name, var, sizeof(vars[i].name)) == 0) {
+X				v = &vars[i];
+X				break;
+X			}
+X		}
+X		if (v == NULL) 
+X			(void) fprintf(stderr, "%s: unknown variable.\n", var);
+X		else {
+X			if (v->conn_required && !connected)
+X				(void) fprintf(stderr, "%s: must be connected.\n", var);
+X			else if (v->type < 0)	
+X				(void) fprintf(stderr, "%s: read-only variable.\n", var);
+X			else if (v->proc != (setvarproc) 0)
+X				(*v->proc)(val, unset);		/* a custom set proc. */
+X			else if (unset) switch(v->type) {
+X				case INT:
+X					*(int *) v->var = 0; break;
+X				case LONG:
+X					*(long *) v->var = 0; break;
+X				case STR:
+X					*(char *) v->var = 0; break;
+X			} else {
+X				if (val == NULL) switch(v->type) {
+X					/* User just said "set varname" */
+X					case INT:
+X						*(int *) v->var = 1; break;
+X					case LONG:
+X						*(long *) v->var = 1; break;
+X					case STR:
+X						*(char *) v->var = 0; break;
+X				} else {
+X					/* User said "set varname = value" */
+X					switch (v->type) {
+X						case INT:
+X							(void) sscanf(val, "%d", (int *) v->var); break;
+X						case LONG:
+X							(void) sscanf(val, "%ld", (long *) v->var); break;
+X						case STR:
+X							(void) strcpy(v->var, val); break;
+X					}
+X				}
+X			}
+X		}
+X	}
+X}	/* set */
+X
+X
+X
+X
+X/*
+X * Send a single file.
+X */
+Xint put(int argc, char **argv)
+X{
+X	char *cmd;
+X	char *oldargv1;
+X
+X	if (argc == 2) {
+X		argc++;
+X		argv[2] = argv[1];
+X	}
+X	if (argc < 2)
+X		argv = re_makeargv("(local-file) ", &argc);
+X	if (argc < 2) {
+Xusage:
+X		(void) printf("usage:%s local-file remote-file\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (argc < 3)
+X		argv = re_makeargv("(remote-file) ", &argc);
+X	if (argc < 3) 
+X		goto usage;
+X	oldargv1 = argv[1];
+X	if (!globulize(&argv[1])) {
+X		code = -1;
+X		return;
+X	}
+X	/*
+X	 * If "globulize" modifies argv[1], and argv[2] is a copy of
+X	 * the old argv[1], make it a copy of the new argv[1].
+X	 */
+X	if (argv[1] != oldargv1 && argv[2] == oldargv1) {
+X		argv[2] = argv[1];
+X	}
+X	cmd = (argv[0][0] == 'a') ? "APPE" : "STOR";
+X	sendrequest(cmd, argv[1], argv[2]);
+X}	/* put */
+X
+X
+X
+X
+X/*
+X * Send multiple files.
+X */
+Xint mput(int argc, char **argv)
+X{
+X	register int i;
+X	void (*oldintr)(int);
+X	char *tp;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(local-files) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s local-files\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	mname = argv[0];
+X	activemcmd = 1;
+X	oldintr = signal(SIGINT, (void (*)(int)) mabort);
+X	(void) setjmp(jabort);
+X	for (i = 1; i < argc; i++) {
+X		register char **cpp, **gargs;
+X
+X		gargs = glob(argv[i]);
+X		if (globerr != NULL) {
+X			(void) printf("%s\n", globerr);
+X			if (gargs) {
+X				blkfree(gargs);
+X				free(gargs);
+X			}
+X			continue;
+X		}
+X		for (cpp = gargs; cpp && *cpp != NULL; cpp++) {
+X			if (activemcmd && confirm(argv[0], *cpp)) {
+X				tp = *cpp;
+X				sendrequest("STOR", *cpp, tp);
+X				if (!activemcmd && fromatty) {
+X					if (confirm("Continue with","mput")) {
+X						activemcmd++;
+X					}
+X				}
+X			}
+X		}
+X		if (gargs != NULL) {
+X			blkfree(gargs);
+X			free(gargs);
+X		}
+X	}
+X	(void) signal(SIGINT, oldintr);
+X	activemcmd = 0;
+X}	/* mput */
+X
+X
+X
+Xint tmp_name(char *str)
+X{
+X	(void) strcpy(str, "/tmp/ncftpXXXXXX");
+X	return (mktemp(str) == NULL);
+X}	/* tmp_name */
+X
+X
+X
+X
+Xint rem_glob_one(char *pattern)
+X{
+X	int			oldverbose, result = 0;
+X	char		*cp;
+X	string		str, tname;
+X	FILE		*ftemp;
+X
+X	/* Check for wildcard characters. */
+X	if (*pattern == '|' || strpbrk(pattern, globchars) == NULL)
+X		return 0;
+X
+X	(void) tmp_name(tname);
+X	oldverbose = verbose;
+X	verbose = V_QUIET;
+X	recvrequest ("NLST", tname, pattern, "w");
+X	verbose = oldverbose;
+X	ftemp = fopen(tname, "r");
+X	if (ftemp == NULL || FGets(str, ftemp) == NULL) {
+X		if (NOT_VQUIET)
+X			(void) printf("%s: no match.\n", pattern);
+X		result = -1;
+X		goto done;
+X	}
+X	if ((cp = index(str, '\n')) != NULL)
+X		*cp = '\0';
+X	(void) strcpy(pattern, str);
+X	cp = FGets(str, ftemp);
+X	/* It is an error if the pattern matched more than one file. */
+X	if (cp != NULL) {
+X		if (NOT_VQUIET)
+X			(void) printf("?Ambiguous remote file name.\n");
+X		result = -2;
+X	}
+Xdone:
+X	if (ftemp != NULL)
+X		(void) fclose(ftemp);
+X	(void) unlink(tname);
+X	return (result);
+X}	/* rem_glob_one */
+X
+X
+X
+X
+X/*
+X * Receive (and maybe page) one file.
+X */
+Xint get(int argc, char **argv)
+X{
+X	string local_file;
+X	string remote_file;
+X
+X	/* paging mode is set if the command name is 'page' or 'more.' */
+X	paging = (**argv != 'g');
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-file) ", &argc);
+X
+X	if (argc < 2) {
+X		if (paging)
+X			(void) printf("usage: %s remote-file\n", argv[0]);
+X		else {
+Xgetusage:
+X				(void) printf("usage: %s remote-file [local-file]\n", argv[0]);
+X		}
+X		return;
+X	}
+X	argv[1] = Strncpy(remote_file, argv[1]);
+X	if (rem_glob_one(argv[1]) < 0)
+X		return;
+X
+X	if (paging) {
+X		size_t len = strlen(remote_file);
+X
+X		/* Run compressed remote files through zcat, then the pager. */
+X		if (strlen(remote_file) > 2 && remote_file[len - 1] == 'Z' && remote_file[len - 2] == '.') {
+X			_settype("b");
+X			(void) sprintf(local_file, "|%s", ZCAT);
+X			argv[2] = Strncat(local_file, pager);
+X		} else
+X			argv[2] = pager;
+X	} else {
+X		/* normal get */
+X		if (argc == 2) {
+X			(void) Strncpy(local_file, argv[1]);
+X			argv[2] = local_file;
+X		} else {
+X			if (argc < 3)
+X				argv = re_makeargv("(local-file) ", &argc);
+X			if (argc < 3) 
+X				goto getusage;
+X			if (!globulize(&argv[2])) {
+X				code = -1;
+X				return;
+X			}
+X		}
+X	}
+X	recvrequest("RETR", argv[2], argv[1], "w");
+X	paging = 0;
+X}	/* get */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid mabort(int unused)
+X{
+X	(void) printf("\n");
+X	(void) fflush(stdout);
+X	if (activemcmd && fromatty) {
+X		if (confirm("Continue with", mname)) {
+X			longjmp(jabort,0);
+X		}
+X	}
+X	activemcmd = 0;
+X	longjmp(jabort,0);
+X}	/* mabort */
+X
+X
+X
+X
+X/*
+X * Get multiple files.
+X */
+Xint mget(int argc, char **argv)
+X{
+X	char *cp, *tp;
+X	void (*oldintr)(int);
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-files) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s remote-files\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	mname = argv[0];
+X	activemcmd = 1;
+X	oldintr = signal(SIGINT,mabort);
+X	(void) setjmp(jabort);
+X	while ((cp = remglob(argv)) != NULL) {
+X		if (*cp == '\0') {
+X			activemcmd = 0;
+X			continue;
+X		}
+X		if (activemcmd && confirm(argv[0], cp)) {
+X			tp = cp;
+X			recvrequest("RETR", tp, cp, "w");
+X			if (!activemcmd && fromatty) {
+X				if (confirm("Continue with","mget")) {
+X					activemcmd++;
+X				}
+X			}
+X		}
+X	}
+X	(void) signal(SIGINT,oldintr);
+X	activemcmd = 0;
+X}	/* mget */
+X
+X
+X
+X
+Xchar *remglob(char *argv[])
+X{
+X	static FILE			*ftemp = NULL;
+X	int					oldverbose;
+X	char				*cp, *mode;
+X	static string		tmpname, str;
+X
+X	if (!activemcmd) {
+Xxx:
+X		if (ftemp) {
+X			(void) fclose(ftemp);
+X			ftemp = NULL;
+X			(void) unlink(tmpname);
+X		}
+X		return(NULL);
+X	}
+X	if (ftemp == NULL) {
+X		(void) tmp_name(tmpname);
+X		oldverbose = verbose, verbose = V_QUIET;
+X		for (mode = "w"; *++argv != NULL; mode = "a")
+X			recvrequest ("NLST", tmpname, *argv, mode);
+X		verbose = oldverbose;
+X		ftemp = fopen(tmpname, "r");
+X		if (ftemp == NULL) {
+X			(void) printf("Can't find list of remote files (%s), oops.\n", tmpname);
+X			return (NULL);
+X		}
+X	}
+X	if (FGets(str, ftemp) == NULL) 
+X		goto xx;
+X	if ((cp = index(str, '\n')) != NULL)
+X		*cp = '\0';
+X	return (str);
+X}	/* remglob */
+X
+X
+X
+X
+Xchar *
+Xonoff(int boolf)
+X{
+X	return (boolf ? "on" : "off");
+X}   /* onoff */
+X
+X
+X
+X
+Xint
+XStrToBool(char *s)
+X{
+X    register char c;
+X
+X    c = *s | 32;            /* lcase(*value) */
+X    switch (c) {
+X        case 'f':           /* false */
+X            return (0);
+X        case 'o':           /* test for "off" and "on" */
+X            c = s[1] | 32;
+X            return(c == 'f' ? 0 : 1);
+X        case 't':           /* true */
+X            return (1);
+X        default:            /* 1, 0, -1, other number? */
+X            return (atoi(s));
+X    }
+X}   /* StrToBool */
+X
+X
+X/*
+X * Turn on/off printing of server echo's, messages, and statistics.
+X */
+Xint setverbose(int argc, char **argv)
+X{
+X	if (argc > 1)
+X		set_verbose(argv[1], 0);
+X	else set_verbose(argv[1], -1);
+X	code = verbose;
+X}	/* setverbose */
+X
+X
+X
+X/*
+X * Toggle interactive prompting
+X * during mget, mput, and mdelete.
+X */
+Xint setprompt(int argc, char **argv)
+X{
+X	if (argc > 1)
+X		mprompt = StrToBool(argv[1]);
+X	else mprompt = !mprompt;
+X	if (IS_VVERBOSE)
+X		(void) printf("Interactive prompting for m* commmands %s.\n", onoff(mprompt));
+X	code = mprompt;
+X}	/* setprompt */
+X
+X
+X/*
+X * Set debugging mode on/off and/or
+X * set level of debugging.
+X */
+Xint setdebug(int argc, char **argv)
+X{
+X	int val;
+X
+X	if (argc > 1) {
+X		val = StrToBool(argv[1]);
+X		if (val < 0) {
+X			(void) printf("%s: bad debugging value.\n", argv[1]);
+X			code = -1;
+X			return;
+X		}
+X	} else
+X		val = !debug;
+X	debug = val;
+X	fix_options();
+X	if (IS_VVERBOSE)
+X		(void) printf("Debugging %s (debug=%d).\n", onoff(debug), debug);
+X	code = debug > 0;
+X}	/* debug */
+X
+X
+X
+Xvoid fix_options(void)
+X{
+X	if (debug)
+X		options |= SO_DEBUG;
+X	else
+X		options &= ~SO_DEBUG;
+X}	/* fix_options */
+X
+X
+X
+X/*
+X * Set current working directory
+X * on remote machine.
+X */
+Xint cd(int argc, char **argv)
+X{
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-directory) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s remote-directory\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	(void) _cd(argv[1]);
+X}	/* cd */
+X
+X
+X
+X
+Xint implicit_cd(char *dir)
+X{
+X	int i, j = 0;
+X	
+X	if (connected) {
+X		i = verbose;
+X		/* Special verbosity level that ignores errors and prints other stuff,
+X		 * so you will get just the unknown command message and not an error
+X		 * message from cd.
+X		 */
+X		verbose = V_IMPLICITCD;
+X		j = _cd(dir);
+X		verbose = i;
+X	}
+X	return j;
+X}	/* implicit_cd */
+X
+X
+X
+X
+Xint _cd(char *dir)
+X{
+X	register char *cp;
+X	int result = 0, tmpverbose;
+X	string str;
+X
+X	if (dir == NULL)
+X		goto getrwd;
+X	/* Won't work because glob really is a ls, so 'cd pu*' will match
+X	 * pub/README, pub/file2, etc.
+X	 *	if (result = rem_glob_one(dir) < 0)
+X	 *	return result;
+X	 */
+X	if (strncmp(dir, "CDUP", (size_t) 4) == 0)
+X		(void) Strncpy(str, dir);
+X	else
+X		(void) sprintf(str, "CWD %s", dir);
+X	if (command(str) != 5) {
+Xgetrwd:
+X		/* (void) Strncpy(cwd, dir); */
+X		tmpverbose = verbose; verbose = V_QUIET;
+X		(void) command("PWD");
+X		verbose = tmpverbose;
+X		cp = rindex(reply_string, '\"');
+X		if (cp != NULL) {
+X			result = 1;
+X			*cp = '\0';
+X			cp = index(reply_string, '\"');
+X			if (cp != NULL)
+X				(void) Strncpy(cwd, ++cp);
+X		}
+X	}
+X	if (debug > 0)
+X		(void) printf("---> Current remote directory is \"%s\"\n", cwd);
+X	return (result);
+X}	/* _cd */
+X
+X
+X
+X
+X/*
+X * Set current working directory
+X * on local machine.
+X */
+Xint lcd(int argc, char **argv)
+X{
+X	if (argc < 2)
+X		argc++, argv[1] = home;
+X	if (argc != 2) {
+X		(void) printf("usage:%s local-directory\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (!globulize(&argv[1])) {
+X		code = -1;
+X		return;
+X	}
+X	if (chdir(argv[1]) < 0) {
+X		Perror(argv[1]);
+X		code = -1;
+X		return;
+X	}
+X	(void) get_cwd(lcwd, (int) sizeof(lcwd));
+X	if (IS_VVERBOSE) 
+X		(void) printf("Local directory now %s\n", lcwd);
+X	code = 0;
+X}	/* lcd */
+X
+X
+X
+X
+X/*
+X * Delete a single file.
+X */
+Xint do_delete(int argc, char **argv)
+X{
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote file to delete) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s remote-file\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (rem_glob_one(argv[1]) == 0) {
+X		(void) sprintf(str, "DELE %s", argv[1]);
+X		(void) command(str);
+X	}
+X}	/* do_delete */
+X
+X
+X
+X
+X/*
+X * Delete multiple files.
+X */
+Xint mdelete(int argc, char **argv)
+X{
+X	char *cp;
+X	void (*oldintr)(int);
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-files) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s remote-files\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	mname = argv[0];
+X	activemcmd = 1;
+X	oldintr = signal(SIGINT, mabort);
+X	(void) setjmp(jabort);
+X	while ((cp = remglob(argv)) != NULL) {
+X		if (*cp == '\0') {
+X			activemcmd = 0;
+X			continue;
+X		}
+X		if (activemcmd && confirm(argv[0], cp)) {
+X			(void) sprintf(str, "DELE %s", cp);
+X			(void) command(str);
+X			if (!activemcmd && fromatty) {
+X				if (confirm("Continue with", "mdelete")) {
+X					activemcmd++;
+X				}
+X			}
+X		}
+X	}
+X	(void) signal(SIGINT, oldintr);
+X	activemcmd = 0;
+X}	/* mdelete */
+X
+X
+X
+X
+X/*
+X * Rename a remote file.
+X */
+Xint renamefile(int argc, char **argv)
+X{
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(from-name) ", &argc);
+X	if (argc < 2) {
+Xusage:
+X		(void) printf("%s from-name to-name\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (argc < 3)
+X		argv = re_makeargv("(to-name) ", &argc);
+X	if (argc < 3)
+X		goto usage;
+X	if (rem_glob_one(argv[1]) < 0)
+X		return;
+X	(void) sprintf(str, "RNFR %s", argv[1]);
+X	if (command(str) == CONTINUE) {
+X		(void) sprintf(str, "RNTO %s", argv[1]);
+X		(void) command(str);
+X	}
+X}	/* renamefile */
+X
+X
+X
+X/*
+X * Get a directory listing
+X * of remote files.
+X */
+Xint ls(int argc, char **argv)
+X{
+X	char		*whichcmd, *cp;
+X	str32		lsflags;
+X	string		remote, local, str;
+X	int			listmode, pagemode, i;
+X
+X#ifdef REDIR
+X	register struct lslist *a, *b;
+X	for (a = lshead; a != NULL; ) {
+X		b = a->next;
+X    	if (a->string)
+X    		free(a->string);	/* free string */
+X    	free(a);          		/* free node */
+X    	a = b;
+X    }
+X    lshead = lstail = NULL;
+X#endif
+X
+X	pagemode = 0;
+X	switch (**argv) {
+X		case 'p':							/* pls, pdir, pnlist */
+X			pagemode = 1;
+X			listmode = argv[0][1] == 'd';
+X			break;
+X		case 'd':							/* dir */
+X			listmode = 1;
+X			break;
+X		default:							/* ls, nlist */
+X			listmode = 0;
+X	}
+X	whichcmd = listmode ? "LIST" : "NLST";
+X
+X	(void) strncpy(local, (pagemode ? pager : "-"), sizeof(local));
+X	remote[0] = lsflags[0] = 0;
+X	
+X	/* Possible scenarios:
+X	 *  1.	ls
+X	 *  2.	ls -flags
+X	 *  3.	ls directory
+X	 *  4.  ls -flags >outfile
+X	 *  5.  ls directory >outfile
+X     *  6.  ls -flags directory
+X	 *  7.  ls -flags directory >outfile
+X	 */
+X
+X	for (i=1; i<argc; i++) {
+X		switch (argv[i][0]) {
+X			case '-': 
+X				/*
+X				 * If you give more than one set of flags, concat the each
+X				 * additional set to the first one (without the dash).
+X				 */
+X				(void) strncat(lsflags, (argv[i] + (lsflags[0] == '-')), sizeof(lsflags));
+X				break;
+X			case '|':
+X			case '>': (void) Strncpy(local, argv[i] + (argv[i][0] == '>')); break;
+X			default:  
+X				if (remote[0] != 0) {
+X					printf("ls: only one directory at a time please (or don't forget the '>' in >outfile).\n");
+Xlsusage:
+X					(void) printf("usage: %s [-flags] [remote-directory] [>local-file]\n", argv[0]);
+X					code = -1;
+X					return;
+X				}
+X				/*
+X				 * In case you want to get a remote file called '--README--'
+X				 * or '>README,' you can use '\--README--' and '\>README.'
+X				 */
+X				(void) strncpy(remote, ((argv[i][0] == '\\') && (argv[i][1] != 0)) ? argv[i] + 1 : argv[i], sizeof(remote));
+X		}	/* end switch */	
+X	}		/* end loop */
+X
+X	/*
+X	 *	If we are given an ls with some flags, make sure we use 
+X	 *	columnized output (-C) unless one column output (-1) is
+X	 *	specified.
+X	 */
+X	if (!listmode) {
+X		if (lsflags[0] != 0) {
+X			(void) Strncpy(str, lsflags);
+X			for (cp = str + 1; *cp; cp++)
+X				if (*cp == '1')
+X					goto aa;
+X			(void) sprintf(lsflags, "-FC%s", str + 1);
+X		} else {
+X			if (remote_is_unix)
+X				(void) strcpy(lsflags, "-FC");
+X		}
+X	}
+Xaa:	if (strcmp(local, "-") != 0) {
+X		char *lp = local;
+X
+X		if ((!globulize(&lp)) || ((local[0] != '|') && (!confirm("Output to local-file: ", local)))) {
+X			code = -1;
+X			return;
+X		} 
+X		if (lp != local) {
+X			(void) Strncpy(str, lp);
+X			(void) Strncpy(local, str);
+X		}
+X	}
+X#ifdef REDIR
+X	is_ls=1; /* tells getreply() to buffer output on a lshead list */
+X#endif
+X	(void) Strncpy(str, remote);
+X	if (lsflags[0] && remote[0])
+X		(void) sprintf(remote, "%s%c%s", lsflags, LS_FLAGS_AND_FILE, str);
+X	else
+X		(void) strncpy(remote, lsflags[0] ? lsflags : str, sizeof(remote));
+X	recvrequest(whichcmd, local, (remote[0] == 0 ? NULL : remote), "w");
+X#ifdef REDIR
+X	is_ls=0;
+X#endif
+X}	/* ls */
+X
+X
+X
+X
+X/*
+X * Get a directory listing
+X * of multiple remote files.
+X */
+Xint mls(int argc, char **argv)
+X{
+X	char *cmd, mode[1], *dest;
+X	int i;
+X	void (*oldintr)(int);
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-files) ", &argc);
+X	if (argc < 3)
+X		argv = re_makeargv("(local-file) ", &argc);
+X	if (argc < 3) {
+X		(void) printf("usage:%s remote-files local-file\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	dest = argv[argc - 1];
+X	argv[argc - 1] = NULL;
+X	if (strcmp(dest, "-") && *dest != '|')
+X		if (!globulize(&dest) || !confirm("output to local-file:", dest)) {
+X			code = -1;
+X			return;
+X	}
+X	cmd = argv[0][1] != 'd' ? "NLST" : "LIST";
+X	mname = argv[0];
+X	activemcmd = 1;
+X	oldintr = signal(SIGINT, mabort);
+X	(void) setjmp(jabort);
+X	for (i = 1; activemcmd && i < argc-1; ++i) {
+X		*mode = (i == 1) ? 'w' : 'a';
+X		recvrequest(cmd, dest, argv[i], mode);
+X		if (!activemcmd && fromatty) {
+X			if (confirm("Continue with", argv[0])) {
+X				activemcmd++;
+X			}
+X		}
+X	}
+X	(void) signal(SIGINT, oldintr);
+X	activemcmd = 0;
+X}	/* mls */
+X
+X
+X
+X
+X/*
+X * Do a shell escape
+X */
+X/*ARGSUSED*/
+Xint shell(int argc, char **argv)
+X{
+X	int				pid;
+X	void			(*old1)(int), (*old2)(int);
+X	char			*theShell, *namep;
+X#ifndef U_WAIT
+X	int				Status;
+X#else
+X	union wait		Status;
+X#endif
+X	string			str;
+X
+X	old1 = signal (SIGINT, SIG_IGN);
+X	old2 = signal (SIGQUIT, SIG_IGN);
+X	if ((pid = fork()) == 0) {
+X		for (pid = 3; pid < 20; pid++)
+X			(void) close(pid);
+X		(void) signal(SIGINT, SIG_DFL);
+X		(void) signal(SIGQUIT, SIG_DFL);
+X		if ((theShell = getenv("SHELL")) == NULL)
+X			theShell = uinfo.shell;
+X		if (theShell == NULL)
+X			theShell = "/bin/sh";
+X		namep = rindex(theShell, '/');
+X		if (namep == NULL)
+X			namep = theShell;
+X		(void) strcpy(str, "-");
+X		(void) strcat(str, ++namep);
+X		if (strcmp(namep, "sh") != 0)
+X			str[0] = '+';
+X		if (debug) {
+X			(void) printf ("%s\n", theShell);
+X			(void) fflush (stdout);
+X		}
+X		if (argc > 1)
+X			(void) execl(theShell, str, "-c", altarg, (char *)0);
+X		else
+X			(void) execl(theShell, str, (char *)0);
+X		Perror(theShell);
+X		code = -1;
+X		exit(1);
+X		}
+X	if (pid > 0)
+X		while (wait((void *) &Status) != pid)
+X			;
+X	(void) signal(SIGINT, old1);
+X	(void) signal(SIGQUIT, old2);
+X	if (pid == -1) {
+X		Perror("Try again later");
+X		code = -1;
+X	} else code = 0;
+X	return (0);
+X}	/* shell */
+X
+X
+X
+X
+X/*
+X * Send new user information (re-login)
+X */
+Xint do_user(int argc, char **argv)
+X{
+X	char			acct[80];
+X	int				n, aflag = 0;
+X	string			str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(username) ", &argc);
+X	if (argc > 4) {
+X		(void) printf("usage: %s username [password] [account]\n", argv[0]);
+X		code = -1;
+X		return (0);
+X	}
+X	(void) sprintf(str, "USER %s", argv[1]);
+X	n = command(str);
+X	if (n == CONTINUE) {
+X		if (argc < 3 )
+X			argv[2] = Getpass("Password: "), argc++;
+X		(void) sprintf(str, "PASS %s", argv[2]);
+X		n = command(str);
+X	}
+X	if (n == CONTINUE) {
+X		if (argc < 4) {
+X			(void) printf("Account: "); (void) fflush(stdout);
+X			(void) FGets(acct, stdin);
+X			acct[strlen(acct) - 1] = '\0';
+X			argv[3] = acct; argc++;
+X		}
+X		(void) sprintf(str, "ACCT %s", argv[3]);
+X		n = command(str);
+X		aflag++;
+X	}
+X	if (n != COMPLETE) {
+X		(void) fprintf(stdout, "Login failed.\n");
+X		return (0);
+X	}
+X	if (!aflag && argc == 4) {
+X		(void) sprintf(str, "ACCT %s", argv[3]);
+X		(void) command(str);
+X	}
+X	return (1);
+X}	/* user */
+X
+X
+X
+X
+X/*
+X * Print working directory.
+X */
+X/*ARGSUSED*/
+Xint pwd(int argc, char **argv)
+X{
+X	int tmpverbose = verbose;
+X	verbose = V_VERBOSE;
+X	(void) command("PWD");
+X	verbose = tmpverbose;
+X}	/* pwd */
+X
+X
+X
+X
+X/*
+X * Make a directory.
+X */
+Xint makedir(int argc, char **argv)
+X{
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(directory-name) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage: %s directory-name\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	(void) sprintf(str, "MKD %s", argv[1]);
+X	(void) command(str);
+X}	/* makedir */
+X
+X
+X
+X
+X/*
+X * Remove a directory.
+X */
+Xint removedir(int argc, char **argv)
+X{
+X	string str;
+X	if (argc < 2)
+X		argv = re_makeargv("(directory-name) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage: %s directory-name\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (rem_glob_one(argv[1]) == 0) {
+X		(void) sprintf(str, "RMD %s", argv[1]);
+X		(void) command(str);
+X	}
+X}	/* removedir */
+X
+X
+X
+X
+X/*
+X * Send a line, verbatim, to the remote machine.
+X */
+Xint quote(int argc, char **argv)
+X{
+X	int i, tmpverbose;
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(command line to send) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage: %s line-to-send\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	(void) Strncpy(str, argv[1]);
+X	for (i = 2; i < argc; i++) {
+X		(void) Strncat(str, " ");
+X		(void) Strncat(str, argv[i]);
+X	}
+X	tmpverbose = verbose;
+X	verbose = V_VERBOSE;
+X	if (command(str) == PRELIM) {
+X		while (getreply(0) == PRELIM);
+X	}
+X	verbose = tmpverbose;
+X}	/* quote */
+X
+X
+X
+X
+X/*
+X * Ask the other side for help.
+X */
+Xint rmthelp(int argc, char **argv)
+X{
+X	int oldverbose = verbose;
+X	string str;
+X
+X	verbose = V_VERBOSE;
+X	if (argc == 1) (void) command("HELP");
+X	else {
+X		(void) sprintf(str, "HELP %s", argv[1]);
+X		(void) command(str);
+X	}
+X	verbose = oldverbose;
+X}	/* rmthelp */
+X
+X
+X
+X
+X/*
+X * Terminate session and exit.
+X */
+X/*ARGSUSED*/
+Xint quit(int argc, char **argv)
+X{
+X	close_up_shop();
+X	trim_log();
+X	exit(0);
+X}	/* quit */
+X
+X
+X
+Xvoid close_streams(int wantShutDown)
+X{
+X	if (cout != NULL) {
+X		if (wantShutDown)
+X			(void) shutdown(fileno(cout), 1+1);
+X		(void) fclose(cout);
+X		cout = NULL;
+X	}
+X	if (cin != NULL) {
+X		if (wantShutDown)
+X			(void) shutdown(fileno(cin), 1+1);
+X		(void) fclose(cin);
+X		cin = NULL;
+X	}
+X}	/* close_streams */
+X
+X
+X
+X
+X/*
+X * Terminate session, but don't exit.
+X */
+X/*ARGSUSED*/
+Xint disconnect(int argc, char **argv)
+X{
+X#ifdef SYSLOG
+X	syslog (LOG_INFO, "%s disconnected from %s.", uinfo.username, hostname);
+X#endif
+X
+X	(void) command("QUIT");
+X	close_streams(0);
+X	hostname[0] = cwd[0] = 0;
+X	connected = 0;
+X	data = -1;
+X	macnum = 0;
+X}	/* disconnect */
+X
+X
+X
+X
+Xint confirm(char *cmd, char *file)
+X{
+X	str32 str;
+X
+X	if (!fromatty || (activemcmd && !mprompt))
+X		return 1;
+X	(void) printf("%s %s? ", cmd, file);
+X	(void) fflush(stdout);
+X	(void) Gets(str, sizeof(str));
+X	return (*str != 'n' && *str != 'N');
+X}	/* confirm */
+X
+X
+X
+Xvoid
+Xfatal(char *msg)
+X{
+X	(void) fprintf(stderr, "%s: %s\n", progname, msg);
+X	close_up_shop();
+X	exit(1);
+X}	/* fatal */
+X
+X
+X
+Xvoid
+Xclose_up_shop(void)
+X{
+X	static int only_once = 0;
+X	if (only_once++ > 0)
+X		return;
+X	if (connected)
+X		disconnect(0, NULL);
+X	if (logf != NULL) {
+X		(void) fclose(logf);
+X		logf = NULL;
+X	}
+X}	/* close_up_shop */
+X
+X
+X
+X
+X/*
+X * Glob a local file name specification with
+X * the expectation of a single return value.
+X * Can't control multiple values being expanded
+X * from the expression, we return only the first.
+X */
+Xint globulize(char **cpp)
+X{
+X	char **globbed;
+X
+X	globbed = glob(*cpp);
+X	if (globerr != NULL) {
+X		(void) printf("%s: %s\n", *cpp, globerr);
+X		if (globbed) {
+X			blkfree(globbed);
+X			free(globbed);
+X		}
+X		return (0);
+X	}
+X	if (globbed) {
+X		*cpp = *globbed++;
+X		/* don't waste too much memory */
+X		if (*globbed) {
+X			blkfree(globbed);
+X			free(globbed);
+X		}
+X	}
+X	return (1);
+X}	/* globulize */
+X
+X
+X
+X/* change directory to perent directory */
+X/*ARGSUSED*/
+Xint cdup(int argc, char **argv)
+X{
+X	(void) _cd("CDUP");
+X}
+X
+X
+X/* show remote system type */
+X/*ARGSUSED*/
+Xint syst(int argc, char **argv)
+X{
+X	(void) command("SYST");
+X}
+X
+X
+X
+X
+Xint make_macro(char *name, FILE *fp)
+X{
+X	char			*tmp;
+X	char			*cp;
+X	string			str;
+X	size_t			len;
+X
+X	if (macnum == MAXMACROS) {
+X		(void) fprintf(stderr, "Limit of %d macros have already been defined.\n", MAXMACROS);
+X		return -1;
+X	}
+X	(void) strncpy(macros[macnum].mac_name, name, (size_t)8);
+X	if (macnum == 0)
+X		macros[macnum].mac_start = macbuf;
+X	else
+X		macros[macnum].mac_start = macros[macnum - 1].mac_end + 1;
+X	tmp = macros[macnum].mac_start;
+X	while (1) {
+X		cp = fgets(str, sizeof(str) - 1, fp);
+X		if (cp == NULL) {
+X			/*
+X			 * If we had started a macro, we will say it is
+X			 * okay to skip the blank line delimiter if we
+X			 * are at the EOF.
+X			 */
+X			if (tmp > macros[macnum].mac_start)
+X				goto endmac;
+X			(void) fprintf(stderr, "No text supplied for macro \"%s.\"\n", name);
+X		}
+X		/* see if we have a 'blank' line: just whitespace. */
+X		while (*cp && isspace(*cp)) ++cp;
+X		if (*cp == '\0') {
+X			/* Blank line; end this macro. */
+Xendmac:
+X			macros[macnum++].mac_end = tmp;
+X			return 0;
+X		}
+X		len = strlen(cp) + 1;	/* we need the \0 too. */
+X		if (tmp + len >= macbuf + MACBUFLEN) {
+X			(void) fprintf(stderr, "Macro \"%s\" not defined -- %d byte buffer exceeded.\n", name, MACBUFLEN);
+X			return -1;
+X		}
+X		(void) strcpy(tmp, cp);
+X		tmp += len;
+X	}
+X}	/* make_macro */
+X
+X
+X
+X
+Xint macdef(int argc, char **argv)
+X{
+X	if (argc < 2)
+X		argv = re_makeargv("(macro name) ", &argc);
+X	if (argc != 2) {
+X		(void) printf("Usage: %s macro_name\n", argv[0]);
+X		domacro(0, NULL);
+X		return;
+X	}
+X	(void) printf("Enter macro line by line, terminating it with a blank line\n");
+X	code = make_macro(argv[1], stdin);
+X}	/* macdef */
+X
+X
+X
+X
+Xint domacro(int argc, char **argv)
+X{
+X	register int			i, j;
+X	register char			*cp1, *cp2;
+X	int						count = 2, loopflg = 0;
+X	string					str;
+X	struct cmd				*c;
+X
+X	if (argc < 2) {
+X		/* print macros. */
+X		if (macnum == 0)
+X			(void) printf("No macros defined.\n");
+X		else {
+X			printf("Current macro definitions:\n");
+X			for (i = 0; i < macnum; ++i) {
+X				(void) printf("%s:\n", macros[i].mac_name);
+X				cp1 = macros[i].mac_start;
+X				cp2 = macros[i].mac_end;
+X				while (cp1 < cp2) {
+X					(void) printf("   > ");
+X					while (cp1 < cp2 && *cp1)
+X						putchar(*cp1++);
+X					++cp1;
+X				}
+X			}
+X		}
+X		if (argc == 0) return;	/* called from macdef(), above. */
+X		argv = re_makeargv("(macro to run) ", &argc);
+X	}			
+X	if (argc < 2) {
+X		(void) printf("Usage: %s macro_name.\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	for (i = 0; i < macnum; ++i) {
+X		if (!strncmp(argv[1], macros[i].mac_name, (size_t) 9)) {
+X			break;
+X		}
+X	}
+X	if (i == macnum) {
+X		(void) printf("'%s' macro not found.\n", argv[1]);
+X		code = -1;
+X		return;
+X	}
+X	(void) Strncpy(str, line);
+XTOP:
+X	cp1 = macros[i].mac_start;
+X	while (cp1 != macros[i].mac_end) {
+X		while (isspace(*cp1)) {
+X			cp1++;
+X		}
+X		cp2 = line;
+X		while (*cp1 != '\0') {
+X		      switch(*cp1) {
+X		   	    case '\\':
+X				 *cp2++ = *++cp1;
+X				 break;
+X			    case '$':
+X				 if (isdigit(*(cp1+1))) {
+X				    j = 0;
+X				    while (isdigit(*++cp1)) {
+X					  j = 10*j +  *cp1 - '0';
+X				    }
+X				    cp1--;
+X				    if (argc - 2 >= j) {
+X					(void) strcpy(cp2, argv[j+1]);
+X					cp2 += strlen(argv[j+1]);
+X				    }
+X				    break;
+X				 }
+X				 if (*(cp1+1) == 'i') {
+X					loopflg = 1;
+X					cp1++;
+X					if (count < argc) {
+X					   (void) strcpy(cp2, argv[count]);
+X					   cp2 += strlen(argv[count]);
+X					}
+X					break;
+X				}
+X				/* intentional drop through */
+X			    default:
+X				*cp2++ = *cp1;
+X				break;
+X		      }
+X		      if (*cp1 != '\0') {
+X					cp1++;
+X		      }
+X		}
+X		*cp2 = '\0';
+X		makeargv();
+X		c = getcmd(margv[0]);
+X		if ((c == (struct cmd *)-1) && !parsing_rc) {
+X			(void) printf("?Ambiguous command\n");
+X			code = -1;
+X		}
+X		else if (c == NULL && !parsing_rc) {
+X			(void) printf("?Invalid command\n");
+X			code = -1;
+X		} else if (c->c_conn && !connected) {
+X			(void) printf("Not connected.\n");
+X			code = -1;
+X		} else {
+X			if (IS_VVERBOSE)
+X				(void) printf("%s\n",line);
+X			(*c->c_handler)(margc, margv);
+X			(void) strcpy(line, str);
+X			makeargv();
+X			argc = margc;
+X			argv = margv;
+X		}
+X		if (cp1 != macros[i].mac_end) {
+X			cp1++;
+X		}
+X	}
+X	if (loopflg && ++count < argc) {
+X		goto TOP;
+X	}
+X}	/* domacro */
+X
+X
+X
+X/*
+X * get size of file on remote machine
+X */
+Xint sizecmd(int argc, char **argv)
+X{
+X	string str;
+X	int oldv;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-file) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s filename\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (rem_glob_one(argv[1]) == 0) {
+X		(void) sprintf(str, "SIZE %s", argv[1]);
+X		oldv = verbose;
+X		verbose = V_VERBOSE;
+X		(void) command(str);
+X		verbose = oldv;
+X	}
+X}	/* sizecmd */
+X
+X
+X
+X
+X/*
+X * get last modification time of file on remote machine
+X */
+Xint modtime(int argc, char **argv)
+X{
+X	int overbose;
+X	string str;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-file) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s filename\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	if (rem_glob_one(argv[1]) == 0) {
+X		overbose = verbose;
+X		if (debug == 0)
+X			verbose = V_QUIET;
+X		(void) sprintf(str, "MDTM %s", argv[1]);
+X		if (command(str) == COMPLETE) {
+X			int yy, mo, day, hour, min, sec;
+X			(void) sscanf(reply_string, "%*s %04d%02d%02d%02d%02d%02d", &yy, &mo,
+X				&day, &hour, &min, &sec);
+X			/* might want to print this in local time */
+X			(void) printf("%s\t%02d/%02d/%04d %02d:%02d:%02d GMT\n", argv[1],
+X				mo, day, yy, hour, min, sec);
+X		} else
+X			(void) fputs(reply_string, stdout);
+X		verbose = overbose;
+X	}
+X}	/* modtime */
+X
+X
+X
+Xint lookup(int argc, char **argv)
+X{
+X	int i, j, by_name, result = 0;
+X	unsigned long addr;			/* address in host order */
+X	struct hostent *host;		/* structure returned by gethostbyaddr() */
+X	extern int h_errno;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(sitename) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usages:\n\t%s <sitenames>\n\t%s <ip numbers>\n",
+X			argv[0], argv[0]);
+X	}
+X
+X 	lasthostname[0] = 0;
+X	for (i=1; i<argc; i++) {
+X		/* does the argument look like an address? */
+X		if (4 == sscanf (argv[i], "%d.%d.%d.%d", &j, &j, &j, &j)) {
+X			/* ip */
+X  			if ((addr = inet_addr (argv[i])) == 0xffffffff) {
+X     			(void) fprintf(stderr, "## could not convert \"%s\" into a valid IP address.\n", argv[i]);
+X     			continue;
+X     		}
+X			host = gethostbyaddr ((char *) &addr, 4, AF_INET);
+X			by_name = 0;
+X		} else {
+X			/* name */
+X			host = gethostbyname (argv[i]);
+X			by_name = 1;
+X		}
+X		if (host == NULL) {
+X			if (NOT_VQUIET) {
+X				/* gethostxxx error */				
+X				result = h_errno;
+X				if (h_errno == HOST_NOT_FOUND) {
+X	     			(void) printf("%s: lookup error (%d).\n",
+X	     				argv[i], h_errno);
+X	     			result = h_errno;
+X	 			} else {
+X	     			(void) printf("%s \"%s\"\n",
+X	     				(by_name==0 ? "unknown address" : "unknown host"),
+X	     				argv[i]);
+X	     			result = 
+X	     				h_errno != 0 ? h_errno :
+X	     				-1;
+X				}
+X			}
+X 		} else {
+X 			if (*host->h_name)
+X 				Strncpy(lasthostname, host->h_name);
+X			if (NOT_VQUIET) {
+X				(void) printf("%-32s  ", *host->h_name ? host->h_name : "???");
+X				if (*host->h_addr_list) {
+X					unsigned long horder;
+X	
+X					horder = ntohl (*(unsigned long *) *(char **)host->h_addr_list);
+X					(void) printf ("%lu.%lu.%lu.%lu\n",
+X						(horder >> 24),
+X						(horder >> 16) & 0xff,
+X						(horder >> 8) & 0xff,
+X						horder & 0xff);
+X				}
+X				else (void) printf("???\n");
+X			}
+X		}
+X    }	/* loop thru all sites */
+X    return result;
+X}	/* lookup */
+X
+X
+X
+X
+Xint getlocalhostname(char *host, size_t size)
+X{
+X	int oldv, r;
+X	char *argv[2];
+X
+X#ifdef HOSTNAME
+X	(void) strncpy(host, HOSTNAME, size);
+X	return 0;
+X#else
+X	*host = 0;
+X	if ((r = gethostname(host, size)) == 0) {
+X		oldv = verbose;
+X		verbose = V_QUIET;
+X		argv[0] = "lookup";
+X		(void) sprintf(line, "lookup %s", host);
+X		(void) makeargv();
+X		if (lookup(margc, margv) == 0 && lasthostname[0])
+X			(void) strncpy(host, lasthostname, size);
+X		verbose = oldv;
+X	}
+X	return r;
+X#endif
+X}	/* getlocalhostname */
+X
+X
+X
+X
+X/*
+X * show status on remote machine
+X */
+Xint rmtstatus(int argc, char **argv)
+X{
+X	string str;
+X	if (argc > 1) {
+X		(void) sprintf(str, "STAT %s" , argv[1]);
+X		(void) command(str);
+X	} else (void) command("STAT");
+X}	/* rmtstatus */
+X
+X
+X
+X
+X/*
+X * create an empty file on remote machine.
+X */
+Xint create(int argc, char **argv)
+X{
+X	string			str;
+X	FILE			*ftemp;
+X
+X	if (argc < 2)
+X		argv = re_makeargv("(remote-file) ", &argc);
+X	if (argc < 2) {
+X		(void) printf("usage:%s filename\n", argv[0]);
+X		code = -1;
+X		return;
+X	}
+X	(void) tmp_name(str);
+X	ftemp = fopen(str, "w");
+X	/* (void) fputc('x', ftemp); */
+X	(void) fclose(ftemp);
+X	creating = 1;
+X	sendrequest("STOR", str, argv[1]);
+X	creating = 0;
+X	(void) unlink(str);
+X}	/* create */
+X
+X
+X
+X
+X/* show version info */
+X/*ARGSUSED*/
+Xint show_version(int argc, char **argv)
+X{
+X	char	*DStrs[20];
+X	int		nDStrs = 0, i, j;
+X
+X	(void) printf("%s\n%-30s %s\n", version, "Author:",
+X		"Mike Gleason, NCEMRSoft (mgleason@cse.unl.edu).");
+X
+X/* Now entering CPP hell... */
+X#ifdef __DATE__
+X	(void) printf("%-30s %s\n", "Compile Date:", __DATE__);
+X#endif
+X	(void) printf("%-30s %s (%s)\n", "Operating System:",
+X#ifdef System
+X	System,
+X#else
+X#	ifdef unix
+X	"UNIX",
+X#	else
+X	"??",
+X#	endif
+X#endif
+X#ifdef SYSV
+X		"SYSV");
+X#else
+X#	ifdef BSD
+X			"BSD");
+X#	else
+X			"neither BSD nor SYSV?");
+X#	endif
+X#endif
+X
+X	/* Show which CPP symbols were used in compilation. */
+X#ifdef __GNUC__
+X	DStrs[nDStrs++] = "__GNUC__";
+X#endif
+X#ifdef RINDEX
+X	DStrs[nDStrs++] = "RINDEX";
+X#endif
+X#ifdef CURSES
+X	DStrs[nDStrs++] = "CURSES";
+X#endif
+X#ifdef HERROR
+X	DStrs[nDStrs++] = "HERROR";
+X#endif
+X#ifdef U_WAIT
+X	DStrs[nDStrs++] = "U_WAIT";
+X#endif
+X#if defined(CONST) || defined(const)
+X	DStrs[nDStrs++] = "CONST";
+X#endif
+X#ifdef GETPASS
+X	DStrs[nDStrs++] = "GETPASS";
+X#endif
+X#ifdef GETCWDSIZET
+X	DStrs[nDStrs++] = "GETCWDSIZET";
+X#endif
+X#ifdef HOSTNAME
+X	DStrs[nDStrs++] = "HOSTNAME";
+X#endif
+X#ifdef SYSDIRH
+X	DStrs[nDStrs++] = "SYSDIRH";
+X#endif
+X#ifdef SYSSELECTH
+X	DStrs[nDStrs++] = "SYSSELECTH";
+X#endif
+X#ifdef NO_UNISTDH 
+X	DStrs[nDStrs++] = "NO_UNISTDH";
+X#endif
+X#ifdef NO_STDLIBH
+X	DStrs[nDStrs++] = "NO_STDLIBH";
+X#endif
+X#ifdef SYSLOG 
+X	DStrs[nDStrs++] = "SYSLOG";
+X#endif
+X#ifdef REDIR
+X	DStrs[nDStrs++] = "REDIR";
+X#endif
+X#ifdef BAD_INETADDR
+X	DStrs[nDStrs++] = "BAD_INETADDR";
+X#endif
+X#ifdef SGTTYB
+X	DStrs[nDStrs++] = "SGTTYB";
+X#endif
+X#ifdef TERMIOS
+X	DStrs[nDStrs++] = "TERMIOS";
+X#endif
+X#ifdef _POSIX_SOURCE
+X	DStrs[nDStrs++] = "_POSIX_SOURCE";
+X#endif
+X
+X
+X	(void) printf ("\nCompile Options:\n");
+X	for (i=j=0; i<nDStrs; i++) {
+X		if (j == 0)
+X			(void) printf("    ");
+X		(void) printf("%-15s", DStrs[i]);
+X		if (++j == 4) {
+X			j = 0;
+X			(void) putchar('\n');
+X		}
+X	}
+X	if (j != 0)
+X		(void) putchar('\n');
+X	
+X	(void) printf("\nDefaults:\n");
+X	(void) printf("\
+X    Xfer Buf Size: %8d   Debug: %d   MPrompt: %d   Verbosity: %d\n\
+X    Prompt: %s   Pager: %s  ZCat: %s\n\
+X    Logname: %s   Logging: %d   Type: %s   Cmd Len: %d\n\
+X    Recv Line Len: %d   #Macros: %d   Macbuf: %d  Auto-Binary: %d\n\
+X    Redial Delay: %d  New Mail Message: \"%s\"\n",
+X		MAX_XFER_BUFSIZE, dDEBUG, dMPROMPT, dVERBOSE,
+X		dPROMPT, dPAGER, ZCAT,
+X		dLOGNAME, dLOGGING, dTYPESTR, CMDLINELEN,
+X		RECEIVEDLINELEN, MAXMACROS, MACBUFLEN, dAUTOBINARY,
+X		dREDIALDELAY, NEWMAILMESSAGE
+X	);
+X}	/* show_version */
+X
+X
+X
+Xvoid Perror(char *s)
+X{
+X	extern int errno;
+X
+X	if (NOT_VQUIET) {
+X		if (s != NULL)
+X			(void) fprintf(stderr, "NcFTP: %s (%d): ", s, errno);
+X		perror(NULL);
+X	}
+X}	/* Perror */
+X
+X
+X
+X#ifdef REDIR
+X/*ARGSUSED*/
+Xint showlsbuffer(int argc, char **argv)
+X{
+X	register struct lslist *a = lshead;
+X	int pagemode;
+X	FILE *fp;
+X	void (*oldintp)(int);
+X
+X	if (a == NULL)
+X		return;
+X	pagemode= (**argv) == 'p' && pager[0] == '|';
+X	if (pagemode) {
+X		fp = popen(pager + 1, "w");
+X		if (!fp) {
+X			Perror(pager + 1);
+X			return;
+X		}
+X	} else
+X		fp = stdout;
+X	oldintp = signal(SIGPIPE, SIG_IGN);
+X	while (a) {
+X		if (a->string)
+X			(void) fprintf(fp, "%s\n", a->string);
+X		a = a->next;
+X	}
+X	if (pagemode)
+X		(void) pclose(fp);
+X	if (oldintp)
+X		signal(SIGPIPE, oldintp);
+X}	/* showlsbuffer */
+X#endif
+X
+X/* eof cmds.c */
+END_OF_FILE
+  if test 48279 -ne `wc -c <'cmds.c'`; then
+    echo shar: \"'cmds.c'\" unpacked with wrong size!
+  fi
+  # end of 'cmds.c'
+fi
+if test -f 'ftp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.h'\"
+else
+  echo shar: Extracting \"'ftp.h'\" \(852 characters\)
+  sed "s/^X//" >'ftp.h' <<'END_OF_FILE'
+X/* ftp.h */
+X
+X#ifndef _ftp_h_
+X#define _ftp_h_
+X
+X#define IS_FILE 1
+X#define IS_STREAM 0
+X#define IS_PIPE -1
+X
+X/* Progress-meter types. */
+X#define pr_none 0
+X#define pr_percent 1
+X#define pr_philbar 2
+X#define pr_kbytes 3
+X
+Xint hookup(char *host, int port);
+Xint login(char *, int, int);
+Xvoid cmdabort(int unused);
+Xint command(char *cmd);
+Xint getreply(int expecteof);
+Xvoid abortsend(int unused);
+Xvoid sendrequest(char *cmd, char *local, char *remote);
+Xvoid abortrecv(int unused);
+Xvoid recvrequest(char *cmd, char *local, char *remote, char *mode);
+Xint initconn(void);
+XFILE *dataconn(char *mode);
+Xvoid close_file(FILE **fin, int filetype);
+Xlong get_remote_size(char *remote, int filetype);
+Xint start_progress(int sending, char *local);
+Xvoid progress_report(int);
+Xvoid end_progress(char *direction, char *local, char *remote);
+X
+X#endif /* _ftp_h_ */
+X
+X/* eof ftp.h */
+END_OF_FILE
+  if test 852 -ne `wc -c <'ftp.h'`; then
+    echo shar: \"'ftp.h'\" unpacked with wrong size!
+  fi
+  # end of 'ftp.h'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

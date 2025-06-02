@@ -1,0 +1,1725 @@
+Newsgroups: comp.sources.misc
+From: brendan@cygnus.com (Brendan Kehoe)
+Subject:  v33i052:  archie - A client to query the Archie FTP databases, v1.4.1, Part03/07
+Message-ID: <1992Nov5.210318.25087@sparky.imd.sterling.com>
+X-Md4-Signature: 144f81b4b4df854ffd011c1f61e373e1
+Date: Thu, 5 Nov 1992 21:03:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cygnus.com (Brendan Kehoe)
+Posting-number: Volume 33, Issue 52
+Archive-name: archie/part03
+Environment: UNIX, VMS, DOS
+Supersedes: archie: Volume 27, Issue 79-84
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  archie.c archie.el archie.lnk getopt.c
+# Wrapped by kent@sparky on Thu Nov  5 12:53:08 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 7)."'
+if test -f 'archie.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.c'\"
+else
+  echo shar: Extracting \"'archie.c'\" \(7386 characters\)
+  sed "s/^X//" >'archie.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X/*
+X * Archie client using the Prospero protocol.
+X *
+X * Suggestions and improvements to Brendan Kehoe (brendan@cygnus.com).
+X */
+X
+X#include <stdio.h>
+X#include <getopt.h>
+X
+X#if defined(OS2)
+X# include <pctcp.h>
+X#endif
+X
+X#ifdef MSDOS
+X# include <string.h>
+X# include <stdlib.h>
+X# ifdef CUTCP
+X#  include <msdos/cutcp.h>
+X#  include <msdos/hostform.h>
+X/* The default stack size for a BC program is 4k; jack it up to 16 and add the
+X   Check for Stack Overflow option to the compiler.  */
+Xextern unsigned _stklen = 16 * 1024;
+X# endif
+X#endif
+X
+X#include <pfs.h>
+X#include <rdgram.h>
+X#include <archie.h>
+X#include <pmachine.h>
+X
+X/* Whether we should produce single-line listings suitable for frobbing by
+X   other programs, or produce nice clean human output (default).  */
+Xint listflag = 0;
+X
+X/* How to sort the data; 1 means by date, 0 is by inverse hostname.  */
+Xint sortflag = 0;
+X
+X/* Used by CUTCP to see if they specified the host with `-h' or if
+X   the config.tel file should be consulted.  */ 
+Xint hostset = 0;
+X
+X/* When doing searches, should we make some comments to pacify the user?  */
+Xint verbose = 0;
+X
+X/* Maximum number of hits for this query; pushing this high is very
+X   anti-social.  */
+Xint max_hits = MAX_HITS;
+X
+X/* The offset for the Prospero query.  */
+Xint offset = 0;
+X
+X/* Display the Alex filename?  */
+Xint alex = 0;
+X
+X/* The default host to query for searches.  */ 
+Xchar *host = ARCHIE_HOST;
+X
+XFILE *archie_out;
+X
+X/* The name this program was run with.  */
+Xchar *program_name;
+X
+Xextern int pfs_debug;
+Xextern int rdgram_priority;
+X
+Xvoid usage ();
+Xextern char *getenv ();
+X
+Xvoid
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  Query query = EXACT;
+X  int optc, tmp;
+X  /* If true, display the release.  */
+X  int exitflag = 0;
+X  /* The file to print the results to.  Defaults to stdout.  */
+X  char *outfile = (char *)NULL;
+X  char *p;
+X  static char *archies[] = { ARCHIES };
+X
+X  program_name = argv[0];
+X
+X  /* Default debugging level.  */
+X  pfs_debug = 0;
+X
+X#ifdef	CUTCP
+X  if (getenv ("CONFIGTEL"))
+X    if (Shostfile (getenv ("CONFIGTEL")) < 0)
+X      {
+X	fprintf (stderr, "Error, couldn't open configtel file %s\n",
+X		 getenv ("CONFIGTEL"));
+X	exit (1);
+X      }
+X#endif
+X
+X  if ((p = getenv ("ARCHIE_HOST")) != (char *) NULL)
+X    host = p;
+X
+X#ifdef CUTCP
+X  while ((optc = getopt (argc, argv, "D:LHN::O:ceh:alm:o:rstvV")) != EOF)
+X#else
+X  while ((optc = getopt (argc, argv, "D:LN::O:ceh:alm:o:rstvV")) != EOF)
+X#endif
+X    {
+X      switch (optc)
+X	{
+X	case 'D':
+X	  pfs_debug = atoi (optarg);
+X	  break;
+X
+X	case 'L':
+X	  printf ("Known archie servers:\n");
+X	  for (tmp = 0; tmp < NARCHIES; tmp++)
+X	    printf ("\t%s\n", archies[tmp]);
+X	  printf (" * %s is the default Archie server.\n", ARCHIE_HOST);
+X	  printf (" * For the most up-to-date list, write to an Archie server and give it\n   the command `servers'.\n");
+X	  exitflag = 1;
+X	  break;
+X
+X#ifdef CUTCP
+X	case 'H':
+X	  if (Shostfile (optarg) < 0)
+X	    {
+X	      fprintf (stderr,
+X		       "%s: couldn't open configtel file %s\n",
+X		       program_name, optarg);
+X	      exit (1);
+X	    }
+X	  break;
+X#endif
+X
+X	case 'N':
+X	  if (optarg)
+X	    {
+X	      rdgram_priority = atoi (optarg);
+X	      if (rdgram_priority > RDGRAM_MAX_SPRI)
+X		rdgram_priority = RDGRAM_MAX_PRI;
+X	      else if (rdgram_priority < RDGRAM_MIN_PRI)
+X		rdgram_priority = RDGRAM_MIN_PRI;
+X	    }
+X	  else
+X	    rdgram_priority = RDGRAM_MAX_PRI;
+X	  break;
+X
+X	case 'c': /* Substring (case-sensitive).  */
+X	  query = SUBSTRING_CASE;
+X	  break;
+X
+X	case 'e': /* Exact match.  */
+X	  query = EXACT;
+X	  break;
+X
+X	case 'h': /* Archie host.  */
+X	  host = optarg;
+X#ifdef CUTCP
+X	  hostset = 1;
+X#endif
+X	  break;
+X
+X	case 'a': /* List matches as Alex filenames.  */
+X	  alex = 1;
+X	  break;
+X
+X	case 'l': /* List one match per line.  */
+X	  listflag = 1;
+X	  break;
+X
+X	case 'm': /* Maximum number of hits for the query.  */
+X	  max_hits = atoi (optarg);
+X	  if (max_hits < 1)
+X	    {
+X	      fprintf (stderr,
+X		       "%s: option `-m' requires a max hits value >= 1\n",
+X		       program_name);
+X	      exit (ERROR_EXIT);
+X	    }
+X	  break;
+X
+X	case 'o': /* output file */
+X	  if (outfile)
+X	    {
+X	      fprintf (stderr, "%s: multiple output files specified\n",
+X		       program_name);
+X	      exit (ERROR_EXIT);
+X	    }
+X	  outfile = optarg;
+X	  break;
+X
+X	case 'O': /* Specify the offset.  */
+X	  offset = atoi (optarg);
+X	  break;
+X
+X	case 'r': /* Regexp search.  */
+X	  query = REGEXP;
+X	  break;
+X
+X	case 's': /* Substring (case insensitive).  */
+X	  query = SUBSTRING;
+X	  break;
+X
+X	case 't': /* Sort inverted by date.  */
+X	  sortflag = 1;
+X	  break;
+X
+X	case 'v': /* Display version.  */
+X	  fprintf (stderr,
+X		   "Client version %s based upon Prospero version %s%s\n",
+X		   CLIENT_VERSION,
+X#ifdef DEBUG
+X		   PFS_RELEASE, " with debugging.");
+X#else
+X		   PFS_RELEASE, ".");
+X#endif
+X	  exitflag = 1;
+X	  break;
+X
+X	case 'V': /* Verbose when search is happening.  */
+X	  verbose = 1;
+X	  break;
+X
+X	default:
+X	  usage ();
+X	}
+X    }
+X
+X  if (exitflag)
+X    exit (0);
+X  else if (optind == argc)
+X    usage ();
+X  else if (alex && listflag)
+X    {
+X      fprintf (stderr, "%s: only one of `-a' or `-l' may be used\n",
+X	       program_name);
+X      exit (ERROR_EXIT);
+X    }
+X
+X  if (outfile)
+X    {
+X      archie_out = fopen (outfile, "w+");
+X      if (archie_out == (FILE *) NULL)
+X	{
+X	  fprintf (stderr, "%s: cannot open %s\n", program_name, outfile);
+X	  exit (ERROR_EXIT);
+X	}
+X    }
+X  else
+X    archie_out = stdout;
+X
+X#ifdef	CUTCP
+X  if (tmp = Snetinit ())
+X    {
+X      fprintf (stderr, " %d from SNetinit (bad or missing config.tel ?)\n",
+X	       tmp);
+X
+X      /* If there was a rarp lookup failure, shut the network card down.  */
+X      if (tmp == -2)
+X	netshut ();
+X      exit (ERROR_EXIT);
+X    }
+X
+X  if (!hostset)
+X    {
+X      /* Look in config.tel if they didn't give us a host with `-h'.  The
+X         entries appear as "name=archie".  */
+X      struct machinfo *mp = Shostlook ("archie");
+X
+X      if (mp)
+X	host = mp->hname ? mp->hname : mp->sname;
+X    }
+X#endif
+X
+X  for (; optind < argc; ++optind)
+X    procquery (host, argv[optind], max_hits, offset, query);
+X
+X#ifdef CUTCP
+X  netshut ();
+X#endif
+X
+X  if (outfile)
+X    fclose (archie_out);
+X
+X  exit (0);
+X}
+X
+X#ifdef CUTCP
+X# define HFLAG	"] [H config.tel]"
+X#else
+X# define HFLAG	"]"
+X#endif
+X
+Xvoid
+Xusage ()
+X{
+X  fprintf (stderr, "\
+XUsage: %s [-acelorstvLV] [-m hits%s [-N level] string\n", program_name, HFLAG);
+X  fprintf (stderr, "          -a : list matches as Alex filenames\n");
+X  fprintf (stderr, "          -c : case sensitive substring search\n");
+X  fprintf (stderr, "          -e : exact string match (default)\n");
+X  fprintf (stderr, "          -r : regular expression search\n");
+X  fprintf (stderr, "          -s : case insensitive substring search\n");
+X  fprintf (stderr, "          -l : list one match per line\n");
+X  fprintf (stderr, "          -t : sort inverted by date\n");
+X  fprintf (stderr, "     -m hits : specifies maximum number of hits to return (default %d)\n", max_hits);
+X  fprintf (stderr, " -o filename : specifies file to store results in\n");
+X  fprintf (stderr, "     -h host : specifies server host\n");
+X  fprintf (stderr, "          -L : list known servers and current default\n");
+X  fprintf (stderr, "    -N level : specifies query niceness level (0-35765)\n");
+X#ifdef CUTCP
+X  fprintf (stderr, "-H config.tel: specify location of config.tel file\n");
+X#endif
+X
+X  exit (ERROR_EXIT);
+X}
+X
+END_OF_FILE
+  if test 7386 -ne `wc -c <'archie.c'`; then
+    echo shar: \"'archie.c'\" unpacked with wrong size!
+  fi
+  # end of 'archie.c'
+fi
+if test -f 'archie.el' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.el'\"
+else
+  echo shar: Extracting \"'archie.el'\" \(24212 characters\)
+  sed "s/^X//" >'archie.el' <<'END_OF_FILE'
+X;; Questions about this version to Jack Repenning <jackr@sgi.com>
+X;;
+X;; archie.el v2.0
+X;;   A mock-interface to Archie for Emacs.
+X;;
+X;;   -- original version by Brendan Kehoe (brendan@cs.widener.edu)
+X;;   ange-ftp extensions by Sanjay Mathur (mathur@nas.nasa.gov)
+X;;   ----- async support by Andy Norman (ange@hplb.hpl.hp.com)
+X;;   ----- convert-to-dired by (drw@bourbaki.mit.edu)
+X;;   ----- archie-server-preference-list by Jack Repenning (jackr@sgi.com)
+X;;   ----- merge with original archie mode by Piet van Oostrum <piet@cs.ruu.nl>
+X;;   ----- many enhancements thanks to the ange-ftp-lovers list
+X;;   ----- further archie-mode functions, cleanup, by Rob Austein
+X;;         ClearCase: archie.el@@/main/37
+X;;         sites:     /ftp@sgigate.sgi.com:/pub/archie-aux/archie.el
+X;;                    /ftp@alpha.gnu.ai.mit.edu:ange-ftp/archie.el
+X;; 
+X;; This file is not part of GNU Emacs but the same permissions apply.
+X;; 
+X;; GNU Emacs is free software; you can redistribute it and/or modify
+X;; it under the terms of the GNU General Public License as published by
+X;; the Free Software Foundation; either version 1, or (at your option)
+X;; any later version.
+X;;
+X;; GNU Emacs is distributed in the hope that it will be useful,
+X;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+X;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X;; GNU General Public License for more details.
+X;;
+X;; You should have received a copy of the GNU General Public License
+X;; along with GNU Emacs; see the file COPYING.  If not, write to
+X;; the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+X;;
+X;;
+X
+X;; Usage:
+X;;
+X;; M-x archie creates a separate buffer from which you can find, copy
+X;; or run dired on any of the entries (using ange-ftp) and redo the search
+X;; with modified string and/or search-type.
+X;; alternatively M-x archie creates a separate buffer in dired mode (q.v).
+X
+X;;
+X
+X;; Installation instructions:
+X;;
+X;; Install this file as archie.el somewhere in your load-path and add the
+X;; following two lines to ~/.emacs. (without the semicolon's, of course)
+X;;
+X;; (autoload 'archie "archie" "Archie interface" t)
+X;;
+X;; You may have to change the value of archie-program and archie-server
+X;; as appropriate for your site.
+X;; archie-search-type and archie-download-directory can be modified
+X;; to suit personal preferences.
+X;;
+X;; For use with this package, it is also convenient to set
+X;;  (setq ange-ftp-generate-anonymous-password t)
+X;;
+X;;  Also, the crypt package (available in the LCD archives) is useful
+X;;  with archie-find-file, since most archive sites store their files
+X;;  in a compressed form.
+X
+X;;
+X;; LCD Archive Entry:
+X;; archie|Sanjay R. Mathur|mathur@nas.nasa.gov
+X;; |A mock-interface to the archie program.
+X;; Wed Apr 22 22:31:46 1992|2.0||
+X;;
+X
+X;; Customization variables
+X
+X(defvar archie-program "archie"
+X  "Program that queries archie servers.")
+X
+X(defvar archie-server-list
+X  '(("archie.funet.fi"      .  "128.214.6.100   (European server in Finland)")
+X    ("archie.rutgers.edu"   .  "128.6.18.15     (Rutgers University)")
+X    ("archie.sura.net"      .  "128.167.254.179 (SuraNet (Maryland, USA))")
+X    ("archie.unl.edu"       .  "129.93.1.14     (University of Nebraska in Lincoln)")
+X    ("archie.cs.huji.ac.il" .  "132.65.6.15     (Israel server)")
+X    ("archie.au"            .  "139.130.4.6     (Australian server)")
+X    ("archie.doc.ic.ac.uk"  .  "146.169.11.3    (UK/England server)")
+X    ("archie.ans.net"       .  "147.225.1.2     (ANS archie server)")
+X    ("archie.ncu.edu.tw"    .  "140.115.19.24   (Taiwanese server)")
+X    ("archie.wide.ad.jp"    .  "133.4.3.6       (Japanese server)"))
+X  "List of known archie servers.")
+X
+X(defvar archie-server nil
+X   "*Server for \\[archie] searches.  If ``nil'' (the default), asks.
+XKnown archie servers are listed in archie-server-list.")
+X
+X(defvar archie-download-directory nil
+X  "*Default directory into which any files copied by archie-copy are
+Xcopied. nil means to use /usr/tmp.")
+X
+X(defvar archie-search-type "exact"
+X  "*Search type for \\[archie] searches.  (Used to set command-line
+Xargument for archie program.)  See also archie-search-type-sticky.
+X
+XCan be one of:
+X        exact                   for exact matches (-e) (default)
+X        regexp                  for a regexp (-r)
+X        substring               for substring searches (-c) 
+X        case-insensitive        for a case-insensitive substring search (-s)
+X        exact-regexp            for an exact regexp (-er)
+X        exact-substring         for an exact substring search (-es)
+X        exact-case-insensitive  for exact case-insensitive search (-ec)
+X        nil                     to ask every time")
+X
+X(defvar archie-search-type-sticky t
+X  "*Once you specify a search type, should it be made the new default
+X(new value of archie-search-type)?")
+X
+X(defvar archie-search-type-alist
+X  ;; This is left as a defvar instead of defconst in case you don't like
+X  ;; the keyword choice here, eg, you want "substring" to mean
+X  ;; "case-insensitive-substring" (-s) as Allah clearly intended.
+X  '(("substring" . "-c")
+X    ("exact" . "-e")
+X    ("regexp" . "-r")
+X    ("case-insensitive" . "-s")
+X    ("exact-substring" . "-ec")
+X    ("exact-case-insensitive" . "-es")
+X    ("exact-regexp" . "-er"))
+X  "*Alist of search types for \\[archie] searches.")
+X
+X(defvar archie-internal-search-type-alist nil
+X  "Internal version of archie-search-type-alist (includes switches, as
+Xwell as keywords).")
+X
+X(defun archie-search-type-alist ()
+X  "Returns value of archie-internal-search-type-alist, updating it if
+Xnecessary."
+X  (if (eq archie-search-type-alist
+X          (nthcdr (length archie-search-type-alist)
+X                  archie-internal-search-type-alist))
+X      archie-internal-search-type-alist
+X    (setq archie-internal-search-type-alist
+X          (nconc (mapcar (function (lambda (x) (cons (cdr x) (cdr x))))
+X                         archie-search-type-alist)
+X                 archie-search-type-alist))))
+X
+X(defvar archie-do-convert-to-dired nil
+X  "*If t archie buffers are converted to dired-mode, otherwise archie-mode
+Xis used.")
+X
+X(defvar archie-search-hits "1000"
+X  "*Maximum number of hits to ask for in search.")
+X
+X(defvar archie-window-management 'at-end
+X  "*When should \\[archie] display the window with the answer?
+X        'at-start       When the search is initiated
+X        'at-end         When the result is ready
+X        'both           Both
+X        otherwise       Never")
+X
+X(defvar archie-server-preference-list nil
+X  "*List of regexps for ordering archie results by server.  May be
+Xright-anchored with \"$\", e.g.:
+X        '(\"erlangen\\.de$\"
+X          \"tu-muenchen\\.de$\"
+X          \"\\.de$\")")
+X
+X(defvar archie-dired-unusable-functions
+X  (list
+X   ;; Classic dired functions
+X   'dired-backup-unflag
+X   'dired-byte-recompile
+X   'dired-chgrp
+X   'dired-chmod
+X   'dired-chown
+X   'dired-clean-directory
+X   'dired-compress
+X   'dired-do-deletions
+X   'dired-flag-auto-save-files
+X   'dired-flag-backup-files
+X   'dired-flag-file-deleted
+X   'dired-rename-file
+X   'dired-uncompress
+X
+X   ;;; Tree-dired functions
+X   'dired-backup-diff
+X   ;; 'dired-backup-unflag
+X   'dired-clean-directory
+X   ;; 'dired-create-directory
+X   ;; 'dired-diff
+X   'dired-do-byte-compile
+X   'dired-do-chgrp
+X   ;; 'dired-do-chmod
+X   'dired-do-chown
+X   'dired-do-compress
+X   ;; 'dired-do-copy
+X   ;; 'dired-do-copy-regexp
+X   'dired-do-delete
+X   'dired-do-flagged-delete
+X   'dired-do-hardlink
+X   'dired-do-hardlink-regexp
+X   ;; 'dired-do-kill
+X   'dired-do-load
+X   ;; 'dired-do-move ; amounts to dired-do-copy
+X   'dired-do-print
+X   ;; 'dired-do-redisplay
+X   'dired-do-rename-regexp
+X   ;; 'dired-do-shell-command   ; not likely the command knows what to
+X                                ; do with such a name, but what the hey
+X   'dired-do-symlink
+X   'dired-do-symlink-regexp
+X   'dired-do-uncompress
+X   'dired-downcase
+X   ;; 'dired-find-file
+X   ;; 'dired-find-file-other-window
+X   'dired-flag-auto-save-files
+X   'dired-flag-backup-files
+X   'dired-flag-file-deleted
+X   'dired-flag-regexp-files
+X   'dired-hide-all              ; when ``i'' works ...
+X   'dired-hide-subdir           ; when ``i'' works ...
+X   ;; 'dired-kill-line-or-subdir
+X   ;; 'dired-mark-directories
+X   ;; 'dired-mark-executables
+X   ;; 'dired-mark-files-regexp
+X   ;; 'dired-mark-subdir-or-file
+X   ;; 'dired-mark-symlinks
+X   'dired-maybe-insert-subdir
+X   ;; 'dired-next-dirline
+X   ;; 'dired-next-line
+X   ;; 'dired-next-marked-file
+X   ;; 'dired-next-subdir
+X   ;; 'dired-prev-dirline
+X   ;; 'dired-prev-marked-file
+X   ;; 'dired-prev-subdir
+X   ;; 'dired-previous-line
+X   ;; 'dired-quit
+X   'dired-sort-toggle-or-edit
+X   ;; 'dired-summary
+X   ;; 'dired-tree-down
+X   ;; 'dired-tree-up
+X   ;; 'dired-undo
+X   ;; 'dired-unflag-all-files
+X   ;; 'dired-unmark-subdir-or-file
+X   ;; 'dired-up-directory
+X   'dired-upcase
+X   ;; 'dired-view-file
+X   ;; 'dired-why
+X   ;; 'revert-buffer            ; replaced with archie-modify-query
+X   )
+X  "*List of dired functions that should be removed from the
+Xarchie-dired-mode keymap.")
+X
+X(defvar archie-mode-hook nil
+X  "Hooks to run after entering archie (non-dired) mode.")
+X
+X(defvar archie-dired-mode-hook nil
+X  "Hooks to run after entering archie-dired-mode.")
+X
+X(defvar archie-anonymous-ftp-username "anonymous"
+X  "Username to use for \"anonymous\" FTP connections.
+XSet to \"anonymous\" by default, since more sites accept that than any
+Xother username (even \"ftp\", and no, not all machines in the world
+Xthink they're synonyms).  For dired-mode archie, this only matters for
+Xhosts where you've got a non-anonymous username set.")
+X
+X(defvar archie-display-hook nil
+X  "Hook run after displaying the results buffer.")
+X
+X(defvar archie-load-hook nil
+X  "Hooks run after loading archie.el")
+X
+X
+X;; Variables you shouldn't have to customize
+X
+X(defvar archie-l-output "[0-9]*Z *[0-9]* *\\([^ ]*\\) *\\(.*$\\)"
+X  "Regular expression matching the results of archie -l query. The
+X   two subexpressions match the host-name and the path respectively.")
+X
+X(defvar archie-last-query nil)
+X(defvar archie-last-type nil)
+X
+X(defvar archie-mode-map
+X  (let ((map (make-sparse-keymap)))
+X    (define-key map "f" 'archie-find-file)
+X    (define-key map "a" 'archie-modify-query)
+X    (define-key map "c" 'archie-copy)
+X    (define-key map "x" 'convert-archie-to-dired)
+X    (define-key map "d" 'archie-dired)
+X    (define-key map "v" 'archie-view-file)
+X    (define-key map "n" 'archie-next-line)
+X    (define-key map "s" 'archie-change-server)
+X    (define-key map " " 'archie-next-line)
+X    (define-key map "\C-n" 'archie-next-line)
+X    (define-key map "p" 'archie-previous-line)
+X    (define-key map "\C-?" 'archie-previous-line)
+X    (define-key map "\C-p" 'archie-previous-line)
+X    map)
+X  "Local keymap used when in archie (non-dired) mode.")
+X
+X(defvar archie-dired-mode-map nil
+X  "Local keymap used when in archie-dired-mode.  Normally cloned from
+Xdired-mode-map, after dired-mode-hook is run.")
+X
+X(defun archie (type string)
+X  "Search (with style TYPE, or prompt if arg) for STRING on an Archie
+Xserver.
+X
+XTYPE is the type of search to make -- by default, it's
+X`archie-search-type'.  Possible values are exact, substring (case
+Xsensitive), case-insensitive and regexp (a regular expression).
+XInteractively, a prefix arg will make it prompt for this. If
+Xarchie-search-type is NIL, always prompts.  If
+Xarchie-search-type-sticky is non-nil, each specified value is used as
+Xthe next default; otherwise it reverts to archie-search-type.
+X
+XSTRING is the string (or regexp) for which to search.
+X
+XIf archie-do-convert-to-dired is non-NIL, the buffer is converted to a
+Xdired buffer.
+X
+XThe total number of search hits will be limited to (approximately)
+Xarchie-search-hits.  If the prefix arg is >= 16 (e.g., ^U ^U
+X\\[archie]), then you will be prompted for a new value for
+Xarchie-search-hits."
+X  (interactive (archie-get-query-args archie-search-type nil))
+X  (let ((buf (generate-new-buffer string))
+X        (flags (concat (or (cdr (assoc type (archie-search-type-alist)))
+X                           (cdr (assoc archie-search-type
+X                                       (archie-search-type-alist)))
+X                           "-e"))))
+X    (save-window-excursion
+X      (set-buffer buf)
+X      (setq archie-last-query string)
+X      (setq archie-last-type type)
+X      (setq buffer-read-only nil)
+X      (erase-buffer)
+X      (archie-mode)
+X      (set
+X       (make-local-variable 'archie-msg)
+X       (message "Asking archie for %s match for \"%s\" ..." type string)))
+X    (if (or (eq archie-window-management 'at-start)
+X            (eq archie-window-management 'both))
+X        (progn
+X          (display-buffer buf)
+X          (run-hooks 'archie-display-hook)))
+X    (let ((proc (start-process "archie" ;name
+X                               buf      ;buffer
+X                               archie-program ;program
+X                               "-h" archie-server ;program args
+X                               "-m" archie-search-hits
+X                               flags "-l" "-"
+X                               string)))
+X      (process-kill-without-query proc)
+X      (set-process-sentinel proc (function archie-process-sentinel)))))
+X
+X(defun archie-process-sentinel (proc string)
+X  (if (buffer-name (process-buffer proc))
+X      (unwind-protect
+X          (save-window-excursion
+X            (set-buffer (process-buffer proc))
+X            (let ((am archie-msg))
+X              (message "%s converting." am)
+X              (goto-char (point-min))
+X              (archie-order-results)
+X              (require 'ange-ftp)
+X              (if archie-do-convert-to-dired (convert-archie-to-dired))
+X              (setq buffer-read-only t)
+X              (message "%s done." am)))
+X        (if (or (eq archie-window-management 'at-end)
+X                (eq archie-window-management 'both))
+X            (progn
+X              (display-buffer (process-buffer proc))
+X              (run-hooks 'archie-display-hook))))))
+X
+X(defun archie-order-results ()
+X  "Order archie results by archie-server-preference-list."
+X  (goto-char (point-min))
+X  (mapcar
+X   (function
+X    (lambda (server-re)
+X      (let (match)
+X        (if (string-match "\\$$" server-re)
+X            (setq server-re
+X                  (concat (substring server-re 0 -1) " ")))
+X        (while
+X            (save-excursion
+X              (re-search-forward (concat "^[0-9Z]+\\s +[0-9]+ \\S *"
+X                                         server-re
+X                                         ".*")
+X                                 nil t))
+X          (setq match (buffer-substring (match-beginning 0) (1+ (match-end 0))))
+X          (delete-region  (match-beginning 0) (1+ (match-end 0)))
+X          (insert match)))))
+X   archie-server-preference-list))
+X
+X(defun convert-archie-to-dired ()
+X  "Convert a buffer containing output in 'archie -l' format into a Dired-mode
+Xbuffer in which the usual Dired commands can be used, via ange-ftp."
+X  (interactive)
+X  (if (not (fboundp 'ange-ftp-get-user)) (load "ange-ftp"))
+X  (let (lines b s date size host file type year)
+X    (setq year (substring (current-time-string) -4))
+X    (setq lines (count-lines (point-min) (point-max)))
+X    (setq buffer-read-only nil)
+X    (goto-char (point-min))
+X    (insert "  total " (int-to-string lines) ?\n)
+X    (while (not (eobp))
+X      (condition-case error
+X          (progn
+X            (setq b (point))
+X            (beginning-of-line 2)
+X            (setq s (buffer-substring b (point)))
+X            (or (string-match
+X                 "^\\([0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]\\)Z +\\([0-9]+\\) \\([-_.a-zA-Z0-9]+\\) \\([^ \n]+\\)$"
+X                 s)
+X                (error "Line not from 'archie -l'"))
+X            (setq date (substring s (match-beginning 1) (match-end 1)))
+X            (setq size (substring s (match-beginning 2) (match-end 2)))
+X            (setq host (substring s (match-beginning 3) (match-end 3)))
+X            (setq file (substring s (match-beginning 4) (match-end 4)))
+X            (if (string-equal (substring file -1) "/")
+X                (setq file (substring file 0 -1)
+X                      type "d")
+X              (setq type "-"))
+X            (save-excursion
+X              (insert "  "
+X                      ;; - or d, depending on whether it's a file or a directory
+X                      type
+X                      "r--r--r--  1 ftp"
+X                      ;; file size
+X                      (make-string (- 8 (length size)) ? )
+X                      size
+X                      " "
+X                      ;; creation date
+X                      (condition-case error
+X                          (aref
+X                           ["Jan" "Feb" "Mar" "Apr" "May" "Jun"
+X                            "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"]
+X                           (1- (string-to-int (substring date 4 6))))
+X                        (error "Jan"))
+X                      " "
+X                      (if (= (aref date 6) ?0)
+X                          (concat " " (substring date 7 8))
+X                        (substring date 6 8))
+X                      (if (string-equal (substring date 0 4) year)
+X                          (concat " " (substring date 8 10) ":" (substring date 10 12))
+X                        (concat "  " (substring date 0 4)))
+X                      ;; file name, in Ange-FTP format
+X                      (archie-get-user-prefix host) host ":" file
+X                      ?\n))
+X            (delete-region b (point))
+X            (forward-line 1))
+X        (error (forward-line 1))))
+X    (archie-dired-mode)
+X    (goto-char (point-min))
+X    ;; Set subdir-alist so that Tree Dired will work:
+X    (if (fboundp 'dired-simple-subdir-alist)
+X        ;; will work even with nested dired format (dired-nstd.el,v 1.15
+X        ;; and later)
+X        (dired-simple-subdir-alist)
+X      ;; else we have an ancient tree dired (or classic dired, where
+X      ;; this does no harm) 
+X      (set (make-local-variable 'dired-subdir-alist)
+X           (list (cons default-directory (point-min-marker)))))))
+X
+X(defun archie-get-user-prefix (host)
+X  "Return a suitable string to affix to the archie filename for this HOST."
+X  (if (not (fboundp 'ange-ftp-get-user)) (load "ange-ftp"))
+X  (let ((prefix (concat " /" archie-anonymous-ftp-username "@")))
+X    (if (or (not ange-ftp-default-user)
+X            (stringp ange-ftp-default-user))
+X        (let ((user (ange-ftp-get-user host)))
+X          (if (or (string-equal user "anonymous")
+X                  (string-equal user "ftp"))
+X              (setq prefix " /"))))
+X    prefix))
+X
+X(defun archie-dired-mode ()
+X  "Mode for handling archie output as a dired buffer.  Uses your own
+Xdired mode, as customized by any hooks.  Also runs your own
+Xarchie-dired-mode-hook, if any, and uses this modified keymap:
+X\\{archie-dired-mode-map}."
+X  (if (not (fboundp 'dired-mode)) (load "dired"))
+X  (dired-mode (concat "archie " (buffer-name)))
+X  (setq default-directory "/usr/tmp/")
+X  (if archie-dired-mode-map
+X      nil
+X    (setq archie-dired-mode-map
+X          (copy-keymap (current-local-map)))
+X    (mapcar
+X     (function (lambda (fn)
+X                 (substitute-key-definition fn nil archie-dired-mode-map)))
+X     archie-dired-unusable-functions)
+X    (substitute-key-definition 'revert-buffer
+X                               'archie-modify-query archie-dired-mode-map)
+X    (define-key archie-dired-mode-map "s" 'archie-change-server))
+X  (use-local-map archie-dired-mode-map)
+X  (setq major-mode 'archie-dired-mode)
+X  (setq mode-name "Archie Dired")
+X  (setq mode-line-buffer-indication '("Archie Dired: %17b"))
+X  (run-hooks 'archie-dired-mode-hook))
+X
+X(defun archie-get-filename ()
+X    (beginning-of-line)
+X    (if (looking-at archie-l-output)
+X        (concat "/" archie-anonymous-ftp-username "@"
+X                (buffer-substring (match-beginning 1) (match-end 1))
+X                ":"
+X                (buffer-substring (match-beginning 2) (match-end 2)))
+X      (error "Not archie -l output")))
+X
+X(defun archie-next-line (arg)
+X  (interactive "p")
+X  (next-line arg)
+X  (if (looking-at archie-l-output)
+X      (goto-char (match-beginning 1))))
+X
+X(defun archie-previous-line (arg)
+X  (interactive "p")
+X  (previous-line arg)
+X  (if (looking-at archie-l-output)
+X      (goto-char (match-beginning 1))))
+X
+X(defun archie-find-file ()
+X  "Find the file mentioned on the current line of archie -l output.
+XRuns dired if the file is a directory and find-file-run-dired is
+Xnon-nil."
+X  (interactive)
+X  (find-file (archie-get-filename)))
+X
+X(defun archie-view-file ()
+X  "View the file mentioned on the current line of archie -l output."
+X  (interactive)
+X  (view-file (archie-get-filename)))
+X
+X(defun archie-copy ()
+X  "Copy the file mentioned on the current line of archie -l output.
+X   Prompts with the value implied by archie-download-directory
+X   as the default directory in which to copy. The file-name part can be
+X   empty, in which case the original name is used."
+X  (interactive)
+X  (let* ((from (archie-get-filename))
+X         (from-nondir (file-name-nondirectory from))
+X         (to nil))
+X    (if (string-equal "" from-nondir)
+X        (error "%s is a directory" from))
+X    (setq to (read-file-name
+X              (format "Copy %s to: " from-nondir)
+X              (or archie-download-directory "/usr/tmp")))
+X    (if (file-directory-p to)
+X        (setq to (concat (file-name-as-directory to) from-nondir)))
+X    (copy-file from to 1)))
+X
+X(defun archie-dired ()
+X  "Run dired on the file or directory mentioned on the current line
+X   of archie -l output."
+X  (interactive)
+X  (dired (file-name-directory (archie-get-filename))))
+X
+X(defun archie-get-query-args (type-defl string-defl)
+X  "Queries user for search type (default: TYPE-DEFL) and string
+X (default: STRING-DEFL).  Use to prepare args for (interactive)."
+X  (let* ((tmp-type (or (if (or current-prefix-arg (null archie-search-type))
+X                           (completing-read
+X                            "Search type: "
+X                            (archie-search-type-alist)
+X                            nil
+X                            t
+X                            type-defl))
+X                       archie-search-type))
+X         (tmp-string (read-string
+X                      (concat "Ask Archie for " tmp-type  " match for: ")
+X                      string-defl)))
+X    (if archie-search-type-sticky
+X        (setq archie-search-type tmp-type))
+X    (if (and current-prefix-arg (<= 16 (car current-prefix-arg)))
+X        (let (tstr)
+X          (setq tstr (read-from-minibuffer "Reset archie-search-hits to: "))
+X          (while (>= 0 (string-to-int tstr))
+X            (setq tstr
+X                  (read-from-minibuffer
+X                   "Must be a number greater than zero.  Reset archie-search-hits to: ")))
+X          (setq archie-search-hits tstr)))
+X    (list tmp-type tmp-string)))
+X
+X(defun archie-modify-query (type string)
+X  "Re-do the last archie search, with modification of the string
+Xand/or search type."
+X  (interactive (archie-get-query-args archie-last-type archie-last-query))
+X  (archie type string))
+X
+X(defun archie-server ()
+X  "Return current server, or prompt for new one."
+X  (interactive)
+X  (if archie-server
+X      archie-server
+X    (call-interactively 'archie-change-server)))
+X
+X(defun archie-change-server (new-server)
+X  "Change the current archie server to be NEW-SERVER."
+X  (interactive (list
+X                (completing-read
+X                 (format "Change Archie server (current: %s): " archie-server)
+X                 archie-server-list
+X                 nil
+X                 t)))
+X  (setq archie-server new-server))
+X
+X(defun archie-mode ()
+X  "Major mode for interacting with the archie program.
+XType: \\[archie-find-file]  to find the file on the current line,
+Xor:  \\[archie-copy] to copy it
+Xor:  \\[archie-dired] to run dired.
+Xor:  \\[convert-archie-to-dired] to convert the buffer to dired.
+X
+XTo redo the last search with modification of the string and/or
+Xswitches, type: \\[archie-modify-query].
+X
+XIf archie-download-directory is set to non-nil then its value is used
+Xas the default directory while prompting for the target file by the
+Xarchie-copy command; otherwise, /usr/tmp.
+X
+X\\{archie-mode-map}
+X
+XRuns archie-mode-hook, if defined."
+X  (kill-all-local-variables)
+X  (setq mode-name "Archie")
+X  (setq major-mode 'archie-mode)
+X  (use-local-map archie-mode-map)
+X  (setq mode-line-process '(": %s"))
+X  (run-hooks 'archie-mode-hook))
+X
+X(run-hooks 'archie-load-hook)
+X(provide 'archie)
+END_OF_FILE
+  if test 24212 -ne `wc -c <'archie.el'`; then
+    echo shar: \"'archie.el'\" unpacked with wrong size!
+  fi
+  # end of 'archie.el'
+fi
+if test -f 'archie.lnk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.lnk'\"
+else
+  echo shar: Extracting \"'archie.lnk'\" \(237 characters\)
+  sed "s/^X//" >'archie.lnk' <<'END_OF_FILE'
+Xaquery.lo archie.lo atalloc.lo dirsend.lo+
+XGet_pauth.lo get_vdir.lo perrmesg.lo procquery.lo+
+Xptalloc.lo regex.lo stcopy.lo support.lo+
+Xvlalloc.lo vl_comp.lo
+Xarchie.unp
+Xarchie/map/noi/co/li/stack:45000
+Xlsocket lnetlib lconfig lpc llibce
+END_OF_FILE
+  if test 237 -ne `wc -c <'archie.lnk'`; then
+    echo shar: \"'archie.lnk'\" unpacked with wrong size!
+  fi
+  # end of 'archie.lnk'
+fi
+if test -f 'getopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.c'\"
+else
+  echo shar: Extracting \"'getopt.c'\" \(19101 characters\)
+  sed "s/^X//" >'getopt.c' <<'END_OF_FILE'
+X/* Getopt for GNU.
+X   NOTE: getopt is now part of the C library, so if you don't know what
+X   "Keep this file name-space clean" means, talk to roland@gnu.ai.mit.edu
+X   before changing it!
+X
+X   Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify it
+X   under the terms of the GNU Library General Public License as published
+X   by the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU Library General Public
+X   License along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X/* AIX requires this to be the first thing in the file. */
+X#ifdef __GNUC__
+X#define alloca __builtin_alloca
+X#else /* not __GNUC__ */
+X#if defined (HAVE_ALLOCA_H) || (defined(sparc) && (defined(sun) || (!defined(USG) && !defined(SVR4) && !defined(__svr4__))))
+X#include <alloca.h>
+X#else
+X#ifdef _AIX
+X #pragma alloca
+X#else
+Xchar *alloca ();
+X#endif
+X#endif /* alloca.h */
+X#endif /* not __GNUC__ */
+X
+X#include <stdio.h>
+X
+X/* This needs to come after some library #include
+X   to get __GNU_LIBRARY__ defined.  */
+X#ifdef	__GNU_LIBRARY__
+X#undef	alloca
+X#include <stdlib.h>
+X#include <string.h>
+X#else	/* Not GNU C library.  */
+X#define	__alloca	alloca
+X#endif	/* GNU C library.  */
+X
+X
+X#ifndef __STDC__
+X#define const
+X#endif
+X
+X/* If GETOPT_COMPAT is defined, `+' as well as `--' can introduce a
+X   long-named option.  Because this is not POSIX.2 compliant, it is
+X   being phased out. */
+X#undef GETOPT_COMPAT
+X
+X/* This version of `getopt' appears to the caller like standard Unix `getopt'
+X   but it behaves differently for the user, since it allows the user
+X   to intersperse the options with the other arguments.
+X
+X   As `getopt' works, it permutes the elements of ARGV so that,
+X   when it is done, all the options precede everything else.  Thus
+X   all application programs are extended to handle flexible argument order.
+X
+X   Setting the environment variable POSIXLY_CORRECT disables permutation.
+X   Then the behavior is completely standard.
+X
+X   GNU application programs can use a third alternative mode in which
+X   they can distinguish the relative order of options and other arguments.  */
+X
+X#include "getopt.h"
+X
+X/* For communication from `getopt' to the caller.
+X   When `getopt' finds an option that takes an argument,
+X   the argument value is returned here.
+X   Also, when `ordering' is RETURN_IN_ORDER,
+X   each non-option ARGV-element is returned here.  */
+X
+Xchar *optarg = 0;
+X
+X/* Index in ARGV of the next element to be scanned.
+X   This is used for communication to and from the caller
+X   and for communication between successive calls to `getopt'.
+X
+X   On entry to `getopt', zero means this is the first call; initialize.
+X
+X   When `getopt' returns EOF, this is the index of the first of the
+X   non-option elements that the caller should itself scan.
+X
+X   Otherwise, `optind' communicates from one call to the next
+X   how much of ARGV has been scanned so far.  */
+X
+Xint optind = 0;
+X
+X/* The next char to be scanned in the option-element
+X   in which the last option character we returned was found.
+X   This allows us to pick up the scan where we left off.
+X
+X   If this is zero, or a null string, it means resume the scan
+X   by advancing to the next ARGV-element.  */
+X
+Xstatic char *nextchar;
+X
+X/* Callers store zero here to inhibit the error message
+X   for unrecognized options.  */
+X
+Xint opterr = 1;
+X
+X/* Describe how to deal with options that follow non-option ARGV-elements.
+X
+X   If the caller did not specify anything,
+X   the default is REQUIRE_ORDER if the environment variable
+X   POSIXLY_CORRECT is defined, PERMUTE otherwise.
+X
+X   REQUIRE_ORDER means don't recognize them as options;
+X   stop option processing when the first non-option is seen.
+X   This is what Unix does.
+X   This mode of operation is selected by either setting the environment
+X   variable POSIXLY_CORRECT, or using `+' as the first character
+X   of the list of option characters.
+X
+X   PERMUTE is the default.  We permute the contents of ARGV as we scan,
+X   so that eventually all the non-options are at the end.  This allows options
+X   to be given in any order, even with programs that were not written to
+X   expect this.
+X
+X   RETURN_IN_ORDER is an option available to programs that were written
+X   to expect options and other ARGV-elements in any order and that care about
+X   the ordering of the two.  We describe each non-option ARGV-element
+X   as if it were the argument of an option with character code 1.
+X   Using `-' as the first character of the list of option characters
+X   selects this mode of operation.
+X
+X   The special argument `--' forces an end of option-scanning regardless
+X   of the value of `ordering'.  In the case of RETURN_IN_ORDER, only
+X   `--' can cause `getopt' to return EOF with `optind' != ARGC.  */
+X
+Xstatic enum
+X{
+X  REQUIRE_ORDER, PERMUTE, RETURN_IN_ORDER
+X} ordering;
+X
+X#ifdef	__GNU_LIBRARY__
+X#include <string.h>
+X#define	my_index	strchr
+X#define	my_bcopy(src, dst, n)	memcpy ((dst), (src), (n))
+X#else
+X
+X/* Avoid depending on library functions or files
+X   whose names are inconsistent.  */
+X
+Xchar *getenv ();
+X
+Xstatic char *
+Xmy_index (string, chr)
+X     const char *string;
+X     int chr;
+X{
+X  while (*string)
+X    {
+X      if (*string == chr)
+X	return (char *) string;
+X      string++;
+X    }
+X  return 0;
+X}
+X
+Xstatic void
+Xmy_bcopy (from, to, size)
+X     char *from, *to;
+X     int size;
+X{
+X  int i;
+X  for (i = 0; i < size; i++)
+X    to[i] = from[i];
+X}
+X#endif				/* GNU C library.  */
+X
+X/* Handle permutation of arguments.  */
+X
+X/* Describe the part of ARGV that contains non-options that have
+X   been skipped.  `first_nonopt' is the index in ARGV of the first of them;
+X   `last_nonopt' is the index after the last of them.  */
+X
+Xstatic int first_nonopt;
+Xstatic int last_nonopt;
+X
+X/* Exchange two adjacent subsequences of ARGV.
+X   One subsequence is elements [first_nonopt,last_nonopt)
+X   which contains all the non-options that have been skipped so far.
+X   The other is elements [last_nonopt,optind), which contains all
+X   the options processed since those non-options were skipped.
+X
+X   `first_nonopt' and `last_nonopt' are relocated so that they describe
+X   the new indices of the non-options in ARGV after they are moved.  */
+X
+Xstatic void
+Xexchange (argv)
+X     char **argv;
+X{
+X  int nonopts_size = (last_nonopt - first_nonopt) * sizeof (char *);
+X#ifdef ARCHIE_HOST
+X  char **temp = (char **) malloc (nonopts_size);
+X#else
+X  char **temp = (char **) __alloca (nonopts_size);
+X#endif
+X
+X  /* Interchange the two blocks of data in ARGV.  */
+X
+X  my_bcopy ((char *)&argv[first_nonopt], (char *)temp,
+X	    nonopts_size);
+X  my_bcopy ((char *)&argv[last_nonopt], (char *)&argv[first_nonopt],
+X	    (optind - last_nonopt) * sizeof (char *));
+X  my_bcopy ((char *)temp, (char *)&argv[first_nonopt + optind - last_nonopt],
+X            nonopts_size);
+X
+X  /* Update records for the slots the non-options now occupy.  */
+X
+X  first_nonopt += (optind - last_nonopt);
+X  last_nonopt = optind;
+X}
+X
+X/* Scan elements of ARGV (whose length is ARGC) for option characters
+X   given in OPTSTRING.
+X
+X   If an element of ARGV starts with '-', and is not exactly "-" or "--",
+X   then it is an option element.  The characters of this element
+X   (aside from the initial '-') are option characters.  If `getopt'
+X   is called repeatedly, it returns successively each of the option characters
+X   from each of the option elements.
+X
+X   If `getopt' finds another option character, it returns that character,
+X   updating `optind' and `nextchar' so that the next call to `getopt' can
+X   resume the scan with the following option character or ARGV-element.
+X
+X   If there are no more option characters, `getopt' returns `EOF'.
+X   Then `optind' is the index in ARGV of the first ARGV-element
+X   that is not an option.  (The ARGV-elements have been permuted
+X   so that those that are not options now come last.)
+X
+X   OPTSTRING is a string containing the legitimate option characters.
+X   If an option character is seen that is not listed in OPTSTRING,
+X   return '?' after printing an error message.  If you set `opterr' to
+X   zero, the error message is suppressed but we still return '?'.
+X
+X   If a char in OPTSTRING is followed by a colon, that means it wants an arg,
+X   so the following text in the same ARGV-element, or the text of the following
+X   ARGV-element, is returned in `optarg'.  Two colons mean an option that
+X   wants an optional arg; if there is text in the current ARGV-element,
+X   it is returned in `optarg', otherwise `optarg' is set to zero.
+X
+X   If OPTSTRING starts with `-' or `+', it requests different methods of
+X   handling the non-option ARGV-elements.
+X   See the comments about RETURN_IN_ORDER and REQUIRE_ORDER, above.
+X
+X   Long-named options begin with `--' instead of `-'.
+X   Their names may be abbreviated as long as the abbreviation is unique
+X   or is an exact match for some defined option.  If they have an
+X   argument, it follows the option name in the same ARGV-element, separated
+X   from the option name by a `=', or else the in next ARGV-element.
+X   When `getopt' finds a long-named option, it returns 0 if that option's
+X   `flag' field is nonzero, the value of the option's `val' field
+X   if the `flag' field is zero.
+X
+X   The elements of ARGV aren't really const, because we permute them.
+X   But we pretend they're const in the prototype to be compatible
+X   with other systems.
+X
+X   LONGOPTS is a vector of `struct option' terminated by an
+X   element containing a name which is zero.
+X
+X   LONGIND returns the index in LONGOPT of the long-named option found.
+X   It is only valid when a long-named option has been found by the most
+X   recent call.
+X
+X   If LONG_ONLY is nonzero, '-' as well as '--' can introduce
+X   long-named options.  */
+X
+Xint
+X_getopt_internal (argc, argv, optstring, longopts, longind, long_only)
+X     int argc;
+X     char *const *argv;
+X     const char *optstring;
+X     const struct option *longopts;
+X     int *longind;
+X     int long_only;
+X{
+X  int option_index;
+X
+X  optarg = 0;
+X
+X  /* Initialize the internal data when the first call is made.
+X     Start processing options with ARGV-element 1 (since ARGV-element 0
+X     is the program name); the sequence of previously skipped
+X     non-option ARGV-elements is empty.  */
+X
+X  if (optind == 0)
+X    {
+X      first_nonopt = last_nonopt = optind = 1;
+X
+X      nextchar = NULL;
+X
+X      /* Determine how to handle the ordering of options and nonoptions.  */
+X
+X      if (optstring[0] == '-')
+X	{
+X	  ordering = RETURN_IN_ORDER;
+X	  ++optstring;
+X	}
+X      else if (optstring[0] == '+')
+X	{
+X	  ordering = REQUIRE_ORDER;
+X	  ++optstring;
+X	}
+X      else if (getenv ("POSIXLY_CORRECT") != NULL)
+X	ordering = REQUIRE_ORDER;
+X      else
+X	ordering = PERMUTE;
+X    }
+X
+X  if (nextchar == NULL || *nextchar == '\0')
+X    {
+X      if (ordering == PERMUTE)
+X	{
+X	  /* If we have just processed some options following some non-options,
+X	     exchange them so that the options come first.  */
+X
+X	  if (first_nonopt != last_nonopt && last_nonopt != optind)
+X	    exchange ((char **) argv);
+X	  else if (last_nonopt != optind)
+X	    first_nonopt = optind;
+X
+X	  /* Now skip any additional non-options
+X	     and extend the range of non-options previously skipped.  */
+X
+X	  while (optind < argc
+X		 && (argv[optind][0] != '-' || argv[optind][1] == '\0')
+X#ifdef GETOPT_COMPAT
+X		 && (longopts == NULL
+X		     || argv[optind][0] != '+' || argv[optind][1] == '\0')
+X#endif				/* GETOPT_COMPAT */
+X		 )
+X	    optind++;
+X	  last_nonopt = optind;
+X	}
+X
+X      /* Special ARGV-element `--' means premature end of options.
+X	 Skip it like a null option,
+X	 then exchange with previous non-options as if it were an option,
+X	 then skip everything else like a non-option.  */
+X
+X      if (optind != argc && !strcmp (argv[optind], "--"))
+X	{
+X	  optind++;
+X
+X	  if (first_nonopt != last_nonopt && last_nonopt != optind)
+X	    exchange ((char **) argv);
+X	  else if (first_nonopt == last_nonopt)
+X	    first_nonopt = optind;
+X	  last_nonopt = argc;
+X
+X	  optind = argc;
+X	}
+X
+X      /* If we have done all the ARGV-elements, stop the scan
+X	 and back over any non-options that we skipped and permuted.  */
+X
+X      if (optind == argc)
+X	{
+X	  /* Set the next-arg-index to point at the non-options
+X	     that we previously skipped, so the caller will digest them.  */
+X	  if (first_nonopt != last_nonopt)
+X	    optind = first_nonopt;
+X	  return EOF;
+X	}
+X
+X      /* If we have come to a non-option and did not permute it,
+X	 either stop the scan or describe it to the caller and pass it by.  */
+X
+X      if ((argv[optind][0] != '-' || argv[optind][1] == '\0')
+X#ifdef GETOPT_COMPAT
+X	  && (longopts == NULL
+X	      || argv[optind][0] != '+' || argv[optind][1] == '\0')
+X#endif				/* GETOPT_COMPAT */
+X	  )
+X	{
+X	  if (ordering == REQUIRE_ORDER)
+X	    return EOF;
+X	  optarg = argv[optind++];
+X	  return 1;
+X	}
+X
+X      /* We have found another option-ARGV-element.
+X	 Start decoding its characters.  */
+X
+X      nextchar = (argv[optind] + 1
+X		  + (longopts != NULL && argv[optind][1] == '-'));
+X    }
+X
+X  if (longopts != NULL
+X      && ((argv[optind][0] == '-'
+X	   && (argv[optind][1] == '-' || long_only))
+X#ifdef GETOPT_COMPAT
+X	  || argv[optind][0] == '+'
+X#endif				/* GETOPT_COMPAT */
+X	  ))
+X    {
+X      const struct option *p;
+X      char *s = nextchar;
+X      int exact = 0;
+X      int ambig = 0;
+X      const struct option *pfound = NULL;
+X      int indfound;
+X
+X      while (*s && *s != '=')
+X	s++;
+X
+X      /* Test all options for either exact match or abbreviated matches.  */
+X      for (p = longopts, option_index = 0; p->name;
+X	   p++, option_index++)
+X	if (!strncmp (p->name, nextchar, s - nextchar))
+X	  {
+X	    if (s - nextchar == strlen (p->name))
+X	      {
+X		/* Exact match found.  */
+X		pfound = p;
+X		indfound = option_index;
+X		exact = 1;
+X		break;
+X	      }
+X	    else if (pfound == NULL)
+X	      {
+X		/* First nonexact match found.  */
+X		pfound = p;
+X		indfound = option_index;
+X	      }
+X	    else
+X	      /* Second nonexact match found.  */
+X	      ambig = 1;
+X	  }
+X
+X      if (ambig && !exact)
+X	{
+X	  if (opterr)
+X	    fprintf (stderr, "%s: option `%s' is ambiguous\n",
+X		     argv[0], argv[optind]);
+X	  nextchar += strlen (nextchar);
+X	  optind++;
+X	  return '?';
+X	}
+X
+X      if (pfound != NULL)
+X	{
+X	  option_index = indfound;
+X	  optind++;
+X	  if (*s)
+X	    {
+X	      /* Don't test has_arg with >, because some C compilers don't
+X		 allow it to be used on enums. */
+X	      if (pfound->has_arg)
+X		optarg = s + 1;
+X	      else
+X		{
+X		  if (opterr)
+X		    {
+X		      if (argv[optind - 1][1] == '-')
+X			/* --option */
+X			fprintf (stderr,
+X				 "%s: option `--%s' doesn't allow an argument\n",
+X				 argv[0], pfound->name);
+X		      else
+X			/* +option or -option */
+X			fprintf (stderr,
+X			     "%s: option `%c%s' doesn't allow an argument\n",
+X			     argv[0], argv[optind - 1][0], pfound->name);
+X		    }
+X		  nextchar += strlen (nextchar);
+X		  return '?';
+X		}
+X	    }
+X	  else if (pfound->has_arg == 1)
+X	    {
+X	      if (optind < argc)
+X		optarg = argv[optind++];
+X	      else
+X		{
+X		  if (opterr)
+X		    fprintf (stderr, "%s: option `%s' requires an argument\n",
+X			     argv[0], argv[optind - 1]);
+X		  nextchar += strlen (nextchar);
+X		  return '?';
+X		}
+X	    }
+X	  nextchar += strlen (nextchar);
+X	  if (longind != NULL)
+X	    *longind = option_index;
+X	  if (pfound->flag)
+X	    {
+X	      *(pfound->flag) = pfound->val;
+X	      return 0;
+X	    }
+X	  return pfound->val;
+X	}
+X      /* Can't find it as a long option.  If this is not getopt_long_only,
+X	 or the option starts with '--' or is not a valid short
+X	 option, then it's an error.
+X	 Otherwise interpret it as a short option. */
+X      if (!long_only || argv[optind][1] == '-'
+X#ifdef GETOPT_COMPAT
+X	  || argv[optind][0] == '+'
+X#endif				/* GETOPT_COMPAT */
+X	  || my_index (optstring, *nextchar) == NULL)
+X	{
+X	  if (opterr)
+X	    {
+X	      if (argv[optind][1] == '-')
+X		/* --option */
+X		fprintf (stderr, "%s: unrecognized option `--%s'\n",
+X			 argv[0], nextchar);
+X	      else
+X		/* +option or -option */
+X		fprintf (stderr, "%s: unrecognized option `%c%s'\n",
+X			 argv[0], argv[optind][0], nextchar);
+X	    }
+X	  nextchar = (char *) "";
+X	  optind++;
+X	  return '?';
+X	}
+X    }
+X
+X  /* Look at and handle the next option-character.  */
+X
+X  {
+X    char c = *nextchar++;
+X    char *temp = my_index (optstring, c);
+X
+X    /* Increment `optind' when we start to process its last character.  */
+X    if (*nextchar == '\0')
+X      ++optind;
+X
+X    if (temp == NULL || c == ':')
+X      {
+X	if (opterr)
+X	  {
+X	    if (c < 040 || c >= 0177)
+X	      fprintf (stderr, "%s: unrecognized option, character code 0%o\n",
+X		       argv[0], c);
+X	    else
+X	      fprintf (stderr, "%s: unrecognized option `-%c'\n", argv[0], c);
+X	  }
+X	return '?';
+X      }
+X    if (temp[1] == ':')
+X      {
+X	if (temp[2] == ':')
+X	  {
+X	    /* This is an option that accepts an argument optionally.  */
+X	    if (*nextchar != '\0')
+X	      {
+X		optarg = nextchar;
+X		optind++;
+X	      }
+X	    else
+X	      optarg = 0;
+X	    nextchar = NULL;
+X	  }
+X	else
+X	  {
+X	    /* This is an option that requires an argument.  */
+X	    if (*nextchar != '\0')
+X	      {
+X		optarg = nextchar;
+X		/* If we end this ARGV-element by taking the rest as an arg,
+X		   we must advance to the next element now.  */
+X		optind++;
+X	      }
+X	    else if (optind == argc)
+X	      {
+X		if (opterr)
+X		  fprintf (stderr, "%s: option `-%c' requires an argument\n",
+X			   argv[0], c);
+X		c = '?';
+X	      }
+X	    else
+X	      /* We already incremented `optind' once;
+X		 increment it again when taking next ARGV-elt as argument.  */
+X	      optarg = argv[optind++];
+X	    nextchar = NULL;
+X	  }
+X      }
+X    return c;
+X  }
+X}
+X
+Xint
+Xgetopt (argc, argv, optstring)
+X     int argc;
+X     char *const *argv;
+X     const char *optstring;
+X{
+X  return _getopt_internal (argc, argv, optstring,
+X			   (const struct option *) 0,
+X			   (int *) 0,
+X			   0);
+X}
+X
+X#ifdef TEST
+X
+X/* Compile with -DTEST to make an executable for use in testing
+X   the above definition of `getopt'.  */
+X
+Xint
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  int c;
+X  int digit_optind = 0;
+X
+X  while (1)
+X    {
+X      int this_option_optind = optind ? optind : 1;
+X
+X      c = getopt (argc, argv, "abc:d:0123456789");
+X      if (c == EOF)
+X	break;
+X
+X      switch (c)
+X	{
+X	case '0':
+X	case '1':
+X	case '2':
+X	case '3':
+X	case '4':
+X	case '5':
+X	case '6':
+X	case '7':
+X	case '8':
+X	case '9':
+X	  if (digit_optind != 0 && digit_optind != this_option_optind)
+X	    printf ("digits occur in two different argv-elements.\n");
+X	  digit_optind = this_option_optind;
+X	  printf ("option %c\n", c);
+X	  break;
+X
+X	case 'a':
+X	  printf ("option a\n");
+X	  break;
+X
+X	case 'b':
+X	  printf ("option b\n");
+X	  break;
+X
+X	case 'c':
+X	  printf ("option c with value `%s'\n", optarg);
+X	  break;
+X
+X	case '?':
+X	  break;
+X
+X	default:
+X	  printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X  if (optind < argc)
+X    {
+X      printf ("non-option ARGV-elements: ");
+X      while (optind < argc)
+X	printf ("%s ", argv[optind++]);
+X      printf ("\n");
+X    }
+X
+X  exit (0);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 19101 -ne `wc -c <'getopt.c'`; then
+    echo shar: \"'getopt.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.c'
+fi
+echo shar: End of archive 3 \(of 7\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2102 @@
+Newsgroups: comp.sources.misc
+From: joe@montebello.soest.hawaii.edu (Joe Dellinger)
+Subject: v41i043:  morse - morse-code practice utility, Part01/02
+Message-ID: <csm-v41i043=morse.150009@sparky.Sterling.COM>
+X-Md4-Signature: 1b5b51f8613d9d663da06e521b3b378a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 21:00:32 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: joe@montebello.soest.hawaii.edu (Joe Dellinger)
+Posting-number: Volume 41, Issue 43
+Archive-name: morse/part01
+Environment: Sun, HP9000s700, X11
+
+Morse is a UNIX-based morse-code practice utility.
+
+Currently supported devices:
+   Sun:   Sun workstation with audio hardware.
+   HP:    HP9000s700 with audio hardware.
+   X11:   The X11 window system.
+
+Joe
+----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README beepSun.c morse.c
+# Wrapped by kent@sparky on Sun Dec 19 14:59:02 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(650 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XA generic morse-code practice utility for Unix systems.
+X
+XCurrently supported devices:
+X   Sun:   Sun workstation with audio hardware.
+X   HP:    HP9000s700 with audio hardware.
+X   X11:   The X11 window system. (Warning: not all X11 implementations handle
+X          duration and frequency of beeps properly!)
+X
+XAdding a new device is as simple as creating a new implementation of the
+Xbeep.h interface. See beep*.c for examples. Please send any additions
+Xto the authors!
+X
+XThe program "QSO" by Paul J. Drongowski is also included.
+X
+X- Joe Dellinger, Hawaii Institute of Geophysics, University of Hawaii at Manoa
+X  submitted to comp.sources.misc Dec 15 1993
+END_OF_FILE
+  if test 650 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'beepSun.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'beepSun.c'\"
+else
+  echo shar: Extracting \"'beepSun.c'\" \(4275 characters\)
+  sed "s/^X//" >'beepSun.c' <<'END_OF_FILE'
+X/*
+X * If the audio library or audio include files are missing, you need
+X * to get /usr/demo/SOUND off the Sun OS tapes or CD.
+X *
+X * If FULLVOLUME is defined this routine will turn your audio device up to
+X * full volume; it will not attempt to reset the current speaker / jack choice.
+X *
+X * The sun speaker has a residual "click" each time it switches from
+X * silence to tone that I am unable to rid it of. The loudness of the "click"
+X * varies from one sun model to another.
+X */
+X
+X/* beepSun.c -- seligman 6/92 */
+X
+X/*
+X-- Implementation of beep.h for Sun.
+X-- Rick to Joe to Scott to Joe.
+X*/
+X
+X/* Date: Fri, 2 Aug 91 08:26:08 PDT */
+X/* From: rick@st.unocal.com (Richard Ottolini) */
+X
+X/* Revised: Joe Dellinger */
+X/* Sat Nov 28 02:30:32 HST 1992 */
+X
+X#include "beep.h"
+X#include <sun/audioio.h>
+X#include </usr/demo/SOUND/multimedia/libaudio.h>
+X#include </usr/demo/SOUND/multimedia/ulaw2linear.h>
+X#include <stropts.h>
+X#include <math.h>
+X#include <fcntl.h>
+X
+X
+X#define RATE	(8000)	/* 8 K samples = 1 second */
+X#define RAMP	(RATE * 10 / 1000)	/* 10 millisecond ramp */
+X#define MAXTIME	(2 * RATE)	/* 2 seconds max tone time */
+X
+Xstatic int      audio;
+Xstatic audio_info_t audio_stat;
+X
+Xint
+XBeepInit ()
+X{
+X    audio = open ("/dev/audio", O_WRONLY);
+X
+X    if (audio < 0)
+X	/* Uh oh! */
+X	return 1;
+X    else
+X    {
+X#ifdef FULLVOLUME
+X	/*
+X	 * Turn the speaker (or headphone, whichever the user has it set to)
+X	 * up to full volume.
+X	 */
+X	ioctl (audio, AUDIO_GETINFO, &audio_stat);
+X	audio_stat.play.gain = AUDIO_MAX_GAIN;
+X	ioctl (audio, AUDIO_SETINFO, &audio_stat);
+X#endif
+X
+X	return 0;
+X    }
+X}
+X
+X
+Xint
+XBeep (time, volume, pitch)
+X    int             time, volume, pitch;
+X{
+Xstatic unsigned char silence[MAXTIME];
+Xstatic unsigned char soundbuf[MAXTIME - RAMP];
+Xstatic unsigned char ramp_down[RAMP];
+Xstatic int      last_pitch = -1, last_n = -1, last_volume = -1;
+Xstatic int      first_time = 1;
+X
+Xint             i, n, first_len, down_len, cycle;
+Xdouble          dt;
+X
+X/*
+X * Initialize the sound of silence
+X */
+X    if (first_time == 1)
+X    {
+X	for (i = 0; i < MAXTIME; i++)
+X	    silence[i] = (unsigned char) 0;
+X	first_time = 0;
+X    }
+X
+X
+X/*
+X * Finagle the number of samples
+X */
+X    n = (time / 1000.) * RATE;	/* Number samples in tone time */
+X    n = n < MAXTIME ? n : MAXTIME;	/* clip to buffer size */
+X    n = n < 2 * RAMP ? 2 * RAMP : n;	/* leave room for ramps */
+X
+X/*
+X * Catch stupidity
+X */
+X    if (pitch <= 0)
+X	volume = 0;
+X
+X
+X    if (volume <= 0)
+X    {
+X	write (audio, silence, n);
+X    }
+X    else
+X    {
+X/*
+X * clip to Nyquist
+X * (Of course this means that if you ask for too high a frequency you
+X * just get silence, since you sample all the zero-crossings of the
+X * sine wave.)
+X */
+X	pitch = pitch < RATE / 2 ? pitch : RATE / 2;
+X	cycle = ((RATE + 1.e-6) / pitch);	/* samples per cycle */
+X
+X	if (cycle > MAXTIME / 2)
+X	    cycle = MAXTIME / 2;
+X
+X	/* round down length of (rampup + mesa top) to integral cycle */
+X	first_len = ((n - RAMP) / cycle) * cycle;
+X	if (first_len < cycle)
+X	    first_len = cycle;
+X	if (first_len > MAXTIME - RAMP)
+X	    first_len = MAXTIME - RAMP;
+X
+X	/* round down length of (rampdown) to integral cycle */
+X	down_len = ((RAMP) / cycle) * cycle;
+X	if (down_len < cycle)
+X	    down_len = cycle;
+X	if (down_len > RAMP)
+X	    down_len = RAMP;
+X
+X/*
+X * Can we just reuse what we had before?
+X */
+X	if (pitch != last_pitch || n > last_n || volume != last_volume)
+X	{
+X	    last_pitch = pitch;
+X	    last_n = n;
+X	    last_volume = volume;
+X
+X	    dt = 2. * M_PI / cycle;	/* sine scale factor */
+X
+X/* Ramp up; begin with silence */
+X
+X	    for (i = 0; i < RAMP; i++)
+X	    {
+X		soundbuf[i] = audio_l2u (audio_d2l (
+X			 ((float) i / RAMP) * (volume / 100.) * sin (i * dt)
+X						    ));
+X	    }
+X
+X/* Mesa top */
+X	    for (i = RAMP; i < first_len; i++)
+X	    {
+X		soundbuf[i] = audio_l2u (audio_d2l (
+X					 1. * (volume / 100.) * sin (i * dt)
+X						    ));
+X	    }
+X
+X/* Ramp down; end with silence */
+X	    for (i = 0; i < down_len; i++)
+X	    {
+X		ramp_down[i] = audio_l2u (audio_d2l (
+X						     (1. - (float) (i + 1) / down_len) * (volume / 100.) * sin (i * dt)
+X						     ));
+X	    }
+X	}
+X
+X	write (audio, soundbuf, first_len);
+X	write (audio, ramp_down, down_len);
+X    }
+X
+X    return 0;
+X}
+X
+X
+Xint
+XBeepWait ()
+X{
+X    ioctl (audio, AUDIO_DRAIN);
+X    return 0;
+X}
+X
+X
+Xint
+XBeepCleanup ()
+X{
+X    return 0;
+X}
+X
+X
+Xint
+XBeepResume ()
+X{
+X    return 0;
+X}
+END_OF_FILE
+  if test 4275 -ne `wc -c <'beepSun.c'`; then
+    echo shar: \"'beepSun.c'\" unpacked with wrong size!
+  fi
+  # end of 'beepSun.c'
+fi
+if test -f 'morse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'morse.c'\"
+else
+  echo shar: Extracting \"'morse.c'\" \(43964 characters\)
+  sed "s/^X//" >'morse.c' <<'END_OF_FILE'
+X/*
+X * A morse code practice utility. (Contains those characters that can appear
+X * on the FCC ham license exam.)
+X *
+X * Running "morse" without arguments or input gives self-doc.
+X *
+X * It doesn't keep PERFECT time, but it seems reasonably close
+X * for reasonable word speeds on my slow SUN IPC!
+X *
+X * Joe Dellinger
+X * Tue Aug 11 14:01:02 HST 1992
+X * University of Hawaii at Manoa
+X *
+X * Revised by Joe:
+X * Thu Nov 26 03:24:19 HST 1992
+X *
+X * Legal stuff:
+X * This code is (ridiculously) heavily modified from morse.c from the Reno UNIX
+X * distribution. I (Joe) also used slightly modified versions of a subroutine
+X * from Richard Ottolini at Unocal for Sun workstation tone generation.
+X * Scott Seligman at Stanford added support for other sorts of devices and
+X * made several other changes. John Shalamskas helped test and made comments.
+X *
+X * I don't think anybody cares if you redistribute this, modify it, etc...
+X * But don't claim you wrote it, try to sell it, or take anyone's name out
+X * of the code! If you modify it, PLEASE INDICATE WHEN, WHERE, AND HOW
+X * YOU MODIFIED IT IN THE COMMENT BELOW. Please.
+X */
+X/*
+X * Joe Dellinger, UH Manoa, joe@montebello.soest.hawaii.edu, June 1992:
+X *     inserted this sample modification log entry.
+X *
+X * Marc Unangst, N8VRH, mju@mudos.ann-arbor.mi.us, Dec 1992:
+X *     added System V support.
+X *
+X */
+X
+X/*
+X * The following stuff is here because this started life as a routine from
+X * the Reno UNIX distribution. (It's also a good boilerplate bit of legalese
+X * to have in there anyway.)
+X */
+X/*
+X * Copyright (c) 1988 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xchar            copyright[] =
+X"@(#) Copyright (c) 1988 Regents of the University of California.\n\
+X All rights reserved.\n";
+Xchar            copyleftjoe[] =
+X"@(#) Copyright (c) 1992 Joe Dellinger, University of Hawaii at Manoa.\n";
+X#endif			/* not lint */
+X
+X/*
+X *============================================================================
+X * Here starts the code!
+X *============================================================================
+X */
+X/*
+X * Useful for seeing what the interleaved reading and writing loops are
+X * really up to.
+X *
+X * #define DEBUG
+X *
+X * If you want to be overwhelmed with information about the probabilities
+X * of each letter being chosen.
+X *
+X * #define DEBUGG
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <ctype.h>
+X#include <signal.h>
+X#include "beep.h"
+X/* Define USG for termio a la System V. */
+X#ifdef __hpux
+X#define USG
+X#endif
+X/*
+X * Define the return type of a signal handler.  Defaults to void, which is
+X * what most modern systems are using these days.
+X */
+X#ifndef SIGRET
+X#define SIGRET void
+X#endif
+X
+X#define FREQUENCY	800.
+X#define FREQUENCY2	602.
+X#define VOLUME		.5
+X#define WORDS_PER_MINUTE	20.
+X#define MAX_BEHINDNESS	0
+X
+Xstatic int      whichfrequ = 0;
+Xstatic float    frequency1 = FREQUENCY;
+Xstatic float    frequency2 = FREQUENCY2;
+Xstatic float    frequency;
+Xstatic float    volume = VOLUME;
+Xstatic float    dot_time;
+Xstatic float    dash_time;
+Xstatic float    intra_char_time;
+Xstatic float    inter_char_time;
+Xstatic float    inter_word_time;
+Xstatic float    catchup_time;
+Xstatic int      showletters = 0;
+Xstatic int      showmorse = 0;
+Xstatic int      wordsbefore = 0;
+Xstatic int      wordsafter = 0;
+Xstatic int      fancyending = 1;
+Xstatic int      noticebad = 0;
+Xstatic int      testing = 0;
+Xstatic int      showtesting = 0;
+Xstatic int      dynamicspeed = 0;
+Xstatic int      charbychar = 0;
+Xstatic int      tryagaincount = 1;
+Xstatic float    words_per_minute;
+Xstatic float    fwords_per_minute;
+Xstatic int      randomletters = 0;
+X#define LETMESEE 2
+Xstatic int      typeaway = 0;
+X
+Xstatic int      totalhitcount = 0;
+Xstatic int      totalmisscount = 0;
+Xstatic int      helpmeflag = 0;
+X
+X#define MAXWORDLEN	20
+X#define TESTBUFSZ (MAXWORDLEN*10)
+Xstatic int      testpointer = -1;
+Xstatic int      testlength = 0;
+Xstatic int      behindness = 0;
+Xstatic int      max_behindness = MAX_BEHINDNESS;
+Xstatic char     teststring[TESTBUFSZ];
+Xstatic int      yourpointer = -1;
+Xstatic int      yourlength = 0;
+Xstatic char     yourstring[TESTBUFSZ];
+X
+X/*
+X * How many times can a given character not be asked before
+X * kicking up the probability of asking that one by one randomfactor unit.
+X */
+X#define RIPECOUNT	64
+X
+X#define TWOFIFTYSIX 256
+Xstatic char    *(code[TWOFIFTYSIX]);
+Xstatic int      errorlog[TWOFIFTYSIX];
+Xstatic int      randomfactor[TWOFIFTYSIX];
+Xstatic int      randomripe[TWOFIFTYSIX];
+Xextern int      testterminal ();
+Xextern int      randomletter ();
+X
+X/*
+X * Value of (Wrong - Right), which, if exceeded, will cause the program
+X * to start prompting you. Above MAX_ERROR_THRESHOLD it will never prompt.
+X * Don't let the user bank too much credit for past correct answers;
+X * limit it by min(ERROR_FLOOR, error_threshold).
+X */
+X#define MAX_ERROR_THRESHOLD		1000
+X#define ERROR_FLOOR			-3
+Xstatic int      error_threshold = MAX_ERROR_THRESHOLD;
+Xstatic int      error_floor = ERROR_FLOOR;
+X
+X/*
+X * How many characters behind before it decides you're having
+X * trouble keeping up.
+X */
+X#define BEHIND		1
+X#define WAYBEHIND	3
+X#define TOOFARBEHIND	6
+X/*
+X * If SLOWPOKE or more wpm ticks go by, then it decides you are having lots
+X * of trouble remembering this character, and need to be asked it more
+X * often.
+X */
+X#define SLOWPOKE	10
+X/* You aren't slow -- you left and came back! */
+X#define SLOWPOKEMAX	(50 * SLOWPOKE)
+X/*
+X * If FASTPOKE or less wpm ticks go by, then it decides you are good at this
+X * character, and need to be asked it less often.
+X */
+X#define FASTPOKE	4
+X
+X/*
+X * These control how quickly the dynamicspeed option acts when you are
+X * fast or slow. Easier to slow down than speed up!
+X */
+X#define ERRORSLOWER	1.04
+X#define ALOTSLOWER	1.15
+X#define ALITTLESLOWER	1.02
+X#define ALITTLEFASTER	1.02
+X
+X/*
+X * How many inter_char_time's to give you to answer after the end of
+X * a word before considering that you are not keeping up.
+X * Maximum of 2.3, minimum of 0.
+X * The bigger the value, the easier it is to kick in the "automatic
+X * speedup" when using the "-d" option. The maximum means you have (almost)
+X * right up to the beginning of the next word to answer and still have it
+X * count as keeping up.
+X */
+X#define SPORTING_RATIO 1.5
+X
+X/*
+X * The bigger, the more evenly things start out.
+X * (Must be at least 2)
+X */
+X#define RANDOMBASELEVEL	7
+X/*
+X * RANDOMINCWORSE scales how badly you are punished for being wrong
+X * or taking too long. RANDOMINCBETTER scales how you are rewarded for
+X * answering quickly or being right.
+X */
+X#define RANDOMINCWORSE	6
+X#define RANDOMINCBETTER	7
+X#define RANDOMMAX	(30 * RANDOMBASELEVEL)
+X/*
+X * The average length of a random word (chosen using exponential distribution).
+X * After implementing this I'm not so sure an exponential distribution
+X * actually models the distribution of real word lengths in English very well.
+X * It's not too bad, though, and the words themselves are all garbage anyway,
+X * so what the heck.
+X */
+X#define RANDWORDLEN	3.5
+X/* Put in a newline instead of a space when past this column */
+X#define RANLINELENGTH	50
+X
+X/* An EOF without the EOF (@) sound */
+X#define SILENTEOF -2
+X/* Toggle tone frequency on control-G within input file */
+X#define FREQU_TOGGLE ((int)'\007')
+X
+X/*
+X * If you want the morse code to come out synchronized with the printing
+X * of dots and dashes with the -m option, then define this. The problem
+X * is that then the morse code then sounds ratty on slower CPU's.
+X * John Shalamskas (KJ9U) suggested turning the precise morse-code printing
+X * synching off because he didn't like the resulting code quality!
+X */
+X#undef FLUSHCODE
+X
+X/*
+X * Choose your favorite random number generator!
+X */
+X#ifndef USERANDOM
+X#ifndef USELRAND
+X#ifndef USERAND
+X#define USERANDOM	/* USELRAND or USERAND are the other choices */
+X#endif
+X#endif
+X#endif
+X
+X#ifdef USERANDOM
+X#define RANDOM()      random()
+X#define SEEDRANDOM(s) srandom((int)s)
+Xlong            random ();
+X#endif
+X#ifdef USELRAND
+X#define RANDOM()      lrand48()
+X#define SEEDRANDOM(s) srand48((long)(s))
+Xlong            lrand48 ();
+X#endif
+X#ifdef USERAND
+X/*
+X * UGH, are you really sure you want to use this one?
+X * This one really stinks!
+X */
+X#define RANDOM()      rand()
+X#define SEEDRANDOM(s) srand((int)(s))
+Xint             rand ();
+X#endif
+X
+XSIGRET          die (), suspend ();
+Xvoid            cleanup ();
+X
+Xmain (argc, argv)
+X    int             argc;
+X    char          **argv;
+X{
+Xextern char    *optarg;
+Xextern int      optind;
+Xint             ch;
+Xchar           *p;
+Xint             ii, jj;
+Xint             firsttime, notdoneyet;
+Xint             yourchar;
+Xfloat           randexp, randnum;
+Xextern time_t   time ();
+Xint             linepos;
+X
+X    if (argc == 1 && isatty (fileno (stdin)))
+X    {
+X/*
+X * SELF DOC
+X */
+X	printf ("Usage:\n");
+X	printf ("morse [options] < text_file\n");
+X	printf ("morse [options] words words words\n");
+X	printf ("morse [options] -r\n");
+X	printf ("morse [options] -i\n");
+X	printf ("Options:\n");
+X	printf ("-i    Play what you type.\n");
+X	printf ("-I    Like -i but don't turn off keyboard echoing.\n");
+X	printf ("-r    Generate random text. Starts out slanted towards easy\n");
+X	printf ("      letters, then slants towards ones you get wrong.\n");
+X	printf ("-w words_per_minute (default %g)\n-f frequency_in_hertz (default %g)\n-v volume (zero to one, rather nonlinear, default %g)\n",
+X		WORDS_PER_MINUTE, FREQUENCY, VOLUME);
+X	printf ("-g alternate_frequency (default %g)\n      (toggles via control-G in input FILE at a word break)\n", FREQUENCY2);
+X	printf ("-F Farnsworth_character_words_per_minute\n");
+X	printf ("-e    leave off the EOT sound at the end\n");
+X	printf ("-c    complain about illegal characters instead of just ignoring them\n");
+X	printf ("-b    print each word before doing it\n");
+X	printf ("-a    print each word after doing it\n");
+X	printf ("-l    print each letter just before doing it\n");
+X	printf ("-m    print morse dots and dashes as they sound\n");
+X#ifdef FLUSHCODE
+X	printf ("      (this printing-intensive option slows the wpm down!)\n");
+X#endif
+X	printf ("-t    Type along with the morse, but don't see what\n");
+X	printf ("      you're typing (unless you make a mistake).\n");
+X	printf ("      You are allowed to get ahead as much as you want.\n");
+X	printf ("      If you get too far behind it will stop and resync with you.\n");
+X	printf ("      You can force it to resync at the next word end by hitting control-H.\n");
+X	printf ("      Hit ESC to see how you are doing, control-D to end.\n");
+X	printf ("-T    Like -t but see your characters (after they are played).\n");
+X	printf ("-s    Stop after each character and make sure you get it right. (implies -t)\n");
+X	printf ("-p NUM (default 0)\n");
+X	printf ("      Make you get it right NUM times, for penance. (implies -s)\n");
+X	printf ("      (Yes, NUM = 0 means you can sin all you want.)\n");
+X	printf ("-E NUM  (default %d)\n", MAX_ERROR_THRESHOLD);
+X	printf ("      If your count of wrong answers minus right answers for a given character\n");
+X	printf ("      exceeds this, the program will start prompting you.\n");
+X	printf ("      If %d or above, it will never prompt. (imples -t)\n", MAX_ERROR_THRESHOLD);
+X	printf ("-M NUM (default %d)\n", MAX_BEHINDNESS);
+X	printf ("      If you get more than this number of characters behind, pause until you\n");
+X	printf ("      do your next letter. (1 behind is normal, 0 behind means never pause.)\n");
+X	printf ("      (implies -t)\n");
+X	printf ("-d    Dynamically speed up or slow down depending on how you are doing.\n");
+X	printf ("      (if also -s, then -d _only speeds up_!)\n");
+X	printf ("\n");
+X	printf ("\n");
+X	printf ("\n");
+X	printf ("For the raw beginner trying to learn morse code I recommend\n");
+X	printf ("the following sequence:\n");
+X	printf ("\n");
+X	printf ("Start learning the alphabet:\n");
+X	printf ("	morse -r -s -T -d -w 5 -F 15 -p 5 -E -10\n");
+X	printf ("Then drill drill drill:\n");
+X	printf ("	morse -r -s -T -d -w 5 -F 15 -p 5 -E 0\n");
+X	printf ("Real-time drill, with hints if you really need it:\n");
+X	printf ("	morse -r -T -d -w 5 -F 15 -M 2 -E 4\n");
+X	printf ("Simulated test:\n");
+X	printf ("	QSO | morse -e -T -d -w 5 -F 15\n");
+X	printf ("and the dreaded random-letter test:\n");
+X	printf ("	morse -r -T -d -w 5 -F 15\n");
+X	printf ("\n");
+X	printf ("Written by (mostly) joe@montebello.soest.hawaii.edu\n");
+X	exit (0);
+X    }
+X
+X    for (ii = 0; ii < TWOFIFTYSIX; ii++)
+X	code[ii] = NULL;
+X
+X/* Load in the morse code code */
+X    code[(int) '0'] = "-----";
+X    code[(int) '1'] = ".----";
+X    code[(int) '2'] = "..---";
+X    code[(int) '3'] = "...--";
+X    code[(int) '4'] = "....-";
+X    code[(int) '5'] = ".....";
+X    code[(int) '6'] = "-....";
+X    code[(int) '7'] = "--...";
+X    code[(int) '8'] = "---..";
+X    code[(int) '9'] = "----.";
+X
+X    code[(int) 'a'] = ".-";
+X    code[(int) 'b'] = "-...";
+X    code[(int) 'c'] = "-.-.";
+X    code[(int) 'd'] = "-..";
+X    code[(int) 'e'] = ".";
+X    code[(int) 'f'] = "..-.";
+X    code[(int) 'g'] = "--.";
+X    code[(int) 'h'] = "....";
+X    code[(int) 'i'] = "..";
+X    code[(int) 'j'] = ".---";
+X    code[(int) 'k'] = "-.-";
+X    code[(int) 'l'] = ".-..";
+X    code[(int) 'm'] = "--";
+X    code[(int) 'n'] = "-.";
+X    code[(int) 'o'] = "---";
+X    code[(int) 'p'] = ".--.";
+X    code[(int) 'q'] = "--.-";
+X    code[(int) 'r'] = ".-.";
+X    code[(int) 's'] = "...";
+X    code[(int) 't'] = "-";
+X    code[(int) 'u'] = "..-";
+X    code[(int) 'v'] = "...-";
+X    code[(int) 'w'] = ".--";
+X    code[(int) 'x'] = "-..-";
+X    code[(int) 'y'] = "-.--";
+X    code[(int) 'z'] = "--..";
+X
+X    /* Punctuation */
+X    code[(int) '='] = "-...-";
+X    code[(int) '?'] = "..--..";
+X    code[(int) '/'] = "-..-.";
+X    code[(int) ','] = "--..--";
+X    code[(int) '.'] = ".-.-.-";
+X
+X    /* Procedural signs */
+X    code[(int) '+'] = ".-.-.";
+X    code[(int) '@'] = "...-.-";
+X
+X    for (ii = 0; ii < TWOFIFTYSIX; ii++)
+X    {
+X	/* Everything starts equally fresh */
+X	randomripe[ii] = 0;
+X	/* Start out assuming you know how everything sounds */
+X	errorlog[ii] = 0;
+X
+X	if (code[ii] == NULL)
+X	{
+X	    /* Ensures these will never be chosen */
+X	    randomfactor[ii] = 0;
+X	}
+X	else
+X	{
+X	    /* Start out favoring easy ones */
+X	    randomfactor[ii] = RANDOMBASELEVEL - strlen (code[ii]);
+X	    if (randomfactor[ii] < 1)
+X		randomfactor[ii] == 1;
+X	}
+X    }
+X
+X    words_per_minute = WORDS_PER_MINUTE;
+X    fwords_per_minute = -1.;
+X
+X    while ((ch = getopt (argc, argv, "F:w:lbamf:g:v:tTdesp:riIcM:E:")) != EOF)
+X	switch ((char) ch)
+X	{
+X	case 'i':
+X	    typeaway = 1;
+X	    break;
+X	case 'I':
+X	    typeaway = LETMESEE;
+X	    break;
+X	case 'r':
+X	    randomletters = 1;
+X	    break;
+X	case 'c':
+X	    noticebad = 1;
+X	    break;
+X	case 'e':
+X	    fancyending = 0;
+X	    break;
+X	case 'T':
+X	    testing = 1;
+X	    showtesting = 1;
+X	    break;
+X	case 't':
+X	    testing = 1;
+X	    break;
+X	case 's':
+X	    charbychar = 1;
+X	    testing = 1;
+X	    break;
+X	case 'p':
+X	    charbychar = 1;
+X	    testing = 1;
+X	    sscanf (optarg, "%d", &tryagaincount);
+X	    break;
+X	case 'M':
+X	    testing = 1;
+X	    sscanf (optarg, "%d", &max_behindness);
+X	    if (max_behindness < 1)
+X		max_behindness = 0;
+X	    break;
+X	case 'E':
+X	    testing = 1;
+X	    sscanf (optarg, "%d", &error_threshold);
+X	    if (error_threshold < error_floor)
+X		error_floor = error_threshold;
+X	    break;
+X	case 'd':
+X	    dynamicspeed = 1;
+X	    break;
+X	case 'w':
+X	    sscanf (optarg, "%f", &words_per_minute);
+X	    break;
+X	case 'F':
+X	    sscanf (optarg, "%f", &fwords_per_minute);
+X	    break;
+X	case 'l':
+X	    showletters = 1;
+X	    break;
+X	case 'b':
+X	    wordsbefore = 1;
+X	    break;
+X	case 'a':
+X	    wordsafter = 1;
+X	    break;
+X	case 'm':
+X	    showmorse = 1;
+X	    break;
+X	case 'f':
+X	    sscanf (optarg, "%f", &frequency1);
+X	    break;
+X	case 'g':
+X	    sscanf (optarg, "%f", &frequency2);
+X	    break;
+X	case 'v':
+X	    sscanf (optarg, "%f", &volume);
+X	    if (volume < 0.)
+X		volume = 0.;
+X	    if (volume > 1.)
+X		volume = 1.;
+X	    break;
+X	default:
+X	    fprintf (stderr, "Type \"morse\" without arguments to get self-doc!\n");
+X	    exit (1);
+X	    break;
+X	}
+X    argc -= optind;
+X    argv += optind;
+X
+X    if (fwords_per_minute <= 0.)
+X	fwords_per_minute = words_per_minute;
+X    new_words_per_minute ();
+X
+X    frequency = frequency1;
+X
+X    if (BeepInit () != 0)
+X    {
+X	fprintf (stderr, "Can't access speaker.\n");
+X	exit (1);
+X    }
+X
+X    signal (SIGINT, die);
+X    signal (SIGTERM, die);
+X    signal (SIGQUIT, die);
+X    signal (SIGTSTP, suspend);
+X
+X    if (testing || typeaway)
+X    {
+X	openterminal ();
+X    }
+X
+X/*
+X * Do .25 seconds of silence initially to give the workstation time to
+X * get settled after the stress of starting this program and opening
+X * up everything.
+X */
+X    tone (frequency, .25, 0.);
+X    toneflush ();
+X
+X    if (typeaway)
+X    {
+X	testing = 0;
+X	showtesting = 0;
+X	charbychar = 0;
+X	wordsbefore = 0;
+X	wordsafter = 0;
+X	randomletters = 0;
+X
+X	notdoneyet = 1;
+X
+X	while (notdoneyet)
+X	{
+X	    pollyou ();
+X
+X	    for (jj = 0; jj < yourlength; jj++)
+X	    {
+X		yourchar = yourstring[(yourpointer - yourlength + 1 + jj + TESTBUFSZ) % TESTBUFSZ];
+X
+X		/* Control-D: finished */
+X		if (yourchar == (int) '\004')
+X		{
+X		    toneflush ();
+X		    notdoneyet = 0;
+X		    break;
+X		}
+X
+X		if (isspace (yourchar))
+X		{
+X		    if (showletters)
+X		    {
+X			toneflush ();
+X			printf ("%c", yourchar);
+X			fflush (stdout);
+X		    }
+X
+X		    tone (frequency, inter_word_time, 0.);
+X
+X		    continue;
+X		}
+X
+X		morse (yourchar);
+X	    }
+X	    yourlength -= jj;
+X	}
+X    }
+X    else if (randomletters)
+X    {
+X	SEEDRANDOM (time (NULL));
+X	randexp = 1. / (1. - 1. / (float) (RANDWORDLEN));
+X	linepos = 0;
+X	while (1)
+X	{
+X	    dowords (randomletter ());
+X	    linepos++;
+X
+X	    /* Knock a few bits off the top so we're sure it won't overflow */
+X	    /* Shift a few bits because the lower bits stink */
+X	    /* Add in the time so it doesn't repeat from run to run */
+X	    randnum = (float) (
+X			       ((RANDOM () >> 9) + (long) (time (NULL)) >> 4)
+X			       & 0x00FFFFFF);
+X	    randnum = randnum - randexp * (int) (randnum / randexp);
+X	    if (randnum >= 1.)
+X		if (linepos >= RANLINELENGTH)
+X		{
+X		    dowords ((int) '\n');
+X		    linepos = 0;
+X		}
+X		else
+X		{
+X		    dowords ((int) ' ');
+X		    linepos++;
+X		}
+X	}
+X    }
+X    else
+X    {
+X	if (*argv)
+X	{
+X	    firsttime = 1;
+X
+X	    do
+X	    {
+X		if (!firsttime)
+X		{
+X		    dowords ((int) ' ');
+X		}
+X		else
+X		    firsttime = 0;
+X
+X		for (p = *argv; *p; ++p)
+X		    dowords ((int) *p);
+X	    } while (*++argv);
+X	}
+X	else
+X	{
+X	    while ((ch = getchar ()) != EOF)
+X		dowords (ch);
+X	}
+X    }
+X
+X    if (fancyending)
+X	dowords (EOF);
+X    else
+X	dowords (SILENTEOF);
+X
+X    fflush (stdout);
+X
+X    if (testing)
+X    {
+X	/*
+X	 * WE'RE completely done, and YOU aren't! Force catch up. (Note if
+X	 * charbychar = YES we won't get here, since we're always caught up
+X	 * after each character as it comes out.)
+X	 */
+X	while (testlength > 0)
+X	{
+X	    tone (frequency, catchup_time, 0.);
+X	    toneflush ();
+X	    testterminal ();
+X	}
+X    }
+X
+X    /* Just to be sure! */
+X    toneflush ();
+X
+X    if (showmorse || wordsbefore || wordsafter || showletters || showtesting)
+X	printf ("\n");
+X    fflush (stdout);
+X
+X    if (testing)
+X	report ();
+X
+X/* If you make any mistakes exit with a return code! */
+X    cleanup ();
+X    return (totalmisscount > 0);
+X}
+X
+Xnew_words_per_minute ()
+X{
+Xfloat           wtick, ftick, tick;
+X
+X    tick = 60. / (words_per_minute * 50);
+X
+X    /*
+X     * In the limit as wpm goes past fwpm, Farnsworth becomes kosher PARIS
+X     */
+X    if (fwords_per_minute <= words_per_minute)
+X	ftick = 60. / (words_per_minute * 50);
+X    else
+X	ftick = 60. / (fwords_per_minute * 50);
+X
+X    wtick = (50. * tick - 31. * ftick) / 19.;
+X
+X    /*
+X     * This time is used when the computer is waiting on you to hit a key; it
+X     * is useful to scale the granularity with the real overrall words per
+X     * minute. This also serves as a measuring rod to see if you are
+X     * responding "fast enough". If you are too slow, then obviously you are
+X     * having trouble with that character, and should be given it more OFTEN.
+X     * Heh heh heh...
+X     */
+X    catchup_time = tick;
+X
+X    /*
+X     * Things between characters and words go at the "remainder" speed,
+X     * whatever space you need to make the sped-up Farnsworth characters come
+X     * out with the correct overall words per minute.
+X     */
+X    inter_char_time = wtick * 3.;
+X    inter_word_time = wtick * 7.;
+X
+X    /* Things within the character go at the Farnsworth speed */
+X    intra_char_time = ftick;
+X    dot_time = ftick;
+X    dash_time = ftick * 3.;
+X}
+X
+Xstatic int      tryingagain = 0, slowpoke = 0;
+X
+Xdowords (c)
+X    int             c;
+X{
+Xstatic int      wordc = 0;
+Xstatic char     word[MAXWORDLEN];
+Xchar           *wordp;
+Xint             ii;
+Xint             againcount;
+Xint             are_we_repeating;
+X
+X/*
+X * If a word gets too long, just cut it off by inserting a space.
+X * Just call ourselves with the character we wish we'd gotten...
+X */
+X    if (wordc == MAXWORDLEN - 1 && !(isspace (c) || c == EOF || c == SILENTEOF || c == FREQU_TOGGLE))
+X	dowords ((int) ' ');
+X
+X    if (isspace (c) || c == EOF || c == SILENTEOF || c == FREQU_TOGGLE)
+X    {
+X	if (wordc > 0)
+X	{
+X	    word[wordc] = '\0';
+X
+X/*
+X * We have just read in a new complete word from the input, (hopefully)
+X * during the time of an inter-word space minus an inter-char space.
+X * Now let's go back and see what happened with the PREVIOUS word,
+X * the one that we had just finished playing. Did the user keep
+X * up with us?
+X */
+X#ifdef DEBUG
+X	    fprintf (stderr, " [%d] ", behindness);
+X#endif
+X	    if (testing && dynamicspeed && !charbychar)
+X	    {
+X		/*
+X		 * (If charbychar then behindness is ALWAYS 0 at this
+X		 * point...)
+X		 */
+X		if (behindness == 0)
+X		{
+X		    /* You're a speed demon! Speed up a bit, then! */
+X		    words_per_minute *= ALITTLEFASTER;
+X		    new_words_per_minute ();
+X		}
+X		else if (behindness > WAYBEHIND)
+X		{
+X		    /* You're way behind! Slow way down. */
+X		    words_per_minute /= ALOTSLOWER;
+X		    new_words_per_minute ();
+X		}
+X		else if (behindness > BEHIND)
+X		{
+X		    /* You're behind! Slow down a bit. */
+X		    words_per_minute /= ALITTLESLOWER;
+X		    new_words_per_minute ();
+X		}
+X	    }
+X
+X
+X/*
+X * If the user was WAY too far behind stop and catch up with
+X * the "new" word as the first one.
+X */
+X	    if (testing && (behindness > TOOFARBEHIND || helpmeflag))
+X	    {
+X		if (helpmeflag)
+X		    printf ("\nOK, let's restart.\n");
+X		else
+X		    printf ("\nYou are too far behind! Let's restart.\n");
+X		fflush (stdout);
+X
+X		toneflush ();
+X
+X		/* Flush the keyboard buffer */
+X		pollyou ();
+X
+X		/* Forget the past */
+X		helpmeflag = 0;
+X		behindness = 0;
+X		testlength = 0;
+X		yourlength = 0;
+X
+X		/* Give the user a little rest. */
+X		sleep (2);
+X		printf ("\nWPM now %d\n", (int) (words_per_minute + .5));
+X		fflush (stdout);
+X		sleep (2);
+X		printf ("\nREADY?\n");
+X		fflush (stdout);
+X		sleep (1);
+X		printf ("\nSET\n");
+X		fflush (stdout);
+X		sleep (1);
+X		printf ("\nGO!\n");
+X		fflush (stdout);
+X	    }
+X
+X/*
+X * Start treating the new word.
+X */
+X	    if (wordsbefore)
+X	    {
+X		/* Try to keep your out-of-sync text from getting swirled in */
+X		if (showtesting)
+X		    printf ("\n");
+X
+X		printf ("%s", word);
+X
+X		if (showmorse || showletters || wordsafter || showtesting)
+X		{
+X		    printf ("  ");
+X		    for (ii = 0; ii < 16 - (wordc + 2); ii++)
+X		    {
+X			printf (" ");
+X		    }
+X		}
+X
+X		fflush (stdout);
+X	    }
+X
+X	    if (testing && charbychar)
+X	    {
+X		againcount = 0;
+X	    }
+X
+X	    for (wordp = word; *wordp != '\0'; wordp++)
+X	    {
+X		tryingagain = 0;
+X
+X	tryagain:
+X		if (testing && !tryingagain && !showletters &&
+X		    error_threshold < MAX_ERROR_THRESHOLD &&
+X		    errorlog[(int) *wordp] > error_threshold)
+X		{
+X		    toneflush ();
+X		    /* Give them a quick hint */
+X		    printf ("[%c]", *wordp);
+X		    fflush (stdout);
+X
+X		    morse (*wordp);
+X
+X		    toneflush ();
+X		    if (!showmorse)
+X		    {
+X			/* Erase the hint */
+X			printf ("\b\b\b   \b\b\b", *wordp);
+X			fflush (stdout);
+X		    }
+X		}
+X		else
+X		{
+X		    morse (*wordp);
+X		}
+X
+X		if (testing)
+X		{
+X		    if (charbychar)
+X		    {
+X			toneflush ();
+X			/* Force catchup */
+X			slowpoke = 0;
+X			while (behindness > 0)
+X			{
+X			    if (testterminal () && tryagaincount > 0)
+X			    {
+X				/*
+X				 * OOPS! They got it WRONG! MAKE THEM TRY
+X				 * AGAIN!
+X				 */
+X				printf ("Try again.\n");
+X				/*
+X				 * Yeah I know gotos are inelegant but I
+X				 * don't feel like figuring out the "elegant"
+X				 * way to do this right now.
+X				 */
+X				againcount = tryagaincount - 1;
+X				tryingagain = 1;
+X				goto tryagain;
+X			    }
+X			    else
+X			    {
+X				/*
+X				 * They got it right, or they didn't answer
+X				 * yet.
+X				 */
+X				if (behindness > 0)
+X				{
+X				    /*
+X				     * They are STILL thinking, the
+X				     * slowpokes. Wait a bit before trying
+X				     * again.
+X				     */
+X				    tone (frequency, catchup_time, 0.);
+X				    /*
+X				     * Keep track of how long they're taking
+X				     * to answer!
+X				     */
+X				    if (slowpoke < SLOWPOKEMAX)
+X					slowpoke++;
+X				    toneflush ();
+X				}
+X				else if (dynamicspeed && !slowpoke && !tryingagain)
+X				{
+X				    /*
+X				     * They got it right without errors the
+X				     * first time and we didn't have to wait
+X				     * for them! A speed demon! Speed up a
+X				     * bit, then!
+X				     */
+X				    words_per_minute *= ALITTLEFASTER;
+X				    new_words_per_minute ();
+X				}
+X			    }
+X			}
+X
+X			/* Insufficient penance? */
+X			if (againcount > 0)
+X			{
+X			    againcount--;
+X			    goto tryagain;
+X			}
+X		    }
+X		    else
+X		    {
+X			testterminal ();
+X			/*
+X			 * Stop if we get more than max_behindness ahead.
+X			 * max_behindness == 0 means don't worry about them,
+X			 * they can be as far behind as they want and we
+X			 * won't stop!
+X			 */
+X			if (max_behindness > 0)
+X			{
+X			    are_we_repeating = 0;
+X			    while (behindness >= max_behindness)
+X			    {
+X#ifdef DEBUG
+X				fprintf (stderr, " (%d) ", behindness);
+X#endif
+X				if (are_we_repeating)
+X				{
+X				    /*
+X				     * Pause for a bit so we don't loop too
+X				     * fast
+X				     */
+X				    tone (frequency, catchup_time, 0.);
+X				}
+X				else
+X				{
+X				    are_we_repeating = 1;
+X				}
+X				/* Finish playing whatever we're playing */
+X				toneflush ();
+X				/* And give them another chance */
+X				testterminal ();
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X
+X	    toneflush ();
+X	    if (testing)
+X		testterminal ();
+X
+X	    if (wordsafter)
+X	    {
+X		printf (" (%s)", word);
+X	    }
+X
+X	    if (wordsbefore || wordsafter || showmorse)
+X		printf ("\n");
+X	    else if (showletters || showtesting)
+X	    {
+X		if (c != EOF && c != SILENTEOF && c != FREQU_TOGGLE)
+X		{
+X		    if (showletters)
+X			printf ("%c", c);
+X
+X		    if (showtesting)
+X			testaddchar (c);
+X		}
+X	    }
+X
+X/*
+X * WHEW! FINISHED QUEUEING THE WORD FOR PLAYING!
+X * Now finish up all the other sundry details...
+X */
+X
+X	    /* Flush the output printing queue... */
+X	    fflush (stdout);
+X	    /*
+X	     * Pause for a bit; this gives the user a sporting chance at
+X	     * catching up with us.
+X	     */
+X	    tone (frequency, SPORTING_RATIO * inter_char_time, 0.);
+X	    toneflush ();
+X	    /* Start sounding an inter-word space */
+X	    tone (frequency, inter_word_time - SPORTING_RATIO * inter_char_time, 0.);
+X
+X	    /* While that silence is playing check if the user has caught up. */
+X	    if (testing)
+X		testterminal ();
+X
+X	    /* We finished this word; reset the word character count */
+X	    wordc = 0;
+X	}
+X	else if (!(wordsbefore || wordsafter || showmorse)
+X		 &&
+X		 (showletters || showtesting))
+X	{
+X	    if (c != EOF && c != SILENTEOF && c != FREQU_TOGGLE)
+X	    {
+X		if (showletters)
+X		    printf ("%c", c);
+X
+X		if (showtesting)
+X		    testaddchar (c);
+X	    }
+X	}
+X
+X	if (c == EOF)
+X	{
+X	    morse (EOF);
+X	    toneflush ();
+X	}
+X	else if (c == SILENTEOF)
+X	{
+X	    toneflush ();
+X	}
+X	else if (c == FREQU_TOGGLE)
+X	{
+X	    /* Switch to the other frequency */
+X	    /* (Won't work from keyboard, only from a file.) */
+X	    whichfrequ = 1 - whichfrequ;
+X	    switch (whichfrequ)
+X	    {
+X	    case 1:
+X		frequency = frequency2;
+X		break;
+X	    case 0:
+X	    default:
+X		frequency = frequency1;
+X		break;
+X	    }
+X	}
+X    }
+X    else
+X    {
+X	word[wordc++] = c;
+X    }
+X}
+X
+X/*
+X * Don't try to test the person DURING the call into morse!
+X */
+Xmorse (c)
+X    int             c;
+X{
+X    if (showletters)
+X    {
+X	if (c == EOF)
+X	    printf ("EOT");
+X	else if (c == '.' && showmorse)
+X	    printf ("PERIOD");
+X	else if (c == '=' && showmorse)
+X	    printf ("BREAK");
+X	else
+X	    printf ("%c", c);
+X
+X	fflush (stdout);
+X    }
+X
+X    if (isalpha (c))
+X    {
+X	if (testing)
+X	    testaddchar (c - (isupper (c) ? 'A' : 'a') + 'a');
+X	show (code[c - (isupper (c) ? 'A' : 'a') + 'a']);
+X    }
+X    else if (c == EOF)
+X    {
+X	show (code[(int) '@']);
+X    }
+X    else if (code[c] != NULL)
+X    {
+X	if (testing)
+X	    testaddchar (c);
+X	show (code[c]);
+X    }
+X    else
+X    {
+X	/* Oops! This letter is junk! */
+X
+X	if (noticebad)
+X	{
+X	    if (showletters)
+X	    {
+X		fflush (stdout);
+X	    }
+X
+X	    /* Simulate a stumble */
+X	    tone (frequency, 2. * inter_word_time, 0.);
+X	    toneflush ();
+X	}
+X
+X	if (showletters)
+X	{
+X	    /* Wipe out what we just printed */
+X	    fflush (stdout);
+X	    printf ("\b");
+X	    printf (" ");
+X	    printf ("\b");
+X	    fflush (stdout);
+X	}
+X
+X	if (noticebad)
+X	{
+X	    if (showletters)
+X	    {
+X		/* And replace it with an error message */
+X		printf ("*UNKNOWN_CHARACTER*");
+X		fflush (stdout);
+X	    }
+X
+X	    /* Give the error call */
+X	    show ("........");
+X
+X	    /* Regroup */
+X	    tone (frequency, inter_word_time, 0.);
+X	}
+X    }
+X
+X    if (showmorse)
+X	printf (" ");
+X    fflush (stdout);
+X    toneflush ();
+X    tone (frequency, inter_char_time - intra_char_time, 0.);
+X}
+X
+X
+X/*
+X * Don't try to test the person WHILE doing dots and dashes!
+X */
+Xshow (s)
+X    char           *s;
+X{
+Xchar            c;
+X
+X    while ((c = *s++) != '\0')
+X    {
+X	tone (frequency, intra_char_time, 0.);
+X
+X#ifdef FLUSHCODE
+X	if (showmorse)
+X	    toneflush ();
+X#endif
+X
+X	switch (c)
+X	{
+X	case '.':
+X	    tone (frequency, dot_time, volume);
+X	    break;
+X	case '-':
+X	    tone (frequency, dash_time, volume);
+X	    break;
+X	}
+X
+X	if (showmorse)
+X	{
+X	    printf ("%c", c);
+X	    fflush (stdout);
+X#ifdef FLUSHCODE
+X	    toneflush ();
+X#endif
+X	}
+X    }
+X}
+X
+X/*
+X * This only gets passed valid characters: ones
+X * that have a morse code associated with them
+X * or ones for which isspace(c) is true.
+X */
+Xtestaddchar (c)
+X    char            c;
+X{
+X    testpointer = (testpointer + 1) % TESTBUFSZ;
+X    teststring[testpointer] = c;
+X#ifdef DEBUG
+X    fprintf (stderr, " (%c,%d,%d) ", c, testlength, behindness);
+X#endif
+X    testlength++;
+X    if (testlength > TESTBUFSZ)
+X    {
+X	fprintf (stderr, "\n\nInput buffer queue overflow! Make TESTBUFSZ bigger!\n");
+X	fprintf (stderr, "(Or don't fall so far behind)\n");
+X
+X	die ();
+X    }
+X
+X/*
+X * Since you are never asked to type spaces (you can type them if
+X * you want, but they are ignored) spaces in the input file don't
+X * count against your "behindness".
+X */
+X    if (!isspace (c))
+X	behindness++;
+X}
+X
+Xyouraddchar (c)
+X    char            c;
+X{
+X    yourpointer = (yourpointer + 1) % TESTBUFSZ;
+X    yourstring[yourpointer] = c;
+X#ifdef DEBUG
+X    fprintf (stderr, " <%c,%d> ", c, yourlength);
+X#endif
+X    yourlength++;
+X    if (yourlength > TESTBUFSZ)
+X    {
+X	fprintf (stderr, "\n\nKeyboard typeahead buffer queue overflow! Make TESTBUFSZ bigger!\n");
+X	fprintf (stderr, "(Or don't type so far ahead... how did you expect to get them right anyway?)\n");
+X
+X	die ();
+X    }
+X}
+X
+Xpollyou ()
+X{
+Xint             ii, num;
+Xchar           *string;
+X
+X    num = readterminal (&string);
+X
+X    for (ii = 0; ii < num; ii++)
+X	youraddchar (string[ii]);
+X}
+X
+Xint
+Xtestterminal ()
+X{
+Xint             testinc, yourinc;
+Xint             correctchar, yourchar, yourcharnocase;
+Xint             errorcount;
+X
+X    errorcount = 0;
+X
+X/*
+X * There is nothing in the input file queue right now,
+X * so we can't process any of your keystrokes.
+X * Defer processing until we can catch up with YOU!
+X */
+X    if (testlength == 0)
+X	return errorcount;
+X
+X    /* We're ready for you; but are you ready for us? */
+X    pollyou ();
+X
+X/*
+X * Process your entries and the input queue entries in parallel
+X */
+X    if (yourlength > 0 && testlength > 0)
+X    {
+X	for (testinc = 0, yourinc = 0;
+X	     testinc < testlength && yourinc < yourlength;
+X	     testinc++, yourinc++)
+X	{
+X	    correctchar = teststring[(testpointer - testlength + 1 + testinc + TESTBUFSZ) % TESTBUFSZ];
+X
+X	    /*
+X	     * The latter half of this if shouldn't be necessary, but just in
+X	     * case...
+X	     */
+X	    if (isspace (correctchar) || code[correctchar] == NULL)
+X	    {
+X		if (showtesting)
+X		{
+X		    printf ("%c", correctchar);
+X		    fflush (stdout);
+X		}
+X
+X		/* White space doesn't count for "behindness" */
+X		behindness++;
+X		/* The _other_ pointer wasn't used; don't increment it. */
+X		yourinc--;
+X
+X		/* Short circuit the loop */
+X		continue;
+X	    }
+X
+X
+X	    yourchar = yourstring[(yourpointer - yourlength + 1 + yourinc + TESTBUFSZ) % TESTBUFSZ];
+X	    if (isalpha (yourchar))
+X		yourcharnocase = yourchar - (isupper (yourchar) ? 'A' : 'a') + 'a';
+X	    else
+X		yourcharnocase = yourchar;
+X
+X	    /* Did you type something rude? If so, just ignore it. */
+X	    if (isspace (yourchar) || code[yourcharnocase] == NULL)
+X	    {
+X		/* ESCAPE: dump status info */
+X		/* Control-D: dump status info and then bye bye */
+X		/* Control-H: force restart */
+X		if (yourchar == '\033' || yourchar == (int) '\004')
+X		{
+X		    report ();
+X
+X		    if (yourchar == (int) '\004')
+X			die ();
+X		}
+X		else if (yourchar == '\b')
+X		{
+X		    helpmeflag = 1;
+X		}
+X
+X		/* The _other_ pointer wasn't used; don't increment it. */
+X		testinc--;
+X		/* Short circuit the loop */
+X		continue;
+X	    }
+X
+X	    if (yourcharnocase != correctchar)
+X	    {
+X		errorcount++;
+X		totalmisscount++;
+X
+X		/*
+X		 * Record that you are having trouble with these.
+X		 */
+X		errorlog[correctchar]++;
+X		if (code[yourcharnocase] != NULL &&
+X		    errorlog[yourcharnocase] < MAX_ERROR_THRESHOLD)
+X		    errorlog[yourcharnocase]++;
+X
+X		printf ("\n\007%c (%s) for %c (%s)\n",
+X			yourchar, code[yourcharnocase],
+X			correctchar, code[correctchar]);
+X		fflush (stdout);
+X
+X		if (charbychar)
+X		{
+X		    /* Give them a bit of time to think about their error */
+X		    tone (frequency, inter_word_time, 0.);
+X		    toneflush ();
+X		}
+X		if (dynamicspeed && !charbychar)
+X		{
+X		    /*
+X		     * Slow down. Doesn't make sense to slow down for errors,
+X		     * though, if you've got all the time you want to think
+X		     * about each one.
+X		     */
+X		    words_per_minute /= ERRORSLOWER;
+X		    new_words_per_minute ();
+X		}
+X		if (randomletters && !tryingagain)
+X		{
+X		    /*
+X		     * Ask ones that confused you more often!
+X		     */
+X		    if (code[yourcharnocase] != NULL)
+X		    {
+X			randomfactor[yourcharnocase] += (3 * RANDOMINCWORSE / 2);
+X			if (randomfactor[yourcharnocase] > RANDOMMAX)
+X			    randomfactor[yourcharnocase] = RANDOMMAX;
+X		    }
+X
+X		    randomfactor[correctchar] += RANDOMINCWORSE * 2;
+X		    if (randomfactor[correctchar] > RANDOMMAX)
+X			randomfactor[correctchar] = RANDOMMAX;
+X		}
+X	    }
+X	    else
+X	    {
+X		/*
+X		 * Record that you got this right.
+X		 */
+X		if (!tryingagain)
+X		{
+X		    totalhitcount++;
+X		    if (errorlog[correctchar] > error_floor)
+X			errorlog[correctchar]--;
+X		}
+X
+X		if (showtesting)
+X		{
+X		    printf ("%c", yourchar);
+X		    fflush (stdout);
+X		}
+X
+X		if (randomletters && !tryingagain)
+X		{
+X		    if (slowpoke == SLOWPOKEMAX)
+X		    {
+X			printf ("\nNice to have you back again, I was getting bored!\n");
+X		    }
+X		    else if (slowpoke >= SLOWPOKE * 3)
+X		    {
+X			/*
+X			 * Did you take too long thinking about it? If so,
+X			 * you probably need to be asked this one more
+X			 * often...
+X			 */
+X			randomfactor[correctchar] += (3 * RANDOMINCWORSE / 2);
+X			if (randomfactor[correctchar] > RANDOMMAX)
+X			    randomfactor[correctchar] = RANDOMMAX;
+X
+X			/*
+X			 * Hits this slow shouldn't count! You were obviously
+X			 * just guessing! (But it doesn't count as an error
+X			 * either.)
+X			 */
+X			totalhitcount--;
+X		    }
+X		    else if (slowpoke > FASTPOKE)
+X		    {
+X			randomfactor[correctchar] +=
+X			 (slowpoke * RANDOMINCWORSE) / (2 * SLOWPOKE);
+X			if (randomfactor[correctchar] > RANDOMMAX)
+X			    randomfactor[correctchar] = RANDOMMAX;
+X		    }
+X		    else if (slowpoke <= (FASTPOKE / 2))
+X		    {
+X			/*
+X			 * Ask ones that you quickly answer correctly less
+X			 * often!
+X			 */
+X			randomfactor[correctchar] -= (3 * RANDOMINCBETTER / 2);
+X			/*
+X			 * Don't let randomfactor hit 0, or you'll NEVER be
+X			 * asked this one AGAIN!
+X			 */
+X			if (randomfactor[correctchar] < 1)
+X			    randomfactor[correctchar] = 1;
+X		    }
+X		    else if (slowpoke <= FASTPOKE)
+X		    {
+X			randomfactor[correctchar] -= (RANDOMINCBETTER / 2);
+X			if (randomfactor[correctchar] < 1)
+X			    randomfactor[correctchar] = 1;
+X		    }
+X		}
+X	    }
+X
+X	}
+X	testlength -= testinc;
+X	behindness -= testinc;
+X	yourlength -= yourinc;
+X    }
+X
+X/*
+X * If there are some extra white space characters in the input queue
+X * it's OK, we'll get to them next time or we'll clean them out at the
+X * end.
+X */
+X    return errorcount;
+X}
+X
+X
+X/*----------------------------------------*/
+X
+Xtone (hertz, duration, amplitude)
+X    float           hertz, duration, amplitude;
+X{
+X    Beep ((int) (duration * 1000), (int) (amplitude * 100), (int) hertz);
+X}
+X
+X
+Xtoneflush ()
+X{
+X    BeepWait ();
+X}
+X
+X
+X/*----------------------------------------*/
+X
+X#include <sys/ioctl.h>
+X#include <fcntl.h>
+X#ifdef USG
+X#include <sys/termio.h>
+Xstruct termio   oldtermgtty;
+Xstruct termio   termgtty;
+X#else
+X#include <sys/file.h>
+Xstruct sgttyb   oldtermgtty;
+Xstruct sgttyb   termgtty;
+X#endif
+Xstatic char    *terminal = "/dev/tty";
+Xstatic int      termfd;
+Xstatic int      oldflgs, newflgs;
+Xstatic int      termopen = 0;
+X
+Xopenterminal ()
+X{
+X    /* get parameters and open terminal */
+X
+X#ifdef USG
+X    termfd = open (terminal, O_RDWR | O_NDELAY, 0);
+X    ioctl (termfd, TCGETA, &termgtty);
+X    oldtermgtty = termgtty;
+X    if (typeaway != LETMESEE)
+X	termgtty.c_lflag &= ~(ECHO | ECHOE | ECHOK | ECHONL);
+X    termgtty.c_lflag &= ~ICANON;
+X    termgtty.c_cc[VMIN] = 1;
+X    termgtty.c_cc[VTIME] = 0;
+X    ioctl (0, TCSETAW, &termgtty);
+X#else
+X    termfd = open (terminal, O_RDWR, 0);
+X    ioctl (termfd, TIOCGETP, &termgtty);
+X    oldtermgtty = termgtty;
+X    if (typeaway != LETMESEE)
+X	termgtty.sg_flags &= ~ECHO;
+X    termgtty.sg_flags |= CBREAK;
+X    ioctl (termfd, TIOCSETP, &termgtty);
+X    oldflgs = fcntl (termfd, F_GETFL);
+X    newflgs = oldflgs | FNDELAY;
+X#endif
+X
+X    termopen = 1;
+X}
+X
+Xint
+Xreadterminal (string)
+X    char          **string;
+X{
+X/* This must be declared static! */
+Xstatic char     line[TESTBUFSZ];
+Xint             n;
+X
+X#ifndef USG
+X    fcntl (termfd, F_SETFL, newflgs);
+X#endif
+X    n = read (termfd, line, sizeof (line) - 1);
+X#ifndef USG
+X    fcntl (termfd, F_SETFL, oldflgs);
+X#endif
+X
+X    if (n > 0)
+X    {
+X	line[n] = '\0';
+X	*string = line;
+X    }
+X    else
+X	*string = NULL;
+X
+X    return n;
+X}
+X
+Xcloseterminal ()
+X{
+X#ifdef USG
+X    ioctl (termfd, TCSETAW, &oldtermgtty);
+X#else
+X    ioctl (termfd, TIOCSETP, &oldtermgtty);
+X#endif
+X    close (termfd);
+X}
+X
+XSIGRET
+Xdie ()
+X{
+X    cleanup ();
+X    exit (1);
+X}
+X
+Xvoid
+Xcleanup ()
+X{
+X    if (termopen)
+X	closeterminal ();
+X    BeepCleanup ();
+X}
+X
+XSIGRET
+Xsuspend ()
+X{
+X    signal (SIGTSTP, suspend);
+X    cleanup ();
+X    kill (getpid (), SIGSTOP);
+X    if (termopen)
+X	openterminal ();
+X    BeepResume ();
+X}
+X
+X
+X/*----------------------------------------*/
+X
+Xint
+Xrandomletter ()
+X{
+Xint             ii;
+Xint             sum, sum2;
+Xlong            ranspot;
+Xextern time_t   time ();
+Xstatic int      lasttime = -1;
+Xstatic long     norepeat;
+X
+X/*
+X * This keeps the not-so-random random number generator from ignoring
+X * certain characters forever!
+X */
+X    norepeat = ((long) time (NULL) / 31) % 17291;
+X
+X/*
+X * All the usable letters get one unit riper.
+X */
+X    for (ii = 0; ii < TWOFIFTYSIX; ii++)
+X    {
+X	if (randomfactor[ii] > 0)
+X	{
+X#ifdef DEBUGG
+X	    fprintf (stderr, "%c: %d %d\n",
+X		     (char) ii, randomfactor[ii], randomripe[ii]);
+X#endif
+X	    randomripe[ii]++;
+X	}
+X    }
+X
+X    sum = 0;
+X    for (ii = 0; ii < TWOFIFTYSIX; ii++)
+X	sum += (randomfactor[ii] + (int) (randomripe[ii] / RIPECOUNT));
+X
+X/*
+X * The low bits of random aren't very random, I don't care WHAT
+X * the manual claims.
+X */
+X    do
+X    {
+X	ranspot = ((RANDOM () >> 4) % sum + norepeat) % sum;
+X
+X	sum2 = 0;
+X	for (ii = 0; ii < TWOFIFTYSIX - 1; ii++)
+X	{
+X	    sum2 += (randomfactor[ii] + (int) (randomripe[ii] / RIPECOUNT));
+X
+X	    if (sum2 > ranspot)
+X		break;
+X	}
+X	/* Do it again if you got the same as last time! */
+X    } while (ii == lasttime);
+X
+X    /* This one is FRESH again. */
+X    randomripe[ii] = 0;
+X    /* Remember for next time. */
+X    lasttime = ii;
+X
+X    return ii;
+X}
+X
+Xreport ()
+X{
+Xint             ii, jj, count;
+Xfloat           sum;
+Xint             randomstr[TWOFIFTYSIX];
+Xextern int      rancomp ();
+X
+X    printf ("\nCurrent words per minute: %.1f\n", words_per_minute);
+X
+X    printf ("Total hits %d, misses %d", totalhitcount, totalmisscount);
+X    if (totalmisscount > 0)
+X	printf (", hit per miss ratio %.1f\n", (float) totalhitcount / (float) totalmisscount);
+X    else
+X	printf ("\n");
+X
+X    if (randomletters)
+X    {
+X	printf ("Most to least frequent choices:\n");
+X	count = 0;
+X	sum = 0.;
+X	for (ii = 0; ii < TWOFIFTYSIX; ii++)
+X	{
+X	    if (randomfactor[ii] > 0)
+X	    {
+X		sum += (randomfactor[ii] + (randomripe[ii] / (float) RIPECOUNT));
+X		randomstr[count] = ii;
+X		count++;
+X	    }
+X	}
+X
+X	qsort ((char *) randomstr, count, sizeof (randomstr[0]), rancomp);
+X
+X	for (ii = 0; ii < count; ii++)
+X	{
+X/*
+X * Insert a space for each jump across an integer.
+X * The normalization (count/sum) ensures that if all
+X * letters were equally probable, they would all have value 1.
+X * Since they are not generally equally probable, then 1 is just the average.
+X * Thus the rightmost space in the printout marks where the average is.
+X * Further left spaces separate off blocks of letters that are approximately
+X * twice as probable as the average, three times, etc.
+X */
+X	    if (ii > 0)
+X	    {
+X		for (jj = 0; jj <
+X		     (int) (
+X			    (randomfactor[randomstr[ii - 1]] + (randomripe[randomstr[ii - 1]] / (float) RIPECOUNT))
+X			    * count / sum) -
+X		     (int) (
+X			    (randomfactor[randomstr[ii]] + (randomripe[randomstr[ii]] / (float) RIPECOUNT))
+X			    * count / sum);
+X		     jj++)
+X		    printf (" ");
+X	    }
+X	    printf ("%c", (char) randomstr[ii]);
+X	}
+X	printf ("\n");
+X    }
+X
+X    /*
+X     * So you don't get penalized for being "slow" after this.
+X     */
+X    if (charbychar)
+X	slowpoke = SLOWPOKEMAX + 1;
+X
+X    fflush (stdout);
+X}
+X
+Xint
+Xrancomp (elem1, elem2)
+X    int            *elem1, *elem2;
+X{
+Xfloat           a, b;
+X
+X    a = (randomfactor[(*elem1)] + (randomripe[(*elem1)] / (float) RIPECOUNT));
+X    b = (randomfactor[(*elem2)] + (randomripe[(*elem2)] / (float) RIPECOUNT));
+X
+X    if (a == b)
+X	return 0;
+X    else if (a > b)
+X	return -1;
+X    else
+X	return 1;
+X}
+END_OF_FILE
+  if test 43964 -ne `wc -c <'morse.c'`; then
+    echo shar: \"'morse.c'\" unpacked with wrong size!
+  fi
+  # end of 'morse.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

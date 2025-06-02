@@ -1,0 +1,1662 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i083:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part03/11
+Message-ID: <1992Nov19.040054.6674@sparky.imd.sterling.com>
+X-Md4-Signature: 87772155f4f83e0fef151c0697a829ba
+Date: Thu, 19 Nov 1992 04:00:54 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 83
+Archive-name: pdcurses/part03
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  curspriv.h demos/testcurs.c makefile private/_setrows.c
+#   private/_validch.c
+# Wrapped by kent@sparky on Wed Nov 18 21:44:06 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 11)."'
+if test -f 'curspriv.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'curspriv.h'\"
+else
+  echo shar: Extracting \"'curspriv.h'\" \(9131 characters\)
+  sed "s/^X//" >'curspriv.h' <<'END_OF_FILE'
+X/*
+X* $Header: c:/curses/RCS/curspriv.h%v 2.0 1992/11/16 22:40:39 MH Rel $
+X*
+X*                          CURSPRIV.H
+X*
+X* Header file for definitions and declarations for the
+X* PDCurses package. These definitions should not be generally
+X* accessible to programmers, but are provided if the applications
+X* programmer decides to make the decision in favor of speed on a
+X* PC over portability.
+X*
+X* Revision History:
+X* Frotz 1.5Beta 900714  Added many levels of compiler support.
+X*                       Added mixed prototypes for all "internal" routines.
+X*                       Removed all assembly language.  Added EGA/VGA
+X*                       support.  Converted all #ifdef to #if in all
+X*                       modules except CURSES.H and CURSPRIV.H.
+X*                       Always include ASSERT.H.  Added support for an
+X*                       external malloc(), calloc() and free().
+X*                       Added support for FAST_VIDEO (direct-memory writes).
+X*                       Added various memory model support (for FAST_VIDEO).
+X*                       Added much of the December 1988 X/Open Curses
+X*                       specification.
+X* bl    1.3     881005  All modules lint-checked with MSC '-W3' and turbo'C'
+X*                       '-w -w-pro' switches.
+X* bl    1.2     881002  Support (by #ifdef UCMASM) for uppercase-only
+X*                       assembly routine names. If UCMASM if defined,
+X*                       all assembler names are #defined as upper case.
+X*                       Not needed if you do "MASM /MX. Also missing
+X*                       declaration of cursesscroll(). Fixes thanks to
+X*                       N.D. Pentcheff
+X* bl    1.1     880306  Add _chadd() for raw output routines.
+X* bl    1.0     870515  Release.
+X*
+X*/
+X
+X#ifndef __CURSES_INTERNALS__
+X#define __CURSES_INTERNALS__
+X
+X/* Always include... */
+X#include <assert.h>
+X
+X/*----------------------------------------------------------------------
+X*       OPERATING SYSTEM SUPPORT:
+X*
+X*               DOS             The one we all know and love:-}
+X*               OS/2            The new kid on the block.
+X*               FLEXOS          A Real-time, protected-mode OS from
+X*                               Digital Research, Inc.
+X*				(AKA, the 4680 from IBM...)
+X*/
+X
+X/*----------------------------------------*/
+X#ifdef  DOS
+X#  define FAST_VIDEO 1          /* We can write directly to the screen. */
+X   typedef union REGS Regs;
+X   extern Regs regs;
+X#endif
+X
+X/*----------------------------------------*/
+X#ifdef  FLEXOS
+X#  define FAST_VIDEO 1          /* We can use scopy()   */
+X#  define GMODE  0 /* KLUDGE ALERT!
+X                   * GMODE == 0 defines character mode structures in FLEXTAB.H.
+X                   * GMODE == 1 defines graphics  mode structures in FLEXTAB.H.
+X                   */
+X#include <flextab.h>
+Xextern VIRCON vir;
+X#endif
+X
+X
+X
+X
+X/*----------------------------------------------------------------------
+X*       MEMORY MODEL SUPPORT:
+X*
+X*       MODELS
+X*               TINY            cs,ds,ss all in 1 segment (not enough memory!)
+X*               SMALL           cs:1 segment,           ds:1 segment
+X*               MEDIUM          cs:many segments        ds:1 segment
+X*               COMPACT         cs:1 segment,           ds:many segments
+X*               LARGE           cs:many segments        ds:many segments
+X*               HUGE            cs:many segments        ds:segments > 64K
+X*/
+X#ifdef  __TINY__
+X#  define SMALL 1
+X#endif
+X#ifdef  __SMALL__
+X#  define SMALL 1
+X#endif
+X#ifdef  __MEDIUM__
+X#  define MEDIUM 1
+X#endif
+X#ifdef  __COMPACT__
+X#  define COMPACT 1
+X#endif
+X#ifdef  __LARGE__
+X#  define LARGE 1
+X#endif
+X#ifdef  __HUGE__
+X#  define HUGE 1
+X#endif
+X
+X
+X
+X
+X/*----------------------------------------------------------------------
+X*       MALLOC DEBUGGING SUPPORT:
+X*
+X*       Set EMALLOC and EMALLOC_MAGIC in order to use your private
+X*       versions of malloc(), calloc(), and free().  This can help,
+X*       but not solve, your malloc problems when debugging...
+X*
+X*/
+X#ifndef	INTERNAL
+X#  define EMALLOC 0             /* Disable External Malloc	        */
+X#else
+X#  define EMALLOC 0             /* Enable/Disable External Malloc       */
+X#  define EMALLOC_MAGIC  0x0C0C /* Our magic indicator that we should   */
+X                                /* use our external malloc rather than  */
+X                                /* the runtime's malloc.                */
+X#endif
+X
+X
+X/*----------------------------------------------------------------------*/
+X/* window properties */
+X#define _SUBWIN         0x01    /* window is a subwindow            */
+X#define _ENDLINE        0x02    /* last winline is last screen line */
+X#define _FULLWIN        0x04    /* window fills screen              */
+X#define _SCROLLWIN      0x08    /* window lwr rgt is screen lwr rgt */
+X#define _PAD            0x10    /* X/Open Pad.                      */
+X
+X
+X
+X
+X/*----------------------------------------------------------------------*/
+X/* Miscellaneous */
+X#define _INBUFSIZ       512     /* size of terminal input buffer */
+X#define _NO_CHANGE      -1      /* flags line edge unchanged     */
+X
+X
+X
+X
+X/* @@@ THESE SHOULD BE INDIVIDUAL FUNCTIONS, NOT MACROS! */
+X#define _ECHAR          0x08    /* Erase char	    (^H)         */
+X#define _DWCHAR         0x17    /* Delete Word char (^W)         */
+X#define _DLCHAR         0x15    /* Delete Line char (^U)         */
+X#define _GOCHAR         0x11    /* ^Q character                  */
+X#define _PRINTCHAR      0x10    /* ^P character                  */
+X#define _STOPCHAR       0x13    /* ^S character                  */
+X#define  NUNGETCH       20      /* max # chars to ungetch()      */
+X
+X
+X
+X
+X/* Setmode stuff */
+Xstruct cttyset
+X{
+X	bool	been_set;
+X	SCREEN	saved;
+X};
+X
+Xextern struct cttyset c_sh_tty;         /* tty modes for shell_mode */
+Xextern struct cttyset c_pr_tty;         /* tty modes for prog_mode  */
+Xextern struct cttyset c_save_tty;
+Xextern struct cttyset c_save_trm;
+X
+X/* Printscan stuff */
+Xextern char c_printscanbuf[];           /* buffer used during I/O */
+X
+X/* Strget stuff */
+Xextern char*    c_strbeg;
+X
+X/* doupdate stuff */
+Xextern WINDOW*  twin;                   /* used by many routines */
+X
+X/* Monitor (terminal) type information */
+X#define _NONE           0x00
+X#define _MDA            0x01
+X#define _CGA            0x02
+X#define _EGACOLOR       0x04
+X#define _EGAMONO        0x05
+X#define _VGACOLOR       0x07
+X#define _VGAMONO        0x08
+X#define _MCGACOLOR      0x0a
+X#define _MCGAMONO       0x0b
+X#define _FLEXOS         0x20            /* A Flexos console */
+X#define _MDS_GENIUS     0x30
+X
+X/* Text-mode font size information */
+X#define _FONT8  8
+X#define _FONT14 14
+X#define _FONT15 15              /* GENIUS */
+X#define _FONT16 16
+X
+X
+X/*----------------------------------------------------------------------
+X*       ANSI C prototypes.  Be sure that your compiler conditional
+X*       compilation definitions above define ANSI to be non-zero
+X*       if you compiler supports prototypes.
+X*/
+X#ifdef     ANSI
+X#  ifdef  CPLUSPLUS
+X     extern "C" {
+X#  endif
+Xbool	PDC_check_bios_key( void );
+Xbool	PDC_get_ctrl_break( void );
+Xbool	PDC_transformline( int );
+Xchtype	PDC_validchar( chtype );
+Xint	PDC_backchar( WINDOW*, char*, int* );
+Xint	PDC_scr_open( SCREEN*, bool );
+Xint	PDC_scr_close( void );
+Xint	PDC_get_cursor_pos( int*, int* );
+Xint	PDC_get_columns( void );
+Xint	PDC_scroll( int, int, int, int, int, chtype );
+Xint	PDC_set_ctrl_break( bool );
+Xint	PDC_clr_update( WINDOW* );
+Xint	PDC_chadd( WINDOW*, chtype, bool, bool );
+Xint	PDC_chins( WINDOW*, chtype, bool );
+X#ifdef     OS2
+XVIOCONFIGINFO	PDC_query_adapter_type( void );
+XVIOMODEINFO	PDC_get_scrn_mode( void );
+Xint	PDC_set_scrn_mode( VIOMODEINFO );
+Xbool	PDC_scrn_modes_equal (VIOMODEINFO, VIOMODEINFO);
+X#else
+Xint	PDC_query_adapter_type( void );
+Xint	PDC_get_scrn_mode( void );
+Xint	PDC_set_scrn_mode( int );
+Xbool	PDC_scrn_modes_equal (int, int);
+X#endif
+Xint	PDC_get_font( void );
+Xint	PDC_set_font( int );
+Xint	PDC_set_80x25( void );
+Xint	PDC_fix_cursor( int );
+Xint	PDC_get_rows( void );
+Xint	PDC_set_rows( int );
+Xint	PDC_putchar( chtype );
+Xint	PDC_clr_scrn( WINDOW* );
+Xint	PDC_gattr( void );
+Xint	PDC_gotoxy( int, int );
+Xint	PDC_print( int, int, int );
+Xint	PDC_chg_attr( WINDOW*, chtype, int, int, int, int );
+Xint	PDC_split_plane( WINDOW*, char*, char*, int, int, int, int );
+Xint	PDC_sanity_check( int );
+Xint	PDC_get_cursor_mode( void );
+Xint	PDC_set_cursor_mode( int, int );
+Xint	PDC_get_bios_key( void );
+Xint	PDC_putc( chtype, chtype );
+Xint	PDC_putctty( chtype, chtype );
+Xsigned	PDC_rawgetch( void );
+Xsigned	PDC_sysgetch( void );
+Xvoid	PDC_usleep( long );
+XWINDOW*	PDC_makenew( int, int, int, int );
+X
+X#ifdef	FLEXOS
+Xint	PDC_flexos_8bitmode( void );
+Xint	PDC_flexos_16bitmode( void );
+Xchar*	PDC_flexos_gname( void );
+X#endif
+X
+X#ifdef	REGISTERWINDOWS
+Xbool	PDC_inswin( WINDOW*, WINDOW* );
+Xint	PDC_addtail( WINDOW* );
+Xint	PDC_addwin( WINDOW*, WINDOW* );
+Xint	PDC_rmwin( WINDOW* );
+XWINDS*	PDC_findwin( WINDOW* );
+X#endif
+X#  ifdef  CPLUSPLUS
+X     }
+X#  endif
+X#endif
+X
+X#define MAX_ATRTAB    272
+X
+X/* internal macros for attributes */
+X#define chtype_attr(ch)  ((atrtab[((ch >> 8) & 0xFF)] << 8) & A_ATTRIBUTES)
+X#define phys_attr(ch)    (atrtab[((ch >> 8) & 0xFF)])
+X
+X#endif /* __CURSES_INTERNALS__*/
+END_OF_FILE
+  if test 9131 -ne `wc -c <'curspriv.h'`; then
+    echo shar: \"'curspriv.h'\" unpacked with wrong size!
+  fi
+  # end of 'curspriv.h'
+fi
+if test -f 'demos/testcurs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demos/testcurs.c'\"
+else
+  echo shar: Extracting \"'demos/testcurs.c'\" \(9169 characters\)
+  sed "s/^X//" >'demos/testcurs.c' <<'END_OF_FILE'
+X/*
+X *
+X * This is a test program for the PDCurses screen package for IBM PC type
+X * machines.
+X * This program was written by John Burnell (johnb@kea.am.dsir.govt.nz)
+X * To compile this program with your compiler define or leave undefined
+X * the following preprocessor macros:
+X * PROTO - define if your compiler accepts standard ANSI-C function prototypes
+X * COLOR_CURSES - define if your curses library has color support
+X *
+X */
+X#define PROTO
+X#define COLOR_CURSES
+X
+X#include <stdio.h>
+X#include <curses.h>
+X
+X#ifdef PROTO
+Xvoid inputTest (WINDOW *win);
+Xvoid scrollTest (WINDOW *win, int height, int width);
+Xint introTest (WINDOW *win);
+Xint initTest (WINDOW **win, int *height, int *width);
+Xvoid outputTest (WINDOW *win);
+Xvoid padTest (void);
+Xvoid resizeTest (void);
+X#else
+Xvoid inputTest ();
+Xvoid scrollTest ();
+Xint introTest ();
+Xint initTest ();
+Xvoid outputTest ();
+Xvoid padTest ();
+Xvoid resizeTest ();
+X#endif
+X
+Xmain()
+X{
+XWINDOW  *win;
+Xint     width, height;
+X
+X    if (!initTest (&win, &height, &width)) {return 1;}
+X
+X    padTest ();
+X
+X    introTest (win);
+X
+X    resizeTest ();
+X
+X    scrollTest (win, height, width);
+X
+X    inputTest (win);
+X
+X    outputTest (win);
+X
+X    delwin (win);
+X
+X    endwin();
+X    return 0;
+X}
+X#ifdef PROTO
+Xvoid Continue (WINDOW *win)
+X#else
+Xvoid Continue (win)
+XWINDOW *win;
+X#endif
+X{
+X    wmove(win, 10, 1);
+X    wclrtoeol(win);
+X    mvwaddstr(win, 10, 1, " Press any key to continue");
+X    wrefresh(win);
+X    raw();
+X    wgetch(win);
+X}
+X#ifdef PROTO
+Xint initTest (WINDOW **win, int *height, int *width)
+X#else
+Xint initTest (win, height, width)
+XWINDOW **win;
+Xint *height;
+Xint *width;
+X#endif
+X{
+X    initscr();
+X#ifdef COLOR_CURSES
+X    if (has_colors())
+X       start_color();
+X#endif
+X    *width  = 60;
+X    *height = 13;                /* Create a drawing window */
+X    *win = newwin(*height, *width, (LINES-*height)/2, (COLS-*width)/2);
+X    if(*win == NULL)
+X    {   endwin();
+X        return 1;
+X    }
+X}
+X#ifdef PROTO
+Xint introTest (WINDOW *win)
+X#else
+Xint introTest (win)
+XWINDOW *win;
+X#endif
+X{
+X    beep ();
+X#ifdef COLOR_CURSES
+X    if (has_colors())
+X       init_pair(1,COLOR_WHITE,COLOR_BLUE);
+X    wattrset(win, COLOR_PAIR(1));
+X#else
+X    wattrset(win, A_REVERSE);
+X#endif
+X    werase(win);
+X
+X    box(win, 0xba, 0xcd);
+X    wrefresh(win);
+X    cbreak ();
+X    mvwaddstr(win, 1, 1, "You should have rectangle in the middle of the screen");
+X    mvwaddstr(win, 2, 1, "You should have heard a beep");
+X    Continue(win);
+X    return 1;
+X}
+X#ifdef PROTO
+Xvoid scrollTest (WINDOW *win, int height, int width)
+X#else
+Xvoid scrollTest (win, height, width)
+XWINDOW *win;
+Xint height,width;
+X#endif
+X{
+X    int i;
+X    int OldX, OldY;
+X    char *Message = "The window will now scroll slowly";
+X
+X    mvwprintw (win, height - 2, 1, Message);
+X    wrefresh (win);
+X    scrollok(win, TRUE);
+X    for (i = 1; i <= height; i++) {
+X      delay_output (250);
+X      scroll(win);
+X      wrefresh (win);
+X    };
+X
+X    getmaxyx (win, OldY, OldX);
+X    mvwprintw (win, 6, 1, "The top of the window will scroll");
+X    wmove (win, 1, 1);
+X    wsetscrreg (win, 0, 4);
+X    box(win, 0xba, 0xcd);
+X    wrefresh (win);
+X    for (i = 1; i <= 5; i++) {
+X      delay_output (500);
+X      scroll(win);
+X      wrefresh (win);
+X    };
+X    wsetscrreg (win, 0, --OldY);
+X
+X}
+X#ifdef PROTO
+Xvoid inputTest (WINDOW *win)
+X#else
+Xvoid inputTest (win)
+XWINDOW *win;
+X#endif
+X{
+X    int w, h, bx, by, sw, sh, i, c;
+X    char buffer [80];
+X    WINDOW *subWin;
+X    wclear (win);
+X
+X    w  = win->_maxx;
+X    h  = win->_maxy;
+X    bx = win->_begx;
+X    by = win->_begy;
+X    sw = w / 3;
+X    sh = h / 3;
+X    if((subWin = subwin(win, sh, sw, by + h - sh - 2, bx + w - sw - 2)) == NULL)
+X        return;
+X
+X#ifdef COLOR_CURSES
+X    if (has_colors())
+X       init_pair(2,COLOR_CYAN,COLOR_BLUE);
+X    wattrset(subWin, COLOR_PAIR(2) | A_BOLD);
+X#else
+X    wattrset(subWin, A_BOLD);
+X#endif
+X    box(subWin, 0xba, 0xcd);
+X    wrefresh(win);
+X
+X    nocbreak();
+X    mvwaddstr(win, 2, 1, "Press some keys for 5 seconds");
+X    mvwaddstr(win, 1, 1, "Pressing ^C should do nothing");
+X    wrefresh(win);
+X
+X    for (i = 0; i < 5; i++) {
+X      werase (subWin);
+X      box(subWin, 0xba, 0xcd);
+X      mvwprintw (subWin, 1, 1, "Time = %d", i);
+X      wrefresh(subWin);
+X      delay_output(1000);
+X      flushinp();
+X    }
+X
+X    delwin (subWin);
+X    werase(win);
+X    flash();
+X    wrefresh(win);
+X    delay_output(500);
+X
+X    if (typeahead(NULL)) beep();
+X    mvwaddstr(win, 2, 1, "Press a key, followed by ENTER");
+X    wmove(win, 9, 10);
+X    wrefresh(win);
+X    echo();
+X    noraw();
+X    wgetch(win);
+X    flushinp();
+X
+X    wmove(win, 9, 10);
+X    wdelch(win);
+X    mvwaddstr(win, 4, 1, "The character should now have been deleted");
+X    Continue(win);
+X
+X    wclear (win);
+X    mvwaddstr(win, 2, 1, "Press an arrow key");
+X    wrefresh(win);
+X    keypad(win, TRUE);
+X    raw();
+X    c = wgetch(win);
+X
+X    nodelay(win, TRUE);
+X    wgetch(win);
+X    nodelay(win, FALSE);
+X
+X    refresh();
+X    wclear (win);
+X    mvwaddstr(win, 3, 2, "The window should have moved");
+X    mvwaddstr(win, 4, 2, "This text should have appeared without you pressing a key");
+X    mvwprintw(win, 2, 2, "Keycode = %d", c);
+X    mvwaddstr(win, 6, 2, "Enter a string");
+X    mvwin(win, 2, 1);
+X    wrefresh(win);
+X    mvwscanw(win, 7, 6, "%s", buffer);
+X}
+X#ifdef PROTO
+Xvoid outputTest (WINDOW *win)
+X#else
+Xvoid outputTest (win)
+XWINDOW *win;
+X#endif
+X{
+X    WINDOW *win1;
+X    char Buffer [80];
+X    chtype ch;
+X
+X    nl ();
+X    wclear (win);
+X    mvwaddstr(win, 1, 1, "You should now have a screen in the upper left corner, and this text should have wrapped");
+X    Continue(win);
+X
+X    wclear(win);
+X    mvwaddstr(win, 1, 1, "A new window will appear with this text in it");
+X    mvwaddstr(win, 8, 1, "Press any key to continue");
+X    wrefresh(win);
+X    wgetch(win);
+X
+X    win1 = newwin(10, 50, 15, 25);
+X    if(win1 == NULL)
+X    {   endwin();
+X        return;
+X    }
+X#ifdef COLOR_CURSES
+X    if (has_colors())
+X       init_pair(3,COLOR_BLUE,COLOR_WHITE);
+X    wattrset(win1, COLOR_PAIR(3));
+X#else
+X    wattrset(win1, A_NORMAL);
+X#endif
+X    wclear (win1);
+X    mvwaddstr(win1, 5, 1, "This text should not appear");
+X    overwrite(win, win1);
+X
+X    box(win1,0xb3,0xc4);
+X    wmove(win1, 8, 26);
+X    wrefresh(win1);
+X    wgetch(win1);
+X
+X    wclear(win1);
+X    wattron(win1, A_BLINK);
+X    mvwaddstr(win1, 4, 1, "This blinking text should appear in only the second window");
+X    wattroff(win1, A_BLINK);
+X    overlay(win, win1);
+X    wmove(win1, 8, 26);
+X    wrefresh(win1);
+X    wgetch(win1);
+X    delwin(win1);
+X
+X    clear();
+X    wclear(win);
+X    wrefresh(win);
+X    mvwaddstr(win, 6, 2, "This line shouldn't appear");
+X    mvwaddstr(win, 4, 2, "Only half of the next line is visible");
+X    mvwaddstr(win, 5, 2, "Only half of the next line is visible");
+X    wmove(win, 6, 1);
+X    wclrtobot (win);
+X    wmove(win, 5, 20);
+X    wclrtoeol (win);
+X    mvwaddstr(win, 8, 2, "This line also shouldn't appear");
+X    wmove(win, 8, 1);
+X    wdeleteln(win);
+X    Continue(win);
+X
+X    wmove (win, 5, 9);
+X    ch = winch (win);
+X
+X    wclear(win);
+X    wmove (win, 6, 2);
+X    waddstr (win, "The next char should be l:  ");
+X    winsch (win, ch);
+X    Continue(win);
+X
+X    wmove(win, 5, 1);
+X    winsertln (win);
+X    mvwaddstr(win, 5, 2, "The lines below should have moved down");
+X    Continue(win);
+X
+X    wclear(win);
+X    wmove(win, 2, 2);
+X    wprintw(win, "This is a formatted string in a window: %d %s\n", 42, "is it");
+X    mvwaddstr(win, 10, 1, "Enter a string: ");
+X    wrefresh(win);
+X    wscanw (win, "%s", Buffer);
+X
+X    wclear(win);
+X    mvwaddstr(win, 10, 1, "Enter a string");
+X    wrefresh(win);
+X    printw("This is a formatted string in stdscr: %d %s\n", 42, "is it");
+X    scanw ("%s", Buffer);
+X
+X    wclear(win);
+X    curs_set(2);
+X    mvwaddstr(win, 1, 1, "The cursor should appear as a block");
+X    Continue(win);
+X
+X    wclear(win);
+X    curs_set(0);
+X    mvwaddstr(win, 1, 1, "The cursor should have disappeared");
+X    Continue(win);
+X
+X    wclear(win);
+X    curs_set(1);
+X    mvwaddstr(win, 1, 1, "The cursor should be an underline");
+X    Continue(win);
+X}
+X
+X#ifdef PROTO
+Xvoid resizeTest(void)
+X#else
+Xvoid resizeTest()
+X#endif
+X{
+X    WINDOW *win1;
+X    char Buffer [80];
+X    chtype ch;
+X
+X    savetty ();
+X
+X    clear();
+X    refresh();
+X    resize(50);
+X
+X
+X    win1 = newwin(11, 50, 14, 25);
+X    if(win1 == NULL)
+X    {   endwin();
+X        return;
+X    }
+X    init_pair(3,COLOR_BLUE,COLOR_WHITE);
+X    wattrset(win1, COLOR_PAIR(3));
+X    wclear (win1);
+X
+X    mvwaddstr(win1, 1, 1, "The screen may now have 50 lines");
+X    Continue(win1);
+X
+X    resetty ();
+X
+X    wclear (win1);
+X    mvwaddstr(win1, 1, 1, "The screen should now be reset");
+X    Continue(win1);
+X
+X    delwin(win1);
+X
+X    clear();
+X    refresh();
+X
+X}
+X#ifdef PROTO
+Xvoid padTest(void)
+X#else
+Xvoid padTest()
+X#endif
+X{
+XWINDOW *pad;
+X
+X pad = newpad(50,100);
+X mvwaddstr(pad, 5, 2, "This is a new pad");
+X mvwaddstr(pad, 8, 0, "The end of this line should be truncated here:abcd");
+X mvwaddstr(pad,11, 1, "This line should not appear.");
+X wmove(pad, 10, 1);
+X wclrtoeol(pad);
+X mvwaddstr(pad, 10, 1, " Press any key to continue");
+X prefresh(pad,0,0,0,0,10,45);
+X keypad(pad, TRUE);
+X raw();
+X wgetch(pad);
+X
+X mvwaddstr(pad, 35, 2, "This is displayed at line 35 in the pad");
+X mvwaddstr(pad, 40, 1, " Press any key to continue");
+X prefresh(pad,30,0,0,0,10,45);
+X keypad(pad, TRUE);
+X raw();
+X wgetch(pad);
+X
+X delwin(pad);
+X}
+X
+END_OF_FILE
+  if test 9169 -ne `wc -c <'demos/testcurs.c'`; then
+    echo shar: \"'demos/testcurs.c'\" unpacked with wrong size!
+  fi
+  # end of 'demos/testcurs.c'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+  echo shar: Extracting \"'makefile'\" \(22856 characters\)
+  sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X# $Header: c:/curses/RCS/makefile.%v 2.0 1992/11/16 22:40:49 MH Rel $
+X#================ PDCurses makefile for DMAKE 3.8 ======================
+X# This makefile is for DMAKE, either under DOS or OS/2
+X# The fowwoing OS/Compiler combinations are supported:
+X#
+X# Target       Compiler    Command                Compiler
+X# Operating    Mnemoic     Line
+X# System                   
+X#-----------------------------------------------------------------------
+X# DOS            BCC       OS=DOS COMP=BCC        Borland C++
+X# DOS            TCC       OS=DOS COMP=TCC        Borland Turbo C++
+X# DOS            TC        OS=DOS COMP=TC         Borland Turbo C
+X# DOS            MSC       OS=DOS COMP=MSC        Microsoft C
+X# DOS            QC        OS=DOS COMP=QC         Microsoft Quick C
+X# OS2            MSC       OS=OS2 COMP=MSC        Microsoft C
+X# OS2            CSET2     OS=OS2 COMP=CSET2      IBM C Set/2
+X# OS2            EMX       OS=OS2 COMP=EMX        emx/gcc
+X# OS2            TSC       OS=OS2 COMP=TSC        TopSpeed C
+X# OS2            WATCOMC   OS=OS2 COMP=WATCOMC    Watcom C
+X#-----------------------------------------------------------------------
+X# Special case for Microsoft Compiler when the host OS is DOS and the
+X# target OS is OS2:
+X# Command line will be OS=DOS COMP=MSC TOS=OS2
+X#-----------------------------------------------------------------------
+XMODEL = L
+Xmodel = l
+X#-----------------------------------------------------------------------
+X# default setup for BCC under DOS, optimised version
+X# change values below or override with -e switch on command line
+X#-----------------------------------------------------------------------
+XOS=DOS
+XCOMP=BCC
+XOPT=Y
+X#-----------------------------------------------------------------------
+X.IF $(TOS) == $(NULL)
+X    TOS = $(OS)
+X.END
+X.IF $(OS) == OS2
+X#========================================================================
+X#========================= OS2 - CSET2 ==================================
+X#========================================================================
+X    .IF $(COMP) == CSET2
+X        LINK      = link386
+X        CC        = icc
+X        LIB_EXE   = lib
+X        LIB_DIR   = g:\ibmc\lib
+X        SETARGV   = $(LIB_DIR)\setargv
+X        .IF $(OPT) == N
+X            CDEBUG = -Q+ -O- -Ti -I$(CC_INC)
+X            LDEBUG = /NOE /SE:160 /PMTYPE:VIO
+X            DBG    =d
+X        .ELSE
+X            CDEBUG  = -Q+ -O+ -DNDEBUG -I$(CC_INC)
+X            LDEBUG  = /NOE /SE:160 /PMTYPE:VIO
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = o$(DBG)
+X        PDCLIB   = curses$(DBG).lib
+X        LIBRSP   =,lib.map;
+X        CFLAGS   = $(CDEBUG) -Fo$@ -c -I$(CC_INC)
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $*.obj,,,$(PDCLIB);
+X        UTLFLAGS = $(LDEBUG) $*.obj;
+X        MANFLAGS = $(LDEBUG) $*.obj+$(SETARGV);
+X#========================================================================
+X#========================= OS2 - MSC ====================================
+X#========================================================================
+X    .ELIF $(COMP) == MSC
+X        LINK      = link
+X        CC        = cl
+X        LIB_EXE   = lib
+X        LIB_DIR   = $(LIB)
+X        SETARGV   = $(LIB_DIR)\setargv
+X        DEFINES   = -D__OS2__
+X        .IF $(OPT) == N
+X            CDEBUG =-nologo -Od -Zi -A$(MODEL)
+X            LDEBUG =/CO /NOE /SE:160 /PMTYPE:VIO
+X            DBG    =d
+X        .ELSE
+X            CDEBUG  =-nologo -Ox -A$(MODEL) -DNDEBUG
+X            LDEBUG  = /NOE /SE:160 /PMTYPE:VIO
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = o$(DBG)$(MODEL)
+X        PDCLIB   = $(MODEL)curses$(DBG).lib
+X        LIBRSP   =,lib.map;
+X        CFLAGS   = $(CDEBUG) $(DEFINES) -Fo$@ -c -I$(CC_INC)
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $*.obj,,,$(PDCLIB);
+X        UTLFLAGS  = $(LDEBUG) $*.obj;
+X        MANFLAGS = $(LDEBUG) $*.obj+$(SETARGV);
+X#========================================================================
+X#========================= OS2 - EMX ====================================
+X#========================================================================
+X    .ELIF $(COMP) == EMX
+X        LINK      = $(CC)
+X        CC        = gcc
+X        LIB_EXE   = ar
+X        LIB_DIR   = g:\emx\lib
+X        LIBFLAGS  = rcv
+X        DEFINES   = -D__OS2__ -D__EMX__
+X        .IF $(OPT) == N
+X            CDEBUG =-g
+X            LDEBUG = -Zomf 
+X            DBG    =d
+X        .ELSE
+X            CDEBUG  =-O -DNDEBUG
+X            LDEBUG = -Zomf 
+X            DBG     =o
+X        .END
+X        OBJ      = o
+X        OBJ_DIR  = o$(DBG)
+X        PDCLIB   = curses$(DBG).lib
+X        LIBRSP   =,lib.map;
+X        CFLAGS   = $(CDEBUG) $(DEFINES) -o$(@:db).o -c -I$(CC_INC)
+X        MAKE_LIB = $(LIB_EXE) $(LIBFLAGS) curses.a $(OBJ_DIR)/*.o
+X        EMX_OMF_LIB=emxomf -l -o $(PDCLIB) curses.a
+X        EMX_OMF_OBJ=emxomf -d -o $*.obj $*.o
+X        DLFLAGS  = $(LDEBUG) -L$(LIB_DIR) -lc -los2 $*.obj $(PDCLIB) $(LIB_DIR)\vio32.lib -o $* $(DEMO_DIR)\$*.def
+X        UTLFLAGS = $(LDEBUG) -L$(LIB_DIR) -lc -los2 $*.obj -o $* $(TOOLS_DIR)\$*.def
+X        MANFLAGS = $(LDEBUG) -Lg:\emx\lib -lc -los2 $*.obj -o $* $(TOOLS_DIR)\$*.def
+X#========================================================================
+X#========================= OS2 - TSC ====================================
+X#========================================================================
+X# If you can fill in the following, please let me know !
+X#========================================================================
+X    .ELIF $(COMP) == TSC
+X        OBJ      = obj
+X#========================================================================
+X#========================= OS2 - WATCOMC ================================
+X#========================================================================
+X# If you can fill in the following, please let me know !
+X#========================================================================
+X    .ELIF $(COMP) == WATCOMC
+X        CC       = cc
+X        OBJ      = obj
+X    .END
+X.ELSE
+X#========================================================================
+X#========================= DOS - BCC ====================================
+X#========================================================================
+X    .IF $(COMP) == BCC
+X        LINK      = tlink
+X        CC        = bcc
+X        LIB_EXE   = tlib
+X        LIB_DIR   = f:\c\lib
+X        WILDARGS  = $(LIB_DIR)\wildargs.obj
+X        LIB_FLAGS = /C /E
+X        CFG       = +$(ROOTDIR)\PDCURSES.CFG
+X        DEFINES   = 
+X        .IF $(OPT) == N
+X            CDEBUG	=-N -v -y
+X            LDEBUG	=-c -v -s -l -e
+X            DBG    =d
+X        .ELSE
+X            CDEBUG	= -O -DNDEBUG
+X            LDEBUG	=
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = o$(DBG)$(model)
+X        PDCLIB   = $(model)curses$(DBG).lib
+X        LIBRSP   =,lib.map
+X        CFLAGS   = $(CFG) $(CDEBUG) $(DEFINES) -m$(model) -I$(CC_INC) -If:\c\include -o$@
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj,$*,,$(PDCLIB)+$(LIB_DIR)\c$(model).lib;
+X        UTLFLAGS = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj,$*,,$(LIB_DIR)\c$(model).lib;
+X        MANFLAGS = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj+$(WILDARGS),$*,,$(LIB_DIR)\c$(model).lib;
+X#========================================================================
+X#========================= DOS - TCC ====================================
+X#========================================================================
+X    .ELIF $(COMP) == TCC
+X        LINK      = tlink
+X        CC        = tcc
+X        LIB_EXE   = tlib
+X        LIB_DIR   = f:\c\lib
+X        WILDARGS  = $(LIB_DIR)\wildargs.obj
+X        LIB_FLAGS = /C /E
+X        CFG       = +$(ROOTDIR)\PDCURSES.CFG
+X        DEFINES   = 
+X        .IF $(OPT) == N
+X            CDEBUG	=-N -v -y
+X            LDEBUG	=-c -v -s -l -e
+X            DBG    =d
+X        .ELSE
+X            CDEBUG	= -O -DNDEBUG
+X            LDEBUG	=
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = o$(DBG)$(model)
+X        PDCLIB   = $(model)curses$(DBG).lib
+X        LIBRSP   =,lib.map
+X        CFLAGS   = $(CFG) $(CDEBUG) $(DEFINES) -m$(model) -I$(CC_INC) -If:\c\include -o$@
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj,$*,,$(PDCLIB)+$(LIB_DIR)\c$(model).lib;
+X        UTLFLAGS = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj,$*,,$(LIB_DIR)\c$(model).lib;
+X        MANFLAGS = $(LDEBUG) $(LIB_DIR)\c0$(model).obj+$*.obj+$(WILDARGS),$*,,$(LIB_DIR)\c$(model).lib;
+X#========================================================================
+X#========================= DOS - MSC ====================================
+X#========================================================================
+X    .ELIF $(COMP) == MSC
+X        LINK      = link
+X        CC        = cl
+X        LIB_EXE   = lib
+X        SETARGV   = $(LIB)\setargv
+X        .IF $(TOS) == OS2
+X            OS2LD     = /PMTYPE:VIO
+X            DEFINES   = -D__OS2__
+X            OS2LIB    = $(LIB)\os2.lib
+X            PLUS      =+
+X            RUNBIND   = bind $*
+X        .END
+X        .IF $(OPT) == N
+X            CDEBUG =-nologo -Od -Zi -A$(MODEL)
+X            LDEBUG =/CO /NOE /SE:160 $(OS2LD)
+X            DBG    =d
+X        .ELSE
+X            CDEBUG  =-nologo -Ox -A$(MODEL) -DNDEBUG
+X            LDEBUG  = /NOE /SE:160 $(OS2LD)
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = o$(DBG)$(MODEL)
+X        PDCLIB   = $(MODEL)curses$(DBG).lib
+X        LIBRSP   =,lib.map;
+X        CFLAGS   = $(CDEBUG) $(DEFINES) -Fo$@ -c -I$(CC_INC)
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $*.obj,,,$(PDCLIB)$(PLUS)$(OS2LIB);
+X        UTLFLAGS = $(LDEBUG) $*.obj,,,$(OS2LIB);
+X        MANFLAGS = $(LDEBUG) $*.obj+$(SETARGV),,,$(OS2LIB);
+X#========================================================================
+X#========================= DOS - QC =====================================
+X#========================================================================
+X    .ELIF $(COMP) == QC
+X        LINK      = link
+X        CC        = qcc
+X        LIB_EXE   = lib
+X        SETARGV   = $(LIB)\setargv
+X        .IF $(OPT) == N
+X            CDEBUG =-Od -Zi -A$(MODEL)
+X            LDEBUG =/CO /NOE /SE:160 
+X            DBG    =d
+X        .ELSE
+X            CDEBUG  =-Ox -A$(MODEL) -DNDEBUG
+X            LDEBUG  = /NOE /SE:160 
+X            DBG     =o
+X        .END
+X        OBJ      = obj
+X        OBJ_DIR  = $(DBG)$(MODEL)
+X        PDCLIB   = $(MODEL)curses$(DBG).lib
+X        LIBRSP   =,lib.map;
+X        CFLAGS   = $(CDEBUG) $(DEFINES) -Fo$@ -c -I$(CC_INC)
+X        MAKE_LIB = $(LIB_EXE) $(PDCLIB) $(LIBFLAGS) @$(LRF)
+X        DLFLAGS  = $(LDEBUG) $*.obj,,,$(PDCLIB);
+X        UTLFLAGS = $(LDEBUG) $*.obj;
+X        MANFLAGS = $(LDEBUG) $*.obj+$(SETARGV);
+X    .END
+X.END
+X#-----------------------------------------------------------------------
+XROOTDIR   = c:\curses
+XCC_INC    = c:/curses
+XPORT_DIR  = $(ROOTDIR)\portable
+XNONP_DIR  = $(ROOTDIR)\nonport
+XPRIV_DIR  = $(ROOTDIR)\private
+XFLEX_DIR  = $(ROOTDIR)\flexos
+XTOOLS_DIR = $(ROOTDIR)\tools
+XDEMO_DIR  = $(ROOTDIR)\demos
+XDOC_DIR   = $(ROOTDIR)\doc
+XLRF       = PDCurses.lrf
+X#######################################################################
+X#<<<<<< Nothing below here should need to be changed >>>>>>>>>>>>>>>>>>
+X#######################################################################
+X#
+X#   Header Files
+X#
+XHEADERS = $(CC_INC)\curses.h $(CC_INC)\curspriv.h $(CC_INC)\cursos2.h
+X
+X#######################################################################
+X########################## First (default) target #####################
+X#######################################################################
+Xall:    $(PDCLIB) demos manual
+X#######################################################################
+X############################ Demo Programs Targets ####################
+X#######################################################################
+Xdemos:  $(PDCLIB) xmas.exe newdemo.exe testcurs.exe firework.exe
+X
+Xnewdemo.exe:    $(PDCLIB) newdemo.obj
+X	        $(LINK) $(DLFLAGS)
+X
+Xxmas.exe:       $(PDCLIC) xmas.obj
+X	        $(LINK) $(DLFLAGS)
+X
+Xtestcurs.exe:   $(PDCLIB) testcurs.obj
+X	        $(LINK) $(DLFLAGS)
+X
+Xfirework.exe:   $(PDCLIB) firework.obj
+X	        $(LINK) $(DLFLAGS)
+X
+X
+Xnewdemo.obj:   $(HEADERS) $(DEMO_DIR)\newdemo.c
+X	        $(CC) $(CFLAGS) $(DEMO_DIR)\newdemo.c
+X	        $(EMX_OMF_OBJ)
+X
+Xxmas.obj:      $(HEADERS)  $(DEMO_DIR)\xmas.c
+X	        $(CC) $(CFLAGS) $(DEMO_DIR)\xmas.c
+X	        $(EMX_OMF_OBJ)
+X
+Xtestcurs.obj:  $(HEADERS)  $(DEMO_DIR)\testcurs.c
+X	        $(CC) $(CFLAGS) $(DEMO_DIR)\testcurs.c
+X	        $(EMX_OMF_OBJ)
+X
+Xfirework.obj:  $(HEADERS)  $(DEMO_DIR)\firework.c
+X	        $(CC) $(CFLAGS) $(DEMO_DIR)\firework.c
+X	        $(EMX_OMF_OBJ)
+X
+X#######################################################################
+X######################### Utility Program  Targets ####################
+X#######################################################################
+X
+Xbuildlrf.exe:   buildlrf.obj
+X	        $(LINK) $(UTLFLAGS)
+X	        $(RUNBIND)
+X
+Xbuildlrf.obj: $(TOOLS_DIR)\buildlrf.c
+X	        $(CC) $(CFLAGS) $(TOOLS_DIR)\buildlrf.c
+X	        $(EMX_OMF_OBJ)
+X
+Xmanext.exe:   manext.obj
+X	        $(LINK) $(MANFLAGS)
+X	        $(RUNBIND)
+X
+Xmanext.obj: $(TOOLS_DIR)\manext.c
+X	        $(CC) $(CFLAGS) $(TOOLS_DIR)\manext.c
+X	        $(EMX_OMF_OBJ)
+X
+X#######################################################################
+X######################### Library Program  Targets ####################
+X#######################################################################
+X#
+X#       Portable Curses Functions
+X#
+XPORT1 = $(OBJ_DIR)\baudrate.$(OBJ) $(OBJ_DIR)\beep.$(OBJ)     $(OBJ_DIR)\box.$(OBJ)      \
+X        $(OBJ_DIR)\canchang.$(OBJ) $(OBJ_DIR)\cbreak.$(OBJ)   $(OBJ_DIR)\clearok.$(OBJ)  \
+X        $(OBJ_DIR)\colorcon.$(OBJ) $(OBJ_DIR)\def_prog.$(OBJ) $(OBJ_DIR)\def_shel.$(OBJ) \
+X        $(OBJ_DIR)\delay_ou.$(OBJ) $(OBJ_DIR)\delwin.$(OBJ)   $(OBJ_DIR)\doupdate.$(OBJ) \
+X        $(OBJ_DIR)\echo.$(OBJ)     $(OBJ_DIR)\endwin.$(OBJ)   $(OBJ_DIR)\erasecha.$(OBJ) \
+X        $(OBJ_DIR)\fixterm.$(OBJ)  $(OBJ_DIR)\flash.$(OBJ)    $(OBJ_DIR)\flushinp.$(OBJ)
+X
+XPORT2 = $(OBJ_DIR)\gettmode.$(OBJ) $(OBJ_DIR)\getyx.$(OBJ)    $(OBJ_DIR)\has_ic.$(OBJ)   \
+X        $(OBJ_DIR)\has_il.$(OBJ)   $(OBJ_DIR)\hascolor.$(OBJ) $(OBJ_DIR)\idlok.$(OBJ)    \
+X        $(OBJ_DIR)\initcolo.$(OBJ) $(OBJ_DIR)\initpair.$(OBJ) $(OBJ_DIR)\initscr.$(OBJ)  \
+X        $(OBJ_DIR)\intrflus.$(OBJ) $(OBJ_DIR)\keyname.$(OBJ)  $(OBJ_DIR)\keypad.$(OBJ)   \
+X        $(OBJ_DIR)\killchar.$(OBJ) $(OBJ_DIR)\leaveok.$(OBJ)  $(OBJ_DIR)\longname.$(OBJ) \
+X        $(OBJ_DIR)\meta.$(OBJ)     $(OBJ_DIR)\mvcur.$(OBJ)    $(OBJ_DIR)\mvprintw.$(OBJ)
+X
+XPORT3 = $(OBJ_DIR)\mvscanw.$(OBJ)  $(OBJ_DIR)\mvwin.$(OBJ)    $(OBJ_DIR)\mvwprint.$(OBJ) \
+X        $(OBJ_DIR)\mvwscanw.$(OBJ) $(OBJ_DIR)\newpad.$(OBJ)   $(OBJ_DIR)\newterm.$(OBJ)  \
+X        $(OBJ_DIR)\newwin.$(OBJ)   $(OBJ_DIR)\nl.$(OBJ)       $(OBJ_DIR)\nocbreak.$(OBJ) \
+X        $(OBJ_DIR)\nodelay.$(OBJ)  $(OBJ_DIR)\noecho.$(OBJ)   $(OBJ_DIR)\noraw.$(OBJ)    \
+X        $(OBJ_DIR)\overlay.$(OBJ)  $(OBJ_DIR)\overwrit.$(OBJ) $(OBJ_DIR)\paircont.$(OBJ) \
+X        $(OBJ_DIR)\pnoutref.$(OBJ) $(OBJ_DIR)\prefresh.$(OBJ) $(OBJ_DIR)\printw.$(OBJ)
+X
+XPORT4 = $(OBJ_DIR)\raw.$(OBJ)      $(OBJ_DIR)\refresh.$(OBJ)  $(OBJ_DIR)\reset_pr.$(OBJ) \
+X        $(OBJ_DIR)\reset_sh.$(OBJ) $(OBJ_DIR)\resetter.$(OBJ) $(OBJ_DIR)\resetty.$(OBJ)  \
+X        $(OBJ_DIR)\saveoldt.$(OBJ) $(OBJ_DIR)\saveterm.$(OBJ) $(OBJ_DIR)\savetty.$(OBJ)  \
+X        $(OBJ_DIR)\scanw.$(OBJ)    $(OBJ_DIR)\scroll.$(OBJ)   $(OBJ_DIR)\scrollok.$(OBJ) \
+X        $(OBJ_DIR)\set_term.$(OBJ) $(OBJ_DIR)\setscrrg.$(OBJ) $(OBJ_DIR)\standend.$(OBJ) \
+X        $(OBJ_DIR)\standout.$(OBJ) $(OBJ_DIR)\startcol.$(OBJ) $(OBJ_DIR)\subwin.$(OBJ)
+X
+XPORT5 = $(OBJ_DIR)\touchlin.$(OBJ) $(OBJ_DIR)\touchwin.$(OBJ) $(OBJ_DIR)\typeahea.$(OBJ) \
+X        $(OBJ_DIR)\unctrl.$(OBJ)   $(OBJ_DIR)\ungetch.$(OBJ)  $(OBJ_DIR)\waddch.$(OBJ)   \
+X        $(OBJ_DIR)\waddstr.$(OBJ)  $(OBJ_DIR)\wattroff.$(OBJ) $(OBJ_DIR)\wattron.$(OBJ)  \
+X        $(OBJ_DIR)\wattrset.$(OBJ) $(OBJ_DIR)\wclear.$(OBJ)   $(OBJ_DIR)\wclrtobo.$(OBJ) \
+X        $(OBJ_DIR)\wclrtoeo.$(OBJ) $(OBJ_DIR)\wdelch.$(OBJ)   $(OBJ_DIR)\wdeletel.$(OBJ) \
+X        $(OBJ_DIR)\werase.$(OBJ)   $(OBJ_DIR)\wgetch.$(OBJ)   $(OBJ_DIR)\wgetstr.$(OBJ)
+X
+XPORT6 = $(OBJ_DIR)\winch.$(OBJ)    $(OBJ_DIR)\winsch.$(OBJ)   $(OBJ_DIR)\winsertl.$(OBJ) \
+X        $(OBJ_DIR)\wmove.$(OBJ)    $(OBJ_DIR)\wnoutref.$(OBJ) $(OBJ_DIR)\wprintw.$(OBJ)  \
+X        $(OBJ_DIR)\wrefresh.$(OBJ) $(OBJ_DIR)\wscanw.$(OBJ)   $(OBJ_DIR)\wsetscrr.$(OBJ) \
+X        $(OBJ_DIR)\wstanden.$(OBJ) $(OBJ_DIR)\wstandou.$(OBJ) $(OBJ_DIR)\curs_set.$(OBJ)
+X
+XPORTABLE = $(PORT1) $(PORT2) $(PORT3) $(PORT4) $(PORT5) $(PORT6)
+X
+X#
+X#               Non-portable PDCurses Functions
+X#
+XNONPORT = $(OBJ_DIR)\border.$(OBJ)   $(OBJ_DIR)\breakcha.$(OBJ) $(OBJ_DIR)\cursoff.$(OBJ)  \
+X          $(OBJ_DIR)\curson.$(OBJ)   $(OBJ_DIR)\mvwinser.$(OBJ) $(OBJ_DIR)\rawout.$(OBJ)   \
+X          $(OBJ_DIR)\resize.$(OBJ)   $(OBJ_DIR)\resizew.$(OBJ)  $(OBJ_DIR)\tabsize.$(OBJ)  \
+X          $(OBJ_DIR)\waddraws.$(OBJ) $(OBJ_DIR)\wborder.$(OBJ)  $(OBJ_DIR)\wbox.$(OBJ)     \
+X          $(OBJ_DIR)\winprint.$(OBJ) $(OBJ_DIR)\wordchar.$(OBJ) $(OBJ_DIR)\wtabsize.$(OBJ)
+X
+X#
+X#               Private (Internal) PDCurses Functions
+X#
+XPRIV1 = $(OBJ_DIR)\_addtail.$(OBJ) $(OBJ_DIR)\_addwin.$(OBJ)  $(OBJ_DIR)\_backchr.$(OBJ) \
+X        $(OBJ_DIR)\_cattr.$(OBJ)   $(OBJ_DIR)\_chadd.$(OBJ)   $(OBJ_DIR)\_chgattr.$(OBJ) \
+X        $(OBJ_DIR)\_chins.$(OBJ)   $(OBJ_DIR)\_ckbiosk.$(OBJ) $(OBJ_DIR)\_clrscr.$(OBJ)  \
+X        $(OBJ_DIR)\_clrupda.$(OBJ) $(OBJ_DIR)\_findwin.$(OBJ) $(OBJ_DIR)\_fixcurs.$(OBJ)
+X
+XPRIV2 = $(OBJ_DIR)\_gbiosky.$(OBJ) $(OBJ_DIR)\_gcrspos.$(OBJ) $(OBJ_DIR)\_gcurcol.$(OBJ) \
+X        $(OBJ_DIR)\_gcurrow.$(OBJ) $(OBJ_DIR)\_getattr.$(OBJ) $(OBJ_DIR)\_getcbrk.$(OBJ) \
+X        $(OBJ_DIR)\_getcols.$(OBJ) $(OBJ_DIR)\_getcrsr.$(OBJ) $(OBJ_DIR)\_getfont.$(OBJ) \
+X        $(OBJ_DIR)\_getrows.$(OBJ) $(OBJ_DIR)\_getscrn.$(OBJ) $(OBJ_DIR)\_gotoxy.$(OBJ)
+X
+XPRIV3 = $(OBJ_DIR)\_inswin.$(OBJ)  $(OBJ_DIR)\_makenew.$(OBJ) $(OBJ_DIR)\_newline.$(OBJ) \
+X        $(OBJ_DIR)\_print.$(OBJ)   $(OBJ_DIR)\_putc.$(OBJ)    $(OBJ_DIR)\_putctty.$(OBJ) \
+X        $(OBJ_DIR)\_queryad.$(OBJ) $(OBJ_DIR)\_rawgetc.$(OBJ) $(OBJ_DIR)\_rmwin.$(OBJ)   \
+X        $(OBJ_DIR)\_sanity.$(OBJ)  $(OBJ_DIR)\_scb.$(OBJ)     $(OBJ_DIR)\_scrclos.$(OBJ)
+X
+XPRIV4 = $(OBJ_DIR)\_scrnmod.$(OBJ) $(OBJ_DIR)\_scroll.$(OBJ)  $(OBJ_DIR)\_scropen.$(OBJ) \
+X        $(OBJ_DIR)\_set8025.$(OBJ) $(OBJ_DIR)\_setcrsr.$(OBJ) $(OBJ_DIR)\_setfont.$(OBJ) \
+X        $(OBJ_DIR)\_setrows.$(OBJ) $(OBJ_DIR)\_setscrn.$(OBJ) $(OBJ_DIR)\_sgetnl.$(OBJ)  \
+X        $(OBJ_DIR)\_splitpl.$(OBJ) $(OBJ_DIR)\_sysgetc.$(OBJ) $(OBJ_DIR)\_validch.$(OBJ) \
+X        $(OBJ_DIR)\_xfrmlin.$(OBJ) $(OBJ_DIR)\_vsscanf.$(OBJ)
+X
+XPRIVATE = $(PRIV1) $(PRIV2) $(PRIV3) $(PRIV4)
+X
+X#
+X#       PDCurses function specific to the FlexOS Operating System
+X#
+X#FLEXOS = $(OBJ_DIR)\_16bitmo.$(OBJ) $(OBJ_DIR)\_8bitmod.$(OBJ) $(OBJ_DIR)\_gname.$(OBJ)
+X
+X
+X$(PDCLIB): buildlrf.exe $(HEADERS) $(PORTABLE) $(NONPORT) $(PRIVATE)
+X	        +echo $(LIBRSP) >> $(LRF)
+X	        $(MAKE_LIB)
+X	        $(EMX_OMF_LIB)
+X	        +if exist $(LRF) del $(LRF)
+X
+X#
+X#       Refresh library response file and build library
+X#
+Xlib:    $(PDCLIB)
+X	        +if exist $(PDCLIB) del $(PDCLIB)
+X	        +if exist $(LRF) del $(LRF)
+X	        +for %%f in ($(OBJ_DIR)\*.obj) do buildlrf +%%f $(LRF)
+X	        +echo $(LIBRSP) >> $(LRF)
+X	        $(MAKE_LIB)
+X	        $(EMX_OMF_LIB)
+X	        +if exist $(LRF) del $(LRF)
+X
+X#
+X#       Object Module Targets
+X#
+XADDLRF =buildlrf -+$@ $(LRF)
+X
+X# PORTABLE
+X$(OBJ_DIR)\%.$(OBJ): $(PORT_DIR)/%.c 
+X	          +-mkdir $(OBJ_DIR)
+X	          $(CC) $(CFLAGS) $<
+X	          -$(ADDLRF)
+X
+X# NONPORT
+X
+X$(OBJ_DIR)\%.$(OBJ): $(NONP_DIR)/%.c 
+X	          +-mkdir $(OBJ_DIR)
+X	            $(CC) $(CFLAGS) $<
+X	            -$(ADDLRF)
+X
+X# PRIVATE
+X
+X$(OBJ_DIR)\%.$(OBJ): $(PRIV_DIR)/%.c 
+X	          +-mkdir $(OBJ_DIR)
+X	          $(CC) $(CFLAGS) $<
+X	          -$(ADDLRF)
+X
+X
+X# FLEXOS
+X
+X#$(OBJ_DIR)\%.$(OBJ): $(FLEX_DIR)/%.c
+X#	          +-mkdir $(OBJ_DIR)
+X#	          $(CC) $(CFLAGS) $<
+X#	          -$(ADDLRF)
+X
+X#######################################################################
+X######################### Documentation Targets #######################
+X#######################################################################
+X
+Xmanual:		$(DOC_DIR)\intro.man	$(DOC_DIR)\overview.man	$(DOC_DIR)\todo.man manext.exe
+X	manext $(DOC_DIR)\intro.man 			> PDCurses.man
+X	manext $(DOC_DIR)\overview.man 			>> PDCurses.man
+X	+echo .......=================================== >> PDCurses.man
+X	+echo .......PDCurses Definitions and Variables:	>> PDCurses.man
+X	+echo .......=================================== >> PDCurses.man
+X	manext $(CC_INC)\curses.h $(FFLAGS)	>> PDCurses.man
+X	+echo .......============================ >> PDCurses.man
+X	+echo .......Portable PDCurses Functions:		>> PDCurses.man
+X	+echo .......============================ >> PDCurses.man
+X	manext $(ROOTDIR)\portable\*.c >> PDCurses.man
+X	+echo .......================================ >> PDCurses.man
+X	+echo .......Non-portable PDCurses Functions:		>> PDCurses.man
+X	+echo .......================================ >> PDCurses.man
+X	manext $(ROOTDIR)\nonport\*.c >> PDCurses.man
+X	+echo .......============================ >> PDCurses.man
+X	+echo .......Internal PDCurses Functions:		>> PDCurses.man
+X	+echo .......============================ >> PDCurses.man
+X	manext $(ROOTDIR)\private\*.c >> PDCurses.man
+X	+echo .......========================== >> PDCurses.man
+X	+echo .......PDCurses Flexos Functions:		>> PDCurses.man
+X	+echo .......========================== >> PDCurses.man
+X	manext $(ROOTDIR)\flexos\*.c >> PDCurses.man
+X	+echo .......======================== >> PDCurses.man
+X	+echo .......Functions not supported:		>> PDCurses.man
+X	+echo .......======================== >> PDCurses.man
+X	manext $(DOC_DIR)\todo.man 			>> PDCurses.man
+X
+X#######################################################################
+X######################### Maintenance Targets #########################
+X#######################################################################
+Xclean:
+X	+del PDCurses.ar? > NUL:
+X	+del $(OBJ_DIR)\*.obj
+X
+Xzoo:
+X	zoo a pdcurs20 $(ROOTDIR)\readme $(ROOTDIR)\makefile $(HEADERS)
+X	zoo a pdcurs20 $(DOC_DIR)\*.man
+X	zoo a pdcurs20 $(PORT_DIR)\*.c $(NONP_DIR)\*.c $(PRIV_DIR)\*.c
+X	zoo a pdcurs20 $(FLEX_DIR)\*.c $(DEMO_DIR)\*.c $(DEMO_DIR)\*.def
+X	zoo a pdcurs20 $(TOOLS_DIR)\*.c $(TOOLS_DIR)\*.def $(ROOTDIR)\pdcurses.cfg
+X
+Xzip:
+X	zip pdcurs20 $(ROOTDIR)\readme $(ROOTDIR)\makefile $(HEADERS) 
+X	zip pdcurs20 $(DOC_DIR)\*.man
+X	zip pdcurs20 $(PORT_DIR)\*.c $(NONP_DIR)\*.c $(PRIV_DIR)\*.c
+X	zip pdcurs20 $(FLEX_DIR)\*.c $(DEMO_DIR)\*.c $(DEMO_DIR)\*.def
+X	zip pdcurs20 $(TOOLS_DIR)\*.c $(TOOLS_DIR)\*.def $(ROOTDIR)\pdcurses.cfg
+END_OF_FILE
+  if test 22856 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+  fi
+  # end of 'makefile'
+fi
+if test -f 'private/_setrows.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_setrows.c'\"
+else
+  echo shar: Extracting \"'private/_setrows.c'\" \(2085 characters\)
+  sed "s/^X//" >'private/_setrows.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef NDEBUG
+Xchar *rcsid__setrows = "$Header: c:/curses/private/RCS/_setrows.c%v 2.0 1992/11/15 03:24:37 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_set_rows()	- sets the physical number of rows on screen
+X
+X  PDCurses Description:
+X 	This is a private PDCurses function.
+X
+X 	This routine attempts to set the number of rows on the physical
+X 	screen to the passed value.
+X
+X  PDCurses Return Value:
+X 	This function returns OK upon success otherwise ERR is returned.
+X
+X  PDCurses Errors:
+X 	It is an error to attempt to change the screen size on a "bogus"
+X 	adapter.  The reason for this is that we have a known video
+X 	adapter identity problem.  e.g. Two adapters report the same
+X 	identifying characteristics.
+X
+X 	It is also an error to attempt to change the size of the Flexos
+X 	console (as there is currently no support for that).
+X
+X  Portability:
+X 	PDCurses	int	PDC_set_rows( int rows );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_set_rows(int rows)
+X{
+X#ifdef	FLEXOS
+X	return( ERR );
+X#endif
+X#ifdef	DOS
+X	if (_cursvar.bogus_adapter)
+X		return( ERR );
+X
+X	switch (_cursvar.adapter)
+X	{
+X	case _EGACOLOR:
+X	case _EGAMONO:
+X		if (rows < 43)
+X			PDC_set_font(_FONT14);
+X		else
+X			PDC_set_font(_FONT8);
+X		break;
+X
+X	case _VGACOLOR:
+X	case _VGAMONO:
+X		if (rows < 28)
+X			PDC_set_font(_FONT16);
+X		else
+X		if (rows < 50)
+X			PDC_set_font(_FONT14);
+X		else
+X			PDC_set_font(_FONT8);
+X		break;
+X
+X	case _MCGACOLOR:
+X	case _MCGAMONO:
+X	case _MDA:
+X	case _CGA:
+X	case _MDS_GENIUS:
+X	default:
+X		break;
+X	}
+X	_cursvar.font = PDC_get_font();
+X	LINES = PDC_get_rows();
+X	COLS = PDC_get_columns();
+X	return( OK );
+X#endif
+X#ifdef	OS2
+X	VIOMODEINFO modeInfo;
+X	USHORT result;
+X
+X	modeInfo.cb = sizeof(modeInfo);
+X	/* set most parameters of modeInfo */
+X	VioGetMode(&modeInfo, 0);
+X	modeInfo.fbType = 1;
+X	modeInfo.row = rows;
+X	result = VioSetMode(&modeInfo, 0);
+X	_cursvar.font = PDC_get_font();
+X	LINES = PDC_get_rows();
+X	COLS = PDC_get_columns();
+X	return ((result == 0) ? OK : ERR);
+X#endif
+X}
+END_OF_FILE
+  if test 2085 -ne `wc -c <'private/_setrows.c'`; then
+    echo shar: \"'private/_setrows.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_setrows.c'
+fi
+if test -f 'private/_validch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_validch.c'\"
+else
+  echo shar: Extracting \"'private/_validch.c'\" \(8570 characters\)
+  sed "s/^X//" >'private/_validch.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__validch = "$Header: c:/curses/private/RCS/_validch.c%v 2.0 1992/11/15 03:24:39 MH Rel $";
+X#endif
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X*	Table for key code translation of function keys in keypad mode
+X*	These values are for strict IBM keyboard compatibles only
+X**man-end**********************************************************************/
+X
+X
+X#if	defined (DOS) || defined (OS2)
+Xstatic chtype kptab[] =
+X{
+X /* Normal Function Keys	 */
+X 0x3b, KEY_F(1), 0x3c, KEY_F(2), 0x3d, KEY_F(3), 0x3e, KEY_F(4),
+X 0x3f, KEY_F(5), 0x40, KEY_F(6), 0x41, KEY_F(7), 0x42, KEY_F(8),
+X 0x43, KEY_F(9), 0x44, KEY_F(10),
+X
+X /* Normal Keypad		 */
+X 0x47, KEY_HOME, 0x48, KEY_UP,   0x49, KEY_PPAGE,
+X 0x4b, KEY_LEFT, 0x4c, KEY_B2,   0x4d, KEY_RIGHT,
+X 0x4f, KEY_END,  0x50, KEY_DOWN, 0x51, KEY_NPAGE,
+X 0x52, KEY_IC,   0x53, KEY_DC,
+X
+X /* Shft-Function Keys	 */
+X 0x54, KEY_F(11), 0x55, KEY_F(12), 0x56, KEY_F(13), 0x57, KEY_F(14),
+X 0x58, KEY_F(15), 0x59, KEY_F(16), 0x5a, KEY_F(17), 0x5b, KEY_F(18),
+X 0x5c, KEY_F(19), 0x5d, KEY_F(20),
+X
+X /* Ctl-Function Keys	 */
+X 0x5e, KEY_F(21), 0x5f, KEY_F(22), 0x60, KEY_F(23), 0x61, KEY_F(24),
+X 0x62, KEY_F(25), 0x63, KEY_F(26), 0x64, KEY_F(27), 0x65, KEY_F(28),
+X 0x66, KEY_F(29), 0x67, KEY_F(30),
+X
+X /* Alt-Function Keys	 */
+X 0x68, KEY_F(31), 0x69, KEY_F(32), 0x6a, KEY_F(33), 0x6b, KEY_F(34),
+X 0x6c, KEY_F(35), 0x6d, KEY_F(36), 0x6e, KEY_F(37), 0x6f, KEY_F(38),
+X 0x70, KEY_F(39), 0x71, KEY_F(40),
+X
+X /* Control-Keypad		 */
+X 0x77, CTL_HOME, 0x84, CTL_PGUP,
+X 0x73, CTL_LEFT, 0x74, CTL_RIGHT,
+X 0x75, CTL_END, 0x76, CTL_PGDN,
+X
+X /* Alt-Numbers		 */
+X 0x78, ALT_1, 0x79, ALT_2, 0x7a, ALT_3, 0x7b, ALT_4,
+X 0x7c, ALT_5, 0x7d, ALT_6, 0x7e, ALT_7, 0x7f, ALT_8,
+X 0x80, ALT_9, 0x81, ALT_0,
+X
+X /* Extended codes		 */
+X 0x85, KEY_F(41), 0x86, KEY_F(42), 0x87, KEY_F(43), 0x88, KEY_F(44),
+X 0x89, KEY_F(45), 0x8a, KEY_F(46), 0x8b, KEY_F(47), 0x8c, KEY_F(48),
+X 0x03, 0, /* NULL */
+X 0xff, PADSLASH,     0x0d, PADENTER,      0x0a, CTL_PADENTER,
+X 0xa6, ALT_PADENTER, 0x53, SHF_PADSTOP,   0xfc, CTL_ENTER,
+X 0xfa, PADSTAR,      0xfd, PADMINUS,      0xfb, PADPLUS,
+X 0x93, CTL_PADSTOP,  0x8f, CTL_PADCENTER, 0x90, CTL_PADPLUS,
+X 0x8e, CTL_PADMINUS, 0x95, CTL_PADSLASH,  0x96, CTL_PADSTAR,
+X 0x4e, ALT_PADPLUS,  0x4a, ALT_PADMINUS,  0xa4, ALT_PADSLASH,
+X 0x37, ALT_PADSTAR,  0x92, CTL_INS,       0xa2, ALT_INS,
+X 0xa3, ALT_DEL,      0x8d, CTL_UP,        0x91, CTL_DOWN,
+X 0x94, CTL_TAB,      0xa5, ALT_TAB,       0x82, ALT_MINUS,
+X 0x83, ALT_EQUAL,    0x99, ALT_PGUP,      0xa1, ALT_PGDN,
+X 0x9f, ALT_END,      0x98, ALT_UP,        0xa0, ALT_DOWN,
+X 0x9d, ALT_RIGHT,    0x9b, ALT_LEFT,      0x1c, ALT_ENTER,
+X 0x97, ALT_HOME,     0x01, ALT_ESC,       0x0e, ALT_BKSP,
+X 0x29, ALT_BQUOTE,   0x1a, ALT_LBRACKET,  0x1b, ALT_RBRACKET,
+X 0x27, ALT_SEMICOLON,0x28, ALT_FQUOTE,    0x33, ALT_COMMA,
+X 0x34, ALT_STOP,     0x35, ALT_FSLASH,    0x2b, ALT_BSLASH,
+X
+X /* Alt-Alphabet		 */
+X 0x1e, ALT_A, 0x30, ALT_B, 0x2e, ALT_C, 0x20, ALT_D,
+X 0x12, ALT_E, 0x21, ALT_F, 0x22, ALT_G, 0x23, ALT_H,
+X 0x17, ALT_I, 0x24, ALT_J, 0x25, ALT_K, 0x26, ALT_L,
+X 0x32, ALT_M, 0x31, ALT_N, 0x18, ALT_O, 0x19, ALT_P,
+X 0x10, ALT_Q, 0x13, ALT_R, 0x1f, ALT_S, 0x14, ALT_T,
+X 0x16, ALT_U, 0x2f, ALT_V, 0x11, ALT_W, 0x2d, ALT_X,
+X 0x15, ALT_Y, 0x2c, ALT_Z,
+X
+X 0x0f, KEY_BACKTAB,
+X
+X /* End of kptab[]		 */
+X 0x100, -1
+X};
+X#endif
+X
+X
+X
+X
+X#ifdef	FLEXOS
+Xchtype	kptab[] =
+X{
+X /* Normal Function Keys	 */
+X 0x1001, KEY_F(1), 0x1002, KEY_F(2), 0x1003, KEY_F(3), 0x1004, KEY_F(4),
+X 0x1005, KEY_F(5), 0x1006, KEY_F(6), 0x1007, KEY_F(7), 0x1008, KEY_F(8),
+X 0x1009, KEY_F(9), 0x100A, KEY_F(10),
+X
+X /* Normal Keypad		 */
+X 0x2018, KEY_HOME, 0x2010, KEY_UP, 0x2014, KEY_PPAGE,
+X 0x2012, KEY_LEFT, 0x2035, KEY_B2, 0x2013, KEY_RIGHT,
+X 0x2008, KEY_LL, 0x2011, KEY_DOWN, 0x2015, KEY_NPAGE,
+X 0x2009, KEY_IC, 0x200A, KEY_DC,
+X
+X /* Shft-Function Keys	 */
+X 0x1401, KEY_F(11), 0x1402, KEY_F(12), 0x1403, KEY_F(13), 0x1404, KEY_F(14),
+X 0x1405, KEY_F(15), 0x1406, KEY_F(16), 0x1407, KEY_F(17), 0x1408, KEY_F(18),
+X 0x1409, KEY_F(19), 0x140A, KEY_F(20),
+X
+X /* Ctl-Function Keys	 */
+X 0x1101, KEY_F(21), 0x1102, KEY_F(22), 0x1103, KEY_F(23), 0x1104, KEY_F(24),
+X 0x1105, KEY_F(25), 0x1106, KEY_F(26), 0x1107, KEY_F(27), 0x1108, KEY_F(28),
+X 0x1109, KEY_F(29), 0x110A, KEY_F(30),
+X
+X /* Alt-Function Keys	 */
+X 0x1201, KEY_F(31), 0x1202, KEY_F(32), 0x1203, KEY_F(33), 0x1204, KEY_F(34),
+X 0x1205, KEY_F(35), 0x1206, KEY_F(36), 0x1207, KEY_F(37), 0x1208, KEY_F(38),
+X 0x1209, KEY_F(39), 0x120A, KEY_F(40),
+X
+X /* Control-Keypad		 */
+X 0x2118, CTL_HOME, 0x2114, CTL_PGUP,
+X 0x2112, CTL_LEFT, 0x2113, CTL_RIGHT,
+X 0x2108, CTL_END, 0x2115, CTL_PGDN,
+X
+X /* Alt-Numbers		 */
+X 0x2231, ALT_1, 0x2232, ALT_2, 0x2233, ALT_3, 0x2234, ALT_4,
+X 0x2235, ALT_5, 0x2236, ALT_6, 0x2237, ALT_7, 0x2238, ALT_8,
+X 0x2239, ALT_9, 0x2230, ALT_0,
+X
+X /* Alt-Alphabet		 */
+X 0x0200 | (unsigned) 'A', ALT_A, 0x0200 | (unsigned) 'B', ALT_B,
+X 0x0200 | (unsigned) 'C', ALT_C, 0x0200 | (unsigned) 'D', ALT_D,
+X 0x0200 | (unsigned) 'E', ALT_E, 0x0200 | (unsigned) 'F', ALT_F,
+X 0x0200 | (unsigned) 'G', ALT_G, 0x0200 | (unsigned) 'H', ALT_H,
+X 0x0200 | (unsigned) 'I', ALT_I, 0x0200 | (unsigned) 'J', ALT_J,
+X 0x0200 | (unsigned) 'K', ALT_K, 0x0200 | (unsigned) 'L', ALT_L,
+X 0x0200 | (unsigned) 'M', ALT_M, 0x0200 | (unsigned) 'N', ALT_N,
+X 0x0200 | (unsigned) 'O', ALT_O, 0x0200 | (unsigned) 'P', ALT_P,
+X 0x0200 | (unsigned) 'Q', ALT_Q, 0x0200 | (unsigned) 'R', ALT_R,
+X 0x0200 | (unsigned) 'S', ALT_S, 0x0200 | (unsigned) 'T', ALT_T,
+X 0x0200 | (unsigned) 'U', ALT_U, 0x0200 | (unsigned) 'V', ALT_V,
+X 0x0200 | (unsigned) 'W', ALT_W, 0x0200 | (unsigned) 'X', ALT_X,
+X 0x0200 | (unsigned) 'Y', ALT_Y, 0x0200 | (unsigned) 'Z', ALT_Z,
+X
+X 0x0200 | (unsigned) 'a', ALT_A, 0x0200 | (unsigned) 'b', ALT_B,
+X 0x0200 | (unsigned) 'c', ALT_C, 0x0200 | (unsigned) 'd', ALT_D,
+X 0x0200 | (unsigned) 'e', ALT_E, 0x0200 | (unsigned) 'f', ALT_F,
+X 0x0200 | (unsigned) 'g', ALT_G, 0x0200 | (unsigned) 'h', ALT_H,
+X 0x0200 | (unsigned) 'i', ALT_I, 0x0200 | (unsigned) 'j', ALT_J,
+X 0x0200 | (unsigned) 'k', ALT_K, 0x0200 | (unsigned) 'l', ALT_L,
+X 0x0200 | (unsigned) 'm', ALT_M, 0x0200 | (unsigned) 'n', ALT_N,
+X 0x0200 | (unsigned) 'o', ALT_O, 0x0200 | (unsigned) 'p', ALT_P,
+X 0x0200 | (unsigned) 'q', ALT_Q, 0x0200 | (unsigned) 'r', ALT_R,
+X 0x0200 | (unsigned) 's', ALT_S, 0x0200 | (unsigned) 't', ALT_T,
+X 0x0200 | (unsigned) 'u', ALT_U, 0x0200 | (unsigned) 'v', ALT_V,
+X 0x0200 | (unsigned) 'w', ALT_W, 0x0200 | (unsigned) 'x', ALT_X,
+X 0x0200 | (unsigned) 'y', ALT_Y, 0x0200 | (unsigned) 'z', ALT_Z,
+X
+X 0x0f, KEY_BACKTAB,
+X
+X /* End of kptab[]		 */
+X 0x100, -1
+X};
+X#endif
+X
+X
+X
+X
+X/*----------------------------------------------------------------------
+X$ PDC_validchar()	- validate/translate passed character
+X$
+X$ PDCurses Description:
+X$	This is a private PDCurses function.
+X$
+X$	Checks that 'c' is a valid character, and if so returns it,
+X$	with function key translation applied if 'w' has keypad mode
+X$	set.  If char is invalid, returns -1.
+X$
+X$ PDCurses Return Value:
+X$	This function returns -1 if the passed character is invalid, or
+X$	the WINDOW* 'w' is NULL, or 'w's keypad is not active.
+X$
+X$	This function returns 0 under Flexos if the passed character
+X$	is 0x0300.  (-:Forget why.  --Frotz	911130:-)
+X$
+X$	Otherwise, this function returns the PDCurses equivalent of the
+X$	passed character.  See the function key and key macros in
+X$	<curses.h>
+X$
+X$ PDCurses Errors:
+X$	There are no errors defined for this routine.
+X$
+X$ Portability:
+X$	PDCurses	chtype	PDC_validchar( chtype c );
+X$
+X$----------------------------------------------------------------------
+X*/
+Xchtype	PDC_validchar(chtype c)
+X{
+Xextern	WINDOW*	_getch_win_;
+X/* extern	WINDOW*	w;*/   /* w defined in wgetch() as static - _getch_win_ */
+X                        /* is the same window - all references to w changed*/
+X                        /* to _getch_win_ - marked with @@ */
+X
+X	chtype    *scanp;
+X
+X	if (_getch_win_ == (WINDOW *)NULL)
+X		return (-1);	/* bad window pointer	  */
+X
+X#ifdef	FLEXOS
+X	if (c == 0x0300)
+X		return (0);	/* special case, ^@ = NULL	  */
+X#endif
+X	if (!(c & ~A_CHARTEXT))	return (c);  /* normal character */
+X	if (!(_getch_win_->_use_keypad))	return (-1); /* skip if keys if !keypad mode */
+X
+X#if	defined (DOS) || defined (OS2)
+X	/*
+X	* Under DOS, extended keys are in the upper byte.  Shift down for a
+X	* comparison.
+X	*/
+X	c = (c >> 8) & A_CHARTEXT;
+X#endif
+X	scanp = kptab;
+X	while (*scanp > 0)	/* search for value		 */
+X	{			/* (stops on table entry 0x100) */
+X		if (*scanp++ == c)
+X		{
+X			return (*scanp);	/* found, return it */
+X		}
+X		scanp++;
+X	}
+X	return( -1 );		/* not found, invalid */
+X}
+END_OF_FILE
+  if test 8570 -ne `wc -c <'private/_validch.c'`; then
+    echo shar: \"'private/_validch.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_validch.c'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1937 @@
+From: Peter Jannesen <peter@ncs.nl>
+Subject: v02i025: ncompress - (Ver. 4.2.3) an improved file compressor, Part01/02
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Peter Jannesen <peter@ncs.nl>
+Posting-number: Volume 2, Issue 25
+Archive-name: ncompress/part01
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  Acknowleds Changes LZW.INFO MANIFEST Makefile.def README
+#   build compress.1 patchlevel.h zcmp zcmp.1 zdiff zmore zmore.1
+# Wrapped by csr@calvin.dgbt.doc.ca on Wed Aug  5 18:27:11 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Acknowleds' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Acknowleds'\"
+else
+echo shar: Extracting \"'Acknowleds'\" \(685 characters\)
+sed "s/^X//" >'Acknowleds' <<'END_OF_FILE'
+XAcknowledgments:
+X
+X(N)compress, Version 4.2
+X
+XThanks to the previous authors whom I didn't contact, for making
+Xthe program available originally.
+X   Spencer W. Thomas   (decvax!harpo!utah-cs!utah-gr!thomas)
+X   Jim McKie           (decvax!mcvax!jim)
+X   Steve Davies        (decvax!vax135!petsd!peora!srd)
+X   Ken Turkowski       (decvax!decwrl!turtlevax!ken)
+X   James A. Woods      (decvax!ihnp4!ames!jaw)
+X   Joe Orost           (decvax!vax135!petsd!joe)
+X   Dave Mack           (csu@alembic.acs.com)
+X
+XAlso thanks to Frans Meulenbroeks, Jan Christiaan van Winkel,
+XPeter van Hooft and the testers of comp.sources.reveiwed for testing
+Xthis version on different platforms.
+X 
+X-- 
+XPeter Jannesen
+END_OF_FILE
+if test 685 -ne `wc -c <'Acknowleds'`; then
+    echo shar: \"'Acknowleds'\" unpacked with wrong size!
+fi
+# end of 'Acknowleds'
+fi
+if test -f 'Changes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Changes'\"
+else
+echo shar: Extracting \"'Changes'\" \(3214 characters\)
+sed "s/^X//" >'Changes' <<'END_OF_FILE'
+X(N)compress cersion 4.2.2
+X	Minor changes after the reviewes from comp.sources.reviewed
+X	o Change the name to ncompress because of version problems.
+X	o Start all scripts with ':'
+X	o Added libary options to buidl script.
+X	o Install zmore zcmp zdiff and manuals.
+X	o Added patchlevel.h
+X	o Updated README file. Created LZW.INFO
+X	o a complete grammatical go-round
+X	o Use utime.h if availble
+X	o Change de default input/output buffer size to BUFSIZ. Because
+X	  of performance problems with read a head on systems.
+X	o Build generates a makefile.
+X
+Xcompress version 4.2.1 improvements
+X	o Change the name to ncompress because of version problems.
+X	o Completly rewrite of the compress and decompress functions.
+X	  compress speedup 25-50% (user cpu time).
+X	  decompress speedup 20-30% (user cpu time).
+X    o Add special fast compress hash algorithm.
+X	o Fix some minor things.
+X	o use #include <utime.h> if availble.
+X	o Cleanup the source code (I think so).
+X	o Test if filename is not to long. This is done on runtime no fix length
+X      size any more.
+X	o Powerfull build script (test almost every thing).
+X
+XModifications for version 4.1: 
+X	o Added -r command line flag to allow recursive compression/
+X	  decompression of directory trees. As a side-effect, compress
+X	  no longer tries to compress/decompress anything that isn't
+X	  a regular file. In particular, it ignores symbolic links.
+X	o zcat no longer cares whether a filename ends in .Z or
+X	  not - it relies on the magic number in the file. If zcat
+X	  is given a filename that doesn't end with .Z and the file
+X	  referenced doesn't exist, zcat will append a .Z and try
+X	  to open that instead.
+X	o compress -f will now compress multiply hardlinked files.
+X	  Uncompress does not recreate the hard link, it creates
+X	  a new file.
+X	o Removed compressdir/uncompressdir - no longer needed.
+X	o Removed atob/btoa/tarmail/untarmail - my versions are
+X	  based on btoa 5.2 which is not compatible with the atob
+X	  included with compress4.0.
+X
+XCompress version 4.0 improvements:
+X	o compress() speedup (10-50%) by changing division hash to xor
+X	o decompress() speedup (5-10%)
+X	o Memory requirements reduced (3-30%)
+X	o Stack requirements reduced to less than 4kb
+X	o Removed 'Big+Fast' compress code (FBITS) because of compress speedup
+X	o Portability mods for Z8000 and PC/XT (but not zeus 3.2)
+X	o Default to 'quiet' mode
+X	o Unification of 'force' flags
+X	o Manual page overhaul
+X	o Portability enhancement for M_XENIX
+X	o Removed text on #else and #endif
+X	o Added "-V" switch to print version and options
+X	o Added #defines for SIGNED_COMPARE_SLOW
+X	o Added Makefile and "usermem" program
+X	o Removed all floating point computations
+X	o New programs:
+X		compressdir - compress all files on a directory
+X		uncompressdir - uncompress all files on a directory
+X		zcmp - cmp compressed files
+X		zdiff - diff compressed files
+X	  The following are with thanks to philabs!per:
+X		btoa - convert binary to ascii for mailing
+X		atob - convert ascii to binary with checksum
+X		tarmail - tar, compress, btoa, and mail files
+X		untarmail - restore "tarmail" files
+X
+X		WARNING: These last few programs are not compatible 
+X		with the original ones from the net.  The encoding
+X		has changed.  See btoa.c for more info.
+X
+END_OF_FILE
+if test 3214 -ne `wc -c <'Changes'`; then
+    echo shar: \"'Changes'\" unpacked with wrong size!
+fi
+# end of 'Changes'
+fi
+if test -f 'LZW.INFO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'LZW.INFO'\"
+else
+echo shar: Extracting \"'LZW.INFO'\" \(4347 characters\)
+sed "s/^X//" >'LZW.INFO' <<'END_OF_FILE'
+XThe following article from James A. Woods, one of the earlier
+Xauthors of compress, explains its relationship to the Unisys
+Xpatent on the LZW compression method:
+X
+XFrom uunet!zephyr.ens.tek.com!uw-beaver!mit-eddie!wuarchive!usc!ucsd!ucbvax!agate!riacs!jaw Wed Aug  1 15:06:59 EDT 1990
+XArticle: 1282 of gnu.misc.discuss
+XPath: alembic!uunet!zephyr.ens.tek.com!uw-beaver!mit-eddie!wuarchive!usc!ucsd!ucbvax!agate!riacs!jaw
+XFrom: jaw@riacs.edu (James A. Woods)
+XNewsgroups: gnu.misc.discuss
+XSubject: Sperry patent #4,558,302 does *not* affect 'compress'
+XKeywords: data compression, algorithm, patent
+XMessage-ID: <1990Jul31.220935.1424@riacs.edu>
+XDate: 31 Jul 90 22:09:35 GMT
+XOrganization: RIACS, NASA Ames Research Center
+XLines: 69
+X
+X#  "The chief defect of Henry King
+X    Was chewing little bits of string."
+X
+X        -- Hilaire Belloc, Cautionary Tales [1907]
+X
+X     As a co-author of 'compress' who has had contact with an attorney for
+XUnisys (nee Sperry), I would like to relay a very basic admission from Unisys
+Xthat noncommercial use of 'compress' is perfectly legal.  'Compress' is also
+Xcommercially distributed by AT&T as part of Unix System 5 release 4,
+Xwith no further restrictions placed upon the use of the binary, as far
+Xas I am aware.
+X
+X     From conversations with Professor Abraham Lempel and others, it 
+Xappears that neither AT&T, Sun Microsystems, Hewlett Packard, nor IBM
+Xare paying any sort of license fees to Unisys in conjunction with patent
+X#4,558,302.  It may be true that some organizations are paying fees for
+Xdata compression technology licensed from one or more of the many holders
+Xof compression patents, but this is all independent from 'compress'.
+X
+X     In particular, I received a letter at NASA dated October 1, 1987 from
+XJohn B. Sowell of the Unisys law department, informing me for the first
+Xtime that some form of LZW was patented.  I naturally expressed
+Xskepticism that an algorithm could be patented (a murky legal area
+Xwhich remains so), stated that 'compress' is not identical to LZW,
+Xand in fact was designed, developed, and distributed before the ink
+Xon the patent was dry.  Several telephone conversations later, Mr. Sowell
+Xintimated that they would *not* seek any fees from users of 'compress'
+Xbut instead were signing licensees for hardware implementations of LZW.
+X
+X     So, regardless of what you believe about a shady legal area, if anyone
+Xfrom Unisys contacts you to extract tribute for the use of 'compress', please
+Xtell them that, first, it is not theirs to begin with, and, second, there is
+Xsomeone who will testify in court about the conversation above.
+XIt is not even clear if anyone can "own" 'compress', since original developer
+XSpencer Thomas, myself, and others placed the code in the public domain
+Xlong before the adoption of the Berne copyright convention.
+X
+X     In light of the events above, it seems that the Free Software
+XFoundation is being unduly paranoid about the use of 'compress'.
+XNow I can well believe that FSF is more likely to be a legal target
+Xthan a behemoth like AT&T, but if they are simply redistributing
+Xuntouched free software developed years ago in the public sector,
+XI see no problem.
+X
+X     Aside:  I am investigating, possibly for a case history to be
+Xrecycled to USENET, the particulars of data compression patents.
+XI am aware of the following patents: IBM's Miller-Wegman LZ variant,
+Xthose of Telcor and ACT [losing candidates for the British Telecom modem
+Xstandard], James A. Storer's work on limited lookahead as explicated in his
+Xtext "Data Compression (methods and theory)", Computer Science Press, 1988,
+Xand the various patents pending associated with the Fiala and Greene
+XCACM article of April, 1989 on textual substitution methods.
+XIf you have any lore, send it this way.
+X
+X
+X
+X                    Sincerely,
+X
+X                    James A. Woods
+X                    NASA Ames Research Center (RIACS)
+X                    jaw@riacs.edu (or ames!jaw)
+X
+X
+XP.S.  The algorithm patent issue certainly is a "topic A" at the moment.
+XOne useful reference is the review article by Anthony and Colwell --
+X"Litigating the Validity and Infringement of Software Patents" in
+XWashington and Lee Law Review, volume 41, fall 1984.  I know Robert Colwell
+Xpersonally.  As a practicing patent attorney, he tells me that, at a minimum,
+Xuse of an invention "for research purposes" is legitimate.
+END_OF_FILE
+if test 4347 -ne `wc -c <'LZW.INFO'`; then
+    echo shar: \"'LZW.INFO'\" unpacked with wrong size!
+fi
+# end of 'LZW.INFO'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(542 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X Acknowleds                 1	
+X Changes                    1	
+X Makefile.def				1
+X MANIFEST                   1	This shipping list
+X LZW.INFO					1
+X README                     1	
+X build                      1	
+X compress.1                 1	
+X compress42.c               1/2	
+X patchlevel.h				2
+X zcmp                       1	
+X zcmp.1                     1	
+X zdiff                      1	
+X zmore                      1	
+X zmore.1                    1	
+END_OF_FILE
+if test 542 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile.def' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.def'\"
+else
+echo shar: Extracting \"'Makefile.def'\" \(1830 characters\)
+sed "s/^X//" >'Makefile.def' <<'END_OF_FILE'
+X# Makefile
+X
+X# C complier
+XCC=cc
+X
+X# Install directory for binarys
+XBINDIR=/usr/local/bin
+X
+X# Install directory for manual
+XMANDIR=/usr/local/man/man1
+X
+X# compiler options:
+X# options is a collection of:
+X#
+X#	-DDIRENT=1					Use dirent.h
+X#	-DSYSDIR=1					Use sys/dir.h
+X#	-DLSTAT=1					Use lstat for finding symlinks.
+X#	-DUTIME_H=1					Use utime.h
+X#	-DUSERMEM=<size>			Availble memory for compress (default 800k).
+X#	-DREGISTERS=<nbr>			Number of registers (default 2).
+X#	-DIBUFSIZ=<size>			Input buffer size (default BUFSIZ).
+X#	-DOBUFSIZ=<size>			Output buffer size (default BUFSIZ)
+X#	-DBYTEORDER=<order>			Byte order (default: unknown).
+X#	-DNOALLIGN=1				Data word allignment (default: yes).
+X#	-DDEF_ERRNO=1				Define error (not defined in errno.h).
+X#	-DMAXSEG_64K=1 -BITS=16		Support segment processsor like 80286.
+X#
+Xoptions= -DIRENT=1 -DUSERMEM=800000 -DREGISTERS=3  
+X
+X# libary options
+XLBOPT=
+X
+Xcompress:	Makefile compress42.c patchlevel.h
+X	$(CC) -o compress $(options) "-DCOMPILE_DATE=\"`date`\"" compress42.c $(LBOPT)
+X
+Xinstall:	compress
+X		[ -f /usr/local/bin/compress ] && 			{ rm -f /usr/local/bin/compress.old ; 	  		mv /usr/local/bin/compress /usr/local/bin/compress.old ; }
+X		rm -f /usr/local/bin/uncompress /usr/local/bin/zcat
+X		cp compress /usr/local/bin/compress
+X		strip /usr/local/bin/compress
+X		rm -f /usr/local/bin/uncompress
+X		ln /usr/local/bin/compress /usr/local/bin/uncompress
+X		rm -f  /usr/local/bin/zcat
+X		ln -f /usr/local/bin/compress /usr/local/bin/zcat
+X		cp zcmp zdiff zmore /usr/local/bin/.
+X		chmod 0755 /usr/local/bin/compress /usr/local/bin/zcmp /usr/local/bin/zdiff                    /usr/local/bin/zmore
+X		cp compress.1 zcmp.1 zmore.1 /usr/local/man/man1/.
+X		chmod 0644 /usr/local/man/man1/compress.1 /usr/local/man/man1/zcmp.1 				   /usr/local/man/man1/zmore.1
+X
+Xcleanup:
+X		rm -f compress compress.def comp.log
+END_OF_FILE
+if test 1830 -ne `wc -c <'Makefile.def'`; then
+    echo shar: \"'Makefile.def'\" unpacked with wrong size!
+fi
+# end of 'Makefile.def'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(3709 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is version 4.2 of (N)compress (an improved version of compress 4.1).
+X
+XCompress is a fast, simple LZW file compressor.  Compress does not have
+Xthe highest compression rate, but it is one of the fastest programs to
+Xcompress data.  Compress is the defacto standard in the UNIX community
+Xfor compressing files.
+X
+X'build' is a menu driven shell script for compiling, testing and
+Xinstalling (N)compress. So to build and install (N)compress all you have to
+Xdo is run build.  Build will first test your system for default
+Xsettings. The current compile settings are stored in a special file
+Xcalled compress.def.
+X
+XFor user with problems with build there is a default makefile included
+Xcalled 'Makefile.def'. Also build is capable te generate a Makefile with
+Xall options (option genmake).
+X
+X(N)compress 4.2 has a special, fast compression hash algorithm.  This
+Xalgorithm uses more memory than the old hash table. If you don't want
+Xthe faster hash table algorithm set 'Memory free for compress' below
+X800000.
+X
+Xzcmp, zdiff, zmore were copied from version 4.1 without any changes.
+X
+XThe output of (N)compress 4.2 is fully compatible with that of compress 3.0.
+XIn other words, the output of (N)compress 4.2 may be fed into uncompress 3.0 or
+Xthe output of compress 3.0 may be fed into uncompress 4.2.
+X
+XThe output of (N)compress 4.2 is not compatible with that of
+Xcompress 2.0.  However, compress 4.2 still accepts the output of
+Xcompress 2.0.  To generate output that is compatible with compress
+X2.0, use the undocumented "-C" flag.
+X
+XSend comments, complaints and especially patches relating to
+X	peter@ncs.nl
+X
+X
+XREMARKS
+X
+X- Build is a bourne shell script. On some system it is nessesary to type
+X  'sh build'.
+X
+X- The build script usages tput for nice screen handling of the script.
+X  If your system has no tput no problems.
+X
+X- For configuration testing build uses a lot of small C programs. During
+X  those test stderr is redirected to /dev/null.
+X  During the compilation of compress output is NOT redirected.
+X
+X- The /bin/sh under Ultrix can't handle ${var:-str} so use ksh for the
+X  build script.
+X
+X- If there are any problems with the libary functions definitions in
+X  compress42.c define NOFUNCDEF (-DNOFUNCDEF=1) to disable the definitions.
+X  IBM AIX (RS/6000) uses a different definitions of open(), define -D_IBMRT=1
+X  to disable the open() definition.
+X
+X- The output if (N)compress 4.2 is not exactly the same as compress 4.0
+X  because of differente table reset point. The output of (N)compress 4.2
+X  is 100% compatible with compress 4.0
+X
+X- Some systems has performance problems with reads bigger than BUFSIZ
+X  (The read a head function is not working as expected). For those
+X  system use the default BSIZE input buffer size.
+X
+X- (N)compress can by slower on small files (<10Kb) because of a greate 
+X  table reset overhead. Use cpio or tar to make 1 bigger file if
+X  posible, it is faster and also gives a beter compression ratio most
+X  of the time.
+X
+X- (N)compress is slower in vax systems because of removing some
+X  undocumented inline asembler.
+X
+X- files compressed on a large machine with more bits than allowed by 
+X  a version of compress on a smaller machine cannot be decompressed!  Use the
+X  "-b12" flag to generate a file on a large machine that can be uncompressed 
+X  on a 16-bit machine.
+X
+X- compatibility with compress 3.0 has not been tested in the 4.2 release of
+X  (N)compress.
+X
+X===============================================================================
+XPeter Jannesen
+XNetwork Communication Systems (N.C.S), The Netherlands
+XPhone:  +31104130093                             Fax:    +31104146452
+XAddress: Westbaak 96a                            Email:  peter@ncs.nl
+X         3012 KM Rotterdam, The Netherlands
+END_OF_FILE
+if test 3709 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'build' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'build'\"
+else
+echo shar: Extracting \"'build'\" \(19727 characters\)
+sed "s/^X//" >'build' <<'END_OF_FILE'
+X:
+X#!/bin/sh
+X#
+Xversion="4.2.3"
+X
+Xecho "Build (N)compress ${version}"
+XCLS=`sh -c 'tput clear' 2>/dev/null`
+X
+Xif expr `echo "foo\c"` : '.*c' >/dev/null
+Xthen
+X	n='-n'
+X	c=''
+Xelse
+X	n=''
+X	c='\c'
+Xfi
+X
+Xtrap 'rm -f /tmp/sh$$.tm* /tmp/sh$$.f* /tmp/sh$$.log /tmp/sh*.c' 0
+Xtrap 'set +x ; exit 1' 1 2 15
+X
+X[ -f compress.def ] && . ./compress.def
+X
+Xwhile true
+Xdo
+X	if [ "${DEFINED}" = yes ]
+X	then
+X		echo "${CLS}    Build (N)compress ${version}
+X
+X 1.  Directory to install compress in: ${BINDIR}
+X                          manual in  : ${MANDIR}
+X 2.  Memory free for compress        : ${USERMEM}
+X 3.  Input/Output buffer size        : ${IBUFSIZ} ${OBUFSIZ}
+X 4.  C Compiler                      : ${CC}
+X 5.  Compiler options                : ${CCOPT:---none--}
+X 6.  Libary options                  : ${LBOPT:---none--}
+X 7.  Special options for your system : ${EXTRA:---none--}
+X 8.  Number of register variable     : ${REGISTERS}
+X 9.  Symbolic links                  : ${LSTAT}
+X10.  Use include <utime.h>           : ${UTIME_H}"
+X
+X		if [ ".${DIRENT}" = .yes ] 
+X		then
+X			echo "11.  Your system support dirent.h"
+X		else
+X			if [ ".${SYSDIR}" = .yes -a ".${DIRENT}" != .yes ]
+X			then
+X				echo "11.  Your system support sys/dir.h"
+X			else
+X				echo "11.  No directory support -r disabled."
+X			fi
+X		fi
+X	
+X		echo "12.  Word must start at even addres: ${NOALLIGN}, Bytorder on your system: ${BYTEORDER}"
+X		echo "
+X d. Set default settings                    mkshar.  Create shell archive
+X c. Compile compress                        mktar.   Create tar archive
+X t. Test compress                           cleanup. Cleanup
+X i. Install compress                        genmake. Generate makefile
+X q. Stop
+X"
+X		echo ${n} "   Choice [1..10,d,c,t,i,q,mkshar,mktar,cleanup] : ${c}"
+X
+X		(
+X			echo "# Current parameters."
+X			for var in CC CCOPT LBOPT BINDIR MANDIR DIRENT SYSDIR IBUFSIZ \
+X						OBUFSIZ USERMEM REGISTERS LSTAT BYTEORDER NOALLIGN \
+X						EXTRA DEFINED UTIME_H
+X			do
+X				echo "${var}='`eval echo \$\{${var}\}`'"
+X			done
+X		) >compress.def
+X
+X		read choice var1 var2 var3 var4 varr
+X		echo ""
+X	else
+X		choice=D
+X	fi
+X
+X	case "${choice}" in
+X	1)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Directory to install compress in (default:${BINDIR}) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		BINDIR="${var1:-${BINDIR}}"
+X
+X		if [ ".${var2}" = . ]
+X		then
+X			echo ${n} "Directory to install manuals in (default:${MANDIR}) ? ${c}"
+X			read var2 dummy
+X		fi
+X
+X		MANDIR="${var2:-${MANDIR}}"
+X		;;
+X
+X	2)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo "Compress use a lot of memory, the more memory it can just the faster"
+X			echo "the programm is and the better compression is."
+X			echo ${n} "Memory free for compress (default:${USERMEM}) ? ${c}"
+X			read var1 dummy 
+X		fi
+X
+X		USERMEM="${var1:-${USERMEM}}"
+X		;;
+X
+X	3)	
+X		if [ ".${var1}" = . ]
+X		then
+X			echo "For input and output compress use buffers. A bigger buffer reduce"
+X			echo "system (kernel) overhead. If your system is a 16 bits system don't"
+X			echo "make the buffers bigger than 2048 bytes. The default 2048 is in"
+X			echo "most cases a good answer."
+X			echo ${n} "Best input buffer size (default:${IBUFSIZ}) ? ${c}"
+X			read var1 var2 dummy
+X
+X			if [ ".${var2}" = . ] 
+X			then
+X				echo ${n} "Best output buffer size (default:${OBUFSIZ}) ? ${c}"
+X				read D dummy 
+X			fi
+X		fi
+X
+X		var2="${var2:-${var1}}"
+X 		IBUFSIZ="${var1:-${IBUFSIZ}}"
+X 		OBUFSIZ="${var2:-${OBUFSIZ}}"
+X		;;
+X
+X	4)
+X		if [ ".${var1}" = . ]
+X		then	
+X			echo "C compiler to use for compilation (must by cc compatible)".
+X			echo ${n} "C Compiler (default:${CC}) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		CC="${var1:-${CC}}"
+X		;;
+X
+X	5)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Compiler options (default:${CCOPT:-none}) ? ${c}"
+X			read var1
+X		fi
+X
+X		[ ".${var1}" != . ] && CCOPT="${var1} ${var2} ${var3} ${var4} ${varr}"
+X		;;	
+X
+X	6)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Libary options (default:${LBOPT:-none}) ? ${c}"
+X			read var1
+X		fi
+X
+X		[ ".${var1}" != . ] && LBOPT="${var1} ${var2} ${var3} ${var4} ${varr}"
+X		;;	
+X
+X	7)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo "Some system needs extra defines see README"
+X			echo ${n} "Special for your system (default:${EXTRA:-none}) ? ${c}"
+X			read var1
+X		fi
+X
+X		[ ".${var1}" != . ] && EXTRA="${var1} ${var2} ${var3} ${var4} ${varr}"
+X		;;	
+X
+X	8)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Number of register variable (default:${REGISTERS}) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		REGISTERS="${var1:-${REGISTERS}}"
+X		;;
+X
+X	9)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Symbolic links (default:${LSTAT}) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		case "${var1:-${DIRENT}}" in
+X		y|Y|yes|YES) LSTAT=yes; ;;
+X		*)			 LSTAT=no; ;;
+X		esac
+X		;;
+X
+X	10)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Do your system support utime.h (default:${UTIME_H}) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		case "${var1:-${DIRENT}}" in
+X		y|Y|yes|YES) UTIME_H=yes; ;;
+X		*)			 UTIME_H=no; ;;
+X		esac
+X		;;
+X
+X	11)
+X		case "${var1}" in
+X		dirent)
+X			DIRENT=yes; SYSDIR=no;
+X			;;
+X		sys/dir) 
+X			DIRENT=no; SYSDIR=yes;
+X			;;
+X		*)
+X			echo ${n} "Do your system support dirent.h (default:${DIRENT}) ? ${c}"
+X			read var1 dummy
+X			case "${var1:-${DIRENT}}" in
+X			y|Y|yes|YES) DIRENT=yes; SYSDIR=no; ;;
+X			*)			 DIRENT=no; SYSDIR=no; ;;
+X			esac
+X
+X			if [ ${DIRENT} = no ]
+X			then
+X				echo ${n} "Do your system support sys/dir.h (default:${SYSDIR}) ? ${c}"
+X    			read var1 dummy
+X				case "${var1:-${SYSDIR}}" in
+X				y|Y|yes|YES) DIRENT=no; SYSDIR=yes; ;;
+X				*)			 DIRENT=no; SYSDIR=no; ;;
+X				esac
+X			fi
+X			;;
+X		esac
+X		;;
+X
+X	12)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo "If your system don't need word allignment for words (like 80386)"
+X			echo "compress can use this fact to by faster. If your are not sure type y"
+X			echo ${n} "Must words start at a even address (default:${NOALLIGN}) ? ${c}"
+X			read var1 var2 varr
+X		fi
+X
+X		if [ ".${var2}" = . ]
+X		then
+X			echo ${n} "Byteorder on your system (default:${BYTEORDER}) ? ${c}"
+X			read var2 varr 
+X		fi
+X
+X		case "${var1}" in
+X		n|no|N|NO)	var1=no; ;;
+X		*)			var1=yes; ;;
+X		esac
+X
+X 		NOALLIGN="${var1:-${NOALLIGN}}"
+X 		BYTEORDER="${var2:-${BYTEORDER}}"
+X		;;
+X
+X	d|D)
+X		echo "Testing the system to find out what kind of system we have."
+X		BINDIR=/usr/bin
+X		MANDIR=/usr/man/man1
+X		DIRENT=no
+X		SYSDIR=no
+X		UTIME_H=no
+X		IBUFSIZ=2048
+X		OBUFSIZ=2048
+X		USERMEM=0
+X		REGISTERS=2
+X		LSTAT=no
+X		CCOPT='-O'
+X		LBOPT=
+X		EXTRA=
+X		[ -f /usr/include/sys/dir.h ] && { SYSDIR=yes; }
+X		[ -f /usr/include/dirent.h ] && { DIRENT=yes; }
+X		[ -f /usr/include/utime.h ] && { UTIME_H=yes; }
+X		[ -d /usr/local/bin ] && { BINDIR=/usr/local/bin; }
+X		[ -d /usr/local/man ] && { BINDIR=/usr/local/man/man1; }
+X		[ -f /usr/bin/compress ] && { BINDIR=/usr/bin; }
+X	
+X		if [ ".${CC}" = . ]
+X		then
+X			echo ${n} "Find compiler. Compiler is: ${c}"
+X			echo 'main() {return 0;}' >/tmp/sh$$.c
+X
+X			for cc in cc gcc
+X			do
+X				if ${cc} -c /tmp/sh$$.c >/dev/null 2>&1
+X				then
+X					rm -f sh$$.o
+X					CC=${cc}
+X					echo ${CC}
+X					break
+X				fi
+X			done
+X
+X			if [ ".${CC}" = . ]
+X			then
+X				echo "Can't file one of the standaard compilers. Give C Compiler name"
+X				echo ${n} "C Compiler : ${c}"
+X				read CC dummy
+X			fi
+X		fi
+X
+X		echo ${n} "Test best buffer size: ${c}"
+X		cat >/tmp/sh$$.c <<!
+X#include <stdio.h>
+X		main()
+X			{
+X				int		size;
+X	
+X				size = 1024;
+X#ifdef BUFSIZ
+X				if (size < BUFSIZ)	size = BUFSIZ;
+X#endif
+X				if (sizeof(int)<4)	size = 2048;
+X				printf("%d\n", size);
+X				return 0;
+X			}
+X!
+X		${CC} /tmp/sh$$.c && IBUFSIZ=`./a.out`
+X		rm -f /tmp/sh$$.c a.out
+X		OBUFSIZ=${IBUFSIZ}
+X		echo "${IBUFSIZ}"
+X
+X		echo ${n} "Test byte order of system: ${c}"
+X		cat >/tmp/sh$$.c <<!
+X		main()
+X			{
+X				long	test;
+X		extern	int		write();
+X		
+X				test = 0x31323334L;
+X				write(1, (char *)&test, 4);
+X				return 0;
+X			}
+X!
+X		${CC} /tmp/sh$$.c && BYTEORDER=`./a.out`
+X		BYTEORDER="${BYTEORDER:-0000}"
+X		echo ${BYTEORDER}
+X		rm -f /tmp/sh$$.c a.out
+X
+X
+X		echo ${n} "Test word allignment. Must words be allign: ${c}"
+X		cat >/tmp/sh$$.c <<!
+X		sig() {exit(1);}
+X		main()
+X			{
+X				int		i;
+X				char	bfr1[6];
+X				char	bfr2[6];
+X				long	test;
+X		extern	int		write();
+X
+X				for (i = 1 ; i <= 15 ; ++i)
+X					signal(i, sig);
+X	
+X				bfr1[0]=' ';bfr1[1]='1';bfr1[2]='2';
+X				bfr1[3]='3';bfr1[4]='4';bfr1[5]=' ';
+X				bfr2[0]='X';bfr2[1]='X';bfr2[2]='X';
+X				bfr2[3]='X';bfr2[4]='X';bfr2[5]='X';
+X
+X				test = *(long *)(bfr1+1);
+X				*(long *)(bfr2+0) = test;
+X	
+X				if (bfr2[0] == '1' && bfr2[1] == '2' && bfr2[2] == '3' &&
+X					bfr2[3] == '4' && bfr2[4] == 'X')
+X					write(1, "no", 2);
+X
+X				return 0;
+X			}
+X!
+X		${CC} /tmp/sh$$.c && NOALLIGN=`( ./a.out ) 2>/dev/null`
+X		NOALLIGN="${NOALLIGN:-yes}"
+X		echo ${NOALLIGN}
+X		rm -f /tmp/sh$$.c a.out core
+X
+X		echo ${n} "Test number of register vars. Registers var: ${c}"
+X		cat >/tmp/sh$$.c <<!
+X		main()
+X			{
+X				long			l11;
+X				long			l12;
+X				long			l13;
+X				long			l1;
+X				register long	rl01; register long	rl02;
+X				register long	rl03; register long	rl04;
+X				register long	rl05; register long	rl06;
+X				register long	rl07; register long	rl08;
+X				register long	rl09; register long	rl10;
+X				register long	rl11; register long	rl12;
+X				register long	rl13; register long	rl14;
+X				register long	rl15; register long	rl16;
+X				register long	rl17; register long	rl18;
+X				register long	rl19; register long	rl20;
+X				long			l2;
+X				long			l22;
+X				long			l23;
+X				long			l24;
+X
+X				l1 = (char *)&l1-(char *)&l2;
+X				if (l1 < 0)	l1 = -l1;
+X				l1 = 21-(l1/sizeof(long));
+X				if (l1 > 0 && l1 < 21)
+X					printf("%ld", l1);
+X				exit(0);
+X			}
+X!
+X		cc /tmp/sh$$.c && REGISTERS=`./a.out`
+X		REGISTERS=${REGISTERS:-2};
+X		echo ${REGISTERS}
+X		rm -f a.out /tmp/sh$$.c
+X
+X		echo ${n} "Test if errno is declared in errno.h: ${c}"
+X		cat >/tmp/sh$$.c <<!
+X#include	<stdio.h>
+X#include	<errno.h>
+X		main()
+X			{
+X				return	errno;
+X			}
+X!
+X		if cc /tmp/sh$$.c
+X		then
+X			echo "Yes"
+X		else
+X			echo "No"
+X			EXTRA="${EXTRA} -DDEF_ERRNO=1"
+X		fi
+X
+X		rm -f a.out /tmp/sh$$.c
+X
+X
+X		echo ${n} "Test if system support symbolic links? ${c}"
+X		cat >/tmp/sh$$.c <<!
+X		main()
+X			{
+X				lstat(0, 0);
+X			}
+X!
+X		LSTAT=no
+X		${CC} /tmp/sh$$.c >/dev/null 2>&1 && LSTAT=yes
+X		echo "${LSTAT}"
+X		rm -f a.out /tmp/sh$$.c
+X
+X		echo ${n} "Test availble memory${c}"
+X		for size in 75000 130000 230000 440000 800000
+X		do
+X			cat >/tmp/sh$$.c <<!
+X			char	test[${size}+128000];
+X	
+X			extern	int				alarm();
+X			extern	int				exit();
+X			extern	int				signal();
+X	
+X			sig() {exit(1);}
+X
+X			main()
+X				{
+X					register int	i;
+X					register long	j;
+X	
+X					for (i = 1 ; i <= 15 ; ++i)
+X						signal(i, sig);		
+X
+X					alarm(2);
+X	
+X					for (i = 0 ; i < 10 ; ++i)
+X						for (j = 0 ; j < sizeof(test) ; j+= 1024)
+X							test[j] = i;
+X
+X					alarm(0);
+X					return 0;
+X				}
+X!
+X			${CC} /tmp/sh$$.c >/dev/null 2>&1 || break
+X			./a.out || break
+X			rm a.out /tmp/sh$$.c
+X			USERMEM=${size}
+X			echo ${n} " ${size}${c}"
+X		done
+X
+X		rm a.out /tmp/sh$$.c
+X
+X		echo ""
+X
+X		if [ ${USERMEM} = 0 ]
+X		then
+X			echo ${n} "Memory size is 0, segmented processor: ${c}"
+X			cat >/tmp/sh$$.c <<!
+X			long htab0[8192];
+X			long htab1[8192];
+X			long htab2[8192];
+X			long htab3[8192];
+X			long htab4[8192];
+X			long htab5[8192];
+X			long htab6[8192];
+X			long htab7[8192];
+X			long htab8[8192];
+X			short code0tab[16384];
+X			short code1tab[16384];
+X			short code2tab[16384];
+X			short code3tab[16384];
+X			short code4tab[16384];
+X			main() {return 0;}
+X!
+X			rm -f ./a.out
+X			if ${CC} /tmp/sh$$.c >/dev/null 2>&1 
+X			then
+X				:
+X			else
+X				opt="-Ml"
+X
+X				while [ ".${opt}" != . ]
+X				do
+X					if ${CC} ${opt} /tmp/sh$$.c >/dev/null 2>&1 
+X					then
+X						:
+X					else
+X						CCOPT="${CCOPT} ${opt}"
+X						break
+X					fi
+X
+X					echo ${n} "Large model compile option: ${c}"
+X					read opt dummy
+X				done
+X			fi
+X
+X			if [ -f ./a.out ]
+X			then
+X				if ./a.out
+X				then
+X					echo "Yes"
+X					MEMSIZE=0
+X					EXTRA="${EXTRA} -DMAXSEG_64K=1 -DBITS=16"
+X				else
+X					echo "No"
+X				fi
+X			fi
+X
+X			rm ./a.out /tmp/sh$$.c
+X		fi
+X
+X		DEFINED=yes
+X		echo ""
+X		echo "I have now create the default options for compiling compress ${version}"
+X	;;
+X
+X	c|C)
+X		options="${CCOPT} -o compress"
+X		[ "${DIRENT}" = yes ] && options="${options} -DDIRENT=1"
+X		[ "${SYSDIR}" = yes ] && options="${options} -DSYSDIR=1"
+X		[ "${LSTAT}" != no  ] && options="${options} -DLSTAT=1"
+X		[ "${UTIME_H}" != no  ] && options="${options} -DUTIME_H=1"
+X		options="${options} -DUSERMEM=${USERMEM}"
+X		options="${options} -DREGISTERS=${REGISTERS}"
+X		options="${options} -DIBUFSIZ=${IBUFSIZ} -DOBUFSIZ=${OBUFSIZ}"
+X		options="${options} -DBYTEORDER=${BYTEORDER}"
+X		[ "${NOALLIGN}" = no ] && options="${options} -DNOALLIGN=1"
+X		options="${options} ${EXTRA}"
+X
+X		echo ""
+X		echo "Compiling compress ${version}"
+X
+X		echo ${CC} ${options} "-DCOMPILE_DATE=\"`date`\"" compress42.c ${LBOPT}
+X
+X		if ${CC} ${options} "-DCOMPILE_DATE=\"`date`\"" compress42.c ${LBOPT}
+X		then
+X			echo ""
+X			./compress -V
+X			echo ""
+X			echo "Compress compiled, use 'i' to install compress in ${BINDIR}"
+X		else
+X			echo ""
+X			echo "Error(s) in compilation"
+X		fi
+X		echo ""
+X		echo ${n} "Press return to continue${c}"
+X		read dummy
+X		;;
+X
+X	s|S)
+X		options="-O -S"
+X		[ "${DIRENT}" = yes ] && options="${options} -DDIRENT=1"
+X		[ "${SYSDIR}" = yes ] && options="${options} -DSYSDIR=1"
+X		[ "${LSTAT}" != no  ] && options="${options} -DLSTAT=1"
+X		[ "${UTIME_H}" != no  ] && options="${options} -DUTIME_H=1"
+X		options="${options} -DUSERMEM=${USERMEM}"
+X		options="${options} -DREGISTERS=${REGISTERS}"
+X		options="${options} -DIBUFSIZ=${IBUFSIZ} -DOBUFSIZ=${OBUFSIZ}"
+X		options="${options} -DBYTEORDER=${BYTEORDER}"
+X		[ "${NOALLIGN}" = no ] && options="${options} -DNOALLIGN=1"
+X		options="${options} ${EXTRA}"
+X
+X		echo ""
+X		echo "Compiling compress ${version}"
+X
+X		echo ${CC} ${options} "-DCOMPILE_DATE=\"`date`\"" compress42.c 
+X
+X		${CC} ${options} "-DCOMPILE_DATE=\"`date`\"" compress42.c 
+X		echo ""
+X		echo ${n} "Press return to continue${c}"
+X		read dummy
+X		;;
+X
+X	t|T)
+X		if [ ! -x ./compress ]
+X		then
+X			echo "Compile compress first before testing!"
+X		else
+X			if [ ".${var1}" = . ]
+X			then
+X				echo "To test compress you need a test set. For a test set alle filein one"
+X				echo "directory are combined to one file with cpio and compress/decompressed"
+X				echo ${n} "Test directory [default:current]: ${c}"
+X				read var1 varr
+X			fi
+X
+X			if [ ! -d ${var1:-.} ]
+X			then
+X				echo "$var1: no directory"
+X			else
+X				var1=`cd ${var1:-.};pwd`
+X				find ${var1} -type f -print |
+X					( while read fn ; do [ -r ${fn} ] && echo ${fn} ; done ) |
+X					sort >/tmp/sh$$.fi
+X
+X				(
+X					echo "==============================================================================="
+X					echo "Directory: ${var1:-/}"
+X					echo "./compress -V"
+X					./compress -V
+X
+X					if [ -x ${BINDIR}/compress ]
+X					then
+X						old=${var2:-${BINDIR}/compress}
+X						set -- ./compress ${old} \
+X								${old} ./compress \
+X								./compress ./compress \
+X								${old} ${old}
+X
+X						echo "${old} -V"
+X						${old} -V </dev/null dummy-file
+X					else
+X						set -- ./compress ./compress
+X					fi
+X
+X					while [ $# != 0 ]
+X					do
+X						echo "---------------- $1 -> $2 ----------------"
+X						if [ -x /sbin/sync ] ;	then /sbin/sync
+X												else sync ; fi
+X
+X						sleep 1
+X
+X						cpio -o </tmp/sh$$.fi |
+X							( time $1 -v 2>/tmp/sh$$.tm1 ) |
+X							( time $2 -d 2>/tmp/sh$$.tm2 ) |
+X							( cpio -ivt >/tmp/sh$$.fo )
+X		
+X						awk </tmp/sh$$.fo '{print $8}'  >/tmp/sh$$.foo
+X	
+X						if cmp /tmp/sh$$.fi /tmp/sh$$.foo
+X						then
+X							:
+X						else
+X							echo ------ ERROR
+X							diff /tmp/sh$$.fi /tmp/sh$$.foo
+X						fi
+X
+X						echo "---------------"
+X						echo "compress   $1("`cat /tmp/sh$$.tm1`")"
+X						echo "decompress $2("`cat /tmp/sh$$.tm2`")"
+X						shift 2
+X					done
+X				) 2>&1 | tee /tmp/sh$$.log
+X
+X				cat /tmp/sh$$.log >>comp.log && rm /tmp/sh$$.log
+X			fi
+X
+X			echo ""
+X		fi
+X
+X		echo ${n} "Press return to continue${c}"
+X		read dummy
+X		;;
+X	i|I)
+X		if [ ".${var1}" = . ]
+X		then
+X			echo ${n} "Install compress with user ? (default current user) ? ${c}"
+X			read var1 dummy
+X		fi
+X
+X		pwd=`pwd`
+X
+X		( cat - <<!
+X			set -x
+X
+X			cd ${pwd}
+X
+X			[ -f ${BINDIR}/compress ] &&
+X				{ rm -f ${BINDIR}/compress.old ;
+X	  			mv ${BINDIR}/compress ${BINDIR}/compress.old || exit 1; }
+X
+X			rm -f ${BINDIR}/uncompress ${BINDIR}/zcat || exit 1
+X
+X			cp compress ${BINDIR}/compress || exit 1
+X			strip ${BINDIR}/compress
+X			rm -f ${BINDIR}/uncompress || exit 1
+X			ln ${BINDIR}/compress ${BINDIR}/uncompress || exit 1
+X			rm -f  ${BINDIR}/zcat || exit 1
+X			ln -f ${BINDIR}/compress ${BINDIR}/zcat || exit 1
+X			cp zcmp zdiff zmore ${BINDIR}/. || exit 1
+X			chmod 0755 ${BINDIR}/compress ${BINDIR}/zcmp ${BINDIR}/zdiff \
+X                   	${BINDIR}/zmore || exit 1
+X			cp compress.1 zcmp.1 zmore.1 ${MANDIR}/. || exit 1
+X			chmod 0644 ${MANDIR}/compress.1 ${MANDIR}/zcmp.1 \
+X				   	${MANDIR}/zmore.1 || exit 1
+X
+X			if [ ".${var1}" != . ]
+X			then
+X				chown ${var1} ${BINDIR}/compress ${BINDIR}/zcmp \
+X                              ${BINDIR}/zdiff ${BINDIR}/zmore \
+X							  ${MANDIR}/compress.1 ${MANDIR}/zcmp.1 \
+X				   			  ${MANDIR}/zmore.1 
+X			fi
+X!
+X		) | (
+X			if [ ".${var1}" = . ] ;	then sh 
+X									else su - ${var1} -c sh ; fi
+X		)
+X
+X		echo ""
+X		echo ${n} "Press return to continue${c}"
+X		read dummy
+X		;;
+X
+X	genmake)
+X		options=
+X		[ "${DIRENT}" = yes ] && options="${options} -DDIRENT=1"
+X		[ "${SYSDIR}" = yes ] && options="${options} -DSYSDIR=1"
+X		[ "${LSTAT}" != no  ] && options="${options} -DLSTAT=1"
+X		[ "${UTIME_H}" != no  ] && options="${options} -DUTIME_H=1"
+X		options="${options} -DUSERMEM=${USERMEM}"
+X		options="${options} -DREGISTERS=${REGISTERS}"
+X		options="${options} -DIBUFSIZ=${IBUFSIZ} -DOBUFSIZ=${OBUFSIZ}"
+X		options="${options} -DBYTEORDER=${BYTEORDER}"
+X		[ "${NOALLIGN}" = no ] && options="${options} -DNOALLIGN=1"
+X		options="${options} ${EXTRA}"
+X
+X		cat - <<! >Makefile
+X# Makefile generated by build.
+X
+X# C complier
+XCC=${CC}
+X
+X# Install directory for binarys
+XBINDIR=${BINDIR}
+X
+X# Install directory for manual
+XMANDIR=${MANDIR}
+X
+X# compiler options:
+X# options is a collection of:
+X#
+X#	-DDIRENT=1					Use dirent.h
+X#	-DSYSDIR=1					Use sys/dir.h
+X#	-DLSTAT=1					Use lstat for finding symlinks.
+X#	-DUTIME_H=1					Use utime.h
+X#	-DUSERMEM=<size>			Availble memory for compress (default 800k).
+X#	-DREGISTERS=<nbr>			Number of registers (default 2).
+X#	-DIBUFSIZ=<size>			Input buffer size (default BUFSIZ).
+X#	-DOBUFSIZ=<size>			Output buffer size (default BUFSIZ)
+X#	-DBYTEORDER=<order>			Byte order (default: unknown).
+X#	-DNOALLIGN=1				Data word allignment (default: yes).
+X#	-DDEF_ERRNO=1				Define error (not defined in errno.h).
+X#	-DMAXSEG_64K=1 -BITS=16		Support segment processsor like 80286.
+X#
+Xoptions=${options}
+X
+X# libary options
+XLBOPT=${LBOPT}
+X
+X
+Xcompress:	Makefile compress42.c patchlevel.h
+X	$(CC) -o compress $(options) "-DCOMPILE_DATE=\"\`date\`\"" compress42.c $(LBOPT)
+X
+Xinstall:	compress
+X		[ -f ${BINDIR}/compress ] && \
+X			{ rm -f ${BINDIR}/compress.old ; \
+X	  		mv ${BINDIR}/compress ${BINDIR}/compress.old ; }
+X		rm -f ${BINDIR}/uncompress ${BINDIR}/zcat
+X		cp compress ${BINDIR}/compress
+X		strip ${BINDIR}/compress
+X		rm -f ${BINDIR}/uncompress
+X		ln ${BINDIR}/compress ${BINDIR}/uncompress
+X		rm -f  ${BINDIR}/zcat
+X		ln -f ${BINDIR}/compress ${BINDIR}/zcat
+X		cp zcmp zdiff zmore ${BINDIR}/.
+X		chmod 0755 ${BINDIR}/compress ${BINDIR}/zcmp ${BINDIR}/zdiff \
+X                   ${BINDIR}/zmore
+X		cp compress.1 zcmp.1 zmore.1 ${MANDIR}/.
+X		chmod 0644 ${MANDIR}/compress.1 ${MANDIR}/zcmp.1 \
+X				   ${MANDIR}/zmore.1
+X
+Xcleanup:
+X		rm -f compress compress.def comp.log
+X!
+X		;;
+X
+X	mkshar)
+X		xshar -sc -opart -l64 MANIFEST Acknowleds zmore Changes compress.1 \
+X            zcmp zmore.1 README LZW.INFO zcmp.1 zdiff build Makefile.def \
+X			compress42.c patchlevel.h
+X		;;
+X
+X	mktar)
+X		rm -f comp.tar
+X		tar cvf comp.tar MANIFEST Acknowleds zmore Changes compress.1 \
+X            zcmp zmore.1 README LZW.INFO zcmp.1 zdiff build Makefile.def \
+X			compress42.c patchlevel.h
+X		;;
+X
+X	cleanup)
+X		rm -f compress compress.def comp.log
+X		exit 0
+X		;;
+X
+X	q|Q)
+X		exit 0
+X		;;
+X	*)
+X		echo "                                      Unknown choice ${choice}"
+X		sleep 2
+X		;;
+X	esac
+Xdone
+END_OF_FILE
+if test 19727 -ne `wc -c <'build'`; then
+    echo shar: \"'build'\" unpacked with wrong size!
+fi
+chmod +x 'build'
+# end of 'build'
+fi
+if test -f 'compress.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'compress.1'\"
+else
+echo shar: Extracting \"'compress.1'\" \(6484 characters\)
+sed "s/^X//" >'compress.1' <<'END_OF_FILE'
+X.PU
+X.TH COMPRESS 1 local
+X.SH NAME
+Xcompress, uncompress, zcat \- compress and expand data (version 4.1)
+X.SH SYNOPSIS
+X.ll +8
+X.B compress
+X[
+X.B \-f
+X] [
+X.B \-v
+X] [
+X.B \-c
+X] [
+X.B \-V
+X] [
+X.B \-r
+X] [
+X.B \-b
+X.I bits
+X] [
+X.I "name \&..."
+X]
+X.ll -8
+X.br
+X.B uncompress
+X[
+X.B \-f
+X] [
+X.B \-v
+X] [
+X.B \-c
+X] [
+X.B \-V
+X] [
+X.I "name \&..."
+X]
+X.br
+X.B zcat
+X[
+X.B \-V
+X] [
+X.I "name \&..."
+X]
+X.SH DESCRIPTION
+X.I Compress
+Xreduces the size of the named files using adaptive Lempel-Ziv coding.
+XWhenever possible,
+Xeach file is replaced by one with the extension
+X.B "\&.Z,"
+Xwhile keeping the same ownership modes, access and modification times.
+XIf no files are specified, the standard input is compressed to the
+Xstandard output.
+X.I Compress
+Xwill only attempt to compress regular files.
+XIn particular, it will ignore symbolic links. If a file has multiple
+Xhard links,
+X.I compress
+Xwill refuse to compress it unless the
+X.B \-f
+Xflag is given.
+X.PP
+XIf
+X.B \-f
+Xis not given and
+X.I compress
+Xis run in the foreground,
+Xthe user is prompted as to whether an existing file should be overwritten.
+X.PP
+XCompressed files can be restored to their original form using
+X.I uncompress
+Xor
+X.I zcat.
+X.PP
+X.I uncompress
+Xtakes a list of files on its command line and replaces each
+Xfile whose name ends with
+X.B "\&.Z"
+Xand which begins with the correct magic number with an uncompressed
+Xfile without the 
+X.B "\&.Z."
+XThe uncompressed file will have the mode, ownership and
+Xtimestamps of the compressed file.
+X.PP
+XThe
+X.B \-c
+Xoption makes
+X.I compress/uncompress
+Xwrite to the standard output; no files are changed.
+X.PP
+X.I zcat
+Xis identical to
+X.I uncompress
+X.B \-c.
+X.I zcat
+Xuncompresses either a list of files on the command line or its
+Xstandard input and writes the uncompressed data on standard output.
+X.I zcat
+Xwill uncompress files that have the correct magic number whether
+Xthey have a
+X.B "\&.Z"
+Xsuffix or not.
+X.PP
+XIf the
+X.B \-r
+Xflag is specified, 
+X.I compress
+Xwill operate recursively. If any of the file names specified on the command
+Xline are directories, 
+X.I compress
+Xwill descend into the directory and compress all the files it finds there.
+X.PP
+XThe
+X.B \-V
+Xflag tells each of these programs to print its version and patchlevel,
+Xalong with any preprocessor flags specified during compilation, on
+Xstderr before doing any compression or uncompression.
+X.PP
+X.I Compress
+Xuses the modified Lempel-Ziv algorithm popularized in
+X"A Technique for High Performance Data Compression",
+XTerry A. Welch,
+X.I "IEEE Computer,"
+Xvol. 17, no. 6 (June 1984), pp. 8-19.
+XCommon substrings in the file are first replaced by 9-bit codes 257 and up.
+XWhen code 512 is reached, the algorithm switches to 10-bit codes and
+Xcontinues to use more bits until the
+Xlimit specified by the
+X.B \-b
+Xflag is reached (default 16).
+X.I Bits
+Xmust be between 9 and 16.  The default can be changed in the source to allow
+X.I compress
+Xto be run on a smaller machine.
+X.PP
+XAfter the
+X.I bits
+Xlimit is attained,
+X.I compress
+Xperiodically checks the compression ratio.  If it is increasing,
+X.I compress
+Xcontinues to use the existing code dictionary.  However,
+Xif the compression ratio decreases,
+X.I compress
+Xdiscards the table of substrings and rebuilds it from scratch.  This allows
+Xthe algorithm to adapt to the next "block" of the file.
+X.PP
+XNote that the
+X.B \-b
+Xflag is omitted for
+X.I uncompress,
+Xsince the 
+X.I bits
+Xparameter specified during compression
+Xis encoded within the output, along with
+Xa magic number to ensure that neither decompression of random data nor
+Xrecompression of compressed data is attempted. 
+X.PP
+X.ne 8
+XThe amount of compression obtained depends on the size of the
+Xinput, the number of
+X.I bits
+Xper code, and the distribution of common substrings.
+XTypically, text such as source code or English
+Xis reduced by 50\-60%.
+XCompression is generally much better than that achieved by
+XHuffman coding (as used in
+X.IR pack ),
+Xor adaptive Huffman coding
+X.RI ( compact ),
+Xand takes less time to compute.
+X.PP
+XUnder the
+X.B \-v
+Xoption,
+Xa message is printed yielding the percentage of
+Xreduction for each file compressed.
+X.PP
+XExit status is normally 0;
+Xif the last file is larger after (attempted) compression, the status is 2;
+Xif an error occurs, exit status is 1.
+X.SH "SEE ALSO"
+Xpack(1), compact(1)
+X.SH "DIAGNOSTICS"
+XUsage: compress [\-dfvcVr] [\-b maxbits] [file ...]
+X.in +8
+XInvalid options were specified on the command line.
+X.in -8
+XMissing maxbits
+X.in +8
+XMaxbits must follow
+X.BR \-b \.
+X.in -8
+X.IR file :
+Xnot in compressed format
+X.in +8
+XThe file specified to
+X.I uncompress
+Xhas not been compressed.
+X.in -8
+X.IR file :
+Xcompressed with 
+X.I xx
+Xbits, can only handle 
+X.I yy
+Xbits
+X.in +8
+X.I File
+Xwas compressed by a program that could deal with
+Xmore 
+X.I bits
+Xthan the compress code on this machine.
+XRecompress the file with smaller
+X.IR bits \.
+X.in -8
+X.IR file :
+Xalready has .Z suffix -- no change
+X.in +8
+XThe file is assumed to be already compressed.
+XRename the file and try again.
+X.in -8
+X.IR file :
+Xfilename too long to tack on .Z
+X.in +8
+XThe file cannot be compressed because its name is longer than
+X12 characters.
+XRename and try again.
+XThis message does not occur on BSD systems.
+X.in -8
+X.I file
+Xalready exists; do you wish to overwrite (y or n)?
+X.in +8
+XRespond "y" if you want the output file to be replaced; "n" if not.
+X.in -8
+Xuncompress: corrupt input
+X.in +8
+XA SIGSEGV violation was detected which usually means that the input file has
+Xbeen corrupted.
+X.in -8
+XCompression: 
+X.I "xx.xx%"
+X.in +8
+XPercentage of the input saved by compression.
+X(Relevant only for
+X.BR \-v \.)
+X.in -8
+X-- not a regular file or directory: ignored
+X.in +8
+XWhen the input file is not a regular file or directory,
+X(e.g. a symbolic link, socket, FIFO, device file), it is
+Xleft unaltered.
+X.in -8
+X-- has 
+X.I xx 
+Xother links: unchanged
+X.in +8
+XThe input file has links; it is left unchanged.  See
+X.IR ln "(1)"
+Xfor more information. Use the
+X.B \-f
+Xflag to force compression of multiply-linked files.
+X.in -8
+X-- file unchanged
+X.in +8
+XNo savings is achieved by
+Xcompression.  The input remains virgin.
+X.in -8
+X.SH "BUGS"
+XAlthough compressed files are compatible between machines with large memory,
+X.BR \-b \12
+Xshould be used for file transfer to architectures with 
+Xa small process data space (64KB or less, as exhibited by the DEC PDP
+Xseries, the Intel 80286, etc.)
+X.PP
+XInvoking compress with a \-r
+Xflag will occasionally cause it to produce spurious error warnings of the form
+X.PP
+X.in 8
+X"<filename>.Z already has .Z suffix - ignored"
+X.in -8
+X.PP
+XThese warnings can be ignored. See the comments in compress.c:compdir()
+Xfor an explanation.
+X
+END_OF_FILE
+if test 6484 -ne `wc -c <'compress.1'`; then
+    echo shar: \"'compress.1'\" unpacked with wrong size!
+fi
+# end of 'compress.1'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(76 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+Xstatic char	ident[] = "@(#)(N)compress 4.2.3";
+X#define	version_id (ident+4)
+END_OF_FILE
+if test 76 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'zcmp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zcmp'\"
+else
+echo shar: Extracting \"'zcmp'\" \(772 characters\)
+sed "s/^X//" >'zcmp' <<'END_OF_FILE'
+X:
+X#!/bin/sh
+X
+XOPTIONS=
+XFILES=
+Xfor ARG
+Xdo
+X	case "$ARG" in
+X	-*)	OPTIONS="$OPTIONS $ARG";;
+X	*)	FILES="$FILES $ARG";;
+X	esac
+Xdone
+Xif test -z "$FILES"; then
+X	echo "Usage: zcmp [cmp_options] file [file]"
+X	exit 1
+Xfi
+Xset $FILES
+Xif test $# -eq 1; then
+X	FILE=`expr $1 : '\(.*\)\.Z' '|' $1`
+X	zcat $FILE | cmp $OPTIONS - $FILE
+X	STAT="$?"
+Xelif test $# -eq 2; then
+X	case "$1" in
+X	*.Z)	case "$2" in
+X		*.Z)	F=`basename $2 .Z`
+X			zcat $2 > /tmp/$F.$$
+X			zcat $1 | cmp $OPTIONS - /tmp/$F.$$
+X			STAT="$?";;
+X		*)	zcat $1 | cmp $OPTIONS - $2;;
+X		esac;;
+X	*)	case "$2" in
+X		*.Z)	F=`basename $2 .Z`
+X			zcat $2 > /tmp/$F.$$
+X			cmp $OPTIONS $1 /tmp/$F.$$
+X			STAT="$?";;
+X		*)	cmp $OPTIONS $1 $2
+X			STAT="$?";;
+X		esac;;
+X	esac
+X	exit "$STAT"
+Xelse
+X	echo "Usage: zcmp [cmp_options] file [file]"
+X	exit 1
+Xfi
+END_OF_FILE
+if test 772 -ne `wc -c <'zcmp'`; then
+    echo shar: \"'zcmp'\" unpacked with wrong size!
+fi
+chmod +x 'zcmp'
+# end of 'zcmp'
+fi
+if test -f 'zcmp.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zcmp.1'\"
+else
+echo shar: Extracting \"'zcmp.1'\" \(797 characters\)
+sed "s/^X//" >'zcmp.1' <<'END_OF_FILE'
+X.TH ZCMP 1
+X.SH NAME
+Xzcmp, zdiff \- compare compressed files
+X.SH SYNOPSIS
+X.B zcmp
+X[ cmp_options ] file1
+X[ file2 ]
+X.br
+X.B zdiff
+X[ diff_options ] file1
+X[ file2 ]
+X.SH DESCRIPTION
+X.I  Zcmp
+Xand 
+X.I zdiff
+Xare used to invoke the
+X.I cmp
+Xor the
+X.I diff
+Xprogram on compressed files.  All options specified are passed directly to
+X.I cmp
+Xor
+X.IR diff "."
+XIf only 1 file is specified, then the files compared are
+X.I file1
+Xand an uncompressed
+X.IR file1 ".Z."
+XIf two files are specified, then they are uncompressed (if ending with ".Z")
+Xand fed to
+X.I cmp
+Xor
+X.IR diff "."
+XThe exit status from 
+X.I cmp
+Xor
+X.I diff
+Xis preserved.
+X.SH "SEE ALSO"
+Xcmp(1), diff(1), zmore(1), zcat(1), compress(1), uncompress(1)
+X.SH BUGS
+XMessages from the
+X.I cmp
+Xor
+X.I diff
+Xprograms refer to temporary filenames instead of those specified.
+END_OF_FILE
+if test 797 -ne `wc -c <'zcmp.1'`; then
+    echo shar: \"'zcmp.1'\" unpacked with wrong size!
+fi
+# end of 'zcmp.1'
+fi
+if test -f 'zdiff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zdiff'\"
+else
+echo shar: Extracting \"'zdiff'\" \(736 characters\)
+sed "s/^X//" >'zdiff' <<'END_OF_FILE'
+X:
+X#!/bin/sh
+X
+XOPTIONS=
+XFILES=
+Xfor ARG
+Xdo
+X	case "$ARG" in
+X	-*)	OPTIONS="$OPTIONS $ARG";;
+X	*)	FILES="$FILES $ARG";;
+X	esac
+Xdone
+Xif test -z "$FILES"; then
+X	echo "Usage: zdiff [diff_options] file [file]"
+X	exit 1
+Xfi
+Xset $FILES
+Xif test $# -eq 1; then
+X	FILE=`expr $1 : '\(.*\)\.Z' '|' $1`
+X	zcat $FILE | diff $OPTIONS - $FILE
+X	STAT="$?"
+Xelif test $# -eq 2; then
+X	case "$1" in
+X	*.Z)	case "$2" in
+X		*.Z)	F=`basename $2 .Z`
+X			zcat $2 > /tmp/$F.$$
+X			zcat $1 | diff $OPTIONS - /tmp/$F.$$
+X			STAT="$?";;
+X		*)	zcat $1 | diff $OPTIONS - $2;;
+X		esac;;
+X	*)	case "$2" in
+X		*.Z)	zcat $2 | diff $OPTIONS $1 -
+X			STAT="$?";;
+X		*)	diff $OPTIONS $1 $2
+X			STAT="$?";;
+X		esac;;
+X	esac
+X	exit "$STAT"
+Xelse
+X	echo "Usage: zdiff [diff_options] file [file]"
+X	exit 1
+Xfi
+END_OF_FILE
+if test 736 -ne `wc -c <'zdiff'`; then
+    echo shar: \"'zdiff'\" unpacked with wrong size!
+fi
+chmod +x 'zdiff'
+# end of 'zdiff'
+fi
+if test -f 'zmore' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zmore'\"
+else
+echo shar: Extracting \"'zmore'\" \(319 characters\)
+sed "s/^X//" >'zmore' <<'END_OF_FILE'
+X:
+X#!/bin/sh
+X
+XFIRST=1
+Xfor FILE
+Xdo
+X	if test $FIRST -eq 0; then
+X		echo "--More--(Next file: $FILE)\c"
+X		stty cbreak -echo
+X		ANS=`dd bs=1 count=1 2>/dev/null` 
+X		stty -cbreak echo
+X		echo " "
+X		if test "$ANS" = 'e'; then
+X			exit
+X		fi
+X	fi
+X	echo "------> $FILE <------"
+X	zcat $FILE | more
+X	if test -t; then
+X		FIRST=0
+X	fi
+Xdone
+END_OF_FILE
+if test 319 -ne `wc -c <'zmore'`; then
+    echo shar: \"'zmore'\" unpacked with wrong size!
+fi
+chmod +x 'zmore'
+# end of 'zmore'
+fi
+if test -f 'zmore.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zmore.1'\"
+else
+echo shar: Extracting \"'zmore.1'\" \(3702 characters\)
+sed "s/^X//" >'zmore.1' <<'END_OF_FILE'
+X.TH ZMORE 1
+X.SH NAME
+Xzmore \- file perusal filter for crt viewing of compressed text
+X.SH SYNOPSIS
+X.B zmore
+X[ name ...  ]
+X.SH DESCRIPTION
+X.I  Zmore
+Xis a filter which allows examination of compressed text files
+Xone screenful at a time on a soft-copy terminal.
+XIt normally pauses after each screenful, printing --More--
+Xat the bottom of the screen.
+XIf the user then types a carriage return, one more line is displayed.
+XIf the user hits a space,
+Xanother screenful is displayed.  Other possibilites are enumerated later.
+X.PP
+X.I Zmore
+Xlooks in the file
+X.I /etc/termcap
+Xto determine terminal characteristics,
+Xand to determine the default window size.
+XOn a terminal capable of displaying 24 lines,
+Xthe default window size is 22 lines.
+X.PP
+XOther sequences which may be typed when
+X.I zmore
+Xpauses, and their effects, are as follows (\fIi\fP is an optional integer
+Xargument, defaulting to 1) :
+X.PP
+X.IP \fIi\|\fP<space>
+Xdisplay
+X.I i
+Xmore lines, (or another screenful if no argument is given)
+X.PP
+X.IP ^D
+Xdisplay 11 more lines (a ``scroll'').
+XIf
+X.I i
+Xis given, then the scroll size is set to \fIi\|\fP.
+X.PP
+X.IP d
+Xsame as ^D (control-D)
+X.PP
+X.IP \fIi\|\fPz
+Xsame as typing a space except that \fIi\|\fP, if present, becomes the new
+Xwindow size.  Note that the window size reverts back to the default at the
+Xend of the current file.
+X.PP
+X.IP \fIi\|\fPs
+Xskip \fIi\|\fP lines and print a screenful of lines
+X.PP
+X.IP \fIi\|\fPf
+Xskip \fIi\fP screenfuls and print a screenful of lines
+X.PP
+X.IP "q or Q"
+Xquit reading the current file; go on to the next (if any)
+X.PP
+X.IP e
+XWhen the prompt --More--(Next file: 
+X.IR file )
+Xis printed, this command causes zmore to exit.
+X.PP 
+X.IP =
+XDisplay the current line number.
+X.PP
+X.IP \fIi\|\fP/expr
+Xsearch for the \fIi\|\fP-th occurrence of the regular expression \fIexpr.\fP
+XIf the pattern is not found,
+X.I zmore
+Xgoes on to the next file (if any).
+XOtherwise, a screenful is displayed, starting two lines before the place
+Xwhere the expression was found.
+XThe user's erase and kill characters may be used to edit the regular
+Xexpression.
+XErasing back past the first column cancels the search command.
+X.PP
+X.IP \fIi\|\fPn
+Xsearch for the \fIi\|\fP-th occurrence of the last regular expression entered.
+X.PP
+X.IP !command
+Xinvoke a shell with \fIcommand\|\fP. 
+XThe character `!' in "command" are replaced with the
+Xthe previous shell command.  The sequence "\\!" is replaced by "!".
+X.PP
+X.IP ":q or :Q"
+Xquit reading the current file; go on to the next (if any)
+X(same as q or Q).
+X.PP
+X.IP .
+X(dot) repeat the previous command.
+X.PP
+XThe commands take effect immediately, i.e., it is not necessary to
+Xtype a carriage return.
+XUp to the time when the command character itself is given,
+Xthe user may hit the line kill character to cancel the numerical
+Xargument being formed.
+XIn addition, the user may hit the erase character to redisplay the
+X--More-- message.
+X.PP
+XAt any time when output is being sent to the terminal, the user can
+Xhit the quit key (normally control\-\\).
+X.I Zmore
+Xwill stop sending output, and will display the usual --More--
+Xprompt.
+XThe user may then enter one of the above commands in the normal manner.
+XUnfortunately, some output is lost when this is done, due to the
+Xfact that any characters waiting in the terminal's output queue
+Xare flushed when the quit signal occurs.
+X.PP
+XThe terminal is set to
+X.I noecho
+Xmode by this program so that the output can be continuous.
+XWhat you type will thus not show on your terminal, except for the / and !
+Xcommands.
+X.PP
+XIf the standard output is not a teletype, then
+X.I zmore
+Xacts just like
+X.I zcat,
+Xexcept that a header is printed before each file.
+X.SH FILES
+X.DT
+X/etc/termcap		Terminal data base
+X.SH "SEE ALSO"
+Xmore(1), zcat(1), compress(1), uncompress(1)
+END_OF_FILE
+if test 3702 -ne `wc -c <'zmore.1'`; then
+    echo shar: \"'zmore.1'\" unpacked with wrong size!
+fi
+# end of 'zmore.1'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

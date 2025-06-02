@@ -1,0 +1,1820 @@
+Newsgroups: comp.sources.x
+From: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Subject: v21i037:  pan - A post a note program, Part01/06
+Message-ID: <csx-v21i037=pan.180636@sparky.Sterling.COM>
+X-Md4-Signature: 40f9fc54f36837ee560a9f8d02c64c65
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 00:06:52 GMT
+Approved: chris@sterling.com
+
+Submitted-by: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Posting-number: Volume 21, Issue 37
+Archive-name: pan/part01
+Environment: X11, OpenLook, XView
+Supersedes: pan: Volume 16, Issue 137-142
+
+Extracts from Pan 3.0 README:
+
+About Pan:
+
+Pan is an Open Look X Windows Post A Note program.  It is basically a note
+manager program.  It organizes notes into folders.  Each note may be hidden or
+visible.  If it is visible, it is mapped to a window on the display.  The
+note's state, position, and size are "remembered" across invocations of Pan.
+
+Some of Pan's features are:
+
+    o  Multiple folders
+    o  Number of notes limited only by memory (swap space).
+    o  Re-sizable notes with full text editing capabilities.
+    o  Note text size limited only by machine resources.
+    o  Command line control language.
+    o  Flexible note searching features.
+    o  Flexible note printing features.
+
+Version 3.0:
+
+I have only built and tested Pan 3.0 under Open Windows V3 on a sun4 platform.
+I have tried to remain compatible with OW2.0, but I may have accidentally
+used a new feature, or attribute.  If Pan 3.0 won't compile or work correctly
+under OW2.0, get Pan 2.4 and use it.
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 10/04/1993 15:31 UTC by jeff@ss1
+# Source directory /tmp_mnt/usr4/jeff/c/pan
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  24544 -rw-r--r-- pan3.0/control.c
+#   7221 -rw-r--r-- pan3.0/event.c
+#   4329 -rw-r--r-- pan3.0/dnd.c
+#   8148 -rw-r--r-- pan3.0/llm.c
+#   7450 -rw-r--r-- pan3.0/README
+#  10131 -rw-r--r-- pan3.0/pan.h
+#   9172 -rw-r--r-- pan3.0/menu.c
+#  12055 -rw-r--r-- pan3.0/move.c
+#   1997 -rw-r--r-- pan3.0/pan.icon
+#   7422 -rw-r--r-- pan3.0/hidexp.c
+#  21398 -rw-r--r-- pan3.0/pan.man
+#   1762 -rw-r--r-- pan3.0/misc.c
+#   8168 -rw-r--r-- pan3.0/parser.c
+#   9620 -rw-r--r-- pan3.0/rmfolder.c
+#    823 -rw-r--r-- pan3.0/COPYRIGHT
+#   2190 -rw-r--r-- pan3.0/panmain.icon
+#    286 -rw-r--r-- pan3.0/MANIFEST
+#  15182 -rw-r--r-- pan3.0/note.c
+#  21826 -rw-r--r-- pan3.0/pan.c
+#   3543 -rw-r--r-- pan3.0/update.c
+#   9168 -rw-r--r-- pan3.0/search.c
+#   2517 -rw-r--r-- pan3.0/win.c
+#  19226 -rw-r--r-- pan3.0/work.c
+#   4846 -rw-r--r-- pan3.0/folder.c
+#     39 -rw-r--r-- pan3.0/patchlevel.h
+#   2705 -rw-r--r-- pan3.0/noteaction.c
+#    958 -rw-r--r-- pan3.0/Makefile.std
+#   3137 -rwxr-xr-x pan3.0/pancmd
+#   1791 -rwxr-xr-x pan3.0/panlog
+#    792 -rw-r--r-- pan3.0/Imakefile
+#   2190 -rw-r--r-- pan3.0/panmain.mask.icon
+#   2190 -rw-r--r-- pan3.0/pan.mask.icon
+#
+# ============= pan3.0/control.c ==============
+if test ! -d 'pan3.0'; then
+    echo 'x - creating directory pan3.0'
+    mkdir 'pan3.0'
+fi
+if test -f 'pan3.0/control.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/control.c (File already exists)'
+else
+echo 'x - extracting pan3.0/control.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/control.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xstruct Commands
+X    {
+X    char *Name;
+X    int  (*Routine)();
+X    };
+X
+Xint cmd_debug(), cmd_expose(), cmd_hide(), cmd_movenote(), cmd_newfolder();
+Xint cmd_newnote(), cmd_printnote(), cmd_quit(), cmd_rename(), cmd_veil();
+X
+Xstatic struct Commands cmds[] = {
+X    {"debug",     cmd_debug},
+X    {"expose",    cmd_expose},
+X    {"hide",      cmd_hide},
+X    {"move",      cmd_movenote},
+X    {"newfolder", cmd_newfolder},
+X    {"newnote",   cmd_newnote},
+X    {"print",     cmd_printnote},
+X    {"quit",      cmd_quit},
+X    {"rename",    cmd_rename},
+X    {"veil",      cmd_veil},
+X    {NULL,        NULL}
+X};
+X
+XFILE *errfp;
+X
+Xstatic char ctrllck[MAXBUFLEN];
+Xstatic char ctrlnam[MAXBUFLEN];
+Xstatic char errlnam[MAXBUFLEN];
+X
+XNotify_value check_ctl_file(client, which)
+X    Notify_client client;
+X    int  which;
+X    {
+X    int  fd;
+X    struct stat mystat;
+X
+X    sprintf(ctrllck, "%s/%s", note_dir, CTRLLCK);
+X    if(stat(ctrllck, &mystat) == 0)
+X        return(NOTIFY_DONE); /* control file is locked */
+X
+X    sprintf(ctrlnam, "%s/%s", note_dir, CTRLNAM);
+X    if(stat(ctrlnam, &mystat) < 0)
+X        return(NOTIFY_DONE); /* control file doesn't exit */
+X
+X    if((fd = open(ctrllck, O_CREAT|O_RDWR|O_EXCL, 0644) < 0))
+X        return(NOTIFY_DONE); /* Couldn't acquire lock */
+X    (void)close(fd);
+X
+X    if(logging)
+X        sprintf(errlnam, "%s/%s", note_dir, ERRLNAM);
+X    else
+X        strcpy(errlnam, "/dev/null");
+X
+X    if((errfp = fopen(errlnam, "a")) == NULL)
+X        {
+X        (void) unlink(ctrllck);
+X        fprintf(stderr, "%s:  Couldn't open %s for append\n", myname, errlnam);
+X        return(NOTIFY_DONE);
+X        }
+X
+X    dispatch(ctrlnam);
+X
+X    (void) fclose(errfp);
+X    (void) unlink(ctrlnam);
+X    (void) unlink(ctrllck);
+X    return(NOTIFY_DONE);
+X    }
+X
+Xdispatch(name)
+X    char *name;
+X    {
+X    FILE *fp;
+X    struct ps_component *lp;
+X    int  i, found;
+X    char buf[MAXBUFLEN];
+X
+X    fp = fopen(name, "r");
+X    if(fp == NULL)
+X        {
+X        fprintf(errfp, "%s:  Couldn't open %s:  %s\n", myname, name,
+X                sys_errlist[errno]);
+X        return;
+X        }
+X
+X    while(fgets(buf, sizeof(buf), fp) != NULL)
+X        {
+X        trim(buf); /* skip comments & blank lines */
+X        if(*buf == '#' || *buf == 0) continue;
+X
+X        lp = parse_string(buf, " \t\n", 1, 1, 1);
+X        if(lp == NULL) continue;
+X
+X        for(i = 0, found = 0; cmds[i].Name != NULL; i++)
+X            {
+X            if(strcmp(lp->ps_text, cmds[i].Name) == 0)
+X                {
+X                fprintf(errfp, "%s:  **** executing {%s}\n", myname, buf);
+X                found = 1;
+X                (*cmds[i].Routine)(lp->ps_next);
+X                break;
+X                }
+X            }
+X        free_ps_list(lp);
+X        if(!found)
+X            {
+X            fprintf(errfp, "%s:  Unrecognized command:  %s\n", myname, buf);
+X            }
+X        }
+X
+X    (void) fclose(fp);
+X    }
+X
+Xcmd_debug(lp)
+X    struct ps_component *lp;
+X    {
+X    if(debug_on) fprintf(stderr, "cmd_debug\n");
+X    if(lp == NULL ||
+X       (strcmp(lp->ps_text, "on") != 0 && strcmp(lp->ps_text, "off") != 0))
+X        {
+X        fprintf(errfp, "%s:  debug command requires \"on|off\" parameter\n",
+X            myname);
+X        return;
+X        }
+X    if(strcmp(lp->ps_text, "on") == 0)
+X        {
+X        debug_on = 1;
+X        }
+X    else
+X        {
+X        debug_on = 0;
+X        }
+X    }
+X
+Xcmd_expose(lp)
+X    struct ps_component *lp;
+X    {
+X    int  count;
+X    int  res;
+X    struct Note **npp;
+X    struct LLM_root root;
+X    char title[MAXBUFLEN];
+X    int  gottitle;
+X    int  lwindowmax;
+X
+X    if(debug_on) fprintf(stderr, "cmd_expose\n");
+X    lwindowmax = windowmax;
+X    gottitle = 0;
+X    while(lp != NULL)
+X        {
+X        if(lp->ps_next == NULL) /* go by two's, so we need another param */
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameters for expose\n",
+X                myname);
+X            return;
+X            }
+X        if(strcmp(lp->ps_text, "title") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(title, lp->ps_text);
+X            gottitle = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "windowmax") == 0)
+X            {
+X            lp = lp->ps_next;
+X            lwindowmax = atoi(lp->ps_text);
+X            lp = lp->ps_next;
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameter {%s} for expose\n",
+X                myname, lp->ps_text);
+X            return;
+X            }
+X        }
+X    if(!gottitle)
+X        {
+X        fprintf(errfp, "%s:  Missing title for expose\n",
+X            myname);
+X        return;
+X        }
+X    res = w_matchingnotes(&root, title, 1);
+X    switch(res)
+X        {
+X        case  -1 :
+X            fprintf(errfp, "%s:  Invalid RE for expose command {%s}\n",
+X                myname, title);
+X            return;
+X            break;
+X        case  -2 :
+X            fprintf(errfp, "%s:  Memory allocation failure during expose\n",
+X                myname);
+X            LLM_free(&root);
+X            return;
+X            break;
+X        }
+X    count = 0;
+X    npp = (struct Note **) LLM_first(&root);
+X    if(npp == NULL)
+X        {
+X        fprintf(errfp, "%s:  No matches found to expose for RE {%s}\n",
+X            myname, title);
+X        }
+X    while(npp != NULL && (lwindowmax == -1 || count < lwindowmax))
+X        {
+X        count++;
+X        w_exposenote(*npp, ERRINLOG);
+X        npp = (struct Note **) LLM_next(&root);
+X        }
+X    LLM_free(&root);
+X
+X    if(npp != NULL && count == lwindowmax)
+X        fprintf(errfp, "%s:  expose halted at windowmax setting of %d\n",
+X                  myname, count);
+X    if(count)
+X        fprintf(errfp, "%s:  exposed %d notes for RE {%s}\n",
+X                  myname, count, title);
+X    }
+X
+Xcmd_hide(lp)
+X    struct ps_component *lp;
+X    {
+X    int  count;
+X    int  res;
+X    struct Note **npp;
+X    struct LLM_root root;
+X
+X    if(debug_on) fprintf(stderr, "cmd_hide\n");
+X    if(lp == NULL || lp->ps_next == NULL)
+X        {
+X        fprintf(errfp, "%s:  hide command requires title RE parameter\n",
+X            myname);
+X        return;
+X        }
+X    if(debug_on)
+X        fprintf(stderr, "hide {%s} {%s}\n", lp->ps_text,
+X            lp->ps_next->ps_text);
+X    if(strcmp(lp->ps_text, "title") != 0)
+X        {
+X        fprintf(errfp, "%s:  hide command requires title keyword\n",
+X            myname);
+X        return;
+X        }
+X    lp = lp->ps_next;
+X    /*
+X        This is slightly different than for expose - we will probably get
+X        matches for notes that are already hidden because of the way
+X        w_matchingnotes works.  It knows how to a) find all non-visible notes,
+X        and b) all notes.
+X    */
+X    res = w_matchingnotes(&root, lp->ps_text, 0);
+X    switch(res)
+X        {
+X        case  -1 :
+X            fprintf(errfp, "%s:  Invalid RE for hide command {%s}\n",
+X                myname, lp->ps_text);
+X            return;
+X            break;
+X        case  -2 :
+X            fprintf(errfp, "%s:  Memory allocation failure during hide\n",
+X                myname);
+X            LLM_free(&root);
+X            return;
+X            break;
+X        }
+X    count = 0;
+X    npp = (struct Note **) LLM_first(&root);
+X    if(npp == NULL)
+X        {
+X        fprintf(errfp, "%s:  No matches found to hide for RE {%s}\n",
+X            myname, lp->ps_text);
+X        }
+X    while(npp != NULL)
+X        {
+X        /*
+X            Make sure the note is really visible; note that we do not hide
+X            veiled notes.
+X        */
+X        if((*npp)->state == Visible && (*npp)->mapped)
+X            {
+X            count++;
+X            w_hidenote(*npp);
+X            }
+X        npp = (struct Note **) LLM_next(&root);
+X        }
+X    LLM_free(&root);
+X    fprintf(errfp, "%s:  hid %d notes for RE {%s}\n",
+X            myname, count, lp->ps_text);
+X    }
+X
+Xcmd_movenote(lp)
+X    struct ps_component *lp;
+X    {
+X    int  gotsrc, gotdst, gottitle, res, count;
+X    struct SubDir *src_sp, *dst_sp, *sp;
+X    struct Note **npp;
+X    struct LLM_root root;
+X    char src[MAXBUFLEN];
+X    char dst[MAXBUFLEN];
+X    char title[MAXBUFLEN];
+X
+X    if(debug_on) fprintf(stderr, "cmd_movenote\n");
+X    gotsrc = gotdst = gottitle = 0;
+X    while(lp != NULL)
+X        {
+X        if(lp->ps_next == NULL) /* go by two's, so we need another param */
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameters for move\n",
+X                myname);
+X            return;
+X            }
+X        if(strcmp(lp->ps_text, "source") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(src, lp->ps_text);
+X            gotsrc = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "title") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(title, lp->ps_text);
+X            gottitle = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "destination") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(dst, lp->ps_text);
+X            gotdst = 1;
+X            lp = lp->ps_next;
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameter {%s} for move\n",
+X                myname, lp->ps_text);
+X            return;
+X            }
+X        }
+X    if(!gotsrc)
+X        {
+X        fprintf(errfp, "%s:  Missing source folder for move\n",
+X            myname);
+X        return;
+X        }
+X    if(!gotdst)
+X        {
+X        fprintf(errfp, "%s:  Missing destination folder for move\n",
+X            myname);
+X        return;
+X        }
+X    if(!gottitle)
+X        {
+X        fprintf(errfp, "%s:  Missing title for move\n",
+X            myname);
+X        return;
+X        }
+X    src_sp = dst_sp = NULL;
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        if(strcmp(src, sp->subdir) == 0) src_sp = sp;
+X        if(strcmp(dst, sp->subdir) == 0) dst_sp = sp;
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    if(src_sp == NULL)
+X        {
+X        fprintf(errfp, "%s:  Bad source folder {%s} for move\n",
+X            myname, src);
+X        return;
+X        }
+X    if(dst_sp == NULL)
+X        {
+X        fprintf(errfp, "%s:  Bad destination folder {%s} for move\n",
+X            myname, dst);
+X        return;
+X        }
+X    res = w_matchingnotes(&root, title, 0);
+X    switch(res)
+X        {
+X        case  -1 :
+X            fprintf(errfp, "%s:  Invalid RE for move command {%s}\n",
+X                myname, title);
+X            return;
+X            break;
+X        case  -2 :
+X            fprintf(errfp, "%s:  Memory allocation failure during move\n",
+X                myname);
+X            LLM_free(&root);
+X            return;
+X            break;
+X        }
+X    count = 0;
+X    npp = (struct Note **) LLM_first(&root);
+X    while(npp != NULL)
+X        {
+X        if((*npp)->sp == src_sp) /* Make sure it's in the src folder */
+X            {
+X            if(debug_on)
+X                fprintf(stderr, "Moving {%s} from {%s} to {%s}...\n",
+X                    (*npp)->ntitle, src, dst);
+X            res = w_movenote(src_sp, dst_sp, *npp, ERRINLOG);
+X            if(res == 0)
+X                {
+X                if(debug_on) fprintf(stderr, "    ...succeeded\n");
+X                count++;
+X                }
+X            else if(debug_on) fprintf(stderr, "    ...failed\n");
+X            }
+X        npp = (struct Note **) LLM_next(&root);
+X        }
+X    fprintf(errfp, "%s:  %d notes moved successfully\n", myname, count);
+X    }
+X
+Xcmd_newfolder(lp)
+X    struct ps_component *lp;
+X    {
+X    if(debug_on) fprintf(stderr, "cmd_newfolder\n");
+X    if(lp == NULL || lp->ps_next == NULL || strcmp(lp->ps_text, "folder") != 0)
+X        {
+X        fprintf(errfp,
+X            "%s:  newfolder command requires folder name parameter\n", myname);
+X        return;
+X        }
+X    lp = lp->ps_next;
+X    w_newfolder(lp->ps_text, ERRINLOG);
+X    }
+X
+Xcmd_newnote(lp)
+X    struct ps_component *lp;
+X    {
+X    int  x, y;
+X    int  gotrect, gottitle, gotfile, gotfolder;
+X    struct SubDir *sp;
+X    NoteState state;
+X    Rect rect;
+X    char folder[MAXBUFLEN];
+X    char title[MAXBUFLEN];
+X    char file[MAXBUFLEN];
+X
+X    if(debug_on) fprintf(stderr, "cmd_newnote\n");
+X    gotrect = gottitle = gotfile = gotfolder = 0;
+X
+X    /* set up good defaults in case only half is specified */
+X    w_popupxy(&x, &y, DEFWIDTH, DEFHEIGHT, DEFSPACING);
+X    rect.r_left = x;
+X    rect.r_top = y;
+X    rect.r_width = DEFWIDTH;
+X    rect.r_height = DEFHEIGHT;
+X
+X    state = Visible;
+X    while(lp != NULL)
+X        {
+X        if(strcmp(lp->ps_text, "folder") == 0)
+X            {
+X            if(lp->ps_next == NULL)
+X                {
+X                fprintf(errfp, "%s:  Missing folder name\n", myname);
+X                return;
+X                }
+X            lp = lp->ps_next;
+X            strcpy(folder, lp->ps_text);
+X            gotfolder = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "title") == 0)
+X            {
+X            if(lp->ps_next == NULL)
+X                {
+X                fprintf(errfp, "%s:  Missing title\n", myname);
+X                return;
+X                }
+X            lp = lp->ps_next;
+X            strcpy(title, lp->ps_text);
+X            gottitle = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "size") == 0)
+X            {
+X            if(lp->ps_next == NULL || lp->ps_next->ps_next == NULL)
+X                {
+X                fprintf(errfp, "%s:  Missing width or height\n", myname);
+X                return;
+X                }
+X            gotrect = 1;
+X            lp = lp->ps_next;
+X            rect.r_width = atoi(lp->ps_text);
+X            lp = lp->ps_next;
+X            rect.r_height = atoi(lp->ps_text);
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "location") == 0)
+X            {
+X            if(lp->ps_next == NULL || lp->ps_next->ps_next == NULL)
+X                {
+X                fprintf(errfp, "%s:  Missing x or y location\n", myname);
+X                return;
+X                }
+X            gotrect = 1;
+X            lp = lp->ps_next;
+X            rect.r_left = atoi(lp->ps_text);
+X            lp = lp->ps_next;
+X            rect.r_top = atoi(lp->ps_text);
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "hidden") == 0)
+X            {
+X            state = Hidden;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "visible") == 0)
+X            {
+X            state = Visible;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "veiled") == 0)
+X            {
+X            state = Veiled;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "file") == 0)
+X            {
+X            if(lp->ps_next == NULL)
+X                {
+X                fprintf(errfp, "%s:  Missing file name\n", myname);
+X                return;
+X                }
+X            lp = lp->ps_next;
+X            strcpy(file, lp->ps_text);
+X            gotfile = 1;
+X            lp = lp->ps_next;
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Invalid parameter {%s}\n",
+X                myname, lp->ps_text);
+X            return;
+X            }
+X        }
+X    if(!gotfolder) strcpy(folder, "Miscellaneous");
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        if(strcmp(folder, sp->subdir) == 0) break;
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    if(sp == NULL)
+X        {
+X        fprintf(errfp, "%s:  Invalid folder {%s}\n",
+X            myname, folder);
+X        return;
+X        }
+X    w_newnote(sp, state, gotrect ? &rect : NULL, gottitle ? title : NULL,
+X        gotfile ? file : NULL, ERRINLOG);
+X    }
+X
+X/*
+X    This guy is a half baked state machine for printing notes.
+X
+X    State 1 = Doing nothing.  Process command and get list of notes to print.
+X              Start queuing of first note.
+X    State 2 = Printing and called by child_death.  Kick off next queue command.
+X    State 3 = Printing and got a real print command.  Add notes to list to
+X              be printed.
+X    State 4 = Not printing, called on child death, do nothing.
+X
+X    The state machine is controlled by the variables:  printing, lp, adding
+X*/
+X
+Xcmd_printnote(lp)
+X    struct ps_component *lp;
+X    {
+X    int  adding = 0;
+X    struct Note **tnpp1, **tnpp2;
+X    struct LLM_root addroot;
+X    static int printing = 0;
+X    static int  gotfldr, gottitle, res, count;
+X    static struct SubDir *fldr_sp, *sp;
+X    static struct Note **npp;
+X    static struct LLM_root root;
+X    static char fldr[MAXBUFLEN];
+X    static char title[MAXBUFLEN];
+X
+X    if(debug_on) fprintf(stderr, "cmd_printnote\n");
+X    if(!printing && lp == NULL) return;
+X    if(printing && lp != NULL)
+X        {
+X        /* need to add to list! */
+X        adding = 1;
+X        }
+X    if(printing && lp == NULL)
+X        {
+X        npp = (struct Note **) LLM_next(&root);
+X        if(npp == NULL)
+X            {
+X            printing = 0;
+X            LLM_free(&root);
+X            if(debug_on)
+X                fprintf(stderr, "Printed %d notes\n", count);
+X            }
+X        else
+X            {
+X            if(debug_on)
+X                fprintf(stderr, "Printing {%s} ...\n", (*npp)->ntitle);
+X            w_printnote(*npp, ERRINLOG);
+X            count++;
+X            }
+X        return;
+X        }
+X    gotfldr = gottitle = 0;
+X    while(lp != NULL)
+X        {
+X        if(lp->ps_next == NULL) /* go by two's, so we need another param */
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameters for print\n",
+X                myname);
+X            return;
+X            }
+X        if(strcmp(lp->ps_text, "folder") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(fldr, lp->ps_text);
+X            gotfldr = 1;
+X            lp = lp->ps_next;
+X            }
+X        else if(strcmp(lp->ps_text, "title") == 0)
+X            {
+X            lp = lp->ps_next;
+X            strcpy(title, lp->ps_text);
+X            gottitle = 1;
+X            lp = lp->ps_next;
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Incorrect parameter {%s} for print\n",
+X                myname, lp->ps_text);
+X            return;
+X            }
+X        }
+X    if(!gotfldr)
+X        {
+X        fprintf(errfp, "%s:  Missing source folder for print\n",
+X            myname);
+X        return;
+X        }
+X    if(!gottitle)
+X        {
+X        fprintf(errfp, "%s:  Missing title for print\n",
+X            myname);
+X        return;
+X        }
+X    fldr_sp = NULL;
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        if(strcmp(fldr, sp->subdir) == 0) fldr_sp = sp;
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    if(fldr_sp == NULL)
+X        {
+X        fprintf(errfp, "%s:  Bad source folder {%s} for print\n",
+X            myname, fldr);
+X        return;
+X        }
+X    if(adding)
+X        {
+X        res = w_matchingnotes(&addroot, title, 0);
+X        }
+X    else
+X        {
+X        res = w_matchingnotes(&root, title, 0);
+X        }
+X    switch(res)
+X        {
+X        case  -1 :
+X            fprintf(errfp, "%s:  Invalid RE for print command {%s}\n",
+X                myname, title);
+X            return;
+X            break;
+X        case  -2 :
+X            fprintf(errfp, "%s:  Memory allocation failure during print\n",
+X                myname);
+X            LLM_free(&root);
+X            return;
+X            break;
+X        }
+X    /* get rid of matching titles not in target folder */
+X    if(adding)
+X        {
+X        tnpp1 = (struct Note **) LLM_first(&addroot);
+X        while(tnpp1 != NULL)
+X            {
+X            if((*tnpp1)->sp != fldr_sp)
+X                {
+X                LLM_delete(&addroot, (char *)tnpp1);
+X                tnpp1 = (struct Note **) LLM_first(&addroot); /* restart */
+X                }
+X            else
+X                {
+X                tnpp1 = (struct Note **) LLM_next(&addroot);
+X                }
+X            }
+X        /* now append the new list onto the old one we are printing from */
+X        tnpp1 = (struct Note **) LLM_first(&addroot);
+X        while(tnpp1 != NULL)
+X            {
+X            tnpp2 = (struct Note **) LLM_add(&root);
+X            if(tnpp2 == NULL) /* Gak! */
+X                {
+X                fprintf(errfp,
+X                    "%s:  Memory allocation failure during print\n",
+X                    myname);
+X                LLM_free(&addroot);
+X                return;
+X                }
+X            *tnpp2 = *tnpp1;
+X            tnpp1 = (struct Note **) LLM_next(&addroot);
+X            }
+X        LLM_free(&addroot);
+X        /* no need to go further, printing should be in process */
+X        return;
+X        }
+X    else
+X        {
+X        npp = (struct Note **) LLM_first(&root);
+X        while(npp != NULL)
+X            {
+X            if((*npp)->sp != fldr_sp)
+X                {
+X                LLM_delete(&root, (char *)npp);
+X                npp = (struct Note **) LLM_first(&root); /* restart */
+X                }
+X            else
+X                {
+X                npp = (struct Note **) LLM_next(&root);
+X                }
+X            }
+X        }
+X    count = 0;
+X    printing = 1;
+X    npp = (struct Note **) LLM_first(&root);
+X    if(npp == NULL)
+X        {
+X        printing = 0;
+X        LLM_free(&root);
+X        if(debug_on)
+X            fprintf(stderr, "Printed %d notes\n", count);
+X        }
+X    else
+X        {
+X        if(debug_on)
+X            fprintf(stderr, "Printing {%s} ...\n", (*npp)->ntitle);
+X        w_printnote(*npp, ERRINLOG);
+X        count++;
+X        }
+X    }
+X
+Xcmd_quit(lp)
+X    struct ps_component *lp;
+X    {
+X    if(debug_on) fprintf(stderr, "cmd_quit\n");
+X    fprintf(errfp, "%s:  Exiting due to quit command\n", myname);
+X    (void) fclose(errfp);
+X    (void) unlink(ctrlnam);
+X    (void) unlink(ctrllck);
+X    cleanup(0);
+X    }
+X
+Xcmd_rename(lp)
+X    struct ps_component *lp;
+X    {
+X    if(debug_on) fprintf(stderr, "cmd_rename\n");
+X    fprintf(errfp, "%s:  Unimplemented command\n", myname);
+X    }
+X
+Xcmd_veil(lp)
+X    struct ps_component *lp;
+X    {
+X    int  count;
+X    int  res;
+X    struct Note **npp;
+X    struct LLM_root root;
+X
+X    if(debug_on) fprintf(stderr, "cmd_veil\n");
+X    if(lp == NULL || lp->ps_next == NULL)
+X        {
+X        fprintf(errfp, "%s:  veil command requires title RE parameter\n",
+X            myname);
+X        return;
+X        }
+X    if(debug_on)
+X        fprintf(stderr, "veil {%s} {%s}\n", lp->ps_text,
+X            lp->ps_next->ps_text);
+X    if(strcmp(lp->ps_text, "title") != 0)
+X        {
+X        fprintf(errfp, "%s:  veil command requires title keyword\n",
+X            myname);
+X        return;
+X        }
+X    lp = lp->ps_next;
+X    /*
+X        This is slightly different than for expose - we will probably get
+X        matches for notes that are already hidden because of the way
+X        w_matchingnotes works.  It knows how to a) find all non-visible notes,
+X        and b) all notes.
+X    */
+X    res = w_matchingnotes(&root, lp->ps_text, 0);
+X    switch(res)
+X        {
+X        case  -1 :
+X            fprintf(errfp, "%s:  Invalid RE for veil command {%s}\n",
+X                myname, lp->ps_text);
+X            return;
+X            break;
+X        case  -2 :
+X            fprintf(errfp, "%s:  Memory allocation failure during veil\n",
+X                myname);
+X            LLM_free(&root);
+X            return;
+X            break;
+X        }
+X    count = 0;
+X    npp = (struct Note **) LLM_first(&root);
+X    if(npp == NULL)
+X        {
+X        fprintf(errfp, "%s:  No matches found to veil for RE {%s}\n",
+X            myname, lp->ps_text);
+X        }
+X    while(npp != NULL)
+X        {
+X        /*
+X            Make sure the note is really visible; note that we do not veil
+X            hidden notes.
+X        */
+X        if((*npp)->state == Visible && (*npp)->mapped)
+X            {
+X            count++;
+X            w_veilnote(*npp);
+X            }
+X        npp = (struct Note **) LLM_next(&root);
+X        }
+X    LLM_free(&root);
+X    fprintf(errfp, "%s:  veiled %d notes for RE {%s}\n",
+X            myname, count, lp->ps_text);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/control.c ||
+echo 'restore of pan3.0/control.c failed'
+Wc_c="`wc -c < 'pan3.0/control.c'`"
+test 24544 -eq "$Wc_c" ||
+	echo 'pan3.0/control.c: original size 24544, current size' "$Wc_c"
+fi
+# ============= pan3.0/event.c ==============
+if test -f 'pan3.0/event.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/event.c (File already exists)'
+else
+echo 'x - extracting pan3.0/event.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/event.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+X/*
+X    Handle the window exit event of the mouse pointer.  Used to do auto-saves.
+X    This trick on a frame is not specifically documented, but seems to work.
+X    I hope it doesn't break in the future.
+X*/
+Xframeexit(frame, event, arg)
+X    Frame frame;
+X    Event *event;
+X    Notify_arg arg;
+X    {
+X    int  found = 0;
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    if(event_id(event) != LOC_WINEXIT) return;
+X    if(debug_on) fprintf(stderr, "Got LOC_WINEXIT\n");
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL && !found)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL && !found)
+X            {
+X            if(np->frame == frame && np->mapped)
+X                {
+X                update(np);
+X                updateinfo(np, NOFORCE);
+X                found = 1;
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X
+X    }
+X
+X/*
+X    Handles a drag & drop event from the file manager into a note, retrieving
+X    the path & file name and inserting it into the note text.
+X*/
+Xdragdrop(window, event, arg)
+X    Xv_Window window;
+X    Event *event;
+X    Notify_arg arg;
+X    {
+X    int  found = 0;
+X    struct SubDir *sp;
+X    struct Note *np;
+X    Xv_Window twin;
+X    int  n;
+X    int  amount;
+X    char buf[SELN_BUFSIZE];
+X
+X    if(debug_on)
+X        {
+X        if(event_action(event) == ACTION_DRAG_MOVE)
+X            fprintf(stderr, "Got ACTION_DRAG_MOVE event\n");
+X        if(event_action(event) == ACTION_DRAG_LOAD)
+X            fprintf(stderr, "Got ACTION_DRAG_LOAD event\n");
+X        if(event_action(event) == ACTION_DRAG_COPY)
+X            fprintf(stderr, "Got ACTION_DRAG_COPY event\n");
+X        }
+X    if(event_action(event) == ACTION_DRAG_LOAD)
+X        {
+X        sp = (struct SubDir *)LLM_first(&subdir_rt);
+X        while(sp != NULL && !found)
+X            {
+X            np = (struct Note *) LLM_first(&sp->note_rt);
+X            while(np != NULL && !found)
+X                {
+X                if(np->mapped)
+X                    {
+X                    twin = (Xv_Window) xv_get(np->textsw, OPENWIN_NTH_VIEW, 0);
+X                    if(twin == window)
+X                        {
+X                        found = 1;
+X                        n = xv_decode_drop(event, buf, sizeof(buf));
+X                        buf[sizeof(buf) - 1] = 0;
+X                        if(debug_on) fprintf(stderr, "buf {%s}\n", buf);
+X                        if(n > 0)
+X                            xv_set(np->textsw,
+X                                TEXTSW_INSERT_FROM_FILE, buf, NULL);
+X                        }
+X                    }
+X                np = (struct Note *) LLM_next(&sp->note_rt);
+X                }
+X            sp = (struct SubDir *)LLM_next(&subdir_rt);
+X            }
+X        }
+X    if((event_action(event) == ACTION_GO_PAGE_FORWARD || 
+X       event_action(event) == ACTION_GO_PAGE_BACKWARD) && event_is_down(event))
+X        {
+X        if(debug_on) fprintf(stderr, "Got PAGE event\n");
+X        sp = (struct SubDir *)LLM_first(&subdir_rt);
+X        while(sp != NULL && !found)
+X            {
+X            np = (struct Note *) LLM_first(&sp->note_rt);
+X            while(np != NULL && !found)
+X                {
+X                if(np->mapped)
+X                    {
+X                    twin = (Xv_Window) xv_get(np->textsw, OPENWIN_NTH_VIEW, 0);
+X                    if(twin == window)
+X                        {
+X                        Textsw_index t_ndx;
+X                        int  top, bottom;
+X                        int  len;
+X
+X                        found = 1;
+X                        textsw_file_lines_visible(np->textsw, &top, &bottom);
+X                        len = xv_get(np->textsw, TEXTSW_LENGTH);
+X                        if(debug_on)
+X                            fprintf(stderr, "len %d\n", len);
+X                        amount = bottom - top + 1;
+X                        if(event_action(event) == ACTION_GO_PAGE_BACKWARD)
+X                            amount = -(amount);
+X                        if(debug_on)
+X                            fprintf(stderr, "top %d, bot %d\n", top, bottom);
+X                        top += amount;
+X                        if(top < 0) top = 0;
+X                        t_ndx = textsw_index_for_file_line(np->textsw, top);
+X                        if(debug_on)
+X                            fprintf(stderr, "t_ndx %d\n",
+X                                    t_ndx);
+X                        if(t_ndx >= 0)
+X                            {
+X                            xv_set(np->textsw,
+X                                   TEXTSW_INSERTION_POINT, t_ndx,
+X                                   TEXTSW_UPPER_CONTEXT, 0,
+X                                   NULL);
+X                            textsw_normalize_view(np->textsw, t_ndx);
+X                            }
+X                        }
+X                    }
+X                np = (struct Note *) LLM_next(&sp->note_rt);
+X                }
+X            sp = (struct SubDir *)LLM_next(&subdir_rt);
+X            }
+X        }
+X    if(event_id(event) == KBD_DONE)
+X        {
+X        if(debug_on) fprintf(stderr, "Got KBD_DONE event\n");
+X        sp = (struct SubDir *)LLM_first(&subdir_rt);
+X        while(sp != NULL && !found)
+X            {
+X            np = (struct Note *) LLM_first(&sp->note_rt);
+X            while(np != NULL && !found)
+X                {
+X                if(np->mapped)
+X                    {
+X                    twin = (Xv_Window) xv_get(np->textsw, OPENWIN_NTH_VIEW, 0);
+X                    if(twin == window)
+X                        {
+X                        found = 1;
+X                        update(np);
+X                        updateinfo(np, NOFORCE);
+X                        }
+X                    }
+X                np = (struct Note *) LLM_next(&sp->note_rt);
+X                }
+X            sp = (struct SubDir *)LLM_next(&subdir_rt);
+X            }
+X        }
+X    }
+X
+X/*
+X    Handles child process death notification.  Used with the print note
+X    action.
+X*/
+XNotify_value child_death(me, pid, status, rusage)
+X    Notify_client me;
+X    int  pid;
+X    union wait *status;
+X    struct rusage *rusage;
+X    {
+X    if(WIFEXITED(*status))
+X        {
+X        if(debug_on) fprintf(stderr, "Got child death\n");
+X        cmd_printnote(NULL); /* allow next note to go, if any */
+X        return(NOTIFY_DONE);
+X        }
+X    return(NOTIFY_IGNORED);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/event.c ||
+echo 'restore of pan3.0/event.c failed'
+Wc_c="`wc -c < 'pan3.0/event.c'`"
+test 7221 -eq "$Wc_c" ||
+	echo 'pan3.0/event.c: original size 7221, current size' "$Wc_c"
+fi
+# ============= pan3.0/dnd.c ==============
+if test -f 'pan3.0/dnd.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/dnd.c (File already exists)'
+else
+echo 'x - extracting pan3.0/dnd.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/dnd.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#ifdef PAN_DND
+X
+X#include "pan.h"
+X#include <xview/dragdrop.h>
+X
+Xstruct Note *drag_find();
+X
+Xstatic Xv_Server dnd_server;
+X
+Xdrag_init(server)
+X    Xv_Server server;
+X    {
+X    dnd_server = server;
+X    }
+X
+Xdrag_proc(item, value, event)
+X    Xv_opaque item;
+X    unsigned int value;
+X    Event *event;
+X    {
+X    struct Note *np;
+X    Selection_requestor sel_req;
+X
+X    sel_req = xv_get(item, PANEL_DROP_SEL_REQ);
+X    switch(event_action(event))
+X        {
+X        case ACTION_DRAG_MOVE : /* Do nothing for now, textsw handles it */
+X            break;
+X        case ACTION_DRAG_COPY : /* Do nothing for now, textsw handles it */
+X            break;
+X        case LOC_DRAG :
+X            np = drag_find(item);
+X            if(np)
+X                {
+X                int txt_len;
+X                char *text;
+X                char fname[MAXBUFLEN];
+X                Atom list[3];
+X
+X                /* Set up file name */
+X                makename(fname, np);
+X                if(!np->got_itms)
+X                    {
+X                    np->sel_itm1 = xv_create(np->drag_obj,SELECTION_ITEM,NULL);
+X                    np->sel_itm2 = xv_create(np->drag_obj,SELECTION_ITEM,NULL);
+X                    np->sel_itm3 = xv_create(np->drag_obj,SELECTION_ITEM,NULL);
+X                    np->got_itms = 1;
+X                    }
+X                xv_set(np->sel_itm1,
+X                    SEL_DATA, fname,
+X                    SEL_FORMAT, 8,
+X                    SEL_LENGTH, strlen(fname),
+X                    SEL_TYPE_NAME, "FILE_NAME",
+X                    SEL_COPY, TRUE,
+X                    SEL_OWN, TRUE,
+X                    NULL);
+X                /* Set up for text transfer */
+X                txt_len = xv_get(np->textsw, TEXTSW_LENGTH) + 1;
+X                text = malloc(txt_len);
+X                if(text == NULL)
+X                    {
+X                    fprintf(stderr, "pan:  Memory allocation failure\n");
+X                    cleanup(1);
+X                    }
+X                xv_get(np->textsw, TEXTSW_CONTENTS, 0, text, txt_len);
+X                xv_set(np->sel_itm2,
+X                    SEL_DATA, text,
+X                    SEL_FORMAT, 8,
+X                    SEL_LENGTH, strlen(text),
+X                    SEL_TYPE_NAME, "STRING",
+X                    SEL_COPY, TRUE,
+X                    SEL_OWN, TRUE,
+X                    NULL);
+X                free(text);
+X                list[0] = (Atom) xv_get(dnd_server, SERVER_ATOM, "TARGETS");
+X                list[1] = (Atom) xv_get(dnd_server, SERVER_ATOM, "FILE_NAME");
+X                list[2] = (Atom) xv_get(dnd_server, SERVER_ATOM, "STRING");
+X                xv_set(np->sel_itm3,
+X                    SEL_DATA, list,
+X                    SEL_FORMAT, 32,
+X                    SEL_LENGTH, 3,
+X                    SEL_TYPE_NAME, "TARGETS",
+X                    SEL_COPY, TRUE,
+X                    SEL_OWN, TRUE,
+X                    NULL);
+X                }
+X            break;
+X        default :
+X            printf("unknown event %d\n", event_action(event));
+X            break;
+X        }
+X    return(XV_OK);
+X    }
+X
+Xstruct Note *drag_find(item)
+X    Xv_opaque item;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            if(np->drag_tgt == item) return(np);
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    return(NULL);
+X    }
+X#endif
+SHAR_EOF
+chmod 0644 pan3.0/dnd.c ||
+echo 'restore of pan3.0/dnd.c failed'
+Wc_c="`wc -c < 'pan3.0/dnd.c'`"
+test 4329 -eq "$Wc_c" ||
+	echo 'pan3.0/dnd.c: original size 4329, current size' "$Wc_c"
+fi
+# ============= pan3.0/llm.c ==============
+if test -f 'pan3.0/llm.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/llm.c (File already exists)'
+else
+echo 'x - extracting pan3.0/llm.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/llm.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include <stdio.h>
+X#include "pan.h"
+X
+XLLM_init(root, size)
+X    struct LLM_root *root;
+X    int  size;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    root->First   = NULL;
+X    root->Last    = NULL;
+X    root->Current = NULL;
+X    root->Size    = size + sizeof(struct LLM_node);
+X    root->Init    = 1;
+X    return(1);
+X    }
+X
+Xchar *LLM_add(root)
+X    struct LLM_root *root;
+X    {
+X    struct LLM_node *hold, *temp;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    hold = (struct LLM_node *) malloc(root->Size);
+X    if(hold == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->First == NULL)
+X        {
+X        root->First = hold;
+X        root->Last = hold;
+X        root->Current = hold;
+X        hold->Next = NULL;
+X        hold->Prev = NULL;
+X        }
+X    else
+X        {
+X        temp = root->Last;
+X        temp->Next = hold;
+X        hold->Next = NULL;
+X        hold->Prev = temp;
+X        root->Last = hold;
+X        }
+X    return( (char *) (hold + 1));
+X    }
+X
+Xchar *LLM_first(root)
+X    struct LLM_root *root;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(root->First == NULL)
+X        {
+X        return(NULL);
+X        }
+X    root->Current = root->First;
+X    return((char *) (root->Current + 1));
+X    }
+X
+Xchar *LLM_last(root)
+X    struct LLM_root *root;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Last == NULL)
+X        {
+X        return(NULL);
+X        }
+X    root->Current = root->Last;
+X    return((char *) (root->Current + 1));
+X    }
+X
+Xchar *LLM_next(root)
+X    struct LLM_root *root;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(root->First == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Current == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Current == root->Last)
+X        {
+X        return(NULL);
+X        }
+X    root->Current = root->Current->Next;
+X    return((char *) (root->Current + 1));
+X    }
+X
+Xchar *LLM_previous(root)
+X    struct LLM_root *root;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(root->First == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Current == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Current == root->First)
+X        {
+X        return(NULL);
+X        }
+X    root->Current = root->Current->Prev;
+X    return((char *) (root->Current + 1));
+X    }
+X
+XLLM_free(root)
+X    struct LLM_root *root;
+X    {
+X    struct LLM_node *temp, *hold;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    temp = root->First;
+X    while(temp != NULL)   /* Loop until we're at the end. */
+X        {
+X        hold = temp;
+X        temp = temp->Next;
+X        (void)free((char *)hold);       /* Free up our current node. */
+X        }
+X    root->First   = NULL;
+X    root->Last    = NULL;
+X    root->Current = NULL;
+X    return(1);
+X    }
+X
+XLLM_delete(root, node)
+X    struct LLM_root *root;
+X    char *node;
+X    {
+X    struct LLM_node *temp;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(node == NULL)
+X        {
+X        return(NULL);
+X        }
+X    temp = (struct LLM_node *) node;
+X    temp--;
+X
+X    if(temp->Prev != NULL)
+X        temp->Prev->Next = temp->Next;
+X    else
+X        root->First = temp->Next;
+X
+X    if(temp->Next != NULL)
+X        temp->Next->Prev = temp->Prev;
+X    else
+X        root->Last = temp->Prev;
+X
+X    if(temp == root->Current) root->Current = root->First;
+X
+X    (void)free((char *)temp);
+X    return(1);
+X    }
+X
+Xchar *LLM_insert(root, node)
+X    struct LLM_root *root;
+X    char *node;
+X    {
+X    struct LLM_node *temp, *hold;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(node == NULL)
+X        {
+X        return(NULL);
+X        }
+X    temp = (struct LLM_node *) node;
+X    temp--;
+X    hold = (struct LLM_node *) malloc(root->Size);
+X    if(hold == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(temp == root->First)
+X        {
+X        hold->Next = root->First;
+X        hold->Next->Prev = hold;
+X        root->First = hold;
+X        hold->Prev = NULL;
+X        return( (char *) (hold + 1));
+X        }
+X    hold->Next = temp;
+X    hold->Prev = temp->Prev;
+X    temp->Prev = hold;
+X    hold->Prev->Next = hold;
+X
+X    return( (char *) (hold + 1));
+X    }
+X
+XLLM_position(root, node)
+X    struct LLM_root *root;
+X    char *node;
+X    {
+X    struct LLM_node *temp;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(node == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    temp = (struct LLM_node *) node;
+X    temp--;
+X    root->Current = temp;
+X    return(1);
+X    }
+X
+Xchar *LLM_current(root)
+X    struct LLM_root *root;
+X    {
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Current == NULL)
+X        {
+X        return(NULL);
+X        }
+X    return((char *) (root->Current + 1));
+X    }
+X
+XLLM_unlink(root, node)
+X    struct LLM_root *root;
+X    char *node;
+X    {
+X    struct LLM_node *temp;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(node == NULL)
+X        {
+X        return(NULL);
+X        }
+X    temp = (struct LLM_node *) node;
+X    temp--;
+X
+X    if(temp->Prev != NULL)
+X        temp->Prev->Next = temp->Next;
+X    else
+X        root->First = temp->Next;
+X
+X    if(temp->Next != NULL)
+X        temp->Next->Prev = temp->Prev;
+X    else
+X        root->Last = temp->Prev;
+X
+X    if(temp == root->Current) root->Current = root->First;
+X
+X    return(1);
+X    }
+X
+XLLM_link(root, node, newnode)
+X    struct LLM_root *root;
+X    char *node;
+X    char *newnode;
+X    {
+X    struct LLM_node *temp, *hold;
+X
+X    if(root == NULL)
+X        {
+X        return(NULL);
+X        }
+X    if(root->Init != 1)
+X        {
+X        return(NULL);
+X        }
+X    if(newnode == NULL)
+X        {
+X        return(NULL);
+X        }
+X    hold = (struct LLM_node *) newnode;
+X    hold--;
+X    if(node == NULL && root->First != NULL) /* link at end */
+X        {
+X        temp = root->Last;
+X        temp->Next = hold;
+X        hold->Next = NULL;
+X        hold->Prev = temp;
+X        root->Last = hold;
+X        return(1);
+X        }
+X    if(node == NULL && root->First == NULL) /* first node */
+X        {
+X        root->First = hold;
+X        root->Last = hold;
+X        root->Current = hold;
+X        hold->Next = NULL;
+X        hold->Prev = NULL;
+X        return(1);
+X        }
+X    temp = (struct LLM_node *) node;
+X    temp--;
+X    if(temp == root->First)
+X        {
+X        hold->Next = root->First;
+X        hold->Next->Prev = hold;
+X        root->First = hold;
+X        hold->Prev = NULL;
+X        return(1);
+X        }
+X    hold->Next = temp;
+X    hold->Prev = temp->Prev;
+X    temp->Prev = hold;
+X    hold->Prev->Next = hold;
+X
+X    return(1);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/llm.c ||
+echo 'restore of pan3.0/llm.c failed'
+Wc_c="`wc -c < 'pan3.0/llm.c'`"
+test 8148 -eq "$Wc_c" ||
+	echo 'pan3.0/llm.c: original size 8148, current size' "$Wc_c"
+fi
+true || echo 'restore of pan3.0/README failed'
+echo End of part 1, continue with part 2
+exit 0
+
+--
+Jeffrey Bailey
+Racal-Datacom, Inc.
+Mail Stop E-110
+1601 N. Harrison Parkway                  INET : jeff@rd1.interlan.com
+Sunrise, FL 33323-2899                    UUCP : ...uflorida!novavax!rd1!jeff
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

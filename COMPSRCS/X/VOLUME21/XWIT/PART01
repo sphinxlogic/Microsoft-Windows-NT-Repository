@@ -1,0 +1,855 @@
+Newsgroups: comp.sources.x
+From: mmm@cetia.fr (Mark Martin)
+Subject: v21i088:  xwit - a miscellany of trivial X11 functions, Part01/01
+Message-ID: <1994Jan10.201814.6562@sparky.sterling.com>
+X-Md4-Signature: 171b81557ab24fccbb5a8b04ed237826
+Sender: chris@sparky.sterling.com (Chris Olson)
+Reply-To: mmm@cetia.fr
+Organization: CETIA, France
+Date: Mon, 10 Jan 1994 20:18:14 GMT
+Approved: chris@sterling.com
+
+Submitted-by: mmm@cetia.fr (Mark Martin)
+Posting-number: Volume 21, Issue 88
+Archive-name: xwit/part01
+Environment: X11
+
+xwit ("x window interface tool") is a hotch-potch collection of simple
+routines to call some of those X11 functions that don't already have any
+utility commands built around them.  The reasoning behind this is that
+loosely every X function should be accessible from a shell script.
+
+For example, XWarpPointer() will move the X pointer, but no utility program
+exists to do so on those rare occasions when you could really use it.  xwit
+will also resize, iconify, pop, and move windows given by name or id,
+change an icon, title or name, set the screen saver going, and change
+individual key autorepeat settings.
+
+The program is released into the public domain.  Only the considerate
+will leave credit for the authors.
+
+	Mark M Martin. mmm@cetia.fr  dec 1993.
+	David DiGiacomo dd@mv.us.adobe.com
+
+
+#! /bin/sh
+# This is a shell archive, meaning:
+# 1. Remove everything above the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh (not csh) to create the files:
+#	xwit/README
+#	xwit/xwit.c
+#	xwit/xwit.man
+#	xwit/Makefile
+#	xwit/Imakefile
+#	xwit/patchlevel.h
+# This archive created: Tue Dec  7 19:22:43 FST 1993
+# By: mmm
+# Part 1 of 1
+PATH=/bin:$PATH export PATH
+mkdir xwit
+if test -f 'xwit/README'
+then	echo "shar: will not overwrite existing file xwit/README"
+else	echo "shar: extracting xwit/README (794 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/README'
+Xxwit ("x window interface tool") is a hotch-potch collection of simple
+Xroutines to call some of those X11 functions that don't already have any
+Xutility commands built around them.  The reasoning behind this is that
+Xloosely every X function should be accessible from a shell script.
+X
+XFor example, XWarpPointer() will move the X pointer, but no utility program
+Xexists to do so on those rare occasions when you could really use it.  xwit
+Xwill also resize, iconify, pop, and move windows given by name or id,
+Xchange an icon, title or name, set the screen saver going, and change
+Xindividual key autorepeat settings.
+X
+XThe program is released into the public domain.  Only the considerate
+Xwill leave credit for the authors.
+X
+X	Mark M Martin. mmm@cetia.fr  dec 1993.
+X	David DiGiacomo dd@mv.us.adobe.com
+END-OF-FILE!
+	if test 794 -ne "`wc -c <'xwit/README'`"
+	then	echo "shar: error transmitting xwit/README (794 characters)"
+	fi
+fi
+if test -f 'xwit/xwit.c'
+then	echo "shar: will not overwrite existing file xwit/xwit.c"
+else	echo "shar: extracting xwit/xwit.c (11967 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/xwit.c'
+X/*
+X * Pop up or iconify the current xterm window (using its WINDOW_ID in the env)
+X * or a given window id or a list of window matching names. etc...
+X * A miscellany of trivial functions.
+X *
+X * Mark M Martin. cetia 93/12/07 r1.9 mmm@cetia.fr
+X * David DiGiacomo dd@mv.us.adobe.com
+X */
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xproto.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X
+Xchar *progname;
+Xpexit(str)char *str;{
+X    fprintf(stderr,"%s: %s\n",progname,str);
+X    exit(1);
+X}
+X
+Xusage(){
+X    fprintf(stderr,
+X	"usage: %s -display <display>\n\
+X	-pop -iconify -unmap\n\
+X	-resize w h -rows r -columns c -[r]move x y\n\
+X	-[r]warp x y -cmap <colormap> -[no]save\n\
+X	-name <name> -iconname <name>\n\
+X	-bitmap <file> -mask <file>\n\
+X	-[no]keyrepeat keycode ... keycode - keycode\n\
+X	-id <windowid> -names <initialsubstrings>... [must be last]\n",
+X	progname);
+X    exit(1);
+X}
+X
+Xenum functions{
+X    pop, icon, unmap, colormap,
+X    move, rmove, warp, rwarp,
+X    resize, save, nosave,
+X    keyrepeat, nokeyrepeat,
+X    name, iconname,
+X    rows, columns,
+X    iconbitmap,
+X    lastfunc	/* this must be last */
+X}function;
+X#define	FBIT(func)	(1 << (func))
+X
+Xstatic int nowindow =	/* options that dont need a window */
+X    FBIT(save)|FBIT(nosave)|FBIT(keyrepeat)|FBIT(nokeyrepeat)|FBIT(rwarp);
+X
+XDisplay *display;
+XWindow root;
+Xint screen,tox,toy,towidth,toheight,warpx,warpy;
+XColormap cmap;
+Xchar **names;	/* -> argv list of names to avoid */
+Xint numnames;
+Xint keys[256];
+Xstatic char *wmname;
+Xstatic char *wmiconname;
+Xstatic int nrows;
+Xstatic int ncolumns;
+Xstatic char *bitmapname;
+Xstatic char *maskname;
+X
+X/*
+X * sleep for given millisecs for those without usleep, like us!
+X */
+Xmssleep(ms)
+Xint ms;
+X{
+X    struct timeval tv;
+X    tv.tv_sec = ms/1000;
+X    tv.tv_usec = (ms%1000)*1000;
+X    select(0,(int*)0,(int*)0,(int*)0,&tv);
+X}
+X/*
+X * find all windows below this and if name matches call doit on it
+X */
+Xdowntree(top)
+XWindow top;
+X{
+X    Window *child, dummy;
+X    unsigned int children, i;
+X    char **cpp, *name;
+X    if (XQueryTree(display, top, &dummy, &dummy, &child, &children)==0)
+X	pexit("XQueryTree failed");
+X    for (i=0; i<children; i++)
+X    if(XFetchName (display, child[i], &name)){
+X	for(cpp = names;*cpp!=0;cpp++)
+X	    if(strncmp(*cpp,name,strlen(*cpp))==0){
+X		doit(child[i]);
+X		break;
+X	    }
+X	XFree(name);
+X    }else downtree(child[i]);	/* dont go down if found a name */
+X    if(child)XFree((char *)child);
+X}
+X/*
+X * [un]set autorepeat for individual keys
+X */
+Xsetrepeat(){
+X    unsigned long value_mask;
+X    XKeyboardControl values;
+X    int i;
+X
+X    value_mask = KBKey|KBAutoRepeatMode;
+X    values.auto_repeat_mode = (function&(1<<keyrepeat))?AutoRepeatModeOn:AutoRepeatModeOff;
+X	
+X    for(i=0;i<256;i++)
+X    if(keys[i]){
+X	values.key = i;
+X	XChangeKeyboardControl(display, value_mask, &values);
+X    }
+X}
+X
+X/*
+X * get window size
+X */
+Xstatic
+Xgetsize(window, wp, hp)
+X    Window window;
+X    int *wp, *hp;
+X{
+X    XWindowAttributes attributes;
+X
+X    if (XGetWindowAttributes(display, window, &attributes) == 0)
+X	pexit("XGetWindowAttributes");
+X
+X    *wp = attributes.width;
+X    *hp = attributes.height;
+X}
+X
+X/*
+X * set window size
+X */
+Xstatic
+Xdoresize(window, w, h)
+X    Window window;
+X    int w, h;
+X{
+X    XWindowChanges values;
+X    unsigned int value_mask;
+X    int try;
+X    int nw, nh;
+X
+X    values.width = w;
+X    values.height = h;
+X    value_mask = CWWidth | CWHeight;
+X
+X    for (try = 0; try < 2; try++) {
+X	if (XReconfigureWMWindow(display, window, screen, value_mask, &values) == 0)
+X	    pexit("resize: XReconfigureWMWindow");
+X
+X	getsize(window, &nw, &nh);
+X	if (values.width == nw && values.height == nh)
+X	    return;
+X
+X	/* give window manager a chance to react */
+X	mssleep(500);
+X
+X	getsize(window, &nw, &nh);
+X	if (values.width == nw && values.height == nh)
+X	    return;
+X    }
+X
+X    /* last chance */
+X    values.width += values.width - nw;
+X    values.height += values.height - nh;
+X    if (XReconfigureWMWindow(display, window, screen, value_mask, &values) == 0)
+X	pexit("resize: XReconfigureWMWindow 2");
+X}
+X
+X/*
+X * set row/column size
+X */
+Xstatic
+Xrcresize(what, window)
+X    enum functions what;
+X    Window window;
+X{
+X    XSizeHints *hints;
+X    long supplied;
+X    int w, h;
+X
+X    if (!(what & FBIT(rows)) || !(what & FBIT(columns)))
+X	getsize(window, &w, &h);
+X
+X    if (!(hints = XAllocSizeHints()))
+X	pexit("XAllocSizeHints");
+X
+X    if (XGetWMNormalHints(display, window, hints, &supplied) == 0)
+X	pexit("XGetWMNormalHints");
+X
+X    if (!(supplied & PBaseSize) || !(supplied & PResizeInc))
+X	pexit("missing PBaseSize and/or PResizeInc hint");
+X
+X    if (what & FBIT(columns))
+X	w = hints->base_width + hints->width_inc * ncolumns;
+X
+X    if (what & FBIT(rows))
+X	h = hints->base_height + hints->height_inc * nrows;
+X
+X    doresize(window, w, h);
+X
+X    XFree(hints);
+X}
+X
+Xstatic
+Xloadbitmap(window, file, pmp)
+X	Window window;
+X	char *file;
+X	Pixmap *pmp;
+X{
+X	unsigned int w, h;
+X	int xhot, yhot;
+X
+X	if (XReadBitmapFile(display, window, file,
+X		&w, &h, pmp, &xhot, &yhot) != BitmapSuccess)
+X		pexit("XReadBitmapFile failed");
+X}
+X
+Xstatic
+Xsetbitmap(window)
+X	Window window;
+X{
+X	static XWMHints *hints;
+X	static Pixmap bitmap_pm;
+X	static Pixmap mask_pm;
+X	XWMHints *ohints;
+X
+X	if (!hints) {
+X		if (!(hints = XAllocWMHints()) ||
+X			!(ohints = XAllocWMHints()))
+X			pexit("XAllocWMHints");
+X
+X		if (bitmapname) {
+X			loadbitmap(window, bitmapname, &bitmap_pm);
+X			hints->flags |= IconPixmapHint;
+X			hints->icon_pixmap = bitmap_pm;
+X		}
+X
+X		if (maskname) {
+X			loadbitmap(window, maskname, &mask_pm);
+X			hints->flags |= IconMaskHint;
+X			hints->icon_mask = mask_pm;
+X		}
+X
+X		XSetCloseDownMode(display, RetainTemporary);
+X	}
+X
+X	if (ohints = XGetWMHints(display, window)) {
+X		if (ohints->icon_pixmap && hints->icon_pixmap)
+X			XFreePixmap(display, ohints->icon_pixmap); 
+X		if (ohints->icon_mask && hints->icon_mask)
+X			XFreePixmap(display, ohints->icon_mask);
+X		XFree(ohints);
+X	}
+X
+X	XSetWMHints(display, window, hints);
+X}
+X
+X/*
+X * iconify the given window, or map and raise it, or whatever
+X */
+Xdoit(window)
+XWindow window;
+X{
+X    XWindowChanges values;
+X    unsigned int value_mask;
+X    Window child;
+X    enum functions f;
+X    int i = 0;
+X
+X    f = function;
+X    for (i = 0; i < lastfunc; i++)
+X	if (f & FBIT(i))
+X	switch(i){
+X	case warp:
+X	    XWarpPointer(display,None,window,0,0,0,0,warpx,warpy);
+X	    break;
+X	case rwarp:
+X	    XWarpPointer(display,None,None,0,0,0,0,warpx,warpy);
+X	    break;
+X	case move:
+X	    values.x = tox;
+X	    values.y = toy;
+X	    value_mask = CWX|CWY;
+X	    if(XReconfigureWMWindow(display, window, screen, value_mask, &values)==0)
+X		pexit("move failed");
+X	    break;
+X	case rmove:
+X	    if(XTranslateCoordinates(display,window,root,0,0,		     
+X				  &values.x,&values.y,&child)==0)
+X		pexit("not same screen");
+X	    values.x += tox;
+X	    values.y += toy;
+X	    value_mask = CWX|CWY;
+X	    if(XReconfigureWMWindow(display, window, screen, value_mask, &values)==0)
+X		pexit("rmove failed");
+X	    break;
+X	case resize:
+X	    doresize(window, towidth, toheight);
+X	    break;
+X	case colormap:
+X	    XSetWindowColormap(display,window,cmap);
+X	    break;
+X	case pop:
+X	    XMapRaised(display,window);
+X	    break;
+X	case unmap:
+X	    XUnmapWindow(display,window);
+X	    break;
+X	case icon:
+X	    if(XIconifyWindow(display, window, screen)==0)
+X		pexit("iconify failed");
+X	    break;
+X	case save:
+X	    XForceScreenSaver(display,ScreenSaverActive);
+X	    break;
+X	case nosave:
+X	    XForceScreenSaver(display,ScreenSaverReset);
+X	    break;
+X	case keyrepeat:
+X	case nokeyrepeat:
+X	    setrepeat();
+X	    break;
+X	case name:
+X	    XStoreName(display, window, wmname);
+X	    break;
+X	case iconname:
+X	    XSetIconName(display, window, wmiconname);
+X	    break;
+X	case rows:
+X	    if (f & FBIT(columns))
+X		break;
+X	    /* fall through */
+X	case columns:
+X	    rcresize(f, window);
+X	    break;
+X	case iconbitmap:
+X	    setbitmap(window);
+X	    break;
+X	}
+X}
+X
+Xmain(argc,argv)
+X    int argc;
+X    char **argv;
+X{
+X    Window window = 0;
+X    char *displayname = 0;
+X    extern char *getenv();
+X    
+X    progname = argv[0] + strlen(argv[0]);
+X    while (progname != argv[0] && progname[-1] != '/')
+X	progname--;
+X
+X    argc--;
+X    while(argv++,argc-->0){
+X	int argvlen = strlen(*argv);
+X	if(argvlen<2)argvlen = 2;
+X	if(strcmp(*argv,"-id")==0){
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    if(sscanf(*argv,"0x%x",&window)!=1)
+X		window = atoi(*argv);
+X	}else if(strcmp(*argv,"-root")==0){
+X	    window = (Window) -1;
+X	}else if(strncmp(*argv,"-names",6)==0){
+X	    /* take rest of arg list */
+X	    names = ++argv;
+X	    if(*names==0)names = 0;	/* no args follow */
+X	    numnames = argc;
+X	    argc = 0;
+X	}else if(strncmp(*argv,"-display",argvlen)==0){
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    displayname = *argv;
+X	}else if(strncmp(*argv,"-colormap",argvlen)==0){
+X	    function |= 1<<colormap;
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    if(sscanf(*argv,"0x%x",&cmap)!=1)
+X		cmap = atoi(*argv);
+X	}else if(strcmp(*argv,"-move")==0 ||
+X		 strcmp(*argv,"-rmove")==0){
+X	    function |= 1<<(((*argv)[1]=='m')?move:rmove);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    tox = atoi(*argv);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    toy = atoi(*argv);
+X	}else if(strncmp(*argv,"-resize",argvlen)==0){
+X	    function |= 1<<resize;
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    towidth = atoi(*argv);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    toheight = atoi(*argv);
+X	}else if(strcmp(*argv,"-warp")==0 ||
+X	     strcmp(*argv,"-rwarp")==0){
+X	    function |= 1<<(strcmp(*argv,"-warp")==0?warp:rwarp);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    warpx = atoi(*argv);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    warpy = atoi(*argv);
+X	}else if(strcmp(*argv,"-pop")==0){
+X	    function |= 1<<pop;
+X	}else if(strcmp(*argv,"-save")==0){
+X	    function |= 1<<save;
+X	}else if(strcmp(*argv,"-nosave")==0){
+X	    function |= 1<<nosave;
+X	}else if(strncmp(*argv,"-iconify",argvlen)==0){
+X	    function |= 1<<icon;
+X	}else if(strcmp(*argv,"-unmap")==0){
+X	    function |= 1<<unmap;
+X	}else if(strncmp(*argv,"-keyrepeat",argvlen)==0 ||
+X		 strncmp(*argv,"-nokeyrepeat",argvlen)==0){
+X	    int i;
+X	    function |= 1<<((*argv)[1]=='k'?keyrepeat:nokeyrepeat);
+X	    if(argc<=0 || (i = atoi(argv[1]))<=0)usage();
+X	    while(1){
+X		argc--,argv++;
+X		keys[i&0xff] = 1;
+X		if(argc<=0)break;
+X		if(strcmp(argv[1],"-")==0){
+X		    int from = i;
+X		    argc--,argv++;
+X		    if(argc<0 || (i = atoi(argv[1]))<=0)usage();
+X		    while(from<=i)keys[from++&0xff] = 1;
+X		    argc--,argv++;
+X		    if(argc<=0)break;
+X		}
+X		if((i = atoi(argv[1]))<=0)break;
+X	    }
+X	}
+X	else if (strcmp(*argv, "-name") == 0) {
+X	    function |= FBIT(name);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    wmname = *argv;
+X	}
+X	else if (strcmp(*argv, "-iconname") == 0) {
+X	    function |= FBIT(iconname);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    wmiconname = *argv;
+X	}
+X	else if (strncmp(*argv, "-rows", argvlen) == 0) {
+X	    function |= FBIT(rows);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    nrows = atoi(*argv);
+X	}
+X	else if (strncmp(*argv, "-columns", argvlen) == 0) {
+X	    function |= FBIT(columns);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    ncolumns = atoi(*argv);
+X	}
+X	else if (strcmp(*argv, "-bitmap") == 0) {
+X	    function |= FBIT(iconbitmap);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    bitmapname = *argv;
+X	}
+X	else if (strcmp(*argv, "-mask") == 0) {
+X	    function |= FBIT(iconbitmap);
+X	    argc--,argv++;
+X	    if(argc<0)usage();
+X	    maskname = *argv;
+X	}
+X	else usage();
+X    }
+X
+X    if(function==0)function = FBIT(pop);	/* default action */
+X
+X    if(window==0){
+X	if(names==0){
+X	    char *s;
+X	    s = getenv("WINDOWID");
+X	    if(s!=0 && *s!='\0')window = atoi(s);
+X	    else if(function & ~nowindow)pexit("No window id");
+X	    else window = (Window)-1;
+X	}
+X    }else if(names!=0)usage();
+X
+X    display = XOpenDisplay(displayname);
+X    if(display==0)pexit("could not open display");
+X    root = DefaultRootWindow(display);
+X    if(window== (Window)-1)window = root;
+X    screen = DefaultScreen(display);
+X
+X    if(names!=0)downtree(root);
+X    else doit(window);
+X    XSync(display,True);
+X    (void) XCloseDisplay(display);
+X    exit(0);
+X}
+END-OF-FILE!
+	if test 11967 -ne "`wc -c <'xwit/xwit.c'`"
+	then	echo "shar: error transmitting xwit/xwit.c (11967 characters)"
+	fi
+fi
+if test -f 'xwit/xwit.man'
+then	echo "shar: will not overwrite existing file xwit/xwit.man"
+else	echo "shar: extracting xwit/xwit.man (3890 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/xwit.man'
+X.\" xwit man
+X.TH XWIT 1X
+X.SH NAME
+Xxwit \- window interface. pop or iconify this xterm window or named windows
+X.SH SYNOPSIS
+X.B
+Xxwit
+X'in \n(.iu+\w'\fBxwit \fR'u
+X.RB [ -display
+X.IR display ]
+X.RB [ -pop ]
+X.RB [ -iconify ]
+X.RB [ -unmap ]
+X.br
+X.RB [ -resize
+X.IR w\ h ]
+X.RB [ -rows
+X.IR r ]
+X.RB [ -columns
+X.IR c ]
+X.RB [ - [ r ] move
+X.IR x\ y ]
+X.br
+X.RB [ - [ r ] warp 
+X.IR x\ y ]
+X.RB [ -cmap
+X.IR colormap ]
+X.RB [ - [ no ] save
+X.br
+X.RB [ -name
+X.IR name ]
+X.RB [ -iconname
+X.IR name ]
+X.br
+X.RB [ -bitmap
+X.IR file ]
+X.RB [ -mask
+X.IR file ]
+X.br
+X.RB [ - [ no ] keyrepeat
+X.IR "keycode ... keycode - keycode ..." ]
+X.br
+X.RB [ -root ]
+X.RB [ -id
+X.IR windowid ]
+X.RB [ -names
+X.IR initialsubstring... ]
+X.in
+X.SH DESCRIPTION
+X.B xwit
+Xis an X window interface tool.
+XBy default when used with no arguments in an xterm it
+Xde-iconifies and raises the window.
+XYou can specify a different function to do, such as iconifying the window,
+Xand apply it to several windows whose name begins with one of the given
+Xstrings, or a particular window id given, or the window id found
+Xin the environment variable
+X.B WINDOWID.
+X(This variable is set by xterm for the program, usually the shell, it runs.)
+X.SH OPTIONS
+X.TP
+X-display
+Xis followed by the display to open.
+X.TP
+X-pop
+Xis the default action.
+XIt need only be given if it is wanted as well as some other function.
+X.TP
+X-iconify
+Xwill iconify the windows instead of popping them.
+X.TP
+X-unmap
+Xwill iconify windows by unmapping with a non ICCCM compliant window manager.
+X(Beware, this option is not usually what you want).
+X.TP
+X-resize w h
+Xresize windows to the given pixel size.
+X.TP
+X-rows r
+Xresize windows to the given number of rows.
+X.TP
+X-columns c
+Xresize windows to the given number of columns.
+X.TP
+X-move x y
+Xmove windows to the given absolute position relative to its parent.
+X.TP
+X-rmove x y
+Xmove windows to the given relative amount.
+X.TP
+X-warp x y
+Xmove the cursor to the given position relative to the specified window.
+XAdd -root to warp to an absolute position.
+X.TP
+X-rwarp x y
+Xmove the cursor by the given relative amount.
+X.TP
+X-colormap
+Xinstall the given colormap into the given window.
+X.TP
+X-name name
+Xset the WM_NAME property to the given string.
+X.TP
+X-iconname name
+Xset the WM_ICON_NAME property to the given string.
+X.TP
+X-bitmap file
+Xuse the given bitmap file as the icon bitmap for the window.
+X.TP
+X-mask file
+Xuse the given bitmap file as the icon mask for the window.
+X.TP
+X-id 
+Xis followed by a single window number, in decimal or if it begins with
+X0x in hexadecimal.
+X.TP
+X-names
+Xif given must be the last option on the line and is followed by a list of strings.
+XAll windows that have a name that begins exactly like one of the strings
+Xwill be acted upon.
+XBy using a null string (-names ''), all names will be matched.
+X.TP
+X-keyrepeat -nokeyrepeat
+Xis followed by a list of keycodes (decimal numbers, see xmodmap(1)).
+XA range can be specified as a lower number, ``-'', and upper number
+Xas three separate arguments.
+XThe individual setting of auto-repeat for those keycodes is set on or off.
+XThe global setting of auto-repeat can be set with xset(1).
+XWhen off, no keys will repeat.
+Xxset will also show the current settings for individual keys.
+X.SH EXAMPLES
+XTo iconify all windows (probably not quite what you want to do)
+X
+X.ta 1i
+X	xwit -names ''
+X
+XTo de-iconify and pop ``this'' xterm and warp the cursor into it
+X
+X	xwit -pop -warp 50 50
+X
+XTo gently agitate your oclock on the screen
+X
+X 	while   xwit -rmove 0 10 -name oclock
+X 	do      xwit -rmove 0 -10 -name oclock
+X 	done
+X	
+X.SH LIMITATIONS
+XSince each application is supposed to request these functions of the
+Xwindow manager, some of them may not like other clients mapping and unmapping
+Xfor them behind their back.
+XThe iconification is requested of the window manager using the ICCCM.
+XNon ICCCM compliant window managers may not react correctly.
+X.SH AUTHORS
+XMark M Martin. CETIA France. 93/12/07. mmm@cetia.fr
+XDavid DiGiacomo dd@mv.us.adobe.com
+END-OF-FILE!
+	if test 3890 -ne "`wc -c <'xwit/xwit.man'`"
+	then	echo "shar: error transmitting xwit/xwit.man (3890 characters)"
+	fi
+fi
+if test -f 'xwit/Makefile'
+then	echo "shar: will not overwrite existing file xwit/Makefile"
+else	echo "shar: extracting xwit/Makefile (1939 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/Makefile'
+X# Makefile for xwit.  Throw this away and use the Imakefile if you can.
+X              TOP = .
+X      CURRENT_DIR = .
+X               CC = gcc
+X             LKED = $(CC)
+X          INSTALL = install
+X             MAKE = make
+X               MV = mv
+X               RM = rm -f
+X             TAGS = ctags
+X           MFLAGS = -$(MAKEFLAGS)
+X     INSTPGMFLAGS = -c -s
+X     INSTMANFLAGS = -c
+X     TOP_INCLUDES = -I$(INCROOT)
+X      CDEBUGFLAGS = -O
+X      ALLINCLUDES = $(STD_INCLUDES) $(TOP_INCLUDES) $(INCLUDES) $(EXTRA_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(PROTO_DEFINES) $(DEFINES) $(COMPATFLAGS)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS)
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X           BINDIR = $(DESTDIR)/usr/bin/X11
+X          INCROOT = $(DESTDIR)/usr/include
+X          MANPATH = $(DESTDIR)/usr/catman/x11_man
+X    MANSOURCEPATH = $(MANPATH)/man
+X           MANDIR = $(MANSOURCEPATH)1
+X            IMAKE = imake
+X             XLIB = $(EXTENSIONLIB)  -lX11
+X
+X  LOCAL_LIBRARIES = $(XLIB)
+X
+X OBJS = xwit.o
+X SRCS = xwit.c
+X
+X PROGRAM = xwit
+X
+Xall:: xwit
+X
+Xxwit: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(LKED) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+Xinstall:: xwit
+X	$(INSTALL) -c $(INSTPGMFLAGS) xwit $(BINDIR)
+Xinstall.man:: xwit.man
+X	$(INSTALL) -c $(INSTMANFLAGS) xwit.man $(MANDIR)/xwit.1
+Xclean::
+X	$(RM) $(PROGRAM)
+X	$(RM_CMD) \#*
+XMakefile::
+X	-@if [ -f Makefile ]; then \
+X	echo "	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak"; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+Xtags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+END-OF-FILE!
+	if test 1939 -ne "`wc -c <'xwit/Makefile'`"
+	then	echo "shar: error transmitting xwit/Makefile (1939 characters)"
+	fi
+fi
+if test -f 'xwit/Imakefile'
+then	echo "shar: will not overwrite existing file xwit/Imakefile"
+else	echo "shar: extracting xwit/Imakefile (53 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/Imakefile'
+XLOCAL_LIBRARIES = $(XLIB)
+X
+XSimpleProgramTarget(xwit)
+END-OF-FILE!
+	if test 53 -ne "`wc -c <'xwit/Imakefile'`"
+	then	echo "shar: error transmitting xwit/Imakefile (53 characters)"
+	fi
+fi
+if test -f 'xwit/patchlevel.h'
+then	echo "shar: will not overwrite existing file xwit/patchlevel.h"
+else	echo "shar: extracting xwit/patchlevel.h (65 chars)"
+	sed 's/^X//' <<\END-OF-FILE! >'xwit/patchlevel.h'
+X/*
+X * xwit:
+X * level 0: initial release
+X */
+X#define PATCHLEVEL 0
+END-OF-FILE!
+	if test 65 -ne "`wc -c <'xwit/patchlevel.h'`"
+	then	echo "shar: error transmitting xwit/patchlevel.h (65 characters)"
+	fi
+fi
+echo 'end of shar part 1 of 1'
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

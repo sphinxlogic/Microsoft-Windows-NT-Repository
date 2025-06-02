@@ -1,0 +1,2030 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i013:  dbmalloc - Debug Malloc Library PL14, Part08/10
+Message-ID: <1992Sep4.152333.13488@sparky.imd.sterling.com>
+X-Md4-Signature: 3d6cdda915a3a990360ae2a6d368f000
+Date: Fri, 4 Sep 1992 15:23:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 13
+Archive-name: dbmalloc/part08
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 10)."
+# Contents:  mcheck.c memory.c prototypes.h realloc.c stack.c
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'mcheck.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcheck.c'\"
+else
+echo shar: Extracting \"'mcheck.c'\" \(11212 characters\)
+sed "s/^X//" >'mcheck.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X#include <stdio.h>
+X#include "mallocin.h"
+X#include "debug.h"
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: mcheck.c,v 1.22 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#define malloc_in_arena(ptr) (   ((DATATYPE*)(ptr) >= malloc_data_start) \
+X			      && ((DATATYPE*)(ptr) <= malloc_data_end) )
+X
+X/*
+X * Function:	malloc_check_str()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		str	- pointer to area to check
+X *
+X * Purpose:	to verify that if str is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      determin length of string
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X */
+XVOIDTYPE
+Xmalloc_check_str(func,file,line,str)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	CONST char		* str;
+X{
+X	static int		  layers;
+X	register CONST char	* s;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code || (! (malloc_opts & MOPT_CKDATA) ) )
+X	{
+X		return;
+X	}
+X
+X	if( (layers++ == 0) &&  malloc_in_arena(str) )
+X	{
+X		for( s=str; *s; s++)
+X		{
+X		}
+X		
+X		malloc_verify(func,file,line,str,(SIZETYPE)(s-str+1));
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_check_strn()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		str	- pointer to area to check
+X * 		len     - max length of string
+X *
+X * Purpose:	to verify that if str is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      determin length of string
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X *   90/08/29	cpcahil		added length (for strn* functions)
+X */
+XVOIDTYPE
+Xmalloc_check_strn(func,file,line,str,len)
+X	CONST char	* func;
+X	CONST char 	* file;
+X	int		  line;
+X	CONST char	* str;
+X	STRSIZE		  len;
+X{
+X	register STRSIZE	  i;
+X	static int		  layers;
+X	register CONST char	* s;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code || (! (malloc_opts & MOPT_CKDATA) ) )
+X	{
+X		return;
+X	}
+X
+X	if( (layers++ == 0) &&  malloc_in_arena(str) )
+X	{
+X		for( s=str,i=0; (i < len) && (*s != '\0'); i++,s++)
+X		{
+X		}
+X
+X		/*
+X		 * if we found a null byte before len, add one to s so
+X		 * that we ensure that the null is counted in the bytes to
+X		 * check.
+X		 */
+X		if( i < len )
+X		{
+X			s++;
+X		}
+X		malloc_verify(func,file,line,str,(SIZETYPE)(s-str));
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_check_data()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		ptr	- pointer to area to check
+X *		len 	- length to verify
+X *
+X * Purpose:	to verify that if ptr is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X */
+XVOIDTYPE
+Xmalloc_check_data(func,file,line,ptr,len)
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X	CONST DATATYPE	* ptr;
+X	SIZETYPE	  len;
+X{
+X	static int	  layers;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code || (! (malloc_opts & MOPT_CKDATA) ) )
+X	{
+X		return;
+X	}
+X
+X	if( layers++ == 0 )
+X	{
+X		DEBUG3(40,"malloc_check_data(%s,0x%x,%d) called...",
+X			func,ptr,len);
+X		if( malloc_in_arena(ptr) )
+X		{
+X			DEBUG0(10,"pointer in malloc arena, verifying...");
+X			malloc_verify(func,file,line,ptr,len);
+X		}
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_verify()
+X *
+X * Arguments:	func	- name of function calling the malloc check routines
+X *		ptr	- pointer to area to check
+X *		len 	- length to verify
+X *
+X * Purpose:	to verify that the data ptr points to does not extend beyond
+X *		the applicable malloc region.  This function is only called 
+X *		if it has been determined that ptr points into the malloc arena.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X */
+XVOIDTYPE
+Xmalloc_verify(func,file,line,ptr,len)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	register CONST DATATYPE	* ptr;
+X	register SIZETYPE	  len;
+X{
+X	register CONST struct mlist	* mptr = NULL;
+X	
+X	DEBUG5(40,"malloc_verify(%s, %s, %s, 0x%x,%d) called...",
+X		func, file, line, ptr, len);
+X
+X	/*
+X	 * since we know we have a pointer that is somewhere within the
+X	 * malloc region, let's take a guess that the current pointer is
+X	 * at the begining of a region and see if it has the correct values
+X	 */
+X
+X	/*
+X	 * if we are on the correct boundry for a malloc data area pointer
+X	 */
+X	if(   (((long)ptr) & malloc_round) == 0 )
+X	{
+X		mptr = (CONST struct mlist *)(((CONST char *) ptr ) - M_SIZE);
+X
+X		if( ! GoodMlist(mptr) )
+X		{
+X			mptr = (CONST struct mlist *) NULL;
+X		}
+X	}
+X
+X	/*
+X	 * if we haven't found it yet, let's try to look back just a few bytes
+X	 * to see if it is nearby
+X	 */
+X	if( mptr == (struct mlist *) NULL)
+X	{
+X		register long	* lptr;
+X		register int	  i;
+X
+X		lptr = (long *) (((long)ptr) & ~malloc_round);
+X
+X		for(i=0; i < MAX_KLUDGE_CHECKS; i++)
+X		{
+X			lptr--;
+X			if( ! malloc_in_arena(lptr) )
+X			{
+X				mptr = (CONST struct mlist *) NULL;
+X				break;
+X			}
+X
+X			/*
+X			 * if we found the magic number
+X		 	 */
+X			if( ((*lptr) & M_MAGIC_BITS) == M_MAGIC )
+X			{
+X				mptr = (CONST struct mlist *)
+X					(((CONST char *)lptr) - M_FLAGOFF);
+X
+X				/*
+X				 * if the pointer is good.
+X			 	 */
+X				if( GoodMlist(mptr) )
+X				{
+X					break;
+X				}
+X			}
+X
+X		}
+X
+X		/*
+X		 * if we didn't find an entry, make sure mptr is null
+X		 */
+X		if( i == MAX_KLUDGE_CHECKS )
+X		{
+X			mptr = (CONST struct mlist *) NULL;
+X		}
+X	}
+X
+X
+X	/*
+X	 * if we still haven't found the right segment, we have to do it the
+X	 * hard way and search along the malloc list
+X	 */
+X	if( mptr == (CONST struct mlist *) NULL)
+X	{
+X		/*
+X		 * Find the malloc block that includes this pointer
+X		 */
+X		mptr = &malloc_start;
+X		while( mptr
+X			&& ! ((((CONST DATATYPE *)mptr) < (CONST DATATYPE *)ptr)
+X			&&   (((DATATYPE *)(mptr->data+mptr->s.size)) > ptr) ) )
+X		{
+X			mptr = mptr->next;
+X		}
+X	}
+X
+X	/*
+X	 * if ptr was not in a malloc block, it must be part of
+X	 *    some direct sbrk() stuff, so just return.
+X	 */
+X	if( ! mptr )
+X	{
+X		DEBUG1(10,"ptr (0x%x) not found in malloc search", ptr);
+X		return;
+X	}
+X	
+X	/*
+X 	 * Now we have a valid malloc block that contains the indicated
+X	 * pointer.  We must verify that it is withing the requested block
+X	 * size (as opposed to the real block size which is rounded up to
+X	 * allow for correct alignment).
+X	 */
+X
+X	DEBUG4(60,"Checking  0x%x-0x%x, 0x%x-0x%x",
+X			ptr, ptr+len, mptr->data, mptr->data+mptr->r_size);
+X	
+X	if(    (ptr < (DATATYPE *)mptr->data)
+X  	    || ((((CONST char *)ptr)+len) > (char *)(mptr->data+mptr->r_size)) )
+X	{
+X		DEBUG4(0,"pointer not within region 0x%x-0x%x, 0x%x-0x%x",
+X			ptr, ptr+len, mptr->data, mptr->data+mptr->r_size);
+X
+X		malloc_errno = M_CODE_OUTOF_BOUNDS;
+X		malloc_warning(func,file,line,mptr);
+X	}
+X	else if ( (mptr->flag&M_INUSE) == 0 )
+X	{
+X		DEBUG4(0,"segment not in use 0x%x-0x%x, 0x%x-0x%x",
+X			ptr, ptr+len, mptr->data, mptr->data+mptr->r_size);
+X
+X		malloc_errno = M_CODE_NOT_INUSE;
+X		malloc_warning(func,file,line,mptr);
+X	}
+X
+X	return;
+X}
+X
+X/*
+X * GoodMlist() - return true if mptr appears to point to a valid segment
+X */
+Xint
+XGoodMlist(mptr)
+X	register CONST struct mlist * mptr;
+X{
+X
+X	/*
+X	 * return true if
+X	 * 	1. the segment has a valid magic number
+X	 * 	2. the inuse flag is set
+X	 *	3. the previous linkage is set correctly
+X	 *	4. the next linkage is set correctly
+X	 *	5. either next and prev is not null
+X	 */
+X		
+X	return(    ((mptr->flag&M_MAGIC_BITS) == M_MAGIC)
+X		&& ((mptr->flag&M_INUSE) != 0 )
+X 		&& (mptr->prev ?
+X		    (malloc_in_arena(mptr->prev) && (mptr->prev->next == mptr)) : 1 )
+X 		&& (mptr->next ?
+X		    (malloc_in_arena(mptr->next) && (mptr->next->prev == mptr)) : 1 )
+X	    	&& ((mptr->next == NULL) || (mptr->prev == NULL)) );
+X
+X} /* GoodMlist(... */
+X/*
+X * $Log: mcheck.c,v $
+X * Revision 1.22  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.21  1992/06/27  22:48:48  cpcahil
+X * misc fixes per bug reports from first week of reviews
+X *
+X * Revision 1.20  1992/06/22  23:40:10  cpcahil
+X * many fixes for working on small int systems
+X *
+X * Revision 1.19  1992/05/09  00:16:16  cpcahil
+X * port to hpux and lots of fixes
+X *
+X * Revision 1.18  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.17  1992/05/08  01:44:11  cpcahil
+X * more performance enhancements
+X *
+X * Revision 1.16  1992/05/06  04:53:29  cpcahil
+X * performance enhancments
+X *
+X * Revision 1.15  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.14  1992/03/01  12:42:38  cpcahil
+X * added support for managing freed areas and fixed doublword bndr problems
+X *
+X * Revision 1.13  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.12  1992/01/10  17:51:03  cpcahil
+X * more void stuff that slipped by
+X *
+X * Revision 1.11  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.10  1991/12/31  02:23:29  cpcahil
+X * fixed verify bug of strncpy when len was exactly same as strlen
+X *
+X * Revision 1.9  91/12/02  19:10:12  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.8  91/11/25  14:42:01  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.7  91/11/24  00:49:29  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.6  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.5  90/08/29  22:23:48  cpcahil
+X * added new function to check on strings up to a specified length 
+X * and used it within several strn* functions.
+X * 
+X * Revision 1.4  90/05/11  00:13:09  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:22  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:38  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/24  14:57:03  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 11212 -ne `wc -c <'mcheck.c'`; then
+    echo shar: \"'mcheck.c'\" unpacked with wrong size!
+fi
+# end of 'mcheck.c'
+fi
+if test -f 'memory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'memory.c'\"
+else
+echo shar: Extracting \"'memory.c'\" \(8847 characters\)
+sed "s/^X//" >'memory.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: memory.c,v 1.22 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X#include "mallocin.h"
+X
+X/*
+X * memccpy - copy memory region up to specified byte or length
+X */
+XMEMDATA *
+Xmemccpy(ptr1, ptr2, ch, len)
+X	MEMDATA			* ptr1;
+X	CONST MEMDATA		* ptr2;
+X	int			  ch;
+X	MEMSIZE 		  len;
+X{
+X	return( DBmemccpy( (char *) NULL, 0, ptr1, ptr2, ch, len) );
+X}
+X
+XMEMDATA *
+XDBmemccpy(file,line,ptr1, ptr2, ch, len)
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA			* ptr1;
+X	CONST MEMDATA		* ptr2;
+X	int			  ch;
+X	MEMSIZE 		  len;
+X{
+X	register CONST char	* myptr2;
+X	register MEMSIZE 	  i;
+X	MEMDATA			* rtn;
+X
+X
+X	myptr2 = (CONST char *) ptr2;
+X
+X	/*
+X	 * I know that the assignment could be done in the following, but
+X	 * I wanted to perform a check before any assignment, so first I 
+X	 * determine the length, check the pointers and then do the assignment.
+X	 */
+X	for( i=0; (i < len) && (myptr2[i] != ch); i++)
+X	{
+X	}
+X
+X	/*
+X	 * if we found the character...
+X 	 */
+X	if( i < len )
+X	{
+X		rtn = ((char *)ptr1)+i+1;
+X		i++;
+X	}
+X	else
+X	{
+X		rtn = (char *) 0;
+X	}
+X
+X	/*
+X	 * make sure we have enough room in both ptr1 and ptr2
+X	 */
+X	malloc_check_data("memccpy", file, line, ptr1, i);
+X	malloc_check_data("memccpy", file, line, ptr2, i);
+X
+X	DataMC(ptr1,ptr2,i);
+X	
+X	return( rtn );
+X}
+X
+X/*
+X * memchr - find a byte in a memory region
+X */
+XMEMDATA *
+Xmemchr(ptr1,ch,len)
+X	CONST MEMDATA 		* ptr1;
+X	register int		  ch;
+X	MEMSIZE 		  len;
+X{
+X	return( DBmemchr( (char *)NULL, 0, ptr1, ch, len) );
+X}
+X
+XMEMDATA  *
+XDBmemchr(file,line,ptr1,ch,len)
+X	CONST char		* file;
+X	int			  line;
+X	CONST MEMDATA 		* ptr1;
+X	register int		  ch;
+X	MEMSIZE 		  len;
+X{
+X	register CONST char	* myptr1;
+X	MEMSIZE 		  i;
+X
+X	malloc_check_data("memchr", file, line, ptr1, len);
+X
+X	myptr1 = (CONST char *) ptr1;
+X
+X	for( i=0; (i < len) && (myptr1[i] != (char) ch); i++)
+X	{
+X	}
+X
+X	if( i < len )
+X	{
+X		return( (MEMDATA  *) (myptr1+i) );
+X	}
+X	else
+X	{
+X		return( (MEMDATA  *) 0);	
+X	}
+X}
+X
+X/*
+X * memcpy  - copy one memory area to another
+X * memmove - copy one memory area to another
+X */
+XMEMDATA  * 
+Xmemmove(ptr1, ptr2, len)
+X	MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBmemmove( (char *) NULL, 0,ptr1, ptr2, len) );
+X}
+X
+XMEMDATA  * 
+XDBmemmove(file,line,ptr1, ptr2, len)
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBFmemcpy( "memmove", file, line, ptr1, ptr2, len) );
+X}
+X
+X
+XMEMDATA  *
+Xmemcpy(ptr1, ptr2, len)
+X	MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBmemcpy( (char *) NULL, 0, ptr1, ptr2, len) );
+X}
+X
+XMEMDATA  *
+XDBmemcpy(file, line, ptr1, ptr2, len)
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBFmemcpy( "memcpy", file, line ,ptr1, ptr2, len) );
+X}
+X
+XMEMDATA  *
+XDBFmemcpy(func, file, line,ptr1, ptr2, len)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	MEMDATA 		* rtn = ptr1;
+X
+X	malloc_check_data(func, file, line, ptr1, len);
+X	malloc_check_data(func, file, line, ptr2, len);
+X
+X	DataMC(ptr1,ptr2,len);
+X	
+X	return(rtn);
+X}
+X
+X/*
+X * memcmp - compare two memory regions
+X */
+Xint
+Xmemcmp(ptr1, ptr2, len)
+X	CONST MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBmemcmp((char *)NULL,0,ptr1,ptr2,len) );
+X}
+X
+Xint
+XDBmemcmp(file,line,ptr1, ptr2, len)
+X	CONST char		* file;
+X	int			  line;
+X	CONST MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBFmemcmp("memcmp",file,line,ptr1,ptr2,len) );
+X}
+X
+Xint
+XDBFmemcmp(func,file,line,ptr1, ptr2, len)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	CONST MEMDATA 		* ptr1;
+X	CONST MEMDATA 		* ptr2;
+X	register MEMSIZE 	  len;
+X{
+X	register CONST char	* myptr1;
+X	register CONST char	* myptr2;
+X	
+X	malloc_check_data(func,file,line, ptr1, len);
+X	malloc_check_data(func,file,line, ptr2, len);
+X
+X	myptr1 = (CONST char *) ptr1;
+X	myptr2 = (CONST char *) ptr2;
+X
+X	while( len > 0  && (*myptr1 == *myptr2) )
+X	{
+X		len--;
+X		myptr1++;
+X		myptr2++;
+X	}
+X
+X	/* 
+X	 * If stopped by len, return zero
+X	 */
+X	if( len == 0 )
+X	{
+X		return(0);
+X	}
+X
+X	return( *(CONST MEMCMPTYPE *)myptr1 - *(CONST MEMCMPTYPE *)myptr2 );
+X}
+X
+X/*
+X * memset - set all bytes of a memory block to a specified value
+X */
+XMEMDATA  * 
+Xmemset(ptr1, ch, len)
+X	MEMDATA 		* ptr1;
+X	register int		  ch;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBmemset((char *)NULL,0,ptr1,ch,len) );
+X}
+X
+XMEMDATA  * 
+XDBmemset(file,line,ptr1, ch, len)
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA 		* ptr1;
+X	register int		  ch;
+X	register MEMSIZE 	  len;
+X{
+X	return( DBFmemset("memset",file,line,ptr1,ch,len) );
+X}
+X
+XMEMDATA  * 
+XDBFmemset(func,file,line,ptr1, ch, len)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	MEMDATA 		* ptr1;
+X	register int		  ch;
+X	register MEMSIZE 	  len;
+X{
+X	MEMDATA 		* rtn = ptr1;
+X	malloc_check_data(func, file, line, ptr1, len);
+X
+X	DataMS(ptr1,ch,len);
+X
+X	return(rtn);
+X}
+X
+X#ifndef ibm032
+X/*
+X * bcopy - copy memory block to another area
+X */
+XMEMDATA  *
+Xbcopy(ptr2,ptr1,len)
+X	CONST MEMDATA 	* ptr2;
+X	MEMDATA 	* ptr1;
+X	MEMSIZE 	  len;
+X{
+X	return( DBbcopy((char *)NULL,0,ptr2,ptr1,len) );
+X}
+X#endif /* ibm032 */
+X
+XMEMDATA  *
+XDBbcopy(file,line,ptr2,ptr1,len)
+X	CONST char	* file;
+X	int		  line;
+X	CONST MEMDATA 	* ptr2;
+X	MEMDATA 	* ptr1;
+X	MEMSIZE 	  len;
+X{
+X	return( DBFmemcpy("bcopy",file,line,ptr1,ptr2,len));
+X}
+X
+X/*
+X * bzero - clear block of memory to zeros
+X */
+XMEMDATA  *
+Xbzero(ptr1,len)
+X	MEMDATA 	* ptr1;
+X	MEMSIZE 	  len;
+X{
+X	return( DBbzero((char *)NULL,0,ptr1,len) );
+X}
+X
+XMEMDATA  *
+XDBbzero(file,line,ptr1,len)
+X	CONST char	* file;
+X	int		  line;
+X	MEMDATA 	* ptr1;
+X	MEMSIZE 	  len;
+X{
+X	return( DBFmemset("bzero",file,line,ptr1,'\0',len) );
+X}
+X
+X/*
+X * bcmp - compary memory blocks
+X */
+Xint
+Xbcmp(ptr2, ptr1, len)
+X	CONST MEMDATA 	* ptr1;
+X	CONST MEMDATA 	* ptr2;
+X	MEMSIZE 	  len;
+X{
+X	return( DBbcmp((char *)NULL,0,ptr2, ptr1, len) );
+X}
+X
+Xint
+XDBbcmp(file, line, ptr2, ptr1, len)
+X	CONST char	* file;
+X	int		  line;
+X	CONST MEMDATA 	* ptr1;
+X	CONST MEMDATA 	* ptr2;
+X	MEMSIZE  	  len;
+X{
+X	return( DBFmemcmp("bcmp",file,line,ptr1,ptr2,len) );
+X}
+X
+X/*
+X * $Log: memory.c,v $
+X * Revision 1.22  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.21  1992/07/12  15:30:58  cpcahil
+X * Merged in Jonathan I Kamens' changes
+X *
+X * Revision 1.20  1992/06/22  23:40:10  cpcahil
+X * many fixes for working on small int systems
+X *
+X * Revision 1.19  1992/05/09  21:27:09  cpcahil
+X * final (hopefully) changes for patch 11
+X *
+X * Revision 1.18  1992/05/09  00:16:16  cpcahil
+X * port to hpux and lots of fixes
+X *
+X * Revision 1.17  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.16  1992/05/08  01:44:11  cpcahil
+X * more performance enhancements
+X *
+X * Revision 1.15  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.14  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.13  1992/01/24  04:49:05  cpcahil
+X * changed memccpy to only check number of chars it will copy.
+X *
+X * Revision 1.12  1991/12/31  21:31:26  cpcahil
+X * changes for patch 6.  See CHANGES file for more info
+X *
+X * Revision 1.11  1991/12/02  19:10:13  cpcahil
+X * changes for patch release 5
+X *
+X * Revision 1.10  91/11/25  14:42:03  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.9  91/11/24  00:49:31  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.8  91/05/21  18:33:47  cpcahil
+X * fixed bug in memccpy() which checked an extra byte if the first character
+X * after the specified length matched the search character.
+X * 
+X * Revision 1.7  90/08/29  21:27:58  cpcahil
+X * fixed value of check in memccpy when character was not found.
+X * 
+X * Revision 1.6  90/07/16  20:06:26  cpcahil
+X * fixed several minor bugs found with Henry Spencer's string/mem tester 
+X * program.
+X * 
+X * 
+X * Revision 1.5  90/05/11  15:39:36  cpcahil
+X * fixed bug in memccpy().
+X * 
+X * Revision 1.4  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:29  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:41  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 8847 -ne `wc -c <'memory.c'`; then
+    echo shar: \"'memory.c'\" unpacked with wrong size!
+fi
+# end of 'memory.c'
+fi
+if test -f 'prototypes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prototypes.h'\"
+else
+echo shar: Extracting \"'prototypes.h'\" \(13010 characters\)
+sed "s/^X//" >'prototypes.h' <<'END_OF_FILE'
+X#if defined(__STDC__) || defined(__cplusplus)
+X# define __stdcargs(s) s
+X#else
+X# define __stdcargs(s) ()
+X#endif
+X
+X/* malloc.c */
+XDATATYPE *malloc __stdcargs((SIZETYPE size));
+XDATATYPE *debug_malloc __stdcargs((CONST char *file, int line, SIZETYPE size));
+Xchar *DBFmalloc __stdcargs((CONST char *func, int type, unsigned long call_counter, CONST char *file, int line, SIZETYPE size));
+XVOIDTYPE malloc_split __stdcargs((struct mlist *ptr));
+XVOIDTYPE malloc_join __stdcargs((struct mlist *ptr, struct mlist *nextptr, int inuse_override, int fill_flag));
+XVOIDTYPE malloc_fatal __stdcargs((CONST char *funcname, CONST char *file, int line, CONST struct mlist *mptr));
+XVOIDTYPE malloc_warning __stdcargs((CONST char *funcname, CONST char *file, int line, CONST struct mlist *mptr));
+XVOIDTYPE malloc_dump_info_block __stdcargs((CONST struct mlist *mptr, int id));
+XVOIDTYPE malloc_err_handler __stdcargs((int level));
+XCONST char *malloc_int_suffix __stdcargs((unsigned long i));
+XVOIDTYPE malloc_freeseg __stdcargs((int op, struct mlist *ptr));
+XCONST char *MallocFuncName __stdcargs((CONST struct mlist *mptr));
+XCONST char *FreeFuncName __stdcargs((CONST struct mlist *mptr));
+Xvoid InitMlist __stdcargs((struct mlist *mptr, int type));
+X/* datamc.c */
+Xvoid DataMC __stdcargs((MEMDATA *ptr1, CONST MEMDATA *ptr2, MEMSIZE len));
+X/* datams.c */
+Xvoid DataMS __stdcargs((MEMDATA *ptr1, int ch, register MEMSIZE len));
+X/* dgmalloc.c */
+XDATATYPE *_malloc __stdcargs((SIZETYPE size));
+XDATATYPE *_realloc __stdcargs((DATATYPE *cptr, SIZETYPE size));
+XDATATYPE *_calloc __stdcargs((SIZETYPE nelem, SIZETYPE elsize));
+Xvoid _free __stdcargs((DATATYPE *cptr));
+Xint _mallopt __stdcargs((int cmd, union dbmalloptarg value));
+XMEMDATA *_bcopy __stdcargs((CONST MEMDATA *ptr2, MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *_bzero __stdcargs((MEMDATA *ptr1, MEMSIZE len));
+Xint _bcmp __stdcargs((CONST MEMDATA *ptr2, CONST MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *__dg_bcopy __stdcargs((CONST MEMDATA *ptr2, MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *__dg_bzero __stdcargs((MEMDATA *ptr1, MEMSIZE len));
+Xint __dg_bcmp __stdcargs((CONST MEMDATA *ptr2, CONST MEMDATA *ptr1, MEMSIZE len));
+X/* fill.c */
+XVOIDTYPE FillInit __stdcargs((void));
+Xint FillCheck __stdcargs((CONST char *func, CONST char *file, int line, struct mlist *ptr, int showerrors));
+Xint FillCheckData __stdcargs((CONST char *func, CONST char *file, int line, struct mlist *ptr, int checktype, int showerrors));
+Xvoid FillData __stdcargs((register struct mlist *ptr, int alloctype, SIZETYPE start, struct mlist *nextptr));
+X/* free.c */
+XFREETYPE free __stdcargs((DATATYPE *cptr));
+XFREETYPE debug_free __stdcargs((CONST char *file, int line, DATATYPE *cptr));
+XFREETYPE DBFfree __stdcargs((CONST char *func, int type, unsigned long counter, CONST char *file, int line, DATATYPE *cptr));
+X/* realloc.c */
+XDATATYPE *realloc __stdcargs((DATATYPE *cptr, SIZETYPE size));
+XDATATYPE *debug_realloc __stdcargs((CONST char *file, int line, DATATYPE *cptr, SIZETYPE size));
+XDATATYPE *DBFrealloc __stdcargs((CONST char *func, int type, unsigned long call_counter, CONST char *file, int line, DATATYPE *cptr, SIZETYPE size));
+X/* calloc.c */
+XDATATYPE *calloc __stdcargs((SIZETYPE nelem, SIZETYPE elsize));
+XDATATYPE *debug_calloc __stdcargs((CONST char *file, int line, SIZETYPE nelem, SIZETYPE elsize));
+Xchar *DBFcalloc __stdcargs((CONST char *func, int type, unsigned long call_counter, CONST char *file, int line, SIZETYPE nelem, SIZETYPE elsize));
+XFREETYPE cfree __stdcargs((DATATYPE *cptr));
+XFREETYPE debug_cfree __stdcargs((CONST char *file, int line, DATATYPE *cptr));
+X/* string.c */
+Xchar *strcat __stdcargs((char *str1, CONST char *str2));
+Xchar *DBstrcat __stdcargs((CONST char *file, int line, register char *str1, register CONST char *str2));
+Xchar *strdup __stdcargs((CONST char *str1));
+Xchar *DBstrdup __stdcargs((CONST char *file, int line, register CONST char *str1));
+Xchar *strncat __stdcargs((char *str1, CONST char *str2, STRSIZE len));
+Xchar *DBstrncat __stdcargs((CONST char *file, int line, register char *str1, register CONST char *str2, register STRSIZE len));
+Xint strcmp __stdcargs((register CONST char *str1, register CONST char *str2));
+Xint DBstrcmp __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2));
+Xint strncmp __stdcargs((register CONST char *str1, register CONST char *str2, register STRSIZE len));
+Xint DBstrncmp __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2, register STRSIZE len));
+Xint stricmp __stdcargs((register CONST char *str1, register CONST char *str2));
+Xint DBstricmp __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2));
+Xint strincmp __stdcargs((register CONST char *str1, register CONST char *str2, register STRSIZE len));
+Xint DBstrincmp __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2, register STRSIZE len));
+Xchar *strcpy __stdcargs((register char *str1, register CONST char *str2));
+Xchar *DBstrcpy __stdcargs((CONST char *file, int line, register char *str1, register CONST char *str2));
+Xchar *strncpy __stdcargs((register char *str1, register CONST char *str2, register STRSIZE len));
+Xchar *DBstrncpy __stdcargs((CONST char *file, int line, register char *str1, register CONST char *str2, STRSIZE len));
+XSTRSIZE strlen __stdcargs((CONST char *str1));
+XSTRSIZE DBstrlen __stdcargs((CONST char *file, int line, register CONST char *str1));
+Xchar *strchr __stdcargs((CONST char *str1, int c));
+Xchar *DBstrchr __stdcargs((CONST char *file, int line, CONST char *str1, int c));
+Xchar *DBFstrchr __stdcargs((CONST char *func, CONST char *file, int line, register CONST char *str1, register int c));
+Xchar *strrchr __stdcargs((CONST char *str1, int c));
+Xchar *DBstrrchr __stdcargs((CONST char *file, int line, CONST char *str1, int c));
+Xchar *DBFstrrchr __stdcargs((CONST char *func, CONST char *file, int line, register CONST char *str1, register int c));
+Xchar *index __stdcargs((CONST char *str1, int c));
+Xchar *DBindex __stdcargs((CONST char *file, int line, CONST char *str1, int c));
+Xchar *rindex __stdcargs((CONST char *str1, int c));
+Xchar *DBrindex __stdcargs((CONST char *file, int line, CONST char *str1, int c));
+Xchar *strpbrk __stdcargs((CONST char *str1, CONST char *str2));
+Xchar *DBstrpbrk __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2));
+XSTRSIZE strspn __stdcargs((CONST char *str1, CONST char *str2));
+XSTRSIZE DBstrspn __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2));
+XSTRSIZE strcspn __stdcargs((CONST char *str1, CONST char *str2));
+XSTRSIZE DBstrcspn __stdcargs((CONST char *file, int line, register CONST char *str1, register CONST char *str2));
+Xchar *strstr __stdcargs((CONST char *str1, CONST char *str2));
+Xchar *DBstrstr __stdcargs((CONST char *file, int line, CONST char *str1, CONST char *str2));
+Xchar *strtok __stdcargs((char *str1, CONST char *str2));
+Xchar *DBstrtok __stdcargs((CONST char *file, int line, char *str1, CONST char *str2));
+Xchar *strtoken __stdcargs((register char **stringp, register CONST char *delim, int skip));
+X/* mcheck.c */
+XVOIDTYPE malloc_check_str __stdcargs((CONST char *func, CONST char *file, int line, CONST char *str));
+XVOIDTYPE malloc_check_strn __stdcargs((CONST char *func, CONST char *file, int line, CONST char *str, STRSIZE len));
+XVOIDTYPE malloc_check_data __stdcargs((CONST char *func, CONST char *file, int line, CONST DATATYPE *ptr, SIZETYPE len));
+XVOIDTYPE malloc_verify __stdcargs((CONST char *func, CONST char *file, int line, register CONST DATATYPE *ptr, register SIZETYPE len));
+Xint GoodMlist __stdcargs((register CONST struct mlist *mptr));
+X/* mchain.c */
+Xint malloc_chain_check __stdcargs((int todo));
+Xint DBmalloc_chain_check __stdcargs((CONST char *file, int line, int todo));
+Xint DBFmalloc_chain_check __stdcargs((CONST char *func, CONST char *file, int line, int todo));
+X/* memory.c */
+XMEMDATA *memccpy __stdcargs((MEMDATA *ptr1, CONST MEMDATA *ptr2, int ch, MEMSIZE len));
+XMEMDATA *DBmemccpy __stdcargs((CONST char *file, int line, MEMDATA *ptr1, CONST MEMDATA *ptr2, int ch, MEMSIZE len));
+XMEMDATA *memchr __stdcargs((CONST MEMDATA *ptr1, register int ch, MEMSIZE len));
+XMEMDATA *DBmemchr __stdcargs((CONST char *file, int line, CONST MEMDATA *ptr1, register int ch, MEMSIZE len));
+XMEMDATA *memmove __stdcargs((MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+XMEMDATA *DBmemmove __stdcargs((CONST char *file, int line, MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+XMEMDATA *memcpy __stdcargs((MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+XMEMDATA *DBmemcpy __stdcargs((CONST char *file, int line, MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+XMEMDATA *DBFmemcpy __stdcargs((CONST char *func, CONST char *file, int line, MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+Xint memcmp __stdcargs((CONST MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+Xint DBmemcmp __stdcargs((CONST char *file, int line, CONST MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+Xint DBFmemcmp __stdcargs((CONST char *func, CONST char *file, int line, CONST MEMDATA *ptr1, CONST MEMDATA *ptr2, register MEMSIZE len));
+XMEMDATA *memset __stdcargs((MEMDATA *ptr1, register int ch, register MEMSIZE len));
+XMEMDATA *DBmemset __stdcargs((CONST char *file, int line, MEMDATA *ptr1, register int ch, register MEMSIZE len));
+XMEMDATA *DBFmemset __stdcargs((CONST char *func, CONST char *file, int line, MEMDATA *ptr1, register int ch, register MEMSIZE len));
+XMEMDATA *bcopy __stdcargs((CONST MEMDATA *ptr2, MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *DBbcopy __stdcargs((CONST char *file, int line, CONST MEMDATA *ptr2, MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *bzero __stdcargs((MEMDATA *ptr1, MEMSIZE len));
+XMEMDATA *DBbzero __stdcargs((CONST char *file, int line, MEMDATA *ptr1, MEMSIZE len));
+Xint bcmp __stdcargs((CONST MEMDATA *ptr2, CONST MEMDATA *ptr1, MEMSIZE len));
+Xint DBbcmp __stdcargs((CONST char *file, int line, CONST MEMDATA *ptr2, CONST MEMDATA *ptr1, MEMSIZE len));
+X/* tostring.c */
+Xint tostring __stdcargs((char *buf, unsigned long val, int len, int base, int fill));
+X/* m_perror.c */
+XVOIDTYPE malloc_perror __stdcargs((CONST char *str));
+X/* m_init.c */
+XVOIDTYPE malloc_init __stdcargs((void));
+X/* mallopt.c */
+Xint dbmallopt __stdcargs((int cmd, union dbmalloptarg *value));
+X/* dump.c */
+XVOIDTYPE malloc_dump __stdcargs((int fd));
+XVOIDTYPE malloc_list __stdcargs((int fd, unsigned long histid1, unsigned long histid2));
+XVOIDTYPE malloc_list_items __stdcargs((int fd, int list_type, unsigned long histid1, unsigned long histid2));
+X/* stack.c */
+Xvoid StackEnter __stdcargs((CONST char *func, CONST char *file, int line));
+Xstruct stack *StackNew __stdcargs((CONST char *func, CONST char *file, int line));
+Xint StackMatch __stdcargs((struct stack *this, CONST char *func, CONST char *file, int line));
+Xvoid StackLeave __stdcargs((CONST char *func, CONST char *file, int line));
+Xstruct stack *StackCurrent __stdcargs((void));
+Xvoid StackDump __stdcargs((int fd, CONST char *msg, struct stack *node));
+X/* xmalloc.c */
+Xvoid _XtAllocError __stdcargs((CONST char *type));
+Xvoid _XtBCopy __stdcargs((char *b1, char *b2, int length));
+Xvoid debug_XtBcopy __stdcargs((char *file, int line, char *b1, char *b2, int length));
+Xchar *XtMalloc __stdcargs((unsigned int size));
+Xchar *debug_XtMalloc __stdcargs((CONST char *file, int line, unsigned int size));
+Xchar *XtRealloc __stdcargs((char *ptr, unsigned int size));
+Xchar *debug_XtRealloc __stdcargs((CONST char *file, int line, char *ptr, unsigned int size));
+Xchar *XtCalloc __stdcargs((unsigned int num, unsigned int size));
+Xchar *debug_XtCalloc __stdcargs((CONST char *file, int line, unsigned int num, unsigned int size));
+Xvoid XtFree __stdcargs((char *ptr));
+Xvoid debug_XtFree __stdcargs((CONST char *file, int line, char *ptr));
+X/* xheap.c */
+Xvoid _XtHeapInit __stdcargs((Heap *heap));
+Xchar *_XtHeapAlloc __stdcargs((Heap *heap, Cardinal bytes));
+Xvoid _XtHeapFree __stdcargs((Heap *heap));
+X/* malign.c */
+XDATATYPE *memalign __stdcargs((SIZETYPE align, SIZETYPE size));
+XDATATYPE *DBmemalign __stdcargs((CONST char *file, int line, SIZETYPE align, SIZETYPE size));
+Xint AlignedFit __stdcargs((struct mlist *mptr, SIZETYPE align, SIZETYPE size));
+Xstruct mlist *AlignedMakeSeg __stdcargs((struct mlist *mptr, SIZETYPE align));
+XSIZETYPE AlignedOffset __stdcargs((struct mlist *mptr, SIZETYPE align));
+X/* size.c */
+XSIZETYPE malloc_size __stdcargs((CONST DATATYPE *cptr));
+XSIZETYPE DBmalloc_size __stdcargs((CONST char *file, int line, CONST DATATYPE *cptr));
+X/* abort.c */
+XVOIDTYPE malloc_abort __stdcargs((void));
+X/* leak.c */
+Xunsigned long malloc_inuse __stdcargs((unsigned long *histptr));
+Xunsigned long DBmalloc_inuse __stdcargs((CONST char *file, int line, unsigned long *histptr));
+XVOIDTYPE malloc_mark __stdcargs((DATATYPE *cptr));
+XVOIDTYPE DBmalloc_mark __stdcargs((CONST char *file, int line, DATATYPE *cptr));
+X
+X#undef __stdcargs
+END_OF_FILE
+if test 13010 -ne `wc -c <'prototypes.h'`; then
+    echo shar: \"'prototypes.h'\" unpacked with wrong size!
+fi
+# end of 'prototypes.h'
+fi
+if test -f 'realloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'realloc.c'\"
+else
+echo shar: Extracting \"'realloc.c'\" \(11360 characters\)
+sed "s/^X//" >'realloc.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: realloc.c,v 1.26 1992/09/03 22:24:33 cpcahil Exp $";
+X#endif
+X
+X#include <stdio.h>
+X
+X#include "mallocin.h"
+X
+XDATATYPE *
+Xrealloc(cptr,size)
+X	DATATYPE		* cptr;
+X	SIZETYPE		  size;
+X{
+X	return( debug_realloc(NULL,-1,cptr,size) );
+X}
+X
+XDATATYPE *
+Xdebug_realloc(file,line,cptr,size)
+X	CONST char		* file;
+X	int			  line;
+X	DATATYPE		* cptr;
+X	SIZETYPE		  size;
+X{
+X	static IDTYPE		  call_counter;
+X
+X	/*
+X	 * increment the call counter
+X	 */
+X	call_counter++;
+X
+X	return( DBFrealloc("realloc",M_T_REALLOC,call_counter,
+X			  file,line,cptr,size) );
+X
+X}
+X
+X/*
+X * Function:	DBFrealloc()
+X *
+X * Purpose:	to re-allocate a data area.
+X *
+X * Arguments:	cptr	- pointer to area to reallocate
+X *		size	- size to change area to
+X *
+X * Returns:	pointer to new area (may be same area)
+X *
+X * Narrative:	verify pointer is within malloc region
+X *		obtain mlist pointer from cptr
+X *		verify magic number is correct
+X *		verify inuse flag is set
+X *		verify connection to adjoining segments is correct
+X *		save requested size
+X *		round-up size to appropriate boundry
+X *		IF size is bigger than what is in this segment
+X *		    try to join next segment to this segment
+X *		IF size is less than what is is this segment
+X *		    determine leftover amount of space
+X *		ELSE
+X *		    allocate new segment of size bites
+X *		    IF allocation failed
+X *		        return NULL
+X *		    copy previous data to new segment
+X *		    free previous segment
+X *		    return new pointer
+X *		split of extra space in this segment (if any)
+X *		clear bytes beyound what they had before
+X *		return pointer to data 
+X */
+X
+XDATATYPE *
+XDBFrealloc(func,type,call_counter,file,line,cptr,size)
+X	CONST char		* func;
+X	int			  type;
+X	IDTYPE			  call_counter;
+X	CONST char		* file;
+X	int			  line;
+X	DATATYPE		* cptr;
+X	SIZETYPE		  size;
+X{
+X	SIZETYPE		  i;
+X	char			* new_cptr;
+X	int			  marked;
+X	SIZETYPE		  need;
+X	struct mlist		* optr;
+X	struct mlist		* ptr;
+X	SIZETYPE		  r_size;
+X	SIZETYPE		  start;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * IF malloc chain checking is on, go do it.
+X	 */
+X	if( malloc_opts & MOPT_CKCHAIN )
+X	{
+X		VOIDCAST DBFmalloc_chain_check(func,file,line,1);
+X	}
+X
+X	/*
+X	 * if the user wants to be warned about zero length mallocs, do so
+X	 */
+X	if( ((malloc_opts & MOPT_ZERO) != 0) && (size == 0) )
+X	{
+X		malloc_errno = M_CODE_ZERO_ALLOC;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X	}
+X
+X	/*
+X	 * if this is an ansi-c compiler and we want to use the realloc(0) 
+X	 * paradigm, or if this is a call from xtrealloc, then if the 
+X	 * pointer is a null, act as if this is a call to malloc.
+X	 */
+X#if defined(ANSI_NULLS) || (__STDC__ && ! defined(NO_ANSI_NULLS))
+X	if( cptr == NULL )
+X#else
+X	if( (cptr == NULL) && (type == M_T_XTREALLOC) )
+X#endif
+X	{
+X		/*
+X		 * allocate the new chunk
+X		 */
+X		new_cptr = DBFmalloc(func,type,call_counter,file,line,size);
+X
+X		return(new_cptr);
+X	}
+X
+X	/*
+X	 * verify that cptr is within the malloc region...
+X	 */
+X	if(    (cptr < malloc_data_start)
+X	    || (cptr > malloc_data_end) 
+X	    || ((((long)cptr) & malloc_round) != 0 ) )
+X	{
+X		malloc_errno = M_CODE_BAD_PTR;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return (NULL);
+X	}
+X
+X	/* 
+X	 * convert pointer to mlist struct pointer.  To do this we must 
+X	 * move the pointer backwards the correct number of bytes...
+X	 */
+X	
+X	ptr = (struct mlist *) (((char *)cptr) - M_SIZE);
+X	
+X	if( (ptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X	{
+X		malloc_errno = M_CODE_BAD_MAGIC;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return(NULL);
+X	}
+X
+X	if( ! (ptr->flag & M_INUSE) )
+X	{
+X		malloc_errno = M_CODE_NOT_INUSE ;
+X		malloc_warning(func,file,line,ptr);
+X		return(NULL);
+X	}
+X
+X 	if( (ptr->prev && (ptr->prev->next != ptr) ) ||
+X	    (ptr->next && (ptr->next->prev != ptr) ) ||
+X	    ((ptr->next == NULL) && (ptr->prev == NULL)) )
+X	{
+X		malloc_errno = M_CODE_BAD_CONNECT;
+X		malloc_warning(func,file,line,ptr);
+X		return(NULL);
+X	}
+X
+X	/*
+X	 * save the marked status
+X	 */
+X	marked = ptr->flag & M_MARKED;
+X
+X	/*
+X	 * save the requested size;
+X	 */
+X	r_size = size;
+X
+X	/*
+X	 * make sure we have the full boundary that is needed
+X	 */
+X	size += malloc_boundsize;
+X
+X	M_ROUNDUP(size);
+X
+X	if( (size > ptr->s.size) && ((malloc_opts & MOPT_REUSE) != 0) )
+X	{
+X		malloc_join(ptr,ptr->next,INUSEOK,DOFILL);
+X	}
+X
+X	/*
+X	 * if we still don't have enough room, and we are at the end of the
+X	 * malloc chain and we are up against the current sbrk, we can just
+X 	 * sbrk more room for our data area.
+X 	 */	
+X	if(    (size > ptr->s.size)
+X	    && (ptr == malloc_end) 
+X	    && ((ptr->data+ptr->s.size) == sbrk(0) ) )
+X	{
+X		need = size - ptr->s.size;
+X
+X		/*
+X		 * if the need is less than the minimum block size,
+X		 *     get the minimum block size
+X	 	 */
+X		if( need < M_BLOCKSIZE )
+X		{
+X			need = M_BLOCKSIZE;
+X		}
+X		/*
+X		 * else if the need is not an even multiple of the block size,
+X		 *     round it up to an even multiple
+X		 */
+X		else if( need & (M_BLOCKSIZE-1) )
+X		{
+X			need &= ~(M_BLOCKSIZE-1);
+X			need += M_BLOCKSIZE;
+X		}
+X
+X		/*
+X		 * get the space from the os
+X	 	 */
+X		cptr = sbrk(need);
+X
+X		/*
+X		 * if we failed to get the space, tell the user about it
+X		 */
+X		if( cptr == (char *) -1 )
+X		{
+X			malloc_errno = M_CODE_NOMORE_MEM;
+X			malloc_fatal(func,file,line, (struct mlist *)NULL);
+X			return(NULL);
+X		}
+X
+X		/*
+X		 * adjust our segment size (extra space will be split off later
+X		 */
+X		start = ptr->s.size;
+X		ptr->s.size += need;
+X
+X		/*
+X		 * we have to act like this was a join of a new segment so
+X		 * we need to call the fill routine to get it to fill the
+X		 * new data area.
+X		 */
+X		FILLDATA(ptr,FILL_JOIN,start,(struct mlist *)NULL);
+X
+X		/*
+X		 * mark our end point
+X		 */
+X		malloc_data_end = sbrk((int)0);
+X	
+X	}
+X	
+X		
+X	/*
+X	 * if the size is still too small and the previous segment is free
+X	 * and it would be big enough it if was joined to the current segment
+X	 */
+X	if(    ((malloc_opts & MOPT_CKCHAIN) != 0)
+X	    && (size > ptr->s.size)
+X	    && ((ptr->prev->flag & M_INUSE) == 0)
+X	    && (size < (ptr->s.size + ptr->prev->s.size + M_SIZE) ) )
+X	{
+X		/*
+X		 * save the old pointer
+X		 */
+X		optr = ptr;
+X
+X		/*
+X		 * move out pointer to the proper area.
+X		 */
+X		ptr = ptr->prev;
+X	
+X		/*
+X	 	 * force this pointer to be inuse
+X		 */
+X		ptr->flag |= M_INUSE;
+X		ptr->r_size = ptr->next->r_size;
+X		
+X		/*
+X	 	 * join the two segments
+X		 */
+X		malloc_join(ptr, ptr->next, ANY_INUSEOK, DONTFILL);
+X
+X		/*
+X		 * remove ptr from the free list
+X		 */
+X		malloc_freeseg(M_FREE_REMOVE,ptr);
+X
+X		/*
+X		 * copy data from the current space to the new space.  Note
+X	 	 * that the data areas for this copy will likely overlap.
+X		 */
+X		DataMC(ptr->data,optr->data,ptr->r_size);
+X
+X		/*
+X		 * note that we don't fill in the areas here.  It will be
+X		 * filled later
+X		 */
+X
+X	}
+X	if( size > ptr->s.size )
+X	{
+X		/*
+X		 * else we can't combine it, so lets allocate a new chunk,
+X		 * copy the data and free the old chunk...
+X		 */
+X		new_cptr = DBFmalloc(func,type,call_counter,file,line,size);
+X
+X		if( new_cptr == (char *) 0)
+X		{
+X			return(new_cptr);
+X		}
+X
+X		if( r_size < ptr->r_size )
+X		{
+X			i = r_size;
+X		}
+X		else
+X		{
+X			i = ptr->r_size;
+X		}
+X		in_malloc_code++;
+X		VOIDCAST memcpy(new_cptr,ptr->data,i);
+X		in_malloc_code--;
+X
+X		/*
+X		 * if the old segment was marked, unmark it and mark the new
+X		 * segment.
+X		 */
+X		if( marked )
+X		{
+X			ptr->flag &= ~M_MARKED;
+X			malloc_mark(new_cptr);
+X		}
+X
+X		/*
+X		 * free the old segment since it is no longer needed.
+X		 */
+X		DBFfree("realloc:free",F_T_REALLOC,call_counter,file,line,cptr);
+X
+X		
+X		return(new_cptr);
+X
+X	} /* if( size... */
+X
+X	/*
+X	 * save amount of real data in new segment (this will be used in the
+X	 * memset later) and then save requested size of this segment.
+X	 */
+X	if( ptr->r_size < r_size )
+X	{
+X		i = ptr->r_size;
+X	}
+X	else
+X	{
+X		i = r_size;
+X	}
+X
+X	ptr->r_size = r_size;
+X
+X	/*
+X	 * split off extra free space at end of this segment, if possible...
+X	 */
+X
+X	malloc_split(ptr);
+X
+X	/*
+X	 * save the id info.
+X	 */	
+X	ptr->file      = file;
+X	ptr->line      = line;
+X	ptr->id        = call_counter;
+X	ptr->hist_id   = malloc_hist_id++;
+X	ptr->stack     = StackCurrent();
+X	ptr->freestack = NULL;
+X	SETTYPE(ptr,type);
+X
+X	/*
+X	 * fill data and/or boundary areas
+X	 */
+X	FILLDATA(ptr,FILL_REALLOC,i, (struct mlist *) NULL);
+X	
+X	return(ptr->data);
+X
+X} /* DBFrealloc(... */
+X
+X
+X/*
+X * $Log: realloc.c,v $
+X * Revision 1.26  1992/09/03  22:24:33  cpcahil
+X * final changes for PL14
+X *
+X * Revision 1.25  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.24  1992/07/03  00:03:25  cpcahil
+X * more fixes for pl13, several suggestons from Rich Salz.
+X *
+X * Revision 1.23  1992/05/14  23:02:27  cpcahil
+X * added support for ANSI NULL behavior even with non-ansi compilers (if
+X * chosen at compile time).
+X *
+X * Revision 1.22  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.21  1992/05/06  05:37:44  cpcahil
+X * added overriding of fill characters and boundary size
+X *
+X * Revision 1.20  1992/05/06  04:53:29  cpcahil
+X * performance enhancments
+X *
+X * Revision 1.19  1992/04/22  18:17:32  cpcahil
+X * added support for Xt Alloc functions, linted code
+X *
+X * Revision 1.18  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.17  1992/03/01  12:42:38  cpcahil
+X * added support for managing freed areas and fixed doublword bndr problems
+X *
+X * Revision 1.16  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.15  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.14  1991/12/06  08:54:19  cpcahil
+X * cleanup of __STDC__ usage and addition of CHANGES file
+X *
+X * Revision 1.13  91/12/04  09:23:44  cpcahil
+X * several performance enhancements including addition of free list
+X * 
+X * Revision 1.12  91/12/02  19:10:14  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.11  91/11/25  14:42:05  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.10  91/11/24  00:49:32  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.9  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.8  90/08/29  21:22:52  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.7  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.6  90/02/25  11:01:20  cpcahil
+X * added support for malloc chain checking.
+X * 
+X * Revision 1.5  90/02/24  21:50:31  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.4  90/02/24  17:29:39  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.3  90/02/24  17:20:00  cpcahil
+X * attempt to get rid of full path in rcs header.
+X * 
+X * Revision 1.2  90/02/24  15:14:20  cpcahil
+X * 1. added function header 
+X * 2. changed calls to malloc_warning to conform to new usage
+X * 3. added setting of malloc_errno
+X *  4. broke up bad pointer determination so that errno's would be more
+X *    descriptive
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 11360 -ne `wc -c <'realloc.c'`; then
+    echo shar: \"'realloc.c'\" unpacked with wrong size!
+fi
+# end of 'realloc.c'
+fi
+if test -f 'stack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'stack.c'\"
+else
+echo shar: Extracting \"'stack.c'\" \(7960 characters\)
+sed "s/^X//" >'stack.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include <stdio.h>
+X#include "mallocin.h"
+X#include "tostring.h"
+X
+X#define STACK_ALLOC	100 /* allocate 100 elements at a time */
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: stack.c,v 1.7 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#define OUTBUFSIZE	128
+X#define ERRSTR "I/O error durring stack dump"
+X
+X#define WRITEOUT(fd,str,len)	if( write(fd,str,(WRTSIZE)(len)) != (len) ) \
+X				{ \
+X					VOIDCAST write(2,ERRSTR,\
+X						     (WRTSIZE)strlen(ERRSTR));\
+X					exit(120); \
+X				}
+X
+X#define COPY(s,t,buf,len)	while( (*(s) = *((t)++) ) \
+X				       && ( (s) < ((buf)+(len)-5) ) ) { (s)++; }
+X
+X
+X/*
+X * stack.c - this file contains info used to maintain the malloc stack
+X *	     trees that the user may use to identify where malloc is called
+X *	     from.  Ideally, we would like to be able to read the stack
+X *	     ourselves, but that is very system dependent.
+X *
+X * 	The user interface to the stack routines will be as follows:
+X *
+X *	#define malloc_enter(a)	StackEnter(a,__FILE__,__LINE__)
+X *	#define malloc_leave(a) StackLeave(a,__FILE__,__LINE__)
+X *
+X *	NOTE: These functions depend upon the fact that they are called in a
+X *	symentric manner.  If you skip one of them, you will not have valid
+X *	information maintained in the stack.
+X *
+X *	Rather than keep a segment of the stack in each malloc region, we will
+X * 	maintain a stack tree here and the malloc segment will have a pointer 
+X *	to the current leaf of the tree.  This should save considerably on the
+X *	amount of space taken up by maintaining this tree.
+X */
+X
+Xstruct stack	* current;
+Xstruct stack 	  root_node;
+X
+X/*
+X * local function prototpyes
+X */
+Xstruct stack	* StackNew __STDCARGS(( CONST char * func, CONST char * file,
+X					int line));
+Xint		  StackMatch __STDCARGS((struct stack * this,CONST char * func,
+X					 CONST char * file, int line ));
+X
+X/*
+X * stk_enter() - called when one enters a new function.  This function adds the 
+X * 		 specified function as a new entry (unless it is already in the
+X * 		 list, in which case it just sets the current pointer).
+X */
+X
+Xvoid
+XStackEnter( func, file, line )
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X{
+X	int		  match;
+X	struct stack	* this;
+X
+X	/*
+X	 * if there are no current entries yet
+X	 */
+X	if( current == NULL )
+X	{
+X		this = &root_node;
+X	}
+X	else
+X	{
+X		this = current;
+X	}
+X
+X	/*
+X	 * if there are no entries below this func yet,
+X	 */
+X	if( this->below == NULL )
+X	{
+X		this->below = StackNew(func,file,line);
+X		this->below->above = this;
+X		current = this->below;
+X	}
+X	else
+X	{
+X		/*
+X		 * drop down to the next level and look around for the
+X		 * specified function.
+X		 */
+X		this = this->below;
+X
+X		/*
+X		 * scan across this level looking for a match
+X		 */
+X		while(      ( ! (match=StackMatch(this,func,file,line)) )
+X			 && (this->beside != NULL) )
+X		{
+X			this = this->beside;
+X		}
+X
+X		/*
+X		 * if we found the entry
+X		 */
+X		if( match )
+X		{
+X			current = this;
+X		}
+X		else
+X		{
+X			current = this->beside = StackNew(func,file,line);
+X			this->beside->above = this->above;
+X		}
+X	}
+X
+X} /* StackEnter(... */
+X
+X/*
+X * StackNew() - allocate a new stack structure and fill in the default values.
+X *		This is here as a function so that we can manage a list of
+X *		entries and therefore don't have to call malloc too often.
+X *
+X * NOTE: this function does not link the current function to the tree.  That
+X * must be done by the calling function.
+X */
+Xstruct stack *
+XStackNew(func,file,line)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X{
+X	static SIZETYPE		  alloccnt;
+X	static SIZETYPE		  cnt;
+X	static struct stack	* data;
+X	struct mlist		* mptr;
+X	static struct stack	* this;
+X	static int		  call_counter;
+X
+X	/*
+X	 * if it is time to allocate more entries
+X	 */
+X	if( cnt == alloccnt )
+X	{
+X		/*
+X		 * reset the counters
+X		 */
+X		cnt = 0;
+X		alloccnt = STACK_ALLOC;
+X
+X		/*
+X		 * go allocate the data
+X		 */
+X		data = (struct stack *)malloc(
+X			(SIZETYPE)(alloccnt*sizeof(*data)) );
+X
+X		/*
+X		 * if we failed to get the data, tell the user about it
+X		 */
+X		if( data == NULL )
+X		{
+X			malloc_errno = M_CODE_NOMORE_MEM;
+X			malloc_fatal("StackNew",file,line,(struct mlist *)NULL);
+X		}
+X
+X		/*
+X		 * change the id information put in by malloc so that the 
+X		 * record appears as a stack record (and doesn't get confused
+X		 * with other memory leaks)
+X		 */
+X		mptr = (struct mlist *) (((char *)data) - M_SIZE);
+X		mptr->id = call_counter++;
+X		SETTYPE(mptr,M_T_STACK);
+X		
+X	}
+X
+X	/*
+X	 * grab next element off of the list
+X	 */
+X	this = data + cnt;
+X
+X	/*
+X	 * setup the new structure and attach it to the tree
+X	 */
+X	this->above = this->below = this->beside = NULL;
+X	this->func  = func;
+X	this->file  = file;
+X	this->line  = line;
+X	
+X	/*
+X	 * increment the count since we used yet another entry
+X	 */
+X	cnt++;
+X
+X	/*
+X	 * return the pointer to the new entry
+X	 */
+X	return(this);
+X
+X} /* StackNew(... */
+X
+X/*
+X * StackMatch() - determine if the specified stack entry matches the specified
+X * 		  set of func,file, and line.  We have to compare all three in
+X *		  order to ensure that we get the correct function even if
+X *		  there are two functions with the same name (or the caller
+X *		  specified the wrong name on the arguement list)
+X */
+Xint
+XStackMatch(this,func,file,line)
+X	struct stack	* this;
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X{
+X
+X	return(    (strcmp(this->func,func) == 0)
+X		&& (strcmp(this->file,file) == 0)
+X		&& (this->line == line ) 	 ) ;
+X
+X} /* StackMatch(... */
+X	
+X
+X/*
+X * StackLeave() - leave the current stack level (called at the end of a
+X *		  function.
+X */
+Xvoid
+XStackLeave( func, file, line )
+X	CONST char	* func;
+X	CONST char	* file;
+X	int		  line;
+X{
+X	if( current == NULL )
+X	{
+X		malloc_errno = M_CODE_STK_NOCUR;
+X		malloc_fatal("stk_leave", file, line, (struct mlist *)NULL);
+X	}
+X	else if( strcmp(func,current->func) != 0 )
+X	{
+X		malloc_errno = M_CODE_STK_BADFUNC;
+X		malloc_fatal("stk_leave", file, line, (struct mlist *)NULL);
+X	}
+X	else
+X	{
+X		current = current->above;
+X	}
+X	
+X} /* StackLeave(... */
+X
+X/*
+X * StackCurrent() - get the current stack pointer
+X */
+Xstruct stack *
+XStackCurrent()
+X{
+X
+X	return( current );
+X
+X} /* StackCurrent(... */
+X
+X/*
+X * StackDump() - dump the stack from the specified node 
+X */
+Xvoid
+XStackDump(fd, msg, node )
+X	int		  fd;
+X	CONST char	* msg;
+X	struct stack	* node;
+X{
+X	char		  outbuf[OUTBUFSIZE];
+X	char		* s;
+X	CONST char	* t;
+X
+X	/*
+X	 * if there is nothing to show, just return
+X	 */
+X	if( (node == NULL) || (node == &root_node) )
+X	{
+X		return;
+X	}
+X
+X	/*
+X	 * if caller specified a message to print out, print it out
+X	 */
+X	if( msg )
+X	{
+X		WRITEOUT(fd,msg,strlen(msg));
+X	}
+X
+X	/*
+X	 * Ok, we have the info, so lets print it out
+X	 */
+X	do
+X	{
+X		WRITEOUT(fd,"         -> ",12);
+X
+X		s = outbuf;	
+X
+X		/*
+X		 * perform some simple sanity checking on the node pointer
+X		 */
+X		if(    (((DATATYPE *)node) < malloc_data_start)
+X		    || (((DATATYPE *)node) > malloc_data_end)
+X		    || ((((long)node) & 0x1) != 0) )
+X		{
+X			WRITEOUT(fd,"INVALID/BROKEN STACK CHAIN!!!\n",30);
+X			break;
+X		}
+X		
+X
+X		/*
+X		 * build the string for this level
+X		 */
+X		s = outbuf;	
+X		t = node->func;
+X		COPY(s,t,outbuf,OUTBUFSIZE);
+X		t = "() in ";
+X		COPY(s,t,outbuf,OUTBUFSIZE);
+X		t = node->file;
+X		COPY(s,t,outbuf,OUTBUFSIZE);
+X		*s++ = '(';
+X		s += tostring(s,(ULONG) node->line,0,10,' ');
+X		*s++ = ')';
+X		*s++ = '\n';
+X
+X		/*
+X		 * write out the string
+X		 */
+X		WRITEOUT(fd,outbuf,s-outbuf);
+X
+X		/*
+X	 	 * move up one level in the stack
+X		 */
+X		node = node->above;
+X
+X		/*
+X		 * until we get to the top of the tree
+X		 */
+X	} while( (node != NULL) && (node != &root_node) );
+X
+X} /* StackDump(... */
+X
+X
+X
+END_OF_FILE
+if test 7960 -ne `wc -c <'stack.c'`; then
+    echo shar: \"'stack.c'\" unpacked with wrong size!
+fi
+# end of 'stack.c'
+fi
+echo shar: End of archive 8 \(of 10\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

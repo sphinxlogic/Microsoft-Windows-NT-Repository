@@ -1,0 +1,1945 @@
+Newsgroups: comp.sources.misc,alt.binaries.pictures.utilities
+From: jstevens@teal.csn.org (John W.M. Stevens)
+Subject: v36i117:  unpost - Smart multi-part uudecoder v2.1.2, Part04/07
+Message-ID: <1993Apr19.052459.28983@sparky.imd.sterling.com>
+X-Md4-Signature: b9e9665f7ef9406c6dab960973771ef6
+Date: Mon, 19 Apr 1993 05:24:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jstevens@teal.csn.org (John W.M. Stevens)
+Posting-number: Volume 36, Issue 117
+Archive-name: unpost/part04
+Environment: UNIX, MS-DOS, OS/2, Windows, MacIntosh, Amiga, Vax/VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config.c nntp/client.c segment.c
+# Wrapped by kent@sparky on Sun Apr 18 23:10:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 7)."'
+if test -f 'config.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.c'\"
+else
+  echo shar: Extracting \"'config.c'\" \(14313 characters\)
+  sed "s/^X//" >'config.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Parse Configuration File --- Build the regular expression
+X*               hierarchy tree by reading data from a configuration file.
+X*
+X* Notes     :   Configuration file grammar:
+X*
+X*   CONFIG_FILE ::= SEGMENT <EOF>
+X*                   | SEGMENT CONFIG_FILE
+X*
+X*   SEGMENT     ::= 'segment' STRING '{' ID_LINES '}'
+X*
+X*   ID_LINES    ::= 'header' '{' PREFIXES '}'
+X*                   'body' '{' PREFIXES '}'
+X*
+X*   PREFIXES    ::= PREFIX
+X*                   | PREFIX PREFIXES
+X*
+X*   PREFIX      ::= STRING '{' ID_PARTS '}'
+X*
+X*   ID_PARTS    ::= ID_PART_RE
+X*                   | ID_PART_RE ID_PARTS
+X*
+X*   ID_PART_RE  :=  STRING '{'
+X*                   'id' NUMBER
+X*                   'segment' 'number' NUMBER
+X*                   'segments' NUMBER
+X*                   'alternate' 'id' NUMBER
+X*                   'case' CASE_TYPE
+X*                   '}'
+X*
+X*   CASE_TYPE   ::= 'sensitive'
+X*                   | 'ignore'
+X*
+X*   STRING      ::= '"' [ -~]* '"'
+X*
+X*   NUMBER      ::= [0-9]+
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#include    "compiler.h"
+X
+X#include    "unpost.h"
+X#include    "lex.h"
+X#include    "list.h"
+X#include    "parse.h"
+X#include    "regexp.h"
+X#include    "config.h"
+X#include    "utils.h"
+X
+Xtypedef enum    {
+X    ID_SUB_EXPR,
+X    SEG_NO_SUB_EXPR,
+X    NO_SEGS_SUB_EXPR,
+X    ALT_ID_SUB_EXPR,
+X    CASE_SENSITIVITY
+X} ID_PARTS_IDX;
+X
+Xstatic  char    ReStr[512];
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ParseParts() --- Parse the ID line part number blocks.
+X|
+X| Returns   :   A pointer to the root of the ID part regular expression tree.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XPART_RE *ParseParts(void)
+X{
+X    register    int     i;
+X    auto        TOKEN   sym;
+X    auto        int     tkn;
+X    auto        int     Elements[5];
+X    auto        char    *tp;
+X    auto        PART_RE NewPart;
+X    auto        LIST    *PartList;
+X
+X    /*  Create ID list. */
+X    PartList = CrtList( sizeof( PART_RE ) );
+X
+X    /*  Get list of part extraction regular expressions.    */
+X    while ((tkn = Lex( &sym )) == T_DBL_QUOTE)
+X    {
+X        /*  Initialize new part re structure.   */
+X        NewPart.IDStr    = 0;
+X        NewPart.SegNo    = 0;
+X        NewPart.NoSegs   = 0;
+X        NewPart.AltIDStr = 0;
+X        NewPart.Case     = IGN_CASE;
+X
+X        /*  Get IDENT line part regular expression string.  */
+X        for (tp = ReStr; ; tp = ReStr + strlen( ReStr ))
+X        {
+X            /*  Copy string from token structure to buffer. */
+X            strcpy(tp, sym.str);
+X
+X            /*  Get next token. */
+X            if ((tkn = Lex( &sym )) != T_DBL_QUOTE)
+X                break;
+X        }
+X
+X        /*  Create ID prefix regular expression string. */
+X        NewPart.ReExpStr = StrDup( ReStr );
+X
+X        /*  Check for opening curly brace.  */
+X        if (tkn != T_L_BRACE)
+X        {
+X            ParseErr("expecting '{' to open ID part block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Process components in ANY order.    */
+X        for (i = ID_SUB_EXPR; i <= CASE_SENSITIVITY; i++)
+X            Elements[i] = 0;
+X
+X        for (i = ID_SUB_EXPR; i <= CASE_SENSITIVITY; i++)
+X        {
+X            /*  Get a token.    */
+X            if ((tkn = Lex( &sym )) == T_R_BRACE)
+X                break;
+X
+X            /*  Select parse action based on token. */
+X            switch ( tkn )
+X            {
+X            case T_ID:
+X                /*  Check for duplication.  */
+X                if (Elements[ID_SUB_EXPR] != 0)
+X                {
+X                    ParseErr("duplicate sub-expression numbers.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get the sub-expression number for the ID sub-string.    */
+X                if ((tkn = Lex( &sym )) != T_INT_NO)
+X                {
+X                    ParseErr("missing sub-expression number.");
+X                    exit( 1 );
+X                }
+X                NewPart.IDStr = sym.no;
+X                Elements[ID_SUB_EXPR] = 1;
+X                break;
+X            case T_SEGMENT:
+X                /*  Check for duplication.  */
+X                if (Elements[SEG_NO_SUB_EXPR] != 0)
+X                {
+X                    ParseErr("duplicate sub-expression numbers.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get next token. */
+X                if ((tkn = Lex( &sym )) != T_NUMBER)
+X                {
+X                    ParseErr("missing 'number' after 'segment'.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get sub-expression number for the segment number
+X                *   sub-string.
+X                */
+X                if ((tkn = Lex( &sym )) != T_INT_NO)
+X                {
+X                    ParseErr("missing sub-expression number.");
+X                    exit( 1 );
+X                }
+X                NewPart.SegNo = sym.no;
+X                Elements[SEG_NO_SUB_EXPR] = 1;
+X                break;
+X            case T_SEGMENTS:
+X                /*  Check for duplication.  */
+X                if (Elements[NO_SEGS_SUB_EXPR] != 0)
+X                {
+X                    ParseErr("duplicate sub-expression numbers.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get number of segments sub-expression number.   */
+X                if ((tkn = Lex( &sym )) != T_INT_NO)
+X                {
+X                    ParseErr("missing sub-expression number.");
+X                    exit( 1 );
+X                }
+X                NewPart.NoSegs = sym.no;
+X                Elements[NO_SEGS_SUB_EXPR] = 1;
+X                break;
+X            case T_ALTERNATE:
+X                /*  Check for duplication.  */
+X                if (Elements[ALT_ID_SUB_EXPR] != 0)
+X                {
+X                    ParseErr("duplicate sub-expression numbers.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get next token. */
+X                if ((tkn = Lex( &sym )) != T_ID)
+X                {
+X                    ParseErr("missing 'id' after 'alternate'.");
+X                    exit( 1 );
+X                 }
+X
+X                /*  Get alternate ID string sub-expression number.  */
+X                if ((tkn = Lex( &sym )) != T_INT_NO)
+X                {
+X                    ParseErr("missing sub-expression number.");
+X                    exit( 1 );
+X                }
+X                NewPart.AltIDStr = sym.no;
+X                Elements[ALT_ID_SUB_EXPR] = 1;
+X                break;
+X            case T_CASE:
+X                /*  Check for duplication.  */
+X                if (Elements[CASE_SENSITIVITY] != 0)
+X                {
+X                    ParseErr("duplicate sub-expression numbers.");
+X                    exit( 1 );
+X                }
+X
+X                /*  Get case sensitivity type.  */
+X                if ((tkn = Lex( &sym )) == T_SENSITIVE)
+X                    NewPart.Case = CASE_SENSITIVE;
+X                else if (tkn == T_IGNORE)
+X                    NewPart.Case = IGN_CASE;
+X                else
+X                {
+X                    ParseErr("expected case sensitivity type after 'case'.");
+X                    exit( 1 );
+X                }
+X                Elements[CASE_SENSITIVITY] = 1;
+X                break;
+X            default:
+X                ParseErr( "Unexpected token in ID part block" );
+X                break;
+X            }
+X        }
+X
+X        /*  Compile string and save pointer to expression tree in
+X        *   structure, then save structure in segment list.
+X        */
+X        NewPart.ReExpr = ReCompile( NewPart.ReExpStr );
+X        PartList = AppList(PartList, &NewPart);
+X
+X        /*  Get closing token.  */
+X        if (tkn != T_R_BRACE)
+X        {
+X            /*  Get and discard the right brace.    */
+X            if ((tkn = Lex( &sym )) != T_R_BRACE)
+X            {
+X                ParseErr("expecting '}' to close ID part block.");
+X                exit( 1 );
+X            }
+X        }
+X    }
+X
+X    /*  Check closing token.    */
+X    if (tkn != T_R_BRACE)
+X    {
+X        ParseErr("expecting '}' to close ID prefix block.");
+X        exit( 1 );
+X    }
+X
+X    /*  Append a null record.   */
+X    memset(&NewPart, 0, sizeof( PART_RE ));
+X    PartList = AppList(PartList, &NewPart);
+X
+X     /*  Return pointer to list. */
+X    MemCopy(PartList,
+X            PartList->List,
+X            sizeof( PART_RE ) * PartList->NoElems);
+X
+X    /*  Return pointer to list. */
+X    return( (PART_RE *) PartList );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ParseIDs() --- Parse the ID blocks.
+X|
+X| Returns   :   A pointer to the root of the ID regular expression tree.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XIDENT   *ParseIDs(void)
+X{
+X    auto        TOKEN       sym;
+X    auto        int         tkn;
+X    auto        char        *tp;
+X    auto        IDENT       NewID;
+X    auto        LIST        *PreFixList;
+X
+X    /*  Create ID list. */
+X    PreFixList = CrtList( sizeof( IDENT ) );
+X
+X    /*  Get regular expression source string.   */
+X    while ((tkn = Lex( &sym )) == T_DBL_QUOTE)
+X    {
+X        /*  Get IDENT line regular expression string.   */
+X        for (tp = ReStr; ; tp = ReStr + strlen( ReStr ))
+X        {
+X            /*  Copy string from token structure to buffer. */
+X            strcpy(tp, sym.str);
+X
+X            /*  Get next token. */
+X            if ((tkn = Lex( &sym )) != T_DBL_QUOTE)
+X                break;
+X        }
+X
+X        /*  Check for opening curly brace.  */
+X        if (tkn != T_L_BRACE)
+X        {
+X            ParseErr("expecting '{' after ID prefix regular expression.");
+X            exit( 1 );
+X        }
+X
+X        /*  Create ID prefix regular expression string. */
+X        NewID.ReExprStr = StrDup( ReStr );
+X
+X        /*  Parse header regular expression configuration block.    */
+X        NewID.IdParts = ParseParts();
+X
+X        /*  Compile string and save pointer to expression tree in
+X        *   structure, then save structure in segment list.
+X        */
+X        NewID.ReExpr = ReCompile( NewID.ReExprStr );
+X        PreFixList = AppList(PreFixList, &NewID);
+X    }
+X
+X    /*  Check closing token.    */
+X    if (tkn != T_R_BRACE)
+X    {
+X        ParseErr("expecting '}' to close ID block.");
+X        exit( 1 );
+X     }
+X
+X    /*  Append a null record.   */
+X    memset(&NewID, 0, sizeof( IDENT ));
+X    PreFixList = AppList(PreFixList, &NewID);
+X
+X    /*  Return pointer to list. */
+X    MemCopy(PreFixList,
+X            PreFixList->List,
+X            sizeof( IDENT ) * PreFixList->NoElems);
+X
+X    /*  Return pointer to list. */
+X    return( (IDENT *) PreFixList );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ReadConfig() --- Read the configuration file.
+X|
+X| Inputs    :   CfgFlNm - Name of configuration file name.
+X|
+X| Returns   :   A pointer to the root of the SEGMENT regular expression tree.
+X-----------------------------------------------------------------------------*/
+X
+XSEGMENT *ReadConfig(char    *CfgFlNm)
+X{
+X    auto        TOKEN       sym;
+X    auto        int         tkn;
+X    auto        char        *tp;
+X    auto        SEGMENT     NewSeg;
+X    auto        LIST        *SegList;
+X
+X    /*  Open the configuration file.    */
+X    OpenCfg( CfgFlNm );
+X
+X    /*  Get token.  */
+X    if ((tkn = Lex( &sym )) != T_SEGMENT)
+X    {
+X        ParseErr("expecting SEGMENT token.");
+X        exit( 1 );
+X    }
+X
+X    /*  Create segment list.    */
+X    SegList = CrtList( sizeof( SEGMENT ) );
+X
+X    /*  Process multiple SEGMENT begin line blocks. */
+X    while (tkn == T_SEGMENT)
+X    {
+X        /*  Get regular expression source string.   */
+X        if ((tkn = Lex( &sym )) != T_DBL_QUOTE)
+X        {
+X            ParseErr("expecting regular expression source string.");
+X            exit( 1 );
+X        }
+X
+X        /*  Get SEGMENT begin line regular expression string.   */
+X        for (tp = ReStr; ; tp = ReStr + strlen( ReStr ))
+X        {
+X            /*  Copy string from token structure to buffer. */
+X            strcpy(tp, sym.str);
+X
+X            /*  Get next token. */
+X            if ((tkn = Lex( &sym )) != T_DBL_QUOTE)
+X                break;
+X        }
+X
+X        /*  Check for opening curly brace.  */
+X         if (tkn != T_L_BRACE)
+X        {
+X            ParseErr("expecting '{' to open SEGMENT block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Create SEGMENT regular expression string.   */
+X        NewSeg.ReExprStr = StrDup( ReStr );
+X
+X        /*  Get header block prefix.    */
+X        if ((tkn = Lex( &sym )) != T_HEADER)
+X        {
+X            ParseErr("expecting 'header' in SEGMENT block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Get open curly brace.   */
+X        if ((tkn = Lex( &sym )) != T_L_BRACE)
+X        {
+X            ParseErr("expecting '{' to open HEADER block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Get header block.   */
+X        NewSeg.Header = ParseIDs();
+X
+X        /*  Get body block prefix.  */
+X        if ((tkn = Lex( &sym )) != T_BODY)
+X        {
+X            ParseErr("expecting 'body' in SEGMENT block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Get open curly brace.   */
+X        if ((tkn = Lex( &sym )) != T_L_BRACE)
+X        {
+X            ParseErr("expecting '{' to open BODY block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Parse body ID block.    */
+X        NewSeg.Body = ParseIDs();
+X
+X        /*  Compile string and save pointer to expression tree in
+X        *   structure, then save structure in SEGMENT begin line list.
+X        */
+X        NewSeg.ReExpr = ReCompile( NewSeg.ReExprStr );
+X        SegList = AppList(SegList, &NewSeg);
+X
+X        /*  Get closing token.  */
+X        if ((tkn = Lex( &sym )) != T_R_BRACE)
+X        {
+X            ParseErr("expecting '}' to close SEGMENT block.");
+X            exit( 1 );
+X        }
+X
+X        /*  Get next token. */
+X        if ((tkn = Lex( &sym )) == EOF)
+X            break;
+X    }
+X
+X    /*  Append a null record.   */
+X    memset(&NewSeg, 0, sizeof( SEGMENT ));
+X    SegList = AppList(SegList, &NewSeg);
+X
+X    /*  Return pointer to list. */
+X    MemCopy(SegList,
+X            SegList->List,
+X            sizeof( SEGMENT ) * SegList->NoElems);
+X
+X    /*  Close the configuration file and return a pointer to the new
+X    *   configuration tree.
+X    */
+X    CloseCfg();
+X    return( (SEGMENT *) SegList );
+X}
+END_OF_FILE
+  if test 14313 -ne `wc -c <'config.c'`; then
+    echo shar: \"'config.c'\" unpacked with wrong size!
+  fi
+  # end of 'config.c'
+fi
+if test -f 'nntp/client.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nntp/client.c'\"
+else
+  echo shar: Extracting \"'nntp/client.c'\" \(18750 characters\)
+  sed "s/^X//" >'nntp/client.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   NNTP Client for the automatic extraction of all news articles
+X*               from a news group without the use of a news reader.
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#include    <stdio.h>
+X#include    <stdlib.h>
+X#include    <fcntl.h>
+X#include    <string.h>
+X#include    <time.h>
+X
+X#include    <sys/errno.h>
+X#include    <sys/param.h>
+X#include    <sys/file.h>
+X#include    <sys/ioctl.h>
+X#include    <sys/socket.h>
+X#include    <sys/un.h>
+X#include    <netinet/in.h>
+X#include    <netdb.h>
+X
+X#define MAX_BFR     513
+X
+Xtypedef enum    {
+X    ST_EXIT,
+X    ST_BEGIN,
+X    ST_NORM,
+X    ST_CR,
+X    ST_END_ART,
+X    ST_CHK_EXIT
+X} STATES;
+X
+Xextern int  errno;
+Xextern char *sys_errlist[];
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   MkTmpFl() --- Make a temporary file, and return the name.
+X|
+X| Outputs   :   FileName    - Returns the name of the temporary file.
+X-----------------------------------------------------------------------------*/
+X
+XFILE    *MkTmpFl(char   *FileName)
+X{
+X    register    int     i;
+X    auto        int     ret;
+X    auto        char    TmBfr[10];
+X
+X    /*  Use the time value to create a temporary file name. */
+X    sprintf(TmBfr, "%08x", time( (time_t *) 0 ));
+X
+X    /*  Make sure that the file does not already exist. */
+X    for (i = 0; i < 1000; i++)
+X    {
+X        /*  Create the file name.   */
+X        sprintf(FileName,
+X                "%03d%.5s.%.3s",
+X                i,
+X                TmBfr,
+X                TmBfr + 5);
+X
+X        /*  Check to see if the file exists.    */
+X        if ((ret = access(FileName, 0)) != 0)
+X        {
+X            if (errno == ENOENT)
+X                break;
+X        }
+X    }
+X
+X    /*  Check to see if we failed utterly.  */
+X    if (i == 1000)
+X        return( NULL );
+X
+X    /*  Open the file whose name we just constructed.   */
+X    return( fopen(FileName, "w") );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   WrtSrvr() --- Write a buffer to the server.
+X|
+X| Inputs    :   SockDesc    - Socket descriptor.
+X|               Bfr         - Buffer to read into.
+X|               Len         - Length of message in buffer.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    WrtSrvr(int     SockDesc,
+X                char    *Bfr,
+X                int     Len)
+X{
+X    auto    int     ret;
+X
+X    /*  Write buffer to server. */
+X    if ((ret = write(SockDesc, Bfr, Len)) <= 0)
+X    {
+X        fprintf(stderr,
+X                "%s %d - Error in writing to news server.\n",
+X                __FILE__,
+X                __LINE__);
+X        fprintf(stderr,
+X                "\tReturn = %d, Error number = %d\n",
+X                ret,
+X                errno);
+X        exit( 1 );
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   RdSrvr() --- Read a buffer from the server.
+X|
+X| Inputs    :   SockDesc    - Socket descriptor.
+X|               Bfr         - Buffer to read into.
+X|               MaxLen      - Maximum length of buffer.
+X-----------------------------------------------------------------------------*/
+X
+Xint     RdSrvr(int  SockDesc,
+X               char *Bfr,
+X               int  MaxLen)
+X{
+X    auto        int     ret;
+X
+X    /*  Get the buffer full.    */
+X    if ((ret = read(SockDesc, Bfr, MaxLen - 1)) < 0)
+X    {
+X        fprintf(stderr,
+X                "%s %d - Error in reading from news server.\n",
+X                __FILE__,
+X                __LINE__);
+X        fprintf(stderr,
+X                "\tReturn = %d, Error number = %d\n",
+X                ret,
+X                errno);
+X        exit( 1 );
+X    }
+X    Bfr[ret] = '\0';
+X    return( ret );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   RdArt() --- Read an article from the server.
+X|
+X| Inputs    :   SockDesc    - Socket descriptor.
+X|               OutFp       - Pointer to output file.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    RdArt(int   SockDesc,
+X              long  ArtNo,
+X              char  *NewsGroup,
+X              FILE  *OutFp)
+X{
+X    register    int     i;
+X    auto        int     State;
+X    auto        int     Size;
+X    auto        int     Status;
+X
+X    /*  Read buffer.    */
+X    static      char    Bfr[MAX_BFR];
+X
+X    /*  Get article.    */
+X    sprintf(Bfr, "ARTICLE %ld\r\n", ArtNo);
+X    WrtSrvr(SockDesc, Bfr, strlen( Bfr ));
+X
+X    /*  Get reply.  */
+X    Size = RdSrvr(SockDesc, Bfr, MAX_BFR);
+X
+X    /*  Get status, etc.    */
+X    sscanf(Bfr,
+X           "%d %ld",
+X           &Status,
+X           &ArtNo);
+X
+X    /*  Execute the command.    */
+X    switch ( Status )
+X    {
+X    case 220:
+X        /*  Get all text that follows, write it to
+X        *   the output file.
+X        */
+X        fprintf(OutFp,
+X                "Article: %ld of %s\n",
+X                ArtNo,
+X                NewsGroup);
+X        break;
+X    case 221:
+X    case 222:
+X    case 223:
+X        fprintf(stderr,
+X                "%s %d : Error, response to ARTICLE = %d.\n",
+X                __FILE__,
+X                __LINE__,
+X                Status);
+X        return;
+X    case 412:
+X        fprintf(stderr,
+X                "%s %d : Error, no news group selected.\n",
+X                __FILE__,
+X                __LINE__);
+X        return;
+X    case 420:
+X        fprintf(stderr,
+X                "%s %d : Error, no current article selected.\n",
+X                __FILE__,
+X                __LINE__);
+X        return;
+X    case 423:
+X        return;
+X    case 430:
+X        return;
+X    }
+X
+X    /*  Throw away the first line, and continue.    */
+X    for (i = 0; i < Size; i++)
+X    {
+X        /*  Skip carriage return.   */
+X        if (Bfr[i] == '\r')
+X        {
+X            i += 2;
+X            break;
+X        }
+X    }
+X    fputc('.', stderr);
+X
+X    /*  Get and put characters from buffer to output file.  */
+X    State = ST_BEGIN;
+X    while (State != ST_EXIT && Size)
+X    {
+X        /*  Determine operation based on state. */
+X        switch ( State )
+X        {
+X        case ST_BEGIN:
+X            if (Bfr[i] == '.')
+X            {
+X                State = ST_END_ART;
+X                break;
+X            }
+X            State = ST_NORM;
+X        case ST_NORM:
+X            if (Bfr[i] == '\n')
+X            {
+X                fprintf(stderr,
+X                        "%s %d : Warning - saw '\\n' before '\\r'.\n",
+X                        __FILE__,
+X                        __LINE__);
+X                fputc(Bfr[i], OutFp);
+X                State = ST_BEGIN;
+X            }
+X            else if (Bfr[i] == '\r')
+X                State = ST_CR;
+X            else
+X                fputc(Bfr[i], OutFp);
+X            break;
+X        case ST_CR:
+X            if (Bfr[i] == '\n')
+X                fputc(Bfr[i], OutFp);
+X            else if (Bfr[i] == '\r')
+X                break;
+X            else
+X            {
+X                /*  Report warning. */
+X                fprintf(stderr,
+X                        "%s %d : Warning - saw '.\\r' but no '\\n'.\n",
+X                        __FILE__,
+X                        __LINE__);
+X            }
+X            State = ST_BEGIN;
+X            break;
+X        case ST_END_ART:
+X            if (Bfr[i] == '\r')
+X                State = ST_CHK_EXIT;
+X            else
+X            {
+X                fputc(Bfr[i], OutFp);
+X                State = ST_NORM;
+X            }
+X            break;
+X        case ST_CHK_EXIT:
+X            /*  Set state to exit.  */
+X            State = ST_EXIT;
+X            if (Bfr[i] != '\n')
+X            {
+X                /*  Issue warning.  */
+X                fprintf(stderr,
+X                        "%s %d : Warning - saw '.\\r' but no '\\n'.\n",
+X                        __FILE__,
+X                        __LINE__);
+X            }
+X            break;
+X        }
+X
+X        /*  Next character, get new buffer if empty.    */
+X        if (++i >= Size && State != ST_EXIT)
+X        {
+X            /*  Read a buffer full. */
+X            Size = RdSrvr(SockDesc, Bfr, MAX_BFR);
+X            i = 0;
+X        }
+X    }
+X
+X    /*  Check exit conditions.  */
+X    if (i < Size)
+X    {
+X        fprintf(stderr,
+X                "%s %d : Warning - did not use all of article.\n",
+X                __FILE__,
+X                __LINE__);
+X    }
+X    fprintf(OutFp, "\n");
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   GetPortNo() --- This routine converts a character string
+X|               to a port number.  It looks up the service by name, and if
+X|               there is none, then it converts the string to a number with
+X|               scanf.
+X|
+X| Inputs    :   PortName    - Name of port to convert.
+X|
+X| Returns   :   Returns the TCP port number for this server.
+X-----------------------------------------------------------------------------*/
+X
+Xint GetPortNo(char  *PortName)
+X{
+X    auto    int     PortNo;
+X    struct  servent *Service;
+X
+X    /*  If no port name string, return no port number.  */
+X    if (PortName == NULL)
+X        return 0;
+X
+X    /*  Get server by name and make sure that the protocol
+X    *   matches as well.
+X    */
+X    Service = getservbyname(PortName, "tcp");
+X
+X    /*  Return either the port number, or 0 for no port number. */
+X    if (Service != NULL)
+X        return( Service->s_port );
+X    else if (sscanf(PortName, "%i", &PortNo) != 1)
+X        return 0;
+X    else
+X        return( htons( PortNo ) );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   GetHostAddr() --- Convert the host name to an address.
+X|
+X| Inputs    :   HostName    - Host name to convert.
+X|               Addr        - Host address.
+X|
+X| Returns   :   Returns 0 for error, 1 for address being returned.
+X-----------------------------------------------------------------------------*/
+X
+Xint GetHostAddr(char            *HostName,
+X                struct  in_addr *Addr)
+X{
+X    auto        int     len;
+X    struct      hostent *Host;
+X    auto        int     count;
+X    unsigned    int     a1, a2, a3, a4;
+X
+X    /*  Get a pointer to the host name data.    */
+X    Host = gethostbyname( HostName );
+X    if (Host != NULL)
+X        bcopy(Host->h_addr, Addr, Host->h_length);
+X    else
+X    {
+X        /*  Convert the string representation of the internet
+X        *   address into bytes.
+X        */
+X        count = sscanf(HostName,
+X                       "%i.%i.%i.%i%n",
+X                       &a1, &a2, &a3, &a4, &len);
+X        if (count != 4 || HostName[len] != 0)
+X            return( 0 );
+X
+X        /*  Insert the bytes of the internet address into the
+X        *   return address structure.  I suspect that this is highly
+X        *   machine specific code.
+X        */
+X        Addr->S_un.S_un_b.s_b1 = a1;
+X        Addr->S_un.S_un_b.s_b2 = a2;
+X        Addr->S_un.S_un_b.s_b3 = a3;
+X        Addr->S_un.S_un_b.s_b4 = a4;
+X    }
+X
+X    /*  Return no errors occurred.  */
+X    return( 1 );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   SetupSocket() --- Set up the socket.
+X|
+X| Inputs    :   HostName    - Name of host.
+X|               PortName    - Name of port.
+X-----------------------------------------------------------------------------*/
+X
+Xint SetupSocket(char    *HostName,
+X                char    *PortName)
+X{
+X    auto    int         SockDesc;   /*  Socket handle (descriptor).     */
+X    struct  sockaddr    SockAddr;   /*  Socket address structure.       */
+X    struct  sockaddr_in *InAddr;    /*  Internet address structure.     */
+X    struct  in_addr     *AdrPtr;
+X
+X    /*  Get the address of the server.  */
+X    InAddr=(struct sockaddr_in *) &SockAddr;
+X    InAddr->sin_family = AF_INET;
+X    if (! GetHostAddr(HostName, &InAddr->sin_addr))
+X    {
+X        fprintf(stderr,
+X                "%s %d : Error - Could not convert ",
+X                __FILE__,
+X                __LINE__);
+X        fprintf(stderr,
+X                "'%s' to a host address.\n",
+X                HostName);
+X        exit( 1 );
+X    }
+X    AdrPtr = (struct in_addr *) (&InAddr->sin_addr);
+X    fprintf(stderr,
+X            "Host '%s', address = %u.%u.%u.%u\n",
+X            HostName,
+X            AdrPtr->S_un.S_un_b.s_b1,
+X            AdrPtr->S_un.S_un_b.s_b2,
+X            AdrPtr->S_un.S_un_b.s_b3,
+X            AdrPtr->S_un.S_un_b.s_b4);
+X
+X    /*  Convert a service name to a port number.    */
+X    InAddr->sin_port = GetPortNo( PortName );
+X    if (InAddr->sin_port == 0)
+X    {
+X        fprintf(stderr,
+X                "%s %d : Error - bogus port number '%s'.\n",
+X                __FILE__,
+X                __LINE__,
+X                PortName);
+X        exit( 1 );
+X    }
+X    fprintf(stderr,
+X            "NNTP port number = %d\n",
+X            InAddr->sin_port);
+X
+X    /*  Attempt to get a socket descriptor. */
+X    SockDesc = socket(AF_INET, SOCK_STREAM, 0);
+X    if (SockDesc < 0)
+X    {
+X        perror("opening stream socket");
+X        exit( 1 );
+X    }
+X
+X    /*  Connect to the server.  */
+X    if (connect(SockDesc , &SockAddr, sizeof( SockAddr )) < 0)
+X    {
+X        /*  Close the old socket descriptor.    */
+X        perror("connecting");
+X        fprintf(stderr,
+X                "%s %d : Error - could not connect to news server.\n",
+X                __FILE__,
+X                __LINE__);
+X        exit( 1 );
+X    }
+X
+X    /*  Return the socket descriptor.   */
+X    return( SockDesc );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   RdConfig() --- Open and read the configuration file.
+X|
+X| Inputs    :   CfgFlNm     - Name of configuration file.
+X|               SockDesc    - Socket description.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    RdConfig(char   *CfgFlNm,
+X                 int    SockDesc)
+X{
+X    register    long    i;
+X    auto        FILE    *CfgFp;
+X    auto        FILE    *NewFp;
+X    auto        FILE    *OutFp;
+X    auto        int     ret;
+X
+X    auto        int     Status;
+X    auto        long    Number;
+X    auto        long    LastRd;
+X    auto        long    Start;
+X    auto        long    End;
+X
+X    static      char    TmpFlNm[MAX_BFR];
+X    static      char    OutFlNm[MAX_BFR];
+X    static      char    Bfr[MAX_BFR];
+X    static      char    Cmd[MAX_BFR];
+X    static      char    GroupName[MAX_BFR];
+X
+X    /*  Open configuration file.    */
+X    if ((CfgFp = fopen(CfgFlNm, "r")) == NULL)
+X    {
+X        fprintf(stderr,
+X                "%s %d : Error, could not open configuration file.\n",
+X                __FILE__,
+X                __LINE__);
+X        return;
+X    }
+X
+X    /*  Open new configuration file.    */
+X    if ((NewFp = MkTmpFl( TmpFlNm )) == NULL)
+X    {
+X        fprintf(stderr,
+X                "%s %d : Error, could not open new configuration file.\n",
+X                __FILE__,
+X                __LINE__);
+X        return;
+X    }
+X
+X    /*  Read the file a line at a time. */
+X    while (! feof( CfgFp ))
+X    {
+X        /*  Get a line. */
+X        if (fgets(Bfr, MAX_BFR, CfgFp) == NULL)
+X            break;
+X
+X        /*  Parse configuration file line.  */
+X        ret = sscanf(Bfr,
+X                     "group %s %s %ld",
+X                     GroupName,
+X                     OutFlNm,
+X                     &LastRd);
+X        if (ret != 3)
+X        {
+X            fprintf(stderr,
+X                    "%s %d : Error - bad configuration file line.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            fprintf(stderr,
+X                    "\t'%s'\n",
+X                    Bfr);
+X            continue;
+X        }
+X
+X        /*  Switch to appropriate group.    */
+X        sprintf(Cmd, "GROUP %s\r\n", GroupName);
+X        WrtSrvr(SockDesc, Cmd, strlen( Cmd ));
+X        RdSrvr(SockDesc, Bfr, MAX_BFR);
+X        fprintf(stderr, "%s", Bfr);
+X
+X        /*  Check return status and article number range.   */
+X        ret = sscanf(Bfr,
+X                     "%d %ld %ld %ld %s",
+X                     &Status,
+X                     &Number,
+X                     &Start,
+X                     &End,
+X                     Cmd);
+X
+X        /*  Check for non-existant news group.  */
+X        if (Status == 411)
+X        {
+X            fprintf(stderr,
+X                    "%s %d : Error, no such news group '%s'.\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    GroupName);
+X            continue;
+X        }
+X
+X        /*  Check for no articles in news group.    */
+X        if (Number == 0L || Start > End)
+X        {
+X            fprintf(stderr,
+X                    "%s %d : No news in group '%s'.\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    GroupName);
+X            continue;
+X        }
+X
+X        /*  Open output file, get all articles. */
+X        if ((OutFp = fopen(OutFlNm, "a")) == NULL)
+X        {
+X            fprintf(stderr,
+X                    "%s %d : Error, could not open file '%s' for writing.\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    OutFlNm);
+X            continue;
+X        }
+X
+X        /*  Get all articles, write to file.    */
+X        if (LastRd <= End)
+X        {
+X            /*  Get all articles.   */
+X            for (i = (LastRd > Start) ? LastRd : Start;
+X                 i <= End;
+X                 i++)
+X                RdArt(SockDesc, i, GroupName, OutFp);
+X        }
+X        fputc('\n', stderr);
+X
+X        /*  Close the output file pointer.  */
+X        fclose( OutFp );
+X
+X        /*  Write the new value for the configuration file. */
+X        fprintf(NewFp,
+X                "group %s %s %ld\n",
+X                GroupName,
+X                OutFlNm,
+X                End + 1L);
+X    }
+X
+X    /*  Close the configuration files.  */
+X    fclose( CfgFp );
+X    fclose( NewFp );
+X
+X    /*  Delete the old configuration file, and rename the new to
+X    *   be the same as the old.
+X    */
+X    remove( CfgFlNm );
+X    rename(TmpFlNm, CfgFlNm);
+X}
+X
+Xvoid    main(int    argc,
+X             char   **argv)
+X{
+X    auto        int     SockDesc;
+X    static      char    Bfr[MAX_BFR];
+X
+X    /*  Check the argument count.   */
+X    if (argc < 3)
+X    {
+X        /*  Bad argument count, give synopsis.  */
+X        fprintf(stderr,
+X                "Usage : %s <server> <config>\n",
+X                argv[0]);
+X        exit( 1 );
+X    }
+X
+X    /*  Attempt to set up the socket.   */
+X    SockDesc = SetupSocket(argv[1], "nntp");
+X
+X    /*  Read the sign on message and print it.  */
+X    RdSrvr(SockDesc, Bfr, MAX_BFR);
+X    fprintf(stderr, "%s", Bfr);
+X
+X    /*  Read and execute the commands out of the configuration file.    */
+X    RdConfig(argv[2], SockDesc);
+X
+X    /*  Quit server.    */
+X    sprintf(Bfr, "QUIT\r\n");
+X    WrtSrvr(SockDesc, Bfr, strlen( Bfr ));
+X    RdSrvr(SockDesc, Bfr, MAX_BFR);
+X    fprintf(stderr, "%s", Bfr);
+X
+X    /*  Close the socket descriptor and exit with no errors.    */
+X    close( SockDesc );
+X    exit( 0 );
+X}
+END_OF_FILE
+  if test 18750 -ne `wc -c <'nntp/client.c'`; then
+    echo shar: \"'nntp/client.c'\" unpacked with wrong size!
+  fi
+  # end of 'nntp/client.c'
+fi
+if test -f 'segment.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'segment.c'\"
+else
+  echo shar: Extracting \"'segment.c'\" \(23846 characters\)
+  sed "s/^X//" >'segment.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Segment --- Find the segments of the posted file.
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#include    "compiler.h"
+X
+X#include    "unpost.h"
+X#include    "list.h"
+X#include    "modflnm.h"
+X#include    "parse.h"
+X#include    "decode.h"
+X#include    "uudec.h"
+X#include    "segment.h"
+X#include    "utils.h"
+X
+X/*  Segment types.  */
+Xtypedef enum    {
+X    SEG_USED,           /*  Used in succesful decoding.                     */
+X    SEG_TEXT,           /*  Pure text segment.                              */
+X    SEG_INCOMP,         /*  Segment that is part of incomplete posting.     */
+X    SEG_DESC            /*  Segment is a description.                       */
+X} SEG_TYPE;
+X
+X/*  Segment list structure. */
+Xtypedef struct  {
+X    long    LnOfs;          /*  Byte offset to start of SEGMENT.        */
+X    int     CopyFlag;       /*  Copy out flag.                          */
+X} SEG_LIST;
+X
+X/*  Line and string buffers.    */
+Xchar    SegLine[BFR_SIZE];
+Xchar    IDLine[BFR_SIZE];
+Xchar    UULine[BFR_SIZE];
+Xchar    InBfr[BFR_SIZE];
+XBYTE    OutBfr[BFR_SIZE];
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   UUDecode() --- Decode a UU encoded file.
+X|
+X| Inputs    :   FlName  - Name of input file.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    UUDecode(char   *InFlNm)
+X{
+X    auto        FILE    *InFlPtr;
+X    auto        FILE    *OutFlPtr;
+X    auto        int     OutLen;
+X    auto        char    **RetStrs;
+X    auto        char    FlName[FL_NM_SZ];
+X
+X    /*  Externals used by this function.    */
+X    extern      FILE            *ErrFile;
+X
+X    /*  Open file.  */
+X    if ((InFlPtr = fopen(InFlNm, BIN_READ)) == NULL)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Error - could not open file '%s' for reading.\n",
+X                __FILE__,
+X                __LINE__,
+X                InFlNm);
+X        return;
+X    }
+X
+X    /*  Get all uuencoded files from single file.   */
+X    while (! feof( InFlPtr ))
+X    {
+X        /*  Search forwards through the file for the first
+X        *   UU encoded line.
+X        */
+X        do
+X        {
+X            /*  Get a line from the file.   */
+X            if (ReadLine(InFlPtr, InBfr, BFR_SIZE) == EOF)
+X            {
+X                fclose( InFlPtr );
+X                return;
+X            }
+X        } while (! MatchBegin(InBfr, &RetStrs));
+X
+X        /*  Get the binary file name.   */
+X        GetBinFlNm(InFlPtr, RetStrs, FlName);
+X
+X        /*  Check to make sure that file does not already exist.    */
+X        if ( FileExists( FlName ) )
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - file '%s' already exists.\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    FlName);
+X            fclose( InFlPtr );
+X            return;
+X        }
+X
+X        /*  Open the file.  */
+X        if ((OutFlPtr = fopen(FlName, BIN_WRITE)) == NULL)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - %s\n\t'%s'\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    sys_errlist[errno],
+X                    FlName);
+X            fclose( InFlPtr );
+X            return;
+X        }
+X
+X        /*  It exists, is open, and ready to roll.  Now decode to
+X        *   end line.
+X        */
+X        while (ReadLine(InFlPtr, InBfr, BFR_SIZE) != EOF)
+X        {
+X            /*  Test for end line.  */
+X            if ( MatchEnd( InBfr ) )
+X                break;
+X
+X            /*  Space pad line, if necesary.    */
+X            DecTruncUULn(InBfr, &OutLen, OutBfr);
+X
+X            /*  Are there any bytes to write?   */
+X            if (OutLen < 1)
+X                continue;
+X
+X            /*  Write the buffer to the output file.    */
+X            if (fwrite(OutBfr, 1, OutLen, OutFlPtr) != OutLen)
+X            {
+X                fprintf(ErrFile,
+X                        "\t%s %d : Error - Bad write to binary file.\n",
+X                        __FILE__,
+X                        __LINE__);
+X                exit( 1 );
+X            }
+X        }
+X
+X        /*  Close output file.  */
+X        fclose( OutFlPtr );
+X    }
+X
+X    /*  Close input file.   */
+X    fclose( InFlPtr );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Single() --- Decode binarys, assumed to be in sorted order.
+X|               already.
+X|
+X| Inputs    :   FileNm  - Name of file that contains single binary.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    Single(char     *FileNm)
+X{
+X    auto        long            LnOfs;
+X    auto        CHK_UU_ENC      UULnType;
+X    auto        char            **RetStrs;
+X    auto        int             OutLen;
+X    auto        FILE            *InFlPtr;
+X    auto        FILE            *OutFlPtr;
+X    auto        char            FlName[FL_NM_SZ];
+X
+X    /*  Externals used by this function.    */
+X    extern      FILE            *ErrFile;
+X
+X    /*  Open file.  */
+X    if ((InFlPtr = fopen(FileNm, BIN_READ)) == NULL)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Error - could not open file '%s' for reading.\n",
+X                __FILE__,
+X                __LINE__,
+X                FileNm);
+X        return;
+X    }
+X
+X
+X    /*  Get all uuencoded files from single file.   */
+X    while (! feof( InFlPtr ))
+X    {
+X        /*  Search forwards through the file for the first UU encoded line. */
+X        do
+X        {
+X            /*  Get the current file offset.    */
+X            LnOfs = ftell( InFlPtr );
+X
+X            /*  Get a line from the file.   */
+X            if (ReadLine(InFlPtr, InBfr, BFR_SIZE) == EOF)
+X             {
+X                fclose( InFlPtr );
+X                return;
+X            }
+X
+X            /*  Check to see if this is a UUencoded line.   */
+X            UULnType = ChkUULine(InBfr, &RetStrs, &OutLen);
+X
+X        } while (UULnType != UU_BEGIN);
+X
+X        /*  Get the binary file name.   */
+XUnExpectedBegin:
+X        GetBinFlNm(InFlPtr, RetStrs, FlName);
+X
+X        /*  Check to make sure that file does not already exist.    */
+X        if ( FileExists( FlName ) )
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - file '%s' already exists.\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    FlName);
+X            continue;
+X        }
+X
+X        /*  Open the file.  */
+X        if ((OutFlPtr = fopen(FlName, BIN_WRITE)) == NULL)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - %s\n\t'%s'\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    sys_errlist[errno],
+X                    FlName);
+X            continue;
+X        }
+X
+X        /*  Now munch and crunch until done with file.  */
+X        do
+X        {
+X            /*  Decode a segment.   */
+X            DecSeg(InFlPtr, OutFlPtr, &UULnType);
+X
+X            /*  Check for proper exit conditions.   */
+X            if (UULnType == UU_BEGIN ||
+X                UULnType == UU_END)
+X                break;
+X
+X            /*  Scan to next UU encoded line.   */
+X            do
+X            {
+X                /*  Get the current file offset.    */
+X                LnOfs = ftell( InFlPtr );
+X
+X                /*  Get next line.  */
+X                if (ReadLine(InFlPtr, InBfr, BFR_SIZE) == EOF)
+X                {
+X                    fprintf(ErrFile,
+X                            "%s %d : Error - Unexpected end of file.\n",
+X                            __FILE__,
+X                            __LINE__);
+X                    fclose( InFlPtr );
+X                    fclose( OutFlPtr );
+X                    return;
+X                }
+X
+X                 /*  Check to see if this is a UUencoded line.   */
+X                UULnType = ChkUULine(InBfr, &RetStrs, &OutLen);
+X
+X            } while (UULnType == NOT_UU_LINE || UULnType == UU_SPACE);
+X
+X            /*  Reset file pointer to begining of UU line.  */
+X            if (fseek(InFlPtr, LnOfs, SEEK_SET) != 0)
+X            {
+X                fprintf(ErrFile,
+X                        "%s %d : Error - %s\n",
+X                        __FILE__,
+X                        __LINE__,
+X                        sys_errlist[errno]);
+X                exit( 1 );
+X            }
+X
+X        } while (UULnType == IS_UU_LINE);
+X
+X        /*  Close the output file pointer.  */
+X        fclose( OutFlPtr );
+X
+X        /*  Check the various types.    */
+X        if (UULnType == UU_BEGIN)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - Unexpected UU begin line.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            goto UnExpectedBegin;
+X        }
+X    }
+X
+X    /*  Close the files.    */
+X    fclose( InFlPtr );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   CmpFl() --- Compare two file list entries.
+X|
+X| Inputs    :   File1   - File entry one.
+X|               File2   - File entry two.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xint     CmpFl(void  *File1,
+X              void  *File2)
+X{
+X    return( strcmp(((FL_LIST *) File1)->IDString,
+X                   ((FL_LIST *) File2)->IDString) );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   DumpSeg() --- Dump a segment to a file.
+X|
+X| Inputs    :   InFlPtr     - File to read segment from (source file).
+X|               OutFlPtr    - File to write segment to.
+X|               NextSeg     - Start of next segment.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    DumpSeg(FILE    *InFlPtr,
+X                FILE    *OutFlPtr,
+X                long    NextSeg)
+X{
+X    /*  Dump segment to output file.    */
+X    while (ReadLine(InFlPtr, SegLine, BFR_SIZE) != EOF)
+X    {
+X        /*  Print line. */
+X        fprintf(OutFlPtr, "%s\n", SegLine);
+X
+X        /*  Get next line offset.   */
+X        if (ftell( InFlPtr ) == NextSeg)
+X            break;
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Multiple() --- Extract multiple postings from one file.
+X|
+X| Inputs    :   FileNm  - Name of file to unpost.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    Multiple(char       *FileNm)
+X{
+X    register    int             i;
+X    register    int             j;
+X    auto        FILE            *InFlPtr;
+X    auto        FILE            *OutFlPtr;
+X    auto        long            LnOfs;
+X    auto        int             InsPt;
+X    auto        SEG_INFO        SegInfo;
+X    auto        FL_LIST         *FlPtr;
+X    auto        FL_LIST         NewFile;
+X    auto        SEG_LIST        *SegPtr;
+X    auto        SEG_LIST        NewSeg;
+X
+X    /*  Buffers for input and output.   */
+X    static      LIST            *FileList;
+X    static      LIST            *SegList;
+X    extern      int             MsDosFileNms;
+X    extern      int             DumpDesc;
+X    extern      int             SepIncomps;
+X    extern      FILE            *ErrFile;
+X    extern      FILE            *TextFile;
+X    extern      FILE            *IncompFile;
+X
+X    /*  Open file.  */
+X    if ((InFlPtr = fopen(FileNm, BIN_READ)) == NULL)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Error - could not open file '%s' for reading.\n",
+X                __FILE__,
+X                __LINE__,
+X                FileNm);
+X        return;
+X    }
+X
+X    /*  Allocate a file and a segment list.    */
+X    FileList = CrtList( sizeof( FL_LIST ) );
+X    SegList = CrtList( sizeof( SEG_LIST ) );
+X
+X    /*  Search for all ID lines, building a list of all
+X    *   files and their segments as we go.
+X    */
+X    while (! feof( InFlPtr ))
+X    {
+X        /*  Parse article information out of the file.  */
+X        memset(&SegInfo, 0, sizeof( SEG_INFO ));
+X        LnOfs = Parse(InFlPtr,
+X                      SegLine,
+X                      IDLine,
+X                      &SegInfo);
+X
+X#if defined(UNPOST_DEBUG)
+Xprintf("\n\tSegInfo:\n");
+Xprintf("\t--------\n");
+Xprintf("\tNumber of Segments: %d\n", SegInfo.NoSegs);
+Xprintf("\tSegment Number    : %d\n", SegInfo.SegNo);
+Xprintf("\tSegment Offset    : %ld\n", SegInfo.SegOfs);
+Xprintf("\tUUencode Offset   : %ld\n", SegInfo.UUOfs);
+Xprintf("\tBinary ID String  : '%s'\n",
+X       (SegInfo.IDString == NULL) ? "NULL POINTER"
+X                                  : SegInfo.IDString);
+Xprintf("\tBinary File Name  : '%s'\n\n",
+X       (SegInfo.FlName == NULL) ? "NULL POINTER"
+X                                : SegInfo.FlName);
+X
+Xswitch ( LnOfs )
+X{
+Xcase -1L:
+X    printf("\tPRS_NO_SEGMENT\n");
+X    break;
+Xcase -2L:
+X    printf("\tPRS_NO_ID_STR\n");
+X    break;
+Xcase -3L:
+X    printf("\tPRS_NO_UU_LN\n");
+X    break;
+Xcase -4L:
+X    printf("\tPRS_NO_BEGIN\n");
+X    break;
+Xcase -5L:
+X    printf("\tPRS_NO_SEG_NUM\n");
+X    break;
+Xcase -6L:
+X    printf("\tPRS_NO_NUM_SEGS\n");
+X    break;
+Xcase -7L:
+X    printf("\tPRS_UNX_END_SEG\n");
+X    break;
+X}
+X#endif
+X
+X        /*  Save the segment data.  */
+X        NewSeg.LnOfs = SegInfo.SegOfs;
+X
+X        /*  Check for errors.   */
+X        if (LnOfs == PRS_NO_SEGMENT)
+X            break;
+X        else if (LnOfs == PRS_NO_UU_LN)
+X        {
+X            /*  Check to see if this is a description segment.  */
+X            if (SegInfo.IDString &&
+X                *SegInfo.IDString  &&
+X                SegInfo.SegNo == 0 &&
+X                SegInfo.NoSegs > 0)
+X            {
+X                /*  This has part numbering info, and the part number
+X                *   is zero, but it has no uuencoded data, so this
+X                *   must be a description segement.
+X                */
+X                NewSeg.CopyFlag = SEG_DESC;
+X            }
+X            else
+X            {
+X                /*  Save as text segment.   */
+X                NewSeg.CopyFlag = SEG_TEXT;
+X                SegList = AppList(SegList, &NewSeg);
+X
+X                /*  If the file name or ID string exist, deallocate.    */
+X                if ( SegInfo.IDString )
+X                    free( SegInfo.IDString );
+X                continue;
+X            }
+X        }
+X        else if (LnOfs == PRS_NO_SEG_NUM  ||
+X                 LnOfs == PRS_NO_NUM_SEGS ||
+X                 SegInfo.IDString == NULL ||
+X                 *SegInfo.IDString == '\0')
+X        {
+X            /*  Something important is missing.  Do NOT attempt to
+X            *   put one of these in the file list.
+X            */
+X            NewSeg.CopyFlag = SEG_INCOMP;
+X            SegList = AppList(SegList, &NewSeg);
+X
+X            /*  If the file name or ID string exist, deallocate.    */
+X            if ( SegInfo.IDString )
+X                free( SegInfo.IDString );
+X            continue;
+X        }
+X        else
+X            NewSeg.CopyFlag = SEG_INCOMP;
+X
+X        /*  Add segment to list.  */
+X        SegList = AppList(SegList, &NewSeg);
+X
+X        /*  Search file list for ID string. */
+X        NewFile.IDString = SegInfo.IDString;
+X        if (SrchList(FileList, &NewFile, CmpFl, &InsPt) == FALSE)
+X        {
+X            /*  Did not find file in list, add a new file.  First,
+X            *   allocate segments buffer.
+X            */
+X            if ((NewFile.Segs = (SEGS *)
+X                 calloc(SegInfo.NoSegs + 1, sizeof( SEGS ))) == NULL)
+X            {
+X                fprintf(ErrFile,
+X                        "%s %d : Error - out of memory.\n",
+X                        __FILE__,
+X                        __LINE__);
+X                exit( 1 );
+X            }
+X
+X            /*  We have a valid ID line, and at least one UUencoded
+X            *   line, so add this segment to the list.
+X            */
+X            NewFile.NoSegs = SegInfo.NoSegs;
+X            NewFile.FlName = NULL;
+X            NewFile.Success = 0;
+X            FileList = AddList(FileList, &NewFile, InsPt);
+X        }
+X        else
+X            free( SegInfo.IDString );
+X        FlPtr = ListIdx(FileList, InsPt);
+X
+X        /*  Check for irreconcilable differences.   */
+X        if (FlPtr->NoSegs < SegInfo.SegNo)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - Segment number #%d greater than number",
+X                    __FILE__,
+X                    __LINE__,
+X                    SegInfo.SegNo);
+X            fprintf(ErrFile,
+X                    " of segments in:\n\tSegment: '%s'\n",
+X                    SegLine);
+X        }
+X        else
+X        {
+X            /*  Save the offset in the proper segment location. */
+X            if (FlPtr->Segs[SegInfo.SegNo].SegNo != 0)
+X            {
+X                fprintf(ErrFile,
+X                        "%s %d : Warning - duplicate segment #%d in:\n",
+X                        __FILE__,
+X                        __LINE__,
+X                        SegInfo.SegNo);
+X                fprintf(ErrFile,
+X                        "\tBinary ID: '%s'\n",
+X                        FlPtr->IDString);
+X            }
+X
+X            /*  Set up file descriptor segment. */
+X            FlPtr->Segs[SegInfo.SegNo].Exists = 1;
+X            FlPtr->Segs[SegInfo.SegNo].SegNo = SegInfo.SegNo;
+X            FlPtr->Segs[SegInfo.SegNo].SegOfs = SegInfo.SegOfs;
+X            FlPtr->Segs[SegInfo.SegNo].UUOfs  = SegInfo.UUOfs;
+X            FlPtr->Segs[SegInfo.SegNo].SegLstOrd = SegList->NoElems - 1;
+X        }
+X
+X        /*  Add the file name string, if it isn't already present.  */
+X        if ( FlPtr->FlName )
+X            free( SegInfo.FlName );
+X        else if ( SegInfo.FlName )
+X            FlPtr->FlName = SegInfo.FlName;
+X    }
+X
+X    /*  Dump Table. */
+X    fprintf(ErrFile, "File ID                         Segments\n");
+X    fprintf(ErrFile, "----------------------------------------\n");
+X    for (i = 0; i < FileList->NoElems; i++)
+X    {
+X        FlPtr = ListIdx(FileList, i);
+X        fprintf(ErrFile,
+X                "%-30.30s  %d\n",
+X                FlPtr->IDString,
+X                FlPtr->NoSegs);
+X        for (j = 1; j <= FlPtr->NoSegs; j++)
+X            fprintf(ErrFile, "\t%d  %ld\n",
+X                    FlPtr->Segs[j].SegNo,
+X                    FlPtr->Segs[j].SegOfs);
+X    }
+X    fprintf(ErrFile, "\n");
+X
+X    /*  Decode the files.   */
+X    for (i = 0; i < FileList->NoElems; i++)
+X    {
+X        /*  Get pointer to file list entry. */
+X        FlPtr = ListIdx(FileList, i);
+X
+X        /*  Report binary id you are attempting to decode.  */
+X        fprintf(ErrFile,
+X                "Decoding Binary ID: '%s'\n",
+X                FlPtr->IDString);
+X
+X        /*  Attempt to decode the file. */
+X        if (DeCode(InFlPtr, FlPtr) == OK)
+X        {
+X            /*  Scan segment list, marking all segments as having been
+X            *   successfully used.
+X            */
+X            FlPtr->Success = 1;
+X            for (j = 1; j <= FlPtr->NoSegs; j++)
+X            {
+X                SegPtr = ListIdx(SegList, FlPtr->Segs[j].SegLstOrd);
+X                SegPtr->CopyFlag = SEG_USED;
+X            }
+X        }
+X    }
+X
+X    /*  Do we want to save incomplete pieces?   */
+X    if (IncompFile || SepIncomps)
+X    {
+X        /*  Write incomplete binaries to uuencoded file in sorted
+X        *   order.
+X        */
+X        for (i = 0; i < FileList->NoElems; i++)
+X        {
+X            auto    long    EndOfs;
+X
+X            /*  Get pointer to file.    */
+X            FlPtr = ListIdx(FileList, i);
+X            if ( FlPtr->Success )
+X                continue;
+X
+X            /*  Open file to write segments to, or use incompletes
+X            *   file.
+X            */
+X            if (SepIncomps && FlPtr->IDString && *FlPtr->IDString)
+X            {
+X                /*  Use the binary ID string to create a .uue file name.
+X                */
+X                if ( MsDosFileNms )
+X                    ModifyFlNm(FlPtr->IDString, ".uue", InBfr);
+X                else
+X                    ModExten(FlPtr->IDString, ".uue", InBfr);
+X
+X                /*  Open incompletes file.  */
+X                if ((OutFlPtr = fopen(InBfr, TXT_APPEND)) == NULL)
+X                {
+X                    fprintf(ErrFile,
+X                            "%s %d : Error - File '%s' cannot be opened ",
+X                            __FILE__,
+X                            __LINE__,
+X                            InBfr);
+X                    fprintf(ErrFile,
+X                            "for appending.\n");
+X                    continue;
+X                }
+X            }
+X            else
+X                OutFlPtr = IncompFile;
+X
+X            /*  This file was NOT successfully converted, write it's
+X            *   segments out to the incomplete file.
+X            */
+X            for (j = 0; j <= FlPtr->NoSegs; j++)
+X            {
+X                /*  If this segment does not exist, do not copy it. */
+X                if (! FlPtr->Segs[j].Exists)
+X                    continue;
+X                else if (j == 0 && ! DumpDesc)
+X                    continue;
+X
+X                /*  Position file pointer to first line of segment. */
+X                if (fseek(InFlPtr, FlPtr->Segs[j].SegOfs, SEEK_SET) != 0)
+X                {
+X                    fprintf(ErrFile,
+X                            "%s %d : Error - %s\n",
+X                            __FILE__,
+X                            __LINE__,
+X                            sys_errlist[errno]);
+X                    exit( 1 );
+X                }
+X
+X                /*  Mark this segment as having been dumped out.    */
+X                SegPtr = ListIdx(SegList, FlPtr->Segs[j].SegLstOrd);
+X                SegPtr->CopyFlag = SEG_USED;
+X
+X                /*  Get offset for end of segment.  */
+X                if (FlPtr->Segs[j].SegLstOrd + 1 < SegList->NoElems)
+X                    EndOfs = SegPtr[1].LnOfs;
+X                else
+X                    EndOfs = -1L;
+X
+X                /*  Write all of segment to file.   */
+X                DumpSeg(InFlPtr, OutFlPtr, EndOfs);
+X            }
+X
+X            /*  Check to see if we need to close the file.  */
+X            if (OutFlPtr != IncompFile)
+X                fclose( OutFlPtr );
+X        }
+X    }
+X
+X    /*  Check to make sure that the user has requested that unused
+X    *   segments be dumped out to ANY file.
+X    */
+X    if (TextFile || IncompFile)
+X    {
+X        /*  Dump unused segments to file.   */
+X        for (i = 0, SegPtr = ListIdx(SegList, 0);
+X             i < SegList->NoElems;
+X             i++, SegPtr++)
+X        {
+X            /*  If this segment was successfully converted, do not
+X            *   copy it.
+X            */
+X            if (SegPtr->CopyFlag == SEG_USED)
+X                continue;
+X
+X            /*  Position file pointer to first UUencoded
+X            *   line of segment.
+X            */
+X            if (fseek(InFlPtr, SegPtr->LnOfs, SEEK_SET) != 0)
+X            {
+X                fprintf(ErrFile,
+X                        "%s %d : Error - %s\n",
+X                        __FILE__,
+X                        __LINE__,
+X                        sys_errlist[errno]);
+X                exit( 1 );
+X            }
+X
+X            /*  Read and write lines.   */
+X            if (SegPtr->CopyFlag == SEG_TEXT && TextFile)
+X            {
+X                /*  Dump the segment out to the text file.  */
+X                DumpSeg(InFlPtr,
+X                        TextFile,
+X                        (i < SegList->NoElems - 1)
+X                            ? SegPtr[1].LnOfs
+X                            : -1L);
+X            }
+X            else if (SegPtr->CopyFlag == SEG_INCOMP && IncompFile)
+X            {
+X                /*  Dump the segment out to the text file.  */
+X                DumpSeg(InFlPtr,
+X                        IncompFile,
+X                        (i < SegList->NoElems - 1)
+X                            ? SegPtr[1].LnOfs
+X                            : -1L);
+X            }
+X        }
+X    }
+X
+X    /*  Deallocate file descriptor list.    */
+X    for (i = 0; i < FileList->NoElems; i++)
+X    {
+X        /*  Get pointer to file list entry. */
+X        FlPtr = ListIdx(FileList, i);
+X
+X        /*  Deallocate the heap memory. */
+X        free( FlPtr->Segs );
+X        free( FlPtr->FlName );
+X        free( FlPtr->IDString );
+X    }
+X
+X    /*  Free the list.  */
+X    free( FileList );
+X    free( SegList );
+X}
+END_OF_FILE
+  if test 23846 -ne `wc -c <'segment.c'`; then
+    echo shar: \"'segment.c'\" unpacked with wrong size!
+  fi
+  # end of 'segment.c'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

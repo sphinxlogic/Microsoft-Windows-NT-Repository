@@ -1,0 +1,575 @@
+Newsgroups: comp.sources.misc
+From: Chip Rosenthal <chip@chinacat.unicom.com>
+Subject:  v30i076:  prtscrn2 - screen dump utility for SCO UNIX/XENIX, Part01/01
+Message-ID: <1992Jun21.040704.3057@sparky.imd.sterling.com>
+X-Md4-Signature: 4a41ccc8c23bd9fc48fcd3d23e924ccb
+Date: Sun, 21 Jun 1992 04:07:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Chip Rosenthal <chip@chinacat.unicom.com>
+Posting-number: Volume 30, Issue 76
+Archive-name: prtscrn2/part01
+Environment: SCO
+Supersedes: prtscrn: Volume 22, Issue 27
+
+If you'll page down a dozen lines you'll hit the README which
+pretty well summarizes this utility...
+
+#! /bin/sh
+# this is a "shar" archive - run through "/bin/sh" to extract 4 files:
+#   README prtscrn.c prtscrn.1 Makefile
+# Wrapped by chip@chinacat on Wed Jun 17 01:18:36 CDT 1992
+# Unpacking this archive requires:  sed test wc (possibly mkdir)
+# Existing files will not be clobbered unless "-c" is specified on the cmd line.
+if test -f README -a "$1" != "-c" ; then
+    echo "README: file exists - will not be overwritten"
+else
+    echo "x - README (file 1 of 4, 1377 chars)"
+    sed -e 's/^X//' << 'END_OF_FILE_README' > README
+X@(#) README 1.3 92/06/16 21:17:03
+X
+X`prtscrn' grabs the contents of a console MultiScreen(tm) on SCO
+XUNIX and XENIX systems.
+X
+XTo dump the contents of /dev/tty01 to a file, you'd run:
+X
+X	prtscrn -1 >filename
+X
+XTo dump the contents of the current screen, simply run:
+X
+X	prtscrn >filename
+X
+XAn earlier version of the `prtscrn' program was published in
+Xcomp.sources.misc volume 22.  This version has many improvements.
+X
+X    - This release uses console ioctl() calls rather than groping in
+X      the kernel or system memory, and thus no longer needs to be
+X      installed with privileges.
+X
+X    - This version is portable between SCO XENIX and SCO UNIX.  Not
+X      only are there no longer special ifdef's, but also a binary
+X      compiled on one of these will work on the other.
+X
+X    - The old version was subject to problems where the output was
+X      strangely shifted and wrapped about.  This version should be
+X      resistent to those bugs.
+X
+X    - This version will work from non-console terminals.  For example,
+X      if you are on a serial terminal you can grab the contents of
+X      a console multiscreen -- permissions willing.  (Pretty nifty
+X      stuff all you software documentation writers out there -- huh?)
+X
+X    - I've coded this version to hopefully support systems with multiple
+X      display adapters, but I haven't tested it.
+X
+XChip Rosenthal
+X<chip@chinacat.Unicom.COM>
+END_OF_FILE_README
+    size="`wc -c < README`"
+    if test 1377 -ne "$size" ; then
+	echo "README: extraction error - got $size chars"
+    fi
+fi
+if test -f prtscrn.c -a "$1" != "-c" ; then
+    echo "prtscrn.c: file exists - will not be overwritten"
+else
+    echo "x - prtscrn.c (file 2 of 4, 11261 chars)"
+    sed -e 's/^X//' << 'END_OF_FILE_prtscrn.c' > prtscrn.c
+X#ifndef lint
+Xstatic char SCCSID[] = "@(#) prtscrn.c 1.6 92/06/17 01:09:54";
+X#endif
+X
+X/*
+X * prtscrn - SCO UNIX/XENIX console screen dump utility.
+X *
+X * This works by attaching to the display adapter memory and extracting
+X * the out the characters and dumping them to stdout.  In order to
+X * do this we need to make the selected screen active so that it's
+X * contents are loaded into display memory.  What gets tricky is that
+X * we need to figure out what screen is on the adapter when we begin
+X * so we can put that screen back when we are done.
+X *
+X * One way to find out what screen is active is to open up the
+X * display adapter (e.g. "/dev/vga") and do a CONS_GETINFO ioctl()
+X * upon it.  However, we first need to know what kind of display
+X * adapter is being used.  If we are dumping a specific screen
+X * (i.e. a screen number was given on the command line) then we
+X * will open up that tty, and do a CONS_CURRENT ioctl() upon it
+X * to get the adapter type.  If we are dumping the current screen
+X * (i.e.  no screen number given on the command line) then we
+X * will do the CONS_CURRENT ioctl() upon "/dev/tty".  Note that
+X * a side effect of this is that we should be able to make a dump
+X * of a screen from any terminal on the system (permissions
+X * willing), and further this should work on a system with multiple
+X * display adapters.
+X *
+X * Security is enforced by permissions on the console tty.  That is,
+X * if you try to dump screen 2, then you need to have read/write
+X * permissions to /dev/tty02.  This utility assumes that the user
+X * has read permissions on the adapter device, e.g. /dev/vga.  The
+X * default is to grant world read/write for these devices.  I'm not
+X * sure that is wise, but we assume that's the way things are.
+X *
+X * Edit at tabstops=4.
+X *
+X * Chip Rosenthal
+X * Unicom Systems Development, Inc.
+X * <chip@chinacat.unicom.com>
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <varargs.h>
+X#include <sys/types.h>
+X#include <sys/ioctl.h>
+X#include <sys/vid.h>
+X#include <sys/console.h>
+X#include <sys/vtkd.h>
+X
+X#define USAGE	"usage: %s [-screen_num]\n"
+X
+Xchar *Progname;
+X
+X/*
+X * Error message handling is a bit tricky because we are changing
+X * around the screen display, and we need to ensure the proper screen
+X * is active before displaying messages.  Therefore, we will not
+X * print error messages, but rather call the "set_error()" routine
+X * to save off the message to "Errbuf[]".  In the event of an error,
+X * we can restore the screen display and then print the contents of
+X * "Errbuf[]".
+X */
+Xchar Errbuf[512];
+X
+X/*
+X * This is the list of valid text (i.e. non-graphics) display modes.
+X * We will ensure that the display mode of the selected screen is in
+X * this list prior to performing the dump.
+X */
+Xint Text_modes[] = {
+X	M_B40x25, M_C40x25, M_B80x25, M_C80x25, M_EGAMONO80x25, M_ENH_B40x25,
+X	M_ENH_C40x25, M_ENH_B80x25, M_ENH_C80x25, M_VGA_40x25, M_VGA_80x25,
+X	M_VGA_M80x25, M_ENH_B80x43, M_ENH_C80x43, M_MCA_MODE, -1
+X};
+X
+Xint open_adapter(int);
+Xchar *activate_screen(int, int);
+Xint deactivate_screen(int, int);
+Xint dump_screen(int, FILE *, char *);
+Xvoid set_error(int, char *,);
+X
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	struct vid_info vinfo;
+X	char *disp_mem;
+X	int orig_scrn_num, sel_scrn_num, fd, i;
+X
+X	Progname = argv[0];
+X
+X	/*
+X	 * Figure out what screen we want to dump.
+X	 */
+X	switch (argc) {
+X	case 1:
+X		sel_scrn_num = -1;
+X		break;
+X	case 2:
+X		if (argv[1][0] != '-') {
+X			fprintf(stderr, USAGE, Progname);
+X			exit(1);
+X		}
+X		if ((sel_scrn_num = atoi(argv[1]+1)-1) < 0 || sel_scrn_num >= MAXSCRN) {
+X			fprintf(stderr, "%s: bad screen number \"%s\" specified\n",
+X				Progname, argv[1]+1);
+X			exit(1);
+X		}
+X		break;
+X	default:
+X		fprintf(stderr, USAGE, Progname);
+X		exit(1);
+X		/*NOTREACHED*/
+X	}
+X
+X	/*
+X	 * Open up the display adapter which contains the selected screen.
+X	 */
+X	if ((fd = open_adapter(sel_scrn_num)) < 0) {
+X		fputs(Errbuf, stderr);
+X		exit(1);
+X	}
+X
+X	/*
+X	 * Determine what screen is currently active on the display adapter.
+X	 */
+X	vinfo.size = sizeof(vinfo);
+X	if (ioctl(fd, CONS_GETINFO, (char *)&vinfo) != sizeof(vinfo)) {
+X		set_error(errno, "cannot get display info from active screen");
+X		fputs(Errbuf, stderr);
+X		exit(1);
+X	}
+X	orig_scrn_num = vinfo.m_num;
+X
+X	/*
+X	 * If we are dumping the current screen then we now know what
+X	 * the selected screen number is -- the current screen number.
+X	 */
+X	if (sel_scrn_num < 0)
+X		sel_scrn_num = orig_scrn_num;
+X
+X	/*
+X	 * Kludge alert!  For some reason if we are dumping the current screen
+X	 * the stuff is sometimes shifted about in display memory.  However,
+X	 * forcing a quick screen switch seems to cure this problem.
+X	 */
+X	if (sel_scrn_num == orig_scrn_num) {
+X		if ((i = sel_scrn_num + 1) >= MAXSCRN)
+X			i = 0;
+X		(void) ioctl(fd, VT_ACTIVATE, i);
+X	}
+X
+X	/*
+X	 * Bring the selected screen up on the display adapter and get a
+X	 * pointer to the video display memory.
+X	 *
+X	 * From here on out we need to make sure we call deactivate_screen()
+X	 * to return the original screen to the display.
+X	 */
+X	if ((disp_mem = activate_screen(fd, sel_scrn_num)) == NULL) {
+X		(void) deactivate_screen(fd, orig_scrn_num);
+X		fputs(Errbuf, stderr);
+X		exit(1);
+X	}
+X
+X	/*
+X	 * Dump the selected screen to stdout.
+X	 */
+X	if (dump_screen(fd, stdout, disp_mem) != 0) {
+X		(void) deactivate_screen(fd, orig_scrn_num);
+X		fputs(Errbuf, stderr);
+X		exit(1);
+X	}
+X
+X	/*
+X	 * Done.
+X	 */
+X	(void) deactivate_screen(fd, orig_scrn_num);
+X	exit(0);
+X	/*NOTREACHED*/
+X}
+X
+X
+X/*
+X * Open up the display adapter containing screen number "scrn".  Returns
+X * a file descriptor to the display adapter, or -1 upon error.  If an
+X * error occurs, a diagnostic will be stored in "Errbuf[]".
+X */
+Xint open_adapter(scrn)
+Xint scrn;			/* screen number - from zero through MAXSCRN-1.		*/
+X{
+X	char *disp_dev, scrn_dev[256];
+X	int fd, i;
+X
+X	/*
+X	 * Open up the selected screen.
+X	 */
+X	sprintf(scrn_dev, (scrn < 0 ? "/dev/tty" : "/dev/tty%02d"), scrn+1);
+X	if ((fd = open(scrn_dev, O_RDWR)) < 0) {
+X		set_error(errno, "cannot open screen \"%s\"", scrn_dev);
+X		return -1;
+X	}
+X
+X	/*
+X	 * Determine what sort of display adapter is used for this screen.
+X	 */
+X	if ((i = ioctl(fd, CONS_CURRENT, (char *)0)) < 0) {
+X		set_error(errno, "cannot get display type of \"%s\"", scrn_dev);
+X		return -1;
+X	}
+X	switch (i) {
+X	case MONO:
+X		disp_dev = "/dev/mono";
+X		break;
+X	case CGA:
+X		disp_dev = "/dev/cga";
+X		break;
+X	case EGA:
+X		disp_dev = "/dev/ega";
+X		break;
+X	case VGA:
+X		disp_dev = "/dev/vga";
+X		break;
+X	default:
+X		set_error(0, "unknown display type 0x%X on \"%s\"", i, scrn_dev);
+X		return -1;
+X	}
+X
+X	/*
+X	 * Close up the screen and open up the display adapter instead.
+X	 */
+X	(void) close(fd);
+X	if ((fd = open(disp_dev, O_RDONLY)) < 0) {
+X		set_error(errno, "cannot open display adapter \"%s\"", disp_dev);
+X		return -1;
+X	}
+X
+X	return fd;
+X}
+X
+X
+X/*
+X * Bring the selected screen up on the display adapter and map video memory.
+X * Returns a pointer to the video display memory segment, or NULL upon error.
+X * If an error occurs, a diagnostic will be stored in "Errbuf[]".
+X */
+Xchar *activate_screen(fd, scr_num)
+Xint fd;				/* file descriptor to the display adapter				*/
+Xint scr_num;		/* screen to activate, zero through MAXSCRN-1			*/
+X{
+X	char *disp_mem;
+X	int disp_mode, i;
+X
+X	/*
+X	 * Kludge alert!  There seems to be some sort of race in the kernel
+X	 * if we switch to a screen in graphics mode and immediately back
+X	 * to one in text mode.
+X	 */
+X	(void) nap(100L);
+X
+X	/*
+X	 * Activate the selected screen.
+X	 */
+X	if (ioctl(fd, VT_ACTIVATE, scr_num) != 0) {
+X		set_error(0, "cannot switch to screen %d", scr_num+1);
+X		return (char *) NULL;
+X	}
+X
+X	/*
+X	 * Verify that the selected screen is in a text mode.
+X	 */
+X	if ((disp_mode = ioctl(fd, CONS_GET, (char *)0)) < 0) {
+X		set_error(errno, "cannot get display mode from selected screen");
+X		return (char *) NULL;
+X	}
+X	for (i = 0 ; Text_modes[i] != disp_mode ; ++i) {
+X		if (Text_modes[i] < 0) {
+X			set_error(0, "selected screen not in text mode");
+X			return (char *) NULL;
+X		}
+X	}
+X
+X	/*
+X	 * Get a pointer to the video adapter display memory.
+X	 */
+X	if ((disp_mem = (char *)ioctl(fd, MAPCONS, 0)) == NULL) {
+X		set_error(errno, "cannot map selected screen display memory");
+X		return (char *) NULL;
+X	}
+X
+X	return disp_mem;
+X}
+X
+X
+X/*
+X * Restore a the original screen to the display and close out the file
+X * descriptor to the display adapter.  Returns zero upon success, or -1
+X * upon error.  If an error occurs, a diagnostic will be stored in "Errbuf[]".
+X */
+Xint deactivate_screen(fd, scr_num)
+Xint fd;				/* file descriptor to the display adapter				*/
+Xint scr_num;		/* screen to restore, zero through MAXSCRN-1			*/
+X{
+X
+X	/*
+X	 * Kludge alert!  There seems to be some sort of race in the kernel
+X	 * if we switch to a screen in graphics mode and immediately back
+X	 * to one in text mode.
+X	 */
+X	(void) nap(100L);
+X
+X	if (ioctl(fd, VT_ACTIVATE, scr_num) != 0) {
+X		set_error(errno, "cannot switch to screen %d", scr_num+1);
+X		return -1;
+X	}
+X	(void) close(fd);
+X	return 0;
+X}
+X
+X
+X/*
+X * Dump the contents of the active screen.  Returns zero upon success,
+X * or -1 upon error.  If an error occurs, a diagnostic will be stored
+X * in "Errbuf[]".
+X */
+Xint dump_screen(disp_fd, out_fp, disp_mem)
+Xint disp_fd;		/* file descriptor to the display adapter				*/
+XFILE *out_fp;		/* stream to send display dump to						*/
+Xchar *disp_mem;		/* pointer to video display memory						*/
+X{
+X	struct vid_info vinfo;
+X	char *buf, *bp;
+X	int num_rows, num_cols, row, col;
+X	extern char *malloc();
+X	extern void free();
+X
+X	/*
+X	 * Get the row/column size of the selected screen.
+X	 */
+X	vinfo.size = sizeof(vinfo);
+X	if (ioctl(disp_fd, CONS_GETINFO, (char *)&vinfo) != sizeof(vinfo)) {
+X		set_error(errno, "cannot get display info from selected screen");
+X		return -1;
+X	}
+X	num_rows = vinfo.mv_rsz;
+X	num_cols = vinfo.mv_csz;
+X
+X	/*
+X	 * Allocate space to hold a line of the display.
+X	 */
+X	if ((buf = malloc((unsigned)num_cols+1)) == NULL) {
+X		set_error(0, "out of memory [malloc failed]");
+X		return -1;
+X	}
+X
+X	/*
+X	 * Extract the characters from display memory and send to stdout.
+X	 * Trailing spaces will be trimmed from the line.
+X	 */
+X	for (row = 0 ; row < num_rows ; ++row) {
+X
+X		/*
+X		 * Extract the next line of text from the display.  Each character
+X		 * cell uses two bytes:  one containing the actual character and
+X		 * one containing the display attributes.  We need to skip over
+X		 * the display attributes as we run through the memory.
+X		 */
+X		for (col = 0, bp = buf ; col < num_cols ; ++col, ++bp) {
+X			*bp = *disp_mem;
+X			disp_mem += 2;
+X		}
+X
+X		/*
+X		 * Trim trailing space from line.  This loop is not portable
+X		 * since "bp" < "buf" is not guaranteed to be legal, but it
+X		 * works on SCO UNIX 3.2 and XENIX 2.3.
+X		 */
+X		while (--bp >= buf && *bp == ' ')
+X			;
+X		*++bp = '\0';
+X
+X		/*
+X		 * Output the line.
+X		 */
+X		fputs(buf, out_fp);
+X		putc('\n', out_fp);
+X	}
+X
+X	(void) free(buf);
+X	return 0;
+X}
+X
+X
+X/*
+X * Save a diagnostic message to "Errbuf[]".
+X */
+X/*VARARGS2*/
+Xvoid set_error(err, fmt, va_alist)
+Xint err;
+Xchar *fmt;
+Xva_dcl
+X{
+X	va_list args;
+X	char *s;
+X	extern char *sys_errlist[];
+X
+X	va_start(args);
+X	(void) strcpy(Errbuf, Progname);
+X	s = Errbuf + strlen(Errbuf);
+X	*s++ = ':';
+X	*s++ = ' ';
+X	(void) vsprintf(s, fmt, args);
+X	s += strlen(s);
+X	if (err > 0) {
+X		(void) sprintf(s, " [%s]", sys_errlist[err]);
+X		s += strlen(s);
+X	}
+X	*s++ = '\n';
+X	*s = '\0';
+X	va_end(args);
+X}
+X
+END_OF_FILE_prtscrn.c
+    size="`wc -c < prtscrn.c`"
+    if test 11261 -ne "$size" ; then
+	echo "prtscrn.c: extraction error - got $size chars"
+    fi
+fi
+if test -f prtscrn.1 -a "$1" != "-c" ; then
+    echo "prtscrn.1: file exists - will not be overwritten"
+else
+    echo "x - prtscrn.1 (file 3 of 4, 836 chars)"
+    sed -e 's/^X//' << 'END_OF_FILE_prtscrn.1' > prtscrn.1
+X.\" @(#) prtscrn.1 1.5 92/06/16 21:17:04
+X.TH PRTSCRN 1L
+X.SH NAME
+Xprtscrn \- Print contents of a console multiscreen.
+X.SH SYNTAX
+X.B prtscrn
+X[ \-screen_num ]
+X.SH DESCRIPTION
+XThe contents of the specified console multiscreen are sent to the
+Xstandard output.  If no
+X.I screen_num
+Xis specified then the current screen is dumped.  If the user does not
+Xhave permissions to access the specified screen, then
+X.I prtscrn
+Xwill fail with an error.  The
+X.I prtscrn
+Xutility need not be run from the console.  For example, you can dump
+Xa console screen from a serial terminal, permissions willing.
+X.SH BUGS
+XNever tested with multiple display adapters.
+XOnly supports text mode operation.
+XAlthough it will handle eight-bit characters, it won't do attributes.
+X.SH AUTHOR
+XChip Rosenthal
+X.br
+XUnicom Systems Development, Inc.
+X.br
+X<chip@chinacat.unicom.com>
+END_OF_FILE_prtscrn.1
+    size="`wc -c < prtscrn.1`"
+    if test 836 -ne "$size" ; then
+	echo "prtscrn.1: extraction error - got $size chars"
+    fi
+fi
+if test -f Makefile -a "$1" != "-c" ; then
+    echo "Makefile: file exists - will not be overwritten"
+else
+    echo "x - Makefile (file 4 of 4, 76 chars)"
+    sed -e 's/^X//' << 'END_OF_FILE_Makefile' > Makefile
+XSHELL = /bin/sh
+X
+Xprtscrn : prtscrn.o
+X	$(CC) $(LDFLAGS) -o $@ prtscrn.o -lx
+X
+END_OF_FILE_Makefile
+    size="`wc -c < Makefile`"
+    if test 76 -ne "$size" ; then
+	echo "Makefile: extraction error - got $size chars"
+    fi
+fi
+echo "done - 4 files extracted"
+exit 0
+-- 
+Chip Rosenthal  512-482-8260 | Let the wayward children play.  Let the wicked
+Unicom Systems Development   | have their day.  Let the chips fall where they
+<chip@chinacat.Unicom.COM>   | may.  I'm going to Disneyland.  -Timbuk 3
+
+
+exit 0 # Just in case...

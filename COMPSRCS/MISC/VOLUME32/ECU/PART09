@@ -1,0 +1,2272 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i044:  ecu - ECU Asynchronous Communications v3.20, Part09/40
+Message-ID: <1992Sep13.153031.5048@sparky.imd.sterling.com>
+X-Md4-Signature: 73ab2ecb6a11093cafcea4f9cb6b7c3c
+Date: Sun, 13 Sep 1992 15:30:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 44
+Archive-name: ecu/part09
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.09 (part 9 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file eculine.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping eculine.c'
+else
+echo 'x - continuing file eculine.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'eculine.c' &&
+X	char *lgets_timeout(LRWT *) - may be called by xmtr only
+X
+Xto1 and to2 are unsigned long values in milliseconds (not
+Xcurrently supported well under BSD4); to1 is the time to wait
+Xfor the first character, to2 the time to wait for subsequent
+Xcharacters.
+X
+Xif raw_flag 0,     non-printables are stripped from beginning
+X                   and end of received characters (i.e., modem
+X                   response reads); NULs discarded, parity stripped
+Xif raw_flag 1,     full raw read buffer returned
+X
+X0x80 in raw_flag indicates console interrupts should be enabled.
+Xif interrupt thus detected, the procedure returns "!Interrupted"
+Xwithout reseting variable 'interrupt'
+X
+Xbuffer is address to read chars into
+X
+Xbufsize is buffer max size (allowing room for terminating null)
+Xwhich should be at least 2 if raw_size includes 0x80 bit,
+Xelse at least 12 characters if 0x80 omitted.
+X
+Xcount is a int which, at return, receives the actual count read
+X
+Xzero_length_read_detected is a public that will set if the
+XDCD watcher is turned on and DCD is lost
+X
+X--------------------------------------------------------------------------*/
+Xchar *
+Xlgets_timeout(lrwt)
+XLRWT *lrwt;
+X{
+X/**************************/
+X#if !defined(WORKING_SELECT)
+X/**************************/
+X
+X	register actual_count = 0;
+X	register char *cptr = lrwt->buffer;
+X	register echo_flag = lrwt->echo_flag;
+X	int max_count = lrwt->bufsize;
+X	char *rtn_val;
+X	int timeout_counter;
+X	int qc1;
+X	int qc2;
+X	int raw_mode = lrwt->raw_flag & 0x0F;
+X	int check_sigint = (lrwt->raw_flag & 0x80);
+X	int old_ttymode = get_ttymode();	/* save original tty mode */
+X	int delim_len;
+X	long quantum;
+X	long ltmp;
+X
+X	delim_len = (lrwt->delim) ? strlen(lrwt->delim) : 0;
+X
+X	if((shm->Lbaud < 300) && lrwt->to2)
+X		if(lrwt->to2 < 300L) lrwt->to2 = 300L;
+X	else if((shm->Lbaud < 1200) && lrwt->to2)
+X		if(lrwt->to2 < 200L) lrwt->to2 = 100L;
+X
+X/* shortest interval */
+X	ltmp = (lrwt->to1 < lrwt->to2) ? lrwt->to1 : lrwt->to2;
+X
+X/* calculate wait quantum */
+X	quantum = ltmp / 10L;				/* try for ten ticks */
+X
+X#if defined(M_I386)
+X	if(quantum < 40L)
+X		quantum = 40L;
+X#else
+X	if(quantum < 20L)
+X		quantum = 20L;
+X#endif
+X	qc1 = lrwt->to1 / quantum;
+X	if(!qc1) qc1 = 1L;
+X	qc2 = lrwt->to2 / quantum;
+X	if(!qc2) qc2 = 1L;
+X
+X/* perform the lrtw function using nap() and rdchk()
+X   input: qc1 is first nap count (for first charcters) 
+X          qc2 is 2nd nap count (for subsequent characters) 
+X          quantum is the nap period in milliseconds
+X          cptr is char* to receive read string
+X          max_count is max number of characters incl null
+X          lrwt->raw_flag as described above
+X
+X  output: lrwt->count is actual count of return result
+X          lrwt->buffer is return read buffer
+X*/
+X	max_count--;				/* leave room for null */
+X
+X	if(check_sigint)
+X		ttymode(2);				/* let console interrupt long timeouts */
+X
+X	timeout_counter = qc1;		/* first timeout */ 
+X	*cptr = 0;					/* init result string */
+X	while(timeout_counter--)
+X	{
+X		Nap(quantum);
+X
+X		if(check_sigint && sigint)
+X			goto INTERRUPTED;
+X
+X		while(lrdchk_xmtr())
+X		{
+X			zero_length_read_detected = 0;
+X			*cptr = lgetc_xmtr();
+X
+X			if(zero_length_read_detected)
+X				goto BOTTOM;
+X
+X			if(check_sigint && sigint)
+X				goto INTERRUPTED;
+X
+X			if(*cptr == 0)
+X				continue;
+X
+X			process_xmtr_rcvd_char(*cptr,echo_flag);
+X
+X			if(!raw_mode && (*cptr == CRET))
+X					continue;
+X
+X			*++cptr = 0;
+X			if(++actual_count == 1)
+X			{
+X				if(!lrwt->to2)
+X					break;
+X				timeout_counter = qc2;
+X			}
+X
+X			if(--max_count == 0)
+X				goto BOTTOM;
+X
+X			if(delim_len && (actual_count >= delim_len) &&
+X					!strncmp(lrwt->delim,cptr - delim_len,delim_len))
+X				goto BOTTOM;
+X		}
+X	}
+X
+X/********************************/
+X#else /* do have WORKING_SELECT */
+X/********************************/
+X/* --- use select --- */
+X	register actual_count = 0;
+X	register char *cptr = lrwt->buffer;
+X	register max_count = lrwt->bufsize;
+X	register raw_mode = lrwt->raw_flag & 0x0F;
+X	register echo_flag = lrwt->echo_flag;
+X	int check_sigint = (lrwt->raw_flag & 0x80);
+X	int old_ttymode = get_ttymode();	/* save original tty mode */
+X	int fdmask;
+X	int delim_len;
+X	struct timeval tval;
+X	char *rtn_val;
+X
+X	delim_len = (lrwt->delim) ? strlen(lrwt->delim) : 0;
+X
+X	if((shm->Lbaud < 300) && lrwt->to2)
+X		if(lrwt->to2 < 300L) lrwt->to2 = 300L;
+X	else if((shm->Lbaud < 1200) && lrwt->to2)
+X		if(lrwt->to2 < 200L) lrwt->to2 = 100L;
+X
+X
+X/* perform the lrtw function
+X
+X  output: lrwt->count is actual count of return result
+X          lrwt->buffer is return read buffer
+X*/
+X	max_count--;				/* leave room for null */
+X
+X	if(check_sigint)
+X		ttymode(2);				/* let console interrupt long timeouts */
+X
+X	*cptr = 0;					/* init result string */
+X	while(1)
+X	{
+X		if(check_sigint && sigint)
+X			goto INTERRUPTED;
+X
+X		errno = 0;
+X		fdmask = 1 << shm->Liofd; /* Liofd will always be <= 31, right? */
+X		if(actual_count)
+X		{
+X			tval.tv_sec = lrwt->to2 / 1000L;
+X			tval.tv_usec = (lrwt->to2 % 1000L) * 1000L;
+X		}
+X		else
+X		{
+X			tval.tv_sec = lrwt->to1 / 1000L;
+X			tval.tv_usec = (lrwt->to1 % 1000L) * 1000L;
+X		}
+X		if(select(shm->Liofd + 1,&fdmask,(int *)0,(int *)0,&tval) != 1)
+X		{
+X			if(errno == EINTR)
+X				continue;
+X			break;
+X		}
+X
+X		while(rdchk(shm->Liofd))
+X		{
+X			zero_length_read_detected = 0;
+X			*cptr = lgetc_xmtr();
+X
+X			if(zero_length_read_detected)
+X				goto BOTTOM;
+X
+X			if(check_sigint && sigint)
+X				goto INTERRUPTED;
+X
+X			if(*cptr == 0)
+X				continue;
+X
+X			process_xmtr_rcvd_char(*cptr,!!echo_flag);
+X
+X			if(!raw_mode && (*cptr == CRET))
+X					continue;
+X
+X			*++cptr = 0;
+X			actual_count++;
+X
+X			if(--max_count == 0)
+X				goto BOTTOM;
+X
+X			if(delim_len && (actual_count >= delim_len) &&
+X					!strncmp(lrwt->delim,cptr - delim_len,delim_len))
+X				goto BOTTOM;
+X		}
+X		if(!lrwt->to2)
+X			break;
+X	}
+X
+X#endif	/* WORKING_SELECT */
+X
+X/********* common post processing for select() / no select() ************/
+XBOTTOM:
+X	if(check_sigint)
+X		ttymode(old_ttymode);
+X	if(raw_mode)
+X	{
+X		lrwt->count = actual_count;
+X		return(lrwt->buffer);
+X	}
+X	cptr = lrwt->buffer;
+X	while(((*cptr > 0) && (*cptr < SPACE)) || (*cptr >= DEL))
+X		cptr++;
+X	rtn_val = cptr;
+X	actual_count = 0;
+X	while(((*cptr &= 0x7F) >= SPACE) && (*cptr < DEL))
+X	{
+X		cptr++;
+X		actual_count++;
+X	}
+X	*cptr = 0;
+X	strcpy(lrwt->buffer,rtn_val);
+X	lrwt->count = actual_count;
+X	return(lrwt->buffer);
+X
+XINTERRUPTED:
+X	ttymode(old_ttymode);
+X	strcpy(lrwt->buffer,"!Interrupted");
+X	lrwt->count = strlen(lrwt->buffer);
+X	return((char *)0);
+X
+X}	/* end of lgets_timeout */
+X
+X/*+-------------------------------------------------------------------------
+X	lgetc_timeout(msec) - may be called by xmtr only
+X
+X reads one character from line unless msec passes with no receipt.
+X return char if received, else -1 if timeout
+X--------------------------------------------------------------------------*/
+Xint
+Xlgetc_timeout(msec)
+Xlong msec;
+X{
+X	uchar rtn_char;
+X#if !defined(WORKING_SELECT)
+X	long timeout;
+X
+X	timeout = msec;
+X	while(!lrdchk_xmtr())
+X	{
+X		if(sigint)
+X			return(-1);
+X		if((timeout -= Nap(hzmsec)) <= 0)
+X			return(-1);
+X	}
+X
+X#else
+X
+X	int fdmask;
+X	struct timeval tval;
+X
+X	tval.tv_sec = msec / 1000L;
+X	tval.tv_usec = (msec % 1000L) * 1000L;
+X	fdmask = 1 << shm->Liofd; /* Liofd will always be <= 31, right? */
+X	if(select(shm->Liofd + 1,&fdmask,(int *)0,(int *)0,&tval) < 1)
+X		return(-1);
+X	if(!lrdchk_xmtr())
+X		return(-1);
+X	if(sigint)
+X		return(-1);
+X#endif
+X
+X	rtn_char = lgetc_xmtr();
+X	return(rtn_char);
+X
+X}	/* end of lgetc_timeout */
+X
+X/*+-------------------------------------------------------------------------
+X	llookfor(lookfor,msecs,echo_flag)
+Xreturn 1 if successful, else 0 if no match
+Xecho_flag: 0 no echo
+X           1 echo literally
+X           2 "make printable"
+X--------------------------------------------------------------------------*/
+Xint
+Xllookfor(lookfor,msecs,echo_flag)
+Xchar *lookfor;
+Xulong msecs;
+Xint echo_flag;
+X{
+X	register lookfor_len = strlen(lookfor);
+X	register lchar;
+X	char *lastfew = (char *)malloc(lookfor_len);
+X	int success_flag = 0;
+X	int old_ttymode = get_ttymode();
+X
+X	if(!lastfew)
+X	{
+X		pputs("memory exhausted\n");
+X		return(0);
+X	}
+X
+X	ttymode(2);
+X
+X	memset(lastfew,0,lookfor_len);
+X	while((lchar = lgetc_timeout(msecs)) >= 0)
+X	{
+X		if(!lchar)		/* skip nulls */
+X			continue;
+X		process_xmtr_rcvd_char(lchar,echo_flag);
+X		mem_cpy(lastfew,lastfew + 1,lookfor_len - 1);
+X		*(lastfew + lookfor_len - 1) = lchar;
+X		if(!strncmp(lastfew,lookfor,lookfor_len))
+X		{
+X			success_flag = 1;
+X			break;
+X		}
+X	}
+X	free(lastfew);
+X	ttymode(old_ttymode);
+X	return(success_flag);
+X}	/* end of llookfor */
+X
+X/*+-------------------------------------------------------------------------
+X	lquiet(msecs,echo_flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlquiet(msecs,echo_flag)
+Xulong msecs;
+Xint echo_flag;
+X{
+X	register lchar;
+X	int old_ttymode = get_ttymode();
+X
+X	ttymode(2);
+X	while((lchar = lgetc_timeout(msecs)) >= 0)
+X	{
+X		if(sigint)	/* if interrupt, return */
+X			break;
+X		if(!lchar)		/* skip nulls */
+X			continue;
+X		process_xmtr_rcvd_char(lchar,!!echo_flag);
+X	}
+X	ttymode(old_ttymode);
+X
+X}	/* end of lquiet */
+X
+X/*+-------------------------------------------------------------------------
+X	lflush(flush_type) -- flush line driver input &/or output buffers
+X
+X0 == input buffer
+X1 == output buffer
+X2 == both buffers
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlflush(flush_type)
+Xint flush_type;
+X{
+X	switch(flush_type)
+X	{
+X		case 0:
+X			lgetc_count = 0;
+X			ioctl(shm->Liofd,TCFLSH,(char *)0); 
+X			break;
+X		case 1:
+X			ioctl(shm->Liofd,TCFLSH,(char *)1); 
+X			break;
+X		case 2:
+X			lgetc_count = 0;
+X			ioctl(shm->Liofd,TCFLSH,(char *)2); 
+X			break;
+X	}
+X}	/* end of lflush */
+X
+X/*+-------------------------------------------------------------------------
+X	lreset_ksr()
+X
+X  This procedure restores the termio for the
+X  comm line to the values in Ltermio
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlreset_ksr()
+X{
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X
+X}	/* end of lreset_ksr */
+X
+X/*+-------------------------------------------------------------------------
+X	ldraino(inflush_flag) - wait for output to drain
+X
+XIf inflush_flag is set, also flush input after output drains
+X--------------------------------------------------------------------------*/
+Xvoid
+Xldraino(inflush_flag)
+Xint inflush_flag;
+X{
+X#if defined(sun)
+X	int retries = 50;
+X	int outq_count;
+X	int old_outq_count = 0;
+X
+X	do {
+X		ioctl(shm->Liofd,TIOCOUTQ,&outq_count);
+X		if(!outq_count)
+X			break;
+X		if(old_outq_count == outq_count) /* don't hang if flow control lock */
+X			retries--;
+X		old_outq_count = outq_count;
+X		Nap(50);
+X	} while(outq_count && retries);
+X	if(inflush_flag)
+X		ioctl(shm->Liofd,TCFLSH,TCIFLUSH);
+X#else
+X	ioctl(shm->Liofd,(inflush_flag) ? TCSETAF : TCSETAW,(char *)Ltermio);
+X#endif
+X
+X}	/* end of ldraino */
+X
+X/*+-----------------------------------------------------------------------
+X	lputc(lchar) -- write lchar to comm line
+X------------------------------------------------------------------------*/
+Xvoid
+Xlputc(lchar)
+Xchar lchar;
+X{
+X	while(write(shm->Liofd,&lchar,1) < 0)
+X	{
+X		if(errno == EINTR)
+X			continue;
+X		pperror("lputc write error");
+X		termecu(TERMECU_XMTR_WRITE_ERROR);
+X	}
+X	shm->xmit_chars++;
+X	shm->xmit_chars_this_connect++;
+X}	/* end of lputc */
+X
+X/*+-----------------------------------------------------------------------
+X	lputc_paced(pace_msec,lchar) -- write lchar to comm line
+X  with time between each character 
+X------------------------------------------------------------------------*/
+Xvoid
+Xlputc_paced(pace_msec,lchar)
+Xregister pace_msec;
+Xchar lchar;
+X{
+X
+X	lputc(lchar);	
+X	Nap((long)(pace_msec ? pace_msec : LPUTS_NAP_COUNT));
+X
+X}	/* end of lputc_paced */
+X
+X/*+-----------------------------------------------------------------------
+X	lputs(string) -- write string to comm line
+X------------------------------------------------------------------------*/
+Xvoid
+Xlputs(string)
+Xregister char *string;
+X{
+X	while(*string)
+X		lputc(*string++);
+X}
+X
+X/*+-----------------------------------------------------------------------
+X	lputs_paced(pace_msec,string) -- write string to comm line
+X  with time between each character 
+X------------------------------------------------------------------------*/
+Xvoid
+Xlputs_paced(pace_msec,string)
+Xregister pace_msec;
+Xregister char *string;
+X{
+X	while(*string)
+X		lputc_paced(pace_msec,*string++);
+X
+X}	/* end of lputs_paced */
+X
+X/*+-------------------------------------------------------------------------
+X	valid_baud_rate(baud) -- returns (positive) baud rate selector
+Xor -1 if invalid baud rate
+X--------------------------------------------------------------------------*/
+Xvalid_baud_rate(baud)
+Xuint baud;
+X{
+X	switch(baud)
+X	{
+X		case 110: return(B110);
+X		case 300: return(B300);
+X		case 600: return(B600);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 4800: return(B4800);
+X		case 9600: return(B9600);
+X		case 19200: return(EXTA);
+X		case 38400: return(EXTB);
+X		default: return(-1);
+X	}
+X
+X}	/* end of valid_baud_rate */
+X
+X/*+-----------------------------------------------------------------------
+X	lset_baud_rate(ioctl_flag)
+X
+X  If 'ioctl_flag' is set, then perform ioctl call
+X  is executed after setting baud rate
+X------------------------------------------------------------------------*/
+Xlset_baud_rate(ioctl_flag)
+Xint ioctl_flag;
+X{
+X	int baud_selector = valid_baud_rate(shm->Lbaud);
+X
+X	if(shm->Liofd < 0)
+X		return(0);
+X
+X	if(baud_selector == -1)
+X		baud_selector = valid_baud_rate(shm->Lbaud = DEFAULT_BAUD_RATE);
+X
+X	shm->Lmodem_already_init = 0;
+X	Ltermio->c_cflag &= ~CBAUD;
+X	Ltermio->c_cflag |= baud_selector;
+X
+X	if(baud_selector < B300)
+X		Ltermio->c_cflag |= CSTOPB;
+X	else
+X		Ltermio->c_cflag &= ~CSTOPB;
+X
+X	if(ioctl_flag)
+X		 ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X	return(0);
+X
+X}	/* end of lset_baud_rate */
+X
+X/*+-------------------------------------------------------------------------
+X	display_hw_flow_config() - display hardware flow control configuration
+X--------------------------------------------------------------------------*/
+X#if defined(HW_FLOW_CONTROL) /* see ecu.h */
+Xvoid
+Xdisplay_hw_flow_config()
+X{
+X#undef ____HANDLED
+X#ifdef RTSFLOW /* SCO */
+X#define ____HANDLED
+X	pprintf("RTSFLOW %s CTSFLOW %s",
+X		(Ltermio->c_cflag & RTSFLOW) ? "on" : "off",
+X		(Ltermio->c_cflag & CTSFLOW) ? "on" : "off");
+X#ifdef CRTSFL
+X	pprintf(" CRTSFL %s",
+X		(Ltermio->c_cflag & CRTSFL) ? "on" : "off");
+X#endif /* CRTSFL */
+X	pprintf("\n");
+X#endif /* RTSFLOW */
+X
+X#ifdef RTSXOFF /* SVR4 */
+X#define ____HANDLED
+X	pprintf("RTSXOFF %s CTSXON %s\n",
+X		(hx_flag & RTSXOFF) ? "on" : "off",
+X		(hx_flag & CTSXON) ? "on" : "off");
+X#endif /* RTSXOFF */
+X
+X#if defined(CRTSCTS) /* sun */
+X#define ____HANDLED
+X	pprintf(" CRTSCTS %s\n",
+X		(Ltermio->c_cflag & CRTSCTS) ? "on" : "off");
+X#endif /* sun */
+X
+X#ifndef ____HANDLED
+Xporting_attention_needed_here; /* HW_FLOW_CONTROL but no recognized flags */
+X/*
+X * if you are reading this because of a compilation error, you may wish to
+X * go ahead and grep for 'RTSFLOW' and 'display_hw_flow_control' to find other
+X * hardware control dependencies (like in lRTSCTS_control() below).  This is
+X * the only rigrous test in ECU for making sure that if HW_FLOW_CONTROL is on
+X * we know what to do about it.
+X */
+X#endif /* ____HANDLED */
+X
+X}	/* end of display_hw_flow_config */
+X#endif /* HW_FLOW_CONTROL */
+X
+X/*+-------------------------------------------------------------------------
+X	lRTSCTS_control(flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+XlRTSCTS_control(flag)
+Xint flag;
+X{
+X#ifdef RTSXOFF /* SVR4 */
+X	struct termiox flowctrl;
+X
+X	ioctl(shm->Liofd, TCGETX, &flowctrl);
+X	switch(flag)
+X	{
+X		case 0:
+X			flowctrl.x_hflag &= ~(RTSXOFF | CTSXON);
+X			Ltermio->c_iflag |= (IXOFF);
+X			break;
+X
+X		case 1:
+X			flowctrl.x_hflag |= CTSXON;
+X			flowctrl.x_hflag &= ~RTSXOFF;
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			break;
+X		case 2:
+X			flowctrl.x_hflag |= RTSXOFF;
+X			flowctrl.x_hflag &= ~CTSXON;
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			break;
+X		case 3:
+X			flowctrl.x_hflag |= (RTSXOFF | CTSXON);
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			break;
+X	}
+X	shm->Lxonxoff = Ltermio->c_iflag & (IXON|IXOFF);
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X	ioctl(shm->Liofd, TCSETX, &flowctrl);
+X	hx_flag = flowctrl.x_hflag;
+X#else /* !SVR4 */
+X#if defined(RTSFLOW)	/* only SCO */
+X	switch(flag & 3)
+X	{
+X		case 0:
+X			Ltermio->c_iflag |= (IXOFF);
+X			Ltermio->c_cflag &= ~(RTSFLOW | CTSFLOW);
+X			break;
+X
+X		case 1:
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			Ltermio->c_cflag |= CTSFLOW;
+X			Ltermio->c_cflag &= ~RTSFLOW;
+X			break;
+X
+X		case 2:
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			Ltermio->c_cflag |= RTSFLOW;
+X			Ltermio->c_cflag &= ~CTSFLOW;
+X			break;
+X
+X		case 3:
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			Ltermio->c_cflag |= (RTSFLOW | CTSFLOW);
+X			break;
+X	}
+X#if defined(CRTSFL)
+X	if(flag & 4)
+X	{
+X		Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY | RTSFLOW | CTSFLOW);
+X		Ltermio->c_cflag |= CRTSFL;
+X	}
+X#endif
+X	shm->Lxonxoff = Ltermio->c_iflag & (IXON|IXOFF);
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X
+X#else
+X#if defined(CRTSCTS) /* sun */
+X	switch(flag)
+X	{
+X		case 0:
+X			Ltermio->c_iflag |= (IXOFF);
+X			Ltermio->c_cflag &= ~(CRTSCTS);
+X			break;
+X
+X		default:
+X			Ltermio->c_iflag &= ~(IXON | IXOFF | IXANY);
+X			Ltermio->c_cflag |= CRTSCTS;
+X			break;
+X
+X	}
+X	shm->Lxonxoff = Ltermio->c_iflag & (IXON|IXOFF);
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X
+X#endif /* sun */
+X#endif /* RTSFLOW */
+X#endif /* SVR4 */
+X}	/* end of lRTSCTS_control */
+X
+X/*+-------------------------------------------------------------------------
+X	lnew_baud_rate(new_baud)
+X--------------------------------------------------------------------------*/
+Xint
+Xlnew_baud_rate(new_baud)
+Xuint new_baud;
+X{
+X	if(valid_baud_rate(new_baud) < 0)
+X		return(-1);
+X	if(shm->Lbaud != new_baud)
+X		shm->Lmodem_already_init = 0;
+X	shm->Lbaud = new_baud;
+X	lset_baud_rate(1);
+X	return(0);
+X}	/* end of lnew_baud_rate */
+X
+X/*+-----------------------------------------------------------------------
+X	lset_parity(ioctl_flag)
+X
+X  If 'ioctl_flag' is set, then perform ioctl call
+X  is executed after setting parity
+X------------------------------------------------------------------------*/
+Xvoid
+Xlset_parity(ioctl_flag)
+Xint ioctl_flag;
+X{
+X	if(shm->Liofd < 0)
+X		return;
+X
+X	Ltermio->c_cflag &= ~(CS8 | PARENB | PARODD);
+X	switch(to_lower(shm->Lparity))
+X	{
+X		case 'e':
+X			Ltermio->c_cflag |= CS7 | PARENB;
+X			Ltermio->c_iflag |= ISTRIP;
+X			break;
+X		case 'o':
+X			Ltermio->c_cflag |= CS7 | PARENB | PARODD;
+X			Ltermio->c_iflag |= ISTRIP;
+X			break;
+X		default:
+X			ff(se,"invalid parity: '%c' ... defaulting to no parity\r\n",
+X				to_lower(shm->Lparity));
+X		case 'n':
+X			shm->Lparity = 0;
+X		case 0:
+X			Ltermio->c_cflag |= CS8;
+X			Ltermio->c_iflag &= ~(ISTRIP);
+X			shm->Lparity = 0;
+X			break;
+X	}			
+X
+X	if(ioctl_flag)
+X		ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X
+X}	/* end of lset_parity */
+X
+X/*+-------------------------------------------------------------------------
+X	lclear_xmtr_xoff()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlclear_xmtr_xoff()
+X{
+X	ioctl(shm->Liofd,TCXONC,(char *)1); /* restart xmtr output */
+X}	/* end of lclear_xmtr_xoff */
+X
+X/*+-------------------------------------------------------------------------
+X	lbreak()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlbreak()
+X{
+X	ioctl(shm->Liofd,TCSBRK,(char *)0);
+X}	/* end of lbreak */
+X
+X/*+-------------------------------------------------------------------------
+X	linst_err_text(lerr)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xlinst_err_text(lerr)
+Xint lerr;
+X{
+X	static char lerr_s80[80];
+X	extern uchar last_ugstat;
+X	char *ugstat_text();
+X
+X	if(lopen_err_str[0])
+X		return(lopen_err_str);
+X
+X	switch(lerr)
+X	{
+X		case LINST_INVALID: return("invalid line name");
+X		case LINST_UNKPID: return("unknown pid is using line");
+X		case LINST_LCKERR: return("error creating lock file");
+X		case LINST_NODEV: return("line does not exist");
+X		case LINST_ALREADY: return("line already open!?");
+X		case LINST_OPNFAIL:
+X			sprintf(lerr_s80,"open error (%-.60s)",
+X				errno_text(errno));
+X			return(lerr_s80);
+X		case LINST_ENABLED: return("line enabled for incoming login");
+X		case LINST_ENABLED_IN_USE: return("line in use by incoming login");
+X		case LINST_DIALOUT_IN_USE: return("line in use by another dial out");
+X		case LINST_NOPTY: return("ptys not supported");
+X		case LINST_WEGOTIT: return("line is locked by this process");
+X		case LINST_ECUUNGETTY:
+X			sprintf(lerr_s80,"ecuungetty error (%-.45s)",
+X				ugstat_text(last_ugstat));
+X			return(lerr_s80);
+X		case LINST_ECUUNGETTY2:
+X			return("ecuungetty execution error");
+X		case LINST_NOTCHR:
+X			return("not a character special device");
+X	}
+X	if(lerr > 0)
+X		sprintf(lerr_s80,"pid %d using line",lerr);
+X	else
+X		sprintf(lerr_s80,"unknown line error %d",lerr);
+X	return(lerr_s80);
+X}	/* end of linst_err_text */
+X
+X/*+-------------------------------------------------------------------------
+X	lopen_failed(sig) - see lopen() below
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlopen_failed(sig)
+Xint sig;
+X{
+X	if(sig != SIGALRM)
+X		ff(se,"error %d in lopen_failed: tell wht@n4hgf\r\n",sig);
+X	longjmp(_insurance_jmpbuf,1);
+X
+X}	/* end of lopen_failed */
+X
+X/*+----------------------------------------------------------------------
+X	lopen()
+Xreturns negative LINST_ codes if failure else positive pid using line
+Xelse 0 if successful open
+X------------------------------------------------------------------------*/
+Xint
+Xlopen()
+X{
+X	int itmp;
+X	struct stat ttystat;
+X
+X#ifdef SHARE_DEBUG
+X	char s80[80];
+X	sprintf(s80,"lopen Liofd=%d Lline=%s line_lock_status=%d",
+X	    shm->Liofd,shm->Lline,
+X	    line_lock_status(shm->Lline));
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	/*
+X	 * system independent checks
+X	 */
+X	if(shm->Liofd >= 0)
+X		return(LINST_ALREADY);
+X	if(!strcmp(shm->Lline,"/dev/tty"))
+X		return(LINST_INVALID);
+X	if(stat(shm->Lline,&ttystat) < 0)
+X	{
+X		if(errno == ENOENT)
+X			return(LINST_NODEV);
+X		return(LINST_OPNFAIL);
+X	}
+X	if((ttystat.st_mode & S_IFMT) != S_IFCHR)
+X		return(LINST_NOTCHR);
+X	if(ulindex(shm->Lline,"pty") > -1)
+X		return(LINST_NOPTY);
+X
+X	/*
+X	 * lock the tty 
+X	 */
+X	if((itmp = lock_tty(shm->Lline)) && (itmp != LINST_WEGOTIT))
+X		return(itmp);
+X
+X	/*
+X	 * if appropriate, make sure we have ungetty'd the line
+X	 */
+X#if defined(USE_ECUUNGETTY)
+X	ungetty_return_all_but(shm->Lline);
+X	if(!in_ungetty_list(shm->Lline))
+X	{
+X		if(itmp = ungetty_get_line(shm->Lline))
+X		{
+X			sprintf(lopen_err_str,"ecuungetty error - %s",linst_err_text(itmp));
+X			unlock_tty(shm->Lline);
+X			return(itmp);
+X		}
+X	}
+X#endif
+X
+X	/*
+X	 * rarely an open will hang despite our wisdom and prayer
+X	 */
+X	if(setjmp(_insurance_jmpbuf))
+X	{
+X		alarm(0);
+X		signal(SIGALRM,SIG_IGN);
+X		errno = EIO;
+X		sprintf(lopen_err_str,"open error - %s",errno_text(errno));
+X		unlock_tty(shm->Lline);
+X		return(LINST_OPNFAIL);
+X	}
+X
+X	/*
+X	 * open the tty using non-blocking I/O to bypass DCD wait
+X	 * handle EAGAIN for SVR4 per kortcs!tim
+X	 */
+X
+X	for (itmp=0; ; ++itmp)
+X	{
+X		signal(SIGALRM,lopen_failed);
+X#ifdef sun
+X		alarm(10);
+X#else
+X		alarm(5);
+X#endif
+X		shm->Liofd = open(shm->Lline,O_RDWR | O_NDELAY,0666);
+X		alarm(0);
+X		signal(SIGALRM,SIG_IGN);
+X		if(shm->Liofd >= 0)
+X			break;
+X		if((itmp < 5) && (errno == EAGAIN))
+X		{
+X			(void)signal(SIGALRM,SIG_DFL);
+X			alarm(0);
+X			sleep(2);
+X			continue;
+X		}
+X		if (errno == EACCES)
+X		{
+X			struct passwd *pw = getpwuid(ttystat.st_uid);
+X			endpwent();
+X			if(pw)
+X			{
+X				sprintf(lopen_err_str,
+X					"cannot open line owned by %s (mode=%3o)",
+X					pw->pw_name,ttystat.st_mode & 0777);
+X			}
+X			else
+X			{
+X				sprintf(lopen_err_str,
+X					"open error - try chmod +rw %s",shm->Lline);
+X			}
+X		}
+X		else 
+X			sprintf(lopen_err_str,"open error - %s",errno_text(errno));
+X		unlock_tty(shm->Lline);
+X		return(LINST_OPNFAIL);
+X	}
+X
+X	/*
+X	 * turn off non-blocking I/O and set initial termio, including CLOCAL
+X	 */
+X	fcntl(shm->Liofd,F_GETFL,&itmp);
+X	itmp &= ~O_NDELAY;
+X	fcntl(shm->Liofd,F_SETFL,itmp);
+X
+X	ioctl(shm->Liofd,TCGETA,(char *) Ltermio);
+X	Ltermio->c_iflag = (IGNPAR | IGNBRK | shm->Lxonxoff);
+X	Ltermio->c_oflag = 0;
+X	Ltermio->c_cflag |= (CLOCAL | CREAD | HUPCL);
+X	Ltermio->c_lflag = 0;
+X	Ltermio->c_cc[VMIN]   = 1;
+X	Ltermio->c_cc[VTIME]  = 1;
+X	lset_baud_rate(0);		/* do not perform ioctl */
+X	lset_parity(1);			/* do perform ioctl */
+X
+X#if defined(SVR4)
+X	hx_flag = 0;			/* hardware flow control "memory" */
+X#endif
+X
+X	lopen_err_str[0] = 0;	/* no error this time! */
+X	return(0);
+X
+X}	/* end of lopen */
+X
+X/*+-------------------------------------------------------------------------
+X	lclose_failed(sig) - see lclose() below
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlclose_failed(sig)
+Xint sig;
+X{
+X	if(sig != SIGALRM)
+X		ff(se,"error %d in lclose_failed: tell wht@n4hgf\r\n",sig);
+X	longjmp(_insurance_jmpbuf,1);
+X
+X}	/* end of lclose_failed */
+X
+X/*+-----------------------------------------------------------------------
+X	lclose() - close the line
+X
+XThe FAS driver and others hang on a close until all output for a line
+Xhas drained.  Sometimes during a hangup, a noisy XOFF can be received.
+XOther changeces for failure include a DCE which drops CTS and leaves
+Xit off, locking the line up if there is output waiting to go out.
+XTo make sure the line is actually closed in these situations, a SIGLARM
+Xhandler is used.
+X------------------------------------------------------------------------*/
+Xvoid
+Xlclose()
+X{
+X	struct termio ttio;
+X	int attempt2 = 0;
+X
+X#ifdef SHARE_DEBUG
+X	char s80[80];
+X	sprintf(s80,"lclose Liofd=%d Lline=%s line_lock_status=%d",
+X		shm->Liofd,shm->Lline,
+X		line_lock_status(shm->Lline));
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	if(shm->Liofd < 0)
+X		return;
+XATTEMPT: /* endless loop because we cannot get out anyway unless success */
+X	signal(SIGALRM,lclose_failed);
+X#ifdef sun
+X	alarm(10);
+X#else
+X	alarm(5);
+X#endif
+X	if(setjmp(_insurance_jmpbuf))
+X	{	/* close failed */
+X		signal(SIGALRM,SIG_IGN);
+X		alarm(0);
+X		ff(se,"\r\nclose failed (remote XOFF?) ... retrying close\r\n");
+X		lclear_xmtr_xoff();
+X		ttio = *Ltermio;
+X		ttio.c_iflag &= ~(IXON | IXOFF);
+X		ttio.c_cflag &= (CSIZE | CSTOPB | CREAD | PARENB | PARODD);
+X		ioctl(shm->Liofd,TCSETA,(char *)&ttio);
+X		lflush(2);
+X		attempt2 = 1;
+X		goto ATTEMPT;
+X	}
+X	if(!attempt2)
+X	{
+X		lclear_xmtr_xoff();
+X		ldraino(1);
+X	}
+X	lCLOCAL(1);
+X	close(shm->Liofd);
+X	signal(SIGALRM,SIG_IGN);
+X	alarm(0);
+X	unlock_tty(shm->Lline);
+X	shm->Lmodem_already_init = 0;
+X	shm->Lconnected = 0;
+X	shm->Liofd = -1;
+X
+X}	/* end of lclose */
+X
+X/*+-------------------------------------------------------------------------
+X	lflash_dtr() - flash DTR
+X
+XDTR is lowered for 300 msec and raised again.  After raising,
+Xwe pause a while for a possibly slow DCE to rereap it's fecal material
+X
+Xexpects:  Ltermio - current termio status of line
+X          shm->Liofd - current line fd
+X          shm->Lline - /dev/ttyxx name of line
+X
+XOn SunOS and SVR4, an open/close of the line is required to get DTR back
+Xup. SVR3 does not seem to need this (ISC asy, SCO sio, Uwe Doering's FAS)
+Xbut we do it anyway
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlflash_dtr()
+X{
+X#undef NEED_REOPEN
+X#if defined(sun) || defined(SVR4)
+X#define NEED_REOPEN
+X	int tempfd;
+X#endif
+X	struct termio b0t;
+X
+X	/*
+X	 * copy termio but CBAUD to B0
+X	 */
+X	b0t = *Ltermio;
+X	b0t.c_cflag &= ~CBAUD;	/* B0 */
+X
+X	/*
+X	 * drop DTR for a while
+X	 */
+X	ioctl(shm->Liofd,TCSETA,(char *)&b0t);		/* drop DTR */
+X
+X	/*
+X	 * DTR will not come back on some systems without open/close line
+X	 */
+X#ifdef NEED_REOPEN
+X	if ((tempfd = open(shm->Lline, O_NDELAY | O_RDWR, 0666)) != -1)
+X		close(tempfd);
+X	else
+X	{
+X		int save_errno = errno;
+X		char s128[128];
+X		sprintf(s128,"FLASH DTR line reopen failed (%.80s)",
+X			errno_text(errno));
+X		ecu_log_event(shm->xmtr_pid,s128);
+X		pputs(s128);
+X		pputs("\n");
+X		errno = save_errno;
+X		termecu(TERMECU_LINE_OPEN_ERROR);
+X	}
+X#else
+X	/*
+X	 * ensure DTR low for 300 msec
+X	 * (the tempfd open/close takes plenty long enough)
+X	 */
+X	Nap(300L);
+X#endif
+X
+X	/*
+X	 * reestablish baud rate 
+X	 * (raise DTR if the open/close line did not do it)
+X	 */
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);	/* raise DTR */
+X	Nap(300L);	/* nap to give a lazy DCE some time */
+X
+X#undef NEED_REOPEN
+X
+X}	/* end of lflash_dtr */
+X
+X/*+-------------------------------------------------------------------------
+X	lxon_xoff(flag)
+XIXON specifies whether or not we respond to xon/xoff characters
+XIXOFF specifies whether or not we generate XON/XOFF characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlxon_xoff(flag)
+Xint flag;
+X{
+X	if(flag & IXON)
+X		Ltermio->c_iflag |= IXON;
+X	else
+X		Ltermio->c_iflag &= ~IXON;
+X
+X	if(flag & IXOFF)
+X		Ltermio->c_iflag |= IXOFF;
+X	else
+X		Ltermio->c_iflag &= ~IXOFF;
+X	shm->Lxonxoff = Ltermio->c_iflag & (IXON|IXOFF);
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X#if 0
+X	Nap(400L);
+X#endif
+X
+X}	/* end of lflash_dtr */
+X
+X/*+-------------------------------------------------------------------------
+X	lget_xon_xoff(ixon,ixoff)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlget_xon_xoff(ixon,ixoff)
+Xint *ixon;
+Xint *ixoff;
+X{
+X	*ixon  = Ltermio->c_iflag & IXON;
+X	*ixoff = Ltermio->c_iflag & IXOFF;
+X}	/* end of lget_xon_xoff */
+X
+X/*+-------------------------------------------------------------------------
+X	set_xon_xoff_by_arg(arg)
+X--------------------------------------------------------------------------*/
+Xint
+Xset_xon_xoff_by_arg(arg)
+Xchar *arg;
+X{
+X	if(ulcmpb(arg,"on") < 0)
+X		shm->Lxonxoff = IXON | IXOFF;
+X	else if(ulcmpb(arg,"off") < 0)
+X		shm->Lxonxoff = 0;
+X	else if(ulcmpb(arg,"out") < 0)
+X		shm->Lxonxoff = IXON;
+X	else if(ulcmpb(arg,"in") < 0)
+X		shm->Lxonxoff = IXOFF;
+X	else
+X		return(-1);
+X
+X	Ltermio->c_iflag &= ~(IXON|IXOFF);
+X	Ltermio->c_iflag |= shm->Lxonxoff;
+X	ioctl(shm->Liofd,TCSETA,(char *)Ltermio);
+X	return(0);
+X
+X}	/* end of set_xon_xoff_by_arg */
+X
+X/*+-------------------------------------------------------------------------
+X	xon_status()
+X--------------------------------------------------------------------------*/
+Xchar *
+Xxon_status()
+X{
+X	switch(shm->Lxonxoff)
+X	{
+X		case 0            : return("off");
+X		case IXON         : return("in off, out on");
+X		case        IXOFF : return("in on, out off");
+X		case IXON | IXOFF : return("on");
+X	}
+X	return("logic error");
+X}	/* end of xon_status */
+X
+X/*+-------------------------------------------------------------------------
+X	lCLOCAL(flag) - set line CLOCAL state
+X
+Xflag == 0: turn off CLOCAL to catch DCD loss
+X     == 1: turn on CLOCAL to ignore modem signals
+X
+Xdoes not let CLOCAL be turned off if not Lconnected
+Xalso resets global zero_length_read_detected
+X--------------------------------------------------------------------------*/
+Xvoid
+XlCLOCAL(flag)
+Xint flag;
+X{
+X
+X	if(flag)
+X		Ltermio->c_cflag |= CLOCAL;
+X	else if(shm->Lconnected)
+X		Ltermio->c_cflag &= ~CLOCAL;
+X	else
+X		Ltermio->c_cflag |= CLOCAL;
+X
+X	zero_length_read_detected = 0;
+X	lreset_ksr();	/* do the ioctl */
+X
+X#ifdef DEBUG_CLOCAL
+X	{
+X		char s128[128];
+X		sprintf(s128,"lCLOCAL(%d) connected=%c CLOCAL set %o",
+X			flag,shm->Lconnected?'y':'n',Ltermio->c_cflag & CLOCAL?1:0);
+X		ecu_log_event((int)xmtr_pid,s128);
+X		pprintf("%s\n",s128);
+X	}
+X#endif
+X
+X}	/* end of lCLOCAL */
+X
+X/*+-------------------------------------------------------------------------
+X	ldcdwatch(flag) - set DCD watcher state
+X--------------------------------------------------------------------------*/
+Xvoid
+Xldcdwatch(flag)
+Xint flag;
+X{
+X	shm->Ldcdwatch = flag;
+X	dcdwatch_set = 1;
+X	lCLOCAL(!flag);
+X}	/* end of ldcdwatch */
+X
+X/*+-------------------------------------------------------------------------
+X	ldcdwatch_str(flagstr) - string version of ldcdwatch
+X
+Xreturn 0 if successful or -1 if bad flagstr
+X--------------------------------------------------------------------------*/
+Xint
+Xldcdwatch_str(flagstr)
+Xchar *flagstr;
+X{
+X	static STR_CLASSIFY sc[] = {
+X		{ "1",			1,DCDW_ON },
+X		{ "yes",		1,DCDW_ON },
+X		{ "on",			2,DCDW_ON },
+X		{ "0",			1,DCDW_ON },
+X		{ "no",			1,DCDW_OFF },
+X		{ "off",		3,DCDW_OFF },
+X		{ "terminate",	1,DCDW_TERMINATE },
+X		{ (char *)0,	0,-1 }
+X	};
+X	int token;
+X
+X	if((token = str_classify(sc,flagstr)) < 0)
+X		return(-1);
+X
+X	ldcdwatch(token);
+X	return(0);
+X		
+X}	/* end of ldcdwatch_str */
+X
+X/*+-------------------------------------------------------------------------
+X	lzero_length_read_detected() - read from line returned zero length
+X
+XThis must mean CLOCAL was off and DCD is/went low.  We do different things
+Xdepending in the xmtr and rcvr process
+X
+XIf we return, the condition has ben handled and reads may be retried
+Xsafely or other appropriate operations performed; otherwise ECU is
+Xterminated.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlzero_length_read_detected()
+X{
+X
+X	zero_length_read_detected = 1;
+X	if(getpid() == xmtr_pid)	/* if we are in the transmitter */
+X	{
+X#ifdef DEBUG_CLOCAL
+X		ecu_log_event((int)xmtr_pid,"lzero xmtr");
+X		pprintf("lzero xmtr\n");
+X#endif
+X		if(shm->Lconnected)
+X		{
+X			extern ulong colors_current;
+X			ulong colors_at_entry = colors_current;
+X
+X			fputs("\r\n",se);
+X			setcolor(colors_notify);
+X			fputs("[connection terminated]",se);
+X			setcolor(colors_at_entry);
+X			fputs("\r\n",se);
+X			DCE_now_on_hook();	/* does a lCLOCAL(1); */
+X		}
+X		else
+X			lCLOCAL(1);
+X		Nap(1000L);
+X		lflush(2);
+X
+X		if(shm->Ldcdwatch == DCDW_TERMINATE)
+X			termecu(0);
+X		shmx_unpause_rcvr();
+X	}
+X	else	/* we are in the receiver */
+X	{
+X#ifdef DEBUG_CLOCAL
+X		ecu_log_event((int)xmtr_pid,"lzero rcvr");
+X		pprintf("lzero rcvr\n");
+X#endif
+X		/*
+X		 * make line "safe" to read from immediately;
+X		 * however, if CLOCAL was set and we get a zero length read,
+X		 * we are in some kind of unknown trouble
+X		 */
+X		if(Ltermio->c_cflag & CLOCAL)	/* zero len read with CLOCAL? */
+X		{								/* then die ECU */
+X			errno = EIO;
+X			termecu(TERMECU_LINE_READ_ERROR);
+X		}
+X		lCLOCAL(1);
+X		shmr_notify_xmtr_of_DCD_loss();
+X		pause();		/* wait for unpause */
+X	}
+X
+X}	/* end of lzero_length_read_detected */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of eculine.c */
+SHAR_EOF
+echo 'File eculine.c is complete' &&
+chmod 0644 eculine.c ||
+echo 'restore of eculine.c failed'
+Wc_c="`wc -c < 'eculine.c'`"
+test 39681 -eq "$Wc_c" ||
+	echo 'eculine.c: original size 39681, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= eculock.c ==============
+if test -f 'eculock.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping eculock.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting eculock.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'eculock.c' &&
+X#define HONEYDANBER /* means use ASCII pids in lock files */
+X#if defined(SHARE_DEBUG)
+X#define LOG_LOCKS
+X#endif
+X/*+-----------------------------------------------------------------------
+X	eculock.c -- lock file management
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	create_lock_file(name)
+X	lock_tty(line)
+X	unlock_tty(line)
+X
+XLock files under SCO are supposed to use the direct line name
+X(lower-case last letter); we create only the lower-case case, but
+Xcheck for both.  I have most definitely seen somebody create an
+Xupper-case lock file (somebody named getty).  But that was on a middle-
+Xaged XENIX revision.
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-19-1992-22:09-wht@n4hgf-rename check_utmp to reserve_line and move it */
+X/*:07-19-1992-21:54-wht@n4hgf-lock_tty does not effect ungetty_get anymore */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-10-1991-17:39-wht@n4hgf-US_WEGOTIT handling */
+X/*:08-09-1991-11:07-wht@n4hgf-configurable lock directory */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:10-16-1990-20:43-wht@n4hgf-add SHARE_DEBUG */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X
+Xextern int errno;
+Xextern char ungetty_ttyname[];
+Xextern char lopen_err_str[];
+X
+X/*+-------------------------------------------------------------------------
+X	create_lock_file(name)
+X--------------------------------------------------------------------------*/
+Xint
+Xcreate_lock_file(name)
+Xchar *name;
+X{
+X	register fd;
+X	int pid = getpid();
+X	char LTMP_fname[64];
+X#if defined(HONEYDANBER)
+X	char pid10str[12];
+X#endif
+X
+X	errno = 0;
+X	sprintf(LTMP_fname,"%s/LTMP.%05d",lock_dir_name,pid);
+X	if((fd = creat(LTMP_fname,0444)) < 0)
+X	{
+X		if(errno == EACCES)
+X		{
+X			strcpy(lopen_err_str,"lock error - try chmod 0777 ");
+X			strcat(lopen_err_str,lock_dir_name);
+X		}
+X		unlink(LTMP_fname);
+X		return(-1);
+X	}
+X#if defined(HONEYDANBER)
+X	sprintf(pid10str,"%10d\n",getpid());
+X	write(fd,pid10str,11);
+X#else
+X	write(fd,(char *)&pid,sizeof(int));
+X#endif
+X
+X	chmod(LTMP_fname,0444);	/* some programs seem to think writable
+X							 * lock file is game for killing
+X							 */
+X	close(fd);
+X
+X	fd = link(LTMP_fname,name);		/* use 'fd' for link return code */
+X	unlink(LTMP_fname);
+X	chmod(name,0444);
+X
+X#if defined(LOG_LOCKS)
+X	{
+X		char s128[128];
+X		extern char *errno_text();
+X		sprintf(s128,"CRLOCK %s status=%d errno=%s",name,fd,errno_text(errno));
+X		ecu_log_event(getpid(),s128);
+X	}
+X#endif
+X
+X	return(fd);
+X}	/* end of create_lock_file */
+X
+X/*+-------------------------------------------------------------------------
+X	lock_tty(line) - create lock files for tty line in 'line'
+X
+Xreturn 0 if locked else LINST_... error
+X--------------------------------------------------------------------------*/
+Xint
+Xlock_tty(line)
+Xchar *line;
+X{
+X	register linst = 0;
+X	char lockname[128];
+X
+X	lockname[0] = 0;
+X	errno = 0;
+X
+X	if(linst = make_lock_name(line,lockname))
+X		goto RETURN;
+X
+X
+X	if(create_lock_file(lockname))
+X	{
+X		if(linst = is_active_lock(lockname))
+X		{
+X			if(linst == LINST_WEGOTIT)
+X			{
+X				linst = 0;
+X				goto RETURN;
+X			}
+X			ungetty_return_line(line);
+X			errno = EACCES; /* for termecu() */
+X			goto RETURN;
+X		}
+X		if(create_lock_file(lockname))
+X		{
+X			ungetty_return_line(line);
+X			errno = EACCES; /* for termecu() */
+X			{
+X				linst = LINST_LCKERR;
+X				goto RETURN;
+X			}
+X		}
+X	}
+X
+XRETURN: ;
+X
+X#if defined(LOG_LOCKS)
+X	{
+X		extern char *errno_text();
+X		char s128[128];
+X		sprintf(s128,"LOCKTTY %s status %d errno=%s",line,
+X			linst,errno_text(errno));
+X		ecu_log_event(getpid(),s128);
+X	}
+X#endif
+X
+X	return(linst);
+X
+X}	/* end of lock_tty */
+X
+X/*+-----------------------------------------------------------------------
+X	void unlock_tty(line)
+X------------------------------------------------------------------------*/
+Xvoid
+Xunlock_tty(line)
+Xchar *line;
+X{
+X	char lockname[128];
+X
+X	if(make_lock_name(line,lockname))
+X	{
+X		ff(se,"unlock_tty cannot build lock file for %s\r\n",line);
+X		termecu(TERMECU_LOGIC_ERROR);
+X	}
+X
+X	ungetty_return_line(line);
+X	unlink(lockname);
+X
+X}	/* end of unlock_tty */
+X
+X/* end of eculock.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 eculock.c ||
+echo 'restore of eculock.c failed'
+Wc_c="`wc -c < 'eculock.c'`"
+test 4275 -eq "$Wc_c" ||
+	echo 'eculock.c: original size 4275, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecunumrev.c ==============
+if test -f 'ecunumrev.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecunumrev.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecunumrev.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecunumrev.c' &&
+X/* #define ALPHA */
+X/* #define BETA */
+X/*+-----------------------------------------------------------------------
+X	ecunumrev.c - revision numbers
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	build_revision_string()
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:11-16-1991-17:05-wht@n4hgf-better development "x" rev numbering */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:07-25-1991-12:56-wht@n4hgf-ECU release 3.10 */
+X/*:07-12-1991-14:14-wht@n4hgf-GCC140 differentiation */
+X/*:04-27-1991-01:52-wht@n4hgf-overhaul revision numbers */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <malloc.h>
+X#include "patchlevel.h"
+X
+X#if defined(M_UNIX)
+X#undef M_XENIX
+X#endif
+X
+Xchar *numeric_revision = "3";
+X
+X/*
+X * this is not a patchlevel, but a "sub-patchlevel" to keep my life sane
+X */
+X#if defined(WHT) || defined(ALPHA) || defined(BETA)
+Xchar *numeric_devrev = "00";
+X#else
+Xchar *numeric_devrev = "";
+X#endif
+Xchar *revstr = "";
+X
+X/*+-------------------------------------------------------------------------
+X	build_revision_string()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbuild_revision_string()
+X{
+X	int itmp;
+X	char s128[128];
+X
+X	sprintf(s128,"%s%s.%02d",
+X		(itmp = strlen(numeric_devrev)) ? 
+X#ifdef ALPHA
+X			"ALPHA-"
+X#else
+X#ifdef BETA
+X			"BETA-"
+X#else
+X			"x"
+X#endif
+X#endif
+X			: "",
+X		numeric_revision,PATCHLEVEL);
+X
+X	if(itmp)
+X	{
+X		strcat(s128,".");
+X		strcat(s128,numeric_devrev);
+X	}
+X
+X	strcat(s128,"-");
+X
+X#if defined(M_I286)
+X	strcat(s128,"286");
+X#else
+X#if defined(M_I386) || defined(i386) && (!defined(sun) && !defined(SVR4))
+X	strcat(s128,"386");
+X#	if defined(M_XENIX)
+X#		if defined(WORKING_SELECT)
+X			 strcat(s128,"s");
+X#		else
+X			 strcat(s128,"n");
+X#		endif /* WORKING_SELECT */
+X#	endif /* M_XENIX */
+X#	if defined(M_UNIX)
+X		strcat(s128,"u");
+X#	endif /* M_UNIX */
+X#	if defined(ISC)
+X		strcat(s128,"i");
+X#	endif /* ISC */
+X#else
+X#if defined(sun)
+X	strcat(s128,"sun");
+X#else
+X#if defined(SVR4)
+X#   if defined(ESIXSVR4)
+X#      define found_one
+X	   strcat(s128,"eSVR4");
+X#   endif
+X#   if defined(ISCSVR4)
+X#      define found_one
+X	   strcat(s128,"iSVR4");
+X#   endif
+X#   if !defined(found_one)
+X       strcat(s128,"SVR4");
+X#   endif /* found_one */
+X#   undef    found_one
+X#else
+Xporting_attention_needed_here;
+X#endif /* SVR4 */
+X#endif /* sun */
+X#endif /* M_I386 || i386 */
+X#endif /* M_I286 */
+X
+X#if defined(__GNUC__)
+X#if defined(GCC140)
+X	strcat(s128,"G");
+X#else
+X	strcat(s128,"g");
+X#endif
+X#if __STDC__
+X	strcat(s128,"A");
+X#endif
+X#endif /*  */
+X
+X#ifdef WHT
+X	strcat(s128,"*");
+X#endif /* WHT */
+X
+X#ifndef CONFIG
+X	strcat(s128," wht@n4hgf");
+X#endif
+X
+X	if(!(revstr = malloc(strlen(s128) + 1)))
+X	{
+X		fprintf(stderr,"out of memory so early!?\n");
+X		exit(255);
+X	}
+X	strcpy(revstr,s128);
+X
+X}	/* end of build_revision_string */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecunumrev.c ||
+echo 'restore of ecunumrev.c failed'
+Wc_c="`wc -c < 'ecunumrev.c'`"
+test 3060 -eq "$Wc_c" ||
+	echo 'ecunumrev.c: original size 3060, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecupde.c ==============
+if test -f 'ecupde.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecupde.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecupde.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecupde.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecupde.c - various PDE-related functions
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	call_logical_telno(logical)
+X	choose_tty_for_pde(tpde)
+X	copy_pde_to_Lvariables(tpde,trial)
+X	logical_telno_to_pde(logical)
+X	pde_dial(tpde)
+X	pdetty_to_devtty(pdetty,devtty)
+X	phdir_list_read()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:58-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-14:17-wht@n4hgf-was starting rcvr process too early on connect */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-13-1992-13:27-wht@n4hgf-active_pde use */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:12-02-1991-20:58-wht@n4hgf-breakout into separate module */
+X
+X#include "ecu.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "ecupde.h"
+X#include "dvent.h"
+X#include "termecu.h"
+X#include "ecuerror.h"
+X#include "utmpstatus.h"
+X
+XDVE *hdb_choose_Any();
+XDVE *hdb_choose_Device();
+XPDE *phdir_list_search();
+Xchar *linst_err_text();
+X
+Xextern char errmsg[];
+Xextern char *default_tty;
+Xextern int windows_active;
+X
+Xchar phonedir_name[PHONEDIR_NAME_SIZE];
+Xchar *phonedir_trigger = "#ECUPHONE\n";
+X
+X/*+-----------------------------------------------------------------------
+X	phdir_list_read()
+X
+Xreturn 0 if entire list read, else 1 if error (error msg in errmsg)
+X
+Xif file does not exist, create it, asking confirm only if in
+Xinteractive (curses) mode
+X------------------------------------------------------------------------*/
+Xint
+Xphdir_list_read()
+X{
+X	register token_number;
+X	register char *cptr;
+X	register char *token;
+X	int itmp;
+X	char readpde_buf[128];
+X	FILE *fp_phone;
+X	PDE *tpde;
+X	char *str_token();
+X
+X	if(!phonedir_name[0])
+X	{
+X		get_home_dir(phonedir_name);
+X		strcat(phonedir_name,"/.ecu/phone");
+X	}
+X
+XTRY_OPEN:
+X	if(!(fp_phone = fopen(phonedir_name,"r")))
+X	{
+X		if(errno == ENOENT)
+X		{
+X			if(!want_pd_create(phonedir_name))
+X			{
+X				strcpy(errmsg,"non-existent file not created");
+X				return(1);
+X			}
+X			if((itmp = open(phonedir_name,
+X				O_RDWR | O_CREAT | O_TRUNC,0600)) >= 0)
+X			{
+X				write(itmp,phonedir_trigger,strlen(phonedir_trigger));
+X				close(itmp);
+X				if(windows_active)	/* if called under curses */
+X				{
+X					dirw_bot_msg("created new (empty) directory file");
+X					ring_bell();
+X					Nap(1000L);
+X				}
+X				goto TRY_OPEN;
+X			}
+X			if(errno == ENOENT)
+X			{
+X				strcpy(errmsg,"~/.ecu directory nonexistent!");
+X				ring_bell();
+X				return(1);
+X			}
+X		}
+X		strcpy(errmsg,errno_text(errno));
+X		return(1);
+X	}
+X
+X/* we have an open directory file */
+X	if(!fgets(readpde_buf,sizeof(readpde_buf),fp_phone) ||
+X		strcmp(readpde_buf,phonedir_trigger))
+X	{
+X		fclose(fp_phone);
+X		strcpy(errmsg,"not an ECU phone directory (or is pre-rev-3)");
+X		ring_bell();
+X		return(1);
+X	}
+X
+X	dirw_display_phonedir_name();
+X	phdir_list_erase();		/* clear any previous directory */
+X	while(fgets(readpde_buf,sizeof(readpde_buf),fp_phone))
+X	{
+X		if(readpde_buf[0] == '#')		/* comment? */
+X			continue;
+X		if(itmp = strlen(readpde_buf))	/* itmp = len; if > 0 ... */
+X		{
+X			itmp--;
+X			readpde_buf[itmp] = 0;		/* ... strip trailing NL */
+X		}
+X		cptr = readpde_buf;				/* first call to str_token, -> buff */
+X		while((*cptr == 0x20) || (*cptr == 0x09))
+X			cptr++;						/* strip leading spaces */
+X		if(*cptr == 0)					/* if line all blank, skip it */
+X			continue;
+X
+X		if(!(tpde = (PDE *)malloc(sizeof(PDE ))))
+X		{
+X			fclose(fp_phone);
+X			strcpy(errmsg,"Out of memory reading phone list");
+X			return(1);
+X		}
+X
+X		tpde->descr[0] = 0;
+X		tpde->logical[0] = 0;
+X		tpde->telno[0] = 0;
+X		tpde->tty[0] = 0;
+X		tpde->parity = 0;
+X		tpde->baud = 2400;
+X		tpde->redial = 0;
+X		tpde->prev = (PDE *)0;
+X		tpde->next = (PDE *)0;
+X		tpde->debug_level = 0;
+X		tpde->dcdwatch = 'n';		/* do not modify shm->Ldcdwatch */
+X
+X		token_number = 0;
+X		while((token = str_token(cptr,":")))
+X		{
+X			cptr = (char *)0;	/* further calls to str_token need NULL */
+X			switch(token_number)
+X			{
+X				case 0:		/* first field is logical name */
+X					strncpy(tpde->logical,token,sizeof(tpde->logical));
+X					tpde->logical[sizeof(tpde->logical) - 1] = 0;
+X					break;
+X				case 1:		/* second field is tpde->telno phone number */
+X					strncpy(tpde->telno,token,sizeof(tpde->telno));
+X					tpde->telno[sizeof(tpde->telno) - 1] = 0;
+X					break;
+X				case 2:		/* third field is line */
+X					strncpy(tpde->tty,token,sizeof(tpde->tty));
+X					tpde->tty[sizeof(tpde->tty) - 1] = 0;
+X					break;
+X				case 3:		/* fourth field is baud rate */
+X					tpde->baud = atoi(token);
+X					break;
+X				case 4:		/* fifth field is parity */
+X					switch(itmp = to_lower(token[0]))
+X					{
+X						case 'o':
+X						case 'e':
+X						case 'm':
+X						case 's':
+X							tpde->parity = itmp;
+X							break;
+X						default:
+X						case 'n':
+X							tpde->parity = 0;
+X							break;
+X					}
+X					break;
+X				case 5:
+X					strncpy(tpde->descr,token,sizeof(tpde->descr));
+X					tpde->descr[sizeof(tpde->descr) - 1] = 0;
+X					break;
+X				case 6:
+X					if((tpde->debug_level = (uchar)atoi(token)) > 9)
+X						tpde->debug_level = 9;
+X					break;
+X				case 7:
+X					tpde->dcdwatch = to_lower(token[0]);
+X					break;
+X			}	/* end of switch(token_number) */
+X			token_number++;
+X		}		/* end while not end of record */
+X
+X		phdir_list_add(tpde);
+X
+X	}			/* while records left to ready */
+X
+X	fclose(fp_phone);
+X	return(0);
+X}	/* end of phdir_list_read */
+X
+X/*+-------------------------------------------------------------------------
+X	pde_dial(tpde) - dial using a pde (using procedure if configured)
+X
+XIf the tpde->logical points to a valid procedure, use it,
+Xotherwise call DCE_dial()
+X
+Xreturns proc error code
+X        $i0 value ($s0 is also set, BTW)
+X
+Xassumes rcvr process dead (rcvr_pid == -1)
+X--------------------------------------------------------------------------*/
+Xint
+Xpde_dial(tpde)
+Xregister PDE *tpde;
+X{
+X	int status = 0;
+X	int restart_rcvr = need_rcvr_restart();
+X	char *cptr;
+X	extern int dcdwatch_set;	/* see ldcdwatch() in eculine.c */
+X
+X	dcdwatch_set = 0;
+X
+X	kill_rcvr_process(SIGUSR1);
+X
+X	if(proc_level || !find_procedure(tpde->logical))
+X	{
+X		if(copy_pde_to_Lvariables(tpde,0))
+X		{
+X			pprintf("%s: %s\n",tpde->logical,errmsg);
+X			pprintf("Current line is %s (%s)\n",
+X				shm->Lline,(shm->Liofd < 0) ? "closed" : "open");
+X			status = eFATAL_ALREADY;
+X		}
+X		else
+X			status = DCE_dial();
+X	}
+X	else
+X	{
+X		char *pargv[2];
+X		pargv[0] = tpde->logical;
+X		pargv[1] = "!MENU";
+X		iv[0] = 0;
+X		if(do_proc(2,pargv))
+X			status = eFATAL_ALREADY;
+X		else
+X			status = (iv[0]) ? eConnectFailed : 0;
+X	}
+X
+X	/*
+X	 * if we connected and a procedure did not change the DCD watcher,
+X	 * then use the dialing directory choice
+X	 */
+X	if(!status && !dcdwatch_set)
+X	{
+X		cptr = (char *)0;
+X		switch(tpde->dcdwatch)
+X		{
+X			case '0':	
+X				ldcdwatch(DCDW_OFF); 
+X				cptr = "OFF (ignore DCD loss)";
+X				break;
+X			case '1':	
+X				ldcdwatch(DCDW_ON); 
+X				cptr = "ON (detect DCD loss)";
+X				break;
+X			case 't':	
+X				ldcdwatch(DCDW_TERMINATE); 
+X				cptr = "TERMINATE (terminate ecu on DCD loss)";
+X				break;
+X			case 'n':	
+X			default:	
+X				break;
+X		}
+X		if(cptr)
+X		{
+X			ulong colors_save;
+X			colors_save = colors_current;
+X			setcolor(colors_notify);
+X			pprintf("[DCD watcher set to %s]",cptr);
+X			setcolor(colors_save);
+X			fputs("\r\n",se);
+X			pputs("\n");
+X		}
+X	}
+X
+X	if(restart_rcvr)
+X		start_rcvr_process(1);
+X
+X	return(status);
+X
+X}	/* end of pde_dial */
+X
+X/*+-------------------------------------------------------------------------
+X	pdetty_to_devtty(pdetty,devtty) -> pde tty field to complete pathname
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpdetty_to_devtty(pdetty,devtty)
+Xchar *pdetty;
+Xchar *devtty;
+X{
+X	strcpy(devtty,"/dev/");
+X#ifdef M_SYSV
+X	if(strncmp(pdetty,"tty",3))
+X		strcat(devtty,"tty");
+X#endif
+X	strcat(devtty,pdetty);
+X
+X}	/* end of pdetty_to_devtty */
+X
+X/*+-------------------------------------------------------------------------
+X	choose_tty_for_pde(tpde) - new pde might mandate switching line
+X
+XReturns 1 if new line open needed
+X        0 if no new line open needed
+X       -1 if request cannot be satisfied
+X--------------------------------------------------------------------------*/
+Xint
+Xchoose_tty_for_pde(tpde)
+Xregister PDE *tpde;
+X{
+X	int itmp = 0;
+X	int rtn = 0;
+X	DVE *tdve;
+X	char newtty[64];
+X
+X#ifdef CHOOSE_DEBUG
+X	char s256[256];
+X	sprintf(s256,"choose_tty_for_pde '%s' %u",tpde->tty,tpde->baud);
+X	ecu_log_event((int)xmtr_pid,s256);
+X	errmsg[0] = 0;
+X#endif
+X
+X	/*
+X	 * if desired line is Devices type 
+X	 */
+X	if((tpde->tty[0] == '=') || (tpde->tty[0] == '/')) /* Devices device type */
+X	{
+X		if(!(tdve = hdb_choose_Device(tpde->tty,tpde->baud)))
+X		{
+X			sprintf(errmsg,"no idle line matches type '%s' at %u baud",
+X				*tpde->tty ? tpde->tty : "Any",tpde->baud);
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X		sprintf(newtty,"/dev/%s",tdve->line);
+X		if((itmp = lock_tty(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s (%s): %s",
+X			    tpde->tty,tdve->line,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X		if((itmp = reserve_line(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s: %s",newtty,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X	}
+X	/*
+X	 * if desired line is a specific tty
+X	 */
+X	else if(tpde->tty[0])
+X	{
+X		pdetty_to_devtty(tpde->tty,newtty);
+X		if((shm->Liofd > 0) && !strcmp(newtty,shm->Lline))
+X		{
+X			rtn = 0;	/* requesting line we already have */
+X			goto RETURN;
+X		}
+X		if((itmp = lock_tty(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s: %s",newtty,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X		if((itmp = reserve_line(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s: %s",newtty,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X	}
+X	/*
+X	 * if desired line is "Any" (any Devices type beginning with ACU)
+X	 */
+X	else	/* "Any" */
+X	{
+X		tdve = hdb_choose_Any(tpde->baud);
+X		if(!tdve)
+X		{
+X			sprintf(errmsg,"no idle ACU line at %u baud",tpde->baud);
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X		sprintf(newtty,"/dev/%s",tdve->line);
+X		if((itmp = lock_tty(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s: %s",newtty,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X		if((itmp = reserve_line(newtty)) && (itmp != LINST_WEGOTIT))
+X		{
+X			sprintf(errmsg,"%s: %s",newtty,linst_err_text(itmp));
+X			rtn = -1;
+X			goto RETURN;
+X		}
+X	}
+X
+X	rtn = !(!strcmp(newtty,shm->Lline) && (shm->Liofd != -1));
+X	if(rtn)
+X	{
+X		lclose();
+X		strcpy(shm->Lline,newtty);
+X	}
+X
+X
+XRETURN:
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s256,"choose_tty_for_pde rtn=%d line='%s' errmsg='%s' itmp=%d",
+X		rtn,shm->Lline,errmsg,itmp);
+X	ecu_log_event((int)xmtr_pid,s256);
+X#endif
+X
+X	return(rtn);
+X
+X}	/* end of choose_tty_for_pde */
+X
+X/*+-------------------------------------------------------------------------
+X	copy_pde_to_Lvariables(tpde,trial)
+X
+X'trial' controls whether this is a dry run (setup) or a live request
+Xif changing line, close old line and open new one
+Xif cannot change line, return -1, else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xcopy_pde_to_Lvariables(tpde,trial)
+Xregister PDE *tpde;
+Xint trial;
+X{
+X	int reopen = 0;
+X	int lerr;
+X	DVE *tdve;
+X
+X#ifdef CHOOSE_DEBUG
+X	char s80[80];
+X	sprintf(s80,"copy_pde trial=%d Lline='%s' pdetty='%s'",
+X		trial,shm->Lline,tpde->tty);
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	enddvent();	/* krock safety */
+X
+X	if(!trial)
+X	{
+X		if((reopen = choose_tty_for_pde(tpde)) < 0)
+X			return(-1);		/* errmsg[] updated */
+X	}
+X	else if((!tpde->tty[0]) || (!strcmp(tpde->tty,"Any")))
+X	{
+X		if(!(tdve = hdb_choose_Any(tpde->baud)))
+X		{
+X			strcpy(errmsg,"no idle line matches type 'Any'");
+X			return(-1);
+X		}
+X		strcpy(shm->Lline,"/dev/");
+X		strncat(shm->Lline,tdve->line,sizeof(shm->Lline) - 5);
+X		shm->Lline[sizeof(shm->Lline) - 1] = 0;
+X	}
+X	else if((tpde->tty[0] == '/') || (tpde->tty[0] == '='))
+X	{
+X		if(!(tdve = hdb_choose_Device(tpde->tty,tpde->baud)))
+X		{
+X			sprintf(errmsg,"no idle line matches type '%s' at %u baud",
+X				*tpde->tty ? tpde->tty : "Any",tpde->baud);
+X			return(-1);
+X		}
+X		strcpy(shm->Lline,"/dev/");
+X		strncat(shm->Lline,tdve->line,sizeof(shm->Lline) - 5);
+X		shm->Lline[sizeof(shm->Lline) - 1] = 0;
+X	}
+X	else
+X		pdetty_to_devtty(tpde->tty,shm->Lline);
+X
+X#ifdef CHOOSE_DEBUG
+X	sprintf(s80,"copy_pde 2  Lline='%s' reopen=%d",shm->Lline,reopen);
+X	ecu_log_event((int)xmtr_pid,s80);
+X#endif
+X
+X	shm->Lbaud = tpde->baud;	
+X	strcpy(shm->Llogical,tpde->logical);
+X	strcpy(shm->Ldescr,tpde->descr);
+X	strcpy(shm->Ltelno,tpde->telno);
+X	if(!shm->Ldescr[0])
+X		strcpy(shm->Ldescr,shm->Llogical);
+X	shm->Lparity = tpde->parity;
+SHAR_EOF
+true || echo 'restore of ecupde.c failed'
+fi
+echo 'End of ecu320 part 9'
+echo 'File ecupde.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

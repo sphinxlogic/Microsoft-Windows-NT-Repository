@@ -1,0 +1,1567 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 1/8
+Message-ID: <1992Apr12.182107.15199@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:07 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1556
+
+Archive-name: empireclient_110/part1
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+$! ------------------ CUT HERE -----------------------
+$!
+$! This archive created by VMS_SHARE Version 7.1-001  26-JUN-1989
+$!   On 12-APR-1992 20:04:31.06   By user HURTTA (Kari E. Hurtta)
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 8 PARTS, TO KEEP EACH PART
+$!  BELOW 110 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. 000READ.ME;1
+$!       2. CLIENT.C;891
+$!       3. CLIENT.H;52
+$!       4. EMPIRE.CLD;19
+$!       5. EMPIRE.GLOBAL_INIT;5
+$!       6. EMPIRETOOL.C;685
+$!       7. MAKE.COM;1
+$!
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ if f$getsyi("version") .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete/nolog 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete/nolog 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");
+buff:=CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(buff))
+;LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(buff));g:=0;LOOP EXITIF MARK(NONE)=END_OF(buff);x:=
+ERASE_CHARACTER(1);IF g = 0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x=
+"V" THEN APPEND_LINE;MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;
+IF x="+" THEN g:=1;ERASE_LINE;ENDIF;ELSE IF x="-" THEN g:=0;ENDIF;ERASE_LINE;
+ENDIF;ENDLOOP;p:="`";POSITION(BEGINNING_OF(buff));LOOP r:=SEARCH(p,FORWARD);
+EXITIF r=0;POSITION(r);ERASE(r);COPY_TEXT(ASCII(INT(ERASE_CHARACTER(3))));
+ENDLOOP;o:=GET_INFO(COMMAND_LINE,"output_file");WRITE_FILE(buff,o);
+ENDPROCEDURE;Unpacker;EXIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create/nolog 'f'
+X`009`009Empire Client for VMS
+X`009`009---------------------
+X`009`009(c) Kari Hurtta, 1991, 1992
+X
+XAuthor:`009`009Kari Hurtta (hurtta@cc.Helsinki.FI)
+X
+XVersion:`009Empire Client version 1.10
+X`009`009Empire Tool version 1.10
+X
+XEnvironment:`009VAX/VMS with Multinet TCP/IP
+X
+XDescription:`009This is Empire client for BSD Empire 1.1
+X
+X`009`009In this client is two parts - normal
+X`009`009client part, where player talk with Empire Server
+X`009`009and toolkit -part (Empire Tool), where client helps
+X`009`009maintenance your empire. Mainly Empire Tool
+X`009`009helps to moving things around empire with
+X`009`009Empire Tool's autoexplore, autodistribute,`032
+X`009`009move, automove and collect -commands.
+X
+X`009`009Empire Tool don't handle ships or planes.
+X`009`009Empire Tool don't able develope your empire.
+X
+XFTP location:`009host hylka.Helsinki.FI
+X`009`009directory PUBLIC_DISK:<PUBLIC.VAX.GAMES-ETC.EMPIRECLIENT>
+X
+X`009`009Wait about 2-4 weeks that this version arrive to public_disk !!
+X`009`009(Look from file READ.MORE what version is there)
+X
+XBugreports to:`009Kari.Hurtta@Helsinki.FI
+X`009`009hurtta@cc.Helsinki.FI
+X`009`009HURTTA@FINUH.BITNET
+X
+X---------------
+X
+XFiles:`009`009000READ.ME
+X`009`009CLIENT.H
+X`009`009CLIENT.C
+X`009`009EMPIRETOOL.C
+X `009`009MAKE.COM
+X `009`009EMPIRE.CLD
+X                EMPIRE.GLOBAL_INIT
+X
+XCompiling:`009$ CC/NOOPTIMIZE CLIENT,EMPIRETOOL
+X`009`009$ LINK CLIENT,EMPIRETOOL,SYS$INPUT:/OPT
+X`009`009MULTINET:MULTINET_SOCKET_LIBRARY/SHARE
+X`009`009SYS$SHARE:VAXCRTL/SHARE
+X`009`009`094Z
+X
+XUsage: `009`009Empire CLient be defined as external command or as
+X`009`009DCl verb.
+X
+X `009`009File EMPIRE.GLOBAL_INIT is required to be in same directory
+X`009`009as CLIENT.EXE
+X
+X`009`009(as external command)
+X
+X`009`009Define symbol`032
+X `009`009`009empire :==$Your_disk:<Your_directory>client .
+X
+X`009`009NOTICE point (.) in end of defination of symbol`032
+X`009`009"empire" !
+X
+X`009`009Start with one of following:
+X
+X`009`009`009empire Server Port
+X`009`009`009empire Server Port Log-file
+X`009`009If file SYS$LOGIN:EMPIRE.INIT exists also follows:
+X`009`009`009empire "Country"
+X`009`009`009empire "Country" Log-file
+X`009`009`009empire host Server
+X`009`009`009empire host Server Log-file
+X
+X`009`009("host" is reserved word. Country and Server are
+X`009`009  predefined in SYS$LOGIN:EMPIRE.INIT in four last
+X`009`009  form)
+X
+X`009`009This usage:
+X`009`009`009empire ?
+X`009`009`009
+X`009`009Examples:
+X`009`009`009empire myserver.mysubdomain.mydomain 2010
+X`009`009`009empire myserver.mysubdomain.mydomain 2010
+X`009`009`009empire myserver.mysubdomain.mydomain 2010 log.txt
+X`009`009`009empire "Mycountry"
+X`009`009`009empire "Mycountry" log.txt
+X`009`009`009empire host myserver
+X`009`009`009empire host myserver log.txt
+X`009`009(when in EMPIRE.INIT is line
+X`009`009  country Mycountry password myserver.mysubdomain.mydomain 2010
+X`009`009 those four last forms autolog to empire - first two
+X`009`009 form asks country name and password)
+X
+XUsage:`009`009(as DCL-verb)
+X `009`009<THIS COMMAND LINE INTERFACE IS NEW FOR VERSION 0.51>
+X
+X`009`009Edit right directory path for client.exe to`032
+X`009`009`009IMAGE -line in file EMPIRE.CLD
+X`009`009Define verb with command SET COMMAND EMPIRE
+X`009`009`009(loads file EMPIRE.CLD)
+X
+X`009`009Start on with`032
+X`009`009`009EMPIRE /SERVER=Server /PORT=Port
+X`009`009If file SYS$LOGIN:EMPIRE.INIT exists also follows:
+X`009`009`009EMPIRE
+X`009`009`009EMPIRE "Country"
+X       `009`009`009EMPIRE /HOST=Server
+X`009`009Follow qualifiers is also allowed:
+X `009`009`009/LOG=Log-file
+X `009`009`009/PASSWORD=Password
+X `009`009`009/EMPIRETOOL
+X `009`009`009/EMPIRETOOL=area
+X
+X`009`009This usage:
+X`009`009`009EMPIRE /HELP
+X
+XInitialization file:`009SYS$LOGIN:EMPIRE.INIT or EMPIRE_INIT
+X
+X`009`009EMPIRE_INIT should be logical name.
+X
+X `009`009There can use ! -character for comment (to end of line)
+X`009`009Text between  " -characters ius interpreted as on word
+X`009`009(even if it include newline). "" -sequence is interpreted
+X`009`009to literal " -character.
+X`009
+X`009`009In that file can be follow lines:
+X`009`009
+X`009`009country Country_Name Password Server Port
+X`009`009`009Gives country name and server for autolog
+X`009`009`009There can be several country -lines
+X
+X `009`009Or optionally also Empiretool database file:
+X
+X`009`009country Country_Name Password Server Port Database_file
+X`009`009`009Gives database file for empiretool also`032
+X `009`009`009`009(for $LOSED variable and remember and`032
+X`009`009`009`009compare -commands)
+X
+X`009`009silent
+X`009`009`009Autolog work silently (not type talk with server)
+X
+X`009`009more Lines Rows
+X`009`009`009Activates client's internal pager.
+X
+X  `009`009nomore
+X`009`009`009Disables internal pager, if is activated in
+X`009`009`009empire.global_init or by autoset
+X
+X`009`009timesaver VMS_delta_time
+X`009`009`009Activates timesaver, for example
+X`009`009`009`009timesaver 0 0:01:00
+X`009`009`009gives that one minutes inactivety disconnect
+X`009`009`009connection to empire (next command autolog
+X`009`009`009back to empire)
+X                         `032
+X`009`009boldface
+X`009`009`009Says that client should use VT100's codes for
+X`009`009`009higlihting output when reguested (as in sect
+X`009`009`009command)
+X
+X `009`009strip
+X`009`009`009Disables boldface set, if is activated in
+X`009`009`009empire.global_init or by autoset
+X
+X`009`009no_empire_eof
+X`009`009`009Prevent using `094D as empire's eof character`032
+X`009`009`009`009(empire's info and tele command sugges use
+X`009`009`009`009that character as eof)
+X`009`009`009You probably want disable this feature,
+X`009`009`009because `094D is edit key in VMS
+X
+X `009`009history Lines
+X`009`009`009Activates command line history (and also
+X`009`009`009cursor keys on pager (MORE)), for example
+X`009`009`009`009history 50
+X`009`009`009gives 50 lines history for command lines`032
+X`009`009`009(there is separate history buffer for`032
+X`009`009`009session, command and empiretool -state).
+X
+X`009`009`009"history" also indicates that empireclient
+X`009`009`009can use READ QIO with EXTENDED attribute.
+X
+X `009`009nohistory
+X`009`009`009Disables command line history, if is activated in
+X`009`009`009empire.global_init or by autoset.
+X
+X`009`009`009"nohistory" also indicates that empireclient
+X`009`009`009don't use READ QIO with EXTENDED attribute.
+X`009`009`009This causes some problems to reading of function
+X`009`009`009keys.
+X
+X `009`009moretimer VMS_delta_time
+X`009`009`009Activates pager's (MORE) timeout
+X`009`009`009`009timesaver 0 0:00:01
+X`009`009`009causes, that pager print's it's
+X`009`009`009contents (or part of it) after onse seconf
+X`009`009`009when there was some text coming. Normally`032
+X`009`009`009pager prints it's content (or part of it)
+X`009`009`009when new prompt is asked or there is one
+X`009`009`009full page text for printing in pager.
+X
+X `009`009autoset
+X`009`009`009sets boldface on, if terminal supports ANSI -codes,
+X`009`009`009set command line history and internal pager on.
+X`009`009`009
+X`009`009Previous means that format of one line in EMPIRE.INIT is
+X`009`009`009keyword parameters...
+X
+X`009`009Example:
+X`009`009`009country Xxxxx xxxx xxxx.xxxx.fi 1617
+X`009`009`009country Xxxxx xxxx 128.214.xx.xx 2010
+X`009`009`009country Test xxxx 128.214.xx.xx 2010
+X`009`009`009country Xxxx xxxx 128.214.xx.xx 1617
+X`009`009`009more 23 80
+X`009`009`009history 50
+X`009`009`009timesaver 0 0:01:00
+X`009`009`009boldface
+X`009`009`009no_empire_eof
+X
+X`009`009You can also set these options on or off from client's
+X`009`009command level (Function key PF1 gives client's command
+X`009`009level - and also $ in empire's command prompt).
+X
+XGlobal initialization file: `009EMPIRE.GLOBAL_INIT
+X `009`009THIS FILE IS NEW FOR VERSION 1.00
+X
+X`009`009Is required to locate in same direcory as image CLIENT.EXE.
+X`009`009Empire Client not start if this while is missing.
+X
+X`009`009This file is readed before file EMPIRE.INIT
+X
+X`009`009There can be same lines as initialization file and also
+X`009`009follow line:
+X
+X`009`009playlimit time Message
+X`009`009`009Disables usage of empiretool in given time in
+X`009`009`009work days (is. when $DAYSTATUS is WEEKDAY and
+X`009`009`009$SYSTEMSTATUS is ATTENDED). Time 11-15 disables
+X`009`009`009usage between 11-15. Time 11 13 17 disables
+X`009`009`009usage between 11-12, 13-14, 17-18. Message
+X`009`009`009is message what is printed, when empiretool
+X`009`009`009is disabled. (Notice that there isn't way
+X`009`009`009to disable whole client :-))
+X
+XKeys:`009`009PF1`009Gives command level prompt
+X`009`009PF2`009Prints defination's of function keys (mot much)
+X                PF3     Switch between tool's command prompt and
+X                        visual mode screen
+X `009`009PF4`009Switch between Empire's command prompt and
+X`009`009`009tool's command prompt
+X                `094W      Redraws tool's visual mode screen
+X`009`009`094Z`009gives empire's command prompt or gives command
+X`009`009`009level prompt or quits empire client
+X`009`009F10`009Same as `094Z
+X
+X`009`009`094D`009Look no_empire_eof init-file -option
+X
+X `009`009`094C`009Cancel empire's (and tool's) command`032
+X
+XPager's keys:`009n`009`009Next page
+X`009`009space`009`009Next page
+X`009`009Cursor down`009Next page (if history -option enabled)
+X
+X`009`009CR`009`009Next line
+X
+X`009`009p`009`009Previous page
+X`009`009Cursor down`009Previous page (if history -option enabled)
+X
+XTool's visual mode keys:
+X `009`009(This is new for empiretool 1.08)
+X
+X`009`009Cursor up`009Moves cursor in map
+X`009`009Cursor down
+X`009`009Cursor left
+X`009`009Cursor right
+X
+X`009`009return`009`009Returns to tool's command prompt
+X`009`009`094Z
+X`009`009
+XCommand list:`009in Empire's command prompt
+X`009`009`009type list
+X`009`009in Client's command prompt
+X`009`009`009type ?
+X`009`009In Empire Tool's command prompt
+X`009`009`009type ?
+X
+XCommands for command level:
+X
+X`009quit                     `009Quits session
+X`009bye                      `009Quits session
+X`009continue                `009Continues session
+X`009list                     `009Command list
+X`009?                        `009Command list
+X`009more       Lines Columns       `009Activates pager
+X`009nomore                   `009Disables pager
+X`009timesaver  Vms_delta_time       Activates timesaver
+X`009notimesaver                     Disables timesaver
+X `009moretimer  Vms_delta_time       Activates pager's (MORE) timeout
+X `009nomoretimer              `009Disables pager's (MORE) timeout
+X`009log        Log_file             Chances log-file
+X`009nolog                    `009Closes log-file
+X`009boldface                 `009Boldfacing 8bit chars form servers output
+X`009strip                    `009Strips 8bit chars from servers output
+X`009empiretool Dump_area            Starts empiretool
+X  `009et         Dump_area            Starts empiretool
+X `009start`009`009`009`009Starts empiretool without dump
+X `009load       File_name`009`009Starts empiretool from file
+X`009`009`009`009`009(= from saved dump)
+X`009resume                   `009Resumes empiretool
+X`009empire_eof               `009Enables empire eof: `094D
+X`009noempire_eof             `009Disables empire eof: `094D
+X  `009history    Lines              `009Activates command history
+X   `009nohistory                `009Disables command history
+X    `009launch                   `009Launches timesaver
+X`009show                     `009Shows status
+X `009set database_file`009`009Sets empiretool database file
+X `009unset`009`009`009`009Disables empiretool database file
+X
+XEmpiretool's commands:
+X
+X`009rescan     Dump_area    `009Rereads empiretool dump -database
+X`009`009`009`009`009= restarts empiretool
+X `009update     Dump_area    `009Updates empiretool dump -database
+X `009map        Map_area    `009`009Updates empiretool dump -database
+X `009spy        Spy_area    `009`009Adds spy report to empiretool dump -data
+Vbase
+X`009command        `009`009`009Goes to EMPIRECLIENT command -level
+X `009save`009   File_name`009`009Saves empiretool dump -database to file
+X `009compare    FN Secs VS`009`009Check current database agaist saved for lo
+Vsted sectors
+X `009remember`009`009`009Upadates empiretool dump from old database
+X`009list           `009`009`009lists commands (this list)
+X`009?              `009`009`009lists commands (this list)
+X `009examine    X,Y FE...`009 `009Examines content of sector
+X `009show       Secs`009Field... VS`009Lists selected sectors
+X `009sectors    Secs`009`009`009Draws map for selected sectors
+X `009view       Secs`009`009`009Draws map for selected sectors
+X        visual                          Goes to visual map screen
+X `009sum        Secs Field... VS  `009Sums selected sectors' field
+X `009if         "not" Secs Command`009Executes empiretool command conditiona
+Vlly
+X `009quit`009`009`009`009Sends quit command to server
+X `009exit`009`009`009`009Leaves empiretool
+X `009path       From To              Shows best path between given sectors
+X `009version        `009`009  `009Shows part of empire version information
+X `009foodcheck  Secs`009"all"`009 VS `009Checks foods of sector.
+X `009birthcheck Secs "all" `009 VS`009Checks civs (and uws) of sector.
+X `009desigcheck Secs "all"    VS`009Checks that are there empty mines (etc)
+X `009autodump       `009`009`009Turns autodump on/off
+X `009autoexplore X,Y CivExp Mob Etu VS`009`009Explores wilderness
+X `009autodistribute Secs toSecs CivExp Mob Etu VS`009Generates distribute li
+Vnes
+X `009move       Com X,Y amountExp toX,toY VS`009`009Moves commodities
+X`009automove   Com X,Y amountExp Secs Mob Etu VS`009Shares commodities
+X `009collect`009   Com Secs amountExp toX,toY Etu VS`009Collects commodities
+X `009distribute From To`009 VS`009Generates distribute line
+X `009designate  X,Y Designation VS`009Designates sector
+X `009des        X,Y Designation VS`009Designates sector
+X `009threshold  Com X,Y Limit   VS`009Sets sector's threshold
+X       `032
+X `009where VS is assigment in form =$var or +$var
+X`009where VE is Field or form 'Exp
+X`009where Exp (expression) contains expression
+X`009`009of Numbers, dump fileds and expression functions
+X`009`009with operators: + - / * (with natural grouping)
+X`009`009braces ( ) are allowed.
+X `009where var is number of variable (0-9)
+X`009where Dump_area, Map_area and Spy_are is parameter to correspond empire
+X`009`009command
+X`009where FN is "old" or File_Name
+X`009where File_name is vms or unix -style file name
+X `009where toSecs is destribution centers specification in form toX,toY or`0
+V32
+X`009`009Secs
+X`009where X,Y, From, To, toX,toY are one sector (for example 0,0)
+X`009where amountExp is number of commodites to move,
+X`009`009can be expression (look: Exp)
+X`009where CivExp is number of civilians to use for command,
+X`009`009can be expression (look: Exp)
+X`009where Mob is amount of mobility to use for command
+X`009where Etu is amount of empire time units to use for command
+X`009where Com is name of commodity (or correspond letter)
+X`009where Designation is designation of sector
+X`009where Limit is threshold level of sector
+X`009where Command is any empiretool command
+X`009where Secs is sector specification in form Area or Area ?Selector
+X`009where Area is sector area in form X_area,Y_area or * or $var or $cvar
+X`009where X_area and Y_area in form n:n or n or *
+X`009where Selector form condition Cnd condition... (without spaces)
+X`009where Cond is & or `124
+X`009where condition is form field comp value (without spaces) or $var or $cv
+Var
+X`009where comp is collection of < # > = -charecters
+X`009where value is value of dump field or ?
+X`009`009or Exp (if field left of comp is numerical)
+X`009where field is name of dump field
+X `009where cvar is calculated variable
+X
+XWhat sectors empiretool-commands assigns to $var:
+X `009THIS IS NEW FOR VERSION 1.00
+X`009( =$var mean normal (oberride) asignment and +$var means append (union)
+V )
+X
+X   `009show`009`009listed sectors
+X`009sum`009`009sectors, what is used in sum
+X`009foodcheck`009sectors, where isn't enaugh food
+X`009birthcheck`009sectors, what isn't produce any civilian (when
+X`009`009`009`009there is more than one civilian)
+X `009desigcheck`009sectors, what will no longer produce ore`032
+X`009autoexplore`009newly exlpored sectors
+X`009autodistribure`009sectors, where distribution path changed
+X`009move`009`009from sector
+X`009collect`009`009sectors, from where commodites are collected
+X`009automove`009sectors, to where commodities are shared
+X`009distribute`009from sector
+X`009designate`009given sector
+X`009threshold`009given sector
+X   `009compare`009`009losed sectors
+X
+X`009(notice that sector is added to variable only when command succeed)
+X
+XCalculated varaiables:
+X `009This is new for empiretool version 1.01`032
+X
+X`009$DC`009`009distribution centers (sectors where to distribution
+X`009`009`009`009path leads, good for command:
+X`009`009`009`009`009autodistribute * ?OWNED $DC`032
+X`009`009`009`009this updates paths)
+X `009$BEACH`009`009beach sectors (sectors where neighbour is sea)
+X`009`009`009`009perhaps good foor command
+X`009`009`009`009`009automove mil <X,Y> 10 $BEACH ?OWNED
+X `009$BORDER`009`009border line sectors (sectors where neigbours
+X`009`009`009`009isn't yours and it isn't sea)
+X`009`009`009`009perhaps good for command
+X`009`009`009`009`009automove mil <X,Y> 10 $BORDER
+X `009$LOSED`009`009sectors what haven't owned in curred database, but
+X`009`009`009`009have owned in saved empiretool database
+X `009$COUNTRY`009players country (no mountains),
+X`009`009`009`009good for command:
+X`009`009`009`009`009view $COUNTRY
+X`009`009`009`009Can use instead of:
+X`009`009`009`009`009 * ?OWNED
+X`009$LAND`009`009Land sectors (no mountains)
+X`009$COAST`009`009Coast line sectors (ie sea)
+X`009$NOFOOD`009`009Same as foodcheck -command
+X`009`009`009`009good foor command:
+X`009`009`009`009`009automove food <X,Y> :needfood $NOFOOD
+X`009$BADDES`009`009Same as desigcheck -command
+X
+XExpression functions:
+X`009This is new of empiretool version 1.09
+X
+X`009Value of expression is calculated per sector
+X`009`009when empiretool command what use expressions
+X`009`009is executing.
+X
+X`009:needfood`009Amout of additional food needed in sector
+X`009`009`009`009Same as foodcheck -command,
+X`009`009`009`009good for command:
+X`009`009`009`009`009automove food <X,Y> :needfood $COUNTRY
+X`009:foodleft`009Amout of extra food in sector
+X`009`009`009`009Same as foodcheck -command,
+X`009`009`009`009good foor command:
+X`009`009`009`009`009collect food $COUNTRY :foodleft <X,Y>
+X`009:proeff`009`009Production efficiency (mineral left in mine etc.)
+X`009`009`009`009Same as desigcheck -command
+X`009:newciv`009`009Amount of new citicience will born
+X`009`009`009`009Same as birthcheck -command
+X`009:newuw`009`009Amount of new uncompensate worksers will born
+X`009`009`009`009Same as birthcheck -command
+X
+XFor scripts (for example in BATCH jobs):
+X
+X`009Notice that you can test, that  is variable nonempty, with
+X`009`009if $var action
+X
+X`009And you can test, that  is variable nempty, with
+X`009`009if not $var action
+X
+X`009Also forms`032
+X`009`009if area ?condtion action
+X`009and`032
+X`009`009if area ?condtion action
+X`009are usefull
+X
+X`009You can move value from variable to another, for example
+X`009`009sum $0 =$1
+X
+X`009You can go direct to empiretool, when you start client with
+X`009`009EMPIRE/EMPIRETOOL
+X`009`009(this is same, as -start command from command level)
+X`009or
+X`009`009EMPIRE/EMPIRETOOL=dump_area
+X`009`009(this is same, as -empiretool command from command level)
+X
+XNow empiretool commands can interrupt with `094C`032
+X`009(Empire Tool 1.03, Empire Client 1.01)
+X
+XDatabase fields in Empiretool:
+X`009x`009`009X -cordinate of sector
+X`009y`009`009Y -cordinate of sector
+X`009des, type`009designation of sector
+X`009sdes`009`009planned designation of sector
+X`009eff`009`009efficeincy of sector
+X`009mob`009`009mobility of sector
+X`009*`009`009flag, is sector occupied
+X`009min`009`009mineral resources of sector
+X`009gold`009`009gold resources of sector
+X`009fert`009`009fertility (resources) of sector
+X`009ocontent`009oil resources of sector
+X`009uran`009`009uran resources of sector
+X`009work`009`009working percentage of sector
+X`009avail`009`009workforce in sector
+X`009terr
+X`009civ`009`009civiliance in sector
+X`009mil`009`009militiance in sector
+X`009uw`009`009slaves in sector
+X`009food`009`009food in sector
+X`009shell, shl`009shells in sector
+X`009gun`009`009guns in sector
+X`009pet`009`009petrol amount in sector
+X`009iron`009`009iron amount in sector
+X`009dust`009`009gold dust amount in sector
+X`009bar`009`009gold bar amount in sector
+X`009oil`009`009oil amount in sector
+X`009lcm`009`009light conetruction materials in sector
+X`009hcm`009`009heavy construction materials in sector
+X`009rad`009`009radioactive materials in sector
+X`009u_del`009
+X`009f_del
+X`009s_del
+X`009g_del
+X`009p_del
+X`009i_del
+X`009d_del
+X`009b_del
+X`009o_del
+X`009l_del
+X`009h_del
+X`009r_del
+X`009u_cut
+X`009f_cut
+X`009s_cut
+X`009g_cut
+X`009p_cut
+X`009i_cut
+X`009d_cut
+X`009b_cut
+X`009o_cut
+X`009l_cut
+X`009h_cut
+X`009r_cut
+X`009dist_path`009distribution path of sector
+X`009dist_x`009`009X -cordinate of sectors distribuion center
+X`009dist_y`009`009Y -cordinate of sectors dirstibution center
+X`009u_dist`009`009distribution threshold for slaves
+X`009f_dist`009`009distribution threshold for food
+X`009s_dist`009`009
+X`009g_dist
+X`009p_dist
+X`009i_dist`009`009distribution theresold for iron
+X`009d_dist`009`009distribuion theresold for gold dust
+X`009b_dist`009`009distribution thresold for gold bars
+X`009o_dist`009`009distribution thresold for oil
+X`009l_dist`009`009distribution thresold for light constr. materials
+X`009h_dist`009`009distribution thresold for heavy constr. materials
+X`009r_dist`009`009
+X`009own`009`009owner of sector
+X`009OWNED`009`009flag, true if player ofned this sector
+X`009
+XCommodities in Empiretool:
+X`009c`009civilian
+X`009m`009military
+X`009f`009food
+X`009s`009shells
+X`009g`009guns
+X`009p`009petrol
+X`009i`009iron
+X`009o`009oil
+X`009b`009bars of gold, gold
+X`009d`009dust of gold
+X`009r`009radioactive materials
+X`009u`009uncompensate workers
+X`009l`009light construction materials, lcms
+X`009h`009heavy construction materials, hcms
+X`009
+XBugs:`009`009Pipe seems not working (look entry Syntax from
+X`009`009`009empire's info)
+X
+X`009`009Pipe and pager work together more worst
+X
+X`009`009Pager print output to screen only when there is full
+X`009`009screenfull text or prompt is waiting (for printing).
+X`009`009Well: moretimer -option is workaround for this.
+X`009
+X`009`009`094C and pager affect to others odd.
+X
+X`009`009I'm not sure that empiretool calculates usage of mobility
+X`009`009right.
+X
+X`009`009Empiretool dan't handle ships and planes.
+X
+X`009`009Sometimes prompt is written twice
+X
+X`009`009Empiretool database eats great amount of memory.
+X`009`009So number of sectors, what empiretool handles,
+X`009`009is limited to 128*128/2 (8192) sectors.
+X
+X`009`009And many other bugs ...
+X`009`009(Report to: Kari.Hurtta@Helsinki.FI)
+X
+XDisclaimer:`009Due problems of Multinet heavy debugging of this program
+X`009`009will in certain conditions crash VMS.
+$ CALL UNPACK 000READ.ME;1 1112064969
+$ create/nolog 'f'
+X#module EMPIRECLIENT "Empire Client for VMS"
+X
+X/*
+X#define ASTDEBUG
+X#define EVENTDEBUG
+X#define POOLDEBUG
+X*/
+X
+Xchar *EMPIRECLIENT_VERSION =  "1.10 (distributed 12.4.1992)" ;
+Xchar *EMPIRECLIENT_COMPILED_DATE = __DATE__;
+Xchar *EMPIRECLIENT_COMPILED_TIME = __TIME__;
+X
+X/*
+X**++
+X**  FACILITY:  User end for EMPIRE game
+X**
+X**  MODULE DESCRIPTION:
+X**
+X**      VMS version of BSD Empire's client
+X**
+X**  AUTHORS:
+X**
+X**      Kari Hurtta (hurtta@cc.Helsinki.FI)
+X**
+X**`009(idea from Empire Client for VAX/VMS`032
+X**`009    by Mike Kienerberg (FXMLK@ALASKA.bitnet))
+X**
+X**  CREATION DATE:  28.2.1991 (Started coding at 20:34 :-))
+X**
+X**  DESIGN ISSUES:
+X**
+X**      `123@tbs@`125`032
+X**
+X**  COMPILATION QUALIFIERS:
+X**  `032
+X**`009/NOOPTIMIZE`009    Optimization seems caused some bizarre errors.
+X**`009`009`009`009Maybe in this module have some bad bugs.
+X**  `032
+X**  INCLUDED FILES:
+X**  `032
+X**`009multinet_root:`091multinet.include.sys`093types.h
+X**`009multinet_root:`091multinet.include.sys`093socket.h
+X**`009multinet_root:`091multinet.include.netinet`093in.h
+X**`009sys$library:stdio.h
+X**`009multinet_root:`091multinet.include`093netdb.h
+X**`009multinet_root:`091multinet.include.vms`093inetiodef.h
+X**`009sys$library:ctype.h
+X**`009sys$library:string.h
+X**`009sys$library:stdlib.h
+X**`009sys$library:time.h
+X**`009sys$library:starlet.h
+X**`009sys$library:iodef.h
+X**`009sys$library:errno.h
+X**`009sys$library:ssdef.h
+X**`009sys$library:descrip.h
+X**`009sys$library:psldef.h
+X**`009sys$library:clidef.h
+X**`009sys$library:climsgdef.h
+X**`009sys$library:lib$routines.h
+X**`009sys$library:dvidef.h
+X**`009sys$library:trmdef.h
+X**`009sys$library:lnmdef.h
+X**`009client.h
+X**  `032
+X**  FILES USED:
+X**  `032
+X**  `009EMPIRE_INIT`009`009Initialization file - possibly logical nime
+X**`009SYS$LOGIN:EMPIRE.INIT`009Initialization file, if previous isn't exist
+X**`009exec:EMPIRE.GLOBAL_INIT Initialization file, required - must be in
+X**`009`009`009`009same directory as CLIENT.EXE
+X**
+X**  `032
+X**  `091@optional module tags@`093...
+X**
+X**  MODIFICATION HISTORY:
+X**
+X**      4.3.1991 - V 0.01 : First version which talking with server
+X**`0095.3.1991 - V 0.02 : Log file added
+X**`0095.3.1991 - V 0.03 : Output redirection implemeted
+X**`0097.3.1991 - V 0.04 : Fix bug in error message of opening log file
+X**`0098.3.1991 - V 0.05 : Better error handling routines
+X**`0098.3.1991 - V 0.06 : Better file handling
+X**`0099.3.1991 - V 0.07 : SYS$LOGIN:EMPIRE.INIT added
+X**`0099.3.1991 - V 0.08 : Numeric addresses are now acceptable - input`032
+X**`009`009`009    redirection possibly work
+X**`0099.3.1991 - V 0.09 : Logical name EMPIRE_INIT added
+X**     10.3.1991 - V 0.10 : Overflow and error messages not yet cause`032
+X**`009`009`009    wrong commands
+X**     10.3.1991 - V 0.11 : MORE added
+X**     10.3.1991 - V 0.12 : Format: empire Country Log-file added - bug: no
+X**`009`009`009    error messages of connection in more -mode fixed
+X**     11.3.1991 - V 0.13 : Timesaver added, but automatic reconnection don'
+Vt
+X**`009`009`009    work
+X**     11.3.1991 - V 0.14 : Fixed one bug: added missing 'else'
+X**     11.3.1991 - V 0.15 : Noecho mode implemented (there is still one bug)
+V -
+X**`009`009`009    pipe added, but it isn't work completed
+X**     12.3.1991 - V 0.16 : Ctrl-c operation implemented - now keybaord`032
+X**`009`009`009    reading don't sock with ctrl-c or ctrl-y - pipe
+X**`009`009`009    still don't work`032
+X**     12.3.1991 - V 0.17 : Some enchancement did to pipe code - still don't
+V`032
+X**`009`009`009    work
+X**     13.3.1991 - V 0.18 : Error messages moved to own pool - and possible`
+V032
+X**`009`009`009    crashing whole VMS (two times) with this program
+X**`009`009`009    when running that under debugger
+X**     14.3.1991 - V 0.19 : New command line word "host" added.
+X**     15.3.1991 - V 0.20 : IO$WRITEOF qio added - pipe works better, but do
+Vn't
+X**`009`009`009    still work
+X**     15.3.1991 - V 0.21 : Now timesaver's reconnection utility seems work
+V and
+X**`009`009`009    client no longer(?) lose defination of `094C and `094D`032
+X**     15.3.1991 - V 0.22 : Sends now `094C as "\naborted\n" to server (it w
+Vorks!)`032
+X**     15.3.1991 - V 0.23 : `094C, `094D "Enchancement" in version =.21 seem
+Vs eats`032
+X**`009`009`009    AST quota - removed
+X**     17.3.1991 - V 0.24 : Now this enchancement is implemented better - I
+V hope
+X**     18.3.1991 - V 0.25 : some code cleared
+X**     18.3.1991 - V 0.26 : Text highlighting possibly work (only for VT100)
+X**     19.3.1991 - V 0.27 : putchar seems waste CPU - replaced with buffer
+X**     19.3.1991 - V 0.28 : Now execute -command (input redirection) works r
+Vight
+X**     19.3.1991 - V 0.29 : Basics of command level added
+X**     20.3.1991 - V 0.30 : Arguments splitting added to command level
+X**     20.3.1991 - V 0.31 : Trying fix pipe code - still don't work
+X**     20.3.1991 - V 0.32 : Show -command added to command level
+X**     22.3.1991 - V 0.33 : Function key support added
+X**     23.3.1991 - V 0.34 : printing to screen is now direct QIOW
+X**     23.3.1991 - V 0.35 : Batch support added
+X**     23.3.1991 - V 0.36 : New commands added to command level
+X**     24.3.1991 - V 0.37 : Body of empiretool created
+X**     24.3.1991 - V 0.38 : Now parsing of dump works
+X**     25.3.1991 - V 0.39 : Minor bug fix in timesaver (related with empiret
+Vool)
+X**     25.3.1991 - V 0.40 : Command level bug fixed, possible more bug fixed
+X**     27.3.1991 - V 0.41 : Some bug gixed in more
+X**     27.3.1991 - V 0.42 : Defination of `094D now is conditionally and `09
+V4Z and F10
+X**`009`009`009    is now defined
+X**     10.4.1991 - V 0.43 : Command history
+X**     11.4.1991 - V 0.44 : Fixing more work with empiretool and command lev
+Vel
+X**     12.4.1991 - V 0.45 : Ugly fix for timing problem
+X**     13.4.1991 - V 0.46 : Defined as DCL command
+X**     15.4.1991 - V 0.47 : launch command added to command level - added`03
+V2
+X**`009`009`009    missing reading of SERVER -value to read_CLI_params
+X**     17.4.1991 - V 0.48 : Client's no longer read from server, when buffer
+V is
+X**`009`009`009    full - noechoed command no longer adds to history -
+X**`009`009`009    too short buffer in put_screen fixed
+X**     18.4.1991 - V 0.49 : Minor bug fix to check_reading - refresh_prompt
+X**`009`009`009    modified - more iosbs added
+X**     18.4.1991 - V 0.50 : Minor modifications - answer_query fixed
+X**     27.4.1991 - V 0.51 : Moretimer added
+X**`0091.5.1991 - V 0.52 : BTU_left added - empiretool command not immediatly
+X**`009`009`009    now print command level's prompt
+X**`0093.5.1991 - V 0.53 : loading and saving of database
+X**     17.5.1991 - V 0.54 : PF4 defined
+X**     18.5.1991 - V 0.55 : screen_term_width, screen_term_len, screen_is_an
+Vsi,
+X**`009`009`009    screen_is_dec, autoset()
+X**     19.5.1991 - V 0.56 : Updatetimer added
+X**     21.5.1991 - V 0.57 : EMPIRE.GLOBAL_INIT, is_playtime(), /EMPIRETOOL
+X**     22.5.1991 - V 0.58 : start_command_level(), value to /EMPIRETOOL -opt
+Vion
+X**     22.5.1991 - V 0.59 : write_word() - read_word() and skip_cr() -modifi
+Ved -
+X**                          updatetimer bug fixed
+X**     23.5.1991 - V 1.00 * DISRTRIBUTED as version 1.00
+X**      3.3.1992 - V 1.01 : empiretool_cancel added
+X**`0098.3.1992 - V 1.02 : some simplifies
+X**     11.3.1992 - V 1.03 : bug fix to empiretool_database
+X**     12.3.1992 - V 1.04 : flush_message
+X**     14.3.1992 - V 1.05 : some minor fixing
+X**     29.3.1992 - V 1.06 : screen mode
+X**     31.3.1992 - V 1.06b : fix problem with SCREEN_CLEAR constant in WYSE
+V -terminal
+X**`0092.4.1992 - V 1.06c : Screen update heuristic
+X**     11.4.1992 - V 1.06d : fixing heuristic
+X**     12.4.1992 * V 1.10 : DISTRIBUTED AS VERSION 1.10
+X**--
+X*/
+X
+X/*  To compile and link this client:
+X *
+X *    $ CC/NOOPTIMIZE CLIENT,EMPIRETOOL
+X *    $ LINK CLIENT,EMPIRETOOL,SYS$INPUT:/OPT
+X *    MULTINET:MULTINET_SOCKET_LIBRARY/SHARE
+X *    SYS$SHARE:VAXCRTL/SHARE
+X *    `094Z
+X */
+X
+X/* includes from multinet_root:`091multinet.examples`093tcpechoclient.c */
+X
+X#include "multinet_root:`091multinet.include.sys`093types.h"
+X#include "multinet_root:`091multinet.include.sys`093socket.h"
+X#include "multinet_root:`091multinet.include.netinet`093in.h"
+X#include <stdio.h>
+X#include "multinet_root:`091multinet.include`093netdb.h"
+X
+X/* for IO$_RECEIVE */
+X#include "multinet_root:`091multinet.include.vms`093inetiodef.h"
+X
+X#define __TYPES_LOADED 1
+X#include <time.h>`009`009/* for time */
+X#include <ctype.h>`009`009/* for isupper */
+X#include <string.h>`009`009/* for strerror */
+X#include <stdlib.h>`009`009/* for malloc */
+X
+X
+X/* for QIO */
+X#include starlet`009`009/* for SYS$ */
+X#include iodef`009`009`009/* for IO$_ and IO$M_ */
+X
+X#include errno                  /* for vmsc$errno */
+X#include ssdef                  /* for SS$_ */
+X#include descrip                /* for $DESCRIPTOR */
+X#include psldef`009`009`009/* for PSL$C_USER */
+X#include clidef`009`009`009/* for CLI$ */
+X#include climsgdef`009`009/* for CLI$_ return code */
+X#include lib$routines`009`009/* fot LIB$ */
+X#include dvidef`009`009`009/* for DVI$_ */
+X#include trmdef`009`009`009/* for TRM$_ and TRM$M_ */
+X#include lnmdef`009`009`009/* for LNM$_ */
+X
+X#include "client.h"
+X
+X/* IOSBs *************************************************************** */
+X
+Xvolatile struct iosbtype /* where include file this is ? */
+X`123   /* General */
+X    volatile short cond;
+X    volatile short count;
+X    volatile int something;
+X`125 iosb,iosb7,iosb10,iosb12;
+X
+Xvolatile struct iosbmbx /* for mailbox -driver */
+X`123   /* IO$_READVBLK, IO$_WRITEVBLK */
+X    volatile short cond;
+X    volatile short count;
+X    volatile unsigned pid;
+X`125 iosb6, iosb5, iosb4;
+X
+Xvolatile struct iosbttread /* for terminal -driver*/
+X`123   /* IO$_READVBLK, IO$_READPROMPT */
+X    volatile short cond;
+X    volatile short trmoff;
+X    volatile short terminator;
+X    volatile short trmsize;
+X`125 iosb2, iosb3;
+X
+Xvolatile struct iosbttitmread /* for terminal -driver*/
+X`123   /* IO$_READVBLK `124 IO$M_EXTENDED */
+X    volatile short cond;
+X    volatile short trmoff;
+X    volatile unsigned char terminator;
+X    volatile char filler;
+X    volatile unsigned char trmsize;
+X    volatile unsigned char curposeol;
+X`125 iosb8,iosb9;
+X
+Xvolatile struct iosbttmode /* for terminal -driver*/
+X`123   /* IO$_SETMODE, IO$_SETCHAR, IO$_SENSEMODE */
+X    volatile short cond;
+X    volatile unsigned char sendspeed;
+X    volatile unsigned char recspeed;
+X    volatile unsigned char CRfill;
+X    volatile unsigned char LFfill;
+X    volatile unsigned char parityf;
+X    volatile unsigned char filler;
+X`125 iosb11,iosb13; `032
+X
+X/* STR Stuff ************************************************************* *
+V/
+X
+Xint StrEQ(char *str1, char *str2, int no_case)
+X`123
+X    while (*str1 && *str2) `123
+X`009char A = *str1;
+X`009char B = *str2;
+X`009if (no_case) `123
+X`009    A = tolower(A);
+X`009    B = tolower(B);
+X`009`125
+X`009if (A != B) return 0;
+X`009str1++;
+X`009str2++;
+X    `125
+X    return (*str1 == *str2);
+X`125
+X
+X/* RAW output **************************************************************
+V */
+X
+Xstatic short screen_d = -1; /* SYS$OUTPUT */
+Xstatic int screen_is_tt = 0;
+Xstatic int screen_is_file = 0;
+Xstatic int screen_is_ansi = 0;
+Xstatic int screen_is_dec  = 0;
+Xstatic int screen_page_width = 80;
+Xstatic int screen_page_len = 24;
+Xstatic int keyboard_is_tt = 0;
+Xstatic int keyboard_is_file = 0;
+X
+Xstatic FILE *C_screen_file = NULL; /* use instead if SYS$OUTPUT is file */
+X
+Xstatic void write_VMS_error(char *Message, int status);
+X/* Can use when assigned in init_screen */
+X
+XFILE *open_file(char *file_name, int flags);
+Xstatic void close_file(FILE **fdp);
+Xstatic void read_screen_params(void);
+X
+Xstatic void init_screen(void)
+X`123`032
+X    int status;
+X    int result = 0;
+X    int item;
+X    $DESCRIPTOR(screen,"SYS$OUTPUT");
+X
+X    status = sys$assign(&screen,&screen_d,0,0);
+X    if (status != SS$_NORMAL) lib$signal(status);`009    /* REALLY fatal */
+X
+X    item = DVI$_TRM;
+X    status = lib$getdvi(&item,&screen_d,0,&result,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't get device information from SYS$OUTPUT",
+X`009    status);
+X`009screen_is_tt = 0;
+X    `125 else `123
+X`009screen_is_tt = result & 1;
+X    `125 `009
+X
+X    item = DVI$_FOD;
+X    status = lib$getdvi(&item,&screen_d,0,&result,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't get device information from SYS$OUTPUT",
+X`009    status);
+X`009screen_is_file = 0;
+X    `125 else `123
+X`009screen_is_file = result & 1;
+X    `125 `009
+X
+X    if (screen_is_file)`009/* use instead : for BATCH mode */
+X`009C_screen_file = open_file("SYS$OUTPUT",F_APPEND);
+X
+X    read_screen_params();
+X
+X`125
+X
+Xstatic void read_screen_params(void)
+X`123
+X    int status;
+X    int result = 0;
+X    int item;
+X
+X    struct mode_buffer `123
+X`009unsigned char class;
+X`009unsigned char type;
+X`009unsigned short page_width;
+X`009unsigned char charac`0913`093;
+X`009unsigned char page_len;
+X    `125 buffer;
+X
+X    if (C_screen_file) `123
+X`009screen_page_width = 132;
+X`009screen_page_len   = 80;
+X`009screen_is_ansi`009  = 0;
+X`009screen_is_dec`009  = 0;
+X
+X`009return ;
+X    `125
+X
+X    if (!screen_is_tt) `123
+X
+X`009item = DVI$_DEVBUFSIZ;
+X`009status = lib$getdvi(&item,&screen_d,0,&result,0,0);
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Can't get device information from SYS$OUTPUT",
+X`009`009status);
+X`009    screen_page_width = 80;
+X`009    screen_page_len   = 24;
+X`009    screen_is_ansi    = 0;
+X`009    screen_is_dec     = 0;
+X`009    return ;
+X`009`125
+X`009screen_page_width = result & 0xFFFF;
+X`009screen_page_len   = 24;
+X`009screen_is_ansi`009  = 0;
+X`009screen_is_dec`009  = 0;
+X
+X`009return;
+X    `125
+X
+X    item = DVI$_TT_ANSICRT;
+X    status = lib$getdvi(&item,&screen_d,0,&result,0,0);
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Can't get device information from SYS$OUTPUT",
+X`009`009status);
+X`009    screen_is_ansi    = 0;
+X`009`125 else screen_is_ansi = result & 1;
+X
+X    item = DVI$_TT_DECCRT;
+X    status = lib$getdvi(&item,&screen_d,0,&result,0,0);
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Can't get device information from SYS$OUTPUT",
+X`009`009status);
+X`009    screen_is_dec    = 0;
+X`009`125 else screen_is_dec = result & 1;
+X
+X    status = sys$qiow(0,screen_d,         `032
+X`009IO$_SENSEMODE,     `032
+X`009&iosb13,0,0,
+X`009&buffer,sizeof(buffer),0,0,0,0);`032
+X
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error putting IO$_SENSEMODE qio",
+X`009`009status);
+X
+X`009screen_page_width = 80;
+X`009screen_page_len   = 24;
+X
+X    `125 else if (iosb13.cond != SS$_NORMAL)  `123
+X`009    write_VMS_error("Error during IO$_SENSEMODE qio",
+X`009`009iosb13.cond);
+X
+X`009screen_page_width = 80;
+X`009screen_page_len   = 24;
+X
+X    `125 else `123
+X`009screen_page_width = buffer.page_width;
+X`009screen_page_len   = buffer.page_len;
+X    `125
+X
+X    return ;
+X`125
+X
+Xstatic void quit_screen(void)
+X`123
+X    int status;
+X
+X    if (C_screen_file) close_file(&C_screen_file);
+X
+X    status = sys$dassgn(screen_d);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error deassing screen.",status);
+X    `125
+X`125
+X
+Xstatic volatile int have_request = 0;`009/* have keyboard reading request */
+Xstatic volatile int have_command = 0; /* 1 = keyboard input, 2 = control-c *
+V/
+X#define HAVE_FROM_KBD (have_request `124`124 have_command)
+X#define POOL_LEN 5*80`009`009`009/* must be att least as wide */
+X`009`009`009`009`009/* as servers dump */
+X
+Xstatic void put_screen(char *line, int raw, int no_lf)
+X`123
+X    char buffer`091ERROR_LEN + POOL_LEN`093;
+X    int status;
+X    int modify = 0;
+X
+X    if (C_screen_file) `123
+X`009fprintf(C_screen_file,"%s\n",line);
+X
+X    `125 else `123
+X`009if (raw) `123
+X`009    if (!screen_is_tt) return; /* don't print */
+X
+X`009    modify `124= IO$M_NOFORMAT;
+X`009    strcpy(buffer,line);
+X`009`125 else `123
+X`009    if (no_lf) `123    /* V 1.02: extra \r don't pay much */
+X`009`009if (/* HAVE_FROM_KBD && */ screen_is_tt)`032
+X`009`009`009strcpy(buffer,"\r"); /* CR */
+X`009`009else`032
+X`009`009`009strcpy(buffer,"");   /* none */
+X`009    `125 else `123
+X`009`009if (/* HAVE_FROM_KBD && */ screen_is_tt)`032
+X`009`009`009strcpy(buffer,"\r\n"); /* CR LF */
+X`009`009else`032
+X`009`009`009strcpy(buffer,"\n");   /* LF */
+X`009    `125
+X`009    strcat(buffer,line);
+X`009    strcat(buffer,"\r");`009/* CR */`009
+X`009`125
+X   `032
+X`009status = sys$qiow(0, screen_d, IO$_WRITEVBLK `124 modify, &iosb10, 0, 0,
+X                     buffer, strlen(buffer), 0, 0, 0, 0);
+X
+X`009if (status != SS$_NORMAL) lib$signal(status);   /* REALLY fatal */   `03
+V2
+X`009else if (iosb10.cond != SS$_NORMAL && iosb10.cond != SS$_CONTROLC &&
+X`009    iosb10.cond != SS$_CONTROLO && iosb10.cond != SS$_CONTROLY)`032
+X`009    lib$signal(iosb10.cond);   /* REALLY fatal */   `032
+X    `125
+X`125
+X
+X/* OUTPUT to user **********************************************************
+V */
+X
+Xstatic FILE *log_fd = NULL;
+X
+Xstatic int term_len = TERM_LEN-1;
+Xstatic int history_size = 0;
+X
+Xstatic struct More_buffer `123
+X`009struct More_buffer *next;
+X`009struct More_buffer *prev;
+X`009char Line`091ERROR_LEN+1`093;
+X`009int bit7;
+X    `125`009filler = `123 NULL, NULL, "<newer printed>" `125,
+X`009*more_tail = &filler,
+X`009*more_current = &filler,
+X`009pipe_filler  = `123 NULL, NULL, "<newer printed>" `125,
+X`009*pipe_tail = &filler;
+X`009
+Xstatic int current_counter = 0;
+Xstatic int length_counter  = 0;
+Xstatic int use_more = 0;
+Xstatic int more_page_len = 24;
+Xstatic int use_high = 0;
+Xstatic int use_history = 0;
+Xstatic int use_moretimer = 0;
+Xstatic int autostart_empiretool = 0;
+Xstatic int autostart_empiretool_string`091COMMAND_SIZE`093 = "";
+Xstatic int output_printed = 0;`009/* flag for reactivate prompt */
+X
+Xstatic int have_screen_mode = 0;
+Xstatic void leave_screen_mode(void);
+X
+X#define USE_MORE (use_more && screen_is_tt && keyboard_is_tt)
+X
+Xvoid write_C_error(char *Message);
+Xstatic void recycle_moretimer(void);
+X
+Xstatic void add_to_more(char *line, int bit7)
+X`123
+X    int csr = 0;
+X    int len = strlen(line);
+X
+X    for (csr = 0; csr < len; csr += term_len) `123
+X`009struct More_buffer *tmp = malloc(sizeof(struct More_buffer));
+X`009if (tmp) `123
+X`009    strncpy(tmp -> Line, &line`091csr`093, term_len);
+X`009    tmp -> Line`091term_len`093 = '\0';
+X`009    tmp -> bit7 = bit7;
+X`009    tmp -> next = NULL;
+X`009    tmp -> prev = more_tail;
+X`009    if (!filler.next) filler.next = tmp;
+X`009    more_tail -> next = tmp;
+X`009    more_tail = tmp;
+X`009    length_counter++;
+X`009`125
+X    `125
+X
+X    if (use_moretimer) recycle_moretimer();
+X`125
+X
+Xchar *HIGH_ON  = "\033`0911m"; /* boldface on */
+Xchar *HIGH_OFF = "\033`0910m"; /* "all off" works also ANSI terminal */
+Xstatic prompt_type current_prompt = P_server;
+X
+Xstatic void print_7(char *ptr, int no_lf)
+X`123
+X    static char buffer`091ERROR_LEN + sizeof(HIGH_ON)*POOL_LEN`093;
+X    char *dst = buffer;
+X    char *tmp;
+X    int bit8 = 0;
+X    while(*ptr) `123
+X`009if ((*ptr & 128) && !bit8 && use_high) `123`032
+X`009    for(tmp = HIGH_ON; *tmp; tmp++)
+X`009`009*dst++ = *tmp;
+X`009    bit8 = 1;
+X`009`125
+X`009if (!(*ptr & 128) && bit8 && use_high) `123
+X`009    for(tmp = HIGH_OFF; *tmp; tmp++)
+X`009`009*dst++ = *tmp;
+X`009    bit8 = 0;
+X`009`125
+X`009*dst++ = *ptr++ & 127;
+X    `125
+X    if (bit8 && use_high) `123
+X`009for(tmp = HIGH_OFF; *tmp; tmp++)
+X`009    *dst++ = *tmp;
+X
+X`009bit8 = 0;
+X    `125
+X    *dst = '\0';
+X    put_screen(buffer,0,no_lf);
+X`125
+X
+X
+Xstatic void print_more(int count,int back, int no_lf)
+X`123
+X    int i;
+X
+X    if (back)`032
+X`009for (i = 0; i < back && (more_current -> prev); i ++) `123
+X`009    more_current = more_current -> prev;
+X`009    current_counter--;
+X`009`125
+X    for (i = 0; i < count && (more_current -> next); i ++) `123
+X`009if (have_screen_mode) leave_screen_mode();
+X
+X`009more_current = more_current -> next;
+X`009if (more_current -> bit7) print_7(more_current -> Line,no_lf);
+X`009else put_screen(more_current -> Line,0,no_lf);
+X`009no_lf = 0;
+X`009current_counter++;
+X`009output_printed = 1;`009/* activate prompt if necessary */
+X    `125
+X`125
+X
+Xstatic clear_more()
+X`123  `032
+X    struct More_buffer *tmp,*tmp2;
+X    for (tmp = filler.next; tmp; tmp = tmp2) `123
+X`009tmp2 = tmp -> next;
+X`009free(tmp);
+X    `125
+X    filler.next = NULL;
+X    more_current = &filler;
+X    more_tail = &filler;
+X    length_counter = 0;
+X    current_counter = 0;
+X`125
+X
+X
+Xvoid write_line(char *line, error_class error, char *cont)
+X`123
+X    static int log_writing_error = 0;
+X
+X    char *buffer`091ERROR_LEN + POOL_LEN`093;
+X
+X    switch(error) `123
+X    case E_client:
+X`009sprintf(buffer,"EMPIRECLIENT: %s",line);
+X`009if (have_screen_mode) screen_writeSA(current_prompt,0,buffer);
+X`009else if (USE_MORE) add_to_more(buffer,0);
+X`009else put_screen(buffer,0,0);
+X`009if (cont) `123
+X`009    sprintf(buffer,"            : %s",cont);
+X`009    if (have_screen_mode) screen_writeSA(current_prompt,0,buffer);
+X`009    else if (USE_MORE) add_to_more(buffer,0);
+X`009    else put_screen(buffer,0,0);
+X`009`125
+X`009if (log_fd) `123
+X`009    fprintf(log_fd,"EMPIRECLIENT: %s\n",line);
+X`009    if (cont) fprintf(log_fd,"            : %s\n",cont);
+X`009`125
+X`009break;
+X    case E_tool:
+X`009sprintf(buffer,"EMPIRETOOL: %s",line);
+X`009if (have_screen_mode) screen_writeSA(current_prompt,0,buffer);
+X`009else if (USE_MORE) add_to_more(buffer,0);
+X`009else put_screen(buffer,0,0);
+X`009if (cont) `123
+X`009    sprintf(buffer,"          : %s",cont);
+X`009    if (USE_MORE) add_to_more(buffer,0);
+X`009    else put_screen(buffer,0,0);
+X`009`125
+X`009if (log_fd) `123
+X`009    fprintf(log_fd,"EMPIRETOOL: %s\n",line);
+X`009    if (cont) fprintf(log_fd,"          : %s\n",cont);
+X`009`125
+X`009break;
+X    case E_server:
+X`009sprintf(buffer,"EMPIRE: %s",line);
+X`009if (have_screen_mode) screen_writeSA(current_prompt,
+X`009    SM_7BIT,buffer);
+X`009else if (USE_MORE) add_to_more(buffer,1);
+X`009else print_7(buffer,0);
+X`009if (cont) `123
+X`009    sprintf(buffer,"      : %s",cont);
+X`009    if (have_screen_mode) screen_writeSA(current_prompt,
+X`009`009SM_7BIT,buffer);
+X`009    else if (USE_MORE) add_to_more(buffer,1);
+X`009    else print_7(buffer,0);
+X`009`125
+X`009if (log_fd) `123
+X`009    fprintf(log_fd,"EMPIRE: %s\n",line);
+X`009    if (cont) fprintf(log_fd,"      : %s\n",cont);
+X`009`125
+X`009break;`032
+X    case E_none:
+X`009if (have_screen_mode) screen_writeSA(current_prompt,0,line);
+X`009else if (USE_MORE) add_to_more(line,0);
+X`009else put_screen(line,0,0);
+X`009if (log_fd) `123
+X`009    fprintf(log_fd,"%s\n",line);
+X`009`125
+X`009break;
+X    case E_data:
+X`009if (have_screen_mode) screen_writeSA(current_prompt,SM_7BIT,line);
+X`009else if (USE_MORE) add_to_more(line,1);
+X`009else print_7(line,0);
+X`009if (log_fd) `123
+X`009    fprintf(log_fd,"%s\n",line);
+X`009`125
+X`009break;
+X    `125
+X    if (log_fd && ferror(log_fd) && !log_writing_error) `123
+X`009log_writing_error = 1; /* for prevent loop */
+X`009write_C_error("Error writing log file.");
+X    `125
+X    if (!USE_MORE) output_printed = 1; /* activate prompt, if necessary */
+X`125
+X
+Xvoid write_socket_error(char *Message)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    char *tmp;
+X   `032
+X    tmp = vms_errno_string();
+X    if (tmp) `123
+X`009strcpy(buffer,tmp);
+X`009write_line(Message,E_client,buffer);
+X    `125 else write_line(Message,E_client,NULL);
+X`125
+X
+Xvoid write_C_error(char *Message)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    char *tmp;
+X   `032
+X    tmp = strerror(errno,vaxc$errno);
+X    if (tmp) `123
+X`009strcpy(buffer,tmp);
+X`009write_line(Message,E_client,buffer);
+X    `125 else write_line(Message,E_client,NULL);
+X`125
+X
+Xvoid write_VMS_error(char *Message, int status)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    char *tmp;
+X   `032
+X    tmp = strerror(EVMSERR,status);
+X    if (tmp) `123
+X`009strcpy(buffer,tmp);
+X`009write_line(Message,E_client,buffer);
+X    `125 else write_line(Message,E_client,NULL);
+X`125
+X
+X/* FILE HANDLING ********************************************************* *
+V/
+X
+XFILE *open_file(char *file_name, int flags)
+X`123
+X    char *mode = "r";
+X    char *msg = "Error opening file %s for reading";
+X    char temp`091ERROR_LEN`093;
+X    FILE *fd;
+X
+X    if (flags & F_WRITE) `123
+X`009mode = "w";
+X`009msg = "Error opening file %s for writing";
+X    `125
+X    if (flags & F_APPEND) `123
+X`009mode = "a";
+X`009msg = "Error opening file %s for appending";
+X    `125
+X    sprintf(temp,msg,file_name);
+X
+X    fd = fopen(file_name,mode);
+X    if (!fd) write_C_error(temp);
+X    return fd;
+X`125
+X
+Xvoid close_file(FILE **fdp)
+X`123
+X    char file_name`091FILE_NAME_LEN`093;
+X    char *msg1 = "I/O error with file";
+X    char *msg2 = "Error closing file %s";
+X    char message`091ERROR_LEN`093;
+X
+X    char status;
+X
+X    if (!*fdp) return;
+X    status = ferror(*fdp);
+X    if(!fgetname(*fdp,file_name)) `123
+X`009file_name`0910`093 = '\0';
+X`009msg2 = "Error closing file";
+X    `125
+X
+X    if (status) write_line(msg1,E_client,file_name);
+X
+X    sprintf(message,msg2,file_name);
+X    if (fclose(*fdp)) write_C_error(message);
+X    *fdp = NULL;
+X`125
+X
+Xint have_file(char *file_name, char *buffer)
+X`123    `032
+X    FILE *temp = fopen(file_name,"r");
+X    int have_file = temp != NULL;
+X    if (buffer) buffer`0910`093 = '\0';
+X    if (buffer && have_file) fgetname(temp,buffer);
+X    fclose(temp);
+X    return have_file;
+X`125
+X
+X/* INIT FILE ************************************************************* *
+V/
+X
+X#define NAME_LEN    50
+X#define PORT_LEN    10
+X#define COUNTRY_LEN 25
+X#define PASS_LEN    50
+X
+Xstatic struct Service `123
+X    struct Service *next;
+X    char Name`091NAME_LEN`093;
+X    char Port`091PORT_LEN`093;
+X    char Country`091COUNTRY_LEN`093;
+X    char Pass`091PASS_LEN`093;
+X    char ET_file`091FILE_NAME_LEN`093;
+X`125 *country_list = NULL;
+X
+Xstatic int silent_login = 0;
+X
+Xtypedef struct `123
+X    unsigned`009rest;
+X    int`009`009most;
+X`125 quardword;
+X
+Xstatic int use_timesaver = 0;
+Xstatic quardword timesaver_value = `123 0, 0 `125;
+X
+Xstatic quardword moretimer_value = `123 0, 0 `125;
+X
+Xstatic int no_empire_eof = 0;
+X#define QUOTE '"'
+X#define COMMENT '!'
+X
+Xint read_word(FILE *fp,char *buffer,size_t size)
+X`123
+X    int c, quote_flag = 0;
+X    char *ptr = buffer;
+X
+X    /* skip leading blankes - don't skip CR */
+X    *ptr = '\0';
+X    while(!feof(fp) && !ferror(fp) &&`032
+X`009((c = getc(fp)) == ' ') `124`124 (c == '\t'));
+X    if (feof(fp) `124`124 ferror(fp)) return 0;
+X    if (c == '\n' `124`124 c == COMMENT) `123 ungetc(c,fp); return 0; `125
+X
+X    /* read word */
+X    do `123`032
+X`009if (c == QUOTE) `123
+X`009    c = fgetc(fp);
+X`009    if (c == QUOTE) `123`009/* c == EOF if error occurs */
+X`009`009if (ptr - buffer < size -1) *ptr++ = QUOTE;`032
+X`009`009c = fgetc(fp);
+X`009    `125 else quote_flag = !quote_flag; /* toggle flag */
+X`009`125 else `123
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-

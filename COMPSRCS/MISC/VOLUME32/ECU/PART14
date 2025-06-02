@@ -1,0 +1,2183 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i049:  ecu - ECU Asynchronous Communications v3.20, Part14/40
+Message-ID: <1992Sep13.153528.5428@sparky.imd.sterling.com>
+X-Md4-Signature: 2bdb7392c1efd7960ac7f6377a2d5073
+Date: Sun, 13 Sep 1992 15:35:28 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 49
+Archive-name: ecu/part14
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.14 (part 14 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ecuusage.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 14; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ecuusage.c'
+else
+echo 'x - continuing file ecuusage.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ecuusage.c' &&
+X
+Xchar *usage_text[] = 
+X{
+X"usage: ecu [-l <ttyname>] [-b <baud_rate>] [-eon]\n",
+X"           [-h] [-t] [-P <phonedir>] [-F name] [-T <trace-level>]\n",
+X"           [-p <initial_proc> [-d] [-D] | <phone_number>]\n",
+X"-D unconditionally stop execution when -p initial procedure is done\n",
+X"-F sets an alternate funckeymap name for the *keyboard*\n",
+X"-P choose alternate phone directory (<phonedir> must be a full pathname)\n",
+X"-T set procedure tracing to level: 0=none, 1=standard, 2=ECU-debugging\n",
+X"-b choose baud rate (any UNIX rate 110-38400)\n",
+X"-d stop execution if -p initial procedure fails\n",
+X"-e even parity   -o odd parity   -n no parity\n",
+X"-h half duplex ... default is full duplex\n",
+X"-l choose line (/dev/<ttyname>)\n",
+X"-p execute an initial procedure\n",
+X"-t append NL to incoming and outgoing CR characters\n",
+X"<phone_number> is either an actual number or a directory entry name\n",
+X"\n",
+X"For interactive option selection, try executing ecu with no arguments\n",
+X"\n",
+X"For a list of built in commands, type HOME?<ENTER> once program started\n",
+X	(char *)0		/* terminated with null pointer */
+X};
+X
+Xchar *log_cmd_usage_text[] = 
+X{
+X"Usage: log [-s] [-r] <filename>\n",
+X"       log off   turn logging off\n",
+X" -s scratch any previous contents of <filename>, else append\n",
+X" -r raw log, else drop 0x00-0x08,0x11-0x1F,0x7F-0xFF\n",
+X	(char *)0		/* terminated with null pointer */
+X};
+X
+X/*+-----------------------------------------------------------------------
+X	general_usage(uptr)
+X------------------------------------------------------------------------*/
+Xvoid
+Xgeneral_usage(uptr)
+Xregister char **uptr;
+X{
+X	while(*uptr != (char *)0)
+X		pputs(*(uptr++));
+X}	/* end of usage */
+X
+X/*+-----------------------------------------------------------------------
+X	usage()
+X------------------------------------------------------------------------*/
+Xvoid
+Xusage()
+X{
+X	fprintf(stderr,"ecu %s made: %s\n",revstr,makedate);
+X	general_usage(usage_text);
+X	pprintf("\nDefaults: tty=%s baud=%d parity=%c\n",
+X		DEFAULT_TTY, DEFAULT_BAUD_RATE, DEFAULT_PARITY);
+X	termecu(TERMECU_USAGE);
+X	/*NOTREACHED*/
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	log_cmd_usage()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlog_cmd_usage()
+X{
+X	general_usage(log_cmd_usage_text);
+X}	/* end of log_cmd_usage */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File ecuusage.c is complete' &&
+chmod 0644 ecuusage.c ||
+echo 'restore of ecuusage.c failed'
+Wc_c="`wc -c < 'ecuusage.c'`"
+test 3383 -eq "$Wc_c" ||
+	echo 'ecuusage.c: original size 3383, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuutil.c ==============
+if test -f 'ecuutil.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuutil.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuutil.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuutil.c' &&
+X/*+-----------------------------------------------------------------------
+X	ecuutil.c -- utility routines for extended calling unit
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X
+X  Defined functions:
+X	arg_token(parsestr,termchars)
+X	ascii_name_to_hex(str3char)
+X	ascii_to_hex(ascii)
+X	build_arg_array(cmd,arg,arg_max_quan,narg_rtn)
+X	build_str_array(str,arg,str_max_quan,nstr_rtn)
+X	cfree(p,num,size)
+X	defeat_optimize_to_work_around_bug(would_be_optimized)
+X	disp_line_termio(fd,text)
+X	disp_stat(st)
+X	disp_termio(ttt,text)
+X	errno_text(err)
+X	find_shell_chars(command)
+X	get_curr_dir(cdir,cdir_max)
+X	get_home_dir(home_dir)
+X	hex_to_ascii_name(char_val)
+X	make_char_graphic(ch,incl_3char)
+X	make_ecu_subdir()
+X	mem_cpy(dest,src,len)
+X	mode_map(mode,mode_str)
+X	pad_zstr_to_len(zstr,len)
+X	perror_errmsg(str)
+X	rdchk(fd)
+X	skip_ld_break(zstr)
+X	str_classify(sc,str)
+X	str_token(parsestr,termchars)
+X	strip_trail_break(zstr)
+X	yes_or_no(strarg)
+X
+XThis module assumes the neo-standard 'mode_t' type is an unsigned
+Xshort and 'dev_t' is a short in accordance with tradition.  This
+Xis, in fact, true with all the supported systems which have it as
+Xof this writing.  This is just a test of the Brown Shirt Warning
+XSystem.  If this had been an actual Brown Shirt Alert, you would
+Xhave heard the noise of sickening thuds and breaking things nearby.
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:05-11-1992-16:42-wht@gyro-fix WORKING_SELECT nap once and for all */
+X/*:05-08-1992-02:42-wht@n4hgf-select-based Nap was buggy on EINTR */
+X/*:04-05-1992-15:31-wht@n4hgf-no more use of memmove in any environment */
+X/*:02-22-1992-16:19-wht@n4hgf-build arg/str array now handles zero tokens */
+X/*:11-26-1991-19:36-wht@n4hgf-add str_classify and yes_or_no uses it */
+X/*:09-01-1991-12:46-wht@n4hgf2-show sun flow control bit */
+X/*:08-30-1991-20:09-wht@n4hgf2-sun Nap was not returning a value */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-17-1991-14:11-root@n4hgf-ascii_to_hex supports "csi" */
+X/*:08-13-1991-13:53-wht@n4hgf-UNIX and ISC nap() broken; XENIX still wins */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:04-16-1991-15:45-wht@n4hgf-gcc cannot use memmove */
+X/*:03-18-1991-22:31-wht@n4hgf-ISC 2.2 has mkdir() */
+X/*:02-03-1991-14:23-wht@n4hgf-hack workaround for get_home_dir under x286 */
+X/*:01-25-1991-16:23-wht@n4hgf-source name wrong in headers */
+X/*:12-26-1990-14:32-wht@n4hgf-use memmove or Duff's Device in mem_cpy() */
+X/*:12-04-1990-00:58-wht@n4hgf-allow alternating between str/arg_token */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "termecu.h"
+X#include "ecufork.h"
+X#include "ecukey.h"
+X#include "ecu_pwd.h"
+X
+X#if defined(sun)
+X#undef ECHO
+X#undef NL0
+X#undef NL1
+X#undef TAB0
+X#undef TAB1
+X#undef TAB2
+X#undef XTABS
+X#undef CR0
+X#undef CR1
+X#undef CR2
+X#undef CR3
+X#undef FF0
+X#undef FF1
+X#undef BS0
+X#undef BS1
+X#undef TOSTOP
+X#undef FLUSHO
+X#undef PENDIN
+X#undef NOFLSH
+X#include <sys/ioctl.h>
+X#endif
+X
+X#if defined(SVR4)
+X# include <sys/termiox.h>
+Xextern int hx_flag;
+X#endif
+X
+Xchar *getenv();
+X
+Xextern int errno;
+Xextern char curr_dir[CURR_DIRSIZ];
+X
+Xchar *str_token_static = (char *)0;
+X
+Xchar *ascii_ctlstr =
+X"NULSOHSTXETXEOTENQACKBELBS HT NL VT FF CR SO SI DLEDC1DC2DC3DC4NAKSYNETBCANEM SUBESCFS GS RS US SP ";
+X
+X/*+-------------------------------------------------------------------------
+X	mem_cpy(dest,src,len) - memcpy() with non-destructive overlapping copy
+X
+X  use Duff's device for speed if memmove not available
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmem_cpy(dest,src,len)
+Xregister char *dest;
+Xregister char *src;
+Xregister len;
+X{
+X#if 0 /* defined(M_UNIX) && !defined(DUFF)*/ /*  && !defined(__GNUC__) */
+X	/*
+X	 * memmove() clobbers regs that GCC wants to keep
+X	 * unless you use -fcall-save-bx
+X	 */
+X	memmove(dest,src,len);
+X#else
+X	/*
+X	 * for systems without memmove or with compiler that cannot use it
+X	 */
+X
+X	register itmp = (len + 7) / 8;
+X	if(dest > src)
+X	{
+X		dest += len;
+X		src += len;
+X		switch(len % 8)
+X		{
+X		case 0:	do{	*--dest = *--src;
+X		case 7:		*--dest = *--src;
+X		case 6:		*--dest = *--src;
+X		case 5:		*--dest = *--src;
+X		case 4:		*--dest = *--src;
+X		case 3:		*--dest = *--src;
+X		case 2:		*--dest = *--src;
+X		case 1:		*--dest = *--src;
+X			 	}while(--itmp > 0);
+X		}
+X	}
+X	else
+X	{
+X		switch(len % 8)
+X		{
+X		case 0:	do{	*dest++ = *src++;
+X		case 7:		*dest++ = *src++;
+X		case 6:		*dest++ = *src++;
+X		case 5:		*dest++ = *src++;
+X		case 4:		*dest++ = *src++;
+X		case 3:		*dest++ = *src++;
+X		case 2:		*dest++ = *src++;
+X		case 1:		*dest++ = *src++;
+X			 	}while(--itmp > 0);
+X		}
+X	}
+X#endif
+X}	/* end of mem_cpy */
+X
+X/*+-------------------------------------------------------------------------
+X	skip_ld_break(zstr) - skip leading spaces and tabs
+X--------------------------------------------------------------------------*/
+Xchar *
+Xskip_ld_break(zstr)
+Xregister char *zstr;
+X{
+X	while(isspace(*zstr))
+X		zstr++;
+X	return(zstr);
+X}	/* end of skip_ld_break */
+X
+X/*+-------------------------------------------------------------------------
+X	strip_trail_break(zstr) - strip leading spaces and tabs
+X--------------------------------------------------------------------------*/
+Xvoid
+Xstrip_trail_break(zstr)
+Xchar *zstr;
+X{
+X	register int itmp = strlen(zstr);
+X	register char *zptr = zstr + itmp - 1;
+X
+X	while(itmp && isspace(*zptr))
+X	{
+X		*zptr-- = 0;
+X		itmp--;
+X	}
+X}	/* end of strip_trail_break */
+X
+X/*+-----------------------------------------------------------------------
+X	pad_zstr_to_len(zstr,len)
+X
+X  pads with spaces to specified length, unless already longer than
+X  len in which case the string is truncated to 'len' characters.
+X------------------------------------------------------------------------*/
+Xvoid
+Xpad_zstr_to_len(zstr,len)
+Xchar *zstr;
+Xint len;
+X{
+X	register izstr;
+X
+X	izstr = strlen(zstr);
+X	if(izstr >= len)
+X		zstr[len] = 0;
+X	else
+X	{
+X		while(izstr < len)
+X			zstr[izstr++] = 0x20;
+X		zstr[izstr] = 0;
+X	}
+X}	/* end of pad_zstr_to_len */
+X
+X/*+-----------------------------------------------------------------------
+X	arg_token(parsestr,termchars)
+X
+XGet next token from string parsestr ((char *)0 on 2nd, 3rd, etc.
+Xcalls), where tokens are nonempty strings separated by runs of chars
+Xfrom termchars.  Writes nulls into parsestr to end tokens.
+Xtermchars need not remain constant from call to call.
+X
+XTreats multiple occurrences of a termchar as one delimiter (does not
+Xallow null fields).
+X------------------------------------------------------------------------*/
+Xchar *
+Xarg_token(parsestr,termchars)
+Xchar *parsestr;
+Xchar *termchars;
+X{
+X	register char *parseptr;
+X	char *token;
+X
+X	if(!parsestr && !str_token_static)
+X		return((char *)0);
+X
+X	if(parsestr)
+X	{
+X		str_token_static = (char *)0;
+X		parseptr = parsestr;
+X	}
+X	else
+X       parseptr = str_token_static;
+X
+X	while(*parseptr)
+X	{
+X		if(!strchr(termchars,*parseptr))
+X			break;
+X		parseptr++;
+X	}
+X
+X	if(!*parseptr)
+X	{
+X		str_token_static = (char *)0;
+X		return((char *)0);
+X	}
+X
+X	token = parseptr;
+X	if(*token == '\'')
+X	{
+X		token++;
+X		parseptr++;
+X		while(*parseptr)
+X		{
+X			if(*parseptr == '\'')
+X			{
+X				str_token_static = parseptr + 1;
+X				*parseptr = 0;
+X				return(token);
+X			}
+X			parseptr++;
+X		}
+X		str_token_static = (char *)0;
+X		return(token);
+X	}
+X	while(*parseptr)
+X	{
+X		if(strchr(termchars,*parseptr))
+X		{
+X			*parseptr = 0;
+X			str_token_static = parseptr + 1;
+X			while(*str_token_static)
+X			{
+X				if(!strchr(termchars,*str_token_static))
+X					break;
+X				str_token_static++;
+X			}
+X			return(token);
+X		}
+X		parseptr++;
+X	}
+X	str_token_static = (char *)0;
+X	return(token);
+X}	/* end of arg_token */
+X
+X/*+-------------------------------------------------------------------------
+X	build_arg_array(cmd,arg,arg_max_quan,&narg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbuild_arg_array(cmd,arg,arg_max_quan,narg_rtn)
+Xchar *cmd;
+Xchar **arg;
+Xint arg_max_quan;
+Xint *narg_rtn;
+X{
+X	register narg;
+X
+X	str_token_static = (char *)0;
+X	memset((char *)arg,0,sizeof(char *) * arg_max_quan);
+X	if(!(arg[0] = arg_token(cmd," \t\r\n")))
+X	{
+X		*narg_rtn = 0;
+X		return;
+X	}
+X
+X	for(narg = 1; narg < arg_max_quan; ++narg)
+X	{
+X		if(!(arg[narg] = arg_token((char *)0," \t\r\n"))) 
+X			break;
+X	}
+X
+X	*narg_rtn = narg;
+X
+X}	/* end of build_arg_array */
+X
+X/*+-----------------------------------------------------------------------
+X	str_token(parsestr,termchars)
+X
+XGet next token from string parsestr ((char *)0 on 2nd, 3rd, etc.
+Xcalls), where tokens are nonempty strings separated by runs of chars
+Xfrom termchars.  Writes nulls into parsestr to end tokens.
+Xtermchars need not remain constant from call to call.
+X
+XTreats each occurrence of a termchar as delimiter (allows null
+Xfields).
+X------------------------------------------------------------------------*/
+Xchar *
+Xstr_token(parsestr,termchars)
+Xchar *parsestr;
+Xchar *termchars;
+X{
+X	register char *termptr;
+X	register char *parseptr;
+X	char *token;
+X
+X	if(!parsestr && !str_token_static)
+X		return((char *)0);
+X
+X	if(parsestr)
+X	{
+X		str_token_static = (char *)0;
+X		parseptr = parsestr;
+X	}
+X	else
+X       parseptr = str_token_static;
+X
+X	while(*parseptr)
+X	{
+X		for(termptr = termchars; *termptr != 0; termptr++)
+X		{
+X			if(*parseptr == *termptr)
+X				goto FOUND_TERM;
+X		}
+X		if(!*termptr)
+X			break;
+X		parseptr++;
+X	}
+X
+X	if(!*parseptr)
+X	{
+X		str_token_static = (char *)0;
+X		return((char *)0);
+X	}
+X
+XFOUND_TERM:
+X	token = parseptr;
+X	while(*parseptr)
+X	{
+X		for(termptr = termchars; *termptr;)
+X		{
+X			if(*parseptr == *termptr++)
+X			{
+X				str_token_static = parseptr + 1;
+X				*parseptr = 0;
+X				return(token);
+X			}
+X		}
+X		parseptr++;
+X	}
+X	str_token_static = (char *)0;
+X	return(token);
+X}	/* end of str_token */
+X
+X/*+-------------------------------------------------------------------------
+X	build_str_array(str,arg,arg_max_quan,&narg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbuild_str_array(str,arg,arg_max_quan,narg_rtn)
+Xchar *str;
+Xchar **arg;
+Xint arg_max_quan;
+Xint *narg_rtn;
+X{
+X	register narg;
+X
+X	str_token_static = (char *)0;
+X	memset((char *)arg,0,sizeof(char *) * arg_max_quan);
+X	if(!(arg[0] = str_token(str," \t\r\n")))
+X	{
+X		*narg_rtn = 0;
+X		return;
+X	}
+X
+X	for(narg = 1; narg < arg_max_quan; ++narg)
+X	{
+X		if(!(arg[narg] = str_token((char *)0," \t\r\n"))) 
+X			break;
+X	}
+X
+X	*narg_rtn = narg;
+X
+X}	/* end of build_str_array */
+X
+X/*+-----------------------------------------------------------------------
+X	make_char_graphic(character,incl_3char) - Make all chars "printable"
+X
+X  returns pointer to a static string containing printable version
+X  of a character.  If control char, printed as "^A", etc.
+X  if incl_3char set true, then space + ASCII assignment (e.g. "NUL") is
+X  appended to the string for non-printable graphics
+X------------------------------------------------------------------------*/
+Xchar *
+Xmake_char_graphic(ch,incl_3char)
+Xregister char ch;
+Xint incl_3char;
+X{
+X	static char gg[16];
+X
+X	ch &= 0x7F;
+X	if((ch >= 0x20) && (ch < 0x7F))
+X	{
+X		gg[0] = ch; gg[1] = 0;
+X	}
+X	else
+X	{
+X		gg[0] = '^'; 
+X		if(ch == 0x7F)
+X		{
+X			gg[1] = '?';
+X			if(incl_3char)
+X				strcpy(&gg[2]," DEL");
+X			else
+X				gg[2] = 0;
+X		}
+X		else
+X		{
+X			gg[1] = ch + 0x40;
+X			if(incl_3char)
+X			{
+X				gg[2] = 0x20;
+X				strncpy(&gg[3],ascii_ctlstr + (ch * 3),3);
+X				gg[7] = 0;
+X			}
+X			else
+X				gg[2] = 0;
+X		}
+X	}
+X	return(gg);
+X}	/* end of make_char_graphic */
+X
+X/*+-----------------------------------------------------------------------
+X	mode_map(mode,mode_str)	build drwxrwxrwx string
+X------------------------------------------------------------------------*/
+Xchar *
+Xmode_map(mode,mode_str)
+Xunsigned short mode;
+Xchar *mode_str;
+X{
+X	register unsigned ftype = mode & S_IFMT;
+X	register char *rtn;
+X	static char result[12];
+X
+X	rtn = (mode_str == (char *)0) ? result : mode_str;
+X
+X	/*               drwxrwxrwx */
+X	/*               0123456789 */
+X	strcpy(rtn,"----------");
+X
+X	switch(ftype)
+X	{
+X		case S_IFIFO:	*rtn = 'p'; break; /* FIFO (named pipe) */
+X		case S_IFDIR:	*rtn = 'd'; break; /* directory */
+X		case S_IFCHR:	*rtn = 'c'; break; /* character special */
+X		case S_IFBLK:	*rtn = 'b'; break; /* block special */
+X		case S_IFREG:	*rtn = '-'; break; /* regular */
+X
+X#if defined(S_IFLNK)
+X		case S_IFLNK:	*rtn = 'l'; break; /* symbolic link */
+X#endif
+X#if defined(S_IFSOCK)
+X		case S_IFSOCK:	*rtn = 's'; break; /* socket */
+X#endif
+X
+X#if defined(S_IFNAM)
+X		case S_IFNAM:						/* name space entry */
+X#if defined(S_IFNAM)
+X			if(mode & S_INSEM)				/* semaphore */
+X			{
+X				*rtn = 's';
+X				break;
+X			}
+X#endif
+X#if defined(S_INSHD)
+X			if(mode & S_INSHD)				/* shared memory */
+X			{
+X				*rtn = 'm';
+X				break;
+X			}
+X			break;
+X#endif
+X#endif
+X
+X		default:		*rtn = '?'; break;	/* ??? */
+X	}
+X
+X	if(mode & 000400) *(rtn + 1) = 'r';
+X	if(mode & 000200) *(rtn + 2) = 'w';
+X	if(mode & 000100) *(rtn + 3) = 'x';
+X	if(mode & 004000) *(rtn + 3) = 's';
+X	if(mode & 000040) *(rtn + 4) = 'r';
+X	if(mode & 000020) *(rtn + 5) = 'w';
+X	if(mode & 000010) *(rtn + 6) = 'x';
+X	if(mode & 002000) *(rtn + 6) = 's';
+X	if(mode & 000004) *(rtn + 7) = 'r';
+X	if(mode & 000002) *(rtn + 8) = 'w';
+X	if(mode & 000001) *(rtn + 9) = 'x';
+X	if(mode & 001000) *(rtn + 9) = 't';
+X
+X	return(rtn);
+X
+X}	/* end of mode_map */
+X
+X/*+-----------------------------------------------------------------------
+X	disp_termio(ttt)
+X  display termio 'ttt' on stderr
+X------------------------------------------------------------------------*/
+Xvoid disp_termio(ttt,text)
+Xstruct termio *ttt;
+Xchar *text;
+X{
+X	register flag;
+X	register i_cc;
+X	register char *cptr;
+X	int dbits;
+X	char parity;
+X
+X	pprintf("---------> %s\n",text);
+X
+X	flag = ttt->c_iflag;
+X	pprintf(
+X"iflag: %07o IGNBRK:%d  BRKINT:%d  IGNPAR:%d  PARMRK:%d  INPCK:%d  ISTRIP:%d\n",
+X				flag,
+X				(flag & IGNBRK) ? 1 : 0,
+X				(flag & BRKINT) ? 1 : 0,
+X				(flag & IGNPAR) ? 1 : 0,
+X				(flag & PARMRK) ? 1 : 0,
+X				(flag & INPCK ) ? 1 : 0,
+X				(flag & ISTRIP) ? 1 : 0);
+X	pprintf("               INLCR:%d  IGNCR:%d  ICRNL:%d  IUCLC:%d  ",
+X				(flag & INLCR ) ? 1 : 0,
+X				(flag & IGNCR ) ? 1 : 0,
+X				(flag & ICRNL ) ? 1 : 0,
+X				(flag & IUCLC ) ? 1 : 0);
+X	pprintf("IXON:%d  IXANY:%d  IXOFF:%d\n",
+X				(flag & IXON  ) ? 1 : 0,
+X				(flag & IXANY ) ? 1 : 0,
+X				(flag & IXOFF ) ? 1 : 0);
+X
+X	flag = ttt->c_oflag;
+X	pprintf("oflag: %07o OPOST:%d  OLCUC:%d  ONLCR:%d  OCRNL:%d  ",
+X				flag,
+X				(flag & OPOST ) ? 1 : 0,
+X				(flag & OLCUC ) ? 1 : 0,
+X				(flag & ONLCR ) ? 1 : 0,
+X				(flag & OCRNL ) ? 1 : 0);
+X	pprintf("ONOCR:%d  ONLRET:%d  OFDEL:%d\n",
+X				(flag & ONOCR ) ? 1 : 0,
+X				(flag & ONLRET) ? 1 : 0,
+X				(flag & OFDEL ) ? 1 : 0);
+X
+X	flag = ttt->c_cflag;
+X	pprintf("cflag: %07o ",ttt->c_cflag);
+X	switch(flag & CBAUD)
+X	{
+X		case B0:	cptr = "HUP"; break;
+X		case B50:	cptr = "50"; break;
+X		case B75:	cptr = "75"; break;
+X		case B110:	cptr = "110"; break;
+X		case B134:	cptr = "134.5"; break;
+X		case B150:	cptr = "150"; break;
+X		case B200:	cptr = "200"; break;
+X		case B300:	cptr = "300"; break;
+X		case B600:	cptr = "600"; break;
+X		case B1200:	cptr = "1200"; break;
+X		case B1800:	cptr = "1800"; break;
+X		case B2400:	cptr = "2400"; break;
+X		case B4800:	cptr = "4800"; break;
+X		case B9600:	cptr = "9600"; break;
+X#if defined(B19200)
+X		case B19200:cptr = "19200"; break;
+X#endif
+X#if defined(B38400)
+X		case B38400:cptr = "38400"; break;
+X#endif
+X		default:	
+X			switch(flag & CBAUD)
+X			{
+X				case EXTA:	cptr = "EXTA"; break;
+X				case EXTB:	cptr = "EXTB"; break;
+X				default:	cptr = "????"; break;
+X			}
+X	}
+X	dbits = 5 + ((flag & CSIZE) >> 4);
+X	parity = (flag & PARENB) ? ((flag & PARODD) ? 'O' : 'E') : 'N';
+X	pprintf("%s-%d-%c-%d ",cptr,dbits,parity,(flag & CSTOPB) ? 2 : 1);
+X	switch(flag & CS8)
+X	{
+X		case CS8: pputs("CS8 "); break;
+X		case CS7: pputs("CS7 "); break;
+X		case CS6: pputs("CS6 "); break;
+X		case CS5: pputs("CS5 "); break;
+X	}
+X	pprintf("CREAD:%d  HUPCL:%d  CLOCAL:%d",
+X				(flag & CREAD ) ? 1 : 0,
+X				(flag & HUPCL ) ? 1 : 0,
+X				(flag & CLOCAL) ? 1 : 0);
+X#if defined(RTSFLOW) /* SCO */
+X	pprintf(" RTSFLOW:%d  CTSFLOW:%d",
+X				(flag & RTSFLOW ) ? 1 : 0,
+X				(flag & CTSFLOW ) ? 1 : 0);
+X#endif
+X#if defined(CRTSFL) /* SCO 3.2v4 */
+X	pprintf("\n               CRTSFL:%d",
+X				(flag & CRTSFL ) ? 1 : 0);
+X#endif
+X#if defined(RTSXOFF) /* SVR4 */
+X	pprintf(" RTSXOFF:%d  CTSXON:%d",
+X				(hx_flag & RTSXOFF ) ? 1 : 0,
+X				(hx_flag & CTSXON ) ? 1 : 0);
+X#endif
+X#ifdef CRTSCTS /* sun */
+X	pprintf(" CRTSCTS:%d",(flag & CRTSCTS) ? 1 : 0);
+X#endif
+X	pprintf("\n");
+X
+X	flag = ttt->c_lflag;
+X	pprintf("lflag: %07o ISIG:%d  ICANON:%d  XCASE:%d  ECHO:%d  ECHOE:%d\n",
+X				flag,
+X				(flag & ISIG  ) ? 1 : 0,
+X				(flag & ICANON) ? 1 : 0,
+X				(flag & XCASE ) ? 1 : 0,
+X				(flag & ECHO  ) ? 1 : 0,
+X				(flag & ECHOE ) ? 1 : 0);
+X	pprintf("               ECHOK:%d  ECHONL:%d  NOFLSH:%d",
+X				(flag & ECHOK ) ? 1 : 0,
+X				(flag & ECHONL) ? 1 : 0,
+X				(flag & NOFLSH) ? 1 : 0);
+X
+X#if defined(XCLUDE)
+X	pprintf("  XCLUDE:%d",(flag & XCLUDE) ? 1 : 0);
+X#endif
+X	pputs("\n");
+X
+X	pprintf("ctl chars: ");
+X	for(i_cc = 0; i_cc < NCC; i_cc++)
+X		pprintf("%02x   ",ttt->c_cc[i_cc]);
+X	pputs("  (hex)\n");
+X	pputs("           INTR QUIT ERAS KILL EOF  EOL  ");
+X	pputs("EOL2 SWTCH  VMIN-EOF VTIME-EOL\n");
+X
+X}	/* end of disp_termio */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_stat(st)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_stat(st)
+Xstruct stat *st;
+X{
+X	char mdmap[32];
+X	mode_map(st->st_mode,mdmap);
+X	pprintf("mode: %s ",mdmap);
+X	pprintf("inode: %5u  dev: %3u rdev: %u,%u (0x%04x)\n",
+X	    (uint)st->st_ino,(uint)st->st_dev,
+X	    (ushort)st->st_rdev >> 8,(ushort)st->st_rdev & 0xFF,
+X	    (ushort)st->st_rdev);
+X
+X}	/* end of disp_stat */
+X
+X/*+-----------------------------------------------------------------------
+X	disp_line_termio(fd)
+X
+XGet current termio structure for file descriptor fd
+Xand display on stderr
+X------------------------------------------------------------------------*/
+Xvoid
+Xdisp_line_termio(fd,text)
+Xint fd;		/* file descriptor */
+Xchar *text;
+X{
+X	struct termio fd_termio;
+X	struct stat fd_stat;
+X	char text2[128];
+X
+X	ioctl(fd,TCGETA,&fd_termio);
+X	sprintf(text2,"fd: %d  %s",fd,text);
+X	disp_termio(&fd_termio,text2);
+X	fstat(fd,&fd_stat);
+X	disp_stat(&fd_stat);
+X
+X}	/* end of disp_line_termio */
+X
+X/*+-----------------------------------------------------------------------
+X	ascii_name_to_hex(str3char)
+X
+X  return value of ascii ctl char name (e.g., "NUL") 0 - 0x1F
+X  support CSI "ascii" 0x9B (for ESC + '[' ANSI)
+X  returns -1 if input not valid
+X------------------------------------------------------------------------*/
+Xascii_name_to_hex(str3char)
+Xchar *str3char;
+X{
+X	register char *cptr = ascii_ctlstr;
+X	register intval;
+X
+X	if((strlen(str3char) == 3) && (ulcmpb(str3char,"del") < 0))
+X		return(0x7F);
+X	if((strlen(str3char) == 3) && (ulcmpb(str3char,"csi") < 0))
+X		return(0x9B);
+X
+X	for(intval = 0; intval <= SPACE; intval++)
+X	{
+X		if(	(to_lower(*str3char) == to_lower(*cptr))				&&
+X			(to_lower(*(str3char + 1)) == to_lower(*(cptr + 1)))	&&
+X			((to_lower(*(str3char + 2)) == to_lower(*(cptr + 2)))	||
+X			(*(cptr + 2) == ' ')))
+X		{
+X			return(intval);
+X		}
+X		cptr += 3;
+X	}
+X
+X	return(-1);
+X
+X}	/* end of ascii_name_to_hex */
+X
+X/*+-------------------------------------------------------------------------
+X	ascii_to_hex(ascii)
+X--------------------------------------------------------------------------*/
+Xint
+Xascii_to_hex(ascii)
+Xchar *ascii;
+X{
+X	int hexval;
+X	if(strlen(ascii) == 1)
+X		return(*ascii);
+X	else if(!strncmp(ascii,"0x",2))
+X	{
+X		sscanf(ascii + 2,"%x",&hexval);
+X		return(hexval & 0xFF);
+X	}
+X	else if(*ascii == '^')
+X		return(*(ascii + 1) & 0x1F);
+X	else
+X		return(ascii_name_to_hex(ascii));
+X}	/* end of ascii_to_hex */
+X
+X/*+-------------------------------------------------------------------------
+X	hex_to_ascii_name(char_val)
+X
+X  Returns pointer to static string containing three character ASCII
+X  name for control character followed by a null.
+X--------------------------------------------------------------------------*/
+Xchar *
+Xhex_to_ascii_name(char_val)
+Xchar char_val;
+X{
+X	static char ascii_name[4];
+X
+X	char_val &= 0x7F;
+X
+X	if(char_val == 0x7F)
+X		strcpy(ascii_name,"DEL");
+X	else if(char_val > SPACE)
+X	{
+X		ascii_name[0] = char_val;
+X		ascii_name[1] = 0;
+X	}
+X	else
+X	{
+X		strncpy(ascii_name,ascii_ctlstr + (char_val * 3),3);
+X		ascii_name[3] = 0;
+X	}
+X
+X	return(ascii_name);
+X
+X}	/* end of hex_to_ascii_name */
+X
+X/*+-------------------------------------------------------------------------
+X	get_curr_dir(cdir,cdir_max) - get current directory into 'cdir'
+X--------------------------------------------------------------------------*/
+Xint
+Xget_curr_dir(cdir,cdir_max)
+Xchar *cdir;
+Xint cdir_max;
+X{
+X	FILE *popen();
+X	FILE *pipefp = popen("/bin/pwd","r");
+X	int itmp;
+X
+X	strcpy(cdir,".");
+X	if(!pipefp)
+X		return(-1);
+X	fgets(cdir,cdir_max,pipefp);
+X	if((itmp = strlen(cdir)) && (*(cdir + itmp - 1) == 0x0A))
+X		*(cdir + itmp - 1) = 0;
+X	fclose(pipefp);
+X	return(0);
+X}	/* end of get_curr_dir */
+X
+X/*+-----------------------------------------------------------------------
+X	get_home_dir(home_dir) - get user home directory
+X------------------------------------------------------------------------*/
+Xget_home_dir(home_dir)
+Xchar *home_dir;
+X{
+X	static char home_directory[256] = "";
+X	struct passwd *pwent;
+X	char *cptr;
+X
+X	if(home_directory[0])
+X	{
+X		strcpy(home_dir,home_directory);
+X		return(0);
+X	}
+X
+X	if(cptr = getenv("HOME"))			/* x286 seems to blow up ... */
+X	{									/* ... in pwent code ... hmmm */
+X		strcpy(home_directory,cptr);
+X		strcpy(home_dir,cptr);
+X		return(0);
+X	}
+X
+X	if(!(pwent = getpwuid(getuid())))
+X	{
+X		pperror("cannot get pwent for you!!");
+X		termecu(TERMECU_PWENT_ERROR);
+X	}
+X	strcpy(home_directory,pwent->pw_dir);
+X	strcpy(home_dir,pwent->pw_dir);
+X	endpwent();
+X	return(0);
+X
+X}	/* end of get_home_dir */
+X
+X/*+-------------------------------------------------------------------------
+X	make_ecu_subdir()
+Xmust be called early in execution before wierd tty states set, etc.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmake_ecu_subdir()
+X{
+X	int itmp;
+X	struct stat fst;
+X	char s256[256];
+X	char s258[258];
+X
+X	get_home_dir(s256);
+X	strcat(s256,"/.ecu");
+X	if((!(itmp = stat(s256,&fst))) && ((fst.st_mode & S_IFMT) != S_IFDIR))
+X	{
+X		ff(se,"~/.ecu is not a directory. Rename the file and try again.\n\n");
+X		exit(1);
+X	}
+X	if(itmp)		/* if stat failed, try to make the directory */
+X	{
+X		strcpy(s258,s256);
+X		strcat(s258,"/x");
+X		errno = ENOENT;
+X		if(make_dirs(s258))
+X		{
+X			if(stat(s256,&fst))
+X			{
+X				ff(se,"cannot make ~/.ecu subdirectory.\n");
+X				perror(s256);
+X				exit(1);
+X			}
+X		}
+X	}
+X	chmod(s256,0700);
+X}	/* end of make_ecu_subdir */
+X
+X/*+-------------------------------------------------------------------------
+X	str_classify(sc,str) - classify a string and return value
+X
+XUse the STR_CLASSIFY structure to classify a string (convert str to
+Xlexical token or error code) and return the value;  use last token
+Xin table if no string matches
+X--------------------------------------------------------------------------*/
+Xstr_classify(sc,str)
+XSTR_CLASSIFY *sc;
+Xchar *str;
+X{
+X	while(sc->str)
+X	{
+X		if(minunique(sc->str,str,sc->min_ch))
+X			return(sc->token);
+X		sc++;
+X	}
+X	return(sc->token);
+X}	/* end of str_classify */
+X
+X/*+-------------------------------------------------------------------------
+X	yes_or_no(strarg) - lenient yes/no, on/off
+X
+X  Returns 1 if first char is 'Y' or 'y'
+X	or if strarg is numeric returns the numeric value
+X	or if strarg is alpha == "on" returns 1
+X  Returns 0 otherwise
+X--------------------------------------------------------------------------*/
+Xint
+Xyes_or_no(strarg)
+Xchar *strarg;
+X{
+X	static STR_CLASSIFY sc[] = {
+X		{ "yes",	1,1 },
+X		{ "on",		2,1 },
+X		{ "no",		1,0 },
+X		{ "off",	3,0 },
+X		{ (char *)0,0,0 },
+X	};
+X
+X	if(isdigit(*strarg))
+X		return(atoi(strarg));
+X	else
+X		return(str_classify(sc,strarg));
+X
+X}	/* end of yes_or_no */
+X
+X/*+-------------------------------------------------------------------------
+X	find_shell_chars(command) - search for shell metacharacters
+X
+Xreturns 1 if found
+X--------------------------------------------------------------------------*/
+Xint
+Xfind_shell_chars(command)
+Xchar *command;
+X{
+X	register schar;
+X	register cchar;
+X	register char *scptr;
+X	static char shell_chars[] = "\\\"~;*?'`{}[]$";
+X
+X	while(cchar = *command++)
+X	{
+X		scptr = shell_chars;
+X		while(schar = *scptr++)
+X			if(schar == cchar)
+X				return(1);
+X	}
+X	return(0);
+X}	/* end of find_shell_chars */
+X
+X/*+-------------------------------------------------------------------------
+X	errno_text(err) - safe sys_errlist lookup
+X--------------------------------------------------------------------------*/
+Xchar *
+Xerrno_text(err)
+Xint err;
+X{
+X	static char errant[32];
+X
+X	if((unsigned)err <= (unsigned)sys_nerr)
+X		return(sys_errlist[errno]);
+X	sprintf(errant,"errno %d",errno);
+X	return(errant);
+X
+X}	/* end of errno_text */
+X
+X/*+-------------------------------------------------------------------------
+X	perror_errmsg(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xperror_errmsg(str)
+Xchar *str;
+X{
+X	extern char errmsg[];
+X
+X	sprintf(errmsg,"%s: %s",str,errno_text(errno));
+X}	/* end of perror_errmsg */
+X
+X/*+-------------------------------------------------------------------------
+X	cfree(p,num,size) - fix bug in XENIX -lmalloc
+X--------------------------------------------------------------------------*/
+X#if defined(M_XENIX) && defined(XENIX_MALLOC_LIB_BUG)
+Xcfree(p,num,size)
+Xchar *p;
+Xint num;
+Xint size;
+X{
+X	free(p);
+X}	/* end of cfree */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	defeat_optimize_to_work_around_bug(would_be_optimized)
+X
+Xwork around for GCC 1.39 optimization bug (see ecufkey.c)
+XThis bug was fixed in gcc 1.40
+X--------------------------------------------------------------------------*/
+X#if defined(__GNUC__) && !defined(GCC140)
+Xvoid
+Xdefeat_optimize_to_work_around_bug(would_be_optimized)
+Xint *would_be_optimized;
+X{
+X	;	/* do absolutely nothing */
+X}	/* end of defeat_optimize_to_work_around_bug */
+X
+X#endif /* __GNUC__ */
+X
+X/*+-------------------------------------------------------------------------
+X	rdchk(fd) - for systems without it but with FIONREAD
+X--------------------------------------------------------------------------*/
+X#if defined(sun) || defined(NO_RDCHK)
+Xint
+Xrdchk(fd)
+Xint fd;
+X{
+X	int chars_waiting;
+X
+X	if(ioctl(fd,FIONREAD,&chars_waiting))
+X		return(0);
+X	else
+X		return(!!chars_waiting);
+X}	/* end of rdchk */
+X#endif
+X
+X/* end of ecuutil.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuutil.c ||
+echo 'restore of ecuutil.c failed'
+Wc_c="`wc -c < 'ecuutil.c'`"
+test 26150 -eq "$Wc_c" ||
+	echo 'ecuutil.c: original size 26150, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuvmin.h ==============
+if test -f 'ecuvmin.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuvmin.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuvmin.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuvmin.h' &&
+X/*+-------------------------------------------------------------------------
+X	ecuvmin.h  --  set line default VMIN
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _ecuvmin_h
+X#define _ecuvmin_h
+X
+X#if defined(BUILDING_PROTOTYPES)	/* if building protos.h ... */
+X									/* ... pick up extra functions */
+X#define XENIX_VMIN		2	/* ... include vmin handling routines */
+X#else
+X#define XENIX_VMIN		1	/* this is the real value for vmin */
+X#endif
+X
+X#endif /* _ecuvmin_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuvmin.h */
+SHAR_EOF
+chmod 0644 ecuvmin.h ||
+echo 'restore of ecuvmin.h failed'
+Wc_c="`wc -c < 'ecuvmin.h'`"
+test 891 -eq "$Wc_c" ||
+	echo 'ecuvmin.h: original size 891, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuwinutil.c ==============
+if test -f 'ecuwinutil.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuwinutil.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuwinutil.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuwinutil.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuwinutil.c - curses window utilities
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	clear_area(win,y,x,len)
+X	clear_area_char(win,y,x,len,fillchar)
+X	winbox(win)
+X	window_create(title,title_x,tly,tlx,lines,cols)
+X	window_setup(win,title,title_x)
+X	windows_end(botleft_flag)
+X	windows_end_signal()
+X	windows_start()
+X	winget_single(win,nondelim_list,delim_list)
+X	wingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-09-1992-16:08-root@n4hgf-ruling characters only on  SCO (tcap curses) */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-01-1991-03:52-wht@n4hgf-when editing string, set cursor to end */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X#include <errno.h>
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "termecu.h"
+X#include "pc_scr.h"
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+X#if !defined(ushort)
+X#define ushort unsigned short
+X#endif
+X#if !defined(uchar)
+X#define uchar unsigned char
+X#endif
+X#if !defined(uint)
+X#define uint unsigned int
+X#endif
+X#if !defined(ulong)
+X#define ulong unsigned long
+X#endif
+X
+Xextern int tty_is_multiscreen;
+X
+X#ifdef M_SYSV
+Xunsigned char sTL = at_TL;
+Xunsigned char sTR = at_TR;
+Xunsigned char sBL = at_BL;
+Xunsigned char sBR = at_BR;
+Xunsigned char sLT = at_LT;
+Xunsigned char sRT = at_RT;
+Xunsigned char sVR = at_VR;
+Xunsigned char sHR = at_HR;
+X#else
+Xunsigned char sTL = vanilla_TL;
+Xunsigned char sTR = vanilla_TR;
+Xunsigned char sBL = vanilla_BL;
+Xunsigned char sBR = vanilla_BR;
+Xunsigned char sLT = vanilla_LT;
+Xunsigned char sRT = vanilla_RT;
+Xunsigned char sVR = vanilla_VR;
+Xunsigned char sHR = vanilla_HR;
+X#endif
+X
+Xint windows_active = 0;
+X
+Xint ttymode_before_window_start;
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area_char(win,y,x,len,fillchar)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xclear_area_char(win,y,x,len,fillchar)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint len;
+Xchar fillchar;
+X{
+X	wmove(win,y,x);
+X	while(len-- > 0)
+X		waddch(win,fillchar & 0xFF);
+X	wmove(win,y,x);
+X
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	clear_area(win,y,x,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xclear_area(win,y,x,len)
+XWINDOW *win;
+Xint y;
+Xint x;
+Xint len;
+X{
+X	clear_area_char(win,y,x,len,' ');
+X}	/* end of clear_area_char */
+X
+X/*+-------------------------------------------------------------------------
+X	windows_start()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwindows_start()
+X{
+X	extern int tty_not_char_special;
+X	static int initscr_already_performed = 0;
+X
+X	if(tty_not_char_special)
+X	{
+X		errno = ENOTTY;
+X		fprintf(stderr,"curses features unavailable when stdin not tty\r\n");
+X		termecu(TERMECU_CURSES_ERROR);
+X	}
+X
+X	ttymode_before_window_start = get_ttymode();
+X	ttymode(0);
+X	if(!initscr_already_performed && !initscr())
+X	{
+X		fprintf(stderr,"curses init failure ... check terminal type\r\n");
+X		termecu(TERMECU_CURSES_ERROR);
+X	}
+X	initscr_already_performed = 1;
+X	scrollok(stdscr,0);
+X	savetty(); 
+X	raw(); 
+X	noecho(); 
+X	nonl(); 
+X	clear();
+X#if defined(M_TERMINFO)
+X	typeahead(-1);
+X#endif
+X	windows_active = 1;
+X
+X#if defined(M_SYSV)
+X	if(!tty_is_multiscreen)
+X	{
+X		sTL = vanilla_TL;
+X		sTR = vanilla_TR;
+X		sBL = vanilla_BL;
+X		sBR = vanilla_BR;
+X		sLT = vanilla_LT;
+X		sRT = vanilla_RT;
+X		sVR = vanilla_VR;
+X		sHR = vanilla_HR;
+X	}
+X#endif
+X
+X	wclear(stdscr);
+X	touchwin(stdscr);
+X	wrefresh(stdscr);
+X
+X}	/* end of windows_start */
+X
+X/*+-------------------------------------------------------------------------
+X	windows_end(botleft_flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwindows_end(botleft_flag)
+Xint botleft_flag;
+X{
+X	if(!windows_active)
+X		return;
+X/*
+X	endwin();
+X*/
+X	if(botleft_flag)
+X		tcap_cursor(LINES - 1,0);
+X	ttymode(ttymode_before_window_start);
+X	windows_active = 0;
+X}	/* end of windows_end */
+X
+X/*+-------------------------------------------------------------------------
+X	windows_end_signal() -- called by termecu()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwindows_end_signal()
+X{
+X	windows_end(0);
+X}	/* end of windows_end_signal */
+X
+X/*+-------------------------------------------------------------------------
+X	winbox(win)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwinbox(win)
+XWINDOW *win;
+X{
+X
+X#if defined(SVR4)
+X	box(win,(unsigned long)sVR,(unsigned long)sHR);
+X#else
+X	box(win,sVR,sHR);
+X	wmove(win,0,0); waddch(win,(unsigned)sTL);
+X	wmove(win,win->_maxy - 1,0); waddch(win,(unsigned)sBL);
+X	wmove(win,win->_maxy - 1,win->_maxx - 1); waddch(win,(unsigned)sBR);
+X	wmove(win,0,win->_maxx - 1); waddch(win,(unsigned)sTR);
+X#endif
+X
+X}	/* end of winbox */
+X
+X/*+-------------------------------------------------------------------------
+X	window_setup(win,title,title_x)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwindow_setup(win,title,title_x)
+XWINDOW *win;
+Xchar *title;
+Xint title_x;
+X{
+X	register stand = (title_x < 0);
+X
+X	if(stand)
+X		title_x = -title_x;
+X
+X	touchwin(win);
+X	scrollok(win,0);		/* do not scroll */
+X	winbox(win);
+X	wmove(win,0,title_x);
+X	if(stand)
+X		wstandout(win);
+X	waddch(win,'[');
+X	wprintw(win," %s ",title);
+X	waddch(win,']');
+X	if(stand)
+X		wstandend(win);
+X}	/* end of window_setup */
+X
+X/*+-------------------------------------------------------------------------
+X	window_create(title,title_x,tly,tlx,lines,cols)
+Xif title_x negative, make title "stand" out
+X--------------------------------------------------------------------------*/
+XWINDOW *
+Xwindow_create(title,title_x,tly,tlx,lines,cols)
+Xchar *title;
+Xint title_x;
+Xint tly;
+Xint tlx;
+Xint lines;
+Xint cols;
+X{
+X	register WINDOW *nwin = newwin(lines,cols,tly,tlx);
+X	
+X	if(nwin)
+X		window_setup(nwin,title,title_x);
+X	else
+X	{
+X		fprintf(stderr,"\r\ncurses error: cannot create new window\r\n");
+X		termecu(TERMECU_CURSES_ERROR);
+X	}
+X	return(nwin);
+X}	/* end of window_create */
+X
+X/*+-------------------------------------------------------------------------
+X	wingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+X
+XThis procedure reads a string from win and returns the number
+Xof characters read.
+X
+XIf edit is non-zero and pwgpos is not null, the inital string
+Xposition is set by dereferencing the pointer.
+X
+XThe terminating delim is returned in 'delim'.
+X
+XIf pwgpos is not null, the ending string position is returned in
+Xthe integer pointed to.
+X
+X-1 is returned if an ESCape is typed by the keyboard user,
+Xotherwise the count of characters in the string.
+X
+XThe entire line must be contained on one line (no line wrap supported).
+X--------------------------------------------------------------------------*/
+Xint
+Xwingets(win,y,x,buf,bufsize,delim,edit,pwgpos)
+XWINDOW *win;
+Xint y;
+Xregister x;
+Xregister char *buf;
+Xint bufsize;	/* includes room for null..field is 1 less */
+Xregister uchar *delim;
+Xint edit;
+Xint *pwgpos;
+X{
+X	register count = 0;
+X	register pos = 0;
+X	int insert_mode = 0;
+X	int rtn_val = 0;
+X
+X	bufsize--;
+X	clear_area_char(win,y,x,bufsize,'_');
+X	if(edit)
+X	{
+X		waddstr(win,buf);
+X		count = pos = strlen(buf);
+X		if(pwgpos)
+X		{
+X			pos = *pwgpos;
+X			if((pos < 0) || (pos > count))
+X				pos = count;
+X		}
+X	}
+X	else
+X		*buf = 0;
+X	wmove(win,y,x + pos);
+X
+X	while(1)
+X	{
+X		wrefresh(win);
+X		*delim = ttygetc(1);
+X		if((*delim < 0x20) || (*delim >= 0x7F))
+X		{
+X			switch(*delim)
+X			{
+X				case CRET:
+X					*delim = NL;
+X				case NL:
+X					wrefresh(win);
+X					rtn_val = count;
+X					goto RETURN;
+X
+X				case BS:
+X					if(count)
+X					{
+X						if(count == pos)
+X						{
+X							*(buf + --count) = 0;
+X							wmove(win,y,x + count);
+X							waddch(win,'_');
+X							wmove(win,y,x + count);
+X							pos--;
+X						}
+X						else
+X						{
+X							if(!pos)
+X								continue;
+X							mem_cpy(buf + pos - 1,buf + pos,count - pos);
+X							*(buf + --count) = 0;
+X							wmove(win,y,x + --pos);
+X							waddstr(win,buf + pos);
+X							waddch(win,'_');
+X							wmove(win,y,x + pos);
+X						}
+X					}
+X					continue;
+X
+X				case XFcurlf:
+X					if(pos)
+X						wmove(win,y,x + --pos);
+X					continue;
+X
+X				case XFcurrt:
+X					if(pos < count)
+X						wmove(win,y,x + ++pos);
+X					continue;
+X
+X				case XFins:
+X					insert_mode = !insert_mode;
+X					continue;
+X
+X				case ESC:
+X					rtn_val = -1;
+X					goto RETURN;
+X
+X				case CTL_U:
+X					clear_area_char(win,y,x,bufsize,'_');
+X					count = 0;
+X					pos = 0;
+X					*buf = 0;
+X					continue;
+X
+X				default:
+X					*(buf + count) = 0;
+X					rtn_val = count;
+X					goto RETURN;
+X
+X			}	/* end of switch(*delim) */
+X			/*NOTREACHED*/
+X		}		/* end of if read delimiter */
+X
+X		if(count == bufsize)
+X		{
+X			ring_bell();
+X			continue;
+X		}
+X
+X		if(insert_mode && (pos != count))
+X		{
+X			waddch(win,*delim);
+X			waddstr(win,buf + pos);
+X			mem_cpy(buf + pos + 1,buf + pos,count - pos);
+X			*(buf + pos++) = *delim;
+X			*(buf + ++count) = 0;
+X			wmove(win,y,x + pos);
+X		}
+X		else
+X		{
+X			waddch(win,*delim);
+X			*(buf + pos) = *delim;
+X			if(pos == count)
+X				*(buf + ++count) = 0;
+X			pos++;
+X		}
+X	}	/* end of while can get character */
+X
+XRETURN:
+X	if(pwgpos)
+X		*pwgpos = pos;
+X	return(rtn_val);
+X
+X}	/* end of wingets */
+X
+X/*+-------------------------------------------------------------------------
+X	winget_single(win,nondelim_list,delim_list)
+X
+XThis procedure assumes cursor is positioned, repeats reading a non-echoing
+Xcharacter from the keyboard until it matches a character in nondelim_list
+Xor delim_list.  delim_list is expected to contain printable characters
+Xand no upper-case characters.
+X
+XIf no match occurs, the bell is rung and the keyboard is read again.
+X
+XIf the input character matches a character in delim_list, the index (0-n)
+Xof the character in delim_list is returned.  If a match occurs, an
+Xupper-case version of the matching character is placed in the window.
+X
+XIf the input character matches a character in nondelim_list, the character
+Xis returned or'ed with 0x1000
+X
+X--------------------------------------------------------------------------*/
+Xint
+Xwinget_single(win,nondelim_list,delim_list)
+XWINDOW *win;
+Xregister char *nondelim_list;
+Xregister char *delim_list;
+X{
+X	register itmp;
+X	register nlen = strlen(nondelim_list);
+X	register dlen = strlen(delim_list);
+X	register ichar;
+X
+X	wrefresh(win);
+X
+X	while(1)
+X	{
+X		ichar = to_lower(ttygetc(1));
+X		for(itmp = 0; itmp < nlen; itmp++)
+X		{
+X			if(ichar == nondelim_list[itmp])
+X			{
+X				waddch(win,to_upper(ichar));
+X				wrefresh(win);
+X				return(itmp);
+X			}
+X		}
+X		for(itmp = 0; itmp < dlen; itmp++)
+X		{
+X			if(ichar == delim_list[itmp])
+X				return(ichar | 0x1000);
+X		}
+X		ring_bell();
+X	}
+X
+X}	/* end of winget_single */
+X
+X/* end of ecuwinutil.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 ecuwinutil.c ||
+echo 'restore of ecuwinutil.c failed'
+Wc_c="`wc -c < 'ecuwinutil.c'`"
+test 10846 -eq "$Wc_c" ||
+	echo 'ecuwinutil.c: original size 10846, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuxfer.c ==============
+if test -f 'ecuxfer.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuxfer.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuxfer.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuxfer.c' &&
+X/*+-------------------------------------------------------------------------
+X	ecuxfer.c - file transfer
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X   000000000011111111112222222222333333333344444444445555555555666666666actually
+X   012345678901234567890123456789012345678901234567890123456789012345678wider
+X00:.--[ Send ZMODEM/CRC32 ]--------------------------------------------.
+X01:|                                                                   |
+X02:|  File? to send:                                                   |
+X03:|  ................................................................ |
+X04:|                                                                   |
+X05:|  Binary: Y (no CR/LF translation)                                 |
+X06:|  Overwrite destination files: Y                                   |
+X07:|  Send full pathnames: N                                           |
+X08:|  Transfer only newer files:   N (if receiver supports)            |
+X09:|  Resume interrupted transfer: N (if receiver supports)            |
+X10:|  ZMODEM window: ______                                            |
+X11:|                                                                   |
+X-1:| TAB:next  ^B:prev  END:perform transfer  ESC:abort                |
+X-0:`-------------------------------------------------------------------'
+X
+X  Defined functions:
+X	file_xfer_done_bell()
+X	file_xfer_start()
+X	receive_files_from_remote(argc,argv)
+X	report_send_status()
+X	send_files_to_remote(argc,argv)
+X	xfer_title_fragment()
+X	xfrw_bot_msg(msg)
+X	xfrw_display_cmd_line()
+X	xfrw_get_single(nondelim_list)
+X	xfrws_display_allvars()
+X	xfrws_display_binary()
+X	xfrws_display_literals()
+X	xfrws_display_name()
+X	xfrws_display_resume()
+X	xfrws_display_xfernew()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-15:31-wht@n4hgf-add resume choice  */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-15:21-wht@n4hgf-look for ecu xfer programs in ECULIBDIR */
+X/*:09-25-1991-16:26-wht@n4hgf2-flexible C-Kermit filename */
+X/*:09-17-1991-19:41-wht@n4hgf-restore console termio after xfer prog runs */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:07-14-1991-18:18-wht@n4hgf-new ttygets functions */
+X/*:06-04-1991-14:18-wht@n4hgf-sometimes I forget 286: zwindw_size now uint */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecucurses.h"
+X
+X#define STDIO_H_INCLUDED
+X#define OMIT_TERMIO_REFERENCES
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "ecukey.h"
+X#include "ecuxkey.h"
+X#include "ecutty.h"
+X#include "pc_scr.h"
+X
+Xlong atol();
+Xchar *find_executable();
+X
+X#ifdef M_I286
+X#define ZWINDW_LIMIT 65472
+X#else
+X#define ZWINDW_LIMIT 65536
+X#endif
+X
+X/* -- protocol xfer types -- */
+X#define ECUSZ_X			1
+X#define ECUSZ_Y			2
+X#define ECUSZ_Z			3
+X#define ECUSEA			4
+X#define CKERMIT			5
+X#define ECURZ_X			7
+X#define ECURZ_Y			8
+X#define ECURZ_Z			9
+X
+X/* --------------------- send window ----------------------------------- */
+X/*      SNDW_LINES			calculated (xfrw_lines) */
+X#define SNDW_COLS			79
+X#define SNDW_TLY			2
+X/*      SNDW_TLX			calculated (xfrw_tlx) */
+X
+X#define SNDW_FILE_LY		2
+X#define SNDW_FILE_LX		3
+X#define SNDW_FILE_Y			3
+X#define SNDW_FILE_X			3
+X#define SNDW_FILE_LEN		(SNDW_COLS - SNDW_FILE_X - 2)
+X
+X#define SNDW_BIN_Y			5
+X#define SNDW_BIN_LX			3
+X#define SNDW_BIN_X			11
+X#define SNDW_BIN_LX2		13
+X
+X#define SNDW_OVERW_Y		6
+X#define SNDW_OVERW_LX		3
+X#define SNDW_OVERW_X		32
+X
+X#define SNDW_SENDFULL_Y		7
+X#define SNDW_SENDFULL_LX	3
+X#define SNDW_SENDFULL_X		24
+X
+X#define SNDW_XFERNEW_Y		8
+X#define SNDW_XFERNEW_LX		3
+X#define SNDW_XFERNEW_X		32
+X
+X#define SNDW_RESUME_Y		9
+X#define SNDW_RESUME_LX		3
+X#define SNDW_RESUME_X		32
+X
+X#define SNDW_ZWINDW_Y		10
+X#define SNDW_ZWINDW_LX		3
+X#define SNDW_ZWINDW_X		16
+X#define SNDW_ZWINDW_LEN		6
+X
+Xextern char curr_dir[CURR_DIRSIZ];		/* current working directory */
+Xextern int protocol_log_packets;
+Xextern int last_child_wait_status;
+X
+Xlong file_xfer_start_time;	/* time() value at beginning of file xfer */
+Xchar xfertype = -1;		/* file xfer type */
+XWINDOW *xfrw;
+Xchar xfrw_cols;
+Xchar xfrw_lines;
+Xchar xfrw_tlx;
+X
+Xchar p_binary;		/* xfer options -- not all apply to all protocols */
+Xchar p_sendfull;
+Xchar p_overwrite;
+Xchar p_xfernew;
+Xchar p_resume;
+Xchar p_filelist[80];
+Xuint zwindw_size;
+X
+X/*+-------------------------------------------------------------------------
+X	file_xfer_start()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfile_xfer_start()
+X{
+X	time(&file_xfer_start_time);
+X}	/* end of file_xfer_start */
+X
+X/*+-------------------------------------------------------------------------
+X	file_xfer_done_bell()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xfile_xfer_done_bell()
+X{
+X	long xfer_time;
+X	int xbell_count = 0;
+X
+X	time(&xfer_time);
+X	xfer_time -= file_xfer_start_time;
+X	sleep(1);
+X	xbell_count = 1;
+X	if(xfer_time >= 3600L)			/* >= one hour */
+X		xbell_count = 3;
+X	else if(xfer_time >= 1800L)		/* >= 1/2 hour */
+X		xbell_count = 2;
+X
+X	if(shm->bell_notify_state)
+X		bell_notify(XBELL_ATTENTION);
+X	xbell(XBELL_DONE,xbell_count);
+X
+X}	/* end of file_xfer_done_bell */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrw_bot_msg(msg)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrw_bot_msg(msg)
+Xchar *msg;
+X{
+X	register itmp;
+X	register itmp2;
+X	static last_msglen = 0;
+X	char msg2[80];
+X
+X	wmove(xfrw,xfrw_lines - 1,3);
+X
+X	if((itmp = strlen(msg)) == 0)
+X	{
+X		itmp2 = last_msglen + 2;
+X#if defined(SVR4)
+X		whline(xfrw, (unsigned long)(sHR & 0x00ff), itmp2);
+X#else
+X		for(itmp = 0; itmp < itmp2; itmp++)
+X			waddch(xfrw,(unsigned)sHR);
+X#endif
+X		last_msglen = 0;
+X	}
+X	else
+X	{
+X		waddch(xfrw,' ');
+X		if(itmp > xfrw_cols - 3 - 2)
+X		{
+X			strncpy(msg2,msg,xfrw_cols - 3 - 2);
+X			msg2[xfrw_cols - 3 - 2 + 1] = 0;
+X			waddstr(xfrw,msg2);
+X			itmp = strlen(msg2);
+X		}
+X		else
+X		{
+X			waddstr(xfrw,msg);
+X			itmp = strlen(msg);
+X		}
+X		waddch(xfrw,' ');
+X		if((itmp2 = last_msglen - itmp) > 0)
+X		{
+X#if defined(SVR4)
+X			whline(xfrw, (unsigned long)(sHR & 0x00ff), itmp2);
+X#else
+X			while(itmp2--)
+X				waddch(xfrw,(unsigned)sHR);
+X#endif
+X		}
+X		last_msglen = itmp;		/* remember last message length */
+X	}
+X	wrefresh(xfrw);
+X}	/* end of xfrw_bot_msg */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrw_get_single(nondelim_list)
+Xassumes cursor is already positioned
+X--------------------------------------------------------------------------*/
+Xint
+Xxfrw_get_single(nondelim_list)
+Xregister char *nondelim_list;
+X{
+X	register uint itmp;
+X	static uchar xfrw_nondelim_list[] =
+X	{
+X		CRET,NL,XFcurup,XFcurdn,CTL_B,TAB,ESC,CTL_L,CTL_R,XFend,(uchar)0
+X	};
+X
+X	itmp = winget_single(xfrw,nondelim_list,xfrw_nondelim_list);
+X	if( (itmp & 0xFF) == CRET)
+X		itmp = NL | 0x1000;
+X	return(itmp);
+X}	/* end of xfrw_get_single */
+X
+X/*+-------------------------------------------------------------------------
+X	xfer_title_fragment()
+X--------------------------------------------------------------------------*/
+Xchar *
+Xxfer_title_fragment()
+X{
+X	register char *cptr = "UNKNOWN";
+X
+X	switch(xfertype)
+X	{
+X		case ECURZ_X:
+X		case ECUSZ_X: cptr = "XMODEM/CRC"; break;
+X		case ECURZ_Y:
+X		case ECUSZ_Y: cptr = "YMODEM/CRC"; break;
+X		case ECURZ_Z:
+X		case ECUSZ_Z: cptr = "ZMODEM/CRC32"; break;
+X		case ECUSEA:  cptr = "SEAlink"; break;
+X		case CKERMIT: cptr = "KERMIT/CRC" ;break;
+X	}
+X	return(cptr);
+X}	/* end of xfer_title_fragment */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrw_display_cmd_line()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrw_display_cmd_line()
+X{
+X	register itmp;
+X	char *cmd_string = "TAB:next  ^B:prev  END:perform transfer  ESC:abort"; 
+X	register left_spaces = ((xfrw_cols - 2) - strlen(cmd_string)) / (unsigned)2;
+X	int x;
+X	int y;
+X
+X	wmove(xfrw,xfrw_lines - 2,1);
+X	wstandout(xfrw);
+X	for(itmp = 0; itmp < left_spaces; itmp++)
+X		waddch(xfrw,' ');
+X	waddstr(xfrw,cmd_string);
+X	getyx(xfrw,y,x);
+X	while(++x < xfrw_cols)
+X		waddch(xfrw,' '); 
+X	wstandend(xfrw);
+X
+X}	/* end of xfrw_display_cmd_line */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_literals()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_literals()
+X{
+X	wmove(xfrw,SNDW_FILE_LY,SNDW_FILE_LX);
+X	if(xfertype == ECUSZ_X)
+X		waddstr(xfrw,"File");
+X	else
+X		waddstr(xfrw,"File(s)");
+X	waddstr(xfrw," to send:");
+X
+X	switch(xfertype)
+X	{
+X		case ECUSZ_Z:
+X			wmove(xfrw,SNDW_XFERNEW_Y,SNDW_XFERNEW_LX);
+X			waddstr(xfrw,"Transfer only newer files:");
+X			wmove(xfrw,SNDW_SENDFULL_Y,SNDW_SENDFULL_LX);
+X			waddstr(xfrw,"Send full pathames:");
+X			wmove(xfrw,SNDW_RESUME_Y,SNDW_RESUME_LX);
+X			waddstr(xfrw,"Resume interrupted transfer:");
+X			wmove(xfrw,SNDW_ZWINDW_Y,SNDW_ZWINDW_LX);
+X			waddstr(xfrw,"Window size:");
+X		case CKERMIT:
+X			wmove(xfrw,SNDW_OVERW_Y,SNDW_OVERW_LX);
+X			waddstr(xfrw,"Overwrite destination files:");
+X		case ECUSZ_Y:
+X		case ECUSZ_X:
+X			wmove(xfrw,SNDW_BIN_Y,SNDW_BIN_LX);
+X			waddstr(xfrw,"Binary:");
+X	}
+X}	/* end of xfrws_display_literals */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_name()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_name()
+X{
+X	clear_area(xfrw,SNDW_FILE_Y,SNDW_FILE_X,SNDW_FILE_LEN);
+X	waddstr(xfrw,p_filelist);
+X
+X}	/* end of xfrws_display_name */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_binary()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_binary()
+X{
+X	wmove(xfrw,SNDW_BIN_Y,SNDW_BIN_X);
+X	waddch(xfrw,(p_binary) ? 'Y' : 'N');
+X	if(p_binary)
+X		waddstr(xfrw," (no NL-CR/LF translation)     ");
+X	else
+X		waddstr(xfrw," (NL-CR/LF translation enabled)");
+X
+X}	/* end of xfrws_display_binary */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_xfernew()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_xfernew()
+X{
+X	wmove(xfrw,SNDW_XFERNEW_Y,SNDW_XFERNEW_X);
+X	waddch(xfrw,(p_xfernew) ? 'Y' : 'N');
+X	if(p_xfernew)
+X		waddstr(xfrw," (if receiver supports)");
+X	else
+X		waddstr(xfrw,"                       ");
+X}	/* end of xfrws_display_xfernew */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_resume()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_resume()
+X{
+X	wmove(xfrw,SNDW_RESUME_Y,SNDW_RESUME_X);
+X	waddch(xfrw,(p_resume) ? 'Y' : 'N');
+X	if(p_resume)
+X		waddstr(xfrw," (if receiver supports)");
+X	else
+X		waddstr(xfrw,"                       ");
+X}	/* end of xfrws_display_resume */
+X
+X/*+-------------------------------------------------------------------------
+X	xfrws_display_allvars()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxfrws_display_allvars()
+X{
+X	char s32[32];
+X
+X	xfrws_display_name();
+X	switch(xfertype)
+X	{
+X		case ECUSZ_Z:
+X			xfrws_display_xfernew();
+X			xfrws_display_resume();
+X			wmove(xfrw,SNDW_SENDFULL_Y,SNDW_SENDFULL_X);
+X			waddch(xfrw,(p_sendfull) ? 'Y' : 'N');
+X			wmove(xfrw,SNDW_ZWINDW_Y,SNDW_ZWINDW_X);
+X			sprintf(s32,"%u",zwindw_size);
+X			waddstr(xfrw,s32);
+X		case CKERMIT:
+X			wmove(xfrw,SNDW_OVERW_Y,SNDW_OVERW_X);
+X			waddch(xfrw,(p_overwrite) ? 'Y' : 'N');
+X		case ECUSZ_Y:
+X		case ECUSZ_X:
+X			xfrws_display_binary();
+X	}
+X}	/* end of xfrws_display_allvars */
+X
+X/*+-------------------------------------------------------------------------
+X	report_send_status() - report file transmission result
+Xreturns proc-type erc
+Xfor "ecu knowledgeable" protocols only
+X--------------------------------------------------------------------------*/
+Xreport_send_status()
+X{
+X	int erc = 0;
+X	ushort int ustmp;
+X	ulong colors_at_entry = colors_current;
+X	char *signal_name_text();
+X
+X	ustmp = last_child_wait_status;
+X	if((ustmp & 0xFF) == 0)	/* exit() called */
+X	{
+X		ustmp >>= 8;
+X		if(ustmp == 0)
+X		{
+X			setcolor(colors_notify);
+X			pputs("[transfer successful]");
+X			erc = 0;
+X		}
+X		else if(ustmp == 255)
+X		{
+X			setcolor(colors_error);
+X			pputs("[ecu error: transfer program usage error]");
+X			erc = eFATAL_ALREADY;
+X		}
+X		else if(ustmp == 254)
+X		{
+X			setcolor(colors_error);
+X			pputs(
+X			"[protocol failure: bad line conditions or remote not ready]");
+X			erc = eFATAL_ALREADY;
+X		}
+X		else if(ustmp == 253)
+X		{
+X			setcolor(colors_alert);
+X			pputs("[no requested files exist]");
+X			erc = eFATAL_ALREADY;
+SHAR_EOF
+true || echo 'restore of ecuxfer.c failed'
+fi
+echo 'End of ecu320 part 14'
+echo 'File ecuxfer.c is continued in part 15'
+echo 15 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

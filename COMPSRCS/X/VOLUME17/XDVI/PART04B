@@ -1,0 +1,1005 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Subject: v17i041: xdvi, dvi previewer, Part04/05, Part02/02
+Message-ID: <1992Mar23.190042.18862@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Date: Mon, 23 Mar 1992 19:00:42 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 41
+Archive-name: xdvi/part04b
+
+# this is part04.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xdvi.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xdvi.c'
+else
+echo 'x - continuing file xdvi.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xdvi.c' &&
+X	stderr);
+#endif	/* VMS */
+#else	/* X10 */
+X	Fputs("\
+Usage: xdvi [+[<page>]] [-s <shrink>] [-S <density>] [-p <pixels>] [-l]\n\
+X	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X	[-hushspecials] [-hushchars] [-hush]\n\
+X	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+[-cr <color>]\n\
+X	[-bw <width>] [-geometry <geometry> | =<geometry>]\n\
+X	[-display <host:display> | <host:display>] dvi_file\n", stderr);
+#endif	/* X10 */
+X	exit(1);
+}
+X
+static	int
+atopix(arg)
+X	_Xconst	char	*arg;
+{
+X	int	len	= strlen(arg);
+X
+X	return (len > 2 && arg[len - 2] == 'c' && arg[len - 1] == 'm' ?
+X		1.0 / 2.54 : 1.0) * atof(arg) * pixels_per_inch + 0.5;
+}
+X
+/**
+X **	Main programs start here.
+X **/
+X
+#ifndef X10
+static	char	*icon_geometry;
+static	Boolean	copy	= 2;
+static	Boolean	thorough;
+#endif	/* X10 */
+X
+#ifdef	TOOLKIT
+X
+static	XrmOptionDescRec	options[] = {
+{"-d",		".debugLevel",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-s",		".shrinkFactor", XrmoptionSepArg,	(caddr_t) NULL},
+#ifndef	VMS
+{"-S",		".densityPercent", XrmoptionSepArg,	(caddr_t) NULL},
+#endif
+{"-density",	".densityPercent", XrmoptionSepArg,	(caddr_t) NULL},
+{"-p",		".pixelsPerInch", XrmoptionSepArg,	(caddr_t) NULL},
+{"-margins",	".Margin",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-sidemargin",	".sideMargin",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-topmargin",	".topMargin",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-offsets",	".Offset",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-xoffset",	".xOffset",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-yoffset",	".yOffset",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-paper",	".paper",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-altfont",	".altFont",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-l",		".listFonts",	XrmoptionNoArg,		(caddr_t) "on"},
+{"+l",		".listFonts",	XrmoptionNoArg,		(caddr_t) "off"},
+{"-hushspecials", ".hushSpecials", XrmoptionNoArg,	(caddr_t) "on"},
+{"+hushspecials", ".hushSpecials", XrmoptionNoArg,	(caddr_t) "off"},
+{"-hushchars",	".hushLostChars", XrmoptionNoArg,	(caddr_t) "on"},
+{"+hushchars",	".hushLostChars", XrmoptionNoArg,	(caddr_t) "off"},
+{"-hush",	".Hush",	XrmoptionNoArg,		(caddr_t) "on"},
+{"+hush",	".Hush",	XrmoptionNoArg,		(caddr_t) "off"},
+{"-fg",		".foreground",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-foreground",	".foreground",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-bg",		".background",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-background",	".background",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-hl",		".highlight",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-cr",		".cursorColor",	XrmoptionSepArg,	(caddr_t) NULL},
+{"-icongeometry",".iconGeometry",XrmoptionSepArg,	(caddr_t) NULL},
+{"-keep",	".keepPosition",XrmoptionNoArg,		(caddr_t) "on"},
+{"+keep",	".keepPosition",XrmoptionNoArg,		(caddr_t) "off"},
+{"-copy",	".copy",	XrmoptionNoArg,		(caddr_t) "on"},
+{"+copy",	".copy",	XrmoptionNoArg,		(caddr_t) "off"},
+{"-thorough",	".thorough",	XrmoptionNoArg,		(caddr_t) "on"},
+{"+thorough",	".thorough",	XrmoptionNoArg,		(caddr_t) "off"},
+#ifdef	BUTTONS
+{"-expert",	".expert",	XrmoptionNoArg,		(caddr_t) "on"},
+{"+expert",	".expert",	XrmoptionNoArg,		(caddr_t) "off"},
+#endif
+{"-mgs",	".magnifierSize1",XrmoptionSepArg,	(caddr_t) NULL},
+{"-mgs1",	".magnifierSize1",XrmoptionSepArg,	(caddr_t) NULL},
+{"-mgs2",	".magnifierSize2",XrmoptionSepArg,	(caddr_t) NULL},
+{"-mgs3",	".magnifierSize3",XrmoptionSepArg,	(caddr_t) NULL},
+{"-mgs4",	".magnifierSize4",XrmoptionSepArg,	(caddr_t) NULL},
+{"-mgs5",	".magnifierSize5",XrmoptionSepArg,	(caddr_t) NULL},
+};
+X
+static	XtResource	resources[] = {
+{"debugLevel", "DebugLevel", XtRString, sizeof(char *),
+X  (Cardinal) &debug_arg, XtRString, NULL},
+{"shrinkFactor", "ShrinkFactor", XtRInt, sizeof(int),
+X  (Cardinal) &shrink_factor, XtRInt, (caddr_t) &shrink_factor},
+{"densityPercent", "DensityPercent", XtRInt, sizeof(int),
+X  (Cardinal) &density, XtRInt, (caddr_t) &density},
+{"pixelsPerInch", "PixelsPerInch", XtRInt, sizeof(int),
+X  (Cardinal) &pixels_per_inch, XtRInt, (caddr_t) &pixels_per_inch},
+{"sideMargin", "Margin", XtRString, sizeof(char *),
+X  (Cardinal) &sidemargin, XtRString, NULL},
+{"topMargin", "Margin", XtRString, sizeof(char *),
+X  (Cardinal) &topmargin, XtRString, NULL},
+{"xOffset", "Offset", XtRString, sizeof(char *),
+X  (Cardinal) &xoffset, XtRString, NULL},
+{"yOffset", "Offset", XtRString, sizeof(char *),
+X  (Cardinal) &yoffset, XtRString, NULL},
+{"paper", "Paper", XtRString, sizeof(char *),
+X  (Cardinal) &paper, XtRString, (caddr_t) DEFAULT_PAPER},
+{"altFont", "AltFont", XtRString, sizeof(char *),
+X  (Cardinal) &alt_font, XtRString, (caddr_t) ALTFONT},
+{"listFonts", "ListFonts", XtRBoolean, sizeof(Boolean),
+X  (Cardinal) &list_fonts, XtRBoolean, (caddr_t) &list_fonts},
+{"reverseVideo", "ReverseVideo", XtRBoolean, sizeof(Boolean),
+X  (Cardinal) &reverse, XtRBoolean, (caddr_t) &reverse},
+{"hushSpecials", "Hush", XtRBoolean, sizeof(Boolean),
+X  (Cardinal) &hush_spec, XtRBoolean, (caddr_t) &hush_spec},
+{"hushLostChars", "Hush", XtRBoolean, sizeof(Boolean),
+X  (Cardinal) &hush_chars, XtRBoolean, (caddr_t) &hush_chars},
+{"foreground", "Foreground", XtRPixel, sizeof(Pixel),
+X  (Cardinal)&fore_Pixel, XtRPixel, (caddr_t) &fore_Pixel},
+{"foreground", "Foreground", XtRString, sizeof(char *),
+X  (Cardinal)&fore_color, XtRString, NULL},
+{"background", "Background", XtRPixel, sizeof(Pixel),
+X  (Cardinal)&back_Pixel, XtRPixel, (caddr_t) &back_Pixel},
+{"background", "Background", XtRString, sizeof(char *),
+X  (Cardinal)&back_color, XtRString, NULL},
+{"borderColor", "BorderColor", XtRPixel, sizeof(Pixel),
+X  (Cardinal)&brdr_Pixel, XtRPixel, (caddr_t) &brdr_Pixel},
+{"borderColor", "BorderColor", XtRString, sizeof(char *),
+X  (Cardinal)&brdr_color, XtRString, NULL},
+{"highlight", "Highlight", XtRPixel, sizeof(Pixel),
+X  (Cardinal)&hl_Pixel, XtRPixel, (caddr_t) &hl_Pixel},
+{"highlight", "Highlight", XtRString, sizeof(char *),
+X  (Cardinal)&high_color, XtRString, NULL},
+{"cursorColor", "CursorColor", XtRPixel, sizeof(Pixel),
+X  (Cardinal)&cr_Pixel, XtRPixel, (caddr_t) &cr_Pixel},
+{"cursorColor", "CursorColor", XtRString, sizeof(char *),
+X  (Cardinal)&curs_color, XtRString, NULL},
+{"iconGeometry", "IconGeometry", XtRString, sizeof(char *),
+X  (Cardinal)&icon_geometry, XtRString, NULL},
+{"keepPosition", "KeepPosition", XtRBoolean, sizeof(Boolean),
+X  (Cardinal)&keep_flag, XtRBoolean, (caddr_t) &keep_flag},
+{"copy", "Copy", XtRBoolean, sizeof(Boolean),
+X  (Cardinal)&copy, XtRBoolean, (caddr_t) &copy},
+{"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+X  (Cardinal)&thorough, XtRBoolean, (caddr_t) &thorough},
+#ifdef	BUTTONS
+{"expert", "Expert", XtRBoolean, sizeof(Boolean),
+X  (Cardinal)&expert, XtRBoolean, (caddr_t) &expert},
+#endif
+{"magnifierSize1", "MagnifierSize", XtRInt, sizeof(int),
+X  (Cardinal) &mg_size[0], XtRInt, (caddr_t) &mg_size[0]},
+{"magnifierSize2", "MagnifierSize", XtRInt, sizeof(int),
+X  (Cardinal) &mg_size[1], XtRInt, (caddr_t) &mg_size[1]},
+{"magnifierSize3", "MagnifierSize", XtRInt, sizeof(int),
+X  (Cardinal) &mg_size[2], XtRInt, (caddr_t) &mg_size[2]},
+{"magnifierSize4", "MagnifierSize", XtRInt, sizeof(int),
+X  (Cardinal) &mg_size[3], XtRInt, (caddr_t) &mg_size[3]},
+{"magnifierSize5", "MagnifierSize", XtRInt, sizeof(int),
+X  (Cardinal) &mg_size[4], XtRInt, (caddr_t) &mg_size[4]},
+};
+X
+static	Arg	temp_args1[] = {
+X	{XtNiconX,	(XtArgVal) 0},
+X	{XtNiconY,	(XtArgVal) 0},
+};
+X
+static	Arg	temp_args2 = {XtNborderWidth,	(XtArgVal) &bwidth};
+X
+static	Pixmap	icon_pm;
+X
+static	Arg	temp_args3[] = {
+X	{XtNiconPixmap,	(XtArgVal) &icon_pm},
+};
+X
+static	Arg	temp_args4[] = {
+X	{XtNtitle,	(XtArgVal) 0},
+X	{XtNinput,	(XtArgVal) True},
+};
+X
+static	Arg	set_wh_args[] = {
+X	{XtNwidth,	(XtArgVal) 0},
+X	{XtNheight,	(XtArgVal) 0},
+};
+#else	/* !TOOLKIT */
+X
+static	char	*display;
+static	char	*geometry;
+static	char	*margins;
+static	char	*offsets;
+static	Boolean	hush;
+X
+#ifndef X10
+static	Boolean	iconic	= False;
+X
+static	Pixel
+string_to_pixel(strp)		/* adapted from the toolkit */
+X	char	**strp;
+{
+X	char	*str = *strp;
+X	Status	status;
+X	XColor	color, junk;
+X
+X	if (*str == '#') {	/* an rgb definition */
+X	    status = XParseColor(DISP, DefaultColormapOfScreen(SCRN),
+X		str, &color);
+X	    if (status != 0)
+X		status = XAllocColor(DISP, DefaultColormapOfScreen(SCRN),
+X		    &color);
+X	}
+X	else	/* a name */
+X	    status = XAllocNamedColor(DISP, DefaultColormapOfScreen(SCRN),
+X		str, &color, &junk);
+X	if (status == 0) {
+X	    Fprintf(stderr, "Cannot allocate colormap entry for \"%s\"\n", str);
+X	    *strp = NULL;
+X	    return (Pixel) 0;
+X	}
+X	return color.pixel;
+}
+#endif	/* X10 */
+X
+static	struct option {
+X	_Xconst	char	*name;
+X	_Xconst	char	*resource;
+X	enum	{FalseArg, TrueArg, StickyArg, SepArg} argclass;
+X	enum	{BooleanArg, StringArg, NumberArg} argtype;
+X	int	classcount;
+X	caddr_t	address;
+}	options[] = {
+X		/* the display option MUST be first */
+{"-display",	NULL,		SepArg,	StringArg, 1,	(caddr_t) &display},
+{"-d",		"debugLevel",	SepArg,	StringArg, 1,	(caddr_t) &debug_arg},
+{"+",		NULL,		StickyArg, StringArg, 1,(caddr_t) &curr_page},
+{"-s",		"shrinkFactor", SepArg, NumberArg, 1,	(caddr_t) &shrink_factor},
+{"-S",		NULL,		SepArg, NumberArg, 2,	(caddr_t) &density},
+{"-density",	"densityPercent", SepArg, NumberArg, 1,	(caddr_t) &density},
+{"-p",		"pixelsPerInch", SepArg, NumberArg, 1,	(caddr_t) &pixels_per_inch},
+{"-margins",	"Margin",	SepArg,	StringArg, 3,	(caddr_t) &margins},
+{"-sidemargin",	"sideMargin",	SepArg,	StringArg, 1,	(caddr_t) &sidemargin},
+{"-topmargin",	"topMargin",	SepArg,	StringArg, 1,	(caddr_t) &topmargin},
+{"-offsets",	"Offset",	SepArg,	StringArg, 3,	(caddr_t) &offsets},
+{"-xoffset",	"xOffset",	SepArg,	StringArg, 1,	(caddr_t) &xoffset},
+{"-yoffset",	"yOffset",	SepArg,	StringArg, 1,	(caddr_t) &yoffset},
+{"-paper",	"paper",	SepArg,	StringArg, 1,	(caddr_t) &paper},
+{"-altfont",	"altFont",	SepArg,	StringArg, 1,	(caddr_t) &alt_font},
+{"-l",		NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &list_fonts},
+{"+l",		"listFonts",	FalseArg, BooleanArg, 1,(caddr_t) &list_fonts},
+{"-rv",		NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &reverse},
+{"+rv",		"reverseVideo",	FalseArg, BooleanArg, 1,(caddr_t) &reverse},
+{"-hush",	NULL,		TrueArg, BooleanArg, 6,	(caddr_t) &hush},
+{"+hush",	"Hush",		FalseArg, BooleanArg, 5,(caddr_t) &hush},
+{"-hushspecials", NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &hush_spec},
+{"+hushspecials", "hushSpecials", FalseArg, BooleanArg, 1,(caddr_t) &hush_spec},
+{"-hushchars",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &hush_chars},
+{"+hushchars",	"hushLostChars", FalseArg, BooleanArg, 1,(caddr_t) &hush_chars},
+{"-bw",		NULL,		SepArg,	NumberArg, 2,	(caddr_t) &bwidth},
+{"-borderwidth", "borderWidth",	SepArg,	NumberArg, 1,	(caddr_t) &bwidth},
+{"-fg",		NULL,		SepArg,	StringArg, 2,	(caddr_t) &fore_color},
+{"-foreground",	"foreground",	SepArg,	StringArg, 1,	(caddr_t) &fore_color},
+{"-bg",		NULL,		SepArg,	StringArg, 2,	(caddr_t) &back_color},
+{"-background",	"background",	SepArg,	StringArg, 1,	(caddr_t) &back_color},
+{"-bd",		NULL,		SepArg,	StringArg, 2,	(caddr_t) &brdr_color},
+{"-bordercolor","borderColor",	SepArg,	StringArg, 1,	(caddr_t) &brdr_color},
+{"-hl",		"highlight",	SepArg,	StringArg, 1,	(caddr_t) &high_color},
+{"-cr",		"cursorColor",	SepArg,	StringArg, 1,	(caddr_t) &curs_color},
+#ifdef	X10
+{"=",		NULL,		StickyArg, StringArg, 2,(caddr_t) &geometry},
+#endif
+{"-geometry",	"geometry",	SepArg,	StringArg, 1,	(caddr_t) &geometry},
+#ifndef	X10
+{"-icongeometry","iconGeometry",StickyArg, StringArg, 1,(caddr_t) &icon_geometry},
+{"-iconic",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &iconic},
+{"+iconic",	"iconic",	FalseArg, BooleanArg, 1,(caddr_t) &iconic},
+{"-keep",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &keep_flag},
+{"+keep",	"keepPosition",	FalseArg, BooleanArg, 1,(caddr_t) &keep_flag},
+{"-copy",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &copy},
+{"+copy",	"copy",		FalseArg, BooleanArg, 1,(caddr_t) &copy},
+{"-thorough",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &thorough},
+{"+thorough",	"thorough",	FalseArg, BooleanArg, 1,(caddr_t) &thorough},
+#endif	/* X10 */
+{"-mgs",	NULL,		SepArg, NumberArg, 2,	(caddr_t) &mg_size[0]},
+{"-mgs1",	"magnifierSize1",SepArg, NumberArg, 1,	(caddr_t) &mg_size[0]},
+{"-mgs2",	"magnifierSize2",SepArg, NumberArg, 1,	(caddr_t) &mg_size[1]},
+{"-mgs3",	"magnifierSize3",SepArg, NumberArg, 1,	(caddr_t) &mg_size[2]},
+#ifndef X10
+{"-mgs4",	"magnifierSize4",SepArg, NumberArg, 1,	(caddr_t) &mg_size[3]},
+{"-mgs5",	"magnifierSize5",SepArg, NumberArg, 1,	(caddr_t) &mg_size[4]},
+#endif
+};
+X
+/*
+X *	Process the option table.  This is not guaranteed for all possible
+X *	option tables, but at least it works for this one.
+X */
+X
+static	void
+parse_options(argc, argv)
+X	int argc;
+X	char **argv;
+{
+X	char	**arg;
+X	char	**argvend = argv + argc;
+X	char	*optstring;
+X	caddr_t	addr;
+X	struct option *opt, *lastopt, *candidate;
+X	int	len1, len2, matchlen;
+X
+X	/*
+X	 * Step 1.  Process command line options.
+X	 */
+X	for (arg = argv + 1; arg < argvend; ++arg) {
+X	    len1 = strlen(*arg);
+X	    candidate = NULL;
+X	    matchlen = 0;
+X	    for (opt = options; opt < options + XtNumber(options); ++opt) {
+X		len2 = strlen(opt->name);
+X		if (opt->argclass == StickyArg) {
+X		    if (matchlen <= len2 && !strncmp(*arg, opt->name, len2)) {
+X			candidate = opt;
+X			matchlen = len2;
+X		    }
+X		}
+X		else if (len1 <= len2 && matchlen <= len1 &&
+X		    !strncmp(*arg, opt->name, len1)) {
+X		    if (len1 == len2) {
+X			candidate = opt;
+X			break;
+X		    }
+X		    if (matchlen < len1) candidate = opt;
+X		    else if (candidate && candidate->argclass != StickyArg)
+X			candidate = NULL;
+X		    matchlen = len1;
+X		}
+X	    }
+X	    if (candidate == NULL) {
+#ifdef	X10
+X		if (**arg == '-') usage();
+X		if (index(*arg, ':') != NULL) {	/* display */
+X		    --arg;
+X		    candidate = options;
+X		}
+X		else if (dvi_name) usage();
+#else
+X		if (**arg == '-' || dvi_name) usage();
+#endif
+X		else {
+X		    dvi_name = *arg;
+X		    continue;
+X		}
+X	    }
+X		/* flag it for subsequent processing */
+X	    candidate->resource = (char *) candidate;
+X		/* store the value */
+X	    addr = candidate->address;
+X	    switch (candidate->argclass) {
+X		case FalseArg:	*((Boolean *) addr) = False; continue;
+X		case TrueArg:	*((Boolean *) addr) = True; continue;
+X		case StickyArg:	optstring = *arg + strlen(candidate->name);
+X		    break;
+X		case SepArg:
+X		    ++arg;
+X		    if (arg >= argvend) usage();
+X		    optstring = *arg;
+X		    break;
+X	    }
+X	    switch (candidate->argtype) {
+X		case StringArg:	*((char **) addr) = optstring; break;
+X		case NumberArg:	*((int *) addr) = atoi(optstring); break;
+X		default:  ;
+X	    }
+X	}
+X	/*
+X	 * Step 2.  Propagate classes for command line arguments.  Backwards.
+X	 */
+X	for (opt = options + XtNumber(options) - 1; opt >= options; --opt)
+X	    if (opt->resource == (char *) opt) {
+X		addr = opt->address;
+X		lastopt = opt + opt->classcount;
+X		for (candidate = opt; candidate < lastopt; ++candidate) {
+X		    if (candidate->resource != NULL) {
+X			switch (opt->argtype) {
+X			    case BooleanArg:
+X				*((Boolean *) candidate->address) =
+X				    *((Boolean *) addr);
+X				break;
+X			    case StringArg:
+X				*((char **) candidate->address) =
+X				    *((char **) addr);
+X				break;
+X			    case NumberArg:
+X				*((int *) candidate->address) = *((int *) addr);
+X				break;
+X			}
+X			candidate->resource = NULL;
+X		    }
+X		}
+X	    }
+X
+#ifndef X10
+X	if ((DISP = XOpenDisplay(display)) == NULL)
+X	    oops("Can't open display");
+X	SCRN = DefaultScreenOfDisplay(DISP);
+#else
+X	if (XOpenDisplay(display) == NULL)
+X	    oops("Can't open display");
+#endif
+X	/*
+X	 * Step 3.  Handle resources (including classes).
+X	 */
+X	for (opt = options; opt < options + XtNumber(options); ++opt)
+X	    if (opt->resource &&
+#ifndef X10
+X		    ((optstring = XGetDefault(DISP, prog, opt->resource)) ||
+X		    (optstring = XGetDefault(DISP, "XDvi", opt->resource))))
+#else
+X		    (optstring = XGetDefault(DPY prog, opt->resource)))
+#endif
+X		{
+X		    lastopt = opt + opt->classcount;
+X		    for (candidate = opt; candidate < lastopt; ++candidate)
+X			if (candidate->resource != NULL) switch (opt->argtype) {
+X			    case StringArg:
+X				*((char **) candidate->address) = optstring;
+X				break;
+X			    case NumberArg:
+X				*((int *) candidate->address) = atoi(optstring);
+X				break;
+X			    case BooleanArg:
+X				*((Boolean *) candidate->address) =
+X				    (strcmp(optstring, "on") == 0);
+X			}
+X		}
+}
+X
+#endif	/* TOOLKIT */
+X
+static	_Xconst	char	*paper_types[] = {
+X	"us",		"8.5x11",
+X	"usr",		"11x8.5",
+X	"legal",	"8.5x14",
+X	"foolscap",	"13.5x17.0",	/* ??? */
+X
+X	/* ISO `A' formats, Portrait */
+X	"a1",		"59.4x84.0cm",
+X	"a2",		"42.0x59.4cm",
+X	"a3",		"29.7x42.0cm",
+X	"a4",		"21.0x29.7cm",
+X	"a5",		"14.85x21.0cm",
+X	"a6",		"10.5x14.85cm",
+X	"a7",		"7.42x10.5cm",
+X
+X	/* ISO `A' formats, Landscape */
+X	"a1r",		"84.0x59.4cm",
+X	"a2r",		"59.4x42.0cm",
+X	"a3r",		"42.0x29.7cm",
+X	"a4r",		"29.7x21.0cm",
+X	"a5r",		"21.0x14.85cm",
+X	"a6r",		"14.85x10.5cm",
+X	"a7r",		"10.5x7.42cm",
+X
+X	/* ISO `B' formats, Portrait */
+X	"b1",		"70.6x100.0cm",
+X	"b2",		"50.0x70.6cm",
+X	"b3",		"35.3x50.0cm",
+X	"b4",		"25.0x35.3cm",
+X	"b5",		"17.6x25.0cm",
+X	"b6",		"13.5x17.6cm",
+X	"b7",		"8.8x13.5cm",
+X
+X	/* ISO `B' formats, Landscape */
+X	"b1r",		"100.0x70.6cm",
+X	"b2r",		"70.6x50.0cm",
+X	"b3r",		"50.0x35.3cm",
+X	"b4r",		"35.3x25.0cm",
+X	"b5r",		"25.0x17.6cm",
+X	"b6r",		"17.6x13.5cm",
+X	"b7r",		"13.5x8.8cm",
+X
+X	/* ISO `C' formats, Portrait */
+X	"c1",		"64.8x91.6cm",
+X	"c2",		"45.8x64.8cm",
+X	"c3",		"32.4x45.8cm",
+X	"c4",		"22.9x32.4cm",
+X	"c5",		"16.2x22.9cm",
+X	"c6",		"11.46x16.2cm",
+X	"c7",		"8.1x11.46cm",
+X
+X	/* ISO `C' formats, Landscape */
+X	"c1r",		"91.6x64.8cm",
+X	"c2r",		"64.8x45.8cm",
+X	"c3r",		"45.8x32.4cm",
+X	"c4r",		"32.4x22.9cm",
+X	"c5r",		"22.9x16.2cm",
+X	"c6r",		"16.2x11.46cm",
+X	"c7r",		"11.46x8.1cm",
+};
+X
+static	Boolean
+set_paper_type() {
+X	_Xconst	char	*arg, *arg1;
+X	char	temp[21];
+X	_Xconst	char	**p;
+X	char	*q;
+X
+X	if (strlen(paper) > sizeof(temp) - 1) return False;
+X	arg = paper;
+X	q = temp;
+X	for (;;) {	/* convert to lower case */
+X	    char c = *arg++;
+X	    if (c >= 'A' && c <= 'Z') c ^= ('a' ^ 'A');
+X	    *q++ = c;
+X	    if (c == '\0') break;
+X	}
+X	arg = temp;
+X	/* perform substitutions */
+X	for (p = paper_types; p < paper_types + XtNumber(paper_types); p += 2)
+X	    if (strcmp(temp, *p) == 0) {
+X		arg = p[1];
+X		break;
+X	    }
+X	arg1 = index(arg, 'x');
+X	if (arg1 == NULL) return False;
+X	unshrunk_paper_w = atopix(arg);
+X	unshrunk_paper_h = atopix(arg1 + 1);
+X	return (unshrunk_paper_w != 0 && unshrunk_paper_h != 0);
+}
+X
+/*
+X *	main program
+X */
+X
+int
+main(argc, argv)
+X	int argc;
+X	char **argv;
+{
+X
+#ifndef	TOOLKIT
+#ifndef X10
+X	XSizeHints	size_hints;
+X	XWMHints	wmhints;
+#else
+X	OpaqueFrame frame;
+X	char	def[32];
+X	int	mouspix;
+X	Color	cdef;
+X	int	x_thick, y_thick;
+#endif
+#endif	/* TOOLKIT */
+X	int	screen_w, screen_h;
+X
+#ifndef	VMS
+X	prog = rindex(*argv, '/');
+#else
+X	prog = rindex(*argv, ']');
+#endif
+X	if (prog != NULL) ++prog; else prog = *argv;
+X
+#ifdef	VMS
+X	if (index(prog, '.') != NULL) *index(prog, '.') = '\0';
+#endif
+X
+#ifdef	TOOLKIT
+X	top_level = XtInitialize(prog, "XDvi", options, XtNumber(options),
+X		&argc, argv);
+X	while (--argc > 0) {
+X	    if (*(*++argv) == '+')
+X		if (curr_page != NULL) usage();
+X		else curr_page = *argv + 1;
+X	    else if (dvi_name != NULL) usage();
+X		else dvi_name = *argv;
+X	}
+X
+X	XtGetApplicationResources(top_level, (caddr_t) NULL, resources,
+X		XtNumber(resources), NULL, 0);
+X	DISP = XtDisplay(top_level);
+X	SCRN = XtScreen(top_level);
+X
+#else	/* !TOOLKIT */
+X
+X	parse_options(argc, argv);
+#ifndef X10
+X	if (fore_color) fore_Pixel = string_to_pixel(&fore_color);
+X	if (back_color) back_Pixel = string_to_pixel(&back_color);
+X	if (brdr_color) brdr_Pixel = string_to_pixel(&brdr_color);
+X	if (high_color) hl_Pixel = string_to_pixel(&high_color);
+X	if (curs_color) cr_Pixel = string_to_pixel(&curs_color);
+#endif
+X
+#endif	/* TOOLKIT */
+X
+X	if (shrink_factor <= 0 || density <= 0 || pixels_per_inch <= 0 ||
+X		dvi_name == NULL) usage();
+X	if (shrink_factor != 1) bak_shrink = shrink_factor;
+X	mane.shrinkfactor = shrink_factor;
+X	if (debug_arg != NULL)
+X	    debug = isdigit(*debug_arg) ? atoi(debug_arg) : DBG_ALL;
+X	if (sidemargin) home_x = atopix(sidemargin);
+X	if (topmargin) home_y = atopix(topmargin);
+X	offset_x = xoffset ? atopix(xoffset) : pixels_per_inch;
+X	offset_y = yoffset ? atopix(yoffset) : pixels_per_inch;
+X	if (!set_paper_type()) oops("Don't recognize paper type %s", paper);
+X
+X	init_font_open();
+X	open_dvi_file();
+X	if (curr_page) {
+X		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+X		if (current_page < 0 || current_page >= total_pages) usage();
+X	}
+X
+#ifndef X10
+X
+X	/*
+X	 *	X11 colors
+X	 */
+X
+X	if (reverse) {
+X	    if (!fore_color) fore_Pixel = WhitePixelOfScreen(SCRN);
+X	    if (!back_color) back_Pixel = BlackPixelOfScreen(SCRN);
+X	    fore_color = back_color = (char *) &fore_color;	/* nonzero */
+X	} else {
+X	    if (!fore_color) fore_Pixel = BlackPixelOfScreen(SCRN);
+X	    if (!back_color) back_Pixel = WhitePixelOfScreen(SCRN);
+X	}
+X	if (!brdr_color) brdr_Pixel = fore_Pixel;
+X	{
+X	    XGCValues	values;
+X	    Pixel	set_bits = (Pixel) (fore_Pixel & ~back_Pixel);
+X	    Pixel	clr_bits = (Pixel) (back_Pixel & ~fore_Pixel);
+#define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+X		values.background=bg,\
+X		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+X			GCFunction|GCForeground|GCBackground, &values))
+X
+X	    if (copy == 2) copy = (PlanesOfScreen(SCRN) > 1);
+X	    if (copy || (set_bits && clr_bits))
+X		ruleGC = MakeGC(GXcopy, fore_Pixel, back_Pixel);
+X	    if (copy) foreGC = ruleGC;
+X	    else if (!thorough && ruleGC) {
+X		foreGC = ruleGC;
+X		puts("Note:  overstrike characters may be incorrect.");
+X	    }
+X	    else {
+X		if (set_bits) foreGC = MakeGC(GXor, set_bits, 0);
+X		if (clr_bits)
+X		    *(foreGC ? &foreGC2 : &foreGC) =
+X			MakeGC(GXandInverted, clr_bits, 0);
+X		if (!ruleGC) ruleGC = foreGC;
+X	    }
+X	    highGC = ruleGC;
+X	    if (high_color)
+X		highGC = MakeGC(GXcopy, hl_Pixel, back_Pixel);
+X	}
+X
+#ifndef	VMS
+X	ready_cursor = XCreateFontCursor(DISP, XC_cross);
+X	redraw_cursor = XCreateFontCursor(DISP, XC_watch);
+#else
+X	DECWCursorFont = XLoadFont(DISP, "DECW$CURSOR");
+X	XSetFont(DISP, foreGC, DECWCursorFont);
+X	redraw_cursor = XCreateGlyphCursor(DISP, DECWCursorFont, DECWCursorFont,
+X		decw$c_wait_cursor, decw$c_wait_cursor + 1,
+X		&fore_color, &back_color);
+X	MagnifyPixmap = XCreateBitmapFromData (DISP, RootWindowOfScreen(SCRN),
+X		mag_glass_bits, mag_glass_width, mag_glass_height);
+X	ready_cursor = XCreatePixmapCursor(DISP, MagnifyPixmap, MagnifyPixmap,
+X		&back_color, &fore_color, mag_glass_x_hot, mag_glass_y_hot);
+#endif	/* VMS */
+X
+X	if (!curs_color)
+X	    cr_Pixel = high_color ? hl_Pixel : fore_Pixel;
+X	{
+X	    XColor bg_Color, cr_Color;
+X
+X	    bg_Color.pixel = back_Pixel;
+X	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &bg_Color);
+X	    cr_Color.pixel = cr_Pixel;
+X	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &cr_Color);
+X	    XRecolorCursor(DISP, ready_cursor, &cr_Color, &bg_Color);
+X	    XRecolorCursor(DISP, redraw_cursor, &cr_Color, &bg_Color);
+X	}
+X
+#ifdef	TOOLKIT
+X
+X	/*
+X	 *	X11 windows (toolkit)
+X	 */
+X
+X		/* The following code is lifted from Xterm */
+X	if (icon_geometry != NULL) {
+X	    int scr, junk;
+X
+X	    for(scr = 0;	/* yyuucchh */
+X		SCRN != ScreenOfDisplay(DISP, scr);
+X		scr++);
+X
+X	    XGeometry(DISP, scr, icon_geometry, "", 0, 0, 0, 0, 0,
+X			(int *) &temp_args1[0].value,
+X			(int *) &temp_args1[1].value, &junk, &junk);
+X	    XtSetValues(top_level, temp_args1, XtNumber(temp_args1));
+X	}
+X		/* Set icon pixmap */
+X	XtGetValues(top_level, temp_args3, XtNumber(temp_args3));
+X	if (icon_pm == NULL) {
+X	    temp_args3[0].value = (XtArgVal) (XCreateBitmapFromData(DISP,
+X				RootWindowOfScreen(SCRN),
+X				xdvi_bits, xdvi_width, xdvi_height));
+X	    XtSetValues(top_level, temp_args3, XtNumber(temp_args3));
+X	}
+X	temp_args4[0].value = (XtArgVal) dvi_name;
+X	XtSetValues(top_level, temp_args4, XtNumber(temp_args4));
+X
+#ifdef	BUTTONS
+X	form_widget = XtCreateManagedWidget("form", formWidgetClass,
+X		top_level, form_args, XtNumber(form_args));
+X
+X	line_args[0].value = (XtArgVal) high_color ? hl_Pixel : fore_Pixel;
+#else	/* !BUTTONS */
+#define	form_widget	top_level	/* for calls to XtAddEventHandler */
+#endif	/* BUTTONS */
+X	vport_widget = XtCreateManagedWidget("vport", viewportWidgetClass,
+X		form_widget, vport_args, XtNumber(vport_args));
+X	clip_widget = XtNameToWidget(vport_widget, "clip");
+X	draw_args[0].value = (XtArgVal) page_w;
+X	draw_args[1].value = (XtArgVal) page_h;
+X	draw_widget = XtCreateManagedWidget("drawing", drawWidgetClass,
+X		vport_widget, draw_args, XtNumber(draw_args));
+X	{	/* set default window size */
+#ifdef	BUTTONS
+X	    int xtra_wid = expert ? 0 : XTRA_WID;
+#else
+#define	xtra_wid	0
+#endif
+X	    XtWidgetGeometry constraints;
+X	    XtWidgetGeometry reply;
+X
+X	    XtGetValues(top_level, &temp_args2, 1);	/* get border width */
+X	    screen_w = WidthOfScreen(SCRN) - 2 * bwidth - xtra_wid;
+X	    screen_h = HeightOfScreen(SCRN) - 2 * bwidth;
+X	    constraints.request_mode = reply.request_mode = 0;
+X	    constraints.width = page_w;
+X	    if (page_w > screen_w) {
+X		constraints.request_mode = CWWidth;
+X		constraints.width = screen_w;
+X	    }
+X	    constraints.height = page_h;
+X	    if (page_h > screen_h) {
+X		constraints.request_mode = CWHeight;
+X		constraints.height = screen_h;
+X	    }
+X	    if (constraints.request_mode != 0
+X		    && constraints.request_mode != (CWWidth | CWHeight))
+X		(void) XtQueryGeometry(vport_widget, &constraints, &reply);
+X	    if (!(reply.request_mode & CWWidth))
+X		reply.width = constraints.width;
+X	    set_wh_args[0].value = (XtArgVal) ((reply.width < screen_w
+X				? reply.width : screen_w) + xtra_wid);
+X	    if (!(reply.request_mode & CWHeight))
+X		reply.height = constraints.height;
+X	    set_wh_args[1].value = (XtArgVal) (reply.height < screen_h
+X					? reply.height : screen_h);
+X	    XtSetValues(top_level, set_wh_args, XtNumber(set_wh_args));
+#ifdef	BUTTONS
+X	    set_wh_args[0].value -= xtra_wid;
+X	    XtSetValues(vport_widget, set_wh_args, XtNumber(set_wh_args));
+X	    if (!expert) create_buttons(set_wh_args[1].value);
+#endif	/* BUTTONS */
+X	}
+X	if (fore_color) XtSetValues(draw_widget, &fore_args, 1);
+X	if (back_color) {
+X	    XtSetValues(draw_widget, &back_args, 1);
+X	    XtSetValues(clip_widget, &back_args, 1);
+X	}
+X	XtAddEventHandler(form_widget, KeyPressMask, False, handle_key,
+X		(caddr_t) NULL);
+X	XtAddEventHandler(vport_widget, StructureNotifyMask, False,
+X		handle_resize, (caddr_t) NULL);
+X	XtAddEventHandler(draw_widget, ExposureMask, False, handle_exp,
+X		(caddr_t) &mane);
+X	XtAddEventHandler(draw_widget, ButtonPressMask, False, handle_button,
+X		(caddr_t) NULL);
+X	XtAddEventHandler(draw_widget, ButtonMotionMask, False, handle_motion,
+X		(caddr_t) NULL);
+X	XtAddEventHandler(draw_widget, ButtonReleaseMask, False, handle_release,
+X		(caddr_t) NULL);
+X	XtRealizeWidget(top_level);
+X
+X	currwin.win = mane.win = XtWindow(draw_widget);
+X
+#else	/* !TOOLKIT */
+X
+X	/*
+X	 *	X11 windows (non toolkit)
+X	 */
+X
+X	screen_w = WidthOfScreen(SCRN) - 2*bwidth;
+X	screen_h = HeightOfScreen(SCRN) - 2*bwidth;
+X	size_hints.flags = PMinSize;
+X	size_hints.min_width = size_hints.min_height = 50;
+X	size_hints.x = size_hints.y = 0;
+X	if (geometry != NULL) {
+X	    int flag = XParseGeometry(geometry, &size_hints.x, &size_hints.y,
+X		&window_w, &window_h);
+X
+X	    if (flag & (XValue | YValue))
+X		size_hints.flags |= USPosition;
+X	    if (flag & (WidthValue | HeightValue))
+X		size_hints.flags |= USSize;
+X	    if (flag & XNegative) size_hints.x += screen_w - window_w;
+X	    if (flag & YNegative) size_hints.y += screen_h - window_h;
+X	}
+X	if (!(size_hints.flags & USSize)) {
+X	    int x_thick = 0;
+X	    int y_thick = 0;
+X	    if (screen_w < page_w) x_thick = BAR_THICK;
+X	    if (screen_h < page_h + x_thick) y_thick = BAR_THICK;
+X	    window_w = page_w + y_thick;
+X	    if (window_w > screen_w) {
+X		x_thick = BAR_THICK;
+X		window_w = screen_w;
+X	    }
+X	    window_h = page_h + x_thick;
+X	    if (window_h > screen_h) window_h = screen_h;
+X	    size_hints.flags |= PSize;
+X	}
+X	size_hints.width = window_w;
+X	size_hints.height = window_h;
+X	top_level = XCreateSimpleWindow(DISP, RootWindowOfScreen(SCRN),
+X		size_hints.x, size_hints.y, window_w, window_h, bwidth,
+X		brdr_Pixel, back_Pixel);
+X	XSetStandardProperties(DISP, top_level, dvi_name, prog, NULL,
+X		argv, argc, &size_hints);
+X
+X	wmhints.flags = InputHint | StateHint | IconPixmapHint;
+X	wmhints.input = True;	/* window manager must direct input */
+X	wmhints.initial_state = iconic ? IconicState : NormalState;
+X	wmhints.icon_pixmap = XCreateBitmapFromData(DISP,
+X				RootWindowOfScreen(SCRN),
+X				xdvi_bits, xdvi_width, xdvi_height);
+X	if (icon_geometry != NULL) {
+X	    int junk;
+X
+X	    wmhints.flags |= IconPositionHint;
+X	    XGeometry(DISP, DefaultScreen(DISP), icon_geometry, "",
+X		0, 0, 0, 0, 0, &wmhints.icon_x, &wmhints.icon_y, &junk, &junk);
+X	}
+X	XSetWMHints(DISP, top_level, &wmhints);
+X
+X	XSelectInput(DISP, top_level, KeyPressMask | StructureNotifyMask);
+X	XMapWindow(DISP, top_level);
+X	Flush();
+X
+#endif	/* TOOLKIT */
+X
+X	XRebindKeysym(DISP, XK_Home, NULL, 0, (_Xconst ubyte *) "^", 1);
+X	XRebindKeysym(DISP, XK_Left, NULL, 0, (_Xconst ubyte *) "l", 1);
+X	XRebindKeysym(DISP, XK_Up, NULL, 0, (_Xconst ubyte *) "u", 1);
+X	XRebindKeysym(DISP, XK_Right, NULL, 0, (_Xconst ubyte *) "r", 1);
+X	XRebindKeysym(DISP, XK_Down, NULL, 0, (_Xconst ubyte *) "d", 1);
+X	XRebindKeysym(DISP, XK_Prior, NULL, 0, (_Xconst ubyte *) "b", 1);
+X	XRebindKeysym(DISP, XK_Next, NULL, 0, (_Xconst ubyte *) "f", 1);
+X
+X	image = XCreateImage(DISP, DefaultVisualOfScreen(SCRN), 1, XYBitmap, 0,
+X			     (char *)NULL, 0, 0, BITS_PER_BMUNIT, 0);
+X	image->bitmap_unit = BITS_PER_BMUNIT;
+#ifndef	MSBITFIRST
+X	image->bitmap_bit_order = LSBFirst;
+#else
+X	image->bitmap_bit_order = MSBFirst;
+#endif
+X	{
+X	    short endian = MSBFirst << 8 | LSBFirst;
+X	    image->byte_order = *((char *) &endian);
+X	}
+X
+#else	/* X10 */
+X
+X	/*
+X	 *	X10 colors
+X	 */
+X
+X	if (reverse) {
+X		foreGC = WhitePixel;
+X		highGC = WhitePixel;
+X		backpix = BlackPixel;
+X		backmap = BlackPixmap;
+X		bdrmap = WhitePixmap;
+X		mouspix = WhitePixel;
+X		GXfunc = GXor;
+X	} else {
+X		foreGC = BlackPixel;
+X		highGC = BlackPixel;
+X		backpix = WhitePixel;
+X		backmap = WhitePixmap;
+X		bdrmap = BlackPixmap;
+X		mouspix = BlackPixel;
+X		GXfunc = GXand;
+X	}
+X	if (DisplayCells() > 2) {
+X		if (fore_color && XParseColor(fore_color, &cdef) &&
+X			XGetHardwareColor(&cdef))
+X			foreGC = cdef.pixel;
+X		if (back_color && XParseColor(back_color, &cdef) &&
+X			XGetHardwareColor(&cdef)) {
+X			backpix = cdef.pixel;
+X			backmap = XMakeTile(backpix);
+X		}
+X		if (brdr_color && XParseColor(brdr_color, &cdef) &&
+X			XGetHardwareColor(&cdef))
+X			bdrmap = XMakeTile(cdef.pixel);
+X		if (high_color && XParseColor(high_color, &cdef) &&
+X			XGetHardwareColor(&cdef))
+X			highGC = cdef.pixel;
+X		if (curs_color && XParseColor(curs_color, &cdef) &&
+X			XGetHardwareColor(&cdef))
+X			mouspix = cdef.pixel;
+X	}
+X
+X	/*
+X	 *	X10 windows
+X	 */
+X
+X	frame.bdrwidth = bwidth;
+X	screen_w = DisplayWidth() - 2*bwidth;
+X	screen_h = DisplayHeight() - 2*bwidth;
+X	x_thick = y_thick = 0;
+X	if (screen_w < page_w) x_thick = BAR_THICK;
+X	if (screen_h < page_h + x_thick) y_thick = BAR_THICK;
+X	frame.width = page_w + y_thick;
+X	if (frame.width > screen_w) {
+X	    x_thick = BAR_THICK;
+X	    frame.width = screen_w;
+X	}
+X	frame.height = page_h + x_thick;
+X	if (frame.height > screen_h) frame.height = screen_h;
+X	frame.border = bdrmap;
+X	frame.background = backmap;
+X	frame.x = 0;
+X	frame.y = 0;
+X	Sprintf(def, "=%dx%d+0+0", frame.width, frame.height);
+X	top_level = XCreate("DVI Previewer", prog, geometry, def,
+X		&frame, 50, 50);
+X	XSelectInput(top_level, ExposeWindow | KeyPressed);
+X	XMapWindow(top_level);
+X	XDefineCursor(top_level,
+X	    XCreateCursor(xdvi_width, xdvi_height, xdvi_bits, xdvi_mask_bits,
+X			  xdvi_x_hot, xdvi_y_hot, mouspix, backpix, GXcopy));
+#endif	/* X10 */
+X
+X	do_pages();
+X	return 0;	/* do_pages() returns if DBG_BATCH is specified */
+}
+SHAR_EOF
+echo 'File xdvi.c is complete' &&
+chmod 0644 xdvi.c ||
+echo 'restore of xdvi.c failed'
+Wc_c="`wc -c < 'xdvi.c'`"
+test 79591 -eq "$Wc_c" ||
+	echo 'xdvi.c: original size 79591, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

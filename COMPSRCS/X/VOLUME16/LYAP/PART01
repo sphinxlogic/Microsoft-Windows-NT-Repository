@@ -1,0 +1,1858 @@
+Path: uunet!spool.mu.edu!mips!msi!dcmartin
+From: rr@sco.COM (Renaldo Recuerdo)
+Newsgroups: comp.sources.x
+Subject: v16i083: Lyapunov exponent calculator (MOTIF), Part01/02
+Message-ID: <csx-16i083-lyap@uunet.UU.NET>
+Date: 13 Feb 92 18:50:50 GMT
+Article-I.D.: uunet.csx-16i083-lyap
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1845
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Renaldo Recuerdo <rr@sco.COM>
+Posting-number: Volume 16, Issue 83
+Archive-name: lyap/part01
+
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  README lyap.6X lyap.c params patchlevel.h
+# Wrapped by dcmartin@fascet on Fri Jan 24 08:41:37 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(3045 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+X
+XWritten by Ronald Joe Record (rr@sco) 03 Sep 1991
+X
+XINTRO
+X-----
+X
+XThe idea here is to calculate the Lyapunov exponent for a periodically
+Xforced logistic map (later i added several other nonlinear maps of the unit
+Xinterval). In order to turn the 1-dimensional parameter space of the
+Xlogistic map into a 2-dimensional parameter space, select two parameter
+Xvalues (a and b) then alternate the iterations of the logistic map using
+Xfirst a then b as the parameter. This program accepts an argument to 
+Xspecify a forcing function, so instead of just alternating a and b, you
+Xcan use a as the parameter for say 6 iterations, then b for 6 iterations
+Xand so on. An interesting forcing function to look at is abbabaab (the
+XMorse-Thue sequence, an aperiodic self-similar, self-generating sequence).
+XAnyway, you step through all the values of a and b in the ranges you want,
+Xcalculating the Lyapunov exponent for each pair of values. The exponent
+Xis calculated by iterating out a ways (specified by the variable "settle")
+Xthen on subsequent iterations calculating an average of the logarithm of
+Xthe absolute value of the derivative at that point. Points in parameter
+Xspace with a negative Lyapunov exponent are colored one way (using the
+Xvalue of the exponent to index into a color map) while points with a
+Xnon-negative exponent are colored differently. 
+X
+XACKNOWLEDGEMENTS
+X----------------
+X
+XThe algorithm was taken from the September 1991 Scientific American article
+Xby A. K. Dewdney who gives credit to Mario Markus of the Max Planck Institute
+Xfor its creation. Additional information and ideas were gleaned from the
+Xdiscussion on alt.fractals involving Stephen Hall, Ed Kubaitis, Dave Platt
+Xand Baback Moghaddam. Assistance with colormaps and spinning color wheels
+Xand X was gleaned from Hiram Clawson. Rubber band code was adapted from 
+XStacey Campbell's xmandel source.
+X
+XBUILD
+X-----
+X
+XTo build the lyap binary, either use the Imakefile or one of the sample 
+Xmakefiles - Makefile.ODT or Makefile.OSF. Makefile.ODT is a sample makefile
+Xused to build lyap on an SCO ODT system. Makefile.OSF was used as a makefile
+Xon a DECstation 3100 running OSF/1. If your system has only 16 colors, 
+Xuncomment the COLORDEFINE line of the Imakefile and/or add a -DSIXTEEN_COLORS 
+Xto the appropriate makefile. The manual page can be formatted by typing 
+X"nroff -man lyap.man > lyap.doc".
+X
+XINSTALL
+X-------
+X
+XTo install lyap, copy the lyap binary to the desired location (the sample
+Xmakefiles put it in /usr/games/X11) and copy the lyap resource file Lyap
+Xto /usr/lib/X11/app-defaults/Lyap (or append it to your home .Xresources
+Xor read it into your environment with xrdb).
+XCopy the formatted man page to wherever you keep your local doc (i use
+X/usr/games/X11/doc for games and imaging software), then add that location
+Xto your MANPATH.
+X
+XSome "interesting" runs of lyap are included as simple shell scripts in the
+X"params" subdirectory.
+X
+X
+XIdeas, comments, additions, deletions, suggestions, bug reports, code review,...
+Xe-mail Ronald Record at rr@sco.com or ...uunet!sco!rr.
+X
+END_OF_FILE
+if test 3045 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'lyap.6X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lyap.6X'\"
+else
+echo shar: Extracting \"'lyap.6X'\" \(6545 characters\)
+sed "s/^X//" >'lyap.6X' <<'END_OF_FILE'
+X
+X
+X
+XLYAP(6X)                                                             LYAP(6X)
+X
+X
+X
+XNAME
+X  lyap - display an array of Lyapunov exponents graphically
+X
+XSYNOPSIS
+X  lyap [-BLps][-W width][-H height][-o filename][-a n ] [-b n ] [-w n ] [-h n
+X          ] [-x xstart] [-M n ] [-S n ] [-D n ] [-F string][-f string][-r n ]
+X          [-O n ] [-C n ] [-c n ] [-m n ]
+X
+XDESCRIPTION
+X  lyap generates and graphically displays an array of Lyapunov exponents for
+X  a variety of iterated periodically forced non-linear maps of the unit
+X  interval.
+X
+XOPTIONS
+X
+X  -C n    Specifies the minimum color index to be used for negative exponents
+X
+X  -D n    Specifies the "dwell" or number of iterations over which to average
+X          in order to calculate the Lyapunov exponent. Default is 400.
+X
+X  -B      Causes the stop, go, spin and quit buttons to be displayed.
+X
+X  -H n    Specifies the height of the window. Default is 256.
+X
+X  -L      Indicates use log(x) + log(y) rather than log(xy).
+X
+X  -M r    Specifies the real value to compare exponent values to for indexing
+X          into a color wheel. The default value is 1.0.
+X
+X  -O n    Specifies the minimum color index to be used for positive exponents
+X
+X  -S n    Specifies the "settle" or number of iterations prior to the begin-
+X          ning of the calculation of the Lyapunov exponent. Default is 200.
+X
+X  -W n    Specifies the width of the window. Default is 256.
+X
+X  -a r    Specifies the real value to use as the minimum parameter value of
+X          the horizontal axis. Default is 3.0 for the logistic map.
+X
+X  -b n    Specifies the real value to use as the minimum parameter value of
+X          the vertical axis. Default is 3.0 for the logistic map.
+X
+X  -c n    Selects one of six different color wheels to use. The default color
+X          wheel is a rainbow palette.
+X
+X  -F 10101010
+X          Specifies the "Function" forcing function to use. The example above
+X          would alternate between iterating the circle and logistic maps. An
+X          argument of "-F 2323" would alternate between left and right logis-
+X          tic maps. The default is to only use the single specified map (see
+X          the description of -m).
+X
+X  -f abbabaab
+X          Specifies the forcing function to use. The default is to alternate
+X          between the "a" parameter and the "b" parameter.
+X
+X  -h r    Specifies the real value to be used as the range over which the
+X          vertical parameter values vary. The default is 1.0.
+X
+X  -m n    Selects between available non-linear maps of the unit interval. A
+X          value of 0 specifies the logistic map. A value of 1, the circle
+X          map. A value of 2, the left-logistic. A value of 3, the right-
+X          logistic. A value of 4, the double-logistic. The default is 0, the
+X          logistic map.
+X
+X  -o filename
+X          Specifies the output filename to be used. If the -o option is
+X          given, this file will automatically be written out at the comple-
+X          tion of the drawing.  If it is not specified, a default filename of
+X          lyap.out is used and only written if the 'f' or 'F' keys are
+X          pressed during a run. The format of the output file is PPM for
+X          color and PGM for monochrom. The parameters used to calculate the
+X          picture are included as comments at the beginning of the output
+X          file.
+X
+X  -p      Switches color indices for negative and positive exponents. Gen-
+X          erally, causes negative exponents to be displayed in more detail
+X          while darkening and narrowing the color range for positive
+X          exponents. This can be toggled during runtime by pressing the 'p'
+X          key.
+X
+X  -r n    Specifies the maximum rgb value to be used. Default is 35000.
+X
+X  -s n    Specifies the length of the color wheel spin.
+X
+X  -u      Produces a usage message.
+X
+X  -v      Prints out the various values to be used and exits.
+X
+X  -w r    Specifies the real value to be used as the range over which the
+X          horizontal parameter values vary. The default is 1.0.
+X
+X  -x r    Specifies the real value of the initial condition to use. Default
+X          is 0.05.
+X
+X
+X
+XNOTES
+X
+X  During display, pressing any mouse button allows you to select the area to
+X  be investigated with the mouse. The upper left hand corner of the desired
+X  area is the location of the cursor when the button is pressed. The lower
+X  right hand corner is specified by the cursor when the button is released.
+X
+X
+X  Use of the keys bBeEfFkKjJmnrRsSwWxXqQ indicates:
+X
+X          (<) Halve dwell value.
+X          (>) Double dwell value.
+X          ([) Halve settle value.
+X          (]) Double settle value.
+X          (B or b) Toggle button display on/off
+X          (E or e) Recalculate the indices into the color wheel using a dif-
+X  ferent method
+X          (F or f) Save current screen to ouput file (not yet implemented)
+X          (i) Decrement the interval between stripes for the striped color
+X  map.
+X          (I) Increment the interval between stripes for the striped color
+X  map.
+X          (K or k) Decrease value exponents are compared against by 0.05.
+X          (J or j) Increase value exponents are compared against by 0.05.
+X          (m) Decrease value exponents are compared against by 0.005.
+X          (n) Increase value exponents are compared against by 0.005.
+X          (P or p) Toggle positive/negative exponent display.
+X          (r) Redraw the window using previously calculated exponents.
+X          (R) Redraw the window using the newly set dwell and/or settle
+X  values.
+X          (S) Spin the color wheel
+X          (s) Halve the length of the spin and spin the color wheel
+X          (u) Go up to the window just prior to the most recent zoom.
+X          (U) Go all the way up to the original window.
+X          (W or w) Use next color map.
+X          (X or x) Clear window
+X          (Q or q) quit
+X
+X
+X
+XAUTHOR
+X          Ronald Joe Record
+X       The Santa Cruz Operation
+X            P.O. Box 1900
+X         Santa Cruz, CA 95061
+X              rr@sco.com
+X
+X
+X
+XACKNOWLEDGEMENTS
+X
+X  The algorithm was taken from the September 1991 Scientific American article
+X  by A. K. Dewdney who gives credit to Mario Markus of the Max Planck Insti-
+X  tute for its creation. Additional information and ideas were gleaned from
+X  the discussion on alt.fractals involving Stephen Hall, Ed Kubaitis, Dave
+X  Platt and Baback Moghaddam. Assistance with colormaps and spinning color
+X  wheels and X was gleaned from Hiram Clawson. Rubber banding code was
+X  adapted from an existing Mandelbrot program written by Stacey Campbell.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+END_OF_FILE
+if test 6545 -ne `wc -c <'lyap.6X'`; then
+    echo shar: \"'lyap.6X'\" unpacked with wrong size!
+fi
+# end of 'lyap.6X'
+fi
+if test -f 'lyap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lyap.c'\"
+else
+echo shar: Extracting \"'lyap.c'\" \(41792 characters\)
+sed "s/^X//" >'lyap.c' <<'END_OF_FILE'
+X
+X/* Written by Ron Record (rr@sco) 03 Sep 1991 */
+X
+X/* The idea here is to calculate the Lyapunov exponent for a periodically
+X * forced logistic map (later i added several other nonlinear maps of the unit
+X * interval). In order to turn the 1-dimensional parameter space of the
+X * logistic map into a 2-dimensional parameter space, select two parameter
+X * values (a and b) then alternate the iterations of the logistic map using
+X * first a then b as the parameter. This program accepts an argument to 
+X * specify a forcing function, so instead of just alternating a and b, you
+X * can use a as the parameter for say 6 iterations, then b for 6 iterations
+X * and so on. An interesting forcing function to look at is abbabaab (the
+X * Morse-Thue sequence, an aperiodic self-similar, self-generating sequence).
+X * Anyway, you step through all the values of a and b in the ranges you want,
+X * calculating the Lyapunov exponent for each pair of values. The exponent
+X * is calculated by iterating out a ways (specified by the variable "settle")
+X * then on subsequent iterations calculating an average of the logarithm of
+X * the absolute value of the derivative at that point. Points in parameter
+X * space with a negative Lyapunov exponent are colored one way (using the
+X * value of the exponent to index into a color map) while points with a
+X * non-negative exponent are colored differently. 
+X * 
+X * The algorithm was taken from the September 1991 Scientific American article
+X * by A. K. Dewdney who gives credit to Mario Markus of the Max Planck Institute
+X * for its creation. Additional information and ideas were gleaned from the
+X * discussion on alt.fractals involving Stephen Hall, Ed Kubaitis, Dave Platt
+X * and Baback Moghaddam. Assistance with colormaps and spinning color wheels
+X * and X was gleaned from Hiram Clawson. Rubber banding code was adapted from
+X * an existing Mandelbrot program written by Stacey Campbell.
+X */
+X
+X#include "lyap.h"
+X
+Xstatic char *version = LYAP_VERSION;
+X
+Xmain(ac, av)
+X	int ac;
+X	char **av;
+X{
+X	int i;
+X	unsigned char wname[256];
+X	Arg wargs[1];
+X
+X	parseargs(ac, av);
+X	toplevel = XtInitialize(av[0], "Lyap", NULL, 0, &ac, av);
+X	framework = XtCreateManagedWidget("framework", 
+X                         xmFormWidgetClass, toplevel, NULL, 0);
+X	/*
+X 	* Create the canvas widget to display the Lyapunov exponents 
+X 	*/
+X	canvas = XtCreateManagedWidget("drawing_canvas", 
+X                   xmDrawingAreaWidgetClass, framework, NULL, 0);
+X    	dpy = XtDisplay(canvas);
+X    	screen = XtScreen(canvas);
+X	/* 
+X 	* Create the pushbutton widgets. 
+X 	*/ 
+X	button[0] =  XtCreateManagedWidget("go_button",
+X                                xmPushButtonWidgetClass,
+X                                framework, NULL, 0);
+X	button[1] =  XtCreateManagedWidget("stop_button",
+X                                xmPushButtonWidgetClass,
+X                                framework, NULL, 0);
+X	button[2] =  XtCreateManagedWidget("quit_button",
+X                                xmPushButtonWidgetClass,
+X                                framework, NULL, 0);
+X	button[3] =  XtCreateManagedWidget("warp_button",
+X                                xmPushButtonWidgetClass,
+X                                framework, NULL, 0);
+X	init_data();
+X	init_canvas();
+X	/*  
+X 	* Add callbacks. 
+X 	*/ 
+X	XtAddCallback(button[0],XmNactivateCallback,start_iterate,NULL);
+X	XtAddCallback(button[1],XmNactivateCallback,stop_iterate,NULL);
+X	XtAddCallback(button[2], XmNactivateCallback, quit, NULL);
+X	XtAddCallback(button[3], XmNactivateCallback, Spin, NULL);
+X	XtRealizeWidget(toplevel);
+X	if (displayplanes > 1) {
+X		init_color();
+X		/* install new color map */
+X		XSetWindowColormap(dpy, XtWindow(toplevel), cmap);
+X	}
+X	else {
+X		XQueryColors(dpy, DefaultColormap(dpy, DefaultScreen(dpy)), 
+X				Colors, numcolors);
+X	}
+X	/* Title */
+X	sprintf((char *) wname, "Lyap by Ron Record");
+X 	XChangeProperty(dpy, XtWindow(toplevel), XA_WM_NAME, XA_STRING, 8, 
+X 		PropModeReplace, wname, strlen(wname));
+X	if (NoShowButtons) {
+X		for (i=0;i<4;i++)
+X			XtUnrealizeWidget(button[i]);
+X		XtSetArg(wargs[0], XmNbottomPosition, &bottom);
+X		XtGetValues(canvas, wargs, 1);
+X		XtSetArg(wargs[0], XmNbottomPosition, 99);
+X		XtSetValues(canvas, wargs, 1);
+X	}
+X	pixmap = XCreatePixmap(dpy, DefaultRootWindow(dpy), 
+X			width, height, DefaultDepthOfScreen(screen));
+X	XtAddCallback(canvas, XmNexposeCallback, redisplay, NULL); 
+X	XtAddCallback(canvas, XmNresizeCallback, resize, NULL); 
+X	XtAddEventHandler(canvas, KeyPressMask,
+X			 FALSE, Getkey, NULL);
+X	XtAddEventHandler(button[0], KeyPressMask,
+X			 FALSE, Getkey, NULL);
+X	XtAddEventHandler(button[1], KeyPressMask,
+X			 FALSE, Getkey, NULL);
+X	XtAddEventHandler(button[2], KeyPressMask,
+X			 FALSE, Getkey, NULL);
+X	XtAddEventHandler(button[3], KeyPressMask,
+X			 FALSE, Getkey, NULL);
+X	XtAddEventHandler(canvas, ButtonPressMask, FALSE, StartRubberBand, 
+X			&rubber_data);
+X	XtAddEventHandler(canvas, ButtonMotionMask, FALSE, TrackRubberBand,
+X	    		&rubber_data);
+X	XtAddEventHandler(canvas, ButtonReleaseMask, FALSE, EndRubberBand,
+X			 &rubber_data);
+X	rubber_data.band_cursor=XCreateFontCursor(XtDisplay(canvas), XC_hand2);
+X	XGrabButton(XtDisplay(canvas), AnyButton, AnyModifier, XtWindow(canvas),
+X	    TRUE, ButtonPressMask | ButtonMotionMask | ButtonReleaseMask,
+X	    GrabModeAsync, GrabModeAsync, XtWindow(canvas),
+X	    rubber_data.band_cursor);
+X	CreateXorGC(canvas);
+X  	work_proc_id = XtAddWorkProc(complyap, canvas);
+X	resize(canvas, (struct image_data_t *) NULL, (XmDrawingAreaCallbackStruct *)NULL);
+X	XtMainLoop();
+X}
+X
+X/* complyap() is the guts of the program. This is where the Lyapunov exponent
+X * is calculated. For each iteration (past some large number of iterations)
+X * calculate the logarithm of the absolute value of the derivative at that
+X * point. Then average them over some large number of iterations. Some small
+X * speed up is achieved by utilizing the fact that log(a*b) = log(a) + log(b).
+X */
+XBoolean
+Xcomplyap(w, data, call_data)
+XWidget	w;
+Xstruct image_data	*data[];
+XXmDrawingAreaCallbackStruct	*call_data;
+X{
+X	register i, bindex, findex;
+X	double total, prod, x, r;
+X	extern Boolean sendpoint();
+X
+X	a += a_inc;
+X	if (a >= max_a)
+X		if (sendpoint(lyapunov))
+X			return FALSE;
+X		else {
+X			FlushBuffer();
+X			if (savefile)
+X				save_to_file();
+X			work_proc_id = (XtWorkProcId) NULL; 
+X			return TRUE;
+X		}
+X	if (b >= max_b) {
+X		FlushBuffer();
+X		if (savefile)
+X			save_to_file();
+X		work_proc_id = (XtWorkProcId) NULL; 
+X		return TRUE;
+X	}
+X	prod = 1.0;
+X	total = 0.0;
+X	bindex = 0;
+X	x = start_x;
+X	r = (forcing[bindex]) ? b : a;
+X#ifdef MAPS
+X	findex = 0;
+X	map = Maps[Forcing[findex]];
+X#endif
+X	for (i=0;i<settle;i++) {	   /* Here's where we let the thing */
+X		x = (*map)(x, r);	   /* "settle down". There is usually */
+X		if (++bindex >= maxindex)  /* some initial "noise" in the */
+X			bindex = 0;	   /* iterations. How can we optimize */
+X		r = (forcing[bindex]) ? b : a; /* the value of settle ??? */
+X#ifdef MAPS
+X		if (++findex >= funcmaxindex)
+X			findex = 0;
+X		map = Maps[Forcing[findex]];
+X#endif
+X	}
+X#ifdef MAPS
+X	deriv = Derivs[Forcing[findex]];
+X#endif
+X	if (useprod) {			/* using log(a*b) */
+X		for (i=0;i<dwell;i++) {
+X			x = (*map)(x, r);
+X			prod *= ABS((*deriv)(x, r));
+X			/* we need to prevent overflow and underflow */
+X			if ((prod > 1.0e12) || (prod < 1.0e-12)) {
+X				total += log(prod);
+X				prod = 1.0;
+X			}
+X			if (++bindex >= maxindex)
+X				bindex = 0;
+X			r = (forcing[bindex]) ? b : a;
+X#ifdef MAPS
+X			if (++findex >= funcmaxindex)
+X				findex = 0;
+X			map = Maps[Forcing[findex]];
+X			deriv = Derivs[Forcing[findex]];
+X#endif
+X		}
+X		total += log(prod);
+X		lyapunov = (total * invlog2) / (double)dwell;
+X	}
+X	else {				/* use log(a) + log(b) */
+X		for (i=0;i<dwell;i++) {
+X			x = (*map)(x, r);
+X			total += log(ABS((*deriv)(x, r)));
+X			if (++bindex >= maxindex)
+X				bindex = 0;
+X			r = (forcing[bindex]) ? b : a;
+X#ifdef MAPS
+X			if (++findex >= funcmaxindex)
+X				findex = 0;
+X			map = Maps[Forcing[findex]];
+X			deriv = Derivs[Forcing[findex]];
+X#endif
+X		}
+X		lyapunov = (total * invlog2) / (double)dwell;
+X	}
+X	if (sendpoint(lyapunov))
+X		return FALSE;
+X	else {
+X		FlushBuffer();
+X		if (savefile)
+X			save_to_file();
+X		work_proc_id = (XtWorkProcId) NULL; 
+X		return TRUE;
+X	}
+X}
+X
+Xdouble
+Xlogistic(x, r)			/* the familiar logistic map */
+Xdouble x, r;
+X{
+X	return(r * x * (1.0 - x));
+X}
+X
+Xdouble
+Xdlogistic(x, r)			/* the derivative of logistic map */
+Xdouble x, r;
+X{
+X	return(r - (2.0 * r * x));
+X}
+X
+Xdouble
+Xcircle(x, r)			/* sin() hump or sorta like the circle map */
+Xdouble x, r;
+X{
+X	extern double sin();
+X
+X	return(r * sin(M_PI * x));
+X}
+X
+Xdouble
+Xdcircle(x, r)			/* derivative of the "sin() hump" */
+Xdouble x, r;
+X{
+X	extern double cos();
+X
+X	return(r * M_PI * cos(M_PI * x));
+X}
+X
+Xdouble
+Xleftlog(x, r)			/* left skewed logistic */
+Xdouble x, r;
+X{
+X	double d;
+X
+X	d = 1.0 - x;
+X	return(r * x * d * d);
+X}
+X
+Xdouble
+Xdleftlog(x, r)			/* derivative of the left skewed logistic */
+Xdouble x, r;
+X{
+X	return(r * (1.0 - (4.0 * x) + (3.0 * x * x)));
+X}
+X
+Xdouble
+Xrightlog(x, r)			/* right skewed logistic */
+Xdouble x, r;
+X{
+X	return(r * x * x * (1.0 - x));
+X}
+X
+Xdouble
+Xdrightlog(x, r)			/* derivative of the right skewed logistic */
+Xdouble x, r;
+X{
+X	return(r * ((2.0 * x) - (3.0 * x * x)));
+X}
+X
+Xdouble
+Xdoublelog(x, r)			/* double logistic */
+Xdouble x, r;
+X{
+X	double d;
+X
+X	d = 1.0 - x;
+X	return(r * x * x * d * d);
+X}
+X
+Xdouble
+Xddoublelog(x, r)		/* derivative of the double logistic */
+Xdouble x, r;
+X{
+X	double d;
+X
+X	d = x * x;
+X	return(r * ((2.0 * x) - (6.0 * d) + (4.0 * x * d)));
+X}
+X
+Xinit_data()
+X{
+X	static int i;
+X
+X	numcolors = XDisplayCells(dpy, XDefaultScreen(dpy));
+X	displayplanes = DisplayPlanes(dpy, XDefaultScreen(dpy));
+X	if (numcolors > MAXCOLOR)
+X		numcolors = MAXCOLOR;
+X	numfreecols = numcolors - mincolindex;
+X	lowrange = mincolindex - STARTCOLOR;
+X	if (exponents)
+X		free(exponents);
+X	if((exponents=(double *)malloc(sizeof(double)*width*height))==NULL){
+X		fprintf(stderr,"Error malloc'ing exponent array.\n");
+X		exit(-1);
+X	}
+X	if (o_exponents)
+X		free(o_exponents);
+X	if((o_exponents=(double *)malloc(sizeof(double)*width*height))==NULL){
+X		fprintf(stderr,"Error malloc'ing o_exponent array.\n");
+X		exit(-1);
+X	}
+X	if (i_exponents)
+X		free(i_exponents);
+X	if((i_exponents=(double *)malloc(sizeof(double)*width*height))==NULL){
+X		fprintf(stderr,"Error malloc'ing i_exponent array.\n");
+X		exit(-1);
+X	}
+X	a_inc = a_range / (double)width;
+X	b_inc = b_range / (double)height;
+X	invlog2 = 1.0 / log(2.0);
+X	point.x = -1;
+X	point.y = 0;
+X	a = rubber_data.p_min = min_a;
+X	b = rubber_data.q_min = min_b;
+X	rubber_data.p_max = max_a;
+X	rubber_data.q_max = max_b;
+X	if (show)
+X		show_defaults();
+X	InitBuffer();
+X}
+X
+Xinit_canvas()
+X{
+X	Arg wargs[4];
+X	static int i;
+X
+X	/*
+X 	* Set the size of the drawing areas.
+X 	*/
+X	XtSetArg(wargs[0], XtNwidth, width);
+X	XtSetArg(wargs[1], XtNheight, height);
+X	XtSetValues(framework, wargs,2);
+X	/*
+X 	* create default, writable, graphics contexts for the canvas.
+X 	*/
+X        for (i=0; i<MAXCOLOR; i++) {
+X            Data_GC[i] = XCreateGC(dpy, DefaultRootWindow(dpy),
+X                (unsigned long) NULL, (XGCValues *) NULL);
+X            /* set the background to black */
+X            XSetBackground(dpy,Data_GC[i],BlackPixel(dpy,XDefaultScreen(dpy)));
+X            /* set the foreground of the ith context to i */
+X            XSetForeground(dpy, Data_GC[i], i);
+X        }
+X        if (displayplanes == 1) {
+X            XSetForeground(dpy,Data_GC[0],BlackPixel(dpy,XDefaultScreen(dpy)));
+X            XSetForeground(dpy,Data_GC[1],WhitePixel(dpy,XDefaultScreen(dpy)));
+X        }
+X}
+X
+Xinit_color()
+X{
+X	static int i, j, colgap, leg, step;
+X	static Visual *visual;
+X	Colormap def_cmap;
+X	int hls[3], rgb[3];
+X	extern void hls2rgb( int[3], int[3]);
+X
+X	def_cmap = DefaultColormap(dpy, DefaultScreen(dpy));
+X	for (i=0; i<numcolors; i++) {
+X		Colors[i].pixel = i;
+X		Colors[i].flags = DoRed|DoGreen|DoBlue;
+X	}
+X
+X	/* Try to write into a new color map */
+X	visual = DefaultVisual(dpy, DefaultScreen(dpy));
+X	cmap = XCreateColormap(dpy, XtWindow(canvas), visual, AllocAll);
+X	XQueryColors(dpy, def_cmap, Colors, numcolors);
+X	if (mincolindex)
+X		colgap = rgb_max / mincolindex;
+X	else
+X		colgap = rgb_max;
+X	hls[0] = 50;	/* Hue in low range */
+X	hls[2] = 1000;	/* Fully saturated */
+X	for (i=STARTCOLOR; i<lowrange + STARTCOLOR; i++) {
+X		hls[1] = 1000L * (i-STARTCOLOR) / lowrange;
+X		hls2rgb(hls, rgb);
+X		Colors[i].red = rgb[0];
+X		Colors[i].green = rgb[1];
+X		Colors[i].blue = rgb[2];
+X	}
+X	colgap = rgb_max / numcolors;
+X	if (numwheels == 0)
+X		XQueryColors(dpy, def_cmap, Colors, numcolors);
+X	else if (numwheels == 1) {
+X		colgap = 2*rgb_max/(numcolors - color_offset);
+X		for (i=mincolindex; i<(numcolors/2); i++) {
+X			Colors[i].blue = 0;
+X			Colors[i].green=((i+color_offset)*colgap);
+X			Colors[i].red=((i+color_offset)*colgap);
+X		}
+X		for (i=(numcolors/2); i<(numcolors); i++) {
+X			Colors[i].blue = 0;
+X			Colors[i].green=(((numcolors-i)+color_offset)*colgap);
+X			Colors[i].red=(((numcolors-i)+color_offset)*colgap);
+X		}
+X	}
+X	else if (numwheels == 2) {
+X	        hls[0] = 800;	/* Hue in mid range */
+X	        hls[2] = 1000;	/* Fully saturated */
+X	        for (i=STARTCOLOR; i<lowrange + STARTCOLOR; i++) {
+X			hls[1] = 1000L * (i-STARTCOLOR) / lowrange;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0];
+X			Colors[i].green = rgb[1];
+X			Colors[i].blue = rgb[2];
+X	        }
+X		for (i=mincolindex; i<(numcolors/2); i++) {
+X			Colors[i].blue = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].red=(i*2*rgb_max/numcolors);
+X		}
+X		for (i=(numcolors/2); i<numcolors; i++) {
+X			Colors[i].blue = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].red=((numcolors - i)*2*rgb_max/numcolors);
+X		}
+X	}
+X	else if (numwheels == 3) {
+X	        hls[0] = 800;	/* Hue in mid range */
+X	        hls[2] = 1000;	/* Fully saturated */
+X	        for (i=STARTCOLOR; i<lowrange + STARTCOLOR; i++) {
+X			hls[1] = 1000L * (i-STARTCOLOR) / lowrange;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0];
+X			Colors[i].green = rgb[1];
+X			Colors[i].blue = rgb[2];
+X	        }
+X		colgap = 4*rgb_max/numcolors;
+X		for (i=mincolindex; i<(numcolors/4); i++) {
+X			Colors[i].blue = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].red=(i*colgap);
+X		}
+X		for (i=(numcolors/4); i<(numcolors/2); i++) {
+X			Colors[i].red = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].blue=((numcolors/2) - i) * colgap;
+X		}
+X		for (i=(numcolors/2); i<(0.75*numcolors); i++) {
+X			Colors[i].red = rgb_max;
+X			Colors[i].blue=(i * colgap);
+X			Colors[i].green = 0;
+X		}
+X		for (i=(0.75*numcolors); i<numcolors; i++) {
+X			Colors[i].blue = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].red=(numcolors-i)*colgap;
+X		}
+X	}
+X	else if (numwheels == 4) {
+X	        hls[0] = 800;	/* Hue in mid range */
+X	        hls[2] = 1000;	/* Fully saturated */
+X	        for (i=STARTCOLOR; i<lowrange + STARTCOLOR; i++) {
+X			hls[1] = 1000L * (i-STARTCOLOR) / lowrange;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0];
+X			Colors[i].green = rgb[1];
+X			Colors[i].blue = rgb[2];
+X	        }
+X		colgap = numwheels * rgb_max / numcolors;
+X		for (i=mincolindex; i<(numcolors/numwheels); i++) {
+X			Colors[i].blue = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].red=(i*colgap);
+X		}
+X		for (i=(numcolors/numwheels); i<(2*numcolors/numwheels); i++) {
+X			Colors[i].red = rgb_max;
+X			Colors[i].green = 0;
+X			Colors[i].blue=((2*numcolors/numwheels) - i) * colgap;
+X		}
+X		for (i=(2*numcolors/numwheels); i<numcolors; i++) {
+X			Colors[i].red = rgb_max;
+X			Colors[i].green=(i - (2*numcolors/numwheels)) * colgap;
+X			Colors[i].blue = 0;
+X		}
+X	}
+X	else if (numwheels == 5) {
+X		hls[1] = 700;	/* Lightness in midrange */
+X		hls[2] = 1000;	/* Fully saturated */
+X		for (i=mincolindex; i<numcolors; i++) {
+X			hls[0] = 3600L * i / numcolors;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0];
+X			Colors[i].green = rgb[1];
+X			Colors[i].blue = rgb[2];
+X		}
+X		for (i=mincolindex; i<numcolors; i+=stripe_interval) {
+X			hls[0] = 3600L * i / numcolors;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0] / 2;
+X			Colors[i].green = rgb[1] / 2;
+X			Colors[i].blue = rgb[2] / 2;
+X		}
+X	}
+X	else if (numwheels == 6) {
+X	    hls[0] = 800;	/* Hue in mid range */
+X	    hls[2] = 1000;	/* Fully saturated */
+X	    for (i=STARTCOLOR; i<lowrange + STARTCOLOR; i++) {
+X		hls[1] = 1000L * (i-STARTCOLOR) / lowrange;
+X		hls2rgb(hls, rgb);
+X		Colors[i].red = rgb[0];
+X		Colors[i].green = rgb[1];
+X		Colors[i].blue = rgb[2];
+X	    }
+X	    step = numfreecols / 3;
+X	    leg = step+mincolindex;
+X	    for (i = mincolindex; i < leg; ++i)
+X	    {
+X		Colors[i].pixel = i;
+X		Colors[i].red = fabs(65535 - (double)i / step * 65535.0);
+X		Colors[i].blue = (double)i / step * 65535.0;
+X		Colors[i].green = 0;
+X		Colors[i].flags = DoRed | DoGreen | DoBlue;
+X	    }
+X	    for (j = 0, i = leg, leg += step; i < leg; ++i, ++j)
+X	    {
+X		Colors[i].pixel = i;
+X		Colors[i].red = (double)j / step * 65535.0;
+X		Colors[i].blue = 65535;
+X		Colors[i].green = Colors[i].red;
+X		Colors[i].flags = DoRed | DoGreen | DoBlue;
+X	    }
+X	    for (j = 0, i = leg, leg += step; i < leg; ++i, ++j)
+X	    {
+X		Colors[i].pixel = i;
+X		Colors[i].red = 65535;
+X		Colors[i].blue = fabs(65535 - (double)j / step * 65535.0);
+X		Colors[i].green = Colors[i].blue;
+X		Colors[i].flags = DoRed | DoGreen | DoBlue;
+X	    }
+X	}
+X	else if (numwheels == MAXWHEELS) {	/* rainbow palette */
+X		hls[1] = 500;	/* Lightness in midrange */
+X		hls[2] = 1000;	/* Fully saturated */
+X		for (i=mincolindex; i<numcolors; i++) {
+X			hls[0] = 3600L * i / numcolors;
+X			hls2rgb(hls, rgb);
+X			Colors[i].red = rgb[0];
+X			Colors[i].green = rgb[1];
+X			Colors[i].blue = rgb[2];
+X		}
+X	}
+X	XStoreColors(dpy, cmap, Colors, numcolors);
+X}
+X
+Xparseargs(ac, av)
+Xint ac;
+Xchar **av;
+X{
+X	static int c;
+X	static int i;
+X	int bindex=0, mapindex=0, findex;
+X	char *ch;
+X	extern int optind;
+X	extern char *optarg;
+X	extern double atof();
+X
+X	map = Maps[0];
+X	deriv = Derivs[0];
+X
+X   while ((c=getopt(ac,av,"BLpuvc:m:C:W:H:M:O:S:a:b:D:F:f:o:w:h:r:s:x:"))!=EOF){
+X		switch (c) {
+X		case 'B':	NoShowButtons=1; break;
+X		case 'C':	mincolindex=atoi(optarg); break;
+X		case 'D':	dwell=atoi(optarg); break;
+X#ifdef MAPS
+X		case 'F':	funcmaxindex = strlen(optarg);
+X				if (funcmaxindex > FUNCMAXINDEX)
+X					usage();
+X				ch = optarg;
+X				Force++;
+X				for (findex=0;findex<funcmaxindex;findex++) {
+X					Forcing[findex] = (int)(*ch++ - '0');;
+X					if (Forcing[findex] >= NUMMAPS)
+X						usage();
+X				}
+X				break;
+X#endif
+X		case 'H':	height=atoi(optarg); break;
+X		case 'L':	useprod=0; break;
+X		case 'M':	minlyap=ABS(atof(optarg)); break;
+X		case 'O':	color_offset=atoi(optarg); break;
+X		case 'S':	settle=atoi(optarg); break;
+X		case 'W':	width=atoi(optarg); break;
+X		case 'a':	min_a=atof(optarg); aflag++; break;
+X		case 'b':	min_b=atof(optarg); bflag++; break;
+X		case 'c':	numwheels=atoi(optarg); break;
+X		case 'f':	maxindex = strlen(optarg);
+X				if (maxindex > MAXINDEX)
+X					usage();
+X				ch = optarg;
+X				force++;
+X				while (bindex < maxindex) {
+X					if (*ch == 'a')
+X						forcing[bindex++] = 0;
+X					else if (*ch == 'b')
+X						forcing[bindex++] = 1;
+X					else
+X						usage();
+X					ch++;
+X				}
+X				break;
+X		case 'h':	b_range=atof(optarg); hflag++; break;
+X		case 'm':	mapindex=atoi(optarg); 
+X				if ((mapindex >= NUMMAPS) || (mapindex < 0))
+X					usage();
+X				map = Maps[mapindex];
+X				deriv = Derivs[mapindex];
+X				if (!aflag)
+X					min_a = amins[mapindex];
+X				if (!wflag)
+X					a_range = aranges[mapindex];
+X				if (!bflag)
+X					min_b = bmins[mapindex];
+X				if (!hflag)
+X					b_range = branges[mapindex];
+X				if (!Force)
+X					for (i=0;i<FUNCMAXINDEX;i++)
+X					    Forcing[i] = mapindex;
+X				break;
+X		case 'o':	savefile++; outname=optarg; break;
+X		case 'p':	negative--; break;
+X		case 'r':	rgb_max=atoi(optarg); break;
+X		case 's':	spinlength=atoi(optarg); break;
+X		case 'u':	usage(); break;
+X		case 'v':	show=1; break;
+X		case 'w':	a_range=atof(optarg); wflag++; break;
+X		case 'x':	start_x=atof(optarg); break;
+X		case '?':	usage(); break;
+X		}
+X	}
+X	max_a = min_a + a_range;
+X	max_b = min_b + b_range;
+X	o_min_a = orig_min_a = min_a; o_min_b = orig_min_b = min_b;
+X	o_max_a = orig_max_a = max_a; o_max_b = orig_max_b = max_b;
+X	if (Force)
+X		if (maxindex == funcmaxindex)
+X		    for (findex=0;findex<funcmaxindex;findex++)
+X			check_params(Forcing[findex],forcing[findex]);
+X		else
+X		    fprintf(stderr, "Warning! Unable to check parameters\n");
+X	else
+X		check_params(mapindex,2);
+X}
+X
+Xcheck_params(mapnum, parnum)
+Xint mapnum;
+Xint parnum;
+X{
+X
+X	if (parnum != 1) {
+X	    if ((max_a > pmaxs[mapnum]) || (min_a < pmins[mapnum])) {
+X		fprintf(stderr, "Warning! Parameter 'a' out of range.\n");
+X		fprintf(stderr, "You have requested a range of (%f,%f).\n",
+X			min_a,max_a);
+X		fprintf(stderr, "Valid range is (%f,%f).\n",
+X			pmins[mapnum],pmaxs[mapnum]);
+X	    }
+X	}
+X	if (parnum != 0) {
+X	    if ((max_b > pmaxs[mapnum]) || (min_b < pmins[mapnum])) {
+X		fprintf(stderr, "Warning! Parameter 'b' out of range.\n");
+X		fprintf(stderr, "You have requested a range of (%f,%f).\n",
+X			min_b,max_b);
+X		fprintf(stderr, "Valid range is (%f,%f).\n",
+X			pmins[mapnum],pmaxs[mapnum]);
+X	    }
+X	}
+X}
+X
+Xusage()
+X{
+X    fprintf(stderr,"lyap [-BLs][-W#][-H#][-a#][-b#][-w#][-h#][-x xstart]\n");
+X    fprintf(stderr,"\t[-M#][-S#][-D#][-f string][-r#][-O#][-C#][-c#][-m#]\n");
+X#ifdef MAPS
+X    fprintf(stderr,"\t[-F string]\n");
+X#endif
+X    fprintf(stderr,"\tWhere: -C# specifies the minimum color index\n");
+X    fprintf(stderr,"\t       -r# specifies the maxzimum rgb value\n");
+X    fprintf(stderr,"\t       -u displays this message\n");
+X    fprintf(stderr,"\t       -a# specifies the minimum horizontal parameter\n");
+X    fprintf(stderr,"\t       -b# specifies the minimum vertical parameter\n");
+X    fprintf(stderr,"\t       -w# specifies the horizontal parameter range\n");
+X    fprintf(stderr,"\t       -h# specifies the vertical parameter range\n");
+X    fprintf(stderr,"\t       -D# specifies the dwell\n");
+X    fprintf(stderr,"\t       -S# specifies the settle\n");
+X    fprintf(stderr,"\t       -H# specifies the initial window height\n");
+X    fprintf(stderr,"\t       -W# specifies the initial window width\n");
+X    fprintf(stderr,"\t       -O# specifies the color offset\n");
+X    fprintf(stderr,"\t       -c# specifies the desired color wheel\n");
+X    fprintf(stderr,"\t       -m# specifies the desired map (0-4)\n");
+X    fprintf(stderr,"\t       -f aabbb specifies a forcing function of 00111\n");
+X#ifdef MAPS
+X    fprintf(stderr,"\t       -F 00111 specifies the function forcing function\n");
+X#endif
+X    fprintf(stderr,"\t       -L indicates use log(x)+log(y) rather than log(xy)\n");
+X    fprintf(stderr,"\tDuring display :\n");
+X    fprintf(stderr,"\t     Use the mouse to zoom in on an area\n");
+X    fprintf(stderr,"\t     b or B toggles button display on/off\n");
+X    fprintf(stderr,"\t     e or E recalculates color indices\n");
+X    fprintf(stderr,"\t     f or F saves exponents to a file\n");
+X    fprintf(stderr,"\t     KJmn increase/decrease minimum negative exponent\n");
+X    fprintf(stderr,"\t     r or R redraws\n");
+X    fprintf(stderr,"\t     s or S spins the colorwheel\n");
+X    fprintf(stderr,"\t     w or W changes the color wheel\n");
+X    fprintf(stderr,"\t     x or X clears the window\n");
+X    fprintf(stderr,"\t     q or Q exits\n");
+X    exit(1);
+X}
+X
+Xvoid
+Xstart_iterate(w, cv, call_data)
+XWidget w, cv;
+XXmAnyCallbackStruct *call_data;
+X{
+X	if(work_proc_id)
+X		XtRemoveWorkProc(work_proc_id);
+X	/*
+X 	* Register complyap() as a WorkProc.
+X 	*/
+X	work_proc_id = XtAddWorkProc(complyap, cv);
+X}
+X
+Xvoid 
+Xstop_iterate(w, cv, call_data)
+XWidget                w, cv;
+XXmAnyCallbackStruct  *call_data;
+X{
+X	FlushBuffer();
+X	if(work_proc_id)
+X		XtRemoveWorkProc(work_proc_id);
+X	work_proc_id = (XtWorkProcId) NULL; 
+X}
+X
+Xvoid
+XSpin(w, call_value)
+XWidget w;
+XXmAnyCallbackStruct *call_value;
+X{
+X	static int i, j;
+X	long tmpxcolor;
+X
+X	if (displayplanes > 1) {
+X		stop_iterate(w,canvas,NULL);
+X		for (j=0;j<spinlength;j++) {
+X			tmpxcolor = Colors[mincolindex].pixel;
+X			for (i=mincolindex;i<numcolors-1;i++)
+X				Colors[i].pixel = Colors[i+1].pixel;
+X			Colors[numcolors-1].pixel = tmpxcolor;
+X			XStoreColors(dpy, cmap, Colors, numcolors);
+X		}
+X		for (j=0;j<spinlength;j++) {
+X			tmpxcolor = Colors[numcolors-1].pixel;
+X			for (i=numcolors-1;i>mincolindex;i--)
+X				Colors[i].pixel = Colors[i-1].pixel;
+X			Colors[mincolindex].pixel = tmpxcolor;
+X			XStoreColors(dpy, cmap, Colors, numcolors);
+X		}
+X		start_iterate(w,canvas,NULL);
+X	}
+X}
+X
+Xvoid
+Xquit(w, call_value)
+XWidget w;
+XXmAnyCallbackStruct *call_value;
+X{
+X	Clear();
+X	exit(0);
+X}
+X
+XXtEventHandler
+XGetkey(w, client_data, event)
+XWidget w;
+Xcaddr_t client_data;
+XXKeyEvent *event;
+X{
+X	Arg wargs[1];
+X	unsigned char key;
+X        XKeyEvent *keyevent = (XKeyEvent *)event;
+X	static int i;
+X
+X        if (XLookupString(keyevent, (char *)&key, sizeof(key), (KeySym *)0,
+X            (XComposeStatus *) 0) > 0)
+X                switch (key) {
+X	case '<': dwell /= 2; if (dwell < 1) dwell = 1; break;
+X	case '>': dwell *= 2; break;
+X	case '[': settle /= 2; if (settle < 1) settle = 1; break;
+X	case ']': settle *= 2; break;
+X	case 'b':
+X	case 'B': NoShowButtons = (!NoShowButtons);
+X		   if (NoShowButtons) {
+X			for (i=0;i<4;i++)
+X				XtUnrealizeWidget(button[i]);
+X			XtSetArg(wargs[0], XmNbottomPosition, &bottom);
+X			XtGetValues(canvas, wargs, 1);
+X			XtSetArg(wargs[0], XmNbottomPosition, 99);
+X			XtSetValues(canvas, wargs, 1);
+X		   }
+X		   else {
+X			XtSetArg(wargs[0], XmNbottomPosition, bottom);
+X			XtSetValues(canvas, wargs, 1);
+X			for (i=0;i<4;i++) {
+X				XtManageChild(button[i]);
+X				XtRealizeWidget(button[i]);
+X			}
+X		   }
+X		   break;
+X	case 'd':
+X	case 'D': FlushBuffer(); break;
+X	case 'e':
+X	case 'E': recalc(); break;
+X	case 'f':
+X	case 'F': save_to_file(); break;
+X	case 'i': if (stripe_interval > 0) {
+X			stripe_interval--;
+X		  	if (displayplanes > 1) {
+X		  	    init_color(); 
+X		  	    XSetWindowColormap(dpy, XtWindow(toplevel), cmap);
+X		  	}
+X		  }
+X		  break;
+X	case 'I': stripe_interval++;
+X		  if (displayplanes > 1) {
+X		  	init_color(); 
+X		  	XSetWindowColormap(dpy, XtWindow(toplevel), cmap);
+X		  }
+X		  break;
+X	case 'k':
+X	case 'K': if (minlyap > 0.05)
+X			minlyap -= 0.05;
+X		   break;
+X	case 'j':
+X	case 'J': minlyap += 0.05; 
+X		   break;
+X	case 'm': if (minlyap > 0.005)
+X			minlyap -= 0.005;
+X		   break;
+X	case 'n': minlyap += 0.005;
+X		   break;
+X	case 'p':
+X	case 'P': negative = (!negative); 
+X		  FlushBuffer(); redraw(exponents, expind, 1); break;
+X	case 'r': FlushBuffer(); redraw(exponents, expind, 1); break;
+X	case 'R': FlushBuffer(); Redraw(); break;
+X	case 's':
+X		   spinlength=spinlength/2;
+X	case 'S': if (displayplanes > 1) 
+X			Spin(canvas,NULL); 
+X		   spinlength=spinlength*2; break;
+X	case 'u': go_back(); break;
+X	case 'U': go_init(); break;
+X	case 'v':
+X	case 'V': print_values(); break;
+X	case 'W': if (numwheels < MAXWHEELS)
+X			numwheels++;
+X		   else
+X			numwheels = 0;
+X		   if (displayplanes > 1) {
+X		   	init_color(); 
+X		   	XSetWindowColormap(dpy, XtWindow(toplevel), cmap);
+X		   }
+X		   break;
+X	case 'w': if (numwheels > 0)
+X			numwheels--;
+X		   else
+X			numwheels = MAXWHEELS;
+X		   if (displayplanes > 1) {
+X		   	init_color(); 
+X		   	XSetWindowColormap(dpy, XtWindow(toplevel), cmap);
+X		   }
+X		   break;
+X	case 'x':
+X	case 'X': Clear(); break;
+X	case 'q':
+X	case 'Q': exit(0); break;
+X	case '?':
+X	case 'h':
+X	case 'H': print_help(); break;
+X	default:  break;
+X	}
+X}
+X
+X/* Here's where we index into a color map. After the Lyapunov exponent is
+X * calculated, it is used to determine what color to use for that point.
+X * I suppose there are a lot of ways to do this. I used the following :
+X * if it's non-negative then there's a reserved area at the lower range
+X * of the color map that i index into. The ratio of some "minimum exponent
+X * value" and the calculated value is used as a ratio of how high to index
+X * into this reserved range. Usually these colors are dark red (see init_color).
+X * If the exponent is negative, the same ratio (expo/minlyap) is used to index
+X * into the remaining portion of the colormap (which is usually some light
+X * shades of color or a rainbow wheel). The coloring scheme can actually make
+X * a great deal of difference in the quality of the picture. Different colormaps
+X * bring out different details of the dynamics while different indexing
+X * algorithms also greatly effect what details are seen. Play around with this.
+X */
+XBoolean
+Xsendpoint(expo)
+Xdouble expo;
+X{
+X	static int i;
+X	static double f, tmpexpo;
+X	extern double exp();
+X
+X	point.x++;
+X	tmpexpo = (negative) ? expo : -1.0 * expo;
+X	if (tmpexpo >= 0) {
+X		if (displayplanes >1) {
+X			f = tmpexpo / minlyap;
+X			i = (int)(f * (double)lowrange);
+X			if (mincolindex)
+X				i = (i % lowrange) + STARTCOLOR;
+X		}
+X		else
+X			i = 0;
+X	}
+X	else {
+X		if (displayplanes >1) {
+X			f = -1.0 * tmpexpo / minlyap;
+X			i = (int)(f * (double)numfreecols);
+X			i = (i % numfreecols) + mincolindex;
+X		}
+X		else
+X			i = 1;
+X	}
+X  	BufferPoint(dpy, XtWindow(canvas), i, point.x, point.y);
+X	if (save)
+X		exponents[expind++] = expo;
+X	if (point.x >= width) {
+X		point.y++;
+X		point.x = 0;
+X		if (save) {
+X			b += b_inc;
+X			a = min_a;
+X		}
+X		if (point.y >= height)
+X			return FALSE;
+X		else
+X			return TRUE;
+X	}
+X	return TRUE;
+X}
+X
+Xvoid 
+Xredisplay (w, data, call_data)
+XWidget          w;
+Xstruct image_data     *data;
+XXmDrawingAreaCallbackStruct    *call_data;
+X{
+X	XExposeEvent  *event = (XExposeEvent *) call_data->event;
+X	/*
+X 	* Extract the exposed area from the event and copy
+X 	* from the saved pixmap to the window.
+X 	*/
+X	XCopyArea(XtDisplay(w), pixmap, XtWindow(w), Data_GC[0], 
+X           event->x, event->y, event->width, event->height, 
+X           event->x, event->y);
+X}
+X
+Xvoid
+Xresize(w, data, call_data)
+XWidget w;
+Xstruct image_data_t *data;
+XXmDrawingAreaCallbackStruct    *call_data;
+X{
+X	int n;
+X	Arg wargs[32];
+X
+X	n = 0;
+X	XtSetArg(wargs[n], XtNwidth, &width); ++n;
+X	XtSetArg(wargs[n], XtNheight, &height); ++n;
+X	XtGetValues(w, wargs, n);
+X	if (XtIsRealized(w))
+X		XClearArea(XtDisplay(w), XtWindow(w), 0, 0, 0, 0, TRUE);
+X	if (pixmap)
+X		XFreePixmap(XtDisplay(w), pixmap);
+X	pixmap = XCreatePixmap(dpy, DefaultRootWindow(dpy), 
+X			width, height, DefaultDepthOfScreen(screen));
+X	Clear();
+X	init_data();
+X	Redraw();
+X}
+X
+Xredraw(exparray, index, cont)
+Xdouble *exparray;
+Xint index, cont;
+X{
+X	static int i;
+X	static int x_sav, y_sav;
+X	extern Boolean sendpoint();
+X
+X	x_sav = point.x;
+X	y_sav = point.y;
+X
+X	point.x = -1;
+X	point.y = 0;
+X
+X	save=0;
+X	for (i=0;i<index;i++)
+X		sendpoint(exparray[i]);
+X	save=1;
+X	
+X	if (cont) {
+X		point.x = x_sav;
+X		point.y = y_sav;
+X	}
+X	else {
+X		a = point.x * a_inc + min_a;
+X		b = point.y * b_inc + min_b;
+X	}
+X}
+X
+XRedraw() {
+X
+X	FlushBuffer();
+X        point.x = -1;
+X        point.y = 0;
+X        a = min_a;
+X        b = min_b;
+X	expind = 0;
+X	if(!work_proc_id)
+X		work_proc_id = XtAddWorkProc(complyap, canvas);
+X}
+X
+X/* Store color pics in PPM format and monochrome in PGM */
+Xsave_to_file() {
+X
+X	FILE *outfile;
+X	unsigned char c;
+X	XImage *ximage;
+X	static int i,j;
+X	struct {
+X		unsigned char red;
+X		unsigned char green;
+X		unsigned char blue;
+X	} colormap[MAXCOLOR];
+X
+X	outfile = fopen(outname,"w");
+X	if(!outfile) {
+X		perror(outname);
+X		exit(-1);
+X	}
+X
+X	ximage=XGetImage(dpy, pixmap, 0, 0, width, height, AllPlanes, XYPixmap);
+X
+X	if (displayplanes > 1) {
+X		for (i=0;i<MAXCOLOR;i++) {
+X			colormap[i].red=(unsigned char)(Colors[i].red >> 8);
+X			colormap[i].green=(unsigned char)(Colors[i].green >> 8);
+X			colormap[i].blue =(unsigned char)(Colors[i].blue >> 8);
+X		}
+X		fprintf(outfile,"P%d %d %d\n",6,width,height);
+X	}
+X	else
+X		fprintf(outfile,"P%d %d %d\n",5,width,height);
+X	fprintf(outfile,"# settle=%d  dwell=%d start_x=%f\n",settle,dwell,
+X				start_x);
+X	fprintf(outfile,"# min_a=%f  a_rng=%f  max_a=%f\n",min_a,a_range,max_a);
+X	fprintf(outfile,"# min_b=%f  b_rng=%f  max_b=%f\n",min_b,b_range,max_b);
+X 	if (force) {
+X 		fprintf(outfile,"# periodic forcing=");
+X 		for (i=0;i<maxindex;i++) {
+X 			fprintf(outfile,"%d",forcing[i]);
+X 		}
+X 		fprintf(outfile,"\n");
+X 	}
+X 	else
+X 		fprintf(outfile,"# periodic forcing=01\n");
+X 	if (Force) {
+X 		fprintf(outfile,"# function forcing=");
+X 		for (i=0;i<funcmaxindex;i++) {
+X 			fprintf(outfile,"%d",Forcing[i]);
+X 		}
+X 		fprintf(outfile,"\n");
+X 	}
+X	fprintf(outfile,"%d\n",numcolors-1);
+X
+X	for (j=0;j<height;j++)
+X	    for (i=0;i<width;i++) {
+X		c = (unsigned char)XGetPixel(ximage,i,j);
+X		if (displayplanes > 1)
+X		    fwrite((char *)&colormap[c],sizeof colormap[0],1,outfile);
+X		else
+X		    fwrite((char *)&c,sizeof c,1,outfile);
+X	    }
+X	fclose(outfile);
+X}
+X
+Xrecalc() {
+X	static int i, index, x, y;
+X	static double minexp, maxexp;
+X	
+X	minexp = maxexp = 0.0;
+X	x = y = 0;
+X	for (i=0;i<expind;i++) {
+X		if (exponents[i] < minexp)
+X			minexp = exponents[i];
+X		if (exponents[i] > maxexp)
+X			maxexp = exponents[i];
+X	}
+X	for (i=0;i<expind;i++) {
+X		if (exponents[i] < 0.0)
+X			index = exponents[i]*numfreecols/minexp+mincolindex;
+X		else if (exponents[i] > maxexp)
+X			index = exponents[i]*mincolindex/maxexp;
+X		else
+X			index = 0;
+X  		BufferPoint(dpy, XtWindow(canvas), index, x, y);
+X		if (++x > width) {
+X			if (++y > height)
+X				break;
+X			x = 0;
+X		}
+X	}
+X	FlushBuffer();
+X}
+X
+XClear() {
+X     	XClearArea(dpy, XtWindow(canvas), 0, 0, 0, 0, TRUE);
+X	XCopyArea(dpy, XtWindow(canvas), pixmap, Data_GC[0], 
+X        		0, 0, width, height, 0, 0);
+X	InitBuffer();
+X}
+X
+Xvoid
+Xshow_defaults() {
+X
+X	printf("Width=%d  Height=%d  numcolors=%d  settle=%d  dwell=%d\n",
+X		width,height,numcolors,settle,dwell);
+X	printf("min_a=%f  a_range=%f  max_a=%f\n", min_a,a_range,max_a);
+X	printf("min_b=%f  b_range=%f  max_b=%f\n", min_b,b_range,max_b);
+X	exit(0);
+X}
+X
+Xvoid
+XCreateXorGC(w)
+XWidget w;
+X{
+X	XGCValues values;
+X	Arg wargs[2];
+X
+X	XtSetArg(wargs[0], XtNforeground, &values.foreground);
+X	XtSetArg(wargs[1], XtNbackground, &values.background);
+X	XtGetValues,(w, wargs, 2);
+X	values.foreground = values.foreground ^ values.background;
+X	values.line_style = LineSolid;
+X	values.function = GXxor;
+X	RubberGC = XCreateGC(dpy, DefaultRootWindow(dpy),
+X	      GCForeground | GCBackground | GCFunction | GCLineStyle, &values);
+X}
+X
+Xvoid StartRubberBand(w, data, event)
+XWidget w;
+Ximage_data_t *data;
+XXEvent *event;
+X{
+X	XPoint corners[5];
+X
+X	nostart = 0;
+X	data->rubber_band.last_x = data->rubber_band.start_x = event->xbutton.x;
+X	data->rubber_band.last_y = data->rubber_band.start_y = event->xbutton.y;
+X	SetupCorners(corners, data);
+X	XDrawLines(XtDisplay(w), XtWindow(w), RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X}
+X
+XSetupCorners(corners, data)
+XXPoint *corners;
+Ximage_data_t *data;
+X{
+X	corners[0].x = data->rubber_band.start_x;
+X	corners[0].y = data->rubber_band.start_y;
+X	corners[1].x = data->rubber_band.start_x;
+X	corners[1].y = data->rubber_band.last_y;
+X	corners[2].x = data->rubber_band.last_x;
+X	corners[2].y = data->rubber_band.last_y;
+X	corners[3].x = data->rubber_band.last_x;
+X	corners[3].y = data->rubber_band.start_y;
+X	corners[4] = corners[0];
+X}
+X
+Xvoid TrackRubberBand(w, data, event)
+XWidget w;
+Ximage_data_t *data;
+XXEvent *event;
+X{
+X	XPoint corners[5];
+X	int xdiff, ydiff, diff;
+X
+X	if (nostart)
+X		return;
+X	SetupCorners(corners, data);
+X	XDrawLines(XtDisplay(w), XtWindow(w), RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X	ydiff = event->xbutton.y - data->rubber_band.start_y;
+X	xdiff = event->xbutton.x - data->rubber_band.start_x;
+X	data->rubber_band.last_x = data->rubber_band.start_x + xdiff;
+X	data->rubber_band.last_y = data->rubber_band.start_y + ydiff;
+X	if (data->rubber_band.last_y < data->rubber_band.start_y ||
+X	    data->rubber_band.last_x < data->rubber_band.start_x)
+X	{
+X		data->rubber_band.last_y = data->rubber_band.start_y;
+X		data->rubber_band.last_x = data->rubber_band.start_x;
+X	}
+X	SetupCorners(corners, data);
+X	XDrawLines(XtDisplay(w), XtWindow(w), RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X}
+X
+Xvoid EndRubberBand(w, data, event)
+XWidget w;
+Ximage_data_t *data;
+XXEvent *event;
+X{
+X	XPoint corners[5];
+X	XPoint top, bot;
+X	double delta, diff;
+X
+X	nostart = 1;
+X	SetupCorners(corners, data);
+X	XDrawLines(XtDisplay(w), XtWindow(w), RubberGC,
+X	    corners, sizeof(corners) / sizeof(corners[0]), CoordModeOrigin);
+X	if (data->rubber_band.start_x >= data->rubber_band.last_x ||
+X	    data->rubber_band.start_y >= data->rubber_band.last_y)
+X		return;
+X	top.x = data->rubber_band.start_x;
+X	bot.x = data->rubber_band.last_x;
+X	top.y = data->rubber_band.start_y;
+X	bot.y = data->rubber_band.last_y;
+X	diff = data->q_max - data->q_min;
+X	delta = (double)top.y / (double)height;
+X	data->q_min += diff * delta;
+X	delta = (double)(height - bot.y) / (double)height;
+X	data->q_max -= diff * delta;
+X	diff = data->p_max - data->p_min;
+X	delta = (double)top.x / (double)width;
+X	data->p_min += diff * delta;
+X	delta = (double)(width - bot.x) / (double)width;
+X	data->p_max -= diff * delta;
+X	printf("q_min=%2.12f q_max=%2.12f\np_min=%2.12f p_max=%2.12f\n\n",
+X	    data->q_min, data->q_max, data->p_min, data->p_max);
+X	fflush(stdout);
+X	set_new_params(w, data);
+X}
+X
+Xset_new_params(w, data)
+XWidget w;
+Ximage_data_t *data;
+X{
+X	double *tmpexponents;
+X
+X	a_range = data->p_max - data->p_min;
+X	b_range = data->q_max - data->q_min;
+X	o_min_a = min_a;
+X	o_min_b = min_b;
+X	min_a = data->p_min;
+X	min_b = data->q_min;
+X        a_inc = a_range / (double)width;
+X        b_inc = b_range / (double)height;
+X        point.x = -1;
+X        point.y = 0;
+X        a = min_a;
+X        b = min_b;
+X	o_max_a = max_a;
+X	o_max_b = max_b;
+X        max_a = data->p_max;
+X        max_b = data->q_max;
+X	if (first) {
+X		i_expind = o_expind = expind;
+X		memcpy(i_exponents, exponents, sizeof(double) * i_expind);
+X		memcpy(o_exponents, exponents, sizeof(double) * i_expind);
+X		first = 0;
+X	}
+X	o_expind = expind;
+X	tmpexponents = o_exponents;
+X	o_exponents = exponents;
+X	exponents = tmpexponents;
+X	expind = 0;
+X	Clear();
+X	if(!work_proc_id)
+X		work_proc_id = XtAddWorkProc(complyap, canvas);
+X}
+X
+Xgo_back() {
+X	double *tmpexponents;
+X	static int i;
+X	
+X	rubber_data.p_min = min_a = o_min_a;
+X	rubber_data.q_min = min_b = o_min_b;
+X	rubber_data.p_max = max_a = o_max_a;
+X	rubber_data.q_max = max_b = o_max_b;
+X	o_min_a = orig_min_a;
+X	o_min_b = orig_min_b;
+X	o_max_a = orig_max_a;
+X	o_max_b = orig_max_b;
+X	a_range = max_a - min_a;
+X	b_range = max_b - min_b;
+X        a_inc = a_range / (double)width;
+X        b_inc = b_range / (double)height;
+X        point.x = -1;
+X        point.y = 0;
+X        a = min_a;
+X        b = min_b;
+X	if (!first) {
+X		expind = o_expind;
+X		o_expind = i_expind;
+X		tmpexponents = o_exponents;
+X		o_exponents = exponents;
+X		exponents = tmpexponents;
+X		memcpy(o_exponents, i_exponents, sizeof(double) * i_expind);
+X	}
+X	Clear();
+X	redraw(exponents, expind, 0);
+X	if(!work_proc_id)
+X		work_proc_id = XtAddWorkProc(complyap, canvas);
+X}
+X
+Xgo_init() {
+X	static double *tmpexponents;
+X	static int i;
+X	
+X	rubber_data.p_min = min_a = orig_min_a;
+X	rubber_data.q_min = min_b = orig_min_b;
+X	rubber_data.p_max = max_a = orig_max_a;
+X	rubber_data.q_max = max_b = orig_max_b;
+X	o_min_a = orig_min_a;
+X	o_min_b = orig_min_b;
+X	o_max_a = orig_max_a;
+X	o_max_b = orig_max_b;
+X	a_range = max_a - min_a;
+X	b_range = max_b - min_b;
+X        a_inc = a_range / (double)width;
+X        b_inc = b_range / (double)height;
+X        point.x = -1;
+X        point.y = 0;
+X        a = min_a;
+X        b = min_b;
+X	o_expind = i_expind;
+X	expind = i_expind;
+X	memcpy(o_exponents, i_exponents, sizeof(double) * i_expind);
+X	memcpy(exponents, i_exponents, sizeof(double) * i_expind);
+X	Clear();
+X	redraw(exponents, expind, 0);
+X	first = 1;
+X	if(!work_proc_id)
+X		work_proc_id = XtAddWorkProc(complyap, canvas);
+X}
+X
+Xvoid
+XInitBuffer()
+X{
+X	int i;
+X
+X	for (i = 0 ; i < MAXCOLOR; ++i)
+X		Points.npoints[i] = 0;
+X}
+X
+Xvoid
+XBufferPoint(display, window, color, x, y)
+XDisplay *display;
+XWindow window;
+Xint color;
+Xint x, y;
+X{
+X	if (Points.npoints[color] == MAXPOINTS)
+X	{
+X		if (XtIsRealized(canvas))
+X			XDrawPoints(display, window, Data_GC[color],
+X			    Points.data[color], Points.npoints[color],
+X			    CoordModeOrigin);
+X		XDrawPoints(display, pixmap, Data_GC[color],
+X		    Points.data[color], Points.npoints[color],
+X		    CoordModeOrigin);
+X		Points.npoints[color] = 0;
+X	}
+X	Points.data[color][Points.npoints[color]].x = x;
+X	Points.data[color][Points.npoints[color]].y = y;
+X	++Points.npoints[color];
+X}
+X
+Xvoid
+XFlushBuffer()
+X{
+X	int color;
+X
+X	for (color = 0; color < MAXCOLOR; ++color)
+X		if (Points.npoints[color])
+X		{
+X		    if (XtIsRealized(canvas))
+X			XDrawPoints(dpy, XtWindow(canvas), Data_GC[color],
+X			    Points.data[color], Points.npoints[color],
+X			    CoordModeOrigin);
+X		    XDrawPoints(dpy, pixmap, Data_GC[color],
+X			    Points.data[color], Points.npoints[color],
+X			    CoordModeOrigin);
+X		    Points.npoints[color] = 0;
+X		}
+X}
+X
+Xprint_help() {
+X
+X    printf("During run-time, interactive control can be exerted via : \n");
+X    printf("Mouse buttons allow rubber-banding of a zoom box\n");
+X    printf("< halves the 'dwell', > doubles the 'dwell'\n");
+X    printf("[ halves the 'settle', ] doubles the 'settle'\n");
+X    printf("b or B toggles button display on/off\n");
+X    printf("d or D flushes the drawing buffer\n");
+X    printf("e or E recalculates color indices\n");
+X    printf("f or F saves exponents to a file\n");
+X    printf("h or H or ? displays this message\n");
+X    printf("i decrements, I increments the stripe interval\n");
+X    printf("KJmn increase/decrease minimum negative exponent\n");
+X    printf("p or P reverses the colormap for negative/positive exponents\n");
+X    printf("r redraws without recalculating\n");
+X    printf("R redraws, recalculating with new dwell and settle values\n");
+X    printf("s or S spins the colorwheel\n");
+X    printf("u pops back up to the last zoom\n");
+X    printf("U pops back up to the first picture\n");
+X    printf("v or V displays the values of various settings\n");
+X    printf("w decrements, W increments the color wheel index\n");
+X    printf("x or X clears the window\n");
+X    printf("q or Q exits\n");
+X}
+X
+Xprint_values() {
+X    static int i;
+X
+X    printf("\nminlyap=%f\n",minlyap);
+X    printf("width=%d height=%d\n",width,height);
+X    printf("settle=%d  dwell=%d start_x=%f\n",settle,dwell, start_x);
+X    printf("min_a=%f  a_rng=%f  max_a=%f\n",min_a,a_range,max_a);
+X    printf("min_b=%f  b_rng=%f  max_b=%f\n",min_b,b_range,max_b);
+X    if (force) {
+X	printf("periodic forcing=");
+X 	for (i=0;i<maxindex;i++)
+X 		printf("%d",forcing[i]);
+X 	printf("\n");
+X    }
+X    else
+X 	printf("periodic forcing=01\n");
+X    if (Force) {
+X 	printf("function forcing=");
+X 	for (i=0;i<funcmaxindex;i++) {
+X 		printf("%d",Forcing[i]);
+X 	}
+X 	printf("\n");
+X    }
+X    printf("numcolors=%d\n",numcolors-1);
+X}
+END_OF_FILE
+if test 41792 -ne `wc -c <'lyap.c'`; then
+    echo shar: \"'lyap.c'\" unpacked with wrong size!
+fi
+# end of 'lyap.c'
+fi
+if test ! -d 'params' ; then
+    echo shar: Creating directory \"'params'\"
+    mkdir 'params'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(123 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X
+X#ifndef PATCHLEVEL_H
+X#define PATCHLEVEL_H
+X
+X#define LYAP_PATCHLEVEL 2
+X
+X#define LYAP_VERSION "#(@) lyap 2.1 1/11/92"
+X#endif
+END_OF_FILE
+if test 123 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

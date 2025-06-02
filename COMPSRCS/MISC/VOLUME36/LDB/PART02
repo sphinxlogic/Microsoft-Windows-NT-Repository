@@ -1,0 +1,1487 @@
+Newsgroups: comp.sources.misc
+From: ross@teserv.den.mmc.com (Perry R. Ross)
+Subject: v36i099:  ldb - Play backgammon by e-mail, v1.3, Part02/12
+Message-ID: <1993Apr11.232922.17861@sparky.imd.sterling.com>
+X-Md4-Signature: 25a95ccd33bb6f81f016d287dc2bf11f
+Date: Sun, 11 Apr 1993 23:29:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ross@teserv.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 36, Issue 99
+Archive-name: ldb/part02
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Supersedes: ldb: Volume 28, Issue 93-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 12)."
+# Contents:  control.c dostats.c ldbstarter move.c r_xrand.c vars.c
+# Wrapped by ross@teserv.den.mmc.com on Tue Apr  6 14:52:17 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'control.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'control.c'\"
+else
+echo shar: Extracting \"'control.c'\" \(9911 characters\)
+sed "s/^X//" >'control.c' <<'END_OF_FILE'
+X/*	control.c		9/12/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	control -- control a game
+X *
+X * This function is called to process the -control command line option.
+X * It currently allows the following:
+X *    -	The board may be inverted.  The points are still numbered the
+X *	same, the board is merely drawn upside down.  This can help users
+X *	who are playing a number of games simultaneously by allowing him
+X *	to make all of his games move in the same direction on the screen.
+X *    - The last packet sent may be resent.  This is useful when moves
+X *	are lost in the mail, or if players forget whose turn it is.
+X *	Ldb rejects packets that have already been received, so both
+X *	players may simply resend their last packet, and ldb will display
+X *	the board to the player who is supposed to move.
+X *----------------------------------------------------------------------
+X */
+X
+Xcontrol()
+X{
+Xregister struct game *g;
+Xstatic char *m[] = {"Invert","Resend","Get Resend","Screen Dump","Delete Game",
+X			"Next Game","Quit",NULL};
+Xchar buf[60], c, done;
+Xint mod;
+Xchar pm = '\0';
+Xstatic char oldmsg[] = "Your opponent's ldb does not support resend requests.";
+Xstatic char gmover[] = "This game is over -- you cannot request a resend.";
+X
+Xif (ghead == NULL) {
+X	printf("You don't have any games in progress.\n");
+X	printf("Use the -start option to start one.\n");
+X	usage(0);
+X	ldbexit(STAT_ABORT);
+X	}
+Xmod = 0;				/* init to no mods */
+Xrc.chkpt = "no";			/* disable checkpoint in sendpkt */
+XFeInitialize();				/* initialize front end */
+XFeDrawScreen();				/* draw board outline */
+Xdone = 0;
+Xfor (g = ghead; (done < 2) && (g != NULL); g = g->next) {/* for all games */
+X	g->curbd = BD_CUR;		/* make sure we draw the current bd */
+X	FeDrawGame(g);
+X	FeDrawMenu(m);
+X	sprintf(buf,"Current state: %s",states[g->state]);
+X	FeMessage(buf);
+X	done = 0;
+X	GameState = STATE_CONTROL;
+X	while (! done) {
+X		c = FeMenu(m,0,0," \n\r",pm);
+X		pm = c;
+X		switch (c) {
+X		case 'I':			/* invert board */
+X			g->flags ^= F_INVERT;	/* toggle invert bit */
+X			FeDrawGame(g);		/* redraw the screen */
+X			mod++;			/* games have been modified */
+X			break;
+X		case 'R':			/* resend last packet */
+X			if ((g->state>=OPSTATES)&&(g->state!=ST_GAMEOVER)) {
+X				FeMessage("Can't resend -- it is your move.");
+X				break;
+X				}
+X			resendpkt(g);
+X			FeMessage("Last packet re-sent.");
+X			break;
+X		case 'G':
+X			if (g->state == ST_GAMEOVER) {
+X				FeMessage(gmover);
+X				break;
+X				}
+X			if (g->opver < 110) {
+X				FeMessage(oldmsg);
+X				break;
+X				}
+X			sendpkt(g,RESEND);
+X			FeMessage("Resend requested.");
+X			break;
+X		case 'S':			/* dump screen */
+X			FeMessage(buf);		/* restore state msg */
+X			FeDumpScreen("ldb_screen.dmp");	/* do the dump */
+X			FeMessage("Screen dumped to ldb_screen.dmp");
+X			break;
+X		case 'D':			/* delete game */
+X			mod++;			/* games have been modified */
+X			if (g->flags & F_DELETE) {	/* undelete */
+X				g->flags &= ~F_DELETE;
+X				FeMessage("Game undeleted.");
+X				}
+X			else {
+X				g->flags |= F_DELETE;	/* delete */
+X				FeMessage(
+X				 "Game deleted -- press D again to undelete.");
+X				}
+X			break;
+X		case 'Q':			/* exit ldb */
+X			done = 2;		/* 2 means Really done */
+X			break;
+X		case ' ':
+X		case '\n':
+X		case '\r':
+X			FeOnMenuItem(m,'N');	/* highlight Next Game item */
+X			pm = 'N';		/* remember to unhighlight */
+X			/* Fall through */
+X		case 'N':
+X			done = 1;	/* 1 means just done with this game */
+X			break;		/* go to next game */
+X			}
+X		}
+X	}
+XFeFinishSession();
+Xwhile (mod) {
+X	printf("Save changes? [yn]: ");
+X	fflush(stdout);
+X	if ( ( (c = getchar()) == 'y') || (c == 'Y') ) {
+X		writegames(rc.gfile,rc.gbackup,rc.pfile);
+X		break;
+X		}
+X	if ( (c == 'n') || (c == 'N') ) {
+X		printf("Changes discarded.\n");
+X		break;
+X		}
+X	if ( (c != '\n') && (c != EOF) )
+X		while ( ( (c = getchar()) != '\n') && (c != EOF) );
+X	printf("Please respond with y or n.\n");
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	recons -- reconstruct games from opponent's .ldbdata
+X *
+X * This function allows a game to be reconstructed when the .ldbdata
+X * file has been irretrievably lost.  The opponent merely mails
+X * his .ldbdata file, and we scan it for all the important information.
+X * Games that are in the OPSTART or GAMEOVER states cannot be reconstructed
+X * due to the lack of adequate information, but these games either have
+X * not started or are already over.  If the game is in state OPSTART
+X * because the next game of a match is being started, the match can
+X * be rescued by starting a new match that plays up to the number of
+X * points remaining in the old match.
+X *
+X * Before sending the .ldbdata file, your opponent should incorporate
+X * any moves you sent before you lost your file.  If your move is lost
+X * as well, it may be necessary for you to replay your last move, with
+X * a new roll.  This should not be considered cheating, as it is unavoidable.
+X * Alternatively, if you remember your last roll, you could plug the rolls
+X * into your .ldbdata after the reconstruct.
+X *
+X * You will have to edit the mail header off the file before feeding it
+X * to -reconstruct.  The first line of the file MUST be the first line
+X * of the data file.
+X *
+X * Because data fields are frequently added to data files between
+X * revisions, -reconstruct is only guaranteed to work when you
+X * are using the same ldb revision as your opponent.
+X *
+X * If you started the game being reconstructed, and you used the
+X * -myaddr argument when you started it, you will need to use
+X * the -myaddr argument when you reconstruct it.
+X *----------------------------------------------------------------------
+X */
+X
+Xrecons(file)
+Xchar *file;
+X{
+XFILE *fp;
+Xchar c;
+Xint i, j;
+Xstruct mv m;
+Xstruct game *g;
+Xstruct people *p;
+Xchar *s;
+Xchar buf[80];
+X
+Xif ( (fp = fopen(file,"r")) == NULL) {
+X	fprintf(stderr,"ERROR: cannot open %s for reconstruct\n",file);
+X	ldbexit(STAT_ABORT);
+X	}
+Xg = addgame();			/* get a game structure */
+Xwhile ( (c = getc(fp)) != EOF) {
+X	ungetc(c,fp);			/* put char back */
+X	nvscan(fp,nv_gfile,g);
+X	if (strcmp(g->opaddr,rc.myaddr))	/* this game wasn't with me */
+X		continue;
+X	if ( (g->state == ST_OPSTART) || (g->state == ST_GAMEOVER) )
+X		continue;		/* can't handle these */
+X	printf("\n--- Reconstruct found game %s ---\n",g->gameid);
+X	s = g->gameid;			/* copy out gameid */
+X	g->gameid = "";			/* temporarily delete gameid field */
+X	if (findgame(s) != NULL) {
+X		printf("ERROR: This game already exists -- ignoring.\n");
+X		continue;
+X		}
+X	g->gameid = s;			/* restore gameid field */
+X	printf("Enter opponent address or alias: ");
+X	if (fgets(buf,sizeof(buf),stdin) == NULL) {
+X		printf("\n--- Reconstruct deleting game %s ---\n",g->gameid);
+X		continue;
+X		}
+X	buf[strlen(buf)-1] = '\0';		/* clobber newline */
+X	if ( (p = findppl(buf,P_ADDR|P_ALIAS)) == NULL) {/* not in ppl file */
+X		g->opaddr = save(buf);		/* save address in game */
+X		printf("Enter opponent name: ");
+X		if (fgets(buf,sizeof(buf),stdin) == NULL) {
+X			printf("\n--- Reconstruct deleting game %s ---\n",
+X				g->gameid);
+X			continue;
+X			}
+X		buf[strlen(buf)-1] = '\0';	/* clobber newline */
+X		g->opname = save(buf);		/* save opponent's name */
+X		newppl(g);		/* generate a new people rec */
+X		}
+X	else {				/* it was an alias */
+X		g->opname = save(p->name);	/* copy name from people rec */
+X		g->opaddr = save(p->addr);	/* address too */
+X		g->ppl = p;			/* store people pointer */
+X		}
+X	g->dispmsg = NULL;
+X	g->myaddr = save(rc.myaddr);
+X	for (i = 0; i < 4; i++) {
+X		g->blot[i] = 0;		/* clear blot array */
+X		m = g->mvs[i];		/* switch mvs and opmvs fields */
+X		g->mvs[i] = g->opmvs[i];
+X		g->opmvs[i] = m;
+X		}
+X	for (i = 0; i < 6; i++) {
+X		j = g->rolls[i];	/* switch rolls and oprolls */
+X		g->rolls[i] = g->oprolls[i];
+X		g->oprolls[i] = j;
+X		j = g->doubles[i];	/* switch doubles and opdoubles */
+X		g->doubles[i] = g->opdoubles[i];
+X		g->opdoubles[i] = j;
+X		}
+X	i = g->mydir;			/* switch mydir and opdir */
+X	g->mydir = g->opdir;
+X	g->opdir = i;
+X	i = g->mycolor;			/* switch mycolor and opcolor */
+X	g->mycolor = g->opcolor;
+X	g->opcolor = i;
+X	s = g->mycmt;
+X	g->mycmt = g->opcmt;
+X	g->opcmt = s;
+X	s = g->mycmt2;
+X	g->mycmt2 = g->opcmt2;
+X	g->opcmt2 = s;
+X	i = g->mcurrent[WHO_ME];		/* switch match scores */
+X	g->mcurrent[WHO_ME] = g->mcurrent[WHO_OPP];
+X	g->mcurrent[WHO_OPP] = i;
+X	copyboard(g->mybd,g->opbd);	/* my before bd == op's after bd */
+X	if (g->state < OPSTATES) {	/* I'm sending next */
+X		g->seq++;	/* set seq# to what opp expects in next pkt */
+X		copyboard(g->board,g->mybd);	/* my after bd == cur board */
+X		}
+X	else {				/* he's sending next */
+X		g->seq--;	/* set seq# to what we're expecting */
+X		copyboard(g->mybd,g->board);	/* erase his moves */
+X		}
+X	g->lastop = START;		/* has to be set to something */
+X	switch (g->state) {		/* invert state */
+X	case ST_OPTURN:
+X		g->state = ST_MYTURN;	/* it's my turn */
+X		break;
+X	case ST_OPACCEPT:
+X		g->state = ST_MYACCEPT;	/* waiting for me to accept double */
+X		break;
+X	case ST_MYTURN:
+X	case ST_MYMOVE:
+X		g->state = ST_OPTURN;	/* waiting for op to move */
+X		break;
+X	case ST_MYACCEPT:
+X		g->state = ST_OPACCEPT;	/* waiting for op to accept double */
+X		break;
+X		}
+X	printf("--- Reconstructed game %s ---\n",g->gameid);
+X	g = addgame();		/* get new buffer to read into */
+X	}
+Xdeletegame(g);			/* get rid of buffer */
+Xwritegames(rc.gfile,rc.gbackup,rc.pfile);	/* save new games */
+X}
+END_OF_FILE
+if test 9911 -ne `wc -c <'control.c'`; then
+    echo shar: \"'control.c'\" unpacked with wrong size!
+fi
+# end of 'control.c'
+fi
+if test -f 'dostats.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dostats.c'\"
+else
+echo shar: Extracting \"'dostats.c'\" \(6126 characters\)
+sed "s/^X//" >'dostats.c' <<'END_OF_FILE'
+X/* dostats.c		4/20/92
+X *
+X * Copyright 1992  Earle F. Ake
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X *
+X * Original coding by Earle F. Ake <ake@dayton.saic.com> - 20 April 1992.
+X *
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	dostats -- display online statistics of dice rolls
+X *
+X * This function creates a new curses window and displays dice statistics
+X * to the user.  The user then presses any key to return to the game.
+X *----------------------------------------------------------------------
+X */
+X
+Xdostats(g)
+Xstruct game *g;
+X{
+XWINDOW *statwin;
+Xint row, i, col, rolls, dice;
+Xint mypip, oppip;
+Xchar temp[80];
+Xchar c;
+Xint Total = 0, OpTotal = 0;
+X
+Xstatwin = newwin(0,0,0,0);	/* get a new window to post help to */
+X
+Xmvwaddstr(statwin,0,30,"ldb Dice Statistics");		/* print title */
+Xmvwaddstr(statwin,1,30,"-------------------");		/* underline title */
+Xrow = 3;
+X
+Xmvwaddstr(statwin,row++,0,"You:");
+Xmvwaddstr(statwin,row++,0,"----");
+X
+Xrow++;
+Xmvwaddstr(statwin,row++,0,"Singles   1  2  3  4  5  6  Doubles   1  2  3  4  5  6");
+Xtemp[0] = '\0';
+Xfor (i = 0; i < 6; i++) {
+X	sprintf(temp, "%s%3d", temp, g->rolls[i]);
+X	Total += (g->rolls[i] * (i+1));
+X	}
+Xsprintf(temp, "%s          ",temp);
+Xfor (i = 0; i < 6; i++) {
+X	sprintf(temp, "%s%3d", temp, g->doubles[i]);
+X	Total += (g->doubles[i] * (i+1) * 4);
+X	}
+X
+Xmvwaddstr(statwin,row++,8,temp);
+Xrow++;
+Xpipcount(g->board,g,&mypip,&oppip);
+Xsprintf(temp,"Total of your dice rolls = %-3d        Pips remaining = %-3d",
+X	Total,mypip);
+Xmvwaddstr(statwin,row++,0,temp);
+Xrow++;
+Xrow++;
+X
+Xmvwaddstr(statwin,row++,0,"Opponent:");
+Xmvwaddstr(statwin,row++,0,"---------");
+X
+Xrow++;
+Xmvwaddstr(statwin,row++,0,"Singles   1  2  3  4  5  6  Doubles   1  2  3  4  5  6");
+Xtemp[0] = '\0';
+Xfor (i = 0; i < 6; i++) {
+X	sprintf(temp, "%s%3d", temp, g->oprolls[i]);
+X	OpTotal += (g->oprolls[i] * (i+1));
+X	}
+Xsprintf(temp, "%s          ",temp);
+Xfor (i = 0; i < 6; i++) {
+X	sprintf(temp, "%s%3d", temp, g->opdoubles[i]);
+X	OpTotal += (g->opdoubles[i] * (i+1) * 4);
+X	}
+X
+Xmvwaddstr(statwin,row++,8,temp);
+Xrow++;
+Xsprintf(temp,"Total of opponent dice rolls = %-3d    Pips remaining = %-3d",
+X	OpTotal,oppip);
+Xmvwaddstr(statwin,row++,0,temp);
+X
+X
+Xmvwaddstr(statwin,23,16,"Press H for histogram or <return> to continue: ");
+X
+Xtouchwin(statwin);		/* Make sure the screen is updated */
+Xwrefresh(statwin);		/* update the window clearing screen */
+Xc = wgetch(statwin) & 0x7f;	/* Wait for user response */
+X
+Xif (c == 'h' || c == 'H') {	/* Histogram wanted */
+X	wclear(statwin);		/* clear the window */
+X
+X/*
+X * Draw the axis themselves
+X *
+X */
+X
+X
+X	for (i = 2; i < 18; i++) {		/* Vertical axis */
+X		mvwaddstr(statwin,i,11,"|");
+X		mvwaddstr(statwin,i,44,"|");
+X		}
+X
+X	for (i = 12; i < 41; i++) {		/* Horizontal axis */
+X		mvwaddstr(statwin,17,i,"-");
+X		mvwaddstr(statwin,17,i+33,"-");
+X		}
+X
+X/*
+X * Number the vertical axis
+X *
+X */
+X
+X	mvwaddstr(statwin,2,8,"15");
+X	mvwaddstr(statwin,2,41,"15");
+X
+X	mvwaddstr(statwin,7,8,"10");
+X	mvwaddstr(statwin,7,41,"10");
+X
+X	mvwaddstr(statwin,12,9,"5");
+X	mvwaddstr(statwin,12,42,"5");
+X
+X/*
+X * Put the numbers across the bottom of the axis
+X *
+X */
+X
+X	col = 13;
+X	for (i = 1; i < 7; i++) {
+X		sprintf(temp,"%d", i);
+X		mvwaddch(statwin,18,col,temp[0]);
+X		mvwaddch(statwin,18,col+33,temp[0]);
+X		col += 5;
+X		}
+X
+X/*
+X * Label the top and bottom of the graph
+X *
+X */
+X
+X	mvwaddstr(statwin,0,17,"H i s t o g r a m   o f   D I C E   R o l l s");
+X	mvwaddstr(statwin,19,20,"S I N G L E S");
+X	mvwaddstr(statwin,19,53,"D O U B L E S");
+X	mvwaddstr(statwin,21,4,"Legend:");
+X	sprintf(temp,"X = You, dice total = %3d", Total);
+X	sprintf(temp,"%s     O = Opponent, dice total = %3d", temp, OpTotal);
+X	mvwaddstr(statwin,21,14,temp);
+X	wmove(statwin,22,23);
+X	wprintw(statwin,"pips       = %3d",mypip);
+X	wmove(statwin,22,58);
+X	wprintw(statwin,"pips       = %3d",oppip);
+X
+X/*
+X * Label the left side of the graph
+X *
+X */
+X
+X	sprintf(temp,"Number");
+X	for (i = 0; i < strlen(temp); i++)
+X		mvwaddch(statwin,7+i,0,temp[i]);
+X
+X	sprintf(temp,"of");
+X	for (i = 0; i < strlen(temp); i++)
+X		mvwaddch(statwin,9+i,3,temp[i]);
+X
+X	sprintf(temp,"Occurrences");
+X	for (i = 0; i < strlen(temp); i++)
+X		mvwaddch(statwin,5+i,6,temp[i]);
+X
+X/*
+X * Now that we have the axis drawn and labeled, fill in the data
+X *
+X */
+X
+X	for (dice = 0; dice < 6; dice++) {
+X		for (i = 0; i < 4; i++) {
+X			switch (i) {
+X			case 0:
+X				rolls = g->rolls[dice];
+X				col = 12 + dice * 5;
+X				c = 'X';
+X				break;
+X			case 1:
+X				rolls = g->oprolls[dice];
+X				col = 14 + dice * 5;
+X				c = 'O';
+X				break;
+X			case 2:
+X				rolls = g->doubles[dice];
+X				col = 45 + dice * 5;
+X				c = 'X';
+X				break;
+X			case 3:
+X				rolls = g->opdoubles[dice];
+X				col = 47 + dice * 5;
+X				c = 'O';
+X				break;
+X				}
+X	
+X/*
+X * Special case.  If we have more than 30 of one roll, put a * at the
+X * top of the second column and show 29 X's or O's.
+X *
+X */
+X
+X			row = 16;
+X			if (rolls > 30) {
+X				rolls = 29;
+X				mvwaddch(statwin,2,col+1,'*');
+X				}
+X
+X/*
+X * While the roll counter is greater than zero, put out X's or O's.
+X *
+X */
+X
+X			while (rolls > 0) {
+X				mvwaddch(statwin,row--,col,c);
+X				rolls--;
+X				if (row < 2) {	/* move to 2nd column */
+X					row = 16;
+X					col++;
+X					}
+X				}
+X			}
+X		}
+X
+X/*
+X * We are done with the graph.  Refresh and wait for a keypress
+X *
+X */
+X
+X	mvwaddstr(statwin,23,25,"Press <return> to continue: ");
+X	touchwin(statwin);		/* Make sure the screen is updated */
+X	wrefresh(statwin);		/* update the window clearing screen */
+X	wgetch(statwin);		/* Wait for user response */
+X	}
+X
+Xwclear(statwin);		/* clear the window */
+Xwrefresh(statwin);		/* update the window clearing screen */
+Xdelwin(statwin);		/* delete the window */
+X}
+END_OF_FILE
+if test 6126 -ne `wc -c <'dostats.c'`; then
+    echo shar: \"'dostats.c'\" unpacked with wrong size!
+fi
+# end of 'dostats.c'
+fi
+if test -f 'ldbstarter' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ldbstarter'\"
+else
+echo shar: Extracting \"'ldbstarter'\" \(5255 characters\)
+sed "s/^X//" >'ldbstarter' <<'END_OF_FILE'
+X#! /bin/csh -x
+Xset host=cs.umb.edu home=/u/ra/ugrad/mrubin/ldb user=mrubin
+Xsource /usr/local/lib/.cshrc
+Xset nonomatch fld='^From |^Return-Path:' edscr=(-e 's/<//g' -e 's/>//g')
+Xcd $home
+Xsetenv LDBRC $home/starter.ldbrc
+Xsetenv HOME $home
+X# first handle bad addresses.
+Xcd badaddr
+Xset f=(*)
+Xif ("$f" == "*") set f=""
+Xforeach x ($f)
+X	set rptmp=(`egrep "($fld)" $x | awk '{print $2;}' | tail -1 | sed $edscr`)
+X	set rp=$rptmp[$#rptmp]
+X	set to=(`fgrep To: $x | tail -1 | sed 's/To://g'`)
+X	echo "`date`  badaddr		$rp	$to" >> ../ldbstarter.log
+X	mail -s "Mail to invalid ldb address" $rp:q <<EOF
+X
+X----------------------------------------------------------------------
+X	The following is an automatic reply from
+X	the ldb game starter at $host.
+X
+X	The address you sent to:
+X		$to
+X	is not a valid ldb starter address.  For more information,
+X	send a message to ldb-help@$host.
+X----------------------------------------------------------------------
+X
+XEOF
+X	rm $x
+Xend
+X# Now handle all requests for more information.
+Xcd $home/help
+Xset f=(*)
+Xif ("$f" == "*") set f=""
+Xforeach x ($f)
+X	set rptmp=(`egrep "($fld)" $x | awk '{print $2;}' | tail -1 | sed $edscr`)
+X	set rp=$rptmp[$#rptmp]
+X	echo "`date`  help		$rp" >> ../ldbstarter.log
+X	mail -s "Information on automatic ldb game starter" $rp:q <<EOF
+X
+X----------------------------------------------------------------------
+X	The following is an automatic reply from
+X	the ldb game starter at $host.
+X
+XWelcome to the automatic ldb game starter system.  Ldb is a program that
+Xallows two people to easily play backgammon by e-mail.  This system
+Xuses the remote start capability of ldb to automatically start a
+Xgame between two people of similar ability.  Before you can use
+Xthe ldb starter, you will need to get and compile ldb on your system.
+XLdb is accessible via anonymous ftp from ftp.uu.net or any other host that
+Xarchives the comp.sources.misc newsgroup.  Retrieve all parts, uncompress
+Xthem, un-tar them, and read the file README for compilation and
+Xinstallation instructions.  Ldb runs on most 32-bit UNIX systems
+Xand on VAXes under VMS 5.0 or higher.
+X
+XTo use the ldb starter, simply send a mail message to one of the
+Xfollowing addresses:
+X	ldb-novice@$host
+X	ldb-intermediate@$host
+X	ldb-expert@$host
+Xdepending on what level of ability you are at.  You choose your level
+Xof play for yourself, there are no restrictions on which level you
+Xplay at.  The game starter system does not keep any record of your
+Xlevel, or whether you win or lose.  It is merely a convenient way
+Xto meet new backgammon players that are at more or less the same
+Xlevel of ability as you are.  It doesn't matter what you put in
+Xthe message, the game starter only uses your return address.
+XThe message can be empty as far as the game starter is concerned,
+Xbut your local mail program may complain about empty messages.
+X
+XEach time you send a message to one of the above addresses, you are
+Xmatched at random with another person who sent to the same address.
+XEach message you send only starts one game.  When you are ready for
+Xanother game, you must send another message.
+X
+XThe game starter will try to avoid having you play yourself,
+Xbut it cannot guarantee this will not happen if you send
+Xmultiple requests to the same address within a short time.
+XTo avoid this problem, only send one request at a time, and
+Xdo not send another one until the first game has been started.
+X
+XNote that there could be an arbitrary delay between when you
+Xsend the message and when the game is started.  The game starter
+Xdoes not currently send acknowledgements other than the
+Xactual start command.  This is sent to one of the two opponents
+Xat random, and will not reach the other one until the first
+Xprocesses it through ldb.
+X
+XThis system will work best with "pure" domain-style e-mail addresses.
+XIt *should* work with UUCP addresses too, but there could be problems
+Xwith this, since the path messages take to get to the game starter
+Xmay not be the same path they should take to get to your opponent.
+XIf you want ldb to use an address for you other than the return
+Xaddress from your message, put the following line in your message:
+X
+XReturn-Path: address@you.wanna.use.instead
+X
+XThe Return-Path: must be at the beginning of the line, and must be
+Xexactly as shown (case *is* significant).
+X
+XPlease note that this system is still experimental.  If you have a
+Xproblem using it, or if you have questions about ldb or the
+Xautomatic game starter, contact Perry Ross by e-mail at
+Xross@emf780.den.mmc.com or Mark Rubin by e-mail at mrubin@cs.umb.edu.
+X
+XGood Luck!
+X----------------------------------------------------------------------
+X
+XEOF
+X	rm $x
+Xend
+Xforeach x (novice intermediate expert)
+X	cd $home/$x
+X	set z=$x
+X	if ($x != intermediate) set z="$x	"
+X	set y=(`ls | head -2`)
+X	while ($#y > 1)
+X		set u1tmp=(`egrep "($fld)" $y[1] | awk '{print $2;}' | tail -1 | sed $edscr`)
+X		set u1=$u1tmp[$#u1tmp]
+X		set u2tmp=(`egrep "($fld)" $y[2] | awk '{print $2;}' | tail -1 | sed $edscr`)
+X		set u2=$u2tmp[$#u2tmp]
+X		if ("$u1" == "$u2") then	# duplicate
+X			rm $y[1]		# eliminate one of them
+X			set y=(`ls | head -2`)	# and try again
+X			continue
+X		endif
+X		/u/ra/ugrad/mrubin/bin/sun4/ldb -remotestart $u1:q $u2:q
+X		rm $y
+X		echo "`date`  $z	$u1:q $u2:q" >> ../ldbstarter.log
+X		set y=(`ls | head -2`)
+X	end
+Xend
+Xexit
+END_OF_FILE
+if test 5255 -ne `wc -c <'ldbstarter'`; then
+    echo shar: \"'ldbstarter'\" unpacked with wrong size!
+fi
+# end of 'ldbstarter'
+fi
+if test -f 'move.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'move.c'\"
+else
+echo shar: Extracting \"'move.c'\" \(5447 characters\)
+sed "s/^X//" >'move.c' <<'END_OF_FILE'
+X/*	move.c		8/5/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*-----------------------------------------------------------------------
+X *	apply -- apply a move to a board
+X *
+X * Apply applies a move to a board, detecting the following errors:
+X *	RJ_NOROLL	The mv struct did not contain a valid roll.
+X *	RJ_ONBAR	The move attempted to move from a point other than
+X *			the bar when pieces are on the bar.
+X *	RJ_NOOFF	The move attempted to move pieces off before all
+X *			pieces are in the inner table.
+X *	RJ_NOPIECE	The move attempted to take a piece from an empty point.
+X *	RJ_NOTYOURS	The move attempted to move the opponent's piece.
+X *	RJ_OCC		The move attempted to move to an occupied point.
+X *	RJ_EXACT	The move attempted to bear off a piece with a
+X *			larger roll than necessary when that piece was
+X *			not the outermost piece.
+X * If the move was legal, apply returns:
+X *	MVOK		if no blot was hit, or
+X *	point number	where the blot was before it was hit.
+X * Note that blot numbers are in the range [1-24], MVOK is 0, and
+X * the reject codes are negative.  When the move is rejected,
+X * the board is unchanged.  When a blot is hit, it is moved to the
+X * appropriate bar point automatically.
+X *
+X * If A_REDRAW is set in flags, apply redraws the relevant portions of
+X * the screen to reflect the move.  If A_CHKONLY is set in flags, the
+X * move is checked but the board is not modified.
+X *-----------------------------------------------------------------------
+X */
+X
+Xapply(g,who,mn,flags,dest)
+Xstruct game *g;			/* game structure */
+Xint who;			/* WHO_OPP = opponent, WHO_ME = me */
+Xint mn;				/* which element of mv array */
+Xint flags;			/* A_* */
+Xint *dest;			/* where to store destination point */
+X{
+Xint i, j, blot;
+Xint op, np;
+Xint dir;
+Xchar clr;
+Xstruct mv *m;
+Xregister struct point *b = g->board;
+X
+Xdir = (who == WHO_ME) ? g->mydir : g->opdir;
+Xclr = (who == WHO_ME) ? g->mycolor : g->opcolor;
+Xblot = MVOK;			/* no blot hit yet */
+Xm = (who == WHO_ME) ? &g->mvs[mn] : &g->opmvs[mn];
+Xif (m->roll <= 0)		/* sanity check */
+X	return(RJ_NOROLL);	/* reject move */
+Xop = m->pt;		/* starting point number */
+Xif (op < 0)		/* this roll is unused */
+X	return(MVOK);	/* and that's ok */
+Xif ( (op == 0) || (op == 25) )	/* moving off bar */
+X	op = BARPT(dir);	/* use correct bar point */
+Xelse {			/* not moving off bar */
+X	j = BARPT(dir);	/* make sure no pieces still on bar */
+X	if (b[j].qty > 0)
+X		return(RJ_ONBAR);	/* can't move, pieces on bar */
+X	}
+Xnp = op + m->roll*dir;	/* move piece correct number of pts */
+Xif ( (np <= 0) || (np >= 25) ) {
+X	i = (dir > 0) ? 19 : 1;
+X	j = (dir > 0) ? 24 : 6;
+X	if (addpcs(b,clr,i,j)+b[OFFPT(dir)].qty < 15) /* all pcs not */
+X		return(RJ_NOOFF);	/* in inner table, can't move off */
+X	if ( (np != 0) && (np != 25) ) {/* using bigger roll than needed */
+X		i = (dir > 0) ? 19   : op+1; /* check for pcs on higher pts */
+X		j = (dir > 0) ? op-1 : 6;
+X		if (addpcs(b,clr,i,j) > 0)	/* there are some */
+X			return(RJ_EXACT);	/* must use roll on them */
+X		}
+X	np = OFFPT(dir);	/* this piece is moving off */
+X	}
+Xif (b[op].qty <= 0)		/* no piece here to move */
+X	return(RJ_NOPIECE);
+Xif (b[op].color != clr)	/* trying to move opponent's pieces? */
+X	return(RJ_NOTYOURS);
+Xif (b[np].qty == 0)		/* moving to an empty point */
+X	b[np].color = b[op].color;	/* copy color */
+Xif (b[np].color != b[op].color) {	/* moving to occupied pt */
+X	if (b[np].qty == 1) {		/* whacked a blot */
+X		blot = np;		/* save point number for return */
+X		if ( (flags & A_CHKONLY) == 0) {
+X			b[np].qty = 0;		/* bye bye */
+X			j = BARPT(REV(dir));	/* send it to opponents bar */
+X			b[j].color = b[np].color; /* copy color to bar pt */
+X			b[j].qty++;		/* bump counter */
+X			if (flags & A_REDRAW) {	/* update screen */
+X				FeDrawPoint(b,j,0,g->flags & F_INVERT);
+X				FeDrawPip(b,g);
+X				}
+X			b[np].color = b[op].color;	/* my point now */
+X			}
+X		}
+X	else
+X		return(RJ_OCC);		/* point is occupied */
+X	}
+Xif ( (flags & A_CHKONLY) == 0) {
+X	b[op].qty--;				/* take piece from old pt */
+X	b[np].qty++;				/* and put in on new pt */
+X	if (flags & A_REDRAW) {
+X		FeDrawPip(b,g);
+X		FeDrawPoint(b,op,0,g->flags & F_INVERT);/* update the screen */
+X		FeDrawPoint(b,np,0,g->flags & F_INVERT);
+X		}
+X	}
+Xif (dest != NULL)			/* return new position */
+X	*dest = np;
+Xreturn(blot);				/* succeeded, return MVOK or blot */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	addpcs -- add the number of pieces in a range of points
+X *
+X * This function returns the number of pieces of a certain color
+X * that reside within a range of points.
+X *----------------------------------------------------------------------
+X */
+X
+Xaddpcs(b,clr,f,t)
+Xboard b;
+Xchar clr;
+Xint f, t;
+X{
+Xint i, q;
+X
+Xq = 0;				/* quantity we have found so far */
+Xfor (i = f; i <= t; i++)
+X	if (b[i].color == clr)	/* found some */
+X		q += b[i].qty;	/* count them */
+Xreturn(q);			/* return quantity found */
+X}
+END_OF_FILE
+if test 5447 -ne `wc -c <'move.c'`; then
+    echo shar: \"'move.c'\" unpacked with wrong size!
+fi
+# end of 'move.c'
+fi
+if test -f 'r_xrand.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'r_xrand.c'\"
+else
+echo shar: Extracting \"'r_xrand.c'\" \(8762 characters\)
+sed "s/^X//" >'r_xrand.c' <<'END_OF_FILE'
+X/*	r_xrand.c
+X */
+X
+X#include "ldb.h"
+X#include <math.h>
+X
+Xlong rnd_ri();
+X
+X/*======================================================================
+X * This file contains the random number generator.  It is accessed by
+X * calling RandomInit with a 32-bit seed, then calling Rolldie() to
+X * generate integers in the range [1-6].  This particular implementation
+X * was taken from xrand in volume 2 of comp.sources.misc.  It was
+X * written by Andreas Nowatzyk, then of Carnegie-Mellon University, and
+X * is reproduced here essentially unchanged (although I omitted
+X * all routines but the ones needed for integers in [1-6]).
+X * It is used by permission of the author, whose original copyright
+X * and permission-to-use appears below.
+X *======================================================================
+X */
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	Rolldie -- return a random number between 1 and 6
+X *----------------------------------------------------------------------
+X */
+X
+XRolldie()
+X{
+X
+Xreturn( ( (int) rnd_ri(6L) ) + 1);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	RandomInit -- initialize the random number generator
+X *
+X * This function should be called once, before Rolldie is called.
+X * The seed may be any more or less random number; the time seems
+X * to be conventional.
+X *----------------------------------------------------------------------
+X */
+X
+XRandomInit(seed)
+Xlong seed;
+X{
+X
+Xrnd_init(seed);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *From:	EMF780::WINS%"Andreas.Nowatzyk@eng.sun.com" 20-NOV-1991 17:50:38.73
+X *To:	ROSS
+X *CC:	
+X *Subj:	Re:  xrand
+X *
+X *Return-Path: <Andreas.Nowatzyk@eng.sun.com>
+X *Received: from everest.den.mmc.com by emf780.den.mmc.com with SMTP ; 
+X *          Wed, 20 Nov 91 16:50:29 MDT
+X *Received: from Sun.COM by everest.den.mmc.com (4.1/1.34.a)
+X *	id AA27426; Wed, 20 Nov 91 17:52:10 MST
+X *Received: from Eng.Sun.COM (zigzag-bb.Corp.Sun.COM) by Sun.COM (4.1/SMI-4.1)
+X *	id AA07190; Wed, 20 Nov 91 16:50:53 PST
+X *Received: from bovic.Eng.Sun.COM by Eng.Sun.COM (4.1/SMI-4.1)
+X *	id AA21474; Wed, 20 Nov 91 16:49:44 PST
+X *Received: by bovic.Eng.Sun.COM (4.1/SMI-4.1)
+X *	id AA02462; Wed, 20 Nov 91 16:49:16 PST
+X *Date: Wed, 20 Nov 91 16:49:16 PST
+X *From: Andreas.Nowatzyk@eng.sun.com (Andreas G. Nowatzyk)
+X *Message-Id: <9111210049.AA02462@bovic.Eng.Sun.COM>
+X *To: ross@emf780.den.mmc.com
+X *Subject: Re:  xrand
+X *
+X *I have no objection to distributing xrand, provided that this is not done
+X *for profit and that the source is credited.
+X *
+X *  --  Andreas
+X *
+X *PS: There was a bug is some version of xrand.c: The constant for the most
+X *    positive integer (0x7fffffff) had an 'f' missing in two places. It should
+X *    have used a #define MAX_INT with apropriate value instead of hardwiring
+X *    an hex-constant.
+X *----------------------------------------------------------------------
+X */
+X
+X#define MAX_INT 0x7fffffff
+X
+X/* Random number generators:
+X *
+X *  rnd_init (unsigned seed) 
+X *			: initializes the generator
+X *
+X *  rnd_i ()		: returns positive integers [0,0x7fffffff]
+X *  rnd_ri (long n)	: returns positive integers [0,n-1]
+X *
+X *  Algorithm M as describes in Knuth's "Art of Computer Programming", Vol 2. 1969
+X *  is used with a linear congruential generator (to get a good uniform
+X *  distribution) that is permuted with a Fibonacci additive congruential
+X *  generator to get good independence.
+X *
+X *  Bit, byte, and word distributions were extensively tested and pass
+X *  Chi-squared test near perfect scores (>7E8 numbers tested, Uniformity
+X *  assumption holds with probability > 0.999)
+X *
+X *  Run-up tests for on 7E8 numbers confirm independence with
+X *  probability > 0.97.
+X *
+X *  Plotting random points in 2d reveals no apparent structure.
+X *
+X *  Autocorrelation on sequences of 5E5 numbers (A(i) = SUM X(n)*X(n-i), i=1..512)
+X *  results in no obvious structure (A(i) ~ const).
+X *
+X *  On a SUN 3/60, rnd_u() takes about 19.4 usec per call, which is about 44%
+X *  slower than Berkeley's random() (13.5 usec/call).
+X *
+X *  Except for speed and memory requirements, this generator outperforms
+X *  random() for all tests. (random() scored rather low on uniformity tests,
+X *  while independence test differences were less dramatic).
+X *
+X *  Thanks to M.Mauldin, H.Walker, J.Saxe and M.Molloy for inspiration & help.
+X *
+X *  (c) Copyright 1988 by A. Nowatzyk
+X *
+X */
+X
+X/* LC-parameter selection follows recommendations in 
+X * "Handbook of Mathematical Functions" by Abramowitz & Stegun 10th, edi.
+X */
+X#define LC_A 66049L		    /* = 251^2, ~= sqrt(2^32)			*/
+X#define LC_C 390786457L	/* result of a long trial & error series    */
+X
+X/*
+X#define Xrnd(x) (long)((long)x * LC_A + LC_C) */   /* the LC polynomial			*/
+X			
+Xstatic unsigned long Fib[55];	    /* will use X(n) = X(n-55) - X(n-24)	*/
+Xstatic int Fib_ind;		    /* current index in circular buffer		*/
+Xstatic unsigned long Xrnd_var;	    /* LCA - recurrence variable		*/
+Xstatic unsigned long auxtab[256];   /* temporal permutation table		*/
+Xstatic unsigned long prmtab[64] = { /* spatial permutation table		*/
+X    0xffffffff, 0x00000000,  0x00000000,  0x00000000,  /* 3210 */
+X    0x0000ffff, 0x00ff0000,  0x00000000,  0xff000000,  /* 2310 */
+X    0xff0000ff, 0x0000ff00,  0x00000000,  0x00ff0000,  /* 3120 */
+X    0x00ff00ff, 0x00000000,  0xff00ff00,  0x00000000,  /* 1230 */
+X
+X    0xffff0000, 0x000000ff,  0x00000000,  0x0000ff00,  /* 3201 */
+X    0x00000000, 0x00ff00ff,  0x00000000,  0xff00ff00,  /* 2301 */
+X    0xff000000, 0x00000000,  0x000000ff,  0x00ffff00,  /* 3102 */
+X    0x00000000, 0x00000000,  0x00000000,  0xffffffff,  /* 2103 */
+X
+X    0xff00ff00, 0x00000000,  0x00ff00ff,  0x00000000,  /* 3012 */
+X    0x0000ff00, 0x00000000,  0x00ff0000,  0xff0000ff,  /* 2013 */
+X    0x00000000, 0x00000000,  0xffffffff,  0x00000000,  /* 1032 */
+X    0x00000000, 0x0000ff00,  0xffff0000,  0x000000ff,  /* 1023 */
+X
+X    0x00000000, 0xffffffff,  0x00000000,  0x00000000,  /* 0321 */
+X    0x00ffff00, 0xff000000,  0x00000000,  0x000000ff,  /* 0213 */
+X    0x00000000, 0xff000000,  0x0000ffff,  0x00ff0000,  /* 0132 */
+X    0x00000000, 0xff00ff00,  0x00000000,  0x00ff00ff   /* 0123 */
+X};
+X
+Xunion hack {			    /* used to access doubles as unsigneds	*/
+X    double d;
+X    unsigned long u[2];
+X};
+X
+Xstatic union hack man;		    /* mantissa bit vector			*/
+X
+Xlong Xrnd(x) 
+Xlong x;
+X{
+X	long tmp;
+X
+X	tmp = x* LC_A;
+X	tmp += LC_C;
+X	return tmp;
+X}
+X
+Xrnd_init (seed)			    /* modified: seed 0-31 use precomputed stuff */
+X    unsigned seed;
+X{
+X    register unsigned long u;
+X    register int i;
+X    double x, y;
+X    union hack t;
+X
+X    static unsigned seed_tab[32] = {
+X		0xbdcc47e5, 0x54aea45d, 0xec0df859, 0xda84637b,
+X		0xc8c6cb4f, 0x35574b01, 0x28260b7d, 0x0d07fdbf,
+X		0x9faaeeb0, 0x613dd169, 0x5ce2d818, 0x85b9e706,
+X		0xab2469db, 0xda02b0dc, 0x45c60d6e, 0xffe49d10,
+X		0x7224fea3, 0xf9684fc9, 0xfc7ee074, 0x326ce92a,
+X		0x366d13b5, 0x17aaa731, 0xeb83a675, 0x7781cb32,
+X		0x4ec7c92d, 0x7f187521, 0x2cf346b4, 0xad13310f,
+X		0xb89cff2b, 0x12164de1, 0xa865168d, 0x32b56cdf  };
+X
+X    if (seed < 32)
+X	u = seed_tab[seed];
+X    else
+X	u = seed ^ seed_tab[seed & 31];
+X
+X    for (i = 55; i--;)		    /* set up Fibonacci additive congruential	*/
+X	Fib[i] = u = Xrnd(u);
+X
+X    for (i = 256; i--;)
+X	auxtab[i] = u = Xrnd(u);
+X
+X    Fib_ind = u % 55;		    /* select a starting point			*/
+X
+X    Xrnd_var = u;
+X
+X	/*	The following tests to see if a double fits into
+X		2 unsigned longs.  If not, rnd_01d will not work
+X		on this machine.					*/
+X
+X    if (sizeof(x) != 2 * sizeof(unsigned long))
+X	fatal("ERROR: xrand roller does not work on this machine!");
+X
+X    x = 1.0;
+X    y = 0.5;
+X    do {			    /* find largest fp-number < 2.0	*/
+X	t.d = x;
+X	x += y;
+X	y *= 0.5;
+X    } while (x != t.d && x < 2.0);
+X
+X    man.d = 1.0;
+X    man.u[0] ^= t.u[0];
+X    man.u[1] ^= t.u[1];		    /* man is now 1 for each mantissa bit	*/
+X}
+X
+Xlong rnd_i ()
+X/*
+X * returns a positive, uniformly distributed random number in [0,0x7fffffff]
+X */
+X{ 
+X    register unsigned long i, j, *t = Fib;
+X
+X    i = Fib_ind;
+X    j = t[i];				    /* = X(n-55) */
+X    j -= (i >= 24) ? t[i - 24] : t[i + 21]; /* = X(n-24) */
+X    t[i] = j;
+X    if (++i >= 55) i = 0;
+X    Fib_ind = i;
+X
+X    t = &auxtab[(j >> 24) & 0xff];
+X    i = *t;
+X    Xrnd_var = *t = Xrnd(Xrnd_var);
+X    t = &prmtab[j & 0x3c];
+X
+X    j =  *t++ & i;
+X    j |= *t++ & ((i << 24) | ((i >>  8) & 0x00ffffff));
+X    j |= *t++ & ((i << 16) | ((i >> 16) & 0x0000ffff));
+X    j |= *t   & ((i <<  8) | ((i >> 24) & 0x000000ff));
+X    
+X    return j & MAX_INT;
+X}
+X
+X
+Xlong rnd_ri (rng)
+X    long rng;
+X/*
+X * randint: Return a random integer in a given Range [0..rng-1]
+X *          Note:  0 < rng
+X */
+X{
+X    register unsigned long  r, a;
+X
+X    do {
+X	r = rnd_i();
+X	a = (r / rng) + 1;
+X	a *= rng;
+X    } while (a >= MAX_INT);
+X    
+X    a--;
+X    return a - r;
+X}
+END_OF_FILE
+if test 8762 -ne `wc -c <'r_xrand.c'`; then
+    echo shar: \"'r_xrand.c'\" unpacked with wrong size!
+fi
+# end of 'r_xrand.c'
+fi
+if test -f 'vars.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vars.c'\"
+else
+echo shar: Extracting \"'vars.c'\" \(11599 characters\)
+sed "s/^X//" >'vars.c' <<'END_OF_FILE'
+X/*	vars.c		8/4/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file contains the definition for all global variables, as well
+X * as the static initialization values for those that need it.
+X *======================================================================
+X */
+X
+Xint Pflag;			/* should I process local input? */
+Xint Rflag;			/* should I look for mail? */
+Xstruct game *ghead;		/* head of linked list of games */
+Xstruct game *gtail;		/* tail of linked list of games */
+Xstruct legal *lhead;		/* head of list of legal moves */
+Xstruct legal *ltail;		/* tail of list of legal moves */
+Xstruct people *phead;		/* head of people list */
+Xstruct packet P;		/* last packet read */
+Xchar cr_mycolor;		/* my color when game is created */
+Xchar cr_opcolor;		/* opponent's color for new games */
+Xchar cr_mydir;			/* my direction for new games */
+Xchar *notify;			/* address to notify when game ends */
+Xchar blk76[] =			/* 76 blanks */
+X"                                                                            ";
+X
+Xchar FeIsActive = 0;		/* has the front-end been initialized? */
+Xchar FeWaitInit = 0;		/* non-0 if message() has been called */
+X
+X#ifdef NEED_READDIR
+Xstruct direct dirbuf;		/* mem used by readdir emulation #define */
+X#endif
+X
+Xint GameState = 0;		/* Current game state for help */
+Xint boardnums[3] = {BD_AFTOP, BD_BEFOP, BD_CUR};
+Xchar *states[] = {		/* description of the states */
+X	"Waiting for opponent to start game",
+X	"Waiting for opponent to move",
+X	"Waiting for opponent to accept double",
+X	"Your turn (you haven't rolled yet)",
+X	"Your move (you have rolled)",
+X	"Waiting for you to accept double",
+X	"Game over"
+X	};
+X
+Xstruct opt options[] = {
+X	"broadcast",	OPT_BCAST,	" [file]",
+X	"\tSend a mail message to all opponents",
+X	"colors",	OPT_COLOR,	" xx",
+X	"\t\tSet colors for new game",
+X	"control",	OPT_CONTROL,	"",
+X	"\t\tPerform control functions on games",
+X	"crawford",	OPT_CRAWFORD,	"",
+X	"\t\tEnable crawford rule for new games",
+X	"direction",	OPT_DIRECTION,	" dir",
+X	"\t\tSet direction for new game [up or down]",
+X	"european",	OPT_EUROPE,	"",
+X	"\t\tEnable european rule for new games",
+X	"help",		OPT_HELP,	"",
+X	"\t\t\tPrint this message",
+X	"jacoby",	OPT_JACOBY,	"",
+X	"\t\t\tEnable jacoby rule for new games",
+X	"match",	OPT_MATCH,	" number",
+X	"\t\tSet number of points in match",
+X	"myaddr",	OPT_MYADDR,	" addr",
+X	"\t\tSet local e-mail address",
+X	"newaddr",	OPT_NEWADDR,	"",
+X	"\t\tNotify opponents that your address changed",
+X	"notify",	OPT_NOTIFY,	" addr",
+X	"\t\tSend mail to addr when game ends",
+X	"permanent",	OPT_PERM,	"",
+X	"\t\tMake new games permanent",
+X	"play",		OPT_PLAY,	"",
+X	"\t\t\tPlay any waiting games but do not read mail",
+X	"read",		OPT_READ,	"",
+X	"\t\t\tRead incoming mail but do not play",
+X	"reconstruct",	OPT_RECONS,	" file",
+X	"\tReconstruct a game from opponent's data file",
+X	"remotestart",	OPT_RSTART,	" u1 u2",
+X	"\tStart a game between u1 and u2",
+X	"score",	OPT_SCORE,	"",
+X	"\t\t\tPrint cumulative score by opponent",
+X	"start",	OPT_START,	" user",
+X	"\t\tStart a game with another user",
+X	NULL,		-1,		NULL,		NULL
+X	};
+X
+Xchar *opcodes[] = {
+X        "START", "USTART", "TIE",  "MOVE", "OFFERDOUBLE", "ACCEPTDOUBLE",
+X	"DECLINEDOUBLE", "CONCEDE", "REMOTESTART", "RESTART", "MSTART",
+X	"RESEND", "NOTIFY",
+X	NULL
+X        };
+X
+Xstruct namevalue nv_rcfile[] = {
+X	"myname",	FT_STRING,	Offset(struct ldbrc *,myname),	NULL,
+X	"myaddr",	FT_STRING,	Offset(struct ldbrc *,myaddr),	NULL,
+X	"peoplefile",	FT_STRING,	Offset(struct ldbrc *,pfile),	NULL,
+X	"gamefile",	FT_STRING,	Offset(struct ldbrc *,gfile),	NULL,
+X	"backupfile",	FT_STRING,	Offset(struct ldbrc *,gbackup),	NULL,
+X	"mailfile",	FT_STRING,	Offset(struct ldbrc *,mfile),	NULL,
+X	"delmail",	FT_STRING,	Offset(struct ldbrc *,delmail),	NULL,
+X	"lockfile",	FT_STRING,	Offset(struct ldbrc *,lockfile),NULL,
+X	"sendcmd",	FT_STRING,	Offset(struct ldbrc *,sendcmd),	NULL,
+X	"tempfile",	FT_STRING,	Offset(struct ldbrc *,tempfile),NULL,
+X	"colors",	FT_STRING,	Offset(struct ldbrc *,defclrs),	NULL,
+X	"direction",	FT_STRING,	Offset(struct ldbrc *,defdir),	NULL,
+X	"initialboard",	FT_STRING,	Offset(struct ldbrc *,initboard),NULL,
+X	"autoroll",	FT_STRING,	Offset(struct ldbrc *,autoroll),NULL,
+X	"automove",	FT_STRING,	Offset(struct ldbrc *,automove),NULL,
+X	"autodouble",	FT_INT,		Offset(struct ldbrc *,autodouble),0,
+X	"supercmd",	FT_STRING,	Offset(struct ldbrc *,supercmd),NULL,
+X	"superkey",	FT_CHAR,	Offset(struct ldbrc *,superkey),0,
+X	"checkpoint",	FT_STRING,	Offset(struct ldbrc *,chkpt),	NULL,
+X	"timeout",	FT_INT,		Offset(struct ldbrc *,acctime),	0,
+X	"keepold",	FT_INT,		Offset(struct ldbrc *,keepold),	0,
+X	"debug",	FT_INT,		Offset(struct ldbrc *,debug),	0,
+X	NULL,		0,		-1,	0
+X	};
+X
+Xstruct namevalue nv_gfile[] = {		/* extracts into global var G */
+X	"gameid",	FT_STRING,	Offset(struct game *,gameid),	NULL,
+X	"opaddr",	FT_STRING,	Offset(struct game *,opaddr),	NULL,
+X	"opname",	FT_STRING,	Offset(struct game *,opname),	NULL,
+X	"myaddr",	FT_STRING,	Offset(struct game *,myaddr),	NULL,
+X	"mycolor",	FT_CHAR,	Offset(struct game *,mycolor),	0,
+X	"opcolor",	FT_CHAR,	Offset(struct game *,opcolor),	0,
+X	"mydir",	FT_CHAR,	Offset(struct game *,mydir),	0,
+X	"opdir",	FT_CHAR,	Offset(struct game *,opdir),	0,
+X	"gameval",	FT_INT,		Offset(struct game *,gameval),	0,
+X	"flags",	FT_INT,		Offset(struct game *,flags),	0,
+X	"opversion",	FT_INT,		Offset(struct game *,opver),	0,
+X	"state",	FT_CHAR,	Offset(struct game *,state),	0,
+X	"term",		FT_CHAR,	Offset(struct game *,term),	0,
+X	"seq",		FT_INT,		Offset(struct game *,seq),	0,
+X	"lastop",	FT_STRLKUP,	Offset(struct game *,lastop),
+X		(int) opcodes,
+X	"mycmt",	FT_STRING,	Offset(struct game *,mycmt),	NULL,
+X	"mycmt2",	FT_STRING,	Offset(struct game *,mycmt2),	NULL,
+X	"opcmt",	FT_STRING,	Offset(struct game *,opcmt),	NULL,
+X	"opcmt2",	FT_STRING,	Offset(struct game *,opcmt2),	NULL,
+X	"dispmsg",	FT_STRING,	Offset(struct game *,dispmsg),	NULL,
+X	"opmvs0",	FT_MOVE,	Offset(struct game *,opmvs[0]),	0,
+X	"opmvs1",	FT_MOVE,	Offset(struct game *,opmvs[1]),	0,
+X	"opmvs2",	FT_MOVE,	Offset(struct game *,opmvs[2]),	0,
+X	"opmvs3",	FT_MOVE,	Offset(struct game *,opmvs[3]),	0,
+X	"blot0",	FT_CHAR,	Offset(struct game *,blot[0]),	0,
+X	"blot1",	FT_CHAR,	Offset(struct game *,blot[1]),	0,
+X	"blot2",	FT_CHAR,	Offset(struct game *,blot[2]),	0,
+X	"blot3",	FT_CHAR,	Offset(struct game *,blot[3]),	0,
+X	"mvs0",		FT_MOVE,	Offset(struct game *,mvs[0]),	0,
+X	"mvs1",		FT_MOVE,	Offset(struct game *,mvs[1]),	0,
+X	"mvs2",		FT_MOVE,	Offset(struct game *,mvs[2]),	0,
+X	"mvs3",		FT_MOVE,	Offset(struct game *,mvs[3]),	0,
+X	"maxused",	FT_INT,		Offset(struct game *,maxused),	0,
+X	"hiused",	FT_INT,		Offset(struct game *,hiused),	0,
+X	"adcnt",	FT_INT,		Offset(struct game *,adcnt),	0,
+X	"admax",	FT_INT,		Offset(struct game *,admax),	0,
+X	"opbd",		FT_BOARD,	Offset(struct game *,opbd[0]),	0,
+X	"mybd",		FT_BOARD,	Offset(struct game *,mybd[0]),	0,
+X	"board",	FT_BOARD,	Offset(struct game *,board[0]),	0,
+X	"curbd",	FT_CHAR,	Offset(struct game *,curbd),	-1,
+X	"rolls",	FT_INTARRAY,	Offset(struct game *,rolls[0]),	6,
+X	"doubles",	FT_INTARRAY,	Offset(struct game *,doubles[0]),6,
+X	"oprolls",	FT_INTARRAY, Offset(struct game *,oprolls[0]),	6,
+X	"opdoubles",	FT_INTARRAY, Offset(struct game *,opdoubles[0]),6,
+X	"starttime",	FT_TIME,	Offset(struct game *,starttime),0,
+X	"lastacc",	FT_TIME,	Offset(struct game *,lastacc),	0,
+X	"mcurrent",	FT_INTARRAY,	Offset(struct game *,mcurrent[0]),2,
+X	"mtotal",	FT_INT,		Offset(struct game *,mtotal),	0,
+X	"notify",	FT_STRING,	Offset(struct game *,notify),	NULL,
+X	"end",		FT_END,		-1,	0,
+X	NULL,		0,		-1,	0
+X	};
+X
+Xstruct namevalue nv_packet[] = {
+X	"version",	FT_INT,		Offset(struct packet *,version),0,
+X	"timestamp",	FT_TIME,	Offset(struct packet *,timestamp),0,
+X	"gameid",	FT_STRING,	Offset(struct packet *,gameid),	NULL,
+X	"opcode",	FT_STRLKUP,	Offset(struct packet *,opcode),
+X		(int) opcodes,
+X	"move0",	FT_MOVE,	Offset(struct packet *,mvs[0]),	0,
+X	"move1",	FT_MOVE,	Offset(struct packet *,mvs[1]),	0,
+X	"move2",	FT_MOVE,	Offset(struct packet *,mvs[2]),	0,
+X	"move3",	FT_MOVE,	Offset(struct packet *,mvs[3]),	0,
+X	"name",		FT_STRING,	Offset(struct packet *,name),	NULL,
+X	"addr",		FT_STRING,	Offset(struct packet *,addr),	NULL,
+X	"comment",	FT_STRING,	Offset(struct packet *,comment),NULL,
+X	"comment2",	FT_STRING,	Offset(struct packet *,comment2),NULL,
+X	"seq",		FT_INT,		Offset(struct packet *,seq),	0,
+X	"colors",	FT_STRING,	Offset(struct packet *,colors),	NULL,
+X	"direction",	FT_STRING,	Offset(struct packet *,dir),	NULL,
+X	"autodouble",	FT_STRING,	Offset(struct packet *,autodbl),NULL,
+X	"jacoby",	FT_STRING,	Offset(struct packet *,jacoby), NULL,
+X	"crawford",	FT_STRING,	Offset(struct packet *,crawford),NULL,
+X	"european",	FT_STRING,	Offset(struct packet *,european),NULL,
+X	"permanent",	FT_STRING,	Offset(struct packet *,perm),	NULL,
+X	"match",	FT_STRING,	Offset(struct packet *,match),  NULL,
+X	"notify",	FT_STRING,	Offset(struct packet *,notify),	NULL,
+X	"end",		FT_END,		-1,	0,
+X	NULL,		0,		-1,	0
+X	};
+X
+Xstruct namevalue nv_pfile[] = {
+X	"addr",		FT_STRING,	Offset(struct people *,addr),	NULL,
+X	"name",		FT_STRING,	Offset(struct people *,name),	NULL,
+X	"alias",	FT_STRING,	Offset(struct people *,alias),	NULL,
+X	"myaddr",	FT_STRING,	Offset(struct people *,myaddr),	NULL,
+X	"newaddr",	FT_INT,		Offset(struct people *,newaddr),0,
+X	"equiv",	FT_STRING,	Offset(struct people *,equiv),	NULL,
+X	"opversion",	FT_INT,		Offset(struct people *,opver),	0,
+X	"fence",	FT_TIME,	Offset(struct people *,fence),	0,
+X	"score",	FT_INTARRAY,	Offset(struct people *,score[0]), 10,
+X	"end",		FT_END,		-1,	0,
+X	NULL,		0,		-1,	0
+X	};
+X
+Xstruct namevalue nv_pequiv[] = {
+X	"addr",		FT_STRING,	Offset(struct people *,addr),	NULL,
+X	"equiv",	FT_STRING,	Offset(struct people *,equiv),	NULL,
+X	"end",		FT_END,		-1,	0,
+X	NULL,		0,		-1,	0
+X	};
+X
+Xint (*func[OPSTATES][NOP])() = {
+X/*	START	USTART	TIE	MOVE	OFRDBL	ACPTDBL
+X		DECDBL	CONCEDE	RSTART	RESTART	MSTART	RESEND	NOTIFY	*/
+X	start,	istart,	tie,	opmove,	smerr,	smerr,
+X		smerr,	opconc,	smerr,	restart,mstart,	smerr,	smerr,
+X	smerr,	smerr,	smerr,	opmove,	opofr,	smerr,
+X		smerr,	opconc,	smerr,	smerr,	smerr,	smerr,	smerr,
+X	smerr,	smerr,	smerr,	smerr,	smerr,	opacpt,
+X		opdec,	opconc,	smerr,	smerr,	smerr,	smerr,	smerr
+X	};
+X
+Xchar *rejlcl[] = {			/* reject messages for local player */
+X	"",					/* no error */
+X	"Move does not contain a legal roll.",	/* shouldn't happen */
+X	"You must fill your inner table before bearing off.",
+X	"There is no piece on that point.",
+X	"The destination of that move is occupied.",
+X	"You cannot move while you are on the bar.",
+X	"You can't move your opponent's pieces.",
+X	"You must bear that piece off with an exact roll."
+X	};
+X
+Xchar *rejmsg[] = {		/* reject messages for received moves */
+X	"Move Accepted.",				/* no error */
+X	"Move does not contain a legal roll.",		/* bad roll */
+X	"Cannot remove pieces before filling inner table.",
+X	"There is no piece at the specified location.",
+X	"The destination of this move is occupied.",
+X	"Attempt to move while pieces are on the bar.",
+X	"Attempt to move wrong color.",
+X	"That piece must be borne off by an exact roll."
+X	};
+END_OF_FILE
+if test 11599 -ne `wc -c <'vars.c'`; then
+    echo shar: \"'vars.c'\" unpacked with wrong size!
+fi
+# end of 'vars.c'
+fi
+echo shar: End of archive 2 \(of 12\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

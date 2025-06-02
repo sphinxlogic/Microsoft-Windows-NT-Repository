@@ -1,0 +1,1206 @@
+Path: uunet!olivea!decwrl!decwrl!waikato.ac.nz!ccc_rex
+From: ccc_rex@waikato.ac.nz
+Newsgroups: vmsnet.sources.games
+Subject: UTIL library source for V5.5
+Message-ID: <1993Mar30.134252.15058@waikato.ac.nz>
+Date: 30 Mar 93 01:42:52 GMT
+Organization: University of Waikato, Hamilton, New Zealand
+Lines: 1196
+Xref: uunet vmsnet.sources.games:630
+
+Hello VMS games players.
+
+Here is the UTIL library source fixed to run under VMS V5.5 and later.
+It should work with V5.4 back to whenever GETDVI was introduced.
+
+Sorry about the bug.  I was using an obsolete system service which seems to
+have stopped working.  Remember these programs were written in the early
+1980s!
+
+The file TTIO.DIFF is included to show what I changed.  I believe similar
+changes have to be made to the MACRO compenent of SNAKE and TANK.
+
+Rex Croft       ccc_rex@waikato.ac.nz
+VMS Systems Programmer
+University of Waikato
+Hamilton
+New Zealand
+
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On 30-MAR-1993 13:35:18.27   By user CCC_REX@WAIKATO.AC.NZ
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. IMAGEDIR.MAR;6
+$!       2. SLEEP.MAR;1
+$!       3. TTIO.DIFF;1
+$!       4. TTIO.MAR;49
+$!       5. UTIL.COM;3
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+X`09.title`09imagedir`09find directory image was run from
+X
+X;+
+X;`09Modified 25-Jul-1985 to handle VMS V4 rooted directory specs
+X;-
+X
+X`09$jpidef
+X
+X`09.psect`09$code4`09rd, nowrt, exe, rel, pic, con, shr, long
+X
+Xlog:`09.ascii`09'IMAGE_DIR'
+Xlog_len = . - log
+X
+X`09.align`09word
+X`09.entry`09-
+Ximage_dir, `5Em<r2,r3,r4,r5>
+X;+
+X;`09status = image_dir()
+X;
+X;`09assigns the disk and directory that the current image is stored in
+X;`09to the logical "image_dir"
+X;
+X;`09status`09system service status code
+X;-
+X`09moval`09-(sp), r4`09`09; address of return length
+X`09subl2`09#256, sp`09`09; allocate room for image name
+X`09movl`09sp, r3`09`09`09; remember its address
+X
+X`09pushl`09#0`09`09`09; end of item list
+X`09pushl`09r4`09`09`09; return length address
+X`09pushl`09r3`09`09`09; buffer address
+X`09pushl`09#256!<jpi$_imagname@16> ; length and item code
+X`09movl`09sp, r1`09`09`09; address of item list
+X
+X`09$getjpi_s itmlst=(r1)`09`09; get info for this process
+X`09blbc`09r0, 1000$`09`09; br if error
+X
+X`09subl2`09#4*4, sp`09`09; remove item list from stack
+X;+
+X;`09now search for end of directory name ("`5D" or ">")
+X;-
+X`09movzwl`09(r4), r4`09`09; get full length of image name
+X`09movl`09r3, r5`09`09`09; get address
+X10$:
+X`09locc`09#`5EA/:/, r4, (r5)`09; look for end of logical name
+X`09beql`0920$`09`09`09; br if not found
+X
+X`09subl3`09#1, r0, r4`09`09; get new length
+X`09addl3`09#1, r1, r5`09`09; get new address
+X`09brb`0910$`09`09`09; look for another colon
+X20$:
+X`09locc`09#`5EA/`5D/, r4, (r5)`09; find closing bracket
+X`09beql`0940$`09`09`09; br if not found
+X
+X`09subl3`09#1, r0, r4`09`09; get new length
+X`09addl3`09#1, r1, r5`09`09; get new address
+X`09brb`0920$`09`09`09; look for another "`5D"
+X40$:
+X`09locc`09#`5EA/>/, r4, (r5)`09; find closing bracket
+X`09beql`0960$`09`09`09; br if not found
+X
+X`09subl3`09#1, r0, r4`09`09; get new length
+X`09addl3`09#1, r1, r5`09`09; get new address
+X`09brb`0940$`09`09`09; look for another ">"
+X60$:
+X
+X100$:
+X`09pushl`09r3`09`09`09; address of eqlnam
+X`09subl3`09r3, r5, -(sp)`09`09; get length of eqlnam
+X`09movl`09sp, r2`09`09`09; save address of descriptor
+X
+X`09pushab`09W`5Elog`09`09`09; address of lognam
+X`09pushl`09#log_len`09`09; length of lognam
+X`09movl`09sp, r3`09`09`09; save address of descriptor
+X
+X`09$crelog_s tblflg=#2, lognam=(r3), eqlnam=(r2) ; create process logical
+X;`09blbc`09r0, 1000$`09`09; br if error
+X1000$:
+X`09ret`09`09`09`09; which will clean up the stack
+X
+X
+X`09.end
+$ CALL UNPACK IMAGEDIR.MAR;6 173433367
+$ create 'f'
+X`09.title`09SLEEP - delay for specified interval
+X`09$ssdef`09`09`09; want ss$_insfarg
+X`09.psect`09$code`09pic, shr, rd, nowrt, exe
+X`09.entry`09-
+Xsleep, `5Em<r2, r3>
+X; Subroutine Sleep(Seconds, Fraction)
+X; Integer*4 Seconds, Fraction
+X`09seconds = 4`09`09; param offset
+X`09fraction = 8`09`09; optional fraction, in 100 ns units
+X`09sleep_efn = 0`09`09; which event flag to use
+X`09cmpb`09(ap), #1`09; how many args?
+X`09beqlu`092100$
+X`09bgtru`092200$
+X`09movl`09#ss$_insfarg, r0 ; none - error
+X`09brb`099000$
+X2100$:`09clrl`09r1`09`09; one arg, so fraction part is zero
+X`09brb`092900$
+X2200$:`09mnegl`09@fraction(ap), r1 ; else get fraction part
+X2900$:`09mnegl`09@seconds(ap), r0 ; make negative
+X`09emul`09#10000000, r0, r1, r2`09; convert to proper units in r2, r3
+X`09movq`09r2, -(sp)`09; push time onto stack
+X`09movaq`09(sp), r2`09; remember address
+X`09$setimr_s-`09`09; set timer
+X`09`09efn=#sleep_efn,-
+X`09`09daytim=(r2)`09; address of time value
+X`09blbc`09r0, 9000$
+X`09$waitfr_s-`09`09; wait for timer
+X`09`09efn=#sleep_efn
+X9000$:`09ret`09`09`09; done
+X
+X`09.end
+$ CALL UNPACK SLEEP.MAR;1 1182597876
+$ create 'f'
+X************
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;46
+X  210   `09$dvidef
+X  211   `09$iodef`09`09; qio io$_...
+X******
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+X  210   `09$dibdef
+X  211   `09$iodef`09`09; qio io$_...
+X************
+X************
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;46
+X  231   mbxitmlst:
+X  232   `09.word`09mbxname_len, dvi$_devnam
+X  233   `09.address mbxname
+X  234   `09.address mbxiosb`09`09; return length, don't want
+X  235   `09.long`090`09`09`09; end of list
+X  236  `20
+X******
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+X  231   dibbuf_descr:
+X  232   `09.word`09dib$k_length, 0
+X  233   `09.address dibbuf
+X  234  `20
+X************
+X************
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;46
+X  241   mbxname_len = 64
+X  242   mbxname:`09`09`09; room to hold the physical mbx name
+X******
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+X  239   mbxname_len = 16
+X  240   mbxname:`09`09`09; room to hold the physical mbx name
+X************
+X************
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;46
+X  253   `09.align`09long
+X******
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+X  251   dibbuf:
+X  252   `09.blkb`09dib$k_length
+X  253  `20
+X  254   `09.align`09long
+X************
+X************
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;46
+X  359  `20
+X  360   ;`09$getchn_s`09chan=mbxchan, pribuf=dibbuf_descr
+X  361   ;`09bsbw`09`09error
+X  362   ;`09$fao_s`09`09ctrstr=mbxcnv, outbuf=mbxname_descr,-
+X  363   ;`09`09`09outlen=mbxname_descr, p1=dibbuf+dib$w_unit
+X  364  `20
+X  365   `09$getdvi_s`09chan=mbxchan, itmlst=mbxitmlst
+X  366   `09bsbw`09`09error
+X  367   `09locc`09`09#0, #mbxname_len, mbxname  ; find trailing nulls
+X  368   `09subl3`09`09r0, #mbxname_len, r0
+X  369   `09movw`09`09r0, mbxname_descr`09; store length of name
+X  370  `20
+X  371   `09$assign_s`09devnam=ttname_descr, chan=ttchan, acmode=#`5ExFF00,-
+X******
+XFile CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+X  360   `09$getchn_s`09chan=mbxchan, pribuf=dibbuf_descr
+X  361   `09bsbw`09`09error
+X  362   `09$fao_s`09`09ctrstr=mbxcnv, outbuf=mbxname_descr,-
+X  363   `09`09`09outlen=mbxname_descr, p1=dibbuf+dib$w_unit
+X  364   `09$assign_s`09devnam=ttname_descr, chan=ttchan, acmode=#`5ExFF00,-
+X************
+X
+XNumber of difference sections found: 5
+XNumber of difference records found: 22
+X
+XDIFFERENCES /IGNORE=()/MERGED=1/OUTPUT=CCC_:`5BREX.UTIL`5DTTIO.DIFF;1-
+X    CCC_:`5BREX.UTIL`5DTTIO.MAR;46-
+X    CCC_:`5BREX.UTIL`5DTTIO.MAR;43
+$ CALL UNPACK TTIO.DIFF;1 1664959250
+$ create 'f'
+X`09.title`09TTIO`09Terminal IO routines ($QIO's)
+X;+
+X;`09Routines to do IO via $QIO's to get special features.
+X;-
+X.if ne 0
+X1 TTIO
+XThis is a group of routines to enable you to perform efficient/special
+Xinput and/or output to a terminal.
+X2 TT_INIT
+XCALL TT_INIT( type )
+X
+X"type" is an integer variable which indicates the input you wish.
+X
+X"type" = 0  ordinary line input
+X         1  efficient single character input if available
+X         2  line input with escape sequences
+X2 TT_SET_FUNC
+XSets the read function modifiers and the wait time.  Once set, the options
+Xwill stay in effect until changed.
+X
+XINTEGER TT_SET_FUNC
+X
+XI = TT_SET_FUNC( value `5B, seconds `5D )
+X
+X"value" is a bit encoded integer specifying options required
+X  Symbol      Hex value         Description
+XIO$M_NOFILTR   '0200'X  Ctrl/U, Ctrl/R or Delete are passed to the user
+XIO$M_PURGE     '0800'X  Type-ahead buffer is purged before the read
+XIO$M_TIMED     '0080'X  Read must complete within specified time
+XIO$M_TRMNOECHO '1000'X  The terminator character (if any) is not echoed
+X
+X"seconds"  maximum time a read may take in seconds
+X"I" is the IO completion status code
+X2 TT_SET_READF
+XSets the buffer address and length before calling TT_SET_READF.
+X
+XINTEGER FUNCTION TT_SET_READF( buffer, buf_len )
+X
+Xbuffer`09address of buffer or address of descriptor of buffer
+Xbuf_len length of buffer.  If omitted then "buffer" is a descriptor
+X
+XValue of function is the I/O status completion code
+X2 TT_SET_TERM
+XSet terminator character mask
+X
+XCALL TT_SET_TERM( option, parameters... )
+X
+Xoption
+X  0`09normal terminators (any control char except LF VT FF TAB BS
+X  1`09parameter 1 is the address of a longword containing the
+X   `09terminator bit mask (first 32 characters only)
+X   `09eg. CALL TT_SET_TERM( 1, '00000001'X )
+X   `09    enable Control A as terminator
+X  2`09parameter 1 is address of # of bytes in terminator mask
+X   `09parameter 2 is address of array containing terminator bit mask
+X  3`09the following parameters are addresses of a byte containing
+X   `09the acsii code of the character to be a terminator.
+X   `09eg. CALL TT_SET_TERM( 3, 10, 13 )
+X   `09    enable LF and CR to be terminators
+X2 TT_CTRLCAST
+X
+XCALL TT_CTRLCAST( subroutine )
+X
+XThis causes the next control C to call the named routine.
+X2 TT_1_CHAR
+XINTEGER TT_1_CHAR
+X
+XI = TT_1_CHAR()
+X
+X"I" contains the ascii value of the character typed.
+XThis routine waits for the character and then returns it.
+XWhatever options that are set (see TT_SET_OPTION) are applied. (not true)
+X2 TT_1_CHAR_T
+XINTEGER TT_1_CHAR_T
+X
+XI = TT_1_CHAR_T( seconds )
+X
+XThis routine reads 1 character if typed within "seconds" time.
+X"I" contains the ascii value of the character typed,
+X it is 0 if the read timed out.
+X2 TT_1_CHAR_NOW
+XINTEGER TT_1_CHAR_NOW
+X
+XI = TT_1_CHAR_NOW()
+X
+X"I" contains the ascii value of the character typed, or -1 if no
+Xcharacter is available.  The character is not echoed.
+XThis routine returns immediately.
+X2 TT_READ
+XThis routine reads a line from the terminal.
+X
+XINTEGER TT_READ
+XI = TT_READ( buffer, buf_len, data_len `5B, term_len `5D )
+X  or
+XI = TT_READ( buf_desc, , data_len `5B, term_len `5D )
+X
+X"buffer" is the address of the input buffer
+X"buf_len" is the length of the input buffer in bytes
+X"data_len" will contain the number of characters read
+X"term_len" (if specified) will contain the length of the terminator
+X"I" will contain the IO completion status code
+X
+X"buf_desc" is the address of a descriptor of the input buffer
+X
+X2 TT_READF
+X
+XINTEGER FUNCTION TT_READF( data_len )
+Xdata_len length of data read (# of characters) (not including term)
+X
+XThis routine is used for reading a lot of data (presumably with
+Xecho reset). READF stands for READ FAST.
+XTT_READF_SET must be called first.
+X
+XValue of function is the I/O status completion code
+X2 TT_PROMPT
+XThis routine reads a line from the terminal.
+X
+XINTEGER TT_PROMPT
+XI = TT_PROMPT( prompt, prompt_len, buffer, buf_len, data_len
+X`09`09`09`09`09`09`5B, term_len `5D )
+X  or
+XI = TT_PROMPT( prompt_desc, , buf_desc, , data_len `5B, term_len `5D )
+X
+X"prompt" is the address of a character string
+X"prompt_len" is the length of the prompt character string
+X"buffer" is the address of the input buffer
+X"buf_len" is the length of the input buffer in bytes
+X"data_len" will contain the number of characters read
+X"term_len" (if specified) will contain the length of the terminator
+X"I" will contain the IO completion status code
+X
+X"prompt_desc" is the address of a descriptor of the prompt string
+X"buf_desc" is the address of a descriptor of the input buffer
+X
+X2 TT_WRITE
+XCALL TT_WRITE( array, length )
+XINTEGER length
+XBYTE array( length )
+X
+X"array" is the address of the characters
+X"length" is the number of characters to write
+X
+XThe write is done in "noformat" (binary) mode.  This completely bypasses
+Xany checking done by the terminal driver eg. for tabs, escape sequences,
+Xor end of line wrapping. `20
+X2 TT_WRITE_S
+XCALL TT_WRITE( array, length, efn )
+XINTEGER length, efn
+XBYTE array( length )
+X
+X"array" is the address of the characters
+X"length" is the number of characters to write
+X"efn" is the efn which will be set upon the writes completion
+X`09This routine does not wait for it to be set.
+X
+XCan be called synchronously with TT_WRITE.
+XThis is so that you can do 2 writes at the same time.
+XIt is designed for use within an AST procedure.
+X2 TT_CANCEL
+XCALL TT_CANCEL
+X
+XCancels type-ahead.
+X2 TT_CANCEL_IO
+XCALL TT_CANCEL_IO
+X
+XCancels all pending I/O requests that were issued via the TTIO routines.
+XThis will normally be called from within an AST procedure.
+X2 Examples
+XC`09TEST TTIO ROUTINES
+XC
+X`09INTEGER TT_PROMPT
+X`09CHARACTER PROMPT*16, BUF_IN*80
+X`09DATA PROMPT / 'ABCDEFGHIJKLMNO>' /
+XC
+X`09CALL TT_INIT( 2 )
+XC
+X`09DO J=1,10
+X`09  I = TT_PROMPT( PROMPT, , BUF_IN, , LEN_IN , LEN_TERM )
+X`09  TYPE *,I,LEN_IN, LEN_TERM
+X`09  TYPE *,BUF_IN(:LEN_IN)`09! THE TERMINATOR IS AFTER THIS
+X`09END DO
+X`09END
+X1 SLEEP_SET
+XThis routine, along with SLEEP_START and SLEEP_WAIT, allows your program
+Xto execute an asynchronous sleep.  You call SLEEP_SET to specify the length
+Xof time.  Then you call SLEEP_START to begin the timed period.  Control
+Xreturns immediately to your image; you can then execute whatever code is
+Xrequired.  Then you call SLEEP_WAIT to wait for the timed period to expire.
+XThe timed period may have already finished, in which case control will
+Xreturn immediately.
+X2 Parameters
+XCALL SLEEP_SET( time , efn )
+X
+X"time" is the address of an integer specifying the timed period in
+X       hundredths of a second.
+X"efn"  is the address of an integer indicating which event flag to use.
+X       Use 21 if you have no preference.  Must be less than 24.
+X1 SLEEP_START
+XThis starts a timed period, as specified by the previous call to SLEEP_SET.
+X
+XCALL SLEEP_START
+X
+XControl returns immediately.
+X1 SLEEP_WAIT
+XThis waits for the completion of a timed period, as started by the previous
+Xcall to SLEEP_START
+X
+XCALL SLEEP_WAIT
+X.endc
+X`09$dvidef
+X`09$iodef`09`09; qio io$_...
+X`09$ttdef`09`09; terminal characteristics
+X
+X
+X`09.psect`09$rw_TT_channel$ wrt, rd, noexe, noshr, pic, long
+Xttchan:
+X`09.long`09; channel on which terminal is open (if non zero)
+X
+X`09.psect`09tt$rodata`09nowrt, noexe, shr, pic, long
+X
+Xttname_descr:
+X`09.ascid`09/TT/
+X
+Xmbxcnv:
+X`09.ascid`09/_MBA!UW:/`09; convert mbx unit number to physical name
+X
+Xmbxbuf_descr:
+X`09.word`09mbxbuf_siz, 0
+X`09.address mbxbuf
+X
+Xmbxitmlst:
+X`09.word`09mbxname_len, dvi$_devnam
+X`09.address mbxname
+X`09.address mbxiosb`09`09; return length, don't want
+X`09.long`090`09`09`09; end of list
+X
+X`09.align long
+X
+X`09.psect`09tt$rwbuf`09wrt, noexe, noshr, pic, long
+X
+Xmbxname_len = 64
+Xmbxname:`09`09`09; room to hold the physical mbx name
+X`09.blkb`09mbxname_len
+Xmbxname_descr:
+X`09.word`09mbxname_len, 0
+X`09.address mbxname
+Xmbxiosb:
+X`09.long`090,0
+Xmbxbuf_siz = 32
+Xmbxbuf:
+X`09.blkb`09mbxbuf_siz
+X
+X`09.align`09long
+Xttbuf_siz = 128
+Xttbuf:
+X`09.blkb`09ttbuf_siz
+X;outbuf_siz = 128
+X;outbuf::
+X;`09.blkb`09outbuf_siz
+X
+Xttiosb:
+X`09.long`090,0
+Xtt_func:
+X`09.long`09io$_readvblk
+Xtt_p_func:
+X`09.long`09io$_readprompt
+Xtt_timed:
+X`09.long`09`09`09; wait time if specified
+Xtt_term_addr:
+X`09.long`09`09`09; p4 parameter of read
+Xtt_term_quad:
+X`09.quad`09`09`09; quad word pointed to be tt_term_addr
+Xtt_term_mask:
+X`09.blkb`0916`09`09; bit set if that char is a terminator (0-127)
+X
+X
+X`09.psect`09tt$rwdata`09wrt, noexe, noshr, pic, long
+X
+Xmbxchan:
+X`09.word
+Xdata_ready:
+X`09.word
+X
+Xchars_left:
+X`09.long
+Xchar_pointer:
+X`09.long
+X
+Xsleep_time:
+X`09.long -100000*30, -1`09`09; time to sleep (30/100ths default)
+X
+Xttmode:`09`09`09`09`09; terminal chars changed
+X`09.quad
+Xttsavemode:`09`09`09`09; original terminal characteristics
+X`09.quad
+X
+Xsleep_args:
+X`09.long`094
+Xsleep_efn:
+X`09.long`0921`09; event flag to use for sleeps
+X`09.address sleep_time
+X`09.long`090`09; astadr
+X`09.long`090`09; reqidt
+X
+X;outbuf_qio:
+X;`09$qio`09func=io$_writevblk!io$m_noformat,-
+X;`09`09p1=outbuf
+Xoutput_qio:
+X`09$qio`09func=io$_writevblk!io$m_noformat
+X
+Xread_now_qio:
+X`09$qio`09func=io$_readvblk!io$m_timed!io$m_noecho!io$m_nofiltr,-
+X`09`09iosb=ttiosb,-
+X`09`09p1=ttbuf, p2=ttbuf_siz, p3=0`09; wait time = 0
+X
+Xread_fast_qio:`09; inittialized by TT_SET_READF
+X`09$qio`09func=io$_ttyreadall!io$m_noecho, iosb=ttiosb
+X
+Xtt_exit_blk:`09`09`09; exit handler block
+X`09.long
+X`09.address tt_exit_handler
+X`09.long`091`09`09; 1 argument
+X`09.address 10$
+X10$:`09.long`090`09`09; exit reason
+X
+X
+X`09.psect`09tt$code  nowrt, exe, shr, pic, long
+X
+X`09.entry`09-
+XTT_INIT, `5Em<r2>
+X;+
+X; CALL TT_INIT( type )
+X; type`09= 0, ordinary line input
+X;`09  1, single character input
+X;`09  2, line input with escape sequences
+X;
+X;`09patch 16-Sep-1982
+X;`09`09Only allow 1 call to TT_INIT
+X;-
+X`09tstw`09ttchan`09`09; if channel already allocated, return
+X`09beql`0950$`09`09; patch 16-Sep-1982
+X`09ret
+X50$:
+X`09movl`09@4(ap), r2`09; get type code
+X
+X`09caseb`09r2, #0, #2
+X20$:`09.word`09100$-20$
+X`09.word`09200$-20$
+X`09.word`09300$-20$
+X100$:`09; type 0 (line input)
+X`09$assign_s`09devnam=ttname_descr, chan=ttchan
+X`09bsbw`09error`09`09`09; check for error
+X`09brw`091000$
+X
+X200$:`09; type 1 (single character input)
+X; Create a mailbox.  Assign a channel to terminal with an associated mailbox
+V.
+X`09$crembx_s`09chan=mbxchan, promsk=#`5ExFF00
+X`09bsbw`09`09error
+X
+X;`09$getchn_s`09chan=mbxchan, pribuf=dibbuf_descr
+X;`09bsbw`09`09error
+X;`09$fao_s`09`09ctrstr=mbxcnv, outbuf=mbxname_descr,-
+X;`09`09`09outlen=mbxname_descr, p1=dibbuf+dib$w_unit
+X
+X`09$getdvi_s`09chan=mbxchan, itmlst=mbxitmlst
+X`09bsbw`09`09error
+X`09locc`09`09#0, #mbxname_len, mbxname  ; find trailing nulls
+X`09subl3`09`09r0, #mbxname_len, r0
+X`09movw`09`09r0, mbxname_descr`09; store length of name
+X
+X`09$assign_s`09devnam=ttname_descr, chan=ttchan, - ; acmode=#`5ExFF00
+X`09`09`09mbxnam=mbxname_descr`09; acmode fails in VMS 5.5
+X`09bsbw`09error
+X`09bsbw`09queue_mbxread`09`09; start mail box read
+X`09brw`091000$
+X
+X300$:`09; type 2 (line input with escape sequences)
+X`09$assign_s`09devnam=ttname_descr, chan=ttchan
+X`09bsbw`09error`09`09`09; check for error
+X`09$qiow_s func=#io$_sensemode, chan=ttchan, -
+X`09`09iosb=ttiosb, p1=ttmode`09; get terminal characteristics
+X`09bsbw`09error
+X`09movzwl`09ttiosb, r0
+X`09bsbw`09error
+X`09movq`09ttmode, ttsavemode`09; save current terminal chars
+X`09$dclexh_s desblk=tt_exit_blk`09; declare exit handler to restore
+X`09`09`09`09`09; terminal chars on exit.
+X`09bsbw`09error
+X`09bbss`09#tt$v_escape, ttmode+4, 310$`09; want escape sequences
+X310$:`09$qiow_s func=#io$_setmode, chan=ttchan, -
+X`09`09iosb=ttiosb, p1=ttmode
+X`09bsbw`09error
+X`09movzwl`09ttiosb, r0
+X`09bsbw`09error
+X;`09brbw`091000$
+X
+X1000$:
+X;`09movw`09ttchan, outbuf_qio+qio$_chan`09`09;store channel #
+X`09movw`09ttchan, output_qio+qio$_chan`09`09;store channel #
+X`09movw`09ttchan, read_now_qio+qio$_chan`09`09;store channel #
+X;`09$qiow_s`09func=#io$_setmode!io$m_ctrlcast, chan=ttchan,-
+X;`09`09p1=control_c`09`09`09; set control C trap
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_SET_FUNC, `5Em<>
+X;+
+X;`09I = TT_SET_FUNC( value `5B, seconds `5D )
+X;`09set read modifiers
+X;-
+X`09movl`09@4(ap), r0`09`09`09; get modifiers
+X`09movl`09#io$m_nofiltr!io$m_purge!io$m_timed!io$m_trmnoecho, r1
+X`09`09`09`09`09; get bits allowed to set
+X`09bicl2`09r1, tt_func`09`09; clear previous options
+X`09bicl2`09r1, tt_p_func
+X`09mcoml`09r1, r1`09`09`09; get bits cannot change
+X`09bicl2`09r1, r0`09`09`09; make sure only change correct bits
+X`09bisl2`09r0, tt_func`09`09; and set new options
+X`09bisl2`09r0, tt_p_func
+X
+X`09cmpb`09#1, (ap)`09`09; check if "seconds" parameter here
+X`09bgtr`09100$
+X`09ret
+X100$:`09movl`09@8(ap), tt_timed`09; store time
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_SET_TERM, `5Em<r2,r3>
+X;+
+X;`09CALL TT_SET_TERM( option, parameters... )
+X;`09set terminator character mask
+X;
+X;`09option
+X;`090`09normal terminators (any control char except LF VT FF TAB BS
+X;`091`09parameter 1 is the address of a longword containing the
+X;`09`09terminator bit mask (first 32 characters only)
+X;`09`09( 1, '00000001'X )`09! enable Control A as terminator
+X;`092`09parameter 1 is address of # of bytes in terminator mask
+X;`09`09parameter 2 is address of array containing terminator bit mask
+X;`093`09the following parameters are addresses of a byte containing
+X;`09`09the acsii code of the character to be a terminator.
+X;`09`09( 3, 10, 13 )`09`09! enable LF and CR to be terminators
+X;-
+X`09subl3`09#1, (ap)+, r0`09`09; get number of parameters - 1
+X`09movl`09@(ap)+, r1`09`09; get option
+X
+X`09caseb`09r1, #0, #3
+X10$:`09.word`09100$-10$
+X`09.word`09200$-10$
+X`09.word`09300$-10$
+X`09.word`09400$-10$
+X; fall thru to option 0
+X100$:
+X`09clrl`09tt_term_addr`09`09; 0 means the default term mask
+X`09ret
+X200$:`09; option 1
+X`09sobgeq`09r0, 210$`09`09; see if another parameter
+X`09ret
+X210$:`09movl`09@(ap)+, r3`09`09; get longword terminator mask
+X240$:`09; r3 contains low 32 bits of terminator mask
+X`09clrl`09r2`09`09`09; first longword must be zero
+X`09movq`09r2, tt_term_quad`09; store it
+X250$:`09movaq`09tt_term_quad, tt_term_addr ; set up pointer to quadword
+X`09ret
+X
+X300$:`09; option 2`09; param1 is # of bytes`09; param2 if address of bytes
+X`09sobgeq`09r0, 310$`09`09; see if another parameter
+X`09ret
+X310$:`09movzbl`09@(ap)+, tt_term_quad`09; store # of bytes in term mask
+X`09sobgeq`09r0, 320$`09`09; see if another parameter
+X`09ret
+X320$:`09movl`09@(ap)+, tt_term_quad+4`09; store address of term bit mask
+X`09brb`09250$`09`09`09; go set up pointer and exit
+X
+X400$:`09; option 3`09; a list of ascii codes follow
+X`09movab`09tt_term_mask, r3`09; base of terminator bit mask
+X`09movl`09r3, r1
+X`09clrq`09(r1)+`09`09`09; zero terminator bit mask
+X`09clrq`09(r1)+`09`09`09; 16 bytes (0-127)
+X`09clrq`09(r1)+
+X`09clrq`09(r1)+
+X`09clrl`09r1`09`09`09; maximum ascii code
+X`09clrl`09r2`09`09`09; we put ascii code in low byte
+X`09tstl`09r0`09`09`09; see if at least 1 parameter
+X`09bgtr`09410$
+X`09ret
+X410$:
+X`09bicb3`09#`5EX80, @(ap)+, r2`09; get ascii code (0-127)
+X`09cmpl`09r2, r1`09`09`09; bigger than previous maximum ?
+X`09bleq`09420$
+X`09movl`09r2, r1
+X420$:`09bbss`09r2, (r3), 440$`09`09; set bit
+X440$:`09sobgtr`09r0, 410$`09`09; do all parameters
+X
+X`09addl2`09#7, r1`09`09`09; round up to nearest byte
+X`09divl2`09#8, r1`09`09`09; get # of bytes in term mask
+X`09cmpl`09r1, #4`09`09`09; if <= 4 bytes, use short format
+X`09bgtr`09450$
+X`09movl`09(r3), r3`09`09; get first 4 bytes of mask in r3
+X`09brw`09240$`09`09`09; go store it and pointer and exit
+X450$:
+X`09movl`09r1, tt_term_quad`09; store # of bytes for long format
+X`09movl`09r3, tt_term_quad+4`09; store address of term bit mask
+X`09brb`09250$`09`09`09; store pointer and exit
+X
+X
+X
+X`09.entry`09-
+XTT_CTRLCAST,`09`5Em<>
+X;+
+X;`09CALL TT_CTRLCAST( routine address )
+X;`09enable a control C ast
+X;-
+X`09$qiow_s func=#io$_setmode!io$m_ctrlcast, chan=ttchan, iosb=ttiosb, -
+X`09`09p1=@4(ap)
+X`09ret`09`09`09`09; ignore all erros
+X
+X
+X`09.entry`09-
+XTT_1_CHAR,`09`5Em<>
+X;+
+X;`09I = TT_1_CHAR
+X;`09read 1 character.  Waits for it.
+X;-
+X`09clrb`09ttbuf
+X`09$qiow_s`09func=#io$_readvblk!io$m_noecho!io$m_nofiltr,-
+X`09`09chan=ttchan, iosb=ttiosb,-
+X`09`09p1=ttbuf, p2=#1
+X`09cvtbl`09ttbuf, r0
+X`09ret
+X
+X`09.entry`09-
+XTT_1_CHAR_T,`09`5Em<>
+X;+
+X;`09I = TT_1_CHAR_T( seconds )
+X;`09read 1 character.  Waits "seconds" for it.
+X;`09returns 0 if times out
+X;-
+X`09clrb`09ttbuf
+X`09$qiow_s`09func=#io$_readvblk!io$m_noecho!io$m_nofiltr!io$m_timed,-
+X`09`09chan=ttchan, iosb=ttiosb,-
+X`09`09p1=ttbuf, p2=#1, p3=@4(ap)
+X`09cvtbl`09ttbuf, r0
+X`09ret
+X
+X`09.entry`09-
+XTT_1_CHAR_NOW, `5Em<>
+X;+
+X;`09I = TT_1_CHAR_NOW()
+X;`09get next character if typed.  Returns immediately.
+X;`09I = -1 if no character available
+X;-
+X`09tstl`09chars_left`09`09; have we used all characters ?
+X`09bgtr`0950$`09`09`09; no --> 50$
+X`09bbsc`09#0, data_ready, 20$`09; check if input ready
+X5$:`09mnegl`09#1, r0`09`09`09; no characters read
+X`09ret`09`09`09`09; no
+X20$:
+X`09$qiow_g read_now_qio
+X`09blbc`09r0, 5$`09`09`09; error
+X;
+X;`09$qiow_s`09func=#io$_writevblk,chan=ttchan,-`09; debug write
+X;`09`09p1=ttbuf, p2=ttiosb+2, p4=#`5Ex1000
+X
+X`09movzwl`09ttiosb+2, chars_left`09`09; # chars read
+X`09movab`09ttbuf, char_pointer`09`09; store address of character
+X50$:
+X`09decl`09chars_left
+X`09movzbl`09@char_pointer, r0`09`09; get next char
+X`09incl`09char_pointer`09`09`09; point to next
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_READ, `5Em<r2,r3>
+X;+
+X;`09INTEGER FUNCTION TT_READ( buffer, buf_len, data_len, term_len )
+X;`09buffer`09address of buffer or address of descriptor of buffer
+X;`09buf_len length of buffer.  If omitted then "buffer" is a descriptor
+X;`09data_len length of data read (# of characters)
+X;`09term_len length of terminator
+X;
+X;`09Value of function is the I/O status completion code
+X;-
+X`09movl`098(ap), r2`09`09; get buf_len
+X`09bneq`09100$`09`09`09; if <> 0 then it was specified
+X`09movq`09@4(ap), r2`09`09; get descriptor of buffer
+X`09`09`09`09`09; r2 = length, r3 = address
+X`09bicl2`09#`5EXFFFF0000, r2`09`09; want length only
+X`09brb`09200$
+X100$:
+X`09movl`09(r2), r2`09`09; get buffer length
+X`09movl`094(ap), r3`09`09; get buffer address
+X200$:
+X`09$qiow_s func=tt_func, chan=ttchan, iosb=ttiosb, -
+X`09`09p1=(r3), p2=r2, p3=tt_timed, p4=tt_term_addr
+X`09blbc`09r0, 600$`09`09; did $qio get an error.  yes --> 600$
+X
+X`09movzwl`09ttiosb+2, @12(ap)`09; store # characters read
+X`09cmpb`09(ap), #3`09`09; enough arguments supplied
+X`09bleq`09500$`09`09`09; no --> 500$
+X`09movl`0916(ap), r2`09`09; does user want terminator length
+X`09beql`09500$
+X`09movzwl`09ttiosb+6, (r2)`09`09; store terminator length
+X500$:
+X`09movzwl`09ttiosb, r0
+X600$:
+X`09ret
+X
+X`09.entry`09-
+XTT_READ_S, `5Em<>
+X;+
+X;`09CALL TT_READ_S( array, length, efn, iast, iosb )
+X;`09BYTE ARRAY( LENGTH )
+X;`09INTEGER iosb(2)
+X;
+X;`09reads a line asynchronously
+X;`09will set "iast" to one when complete
+X;-
+X`09$qio_s`09func=tt_func, -
+X`09`09chan=ttchan, -
+X`09`09efn=@12(ap), -
+X`09`09iosb=@20(ap), -
+X`09`09astadr=tt_read_s_ast, -
+X`09`09astprm=@16(ap), -
+X`09`09p1=@4(ap), p2=@8(ap)
+X`09blbc`09r0, 100$
+X`09ret
+X100$:
+X`09bsbw`09error
+X`09ret
+X
+X`09.align`09word
+X`09.entry`09-
+XTT_READ_S_AST, `5Em<>
+X`09movl`09#1, @4(ap)
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_SET_READF, `5Em<r2,r3>
+X;+
+X;`09CALL TT_SET_READF( buffer, buf_len )
+X;`09buffer`09address of buffer or address of descriptor of buffer
+X;`09buf_len length of buffer.  If omitted then "buffer" is a descriptor
+X;-
+X`09movl`098(ap), r2`09`09; get buf_len
+X`09bneq`09100$`09`09`09; if <> 0 then it was specified
+X`09movq`09@4(ap), r2`09`09; get descriptor of buffer
+X`09`09`09`09`09; r2 = length, r3 = address
+X`09bicl2`09#`5EXFFFF0000, r2`09`09; want length only
+X`09brb`09200$
+X100$:
+X`09movl`09(r2), r2`09`09; get buffer length
+X`09movl`094(ap), r3`09`09; get buffer address
+X200$:
+X`09movl`09r3, read_fast_qio+qio$_p1`09; address of buffer
+X`09movl`09r2, read_fast_qio+qio$_p2`09; length of buffer
+X;`09movl`09tt_timed, read_fast_qio+qio$_p3 ; time out
+X`09movl`09tt_term_addr, read_fast_qio+qio$_p4 ; terminator pointer
+X;`09movl`09tt_func, read_fast_qio+qio$_func
+X`09movzwl`09ttchan, read_fast_qio+qio$_chan
+X
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_READF, `5Em<r2,r3>
+X;+
+X;`09INTEGER FUNCTION TT_READF( data_len )
+X;`09data_len length of data read (# of characters) (not including term)
+X;
+X;`09This routine is used for reading a lot of data in binary mode
+X;`09with no echo.  READF stands for READ FAST.
+X;`09TT_READF_SET must be called first
+X;
+X;`09Value of function is the I/O status completion code
+X;-
+X
+X`09$qiow_g read_fast_qio
+X`09blbc`09r0, 600$`09`09; did $qio get an error.  yes --> 600$
+X
+X`09movzwl`09ttiosb+2, @4(ap)`09; store # characters read
+X`09movzwl`09ttiosb, r0
+X600$:
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_PROMPT, `5Em<r2,r3,r4,r5>
+X;+
+X;`09INTEGER FUNCTION TT_PROMPT( prompt, prompt_len,
+X;`09`09buffer, buf_len, data_len, term_len )
+X;`09prompt  address of prompt string or address of descriptor
+X;`09prompt_len  length of prompt string.  If omitted then "prompt"
+X;`09`09`09`09`09`09is a descriptor
+X;`09buffer`09address of buffer or address of descriptor of buffer
+X;`09buf_len length of buffer.  If omitted then "buffer" is a descriptor
+X;`09data_len length of data read (# of characters)
+X;`09term_len length of terminator
+X;
+X;`09Value of function is the I/O status completion code
+X;-
+X`09movl`0916(ap), r2`09`09; get buf_len
+X`09bneq`09100$`09`09`09; if <> 0 then it was specified
+X`09movq`09@12(ap), r2`09`09; get descriptor of buffer
+X`09`09`09`09`09; r2 = length, r3 = address
+X`09bicl2`09#`5EXFFFF0000, r2`09`09; want length only
+X`09brb`09200$
+X100$:
+X`09movl`09(r2), r2`09`09; get buffer length
+X`09movl`0912(ap), r3`09`09; get buffer address
+X200$:
+X`09movl`098(ap), r4`09`09; get prompt_len
+X`09bneq`09300$`09`09`09; if <> 0 then it was specified
+X`09movq`09@4(ap), r4`09`09; get descriptor of prompt string
+X`09`09`09`09`09; r4 = length, r5 = address
+X`09bicl2`09#`5EXFFFF0000, r4`09`09; get length only
+X`09brb`09400$
+X300$:
+X`09movl`09(r4), r4`09`09; get prompt length
+X`09movl`094(ap), r5`09`09; get prompt address
+X400$:
+X
+X`09$qiow_s func=tt_p_func, chan=ttchan, iosb=ttiosb, -
+X`09`09p1=(r3), p2=r2, p3=tt_timed, p5=r5, p6=r4
+X`09blbc`09r0, 600$`09`09; did $qio get an error.  yes --> 600$
+X
+X`09movzwl`09ttiosb+2, @20(ap)`09; store # characters read
+X`09cmpb`09(ap), #5`09`09; enough arguments supplied
+X`09bleq`09500$`09`09`09; no --> 500$
+X`09movl`0924(ap), r2`09`09; does user want terminator length
+X`09beql`09500$
+X`09movzwl`09ttiosb+6, (r2)`09`09; store terminator length
+X500$:
+X`09movzwl`09ttiosb, r0
+X600$:
+X`09ret
+X
+X
+X`09.entry`09-
+XTT_MBX_READ,`09`5Em<>
+X;+
+X; This is an AST routine which executes when the mailbox record has been rea
+Vd.
+X; The record itself is a status message which is assumed to say that
+X; unsolicited data is available at the terminal
+X;-
+X`09blbc`09mbxiosb, 100$`09`09; on error, dont re-que read
+X;`09we could have SS$_CANCEL or SS$_ABORT from the $CANCEL in the
+X;`09exit handler
+X`09movb`09#1, data_ready`09`09; indicate data is there
+X`09bsbw`09queue_mbxread`09`09; queue another read request
+X100$:
+X`09ret
+X
+XQUEUE_MBXREAD:
+X`09$qio_s`09efn=#2, func=#io$_readvblk, chan=mbxchan, iosb=mbxiosb,-
+X`09`09astadr=tt_mbx_read,-
+X`09`09p1=mbxbuf, p2=#mbxbuf_siz
+X`09blbc`09r0, 100$
+X`09rsb
+X100$:
+X`09bsbw`09error
+X`09rsb
+X
+X;TT_WRITE$:
+X;+
+X;`09bsbw`09ttwrite
+X;`09r3 contains length of buffer to write
+X;`09the buffer is outbuf
+X;-
+X;`09movl`09r3, outbuf_qio+qio$_p2`09`09; store length of buffer
+X;`09$qiow_g`09outbuf_qio
+X;`09blbc`09r0, 100$
+X;`09rsb
+X;100$:
+X;`09bsbw`09error
+X;`09rsb
+X
+X`09.entry`09-
+XTT_WRITE, `5Em<>
+X;+
+X;`09CALL TT_WRITE( array, length )
+X;`09BYTE ARRAY( LENGTH )
+X;`09writes buffer to terminal in noformat mode
+X;-
+X`09movl`094(ap), output_qio+qio$_p1`09; store address of buffer
+X`09movl`09@8(ap), output_qio+qio$_p2`09; store length of buffer
+X`09$qiow_g`09output_qio
+X`09blbc`09r0, 100$
+X`09ret
+X100$:
+X`09bsbw`09error
+X`09ret
+X
+X`09.entry`09-
+XTT_WRITE_S, `5Em<>
+X;+
+X;`09CALL TT_WRITE_S( array, length, efn )
+X;`09BYTE ARRAY( LENGTH )
+X;`09writes buffer to terminal in noformat mode
+X;`09this puts the qio on the stack so that it can be called
+X;`09synchronously with TT_WRITE
+X;-
+X`09$qio_s func=#io$_writevblk!io$m_noformat, -
+X`09`09chan=ttchan, -
+X`09`09efn=@12(ap), -
+X`09`09p1=@4(ap), p2=@8(ap)
+X`09blbc`09r0, 100$
+X`09ret
+X100$:
+X`09bsbw`09error
+X`09ret
+X
+X`09.entry -
+XTT_CANCEL, `5Em<>
+X`09clrl`09r0
+X`09tstw`09ttchan`09`09; check channel is open
+X`09beql`09100$
+X`09$qiow_s`09func=#io$_readvblk!io$m_purge!io$m_timed,-
+X`09`09chan=ttchan, p1=ttbuf, p2=#0
+X;###`09`09`09; do read with 0 length buffer (p2)
+X`09clrl`09chars_left`09; for TT_1_char_now
+X`09clrl`09data_ready`09; say no data ready to read
+X100$:
+X`09ret`09`09`09; return with status in r0
+X
+X`09.entry -
+XTT_CANCEL_IO, `5Em<>
+X;+
+X;`09cancels I/O on channel
+X;-
+X`09clrl`09r0
+X`09tstw`09ttchan`09`09; check channel is open
+X`09beql`09100$
+X`09$cancel_s chan=ttchan
+X`09bsbb`09error
+X100$:`09ret`09`09`09; return with status in r0
+X
+XERROR:
+X`09blbs`09r0, 100$
+X`09pushl`09r0
+X`09calls`09#1, G`5Elib$signal
+X100$:
+X`09rsb
+X
+X;`09.entry`09-
+X;control_c, `5Em<>
+X;`09movb`09#1, control_c_flag
+X;`09ret
+X
+X
+X`09.entry`09-
+XSLEEP_SET, `5Em<>
+X;+
+X;`09CALL SLEEP_SET( efn , time )
+X;`09INTEGER efn, time
+X;`09use "efn" as event flag
+X;`09sleep for "time" 100th's of a second
+X;-
+X`09movl`09@4(ap), sleep_efn
+X`09emul`09#-100000, @8(ap), #0, sleep_time`09; get delta time format
+X`09$setef_s efn=sleep_efn`09`09; set ef in case SLEEP_START not called
+X`09ret
+X
+X`09.entry`09-
+XSLEEP_START, `5Em<>
+X;+
+X;`09CALL SLEEP_START
+X;`09starts a timer
+X;-
+X`09$setimr_g sleep_args
+X`09blbc`09r0, 100$
+X`09ret
+X100$:`09bsbw`09error
+X`09ret
+X
+X`09.entry`09-
+XSLEEP_WAIT, `5Em<>
+X;+
+X;`09CALL SLEEP_WAIT
+X;`09waits for sleep efn to turn on
+X;-
+X`09$waitfr_s efn=sleep_efn
+X`09ret
+X
+Xtt_exit_handler = .
+X`09.word`09`5Em<>
+X`09$qiow_s func=#io$_setmode, chan=ttchan, iosb=ttiosb -
+X`09`09p1=ttsavemode`09`09; reset terminal mode
+X;`09if we get an error, too bad.
+X`09ret
+X
+X`09.end
+$ CALL UNPACK TTIO.MAR;49 980021740
+$ create 'f'
+X$!
+X$!`09Create  UTIL.OLB
+X$!
+X$ MACRO ttio
+X$ MACRO sleep
+X$ MACRO imagedir
+X$!
+X$ LIBR/CRE util ttio,sleep,imagedir
+X$ SET FILE/TRUNC util.olb
+X$!
+$ CALL UNPACK UTIL.COM;3 1963740437
+$ v=f$verify(v)
+$ EXIT

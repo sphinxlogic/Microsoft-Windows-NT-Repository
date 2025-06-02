@@ -1,0 +1,2152 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F Haugh II)
+Subject:  v32i100:  shadow - Shadow Login/Password Suite, Patch06c/3
+Message-ID: <1992Oct12.152411.12011@sparky.imd.sterling.com>
+X-Md4-Signature: 567ee091de9c0e00615e81830cb6fb50
+Date: Mon, 12 Oct 1992 15:24:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F Haugh II)
+Posting-number: Volume 32, Issue 100
+Archive-name: shadow/patch06c
+Environment: UNIX
+Patch-To: shadow: Volume 26, Issue 54-64
+
+This is the third part of a three part patch.  You now have all of the
+parts.
+--
+Index: userdel.c
+*** userdel.c.old	Sat Oct 10 11:20:04 1992
+--- userdel.c	Sat Oct 10 11:20:03 1992
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)userdel.c	3.10	09:41:48	3/19/92";
+  #endif
+  
+  #include <sys/types.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)userdel.c	3.13	10:52:23	10/10/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 30,36 ****
+--- 33,42 ----
+  #endif
+  
+  #include "config.h"
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
++ #include "pwauth.h"
+  
+  #ifdef	USE_SYSLOG
+  #include <syslog.h>
+***************
+*** 40,72 ****
+  #endif
+  #endif
+  
+- gid_t	default_group;
+- char	default_home[BUFSIZ];
+- char	default_shell[BUFSIZ];
+- long	default_inactive;
+- long	default_expire;
+- char	default_file[] = "/etc/default/useradd";
+- 
+  #ifndef	NGROUPS_MAX
+  #define	NGROUPS_MAX	64
+  #endif
+  
+  char	user_name[BUFSIZ];
+  uid_t	user_id;
+- gid_t	user_group;
+- char	user_comment[BUFSIZ];
+  char	user_home[BUFSIZ];
+- char	user_shell[BUFSIZ];
+- int	user_ngroups;
+- int	user_expire;
+- gid_t	user_groups[NGROUPS_MAX];
+  
+  char	*Prog;
+  int	rflg;
+  
+  #ifdef	NDBM
+  extern	int	pw_dbm_mode;
+  extern	int	sp_dbm_mode;
+  extern	int	gr_dbm_mode;
+  #ifdef	SHADOWGRP
+  extern	int	sg_dbm_mode;
+--- 46,73 ----
+  #endif
+  #endif
+  
+  #ifndef	NGROUPS_MAX
+  #define	NGROUPS_MAX	64
+  #endif
+  
++ #if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
++ #define	DIR_ANY
++ #endif
++ 
+  char	user_name[BUFSIZ];
+  uid_t	user_id;
+  char	user_home[BUFSIZ];
+  
+  char	*Prog;
++ #ifdef	DIR_ANY
+  int	rflg;
++ #endif
+  
+  #ifdef	NDBM
+  extern	int	pw_dbm_mode;
++ #ifdef	SHADOWPWD
+  extern	int	sp_dbm_mode;
++ #endif
+  extern	int	gr_dbm_mode;
+  #ifdef	SHADOWGRP
+  extern	int	sg_dbm_mode;
+***************
+*** 78,83 ****
+--- 79,92 ----
+  extern	struct	passwd	*getpwnam();
+  extern	struct	passwd	*pw_next();
+  
++ #ifdef	SHADOWPWD
++ extern	int	spw_lock();
++ extern	int	spw_unlock();
++ extern	int	spw_open();
++ extern	int	spw_close();
++ extern	struct	spwd	*spw_locate();
++ #endif
++ 
+  #ifdef	SHADOWGRP
+  extern	int	sgr_lock();
+  extern	int	sgr_unlock();
+***************
+*** 145,151 ****
+--- 154,164 ----
+  
+  usage ()
+  {
++ #ifdef	DIR_ANY
+  	fprintf (stderr, "usage: %s [-r] name\n", Prog);
++ #else
++ 	fprintf (stderr, "usage: %s name\n", Prog);
++ #endif
+  	exit (2);
+  }
+  
+***************
+*** 253,259 ****
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sgr_dbm_update (sgrp))
+  			fprintf (stderr, "%s: cannot update dbm group entry\n",
+  				Prog);
+  #endif	/* NDBM */
+--- 266,272 ----
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sg_dbm_update (sgrp))
+  			fprintf (stderr, "%s: cannot update dbm group entry\n",
+  				Prog);
+  #endif	/* NDBM */
+***************
+*** 279,289 ****
+  {
+  	if (! pw_close ())
+  		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+! 
+  	if (! spw_close ())
+  		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+  			Prog);
+! 
+  	if (! gr_close ())
+  		fprintf (stderr, "%s: cannot rewrite group file\n",
+  			Prog);
+--- 292,302 ----
+  {
+  	if (! pw_close ())
+  		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+! #ifdef	SHADOWPWD
+  	if (! spw_close ())
+  		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+  			Prog);
+! #endif
+  	if (! gr_close ())
+  		fprintf (stderr, "%s: cannot rewrite group file\n",
+  			Prog);
+***************
+*** 296,302 ****
+--- 309,317 ----
+  
+  	(void) sgr_unlock ();
+  #endif
++ #ifdef	SHADOWPWD
+  	(void) spw_unlock ();
++ #endif
+  	(void) pw_unlock ();
+  }
+  
+***************
+*** 316,321 ****
+--- 331,337 ----
+  		fprintf (stderr, "%s: unable to open password file\n", Prog);
+  		fail_exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	if (! spw_lock ()) {
+  		fprintf (stderr, "%s: cannot lock shadow password file\n", Prog);
+  		fail_exit (1);
+***************
+*** 324,329 ****
+--- 340,346 ----
+  		fprintf (stderr, "%s: cannot open shadow password file\n", Prog);
+  		fail_exit (1);
+  	}
++ #endif
+  	if (! gr_lock ()) {
+  		fprintf (stderr, "%s: unable to lock group file\n", Prog);
+  		fail_exit (1);
+***************
+*** 354,367 ****
+  update_user ()
+  {
+  	struct	passwd	*pwd;
+  
+  	if (! pw_remove (user_name))
+  		fprintf (stderr, "%s: error deleting password entry\n", Prog);
+! 
+  	if (! spw_remove (user_name))
+  		fprintf (stderr, "%s: error deleting shadow password entry\n",
+  			Prog);
+! 
+  #if defined(DBM) || defined(NDBM)
+  	if (access ("/etc/passwd.pag", 0) == 0) {
+  		if ((pwd = getpwnam (user_name)) && ! pw_dbm_remove (pwd))
+--- 371,424 ----
+  update_user ()
+  {
+  	struct	passwd	*pwd;
++ #ifdef	SHADOWPWD
++ 	struct	spwd	*spwd;
+  
++ 	if ((spwd = spw_locate (user_name)) && spwd->sp_pwdp[0] == '@') {
++ 		if (pw_auth (spwd->sp_pwdp + 1, user_name, PW_DELETE)) {
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR,
++ 				"failed deleting auth `%s' for user `%s'\n",
++ 				spwd->sp_pwdp + 1, user_name);
++ #endif 	/* USE_SYSLOG */
++ 			fprintf (stderr,
++ 				"%s: error deleting authentication\n",
++ 			Prog);
++ 		}
++ #ifdef	USE_SYSLOG
++ 		else {
++ 			syslog (LOG_INFO,
++ 				"delete auth `%s' for user `%s'\n",
++ 				spwd->sp_pwdp + 1, user_name);
++ 		}
++ #endif	/* USE_SYSLOG */
++ 	}
++ #endif	/* SHADOWPWD */
++ 	if ((pwd = pw_locate (user_name)) && pwd->pw_passwd[0] == '@') {
++ 		if (pw_auth (pwd->pw_passwd + 1, user_name, PW_DELETE)) {
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR,
++ 				"failed deleting auth `%s' for user `%s'\n",
++ 				pwd->pw_passwd + 1, user_name);
++ #endif 	/* USE_SYSLOG */
++ 			fprintf (stderr, "%s: error deleting authentication\n",
++ 				Prog);
++ 		}
++ #ifdef	USE_SYSLOG
++ 		else {
++ 			syslog (LOG_INFO,
++ 				"delete auth `%s' for user `%s'\n",
++ 				pwd->pw_passwd + 1, user_name);
++ 		}
++ #endif	/* USE_SYSLOG */
++ 	}
+  	if (! pw_remove (user_name))
+  		fprintf (stderr, "%s: error deleting password entry\n", Prog);
+! #ifdef	SHADOWPWD
+  	if (! spw_remove (user_name))
+  		fprintf (stderr, "%s: error deleting shadow password entry\n",
+  			Prog);
+! #endif
+  #if defined(DBM) || defined(NDBM)
+  	if (access ("/etc/passwd.pag", 0) == 0) {
+  		if ((pwd = getpwnam (user_name)) && ! pw_dbm_remove (pwd))
+***************
+*** 383,389 ****
+  		}
+  	}
+  #endif
+! #ifdef	NDBM
+  	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_remove (user_name))
+  		fprintf (stderr, "%s: error deleting shadow passwd dbm entry\n",
+  			Prog);
+--- 440,446 ----
+  		}
+  	}
+  #endif
+! #if defined(NDBM) && defined(SHADOWPWD)
+  	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_remove (user_name))
+  		fprintf (stderr, "%s: error deleting shadow passwd dbm entry\n",
+  			Prog);
+***************
+*** 407,413 ****
+--- 464,472 ----
+  {
+  	(void) pw_unlock ();
+  	(void) gr_unlock ();
++ #ifdef	SHADOWPWD
+  	(void) spw_unlock ();
++ #endif
+  #ifdef	SHADOWGRP
+  	(void) sgr_unlock ();
+  #endif
+***************
+*** 450,456 ****
+--- 509,517 ----
+  	pw_dbm_mode = O_RDWR;
+  #endif
+  #ifdef	NDBM
++ #ifdef	SHADOWPWD
+  	sp_dbm_mode = O_RDWR;
++ #endif
+  	gr_dbm_mode = O_RDWR;
+  #ifdef	SHADOWGRP
+  	sg_dbm_mode = O_RDWR;
+***************
+*** 457,466 ****
+--- 518,531 ----
+  #endif
+  #endif
+  	while ((arg = getopt (argc, argv, "r")) != EOF)
++ #ifdef	DIR_ANY
+  		if (arg != 'r')
+  			usage ();
+  		else
+  			rflg++;
++ #else
++ 		usage ();
++ #endif
+  	
+  	if (optind == argc)
+  		usage ();
+***************
+*** 489,498 ****
+--- 554,565 ----
+  	update_user ();
+  	update_groups ();
+  
++ #ifdef	DIR_ANY
+  	if (rflg) {
+  		if (remove_tree (user_home) || rmdir (user_home))
+  			errors++;
+  	}
++ #endif
+  	close_files ();
+  	exit (errors ? 12:0);
+  	/*NOTREACHED*/
+Index: usermod.1
+*** usermod.1.old	Sat Oct 10 11:20:22 1992
+--- usermod.1	Sat Oct 10 11:20:21 1992
+***************
+*** 1,4 ****
+! .\" Copyright 1991, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+  .\" Permission is granted to copy and create derivative works for any
+--- 1,4 ----
+! .\" Copyright 1991, 1992, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+  .\" Permission is granted to copy and create derivative works for any
+***************
+*** 7,19 ****
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)usermod.1	3.1	07:46:06	7/13/91
+  .\"
+  .TH USERMOD 1M
+  .SH NAME
+  usermod \- Modify a user account
+  .SH SYNOPSIS
+  .B usermod
+  [ \fB-c\fI comment\fR ]
+  [ \fB-d\fI home_dir \fR[ \fB-m\fR ] ]
+  [ \fB-e\fI expire_date\fR ]
+--- 7,23 ----
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\" This software is provided on an AS-IS basis and the author makes
+! .\" no warrantee of any kind.
+  .\"
++ .\"	@(#)usermod.1	3.3	08:22:15	10/1/92
++ .\"
+  .TH USERMOD 1M
+  .SH NAME
+  usermod \- Modify a user account
+  .SH SYNOPSIS
+  .B usermod
++ [ \fB-A\fI method|DEFAULT ]
+  [ \fB-c\fI comment\fR ]
+  [ \fB-d\fI home_dir \fR[ \fB-m\fR ] ]
+  [ \fB-e\fI expire_date\fR ]
+***************
+*** 28,33 ****
+--- 32,43 ----
+  The \fIusermod\fR command modifies the system account files to reflect
+  the changes that are specified on the command line.
+  The options which apply to the \fIusermod\fR command are
++ .IP "\fB-A \fImethod\fR|\fBDEFAULT\fR"
++ The new value of the user's authentication method.
++ The authentication method is the name of a program which is responsible
++ for validating the user's identity.
++ The string \fBDEFAULT\fR may be used to change the user's authentication
++ method to the standard system password method.
+  .IP "\fB-c \fIcomment\fR"
+  The new value of the user's password file comment field.
+  It is normally modified using the \fBchfn(1)\fR utility.
+Index: usermod.c
+*** usermod.c.old	Sat Oct 10 11:20:39 1992
+--- usermod.c	Sat Oct 10 11:20:37 1992
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)usermod.c	3.12	15:28:40	5/14/92";
+  #endif
+  
+  #include <sys/types.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)usermod.c	3.15	10:52:28	10/10/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 35,40 ****
+--- 38,44 ----
+  #endif
+  #include "faillog.h"
+  #include "lastlog.h"
++ #include "pwauth.h"
+  
+  #ifdef	USE_SYSLOG
+  #include <syslog.h>
+***************
+*** 48,53 ****
+--- 52,61 ----
+  #define	NGROUPS_MAX	64
+  #endif
+  
++ #if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
++ #define	DIR_ANY
++ #endif
++ 
+  #if !defined(MDY_DATE) && !defined(DMY_DATE) && !defined(YMD_DATE)
+  #define	MDY_DATE	1
+  #endif
+***************
+*** 60,81 ****
+--- 68,97 ----
+  
+  char	user_name[BUFSIZ];
+  char	user_newname[BUFSIZ];
++ char	user_auth[BUFSIZ];
++ char	user_newauth[BUFSIZ];
+  uid_t	user_id;
+  uid_t	user_newid;
+  gid_t	user_gid;
++ gid_t	user_newgid;
+  char	user_comment[BUFSIZ];
+  char	user_home[BUFSIZ];
+  char	user_newhome[BUFSIZ];
+  char	user_shell[BUFSIZ];
++ #ifdef	SHADOWPWD
+  long	user_expire;
+  long	user_inactive;
++ #endif
+  int	user_ngroups = -1;
+  gid_t	user_groups[NGROUPS_MAX];
+  struct	passwd	user_pwd;
++ #ifdef	SHADOWPWD
+  struct	spwd	user_spwd;
++ #endif
+  
+  char	*Prog;
+  
++ int	Aflg;	/* specify user defined authentication method                 */
+  int	uflg;	/* specify user ID for new account                            */
+  int	oflg;	/* permit non-unique user ID to be specified with -u          */
+  int	gflg;	/* primary group ID  for new account                          */
+***************
+*** 90,96 ****
+--- 106,114 ----
+  
+  #ifdef	NDBM
+  extern	int	pw_dbm_mode;
++ #ifdef	SHADOWPWD
+  extern	int	sp_dbm_mode;
++ #endif
+  extern	int	gr_dbm_mode;
+  #ifdef	SHADOWGRP
+  extern	int	sg_dbm_mode;
+***************
+*** 126,135 ****
+--- 144,155 ----
+  extern	int	pw_rewind();
+  extern	int	pw_open();
+  
++ #ifdef	SHADOWPWD
+  extern	int	spw_lock();
+  extern	int	spw_unlock();
+  extern	int	spw_open();
+  extern	struct	spwd	*spw_locate();
++ #endif
+  
+  #define	DAY	(24L*3600L)
+  #define	WEEK	(7*DAY)
+***************
+*** 525,533 ****
+  	if (gflg) {
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "change user `%s' GID from `%d' to `%d'\n",
+! 			pwent->pw_name, pwent->pw_gid, user_gid);
+  #endif
+! 		pwent->pw_gid = user_gid;
+  	}
+  	if (cflg)
+  		pwent->pw_gecos = strdup (user_comment);
+--- 545,553 ----
+  	if (gflg) {
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "change user `%s' GID from `%d' to `%d'\n",
+! 			pwent->pw_name, pwent->pw_gid, user_newgid);
+  #endif
+! 		pwent->pw_gid = user_newgid;
+  	}
+  	if (cflg)
+  		pwent->pw_gecos = strdup (user_comment);
+***************
+*** 815,821 ****
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sgr_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+  #ifdef	USE_SYSLOG
+--- 835,841 ----
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sg_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+  #ifdef	USE_SYSLOG
+***************
+*** 906,917 ****
+  	}
+  #endif
+  #ifdef	SHADOWPWD
+! 	while ((arg = getopt (argc, argv, "u:og:G:d:s:c:mf:e:l:")) != EOF)
+  #else
+! 	while ((arg = getopt (argc, argv, "u:og:G:d:s:c:ml:")) != EOF)
+  #endif
+  	{
+  		switch (arg) {
+  			case 'c':
+  				if (! VALID (optarg)) {
+  					fprintf (stderr,
+--- 926,955 ----
+  	}
+  #endif
+  #ifdef	SHADOWPWD
+! 	while ((arg = getopt (argc, argv, "A:u:og:G:d:s:c:mf:e:l:")) != EOF)
+  #else
+! 	while ((arg = getopt (argc, argv, "A:u:og:G:d:s:c:ml:")) != EOF)
+  #endif
+  	{
+  		switch (arg) {
++ 			case 'A':
++ 				if (! VALID (optarg) || (optarg[0] != '/' &&
++ 					strcmp (optarg, "DEFAULT") != 0) ||
++ 						strlen (optarg) > 256) {
++ 					fprintf (stderr,
++ 						"%s: invalid field `%s'\n",
++ 						Prog, optarg);
++ 					exit (3);
++ 				}
++ 				if (strcmp (optarg, "DEFAULT") == 0) {
++ 					user_auth[0] = '!';
++ 					user_auth[1] = '\0';
++ 				} else {
++ 					strcpy (user_auth, "@");
++ 					strcat (user_auth, optarg);
++ 				}
++ 				Aflg++;
++ 				break;
+  			case 'c':
+  				if (! VALID (optarg)) {
+  					fprintf (stderr,
+***************
+*** 958,964 ****
+  						Prog, optarg);
+  					exit (1);
+  				}
+! 				user_gid = grp->gr_gid;
+  				gflg++;
+  				break;
+  			case 'G':
+--- 996,1002 ----
+  						Prog, optarg);
+  					exit (1);
+  				}
+! 				user_newgid = grp->gr_gid;
+  				gflg++;
+  				break;
+  			case 'G':
+***************
+*** 1136,1142 ****
+--- 1174,1183 ----
+  	struct	spwd	spent;
+  	struct	spwd	*spwd;
+  #endif
++ 	char	old_auth[BUFSIZ];
+  
++ 	old_auth[0] = '\0';
++ 
+  	pwd = pw_locate (user_name);
+  	pwent = *pwd;
+  	new_pwent (&pwent);
+***************
+*** 1145,1152 ****
+  	spwd = spw_locate (user_name);
+  	spent = *spwd;
+  	new_spent (&spent);
+  #endif
+! 	if (lflg || uflg || gflg || cflg || dflg || sflg) {
+  		if (! pw_update (&pwent)) {
+  			fprintf (stderr, "%s: error changing password entry\n",
+  				Prog);
+--- 1186,1238 ----
+  	spwd = spw_locate (user_name);
+  	spent = *spwd;
+  	new_spent (&spent);
++ 
++ 	if (spent.sp_pwdp[0] == '@')
++ 		strcpy (old_auth, spent.sp_pwdp + 1);
++ #else
++ 	if (pwent.pw_passwd[0] == '@')
++ 		strcpy (old_auth, pwent.pw_passwd + 1);
++ #endif
++ 	if (lflg || (Aflg && strcmp (old_auth, user_auth + 1) != 0)) {
++ #ifdef	USE_SYSLOG
++ 		if (Aflg)
++ 			syslog (LOG_INFO, "remove auth `%s' for user `%s'\n",
++ 				old_auth[0] ? old_auth:"password", user_name);
+  #endif
+! 		if (old_auth[0] && pw_auth (old_auth, user_name, PW_DELETE)) {
+! 			fprintf (stderr,
+! 				"%s: error deleting authentication method\n",
+! 				Prog);
+! #ifdef	USE_SYSLOG
+! 			syslog (LOG_ERR, "error deleting auth for `%s'\n",
+! 				user_name);
+! #endif
+! 			fail_exit (1);
+! 		}
+! #ifdef	USE_SYSLOG
+! 		if (Aflg)
+! 			syslog (LOG_INFO, "add auth `%s' for user `%s'\n",
+! 				user_auth[0] != '@' ? "password":user_auth + 1,
+! 				lflg ? user_newname:user_name);
+! #endif
+! 		if (user_auth[0] == '@' && pw_auth (user_auth + 1,
+! 				lflg ? user_newname:user_name, PW_ADD)) {
+! 			fprintf (stderr,
+! 				"%s: error adding authentication method\n",
+! 				Prog);
+! #ifdef	USE_SYSLOG
+! 			syslog (LOG_ERR, "error adding auth for `%s'\n",
+! 				lflg ? user_newname:user_name);
+! #endif
+! 			fail_exit (1);
+! 		}
+! #ifdef	SHADOWPWD
+! 		spent.sp_pwdp = user_auth;
+! #else
+! 		pwent.pw_passwd = user_auth;
+! #endif
+! 	}
+! 	if (lflg || uflg || gflg || cflg || dflg || sflg || Aflg) {
+  		if (! pw_update (&pwent)) {
+  			fprintf (stderr, "%s: error changing password entry\n",
+  				Prog);
+***************
+*** 1176,1182 ****
+  #endif
+  	}
+  #ifdef	SHADOWPWD
+! 	if (lflg || eflg || fflg) {
+  		if (! spw_update (&spent)) {
+  			fprintf (stderr,
+  				"%s: error adding new shadow password entry\n",
+--- 1262,1268 ----
+  #endif
+  	}
+  #ifdef	SHADOWPWD
+! 	if (lflg || eflg || fflg || Aflg) {
+  		if (! spw_update (&spent)) {
+  			fprintf (stderr,
+  				"%s: error adding new shadow password entry\n",
+***************
+*** 1235,1249 ****
+  						"%s: can't create %s\n",
+  						Prog, user_newhome);
+  				}
+! 				chown (user_newhome, sb.st_uid, sb.st_gid);
+  				if (copy_tree (user_home, user_newhome,
+! 						-1, -1) == 0 &&
+  					remove_tree (user_home) == 0 &&
+  						rmdir (user_home) == 0)
+  					return;
+  
+! 				remove_tree (user_newhome);
+! 				rmdir (user_newhome);
+  			}
+  			fprintf (stderr,
+  				"%s: cannot rename directory %s to %s\n",
+--- 1321,1347 ----
+  						"%s: can't create %s\n",
+  						Prog, user_newhome);
+  				}
+! 				if (chown (user_newhome,
+! 						sb.st_uid, sb.st_gid)) {
+! 					fprintf (stderr, "%s: can't chown %s\n",
+! 						Prog, user_newhome);
+! 					rmdir (user_newhome);
+! 					fail_exit (12);
+! 				}
+! #ifdef	DIR_ANY
+  				if (copy_tree (user_home, user_newhome,
+! 						uflg ? user_newid:-1,
+! 						gflg ? user_newgid:-1,
+! 						user_id, user_gid) == 0 &&
+  					remove_tree (user_home) == 0 &&
+  						rmdir (user_home) == 0)
+  					return;
+  
+! 				(void) remove_tree (user_newhome);
+! 				(void) rmdir (user_newhome);
+! #else
+! 				return;
+! #endif
+  			}
+  			fprintf (stderr,
+  				"%s: cannot rename directory %s to %s\n",
+***************
+*** 1252,1258 ****
+  		}
+  	}
+  	if (uflg || gflg)
+! 		chown (dflg ? user_newhome:user_home, user_id, user_gid);
+  }
+  
+  /*
+--- 1350,1358 ----
+  		}
+  	}
+  	if (uflg || gflg)
+! 		chown (dflg ? user_newhome:user_home,
+! 			uflg ? user_newid:user_id,
+! 			gflg ? user_newgid:user_gid);
+  }
+  
+  /*
+Index: utmp.c
+*** utmp.c.old	Sat Oct 10 11:20:55 1992
+--- utmp.c	Sat Oct 10 11:20:54 1992
+***************
+*** 7,16 ****
+--- 7,26 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
++ #ifdef	SVR4
++ #include <stdlib.h>
++ #include <utmpx.h>
++ extern	int	gettimeofday (struct timeval *tp);
++ #else
+  #include <sys/types.h>
+  #include <utmp.h>
++ #endif	/* SVR4 */
++ 
+  #include <fcntl.h>
+  #ifndef	BSD
+  #include <string.h>
+***************
+*** 41,51 ****
+  #endif	/* SUN || BSD */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)utmp.c	3.15	23:57:02	3/7/92";
+  #endif
+  
+  extern	struct	utmp	utent;
+  
+  extern	struct	utmp	*getutent();
+  extern	struct	utmp	*getutline();
+  extern	void	setutent();
+--- 51,66 ----
+  #endif	/* SUN || BSD */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)utmp.c	3.16	13:02:55	7/27/92";
+  #endif
+  
++ #ifdef	SVR4
++ extern	struct	utmpx	utent;
++ #else
+  extern	struct	utmp	utent;
++ #endif
+  
++ #ifndef	SVR4
+  extern	struct	utmp	*getutent();
+  extern	struct	utmp	*getutline();
+  extern	void	setutent();
+***************
+*** 53,58 ****
+--- 68,74 ----
+  extern	time_t	time();
+  extern	char	*ttyname();
+  extern	long	lseek();
++ #endif	/* SVR4 */
+  
+  #define	NO_UTENT \
+  	"No utmp entry.  You must exec \"login\" from the lowest level \"sh\""
+***************
+*** 79,99 ****
+  {
+  	char	*line;
+  #ifdef	USG
+  	struct	utmp	*ut;
+  #ifndef	NDEBUG
+  	int	pid = getppid ();
+  #else
+  	int	pid = getpid ();
+! #endif
+! #endif
+  
+  #if !defined(SUN) && !defined(SUN4)
+  	setutent ();
+! #endif	/* SUN */
+  
+  #ifdef	USG
+  	if (picky) {
+  		while (ut = getutent ())
+  			if (ut->ut_pid == pid)
+  				break;
+  
+--- 95,127 ----
+  {
+  	char	*line;
+  #ifdef	USG
++ #ifdef	SVR4
++ 	struct	utmpx	*ut;
++ #else
+  	struct	utmp	*ut;
++ #endif	/* SVR4 */
+  #ifndef	NDEBUG
+  	int	pid = getppid ();
+  #else
+  	int	pid = getpid ();
+! #endif	/* !NDEBUG */
+! #endif	/* USG */
+  
+  #if !defined(SUN) && !defined(SUN4)
++ #ifdef	SVR4
++ 	setutxent ();
++ #else
+  	setutent ();
+! #endif
+! #endif	/* !SUN */
+  
+  #ifdef	USG
+  	if (picky) {
++ #ifdef	SVR4
++ 		while (ut = getutxent ())
++ #else
+  		while (ut = getutent ())
++ #endif
+  			if (ut->ut_pid == pid)
+  				break;
+  
+***************
+*** 100,107 ****
+  		if (ut)
+  			utent = *ut;
+  
+  		endutent ();
+! 
+  		if (! ut) {
+   			(void) puts (NO_UTENT);
+  			exit (1);
+--- 128,138 ----
+  		if (ut)
+  			utent = *ut;
+  
++ #ifdef	SVR4
++ 		endutxent ();
++ #else
+  		endutent ();
+! #endif
+  		if (! ut) {
+   			(void) puts (NO_UTENT);
+  			exit (1);
+***************
+*** 116,122 ****
+  		 */
+  
+  		if (utent.ut_line[0] == '\0')
+! #endif
+  		{
+  			if (! (line = ttyname (0))) {
+  				(void) puts (NO_TTY);
+--- 147,153 ----
+  		 */
+  
+  		if (utent.ut_line[0] == '\0')
+! #endif	/* !UNIXPC */
+  		{
+  			if (! (line = ttyname (0))) {
+  				(void) puts (NO_TTY);
+***************
+*** 137,143 ****
+--- 168,178 ----
+  
+   		(void) strncpy (utent.ut_line, line,
+    						(int) sizeof utent.ut_line);
++ #ifdef	SVR4
++ 		if (ut = getutline (&utent))
++ #else
+  		if (ut = getutline (&utent))
++ #endif
+   			(void) strncpy (utent.ut_id, ut->ut_id,
+   					(int) sizeof ut->ut_id);
+  
+***************
+*** 180,186 ****
+  #ifdef SVR4
+  	struct	utmp	utmp;
+  	struct	utmpx	*utmpx, utxline;
+- 	extern int gettimeofday (struct timeval *tp);
+  
+  	/*
+  	 * Update utmpx.  We create an empty entry in case there is
+--- 215,220 ----
+***************
+*** 192,199 ****
+  	strncpy (utxline.ut_line, line, sizeof utxline.ut_line);
+  	utmpx = getutxline (&utxline);
+  
+! 	if (!utmpx)
+! 		utmpx = &utxline;
+  
+  	/*
+  	 * Fill in the fields in the utmpx entry and write it out.
+--- 226,256 ----
+  	strncpy (utxline.ut_line, line, sizeof utxline.ut_line);
+  	utmpx = getutxline (&utxline);
+  
+! 	/*
+! 	 * If the entry matching `line' cannot be found, create a new
+! 	 * entry with the device name in it.
+! 	 */
+! 
+! 	if (! utmpx) {
+! 
+! 		/*
+! 		 * Try appending /dev/ and looking again for the device.
+! 		 */
+! 
+! 		setutxent ();
+! 		strcpy (utxline.ut_line, "/dev/");
+! 		strnccat (utxline.ut_line, line, sizeof utxline.ut_line);
+! 		if (! (utmpx = getutxline (&utxline)) {
+! 
+! 			/*
+! 			 * That didn't do it.  Just use the original
+! 			 * terminal name.
+! 			 */
+! 			
+! 			strncpy (utxline.ut_line, line, sizeof utxline.ut_line);
+! 			utmpx = &utxline;
+! 		}
+! 	}
+  
+  	/*
+  	 * Fill in the fields in the utmpx entry and write it out.
+***************
+*** 203,208 ****
+--- 260,266 ----
+  	utmpx->ut_pid = getpid ();
+  	utmpx->ut_type = USER_PROCESS;
+  	gettimeofday (&(utmpx->ut_tv));
++ 	strncpy (utmpx->ut_host, utent.ut_host, sizeof utmpx->ut_host);
+  
+  	pututxline (utmpx);
+  
+***************
+*** 223,231 ****
+  	 */
+  
+  	updwtmpx(WTMPX_FILE, utmpx);
+! 	endutxent();
+  
+!  	utent = utmp;
+  #else /* !SVR4 */
+  	struct	utmp	utmp;
+  	int	fd;
+--- 281,289 ----
+  	 */
+  
+  	updwtmpx(WTMPX_FILE, utmpx);
+! 	utent = *utmpx;
+  
+! 	endutxent();
+  #else /* !SVR4 */
+  	struct	utmp	utmp;
+  	int	fd;
+Index: pwauth.c
+*** /dev/null	Sat Oct 10 11:18:23 1992
+--- pwauth.c	Sat Oct 10 11:21:06 1992
+***************
+*** 0 ****
+--- 1,256 ----
++ /*
++  * Copyright 1992, John F. Haugh II
++  * All rights reserved.
++  *
++  * Permission is granted to copy and create derivative works for any
++  * non-commercial purpose, provided this copyright notice is preserved
++  * in all copies of source code, or included in human readable form
++  * and conspicuously displayed on all copies of object code or
++  * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * not warrantee of any kind.
++  */
++ 
++ #include <signal.h>
++ #include <fcntl.h>
++ #include "config.h"
++ #include "pwauth.h"
++ 
++ #ifndef	lint
++ static	char	sccsid[] = "@(#)pwauth.c	3.3	10:52:13	10/10/92";
++ #endif
++ 
++ /*
++  * pw_auth - perform alternate password authentication
++  *
++  *	pw_auth executes the alternate password authentication method
++  *	described in the user's password entry.  _pw_auth does the real
++  *	work, pw_auth splits the authentication string into individual
++  *	command names.
++  */
++ 
++ static int
++ _pw_auth (command, user, reason, input)
++ char	*command;
++ char	*user;
++ int	reason;
++ char	*input;
++ {
++ 	SIGTYPE (*sigint)();
++ 	SIGTYPE (*sigquit)();
++ #ifdef	SIGTSTP
++ 	SIGTYPE	(*sigtstp)();
++ #endif
++ 	int	pid;
++ 	int	status;
++ 	int	i;
++ 	char	*argv[5];
++ 	int	argc = 0;
++ 	int	pipes[2];
++ 
++ 	/*
++ 	 * Start with a quick sanity check.  ALL command names must
++ 	 * be fully-qualified path names.
++ 	 */
++ 
++ 	if (command[0] != '/')
++ 		return -1;
++ 
++ 	/*
++ 	 * Set the keyboard signals to be ignored.  When the user kills
++ 	 * the child we don't want the parent dying as well.
++ 	 */
++ 
++ 	sigint = signal (SIGINT, SIG_IGN);
++ 	sigquit = signal (SIGQUIT, SIG_IGN);
++ #ifdef	SIGTSTP
++ 	sigtstp = signal (SIGTSTP, SIG_IGN);
++ #endif
++ 
++ 	/* 
++ 	 * FTP and REXEC reasons don't give the program direct access
++ 	 * to the user.  This means that the program can only get input
++ 	 * from this function.  So we set up a pipe for that purpose.
++ 	 */
++ 
++ 	if (reason == PW_FTP || reason == PW_REXEC)
++ 		if (pipe (pipes))
++ 			return -1;
++ 
++ 	/*
++ 	 * The program will be forked off with the parent process waiting
++ 	 * on the child to tell it how successful it was.
++ 	 */
++ 
++ 	switch (pid = fork ()) {
++ 
++ 		/*
++ 		 * The fork() failed completely.  Clean up as needed and
++ 		 * return to the caller.
++ 		 */
++ 
++ 		case -1:
++ 			if (reason == PW_FTP || reason == PW_REXEC) {
++ 				close (pipes[0]);
++ 				close (pipes[1]);
++ 			}
++ 			return -1;
++ 		case 0:
++ 
++ 			/*
++ 			 * Let the child catch the SIGINT and SIGQUIT
++ 			 * signals.  The parent, however, will continue
++ 			 * to ignore them.
++ 			 */
++ 
++ 			signal (SIGINT, SIG_DFL);
++ 			signal (SIGQUIT, SIG_DFL);
++ 
++ 			/*
++ 			 * Set up the command line.  The first argument is
++ 			 * the name of the command being executed.  The
++ 			 * second is the command line option for the reason,
++ 			 * and the third is the user name.
++ 			 */
++ 
++ 			argv[argc++] = command;
++ 			switch (reason) {
++ 				case PW_SU:	argv[argc++] = "-s"; break;
++ 				case PW_LOGIN:	argv[argc++] = "-l"; break;
++ 				case PW_ADD:	argv[argc++] = "-a"; break;
++ 				case PW_CHANGE:	argv[argc++] = "-c"; break;
++ 				case PW_DELETE:	argv[argc++] = "-d"; break;
++ 				case PW_TELNET:	argv[argc++] = "-t"; break;
++ 				case PW_RLOGIN:	argv[argc++] = "-r"; break;
++ 				case PW_FTP:	argv[argc++] = "-f"; break;
++ 				case PW_REXEC:	argv[argc++] = "-x"; break;
++ 			}
++ 			argv[argc++] = user;
++ 			argv[argc] = (char *) 0;
++ 
++ 			/*
++ 			 * The FTP and REXEC reasons use a pipe to communicate
++ 			 * with the parent.  The other standard I/O descriptors
++ 			 * are closed and re-opened as /dev/null.
++ 			 */
++ 
++ 			if (reason == PW_FTP || reason == PW_REXEC) {
++ 				close (0);
++ 				close (1);
++ 				close (2);
++ 
++ 				if (dup (pipes[0]) != 0)
++ 					exit (1);
++ 
++ 				close (pipes[0]);
++ 				close (pipes[1]);
++ 
++ 				if (open ("/dev/null", O_WRONLY) != 1)
++ 					exit (1);
++ 
++ 				if (open ("/dev/null", O_WRONLY) != 2)
++ 					exit (1);
++ 			}
++ 
++ 			/*
++ 			 * Now we execute the command directly.
++ 			 */
++ 
++ 			execv (command, argv);
++ 			_exit (255);
++ 
++ 			/*NOTREACHED*/
++ 		default:
++ 
++ 			/* 
++ 			 * FTP and REXEC cause a single line of text to be
++ 			 * sent to the child over a pipe that was set up
++ 			 * earlier.
++ 			 */
++ 
++ 			if (reason == PW_FTP || reason == PW_REXEC) {
++ 				close (pipes[0]);
++ 
++ 				if (input)
++ 					write (pipes[1], input, strlen (input));
++ 
++ 				write (pipes[1], "\n", 1);
++ 				close (pipes[1]);
++ 			}
++ 
++ 			/*
++ 			 * Wait on the child to die.  When it does you will
++ 			 * get the exit status and use that to determine if
++ 			 * the authentication program was successful.
++ 			 */
++ 
++ 			while ((i = wait (&status)) != pid && i != -1)
++ 				;
++ 
++ 			/*
++ 			 * Re-set the signals to their earlier values.
++ 			 */
++ 
++ 			signal (SIGINT, sigint);
++ 			signal (SIGQUIT, sigquit);
++ #ifdef	SIGTSTP
++ 			signal (SIGTSTP, sigtstp);
++ #endif
++ 
++ 			/*
++ 			 * Make sure we found the right process!
++ 			 */
++ 
++ 			if (i == -1)
++ 				return -1;
++ 
++ 			if (status == 0)
++ 				return 0;
++ 			else
++ 				return -1;
++ 	}
++ 	/*NOTREACHED*/
++ }
++ 
++ /*
++  * This function does the real work.  It splits the list of program names
++  * up into individual programs and executes them one at a time.
++  */
++ 
++ int
++ /*VARARGS3*/
++ pw_auth (command, user, reason, input)
++ char	*command;
++ char	*user;
++ int	reason;
++ char	*input;
++ {
++ 	char	buf[256];
++ 	char	*cmd, *end;
++ 	int	rc;
++ 
++ 	/* 
++ 	 * Quick little sanity check ...
++ 	 */
++ 
++ 	if (strlen (command) >= sizeof buf)
++ 		return -1;
++ 
++ 	strcpy (buf, command);
++ 
++ 	/*
++ 	 * Find each command and make sure it is NUL-terminated.  Then
++ 	 * invoke _pw_auth to actually run the program.  The first
++ 	 * failing program ends the whole mess.
++ 	 */
++ 
++ 	for (cmd = buf;cmd;cmd = end) {
++ 		if (end = strchr (cmd, ';'))
++ 			*end++ = '\0';
++ 
++ 		if (rc = _pw_auth (cmd, user, reason, input))
++ 			return rc;
++ 	}
++ 	return 0;
++ }
+Index: pwauth.h
+*** /dev/null	Sat Oct 10 11:18:23 1992
+--- pwauth.h	Sat Oct 10 11:21:16 1992
+***************
+*** 0 ****
+--- 1,36 ----
++ /*
++  * Copyright 1992, John F. Haugh II
++  * All rights reserved.
++  *
++  * Permission is granted to copy and create derivative works for any
++  * non-commercial purpose, provided this copyright notice is preserved
++  * in all copies of source code, or included in human readable form
++  * and conspicuously displayed on all copies of object code or
++  * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * not warrantee of any kind.
++  *
++  *	@(#)pwauth.h	3.1	14:53:17	7/27/92
++  */
++ 
++ #if	__STDC__
++ int	pw_auth (char * program, char * user, int flag);
++ #else
++ int	pw_auth ();
++ #endif
++ 
++ #define	PW_SU		1
++ #define	PW_LOGIN	2
++ #define	PW_ADD		3
++ #define	PW_CHANGE	4
++ #define	PW_DELETE	5
++ 
++ /*
++  * Network access
++  */
++ 
++ #define	PW_TELNET	6
++ #define	PW_RLOGIN	7
++ #define	PW_FTP		8
++ #define	PW_REXEC	9
+Index: gpmain.c
+*** gpmain.c.old	Sat Oct 10 11:21:31 1992
+--- gpmain.c	Sat Oct 10 11:21:30 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+***************
+*** 39,45 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	_sccsid[] = "@(#)gpmain.c	3.12	19:39:50	12/28/91";
+  #endif
+  
+  char	name[BUFSIZ];
+--- 42,48 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	_sccsid[] = "@(#)gpmain.c	3.13	11:31:54	7/28/92";
+  #endif
+  
+  char	name[BUFSIZ];
+***************
+*** 524,530 ****
+  	}
+  	endgrent ();
+  #ifdef	SHADOWGRP
+! 	if (access ("/etc/gshadow.pag", 0) == 0 && ! sgr_dbm_update (&sgent)) {
+  		fprintf (stderr, "%s: can't update DBM shadow files\n", Prog);
+  		exit (1);
+  	}
+--- 527,533 ----
+  	}
+  	endgrent ();
+  #ifdef	SHADOWGRP
+! 	if (access ("/etc/gshadow.pag", 0) == 0 && ! sg_dbm_update (&sgent)) {
+  		fprintf (stderr, "%s: can't update DBM shadow files\n", Prog);
+  		exit (1);
+  	}
+Index: groupadd.c
+*** groupadd.c.old	Sat Oct 10 11:21:46 1992
+--- groupadd.c	Sat Oct 10 11:21:45 1992
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupadd.c	3.4	09:41:21	3/19/92";
+  #endif
+  
+  #include <sys/types.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupadd.c	3.5	11:32:01	7/28/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 171,177 ****
+  	 * Update the DBM group file with the new entry as well.
+  	 */
+  
+! 	if (! sgr_dbm_update (&sgrp)) {
+  		fprintf (stderr, "%s: cannot add new dbm group entry\n", Prog);
+  		fail_exit (1);
+  	}
+--- 174,180 ----
+  	 * Update the DBM group file with the new entry as well.
+  	 */
+  
+! 	if (! sg_dbm_update (&sgrp)) {
+  		fprintf (stderr, "%s: cannot add new dbm group entry\n", Prog);
+  		fail_exit (1);
+  	}
+Index: groupdel.c
+*** groupdel.c.old	Sat Oct 10 11:22:01 1992
+--- groupdel.c	Sat Oct 10 11:22:00 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupdel.c	3.5	19:39:55	12/28/91";
+  #endif
+  
+  #include <sys/types.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupdel.c	3.6	11:32:05	7/28/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 114,120 ****
+  	 */
+  
+  	if (access ("/etc/gshadow.pag", 0) == 0) {
+! 		if (! sgr_dbm_remove (group_name)) {
+  			fprintf (stderr,
+  				"%s: error removing shadow group dbm entry\n",
+  				Prog);
+--- 117,123 ----
+  	 */
+  
+  	if (access ("/etc/gshadow.pag", 0) == 0) {
+! 		if (! sg_dbm_remove (group_name)) {
+  			fprintf (stderr,
+  				"%s: error removing shadow group dbm entry\n",
+  				Prog);
+Index: groupmod.c
+*** groupmod.c.old	Sat Oct 10 11:22:16 1992
+--- groupmod.c	Sat Oct 10 11:22:16 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupmod.c	3.3	08:43:51	9/12/91";
+  #endif
+  
+  #include <sys/types.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)groupmod.c	3.4	11:32:10	7/28/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 190,202 ****
+  	 */
+  
+  	if (access ("/etc/gshadow.pag", 0) == 0) {
+! 		if (! sgr_dbm_update (&sgrp)) {
+  			fprintf (stderr,
+  				"%s: cannot add new dbm shadow group entry\n",
+  				Prog);
+  			exit (1);
+  		}
+! 		if (nflg && ! sgr_dbm_remove (group_name)) {
+  			fprintf (stderr,
+  				"%s: error removing shadow group dbm entry\n",
+  				Prog);
+--- 193,205 ----
+  	 */
+  
+  	if (access ("/etc/gshadow.pag", 0) == 0) {
+! 		if (! sg_dbm_update (&sgrp)) {
+  			fprintf (stderr,
+  				"%s: cannot add new dbm shadow group entry\n",
+  				Prog);
+  			exit (1);
+  		}
+! 		if (nflg && ! sg_dbm_remove (group_name)) {
+  			fprintf (stderr,
+  				"%s: error removing shadow group dbm entry\n",
+  				Prog);
+Index: gsdbm.c
+*** gsdbm.c.old	Sat Oct 10 11:22:31 1992
+--- gsdbm.c	Sat Oct 10 11:22:30 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)gsdbm.c	3.5	08:45:49	9/12/91";
+  #endif
+  
+  #include <string.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)gsdbm.c	3.6	11:32:14	7/28/92";
+  #endif
+  
+  #include <string.h>
+***************
+*** 20,37 ****
+  
+  #ifdef	NDBM
+  #include <ndbm.h>
+! DBM	*sgr_dbm;
+  
+  #define	GRP_FRAG	256
+  
+  /*
+!  * sgr_dbm_update
+   *
+   * Updates the DBM password files, if they exist.
+   */
+  
+  int
+! sgr_dbm_update (sgr)
+  struct	sgrp	*sgr;
+  {
+  	datum	key;
+--- 23,40 ----
+  
+  #ifdef	NDBM
+  #include <ndbm.h>
+! DBM	*sg_dbm;
+  
+  #define	GRP_FRAG	256
+  
+  /*
+!  * sg_dbm_update
+   *
+   * Updates the DBM password files, if they exist.
+   */
+  
+  int
+! sg_dbm_update (sgr)
+  struct	sgrp	*sgr;
+  {
+  	datum	key;
+***************
+*** 45,56 ****
+  	static	int	once;
+  
+  	if (! once) {
+! 		if (! sgr_dbm)
+  			setsgent ();
+  
+  		once++;
+  	}
+! 	if (! sgr_dbm)
+  		return 0;
+  
+  	len = sgr_pack (sgr, data);
+--- 48,59 ----
+  	static	int	once;
+  
+  	if (! once) {
+! 		if (! sg_dbm)
+  			setsgent ();
+  
+  		once++;
+  	}
+! 	if (! sg_dbm)
+  		return 0;
+  
+  	len = sgr_pack (sgr, data);
+***************
+*** 61,67 ****
+  
+  		key.dsize = strlen (sgr->sg_name);
+  		key.dptr = sgr->sg_name;
+! 		if (dbm_store (sgr_dbm, key, content, DBM_REPLACE))
+  			return 0;
+  	} else {
+  		content.dsize = sizeof cnt;
+--- 64,70 ----
+  
+  		key.dsize = strlen (sgr->sg_name);
+  		key.dptr = sgr->sg_name;
+! 		if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+  			return 0;
+  	} else {
+  		content.dsize = sizeof cnt;
+***************
+*** 70,76 ****
+  
+  		key.dsize = strlen (sgr->sg_name);
+  		key.dptr = sgr->sg_name;
+! 		if (dbm_store (sgr_dbm, key, content, DBM_REPLACE))
+  			return 0;
+  
+  		for (cp = data, i = 0;i < cnt;i++) {
+--- 73,79 ----
+  
+  		key.dsize = strlen (sgr->sg_name);
+  		key.dptr = sgr->sg_name;
+! 		if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+  			return 0;
+  
+  		for (cp = data, i = 0;i < cnt;i++) {
+***************
+*** 83,89 ****
+  			key.dptr = sgrpkey;
+  			memcpy (sgrpkey, (char *) &i, sizeof i);
+  			strcpy (sgrpkey + sizeof i, sgr->sg_name);
+! 			if (dbm_store (sgr_dbm, key, content, DBM_REPLACE))
+  				return 0;
+  		}
+  	}
+--- 86,92 ----
+  			key.dptr = sgrpkey;
+  			memcpy (sgrpkey, (char *) &i, sizeof i);
+  			strcpy (sgrpkey + sizeof i, sgr->sg_name);
+! 			if (dbm_store (sg_dbm, key, content, DBM_REPLACE))
+  				return 0;
+  		}
+  	}
+***************
+*** 91,103 ****
+  }
+  
+  /*
+!  * sgr_dbm_remove
+   *
+   * Deletes the DBM shadow group file entries, if they exist.
+   */
+  
+  int
+! sgr_dbm_remove (name)
+  char	*name;
+  {
+  	datum	key;
+--- 94,106 ----
+  }
+  
+  /*
+!  * sg_dbm_remove
+   *
+   * Deletes the DBM shadow group file entries, if they exist.
+   */
+  
+  int
+! sg_dbm_remove (name)
+  char	*name;
+  {
+  	datum	key;
+***************
+*** 109,125 ****
+  	static	int	once;
+  
+  	if (! once) {
+! 		if (! sgr_dbm)
+  			setsgent ();
+  
+  		once++;
+  	}
+! 	if (! sgr_dbm)
+  		return 0;
+  
+  	key.dsize = strlen (name);
+  	key.dptr = name;
+! 	content = dbm_fetch (sgr_dbm, key);
+  	if (content.dptr == 0)
+  		++errors;
+  	else {
+--- 112,128 ----
+  	static	int	once;
+  
+  	if (! once) {
+! 		if (! sg_dbm)
+  			setsgent ();
+  
+  		once++;
+  	}
+! 	if (! sg_dbm)
+  		return 0;
+  
+  	key.dsize = strlen (name);
+  	key.dptr = name;
+! 	content = dbm_fetch (sg_dbm, key);
+  	if (content.dptr == 0)
+  		++errors;
+  	else {
+***************
+*** 131,141 ****
+  				key.dptr = grpkey;
+  				memcpy (grpkey, (char *) &i, sizeof i);
+  				strcpy (grpkey + sizeof i, name);
+! 				if (dbm_delete (sgr_dbm, key))
+  					++errors;
+  			}
+  		} else {
+! 			if (dbm_delete (sgr_dbm, key))
+  				++errors;
+  		}
+  	}
+--- 134,144 ----
+  				key.dptr = grpkey;
+  				memcpy (grpkey, (char *) &i, sizeof i);
+  				strcpy (grpkey + sizeof i, name);
+! 				if (dbm_delete (sg_dbm, key))
+  					++errors;
+  			}
+  		} else {
+! 			if (dbm_delete (sg_dbm, key))
+  				++errors;
+  		}
+  	}
+Index: mkpasswd.c
+*** mkpasswd.c.old	Sat Oct 10 11:22:46 1992
+--- mkpasswd.c	Sat Oct 10 11:22:45 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,17 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)mkpasswd.c	3.9	07:44:14	9/17/91";
+! static	char	copyright[] = "Copyright 1990, 1991, John F. Haugh II";
+  #endif
+  
+  #include "config.h"
+--- 7,20 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)mkpasswd.c	3.10	11:32:18	7/28/92";
+! static	char	copyright[] = "Copyright 1990, 1991, 1992, John F. Haugh II";
+  #endif
+  
+  #include "config.h"
+***************
+*** 51,57 ****
+  DBM	*pw_dbm;
+  DBM	*gr_dbm;
+  DBM	*sp_dbm;
+! DBM	*sgr_dbm;
+  char	*fgetsx();
+  #endif
+  
+--- 54,60 ----
+  DBM	*pw_dbm;
+  DBM	*gr_dbm;
+  DBM	*sp_dbm;
+! DBM	*sg_dbm;
+  char	*fgetsx();
+  #endif
+  
+***************
+*** 92,98 ****
+  extern	struct	sgrp	*sgetsgent();
+  extern	int	sp_dbm_update();
+  extern	int	gr_dbm_update();
+! extern	int	sgr_dbm_update();
+  #endif
+  
+  /*
+--- 95,101 ----
+  extern	struct	sgrp	*sgetsgent();
+  extern	int	sp_dbm_update();
+  extern	int	gr_dbm_update();
+! extern	int	sg_dbm_update();
+  #endif
+  
+  /*
+***************
+*** 278,284 ****
+  	}
+  	if (gflg) {
+  		if (sflg)
+! 			sgr_dbm = dbm;
+  		else
+  			gr_dbm = dbm;
+  	} else {
+--- 281,287 ----
+  	}
+  	if (gflg) {
+  		if (sflg)
+! 			sg_dbm = dbm;
+  		else
+  			gr_dbm = dbm;
+  	} else {
+***************
+*** 364,370 ****
+  			fprintf (stderr, ADD_REC_ERR,
+  				Progname, group->gr_name);
+  
+! 		if (sflg && gflg && ! sgr_dbm_update (gshadow))
+  			fprintf (stderr, ADD_REC_ERR,
+  				Progname, gshadow->sg_name);
+  #endif
+--- 367,373 ----
+  			fprintf (stderr, ADD_REC_ERR,
+  				Progname, group->gr_name);
+  
+! 		if (sflg && gflg && ! sg_dbm_update (gshadow))
+  			fprintf (stderr, ADD_REC_ERR,
+  				Progname, gshadow->sg_name);
+  #endif
+Index: pwauth.3
+*** /dev/null	Sat Oct 10 11:18:23 1992
+--- pwauth.3	Sat Oct 10 11:22:56 1992
+***************
+*** 0 ****
+--- 1,124 ----
++ .\" Copyright 1992, John F. Haugh II
++ .\" All rights reserved.
++ .\"
++ .\" Permission is granted to copy and create derivative works for any
++ .\" non-commercial purpose, provided this copyright notice is preserved
++ .\" in all copies of source code, or included in human readable form
++ .\" and conspicuously displayed on all copies of object code or
++ .\" distribution media.
++ .\"
++ .\" This software is provided on an AS-IS basis and the author makes
++ .\" no warrantee of any kind.
++ .\"
++ .\"	@(#)pwauth.3	3.1	08:30:31	10/1/92
++ .\"
++ .TH PWAUTH 3
++ .SH NAME
++ pwauth \- administrator defined password authentication routines
++ .SH Syntax
++ .IP "" .5i
++ #include <pwauth.h>
++ .IP "" .5i
++ int pw_auth (char *command, char *user, int reason, ...);
++ .SH DESCRIPTION
++ .I pw_auth
++ invokes the administrator defined functions for a given user.
++ .PP
++ \fIcommand\fR is the name of the authentication program.
++ It is retrieved from the user's password file information.
++ The string contains one or more executable file names, delimited by
++ semi-colons.
++ Each program will be executed in the order given.
++ The command line arguments are given for each of the reasons listed
++ below.
++ .PP
++ \fIuser\fR is the name of the user to be authenticated, as given
++ in the \fB/etc/passwd\fR file.
++ User entries are indexed by username.
++ This allows non-unique user IDs to be present and for each different
++ username associated with that user ID to have a different
++ authentication program and information.
++ .PP
++ Each of the permissible authentication reasons is handled in a
++ potentially differenent manner.
++ Unless otherwise mentioned, the standard file descriptors 0, 1, and
++ 2 are available for communicating with the user.
++ The real user ID may be used to determine the identity of the user
++ making the authentication request.
++ \fIreason\fR is one of
++ .IP PW_SU 1i
++ Perform authentication for the current real user ID attempting to
++ switch real user ID to the named user.
++ The authentication program will be invoked with a \fB-s\fR option, followed
++ by the username.
++ .IP PW_LOGIN 1i
++ Perform authentication for the named user creating a new login session.
++ The authentication program will be invoked with a \fB-l\fR option, followed
++ by the username.
++ .IP PW_ADD 1i
++ Create a new entry for the named user.
++ This allows an authentication program to initialize storage for a new
++ user.
++ The authentication program will be invoked with a \fB-a\fR option, followed
++ by the username.
++ .IP PW_CHANGE 1i
++ Alter an existing entry for the named user.
++ This allows an authentication program to alter the authentication
++ information for an existing user.
++ The authentication program will be invoked with a \fB-c\fR option, followed
++ by the username.
++ .IP PW_DELETE 1i
++ Delete authentication information for the named user.
++ This allows an authentication program to reclaim storage for a user which
++ is no longer authenticated using the authentication program.
++ The authentication program will be invoked with a \fB-d\fR option, followed
++ by the username.
++ .IP PW_TELNET 1i
++ Authenticate a user who is connecting to the system using the \fItelnet\fR
++ command.
++ The authentication program will be invoked with a \fB-t\fR option, followed
++ by the username.
++ .IP PW_RLOGIN 1i
++ Authenticate a user who is connecting to the system using the \fIrlogin\fR
++ command.
++ The authentication program will be invoked with a \fB-r\fR option, followed
++ by the username.
++ .IP PW_FTP 1i
++ Authenticate a user who is connecting to the system using the \fIftp\fR
++ command.
++ The authentication program will be invoked with a \fR-f\fR option, followed
++ by the username.
++ The standard file descriptors are not available for communicating with the
++ user.
++ The standard input file descriptor will be connected to the parent process,
++ while the other two output file descriptors will be connected to
++ \fB/dev/null\fR.
++ The \fIpw_auth\fR function will pipe a single line of data to the
++ authentication program using file descriptor 0.
++ .IP PW_REXEC 1i
++ Authenticate a user who is connecting to the system using the \fIrexec\fR
++ command.
++ The authentication program will be invoked with a \fB-x\fR option, followed
++ by the username.
++ The standard file descriptors are not available for communicating with the
++ remote user.
++ The standard input file descriptor will be connected to the parent process,
++ while the other two output file descriptors will be connected to
++ \fB/dev/null\fR.
++ The \fIpw_auth\fR function will pipe a single line of data to the
++ authentication program using file descriptor 0.
++ .PP
++ The last optional argument is the authentication data which is used by the
++ PW_FTP and PW_REXEC reasons.
++ It is treated as a single line of text which is piped to the authentication
++ program.
++ .SH CAVEATS
++ This function does not create the actual session.
++ It only indicates if the user should be allowed to create the session.
++ .PP
++ The network options are untested at this time.
++ .SH DIAGNOSTICS
++ The \fIpw_auth\fR function returns 0 if the authentication program exited
++ with a 0 exit code, and a non-zero value otherwise.
++ .SH SEE ALSO
++ login(1), passwd(1), su(1), useradd(1), userdel(1), usermod(1)
+Index: pwauth.8
+*** /dev/null	Sat Oct 10 11:18:23 1992
+--- pwauth.8	Sat Oct 10 11:23:06 1992
+***************
+*** 0 ****
+--- 1,44 ----
++ .\" Copyright 1992, John F. Haugh II
++ .\" All rights reserved.
++ .\"
++ .\" Permission is granted to copy and create derivative works for any
++ .\" non-commercial purpose, provided this copyright notice is preserved
++ .\" in all copies of source code, or included in human readable form
++ .\" and conspicuously displayed on all copies of object code or
++ .\" distribution media.
++ .\"
++ .\" This software is provided on an AS-IS basis and the author makes
++ .\" no warrantee of any kind.
++ .\"
++ .\"	@(#)pwauth.8	3.1	08:30:40	10/1/92
++ .\"
++ .TH PWAUTH 8
++ .SH NAME
++ pwauth \- administrator defined password authentication
++ .SH DESCRIPTION
++ The system administrator is able to define a list of programs which
++ are used to validate a user's identity.
++ These programs are given in place of the encrypted password
++ information which is present in either the \fB/etc/passwd\fR or
++ \fB/etc/shadow\fR files.
++ The utilities which administer user accounts examine the encrypted
++ password field and determine if the user has an administrator defined
++ authentication program.
++ The \fIpw_auth\fR function will be invoked whenever one of these
++ administration programs determines that a user which is being altered
++ has authentication programs defined.
++ .PP
++ The initial entry is created with the \fIuseradd\fR command.
++ Alterations, such as changing authentication information or deleting
++ the user account, will cause the \fIpw_auth\fR function to be invoked.
++ This keeps the authentication information up to date for each user
++ account.
++ .PP
++ The authentication programs do not create the actual login or network
++ sessions. 
++ The exit code from the authentication program is taken as an
++ indication that the action is to be permitted.
++ The calling process must have the appropriate priviledges to create
++ the login or network session itself.
++ .SH SEE ALSO
++ login(1), passwd(1), su(1), useradd(1), userdel(1), usermod(1), pwauth(3)
+-- 
+John F. Haugh II                  [  TSAKC  ] !'s: ...!cs.utexas.edu!rpp386!jfh
+Ma Bell: (512) 251-2151           [ DoF #17 ]        @'s: jfh@rpp386.cactus.org
+
+exit 0 # Just in case...

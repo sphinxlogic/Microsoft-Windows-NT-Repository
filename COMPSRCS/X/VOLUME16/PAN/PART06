@@ -1,0 +1,624 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: jeff@rd1.interlan.com (Jeff Bailey)
+Subject: v16i142: pan - Post A Note (for Open Windows), Part06/06
+Message-ID: <1992Mar6.200422.8408@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i137-pan@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 20:04:22 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: jeff@rd1.interlan.com (Jeff Bailey)
+Posting-number: Volume 16, Issue 142
+Archive-name: pan/part06
+
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 06 of a multipart archive
+# ============= search.c ==============
+if test -f 'search.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping search.c (File already exists)'
+else
+echo 'x - extracting search.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'search.c' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#include "pan.h"
+X
+extern char *malloc();
+extern char *getenv();
+X
+extern int errno;
+extern char *sys_errlist[];
+X
+int applysearch(), searchdone();
+Panel_item srchlist;
+X
+extern char *re_comp();
+X
+static char re [MAXSEARCHLEN + 1];
+X
+notesearch(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    struct LLM_root root;
+X    char *err;
+X    struct SubDir *sp;
+X    struct Note *np;
+X    struct Note **npp;
+X    int  count;
+X    char buf [MAXSEARCHLEN + 1];
+X    char tbuf [MAXSEARCHLEN + 1];
+X
+X    count = 0;
+X    LLM_init(&root, sizeof(struct Note *));
+X
+X    strcpy(buf, (char *) xv_get(item, PANEL_VALUE));
+X    trim(buf);
+X    if(strlen(buf) == 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "No search string entered",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    if((err = re_comp(buf)) != NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Invalid regular expression entered",
+X                err,
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    strcpy(re, buf);
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            strcpy(tbuf, np->ntitle);
+X            if(strlen(tbuf) == 0) strcpy(tbuf, NOTITLE);
+X            if(re_exec(tbuf) == 1)
+X                {
+X                if(np->state != Visible)
+X                    {
+X                    if(!np->mapped)
+X                        {
+X                        npp = (struct Note **) LLM_add(&root);
+X                        if(npp == NULL)
+X                            {
+X                            notice_prompt(main_frame, NULL,
+X                                NOTICE_MESSAGE_STRINGS,
+X                                    "Memory allocation failure",
+X                                    sys_errlist[errno],
+X                                    NULL,
+X                                NOTICE_BUTTON_YES, "Acknowledge",
+X                                NOTICE_NO_BEEPING, noticenobeep,
+X                                NULL);
+X                            LLM_free(&root);
+X                            return;
+X                            }
+X                        count++;
+X                        *npp = np;
+X                        }
+X                    }
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    if(count == 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "No hidden notes matching search string found",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    if(count == 1)
+X        {
+X        npp = (struct Note **) LLM_first(&root);
+X        np = *npp;
+X        buildnote(np);
+X        xv_set(np->title, PANEL_VALUE, np->ntitle, NULL);
+X        xv_set(np->frame, XV_LABEL, np->ntitle, NULL);
+X        reseticon(np);
+X        np->state = Visible;
+X        update(np);
+X        updateinfo(np, FORCE);
+X        }
+X    else
+X        {
+X        postsearch(&root);
+X        }
+X    LLM_free(&root);
+X    }
+X
+postsearch(root)
+X    struct LLM_root *root;
+X    {
+X    struct Note **npp;
+X    Display *dpy;
+X    Xv_Screen screen;
+X    int  screen_num;
+X    int  screen_height;
+X    int  screen_width;
+X    int  row;
+X    Rect rect;
+X    Panel search_panel;
+X
+X    dpy = (Display *) xv_get(main_frame, XV_DISPLAY);
+X    screen = (Xv_Screen) xv_get(main_frame, XV_SCREEN);
+X    screen_num = xv_get(screen, SCREEN_NUMBER);
+X    screen_height = DisplayHeight(dpy, screen_num);
+X    screen_width = DisplayWidth(dpy, screen_num);
+X    frame_get_rect(main_frame, &rect);
+X    rect.r_left += SEARCHSPACING;
+X    if((rect.r_left + SEARCHWIDTH) > (screen_width - SEARCHSPACING))
+X        rect.r_left = screen_width - SEARCHWIDTH - SEARCHSPACING;
+X    if((rect.r_top + rect.r_height + 2 * SEARCHSPACING + SEARCHHEIGHT) < 
+X       screen_height)
+X        rect.r_top += (rect.r_height + SEARCHSPACING);
+X    else
+X        rect.r_top -= (SEARCHHEIGHT + 2 * SEARCHSPACING);
+X    search_frame = xv_create(main_frame, FRAME_CMD,
+X                           XV_LABEL, "Matching Notes",
+X                           XV_X, rect.r_left,
+X                           XV_Y, rect.r_top,
+X                           XV_WIDTH, SEARCHWIDTH,
+X                           XV_HEIGHT, SEARCHHEIGHT,
+X                           FRAME_NO_CONFIRM, TRUE,
+X                           FRAME_DONE_PROC, searchdone,
+X                           NULL);
+X    if(search_frame == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Unable to create sub-frame (internal error)",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    xv_set(search_frame, XV_SHOW, TRUE, NULL);
+X
+X    search_panel = (Panel) xv_get(search_frame, FRAME_CMD_PANEL);
+X    xv_set(search_panel, WIN_RETAINED, FALSE, NULL);
+X
+X    (void) xv_create(search_panel, PANEL_MESSAGE,
+X        XV_X, xv_col(search_panel, 0),
+X        XV_Y, xv_row(search_panel, 0),
+X        PANEL_LABEL_STRING, "Matching Notes",
+X        NULL);
+X    srchlist = xv_create(search_panel, PANEL_LIST,
+X        XV_X, xv_col(search_panel, 0),
+X        XV_Y, xv_row(search_panel, 1),
+X        PANEL_LIST_DISPLAY_ROWS, 7,
+X        PANEL_LIST_WIDTH, xv_col(search_panel, 15),
+X        PANEL_CHOOSE_ONE, FALSE,
+X        NULL);
+X    row = 0;
+X    npp = (struct Note **) LLM_first(root);
+X    while(npp != NULL)
+X        {
+X        xv_set(srchlist,
+X            PANEL_LIST_INSERT, row,
+X            PANEL_LIST_STRING, row, (*npp)->ntitle, 
+X            PANEL_LIST_CLIENT_DATA, row, *npp, 
+X            NULL);
+X        npp = (struct Note **) LLM_next(root);
+X        row++;
+X        }
+X
+X
+X    (void) xv_create(search_panel, PANEL_BUTTON,
+X                 XV_X, SEARCHWIDTH / 2 - 30,
+X                 XV_Y, SEARCHHEIGHT - 30,
+X                 PANEL_LABEL_STRING, "Apply",
+X                 PANEL_NOTIFY_PROC, applysearch,
+X                 NULL);
+X
+X    window_fit_height(search_panel);
+X
+X    (void) xv_set(search_item, PANEL_INACTIVE, TRUE, NULL);
+X    search_up = 1;
+X    }
+X
+searchdone()
+X    {
+X    xv_destroy_safe(search_frame);
+X    (void) xv_set(search_item, PANEL_INACTIVE, FALSE, NULL);
+X    (void) xv_set(main_panel, PANEL_CARET_ITEM, search_item, NULL);
+X    search_up = 0;
+X    }
+X
+applysearch(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    struct Note *np;
+X    int  i, row;
+X
+X    row = xv_get(srchlist, PANEL_LIST_NROWS);
+X    for(i = 0; i < row; i++)
+X        {
+X        if(xv_get(srchlist, PANEL_LIST_SELECTED, i))
+X            {
+X            np = (struct Note *) xv_get(srchlist, PANEL_LIST_CLIENT_DATA, i);
+X            buildnote(np);
+X            xv_set(np->title, PANEL_VALUE, np->ntitle, NULL);
+X            xv_set(np->frame, XV_LABEL, np->ntitle, NULL);
+X            reseticon(np);
+X            np->state = Visible;
+X            update(np);
+X            updateinfo(np, FORCE);
+X            }
+X        }
+X    if(xv_get(search_frame, FRAME_CMD_PUSHPIN_IN) == FALSE)
+X        {
+X        xv_destroy_safe(search_frame);
+X        (void) xv_set(search_item, PANEL_INACTIVE, FALSE, NULL);
+X        (void) xv_set(main_panel, PANEL_CARET_ITEM, search_item, NULL);
+X        search_up = 0;
+X        }
+X    refresh_popups();
+X    }
+X
+refresh_search()
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X    int  i;
+X    int  row;
+X    char tbuf [MAXSEARCHLEN + 1];
+X
+X    if(!search_up) return;
+X
+X    xv_set(srchlist, XV_SHOW, FALSE, NULL);
+X
+X    row = xv_get(srchlist, PANEL_LIST_NROWS);
+X    for(i = row - 1; i >= 0; i--)
+X        {
+X        xv_set(srchlist, PANEL_LIST_DELETE, i, NULL);
+X        }
+X
+X    row = 0;
+X    re_comp(re);
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            strcpy(tbuf, np->ntitle);
+X            if(strlen(tbuf) == 0) strcpy(tbuf, NOTITLE);
+X            if(re_exec(tbuf) == 1)
+X                {
+X                if(np->state != Visible)
+X                    {
+X                    if(!np->mapped)
+X                        {
+X                        xv_set(srchlist,
+X                            PANEL_LIST_INSERT, row,
+X                            PANEL_LIST_STRING, row, tbuf, 
+X                            PANEL_LIST_CLIENT_DATA, row, np, 
+X                            NULL);
+X                        row++;
+X                        }
+X                    }
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X
+X    xv_set(srchlist, XV_SHOW, TRUE, NULL);
+X    }
+SHAR_EOF
+chmod 0644 search.c ||
+echo 'restore of search.c failed'
+Wc_c="`wc -c < 'search.c'`"
+test 9860 -eq "$Wc_c" ||
+	echo 'search.c: original size 9860, current size' "$Wc_c"
+fi
+# ============= update.c ==============
+if test -f 'update.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping update.c (File already exists)'
+else
+echo 'x - extracting update.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'update.c' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#include "pan.h"
+X
+extern char *malloc();
+extern char *getenv();
+X
+extern int errno;
+extern char *sys_errlist[];
+X
+/*
+X    Routine called when an update of the notes size and position and title
+X    is desired.  Only write to a file if changes have been made or the
+X    force flag is set.
+*/
+updateinfo(np, force)
+X    struct Note *np;
+X    int  force;
+X    {
+X    int  closed;
+X    FILE *fp;
+X    Rect rect;
+X    char fname[MAXBUFLEN];
+X
+X    if(!np->mapped) return;
+X    closed = xv_get(np->frame, FRAME_CLOSED);
+X    if(!closed)
+X        {
+X        frame_get_rect(np->frame, &rect);
+X        if(force != FORCE)
+X            {
+X            if(np->rect.r_left == rect.r_left &&
+X               np->rect.r_top == rect.r_top &&
+X               np->rect.r_width == rect.r_width &&
+X               np->rect.r_height == rect.r_height)
+X                {
+X                return;
+X                }
+X            }
+X        memcpy(&np->rect, &rect, sizeof(rect));
+X        }
+X    makeinfoname(fname, np);
+X    fp = fopen(fname, "w");
+X    if(fp != NULL)
+X        {
+X        if(np->state == Hidden)
+X            fprintf(fp, "%d\t%d\t%d\t%d\tHIDDEN\n", np->rect.r_left,
+X                np->rect.r_top, np->rect.r_width, np->rect.r_height);
+X        else
+X            fprintf(fp, "%d\t%d\t%d\t%d\tVISIBLE\n", np->rect.r_left,
+X                np->rect.r_top, np->rect.r_width, np->rect.r_height);
+X        fprintf(fp, "%s\n", np->ntitle);
+X        fprintf(fp, "%d\n", np->crttime);
+X        fclose(fp);
+X        }
+X    else
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't open note geometry file",
+X                fname,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        }
+X    }
+X
+/*
+X    Called when a save of the note text is desired.  Only writes to the file
+X    if modifications have been made.
+*/
+update(np)
+X    struct Note *np;
+X    {
+X    int  mod;
+X    char fname[MAXBUFLEN];
+X
+X    if(!np->mapped) return(0);
+X    mod = xv_get(np->textsw, TEXTSW_MODIFIED);
+X    if(mod)
+X        {
+X        xv_set(np->textsw, TEXTSW_CONFIRM_OVERWRITE, FALSE, NULL);
+X        makename(fname, np);
+X        textsw_store_file(np->textsw, fname, 0, 0);
+X        }
+X    return(mod);
+X    }
+X
+/*
+X    Make a note file name.
+*/
+makename(fname, np)
+X    char *fname;
+X    struct Note *np;
+X    {
+X    struct SubDir *sp;
+X
+X    sp = np->sp;
+X    sprintf(fname, "%s/%s/%s", note_dir, sp->subdir, np->basename);
+X    }
+X
+/*
+X    Make a note information file name.
+*/
+makeinfoname(fname, np)
+X    char *fname;
+X    struct Note *np;
+X    {
+X    struct SubDir *sp;
+X
+X    sp = np->sp;
+X    sprintf(fname, "%s/%s/%s.info", note_dir, sp->subdir, np->basename);
+X    }
+SHAR_EOF
+chmod 0644 update.c ||
+echo 'restore of update.c failed'
+Wc_c="`wc -c < 'update.c'`"
+test 3574 -eq "$Wc_c" ||
+	echo 'update.c: original size 3574, current size' "$Wc_c"
+fi
+# ============= win.c ==============
+if test -f 'win.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping win.c (File already exists)'
+else
+echo 'x - extracting win.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'win.c' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#include "pan.h"
+X
+extern char *malloc();
+extern char *getenv();
+X
+extern int errno;
+extern char *sys_errlist[];
+X
+get_win(np)
+X    struct Note *np;
+X    {
+X    struct FreeWin *fp;
+X
+X    fp = (struct FreeWin *)LLM_first(&freewin_rt);
+X    if(fp == NULL) return(0);
+X    np->frame = fp->frame;
+X    np->panel = fp->panel;
+X    np->textsw = fp->textsw;
+X    np->title = fp->title;
+X    np->hide = fp->hide;
+X    np->destroy = fp->destroy;
+X    np->cdate = fp->cdate;
+X    np->ctime = fp->ctime;
+X    np->icon = fp->icon;
+X    LLM_delete(&freewin_rt, fp);
+X    return(1);
+X    }
+X
+put_win(np)
+X    struct Note *np;
+X    {
+X    struct FreeWin *fp;
+X
+X    fp = (struct FreeWin *)LLM_add(&freewin_rt);
+X    if(fp == NULL)
+X        {
+X        fprintf(stderr, "Internal memory allocation error\n");
+X        exit(1);
+X        }
+X    fp->frame = np->frame;
+X    fp->panel = np->panel;
+X    fp->textsw = np->textsw;
+X    fp->title = np->title;
+X    fp->hide = np->hide;
+X    fp->destroy = np->destroy;
+X    fp->cdate = np->cdate;
+X    fp->ctime = np->ctime;
+X    fp->icon = np->icon;
+X    xv_set(fp->frame, XV_SHOW, FALSE, NULL);
+X    xv_set(fp->title, PANEL_VALUE, "", NULL);
+X    }
+SHAR_EOF
+chmod 0644 win.c ||
+echo 'restore of win.c failed'
+Wc_c="`wc -c < 'win.c'`"
+test 1960 -eq "$Wc_c" ||
+	echo 'win.c: original size 1960, current size' "$Wc_c"
+fi
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

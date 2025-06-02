@@ -1,0 +1,2568 @@
+Newsgroups: comp.sources.misc
+From: Volker.Schuermann@unnet.w.open.de@unnet (Volker Schuermann)
+Subject:  v31i020:  mbox - A BBS for UNIX and MINIX v1.6 PL10, Part04/11
+Message-ID: <1992Jul10.050249.27414@sparky.imd.sterling.com>
+X-Md4-Signature: d40318db5e08fb50ed95fbe4751a54c7
+Date: Fri, 10 Jul 1992 05:02:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Volker.Schuermann@unnet.w.open.de@unnet (Volker Schuermann)
+Posting-number: Volume 31, Issue 20
+Archive-name: mbox/part04
+Environment: MINIX, ISC, ESIX, SVR3
+Supersedes: mbox: Volume 29, Issue 63-72
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  src/mb-daemon.c src/show.c src/tools.c
+# Wrapped by kent@sparky on Thu Jul  9 23:26:00 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 11)."'
+if test -f 'src/mb-daemon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/mb-daemon.c'\"
+else
+  echo shar: Extracting \"'src/mb-daemon.c'\" \(22450 characters\)
+  sed "s/^X//" >'src/mb-daemon.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  mb-daemon.c					   */
+X/*        FUNKTIONEN  reflector(), scan(), mix(), main()		   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  31.05.1992					   */
+X/***************************************************************************/
+X
+X#ifndef _ESTDIO
+X#include <stdio.h>
+X#else
+X#include <estdio.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <time.h>
+X#include <dirent.h>
+X
+X#include "mbox.h"
+X
+X
+Xint FASTMODE;
+X
+X
+Xint mb_gruppen;
+Xint mb_new;
+Xlong mb_bytes;
+Xlong mb_new_bytes;
+Xlong mb_artikel;
+X
+X#ifdef ADDRMODE
+XFILE *ad;
+X#endif
+X
+X/***************************************************************************/
+X/*      FUNKTION  reflector()						   */
+X/*  BESCHREIBUNG  Sendet eine persoenliche Mail an den Autor eines Arti-   */
+X/*		  kels in einer bestimmten NG.	                           */
+X/*			                                                   */
+X/*		  VORSICHT: Wilde Reflectoren werden vom Netz getrennt !!! */
+X/*     PARAMETER  arg  =  DUMMY (?)                                        */
+X/*		  msg  =  Artikel                                          */
+X/*     RUECKGABE  -1   =  Artikel nicht gefunden                           */
+X/*                0    =  Ok					 	   */
+X/***************************************************************************/
+X
+Xint FLAG;
+X
+Xint reflector(arg, msg)
+Xchar arg[];
+Xchar msg[];
+X{
+X  FILE *fp;
+X  FILE *ff;
+X
+X  char s[255];
+X  char tmp[STRING];
+X
+X  char receiver[STRING];
+X
+X  char path[255];
+X  char reply_to[255];
+X  char from[255];
+X  char sender[255];
+X  char subject[255];
+X  char summary[255];
+X  char keywords[255];
+X  char newsgroups[255];
+X  char followup_to[255];
+X  char distribution[255];
+X  char date[255];
+X  char lines[255];
+X  char message_id[255];
+X  char organization[255];
+X  char posted[255];
+X  char article_id[255];
+X  char nntp_post[255];
+X  char references[255];
+X
+X  int id_err = 0;
+X  int i;
+X  int inlines, ok;
+X
+X  int reply = 0;
+X  int noreply = 0;
+X  int dirlist = 0;
+X  int logfile = 0;
+X  int info = 0;
+X  int minimal = 0;
+X  long timer;
+X
+X
+X  fp = fopen(msg, "r");
+X  if (fp == NULL) return -1;
+X
+X  sprintf(tmp, "%s/%d", TMP, getpid());
+X  ff = fopen(tmp, "w");
+X  
+X  i = 1;
+X  inlines = -1;
+X
+X  while (fgets(s, 255, fp) != NULL) {
+X	ok = 0;
+X	if (strcomp("Path:", s) == 0) {
+X		sprintf(path, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Reply-To:", s) == 0) {
+X		sprintf(reply_to, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		reply--;
+X		ok++;
+X	}
+X	if (strcomp("From:", s) == 0) {
+X		sprintf(from, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Sender:", s) == 0) {
+X		sprintf(sender, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Subject:", s) == 0) {
+X		sprintf(subject, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Summary:", s) == 0) {
+X		sprintf(summary, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Keywords:", s) == 0) {
+X		sprintf(keywords, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Newsgroups:", s) == 0) {
+X		sprintf(newsgroups, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Followup-To:", s) == 0) {
+X		sprintf(followup_to, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Distribution:", s) == 0) {
+X		sprintf(distribution, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Date:", s) == 0) {
+X		sprintf(date, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Lines:", s) == 0) {
+X		sprintf(lines, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Message-I", s) == 0) {
+X		sprintf(message_id, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		/*
+X		if (s[9] == 'D') id_err++;
+X		*/
+X		ok++;
+X	}
+X	if (strcomp("Organization:", s) == 0) {
+X		sprintf(organization, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Posted:", s) == 0) {
+X		sprintf(posted, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Article-I.D.:", s) == 0) {
+X		sprintf(article_id, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("Nntp-Posting-Host:", s) == 0) {
+X		sprintf(nntp_post, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X	if (strcomp("References:", s) == 0) {
+X		sprintf(references, "%02d>> %s <<\n", i, (char *) stripped(s));
+X		ok++;
+X	}
+X
+X
+X
+X	if (strcomp("NO REPLY", s)        == 0 ||
+X	    strcomp("NOT REPLY", s)       == 0 ||
+X	    strcomp("KEIN REPLY", s)      == 0 ||
+X	    strcomp("NO REPLIES", s)      == 0 ||
+X	    strcomp("KEINE REPLIES", s)   == 0 ||
+X	    strcomp("NO REPLYS", s)       == 0 ||
+X	    strcomp("KEINE REPLYS", s)    == 0 ||
+X	    strcomp("KEINE ANTWORTEN", s) == 0 ||
+X	    strcomp("NICHT ANTWORTEN", s) == 0 ||
+X	    strcomp("NO REFLECT", s)      == 0 ||
+X	    strcomp("NOT REFLECT", s)     == 0 ||
+X	    strcomp("NO ANSWER", s)       == 0 ||
+X	    strcomp("NOT ANSWER", s)      == 0 ||
+X	    strcomp("IGNORE", s)          == 0)
+X		noreply++;
+X
+X	if (strcomp("PLEASE REPLY", s)    == 0 ||
+X	    strcomp("BITTE REPLY", s)     == 0 ||
+X	    strcomp("PLEASE REFLECT", s)  == 0 ||
+X	    strcomp("BITTE REFLECT", s)   == 0 ||
+X	    strcomp("BITTE ANTWORT", s)   == 0 ||
+X	    strcomp("REPLY", s)           == 0 ||
+X	    strcomp("REFLECT", s)         == 0 ||
+X	    strcomp("ANTWORT", s)         == 0)
+X		reply++;
+X
+X	if (strcomp("DIRLIST", s) == 0) dirlist++;
+X
+X	if (strcomp("LOGFILE", s) == 0) logfile++;
+X
+X	if (strcomp("INFO", s) == 0 ||
+X	    strcomp("HELP", s) == 0)
+X		info++;
+X
+X	if (strcomp("SHORT", s) == 0) minimal++;
+X
+X	if (ok == 0) {
+X		/* Sprintf(s, "%02d Body >> %s <<\n\n", i, (char *) stripped(s)); */
+X		inlines++;
+X	}
+X	i++;
+X  }
+X  fclose(fp);
+X
+X  strcpy(s, (char *) strcopy(organization, 19, 80));
+X  if ((FLAG == 1) && (strcomp(ORGANIZATION, s) != 0)) return -1;
+X
+X  if (reply_to[0] != '\0') {
+X	strcpy(receiver, (char *) strcopy(reply_to, 15, 80));
+X  } else {
+X	strcpy(receiver, (char *) strcopy(from, 11, 80));
+X  }
+X
+X  i = 0;
+X  while ((receiver[i] != '\0') && (receiver[i] != '(')) i++;
+X  receiver[(i - 1)] = '\0';
+X
+X
+X
+X  time(&timer);
+X
+X  fprintf(ff, "From: reflector@%s (Reflecting Device)\n", UUCPID2); 
+X  fprintf(ff, "Organization: %s\n", ORGANIZATION);
+X  if(message_id[0] != '\0'){
+X	fprintf(fp, "References: %s", message_id);
+X  }
+X  fprintf(ff, "To: %s\n", receiver);
+X  fprintf(ff, "Subject: *Reflexion*\n");
+X  fprintf(ff, "X-Mailer: %s %s %s\n", VERSION, PATCHLEVEL, AUTOR);	
+X  fprintf(ff, "Message-Id: <%x.reflector@%s>\n", timer, UUCPID2);
+X  fputs("\n", ff);
+X
+X
+X
+X  fp = fopen(REFLECT_LOG, "a");
+X  if (fp == NULL) {
+X	while (1) printf("%c", 7);
+X  }
+X  fprintf(fp, "%s - %s", (char *) mydate(1), from);
+X  fprintf(fp, "         - %s", message_id);
+X  fprintf(fp, "         - %s", subject);
+X  if (dirlist != 0) {
+X	fprintf(fp, "         - DIRLIST-Request\n");
+X  }
+X  if (logfile != 0) {
+X	fprintf(fp, "         - LOGFILE-Request\n");
+X  }
+X  if (info != 0) {
+X	fprintf(fp, "         - INFO-Request\n");
+X  }
+X  fprintf(fp, "         - Reflected to %s\n\n", receiver);
+X  fclose(fp);
+X
+X
+X  fprintf(ff, "%s\n\n", MVERSION);
+X
+X
+X  if ((dirlist == 0) && (logfile == 0) && (info == 0) && (minimal == 0)) {
+X	fprintf(ff, "That's what we received in NG \"%s\" ...\n\n", arg);
+X
+X	fputs(path, ff);
+X	fputs(from, ff);
+X	fputs(reply_to, ff);
+X	fputs(sender, ff);
+X	fputs(newsgroups, ff);
+X	fputs(subject, ff);
+X	fputs(article_id, ff);
+X	fputs(posted, ff);
+X	fputs(nntp_post, ff);
+X	fputs(summary, ff);
+X	fputs(keywords, ff);
+X	fputs(followup_to, ff);
+X	fputs(distribution, ff);
+X	fputs(references, ff);
+X	fputs(message_id, ff);
+X	fputs(organization, ff);
+X	fputs(date, ff);
+X	fputs(lines, ff);
+X
+X
+X	fputs("\n\nDiagnostics ...\n\n", ff);
+X
+X	if (id_err != 0) {
+X		fprintf(ff, "- \"Message-ID\" may cause trouble ... use \"Message-Id\".\n\n");
+X	}
+X	if (reply_to[0] == '\0') {
+X		fprintf(ff, "- No \"Reply-To\"-Path ... don't know how to deliever responses.\n\n");
+X	}
+X	i = atoi((char *) strcopy(lines, 12, 80));
+X	inlines--;
+X	if (inlines != i) {
+X		fprintf(ff, "- Your Header reports %d lines ... we counted %d.\n\n", i, inlines);
+X	}
+X	if ((reply != 0) || (noreply != 0)) {
+X		fprintf(ff, "- Found %d Reply-Requests and %d No-Replies.\n\n", reply, noreply);
+X	}
+X  }
+X  if (dirlist != 0) {
+X	fp = fopen(DIRLIST, "r");
+X	if (fp != NULL) {
+X		fputs("DIRLIST:\n\n", ff);
+X		while (fgets(s, 250, fp) != NULL) fputs(s, ff);
+X		fclose(fp);
+X	} else {
+X		fputs("Sorry, no DIRLIST-Entry found ...\n\n", ff);
+X	}
+X	printf("\n\n");
+X  }
+X  if (logfile != 0) {
+X	fp = fopen(REFLECT_LOG, "r");
+X	if (fp != NULL) {
+X		fputs("LOGFILE:\n\n", ff);
+X		while (fgets(s, 250, fp) != NULL) fputs(s, ff);
+X		fclose(fp);
+X	} else {
+X		fputs("Sorry, no LOGFILE-Entry found ...\n\n", ff);
+X	}
+X	printf("\n\n");
+X  }
+X  if (info != 0) {
+X	fputs("INFO (weitere Schluesselwoerter):\n\n", ff);
+X	fputs("LOGFILE - Wenn der Reflektor nicht reflektiert, kann man sich\n", ff);
+X	fputs("          das LOGFILE senden lassen, um zu ueberpruefen ob der\n", ff);
+X	fputs("		         Artikel jemals erfasst worden ist.\n\n", ff);
+X
+X	fputs("DIRLIST - Eine Liste des lokalen MINIX-Archivs. Da der Reflektor\n", ff);
+X	fputs("          (noch) kein PD-Server ist, kann man diese Liste nur zu\n", ff);
+X	fputs("          Testzwecken anfordern.\n\n", ff);
+X
+X	fputs("SHORT   - Quittiert nur den Empfang des Artikels.\n\n", ff);
+X  }
+X  if (minimal != 0) {
+X	fprintf(ff, "Received your article %s", message_id);
+X  }
+X  fclose(ff);
+X
+X  sprintf(s, "/bin/sh ./etc/rmail.sh %s %s", tmp, receiver);
+X  system(s);
+X
+X  unlink(tmp);
+X
+X  return 0;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  pdsize()						   */
+X/*  BESCHREIBUNG  Groesse eine PD-Datei ermitteln 			   */
+X/*     PARAMETER  arg - Name des NG-Eintrags                               */
+X/*     RUECKGABE  Groesse in kBytes                                        */
+X/***************************************************************************/
+X
+Xint pdsize( arg )
+Xchar arg[];
+X{
+X  FILE *fp;
+X  char s[STRING];
+X  int ok = 0, i;
+X  struct stat fstat;
+X
+X  fp = fopen( arg, "r" );
+X  if(fp == NULL){
+X	return (int) 0;
+X  }
+X  while((ok == 0) && (fgets(s, 80, fp) != NULL)){
+X	if(strcomp("BINFILE", s) == 0) ok++;
+X  }
+X  fgets(s, 80, fp);
+X  fclose(fp);
+X
+X  if(ok == 0) strcpy(s, (char *) arg);
+X
+X  if(stat((char *) stripped(s), &fstat) != NULL){
+X	fp = fopen( CPRN, "a" );
+X        if(fp != NULL){
+X		fprintf(fp, "\nMB-DAEMON  (%s)  \"%s\" ??\n", mydate(1), (char *) stripped(s));
+X		fclose(fp);
+X	}
+X	return (int) 0;
+X  }
+X  i = (int) (fstat.st_size / 1024);
+X  if(i < 1) i = 1;
+X  return (int) i;
+X}
+X
+X
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  scan()						   */
+X/*  BESCHREIBUNG  Filtert einen NEWS-Artikel, und erstellt einen Eintrag   */
+X/*		  fuer das entsprechenden INDEX-Files der ix/Mbox.	   */
+X/*     PARAMETER  arg  =  NG                                               */
+X/*     RUECKGABE  Datum des aktuellsten Artikels                           */
+X/***************************************************************************/
+X
+Xchar *scan(arg)
+Xchar arg[];
+X{
+X  FILE *ff;
+X  FILE *fp;
+X  FILE *fl;
+X  FILE *ft;
+X
+X  char s[STRING];
+X  char t[STRING];
+X  char f[STRING];
+X  char v[STRING];
+X  char from[STRING];
+X  char subj[STRING];
+X  char date[STRING];
+X  char line[STRING];
+X  char orga[STRING];
+X  char Ndir[STRING];
+X  char Ldir[STRING];
+X  char Tdir[STRING];
+X  char ex[1024];
+X  char et[355];
+X
+X  int dirarray[MAX_PER_NG];
+X  int idp = 0, iii = 0;
+X
+X  DIR *dp;
+X  struct dirent *actdir;
+X
+X
+X  static char sdate[STRING];
+X
+X  char today[STRING];
+X  char thatday[STRING];
+X  char arti[STRING];
+X
+X  int i, j;
+X  int ok = 0;
+X  int a, b;
+X  int BINFILE = 0;
+X  int PDGROUP = 0;
+X  int fsi = 0;
+X  int seq = 0;
+X  int OLDENTRY = 0;
+X  int OLDn = 0;
+X  int OLDo = 0;
+X  int got_org = 0;
+X
+X  struct stat fstat;
+X  struct tm *tp;
+X
+X  i = 0;
+X  while (arg[i] != '\0') {
+X	t[i] = arg[i];
+X	if (t[i] == '.') t[i] = '/';
+X	i++;
+X  }
+X  t[i] = '\0';
+X
+X  sprintf(Ndir, "%s/%s", NEWS, t);
+X
+X  if(length(arg) > 14){
+X#ifndef _LONGNAMES
+X	strcpy(s, (char *) shortname(arg));
+X#else
+X	strcpy(s, (char *) arg);
+X#endif
+X	sprintf(Ldir, "%s/%s", LIB, s);
+X  } 
+X  else{
+X	sprintf(Ldir, "%s/%s", LIB, arg);
+X  }
+X  strcpy(Ldir, (char *) stripped(Ldir));
+X
+X  sprintf(Tdir, "%s/TD.%d", TMP, getpid());
+X
+X  if (FLAG == 0) printf("\n%s...\n", Ndir);
+X
+X  sprintf(f, "%s/%dA", TMP, getpid());
+X
+X
+X  dp = opendir( Ndir );
+X  if(dp == NULL){
+X	printf("::No such directory!\n\n");
+X	return "";
+X  }
+X  while((actdir = readdir(dp)) != NULL){
+X	 dirarray[idp] = atoi(actdir->d_name);
+X	 if(dirarray[idp] != 0) idp++;
+X	 if(idp >= MAX_PER_NG){
+X		nerror("mb-daemon.c", 506, "scan", "Verzeichnis zu gross > ", Ndir );		
+X	 }
+X  }
+X  closedir(dp);
+X
+X  for(i = 0; i < idp; i++){
+X	for(j = 0; j< idp; j++){
+X		if(dirarray[i] > dirarray[j]){
+X			a = dirarray[j];
+X			dirarray[j] = dirarray[i];
+X			dirarray[i] = a;
+X		}
+X        }
+X  } 
+X
+X  if(idp == 0){
+X	if (FLAG == 0) printf("::Directory is empty!\n\n");
+X	return "";
+X  }
+X
+X  sprintf(sdate, "%s", ":-)");
+X
+X  sprintf(today, "%s", (char *) mydate(1));
+X
+X
+X  ft = fopen(Ldir, "r");
+X  if(ft == NULL){
+X	ft = fopen(Ldir, "w");
+X	fputs("\n\n0\n", ft);
+X	fclose(ft);
+X	ft = fopen(Ldir, "r");
+X	OLDo = -2;
+X  }
+X  fgets(s, 81, ft);
+X  fgets(s, 81, ft);
+X  fgets(s, 81, ft);
+X  OLDENTRY = atoi(s); 
+X
+X  mblock(Ldir);
+X
+X  ff = fopen(Tdir, "w");
+X
+X  seq = 0;
+X
+X  mb_gruppen++;
+X
+X
+X  if(strcomp(PDNG, arg) == 0){
+X	PDGROUP++;	
+X	fprintf(ff, "%s\n", GBL08_MSG); 
+X  }
+X  else{
+X	fprintf(ff, "%s\n", GBL05_MSG);
+X  }
+X  fputs("===============================================================================\n", ff);
+X
+X  while (iii < idp) {
+X
+X	if((dirarray[iii] < OLDENTRY) && (FASTMODE == 1)) goto YET_SCANNED;
+X
+X	OLDn++;
+X
+X	seq++;
+X	BINFILE = 0;
+X	fsi++;
+X
+X	sprintf(arti, "%s/%d", Ndir, dirarray[iii]);  
+X	strcpy(t, (char *) arti); /* ??? */
+X
+X	if (FLAG == 0) printf("%s: ", t);
+X
+X	fp = fopen(t, "r");
+X	if (fp != NULL) {
+X
+X		stat(t, &fstat);
+X		tp = localtime(&fstat.st_mtime);
+X
+X		if(fstat.st_mode & S_IFDIR) goto OFF_HERE;
+X
+X		mb_bytes += (long) fstat.st_size;
+X		sprintf(thatday, "%02.2d.%02.2d.%02.2d", tp->tm_mday, tp->tm_mon + TZS, tp->tm_year);
+X		if(strcomp(thatday, today) == 0) mb_new_bytes += (long) fstat.st_size;
+X
+X		if (sdate[0] == ':') {
+X			sprintf(sdate, "%4.4d%02.2d%02.2d",
+X				1900 + tp->tm_year, tp->tm_mon + TZS, tp->tm_mday);
+X			sprintf(s, "%02.2d:%02.2d",
+X				tp->tm_hour, tp->tm_min);
+X			LASTTIME = timeconv(s);
+X			if (FLAG == 0) printf(" (%s) ", sdate);
+X			if(strcomp(thatday, today) == 0) mb_new++;
+X		}
+X		if (strcomp(arg, REFLECT_NG) == 0) {
+X			if (strcomp(thatday, today) == 0) {
+X				reflector(arg, t);
+X			}
+X		}
+X		from[0] = '\0';
+X		subj[0] = '\0';
+X		date[0] = '\0';
+X		line[0] = '\0';
+X		orga[0] = '\0';
+X
+X		got_org = 0;
+X		i = 0;
+X
+X		while((got_org == 0) && (i < 20)){
+X			fgets(ex, 350, fp);
+X#ifdef ADDRMODE
+X			if (strcomp("de.", arg) == 0) {
+X				if (strcomp("Path:", ex) == 0) {
+X					fprintf(ad, "%s\n", (char *) stripped(ex));
+X				}
+X			}
+X#endif
+X			ex[80] = '\0'; strcpy(s, ex);
+X			if (strcomp("From:", s) == 0) {
+X				strcpy(from, s);
+X			}
+X			if (strcomp("Reply-To:", s) == 0) {
+X				strcpy(from, s);
+X			}
+X			if (strcomp("Subject:", s)      == 0) strcpy(subj, s);
+X			if (strcomp("Date:", s)         == 0) strcpy(date, s);
+X			if (strcomp("Lines:", s)        == 0) strcpy(line, s);
+X			if (strcomp("BINFILE", s)       == 0) BINFILE++;
+X			if (strcomp("Organization:", s) == 0) strcpy(orga, s);
+X			if (strlen(s) < 3) got_org++;
+X			i++;
+X		}
+X
+X#ifdef ADDRMODE		
+X		if (strcomp("de.", arg) == 0) {
+X			fprintf(ad, "%s\n", (char *) stripped(from));
+X			fprintf(ad, "%s\n", (char *) stripped(orga));
+X		}
+X#endif
+X
+X		if (FLAG == 0) printf("%s", subj);
+X
+X		if ((from[0] == 'F') || (from[0] == 'R')) {
+X
+X			sprintf(s, "%d        ", dirarray[iii]);
+X			s[6] = '\0';
+X			if (BINFILE != 0) s[5] = '*';
+X
+X			subj[79] = '\0';
+X			strcpy(ex, (char *) strcopy(subj, 8, 79));
+X			strcpy(et, (char *) stripped(ex));
+X			strcpy(ex, et);
+X			strcat(ex, "                           ");
+X			ex[25] = '\0';
+X			strcat(s, ex);
+X			strcat(s, "   ");
+X
+X
+X			i = 8;
+X			if (from[0] == 'R') i = 10;
+X
+X			from[79] = '\0';
+X			strcpy(ex, (char *) strcopy(from, i, 80));
+X			strcpy(et, (char *) stripped(ex));
+X			strcpy(ex, et);
+X
+X			a = 0;
+X			b = 0;
+X			i = 0;
+X			while (ex[i] != '\0') {
+X				if (ex[i] == '(') a = i + 1;
+X				if (ex[i] == ')') b = i - 1;
+X				i++;
+X			}
+X			if (a < b) {
+X				strcpy(et, (char *) strcopy(ex, a, b));
+X				strcpy(ex, et);
+X			}
+X			strcat(ex, "                           ");
+X			ex[19] = '\0';
+X			strcat(s, ex);
+X			strcat(s, "   ");
+X
+X
+X			i = 0;
+X			j = 0;
+X			while (date[i] != '\0') {
+X				if (j == 0) {
+X					if ((date[i] >= '1') && (date[i] <= '9'))
+X						j = i;
+X				}
+X				i++;
+X			}
+X
+X			sprintf(ex, "%02.2d.%02.2d.%02.2d  %02.2d:%02.2d",
+X			 tp->tm_mday, tp->tm_mon + TZS, tp->tm_year,
+X				tp->tm_hour, tp->tm_min);
+X			strcat(ex, "                         ");
+X			ex[15] = '\0';
+X			strcat(s, ex);
+X			strcat(s, "  ");
+X
+X			strcpy(ex, (char *) strcopy(line, 7, 20));
+X			strcpy(t, (char *) stripped(ex));
+X			i = atoi(t);
+X			sprintf(ex, "%-6.d", i);
+X		
+X			if(PDGROUP != 0){
+X				sprintf(ex, "%-6.d", pdsize(arti));
+X			}
+X
+X			strcat(s, ex);
+X			fputs(s, ff);
+X			fputs("\n", ff);
+X
+X			mb_artikel++;
+X
+X			ok = 1;
+X		} else {
+X			if (FLAG == 0) printf("invalid header!\n");
+X		}
+X
+X		OFF_HERE:
+X
+X		if (fp != 0) fclose(fp);
+X	} else {
+X		if (FLAG == 0) printf("can't open!\n");
+X	}
+X	iii++;
+X  }
+X
+X  YET_SCANNED:
+X
+X  if(OLDn != 0) OLDn -= 1;
+X
+X  idp -= 2; /* ??? */
+X
+X  while(iii < idp){
+X	if((OLDn != 0) || (FASTMODE == 0)){
+X		fgets(s, 81, ft); 
+X		fputs(s, ff);
+X	}
+X	if(FLAG == 0){
+X		sprintf(t, "%s/%d", Ndir, dirarray[iii]);
+X		stat(t, &fstat);
+X		mb_bytes += (long) fstat.st_size;
+X	}
+X	mb_artikel++;
+X	OLDo++;
+X	iii++;
+X  }
+X
+X  if((OLDn != 0) || (FASTMODE == 0)){
+X	fgets(s, 81, ft);
+X	if((FASTMODE == 1) && (OLDo > 0)) fputs(s, ff);
+X	fclose(ff);
+X	fclose(ft);
+X	if(rename( Tdir, Ldir ) != 0){
+X		ff = fopen( Tdir, "r");
+X		ft = fopen( Ldir, "w");
+X		while(fgets(s, 81, ff) != NULL){
+X			fputs(s, ft);
+X		}
+X	}
+X  }
+X  if (ff != 0) fclose(ff);
+X  if (ft != 0) fclose(ft);
+X
+X  unlink(f);
+X  unlink(Tdir);
+X
+X
+X  if (sdate[0] == ':') {
+X	sprintf(sdate, "%s", "19700101");
+X	LASTTIME = 0;
+X  }
+X
+X#ifdef _SYS7
+X  if ((seq > MAX_PER_NG) && (FLAG == 0) && (strcomp("local", arg) != 0)) {
+X	sprintf(s, "%s -n %s -e %d", EXPIRE, arg, EXPIRED_DAYS);
+X	printf("%s\n", s);
+X	system(s);
+X	sprintf(s, "%s %s EXP", MB_DAEMON, arg);
+X	system(s);
+X  }
+X#endif
+X  
+X  mbunlock(Ldir);
+X
+X  if((FASTMODE == 1) && (FLAG == 0)){
+X	OLDo += 2;
+X	printf("\n==> %s %d. %s %d.\n\n", MBD01_MSG, OLDn, MBD02_MSG, OLDo);
+X  }
+X  
+X  return (char *) sdate;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  mix()							   */
+X/*  BESCHREIBUNG  Aktualisiert einzelnen Eintraege im AGROUPS-File.	   */
+X/*     PARAMETER  s  =  NG                                                 */
+X/*		  t  =  Neuer AGROUPS-Eintrag                              */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid mix( s, t )
+Xchar s[], t[];
+X{
+X  FILE *ff, *fp;
+X  char tmp[STRING];
+X  char f[STRING];
+X
+X  sprintf(tmp, "%s/ff%d", TMP, getpid());
+X
+X
+X  maybe_locked( AGROUPS, "r" );
+X  fp = fopen( AGROUPS, "r" );
+X  if(fp == NULL){
+X	printf("%s ?", AGROUPS);
+X	exit(-1);
+X  }
+X
+X  ff = fopen( tmp, "w" );
+X  if(ff == NULL){
+X	printf("%s ?", tmp);
+X	exit(-1);
+X  }
+X
+X  while(fgets(f, 80, fp) != NULL){
+X	if(strcomp(s, f) == 0){
+X		fputs(t, ff);
+X	}
+X	else{
+X		fputs(f, ff);
+X	}
+X  }
+X  fclose(fp);
+X  fclose(ff);
+X
+X  sprintf(f, "mv %s %s", tmp, AGROUPS);
+X  system( f );
+X}
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  main() (mb_daemon)					   */
+X/*  BESCHREIBUNG  Scannt einen bzw. alle NEWS-Artikel, um die INDEX-Files  */
+X/*		  der ix/Mbox zu aktualisieren.                            */
+X/*     PARAMETER  argc  =  Anzahl der Parameter                            */
+X/*		  argv  =  NG  = nur diese NG scannen 			   */
+X/*			   ''  = alle NGs scannen     			   */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X  FILE *fp;
+X  FILE *fa;
+X  char s[STRING];
+X  char t[STRING];
+X  char d[STRING];
+X
+X
+X  int a, b, i;
+X
+X  chdir(HOME);
+X
+X  setuid(0);
+X  setgid(0);
+X  umask(0000);
+X
+X  FLAG = 0;
+X  FASTMODE = 1;
+X
+X  if(argc > 1){
+X	FLAG++;
+X  }
+X  if(argc > 2){			/* MB-Daemon ruft MB-Daemon !!! */
+X	FLAG++; 
+X	FASTMODE = 0; 
+X  }
+X
+X  if(strcomp("all", argv[1]) == 0) FLAG = 0;
+X
+X#if 0
+X  if(argv[2][0] == '-'){	/* Index KOMPLETT neu bilden !!! */
+X	FASTMODE = 0;
+X  }
+X#endif
+X
+X  if(FLAG == 0){
+X	if (fa = fopen(AGROUPS, "w"))
+X	fclose(fa);
+X  }
+X
+X#ifdef ADDRMODE
+X    ad = fopen( "/local/address/addresses", "a" );
+X    if(ad == NULL){
+X	printf("\n[local/address/addresses] ???\n");
+X	exit( 0 );	
+X    }
+X#endif
+X
+X  mb_gruppen = 0;
+X  mb_new = 0;
+X  mb_bytes = 0L;
+X  mb_new_bytes = 0L;
+X  mb_artikel = 0L;
+X
+X
+X  if (fp = fopen(NGROUPS, "r"))
+X  while (fscanf(fp, "%s %d %d %s", s, &a, &b, t) > 0) {
+X#ifdef _CNEWS
+X	if(t[0] == '=')
+X		continue;
+X#endif
+X	if(FLAG > 0){
+X		if(strcomp(argv[1], s) == 0){
+X			d[0] = '\0';
+X#ifdef _SYS7
+X			strcat(d, (char *) scan(s));
+X#else
+X			strcat(d, (char *) scan(&s));
+X#endif
+X			sprintf(t, "%s  %s  %ld\n", s, d, LASTTIME);
+X			if(FLAG < 2) mix( s, t );
+X		}
+X	}
+X	else{
+X		d[0] = '\0';
+X#ifdef _SYS7	
+X		strcat(d, (char *) scan(s));
+X#else	
+X		strcat(d, (char *) scan(&s));
+X#endif
+X		fa = fopen(AGROUPS, "a");
+X		fprintf(fa, "%s  %s  %ld\n", s, d, LASTTIME);
+X		fclose(fa);
+X	}
+X  }
+X  if(fp != 0) fclose(fp);
+X
+X  if(FLAG > 0){
+X  }
+X  else{
+X     mb_bytes = (long)(mb_bytes / 1024);
+X     mb_new_bytes = (long)(mb_new_bytes /1024);
+X   
+X     sprintf(d, "%s/%d.mbd", TMP, getpid());
+X     fp = fopen( d, "w" );
+X     fprintf(fp, "%s  %s    %6.d   %6.ld",
+X                  mydate(1), mytime(1), mb_new, mb_new_bytes);
+X     fprintf(fp, "%16.16s", " ");
+X     fprintf(fp, "%6.d   %6.ld   %6.ld\n", mb_gruppen, mb_artikel, mb_bytes);
+X
+X     b = PRO_ENTRIES / 2; a = 0;
+X
+X     fa = fopen( MB_DLOG, "r" );
+X     if(fa != 0){
+X	while((fgets(s, STRING, fa) != 0) && (a < b)){
+X		fputs(s, fp);
+X		a++;
+X	}
+X	fclose(fa);
+X     }
+X     if(fp != 0) fclose(fp);
+X
+X     sprintf(s, "mv %s %s > /dev/null", d, MB_DLOG);
+X     system(s);
+X  } 
+X
+X  if((FASTMODE == 1) && (FLAG == 0)){
+X	printf("%s %d %s %ld %s.\n", MBD03_MSG, mb_new, MBD04_MSG, 
+X		mb_new_bytes, MBD05_MSG);
+X	printf("%s %d %s %ld %s %ld %s.\n\n", 
+X		MBD06_MSG, mb_gruppen, MBD07_MSG, mb_artikel, MBD08_MSG, 
+X		mb_bytes, MBD09_MSG);
+X  }
+X
+X
+X#ifdef ADDRMODE
+X  if(ad != 0) fclose(ad);
+X#endif
+X
+X  return;
+X}
+X
+X
+END_OF_FILE
+  if test 22450 -ne `wc -c <'src/mb-daemon.c'`; then
+    echo shar: \"'src/mb-daemon.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/mb-daemon.c'
+fi
+if test -f 'src/show.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/show.c'\"
+else
+  echo shar: Extracting \"'src/show.c'\" \(11749 characters\)
+  sed "s/^X//" >'src/show.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  show.c						   */
+X/*        FUNKTIONEN  show(), more(), richtext(), quoted_printable()	   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  08.06.1992					   */
+X/***************************************************************************/
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#include "mbox.h"
+X
+X
+Xstatic int show_more;
+Xstatic FILE *page;
+Xstatic char show_tmp[STRING];
+Xstatic int seite;
+X
+X
+Xextern char headinfo[STRING];
+X
+Xstatic int morechen;
+X
+X
+X/* Globals fuer RTF (Richtext Format): */
+X
+Xstatic int RTFcomment; 
+Xstatic int RTFcenter;
+Xstatic int RTFrightflush;
+Xstatic int RTFheading;
+X
+Xstatic char ENCODING[STRING];
+X
+Xstatic int QPkeys;
+X
+Xchar *richtext();
+Xchar *quoted_printable();
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  show()				        	   */
+X/*  BESCHREIBUNG  Zeigt den Inhalt einer Datei an.		 	   */
+X/*     PARAMETER  fname    = Dateiname                                     */
+X/*		  maxlines = mehr Zeilen auf keinen Fall ausgeben          */
+X/*		  mode     = '> 99'  Ueberschrift einrechnen	           */
+X/*			       '= 99'  Reset (alle Parameter von "show")   */
+X/*			       '=  0'  Kontinuierlich ausgeben             */
+X/*     RUECKGABE  -1  =  Datei nicht gefunden                              */
+X/***************************************************************************/
+X
+X#define LLL 80
+X
+Xint show(fname, maxlines, mode)
+Xchar fname[];
+Xint maxlines;
+Xint mode;
+X{
+X  FILE *fp;
+X
+X  char s[LONGSTRING];
+X  char o[LONGSTRING];
+X  char t[STRING];
+X  char CONTENT[STRING];
+X  int c;
+X  int ml;
+X  int ret_status = 0;
+X  int maxi = MAX_SCR_LINES;
+X  int swing = 0;
+X  int sl, ok;
+X 
+X  int HEADER_lines = 0;
+X  int HEADER_path = 0;
+X  int HEADER_double = 0;
+X
+X  int FACE = 0;
+X
+X
+X  if (mode > 99) {		/* HEADLINE */
+X	mode -= 100;
+X	maxi -= 2;
+X	swing = 2;
+X	morechen = 1;
+X	seite = 1;
+X  }
+X  if (mode == 99) {		/* RESET */
+X	show_more = 0;
+X	seite = 1;
+X	return 0;
+X  }
+X  fp = fopen(fname, "r");
+X  if (fp == NULL) {
+X	return -1;
+X  }
+X  ml = 0;
+X  morechen = 0;
+X
+X  CONTENT[0] = '\0';
+X  ENCODING[0] = '\0';
+X 
+X  RTFcomment    = 0;
+X  RTFcenter     = 0;
+X  RTFrightflush = 0; 
+X  RTFheading    = 0;
+X
+X  QPkeys 	= 0;
+X
+X  sprintf(show_tmp, "%s/show%d", TMP, getpid());
+X  page = fopen(show_tmp, "w");
+X
+X  if (mode != 2)
+X	show_more = 0;
+X  else
+X	morechen = show_more;
+X
+X  if (show_more > maxi) show_more = 0;
+X
+X
+X  while ((ml < maxlines) && (fgets(s, LONGSTRING, fp) != NULL)) {
+X
+X	if(SHORT_HEADER){
+X		if((strcomp("Path: ", s) == 0) || (strcomp("Newsgroups: ", s) == 0)){
+X			HEADER_path++;
+X			continue;
+X		}
+X
+X		if((HEADER_path != 0) && (HEADER_lines == 0)){
+X
+X			if(strcomp("From: ", s) == 0){
+X				printf("%s %s", GBL01_MSG, strcopy(s, 6, strlen(s)));
+X				fprintf(fp, "%s %s", GBL01_MSG, strcopy(s, 6, strlen(s)));
+X				morechen++;
+X			}
+X			if(strcomp("Subject: ", s) == 0){
+X				printf("%s %s", GBL03_MSG, strcopy(s, 9, strlen(s)));
+X				fprintf(fp, "%s %s", GBL03_MSG, strcopy(s, 9, strlen(s)));
+X				morechen++;
+X			}		
+X			if(strcomp("Date: ", s) == 0){
+X				printf("%s %s\n", GBL02_MSG, strcopy(s, 6, strlen(s)));
+X				fprintf(fp, "%s %s\n", GBL02_MSG, strcopy(s, 6, strlen(s)));
+X				morechen++;
+X			}
+X			if(strlen(s) < 3){
+X				HEADER_lines++;
+X				morechen++;
+X			}
+X			continue;
+X 		}	
+X	}
+X	else{
+X		if(HEADER_lines == 0){
+X			sprintf(t, "%s %s", GBL01_MSG, X_MAIL_DEMON);
+X			if(strcomp(t, s) == 0){
+X				do{
+X					fgets(s, 250, fp);
+X				}while(strcomp("From", s) != 0);
+X				HEADER_double++;
+X				ansi("md");
+X			}
+X			if((strcomp("Path:", s) == 0) || (strcomp("Newsgroups:", s) == 0) || (strcomp(GBL01_MSG, s) == 0)){
+X				ansi("md");
+X				HEADER_double++;
+X			}	
+X			if(strlen(s) < 3){
+X				HEADER_lines++;
+X				HEADER_double = 0;
+X				ansi("me");
+X			}			
+X		}
+X	}
+X
+X	if(strcomp("Content-Type:", s) == 0){
+X		strcpy(CONTENT, (char *) strcopy(s, 14, 80));
+X		if(strcomp("text/richtext", CONTENT) != 0) /* RTF etc. */
+X			 CONTENT[0] = '\0';
+X	}
+X	if(strcomp("Content-Transfer-Encoding:", s) == 0){
+X		strcpy(ENCODING, (char *) strcopy(s, 27, 80));
+X				
+X	}
+X	if(strcomp("Content-", s) == 0){
+X		if((HEADER_lines != 0) || (ml < 2)) s[0] = '\0'; /* :-)) */
+X	}
+X        if(strcomp("X-Face:", s) == 0){
+X		if(FACE == 0){
+X			FACE++;
+X		}
+X	}
+X	
+X	sl = length(s);
+X	while(sl > LLL){
+X		strcpy(o, (char *) s);
+X		sl = LLL; ok = 0;
+X		while((sl > 0) && (ok == 0)){
+X			if(s[sl] < 48){
+X				ok = sl;
+X			}
+X			sl--;
+X		}
+X		s[ok] = '\0';
+X		morechen++;
+X#ifdef _MULTIMEDIA
+X		if(strcomp("Quoted-Printable", ENCODING) == 0){
+X			strcpy(s, (char *) quoted_printable(s));
+X		}
+X		if(CONTENT[0] == '\0'){
+X			printf("%s\n", s);
+X		}
+X		else{
+X			strcpy(s, (char *) richtext(s));
+X			fprintf(page, "%s", s);
+X		}
+X#else
+X		printf("%s\n", s);
+X		fprintf(page, "%s\n", s);
+X#endif
+X		strcpy(s, (char *)bigcopy(o, ok, length(o)));
+X		sl = length(s);
+X		if(ok == 0){
+X			sl = LLL;
+X			printf("[SysBug \"show.c\"]");
+X		}
+X		if(s[0] == '\n') s[0] = '\0';
+X	}
+X	if(s[strlen(s)] == '\n') s[strlen(s)] == '\0'; 
+X#ifdef _MULTIMEDIA
+X	if(strcomp("Quoted-Printable", ENCODING) == 0){
+X		strcpy(s, (char *) quoted_printable(s));
+X	}
+X	if(CONTENT[0] == '\0'){
+X		printf("%s", s);
+X	}
+X	else{
+X		strcpy(s, (char *) richtext(s));
+X	}
+X#else
+X	printf("%s", s);
+X#endif
+X	fputs(s, page);
+X	ml++;
+X	morechen++;
+X	if ((morechen >= maxi) && (mode > 0)) {
+X		morechen = 0;
+X		maxi += swing;
+X		swing = 0;
+X		fclose(page);
+X		ret_status = more();
+X		if (ret_status != 0) {
+X			ml = maxlines + 9999;
+X		}
+X		else {
+X			page = fopen(show_tmp, "w");
+X			if(HEADER_double != 0){
+X				ansi( "md" );
+X			}
+X		}
+X	}
+X  }
+X  fclose(fp);
+X
+X  show_more = morechen;
+X
+X  if (page != NULL) fclose(page);
+X  unlink(show_tmp);
+X
+X  /*			Experimental Use only !
+X  if(FACE != 0){
+X	faces( fname );
+X  }
+X  */
+X
+X  return (int) ret_status;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  more()						   */
+X/*  BESCHREIBUNG  Erfragen ob weitergelesen werden soll, oder nicht.       */
+X/*     PARAMETER  keine  	                                           */
+X/*     RUECKGABE  0  =  weiterlesen                                        */
+X/*		 -1  =  abbrechen				           */
+X/***************************************************************************/
+X
+Xint more()
+X{
+X  char s[255];
+X  char c;
+X  int ok = 0;
+X
+XFIRST_TRY:
+X
+X  ansi("mr");
+X  printf("                                                                               ");
+X  printf("%c[%s] (?) > ", CR, SHO04_MSG);
+X  ansi("me");
+X
+XSECOND_TRY:
+X
+X  c = getint();
+X
+X  if (c == '?') {
+X	ansi("mr");
+X	clearline();
+X	printf("%c%s > ", CR, SHO05_MSG);
+X	ansi("me");
+X	goto SECOND_TRY;
+X  }
+X  if (c > 96) c -= 32;
+X
+X  if ((c == DEL) ||
+X      (c == CTRL_D) ||
+X      (c == CTRL_X) ||
+X      (c == SHO06_MSG) ||
+X      (c == SHO07_MSG))
+X	ok = -1;
+X
+X  if ((c == SHO08_MSG) || (c == SHO09_MSG)) ok = 1;
+X
+X  if (c == SHO10_MSG) {
+X	ansi("cl");
+X	ansi("mr");
+X	printf("                                                                               ");
+X	printf("%c%s\n", CR, SHO11_MSG);
+X	ansi("me");	
+X	page = fopen(show_tmp, "r");
+X	if (page != NULL) {
+X		while (fgets(s, 250, page) != NULL) {
+X			printf("%s", s);
+X		}
+X		fclose(page);
+X	}
+X	goto FIRST_TRY;
+X  }
+X 
+X  if(ok != 1){	
+X	  if (USER.more == 3) {
+X		clearline();
+X	  }
+X	  else {
+X		if(USER.more != 0){
+X			ansi("cl");
+X			seite++;
+X			sprintf(s, "%s^-  [%s %d]", headinfo, SHO12_MSG, seite);
+X			headline(s);
+X		}
+X		else printf("\n\n");
+X	  }
+X  }
+X  else{	
+X	clearline();
+X  }
+X
+X  return (int) ok;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  richtext()						   */
+X/*  BESCHREIBUNG  RTF ... die Zukunft kommt bestimmt :-)))		   */
+X/*     PARAMETER  Zeile im RT-Format                                       */
+X/*     RUECKGABE  Zeile im ANSI-Format					   */
+X/***************************************************************************/
+X
+Xchar *richtext( s )
+Xchar s[];
+X{
+X  char rt[STRING];
+X  char line[LONGSTRING];
+X  char space[LONGSTRING];
+X  int i = 0, j;
+X  int l = 0;
+X  int not;
+X  int keys = 0;
+X
+X  while(s[i] != '\0'){
+X	if(s[i] != '<'){
+X		if(RTFcomment == 0){
+X			/* RTF-Konform:
+X			if(s[i] == '\n')
+X				line[l] = ' ';
+X			else
+X				line[l] = s[i];
+X			NICHT RTF-Konform: */
+X
+X			line[l] = s[i];
+X			l++;
+X			keys++;
+X		}
+X	}
+X	else{
+X		line[l] = '\0';
+X		not = 0;
+X		i++;
+X		j = i;
+X		while((s[j] != '>') && (s[j] != '\0')){
+X			if(s[j] == '/'){
+X				i++;
+X				not++;
+X			}
+X			j++;
+X		}
+X		strcpy(rt, (char *) strcopy(s, i, (j-1)));
+X
+X		if(not == 0){
+X			if(strcomp("Bold",       rt) == 0) 
+X				strcat( line, (char *) termansi( "md" ));
+X			if(strcomp("Italic",     rt) == 0) 
+X				strcat( line, (char *) termansi( "mr" ));
+X			if(strcomp("Bigger",     rt) == 0) 
+X				strcat( line, (char *) termansi( "md" ));
+X			if(strcomp("Underline",  rt) == 0) 
+X				strcat( line, (char *) termansi( "mr" ));
+X			if(strcomp("Paragraph",  rt) == 0){
+X				strcat( line, "\n\n");
+X				morechen += 2;
+X			}
+X			if(strcomp("Comment",    rt) == 0)
+X				RTFcomment++;
+X			if(strcomp("Center",     rt) == 0)
+X				RTFcenter++;
+X			if(strcomp("FlushRight", rt) == 0)
+X				RTFrightflush++;
+X			if(strcomp("Heading",   rt) == 0){
+X				RTFheading++;
+X				strcat( line, (char *) termansi( "md" ));
+X			}
+X		}
+X		else{
+X			if(strcomp("Bold",       rt) == 0) 
+X				strcat( line, (char *) termansi( "me" ));
+X			if(strcomp("Italic",     rt) == 0) 
+X				strcat( line, (char *) termansi( "me" ));
+X			if(strcomp("Bigger",     rt) == 0) 
+X				strcat( line, (char *) termansi( "me" ));
+X			if(strcomp("Underline",  rt) == 0) 
+X				strcat( line, (char *) termansi( "me" ));
+X			if(strcomp("Paragraph",  rt) == 0){
+X				strcat( line, "\n\n");
+X				morechen += 2;
+X			}
+X			if(strcomp("Comment",    rt) == 0)
+X				RTFcomment = 0;
+X			if(strcomp("Center",     rt) == 0)
+X				RTFcenter = 9999;
+X			if(strcomp("FlushRight", rt) == 0)
+X				RTFrightflush = 9999;
+X			if(strcomp("Heading",   rt) == 0){
+X				RTFheading = 9999;
+X				strcat( line, (char *) termansi( "me" ));
+X			}
+X		}
+X
+X		if(strcomp("LT", rt) == 0) 
+X			strcat( line, (char *) "<" );
+X
+X		/* NICHT RTF-Konform:
+X		if(strcomp("NL", rt) == 0){ 
+X			strcat( line, (char *)  "\n" );
+X			morechen++;
+X		}
+X		*/
+X
+X		if(strcomp("NP", rt) == 0) 
+X			strcat( line, (char *) "\f" );
+X		if(RTFcomment == 0){
+X			l = strlen(line);
+X		}
+X		i = j;
+X	}
+X	i++;
+X  }
+X  line[l] = '\0';
+X  strcpy(space, (char *) "                                                                              ");	
+X
+X  if((RTFcenter != 0) || (RTFheading != 0)){
+X	i = (79 - keys) / 2; 
+X	if(i <  0) i = 0;
+X	if(i > 79) i = 0;
+X	space[i] = '\0';
+X	strcat(space, (char *) line);
+X	strcpy(line, (char *) space);
+X  }
+X  if(RTFrightflush != 0){
+X	i = 79 - keys;
+X	space[i] = '\0';
+X	strcat(space, (char *) line);
+X	strcpy(line, (char *) space);
+X  }
+X  
+X  printf("%s", line);
+X
+X  if(RTFcenter     == 9999) RTFcenter = 0;
+X  if(RTFrightflush == 9999) RTFrightflush = 0;
+X  if(RTFheading    == 9999) RTFheading = 0;
+X
+X  return (char *) line;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  quoted_printable()					   */
+X/*  BESCHREIBUNG  Transfer-Encoding: Regel #1 bis #5			   */
+X/*     PARAMETER  Zeile im RT-Format                                       */
+X/*     RUECKGABE  Decodierte Zeile					   */
+X/***************************************************************************/
+X
+Xchar *quoted_printable( s )
+Xchar s[];
+X{
+X  char line[LONGSTRING];
+X  char t[STRING];
+X  int i = 0, l = 0, p = 0;
+X
+X  while(s[i] != '\0'){
+X	if(s[i] == '='){
+X		if(s[(i+1)] == '\n'){
+X			i++;
+X		}
+X		else{
+X			/*
+X			sprintf(t, "0x%s", strcopy(s, (i+1), (i+2)));
+X			line[l] = atoi(t);
+X			l++;
+X			*/
+X			i += 2;
+X		}
+X	}
+X	else{
+X		line[l] = s[i];
+X		l++;
+X		QPkeys++;
+X		if(s[i] == '\n') QPkeys = 0;
+X	}
+X
+X	if(QPkeys >= 75){
+X		p = l;
+X		while((line[p] != ' ') && (p > 0)){
+X			p--;
+X		}
+X		line[p] = '\n';
+X		QPkeys = 0;
+X	}
+X	i++;
+X  }
+X  line[l] = '\0';
+X
+X  return (char *) line;
+X}
+END_OF_FILE
+  if test 11749 -ne `wc -c <'src/show.c'`; then
+    echo shar: \"'src/show.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/show.c'
+fi
+if test -f 'src/tools.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/tools.c'\"
+else
+  echo shar: Extracting \"'src/tools.c'\" \(22598 characters\)
+  sed "s/^X//" >'src/tools.c' <<'END_OF_FILE'
+X/***************************************************************************/
+X/*	    PROGRAMM  ix/Mbox						   */
+X/*             DATEI  tools.c						   */
+X/*        FUNKTIONEN  whoami(), tty(), stripped(), upcased(), length(),    */
+X/*		      strcopy(), strcomp(), ansi(), mydate(), mytime(),    */
+X/*	              crypted(), dateconv(), datereconv(), timeconv(),     */
+X/*		      timereconv(), maybe_locked(), num_stripped(),        */
+X/*		      rename(), headline(), ttyna(), bigcopy(), mblock(),  */
+X/*		      mbunlock(), shortname(), clearline(), isin()	   */
+X/*		      termansi()					   */
+X/*             AUTOR  vs (Volker Schuermann/MINIX-Version)		   */
+X/*  LETZTE AENDERUNG  28.05.1992					   */
+X/***************************************************************************/
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <unistd.h>
+X#include <time.h>
+X#include <pwd.h>
+X
+X#ifdef _SYS7
+X#include <termcap.h>
+X#endif
+X
+X
+X#ifdef _MBOX
+X#define EXTERN
+X#include "mbox.h"
+X#else
+X#define VERSION "TOOLS.C"
+X#define CR 13
+X#define TOL01_MSG	"Sonntag"
+X#define TOL02_MSG	"Montag"
+X#define TOL03_MSG	"Dienstag"
+X#define TOL04_MSG	"Mittwoch"
+X#define TOL05_MSG	"Donnerstag"
+X#define TOL06_MSG	"Freitag"
+X#define TOL07_MSG	"Samstag"
+X#define TOL08_MSG	"Momentchen"
+X#endif
+X#ifdef STRING
+X#undef STRING
+X#endif
+X
+X#ifdef LONGSTRING
+X#undef LONGSTRING
+X#endif
+X
+X#define STRING 81
+X#define LONGSTRING 256
+X
+Xchar headinfo[STRING];
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  whoami()						   */
+X/*  BESCHREIBUNG  Name des eigenen SH-Accounts.		 		   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  siehe BESCHREIBUNG                                       */
+X/***************************************************************************/
+X
+Xchar *whoami()
+X{
+X  struct passwd *pw_entry;
+X
+X  pw_entry = getpwuid(getuid());
+X
+X  if (pw_entry->pw_uid < 0) return (char *) "OOPS";
+X
+X  return (char *) (pw_entry->pw_name);
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  stripped()						   */
+X/*  BESCHREIBUNG  STRING von fuehrenden und folgenden Leerzeichen be-      */
+X/*		  freien.                                                  */
+X/*     PARAMETER  st  =  STRING inclusive Leerzeichen                      */
+X/*     RUECKGABE  STRING exclusive Leerzeichen                             */
+X/***************************************************************************/
+X
+Xchar *stripped(st)
+Xchar st[];
+X{
+X  static char s[STRING];
+X
+X  int i = 0, a = 0, b = 0, c = 0;
+X
+X  if (st[0] == '\0') return (char *) '\0';
+X  if ((st[0] == 10) || (st[0] == 13)) return (char *) " ";
+X
+X  strcpy(s, st);
+X
+X  while ((s[i] < 33) && (s[i] != '\0')) i++;
+X  a = i;
+X  while (s[a] != '\0') a++;
+X  a--;
+X  while (s[a] < 33) a--;
+X
+X  for (c = i; c <= a; c++) {
+X	s[b] = s[c];
+X	b++;
+X  }
+X  s[b] = '\0';
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  upcased()						   */
+X/*  BESCHREIBUNG  Zeichen eines STRING auf Grossbuchstaben umstellen.	   */
+X/*     PARAMETER  st  =  STRING mit Gross-/Kleinbuchstaben		   */
+X/*     RUECKGABE  STRING in Grossbuchstaben                                */
+X/***************************************************************************/
+X
+Xchar *upcased(st)
+Xchar st[];
+X{
+X  static char s[STRING];
+X
+X  int i = 0;
+X
+X
+X  strcpy(s, st);
+X
+X  while (s[i] != '\0') {
+X	if (s[i] > 96) s[i] -= 32;
+X	i++;
+X  }
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  length()						   */
+X/*  BESCHREIBUNG  Laenge eines STRING ermitteln (ja, ja, "strlen" ...)	   */
+X/*     PARAMETER  st  =  STRING                                            */
+X/*     RUECKGABE  Laenge des STRING                                        */
+X/***************************************************************************/
+X
+Xint length(st)
+Xchar st[];
+X{
+X  int i = 0;
+X
+X  while (st[i] != '\0') i++;
+X
+X  return i;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  strcopy()						   */
+X/*  BESCHREIBUNG  Einen TeilSTRING aus einem STRING herausschneiden.       */
+X/*     PARAMETER  st  =  STRING                                            */
+X/*		  v   =  von Zeichen (1. Zeichen = 0 !!!)		   */
+X/*		  b   =  bis Zeichen				           */
+X/*     RUECKGABE  TeilSTRING                                               */
+X/***************************************************************************/
+X
+Xchar *strcopy(st, v, b)
+Xchar st[];
+Xint v, b;
+X{
+X  static char s[STRING];
+X
+X  int i = 0, j;
+X
+X
+X  strcpy(s, st);
+X
+X  if (length(s) < b) b = length(s);
+X
+X  for (j = v; j <= b; j++) {
+X	s[i] = s[j];
+X	i++;
+X  }
+X  s[i] = '\0';
+X
+X  return (char *) s;
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  bigcopy()						   */
+X/*  BESCHREIBUNG  Einen TeilLONGSTRING aus LONGSTRING herausschneiden.     */
+X/*     PARAMETER  st  =  LONGSTRING                                        */
+X/*		  v   =  von Zeichen (1. Zeichen = 0 !!!)		   */
+X/*		  b   =  bis Zeichen				           */
+X/*     RUECKGABE  TeilLONGSTRING                                           */
+X/***************************************************************************/
+X
+Xchar *bigcopy(st, v, b)
+Xchar st[];
+Xint v, b;
+X{
+X  static char s[LONGSTRING];
+X
+X  int i = 0, j;
+X
+X
+X  strcpy(s, st);
+X
+X  if (length(s) < b) b = length(s);
+X
+X  for (j = v; j <= b; j++) {
+X	s[i] = s[j];
+X	i++;
+X  }
+X  s[i] = '\0';
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  strcomp()						   */
+X/*  BESCHREIBUNG  Zwei STRINGs vergleichen. Und zwar genau solange, bis    */
+X/*		  bei STRING1 das Ende ('\0') erreicht ist !!!             */
+X/*                Gross-/Kleinschreibung wird dabei IGNORIERT !!!          */
+X/*     PARAMETER  st  =  STRING1                                           */
+X/*	          tt  =  STRING2                                           */
+X/*     RUECKGABE  Anzahl der UNGLEICHEN Zeichen                            */
+X/***************************************************************************/
+X
+Xint strcomp(s, t)
+Xchar s[], t[];
+X{
+X  int i = 0, a = 0;
+X  int s1, t1;
+X
+X  while (s[i] != '\0') {
+X	s1 = s[i];
+X	t1 = t[i];
+X	if ((t1 > 96) && (t1 < 123)) t1 -= 32;
+X	if ((s1 > 96) && (s1 < 123)) s1 -= 32;
+X	if (t1 != s1) a++;
+X	i++;
+X  }
+X  return a;
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  ansi()						   */
+X/*  BESCHREIBUNG  TERMCAP-Eintrag fuer ein Terminal in "buf" einlesen,     */
+X/*		  und angeforderte Sequenzen finden & ausgeben.            */
+X/*     PARAMETER  code  =  'INIT'  =  Eintrag holen und speichern	   */
+X/*		  	           =  Sequenz finden & ausgeben            */
+X/*     RUECKGABE  -1  =  Terminal nicht gefunden                           */
+X/*		   1  =  Sequenz nicht gefunden				   */
+X/***************************************************************************/
+X
+Xstatic char buf[1024];
+X
+Xint ansi(code)
+Xchar code[];
+X{
+X  char *getenv();
+X  static char s[STRING];
+X  char *p = s;
+X  char *term;
+X
+X#ifdef _MBOX
+X  term = TERMINAL;
+X#else
+X  term = getenv("TERM");
+X#endif
+X
+X  if (strcomp("INIT", code) == 0) {
+X	if (tgetent(buf, term) != 1) return -1;
+X  }
+X  if (tgetstr(code, &p) == 0) return 1;
+X
+X  printf("%s", s);
+X
+X  return 0;
+X}
+X
+Xchar *termansi(code)
+Xchar code[];
+X{
+X  char *getenv();
+X  char s[STRING];
+X  char *p = s;
+X  char *term;
+X
+X#ifdef _MBOX
+X  term = TERMINAL;
+X#else
+X  term = getenv("TERM");
+X#endif
+X
+X  if (strcomp("INIT", code) == 0) {
+X	if (tgetent(buf, term) != 1) return (char *) '\0';
+X  }
+X  if (tgetstr(code, &p) == 0) return (char *) '\0';
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  mydate()						   */
+X/*  BESCHREIBUNG  Tagesdatum liefern.  					   */
+X/*     PARAMETER  mode  =  0  =  tt.mm.yyyy				   */
+X/*			   1  =  tt.mm.yy				   */
+X/*			   2  =  ttt					   */	
+X/*     RUECKGABE  Datum                                                    */
+X/***************************************************************************/
+X
+X#define TZS      1
+X
+Xchar *mydate(mode)
+Xint mode;
+X{
+X  struct tm *tp;
+X  time_t tt;
+X  char wt[8][11];
+X
+X  static char s[STRING];
+X
+X#ifndef _MBOX
+X  strcpy(wt[0], "Sonntag");
+X  strcpy(wt[1], "Montag");
+X  strcpy(wt[2], "Dienstag");
+X  strcpy(wt[3], "Mittwoch");
+X  strcpy(wt[4], "Donnerstag");
+X  strcpy(wt[5], "Freitag");
+X  strcpy(wt[6], "Samstag");
+X#else
+X  strcpy(wt[0], TOL01_MSG);
+X  strcpy(wt[1], TOL02_MSG);
+X  strcpy(wt[2], TOL03_MSG);
+X  strcpy(wt[3], TOL04_MSG);
+X  strcpy(wt[4], TOL05_MSG);
+X  strcpy(wt[5], TOL06_MSG);
+X  strcpy(wt[6], TOL07_MSG);
+X#endif
+X
+X  time(&tt);
+X  tp = localtime(&tt);
+X  if (mode == 0) {
+X	sprintf(s, "%02.2d.%02.2d.%04.4d", tp->tm_mday, tp->tm_mon + TZS, 1900 + tp->tm_year);
+X  }
+X  if (mode == 1) {
+X	sprintf(s, "%02.2d.%02.2d.%02.2d", tp->tm_mday, tp->tm_mon + TZS, tp->tm_year);
+X  }
+X  if (mode == 2) {
+X	sprintf(s, "%s", wt[tp->tm_wday]);
+X  }
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  mytime()						   */
+X/*  BESCHREIBUNG  Tageszeit liefern.  					   */
+X/*     PARAMETER  mode  =  0  =  hh:mm:ss				   */
+X/*			   1  =  hh:mm	 				   */
+X/*     RUECKGABE  Zeit                                                     */
+X/***************************************************************************/
+X
+Xchar *mytime(mode)
+Xint mode;
+X{
+X  struct tm *tp;
+X  time_t tt;
+X
+X  static char s[STRING];
+X
+X  time(&tt);
+X  tp = localtime(&tt);
+X  sprintf(s, "%02.2d:%02.2d:%02.2d", tp->tm_hour, tp->tm_min, tp->tm_sec);
+X
+X  if (mode == 1) s[5] = '\0';
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  crypted()						   */
+X/*  BESCHREIBUNG  STRING verschluesseln und zurueckgeben.		   */
+X/*     PARAMETER  s  =  STRING                                             */
+X/*     RUECKGABE  Verschluesselter STRING                                  */
+X/***************************************************************************/
+X
+Xchar *crypted(s)
+Xchar s[];
+X{
+X  static char t[STRING];
+X  int i, a;
+X
+X
+X  strcpy(t, s);
+X  i = 0;
+X  a = 2;
+X  while (t[i] != '\0') {
+X	t[i] = (t[i] / a) + 32;
+X	i++;
+X	a++;
+X	if (a > 5) a = 2;
+X  }
+X
+X  return (char *) t;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  dateconv() 						   */
+X/*  BESCHREIBUNG  Datum (STRING) in Datum (LONG) wandeln.		   */
+X/*     PARAMETER  d  =  Datum (STRING)                                     */
+X/*     RUECKGABE  Datum (LONG)                                             */
+X/***************************************************************************/
+X
+Xlong dateconv(d)
+Xchar d[];
+X{
+X  char s[STRING];
+X  int a, b, i;
+X
+X
+X  strcpy(s, (char *) strcopy(d, 0, 1));
+X  a = atoi(s);
+X  strcpy(s, (char *) strcopy(d, 3, 4));
+X  b = atoi(s);
+X  strcpy(s, (char *) strcopy(d, 6, 9));
+X  i = atoi(s);
+X  if (i < 1900) i += 1900;
+X
+X  sprintf(s, "%4.4d%02.2d%02.2d", i, b, a);
+X
+X  return atol(s);
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  datereconv() 						   */
+X/*  BESCHREIBUNG  Datum (LONG) in Datum (STRING) wandeln.		   */
+X/*     PARAMETER  l  =  Datum (LONG)                                       */
+X/*     RUECKGABE  Datum (STRING)                                           */
+X/***************************************************************************/
+X
+Xchar *datereconv(l)
+Xlong l;
+X{
+X  static char s[STRING];
+X  static char t[STRING];
+X
+X
+X  if (l < 19000000)
+X	sprintf(s, "%ld", 1900000L + l);
+X  else
+X	sprintf(s, "%ld", l);
+X
+X  strcpy(t, (char *) strcopy(s, 6, 7));
+X  strcat(t, ".");
+X  strcat(t, (char *) strcopy(s, 4, 5));
+X  strcat(t, ".");
+X  strcat(t, (char *) strcopy(s, 0, 3));
+X
+X  return (char *) t;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  timeconv() 						   */
+X/*  BESCHREIBUNG  Zeit (STRING) in Zeit (LONG) wandeln.			   */
+X/*     PARAMETER  t  =  Zeit (STRING)                                      */
+X/*     RUECKGABE  Zeit (LONG)                                              */
+X/***************************************************************************/
+X
+Xint timeconv(t)
+Xchar t[];
+X{
+X  char s[STRING];
+X  int i = 0;
+X
+X
+X  strcpy(s, (char *) strcopy(t, 0, 1));
+X  i = 100 * atoi(s);
+X  strcpy(s, (char *) strcopy(t, 3, 4));
+X  i += atoi(s);
+X
+X  return i;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  timereconv() 						   */
+X/*  BESCHREIBUNG  Zeit (LONG) in Zeit (STRING) wandeln.			   */
+X/*     PARAMETER  i  =  Zeit (LONG)                                        */
+X/*     RUECKGABE  Zeit (STRING)                                            */
+X/***************************************************************************/
+X
+Xchar *timereconv(i)
+Xint i;
+X{
+X  static char s[STRING];
+X  static char t[STRING];
+X
+X
+X  if (i < 10000)
+X	sprintf(s, "%04.4d00", i);
+X  else
+X	sprintf(s, "%06.6d", i);
+X
+X  strcpy(t, (char *) strcopy(s, 0, 1));
+X  strcat(t, ":");
+X  strcat(t, (char *) strcopy(s, 2, 3));
+X  strcat(t, ":");
+X  strcat(t, (char *) strcopy(s, 4, 5));
+X
+X  return (char *) t;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  shortname() 						   */
+X/*  BESCHREIBUNG  Wandelt lange Namen (NGs) ins 14-Zeichenformat, um Ver-  */
+X/*                Wechslungen zu vermeiden:				   */
+X/*									   */
+X/*		      comp.protocols.tcp-ip.sources.wanted		   */
+X/*                =>  com0ces.wanted					   */
+X/*							                   */
+X/*     PARAMETER  longname : langer Name                                   */
+X/*									   */
+X/*   									   */
+X/*     RUECKGABE  s : kurzer Name                                          */
+X/***************************************************************************/
+X
+Xchar *shortname( longname )
+Xchar longname[];
+X{
+X  char s[STRING];
+X  char t[STRING];
+X
+X  int i = 0, j = 0;
+X
+X  strcpy(s, longname);
+X
+X  strcpy(t, longname);
+X
+X  while(s[i] != '\0'){
+X	if(s[i] == '/') j = i + 1;
+X	i++;
+X  }
+X
+X  i = strlen(t);
+X
+X  if((i - j) < 15) return (char *) s;
+X
+X  s[j + 3] = '0'; s[j + 4] = '\0';
+X  strcat(s, (char *) strcopy(t, (i-10), i));
+X
+X  return (char *) s;
+X}
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  maybe_locked()					   */
+X/*  BESCHREIBUNG  Um sicherzustellen das eine Datei, die eigentlich vor-   */
+X/*		  handen sein MUSS, wirklich nicht da ist (und nicht nur   */
+X/*		  gerade von einem anderen Task benutzt wird), verzoegert  */
+X/*		  diese Funktion die Fehlermeldung um eine festgelegte     */
+X/*		  Zeitspanne.                                              */
+X/*     PARAMETER  name  =  Dateiname				           */
+X/*		  mode  =  Zugriffsmodus (sollte NICHT verwendet werden !) */
+X/*     RUECKGABE   0    =  Datei erreichbar				   */
+X/*		  -1    =  Datei nicht verfuegbar			   */
+X/***************************************************************************/
+X
+Xint maybe_locked(name, mode)
+Xchar name[], mode[];
+X{
+X  FILE *fp;
+X  int i = 0, LCK = 0;
+X  char s[STRING];
+X
+X  sprintf(s, "%s.LCK", name);
+X
+X#ifndef _LONGNAMES
+X  strcpy(s, (char *) shortname(s));
+X#endif
+X
+X  TRY_TWICE:
+X
+X  fp = NULL;
+X
+X  do {
+X	if(fp != NULL) fclose(fp);
+X	fp = fopen(s, "r");
+X	i++;
+X	if (fp != NULL) {
+X		if(i == 1) printf("%c%s ", CR, TOL08_MSG);
+X		printf(".");
+X		sleep(3);
+X	}
+X  } while ((i < 8) && (fp != 0));
+X
+X  if(fp != 0){
+X	fclose(fp);
+X#ifdef _MBOX
+X	mbunlock(name);  /* <--- DAS IST NATUERLICH NICHT KORREKT !!! */
+X	goto TRY_TWICE;  /* <--- DAS AUCH NICHT !!! */
+X	nerror("tools.c", 566, "maybe_locked", "Datei gesperrt", name);	
+X#else
+X	printf("\n\nDatei >>%s<< gesperrt !!!\n\n", name);
+X#endif
+X	exit( -1 );
+X  }
+X
+X  i = 0;
+X
+X  do {
+X	fp = fopen(name, "r");	/* "r" => "mode", aber VORSICHT ! */
+X	i++;
+X	if (fp == NULL) {
+X		if(i == 1) printf("%c%s ", CR, TOL08_MSG);	
+X		printf(".");
+X		sync();
+X		sleep(3);
+X	}
+X  } while ((i < 5) && (fp == NULL));
+X
+X  if (fp == NULL) return -1;
+X
+X  fclose(fp);
+X  return 0;
+X}
+X
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  num_stripped()					   */
+X/*  BESCHREIBUNG  Entfernt alle Ziffern aus STRING.			   */
+X/*     PARAMETER  s  =  STRING (incl. Ziffern)				   */
+X/*     RUECKGABE  STRING (excl. Ziffern)				   */
+X/***************************************************************************/
+X
+Xchar *numstripped(s)
+Xchar s[];
+X{
+X  static char t[STRING];
+X  int i = 0, a = 0;
+X
+X  while (s[i] != '\0') {
+X	if (((s[i] > 64) && (s[i] < 127)) || (s[i] == ' ') || (s[i] == '-')) {
+X		t[a] = s[i];
+X		a++;
+X	}
+X	i++;
+X  }
+X  t[a] = '\0';
+X
+X  return (char *) t;
+X}
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  rename()						   */
+X/*  BESCHREIBUNG  Benennt Datei1 in Datei2 um (ok, gelogen ... Datei1 wird */
+X/*		  in Datei2 kopiert).                                      */
+X/*     PARAMETER  alt  =  Datei1                                           */
+X/*		  neu  =  Datei2                                           */
+X/*     RUECKGABE   0   =  ok                                               */
+X/*		  -1   =  Datei1 nicht gefunden				   */
+X/***************************************************************************/
+X
+X#ifndef _ANSI
+X
+Xint rename(alt, neu)
+Xchar *alt[], *neu[];
+X{
+X  FILE *fp;
+X  FILE *ff;
+X
+X  char s[250];
+X
+X  fp = fopen(neu, "w");
+X  if (fp == NULL) {
+X	return -1;
+X  }
+X  ff = fopen(alt, "r");
+X  if (ff == NULL) {
+X	return -2;
+X  }
+X  while (fgets(s, 250, ff) != NULL) {
+X	fputs(s, fp);
+X  }
+X
+X  fclose(fp);
+X  fclose(ff);
+X
+X  unlink(alt);
+X
+X  return 0;
+X}
+X
+X#endif
+X
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  headline()						   */
+X/*  BESCHREIBUNG  Ueberschrift mit Ansage-Text ausgeben. Vorher wird der   */
+X/*		  der Bildschirm geloescht (falls moegliche) und auf	   */
+X/*		  negative Darstellung umgeschaltet.                       */
+X/*     PARAMETER  line  =  Ansage-Text					   */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid headline(line)
+Xchar line[];
+X{
+X  char ex[255];
+X  int i;
+X
+X
+X  strcpy(ex, line);
+X  i = 0;
+X  while(line[i] != '\0'){
+X	if(line[i] == '^'){
+X		strcpy(ex, (char *) strcopy(line, 0, (i-1)));
+X		line[i] = ' ';
+X	}
+X	i++;
+X  }
+X  strcpy(headinfo, ex);
+X  sprintf(ex, "%s                                                                          ", line);
+X  ex[79] = '\0';
+X  if (ansi("cl") != -1) {
+X	if (ansi("mr") == 1) {
+X		if (ansi("so") == 1) { 
+X			printf("\n\n------  %s  ------\n\n", line);
+X			return;
+X		}
+X	}
+X	printf("%s\n", ex);
+X	if (ansi("me") == 1) {
+X		ansi("se");
+X	}
+X  }
+X  else {
+X	printf("\n\n\n\n\n------  %s  ------\n\n", line);
+X  }
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  mblock()						   */
+X/*  BESCHREIBUNG  Schuetzt eine Datei vor ALLEN Zugriffen		   */
+X/*     PARAMETER  path  =  Datei					   */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid mblock( path )
+Xchar path[];
+X{
+X  FILE *fp;
+X  char s[STRING];
+X
+X  sprintf(s, "%s.LCK", path); 
+X
+X#ifndef _LONGNAMES
+X  strcpy(s, (char *) shortname(s));
+X#endif
+X
+X  fp = fopen( s, "w" );
+X  fputs(VERSION, fp);
+X  fclose(fp);
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  unmblock()						   */
+X/*  BESCHREIBUNG  Erlaubt Zugriffe auf eine Datei			   */
+X/*     PARAMETER  path  =  Datei					   */
+X/*     RUECKGABE  keine                                                    */
+X/***************************************************************************/
+X
+Xvoid mbunlock( path )
+Xchar path[];
+X{
+X  char s[STRING];
+X  
+X  sprintf(s, "%s.LCK", path); 
+X
+X#ifndef _LONGNAMES
+X  strcpy(s, (char *) shortname(s));
+X#endif
+X
+X  unlink(s);
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  tty()							   */
+X/*  BESCHREIBUNG  Name des eigenen Terminal-Anschlusses. 		   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  siehe BESCHREIBUNG                                       */
+X/***************************************************************************/
+X
+Xint tty()
+X{
+X  char s[STRING];
+X  char t[STRING];
+X  int i, l, a, b;
+X
+X
+X  strcpy(s, (char *) ttyname(0));
+X  l = length(s);
+X  i = l;
+X
+X  while ((s[l] != 'y') && (l > 0)) l--;
+X
+X  l++;
+X  a = 0;
+X
+X  for (b = l; b < i; b++) {
+X	t[a] = s[b];
+X	a++;
+X  }
+X  t[a] = '\0';
+X
+X  return atoi(t);
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  ttyna()						   */
+X/*  BESCHREIBUNG  Name des eigenen Terminal-Anschlusses. 		   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  siehe BESCHREIBUNG                                       */
+X/***************************************************************************/
+X
+Xchar *ttyna()
+X{
+X  static char s[STRING];
+X  static char t[STRING];
+X  int i, j, l;
+X
+X
+X  strcpy(s, (char *) ttyname(0));
+X
+X  l = length(s) + 1;
+X
+X  i = 0; 
+X  while(s[i] != '\0'){
+X	if(s[i] == '/') j = i + 1;
+X	i++;
+X  }
+X  (void) strcpy(t, (char *) strcopy(s, j, l));
+X  
+X  return (char *) t;
+X}
+X
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  clearline()						   */
+X/*  BESCHREIBUNG  Bildschirmzeile loeschen.		 		   */
+X/*     PARAMETER  keine	                                                   */
+X/*     RUECKGABE  keine			                                   */
+X/***************************************************************************/
+X
+Xvoid clearline()
+X{
+X  printf("%c", CR);
+X  if (ansi("ce") == 1) {
+X	printf("                                                               ");
+X  }
+X  printf("%c", CR);
+X}
+X
+X
+X/***************************************************************************/
+X/*      FUNKTION  isin()						   */
+X/*  BESCHREIBUNG  Prueft ob ein Zeichen in einer Zeichenkette vorkommt.	   */
+X/*     PARAMETER  pattern = Zeichenkette mit den moegl. Uebereinstimmungen */
+X/*		  c       = Zeichen					   */
+X/*     RUECKGABE  0       = Zeichen ist NICHT in Zeichenkette enthalten	   */
+X/***************************************************************************/
+X
+Xint isin( pattern, c )
+Xchar pattern[];
+Xint c;
+X{
+X  int i = 0;
+X  int ok = 0;
+X
+X  while((pattern[i] != '\0') && (ok == 0)){
+X	if(pattern[i] == c) ok++;	
+X	i++;
+X  }
+X  
+X  return (int) ok;  
+X}
+X
+END_OF_FILE
+  if test 22598 -ne `wc -c <'src/tools.c'`; then
+    echo shar: \"'src/tools.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/tools.c'
+fi
+echo shar: End of archive 4 \(of 11\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

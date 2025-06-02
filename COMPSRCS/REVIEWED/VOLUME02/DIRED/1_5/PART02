@@ -1,0 +1,1970 @@
+From: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Subject: v02i009: dired - directory editor in C++, Part02/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Posting-number: Volume 2, Issue 9
+Archive-name: dired/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 5)."
+# Contents:  command1.C classes.h dired.h display.h keys.h
+# Wrapped by mjlx@eagle on Mon Mar  9 21:23:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'command1.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'command1.C'\"
+else
+echo shar: Extracting \"'command1.C'\" \(32083 characters\)
+sed "s/^X//" >'command1.C' <<'END_OF_FILE'
+X/*
+X** command1.C - some of the commands called from the main command loop.
+X**
+X**               Command1.C and command2.C
+X**               are concatenated during the make into
+X**               commands.C, which consists of the main
+X**               command loop and all commands called from
+X**               within that loop.
+X**
+X** command1.C 1.78   Delta'd: 14:08:16 3/9/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X
+X#include <ctype.h>
+X#ifndef _IBMR2
+X#include <libc.h>
+X#endif
+X#include <osfcn.h>
+X#include <sys/types.h>
+X
+X#include "classes.h"
+X#include "dired.h"
+X#include "display.h"
+X#include "keys.h"
+X
+X/*
+X** scroll_up_one_line - Scroll the listing up one line.
+X**                      We only call this routine when we KNOW that
+X**                      there is at least one line below the window
+X**                      which can be scrolled into it and the cursor
+X**                      is on the last line of the screen.
+X*/
+X
+Xstatic void scroll_up_one_line(DirList *dl)
+X{
+X    dl->setFirst(dl->firstLine()->next());
+X    dl->setLast(dl->lastLine()->next());
+X    dl->setCurrLine(dl->lastLine());
+X
+X    if (CS) {
+X        scroll_listing_up_one();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else if (DL || SF) {
+X        clear_modeline();
+X        scroll_screen_up_one();
+X        update_modeline(modeline_prefix, dl->name());
+X        move_cursor(rows()-3, 0);
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else
+X        redisplay();
+X
+X    dl->saveYXPos(rows()-3, goal_column(dl));
+X    move_cursor(rows()-3, dl->savedXPos());
+X}
+X
+X/*
+X** scroll_down_one_line - Scroll the listing down one line.
+X**                        We only call this routine when we KNOW
+X**                        that the head() of the listing is not visible
+X**                        and the cursor is on the first line in the window.
+X*/
+X
+Xstatic void scroll_down_one_line(DirList *dl)
+X{
+X    if (lines_displayed(dl) == rows()-2)
+X        //
+X        // Must update lastLine.  We previously had a screenfull of lines.
+X        //
+X        dl->setLast(dl->lastLine()->prev());
+X
+X    dl->setFirst(dl->firstLine()->prev());
+X    dl->setCurrLine(dl->firstLine());
+X
+X    if (CS) {
+X        scroll_listing_down_one();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else if (AL || SR) {
+X        clear_modeline();
+X        scroll_screen_down_one();
+X        update_modeline(modeline_prefix, dl->name());
+X        cursor_home();
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else
+X        redisplay();
+X
+X    dl->saveYXPos(0, goal_column(dl));
+X    move_cursor(0, dl->savedXPos());
+X}
+X
+X/*
+X** scroll_up_full_window - scroll listing up one full window,
+X**                         leaving one line of overlap.  This routine
+X**                         is only called when we know that the tail()
+X**                         of the listing is not currently displayed.
+X*/
+X
+Xstatic void scroll_up_full_window(DirList *dl)
+X{
+X    clear_listing();
+X    
+X    DirLine *ln = dl->lastLine();
+X    dl->setFirst(ln);
+X    dl->setCurrLine(ln);
+X    
+X    for (int i = 0; i < rows()-2 && ln; i++, ln = ln->next())
+X        display_string(ln->line(), ln->length());
+X    
+X    ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X    
+X    dl->saveYXPos(0, goal_column(dl));
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(0, dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_down_full_window - try to scroll listing down one full window,
+X**                           with one line of overlap.  This routine is
+X**                           only called when we KNOW that there is at
+X**                           least one line "above" the current listing.
+X**                           Only change the current line if it flows off
+X**                           the "bottom" of the screen.  This routine is
+X**                           only called when we know that the head() of the
+X**                           listing isn't currently displayed.
+X*/
+X
+Xstatic void scroll_down_full_window(DirList *dl)
+X{
+X    clear_listing();
+X    
+X    DirLine *ln = dl->firstLine();
+X    for (int y = 0; y < rows()-3 && ln != dl->head(); y++, ln = ln->prev());
+X    //
+X    // y == # of lines preceding head() to add to screen
+X    //
+X    
+X    dl->setFirst(ln);
+X    for (int j = 0; j < rows()-2 && ln; j++, ln = ln->next())
+X        display_string(ln->line(), ln->length());
+X    
+X    if (ln) dl->setLast(ln->prev());
+X    
+X    if (dl->savedYPos()+y >= rows()-2) {
+X        dl->setCurrLine(dl->lastLine());
+X        dl->saveYXPos(rows()-3, goal_column(dl));
+X    }
+X    else
+X        dl->saveYXPos(dl->savedYPos()+y, dl->savedXPos());
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_up_half_window - scroll listing up half a window.  This routine
+X**                         is only called when the tail() of the listing
+X**                         isn't being displayed.  We try to leave the
+X**                         cursor on the file it was on previously,
+X**                         otherwise it is left on the first file in
+X**                         the screen.
+X*/
+X
+Xstatic void scroll_up_half_window(DirList *dl, int y)
+X{
+X
+X    if (dl->currLine()->length() > columns())
+X        rightshift_current_line(dl);
+X
+X    DirLine *ln = dl->firstLine();
+X    for (int i = 0; i < (rows()-2)/2; i++, ln = ln->next()) ;
+X    dl->setFirst(ln);
+X    
+X    if (CS || DL || SF || DLN) {
+X        
+X        if (CS)
+X            scroll_listing_up_N((rows()-2)/2);
+X        else {
+X            clear_modeline();
+X            scroll_screen_up_N((rows()-2)/2);
+X            update_modeline(modeline_prefix, dl->name());
+X        }
+X        
+X        move_cursor(rows()-2-((rows()-2)/2), 0);
+X        
+X        ln = dl->lastLine()->next();
+X        for (i = 0; i < (rows()-2)/2 && ln; i++, ln = ln->next())
+X            display_string(ln->line(), ln->length());
+X
+X        ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X    }
+X    else {
+X        
+X        clear_listing();
+X        
+X        for (i = 0; i < rows()-2 && ln->next(); i++, ln = ln->next())
+X            display_string(ln->line(), ln->length());
+X        
+X        if (i != rows()-2) {
+X            //
+X            // We hit last line before outputing all that we could.
+X            // Must output lastLine() == tail().
+X            //
+X            display_string(ln->line(), ln->length());
+X            dl->setLast(ln);
+X        }
+X        else
+X            dl->setLast(ln->prev());
+X    }
+X    
+X    int pos = y - (rows()-2)/2;
+X    if (pos < 0) {
+X        pos = 0;
+X        dl->setCurrLine(dl->firstLine());
+X    }
+X    
+X    dl->saveYXPos(pos, goal_column(dl));
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(pos, dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** scroll_down_half_window - try to scroll listing down half a window.
+X**                           If `freshen' is true, which is the default,
+X**                           the screen is refreshed.  It is important
+X**                           to note that we may not be able to scroll
+X**                           down a complete half window, since we
+X**                           always anchor the head of the listing to
+X**                           the first line in the screen.  This routine
+X**                           is only called when the head() of the
+X**                           listing isn't being displayed.
+X*/
+X
+Xstatic void scroll_down_half_window(DirList *dl, int y, int freshen = 1)
+X{
+X    if (dl->firstLine() != dl->head()) {
+X        //
+X        // We can scroll down.  Try to leave the cursor on the file
+X        // it started out on.  Otherwise, leave it on the
+X        // (rows()-2)/2 line, which was the previous firstLine().
+X        //
+X        DirLine *ln = dl->firstLine();
+X        for (int i = 0; i < (rows()-2)/2 && ln->prev(); i++, ln = ln->prev()) ;
+X        dl->setFirst(ln);
+X
+X        if (dl->currLine()->length() > columns())
+X            rightshift_current_line(dl);
+X
+X        if (CS || AL || ALN || SR) {
+X
+X            if (CS)
+X                scroll_listing_down_N(i);
+X            else {
+X                clear_modeline();
+X                scroll_screen_down_N(i);
+X                update_modeline(modeline_prefix, dl->name());
+X                clear_message_line();
+X            }
+X
+X            cursor_home();
+X
+X            for (int j = 0; j < i; j++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            
+X            ln = dl->firstLine();
+X            for (int i = 0; i < rows()-2 && ln->next(); i++, ln = ln->next()) ;
+X            dl->setLast(ln);
+X        }
+X        else {
+X
+X            clear_listing();
+X
+X            for (int i = 0; i < rows()-2 && ln->next(); i++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            
+X            if (i != rows()-2) {
+X                //
+X                // We hit last line before outputing all that we could.
+X                // Must output lastLine() == tail().
+X                //
+X                display_string(ln->line(), ln->length());
+X                dl->setLast(ln);
+X            }
+X            else
+X                dl->setLast(ln->prev());
+X        }
+X
+X        int pos = i + y;
+X        if (pos > rows()-3) {
+X            pos = rows()-3;
+X            dl->setCurrLine(dl->lastLine());
+X        }
+X
+X        dl->saveYXPos(pos, goal_column(dl));
+X
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(pos, dl->savedXPos());
+X
+X        if (freshen) synch_display();
+X    }
+X}
+X
+X/*
+X** goto_first - position cursor on first line in listing.  This routine
+X**              is not called if atBegOfList() is true.
+X*/
+X
+Xstatic void goto_first(DirList *dl)
+X{
+X    if (dl->head() != dl->firstLine())
+X        initial_listing(dl);
+X    else {
+X        if (dl->currLine()->length() > columns())
+X            rightshift_current_line(dl);
+X        dl->setCurrLine(dl->head());
+X    }
+X
+X    dl->saveYXPos(0, goal_column(dl));
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(0, dl->savedXPos());
+X
+X    synch_display();
+X}
+X
+X/*
+X** goto_last - position cursor on last file in listing.  This routine is
+X**             not called if atEndOfList() is true.
+X*/
+X
+Xstatic void goto_last(DirList *dl)
+X{
+X    if (dl->currLine()->length() > columns())
+X        rightshift_current_line(dl);
+X
+X    dl->setCurrLine(dl->tail());
+X
+X    if (dl->tail() == dl->lastLine()) {
+X        //
+X        // only need to reposition the cursor
+X        //
+X        dl->saveYXPos(lines_displayed(dl)-1, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    else {
+X        //
+X        // redisplay end of listing & update our view
+X        //
+X        clear_listing();
+X        DirLine *ln = dl->tail();
+X        dl->setLast(ln);
+X        for (int i = 0; i < rows()-2; i++, ln = ln->prev()) {
+X            move_cursor(rows()-3-i, 0);
+X            display_string(ln->line(), ln->length());
+X        }
+X        dl->setFirst(ln->next());
+X        dl->saveYXPos(rows()-3,goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(rows()-3, dl->savedXPos());
+X    }
+X
+X    synch_display();
+X}
+X
+X/*
+X** edit_prompted_for_directory - prompt for a directory to edit and edit
+X**                               it, provided it is a valid directory.
+X**                               If the first character of the directory is
+X**                               tilde (`~'), the tilde is expanded to the
+X**                               user's home directory.
+X*/
+Xstatic void edit_prompted_for_directory(DirList *dl)
+X{
+X    char *dir = prompt("Directory to edit: ");
+X
+X    if (dir == 0) {  // command was aborted
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X
+X    if (*dir == '~') dir = expand_tilde(dir);
+X
+X    if (!is_directory(dir)) {
+X        char *msgfmt = "`%s' is not a valid directory name";
+X        char *msgbuf = new char[strlen(dir) + strlen(msgfmt) + 1];
+X        (void)sprintf(msgbuf, msgfmt, dir);
+X        message(msgbuf);
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete dir;
+X        delete msgbuf;
+X        return;
+X    }
+X
+X    if (!read_and_exec_perm(dir)) {
+X        message("need read & exec permissions to edit directory");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete dir;
+X        return;
+X    }
+X
+X    dired(dir);
+X}
+X    
+X/*
+X** edit_current_file - edit the current file in the DirList.
+X*/
+X
+Xstatic void edit_current_file(DirList *dl)
+X{
+X    char *file = get_file_name(dl);
+X    
+X    if (is_directory(file)) {
+X        
+X        if (strcmp(file, ".") == 0 ||
+X            (strcmp(file, "..") == 0 && strcmp(dl->name(), "/") == 0)) {
+X            //
+X            // Don't reedit our current directory or if we're
+X            // at the root, don't reedit ourselves.
+X            //
+X            delete file;
+X            return;
+X        }
+X        
+X        if (!read_and_exec_perm(file)) {
+X            message("need read & exec permissions to edit directory");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            delete file;
+X            return;
+X        }
+X        
+X        dired(file);
+X        
+X    }
+X    else if (is_regular_file(file)) {
+X        
+X        char *editor = getenv("EDITOR");
+X        if (editor == 0) editor = "vi";
+X 
+X        char *cmd = new char[strlen(editor)+strlen(file)+4];
+X        (void)strcpy(cmd, editor);
+X        (void)strcat(cmd, " '");
+X        (void)strcat(cmd, file);
+X        (void)strcat(cmd, "'");
+X
+X        /*
+X         * Clear screen and position cursor in case the editor doesn't
+X         * do this itself.  This is primarily for those people who use
+X         * non-fullscreen editors.
+X         */
+X        clear_display();
+X        move_to_message_line();
+X        synch_display();
+X        
+X        exec_command(cmd, 0);
+X        
+X        delete cmd;
+X
+X        /*
+X         * Re-read the listing line for this file
+X         * and insert into the directory listing.
+X         * This way, changes in file characteristics are
+X         * reflected in the soon-to-be updated listing.
+X         */
+X        size_t size = strlen(ls_cmd[the_sort_order()]) + strlen(file) + 3;
+X
+X        cmd = new char[size];
+X        (void)strcpy(cmd, ls_cmd[the_sort_order()]);
+X        (void)strcat(cmd, "'");
+X        (void)strcat(cmd, file);
+X        (void)strcat(cmd, "'");
+X
+X        FILE *fp = popen(cmd, "r");
+X        if (fp == 0)
+X            error("File %s, line %d: error on popen() in edit_current_file()",
+X                  __FILE__, __LINE__);
+X        delete cmd;
+X
+X        char *new_line = fgetline(fp);
+X        if (fp == 0)
+X            error("File %s, line %d: couldn't read from popen() pipe",
+X                  __FILE__, __LINE__);
+X        (void)pclose(fp);
+X            
+X        dl->currLine()->update(new_line);
+X
+X        redisplay();
+X    }
+X    else {
+X        message("Can only edit regular files and directories");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X    
+X    delete file;
+X}
+X
+X/*
+X** page_current_file - attempt to page the current file in the DirList.
+X**                     If we have a directory, we edit it.
+X*/
+X
+Xstatic void page_current_file(DirList *dl)
+X{
+X    char *file = get_file_name(dl);
+X    
+X    if (is_directory(file)) {
+X        
+X        if (strcmp(file, ".") == 0 ||
+X            (strcmp(file, "..") == 0 && strcmp(dl->name(), "/") == 0)) {
+X            //
+X            // Don't reedit our current directory or if we're
+X            // at the root, don't reedit ourselves.
+X            //
+X            delete file;
+X            return;
+X        }
+X        
+X        if (!read_and_exec_perm(file)) {
+X            message("need read & exec permissions to edit directory");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            delete file;
+X            return;
+X        }
+X        
+X        dired(file);
+X        
+X    }
+X    else if (is_regular_file(file)) {
+X
+X        char *pager = getenv("PAGER");
+X        if (pager == 0) pager = "more";
+X        
+X        char *cmd = new char[strlen(pager)+strlen(file)+4];
+X        (void)strcpy(cmd, pager);
+X        (void)strcat(cmd, " '");
+X        (void)strcat(cmd, file);
+X        (void)strcat(cmd, "'");
+X
+X        clear_display();
+X        move_to_message_line();
+X        synch_display();
+X
+X        exec_command(cmd);
+X        
+X        delete cmd;
+X
+X        redisplay();
+X    }
+X    else {
+X        message("Can only page through regular files and directories.");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X    }
+X    
+X    delete file;
+X}
+X
+X/*
+X** insert_line - inserts the current line into the DirList after line y.
+X**               Only called if y != rows()-3.  That is, this routine
+X**               is for the case when we don't need to scroll the screen
+X**               to place the line into its logical place on the screen.
+X*/
+X
+Xstatic void insert_line(DirList *dl, int y )
+X{
+X    if (CS) {
+X        insert_listing_line(y+1);
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X    }
+X    else if(AL) {
+X        clear_modeline();
+X        insert_blank_line(y+1);
+X        display_string(dl->currLine()->line(), dl->currLine()->length());
+X        update_modeline(modeline_prefix, dl->name());
+X    }
+X    else
+X        redisplay();
+X}
+X
+X/*
+X** insert_into_dirlist - inserts the listing line for `dest' into the
+X**                       DirList after line `y' in the current window.
+X*/
+X
+Xstatic void insert_into_dirlist(DirList *dl, const char *dest, int y)
+X{
+X    size_t size = strlen(ls_cmd[the_sort_order()]) + strlen(dest) + 3;
+X    char *command = new char[size];
+X    (void)strcpy(command, ls_cmd[the_sort_order()]);
+X    (void)strcat(command, "'");
+X
+X    char *pos = strrchr(dest, '/');
+X    //
+X    // pos is non-zero in those cases where `dest' contains
+X    // `..' trickery.  Say, ../this-dir/new-file.
+X    //
+X    pos ? (void)strcat(command, pos+1) : (void)strcat(command, dest);
+X    (void)strcat(command, "'");
+X    
+X    FILE *fp = popen(command, "r");
+X    if (fp == 0)
+X        error("File %s, line %d: error on popen()", __FILE__, __LINE__);
+X    
+X    char *new_line = fgetline(fp);
+X    
+X    if (fp == 0)
+X        error("File %s, line %d: couldn't read from popen() pipe",
+X              __FILE__, __LINE__);
+X    (void)pclose(fp);
+X    
+X    delete command;
+X
+X    int nlines = lines_displayed(dl);
+X
+X    if (dl->currLine()->length() > columns())
+X        rightshift_current_line(dl);
+X    
+X    dl->setCurrLine(dl->insert(new_line));
+X    
+X    if (nlines == rows()-2) {
+X        if (y == rows()-3) {
+X            //
+X            // we must scroll listing up
+X            //
+X            dl->setFirst(dl->firstLine()->next());
+X            dl->setLast(dl->currLine());
+X
+X            if (CS) {
+X                scroll_listing_up_one();
+X                display_string(dl->currLine()->line(), dl->currLine()->length());
+X            }
+X            else if (DL || SF) {
+X                clear_modeline();
+X                scroll_screen_up_one();
+X                update_modeline(modeline_prefix, dl->name());
+X                move_cursor(rows()-3, 0);
+X                display_string(dl->currLine()->line(), dl->currLine()->length());
+X            }
+X            else
+X                redisplay();
+X
+X            dl->saveYXPos(y, goal_column(dl));
+X            move_cursor(y, dl->savedXPos());
+X        }
+X        else {
+X            //
+X            // just insert line
+X            //
+X            dl->setLast(dl->lastLine()->prev());
+X            insert_line(dl, y);
+X            dl->saveYXPos(y+1, goal_column(dl));
+X            move_cursor(y+1, dl->savedXPos());
+X        }
+X    }
+X    else {
+X        insert_line(dl, y);
+X        dl->saveYXPos(y+1, goal_column(dl));
+X        move_cursor(y+1, dl->savedXPos());
+X        if (nlines == y+1)
+X            //
+X            // The new line becomes the new lastLine.
+X            //
+X            dl->setLast(dl->currLine());
+X    }
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X}
+X
+X/*
+X** yes_or_no - returns true if a 'y' or 'Y' is typed in response to
+X**             the msg.  Does not synch the display.
+X*/
+X
+Xstatic int yes_or_no(const char *msg)
+X{
+X    message(msg);
+X    synch_display();
+X
+X    int key = getchar();
+X    int response = key == 'y' || key == 'Y';
+X    clear_message_line();
+X    return response;
+X}
+X
+X/*
+X** copy_file - copy current file to destination.
+X**             Update window appropriately.
+X*/
+X
+Xstatic void copy_file(DirList *dl, const char *src, const char *dest)
+X{
+X    char *command = new char[strlen(src)+strlen(dest)+25];
+X    (void)strcpy(command, "cp '");
+X    (void)strcat(command, src);
+X    (void)strcat(command, "' '");
+X    (void)strcat(command, dest);
+X    (void)strcat(command, "' >/dev/null 2>&1");
+X
+X    if (is_regular_file(dest)) {
+X        //
+X        // `dest' exists as a regular file
+X        //
+X        char *msg = new char[strlen(dest)+21];
+X        (void)strcpy(msg, "overwrite `");
+X        (void)strcat(msg, dest);
+X        (void)strcat(msg, "'? (y|n) ");
+X        
+X        if (yes_or_no(msg))
+X            //
+X            // Overwrite it.
+X            //
+X            if (!system(command))
+X                message("`copy' was successful");
+X            else
+X                message("`copy' failed");
+X        
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X
+X        delete msg;
+X    }
+X    else if (is_directory(dest)) {
+X        //
+X        // `dest' is a directory.
+X        //
+X        char *file = new char[strlen(dest)+strlen(src)+2];
+X        (void)strcpy(file, dest);
+X        if (dest[strlen(dest)-1] != '/') (void)strcat(file, "/");
+X        (void)strcat(file, src);
+X        
+X        char *msg = new char[strlen(file)+21];
+X        (void)strcpy(msg, "overwrite `");
+X        (void)strcat(msg, file);
+X        (void)strcat(msg, "'? (y|n) ");
+X
+X        if (is_regular_file(file)) {
+X            //
+X            // `dest/src' exists.
+X            //
+X            if (yes_or_no(msg))
+X                //
+X                // Overwrite it.
+X                //
+X                if (!system(command))
+X                    message("`copy' was successful");
+X                else
+X                    message("`copy' failed");
+X        }
+X        else {
+X            //
+X            // Just do the `cp'.
+X            //
+X            if (!system(command))
+X                message("`copy' was successful");
+X            else
+X                message("`copy' failed");
+X        }
+X
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X
+X        delete file;
+X        delete msg;
+X    }
+X    else {
+X        //
+X        // `dest' doesn't already exist
+X        //
+X        if (!system(command)) {
+X            message("`copy' was successful");
+X            //
+X            // Is `dest' in our current directory?
+X            //
+X            if (strchr(dest, '/') == NULL)
+X                //
+X                // It must be in our current directory.
+X                //
+X                insert_into_dirlist(dl, dest, dl->savedYPos());
+X            else
+X                //
+X                // Assume it isn't.  This isn't foolproof, but that
+X                // is what the `g' command is for :-).
+X                //
+X                move_cursor(dl->savedYPos(), dl->savedXPos());
+X        }
+X        else {
+X            message("`copy' failed");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X        }
+X    }
+X
+X    delete command;
+X}
+X
+X/*
+X** copy_current_file - attempt to copy current file to another
+X*/
+X
+Xstatic void copy_current_file(DirList *dl)
+X{
+X    char *src = get_file_name(dl);
+X    
+X    if (strcmp(src, ".")  == 0 || strcmp(src, "..") == 0) {
+X        message("`copying' of `.' and `..' is not allowed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    char *dest = prompt("Copy to: ");
+X    
+X    if (dest == 0) {  // command was aborted
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete dest;
+X        delete src;
+X        return;
+X    }
+X    else if (*dest == 0) {
+X        message("not a valid file name");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        delete dest;
+X        delete src;
+X        synch_display();
+X        return;
+X    }
+X
+X    if (*dest == '~') dest = expand_tilde(dest);
+X    
+X    copy_file(dl, src, dest);
+X    
+X    synch_display();
+X    
+X    delete dest;
+X    delete src;
+X}
+X
+X/*
+X** link_file - attempt to link `file' to `dest'.
+X*/
+X
+Xstatic void link_file(DirList *dl, const char *file, const char *dest)
+X{
+X    if (!link(file, dest)) {
+X        message("`link' was successful");
+X        //
+X        // Is `dest' in our current directory?
+X        //
+X        if (strchr(dest, '/') == NULL)
+X            //
+X            // It must be in our current directory.
+X            //
+X            insert_into_dirlist(dl, dest, dl->savedYPos());
+X        else
+X            //
+X            // Assume it isn't.  This isn't foolproof, but that
+X            // is what the `g' command is for :-).
+X            //
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    else {
+X        message("`link' failed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X}
+X
+X/*
+X** link_current_file - attempt to make a link to the current file
+X*/
+X
+Xstatic void link_current_file(DirList *dl)
+X{
+X    char *file = get_file_name(dl);
+X    
+X    char *link = prompt("Link to: ");
+X    
+X    if (link == 0) {  // command was aborted
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        
+X        delete file;
+X        delete link;
+X        
+X        return;
+X    }
+X    else if (*link == 0) {
+X        message("not a valid file name");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete file;
+X        delete link;
+X        return;
+X    }
+X    
+X    link_file(dl, file, link);
+X    
+X    synch_display();
+X    
+X    delete file;
+X    delete link;
+X}
+X
+X#ifndef NO_SYMLINKS
+X/*
+X** symlink_file - symbolically link `file' to `dest'
+X*/
+X
+Xstatic void symlink_file(DirList *dl, const char *file, const char *dest)
+X{
+X    if (!symlink(file, dest)) {
+X        message("`symlink' was successful");
+X        //
+X        // Is `dest' in our current directory?
+X        //
+X        if (strchr(dest, '/') == NULL)
+X            //
+X            // It must be in our current directory.
+X            //
+X            insert_into_dirlist(dl, dest, dl->savedYPos());
+X        else
+X            //
+X            // Assume it isn't.  This isn't foolproof, but that
+X            // is what the `g' command is for :-).
+X            //
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    else {
+X        message("`symlink' failed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X}
+X
+X/*
+X** symlink_current_file - attempt create a symbolic link to the current file
+X*/
+X
+Xstatic void symlink_current_file(DirList *dl)
+X{
+X    char *file = get_file_name(dl);
+X    
+X    char *link = prompt("Name of symbolic link: ");
+X    
+X    if (link == 0) {  // command was aborted
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete file;
+X        delete link;
+X        return;
+X    }
+X    else if (*link == 0) {
+X        message("not a valid file name");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        delete file;
+X        delete link;
+X        return;
+X    }
+X    
+X    symlink_file(dl, file, link);
+X    
+X    synch_display();
+X    
+X    delete file;
+X    delete link;
+X}
+X#endif
+X
+X
+X/*
+X** remove_listing_line - delete the current line in the DirList
+X**                       and update both the screen and data
+X**                       structures appropriately.  `y' is the position
+X**                       in the window of the current line.
+X*/
+X
+Xstatic void remove_listing_line(DirList *dl, int y)
+X{
+X    if (dl->lastLine() != dl->tail()) {
+X        //
+X        // Last line in listing isn't in window.
+X        // We can just scroll up one line.
+X        //
+X        dl->deleteLine();
+X        dl->setLast(dl->lastLine()->next());
+X
+X        if (CS || DL) {
+X            if (CS)
+X                delete_listing_line(y);
+X            else {
+X                clear_modeline();
+X                delete_screen_line(y);
+X                update_modeline(modeline_prefix, dl->name());
+X            }
+X            move_cursor(rows()-3, 0);
+X            display_string(dl->lastLine()->line(), dl->lastLine()->length());
+X        }
+X        else {
+X            clear_to_end_of_screen(y);
+X            move_cursor(y, 0);
+X            DirLine *ln = dl->currLine();
+X            for (int i = y; i < rows()-2; i++, ln = ln->next())
+X                display_string(ln->line(), ln->length());
+X            update_modeline(modeline_prefix, dl->name());
+X        }
+X
+X        dl->saveYXPos(y, goal_column(dl));
+X    }
+X    else {
+X        //
+X        // Last line of listing is visible in window.
+X        //
+X        if (dl->atWindowTop() && dl->atWindowBot()) {
+X            //
+X            // The last line in the window is also the first line.
+X            // Since we don't allow deletion of `.' or `..', there
+X            // must be more viewable lines.  Scroll down half
+X            // a window to put more into view.
+X            //
+X            scroll_down_half_window(dl, y, 0);
+X            dl->deleteLine();
+X            DirLine *ln = dl->firstLine();
+X            for (int pos = 0; ln != dl->tail(); pos++, ln = ln->next()) ;
+X            dl->saveYXPos(pos, goal_column(dl));
+X            move_cursor(pos+1, 0);
+X            clear_to_end_of_line();
+X            move_cursor(pos, dl->savedXPos());
+X        }
+X        else if (dl->atWindowBot()) {
+X            //
+X            // we want to delete the last line in the window
+X            //
+X            dl->deleteLine();
+X            move_cursor(y, 0);
+X            clear_to_end_of_line();
+X            dl->saveYXPos(y-1, goal_column(dl));
+X            move_cursor(y-1, dl->savedXPos());
+X        }
+X        else {
+X            //
+X            // we are in the middle of the listing
+X            //
+X            dl->deleteLine();
+X
+X            if (CS || DL) {
+X                if (CS)
+X                    delete_listing_line(y);
+X                else {
+X                    clear_modeline();
+X                    delete_screen_line(y);
+X                    update_modeline(modeline_prefix, dl->name());
+X                }
+X            }
+X            else {
+X                clear_to_end_of_screen(y);
+X                move_cursor(y, 0);
+X                for (DirLine *ln = dl->currLine(); ln; ln = ln->next())
+X                    display_string(ln->line(), ln->length());
+X                update_modeline(modeline_prefix, dl->name());
+X            }
+X
+X            dl->saveYXPos(y, goal_column(dl));
+X         }
+X    }
+X
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X}
+END_OF_FILE
+if test 32083 -ne `wc -c <'command1.C'`; then
+    echo shar: \"'command1.C'\" unpacked with wrong size!
+fi
+# end of 'command1.C'
+fi
+if test -f 'classes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'classes.h'\"
+else
+echo shar: Extracting \"'classes.h'\" \(5058 characters\)
+sed "s/^X//" >'classes.h' <<'END_OF_FILE'
+X/*
+X** classes.h - the declarations of the classes used in dired
+X**
+X** classes.h 1.9   Delta'd: 09:09:57 8/28/91   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __CLASSES_H
+X#define __CLASSES_H
+X
+X///////////////////////////////////////////////////////////////////////////////
+X// DirLine - class which contains one line of the long
+X//           listing of a directory.
+X///////////////////////////////////////////////////////////////////////////////
+X
+Xclass DirLine {
+X    friend class DirList;
+X  protected:
+X    char               *_line;
+X    int                 _length;
+X    DirLine            *_next;
+X    DirLine            *_prev;
+X  public:
+X    DirLine(char *);
+X    ~DirLine();
+X
+X    const char *line()  const { return _line;   }
+X    int length()        const { return _length; }
+X    DirLine *next()     const { return _next;   }
+X    DirLine *prev()     const { return _prev;   }
+X
+X    void update(char *);
+X};
+X
+X///////////////////////////////////////////////////////////////////////////////
+X// DirList - class which manages a doubly-linked list of DirLines.
+X//           It also maintains our current notion of what is and isn't
+X//           visible in the curses(3) window.
+X///////////////////////////////////////////////////////////////////////////////
+X
+Xclass DirList {
+X  protected:
+X    DirLine    *_head;
+X    DirLine    *_tail;
+X    char       *_name;        // full pathname of the directory
+X    int         _nelems;
+X    short       _saved_x;     // saved x cursor position
+X    short       _saved_y;     // saved y cursor position
+X    DirLine    *_firstLine;   // first viewable dirLine in curses window
+X    DirLine    *_lastLine;    // last  viewable dirLine in curses window
+X    DirLine    *_currLine;    // line cursor is on in curses window
+X    DirList    *_next;
+X    DirList    *_prev;
+X  public:
+X    DirList(char *);
+X    ~DirList();
+X
+X    DirLine *head()              const { return _head;                   }
+X    DirLine *tail()              const { return _tail;                   }
+X    DirLine *firstLine()         const { return _firstLine;              }
+X    DirLine *lastLine()          const { return _lastLine;               }
+X    DirLine *currLine()          const { return _currLine;               }
+X    DirList *next()              const { return _next;                   }
+X    DirList *prev()              const { return _prev;                   }
+X
+X    int savedXPos()              const { return _saved_x;                }
+X    int savedYPos()              const { return _saved_y;                }
+X
+X    void setFirst(DirLine *e)          { _firstLine = e;                 }
+X    void setLast (DirLine *e)          { _lastLine  = e;                 }
+X    void setCurrLine (DirLine *ln)     { _currLine = ln;                 }
+X
+X    void setNext (DirList *l)          { _next = l;                      }
+X    void setPrev (DirList *l)          { _prev = l;                      }
+X
+X    const char *name()           const { return _name;                   }
+X    int nelems()                 const { return _nelems;                 }
+X    void saveYXPos(int y, int x)       { _saved_x = (short)x;
+X                                         _saved_y = (short)y;            }
+X
+X    int atBegOfList()            const { return _currLine == _head;      }
+X    int atEndOfList()            const { return _currLine == _tail;      }
+X
+X    int atWindowTop()            const { return _currLine == _firstLine; }
+X    int atWindowBot()            const { return _currLine == _lastLine;  }
+X
+X    DirLine *insert(char *);
+X    void add(DirLine *);
+X    void deleteLine();
+X};
+X
+X///////////////////////////////////////////////////////////////////////////////
+X// DirStack - class which manages a stack of DirLists.
+X///////////////////////////////////////////////////////////////////////////////
+X
+Xclass DirStack {
+X  protected:
+X    DirList             *_top;
+X    int                  _nelems;
+X  public:
+X    DirStack()                 { _top = 0; _nelems = 0; }
+X
+X    DirList *top()       const { return _top;           }
+X    int nelems()         const { return _nelems;        }
+X
+X    void push(DirList *);
+X    DirList *pop();
+X};
+X
+X#endif /* __CLASSES_H */
+END_OF_FILE
+if test 5058 -ne `wc -c <'classes.h'`; then
+    echo shar: \"'classes.h'\" unpacked with wrong size!
+fi
+# end of 'classes.h'
+fi
+if test -f 'dired.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dired.h'\"
+else
+echo shar: Extracting \"'dired.h'\" \(5062 characters\)
+sed "s/^X//" >'dired.h' <<'END_OF_FILE'
+X/*
+X** dired.h - miscellaneous global declarations and defines
+X**
+X** dired.h 1.33   Delta'd: 14:56:17 2/28/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __DIRED_H
+X#define __DIRED_H
+X
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include "classes.h"
+X
+X/*
+X** Our directory stack.  Initialized in main() and used in
+X** read_commands() when calling dired() and when popping directories
+X** off the stack when 'q' is typed.
+X*/
+Xextern DirStack *dir_stack;
+X
+X/*
+X** commands to get long listing
+X*/
+Xextern const char *const ls_cmd[4];
+X
+X/*
+X** The four ways we sort the listing.  These must have the values
+X** 0, 1, 2, 3, respectively, which they should if your compiler isn't
+X** busted.
+X*/
+Xenum sort_order { ALPHABETICALLY,
+X                  MODIFICATION_TIME,
+X                  ACCESS_TIME,
+X                  INODE_CHANGE_TIME
+X                 };
+X
+X/*
+X** How listings are sorted.  This variable is controlled by a few inline
+X** functions defined in this file, dired.h.
+X*/
+Xextern sort_order how_to_sort;
+X
+X/*
+X** modeline prefix
+X*/
+Xextern const char *const modeline_prefix;
+X
+X/*
+X** our version number for `V' command
+X*/
+Xextern const char *const version;
+X
+X/*
+X** variables for HELP
+X*/
+Xextern const char *const help_file[];
+Xextern const int   HELP_FILE_DIM;
+Xextern const char *const HELP_MSG[];
+X
+X/*
+X** variable set when window size has changed - defined in utilities.C
+X*/
+Xextern int win_size_changed;
+X
+X//
+X// for POSIX compatibility
+X//
+X#ifndef EXIT_FAILURE
+X#define EXIT_FAILURE 1
+X#endif
+X#ifndef EXIT_SUCCESS
+X#define EXIT_SUCCESS 1
+X#endif
+X
+X/*
+X** all of the external functions defined by dired
+X*/
+X
+X//
+X// externs from `commands.C'
+X//
+Xextern void read_commands(DirList *);
+X
+X//
+X// externs from `dired.C'
+X//
+Xextern void dired(char *);
+X
+X//
+X// externs from `utilities.C'
+X//
+Xextern void     cleanup(int);
+Xextern void     display_string(const char *str, size_t len = 0); 
+Xextern void     error(const char *format, ...);
+Xextern void     exec_command(char *cmd, int prompt = 1);
+Xextern char    *expand_tilde(char *str);
+Xextern char    *fgetline(FILE *fp);
+Xextern char    *get_current_directory();
+Xextern DirList *get_directory_listing(char *dirname);
+Xextern char    *get_file_name(DirList *list);
+Xextern int      get_key(DirList *dl);
+Xextern int      goal_column(DirList *l);
+Xextern void     initialize();
+Xextern void     initial_listing(DirList *dl);
+Xextern int      is_directory(const char *dir);
+Xextern int      is_regular_file(const char *file);
+Xextern void     leftshift_current_line(DirList *dl);
+Xextern int      lines_displayed(DirList *dl);
+Xextern void     message(const char *msg);
+Xextern char    *prompt(const char *msg);
+Xextern int      read_and_exec_perm(const char *dir);
+Xextern void     redisplay();
+Xextern void     rightshift_current_line(DirList *dl);
+Xextern void     set_signals();
+X#ifdef NO_STRCHR
+Xextern char    *strchr(const char *s, char charwanted);
+Xextern char    *strrchr(const char *s, char charwanted);
+X#endif /* NO_STRCHR */
+X#ifdef NO_STRSTR
+Xextern char    *strstr(const char *, const char *);
+X#endif /* NO_STRSTR */
+Xextern void     update_modeline(const char *head_string, const char *tail_string);
+Xextern void     unset_signals();
+Xextern void     winch(int);
+X
+X//
+X// INLINES
+X//
+X
+X/*
+X** max - the maximum of two integer arguments.
+X*/
+Xinline int max(int x, int y)
+X{
+X    return x >= y ? x : y;
+X}
+X
+X/*
+X** set_sort_order - sets the sorting order.
+X*/
+Xinline void set_sort_order(sort_order order)
+X{
+X    how_to_sort = order;
+X}
+X
+X/*
+X** the_sort_order - returns the sorting order, the current value
+X** of how_to_sort.
+X*/
+Xinline sort_order the_sort_order(void)
+X{
+X  return how_to_sort;
+X}
+X
+X//
+X// On my RS/6000, running Cfront 2.1, I need this stuff
+X// Too bad they can't get their header files cleaned up.
+X//
+X#ifdef _IBMR2
+Xextern "C" {
+X    extern int   symlink(const char *, const char *);
+X    extern int   isatty(int);
+X    extern char *getcwd(char *, size_t);
+X    extern char *getenv(const char *);
+X    extern int   putenv(const char *);
+X}
+X#endif
+X
+X//
+X// a number of g++ implementation seem not to have this defined
+X//
+X#if defined(__GNUG__) && !defined(NO_STRSTR)
+Xextern "C" {
+X	extern char *strstr(const char *, const char *);
+X}
+X#endif
+X
+X#endif /* __DIRED_H */
+END_OF_FILE
+if test 5062 -ne `wc -c <'dired.h'`; then
+    echo shar: \"'dired.h'\" unpacked with wrong size!
+fi
+# end of 'dired.h'
+fi
+if test -f 'display.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.h'\"
+else
+echo shar: Extracting \"'display.h'\" \(6817 characters\)
+sed "s/^X//" >'display.h' <<'END_OF_FILE'
+X/*
+X** external definitions needed for interfacing with display.C
+X**
+X** display.h 1.8   Delta'd: 10:16:26 12/24/91   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __DISPLAY_H
+X#define __DISPLAY_H
+X
+X//
+X// termcap capabilities we'll try to use
+X//
+Xextern char *AL;               // insert blank line before cursor
+Xextern char *ALN;              // insert N blank lines before cursor
+Xextern int   AM;               // automatic margins?
+Xextern char *BC;               // backspace, if not BS
+Xextern int   BS;               // ASCII backspace works
+Xextern char *CD;               // clear to end of display
+Xextern char *CE;               // clear to end of line
+Xextern char *CL;               // clear screen
+Xextern int   CO;               // number of columns
+Xextern char *CM;               // cursor motion
+Xextern char *CR;               // cursor beginning of line
+Xextern char *CS;               // set scroll region
+Xextern int   DA;               // backing store off top?
+Xextern int   DB;               // backing store off bottom?
+Xextern char *DC;               // delete character at cursor
+Xextern char *DL;               // delete line cursor is on
+Xextern char *DLN;              // delete N lines at cursor
+Xextern char *DO;               // cursor down
+Xextern int   HC;               // hardcopy terminal?
+Xextern char *HO;               // cursor home
+Xextern char *IS;               // initialize terminal
+Xextern char *LE;               // cursor back one column
+Xextern int   LI;               // number of rows
+Xextern char *LL;               // cursor to lower left
+Xextern char  PC;               // pad character
+Xextern char *PCstr;            // pad string
+Xextern char *SE;               // end standout mode
+Xextern char *SF;               // scroll screen up one line
+Xextern char *SO;               // enter standout mode
+Xextern char *SR;               // scroll screen down one line
+Xextern char *TE;               // end cursor addressing mode
+Xextern char *TI;               // enter cursor addressing mode
+Xextern char *UP;               // cursor up
+Xextern char *VE;               // end visual mode
+Xextern char *VS;               // enter visual mode
+Xextern char *XN;               // strange wrap behaviour
+X
+X//
+X// termcap routines
+X//
+Xextern "C" {
+X    extern short ospeed;        // terminal speed - needed by tputs()
+X#ifndef __GNUG__
+X    int    tgetent(const char *buf, const char *name);
+X    int    tgetflag(const char *);
+X    int    tgetnum(const char *);
+X    char  *tgetstr(const char *, char **);
+X    char  *tgoto(const char *, int, int);
+X    int    tputs(const char *, int, int (*)(int));
+X#endif
+X}
+X
+X//
+X// functions defined in display.C
+X//
+X
+Xextern void    clear_listing();
+Xextern void    clear_display();
+Xextern void    clear_to_end_of_screen(int);
+Xextern void    delete_listing_line(int);
+Xextern void    init_display();
+Xextern void    insert_listing_line(int);
+Xextern int     outputch(int);
+Xextern void    scroll_listing_up_one();
+Xextern void    scroll_listing_down_one();
+Xextern void    scroll_listing_up_N(int);
+Xextern void    scroll_listing_down_N(int);
+Xextern void    scroll_screen_up_one();
+Xextern void    scroll_screen_down_one();
+Xextern void    scroll_screen_up_N(int);
+Xextern void    scroll_screen_down_N(int);
+Xextern void    setraw();
+Xextern void    termcap(const char *);
+Xextern void    term_display();
+Xextern void    termstop(int);
+Xextern void    unsetraw();
+X
+X/*
+X** output_string_capability - output a string capability from termcap
+X**                             to the terminal. The second argument,
+X**                             which defaults to 1, is the number
+X**                             of rows affected.
+X*/
+X
+Xinline void output_string_capability(const char *capability, int affected = 1)
+X{
+X    if (capability) tputs(capability, affected, outputch);
+X}
+X
+Xinline int rows() { return LI; }
+X
+Xinline int columns() { return CO; }
+X
+Xinline void initialize_terminal() { if (IS) output_string_capability(IS); }
+X
+Xinline void synch_display() { (void)fflush(stdout); }
+X
+Xinline void enter_cursor_addressing_mode()
+X{
+X    if (TI) output_string_capability(TI);
+X}
+X
+Xinline void enter_visual_mode() { if (VS) output_string_capability(VS); }
+X
+Xinline void end_visual_mode() { if (VE) output_string_capability(VE); }
+X
+Xinline void end_cursor_addressing_mode()
+X{
+X    if (TE) output_string_capability(TE);
+X}
+X
+Xinline void enter_standout_mode() { if (SO) output_string_capability(SO); }
+X
+Xinline void end_standout_mode() { if (SE) output_string_capability(SE); }
+X
+Xinline void move_cursor(int row, int column)
+X{
+X    if (column >= columns()) column = columns()-1;
+X    output_string_capability(tgoto(CM, column, row));
+X}
+X
+Xinline void cursor_home()
+X{
+X    HO ? output_string_capability(HO) : move_cursor(0, 0);
+X}
+X
+Xinline void clear_to_end_of_line() { output_string_capability(CE); }
+X
+Xinline void move_to_modeline() { move_cursor(rows()-2, 0); }
+X
+Xinline void move_to_message_line()
+X{
+X    if (LL)
+X        output_string_capability(LL);
+X    else
+X        move_cursor(rows()-1, 0); }
+X
+Xinline void clear_modeline() { move_to_modeline(); clear_to_end_of_line(); }
+X
+Xinline void clear_message_line()
+X{
+X    move_to_message_line();
+X    clear_to_end_of_line();
+X}
+X
+Xinline void backspace() {
+X    if (BS)
+X        putchar('\b');
+X    else if (LE)
+X        output_string_capability(LE);
+X    else
+X        output_string_capability(BC);
+X}
+X
+Xinline void cursor_up() { output_string_capability(UP); }
+X
+Xinline void delete_char_at_cursor() { output_string_capability(DC); }
+X
+Xinline void delete_screen_line(int y)
+X{
+X    move_cursor(y, 0);
+X    output_string_capability(DL, rows()-y);
+X}
+X
+Xinline void insert_blank_line(int y)
+X{
+X    move_cursor(y, 0);
+X    output_string_capability(AL, rows()-y);
+X}
+X
+Xinline void cursor_down() { output_string_capability(DO); }
+X
+Xinline void cursor_beginning_of_line() { output_string_capability(CR); } 
+X
+Xinline void cursor_wrap()
+X{
+X    cursor_beginning_of_line();
+X    cursor_down();
+X}
+X
+X#endif
+END_OF_FILE
+if test 6817 -ne `wc -c <'display.h'`; then
+    echo shar: \"'display.h'\" unpacked with wrong size!
+fi
+# end of 'display.h'
+fi
+if test -f 'keys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'keys.h'\"
+else
+echo shar: Extracting \"'keys.h'\" \(4056 characters\)
+sed "s/^X//" >'keys.h' <<'END_OF_FILE'
+X/*
+X** keys.h - contains definitions of all the keyboard keys which
+X**          invoke commands.
+X**
+X** keys.h 1.15   Delta'd: 16:24:39 1/4/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __KEYS_H
+X#define __KEYS_H
+X
+X//
+X// display help
+X//
+Xconst int KEY_QM    = '?';
+Xconst int KEY_H     = 'H';
+X
+X//
+X// pop previous directory off stack, or quit if last
+X//
+Xconst int KEY_q     = 'q';
+X
+X//
+X// quit
+X//
+Xconst int KEY_Q     = 'Q';
+X
+X//
+X// forward one line
+X//
+Xconst int KEY_j     = 'j';
+Xconst int KEY_n     = 'n';
+Xconst int KEY_CTL_N = 0xE;   // ASCII CTL-N
+Xconst int KEY_SPC   = ' ';
+Xconst int KEY_CR    = '\r';  // carriage return
+X
+X//
+X// backward one line
+X//
+Xconst int KEY_k     = 'k';
+Xconst int KEY_p     = 'p';
+Xconst int KEY_CTL_P = 0x10; // ASCII CTL-P
+Xconst int KEY_CTL_Y = 0x19; // ASCII CTL-Y
+X
+X//
+X// forward one window
+X//
+Xconst int KEY_CTL_F = 6;    // ASCII CTL-F
+Xconst int KEY_CTL_V = 0x16; // ASCII CTL-V
+X
+X//
+X// backward one window
+X//
+Xconst int KEY_b     = 'b';
+Xconst int KEY_CTL_B = 2;   // ASCII CTL-B
+X
+X//
+X// forward half window
+X//
+Xconst int KEY_CTL_D = 4;   // ASCII CTL-D
+X
+X//
+X// backward half window
+X//
+Xconst int KEY_CTL_U = 0x15; // ASCII CTL-U
+X
+X//
+X// go to first file in listing
+X//
+Xconst int KEY_TOP   = '<';
+X
+X//
+X// go to last file in listing
+X//
+Xconst int KEY_BOT   = '>';
+X
+X//
+X// repaint screen - CTR-L
+X//
+Xconst int KEY_CTL_L = '\f';
+X
+X//
+X// abort from a prompt - CTL-G
+X//
+X// can't use '\a' here due to bug in Cfront 2.0
+X//
+Xconst int KEY_ABORT = 0x7;
+X
+X//
+X// copy current file
+X//
+Xconst int KEY_c     = 'c';
+X
+X//
+X// delete current file w/affirmation
+X//
+Xconst int KEY_d     = 'd';
+X
+X//
+X// delete current file
+X//
+Xconst int KEY_D     = 'D';
+X
+X//
+X// edit current file or directory
+X//
+Xconst int KEY_e     = 'e';
+Xconst int KEY_f     = 'f';
+X
+X//
+X// prompt for a directory and edit it
+X//
+Xconst int KEY_E     = 'E';
+X
+X//
+X// view current file
+X//
+Xconst int KEY_m     = 'm';
+Xconst int KEY_v     = 'v';
+X
+X//
+X// rename current file
+X//
+Xconst int KEY_r     = 'r';
+X
+X//
+X// compress current file
+X//
+Xconst int KEY_C     = 'C';
+X
+X//
+X// change group of current file
+X//
+Xconst int KEY_G     = 'G';
+X
+X//
+X// link current file to another
+X//
+Xconst int KEY_L     = 'L';
+X
+X//
+X// change mode of current file
+X//
+Xconst int KEY_M     = 'M';
+X
+X//
+X// print current file
+X//
+Xconst int KEY_P     = 'P';
+X
+X//
+X// reread current directory
+X//
+Xconst int KEY_g     = 'g';
+Xconst int KEY_R     = 'R';
+X
+X//
+X// symbolically link current file to another
+X//
+Xconst int KEY_S     = 'S';
+X
+X//
+X// uncompress current file
+X//
+Xconst int KEY_U     = 'U';
+X
+X//
+X// print out version string
+X//
+Xconst int KEY_V     = 'V';
+X
+X//
+X// backspace works as expected while in a prompt
+X//
+Xconst int KEY_BKSP  = '\b';
+X
+X//
+X// for searching forward
+X//
+Xconst int KEY_SLASH   = '/';
+X
+X//
+X// for searching backward
+X//
+Xconst int KEY_BKSLASH = '\\';
+X
+X//
+X// for simulating SIGINT and SIGQUIT
+X//
+Xconst int KEY_INT   = 0x3;  // ASCII CTL-C
+Xconst int KEY_QUIT  = 0x1C; // ASCII CTL-\
+X
+X//
+X// for shell commands
+X//
+Xconst int KEY_BANG  = '!';
+X
+X//
+X// prefix key used in couple places
+X// for GNU Emacs compatibility
+X//
+Xconst int KEY_ESC   = 0x1B;  // ASCII-ESC
+X
+X//
+X// change sort order
+X//
+Xconst int KEY_O = 'O';
+X
+X#endif /* __KEYS_H */
+END_OF_FILE
+if test 4056 -ne `wc -c <'keys.h'`; then
+    echo shar: \"'keys.h'\" unpacked with wrong size!
+fi
+# end of 'keys.h'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

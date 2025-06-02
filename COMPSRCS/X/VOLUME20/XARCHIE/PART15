@@ -1,0 +1,1878 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i043:  xarchie - An X browser interface to Archie, v2.0.6, Part15/24
+Message-ID: <1993Jun15.223419.1067@sparky.imd.sterling.com>
+X-Md4-Signature: bfe14d006f8fe8afdcf6d00d5d6a588f
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:34:19 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 43
+Archive-name: xarchie/part15
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part15
+
+#!/bin/sh
+# this is Part.15 (part 15 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/settings.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 15; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/settings.c'
+else
+echo 'x - continuing file xarchie-2.0.6/settings.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/settings.c' &&
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-sort-type()");
+X	return;
+X    }
+X    from.addr = *params;
+X    from.size = sizeof(String);
+X    to.addr = NULL;
+X    XtConvert(w,XtRString,&from,GfRSortType,&to);
+X    if (to.addr != NULL)
+X	updateSettingsSortType((SortType)(*(to.addr)));
+X    setSettingsChangedFlag(True);
+}
+X
+/*
+X * setNiceLevelAction() : Action procedure to set rdgram_priority
+X */
+/*ARGSUSED*/
+static
+ACTION_PROC(setNiceLevelAction)
+{
+X    char buf[8];
+X    int n;
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-nice-level()");
+X	return;
+X    }
+X    if (setNiceText == NULL) {
+X       alert0("set-nice-level() has no effect since niceText was not created");
+X	return;
+X    }
+X    n = atoi(*params);
+X    if (n < RDGRAM_MIN_PRI) {
+X	alert1("Nice level too negative: %d",(char *)n);
+X	sprintf(buf,"%d",RDGRAM_MIN_PRI);
+X	setWidgetString(setNiceText,buf);
+X    } else if (n > RDGRAM_MAX_PRI) {
+X	alert1("Nice level too positive: %d",(char *)n);
+X	sprintf(buf,"%d",RDGRAM_MAX_PRI);
+X	setWidgetString(setNiceText,buf);
+X    } else {
+X	setWidgetString(setNiceText,*params);
+X    }
+X    setSettingsChangedFlag(True);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* These actions are like their non-Now counterparts, expect that
+X * (a) they set appResources immediately rather than waiting for
+X *     apply-settings() to be called, and
+X * (b) they do not set the changedFlag since they have made the change
+X *     globally already.
+X * Still, they really aren't meant to be used when the settingsPanel is
+X * being displayed.
+X */
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(setSearchTypeNowAction)
+{
+X    XrmValue from,to;
+X    SearchType type;
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-search-type-now()");
+X	return;
+X    }
+X    from.addr = *params;
+X    from.size = sizeof(String);
+X    to.addr = NULL;
+X    XtConvertAndStore(w,XtRString,&from,GfRSearchType,&to);
+X    if (to.addr != NULL) {
+X	type = (SearchType)(*(to.addr));
+X	appResources.searchType = type;
+X	status1("Set search type to %s",*params);
+X	updateSettingsSearchType(type);
+X    }
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(setSortTypeNowAction)
+{
+X    XrmValue from,to;
+X    SortType type;
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-sort-type-now()");
+X	return;
+X    }
+X    from.addr = *params;
+X    from.size = sizeof(String);
+X    to.addr = NULL;
+X    XtConvertAndStore(w,XtRString,&from,GfRSortType,&to);
+X    if (to.addr != NULL) {
+X	type = (SortType)(*(to.addr));
+X	appResources.sortType = type;
+X	status1("Set sort type to %s",*params);
+X	updateSettingsSortType(type);
+X    }
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(setHostNowAction)
+{
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-host-now()");
+X	return;
+X    }
+X    XtFree(appResources.archieHost);
+X    appResources.archieHost = XtNewString(*params);
+X    status1("Set host to %s",*params);
+X    setWidgetString(setHostText,*params);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(setNiceLevelNowAction)
+{
+X    int n;
+X
+X    if (*num_params != 1) {
+X	alert0("Incorrect number of arguments to set-nice-level-now()");
+X	return;
+X    }
+X    n = atoi(*params);
+X    if (n < RDGRAM_MIN_PRI) {
+X	alert1("Nice level too negative: %d -- not set",(char *)n);
+X    } else if (n > RDGRAM_MAX_PRI) {
+X	alert1("Nice level too positive: %d -- not set",(char *)n);
+X    } else {
+X	appResources.niceLevel = n;
+X	status1("Set niceLevel to %d",(char *)n);
+X	setWidgetString(setNiceText,*params);
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * textEventProc() : Called whenever the user types in any Text item.
+X *      Note that this does NOT detect, eg., selection pastes, as
+X *	documented in the BUGS section of the man page.
+X */
+/*ARGSUSED*/
+static void
+textEventProc(w,client_data,event,continue_flag)
+Widget w;
+XXtPointer client_data;
+XXEvent *event;
+Boolean *continue_flag;
+{
+X    setSettingsChangedFlag(True);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+updateSettingsHost(str)
+char *str;
+{
+X    setWidgetString(setHostText,str);
+}
+X
+void
+updateSettingsSearchType(type)
+SearchType type;
+{
+X    currentSearchType = type;
+X    setWidgetLabel(setSearchLabel,searchTypeToString(type));
+}
+X
+void
+updateSettingsSortType(type)
+SortType type;
+{
+X    currentSortType = type;
+X    setWidgetLabel(setSortLabel,sortTypeToString(type));
+X    if (type == GfWeight) {
+X	XtMapWidget(setHostWeightsLabel);
+X	XtMapWidget(setHostWeightsText);
+X    } else {
+X	XtUnmapWidget(setHostWeightsLabel);
+X	XtUnmapWidget(setHostWeightsText);
+X    }
+}
+X
+void
+updateSettingsNiceLevel(level)
+int level;
+{
+X    char buf[16];
+X
+X    sprintf(buf,"%d",level);
+X    setWidgetString(setNiceText,buf);
+}
+X
+void
+updateSettingsAutoScroll(flag)
+Boolean flag;
+{
+X    currentAutoScroll = flag;
+X    setWidgetLabel(setAutoScrollLabel,(flag?"yes":"no"));
+}
+X
+void
+updateSettingsFtpType(type)
+String type;
+{
+X    setWidgetLabel(ftpTypeLabel,type);
+}
+X
+void
+updateSettingsFtpPrompt(flag)
+Boolean flag;
+{
+X    currentFtpPrompt = flag;
+X    setWidgetLabel(ftpPromptLabel,(flag?"yes":"no"));
+}
+X
+void
+updateSettingsFtpTrace(flag)
+Boolean flag;
+{
+X    currentFtpTrace = flag;
+X    setWidgetLabel(ftpTraceLabel,(flag?"yes":"no"));
+}
+X
+void
+updateSettingsFtpStrip(flag)
+Boolean flag;
+{
+X    currentFtpStrip = flag;
+X    setWidgetLabel(ftpStripLabel,(flag?"yes":"no"));
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+setSettingsChangedFlag(value)
+Boolean value;
+{
+X    if (setApplyButton != NULL)
+X	XtSetSensitive(setApplyButton,value);
+X    settingsChanged = value;
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines for the popup Dismiss confirmer */
+X
+static Widget settingsConfirmShell;
+static int settingsConfirmResult;
+X
+static int
+settingsConfirm()
+{
+X    if (settingsConfirmShell == NULL)
+X	settingsConfirmShell =
+X	    createPopup("settingsConfirm",3,settingsConfirmCallback);
+X    setPopupLabel(settingsConfirmShell,"settingsConfirm",
+X		  "Dismiss without applying changes?");
+X    popupMainLoop(settingsConfirmShell);
+X    return(settingsConfirmResult);
+}
+X 
+/*ARGSUSED*/
+static void
+settingsConfirmCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;		/* button number */
+XXtPointer call_data;
+{
+X    switch ((int)client_data) {
+X      case 0:			/* Dismiss */
+X	settingsConfirmResult = 1;
+X	break;
+X      case 1:			/* Apply */
+X	applySettingsAction(w,NULL,NULL,0);
+X	settingsConfirmResult = 1;
+X	break;
+X      case 2:			/* Cancel */
+X	settingsConfirmResult = 0;
+X	break;
+X    }
+X    popupDone();
+}
+SHAR_EOF
+echo 'File xarchie-2.0.6/settings.c is complete' &&
+chmod 0644 xarchie-2.0.6/settings.c ||
+echo 'restore of xarchie-2.0.6/settings.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/settings.c'`"
+test 22108 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/settings.c: original size 22108, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/settings.h ==============
+if test -f 'xarchie-2.0.6/settings.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/settings.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/settings.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/settings.h' &&
+/*
+X * settings.h : External defs for the settings panel
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 22 Oct 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#ifndef SETTINGS_H
+#define SETTINGS_H
+X
+extern void initSettings(),reinitSettings();
+extern void setSettingsShellState();
+extern void updateSettingsHost(),updateSettingsSearchType();
+extern void updateSettingsSortType(),updateSettingsNiceLevel();
+extern void updateSettingsAutoScroll();
+extern void updateSettingsFtpType(),updateSettingsFtpPrompt();
+extern void updateSettingsFtpTrace(),updateSettingsFtpStrip();
+extern void setSettingsChangedFlag();
+X
+#endif /* SETTINGS_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/settings.h ||
+echo 'restore of xarchie-2.0.6/settings.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/settings.h'`"
+test 628 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/settings.h: original size 628, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/status.c ==============
+if test -f 'xarchie-2.0.6/status.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/status.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/status.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/status.c' &&
+/*
+X * status.c : Display-independent status indication routines
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#include <stdio.h>
+extern void setStatusText();		/* display.c */
+X
+/*
+X * Functions defined here:
+X */
+void status0(), status1(), status2();
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+status0(str)
+char *str;
+{
+X    setStatusText(str);
+}
+X
+void
+status1(fmt,arg)
+char *fmt,*arg;
+{
+X    char buf[256];
+X
+X    sprintf(buf,fmt,arg);
+X    status0(buf);
+}
+X
+void
+status2(fmt,arg1,arg2)
+char *fmt,*arg1,*arg2;
+{
+X    char buf[256];
+X
+X    sprintf(buf,fmt,arg1,arg2);
+X    status0(buf);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/status.c ||
+echo 'restore of xarchie-2.0.6/status.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/status.c'`"
+test 584 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/status.c: original size 584, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/status.h ==============
+if test -f 'xarchie-2.0.6/status.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/status.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/status.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/status.h' &&
+/*
+X * status.h
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+extern void status0(), status1(), status2();
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/status.h ||
+echo 'restore of xarchie-2.0.6/status.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/status.h'`"
+test 128 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/status.h: original size 128, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/stcopy.c ==============
+if test -f 'xarchie-2.0.6/stcopy.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/stcopy.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/stcopy.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/stcopy.c' &&
+/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X * v1.2.0 - 09/17/91 (bpk) - added BULL & USG stuff, thanks to Jim Sillas
+X */
+X
+#include <copyright.h>
+#include <stdio.h>
+X
+#include "config.h"				/* gf */
+#include "stringdefs.h"				/* gf */
+X
+#if defined(MSDOS)
+# include <stdlib.h>
+#endif
+X
+char	*stcopyr();
+X
+int	string_count = 0;
+int	string_max = 0;
+X
+/*
+X * stcopy - allocate space for and copy a string
+X *
+X *     STCOPY takes a string as an argument, allocates space for
+X *     a copy of the string, copies the string to the allocated space,
+X *     and returns a pointer to the copy.
+X */
+X
+char *
+stcopy(st)
+X    char	*st;
+X    {
+X      if (!st) return(NULL);
+X      if (string_max < ++string_count) string_max = string_count;
+X
+X      return strcpy((char *)malloc(strlen(st) + 1), st);
+X    }
+X
+/*
+X * stcopyr - copy a string allocating space if necessary
+X *
+X *     STCOPYR takes a string, S, as an argument, and a pointer to a second
+X *     string, R, which is to be replaced by S.  If R is long enough to
+X *     hold S, S is copied.  Otherwise, new space is allocated, and R is
+X *     freed.  S is then copied to the newly allocated space.  If S is
+X *     NULL, then R is freed and NULL is returned.
+X *
+X *     In any event, STCOPYR returns a pointer to the new copy of S,
+X *     or a NULL pointer.
+X */
+char *
+stcopyr(s,r)
+X    char	*s;
+X    char	*r;
+X    {
+X	int	sl;
+X
+X	if(!s && r) {
+X	    free(r);
+X	    string_count--;
+X	    return(NULL);
+X	}
+X	else if (!s) return(NULL);
+X
+X	sl = strlen(s) + 1;
+X
+X	if(r) {
+X	    if ((strlen(r) + 1) < sl) {
+X		free(r);
+X		r = (char *) malloc(sl);
+X	    }
+X	}
+X	else {
+X	    r = (char *) malloc(sl);
+X	    string_count++;
+X	    if(string_max < string_count) string_max = string_count;
+X	}
+X	    
+X	return strcpy(r,s);
+X    }
+X
+/*
+X * stfree - free space allocated by stcopy or stalloc
+X *
+X *     STFREE takes a string that was returned by stcopy or stalloc 
+X *     and frees the space that was allocated for the string.
+X */
+void
+stfree(st)
+X    char *st;
+X    {
+X	if(st) {
+X	    free(st);
+X	    string_count--;
+X	}
+X    }
+X
+X
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/stcopy.c ||
+echo 'restore of xarchie-2.0.6/stcopy.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/stcopy.c'`"
+test 2123 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/stcopy.c: original size 2123, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/strcasecmp.c ==============
+if test -f 'xarchie-2.0.6/strcasecmp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/strcasecmp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/strcasecmp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/strcasecmp.c' &&
+/*
+X * strcasecmp.c : Case-insensitive string comparison routines
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#define ISUPPER(C) ((C) >= 'A' && (C) <= 'Z')
+#define TOLOWER(C) ((C) - 'A' + 'a')
+#define NORMAL(C) (ISUPPER(C) ? TOLOWER(C) : (C))
+X
+int
+strcasecmp(s1,s2)
+char *s1,*s2;
+{
+X    char c1,c2;
+X
+X    while (1) {
+X	c1 = NORMAL(*s1);
+X	c2 = NORMAL(*s2);
+X	if (c1 != c2)
+X	    return(c1-c2);
+X	else if (c1 == '\0')
+X	    return(0);
+X	else {
+X	    s1 += 1;
+X	    s2 += 1;
+X	}
+X    }
+X    /*NOTREACHED*/
+}
+X
+int
+strncasecmp(s1,s2,n)
+char *s1,*s2;
+int n;
+{
+X    char c1,c2;
+X
+X    while (n-- > 0) {
+X	c1 = NORMAL(*s1);
+X	c2 = NORMAL(*s2);
+X	if (c1 != c2)
+X	    return(c1-c2);
+X	else if (c1 == '\0')
+X	    return(0);
+X	else {
+X	    s1 += 1;
+X	    s2 += 1;
+X	}
+X    }
+X    return(0);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/strcasecmp.c ||
+echo 'restore of xarchie-2.0.6/strcasecmp.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/strcasecmp.c'`"
+test 776 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/strcasecmp.c: original size 776, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/stringdefs.h ==============
+if test -f 'xarchie-2.0.6/stringdefs.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/stringdefs.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/stringdefs.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/stringdefs.h' &&
+/*
+X * stringdefs.h : Include defs of string functions
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X * This is based on the example from the Autoconf manual.
+X */
+X
+#include "config.h"
+X
+#if STDC_HEADERS || HAVE_STRING_H
+# include <string.h>
+/* An ANSI string.h and pre-ANSI memory.h might conflict.  */
+# if !STDC_HEADERS && HAVE_MEMORY_H
+#  include <memory.h>
+# endif /* not STDC_HEADERS and HAVE_MEMORY_H */
+# ifndef index
+#  define index strchr
+# endif
+# ifndef rindex
+#  define rindex strrchr
+# endif
+# ifndef bcopy
+#  define bcopy(s, d, n) memcpy ((d), (s), (n))
+#  define bcmp(s1, s2, n) memcmp ((s1), (s2), (n))
+#  define bzero(s, n) memset ((s), 0, (n))
+# endif
+#else /* not STDC_HEADERS and not HAVE_STRING_H */
+# include <strings.h>
+/* memory.h and strings.h conflict on some systems.  */
+#endif /* not STDC_HEADERS and not HAVE_STRING_H */
+X
+#ifndef HAVE_STRCASECMP
+#if NeedFunctionPrototypes || defined(FUNCPROTO)
+#include <sys/types.h>
+extern int strcasecmp(const char *, const char *);
+extern int strncasecmp(const char *, const char *, size_t);
+#else
+extern int strcasecmp(),strncasecmp();
+#endif
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/stringdefs.h ||
+echo 'restore of xarchie-2.0.6/stringdefs.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/stringdefs.h'`"
+test 1136 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/stringdefs.h: original size 1136, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/support.c ==============
+if test -f 'xarchie-2.0.6/support.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/support.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/support.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/support.c' &&
+/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X * gf xarchie v2.0 - Sync with archie v1.4.1.
+X *		     Changed to include stringdefs.h.
+X *		     Changed to use HAVE_STRSPN from config.h.
+X */
+X
+/*
+X * Miscellaneous routines pulled from ~beta/lib/pfs and ~beta/lib/filters
+X */
+X
+#include <copyright.h>
+#include <stdio.h>
+#include <errno.h>
+X
+#ifdef VMS
+# ifdef WOLLONGONG
+#  include "twg$tcp:[netdist.include]netdb.h"
+# else /* not Wollongong */
+#  ifdef UCX
+#   include <netdb.h>
+#  else /* Multinet */
+#   include "multinet_root:[multinet.include]netdb.h"
+#  endif
+# endif
+# include <vms.h>
+#else /* not VMS */
+# include <sys/types.h>
+# include "config.h"				/* gf */
+# include "stringdefs.h"			/* gf */
+# ifndef CUTCP
+#  include <netdb.h>
+# endif
+# if !defined(MSDOS) || defined(OS2)
+#  include <sys/file.h>
+#  include <sys/param.h>
+# endif
+#endif /* VMS */
+X
+#include <pfs.h>
+#include <pprot.h>
+#include <perrno.h>
+#include <pcompat.h>
+#include <pauthent.h>
+X
+#include "regex.h"
+X
+int	pfs_enable = PMAP_ATSIGN;
+X
+#ifndef FALSE
+# define TRUE 	1
+# define FALSE   0
+#endif
+X
+/* 
+X * wcmatch - Match string s against template containing widlcards
+X *
+X *	     WCMATCH takes a string and a template, and returns
+X *	     true if the string matches the template, and 
+X *	     FALSE otherwise.
+X *
+X *    ARGS:  s        - string to be tested
+X *           template - Template containing optional wildcards
+X *
+X * RETURNS:  TRUE (non-zero) on match.  FALSE (0) otherwise.
+X *
+X *    NOTE:  If template is NULL, will return TRUE.
+X *
+X */
+int
+wcmatch(s,template)
+X    char	*s;
+X    char	*template;
+X    {
+X	char	temp[200];
+X	char	*p = temp;
+X
+X	if(!template) return(TRUE);
+X	*p++ = '^';
+X
+X	while(*template) {
+X	    if(*template == '*') {*(p++)='.'; *(p++) = *(template++);}
+X	    else if(*template == '?') {*(p++)='.';template++;}
+X	    else if(*template == '.') {*(p++)='\\';*(p++)='.';template++;}
+X	    else if(*template == '[') {*(p++)='\\';*(p++)='[';template++;}
+X	    else if(*template == '$') {*(p++)='\\';*(p++)='$';template++;}
+X	    else if(*template == '^') {*(p++)='\\';*(p++)='^';template++;}
+X	    else if(*template == '\\') {*(p++)='\\';*(p++)='\\';template++;}
+X	    else *(p++) = *(template++);
+X	}
+X	    
+X	*p++ = '$';
+X	*p++ = '\0';
+X
+X	if(re_comp(temp)) return(FALSE);
+X
+#ifdef AUX
+X	if (re_exec(s) == (char *)NULL)
+X	  return 0;
+X	return 1;
+#else
+X	return(re_exec(s));
+#endif
+X    }
+X
+/*
+X * ul_insert - Insert a union link at the right location
+X *
+X *             UL_INSERT takes a directory and a union link to be added
+X *             to a the list of union links in the directory.  It then
+X *             inserts the union link in the right spot in the linked
+X *             list of union links associated with that directory.
+X *
+X *	       If an identical link already exists, then the link which
+X *             would be evaluated earlier (closer to the front of the list)
+X *             wins and the other one is freed.  If this happens, an error
+X *             will also be returned.
+X *        
+X *    ARGS:    ul    - link to be inserted
+X *	       vd    - directory to get link
+X *             p     - vl that this link will apper after
+X *                     NULL - This vl will go at end of list
+X *                     vd   - This vl will go at head of list
+X *
+X * RETURNS:    Success, or UL_INSERT_ALREADY_THERE or UL_INSERT_SUPERSEDING
+X */
+int
+ul_insert(ul,vd,p)
+X    VLINK	ul;		/* Link to be inserted                   */
+X    PVDIR	vd;		/* Directory to receive link             */
+X    VLINK	p;		/* Union link to appear prior to new one */
+X    {
+X	VLINK	current;
+X
+X	/* This is the first ul in the directory */
+X	if(vd->ulinks == NULL) {
+X	    vd->ulinks = ul;
+X	    ul->previous = NULL;
+X	    ul->next = NULL;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* This ul will go at the head of the list */
+X	if(p == (VLINK) vd) {
+X	    ul->next = vd->ulinks;
+X	    ul->next->previous = ul;
+X	    vd->ulinks = ul;
+X	    ul->previous = NULL;
+X	}
+X	/* Otherwise, decide if it must be inserted at all  */
+X	/* If an identical link appears before the position */
+X	/* at which the new one is to be inserted, we can   */
+X	/* return without inserting it 			    */
+X	else {
+X	    current = vd->ulinks;
+X
+X	    while(current) {
+X		/* p == NULL means we insert after last link */
+X		if(!p && (current->next == NULL))
+X		    p = current;
+X
+X		if(vl_comp(current,ul) == 0) {
+X		    vlfree(ul);
+X		    return(UL_INSERT_ALREADY_THERE);
+X		}
+X
+X		if(current == p) break;
+X		current = current->next;
+X	    }
+X
+X	    /* If current is null, p was not found */
+X	    if(current == NULL)
+X		return(UL_INSERT_POS_NOTFOUND);
+X
+X	    /* Insert ul */
+X	    ul->next = p->next;
+X	    p->next = ul;
+X	    ul->previous = p;
+X	    if(ul->next) ul->next->previous = ul;
+X	}
+X
+X	/* Check for identical links after ul */
+X	current = ul->next;
+X
+X	while(current) {
+X	    if(vl_comp(current,ul) == 0) {
+X		current->previous->next = current->next;
+X		if(current->next)
+X		    current->next->previous = current->previous;
+X		vlfree(current);
+X		return(UL_INSERT_SUPERSEDING);
+X	    }
+X	    current = current->next;
+X	}
+X	
+X	return(PSUCCESS);
+X    }
+X
+/*
+X * vl_insert - Insert a directory link at the right location
+X *
+X *             VL_INSERT takes a directory and a link to be added to a 
+X *             directory and inserts it in the linked list of links for
+X *             that directory.  
+X *
+X *             If a link already exists with the same name, and if the
+X *             information associated with the new link matches that in
+X *             the existing link, an error is returned.  If the information
+X *             associated with the new link is different, but the magic numbers
+X *             match, then the new link will be added as a replica of the
+X *             existing link.  If the magic numbers do not match, the new
+X *             link will only be added to the list of "replicas" if the
+X *             allow_conflict flag has been set.
+X * 
+X *             If the link is not added, an error is returned and the link
+X *             is freed.  Ordering for the list of links is by the link name.  
+X *        
+X *             If vl is a union link, then VL_INSERT calls ul_insert with an
+X *	       added argument indicating the link is to be included at the
+X *             end of the union link list.
+X * 
+X *    ARGS:    vl - Link to be inserted, vd - directory to get link
+X *             allow_conflict - insert links with conflicting names
+X *
+X * RETURNS:    Success, or VL_INSERT_ALREADY_THERE
+X */
+int
+vl_insert(vl,vd,allow_conflict)
+X    VLINK	vl;		/* Link to be inserted               */
+X    PVDIR	vd;		/* Directory to receive link         */
+X    int		allow_conflict;	/* Allow duplicate names             */
+X    {
+X	VLINK	current;	/* To step through list		     */
+X	VLINK	crep;		/* To step through list of replicas  */
+X	int	retval;		/* Temp for checking returned values */
+X
+X	/* This can also be used to insert union links at end of list */
+X	if(vl->linktype == 'U') return(ul_insert(vl,vd,NULL));
+X
+X	/* If this is the first link in the directory */
+X	if(vd->links == NULL) {
+X	    vd->links = vl;
+X	    vl->previous = NULL;
+X	    vl->next = NULL;
+X	    vd->lastlink = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* If no sorting is to be done, just insert at end of list */
+X	if(allow_conflict == VLI_NOSORT) {
+X	    vd->lastlink->next = vl;
+X	    vl->previous = vd->lastlink;
+X	    vl->next = NULL;
+X	    vd->lastlink = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* If it is to be inserted at start of list */
+X	if(vl_comp(vl,vd->links) < 0) {
+X	    vl->next = vd->links;
+X	    vl->previous = NULL;
+X	    vl->next->previous = vl;
+X	    vd->links = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	current = vd->links;
+X
+X	/* Otherwise, we must find the right spot to insert it */
+X	while((retval = vl_comp(vl,current)) > 0) {
+X	    if(!current->next) {
+X		/* insert at end */
+X		vl->previous = current;
+X		vl->next = NULL;
+X		current->next = vl;
+X		vd->lastlink = vl;
+X		return(PSUCCESS);
+X	    }
+X	    current = current->next;
+X	}
+X
+X	/* If we found an equivilant entry already in list */
+X	if(!retval) {
+X	    if(vl_equal(vl,current)) {
+X		vlfree(vl);
+X		return(VL_INSERT_ALREADY_THERE);
+X	    }
+X	    if((allow_conflict == VLI_NOCONFLICT) &&
+X	       ((vl->f_magic_no != current->f_magic_no) ||
+X		(vl->f_magic_no==0)))
+X		return(VL_INSERT_CONFLICT);
+X	    /* Insert the link into the list of "replicas" */
+X	    /* If magic is 0, then create a pseudo magic number */
+X	    if(vl->f_magic_no == 0) vl->f_magic_no = -1;
+X	    crep = current->replicas;
+X	    if(!crep) {
+X		current->replicas = vl;
+X		vl->next = NULL;
+X		vl->previous = NULL;
+X	    }
+X	    else {
+X		while(crep->next) {
+X		    /* If magic was 0, then we need a unique magic number */
+X		    if((crep->f_magic_no < 0) && (vl->f_magic_no < 1))
+X			(vl->f_magic_no)--;
+X		    crep = crep->next;
+X		}
+X		/* If magic was 0, then we need a unique magic number */
+X		if((crep->f_magic_no < 0) && (vl->f_magic_no < 1))
+X		    (vl->f_magic_no)--;
+X		crep->next = vl;
+X		vl->previous = crep;
+X		vl->next = NULL;
+X	    }
+X	    return(PSUCCESS);
+X	}
+X
+X	/* We found the spot where vl is to be inserted */
+X	vl->next = current;
+X	vl->previous = current->previous;
+X	current->previous = vl;
+X	vl->previous->next = vl;
+X	return(PSUCCESS);
+X    }
+X
+/*
+X * nlsindex - Find first instance of string 2 in string 1 following newline
+X *
+X *	      NLSINDEX scans string 1 for the first instance of string
+X *	      2 that immediately follows a newline.  If found, NLSINDEX
+X *	      returns a pointer to the first character of that instance.
+X *	      If no instance is found, NLSINDEX returns NULL (0).
+X *
+X *    NOTE:   This function is only useful for searching strings that
+X *            consist of multiple lines.  s1 is assumed to be preceeded
+X * 	      by a newline.  Thus, if s2 is at the start of s1, it will
+X *	      be found.
+X *    ARGS:   s1 - string to be searched
+X *            s2 - string to be found
+X * RETURNS:   First instance of s2 in s1, or NULL (0) if not found
+X */
+char *
+nlsindex(s1,s2)
+X    char	*s1;		/* String to be searched */
+X    char	*s2;		/* String to be found    */
+X    {
+X	register int s2len = strlen(s2);
+X	char	*curline = s1;	/* Pointer to start of current line */
+X
+X	/* In case s2 appears at start of s1 */
+X	if(strncmp(curline,s2,s2len) == 0)
+X	    return(curline);
+X
+X	/* Check remaining lines of s1 */
+X	while((curline = (char *) index(curline,'\n')) != NULL) {
+X	    curline++;
+X	    if(strncmp(curline,s2,s2len) == 0)
+X		return(curline);
+X	}
+X
+X	/* We didn't find it */
+X	return(NULL);
+X    }
+X
+/*
+X * month_sname - Return a month name from it's number
+X *
+X *               MONTH_SNAME takes a number in the range 0
+X *               to 12 and returns a pointer to a string
+X *               representing the three letter abbreviation
+X *	         for that month.  If the argument is out of 
+X *		 range, MONTH_SNAME returns a pointer to "Unk".
+X *
+X *       ARGS:   n - Number of the month
+X *    RETURNS:   Abbreviation for selected month
+X */
+char *month_sname(n)
+X    int n;		/* Month number */
+{
+X    static char *name[] = { "Unk",
+X        "Jan","Feb","Mar","Apr","May","Jun",
+X        "Jul","Aug","Sep","Oct","Nov","Dec"
+X    };
+X    return((n < 1 || n > 12) ? name[0] : name[n]);
+}
+X
+/*
+X * sindex - Find first instance of string 2 in string 1 
+X *
+X *	      SINDEX scans string 1 for the first instance of string
+X *	      2.  If found, SINDEX returns a pointer to the first
+X *	      character of that instance.  If no instance is found, 
+X *	      SINDEX returns NULL (0).
+X *
+X *    ARGS:   s1 - string to be searched
+X *            s2 - string to be found
+X * RETURNS:   First instance of s2 in s1, or NULL (0) if not found
+X */
+char *
+sindex(s1,s2)
+X    char	*s1;		/* String to be searched   */
+X    char	*s2;		/* String to be found      */
+X    {
+X	register int s2len = strlen(s2);
+X	char	*s = s1;	/* Temp pointer to string  */
+X
+X	/* Check for first character of s2 */
+X	while((s = (char *) index(s,*s2)) != NULL) {
+X	    if(strncmp(s,s2,s2len) == 0)
+X		return(s);
+X	    s++;
+X	}
+X
+X	/* We didn't find it */
+X	return(NULL);
+X    }
+X
+int
+scan_error(erst)
+X    char	*erst;
+X    {
+X	*p_err_string = '\0';
+X
+X	if(strncmp(erst,"NOT-A-DIRECTORY",15) == 0) 
+X	    return(DIRSRV_NOT_DIRECTORY);
+X
+X	if(strncmp(erst,"UNIMPLEMENTED",13) == 0) {
+X	    perrno = DIRSRV_UNIMPLEMENTED;
+X	    sscanf(erst+13,"%*[^\n \t\r]%*[ \t]%[^\n]",p_err_string);
+X	    return(perrno);
+X	}
+X
+X	if(strncmp(erst,"WARNING ",8) == 0) {
+X	    erst += 8;
+X	    *p_warn_string = '\0';
+X	    sscanf(erst,"%*[^\n \t\r]%*[ \t]%[^\n]",p_warn_string);
+X	    /* Return values for warnings are negative */
+X	    if(strncmp(erst,"OUT-OF-DATE",11) == 0) {
+X		pwarn = PWARN_OUT_OF_DATE;
+X		return(PSUCCESS);
+X	    }
+X	    if(strncmp(erst,"MESSAGE",7) == 0) {
+X		pwarn = PWARN_MSG_FROM_SERVER;
+X		return(PSUCCESS);
+X	    }
+X	    pwarn = PWARNING;
+X	    sscanf(erst,"%[^\n]",p_warn_string);
+X	    return(PSUCCESS);
+X	}
+X	else if(strncmp(erst,"ERROR",5) == 0) {
+X	    if(*(erst+5)) sscanf(erst+6,"%[^\n]",p_err_string);
+X	    perrno = DIRSRV_ERROR;
+X	    return(perrno);
+X	}
+X	/* The rest start with "FAILURE" */
+X	else if(strncmp(erst,"FAILURE",7) != 0) {
+X	    /* Unrecognized - Give warning, but return PSUCCESS */
+X	    if(pwarn == 0) {
+X		*p_warn_string = '\0';
+X		pwarn = PWARN_UNRECOGNIZED_RESP;
+X		sscanf(erst,"%[^\n]",p_warn_string);
+X	    }
+X	    return(PSUCCESS);
+X	}
+X
+X	if(strncmp(erst,"FAILURE ",8) != 0) {
+X	    perrno = PFAILURE;
+X	    return(perrno);
+X	}	
+X	erst += 8;
+X	
+X	sscanf(erst,"%*[^\n \t\r]%*[ \t]%[^\n]",p_err_string);
+X
+X	/* Still to add               */
+X	/* DIRSRV_AUTHENT_REQ     242 */
+X	/* DIRSRV_BAD_VERS        245 */
+X
+X	if(strncmp(erst,"NOT-FOUND",9) == 0) 
+X	    perrno = DIRSRV_NOT_FOUND;
+X	else if(strncmp(erst,"NOT-AUTHORIZED",13) == 0) 
+X	    perrno = DIRSRV_NOT_AUTHORIZED;
+X	else if(strncmp(erst,"ALREADY-EXISTS",14) == 0) 
+X	    perrno = DIRSRV_ALREADY_EXISTS;
+X	else if(strncmp(erst,"NAME-CONFLICT",13) == 0) 
+X	    perrno = DIRSRV_NAME_CONFLICT;
+X	else if(strncmp(erst,"SERVER-FAILED",13) == 0) 
+X	    perrno = DIRSRV_SERVER_FAILED;
+X 	/* Use it whether it starts with FAILURE or not */
+X	else if(strncmp(erst,"NOT-A-DIRECTORY",15) == 0) 
+X	    perrno = DIRSRV_NOT_DIRECTORY;
+X	else perrno = PFAILURE;
+X
+X	return(perrno);
+X    }
+X
+PATTRIB 
+parse_attribute(line)
+X    char	*line;
+X    {
+X	char	l_precedence[MAX_DIR_LINESIZE];
+X	char	l_name[MAX_DIR_LINESIZE];
+X	char	l_type[MAX_DIR_LINESIZE];
+X	char	l_value[MAX_DIR_LINESIZE];
+X	PATTRIB	at;
+X	int	tmp;
+X
+X	tmp = sscanf(line,"OBJECT-INFO %s %s %[^\n]", l_name, l_type, l_value);
+X	
+X	if(tmp < 3) {
+X	    tmp = sscanf(line,"LINK-INFO %s %s %s %[^\n]", l_precedence,
+X			 l_name, l_type, l_value);
+X	    if(tmp < 4) {
+X		perrno = DIRSRV_BAD_FORMAT;
+X		return(NULL);
+X	    }
+X	}
+X
+X	at = atalloc();
+X
+X	if(tmp == 4) {
+X	    if(strcmp(l_precedence,"CACHED") == 0) 
+X		at->precedence = ATR_PREC_CACHED;
+X	    else if(strcmp(l_precedence,"LINK") == 0) 
+X		at->precedence = ATR_PREC_LINK;
+X	    else if(strcmp(l_precedence,"REPLACEMENT") == 0) 
+X		at->precedence = ATR_PREC_REPLACE;
+X	    else if(strcmp(l_precedence,"ADDITIONAL") == 0) 
+X		at->precedence = ATR_PREC_ADD;
+X	}
+X
+X	at->aname = stcopy(l_name);
+X	at->avtype = stcopy(l_type);
+X	if(strcmp(l_type,"ASCII") == 0) 
+X	    at->value.ascii = stcopy(l_value);
+X	else if(strcmp(l_type,"LINK") == 0) {
+X	    char		ftype[MAX_DIR_LINESIZE];
+X	    char		lname[MAX_DIR_LINESIZE];
+X	    char		htype[MAX_DIR_LINESIZE];
+X	    char		host[MAX_DIR_LINESIZE];
+X	    char		ntype[MAX_DIR_LINESIZE];
+X	    char		fname[MAX_DIR_LINESIZE];
+X	    VLINK		al;
+X
+X	    al = vlalloc();
+X	    at->value.link = al;
+X
+X	    tmp = sscanf(l_value,"%c %s %s %s %s %s %s %d %d",
+X			 &(al->linktype),
+X			 ftype,lname,htype,host,ntype,fname,
+X			 &(al->version),
+X			 &(al->f_magic_no));
+X	    if(tmp == 9) {
+X		al->type = stcopyr(ftype,al->type);
+X		al->name = stcopyr(unquote(lname),al->name);
+X		al->hosttype = stcopyr(htype,al->hosttype);
+X		al->host = stcopyr(host,al->host);
+X		al->nametype = stcopyr(ntype,al->nametype);
+X		al->filename = stcopyr(fname,al->filename);
+X	    }
+X	    else {
+X		perrno = DIRSRV_BAD_FORMAT;
+X		return(NULL);
+X	    }
+X	    
+X	}
+X
+X	return(at);
+X    }
+X
+/*
+X * nxtline - Find the next line in the string
+X *
+X *	      NXTLINE takes a string and returns a pointer to
+X *	      the character immediately following the next newline.
+X *
+X *    ARGS:   s - string to be searched
+X *
+X * RETURNS:   Next line or NULL (0) on failure
+X */
+char *
+nxtline(s)
+X    char	*s;		/* String to be searched */
+X {
+X	s = (char *) index(s,'\n');
+X	if(s) return(++s);
+X	else return(NULL);
+X    }
+X
+X
+/*
+X * unquote - unquote string if necessary
+X *
+X *	      UNQUOTE takes a string and unquotes it if it has been quoted.
+X *
+X *    ARGS:   s - string to be unquoted
+X *            
+X * RETURNS:   The original string.  If the string has been quoted, then the
+X *            result appears in static storage, and must be copied if 
+X *            it is to last beyond the next call to quote.
+X *
+X */
+char *
+unquote(s)
+X    char	*s;		/* String to be quoted */
+X    {
+X	static char	unquoted[200];
+X	char		*c = unquoted;
+X
+X	if(*s != '\'') return(s);
+X
+X	s++;
+X
+X	/* This should really treat a quote followed by other */
+X	/* than a quote or a null as an error                 */
+X	while(*s) {
+X	    if(*s == '\'') s++;
+X	    if(*s) *c++ = *s++;
+X	}
+X
+X	*c++ = '\0';
+X
+X	return(unquoted);
+X    }
+X
+#if defined(DEBUG) && !defined(HAVE_STRSPN)
+/* needed for -D option parsing */
+/*
+X * strspn - Count initial characters from chrs in s
+X *
+X *	      STRSPN counts the occurances of chacters from chrs
+X *            in the string s preceeding the first occurance of
+X *            a character not in s.
+X *
+X *    ARGS:   s    - string to be checked
+X *            chrs - string of characters we are looking for
+X *
+X * RETURNS:   Count of initial characters from chrs in s
+X */
+strspn(s,chrs)
+X    char	*s;    /* String to search                         */
+X    char	*chrs; /* String of characters we are looking for  */
+X    {
+X	char	*cp;   /* Pointer to the current character in chrs */
+X	int	count; /* Count of characters seen so far          */
+X	
+X	count = 0;
+X
+X	while(*s) {
+X	    for(cp = chrs;*cp;cp++)
+X		if(*cp == *s) {
+X		    s++;
+X		    count++;
+X		    goto done;
+X		}
+X	    return(count);
+X	done:
+X	    ;
+X	}
+X	return(count);
+X    }
+#endif
+X
+#ifdef CUTCP
+char
+*inet_ntoa(struct in_addr in)
+{
+X	static	char	buff[36];
+X
+X	unsigned char	*c = (char *) &in.address;
+X	sprintf(buff,"%d.%d.%d.%d",*c,*(c+1),*(c+2),*(c+3));
+X	return(buff);
+}
+X
+long
+inet_addr(char *cp)
+{
+X	long	value = 0;
+X	unsigned	v1,v2,v3,v4;
+X
+X	v1 = v2 = v3 = v4 = 0xff;
+X	sscanf(cp,"%d.%d.%d.%d",&v1,&v2,&v3,&v4);
+X	value = (v1 << 24) | (v2 << 16) | (v3 << 8) | v4;
+X	return(value);
+}
+X
+struct	hostent
+*gethostbyname(char *name)
+{
+X	struct machinfo	*mp;
+X	int	mnum;
+X	unsigned long	now;
+X	static	struct hostent	ht;
+X	extern int pfs_debug;
+X
+X	mp = Shostlook(name);
+X	if(!mp || (!mp->hostip[0])) {	/* DNS lookup */
+#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s\n", name);
+#endif
+X		mnum = Sdomain(name);		/* start a DNS lookup */
+X		now = time(NULL) + NS_TIMEOUT;
+X		while(now > time(NULL)) {
+X			int	i, class, dat;
+X
+X			Stask();
+X			i = Sgetevent(USERCLASS, &class, &dat);
+X			if(i == DOMOK) {	/* domain lookup ok */
+X				mp = Slooknum(mnum);
+#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s Completed OK\n", name);
+#endif
+X				break;
+X			}
+X		}
+X		if(!mp)	{	/* get here if timeout */
+#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s Failed\n", name);
+#endif
+X			return(NULL);
+X		}
+X	}
+X	ht.h_addr = *((unsigned long *) mp->hostip);
+X	ht.h_length = 4;
+X	ht.h_addrtype = AF_INET;
+X	return(&ht);
+X
+}
+#endif /* CUTCP */
+X
+#ifdef GETENV
+/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+#if defined(LIBC_SCCS) && !defined(lint)
+static char sccsid[] = "@(#)getenv.c	5.7 (Berkeley) 6/1/90";
+#endif /* LIBC_SCCS and not lint */
+X
+#include <stdlib.h>
+#include <stddef.h>
+X
+/*
+X * getenv --
+X *	Returns ptr to value associated with name, if any, else NULL.
+X */
+char *
+getenv(name)
+X	char *name;
+{
+X	int offset;
+X	char *_findenv();
+X
+X	return(_findenv(name, &offset));
+}
+X
+/*
+X * _findenv --
+X *	Returns pointer to value associated with name, if any, else NULL.
+X *	Sets offset to be the offset of the name/value combination in the
+X *	environmental array, for use by setenv(3) and unsetenv(3).
+X *	Explicitly removes '=' in argument name.
+X *
+X *	This routine *should* be a static; don't use it.
+X */
+char *
+_findenv(name, offset)
+X	register char *name;
+X	int *offset;
+{
+X	extern char **environ;
+X	register int len;
+X	register char **P, *C;
+X
+X	for (C = name, len = 0; *C && *C != '='; ++C, ++len);
+X	for (P = environ; *P; ++P)
+X		if (!strncmp(*P, name, len))
+X			if (*(C = *P + len) == '=') {
+X				*offset = P - environ;
+X				return(++C);
+X			}
+X	return(NULL);
+}
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/support.c ||
+echo 'restore of xarchie-2.0.6/support.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/support.c'`"
+test 21453 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/support.c: original size 21453, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/syntax.c ==============
+if test -f 'xarchie-2.0.6/syntax.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/syntax.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/syntax.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/syntax.c' &&
+/*
+X * syntax.c : The usage message for xarchie
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#include <stdio.h>
+X
+void
+syntax(argc,argv)
+int argc;
+char **argv;
+{
+X    char *program;
+X
+X    program = *argv;
+X    argv += 1;
+X    if (argc > 2 || (strcmp(*argv,"-help") != 0 && strcmp(*argv,"-?") != 0)) {
+X	fprintf(stderr,"%s: bad argument(s): ",program);
+X	while (--argc)
+X	    fprintf(stderr,"%s ",*argv++);
+X	fprintf(stderr,"\n");
+X    }
+X    fprintf(stderr,"Valid options (in addition to X Toolkit options) are:\n");
+X    fprintf(stderr,"  -host host\tConnect to Archie at host\n");
+X    fprintf(stderr,"  -search type\tSet query type\n");
+X    fprintf(stderr,"  -e\t\tSet query type to exact\n");
+X    fprintf(stderr,"  -c\t\tSet query type to subcase\n");
+X    fprintf(stderr,"  -s\t\tSet query type to substr\n");
+X    fprintf(stderr,"  -r\t\tSet query type to regexp\n");
+X    fprintf(stderr,"  -ec\t\tSet query type to exactSubcase\n");
+X    fprintf(stderr,"  -es\t\tSet query type to exactSubstr\n");
+X    fprintf(stderr,"  -er\t\tSet query type to exactRegexp\n");
+X    fprintf(stderr,"  -sort type\tSet sort mode\n");
+X    fprintf(stderr,"  -t\t\tSet sort mode to date\n");
+X    fprintf(stderr,"  -w\t\tSet sort mode to weight\n");
+X    fprintf(stderr,"  -maxhits num\tSet maximum number of matches per query\n");
+X    fprintf(stderr,"  -offset off\tSet Prospero offset\n");
+X    fprintf(stderr,"  -[nice|N] #\tSet query niceness\n");
+X    fprintf(stderr,"  -noscroll\tDon't scroll browser lists\n");
+X    fprintf(stderr,"  -mono\t\tUse monochrome color resources\n");
+X    fprintf(stderr,"  -gray\t\tUse gray-scale color resources\n");
+X    fprintf(stderr,"  -color\t\tUse color resources\n");
+X    fprintf(stderr,"  -[debug|D] #\tSet Prospero debugging level\n");
+X    fprintf(stderr,"  -help\t\tPrint this message\n");
+X    fprintf(stderr,"  -xrm 'resource: value'  Pass arbitrary resources\n");
+X    fprintf(stderr,"Options can be abbreviated to their shortest unique prefix.\n");
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/syntax.c ||
+echo 'restore of xarchie-2.0.6/syntax.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/syntax.c'`"
+test 1983 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/syntax.c: original size 1983, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/syntax.h ==============
+if test -f 'xarchie-2.0.6/syntax.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/syntax.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/syntax.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/syntax.h' &&
+/*
+X * syntax.h : Defs for printing the usage message (anal aren't we)
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+extern void syntax();
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/syntax.h ||
+echo 'restore of xarchie-2.0.6/syntax.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/syntax.h'`"
+test 160 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/syntax.h: original size 160, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/sysdefs.h ==============
+if test -f 'xarchie-2.0.6/sysdefs.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/sysdefs.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/sysdefs.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/sysdefs.h' &&
+/*
+X * sysdefs.h : System functions that are tricky to get declared...
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+/* #include <stdlib.h> */
+#ifdef __STDC__
+extern char *malloc(unsigned ptr);
+extern char *calloc(unsigned nelem, unsigned size);
+extern int free(char *ptr);
+extern char *getenv(const char *str);
+extern void exit(int status);
+extern void abort(void);
+#else
+extern char *malloc(),*calloc();
+extern int free();
+extern char *getenv();
+extern void exit();
+extern void abort();
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/sysdefs.h ||
+echo 'restore of xarchie-2.0.6/sysdefs.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/sysdefs.h'`"
+test 517 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/sysdefs.h: original size 517, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/syserr.c ==============
+if test -f 'xarchie-2.0.6/syserr.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/syserr.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/syserr.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/syserr.c' &&
+/*
+X * syserr.c : Routines for system errors (like perror()). This puts
+X *	together an error string based on errno (if the system has
+X *	errno) and then calls the interface function alert0() to
+X *	display it.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 13 May 1993: Use HAVE_SYS_ERRLIST properly and correct comments.
+X *
+X * Compile-time parameters (config.h)
+X *	HAVE_STRERROR:    ANSI function strerror() exists
+X *	HAVE_SYS_ERRLIST: char *sys_errlist[] exists
+X *	HAVE_ERRNO:       int errno exists (it better!)
+X */
+#include <stdio.h>
+#include "config.h"
+X
+#ifdef HAVE_ERRNO
+#include <errno.h>
+# ifndef MSDOS
+X  extern int errno;		/* MSDOS doesn't like this, apparently */
+# endif /* !MSDOS */
+#else /* !NO_ERRNO */
+int errno;			/* Make our own, pretty useless */
+#endif /* !NO_ERRNO */
+X
+#ifdef HAVE_STRERROR
+/* This is the same as NeedFunctionPrototypes for an X file */
+#if defined(FUNCPROTO) || __STDC__ || defined(__cplusplus) || defined(c_plusplus)
+X   extern char *strerror(int);
+# else
+X   extern char *strerror();
+# endif /* !NeedFunctionPrototypes */
+#else /* !HAVE_STRERROR */
+# ifdef HAVE_SYS_ERRLIST
+X   extern char *sys_errlist[];
+# endif /* !HAVE_SYS_ERRLIST */
+#endif /* !HAVE_STRERROR */
+X
+extern void alert0();		/* Function to display the error message */
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+void
+sysError(str)
+char *str;
+{
+X    char buf[256];
+X
+#ifdef HAVE_STRERROR
+X    sprintf(buf,"%s: %s",str,strerror(errno));
+#else
+#ifdef HAVE_SYS_ERRLIST
+X    sprintf(buf,"%s: %s",str,sys_errlist[errno]);
+#else
+#ifdef HAVE_ERRNO
+X    sprintf(buf,"%s: Errno = %d",str,errno);
+#else
+X    sprintf(buf,"%s: System error.");
+#endif /* !HAVE_ERRNO */
+#endif /* !HAVE_SYS_ERRLIST */
+#endif /* !HAVE_STRERROR */
+X    alert0(buf);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/syserr.c ||
+echo 'restore of xarchie-2.0.6/syserr.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/syserr.c'`"
+test 1727 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/syserr.c: original size 1727, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/syserr.h ==============
+if test -f 'xarchie-2.0.6/syserr.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/syserr.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/syserr.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/syserr.h' &&
+/*
+X * syserr.h : Portable interface to system error messages.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X */
+X
+/* Either the real errno or one of our making, for external use. */
+#ifndef MSDOS
+extern int errno;		/* MSDOS doesn't like this, apparently */
+#endif /* !MSDOS */
+X
+extern void sysError();
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/syserr.h ||
+echo 'restore of xarchie-2.0.6/syserr.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/syserr.h'`"
+test 321 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/syserr.h: original size 321, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/tilde.c ==============
+if test -f 'xarchie-2.0.6/tilde.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/tilde.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/tilde.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/tilde.c' &&
+/*
+X * tilde.c : Tilde expansion for filenames
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 13 May 1993: Cleanups.
+X *
+X */
+X
+#include <stdio.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include "config.h"
+#ifdef HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+#include "alert.h"
+#include "sysdefs.h"
+#include "stringdefs.h"
+extern uid_t getuid();		/* not in stdlib.h, but is in unistd.h */
+X
+char *
+tildeExpand(file)
+char *file;
+{
+X    static char filename[MAXPATHLEN];
+X    struct passwd *pwe;
+X    char *name,*home;
+X
+X    /* Must start with tilde */
+X    if (*file != '~')
+X	return(file);
+X    /* Set default return value in case tilde expansion fails */
+X    strcpy(filename,file);
+X    /* Skip tilde */
+X    name = ++file;
+X    /* Gather name following tilde (if any) */
+X    while (*file != '\0' && *file != '/')
+X	file += 1;
+X    if (*file != '\0')
+X	*file++ = '\0';
+X    if (*name == '\0') {				/* ~/... */
+X	if ((pwe=getpwuid(getuid())) != NULL) {
+X	    home = pwe->pw_dir;
+X	} else if ((home=getenv("HOME")) == NULL) {
+X	    alert0("Couldn't find homedir, you should set $HOME");
+X	    return(filename);
+X	}
+X    } else {						/* ~user/... */
+X	if ((pwe=getpwnam(name)) != NULL) {
+X	    home = pwe->pw_dir;
+X	} else {
+X	    alert1("Couldn't find homedir for \"%s\"",name);
+X	    return(filename);
+X	}
+X    }
+X    sprintf(filename,"%s/%s",home,file);
+X    return(filename);
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/tilde.c ||
+echo 'restore of xarchie-2.0.6/tilde.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/tilde.c'`"
+test 1368 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/tilde.c: original size 1368, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/tilde.h ==============
+if test -f 'xarchie-2.0.6/tilde.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/tilde.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/tilde.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/tilde.h' &&
+/*
+X * tilde.h : Defs for tilde expansion routine
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X */
+X
+extern char *tildeExpand(/* char *file */);
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/tilde.h ||
+echo 'restore of xarchie-2.0.6/tilde.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/tilde.h'`"
+test 164 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/tilde.h: original size 164, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/types.c ==============
+if test -f 'xarchie-2.0.6/types.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/types.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/types.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/types.c' &&
+/*
+X * types.c : Converters for SearchType and SortType, a converter for
+X *	fonts that allows per-application defaults, and an improved
+X *	converter for Widget that allows "NULL" to be specified.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 12 Sep 1991.
+X * Version 2.0: 23 Apr 1993: For pre-R5 systems, we include the string-
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/types.c failed'
+fi
+echo 'End of xarchie-2.0.6 part 15'
+echo 'File xarchie-2.0.6/types.c is continued in part 16'
+echo 16 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

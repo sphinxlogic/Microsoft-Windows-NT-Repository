@@ -1,0 +1,894 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: spy@castlab.engr.wisc.edu (Mark Spychalla)
+Newsgroups: comp.sources.x
+Subject: v16i051: 3D Wireframe viewer, Part06/06
+Message-ID: <1992Feb6.144046.29531@msi.com>
+Date: 6 Feb 92 14:40:46 GMT
+References: <csx-16i046-x3d@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 881
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: spy@castlab.engr.wisc.edu (Mark Spychalla)
+Posting-number: Volume 16, Issue 51
+Archive-name: x3d/part06
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 6 (of 6)."
+# Contents:  con/con.c constants.h gi.h
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:38:06 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'con/con.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'con/con.c'\"
+else
+echo shar: Extracting \"'con/con.c'\" \(17970 characters\)
+sed "s/^X//" >'con/con.c' <<'END_OF_FILE'
+X/*
+X  Copyright 1992 Mark Spychalla
+X
+X  Permission to use, copy, modify, distribute, and sell this software and
+X  its documentation for any purpose is hereby granted without fee,
+X  provided that the above copyright notice appear in all copies and that
+X  both that copyright notice and this permission notice appear in
+X  supporting documentation, and that the name of Mark Spychalla not be used
+X  in advertising or publicity pertaining to distribution of the software
+X  without specific, written prior permission.  Mark Spychalla makes no
+X  representations about the suitability of this software for any purpose.
+X  It is provided "as is" without express or implied warranty.
+X
+X  Mark Spychalla disclaims all warranties with regard to this software,
+X  including all implied warranties of merchantability and fitness, in no
+X  event shall Mark Spychalla be liable for any special, indirect or
+X  consequential damages or any damages whatsoever resulting from loss of use,
+X  data or profits, whether in an action of contract, negligence or other
+X  tortious action, arising out of or in connection with the use or performance
+X  of this software.
+X*/
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <string.h>
+X
+X#define MAXSTACK    100
+X#define STOP        10 
+X#define QSORT_ERROR -1 
+X#define PRECISION 100000.0
+X#define P 1
+X#define Q 0
+X#define MAX 80000
+X
+X#define copyMem(src, dest, size)    memcpy(dest, src, size);
+X
+X#define swapPtrs(ptr1, ptr2)                                         \
+X       ptr1 = (char *)((long)ptr1 ^ (long)ptr2);                     \
+X       ptr2 = (char *)((long)ptr2 ^ (long)ptr1);                     \
+X       ptr1 = (char *)((long)ptr1 ^ (long)ptr2);
+X
+X#define median5(v1,v2,v3,v4,v5)                                      \
+X   if(compare(v1,v2) > 0){                                           \
+X      swapPtrs(v1,v2)                                                \
+X      }                                                              \
+X   if(compare(v3,v4) > 0){                                           \
+X      swapPtrs(v3,v4)                                                \
+X      }                                                              \
+X   if(compare(v1,v3) > 0){                                           \
+X      swapPtrs(v1,v3)                                                \
+X      swapPtrs(v2,v4)                                                \
+X      }                                                              \
+X   if(compare(v2,v5) > 0){                                           \
+X      swapPtrs(v2,v5)                                                \
+X      }                                                              \
+X   if(compare(v2,v3) > 0){                                           \
+X      swapPtrs(v2,v3)                                                \
+X      swapPtrs(v4,v5)                                                \
+X      }                                                              \
+X   if(compare(v3,v5) > 0){                                           \
+X      swapPtrs(v3,v5)                                                \
+X      }
+X
+Xtypedef struct _Segment{
+X   struct _Point *p, *q;
+X   int x, y, z;
+X   int valid;
+X} Segment;
+X
+Xtypedef struct _SegList{
+X   Segment *seg;
+X   struct _SegList *next;
+X   int endPoint;
+X} SegList;
+X
+Xtypedef struct _Point{
+X   int x, y, z;
+X   Segment *seg;
+X   SegList *segList;
+X   int endPoint, valid, index;
+X} Point;
+X
+Xtypedef struct _StackElement{
+X   int start, end;
+X} StackElement;
+X
+X/*
+X   Compilers often mess up with pointers to functions, play with
+X   the type definition until it works
+X */
+X
+X/* typedef int (*cmp)(char *, char *); */
+X
+Xtypedef int cmp();
+X
+XSegList segLists[MAX];
+XSegment segments[MAX];
+XPoint points[MAX];
+X
+Xint qsort2(base, numElements, elementSize, compare)
+Xchar *base;
+Xint numElements, elementSize;
+Xcmp compare;
+X/*****************************************************************************
+X   Do a version of quicksort.  Quicksort has several problems;
+X
+X      1) Can be N*N not N(lg(N)) in worst cast of sorted input.
+X      2) It is not stable (equal elements may be in a different order than
+X         they were initially)
+X      3) Not in place (requires an amout of extra space that is not constant
+X         for any list of length N).
+X      4) Performs poorly on short lists (lots of stack overhead)
+X      5) It can do a great deal of element swapping.
+X
+X   We try to avoid poor splits by using a median of 5 split.
+X   We don't care whether it's stable or in place.
+X   We use insertion sort to do short lists.
+X   We swap lots of elements anyway.
+X
+X   This version of quicksort tries to avoid the BAD cases, and should
+X   perform a bit better than your C library's qsort().
+X
+X   If you are sorting huge elements you could improve performance by using
+X   some extra space and sorting an array of pointers to the elements instead.
+X*****************************************************************************/
+X{
+Xregister int stackIndex, stackNotSet, length, start, end, high;
+Xchar *v0, *v1, *v2, *v3, *v4, *v5, *v6;
+X
+X/* Sort stack max OK for lists of more than 1.2677 x 10^30 elements */
+XStackElement stack[MAXSTACK];
+X
+X/* Initialize our stack */
+X
+X   if((v0 = (char *)malloc(elementSize * sizeof(char))) == NULL)
+X      return QSORT_ERROR;
+X
+X   stackIndex = 1;
+X   stackNotSet = 0;
+X   start = 0; 
+X   end = numElements - 1;
+X
+X/* Do Qsort */
+X
+X   while(stackIndex){
+X
+X       if(stackNotSet){
+X          start = stack[stackIndex].start; 
+X          end = stack[stackIndex].end;
+X       }
+X       
+X       stackIndex--;
+X       stackNotSet = 1;
+X       length = end - start;
+X
+X/* Big enough to qsort ? */
+X
+X      if(length > STOP){
+X
+X         v1 = (base + (elementSize * (start)));
+X         v2 = (base + (elementSize * (start + (length / 4))));
+X         v3 = (base + (elementSize * (start + (length / 2))));
+X         v4 = (base + (elementSize * (start + ((length * 3) / 4))));
+X         v5 = (base + (elementSize * (end)));
+X         v6 = v1;
+X
+X/* Find median */
+X     
+X         median5(v1,v2,v3,v4,v5)
+X
+X         copyMem(v3, v0, elementSize)
+X         copyMem(v6, v3, elementSize)
+X         copyMem(v0, v6, elementSize)
+X
+X         v1 = base + (elementSize * (start + 1));
+X         v2 = base + (elementSize * end);
+X
+X/* Split */
+X
+X         while(compare(v2, v6) > 0) v2 -= elementSize;
+X         while(compare(v1, v6) < 0)  v1 += elementSize;
+X
+X         v5 = v0;
+X
+X         while(v1 < v2){
+X
+X            copyMem(v2, v5, elementSize)
+X            copyMem(v1, v2, elementSize)
+X            v5 = v1;
+X
+X            do{
+X               v2 -= elementSize;
+X            }while(compare(v2, v6) > 0);
+X
+X            do{
+X               v1 += elementSize;
+X            }while(compare(v1, v6) < 0);
+X
+X         }
+X         
+X         v2 = v1 - elementSize;
+X
+X         copyMem(v2, v5, elementSize)
+X         copyMem(v6, v2, elementSize)
+X         copyMem(v0, v6, elementSize)
+X
+X         high = (int)((v2 - base) / elementSize);
+X
+X/* Put sublists on the stack, smallest on top */
+X     
+X         if((high - start) > (end - high)){
+X            stack[++stackIndex].start = start; 
+X            stack[stackIndex].end = high - 1; 
+X            ++stackIndex; 
+X            start = high + 1; 
+X            stackNotSet = 0;
+X         }else{ 
+X            stack[++stackIndex].start = high + 1; 
+X            stack[stackIndex].end = end;
+X            ++stackIndex; 
+X            end = high - 1; 
+X            stackNotSet = 0;
+X            }
+X      }else{
+X
+X/* insertion sort the small lists */
+X
+X         v2 = (base + (elementSize * start));
+X         v3 = (base + (elementSize * end));
+X         v4 = v2 + elementSize;
+X
+X         while(v4 <= v3){
+X
+X            copyMem(v4, v0, elementSize)
+X            v1 = v4 - elementSize;
+X
+X            while((v1 >= v2) && ((compare(v1, v0)) > 0)){
+X               copyMem(v1, v1 + elementSize, elementSize)
+X               v1 -= elementSize; 
+X               }
+X            
+X            copyMem(v0, v1 + elementSize, elementSize)
+X            v4 += elementSize;
+X            }
+X
+X         }
+X      }
+X   free(v0);
+X}      
+X
+X
+X
+Xint comparePoints(p,q)
+XPoint *p, *q;
+X{
+Xint value;
+X
+X   value = 0;
+X
+X   if(p->x > q->x)
+X      value = 1;
+X   else	
+X      if(p->x < q->x)
+X         value = -1;
+X      else	
+X         if(p->y < q->y)
+X            value = -1;
+X         else	
+X            if(p->z < q->z)
+X               value = -1;
+X            else	
+X               if(p->z > q->z)
+X                  value = 1;
+X               else	
+X                  if(p->y > q->y)
+X                     value = 1;
+X   return value;
+X}
+X
+X
+X
+Xvoid reduceLines(list)
+X/*****************************************************************************
+X   The idea here is that we have a list of segments that share a common
+X   endpoint and we would like to get rid of any redundant information in
+X   the list by eliminating duplicate lines and coalescing colinear segments.
+X
+X   This routine probably does not work correctly.
+X*****************************************************************************/
+XSegList *list;
+X{
+XSegList *lead, *follow;
+X
+X   follow = list;
+X
+X/* Now we have a list of segments that share a common endpoint, check to 
+X   if any of these are colinear, if so, simplify the list */
+X
+X   while(follow){
+X      lead = follow->next;
+X
+X      while(lead){
+X         if((lead->seg->x == follow->seg->x) &&
+X         (lead->seg->y == follow->seg->y) &&
+X         (lead->seg->z == follow->seg->z)){
+X
+X            if(lead->endPoint == follow->endPoint){
+X
+X/* segments overlap, dispose of the shorter one */
+X
+X               if(lead->endPoint){
+X                  if(lead->seg->q > follow->seg->q){
+X                     follow->seg->valid = 0;
+X                  }else{
+X                     lead->seg->valid = 0;
+X                     }
+X               }else{
+X                  if(lead->seg->p < follow->seg->p){
+X                     follow->seg->valid = 0;
+X                  }else{
+X                     lead->seg->valid = 0;
+X                     }
+X                  }
+X
+X            }else{
+X
+X/* otherwise segments point opposite ways from this endpoint, replace the
+X   segments with their concatenation. */
+X
+X               if(lead->endPoint){
+X                     lead->seg->p = follow->seg->p;
+X                     follow->seg->q = lead->seg->q;
+X               }else{
+X                     follow->seg->p = lead->seg->p;
+X                     lead->seg->q = follow->seg->q;
+X                  }
+X
+X               lead = NULL;
+X
+X               }
+X            }
+X         if(lead)
+X            lead = lead->next; 
+X         }
+X      follow = follow->next;
+X      }
+X}
+X
+X
+X
+Xvoid readSegments(filename, scale, pointReturn, segmentReturn)
+Xchar *filename;
+Xfloat scale;
+Xint *pointReturn, *segmentReturn;
+X/*****************************************************************************
+X    Read a list of segments in from a file.
+X*****************************************************************************/
+X{
+XFILE *fd;
+Xint count;
+Xint index, value;
+Xint point, segment;
+XPoint *p, *q;
+Xfloat x1, y1, z1, x2, y2, z2;
+Xdouble length, dz, dx, dy;
+X
+X   for(index = 0; index < MAX; index++){
+X      points[index].valid = 0;
+X      segments[index].valid = 0;
+X      }
+X
+X   fd = stdin;
+X
+X   if((strcmp(filename, "-")) && ((fd = fopen(filename, "r")) == NULL)){
+X      fprintf(stderr, "Unable to open file: %s\n", filename);
+X      exit(1);
+X      }
+X
+X   point = 0;
+X   segment = 0;
+X
+X   count = fscanf(fd, "%f %f %f %f %f %f\n", &x1, &y1, &z1, &x2, &y2, &z2);
+X   
+X   while(count == 6){
+X
+X/* Fill in the points data structure */
+X
+X      points[point].x = (int)(x1 * scale);
+X      points[point].y = (int)(y1 * scale);
+X      points[point].z = (int)(z1 * scale);
+X
+X      p = &(points[point]);
+X      point++;
+X
+X      points[point].x = (int)(x2 * scale);
+X      points[point].y = (int)(y2 * scale);
+X      points[point].z = (int)(z2 * scale);
+X  
+X      q = &(points[point]);
+X
+X      value = comparePoints(p,q);
+X
+X/* We want P to be the lesser of the two points, duplicate p & q not allowed */
+X
+X      if(value > 0){
+X         swapPtrs((char *)p, (char *)q);
+X         dx = (double)(x1 - x2);
+X         dy = (double)(y1 - y2);
+X         dz = (double)(z1 - z2);
+X      }else{
+X         dx = (double)(x2 - x1);
+X         dy = (double)(y2 - y1);
+X         dz = (double)(z2 - z1);
+X         }
+X      
+X      if(value == 0){
+X         point -= 2;
+X         segment--;
+X      }else{
+X
+X         p->seg = &(segments[segment]);
+X         p->endPoint = P; 
+X         p->segList = NULL;
+X         p->valid = 1;
+X
+X         q->seg = &(segments[segment]);
+X         q->endPoint = Q; 
+X         q->segList = NULL;
+X         q->valid = 1;
+X
+X         length = sqrt(dx * dx + dy * dy + dz * dz);
+X
+X         segments[segment].x = (int)((dx / length) * PRECISION);
+X         segments[segment].y = (int)((dy / length) * PRECISION);
+X         segments[segment].z = (int)((dz / length) * PRECISION);
+X
+X         segments[segment].p = 0; 
+X         segments[segment].q = 0; 
+X         segments[segment].valid = 1;
+X
+X         }
+X
+X      point++;
+X      segment++;
+X
+X      count = fscanf(fd, "%f %f %f %f %f %f\n", &x1, &y1, &z1, &x2, &y2, &z2);
+X      }
+X
+X   fclose(fd);
+X   *pointReturn = point;
+X   *segmentReturn = segment;
+X}
+X
+X
+X
+Xvoid eliminateDuplicates(point, segment, numPoints, numSegments)
+Xint point, segment;
+Xint *numPoints, *numSegments;
+X/*****************************************************************************
+X    Eliminate duplicate points and segments.
+X*****************************************************************************/
+X{
+Xint count, segListIndex;
+Xint index, index2;
+X
+X/* sort the list of points */
+X
+X   qsort2(points, point, sizeof(Point), comparePoints);
+X
+X/* Set up the segments */
+X
+X   for(index = 0; index < point; index++){
+X      if(points[index].endPoint)
+X         points[index].seg->p = &(points[index]);
+X      else
+X         points[index].seg->q = &(points[index]);
+X      }
+X   
+X   index = 0;
+X   segListIndex = 0;
+X
+X/* remove duplicate points */
+X
+X   while(index < point){
+X
+X      index2 = index + 1;
+X      
+X      while((index2 < point) && ((comparePoints(&(points[index]),
+X         &(points[index2]))) == 0)){
+X
+X/* Switch the segment's endpoint */
+X
+X            if(points[index2].endPoint)
+X               points[index2].seg->p = &(points[index]);
+X            else
+X               points[index2].seg->q = &(points[index]);
+X
+X/* Add points[index2]'s segment to the list of segments that share this
+X   endpoint */
+X
+X            segLists[segListIndex].next = points[index].segList;
+X            segLists[segListIndex].seg  = points[index2].seg;
+X            segLists[segListIndex].endPoint = points[index2].endPoint;
+X            points[index].segList = &(segLists[segListIndex]);
+X            segListIndex++;
+X
+X/* points[index2] is no longer valid */
+X
+X            points[index2].valid = 0;
+X            index2++;
+X         }
+X
+X      segLists[segListIndex].next = points[index].segList;
+X      segLists[segListIndex].seg  = points[index].seg;
+X      segLists[segListIndex].endPoint = points[index].endPoint;
+X      points[index].segList = &(segLists[segListIndex]);
+X      segListIndex++;
+X
+X      index = index2;
+X      }
+X
+X/* Get rid of redundant segments */
+X
+X   for(index = 0; index < point; index++){
+X      reduceLines(points[index].segList);
+X      }
+X
+X/* More points may have disappeared, get rid of them */
+X
+X   for(index = 0; index < point; index++)
+X      points[index].valid = 0;
+X
+X   index2 = 0;
+X
+X/* Count the number of segments left, set their endpoints to be valid */
+X
+X   for(index = 0; index < segment; index++){
+X      if(segments[index].valid){
+X         segments[index].p->valid = 1;
+X         segments[index].q->valid = 1;
+X         index2++;
+X         }
+X      }
+X
+X/* Count the number of points left */
+X
+X   count = 0;
+X
+X   for(index = 0; index < point; index++){
+X      if(points[index].valid){
+X         points[index].index = count++;
+X         }
+X      }
+X
+X   *numPoints = count;
+X   *numSegments = index2;
+X}
+X
+X
+X
+XwriteObject(filename, point, segment, numPoints, numSegments)
+Xchar *filename;
+Xint point, segment, numPoints, numSegments;
+X/*****************************************************************************
+X    Write the object to a file.
+X*****************************************************************************/
+X{
+XFILE *fd;
+Xint index;
+X
+X   fd = stdout;
+X
+X   if((strcmp(filename, "-")) && ((fd = fopen(filename, "w")) == NULL)){
+X      fprintf(stderr, "Unable to open file: %s\n", filename);
+X      exit(1);
+X      }
+X
+X   fprintf(fd, "%d %d\n", numPoints, numSegments);
+X
+X   for(index = 0; index < point; index++){
+X      if(points[index].valid){
+X         fprintf(fd, "%d %d %d\n", points[index].x, points[index].y,
+X            points[index].z);
+X      }
+X      }
+X   
+X   for(index = 0; index < segment; index++){
+X      if(segments[index].valid)
+X         fprintf(fd,"%d %d\n", segments[index].p->index,
+X         segments[index].q->index);
+X      }
+X
+X   fclose(fd);
+X}
+X
+X
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X/*****************************************************************************
+X   Attempt to read in a list of segments and generate an optimized
+X   object file for them.
+X*****************************************************************************/
+X{
+Xfloat scale;
+Xint point, segment, numPoints, numSegments, index, inSet, outSet;
+Xchar *inFile, *outFile;
+X
+X   scale = 1.0;
+X
+X   inSet = 0;
+X   outSet = 0;
+X
+X   for(index = 1; index < argc; index++){
+X      if(!(strcmp("-scale", argv[index]))){
+X         if((sscanf(argv[++index], "%f", &scale)) != 1){
+X            fprintf(stderr, "Bad scale value\n");
+X            exit(1);
+X            }
+X      }else{
+X         if(!inSet){
+X            inSet = 1;
+X            inFile = argv[index];
+X         }else{
+X            outSet = 1;
+X            outFile = argv[index];
+X            }
+X         }
+X      }
+X  
+X   if((!inSet) || (!outSet)){
+X      fprintf(stderr, "Usage: %s [-scale <value>] <infile> <outfile>\n",
+X      argv[0]);
+X      fprintf(stderr, "Use - for standard input or output\n");
+X      fprintf(stderr, "%s converts a list of segments to .obj format\n",
+X      argv[0]);
+X      exit(1);
+X      }
+X
+X   readSegments(inFile, scale, &point, &segment);
+X   eliminateDuplicates(point, segment, &numPoints, &numSegments);
+X   writeObject(outFile, point, segment, numPoints, numSegments);
+X}
+END_OF_FILE
+if test 17970 -ne `wc -c <'con/con.c'`; then
+    echo shar: \"'con/con.c'\" unpacked with wrong size!
+fi
+# end of 'con/con.c'
+fi
+if test -f 'constants.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'constants.h'\"
+else
+echo shar: Extracting \"'constants.h'\" \(2423 characters\)
+sed "s/^X//" >'constants.h' <<'END_OF_FILE'
+X
+X/*
+X  Copyright 1992 Mark Spychalla
+X
+X  Permission to use, copy, modify, distribute, and sell this software and
+X  its documentation for any purpose is hereby granted without fee,
+X  provided that the above copyright notice appear in all copies and that
+X  both that copyright notice and this permission notice appear in
+X  supporting documentation, and that the name of Mark Spychalla not be used
+X  in advertising or publicity pertaining to distribution of the software
+X  without specific, written prior permission.  Mark Spychalla makes no
+X  representations about the suitability of this software for any purpose.
+X  It is provided "as is" without express or implied warranty.
+X
+X  Mark Spychalla disclaims all warranties with regard to this software,
+X  including all implied warranties of merchantability and fitness, in no
+X  event shall Mark Spychalla be liable for any special, indirect or
+X  consequential damages or any damages whatsoever resulting from loss of use,
+X  data or profits, whether in an action of contract, negligence or other
+X  tortious action, arising out of or in connection with the use or performance
+X  of this software.
+X*/
+X
+X#define INFINITY 8192 
+X
+X#define RClipWithRight   6
+X#define RClipWithLeft    5 
+X
+X#define PointBehind 	 4 
+X
+X#define BClipWithRight   3 
+X#define BClipWithLeft    2 
+X
+X#define ClipWithRight    3 
+X#define ClipWithLeft     2 
+X
+X#define ClipWithBottom   1 
+X#define ClipWithTop      0 
+X
+X#define RRight     (1 << RClipWithRight) 
+X#define RLeft      (1 << RClipWithLeft) 
+X
+X#define Behind     (1 << PointBehind)  
+X
+X#define BRight     (1 << BClipWithRight) 
+X#define BLeft      (1 << BClipWithLeft) 
+X
+X#define Right      (1 << ClipWithRight) 
+X#define Left       (1 << ClipWithLeft) 
+X
+X#define Bottom     (1 << ClipWithBottom) 
+X#define Top        (1 << ClipWithTop)  
+X
+X#define Bmask      (~BRight & ~BLeft) 
+X#define Rmask      (~RRight & ~RLeft) 
+X#define RBmask     (Rmask & Bmask) 
+X#define RLeftRight (RRight | RLeft) 
+X
+X#define MAXMEM          524288
+X#define NUMSEGMENTS     12000
+X#define NUMCOLORS       256
+X#define COLOROFFSET     240
+X#define BLOCKCOUNT      100000
+X#define TMPSTRLEN       16
+X#define SMALLMOVEMENT   40000
+X#define POINTERRATIO    0.007 
+X#define MARGIN          30
+X#define xOffset         3
+X#define yOffset         3
+X#define NUMCOLS         132
+X#define NUMROWS         55 
+X#define XLENGTH         60
+X#define YLENGTH         120
+X#define GAPFACTOR       1.6
+X#define TWOPI		6.2831853
+END_OF_FILE
+if test 2423 -ne `wc -c <'constants.h'`; then
+    echo shar: \"'constants.h'\" unpacked with wrong size!
+fi
+# end of 'constants.h'
+fi
+if test -f 'gi.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gi.h'\"
+else
+echo shar: Extracting \"'gi.h'\" \(3176 characters\)
+sed "s/^X//" >'gi.h' <<'END_OF_FILE'
+X
+X/*
+X  Copyright 1992 Mark Spychalla
+X
+X  Permission to use, copy, modify, distribute, and sell this software and
+X  its documentation for any purpose is hereby granted without fee,
+X  provided that the above copyright notice appear in all copies and that
+X  both that copyright notice and this permission notice appear in
+X  supporting documentation, and that the name of Mark Spychalla not be used
+X  in advertising or publicity pertaining to distribution of the software
+X  without specific, written prior permission.  Mark Spychalla makes no
+X  representations about the suitability of this software for any purpose.
+X  It is provided "as is" without express or implied warranty.
+X
+X  Mark Spychalla disclaims all warranties with regard to this software,
+X  including all implied warranties of merchantability and fitness, in no
+X  event shall Mark Spychalla be liable for any special, indirect or
+X  consequential damages or any damages whatsoever resulting from loss of use,
+X  data or profits, whether in an action of contract, negligence or other
+X  tortious action, arising out of or in connection with the use or performance
+X  of this software.
+X*/
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xutil.h>
+X#include <X11/X.h>
+X#include "constants.h"
+X#include "types.h"
+X#include "macros.h"
+X#include <math.h>
+X
+X/* Graphics interface error codes */
+X
+X#define GIE_OK			 0	/* No error                      */
+X#define NO_CONNECT		-1	/* Unable to connect with server */ 
+X#define NO_CREATE_WINDOW	-2	/* Unable to create window       */
+X#define NO_CREATE_GC		-3	/* Unable to create gc           */
+X#define NO_CREATE_COLORMAP	-4	/* Unable to create colormap     */
+X#define GIE_LASTERRNO		-5	/* Last errno */
+X
+Xextern int GIerrno;
+X
+X
+X/* PROTOTYPES */
+X
+X#ifdef PROTOTYPES
+X
+Xextern char *allocate(int bytes);
+X
+Xextern int clipSegment(number *pX, number *pY, number *qX, number *qY,
+Xint Pclip, int Qclip, number H, number V);
+X
+Xextern void clip(segment *segments, int numSegments, GIinfo *gi);
+X
+Xextern void rotate(point *points, int numPoints, ObjectInfo *obj,
+Xnumber H, number V); 
+X
+Xextern void readObjectFile(char *filename, int *numPoints, int *numSegments,
+Xpoint **points, segment **segments, double scale);
+X
+Xextern void GI_ParseCommandLine(int argc, char *argv[], char **filename,
+Xdouble *scale, GIinfo *gi);
+X
+Xextern void GI_ResizeFont(GIinfo *gi);
+X
+Xextern void GI_PrintString(char *string, GIinfo *gi);
+X
+Xextern void GI_DisplayMenu(GIinfo *gi);
+X
+Xextern void GI_ResetPurpleRectangle(int XL, int YL, int XH, int YH, GIinfo *gi);
+X
+Xextern int GI_InitDisplay(GIinfo *gi, int numSegments);
+X
+Xextern void GI_MakeImageCurrent(GIinfo *gi);
+X
+Xextern int GI_CheckEvent(Display *display, XEvent *event, char *arg);
+X
+Xextern void GI_GetInput(int *pointerX, int *pointerY, char *command,
+Xint *same, GIinfo *gi);
+X
+Xextern void GI_UpdatePosition(ObjectInfo *obj, GIinfo *gi);
+X
+Xextern void GI_PrintError(char *errString);
+X
+Xextern void GI_Rotate(anglePoint *points, double cx, double cy, double cz,
+Xdouble sx, double sy, double sz);
+X
+Xextern double GI_DotProduct(double x1, double Y1, double x2, double y2);
+X
+Xextern void GI_CalculateAngles(double *X, double *Y, double *Z, double X1,
+Xdouble Y1, double Z1);
+X
+X#endif
+END_OF_FILE
+if test 3176 -ne `wc -c <'gi.h'`; then
+    echo shar: \"'gi.h'\" unpacked with wrong size!
+fi
+# end of 'gi.h'
+fi
+echo shar: End of archive 6 \(of 6\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

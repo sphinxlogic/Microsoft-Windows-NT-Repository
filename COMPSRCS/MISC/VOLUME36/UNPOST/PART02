@@ -1,0 +1,1718 @@
+Newsgroups: comp.sources.misc,alt.binaries.pictures.utilities
+From: jstevens@teal.csn.org (John W.M. Stevens)
+Subject: v36i115:  unpost - Smart multi-part uudecoder v2.1.2, Part02/07
+Message-ID: <1993Apr19.052156.28711@sparky.imd.sterling.com>
+X-Md4-Signature: 97215d8e94a24d3e286cbbb240948847
+Date: Mon, 19 Apr 1993 05:21:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jstevens@teal.csn.org (John W.M. Stevens)
+Posting-number: Volume 36, Issue 115
+Archive-name: unpost/part02
+Environment: UNIX, MS-DOS, OS/2, Windows, MacIntosh, Amiga, Vax/VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lex.c segment.h unpost.doc
+# Wrapped by kent@sparky on Sun Apr 18 23:10:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 7)."'
+if test -f 'lex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lex.c'\"
+else
+  echo shar: Extracting \"'lex.c'\" \(16470 characters\)
+  sed "s/^X//" >'lex.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Lexical Analyzer --- Process the input text file into tokens
+X*               that the configuration file parser can understand.
+X*
+X* Routines  :   Lex()   - Return the next token from the file.
+X*               OpenPrg - Open the back up program script file.
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#include    "compiler.h"
+X
+X#include    "lex.h"
+X
+X/* Type definitions for this file.  */
+Xtypedef struct  key_st  {
+X    char    c;
+X    TKNS    val;
+X    struct  key_st  *branch;
+X} KEY;
+X
+X/* Constants local to this file.    */
+X#define     NOT_FND     -2
+X
+X/* Object Data. */
+Xstatic  char    word[80];   /* Last string analyzed.                        */
+Xstatic  int     LnNo = 0;   /* The current line number reading the script.  */
+Xstatic  FILE    *PrgFl;     /* Pointer to the ASCII file that contains the
+X                            *   backup program script.
+X                            */
+X
+X/* Trie data structure containing all the keywords and punctuation marks for
+X*   the backup language.
+X*/
+Xstatic
+XKEY T8[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',        T_ALTERNATE,    NULL                    }
+X};
+X
+Xstatic
+XKEY T7[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',                  0,    T8                      }
+X};
+X
+Xstatic
+XKEY T6[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'a',                  0,    T7                      }
+X};
+X
+Xstatic
+XKEY T5[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'n',                  0,    T6                      }
+X};
+X
+Xstatic
+XKEY T4[2] = {
+X    {   ' ',                  2,    NULL                    },
+X     {   'r',                  0,    T5                      }
+X};
+X
+Xstatic
+XKEY T3[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',                  0,    T4                      }
+X};
+X
+Xstatic
+XKEY T2[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',                  0,    T3                      }
+X};
+X
+Xstatic
+XKEY T1[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'l',                  0,    T2                      }
+X};
+X
+Xstatic
+XKEY Tb[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'y',             T_BODY,    NULL                    }
+X};
+X
+Xstatic
+XKEY Ta[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'd',                  0,    Tb                      }
+X};
+X
+Xstatic
+XKEY T9[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'o',                  0,    Ta                      }
+X};
+X
+Xstatic
+XKEY Te[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',             T_CASE,    NULL                    }
+X};
+X
+Xstatic
+XKEY Td[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   's',                  0,    Te                      }
+X};
+X
+Xstatic
+XKEY Tc[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'a',                  0,    Td                      }
+X};
+X
+Xstatic
+XKEY T13[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'r',           T_HEADER,    NULL                    }
+X};
+X
+Xstatic
+XKEY T12[2] = {
+X    {   ' ',                  2,    NULL                    },
+X     {   'e',                  0,    T13                     }
+X};
+X
+Xstatic
+XKEY T11[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'd',                  0,    T12                     }
+X};
+X
+Xstatic
+XKEY T10[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'a',                  0,    T11                     }
+X};
+X
+Xstatic
+XKEY Tf[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',                  0,    T10                     }
+X};
+X
+Xstatic
+XKEY T18[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',           T_IGNORE,    NULL                    }
+X};
+X
+Xstatic
+XKEY T17[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'r',                  0,    T18                     }
+X};
+X
+Xstatic
+XKEY T16[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'o',                  0,    T17                     }
+X};
+X
+Xstatic
+XKEY T15[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'n',                  0,    T16                     }
+X};
+X
+Xstatic
+XKEY T14[3] = {
+X    {   ' ',                  3,    NULL                    },
+X    {   'd',               T_ID,    NULL                    },
+X    {   'g',                  0,    T15                     }
+X};
+X
+Xstatic
+XKEY T1d[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'r',           T_NUMBER,    NULL                    }
+X};
+X
+Xstatic
+XKEY T1c[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',                  0,    T1d                     }
+X};
+X
+Xstatic
+XKEY T1b[2] = {
+X     {   ' ',                  2,    NULL                    },
+X    {   'b',                  0,    T1c                     }
+X};
+X
+Xstatic
+XKEY T1a[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'm',                  0,    T1b                     }
+X};
+X
+Xstatic
+XKEY T19[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'u',                  0,    T1a                     }
+X};
+X
+Xstatic
+XKEY T20[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',             T_PART,    NULL                    }
+X};
+X
+Xstatic
+XKEY T1f[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'r',                  0,    T20                     }
+X};
+X
+Xstatic
+XKEY T1e[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'a',                  0,    T1f                     }
+X};
+X
+Xstatic
+XKEY T27[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   's',         T_SEGMENTS,    NULL                    }
+X};
+X
+Xstatic
+XKEY T26[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',          T_SEGMENT,    T27                     }
+X};
+X
+Xstatic
+XKEY T25[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'n',                  0,    T26                     }
+X};
+X
+Xstatic
+XKEY T24[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'e',                  0,    T25                     }
+X};
+X
+Xstatic
+XKEY T23[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'm',                  0,    T24                     }
+X};
+X
+Xstatic
+XKEY T2d[2] = {
+X     {   ' ',                  2,    NULL                    },
+X    {   'e',        T_SENSITIVE,    NULL                    }
+X};
+X
+Xstatic
+XKEY T2c[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'v',                  0,    T2d                     }
+X};
+X
+Xstatic
+XKEY T2b[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'i',                  0,    T2c                     }
+X};
+X
+Xstatic
+XKEY T2a[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',                  0,    T2b                     }
+X};
+X
+Xstatic
+XKEY T29[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'i',                  0,    T2a                     }
+X};
+X
+Xstatic
+XKEY T28[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   's',                  0,    T29                     }
+X};
+X
+Xstatic
+XKEY T22[3] = {
+X    {   ' ',                  3,    NULL                    },
+X    {   'g',                  0,    T23                     },
+X    {   'n',                  0,    T28                     }
+X};
+X
+Xstatic
+XKEY T31[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'g',           T_STRING,    NULL                    }
+X};
+X
+Xstatic
+XKEY T30[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'n',                  0,    T31                     }
+X};
+X
+Xstatic
+XKEY T2f[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'i',                  0,    T30                     }
+X};
+X
+Xstatic
+XKEY T2e[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'r',                  0,    T2f                     }
+X};
+X
+Xstatic
+XKEY  T21[3] = {
+X    {   ' ',                  3,    NULL                    },
+X    {   'e',                  0,    T22                     },
+X    {   't',                  0,    T2e                     }
+X};
+X
+Xstatic
+XKEY T35[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'l',            T_TOTAL,    NULL                    }
+X};
+X
+Xstatic
+XKEY T34[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'a',                  0,    T35                     }
+X};
+X
+Xstatic
+XKEY T33[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   't',                  0,    T34                     }
+X};
+X
+Xstatic
+XKEY T32[2] = {
+X    {   ' ',                  2,    NULL                    },
+X    {   'o',                  0,    T33                     }
+X};
+X
+Xstatic
+XKEY T0[12] = {
+X    {   ' ',                 12,    NULL                    },
+X    {   'a',                  0,    T1                      },
+X    {   'b',                  0,    T9                      },
+X    {   'c',                  0,    Tc                      },
+X    {   'h',                  0,    Tf                      },
+X    {   'i',                  0,    T14                     },
+X    {   'n',                  0,    T19                     },
+X    {   'p',                  0,    T1e                     },
+X    {   's',                  0,    T21                     },
+X    {   't',                  0,    T32                     },
+X    {   '{',          T_L_BRACE,    NULL                    },
+X    {   '}',          T_R_BRACE,    NULL                    }
+X};
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   TrieSrch() --- Search the trie for a token.
+X|
+X| Inputs    :   Keys    - The trie level pointer.
+X|               ch      - The current character to search for.
+X|               WordPtr - The pointer to the current byte of the word buffer.
+X| Outputs   :   The token number or TKN_NOT_FND for not found.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xint     TrieSrch(KEY    *Keys,
+X                 int    ch,
+X                 char   *WordPtr)
+X{
+X    register    int     mid;        /* Mid point of array piece.            */
+X    register    TKNS    ret;        /* Return value of comparison.          */
+X
+X    auto        int     lo;         /* Limits of current array piece.       */
+X    auto        int     hi;
+X
+X     /* Make sure that input is lower case.  */
+X    ch = tolower( ch );
+X
+X    /* Search for a token.  */
+X    hi = Keys[0].val - 1;
+X    lo = 1;
+X    do
+X    {
+X        /* Find mid point of current array piece.   */
+X        mid = (lo + hi) >> 1;
+X
+X        /* Do character comparison. */
+X        ret = ch - Keys[mid].c;
+X
+X        /* Fix the array limits.    */
+X        if (ret <= 0)
+X            hi = mid - 1;
+X        if (ret >= 0)
+X            lo = mid + 1;
+X
+X    }  while (hi >= lo);
+X
+X    /*  If the character matches one of the entries in this level and this
+X    *   entry has a child, recurse.  If a match is found but the matching
+X    *   entry has no child, return the token value associated with the
+X    *   match.  If the return value from the recursive call indicates that
+X    *   no match was found at a lower level, return the token value
+X    *   associated with the match at this level of the trie.
+X    */
+X    if (ret == 0)
+X    {
+X        /* Save the current character.  */
+X        *WordPtr++ = ch;
+X
+X        /* Is this the last character in the string?    */
+X        if ( Keys[mid].branch )
+X        {
+X            /* Get the next character.  */
+X            if ((ch = fgetc( PrgFl )) == EOF)
+X                return( EOF );
+X
+X            /* Search next level.   */
+X            if ((ret = TrieSrch(Keys[mid].branch, ch, WordPtr)) == T_NOT_FND)
+X            {
+X                ungetc(ch, PrgFl);
+X                return( Keys[mid].val );
+X            }
+X            return( ret );
+X        }
+X        else
+X        {
+X            *WordPtr = '\0';
+X            return( Keys[mid].val );
+X        }
+X    }
+X
+X    /* Return not found.    */
+X    *WordPtr = '\0';
+X    return( T_NOT_FND );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Lex() --- Get the next key word from the input file.
+X|
+X| Outputs   :   sym - The symbolic data read from the file.
+X|
+X| Return :   Returns the token read or EOF.
+X-----------------------------------------------------------------------------*/
+X
+Xint     Lex(TOKEN   *sym)
+X{
+X    register    int     tkn;
+X    auto        int     ch;
+X    extern      FILE    *ErrFile;
+X
+X    /* Strip comments and white space.  If the character read is a '#',
+X    *   every thing to the end of the line is a comment.
+X    */
+X    ch = fgetc( PrgFl );
+X    while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '#')
+X    {
+X        /* Process the special characters '#' and '\n'.     */
+X        if (ch == '\n')
+X            LnNo++;
+X        else if (ch == '#')
+X        {
+X            while (fgetc( PrgFl ) != '\n')
+X                ;
+X            LnNo++;
+X        }
+X
+X        /* Get the next character.  */
+X        ch = fgetc( PrgFl );
+X    }
+X
+X    /* Get strings, etc.    */
+X    if (ch == '"')
+X    {
+X        auto    char    *bf;
+X
+X        /* Get contents of string.  */
+X        bf = sym->str;
+X        while ((ch = fgetc( PrgFl )) != '"' && ch != EOF)
+X            *bf++ = ch;
+X        *bf = '\0';
+X
+X        /* Return string token. */
+X        return( T_DBL_QUOTE );
+X    }
+X    else if (ch >= '0' && ch <= '9')
+X    {
+X        /* Get the number.  */
+X        sym->no = 0;
+X        do
+X        {
+X            sym->no = sym->no * 10 + (ch - '0');
+X        }  while ((ch = fgetc( PrgFl )) >= '0' && ch <= '9');
+X
+X        /* Return the unused character. */
+X        ungetc(ch, PrgFl);
+X        return( T_INT_NO );
+X    }
+X    else if (ch == EOF)
+X        return( EOF );
+X
+X    /* Call the trie search routine to return the next token, EOF
+X    *   or NOT_FND.  If not found, print an error and quit.
+X    */
+X    if ((tkn = TrieSrch(T0, ch, word)) == T_NOT_FND || tkn == 0)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Error - cannot identify string '%s' ",
+X                 __FILE__,
+X                __LINE__,
+X                word);
+X        fprintf(ErrFile,
+X                "in line %d\n",
+X                LnNo + 1);
+X        exit( 1 );
+X    }
+X
+X    /* Return the token found.  */
+X    return( tkn );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   OpenCfg() --- Open the ASCII text file that contains the
+X|               configuration data.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    OpenCfg(char    *FileNm)
+X{
+X    extern  FILE    *ErrFile;
+X
+X    /* Open the program script file.    */
+X    if ((PrgFl = fopen(FileNm, TXT_READ)) == NULL)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Error - %s\n",
+X                __FILE__,
+X                __LINE__,
+X                sys_errlist[errno]);
+X        fprintf(ErrFile,
+X                "\tFile Name: '%s'\n",
+X                FileNm);
+X        exit( 1 );
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   CloseCfg() --- Close the ASCII text file that contains the
+X|               configuration data.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    CloseCfg(void)
+X{
+X    fclose( PrgFl );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ParseErr() --- Report a parse error.
+X|
+X| Inputs    :   ErrStr  - The error string.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    ParseErr(char   *ErrStr)
+X{
+X    extern  FILE    *ErrFile;
+X
+X    fprintf(ErrFile,
+X            "%s %d : Error - %s\n",
+X            __FILE__,
+X            __LINE__,
+X            ErrStr);
+X    fprintf(ErrFile,
+X            "\tLine %d, word '%s'\n",
+X            LnNo + 1,
+X            word);
+X     exit( 1 );
+X}
+END_OF_FILE
+  if test 16470 -ne `wc -c <'lex.c'`; then
+    echo shar: \"'lex.c'\" unpacked with wrong size!
+  fi
+  # end of 'lex.c'
+fi
+if test -f 'segment.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'segment.h'\"
+else
+  echo shar: Extracting \"'segment.h'\" \(469 characters\)
+  sed "s/^X//" >'segment.h' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Segmemt header file.
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#if ! defined(SEGMENT_HEADER_FILE)
+X#define     SEGMENT_HEADER_FILE
+X
+X/*  Function prototypes.    */
+Xextern
+Xvoid    Single(char     *FileNm);
+Xextern
+Xvoid    Multiple(char       *FileNm);
+Xextern
+Xvoid    UUDecode(char   *FlName);
+X
+X#endif
+END_OF_FILE
+  if test 469 -ne `wc -c <'segment.h'`; then
+    echo shar: \"'segment.h'\" unpacked with wrong size!
+  fi
+  # end of 'segment.h'
+fi
+if test -f 'unpost.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unpost.doc'\"
+else
+  echo shar: Extracting \"'unpost.doc'\" \(40962 characters\)
+  sed "s/^X//" >'unpost.doc' <<'END_OF_FILE'
+XUNPOST
+X
+XName:
+X
+X    unpost - Extract binary files from multi-segment uuencoded USENET
+X             postings or Email.
+X
+XSynopsis:
+X
+X    unpost [-b[-]] [-c <configuration file>] [-d[-]] [-e <error file>]
+X           [-f[-]] [-h|-s|-u] [-i <incompletes file>] [-t <text file>]
+X           <source file>
+X
+X    Where everything but the source file is optional.
+X
+XDescription:
+X
+X    UNPOST is a tool designed primarily to extract binaries from USENET
+X    binaries postings such as those made to alt.binaries.pictures.misc
+X    and comp.binaries.ibm.pc.  As well as extracting binaries from USENET
+X    postings, UNPOST can extract binaries from multi-segment uuencoded
+X    mailings as well, however, to simplify this documentation only
+X    USENET article postings will be discussed.  The principles are the
+X    same for multi-segment mailings.
+X
+X    To avoid confusion, this documentation will refer to a single letter
+X    OR article as a 'segment'.  For clarification on what a segment means
+X    to UNPOST, see Theory of Operations.
+X
+XFeatures:
+X
+X1)  PORTABILITY!  UNPOST has been compiled and sucessfully run on
+X    MS-DOS, OS/2, Windows, Unix workstations, MacIntoshes, Amiga's
+X    and VAX/VMS systems.
+X
+X    The code is written to be pure ANSI C, within reasonable limits.
+X    (some ANSI C capabilities are not used where they would be
+X    appropriate due to lagging compliance in most compilers.  Hey,
+X    Unix types!  MS-DOS (Borland C++ 3.1) is a MUCH better compiler
+X    than anything I've seen on a Unix workstation!  And their debugger
+X    is the best I've used, as well).  Unfortunately, there are still
+X    a lot of Unix boxes that have only a K&R compiler, so it may
+X    not port well to those.  I personally check to make sure that it
+X    will compile and run on an MS-DOS box running MS-DOS 5 and Windows
+X    3.1, using the Borland 3.1 C++ compiler, as well as a Sun (running
+X    SunOs 4.1.1 sun4c) using the gcc compiler (version 2.1).  I know
+X    for a fact that the Sun cc compiler will NOT compile UNPOST
+X    succesfully.
+X
+X    K&R compatibility is being considered, but it is a low priority
+X    feature.
+X
+X2)  CONFIGURABILITY!  UNPOST comes with a default set of rules for
+X    detecting and parsing a VERY wide range of possible Subject:
+X    line formats, but no configuration can be correct for every
+X    situation.
+X
+X    With that in mind, UNPOST can be configured by the user by creating
+X    a text file that contains the regular expressions, etc. that
+X    UNPOST uses to recognize, parse, etc.  WARNING!  UNPOST depends
+X    almost ENTIRELY on the contents of it's configuration file for
+X    correct operation.
+X
+X    Regular expressions are complex, and writing one that works the
+X    way you expect it to takes care and, most importantly,
+X    experimentation.
+X
+X    To this end, the standard UNPOST installation creates both the
+X    UNPOST executable and a regular expression test program called
+X    RETEST.  RETEST is like grep, feed it a regular expression and
+X    a file, and RETEST will tell you what it matched and the sub
+X    strings that it extracted.
+X
+X3)  INTELLIGENCE!  UNPOST uses every trick in the book to try to
+X    guess what the poster/sender REALLY meant.
+X
+X    Also, UNPOST is not limited to finding all of it's information
+X    on a single line, or even in the header of a posting/letter.
+X
+X    UNPOST has succesfully extracted binaries from postings that had,
+X    as a subject line,
+X
+X    Subject: aaaa
+X
+X    because UNPOST recognized the signature placed into the body of
+X    the article by a uuencode/split program.
+X
+X4)  FLEXIBILITY!  UNPOST has switches that allow it to be configured
+X    to do different things for different tastes.  For instance, UNPOST
+X    will intelligently sort out articles into four different classes:
+X
+X    1)  Articles that are part of a complete and correct binary in
+X        the input file.  These are sorted, concatenated, uudecoded
+X        and written out to a file name that is the same as that
+X        on the uuencode begin line.
+X
+X        Depending on the setting of the file name switch, the file
+X        name of the binary may be modified.  See below.
+X
+X    2)  Articles that are pure text (no uuencoded data in them).
+X
+X        If the -t switch and a file name are specified, these
+X        articles will be written out to the file for reading.
+X
+X        Obviously, these articles should NEVER be encountered in
+X        a binaries news group, but not a single day has ever gone
+X        by that I did not see non-binary postings to binary news
+X        groups.
+X
+X    3)  Articles that are part of incomplete postings (four parts,
+X        but only three have shown up so far), or that comprise
+X        a complete binary, but one that had an error in uudecoding,
+X        interpretation, etc.
+X
+X        If the -i flag and a file name are specified, these articles
+X        will be written out to the file.  If the -b switch is
+X        on, incompletes will be written to separate files.  If
+X        both are on, those incompletes that can be guessed at
+X        as having a file name will be written to a separate file,
+X        all else will be written to the file named by the -i
+X        switch.
+X
+X        In my experience, two types of articles end up in an
+X        incompletes file, those that have missing parts, and
+X        those that have been misinterpreted by UNPOST as belonging
+X        to a different binary than they really do.
+X
+X    4)  Articles that are pure text that describe a posting
+X        (these are usually found only in the pictures groups).
+X
+X        If the -d flag is set, and the binary to which they
+X        belong is correct and complete, this article, as well as
+X        the header and body up to the uuencode begin line of the
+X        first article, will be written to a file that has the same
+X        base name as the binary, but with the extension .inf.
+X
+X    UNPOST automatically mungles binary file names to be MS-DOS
+X    compatible (the lowest common denominator).  This is switch
+X    controllable, and can be turned on or off (depending on the
+X    default setting selected by the person who compiled UNPOST).
+X
+X    UNPOST also has two lesser modes, sorted mode and uudecode mode.
+X
+X    In sorted mode, UNPOST assumes that the articles still have
+X    headers, and that there may be un-uuencoded lines in the middle
+X    of a uuencoded file that have to be filtered out, but it assumes
+X    that all parts are present, and that they are in order.  Header
+X    information, however, is ignored.
+X
+X    If you use the incompletes file capability of UNPOST, you will
+X    notice that it writes out the segments that it did interpret
+X    correctly in sorted order.
+X
+X    In uudecode mode, UNPOST acts like a simple uudecoder.  UUencoded
+X    files must be complete, with a begin and end line, and no
+X    un-uuencoded lines can appear between the begin and end lines.
+X
+X    However, uudecode mode is the ONLY mode where UNPOST will accept
+X    a short line (one that was space terminated, but had the spaces
+X    chopped off) as a legal uuencoded line and properly decode it.
+X
+X5)  INFORMATIVE!  UNPOST is a very talkative program.  It detects
+X    and reports many kinds of problems, tells you what it thinks
+X    is going on, and tells you what it is doing.  All this information
+X    is written to standard error, or if the -e switch and a file
+X    name are specified, written to that file.
+X
+XTheory of Operations:
+X
+X    UNPOST assumes that the source file that is given to it will have the
+X    following format:
+X
+X    SEGMENT begin line
+X    ...
+X    HEADER ID line
+X    ...
+X    BODY ID line
+X    ...
+X    UUENCODED line
+X
+X    Where the lines are:
+X
+X        SEGMENT begin line - Is the line that identifies the begining of a
+X                             segment.
+X        HEADER ID line     - One or more lines that contain segment number,
+X                             total number of segments or the ID string in
+X                             the article or mail header.
+X        BODY ID line       - One or more lines that contain segment number,
+X                             total number of segments or the ID string in
+X                             the article or mail message body.
+X        UUENCODED line     - Is the first uuencoded line in the file.
+X                             UUencoded lines include the begin and end lines.
+X        ...                - Indicates zero or more lines that can contain
+X                             any information so long as they CANNOT be
+X                             misidentified as SEGMENT begin, ID or UUENCODED
+X                             lines.
+X
+X    Notice that the ID information can be spread across multiple lines.  A
+X    segment is assumed to end at the begining of the next segment, or at
+X    the end of the source file.  An UNPOST source file contains one or more
+X    segments.
+X
+X    UNPOST has three different modes, interpretation mode, concatenation
+X    mode and UU decoder mode.  In all three modes, UNPOST can accept one
+X    or more input files.
+X
+X    In the first mode, interpretation mode, UNPOST looks at segment header
+X    and body lines before the first UU encoded line, and attempts to extract
+X    three pieces of information from them: segment number, total number
+X    of segments that the binary was split into, and an ID string that is
+X    common to all segments.  If UNPOST finds something that it considers
+X    to be an ID string, and a uuencoded line in the segment, but it does
+X    not find a segment number and number of segments, UNPOST assumes that
+X    the segment is a single segment binary posting (part 1 of 1).
+X
+X    To aid in finding out what happened, in interpretation mode UNPOST
+X    will write a list of all the different ID strings and their respective
+X    segment lists to standard error or the file specified as the error
+X    file (see Standards section for details of what an ID string is).
+X    Any errors or warnings detected during processing will also be
+X    written to standard error or error file.
+X
+X    In interpretation mode three other files can optionally be created.
+X    All three of these files will contain segments copied out of the source
+X    file, and none of these files will be created unless they are turned
+X    on and named by a command line switch.
+X
+X    The first optional file that UNPOST can create for the user in
+X    interpretation mode is the text file (-t switch).  This file will have
+X    copied to it all segments from the source file that do not contain
+X    uuencoded data.
+X
+X    Segments that are part 0/# type segments that do not contain uuencoded
+X    data will NOT be copied to the text file.  They are considered to be
+X    description segments, and they will be copied to the description file
+X    only if the -d switch is turned on.  Also, all binary postings that
+X    have all of their segments present will have the segment header
+X    and body of segment #1 (up to and including the uuencode begin line)
+X    copied into the description file.
+X
+X    The third optional file that can be created in interpretation mode is
+X    the incomplete or unused uuencode data segments file.  This file
+X    contains all segments that have uuencoded data, that were not used in
+X    a succesful uudecoding.  This file will only be created if the -i
+X    switch is present.
+X
+X    The incompletes file allows the user to hand decode those binarys which
+X    could not be interpreted or decoded by UNPOST.  Often times, a binary
+X    will have all of it's parts, but UNPOST will not be able to put them
+X    together because of differences in the ID string between segments, or
+X    problems with the part numbering information.  The simplest way to
+X    solve these problems is to collect the incompletes, edit the ID
+X    lines to correct the problem, and rerun UNPOST on the incompletes
+X    file.
+X
+X    In the second mode, catentation mode, UNPOST assumes that all of the
+X    segments in the source file between a uuencode begin and a uuencode
+X    end line are part of one binary posting and that the segments are in
+X    order.  UNPOST scans from the begining of the file until it finds a
+X    uuencode begin line, and decodes from there (skipping over non-
+X    uuencoded lines such as segment header lines and signatures) until
+X    it finds a uuencode end line.
+X
+X    In the last mode, UU decoder mode, UNPOST assumes that the source
+X    file contains one or more UU encoded files.  Only UU encoded lines
+X    are allowed between the uuencode begin line and the uuencode end line
+X    of any single uuencoded file.
+X
+X    Example header:
+X
+X    (1) Article 2096 of alt.binaries.pictures.misc:
+X        Newsgroups: alt.binaries.pictures.misc
+X        Path: csn!csn!convex!cs.utexas.edu!
+X        From: a43xz@brain.ac.da (Joe User)
+X    (2) Subject: ship.gif (1/3)
+X        Organization: Somewhere Near The Sea.
+X        Date: Fri, 19 Feb 1993 06:43:48 GMT
+X        Message-ID: <21128@brain.ac.da>
+X        Sender: news@dep.rnsft.ac.da (Usenet)
+X        Lines: 761
+X
+X
+X        Picture of a ship in a bottle, full rigged.  How did it get there?
+X
+X    (3) section 1 of uuencode 5.20 of file ship.gif    by R.E.M.
+X
+X    (4) begin 644 ship.gif
+X        M1TE&.#=A@`+@`9<```0$!`0$!",G,"LG)RLG,"LG.30G,#TG)RLP,"LP.3TG
+X
+X    In the above example, line (1) is the SEGMENT begin line, line (2) is
+X    a HEADER ID line, line (3) is a BODY ID line and line (4) is the first
+X    UUENCODED line in the body.
+X
+XOptions:
+X
+X    -b[-]       Set this flag to make UNPOST write the incomplete
+X                uuencoded segments to separate files.  This defaults
+X                to off.
+X
+X    -c  <file>  To read and use a different configuration than the
+X                default configuration.  The default configuration is
+X                stored in a file called def.cfg.
+X
+X    -d[-]       Turns on description capturing and writes descriptions
+X                to a file that has the same name as the output but with
+X                a .inf extension.  This defaults to on.
+X
+X    -e  <file>  Redirects error and information output from standard
+X                error to <file>.
+X
+X    -f[-]       Modify file names to be MS-DOS/USENET compatible.  Use
+X                of -f turns file name modification on if the default is off,
+X                and -f- turns file name modification off if the default
+X                is on.  File name modification is currently the default.
+X
+X    -h          Turns on full interpretation mode.  This is the default.
+X
+X    -i  <file>  Turns on incomplete binaries capturing and writes the
+X                segments to file <file>.
+X
+X    -s          Switch to ordered segment mode.  This mode ignores segment
+X                headers, and assumes that the segments are in order.
+X
+X    -t  <file>  Turns on text only segment capturing and writes the segments
+X                to <file>.
+X
+X    -u          Switch to uudecoder mode.  Assume only uuencoded data
+X                between begin and end lines.  Multiple uuencoded files
+X                are allowed.
+X
+X    -v          Show version number and quit.
+X
+X    -?          Show a summary of the command line switches.
+X
+X    It is important to realize that UNPOST parses the command line in
+X    parallel with operations, so the order of the switches on the
+X    command line is VERY important.  For example:
+X
+X    unpost -d -e errors -i abpm.inc abpm.uue -c cbip.cfg -d- cbip.uue
+X
+X    This will use the default configuration to process the file abpm.uue,
+X    writing out description files, writing errors to the file errors,
+X    and writing incompletes to the file abpm.inc.  After UNPOST finishes
+X    processing abpm.uue, it will read in the cbip.cfg configuration,
+X    turn off writing description files and process cbip.uue.
+X
+X    Note that the errors will continue to be written to the file errors,
+X    and that the incomplete binaries will continue to be written to the
+X    file abpm.inc.  Since we are switching configurations, this is
+X    probably not a good idea.
+X
+XStandards:
+X
+X    In all modes, UNPOST recognizes and decodes only uuencoded data.
+X
+X    In interpretation mode UNPOST requires that:
+X
+X        1)  The uuencoded lines be true uuencoded lines.  This means
+X            that if trailing spaces are truncated by a mailer, editor
+X            or news node, UNPOST will not consider those lines to
+X            be uuencoded lines.  Also, the uuencode character set
+X            recognized by UNPOST is ' ' - '`', with no other characters
+X            being legal.
+X
+X        2)  That all segments of the same binary file posting have
+X            the same, recognizable ID string.
+X
+X        3)  Segments have a recognizable SEGMENT begin line as the
+X            first line in the segment (denoting the begining of a
+X            segment).
+X
+X        4)  That all ID lines follow the SEGMENT begin line in the
+X            segment.
+X
+X        5)  That the first UUencoded line of the segment follows the
+X            last ID line.
+X
+X        6)  That the first uuencode line in the first segment be a
+X            begin line.
+X
+X        7)  That the last segment contain a uuencode end line.
+X
+X    In sorted segment mode, UNPOST requires that:
+X
+X        1)  The uuencoded lines be true uuencoded lines.  This means
+X            that if trailing spaces are truncated by a mailer, editor
+X            or news node, UNPOST will not consider those lines to
+X            be uuencoded lines.  Also, the uuencode character set
+X            recognized by UNPOST is ' ' - '`', with no other characters
+X            being legal.
+X
+X        2)  That the segments be stored in the file in order.
+X
+X        3)  That the first uuencode line in the first segment be a
+X            begin line.
+X
+X        4)  That the last segment contain a uuencode end line.
+X
+X    In uudecoder mode, UNPOST requires that:
+X
+X        1)  There be only uuencoded lines between a uuencode begin and
+X            a uuencode end line.  In this mode, UNPOST will recognize
+X            and attempt to repair lines that had trailing spaces
+X            truncated.
+X
+XExamples:
+X
+X    To extract a single binary that had all of it's segments saved in order
+X    to a single file:
+X
+X    unpost -s binary.uue
+X
+X    To extract all binaries that have had all of their segments saved
+X    to a single file:
+X
+X    unpost multiple.uue 2> errors
+X        Or
+X    unpost -e errors multiple.uue
+X
+X    The file errors will contain a list of all the ID strings that UNPOST
+X    found and thought could have been binary files, and any errors
+X    that occurred during processing.
+X
+X    To capture the incomplete or unused segments that have uuencoded
+X    data in them:
+X
+X    unpost -e errors -i multiple.inc multiple.uue
+X
+X    To capture descriptions and text only segments as well:
+X
+X    unpost -d -e errors -t text -i multiple.inc multiple.uue
+X
+X    To process two different files, one in uuencode mode, one in interpretation
+X    mode:
+X
+X    unpost -e errors -u uuencode.uue -h multiple.uue
+X
+X    To process a file that requires a different configuration:
+X
+X    unpost -c -e errors multiple.uue
+X
+XOutput:
+X
+X    UNPOST will write diagnostic and informative messages to either
+X    standard error or the error file.  The error file has three
+X    parts, interpretation errors (duplicate segments, missing
+X    uuencode begin lines, missing ID string, segment number or
+X    number of segments, etc.), a dump of the binaries found, the
+X    number of segments in each binary and the segment number and
+X    offset of each segment in the source file.  The last part
+X    is a mixture of information (the name of the binary that UNPOST
+X    is attempting to decode) and any errors encountered during
+X    decoding.
+X
+X    In the example below, UNPOST found one segment that had uuencoded
+X    data, the Subject: line had barber.gif as the ID string, the
+X    binary has one segment, and in the list of segments below,
+X    we see that segment number 1 starts at offset 583 in the source file.
+X
+X    If there is a missing segment, it's segment number will be zero,
+X    and it's file offset will be zero.
+X
+X    There were no interpretation errors, and there were no decoding
+X    errors.
+X
+X    File ID                         Segments
+X    ----------------------------------------
+X    barber.gif                      1
+X        1  583
+X
+X    Decoding Binary ID: 'barber.gif'
+X
+XNotes:
+X
+X    To use this program to collect all of the binaries posted to, say,
+X    the alt.binaries.misc group on a daily basis, start up rn, go to
+X    the alt.binaries.misc newsgroup, and save all of the unread segments
+X    by using this command:
+X
+X    .-$smisc.uue:j
+X
+X    This will save all segments from the current number to the last to
+X    the file misc.uue, then junk them.  After exiting rn, run UNPOST
+X    on the file misc.uue in interpretation mode (default mode):
+X
+X    unpost -e errors -i misc.1 misc.uue
+X
+X    Make sure to check the errors and/or misc.1 file for segments
+X    that UNPOST couldn't extract.
+X
+XDiagnostics:
+X
+X    Error - file 'filename' already exists.
+X
+X        UNPOST will not overwrite an existing file.  Delete the file or
+X        rename it and try again.
+X
+X    Error - missing begin line.
+X
+X        UNPOST expected to find a uuencode begin line in this segment,
+X        but did not.
+X
+X    Error - missing file name.
+X
+X        The binary that UNPOST was attempting to decode does not
+X        seem to have a uuencode begin line in the first segment,
+X        so UNPOST has no idea what the file name is.
+X
+X    Error - Could not open description file 'filename' for writing.
+X
+X        UNPOST could not open a file of that name for some reason.
+X        Possibly a permission problem, or the file exists and is not
+X        writeable.
+X
+X    Error - Bad write to binary file.
+X
+X        A file write failed for some unknown reason.  Possibly a full
+X        disk?
+X
+X    Error - missing segment #
+X        Binary ID: 'binaryID'
+X
+X        In attempting to decode a file whose ID string is binaryID,
+X        one or more segments are missing.
+X
+X    Error - Missing UU end line.
+X
+X        As this is the last segment, it ought to have a uuencode end
+X        line in it, but UNPOST did not find one.
+X
+X    Warning - Early uuencode end line.
+X
+X        UNPOST found a uuencode end line, but this was not the last
+X        segment, so we found it early.  Did the poster screw up and
+X        misnumber his segments?
+X
+X    Error - Unexpected UU begin line.
+X
+X        We found an unexpected (read: this is not the first line of the
+X        first segment, so what is this doing here?) UU begin line.
+X
+X    Error - cannot identify string '' in line #
+X
+X        In reading in a configuration file, the configuration file
+X        lexical analyzer could not recognize this string.
+X
+X
+X    Error - Out of memory.
+X
+X            Yup.  Out of memory.  Split the source file into smaller
+X            pieces and try again.
+X
+X    Error - Could not modify file name to be MS-DOS conformant.
+X
+X        File name mungling is turned on, and the name of one of the
+X        files cannot be made conformant (probably due to having to
+X        many numbers in it).
+X
+X    Warning - Unexpected end of file in segment:
+X        Segment: 'segment line'
+X
+X         File name mungling is turned on, and UNPOST is attempting to
+X        identify the file type (so it can use the proper extension
+X        when modifying the file name) but the UU begin line was the
+X        last line in the file.
+X
+X    Warning - No UU line after begin.
+X        Segment: 'segment line'
+X
+X        File name mungling is turned on, and UNPOST is attempting to
+X        identify the file type (so it can use the proper extension
+X        when modifying the file name) but the UU begin line was not
+X        followed by a line of UU encoded binary data.
+X
+X    Error - Got number of segments but not segment number.
+X    Error - Got segment number but not number of segments.
+X
+X        UNPOST must have all three pieces of relevant data, but if
+X        UNPOST has at least an ID string, UNPOST will attempt to
+X        assume a one part binary.
+X
+X    Error - Could not get ID string.
+X
+X        Fatal error, with no ID string, there is no way to collect
+X        the pieces together.
+X
+X    Error - No begin line in first segment:
+X        Segment: 'segment line'
+X
+X        UNPOST did not find a UU begin line in the first segment.
+X
+X    Error - missing '}' in regular expression.
+X
+X        In a regular expression of the type abc{1, 2}, the closing curly
+X        brace is missing.
+X
+X    Error - To many sub-expressions.
+X
+X        UNPOST has a limit on the number of sub-expressions it
+X        allows.  This is a compile time option that can be changed
+X        by modifying the value of MAX_SUB_EXPRS in regexp.h.
+X
+X    Error - missing ')' in regular expression.
+X
+X        Mismatched parentheses.
+X
+X    Error - badly formed regular expression.
+X        Unexpected character 'c'
+X
+X        I give up!  What is this character doing at this point in
+X        a regular expression?
+X
+X    Error, can not enumerate a sub expression.
+X
+X        Regular expressions of the type: (...)* are not allowed.
+X
+X    Error - illegal regular expression node type.
+X
+X        Whoops, we have an internal programmers error here.  Let
+X        me know if you see this.
+X
+X    Error - Sub expression # extraction failed.
+X
+X        Another internal error that needs to be brought to my attention.
+X
+X    Error - could not open file 'filename' for reading.
+X
+X         UNPOST could not open file 'filename' for processing.  Did you
+X        spellit right?
+X
+X    Error - Unexpected end of file.
+X
+X    Error - Unexpected UU begin line.
+X
+X    Error - Segment number # greater than number of segments in:
+X        Segment: 'segment line'
+X
+X        Either UNPOST got screwed up somehow or the poster posted
+X        something like (Part 10/9).
+X
+X    Warning - duplicate segment # in:
+X        Binary ID: 'binaryID'
+X
+X        UNPOST found two segments with the same binary ID and the
+X        same segment number.
+X
+X    Error - reading source file.
+X
+X        Could not read a line from the source file.
+X
+X    Error - Could not open file 'filename' for output.
+X
+X        Could not open one of the text, incomplete or error files
+X        for writing.
+X
+XRegular Expressions:
+X
+X    Operands
+X    --------
+X
+X    UNPOST regular expressions have three types of operands, character
+X    strings (one or more characters), character sets and match any
+X    single character.  A character string is any series of adjacent
+X    characters that are not not meta-characters (special characters).
+X    A data set is a string of characters enclosed in square braces with
+X    an optional caret (^) as the first character following the open
+X    square brace.  The match any character operand matches any single
+X    character except the end of line character.
+X
+X    A character string in a regular expression matches the exact string
+X    in the source, including case.
+X
+X    Example of character strings:
+X
+X    AirPlane    - Matches the string 'AirPlane', but not the strings
+X                  'airPlane' or 'Airplane'.
+X
+X    A character set will match any single character in the source if
+X    that character is a member of the set.  If the first character
+X    of the set is the caret, the character set will match any
+X    character that is NOT a member of the set (including control
+X    characters!) except for NUL and LF.
+X
+X    A character set can be described using ranges.
+X
+X    Examples of character sets:
+X
+X    [abcd]      - Matches either a, b, c or d.
+X
+X    [0-9]       - Matches any decimal character.
+X
+X    [^a-z]      - Matches any character that is NOT a lower
+X                  case alphabetic.
+X
+X    The match any character operand does just that, it matches any
+X    character.  But it does not match the case of no character, NUL
+X    or LF.
+X
+X    Example of match any character:
+X
+X    .       - Matches any character.
+X
+X    Operators
+X    ---------
+X
+X    UNPOST regular expressions also contain operators.  The operators that
+X    upost recognizes are the alternation operator, the span operators, the
+X    concatenation operator and the enumeration operators.
+X
+X    The alternation operator has the lowest precedence of all the operators
+X    and its action is to attempt to match one of two alternatives.
+X
+X    Example of alternation:
+X
+X    Airplane|drigible   - Matches either the string Airplane or the string
+X                          drigible.
+X
+X    The next higher precedence operator is the catenation operator.  The
+X    catenation operator specifies that both the left and right hand
+X    regular expressions must match.  The catenation operator does not
+X    have a special character, it is assumed to exist between two
+X    different operands that have no other operator between them.
+X
+X    Example of catenation:
+X
+X    [Aa]irplane - Matches either a 'A' or an 'a' followed by the string
+X                  irplane.  This is a catenation of the two regular
+X                  expressions [Aa] and irplane.
+X
+X    The next higher precedence operator is the enumeration operator.
+X    The enumeration operator specifies how many instances of a regular
+X    expression must be matched.
+X
+X    Examples of Enumeration:
+X
+X    abc*    - Matches zero or more occurences of the string abc.
+X    [A-Z]+  - Matches one or more occurences of an upper case
+X              alphabetic character.
+X    [ ]?    - Matches zero or one occurences of the space character.
+X    very{1} - Matches one or more occurences of the string very.
+X    b{1,3}  - Matches a minimum of one to a maximum of three occurences
+X              of the string b.
+X
+X    An enumeration operator attempts to match the largest source sub-
+X    string possible, except in the case of the . (match any character)
+X    followed by an enumeration operator.  In this case, the smallest
+X    possible sub-string is matched.
+X
+X    The precedence of the operators can be modified with the use of
+X    parentheses.  Parentheses have another meaning as well, described
+X    below.
+X
+X    Example of parenthesis use:
+X
+X    Death( defying|wish)    - Will match either the string 'Death defying'
+X                              or the string 'Deathwish'.  Without the
+X                              parentheses, the regular expression would
+X                              match either the string 'Death defying'
+X                              or the string 'wish'.
+X    Sub Expressions
+X    ---------------
+X
+X    UNPOST regular expressions are used primarily for identifying a
+X    particular line and extracting substrings from that line.  To
+X    this end, UNPOST regular expressions support sub-expression
+X    marking.  Subexpressions are marked by parentheses.
+X
+X    To determine the sub-expression number of a sub-expression, scan
+X    the regular expression from left to right, counting the number
+X    of left parentheses.  Start with one, and whatever the count for
+X    that sub-expression, is it's subexpression number.
+X
+X    Example:
+X
+X    .*((abcd)((0-9)+/(0-9)+))
+X
+X    Sub-expression ((abcd)((0-9)+/(0-9)+)) is sub-expression #1.
+X    Sub-expression (abcd) is #2.  Sub-expression ((0-9)+/(0-9)+) is #3.
+X    Sub-expression (0-9)+ is #4.  Sub-expression (0-9)+ is #5.
+X
+X    Anchoring
+X    ---------
+X
+X    Normally, a regular expression will match a sub-string any where in
+X    the source string.  If you want to specify that the matching sub-string
+X    must start at the begining of the source string, you may use a caret
+X    character as the first character of the regular expression.  This
+X    anchors the regular expression match to the start of the line.
+X
+X    To anchor a regular expression to the end of a line, use the dollar
+X    sign character.  This effectively matches the end of line or end
+X    of string character.
+X
+X    Anchor operators have a higher precedence than alternation, but lower
+X    than catenation.
+X
+XConfiguration:
+X
+X    Ok, here's how to configure UNPOST to work for you.  UNPOST relies
+X    heavily on regular expressions.  These regular expressions may
+X    not be correct for your news reader, or system.
+X
+X    There are five classes of regular expressions:
+X
+X    1)  The SEGMENT begin line regular expression.
+X
+X    2)  The ID line prefix regular expression.
+X
+X    3)  The ID line with part description regular expression list.
+X
+X    4)  The begin line regular expression.
+X
+X    5)  The end line regular expression.
+X
+X    Of these five, I don't expect you to have to modify the regular
+X    expressions for handling begin and end lines, because they should
+X    be correct for all uuencoders that follow the standard format.
+X
+X    Be aware that UNPOST has a hierarchy of regular expressions.
+X    Each SEGMENT begin line regular expression has underneath it two
+X    lists of regular expressions that recognize ID line prefixes,
+X    and each element in the list of ID line prefix regular expressions
+X    has a list under it that attempts to parse the ID line.
+X
+X    The two lists immediately under the SEGMENT begin line regular
+X    expression are for 1) the header and 2) the body.
+X
+X    The ID line prefix regular expression exists for the sake of
+X    efficiency.  It is used to find an ID line before we attempt
+X    to parse it.  Modify or add one of these if you wish to change
+X    whether or not a line is recognized by UNPOST as being an ID line.
+X    If you modify this, you must modify the list of segment description
+X    regular expressions to match.
+X
+X    The SEGMENT begin line regular expressions are used to find the begining
+X    of a SEGMENT, or the end of a previous segment.  Modify these to change
+X    the line or lines that UNPOST recognizes as the begining of a segment.
+X
+X    If you get an error message that indicates that the Subject line
+X    has no identifiable part description, and you see that some bright
+X    boy/girl has come up with a brand new part description format, then
+X    you have two choices, modify the source and hope they don't post
+X    again, or add a new ID line regular expression to the list of
+X    ID line regular expressions in the segment.c source file.
+X
+X    Be aware that the lists of regular expressions are searched in order
+X    from top to bottom to find a match.  This means that less specific
+X    regular expressions should be placed later in the list.  For example:
+X    the regular expression '\((0-9)+/(0-9)+\)' should come before the
+X    regular expression '(0-9)+ (0-9)+' in the part syntax parsing regular
+X    expression list.  This reduces the number of misparses that occur.
+X
+X    Remember that C uses the backslash (\) as an escape character in
+X    strings, so to put a backslash into a regular expression you
+X    need to put two into the C source string.
+X
+X    All regular expressions can be found at the top of the parse.c source
+X    file.  Before you modify the actual source code and recompile, I
+X    strongly suggest that you test your new regular expression using the
+X    regular expression test harness (retest) that was compiled by the
+X    makefile when you compiled UNPOST.  Then, when you are sure that
+X    it is correct, copy the def.cfg file to a new name, make your changes
+X    there and use that configuration file for a while.  If after all this,
+X    you are sure that it works, go in and change the source code in
+X    parse.c.
+X
+X    Before you add or modify a regular expression, you have to know the
+X    syntax of the regular expressions used in this program.  The syntax
+X    is very similiar to that used by UN*X style regular expressions,
+X    but is not exactly the same.  See the section titled Regular
+X    Expressions before attempting to configure UNPOST.
+X
+XConfiguration Files:
+X
+X    If you don't want to make permanent changes to UNPOST's configuration,
+X    you can make a configuration file.  Configuration files are parsed by
+X    UNPOST, the regular expressions compiled, and these regular expressions
+X    control the operation of UNPOST completely.
+X
+X    A configuration file must have the following syntax:
+X
+X    segment "..."
+X    {
+X        header
+X        {
+X            "...."
+X            {
+X                "..."
+X                {
+X                    id #
+X                    segment number #
+X                    segments #
+X                    alternate id #
+X                    case ignore|sensitive
+X                }
+X            }
+X        }
+X        body
+X        {
+X            "...."
+X            {
+X                "..."
+X                {
+X                    id #
+X                    segment number #
+X                    segments #
+X                    alternate id #
+X                    case ignore|sensitive
+X                }
+X            }
+X        }
+X    }
+X
+X    Where "..." is a regular expression string, # is a sub expression
+X    number (See the section on regular expressions), and case is
+X    either ignored in regular expression string matching, or string
+X    matching is case sensitive.
+X
+X    The outer most construct, starting with the segment "..." line
+X    is used to describe how to recognize the begining of a segment.
+X
+X    The two constructs at the first level within the segment construct
+X    are used to identify lines that are expected to contain part # of
+X    # of parts information in the header, or the body of an article.
+X
+X    Within each header or body group are regular expressions that
+X    are used to parse out the part # of # of parts information from
+X    an identified information line.
+X
+X    A very simple example (taken directly out of the MUFUD
+X    documentation):
+X
+X    segment "^Article[:]?"
+X    {
+X        header
+X        {
+X            "^Subject:"
+X            {
+X                "^Subject:(.*)part[ ]+([0-9]+)[ ]*(of|/)[ ]*([0-9]+)(.*)"
+X                {
+X                    id 1
+X                    segment number 2
+X                    segments 4
+X                    alternate id 5
+X                    case ignore
+X                }
+X                "^Subject:(.*)([0-9]+)[ ]*(of|/)[ ]*([0-9]+)(.*)"
+X                {
+X                    id 1
+X                    segment number 2
+X                    segments 4
+X                    alternate id 5
+X                    case ignore
+X                }
+X            }
+X        }
+X        body
+X        {
+X        }
+X    }
+X
+X    Where:
+X
+X    id 1                Specifies the sub expression number of the
+X                        sub expression that is used to extract the
+X                        binary ID string.
+X
+X    segment number 2    Specifies the sub expression number of the
+X                        sub expression that is used to extract the
+X                        segment number.
+X
+X    segments 3          Specifies the sub expression number of the
+X                        sub expression that is used to extract the
+X                        number of segments that this binary was split
+X                        into.
+X
+X    alternate id 4      Specifies the alternate sub expression
+X                        number.  If the first ID sub expression extracts
+X                        only an empty string (or one with all white
+X                        space), the string extracted by this sub expression
+X                        is used to generate the binary ID string.
+X
+X    case ignore         Specifies that the case of alphabetical
+X                        characters is to be ignored in regular
+X                        expression string matching.
+X
+X    See the def.cfg file for another (more complete) example.
+X
+XDefault Binary Switch Settings:
+X
+X    To modify the default values of the binary switches, edit the
+X    file compiler.h, and change the value of the defines.  There
+X    are defines for file name mungling, breaking incompletes
+X    into separate files and for dumping out description files.
+X
+XBugs:
+X
+X    This program has been pretty extensively tested in interpretation mode,
+X    and it appears to be both robust and flexible.
+X
+X    Unfortunately, about once a week, somebody comes up with a new and
+X    unusual way to encode the parts description on the Subject line.
+X
+X    Bugs, after being found, are chased unmercifully and terminated with
+X    extreme prejudice.  If you think you've found one, send all information
+X    opinions, prejudices and  critcisms to me, and the hunt will begin
+X    (just as soon as I can put on my safari hat and grab my debugger. . .).
+X
+XRights, Copyright, Legal stuff, etc:
+X
+X    This program is distributed free of charge, but it has NOT been placed
+X    in the public domain!  I retain copyright.
+X
+X    Why?  Because I am pathologically commited to producing and maintaining
+X    a quality product, and if every Tom, Dick and Susan modifies UNPOST
+X    and redistributes, I will not be able to respond to bug reports or
+X    continue to upgrade the product (branch revision problem, and all
+X    that. . .).
+X
+X    My job isn't done so long as a single bug exists, or even one user
+X    is unhappy (or even one system is uninfected. . . er, that is to
+X    say, supported :-).
+X
+X    However, I am also dedicated to the principle of maximum use.  If
+X    you wish, you may modify anything in this program you want to.  That's
+X    why I distribute source.  BUT, you may NOT distribute your changes,
+X    unless you can be legally sure that you have made so many as to make
+X    what you distribute a new work.
+X
+X    If you learn any bad habits from reading my source code, tough luck.
+X
+X    And if anything in this section is not legally supportable, the
+X    joke's on me.  Don't bother telling me, I'm to busy coding (So THERE!).
+X
+XAuthor:
+X
+X    John W. M. Stevens  -   jstevens@csn.org
+END_OF_FILE
+  if test 40962 -ne `wc -c <'unpost.doc'`; then
+    echo shar: \"'unpost.doc'\" unpacked with wrong size!
+  fi
+  # end of 'unpost.doc'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

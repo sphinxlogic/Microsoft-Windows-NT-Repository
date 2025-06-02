@@ -1,0 +1,2449 @@
+Newsgroups: comp.sources.x
+From: sprave@gonzo.informatik.uni-dortmund.de (Joachim Sprave)
+Subject: v19i050:  pixmon - a pixel graphics backend, Part01/03
+Message-ID: <csx-v19i050=pixmon.091324@sparky.IMD.Sterling.COM>
+X-Md4-Signature: f233fa2725e3ed669147b08686ed4d81
+Date: Thu, 25 Mar 1993 15:14:39 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: sprave@gonzo.informatik.uni-dortmund.de (Joachim Sprave)
+Posting-number: Volume 19, Issue 50
+Archive-name: pixmon/part01
+Environment: X11, gcc
+
+This is PixMon-0.3, a pixel graphics backend.
+
+It is intended by the following:
+
+Many people just want to display bitmap data, w/o knowing any details
+from X. PIXMON simply expects packages on standard input, starting with 
+a header containing rightangle coordinates followed by a color value for 
+each point in there.
+
+It is also useful when porting brain damaged PC-software, which directly
+writes into the video memory. 
+
+Features:
+
+	o Auto-rescale when changing the window size
+	o Loadable colormaps, you can display the same data with
+	  different colors
+	o Autodetect of mono servers, using dithering instead of colors
+	o Run length encoding supported
+
+Drawbacks/problems:
+
+	o No interaction
+	o Could be faster
+	o No private color maps
+	o My first X-program, ugly code :-(
+
+Soon to come:
+
+	PlayMate, the PixMon package animator.
+
+Options:
+
+	-dx num
+	-dy num
+		numbers of dots in x/y-direction
+
+	-width num
+	-height num
+	-geometry WxH+X+Y
+		window geometry
+
+	-scale float-num
+		initial number of pixels per dot
+
+	-cmap filename[.cmap]
+		path name of a color table
+
+	-dither
+		force dithering even on color servers
+
+	-fg
+	-bg
+		fore/background color (dithering only)
+
+
+The package header is defined as 
+
+	typedef struct {
+        	unsigned short  magic;
+	        unsigned short  type;
+	        short           x;
+	        short           y;
+	        unsigned short  dx;
+	        unsigned short  dy;
+	        unsigned short  sizelo;
+	        unsigned short  sizehi;
+	} ImgHdr;
+
+	magic:
+		used to determine byte sex, must
+		be initialized to PIX_MAGIC
+
+	type:
+		one of
+
+		PIX_DATA
+			Include the pixel data following 
+			the header into the picture 
+			(without displaying instantly)
+
+		PIX_FLUSH
+			Display the internal PixMap.
+
+		PIX_DATA | PIX_FLUSH
+			Include the pixel data following 
+			the header into the picture 
+			and display it instantly
+
+	x, y:
+		Position of this package relative to
+		the upper-left corner of the window
+	dx, dy:
+		Width and height (in dots, not in pixels)
+		of this package
+
+	sizelo, sizehi:			
+		Size of the following pixel data. If
+		sizehi*0x10000+sizelo < dx*dy, PixMon
+		expects run length encoded data.
+
+Run length encoding:
+
+		If RLE is detected (see above), the value
+		PIX_RLE (0xFF) is treated as an escape value,
+		so the number of colors is reduced by one.
+		To encode your data, use the function rle_encode
+		from rle.c.
+
+		Example:
+			char mybuffer[MBSIZE];
+			...
+			rle_encode(mybuffer, MBSIZE, PIX_RLE);
+		
+
+Color maps:
+		PixMon loads a color map on startup time.
+		Color map are ASCII files containing up
+		256 lines. Each line defines a color's
+		red, green and blue intensity (0..255).
+		
+
+Compatibility:
+		PixMon was developed and tested on SunOS Release 4.1
+		and Linux-0.99pl[0-7], both with X11R5. X11R4 servers
+		also seem to work. Obsolete X-calls will be replaced, 
+		so if it works with X11R3 now, the next release probably
+		won't.
+
+Bugs and comments to
+
+/---------------------------------------------------------------------\
+| Joachim Sprave                sprave@ls11.informatik.uni-dormund.de |
+|                      //////\\                                       |
+| Univ. Dortmund      /        \        P.O. Box 50 05 00             |
+| Dept. CS           _|  _   _ |_       4600 Dortmund 50              |
+| Systems Analysis  |.|-(.)-(.)+.|      Tel.: +49-231-755 2637        |
+\------------------  \|    J   |/  -----------------------------------/
+                      \   ---  /
+                       \      /
+                        "####"
+
+
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 03/22/1993 12:14 UTC by sprave@gonzo
+# Source directory /tmp_mnt/home/ls11b/sprave/pixmon
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#    190 -rw-r----- pixmon-0.3/Imakefile
+#  10452 -rw-r----- pixmon-0.3/Makefile
+#   3520 -rw-r----- pixmon-0.3/README
+#    682 -rw-r----- pixmon-0.3/examples/showpal.c
+#    131 -rw-r----- pixmon-0.3/examples/Makefile
+#    264 -rw-r----- pixmon-0.3/examples/README
+#    266 -rwxrwx--- pixmon-0.3/examples/mbx
+#   1528 -rw-rw---- pixmon-0.3/examples/mbs.c
+#   3328 -rw-rw---- pixmon-0.3/cmaps/hermes.cmap
+#   3328 -rw-rw---- pixmon-0.3/cmaps/mono.cmap
+#   3072 -rw-r----- pixmon-0.3/cmaps/rgb.cmap
+#   3328 -rw-r----- pixmon-0.3/default.cmap
+#   4456 -rw-r----- pixmon-0.3/defcmap.h
+#  49514 -rw-r----- pixmon-0.3/dither.h
+#  17982 -rw-r----- pixmon-0.3/COPYING
+#   9181 -rw------- pixmon-0.3/pixmon.1
+#   3989 -rw-r----- pixmon-0.3/rle.kr.c
+#    172 -rw-r----- pixmon-0.3/README.rle
+#  12750 -rw-r----- pixmon-0.3/pixmon.c
+#   1218 -rw-r----- pixmon-0.3/pixmon.h
+#   3924 -rw-r----- pixmon-0.3/rle.c
+#    807 -rw-r----- pixmon-0.3/rle.h
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= pixmon-0.3/Imakefile ==============
+if test ! -d 'pixmon-0.3'; then
+    echo 'x - creating directory pixmon-0.3'
+    mkdir 'pixmon-0.3'
+fi
+if test -f 'pixmon-0.3/Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/Imakefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/Imakefile' &&
+LOCAL_LIBRARIES = $(XTOOLLIB) $(XLIB)
+DEFINES =
+CC = gcc
+CDEBUGFLAGS = -O
+HDRS = pixmon.h dither.h defcmap.h rle.h
+SRCS = pixmon.c rle.c
+OBJS = pixmon.o rle.o
+ComplexProgramTarget(pixmon)
+X
+X
+SHAR_EOF
+chmod 0640 pixmon-0.3/Imakefile ||
+echo 'restore of pixmon-0.3/Imakefile failed'
+Wc_c="`wc -c < 'pixmon-0.3/Imakefile'`"
+test 190 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/Imakefile: original size 190, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/Makefile ==============
+if test -f 'pixmon-0.3/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and <Imakefile>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit sun.cf to change
+X
+# platform:  $XConsortium: sun.cf,v 1.72.1.1 92/03/18 13:13:37 rws Exp $
+X
+# operating system:  SunOS 4.1.1
+X
+# $XConsortium: sunLib.rules,v 1.7 91/12/20 11:19:47 rws Exp $
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X
+X               RM = rm -f
+X            TROFF = groff -Tdvi -E
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS = -s
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -g kmem -m 2755
+X
+X      PROJECTROOT = /usr/local/X11R5
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -pipe
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS) -L$(USRLIBDIR)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+# -------------------------------------------------------------------------
+# X Window System make variables; this need to be coordinated with rules
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/local/X11R5/lib
+X           BINDIR = /usr/local/X11R5/bin
+X          INCROOT = /usr/local/X11R5/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/local/X11R5/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+X         XILIBSRC = $(EXTENSIONSRC)/lib/xinput
+X      PHIGSLIBSRC = $(EXTENSIONSRC)/lib/PEX
+X
+# $XConsortium: sunLib.tmpl,v 1.14.1.1 92/03/17 14:58:46 rws Exp $
+X
+SHLIBLDFLAGS = -assert pure-text
+PICFLAGS = -pic
+X
+X  DEPEXTENSIONLIB =
+X     EXTENSIONLIB = -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X        DEPXMULIB = $(USRLIBDIR)/libXmu.sa.$(SOXMUREV)
+X       XMULIBONLY = -lXmu
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB = $(USRLIBDIR)/libXt.sa.$(SOXTREV)
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB = $(USRLIBDIR)/libXaw.sa.$(SOXAWREV)
+X           XAWLIB = -lXaw
+X
+X        DEPXILIB =
+X           XILIB = -lXi
+X
+X        SOXLIBREV = 4.10
+X          SOXTREV = 4.10
+X         SOXAWREV = 5.0
+X        SOOLDXREV = 4.10
+X         SOXMUREV = 4.10
+X        SOXEXTREV = 4.10
+X      SOXINPUTREV = 4.10
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X      DEPXDMCPLIB = $(USRLIBDIR)/libXdmcp.a
+X         XDMCPLIB =  -lXdmcp
+X
+X        DEPPHIGSLIB = $(USRLIBDIR)/libphigs.a
+X           PHIGSLIB =  -lphigs
+X
+X       DEPXBSDLIB = $(USRLIBDIR)/libXbsd.a
+X          XBSDLIB =  -lXbsd
+X
+X LINTEXTENSIONLIB = $(LINTLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(LINTLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(LINTLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(LINTLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(LINTLIBDIR)/llib-lXaw.ln
+X           LINTXI = $(LINTLIBDIR)/llib-lXi.ln
+X        LINTPHIGS = $(LINTLIBDIR)/llib-lphigs.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+# -------------------------------------------------------------------------
+# Imake rules for building libraries, programs, scripts, and data files
+# rules:  $XConsortium: Imake.rules,v 1.123 91/09/16 20:12:16 rws Exp $
+X
+# -------------------------------------------------------------------------
+# start of Imakefile
+X
+LOCAL_LIBRARIES = $(XTOOLLIB) $(XLIB)
+DEFINES =
+CC = gcc
+CDEBUGFLAGS = -O
+HDRS = pixmon.h dither.h defcmap.h rle.h
+SRCS = pixmon.c rle.c
+OBJS = pixmon.o rle.o
+X
+X PROGRAM = pixmon
+X
+all:: pixmon
+X
+pixmon: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+saber_pixmon:: $(SRCS)
+X	# load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+osaber_pixmon:: $(OBJS)
+X	# load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+install:: pixmon
+X	@if [ -d $(DESTDIR)$(BINDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(BINDIR)); fi
+X	$(INSTALL) -c $(INSTPGMFLAGS)  pixmon $(DESTDIR)$(BINDIR)
+X
+install.man:: pixmon.man
+X	@if [ -d $(DESTDIR)$(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) pixmon.man $(DESTDIR)$(MANDIR)/pixmon.$(MANSUFFIX)
+X
+depend::
+X	$(DEPEND) $(DEPENDFLAGS) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+lint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+lint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+clean::
+X	$(RM) $(PROGRAM)
+X
+# -------------------------------------------------------------------------
+# common rules for all Makefiles - do not edit
+X
+emptyrule::
+X
+clean::
+X	$(RM_CMD) "#"*
+X
+Makefile::
+X	-@if [ -f Makefile ]; then set -x; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+tags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+saber:
+X	# load $(ALLDEFINES) $(SRCS)
+X
+osaber:
+X	# load $(ALLDEFINES) $(OBJS)
+X
+# -------------------------------------------------------------------------
+# empty rules for directories that do not have SUBDIRS - do not edit
+X
+install::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+install.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+Makefiles::
+X
+includes::
+X
+# -------------------------------------------------------------------------
+# dependencies generated by makedepend
+X
+SHAR_EOF
+chmod 0640 pixmon-0.3/Makefile ||
+echo 'restore of pixmon-0.3/Makefile failed'
+Wc_c="`wc -c < 'pixmon-0.3/Makefile'`"
+test 10452 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/Makefile: original size 10452, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/README ==============
+if test -f 'pixmon-0.3/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/README' &&
+This is PixMon-0.3, a pixel graphics backend.
+X
+It is intended by the following:
+X
+Many people just want to display bitmap data, w/o knowing any details
+from X. PIXMON simply expects packages on standard input, starting with 
+a header containing rightangle coordinates followed by a color value for 
+each point in there.
+X
+It is also useful when porting brain damaged PC-software, which directly
+writes into the video memory. 
+X
+Features:
+X
+X	o Auto-rescale when changing the window size
+X	o Loadable colormaps, you can display the same data with
+X	  different colors
+X	o Autodetect of mono servers, using dithering instead of colors
+X	o Run length encoding supported
+X
+Drawbacks/problems:
+X
+X	o No interaction
+X	o Could be faster
+X	o No private color maps
+X	o My first X-program, ugly code :-(
+X
+Soon to come:
+X
+X	PlayMate, the PixMon package animator.
+X
+Options:
+X
+X	-dx num
+X	-dy num
+X		numbers of dots in x/y-direction
+X
+X	-width num
+X	-height num
+X	-geometry WxH+X+Y
+X		window geometry
+X
+X	-scale float-num
+X		initial number of pixels per dot
+X
+X	-cmap filename[.cmap]
+X		path name of a color table
+X
+X	-dither
+X		force dithering even on color servers
+X
+X	-fg
+X	-bg
+X		fore/background color (dithering only)
+X
+X
+The package header is defined as 
+X
+X	typedef struct {
+X        	unsigned short  magic;
+X	        unsigned short  type;
+X	        short           x;
+X	        short           y;
+X	        unsigned short  dx;
+X	        unsigned short  dy;
+X	        unsigned short  sizelo;
+X	        unsigned short  sizehi;
+X	} ImgHdr;
+X
+X	magic:
+X		used to determine byte sex, must
+X		be initialized to PIX_MAGIC
+X
+X	type:
+X		one of
+X
+X		PIX_DATA
+X			Include the pixel data following 
+X			the header into the picture 
+X			(without displaying instantly)
+X
+X		PIX_FLUSH
+X			Display the internal PixMap.
+X
+X		PIX_DATA | PIX_FLUSH
+X			Include the pixel data following 
+X			the header into the picture 
+X			and display it instantly
+X
+X	x, y:
+X		Position of this package relative to
+X		the upper-left corner of the window
+X	dx, dy:
+X		Width and height (in dots, not in pixels)
+X		of this package
+X
+X	sizelo, sizehi:			
+X		Size of the following pixel data. If
+X		sizehi*0x10000+sizelo < dx*dy, PixMon
+X		expects run length encoded data.
+X
+Run length encoding:
+X
+X		If RLE is detected (see above), the value
+X		PIX_RLE (0xFF) is treated as an escape value,
+X		so the number of colors is reduced by one.
+X		To encode your data, use the function rle_encode
+X		from rle.c.
+X
+X		Example:
+X			char mybuffer[MBSIZE];
+X			...
+X			rle_encode(mybuffer, MBSIZE, PIX_RLE);
+X		
+X
+Color maps:
+X		PixMon loads a color map on startup time.
+X		Color map are ASCII files containing up
+X		256 lines. Each line defines a color's
+X		red, green and blue intensity (0..255).
+X		
+X
+Compatibility:
+X		PixMon was developed and tested on SunOS Release 4.1
+X		and Linux-0.99pl[0-7], both with X11R5. X11R4 servers
+X		also seem to work. Obsolete X-calls will be replaced, 
+X		so if it works with X11R3 now, the next release probably
+X		won't.
+X
+Bugs and comments to
+X
+/---------------------------------------------------------------------\
+| Joachim Sprave                sprave@ls11.informatik.uni-dormund.de |
+|                      //////\\                                       |
+| Univ. Dortmund      /        \        P.O. Box 50 05 00             |
+| Dept. CS           _|  _   _ |_       4600 Dortmund 50              |
+| Systems Analysis  |.|-(.)-(.)+.|      Tel.: +49-231-755 2637        |
+\------------------  \|    J   |/  -----------------------------------/
+X                      \   ---  /
+X                       \      /
+X                        "####"
+X
+X
+SHAR_EOF
+chmod 0640 pixmon-0.3/README ||
+echo 'restore of pixmon-0.3/README failed'
+Wc_c="`wc -c < 'pixmon-0.3/README'`"
+test 3520 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/README: original size 3520, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/examples/showpal.c ==============
+if test ! -d 'pixmon-0.3/examples'; then
+    echo 'x - creating directory pixmon-0.3/examples'
+    mkdir 'pixmon-0.3/examples'
+fi
+if test -f 'pixmon-0.3/examples/showpal.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/examples/showpal.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/examples/showpal.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/examples/showpal.c' &&
+X
+X
+#include <stdio.h>
+X
+#include "pixmon.h"
+X
+X
+int main(argc, argv)
+int argc;
+char *argv[];
+{
+X	char command[256];
+X	ImgHdr hdr;
+X	unsigned char color;
+X	FILE *pix;
+X
+X	INIT_IMGHDR(hdr);
+X
+X	hdr.dy = hdr.dx = 1;
+X	hdr.y = 0;
+X	hdr.sizehi = 0;
+X	hdr.sizelo = 1;
+X
+X	sprintf(command,"pixmon -dx 256 -dy 1 -width 256 -height 50 %s%s",  
+X		argc >= 2 && strcmp(argv[1], "dither") == 0 ? "-" : "-cmap ", 
+X		argc < 2 ? "default" : argv[1]);
+X	pix = popen(command,"w");
+X
+X	for (hdr.x = 0; hdr.x < 256; hdr.x++) {
+X		color = (unsigned char) hdr.x;
+X		fwrite(&hdr, sizeof(hdr),1,pix);
+X		fwrite(&color, 1, 1, pix);
+X		fflush(pix);
+X	}
+X	EXIT_IMGHDR(hdr);
+X	fwrite(&hdr, sizeof(hdr),1,pix);
+X
+X	pclose(pix);
+X	exit(0);
+}
+SHAR_EOF
+chmod 0640 pixmon-0.3/examples/showpal.c ||
+echo 'restore of pixmon-0.3/examples/showpal.c failed'
+Wc_c="`wc -c < 'pixmon-0.3/examples/showpal.c'`"
+test 682 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/examples/showpal.c: original size 682, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/examples/Makefile ==============
+if test -f 'pixmon-0.3/examples/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/examples/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/examples/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/examples/Makefile' &&
+CC=gcc
+X
+all: mbs showpal
+X
+mbs: mbs.c
+X	$(CC) -I.. -O -o mbs mbs.c -lm
+X
+showpal: showpal.c
+X	$(CC) -I.. -O -o showpal showpal.c -lm
+X	
+SHAR_EOF
+chmod 0640 pixmon-0.3/examples/Makefile ||
+echo 'restore of pixmon-0.3/examples/Makefile failed'
+Wc_c="`wc -c < 'pixmon-0.3/examples/Makefile'`"
+test 131 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/examples/Makefile: original size 131, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/examples/README ==============
+if test -f 'pixmon-0.3/examples/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/examples/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/examples/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/examples/README' &&
+Examples:
+X
+X	mbs: A simple Mandelbrod-set generator.
+X	mbx: Shell script to display Mandelbrod-set with
+X	     mbs and PixMon.
+X
+X	showpal: Tool to display PixMon color maps.
+X	     It calls pixmon via popen(), so pixmon must
+X	     be found in your path to use showpal.
+SHAR_EOF
+chmod 0640 pixmon-0.3/examples/README ||
+echo 'restore of pixmon-0.3/examples/README failed'
+Wc_c="`wc -c < 'pixmon-0.3/examples/README'`"
+test 264 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/examples/README: original size 264, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/examples/mbx ==============
+if test -f 'pixmon-0.3/examples/mbx' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/examples/mbx (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/examples/mbx (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/examples/mbx' &&
+#!/bin/sh
+X
+XXMIN=-4.0
+XXMAX=4.0
+YMIN=-3.0
+YMAX=3.0
+WIDTH=400
+HEIGHT=300
+ITER=100
+SCALE=2
+CMAP="-cmap ../cmaps/hermes"
+# CMAP=
+# DITHER=
+# DITHER=-dither
+X
+mbs $XMIN $XMAX $YMIN $YMAX $WIDTH $HEIGHT $ITER | ../pixmon -scale $SCALE -dx $WIDTH -dy $HEIGHT $CMAP $DITHER
+X
+X
+SHAR_EOF
+chmod 0770 pixmon-0.3/examples/mbx ||
+echo 'restore of pixmon-0.3/examples/mbx failed'
+Wc_c="`wc -c < 'pixmon-0.3/examples/mbx'`"
+test 266 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/examples/mbx: original size 266, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/examples/mbs.c ==============
+if test -f 'pixmon-0.3/examples/mbs.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/examples/mbs.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/examples/mbs.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/examples/mbs.c' &&
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+X
+#include "pixmon.h"
+#define SQR(a) ((a)*(a))
+X
+typedef struct complex {
+X	double x;
+X	double y;
+} complex;
+X
+X
+int gm,gd;
+int maxx,maxy;
+X
+double xfrom;
+double xto  ;
+double yfrom;
+double yto  ;
+int    n_iter, n_pixel;
+X
+ImgHdr hdr;
+X
+X
+int iter(int x,int y,int n)
+{
+X   complex c,z;
+X   double sx = 0.0, sy = 0.0, distance;
+X
+X   z.x = z.y = 0.0;
+X   c.x = xfrom + x * (xto - xfrom) / maxx;
+X   c.y = yfrom + y * (yto - yfrom) / maxy;
+X   while (--n > 0 && ((distance=(sx = SQR(z.x)) + (sy = SQR(z.y))) < (double)4))
+X   {
+X      z.y = 2*z.x*z.y+c.y;
+X      z.x = sx-sy+c.x;
+X   }
+/*
+X   return(n);
+*/
+X   return((int) (128*sqrt(distance)));
+}
+X
+X
+X
+X
+void main(int argc, char *argv[])
+{
+X   int x,y;
+X   int n;
+X   unsigned char color;
+X
+X   INIT_IMGHDR(hdr);
+X   hdr.type = PIX_DATA | PIX_FLUSH;
+X   hdr.dx   = hdr.dy = 1;
+X   hdr.sizelo = 1;
+X
+X   xfrom = atof(argv[1]);
+X   xto   = atof(argv[2]);
+X   yfrom = atof(argv[3]);
+X   yto   = atof(argv[4]);
+X   n_iter = atoi(argv[7]);
+X
+X   maxx = atoi(argv[5]);
+X   maxy = atoi(argv[6]);
+/*
+X   yto  = yfrom + maxy * (xto-xfrom)/maxx;
+*/
+X   fprintf(stderr,"x=%8.3lf..%8.3lf y=%8.3lf..%8.3lf dx=%3d dy=%3d n=%d\n",
+X	xfrom, xto, yfrom, yto, maxx, maxy, n_iter);
+X
+X   for (hdr.x = 0; hdr.x < maxx; hdr.x++) {
+X     for (hdr.y = 0; hdr.y < maxy; hdr.y++ )
+X     {
+X         n = iter(hdr.x,hdr.y,n_iter);
+X         color = (unsigned char) (n%255+1);
+X         fwrite(&hdr, sizeof(hdr),1,stdout);
+X         fwrite(&color, 1, 1, stdout);
+X         fflush(stdout);
+X      }
+X   }
+}
+SHAR_EOF
+chmod 0660 pixmon-0.3/examples/mbs.c ||
+echo 'restore of pixmon-0.3/examples/mbs.c failed'
+Wc_c="`wc -c < 'pixmon-0.3/examples/mbs.c'`"
+test 1528 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/examples/mbs.c: original size 1528, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/cmaps/hermes.cmap ==============
+if test ! -d 'pixmon-0.3/cmaps'; then
+    echo 'x - creating directory pixmon-0.3/cmaps'
+    mkdir 'pixmon-0.3/cmaps'
+fi
+if test -f 'pixmon-0.3/cmaps/hermes.cmap' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/cmaps/hermes.cmap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/cmaps/hermes.cmap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/cmaps/hermes.cmap' &&
+X   0   0   0
+X 186 186 186
+X 196 196 200
+X 193 192 201
+X 190 189 202
+X 187 186 203
+X 183 182 204
+X 180 178 205
+X 177 175 206
+X 174 172 207
+X 171 168 208
+X 167 164 209
+X 164 161 210
+X 161 158 211
+X 158 154 212
+X 155 151 213
+X 152 148 213
+X 148 144 214
+X 145 140 215
+X 142 137 216
+X 139 134 217
+X 136 130 218
+X 132 126 219
+X 129 123 220
+X 126 120 221
+X 123 116 222
+X 120 113 223
+X 117 110 224
+X 113 106 225
+X 110 102 226
+X 108 100 227
+X 104  96 227
+X 101  92 228
+X  97  88 229
+X  94  85 230
+X  91  82 231
+X  88  78 232
+X  85  75 233
+X  82  72 234
+X  78  68 235
+X  75  64 236
+X  72  61 237
+X  69  58 238
+X  66  54 239
+X  62  50 240
+X  60  48 241
+X  56  44 241
+X  53  40 242
+X  50  37 243
+X  47  34 244
+X  43  30 245
+X  40  26 246
+X  37  23 247
+X  34  20 248
+X  31  16 249
+X  28  13 250
+X  24   9 251
+X  21   6 252
+X  18   2 253
+X  15   0 255
+X   4   0 255
+X   0   0 255
+X   0   3 255
+X   0   7 255
+X   0  13 255
+X   0  19 255
+X   0  23 255
+X   0  27 255
+X   0  33 255
+X   0  39 255
+X   0  43 255
+X   0  47 255
+X   0  51 255
+X   0  56 255
+X   0  63 255
+X   0  72 255
+X   0  75 255
+X   0  82 255
+X   0  88 255
+X   0  91 255
+X   0  95 255
+X   0 102 255
+X   0 108 255
+X   0 111 255
+X   0 116 255
+X   0 121 255
+X   0 128 255
+X   0 131 255
+X   0 135 255
+X   0 140 255
+X   0 152 255
+X   0 156 255
+X   0 160 255
+X   0 164 255
+X   0 171 255
+X   0 176 255
+X   0 180 255
+X   0 184 255
+X   0 190 255
+X   0 196 255
+X   0 200 255
+X   0 204 255
+X   0 209 255
+X   0 216 255
+X   0 220 255
+X   0 229 255
+X   0 232 255
+X   0 240 255
+X   0 245 255
+X   0 248 255
+X   0 253 255
+X   0 255 249
+X   0 255 243
+X   0 255 240
+X   0 255 236
+X   0 255 230
+X   0 255 223
+X   0 255 219
+X   0 255 215
+X   0 255 211
+X   0 255 199
+X   0 255 195
+X   0 255 191
+X   0 255 187
+X   0 255 180
+X   0 255 175
+X   0 255 171
+X   0 255 167
+X   0 255 161
+X   0 255 154
+X   0 255 150
+X   0 255 146
+X   0 255 142
+X   0 255 134
+X   0 255 130
+X   0 255 122
+X   0 255 114
+X   0 255 110
+X   0 255 106
+X   0 255 103
+X   0 255  98
+X   0 255  92
+X   0 255  86
+X   0 255  82
+X   0 255  78
+X   0 255  72
+X   0 255  65
+X   0 255  62
+X   0 255  58
+X   0 255  54
+X   0 255  42
+X   0 255  38
+X   0 255  34
+X   0 255  26
+X   0 255  22
+X   0 255  17
+X   0 255  13
+X   0 255   9
+X   0 255   4
+X   1 255   0
+X   5 255   0
+X   9 255   0
+X  13 255   0
+X  21 255   0
+X  25 255   0
+X  33 255   0
+X  41 255   0
+X  45 255   0
+X  50 255   0
+X  53 255   0
+X  60 255   0
+X  65 255   0
+X  69 255   0
+X  73 255   0
+X  77 255   0
+X  83 255   0
+X  90 255   0
+X  93 255   0
+X  97 255   0
+X 101 255   0
+X 114 255   0
+X 118 255   0
+X 122 255   0
+X 129 255   0
+X 133 255   0
+X 138 255   0
+X 142 255   0
+X 148 255   0
+X 154 255   0
+X 158 255   0
+X 162 255   0
+X 166 255   0
+X 170 255   0
+X 178 255   0
+X 182 255   0
+X 191 255   0
+X 198 255   0
+X 202 255   0
+X 207 255   0
+X 210 255   0
+X 218 255   0
+X 223 255   0
+X 227 255   0
+X 230 255   0
+X 236 255   0
+X 243 255   0
+X 247 255   0
+X 250 255   0
+X 255 254   0
+X 255 249   0
+X 255 238   0
+X 255 233   0
+X 255 229   0
+X 255 222   0
+X 255 217   0
+X 255 213   0
+X 255 209   0
+X 255 203   0
+X 255 197   0
+X 255 193   0
+X 255 189   0
+X 255 184   0
+X 255 177   0
+X 255 173   0
+X 255 169   0
+X 255 161   0
+X 255 153   0
+X 255 148   0
+X 255 144   0
+X 255 141   0
+X 255 133   0
+X 255 128   0
+X 255 124   0
+X 255 121   0
+X 255 115   0
+X 255 108   0
+X 255 104   0
+X 255 101   0
+X 255  95   0
+X 255  88   0
+X 255  80   0
+X 255  76   0
+X 255  72   0
+X 255  64   0
+X 255  60   0
+X 255  56   0
+X 255  52   0
+X 255  46   0
+X 255  40   0
+X 255  36   0
+X 255  32   0
+X 255  26   0
+X 255  20   0
+X 255  16   0
+X 255  11   0
+X 255   0   0
+SHAR_EOF
+chmod 0660 pixmon-0.3/cmaps/hermes.cmap ||
+echo 'restore of pixmon-0.3/cmaps/hermes.cmap failed'
+Wc_c="`wc -c < 'pixmon-0.3/cmaps/hermes.cmap'`"
+test 3328 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/cmaps/hermes.cmap: original size 3328, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/cmaps/mono.cmap ==============
+if test -f 'pixmon-0.3/cmaps/mono.cmap' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/cmaps/mono.cmap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/cmaps/mono.cmap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/cmaps/mono.cmap' &&
+X   0   0   0
+X   1   1   1
+X   2   2   2
+X   3   3   3
+X   4   4   4
+X   5   5   5
+X   6   6   6
+X   7   7   7
+X   8   8   8
+X   9   9   9
+X  10  10  10
+X  11  11  11
+X  12  12  12
+X  13  13  13
+X  14  14  14
+X  15  15  15
+X  16  16  16
+X  17  17  17
+X  18  18  18
+X  19  19  19
+X  20  20  20
+X  21  21  21
+X  22  22  22
+X  23  23  23
+X  24  24  24
+X  25  25  25
+X  26  26  26
+X  27  27  27
+X  28  28  28
+X  29  29  29
+X  30  30  30
+X  31  31  31
+X  32  32  32
+X  33  33  33
+X  34  34  34
+X  35  35  35
+X  36  36  36
+X  37  37  37
+X  38  38  38
+X  39  39  39
+X  40  40  40
+X  41  41  41
+X  42  42  42
+X  43  43  43
+X  44  44  44
+X  45  45  45
+X  46  46  46
+X  47  47  47
+X  48  48  48
+X  49  49  49
+X  50  50  50
+X  51  51  51
+X  52  52  52
+X  53  53  53
+X  54  54  54
+X  55  55  55
+X  56  56  56
+X  57  57  57
+X  58  58  58
+X  59  59  59
+X  60  60  60
+X  61  61  61
+X  62  62  62
+X  63  63  63
+X  64  64  64
+X  65  65  65
+X  66  66  66
+X  67  67  67
+X  68  68  68
+X  69  69  69
+X  70  70  70
+X  71  71  71
+X  72  72  72
+X  73  73  73
+X  74  74  74
+X  75  75  75
+X  76  76  76
+X  77  77  77
+X  78  78  78
+X  79  79  79
+X  80  80  80
+X  81  81  81
+X  82  82  82
+X  83  83  83
+X  84  84  84
+X  85  85  85
+X  86  86  86
+X  87  87  87
+X  88  88  88
+X  89  89  89
+X  90  90  90
+X  91  91  91
+X  92  92  92
+X  93  93  93
+X  94  94  94
+X  95  95  95
+X  96  96  96
+X  97  97  97
+X  98  98  98
+X  99  99  99
+X 100 100 100
+X 101 101 101
+X 102 102 102
+X 103 103 103
+X 104 104 104
+X 105 105 105
+X 106 106 106
+X 107 107 107
+X 108 108 108
+X 109 109 109
+X 110 110 110
+X 111 111 111
+X 112 112 112
+X 113 113 113
+X 114 114 114
+X 115 115 115
+X 116 116 116
+X 117 117 117
+X 118 118 118
+X 119 119 119
+X 120 120 120
+X 121 121 121
+X 122 122 122
+X 123 123 123
+X 124 124 124
+X 125 125 125
+X 126 126 126
+X 127 127 127
+X 128 128 128
+X 129 129 129
+X 130 130 130
+X 131 131 131
+X 132 132 132
+X 133 133 133
+X 134 134 134
+X 135 135 135
+X 136 136 136
+X 137 137 137
+X 138 138 138
+X 139 139 139
+X 140 140 140
+X 141 141 141
+X 142 142 142
+X 143 143 143
+X 144 144 144
+X 145 145 145
+X 146 146 146
+X 147 147 147
+X 148 148 148
+X 149 149 149
+X 150 150 150
+X 151 151 151
+X 152 152 152
+X 153 153 153
+X 154 154 154
+X 155 155 155
+X 156 156 156
+X 157 157 157
+X 158 158 158
+X 159 159 159
+X 160 160 160
+X 161 161 161
+X 162 162 162
+X 163 163 163
+X 164 164 164
+X 165 165 165
+X 166 166 166
+X 167 167 167
+X 168 168 168
+X 169 169 169
+X 170 170 170
+X 171 171 171
+X 172 172 172
+X 173 173 173
+X 174 174 174
+X 175 175 175
+X 176 176 176
+X 177 177 177
+X 178 178 178
+X 179 179 179
+X 180 180 180
+X 181 181 181
+X 182 182 182
+X 183 183 183
+X 184 184 184
+X 185 185 185
+X 186 186 186
+X 187 187 187
+X 188 188 188
+X 189 189 189
+X 190 190 190
+X 191 191 191
+X 192 192 192
+X 193 193 193
+X 194 194 194
+X 195 195 195
+X 196 196 196
+X 197 197 197
+X 198 198 198
+X 199 199 199
+X 200 200 200
+X 201 201 201
+X 202 202 202
+X 203 203 203
+X 204 204 204
+X 205 205 205
+X 206 206 206
+X 207 207 207
+X 208 208 208
+X 209 209 209
+X 210 210 210
+X 211 211 211
+X 212 212 212
+X 213 213 213
+X 214 214 214
+X 215 215 215
+X 216 216 216
+X 217 217 217
+X 218 218 218
+X 219 219 219
+X 220 220 220
+X 221 221 221
+X 222 222 222
+X 223 223 223
+X 224 224 224
+X 225 225 225
+X 226 226 226
+X 227 227 227
+X 228 228 228
+X 229 229 229
+X 230 230 230
+X 231 231 231
+X 232 232 232
+X 233 233 233
+X 234 234 234
+X 235 235 235
+X 236 236 236
+X 237 237 237
+X 238 238 238
+X 239 239 239
+X 240 240 240
+X 241 241 241
+X 242 242 242
+X 243 243 243
+X 244 244 244
+X 245 245 245
+X 246 246 246
+X 247 247 247
+X 248 248 248
+X 249 249 249
+X 250 250 250
+X 251 251 251
+X 252 252 252
+X 253 253 253
+X 254 254 254
+X 255 255 255
+SHAR_EOF
+chmod 0660 pixmon-0.3/cmaps/mono.cmap ||
+echo 'restore of pixmon-0.3/cmaps/mono.cmap failed'
+Wc_c="`wc -c < 'pixmon-0.3/cmaps/mono.cmap'`"
+test 3328 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/cmaps/mono.cmap: original size 3328, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/cmaps/rgb.cmap ==============
+if test -f 'pixmon-0.3/cmaps/rgb.cmap' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/cmaps/rgb.cmap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/cmaps/rgb.cmap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/cmaps/rgb.cmap' &&
+255   0   0
+253   2   0
+251   4   0
+249   6   0
+247   8   0
+245  10   0
+243  12   0
+241  14   0
+239  16   0
+237  18   0
+235  20   0
+233  22   0
+231  24   0
+229  26   0
+227  28   0
+225  30   0
+223  32   0
+221  34   0
+219  36   0
+217  38   0
+215  40   0
+213  42   0
+211  44   0
+209  46   0
+207  48   0
+205  50   0
+203  52   0
+201  54   0
+199  56   0
+197  58   0
+195  60   0
+193  62   0
+191  64   0
+189  66   0
+187  68   0
+185  70   0
+183  72   0
+181  74   0
+179  76   0
+177  78   0
+175  80   0
+173  82   0
+171  84   0
+169  86   0
+167  88   0
+165  90   0
+163  92   0
+161  94   0
+159  96   0
+157  98   0
+155 100   0
+153 102   0
+151 104   0
+149 106   0
+147 108   0
+145 110   0
+143 112   0
+141 114   0
+139 116   0
+137 118   0
+135 120   0
+133 122   0
+131 124   0
+129 126   0
+128 128   0
+126 129   0
+124 131   0
+122 133   0
+120 135   0
+118 137   0
+116 139   0
+114 141   0
+112 143   0
+110 145   0
+108 147   0
+106 149   0
+104 151   0
+102 153   0
+100 155   0
+X 98 157   0
+X 96 159   0
+X 94 161   0
+X 92 163   0
+X 90 165   0
+X 88 167   0
+X 86 169   0
+X 84 171   0
+X 82 173   0
+X 80 175   0
+X 78 177   0
+X 76 179   0
+X 74 181   0
+X 72 183   0
+X 70 185   0
+X 68 187   0
+X 66 189   0
+X 64 191   0
+X 62 193   0
+X 60 195   0
+X 58 197   0
+X 56 199   0
+X 54 201   0
+X 52 203   0
+X 50 205   0
+X 48 207   0
+X 46 209   0
+X 44 211   0
+X 42 213   0
+X 40 215   0
+X 38 217   0
+X 36 219   0
+X 34 221   0
+X 32 223   0
+X 30 225   0
+X 28 227   0
+X 26 229   0
+X 24 231   0
+X 22 233   0
+X 20 235   0
+X 18 237   0
+X 16 239   0
+X 14 241   0
+X 12 243   0
+X 10 245   0
+X  8 247   0
+X  6 249   0
+X  4 251   0
+X  2 253   0
+X  0 255   0
+X  0 254   1
+X  0 252   3
+X  0 250   5
+X  0 248   7
+X  0 246   9
+X  0 244  11
+X  0 242  13
+X  0 240  15
+X  0 238  17
+X  0 236  19
+X  0 234  21
+X  0 232  23
+X  0 230  25
+X  0 228  27
+X  0 226  29
+X  0 224  31
+X  0 222  33
+X  0 220  35
+X  0 218  37
+X  0 216  39
+X  0 214  41
+X  0 212  43
+X  0 210  45
+X  0 208  47
+X  0 206  49
+X  0 204  51
+X  0 202  53
+X  0 200  55
+X  0 198  57
+X  0 196  59
+X  0 194  61
+X  0 192  63
+X  0 189  66
+X  0 187  68
+X  0 185  70
+X  0 183  72
+X  0 181  74
+X  0 179  76
+X  0 177  78
+X  0 175  80
+X  0 173  82
+X  0 171  84
+X  0 169  86
+X  0 167  88
+X  0 165  90
+X  0 163  92
+X  0 161  94
+X  0 159  96
+X  0 157  98
+X  0 155 100
+X  0 153 102
+X  0 151 104
+X  0 149 106
+X  0 147 108
+X  0 145 110
+X  0 143 112
+X  0 141 114
+X  0 139 116
+X  0 137 118
+X  0 135 120
+X  0 133 122
+X  0 131 124
+X  0 129 126
+X  0 127 128
+X  0 125 130
+X  0 123 132
+X  0 121 134
+X  0 119 136
+X  0 117 138
+X  0 115 140
+X  0 113 142
+X  0 111 144
+X  0 109 146
+X  0 107 148
+X  0 105 150
+X  0 103 152
+X  0 101 154
+X  0  99 156
+X  0  97 158
+X  0  95 160
+X  0  93 162
+X  0  91 164
+X  0  89 166
+X  0  87 168
+X  0  85 170
+X  0  83 172
+X  0  81 174
+X  0  79 176
+X  0  77 178
+X  0  75 180
+X  0  73 182
+X  0  71 184
+X  0  69 186
+X  0  67 188
+X  0  65 190
+X  0  62 193
+X  0  60 195
+X  0  58 197
+X  0  56 199
+X  0  54 201
+X  0  52 203
+X  0  50 205
+X  0  48 207
+X  0  46 209
+X  0  44 211
+X  0  42 213
+X  0  40 215
+X  0  38 217
+X  0  36 219
+X  0  34 221
+X  0  32 223
+X  0  30 225
+X  0  28 227
+X  0  26 229
+X  0  24 231
+X  0  22 233
+X  0  20 235
+X  0  18 237
+X  0  16 239
+X  0  14 241
+X  0  12 243
+X  0  10 245
+X  0   8 247
+X  0   6 249
+X  0   4 251
+X  0   2 253
+X  0   0 255
+SHAR_EOF
+chmod 0640 pixmon-0.3/cmaps/rgb.cmap ||
+echo 'restore of pixmon-0.3/cmaps/rgb.cmap failed'
+Wc_c="`wc -c < 'pixmon-0.3/cmaps/rgb.cmap'`"
+test 3072 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/cmaps/rgb.cmap: original size 3072, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/default.cmap ==============
+if test -f 'pixmon-0.3/default.cmap' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/default.cmap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/default.cmap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/default.cmap' &&
+X   0   0   0
+X   1   1   1
+X   2   2   2
+X   3   3   3
+X   4   4   4
+X   5   5   5
+X   6   6   6
+X   7   7   7
+X   8   8   8
+X   9   9   9
+X  10  10  10
+X  11  11  11
+X  12  12  12
+X  13  13  13
+X  14  14  14
+X  15  15  15
+X  16  16  16
+X  17  17  17
+X  18  18  18
+X  19  19  19
+X  20  20  20
+X  21  21  21
+X  22  22  22
+X  23  23  23
+X  24  24  24
+X  25  25  25
+X  26  26  26
+X  27  27  27
+X  28  28  28
+X  29  29  29
+X  30  30  30
+X  31  31  31
+X  32  32  32
+X  33  33  33
+X  34  34  34
+X  35  35  35
+X  36  36  36
+X  37  37  37
+X  38  38  38
+X  39  39  39
+X  40  40  40
+X  41  41  41
+X  42  42  42
+X  43  43  43
+X  44  44  44
+X  45  45  45
+X  46  46  46
+X  47  47  47
+X  48  48  48
+X  49  49  49
+X  50  50  50
+X  51  51  51
+X  52  52  52
+X  53  53  53
+X  54  54  54
+X  55  55  55
+X  56  56  56
+X  57  57  57
+X  58  58  58
+X  59  59  59
+X  60  60  60
+X  61  61  61
+X  62  62  62
+X  63  63  63
+X  64  64  64
+X  65  65  65
+X  66  66  66
+X  67  67  67
+X  68  68  68
+X  69  69  69
+X  70  70  70
+X  71  71  71
+X  72  72  72
+X  73  73  73
+X  74  74  74
+X  75  75  75
+X  76  76  76
+X  77  77  77
+X  78  78  78
+X  79  79  79
+X  80  80  80
+X  81  81  81
+X  82  82  82
+X  83  83  83
+X  84  84  84
+X  85  85  85
+X  86  86  86
+X  87  87  87
+X  88  88  88
+X  89  89  89
+X  90  90  90
+X  91  91  91
+X  92  92  92
+X  93  93  93
+X  94  94  94
+X  95  95  95
+X  96  96  96
+X  97  97  97
+X  98  98  98
+X  99  99  99
+X 100 100 100
+X 101 101 101
+X 102 102 102
+X 103 103 103
+X 104 104 104
+X 105 105 105
+X 106 106 106
+X 107 107 107
+X 108 108 108
+X 109 109 109
+X 110 110 110
+X 111 111 111
+X 112 112 112
+X 113 113 113
+X 114 114 114
+X 115 115 115
+X 116 116 116
+X 117 117 117
+X 118 118 118
+X 119 119 119
+X 120 120 120
+X 121 121 121
+X 122 122 122
+X 123 123 123
+X 124 124 124
+X 125 125 125
+X 126 126 126
+X 127 127 127
+X 128 128 128
+X 129 129 129
+X 130 130 130
+X 131 131 131
+X 132 132 132
+X 133 133 133
+X 134 134 134
+X 135 135 135
+X 136 136 136
+X 137 137 137
+X 138 138 138
+X 139 139 139
+X 140 140 140
+X 141 141 141
+X 142 142 142
+X 143 143 143
+X 144 144 144
+X 145 145 145
+X 146 146 146
+X 147 147 147
+X 148 148 148
+X 149 149 149
+X 150 150 150
+X 151 151 151
+X 152 152 152
+X 153 153 153
+X 154 154 154
+X 155 155 155
+X 156 156 156
+X 157 157 157
+X 158 158 158
+X 159 159 159
+X 160 160 160
+X 161 161 161
+X 162 162 162
+X 163 163 163
+X 164 164 164
+X 165 165 165
+X 166 166 166
+X 167 167 167
+X 168 168 168
+X 169 169 169
+X 170 170 170
+X 171 171 171
+X 172 172 172
+X 173 173 173
+X 174 174 174
+X 175 175 175
+X 176 176 176
+X 177 177 177
+X 178 178 178
+X 179 179 179
+X 180 180 180
+X 181 181 181
+X 182 182 182
+X 183 183 183
+X 184 184 184
+X 185 185 185
+X 186 186 186
+X 187 187 187
+X 188 188 188
+X 189 189 189
+X 190 190 190
+X 191 191 191
+X 192 192 192
+X 193 193 193
+X 194 194 194
+X 195 195 195
+X 196 196 196
+X 197 197 197
+X 198 198 198
+X 199 199 199
+X 200 200 200
+X 201 201 201
+X 202 202 202
+X 203 203 203
+X 204 204 204
+X 205 205 205
+X 206 206 206
+X 207 207 207
+X 208 208 208
+X 209 209 209
+X 210 210 210
+X 211 211 211
+X 212 212 212
+X 213 213 213
+X 214 214 214
+X 215 215 215
+X 216 216 216
+X 217 217 217
+X 218 218 218
+X 219 219 219
+X 220 220 220
+X 221 221 221
+X 222 222 222
+X 223 223 223
+X 224 224 224
+X 225 225 225
+X 226 226 226
+X 227 227 227
+X 228 228 228
+X 229 229 229
+X 230 230 230
+X 231 231 231
+X 232 232 232
+X 233 233 233
+X 234 234 234
+X 235 235 235
+X 236 236 236
+X 237 237 237
+X 238 238 238
+X 239 239 239
+X 240 240 240
+X 241 241 241
+X 242 242 242
+X 243 243 243
+X 244 244 244
+X 245 245 245
+X 246 246 246
+X 247 247 247
+X 248 248 248
+X 249 249 249
+X 250 250 250
+X 251 251 251
+X 252 252 252
+X 253 253 253
+X 254 254 254
+X 255 255 255
+SHAR_EOF
+chmod 0640 pixmon-0.3/default.cmap ||
+echo 'restore of pixmon-0.3/default.cmap failed'
+Wc_c="`wc -c < 'pixmon-0.3/default.cmap'`"
+test 3328 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/default.cmap: original size 3328, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/defcmap.h ==============
+if test -f 'pixmon-0.3/defcmap.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/defcmap.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/defcmap.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/defcmap.h' &&
+static struct {
+X	unsigned char red;
+X	unsigned char green;
+X	unsigned char blue;
+} rgb_default[] = {
+X
+{255,   0,   0},
+{253,   2,   0},
+{251,   4,   0},
+{249,   6,   0},
+{247,   8,   0},
+{245,  10,   0},
+{243,  12,   0},
+{241,  14,   0},
+{239,  16,   0},
+{237,  18,   0},
+{235,  20,   0},
+{233,  22,   0},
+{231,  24,   0},
+{229,  26,   0},
+{227,  28,   0},
+{225,  30,   0},
+{223,  32,   0},
+{221,  34,   0},
+{219,  36,   0},
+{217,  38,   0},
+{215,  40,   0},
+{213,  42,   0},
+{211,  44,   0},
+{209,  46,   0},
+{207,  48,   0},
+{205,  50,   0},
+{203,  52,   0},
+{201,  54,   0},
+{199,  56,   0},
+{197,  58,   0},
+{195,  60,   0},
+{193,  62,   0},
+{191,  64,   0},
+{189,  66,   0},
+{187,  68,   0},
+{185,  70,   0},
+{183,  72,   0},
+{181,  74,   0},
+{179,  76,   0},
+{177,  78,   0},
+{175,  80,   0},
+{173,  82,   0},
+{171,  84,   0},
+{169,  86,   0},
+{167,  88,   0},
+{165,  90,   0},
+{163,  92,   0},
+{161,  94,   0},
+{159,  96,   0},
+{157,  98,   0},
+{155, 100,   0},
+{153, 102,   0},
+{151, 104,   0},
+{149, 106,   0},
+{147, 108,   0},
+{145, 110,   0},
+{143, 112,   0},
+{141, 114,   0},
+{139, 116,   0},
+{137, 118,   0},
+{135, 120,   0},
+{133, 122,   0},
+{131, 124,   0},
+{129, 126,   0},
+{128, 128,   0},
+{126, 129,   0},
+{124, 131,   0},
+{122, 133,   0},
+{120, 135,   0},
+{118, 137,   0},
+{116, 139,   0},
+{114, 141,   0},
+{112, 143,   0},
+{110, 145,   0},
+{108, 147,   0},
+{106, 149,   0},
+{104, 151,   0},
+{102, 153,   0},
+{100, 155,   0},
+{ 98, 157,   0},
+{ 96, 159,   0},
+{ 94, 161,   0},
+{ 92, 163,   0},
+{ 90, 165,   0},
+{ 88, 167,   0},
+{ 86, 169,   0},
+{ 84, 171,   0},
+{ 82, 173,   0},
+{ 80, 175,   0},
+{ 78, 177,   0},
+{ 76, 179,   0},
+{ 74, 181,   0},
+{ 72, 183,   0},
+{ 70, 185,   0},
+{ 68, 187,   0},
+{ 66, 189,   0},
+{ 64, 191,   0},
+{ 62, 193,   0},
+{ 60, 195,   0},
+{ 58, 197,   0},
+{ 56, 199,   0},
+{ 54, 201,   0},
+{ 52, 203,   0},
+{ 50, 205,   0},
+{ 48, 207,   0},
+{ 46, 209,   0},
+{ 44, 211,   0},
+{ 42, 213,   0},
+{ 40, 215,   0},
+{ 38, 217,   0},
+{ 36, 219,   0},
+{ 34, 221,   0},
+{ 32, 223,   0},
+{ 30, 225,   0},
+{ 28, 227,   0},
+{ 26, 229,   0},
+{ 24, 231,   0},
+{ 22, 233,   0},
+{ 20, 235,   0},
+{ 18, 237,   0},
+{ 16, 239,   0},
+{ 14, 241,   0},
+{ 12, 243,   0},
+{ 10, 245,   0},
+{  8, 247,   0},
+{  6, 249,   0},
+{  4, 251,   0},
+{  2, 253,   0},
+{  0, 255,   0},
+{  0, 254,   1},
+{  0, 252,   3},
+{  0, 250,   5},
+{  0, 248,   7},
+{  0, 246,   9},
+{  0, 244,  11},
+{  0, 242,  13},
+{  0, 240,  15},
+{  0, 238,  17},
+{  0, 236,  19},
+{  0, 234,  21},
+{  0, 232,  23},
+{  0, 230,  25},
+{  0, 228,  27},
+{  0, 226,  29},
+{  0, 224,  31},
+{  0, 222,  33},
+{  0, 220,  35},
+{  0, 218,  37},
+{  0, 216,  39},
+{  0, 214,  41},
+{  0, 212,  43},
+{  0, 210,  45},
+{  0, 208,  47},
+{  0, 206,  49},
+{  0, 204,  51},
+{  0, 202,  53},
+{  0, 200,  55},
+{  0, 198,  57},
+{  0, 196,  59},
+{  0, 194,  61},
+{  0, 192,  63},
+{  0, 189,  66},
+{  0, 187,  68},
+{  0, 185,  70},
+{  0, 183,  72},
+{  0, 181,  74},
+{  0, 179,  76},
+{  0, 177,  78},
+{  0, 175,  80},
+{  0, 173,  82},
+{  0, 171,  84},
+{  0, 169,  86},
+{  0, 167,  88},
+{  0, 165,  90},
+{  0, 163,  92},
+{  0, 161,  94},
+{  0, 159,  96},
+{  0, 157,  98},
+{  0, 155, 100},
+{  0, 153, 102},
+{  0, 151, 104},
+{  0, 149, 106},
+{  0, 147, 108},
+{  0, 145, 110},
+{  0, 143, 112},
+{  0, 141, 114},
+{  0, 139, 116},
+{  0, 137, 118},
+{  0, 135, 120},
+{  0, 133, 122},
+{  0, 131, 124},
+{  0, 129, 126},
+{  0, 127, 128},
+{  0, 125, 130},
+{  0, 123, 132},
+{  0, 121, 134},
+{  0, 119, 136},
+{  0, 117, 138},
+{  0, 115, 140},
+{  0, 113, 142},
+{  0, 111, 144},
+{  0, 109, 146},
+{  0, 107, 148},
+{  0, 105, 150},
+{  0, 103, 152},
+{  0, 101, 154},
+{  0,  99, 156},
+{  0,  97, 158},
+{  0,  95, 160},
+{  0,  93, 162},
+{  0,  91, 164},
+{  0,  89, 166},
+{  0,  87, 168},
+{  0,  85, 170},
+{  0,  83, 172},
+{  0,  81, 174},
+{  0,  79, 176},
+{  0,  77, 178},
+{  0,  75, 180},
+{  0,  73, 182},
+{  0,  71, 184},
+{  0,  69, 186},
+{  0,  67, 188},
+{  0,  65, 190},
+{  0,  62, 193},
+{  0,  60, 195},
+{  0,  58, 197},
+{  0,  56, 199},
+{  0,  54, 201},
+{  0,  52, 203},
+{  0,  50, 205},
+{  0,  48, 207},
+{  0,  46, 209},
+{  0,  44, 211},
+{  0,  42, 213},
+{  0,  40, 215},
+{  0,  38, 217},
+{  0,  36, 219},
+{  0,  34, 221},
+{  0,  32, 223},
+{  0,  30, 225},
+{  0,  28, 227},
+{  0,  26, 229},
+{  0,  24, 231},
+{  0,  22, 233},
+{  0,  20, 235},
+{  0,  18, 237},
+{  0,  16, 239},
+{  0,  14, 241},
+{  0,  12, 243},
+{  0,  10, 245},
+{  0,   8, 247},
+{  0,   6, 249},
+{  0,   4, 251},
+{  0,   2, 253},
+{  0,   0, 255},
+X
+};
+SHAR_EOF
+chmod 0640 pixmon-0.3/defcmap.h ||
+echo 'restore of pixmon-0.3/defcmap.h failed'
+Wc_c="`wc -c < 'pixmon-0.3/defcmap.h'`"
+test 4456 -eq "$Wc_c" ||
+	echo 'pixmon-0.3/defcmap.h: original size 4456, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pixmon-0.3/dither.h ==============
+if test -f 'pixmon-0.3/dither.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pixmon-0.3/dither.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pixmon-0.3/dither.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pixmon-0.3/dither.h' &&
+#define N_PAT 256
+#define PAT_WIDTH  16
+#define PAT_HEIGHT 16
+X
+X
+X
+X
+static char fill_pat[N_PAT][32] = {
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x22, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 
+0x88, 0x88, 0x00, 0x00, 0x22, 0x20, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x20, 0x22, 0x00, 0x00, 0x88, 0x88, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 
+SHAR_EOF
+true || echo 'restore of pixmon-0.3/dither.h failed'
+fi
+echo 'End of  part 1'
+echo 'File pixmon-0.3/dither.h is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+
+
+
+/---------------------------------------------------------------------\
+| Joachim Sprave                sprave@ls11.informatik.uni-dormund.de |
+|                      //////\\                                       |
+| Univ. Dortmund      /        \        P.O. Box 50 05 00             |
+| Dept. CS           _|  _   _ |_       4600 Dortmund 50              |
+| Systems Analysis  |.|-(.)-(.)+.|      Tel.: +49-231-755 2637        |
+\------------------  \|    J   |/  -----------------------------------/
+                      \   ---  /
+                       \      /
+                        "####"
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

@@ -1,0 +1,1758 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i014: point text editor (TCL and TK), Part13/16
+Message-ID: <1992Mar18.141835.27639@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:18:35 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 14
+Archive-name: tcl-editor/part13
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 12 (of 15)."
+# Contents:  command.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:49 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'command.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'command.c'\"
+else
+echo shar: Extracting \"'command.c'\" \(40012 characters\)
+sed "s/^X//" >'command.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/command.c,v 1.12 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X#include <X11/keysym.h>
+X#include <X11/StringDefs.h>
+X
+X/* remember whether to erase the description message */
+int lastOnTopline = 0;
+X
+X/* remember the last command the user selected (for help) */
+int lastCommand = FDONOTHING;
+X
+X/* some status (or mode) flags and move/copy pending data */
+int movePending = 0;
+int copyPending = 0;
+struct window *pendWindow = NULL;
+Offset pendPosition;
+X
+X/* keyboard macro */
+char macroText[102];
+int macroIndex = 0;
+int macroSize = 0;
+int macroState = 0;
+X
+X/* for multiple exposes, keep the maximum bounds */
+static int minx = 999999, miny = 999999, maxx = 0, maxy = 0;
+X
+char *
+command( fn, arg1, arg2, arg3, arg4, arg5, arg6 )
+X	PointCommand fn;
+X	char *arg1;
+X	char *arg2;
+X	char *arg3;
+X	char *arg4;
+X	char *arg5;
+X	char *arg6;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern char homeDirectory[];
+X	extern int debug;
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int overType;
+X	extern int lastOnTopline;
+X	extern int lastCommand;
+X	extern int macroIndex;
+X	extern int macroSize;
+X	extern int macroState;
+X	extern int selMode;
+X	extern int lastFn;
+X	extern int errno;
+X	extern struct openFile *files;
+X	extern struct optionItem options[];
+X	extern struct window *windowList;
+X	extern int copyPending, movePending;
+X	extern struct window *pendWindow;
+X	extern Offset pendPosition;
+X	extern int topOnFind;
+X	extern long timeOfLastSave;
+X	extern Offset mm_cp;
+X	extern Cursor mainCursor;
+X	extern Cursor currentCursor;
+X	extern Cursor dupCursor;
+X	extern Display *MainDisplay;
+X	extern BrowserData *mainBrowser;
+X	extern BrowserData *activeBrowser;
+X	extern BrowserData *browserList;
+X	extern struct window * activeWindow;
+X#ifdef HYPERTEXT
+X	extern DBM *currentDB;
+X	extern Document currentDocument;
+X	extern int hypertextOn;
+X#endif
+X	extern int tkScrolling;
+X	extern Tcl_Interp * interp;
+X	extern char * textGeometry;
+X	extern char * browserGeometry;
+X	extern char * textFont;
+X	extern char * browserFont;
+X	extern char * returnString;
+X	extern Tk_Window TkMainWindow;
+X	extern int scrollDown;
+X	extern int intervalRows;
+X	extern int linesOverFind;
+X	extern struct window * scroll_window;
+X
+X	int n, ret, row1, col1, col2;
+X	Offset cp;
+X	char ch;
+X	char *fileName, *str;
+X	struct window *w2;
+X	struct window *saveSelWindow;
+X	char * ret_string = NULL;
+X	int int1, int2, int3, int4, int5, int6;
+X	struct window * w = activeWindow;
+X	BrowserData * browser;
+X	struct changeItem * last_change;
+X	struct openFile * ff;
+X	Offset saveSelBegin, saveSelEnd;
+X
+X/* since we are about to issue a command, we do not need to erase */
+X/* the command description on the top line (so don't) */
+lastOnTopline = 0;
+X
+switch( fn ) {
+X
+X/*********************** EVENT HANDLER COMMANDS ***************************/
+case FBARRIER: {
+X	int x, y;
+X	struct fontDataStruct *font = &(w->font);
+X	(void)Tcl_GetInt( interp, arg1, &int1 );
+X	OffsetToXY( w, int1, &row1, &col1 );
+X	if( row1 < 0 ) {
+X		printf("offset %d is not in the window\n", row1);
+X		break;
+X	}
+X	x = w->leftMargin + col1 * font->width;
+X	y = w->topMargin + (row1+1) * font->height - 2;
+X	XDrawLine( MainDisplay, w->x_window_id, font->gc_normal,
+X		x, y, x-3, y+3 );
+X	XDrawLine( MainDisplay, w->x_window_id, font->gc_normal,
+X		x, y-1, x-3, y+2 );
+X	XDrawLine( MainDisplay, w->x_window_id, font->gc_normal,
+X		x, y, x+3, y+3 );
+X	XDrawLine( MainDisplay, w->x_window_id, font->gc_normal,
+X		x, y-1, x+3, y+2 );
+X	break;
+X}
+X#ifdef XXXXXX
+X	if( strcmp(arg1,"grab")==0 ) {
+X		Tk_Window tkwin;
+X		char name [100];
+X		
+X		sprintf( name, "%s.VScrollAndText", w->tk_pathname );
+X		tkwin = Tk_NameToWindow( interp, name, w->tk_toplevel );
+X		XGrabPointer(
+X			MainDisplay,
+X			Tk_WindowId(w->tk_toplevel),
+X			True,
+X			ButtonPressMask|ButtonReleaseMask|PointerMotionMask,
+X			GrabModeAsync,
+X			GrabModeAsync,
+X			(debug==0 ? Tk_WindowId(w->tk_toplevel)
+X				  : Tk_WindowId(tkwin) ),
+X			None,
+X			CurrentTime
+X		);
+X	} else {
+X		XUngrabPointer( MainDisplay, CurrentTime );
+X	}
+X	break;
+X#endif
+X
+case FCONFIGURE:
+X	w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		browser = FindBrowserByTkName( arg1 );
+X		if( browser == NULL ) {
+X			printf("FCONFIGURE: window %s was not found\n", arg1);
+X			break;
+X		}
+X		NewFilelist( browser );
+X		break;
+X	}
+X	WorkspaceResized( w );
+X	break;
+X
+case FENTERTEXT:
+X	w2 = FindWindowByTkName( arg1 );
+X	if( w2 == NULL ) {
+X#ifdef DEBUG_UPDATE
+X		printf("FENTERTEXT: window %s not found\n", arg1);
+X#endif
+X		break;
+X	}
+X	activeWindow = w2;
+X	XDefineCursor( MainDisplay, activeWindow->x_window_id, currentCursor );
+X	break;
+X
+case FENTERBROWSER:
+X	activeBrowser = FindBrowserByTkName( arg1 );
+X	chdir( activeBrowser->cwd );
+X	break;
+X
+case FEXPOSE:
+X	w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X#ifdef DEBUG_UPDATE
+X		printf("FEXPOSE: window %s not found\n", arg1);
+X#endif
+X		break;
+X	}
+X	(void)Tcl_GetInt( interp, arg2, &int2 );
+X	if( int2 < minx )
+X		minx = int2;
+X	(void)Tcl_GetInt( interp, arg3, &int3 );
+X	if( int3 < miny )
+X		miny = int3;
+X	(void)Tcl_GetInt( interp, arg4, &int4 );
+X	int4 += int2;	/* get right x-coord */
+X	if( int4 > maxx )
+X		maxx = int4;
+X	(void)Tcl_GetInt( interp, arg5, &int5 );
+X	int5 += int3;	/* get bottom y-coord */
+X	if( int5 > maxy )
+X		maxy = int5;
+X	(void)Tcl_GetInt( interp, arg6, &int6 );
+X	if( int6 > 0 )	/* more expose events yet to come */
+X		break;
+X	repaint( w, minx, miny, maxx, maxy );
+X	maxx = maxy = 0;
+X	minx = miny = 999999;	/* bigger than any screen ? */
+X	break;
+X
+case FHSCROLL:
+X	if( w == NULL )
+X		break;
+X	if( striccmp(arg1,"press")==0 )
+X		n = 1;
+X	else if( striccmp(arg1,"release")==0 )
+X		n = 2;
+X	else if( striccmp(arg1,"motion")==0 )
+X		n = 3;
+X	else
+X		n = 0;
+X	if( n == tkScrolling )
+X		break;
+X	(void)Tcl_GetInt( interp, arg2, &int2 );
+X	if( n == 1 ) {
+X		(void)Tcl_GetInt( interp, arg3, &int3 );
+X	}
+X	HScroll( w, n, int2, int3 );
+X	break;
+X
+case FKEY:
+X	if( w == NULL ) {
+X		printf("FKEY: window is NULL\n");
+X		break;
+X	}
+X	(void)Tcl_GetInt( interp, arg1, &int1 );
+X	(void)Tcl_GetInt( interp, arg2, &int2 );
+X	HandleKey( int1, int2 );
+X	break;
+X
+case FMOUSE:
+X	w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FMOUSE: window %s not found\n", arg1);
+X		break;
+X	}
+X	(void)Tcl_GetInt( interp, arg3, &int3 );
+X	(void)Tcl_GetInt( interp, arg4, &int4 );
+X	Mouse( w, arg2, int3, int4 );
+X	break;
+X
+case FVSCROLL:
+X	if( w == NULL ) {
+X		printf("FVSCROLL: window is NULL\n");
+X		break;
+X	}
+X	if( striccmp(arg1,"press")==0 )
+X		n = 1;
+X	else if( striccmp(arg1,"release")==0 )
+X		n = 2;
+X	else if( striccmp(arg1,"motion")==0 )
+X		n = 3;
+X	else
+X		n = 0;
+X	if( tkScrolling ) {
+X		if( n != 0 )
+X			break;
+X		else
+X			int3 = 0;
+X	} else {
+X		if( n == 0 )
+X			break;
+X		else
+X			(void)Tcl_GetInt( interp, arg3, &int3 );
+X	}
+X	(void)Tcl_GetInt( interp, arg2, &int2 );
+X	VScroll( w, n, int2, int3 );
+X	break;
+X
+X/*********************** MACRO COMMANDS ***************************/
+case FWAITFORRETURNSTRING:
+X	PtFree( returnString );
+X	returnString = PtMalloc( 50 , "string" );
+X	returnString[0] = '\0';
+X	while( returnString[0] == '\0' ) {
+X		Tk_DoOneEvent( 0 );
+X	}
+X	break;
+X
+case FPOINTSELECTION:
+if( striccmp(arg1,"set")==0 ) {
+X	if( arg2[0] != '\0' ) {
+X		(void)Tcl_GetInt( interp, arg2, &selBegin );
+X		if( selBegin < 0 )
+X			selBegin = 0;
+X	}
+X	if( arg3[0] != '\0' ) {
+X		cp = fileSize(selWindow->fileId);
+X		if( selEnd >= cp ) {
+X			selEnd = cp - 1;
+X		}
+X	}
+X	(void)Tcl_GetInt( interp, arg3, &selEnd );
+X	if( arg4[0] != '\0' ) {
+X		w = FindWindowByTkName( arg4 );
+X		if( w == NULL ) {
+X			printf("FPOINTSELECTION: window %s not found\n",
+X				arg4);
+X			break;
+X		}
+X		selWindow = w;
+X	}
+X	if( arg5[0] != '\0' ) {
+X		if( strcmp(arg5,"char")==0 )
+X			selMode = SELCHAR;
+X		else if( strcmp(arg5,"word")==0 )
+X			selMode = SELWORD;
+X		else
+X			selMode = SELLINE;
+X	}
+X} else if( arg1[0] == '\0' || striccmp(arg1,"get")==0 ){
+X	switch( selMode ) {
+X		case SELCHAR: str = "char"; break;
+X		case SELWORD: str = "word"; break;
+X		case SELLINE: str = "line"; break;
+X	}
+X	sprintf( textBuffer, "%d %d %s %s %d", selBegin, selEnd,
+X		selWindow==NULL ?
+X			"NoSelection" : selWindow->tk_pathname,
+X		str, LineNumberOfSelection() );
+X	ret_string = textBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X} else { 	/* must be a 'Sel return' */
+X	n = 256;
+try_again:
+X	ret_string = (char *)PtMalloc( n, "selection" );
+X	ret = getSelection( ret_string, 0, n );
+X	if( !ret ) {	/* did we get the whole selection? */
+X		/* if not, double the buffer and try again */
+X		n *= 2;
+X		PtFree( ret_string );
+X		goto try_again;
+X	}
+X	/* do we need to escape things? */
+X	if( striccmp(arg1,"escaped")==0 ) {
+X		/* first count the number of braces */
+X		row1 = 0;
+X		str = ret_string;
+X		while( (ch = *str++) != '\0' ) {
+X			if( ch == '{' || ch == '}' )
+X				++row1;
+X		}
+X		if( row1 > 0 ) {
+X			/* allocate space for the escaped version */
+X			char * new_space = (char *)PtMalloc(
+X				row1 + (str - ret_string) + 1,
+X				"selection" );
+X			/* copy and escape */
+X			char * from = ret_string;
+X			char * to = new_space;
+X			while( 1 ) {
+X				ch = *from++;
+X				if( ch == '{' || ch == '}' )
+X					*to++ = '\\';
+X				*to++ = ch;
+X				if( ch == '\0' )
+X					break;
+X			}
+X			PtFree( ret_string );
+X			ret_string = new_space;
+X		}
+X	}
+X	Tcl_SetResult( interp, ret_string, (Tcl_FreeProc *)PtFree );
+X}
+break;
+X
+case FGETFILECHARS:
+X	(void)Tcl_GetInt( interp, arg1, &int1 );
+X	(void)Tcl_GetInt( interp, arg2, &int2 );
+X	if( int1 < 0 )
+X		int1 = 0;
+X	if( int2 >= int1 + MSGBUFFERSIZE )
+X		int2 = MSGBUFFERSIZE - 1;
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FGETFILECHARS: window %s not found\n", arg3);
+X		break;
+X	}
+X	n = w->fileId;
+X	str = textBuffer;
+X	while( int1 <= int2 )
+X		*str++ = getFileByte( n, int1++ );
+X	ret_string = textBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FSCROLLWINDOW:
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FSCROLLWINDOW: window %s not found\n", arg3);
+X		break;
+X	}
+X	/* default is to scroll down one page */
+X	/* 'page' or a numerical count ? */
+X	if(arg2[0] == '\0' || striccmp(arg2,"page")==0 )
+X		intervalRows = w->nRows - 2;
+X	else
+X		intervalRows = atoi( arg2 );
+X	/* 'up' or 'down' ? */
+X	if( arg1[0] != '\0' && striccmp(arg1,"up")==0 )
+X		scrollDown = 0;
+X	else
+X		scrollDown = 1;
+X	scroll_window = w;
+X	(void)DoOneVScroll();
+X	break;
+X
+case FGETROWCOL:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FGETROWCOL: window %s not found\n", arg2);
+X		break;
+X	}
+X	if( arg1[0] == '\0' )
+X		cp = selBegin;
+X	else
+X		cp = atoi( arg1 );
+X	OffsetToXY( w, cp, &col1, &col2 );
+X	sprintf( textBuffer, "%d %d", col1, col2 );
+X	ret_string = textBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FWINDOWNAME:
+X	if( strcmp(arg1,"set") == 0 ) {
+X		w = FindWindowByTkName( arg3 );
+X		if( w == NULL ) {
+X			printf("FWINDOWNAME: window %s not found\n", arg3);
+X			break;
+X		}
+X		if( strcmp(arg2,"active") == 0 )
+X			activeWindow = w;
+X		else
+X			selWindow = w;
+X	} else {
+X		if( strcmp(arg2,"active") == 0 )
+X			ret_string = activeWindow->tk_pathname;
+X		else
+X			ret_string = selWindow->tk_pathname;
+X		Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	}
+X	break;
+X
+case FGETWINDOWINFO:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FGETWINDOWINFO: window %s not found\n", arg1);
+X		break;
+X	}
+X	sprintf( msgBuffer, "%d %d %d %d %d %d %d %d %d %d",
+X		w->posTopline, w->posBotline,
+X		w->numTopline, w->numBotline,
+X		w->indent, w->nRows, w->nCols,
+X		w->x_window_id, w->tk_toplevel, w->tk_text );
+X	ret_string = msgBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FGETFILEINFO: {
+X	struct openFile * ff;
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FGETFILEINFO: window %s not found\n", arg1);
+X		break;
+X	}
+X	ff = &files[w->fileId];
+X	sprintf( msgBuffer, "%s %d %d %d",
+X		ff->origName, ff->fileSize, ff->origFileSize, ff->flags );
+X	ret_string = msgBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X}
+X
+case FINSERTSTRING:
+X	if( selWindow == NULL )
+X		break;
+X	n = strlen( arg1 );
+X	if( arg2[0] != '\0' && strcmp(arg2,"noupdate")==0 )
+X		ret = 0;
+X	else
+X		ret = 1;
+X	if( n < 10 && ret ) {
+X		while( *arg1 != '\0' )
+X			insChar( *arg1++, ret );
+X	} else {
+X		while( *arg1 != '\0' )
+X			insertChar( *arg1++ );
+X		if( ret )
+X			drawWindow( selWindow );
+X	}
+X	break;
+X
+X/**************************** SEARCH COMMANDS **************************/
+case FSEARCHFORS:
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FSEARCHFORS: window %s not found\n", arg3);
+X		break;
+X	}
+X	if( arg2[0] == '\0' || striccmp(arg2,"forward")==0 )
+X		n = 0;
+X	else
+X		n = 1;
+X	if( arg4[0] == '\0' || strcmp(arg4,"update")==0 )
+X		col1 = UPDATEWINDOWS;
+X	else
+X		col1 = NOUPDATE;
+X	n = searchFor( w, n, arg1, col1, linesOverFind );
+X	sprintf( textBuffer, "%d", n );
+X	ret_string = textBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FREGEXSEARCH:
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FSEARCHFORS: window %s not found\n", arg3);
+X		break;
+X	}
+X	if( arg2[0] == '\0' || striccmp(arg2,"forward")==0 )
+X		n = 0;
+X	else
+X		n = 1;
+X	if( arg4[0] == '\0' || strcmp(arg4,"update")==0 )
+X		col1 = UPDATEWINDOWS;
+X	else
+X		col1 = NOUPDATE;
+X	n = RegexSearch( w, n, arg1, col1, linesOverFind );
+X	sprintf( textBuffer, "%d", n );
+X	ret_string = textBuffer;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FCTAG:
+X	findCTag( arg1 );
+X	break;
+X
+case FREPEATSEARCH:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FREPEATSEARCH: window %s not found\n", arg2);
+X		break;
+X	}
+X	(void)searchFor( w, (striccmp(arg1,"backward")==0), NULL, 1,
+X							linesOverFind );
+X	break;
+X
+case FREPLACE:
+X	if( arg4[0] != '\0' )
+X		w = FindWindowByTkName( arg4 );
+X	if( w == NULL ) {
+X		printf("FREPLACE: window %s not found\n", arg4);
+X		break;
+X	}
+X	if( arg3[0] == '\0' || striccmp(arg3,"inselection")!=0 )
+X		n = 0;
+X	else 
+X		n = 1;
+X	replaceText( w, arg1, arg2, n );
+X	break;
+X
+case FREGEXREPLACEONE:
+X	if( arg4[0] != '\0' )
+X		w = FindWindowByTkName( arg4 );
+X	if( w == NULL ) {
+X		printf("FREPLACE: window %s not found\n", arg4);
+X		break;
+X	}
+X	if(  striccmp(arg3,"one")!=0 ) {
+X		n = RegexReplaceOne( w, arg1, arg2 );
+X		sprintf( textBuffer, "%d", n );
+X		ret_string = textBuffer;
+X		Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X		break;
+X	}
+X	break;
+X
+case FREGEXREPLACEALL:
+X	if( arg3[0] == '\0' || striccmp(arg3,"inselection")!=0 )
+X		n = 0;
+X	else 
+X		n = 1;
+X	RegexReplaceAll( w, arg1, arg2, n );
+X	break;
+X
+case FMATCHCHAR:	/* find the matching character */
+X	matchChar();
+X	break;
+X
+X#define SEARCH_LETTER_BUFFER_SIZE	80
+X
+case FSEARCHLETTER:
+X{
+X	static char searchString[SEARCH_LETTER_BUFFER_SIZE];
+X	static int searchStringIndex = 0;
+X	static int searchMode = 0;
+X	char ch;
+X
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FSEARCHLETTER: window %s not found\n", arg3);
+X		break;
+X	}
+X	(void)Tcl_GetInt( interp, arg1, &int1 );
+X	if( int1 <= 127 ) {
+X		ch = (char)int1;
+X		(void)Tcl_GetInt( interp, arg2, &int2 );
+X		if( int2 & ControlMask )
+X			ch &= 0x1f;
+X	} else {
+X		int1 &= 0xff;
+X		/* ignore shift keys */
+X		if( 0xe1 <= int1 && int1 <= 0xee )
+X			return ret_string;
+X		ch = '\0';
+X	}
+X	if( ch == '\0' ) {
+X		searchStringIndex = 0;
+X		searchMode = 0;
+X		break;
+X	} else if( ch == '\b' || ch == '\177' ) {
+X		if( searchStringIndex > 0 )
+X			--searchStringIndex;
+X		else
+X			searchMode = 1;
+X		break;
+X	}
+X	/* start over on overflows */
+X	if( searchStringIndex >= SEARCH_LETTER_BUFFER_SIZE )
+X		searchStringIndex = 0;
+X	searchString[searchStringIndex++] = ch;
+X	if( w != NULL ) {
+X		/* terminate and copy string into the search buffer */
+X		searchString[searchStringIndex] = '\0';
+X		if( searchStringIndex > 1 )
+X			/* we want to find this string again if it matches */
+X			/* with the additional letter added */
+X			--selBegin;
+X		(void)searchFor( w, searchMode, searchString, 1,
+X							linesOverFind );
+X	}
+X	break;
+X}
+X
+X/************************** TEXT CHANGING COMMANDS *************************/
+case FINSASCII:
+X	Tcl_GetInt( interp, arg1, &n );
+X	insChar( (unsigned char)n, 1 );
+X	break;
+X
+case FINSERT:
+X	if( arg1[0] == '\0' || strcmp(arg1,"update")==0 )
+X		n = UPDATEWINDOWS;
+X	else
+X		n = NOUPDATE;
+X	if( selWindow == NULL )
+X		break;
+X	insScrap( 1, n );
+X	break;
+X
+case FCHANGECASE: {
+X	int wasChanged;
+X	Offset sEnd = selEnd;	/* since selEnd will change in the loop */
+X	int row, col, fid, n;
+X	int how;
+X	Offset beginCp;
+X
+X	if( selWindow == NULL )
+X		break;
+X	if( arg1[0] == '\0' || striccmp(arg1,"toggle")==0 )
+X		how = 2;
+X	else if( striccmp(arg1,"tolower")==0 )
+X		how = 1;
+X	else
+X		how =0;
+X	fid = selWindow->fileId;
+X	while( selBegin <= sEnd ) {
+X		ch = (char)getFileByte( fid, selBegin );
+X		if( !isalpha(ch) ) {
+X			/* pass over the character if it is not alpha */
+X			goto redrawSelection;
+X		}
+X		wasChanged = 0;
+X		if( isupper(ch) && how != 0 ) {
+X			ch = tolower(ch);
+X			wasChanged = 1;
+X		} else if( islower(ch) && how != 1 ) {
+X			ch = toupper(ch);
+X			wasChanged = 1;
+X		}
+X		if( wasChanged ) {
+X			saveSelBegin = selEnd = selBegin;
+X			(void)deleteChars(selWindow->fileId, NOUPDATE, 0);
+X			selEnd = selBegin = saveSelBegin;
+X			insChar( ch, 1 );
+X		} else {
+X	redrawSelection:
+X			n = -1;
+X			beginCp = prevLine( selWindow->fileId, selBegin, &n );
+X			OffsetToXY( selWindow, ++selBegin, &row, &col );
+X			selEnd = selBegin;
+X			DrawSection( selWindow, beginCp, row, col-1, row, col );
+X		}
+X	}
+X	selEnd = selBegin;
+X	break;
+X}
+X
+case FJUSTIFY:
+X	if( w == NULL )
+X		break;
+X	justifyLines();
+X	break;
+X
+case FDELETE:
+X	if( arg1[0] == '\0' || strcmp(arg1,"update")==0 )
+X		n = UPDATEWINDOWS;
+X	else
+X		n = NOUPDATE;
+X	if( selWindow == NULL )
+X		break;
+X	(void)deleteChars(selWindow->fileId, n, 1);
+X	break;
+X
+case FEXCHSCRAP:
+X	if( selWindow == NULL )
+X		break;
+X	exchWithScrap();
+X	break;
+X
+case FCOPYSCRAP:
+X	if( selWindow == NULL )
+X		break;
+X	copyToScrap(selWindow, selBegin, selEnd);
+X	msg("The selection has been copied to the scrap buffer", 1);
+X	break;
+X
+case FCOPYTO:	/* copy selection to this point */
+X	n = COPY;
+X	goto moveAndCopy;
+X
+case FMOVETO:	/* move selection to this point */
+X	n = MOVE;
+moveAndCopy:
+X	if( w == NULL )
+X		break;
+X	/* adjust to the selection mode */
+X	cp = mm_cp;	/* hidden parameter from userInput */
+X	/* adjustSelMode always uses selWindow so we have to fool it */
+X	/* be setting selWindow before the call and resetting it after */
+X	saveSelWindow = selWindow;
+X	selWindow = w;
+X	cp = adjustSelMode( cp );
+X	selWindow = saveSelWindow;
+X	drawSelection( 1 );
+X	copyMove(selWindow, selBegin, selEnd, w, cp, n);
+X	break;
+X
+case FCOPYFROM:
+X	if( selWindow == NULL )
+X		break;
+X	if( copyPending ) {
+X		drawSelection( 1 );
+X		copyMove(selWindow, selBegin, selEnd, pendWindow, pendPosition,
+X									COPY);
+X		currentCursor = mainCursor;
+X		XDefineCursor(MainDisplay, selWindow->x_window_id,
+X								currentCursor);
+X		copyPending = 0;
+X	} else {
+X		XDefineCursor( MainDisplay, selWindow->x_window_id, dupCursor);
+X		currentCursor = dupCursor;
+X		copyPending = 1;
+X		pendWindow = selWindow;
+X		pendPosition = selBegin;
+X	}
+X	break;
+X
+case FMOVEFROM:
+X	if( selWindow == NULL )
+X		break;
+X	if( movePending ) {
+X		copyMove(selWindow, selBegin, selEnd, pendWindow, pendPosition,
+X									MOVE);
+X		movePending = 0;
+X		msg( NULL, 0 );
+X	} else {
+X		msg("Extract mode", 4);
+X		movePending = 1;
+X		pendWindow = selWindow;
+X		pendPosition = selBegin;
+X	}
+X	break;
+X
+case FREDO:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FREDO: window %s not found\n", arg1);
+X		break;
+X	}
+X	if( arg1[0] != '\0' )
+X		(void)Tcl_GetInt( interp, arg1, &int1 );
+X	else
+X		int1 = 1;
+X	redo( &files[w->fileId], int1 );
+X	break;
+X
+case FAGAIN:
+X	n = 1;
+X	if( arg1[0] != '\0' ) {
+X		if( striccmp(arg1,"thisfile")==0 )
+X			n = 0;
+X		else
+X			w = FindWindowByTkName( arg1 );
+X	}
+X	if( w == NULL ) {
+X		printf("FAGAIN: window %s not found\n", arg1);
+X		break;
+X	}
+X	again( &files[w->fileId], n );
+X	break;
+X
+case FUNDO:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FUNDO: window %s not found\n", arg1);
+X		break;
+X	}
+X	ff = &files[w->fileId];
+X	if( arg1[0] != '\0' ) {
+X		last_change = GetCurrentChange( ff );
+X		if( strcmp(arg1,"end")==0 ) {
+X			last_change->flags |= BLOCK_UNDO_END;
+X			break;
+X		} else if( strcmp(arg1,"begin")==0 ) {
+X			last_change->flags |= BLOCK_UNDO_BEGIN;
+X			break;
+X		} else if( strcmp(arg1,"update")==0 ) {
+X			UpdateUndoList( ff );
+X			break;
+X		} else
+X			(void)Tcl_GetInt( interp, arg1, &int1 );
+X	} else
+X		int1 = 1;
+X	undo( ff, int1 );
+X	break;
+X
+X/************************** FILE POSITIONING COMMANDS ***********************/
+case FBOTFILE:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FBOTFILE: window %s not found\n", arg1);
+X		break;
+X	}
+X	bottomFile(w);
+X	break;
+X
+case FGOTOSELECTION:
+X	if( w == NULL )
+X		break;
+X	doGoSel(w);
+X	break;
+X
+case FGOBACKTO:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FGOBACKTO: window %s not found\n", arg1);
+X		break;
+X	}
+X	doGoto( w, w->rowLastline, 0 );
+X	break;
+X
+case FGOTOLINE:
+X	if( arg3[0] != '\0' )
+X		w = FindWindowByTkName( arg3 );
+X	if( w == NULL ) {
+X		printf("FGOTOLINE: window %s not found\n", arg3);
+X		break;
+X	}
+X	if( arg1[0] == '\0' )
+X		int1 = 1;
+X	else
+X		(void)Tcl_GetInt( interp, arg1, &int1 );
+X	if( arg2[0] == '\0' || striccmp(arg2,"lof")==0 )
+X		int2 = 1;
+X	else
+X		int2 = 0;
+X	doGoto( w, int1, int2 );
+X	break;
+X
+case FGOTODIGIT:
+X{
+X	static int lineNumber = 0;
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FGOTODIGIT: window %s not found\n", arg2);
+X		break;
+X	}
+X	if( arg1[0] != '\0' && isdigit( arg1[0] ) )
+X		lineNumber = 10*lineNumber + arg1[0] - '0';
+X	else {
+X		doGoto( w, lineNumber, 1 );
+X		lineNumber = 0;
+X	}
+X	break;
+X}
+X
+case FMOVESEL:
+X	int3 = 0;
+X	saveSelBegin = -1;
+X	if( arg3[0] == '\0' || strcmp(arg3,"update")==0 )
+X		int3 = 1;
+X	else if (strcmp(arg3,"nosel")==0 ) {
+X		saveSelBegin = selBegin;
+X		saveSelEnd = selEnd;
+X	}
+X	(void)cursor( arg1, arg2, int3 );
+X	if( saveSelBegin >= 0 ) {
+X		selBegin = saveSelBegin;
+X		selEnd = saveSelEnd;
+X	}
+X	sprintf( msgBuffer, "%d", selBegin );
+X	Tcl_SetResult( interp, msgBuffer, TCL_STATIC );
+X	break;
+X
+X/************************ WINDOW MANAGEMENT COMMANDS ***********************/
+case FSETTEXTCOLOR:
+X	if( arg4[0] != '\0' )
+X		w = FindWindowByTkName( arg4 );
+X	if( w == NULL ) {
+X		printf("FSETTEXTCOLOR: window %s not found\n", arg4);
+X		break;
+X	}
+X	if( arg2[0] == '\0' || striccmp(arg2,"normal")==0 )
+X		int2 = 1;
+X	else
+X		int2 = 0;
+X	if( arg3[0] == '\0' || striccmp(arg3,"foreground")==0 )
+X		int3 = 1;
+X	else
+X		int3 = 0;
+X	SetTextColor( w, int2, int3, arg1 );
+X	drawWindow( w );
+X	break;
+X
+case FBROWSER:
+X	if( arg2[0] != '\0' && striccmp(arg2,"small")==0 )
+X		n = 0;
+X	else
+X		n = 1;
+X	CreateNewBrowser( n, arg1 );
+X	ret_string = activeBrowser->tk_pathname;
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FWINDOWFONT:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X		printf("FWINDOWFONT: window %s not found\n", arg2);
+X		break;
+X	}
+X	if( arg1[0] == '\0' )
+X		arg1 = textFont;
+X	/* copy it into the window's font name */
+X	PtFree( w->font.name );
+X	w->font.name = PtMalloc(strlen(arg1)+1, "font name");
+X	strcpy(w->font.name, arg1);
+X	/* indicate that the font is not yet loaded */
+X	w->font.height = 0;
+X	/* redraw the window with the new font */
+X	WorkspaceResized( w );
+X	XClearWindow( MainDisplay, w->x_window_id );
+X	drawWindow( w );
+X	break;
+X
+case FBROWSERFONT:
+X	if( arg1[0] == '\0' )
+X		arg1 = browserFont;
+X	ChangeBrowserFontTo( activeBrowser, arg1 );
+X	/* redraw the file list */
+X	NewFilelist( activeBrowser );
+X	break;
+X
+case FLOWER:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FLOWER: window %s not found\n", arg1);
+X		break;
+X	}
+X	XLowerWindow( MainDisplay, Tk_WindowId(w->tk_toplevel) );
+X	break;
+X
+case FRAISE:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FRAISE: window %s not found\n", arg1);
+X		break;
+X	}
+X	XRaiseWindow( MainDisplay, Tk_WindowId(w->tk_toplevel) );
+X	break;
+X
+case FCD:
+X	if( arg1[0] == '\0' )
+X		arg1 = "~";
+X	n = chdir( Tcl_TildeSubst(interp,arg1) );
+X	(void)ExecTclCommand( "if [file exists .ptdirrc] {source .ptdirrc}" );
+X	if( n == -1 ) {
+X		extern int errno;
+X		extern int sys_nerr;
+X		extern char *sys_errlist[];
+X		if( errno < sys_nerr )
+X			fileName = sys_errlist[errno];
+X		else
+X			fileName = "";
+X		sprintf( msgBuffer, "Change directory failed: %s", fileName );
+X		msg( msgBuffer , 1 );
+X	}
+X	NewFilelist( activeBrowser );
+X	break;
+X
+case FOPENWINDOW:
+X	if( arg1[0] == '\0' )
+X		arg1 = "NoFileName";
+X	FixName( arg1 );
+X	if( arg2[0] == '\0' )
+X		arg2 = textGeometry;
+X	w = GetNewFile( NULL, arg1, arg2 );
+X	if( w != NULL )
+X		ret_string = w->tk_pathname;
+X	else
+X		ret_string = "";
+X	Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	break;
+X
+case FCLOSEWINDOW:
+X	if( arg2[0] != '\0' )
+X		w = FindWindowByTkName( arg2 );
+X	if( w == NULL ) {
+X#ifdef DEBUG_UPDATE
+X		printf("FCLOSEWINDOW: window %s not found\n", arg2);
+X#endif
+X		break;
+X	}
+X	if( arg1[0] == '\0' || striccmp(arg1,"ask")==0 )
+X		n = 1;
+X	else if( striccmp(arg1,"nosave")==0 )
+X		n = 2;
+X	else
+X		n = 0;
+X	if( w == NULL )
+X		break;
+X	(void)closeWindow(w, n);
+X	break;
+X
+case FRAISELISTWINDOW:
+X	if( arg2 == NULL || arg2[0] == '\0' )
+X		arg2 = textGeometry;
+X	(void)Tcl_GetInt( interp, arg1, &int1 );
+X	RaiseListWindow( int1, arg2 );
+X	break;
+X
+case FCLOSEBROWSER: {	/* close the active browser */
+X	BrowserData *browser = browserList;
+X	BrowserData *prev_browser, *next_browser;
+X	
+X	/* find activeBrowser on the browser list */
+X	while( browser != activeBrowser && browser != NULL )
+X		browser = browser->nextBrowser;
+X	if( browser == NULL ) {
+X		printf("ERROR: activeBrowser not on browserList\n");
+X		return ret_string;
+X	}
+X	/* do not allow the toplevel window to be deleted */
+X	if( browser == mainBrowser ) {
+X		msg( "Cannot close the main browser window", 1 );
+X		break;
+X	}
+X
+X	/* reduce the use count for this FileListData */
+X	ReduceUseCount( browser->fileListData );
+X
+X	/* unlink browser from the list of browsers */
+X	prev_browser = browser->prevBrowser;
+X	next_browser = browser->nextBrowser;
+X	if( prev_browser == NULL ) {
+X		/* activeBrowser is first in the browserList */
+X		if( next_browser == NULL ) {
+X			/* deleting last browser -- do not allow this */
+X			msg("Cannot delete the last browser", 1);
+X			return ret_string;
+X		} else {
+X			/* terminate chain and fix up activeBrowser */
+X			next_browser->prevBrowser = NULL;
+X			activeBrowser = next_browser;
+X			browserList = next_browser;
+X		}
+X	} else {
+X		prev_browser->nextBrowser = next_browser;
+X		if( next_browser != NULL )
+X			next_browser->prevBrowser = prev_browser;
+X		activeBrowser = prev_browser;
+X		/* browserList points to a previous browser so its okay */
+X	}
+X	Tk_DestroyWindow( browser->tk_toplevel );
+X	PtFree( (char *)browser );
+X	break;
+X}
+X
+X
+case FWRITEFILE:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FWRITEFILE: window %s not found\n", arg1);
+X		break;
+X	}
+X	writeFile( w );
+X	break;
+X
+case FSAVEFILE:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FSAVEFILE: window %s not found\n", arg1);
+X		break;
+X	}
+X	saveFile(w);
+X	break;
+X
+case FSAVEALL:
+X	w2 = windowList;
+X	while( w2 != NULL ) {
+X		if( files[w2->fileId].flags & IS_CHANGED )
+X			saveFile(w2);
+X		w2 = w2->nextWindow;
+X	}
+X	timeOfLastSave = time(NULL);
+X	break;
+X
+case FZOOM:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FZOOM: window %s not found\n", arg1);
+X		break;
+X	}
+X	if( arg2[0] == '\0' || strcmp(arg2,"vertical")== 0 )
+X		n = 0;
+X	else
+X		n = 1;
+X	ZoomWindow( w, n );
+X	break;
+X
+X/****************************** OTHER COMMANDS *****************************/
+case FREADONLY:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FREADONLY: window %s not found\n", arg1);
+X		break;
+X	}
+X	if( files[w->fileId].flags & READ_ONLY ) {
+X		/* file is readOnly now.  Only allow writing if the */
+X		/* file being edited has DOS write permission */
+X		/* check for read and write permissions (6 => RW) */
+X		if( access(files[w->fileId].origName, 6) == 0 )
+X			files[w->fileId].flags &= ~READ_ONLY;
+X	} else
+X		/* allow any file to be readOnly */
+X		files[w->fileId].flags |= READ_ONLY;
+X	break;
+X
+case FLINENUMBERS:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FLINENUMBERS: window %s not found\n", arg1);
+X		break;
+X	}
+X	switch( arg2[0] ) {
+X	case '1':
+X		w->lineNumbers = 1;
+X		break;
+X	case '0':
+X		w->lineNumbers = 0;
+X		break;
+X	default:
+X		w->lineNumbers = !(w->lineNumbers);
+X		break;
+X	}
+X	drawWindow( w );
+X	break;
+X
+case FCANCEL:
+X	if( copyPending ) {
+X		currentCursor = mainCursor;
+X		XDefineCursor(MainDisplay, selWindow->x_window_id,
+X								currentCursor);
+X		copyPending = 0;
+X	}
+X	if( movePending ) {
+X		movePending = 0;
+X		msg(NULL, 0);
+X	}
+X	break;
+X
+case FOPTION:
+X	if( striccmp(arg1,"set")==0 ) {
+X		SetPointOption( arg2, arg3 );
+X	} else {
+X		ret_string = GetPointOption( arg2 );
+X		Tcl_SetResult( interp, ret_string, TCL_STATIC );
+X	}
+X	break;
+X
+case FINFORMONCLOSE:
+X	w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FINFORMONCLOSE: window %s not found\n", arg1);
+X		break;
+X	}
+X	n = strlen( arg2 ) + strlen( arg3 ) + 2;
+X	w->closeInform = (char *)PtMalloc( n, "string" );
+X	sprintf( w->closeInform, "%s %s", arg2, arg3 );
+X	break;
+X
+X
+case FQUITPOINT:
+X	/* first see if any files have changed */
+X	w2 = windowList;
+X	while(  w2 != NULL ) {
+X		/* see if the file has been edited */
+X		if( files[w2->fileId].flags & IS_CHANGED )
+X			goto areChanges;
+X		w2 = w2->nextWindow;
+X	}
+X	/* no changes, so quit */
+X	goto exitPoint;
+X
+areChanges:
+X        if( arg1[0] == '\0' || striccmp(arg1,"ask")==0 )
+X                n = 1;
+X	if( striccmp(arg1,"save")==0 )
+X		n = 0;
+X	else
+X		n = 2;
+X	while( windowList != NULL ) {
+X		ret = closeWindow( windowList, n );
+X		if( ret == -1 ) {
+X			msg("Window close failed, quit cancelled", 1);
+X			break;
+X		}
+X	}
+X	/* closeWindow removes a window from windowList and sets */
+X	/* windowList to NULL when it is empty -- therefor */
+X	/* this look really will terminate */
+X
+exitPoint:
+X#ifdef HYPERTEXT
+X   	if( hypertextOn )
+X		CloseHypertext();
+X#endif
+X	/* TCL/TK CLEANUP */
+X	Tk_DestroyWindow( TkMainWindow );
+X	Tcl_DeleteInterp( interp );
+X	exit( 0 );
+X	break;
+X
+case FREDRAW:
+X	if( arg1[0] != '\0' )
+X		w = FindWindowByTkName( arg1 );
+X	if( w == NULL ) {
+X		printf("FREDRAW: window %s not found\n", arg1);
+X		break;
+X	}
+X	drawWindow( w );
+X	break;
+X
+case FDONOTHING:
+X	break;
+X
+case FSHOWUNDOS:
+X	if( w == NULL )
+X		break;
+X	ShowUndos( &files[w->fileId] );
+X	break;
+X
+case FPRINTSTATS:
+X	PrintStats( 1 );
+X	break;
+X
+X#ifdef HYPERTEXT
+case FADDFILETODOCUMENT:
+X	AddFileToDocument( w );
+X	sprintf(msgBuffer, "Added file %s into an Anasazi document %s",
+X		&(files[w->fileId].origName[w->nameOffset]),
+X		w->document->name);
+X	msg( msgBuffer, 1 );
+X/***** debug output *****/
+printf( "%s\n", msgBuffer );
+printf("file is %s (%d)\nblock is %s (%d)\nmap is %s (%d)\nview is %s (%d)\n",
+w->file->name, w->file->this_one, w->block->name, w->block->this_one,
+w->blockMap->name, w->blockMap->this_one, w->view->name, w->view->this_one);
+X/***** debug output *****/
+X	drawWindow( w );
+X	break;
+X
+case FCREATEDOCUMENT:
+X	break;
+X
+case FCREATEBLOCK:
+X{
+X	Block block;
+X	AttributeID attrID = PickAttribute( w->document,
+X			"Pick attribute for the new block" );
+X
+X	if( attrID != NullObject ) {
+X		extern struct openFile *files;
+X		int fid;
+X		struct openFile *ff;
+X		Attribute attribute;
+X
+X		block = CreateBlock( w->db, w->document, "block",
+X						attrID, 0, NullObject );
+X/***** debug output *****/
+attribute = GetAttribute( currentDB, attrID, NO_ALLOCATE);
+printf("Created block %s (block ID=%d) with attribute %s (attribute ID=%d)\n",
+block->name, block->this_one, attribute->name, attribute->this_one);
+X/***** debug output *****/
+X
+X		drawSelection( 1 );	/* erase the selection */
+X
+X		fid = w->fileId;
+X		ff = &files[fid];
+X
+X		/* convert selBegin and selEnd to the underlying (real) file */
+X		ret = GetRealSelection( ff, 0/*get both selBegin and selEnd*/);
+X
+X		/* free the piece list of the old view */
+X		FreeOldViewPieces( ff );
+X
+X		/* insert the new block into the real file */
+X		w->fileId = w->realFileId;
+X		(void)InsertBlock( block->this_one );
+X
+X		/* create a new piece table for the view */
+X		w->fileId = CreateViewFile( w );
+X
+X		/* free the block structure since we are done with it */
+X		PtFree( (char *)block );
+X		drawWindow( w );
+X	}
+X	break;
+X}
+X
+case FCREATEATTRIBUTE:
+X{
+X	Attribute attribute;
+X
+X	sprintf( msgBuffer, "MakeModalEntry {%s} {%s} {%s} {%s}",
+X		"Create Attribute", "Name of attribute to create",
+X		"Create attribute", "Cancel" );
+X	(void)ExecTclCommand( msgBuffer );
+X	command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X	if( strcmp(returnString,"XXXcancelXXX") != 0 ) {
+X		attribute = CreateAttribute( currentDB, currentDocument,
+X						returnString );
+X/***** debug output *****/
+printf("Created attribute %s with ID=%d\n",attribute->name,attribute->this_one);
+X/***** debug output *****/
+X		PtFree( (char *)attribute );
+X	}
+X	break;
+X}
+X
+case FCREATEMAP:
+X{
+X	Map map;
+X	char *s, *box_name;
+X	PickListItem * itemList, *item;
+X
+X	sprintf( msgBuffer, "MakeModalEntry {%s} {%s} {%s} {%s}",
+X		"Create Map", "Name of map to create",
+X		"Create map", "Cancel" );
+X	(void)ExecTclCommand( msgBuffer );
+X	command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X	if( strcmp(returnString,"XXXcancelXXX") != 0 ) {
+X		map = CreateMap( currentDB, currentDocument, returnString );
+X/***** debug output *****/
+printf("Created map %s with ID=%d\n",map->name,map->this_one);
+X/***** debug output *****/
+X		/* get the list of items */
+X		itemList = GenerateIDList( currentDocument->firstAttribute,
+X			AttributeMagic );
+X		sprintf( msgBuffer, "MakeMapBox" );
+X		s = ExecTclCommand( msgBuffer );
+X		/* make a copy of the name */
+X		box_name = (char *)PtMalloc( strlen(s)+1, "name" );
+X		strcpy( box_name, s );
+X		/* fill the list box */
+X		item = itemList;
+X		while( itemList != NULL ) {
+X			sprintf( msgBuffer, "%s.alist.items insert end {%s}",
+X						box_name, item->name );
+X			(void)ExecTclCommand( msgBuffer );
+X			item = item->next;
+X		}
+X		PtFree( (char *)box_name );
+X
+X		command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X		if( strcmp(returnString,"XXXcancelXXX") != 0 ) {
+X			int i, n, b[MAP_SIZE];
+X			Attribute attribute;
+X			for( i = 0; i < MAP_SIZE; ++i )
+X				b[i] = 0;
+X			n = sscanf( returnString, "%d %d %d %d %d",
+X				&b[0], &b[1], &b[2], &b[3], &b[4]);
+X/***** debug output *****/
+printf("This map will show block types:\n");
+for( i = 0; i < n; ++i ) {
+X	attribute = GetAttribute( currentDB, (ID)b[i], NO_ALLOCATE );
+X	if( attribute == NULL )
+X		printf("Attribute ID %d is invalid\n", b[i]);
+X	else {
+X		printf("\t%s (%d)\n", attribute->name, b[i]);
+X		map->domain[i] = b[i];
+X	}
+X}
+printf("\n");
+X/***** debug output *****/
+X			PutMap( currentDB, map, 0 );
+X		}
+X		PtFree( (char *)map );
+X		FreeIDList( itemList );
+X	}
+X	break;
+X}
+X
+case FCREATELINK:
+X	DumpTables();
+X	break;
+X
+case FCREATEVIEW:
+X	break;
+X
+case FCHANGEMAP:
+X{
+X	Map map;
+X	int i;
+X	MapID mapID = PickMap( w->document, "Pick map to change to" );
+X
+X	if( mapID != NullObject ) {
+X		/* get the map */
+X		map = GetMap( currentDB, mapID, ALLOCATE );
+X		if( map == NULL ) {
+X			printf("Map ID %d not found\n", mapID );
+X			break;
+X		}
+X
+X		/* free the old map (if any) and install the new one */
+X		PtFree( (char *)(w->blockMap) );
+X		w->blockMap = map;
+X
+X		printf("Current map will show block types:\n");
+X		for( i = 0; i < MAP_SIZE && map->domain[i]!=NullObject; ++i ) {
+X			Attribute attribute;
+X			attribute = GetAttribute( currentDB,
+X						map->domain[i], NO_ALLOCATE );
+X			if( attribute == NULL )
+X				printf("Attribute ID %d is invalid\n",
+X						map->domain[i]);
+X			else
+X				printf("\t%s (%d)\n", attribute->name,
+X						attribute->this_one);
+X		}
+X
+X		/* free the piece list of the old view */
+X		FreeOldViewPieces( &(files[w->fileId]) );
+X
+X		/* create a piece table for the new view */
+X		w->fileId = CreateViewFile( w );
+X
+X		drawWindow( w );
+X	}
+X	break;
+X}
+X
+case FSHOWATTRIBUTES:
+X{
+X	AttributeID attributeID;
+X	Attribute attribute;
+X
+X/***** debug output *****/
+attributeID = currentDocument->firstAttribute;
+printf("\n*** List of all defined attributes ***\n");
+while( attributeID != NullObject ) {
+X	attribute = GetAttribute( currentDB, attributeID, NO_ALLOCATE );
+X	printf("%s (%d)\n", attribute->name, attribute->this_one );
+X	attributeID = attribute->next;
+X}
+X/***** debug output *****/
+X	attributeID = PickAttribute( currentDocument, "Show attributes" );
+X	break;
+X}
+X
+case FSHOWBLOCKS:
+X{
+X	BlockID blockID;
+X	Block block;
+X	int i;
+X
+X/***** debug output *****/
+blockID = currentDocument->firstBlock;
+printf("\n*** List of all defined blocks ***\n");
+while( blockID != NullObject ) {
+X	block = GetBlock( currentDB, blockID, NO_ALLOCATE );
+X	printf("%s (%d) fileID=%d @ %d, attributes:",
+X		block->name, block->this_one, block->file, block->hint );
+X	for( i = 0; i < MAX_ATTRIBUTES; ++i ) {
+X		if( block->attribute[i] == NullObject )
+X			break;
+X		printf(" %d", block->attribute[i]);
+X	}
+X	printf("\n");
+X	blockID = block->next;
+X}
+X/***** debug output *****/
+X	blockID = PickBlock( currentDocument, "Show blocks" );
+X	break;
+X}
+X
+case FSHOWDOCUMENTS:
+X	printf("\n*** The current document ***\n");
+X	printf("%s (%d), next free=%d, initial view=%d\n",
+X		currentDocument->name, currentDocument->this_one,
+X		currentDocument->nextFreeID, currentDocument->initialView );
+X	break;
+X
+case FSHOWFILES:
+X{
+X	FileID fileID;
+X	File file;
+X
+X/***** debug output *****/
+fileID = currentDocument->firstFile;
+printf("\n*** List of all defined files ***\n");
+while( fileID != NullObject ) {
+X	file = GetFile( currentDB, fileID, NO_ALLOCATE );
+X	printf("%s (%d)\n", file->name, file->this_one );
+X	fileID = file->next;
+X}
+X/***** debug output *****/
+X/***** debug output *****/
+X	fileID = PickFile( currentDocument, "Show files" );
+X	break;
+X}
+X
+case FSHOWLINKS:
+X{	LinkID linkID;
+X	Link link;
+X	int i;
+X
+X/***** debug output *****/
+linkID = currentDocument->firstLink;
+printf("\n*** List of all defined links ***\n");
+while( linkID != NullObject ) {
+X	link = GetLink( currentDB, linkID, NO_ALLOCATE );
+X	printf("%s (%d) fromID=%d toID=%d, attributes:",
+X		link->name, link->this_one, link->from, link->to );
+X	for( i = 0; i < MAX_ATTRIBUTES; ++i ) {
+X		if( link->attribute[i] == NullObject )
+X			break;
+X		printf(" %d", link->attribute[i]);
+X	}
+X	printf("\n");
+X	linkID = link->next;
+X}
+X/***** debug output *****/
+X	linkID = PickLink( currentDocument, "Show links" );
+X	break;
+X}
+X
+case FSHOWMAPS:
+X{
+X	MapID mapID;
+X	Map map;
+X
+X/***** debug output *****/
+mapID = currentDocument->firstMap;
+printf("\n*** List of all defined maps ***\n");
+while( mapID != NullObject ) {
+X	int i;
+X	map = GetMap( currentDB, mapID, ALLOCATE );
+X	printf("%s (%d)\n", map->name, map->this_one );
+X	for( i = 0; i < MAP_SIZE && map->domain[i]!=NullObject; ++i ) {
+X		Attribute attribute;
+X		attribute = GetAttribute( currentDB, map->domain[i],
+X								NO_ALLOCATE );
+X		if( attribute == NULL )
+X			printf("Attribute ID %d is invalid\n",
+X					map->domain[i]);
+X		else
+X			printf("\t%s (%d)\n", attribute->name,
+X					attribute->this_one);
+X	}
+X	mapID = map->next;
+X	PtFree( (char *)map );
+X}
+X/***** debug output *****/
+X	mapID = PickMap( currentDocument, "Show maps" );
+X	break;
+X}
+X
+case FSHOWTEXTS:
+X{
+X	TextID textID;
+X	Text text;
+X
+X/***** debug output *****/
+textID = currentDocument->firstText;
+printf("\n*** List of all defined texts ***\n");
+while( textID != NullObject ) {
+X	text = GetText( currentDB, textID, NO_ALLOCATE );
+X	printf("%s (%d)\n", text->s, text->this_one );
+X	textID = text->next;
+X}
+X/***** debug output *****/
+X	textID = PickText( currentDocument, "Show texts" );
+X	break;
+X}
+X
+case FSHOWVIEWS:
+X{	ViewID viewID;
+X	View view;
+X
+X/***** debug output *****/
+viewID = currentDocument->firstView;
+printf("\n*** List of all defined views ***\n");
+while( viewID != NullObject ) {
+X	view = GetView( currentDB, viewID, NO_ALLOCATE );
+X	printf("%s (%d), block=%d, fromLinkMap=%d, toLinkMap=%d, blockMap=%d\n",
+X		view->name, view->this_one, view->blockID,
+X		view->fromLinkMap, view->toLinkMap,
+X		view->blockMap );
+X	viewID = view->next;
+X}
+X/***** debug output *****/
+X	viewID = PickView( currentDocument, "Show views" );
+X	break;
+X}
+X#endif
+X
+default:
+X	sprintf(msgBuffer, "No action is defined for command %d", fn);
+X	msg(msgBuffer, 1);
+X	break;
+X}
+lastFn = fn;
+if( fn != FDONOTHING && fn > 0 ) 
+X	lastCommand = fn;
+X
+return ret_string;
+X}
+X
+END_OF_FILE
+if test 40012 -ne `wc -c <'command.c'`; then
+    echo shar: \"'command.c'\" unpacked with wrong size!
+fi
+# end of 'command.c'
+fi
+echo shar: End of archive 12 \(of 15\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

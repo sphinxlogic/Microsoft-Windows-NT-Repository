@@ -1,0 +1,1012 @@
+Newsgroups: comp.sources.misc
+From: vicente@cenaath.cena.dgac.fr (Martin VICENTE)
+Subject: v34i082:  vms_rtl_kbd - single keypress under VMS, Part02/02
+Message-ID: <1992Dec18.214433.15695@sparky.imd.sterling.com>
+X-Md4-Signature: 3358da1ae4451d7614f06e922e1fa384
+Date: Fri, 18 Dec 1992 21:44:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: vicente@cenaath.cena.dgac.fr (Martin VICENTE)
+Posting-number: Volume 34, Issue 82
+Archive-name: vms_rtl_kbd/part02
+Environment: VMS, C, Pascal, ADA
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  LISEZ-MOI demo_kbd$routines.c demo_kbd$routines.pas
+#   demo_kbd_routines.ada kbd$routines.h link_cc.opt
+# Wrapped by kent@sparky on Fri Dec 18 15:30:49 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'LISEZ-MOI' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'LISEZ-MOI'\"
+else
+  echo shar: Extracting \"'LISEZ-MOI'\" \(3816 characters\)
+  sed "s/^X//" >'LISEZ-MOI' <<'END_OF_FILE'
+XLISEZ-MOI							       18/12/92
+X
+X
+X                            K B D $ R O U T I N E S
+X
+X
+X             << Single keypress under VMS in C, Pascal and Ada >>
+X
+X
+X Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne.
+X   Author: Martin VICENTE (DGAC/CENA/SID)
+X   E-mail: vicente@cenaath.cena.dgac.fr
+X   Mail:   C.E.N.A. - Orly Sud 205 - 94 542 ORLY AEROGARE CEDEX, FRANCE
+X
+X
+XComment lire "a la volee" des caracteres du clavier sous VMS ?
+X**************************************************************
+X
+X	Peut-etre certains d'entre vous ont-ils ete confronte a ce probleme,
+X    et trouve certaines solutions: librairie SMG$, appels systeme.
+X
+X	L'appel a une routine de la Run-Time Library SMG permet effectivement
+X    de s'en sortir (polling sur SMG$READ_KEYSTROKE avec un time-out nul), mais
+X    avec des consequences desastreuses sur la consommation CPU!
+X
+X	La solution de l'appel systeme est certainement la meilleure, mais
+X    necessite d'etre initie.
+X
+X	Nous avons donc developpe cette extension de la RTL offrant
+X    ainsi a l'utilisateur une interface beaucoup plus simple a manier.
+X    Elle est accessible au developeur C, Pascal et Ada.
+X
+X
+XLa distribution contient les fichiers suivant:
+X**********************************************
+X
+X    Pour C:
+X
+X		KBD$ROUTINES.H		  Fichier header
+X		DEMO_KBD$ROUTINES.C	  Programme de demo
+X
+X    Pour Pascal:
+X
+X		PASCAL$KBD_ROUTINES.PAS	  Declaration des routines
+X		DEMO_KBD$ROUTINES.PAS	  Programme de demo
+X
+X    Pour Ada:
+X
+X		KBD_.ADA		  Declaration des specifications.
+X		DEMO_KBD_ROUTINES.ADA	  Programme de demo
+X
+X
+XLa bibliotheque KBD contient 6 routines:
+X****************************************
+X
+X    KBD$CLOSE_KEYBOARD:	 Libere la memoire des structures de donnees associees
+X			 a ce module.
+X
+X    KBD$CVT_ANSI_SMG:	 Convertit la sequence ANSI d'une touche en un code
+X			 SMG.
+X
+X    KBD$FLUSH_KEYBOARD:  Vide le tampon clavier.
+X
+X    KBD$KEY_PRESSED:	 Indique si au moins une touche est presente dans le
+X			 tampon.
+X
+X    KBD$OPEN_KEYBOARD:	 Creation et initialisation des structures de donnees
+X			 associees au module.
+X
+X    KBD$READ_KEYSTROKE:  Extrait la touche suivante du tampon; si ce dernier
+X			 est vide, se met en attente d'une action au clavier.
+X
+X
+XDescription de l'implementation:
+X********************************
+X
+X	Le module repose sur l'algorithme producteur-consommateur,
+X    l'utilisation de primitives de VAX/VMS (System Services: $GETDVI, $QIO,
+X    etc), d'un sous-programme d'interruption (AST) et de la librairie
+X    PASCAL$PPL_ROUTINES.
+X
+X	Le producteur est un sous-programme d'interruption active par une
+X    action au clavier, alimentant une memoire tampon. Le consommateur est la
+X    fonction KBD$READ_KEYSTROKE qui preleve a chaque appel une sequence ANSI
+X    de la memoire tampon. Le tampon clavier est gere circulairement.
+X
+X	Lorsque le tampon est plein, l'utilisateur est prevenu par un beep
+X    sonore.
+X 
+X
+XUTILISATION PRATIQUE:
+X*********************
+X
+X    1/ Creez votre bibliotheque d'objets:
+X
+X		$ LIBRARY/CREATE/OBJECT MYLIB
+X
+X       Si vous voulez donner un autre nom a la bibliotheque, ou bien si vous
+X       avez deja une bibliotheque, vous devez modifiez la variable "LIB" dans
+X       le fichier BUILD.COM.
+X
+X    2/ Compilez et inserez le module KBD$ROUTINES dans la bibliotheque:
+X
+X		$ @BUILD
+X		$ @BUILD 3  (ou KP3)
+X
+X    3/ Compilez et inserez les messages d'erreurs dans la bibliotheque:
+X
+X		$ MESSAGE KBDMSG
+X		$ LIBRARY/REPLACE MYLIB KBDMSG
+X
+X    4/ En Pascal
+X
+X		$ PASCAL DEMO_KBD$ROUTINES
+X		$ LINK DEMO_KBD$ROUTINES, MYLIB/LIBRARY
+X		$ RUN DEMO_KBD$ROUTINES
+X
+X    5/ En C
+X
+X		$ CC DEMO_KBD$ROUTINES
+X		$ LINK DEMO_KBD$ROUTINES, MYLIB/LIBRARY, LINK_CC.OPT/OPTION
+X		$ RUN DEMO_KBD$ROUTINES
+X
+X    6/ En Ada
+X
+X		$ ACS SET LIBRARY MYLIBADA
+X		$ ADA KBD_
+X		$ ADA DEMO_KBD_ROUTINES
+X		$ DEFINE LNK$LIBRARY MYLIB
+X		$ ACS LINK DEMO_KBD_ROUTINES
+X		$ DEASSIGN LNK$LIBRARY
+END_OF_FILE
+  if test 3816 -ne `wc -c <'LISEZ-MOI'`; then
+    echo shar: \"'LISEZ-MOI'\" unpacked with wrong size!
+  fi
+  # end of 'LISEZ-MOI'
+fi
+if test -f 'demo_kbd$routines.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demo_kbd$routines.c'\"
+else
+  echo shar: Extracting \"'demo_kbd$routines.c'\" \(4884 characters\)
+  sed "s/^X//" >'demo_kbd$routines.c' <<'END_OF_FILE'
+X/*
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X*/
+X
+X
+X
+X
+X/*****************************************************************************
+X *****************************************************************************
+X **									    **
+X **               D E M O   D E S   R O U T I N E S   K B D $               **
+X **									    **
+X ******* Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne ********
+X *****************************************************************************/
+X
+X
+X
+X
+X/*
+X * Titre:	   DEMO DES ROUTINES KBD$
+X *
+X * Sujet:	   Single keypress under VMS.
+X *
+X * Version:	   1.0-00
+X *
+X * Description:	   Programme de demonstration des routines kbd$.
+X *
+X *		       Ce programme de demonstration met en oeuvre la fonction
+X *		   kbd$read_keystroke permettant d'attendre une action au
+X *		   clavier et renvoyant la sequence ANSI correspondant a la
+X *		   touche actionnee.
+X *
+X *		       Lorsque le tampon est plein, l'utilisateur est prevenu
+X *                 par un beep sonore emit par le sous-programme d'IT.
+X *
+X *		       Afin de pouvoir recuperer les codes emis par CTRL/C,
+X *                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X *                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X *                 /NOTTSYNC".
+X *
+X *                     Pour utiliser kbd$read_keystroke, vous devez appeler au
+X *		   prealable la fonction kbd$open_keyboard et terminer par
+X *		   kbd$close_keyboard.
+X *                 La routine kbd$open_keyboard permet, entre autres, de ne
+X *		   creer la zone tampon que si l'on desire reellement utiliser
+X *                 kbd$read_keystroke.
+X *
+X * Langage:	   C ANSI
+X *
+X * Fichier:	   DEMO_KBD$ROUTINES.C
+X *
+X * Environnement:  Machine cible:          VAX
+X *                 Systeme d'exploitation: VAX/VMS Version 5.4-3
+X *                 Compilateur:            VAX C Version 3.2-044
+X *
+X * Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X *
+X *		   E-mail: vicente@cenaath.cena.dgac.fr
+X *
+X *		   Mail:   C.E.N.A.
+X *			   Div. Support Informatique & Developpement
+X *			   Orly Sud 205
+X *			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X *
+X * Creation:	   23/05/92
+X *
+X * Modification:   26/05/92
+X *
+X */
+X
+X
+X
+X
+X#include <stdio.h>
+X#include <lib$routines.h>
+X#include "kbd$routines.h"
+X
+X
+Xconst float  second = 1.0;
+X
+Xstatic void  perform();
+X
+X
+Xmain() 
+X{
+X    char                 yes;
+X    int                  i;
+X    kbd$t_ansi_sequence  key;
+X
+X
+X    perform(kbd$open_keyboard());
+X
+X    (void) printf("Press a key.\n");
+X
+X    do {
+X	(void) kbd$key_pressed(&yes);
+X    } while (!yes);
+X
+X    (void) printf("Five loop...\n");
+X
+X    for (i = 0; i < 5; i++) {
+X        (void) printf("Programme principal (loop): %d\n", i);
+X        (void) lib$wait(&second);
+X    }
+X
+X    (void) printf("Five readkey...\n");
+X
+X    for (i = 0; i < 5; i++) {
+X        (void) printf("Programme principal (SMG code): ");
+X        perform(kbd$read_keystroke(&key));
+X        (void) printf("%d\n", kbd$cvt_ansi_smg(&key));
+X    }
+X
+X    (void) printf("Five loop...\n");
+X
+X    for (i = 0; i < 5; i++) {
+X        (void) printf("Programme principal (loop): %d\n", i);
+X        (void) lib$wait(&second);
+X    }
+X
+X    (void) printf("Flush keyboard.\n");
+X
+X    perform(kbd$flush_keyboard());
+X
+X    (void) printf("Five loop...\n");
+X
+X    for (i = 0; i < 5; i++) {
+X        (void) printf("Programme principal (loop): %d\n", i);
+X        (void) lib$wait(&second);
+X    }
+X
+X    (void) printf("End\n");
+X
+X    perform(kbd$close_keyboard());
+X}
+X
+X
+Xstatic void perform(unsigned cond_value)
+X{
+X    if (!(cond_value & 1)) (void) lib$stop(cond_value);
+X}
+END_OF_FILE
+  if test 4884 -ne `wc -c <'demo_kbd$routines.c'`; then
+    echo shar: \"'demo_kbd$routines.c'\" unpacked with wrong size!
+  fi
+  # end of 'demo_kbd$routines.c'
+fi
+if test -f 'demo_kbd$routines.pas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demo_kbd$routines.pas'\"
+else
+  echo shar: Extracting \"'demo_kbd$routines.pas'\" \(4931 characters\)
+  sed "s/^X//" >'demo_kbd$routines.pas' <<'END_OF_FILE'
+X(*
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X*)
+X
+X
+X
+X
+X(*****************************************************************************)
+X(*****************************************************************************)
+X(**                                                                         **)
+X(**               D E M O   D E S   R O U T I N E S   K B D $               **)
+X(**                                                                         **)
+X(******** Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne *******)
+X(*****************************************************************************)
+X
+X
+X
+X
+X(*
+X * Titre:	   DEMO DES ROUTINES KBD$
+X *
+X * Sujet:	   Programme de demonstration des routines KBD$.
+X *
+X * Version:	   1.0
+X *
+X * Description:	       Ce programme de demonstration met en oeuvre la fonction
+X *		   KBD$READ_KEYSTROKE permettant d'attendre une action au
+X *		   clavier et renvoyant la sequence ANSI correspondant a la
+X *		   touche actionnee.
+X *
+X *		       Lorsque le tampon est plein, l'utilisateur est prevenu
+X *                 par un beep sonore emit par le sous-programme d'IT.
+X *
+X *		       Afin de pouvoir recuperer les codes emis par CTRL/C,
+X *                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X *                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X *                 /NOTTSYNC".
+X *
+X *                     Pour utiliser KBD$READ_KEYSTROKE, vous devez appeler au
+X *		   prealable la fonction KBD$OPEN_KEYBOARD et terminer par
+X *		   KBD$CLOSE_KEYBOARD.
+X *                 La routine KBD$OPEN_KEYBOARD permet, entre autres, de ne
+X *		   creer la zone tampon que si l'on desire reellement utiliser
+X *                 KBD$READ_KEYSTROKE.
+X *
+X * Langage:	   PASCAL QUASI STANDARD
+X *
+X * Fichier:	   DEMO_PASCAL$KBD_ROUTINES.PAS
+X *                       
+X * Environnement:  Machine cible:          VAX
+X *		   Systeme d'exploitation: VAX/VMS Version 5.4-3
+X *		   Compilateur:            VAX Pascal Version 4.3
+X *
+X * Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X *
+X *		   E-mail: vicente@cenaath.cena.dgac.fr
+X *
+X *		   Mail:   C.E.N.A.
+X *			   Div. Support Informatique & Developpement
+X *			   Orly Sud 205
+X *			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X *
+X * Creation:	   19/05/92
+X *
+X * Modification:   26/05/92
+X *
+X *)
+X
+X
+X
+X
+X[INHERIT( 'sys$library:pascal$lib_routines',
+X	  'vic$library:pascal$kbd_routines'  )]
+X
+X
+XPROGRAM  demo_kbd$routines (output);
+X
+X
+XPROCEDURE  perform (cond_value : UNSIGNED);
+X
+XBEGIN
+X
+X   IF NOT Odd (cond_value) THEN LIB$STOP (cond_value)
+X
+XEND (* perform *);
+X
+X
+XVAR
+X
+X   yes : BOOLEAN;
+X   i   : INTEGER;
+X   key : KBD$T_ANSI_SEQUENCE;
+X
+X
+XBEGIN
+X
+X   perform (KBD$OPEN_KEYBOARD);
+X
+X   Writeln ('Press a key.');
+X
+X   REPEAT
+X      perform (KBD$KEY_PRESSED (yes))
+X   UNTIL yes;
+X
+X   Writeln ('Five loop...');
+X
+X   FOR i := 1 TO 5 DO BEGIN
+X      Writeln ('Programme principal (loop): ', i:2);
+X      perform (LIB$WAIT (1))
+X   END {FOR};
+X
+X   Writeln ('Five readkey...');
+X
+X   FOR i := 1 TO 5 DO BEGIN
+X      Write ('Programme principal (SMG code): ');
+X      perform (KBD$READ_KEYSTROKE (key));
+X      Writeln (KBD$CVT_ANSI_SMG (key):5)
+X   END {FOR};
+X
+X   Writeln ('Five loop...');
+X
+X   FOR i := 1 TO 5 DO BEGIN
+X      Writeln ('Programme principal (loop): ', i:2);
+X      perform (LIB$WAIT (1))
+X   END {FOR};
+X
+X   Writeln ('Flush keyboard.');
+X
+X   perform (KBD$FLUSH_KEYBOARD);
+X
+X   Writeln ('Five loop...');
+X
+X   FOR i := 1 TO 5 DO BEGIN
+X      Writeln ('Programme principal (loop): ', i:2);
+X      perform (LIB$WAIT (1))
+X   END {FOR};
+X
+X   Writeln ('End');
+X
+X   perform (KBD$CLOSE_KEYBOARD)
+X
+XEND (* DEMO PASCAL$KBD_ROUTINES *).
+END_OF_FILE
+  if test 4931 -ne `wc -c <'demo_kbd$routines.pas'`; then
+    echo shar: \"'demo_kbd$routines.pas'\" unpacked with wrong size!
+  fi
+  # end of 'demo_kbd$routines.pas'
+fi
+if test -f 'demo_kbd_routines.ada' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demo_kbd_routines.ada'\"
+else
+  echo shar: Extracting \"'demo_kbd_routines.ada'\" \(5771 characters\)
+  sed "s/^X//" >'demo_kbd_routines.ada' <<'END_OF_FILE'
+X
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X
+X
+X
+X
+X--*****************************************************************************
+X--*****************************************************************************
+X--**                                                                         **
+X--**               D E M O   D E S   R O U T I N E S   K B D $               **
+X--**                                                                         **
+X--******** Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne *******
+X--*****************************************************************************
+X
+X
+X
+X
+X-- ++
+X--
+X-- Titre:	   DEMO DES ROUTINES KBD$
+X--
+X-- Sujet:	   Programme de demonstration des routines KBD$.
+X--
+X-- Version:	   1.0
+X--
+X-- Description:	       Ce programme de demonstration met en oeuvre la fonction
+X--		   KBD$READ_KEYSTROKE permettant d'attendre une action au
+X--		   clavier et renvoyant la sequence ANSI correspondant a la
+X--		   touche actionnee.
+X--
+X--		       Lorsque le tampon est plein, l'utilisateur est prevenu
+X--                 par un beep sonore emit par le sous-programme d'IT.
+X--
+X--		       Afin de pouvoir recuperer les codes emis par CTRL/C,
+X--                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X--                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X--                 /NOTTSYNC".
+X--
+X--                     Pour utiliser KBD$READ_KEYSTROKE, vous devez appeler au
+X--		   prealable la fonction KBD$OPEN_KEYBOARD et terminer par
+X--		   KBD$CLOSE_KEYBOARD.
+X--                 La routine KBD$OPEN_KEYBOARD permet, entre autres, de ne
+X--		   creer la zone tampon que si l'on desire reellement utiliser
+X--                 KBD$READ_KEYSTROKE.
+X--
+X-- Langage:	   ADA
+X--
+X-- Fichier:	   DEMO_KBD_ROUTINES.ADA
+X--                       
+X-- Environnement:  Machine cible:          VAX
+X--		   Systeme d'exploitation: VAX/VMS Version 5.4
+X--		   Compilateur:            VAX Ada Version 2.1-28
+X--
+X-- Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X--
+X--		   E-mail: vicente@cenaath.cena.dgac.fr
+X--
+X--		   Mail:   C.E.N.A.
+X--			   Div. Support Informatique & Developpement
+X--			   Orly Sud 205
+X--			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X--
+X-- Creation:	   25/05/92
+X--
+X-- Modification:   25/05/92
+X--
+X-- --
+X
+X
+X
+X
+Xwith CONDITION_HANDLING;
+Xwith SYSTEM;
+Xwith LIB;
+Xwith KBD;
+Xwith TEXT_IO;
+X
+Xuse CONDITION_HANDLING;
+Xuse SYSTEM;
+Xuse KBD;
+Xuse TEXT_IO;
+X
+X
+Xprocedure DEMO_KBD_ROUTINES is
+X
+X
+X    COND_VALUE : COND_VALUE_TYPE;
+X    YES        : BOOLEAN;
+X    I          : INTEGER;
+X    KEY        : T_ANSI_SEQUENCE;
+X    CODE       : UNSIGNED_WORD;
+X
+X
+X    procedure CHECK (COND_VALUE : in COND_VALUE_TYPE) is
+X    begin
+X        if not SUCCESS (COND_VALUE) then
+X	    STOP (COND_VALUE);
+X        end if;
+X    end CHECK;
+X
+X
+X    package LOCAL_INTEGER_IO is new TEXT_IO.INTEGER_IO(INTEGER);
+X    use LOCAL_INTEGER_IO;
+X
+X
+Xbegin
+X
+X    OPEN_KEYBOARD (COND_VALUE => COND_VALUE);
+X    CHECK (COND_VALUE => COND_VALUE);
+X
+X    PUT_LINE ("Press a key.");
+X
+X    loop
+X        KEY_PRESSED (COND_VALUE => COND_VALUE, YES => YES);
+X        CHECK (COND_VALUE => COND_VALUE);
+X	exit when YES;
+X    end loop;
+X
+X    PUT_LINE ("Five loop...");
+X
+X    for I in 1..5 loop
+X        PUT ("Programme principal (loop): ");
+X	PUT (I);
+X	NEW_LINE;
+X        LIB.WAIT (STATUS => COND_VALUE, SECONDS => 1.0);
+X        CHECK (COND_VALUE => COND_VALUE);
+X    end loop;
+X
+X    PUT_LINE ("Five readkey...");
+X
+X    for I in 1..5 loop
+X        PUT ("Programme principal (SMG code): ");
+X        READ_KEYSTROKE (COND_VALUE => COND_VALUE, KEY => KEY);
+X        CHECK (COND_VALUE => COND_VALUE);
+X        CVT_ANSI_SMG (SMG_CODE => CODE, SEQUENCE => KEY);
+X        PUT (natural (CODE));
+X	NEW_LINE;
+X    end loop;
+X
+X    PUT_LINE ("Five loop...");
+X
+X    for I in 1..5 loop
+X        PUT ("Programme principal (loop): ");
+X	PUT (I);
+X	NEW_LINE;
+X	delay 1.0;
+X--      LIB.WAIT (STATUS => COND_VALUE, SECONDS => 1.0);
+X--      CHECK (COND_VALUE => COND_VALUE);
+X    end loop;
+X
+X    PUT_LINE ("Flush keyboard.");
+X
+X    FLUSH_KEYBOARD (COND_VALUE => COND_VALUE);
+X    CHECK (COND_VALUE => COND_VALUE);
+X
+X    PUT_LINE ("Five loop...");
+X
+X    for I in 1..5 loop
+X        PUT ("Programme principal (loop): ");
+X	PUT (I);
+X	NEW_LINE;
+X	delay 1.0;
+X--      LIB.WAIT (STATUS => COND_VALUE, SECONDS => 1.0);
+X--      CHECK (COND_VALUE => COND_VALUE);
+X    end loop;
+X
+X    PUT_LINE ("End");
+X
+X    CLOSE_KEYBOARD (COND_VALUE => COND_VALUE);
+X    CHECK (COND_VALUE => COND_VALUE);
+X
+Xend DEMO_KBD_ROUTINES;
+END_OF_FILE
+  if test 5771 -ne `wc -c <'demo_kbd_routines.ada'`; then
+    echo shar: \"'demo_kbd_routines.ada'\" unpacked with wrong size!
+  fi
+  # end of 'demo_kbd_routines.ada'
+fi
+if test -f 'kbd$routines.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'kbd$routines.h'\"
+else
+  echo shar: Extracting \"'kbd$routines.h'\" \(6249 characters\)
+  sed "s/^X//" >'kbd$routines.h' <<'END_OF_FILE'
+X#ifndef __KBD$ROUTINES_LOADED
+X#define __KBD$ROUTINES_LOADED  1
+X
+X
+X/*
+X------------------ Distribution and Copyright -----------------
+X--
+X-- This software is copyright by the CENA/DGAC/FRANCE
+X-- All rights reserved.
+X--
+X-- No part of the material protected by this copyright notice
+X-- may be reproduced or utilized for commercial use in any form
+X-- without written permission of the copyright owner.
+X--
+X-- It may be reproduced or utilized for R&D use in Non Profit
+X-- Organization
+X--
+X---------------------------------------------------------------
+X
+X
+X------------------ Disclaimer ---------------------------------
+X--
+X-- This software and its documentation are provided "AS IS" and
+X-- without any expressed or implied warranties whatsoever.
+X-- No warranties as to performance, merchantability, or fitness
+X-- for a particular purpose exist.
+X--
+X-- Because of the diversity of conditions and hardware under
+X-- which this software may be used, no warranty of fitness for
+X-- a particular purpose is offered.  The user is advised to
+X-- test the software thoroughly before relying on it.  The user
+X-- must assume the entire risk and liability of using this
+X-- software.
+X--
+X-- In no event shall any person or organization of people be
+X-- held responsible for any direct, indirect, consequential
+X-- or inconsequential damages or lost profits.
+X--                                                           
+X-------------------END-PROLOGUE--------------------------------
+X*/
+X
+X
+X
+X
+X/*****************************************************************************
+X *****************************************************************************
+X **									    **
+X **               D E M O   D E S   R O U T I N E S   K B D $               **
+X **									    **
+X ******* Copyright (C) 1992 Centre d'Etudes de la Navigation Aerienne ********
+X *****************************************************************************/
+X
+X
+X
+X
+X/*
+X * Titre:	   HEADER KBD$ROUTINES
+X *
+X * Sujet:	   Fichier d'en-tete pour le module KBD$ROUTINES.
+X *
+X * Version:	   1.0
+X *
+X * Description:	       Ce module contient la declaration de la fonction
+X *                 kbd$read_keystroke permettant d'attendre une action au
+X *		   clavier et renvoyant la sequence ANSI correspondant a la
+X *		   touche actionnee.
+X *
+X *                     Pour utiliser kbd$read_keystroke, il necessaire
+X *		   d'appeler au prealable la fonction kbd$open_keyboard et de
+X *		   terminer par kbd$close_keyboard.
+X *                 La routine kbd$open_keyboard permet, entre autres, de ne
+X *		   creer le tampon clavier que si l'on desire reellement
+X *		   utiliser kbd$read_keystroke.
+X *
+X *                     Lorsque le tampon est plein, l'utilisateur est prevenu
+X *                 par un beep sonore.
+X *
+X *		       La fonction kbd$flush_keyboard permet de vider le
+X *		   tampon clavier.
+X *
+X *                    Afin de pouvoir recuperer les codes emis par CTRL/C,
+X *                 CTRL/O, CTRL/Q, CTRL/S, CTRL/T, CTRL/X, CTRL/Y et F6, il est
+X *                 necessaire d'entrer la commande DCL "SET TERMINAL/PASTHRU
+X *                 /NOTTSYNC".
+X *
+X * Langage:	   C ANSI
+X *
+X * Fichier:	   KBD$ROUTINES.H
+X *
+X * Environnement:  Machine cible:          VAX
+X *                 Systeme d'exploitation: VAX/VMS Version 5.4-3
+X *                 Compilateur:            VAX C Version 3.2-044
+X *
+X * Auteur:	   Martin VICENTE (DGAC/CENA/SID)
+X *
+X *		   E-mail: vicente@cenaath.cena.dgac.fr
+X *
+X *		   Mail:   C.E.N.A.
+X *			   Div. Support Informatique & Developpement
+X *			   Orly Sud 205
+X *			   94 542 ORLY AEROGARE CEDEX, FRANCE
+X *
+X * Creation:	   23/05/92
+X *
+X * Modification:   26/05/92
+X *
+X */
+X
+X
+X
+X
+X/*****************************************************************************
+X *	TYPE DEFINITIONS						     *
+X *****************************************************************************/
+X
+X
+Xtypedef unsigned char  kbd$t_escape_overflow_buffer[4];
+X
+Xtypedef struct {
+X    unsigned char                 ascii;
+X    kbd$t_escape_overflow_buffer  escOverBuffer;
+X} kbd$t_ansi_sequence;
+X
+X
+X
+X
+X/*****************************************************************************
+X *****************************************************************************
+X **                        KBD$ FUNCTION DECLARATION                        **
+X *****************************************************************************
+X *****************************************************************************/
+X
+X
+X
+X
+X/*
+X * kbd$close_keyboard
+X *
+X *   Libere la memoire des structures de donnees associees a ce module.
+X */
+X
+Xunsigned kbd$close_keyboard();
+X
+X
+X/*
+X * kbd$cvt_ansi_smg
+X *
+X *   Convertit la sequence ANSI d'une touche en un code SMG.
+X *
+X *   Liste des codes pouvant etre renvoyes (ils sont definis dans
+X *   SYS$LIBRARY:SMGDEF.H):
+X *
+X *	ascii (0 - 255)		SMG$K_TRM_UP		SMG$K_TRM_DOWN
+X *	SMG$K_TRM_RIGHT		SMG$K_TRM_LEFT		SMG$K_TRM_ENTER
+X *	SMG$K_TRM_PF1		SMG$K_TRM_PF2		SMG$K_TRM_PF3
+X *	SMG$K_TRM_PF4		SMG$K_TRM_COMMA		SMG$K_TRM_MINUS
+X *	SMG$K_TRM_PERIOD	SMG$K_TRM_KP0		SMG$K_TRM_KP1
+X *	SMG$K_TRM_KP2		SMG$K_TRM_KP3		SMG$K_TRM_KP4
+X *	SMG$K_TRM_KP5		SMG$K_TRM_KP6		SMG$K_TRM_KP7
+X *	SMG$K_TRM_KP8		SMG$K_TRM_KP9		SMG$K_TRM_FIND
+X *	SMG$K_TRM_INSERT_HERE	SMG$K_TRM_REMOVE	SMG$K_TRM_SELECT
+X *	SMG$K_TRM_PREV_SCREEN	SMG$K_TRM_NEXT_SCREEN	SMG$K_TRM_F6
+X *	SMG$K_TRM_F7		SMG$K_TRM_F8		SMG$K_TRM_F9
+X *	SMG$K_TRM_F10		SMG$K_TRM_F11		SMG$K_TRM_F12
+X *	SMG$K_TRM_F13		SMG$K_TRM_F14		SMG$K_TRM_HELP
+X *	SMG$K_TRM_DO		SMG$K_TRM_F17		SMG$K_TRM_F18
+X *	SMG$K_TRM_F19		SMG$K_TRM_F20		SMG$K_TRM_UP
+X *	SMG$K_TRM_DOWN		SMG$K_TRM_RIGHT		SMG$K_TRM_LEFT
+X *	SMG$K_TRM_UNKNOWN
+X */
+X
+Xunsigned kbd$cvt_ansi_smg();
+X
+X
+X/*
+X * kbd$flush_keyboard
+X *
+X *   Vide le tampon clavier.
+X */
+X
+Xunsigned kbd$flush_keyboard();
+X
+X
+X/*
+X * kbd$key_pressed
+X *
+X *   Indique si au moins une touche est presente dans le tampon.
+X */
+X
+Xunsigned kbd$key_pressed();
+X
+X
+X/*
+X * kbd$open_keyboard
+X *
+X *   Creation et initialisation des structures de donnees associees au module.
+X */
+X
+Xunsigned kbd$open_keyboard();
+X
+X
+X/*
+X * kbd$read_keystroke
+X *
+X *   Extrait la touche suivante du tampon; si ce dernier est vide, se met en
+X *   attente d'une action au clavier.
+X */
+X
+Xunsigned kbd$read_keystroke();
+X
+X
+X
+X
+X/*****************************************************************************/
+X
+X#endif  /* __KBD$ROUTINES_LOADED */
+END_OF_FILE
+  if test 6249 -ne `wc -c <'kbd$routines.h'`; then
+    echo shar: \"'kbd$routines.h'\" unpacked with wrong size!
+  fi
+  # end of 'kbd$routines.h'
+fi
+if test -f 'link_cc.opt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'link_cc.opt'\"
+else
+  echo shar: Extracting \"'link_cc.opt'\" \(235 characters\)
+  sed "s/^X//" >'link_cc.opt' <<'END_OF_FILE'
+X! Fichier d'options pour le linker VAX/VMS
+X! A utiliser pour du code genere par le compilateur CC natif
+X!
+XSYS$LIBRARY:VAXCRTLG.OLB/LIBRARY                ! C Library
+XSYS$LIBRARY:VAXCRTL.EXE/SHAREABLE               ! C Run Time Library
+END_OF_FILE
+  if test 235 -ne `wc -c <'link_cc.opt'`; then
+    echo shar: \"'link_cc.opt'\" unpacked with wrong size!
+  fi
+  # end of 'link_cc.opt'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

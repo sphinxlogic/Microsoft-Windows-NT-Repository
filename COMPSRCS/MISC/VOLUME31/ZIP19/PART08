@@ -1,0 +1,1795 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i100:  zip19 - Info-ZIP portable Zip, version 1.9, Part08/11
+Message-ID: <1992Aug23.064803.29419@sparky.imd.sterling.com>
+X-Md4-Signature: 0d324eadec388c13d7566bdfa95fe008
+Date: Sun, 23 Aug 1992 06:48:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 100
+Archive-name: zip19/part08
+Supersedes: zip: Volume 23, Issue 88-96
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, XOS, !AMIGA, ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun, PC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  bits.c makecrc.c os2/makefile.os2.UU vms/VMSmunch.c
+#   zipnote.c zipup.c
+# Wrapped by kent@sparky on Sun Aug 23 01:00:46 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 11)."'
+if test -f 'bits.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bits.c'\"
+else
+  echo shar: Extracting \"'bits.c'\" \(11292 characters\)
+  sed "s/^X//" >'bits.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  bits.c by Jean-loup Gailly and Kai Uwe Rommel.
+X *
+X *  This is a new version of im_bits.c originally written by Richard B. Wales
+X *
+X *  PURPOSE
+X *
+X *      Output variable-length bit strings. Compression can be done
+X *      to a file or to memory.
+X *
+X *  DISCUSSION
+X *
+X *      The PKZIP "deflate" file format interprets compressed file data
+X *      as a sequence of bits.  Multi-bit strings in the file may cross
+X *      byte boundaries without restriction.
+X *
+X *      The first bit of each byte is the low-order bit.
+X *
+X *      The routines in this file allow a variable-length bit value to
+X *      be output right-to-left (useful for literal values). For
+X *      left-to-right output (useful for code strings from the tree routines),
+X *      the bits must have been reversed first with bi_reverse().
+X *
+X *      For in-memory compression, the compressed bit stream goes directly
+X *      into the requested output buffer. The input data is read in blocks
+X *      by the mem_read() function.
+X *
+X *  INTERFACE
+X *
+X *      void bi_init (FILE *zipfile)
+X *          Initialize the bit string routines.
+X *
+X *      void send_bits (int value, int length)
+X *          Write out a bit string, taking the source bits right to
+X *          left.
+X *
+X *      int bi_reverse (int value, int length)
+X *          Reverse the bits of a bit string, taking the source bits left to
+X *          right and emitting them right to left.
+X *
+X *      void bi_windup (void)
+X *          Write out any remaining bits in an incomplete byte.
+X *
+X *      void copy_block(char far *buf, unsigned len, int header)
+X *          Copy a stored block to the zip file, storing first the length and
+X *          its one's complement if requested.
+X *
+X *      int seekable(void)
+X *          Return true if the zip file can be seeked.
+X *
+X *      ulg memcompress (char *tgt, ulg tgtsize, char *src, ulg srcsize);
+X *          Compress the source buffer src into the target buffer tgt.
+X */
+X
+X#include "zip.h"
+X
+X/* ===========================================================================
+X * Local data used by the "bit string" routines.
+X */
+X
+Xlocal FILE *zfile; /* output zip file */
+X
+Xlocal unsigned short bi_buf;
+X/* Output buffer. bits are inserted starting at the bottom (least significant
+X * bits).
+X */
+X
+X#define Buf_size (8 * 2*sizeof(char))
+X/* Number of bits used within bi_buf. (bi_buf might be implemented on
+X * more than 16 bits on some systems.)
+X */
+X
+Xlocal int bi_valid;
+X/* Number of valid bits in bi_buf.  All bits above the last valid bit
+X * are always zero.
+X */
+X
+Xchar file_outbuf[1024];
+X/* Output buffer for compression to file */
+X
+Xlocal char *in_buf, *out_buf;
+X/* Current input and output buffers. in_buf is used only for in-memory
+X * compression.
+X */
+X
+Xlocal ulg in_offset, out_offset;
+X/* Current offset in input and output buffers. in_offset is used only for
+X * in-memory compression.
+X */
+X
+Xlocal ulg in_size, out_size;
+X/* Size of current input and output buffers */
+X
+Xint (*read_buf) OF((char *buf, unsigned size)) = file_read;
+X/* Current input function. Set to mem_read for in-memory compression */
+X
+X#ifdef DEBUG
+Xulg bits_sent;   /* bit length of the compressed data */
+X#endif
+X
+X/* Output a 16 bit value to the bit stream, lower (oldest) byte first */
+X#define PUTSHORT(w) \
+X{ if (out_offset < out_size-1) { \
+X    out_buf[out_offset++] = (char) ((w) & 0xff); \
+X    out_buf[out_offset++] = (char) ((ush)(w) >> 8); \
+X  } else { \
+X    flush_outbuf((w),2); \
+X  } \
+X}
+X
+X#define PUTBYTE(b) \
+X{ if (out_offset < out_size) { \
+X    out_buf[out_offset++] = (char) (b); \
+X  } else { \
+X    flush_outbuf((b),1); \
+X  } \
+X}
+X
+X
+X/* ===========================================================================
+X *  Prototypes for local functions
+X */
+Xlocal int  mem_read     OF((char *buf, unsigned size));
+Xlocal void flush_outbuf OF((unsigned w, unsigned size));
+X
+X/* ===========================================================================
+X * Initialize the bit string routines.
+X */
+Xvoid bi_init (zipfile)
+X    FILE *zipfile;  /* output zip file, NULL for in-memory compression */
+X{
+X    zfile  = zipfile;
+X    bi_buf = 0;
+X    bi_valid = 0;
+X#ifdef DEBUG
+X    bits_sent = 0L;
+X#endif
+X
+X    /* Set the defaults for file compression. They are set by memcompress
+X     * for in-memory compression.
+X     */
+X    if (zfile != NULL) {
+X        out_buf = file_outbuf;
+X        out_size = sizeof(file_outbuf);
+X        out_offset = 0;
+X        read_buf  = file_read;
+X    }
+X}
+X
+X/* ===========================================================================
+X * Send a value on a given number of bits.
+X * IN assertion: length <= 16 and value fits in length bits.
+X */
+Xvoid send_bits(value, length)
+X    int value;  /* value to send */
+X    int length; /* number of bits */
+X{
+X#ifdef DEBUG
+X    Tracevv((stderr," l %2d v %4x ", length, value));
+X    Assert(length > 0 && length <= 15, "invalid length");
+X    bits_sent += (ulg)length;
+X#endif
+X    /* If not enough room in bi_buf, use (valid) bits from bi_buf and
+X     * (16 - bi_valid) bits from value, leaving (width - (16-bi_valid))
+X     * unused bits in value.
+X     */
+X    if (bi_valid > (int)Buf_size - length) {
+X        bi_buf |= (value << bi_valid);
+X        PUTSHORT(bi_buf);
+X        bi_buf = (ush)value >> (Buf_size - bi_valid);
+X        bi_valid += length - Buf_size;
+X    } else {
+X        bi_buf |= value << bi_valid;
+X        bi_valid += length;
+X    }
+X}
+X
+X/* ===========================================================================
+X * Reverse the first len bits of a code, using straightforward code (a faster
+X * method would use a table)
+X * IN assertion: 1 <= len <= 15
+X */
+Xunsigned bi_reverse(code, len)
+X    unsigned code; /* the value to invert */
+X    int len;       /* its bit length */
+X{
+X    register unsigned res = 0;
+X    do {
+X        res |= code & 1;
+X        code >>= 1, res <<= 1;
+X    } while (--len > 0);
+X    return res >> 1;
+X}
+X
+X/* ===========================================================================
+X * Flush the current output buffer.
+X */
+Xlocal void flush_outbuf(w, size)
+X    unsigned w;    /* value to flush */
+X    unsigned size; /* it size in bytes (0, 1 or 2) */
+X{
+X    if (zfile == NULL) {
+X        error("output buffer too small for in-memory compression");
+X    }
+X    /* Encrypt and write the output buffer: */
+X    if (out_offset != 0) {
+X        zfwrite(out_buf, 1, (extent)out_offset, zfile);
+X        if (ferror(zfile)) error ("write error on zip file");
+X    }
+X    out_offset = 0;
+X    if (size == 2) {
+X        PUTSHORT(w);
+X    } else if (size == 1) {
+X        out_buf[out_offset++] = (char) (w & 0xff);
+X    }
+X}
+X
+X/* ===========================================================================
+X * Write out any remaining bits in an incomplete byte.
+X */
+Xvoid bi_windup()
+X{
+X    if (bi_valid > 8) {
+X        PUTSHORT(bi_buf);
+X    } else if (bi_valid > 0) {
+X        PUTBYTE(bi_buf);
+X    }
+X    if (zfile != NULL) {
+X        flush_outbuf(0, 0);
+X    }
+X    bi_buf = 0;
+X    bi_valid = 0;
+X#ifdef DEBUG
+X    bits_sent = (bits_sent+7) & ~7;
+X#endif
+X}
+X
+X/* ===========================================================================
+X * Copy a stored block to the zip file, storing first the length and its
+X * one's complement if requested.
+X */
+Xvoid copy_block(buf, len, header)
+X    char far *buf; /* the input data */
+X    unsigned len;  /* its length */
+X    int header;    /* true if block header must be written */
+X{
+X    bi_windup();              /* align on byte boundary */
+X
+X    if (header) {
+X        PUTSHORT((ush)len);   
+X        PUTSHORT((ush)~len);
+X#ifdef DEBUG
+X        bits_sent += 2*16;
+X#endif
+X    }
+X    if (zfile) {
+X        flush_outbuf(0, 0);
+X        zfwrite(buf, 1, len, zfile);
+X        if (ferror(zfile)) error ("write error on zip file");
+X    } else if (out_offset + (ulg)len > out_size) {
+X        error("output buffer too small for in-memory compression");
+X    } else {
+X        memcpy(out_buf + out_offset, buf, len);
+X        out_offset += (ulg)len;
+X    }
+X#ifdef DEBUG
+X    bits_sent += (ulg)len<<3;
+X#endif
+X}
+X
+X
+X/* ===========================================================================
+X * Return true if the zip file can be seeked. This is used to check if
+X * the local header can be re-rewritten. This function always returns
+X * true for in-memory compression.
+X * IN assertion: the local header has already been written (ftell() > 0).
+X */
+Xint seekable()
+X{
+X    return (zfile == NULL ||
+X            (fseek(zfile, -1L, SEEK_CUR) == 0 &&
+X             fseek(zfile,  1L, SEEK_CUR) == 0));
+X}    
+X
+X/* ===========================================================================
+X * In-memory compression. This version can be used only if the entire input
+X * fits in one memory buffer. The compression is then done in a single
+X * call of memcompress(). (An extension to allow repeated calls would be
+X * possible but is not needed here.)
+X * The first two bytes of the compressed output are set to a short with the
+X * method used (DEFLATE or STORE). The following four bytes contain the CRC.
+X * The values are stored in little-endian order on all machines.
+X * This function returns the byte size of the compressed output, including
+X * the first six bytes (method and crc).
+X */
+X
+Xulg memcompress(tgt, tgtsize, src, srcsize)
+X    char *tgt, *src;       /* target and source buffers */
+X    ulg tgtsize, srcsize;  /* target and source sizes */
+X{
+X    ush att      = (ush)UNKNOWN;
+X    ush flags    = 0;
+X    ulg crc      = 0;
+X    int method   = DEFLATE;
+X
+X    if (tgtsize <= 6L) error("target buffer too small");
+X
+X    crc = updcrc((char *)NULL, 0);
+X    crc = updcrc(src, (extent) srcsize);
+X
+X    read_buf  = mem_read;
+X    in_buf    = src;
+X    in_size   = srcsize;
+X    in_offset = 0;
+X
+X    out_buf    = tgt;
+X    out_size   = tgtsize;
+X    out_offset = 2 + 4;
+X
+X    bi_init(NULL);
+X    ct_init(&att, &method);
+X    lm_init(level, &flags);
+X    deflate();
+X
+X    /* For portability, force little-endian order on all machines: */
+X    tgt[0] = (char)(method & 0xff);
+X    tgt[1] = (char)((method >> 8) & 0xff);
+X    tgt[2] = (char)(crc & 0xff);
+X    tgt[3] = (char)((crc >> 8) & 0xff);
+X    tgt[4] = (char)((crc >> 16) & 0xff);
+X    tgt[5] = (char)((crc >> 24) & 0xff);
+X
+X    return out_offset;
+X}
+X
+X/* ===========================================================================
+X * In-memory read function. As opposed to file_read(), this function
+X * does not perform end-of-line translation, and does not update the
+X * crc and input size.
+X *    Note that the size of the entire input buffer is an unsigned long,
+X * but the size used in mem_read() is only an unsigned int. This makes a
+X * difference on 16 bit machines. mem_read() may be called several
+X * times for an in-memory compression.
+X */
+Xlocal int mem_read(buf, size)
+X     char *buf;
+X     unsigned size; 
+X{
+X    if (in_offset < in_size) {
+X        ulg block_size = in_size - in_offset;
+X        if (block_size > (ulg)size) block_size = (ulg)size;
+X        memcpy(buf, in_buf + in_offset, (unsigned)block_size);
+X        in_offset += block_size;
+X        return (int)block_size;
+X    } else {
+X        return 0; /* end of input */
+X    }
+X}
+END_OF_FILE
+  if test 11292 -ne `wc -c <'bits.c'`; then
+    echo shar: \"'bits.c'\" unpacked with wrong size!
+  fi
+  # end of 'bits.c'
+fi
+if test -f 'makecrc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makecrc.c'\"
+else
+  echo shar: Extracting \"'makecrc.c'\" \(2388 characters\)
+  sed "s/^X//" >'makecrc.c' <<'END_OF_FILE'
+X/* Not copyrighted 1990 Mark Adler */
+X
+X#include <stdio.h>
+X
+Xmain()
+X/*
+X  Generate a table for a byte-wise 32-bit CRC calculation on the polynomial:
+X  x^32+x^26+x^23+x^22+x^16+x^12+x^11+x^10+x^8+x^7+x^5+x^4+x^2+x+1.
+X
+X  Polynomials over GF(2) are represented in binary, one bit per coefficient,
+X  with the lowest powers in the most significant bit.  Then adding polynomials
+X  is just exclusive-or, and multiplying a polynomial by x is a right shift by
+X  one.  If we call the above polynomial p, and represent a byte as the
+X  polynomial q, also with the lowest power in the most significant bit (so the
+X  byte 0xb1 is the polynomial x^7+x^3+x+1), then the CRC is (q*x^32) mod p,
+X  where a mod b means the remainder after dividing a by b.
+X
+X  This calculation is done using the shift-register method of multiplying and
+X  taking the remainder.  The register is initialized to zero, and for each
+X  incoming bit, x^32 is added mod p to the register if the bit is a one (where
+X  x^32 mod p is p+x^32 = x^26+...+1), and the register is multiplied mod p by
+X  x (which is shifting right by one and adding x^32 mod p if the bit shifted
+X  out is a one).  We start with the highest power (least significant bit) of
+X  q and repeat for all eight bits of q.
+X
+X  The table is simply the CRC of all possible eight bit values.  This is all
+X  the information needed to generate CRC's on data a byte at a time for all
+X  combinations of CRC register values and incoming bytes.  The table is
+X  written to stdout as 256 long hexadecimal values in C language format.
+X*/
+X{
+X  unsigned long c;      /* crc shift register */
+X  unsigned long e;      /* polynomial exclusive-or pattern */
+X  int i;                /* counter for all possible eight bit values */
+X  int k;                /* byte being shifted into crc apparatus */
+X
+X  /* terms of polynomial defining this crc (except x^32): */
+X  static int p[] = {0,1,2,4,5,7,8,10,11,12,16,22,23,26};
+X
+X  /* Make exclusive-or pattern from polynomial */
+X  e = 0;
+X  for (i = 0; i < sizeof(p)/sizeof(int); i++)
+X    e |= 1L << (31 - p[i]);
+X
+X  /* Compute and print table of CRC's, five per line */
+X  printf("  0x00000000L");
+X  for (i = 1; i < 256; i++)
+X  {
+X    c = 0;
+X    for (k = i | 256; k != 1; k >>= 1)
+X    {
+X      c = c & 1 ? (c >> 1) ^ e : c >> 1;
+X      if (k & 1)
+X        c ^= e;
+X    }
+X    printf(i % 5 ? ", 0x%08lxL" : ",\n  0x%08lxL", c);
+X  }
+X  putchar('\n');
+X  return 0;
+X}
+END_OF_FILE
+  if test 2388 -ne `wc -c <'makecrc.c'`; then
+    echo shar: \"'makecrc.c'\" unpacked with wrong size!
+  fi
+  # end of 'makecrc.c'
+fi
+if test -f 'os2/makefile.os2.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'os2/makefile.os2.UU'\"
+else
+  echo shar: Extracting \"'os2/makefile.os2.UU'\" \(8519 characters\)
+  sed "s/^X//" >'os2/makefile.os2.UU' <<'END_OF_FILE'
+Xbegin 666 os2/makefile.os2
+XM(R!-86ME9FEL92!F;W(@6FEP+"!::7!#;&]A:RP@6FEP3F]T92!A;F0@6FEP
+XM4W!L:70-"@T*(R!3=7!P;W)T960@36%K92!U=&EL:71I97,Z#0HC("T@36EC
+XM<F]S;V9T+TE"32!N;6%K90T*(R M(&1M86ME(#,N." H<&%R86QL96P@;6%K
+XM92P@=7-E("U0-"!I9B!Y;W4@:&%V92!T:&4@;65M;W)Y*2P-"B,@("!I;B!T
+XM:&4@97AE(&9I;&4@=&%R9V5T<RP@>6]U('=I;&P@:&%V92!T;R!A9&0@<W!A
+XM8V5S(&)E9F]R92 D0"!F;W(@9V-C#0HC("T@3D]4('=A=&-O;2!M86ME("AB
+XM<F%I;B!D96%D+"!A<'!A<F5N=&QY(&1O97-N)W0@:VYO=R!L:6YE<R!C;VYT
+XM)V0@=VET:"!<*0T*(R M($Y/5"!'3E4@;6%K92 H8G5G9WDL(&EN8V]M<&%T
+XM:6)L92D-"@T*(R!3=7!P;W)T960@0R!#;VUP:6QE<G,Z#0HC("T@36EC<F]S
+XM;V9T($,@-BXP,"!U;F1E<B!/4R\R(#$N>" H,38M8FET*0T*(R M($=.52!G
+XM8V,@*&5M>"!K:70I('5N9&5R($]3+S(@,BXP#0HC("T@24)-($,@4V5T+S(@
+XM=6YD97(@3U,O,B R+C @(" @(" @("T@9&]E<R!N;W0@>65T('=O<FL@=VET
+XM:"!!4TT@8V]D90T*(R M(%=A=&-O;2!#+S,X-B Y+C @=6YD97(@3U,O,B R
+XM+C @(" M(&1O97,@;F]T('EE="!W;W)K('=I=&@@05--(&-O9&4-"@T*(R!3
+XM=7!P;W)T960@07-S96UB;&5R<SH-"B,@+2!-:6-R;W-O9G0@34%332 V+C P
+XM('=I=&@@35,@0RP@24)-($,L(%=A=&-O;2!##0HC("T@36EC<F]S;V9T($U!
+XM4TT@-2YX>"!W:71H($U3($,L(&EF('5N8V]M;65N=" B;6%S;2(@;&EN92!N
+XM96%R(&QI;F4@,34P#0HC("T@1TY5(&%S('=I=&@@1TY5(&=C8PT*#0HC(%1O
+XM('5S92P@96YT97(@(FYM86ME+V1M86ME("UF(&UA:V5F:6QE+F]S,B(@*'1H
+XM:7,@;6%K969I;&4@9&5P96YD<R!O;B!I=',-"B,@;F%M92!B96EN9R B;6%K
+XM969I;&4N;W,R(BDN#0H-"B,@061D("U$3D]?05--('1O($-&3$%'4R!A;F0@
+XM<F5M;W9E(&UA=&-H+F]B:B!F<F]M($]"2D\@:68@>6]U(&1O#0HC(&YO="!H
+XM879E(&UA<VT@;W(@;6PN#0HC($%D9" M1$193E]!3$Q/0R!T;R!!4T9,04=3
+XM(&EF('EO=2!H879E(&1E9FEN960@:70@:6X@=&%I;&]R+F@@;W(@0T9,04=3
+XM#0H-"B,@3F]T97,@;VX@,38M8FET("A-:6-R;W-O9G0@0R V+C P*2!C;VUP
+XM:6QA=&EO;CH-"@T*(R @(%1H92!R97-U;'1I;F<@<')O9W)A;7,@8V%N(&)E
+XM('5S960@=6YD97(@3U,O,B!P<F]T96-T960@;6]D92!O;FQY+@T*(R @($$@
+XM;&%R9V5R('-T86-K(&AA<R!T;R!B92!U<V5D(&9O<B!/4R\R(&)E8V%U<V4@
+XM<WES=&5M(&-A;&QS#0HC(" @=7-E(&UO<F4@<W1A8VL@=&AA;B!U;F1E<B!$
+XM3U,L(#AK(&ES(')E8V]M;65N9&5D(&)Y($UI8W)O<V]F="X-"B,@("!.;W1E
+XM('1H870@7U]35$1#7U\@:&%S('1O(&)E(&1E9FEN960@97AP;&EC:71L>2!W
+XM:71H($,@-BXP,"!W:&5N("U:90T*(R @(&ES(&=I=F5N+"!B96-A=7-E($UI
+XM8W)O<V]F="!D:7-A8FQE<R!?7U-41$-?7R!W:&5N('1H96ER(&5X=&5N<VEO
+XM;G,-"B,@("!A<F4@96YA8FQE9"X@5&AI<R!I<R!D:69F97)E;G0@9G)O;2!T
+XM:&4@0R U+C$P(&)E:&%V:6]U<BX-"@T*(R!.;W1E<R!O;B S,BUB:70@*$E"
+XM32!#(%-E="\R+"!7871C;VT@0R!O<B!'3E4@9V-C*2!C;VUP:6QA=&EO;CH-
+XM"@T*(R @(%1H92!R97-U;'1I;F<@<')O9W)A;7,@8V%N(&)E('5S960@=6YD
+XM97(@3U,O,B!P<F]T96-T960-"B,@("!M;V1E(&]F($]3+S(@,BXP(&]N;'DL
+XM(&YO="!U;F1E<B Q+G@@86YD(&YO="!U;F1E<B!$3U,N#0HC(" @270@;6%K
+XM97,@;F\@9&EF9F5R96YC92!I9B!?7U-41$-?7R!I<R!D969I;F5D(&]R(&YO
+XM="X-"B,@("!7871C;VT@0R!A;F0@24)-($,@4V5T+S(@=V]R:R!W:71H($19
+XM3E]!3$Q/0R!O;FQY+"!B96-A=7-E(&]F#0HC(" @0V]M<&EL97(@8G5G<RX-
+XM"@T*0U)94%1//0T*0TQ/04L]#0I#4D9,04<]#0HC(" J*BH@1F]R(&5N8W)Y
+XM<'1I;VX@=F5R<VEO;BP@<F5M;W9E('1H92 C(&%T('1H92!F<F]N="!O9B!N
+XM97AT(#,@;&EN97,@*BHJ#0HC0U)94%1//6-R>7!T)"A/0DHI#0HC0TQ/04L]
+XM>FEP8VQO86LN97AE#0HC0U)&3$%'/2U$0U)94%0-"@T*9&5F875L=#H-"@E 
+XM96-H;R!%;G1E<B B)"A-04M%*2 M9B!M86ME9FEL92YO<S(@;7-C(@T*"4!E
+XM8VAO(" @(&]R("(D*$U!2T4I("UF(&UA:V5F:6QE+F]S,B!I8FTB#0H)0&5C
+XM:&\@(" @;W(@(B0H34%+12D@+68@;6%K969I;&4N;W,R('=A=&-O;2(-"@E 
+XM96-H;R @("!O<B B)"A-04M%*2 M9B!M86ME9FEL92YO<S(@9V-C(@T*#0IM
+XM<V-D;W,Z#0H))"A-04M%*2 M9B!M86ME9FEL92YO<S(@>FEP<R!<#0H)0T,]
+XM(F-L("UN;VQO9V\@+4%#("U/86EC=" M1W,B(%P-"@E#1DQ!1U,](BU7,R M
+XM6F5P("0H0U)&3$%'*2 D*$90*2(@7 T*"4%3/2)M;" M;F]L;V=O(B!<#0H)
+XM05-&3$%'4STB+5IM("U#<"(@7 T*"4Q$1DQ!1U,](B0H1E I("U,<B M1B Q
+XM,# P("U&92(@7 T*(" @(" @("!,1$9,04=3,CTB+6QI;FL@+VYO92(@7 T*
+XM(" @(" @("!/550](BU&;R(@7 T*(" @(" @("!/0DH](BYO8FHB(%P-"@E/
+XM0DI!/6UA=&-H+F]B:B!<#0H@(" @(" @($]"2D\](B(-"@T*;7-C.@T*"20H
+XM34%+12D@+68@;6%K969I;&4N;W,R('II<',@7 T*"4-#/2)C;" M;F]L;V=O
+XM("U!0R M3V-E9VET("U'<R(@7 T*"4-&3$%'4STB+5<Q("U:97 @+4H@+4<R
+XM("0H0U)&3$%'*2 M1%]?4U1$0U]?("U$3U,R("0H1E I(B!<#0H)05,](FUL
+XM("UN;VQO9V\B(%P-"@E!4T9,04=3/2(M6FT@+4-P(B!<#0H)3$1&3$%'4STB
+XM)"A&4"D@+4QP("U&(#(P,# @+49E(B!<#0H@(" @(" @($Q$1DQ!1U,R/2(M
+XM;&EN:R O;F]E(B!<#0H@(" @(" @($]55#TB+49O(B!<#0H@(" @(" @($]"
+XM2CTB+F]B:B(@7 T*"4]"2D$];6%T8V@N;V)J(%P-"B @(" @(" @1$5&/2)Z
+XM:7 N9&5F(@T*#0II8FTZ#0H))"A-04M%*2 M9B!M86ME9FEL92YO<S(@>FEP
+XM<R!<#0H)0T,](FEC8R M42 M3R M1W,B(%P-"@E#1DQ!1U,](BU3;2 M4W Q
+XM("0H0U)&3$%'*2 M1$]3,B M1$193E]!3$Q/0R M1$Y/7T%332(@7 T*"4Y&
+XM3$%'4STB+4\M(B!<#0H)05,](FUL("UN;VQO9V\B(%P-"@E!4T9,04=3/2(M
+XM6FT@+4-P(B!<#0H)3$1&3$%'4STB+4(O4U0Z,3,Q,#<R("U&92(@7 T*(" @
+XM(" @("!,1$9,04=3,CTB(B!<#0H@(" @(" @($]55#TB+49O(B!<#0H@(" @
+XM(" @($]"2CTB+F]B:B(@7 T*"4]"2D$](B(@7 T*(" @(" @("!$148](GII
+XM<"YD968B#0H-"G=A=&-O;3H-"@DD*$U!2T4I("UF(&UA:V5F:6QE+F]S,B!Z
+XM:7!S(%P-"@E#0STB=V-L,S@V("UZ<2 M3W@@+7,B(%P-"@E#1DQ!1U,](BU:
+XM<#$@)"A#4D9,04<I("U$3U,R("U$1%E.7T%,3$]#("U$3D]?05--(B!<#0H)
+XM05,](FUL("UN;VQO9V\B(%P-"@E!4T9,04=3/2(M6FT@+4-P(B!<#0H)3$1&
+XM3$%'4STB+6LQ,S$P-S(@+7@@+49E/2(@7 T*(" @(" @("!,1$9,04=3,CTB
+XM(B!<#0H@(" @(" @($]55#TB+49O(B!<#0H@(" @(" @($]"2CTB+F]B:B(@
+XM7 T*"4]"2D$](B(-"@T*9V-C.@T*"20H34%+12D@+68@;6%K969I;&4N;W,R
+XM('II<',@7 T*"4-#/2)G8V,@+4\@+7,B(%P-"@E#1DQ!1U,](B0H0U)&3$%'
+XM*2 M1$]3,B(@7 T*"4%3/2)G8V,B(%P-"@E!4T9,04=3/2(M575N:7@B(%P-
+XM"@E,1$9,04=3/2(M;R B(%P-"B @(" @(" @3$1&3$%'4S(](BUL;W,R(B!<
+XM#0H@(" @(" @($]55#TB+6\B(%P-"B @(" @(" @3T)*/2(N;R(@7 T*"4]"
+XM2D$](FUA=&-H+F\B#0H-"D]"2D\@/2 @;W,R>FEP#0H-"D]"2EH@/2 @>FEP
+XM)"A/0DHI('II<&9I;&4D*$]"2BD@>FEP=7 D*$]"2BD@9FEL96EO)"A/0DHI
+XM('5T:6PD*$]"2BD@7 T*(" @(" @("!G;&]B86QS)"A/0DHI(&1E9FQA=&4D
+XM*$]"2BD@=')E97,D*$]"2BD@8FET<R0H3T)**2 D*$-265!43RD@7 T*"20H
+XM3T)*3RDD*$]"2BD-"@T*3T)*52 ]("!Z:7!F:6QE7R0H3T)**2!Z:7!U<%\D
+XM*$]"2BD@9FEL96EO7R0H3T)**2!U=&EL7R0H3T)**2!<#0H)9VQO8F%L<R0H
+XM3T)**2 D*$]"2D\I7R0H3T)**0T*#0I/0DI.(#T@('II<&YO=&4D*$]"2BD@
+XM)"A/0DI5*0T*3T)*0R ]("!Z:7!C;&]A:R0H3T)**2!C<GEP=%\D*$]"2BD@
+XM)"A/0DI5*0T*3T)*4R ]("!Z:7!S<&QI="0H3T)**2 D*$]"2E4I#0H-"BYC
+XM)"A/0DHI.@T*"20H0T,I("UC("0H0T9,04=3*2 D/ T*#0IZ:7!S.@EZ:7 N
+XM97AE('II<&YO=&4N97AE('II<'-P;&ET+F5X92 D*$-,3T%+*0T*#0IZ:7 D
+XM*$]"2BDZ"7II<"YC('II<"YH('II<&5R<BYH('1A:6QO<BYH(')E=FES:6]N
+XM+F@-"GII<&9I;&4D*$]"2BDZ"7II<&9I;&4N8R!Z:7 N:"!Z:7!E<G(N:"!T
+XM86EL;W(N: T*>FEP=7 D*$]"2BDZ"7II<'5P+F,@>FEP+F@@>FEP97)R+F@@
+XM=&%I;&]R+F@@<F5V:7-I;VXN:"!O<S)Z:7 N: T*9FEL96EO)"A/0DHI.@EF
+XM:6QE:6\N8R!Z:7 N:"!Z:7!E<G(N:"!T86EL;W(N:"!O<S)Z:7 N: T*=71I
+XM;"0H3T)**3H)=71I;"YC('II<"YH('II<&5R<BYH('1A:6QO<BYH(&]S,GII
+XM<"YH#0IG;&]B86QS)"A/0DHI.@EG;&]B86QS+F,@>FEP+F@@>FEP97)R+F@@
+XM=&%I;&]R+F@-"F1E9FQA=&4D*$]"2BDZ"61E9FQA=&4N8R!Z:7 N:"!Z:7!E
+XM<G(N:"!T86EL;W(N: T*=')E97,D*$]"2BDZ"71R965S+F,@>FEP+F@@>FEP
+XM97)R+F@@=&%I;&]R+F@-"@DD*$-#*2 M8R D*$-&3$%'4RD@)"A.1DQ!1U,I
+XM("0J+F,-"F)I=',D*$]"2BDZ"6)I=',N8R!Z:7 N:"!Z:7!E<G(N:"!T86EL
+XM;W(N: T*8W)Y<'0D*$]"2BDZ"6-R>7!T+F,@>FEP+F@@>FEP97)R+F@@=&%I
+XM;&]R+F@-"F]S,GII<"0H3T)**3H);W,R>FEP+F,@;W,R>FEP+F@-"@T*;6%T
+XM8V@N;V)J.@EM871C:"YA<VT-"@DD*$%3*2 M8R D*$%31DQ!1U,I("0J+F%S
+XM;0T*(R!U<V4@=&AE(&9O;&QO=VEN9R!F;W(@34%332 U+C P(&EN<W1E860@
+XM;V8@-BXP, T*(PEM87-M("UM;" M=" D*BYA<VT[#0H-"FUA=&-H,S(N;V)J
+XM.@EM871C:#,R+F%S;0T*"20H05,I("UC("0H05-&3$%'4RD@)"HN87-M#0H-
+XM"FUA=&-H+F\Z"6UA=&-H+G,-"B,@;F]T92!T:&4@=7!P97)C87-E(%,@9F]R
+XM(&=C8R!T;R!R=6X@;6%T8V@N<R!T:')O=6=H(&-P<"$-"@DD*$%3*2 M8R D
+XM*$%31DQ!1U,I("0J+E,-"@T*>FEP8VQO86LD*$]"2BDZ"7II<&-L;V%K+F,@
+XM>FEP+F@@>FEP97)R+F@@=&%I;&]R+F@@<F5V:7-I;VXN: T*>FEP;F]T920H
+XM3T)**3H)>FEP;F]T92YC('II<"YH('II<&5R<BYH('1A:6QO<BYH(')E=FES
+XM:6]N+F@-"GII<'-P;&ET)"A/0DHI.B!Z:7!S<&QI="YC('II<"YH('II<&5R
+XM<BYH('1A:6QO<BYH(')E=FES:6]N+F@-"@T*>FEP9FEL95\D*$]"2BDZ"7II
+XM<&9I;&4N8R!Z:7 N:"!Z:7!E<G(N:"!T86EL;W(N: T*"20H0T,I("UC("0H
+XM0T9,04=3*2 M1%5424P@)"A/550I)$ @>FEP9FEL92YC#0H-"GII<'5P7R0H
+XM3T)**3H)>FEP=7 N8R!Z:7 N:"!Z:7!E<G(N:"!T86EL;W(N: T*"20H0T,I
+XM("UC("0H0T9,04=3*2 M1%5424P@)"A/550I)$ @>FEP=7 N8PT*#0IF:6QE
+XM:6]?)"A/0DHI.@EF:6QE:6\N8R!Z:7 N:"!Z:7!E<G(N:"!T86EL;W(N: T*
+XM"20H0T,I("UC("0H0T9,04=3*2 M1%5424P@)"A/550I)$ @9FEL96EO+F,-
+XM"@T*=71I;%\D*$]"2BDZ"75T:6PN8R!Z:7 N:"!Z:7!E<G(N:"!T86EL;W(N
+XM:"!O<S)Z:7 N: T*"20H0T,I("UC("0H0T9,04=3*2 M1%5424P@)"A/550I
+XM)$ @=71I;"YC#0H-"F-R>7!T7R0H3T)**3H)8W)Y<'0N8R!Z:7 N:"!Z:7!E
+XM<G(N:"!T86EL;W(N: T*"20H0T,I("UC("0H0T9,04=3*2 M1%5424P@)"A/
+XM550I)$ @8W)Y<'0N8PT*#0IO<S)Z:7!?)"A/0DHI.B!O<S)Z:7 N8R!O<S)Z
+XM:7 N: T*"20H0T,I("UC("0H0T9,04=3*2 M1%5424P@)"A/550I)$ @;W,R
+XM>FEP+F,-"@T*>FEP+F5X93H@)"A/0DI:*2 D*$]"2DDI("0H3T)*02D@)"A$
+XM148I#0H))"A#0RD@)"A,1$9,04=3*21 ("0H1$5&*2 D*$]"2EHI("0H3T)*
+XM22D@)"A/0DI!*2 D*$Q$1DQ!1U,R*0T*#0IZ:7!C;&]A:RYE>&4Z("0H3T)*
+XM0RD@)"A$148I#0H))"A#0RD@)"A,1$9,04=3*21 ("0H1$5&*2 D*$]"2D,I
+XM("0H3$1&3$%'4S(I#0H-"GII<&YO=&4N97AE.B D*$]"2DXI("0H1$5&*0T*
+XM"20H0T,I("0H3$1&3$%'4RDD0" D*$1%1BD@)"A/0DI.*2 D*$Q$1DQ!1U,R
+XM*0T*#0IZ:7!S<&QI="YE>&4Z("0H3T)*4RD@)"A$148I#0H))"A#0RD@)"A,
+XF1$9,04=3*21 ("0H1$5&*2 D*$]"2E,I("0H3$1&3$%'4S(I#0I#
+X 
+Xend
+END_OF_FILE
+ if test 8519 -ne `wc -c <'os2/makefile.os2.UU'`; then
+    echo shar: \"'os2/makefile.os2.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'os2/makefile.os2'\" \(6158 characters\)
+    cat os2/makefile.os2.UU | uudecode
+    if test 6158 -ne `wc -c <'os2/makefile.os2'`; then
+      echo shar: \"'os2/makefile.os2'\" uudecoded with wrong size!
+    else
+      rm os2/makefile.os2.UU
+    fi
+  fi
+  # end of 'os2/makefile.os2.UU'
+fi
+if test -f 'vms/VMSmunch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/VMSmunch.c'\"
+else
+  echo shar: Extracting \"'vms/VMSmunch.c'\" \(11629 characters\)
+  sed "s/^X//" >'vms/VMSmunch.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  VMSmunch.c                    version 1.2                     28 Apr 1992
+X
+X  This routine is a blatant and unrepentent appropriation of all the nasty
+X  and difficult-to-do and complicated VMS shenanigans which Joe Meadows has
+X  so magnificently captured in his FILE utility.  Not only that, it's even
+X  allowed! (see below).  But let it be clear at the outset that Joe did all
+X  the work; yea, verily, he is truly a godlike unit.
+X
+X  The appropriations and modifications herein were performed primarily by
+X  him known as "Cave Newt," although the Info-ZIP working group probably had
+X  their fingers in it somewhere along the line.  The idea is to put the raw
+X  power of Joe's original routine at the disposal of various routines used
+X  by UnZip (and Zip, possibly), not least among them the utime() function.
+X  Read on for details...
+X
+X  ---------------------------------------------------------------------------
+X
+X  Usage (i.e., "interface," in geek-speak):
+X
+X     int VMSmunch( char *filename, int action, char *ptr );
+X
+X     filename   the name of the file on which to be operated, obviously
+X     action     an integer which specifies what action to take
+X     ptr        pointer to any extra item which may be needed (else NULL)
+X
+X  The possible values for the action argument are as follows:
+X
+X     GET_TIMES      get the creation and revision dates of filename; ptr
+X                    must point to an empty VMStimbuf struct, as defined below
+X                    (with room for at least 24 characters, including term.)
+X     SET_TIMES      set the creation and revision dates of filename (utime
+X                    option); ptr must point to a valid VMStimbuf struct,
+X                    as defined below
+X     GET_RTYPE      get the record type of filename; ptr must point to an
+X                    integer which, on return, is set to the type (as defined
+X                    in VMSmunch.h:  FAT$C_* defines)
+X     CHANGE_RTYPE   change the record type to that specified by the integer
+X                    to which ptr points; save the old record type (later
+X                    saves overwrite earlier ones)
+X     RESTORE_RTYPE  restore the record type to the previously saved value;
+X                    or, if none, set it to "fixed-length, 512-byte" record
+X                    format (ptr not used)
+X
+X  ---------------------------------------------------------------------------
+X
+X  Comments from FILE.C, a utility to modify file characteristics:
+X
+X     Written by Joe Meadows Jr, at the Fred Hutchinson Cancer Research Center
+X     BITNET: JOE@FHCRCVAX
+X     PHONE: (206) 467-4970
+X
+X     There are no restrictions on this code, you may sell it, include it 
+X     with any commercial package, or feed it to a whale.. However, I would 
+X     appreciate it if you kept this comment in the source code so that anyone
+X     receiving this code knows who to contact in case of problems. Note that 
+X     I do not demand this condition..
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X
+X
+X/*****************************/
+X/*  Includes, Defines, etc.  */
+X/*****************************/
+X
+X#include <descrip.h>
+X#include <rms.h>
+X#include <stdio.h>
+X#include <iodef.h>
+X#include <atrdef.h>   /* this gets created with the c3.0 compiler */
+X#include <fibdef.h>   /* this gets created with the c3.0 compiler */
+X
+X#include "VMSmunch.h"  /* GET/SET_TIMES, RTYPE, fatdef.h, etc. */
+X
+X#define RTYPE     fat$r_rtype_overlay.fat$r_rtype_bits
+X#define RATTRIB   fat$r_rattrib_overlay.fat$r_rattrib_bits
+X
+Xstatic void asctim();
+Xstatic void bintim();
+X
+Xstruct VMStimbuf {      /* VMSmunch */
+X    char *actime;       /* VMS revision date, ASCII format */
+X    char *modtime;      /* VMS creation date, ASCII format */
+X};
+X
+X/* from <ssdef.h> */
+X#ifndef SS$_NORMAL
+X#  define SS$_NORMAL    1
+X#  define SS$_BADPARAM  20
+X#endif
+X
+X
+X
+X
+X
+X/*************************/
+X/*  Function VMSmunch()  */
+X/*************************/
+X
+Xint VMSmunch( filename, action, ptr )
+X    char  *filename, *ptr;
+X    int   action;
+X{
+X
+X    /* original file.c variables */
+X
+X    static struct FAB Fab;
+X    static struct NAM Nam;
+X    static struct fibdef Fib; /* short fib */
+X
+X    static struct dsc$descriptor FibDesc =
+X      {sizeof(Fib),DSC$K_DTYPE_Z,DSC$K_CLASS_S,&Fib};
+X    static struct dsc$descriptor_s DevDesc =
+X      {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,&Nam.nam$t_dvi[1]};
+X    static struct fatdef Fat;
+X    static union {
+X      struct fchdef fch;
+X      long int dummy;
+X    } uchar;
+X    static struct fjndef jnl;
+X    static long int Cdate[2],Rdate[2],Edate[2],Bdate[2];
+X    static short int revisions;
+X    static unsigned long uic;
+X    static union {
+X      unsigned short int value;
+X      struct {
+X        unsigned system : 4;
+X        unsigned owner : 4;
+X        unsigned group : 4;
+X        unsigned world : 4;
+X      } bits;
+X    } prot;
+X
+X    static struct atrdef Atr[] = {
+X      {sizeof(Fat),ATR$C_RECATTR,&Fat},        /* record attributes */
+X      {sizeof(uchar),ATR$C_UCHAR,&uchar},      /* File characteristics */
+X      {sizeof(Cdate),ATR$C_CREDATE,&Cdate[0]}, /* Creation date */
+X      {sizeof(Rdate),ATR$C_REVDATE,&Rdate[0]}, /* Revision date */
+X      {sizeof(Edate),ATR$C_EXPDATE,&Edate[0]}, /* Expiration date */
+X      {sizeof(Bdate),ATR$C_BAKDATE,&Bdate[0]}, /* Backup date */
+X      {sizeof(revisions),ATR$C_ASCDATES,&revisions}, /* number of revisions */
+X      {sizeof(prot),ATR$C_FPRO,&prot},         /* file protection  */
+X      {sizeof(uic),ATR$C_UIC,&uic},            /* file owner */
+X      {sizeof(jnl),ATR$C_JOURNAL,&jnl},        /* journal flags */
+X      {0,0,0}
+X    } ;
+X
+X    static char EName[NAM$C_MAXRSS];
+X    static char RName[NAM$C_MAXRSS];
+X    static struct dsc$descriptor_s FileName =
+X      {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+X    static struct dsc$descriptor_s string = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+X    static short int DevChan;
+X    static short int iosb[4];
+X
+X    static long int i,status;
+X/*  static char *retval;  */
+X
+X
+X    /* new VMSmunch variables */
+X
+X    static int  old_rtype=FAT$C_FIXED;   /* storage for record type */
+X
+X
+X
+X/*---------------------------------------------------------------------------
+X    Initialize attribute blocks, parse filename, resolve any wildcards, and
+X    get the file info.
+X  ---------------------------------------------------------------------------*/
+X
+X    /* initialize RMS structures, we need a NAM to retrieve the FID */
+X    Fab = cc$rms_fab;
+X    Fab.fab$l_fna = filename;
+X    Fab.fab$b_fns = strlen(filename);
+X    Fab.fab$l_nam = &Nam; /* FAB has an associated NAM */
+X    Nam = cc$rms_nam;
+X    Nam.nam$l_esa = &EName; /* expanded filename */
+X    Nam.nam$b_ess = sizeof(EName);
+X    Nam.nam$l_rsa = &RName; /* resultant filename */
+X    Nam.nam$b_rss = sizeof(RName);
+X
+X    /* do $PARSE and $SEARCH here */
+X    status = sys$parse(&Fab);
+X    if (!(status & 1)) return(status);
+X
+X    /* search for the first file.. If none signal error */
+X    status = sys$search(&Fab);
+X    if (!(status & 1)) return(status);
+X
+X    while (status & 1) {
+X        /* initialize Device name length, note that this points into the NAM
+X           to get the device name filled in by the $PARSE, $SEARCH services */
+X        DevDesc.dsc$w_length = Nam.nam$t_dvi[0];
+X
+X        status = sys$assign(&DevDesc,&DevChan,0,0);
+X        if (!(status & 1)) return(status);
+X
+X        FileName.dsc$a_pointer = Nam.nam$l_name;
+X        FileName.dsc$w_length = Nam.nam$b_name+Nam.nam$b_type+Nam.nam$b_ver;
+X
+X        /* Initialize the FIB */
+X        for (i=0;i<3;i++)
+X            Fib.fib$r_fid_overlay.fib$w_fid[i]=Nam.nam$w_fid[i];
+X        for (i=0;i<3;i++)
+X            Fib.fib$r_did_overlay.fib$w_did[i]=Nam.nam$w_did[i];
+X
+X        /* Use the IO$_ACCESS function to return info about the file */
+X        /* Note, used this way, the file is not opened, and the expiration */
+X        /* and revision dates are not modified */
+X        status = sys$qiow(0,DevChan,IO$_ACCESS,&iosb,0,0,
+X                          &FibDesc,&FileName,0,0,&Atr,0);
+X        if (!(status & 1)) return(status);
+X        status = iosb[0];
+X        if (!(status & 1)) return(status);
+X
+X    /*-----------------------------------------------------------------------
+X        We have the current information from the file:  now see what user
+X        wants done with it.
+X      -----------------------------------------------------------------------*/
+X
+X        switch (action) {
+X
+X          case GET_TIMES:
+X              asctim(((struct VMStimbuf *)ptr)->modtime, Cdate);
+X              asctim(((struct VMStimbuf *)ptr)->actime, Rdate);
+X              break;
+X
+X          case SET_TIMES:
+X              bintim(((struct VMStimbuf *)ptr)->modtime, Cdate);
+X              bintim(((struct VMStimbuf *)ptr)->actime, Rdate);
+X              break;
+X
+X          case GET_RTYPE:   /* non-modifying */
+X              *(int *)ptr = Fat.RTYPE.fat$v_rtype;
+X              return RMS$_NORMAL;     /* return to user */
+X              break;
+X
+X          case CHANGE_RTYPE:
+X              old_rtype = Fat.RTYPE.fat$v_rtype;         /* save current one */
+X              if ((*(int *)ptr < FAT$C_UNDEFINED) || 
+X                  (*(int *)ptr > FAT$C_STREAMCR))
+X                  Fat.RTYPE.fat$v_rtype = FAT$C_STREAMLF;  /* Unix I/O happy */
+X              else
+X                  Fat.RTYPE.fat$v_rtype = *(int *)ptr;
+X              break;
+X
+X          case RESTORE_RTYPE:
+X              Fat.RTYPE.fat$v_rtype = old_rtype;
+X              break;
+X
+X          default:
+X              return SS$_BADPARAM;   /* anything better? */
+X        }
+X
+X    /*-----------------------------------------------------------------------
+X        Go back and write modified data to the file header.
+X      -----------------------------------------------------------------------*/
+X
+X        /* note, part of the FIB was cleared by earlier QIOW, so reset it */
+X        Fib.fib$r_acctl_overlay.fib$l_acctl = FIB$M_NORECORD;
+X        for (i=0;i<3;i++)
+X            Fib.fib$r_fid_overlay.fib$w_fid[i]=Nam.nam$w_fid[i];
+X        for (i=0;i<3;i++)
+X            Fib.fib$r_did_overlay.fib$w_did[i]=Nam.nam$w_did[i];
+X
+X        /* Use the IO$_MODIFY function to change info about the file */
+X        /* Note, used this way, the file is not opened, however this would */
+X        /* normally cause the expiration and revision dates to be modified. */
+X        /* Using FIB$M_NORECORD prohibits this from happening. */
+X        status = sys$qiow(0,DevChan,IO$_MODIFY,&iosb,0,0,
+X                          &FibDesc,&FileName,0,0,&Atr,0);
+X        if (!(status & 1)) return(status);
+X
+X        status = iosb[0];
+X        if (!(status & 1)) return(status);
+X
+X        status = sys$dassgn(DevChan);
+X        if (!(status & 1)) return(status);
+X
+X        /* look for next file, if none, no big deal.. */
+X        status = sys$search(&Fab);
+X    }
+X} /* end function VMSmunch() */
+X
+X
+X
+X
+X
+X/***********************/
+X/*  Function bintim()  */
+X/***********************/
+X
+Xvoid asctim(time,binval)   /* convert 64-bit binval to string, put in time */
+X    char *time;
+X    long int binval[2];
+X{
+X    static struct dsc$descriptor date_str={23,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+X      /* dsc$w_length, dsc$b_dtype, dsc$b_class, dsc$a_pointer */
+X 
+X    date_str.dsc$a_pointer = time;
+X    sys$asctim(0, &date_str, binval, 0);
+X    time[23] = '\0';
+X}
+X
+X
+X
+X
+X
+X/***********************/
+X/*  Function bintim()  */
+X/***********************/
+X
+Xvoid bintim(time,binval)   /* convert time string to 64 bits, put in binval */
+X    char *time;
+X    long int binval[2];
+X{
+X    static struct dsc$descriptor date_str={0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+X
+X    date_str.dsc$w_length = strlen(time);
+X    date_str.dsc$a_pointer = time;
+X    sys$bintim(&date_str, binval);
+X}
+END_OF_FILE
+  if test 11629 -ne `wc -c <'vms/VMSmunch.c'`; then
+    echo shar: \"'vms/VMSmunch.c'\" unpacked with wrong size!
+  fi
+  # end of 'vms/VMSmunch.c'
+fi
+if test -f 'zipnote.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipnote.c'\"
+else
+  echo shar: Extracting \"'zipnote.c'\" \(9993 characters\)
+  sed "s/^X//" >'zipnote.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  zipnote.c by Mark Adler.
+X */
+X
+X#define UTIL
+X#include "revision.h"
+X#include "zip.h"
+X#include <signal.h>
+X
+X
+X/* Character to mark zip entry names in the comment file */
+X#define MARK '@'
+X
+X/* Temporary zip file name and file pointer */
+Xlocal char *tempzip;
+Xlocal FILE *tempzf;
+X
+X
+X/* Local functions */
+X#ifdef PROTO
+X   local void handler(int);
+X   local void license(void);
+X   local void help(void);
+X   local void putclean(char *, int);
+X   local int catalloc(char * far *, char *);
+X   void main(int, char **);
+X#endif /* PROTO */
+X
+X
+X
+Xvoid err(c, h)
+Xint c;                  /* error code from the ZE_ class */
+Xchar *h;                /* message about how it happened */
+X/* Issue a message for the error, clean up files and memory, and exit. */
+X{
+X  if (PERR(c))
+X    perror("zipnote error");
+X  fprintf(stderr, "zipnote error: %s (%s)\n", errors[c-1], h);
+X  if (tempzf != NULL)
+X    fclose(tempzf);
+X  if (tempzip != NULL)
+X  {
+X    destroy(tempzip);
+X    free((voidp *)tempzip);
+X  }
+X  if (zipfile != NULL)
+X    free((voidp *)zipfile);
+X#ifdef VMS
+X  exit(0);
+X#else /* !VMS */
+X  exit(c);
+X#endif /* ?VMS */
+X}
+X
+X
+Xlocal void handler(s)
+Xint s;                  /* signal number (ignored) */
+X/* Upon getting a user interrupt, abort cleanly using err(). */
+X{
+X#ifndef MSDOS
+X  putc('\n', stderr);
+X#endif /* !MSDOS */
+X  err(ZE_ABORT, "aborting");
+X  s++;                                  /* keep some compilers happy */
+X}
+X
+X
+Xvoid warn(a, b)
+Xchar *a, *b;            /* message strings juxtaposed in output */
+X/* Print a warning message to stderr and return. */
+X{
+X  fprintf(stderr, "zipnote warning: %s%s\n", a, b);
+X}
+X
+X
+Xlocal void license()
+X/* Print license information to stdout. */
+X{
+X  extent i;             /* counter for copyright array */
+X
+X  for (i = 0; i < sizeof(copyright)/sizeof(char *); i++) {
+X    printf(copyright[i], "zipnote");
+X    putchar('\n');
+X  }
+X  for (i = 0; i < sizeof(disclaimer)/sizeof(char *); i++)
+X    puts(disclaimer[i]);
+X}
+X
+X
+Xlocal void help()
+X/* Print help (along with license info) to stdout. */
+X{
+X  extent i;             /* counter for help array */
+X
+X  /* help array */
+X  static char *text[] = {
+X"",
+X"ZipNote %d.%d (%s)",
+X"Usage:  zipnote [-w] [-b path] zipfile",
+X"  the default action is to write the comments in zipfile to stdout",
+X"  -w   write the zipfile comments from stdin",
+X"  -b   use \"path\" for the temporary zip file",
+X"  -h   show this help               -L   show software license",
+X"",
+X"Example:",
+X#ifdef VMS
+X"     define/user sys$output foo.tmp",
+X"     zipnote foo.zip",
+X"     edit foo.tmp",
+X"     ... then you edit the comments, save, and exit ...",
+X"     define/user sys$input foo.tmp",
+X"     zipnote -w foo.zip"
+X#else /* !VMS */
+X"     zipnote foo.zip > foo.tmp",
+X"     ed foo.tmp",
+X"     ... then you edit the comments, save, and exit ...",
+X"     zipnote -w foo.zip < foo.tmp"
+X#endif /* ?VMS */
+X  };
+X
+X  for (i = 0; i < sizeof(copyright)/sizeof(char *); i++) {
+X    printf(copyright[i], "zipnote");
+X    putchar('\n');
+X  }
+X  for (i = 0; i < sizeof(text)/sizeof(char *); i++)
+X  {
+X    printf(text[i], REVISION / 10, REVISION % 10, REVDATE);
+X    putchar('\n');
+X  }
+X}
+X
+X
+Xlocal void putclean(s, n)
+Xchar *s;                /* string to write to stdout */
+Xint n;                  /* length of string */
+X/* Write the string s to stdout, filtering out control characters that are
+X   not tab or newline (mainly to remove carriage returns), and prefix MARK's
+X   and backslashes with a backslash.  Also, terminate with a newline if
+X   needed. */
+X{
+X  int c;                /* next character in string */
+X  int e;                /* last character written */
+X
+X  e = '\n';                     /* if empty, write nothing */
+X  while (n--)
+X  {
+X    c = *(uch *)s++;
+X    if (c == MARK || c == '\\')
+X      putchar('\\');
+X    if (c >= ' ' || c == '\t' || c == '\n')
+X      putchar(e = c);
+X  }
+X  if (e != '\n')
+X    putchar('\n');
+X}
+X
+X
+Xlocal int catalloc(a, s)
+Xchar * far *a;          /* pointer to a pointer to a malloc'ed string */
+Xchar *s;                /* string to concatenate on a */
+X/* Concatentate the string s to the malloc'ed string pointed to by a.
+X   Preprocess s by removing backslash escape characters. */
+X{
+X  char *p;              /* temporary pointer */
+X  char *q;              /* temporary pointer */
+X
+X  for (p = q = s; *q; *p++ = *q++)
+X    if (*q == '\\' && *(q+1))
+X      q++;
+X  *p = 0;
+X  if ((p = malloc(strlen(*a) + strlen(s) + 3)) == NULL)
+X    return ZE_MEM;
+X  strcat(strcat(strcpy(p, *a), **a ? "\r\n" : ""), s);
+X  free((voidp *)*a);
+X  *a = p;
+X  return ZE_OK;
+X}
+X
+X
+Xvoid main(argc, argv)
+Xint argc;               /* number of tokens in command line */
+Xchar **argv;            /* command line tokens */
+X/* Write the comments in the zipfile to stdout, or read them from stdin. */
+X{
+X  char a[FNMAX+1];      /* input line buffer */
+X  ulg c;                /* start of central directory */
+X  int k;                /* next argument type */
+X  char *q;              /* steps through option arguments */
+X  int r;                /* arg counter, temporary variable */
+X  ulg s;                /* length of central directory */
+X  int t;                /* attributes of zip file */
+X  int w;                /* true if updating zip file from stdin */
+X  FILE *x, *y;          /* input and output zip files */
+X  struct zlist far *z;  /* steps through zfiles linked list */
+X
+X
+X  /* If no args, show help */
+X  if (argc == 1)
+X  {
+X    help();
+X    exit(0);
+X  }
+X
+X  init_upper();           /* build case map table */
+X
+X  /* Go through args */
+X  zipfile = tempzip = NULL;
+X  tempzf = NULL;
+X  signal(SIGINT, handler);
+X  signal(SIGTERM, handler);
+X  k = w = 0;
+X  for (r = 1; r < argc; r++)
+X    if (*argv[r] == '-')
+X      if (argv[r][1])
+X        for (q = argv[r]+1; *q; q++)
+X          switch(*q)
+X          {
+X            case 'b':   /* Specify path for temporary file */
+X              if (k)
+X                err(ZE_PARMS, "use -b before zip file name");
+X              else
+X                k = 1;          /* Next non-option is path */
+X              break;
+X            case 'h':   /* Show help */
+X              help();  exit(0);
+X            case 'l':  case 'L':  /* Show copyright and disclaimer */
+X              license();  exit(0);
+X            case 'w':
+X              w = 1;  break;
+X            default:
+X              err(ZE_PARMS, "unknown option");
+X          }
+X      else
+X        err(ZE_PARMS, "zip file cannot be stdin");
+X    else
+X      if (k == 0)
+X        if (zipfile == NULL)
+X        {
+X          if ((zipfile = ziptyp(argv[r])) == NULL)
+X            err(ZE_MEM, "was processing arguments");
+X        }
+X        else
+X          err(ZE_PARMS, "can only specify one zip file");
+X      else
+X      {
+X        tempath = argv[r];
+X        k = 0;
+X      }
+X  if (zipfile == NULL)
+X    err(ZE_PARMS, "need to specify zip file");
+X
+X  /* Read zip file */
+X  if ((r = readzipfile()) != ZE_OK)
+X    err(r, zipfile);
+X  if (zfiles == NULL)
+X    err(ZE_NAME, zipfile);
+X
+X  /* Put comments to stdout, if not -w */
+X  if (!w)
+X  {
+X    for (z = zfiles; z != NULL; z = z->nxt)
+X    {
+X      printf("%c %s\n", MARK, z->zname);
+X      putclean(z->comment, z->com);
+X      putchar(MARK);  putchar('\n');
+X    }
+X    putchar(MARK);  putchar('\n');
+X    putclean(zcomment, zcomlen);
+X    exit(ZE_OK);
+X  }
+X
+X  /* If updating comments, make sure zip file is writeable */
+X  if ((x = fopen(zipfile, "a")) == NULL)
+X    err(ZE_CREAT, zipfile);
+X  fclose(x);
+X  t = getfileattr(zipfile);
+X
+X  /* Process stdin, replacing comments */
+X  for (z = zfiles; z != NULL; z = z->nxt)
+X  {
+X    if (gets(a) == NULL || a[0] != MARK || a[1] != ' ' ||
+X        strcmp(a + 2, z->zname))
+X      err(ZE_NOTE, "missing entry name");
+X    if (z->com)
+X      free((voidp *)z->comment);
+X    z->comment = malloc(1);  *(z->comment) = 0;
+X    while (gets(a) != NULL && *a != MARK)
+X      if ((r = catalloc(&(z->comment), a)) != ZE_OK)
+X        err(r, "was building new comments");
+X    if (a[1])
+X      err(ZE_NOTE, "missing comment end line");
+X    z->com = strlen(z->comment);
+X  }
+X  if (gets(a) == NULL || a[0] != MARK || a[1])
+X    err(ZE_NOTE, "missing zip file comment marker line");
+X  zcomment = malloc(1);  *zcomment = 0;
+X  while (gets(a) != NULL)
+X    if ((r = catalloc(&zcomment, a)) != ZE_OK)
+X      err(r, "was building new comments");
+X  zcomlen = strlen(zcomment);
+X
+X  /* Open output zip file for writing */
+X  if ((tempzf = y = fopen(tempzip = tempname(zipfile), FOPW)) == NULL)
+X    err(ZE_TEMP, tempzip);
+X
+X  /* Open input zip file again, copy preamble if any */
+X  if ((x = fopen(zipfile, FOPR)) == NULL)
+X    err(ZE_NAME, zipfile);
+X  if (zipbeg && (r = fcopy(x, y, zipbeg)) != ZE_OK)
+X    err(r, r == ZE_TEMP ? tempzip : zipfile);
+X
+X  /* Go through local entries, copying them over as is */
+X  for (z = zfiles; z != NULL; z = z->nxt)
+X    if ((r = zipcopy(z, x, y)) != ZE_OK)
+X      err(r, "was copying an entry");
+X  fclose(x);
+X
+X  /* Write central directory and end of central directory with new comments */
+X  if ((c = ftell(y)) == -1L)    /* get start of central */
+X    err(ZE_TEMP, tempzip);
+X  for (z = zfiles; z != NULL; z = z->nxt)
+X    if ((r = putcentral(z, y)) != ZE_OK)
+X      err(r, tempzip);
+X  if ((s = ftell(y)) == -1L)    /* get end of central */
+X    err(ZE_TEMP, tempzip);
+X  s -= c;                       /* compute length of central */
+X  if ((r = putend((int)zcount, s, c, zcomlen, zcomment, y)) != ZE_OK)
+X    err(r, tempzip);
+X  tempzf = NULL;
+X  if (fclose(y))
+X    err(ZE_TEMP, tempzip);
+X  if ((r = replace(zipfile, tempzip)) != ZE_OK)
+X  {
+X    warn("new zip file left as: ", tempzip);
+X    free((voidp *)tempzip);
+X    tempzip = NULL;
+X    err(r, "was replacing the original zip file");
+X  }
+X  free((voidp *)tempzip);
+X  tempzip = NULL;
+X  setfileattr(zipfile, t);
+X  free((voidp *)zipfile);
+X  zipfile = NULL;
+X
+X  /* Done! */
+X  exit(ZE_OK);
+X}
+END_OF_FILE
+  if test 9993 -ne `wc -c <'zipnote.c'`; then
+    echo shar: \"'zipnote.c'\" unpacked with wrong size!
+  fi
+  # end of 'zipnote.c'
+fi
+if test -f 'zipup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'zipup.c'\"
+else
+  echo shar: Extracting \"'zipup.c'\" \(12100 characters\)
+  sed "s/^X//" >'zipup.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  zipup.c by Mark Adler. Includes modifications by Jean-loup Gailly.
+X */
+X
+X#define NOCPYRT         /* this is not a main module */
+X#include <ctype.h>
+X#include "zip.h"
+X#include "revision.h"
+X#ifdef OS2
+X#  include "os2zip.h"
+X#endif
+X
+X/* Use the raw functions for MSDOS and Unix to save on buffer space.
+X   They're not used for VMS since it doesn't work (raw is weird on VMS).
+X   (This sort of stuff belongs in fileio.c, but oh well.) */
+X#ifdef VMS
+X#  define fhow "r"
+X#  define fbad NULL
+X   typedef void *ftype;
+X#  define zopen(n,p)   (vms_native?vms_open(n)    :(ftype)fopen((n),(p)))
+X#  define zread(f,b,n) (vms_native?vms_read(f,b,n):fread((b),1,(n),(FILE*)(f)))
+X#  define zclose(f)    (vms_native?vms_close(f)   :fclose((FILE*)(f)))
+X#  define zerr(f)      (vms_native?vms_error(f)   :ferror((FILE*)(f)))
+X#  define zstdin stdin
+X   ftype vms_open OF((char *));
+X   int vms_read OF((ftype, char *, int));
+X   int vms_close OF((ftype));
+X   int vms_error OF((ftype));
+X#else /* !VMS */
+X#  if defined(MSDOS) && !defined(ATARI_ST)
+X#    include <io.h>
+X#    include <fcntl.h>
+X#    define fhow (O_RDONLY|O_BINARY)
+X#  else /* !MSDOS */
+X     int open OF((char *, int));
+X     int read OF((int, char *, int));
+X     int close OF((int));
+X     int lseek OF((int, long, int));
+X#    define fhow 0
+X#  endif /* ?MSDOS */
+X   typedef int ftype;
+X#  define fbad (-1)
+X#  define zopen(n,p) open(n,p)
+X#  define zread(f,b,n) read(f,b,n)
+X#  define zclose(f) close(f)
+X#  define zerr(f) (k==(extent)(-1L))
+X#  define zstdin 0
+X#endif /* ?VMS */
+X
+X
+X/* Local data */
+X
+X#ifndef UTIL
+Xlocal ulg crc;       /* crc on uncompressed file data */
+Xlocal ftype ifile;   /* file to compress */
+X#endif
+Xulg isize;           /* input file size. global only for debugging */    
+X
+X/* Local functions */
+X#if defined(PROTO) && !defined(UTIL)
+X   local int suffixes(char *, char *);
+X#endif
+X
+X
+X/* Note: a zip "entry" includes a local header (which includes the file
+X   name), an encryption header if encrypting, the compressed data
+X   and possibly an extended local header. */
+X
+Xint zipcopy(z, x, y)
+Xstruct zlist far *z;    /* zip entry to copy */
+XFILE *x, *y;            /* source and destination files */
+X/* Copy the zip entry described by *z from file *x to file *y.  Return an
+X   error code in the ZE_ class.  Also update tempzn by the number of bytes
+X   copied. */
+X{
+X  ulg n;                /* holds local header offset */
+X
+X  if (fseek(x, z->off, SEEK_SET))
+X    return ferror(x) ? ZE_READ : ZE_EOF;
+X  z->off = tempzn;
+X  n = 4 + LOCHEAD + (long)z->nam + (long)z->ext + z->siz;
+X  /* copy the extended local header if there is one */
+X  if (z->lflg & 8) n += 16;
+X  tempzn += n;
+X  return fcopy(x, y, n);
+X}
+X
+X
+X#ifndef UTIL
+X
+Xint percent(n, m)
+Xlong n, m;               /* n is the original size, m is the new size */
+X/* Return the percentage compression from n to m using only integer
+X   operations */
+X{
+X  if (n > 0xffffffL)            /* If n >= 16M */
+X  {                             /*  then divide n and m by 256 */
+X    n += 0x80;  n >>= 8;
+X    m += 0x80;  m >>= 8;
+X  }
+X  return n ? (int)(1 + (200 * (n - m)/n)) / 2 : 0;
+X}
+X
+Xlocal int suffixes(a, s)
+Xchar *a;                /* name to check suffix of */
+Xchar *s;                /* list of suffixes separated by : or ; */
+X/* Return true if a ends in any of the suffixes in the list s. */
+X{
+X  int m;                /* true if suffix matches so far */
+X  char *p;              /* pointer into special */
+X  char *q;              /* pointer into name a */
+X
+X  m = 1;
+X#ifdef VMS
+X  if( (q = strrchr(a,';')) != NULL )    /* Cut out VMS file version */
+X    --q;
+X  else
+X    q = a + strlen(a) - 1;
+X#else
+X  q = a + strlen(a) - 1;
+X#endif
+X  for (p = s + strlen(s) - 1; p >= s; p--)
+X    if (*p == ':' || *p == ';')
+X      if (m)
+X        return 1;
+X      else
+X      {
+X        m = 1;
+X#ifdef VMS
+X        if( (q = strrchr(a,';')) != NULL )      /* Cut out VMS file version */
+X          --q;
+X        else
+X          q = a + strlen(a) - 1;
+X#else
+X        q = a + strlen(a) - 1;
+X#endif
+X      }
+X    else
+X    {
+X      m = m && q >= a && case_map(*p) == case_map(*q);
+X      q--;
+X    }
+X  return m;
+X}
+X
+Xint zipup(z, y)
+Xstruct zlist far *z;    /* zip entry to compress */
+XFILE *y;                /* output file */
+X/* Compress the file z->name into the zip entry described by *z and write
+X   it to the file *y. Encrypt if requested.  Return an error code in the
+X   ZE_ class.  Also, update tempzn by the number of bytes written. */
+X{
+X  ulg a = 0L;           /* attributes returned by filetime() */
+X  char *b;              /* malloc'ed file buffer */
+X  extent k = 0;         /* result of zread */
+X  int l = 0;            /* true if this file is a symbolic link */
+X  int m;                /* method for this entry */
+X  ulg o, p;             /* offsets in zip file */
+X  long q = -2L;         /* size returned by filetime */
+X  int r;                /* temporary variable */
+X  ulg s = 0L;           /* size of compressed data */
+X
+X  if ((z->tim = filetime(z->name, &a, &q)) == 0 || q < -1L)
+X    return ZE_OPEN;
+X  /* q is set to -1 if the input file is a device */
+X
+X  z->nam = strlen(z->zname);
+X
+X  /* Select method based on the suffix and the global method */
+X  m = special != NULL && suffixes(z->name, special) ? STORE : method;
+X
+X  /* Open file to zip up unless it is stdin */
+X  if (strcmp(z->name, "-") == 0)
+X  {
+X    ifile = (ftype)zstdin;
+X#ifdef MSDOS
+X    setmode(zstdin, O_BINARY);
+X#endif
+X  }
+X  else
+X  {
+X#ifdef VMS
+X   if (vms_native)
+X     get_vms_attributes(z);
+X#endif
+X#ifdef OS2
+X    GetEAs(z->name, &z->extra, &z->ext, &z->cextra, &z->cext);
+X    /* store data in local header, and size only in central headers */
+X#endif
+X    l = issymlnk(a);
+X    if (l)
+X      ifile = fbad;
+X    else if (z->name[z->nam - 1] == '/') { /* directory */
+X      ifile = fbad;
+X      m = STORE;
+X    }
+X    else if ((ifile = zopen(z->name, fhow)) == fbad)
+X      return ZE_OPEN;
+X  }
+X
+X  if (l || q == 0)
+X    m = STORE;
+X  if (m == BEST)
+X    m = DEFLATE;
+X
+X  /* Do not create STORED files with extended local headers if the
+X   * input size is not known, because such files could not be extracted.
+X   * So if the zip file is not seekable and the input file is not
+X   * on disk, obey the -0 option by forcing deflation with stored block.
+X   * Note however that using "zip -0" as filter is not very useful...
+X   * ??? to be done.
+X   */
+X
+X  /* Fill in header information and write local header to zip file.
+X   * This header will later be re-written since compressed length and
+X   * crc are not yet known.
+X   */
+X
+X  /* (Assume ext, cext, com, and zname already filled in.) */
+X#ifdef OS2
+X  z->vem = z->dosflag ? 20 :            /* Made under MSDOS by PKZIP 2.0 */
+X  /* We for a FAT file system, we must cheat and pretend that the
+X   * file was not made on OS2 but under DOS. unzip is confused otherwise.
+X   */
+X#else
+X  z->vem = dosify ? 20 :                /* Made under MSDOS by PKZIP 2.0 */
+X#endif
+X#ifdef VMS
+X                    0x200 + REVISION;   /* Made under VMS by this Zip */
+X#else /* !VMS */
+X# ifdef OS2
+X                    0x600 + REVISION;   /* Made under OS/2 by this Zip */
+X# else /* !OS2 */
+X#  ifdef MSDOS
+X                    0     + REVISION;   /* Made under MSDOS by this Zip */
+X#  else
+X                    0x300 + REVISION;   /* Made under Unix by this Zip */
+X#  endif /* MSDOS */
+X# endif /* ?OS2 */
+X#endif /* ?VMS */
+X
+X  z->ver = 20;                          /* Need PKUNZIP 2.0 */
+X  z->crc = 0;  /* to be updated later */
+X  /* Assume first that we will need an extended local header: */
+X  z->flg = 8;  /* to be updated later */
+X#ifdef CRYPT
+X  if (key != NULL) {
+X    z->flg |= 1;
+X    /* Since we do not yet know the crc here, we pretend that the crc
+X     * is the modification time:
+X     */
+X    z->crc = z->tim << 16;
+X  }
+X#endif
+X  z->lflg = z->flg;
+X  z->how = m;                             /* may be changed later  */
+X  z->siz = m == STORE && q >= 0 ? q : 0;  /* will be changed later  */
+X  z->len = q >= 0 ? q : 0;                /* may be changed later  */
+X  z->dsk = 0;
+X  z->att = BINARY;                        /* may be changed later */
+X  z->atx = z->dosflag ? a & 0xff : a;      /* Attributes from filetime() */
+X  z->off = tempzn;
+X  if ((r = putlocal(z, y)) != ZE_OK)
+X    return r;
+X  tempzn += 4 + LOCHEAD + z->nam + z->ext;
+X
+X#ifdef CRYPT
+X  if (key != NULL) {
+X    crypthead(key, z->crc, y);
+X    z->siz += 12;  /* to be updated later */
+X    tempzn += 12;
+X  }
+X#endif
+X  o = ftell(y); /* for debugging only */
+X
+X  /* Write stored or deflated file to zip file */
+X  isize = 0L;
+X  crc = updcrc((char *)NULL, 0);
+X
+X  if (m == DEFLATE) {
+X     bi_init(y);
+X     z->att = (ush)UNKNOWN;
+X     ct_init(&z->att, &m);
+X     lm_init(level, &z->flg);
+X     s = deflate();
+X  }
+X  else
+X  {
+X    if ((b = malloc(CBSZ)) == NULL)
+X       return ZE_MEM;
+X
+X    if (z->name[z->nam - 1] != '/') /* no read for directories */
+X    while ((k = l ? rdsymlnk(z->name, b, CBSZ) : zread(ifile, b, CBSZ)) > 0)
+X    {
+X      isize += k;
+X      crc = updcrc(b, k);
+X      if (zfwrite(b, 1, k, y) != k)
+X      {
+X        free((voidp *)b);
+X        return ZE_TEMP;
+X      }
+X#ifdef MINIX
+X      if (l)
+X        q = k;
+X#endif /* MINIX */
+X      if (l)
+X        break;
+X    }
+X    free((voidp *)b);
+X    s = isize;
+X  }
+X  if (ifile != fbad && zerr(ifile))
+X    return ZE_READ;
+X  if (ifile != fbad)
+X    zclose(ifile);
+X
+X  tempzn += s;
+X  p = tempzn; /* save for future fseek() */
+X
+X#ifndef VMS
+X  /* Check input size (but not in VMS--variable record lengths mess it up) */
+X  if (q >= 0 && isize != (ulg)q && !translate_eol)
+X  {
+X    fprintf(mesg, " i=%ld, q=%ld ", isize, q);
+X    error("incorrect input size");
+X  }
+X#endif /* !VMS */
+X
+X  /* Try to rewrite the local header with correct information */
+X  z->crc = crc;
+X  z->siz = s;
+X#ifdef CRYPT
+X  if (key != NULL)
+X    z->siz += 12;
+X#endif
+X  z->len = isize;
+X  if (fseek(y, z->off, SEEK_SET)) {
+X    if (z->how != (ush) m)
+X       error("can't rewrite method");
+X    if (m == STORE && q < 0)
+X       error("zip -0 not allowed for input/output from/to pipe or device");
+X    if ((r = putextended(z, y)) != ZE_OK)
+X      return r;
+X    tempzn += 16L;
+X    z->flg = z->lflg; /* if flg modified by inflate */
+X  } else {
+X     /* seek ok, ftell() should work, check compressed size */
+X#ifndef VMS
+X    if (p - o != s) {
+X      fprintf(mesg, " s=%ld, actual=%ld ", s, p-o);
+X      error("incorrect compressed size");
+X    }
+X#endif
+X    z->how = m;
+X    if ((z->flg & 1) == 0)
+X      z->flg &= ~8; /* clear the extended local header flag */
+X    z->lflg = z->flg;
+X    /* rewrite the local header: */
+X    if ((r = putlocal(z, y)) != ZE_OK)
+X      return r;
+X    if (fseek(y, p, SEEK_SET))
+X      return ZE_READ;
+X    if ((z->flg & 1) != 0) {
+X      /* encrypted file, extended header still required */
+X      if ((r = putextended(z, y)) != ZE_OK)
+X        return r;
+X      tempzn += 16L;
+X    }
+X  }
+X
+X  /* Display statistics */
+X  if (noisy)
+X  {
+X    if (verbose)
+X      fprintf(mesg, " (in=%lu) (out=%lu)", isize, s);
+X    if (m == DEFLATE)
+X      fprintf(mesg, " (deflated %d%%)\n", percent(isize, s));
+X    else
+X      fprintf(mesg, " (stored 0%%)\n");
+X    fflush(mesg);
+X  }
+X  return ZE_OK;
+X}
+X
+X
+Xint file_read(buf, size)
+X  char *buf;
+X  unsigned size;
+X/* Read a new buffer from the current input file, and update the crc and
+X * input file size.
+X * IN assertion: size >= 2 (for end-of-line translation)
+X */
+X{
+X  unsigned len;
+X  char far *b;
+X  if (translate_eol) {
+X    /* static char last_byte = '\0'; */
+X    size >>= 1;
+X    b = buf+size;
+X    size = len = zread(ifile, b, size);
+X    if (len == (unsigned)EOF || len == 0) return len;
+X    do {
+X       /* ??? keep cr lf intact */
+X       if ((*buf++ = *b++) == '\n') *(buf-1) = '\r', *buf++ = '\n', len++;
+X    } while (--size != 0);
+X    buf -= len;
+X  } else {
+X    len = zread(ifile, buf, size);
+X    if (len == (unsigned)EOF || len == 0) return len;
+X  }
+X  crc = updcrc(buf, len);
+X  isize += (ulg)len;
+X  return len;
+X}
+X#endif /* !UTIL */
+END_OF_FILE
+  if test 12100 -ne `wc -c <'zipup.c'`; then
+    echo shar: \"'zipup.c'\" unpacked with wrong size!
+  fi
+  # end of 'zipup.c'
+fi
+echo shar: End of archive 8 \(of 11\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

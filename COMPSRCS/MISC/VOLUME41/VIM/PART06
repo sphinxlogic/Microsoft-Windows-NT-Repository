@@ -1,0 +1,2640 @@
+Newsgroups: comp.sources.misc
+From: mool@oce.nl (Bram Moolenaar)
+Subject: v41i056:  vim - Vi IMitation editor, v2.0, Part06/25
+Message-ID: <1993Dec21.034449.27319@sparky.sterling.com>
+X-Md4-Signature: 8b9340c3976466881e3dcb467cb15291
+Keywords: utility, editor, vi, vim
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 21 Dec 1993 03:44:49 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mool@oce.nl (Bram Moolenaar)
+Posting-number: Volume 41, Issue 56
+Archive-name: vim/part06
+Environment: UNIX, AMIGA, MS-DOS
+Supersedes: vim: Volume 37, Issue 1-24
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 25)."
+# Contents:  vim/src/script.c vim/src/term.h vim/src/termlib.c
+#   vim/src/undo.c
+# Wrapped by mool@oce-rd2 on Wed Dec 15 09:50:05 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'vim/src/script.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/script.c'\"
+else
+echo shar: Extracting \"'vim/src/script.c'\" \(12921 characters\)
+sed "s/^X//" >'vim/src/script.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * script.c: functions for handling script files
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X
+Xstatic char *scriptname;			/* name of the script in use */
+Xstatic FILE *autoscriptfd = NULL;
+Xstatic char *makescriptname __ARGS((void));
+Xstatic void Supdatescript __ARGS((char *));
+X
+Xextern int global_busy;			/* this is in csearch.c */
+X
+X/*
+X * for Amiga Dos 2.0x we use Open/Close/Flush instead of fopen/fclose
+X */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+Xextern int dos2;					/* this is in amiga.c */
+X# endif
+X# ifdef SASC
+X#  include <proto/dos.h>
+X# endif
+X#endif
+X
+X/*
+X * We use this flag to avoid writing :win to commands to the script file
+X * during startup.
+X */
+Xstatic int script_started = FALSE;
+X
+X/*
+X * startscript(): open automatic script file
+X */
+X	void
+Xstartscript()
+X{
+X	int		n;
+X	char	buf[25];
+X#ifdef AMIGA
+X	int		r;
+X	FILE	*dummyfd = NULL;
+X#endif
+X#ifdef UNIX
+X# ifdef SCO
+X	mode_t	oldmask;
+X# else
+X	int		oldmask;
+X# endif
+X#endif
+X
+X	script_started = TRUE;
+X
+X#ifdef AMIGA
+X/*
+X * With Amiga DOS 2.0 the system may lockup with the sequence: write to .vim
+X * file, close it, delete it, create a new .vim file and write to it.
+X * This is a problem in the filesystem hash chains (solved in version 39.xx).
+X * The Delay seems to solve this problem, maybe because DOS gets a chance to
+X * finish closing and deleting the old .vim file. Also do this for DOS 1.3,
+X * just in case.
+X */
+X	if (stopscript())
+X		Delay(10L);		/* This should fix the lockup bug */
+X#else
+X	stopscript();		/* stop any old script */
+X#endif
+X
+X	if (p_uc == 0 || exiting)	/* no auto script wanted/needed */
+X		return;
+X	if (Changed)
+X		emsg("Warning: buffer already changed, auto script file will be incomplete");
+X
+X#ifdef AMIGA
+X/*
+X * If we start editing a new file, e.g. "test.doc", which resides on an MSDOS
+X * compatible filesystem, it is possible that the file "test.doc.vim" which we
+X * create will be exactly the same file. To avoid this problem we temporarily
+X * create "test.doc".
+X */
+X	if (!(p_sn || thisfile_sn) && xFilename && getperm(xFilename) < 0)
+X		dummyfd = fopen(xFilename, "w");
+X#endif
+X
+X/*
+X * we try different names until we find one that does not exist yet
+X */
+X	scriptname = makescriptname();
+X	for (;;)
+X	{
+X		if (scriptname == NULL)		/* must be out of memory */
+X			break;
+X		if ((n = strlen(scriptname)) == 0)	/* safety check */
+X		{
+X			free(scriptname);
+X			break;
+X		}
+X		
+X		/*
+X		 * check if the scriptfile already exists
+X		 */
+X		if (getperm(scriptname) < 0)		/* it does not exist */
+X		{
+X				/*
+X				 * Create the autoscript file.
+X				 */
+X#ifdef UNIX
+X			/*
+X			 * Disallow others to read our .vim file. This is useful if the
+X			 * .vim file is put in some public place like /tmp.
+X			 */
+X# ifdef SCO
+X			oldmask = umask((mode_t)066);	/* rw------- */
+X# else
+X			oldmask = umask(066);			/* rw------- */
+X# endif
+X#endif
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X			if (dos2)
+X# endif
+X				autoscriptfd = (FILE *)Open((UBYTE *)scriptname, (long)MODE_NEWFILE);
+X# ifndef NO_ARP
+X			else
+X				autoscriptfd = fopen(scriptname, "w");
+X# endif
+X#else	/* !AMIGA */
+X			autoscriptfd = fopen(scriptname, WRITEBIN);
+X#endif	/* AMIGA */
+X#ifdef UNIX
+X			umask(oldmask);				/* back to default umask */
+X#endif
+X
+X#ifdef AMIGA
+X			/*
+X			 * on the Amiga getperm() will return -1 when the file exists but
+X			 * is being used by another program. This happens if you edit
+X			 * a file twice.
+X			 */
+X			if (autoscriptfd != NULL || (IoErr() != ERROR_OBJECT_IN_USE && IoErr() != ERROR_OBJECT_EXISTS))
+X#endif
+X				break;
+X		}
+X	/*
+X	 * get here when file already exists
+X	 */
+X		if (scriptname[n - 1] == 'm')		/* first try */
+X		{
+X#ifdef AMIGA
+X		/*
+X		 * on MS-DOS compatible filesystems (e.g. messydos) file.doc.vim
+X		 * and file.doc are the same file. To guess if this problem is
+X		 * present try if file.doc.vix exists. If it does, we set thisfile_sn
+X		 * and try file_doc.vim (dots replaced by underscores for this file),
+X		 * and try again. If it doesn't we assume that "file.doc.vim" already
+X		 * exists.
+X		 */
+X			if (!(p_sn || thisfile_sn))		/* not tried yet */
+X			{
+X				scriptname[n - 1] = 'x';
+X				r = getperm(scriptname);	/* try "file.vix" */
+X				scriptname[n - 1] = 'm';
+X				if (r >= 0)					/* it seems to exist */
+X				{
+X					thisfile_sn = TRUE;
+X					free(scriptname);
+X					scriptname = makescriptname();	/* '.' replaced by '_' */
+X					continue;						/* try again */
+X				}
+X			}
+X#endif
+X			/* if we get here ".vim" file really exists */
+X			if (!recoverymode)
+X				emsg(".vim file exists: an edit of this file has not been finished");
+X		}
+X
+X		if (scriptname[n - 1] == 'a')	/* tried enough names, give up */
+X		{
+X			free(scriptname);
+X			break;
+X		}
+X		--scriptname[n - 1];				/* change last char of the name */
+X	}
+X	if (autoscriptfd != NULL)		/* ".vim" file has been created */
+X	{
+X		script_winsize();			/* always start with a :win command */
+X									/* output cursor position if neccessary */
+X		if (Curpos.lnum > 1 || Curpos.col > 0)
+X		{
+X			sprintf(buf, "%ldG0%dl", (long)Curpos.lnum, (int)Curpos.col);
+X			Supdatescript(buf);
+X		}
+X	}
+X
+X#ifdef AMIGA
+X	if (dummyfd)		/* file has been created temporarily */
+X	{
+X		fclose(dummyfd);
+X		remove(xFilename);
+X	}
+X#endif
+X}
+X
+X	int
+Xstopscript()
+X{
+X	if (!autoscriptfd)
+X		return FALSE;		/* nothing to stop */
+X
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X	if (dos2)
+X# endif
+X		Close((BPTR)autoscriptfd);
+X# ifndef NO_ARP
+X	else
+X		fclose(autoscriptfd);
+X# endif
+X#else
+X	fclose(autoscriptfd);
+X#endif
+X	remove(scriptname);		/* delete the file */
+X	autoscriptfd = NULL;
+X	free(scriptname);
+X	return TRUE;
+X}
+X
+X/*
+X * open new script file
+X * return 0 on success, 1 on error
+X */
+X	int
+Xopenscript(name)
+X	char *name;
+X{
+X	int oldcurscript;
+X
+X	if (curscript + 1 == NSCRIPT)
+X	{
+X		emsg(e_nesting);
+X		return 1;
+X	}
+X	else
+X	{
+X		if (scriptin[curscript] != NULL)	/* already reading script */
+X			++curscript;
+X		if ((scriptin[curscript] = fopen((char *)name, READBIN)) == NULL)
+X		{
+X			emsg(e_notopen);
+X			if (curscript)
+X				--curscript;
+X			return 1;
+X		}
+X		/*
+X		 * With command ":g/pat/so! file" we have to execute the
+X		 * commands from the file now.
+X		 */
+X		if (global_busy)
+X		{
+X			State = NORMAL;
+X			oldcurscript = curscript;
+X			do
+X			{
+X				normal();
+X				vpeekc();			/* check for end of file */
+X			}
+X			while (scriptin[oldcurscript]);
+X			State = CMDLINE;
+X		}
+X	}
+X	return 0;
+X}
+X
+X/*
+X * updatescipt() is called when a character has to be written into the script file
+X * or when we have waited some time for a character (c == 0)
+X */
+X	void
+Xupdatescript(c)
+X	int c;
+X{
+X	static int count = 0;
+X
+X	if (c && scriptout)
+X		putc(c, scriptout);
+X	if (autoscriptfd == NULL || (c == 0 && count == 0))		/* nothing to do */
+X		return;
+X	if (c)
+X	{
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			FPutC((BPTR)autoscriptfd, (unsigned long)c);
+X# ifndef NO_ARP
+X		else
+X			putc(c, autoscriptfd);
+X# endif
+X#else
+X		putc(c, autoscriptfd);
+X#endif
+X		++count;
+X	}
+X	if ((c == 0 || count >= p_uc) && Updated)
+X	{
+X		/*
+X		 * Before DOS 2.0x we have to close and open the file in order to really
+X		 * get the characters in the file to disk!
+X		 * With DOS 2.0x Flush() can be used for that
+X		 */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X		if (dos2)
+X# endif
+X			Flush((BPTR)autoscriptfd);
+X# ifndef NO_ARP
+X		else
+X		{
+X			fclose(autoscriptfd);
+X			autoscriptfd = fopen(scriptname, "a");
+X		}
+X# endif
+X#else 	/* !AMIGA */
+X		fclose(autoscriptfd);
+X# ifdef MSDOS
+X		autoscriptfd = fopen(scriptname, "ab");
+X# else
+X		autoscriptfd = fopen(scriptname, "a");
+X# endif
+X#endif
+X		count = 0;
+X		Updated = 0;
+X	}
+X}
+X
+X	static void
+XSupdatescript(str)
+X	char *str;
+X{
+X	while (*str)
+X		updatescript(*str++);
+X}
+X
+X/*
+X * try to open the ".vim" file for recovery
+X * if recoverymode is 1: start recovery, set recoverymode to 2
+X * if recoverymode is 2: stop recovery mode
+X */
+X	void
+Xopenrecover()
+X{
+X	char *fname;
+X	struct stat efile, rfile;
+X
+X	if (recoverymode == 2)		/* end of recovery */
+X	{
+X		recoverymode = 0;
+X		if (got_int)
+X			emsg("Recovery Interrupted");
+X		else
+X			msg("Recovery completed; If everything is OK: Save this file and delete the .vim file");
+X			/* The cursor will be in the wrong place after the msg() */
+X			/* We need to fix it here because we are called from inchar() */
+X		setcursor();
+X		flushbuf();
+X	}
+X	else
+X	{
+X		fname = makescriptname();
+X		if (fname)
+X		{
+X			recoverymode = 2;
+X			if (xFilename != NULL &&
+X					stat(xFilename, &efile) != -1 &&
+X					stat(fname, &rfile) != -1 &&
+X					efile.st_mtime > rfile.st_mtime)
+X				emsg(".vim file is older; file not recovered");
+X			else
+X			{
+X				if (openscript(fname))
+X					emsg("Cannot open .vim file; file not recovered");
+X			}
+X			free(fname);
+X		}
+X	}
+X}
+X
+X/*
+X * make script name out of the filename
+X */
+X	static char *
+Xmakescriptname()
+X{
+X	char	*r, *s, *fname;
+X
+X	r = modname(xFilename, ".vim");
+X	if (*p_dir == 0 || r == NULL)
+X		return r;
+X
+X	fname = gettail(r);
+X	s = alloc((unsigned)(strlen(p_dir) + strlen(fname) + 1));
+X	if (s != NULL)
+X	{
+X		strcpy(s, p_dir);
+X		if (*s && !ispathsep(*(s + strlen(s) - 1)))	/* don't add '/' after ':' */
+X			strcat(s, PATHSEPSTR);
+X		strcat(s, fname);
+X	}
+X	free(r);
+X	return s;
+X}
+X
+X/*
+X * add full path to auto script name, used before first :cd command.
+X */
+X	void
+Xscriptfullpath()
+X{
+X	char *s;
+X
+X	if (!autoscriptfd)
+X		return;		/* nothing to do */
+X	/*
+X	 * on the Amiga we cannot get the full path name while the file is open
+X	 * so we close it for a moment
+X	 */
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X	if (dos2)
+X# endif
+X		Close((BPTR)autoscriptfd);
+X# ifndef NO_ARP
+X	else
+X		fclose(autoscriptfd);
+X# endif
+X#endif
+X
+X	if (FullName(scriptname, IObuff, IOSIZE))
+X	{
+X		s = strsave(IObuff);
+X		if (s)
+X		{
+X			free(scriptname);
+X			scriptname = s;
+X		}
+X	}
+X
+X#ifdef AMIGA
+X# ifndef NO_ARP
+X	if (dos2)
+X# endif
+X	{
+X		autoscriptfd = (FILE *)Open((UBYTE *)scriptname, (long)MODE_OLDFILE);
+X		if (autoscriptfd)
+X			Seek((BPTR)autoscriptfd, 0L, (long)OFFSET_END);
+X	}
+X# ifndef NO_ARP
+X	else
+X		autoscriptfd = fopen(scriptname, "a");
+X# endif
+X#endif
+X}
+X
+X/*
+X * add extention to filename - change path/fo.o.h to path/fo.o.h.ext or
+X * fo_o_h.ext for MSDOS or when dotfname option reset.
+X *
+X * Assumed that fname is a valid name found in the filesystem we assure that
+X * the return value is a different name and ends in ".ext".
+X * "ext" MUST start with a "." and MUST be at most 4 characters long.
+X * Space for the returned name is allocated, must be freed later.
+X */
+X
+X	char *
+Xmodname(fname, ext)
+X	char *fname, *ext;
+X{
+X	char			*retval;
+X	register char   *s;
+X	register char   *ptr;
+X	register int	fnamelen, extlen;
+X	char			currentdir[512];
+X
+X	extlen = strlen(ext);
+X
+X	/*
+X	 * if there is no filename we must get the name of the current directory
+X	 * (we need the full path in case :cd is used)
+X	 */
+X	if (fname == NULL || *fname == NUL)
+X	{
+X		(void)dirname(currentdir, 511);
+X		strcat(currentdir, PATHSEPSTR);
+X		fnamelen = strlen(currentdir);
+X	}
+X	else
+X		fnamelen = strlen(fname);
+X	retval = alloc((unsigned) (fnamelen + extlen + 1));
+X	if (retval != NULL)
+X	{
+X		if (fname == NULL || *fname == NUL)
+X			strcpy(retval, currentdir);
+X		else
+X			strcpy(retval, fname);
+X		/*
+X		 * search backwards until we hit a '/', '\' or ':' replacing all '.' by '_'
+X		 * for MSDOS or when dotfname option reset.
+X		 * Then truncate what is after the '/', '\' or ':' to 8 characters for MSDOS
+X		 * and 26 characters for AMIGA and UNIX.
+X		 */
+X		for (ptr = retval + fnamelen; ptr >= retval; ptr--)
+X		{
+X#ifndef MSDOS
+X			if (p_sn || thisfile_sn)
+X#endif
+X				if (*ptr == '.')	/* replace '.' by '_' */
+X					*ptr = '_';
+X			if (ispathsep(*ptr))
+X				break;
+X		}
+X		ptr++;
+X
+X		/* the filename has at most BASENAMELEN characters. */
+X		if (strlen(ptr) > (unsigned)BASENAMELEN)
+X			ptr[BASENAMELEN] = '\0';
+X#ifndef MSDOS
+X		if ((p_sn || thisfile_sn) && strlen(ptr) > (unsigned)8)
+X			ptr[8] = '\0';
+X#endif
+X		s = ptr + strlen(ptr);
+X
+X		/*
+X		 * Append the extention.
+X		 * ext must start with '.' and cannot exceed 3 more characters.
+X		 */
+X		strcpy(s, ext);
+X		if (fname != NULL && strcmp(fname, retval) == 0)
+X		{
+X			/* after modification still the same name? */
+X			/* we search for a character that can be replaced by '_' */
+X			while (--s >= ptr)
+X			{
+X				if (*s != '_')
+X				{
+X					*s = '_';
+X					break;
+X				}
+X			}
+X			if (s < ptr)
+X			{
+X				/* fname was "________.<ext>" how tricky! */
+X				*ptr = 'v';
+X			}
+X		}
+X	}
+X	return retval;
+X}
+X
+X/*
+X * the new window size must be used in scripts;
+X * write a ":winsize width height" command to the (auto)script
+X * Postpone this action if not in NORMAL State, otherwise we may insert the
+X * command halfway another command.
+X */
+Xint script_winsize_postponed = FALSE;
+X
+X	void
+Xscript_winsize()
+X{
+X	char			buf[25];
+X
+X	if (!script_started || State != NORMAL)		/* postpone action */
+X	{
+X		script_winsize_postponed = TRUE;
+X		return;
+X	}
+X
+X	sprintf(buf, ":win %d %d\r", (int)Columns, (int)Rows);
+X	Supdatescript(buf);
+X	script_winsize_postponed = FALSE;
+X}
+X
+X/*
+X * This function is called after each "State = NORMAL"
+X */
+X	void
+Xscript_winsize_pp()
+X{
+X	if (script_winsize_postponed)
+X		script_winsize();
+X}
+END_OF_FILE
+if test 12921 -ne `wc -c <'vim/src/script.c'`; then
+    echo shar: \"'vim/src/script.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/script.c'
+# end of 'vim/src/script.c'
+fi
+if test -f 'vim/src/term.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/term.h'\"
+else
+echo shar: Extracting \"'vim/src/term.h'\" \(13223 characters\)
+sed "s/^X//" >'vim/src/term.h' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * term.h -- VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * This file contains the machine dependent escape sequences that the editor
+X * needs to perform various operations. Some of the sequences here are
+X * optional. Anything not available should be indicated by a null string. In
+X * the case of insert/delete line sequences, the editor checks the capability
+X * and works around the deficiency, if necessary.
+X */
+X
+X/*
+X * the terminal capabilities are stored in this structure
+X * keep in sync with array in term.c
+X */
+Xtypedef struct _tcarr
+X{
+X/* output codes */
+X  char *t_name;		/* name of this terminal entry */
+X  char *t_el;		/* el       ce	clear to end of line */
+X  char *t_il;		/* il1      al	add new blank line */
+X  char *t_cil;		/* il       AL	add number of blank lines */
+X  char *t_dl;		/* dl1      dl	delete line */
+X  char *t_cdl;		/* dl       DL	delete number of lines */
+X  char *t_ed;		/* clear    cl	clear screen */
+X  char *t_ci;		/* civis    vi	cursur invisible */
+X  char *t_cv;		/* cnorm    ve	cursur visible */
+X  char *t_tp;		/* sgr0     me	normal mode */
+X  char *t_ti;		/* rev      mr	reverse mode */
+X  char *t_cm;		/* cup      cm	cursor motion */
+X  char *t_sr;		/* ri       sr	scroll reverse (backward) */
+X  char *t_cri;		/* cuf      RI	cursor number of chars right */
+X  char *t_vb;		/* flash    vb	visual bell */
+X  char *t_ks;		/* smkx     ks	put terminal in "keypad transmit" mode */
+X  char *t_ke;		/* rmkx     ke	out of "keypad transmit" mode */
+X  char *t_ts;		/*          ti	put terminal in termcap mode */
+X  char *t_te;		/*          te	out of termcap mode */
+X
+X/* key codes */
+X  char *t_ku;		/* kcuu1    ku	arrow up */
+X  char *t_kd;		/* kcud1    kd	arrow down */
+X  char *t_kl;		/* kcub1    kl	arrow left */
+X  char *t_kr;		/* kcuf1    kr	arrow right */
+X  char *t_sku;		/* shift arrow up */
+X  char *t_skd;		/* shift arrow down */
+X  char *t_skl;		/* kLFT     #4	shift arrow left */
+X  char *t_skr;		/* kRIT     %	shift arrow right */
+X  char *t_f1;		/* kf1      k1	function key 1 */
+X  char *t_f2;		/* kf2      k2	function key 2 */
+X  char *t_f3;		/* kf3      k3	function key 3 */
+X  char *t_f4;		/* kf4      k4	function key 4 */
+X  char *t_f5;		/* kf5      k5	function key 5 */
+X  char *t_f6;		/* kf6      k6	function key 6 */
+X  char *t_f7;		/* kf7      k7	function key 7 */
+X  char *t_f8;		/* kf8      k8	function key 8 */
+X  char *t_f9;		/* kf9      k9	function key 9 */
+X  char *t_f10;		/* kf10     k;	function key 10 */
+X  char *t_sf1;		/* kf11     F1	shifted function key 1 */
+X  char *t_sf2;		/* kf12     F2	shifted function key 2 */
+X  char *t_sf3;		/* kf13     F3	shifted function key 3 */
+X  char *t_sf4;		/* kf14     F4	shifted function key 4 */
+X  char *t_sf5;		/* kf15     F5	shifted function key 5 */
+X  char *t_sf6;		/* kf16     F6	shifted function key 6 */
+X  char *t_sf7;		/* kf17     F7	shifted function key 7 */
+X  char *t_sf8;		/* kf18     F8	shifted function key 8 */
+X  char *t_sf9;		/* kf19     F9	shifted function key 9 */
+X  char *t_sf10;		/* kf20     FA	shifted function key 10 */
+X  char *t_help;		/* khlp     %1	help key */
+X  char *t_undo;		/* kund     &8	undo key */
+X  /* adjust inchar() for last entry! */
+X} Tcarr;
+X
+Xextern Tcarr term_strings;	/* currently used terminal strings */
+X
+X/*
+X * strings used for terminal
+X */
+X#define T_EL	(term_strings.t_el)
+X#define T_IL	(term_strings.t_il)
+X#define T_CIL	(term_strings.t_cil)
+X#define T_DL	(term_strings.t_dl)
+X#define T_CDL	(term_strings.t_cdl)
+X#define T_ED	(term_strings.t_ed)
+X#define T_CI	(term_strings.t_ci)
+X#define T_CV	(term_strings.t_cv)
+X#define T_TP	(term_strings.t_tp)
+X#define T_TI	(term_strings.t_ti)
+X#define T_CM	(term_strings.t_cm)
+X#define T_SR	(term_strings.t_sr)
+X#define T_CRI	(term_strings.t_cri)
+X#define T_VB	(term_strings.t_vb)
+X#define T_KS	(term_strings.t_ks)
+X#define T_KE	(term_strings.t_ke)
+X#define T_TS	(term_strings.t_ts)
+X#define T_TE	(term_strings.t_te)
+X
+X
+X#ifndef TERMINFO
+X# ifndef NO_BUILTIN_TCAPS
+X/*
+X * here are the builtin termcap entries.
+X * They not stored as complete Tcarr structures, as such a structure 
+X * is to big. 
+X * Each termcap is a concatenated string of entries, where '\0' characters
+X * followed by a skip character sepereate the capabilities. The skip 
+X * character is the relative structure offset for the following entry.
+X * See parse_builtin_tcap() in term.c for all details.
+X */
+X#  define AMIGA_TCAP "amiga\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\0\033[%dL\0\
+X\0\033[M\0\
+X\0\033[%dM\0\
+X\0\014\0\
+X\0\033[0 p\0\
+X\0\033[1 p\0\
+X\0\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%d;%dH\0\
+X\1\033[%dC\0\
+X\5\233A\0\
+X\0\233B\0\
+X\0\233D\0\
+X\0\233C\0\
+X\0\233T\0\
+X\0\233S\0\
+X\0\233 A\0\
+X\0\233 @\0\
+X\0\233\060~\0\
+X\0\233\061~\0\
+X\0\233\062~\0\
+X\0\233\063~\0\
+X\0\233\064~\0\
+X\0\233\065~\0\
+X\0\233\066~\0\
+X\0\233\067~\0\
+X\0\233\070~\0\
+X\0\233\071~\0\
+X\0\233\061\060~\0\
+X\0\233\061\061~\0\
+X\0\233\061\062~\0\
+X\0\233\061\063~\0\
+X\0\233\061\064~\0\
+X\0\233\061\065~\0\
+X\0\233\061\066~\0\
+X\0\233\061\067~\0\
+X\0\233\061\070~\0\
+X\0\233\061\071~\0\
+X\0\233?~\0\
+X\0\0"
+X
+X#  define ATARI_TCAP "atari\0\
+X\0\033l\0\
+X\0\033L\0\
+X\1\033M\0\
+X\1\033E\0\
+X\0\033f\0\
+X\0\033e\0\
+X\0\0"
+X
+X#  define ANSI_TCAP "ansi\0\
+X\0\033[2K\0\
+X\0\033[L\0\
+X\0\033[%dL\0\
+X\0\033[M\0\
+X\0\033[%dM\0\
+X\0\033[2J\0\
+X\2\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%d;%dH\0\
+X\1\033[%dC\0\
+X\0\0"
+X
+X/*
+X * These codes are valid when nansi.sys or equivalent has been installed.
+X * Function keys on a PC are preceded with a NUL. These are converted into
+X * K_NUL '\316' in GetChars(), because we cannot handle NULs in key codes.
+X * CTRL-arrow is used instead of SHIFT-arrow.
+X */
+X#  define PCANSI_TCAP "pcansi\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\1\033[M\0\
+X\1\033[2J\0\
+X\2\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%d;%dH\0\
+X\1\033[%dC\0\
+X\5\316H\0\
+X\0\316P\0\
+X\0\316K\0\
+X\0\316M\0\
+X\2\316s\0\
+X\0\316t\0\
+X\0\316;\0\
+X\0\316<\0\
+X\0\316=\0\
+X\0\316>\0\
+X\0\316?\0\
+X\0\316@\0\
+X\0\316A\0\
+X\0\316B\0\
+X\0\316C\0\
+X\0\316D\0\
+X\0\316T\0\
+X\0\316U\0\
+X\0\316V\0\
+X\0\316W\0\
+X\0\316X\0\
+X\0\316Y\0\
+X\0\316Z\0\
+X\0\316[\0\
+X\0\316\\\0\
+X\0\316]\0\
+X\0\0"
+X
+X/*
+X * These codes are valid for the pc video.
+X * The entries that start with ESC | are translated into conio calls in msdos.c.
+X */
+X#  define PCTERM_TCAP "pcterm\0\
+X\0\033|K\0\
+X\0\033|L\0\
+X\1\033|M\0\
+X\1\033|J\0\
+X\2\033|0m\0\
+X\0\033|79m\0\
+X\0\033|%i%d;%dH\0\
+X\7\316H\0\
+X\0\316P\0\
+X\0\316K\0\
+X\0\316M\0\
+X\2\316s\0\
+X\0\316t\0\
+X\0\316;\0\
+X\0\316<\0\
+X\0\316=\0\
+X\0\316>\0\
+X\0\316?\0\
+X\0\316@\0\
+X\0\316A\0\
+X\0\316B\0\
+X\0\316C\0\
+X\0\316D\0\
+X\0\316T\0\
+X\0\316U\0\
+X\0\316V\0\
+X\0\316W\0\
+X\0\316X\0\
+X\0\316Y\0\
+X\0\316Z\0\
+X\0\316[\0\
+X\0\316\\\0\
+X\0\316]\0\
+X\0\0"
+X
+X#  define VT52_TCAP "vt52\0\
+X\0\033K\0\
+X\0\033T\0\
+X\1\033U\0\
+X\1\014\0\
+X\2\033SO\0\
+X\0\033S2\0\
+X\0\033Y%+ %+ \0\
+X\0\0"
+X
+X/*
+X * The xterm termcap is missing F14 and F15, because they send the same
+X * codes as the undo and help key, although they don't work on all keyboards.
+X */
+X#  define XTERM_TCAP "xterm\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\0\033[%dL\0\
+X\0\033[M\0\
+X\0\033[%dM\0\
+X\0\033[H\033[2J\0\
+X\2\033[m\0\
+X\0\033[7m\0\
+X\0\033[%i%d;%dH\0\
+X\0\033M\0\
+X\0\033[%dC\0\
+X\1\033[?1h\033=\0\
+X\0\033[?1l\033>\0\
+X\0\0337\033[?47h\0\
+X\0\033[2J\033[?47l\0338\0\
+X\0\033OA\0\
+X\0\033OB\0\
+X\0\033OD\0\
+X\0\033OC\0\
+X\0\033Ox\0\
+X\0\033Or\0\
+X\0\033Ot\0\
+X\0\033Ov\0\
+X\0\033[11~\0\
+X\0\033[12~\0\
+X\0\033[13~\0\
+X\0\033[14~\0\
+X\0\033[15~\0\
+X\0\033[17~\0\
+X\0\033[18~\0\
+X\0\033[19~\0\
+X\0\033[20~\0\
+X\0\033[21~\0\
+X\0\033[23~\0\
+X\0\033[24~\0\
+X\0\033[25~\0\
+X\2\033[29~\0\
+X\0\033[31~\0\
+X\0\033[32~\0\
+X\0\033[33~\0\
+X\0\033[34~\0\
+X\0\033[28~\0\
+X\0\033[26~\0\
+X\0\0"
+X
+X#  define DEBUG_TCAP "debug\0\
+X\0[EL]\0\
+X\0[IL]\0\
+X\0[CIL%d]\0\
+X\0[DL]\0\
+X\0[CDL%d]\0\
+X\0[ED]\0\
+X\0[CI]\0\
+X\0[CV]\0\
+X\0[TP]\0\
+X\0[TI]\0\
+X\0[%dCM%d]\0\
+X\0[SR]\0\
+X\0[CRI%d]\0\
+X\0[VB]\0\
+X\0[KS]\0\
+X\0[KE]\0\
+X\0[TI]\0\
+X\0[TE]\0\
+X\0[KU]\0\
+X\0[KD]\0\
+X\0[KL]\0\
+X\0[KR]\0\
+X\0[SKU]\0\
+X\0[SKD]\0\
+X\0[SKL]\0\
+X\0[SKR]\0\
+X\0[F1]\0\
+X\0[F2]\0\
+X\0[F3]\0\
+X\0[F4]\0\
+X\0[F5]\0\
+X\0[F6]\0\
+X\0[F7]\0\
+X\0[F8]\0\
+X\0[F9]\0\
+X\0[F10]\0\
+X\0[SF1]\0\
+X\0[SF2]\0\
+X\0[SF3]\0\
+X\0[SF4]\0\
+X\0[SF5]\0\
+X\0[SF6]\0\
+X\0[SF7]\0\
+X\0[SF8]\0\
+X\0[SF9]\0\
+X\0[SF10]\0\
+X\0[HELP]\0\
+X\0[UNDO]\0\
+X\0\0"
+X
+X#  ifdef ATARI
+X#   define DFLT_TCAP ATARI_TCAP
+X#  endif /* ATARI */
+X
+X#  ifdef AMIGA
+X#   define DFLT_TCAP AMIGA_TCAP
+X#  endif /* AMIGA */
+X
+X#  ifdef MSDOS
+X#   define DFLT_TCAP PCTERM_TCAP
+X#  endif /* MSDOS */
+X
+X#  ifdef UNIX
+X#   define DFLT_TCAP ANSI_TCAP
+X#  endif /* UNIX */
+X
+X# else /* NO_BUILTIN_TCAPS */
+X#  define DUMB_TCAP "dumb\0\
+X\5\014\0\
+X\4\033[%i%d;%dH\0\
+X\0\0"
+X# endif /* NO_BUILTIN_TCAPS */
+X
+X#else /* TERMINFO */
+X# ifndef NO_BUILTIN_TCAPS
+X/*
+X * here are the builtin termcap entries.
+X * They not stored as complete Tcarr structures, as such a structure 
+X * is to big. 
+X * Each termcap is a concatenated string of entries, where '\0' characters
+X * followed by a skip character sepereate the capabilities. The skip 
+X * character is the relative structure offset for the following entry.
+X * See parse_builtin_tcap() in term.c for all details.
+X */
+X#  define AMIGA_TCAP "amiga\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\0\033[%p1%dL\0\
+X\0\033[M\0\
+X\0\033[%p1%dM\0\
+X\0\014\0\
+X\0\033[0 p\0\
+X\0\033[1 p\0\
+X\0\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%p1%d;%p2%dH\0\
+X\1\033[%p1%dC\0\
+X\5\233A\0\
+X\0\233B\0\
+X\0\233D\0\
+X\0\233C\0\
+X\0\233T\0\
+X\0\233S\0\
+X\0\233 A\0\
+X\0\233 @\0\
+X\0\233\060~\0\
+X\0\233\061~\0\
+X\0\233\062~\0\
+X\0\233\063~\0\
+X\0\233\064~\0\
+X\0\233\065~\0\
+X\0\233\066~\0\
+X\0\233\067~\0\
+X\0\233\070~\0\
+X\0\233\071~\0\
+X\0\233\061\060~\0\
+X\0\233\061\061~\0\
+X\0\233\061\062~\0\
+X\0\233\061\063~\0\
+X\0\233\061\064~\0\
+X\0\233\061\065~\0\
+X\0\233\061\066~\0\
+X\0\233\061\067~\0\
+X\0\233\061\070~\0\
+X\0\233\061\071~\0\
+X\0\233?~\0\
+X\0\0"
+X
+X#  define ATARI_TCAP "atari\0\
+X\0\033l\0\
+X\0\033L\0\
+X\1\033M\0\
+X\1\033E\0\
+X\0\033f\0\
+X\0\033e\0\
+X\0\0"
+X
+X#  define ANSI_TCAP "ansi\0\
+X\0\033[2K\0\
+X\0\033[L\0\
+X\0\033[%p1%dL\0\
+X\0\033[M\0\
+X\0\033[%p1%dM\0\
+X\0\033[2J\0\
+X\2\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%p1%d;%p2%dH\0\
+X\1\033[%p1%dC\0\
+X\0\0"
+X
+X/*
+X * These codes are valid when nansi.sys or equivalent has been installed.
+X * Function keys on a PC are preceded with a NUL. These are converted into
+X * K_NUL '\316' in GetChars(), because we cannot handle NULs in key codes.
+X * CTRL-arrow is used instead of SHIFT-arrow.
+X */
+X#  define PCANSI_TCAP "pcansi\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\1\033[M\0\
+X\1\033[2J\0\
+X\2\033[0m\0\
+X\0\033[7m\0\
+X\0\033[%i%p1%d;%p2%dH\0\
+X\1\033[%p1%dC\0\
+X\5\316H\0\
+X\0\316P\0\
+X\0\316K\0\
+X\0\316M\0\
+X\2\316s\0\
+X\0\316t\0\
+X\0\316;\0\
+X\0\316<\0\
+X\0\316=\0\
+X\0\316>\0\
+X\0\316?\0\
+X\0\316@\0\
+X\0\316A\0\
+X\0\316B\0\
+X\0\316C\0\
+X\0\316D\0\
+X\0\316T\0\
+X\0\316U\0\
+X\0\316V\0\
+X\0\316W\0\
+X\0\316X\0\
+X\0\316Y\0\
+X\0\316Z\0\
+X\0\316[\0\
+X\0\316\\\0\
+X\0\316]\0\
+X\0\0"
+X
+X/*
+X * These codes are valid for the pc video.
+X * The entries that start with ESC | are translated into conio calls in msdos.c.
+X */
+X#  define PCTERM_TCAP "pcterm\0\
+X\0\033|K\0\
+X\0\033|L\0\
+X\1\033|M\0\
+X\1\033|J\0\
+X\2\033|0m\0\
+X\0\033|79m\0\
+X\0\033|%i%p1%d;%p2%dH\0\
+X\7\316H\0\
+X\0\316P\0\
+X\0\316K\0\
+X\0\316M\0\
+X\2\316s\0\
+X\0\316t\0\
+X\0\316;\0\
+X\0\316<\0\
+X\0\316=\0\
+X\0\316>\0\
+X\0\316?\0\
+X\0\316@\0\
+X\0\316A\0\
+X\0\316B\0\
+X\0\316C\0\
+X\0\316D\0\
+X\0\316T\0\
+X\0\316U\0\
+X\0\316V\0\
+X\0\316W\0\
+X\0\316X\0\
+X\0\316Y\0\
+X\0\316Z\0\
+X\0\316[\0\
+X\0\316\\\0\
+X\0\316]\0\
+X\0\0"
+X
+X#  define VT52_TCAP "vt52\0\
+X\0\033K\0\
+X\0\033T\0\
+X\1\033U\0\
+X\1\014\0\
+X\2\033SO\0\
+X\0\033S2\0\
+X\0\033Y%+ %+ \0\
+X\0\0"
+X
+X/*
+X * The xterm termcap is missing F14 and F15, because they send the same
+X * codes as the undo and help key, although they don't work on all keyboards.
+X */
+X#  define XTERM_TCAP "xterm\0\
+X\0\033[K\0\
+X\0\033[L\0\
+X\0\033[%p1%dL\0\
+X\0\033[M\0\
+X\0\033[%p1%dM\0\
+X\0\033[H\033[2J\0\
+X\2\033[m\0\
+X\0\033[7m\0\
+X\0\033[%i%p1%d;%p2%dH\0\
+X\0\033M\0\
+X\0\033[%p1%dC\0\
+X\1\033[?1h\033=\0\
+X\0\033[?1l\033>\0\
+X\0\0337\033[?47h\0\
+X\0\033[2J\033[?47l\0338\0\
+X\0\033OA\0\
+X\0\033OB\0\
+X\0\033OD\0\
+X\0\033OC\0\
+X\0\033Ox\0\
+X\0\033Or\0\
+X\0\033Ot\0\
+X\0\033Ov\0\
+X\0\033[11~\0\
+X\0\033[12~\0\
+X\0\033[13~\0\
+X\0\033[14~\0\
+X\0\033[15~\0\
+X\0\033[17~\0\
+X\0\033[18~\0\
+X\0\033[19~\0\
+X\0\033[20~\0\
+X\0\033[21~\0\
+X\0\033[23~\0\
+X\0\033[24~\0\
+X\0\033[25~\0\
+X\2\033[29~\0\
+X\0\033[31~\0\
+X\0\033[32~\0\
+X\0\033[33~\0\
+X\0\033[34~\0\
+X\0\033[28~\0\
+X\0\033[26~\0\
+X\0\0"
+X
+X#  define DEBUG_TCAP "debug\0\
+X\0[EL]\0\
+X\0[IL]\0\
+X\0[CIL%p1%d]\0\
+X\0[DL]\0\
+X\0[CDL%p1%d]\0\
+X\0[ED]\0\
+X\0[CI]\0\
+X\0[CV]\0\
+X\0[TP]\0\
+X\0[TI]\0\
+X\0[%p1%dCM%p2%d]\0\
+X\0[SR]\0\
+X\0[CRI%p1%d]\0\
+X\0[VB]\0\
+X\0[KS]\0\
+X\0[KE]\0\
+X\0[TI]\0\
+X\0[TE]\0\
+X\0[KU]\0\
+X\0[KD]\0\
+X\0[KL]\0\
+X\0[KR]\0\
+X\0[SKU]\0\
+X\0[SKD]\0\
+X\0[SKL]\0\
+X\0[SKR]\0\
+X\0[F1]\0\
+X\0[F2]\0\
+X\0[F3]\0\
+X\0[F4]\0\
+X\0[F5]\0\
+X\0[F6]\0\
+X\0[F7]\0\
+X\0[F8]\0\
+X\0[F9]\0\
+X\0[F10]\0\
+X\0[SF1]\0\
+X\0[SF2]\0\
+X\0[SF3]\0\
+X\0[SF4]\0\
+X\0[SF5]\0\
+X\0[SF6]\0\
+X\0[SF7]\0\
+X\0[SF8]\0\
+X\0[SF9]\0\
+X\0[SF10]\0\
+X\0[HELP]\0\
+X\0[UNDO]\0\
+X\0\0"
+X
+X#  ifdef ATARI
+X#   define DFLT_TCAP ATARI_TCAP
+X#  endif /* ATARI */
+X
+X#  ifdef AMIGA
+X#   define DFLT_TCAP AMIGA_TCAP
+X#  endif /* AMIGA */
+X
+X#  ifdef MSDOS
+X#   define DFLT_TCAP PCTERM_TCAP
+X#  endif /* MSDOS */
+X
+X#  ifdef UNIX
+X#   define DFLT_TCAP ANSI_TCAP
+X#  endif /* UNIX */
+X
+X# else /* NO_BUILTIN_TCAPS */
+X/*
+X * The most minimal terminal: only clear screen and cursor positioning
+X */
+X#  define DUMB_TCAP "dumb\0\
+X\5\014\0\
+X\4\033[%i%p1%d;%p2%dH\0\
+X\0\0"
+X# endif /* NO_BUILTIN_TCAPS */
+X
+X#endif
+END_OF_FILE
+if test 13223 -ne `wc -c <'vim/src/term.h'`; then
+    echo shar: \"'vim/src/term.h'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/term.h'
+# end of 'vim/src/term.h'
+fi
+if test -f 'vim/src/termlib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/termlib.c'\"
+else
+echo shar: Extracting \"'vim/src/termlib.c'\" \(15527 characters\)
+sed "s/^X//" >'vim/src/termlib.c' <<'END_OF_FILE'
+X/* vi:sw=4:ts=4:
+X   The following software is (C) 1984 Peter da Silva,
+X   the Mad Australian, in the public domain. It may
+X   be re-distributed for any purpose with the inclusion
+X   of this notice. */
+X/* modified by Bram Moolenaar */
+X
+X/* TERMLIB: Terminal independant database. */
+X
+X#include "vim.h"
+X#include "proto.h"
+X#include "proto/termlib.pro"
+X
+X#ifndef AMIGA
+X# include <sgtty.h>
+X#endif
+X
+Xstatic int	getent __PARMS((char *, char *, FILE *, int));
+Xstatic int	nextent __PARMS((char *, FILE *, int));
+Xstatic int	_match __PARMS((char *, char *));
+Xstatic char	*_addfmt __PARMS((char *, char *, int));
+Xstatic char	*_find __PARMS((char *, char *));
+X
+X/*
+X * Global variables for termlib
+X */
+X
+Xchar	*tent;                /* Pointer to terminal entry, set by tgetent */
+Xchar	PC = 0;               /* Pad character, default NULL */
+Xchar	*UP = 0, *BC = 0;     /* Pointers to UP and BC strings from database */
+Xshort	ospeed;               /* Baud rate (1-16, 1=300, 16=19200), as in stty */
+X
+X/*
+X * Module: tgetent
+X *
+X * Purpose: Get termcap entry for <term> into buffer at <tbuf>.
+X *
+X * Calling conventions: char tbuf[TBUFSZ+], term=canonical name for
+X *			terminal.
+X *
+X * Returned values: 1 = success, -1 = can't open file,
+X *		    0 = can't find terminal.
+X *
+X * Notes
+X *		Should probably supply static buffer.
+X *
+X *		Uses environment variables "TERM" and
+X *	"TERMCAP". If TERM = term (that is, if the argument
+X *	matches the environment) then it looks at TERMCAP.
+X *		If TERMCAP begins with a slash, then it assumes
+X *	this is the file to search rather than /etc/termcap.
+X *		If TERMCAP does not begin with a slash, and it
+X *	matches TERM, then this is used as the entry.
+X *
+X *		This could be simplified considerably for non-UNIX
+X *	systems.
+X */
+X
+X#ifdef AMIGA
+X# define TERMCAPFILE "s:termcap"
+X#else
+X# define TERMCAPFILE "/etc/termcap"
+X#endif
+X
+Xtgetent(tbuf, term)
+X	char	*tbuf;               /* Buffer to hold termcap entry, TBUFSZ bytes max */
+X	char	*term;               /* Name of terminal */
+X{
+X	char    tcbuf[32];           /* Temp buffer to handle */
+X	char	*tcptr = tcbuf;      /* extended entries */
+X	char    *tcap = TERMCAPFILE; /* Default termcap file */
+X	char    *tmp;
+X	FILE    *termcap;
+X	int		retval = 0;
+X	int		len;
+X
+X	if ((tmp = (char *)vimgetenv("TERMCAP")) != NULL)
+X	{
+X		if (*tmp == '/')            /* TERMCAP = name of termcap file */
+X			tcap = tmp ;
+X		else                    	/* TERMCAP = termcap entry itself */
+X		{
+X			int tlen = strlen(term);
+X
+X			while (*tmp && *tmp != ':') /* Check if TERM matches */
+X			{
+X				while (*tmp == '|')
+X					tmp++;
+X				if (_match(tmp, term) == tlen)
+X				{
+X					strcpy(tbuf, tmp);
+X					tent = tbuf;
+X					return 1;
+X				} 
+X				else
+X					tmp = _find(tmp, ":|");
+X			}
+X		}
+X	}
+X	if (!(termcap = fopen(tcap, "r")))
+X	{
+X		strcpy(tbuf, tcap);
+X		return -1;
+X	}
+X
+X	len = 0;
+X	while (getent(tbuf + len, term, termcap, TBUFSZ - len))
+X	{
+X		if ((term = tgetstr("tc", &tcptr)))         /* extended entry */
+X		{
+X			rewind(termcap);
+X			len = strlen(tbuf);
+X		}
+X		else
+X		{
+X			retval = 1; 
+X			tent = tbuf;
+X			break;
+X		}
+X	}
+X	fclose(termcap);
+X	return retval;
+X}
+X
+X	static int
+Xgetent(tbuf, term, termcap, buflen)
+X	char	*tbuf, *term;
+X	FILE	*termcap;
+X	int		buflen;
+X{
+X	char    *tptr;
+X	int		tlen = strlen(term);
+X
+X	while (nextent(tbuf, termcap, buflen))   /* For each possible entry */
+X	{
+X		tptr = tbuf;
+X		while (*tptr && *tptr != ':')    /* : terminates name field */
+X		{
+X			while (*tptr == '|')             /* | seperates names */
+X				tptr++;
+X			if (_match(tptr, term) == tlen)             /* FOUND! */
+X			{
+X				tent = tbuf;
+X				return 1;
+X			} 
+X			else                           /* Look for next name */
+X				tptr = _find(tptr, ":|");
+X		}
+X	}
+X	return 0;
+X}
+X
+X	static int
+Xnextent(tbuf, termcap, buflen)         /* Read 1 entry from TERMCAP file */
+X	char    *tbuf;
+X	FILE    *termcap;
+X	int		buflen;
+X{
+X	char *lbuf = tbuf;           /* lbuf=line buffer */
+X	                             /* read lines straight into buffer */
+X
+X	while (lbuf < tbuf+buflen &&                        /* There's room and */
+X	      fgets(lbuf, (int)(tbuf+buflen-lbuf), termcap))        /* another line */
+X	{
+X		int llen = strlen(lbuf);
+X
+X		if (*lbuf == '#')                               /* eat comments */
+X			continue;
+X		if (lbuf[-1] == ':' &&                        /* and whitespace */
+X			lbuf[0] == '\t' &&
+X			lbuf[1] == ':')
+X		{
+X			strcpy(lbuf, lbuf+2);
+X			llen -= 2;
+X		}
+X		if (lbuf[llen-2] == '\\')                  /* and continuations */
+X			lbuf += llen-2;
+X		else
+X		{
+X			lbuf[llen-1]=0;           /* no continuation, return */
+X			return 1;
+X		}
+X	}
+X
+X	return 0;                                    /* ran into end of file */
+X}
+X
+X/*
+X * Module: tgetflag
+X *
+X * Purpose: returns flag true or false as to the existence of a given
+X *	    entry. used with 'bs', 'am', etc...
+X *
+X * Calling conventions: id is the 2 character capability id.
+X *
+X * Returned values: 1 for success, 0 for failure.
+X */
+X
+Xtgetflag(id)
+X	char *id;
+X{
+X	char	buf[256], *ptr = buf;
+X
+X	return tgetstr(id, &ptr) ? 1 : 0;
+X}
+X
+X/*
+X * Module: tgetnum
+X *
+X * Purpose: get numeric value such as 'li' or 'co' from termcap.
+X *
+X * Calling conventions: id = 2 character id.
+X *
+X * Returned values: -1 for failure, else numerical value.
+X */
+X
+Xtgetnum(id)
+Xchar *id;
+X{
+X	char *ptr, buf[256];
+X	ptr = buf;
+X
+X	if (tgetstr(id, &ptr))
+X		return atoi(buf);
+X	else
+X		return 0;
+X}
+X
+X/*
+X * Module: tgetstr
+X *
+X * Purpose: get terminal capability string from database.
+X *
+X * Calling conventions: id is the two character capability id.
+X *			(*buf) points into a hold buffer for the
+X *			id. the capability is copied into the buffer
+X *			and (*buf) is advanced to point to the next
+X *			free byte in the buffer.
+X *
+X * Returned values: 0 = no such entry, otherwise returns original
+X *		    (*buf) (now a pointer to the string).
+X *
+X * Notes
+X *		It also decodes certain escape sequences in the buffer.
+X *	they should be obvious from the code:
+X *		\E = escape.
+X *		\n, \r, \t, \f, \b match the 'c' escapes.
+X *		^x matches control-x (^@...^_).
+X *		\nnn matches nnn octal.
+X *		\x, where x is anything else, matches x. I differ
+X *	from the standard library here, in that I allow ^: to match
+X *	:.
+X *
+X */
+X
+Xchar *
+Xtgetstr(id, buf)
+Xchar    *id, **buf;
+X{
+X	int    len = strlen(id);
+X	char *tmp=tent;
+X	char *hold;
+X	int		i;
+X
+X	do {
+X		tmp = _find(tmp, ":");                     /* For each field */
+X		while (*tmp == ':')                        /* skip empty fields */
+X			tmp++;
+X		if (!*tmp)
+X			break;
+X
+X		if (_match(id, tmp) == len) {
+X			tmp += len;                   /* find '=' '@' or '#' */
+X			if (*tmp == '@')                  /* :xx@: entry for tc */
+X				return 0;                   /* deleted entry */
+X			hold= *buf;
+X			while (*++tmp && *tmp != ':') {/* not at end of field */
+X				switch(*tmp) {
+X				case '\\':            /* Expand escapes here */
+X					switch(*++tmp) {
+X					case 0:        /* ignore backslashes */
+X						tmp--;    /* at end of entry */
+X						break;   /* shouldn't happen */
+X					case 'e':
+X					case 'E':                     /* ESC */
+X						*(*buf)++ = '\033'; 
+X						break;
+X					case 'n':                      /* \n */
+X						*(*buf)++ = '\n'; 
+X						break;
+X					case 'r':                      /* \r */
+X						*(*buf)++ = '\r'; 
+X						break;
+X					case 't':                      /* \t */
+X						*(*buf)++ = '\t'; 
+X						break;
+X					case 'b':                      /* \b */
+X						*(*buf)++ = '\b'; 
+X						break;
+X					case 'f':                      /* \f */
+X						*(*buf)++ = '\f'; 
+X						break;
+X					case '0':                    /* \nnn */
+X					case '1': 
+X					case '2': 
+X					case '3': 
+X					case '4':
+X					case '5': 
+X					case '6': 
+X					case '7': 
+X					case '8': 
+X					case '9':
+X						**buf = 0;
+X							/* get up to three digits */
+X						for (i = 0; i < 3 && isdigit(*tmp); ++i)
+X							**buf = **buf * 8 + *tmp++ - '0';
+X						(*buf)++;
+X						tmp--;
+X						break;
+X					default:      /* \x, for all other x */
+X						*(*buf)++= *tmp;
+X					}
+X					break;
+X				case '^':              /* control characters */
+X					*(*buf)++ = *++tmp - '@'; 
+X					break;
+X				default: 
+X					*(*buf)++ = *tmp;
+X				}
+X			}
+X			*(*buf)++ = 0;
+X			return hold;
+X		}
+X	} while (*tmp);
+X
+X	return 0;
+X}
+X
+X/*
+X * Module: tgoto
+X *
+X * Purpose: decode cm cursor motion string.
+X *
+X * Calling conventions: cm is cursor motion string.
+X *			line, col, are the desired destination.
+X *
+X * Returned values: a string pointing to the decoded string, or
+X *		    "OOPS" if it cannot be decoded.
+X *
+X * Notes
+X *		The accepted escapes are:
+X *			%d	 as in printf, 0 origin.
+X *			%2, %3	 like %02d, %03d in printf.
+X *			%.	 like %c
+X *			%+x	 adds <x> to value, then %.
+X *			%>xy	 if value>x, adds y. No output.
+X *			%i	 increments line& col, no output.
+X *			%r	 reverses order of line&col. No output.
+X *			%%	 prints as a single %.
+X *			%n	 exclusive or row & col with 0140.
+X *			%B	 BCD, no output.
+X *			%D	 reverse coding (x-2*(x%16)), no output.
+X */
+X
+Xchar *
+Xtgoto(cm, col, line)
+Xchar	*cm;                                      /* cm string, from termcap */
+Xint	col,                                           /* column, x position */
+X	line;                                            /* line, y position */
+X{
+X	char	gx, gy,                                           /*    x, y */
+X		*ptr,                                     /* pointer in 'cm' */
+X		reverse = 0,                                 /* reverse flag */
+X		*bufp,                         /* pointer in returned string */
+X		addup = 0,                                     /* add upline */
+X		addbak = 0,                                    /* add backup */
+X		c;
+X	static char buffer[32];
+X
+X	if (!cm)
+X		return "OOPS";                       /* Kludge, but standard */
+X
+X	bufp = buffer;
+X	ptr = cm;
+X
+X	while (*ptr) {
+X		if ((c = *ptr++) != '%') {                     /* normal char */
+X			*bufp++ = c;
+X		} else {                                         /* % escape */
+X			switch(c = *ptr++) {
+X			case 'd':                                 /* decimal */
+X				bufp = _addfmt(bufp, "%d", line);
+X				line = col;
+X				break;
+X			case '2':                         /* 2 digit decimal */
+X				bufp = _addfmt(bufp, "%02d", line);
+X				line = col;
+X				break;
+X			case '3':                         /* 3 digit decimal */
+X				bufp = _addfmt(bufp, "%03d", line);
+X				line = col;
+X				break;
+X			case '>':                      /* %>xy: if >x, add y */
+X				gx = *ptr++;
+X				gy = *ptr++;
+X				if (col>gx) col += gy;
+X				if (line>gx) line += gy;
+X				break;
+X			case '+':                              /* %+c: add c */
+X				line += *ptr++;
+X			case '.':                               /* print x/y */
+X				if (line == '\t' ||                /* these are */
+X				   line == '\n' ||             /* chars that */
+X				   line == '\004' ||             /* UNIX hates */
+X				   line == '\0') {
+X					line++;         /* so go to next pos */
+X					if (reverse == (line == col))
+X						addup=1;      /* and mark UP */
+X					else
+X						addbak=1;           /* or BC */
+X				}
+X				*bufp++=line;
+X				line = col;
+X				break;
+X			case 'r':                              /* r: reverse */
+X				gx = line; 
+X				line = col; 
+X				col = gx;
+X				reverse = 1;
+X				break;
+X			case 'i':             /* increment (1-origin screen) */
+X				col++;
+X				line++;
+X				break;
+X			case '%':                          /* %%=% literally */
+X				*bufp++='%';
+X				break;
+X			case 'n':                       /* magic DM2500 code */
+X				line ^= 0140;
+X				col ^= 0140;
+X				break;
+X			case 'B':                            /* bcd encoding */
+X				line = line/10<<4+line%10;
+X				col = col/10<<4+col%10;
+X				break;
+X			case 'D':                   /* magic Delta Data code */
+X				line = line-2*(line&15);
+X				col = col-2*(col&15);
+X				break;
+X			default:                           /* Unknown escape */
+X				return "OOPS";
+X			}
+X		}
+X	}
+X
+X	if (addup)                                              /* add upline */
+X		if (UP) {
+X			ptr=UP;
+X			while (isdigit(*ptr) || *ptr == '.')
+X				ptr++;
+X			if (*ptr == '*')
+X				ptr++;
+X			while (*ptr)
+X				*bufp++ = *ptr++;
+X		}
+X
+X	if (addbak)                                          /* add backspace */
+X		if (BC) {
+X			ptr=BC;
+X			while (isdigit(*ptr) || *ptr == '.')
+X				ptr++;
+X			if (*ptr == '*')
+X				ptr++;
+X			while (*ptr)
+X				*bufp++ = *ptr++;
+X		} 
+X		else
+X			*bufp++='\b';
+X
+X	*bufp = 0;
+X
+X	return(buffer);
+X}
+X
+X/*
+X * Module: tinit
+X *
+X * Purpose: simplified terminal initialisation.
+X *
+X * Calling conventions: name is name of terminal.
+X *
+X * Returned values: none.
+X *
+X * Notes
+X *		tinit calls tgetent, then sets up the global
+X *	variables PC, UP, BC, ospeed appropriately.
+X *
+X */
+X
+X#if 0		/* already included in term.c */
+X
+Xchar tbuf[TBUFSZ];                                /* Buffer for termcap entry */
+Xchar junkbuf[TBUFSZ];                                  /* Big buffer for junk */
+Xchar *junkptr;
+X
+Xtinit(name)
+Xchar *name;
+X{
+X#ifndef AMIGA
+X	struct sgttyb sgbuf;
+X#endif
+X	char *ps;
+X
+X	junkptr = junkbuf;
+X
+X	tgetent(tbuf, name);
+X
+X	ps = tgetstr("pc", &junkptr);
+X	if (ps) PC = *ps;
+X	UP = tgetstr("up", &junkptr);
+X	BC = tgetstr("bc", &junkptr);
+X
+X#ifdef AMIGA
+X	ospeed=0;
+X#else
+X	gtty(1, &sgbuf);
+X	ospeed=sgbuf.sg_ospeed;
+X#endif
+X	return 0;
+X}
+X#endif
+X
+X/*
+X * Module: tputs
+X *
+X * Purpose: decode padding information
+X *
+X * Calling conventions: cp = string to be padded, affcnt = # of items
+X *			affected (lines, characters, whatever),
+X *			outc = routine to output 1 character.
+X *
+X * Returned values: none
+X *
+X * Notes
+X *		cp has padding information ahead of it, in the form
+X *	nnnTEXT or nnn*TEXT. nnn is the number of milliseconds to delay,
+X *	and may be a decimal (nnn.mmm). If the asterisk is given, then
+X *	the delay is multiplied by afcnt. The delay is produced by outputting
+X *	a number of nulls (or other padding char) after printing the
+X *	TEXT.
+X *
+X */
+X
+Xlong _bauds[16]={
+X	0,	50,	75,	110,
+X	134,	150,	200,	300,
+X	600,	1200,	1800,	2400,
+X	4800,	9600,	19200,	19200 };
+X
+Xtputs(cp, affcnt, outc)
+Xchar *cp;                                                 /* string to print */
+Xint affcnt;                                      /* Number of lines affected */
+Xvoid (*outc) __ARGS((unsigned int));                              /* routine to output 1 character */
+X{
+X	long	frac,                    /* 10^(#digits after decimal point) */
+X		counter,                                           /* digits */
+X		atol();
+X
+X	if (isdigit(*cp)) {
+X		counter = 0;
+X		frac = 1000;
+X		while (isdigit(*cp))
+X			counter = counter * 10L + (long)(*cp++ - '0');
+X		if (*cp == '.')
+X			while (isdigit(*++cp)) {
+X				counter = counter * 10L + (long)(*cp++ - '0');
+X				frac = frac * 10;
+X			}
+X		if (*cp!='*') {                 /* multiply by affected lines */
+X			if (affcnt>1) affcnt = 1;
+X		} 
+X		else
+X			cp++;
+X
+X        /* Calculate number of characters for padding counter/frac ms delay */
+X		if (ospeed)
+X			counter = (counter * _bauds[ospeed] * (long)affcnt) / frac;
+X
+X		while (*cp)                                  /* output string */
+X			(*outc)(*cp++);
+X		if (ospeed)
+X			while (counter--)            /* followed by pad characters */
+X				(*outc)(PC);
+X	} 
+X	else
+X		while (*cp)
+X			(*outc)(*cp++);
+X	return 0;
+X}
+X
+X/*
+X * Module: tutil.c
+X *
+X * Purpose: Utility routines for TERMLIB functions.
+X *
+X */
+X
+X	static int
+X_match(s1, s2)                 /* returns length of text common to s1 and s2 */
+Xchar *s1, *s2;
+X{
+X	int i = 0;
+X
+X	while (s1[i] && s1[i] == s2[i])
+X		i++;
+X
+X	return i;
+X}
+X
+X	static char *
+X_find(s, set)   /* finds next c in s that's a member of set, returns pointer */
+Xchar *s, *set;
+X{
+X	for(; *s; s++) {
+X		char    *ptr = set;
+X
+X		while (*ptr && *s != *ptr)
+X			ptr++;
+X
+X		if (*ptr)
+X			return s;
+X	}
+X
+X	return s;
+X}
+X
+X	static char *
+X_addfmt(buf, fmt, val)             /* add val to buf according to format fmt */
+Xchar *buf, *fmt;
+Xint val;
+X{
+X	sprintf(buf, fmt, val);
+X	while (*buf)
+X		buf++;
+X	return buf;
+X}
+END_OF_FILE
+if test 15527 -ne `wc -c <'vim/src/termlib.c'`; then
+    echo shar: \"'vim/src/termlib.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/termlib.c'
+# end of 'vim/src/termlib.c'
+fi
+if test -f 'vim/src/undo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vim/src/undo.c'\"
+else
+echo shar: Extracting \"'vim/src/undo.c'\" \(14257 characters\)
+sed "s/^X//" >'vim/src/undo.c' <<'END_OF_FILE'
+X/* vi:ts=4:sw=4
+X *
+X * VIM - Vi IMproved
+X *
+X * Code Contributions By:	Bram Moolenaar			mool@oce.nl
+X *							Tim Thompson			twitch!tjt
+X *							Tony Andrews			onecom!wldrdg!tony 
+X *							G. R. (Fred) Walter		watmath!watcgl!grwalter 
+X */
+X
+X/*
+X * undo.c: multi level undo facility
+X *
+X * The saved lines are stored in a list of lists:
+X *
+X * u_oldhead----------------------------------------------+
+X *                                                        |
+X *                                                        V
+X *              +--------------+    +--------------+    +--------------+
+X * u_newhead--->| u_header     |    | u_header     |    | u_header     |
+X *              |     uh_next------>|     uh_next------>|     uh_next---->NULL
+X *       NULL<--------uh_prev  |<---------uh_prev  |<---------uh_prev  |
+X *              |     uh_entry |    |     uh_entry |    |     uh_entry |
+X *              +--------|-----+    +--------|-----+    +--------|-----+
+X *                       |                   |                   |
+X *                       V                   V                   V
+X *              +--------------+    +--------------+    +--------------+
+X *              | u_entry      |    | u_entry      |    | u_entry      |
+X *              |     ue_next  |    |     ue_next  |    |     ue_next  |
+X *              +--------|-----+    +--------|-----+    +--------|-----+
+X *                       |                   |                   |
+X *                       V                   V                   V
+X *              +--------------+            NULL                NULL
+X *              | u_entry      |
+X *              |     ue_next  |
+X *              +--------|-----+
+X *                       |
+X *                       V
+X *                      etc.
+X *
+X * Each u_entry list contains the information for one undo or redo.
+X * u_curhead points to the header of the last undo (the next redo), or is
+X * NULL if nothing has been undone.
+X *
+X * All data is allocated with alloc_line(), thus it will be freed as soon as
+X * we switch files!
+X */
+X
+X#include "vim.h"
+X#include "globals.h"
+X#include "proto.h"
+X#include "param.h"
+X#include "ops.h"		/* for endop and startop */
+X
+Xstruct u_entry
+X{
+X	struct u_entry	*ue_next;	/* pointer to next entry in list */
+X	linenr_t		ue_top;		/* number of line above undo block */
+X	linenr_t		ue_bot;		/* number of line below undo block */
+X	char			*ue_botptr;	/* pointer to line below undo block */
+X	char			**ue_array;	/* array of lines in undo block */
+X	long			ue_size;	/* number of lines in ue_array */
+X};
+X
+Xstruct u_header
+X{
+X	struct u_header	*uh_next;	/* pointer to next header in list */
+X	struct u_header	*uh_prev;	/* pointer to previous header in list */
+X	struct u_entry	*uh_entry;	/* pointer to first entry */
+X	FPOS			 uh_curpos;	/* cursor position before saving */
+X};
+X
+Xstatic struct u_header *u_oldhead = NULL;	/* pointer to oldest header */
+Xstatic struct u_header *u_newhead = NULL;	/* pointer to newest header */
+Xstatic struct u_header *u_curhead = NULL;	/* pointer to current header */
+Xstatic int				u_numhead = 0;		/* current number of headers */
+Xstatic int				u_synced = TRUE;	/* entry lists are synced */
+X
+X/*
+X * variables for "U" command
+X */
+Xstatic char	   *u_line_ptr = NULL;		/* saved line for "U" command */
+Xstatic linenr_t u_line_lnum;			/* line number of line in u_line */
+Xstatic colnr_t	u_line_colnr;			/* optional column number */
+X
+Xstatic void u_getbot __ARGS((void));
+Xstatic int u_savecommon __ARGS((linenr_t, linenr_t, int, linenr_t));
+Xstatic void u_undoredo __ARGS((void));
+Xstatic void u_freelist __ARGS((struct u_header *));
+Xstatic void u_freeentry __ARGS((struct u_entry *, long));
+X
+X/*
+X * save the current line for both the "u" and "U" command
+X */
+X	int
+Xu_saveCurpos()
+X{
+X	return (u_save((linenr_t)(Curpos.lnum - 1), (linenr_t)(Curpos.lnum + 1)));
+X}
+X
+X/*
+X * Save the lines between "top" and "bot" for both the "u" and "U" command.
+X * "top" may be 0 and bot may be line_count + 1.
+X * Returns FALSE when lines could not be saved.
+X */
+X	int
+Xu_save(top, bot)
+X	linenr_t top, bot;
+X{
+X	if (top > line_count || top >= bot || bot > line_count + 1)
+X		return FALSE;	/* rely on caller to do error messages */
+X
+X	if (top + 2 == bot)
+X		u_saveline((linenr_t)(top + 1));
+X
+X	return (u_savecommon(top, bot, FALSE, (linenr_t)0));
+X}
+X
+X/*
+X * save the line "lnum" (used by :s command)
+X * the line is handed over to the undo routines
+X * The line is replaced, so the new bottom line is lnum + 1.
+X */
+X	int
+Xu_savesub(lnum)
+X	linenr_t	lnum;
+X{
+X	return (u_savecommon(lnum - 1, lnum + 1, TRUE, lnum + 1));
+X}
+X
+X/*
+X * a new line is inserted before line "lnum" (used by :s command)
+X * The line is inserted, so the new bottom line is lnum + 1.
+X */
+X 	int
+Xu_inssub(lnum)
+X	linenr_t	lnum;
+X{
+X	return (u_savecommon(lnum - 1, lnum, TRUE, lnum + 1));
+X}
+X
+X/*
+X * save the lines "lnum" - "lnum" + nlines (used by delete command)
+X * the lines are handed over to the undo routines
+X * The lines are deleted, so the new bottom line is lnum.
+X */
+X	int
+Xu_savedel(lnum, nlines)
+X	linenr_t	lnum;
+X	long		nlines;
+X{
+X	return (u_savecommon(lnum - 1, lnum + nlines, TRUE, lnum));
+X}
+X
+X	static int 
+Xu_savecommon(top, bot, nocopy, newbot)
+X	linenr_t top, bot;
+X	int nocopy;
+X	linenr_t newbot;
+X{
+X	linenr_t		lnum;
+X	long			i;
+X	struct u_header *uhp;
+X	struct u_entry	*uep;
+X	long			size;
+X
+X	/*
+X	 * if u_synced == TRUE make a new header
+X	 */
+X	if (u_synced)
+X	{
+X		/*
+X		 * if we undid more than we redid, free the entry lists before and
+X		 * including u_curhead
+X		 */
+X		while (u_curhead != NULL)
+X			u_freelist(u_newhead);
+X
+X		/*
+X		 * free headers to keep the size right
+X		 */
+X		while (u_numhead > p_ul && u_oldhead != NULL)
+X			u_freelist(u_oldhead);
+X
+X		if (p_ul < 0)			/* no undo at all */
+X			goto noundo;
+X
+X		/*
+X		 * make a new header entry
+X		 */
+X		uhp = (struct u_header *)alloc_line((unsigned)sizeof(struct u_header));
+X		if (uhp == NULL)
+X			goto nomem;
+X		uhp->uh_prev = NULL;
+X		uhp->uh_next = u_newhead;
+X		if (u_newhead != NULL)
+X			u_newhead->uh_prev = uhp;
+X		uhp->uh_entry = NULL;
+X		uhp->uh_curpos = Curpos;	/* save cursor position for undo */
+X		u_newhead = uhp;
+X		if (u_oldhead == NULL)
+X			u_oldhead = uhp;
+X		++u_numhead;
+X	}
+X	else	/* find line number for ue_botptr for previous u_save() */
+X		u_getbot();
+X
+X	size = bot - top - 1;
+X#ifndef UNIX
+X		/*
+X		 * With Amiga and MSDOS we can't handle big undo's, because then
+X		 * alloc_line would have to allocate a block larger than 32K
+X		 */
+X	if (size >= 8000)
+X		goto nomem;
+X#endif
+X
+X	/*
+X	 * add lines in front of entry list
+X	 */
+X	uep = (struct u_entry *)alloc_line((unsigned)sizeof(struct u_entry));
+X	if (uep == NULL)
+X		goto nomem;
+X
+X	uep->ue_size = size;
+X	uep->ue_top = top;
+X	uep->ue_botptr = NULL;
+X	if (newbot)
+X		uep->ue_bot = newbot;
+X		/*
+X		 * use 0 for ue_bot if bot is below last line or if the buffer is empty, in
+X		 * which case the last line may be replaced (e.g. with 'O' command).
+X		 */
+X	else if (bot > line_count || bufempty())
+X		uep->ue_bot = 0;
+X	else
+X		uep->ue_botptr = nr2ptr(bot);	/* we have to do ptr2nr(ue_botptr) later */
+X
+X	if (size)
+X	{
+X		if ((uep->ue_array = (char **)alloc_line((unsigned)(sizeof(char *) * size))) == NULL)
+X		{
+X			u_freeentry(uep, 0L);
+X			goto nomem;
+X		}
+X		for (i = 0, lnum = top + 1; i < size; ++i)
+X		{
+X			if (nocopy)
+X				uep->ue_array[i] = nr2ptr(lnum++);
+X			else if ((uep->ue_array[i] = save_line(nr2ptr(lnum++))) == NULL)
+X			{
+X				u_freeentry(uep, i);
+X				goto nomem;
+X			}
+X		}
+X	}
+X	uep->ue_next = u_newhead->uh_entry;
+X	u_newhead->uh_entry = uep;
+X	u_synced = FALSE;
+X	return TRUE;
+X
+Xnomem:
+X	if (ask_yesno("no undo possible; continue anyway") == 'y')
+X	{
+Xnoundo:
+X		if (nocopy)
+X			for (lnum = top + 1; lnum < bot; ++lnum)
+X				free_line(nr2ptr(lnum));
+X		return TRUE;
+X	}
+X	return FALSE;
+X}
+X
+X	void
+Xu_undo(count)
+X	int count;
+X{
+X	/*
+X	 * If we get an undo command while executing a macro, we behave like the 
+X	 * original vi. If this happens twice in one macro the result will not
+X	 * be compatible.
+X	 */
+X	if (u_synced == FALSE)
+X	{
+X		u_sync();
+X		count = 1;
+X	}
+X
+X	startop.lnum = 0;			/* unset '[ mark */
+X	endop.lnum = 0;				/* unset '] mark */
+X	while (count--)
+X	{
+X		if (u_curhead == NULL)						/* first undo */
+X			u_curhead = u_newhead;
+X		else if (p_ul > 0)							/* multi level undo */
+X			u_curhead = u_curhead->uh_next;			/* get next undo */
+X
+X		if (u_numhead == 0 || u_curhead == NULL)	/* nothing to undo */
+X		{
+X			u_curhead = u_oldhead;					/* stick u_curhead at end */
+X			beep();
+X			return;
+X		}
+X
+X		u_undoredo();
+X	}
+X}
+X
+X	void
+Xu_redo(count)
+X	int count;
+X{
+X	while (count--)
+X	{
+X		if (u_curhead == NULL || p_ul <= 0)		/* nothing to redo */
+X		{
+X			beep();
+X			return;
+X		}
+X
+X		u_undoredo();
+X
+X		u_curhead = u_curhead->uh_prev;			/* advance for next redo */
+X	}
+X}
+X
+X/*
+X * u_undoredo: common code for undo and redo
+X *
+X * The lines in the file are replaced by the lines in the entry list at u_curhead.
+X * The replaced lines in the file are saved in the entry list for the next undo/redo.
+X */
+X	static void
+Xu_undoredo()
+X{
+X	char		**newarray = NULL;
+X	linenr_t	oldsize;
+X	linenr_t	newsize;
+X	linenr_t	top, bot;
+X	linenr_t	lnum;
+X	linenr_t	newlnum = INVLNUM;
+X	long		i;
+X	long		newcount = 0, oldcount = 0;
+X	struct u_entry *uep, *nuep;
+X	struct u_entry *newlist = NULL;
+X
+X	CHANGED;
+X	for (uep = u_curhead->uh_entry; uep != NULL; uep = nuep)
+X	{
+X		top = uep->ue_top;
+X		bot = uep->ue_bot;
+X		if (bot == 0)
+X			bot = line_count + 1;
+X		if (top > line_count || top >= bot || bot > line_count + 1)
+X		{
+X			emsg("u_undo: line numbers wrong");
+X			return;
+X		}
+X
+X		if (top < newlnum)
+X		{
+X			newlnum = top;
+X			Curpos.lnum = top + 1;
+X		}
+X		oldsize = bot - top - 1;	/* number of lines before undo */
+X
+X		newsize = uep->ue_size;		/* number of lines after undo */
+X
+X		/* delete the lines between top and bot and save them in newarray */
+X		if (oldsize)
+X		{
+X			if ((newarray = (char **)alloc_line((unsigned)(sizeof(char *) * oldsize))) == NULL)
+X			{
+X				/*
+X				 * We have messed up the entry list, repair is impossible.
+X				 * we have to free the rest of the list.
+X				 */
+X				while (uep != NULL)
+X				{
+X					nuep = uep->ue_next;
+X					u_freeentry(uep, uep->ue_size);
+X					uep = nuep;
+X				}
+X				break;
+X			}
+X			/* delete backwards, it goes faster in some cases */
+X			for (lnum = bot - 1, i = oldsize; --i >= 0; --lnum)
+X				newarray[i] = delsline(lnum, oldsize != newsize);
+X		}
+X
+X		/* adjust the marks if the number of lines does not change */
+X		if (oldsize == newsize)
+X			for (i = 0; i < oldsize; ++i)
+X				adjustmark(newarray[i], uep->ue_array[i]);
+X
+X		/* insert the lines in u_array between top and bot */
+X		if (newsize)
+X		{
+X			for (lnum = top, i = 0; i < newsize; ++i, ++lnum)
+X				appendline(lnum, uep->ue_array[i]);
+X			free_line((char *)uep->ue_array);
+X		}
+X		newcount += newsize;
+X		oldcount += oldsize;
+X		uep->ue_size = oldsize;
+X		uep->ue_array = newarray;
+X		uep->ue_bot = top + newsize + 1;
+X
+X		/*
+X		 * insert this entry in front of the new entry list
+X		 */
+X		nuep = uep->ue_next;
+X		uep->ue_next = newlist;
+X		newlist = uep;
+X	}
+X
+X	u_curhead->uh_entry = newlist;
+X
+X	/*
+X	 * If we deleted or added lines, report the number of less/more lines.
+X	 * Otherwise, report the number of changes (this may be incorrect
+X	 * in some cases, but it's better than nothing).
+X	 */
+X	if ((oldcount -= newcount) != 0)
+X		msgmore(-oldcount);
+X	else if (newcount > p_report)
+X		smsg("%ld change%s", newcount, plural(newcount));
+X
+X	if (u_curhead->uh_curpos.lnum == Curpos.lnum)
+X		Curpos.col = u_curhead->uh_curpos.col;
+X	else
+X		Curpos.col = 0;
+X	updateScreen(CURSUPD);
+X}
+X
+X/*
+X * u_sync: stop adding to the current entry list
+X */
+X	void
+Xu_sync()
+X{
+X	if (u_synced)
+X		return;				/* already synced */
+X	u_getbot();				/* compute ue_bot of previous u_undo */
+X	u_curhead = NULL;
+X}
+X
+X/*
+X * u_getbot(): compute the line number of the previous u_undo
+X */
+X	static void
+Xu_getbot()
+X{
+X	register struct u_entry *uep;
+X
+X	if (u_newhead == NULL || (uep = u_newhead->uh_entry) == NULL)
+X	{
+X		emsg("undo list corrupt");
+X		return;
+X	}
+X
+X	if (uep->ue_botptr != NULL)
+X		if ((uep->ue_bot = ptr2nr(uep->ue_botptr, uep->ue_top)) == 0)
+X		{
+X			emsg("undo line missing");
+X			uep->ue_bot = uep->ue_top + 1;	/* guess what it is */
+X		}
+X
+X	u_synced = TRUE;
+X}
+X
+X/*
+X * u_freelist: free one entry list and adjust the pointers
+X */
+X	static void
+Xu_freelist(uhp)
+X	struct u_header *uhp;
+X{
+X	register struct u_entry *uep, *nuep;
+X
+X	for (uep = uhp->uh_entry; uep != NULL; uep = nuep)
+X	{
+X		nuep = uep->ue_next;
+X		u_freeentry(uep, uep->ue_size);
+X	}
+X
+X	if (u_curhead == uhp)
+X		u_curhead = NULL;
+X
+X	if (uhp->uh_next == NULL)
+X		u_oldhead = uhp->uh_prev;
+X	else
+X		uhp->uh_next->uh_prev = uhp->uh_prev;
+X
+X	if (uhp->uh_prev == NULL)
+X		u_newhead = uhp->uh_next;
+X	else
+X		uhp->uh_prev->uh_next = uhp->uh_next;
+X
+X	free_line((char *)uhp);
+X	--u_numhead;
+X}
+X
+X/*
+X * free entry 'uep' and 'n' lines in uep->ue_array[]
+X */
+X	static void
+Xu_freeentry(uep, n)
+X	struct u_entry *uep;
+X	register long n;
+X{
+X	while (n)
+X		free_line(uep->ue_array[--n]);
+X	free_line((char *)uep);
+X}
+X
+X/*
+X * invalidate the undo buffer; called when storage has already been released
+X */
+X
+X	void
+Xu_clearall()
+X{
+X	u_newhead = u_oldhead = u_curhead = NULL;
+X	u_synced = TRUE;
+X	u_numhead = 0;
+X	u_line_ptr = NULL;
+X	u_line_lnum = 0;
+X}
+X
+X/*
+X * save the line "lnum" for the "U" command
+X */
+X	void
+Xu_saveline(lnum)
+X	linenr_t lnum;
+X{
+X	if (lnum == u_line_lnum)		/* line is already saved */
+X		return;
+X	if (lnum < 1 || lnum > line_count)	/* should never happen */
+X		return;
+X	u_clearline();
+X	u_line_lnum = lnum;
+X	if (Curpos.lnum == lnum)
+X		u_line_colnr = Curpos.col;
+X	else
+X		u_line_colnr = 0;
+X	u_line_ptr = save_line(nr2ptr(lnum));	/* when out of mem alloc() will give a warning */
+X}
+X
+X/*
+X * clear the line saved for the "U" command
+X * (this is used externally for crossing a line while in insert mode)
+X */
+X	void
+Xu_clearline()
+X{
+X	if (u_line_ptr != NULL)
+X	{
+X		free_line(u_line_ptr);
+X		u_line_ptr = NULL;
+X		u_line_lnum = 0;
+X	}
+X}
+X
+X/*
+X * Implementation of the "U" command.
+X * Differentiation from vi: "U" can be undone with the next "U".
+X * We also allow the cursor to be in another line.
+X */
+X	void
+Xu_undoline()
+X{
+X	colnr_t t;
+X
+X	if (u_line_ptr == NULL || u_line_lnum > line_count)
+X	{
+X		beep();
+X		return;
+X	}
+X		/* first save the line for the 'u' command */
+X	u_savecommon(u_line_lnum - 1, u_line_lnum + 1, FALSE, (linenr_t)0);
+X	u_line_ptr = replaceline(u_line_lnum, u_line_ptr);
+X
+X	t = u_line_colnr;
+X	if (Curpos.lnum == u_line_lnum)
+X		u_line_colnr = Curpos.col;
+X	Curpos.col = t;
+X	Curpos.lnum = u_line_lnum;
+X	cursupdate();
+X	updateScreen(VALID_TO_CURSCHAR);
+X}
+END_OF_FILE
+if test 14257 -ne `wc -c <'vim/src/undo.c'`; then
+    echo shar: \"'vim/src/undo.c'\" unpacked with wrong size!
+fi
+chmod +x 'vim/src/undo.c'
+# end of 'vim/src/undo.c'
+fi
+echo shar: End of archive 6 \(of 25\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+===============================================================================
+Bram Moolenaar                             | DISCLAIMER:  This  note  does  not
+Oce Nederland B.V., Research & Development | necessarily represent the position
+p.o. box 101, 5900 MA  Venlo               | of  Oce-Nederland  B.V.  Therefore
+The Netherlands        phone +31 77 594077 | no liability or responsibility for
+UUCP: mool@oce.nl        fax +31 77 595473 | whatever will be accepted.
+
+exit 0 # Just in case...

@@ -1,0 +1,826 @@
+Newsgroups: comp.sources.x
+From: zaenker@informatik.tu-muenchen.de (Christian Zaenker)
+Subject: v21i085:  xaniroc - change the root window cursor into a rotating X, Part01/01
+Message-ID: <1994Jan5.192440.168@sparky.sterling.com>
+X-Md4-Signature: d69ffca48f39db04fe161f80e36af96d
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 5 Jan 1994 19:24:40 GMT
+Approved: chris@sterling.com
+
+Submitted-by: zaenker@informatik.tu-muenchen.de (Christian Zaenker)
+Posting-number: Volume 21, Issue 85
+Archive-name: xaniroc/part01
+Environment: X11
+
+XAniRoC for X11 - V1.02
+developed 1993 by Christian Zaenker (zaenker@informatik.tu-muenchen.de)
+
+- xaniroc will change the root window cursor of an X11 screen into a rotating X
+
+- to use xaniroc your system should be able to create cursors with a size of at
+  least 16x16
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 11/23/1993 16:39 UTC by zaenker@unknown
+# Source directory /usr/share/hphalle10/stud/zaenker/src/AnimCursor/V1.01/Dist/post
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  14252 -rw-r--r-- xaniroc//xaniroc.c
+#    707 -rw-r--r-- xaniroc//README
+#    393 -rw-r--r-- xaniroc//Imakefile
+#      1 -rw-r--r-- xaniroc//patchlevel.h
+#   1239 -rw-r--r-- xaniroc//manpage.1
+#   9762 -rw-r--r-- xaniroc//bitmaps.h
+#
+# ============= xaniroc//xaniroc.c ==============
+if test ! -d 'xaniroc'; then
+    echo 'x - creating directory xaniroc'
+    mkdir 'xaniroc'
+fi
+if test -f 'xaniroc//xaniroc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//xaniroc.c (File already exists)'
+else
+echo 'x - extracting xaniroc//xaniroc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//xaniroc.c' &&
+/***************************************************************************************************
+X *	XAniRoC for X11 - V1.02
+X *	developed 1993 by Christian Zaenker (zaenker@informatik.tu-muenchen.de)
+X *
+X *      many thanx to:
+X *
+X *      David L. Crow, IBM Advanced Workstations and Systems, AIX Systems Graphics Development
+X *              for the routines to detect EnterNotify and LeaveNotify events on the root window
+X *
+X *      Stan Kalinowski, Tektronix, Inc., Network Displays Division
+X *              for the signal handler routines and the base for the manpage
+X *
+X *	- xaniroc will change the root window cursor of an X11 screen into a rotating X
+X *	- to use xaniroc your system should be able to create cursors with a size of at least 16x16
+X *	- how to create: see README file
+X *	- for options type 'xaniroc -h'
+X *
+X ***************************************************************************************************
+X */
+X
+#include <stdio.h>				/* get standard I/O functions */
+#include <X11/Xlib.h>				/* get the X library definitions */
+#include <X11/Xutil.h>				/* get the X11 utility definitions */
+#include <sys/signal.h>                         /* get signal definitions */
+#include <sys/time.h>                           /* get time definitions */
+#include <string.h>                             /* get string functions */
+#include "bitmaps.h"                            /* get the bitmaps for the cursor */
+X
+#ifdef  SIGNALRETURNSINT
+#define SIGVAL int
+#else
+#define SIGVAL void
+#endif
+X
+#define NO      0
+#define YES     1
+X
+X
+int		frame_freq,
+X		i,
+X		speed,
+X		animating,
+X		transparent;
+X
+char    	display_name[50],
+X		fg_color_name[50],
+X		bg_color_name[50];
+X
+Display		*display;			/* X server connection */
+Pixmap		cursor_source[24],		/* pixmaps (bitmaps) for the cursor */
+X		cursor_mask[24];
+XXColor		cursor_fg_color,		/* cursor colors */
+X		cursor_bg_color;
+Cursor		cursor[24];			/* cursors */
+XXEvent		event;				/* events */
+GC		gc_xor,				/* GC's */
+X                gc_clear;
+X
+X
+/***************************************************************************************************
+X *	function prototypes
+X ***************************************************************************************************
+X */
+X
+void main(int argc, char *argv[]);
+void usage(void);
+void frame_wait(void);
+int  pointer_in_rootwindow(void);
+#ifdef  SVR4
+SIGVAL cleanup_and_exit(int sig);
+#else
+SIGVAL cleanup_and_exit(int sig, int code, struct sigcontext *scp, char *addr);
+#endif	/* SVR4 */
+X
+/***************************************************************************************************
+X *	the main function of XAniroc
+X ***************************************************************************************************
+X */
+X
+void main(int argc, char *argv[])
+{
+X
+/***************************************************************************************************
+X *	set default values
+X ***************************************************************************************************
+X */
+X	strcpy(fg_color_name, "Black");
+X	strcpy(bg_color_name, "White");
+X	strcpy(display_name, "");
+X	speed = 25;
+X	animating = NO;
+X	transparent = NO;
+X
+/***************************************************************************************************
+X *	handle the command line arguments
+X ***************************************************************************************************
+X */
+X	if(argc > 1)
+X	{
+X                for(i = 2; i <= argc; i++)
+X                {
+X		        if(strcmp(argv[i - 1], "-h") == 0)      /* usage ? */
+X		        {
+X			        usage();
+X			        exit(0);
+X                        }
+X
+X		        if(strcmp(argv[i - 1], "-speed") == 0)	/* speed ? */
+X		        {
+X			        if((argv[i] == NULL) || ((speed = atoi(argv[i])) <= 0))
+X			        {				/* no or too small speed value ? */
+X				        usage();
+X				        exit(0);
+X			        }
+X			        i++;                            /* jump over value */
+X        		}
+X
+X		        if(strcmp(argv[i - 1], "-fc") == 0)	/* set foreground ? */
+X		        {
+X			        if(argv[i] == NULL)		/* no colorname ? */
+X			        {
+X				        usage();
+X				        exit(0);
+X			        }
+X
+X                                strcpy(fg_color_name, argv[i]);	/* set colorname */
+X                                i++;                            /* jump over value */
+X        		}
+X
+X		        if(strcmp(argv[i - 1], "-bc") == 0)	/* set background (border) ? */
+X		        {
+X			        if(argv[i] == NULL)		/* no colorname ? */
+X			        {
+X				        usage();
+X				        exit(0);
+X			        }
+X
+X                                strcpy(bg_color_name, argv[i]);	/* set colorname */
+X                                i++;                            /* jump over value */
+X        		}
+X
+X		        if(strcmp(argv[i - 1], "-display") == 0)/* set display ? */
+X		        {
+X			        if(argv[i] == NULL)		/* no displayname ? */
+X			        {
+X				        usage();
+X				        exit(0);
+X			        }
+X
+X                                strcpy(display_name, argv[i]);	/* set displayname */
+X                                i++;                            /* jump over value */
+X        		}
+X
+X		        if(strcmp(argv[i - 1], "-t") == 0)      /* transparent ? */
+X		        {
+X				transparent = YES;
+X                        }
+X
+X        	}
+X	}
+X
+/***************************************************************************************************
+X *	open the chosen X display
+X ***************************************************************************************************
+X */
+X	if (!(display = XOpenDisplay(display_name)))
+X	{
+X		fprintf (stderr, "%s: Can't open display %s\n", argv[0],
+X			XDisplayName(display_name));
+X		exit (1);
+X	}
+X
+/***************************************************************************************************
+X *	set the x input (choose enter/leave and motion notify)
+X ***************************************************************************************************
+X */
+X	XSelectInput(display, XDefaultRootWindow(display), LeaveWindowMask | EnterWindowMask);
+X
+/***************************************************************************************************
+X *	create colors for the cursor
+X ***************************************************************************************************
+X */
+X	if(XAllocNamedColor(display, DefaultColormap(display, DefaultScreen(display)),
+X		fg_color_name, &cursor_fg_color, &cursor_fg_color) == 0)
+X	{
+X		fprintf(stderr, "%s: Could not allocate color '%s' for cursor foreground.\n",
+X			argv[0], fg_color_name);
+X		exit(0);
+X	}
+X
+X	if(XAllocNamedColor(display, DefaultColormap(display, DefaultScreen(display)),
+X		bg_color_name, &cursor_bg_color, &cursor_bg_color) == 0)
+X	{
+X		fprintf(stderr, "%s: Could not allocate color '%s' for cursor border.\n",
+X			argv[0], bg_color_name);
+X		exit(0);
+X	}
+X
+/***************************************************************************************************
+X *	create the pixmaps for the cursor
+X ***************************************************************************************************
+X */
+X	for(i = 0; i < 24; i++)
+X	{
+X		cursor_source[i] = XCreateBitmapFromData(display, XDefaultRootWindow(display),
+X			(char *)(x_source_bits + (i * 32)), 16, 16);
+X		cursor_mask[i] = XCreateBitmapFromData(display, XDefaultRootWindow(display),
+X			(char *)(x_mask_bits + (i * 32)), 16, 16);
+X	}
+X
+X	if(transparent)
+X	{
+X                gc_xor = XCreateGC(display,cursor_source[0] , 0, 0);    /* create a GC to xor */
+X                XSetFunction(display, gc_xor, GXxor);                   /* source and mask */
+X                XSetForeground(display, gc_xor, WhitePixel(display, DefaultScreen(display)));
+X                XSetBackground(display, gc_xor, BlackPixel(display, DefaultScreen(display)));
+X
+X                gc_clear = XCreateGC(display, cursor_source[0] , 0, 0); /* create a GC to clear */
+X                XSetFunction(display, gc_clear, GXclear);               /* the source */
+X
+X		for(i = 0; i < 24; i++)
+X		{
+X                        /* xor source and mask */
+X			XCopyPlane(display, cursor_source[i], cursor_mask[i] , gc_xor,
+X				0, 0, 16, 16, 0, 0, 1);
+X                        /* clear the source */
+X			XFillRectangle(display, cursor_source[i], gc_clear, 0, 0, 16, 16);
+X		}
+X
+X		XFreeGC(display, gc_xor);				/* free the GC's */
+X		XFreeGC(display, gc_clear);
+X	}
+X
+/***************************************************************************************************
+X *	create the cursors for the root-window
+X ***************************************************************************************************
+X */
+X
+X	if(transparent)
+X	{
+X		for(i = 0; i < 24; i++)
+X		{
+X			cursor[i] = XCreatePixmapCursor(display, cursor_source[i], cursor_mask[i],
+X				&cursor_fg_color, &cursor_bg_color, 7, 7);
+X		}
+X	}
+X
+X	else
+X	{
+X		for(i = 0; i < 24; i++)
+X		{
+X			cursor[i] = XCreatePixmapCursor(display, cursor_source[i], cursor_mask[i],
+X				&cursor_fg_color, &cursor_bg_color, 7, 7);
+X		}
+X	}
+X
+/***************************************************************************************************
+X *	free the pixmaps used to create the cursors
+X ***************************************************************************************************
+X */
+X	for(i = 0; i < 24; i++)
+X	{
+X		XFreePixmap(display, cursor_source[i]);
+X		XFreePixmap(display, cursor_mask[i]);
+X	}
+X
+/***************************************************************************************************
+X *	set the signals
+X ***************************************************************************************************
+X */
+X        (void) signal(SIGINT,  (SIGVAL(*)())cleanup_and_exit);  /* interrupt */
+X        (void) signal(SIGQUIT, (SIGVAL(*)())cleanup_and_exit);  /* quit */
+X        (void) signal(SIGTERM, (SIGVAL(*)())cleanup_and_exit);  /* kill */
+X
+X	signal(SIGALRM, SIG_IGN);                               /* alarm */
+X
+/***************************************************************************************************
+X *	make the animation
+X ***************************************************************************************************
+X */
+X	if(speed == 1)						/* set frame frequency */
+X		frame_freq = 999990;
+X	else
+X		frame_freq = 1000000/speed;
+X
+X	if(pointer_in_rootwindow()) animating = YES;		/* set initial value */
+X	i = 0;							/* initial frame number */
+X
+X	while(YES)
+X	{
+X                if(XPending(display) || !animating)
+X                {
+X                        XNextEvent(display, &event);
+X                        switch (event.type)
+X                        {
+X                                case LeaveNotify:
+X                                        animating = NO;
+X                                        XUndefineCursor(display, XDefaultRootWindow(display));
+X                                        break;
+X                                case EnterNotify:
+X                                        animating = YES;
+X                                        break;
+X                        }
+X                }
+X
+X                else
+X                {
+X			XDefineCursor(display, XDefaultRootWindow(display), cursor[i]);
+X			frame_wait();
+X			i++;
+X			if(i >= 24) i = 0;
+X		}
+X	}
+} /*end of main */
+X
+/***************************************************************************************************
+X *	function frame_wait()
+X				waits the time until the next frame
+X ***************************************************************************************************
+X */
+X
+void frame_wait(void)
+{
+struct itimerval timer;
+struct timeval   timeout;
+X
+X	timer.it_interval.tv_sec = 0;
+X	timer.it_interval.tv_usec = frame_freq;
+X	timer.it_value.tv_sec = 0;
+X	timer.it_value.tv_usec = frame_freq;
+X	setitimer(ITIMER_REAL, &timer, NULL);
+X	XSync(display, False);
+X	getitimer(ITIMER_REAL, &timer);
+X	timeout = timer.it_value;
+X	select(0, NULL, NULL, NULL, &timeout);
+}
+X
+/***************************************************************************************************
+X *	function usage()
+X				prints out the usage of xarc
+X ***************************************************************************************************
+X */
+X
+void usage(void)
+{
+X	printf("\nxaniroc - animated x on the root window of an X11 display\n");
+X	printf("---------------------------------------------------------\n");
+X	printf("questions and help from zaenker@informatik.tu-muenchen.de\n");
+X        printf("\nVersion: 1.02\n");
+X	printf("Usage: xaniroc [options]\n");
+X	printf("Options:\n");
+X	printf("        -h                      print this helptext\n");
+X	printf("        -speed <value>	        set rotation speed to value\n");
+X	printf("                                (default is 25)\n");
+X	printf("        -fc <colorname>		set the cursor foreground color\n");
+X	printf("                                (default is Black)\n");
+X	printf("        -bc <colorname>		set the cursor border color\n");
+X	printf("                                (default is White)\n");
+X	printf("        -t			set the cursor foreground to transparent\n");
+X	printf("        -display <display>	set the display\n");
+X	printf("                                (default is $DISPLAY)\n\n");
+}
+X
+/***************************************************************************************************
+X *      function pointer_in_rootwindow()
+X *                              checks to see if the pointer is in the root window
+X *	returns
+X * 		1 if pointer is in root window
+X *		0 if pointer is not in root window
+X ***************************************************************************************************
+X */
+int pointer_in_rootwindow(void)
+{
+X	Window		root, child;
+X	int		rx, ry, wx, wy;
+X	unsigned int 	kb;
+X	XQueryPointer(display, XDefaultRootWindow(display), &root, &child,
+X        	&rx, &ry, &wx, &wy, &kb);
+X	if (child == 0)			/* check if pointer is in the root window */
+X        	return YES;		/* or in a child window */
+X	else
+X		return NO;
+}
+X
+/***************************************************************************************************
+X *	function cleanup_and_exit()
+X *				        signal handler that cleans up the cursor
+X ***************************************************************************************************
+X */
+#ifdef  SVR4
+SIGVAL cleanup_and_exit(int sig)
+#else
+SIGVAL cleanup_and_exit(int sig, int code,struct sigcontext *scp, char *addr)
+#endif	/* SVR4 */
+{
+X        XUndefineCursor(display, XDefaultRootWindow(display));
+X        XCloseDisplay(display);
+X        exit(0);
+}
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 xaniroc//xaniroc.c ||
+echo 'restore of xaniroc//xaniroc.c failed'
+Wc_c="`wc -c < 'xaniroc//xaniroc.c'`"
+test 14252 -eq "$Wc_c" ||
+	echo 'xaniroc//xaniroc.c: original size 14252, current size' "$Wc_c"
+fi
+# ============= xaniroc//README ==============
+if test -f 'xaniroc//README' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//README (File already exists)'
+else
+echo 'x - extracting xaniroc//README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//README' &&
+XXAniRoC for X11 - V1.02
+developed 1993 by Christian Zaenker (zaenker@informatik.tu-muenchen.de)
+X
+- xaniroc will change the root window cursor of an X11 screen into a rotating X
+X
+- to use xaniroc your system should be able to create cursors with a size of at
+X  least 16x16
+X
+- how to create:
+X                > change the Imakefile so that CC is defined as an
+X                  ANSI C compiler (for example 'cc -Aa' or 'gcc')
+X                > type 'xmkmf' to create a makefile
+X                > type 'make' to create xaniroc
+X
+- for options type 'xaniroc -h'
+X
+- for further details read the manpage (if you have not installed the manpage
+X  to your system use 'nroff -man manpage.1 | more' to read the manpage)
+SHAR_EOF
+chmod 0644 xaniroc//README ||
+echo 'restore of xaniroc//README failed'
+Wc_c="`wc -c < 'xaniroc//README'`"
+test 707 -eq "$Wc_c" ||
+	echo 'xaniroc//README: original size 707, current size' "$Wc_c"
+fi
+# ============= xaniroc//Imakefile ==============
+if test -f 'xaniroc//Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//Imakefile (File already exists)'
+else
+echo 'x - extracting xaniroc//Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//Imakefile' &&
+/*
+X * Imakefile for xaniroc
+X */
+X
+SRCS = xaniroc.c
+OBJS = xaniroc.o
+X
+LOCAL_LIBRARIES = XawClientLibs
+SYS_LIBRARIES = -lm
+DEPLIBS = XawClientDepLibs
+X
+#ifdef HPArchitecture
+DEFINES = -D_HPUX_SOURCE -DSOME_DEFINES
+CC = cc -Aa
+#endif
+X
+#CC=gcc -ansi   /* change this line so that CC is defined as an */
+X                /* ANSI C compiler */
+#DEFINES = -DSOME_DEFINES
+X
+ComplexProgramTarget(xaniroc)
+X
+SHAR_EOF
+chmod 0644 xaniroc//Imakefile ||
+echo 'restore of xaniroc//Imakefile failed'
+Wc_c="`wc -c < 'xaniroc//Imakefile'`"
+test 393 -eq "$Wc_c" ||
+	echo 'xaniroc//Imakefile: original size 393, current size' "$Wc_c"
+fi
+# ============= xaniroc//patchlevel.h ==============
+if test -f 'xaniroc//patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//patchlevel.h (File already exists)'
+else
+echo 'x - extracting xaniroc//patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//patchlevel.h' &&
+X
+SHAR_EOF
+chmod 0644 xaniroc//patchlevel.h ||
+echo 'restore of xaniroc//patchlevel.h failed'
+Wc_c="`wc -c < 'xaniroc//patchlevel.h'`"
+test 1 -eq "$Wc_c" ||
+	echo 'xaniroc//patchlevel.h: original size 1, current size' "$Wc_c"
+fi
+# ============= xaniroc//manpage.1 ==============
+if test -f 'xaniroc//manpage.1' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//manpage.1 (File already exists)'
+else
+echo 'x - extracting xaniroc//manpage.1 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//manpage.1' &&
+.TH xaniroc n "Thu Nov 18, 1993" "Christian Zaenker"
+.SH NAME
+xaniroc - X animated root cursor - makes root cursor spin
+.SH SYNOPSIS
+.B "xaniroc"
+[-h]
+[-speed n]
+[-fc colorname]
+[-bc colorname]
+[-t]
+[-display display]
+.SH DESCRIPTION
+.I Xaniroc
+will change the root window cursor of an X11 screen into a
+rotating X. To use xaniroc your system should be able to create
+cursors with a size of at least 16x16.
+.sp
+The flags the \fIxaniroc\fR program understands are;
+.TP 1.0i
+.B "-h"
+print help text.
+.TP
+.B "-speed n"
+set rotation speed (n must be greater than zero; default n is 25).
+.TP
+.B "-fc colorname"
+set the cursor foreground color (default is black)
+.TP
+.B "-bc colorname"
+set the cursor border color (default is white)
+.TP
+.B "-t"
+set the cursor foreground to transparent
+.TP
+.B "-display display"
+set the display
+.SH AUTHOR
+Christian Zaenker (zaenker@informatik.tu-muenchen.de)
+.SH ACKNOWLEDGEMENTS 
+Many thanx to:
+X
+- David L. Crow (from IBM) for the routines to detect EnterNotify and LeaveNotify events on the root window
+X
+- Stan Kalinowski (from Tektronix) for the signal handler routines and the base for the manpage
+X
+- Ian Darwin for the idea to make the display option
+.SH BUG REPORTS TO
+zaenker@informatik.tu-muenchen.de
+X
+X
+SHAR_EOF
+chmod 0644 xaniroc//manpage.1 ||
+echo 'restore of xaniroc//manpage.1 failed'
+Wc_c="`wc -c < 'xaniroc//manpage.1'`"
+test 1239 -eq "$Wc_c" ||
+	echo 'xaniroc//manpage.1: original size 1239, current size' "$Wc_c"
+fi
+# ============= xaniroc//bitmaps.h ==============
+if test -f 'xaniroc//bitmaps.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xaniroc//bitmaps.h (File already exists)'
+else
+echo 'x - extracting xaniroc//bitmaps.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xaniroc//bitmaps.h' &&
+static char x_source_bits[] =
+{
+X   0x00, 0x00, 0x0e, 0x70, 0x1e, 0x78, 0x3e, 0x7c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3e, 0x7c, 0x1e, 0x78, 0x0e, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x38, 0x3e, 0x3c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3c, 0x7c, 0x1c, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x1c, 0x7c, 0x1e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x78, 0x3e,
+X   0x38, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x07,
+X   0xf0, 0x07, 0xe0, 0x07, 0xe0, 0x07, 0xe0, 0x0f, 0xe0, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x00,
+X   0xf0, 0x01, 0xe0, 0x03, 0xc0, 0x07, 0x80, 0x0f, 0x00, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x00,
+X   0x70, 0x00, 0xe0, 0x00, 0xc0, 0x05, 0x80, 0x0f, 0x00, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x00,
+X   0x70, 0x01, 0x20, 0x02, 0x40, 0x04, 0x80, 0x0e, 0x00, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x00,
+X   0xf0, 0x01, 0xa0, 0x03, 0x00, 0x07, 0x00, 0x0e, 0x00, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x00,
+X   0xf0, 0x01, 0xe0, 0x03, 0xc0, 0x07, 0x80, 0x0f, 0x00, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x00, 0x7c, 0x00, 0xf8, 0x07,
+X   0xf0, 0x07, 0xe0, 0x07, 0xe0, 0x07, 0xe0, 0x0f, 0xe0, 0x1f, 0x00, 0x3e,
+X   0x00, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x3e, 0x1c, 0x7c, 0x1e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x78, 0x3e,
+X   0x38, 0x7c, 0x00, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x00, 0x1e, 0x38, 0x3e, 0x3c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3c, 0x7c, 0x1c, 0x78, 0x00, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x0e, 0x70, 0x1e, 0x78, 0x3e, 0x7c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3e, 0x7c, 0x1e, 0x78, 0x0e, 0x70, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x1c, 0x78, 0x3c, 0x7c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3e, 0x3c, 0x1e, 0x38, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x38, 0x7c, 0x78, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x1e,
+X   0x3e, 0x1c, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0xe0, 0x1f,
+X   0xe0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x07, 0xf8, 0x07, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0x00, 0x1f,
+X   0x80, 0x0f, 0xc0, 0x07, 0xe0, 0x03, 0xf0, 0x01, 0xf8, 0x00, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0x00, 0x1f,
+X   0x00, 0x0e, 0x00, 0x07, 0xa0, 0x03, 0xf0, 0x01, 0xf8, 0x00, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0x00, 0x1f,
+X   0x80, 0x0e, 0x40, 0x04, 0x20, 0x02, 0x70, 0x01, 0xf8, 0x00, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0x00, 0x1f,
+X   0x80, 0x0f, 0xc0, 0x05, 0xe0, 0x00, 0x70, 0x00, 0xf8, 0x00, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0x00, 0x1f,
+X   0x80, 0x0f, 0xc0, 0x07, 0xe0, 0x03, 0xf0, 0x01, 0xf8, 0x00, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x00, 0x7c, 0x00, 0x3e, 0xe0, 0x1f,
+X   0xe0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x07, 0xf8, 0x07, 0x7c, 0x00,
+X   0x3e, 0x00, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x00, 0x78, 0x38, 0x7c, 0x78, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x1e,
+X   0x3e, 0x1c, 0x1e, 0x00, 0x0e, 0x00, 0x00, 0x00,
+X
+X   0x00, 0x00, 0x00, 0x70, 0x1c, 0x78, 0x3c, 0x7c, 0x7c, 0x3e, 0xf8, 0x1f,
+X   0xf0, 0x0f, 0xe0, 0x07, 0xe0, 0x07, 0xf0, 0x0f, 0xf8, 0x1f, 0x7c, 0x3e,
+X   0x3e, 0x3c, 0x1e, 0x38, 0x0e, 0x00, 0x00, 0x00
+};
+X
+static char x_mask_bits[] =
+{
+X   0x0f, 0xf0, 0x1f, 0xf8, 0x3f, 0xfc, 0x7f, 0xfe, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7f, 0xfe, 0x3f, 0xfc, 0x1f, 0xf8, 0x0f, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x78, 0x3f, 0x7c, 0x7f, 0x7e, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7e, 0xfe, 0x3e, 0xfc, 0x1e, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x3c, 0x7f, 0x3e, 0xfe, 0x3f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfc, 0x7f,
+X   0x7c, 0xfe, 0x3c, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x0f, 0xfc, 0x0f,
+X   0xf8, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x1f, 0xf0, 0x3f, 0xf0, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x00, 0xfc, 0x01,
+X   0xf8, 0x03, 0xf0, 0x07, 0xe0, 0x0f, 0xc0, 0x1f, 0x80, 0x3f, 0x00, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x00, 0xfc, 0x01,
+X   0xf8, 0x03, 0xf0, 0x07, 0xe0, 0x0f, 0xc0, 0x1f, 0x80, 0x3f, 0x00, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x00, 0xfc, 0x01,
+X   0xf8, 0x03, 0xf0, 0x07, 0xe0, 0x0f, 0xc0, 0x1f, 0x80, 0x3f, 0x00, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x00, 0xfc, 0x01,
+X   0xf8, 0x03, 0xf0, 0x07, 0xe0, 0x0f, 0xc0, 0x1f, 0x80, 0x3f, 0x00, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x00, 0xfc, 0x01,
+X   0xf8, 0x03, 0xf0, 0x07, 0xe0, 0x0f, 0xc0, 0x1f, 0x80, 0x3f, 0x00, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x00, 0x7f, 0x00, 0xfe, 0x0f, 0xfc, 0x0f,
+X   0xf8, 0x0f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf0, 0x1f, 0xf0, 0x3f, 0xf0, 0x7f,
+X   0x00, 0xfe, 0x00, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x00, 0x3f, 0x3c, 0x7f, 0x3e, 0xfe, 0x3f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfc, 0x7f,
+X   0x7c, 0xfe, 0x3c, 0xfc, 0x00, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0x00, 0x1f, 0x78, 0x3f, 0x7c, 0x7f, 0x7e, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7e, 0xfe, 0x3e, 0xfc, 0x1e, 0xf8, 0x00, 0xf0,
+X
+X   0x0f, 0xf0, 0x1f, 0xf8, 0x3f, 0xfc, 0x7f, 0xfe, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7f, 0xfe, 0x3f, 0xfc, 0x1f, 0xf8, 0x0f, 0xf0,
+X
+X   0x00, 0xf0, 0x1e, 0xf8, 0x3e, 0xfc, 0x7e, 0xfe, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7f, 0x7e, 0x3f, 0x7c, 0x1f, 0x78, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x3c, 0xfc, 0x7c, 0xfe, 0xfc, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x3f,
+X   0x7f, 0x3e, 0x3f, 0x3c, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0xf0, 0x7f, 0xf0, 0x3f,
+X   0xf0, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x0f, 0xfc, 0x0f, 0xfe, 0x0f,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0x00, 0x7f, 0x80, 0x3f,
+X   0xc0, 0x1f, 0xe0, 0x0f, 0xf0, 0x07, 0xf8, 0x03, 0xfc, 0x01, 0xfe, 0x00,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0x00, 0x7f, 0x80, 0x3f,
+X   0xc0, 0x1f, 0xe0, 0x0f, 0xf0, 0x07, 0xf8, 0x03, 0xfc, 0x01, 0xfe, 0x00,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0x00, 0x7f, 0x80, 0x3f,
+X   0xc0, 0x1f, 0xe0, 0x0f, 0xf0, 0x07, 0xf8, 0x03, 0xfc, 0x01, 0xfe, 0x00,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0x00, 0x7f, 0x80, 0x3f,
+X   0xc0, 0x1f, 0xe0, 0x0f, 0xf0, 0x07, 0xf8, 0x03, 0xfc, 0x01, 0xfe, 0x00,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0x00, 0x7f, 0x80, 0x3f,
+X   0xc0, 0x1f, 0xe0, 0x0f, 0xf0, 0x07, 0xf8, 0x03, 0xfc, 0x01, 0xfe, 0x00,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x00, 0xfc, 0x00, 0xfe, 0xf0, 0x7f, 0xf0, 0x3f,
+X   0xf0, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x0f, 0xfc, 0x0f, 0xfe, 0x0f,
+X   0x7f, 0x00, 0x3f, 0x00, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x00, 0xf8, 0x3c, 0xfc, 0x7c, 0xfe, 0xfc, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x3f,
+X   0x7f, 0x3e, 0x3f, 0x3c, 0x1f, 0x00, 0x0f, 0x00,
+X
+X   0x00, 0xf0, 0x1e, 0xf8, 0x3e, 0xfc, 0x7e, 0xfe, 0xfe, 0x7f, 0xfc, 0x3f,
+X   0xf8, 0x1f, 0xf0, 0x0f, 0xf0, 0x0f, 0xf8, 0x1f, 0xfc, 0x3f, 0xfe, 0x7f,
+X   0x7f, 0x7e, 0x3f, 0x7c, 0x1f, 0x78, 0x0f, 0x00
+};
+X
+SHAR_EOF
+chmod 0644 xaniroc//bitmaps.h ||
+echo 'restore of xaniroc//bitmaps.h failed'
+Wc_c="`wc -c < 'xaniroc//bitmaps.h'`"
+test 9762 -eq "$Wc_c" ||
+	echo 'xaniroc//bitmaps.h: original size 9762, current size' "$Wc_c"
+fi
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

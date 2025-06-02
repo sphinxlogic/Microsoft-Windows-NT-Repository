@@ -1,0 +1,1826 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i036:  xarchie - An X browser interface to Archie, v2.0.6, Part08/24
+Message-ID: <1993Jun15.223253.370@sparky.imd.sterling.com>
+X-Md4-Signature: 4fed3aca02668e4d0f071088ca1a8b2a
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:32:53 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 36
+Archive-name: xarchie/part08
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part08
+
+#!/bin/sh
+# this is Part.08 (part 8 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/file-panel.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/file-panel.c'
+else
+echo 'x - continuing file xarchie-2.0.6/file-panel.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/file-panel.c' &&
+#include "db.h"
+#include "browser.h"
+#include "appres.h"
+#include "saveload.h"
+#include "file-panel.h"
+#include "fchooser.h"
+#include "status.h"
+#include "xutil.h"
+extern DbEntry *db;
+X
+/*
+X * Functions defined here
+X */
+void initFilePanelActions();
+void updateFileWriteMode();
+void setFileShellState();
+X
+static void fileSaveAction(),fileLoadAction(),fileWriteAction();
+static void popupFilePanel(),initFileWidgets();
+static void filePanelOk(),filePanelCancel();
+/*
+static FileChooserOkProc filePanelOk;
+static FileChooserCancelProc filePanelCancel;
+*/
+static void writeModeWidgetsShown();
+X
+/*
+X * Data defined here
+X */
+static FileChooserInfo *fcinfo;
+static Widget fileShell,filePanelLabel;
+static Widget filePanelWriteModeButton,filePanelWriteModeLabel;
+static Boolean fileGoing,isPoppedUp;
+static int fileOp;
+X
+static XtActionsRec actionTable[] = {
+X    { "file-save",		fileSaveAction },
+X    { "file-load",		fileLoadAction },
+X    { "file-write",		fileWriteAction },
+};
+X
+void
+initFilePanelActions()
+{
+X    XtAppAddActions(appContext,actionTable,XtNumber(actionTable));
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Action Procedures */
+X
+#define ACTION_PROC(NAME)	void NAME(w,event,params,num_params) \
+X					Widget w; \
+X					XEvent *event; \
+X					String *params; \
+X					Cardinal *num_params;
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(fileSaveAction)
+{
+X    popupFilePanel(FILE_SAVE);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(fileLoadAction)
+{
+X    popupFilePanel(FILE_LOAD);
+}
+X
+/*ARGSUSED*/
+static
+ACTION_PROC(fileWriteAction)
+{
+X    popupFilePanel(FILE_WRITE);
+}
+X
+static void
+popupFilePanel(op)
+int op;
+{
+X    /* Ignore if the browser is being changed */
+X    if (getBrowserState() != BROWSER_READY) {
+X	XBell(display,0);
+X	return;
+X    }
+X    /* Create if this is the first time */
+X    if (fileShell == NULL) {
+X	setBusyStatus(True);
+X	initFileWidgets();
+X	setBusyStatus(False);
+X    }
+#ifdef FILECHOOSER
+X      else {
+X	  status0("Re-initializing File Selector...");
+X	  XfwfFileChooserRefresh((XfwfFileChooserWidget)(fcinfo->fcw));
+X    }
+#endif
+X    switch (op) {
+X	case FILE_SAVE:
+X	    setWidgetLabel(filePanelLabel,"Save to file:");
+X	    writeModeWidgetsShown(False);
+X	    break;
+X	case FILE_LOAD:
+X	    setWidgetLabel(filePanelLabel,"Load from file:");
+X	    writeModeWidgetsShown(False);
+X	    break;
+X	case FILE_WRITE:
+X	    setWidgetLabel(filePanelLabel,"Write to file:");
+X	    writeModeWidgetsShown(True);
+X	    break;
+X    }
+X    fileOp = op;
+X    if (isPoppedUp) {
+X	XRaiseWindow(display,XtWindow(fileShell));
+X    } else {
+X	isPoppedUp = True;
+X	XtPopup(fileShell,XtGrabNone);
+X    }
+}
+X
+static void
+initFileWidgets()
+{
+X    Widget form;
+X    Arg args[1];
+X
+X    fileShell = XtCreatePopupShell("filePanelShell",topLevelShellWidgetClass,
+X				   toplevel,NULL,0);
+X    form = XtCreateManagedWidget("filePanelForm",formWidgetClass,
+X				 fileShell,NULL,0);
+X    filePanelLabel = XtCreateManagedWidget("filePanelLabel",labelWidgetClass,
+X					   form,NULL,0);
+X    filePanelWriteModeButton =
+X	XtCreateManagedWidget("filePanelWriteModeButton",menuButtonWidgetClass,
+X			      form,NULL,0);
+X    filePanelWriteModeLabel =
+X	XtCreateManagedWidget("filePanelWriteModeLabel",labelWidgetClass,
+X			      form,NULL,0);
+X    fcinfo = createFileChooser(fileShell,form,"filePanel",filePanelOk,
+X			       filePanelCancel,(XtPointer)fileShell);
+X    /* Adjust vertical layout */
+X    XtSetArg(args[0],XtNfromVert,filePanelWriteModeButton);
+#ifdef FILECHOOSER
+X    XtSetValues(fcinfo->fcw,args,1);
+#else
+X    XtSetValues(fcinfo->text,args,1);
+#endif
+X    /* Realize them all */
+X    XtRealizeWidget(fileShell);
+X    /* Register window for WM */
+X    (void)XSetWMProtocols(XtDisplay(fileShell),XtWindow(fileShell),
+X			  &WM_DELETE_WINDOW,1);
+X    updateFileWriteMode(appResources.fileWriteOnePerLine);
+}
+X
+static void
+writeModeWidgetsShown(state)
+Boolean state;
+{
+X    if (state) {
+X	XtMapWidget(filePanelWriteModeButton);
+X	XtMapWidget(filePanelWriteModeLabel);
+X    } else {
+X	XtUnmapWidget(filePanelWriteModeButton);
+X	XtUnmapWidget(filePanelWriteModeLabel);
+X    }
+}
+X
+void
+setFileShellState(state)
+int state;
+{
+X    if (!isPoppedUp)
+X	return;
+X    switch (state) {
+X	case NormalState:
+X	    XtMapWidget(fileShell);
+X	    break;
+X	case IconicState:
+X	    XtUnmapWidget(fileShell);
+X	    break;
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Callbacks from the FileChooser */
+X
+/*ARGSUSED*/
+static void
+filePanelOk(fcinfo,filename,client_data)
+FileChooserInfo *fcinfo;
+char *filename;
+XXtPointer client_data;		/* shell Widget */
+{
+X    Widget shell = (Widget)client_data;
+X    int status;
+X
+X    if (fileGoing) {
+X	XBell(display,0);
+X	return;
+X    }
+X    fileGoing = True;
+X    switch (fileOp) {
+X	case FILE_SAVE:
+X	    status = save(db,filename);
+X	    break;
+X	case FILE_LOAD:
+X	    status = load(db,filename);
+X	    break;
+X	case FILE_WRITE:
+X	    status = writeToFile(db,filename,appResources.fileWriteOnePerLine);
+X	    break;
+X    }
+X    fileGoing = False;
+X    if (status) {
+X	XtPopdown(shell);
+X	isPoppedUp = False;
+X    }
+}
+X
+/*ARGSUSED*/
+static void
+filePanelCancel(fcinfo,client_data)
+FileChooserInfo *fcinfo;
+XXtPointer client_data;		/* shell Widget */
+{
+X    Widget shell = (Widget)client_data;
+X
+X    if (fileGoing) {
+X	XBell(display,0);
+X	return;
+X    }
+X    XtPopdown(shell);
+X    isPoppedUp = False;
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Used by the menus */
+X
+void
+updateFileWriteMode(flag)
+Boolean flag;
+{
+X    if (flag)
+X	setWidgetLabel(filePanelWriteModeLabel,"One entry per line");
+X    else
+X	setWidgetLabel(filePanelWriteModeLabel,"Pretty-printed");
+}
+SHAR_EOF
+echo 'File xarchie-2.0.6/file-panel.c is complete' &&
+chmod 0644 xarchie-2.0.6/file-panel.c ||
+echo 'restore of xarchie-2.0.6/file-panel.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/file-panel.c'`"
+test 5892 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/file-panel.c: original size 5892, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/file-panel.h ==============
+if test -f 'xarchie-2.0.6/file-panel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/file-panel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/file-panel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/file-panel.h' &&
+/*
+X * file-panel.h : Defs for the save-load-write panel
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+#ifndef FILE_PANEL_H
+#define FILE_PANEL_H
+X
+#define FILE_SAVE  1
+#define FILE_LOAD  2
+#define FILE_WRITE 3
+X
+extern void initFilePanelActions();
+extern void updateFileWriteMode();
+extern void setFileShellState();
+X
+#endif
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/file-panel.h ||
+echo 'restore of xarchie-2.0.6/file-panel.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/file-panel.h'`"
+test 343 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/file-panel.h: original size 343, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/ftp-actions.c ==============
+if test -f 'xarchie-2.0.6/ftp-actions.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/ftp-actions.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/ftp-actions.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/ftp-actions.c' &&
+/*
+X * ftp-actions.c : X/FTP interface routines for xarchie
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X * 13 May 1993: Check for NULL return from ftpNewContext().
+X */
+X
+#include <stdio.h>
+#include <fcntl.h>			/* O_RDONLY, etc. */
+#include <X11/Intrinsic.h>
+#include <X11/Shell.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/AsciiText.h>
+#include <X11/Xaw/Dialog.h>
+#include "config.h"
+#ifdef HAVE_SYS_PARAM_H
+#include <sys/param.h>
+#endif
+#include "db.h"
+#include "appres.h"
+#include "xarchie.h"
+#include "selection.h"
+#include "browser.h"
+#include "ftp.h"
+#include "view-file.h"
+#include "status.h"
+#include "popups.h"
+#include "xutil.h"
+#include "alert.h"
+#include "syserr.h"
+#include "debug.h"
+X
+/*
+X * Functions defined here
+X */
+void initFtpActions();
+void ftpGetSelectedItems(),ftpOpenSelectedItems();
+void RegisterFtpFd(),UnregisterFtpFd();
+int ftpPrompt();
+X
+static void ftpSelectedItems(),countFileToGet(),countFileToOpen(),addFile();
+static void ftpGetFinished(),ftpOpenOneFinished();
+static void initFtpTraceWidgets();
+static void ftpTraceDoneAction();
+static void ftpTraceReset(),ftpTraceFunc();
+static void inputCallback();
+static void ftpPromptCallback();
+X
+/*
+X * Data defined here
+X */
+static char **ftpFilenames;
+static int numFtpFiles;
+static FtpContext *ftpCurrentContext;
+X
+static Widget ftpTraceShell,ftpTraceText;
+static Boolean isPoppedUp;
+X
+static XtActionsRec actionTable[] = {
+X    { "ftp-trace-done",	ftpTraceDoneAction },
+};
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Interface functions */
+X
+void
+initFtpActions()
+{
+X    XtAppAddActions(appContext,actionTable,XtNumber(actionTable));
+}
+X
+void
+ftpGetSelectedItems()		/* Called from getAction() */
+{
+X    ftpSelectedItems(appResources.ftpLocalDir,appResources.ftpType,
+X		     appResources.ftpPrompt,appResources.ftpStrip,
+X		     countFileToGet,NULL,ftpGetFinished);
+}
+X
+void
+ftpOpenSelectedItems()		/* Called from openBrowser() */
+{
+X    ftpSelectedItems(tmpDirectory,"ascii",False,True,
+X		     countFileToOpen,ftpOpenOneFinished,ftpGetFinished);
+}
+X
+void
+ftpAbortTransfer()
+{
+X    DEBUG1("ftpAbortTransfer: ftpCurrentContext=0x%x\n",ftpCurrentContext);
+X    ftpAbort(ftpCurrentContext);
+X    DEBUG0("ftpAbortTransfer: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This function starts ftp retrieval of the items selected in the
+X * browser into the local directory.
+X */
+static void
+ftpSelectedItems(local_dir,typestr,prompt,strip,
+X		 countProc,doneOneProc,doneAllProc)
+char *local_dir,*typestr;
+Boolean prompt,strip;
+void (*countProc)();
+FtpCallbackProc doneOneProc,doneAllProc;
+{
+X    char *host,*cwd;
+X    int type;
+#ifdef DEBUG
+X    int i;
+#endif
+X
+X    DEBUG0("ftpSelectedItems: setting files to transfer\n");
+X    numFtpFiles = 0;
+X    forEachSelectedItem(countProc);
+X    if (numFtpFiles == 0) {
+X	return;
+X    }
+X    ftpFilenames = (char **)XtCalloc(numFtpFiles,sizeof(char *));
+X    numFtpFiles = 0;
+X    forEachSelectedItem(addFile);
+#ifdef DEBUG
+X    for (i=0; i < numFtpFiles; i++)
+X	fprintf(stderr,"ftpSelectedItems: ftpFilenames[%d] = \"%s\"\n",
+X		i,ftpFilenames[i]);
+#endif
+X    /* Is there a host? */
+X    if ((host=getWidgetString(hostText)) == NULL || *host == '\0') {
+X	alert0("No host specified for transfer!");
+X	return;
+X    }
+X    DEBUG1("ftpSelectedItems: host = \"%s\"\n",host);
+X    /* Optional remote directory */
+X    cwd = getWidgetString(locationText); /* Can be "" */
+X    DEBUG1("ftpSelectedItems: remote dir = \"%s\"\n",cwd);
+X    if (cwd && *cwd == '\0')
+X	cwd = NULL;
+X    /* Convert type to ARPA code */
+X    if (typestr == NULL || *typestr == 'a' || *typestr == 'A')
+X	type = TYPE_A;
+X    else if (*typestr == 'b' || *typestr == 'B')
+X	type = TYPE_I;
+X    else if (*typestr == 'e' || *typestr == 'E')
+X	type = TYPE_E;
+X    else
+X	type = atoi(typestr);
+X    /* Put up the tracing window if needed */
+X    if (appResources.ftpTrace) {
+X	if (ftpTraceShell == NULL)
+X	    initFtpTraceWidgets();
+X	ftpTraceReset();
+X	isPoppedUp = True;
+X	XtPopup(ftpTraceShell,XtGrabNone);
+X    }
+X    /* Get the FTP context */
+X    ftpCurrentContext =
+X	ftpNewContext(host,"anonymous",appResources.ftpMailAddress,
+X		      cwd,local_dir,type,strip,(numFtpFiles>1 && prompt),
+X		      FTP_GET,ftpFilenames,numFtpFiles,
+X		      (appResources.ftpTrace ? ftpTraceFunc : NULL),
+X		      doneOneProc,doneAllProc);
+X    XtFree((char *)ftpFilenames);
+X    /* Hostname lookup might have failed */
+X    if (ftpCurrentContext == NULL)
+X	return;
+X    /* Here we go... */
+X    setBrowserState(BROWSER_FTP);
+X    ftpStart(ftpCurrentContext);
+X    DEBUG0("ftpSelectedItems: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Functions called by ftpGetSelectedItems */
+X
+/*ARGSUSED*/
+static void
+countFileToGet(dbp,list_index)		/* complains about non-files */
+DbEntry *dbp;
+int list_index;
+{
+X    if (dbp->type == DB_FILE) {
+X	numFtpFiles += 1;
+X    } else {
+X	alert1("Can't retrieve non-file \"%s\".",dbp->name);
+X    }
+}
+X
+/*ARGSUSED*/
+static void
+countFileToOpen(dbp,list_index)		/* doesn't complain about non-files */
+DbEntry *dbp;
+int list_index;
+{
+X    if (dbp->type == DB_FILE) {
+X	numFtpFiles += 1;
+X    }
+}
+X
+/*ARGSUSED*/
+static void
+addFile(dbp,list_index)			/* adds filename to array */
+DbEntry *dbp;
+int list_index;
+{
+X    if (dbp->type == DB_FILE) {
+X	ftpFilenames[numFtpFiles++] = XtNewString(dbp->name);
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* FTP callbacks */
+X
+/*
+X * This function is called back when the ftp transfer is complete (for
+X * whatever reason).
+X */
+/*ARGUSED*/
+static void
+ftpGetFinished(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpGetFinished(0x%x)...\n",ftpc);
+X    setBrowserState(BROWSER_READY);
+X    ftpFreeContext(ftpc);
+X    status0("Ready");
+X    DEBUG0("ftpGetFinished: done\n");
+}
+X
+/*
+X * This function is called back when a single file has been successfully
+X * retrieved for Open.
+X */
+/*ARGSUSED*/
+static void
+ftpOpenOneFinished(ftpc)
+FtpContext *ftpc;
+{
+X    char filename[MAXPATHLEN];
+X
+X    DEBUG1("ftpOpenOneFinished(0x%x)...\n",ftpc);
+X    if (ftpc->local_dir && *(ftpc->local_dir))
+X	sprintf(filename,"%s/%s",ftpc->local_dir,ftpc->files[ftpc->this_file]);
+X    else
+X	strcpy(filename,ftpc->files[ftpc->this_file]);
+X    viewFile(filename);
+X    DEBUG0("ftpOpenOneFinished: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines for tracing the ftp connection in a window */
+X
+static void
+initFtpTraceWidgets()
+{
+X    Widget form;
+X
+X    ftpTraceShell = XtCreatePopupShell("ftpTraceShell",
+X				       topLevelShellWidgetClass,
+X				       toplevel,NULL,0);
+X    form = XtCreateManagedWidget("ftpTraceForm",formWidgetClass,
+X				 ftpTraceShell,NULL,0);
+X    (void)XtCreateManagedWidget("ftpTraceDismissButton",commandWidgetClass,
+X				form,NULL,0);
+X    ftpTraceText = XtCreateManagedWidget("ftpTraceText",asciiTextWidgetClass,
+X					 form,NULL,0);
+X    XtRealizeWidget(ftpTraceShell);
+X    (void)XSetWMProtocols(XtDisplay(ftpTraceShell),XtWindow(ftpTraceShell),
+X			  &WM_DELETE_WINDOW,1);
+}
+X
+void
+setFtpTraceShellState(state)
+int state;
+{
+X    if (!isPoppedUp)
+X	return;
+X    switch (state) {
+X	case NormalState:
+X	    XtMapWidget(ftpTraceShell);
+X	    break;
+X	case IconicState:
+X	    XtUnmapWidget(ftpTraceShell);
+X	    break;
+X    }
+}
+X
+/*ARGSUSED*/
+static void
+ftpTraceDoneAction(w,event,params,num_params)
+Widget w;
+XXEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X    isPoppedUp = False;
+X    XtPopdown(ftpTraceShell);
+}
+X
+static void
+ftpTraceReset()
+{
+X    Arg args[1];
+X
+X    XtSetArg(args[0],XtNstring,"");
+X    XtSetValues(ftpTraceText,args,1);
+}
+X
+/*
+X * This function is called back from within the ftp routines to monitor
+X * the exchange of messages.
+X */
+/*ARGSUSED*/
+static void
+ftpTraceFunc(ftpc,who,text)
+FtpContext *ftpc;
+int who;		/* 0 => recvd, non-0 => sent */
+char *text;		/* text of this message */
+{
+X    if (who)
+X	appendWidgetText(ftpTraceText,"ftp> ");
+X    appendWidgetText(ftpTraceText,text);
+X    if (*(text+strlen(text)-1) != '\n')
+X	appendWidgetText(ftpTraceText,"\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* File descriptor registration routines: */
+X
+/*
+X * We need as many of these as there are file descriptors. It's
+X * easier to guess big than to figure out where such a magic number lives.
+X */
+#define NUMFDS 64
+FtpCallbackProc ftpRegisteredProcs[NUMFDS];
+FtpContext *ftpRegisteredContexts[NUMFDS];
+XXtInputId ftpRegisteredIds[NUMFDS];
+X
+/*
+X * This function is exported and used by the FTP routines to register
+X * a file descriptor for notification. We register it by recording the
+X * callback information (proc and ftpc) and telling X to register the
+X * fd as an external input source. When X calls back to inputCallback(),
+X * we use the stored information to call back to the FTP routine.
+X * Got that?
+X */
+void
+RegisterFtpFd(ftpc,fd,flags,proc)
+FtpContext *ftpc;
+int fd,flags;
+FtpCallbackProc proc;
+{
+X    XtInputMask condition;
+X
+X    DEBUG3("RegisterFtpFd: ftpc=0x%x, fd=%d, flags=%d\n",ftpc,fd,flags);
+X    if (fd < 0 || fd >= NUMFDS) {
+X	fprintf(stderr,"YOW! Attempt to register fd %d!\n",fd);
+#ifdef DEBUG
+X	abort();
+#endif
+X	return;
+X    }
+X    switch (flags) {
+X      case O_RDONLY:
+X	condition = XtInputReadMask;
+X	break;
+X      case O_WRONLY:
+X	condition = XtInputWriteMask;
+X	break;
+X      case O_RDWR:
+X	condition = XtInputReadMask | XtInputWriteMask;
+X	break;
+X    }
+X    ftpRegisteredProcs[fd] = proc;
+X    ftpRegisteredContexts[fd] = ftpc;
+X    ftpRegisteredIds[fd] =
+X	XtAppAddInput(appContext,fd,(XtPointer)condition,inputCallback,NULL);
+X    DEBUG1("RegisterFtpFd: done: id=0x%x\n",ftpRegisteredIds[fd]);
+}
+X
+/*
+X * Called back when X says source is ready. We call the function registered
+X * by the FTP routines, passing the context.
+X */
+/*ARGSUSED*/
+static void
+inputCallback(client_data,source,id)
+XXtPointer client_data;
+int *source;
+XXtInputId *id;
+{
+X    if (ftpRegisteredProcs[*source] != NULL) {
+X	(*(ftpRegisteredProcs[*source]))(ftpRegisteredContexts[*source]);
+X    } else {
+X	fprintf(stderr,"YOW! Callback for fd=%d not registered!\n",*source);
+#ifdef DEBUG
+X	abort();
+#endif
+X    }
+}
+X
+/*
+X * This function is exported and used by the FTP routines to undo
+X * a previous registration.
+X */
+/*ARGSUSED*/
+void
+UnregisterFtpFd(ftpc,fd)
+FtpContext *ftpc;
+int fd;
+{
+X    DEBUG3("UnregisterFtpFd: ftpc=0x%x, fd=%d, id=0x%x\n",
+X	   ftpc,fd,ftpRegisteredIds[fd]);
+X    if (fd < 0 || fd >= NUMFDS) {
+X	fprintf(stderr,"YOW! Attempt to unregister fd %d!\n",fd);
+#ifdef DEBUG
+X	abort();
+#endif
+X	return;
+X    }
+X    if (ftpRegisteredIds[fd] != (XtInputId)NULL)
+X	XtRemoveInput(ftpRegisteredIds[fd]);
+X    ftpRegisteredIds[fd] = (XtInputId)NULL;
+X    ftpRegisteredProcs[fd] = NULL;
+X    ftpRegisteredContexts[fd] = NULL;
+X    DEBUG0("UnregisterFtpFd: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Routines for prompting during FTP transfers: */
+X
+static Widget ftpPromptShell;
+static int ftpPromptResult;
+X
+int
+ftpPrompt(ftpc)
+FtpContext *ftpc;
+{
+X    char str[256];
+X
+X    if (ftpPromptShell == NULL)
+X	ftpPromptShell = createPopup("ftpPrompt",4,ftpPromptCallback);
+X    sprintf(str,"%s %s?",
+X	    (ftpc->filecmd==FTP_GET?"GET":"PUT"),ftpc->files[ftpc->this_file]);
+X    setPopupLabel(ftpPromptShell,"ftpPrompt",str);
+X    popupMainLoop(ftpPromptShell);
+X    return(ftpPromptResult);
+}
+X 
+/*ARGSUSED*/
+static void
+ftpPromptCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;		/* button number */
+XXtPointer call_data;
+{
+X    switch ((int)client_data) {
+X      case 0:			/* Yes */
+X	ftpPromptResult = 1;
+X	break;
+X      case 1:			/* No */
+X	ftpPromptResult = 0;
+X	break;
+X      case 2:			/* All */
+X	ftpCurrentContext->prompt = 0;
+X	ftpPromptResult = 1;
+X	break;
+X      case 3:			/* Abort */
+X	ftpCurrentContext->this_file = ftpCurrentContext->num_files;
+X	ftpPromptResult = 0;
+X	break;
+X    }
+X    popupDone();
+}
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/ftp-actions.c ||
+echo 'restore of xarchie-2.0.6/ftp-actions.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/ftp-actions.c'`"
+test 11489 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/ftp-actions.c: original size 11489, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/ftp-actions.h ==============
+if test -f 'xarchie-2.0.6/ftp-actions.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/ftp-actions.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/ftp-actions.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/ftp-actions.h' &&
+/*
+X * ftp-actions.h : Defs for yet another layer of the ftp routines
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X */
+X
+extern void initFtpActions();
+extern void ftpGetSelectedItems(),ftpOpenSelectedItems();
+extern void setFtpTraceShellState();
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/ftp-actions.h ||
+echo 'restore of xarchie-2.0.6/ftp-actions.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/ftp-actions.h'`"
+test 262 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/ftp-actions.h: original size 262, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/ftp.c ==============
+if test -f 'xarchie-2.0.6/ftp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/ftp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/ftp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/ftp.c' &&
+/*
+X * ftp.c : This code implements an asynchronous ftp client.
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 23 Apr 1993.
+X *
+X * The client is represented by an instance of the FtpContext structure,
+X * which includes the state of the client with respect to a finite-state
+X * model of the FTP process. All aspects of the connection are contained
+X * in the structure, so a process can have multiple outstanding FTP
+X * sessions (subject to filesystem limitations, of course).
+X *
+X * Refer to RFC959 for details of the state model.
+X *
+X * Two external functions must be provided:
+X *   void RegisterFtpFd( ftpc, fd, flags, func )
+X *      Should arrange to call FUNC passing FTPC whenever FD is ready
+X *      as indicated by FLAGS (from <fcntl.h>).
+X *   void UnregisterFtpFd( ftpc, fd )
+X *      Cancels a previous registration of FD for FTPC.
+X * Samples of these using select(2) are given below in the STANDALONE
+X * section. Xarchie uses the XtAppAddInput() mechanism. The code also
+X * uses alert0() and status0() for messages, sysError() for error
+X * messages from system calls, and ftpPrompt() if prompting is enabled.
+X *
+X * To use these routines:
+X *   ftpc = ftpNewContext(...);
+X *   ftpStart(ftpc);
+X * The function you registered as the "done" parameter in ftpNewContext
+X * will be called back when the process finishes (for any reason). You
+X * should call ftpFreeContext() in this callback (or register it as the
+X * callback, or register NULL).
+X *
+X * This code is decidely *not* a general-purpose FTP library. It is
+X * designed to support the batch transfers required by xarchie. I suppose
+X * that it could be modified to be more general without too much effort.
+X * In particular, many of the routines called by ftpProcessReply could
+X * be made into external interface functions. Volunteers?
+X *
+X * 28 Apr 1993: Status mesage for bytes transferred was backwards.
+X *  1 Jun 1993: Fixes for ISC. Are these needed for other SYS5?
+X */
+#include <stdio.h>
+#include <errno.h>
+#include "config.h"
+#ifdef HAVE_SYS_PARAM_H
+#include <sys/param.h>
+#endif
+#include "ftp.h"	/* includes <sys/types.h> and <netinet/in.h> */
+#include "sysdefs.h"	/* char *malloc() */
+#include "stringdefs.h" /* char *strcpy(), *index(); */
+#include "debug.h"	/* MSG[0-3]() macros */
+X
+/* These functions have to be provided: */
+extern void RegisterFtpFd(/* ftpc, fd, O_RDWR | O_RDONLY, func */);
+extern void UnregisterFtpFd(/* ftpc, fd */);
+extern int ftpPrompt(/* ftpc */);
+extern void status0(/* str */);
+extern void alert0(/* str */);
+extern void sysError(/* str */);
+X
+/*
+X * Portable non-blocking I/O macros, I hope.
+X *   hp300 : From Andy.Linton@comp.vuw.ac.nz
+X *   sgi   : From amoss@cs.huji.ac.il
+X */
+#if defined(hp300)
+X  /* Here's for BSD, maybe, but Sys5 can't tell this from EOF. */
+# include <fcntl.h>
+# define MAKE_NONBLOCKING(fd) fcntl(fd,F_SETFL,O_NDELAY)
+# define ITWOULDBLOCK EWOULDBLOCK
+#else
+#if defined(sgi)
+# include <fcntl.h>
+# define MAKE_NONBLOCKING(fd) fcntl(fd,F_SETFL,O_NONBLOCK)
+# define ITWOULDBLOCK EWOULDBLOCK
+#else
+X  /* This is POSIX, the default, which uses EAGAIN. */
+# include <fcntl.h>
+# define MAKE_NONBLOCKING(fd) fcntl(fd,F_SETFL,O_NONBLOCK)
+# define ITWOULDBLOCK EAGAIN
+#endif
+#endif
+/*
+X * Networking includes from Brendan Kehoe (dirsend.c)
+X */
+#include <netdb.h>
+#include <sys/socket.h>
+#ifndef hpux
+# include <arpa/inet.h>
+#endif
+/* Interactive UNIX keeps some of the socket definitions in funny places.  */
+#ifdef ISC
+# include <net/errno.h>		/* I wonder about this... */
+#endif /* ISC */
+X
+#ifndef IPPORT_FTP
+#define IPPORT_FTP 21		/* From <netinet/in.h> */
+#endif
+X
+#define NewString(S)		strcpy(malloc(strlen(S)+1),S)
+#define ftpfilecmdstr(X)	((X)==FTP_GET ? "GET" : "PUT")
+X
+/*
+X * Functions defined here:
+X */
+FtpContext *ftpNewContext();
+void ftpStart(),ftpAbort();
+void ftpFreeContext();
+X
+/* Initialization */
+static int ftpGetHostAndPort();
+/* Connection establishment */
+static void ftpConnectCallback();
+static int ftpGetSocket(),ftpConnect();
+/* Reading server replies */
+static void ftpInitReply(),ftpReplyCallback();
+/* Main FTP client state-machine */
+static void ftpProcessReply();
+static void ftpAlert(),ftpHandleErrorThenQuit(),ftpDone();
+static void ftpSendType(),ftpSendNextCwd();
+static int ftpSendPort();
+static void ftpSendGetPut();
+static int ftpAcceptDataConn(),ftpSetupLocalData();
+/* Data connection processing */
+static void ftpDataCallback();
+static void ftpReadData(),ftpWriteData(),ftpCleanupDataConn();
+/* Sending commands to the server */
+static void ftpStartSendingCmd(),ftpWriteCallback();
+static void ftpSendCmd(),ftpSendAbort();
+#ifdef DEBUG
+char *ftpstatestr();
+#endif
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Exported functions: */
+X
+/*
+X * Returns a pointer to a new FtpContext for which the connection is
+X * started. The external function RegisterFtpFd() is used to register
+X * the control socket for subsequent processing by ftpProcess().
+X */
+FtpContext *
+ftpNewContext(hostname,user,pass,cwd,local_dir,type,stripcr,prompt,
+X	      filecmd,files,num_files,trace,done1,done)
+char *hostname,*user,*pass,*cwd,*local_dir;
+int type,stripcr,prompt,filecmd;
+char **files;
+int num_files;
+FtpTraceProc trace;
+FtpCallbackProc done1,done;
+{
+X    FtpContext *ftpc;
+X    int i;
+X
+X    /* Initialize the data structure */
+X    if ((ftpc=(FtpContext *)malloc(sizeof(FtpContext))) == NULL) {
+X	fprintf(stderr,"ftpNewContext: malloc failed\n");
+X	return(NULL);
+X    }
+X    /* User-specified stuff */
+X    ftpc->hostname = NewString(hostname);
+X    ftpc->user = NewString(user);
+X    ftpc->pass = NewString(pass);
+X    ftpc->cwd = NewString(cwd);
+X    ftpc->wd = ftpc->cwd;
+X    ftpc->local_dir = NewString(local_dir);
+X    ftpc->type = type;
+X    ftpc->stripcr = stripcr;
+X    ftpc->prompt = prompt;
+X    ftpc->filecmd = filecmd;
+X    ftpc->num_files = num_files;
+X    ftpc->files = (char **)calloc(num_files,sizeof(char *));
+X    for (i=0; i < num_files; i++)
+X	ftpc->files[i] = NewString(files[i]);
+X    ftpc->this_file = -1;	/* preincrement later */
+X    ftpc->this_size = 0;
+X    ftpc->trace = trace;
+X    ftpc->done1 = done1;
+X    ftpc->done = done;
+X    /* Default stuff */
+X    ftpc->reply[0] = '\0';
+X    ftpc->stripcr = 1;
+X    /* Undefined stuff */
+X    ftpc->ctrl = ftpc->data = ftpc->port = ftpc->local_fd = -1;
+X    ftpc->state = ftpc->iostate = ftpc->reply_state = ftpc->saved_state = 0;
+X    ftpc->retcode = ftpc->tmpcode = 0;
+X    ftpc->cmd = NULL;
+X    /* Go start the connection */
+X    if (ftpGetHostAndPort(ftpc) < 0) {
+X	ftpFreeContext(ftpc);
+X	return(NULL);
+X    }
+X    ftpc->state = 0;
+X    return(ftpc);
+}
+X
+void
+ftpFreeContext(ftpc)
+FtpContext *ftpc;
+{
+X    int i;
+X
+X    DEBUG1("ftpFreeContext: ftpc=0x%x\n",ftpc);
+X    if (ftpc->ctrl != -1) {
+X	UnregisterFtpFd(ftpc,ftpc->ctrl);
+X	DEBUG1("ftpFreeContext: closing ctrl %d\n",ftpc->ctrl);
+X	close(ftpc->ctrl);
+X    }
+X    if (ftpc->data != -1) {
+X	UnregisterFtpFd(ftpc,ftpc->data);
+X	DEBUG1("ftpFreeContext: closing data %d\n",ftpc->data);
+X	close(ftpc->data);
+X    }
+X    if (ftpc->port != -1) {
+X	DEBUG1("ftpFreeContext: closing port %d\n",ftpc->port);
+X	close(ftpc->port);
+X    }
+X    if (ftpc->local_fd != -1) {
+X	DEBUG1("ftpFreeContext: closing local_fd %d\n",ftpc->local_fd);
+X	close(ftpc->local_fd);
+X    }
+X    if (ftpc->hostname)
+X	free(ftpc->hostname);
+X    if (ftpc->user)
+X	free(ftpc->user);
+X    if (ftpc->pass)
+X	free(ftpc->pass);
+X    if (ftpc->cwd)
+X	free(ftpc->cwd);
+X    if (ftpc->local_dir)
+X	free(ftpc->local_dir);
+X    if (ftpc->files) {
+X	for (i=0; i < ftpc->num_files; i++)
+X	    if (ftpc->files[i]) free(ftpc->files[i]);
+X	free((char *)(ftpc->files));
+X    }
+X    if (ftpc->h_addr_list)
+X	free((char *)(ftpc->h_addr_list));
+X    DEBUG0("ftpFreeContext: done\n");
+}
+X
+void
+ftpStart(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpStart: ftpc=0x%x\n",ftpc);
+X    ftpc->state = FTPS_OPEN;
+X    ftpConnectCallback(ftpc);		/* get things started */
+X    DEBUG0("ftpStart: done\n");
+}
+X
+void
+ftpAbort(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpAbort: ftpc=0x%x\n",ftpc);
+X    /*
+X     * If we're aborting before any files transferred or after an
+X     * abort or quit, just close down the whole connection.
+X     */
+X    if (ftpc->state < FTPS_READY || ftpc->state > FTPS_EOF) {
+X	ftpDone(ftpc);
+X	return;
+X    }
+X    /*
+X     * Close the dataconn so we don't get swamped in select() while
+X     * waiting for the response to the abort on the ctrlconn.
+X     */
+X    if (ftpc->data != -1) {
+X	UnregisterFtpFd(ftpc,ftpc->data);
+X    }
+X    /* Then send the abort sequence */
+X    ftpSendAbort(ftpc);
+X    DEBUG0("ftpAbort: done\n");
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Initialization: */
+/*
+X * This function is called from ftpNewContext() to initialize the host
+X * address information in the FTPC.
+X */
+static int
+ftpGetHostAndPort(ftpc)
+FtpContext *ftpc;
+{
+X    struct servent *serv;
+X    struct hostent *host;
+X    unsigned long hostaddr;
+X    char msg[256];
+X    int i;
+X
+X    DEBUG2("ftpGetHostAndPort: ftpc=0x%x: \"%s\"\n",ftpc,ftpc->hostname);
+X    /*
+X     * Get ftp port
+X     */
+X    DEBUG0("ftpGetHostAndPort: getting ftp service port\n");
+X    serv = getservbyname("ftp","tcp");
+X    /* UCX needs 0 or -1 */
+X    if (serv == (struct servent *)0 || serv == (struct servent *)-1) {
+X	alert0("Can't find service 'ftp/tcp' in list of services -- using default port");
+X	ftpc->servport = htons((unsigned short)IPPORT_FTP);
+X    } else {
+X	ftpc->servport = (unsigned short)serv->s_port;
+X    }
+X    DEBUG1("ftpGetHostAndPort: ftp service port is %d\n",ftpc->servport);
+X    /*
+X     * Get host address
+X     */
+X    sprintf(msg,"Getting address for host \"%.200s\"",ftpc->hostname);
+X    status0(msg);
+X    if ((host=gethostbyname(ftpc->hostname)) == NULL) {
+X	DEBUG0("ftpGetHostAndPort: gethostbyname failed, trying inet_addr()\n");
+X	/*
+X	 * If gethostbyname fails, then maybe we've been given an IP
+X	 * address directly. Let's see.
+X	 */
+X	hostaddr = inet_addr(ftpc->hostname);
+X	if (hostaddr == (unsigned long)-1) {
+X	    /*
+X	     * Nope - complete failure.
+X	     */
+X	    sprintf(msg,"Can't find address of host \"%.200s\"",
+X		    ftpc->hostname);
+X	    alert0(msg);
+X	    return(-1);
+X	} else {
+X	    /*
+X	     * inet_addr succeeded, so we make a dummy array of hostaddrs.
+X	     */
+X	    ftpc->h_addr_list = (char **)calloc(2,sizeof(char *));
+X	    bcopy((char *)&hostaddr,ftpc->h_addr_list[0],sizeof(char *));
+X	    hostaddr = (unsigned long)0;
+X	    bcopy((char *)&hostaddr,ftpc->h_addr_list[1],sizeof(char *));
+X	    ftpc->this_addr = ftpc->h_addr_list-1; /* preincrement later */
+X	    DEBUG1("ftpGetHostAndPort: inet_addr returned %s\n",
+X		   inet_ntoa(*(struct in_addr*)(ftpc->h_addr_list[0])));
+X	    return(0);
+X	}
+X    } else {
+X	/*
+X	 * If gethostbyname succeeeds, it fills in a list of addresses.
+X	 * We'll copy them into the ftpc.
+X	 */
+X	for (i=0; host->h_addr_list[i]; i++)
+X	    /*EMPTY*/;
+X	DEBUG1("ftpGetHostAndPort: gethostbynname returned %d addr(s)\n",i);
+X	ftpc->h_addr_list = (char **)calloc(i+1,sizeof(char *));
+X	for (i=0; host->h_addr_list[i]; i++) {
+X	    bcopy(host->h_addr_list[i],
+X		  (char *)(ftpc->h_addr_list+i),sizeof(char *));
+X	    DEBUG2("ftpGetHostAndPort: h_addr_list[%d] = %s\n",i,
+X		   inet_ntoa(*(struct in_addr*)(ftpc->h_addr_list+i)));
+X	}
+X	bzero((char *)(ftpc->h_addr_list+i),sizeof(char *));
+X	ftpc->this_addr = ftpc->h_addr_list-1;	/* preincrement later */
+X	return(0);
+X    }
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Connection establishment: */
+/*
+X * This function goes through the list of addresses trying to connect to
+X * the server. It is initially called from ftpNewContext(), and subsequently
+X * whenever the ctrl socket it ready for writing (indicating connect()
+X * completed, possibly with an error).
+X */
+static void
+ftpConnectCallback(ftpc)
+FtpContext *ftpc;
+{
+X    int retcode;
+X    char msg[256];
+X
+X    DEBUG2("ftpConnectCallback: ftpc=0x%x, state=%s\n",
+X	   ftpc,ftpstatestr(ftpc->state));
+X  redo:
+X    switch (ftpc->state) {
+X      case FTPS_OPEN:
+X	ftpc->this_addr += 1;			/* preincrement */
+X	DEBUG1("ftpConnectCallback: OPEN: %s\n",
+X	       inet_ntoa(*(struct in_addr*)(ftpc->this_addr)));
+X	if (*(ftpc->this_addr)) {		/* Not at last host */
+X	    if (ftpGetSocket(ftpc) < 0) {
+X		ftpDone(ftpc);
+X	    } else {
+X		/* Arrange to get called back if connect() would block */
+X		RegisterFtpFd(ftpc,ftpc->ctrl,O_RDWR,ftpConnectCallback);
+X		ftpc->state = FTPS_CONNECT;
+X		goto redo;
+X	    }
+X	} else {				/* All hosts failed */
+X	    sprintf(msg,"Couldn't connect to host \"%s\"",ftpc->hostname);
+X	    alert0(msg);
+X	    ftpDone(ftpc);
+X	}
+X	break;
+X      case FTPS_CONNECT:
+X	/* We previously registered either above or below */
+X	UnregisterFtpFd(ftpc,ftpc->ctrl);
+X	retcode = ftpConnect(ftpc);
+X	if (retcode < 0) {
+X	    DEBUG1("ftpConnectCallback: ftpConnect failed, closing ctrl %d\n",
+X		   ftpc->ctrl);
+X	    close(ftpc->ctrl);
+X	    ftpc->ctrl = -1;
+X	    ftpc->state = FTPS_OPEN;		/* try next one */
+X	    goto redo;
+X	} else if (retcode == 0) {
+X	    DEBUG0("ftpConnectCallback: ftpConnect would block\n");
+X	    /* Arrange to get called back when connect() won't block */
+X	    RegisterFtpFd(ftpc,ftpc->ctrl,O_RDWR,ftpConnectCallback);
+X	    ftpc->state = FTPS_CONNECT;		/* try again when ready */
+X	} else {
+X	    DEBUG0("ftpConnectCallback: ftpConnect ok\n");
+X	    ftpInitReply(ftpc);			/* ok... */
+X	    ftpc->state = FTPS_CONNECTED;	/* move on */
+X	}
+X	break;
+X      default:
+X	fprintf(stderr,"ftpConnectCallback: unknown state %d\n",ftpc->state);
+X	abort();
+X    }
+X    DEBUG0("ftpConnectCallback: done\n");
+}
+X	    
+/*	-	-	-	-	-	-	-	-	*/
+/* Functions called by ftpConnectCallback(): */
+/*
+X * This function opens a new socket for the ctrl connection, and sets
+X * it up for non-blocking IO. Everything is setup for later connect().
+X */
+static int
+ftpGetSocket(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpGetSocket: addr=%s\n",
+X	   inet_ntoa(*(struct in_addr*)(ftpc->this_addr)));
+X    /* Get a socket */
+X    if ((ftpc->ctrl=socket(AF_INET,SOCK_STREAM,0)) < 0) {
+X	sysError("socket(ftpGetSocket)");
+X	return(-1);
+X    }
+X    DEBUG1("ftpGetSocket: socket() returned %d\n",ftpc->ctrl);
+X    /*
+X     * According to jbh@moses.aii.COM, we can't do this until we connect
+X     * on (at least) ISC variants of SYS5. I have not had problems with
+X     * other SYS5 systems, including HPUX. When ISC is defined, we do it
+X     * in ftpConnect(), although we may then block in connect().
+X     */
+#ifndef ISC
+X    /* Setup socket for async i/o */
+X    MAKE_NONBLOCKING(ftpc->ctrl);
+#endif
+X    /* Set up the address spec. */
+X    bzero((char *)&(ftpc->saddr),sizeof(struct sockaddr_in));
+X    ftpc->saddr.sin_family = AF_INET;
+X    ftpc->saddr.sin_port = ftpc->servport;
+X    ftpc->saddr.sin_addr = *((struct in_addr *)(ftpc->this_addr));
+X    /* Ready to connect() */
+X    DEBUG0("ftpGetSocket: done\n");
+X    return(0);
+}
+X
+/*
+X * Calls connect(). Returns -1 if this host is botched, 0 if connect()
+X * would have blocked, or 1 if we should proceed. 
+X */
+static int
+ftpConnect(ftpc)
+FtpContext *ftpc;
+{
+X    int retcode,addrlen;
+X    char msg[256];
+X
+X    sprintf(msg,"Connecting to %.200s (%s)",
+X	    ftpc->hostname,inet_ntoa(*(struct in_addr*)(ftpc->this_addr)));
+X    status0(msg);
+X    DEBUG0("ftpConnect: calling connect()...\n");
+X    retcode = connect(ftpc->ctrl,(struct sockaddr *)&(ftpc->saddr),
+X		      sizeof(struct sockaddr_in));
+X    if (retcode < 0 && errno == EINPROGRESS) {
+X	DEBUG0("ftpConnect: connect() EINPROGRESS\n");
+X	return(0);
+X    } else if (retcode < 0 && errno != EISCONN) {
+#ifdef DEBUG
+X	perror("ftpConnect: connect()");
+#endif
+X	return(-1);
+X    }
+#ifdef DEBUG
+X      else if (retcode < 0 && errno == EISCONN)
+X	  fprintf(stderr,"ftpConnect: connect() EISCONN\n");
+X      else
+X	  fprintf(stderr,"ftpConnect: connect() returned ok\n");
+#endif
+X     /* According to jbh@moses.aii.COM, see comments in ftpGetSocket(). */
+#ifdef ISC
+X    MAKE_NONBLOCKING(ftpc->ctrl); /* Setup socket for async i/o */
+#endif
+X    /* Get name (address) of socket */
+X    addrlen = sizeof(struct sockaddr_in);
+X    retcode =
+X	getsockname(ftpc->ctrl,(struct sockaddr *)&(ftpc->saddr),&addrlen);
+X    if (retcode < 0) {
+X	sysError("getsockname(ftpConnect)");
+X	return(-1);
+X    }
+X    DEBUG1("ftpConnect: getsockname() returned %s\n",
+X	   inet_ntoa(ftpc->saddr.sin_addr));
+X    return(1);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Reading server replies: */
+/*
+X * This function must be called to initialize the reply in the FTPC and
+X * to ensure that the appropriate callback is registered to read it.
+X */
+static void
+ftpInitReply(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpInitReply: ftpc=0x%lx\n",ftpc);
+X    ftpc->retcode = 0;
+X    ftpc->reply_len = 0;
+X    *(ftpc->reply) = '\0';
+X    ftpc->reply_state = FTPS_REPLY_CODE;
+X    /* We're expecting a reply, so register ctrl for reading only */
+X    RegisterFtpFd(ftpc,ftpc->ctrl,O_RDONLY,ftpReplyCallback);
+X    DEBUG0("ftpInitReply: done\n");
+}
+X
+/*
+X * This function is the low-level reply parser. It reads and
+X * parses reply messages from the server, handles TELNET commands,
+X * and translate codes in the reply prefix into integers. It stores the
+X * reply code in ftpc->retcode and puts the text of the reply in ftpc->reply.
+X * It is called whenever the ctrlconn is ready for reading and we are
+X * expecting a reply (ie., after ftpInitReply()). Once the reply is
+X * complete, we call ftpProcessReply().
+X */
+static void
+ftpReplyCallback(ftpc)
+FtpContext *ftpc;
+{
+X    int n;
+X    unsigned char c,cc;
+X
+X    for (;;) {
+/*
+X	DEBUG2("ftpReplyCallback: ftpc=0x%x, reply_state=%s\n",
+X	       ftpc,ftpstatestr(ftpc->reply_state));
+*/
+X	n = read(ftpc->ctrl,&c,1);		/* Read a byte */
+X	if (n < 0 && errno != ITWOULDBLOCK) {		/* Error */
+X	    sysError("read(ftpReplyCallback)");
+X	    DEBUG0("ftpReplyCallback: error reading ctrlconn\n");
+X	    ftpDone(ftpc);
+X	    return;
+X	} else if (n < 0 && errno == ITWOULDBLOCK) {	/* Would block */
+X	    /*DEBUG0("ftpReplyCallback: ctrlconn would block\n");*/
+X	    return;
+X	} else if (n == 0) {			/* EOF */
+X	    *(ftpc->reply+ftpc->reply_len) = '\0';
+X	    /* Could check against current retcode, if any... */
+X	    if (ftpc->state == FTPS_QUIT)
+X		ftpc->retcode = FTP_SERVICE_CLOSING;
+X	    else
+X		ftpc->retcode = FTP_SERVICE_UNAVAILABLE;
+X	    DEBUG1("ftpReplyCallback: EOF: retcode = %d\n",ftpc->retcode);
+X	    /* Reply is done, go process it */
+X	    break;
+X	}
+X	/*
+X	 * Otherwise, we got something, process it.
+X	 */
+X	if (c == IAC) {			/* Telnet IAC */
+X	    ftpc->saved_state = ftpc->reply_state;
+X	    ftpc->reply_state = FTPS_REPLY_IAC1;
+X	    DEBUG1("ftpReplyCallback: IAC (saved_state=%d)\n",ftpc->saved_state);
+X	    continue;
+X	} else if (c == '\r') {		/* Skip <CR>, is this ok? */
+X	    continue;
+X	}
+X	/*
+X	 * We got something that's not IAC, process it.
+X	 */
+X	/*DEBUG2("ftpReplyCallback: `%c' (%d)\n",c,c);*/
+X	switch (ftpc->reply_state) {
+X	  case FTPS_REPLY_IAC1:
+X	    DEBUG1("ftpReplyCallback: IAC %c",c);
+X	    ftpc->reply_state = FTPS_REPLY_IAC2;
+X	    break;
+X	  case FTPS_REPLY_IAC2:
+X	    switch (c) {
+X	      case WILL:
+X	      case WONT: c = DONT;
+X			 break;
+X	      case DO:
+X	      case DONT: c = WONT;
+X			 break;
+X	      default:
+X		DEBUG0(" (ignored)\n");
+X		continue;
+X	    }
+X	    DEBUG1(", reply %c\n",c);
+X	    cc = IAC;
+X	    write(ftpc->ctrl,&cc,1);
+X	    write(ftpc->ctrl,&c,1);
+X	    ftpc->reply_state = FTPS_REPLY_IAC3;
+X	    break;
+X	  case FTPS_REPLY_IAC3:
+X	    write(ftpc->ctrl,&c,1);
+X	    ftpc->reply_state = ftpc->saved_state;
+X	    DEBUG1("ftpReplyCallback: IAC done, restored state = %d\n",
+X		   ftpc->reply_state);
+X	    break;
+X	  case FTPS_REPLY_CODE:
+X	    if (c < '0' || c > '9') {
+X		*(ftpc->reply+ftpc->reply_len) = '\0';
+X		DEBUG1("ftpReplyCallback: CODE: retcode = %d\n",ftpc->retcode);
+X		goto done;
+X	    }
+X	    *(ftpc->reply+ftpc->reply_len++) = c;
+X	    ftpc->retcode = ftpc->retcode * 10 + c - '0';
+X	    /*DEBUG1("ftpReplyCallback: retcode now %d\n",ftpc->retcode);*/
+X	    if (ftpc->retcode >= 100)
+X		ftpc->reply_state = FTPS_REPLY_CONT;
+X	    break;
+X	  case FTPS_REPLY_CONT:
+X	    /* we reach here after we finished reading the code or when we
+X	     * struck a line beginning with at least three digits, check if
+X	     * this is the last line of the reply
+X	     */
+X	    *(ftpc->reply+ftpc->reply_len++) = c;
+X	    if (c == '-') {
+/*
+X		DEBUG0("ftpReplyCallback: continuation\n");
+*/
+X		ftpc->reply_state = FTPS_REPLY_MORE;
+X	    } else {
+/*
+X		DEBUG0("ftpReplyCallback: final line\n");
+*/
+X		ftpc->reply_state = FTPS_REPLY_LAST;
+X	    }
+X	    break;
+X	  case FTPS_REPLY_LAST:
+X	    if (c == '\n') {
+X		*(ftpc->reply+ftpc->reply_len) = '\0';
+/*
+X		DEBUG1("ftpReplyCallback: LAST: retcode = %d\n",ftpc->retcode);
+*/
+X		goto done;
+X	    } else {
+X		*(ftpc->reply+ftpc->reply_len++) = c;
+/*
+X		DEBUG3("ftpReplyCallback: LAST: %03d: \"%.*s\"\n",
+X		     ftpc->reply_len,ftpc->reply_len,ftpc->reply);
+*/
+X	    }
+X	    break;
+X	  case FTPS_REPLY_MORE:
+X	    *(ftpc->reply+ftpc->reply_len++) = c;
+/*
+X	    DEBUG3("ftpReplyCallback: MORE: %03d: \"%.*s\"\n",
+X		   ftpc->reply_len,ftpc->reply_len,ftpc->reply);
+*/
+X	    if (c == '\n') {
+X		ftpc->tmpcode = 0;
+X		ftpc->reply_state = FTPS_REPLY_CHCK;
+X	    }
+X	    break;
+X	  case FTPS_REPLY_CHCK:
+X	    if (c < '0' || c > '9') {
+X		*(ftpc->reply+ftpc->reply_len++) = c;
+/*
+X		DEBUG3("ftpReplyCallback: CHCK: %03d: \"%.*s\"\n",
+X		       ftpc->reply_len,ftpc->reply_len,ftpc->reply);
+*/
+X		ftpc->reply_state = FTPS_REPLY_MORE;
+X	    } else {
+X		ftpc->tmpcode = ftpc->tmpcode * 10 + c - '0';
+X		if (ftpc->tmpcode >= 100) {
+X		    if (ftpc->tmpcode != ftpc->retcode)
+X			ftpc->reply_state = FTPS_REPLY_MORE;
+X		    else
+X			ftpc->reply_state = FTPS_REPLY_CONT;
+X		}
+X	    }
+X	    break;
+X	  default:
+X	    fprintf(stderr,"ftpReplyCallback: unknown reply_state %d\n",
+X		    ftpc->reply_state);
+X	    abort();
+X	}
+X    }
+X    /* if we get here, the reply is complete */
+X  done:
+X    UnregisterFtpFd(ftpc,ftpc->ctrl);
+X    if (ftpc->trace) {
+X	(*(ftpc->trace))(ftpc,0,ftpc->reply);
+X    }
+X    ftpProcessReply(ftpc);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/*
+X * This function implements the high-level FTP protocol using the state
+X * field of the FTPC. It is called from ftpReplyCallback() once we've read
+X * a reply and need to process it.
+X */
+static void
+ftpProcessReply(ftpc)
+FtpContext *ftpc;
+{
+X    char cmd[256];
+X
+X    DEBUG3("ftpProcessReply: ftpc=0x%x, state=%s, retcode=%d\n",
+X	   ftpc,ftpstatestr(ftpc->state),ftpc->retcode);
+X  redo:
+X    switch (ftpc->state) {
+X      case FTPS_CONNECTED:
+X	if (ftpc->retcode == FTP_SERVICE_RDY_TIME) {	/* delay NNN minutes */
+X	    DEBUG0("ftpProcessReply: server not ready\n");
+X	    ftpAlert(ftpc);
+X	} else if (ftpc->retcode == FTP_SERVICE_RDY_USER) {/* ready for USER */
+X	    sprintf(cmd,"USER %s",ftpc->user);
+X	    status0(cmd);
+X	    ftpc->state = FTPS_USER;
+X	    ftpSendCmd(ftpc,cmd);
+X	} else {				/* FTP_SERVICE_UNAVAILABLE */
+X	    ftpAlert(ftpc);
+X	    ftpDone(ftpc);
+X	}
+X	break;
+X      case FTPS_USER:
+X	if (ftpc->retcode == FTP_LOGIN_OK) {	/* USER ok, no PASS needed */
+X	    ftpc->retcode = FTP_FILE_ACTION_OK;
+X	    ftpc->state = FTPS_CWD;
+X	    goto redo;
+X	} else if (ftpc->retcode == FTP_LOGIN_NEED_PASSWD) {	/* USER ok   */
+X	    sprintf(cmd,"PASS %s",ftpc->pass);			/* need PASS */
+X	    status0(cmd);
+X	    ftpc->state = FTPS_PASS;
+X	    ftpSendCmd(ftpc,cmd);
+X	} else {				/* ACCT needed or error */
+X	    ftpHandleErrorThenQuit(ftpc);
+X	}
+X	break;
+X      case FTPS_PASS:
+X	if (ftpc->retcode == FTP_LOGIN_OK) {	/* PASS ok, ready to go */
+X	    ftpc->retcode = FTP_FILE_ACTION_OK;
+X	    ftpc->state = FTPS_CWD;
+X	    goto redo;
+X	} else {				/* ACCT needed or error */
+X	    ftpHandleErrorThenQuit(ftpc);
+X	}
+X	break;
+X      case FTPS_CWD:
+X	/* can come here direct from USER or PASS also... */
+X	if (ftpc->retcode == FTP_FILE_ACTION_OK) {	/* last CWD ok */
+X	    if (ftpc->wd == NULL || *(ftpc->wd) == '\0') { /* CWD done */
+X		ftpc->state = FTPS_TYPE;
+X		ftpSendType(ftpc);
+X	    } else {				/* send next part of CWD */
+X		ftpc->state = FTPS_CWD;
+X		ftpSendNextCwd(ftpc);
+X	    }
+X	} else {				/* last CWD failed */
+X	    ftpHandleErrorThenQuit(ftpc);
+X	}
+X	break;
+X      case FTPS_TYPE:
+X	if (ftpc->retcode == FTP_COMMAND_OK) {	/* TYPE ok */
+X	    ftpc->retcode = FTP_FILE_ACTION_OK;
+X	    ftpc->state = FTPS_READY;
+X	    goto redo;
+X	} else {				/* TYPE failed */
+X	    ftpHandleErrorThenQuit(ftpc);
+X	}
+X	break;
+X      case FTPS_READY:
+X	/* can get here from TYPE or EOF */
+X	ftpc->this_file += 1;
+X	if (ftpc->this_file < ftpc->num_files) {  /* files left to transfer */
+X	    sprintf(cmd,"File %s?",ftpc->files[ftpc->this_file]);
+X	    status0(cmd);
+X	    if (ftpc->prompt && !ftpPrompt(ftpc)) {
+X		goto redo;
+X	    }
+X	    if (ftpSendPort(ftpc) == 0) {	/*   PORT ok locally */
+X		ftpc->state = FTPS_PORT;
+X	    } else {				/*   PORT failed locally */
+X		ftpc->state = FTPS_QUIT;	/*     bag the whole thing */
+X		ftpSendCmd(ftpc,"QUIT");
+X	    }
+X	} else {				/* no files left to transfer */
+X	    DEBUG0("ftpProcessReply: no more files\n");
+X	    ftpc->state = FTPS_QUIT;
+X	    ftpSendCmd(ftpc,"QUIT");
+X	}
+X	break;
+X      case FTPS_PORT:
+X	if (ftpc->retcode == FTP_COMMAND_OK) {	/* PORT command ok */
+X	    ftpc->state = FTPS_GETPUT;
+X	    ftpSendGetPut(ftpc);
+X	} else {				/* PORT failed */
+X	    if (ftpc->port >= 0) {
+X		DEBUG1("ftpProcessReply: closing port %d\n",ftpc->port);
+X		close(ftpc->port);
+X		ftpc->port = -1;
+X	    }
+X	    ftpHandleErrorThenQuit(ftpc);
+X	}
+X	break;
+X      case FTPS_GETPUT:
+X	if (FTP_REPLY_PRELIM(ftpc->retcode)) { /* dataconn ready */
+X	    status0(ftpc->reply+4);
+X	    if (sscanf(ftpc->reply,"%*[^(](%d bytes)",&(ftpc->this_size)) != 1)
+X		ftpc->this_size = 0;
+X	    if (ftpAcceptDataConn(ftpc) < 0) {		/*  local failure */
+X		if (ftpc->port != -1) {			/*    give up */
+X		    DEBUG1("ftpProcessReply: closing port %d\n",ftpc->port);
+X		    close(ftpc->port);
+X		    ftpc->port = -1;
+X		}
+X		ftpc->state = FTPS_QUIT;
+X		ftpSendCmd(ftpc,"QUIT");
+X	    } else if (ftpSetupLocalData(ftpc) < 0) {	/*  local failure */
+X		UnregisterFtpFd(ftpc,ftpc->data);	/*    don't give up */
+X		if (ftpc->data != -1) {
+X		    DEBUG1("ftpProcessReply: closing data %d\n",ftpc->data);
+X		    close(ftpc->data);
+X		    ftpc->data = -1;
+X		}
+X		ftpc->state = FTPS_READY;		/*    do next file */
+X		goto redo;
+X	    } else {				/* all ok locally */
+X		ftpc->state = FTPS_TRANSFER;
+X	    }
+X	} else if (ftpc->retcode == FTP_FILE_UNAVAILABLE ||	/* datacon */
+X		   ftpc->retcode == FTP_ACTION_NOT_TAKEN) {	/* failed  */
+X	    if (ftpc->port != -1) {				/*  minor  */
+X		DEBUG1("ftpProcessReply: closing port %d\n",ftpc->port);
+X		close(ftpc->port);				/*  error */
+X		ftpc->port = -1;
+X	    }
+X	    ftpAlert(ftpc);				/* error msg */
+X	    ftpc->state = FTPS_READY;		/* next file */
+X	    goto redo;
+X	} else {
+X	    ftpHandleErrorThenQuit(ftpc);	/* real error */
+X	}
+X	break;
+X      case FTPS_TRANSFER:
+X	/* Shouldn't get here since dataconn is separately managed */
+X	DEBUG0("ftpProcessReply: called in state TRANSFER!\n");
+X	break;
+X      case FTPS_EOF:
+X	/* Called when the dataconn is closed, for whatever reason */
+X	if (!FTP_REPLY_OK(ftpc->retcode)) {	/* dataconn closed error */
+X	    ftpAlert(ftpc);
+X	}
+X	ftpc->state = FTPS_READY;
+X	goto redo;
+X      case FTPS_QUIT:
+X	if (ftpc->retcode != FTP_SERVICE_CLOSING) {	/* error */
+X	    ftpAlert(ftpc);
+X	}
+X	ftpDone(ftpc);				/* close, deallocate */
+X	break;
+X      case FTPS_ABORT:
+X	if (ftpc->retcode == 552) {		/* NIC-style abort */
+X	    ftpc->state = FTPS_ABORT;		/* get another reply */
+X	} else {
+X	    if (ftpc->retcode != FTP_DATA_CLOSE_ABORT) { /* 426      */
+X		ftpAlert(ftpc);				 /* expected */
+X	    }
+X	    ftpc->state = FTPS_ABORT2;		/* get real reply */
+X	    ftpInitReply(ftpc);
+X	}
+X	break;
+X      case FTPS_ABORT2:
+X	if (!FTP_REPLY_OK(ftpc->retcode)) {	/* abort error */
+X	    ftpAlert(ftpc);
+X	}
+X	ftpCleanupDataConn(ftpc);
+X	ftpc->state = FTPS_READY;
+X	goto redo;
+X      default:
+X	fprintf(stderr,"ftpProcessReply: unknown state: %d\n",ftpc->state);
+X	abort();
+X    }
+X    DEBUG0("ftpProcessReply: done\n");
+}
+X
+/*
+X * This function just puts up an FTP error message.
+X */
+static void
+ftpAlert(ftpc)
+FtpContext *ftpc;
+{
+X    char buf[256],*msg;
+X    int len;
+X
+X    msg = ftpc->reply+4;		/* skip code */
+X    len = strlen(msg);
+X    if (len < 230) {
+X	sprintf(buf,"FTP Error %d:\n %s",ftpc->retcode,msg);
+X    } else {
+X	sprintf(buf,"FTP Error %d: ...\n %.230s",ftpc->retcode,msg+len-230);
+X    }
+X    alert0(buf);
+}
+X
+/*
+X * This prints an error message, then sends the QUIT command (or
+X * calls ftpDone() if the server shut down).
+X */
+static void
+ftpHandleErrorThenQuit(ftpc)
+FtpContext *ftpc;
+{
+X    ftpAlert(ftpc);
+X    /* Don't bother with QUIT if remote host closing down */
+X    if (ftpc->retcode == FTP_SERVICE_UNAVAILABLE) {
+X	ftpDone(ftpc);
+X    } else {
+X	status0("Quitting...");
+X	ftpc->state = FTPS_QUIT;
+X	ftpSendCmd(ftpc,"QUIT");
+X    }
+}
+X
+/*
+X * This calls the done function (or ftpFreeContext() if none is defined
+X * for FTPC. All connections should pass through here to be cleaned up
+X * regardless of how they got here.
+X */
+static void
+ftpDone(ftpc)
+FtpContext *ftpc;
+{
+X    DEBUG1("ftpDone: ftpc=0x%x\n",ftpc);
+X    if (ftpc->done != NULL) {
+X	(*(ftpc->done))(ftpc);
+X    } else {
+X	ftpFreeContext(ftpc);
+X    }
+X    DEBUG0("ftpDone: done\n");
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/ftp.c failed'
+fi
+echo 'End of xarchie-2.0.6 part 8'
+echo 'File xarchie-2.0.6/ftp.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

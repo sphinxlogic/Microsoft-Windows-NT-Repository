@@ -1,0 +1,1727 @@
+Newsgroups: comp.sources.misc
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Subject:  v28i091:  ephem - an interactive astronomical ephemeris, v4.28, Part08/09
+Message-ID: <1992Mar10.215948.16347@sparky.imd.sterling.com>
+X-Md4-Signature: a86493ced0f07dfdbcc97970990b6b29
+Date: Tue, 10 Mar 1992 21:59:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Posting-number: Volume 28, Issue 91
+Archive-name: ephem/part08
+Environment: UNIX, VMS, DOS, MAC
+Supersedes: ephem-4.21: Volume 14, Issue 76-81
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Readme altj.c cal_mjd.c circum.h comet.c moon.c pelement.c
+#   precess.c refract.c riset.c screen.h time.c
+# Wrapped by kent@sparky on Tue Mar 10 14:34:09 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 9)."'
+if test -f 'Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Readme'\"
+else
+  echo shar: Extracting \"'Readme'\" \(5311 characters\)
+  sed "s/^X//" >'Readme' <<'END_OF_FILE'
+XGeneral Notes for ephem:
+X
+X1) Start by reading the generic-printer-ready manual in Man.txt.
+X
+XIf you have source, here is how you build ephem:
+X
+X1) io.c:
+X   define UNIX, VMS or TURBO_C in io.c depending on your system. Note that
+X   TURBO_C also seems to work ok with Microsoft and Lattice C too but these
+X   have not been tested recently. Note also that the VMS C compiler defines VMS
+X   automatically so you don't really have to #define it.
+X
+X   Also in io.c and if you use UNIX, you have four choices of methods for doing
+X   non-blocking reads and two choices for controlling tty modes. #define one
+X   of USE_FIONREAD, USE_NDELAY, USE_ATTSELECT and USE_BSDSELECT and one of
+X   USE_TERMIO and USE_SGTTY.
+X
+X   And also in io.c MSDOS users may do cursor control with direct BIOS calls
+X   (the default), or with ANSI.SYS by defining USE_ANSISYS.
+X
+X2) time.c:
+X   Select from two methods of dealing with time from the operating system
+X   with the TZA/TZB defines in time.c. If you get link undefines related to
+X   time functions try changing to the other form.
+X
+X   On Sun systems running OS 4.0.3 (or BSD 4.3) or Apollo SR 10.1 use TZB and
+X   change <time.h> to <sys/time.h>.
+X
+X   For VMS, since it does not support time zone info, do NOT #define EITHER
+X   of TZA or TZB. This will have the effect of leaving the time zone unchanged
+X   whenever you set the time via the "Now" option. (This is taken care of
+X   automatically in time.c by #undef'ining TZA and TZB if VMS is defined.)
+X
+X3) mainmenu.c:
+X   if you are compiling for an IBM-PC then #define PC_GRAPHICS for a nicer
+X   looking way to draw the screen boundry lines using character graphics.
+X
+X4) sel_fld.c:
+X   if your runtime library supports the system() function (to run a shell
+X   command) then leave #define BANG in sel_fld.c, else undefine it. When
+X   defined, this will allow you to jump out of ephem and run any command,
+X   then resume where you left off.
+X
+X5) beware that I have not used string.h or strings.h. if your library's
+X   strlen() and str.*cmp() functions don't return int (such as long), then you
+X   will have to hand add string.h or your own extern declarations. I have
+X   included all the necessary declarations for the functions that return
+X   (char *) such as strcpy(), etc, though.
+X
+X6) main.c calls sleep() which is not in some IBM-PC runtime C libraries. You
+X   might kludge up your own call that does a cpu countdown loop. The accuracy
+X   will only effect the Pause feature, not ephem's actual time mechanisms.
+X
+X7) Ephem can now be built by simply compiling all the .c files and linking them
+X   all together. On Unix systems, you must also link with the termcap library
+X   (-ltermcap) and possibly the auxiliary math library (-lm) if your default C
+X   library does not include all the required transcendental functions. At the
+X   end of this file I have included a VMS build script for those building
+X   ephem on a that system.
+X
+XThe following files are pretty much just pure transliterations from BASIC
+Xinto C from machine-readable copies of the programs in Duffett-Smith's book.
+XThey have nothing to do with the rest of ephem so they may be used for
+Xcompletely different applications if so desired.
+X
+X   aa_hadec.c anomaly.c astro.h cal_mjd.c comet.c eq_ecl.c moon.c moonnf.c
+X   nutation.c obliq.c parallax.c pelement.c plans.c reduce.c refract.c
+X   sex_dec.c sun.c utc_gst.c
+X
+XIf you would like to gut ephem for just its astronomical functionality,
+Xstart with body_cir().
+X
+X$!========================================================================
+X$!
+X$! Name      : BUILD.COM
+X$!
+X$! Purpose   : compile and link ephem under VMS
+X$!
+X$! Arguments : P1/P2 = DEBUG: compile with DEBUG info
+X$!             P1/P2 = LINK : link only
+X$!             P1    = nn   : start compiling at list element "nn" (0-36)
+X$!
+X$! Created  23-MAR-1990   Karsten Spang
+X$! Modified 31-AUG-1990   Rick Dyson
+X$!                        added listing to FILES for v4.19
+X$!                        added P1 = nn option
+X$!
+X$!========================================================================
+X$   VERIFY = F$Verify (0)
+X$   On ERROR     Then GoTo EXIT
+X$   On CONTROL_Y Then GoTo EXIT
+X$   If P1 .eqs. "DEBUG" .or. P2 .eqs. "DEBUG"
+X$       Then
+X$           CC      := Cc /Debug /NoOptimize /NoList
+X$           LINK    := Link /Debug /NoMap
+X$       Else
+X$           CC      := Cc /NoList
+X$           LINK    := Link /NoMap
+X$   EndIf
+X$   FILES = "MAIN,AA_HADEC,ALTJ,ALTMENUS,ANOMALY,CAL_MJD,CIRCUM,COMET,"+ -
+X        "COMPILER,CONSTEL,EQ_ECL,FLOG,FORMATS,IO,LISTING,MAINMENU,"+ -
+X	"MOON,MOONNF,NUTATION,OBJX,OBLIQ,PARALLAX,PELEMENT,PLANS,PLOT,"+ -
+X        "POPUP,PRECESS,REDUCE,REFRACT,RISET,RISET_C,SEL_FLD,SEX_DEC,SRCH,"+ -
+X        "SUN,TIME,UTC_GST,VERSION,WATCH"
+X$   If P1 .eqs. "LINK" .or. P2 .eqs. "LINK" Then GoTo LINK
+X$   FILE_NUM = F$Integer (P1)
+X$   If (FILE_NUM .ge. 37 .or. FILE_NUM .lt. 0) Then FILE_NUM = 0
+X$COMPILE_LOOP:
+X$   FILE = F$Element (FILE_NUM, "," ,FILES)
+X$   If FILE .eqs. "," Then GoTo COMPILE_END
+X$   Write Sys$Output "Compiling file number ''FILE_NUM' = ''FILE' ..."
+X$   CC 'FILE'
+X$   FILE_NUM = FILE_NUM + 1
+X$   GoTo COMPILE_LOOP
+X$COMPILE_END:
+X$LINK:
+X$   Write Sys$Output "Linking ephem now...^G"
+X$   LINK /Exe = EPHEM 'FILES',Sys$Input/Opt
+XSys$Library:VAXCRTL/Share
+X$EXIT:
+X$   Set NoOn
+X$   Purge *.OBJ,*.EXE
+X$   If VERIFY Then Set Verify
+X$   Exit
+END_OF_FILE
+  if test 5311 -ne `wc -c <'Readme'`; then
+    echo shar: \"'Readme'\" unpacked with wrong size!
+  fi
+  # end of 'Readme'
+fi
+if test -f 'altj.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'altj.c'\"
+else
+  echo shar: Extracting \"'altj.c'\" \(6077 characters\)
+  sed "s/^X//" >'altj.c' <<'END_OF_FILE'
+X/* management and computional support for jupiter's detail menu.
+X */
+X
+X#include <math.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "screen.h"
+X
+Xaltj_labels()
+X{
+X	static char grs[] = "(GRS is at approximately 30 degs in System II)";
+X
+X	f_string (R_ALTM, C_ALTMV, "  Jupiter Aux");
+X
+X	f_string (R_JCML, 6, "Central Meridian Longitude (degs):");
+X	f_string (R_JCML, 51, "(Sys I)");
+X	f_string (R_JCML, 68, "(Sys II)");
+X	f_string (R_JCML+1, (NC-sizeof(grs))/2, grs);
+X
+X	f_string (R_IO,		C_JMNAMES,	"I   Io");
+X	f_string (R_EUROPA,	C_JMNAMES,	"II  Europa");
+X	f_string (R_GANYMEDE,	C_JMNAMES,	"III Ganymede");
+X	f_string (R_CALLISTO,	C_JMNAMES,	"IV  Callisto");
+X	f_string (R_JCOLHDNGS-1,C_JMY-2,	"Jupiter Radii");
+X	f_string (R_JCOLHDNGS,	C_JMX+1,	"X (+E)");
+X	f_string (R_JCOLHDNGS,	C_JMY+1,	"Y (+S)");
+X	f_string (R_JCOLHDNGS,	C_JMZ-2,	"Z (+towards)");
+X	f_string (R_JMAP+1,	2,		"West");
+X	f_string (R_JMAP+1,	NC-5,		"East");
+X}
+X
+X/* display jupiter's details. */
+X/* ARGSUSED */
+Xaltj_display (force, np)
+Xint force;	/* whether to print for sure or only if things have changed */
+XNow *np;
+X{
+X#define	NJM	5	/* number of moons, plus + for Jupiter itself */
+X#define	NORM	26.6	/* max callisto orbit radius; used to normalize */
+X	static char fmt[] = "%7.3f";
+X	struct moonxlocs {
+X	    double x;
+X	    char mid;
+X	} raw_ml[NJM], sorted_ml[NJM];
+X	int nml;	/* number of sorted_ml[] elements in use */
+X	char buf[NC];
+X	double iy, ey, gy, cy;
+X	double iz, ez, gz, cz;
+X	double sIcml, sIIcml;
+X	int i;
+X
+X	/* compute jupiter info.
+X	 * put moons' x loc into raw_ml[] so it can be sorted for graphic.
+X	 */
+X	jupinfo (mjd, &raw_ml[0].x, &raw_ml[1].x, &raw_ml[2].x, &raw_ml[3].x,
+X		    &iy, &ey, &gy, &cy, &iz, &ez, &gz, &cz, &sIcml, &sIIcml);
+X
+X	f_double (R_JCML, C_JCMLSI, fmt, sIcml);
+X	f_double (R_JCML, C_JCMLSII, fmt, sIIcml);
+X	f_double (R_IO, C_JMX, fmt, raw_ml[0].x);
+X	f_double (R_EUROPA, C_JMX, fmt, raw_ml[1].x);
+X	f_double (R_GANYMEDE, C_JMX, fmt, raw_ml[2].x);
+X	f_double (R_CALLISTO, C_JMX, fmt, raw_ml[3].x);
+X	f_double (R_IO, C_JMY, fmt, iy);
+X	f_double (R_EUROPA, C_JMY, fmt, ey);
+X	f_double (R_GANYMEDE, C_JMY, fmt, gy);
+X	f_double (R_CALLISTO, C_JMY, fmt, cy);
+X	f_double (R_IO, C_JMZ, fmt, iz);
+X	f_double (R_EUROPA, C_JMZ, fmt, ez);
+X	f_double (R_GANYMEDE, C_JMZ, fmt, gz);
+X	f_double (R_CALLISTO, C_JMZ, fmt, cz);
+X
+X	raw_ml[0].mid = 'I';
+X	raw_ml[1].mid = 'E';
+X	raw_ml[2].mid = 'G';
+X	raw_ml[3].mid = 'C';
+X	raw_ml[4].x = 0.0;
+X	raw_ml[4].mid = 'J';
+X
+X	/* insert in increasing order into sorted_ml[]
+X	 */
+X	nml = 0;
+X	for (i = 0; i < NJM; i++) {
+X	    int j;
+X	    /* exit loop with next sort_ml location to use at index j+1 */
+X	    for (j = nml; --j >= 0; )
+X		if (raw_ml[i].x < sorted_ml[j].x)
+X		    sorted_ml[j+1] = sorted_ml[j];
+X		else
+X		    break;
+X	    sorted_ml[j+1] = raw_ml[i];
+X	    nml++;
+X	}
+X
+X	/* blank-fill and terminate buf */
+X	(void) sprintf (buf, "%*s", NC-1, "");
+X
+X	/* convert to screen columns, maintaining correct left-to-right
+X	 * order based on x when there are collisions.
+X	 */
+X	for (i = 0; i < NJM; i++) {
+X	    int col = (int)(NC/2-1 + (NC/2-1)*sorted_ml[i].x/NORM + 0.5);
+X	    while (buf[col] != ' ')
+X		col++;
+X	    buf[col] = sorted_ml[i].mid;
+X	}
+X
+X	f_string (R_JMAP, C_JMAP, buf);
+X}
+X
+X#define	dsin(x)	sin(degrad(x))
+X#define	dcos(x)	cos(degrad(x))
+X
+X/* given a modified julian date (ie, days since Jan .5 1900), d, return x, y, z
+X *   location of each Galilean moon as a multiple of Jupiter's radius. on this
+X *   scale, Callisto is never more than 26.5593. +x is easterly, +y is
+X *   southerly, +z is towards earth. x and z are relative to the equator
+X *   of Jupiter; y is further corrected for earth's position above or below
+X *   this plane. also, return the system I and II central meridian longitude,
+X *   in degress, relative to the true disk of jupiter and corrected for light
+X *   travel time.
+X * from "Astronomical Formulae for Calculators", 2nd ed, by Jean Meeus,
+X *   Willmann-Bell, Richmond, Va., U.S.A. (c) 1982, chapters 35 and 36.
+X */
+Xstatic
+Xjupinfo (d, ix, ex, gx, cx, iy, ey, gy, cy, iz, ez, gz, cz, sIcml, sIIcml)
+Xdouble d;
+Xdouble *ix, *ex, *gx, *cx;
+Xdouble *iy, *ey, *gy, *cy;
+Xdouble *iz, *ez, *gz, *cz;
+Xdouble *sIcml, *sIIcml;
+X{
+X	double A, B, Del, J, K, M, N, R, V;
+X	double cor_u1, cor_u2, cor_u3, cor_u4;
+X	double solc, tmp, G, H, psi, r, r1, r2, r3, r4;
+X	double u1, u2, u3, u4;
+X	double lam, Ds;
+X	double z1, z2, z3,  z4;
+X	double De, dsinDe;
+X
+X	V = 134.63 + 0.00111587 * d;
+X
+X	M = (358.47583 + 0.98560003*d);
+X	N = (225.32833 + 0.0830853*d) + 0.33 * dsin (V);
+X
+X	J = 221.647 + 0.9025179*d - 0.33 * dsin(V);;
+X
+X	A = 1.916*dsin(M) + 0.02*dsin(2*M);
+X	B = 5.552*dsin(N) + 0.167*dsin(2*N);
+X	K = (J+A-B);
+X	R = 1.00014 - 0.01672 * dcos(M) - 0.00014 * dcos(2*M);
+X	r = 5.20867 - 0.25192 * dcos(N) - 0.00610 * dcos(2*N);
+X	Del = sqrt (R*R + r*r - 2*R*r*dcos(K));
+X	psi = raddeg (asin (R/Del*dsin(K)));
+X
+X	solc = (d - Del/173.);	/* speed of light correction */
+X	tmp = psi - B;
+X
+X	u1 = 84.5506 + 203.4058630 * solc + tmp;
+X	u2 = 41.5015 + 101.2916323 * solc + tmp;
+X	u3 = 109.9770 + 50.2345169 * solc + tmp;
+X	u4 = 176.3586 + 21.4879802 * solc + tmp;
+X
+X	G = 187.3 + 50.310674 * solc;
+X	H = 311.1 + 21.569229 * solc;
+X      
+X	cor_u1 =  0.472 * dsin (2*(u1-u2));
+X	cor_u2 =  1.073 * dsin (2*(u2-u3));
+X	cor_u3 =  0.174 * dsin (G);
+X	cor_u4 =  0.845 * dsin (H);
+X      
+X	r1 = 5.9061 - 0.0244 * dcos (2*(u1-u2));
+X	r2 = 9.3972 - 0.0889 * dcos (2*(u2-u3));
+X	r3 = 14.9894 - 0.0227 * dcos (G);
+X	r4 = 26.3649 - 0.1944 * dcos (H);
+X
+X	*ix = -r1 * dsin (u1+cor_u1);
+X	*ex = -r2 * dsin (u2+cor_u2);
+X	*gx = -r3 * dsin (u3+cor_u3);
+X	*cx = -r4 * dsin (u4+cor_u4);
+X
+X	lam = 238.05 + 0.083091*d + 0.33*dsin(V) + B;
+X	Ds = 3.07*dsin(lam + 44.5);
+X	De = Ds - 2.15*dsin(psi)*dcos(lam+24.)
+X		- 1.31*(r-Del)/Del*dsin(lam-99.4);
+X	dsinDe = dsin(De);
+X
+X	z1 = r1 * dcos(u1+cor_u1);
+X	z2 = r2 * dcos(u2+cor_u2);
+X	z3 = r3 * dcos(u3+cor_u3);
+X	z4 = r4 * dcos(u4+cor_u4);
+X
+X	*iy = z1*dsinDe;
+X	*ey = z2*dsinDe;
+X	*gy = z3*dsinDe;
+X	*cy = z4*dsinDe;
+X
+X	*iz = z1;
+X	*ez = z2;
+X	*gz = z3;
+X	*cz = z4;
+X
+X	*sIcml  = 268.28 + 877.8169088*(d - Del/173) + psi - B;
+X	range (sIcml, 360.0);
+X	*sIIcml = 290.28 + 870.1869088*(d - Del/173) + psi - B;
+X	range (sIIcml, 360.0);
+X}
+END_OF_FILE
+  if test 6077 -ne `wc -c <'altj.c'`; then
+    echo shar: \"'altj.c'\" unpacked with wrong size!
+  fi
+  # end of 'altj.c'
+fi
+if test -f 'cal_mjd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cal_mjd.c'\"
+else
+  echo shar: Extracting \"'cal_mjd.c'\" \(3113 characters\)
+  sed "s/^X//" >'cal_mjd.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* given a date in months, mn, days, dy, years, yr,
+X * return the modified Julian date (number of days elapsed since 1900 jan 0.5),
+X * *mjd.
+X */
+Xcal_mjd (mn, dy, yr, mjd)
+Xint mn, yr;
+Xdouble dy;
+Xdouble *mjd;
+X{
+X	int b, d, m, y;
+X	long c;
+X
+X	m = mn;
+X	y = (yr < 0) ? yr + 1 : yr;
+X	if (mn < 3) {
+X	    m += 12;
+X	    y -= 1;
+X	}
+X
+X	if (yr < 1582 || yr == 1582 && (mn < 10 || mn == 10 && dy < 15)) 
+X	    b = 0;
+X	else {
+X	    int a;
+X	    a = y/100;
+X	    b = 2 - a + a/4;
+X	}
+X
+X	if (y < 0)
+X	    c = (long)((365.25*y) - 0.75) - 694025L;
+X	else
+X	    c = (long)(365.25*y) - 694025L;
+X
+X	d = 30.6001*(m+1);
+X
+X	*mjd = b + c + d + dy - 0.5;
+X}
+X
+X/* given the modified Julian date (number of days elapsed since 1900 jan 0.5,),
+X * mjd, return the calendar date in months, *mn, days, *dy, and years, *yr.
+X */
+Xmjd_cal (mjd, mn, dy, yr)
+Xdouble mjd;
+Xint *mn, *yr;
+Xdouble *dy;
+X{
+X	double d, f;
+X	double i, a, b, ce, g;
+X
+X	d = mjd + 0.5;
+X	i = floor(d);
+X	f = d-i;
+X	if (f == 1) {
+X	    f = 0;
+X	    i += 1;
+X	}
+X
+X	if (i > -115860.0) {
+X	    a = floor((i/36524.25)+.9983573)+14;
+X	    i += 1 + a - floor(a/4.0);
+X	}
+X
+X	b = floor((i/365.25)+.802601);
+X	ce = i - floor((365.25*b)+.750001)+416;
+X	g = floor(ce/30.6001);
+X	*mn = g - 1;
+X	*dy = ce - floor(30.6001*g)+f;
+X	*yr = b + 1899;
+X
+X	if (g > 13.5)
+X	    *mn = g - 13;
+X	if (*mn < 2.5)
+X	    *yr = b + 1900;
+X	if (*yr < 1)
+X	    *yr -= 1;
+X}
+X
+X/* given an mjd, set *dow to 0..6 according to which dayof the week it falls
+X * on (0=sunday) or set it to -1 if can't figure it out.
+X */
+Xmjd_dow (mjd, dow)
+Xdouble mjd;
+Xint *dow;
+X{
+X	/* cal_mjd() uses Gregorian dates on or after Oct 15, 1582.
+X	 * (Pope Gregory XIII dropped 10 days, Oct 5..14, and improved the leap-
+X	 * year algorithm). however, Great Britian and the colonies did not
+X	 * adopt it until Sept 14, 1752 (they dropped 11 days, Sept 3-13,
+X	 * due to additional accumulated error). leap years before 1752 thus
+X	 * can not easily be accounted for from the cal_mjd() number...
+X	 */
+X	if (mjd < -53798.5) {
+X	    /* pre sept 14, 1752 too hard to correct */
+X	    *dow = -1;
+X	    return;
+X	}
+X	*dow = ((long)floor(mjd-.5) + 1) % 7;/* 1/1/1900 (mjd 0.5) is a Monday*/
+X	if (*dow < 0)
+X	    *dow += 7;
+X}
+X
+X/* given a mjd, return the the number of days in the month.  */
+Xmjd_dpm (mjd, ndays)
+Xdouble mjd;
+Xint *ndays;
+X{
+X	static short dpm[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+X	int m, y;
+X	double d;
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	*ndays = (m==2 && ((y%4==0 && y%100!=0)||y%400==0)) ? 29 : dpm[m-1];
+X}
+X
+X
+X/* given a mjd, return the year as a double. */
+Xmjd_year (mjd, yr)
+Xdouble mjd;
+Xdouble *yr;
+X{
+X	int m, y;
+X	double d;
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	if (y == -1) y = -2;
+X	cal_mjd (1, 1.0, y, &e0);
+X	cal_mjd (1, 1.0, y+1, &e1);
+X	*yr = y + (mjd - e0)/(e1 - e0);
+X}
+X
+X/* given a decimal year, return mjd */
+Xyear_mjd (y, mjd)
+Xdouble y;
+Xdouble *mjd;
+X{
+X	double e0, e1;	/* mjd of start of this year, start of next year */
+X	int yf = floor (y);
+X	if (yf == -1) yf = -2;
+X
+X	cal_mjd (1, 1.0, yf, &e0);
+X	cal_mjd (1, 1.0, yf+1, &e1);
+X	*mjd = e0 + (y - yf)*(e1-e0);
+X}
+END_OF_FILE
+  if test 3113 -ne `wc -c <'cal_mjd.c'`; then
+    echo shar: \"'cal_mjd.c'\" unpacked with wrong size!
+  fi
+  # end of 'cal_mjd.c'
+fi
+if test -f 'circum.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'circum.h'\"
+else
+  echo shar: Extracting \"'circum.h'\" \(2856 characters\)
+  sed "s/^X//" >'circum.h' <<'END_OF_FILE'
+X#define	SPD	(24.0*3600.0)	/* seconds per day */
+X
+X#define	EOD	(-9786)		/* special epoch flag: use epoch of date */
+X#define	RTC	(-1324)		/* special tminc flag: use rt clock */
+X#define	NOMJD	(-58631.)	/* an unlikely mjd for initing static mjd's */
+X#define	NOHELIO	(-2314)		/* special s_hlong flag: means it and s_hlat are
+X				 * undefined
+X				 */
+X
+X#define	STDHZN		0	/* rise/set times based on nominal conditions */
+X#define	ADPHZN		1	/* rise/set times based on exact current " */
+X#define	TWILIGHT	2	/* rise/set times for sun 18 degs below hor */
+X
+X/* info about our local observing circumstances */
+Xtypedef struct {
+X	double n_mjd;	/* modified Julian date, ie, days since
+X			 * Jan 0.5 1900 (== 12 noon, Dec 30, 1899), utc.
+X			 * enough precision to get well better than 1 second.
+X			 * N.B. if not first member, must move NOMJD inits.
+X			 */
+X	double n_lat;	/* latitude, >0 north, rads */
+X	double n_lng;	/* longitude, >0 east, rads */
+X	double n_tz;	/* time zone, hrs behind UTC */
+X	double n_temp;	/* atmospheric temp, degrees C */
+X	double n_pressure; /* atmospheric pressure, mBar */
+X	double n_height;	/* height above sea level, earth radii */
+X	double n_epoch;	/* desired precession display epoch as an mjd, or EOD */
+X	char n_tznm[4];	/* time zone name; 3 chars or less, always 0 at end */
+X} Now;
+Xextern double	mjd_day(), mjd_hr();
+X
+X/* info about where and how we see something in the sky */
+Xtypedef struct {
+X	double s_ra;	/* ra, rads (precessed to n_epoch) */
+X	double s_dec;	/* dec, rads (precessed to n_epoch) */
+X	double s_az;	/* azimuth, >0 e of n, rads */
+X	double s_alt;	/* altitude above topocentric horizon, rads */
+X	double s_sdist;	/* dist from object to sun, au */
+X	double s_edist;	/* dist from object to earth, au */
+X	double s_elong;	/* angular sep between object and sun, >0 if east */
+X	double s_hlong;	/* heliocentric longitude, rads */
+X	double s_hlat;	/* heliocentric latitude, rads */
+X	double s_size;	/* angular size, arc secs */
+X	double s_phase;	/* phase, % */
+X	double s_mag;	/* visual magnitude */
+X} Sky;
+X
+X/* flags for riset_cir() status */
+X#define	RS_NORISE	0x001	/* object does not rise as such today */
+X#define	RS_2RISES	0x002	/* object rises more than once today */
+X#define	RS_NOSET	0x004	/* object does not set as such today */
+X#define	RS_2SETS	0x008	/* object sets more than once today */
+X#define	RS_CIRCUMPOLAR	0x010	/* object stays up all day today */
+X#define	RS_2TRANS	0x020	/* transits twice in one day */
+X#define	RS_NEVERUP	0x040	/* object never rises today */
+X#define	RS_NOTRANS	0x080	/* doesn't transit today */
+X#define	RS_ERROR	0x100	/* can't figure out times... */
+X
+X/* shorthands for fields a Now pointer, np */
+X#define mjd	np->n_mjd
+X#define lat	np->n_lat
+X#define lng	np->n_lng
+X#define tz	np->n_tz
+X#define temp	np->n_temp
+X#define pressure np->n_pressure
+X#define height	np->n_height
+X#define epoch	np->n_epoch
+X#define tznm	np->n_tznm
+END_OF_FILE
+  if test 2856 -ne `wc -c <'circum.h'`; then
+    echo shar: \"'circum.h'\" unpacked with wrong size!
+  fi
+  # end of 'circum.h'
+fi
+if test -f 'comet.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'comet.c'\"
+else
+  echo shar: Extracting \"'comet.c'\" \(2390 characters\)
+  sed "s/^X//" >'comet.c' <<'END_OF_FILE'
+X#include <math.h>
+X#include "astro.h"
+X
+X/* given a modified Julian date, mjd, and a set of heliocentric parabolic
+X * orbital elements referred to the epoch of date (mjd):
+X *   ep:   epoch of perihelion,
+X *   inc:  inclination,
+X *   ap:   argument of perihelion (equals the longitude of perihelion minus the
+X *	   longitude of ascending node)
+X *   qp:   perihelion distance,
+X *   om:   longitude of ascending node;
+X * find:
+X *   lpd:  heliocentric longitude, 
+X *   psi:  heliocentric latitude,
+X *   rp:   distance from the sun to the planet, 
+X *   rho:  distance from the Earth to the planet,
+X *   lam:  geocentric ecliptic longitude, 
+X *   bet:  geocentric ecliptic latitude,
+X *         none are corrected for light time, ie, they are the true values for
+X *	   the given instant.
+X *
+X * all angles are in radians, all distances in AU.
+X * mutual perturbation corrections with other solar system objects are not
+X * applied. corrections for nutation and abberation must be made by the caller.
+X * The RA and DEC calculated from the fully-corrected ecliptic coordinates are
+X * then the apparent geocentric coordinates. Further corrections can be made,
+X * if required, for atmospheric refraction and geocentric parallax.
+X */
+Xcomet (mjd, ep, inc, ap, qp, om, lpd, psi, rp, rho, lam, bet)
+Xdouble mjd;
+Xdouble ep, inc, ap, qp, om;
+Xdouble *lpd, *psi, *rp, *rho, *lam, *bet;
+X{
+X	double w, s, s2;
+X	double l, sl, cl, y;
+X	double spsi, cpsi;
+X	double rd, lsn, rsn;
+X	double lg, re, ll;
+X	double cll, sll;
+X	double nu;
+X
+X#define	ERRLMT	0.0001
+X        w = ((mjd-ep)*3.649116e-02)/(qp*sqrt(qp));
+X        s = w/3;
+X	while (1) {
+X	    double d;
+X	    s2 = s*s;
+X	    d = (s2+3)*s-w;
+X	    if (fabs(d) <= ERRLMT)
+X		break;
+X	    s = ((2*s*s2)+w)/(3*(s2+1));
+X	}
+X
+X        nu = 2*atan(s);
+X	*rp = qp*(1+s2);
+X	l = nu+ap;
+X        sl = sin(l);
+X	cl = cos(l);
+X	spsi = sl*sin(inc);
+X        *psi = asin(spsi);
+X	y = sl*cos(inc);
+X        *lpd = atan(y/cl)+om;
+X	cpsi = cos(*psi);
+X        if (cl<0) *lpd += PI;
+X	range (lpd, 2*PI);
+X        rd = *rp * cpsi;
+X	sunpos (mjd, &lsn, &rsn);
+X	lg = lsn+PI;
+X        re = rsn;
+X	ll = *lpd - lg;
+X        cll = cos(ll);
+X	sll = sin(ll);
+X        *rho = sqrt((re * re)+(*rp * *rp)-(2*re*rd*cll));
+X        if (rd<re) 
+X            *lam = atan((-1*rd*sll)/(re-(rd*cll)))+lg+PI;
+X	else
+X	    *lam = atan((re*sll)/(rd-(re*cll)))+*lpd;
+X	range (lam, 2*PI);
+X        *bet = atan((rd*spsi*sin(*lam-*lpd))/(cpsi*re*sll));
+X}
+END_OF_FILE
+  if test 2390 -ne `wc -c <'comet.c'`; then
+    echo shar: \"'comet.c'\" unpacked with wrong size!
+  fi
+  # end of 'comet.c'
+fi
+if test -f 'moon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'moon.c'\"
+else
+  echo shar: Extracting \"'moon.c'\" \(5143 characters\)
+  sed "s/^X//" >'moon.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* given the mjd, find the geocentric ecliptic longitude, lam, and latitude,
+X * bet, and horizontal parallax, hp for the moon.
+X * N.B. series for long and lat are good to about 10 and 3 arcseconds. however,
+X *   math errors cause up to 100 and 30 arcseconds error, even if use double.
+X *   why?? suspect highly sensitive nature of difference used to get m1..6.
+X * N.B. still need to correct for nutation. then for topocentric location
+X *   further correct for parallax and refraction.
+X */
+Xmoon (mjd, lam, bet, hp)
+Xdouble mjd;
+Xdouble *lam, *bet, *hp;
+X{
+X	double t, t2;
+X	double ld;
+X	double ms;
+X	double md;
+X	double de;
+X	double f;
+X	double n;
+X	double a, sa, sn, b, sb, c, sc, e, e2, l, g, w1, w2;
+X	double m1, m2, m3, m4, m5, m6;
+X
+X	t = mjd/36525.;
+X	t2 = t*t;
+X
+X	m1 = mjd/27.32158213;
+X	m1 = 360.0*(m1-(long)m1);
+X	m2 = mjd/365.2596407;
+X	m2 = 360.0*(m2-(long)m2);
+X	m3 = mjd/27.55455094;
+X	m3 = 360.0*(m3-(long)m3);
+X	m4 = mjd/29.53058868;
+X	m4 = 360.0*(m4-(long)m4);
+X	m5 = mjd/27.21222039;
+X	m5 = 360.0*(m5-(long)m5);
+X	m6 = mjd/6798.363307;
+X	m6 = 360.0*(m6-(long)m6);
+X
+X	ld = 270.434164+m1-(.001133-.0000019*t)*t2;
+X	ms = 358.475833+m2-(.00015+.0000033*t)*t2;
+X	md = 296.104608+m3+(.009192+.0000144*t)*t2;
+X	de = 350.737486+m4-(.001436-.0000019*t)*t2;
+X	f = 11.250889+m5-(.003211+.0000003*t)*t2;
+X	n = 259.183275-m6+(.002078+.000022*t)*t2;
+X
+X	a = degrad(51.2+20.2*t);
+X	sa = sin(a);
+X	sn = sin(degrad(n));
+X	b = 346.56+(132.87-.0091731*t)*t;
+X	sb = .003964*sin(degrad(b));
+X	c = degrad(n+275.05-2.3*t);
+X	sc = sin(c);
+X	ld = ld+.000233*sa+sb+.001964*sn;
+X	ms = ms-.001778*sa;
+X	md = md+.000817*sa+sb+.002541*sn;
+X	f = f+sb-.024691*sn-.004328*sc;
+X	de = de+.002011*sa+sb+.001964*sn;
+X	e = 1-(.002495+7.52e-06*t)*t;
+X	e2 = e*e;
+X
+X	ld = degrad(ld);
+X	ms = degrad(ms);
+X	n = degrad(n);
+X	de = degrad(de);
+X	f = degrad(f);
+X	md = degrad(md);
+X
+X	l = 6.28875*sin(md)+1.27402*sin(2*de-md)+.658309*sin(2*de)+
+X	    .213616*sin(2*md)-e*.185596*sin(ms)-.114336*sin(2*f)+
+X	    .058793*sin(2*(de-md))+.057212*e*sin(2*de-ms-md)+
+X	    .05332*sin(2*de+md)+.045874*e*sin(2*de-ms)+.041024*e*sin(md-ms);
+X	l = l-.034718*sin(de)-e*.030465*sin(ms+md)+.015326*sin(2*(de-f))-
+X	    .012528*sin(2*f+md)-.01098*sin(2*f-md)+.010674*sin(4*de-md)+
+X	    .010034*sin(3*md)+.008548*sin(4*de-2*md)-e*.00791*sin(ms-md+2*de)-
+X	    e*.006783*sin(2*de+ms);
+X	l = l+.005162*sin(md-de)+e*.005*sin(ms+de)+.003862*sin(4*de)+
+X	    e*.004049*sin(md-ms+2*de)+.003996*sin(2*(md+de))+
+X	    .003665*sin(2*de-3*md)+e*.002695*sin(2*md-ms)+
+X	    .002602*sin(md-2*(f+de))+e*.002396*sin(2*(de-md)-ms)-
+X	    .002349*sin(md+de);
+X	l = l+e2*.002249*sin(2*(de-ms))-e*.002125*sin(2*md+ms)-
+X	    e2*.002079*sin(2*ms)+e2*.002059*sin(2*(de-ms)-md)-
+X	    .001773*sin(md+2*(de-f))-.001595*sin(2*(f+de))+
+X	    e*.00122*sin(4*de-ms-md)-.00111*sin(2*(md+f))+.000892*sin(md-3*de);
+X	l = l-e*.000811*sin(ms+md+2*de)+e*.000761*sin(4*de-ms-2*md)+
+X	     e2*.000704*sin(md-2*(ms+de))+e*.000693*sin(ms-2*(md-de))+
+X	     e*.000598*sin(2*(de-f)-ms)+.00055*sin(md+4*de)+.000538*sin(4*md)+
+X	     e*.000521*sin(4*de-ms)+.000486*sin(2*md-de);
+X	l = l+e2*.000717*sin(md-2*ms);
+X	*lam = ld+degrad(l);
+X	range (lam, 2*PI);
+X
+X	g = 5.12819*sin(f)+.280606*sin(md+f)+.277693*sin(md-f)+
+X	    .173238*sin(2*de-f)+.055413*sin(2*de+f-md)+.046272*sin(2*de-f-md)+
+X	    .032573*sin(2*de+f)+.017198*sin(2*md+f)+.009267*sin(2*de+md-f)+
+X	    .008823*sin(2*md-f)+e*.008247*sin(2*de-ms-f);
+X	g = g+.004323*sin(2*(de-md)-f)+.0042*sin(2*de+f+md)+
+X	    e*.003372*sin(f-ms-2*de)+e*.002472*sin(2*de+f-ms-md)+
+X	    e*.002222*sin(2*de+f-ms)+e*.002072*sin(2*de-f-ms-md)+
+X	    e*.001877*sin(f-ms+md)+.001828*sin(4*de-f-md)-e*.001803*sin(f+ms)-
+X	    .00175*sin(3*f);
+X	g = g+e*.00157*sin(md-ms-f)-.001487*sin(f+de)-e*.001481*sin(f+ms+md)+
+X	     e*.001417*sin(f-ms-md)+e*.00135*sin(f-ms)+.00133*sin(f-de)+
+X	     .001106*sin(f+3*md)+.00102*sin(4*de-f)+.000833*sin(f+4*de-md)+
+X	     .000781*sin(md-3*f)+.00067*sin(f+4*de-2*md);
+X	g = g+.000606*sin(2*de-3*f)+.000597*sin(2*(de+md)-f)+
+X	    e*.000492*sin(2*de+md-ms-f)+.00045*sin(2*(md-de)-f)+
+X	    .000439*sin(3*md-f)+.000423*sin(f+2*(de+md))+
+X	    .000422*sin(2*de-f-3*md)-e*.000367*sin(ms+f+2*de-md)-
+X	    e*.000353*sin(ms+f+2*de)+.000331*sin(f+4*de);
+X	g = g+e*.000317*sin(2*de+f-ms+md)+e2*.000306*sin(2*(de-ms)-f)-
+X	    .000283*sin(md+3*f);
+X	w1 = .0004664*cos(n);
+X	w2 = .0000754*cos(c);
+X	*bet = degrad(g)*(1-w1-w2);
+X
+X	*hp = .950724+.051818*cos(md)+.009531*cos(2*de-md)+.007843*cos(2*de)+
+X	      .002824*cos(2*md)+.000857*cos(2*de+md)+e*.000533*cos(2*de-ms)+
+X	      e*.000401*cos(2*de-md-ms)+e*.00032*cos(md-ms)-.000271*cos(de)-
+X	      e*.000264*cos(ms+md)-.000198*cos(2*f-md);
+X	*hp = *hp+.000173*cos(3*md)+.000167*cos(4*de-md)-e*.000111*cos(ms)+
+X	     .000103*cos(4*de-2*md)-.000084*cos(2*md-2*de)-
+X	     e*.000083*cos(2*de+ms)+.000079*cos(2*de+2*md)+.000072*cos(4*de)+
+X	     e*.000064*cos(2*de-ms+md)-e*.000063*cos(2*de+ms-md)+
+X	     e*.000041*cos(ms+de);
+X	*hp = *hp+e*.000035*cos(2*md-ms)-.000033*cos(3*md-2*de)-
+X	     .00003*cos(md+de)-.000029*cos(2*(f-de))-e*.000029*cos(2*md+ms)+
+X	     e2*.000026*cos(2*(de-ms))-.000023*cos(2*(f-de)+md)+
+X	     e*.000019*cos(4*de-ms-md);
+X	*hp = degrad(*hp);
+X}
+END_OF_FILE
+  if test 5143 -ne `wc -c <'moon.c'`; then
+    echo shar: \"'moon.c'\" unpacked with wrong size!
+  fi
+  # end of 'moon.c'
+fi
+if test -f 'pelement.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pelement.c'\"
+else
+  echo shar: Extracting \"'pelement.c'\" \(4797 characters\)
+  sed "s/^X//" >'pelement.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* this array contains polynomial coefficients to find the various orbital
+X *   elements for the mean orbit at any instant in time for each major planet.
+X *   the first five elements are in the form a0 + a1*t + a2*t**2 + a3*t**3,
+X *   where t is the number of Julian centuries of 36525 Julian days since 1900
+X *   Jan 0.5. the last three elements are constants.
+X *
+X * the orbital element (column) indeces are:
+X *   [ 0- 3]: coefficients for mean longitude, in degrees;
+X *   [ 4- 7]: coefficients for longitude of the perihelion, in degrees;
+X *   [ 8-11]: coefficients for eccentricity;
+X *   [12-15]: coefficients for inclination, in degrees;
+X *   [16-19]: coefficients for longitude of the ascending node, in degrees;
+X *      [20]: semi-major axis, in AU;
+X *      [21]: angular diameter at 1 AU, in arcsec;
+X *      [22]: standard visual magnitude, ie, the visual magnitude of the planet
+X *	      when at a distance of 1 AU from both the Sun and the Earth and
+X *	      with zero phase angle.
+X *
+X * the planent (row) indeces are:
+X *   [0]: Mercury; [1]: Venus;   [2]: Mars;  [3]: Jupiter; [4]: Saturn;
+X *   [5]: Uranus;  [6]: Neptune; [7]: Pluto.
+X */
+X#define	NPELE	(5*4 + 3)	/* 4 coeffs for ea of 5 elems, + 3 constants */
+Xstatic double elements[8][NPELE] = {
+X
+X	{   /*     mercury... */
+X
+X	    178.179078,	415.2057519,	3.011e-4,	0.0,
+X	    75.899697,	1.5554889,	2.947e-4,	0.0,
+X	    .20561421,	2.046e-5,	3e-8,		0.0,
+X	    7.002881,	1.8608e-3,	-1.83e-5,	0.0,
+X	    47.145944,	1.1852083,	1.739e-4,	0.0,
+X	    .3870986,	6.74, 		-0.42
+X	},
+X
+X	{   /*     venus... */
+X
+X	    342.767053,	162.5533664,	3.097e-4,	0.0,
+X	    130.163833,	1.4080361,	-9.764e-4,	0.0,
+X	    6.82069e-3,	-4.774e-5,	9.1e-8,		0.0,
+X	    3.393631,	1.0058e-3,	-1e-6,		0.0,
+X	    75.779647,	.89985,		4.1e-4,		0.0,
+X	    .7233316,	16.92,		-4.4
+X	},
+X
+X	{   /*     mars... */
+X
+X	    293.737334,	53.17137642,	3.107e-4,	0.0,
+X	    3.34218203e2, 1.8407584,	1.299e-4,	-1.19e-6,
+X	    9.33129e-2,	9.2064e-5,	7.7e-8,		0.0,
+X	    1.850333,	-6.75e-4,	1.26e-5,	0.0,
+X	    48.786442,	.7709917,	-1.4e-6,	-5.33e-6,
+X	    1.5236883,	9.36,		-1.52
+X	},
+X
+X	{   /*     jupiter... */
+X
+X	    238.049257,	8.434172183,	3.347e-4,	-1.65e-6,
+X	    1.2720972e1, 1.6099617,	1.05627e-3,	-3.43e-6,
+X	    4.833475e-2, 1.6418e-4,	-4.676e-7,	-1.7e-9,
+X	    1.308736,	-5.6961e-3,	3.9e-6,		0.0,
+X	    99.443414,	1.01053,	3.5222e-4,	-8.51e-6,
+X	    5.202561,	196.74,		-9.4
+X	},
+X
+X	{   /*     saturn... */
+X
+X	    266.564377,	3.398638567,	3.245e-4,	-5.8e-6,
+X	    9.1098214e1, 1.9584158,	8.2636e-4,	4.61e-6,
+X	    5.589232e-2, -3.455e-4,	-7.28e-7,	7.4e-10,
+X	    2.492519,	-3.9189e-3,	-1.549e-5,	4e-8,
+X	    112.790414,	.8731951,	-1.5218e-4,	-5.31e-6,
+X	    9.554747,	165.6,		-8.88
+X	},
+X
+X	{   /*     uranus... */
+X
+X	    244.19747,	1.194065406,	3.16e-4,	-6e-7,
+X	    1.71548692e2, 1.4844328,	2.372e-4,	-6.1e-7,
+X	    4.63444e-2,	-2.658e-5,	7.7e-8,		0.0,
+X	    .772464,	6.253e-4,	3.95e-5,	0.0,
+X	    73.477111,	.4986678,	1.3117e-3,	0.0,
+X	    19.21814,	65.8,		-7.19
+X	},
+X
+X	{   /*     neptune... */
+X
+X	    84.457994,	.6107942056,	3.205e-4,	-6e-7,
+X	    4.6727364e1, 1.4245744,	3.9082e-4,	-6.05e-7,
+X	    8.99704e-3,	6.33e-6,	-2e-9,		0.0,
+X	    1.779242,	-9.5436e-3,	-9.1e-6,	0.0,
+X	    130.681389,	1.098935,	2.4987e-4,	-4.718e-6,
+X	    30.10957,	62.2,		-6.87
+X	},
+X
+X	{   /*     pluto...(osculating 1984 jan 21) */
+X
+X	    95.3113544,	.3980332167,	0.0,		0.0,
+X	    224.017,	0.0,		0.0,		0.0,
+X	    .25515,	0.0,		0.0,		0.0,
+X	    17.1329,	0.0,		0.0,		0.0,
+X	    110.191,	0.0,		0.0,		0.0,
+X	    39.8151,	8.2,		-1.0
+X	}
+X};
+X
+X/* given a modified Julian date, mjd, return the elements for the mean orbit
+X *   at that instant of all the major planets, together with their
+X *   mean daily motions in longitude, angular diameter and standard visual
+X *   magnitude.
+X * plan[i][j] contains all the values for all the planets at mjd, such that
+X *   i = 0..7: mercury, venus, mars, jupiter, saturn, unranus, neptune, pluto;
+X *   j = 0..8: mean longitude, mean daily motion in longitude, longitude of 
+X *     the perihelion, eccentricity, inclination, longitude of the ascending
+X *     node, length of the semi-major axis, angular diameter from 1 AU, and
+X *     the standard visual magnitude (see elements[][] comment, above).
+X */
+Xpelement (mjd, plan)
+Xdouble mjd;
+Xdouble plan[8][9];
+X{
+X	register double *ep, *pp;
+X	register double t = mjd/36525.;
+X	double aa;
+X	int planet, i;
+X
+X	for (planet = 0; planet < 8; planet++) {
+X	    ep = elements[planet];
+X	    pp = plan[planet];
+X	    aa = ep[1]*t;
+X	    pp[0] = ep[0] + 360.*(aa-(long)aa) + (ep[3]*t + ep[2])*t*t;
+X	    range (pp, 360.);
+X	    pp[1] = (ep[1]*9.856263e-3) + (ep[2] + ep[3])/36525;
+X
+X	    for (i = 4; i < 20; i += 4)
+X		pp[i/4+1] = ((ep[i+3]*t + ep[i+2])*t + ep[i+1])*t + ep[i+0];
+X
+X	    pp[6] = ep[20];
+X	    pp[7] = ep[21];
+X	    pp[8] = ep[22];
+X	}
+X}
+END_OF_FILE
+  if test 4797 -ne `wc -c <'pelement.c'`; then
+    echo shar: \"'pelement.c'\" unpacked with wrong size!
+  fi
+  # end of 'pelement.c'
+fi
+if test -f 'precess.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'precess.c'\"
+else
+  echo shar: Extracting \"'precess.c'\" \(2952 characters\)
+  sed "s/^X//" >'precess.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X#define	DCOS(x)		cos(degrad(x))
+X#define	DSIN(x)		sin(degrad(x))
+X#define	DASIN(x)	raddeg(asin(x))
+X#define	DATAN2(y,x)	raddeg(atan2((y),(x)))
+X
+X/* corrects ra and dec, both in radians, for precession from epoch 1 to epoch 2.
+X * the epochs are given by their modified JDs, mjd1 and mjd2, respectively.
+X * N.B. ra and dec are modifed IN PLACE.
+X */
+X
+X/*
+X * Copyright (c) 1990 by Craig Counterman. All rights reserved.
+X *
+X * This software may be redistributed freely, not sold.
+X * This copyright notice and disclaimer of warranty must remain
+X *    unchanged. 
+X *
+X * No representation is made about the suitability of this
+X * software for any purpose.  It is provided "as is" without express or
+X * implied warranty, to the extent permitted by applicable law.
+X *
+X * Rigorous precession. From Astronomical Ephemeris 1989, p. B18
+X */
+X
+Xprecess (mjd1, mjd2, ra, dec)
+Xdouble mjd1, mjd2;	/* initial and final epoch modified JDs */
+Xdouble *ra, *dec;	/* ra/dec for mjd1 in, for mjd2 out */
+X{
+X	double zeta_A, z_A, theta_A;
+X	double T;
+X	double A, B, C;
+X	double alpha, delta;
+X	double alpha_in, delta_in;
+X	double from_equinox, to_equinox;
+X	double alpha2000, delta2000;
+X
+X	mjd_year (mjd1, &from_equinox);
+X	mjd_year (mjd2, &to_equinox);
+X	alpha_in = raddeg(*ra);
+X	delta_in = raddeg(*dec);
+X
+X	/* From from_equinox to 2000.0 */
+X	if (from_equinox != 2000.0) {
+X	    T = (from_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha_in - z_A) * DCOS(delta_in);
+X	    B = DCOS(alpha_in - z_A) * DCOS(theta_A) * DCOS(delta_in)
+X	      + DSIN(theta_A) * DSIN(delta_in);
+X	    C = -DCOS(alpha_in - z_A) * DSIN(theta_A) * DCOS(delta_in)
+X	      + DCOS(theta_A) * DSIN(delta_in);
+X
+X	    alpha2000 = DATAN2(A,B) - zeta_A;
+X	    range (&alpha2000, 360.0);
+X	    delta2000 = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha2000 = alpha_in;
+X	    delta2000 = delta_in;
+X	};
+X
+X
+X	/* From 2000.0 to to_equinox */
+X	if (to_equinox != 2000.0) {
+X	    T = (to_equinox - 2000.0)/100.0;
+X	    zeta_A  = 0.6406161* T + 0.0000839* T*T + 0.0000050* T*T*T;
+X	    z_A     = 0.6406161* T + 0.0003041* T*T + 0.0000051* T*T*T;
+X	    theta_A = 0.5567530* T - 0.0001185* T*T + 0.0000116* T*T*T;
+X
+X	    A = DSIN(alpha2000 + zeta_A) * DCOS(delta2000);
+X	    B = DCOS(alpha2000 + zeta_A) * DCOS(theta_A) * DCOS(delta2000)
+X	      - DSIN(theta_A) * DSIN(delta2000);
+X	    C = DCOS(alpha2000 + zeta_A) * DSIN(theta_A) * DCOS(delta2000)
+X	      + DCOS(theta_A) * DSIN(delta2000);
+X
+X	    alpha = DATAN2(A,B) + z_A;
+X	    range(&alpha, 360.0);
+X	    delta = DASIN(C);
+X	} else {
+X	    /* should get the same answer, but this could improve accruacy */
+X	    alpha = alpha2000;
+X	    delta = delta2000;
+X	};
+X
+X	*ra = degrad(alpha);
+X	*dec = degrad(delta);
+X}
+END_OF_FILE
+  if test 2952 -ne `wc -c <'precess.c'`; then
+    echo shar: \"'precess.c'\" unpacked with wrong size!
+  fi
+  # end of 'precess.c'
+fi
+if test -f 'refract.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'refract.c'\"
+else
+  echo shar: Extracting \"'refract.c'\" \(1857 characters\)
+  sed "s/^X//" >'refract.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* correct the true altitude, ta, for refraction to the apparent altitude, aa,
+X * each in radians, given the local atmospheric pressure, pr, in mbars, and
+X * the temperature, tr, in degrees C.
+X */
+Xrefract (pr, tr, ta, aa)
+Xdouble pr, tr;
+Xdouble ta;
+Xdouble *aa;
+X{
+X	double r;	/* refraction correction*/
+X
+X        if (ta >= degrad(15.)) {
+X	    /* model for altitudes at least 15 degrees above horizon */
+X            r = 7.888888e-5*pr/((273+tr)*tan(ta));
+X	} else if (ta > degrad(-5.)) {
+X	    /* hairier model for altitudes at least -5 and below 15 degrees */
+X	    double a, b, tadeg = raddeg(ta);
+X	    a = ((2e-5*tadeg+1.96e-2)*tadeg+1.594e-1)*pr;
+X	    b = (273+tr)*((8.45e-2*tadeg+5.05e-1)*tadeg+1);
+X	    r = degrad(a/b);
+X	} else {
+X	    /* do nothing if more than 5 degrees below horizon.
+X	     */
+X	    r = 0;
+X	}
+X
+X	*aa  =  ta + r;
+X}
+X
+X/* correct the apparent altitude, aa, for refraction to the true altitude, ta,
+X * each in radians, given the local atmospheric pressure, pr, in mbars, and
+X * the temperature, tr, in degrees C.
+X */
+Xunrefract (pr, tr, aa, ta)
+Xdouble pr, tr;
+Xdouble aa;
+Xdouble *ta;
+X{
+X	double err;
+X	double appar;
+X	double true;
+X
+X	/* iterative solution: search for the true that refracts to the
+X	 *   given apparent.
+X	 * since refract() is discontinuous at -5 degrees, there is a range
+X	 *   of apparent altitudes between about -4.5 and -5 degrees that are
+X	 *   not invertable (the graph of ap vs. true has a vertical step at
+X	 *   true = -5). thus, the iteration just oscillates if it gets into
+X	 *   this region. if this happens the iteration is forced to abort.
+X	 *   of course, this makes unrefract() discontinuous too.
+X	 */
+X	true = aa;
+X	do {
+X	    refract (pr, tr, true, &appar);
+X	    err = appar - aa;
+X	    true -= err;
+X	} while (fabs(err) >= 1e-6 && true > degrad(-5));
+X
+X	*ta = true;
+X}
+END_OF_FILE
+  if test 1857 -ne `wc -c <'refract.c'`; then
+    echo shar: \"'refract.c'\" unpacked with wrong size!
+  fi
+  # end of 'refract.c'
+fi
+if test -f 'riset.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'riset.c'\"
+else
+  echo shar: Extracting \"'riset.c'\" \(4591 characters\)
+  sed "s/^X//" >'riset.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <math.h>
+X#include "astro.h"
+X
+X/* given the true geocentric ra and dec of an object, the observer's latitude,
+X *   lat, and a horizon displacement correction, dis, all in radians, find the
+X *   local sidereal times and azimuths of rising and setting, lstr/s
+X *   and azr/s, also all in radians, respectively.
+X * dis is the vertical displacement from the true position of the horizon. it
+X *   is positive if the apparent position is higher than the true position.
+X *   said another way, it is positive if the shift causes the object to spend
+X *   longer above the horizon. for example, atmospheric refraction is typically
+X *   assumed to produce a vertical shift of 34 arc minutes at the horizon; dis
+X *   would then take on the value +9.89e-3 (radians). On the other hand, if
+X *   your horizon has hills such that your apparent horizon is, say, 1 degree
+X *   above sea level, you would allow for this by setting dis to -1.75e-2
+X *   (radians).
+X *
+X * algorithm:
+X *   the situation is described by two spherical triangles with two equal angles
+X *    (the right horizon intercepts, and the common horizon transverse):
+X *   given lat, d(=d1+d2), and dis find z(=z1+z2) and rho, where      /| eq pole
+X *     lat = latitude,                                              /  |
+X *     dis = horizon displacement (>0 is below ideal)             / rho|
+X *     d = angle from pole = PI/2 - declination                /       |
+X *     z = azimuth east of north                            /          |
+X *     rho = polar rotation from down = PI - hour angle    /           | 
+X *   solve simultaneous equations for d1 and d2:         /             |
+X *     1) cos(d) = cos(d1+d2)                           / d2           | lat
+X *            = cos(d1)cos(d2) - sin(d1)sin(d2)        /               |
+X *     2) sin(d2) = sin(lat)sin(d1)/sin(dis)          /                |
+X *   then can solve for z1, z2 and rho, taking       /                 |
+X *     care to preserve quadrant information.       /                 -|
+X *                                              z1 /        z2       | |
+X *                      ideal horizon ------------/--------------------| 
+X *                                         | |   /                     N
+X *                                          -|  / d1
+X *                                       dis | /
+X *                                           |/
+X *                  apparent horizon  ---------------------------------
+X *
+X * note that when lat=0 this all breaks down (because d2 and z2 degenerate to 0)
+X *   but fortunately then we can solve for z and rho directly.
+X *
+X * status: 0: normal; 1: never rises; -1: circumpolar; 2: trouble.
+X */
+Xriset (ra, dec, lat, dis, lstr, lsts, azr, azs, status)
+Xdouble ra, dec;
+Xdouble lat, dis;
+Xdouble *lstr, *lsts;
+Xdouble *azr, *azs;
+Xint *status;
+X{
+X#define	EPS	(1e-6)	/* math rounding fudge - always the way, eh? */
+X	double d;	/* angle from pole */
+X	double h;	/* hour angle */
+X	double crho;	/* cos hour-angle complement */
+X	int shemi;	/* flag for southern hemisphere reflection */
+X
+X	d = PI/2 - dec;
+X
+X	/* reflect if in southern hemisphere.
+X	 * (then reflect azimuth back after computation.)
+X	 */
+X	if (shemi = lat < 0) {
+X	    lat = -lat;
+X	    d = PI - d;
+X	}
+X
+X	/* do the easy ones (and avoid violated assumptions) if d arc never
+X	 * meets horizon. 
+X	 */
+X	if (d <= lat + dis + EPS) {
+X	    *status = -1; /* never sets */
+X	    return;
+X	}
+X	if (d >= PI - lat + dis - EPS) {
+X	    *status = 1; /* never rises */
+X	    return;
+X	}
+X
+X	/* find rising azimuth and cosine of hour-angle complement */
+X	if (lat > EPS) {
+X	    double d2, d1; /* polr arc to ideal hzn, and corrctn for apparent */
+X	    double z2, z1; /* azimuth to ideal horizon, and " */
+X	    double a;	   /* intermediate temp */
+X	    double sdis, slat, clat, cz2, cd2;	/* trig temps */
+X	    sdis = sin(dis);
+X	    slat = sin(lat);
+X	    a = sdis*sdis + slat*slat + 2*cos(d)*sdis*slat;
+X	    if (a <= 0) {
+X		*status = 2; /* can't happen - hah! */
+X		return;
+X	    }
+X	    d1 = asin (sin(d) * sdis / sqrt(a));
+X	    d2 = d - d1;
+X	    cd2 = cos(d2);
+X	    clat = cos(lat);
+X	    cz2 = cd2/clat;
+X	    z2 = acos (cz2);
+X	    z1 = acos (cos(d1)/cos(dis));
+X	    if (dis < 0)
+X		z1 = -z1;
+X	    *azr = z1 + z2;
+X	    range (azr, PI);
+X	    crho = (cz2 - cd2*clat)/(sin(d2)*slat);
+X	} else {
+X	    *azr = acos (cos(d)/cos(dis));
+X	    crho = sin(dis)/sin(d);
+X	}
+X
+X	if (shemi)
+X	    *azr = PI - *azr;
+X        *azs = 2*PI - *azr;
+X	
+X	/* find hour angle */
+X	h = PI - acos (crho);
+X        *lstr = radhr(ra-h);
+X	*lsts = radhr(ra+h);
+X	range (lstr, 24.0);
+X	range (lsts, 24.0);
+X
+X	*status = 0;
+X}
+END_OF_FILE
+  if test 4591 -ne `wc -c <'riset.c'`; then
+    echo shar: \"'riset.c'\" unpacked with wrong size!
+  fi
+  # end of 'riset.c'
+fi
+if test -f 'screen.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'screen.h'\"
+else
+  echo shar: Extracting \"'screen.h'\" \(5816 characters\)
+  sed "s/^X//" >'screen.h' <<'END_OF_FILE'
+X/* screen layout details
+X *
+X * it looks better if the fields are drawn in some nice order so it you
+X * rearrange the fields, check the menu printing functions.
+X * NB: all row/col values are 1 based, with upper left at [1,1]
+X */
+X
+X/* size of screen */
+X#define	NR	24
+X#define	NC	80
+X
+X#define	ASPECT	(4./3.)	/* screen width to height dimensions ratio */
+X
+X#define	GAP	6	/* gap between field name and value */
+X
+X#define	COL1		1
+X#define	COL2		27
+X#define	COL3		44
+X#define	COL4		61	/* calendar */
+X
+X#define	R_PROMPT	1	/* prompt row */
+X#define	C_PROMPT	COL1
+X
+X#define	R_NEWCIR	2
+X#define	C_NEWCIR	((NC-17)/2) /* 17 is length of the message */
+X
+X#define	R_TOP		3	/* first row of top menu items */
+X
+X#define	R_TZN	(R_TOP+0)
+X#define	C_TZN	COL1
+X#define	R_LT	R_TZN
+X#define	C_LT	(C_TZN+GAP-2)
+X#define	R_LD	R_TZN
+X#define	C_LD	(C_TZN+13)
+X
+X#define	R_UT	(R_TOP+1)
+X#define	C_UT	COL1
+X#define	C_UTV	(C_UT+GAP-2)
+X#define	R_UD	R_UT
+X#define	C_UD	(C_UT+13)
+X
+X#define	R_JD	(R_TOP+2)
+X#define	C_JD	COL1
+X#define	C_JDV	(C_JD+GAP+3)
+X
+X#define	R_LST	(R_TOP)
+X#define	C_LST	COL2
+X#define	C_LSTV	(C_LST+GAP)
+X
+X#define	R_LAT	(R_TOP+0)
+X#define	C_LAT	COL3
+X#define	C_LATV	(C_LAT+4)
+X
+X#define	R_DAWN	(R_TOP+2)
+X#define	C_DAWN	COL2
+X#define	C_DAWNV	(C_DAWN+GAP+3)
+X
+X#define	R_STPSZ	(R_TOP+7)
+X#define	C_STPSZ	COL2
+X#define	C_STPSZV (C_STPSZ+GAP-1)
+X
+X#define	R_HEIGHT (R_TOP+2)
+X#define	C_HEIGHT COL3
+X#define	C_HEIGHTV (C_HEIGHT+GAP)
+X
+X#define	R_PRES	(R_TOP+4)
+X#define	C_PRES	COL3
+X#define	C_PRESV	(C_PRES+GAP)
+X
+X#define	R_WATCH	(R_TOP+3)
+X#define	C_WATCH	COL1
+X
+X#define	R_LISTING (R_TOP+4)
+X#define	C_LISTING COL1
+X#define	C_LISTINGV (C_LISTING+20)
+X
+X#define	R_SRCH	(R_TOP+5)
+X#define	C_SRCH	COL1
+X#define	C_SRCHV	(C_SRCH+16)
+X
+X#define	R_PLOT	(R_TOP+6)
+X#define	C_PLOT	COL1
+X#define	C_PLOTV (C_PLOT+20)
+X
+X#define	R_ALTM	(R_TOP+7)
+X#define	C_ALTM	COL1
+X#define	C_ALTMV	(C_ALTM+10)
+X
+X#define	R_TZONE	(R_TOP+5)
+X#define	C_TZONE	COL3
+X#define	C_TZONEV (C_TZONE+GAP-1)
+X
+X#define	R_LONG	(R_TOP+1)
+X#define	C_LONG	COL3
+X#define	C_LONGV	(C_LONG+4)
+X
+X#define	R_DUSK	(R_TOP+3)
+X#define	C_DUSK	COL2
+X#define	C_DUSKV	(C_DUSK+GAP+3)
+X
+X#define	R_NSTEP (R_TOP+6)
+X#define	C_NSTEP	COL2
+X#define	C_NSTEPV (C_NSTEP+GAP)
+X
+X#define	R_TEMP	(R_TOP+3)
+X#define	C_TEMP	COL3
+X#define	C_TEMPV	(C_TEMP+GAP)
+X
+X#define	R_EPOCH		(R_TOP+6)
+X#define	C_EPOCH		COL3
+X#define	C_EPOCHV	(C_EPOCH+GAP)
+X
+X#define	R_PAUSE (R_TOP+7)
+X#define	C_PAUSE	COL3
+X#define	C_PAUSEV (C_PAUSE+GAP)
+X
+X#define	R_MNUDEP	(R_TOP+6)
+X#define	C_MNUDEP	COL3
+X#define	C_MNUDEPV	(C_EPOCH+GAP)
+X
+X#define	R_LON	(R_TOP+4)
+X#define	C_LON	COL2
+X#define	C_LONV	(C_LON+GAP+3)
+X
+X#define	R_CAL	R_TOP
+X#define	C_CAL   COL4
+X
+X/* planet rows */
+X#define	R_PLANTAB	(R_TOP+9)
+X#define	R_SUN		(R_PLANTAB+1)
+X#define	R_MOON		(R_PLANTAB+2)
+X#define	R_MERCURY	(R_PLANTAB+3)
+X#define	R_VENUS		(R_PLANTAB+4)
+X#define	R_MARS		(R_PLANTAB+5)
+X#define	R_JUPITER	(R_PLANTAB+6)
+X#define	R_SATURN	(R_PLANTAB+7)
+X#define	R_URANUS	(R_PLANTAB+8)
+X#define	R_NEPTUNE	(R_PLANTAB+9)
+X#define	R_PLUTO		(R_PLANTAB+10)
+X#define	R_OBJX		(R_PLANTAB+11)
+X#define	R_OBJY		(R_PLANTAB+12)
+X
+X#define	C_OBJ		1
+X#define	C_CONSTEL	2
+X#define	C_XTRA		3
+X
+X/* menu 1 info table */
+X#define	C_RA		4
+X#define	C_DEC		12
+X#define	C_AZ		19
+X#define	C_ALT		26
+X#define	C_HLONG		33
+X#define	C_HLAT		40
+X#define	C_EDIST		47
+X#define C_SDIST 	54
+X#define	C_ELONG		61
+X#define	C_SIZE		68
+X#define	C_MAG		73
+X#define	C_PHASE		78
+X
+X/* menu 2 screen items */
+X#define	C_RISETM	7
+X#define	C_RISEAZ	18
+X#define	C_TRANSTM	29
+X#define	C_TRANSALT	40
+X#define	C_SETTM		51
+X#define	C_SETAZ		62
+X#define	C_TUP		73
+X
+X/* menu 3 items */
+X#define	C_SUN		4
+X#define	C_MOON		10
+X#define	C_MERCURY	17
+X#define	C_VENUS		23
+X#define	C_MARS		30
+X#define	C_JUPITER	36
+X#define	C_SATURN	43
+X#define	C_URANUS	49
+X#define	C_NEPTUNE	56
+X#define	C_PLUTO		62
+X#define	C_OBJX		69
+X#define	C_OBJY		75
+X
+X/* menu for jupiter aux info items */
+X#define	R_JCML		(R_TOP+10)
+X#define	C_JCMLSI	43
+X#define	C_JCMLSII	60
+X#define	C_JMNAMES	9
+X#define	C_JMX		28
+X#define	C_JMY		43
+X#define	C_JMZ		58
+X#define	R_JMAP		23
+X#define	C_JMAP		1
+X#define	R_JCOLHDNGS	17
+X#define	R_IO		(R_JCOLHDNGS+1)
+X#define	R_EUROPA	(R_JCOLHDNGS+2)
+X#define	R_GANYMEDE	(R_JCOLHDNGS+3)
+X#define	R_CALLISTO	(R_JCOLHDNGS+4)
+X
+X#define	PW	(NC-C_PROMPT+1)	/* total prompt line width */
+X
+X/* macros to pack a row/col and menu selection flags all into 16-bits.
+X * (use this rather than a structure because we can compare them so easily.
+X * could use bit fields and a union, but then can't init them or use switch.)
+X * bit field defs: [15..13]=menu [12..11]=flags [10..0]=NC*row+column(0 based).
+X * see sel_fld.c.
+X * F_MNUX also used in main to manage which bottom menu is up.
+X */
+X#define	F_MMNU		(0<<13)	/* field is on main menu (or on all menus) */
+X#define	F_MNU1		(1<<13)	/* field is on menu 1 */
+X#define	F_MNU2	 	(2<<13)	/* field is on menu 2 */
+X#define	F_MNU3		(3<<13)	/* field is on menu 3 */
+X#define	F_MNUJ		(4<<13)	/* field is on jupiter menu */
+X#define	F_PLT		(1<<12)	/* field may be picked for plotting or listng */
+X#define	F_CHG		(1<<11)	/* field may be picked for changing */
+X#define	rcfpack(r,c,f)	((f) | (((r)-1)*NC + ((c)-1)))
+X#define	unpackr(p)	(((p) & 0x7ff)/NC+1)
+X#define	unpackc(p)	(((p) & 0x7ff)%NC+1)
+X#define	unpackrc(p)	((p) & 0x7ff)
+X#define	tstpackf(p,f)	(((p) & ((f)&0x1800)) && \
+X		    (((p)&0xe000) == ((f)&0xe000) || ((p)&0xe000) == F_MMNU))
+X
+X/* additions to the planet defines from astro.h.
+X * must not conflict, and must fit in range 0..15.
+X */
+X#define	SUN	(PLUTO+1)
+X#define	MOON	(PLUTO+2)
+X#define	OBJX	(PLUTO+3)	/* the user-defined object */
+X#define	OBJY	(PLUTO+4)	/* the user-defined object */
+X#define	NOBJ	(OBJY+1)	/* total number of objects */
+X
+X#define	cntrl(x)	((x) & 037)
+X#define	QUIT		cntrl('d')	/* char to exit program */
+X#define	HELP		'?'		/* char to give help message */
+X#define	REDRAW		cntrl('l')	/* char to redraw (like vi) */
+X#define	VERSION		cntrl('v')	/* char to display version number */
+X#define	END		'q'		/* char to quit current mode */
+END_OF_FILE
+  if test 5816 -ne `wc -c <'screen.h'`; then
+    echo shar: \"'screen.h'\" unpacked with wrong size!
+  fi
+  # end of 'screen.h'
+fi
+if test -f 'time.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'time.c'\"
+else
+  echo shar: Extracting \"'time.c'\" \(2888 characters\)
+  sed "s/^X//" >'time.c' <<'END_OF_FILE'
+X/* get the time from the os.
+X *
+X * here are two methods I was able to verify; pick one for your system and
+X *   define exactly one of TZA or TZB:
+X * TZA works on our ibm-pc/turbo-c and at&t systems,
+X * TZB works on our 4.2 BSD vax.
+X *
+X * I'm told that on Sun OS 4.0.3 (BSD 4.3?) and Apollo SR 10.1 TZB works if
+X *   you use <sys/time.h> in place of <time.h>.
+X * 
+X * On VMS, you DON'T want to define EITHER TZA nor TZB since it can't handle
+X *   time zones, period. time_fromsys() will detect that fact based on gmtime()
+X *   returning 0.
+X */
+X
+X#define	TZB
+X
+X#ifdef VMS
+X#undef TZA
+X#undef TZB
+X#endif
+X
+X#include <stdio.h>
+X#include <time.h>
+X
+X#include "astro.h"
+X#include "circum.h"
+X
+Xextern char *strncpy();
+X#ifndef VMS
+Xextern long time();
+X#endif
+X
+Xstatic long c0;
+Xstatic double mjd0;
+X
+X/* save current mjd and corresponding system clock for use by inc_mjd().
+X * this establishes the base correspondence between the mjd and system clock.
+X */
+Xset_t0 (np)
+XNow *np;
+X{
+X	mjd0 = mjd;
+X	(void) time (&c0);
+X}
+X
+X/* fill in n_mjd/tz/tznm from system clock.
+X */
+Xtime_fromsys (np)
+XNow *np;
+X{
+X	extern struct tm *gmtime(), *localtime();
+X	struct tm *tp;
+X	long c;
+X	double day, hr;
+X
+X	(void) time (&c);
+X
+X	tp = gmtime (&c);
+X	if (tp) {
+X	    cal_mjd (tp->tm_mon+1, (double)tp->tm_mday, tp->tm_year+1900, &day);
+X	    sex_dec (tp->tm_hour, tp->tm_min, tp->tm_sec, &hr);
+X	    mjd = day + hr/24.0;
+X	    tp = localtime (&c);
+X	    settzstuff (tp->tm_isdst ? 1 : 0, np);
+X	} else {
+X	    /* if gmtime() doesn't work, we assume the timezone stuff won't
+X	     * either, so we just use what it is and leave it alone. Some
+X	     * systems (like VMS) do not know about time zones, so this is the
+X	     * best guess in that case.
+X	     */
+X	    tp = localtime (&c);
+X	    cal_mjd (tp->tm_mon+1, (double)tp->tm_mday, tp->tm_year+1900, &day);
+X	    sex_dec (tp->tm_hour, tp->tm_min, tp->tm_sec, &hr);
+X	    mjd = day + hr/24.0 + tz/24.0;
+X	}
+X}
+X
+X/* given whether dst is now in effect (must be strictly 0 or 1), fill in
+X * tzname and tz within np.
+X */
+Xstatic
+Xsettzstuff (dst, np)
+Xint dst;
+XNow *np;
+X{
+X#ifdef TZA
+X	extern long timezone;
+X	extern char *tzname[2];
+X
+X	tzset();
+X	tz = timezone/3600;
+X	if (dst)
+X	    tz -= 1.0;
+X	(void) strncpy (tznm, tzname[dst], sizeof(tznm)-1);
+X#endif
+X#ifdef TZB
+X	extern char *timezone();
+X	struct timeval timev;
+X	struct timezone timez;
+X
+X	gettimeofday (&timev, &timez);
+X	tz = timez.tz_minuteswest/60;
+X	if (dst)
+X	    tz -= 1.0;
+X	(void) strncpy (tznm, timezone(timez.tz_minuteswest, dst),
+X								sizeof(tznm)-1);
+X#endif
+X	tznm[sizeof(tznm)-1] = '\0';	/* insure string is terminated */
+X}
+X
+Xinc_mjd (np, inc)
+XNow *np;
+Xdouble inc;
+X{
+X	if (inc == RTC) {
+X	    long c;
+X	    (void) time (&c);
+X	    mjd = mjd0 + (c - c0)/SPD;
+X	} else
+X	    mjd += inc/24.0;
+X
+X	/* round to nearest whole second.
+X	 * without this, you can get fractional days so close to .5 but
+X	 * not quite there that mjd_hr() can return 24.0
+X	 */
+X	rnd_second (&mjd);
+X}
+END_OF_FILE
+  if test 2888 -ne `wc -c <'time.c'`; then
+    echo shar: \"'time.c'\" unpacked with wrong size!
+  fi
+  # end of 'time.c'
+fi
+echo shar: End of archive 8 \(of 9\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

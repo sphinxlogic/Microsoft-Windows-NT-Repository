@@ -1,0 +1,1359 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v28i017:  jgraph - A filter for plotting postscript graphs, Patch07.3
+Message-ID: <1992Feb6.231730.23678@sparky.imd.sterling.com>
+X-Md4-Signature: b6faf725c76ba472ab0a62011f9e5978
+Date: Thu, 6 Feb 1992 23:17:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 28, Issue 17
+Archive-name: jgraph/patch07.3
+Environment: UNIX, VMS, postscript
+Patch-To: jgraph: Volume 16, Issue 20
+
+Jgraph Patch 7.3: Tue Feb  4 12:30:45 EST 1992
+
+Sorry again to be sending out another patch so soon, but there was a
+bug which needed immediate attention, so I put in some more junk that
+people have been asking for:
+
+- Fixed yet another bug in bounding box calculation.  I don't think
+  this one affected too many graphs, but still its a bug.  Thanks to
+  Ryoichi Hajima for pointing this out.
+
+- Strings are now included in bounding box calculations.
+
+- Added a few performance enhancements suggested by Dave Wortman:
+  Comments are no longer included in the postscript output unless
+    you specify -comments on the command line.
+  Lines are stroked only once in the output, not twice.
+  Fonts aren't defined as redundantly as before in the output.
+
+- Fixed where strings are placed when rotated.  Before, if you 
+  rotated a string and specified any justification besides hjl vjl, 
+  the strings weren't really placed in any kind of reliable location.
+  Now, the strings are rotated about their justification point.  See 
+  the man page.
+
+- Added an optional argument to copygraph, copystring and copycurve.
+
+- I received a request to put error bars into jgraph.  I don't really
+  have the time to do this right now.  Until I get around to it (if ever),
+  I've provided a way to get them using awk and the shell command.  This
+  is in the example etst.jgr, etc.  This is a powerful technique, so 
+  check it out.
+
+This should be the last major patch for a while unless there are 
+important bug fixes.  As always, send me your questions/comments/bug
+reports.
+
+(read the README to answer questions about where to get jgraph, etc.)
+
+Jim
+
+Patch from 7.2:
+
+*** ../work/README	Tue Feb  4 12:27:44 1992
+--- README	Tue Feb  4 12:24:06 1992
+***************
+*** 1,4 ****
+! $Revision: 7.2 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+--- 1,4 ----
+! $Revision: 7.3 $
+  
+  Jgraph takes the description of a graph or graphs in the standard
+  input, and produces a postscript file on the standard output.  Jgraph
+*** ../work/draw.c	Tue Feb  4 12:27:46 1992
+--- draw.c	Tue Feb  4 12:24:07 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:44 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/draw.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:20:48 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 56,62 ****
+    orientation = (a->is_x) ? 'x' : 'y';
+    setlinewidth(1.0);
+    comment("Drawing Axis");
+!   printf("gsave %f setgray\n", a->gray);
+    if (a->draw_axis_line) {
+      printline(0.0, a->draw_at, a->psize, a->draw_at, orientation);
+    }
+--- 56,63 ----
+    orientation = (a->is_x) ? 'x' : 'y';
+    setlinewidth(1.0);
+    comment("Drawing Axis");
+!   gsave();
+!   printf("%f setgray\n", a->gray);
+    if (a->draw_axis_line) {
+      printline(0.0, a->draw_at, a->psize, a->draw_at, orientation);
+    }
+***************
+*** 89,95 ****
+      comment("Drawing Axis Label");
+      draw_label(a->label);
+    }
+!   printf("  grestore\n");
+  }
+  
+  
+--- 90,97 ----
+      comment("Drawing Axis Label");
+      draw_label(a->label);
+    }
+!   grestore();
+!   printf("\n");
+  }
+  
+  
+***************
+*** 117,128 ****
+  {
+    Curve c;
+  
+!   printf("gsave\n");
+    if (g->clip) set_clip(g);
+    for(c = first(g->curves); c != nil(g->curves); c = next(c)) {
+      draw_curve(c, g);
+    }
+!   printf(" grestore\n");
+  }
+  
+  draw_curve(c, g)
+--- 119,132 ----
+  {
+    Curve c;
+  
+!   gsave();
+!   printf("\n");
+    if (g->clip) set_clip(g);
+    for(c = first(g->curves); c != nil(g->curves); c = next(c)) {
+      draw_curve(c, g);
+    }
+!   grestore();
+!   printf("\n");
+  }
+  
+  draw_curve(c, g)
+***************
+*** 133,139 ****
+    int i, j;
+     float this_x, this_y, last_x, last_y;
+  
+!   printf("gsave %f setgray\n", c->gray);
+    if (c->clip) set_clip(g);
+    comment("Drawing Curve");
+    if (c->linetype != '0') {
+--- 137,144 ----
+    int i, j;
+     float this_x, this_y, last_x, last_y;
+  
+!   gsave();
+!   printf("%f setgray\n", c->gray);
+    if (c->clip) set_clip(g);
+    comment("Drawing Curve");
+    if (c->linetype != '0') {
+***************
+*** 199,205 ****
+      last_y = this_y;  
+      i = (i + 1) % 3;
+    }
+!   printf("     grestore\n");
+  }
+  
+  draw_mark(x, y, c, g)
+--- 204,211 ----
+      last_y = this_y;  
+      i = (i + 1) % 3;
+    }
+!   grestore();
+!   printf("\n");
+  }
+  
+  draw_mark(x, y, c, g)
+***************
+*** 304,315 ****
+    dy = y1 - y2;
+    if (dx == 0.0 && dy == 0.0) return;
+  
+!   printf("gsave %f %f translate %f %f atan rotate\n", x1, y1, dy, dx);
+    start_poly(0.0, 0.0);
+    cont_poly(-(c->asize[0]), (c->asize[1]));
+    cont_poly(-(c->asize[0]), -(c->asize[1]));
+    end_poly(c->fill);
+!   printf("      grestore\n");
+  }
+  
+  draw_legend(g)
+--- 310,323 ----
+    dy = y1 - y2;
+    if (dx == 0.0 && dy == 0.0) return;
+  
+!   gsave();
+!   printf("%f %f translate %f %f atan rotate\n", x1, y1, dy, dx);
+    start_poly(0.0, 0.0);
+    cont_poly(-(c->asize[0]), (c->asize[1]));
+    cont_poly(-(c->asize[0]), -(c->asize[1]));
+    end_poly(c->fill);
+!   grestore();
+!   printf("\n");
+  }
+  
+  draw_legend(g)
+***************
+*** 325,331 ****
+    if (l->type == 'n') return;
+    for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+      if (c->l->label != CNULL) {
+!       printf("gsave %f setgray\n", c->gray);
+        y = c->l->y - (c->l->fontsize / 2.0 * FCPI / FPPI);
+        if (l->anylines) {
+          if (c->linetype != '0' && l->linelength != 0) {
+--- 333,340 ----
+    if (l->type == 'n') return;
+    for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+      if (c->l->label != CNULL) {
+!       gsave();
+!       printf("%f setgray\n", c->gray);
+        y = c->l->y - (c->l->fontsize / 2.0 * FCPI / FPPI);
+        if (l->anylines) {
+          if (c->linetype != '0' && l->linelength != 0) {
+***************
+*** 350,356 ****
+        } else {
+          draw_mark(x, y, c, g);
+        }
+!       printf("grestore\n");
+        draw_label(c->l);
+      }
+    }
+--- 359,366 ----
+        } else {
+          draw_mark(x, y, c, g);
+        }
+!       grestore();
+!       printf("\n");
+        draw_label(c->l);
+      }
+    }
+***************
+*** 433,438 ****
+--- 443,450 ----
+    }
+    printf("1 setlinecap 1 setlinejoin\n");
+    printf("0.700 setlinewidth\n");
++   gsave();
++   setfont("Times-Roman", 9.00);
+  }
+  
+  draw_footer(gs, pp)
+***************
+*** 440,444 ****
+--- 452,457 ----
+  int pp;
+  {
+    printf("$F2psEnd\n");
++   grestore();
+    if (pp) printf("showpage\n");
+  }
+*** ../work/edit.c	Tue Feb  4 12:27:47 1992
+--- edit.c	Tue Feb  4 12:24:07 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:45 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/edit.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:20:49 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 147,175 ****
+    Curve lastc, newc;
+    Graph oldg;
+    Graphs oldgs;
+  
+!   oldg = g;
+!   oldgs = gs;
+! 
+!   while(gs != nil(all_gs)) {
+!     if (gs != oldgs) g = last(gs->g);
+!     while(g != nil(gs->g)) {
+!       if (first(g->curves) == nil(g->curves)) g = prev(g);
+!       else {
+!         lastc = last(g->curves);
+!         if (first(oldg->curves) == nil(oldg->curves))
+!           newc = new_curve(oldg->curves, 0);
+!         else newc = new_curve(oldg->curves, last(oldg->curves)->num + 1);
+          copy_curve(newc, lastc);
+          return newc;
+        }
+      }
+-     gs = prev(gs);
+    }
+-   
+-   error_header(); 
+-   fprintf(stderr, "Cannot perform copycurve on first curve\n");
+-   exit(1);
+    return newc; /* To shut lint up */
+  }
+  
+--- 147,194 ----
+    Curve lastc, newc;
+    Graph oldg;
+    Graphs oldgs;
++   int num;
+  
+!   if (!getint(&num)) {
+!     rejecttoken();
+!     oldg = g;
+!     oldgs = gs;
+!     while(gs != nil(all_gs)) {
+!       if (gs != oldgs) g = last(gs->g);
+!       while(g != nil(gs->g)) {
+!         if (first(g->curves) == nil(g->curves)) g = prev(g);
+!         else {
+!           lastc = last(g->curves);
+!           if (first(oldg->curves) == nil(oldg->curves))
+!             newc = new_curve(oldg->curves, 0);
+!           else newc = new_curve(oldg->curves, last(oldg->curves)->num + 1);
+!           copy_curve(newc, lastc);
+!           return newc;
+!         }
+!       }
+!       gs = prev(gs);
+!     }
+!     error_header(); 
+!     fprintf(stderr, "Cannot perform copycurve on first curve\n");
+!     exit(1);
+!   } else {
+!     if (first(g->curves) == nil(g->curves))
+!       newc = new_curve(g->curves, 0);
+!     else newc = new_curve(g->curves, last(g->curves)->num + 1);
+!     lastc = g->curves; 
+!     while(1) {
+!       lastc = prev(lastc);
+!       if (lastc == nil(g->curves) || lastc->num < num) {
+!         error_header(); 
+!         fprintf(stderr, "copycurve: curve #%d not found\n", num);
+!         exit(1);
+!       }
+!       if (lastc->num == num) {
+          copy_curve(newc, lastc);
+          return newc;
+        }
+      }
+    }
+    return newc; /* To shut lint up */
+  }
+  
+***************
+*** 181,213 ****
+    String lastl, newl;
+    Graph oldg;
+    Graphs oldgs;
+  
+!   oldg = g;
+!   oldgs = gs;
+! 
+!   while(gs != nil(all_gs)) {
+!     if (gs != oldgs) g = last(gs->g);
+!     while(g != nil(gs->g)) {
+!       if (first(g->strings) == nil(g->strings)) g = prev(g);
+!       else {
+!         lastl = last(g->strings);
+!         if (first(oldg->strings) == nil(oldg->strings))
+!           newl = new_string(oldg->strings, 0);
+!         else newl = new_string(oldg->strings, last(oldg->strings)->num + 1);
+          copy_label(newl->s, lastl->s);
+          return newl->s;
+        }
+      }
+-     gs = prev(gs);
+    }
+-   
+-   error_header(); 
+-   fprintf(stderr, "Cannot perform copystring on first curve\n");
+-   exit(1);
+-   return newl->s; /* To shut lint up */
+  }
+  
+! inherit_axes(g, gs, all_gs)
+  Graph g;
+  Graphs gs;
+  Graphs all_gs;
+--- 200,251 ----
+    String lastl, newl;
+    Graph oldg;
+    Graphs oldgs;
++   int num;
+  
+!   if (!getint(&num)) {
+!     rejecttoken();
+!     oldgs = gs;
+!     oldg = g;
+!     while(gs != nil(all_gs)) {
+!       if (gs != oldgs) g = last(gs->g);
+!       while(g != nil(gs->g)) {
+!         if (first(g->strings) == nil(g->strings)) g = prev(g);
+!         else {
+!           lastl = last(g->strings);
+!           if (first(oldg->strings) == nil(oldg->strings))
+!             newl = new_string(oldg->strings, 0);
+!           else newl = new_string(oldg->strings, last(oldg->strings)->num + 1);
+!           copy_label(newl->s, lastl->s);
+!           return newl->s;
+!         }
+!       }
+!       gs = prev(gs);
+!     }
+!     error_header(); 
+!     fprintf(stderr, "Cannot perform copystring on first string\n");
+!     exit(1);
+!     return newl->s; /* To shut lint up */
+!   } else {
+!     if (first(g->strings) == nil(g->strings))
+!       newl = new_string(g->strings, 0);
+!     else newl = new_string(g->strings, last(g->strings)->num + 1);
+!     lastl = g->strings; 
+!     while(1) {
+!       lastl = prev(lastl);
+!       if (lastl == nil(g->strings) || lastl->num < num) {
+!         error_header(); 
+!         fprintf(stderr, "copystring: string #%d not found\n", num);
+!         exit(1);
+!       }
+!       if (lastl->num == num) {
+          copy_label(newl->s, lastl->s);
+          return newl->s;
+        }
+      }
+    }
+  }
+  
+! Graph last_graph(g, gs, all_gs)
+  Graph g;
+  Graphs gs;
+  Graphs all_gs;
+***************
+*** 214,219 ****
+--- 252,258 ----
+  {
+    Graph lastg;
+  
++ 
+    lastg = prev(g);
+    while(lastg == nil(gs->g)) {
+      if (prev(gs) == nil(all_gs)) {
+***************
+*** 225,231 ****
+--- 264,276 ----
+        lastg = last(gs->g);
+      }
+    }
++   return lastg;
++ }
+  
++ inherit_axes(g, lastg)
++ Graph g;
++ Graph lastg;
++ {
+    copy_axis(g->x_axis, lastg->x_axis);
+    copy_axis(g->y_axis, lastg->y_axis);
+    g->x_translate = lastg->x_translate;
+***************
+*** 608,614 ****
+      } else if (strcmp(inp_str, "copystring") == 0) {
+        edit_label(do_copy_string(g, gs, all_gs));
+      } else if (strcmp(inp_str, "inherit_axes") == 0) {
+!       inherit_axes(g, gs, all_gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else gs->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+--- 653,659 ----
+      } else if (strcmp(inp_str, "copystring") == 0) {
+        edit_label(do_copy_string(g, gs, all_gs));
+      } else if (strcmp(inp_str, "inherit_axes") == 0) {
+!       inherit_axes(g, last_graph(g, gs, all_gs));
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else gs->height = f;
+      } else if (strcmp(inp_str, "X") == 0) {
+***************
+*** 632,641 ****
+  Graphs gs;
+  {
+    Graphs the_g;
+!   Graph g;
+    char inp_str[80];
+    float f;
+!   int num, i;
+  
+    the_g = first(gs);
+    while ( getstring(inp_str) ) {
+--- 677,686 ----
+  Graphs gs;
+  {
+    Graphs the_g;
+!   Graph g, tmp_g;
+    char inp_str[80];
+    float f;
+!   int num, i, ok;
+  
+    the_g = first(gs);
+    while ( getstring(inp_str) ) {
+***************
+*** 653,659 ****
+        if (first(the_g->g) == nil(the_g->g))
+          g = new_graph(the_g->g, 0);
+        else g = new_graph(the_g->g, last(the_g->g)->num + 1);
+!       inherit_axes(g, the_g, gs);
+        edit_graph(g, the_g, gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else the_g->height = f;
+--- 698,720 ----
+        if (first(the_g->g) == nil(the_g->g))
+          g = new_graph(the_g->g, 0);
+        else g = new_graph(the_g->g, last(the_g->g)->num + 1);
+!       if (!getint(&num)) {
+!         rejecttoken();
+!         inherit_axes(g, last_graph(g, the_g, gs));
+!       } else {
+!         ok = 0;
+!         tmp_g = the_g->g;
+!         while(!ok) {
+!           tmp_g = prev(tmp_g);
+!           if (tmp_g == nil(the_g->g) || tmp_g->num < num) {
+!             error_header();
+!             fprintf(stderr, "copygraph: no graph #%d\n", num);
+!             exit(1);
+!           }
+!           ok = (tmp_g->num == num);
+!         }
+!         inherit_axes(g, tmp_g);
+!       }
+        edit_graph(g, the_g, gs);
+      } else if (strcmp(inp_str, "Y") == 0) {
+        if (!getfloat(&f)) rejecttoken(); else the_g->height = f;
+*** /dev/null	Tue Feb  4 12:14:21 1992
+--- epts.awk	Tue Feb  4 12:24:22 1992
+***************
+*** 0 ****
+--- 1,11 ----
++ BEGIN	{ l = 0 ; }
++ 	{ if (l == 0) {\
++ 	    l = 1; \
++ 	    c1 = $1; \
++           } else { \
++ 	    printf("  curve %d pts %f %f\n", c1, $1, $2); \
++ 	    printf("  copycurve pts %f %f  %f %f\n", \
++               $1, $2 - $3/2.0, $1, $2 + $3/2.0); \
++           } \
++         }
++           
+*** /dev/null	Tue Feb  4 12:14:21 1992
+--- etst.jgr	Tue Feb  4 12:24:16 1992
+***************
+*** 0 ****
+--- 1,10 ----
++ newgraph
++ 
++ xaxis min 0 max 100 size 6 hash 20 mhash 1
++ yaxis min 0 max 100 size 8 hash 10 mhash 1
++ 
++ curve 0 marktype circle fill 0 linetype dashed
++ curve 1 marktype cross marksize 1 0 linetype solid
++ 
++ shell 
++ : ( echo "0" ; cat etst.pts ) | awk -f epts.awk
+*** /dev/null	Tue Feb  4 12:14:21 1992
+--- etst.pts	Tue Feb  4 12:24:20 1992
+***************
+*** 0 ****
+--- 1,11 ----
++ 0 0 0
++ 10 30 5
++ 20 60 20
++ 30 5 2
++ 40 10 10
++ 50 20 10
++ 60 30 7
++ 70 60 30
++ 80 80 20
++ 90 50 2
++ 100 95 10
+*** ../work/jgraph.1	Tue Feb  4 12:27:52 1992
+--- jgraph.1	Tue Feb  4 12:24:15 1992
+***************
+*** 7,12 ****
+--- 7,13 ----
+  .B jgraph 
+  [\-\fIp\fR\|]
+  [\-\fIP\fR\|]
++ [\-\fIcomments\fR\|]
+  .SH DESCRIPTION
+  \fBJgraph\fR
+  takes the description of a graph or graphs in the standard
+***************
+*** 88,93 ****
+--- 89,99 ----
+  with all the defaults made explicit.  This is useful for letting the
+  user do his/her own special formatting, as it shows the explicit
+  values that the defaults assume, so that they can be manipulated.
++ .TP
++ .B \-comments
++ This option makes jgraph put comments into the output postscript.  These
++ make it easier for the user to wade through the final postscript if 
++ necessary. 
+  .SH THE DESCRIPTION LANGUAGE
+  The description language is essentially keywords followed by
+  attributes.  All keywords and attributes except for string attributes
+***************
+*** 200,220 ****
+  where n=0 if this is the first graph, otherwise n=m+1, where m is the
+  largest number of any graph so far.
+  .TP
+! .B copygraph
+  This creates a new graph, and copies all the attributes from the
+! previous graph's x and y axes, as well as the x_translate and 
+! y_translate values, and the clipping. 
+! (Actually, this is a little bit of a lie, as it does not copy the
+! values of the 
+! \fB\fIhash_at\fB, \fImhash_at\fB,\fR
+! and 
+! \fB\fI\fIhash_label\fB\fR 
+! attributes). 
+! The previous graph is defined to be the graph with the largest number 
+  less than the currrent graph's number.  If the current 
+  graph has the smallest number, then it will take the last graph from 
+  the previous page of graphs.  If there is no previous page, then an 
+  error will be flagged.
+  .TP
+  .B newpage
+  This command is for plotting graphs on multiple pages.  After a 
+--- 206,230 ----
+  where n=0 if this is the first graph, otherwise n=m+1, where m is the
+  largest number of any graph so far.
+  .TP
+! \fBcopygraph \|[\fIinteger\fB\|]\fR
+  This creates a new graph, and copies all the attributes from the
+! graph
+! \fB\|[\fIinteger\fB\|]'s\fR
+! x and y axes, as well as its x_translate and 
+! y_translate values, and the clipping.   If the
+! \fB\|[\fIinteger\fB\|]\fR
+! is omitted, then it copies its values from the ``previous''
+! graph, which is 
+! defined to be the graph with the largest number 
+  less than the currrent graph's number.  If the current 
+  graph has the smallest number, then it will take the last graph from 
+  the previous page of graphs.  If there is no previous page, then an 
+  error will be flagged.
++ (copygraph does not copy the values of the 
++ \fB\fIhash_at\fB, \fImhash_at\fB,\fR
++ and 
++ \fB\fI\fIhash_label\fB\fR 
++ attributes). 
+  .TP
+  .B newpage
+  This command is for plotting graphs on multiple pages.  After a 
+***************
+*** 323,331 ****
+  .fi
+  .PP
+  .TP
+! \fBcopycurve\fR  
+  This starts editing a new curve of the graph, and copies all its 
+! values from last curve in this graph.  If this graph currently has
+  no curves, then it searches backwards from the previous graph.
+  .TP
+  \fBtitle\fR   
+--- 333,346 ----
+  .fi
+  .PP
+  .TP
+! \fBcopycurve \|[\fIinteger\fB\|]\fR
+  This starts editing a new curve of the graph, and copies all its 
+! values except for the points from curve 
+! \fB\|[\fIinteger.\fB\|]\fR
+! If the 
+! \fB\|[\fIinteger\fB\|]\fR
+! is omitted, then it copies its values from the 
+! last curve in this graph.  If this graph currently has
+  no curves, then it searches backwards from the previous graph.
+  .TP
+  \fBtitle\fR   
+***************
+*** 348,354 ****
+  .br
+  .ns
+  .TP
+! \fBcopystring\fR
+  \fBString\fR
+  and
+  \fBcopystring\fR
+--- 363,369 ----
+  .br
+  .ns
+  .TP
+! \fBcopystring \|[\fIinteger\fB\|]\fR
+  \fBString\fR
+  and
+  \fBcopystring\fR
+***************
+*** 824,836 ****
+  \fBrotate \|[\fIfloat\fB\|]\fR   
+  This will rotate the string 
+  \fB\|[\fIfloat\fB\|] \fR
+! degrees.  At
+! the moment, the only rotations which work cleanly are: 0, 90 & 
+! \fBvjc,\fR
+! -90 and 
+! \fBvjc,\fR
+! and anything else where rotation should be around the left, bottom corner
+! of the string. 
+  .PD
+  .RE
+  .LP
+--- 839,851 ----
+  \fBrotate \|[\fIfloat\fB\|]\fR   
+  This will rotate the string 
+  \fB\|[\fIfloat\fB\|] \fR
+! degrees.  The point of rotation is defined by the
+! \fBvj\fR
+! and 
+! \fBhj\fR
+! commands.  For example, to rotate 90 degrees about the center of a string, 
+! one would use
+! \fBvjc hjc rotate 90.\fR
+  .PD
+  .RE
+  .LP
+***************
+*** 1201,1204 ****
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 7.2 $.
+--- 1216,1219 ----
+  .sp
+  There may well be loads of other bugs.  Send to jsp@princeton.edu.
+  .sp
+! This is $Revision: 7.3 $.
+*** ../work/jgraph.c	Tue Feb  4 12:27:53 1992
+--- jgraph.c	Tue Feb  4 12:24:08 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:50 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:20:57 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 271,276 ****
+--- 271,277 ----
+    Graphs gs;
+    int i;
+    int show, pp;
++   int comments;
+  
+  #ifdef VMS 
+    IOSTREAM = stdin;	/* for token.c -hdd */
+***************
+*** 277,287 ****
+--- 278,292 ----
+  #endif
+    show = 0;
+    pp = 0;
++   comments = 0;
++ 
+    for (i = 1; i < argc; i++) {
+      if (strcmp(argv[i], "-p") == 0) show = 1;
++     if (strcmp(argv[i], "-comments") == 0) comments = 1;
+      else if (strcmp(argv[i], "-P") == 0) pp = 1;
+    }
+    gs = (Graphs) make_list(sizeof(struct graphs));
++   set_comment(comments);
+    new_graphs(gs);
+    edit_graphs(gs);
+    process_graphs(gs);
+*** ../work/jgraph.h	Tue Feb  4 12:27:54 1992
+--- jgraph.h	Tue Feb  4 12:24:09 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:52 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/jgraph.h,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:00 $
+   * $Author: jsp $
+   */
+  
+*** ../work/list.c	Tue Feb  4 12:27:54 1992
+--- list.c	Tue Feb  4 12:24:10 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:53 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:02 $
+   * $Author: jsp $
+   */
+  
+*** ../work/list.h	Tue Feb  4 12:27:55 1992
+--- list.h	Tue Feb  4 12:24:10 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:54 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/list.h,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:04 $
+   * $Author: jsp $
+   */
+  
+*** ../work/printline.c	Tue Feb  4 12:27:56 1992
+--- printline.c	Tue Feb  4 12:24:10 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:56 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/printline.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:40 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 10,24 ****
+  
+  #define LINEWIDTHFACTOR 0.700
+  
+  printline(x1, y1,x2, y2, orientation)
+  float x1, y1, x2, y2;
+  char orientation;
+  {
+    if (orientation == 'x') 
+!     printf("newpath %f %f moveto %f %f lineto stroke\nstroke\n",
+            x1, y1, x2, y2);
+    else
+!     printf("newpath %f %f moveto %f %f lineto stroke\nstroke\n",
+            y1, x1, y2, x2);} 
+  
+  start_line(x1, y1, c)
+--- 10,88 ----
+  
+  #define LINEWIDTHFACTOR 0.700
+  
++ typedef struct fontlist {
++   struct fontlist *flink;
++   struct fontlist *blink;
++   int level;
++   float s;
++   char *f;
++ } *Fontlist;
++ 
++ static Fontlist Jgraph_fonts;
++ static int Jgraph_gsave_level = -100;
++ static int Jgraph_comment;
++ 
++ gsave()
++ {
++   if (Jgraph_gsave_level == -100) {
++     Jgraph_gsave_level = 0;
++     Jgraph_fonts = (Fontlist) make_list(sizeof(struct fontlist));
++   } 
++   Jgraph_gsave_level++;
++   printf(" gsave ");
++ }
++ 
++ grestore()
++ {
++   Fontlist l;
++ 
++   if (last(Jgraph_fonts) != nil(Jgraph_fonts)) {
++     l = last(Jgraph_fonts);
++     if (l->level == Jgraph_gsave_level) {
++       delete_item(l);
++       free_node(l, Jgraph_fonts);
++     }
++   }
++   Jgraph_gsave_level--;
++   printf(" grestore ");
++ }
++ 
++ setfont(f, s)
++ char *f;
++ float s;
++ {
++   Fontlist l;
++   int ins;
++ 
++   if (last(Jgraph_fonts) != nil(Jgraph_fonts)) {
++     l = last(Jgraph_fonts);
++     ins = (strcmp(l->f, f) != 0 || s != l->s);
++     if (ins) {
++       delete_item(l);
++       free_node(l, Jgraph_fonts);
++     }
++   } else {
++     ins = 1;
++   }
++   if (ins) {
++     l = (Fontlist) get_node(Jgraph_fonts);
++     l->level = Jgraph_gsave_level;
++     l->s = s;
++     l->f = f;
++     insert(l, Jgraph_fonts);
++     printf("/%s findfont %f scalefont setfont\n", f, s);
++   }
++ }
++   
+  printline(x1, y1,x2, y2, orientation)
+  float x1, y1, x2, y2;
+  char orientation;
+  {
+    if (orientation == 'x') 
+!     printf("newpath %f %f moveto %f %f lineto stroke\n",
+            x1, y1, x2, y2);
+    else
+!     printf("newpath %f %f moveto %f %f lineto stroke\n",
+            y1, x1, y2, x2);} 
+  
+  start_line(x1, y1, c)
+***************
+*** 38,44 ****
+  
+  end_line()
+  {
+!   printf("stroke\n stroke\n");
+    setlinewidth(1.0);
+    setlinestyle('s', (Flist) 0);
+  
+--- 102,108 ----
+  
+  end_line()
+  {
+!   printf("stroke\n");
+    setlinewidth(1.0);
+    setlinestyle('s', (Flist) 0);
+  
+***************
+*** 74,81 ****
+  {
+    if (fill < 0.0) printf("closepath stroke\n");
+    else {
+!     printf("closepath gsave  %f setgray ", fill);
+!     printf("fill grestore stroke\n");
+    }
+  }
+  
+--- 138,146 ----
+  {
+    if (fill < 0.0) printf("closepath stroke\n");
+    else {
+!     printf("closepath gsave");
+!     printf(" %f setgray fill ", fill);
+!     printf("grestore stroke\n");
+    }
+  }
+  
+***************
+*** 88,97 ****
+      else printf("gsave  %f setgray fill grestore stroke\n", fill);
+  }
+  
+  comment(s)
+  char *s;
+  {
+!   printf("%% %s\n", s);
+  }
+  
+  printline_c(x1, y1, x2, y2, g)
+--- 153,168 ----
+      else printf("gsave  %f setgray fill grestore stroke\n", fill);
+  }
+  
++ set_comment(c)
++ int c;
++ {
++   Jgraph_comment = c;
++ }
++ 
+  comment(s)
+  char *s;
+  {
+!   if (Jgraph_comment) printf("%% %s\n", s);
+  }
+  
+  printline_c(x1, y1, x2, y2, g)
+***************
+*** 111,138 ****
+  char *font;
+  float size;
+  {
+!   printf("/%s findfont %f scalefont setfont\n", font, size);
+    printf("%f %f moveto\n", x, y);
+    printf("(%s)", s);
+!   if (r == 90.0 && vj == 'c') {
+!     if (hj == 'c') printf("%f 0 rmoveto ", -size * FCPI / FPPI / 2.0);
+!     printf("dup stringwidth pop 2 div neg 0 exch rmoveto ");
+!   } else if (r == -90.0 && vj == 'c') {
+!     if (hj == 'c') printf("%f 0 rmoveto ", -size * FCPI / FPPI / 2.0);
+!     printf("dup stringwidth pop 2 div 0 exch rmoveto ");
+!   } else {
+!     if (hj == 'c') {
+!       printf("dup stringwidth pop 2 div neg 0 rmoveto ");
+!     } else if (hj == 'r') {
+!       printf("dup stringwidth pop neg 0 rmoveto ");
+!     }
+!     if (vj == 'c') {
+!       printf("0 %f rmoveto ", -size * FCPI / FPPI / 2.0);
+!     } else if (vj == 't') {
+!       printf("0 %f rmoveto ", -size * FCPI / FPPI);
+!     }
+    }
+!   printf(" gsave  %f rotate show grestore\n", r);
+  }
+  
+  setlinewidth(size)
+--- 182,202 ----
+  char *font;
+  float size;
+  {
+!   setfont(font, size);
+    printf("%f %f moveto\n", x, y);
++   printf(" gsave  %f rotate \n", r);
+    printf("(%s)", s);
+!   if (hj == 'c') {
+!     printf("dup stringwidth pop 2 div neg 0 rmoveto ");
+!   } else if (hj == 'r') {
+!     printf("dup stringwidth pop neg 0 rmoveto ");
+    }
+!   if (vj == 'c') {
+!     printf("0 %f rmoveto ", -size * FCPI / FPPI / 2.0);
+!   } else if (vj == 't') {
+!     printf("0 %f rmoveto ", -size * FCPI / FPPI);
+!   }
+!   printf("show grestore\n", r);
+  }
+  
+  setlinewidth(size)
+*** ../work/prio_list.c	Tue Feb  4 12:27:57 1992
+--- prio_list.c	Tue Feb  4 12:24:11 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:57 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:41 $
+   * $Author: jsp $
+   */
+  
+*** ../work/prio_list.h	Tue Feb  4 12:27:57 1992
+--- prio_list.h	Tue Feb  4 12:24:11 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:58 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.h,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:42 $
+   * $Author: jsp $
+   */
+  
+*** ../work/process.c	Tue Feb  4 12:27:58 1992
+--- process.c	Tue Feb  4 12:24:12 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:55:59 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:43 $
+   * $Author: jsp $
+   */
+  
+***************
+*** 16,21 ****
+--- 16,23 ----
+  #define AXIS_CHAR(a) ((a->is_x) ? 'x' : 'y')
+  #define HASH_DIR(a) ((a->hash_scale > 0.0) ? 1 : -1)
+  
++ static double Pi;
++ 
+  process_title(g)
+  Graph g;
+  {
+***************
+*** 476,481 ****
+--- 478,484 ----
+  {
+    Curve c;
+    float y, x;
++   String s;
+  
+    g->xminval = 0.0;
+    g->yminval = 0.0;
+***************
+*** 489,497 ****
+                      g->x_axis->label->fontsize);
+    }
+    if (g->y_axis->draw_axis_label) {
+!     g->xminval = MIN(g->xminval, g->y_axis->label->y - 
+                      g->y_axis->label->fontsize);
+!     g->xmaxval = MAX(g->xmaxval, g->y_axis->label->y + 
+                      g->y_axis->label->fontsize);
+    }
+  
+--- 492,500 ----
+                      g->x_axis->label->fontsize);
+    }
+    if (g->y_axis->draw_axis_label) {
+!     g->xminval = MIN(g->xminval, g->y_axis->label->x - 
+                      g->y_axis->label->fontsize);
+!     g->xmaxval = MAX(g->xmaxval, g->y_axis->label->x + 
+                      g->y_axis->label->fontsize);
+    }
+  
+***************
+*** 545,550 ****
+--- 548,556 ----
+        }
+      }
+    }
++   for(s = first(g->strings); s != nil(g->strings); s = next(s)) {
++     process_label_extrema(s->s, g);
++   }
+  }
+  
+  process_label_extrema(l, g)
+***************
+*** 551,588 ****
+  Label l;
+  Graph g;
+  {
+!   float len;
+!   float height;
+  
+    len = l->fontsize * FCPI / FPPI * strlen(l->label) * 0.8;
+    height = l->fontsize * FCPI / FPPI;
+!   if (l->rotate == 0.0 || l->rotate == 180.0 || l->rotate == -180.0) {
+!     if (l->hj == 'l') {
+!       g->xminval = MIN(g->xminval, l->x);
+!       g->xmaxval = MAX(g->xmaxval, l->x + len);
+!     } else if (l->hj == 'c') {
+!       g->xminval = MIN(g->xminval, l->x - len/2.0);
+!       g->xmaxval = MAX(g->xmaxval, l->x + len/2.0);
+!     } else if (l->hj == 'r') {
+!       g->xminval = MIN(g->xminval, l->x - len);
+!       g->xmaxval = MAX(g->xmaxval, l->x);
+!     }
+!     if (l->vj == 'b') {
+!       g->yminval = MIN(g->yminval, l->y);
+!       g->ymaxval = MAX(g->ymaxval, l->y + height);
+!     } else if (l->vj == 'c') {
+!       g->yminval = MIN(g->yminval, l->y - height/2.0);
+!       g->ymaxval = MAX(g->ymaxval, l->y + height/2.0);
+!     } else if (l->vj == 't') {
+!       g->yminval = MIN(g->yminval, l->y - height);
+!       g->ymaxval = MAX(g->ymaxval, l->y);
+!     }
+!   } else {         /* This is wrong -- I'm just estimating on the high side */
+!     g->yminval = MIN(g->yminval, l->y - len);
+!     g->ymaxval = MAX(g->ymaxval, l->y + len);
+!     g->xminval = MIN(g->xminval, l->x - len);
+!     g->xmaxval = MAX(g->xmaxval, l->x + len);
+    }
+  }
+  
+  process_graph(g)
+--- 557,610 ----
+  Label l;
+  Graph g;
+  {
+!   float len, height, xlen, ylen, xheight, yheight;
+!   float x, y;
+  
+    len = l->fontsize * FCPI / FPPI * strlen(l->label) * 0.8;
+    height = l->fontsize * FCPI / FPPI;
+!   xlen = len * cos(l->rotate * Pi / 180.00);
+!   ylen = height * cos((l->rotate + 90.0) * Pi / 180.00);
+!   xheight = len * sin(l->rotate * Pi / 180.00);
+!   yheight = height * sin((l->rotate + 90.0) * Pi / 180.00);
+!   
+!   x = l->x;
+!   y = l->y;
+! 
+!   if (l->hj == 'c') {
+!     x -= xlen / 2.0;
+!     y -= xheight / 2.0;
+!   } else if (l->hj == 'r') {
+!     x -= xlen;
+!     y -= xheight;
+    }
++   if (l->vj == 'c') {
++     x -= ylen / 2.0;
++     y -= yheight / 2.0;
++   } else if (l->vj == 't') {
++     x -= ylen;
++     y -= yheight;
++   }
++ 
++   g->xminval = MIN(g->xminval, x);
++   g->xminval = MIN(g->xminval, x + xlen);
++   g->xminval = MIN(g->xminval, x + xlen + ylen);
++   g->xminval = MIN(g->xminval, x + ylen);
++ 
++   g->yminval = MIN(g->yminval, y);
++   g->yminval = MIN(g->yminval, y + xheight);
++   g->yminval = MIN(g->yminval, y + yheight);
++   g->yminval = MIN(g->yminval, y + xheight + yheight);
++ 
++   g->xmaxval = MAX(g->xmaxval, x);
++   g->xmaxval = MAX(g->xmaxval, x + xlen);
++   g->xmaxval = MAX(g->xmaxval, x + xlen + ylen);
++   g->xmaxval = MAX(g->xmaxval, x + ylen);
++ 
++   g->ymaxval = MAX(g->ymaxval, y);
++   g->ymaxval = MAX(g->ymaxval, y + xheight);
++   g->ymaxval = MAX(g->ymaxval, y + yheight);
++   g->ymaxval = MAX(g->ymaxval, y + xheight + yheight);
++ 
+  }
+  
+  process_graph(g)
+***************
+*** 609,614 ****
+--- 631,637 ----
+    float diff, max_y, min_y, max_x, min_x;
+    int do_bb, i;
+  
++   Pi = acos(-1.0);
+    for (the_g = first(gs); the_g != nil(gs); the_g = next(the_g)) {
+      for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) process_graph(g);
+      max_x = 0.0;
+*** ../work/show.c	Tue Feb  4 12:28:00 1992
+--- show.c	Tue Feb  4 12:24:13 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:56:02 $
+   * $Author: jsp $
+   */ 
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/show.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:46 $
+   * $Author: jsp $
+   */ 
+  
+*** ../work/token.c	Tue Feb  4 12:28:09 1992
+--- token.c	Tue Feb  4 12:24:14 1992
+***************
+*** 1,7 ****
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 7.2 $
+!  * $Date: 92/01/27 12:56:06 $
+   * $Author: jsp $
+   */
+  
+--- 1,7 ----
+  /* 
+   * $Source: /n/fs/vd/jsp/src/jgraph/RCS/token.c,v $
+!  * $Revision: 7.3 $
+!  * $Date: 92/02/04 12:21:47 $
+   * $Author: jsp $
+   */
+  
+
+exit 0 # Just in case...

@@ -1,0 +1,2239 @@
+Newsgroups: comp.sources.misc
+From: durian@advtech.uswest.com (Mike Durian)
+Subject: v37i043:  tclm - TCL extensions for MIDI file manipulation, Part01/05
+Message-ID: <csm-v37i043=tclm.165023@sparky.IMD.Sterling.COM>
+X-Md4-Signature: ba4df218ca79503f7d60bdf8e6123339
+Date: Mon, 10 May 1993 21:50:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: durian@advtech.uswest.com (Mike Durian)
+Posting-number: Volume 37, Issue 43
+Archive-name: tclm/part01
+Environment: BSD/386, Esix SV4, SunOS, TCL 6.x
+
+Tclm is an extended version of John Ousterhout's tcl (Tool Command
+Language) package.  The extensions are designed to allow easy
+manipulation of Standard MIDI Files.  The combination of the easy
+to use tcl interpreted language and the MIDI extensions makes it
+very simple to write you own MIDI applications.
+
+If you've played with tclm-0.1, you'll find 1.0 a lot different.
+I think it is much easier to use and a lot more powerful, but then
+my opinion might be a bit biased.
+
+Included with tclm are a few scripts that use tclm.  These include
+scripts to play and record record MIDI files as well as a simple
+text based sequencer.  There is also a pair of scripts that convert
+a MIDI file into human readable form and back again.
+
+Mike Durian
+durian@advtech.uswest.com
+------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  tclm-1.0 tclm-1.0/doc tclm-1.0/mlib tclm-1.0/patchlevel.h
+#   tclm-1.0/tclmCmd.c
+# Wrapped by kent@sparky on Mon May 10 09:43:32 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 5)."'
+if test ! -d 'tclm-1.0' ; then
+    echo shar: Creating directory \"'tclm-1.0'\"
+    mkdir 'tclm-1.0'
+fi
+if test ! -d 'tclm-1.0/doc' ; then
+    echo shar: Creating directory \"'tclm-1.0/doc'\"
+    mkdir 'tclm-1.0/doc'
+fi
+if test ! -d 'tclm-1.0/mlib' ; then
+    echo shar: Creating directory \"'tclm-1.0/mlib'\"
+    mkdir 'tclm-1.0/mlib'
+fi
+if test -f 'tclm-1.0/patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/patchlevel.h'\"
+else
+  echo shar: Extracting \"'tclm-1.0/patchlevel.h'\" \(93 characters\)
+  sed "s/^X//" >'tclm-1.0/patchlevel.h' <<'END_OF_FILE'
+X/*
+X * patchlevel.h,v 1.3 1993/05/06 02:51:11 durian Exp
+X */
+X
+X#define TCLM_PATCHLEVEL "0.9.5"
+END_OF_FILE
+  if test 93 -ne `wc -c <'tclm-1.0/patchlevel.h'`; then
+    echo shar: \"'tclm-1.0/patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'tclm-1.0/patchlevel.h'
+fi
+if test -f 'tclm-1.0/tclmCmd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/tclmCmd.c'\"
+else
+  echo shar: Extracting \"'tclm-1.0/tclmCmd.c'\" \(54562 characters\)
+  sed "s/^X//" >'tclm-1.0/tclmCmd.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by Michael B. Durian.
+X * 4. The name of the the Author may be used to endorse or promote 
+X *    products derived from this software without specific prior written 
+X *    permission.
+X *
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*
+X * tclmCmd.c,v 1.14 1993/05/07 17:45:07 durian Exp
+X */
+X
+Xstatic char cvsid[] = "tclmCmd.c,v 1.14 1993/05/07 17:45:07 durian Exp";
+X
+X#include "tclInt.h"
+X#include "tclUnix.h"
+X#include "patchlevel.h"
+X#include "mutil.h"
+X#include "tclm.h"
+X#ifdef MIDIPLAY
+X#include "tclmPlay.h"
+X#endif
+X
+X
+XTcl_HashTable MidiFileHash;
+Xstatic int mfileId = 0;
+X
+Xstatic char *key_strings[] = {"C flat", "G flat", "D flat", "A flat",
+X    "E flat", "B flat", "F", "C", "G", "D", "A", "E", "B", "F sharp",
+X    "C sharp"};
+Xstatic char *event_list = "channelpressure keypressure \"a meta event\" \
+Xnoteoff noteon parameter pitchwheel program sysex";
+Xstatic char *meta_events = "metachanprefix metacpy metacue metaeot \
+Xmetainstname metakey metalyric metamarker metaseqname metaseqnum metaseqspec \
+Xmetasmpte metatempo metatext metatime";
+X
+Xstatic int Tclm_ConvertMeta _ANSI_ARGS_((Tcl_Interp *, int, char **,
+X    unsigned char *, int *));
+Xstatic int Tclm_ConvertTiming _ANSI_ARGS_((Tcl_Interp *, char *,
+X    unsigned char *, int *));
+Xstatic int Tclm_ConvertBytes _ANSI_ARGS_((Tcl_Interp *, char *,
+X    unsigned char *, int *));
+Xstatic int Tclm_AddMetaBytes _ANSI_ARGS_((Tcl_Interp *, unsigned char *, int *,
+X    char *));
+Xstatic void Tclm_AddMetaString _ANSI_ARGS_((unsigned char *, int *, char *));
+Xstatic void Tclm_MakeMetaText _ANSI_ARGS_((Tcl_Interp *, unsigned char *));
+X
+Xvoid
+XTclm_InitMidi(interp)
+X	Tcl_Interp *interp;
+X{
+X
+X	Tcl_CreateCommand(interp, "midiconfig", Tclm_MidiConfig, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midiread", Tclm_MidiRead, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midiwrite", Tclm_MidiWrite, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midimerge", Tclm_MidiMerge, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midimake", Tclm_MidiMake, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midifree", Tclm_MidiFree, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midirewind", Tclm_MidiRewind, NULL, NULL);
+X
+X	Tcl_CreateCommand(interp, "midifixtovar", Tclm_MidiFixToVar, NULL,
+X	    NULL);
+X	Tcl_CreateCommand(interp, "midivartofix", Tclm_MidiVarToFix, NULL,
+X	    NULL);
+X	Tcl_CreateCommand(interp, "midiget", Tclm_MidiGet, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midiput", Tclm_MidiPut, NULL, NULL);
+X	Tcl_CreateCommand(interp, "miditiming", Tclm_MidiTiming, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midiplayable", Tclm_MidiPlayable, NULL,
+X	    NULL);
+X	Tcl_CreateCommand(interp, "tclmversion", Tclm_TclmVersion, NULL, NULL);
+X	Tcl_InitHashTable(&MidiFileHash, TCL_ONE_WORD_KEYS);
+X#ifdef MIDIPLAY
+X	Tclm_InitPlay(interp);
+X#endif
+X}
+X
+X
+Xint
+XTclm_MidiConfig(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	int length;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midiconfig
+X	 * argv[1] - mfileID
+X	 * argv[2] - format | division | tracks
+X	 * argv[3] - optional arg
+X	 */
+X	result = TCL_OK;
+X	if (argc < 3 || argc > 4) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], "mfileId {format | division | tracks} ?arg?\"",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	length = strlen(argv[2]);
+X	switch(argv[2][0]) {
+X	case 'd':
+X		if (strncmp(argv[2], "division", length) == 0)
+X			result = Tclm_Division(interp, argc, argv);
+X		else {
+X			Tcl_AppendResult(interp, "bad option, ", argv[2],
+X			    ", must be one of format, division or tracks",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		break;
+X	case 'f':
+X		if (strncmp(argv[2], "format", length) == 0)
+X			result = Tclm_Format(interp, argc, argv);
+X		else {
+X			Tcl_AppendResult(interp, "bad option, ", argv[2],
+X			    ", must be one of format, division or tracks",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		break;
+X	case 't':
+X		if (strncmp(argv[2], "tracks", length) == 0)
+X			result = Tclm_NumTracks(interp, argc, argv);
+X		else {
+X			Tcl_AppendResult(interp, "bad option, ", argv[2],
+X			    ", must be one of format, division or tracks",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		break;
+X	default:
+X		Tcl_AppendResult(interp, "bad option, ", argv[2],
+X		    ", must be one of format, division or tracks",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	return (result);
+X}
+X
+Xint
+XTclm_MidiMake(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	Tcl_HashEntry *hash_entry;
+X	int created_hash;
+X
+X	/*
+X	 * argv[0] - midimake
+X	 */
+X	if (argc != 1) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((mfile = (MIDI_FILE *)malloc(sizeof(MIDI_FILE))) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for MIDI file",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	strncpy(mfile->hchunk.str, "MThd", 4);
+X	mfile->hchunk.length = 6;
+X	mfile->hchunk.format = 1;
+X	mfile->hchunk.division = 120;
+X	mfile->hchunk.num_trks = 0;
+X	mfile->tchunks = NULL;
+X
+X	hash_entry = Tcl_CreateHashEntry(&MidiFileHash, (char *)mfileId,
+X	    &created_hash);
+X	if (!created_hash) {
+X		Tcl_AppendResult(interp, "Hash bucket for file alread ",
+X		    "exists", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	Tcl_SetHashValue(hash_entry, mfile);
+X
+X	sprintf(interp->result, "mfile%d", mfileId++);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiRead(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	OpenFile *filePtr;
+X	Tcl_HashEntry *hash_entry;
+X	int created_hash;
+X	int fd;
+X	int i;
+X	int result;
+X	char num_str[20];
+X
+X	/*
+X	 * argv[0] - midiread
+X	 * argv[1] - open file descriptor
+X	 */
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], " fileId\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((result = TclGetOpenFile(interp, argv[1], &filePtr)) != TCL_OK)
+X		return (result);
+X
+X	fd = fileno(filePtr->f);
+X	if ((mfile = (MIDI_FILE *)malloc(sizeof(MIDI_FILE))) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for MIDI file",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if (!read_header_chunk(fd, &mfile->hchunk)) {
+X		if (MidiEof)
+X			Tcl_AppendResult(interp, "EOF");
+X		else
+X			Tcl_AppendResult(interp,
+X			    "Couldn't read header chunk\n", MidiError,
+X			    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((mfile->tchunks = (TCHUNK *)malloc(mfile->hchunk.num_trks *
+X	    sizeof(TCHUNK))) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for track ",
+X		    "chunks", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	for (i = 0;  i < mfile->hchunk.num_trks; i++) {
+X		if (!read_track_chunk(fd, &(mfile->tchunks[i]))) {
+X			sprintf(num_str, "%d", i);
+X			Tcl_AppendResult(interp, "Couldn't read track ",
+X			    "number ",  num_str, "\n", MidiError,
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	hash_entry = Tcl_CreateHashEntry(&MidiFileHash, (char *)mfileId,
+X	    &created_hash);
+X	if (!created_hash) {
+X		Tcl_AppendResult(interp, "Hash bucket for file alread ",
+X		    "exists", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	Tcl_SetHashValue(hash_entry, mfile);
+X
+X	sprintf(interp->result, "mfile%d", mfileId++);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiWrite(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	OpenFile *filePtr;
+X	int fd;
+X	int i;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midiwrite
+X	 * argv[1] - mfileId
+X	 * argv[2] - fileId
+X	 */
+X	if (argc != 3) {
+X		Tcl_AppendResult(interp, "bad # args: shoudl be \"",
+X		    argv[0], " mfileId fileId\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((result = TclGetOpenFile(interp, argv[2], &filePtr)) != TCL_OK)
+X		return (result);
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	fd = fileno(filePtr->f);
+X
+X	if (!write_header_chunk(fd, &mfile->hchunk)) {
+X		Tcl_AppendResult(interp, "Couldn't write header chunk\n",
+X		    MidiError, (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	for (i = 0; i < mfile->hchunk.num_trks; i++) {
+X		if (!write_track_chunk(fd, &(mfile->tchunks[i]))) {
+X			sprintf(interp->result,
+X			    "Coudln't write track chunk %d\n%s", i,
+X			    MidiError);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiMerge(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	char **strs;
+X	char **substrs;
+X	MIDI_FILE *outmfile;
+X	MIDI_FILE **inmfile;
+X	TCHUNK **intrack;
+X	TCHUNK *outtrack;
+X	int *tscalar;
+X	char *chk_ptr;
+X	int delta;
+X	int endtime;
+X	int i;
+X	int ind;
+X	int numin;
+X	int num_strs;
+X	int num_substrs;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midimerge
+X	 * argv[1] - {outmfile outtrack}
+X	 * argv[2] - {{inmfile intrack tscalar} {inmfile intrack tscalar} ...}
+X	 * argv[3] - delta
+X	 */
+X	if (argc != 4) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " {outmfile outtrack} {{inmfile intrack} ",
+X		    "{inmfile intrack} ...} delta", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	/* parse output fields */
+X	if ((result = Tcl_SplitList(interp, argv[1], &num_strs, &strs)) !=
+X	    TCL_OK)
+X		return (result);
+X
+X	if (num_strs != 2) {
+X		Tcl_AppendResult(interp, "bad track designation: ",
+X		    argv[1], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((result = Tclm_GetMFile(interp, strs[0], &outmfile)) != TCL_OK)
+X		return (result);
+X
+X	ind = (int)strtol(strs[1], &chk_ptr, 0);
+X	if (chk_ptr == strs[1] || ind < 0 || ind > outmfile->hchunk.num_trks) {
+X		Tcl_AppendResult(interp, "bad outtrack value: ", strs[1],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	free((char *)strs);
+X
+X	outtrack = &outmfile->tchunks[ind];
+X
+X	/* now parse input strs */
+X	if ((result = Tcl_SplitList(interp, argv[2], &num_strs, &strs)) !=
+X	    TCL_OK)
+X		return (result);
+X
+X	numin = num_strs;
+X	if ((inmfile = (MIDI_FILE **)malloc(sizeof(MIDI_FILE *) * numin))
+X	    == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for infiles",
+X		    (char *)NULL);
+X		free((char *)strs);
+X		return (TCL_ERROR);
+X	}
+X	if ((tscalar = (int *)malloc(sizeof(int) * numin)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for tscalars",
+X		    (char *)NULL);
+X		free((char *)strs);
+X		free((char *)inmfile);
+X		return (TCL_ERROR);
+X	}
+X	if ((intrack = (TCHUNK **)malloc(sizeof(TCHUNK *) * numin)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for intracks",
+X		    (char *)NULL);
+X		free((char *)strs);
+X		free((char *)inmfile);
+X		free((char *)tscalar);
+X		return (TCL_ERROR);
+X	}
+X
+X	for (i = 0; i < numin; i++) {
+X		/* parse each input pair */
+X		if ((result = Tcl_SplitList(interp, strs[i], &num_substrs,
+X		    &substrs)) != TCL_OK) {
+X			free((char *)strs);
+X			free((char *)inmfile);
+X			free((char *)tscalar);
+X			free((char *)intrack);
+X			return (result);
+X		}
+X		if (num_substrs != 3) {
+X			Tcl_AppendResult(interp, "bad track designation: ",
+X			    strs[i], (char *)NULL);
+X			free((char *)strs);
+X			free((char *)inmfile);
+X			free((char *)tscalar);
+X			free((char *)intrack);
+X			return (TCL_ERROR);
+X		}
+X		if ((result = Tclm_GetMFile(interp, substrs[0], &inmfile[i]))
+X		    != TCL_OK) {
+X			free((char *)strs);
+X			free((char *)inmfile);
+X			free((char *)tscalar);
+X			free((char *)intrack);
+X			return (result);
+X		}
+X		ind = (int)strtol(substrs[1], &chk_ptr, 0);
+X		if (chk_ptr == substrs[1] || ind < 0 ||
+X		    ind > inmfile[i]->hchunk.num_trks) {
+X			Tcl_AppendResult(interp, "bad outtrack value: ",
+X			    substrs[1], (char *)NULL);
+X			free((char *)strs);
+X			free((char *)inmfile);
+X			free((char *)tscalar);
+X			free((char *)intrack);
+X			free((char *)substrs);
+X			return (TCL_ERROR);
+X		}
+X		intrack[i] = &inmfile[i]->tchunks[ind];
+X
+X		tscalar[i] = (int)strtol(substrs[2], &chk_ptr, 0);
+X		if (chk_ptr == substrs[2]) {
+X			Tcl_AppendResult(interp, "bad tscalar value: ",
+X			    substrs[2], (char *)NULL);
+X			free((char *)strs);
+X			free((char *)inmfile);
+X			free((char *)tscalar);
+X			free((char *)intrack);
+X			free((char *)substrs);
+X			return (TCL_ERROR);
+X		}
+X
+X		free((char *)substrs);
+X	}
+X	free((char *)strs);
+X
+X	delta = (int)strtol(argv[3], &chk_ptr, 0);
+X	if (chk_ptr == argv[3]) {
+X		Tcl_AppendResult(interp, "bad delta value: ", argv[3],
+X		    (char *)NULL);
+X		free((char *)inmfile);
+X		free((char *)tscalar);
+X		free((char *)intrack);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((endtime = merge_tracks(outtrack, intrack, tscalar, numin, delta))
+X	    == -1) {
+X		Tcl_AppendResult(interp, "Couldn't merge files\n",
+X		    MidiError, (char *)NULL);
+X		free((char *)inmfile);
+X		free((char *)tscalar);
+X		free((char *)intrack);
+X		return (TCL_ERROR);
+X	}
+X
+X	sprintf(interp->result, "%d", endtime);
+X	free((char *)inmfile);
+X	free((char *)tscalar);
+X	free((char *)intrack);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiFree(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	int mfileId;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midifree
+X	 * argv[1] - mfileId
+X	 */
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], " mfileId\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	mfileId = (int)strtol(argv[1] + 5, NULL, 0);
+X	Tcl_DeleteHashEntry(Tcl_FindHashEntry(&MidiFileHash, (char *)mfileId));
+X
+X	free(mfile->tchunks);
+X	free(mfile);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_GetMFile(interp, FileId, mfile)
+X	Tcl_Interp *interp;
+X	char *FileId;
+X	MIDI_FILE **mfile;
+X{
+X	Tcl_HashEntry *hash_entry;
+X	char *chk_ptr;
+X	int mfileId;
+X
+X	if (strncmp(FileId, "mfile", 5) != 0) {
+X		Tcl_AppendResult(interp, "Bad MIDI file identifier \"",
+X		    FileId, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	mfileId = (int)strtol(FileId + 5, &chk_ptr, 0);
+X	if (chk_ptr == FileId + 5) {
+X		Tcl_AppendResult(interp, "Bad MIDI file identifier \"",
+X		    FileId, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((hash_entry = Tcl_FindHashEntry(&MidiFileHash, (char *)mfileId))
+X	    == NULL) {
+X		Tcl_AppendResult(interp, FileId, " doesn't exist",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	*mfile = (MIDI_FILE *)Tcl_GetHashValue(hash_entry);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_SetMFile(interp, FileId, mfile)
+X	Tcl_Interp *interp;
+X	char *FileId;
+X	MIDI_FILE *mfile;
+X{
+X	Tcl_HashEntry *hash_entry;
+X	char *chk_ptr;
+X	int mfileId;
+X
+X	if (strncmp(FileId, "mfile", 5) != 0) {
+X		Tcl_AppendResult(interp, "Bad MIDI file identifier \"",
+X		    FileId, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	mfileId = (int)strtol(FileId + 5, &chk_ptr, 0);
+X	if (chk_ptr == FileId + 5) {
+X		Tcl_AppendResult(interp, "Bad MIDI file identifier \"",
+X		    FileId, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((hash_entry = Tcl_FindHashEntry(&MidiFileHash, (char *)mfileId))
+X	    == NULL) {
+X		Tcl_AppendResult(interp, FileId, " doesn't exist",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	Tcl_SetHashValue(hash_entry, (char *)mfile);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_NumTracks(interp, argc, argv)
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	char *chk_ptr;
+X	int i;
+X	int result;
+X	int num_trks;
+X
+X	/*
+X	 * argv[0] - midiconfig
+X	 * argv[1] - mfileId
+X	 * argv[2] - tracks
+X	 * argv[3] - optional number of tracks
+X	 */
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	if (argc == 3)
+X		sprintf(interp->result, "%d", mfile->hchunk.num_trks);
+X	else {
+X		num_trks = (int)strtol(argv[3], &chk_ptr, 0);
+X		if (chk_ptr == argv[3]) {
+X			Tcl_AppendResult(interp, "Bad number of tracks ",
+X			    argv[3], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		if (mfile->hchunk.format == 0 && num_trks > 1) {
+X			Tcl_AppendResult(interp, "Format 0 files can only ",
+X			    "have zero or one tracks, not ", argv[3],
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		if (mfile->tchunks == NULL) {
+X			if (num_trks != 0) {
+X				if ((mfile->tchunks = (TCHUNK *)malloc(
+X				    sizeof(TCHUNK) * num_trks)) == NULL) {
+X					Tcl_AppendResult(interp,
+X					    "Not enough memory for ", argv[3],
+X					    " tracks", (char *)NULL);
+X				}
+X			}
+X		} else {
+X			if (num_trks == 0) {
+X				free((char *)mfile->tchunks);
+X				mfile->tchunks = NULL;
+X			} else {
+X				if ((mfile->tchunks = (TCHUNK *)realloc(
+X				    mfile->tchunks, sizeof(TCHUNK) * num_trks))
+X				    == NULL) {
+X					Tcl_AppendResult(interp,
+X					    "Not enough memory for ", argv[3],
+X					    " tracks", (char *)NULL);
+X				}
+X			}
+X		}
+X
+X		for (i = mfile->hchunk.num_trks; i < num_trks; i++)
+X			init_track(&mfile->tchunks[i]);
+X
+X		mfile->hchunk.num_trks = num_trks;
+X		if ((result = Tclm_SetMFile(interp, argv[1], mfile)) !=
+X		    TCL_OK)
+X			return (result);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_Format(interp, argc, argv)
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	char *chk_ptr;
+X	int result;
+X	int format;
+X
+X	/*
+X	 * argv[0] - midiconfig
+X	 * argv[1] - mfileId
+X	 * argv[2] - format
+X	 * argv[3] - optional arg
+X	 */
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	if (argc == 3)
+X		sprintf(interp->result, "%d", mfile->hchunk.format);
+X	else {
+X		format = (int)strtol(argv[3], &chk_ptr, 0);
+X		if (chk_ptr == argv[3] || format < 0 || format > 2) {
+X			Tcl_AppendResult(interp, "Bad format",
+X			    argv[2], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		if (format == 0 && mfile->hchunk.num_trks > 1) {
+X			Tcl_AppendResult(interp, argv[1], " has too ",
+X			    "many tracks to be format 0", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		mfile->hchunk.format = format;
+X		if ((result = Tclm_SetMFile(interp, argv[1], mfile)) !=
+X		    TCL_OK)
+X			return (result);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_Division(interp, argc, argv)
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	char *chk_ptr;
+X	int division;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midiconfig
+X	 * argv[1] - mfileId
+X	 * argv[2] - division
+X	 * argv[3] - optional arg
+X	 */
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	if (argc == 3)
+X		sprintf(interp->result, "%d", mfile->hchunk.division);
+X	else {
+X		division = (int)strtol(argv[3], &chk_ptr, 0);
+X		if (chk_ptr == argv[3]) {
+X			Tcl_AppendResult(interp, "bad division value ",
+X			    argv[3], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		mfile->hchunk.division = division;
+X		if ((result = Tclm_SetMFile(interp, argv[1], mfile)) !=
+X		    TCL_OK)
+X			return (result);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiGet(foo, interp, argc, argv)
+X	ClientData foo;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	long timing;
+X	char *chk_ptr;
+X	unsigned char *event_ptr;
+X	MIDI_FILE *mfile;
+X	Tcl_Interp *temp_interp;
+X	int channel;
+X	int delta;
+X	int denom;
+X	int data_length;
+X	int event_size;
+X	int i;
+X	int normal_type;
+X	int result;
+X	int track_num;
+X	EVENT_TYPE event_type;
+X	char dummy[MAX_EVENT_SIZE];
+X	unsigned char event[MAX_EVENT_SIZE];
+X	unsigned char running_state;
+X
+X	/*
+X	 * argv[0] - midiget
+X	 * argv[1] - mfileId
+X	 * argv[2] - track number
+X	 */
+X
+X	if (argc != 3) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], " mfileId track_num\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	track_num = (int)strtol(argv[2], &chk_ptr, 0);
+X	if (chk_ptr == argv[2] || track_num < 0 ||
+X	    track_num > mfile->hchunk.num_trks - 1) {
+X		Tcl_AppendResult(interp, "Bad track number ", argv[2],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((event_size = get_smf_event(&(mfile->tchunks[track_num]), event,
+X	    &event_type)) == -1) {
+X		Tcl_AppendResult(interp, "Couldn't get event from ", argv[1],
+X		    " track ", argv[2], "\n", MidiError, (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if (event_size == 0) {
+X		Tcl_AppendResult(interp, "EOT", (char *)NULL);
+X		return (TCL_OK);
+X	}
+X
+X	/* get timing and skip over it */
+X	event_ptr = event;
+X	timing = var2fix(event_ptr, &delta);
+X	sprintf(dummy, "%ld ", timing);
+X	Tcl_AppendResult(interp, dummy, (char *)NULL);
+X	event_ptr += delta;
+X	event_size -= delta;
+X
+X	switch(event_type) {
+X	case NORMAL:
+X		if (event_ptr[0] & 0x80) {
+X			running_state = event_ptr[0];
+X			event_ptr++;
+X			event_size--;
+X		} else {
+X			running_state =
+X			    get_running_state(&mfile->tchunks[track_num]);
+X		}
+X		normal_type = running_state & 0xf0;
+X		channel = running_state & 0x0f;
+X		switch(normal_type) {
+X		case 0x80:
+X			sprintf(dummy, "noteoff %d 0x%02x 0x%02x",
+X			    channel, event_ptr[0], event_ptr[1]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0x90:
+X			sprintf(dummy, "noteon %d 0x%02x 0x%02x",
+X			    channel, event_ptr[0], event_ptr[1]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0xa0:
+X			sprintf(dummy, "keypressure %d 0x%02x 0x%02x",
+X			    channel, event_ptr[0], event_ptr[1]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0xb0:
+X			sprintf(dummy, "parameter %d 0x%02x 0x%02x",
+X			    channel, event_ptr[0], event_ptr[1]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0xc0:
+X			sprintf(dummy, "program %d 0x%02x",
+X			    channel, event_ptr[0]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0xd0:
+X			sprintf(dummy, "channelpressure %d 0x%02x",
+X			    channel, event_ptr[0]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		case 0xe0:
+X			sprintf(dummy, "pitchwheel %d 0x%04x",
+X			    channel, ((event_ptr[1] << 7) & 0x3f80) |
+X			    event_ptr[0]);
+X			Tcl_AppendResult(interp, dummy, (char *)NULL);
+X			break;
+X		}
+X		break;
+X	case SYSEX:
+X		Tcl_AppendResult(interp, "sysex ", (char *)NULL);
+X		if (*event_ptr == 0xf7)
+X			Tcl_AppendResult(interp, "cont ", (char *)NULL);
+X		event_ptr++;
+X		event_size--;
+X		temp_interp = Tcl_CreateInterp();
+X		data_length = var2fix(event_ptr, &delta);
+X		for (i = 0; i < data_length; i++) {
+X			sprintf(dummy, "0x%02x", event_ptr[delta + i]);
+X			Tcl_AppendElement(temp_interp, dummy, 0);
+X		}
+X		Tcl_AppendElement(interp, temp_interp->result, 0);
+X		Tcl_DeleteInterp(temp_interp);
+X		break;
+X	case METASEQNUM:
+X		sprintf(dummy, "metaseqnum %d",
+X		    ((event_ptr[3] << 8) & 0xff00) | (event_ptr[4] & 0xff));
+X		Tcl_AppendResult(interp, dummy, (char *)NULL);
+X		break;
+X	case METATEXT:
+X		Tcl_AppendResult(interp, "metatext ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METACPY:
+X		Tcl_AppendResult(interp, "metacpy ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METASEQNAME:
+X		Tcl_AppendResult(interp, "metaseqname ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METAINSTNAME:
+X		Tcl_AppendResult(interp, "metainstname ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METALYRIC:
+X		Tcl_AppendResult(interp, "metalyric ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METAMARKER:
+X		Tcl_AppendResult(interp, "metamarker ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METACUE:
+X		Tcl_AppendResult(interp, "metacue ", (char *)NULL);
+X		Tclm_MakeMetaText(interp, &event_ptr[2]);
+X		break;
+X	case METACHANPREFIX:
+X		temp_interp = Tcl_CreateInterp();
+X		data_length = var2fix(&event_ptr[2], &delta);
+X		for (i = 0; i < data_length; i++) {
+X			sprintf(dummy, "0x%02x", event_ptr[2 + delta + i]);
+X			Tcl_AppendElement(temp_interp, dummy, 0);
+X		}
+X		Tcl_AppendResult(interp, "metachanprefix {",
+X		    temp_interp->result, "}", (char *)NULL);
+X		Tcl_DeleteInterp(temp_interp);
+X		break;
+X	case METAEOT:
+X		Tcl_AppendResult(interp, "metaeot", (char *)NULL);
+X		break;
+X	case METATEMPO:
+X		sprintf(dummy, "metatempo %d", 60000000 /
+X		    (event_ptr[3] * 0x10000 + event_ptr[4] * 0x100 +
+X		    event_ptr[5]));
+X		Tcl_AppendResult(interp, dummy, (char *)NULL);
+X		break;
+X	case METASMPTE:
+X		sprintf(dummy, "metasmpte %d %d %d %d %d", event_ptr[3],
+X		    event_ptr[4], event_ptr[5], event_ptr[6], event_ptr[7]);
+X		Tcl_AppendResult(interp, dummy, (char *)NULL);
+X		break;
+X	case METATIME:
+X		denom = 1;
+X		for (i = 0; i < event_ptr[4]; i++)
+X			denom *= 2;
+X		sprintf(dummy, "metatime %d %d %d %d", event_ptr[3], denom,
+X		    event_ptr[5], event_ptr[6]);
+X		Tcl_AppendResult(interp, dummy, (char *)NULL);
+X		break;
+X	case METAKEY:
+X		Tcl_AppendResult(interp, "metakey \"",
+X		    key_strings[(int)event_ptr[3] + 7], "\" ",
+X		    (char *)NULL);
+X		if (event_ptr[4] == 0)
+X			Tcl_AppendResult(interp, "major", (char *)NULL);
+X		else
+X			Tcl_AppendResult(interp, "minor", (char *)NULL);
+X		break;
+X	case METASEQSPEC:
+X		Tcl_AppendResult(interp, "metaseqspec", (char *)NULL);
+X		break;
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+Xstatic void
+XTclm_MakeMetaText(interp, event)
+X	Tcl_Interp *interp;
+X	unsigned char *event;
+X{
+X	int data_length;
+X	int delta;
+X	int i;
+X	char dummy[MAX_EVENT_SIZE];
+X
+X	data_length = var2fix(event, &delta);
+X	for (i = 0; i < data_length; i++)
+X		dummy[i] = event[delta + i];
+X	dummy[i] = '\0';
+X	Tcl_AppendResult(interp, "\"", dummy, "\"", (char *)NULL);
+X}
+X
+Xstatic int
+XTclm_ConvertTiming(interp, str, timing, timing_length)
+X	Tcl_Interp *interp;
+X	char *str;
+X	unsigned char *timing;
+X	int *timing_length;
+X{
+X	long time_long;
+X	int i;
+X	int num_bytes;
+X	int result;
+X	char *chk_ptr;
+X	char **bytes_str;
+X
+X	if ((result = Tcl_SplitList(interp, str, &num_bytes, &bytes_str)) !=
+X	    TCL_OK)
+X		return (result);
+X
+X	if (num_bytes == 1) {
+X		time_long = strtol(bytes_str[0], &chk_ptr, 0);
+X		if (bytes_str[0] == chk_ptr) {
+X			Tcl_AppendResult(interp, "Bad timing value ",
+X			    bytes_str[0], (char *)NULL);
+X			free((char *)bytes_str);
+X			return (TCL_ERROR);
+X		}
+X		*timing_length = fix2var(time_long, timing);
+X	} else {
+X
+X		for (i = 0; i < num_bytes; i++) {
+X			timing[i] = (unsigned char)strtol(bytes_str[i],
+X			    &chk_ptr, 0);
+X			if (chk_ptr == bytes_str[i]) {
+X				Tcl_AppendResult(interp, "Bad timing data ",
+X				    bytes_str[i], (char *)NULL);
+X				free((char *)bytes_str);
+X				return (TCL_ERROR);
+X			}
+X		}
+X		*timing_length = num_bytes;
+X	}
+X	free((char *)bytes_str);
+X	return (TCL_OK);
+X}
+X
+Xstatic int
+XTclm_ConvertBytes(interp, str, bytes, num_bytes)
+X	Tcl_Interp *interp;
+X	char *str;
+X	unsigned char *bytes;
+X	int *num_bytes;
+X{
+X	int i;
+X	int result;
+X	char *chk_ptr;
+X	char **bytes_str;
+X
+X	if ((result = Tcl_SplitList(interp, str, num_bytes, &bytes_str)) !=
+X	    TCL_OK)
+X		return (result);
+X
+X	for (i = 0; i < *num_bytes; i++) {
+X		*bytes++ = (unsigned char)strtol(bytes_str[i], &chk_ptr, 0);
+X		if (chk_ptr == bytes_str[i]) {
+X			Tcl_AppendResult(interp, "Bad event data ",
+X			    bytes_str[i], (char *)NULL);
+X			free((char *)bytes_str);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	free((char *)bytes_str);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiPut(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	char *chk_ptr;
+X	char *event_name;
+X	char *event_ptr;
+X	MIDI_FILE *mfile;
+X	int bad_event;
+X	int i;
+X	int length;
+X	int num_bytes;
+X	int result;
+X	int timing_length;
+X	int track_num;
+X	unsigned char timing[4];
+X	unsigned char event[MAX_EVENT_SIZE];
+X
+X	/*
+X	 * argv[0] - midiput
+X	 * argv[1] - mfileId
+X	 * argv[2] - track number
+X	 * argv[3] - timing
+X	 * argv[4] - event name
+X	 * argv[5] - event specific data
+X	 * argv[6] - 
+X         * etc.
+X	 */
+X
+X	if (argc < 5) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    "midiput mfileId track timing eventname ?args ...?\"",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	track_num = (int)strtol(argv[2], &chk_ptr, 0);
+X	if (chk_ptr == argv[2] || track_num < 0 ||
+X	    track_num > mfile->hchunk.num_trks - 1) {
+X		Tcl_AppendResult(interp, "Bad track number ", argv[2],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((result = Tclm_ConvertTiming(interp, argv[3], timing,
+X	    &timing_length)) != TCL_OK)
+X		return (result);
+X
+X	for (i = 0; i < timing_length; i++)
+X		event[i] = timing[i];
+X	num_bytes = timing_length;
+X	/* do different things depending on the event type */
+X	event_name = argv[4];
+X	length = strlen(event_name);
+X
+X	bad_event = 0;
+X
+X	switch(event_name[0]) {
+X	case 'c':
+X		if (strncmp(event_name, "channelpressure", length) != 0)
+X			bad_event = 1;
+X		else {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - pressure
+X			 */
+X			unsigned char channel;
+X			unsigned char pressure;
+X
+X			if (argc != 7) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing channelpressure channel ",
+X				    "pressure\"", (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			pressure = (unsigned char)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6] || pressure & 0x80) {
+X				Tcl_AppendResult(interp, "bad pressure ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X
+X			event[num_bytes++] = 0xd0 + channel;
+X			event[num_bytes++] = pressure;
+X		}
+X		break;
+X	case 'k':
+X		if (strncmp(event_name, "keypressure", length) != 0)
+X			bad_event = 1;
+X		else {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - pitch
+X			 * argv[7] - pressure
+X			 */
+X			unsigned char channel;
+X			unsigned char pitch;
+X			unsigned char pressure;
+X
+X			if (argc != 8) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing keypressure channel ",
+X				    "pitch pressure\"", (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			pitch = (unsigned char)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6] || pitch & 0x80) {
+X				Tcl_AppendResult(interp, "bad pitch ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			pressure = (unsigned char)strtol(argv[7], &chk_ptr, 0);
+X			if (chk_ptr == argv[7] || pressure & 0x80) {
+X				Tcl_AppendResult(interp, "bad pressure ",
+X				    argv[7], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X
+X			event[num_bytes++] = 0xa0 + channel;
+X			event[num_bytes++] = pitch;
+X			event[num_bytes++] = pressure;
+X		}
+X		break;
+X	case 'm':
+X		/* META stuff */
+X		if ((result = Tclm_ConvertMeta(interp, argc - 4, argv + 4,
+X		    event, &num_bytes)) != TCL_OK)
+X			return (result);
+X		break;
+X	case 'n':
+X		if (strncmp(event_name, "noteoff", length) == 0 ||
+X		    strncmp(event_name, "noteon", length) == 0) {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - pitch
+X			 * argv[7] - velocity
+X			 */
+X			unsigned char channel;
+X			unsigned char pitch;
+X			unsigned char velocity;
+X
+X			if (event_name[5] == 'n') {
+X				if (argc != 8) {
+X					Tcl_AppendResult(interp, "wrong #",
+X					    "args: should be \"midiput ",
+X					    "mfileId track timing noteon ",
+X					    "channel pitch velocity\"",
+X					    (char *)NULL);
+X					return (TCL_ERROR);
+X				}
+X			} else {
+X				if (argc != 7 && argc != 8) {
+X					Tcl_AppendResult(interp, "wrong #",
+X					    "args: should be \"midiput ",
+X					    "mfileId track timing noteoff ",
+X					    "channel pitch ?velocity?\"",
+X					    (char *)NULL);
+X					return (TCL_ERROR);
+X				}
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			pitch = (unsigned char)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6] || pitch & 0x80) {
+X				Tcl_AppendResult(interp, "bad pitch ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			if (argc == 8) {
+X				velocity = (unsigned char)strtol(argv[7],
+X				    &chk_ptr, 0);
+X				if (chk_ptr == argv[7] || velocity & 0x80) {
+X					Tcl_AppendResult(interp, "bad ",
+X					    "velocity ", argv[7],
+X					    (char *)NULL);
+X					return (TCL_ERROR);
+X				}
+X			} else {
+X				velocity = 0;
+X			}
+X
+X			/*
+X			 * if noteoff velocity is zero use noteon
+X			 * This will make better use of running state
+X			 */
+X			if (event_name[5] == 'f' && velocity != 0)
+X				event[num_bytes++] = 0x80 + channel;
+X			else
+X				event[num_bytes++] = 0x90 + channel;
+X			event[num_bytes++] = pitch;
+X			event[num_bytes++] = velocity;
+X		} else
+X			bad_event = 1;
+X		break;
+X	case 'p':
+X		if (strncmp(event_name, "parameter", length) == 0) {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - param
+X			 * argv[7] - setting
+X			 */
+X			unsigned char channel;
+X			unsigned char param;
+X			unsigned char setting;
+X
+X			if (argc != 8) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing parameter channel ",
+X				    "param setting\"", (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			param = (unsigned char)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6] || param & 0x80) {
+X				Tcl_AppendResult(interp, "bad parameter ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			setting = (unsigned char)strtol(argv[7], &chk_ptr, 0);
+X			if (chk_ptr == argv[7] || setting & 0x80) {
+X				Tcl_AppendResult(interp, "bad setting ",
+X				    argv[7], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X
+X			event[num_bytes++] = 0xb0 + channel;
+X			event[num_bytes++] = param;
+X			event[num_bytes++] = setting;
+X		} else if (strncmp(event_name, "pitchwheel", length) == 0) {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - value
+X			 */
+X			int value;
+X			unsigned char channel;
+X
+X			if (argc != 7) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing pitchwheel channel value\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			value = (int)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6]) {
+X				Tcl_AppendResult(interp, "bad wheel value ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X
+X			event[num_bytes++] = 0xe0 + channel;
+X			event[num_bytes++] = value & 0x7f;
+X			event[num_bytes++] = (value >> 7) & 0x7f;
+X		} else if (strncmp(event_name, "program", length) == 0) {
+X			/*
+X			 * argv[5] - channel
+X			 * argv[6] - program
+X			 */
+X			unsigned char channel;
+X			unsigned char program;
+X
+X			if (argc != 7) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing program channel program\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			channel = (unsigned char)strtol(argv[5], &chk_ptr, 0);
+X			if (chk_ptr == argv[5] || channel & 0x80) {
+X				Tcl_AppendResult(interp, "bad channel ",
+X				    argv[5], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			program = (unsigned char)strtol(argv[6], &chk_ptr, 0);
+X			if (chk_ptr == argv[6] || program & 0x80) {
+X				Tcl_AppendResult(interp, "bad program ",
+X				    argv[6], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X
+X			event[num_bytes++] = 0xc0 + channel;
+X			event[num_bytes++] = program;
+X		} else
+X			bad_event = 1;
+X		break;
+X	case 's':
+X		/* SYSEX */
+X		/*
+X		 * argv[5] - ?cont? or sysex bytes
+X		 * argv[6] - ?sysex bytes?
+X		 */
+X
+X		if (strncmp(event_name, "sysex", length) != 0)
+X			bad_event = 1;
+X		else {
+X			if (argc != 6 && argc != 7) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"midiput mfileId track ",
+X				    "timing sysex ?cont? data\"", (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			if (strcmp(argv[5], "cont") == 0) {
+X				event[num_bytes++] = 0xf7;
+X				event_ptr = argv[6];
+X			} else {
+X				event[num_bytes++] = 0xf0;
+X				event_ptr = argv[5];
+X			}
+X			if ((result = Tclm_AddMetaBytes(interp, event,
+X			    &num_bytes, event_ptr)) != TCL_OK)
+X				return (result);
+X		}
+X		break;
+X	}
+X
+X	if (bad_event) {
+X		Tcl_AppendResult(interp, "Bad event.  Must be one of (",
+X		    event_list, ")", (char *)NULL);
+X		return(TCL_ERROR);
+X	}
+X
+X	if (!put_smf_event(&(mfile->tchunks[track_num]), event, num_bytes)) {
+X		Tcl_AppendResult(interp, "Couldn't put event\n",
+X		    MidiError, (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+Xstatic int
+XTclm_ConvertMeta(interp, argc, argv, event, num_bytes)
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X	unsigned char *event;
+X	int *num_bytes;
+X{
+X	char *chk_ptr;
+X	char *event_name;
+X	int bad_meta_event;
+X	int i;
+X	int length;
+X	int result;
+X	
+X
+X	/*
+X	 * argv[0] - metablah
+X	 * argv[1] - args
+X	 */
+X	event_name = argv[0];
+X	if (strncmp(event_name, "meta", 4) != 0) {
+X		Tcl_AppendResult(interp, "bad event type ", argv[0],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	event_name += 4;
+X
+X	/* all meta events start with 0xff */
+X	event[(*num_bytes)++] = 0xff;
+X
+X	length = strlen(event_name);
+X	bad_meta_event = 0;
+X	switch (event_name[0]) {
+X	case 'c':
+X		if (strncmp(event_name, "chanprefix", length) == 0) {
+X			/*
+X			 * argv[1] - bytes
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metachanprefix data\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x20;
+X			if ((result = Tclm_AddMetaBytes(interp, event,
+X			    num_bytes, argv[1])) != TCL_OK)
+X				return (result);
+X		} else if (strncmp(event_name, "cpy", length) == 0) {
+X			/*
+X			 * argv[1] - copyright string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metacpy copyright\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x02;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		} else if (strncmp(event_name, "cue", length) == 0) {
+X			/*
+X			 * argv[1] - cue string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metacue cue\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x07;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		} else
+X			bad_meta_event = 1;
+X		break;
+X	case 'e':
+X		if (strncmp(event_name, "eot", length) != 0)
+X			bad_meta_event = 1;
+X		else {
+X			if (argc != 1) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metaeot\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x2f;
+X			event[(*num_bytes)++] = 0x00;
+X		}
+X		break;
+X	case 'i':
+X		if (strncmp(event_name, "instname", length) != 0)
+X			bad_meta_event = 1;
+X		else {
+X			/*
+X			 * argv[1] - instrument string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metainstname instrument\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x04;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		}
+X		break;
+X	case 'k':
+X		if (strncmp(event_name, "key", length) != 0)
+X			bad_meta_event = 1;
+X		else {
+X			int bad_key;
+X
+X			/*
+X			 * argv[1] - key name
+X			 * argv[2] - key class
+X			 */
+X			if (argc != 3) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metakey key class\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x59;
+X			event[(*num_bytes)++] = 2;
+X			bad_key = 0;
+X			switch (argv[1][0]) {
+X			case 'A':
+X				if (strcmp(argv[1], "A") == 0)
+X					event[(*num_bytes)++] = 3;
+X				else if (strcmp(argv[1], "A flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-4;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'B':
+X				if (strcmp(argv[1], "B") == 0)
+X					event[(*num_bytes)++] = 5;
+X				else if (strcmp(argv[1], "B flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-2;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'C':
+X				if (strcmp(argv[1], "C") == 0)
+X					event[(*num_bytes)++] = 0;
+X				else if (strcmp(argv[1], "C flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-7;
+X				else if (strcmp(argv[1], "C sharp") == 0)
+X					event[(*num_bytes)++] = 7;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'D':
+X				if (strcmp(argv[1], "D") == 0)
+X					event[(*num_bytes)++] = 2;
+X				else if (strcmp(argv[1], "D flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-5;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'E':
+X				if (strcmp(argv[1], "E") == 0)
+X					event[(*num_bytes)++] = 4;
+X				else if (strcmp(argv[1], "E flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-3;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'F':
+X				if (strcmp(argv[1], "F") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-1;
+X				else if (strcmp(argv[1], "F sharp") == 0)
+X					event[(*num_bytes)++] = 6;
+X				else
+X					bad_key = 1;
+X				break;
+X			case 'G':
+X				if (strcmp(argv[1], "G") == 0)
+X					event[(*num_bytes)++] = 1;
+X				else if (strcmp(argv[1], "G flat") == 0)
+X					event[(*num_bytes)++] =
+X					    (unsigned char)-6;
+X				else
+X					bad_key = 1;
+X				break;
+X			default:
+X				bad_key = 1;
+X			}
+X			if (bad_key) {
+X				Tcl_AppendResult(interp, "Bad key.  Must ",
+X				    "be one of: ", (char *)NULL);
+X				for (i = 0; i < sizeof(key_strings) /
+X				    sizeof(key_strings[0]); i++)
+X					Tcl_AppendResult(interp, "\"",
+X					    key_strings[i], "\" ",
+X					    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			if (strcmp(argv[2], "major") == 0)
+X				event[(*num_bytes)++] = 0;
+X			else if (strcmp(argv[2], "minor") == 0)
+X				event[(*num_bytes)++] = 1;
+X			else {
+X				Tcl_AppendResult(interp, "Bad key class.  ",
+X				    "Must be one of: \"major\" \"minor\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X		}
+X		break;
+X	case 'l':
+X		if (strncmp(event_name, "lyric", length) != 0)
+X			bad_meta_event = 1;
+X		else {
+X			/*
+X			 * argv[1] - lyric string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metalyric lyric\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x05;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		}
+X		break;
+X	case 'm':
+X		if (strncmp(event_name, "marker", length) != 0)
+X			bad_meta_event = 1;
+X		else {
+X			/*
+X			 * argv[1] - marker string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metachanprefix marker\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x06;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		}
+X		break;
+X	case 's':
+X		if (strncmp(event_name, "seqname", length) == 0) {
+X			/*
+X			 * argv[1] - sequence name string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metaseqname sequencename\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x03;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		} else if (strncmp(event_name, "seqnum", length) == 0) {
+X			int number;
+X
+X			/*
+X			 * argv[1] - sequence number
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metaseqnum sequencenumber\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x00;
+X			event[(*num_bytes)++] = 0x02;
+X			number = (int)strtol(argv[1], &chk_ptr, 0);
+X			if (argv[1] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad sequence number ",
+X				    argv[1], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (number >> 8) & 0xff;
+X			event[(*num_bytes)++] = number & 0xff;
+X		} else if (strncmp(event_name, "seqspec", length) == 0) {
+X			Tcl_AppendResult(interp, "META event seqspec not ",
+X			    "currently implemented (don't know form)",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		} else if (strncmp(event_name, "smpte", length) == 0) {
+X			/*
+X			 * argv[1] - hour
+X			 * argv[2] - minute
+X			 * argv[3] - second
+X			 * argv[4] - frame
+X			 * argv[5] - fractional frame
+X			 */
+X			if (argc != 6) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metasmpte hour minute second",
+X				    "frame fractionalframe\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x54;
+X			event[(*num_bytes)++] = 5;
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[1],
+X			    &chk_ptr, 0);
+X			if (argv[1] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad SMPTE hour: ",
+X				    argv[1], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[2],
+X			    &chk_ptr, 0);
+X			if (argv[2] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad SMPTE minute: ",
+X				    argv[2], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[3],
+X			    &chk_ptr, 0);
+X			if (argv[3] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad SMPTE second: ",
+X				    argv[3], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[4],
+X			    &chk_ptr, 0);
+X			if (argv[4] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad SMPTE frame: ",
+X				    argv[4], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[5],
+X			    &chk_ptr, 0);
+X			if (argv[5] == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad SMPTE ",
+X				    "fractional frame: ", argv[5],
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X		} else
+X			bad_meta_event = 1;
+X		break;
+X	case 't':
+X		if (strncmp(event_name, "tempo", length) == 0) {
+X			long tempo;
+X			int is_bpm;
+X			int tempo_length;
+X			char tempo_str[20];
+X
+X			/*
+X			 * argv[1] - usec/beat or beat/min
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metachanprefix tempo\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x51;
+X			event[(*num_bytes)++] = 3;
+X			strcpy(tempo_str, argv[1]);
+X			tempo_length = strlen(tempo_str);
+X			if (tempo_str[tempo_length - 1] != 'u')
+X				is_bpm = 1;
+X			else {
+X				/* in usec/beat */
+X				tempo_str[tempo_length - 1] = '\0';
+X				is_bpm = 0;
+X			}
+X			tempo = strtol(tempo_str, &chk_ptr, 0);
+X			if (tempo_str == chk_ptr) {
+X				Tcl_AppendResult(interp, "Bad tempo value: ",
+X				    argv[1], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			if (is_bpm)
+X				tempo = 60000000 / tempo;
+X			event[(*num_bytes)++] = tempo / 0x10000;
+X			tempo %= 0x10000;
+X			event[(*num_bytes)++] = tempo / 0x100;
+X			tempo %= 0x100;
+X			event[(*num_bytes)++] = tempo;
+X		} else if (strncmp(event_name, "text", length) == 0) {
+X			/*
+X			 * argv[1] - text string
+X			 */
+X			if (argc != 2) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metatext text\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x01;
+X			Tclm_AddMetaString(event, num_bytes, argv[1]);
+X		} else if (strncmp(event_name, "time", length) == 0) {
+X			int denominator;
+X			int pow;
+X
+X			/* 
+X			 * argv[1] - numerator
+X			 * argv[2] - denominator (in - powers of 2)
+X			 * argv[3] - clocks / met. beat
+X			 * argv[4] - 32nd notes / quarter notes
+X			 */
+X			if (argc != 5) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be: \"midiput mfileId track ",
+X				    "timing metatime numerator denominator",
+X				    "clockspermet 32ndsperquarter\"",
+X				    (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = 0x58;
+X			event[(*num_bytes)++] = 4;
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[1],
+X			    &chk_ptr, 0);
+X			if (chk_ptr == argv[1]) {
+X				Tcl_AppendResult(interp, "Bad numerator: ",
+X				    argv[1], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			denominator = (unsigned char)strtol(argv[2],
+X			    &chk_ptr, 0);
+X			if (chk_ptr == argv[2]) {
+X				Tcl_AppendResult(interp, "Bad denominator: ",
+X				    argv[2], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			for (i = 0, pow = 1; pow <= denominator; pow *= 2, i++);
+X			i--;
+X			event[(*num_bytes)++] = (unsigned char)i;
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[3],
+X			    &chk_ptr, 0);
+X			if (chk_ptr == argv[3]) {
+X				Tcl_AppendResult(interp, "Bad numerator: ",
+X				    argv[3], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			event[(*num_bytes)++] = (unsigned char)strtol(argv[4],
+X			    &chk_ptr, 0);
+X			if (chk_ptr == argv[4]) {
+X				Tcl_AppendResult(interp, "Bad numerator: ",
+X				    argv[4], (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X		} else
+X			bad_meta_event = 1;
+X		break;
+X	}
+X	if (bad_meta_event) {
+X		Tcl_AppendResult(interp, "Bad META event: meta", event_name,
+X		    ".  Must be one of (", meta_events, ")", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xstatic void
+XTclm_AddMetaString(event, num_bytes, str)
+X	unsigned char *event;
+X	int *num_bytes;
+X	char *str;
+X{
+X	int i;
+X	int str_len;
+X	int var_len;
+X	unsigned char var_bytes[10];
+X
+X	str_len = strlen(str);
+X	var_len = fix2var(str_len, var_bytes);
+X	for (i = 0; i < var_len; i++)
+X		event[(*num_bytes)++] = var_bytes[i];
+X	for (i = 0; i < str_len; i++)
+X		event[(*num_bytes)++] = str[i];
+X}
+X
+Xstatic int
+XTclm_AddMetaBytes(interp, event, num_bytes, data)
+X	Tcl_Interp *interp;
+X	unsigned char *event;
+X	int *num_bytes;
+X	char *data;
+X{
+X	int i;
+X	int result;
+X	int num_data_bytes;
+X	int var_len;
+X	unsigned char data_bytes[MAX_EVENT_SIZE];
+X	unsigned char var_bytes[10];
+X
+X	if ((result = Tclm_ConvertBytes(interp, data, data_bytes,
+X	    &num_data_bytes)) != TCL_OK)
+X		return (result);
+X
+X	var_len = fix2var(num_data_bytes, var_bytes);
+X	for (i = 0; i < var_len; i++)
+X		event[(*num_bytes)++] = var_bytes[i];
+X	for (i = 0; i < num_data_bytes; i++)
+X		event[(*num_bytes)++] = data_bytes[i];
+X
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiRewind(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *mfile;
+X	char *chk_ptr;
+X	char **track_list;
+X	int i;
+X	int num_tracks;
+X	int result;
+X	int track;
+X
+X	/*
+X	 * argv[0] - midirewind
+X	 * argv[1] = mfileId
+X	 * argv[2] = optional track list
+X	 */
+X	if (argc < 2 || argc > 3) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], " mfileId ?track list?\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((result = Tclm_GetMFile(interp, argv[1], &mfile)) != TCL_OK)
+X		return (result);
+X
+X	if (argc == 2)
+X		for (i = 0; i < mfile->hchunk.num_trks; i++)
+X			rewind_track(&(mfile->tchunks[i]));
+X	else {
+X		if ((result = Tcl_SplitList(interp, argv[2], &num_tracks,
+X		    &track_list)) != TCL_OK)
+X			return (result);
+X		for (i = 0; i < num_tracks; i++) {
+X			track = (int)strtol(track_list[i], &chk_ptr, 0);
+X			if (chk_ptr == track_list[i] || track < 0 ||
+X			    track >= mfile->hchunk.num_trks) {
+X				Tcl_AppendResult(interp, "Bad track value ",
+X				    track_list[i], (char *)NULL);
+X				free ((char *)track_list);
+X				return (TCL_ERROR);
+X			}
+X			rewind_track(&(mfile->tchunks[track]));
+X		}
+X		free((char *)track_list);
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiVarToFix(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	long fix;
+X	int delta;
+X	int num_bytes;
+X	int result;
+X	unsigned char bytes[MAX_EVENT_SIZE];
+X
+X	/*
+X	 * argv[0] - midivartofix
+X	 * argv[1] - midi event
+X	 */
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "bad # args: should be\"",
+X		    argv[0], " midi_event\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((result = Tclm_ConvertBytes(interp, argv[1], bytes, &num_bytes))
+X	    != TCL_OK)
+X		return (result);
+X
+X	fix = var2fix(bytes, &delta);
+X	sprintf(interp->result, "%ld", fix);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiFixToVar(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	long fix;
+X	char *chk_ptr;
+X	int i;
+X	int num_bytes;
+X	unsigned char bytes[4];
+X	char byte_str[10];
+X
+X	/*
+X	 * argv[0] - midifixtovar
+X	 * argv[1] - fixed length value
+X	 */
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "bad # args: should be \"",
+X		    argv[0], " fixval\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	fix = strtol(argv[1], &chk_ptr, 0);
+X	if (chk_ptr == argv[1]) {
+X		Tcl_AppendResult(interp, "Bad fixed length value ", argv[1],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	num_bytes = fix2var(fix, bytes);
+X	for (i = 0; i < num_bytes; i++) {
+X		sprintf(byte_str, "0x%02x", bytes[i]);
+X		Tcl_AppendElement(interp, byte_str, 0);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiTiming(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	int delta;
+X	int i;
+X	int num_bytes;
+X	int result;
+X	unsigned char bytes[MAX_EVENT_SIZE];
+X	char str[10];
+X
+X	/*
+X	 * argv[0] - miditiming
+X	 * argv[1] - event
+X	 */
+X
+X	if ((result = Tclm_ConvertBytes(interp, argv[1], bytes, &num_bytes))
+X	    != TCL_OK)
+X		return (result);
+X
+X	(void)var2fix(bytes, &delta);
+X
+X	for (i = 0; i < delta; i++) {
+X		sprintf(str, "0x%02x", bytes[i]);
+X		Tcl_AppendElement(interp, str, 0);
+X	}
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiPlayable(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X
+X	/*
+X	 * argv[0] - midiplayable
+X	 */
+X	if (argc != 1) {
+X		Tcl_AppendResult(interp, "wrong # args: should be\"",
+X		    argv[0], "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X#ifdef MIDIPLAY
+X	Tcl_AppendResult(interp, "1", (char *)NULL);
+X#else
+X	Tcl_AppendResult(interp, "0", (char *)NULL);
+X#endif
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_TclmVersion(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X
+X	/*
+X	 * argv[0] - tclmversion
+X	 */
+X	if (argc != 1) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	Tcl_AppendResult(interp, TCLM_PATCHLEVEL, (char *)NULL);
+X	return (TCL_OK);
+X}
+END_OF_FILE
+  if test 54562 -ne `wc -c <'tclm-1.0/tclmCmd.c'`; then
+    echo shar: \"'tclm-1.0/tclmCmd.c'\" unpacked with wrong size!
+  fi
+  # end of 'tclm-1.0/tclmCmd.c'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2259 @@
+Newsgroups: comp.sources.misc
+From: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Subject: v39i099:  cwish - Window Shell / Filemanager v1.00, Part03/04
+Message-ID: <1993Sep22.161633.26237@sparky.sterling.com>
+X-Md4-Signature: 899a797f0a6df39694639a57239a78ab
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: hm@hcshh.hcs.de
+Organization: HCS Hanseatischer Computerservice GmbH
+Date: Wed, 22 Sep 1993 16:16:33 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Posting-number: Volume 39, Issue 99
+Archive-name: cwish/part03
+Environment: HP-UX, 386BSD, NETBSD, ANSI-C, SYSV-CURSES
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config.c files.c movement.c paging.c rcinit.c wish.h
+# Wrapped by kent@sparky on Wed Sep 22 10:49:57 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 4)."'
+if test -f 'config.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.c'\"
+else
+  echo shar: Extracting \"'config.c'\" \(8688 characters\)
+  sed "s/^X//" >'config.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                 --------------------------------------
+X *
+X *              (c) Copyright Hellmuth Michaelis 1989 - 1993
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *           All rights are reserved except as explicitly granted
+X *                  by written permission of the author.
+X *
+X *             See the file COPYING, distributed with wish, for
+X *                  restriction and warranty information
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 12:29:19 1993]
+X *
+X *	-hm	initial configuration menu design
+X *	-hm	altcharset debugging
+X *	-hm	fkey labels for config screen
+X *	-hm	enter wildcard string
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"
+X#include "config.h"
+X#include "control.h"
+X
+Xextern char *contin;		/* from help.c */
+X
+Xstatic char *help1 = "Use cursor keys to move to the items you wish change";
+Xstatic char *help2 = "SPACE toggles between YES and NO";
+Xstatic char *help3 = "CONTROL-D exits configuration menu";
+X
+Xstatic void separate(int);
+Xstatic char *enter_string(int row, int col, char *string, int length);
+X
+Xstatic char was_wildcard[OPTSLEN+1];
+Xstatic char was_wildon;
+Xstatic char was_cdrom;
+Xstatic char was_cdnoprog;
+X
+X/*---------------------------------------------------------------------------*
+X *	config function key labels
+X *---------------------------------------------------------------------------*/
+X
+Xstatic struct fk_tab conf_keys[] = {
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"  Exit   Config ", "         "}
+X};
+X
+X/*---------------------------------------------------------------------------*
+X *	run-time configuration menu
+X *---------------------------------------------------------------------------*/
+Xvoid config(void)
+X{
+X	struct item *ip;
+X	char *q;
+X	int c;
+X	int i;
+X	int dids = 0;
+X	int helpline = 0;
+X	
+X	suspend_time();		/* stop updating time */
+X
+X	cur_fktab = &conf_keys;	/* config screen fkey label table */
+X	init_flabels();
+X
+X	strcpy(was_wildcard, opt_wild);
+X	was_wildon = opt_wildon;
+X	was_cdrom = opt_cdrom;
+X	was_cdnoprog = opt_cdnoprog;
+X	
+X	wmove(stdscr, 0, 0);	/* first line */
+X	wclear(stdscr);		/* clear window */
+X	touchwin(stdscr);	/* touch it */
+X	wnoutrefresh(stdscr);	/* force refresh */
+X
+X	move(0, 0);		/* first line */
+X	attron(A_REVERSE);	/* highlight on */
+X	addstr(headerline);	/* program/copyright header */
+X	attroff(A_REVERSE);	/* highlight off */
+X
+X	ip = FIRST_I;
+X	
+X	/* display menu */
+X	
+X	do
+X	{
+X		if(!dids && ip->type & ITEM_NOCHANGE)
+X		{
+X			dids = 1;
+X			separate(ip->row - 2);
+X		}
+X			
+X		mvaddstr(ip->row, ip->col, ip->name);
+X		standout();
+X		switch(ip->type & ~ITEM_NOCHANGE)
+X		{
+X			case ITEM_ONOFF:
+X				if(*(ip->value))
+X					addstr("YES");
+X				else
+X					addstr(" NO");
+X				break;
+X			case ITEM_STRING:
+X				if(*((char *)ip->value))
+X					addstr((char *)ip->value);
+X				else
+X				{
+X					standend();
+X					addstr("[Not set]");
+X				}
+X				break;
+X			case ITEM_CHAR:
+X				if((char)*(ip->value))
+X					addch((char)*(ip->value));
+X				else
+X				{
+X					standend();
+X					addstr("[Not set]");
+X				}
+X				break;
+X		}
+X		standend();
+X		if(helpline < ip->row)
+X			helpline = ip->row;
+X	}
+X	while((ip = ip->next) != FIRST_I);
+X
+X	helpline += 3;
+X
+X	separate(helpline-1);
+X	
+X	move(helpline + 2, (COLS-strlen(help1))/2);
+X	addstr(help1);
+X
+X	move(helpline + 3, (COLS-strlen(help2))/2);
+X	addstr(help2);
+X
+X	move(helpline + 4, (COLS-strlen(help3))/2);
+X	addstr(help3);
+X	
+X	ip = FIRST_I;
+X
+X	/* cruise in menu */
+X
+X	i = 0;
+X	
+X	for(;;)
+X	{
+X		move(helpline, 0);
+X		clrtoeol();
+X		move(helpline, (COLS-strlen(ip->help))/2);
+X		addstr(ip->help);
+X
+X		move(ip->row, ((ip->col)+(ip->nl)));
+X		refresh();
+X
+X		c = getch();
+X
+X		switch(c)
+X		{
+X			case CR:
+X				if(ip->type != ITEM_STRING)
+X					break;
+X
+X				if((q = enter_string(ip->row, ((ip->col)+(ip->nl)), (char *)ip->value , OPTSLEN)) != NULL)
+X					strcpy((char *)ip->value, q);
+X
+X				mvaddstr(ip->row, ip->col, ip->name);
+X				if(*((char *)ip->value))
+X				{
+X					standout();				
+X					addstr((char *)ip->value);
+X					standend();
+X				}
+X				else
+X				{
+X					addstr("[Not set]");
+X				}
+X				break;
+X				
+X			case ' ':		/* nextopt */
+X				if(ip->type == ITEM_ONOFF)
+X				{
+X					standout();
+X					if(*(ip->value))
+X					{
+X						*(ip->value) = 0;
+X						addstr(" NO");
+X					}
+X					else
+X					{
+X						*(ip->value) = 1;
+X						addstr("YES");
+X					}
+X					standend();
+X				}				
+X				break;
+X
+X			case CNTRL_D:
+X				goto breakout;
+X
+X			case KEY_UP:		/* up item */
+X				i = ip->col;
+X				do
+X					ip = ip->prev;
+X				while(ip->col != i);
+X				break;
+X
+X			case KEY_DOWN:		/* down item */
+X				i = ip->col;
+X				do
+X					ip = ip->next;
+X				while(ip->col != i);
+X				break;
+X
+X			case KEY_LEFT:		/* left item */
+X			case KEY_BTAB:
+X				ip = ip->prev;
+X				break;
+X
+X			case KEY_RIGHT:		/* right item */
+X			case TAB:
+X				ip = ip->next;
+X				break;
+X
+X			case KEY_F(1):	/* function key 1 */
+X				break;
+X
+X			case KEY_F(2):	/* function key 2 */
+X				break;
+X			
+X			case KEY_F(3):	/* function key 3 */
+X				break;
+X				
+X			case KEY_F(4):	/* function key 4 */
+X				break;
+X				
+X			case KEY_F(5):	/* function key 5 */
+X				break;
+X
+X			case KEY_F(6):	/* function key 6 */
+X				break;
+X				
+X			case KEY_F(7):	/* function key 7 */
+X				break;
+X				
+X			case KEY_F(8):	/* function key 8 */
+X				goto breakout;
+X
+X			case CNTRL_L:	/* refresh */
+X				touchwin(curscr);
+X				wrefresh(curscr);
+X				break;
+X		}
+X	}
+X
+Xbreakout:
+X
+X	/* do we have to reread dir ? */
+X
+X	if((strcmp(opt_wild, was_wildcard)) || (opt_wildon != was_wildon) ||
+X	   (was_cdrom != opt_cdrom) || (was_cdnoprog != opt_cdnoprog))
+X	{
+X		free_list();			/* free malloc'ed buffers */
+X		init_files(PRES_NORM, NULL);	/* yes, read current dir */
+X	}
+X
+X	wmove(stdscr, 0, 0);			/* first line */
+X	wclear(stdscr);				/* clear window */
+X	touchwin(stdscr);
+X	wnoutrefresh(stdscr);
+X
+X	touchwin(cmnd_w);
+X	touchwin(fst_w);
+X	touchwin(file_w);
+X	if(opt_attrib)
+X		touchwin(attr_w);
+X	if(opt_labels)
+X		touchwin(flbl_w);
+X	
+X	resume_time();		/* restart updating time */
+X
+X	header();		/* new header */
+X	dis_hist();		/* display current commandline */
+X	fresh_files();		/* refresh files */
+X	attribs(1);		/* new attributes */
+X	update_all();		/* update complete screen */
+X
+X	cur_fktab = &sys_keys;	/* system fkey label table */
+X	init_flabels();
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	print a horizontal line
+X *---------------------------------------------------------------------------*/
+Xstatic void separate(int row)
+X{
+X	int i = COLS;
+X	unsigned char delim;
+X	
+X	move(row, 0);
+X
+X	if(opt_delimiter)
+X	{
+X		delim = opt_delimiter;		
+X	}
+X	else if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X	        *enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		attron(A_ALTCHARSET);
+X		switch(termtype)
+X		{
+X			case TERM_HP:	/* HEWLETT-PACKARD Terminals (2392,700/9x etc) */
+X				delim = ';';
+X				break;
+X	
+X			case TERM_VT2:	/* DEC VT220 / 320 */
+X			case TERM_VT3:
+X			case TERM_PCVT:
+X				delim = 'q';
+X				break;
+X	
+X			default:	/* everything else */
+X				delim = DEFDELIMCH;
+X				break;
+X		}
+X	}
+X	else
+X	{
+X		delim = DEFDELIMCH;
+X	}
+X		
+X	while(i--)
+X		addch(delim);
+X
+X	if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X           *enter_alt_charset_mode && *exit_alt_charset_mode && !opt_delimiter)
+X		attroff(A_ALTCHARSET);
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	enter a string into a string variable
+X *---------------------------------------------------------------------------*/
+Xstatic char *enter_string(int row, int col, char *string, int length)
+X{
+X	static char buffer[81];
+X	int ccol, c;
+X
+X	strcpy(buffer, string);
+X	ccol = strlen(buffer);
+X
+X	for(;;)
+X	{
+X		mvaddstr(row, col, buffer);
+X		clrtoeol();
+X		
+X		refresh();
+X
+X		c = getch();	
+X
+X		if(c == bschar)
+X		{
+X			if(ccol > 0)
+X			{
+X				ccol--;
+X				buffer[ccol] = '\0';
+X			}
+X			continue;
+X		}
+X
+X		switch(c)
+X		{
+X			case CR:
+X				return(buffer);
+X				
+X			case ESC:
+X				return(NULL);
+X				
+X			case CNTRL_L:	/* refresh */
+X				touchwin(curscr);
+X				wrefresh(curscr);
+X				break;
+X
+X			default:
+X				if(ccol < length)
+X				{
+X					buffer[ccol++] = c;
+X					buffer[ccol] = '\0';
+X				}
+X				else
+X				{
+X					flash();
+X				}
+X				break;
+X		}
+X	}
+X}
+X
+X/*----------------------- E O F -------------------------------------------*/
+END_OF_FILE
+  if test 8688 -ne `wc -c <'config.c'`; then
+    echo shar: \"'config.c'\" unpacked with wrong size!
+  fi
+  # end of 'config.c'
+fi
+if test -f 'files.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'files.c'\"
+else
+  echo shar: Extracting \"'files.c'\" \(8501 characters\)
+  sed "s/^X//" >'files.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                 --------------------------------------
+X *
+X *              (c) Copyright Hellmuth Michaelis 1989 - 1993
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *           All rights are reserved except as explicitly granted
+X *                  by written permission of the author.
+X *
+X *             See the file COPYING, distributed with wish, for
+X *                  restriction and warranty information
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 11:34:16 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	new sorting order
+X *	-hm	displaying file count
+X *	-hm	optimizing .....
+X *	-hm	wildcard filenames
+X *	-hm	cdrom processing option
+X *	-hm	cdrom programs to files option
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"		/* global include file */
+X
+X#ifndef __386BSD__
+X#include <sys/vfs.h>
+X#endif
+X#include <sys/mount.h>
+X
+Xstatic int  pia[] = {S_IFDIR,S_IREAD,S_IWRITE,S_IEXEC,040,020,010,04,02,01};
+Xstatic char pca[] = "drwxrwxrwx";
+X
+X/*---------------------------------------------------------------------------*
+X *	create a doubly linked list in sorted order, return pointer to new
+X *	first element of list
+X *---------------------------------------------------------------------------*/
+Xstruct onefile *store
+X(register struct onefile *new,	/* new entry to store into list */
+X register struct onefile *top)	/* current first entry in list */
+X{
+X	register struct onefile *old,*p;
+X	
+X	if(last == NULL)	/* enter very first element ? */
+X	{
+X		new->next = NULL;
+X		new->prev = NULL;
+X		last = new;	/* init last */
+X		return(new);	/* return new first */
+X	}
+X	p = top;		/* p = old first element */
+X	old = NULL;
+X	while(p)
+X	{
+X		if((strcmp(p->onam,new->onam)) < 0)	/* current less new ? */
+X		{
+X			old = p;
+X			p = p->next;
+X		}
+X		else
+X		{	/* current >= new */
+X		
+X			if(p->prev)
+X			{
+X				p->prev->next = new;
+X				new->next = p;
+X				new->prev = p->prev;
+X				p->prev = new;
+X				return(top);
+X			}
+X			new->next = p;
+X			new->prev = NULL;
+X			p->prev = new;
+X			return(new);
+X		}
+X	}
+X	old->next = new;
+X	new->next = NULL;
+X	new->prev = old;
+X	last = new;
+X	return(first);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	read current directory and build up a doubly linked sorted list
+X *---------------------------------------------------------------------------*/
+Xint fill_list(void)
+X{
+X	register struct direct *dp;
+X	register struct onefile *new_entry;
+X	register int j;
+X	register struct tm *tp;
+X	register DIR *dirp;
+X	
+X	static struct stat fdbuffer;
+X	static char templine[MAXPATHLEN+2];
+X
+X	int templeng;
+X	int flcnt = 0;
+X	int sret;
+X
+X	maxfnleng = 0;		/* init global variables */	
+X
+X	iscdfs = 0;		/* no cdrom filesys */
+X	
+X	if(opt_cdrom)
+X	{
+X		struct statfs statfsb;
+X#ifndef __386BSD__
+X	/* the 386BSD way, this also seems to work for SunOS 4.1.x */
+X		if((statfs(".", &statfsb)==0) && (statfsb.f_fsid[1]==MOUNT_CDFS))
+X#else
+X	/* the HPUX way ... */
+X		if((statfs(".", &statfsb)==0) && (statfsb.f_type==MOUNT_ISOFS))
+X#endif		
+X			iscdfs = 1;
+X	}
+X		
+X	if((dirp = opendir(".")) == NULL)
+X		return(-1);	/* cannot open directory */
+X
+X	for(dp = readdir(dirp); dp != NULL; dp = readdir(dirp))
+X	{
+X  		flcnt++;			/* increment file count */
+X
+X 		if(!opt_point)			/* display dot ? */
+X 		{
+X			if((*(dp->d_name) == '.') && (*(dp->d_name+1) == '\0'))
+X				continue;
+X		}
+X
+X		if(!opt_dotnames)		/* display dot-names ? */
+X		{
+X			if((*(dp->d_name) == '.') && (*(dp->d_name+1) != '.') && (*(dp->d_name+1) != '\0'))
+X				continue;
+X		}
+X		
+X		if((new_entry = (struct onefile *) malloc(sizeof(struct onefile))) == NULL)
+X		{
+X			closedir(dirp);		/* clean up */
+X			return(-2);		/* out of memory */
+X		}
+X
+X		new_entry->oislnk = 0;		/* no link yet */
+X		
+X		if(opt_links)			/* detect links ? */
+X		{
+X			sret = 0;		/* init return */
+X
+X			if((lstat(dp->d_name, &fdbuffer)) < 0)
+X			{
+X				free(new_entry);	/* lstat failed */
+X				continue;		/* next one .. */
+X			}
+X
+X			if(S_ISLNK(fdbuffer.st_mode))	/* have a link ? */
+X			{
+X				new_entry->oislnk = 1;	/* mark as link */
+X				sret = stat(dp->d_name, &fdbuffer); /* and get status */
+X			}
+X		}
+X		else
+X		{
+X			sret = stat(dp->d_name, &fdbuffer);	/* get status */
+X		}
+X
+X		if(sret < 0)			/* return from stat bad ? */
+X		{
+X			free(new_entry);	/* next entry ... */
+X			continue;
+X		}
+X		else	/* got status, fill in from stat buffer */
+X		{
+X			/* size, userid & groupid */
+X			
+X			new_entry->osiz = fdbuffer.st_size;
+X			new_entry->ousr = fdbuffer.st_uid;
+X			new_entry->ogrp = fdbuffer.st_gid;
+X
+X			/* permissions */
+X			
+X			for(j=0;j<10;j++)
+X			{
+X				if(fdbuffer.st_mode & pia[j])
+X					new_entry->oprm[j] = pca[j];
+X				else
+X					new_entry->oprm[j] = '-';
+X			}
+X			new_entry->oprm[j] = '\0';
+X			
+X			/* type of file -> templine[0] */
+X			
+X			if(S_ISREG(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				new_entry->oprm[0] = '-';
+X				if((new_entry->oprm[3] == 'x') ||
+X		                   (new_entry->oprm[6] == 'x') ||
+X        	        	   (new_entry->oprm[9] == 'x'))
+X        	        	{
+X	        	        	if(iscdfs && opt_cdnoprog)
+X	        	        	{
+X						new_entry->oprm[3] = '-';
+X				                new_entry->oprm[6] = '-';
+X						new_entry->oprm[9] = '-';
+X						templine[0] = ISDATA;
+X					}
+X					else
+X					{
+X	        	        	   	templine[0] = ISPROG;
+X	        	        	}
+X	        	        }
+X				else
+X					templine[0] = ISDATA;
+X				if((fdbuffer.st_mode & S_IFMT) == S_ISUID)
+X					new_entry->oprm[3] = 's';
+X				if((fdbuffer.st_mode & S_IFMT) == S_ISGID)
+X					new_entry->oprm[6] = 's';
+X			}
+X			else if(S_ISDIR(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon)
+X				{
+X					flcnt--;
+X				}
+X				templine[0] = ISDIR;
+X				new_entry->oprm[0] = 'd';
+X			}
+X			else if(S_ISCHR(fdbuffer.st_mode))
+X			{			
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISCHAR;
+X				new_entry->oprm[0] = 'c';
+X			}
+X			else if(S_ISBLK(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISBLOCK;
+X				new_entry->oprm[0] = 'b';
+X			}
+X			else if(S_ISFIFO(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISPIPE;
+X				new_entry->oprm[0] = 'p';
+X			}
+X			else if(S_ISSOCK(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISSOCK;
+X				new_entry->oprm[0] = 'n';
+X			}
+X			else
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISUNKN; /* unknown */
+X				new_entry->oprm[0] = 'u';
+X			}
+X			templine[1] = '\0'; /* terminate templine */
+X
+X			/* file time */
+X			
+X			tp = localtime(&(fdbuffer.st_mtime));
+X			sprintf(new_entry->odat,"%02d-%02d-%02d %02d:%02d",
+X				tp->tm_mday,(tp->tm_mon)+1,tp->tm_year,
+X				tp->tm_hour,tp->tm_min);
+X			
+X			new_entry->tag = 0;	/* clear tag-field */
+X			new_entry->page = -1;	/* page # unknown */
+X
+X			/* new max filename length */
+X			
+X			templeng = strlen(dp->d_name);	/* get name length */
+X			if(templeng > maxfnleng)	/* new max filename length ? */
+X				maxfnleng = templeng;	/* yes */
+X
+X			/* cat templine + filename */
+X
+X			strcat(templine, dp->d_name);	/* file name */
+X
+X			strcpy(new_entry->onam, templine);	
+X
+X			/* sort entry into linked list */
+X			
+X			first = store(new_entry,first);
+X		}
+X	}
+X	closedir(dirp);				/* close current dir */
+X	sprintf(counter,"%4d",flcnt);		/* entries counter */
+X	return(0);				/* ok return */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	free the current malloc'ed list
+X *---------------------------------------------------------------------------*/
+Xvoid free_list(void)
+X{
+X	struct onefile *dir;
+X	struct onefile *tmp;		
+X
+X	dir = first;
+X
+X	while(dir)
+X	{
+X
+X		tmp = dir->next;
+X		free(dir);
+X		dir = tmp;
+X	}
+X	first = NULL;
+X	last = NULL;
+X	maxfnleng = 0;
+X}
+X 
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 8501 -ne `wc -c <'files.c'`; then
+    echo shar: \"'files.c'\" unpacked with wrong size!
+  fi
+  # end of 'files.c'
+fi
+if test -f 'movement.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'movement.c'\"
+else
+  echo shar: Extracting \"'movement.c'\" \(6360 characters\)
+  sed "s/^X//" >'movement.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                  ------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 19:51:19 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	rewrite to not look at filetype anymore
+X *	-hm	consistent up/down and left/right moves
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"
+X
+Xstatic int iscurpag(void);
+X
+X/*---------------------------------------------------------------------------*
+X *	return true if filename is on current displayed page
+X *---------------------------------------------------------------------------*/
+Xstatic int iscurpag(void)
+X{
+X	return(((cur_file->page) & PAGEMASK) == cur_page );
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move current file to first file on page
+X *---------------------------------------------------------------------------*/
+Xint firstfile(void)
+X{
+X	cur_file = scr_beg;
+X
+X	for(;;)
+X	{
+X		if(iscurpag())
+X			return(GOOD);
+X		else if(cur_file->next == NULL)
+X			return(BAD);
+X		else
+X			cur_file = cur_file->next;
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move current file to last file on page
+X *---------------------------------------------------------------------------*/
+Xint lastfile(void)
+X{
+X	cur_file = scr_beg;	/* start of screen */
+X	
+X	for(;;)
+X	{
+X		if(cur_file->next == NULL)
+X			break;
+X		if((cur_file->next->page) == ((cur_page + 1) | FIRST))
+X			break;
+X		cur_file = cur_file->next;
+X	}
+X	for(;;)
+X	{
+X		if(iscurpag())
+X			return(GOOD);
+X		else if(cur_file->prev == NULL)
+X			return(BAD);
+X		else
+X			cur_file = cur_file->prev;
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move current file to next file on page
+X *---------------------------------------------------------------------------*/
+Xint nextfile(void)
+X{
+X	for(;;)
+X	{
+X		if(cur_file->next == NULL)
+X			return(BAD);
+X		cur_file = cur_file->next;
+X		if(iscurpag())
+X			return(GOOD);
+X	}
+X}
+X		
+X/*---------------------------------------------------------------------------*
+X *	move current file to previous file on page
+X *---------------------------------------------------------------------------*/
+Xint prevfile(void)
+X{
+X	for(;;)
+X	{
+X		if(cur_file->prev == NULL)
+X			return(BAD);
+X		cur_file = cur_file->prev;
+X		if(iscurpag())
+X			return(GOOD);
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file to first file on page
+X *---------------------------------------------------------------------------*/
+Xvoid move_home(void)
+X{
+X	cur_norm(cur_file);
+X	firstfile();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file to last file on page
+X *---------------------------------------------------------------------------*/
+Xvoid move_hmdn(void)
+X{
+X	cur_norm(cur_file);
+X	lastfile();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file one pos right, wrapping on end
+X *---------------------------------------------------------------------------*/
+Xvoid move_right(void)
+X{
+X	cur_norm(cur_file);
+X	if(nextfile() == BAD)
+X		firstfile();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file one pos left, wrapping on begin
+X *---------------------------------------------------------------------------*/
+Xvoid move_left(void)
+X{
+X	cur_norm(cur_file);
+X	if(prevfile() == BAD)
+X		lastfile();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file one pos up, wrapping on top
+X *---------------------------------------------------------------------------*/
+Xvoid move_up(void)
+X{
+X	struct onefile *save_cur;
+X	int upcol;
+X	
+X	save_cur = cur_file;	/* fail safe */
+X	
+X	upcol = cur_file->ocol;	/* current column */
+X	
+X	if(first != NULL)
+X	{
+X		cur_norm(cur_file);
+X
+X		while(prevfile() != BAD)
+X		{
+X			if(cur_file->ocol == upcol)
+X				goto upfound;
+X		}
+X		if(lastfile() != BAD)
+X		{
+X			do
+X			{
+X				if(cur_file->ocol == upcol)
+X					goto upfound;
+X			}
+X			while(prevfile() != BAD);
+X		}
+X	}
+X	cur_file = save_cur;	/* not found, no change ! */
+X
+Xupfound:
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	move highlighted file one pos down, wrapping on bottom
+X *---------------------------------------------------------------------------*/
+Xvoid move_down(void)
+X{
+X	struct onefile *save_cur;
+X	int downcol;
+X	
+X	save_cur = cur_file;	/* fail safe */
+X	
+X	downcol = cur_file->ocol;	/* current column */
+X	
+X	if(first != NULL)
+X	{
+X		cur_norm(cur_file);
+X
+X		while(nextfile() != BAD)
+X		{
+X			if(cur_file->ocol == downcol)
+X				goto downfound;
+X		}
+X		if(firstfile() != BAD)
+X		{
+X			do
+X			{
+X				if(cur_file->ocol == downcol)
+X					goto downfound;
+X			}
+X			while(nextfile() != BAD);
+X		}
+X	}
+X	cur_file = save_cur;	/* not found, no change ! */
+X	
+Xdownfound:
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------- EOF -------------------------------------*/
+X
+END_OF_FILE
+  if test 6360 -ne `wc -c <'movement.c'`; then
+    echo shar: \"'movement.c'\" unpacked with wrong size!
+  fi
+  # end of 'movement.c'
+fi
+if test -f 'paging.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'paging.c'\"
+else
+  echo shar: Extracting \"'paging.c'\" \(14185 characters\)
+  sed "s/^X//" >'paging.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                  ------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 19:51:35 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	multiple windows
+X *	-hm	debugging paging routines
+X *	-hm	hpux 9.0 zero pointers ...
+X *	-hm	housekeeping
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"
+X
+Xstatic char curpath[MAXPATHLEN+1];	/* current path buffer normalized for screen */
+Xstatic int lastpage;			/* number of last page */
+X
+Xstatic void make_cpath();		/* get & format current directory */
+Xstatic void dis_cpath(int init);	/* print current directory & entries */
+Xstatic void new_stops();
+Xstatic void dis_init(struct onefile *);
+Xstatic void dis_play(struct onefile *);
+Xstatic void show_blip(void);
+X
+X/*---------------------------------------------------------------------------*
+X *	get & format current directory for display
+X *---------------------------------------------------------------------------*/
+Xstatic void make_cpath(void)
+X{
+X	int i,j,width;
+X	
+X	if((getcwd(curpath, MAXPATHLEN)) == NULL)
+X	{
+X		error("internal getwcd() error, chdir to HOME");
+X		if((chdir(envhome)) == -1)
+X			fatal("cannot chdir() to HOME");
+X		if((getcwd(curpath, MAXPATHLEN)) == NULL)
+X			fatal("twotimes internal getcwd() error");
+X	}
+X
+X	strcpy(cur_path,curpath);	/* for program execution */
+X	
+X	width = COLS-CURDIRW-(ENTRYSW+ENTRYCW);
+X	i = strlen(curpath);
+X	if(i > width)
+X	{
+X		j = 0;
+X		i = i - width + 4;
+X		while(curpath[i++] != '/')
+X			;
+X		curpath[j++] = '.';
+X		curpath[j++] = '.';
+X		curpath[j++] = '.';
+X		curpath[j++] = ' ';
+X		i--;
+X		while(curpath[i])
+X			curpath[j++] = curpath[i++];
+X		curpath[j++] = '\0';
+X	}
+X}				
+X
+X/*---------------------------------------------------------------------------*
+X *	print current directory & entries
+X *---------------------------------------------------------------------------*/
+Xstatic void dis_cpath(int init)
+X{
+X	static int p_init = 1;
+X	int i;
+X	
+X	if(p_init || init)
+X	{
+X		wmove   (fst_w, 0, 0);		/* move to dir string */
+X		wattron (fst_w, A_UNDERLINE);	/* underline on */
+X		waddstr (fst_w, "Directory:");	/* description */
+X		wattroff(fst_w, A_UNDERLINE);	/* end underline */
+X	}
+X	wmove   (fst_w, 0, CURDIRW);
+X	waddstr (fst_w, curpath);		/* print current path */
+X
+X	i = CURDIRW + strlen(curpath);
+X	
+X	while(i++ < COLS-ENTRYSW-ENTRYCW)
+X		waddch(fst_w, SPACE);
+X
+X	if(p_init || init)
+X	{
+X		wmove   (fst_w, 0, COLS-ENTRYSW-ENTRYCW); /* move to entries string */
+X		wattron (fst_w, A_UNDERLINE);	/* underline on */
+X		if(opt_wildon)
+X			waddstr (fst_w, "Matches:");	/* description */
+X		else
+X			waddstr (fst_w, "Entries:");	/* description */
+X		wattroff(fst_w, A_UNDERLINE);	/* underline off */
+X		p_init = 0;
+X	}
+X
+X	wmove   (fst_w, 0, COLS-ENTRYCW);	/* move to entries string */
+X	waddstr (fst_w, counter);		/* print current path */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	calculate new "tab" stops for filename display
+X *---------------------------------------------------------------------------*/
+Xstatic void new_stops(void)
+X{
+X	int j = STARTCOL;		/* start value */
+X	int maxcol = 0;			/* global no of cols */
+X	
+X	while(maxcol < STOPS)
+X	{
+X		stops[maxcol++] = j;	/* set stop point */
+X		j += MINSPACE;		/* add minimum space count between names */
+X		j += maxfnleng;		/* and next filename's length */
+X		if((j + MINSPACE + maxfnleng) > COLS)
+X		{
+X			stops[maxcol] = 0;	/* end marker */
+X			break;			/* leave loop */
+X		}
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	display next file page (if any) in file window
+X *---------------------------------------------------------------------------*/
+Xvoid next_page(void)
+X{
+X	if(cur_page >= lastpage)	/* already on last page ? */
+X		return;			/* yes, leave .. */
+X		
+X	wclear(file_w);			/* clear current window */
+X	dis_cpath(0);			/* current path & entries */
+X
+X	for(;;)
+X	{
+X		if((cur_file->page & PAGEMASK) == ((cur_page+1) & PAGEMASK))
+X			break;
+X		if(cur_file->next != NULL)
+X			cur_file = cur_file->next;	/* next entry */
+X		else
+X			break;
+X	}
+X
+X	cur_page = cur_file->page & PAGEMASK;
+X	
+X	scr_beg = cur_file;
+X	scr_end = cur_file;
+X
+X	dis_play(cur_file);		/* display directories */
+X	show_blip();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	display previous file page (if any) in file window
+X *---------------------------------------------------------------------------*/
+Xvoid prev_page(void)
+X{
+X	if(cur_page <= 0)		/* is there a previous page ? */
+X		return;			/* no, return */
+X
+X	wclear(file_w);			/* clear current window */
+X	dis_cpath(0);			/* display current path & entries */
+X	
+X	cur_file = first;
+X
+X	for(;;)	
+X	{
+X		if((cur_file->page & PAGEMASK) == ((cur_page-1) & PAGEMASK))
+X			break;
+X		if(cur_file->next != NULL)
+X			cur_file = cur_file->next;	/* next entry */
+X		else
+X			break;
+X	}
+X
+X	cur_page = cur_file->page & PAGEMASK;
+X	
+X	scr_beg = cur_file;
+X	scr_end = cur_file;
+X	
+X	dis_play(cur_file);		/* display directories */
+X	show_blip();
+X	cur_inv(cur_file);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	re-fill/refresh file window with data for current dir
+X *---------------------------------------------------------------------------*/
+Xvoid fresh_files(void) 
+X{
+X	scr_end = scr_beg;		/* init */
+X	wclear(file_w);			/* clear current window */
+X	dis_cpath(1);			/* display current path */
+X	dis_play(scr_beg);		/* display directories */
+X	show_blip();			/* show more indicator */
+X	cur_inv(cur_file);		/* highlight old */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	initialize the file diaply window
+X *---------------------------------------------------------------------------*/
+Xvoid init_files(int preserve, char *dirname)
+X{
+X	char filename[MAXPATHLEN];
+X	int page;
+X	int row;
+X	int col;
+X
+X	if(cur_file != NULL)
+X	{
+X		cur_blink(cur_file);	/* blink current file while reading */
+X		wrefresh(file_w);	/* update blinking */
+X		page = cur_file->page & PAGEMASK;
+X		row = cur_file->orow;
+X		col = cur_file->ocol;
+X	}
+X	else
+X	{
+X		page = row = col = 0;
+X	}
+X	
+X	if(preserve == PRES_NORM)
+X	{
+X		strcpy(filename, cur_file->onam);
+X		page = cur_file->page & PAGEMASK;
+X		row = cur_file->orow;
+X		col = cur_file->ocol;
+X	}
+X	else if(preserve == PRES_DD)
+X	{
+X		if(dirname != NULL && *dirname && opt_preserve)
+X		{
+X			char *ptr;
+X
+X			if((ptr = (char *)rindex(dirname, '/')) == NULL)
+X			{
+X				preserve = PRES_NO;
+X			}
+X			else if(*dirname)
+X			{
+X				ptr++;
+X				strcpy(filename, ptr);
+X				page = 0;
+X				row = 0;
+X				col = 0;
+X			}
+X			else
+X			{
+X				preserve = PRES_NO;
+X			}
+X		}
+X		else
+X		{
+X			preserve = PRES_NO;
+X		}
+X	}
+X	
+X	cur_page = 0;			/* file display page 0 */
+X	make_cpath();			/* format current dir */
+X	
+X	if(fill_list() != 0)		/* get directory data into list */
+X	{
+X		if(first != NULL)	/* if any malloced space ... */
+X			free_list();	/* FREE IT !!! */
+X		return;			/* return with error */
+X	}
+X
+X	dis_cpath(1);			/* display current path */
+X	new_stops();			/* compute new stops-table */
+X	cur_file = first;		/* current file is first */
+X	scr_beg = first;		/* first filename on display */
+X	scr_end = first;		/* last filename on display */
+X	wclear(file_w);			/* clear current window */
+X	
+X	while(cur_file != NULL)		/* init whole list */
+X	{
+X		dis_init(cur_file);	/* page init directories */
+X		cur_page++;		/* next page */
+X		cur_file = scr_end->next;	/* new pointer */
+X		scr_beg = cur_file;	/* new screen start */
+X	}
+X	lastpage = cur_page-1;		/* init last page no. */
+X	cur_page = 0;			/* file display page 0 */
+X	cur_file = first;		/* current file is first */
+X	scr_beg = first;		/* first filename on display */
+X	scr_end = first;		/* last filename on display */
+X
+X	if(preserve == PRES_NORM || preserve == PRES_DD)
+X	{
+X		int found = 0;
+X		int length = strlen(filename);
+X		struct onefile *last_file = cur_file;
+X	
+X		while(!found)
+X		{
+X			if(preserve == PRES_NORM)
+X			{
+X				if(!(strncmp(filename,last_file->onam,length)))
+X				{
+X					found = 1;
+X					break;
+X				}
+X			}
+X			else if(preserve == PRES_DD)
+X			{
+X				if(!(strncmp(filename,&(last_file->onam[1]),length)))
+X				{
+X					found = 1;
+X					break;
+X				}
+X			}
+X			
+X			if(last_file->next)
+X				last_file = last_file->next;
+X			else
+X				break;
+X		}
+X		if(found)
+X		{
+X			page = ((last_file->page) & PAGEMASK);
+X			row = last_file->orow;
+X			col = last_file->ocol;
+X		}
+X		if(page > lastpage)
+X			page = lastpage;
+X		
+X		for(;;)
+X		{
+X			if((cur_file->page & PAGEMASK) == (page & PAGEMASK))
+X				break;
+X			if(cur_file->next != NULL)
+X				cur_file = cur_file->next;
+X			else	
+X				break;
+X		}
+X		cur_page = cur_file->page & PAGEMASK;
+X	
+X		scr_beg = cur_file;
+X		scr_end = cur_file;
+X
+X		if(found)
+X			cur_file = last_file;
+X		else
+X		{
+X			last_file = cur_file;
+X
+X			while((last_file->page & PAGEMASK) == (page & PAGEMASK))
+X			{
+X				if((last_file->orow == row) && (last_file->ocol == col))
+X				{
+X					cur_file = last_file;
+X					break;
+X				}
+X				if(last_file->next != NULL)
+X					last_file = last_file->next;
+X				else	
+X					break;
+X			}
+X		}
+X	}
+X	dis_play(scr_beg);		/* display directories */
+X	show_blip();
+X	cur_inv(cur_file);		/* handle current filename */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	display file window
+X *---------------------------------------------------------------------------*/
+Xstatic void dis_play(register struct onefile *n_ptr)
+X{
+X	int displaytype = 1;		/* display file type */
+X	int what = n_ptr->onam[0];	/* dirs, files, executables */
+X	int curp = n_ptr->page & PAGEMASK;
+X
+X	while(n_ptr)
+X	{
+X		if(displaytype)		/* print description */
+X		{
+X			wmove(file_w, n_ptr->orow, 0);	/* move type pos. */
+X			wattron(file_w, A_UNDERLINE);	/* underline */
+X			switch(what)
+X			{
+X				case ISDIR:	/* directories */
+X					waddstr(file_w, "Dirs:");
+X					break;
+X					
+X				case ISPROG:	/* executables */
+X					waddstr(file_w, "Progs:");
+X					break;
+X					
+X				case ISDATA:	/* data */
+X					waddstr(file_w, "Files:");
+X					break;
+X					
+X				case ISCHAR:	/* char devs */
+X					waddstr(file_w, "Cdevs:");
+X					break;
+X					
+X				case ISBLOCK:	/* block devs */
+X					waddstr(file_w, "Bdevs:");
+X					break;
+X					
+X				case ISPIPE:	/* pipes */
+X					waddstr(file_w, "Pipes:");
+X					break;
+X					
+X				case ISSOCK:	/* sockets */
+X					waddstr(file_w, "Sockt:");
+X					break;
+X					
+X				default:	/* data */
+X					waddstr(file_w, "Unkwn:");
+X					break;
+X			}
+X			wattroff(file_w, A_UNDERLINE);	/* end underline */
+X			displaytype = 0;	  	/* reset displaytype */
+X		}
+X
+X		is_tagged(n_ptr);	/* print it */
+X
+X		scr_end = n_ptr;	/* new last screen pos */
+X
+X		if(!n_ptr->next)	/* next entry valid ?? */
+X			break;		/* no, current is last */
+X			
+X		n_ptr = n_ptr->next;	/* next entry */
+X
+X		if(n_ptr->page != curp)	/* if next page != current page ..*/
+X			break;		/* ..exit */
+X
+X		if(n_ptr && (what != n_ptr->onam[0]))	/* new type ?? */
+X		{
+X			what = n_ptr->onam[0];		/* new type */
+X			displaytype = 1;		/* display */
+X		}
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	initialize file window display
+X *---------------------------------------------------------------------------*/
+Xstatic void dis_init(register struct onefile *n_ptr)
+X{
+X	int firstpage = 1;		/* mark first page flag */
+X	int row = 0;			/* current row */
+X	int what = n_ptr->onam[0];	/* dirs, files, executables */
+X	int stop = 0;			/* first stop */
+X	int col = stops[stop];		/* current column */
+X
+X	firstpage = 1;
+X	
+X	while(n_ptr && ( row < fileheight ))	/* while not at end of list */
+X						/*  and in file window .... */
+X	{
+X		if(firstpage)	/* mark first file first page */
+X		{
+X			n_ptr->page = (cur_page | FIRST);
+X			firstpage = 0;
+X		}
+X		else		
+X		{
+X			n_ptr->page = cur_page;
+X		}
+X		
+X		n_ptr->orow = row;	/* save current pos */
+X		n_ptr->ocol = col;	/*  into list entry */
+X
+X		stop++;			/* next stop */
+X		if(stops[stop] == 0)	/* last stop ? */
+X		{
+X			row++;		/* next row */
+X			stop = 0;	/* new stop */
+X		}
+X		col = stops[stop];	/* new col */
+X
+X		scr_end = n_ptr;	/* new last screen pos */
+X
+X		n_ptr = n_ptr->next;	/* next entry */
+X
+X		if(n_ptr && (what != n_ptr->onam[0]))	/* new type ?? */
+X		{
+X			what = n_ptr->onam[0];	/* new type */
+X
+X			if(stop == 0)		/* compute vertical space */
+X			{
+X				row++;
+X			}
+X			else
+X			{
+X				row += 2;
+X				stop = 0;
+X			}
+X			col = stops[stop];	/* new column */
+X		}
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	show wether we have a previous(^), next(v) or just one(*) page
+X *---------------------------------------------------------------------------*/
+Xstatic void show_blip(void)
+X{
+X	if((!cur_page) && (!lastpage))		/* just one page */
+X		return;
+X		
+X	wmove(file_w, fileheight-1 , COLS-1);
+X
+X	wattrset(file_w, A_REVERSE);
+X	
+X	if((!cur_page) && (lastpage))	/* first page */
+X	{
+X		waddch(file_w,'v');
+X	}
+X	else if(lastpage && (cur_page == lastpage)) /* last page */
+X	{
+X		waddch(file_w,'^');
+X	}
+X	else					/* somewhere between */
+X	{
+X		waddch(file_w,'*');
+X	}
+X	wattrset(file_w, A_NORMAL);	
+X}
+X
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 14185 -ne `wc -c <'paging.c'`; then
+    echo shar: \"'paging.c'\" unpacked with wrong size!
+  fi
+  # end of 'paging.c'
+fi
+if test -f 'rcinit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rcinit.c'\"
+else
+  echo shar: Extracting \"'rcinit.c'\" \(5140 characters\)
+  sed "s/^X//" >'rcinit.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                  ------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 19:51:56 1993]
+X *
+X *	-hm	init file ".wishrc"
+X *	-hm	wildcards
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"		/* everything we want */
+X#include "control.h"		/* control-characters */
+X#include "rcinit.h"		/* .wishrc definitions */
+X
+Xstatic void onoff(char *string, int *var);
+Xstatic void optchar(char *string, unsigned char *var);
+Xstatic void optstr(char *string, char dest[]);
+X
+X/*---------------------------------------------------------------------------*
+X *	get user configuration from file "$HOME/.wishrc"
+X *---------------------------------------------------------------------------*/
+Xvoid readrc(void)
+X{
+X	char buffer[MAXPATHLEN+1];	/* gp buffer */
+X	FILE *fp;
+X	
+X	sprintf(buffer, "%s/%s", envhome, WISHRC);
+X
+X	if((fp = fopen(buffer, "r")) == NULL)
+X		return;
+X
+X	while((fgets(buffer, MAXPATHLEN, fp)) != NULL)
+X	{
+X
+X/* comments */
+X		if(buffer[0] == '#' || buffer[0] == ' ' || buffer[0] == '\t')
+X		{
+X			continue;
+X		}
+X/* booleans */
+X		else if(!strncmp(buffer, RC_ATTR, strlen(RC_ATTR)))
+X		{
+X			onoff(buffer, &opt_attrib);
+X		}
+X		else if(!strncmp(buffer, RC_PRESERVE, strlen(RC_PRESERVE)))
+X		{
+X			onoff(buffer, &opt_preserve);
+X		}
+X		else if(!strncmp(buffer, RC_FKEYS, strlen(RC_FKEYS)))
+X		{
+X			onoff(buffer, &opt_labels);
+X		}
+X		else if(!strncmp(buffer, RC_LINKS, strlen(RC_LINKS)))
+X		{
+X			onoff(buffer, &opt_links);
+X		}
+X		else if(!strncmp(buffer, RC_POINT, strlen(RC_POINT)))
+X		{
+X			onoff(buffer, &opt_point);
+X		}
+X		else if(!strncmp(buffer, RC_RETURN, strlen(RC_RETURN)))
+X		{
+X			onoff(buffer, &opt_return);
+X		}
+X		else if(!strncmp(buffer, RC_WILDON, strlen(RC_WILDON)))
+X		{
+X			onoff(buffer, &opt_wildon);
+X		}
+X		else if(!strncmp(buffer, RC_CDROM, strlen(RC_CDROM)))
+X		{
+X			onoff(buffer, &opt_cdrom);
+X		}
+X		else if(!strncmp(buffer, RC_CDNOPROG, strlen(RC_CDNOPROG)))
+X		{
+X			onoff(buffer, &opt_cdnoprog);
+X		}
+X		else if(!strncmp(buffer, RC_DOTNAMES, strlen(RC_DOTNAMES)))
+X		{
+X			onoff(buffer, &opt_dotnames);
+X		}
+X/* strings */
+X		else if(!strncmp(buffer, RC_PAGER, strlen(RC_PAGER)))
+X		{
+X			optstr(buffer, opt_more);			
+X		}
+X		else if(!strncmp(buffer, RC_EDITOR, strlen(RC_EDITOR)))
+X		{
+X			optstr(buffer, opt_edit);
+X		}
+X		else if(!strncmp(buffer, RC_WILDCARD, strlen(RC_WILDCARD)))
+X		{
+X			optstr(buffer, opt_wild);
+X		}
+X/* characters */
+X		else if(!strncmp(buffer, RC_DELIMITER, strlen(RC_DELIMITER)))
+X		{
+X			optchar(buffer, &opt_delimiter);
+X		}
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	process on/off strings
+X *---------------------------------------------------------------------------*/
+Xstatic void onoff(char *string, int *var)
+X{
+X	char *ptr;
+X	
+X	if((ptr = (char *)index(string, '=')) == NULL)
+X		return;
+X		
+X	ptr++;
+X
+X	if(!strncmp(ptr, RC_ON, strlen(RC_ON)))
+X	{
+X		*var = 1;
+X	}
+X	else if(!strncmp(ptr, RC_OFF, strlen(RC_OFF)))
+X	{
+X		*var = 0;
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	process chars
+X *---------------------------------------------------------------------------*/
+Xstatic void optchar(char *string, unsigned char *var)
+X{
+X	unsigned char *ptr;
+X	
+X	if((ptr = (unsigned char *)index(string, '=')) == NULL)
+X		return;
+X		
+X	ptr++;
+X
+X	if(isprint(*ptr))
+X		*var = *ptr;		
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	process strings
+X *---------------------------------------------------------------------------*/
+Xstatic void optstr(char *string, char dest[])
+X{
+X	char *ptr, *bptr;
+X	
+X	if((ptr = (char *)index(string, '=')) == NULL)
+X		return;
+X		
+X	ptr++;
+X
+X	bptr = dest;
+X	
+X	while(*ptr && (*ptr != '#') && (isprint(*ptr)) && (!isspace(*ptr)))
+X		*bptr++ = *ptr++;
+X
+X	*bptr = '\0';
+X}
+X
+X/*--------------------------------- EOF ------------------------------------*/
+END_OF_FILE
+  if test 5140 -ne `wc -c <'rcinit.c'`; then
+    echo shar: \"'rcinit.c'\" unpacked with wrong size!
+  fi
+  # end of 'rcinit.c'
+fi
+if test -f 'wish.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wish.h'\"
+else
+  echo shar: Extracting \"'wish.h'\" \(11980 characters\)
+  sed "s/^X//" >'wish.h' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                  ------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 19:55:44 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	conversion to multi-windows
+X *	-hm	conversion to programs, files & directories
+X *	-hm	adding history to commandline
+X *	-hm	bsd porting
+X *	-hm	preserve dir when cd ..
+X *	-hm	stdlib inclusion for malloc()
+X *	-hm	getcwd debugging
+X *	-hm	fkey handling structures
+X *	-hm	wildcard matching cd
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#ifdef __386BSD__
+X#include <ncurses.h>
+X#else
+X#include <curses.h>
+X#endif
+X
+X#include <ctype.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <grp.h>
+X#include <pwd.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <strings.h>
+X#include <term.h>
+X#include <time.h>
+X#include <unistd.h>
+X#include <utmp.h>
+X#include <sys/dir.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <sys/types.h>
+X
+X#ifdef MAIN
+X#define EXTERNAL
+X#else
+X#define EXTERNAL extern
+X#endif
+X
+X#define EXPSEL	'%'	/* expand selection character in commandline */
+X
+X#define DEFDELIMCH '-'	/* default char used for horizontal delimiting lines */
+X
+X/* screen */
+X
+X#define C_HEAD	 0	/* copyright header line */
+X#define C_LINE	 1	/* command entry line */
+X#define C_SEP	 2	/* separator line between command & file display */
+X#define C_HEIGHT 3	/* commandline height in lines */
+X
+X#define F_BEG	 0	/* first line of file window */
+X
+X#define A_SEP	 0	/* separator line between file display & status line */
+X#define A_LINE	 1	/* attributes line */
+X
+X#define CURDIRW	11	/* F_CURDIR: current dir string width */
+X#define ENTRYSW	9	/* F_CURDIR: entries string width */
+X#define ENTRYCW	4	/* F_CURDIR: entries count width */
+X
+X/* attribute line */
+X
+X#define PP_PERM	0		/* position of permission string */
+X
+X#define PS_SIZE	11		/* position description string */
+X#define ST_SIZE	"Size:"		/* description */
+X#define PP_SIZE	PS_SIZE+6	/* position parameter string */
+X
+X#define PS_USER	27		/* position description string */
+X#define ST_USER	"User:"		/* description */
+X#define PP_USER	PS_USER+6	/* position parameter string */
+X
+X#define PS_GRUP	42		/* position description string */
+X#define ST_GRUP	"Group:"	/* description */
+X#define PP_GRUP	PS_GRUP+7	/* position parameter string */
+X
+X#define PS_DATE	58		/* position description string */
+X#define ST_DATE	"Date:"		/* description */
+X#define PP_DATE	PS_DATE+6	/* position parameter string */
+X
+X#define STOPS 	 30	/* # of positions for filename on screen */
+X#define MINSPACE 2	/* minimum space between two filenames */
+X#define STARTCOL 7	/* start column in a row */
+X
+X#ifndef TRUE
+X#define TRUE	1	/* TRUE */
+X#define FALSE	0	/* not TRUE */
+X#endif
+X
+X#define ABORT	-1	/* wildmatch */
+X#define GOOD	TRUE	/* good return */
+X#define BAD  	FALSE	/* bad return */
+X
+X#define FIRST	0x100	/* first entry of a file-page */
+X#define PAGEMASK 0x0ff	/* for reading just the page */
+X
+X#define CR	0x0d	/* some characters */
+X#define LF	0x0a
+X#define TAB	0x09
+X#define BS	0x08
+X#define DEL	0x7f
+X#define SPACE	0x20
+X#define BEL	0x07
+X#define ESC	0x1b
+X
+X/* keycodes for cursor motion */
+X
+X#define	K_UP	0x10	/* ^P */
+X#define K_DOWN	0x0e	/* ^N */
+X#define	K_LEFT	0x02	/* ^B */
+X#define	K_RIGHT	0x06	/* ^F */
+X
+X#define K_TAB	0x09	/* tab */
+X
+X#define K_NEXT	0x16	/* ^V */
+X#define K_PREV	0x1a	/* ^Z */
+X
+X#define K_QUIT	0x04	/* ^D */
+X#define K_REF	0x0c	/* ^L */
+X
+X#define K_MARK	0x01	/* ^A */
+X#define	K_ECHO	0x17	/* ^W */
+X#define K_UMARK	0x15	/* ^U */
+X
+X#define HISLINES	32	/* no. of lines in history buffer */
+X#define HISLNLEN	512	/* length of one history line */
+X
+X/* terminal types */
+X
+X#define TERM_DUMB		0	/* dumb whatsoever */
+X#define TERM_HP			1	/* Hewlett Packard 2392 or 700/9x */
+X#define TERM_VT1		2	/* DEC VT100 */
+X#define TERM_VT2		3	/* DEC VT220 */
+X#define TERM_VT3		4	/* DEC VT320 */
+X#define TERM_PCVT		5	/* 386BSD pcvt driver */
+X#define TERM_HPX		6	/* hpterm X11 terminal emulator */
+X
+X/* preserve options */
+X
+X#define PRES_NO		0		/* don't preserve anything */
+X#define PRES_NORM	1		/* try "normal" position preserve */
+X#define PRES_DD		2		/* jump to cur dir after cd .. */
+X
+X/* one file */
+X
+Xstruct onefile {		/* structure for one directory entry */
+X	char onam[255];		/* filename */
+X	unsigned int osiz;	/* size */
+X	int ousr;		/* user */
+X	int ogrp;		/* group */
+X	char oislnk;		/* flag, is a link */
+X	char oprm[16];		/* permissions */
+X	char odat[15];		/* access date */
+X	int orow;		/* relative row to display item */
+X	int ocol;		/* relative column to display item */
+X	int tag;		/* flag for tagging files */
+X	int page;		/* page and number for display window */
+X	struct onefile *next;	/* ptr to next entry */
+X	struct onefile *prev;	/* prt to previous entry */
+X};
+X
+X/* onam[0] contains the entry type, which can be:	*/
+X
+X#define ISDIR	'1'
+X#define	ISPROG	'2'
+X#define	ISDATA	'3'
+X#define	ISCHAR	'4'
+X#define	ISBLOCK	'5'
+X#define	ISPIPE	'6'
+X#define ISSOCK	'7'
+X#define ISUNKN	'8'
+X
+X#define OPTSLEN	60		/* option string length */
+X
+X#define WILDCHARS "\\?*["	/* special meaning chars */
+X
+X/* fkey labels */
+X
+Xstruct fk_tab {
+X	char *label_16;		/* HP Terminal Labels */
+X	char *label_8;		/* DEC (and others) Terminal Labels */
+X};
+X
+Xextern struct fk_tab sys_keys[];
+X
+X#ifdef MAIN
+X
+Xchar *hislines[HISLINES];	/* array of history line pointers */
+Xint  cur_his = 0;		/* current history line */
+Xchar cbuff[HISLNLEN+16];	/* command buffer */
+X
+Xchar counter[5] = "\0";		/* entrycount as string */
+Xchar cur_path[1024];		/* current path */
+Xchar errorline[256];		/* error line if errorflag == 1 */
+Xchar headerline[256];		/* headerline for copyright etc */
+X
+Xint stops[STOPS];		/* table of stop points on row */
+X
+Xstruct onefile *cur_file = NULL;/* the CURRENT highlighted filename */
+Xstruct onefile *first = NULL;	/* init dir-list head-ptr */
+Xstruct onefile *last = NULL;	/* init dir-list tail-ptr */
+X
+Xint maxfnleng = 0;		/* length of longest filename of this dir */
+Xint opt_attrib = 1;		/* display attribute line */
+Xint opt_labels = 0;		/* use virtual f-key labels in last line */
+Xint opt_point  = 0;		/* display current dir in file window */
+Xint opt_preserve = 0;		/* initially preserve dirs when cd .. */
+Xint opt_links = 0;		/* initially show files not links */
+Xint opt_return = 1;		/* press any key to continue */
+Xunsigned char opt_delimiter = 0;/* window delimiter character */
+Xint opt_wildon = 0;		/* no wildcarding yet */
+Xchar opt_wild[OPTSLEN+1];	/* file window wildcard spec */
+Xchar opt_edit[OPTSLEN+1];	/* user sepecified editor */
+Xchar opt_more[OPTSLEN+1];	/* user sepecified pager */
+Xint opt_cdrom = 0;		/* cdrom special filename processing */
+Xint opt_cdnoprog = 0;		/* cdrom, convert executables to data */
+Xint opt_dotnames = 1;		/* display filenames starting with dot */
+X
+X#else /* !MAIN */
+X
+Xextern char *hislines[];
+Xextern int  cur_his;
+X
+Xextern char cbuff[];
+X
+Xextern char counter[];
+Xextern char cur_path[];
+Xextern char errorline[];
+Xextern char headerline[];
+X
+Xextern int stops[];
+X
+Xextern struct onefile *cur_file;
+Xextern struct onefile *first;
+Xextern struct onefile *last;
+X
+Xextern int maxfnleng;
+Xextern int opt_attrib;
+Xextern int opt_labels;
+Xextern int opt_point;
+Xextern int opt_preserve;
+Xextern int opt_links;
+Xextern int opt_return;
+Xextern unsigned char opt_delimiter;
+Xextern opt_wildon;
+Xextern char opt_wild[];
+Xextern char opt_edit[];
+Xextern char opt_more[];
+Xextern int opt_cdrom;
+Xextern int opt_cdnoprog;
+Xextern int opt_dotnames;
+X
+X#endif /* MAIN */
+X
+XEXTERNAL char bschar;		/* backspace */
+X
+XEXTERNAL WINDOW *attr_w;	/* attributes display window (separation,attributes) */
+XEXTERNAL WINDOW *cmnd_w;	/* command line window (copyright,command,separation) */
+XEXTERNAL WINDOW *file_w;	/* files display window (file names) */
+XEXTERNAL WINDOW *fst_w;		/* files status window (cur dir, entries) */
+XEXTERNAL WINDOW *flbl_w;	/* function key labels */
+X
+XEXTERNAL char *envhome;		/* ptr to HOME - env var */
+XEXTERNAL char *envmore;		/* ptr to PAGER - env var */
+XEXTERNAL char *envedit;		/* ptr to EDITOR - env var */
+XEXTERNAL char *term_string;	/* terminal type string from environment */
+X
+XEXTERNAL int termtype;		/* flag what terminal category we are on */
+X
+XEXTERNAL struct onefile *scr_beg;/* ptr to first filename on screen */
+XEXTERNAL struct onefile *scr_end;/* ptr to last filename on screen */
+X
+XEXTERNAL int cur_page;		/* current file window page */
+XEXTERNAL int errorflag;		/* if error string is in header line */
+XEXTERNAL int fileheight;	/* height of filewindow */
+XEXTERNAL struct fk_tab (*cur_fktab)[]; /* current fkey label table */
+XEXTERNAL int iscdfs;		/* flag, true if we are on a cdrom filesys */
+X
+Xvoid attribs ( int flag );
+Xvoid bol_line ( void );
+Xint cd( char *string );
+Xvoid clear_toeol ( void );
+Xvoid close_cdir ( void );
+Xvoid clrerror ( void );
+Xint cmdline ( int c );
+Xvoid complete ( void );
+Xvoid config( void );
+Xint cr_on_files ( void );
+Xint curcol ( void );
+Xvoid cur_blink ( struct onefile *current );
+Xvoid cur_inv ( struct onefile *current );
+Xvoid cur_norm ( struct onefile *current );
+Xvoid del_char ( void );
+Xvoid dis_hist ( void );
+Xvoid edit_current ( void );
+Xvoid eol_line ( void );
+Xvoid error ( char *str );
+Xvoid exec_command ( char *cline );
+Xvoid expsel ( char *p );
+Xvoid fatal ( char *str );
+Xint fill_list ( void );
+Xvoid fini_flabels ( void );
+Xint firstfile ( void );
+Xvoid fnclabel ( int n, char *string );
+Xvoid free_list ( void );
+Xvoid fresh_files ( void );
+Xchar *group_from_gid ( gid_t gid, int size );
+Xvoid handlebs ( void );
+Xvoid handlecr ( void );
+Xvoid header ( void );
+Xvoid help ( void );
+Xvoid h_files ( void );
+Xvoid h_line ( void );
+Xvoid init_files ( int preserve, char *dirname );
+Xvoid init_flabels ( void );
+Xvoid init_header ( void );
+Xvoid init_history ( void );
+Xvoid init_screen ( void );
+Xvoid init_time ( void );
+Xvoid is_tagged ( struct onefile *current );
+Xint lastfile ( void );
+Xvoid left_line ( void );
+Xint main ( int argc, char *argv[] );
+Xvoid move_down ( void );
+Xvoid move_hmdn ( void );
+Xvoid move_home ( void );
+Xvoid move_left ( void );
+Xvoid move_right ( void );
+Xvoid move_up ( void );
+Xvoid name_echo ( void );
+Xint nextfile ( void );
+Xvoid next_line ( void );
+Xvoid next_page ( void );
+Xint prevfile ( void );
+Xvoid prev_line ( void );
+Xvoid prev_page ( void );
+Xvoid readrc ( void );
+Xvoid resume_time ( void );
+Xvoid right_line ( void );
+Xvoid save_line ( void );
+Xvoid sepaline ( struct _win_st *window );
+Xvoid set_termtype ( void );
+Xstruct onefile *store ( struct onefile *new, struct onefile *top );
+Xvoid suspend_time ( void );
+Xvoid tag_current ( struct onefile *current );
+Xvoid timeout_hdlr ( int sig );
+Xvoid untag_all ( void );
+Xvoid update_all ( void );
+Xvoid update_files ( void );
+Xvoid usage ( void );
+Xchar *user_from_uid ( uid_t uid, int size );
+Xint wildmat( char *text, char *p );
+Xvoid yank ( void );
+X
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 11980 -ne `wc -c <'wish.h'`; then
+    echo shar: \"'wish.h'\" unpacked with wrong size!
+  fi
+  # end of 'wish.h'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

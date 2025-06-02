@@ -1,0 +1,1171 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i018:  pexdraw - A PEX drawing program, Part08/14
+Message-ID: <1993Jun8.150155.19095@sparky.imd.sterling.com>
+X-Md4-Signature: 6d28d5e2ef9404b38c8cd2e0070dbd0a
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:01:55 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 18
+Archive-name: pexdraw/part08
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  util/pexutdb.c util/pexutdb.h
+# Wrapped by chris@sparky on Tue Jun  8 09:46:33 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 14)."'
+if test -f 'util/pexutdb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutdb.c'\"
+else
+  echo shar: Extracting \"'util/pexutdb.c'\" \(23453 characters\)
+  sed "s/^X//" >'util/pexutdb.c' <<'END_OF_FILE'
+X/* $Header: pexutdb.c,v 500.1.200.1 93/03/17 13:50:51 rj Exp $ */
+X
+X/******************************************************************************/
+X/*  (c) Copyright Hewlett-Packard Company, 1992,  Fort Collins, Colorado      */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted provided  */
+X/*  that the above copyright notices appear in all copies and that both the   */
+X/*  copyright notices and this permission notice appear in supporting         */
+X/*  documentation, and that the name of Hewlett-Packard not be used in        */
+X/*  advertising or publicity pertaining to distribution of the software       */
+X/*  without specific, written prior permission.                               */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Module:  PEXlib Double-Buffer Utilities                                    */
+X/*                                                                            */
+X/* File Content:                                                              */
+X/*   This file contains source code for the PEXlib double-buffer utilities.   */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X/*
+X** Include files
+X*/
+X#include <X11/PEX5/PEXlib.h>
+X#include "pexutext.h"
+X
+X#ifndef MBX_HEADER_FILE_NOT_INSTALLED /* [ */
+X#include <X11/extensions/multibuf.h>
+X#endif /* !MBX_HEADER_FILE_NOT_INSTALLED ] */
+X#include "pexutdbint.h"
+X#include "pexutdb.h"
+X
+X
+X/*
+X** Global internal data
+X*/
+Xstatic PEXUtDBData *pexutdb_last = (PEXUtDBData *)NULL;  /* modified by       */
+X                                                         /* LOOKUP_NODE macro */
+X                                                         /* and PEXUtDBConfig */
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* PEXUtDBConfig                                                              */
+X/*                                                                            */
+X/******************************************************************************/
+X
+Xint PEXUtDBConfig( dpy, win, db_on, bg_color, db_x, drw_id_return )
+X    Display             *dpy;
+X    Window              win;
+X    int                 db_on;
+X    XColor              *bg_color;
+X    int                 db_x;
+X    Drawable            *drw_id_return;
+X{
+X    PEXUtDBData         *ptr;
+X    PEXExtensionInfo    *pexinfo;
+X    XWindowAttributes   wattrs;
+X    unsigned long       count, rmsk;
+X    PEXRenderingTarget  *target;
+X    XGCValues           gcvals;
+X    PEXRendererAttributes rattrs;
+X    
+X
+X    /*
+X    ** verify that the PEX server is major version 5
+X    */
+X    pexinfo = PEXGetExtensionInfo( dpy );
+X    if ( pexinfo == (PEXExtensionInfo *)NULL )
+X        return( PEXUTDBNODB );
+X    if ( pexinfo->major_version != 5 )
+X        return( PEXUTDBNOTPEX5 );
+X
+X    /*
+X    ** if a node for the window already exists, use it
+X    */
+X    LOOKUP_NODE( ptr, win, dpy );
+X    if ( ptr == (PEXUtDBData *)NULL ) {
+X        /*
+X        ** if no node found, and trying to turn off double-buffering,
+X        ** return successfully since double-buffering is off by default
+X        */
+X        if ( ! db_on ) {
+X	    if ( drw_id_return != (Drawable *)NULL )
+X                *drw_id_return = win;
+X            return( PEXUTDBOKAY );
+X        }
+X        /*
+X        ** otherwise, we need to add a new node
+X        */
+X        ptr = add_node( win, dpy );
+X        if ( ptr == (PEXUtDBData *)NULL )
+X            return( PEXUTDBNOMEM );
+X        pexutdb_last = ptr;
+X    } else {
+X	/*
+X	** if we're turning double-buffering on, and it's already on, just
+X	** verify the configuration is same as before (i.e. db_x is the same)
+X	** and set the new bg_color
+X	*/
+X	if ( db_on ) {
+X	    if ( db_x != ptr->db_x ) {
+X		PEXUtDBConfig( dpy, win, False, bg_color, 0, drw_id_return );
+X		return( PEXUtDBConfig( dpy, win, True, bg_color, db_x,
+X				       drw_id_return ) );
+X	    } else {
+X                if ( ptr->db_type == PEXUTDBMBX ) {
+X                    gcvals.foreground = bg_color->pixel;
+X                    XChangeGC( dpy, ptr->gc, GCForeground, &gcvals );
+X                    XSetWindowBackground( dpy, win, bg_color->pixel );
+X                    if ( ptr->render_to_front )
+X                        *drw_id_return = ptr->buffers[(ptr->back_buffer ^ 0x1)];
+X		    else
+X                        *drw_id_return = ptr->buffers[ptr->back_buffer];
+X                } else {
+X                    if ( ptr->db_type == PEXUTDBESC ) {
+X#ifndef HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED /* [ */
+X                        rattrs.background_color.type = PEXColorTypeRGB;
+X                        rattrs.background_color.value.rgb.red   =
+X                                                     (float)bg_color->red/65535;
+X                        rattrs.background_color.value.rgb.green =
+X                                                   (float)bg_color->green/65535;
+X                        rattrs.background_color.value.rgb.blue  =
+X                                                    (float)bg_color->blue/65535;
+X                        rmsk = PEXRABackgroundColor;
+X                        PEXChangeRenderer( dpy, ptr->renderer, rmsk, &rattrs );
+X#endif /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ] */
+X                        *drw_id_return = win;
+X		    } else {
+X                        gcvals.foreground = bg_color->pixel;
+X                        XChangeGC( dpy, ptr->gc, GCForeground, &gcvals );
+X                        XSetWindowBackground( dpy, win, bg_color->pixel );
+X                        *drw_id_return = ptr->pixmap;
+X		    }
+X		}
+X
+X		return( PEXUTDBOKAY );
+X	    }
+X	}
+X    }
+X
+X    /*
+X    ** if we're turning double-buffering off, delete the node
+X    */
+X    if ( ! db_on ) {
+X        /*
+X        ** free up resources
+X        */
+X        if ( ptr->db_type == PEXUTDBMBX ) {
+X            XmbufDestroyBuffers( dpy, win );
+X            XFreeGC( dpy, ptr->gc );
+X        } else {
+X            if ( ptr->db_type == PEXUTDBESC ) {
+X                esEscapeDblBuffer dbesc;
+X
+X                dbesc.drawable = win;
+X                dbesc.bufferMode = ES_RENDERER_SINGLEBUFFER;
+X                PEXEscape( dpy, ES_ESCAPE_DBLBUFFER,
+X                           sizeof( esEscapeDblBuffer ), (PEXPointer)&dbesc );
+X#ifndef HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED /* [ */
+X                PEXFreeRenderer( dpy, ptr->renderer );
+X#endif /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ] */
+X            } else {
+X                /*
+X                ** assume pixmap is used
+X                */
+X                XFreePixmap( dpy, ptr->pixmap );
+X                XFreeGC( dpy, ptr->gc );
+X            }
+X        }
+X
+X        /*
+X        ** delete the node and return
+X        */
+X        delete_node( win, dpy );
+X	if ( drw_id_return != (Drawable *)NULL )
+X            *drw_id_return = win;
+X        pexutdb_last = (PEXUtDBData *)NULL;
+X        return( PEXUTDBOKAY );
+X    }
+X
+X    /*
+X    ** okay, we now know we're turning on double-buffering; so do it!
+X    */
+X
+X    /*
+X    ** initialize the node
+X    */
+X    ptr->window = win;
+X    ptr->display = dpy;
+X    ptr->render_to_front = False;
+X    ptr->db_x = db_x = ( db_x ? True : False ); /* map value to True or False */
+X    ptr->renderer = None;
+X    ptr->clear_renderer = False;
+X    ptr->pixmap = None;
+X    ptr->gc = None;
+X    ptr->width = 0;                /* width, height and depth not used unless */
+X    ptr->height = 0;               /* using pixmaps for double-buffering      */
+X    ptr->depth = 0;
+X
+X    /*
+X    ** get the window attributes
+X    */
+X    if ( ! XGetWindowAttributes( dpy, win, &wattrs ) )
+X        return( PEXUTDBNODB );
+X
+X
+X    /*
+X    ** try MBX
+X    */
+X    {
+X        int first_event, first_error, num;
+X        
+X	/*
+X	** If the server version is 5.0, assume PEX can render to buffer
+X	** targets if the MBX extension is available
+X	** If the server version is 5.1, verify that PEX can render to buffer
+X	** targets if the MBX extension is available
+X	*/
+X        if ( ( pexinfo->minor_version == 0 ) ||
+X             ( ( pexinfo->minor_version >= 1 ) &&
+X               PEXMatchRenderingTargets( dpy, win, wattrs.depth,
+X                                         PEXBufferDrawable, wattrs.visual, 1,
+X                                         &count, &target ) &&
+X               ( count == 1 ) ) ) {
+X            if ( XmbufQueryExtension( dpy, &first_event, &first_error ) ) {
+X                num = XmbufCreateBuffers( dpy, win, 2,
+X                                          MultibufferUpdateActionUndefined,
+X                                          MultibufferUpdateHintFrequent,
+X                                          ptr->buffers );
+X                if ( num == 2 ) {
+X                    ptr->back_buffer = 1;  /* buffers[0] is the one displayed */
+X                    gcvals.foreground = bg_color->pixel;
+X                    ptr->gc = XCreateGC( dpy, win, GCForeground, &gcvals );
+X                    if ( ptr->gc ) {
+X                        XSetWindowBackground( dpy, win, bg_color->pixel );
+X                        XFillRectangle( dpy, ptr->buffers[ptr->back_buffer],
+X					ptr->gc, 0, 0, ptr->width, ptr->height);
+X                        ptr->db_type = PEXUTDBMBX;
+X                        *drw_id_return = ptr->buffers[ptr->back_buffer];
+X                        return( PEXUTDBOKAY );
+X                    } else
+X                        XmbufDestroyBuffers( dpy, win );
+X                }
+X            }
+X        }
+X    }
+X    
+X    /*
+X    ** MBX not available, so try double-buffer escapes
+X    */
+X    if ( ! db_x ) {
+X
+X        if ( ( pexinfo->minor_version >= 1 ) ||
+X	     (strncmp( pexinfo->vendor_name, "SunPEX 2.0", 10 ) == 0 ) ) {
+X
+X            int                     enumtypes, i, hpfnd, esfnd;
+X            unsigned long           *ptrtocnts, rpllen;
+X            PEXEnumTypeDesc         *ptrtoinfo;
+X            esEscapeDblBuffer       dbesc;
+X            esEscapeSwapBufferContent sbcesc;
+X            char                    *rpl;
+X
+X        
+X            enumtypes = PEXETEscape;
+X            if ( PEXGetEnumTypeInfo( dpy, win, 1, &enumtypes, PEXETIndex,
+X                                     &ptrtocnts, &ptrtoinfo ) ) {
+X                hpfnd = esfnd = False;
+X                for ( i = 0;  i < *ptrtocnts;  i++ ) {
+X                    if ( (short)ptrtoinfo[i].index ==
+X						 (short)ES_ESCAPE_ET_DBLBUFFER )
+X                        esfnd = True;           /* assume rest of E&S escapes */
+X                    if ( (short)ptrtoinfo[i].index ==
+X					(short)HP_ESCAPE_ET_SETRENDERINGBUFFER )
+X                        hpfnd = True;
+X                }
+X                if ( esfnd ) {
+X                    dbesc.drawable = win;
+X                    dbesc.bufferMode = ES_RENDERER_DBLBUFFER;
+X                    PEXEscape( dpy, ES_ESCAPE_DBLBUFFER,
+X                               sizeof( esEscapeDblBuffer ),
+X                               (PEXPointer)&dbesc );
+X#ifndef HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED /* [ */
+X                    /*
+X                    ** set up renderer attributes and create a PEX renderer
+X                    */
+X                    rattrs.background_color.type = PEXColorTypeRGB;
+X                    rattrs.background_color.value.rgb.red   =
+X                                                     (float)bg_color->red/65535;
+X                    rattrs.background_color.value.rgb.green =
+X                                                   (float)bg_color->green/65535;
+X                    rattrs.background_color.value.rgb.blue  =
+X                                                    (float)bg_color->blue/65535;
+X                    rattrs.clear_image = True;
+X                    rmsk = ( PEXRABackgroundColor | PEXRAClearImage );
+X                    ptr->renderer =
+X				   PEXCreateRenderer( dpy, win, rmsk, &rattrs );
+X                    /*
+X                    ** find out if swapping buffers will clear the back buffer
+X                    */
+X                    sbcesc.drawable = win;
+X                    rpl = PEXEscapeWithReply( dpy, ES_ESCAPE_SWAPBUFFERCONTENT,
+X                                            sizeof( esEscapeSwapBufferContent ),
+X                                            (PEXPointer)&sbcesc, &rpllen );
+X                    if ( ( rpllen != 4 ) ||
+X			 ( ( rpllen == 4 ) && ( (*(unsigned long *)rpl) !=
+X                                  ES_DB_SWAP_CONTENT_CLEAR_TO_BACKGROUND ) ) ) {
+X                        PEXBeginRendering( dpy, win, ptr->renderer );
+X                        PEXEndRendering( dpy, ptr->renderer, True );
+X                        ptr->clear_renderer = True;
+X                    } else {
+X                        ptr->clear_renderer = False;
+X		    }
+X		    if ( rpl != NULL )
+X		        XFree( rpl );
+X#endif /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ] */
+X		    if ( hpfnd )
+X			ptr->front_supported = True;
+X		    else
+X			ptr->front_supported = False;
+X                    ptr->db_type = PEXUTDBESC;   /* note escapes are used */
+X                    *drw_id_return = win;
+X                    return( PEXUTDBOKAY );
+X                }
+X            }
+X        }
+X    }
+X    
+X    /*
+X    ** last resort, pixmaps
+X    **
+X    ** If the server version is 5.0, assume PEX can render to pixmap targets
+X    ** If the server version is 5.1, verify that PEX can render to pixmaps
+X    */
+X    if ( ( pexinfo->minor_version == 0 ) ||
+X         ( ( pexinfo->minor_version >= 1 ) &&
+X           PEXMatchRenderingTargets( dpy, win, wattrs.depth,
+X                                     PEXPixmapDrawable, wattrs.visual, 1,
+X                                     &count, &target ) &&
+X           ( count == 1 ) ) ) {
+X        /*
+X        ** set up the window attributes for use later
+X        */
+X        ptr->width = wattrs.width;
+X        ptr->height = wattrs.height;
+X        ptr->depth = wattrs.depth;
+X        ptr->pixmap = XCreatePixmap( dpy, ptr->window, ptr->width, ptr->height,
+X                                     ptr->depth );
+X        if ( ptr->pixmap ) {
+X            gcvals.foreground = bg_color->pixel;
+X            ptr->gc = XCreateGC( dpy, ptr->pixmap, GCForeground, &gcvals );
+X            if ( ptr->gc ) {
+X                XSetWindowBackground( dpy, win, bg_color->pixel );
+X                XFillRectangle( dpy, ptr->pixmap, ptr->gc,
+X                                0, 0, ptr->width, ptr->height );
+X                *drw_id_return = ptr->pixmap;
+X                return( PEXUTDBOKAY );
+X            } else
+X                XFreePixmap( dpy, ptr->pixmap );
+X        }
+X    }
+X    
+X    /*
+X    ** nothing is available, so clean up and return failure
+X    */
+X    delete_node( win, dpy );
+X    pexutdb_last = (PEXUtDBData *)NULL;
+X    return( PEXUTDBNODB );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* PEXUtDBSwap                                                                */
+X/*                                                                            */
+X/******************************************************************************/
+X
+XDrawable PEXUtDBSwap( dpy, win, clear )
+X    Display     *dpy;
+X    Window      win;
+X    int         clear;
+X{
+X    PEXUtDBData *ptr;
+X    
+X    LOOKUP_NODE( ptr, win, dpy );
+X    if ( ptr == (PEXUtDBData *)NULL )
+X        return( win );
+X    
+X    /*
+X    ** swap the buffers
+X    */
+X
+X    if ( ptr->db_type == PEXUTDBMBX ) {
+X        XmbufDisplayBuffers( dpy, 1, &( ptr->buffers[ptr->back_buffer] ), 0, 0);
+X        ptr->back_buffer = ( ptr->back_buffer ^ 0x1 );
+X        if ( clear )
+X            XFillRectangle( dpy, ptr->buffers[ptr->back_buffer], ptr->gc,
+X			    0, 0, ptr->width, ptr->height );
+X        if ( ptr->render_to_front )
+X            return( ptr->buffers[( ptr->back_buffer ^ 0x1 )] );
+X        return( ptr->buffers[ptr->back_buffer] );
+X    }
+X
+X    if ( ptr->db_type == PEXUTDBESC ) {
+X        esEscapeSwapBuffer sbesc;
+X
+X        sbesc.drawable = win;
+X        PEXEscape( dpy, ES_ESCAPE_SWAPBUFFER, sizeof( esEscapeSwapBuffer ),
+X                   (PEXPointer)&sbesc );
+X#ifndef HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED /* [ */
+X        if ( clear && ptr->clear_renderer ) {
+X            PEXBeginRendering( dpy, win, ptr->renderer );
+X            PEXEndRendering( dpy, ptr->renderer, True );
+X        }
+X#endif /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ] */
+X        return( win );
+X    }
+X
+X    /*
+X    ** assume pixmap is used
+X    */
+X    XCopyArea( dpy, ptr->pixmap, win, ptr->gc, 0, 0, ptr->width, ptr->height,
+X               0, 0 );
+X    if ( clear )
+X        XFillRectangle( dpy, ptr->pixmap, ptr->gc, 0, 0, ptr->width,
+X                        ptr->height );
+X    if ( ptr->render_to_front )
+X        return( win );
+X    return( ptr->pixmap );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* PEXUtDBClear                                                               */
+X/*                                                                            */
+X/******************************************************************************/
+X
+Xint PEXUtDBClear( dpy, win )
+X    Display     *dpy;
+X    Window      win;
+X{
+X    PEXUtDBData *ptr;
+X    Drawable    drw;
+X    
+X    LOOKUP_NODE( ptr, win, dpy );
+X    if ( ptr == (PEXUtDBData *)NULL ) {
+X        XClearWindow( dpy, win );
+X        return( PEXUTDBOKAY );
+X    }
+X    
+X    /*
+X    ** clear the back buffer
+X    */
+X
+X    if ( ptr->db_type == PEXUTDBESC ) {
+X        /*
+X        ** NOTE: this is slow; it is documented that
+X        **       applications should not do this
+X        */
+X#ifndef HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED /* [ */
+X        if ( ptr->render_to_front ) {
+X            PEXUtDBFront( dpy, win, False, &drw );
+X            PEXBeginRendering( dpy, win, ptr->renderer );
+X            PEXEndRendering( dpy, ptr->renderer, True );
+X            PEXUtDBFront( dpy, win, True, &drw );
+X        } else {
+X            PEXBeginRendering( dpy, win, ptr->renderer );
+X            PEXEndRendering( dpy, ptr->renderer, True );
+X        }
+X#else /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ][ */
+X        return( PEXUTDBFAIL );
+X#endif /* HP_MULTIPLE_RENDERERS_BUG_NOT_FIXED ] */
+X    } else {
+X        if ( ptr->db_type == PEXUTDBMBX )
+X            XFillRectangle( dpy, ptr->buffers[ptr->back_buffer], ptr->gc,
+X			    0, 0, ptr->width, ptr->height );
+X        else
+X            /*
+X            ** assume pixmap is used
+X            */
+X            XFillRectangle( dpy, ptr->pixmap, ptr->gc,
+X			    0, 0, ptr->width, ptr->height );
+X    }
+X
+X    return( PEXUTDBOKAY );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* PEXUtDBFront                                                               */
+X/*                                                                            */
+X/******************************************************************************/
+X
+Xint PEXUtDBFront( dpy, win, front, drw_id_return )
+X    Display     *dpy;
+X    Window      win;
+X    int         front;
+X    Drawable    *drw_id_return;
+X{
+X    PEXUtDBData *ptr;
+X    
+X    LOOKUP_NODE( ptr, win, dpy );
+X    if ( ptr == (PEXUtDBData *)NULL ) {
+X	*drw_id_return = win;
+X        return( PEXUTDBOKAY );
+X    }
+X
+X    /*
+X    ** first, verify that rendering to the front buffer is supported
+X    */
+X    if ( ! ptr->front_supported )
+X	return( PEXUTDBNOSUPPORT );
+X
+X    
+X    /*
+X    ** configure the window for rendering to the
+X    **    front (if front == True)
+X    ** or
+X    **    back (if front == False)
+X    */
+X
+X    front = ( front ? True : False );           /* map value to True or False */
+X
+X    if ( ptr->db_type == PEXUTDBMBX ) {
+X        ptr->render_to_front = front;
+X        if ( front )
+X            *drw_id_return = ptr->buffers[( ptr->back_buffer ^ 0x1 )];
+X	else
+X            *drw_id_return = ptr->buffers[ptr->back_buffer];
+X	return( PEXUTDBOKAY );
+X    }
+X
+X    if ( ptr->db_type == PEXUTDBESC ) {
+X        if ( ptr->render_to_front != front ) {
+X            hpEscapeSetRenderingBuffer srbesc;
+X
+X            ptr->render_to_front = front;
+X            srbesc.drawable = win;
+X            srbesc.render_to_front_buffer = front;
+X            PEXEscape( dpy, HP_ESCAPE_SETRENDERINGBUFFER,
+X                       sizeof( hpEscapeSetRenderingBuffer ),
+X                       (PEXPointer)&srbesc );
+X        }
+X	*drw_id_return = win;
+X        return( PEXUTDBOKAY );
+X    }
+X
+X    /*
+X    ** assume pixmap is used
+X    */
+X    ptr->render_to_front = front;
+X    if ( front )
+X        *drw_id_return = win;
+X    else
+X        *drw_id_return = ptr->pixmap;
+X    return( PEXUTDBOKAY );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* PEXUtDBResize                                                              */
+X/*                                                                            */
+X/******************************************************************************/
+X
+XDrawable PEXUtDBResize( dpy, win )
+X    Display           *dpy;
+X    Window            win;
+X{
+X    PEXUtDBData       *ptr;
+X    XWindowAttributes wattrs;
+X    
+X    LOOKUP_NODE( ptr, win, dpy );
+X    if ( ptr == (PEXUtDBData *)NULL )
+X        return( win );
+X    
+X    /*
+X    ** reconfigure the window for the new size
+X    */
+X
+X    if ( ptr->db_type == PEXUTDBMBX ) {
+X        if ( ptr->render_to_front )
+X            return( ptr->buffers[( ptr->back_buffer ^ 0x1 )] );
+X        return( ptr->buffers[ptr->back_buffer] );
+X    }
+X
+X    if ( ptr->db_type == PEXUTDBESC )
+X        return( win );
+X
+X    /*
+X    ** assume pixmap is used
+X    */
+X    XFreePixmap( dpy, ptr->pixmap );
+X
+X    /*
+X    ** get new window attributes
+X    */
+X    if ( ! XGetWindowAttributes( dpy, win, &wattrs ) )
+X        return( None );
+X    ptr->width = wattrs.width;
+X    ptr->height = wattrs.height;
+X    ptr->depth = wattrs.depth;
+X
+X    /*
+X    ** create new pixmap
+X    */
+X    ptr->pixmap = XCreatePixmap( dpy, ptr->window, ptr->width, ptr->height,
+X                                 ptr->depth );
+X    if ( ptr->pixmap ) {
+X        if ( ptr->render_to_front )
+X            return( win );
+X        return( ptr->pixmap );
+X    }
+X
+X    /*
+X    ** failed to allocate new pixmap, clean up and return failure
+X    */
+X    XFreeGC( dpy, ptr->gc );
+X    delete_node( win, dpy );
+X    pexutdb_last = (PEXUtDBData *)NULL;
+X    return( None );
+X}
+END_OF_FILE
+  if test 23453 -ne `wc -c <'util/pexutdb.c'`; then
+    echo shar: \"'util/pexutdb.c'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutdb.c'
+fi
+if test -f 'util/pexutdb.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutdb.h'\"
+else
+  echo shar: Extracting \"'util/pexutdb.h'\" \(30692 characters\)
+  sed "s/^X//" >'util/pexutdb.h' <<'END_OF_FILE'
+X/* $Header: pexutdb.h,v 500.1.200.1 93/03/17 14:14:35 rj Exp $ */
+X
+X/******************************************************************************/
+X/*  (c) Copyright Hewlett-Packard Company, 1992,  Fort Collins, Colorado      */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted provided  */
+X/*  that the above copyright notices appear in all copies and that both the   */
+X/*  copyright notices and this permission notice appear in supporting         */
+X/*  documentation, and that the name of Hewlett-Packard not be used in        */
+X/*  advertising or publicity pertaining to distribution of the software       */
+X/*  without specific, written prior permission.                               */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Module:  PEXlib Double-Buffer Utilities (see file pexutdb.c for more info) */
+X/*                                                                            */
+X/* Module Description:                                                        */
+X/*   This set of functions provide a portable interface to double-buffering.  */
+X/*   The utilities support the use of the Multi-Buffering extension to X      */
+X/*   (MBX), the PEX escapes defined by Hewlett-Packard and Evans & Sutherland */
+X/*   and the use of pixmaps.                                                  */
+X/*                                                                            */
+X/*   The utilities first attempt to use MBX.  If MBX is not available, then   */
+X/*   the double-buffer escapes are attempted.  Pixmaps are the last option.   */
+X/*                                                                            */
+X/* User Functions:                                                            */
+X/*   PEXUtDBConfig  - configure a window for double-buffering                 */
+X/*   PEXUtDBSwap    - swap the window buffers and clear the back buffer       */
+X/*   PEXUtDBClear   - clear the window back buffer                            */
+X/*   PEXUtDBFront   - reconfigure the window to render in the front buffer    */
+X/*   PEXUtDBResize  - resize window buffers                                   */
+X/*                                                                            */
+X/* File Content:                                                              */
+X/*   This file contains constants for application use with the PEXlib         */
+X/*   double-buffer utilities.                                                 */
+X/*                                                                            */
+X/*                                                                            */
+X/* Other Documentation:                                                       */
+X/*   Title:     "Double-Buffering Utilities for PEXlib"                       */
+X/*   Author:    Jeff Stevenson; Hewlett-Packard Co.                           */
+X/*   Dated:     November 6, 1992                                              */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X#ifndef _PEXUTDB_H_ /* [ */
+X#define _PEXUTDB_H_
+X
+X
+X#ifndef NeedFunctionPrototypes
+X#if defined(FUNCPROTO) || defined(__STDC__) || \
+X    defined(__cplusplus) || defined(c_plusplus)
+X#define NeedFunctionPrototypes  1
+X#else
+X#define NeedFunctionPrototypes  0
+X#endif /* FUNCPROTO, __STDC__, __cplusplus, c_plusplus */
+X#endif /* NeedFunctionPrototypes */
+X
+X
+X#ifdef __cplusplus   /* do not leave open across includes */
+Xextern "C" {         /* for C++ V2.0 */
+X#endif
+X
+X
+X/*
+X** constants for PEXUtDBConfig
+X*/
+X#define PEXUTDBOKAY     0               /* PEXUtDBConfig was successful       */
+X#define PEXUTDBNODB     1               /* double-buffer not supported        */
+X#define PEXUTDBNODBX    2               /* double-buffer not supported for X  */
+X#define PEXUTDBNOTPEX5  3               /* PEX extension major version not 5  */
+X#define PEXUTDBNOMEM    4               /* memory allocation error in utility */
+X
+X/*
+X** constants for PEXUtDBFront
+X*/
+X/* reuse PEXUTDBOKAY defined above */    /* PEXUtDBFront was successful       */
+X#define PEXUTDBNOSUPPORT 1               /* render to front buf not supported */
+X#define PEXUTDBFAIL      2               /* other failure in PEXUtDBFront     */
+X
+X
+X
+X/*
+X** define NULL, if necessary
+X*/
+X#ifndef NULL /* [ */
+X#define NULL 0
+X#endif /* NULL  ] */
+X
+X
+X/*
+X** function declarations
+X*/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   PEXUtDBConfig  - configure a window for double-buffering                 */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   The PEXUtDBConfig function configures the specified window for double-   */
+X/*   buffered rendering (if db_on == True) or configures the specified window */
+X/*   for single-buffered rendering (if db_on == False). The utilities support */
+X/*   double-buffered rendering for PEX primitives, and if requested (db_x ==  */
+X/*   True), for X and PEX primitives together.                                */
+X/*                                                                            */
+X/*   If the window is configured for double-buffering, the back buffer is     */
+X/*   cleared to the specified background color.                               */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   The function returns a value of zero (PEXUTDBOKAY) if it is successful;  */
+X/*   a non-zero return value indicates failure. The following are the meaning */
+X/*   of the different non-zero return values:                                 */
+X/*                                                                            */
+X/*     * A return value of PEXUTDBNODB means that double-buffering was        */
+X/*       requested (db_on == True), but double-buffering is not supported for */
+X/*       this window.                                                         */
+X/*                                                                            */
+X/*     * A return value of PEXUTDBNODBX means that double-buffered rendering  */
+X/*       for both X and PEX was requested (db_x == True), but is not          */
+X/*       supported for this window. If acceptable, the application should     */
+X/*       retry with db_x set to False which will double-buffer only PEX       */
+X/*       rendering.                                                           */
+X/*                                                                            */
+X/*     * A return value of PEXUTDBNOT5 means that the PEX server major        */
+X/*       version was not 5. These utilities are designed only to work with    */
+X/*       5.0 and 5.1 compatible servers.                                      */
+X/*                                                                            */
+X/*     * A return value of PEXUTDBNOMEM means that the utilities ran out of   */
+X/*       memory.                                                              */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   dpy, win       - The dpy and win arguments specify the display and       */
+X/*                    window (respectively) to be configured.                 */
+X/*                                                                            */
+X/*   db_on          - db_on indicates whether the window is configured for    */
+X/*                    double-buffering (db_on == True) or single-buffering    */
+X/*                    (db_on == False).                                       */
+X/*                                                                            */
+X/*   bg_color       - bg_color specifies the background color values used     */
+X/*                    when clearing and should be the same color as the       */
+X/*                    window's background. The application must ensure that   */
+X/*                    both the pixel value and the red, green and blue values */
+X/*                    are valid in bg_color. These values should have been    */
+X/*                    set or computed during window creation and              */
+X/*                    configuration. (One way to obtain the pixel value is    */
+X/*                    XAllocColor which returns the pixel value for a         */
+X/*                    specified red, green and blue color triplet. One way to */
+X/*                    obtain the triplet values is XQueryColor which return   */
+X/*                    the red, green and blue component values for a          */
+X/*                    specified pixel value. There are other methods          */
+X/*                    available in Xlib depending on the application needs.)  */
+X/*                                                                            */
+X/*   db_x           - db_x indicates whether the application requires the     */
+X/*                    double-buffered rendering to support both X and PEX.  A */
+X/*                    value of True forces the use of a mechanism that will   */
+X/*                    support both X and PEX double-buffered rendering.       */
+X/*                                                                            */
+X/*   drw_id_return  - drw_id_return is a pointer to a drawable identifier.    */
+X/*                    This is the drawable identifier to be used for          */
+X/*                    subsequent rendering calls for X and PEX. For example,  */
+X/*                    this drawable identifier should be used for             */
+X/*                    PEXBeginRendering or PEXRenderNetwork, as well as for X */
+X/*                    rendering calls like XDrawLine. The returned value is a */
+X/*                    Null pointer if the function is unsuccessful.           */
+X/*                                                                            */
+X/* Restrictions:                                                              */
+X/*   If it is necessary to ensure that all actions have completed before      */
+X/*   proceeding, the application should call XSync after calling              */
+X/*   PEXUtDBConfig.                                                           */
+X/*                                                                            */
+X/*   This function assumes that PEXInitialize has been called for the         */
+X/*   specified display argument.                                              */
+X/*                                                                            */
+X/*   Renderer clip lists do not affect the clear operation. The entire back   */
+X/*   buffer is cleared.                                                       */
+X/*                                                                            */
+X/*   If the PEX server is version 5.0, and MBX is not available, pixmaps are  */
+X/*   the only other option. However, there is no way to determine if a 5.0    */
+X/*   PEX server supports rendering into pixmaps. In this case, PEXUtDBConfig  */
+X/*   will configure the window for double-buffering via pixmap, but the       */
+X/*   application should be prepared to receive an error from the first        */
+X/*   PEXBeginRendering or PEXRenderNetwork with the drawable identifier       */
+X/*   returned from PEXUtDBConfig. If an error does result, that error is the  */
+X/*   application's indication that double-buffering is not supported for the  */
+X/*   specified window.                                                        */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern int PEXUtDBConfig(
+X#if NeedFunctionPrototypes
+X    Display *           /* dpy */,
+X    Window              /* win */,
+X    int                 /* db_on */,
+X    XColor *            /* bg_color */,
+X    int                 /* db_x */,
+X    Drawable *          /* drw_id_return */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   PEXUtDBSwap    - swap the window buffers and clear the back buffer       */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   The PEXUtDBSwap function will swap the buffers of a window which is      */
+X/*   configured for double-buffering. If the window is not configured for     */
+X/*   double-buffering, the function will clear the window (if clear == True)  */
+X/*   and return the specified window identifier.                              */
+X/*                                                                            */
+X/*   Swapping the buffers means that the currently displayed buffer (i.e.,    */
+X/*   the front buffer) is hidden, and the currently non-displayed buffer      */
+X/*   (i.e., the back buffer) is made visible. After this operation, the front */
+X/*   and back buffers have swapped positions (i.e., the old front became the  */
+X/*   new back, and the old back become the new front).                        */
+X/*                                                                            */
+X/*   If PEXUtDBFront was called with front == True prior to PEXUtDBSwap, the  */
+X/*   returned drawable identifier is the identifier of the front buffer.      */
+X/*   Otherwise, the returned drawable identifier is the identifier of the     */
+X/*   back buffer.                                                             */
+X/*                                                                            */
+X/*   On PEX 5.1 servers, the best way to clear the back buffer is to clear    */
+X/*   during the next PEXBeginRendering or PEXRenderNetwork with the drawable  */
+X/*   identifier returned. (This is done by setting the renderer's clear_image */
+X/*   flag to True.)  In this case, the clear argument to PEXUtDBSwap should   */
+X/*   be False.                                                                */
+X/*                                                                            */
+X/*   On PEX 5.0 servers, the back buffer should be cleared by setting the     */
+X/*   clear argument to True, unless the application wants to render into the  */
+X/*   back buffer without clearing.                                            */
+X/*                                                                            */
+X/*   PEXUtDBClear is also provided to clear the back buffer independently of  */
+X/*   swapping the buffers. However, there are some restrictions on when it    */
+X/*   can be called (see PEXUtDBClear).                                        */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   The function returns a value of None if it is unsuccessful; otherwise,   */
+X/*   the drawable identifier to be used for subsequent rendering calls is     */
+X/*   returned. See also the description of the drw_id_return argument for     */
+X/*   PEXUtDBConfig.                                                           */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   dpy, win      - The dpy and win arguments specify the display and window */
+X/*                   for which buffers are swapped.                           */
+X/*                                                                            */
+X/*   clear         - The clear argument indicates whether to clear the new    */
+X/*                   back buffer after the buffers are swapped.               */
+X/*                                                                            */
+X/* Restrictions:                                                              */
+X/*   If it is necessary to ensure that all actions have completed before      */
+X/*   proceeding, the application should call XSync after calling PEXUtDBSwap. */
+X/*                                                                            */
+X/*   This function should not be called with a window into which PEX is       */
+X/*   rendering. PEXEndRendering should be called prior to PEXUtDBSwap.        */
+X/*                                                                            */
+X/*   Renderer clip lists do not affect the clear operation. The entire back   */
+X/*   buffer is cleared.                                                       */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern Drawable PEXUtDBSwap(
+X#if NeedFunctionPrototypes
+X    Display *           /* dpy */,
+X    Window              /* win */,
+X    int                 /* clear */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   PEXUtDBClear   - clear the window back buffer                            */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   The PEXUtDBClear function will clear the back buffer associated with the */
+X/*   specified window. If the window is not configured for double-buffering,  */
+X/*   the function will clear the window.                                      */
+X/*                                                                            */
+X/*   On PEX 5.1 servers, the best way to clear the back buffer is to clear    */
+X/*   during PEXBeginRendering or PEXRenderNetwork with the drawable           */
+X/*   identifier of the back buffer. (This is done by setting the renderer's   */
+X/*   clear_image flag to True.)                                               */
+X/*                                                                            */
+X/*   On PEX 5.0 servers, the back buffer can also be cleared by setting the   */
+X/*   clear argument in PEXUtDBSwap to True.                                   */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   The function returns a value of zero if it is successful; otherwise, a   */
+X/*   non-zero value is returned.                                              */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   dpy, win      - The dpy and win arguments specify the display and window */
+X/*                   for which the back buffer is cleared.                    */
+X/*                                                                            */
+X/* Restrictions:                                                              */
+X/*   TODO: UPDATE PER SPEC                                                    */
+X/*   If it is necessary to ensure that all actions have completed before      */
+X/*   proceeding, the application should call XSync after calling PEXUtDBClear.*/
+X/*                                                                            */
+X/*   This function should not be called with a window into which PEX is       */
+X/*   rendering. PEXEndRendering should be called prior to PEXUtDBClear.       */
+X/*                                                                            */
+X/*   Renderer clip lists do not affect the clear operation. The entire back   */
+X/*   buffer is cleared.                                                       */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern int PEXUtDBClear(
+X#if NeedFunctionPrototypes
+X    Display *           /* dpy */,
+X    Window              /* win */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   PEXUtDBFront   - reconfigure the window to render in the front buffer    */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   The PEXUtDBFront function configures a window, which is already          */
+X/*   configured for double-buffering, to render into the displayed buffer     */
+X/*   (i.e., the front buffer) if front == True. If the window is not          */
+X/*   configured for double-buffering, the function will simply return the     */
+X/*   specified window identifier.                                             */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   The function returns a value of zero (PEXUTDBOKAY) if it is successful;  */
+X/*   a non-zero return value indicates failure. The following are the meaning */
+X/*   of the different non-zero return values:                                 */
+X/*                                                                            */
+X/*    * A return value of PEXUTDBNOSUPPORT means that rendering to the front  */
+X/*      buffer is not supported on the specified drawable. The application    */
+X/*      can still accomplish rendering to the front buffer by turning double- */
+X/*      buffering off via PEXUtDBConfig. See the Restrictions below.          */
+X/*                                                                            */
+X/*    * A return value of PEXUTDBFAIL means that rendering to the front       */
+X/*      buffer is supported, but the function failed to enable rendering to   */
+X/*      the front buffer for some reason.                                     */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   dpy, win      - The dpy and win arguments specify the display and window */
+X/*                   for which buffers are to be configured.                  */
+X/*                                                                            */
+X/*   front         - front indicates whether the window is configured to      */
+X/*                   render into the front (i.e. the displayed or visible)    */
+X/*                   buffer. A value of False means the window is configured  */
+X/*                   to render into the back (i.e. the non-visible buffer).   */
+X/*                   A value of True means the window is configured to render */
+X/*                   into the front buffer.                                   */
+X/*                                                                            */
+X/*   drw_id_return - drw_id_return is a pointer to a drawable identifier.     */
+X/*                   This is the drawable identifier to be used for           */
+X/*                   subsequent rendering calls for X and PEX. For example,   */
+X/*                   this drawable identifier should be used for              */
+X/*                   PEXBeginRendering or PEXRenderNetwork, as well as for X  */
+X/*                   rendering calls like XDrawLine. The returned value is a  */
+X/*                   Null pointer if the function is unsuccessful.            */
+X/*                                                                            */
+X/* Restrictions:                                                              */
+X/*   If it is necessary to ensure that all actions have completed before      */
+X/*   proceeding, the application should call XSync after calling PEXUtDBFront.*/
+X/*                                                                            */
+X/*   This function should not be called with a window into which PEX is       */
+X/*   rendering. PEXEndRendering should be called prior to PEXUtDBFront. If    */
+X/*   the application desires to render into the front buffer with out         */
+X/*   clearing, and the PEX server is version 5.1, the renderer's clear_image  */
+X/*   flag should be set to False before calling PEXBeginRendering.            */
+X/*                                                                            */
+X/*   PEXUtFront may not succeed on all devices. However, if PEXUtDBFront does */
+X/*   fail, rendering to the front buffer can still be accomplished by turning */
+X/*   double-buffering off via PEXUtDBConfig. It is recommended that the       */
+X/*   application first call PEXUtDBFront since, if it is supported, it is     */
+X/*   mostly likely a higher performance method than switching double-         */
+X/*   buffering on and off with PEXUtDBConfig.                                 */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern int PEXUtDBFront(
+X#if NeedFunctionPrototypes
+X    Display *           /* dpy */,
+X    Window              /* win */,
+X    int                 /* front */,
+X    Drawable *          /* drw_id_return */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   PEXUtDBResize  - resize window buffers                                   */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   The PEXUtDBResize function will resize buffers associated with a window  */
+X/*   that is configured for double-buffering. If the window is not configured */
+X/*   for double-buffering, the function will simply return the specified      */
+X/*   window identifier.                                                       */
+X/*                                                                            */
+X/*   The application must handle window events and call this utility function */
+X/*   at the appropriate time to handle window resize.                         */
+X/*                                                                            */
+X/*   The content of the buffers is not guaranteed to be preserved after the   */
+X/*   resize. The best practice for interoperability is to redraw the image    */
+X/*   after a window resize.                                                   */
+X/*                                                                            */
+X/*   If PEXUtDBFront was called with front == True prior to PEXUtDBResize,    */
+X/*   the returned drawable identifier is the identifier of the front buffer.  */
+X/*   Otherwise, the returned drawable identifier is the identifier of the     */
+X/*   back buffer.                                                             */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   The function returns a value of None if it is unsuccessful; otherwise,   */
+X/*   the drawable identifier to be used for subsequent rendering calls is     */
+X/*   returned. See also the description of the drw_id_return argument for     */
+X/*   PEXUtDBConfig.                                                           */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   dpy, win      - The dpy and win arguments specify the display and window */
+X/*                   for which buffers are resized.                           */
+X/*                                                                            */
+X/* Restrictions:                                                              */
+X/*   If it is necessary to ensure that all actions have completed before      */
+X/*   proceeding, the application should call XSync after calling              */
+X/*   PEXUtDBResize.                                                           */
+X/*                                                                            */
+X/*   This function should not be called with a window into which PEX is       */
+X/*   rendering. PEXEndRendering should be called prior to PEXUtDBResize.      */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern Drawable PEXUtDBResize(
+X#if NeedFunctionPrototypes
+X    Display *           /* dpy */,
+X    Window              /* win */
+X#endif
+X);
+X
+X
+X#ifdef __cplusplus
+X}                    /* for C++ V2.0 */
+X#endif
+X
+X
+X#endif /* _PEXUTDB_H_ ] */
+END_OF_FILE
+  if test 30692 -ne `wc -c <'util/pexutdb.h'`; then
+    echo shar: \"'util/pexutdb.h'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutdb.h'
+fi
+echo shar: End of archive 8 \(of 14\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

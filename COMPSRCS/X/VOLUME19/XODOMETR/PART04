@@ -1,0 +1,1372 @@
+Newsgroups: comp.sources.x
+From: lusol@Turkey.CC.Lehigh.EDU (Stephen O. Lidie)
+Subject: v19i040:  xodometer - Track pointer and measure distance moved, Part04/04
+Message-ID: <1993Mar11.161652.17576@sparky.imd.sterling.com>
+X-Md4-Signature: e2da2485ed3544cd5833cbd942e89342
+Date: Thu, 11 Mar 1993 16:16:52 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: lusol@Turkey.CC.Lehigh.EDU (Stephen O. Lidie)
+Posting-number: Volume 19, Issue 40
+Archive-name: xodometer/part04
+Environment: X11
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  xodo.c
+# Wrapped by lusol@Turkey.CC.Lehigh.EDU on Wed Mar 10 19:42:13 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xodo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xodo.c'\"
+else
+echo shar: Extracting \"'xodo.c'\" \(45761 characters\)
+sed "s/^X//" >'xodo.c' <<'END_OF_FILE'
+X/*
+X
+X  xodometer - Track the total distance your pointing device and cursor
+X              travel.  The distance can be displayed in various units.
+X
+X  Inspired by the MacIntosh Mouse Odometer by Sean P. Nolan.	      
+X
+X  Template code from xneko by Masayuki Koba.
+X
+X  For X11 Release 4.
+X
+X  Stephen O. Lidie, 93/01/20.  lusol@Lehigh.EDU
+X
+X
+X  Given the number of pixels and the screen dimensions in millimeters
+X  we use this distance formula:
+X
+X  distance = sqrt( (dX * (Xmm/Xpixels))**2 + (dY * (Ymm/Ypixels))**2 )
+X
+X  Where dX and dY are pixel differentials, and Xmm, Ymm and Xpixels,
+X  Ypixels are the screen dimensions in millimeters and pixels,
+X  respectively.
+X
+X  My first X application and my first graphical application too.  Yes,
+X  I used Xlib for the experience... never again though!
+X  
+X*/
+X
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xresource.h>
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <math.h>
+X#include <sys/time.h>
+X#include <sys/errno.h>
+X
+X#include "evap/evap.h"
+X#include "evap/xodo_pdt.out"
+X
+X#include "patchlevel.h"
+X
+X#include "bitmaps/icon.xbm"
+X#include "bitmaps/cursor.xbm"
+X#include "bitmaps/cur_mask.xbm"
+X#include "bitmaps/pulldown.xbm"
+X
+X#define DEBUG           0	/* 1 IFF debug */
+X
+X#define CURSOR_S        "Cursor"
+X#define POINTER_S       "Pointer"
+X
+X/*
+X  EVENT_MASK1 - Top level window.
+X  EVENT_MASK2 - Action windows like About, Quit, Units and trip odometer reset buttons.
+X  EVENT_MASK3 - Menu pane windows.
+X*/
+X
+X#define	EVENT_MASK1	ButtonPressMask | ButtonReleaseMask | ExposureMask | StructureNotifyMask
+X#define EVENT_MASK2	ButtonPressMask | ButtonReleaseMask | OwnerGrabButtonMask | EnterWindowMask | LeaveWindowMask
+X#define EVENT_MASK3     ButtonPressMask | ButtonReleaseMask | ExposureMask | EnterWindowMask | LeaveWindowMask
+X
+X/* The ALL_EVENTS_MASK mask is a superset of all possible events that ANY window might need. */
+X
+X#define ALL_EVENTS_MASK EVENT_MASK1 | EVENT_MASK2 | EVENT_MASK3
+X
+X/* Action window ordinals. */
+X
+X#define TRIP1           0
+X#define TRIP2           1
+X#define QUIT            2
+X#define UNITS           3
+X#define ABOUT           4
+X
+X/* Odometer ordinals. */
+X
+X#define CURSOR          0
+X#define POINTER         1
+X#define BOTH            2
+X
+X/* Function prototypes, sorta. */
+X
+Xvoid                    compute_font_and_resize_data();
+Xvoid                    draw_action_windows();
+Xvoid                    draw_menu();
+Xvoid                    draw_menu_panes();
+Xvoid                    draw_misc_info();
+Xvoid                    draw_odometers();
+Xvoid                    draw_odometer_digit();
+Xint                     evap();
+Xvoid                    evap_type_conversion();
+Xvoid                    finish_xodo();
+Xvoid                    highlight_action_window();
+Xvoid                    initialize_graphics_contexts();
+Xvoid                    initialize_menu();
+Xvoid                    initialize_xodo();
+XBool                    process_event();
+Xvoid                    process_pointer();
+Xvoid                    save_xodo();
+X
+X/* Global variables, more or less alphabetically. */
+X
+Xchar                    *about[] = {
+X                          "         xodometer xxx",
+X                          " ",
+X                          "The Mac Mouse Odometer, X Style ",
+X                          "   Stephen O. Lidie, 93/02/11",
+X                          "       lusol@Lehigh.EDU",
+X			  " ",
+X			  "   For help:  xodo -full_help",
+X			};
+Xshort                   about_active = False;
+Xint                     about_count = sizeof( about ) / sizeof( *about );
+Xint                     about_width, about_height;
+Xint                     about_width_old, about_height_old, about_x_old, about_y_old;
+Xint                     about_width_x;
+Xint                     accel_numerator, accel_denominator;
+Xdouble                  acceleration;
+Xint                     ascent;
+Xfloat                   aspect;
+XAtom                    atom_wm_save_yourself;
+Xint                     autosave_count, autosave_ticks;
+Xunsigned int    	BorderWidth = 2;
+Xshort                   button_depressed = False;
+Xchar                    calibration[] = "2.54 cm/in";
+Xint                     calibration_width;
+Xint                     coordinates_x, coordinates_y;
+X
+X#if DEBUG
+XFILE                    *d;
+X#endif
+X
+Xint                     descent;
+Xint                     direction;
+Xunsigned int            display_width, display_height;
+Xunsigned int            display_widthmm, display_heightmm;
+Xdouble                  distance;
+Xstruct distances {
+X  char *name;
+X  char *abbreviation;
+X  Window menu_pane;
+X  double value;
+X}                       distances[] = {
+X                          {"millimeters",        "mm ", None, 1.0},
+X                          {"centimeters",        "cm ", None, 0.1},
+X                          {"decimeters",         "dm ", None, 0.01},
+X                          {"meters",             "m  ", None, 0.001},
+X                          {"dekameters",         "dam", None, 0.0001},
+X                          {"hectometers",        "hm ", None, 0.00001},
+X                          {"kilometers",         "km ", None, 0.000001},
+X                          {"myriameters",        "mym", None, 0.0000001},
+X                          {"inches",             "in ", None, 0.1/2.54},
+X                          {"feet",               "ft ", None, 0.1/2.54/12.0},
+X                          {"yards",              "yd ", None, 0.1/2.54/12.0/3.0},
+X                          {"rods",               "rd ", None, 0.1/2.54/12.0/3.0/5.5},
+X                          {"miles",              "mi ", None, 0.1/2.54/12.0/3.0/1760.0},
+X                          {"furlongs",           "fl ", None, 0.1/2.54/12.0/3.0/220.0},
+X                          {"fathoms",            "fm ", None, 0.1/2.54/12.0/6.0},
+X                          {"light-nanoseconds",  "lns", None, 0.001/299792458.0*1.0E+9},
+X			  {"marine_leagues",     "mlg", None, 0.001/1852.0/3.0},
+X			  {"nautical_miles",     "nm ", None, 0.001/1852.0},
+X                        };
+Xchar                    distances_human[] = "U=lns";
+Xint                     distances_ordinal = 0;
+Xextern                  errno;
+XXFontStruct             *font_info;
+XXFontStruct             *font_info2;
+Xchar                    *fontname;
+Xint                     font_width, font_height;
+XGC                      gc;
+XGC                      gc2;
+XGC                      gc3;
+XGC                      gc_reverse;
+XGC                      gc2_reverse;
+Xint                     label_cursor_x, label_cursor_y;
+Xint                     label_pointer_x, label_pointer_y;
+Xshort                   menu_active = False;
+Xint                     menu_border_width = 4;
+Xint                     menu_pane_count = sizeof( distances) / sizeof( struct distances );
+Xint                     menu_pane_height;
+Xint                     menu_width, menu_height;
+Xint                     menu_width_old, menu_height_old, menu_x_old, menu_y_old;
+Xunsigned long           motion_buffer_size;
+Xint                     odometer_count = BOTH;
+XFILE                    *OF;
+Xchar                    old_line1[20] = "!!!!!!!!!!!!!!!!!!!";
+Xchar                    old_line2[20] = "!!!!!!!!!!!!!!!!!!!";
+Xchar                    old_line3[20] = "!!!!!!!!!!!!!!!!!!!";
+Xchar                    old_line4[20] = "!!!!!!!!!!!!!!!!!!!";
+XXCharStruct             overall;
+Xint                     pixels_per_cm_x, pixels_per_cm_y;
+Xint                     pixels_per_inch_x, pixels_per_inch_y;
+Xint			PointerX;
+Xint			PointerY;
+Xint			PrevPointerX = 0;
+Xint			PrevPointerY = 0;
+Xchar    		*ProgramName;
+XPixmap                  pulldown;
+XXRectangle              rectangles[10] = {   3, 25, 20, 20,
+X                                            23, 25, 20, 20,
+X					    43, 25, 20, 20,
+X					    63, 25, 20, 20,
+X					    83, 25, 20, 20,
+X					   103, 25, 20, 20,
+X					   123, 25, 20, 20,
+X					   143, 25, 20, 20,
+X					   163, 25, 20, 20,
+X					   183, 25, 20, 20,
+X                                         };
+XXRectangle              rectangles2[10];
+XXRectangle              rectangles3[10];
+XXRectangle              rectangles4[10];
+XStatus                  status;
+XXColor			theBackgroundColor;
+Xunsigned long		theBackgroundPixel;
+XXColor                  theBorderColor;
+Xunsigned long           theBorderPixel;
+XCursor                  theCursor;
+Xunsigned int		theDepth;
+XDisplay			*theDisplay;
+XXColor			theExactColor;
+XXColor			theForegroundColor;
+Xunsigned long		theForegroundPixel;
+XPixmap			theIconPixmap;
+XWindow                  theMenu;
+XWindow			theRoot;
+Xint			theScreen;
+XWindow			theWindow;
+Xint                     threshold;
+Xdouble                  total_cursor_distance, trip_cursor_distance; /* distances in millimeters */
+Xdouble                  total_pointer_distance, trip_pointer_distance; /* distances in millimeters */
+Xunsigned long           valuemask;
+XXGCValues               values;
+Xstruct windata{
+X  Window window;
+X  int color;
+X  char *text;
+X  int x;
+X  int y;
+X  int width;
+X  int height;
+X  int border;
+X}                       windata[] = {
+X                          {None, 0, "",          0, 0,  8,  3, 2},
+X                          {None, 0, "",          0, 0,  8,  3, 2},
+X                          {None, 0, "Quit",     40, 2, 25, 10, 2},
+X                          {None, 0, "  Units", 205, 2, 45, 10, 2},
+X                          {None, 0, "About",     2, 2, 30, 10, 2}, 
+X                        };
+Xint                     windata_count = sizeof( windata) / sizeof( struct windata );
+Xint                     window_width = 1;
+Xint             	window_height = 1;
+Xunsigned int    	WindowHeight = 1;
+Xint      		WindowPointX = 1;
+Xint      		WindowPointY = 1;
+Xunsigned int    	WindowWidth = 1;
+Xdouble                  X_mm_per_pixel, Y_mm_per_pixel;
+Xchar                    status_line[100];
+X
+X
+X
+X
+X/* Global procedures; again, alphabetically. */
+X
+X
+X
+X
+Xvoid
+Xcompute_font_and_resize_data( font_info ) /* size rectangles et. al. based on font */
+X     XFontStruct                *font_info;
+X{
+X
+X  int                           i, width_incr;
+X
+X  if ( font_info != NULL ) {
+X
+X    font_width = font_info->max_bounds.rbearing - font_info->min_bounds.lbearing;
+X    font_height = font_info->max_bounds.ascent + font_info->max_bounds.descent;
+X
+X    for ( i = 0; i < 10; i++ ) {
+X      rectangles[i].height = font_height + 5;
+X      rectangles[i].width = rectangles[i].height;
+X      if ( i > 0 )
+X	rectangles[i].x = rectangles[i-1].x + font_height + 5;
+X      if ( font_height + 5 > 25 )
+X	rectangles[i].y = font_height + 5;
+X    }
+X
+X  }
+X
+X  width_incr = (int)( aspect * (float)rectangles[0].width - (float)rectangles[0].width );
+X
+X  for( i = 0; i < 10; i++ ){
+X    if ( i >= 5 )
+X      rectangles[i].height += 1;
+X    rectangles[i].width += width_incr;
+X    rectangles[i].x = rectangles[i].x + (i * width_incr);
+X    
+X    rectangles2[i] = rectangles[i];
+X    rectangles2[i].y = rectangles[i].y + (font_height * 2);
+X    
+X    rectangles3[i] = rectangles[i];
+X    rectangles3[i].y = rectangles[i].y + (font_height * 5);
+X    
+X    rectangles4[i] = rectangles[i];
+X    rectangles4[i].y = rectangles[i].y + (font_height * 7);
+X  }
+X  
+X  windata[TRIP1].x = rectangles2[0].x;
+X  windata[TRIP1].y = rectangles2[0].y - 7;
+X  windata[TRIP2].x = rectangles4[0].x;
+X  windata[TRIP2].y = rectangles4[0].y - 7;
+X  
+X  window_width = rectangles[9].x + rectangles[9].width + 3;
+X
+X  i = font_info2->max_bounds.ascent + font_info2->max_bounds.descent;
+X  if ( font_height > i )
+X    window_height = rectangles4[0].y + 7 + (font_height * 2);
+X  else
+X    window_height = rectangles4[0].y + 7 + (i * 2);
+X  if ( odometer_count != BOTH )
+X    window_height = window_height + rectangles2[0].y - rectangles4[0].y;
+X
+X  about_width_x = window_width;
+X
+X  XTextExtents( font_info, CURSOR_S, strlen( CURSOR_S ), &direction, &ascent, &descent, &overall );
+X  label_cursor_x = ( window_width - overall.width ) / 2;
+X  label_cursor_y = rectangles[0].y - (font_height/2) + font_info->max_bounds.descent;
+X  XTextExtents( font_info, POINTER_S, strlen( POINTER_S ), &direction, &ascent, &descent, &overall );
+X  label_pointer_x = ( window_width - overall.width ) / 2;
+X  label_pointer_y = rectangles3[0].y - (font_height/2) + font_info->max_bounds.descent;
+X
+X  if ( font_info != NULL ) {
+X    if ( (WindowWidth != window_width) || (WindowHeight != window_height) ) {
+X      WindowWidth = window_width;
+X      WindowHeight = window_height;
+X      XMoveWindow( theDisplay, windata[TRIP1].window, windata[TRIP1].x, windata[TRIP1].y );
+X      if ( odometer_count == BOTH )
+X	XMoveWindow( theDisplay, windata[TRIP2].window, windata[TRIP2].x, windata[TRIP2].y );
+X      XMoveWindow( theDisplay, windata[UNITS].window, window_width-50, windata[UNITS].y );
+X      XResizeWindow( theDisplay, theWindow, WindowWidth, WindowHeight );
+X    }
+X  } /* ifend font_info != NULL */
+X
+X  coordinates_x = 1;		/* compute Units and absolute coordinates display postion */
+X  coordinates_y = rectangles4[0].y + font_height + (font_height / 2) + font_info2->max_bounds.ascent + 2;
+X  if ( odometer_count != BOTH ) {
+X    coordinates_y += (rectangles2[0].y - rectangles4[0].y);
+X  }
+X
+X} /* end compute_font_and_resize_data */
+X
+X
+X
+X
+Xvoid
+Xdo_distances( refresh_digits )	/* compute and display the distances */
+X     short                      refresh_digits;
+X{
+X
+X    Window       		QueryRoot, QueryChild;
+X    int			        AbsoluteX, AbsoluteY;
+X    int		        	RelativeX, RelativeY;
+X    unsigned int	        ModKeyMask;
+X    double	        	dXmm, dYmm;
+X    int                         dX, dY;
+X    char                        line1[20], line2[20], line3[20], line4[20];
+X    double                      units;
+X    int                         i, n, x, y;
+X    char                        coordinates[13]; /* allows for a 99,999 by 99,999 display */
+X    int                         coord_len;
+X
+X    if ( refresh_digits ) {
+X      strcpy( old_line1, "!!!!!!!!!!!!!!!!!!!" );
+X      strcpy( old_line2, "!!!!!!!!!!!!!!!!!!!" );
+X      strcpy( old_line3, "!!!!!!!!!!!!!!!!!!!" );
+X      strcpy( old_line4, "!!!!!!!!!!!!!!!!!!!" );
+X    }
+X
+X    XQueryPointer( theDisplay, theWindow, &QueryRoot, &QueryChild, &AbsoluteX, &AbsoluteY, &RelativeX, &RelativeY, &ModKeyMask );
+X
+X    PrevPointerX = PointerX;
+X    PrevPointerY = PointerY;
+X
+X    PointerX = AbsoluteX;
+X    PointerY = AbsoluteY;
+X
+X    dX = PointerX - PrevPointerX;
+X    dY = PointerY - PrevPointerY;
+X
+X    if ( dX < 0.0 )
+X      dX = -dX;
+X    if ( dY < 0.0 )
+X      dY = -dY;
+X    
+X    dXmm = (double)dX * X_mm_per_pixel;
+X    dYmm = (double)dY * Y_mm_per_pixel;
+X
+X    distance = sqrt( (dXmm * dXmm) + (dYmm * dYmm) );
+X
+X    if ( distance != 0 ) {
+X
+X      trip_cursor_distance += distance;
+X      total_cursor_distance += distance;
+X      if ( dX > threshold || dY > threshold ) {
+X	distance /= acceleration; /* if cursor was accelerated, we suppose! */
+X      }
+X      distance /= pvt[P_POINTER_SCALE_FACTOR].value.real_value;
+X      trip_pointer_distance += distance;
+X      total_pointer_distance += distance;
+X    }
+X
+X    units = distances[distances_ordinal].value;
+X
+X    if ( odometer_count == CURSOR || odometer_count == BOTH ) {
+X      sprintf( line1, "%011.5f", fmod( (total_cursor_distance * units), 100000.0 ) );
+X      sprintf( line2, "%011.5f", fmod( (trip_cursor_distance * units), 100000.0 ) );
+X    } else if ( odometer_count == POINTER ) {
+X      sprintf( line1, "%011.5f", fmod( (total_pointer_distance * units), 100000.0 ) );
+X      sprintf( line2, "%011.5f", fmod( (trip_pointer_distance * units), 100000.0 ) );
+X    }
+X    if ( odometer_count == BOTH ) {
+X      sprintf( line3, "%011.5f", fmod( (total_pointer_distance * units), 100000.0 ) );
+X      sprintf( line4, "%011.5f", fmod( (trip_pointer_distance * units), 100000.0 ) );
+X    }
+X
+X    for(i = 0, n = 0; i < 11; i++) {
+X      if ( i == 5 ) {
+X	continue;		/* skip units point */
+X      } else if ( i < 5 ) {	/* draw digits to the left of the point */
+X	draw_odometer_digit( gc, rectangles[n], line1+i, old_line1+i );
+X	draw_odometer_digit( gc, rectangles2[n], line2+i, old_line2+i );
+X	if ( odometer_count == BOTH ) {
+X	  draw_odometer_digit( gc, rectangles3[n], line3+i, old_line3+i );
+X	  draw_odometer_digit( gc, rectangles4[n], line4+i, old_line4+i );
+X	}
+X      } else {			/* draw digits to the right of the point */
+X	draw_odometer_digit( gc_reverse, rectangles[n], line1+i, old_line1+i );
+X	draw_odometer_digit( gc_reverse, rectangles2[n], line2+i, old_line2+i );
+X	if ( odometer_count == BOTH ) {
+X	  draw_odometer_digit( gc_reverse, rectangles3[n], line3+i, old_line3+i );
+X	  draw_odometer_digit( gc_reverse, rectangles4[n], line4+i, old_line4+i );
+X	}
+X      }
+X      n++;			/* advance to next rectangle */
+X    }
+X
+X    sprintf( coordinates, "(%d,%d)", PointerX, PointerY ); /* draw absolute pointer coordinates */
+X                                                                       /* Einstein: 'You said "absolute"?' */
+X    coord_len = strlen( coordinates );
+X    strncpy( coordinates+coord_len, "             ", 13-coord_len );
+X    XDrawImageString( theDisplay, theWindow, gc2, coordinates_x+33, coordinates_y, coordinates, 13 );
+X
+X} /* end do_distances */
+X
+X
+X
+X
+Xvoid
+Xdraw_action_windows( gc )
+X     GC				gc;
+X{
+X
+X  int                           i;
+X
+X  for ( i = 0; i < windata_count; i++ ) {
+X    if ( odometer_count != BOTH && i == TRIP2 )
+X      continue;			/* skip second trip odometer if only 1 odometer */
+X    XDrawImageString( theDisplay, windata[i].window, gc, font_info2->max_bounds.lbearing-3, font_info2->max_bounds.ascent+1,
+X          windata[i].text, strlen(windata[i].text) );
+X  } /* forend */
+X  XCopyPlane( theDisplay, pulldown, windata[UNITS].window, gc, 0, 0, pulldown_width, pulldown_height, 1, 1, 1 );
+X  
+X} /* end draw_action_windows */
+X
+X
+X
+X
+Xvoid
+Xdraw_menu()
+X{
+X
+X  int				new_width, new_height;
+X
+X  menu_active = True;
+X  XMapWindow( theDisplay, theMenu );
+X  menu_width_old = WindowWidth;
+X  menu_height_old = WindowHeight;
+X  if ( WindowWidth < menu_width + font_info->max_bounds.width ) 
+X    new_width = menu_width + font_info->max_bounds.width;
+X  else
+X    new_width = WindowWidth;
+X  if ( WindowHeight < menu_height + menu_pane_height ) 
+X    new_height = menu_height + menu_pane_height;
+X  else
+X    new_height = WindowHeight;
+X  menu_x_old = WindowPointX;
+X  menu_y_old = WindowPointY;
+X  if ( WindowPointY + new_height > display_height ) {
+X    menu_y_old = display_height - new_height;
+X  }
+X
+X  XMoveResizeWindow( theDisplay, theWindow, menu_x_old, menu_y_old, new_width, new_height );
+X  menu_y_old = WindowPointY;
+X  XGrabPointer( theDisplay, theMenu, True, EVENT_MASK2, GrabModeAsync, GrabModeAsync, None, theCursor, CurrentTime );
+X
+X} /* end draw_menu */
+X
+X
+X
+X
+Xvoid
+Xdraw_menu_panes( gc, window )
+X     GC				gc;
+X     Window                     window;
+X{
+X
+X  int                           i, j;
+X  char                          units_name[100];
+X
+X  for ( i = 0; i < menu_pane_count; i++ ) {
+X    if ( window  == distances[i].menu_pane ) {
+X      strcpy( units_name, distances[i].name );
+X      for ( j = 0; j < strlen( units_name ); j++ )
+X	if ( units_name[j] == '_' )
+X	  units_name[j] = ' ';
+X      XDrawImageString( theDisplay, distances[i].menu_pane, gc, 1, font_info->max_bounds.ascent, units_name,
+X            strlen( units_name ) );
+X    } /* ifend */
+X  } /* forend */
+X  
+X} /* end draw_menu_panes */
+X
+X
+X
+X
+Xvoid
+Xdraw_misc_info()
+X{
+X
+X  int                           x, y;
+X  int                           i, n;
+X
+X  /* Draw the Units. */
+X
+X  XDrawImageString( theDisplay, theWindow, gc2, coordinates_x, coordinates_y, distances_human, strlen( distances_human ) );
+X  
+X  /* Draw the About information in a (normally) hidden part of the window. */
+X  
+X  for ( i = 0, n = font_height; i < about_count; i++, n += font_height ) {
+X    XDrawImageString( theDisplay, theWindow, gc, about_width_x, n, about[i], strlen( about[i] ) );
+X  }
+X  XCopyPlane( theDisplay, theIconPixmap, theWindow, gc, 0, 0, icon_width, icon_height, about_width_x,
+X	     about_height-icon_height, 1 );
+X  XDrawImageString( theDisplay, theWindow, gc2, about_width_x+icon_width, about_height-(icon_height/2),
+X        status_line, strlen( status_line ) );		   
+X
+X  /* Draw the calibration information in inches and centimeters. */
+X
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3, about_height, about_width-3, about_height-pixels_per_inch_y );
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3, about_height-pixels_per_cm_y,
+X        about_width-3-8, about_height-pixels_per_cm_y );
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3, about_height-2*pixels_per_cm_y,
+X        about_width-3-8, about_height-2*pixels_per_cm_y );
+X
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3, about_height, about_width-3-pixels_per_inch_x, about_height );
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3-pixels_per_cm_x, about_height,
+X        about_width-3-pixels_per_cm_x, about_height-8 );
+X  XDrawLine( theDisplay, theWindow, gc3, about_width-3-2*pixels_per_cm_x, about_height,
+X        about_width-3-2*pixels_per_cm_x, about_height-8 );
+X  XDrawImageString( theDisplay, theWindow, gc3, about_width-calibration_width-20, about_height-pixels_per_cm_y, calibration,
+X        strlen( calibration ) );
+X
+X} /* end draw_misc_info */
+X
+X
+X
+X
+Xvoid
+Xdraw_odometers()
+X{
+X  
+X  if ( odometer_count == CURSOR || odometer_count == BOTH ) {
+X    XDrawImageString( theDisplay, theWindow, gc, label_cursor_x, label_cursor_y, CURSOR_S, strlen( CURSOR_S ) );
+X  } else {
+X    XDrawImageString( theDisplay, theWindow, gc, label_cursor_x, label_cursor_y,  POINTER_S, strlen( POINTER_S ) );
+X  }
+X  XDrawRectangles( theDisplay, theWindow, gc, rectangles, 5 );
+X  XFillRectangles( theDisplay, theWindow, gc, rectangles+5, 5 );
+X  
+X  XDrawRectangles( theDisplay, theWindow, gc, rectangles2, 5 );
+X  XFillRectangles( theDisplay, theWindow, gc, rectangles2+5, 5 );
+X  
+X  if ( odometer_count == BOTH ) {
+X    XDrawImageString( theDisplay, theWindow, gc, label_pointer_x, label_pointer_y, POINTER_S, strlen( POINTER_S ) );
+X    
+X    XDrawRectangles( theDisplay, theWindow, gc, rectangles3, 5 );
+X    XFillRectangles( theDisplay, theWindow, gc, rectangles3+5, 5 );
+X    
+X    XDrawRectangles( theDisplay, theWindow, gc, rectangles4, 5 );
+X    XFillRectangles( theDisplay, theWindow, gc, rectangles4+5, 5 );
+X  }
+X
+X  do_distances( True );		/* repaint odometer digits */
+X  
+X} /* end draw_odometers */
+X
+X
+X
+X
+Xvoid
+Xdraw_odometer_digit( gc, rectangle, line, old_line )
+X     GC                         gc;
+X     XRectangle			rectangle;
+X     char                       line[];
+X     char                       old_line[];
+X{
+X
+X  if ( line[0] == old_line[0] )
+X    return;
+X
+X  XDrawImageString( theDisplay, theWindow, gc, rectangle.x+(font_info->max_bounds.lbearing),
+X        rectangle.y+(font_info->max_bounds.ascent)+1, line+0, 1 );
+X
+X  old_line[0] = line[0];
+X
+X} /* end draw_odometer_digit */
+X
+X
+X
+X
+Xvoid
+Xfinish_xodo()			/* finish xodo */
+X{
+X
+X  save_xodo();			/* update state information */
+X
+X  XUnloadFont( theDisplay, font_info->fid );
+X  XUnloadFont( theDisplay, font_info2->fid );
+X  XFreeGC( theDisplay, gc);
+X  XFreeGC( theDisplay, gc2);
+X  XFreeGC( theDisplay, gc3);
+X  XFreeGC( theDisplay, gc_reverse);
+X  XFreeGC( theDisplay, gc2_reverse);
+X  XCloseDisplay( theDisplay );
+X
+X#if DEBUG
+X  fclose( d );
+X#endif
+X
+X  exit( 0 );
+X
+X} /* end finish_xodo */
+X
+X
+X
+X
+Xvoid
+Xhighlight_action_window( gc, window, border )	/* either normal or highlighted */
+X     GC				gc;
+X     Window                     window;
+X     unsigned long              border;
+X{
+X
+X  int                           i;
+X
+X  if ( menu_active )
+X    return;
+X
+X  for ( i = 0; i < windata_count; i++ ) {
+X    if ( window == windata[i].window ) {
+X      XSetWindowBorder( theDisplay, windata[i].window, border );
+X      XDrawImageString( theDisplay, windata[i].window, gc, font_info2->max_bounds.lbearing-3, 
+X          font_info2->max_bounds.ascent+1, windata[i].text, strlen(windata[i].text) );
+X      break;
+X    } /* ifend */
+X  } /* forend */
+X
+X  if ( i == UNITS )
+X    XCopyPlane( theDisplay, pulldown, windata[UNITS].window, gc, 0, 0, pulldown_width, pulldown_height, 1, 1, 1 );
+X
+X} /* end highlight_action_window */
+X
+X
+X
+X
+Xvoid
+Xinitialize_graphics_contexts()	/* initialize graphics context */
+X{
+X
+X  unsigned int                  line_width = 1;
+X  int                           line_style = LineSolid;
+X  int                           cap_style = CapRound;
+X  int                           join_style = JoinMiter;
+X  
+X  fontname = pvt[P_FONTNAME].value.string_value;
+X
+X  if ( (font_info = XLoadQueryFont( theDisplay, fontname )) == NULL ) {
+X    fprintf( stderr, "%s:  cannot open %s font.\n", ProgramName, fontname );
+X    exit( 1 );
+X  }
+X
+X  valuemask = GCFunction | GCForeground | GCBackground;
+X  values.function = GXcopy;
+X  values.foreground = theForegroundPixel;
+X  values.background = theBackgroundPixel;
+X  gc = XCreateGC( theDisplay, theWindow, valuemask, &values );
+X  XSetFont( theDisplay, gc, font_info->fid );
+X  XSetLineAttributes( theDisplay, gc, line_width, line_style, cap_style, join_style );
+X
+X  valuemask = GCFunction | GCForeground | GCBackground;
+X  values.function = GXcopy;
+X  values.foreground = theBackgroundPixel;
+X  values.background = theForegroundPixel;
+X  gc_reverse = XCreateGC( theDisplay, theWindow, valuemask, &values );
+X  XSetFont( theDisplay, gc_reverse, font_info->fid );
+X  XSetLineAttributes( theDisplay, gc_reverse, line_width, line_style, cap_style, join_style );
+X
+X  fontname = pvt[P_FONTNAME2].value.string_value;
+X  if ( (font_info2 = XLoadQueryFont( theDisplay, fontname )) == NULL ) {
+X    fprintf( stderr, "%s:  cannot open %s font.\n", ProgramName, fontname );
+X    exit( 1 );
+X  }
+X
+X  valuemask = GCFunction | GCForeground | GCBackground;
+X  values.function = GXcopy;
+X  values.foreground = theForegroundPixel;
+X  values.background = theBackgroundPixel;
+X  gc2 = XCreateGC( theDisplay, theWindow, valuemask, &values );
+X  XSetFont( theDisplay, gc2, font_info2->fid );
+X  XSetLineAttributes( theDisplay, gc2, line_width, line_style, cap_style, join_style );
+X
+X  valuemask = GCFunction | GCForeground | GCBackground;
+X  values.function = GXcopy;
+X  values.foreground = theBackgroundPixel;
+X  values.background = theForegroundPixel;
+X  gc2_reverse = XCreateGC( theDisplay, theWindow, valuemask, &values );
+X  XSetFont( theDisplay, gc2_reverse, font_info2->fid );
+X  XSetLineAttributes( theDisplay, gc2_reverse, line_width, line_style, cap_style, join_style );
+X
+X  valuemask = GCFunction | GCForeground | GCBackground;
+X  values.function = GXcopy;
+X  values.foreground = theBorderPixel;
+X  values.background = theBackgroundPixel;
+X  gc3 = XCreateGC( theDisplay, theWindow, valuemask, &values );
+X  XSetFont( theDisplay, gc3, font_info2->fid );
+X  XSetLineAttributes( theDisplay, gc3, line_width, line_style, cap_style, join_style );
+X
+X} /* end initialize_graphics_contexts */
+X
+X
+X
+X
+Xvoid
+Xinitialize_menu()		/* initialize the Units menu */
+X{
+X
+X  char                          *string;
+X  int                           i, x, y;
+X  Pixmap                        theCursorSource, theCursorMask;
+X
+X  string = distances[0].name;	/* find longest string */
+X  for ( i = 1; i < menu_pane_count; i++ ) {
+X    if( strlen( distances[i].name ) > strlen( string ) )
+X      string = distances[i].name;
+X  }
+X  XTextExtents( font_info, string, strlen( string ), &direction, &ascent, &descent, &overall );
+X  menu_width = overall.width + 4;
+X  menu_pane_height = overall.ascent + overall.descent + 4;
+X  menu_height = menu_pane_height * menu_pane_count;
+X  x = window_width - menu_width - ( 2 * menu_border_width);
+X  y = 0;
+X
+X  theMenu = XCreateSimpleWindow( theDisplay, theWindow, x, y, menu_width, menu_height, menu_border_width, theBorderPixel,
+X        theBackgroundPixel );
+X
+X  for( i = 0; i < menu_pane_count; i++ ) {
+X    distances[i].menu_pane = XCreateSimpleWindow( theDisplay, theMenu, 0, menu_height/menu_pane_count*i, menu_width,
+X          menu_pane_height, menu_border_width = 1, theForegroundPixel, theBackgroundPixel );
+X    XSelectInput( theDisplay, distances[i].menu_pane, EVENT_MASK3 );
+X  }
+X
+X  theCursorSource = XCreateBitmapFromData( theDisplay, theWindow, cursor_bits, cursor_width, cursor_height );
+X  theCursorMask = XCreateBitmapFromData( theDisplay, theWindow, cursor_mask_bits, cursor_mask_width, cursor_mask_height );
+X  theCursor = XCreatePixmapCursor( theDisplay, theCursorSource, theCursorMask, &theForegroundColor, &theBackgroundColor,
+X        cursor_x_hot, cursor_y_hot );
+X  XDefineCursor( theDisplay, theMenu, theCursor );
+X
+X  XMapSubwindows( theDisplay, theMenu );
+X
+X} /* end initialize_menu */
+X
+X
+X
+X
+Xvoid
+Xinitialize_xodo()		/* initialize xodometer */
+X{
+X    int				GeometryStatus;
+X    XSetWindowAttributes	theWindowAttributes;
+X    XSizeHints			theSizeHints;
+X    unsigned long		theWindowMask;
+X    XWMHints			theWMHints;
+X    Colormap			theColormap;
+X    int                         i;
+X    Window	                QueryRoot, QueryChild;
+X    int                         AbsoluteX, AbsoluteY;
+X    int                         RelativeX, RelativeY;
+X    unsigned int                ModKeyMask;
+X    XVisualInfo                 visual_info;
+X    unsigned long               background;
+X    char                        units[80];
+X    char                        *X_default;
+X    static char                 *argv[1] = {"xodo"};
+X    int                         argc = 1;
+X    long                        max_request_size;
+X    struct sigaction            action;
+X
+X#if DEBUG
+X    d = fopen( "debug.log", "w" );
+X#endif
+X
+X    sigemptyset( &action.sa_mask ); /* disable all signals */
+X
+X    action.sa_flags = 0;
+X    action.sa_handler = finish_xodo;
+X    if ( sigaction( SIGINT, &action, NULL ) != 0 ) {
+X      fprintf( stderr, "Cannot set signal SIGINT!\n" );
+X      exit( 1 );
+X    }
+X    action.sa_flags = 0;
+X    action.sa_handler = save_xodo;
+X    if ( sigaction( SIGHUP, &action, NULL ) != 0 ) {
+X      fprintf( stderr, "Cannot set signal SIGHUP!\n" );
+X      exit( 1 );
+X    }
+X
+X    ProgramName = pvt[P_HELP].unconverted_value;
+X
+X    if ( strlen( pvt[P_DISPLAY].value.string_value ) < 1 ) {
+X	pvt[P_DISPLAY].value.string_value = NULL;
+X    }
+X
+X    if ( ( theDisplay = XOpenDisplay( pvt[P_DISPLAY].value.string_value ) ) == NULL ) {
+X	fprintf( stderr, "%s: Can't open display", ProgramName );
+X	if ( pvt[P_DISPLAY].value.string_value != NULL ) {
+X	    fprintf( stderr, " %s.\n", pvt[P_DISPLAY].value.string_value );
+X	} else {
+X	    fprintf( stderr, ".\n" );
+X	}
+X	exit( 1 );
+X    }
+X
+X    if ( strlen( pvt[P_GEOMETRY].value.string_value ) < 1 ) {
+X	pvt[P_GEOMETRY].value.string_value = NULL;
+X    }
+X
+X    /* For all unspecified evaluate_parameters command line parameters see if there is an X default value. */
+X
+X    for ( i = 0 ; i < P_NUMBER_OF_PARAMETERS; i++ ) { /* for all evaluate_parameters parameters */
+X      if ( ! pvt[i].specified ) {
+X	X_default = XGetDefault( theDisplay, ProgramName, pvt[i].parameter );
+X	if ( X_default != NULL ) {
+X	  pvt[i].unconverted_value = X_default;
+X	  evap_type_conversion( &pvt[i] ); /* convert string to proper type */
+X	} /* ifend non-null X default for this parameter */
+X      } /* ifend unspecified parameter */
+X    } /* forend all evaluate_parameters parameters */
+X
+X    max_request_size = XMaxRequestSize( theDisplay );
+X    if ( ((max_request_size - 3) / 3) < 10 ) {
+X      fprintf( stderr, "XMaxRequestSize is too small for xodo the run!\n");
+X      exit( 1 );
+X    }
+X
+X    motion_buffer_size = XDisplayMotionBufferSize( theDisplay );
+X
+X    if ( strcmp( pvt[P_ODOMETER].value.key_value, "cursor" ) == 0 )
+X      odometer_count = CURSOR;
+X    else if ( strcmp( pvt[P_ODOMETER].value.key_value, "pointer" ) == 0 )
+X      odometer_count = POINTER;
+X
+X    autosave_ticks = pvt[P_ODOMETER_AUTOSAVE_TIME].value.integer_value * 60 * 1000000 /
+X          pvt[P_MICROSECOND_INTERVAL_TIME].value.integer_value;
+X    autosave_count = autosave_ticks;
+X
+X    display_widthmm = pvt[P_DISPLAY_WIDTH_MILLIMETERS].value.integer_value;
+X    display_heightmm = pvt[P_DISPLAY_HEIGHT_MILLIMETERS].value.integer_value;
+X    display_width = pvt[P_DISPLAY_WIDTH_PIXELS].value.integer_value;
+X    display_height = pvt[P_DISPLAY_HEIGHT_PIXELS].value.integer_value;
+X    X_mm_per_pixel = (double)display_widthmm / display_width;
+X    Y_mm_per_pixel = (double)display_heightmm / display_height;
+X    pixels_per_inch_x = (int)( 25.4 / X_mm_per_pixel );
+X    pixels_per_inch_y = (int)( 25.4 / Y_mm_per_pixel );
+X    pixels_per_cm_x = (int)( 10.0 / X_mm_per_pixel );
+X    pixels_per_cm_y = (int)( 10.0 / Y_mm_per_pixel );
+X    aspect = (float)(X_mm_per_pixel / Y_mm_per_pixel);
+X
+X    total_cursor_distance = 0.0;
+X    trip_cursor_distance = 0.0;
+X    total_pointer_distance = 0.0;
+X    trip_pointer_distance = 0.0;
+X
+X    for( i=0; i < menu_pane_count; i++ ) { /* default units = kilometers */
+X      if( strcmp( distances[i].name, "kilometers" ) == 0 )
+X	distances_ordinal = i;
+X    }
+X
+X    OF = fopen( pvt[P_ODOMETER_FILE].value.file_value, "r" );
+X    if ( OF == NULL && errno != ENOENT ) {
+X      perror("Cannot open odometer_file");
+X      exit( 1 );
+X    } else if ( OF != NULL ) {
+X      fscanf( OF, "%lf %lf %s", &total_cursor_distance, &total_pointer_distance, units );
+X      for( i=0; i < menu_pane_count; i++ ) {
+X	if( strcmp( distances[i].name, units ) == 0 )
+X	  distances_ordinal = i;
+X      }
+X      fclose( OF );
+X    }
+X
+X    GeometryStatus = XParseGeometry( pvt[P_GEOMETRY].value.string_value, &WindowPointX, &WindowPointY, &WindowWidth,
+X          &WindowHeight );
+X
+X    if ( !( GeometryStatus & XValue ) ) {
+X      WindowPointX = 1;
+X    } else if ( GeometryStatus & XNegative ) {
+X      WindowPointX = display_width + WindowPointX;
+X    }
+X    if ( !( GeometryStatus & YValue ) ) {
+X      WindowPointY = 1;
+X    } else if ( GeometryStatus & YNegative ) {
+X      WindowPointY = display_height + WindowPointY;
+X    }
+X    if ( !( GeometryStatus & WidthValue ) ) {
+X      WindowWidth = window_width;
+X    }
+X    if ( !( GeometryStatus & HeightValue ) ) {
+X      WindowHeight = window_height;
+X    }
+X
+X    theScreen = DefaultScreen( theDisplay );
+X    theDepth = DefaultDepth( theDisplay, theScreen );
+X    theColormap = DefaultColormap( theDisplay, theScreen );
+X    theForegroundPixel = BlackPixel( theDisplay, theScreen );
+X    theBackgroundPixel = WhitePixel( theDisplay, theScreen );
+X    theBorderPixel = theForegroundPixel;
+X
+X    if ( theDepth > 1 ) {	/* if possible color monitor */
+X
+X      i = DirectColor;		/* StaticGray, GrayScale, StaticColor, PseudoColor, TrueColor, DirectColor */
+X      while ( ! XMatchVisualInfo( theDisplay, theScreen, theDepth, i--, &visual_info ) )
+X	; /* whilend */
+X
+X      if ( i >= StaticColor ) {
+X	if ( ! XAllocNamedColor( theDisplay, theColormap, pvt[P_BACKGROUND].value.name_value, &theBackgroundColor,
+X              &theExactColor ) ) {
+X	  fprintf( stderr, "%s: Can't XAllocNamedColor( \"%s\" ).\n", ProgramName, pvt[P_BACKGROUND].value.name_value );
+X	  exit( 1 );
+X	}
+X	if ( ! XAllocNamedColor( theDisplay, theColormap, pvt[P_FOREGROUND].value.name_value, &theForegroundColor,
+X              &theExactColor ) ) {
+X	  fprintf( stderr, "%s: Can't XAllocNamedColor( \"%s\" ).\n", ProgramName, pvt[P_FOREGROUND].value.name_value );
+X	  exit( 1 );
+X	}
+X	if ( ! XAllocNamedColor( theDisplay, theColormap, pvt[P_BORDER].value.name_value, &theBorderColor, &theExactColor ) ) {
+X	  fprintf( stderr, "%s: Can't XAllocNamedColor( \"%s\" ).\n", ProgramName, pvt[P_BORDER].value.name_value );
+X	  exit( 1 );
+X	}
+X
+X	theForegroundPixel = theForegroundColor.pixel;
+X	theBackgroundPixel = theBackgroundColor.pixel;
+X	theBorderPixel = theBorderColor.pixel;
+X      } /* ifend color visual */
+X
+X    } /* ifend depth > 1 */
+X
+X    theWindowAttributes.border_pixel = theBorderPixel;
+X    theWindowAttributes.background_pixel = theBackgroundPixel;
+X    theWindowAttributes.override_redirect = False;
+X    theWindowAttributes.event_mask = EVENT_MASK1;
+X
+X    theWindowMask = CWBackPixel | CWBorderPixel	| CWEventMask | CWOverrideRedirect;
+X
+X    theWindow = XCreateWindow( theDisplay, RootWindow( theDisplay, theScreen ), WindowPointX, WindowPointY, WindowWidth,
+X          WindowHeight, BorderWidth, theDepth, InputOutput, CopyFromParent, theWindowMask, &theWindowAttributes );
+X
+X    initialize_graphics_contexts(); /* initialize graphics contexts */
+X
+X    theIconPixmap = XCreateBitmapFromData( theDisplay, theWindow, icon_bits, icon_width, icon_height );
+X    pulldown = XCreateBitmapFromData( theDisplay, theWindow, pulldown_bits, pulldown_width, pulldown_height );
+X
+X    theWMHints.icon_pixmap = theIconPixmap;
+X    if ( pvt[P_ICONIC].specified ) {
+X	theWMHints.initial_state = IconicState;
+X    } else {
+X	theWMHints.initial_state = NormalState;
+X    }
+X    theWMHints.flags = IconPixmapHint | StateHint;
+X
+X    XSetWMHints( theDisplay, theWindow, &theWMHints );
+X
+X    theSizeHints.flags = PPosition | PSize; /* PMinSize perhaps */
+X    theSizeHints.x = WindowPointX;
+X    theSizeHints.y = WindowPointY;
+X    theSizeHints.width = WindowWidth;
+X    theSizeHints.height = WindowHeight;
+X    theSizeHints.min_width = window_width;
+X    theSizeHints.min_height = window_height;
+X
+X    XSetNormalHints( theDisplay, theWindow, &theSizeHints );
+X
+X    if ( strlen( pvt[P_TITLE].value.string_value ) >= 1 ) {
+X	XStoreName( theDisplay, theWindow, pvt[P_TITLE].value.string_value );
+X	XSetIconName( theDisplay, theWindow, pvt[P_TITLE].value.string_value );
+X    } else {
+X	XStoreName( theDisplay, theWindow, ProgramName );
+X	XSetIconName( theDisplay, theWindow, ProgramName );
+X    }
+X
+X    XSetCommand( theDisplay, theWindow, argv, argc );
+X    atom_wm_save_yourself = XInternAtom( theDisplay, "WM_SAVE_YOURSELF", False );
+X    status = XSetWMProtocols( theDisplay, theWindow, &atom_wm_save_yourself, 1 );
+X
+X    for( i = 0; i < windata_count; i++ ) { /* make Action buttons */
+X      if ( odometer_count != BOTH && i == TRIP2 )
+X	continue;		/* skip second trip odometer if only 1 odometer */
+X      background = theBackgroundPixel;
+X      if ( i == TRIP1 || i == TRIP2 )
+X	background = theBorderPixel;
+X      windata[i].window = XCreateSimpleWindow( theDisplay, theWindow, windata[i].x, windata[i].y, windata[i].width,
+X            windata[i].height, windata[i].border, theBorderPixel, background );
+X      XSelectInput( theDisplay, windata[i].window, EVENT_MASK2 );
+X    } /* forend */
+X
+X    XQueryPointer( theDisplay, theWindow, &QueryRoot, &QueryChild, &AbsoluteX, &AbsoluteY, &RelativeX, &RelativeY, &ModKeyMask );
+X    PointerX = AbsoluteX;
+X    PointerY = AbsoluteY;
+X
+X    XGetPointerControl( theDisplay, &accel_numerator, &accel_denominator, &threshold);
+X    acceleration = (double)accel_numerator / (double)accel_denominator;
+X
+X    sprintf( status_line, "S=%.1f T=%d A=%.1f", pvt[P_POINTER_SCALE_FACTOR].value.real_value, threshold, acceleration );
+X    strncpy( distances_human+2, distances[distances_ordinal].abbreviation, 3 );
+X
+X    XMapSubwindows( theDisplay, theWindow );
+X
+X    compute_font_and_resize_data( font_info );
+X
+X    XGetGeometry( theDisplay, theWindow, &theRoot, &WindowPointX, &WindowPointY, &WindowWidth, &WindowHeight, &BorderWidth,
+X          &theDepth );
+X
+X    XTextExtents( font_info, about[2], strlen( about[2] ), &direction, &ascent, &descent, &overall );
+X    about_width = overall.width + 4 + about_width_x;
+X    about_height = ( overall.ascent + overall.descent + 4 ) * about_count;
+X    about_height += icon_height + font_height + 1;
+X    i = strlen( about[0] );	/* update version information */
+X    strncpy( about[0]+i-3, VERSION, 3 );
+X
+X    XTextExtents( font_info2, calibration, strlen( calibration ), &direction, &ascent, &descent, &overall );
+X    calibration_width = overall.width + 4;
+X
+X    initialize_menu();		/* initialize the Units menu windows */
+X
+X    XMapWindow( theDisplay, theWindow );
+X    XFlush( theDisplay );
+X
+X} /* end initialize_xodo */
+X
+X
+X
+X
+XBool
+Xprocess_event()			/* handle all X events */
+X{
+X  XEvent                        theEvent;
+X  int                           new_width, new_height;
+X  int                           i;
+X
+X  /* Check for ClientMessage type WM_SAVE_YOURSELF to save state information. */
+X
+X  if ( XCheckTypedEvent( theDisplay, ClientMessage, &theEvent ) == True ) {
+X    if ( theEvent.xclient.data.l[0] == atom_wm_save_yourself )
+X      finish_xodo();		/* save state information and exit */
+X  } /* ifend ClientMessage received */
+X  
+X  while ( XCheckMaskEvent( theDisplay, ALL_EVENTS_MASK, &theEvent ) ) {
+X
+X    switch ( theEvent.type ) {
+X      
+X    case MapNotify:      case MappingNotify:   case GraphicsExpose:   case NoExpose:
+X    case SelectionClear: case SelectionNotify: case SelectionRequest:
+X      
+X      break;			/* misc */
+X      
+X    case ClientMessage:
+X
+X      finish_xodo();		/* will never get here via XCheckMaskEvent! */
+X      
+X      break;			/* ClientMessage */
+X      
+X    case ConfigureNotify:
+X      if ( theEvent.xconfigure.window == theWindow ) {
+X	WindowWidth = theEvent.xconfigure.width;
+X	WindowHeight = theEvent.xconfigure.height;
+X	if ( theEvent.xconfigure.x != 0 )
+X	  WindowPointX = theEvent.xconfigure.x;
+X	if ( theEvent.xconfigure.y != 0 )
+X	  WindowPointY = theEvent.xconfigure.y;
+X	BorderWidth = theEvent.xconfigure.border_width;
+X      }
+X      
+X      break;			/* ConfigureNotify */
+X    
+X    case Expose:
+X      
+X      if ( theEvent.xexpose.count == 0 ) {
+X	
+X	if ( theEvent.xexpose.window == theWindow ) {
+X	  draw_odometers();
+X	  draw_misc_info();
+X	  draw_action_windows( gc2 );
+X        }
+X	
+X	draw_menu_panes( gc, theEvent.xexpose.window );
+X
+X      } /* ifend event count = 0 */
+X      
+X      break;			/* Expose */
+X      
+X    case EnterNotify:
+X
+X      if ( button_depressed ) {
+X	if (theEvent.xcrossing.window == windata[UNITS].window)
+X	  draw_menu();
+X	else
+X	  highlight_action_window( gc2_reverse, theEvent.xcrossing.window, theForegroundPixel );
+X      }
+X
+X      draw_menu_panes( gc_reverse, theEvent.xcrossing.window );
+X    
+X      break;			/* EnterNotify */
+X      
+X    case LeaveNotify:
+X
+X      highlight_action_window( gc2, theEvent.xcrossing.window, theBorderPixel );
+X      
+X      draw_menu_panes( gc, theEvent.xcrossing.window );
+X      
+X      break;			/* LeaveNotify */
+X      
+X    case ButtonPress:
+X
+X      button_depressed = True;
+X  
+X      if ( theEvent.xbutton.window == windata[UNITS].window ) {
+X	draw_menu();
+X	break;
+X      }      
+X
+X      highlight_action_window( gc2_reverse, theEvent.xbutton.window, theForegroundPixel );
+X
+X      break;			/* ButtonPress */
+X
+X    case ButtonRelease:
+X
+X      button_depressed = False;
+X
+X      highlight_action_window( gc2, theEvent.xbutton.window, theBorderPixel );
+X
+X      if ( menu_active == True ) {
+X	XUngrabPointer( theDisplay, CurrentTime );
+X	XUnmapWindow( theDisplay, theMenu );
+X	XMoveResizeWindow( theDisplay, theWindow, menu_x_old, menu_y_old, menu_width_old, menu_height_old );
+X	menu_active = False;
+X	for ( i = 0; i < menu_pane_count; i++ ) {
+X	  if ( theEvent.xbutton.window == distances[i].menu_pane ) {
+X	    distances_ordinal = i;
+X	    strncpy( distances_human+2, distances[distances_ordinal].abbreviation, 3 );
+X	    draw_misc_info();
+X	  } /* ifend button release occurred in a menu pane */
+X	} /* forend */
+X	break; /* case ButtonRelease */
+X      } /* ifend menu_active */
+X
+X      if ( theEvent.xbutton.window == windata[TRIP1].window ) {
+X	if ( odometer_count == CURSOR || odometer_count == BOTH ) {
+X	  trip_cursor_distance = 0.0;
+X	} else {
+X	  trip_pointer_distance = 0.0;
+X	}
+X      } else if ( theEvent.xbutton.window == windata[TRIP2].window ) {
+X	trip_pointer_distance = 0.0;
+X      } else if ( theEvent.xbutton.window == windata[QUIT].window ) {
+X	finish_xodo();		/* update distance totals */
+X      } else if ( theEvent.xbutton.window == windata[UNITS].window ) {
+X	XUnmapWindow( theDisplay, theMenu );
+X      } else if ( theEvent.xbutton.window == windata[ABOUT].window ) {
+X	if ( about_active ) {
+X	  about_active = False;
+X	  windata[ABOUT].text = "About";
+X	  XMoveResizeWindow( theDisplay, theWindow, about_x_old, about_y_old, about_width_old, about_height_old );
+X	} else {
+X	  about_active = True;
+X	  about_width_old = WindowWidth;
+X	  about_height_old = WindowHeight;
+X	  windata[ABOUT].text = " OK! ";
+X	  if ( WindowWidth < about_width ) 
+X	    new_width = about_width;
+X	  else
+X	    new_width = WindowWidth;
+X	  if ( WindowHeight < about_height ) 
+X	    new_height = about_height;
+X	  else
+X	    new_height = WindowHeight;
+X	  about_x_old = WindowPointX;
+X	  about_y_old = WindowPointY;
+X	  if ( WindowPointX + new_width > display_width )
+X	    about_x_old = display_width - new_width - 10;
+X	  if ( WindowPointY + new_height > display_height )
+X	    about_y_old = display_height - new_height - 10;
+X	  XMoveResizeWindow( theDisplay, theWindow, about_x_old, about_y_old, new_width, new_height+5 );
+X	  about_x_old = WindowPointX;
+X	  about_y_old = WindowPointY;
+X	}
+X      } else if ( theEvent.xbutton.button == Button2 ) {
+X	trip_cursor_distance = 0.0;
+X	trip_pointer_distance = 0.0;
+X      } /* ifend */
+X
+X      break;			/* ButtonRelease */
+X	
+X    default:
+X
+X      break;			/* unknown event */
+X
+X    } /* casend event type */
+X
+X  } /* whilend */
+X
+X  return( True );
+X
+X} /* end process_event */
+X
+X
+X
+X
+Xvoid
+Xprocess_pointer()		/* do stuff every time period */
+X{
+X  struct timeval                timer;
+X  
+X  timer.tv_sec = 0;
+X  timer.tv_usec = pvt[P_MICROSECOND_INTERVAL_TIME].value.integer_value;
+X  
+X  do {
+X    
+X    do_distances( False );
+X    
+X    if ( --autosave_count <= 0 ) {
+X      autosave_count = autosave_ticks;
+X      save_xodo();		/* update state information */
+X    }
+X    
+X    if ( pvt[P_MICROSECOND_INTERVAL_TIME].value.integer_value <= 999999 )
+X      select( 0, NULL, NULL, NULL, &timer );
+X    else
+X      sleep ( (unsigned)pvt[P_MICROSECOND_INTERVAL_TIME].value.integer_value / 1000000 );
+X    
+X  } while ( process_event() );
+X
+X} /* end process_pointer */
+X
+X
+X
+X
+Xvoid
+Xsave_xodo()			/* update xodo distances */
+X{
+X
+X  OF = fopen( pvt[P_ODOMETER_FILE].value.file_value, "w" );
+X  if ( OF == NULL ) {
+X    perror("Cannot open odometer_file for write!");
+X  } else {
+X    fprintf( OF, "%f %f %s\n", total_cursor_distance, total_pointer_distance, distances[distances_ordinal].name );
+X    fclose( OF );
+X  }
+X
+X} /* end save_xodo */
+X
+X
+X
+Xint
+Xmain( argc, argv )
+X    int		argc;
+X    char	*argv[];
+X{
+X  
+X  evap( &argc, &argv, pdt, NULL, pvt ); /* evaluate parameters */
+X  
+X  initialize_xodo();		/* all other xodometer initialization */
+X
+X  process_pointer();		/* watch the pointing device */
+X  
+X  finish_xodo();		/* update distances for next time */
+X
+X  exit( 0 );			/* success, just in case */
+X
+X} /* end xodo main */
+END_OF_FILE
+if test 45761 -ne `wc -c <'xodo.c'`; then
+    echo shar: \"'xodo.c'\" unpacked with wrong size!
+fi
+chmod +x 'xodo.c'
+# end of 'xodo.c'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    echo "Read README for installation instructions."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

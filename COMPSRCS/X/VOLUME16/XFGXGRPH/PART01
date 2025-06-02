@@ -1,0 +1,769 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Konstantinos Konstantinides <kk@hpkronos.hpl.hp.com>
+Subject: v16i149: xfig drivers for xgraph, Part01/01
+Message-ID: <1992Mar9.161214.18606@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Date: Mon, 9 Mar 1992 16:12:14 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Konstantinos Konstantinides <kk@hpkronos.hpl.hp.com>
+Posting-number: Volume 16, Issue 149
+Archive-name: xfig4xgraph/part01
+
+The files fig.c and fig2.1.c provide xfig drivers for xgraph.
+fig.c is for FIG 2.0 and fig2.1.c for FIG 2.1.
+Then you can import and anotate xgraph files using xfig. Or you can
+use fig2dev to translate xgraph files into PIC, or Tex format.
+
+xgraph is available from ic.berkeley.edu
+xfig is  available from export, /contrib/R5fixes/xfig-patches/xfig.*
+transfig (fig2dev) is available from ftp.cs.cornell.edu
+
+What you need to do (assuming you have xgraph):
+1. Edit the SRC and OBJ lines of the xgraph Makefile to include
+   fig.c, fig2.1.c, fig.o, and fig2.1.o.
+
+2. Edit hard_devices.c to include the new drivers. My hard_devices.c
+   is included here as an example.
+
+3. Make and install.
+
+Bug reports and enhancements are always welcome.
+
+Konstantinos Konstantinides
+
+Hewlett-Packard Laboratories
+P.O. Box 10490
+Palo Alto, CA 94303
+
+tel: (415) 857-4086
+e-mail: kk@hpkronos.hpl.hp.com
+
+---------------------------------------------------------------
+# This is a shell archive.  Remove anything before this line,
+# then unpack it by saving it in a file and typing "sh file".
+#
+# Wrapped by Konstantinos Konstantinides <kk@hpkronos> on Wed Feb 19 12:07:24 1992
+#
+# This archive contains:
+#	README.xfig	fig.c		fig2.1.c	hard_devices.c	
+#
+
+LANG=""; export LANG
+PATH=/bin:/usr/bin:$PATH; export PATH
+
+echo x - README.xfig
+cat >README.xfig <<'@EOF'
+The files fig.c and fig2.1.c provide xfig drivers for xgraph.
+fig.c is for FIG 2.0 and fig2.1.c for FIG 2.1.
+Then you can import and anotate xgraph files using xfig. Or you can
+use fig2dev to translate xgraph files into PIC, or Tex format.
+
+xgraph is available from ic.berkeley.edu
+xfig is  available from export, /contrib/R5fixes/xfig-patches/xfig.*
+transfig (fig2dev) is available from ftp.cs.cornell.edu
+
+What you need to do (assuming you have xgraph):
+1. Edit the SRC and OBJ lines of the xgraph Makefile to include
+   fig.c, fig2.1.c, fig.o, and fig2.1.o.
+
+2. Edit hard_devices.c to include the new drivers. My hard_devices.c
+   is included here as an example.
+
+3. Make and install.
+
+Bug reports and enhancements are always welcome.
+
+
+Konstantinos Konstantinides
+
+Hewlett-Packard Laboratories
+P.O. Box 10490
+Palo Alto, CA 94303
+
+tel: (415) 857-4086
+e-mail: kk@hpkronos.hpl.hp.com
+@EOF
+
+chmod 644 README.xfig
+
+echo x - fig.c
+cat >fig.c <<'@EOF'
+/*
+ * $Header: fig.c,v 1.1 91/04/17 09:49:32 kk Exp $ 
+ * FIG 2.0 output
+ *
+ * Based on "Transfig: Portable Figures for LateX", by Micah Beck,
+ * version 2.1.0.
+ * Fig 2.* is available from svax.cs.cornell.edu
+ * Konstantinos Konstantinides
+ * Hewlett-Packard Labs
+ * Palo Alto, CA.
+ * kk@hpkronos.hpl.hp.com
+ * Copyright (c) Hewlett-Packard, 1991.
+ *
+ * $Log:	fig.c,v $
+ * Revision 1.1  91/04/17  09:49:32  09:49:32  kk (Konstantinos Konstantinides)
+ * Initial revision
+ * 
+ */
+
+#define MAPX(state,x) ( (x) + P1X + state->clipminX ) 
+#define MAPY(state,y) ( MAXY - (y) + P1Y - state->clipminY)
+
+#include "copyright.h"
+#include <string.h>
+#include "xgout.h"
+#include <stdio.h>
+#include <math.h>
+#define MAX(a,b) ( ((a)>(b)) ? (a) : (b) )
+#define MIN(a,b) ( ((a)<(b)) ? (a) : (b) )
+char *malloc();
+
+static void figText();
+static void figSeg();
+static void figDot();
+static void figEnd();
+
+static xgOut figInfo = {
+    1, /* D_COLOR,    /* device characteristics */
+    800,   /* width (pixels) */
+    640,   /* height (pixels) */
+    40,    /* border padding */
+    10,      /* extra space around axis labels */
+    20,    /* tick length - approx 1/4 inch */
+    10,	    /* spacing above legend lables */
+    0,      /* axis font width */
+    0,      /* axis font height */
+    0,      /* title font width */
+    0,      /* title font height */
+   10,      /* maximum number of segments */
+	     /* pic fails for large array of segments */
+
+    figText,   /* text output function */
+    figSeg,    /* segment  drawing function */
+    figDot,    /* dot/marker drawing function */
+    figEnd,    /* end of plot function */
+
+    NULL,   /* userInfo */
+};
+
+typedef struct {
+	int axis_w;
+	int axis_h;
+	int title_w;
+	int title_h;
+	int axis_f;
+	int title_f;
+	FILE *figFile;
+} mydata;
+
+/*ARGSUSED*/
+int
+figInit(stream,width,height,title_family, title_size,
+		axis_family, axis_size, flags, outInfo,errmsg)
+    FILE *stream;	/* output stream */
+	int width;		/* desired width of space in microns */
+	int height;		/* desired height in microns */
+	char *title_family;	/* name of font for titles */
+	double title_size;	/* size of font for titles */
+	char *axis_family;	/* name of font for axes */
+	double axis_size;	/* size of font for axes */
+        int flags;		/* predicate values (ignored) */
+    xgOut *outInfo;	/* my structure */
+	char errmsg[ERRBUFSIZE];	/* a place to complain to */
+{
+	mydata *myInfo;
+
+	myInfo = (mydata*)malloc(sizeof(mydata));
+	if(myInfo == NULL) return(NULL);
+        *outInfo = figInfo;
+	outInfo->area_w = MIN(800,width*0.0064);
+	outInfo->area_h = MIN(640,height*0.0064);
+	/* magic formulas:  input sizes are in points = 1/72 inch */
+	/* my sizes are in 80 pixels/inch : 80/72 = 1.11*/
+
+    outInfo->axis_width =  axis_size * 0.74;
+    outInfo->axis_height = axis_size*1.11;
+    outInfo->title_width = title_size * 0.74;
+    outInfo->title_height = title_size * 1.11;
+    outInfo->user_state = (char *)myInfo;
+	myInfo->figFile = stream;
+	myInfo->axis_h = axis_size * 1.11;
+	myInfo->axis_f = axis_size ;
+	myInfo->title_h = title_size * 1.11;
+	myInfo->title_f = title_size ;
+	myInfo->axis_w = axis_size * 0.74;   /* two thirds */
+	myInfo->title_w = title_size * 0.74;
+	fprintf(myInfo->figFile,"%cFIG 2.0\n",'#');
+	fprintf(myInfo->figFile,"80 2\n");
+    return(1);
+}
+
+static void 
+figText(userState,x,y,text,just,style)
+    mydata *userState;    /* my state information  */
+    int x,y;    /* coords of text origin (pixels) */
+    char *text; /* what to put there */
+    int just;   /* how to justify */
+    /* where the origin is relative to where the text should go
+     * as a function of the various values of just 
+
+    T_UPPERLEFT     T_TOP       T_UPPERRIGHT
+    T_LEFT          T_CENTER    T_RIGHT
+    T_LOWERLEFT     T_BOTTOM    T_LOWERRIGHT
+
+    */
+    int style;  /* T_AXIS = axis font, T_TITLE = title font */
+    /* you can only use Times-Roman and Bold-Roman */
+
+{
+    int my_just = 0;
+    int length;
+    int font;
+    switch(just) {
+	case T_CENTER:
+	case T_TOP:
+	case T_BOTTOM:
+		my_just = 1;
+		break;
+        case T_LEFT:
+	case T_UPPERLEFT:
+	case T_LOWERLEFT:
+		my_just = 0;
+		break;
+        case T_RIGHT:
+	case T_UPPERRIGHT:
+	case T_LOWERRIGHT:
+		my_just = 2;
+		break;
+	default:
+		my_just = 0;
+	}
+
+    switch(style) {
+        case T_AXIS:
+	    length = userState->axis_w * strlen(text);
+	    font = userState->axis_f;
+            fprintf(userState->figFile,"4 %d 0 %d 0 0 0 0.000 1 %d %d %d %d\
+	    %s\01\n",my_just,font,userState->axis_h, length,x,y,text);
+            break;
+        case T_TITLE:
+	    length = userState->title_w * strlen(text);
+	    font = userState->title_f;
+            fprintf(userState->figFile,"4 %d 2 %d 0 0 0 0.000 1 %d %d %d %d\
+	    %s\01\n",my_just,font,userState->title_h, length, x,y,text);
+            break;
+        default:
+            printf("bad text style %d in figText\n",style);
+            exit(1);
+            break;
+    }
+}
+
+
+
+static void 
+figSeg(userState,ns,segs,width,style,lappr,color)
+    mydata *userState;    /* my state information (not used) */
+    int ns;         /* number of segments */
+    XSegment *segs; /* X array of segments */
+    int width;      /* width of lines in pixels */
+    int style;      /* L_VAR = dotted, L_AXIS = grid, L_ZERO = axis*/
+    int lappr;      /* line style :solid=0, dash=1, dotted=2*/
+    int color;      /* line color */
+{
+    int i=0;
+    int line_style=0;
+    static int s_val[3] = {0, 4, 3}; 
+    int line_val;
+
+    if (style == L_ZERO) {
+        line_style=0;                      /* solid line style */
+	line_val=0;
+    } else if (style == L_AXIS) {
+        line_style=2;                      /* dotted line style */
+	line_val=3;
+    } else if (style == L_VAR) {
+	line_style=(lappr+color)%3; 
+	line_val=s_val[line_style];
+    }
+    if(i==0) {
+	    fprintf(userState->figFile,"2 1 %d 1 0 0 0 0 %d.000 0 0\n",line_style,line_val);
+            fprintf(userState->figFile,"      %d %d ",segs[i].x1,segs[i].y1);
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+	    }
+	i++;
+
+    for(i=1;i<ns;i++) {
+		if((segs[i].x1!=segs[i-1].x2) || (segs[i].y1!=segs[i-1].y2) ){
+            /* MOVE */
+            fprintf(userState->figFile," 9999 9999\n");
+	    fprintf(userState->figFile,"2 1 %d 1 0 0 0 0 %d.000 0 0\n",line_style,line_val);
+            fprintf(userState->figFile,"      %d %d ",segs[i].x1,segs[i].y1);
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+        }
+	else {
+	    /* draw */
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+	}
+    }
+    if(i==ns) fprintf(userState->figFile," 9999 9999\n");
+}
+
+static void 
+figDot(userState,x,y,style,type,color)
+    mydata *userState;    /* my state information (not used) */
+    int x,y;    /* coord of dot */
+    int style;  /* type of dot */
+    int type;   /* dot style variation */
+    int color;  /* color of dot */
+{
+	static char *mark[8] = { "A", "B", "C", "D", "E", "F", "G", "H"};
+	if(style==P_PIXEL) /* print a single pixel = . */
+		fprintf(userState->figFile,"4 0 0 12 0 0 0 0.000 1 1 3\
+ %d %d .\01\n",x,y);
+        else if(style==P_DOT) /* Draw a little circle of radius=4 pixels */
+		fprintf(userState->figFile,"1 3 0 1 0 0 0 0 0.000 1\
+ 0.000 %d %d 4 4 %d %d %d %d\n",x,y,x,y,x,(y-4));
+	else if(style==P_MARK) /* Draw a mark */
+		switch(type) {
+
+		case 0: /* draw a circle */
+			fprintf(userState->figFile,"1 3 0 1 0 0 0 0 0.000 1\
+0.000 %d %d 4 4 %d %d %d %d\n",x,y,x,y,x,(y-4));
+		       	break;
+		case 1: /* draw a square */
+			fprintf(userState->figFile,"2 2 0 1 0 0 0 0 0.000 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ %d %d 9999 9999\n", x-4,y+3,x-4,y-3,x+4,y-3, x+4,y+3,x-4,y+3);
+			break;
+		case 2: /* draw a diamond */
+			fprintf(userState->figFile,"2 3 0 1 0 0 0 0 0.000 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ %d %d 9999 9999\n", x-4,y,x,y-4,x+4,y, x,y+4,x-4,y);
+			break;
+		case 3: /* draw a triangle */
+			fprintf(userState->figFile,"2 3 0 1 0 0 0 0 0.000 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ 9999 9999\n", x-3,y+4,x,y-4,x+3,y+4, x-3,y+4);
+			break;
+		case 4: /* draw a cross */
+			fprintf(userState->figFile,"4 1 0 16 0 0 0 0.000 1 1 3\
+ %d %d %s\01\n",x,y,"+");
+			break;
+		case 5: /* draw a * */
+			fprintf(userState->figFile,"4 1 0 16 0 0 0 0.000 1 1 3\
+ %d %d %s\01\n",x,y,"*");
+			break;
+		default:
+			fprintf(userState->figFile,"4 0 0 12 0 0 0 0.000 1 1 3\
+ %d %d %s\01\n",x,y,mark[type]);
+		}
+		/*
+		fprintf(userState->figFile,"4 0 0 12 0 0 0 0.000 1 1 3\
+           %d %d %s\01\n",x,y,mark[type]);
+		*/
+        else  fprintf(userState->figFile,"%cUnknown marker style\n","#");
+		
+}
+
+static void 
+figEnd(userState)
+    mydata *userState;    /* my state information (not used) */
+
+{
+	fprintf(userState->figFile,"\n%cEnd of fig file\n",'#');
+    fflush(userState->figFile);
+    return;
+}
+@EOF
+
+chmod 644 fig.c
+
+echo x - fig2.1.c
+cat >fig2.1.c <<'@EOF'
+/*
+ * $Header: fig2.1.c,v 1.2 92/02/19 11:54:53 kk Exp $ 
+ * FIG 2.1 output
+ *
+ * Based on "Transfig: Portable Figures for LateX", by Micah Beck,
+ * version 2.1.4.
+ * Fig 2.* is available from svax.cs.cornell.edu
+ * Konstantinos Konstantinides
+ * Hewlett-Packard Labs
+ * Palo Alto, CA.
+ * kk@hpkronos.hpl.hp.com
+ * Copyright (c) Hewlett-Packard, 1991.
+ *
+ * $Log:	fig2.1.c,v $
+ * Revision 1.2  92/02/19  11:54:53  11:54:53  kk (Konstantinos Konstantinides)
+ * *** empty log message ***
+ * 
+ * Revision 1.1  92/02/18  18:32:16  18:32:16  kk (Konstantinos Konstantinides)
+ * Initial revision
+ * 
+ */
+
+#define MAPX(state,x) ( (x) + P1X + state->clipminX ) 
+#define MAPY(state,y) ( MAXY - (y) + P1Y - state->clipminY)
+
+#include "copyright.h"
+#include <string.h>
+#include "xgout.h"
+#include <stdio.h>
+#include <math.h>
+#define MAX(a,b) ( ((a)>(b)) ? (a) : (b) )
+#define MIN(a,b) ( ((a)<(b)) ? (a) : (b) )
+char *malloc();
+
+static void figText2();
+static void figSeg2();
+static void figDot2();
+static void figEnd2();
+
+static xgOut figInfo = {
+    1, /* D_COLOR,    /* device characteristics */
+    800,   /* width (pixels) */
+    640,   /* height (pixels) */
+    40,    /* border padding */
+    10,      /* extra space around axis labels */
+    20,    /* tick length - approx 1/4 inch */
+    10,	    /* spacing above legend lables */
+    0,      /* axis font width */
+    0,      /* axis font height */
+    0,      /* title font width */
+    0,      /* title font height */
+   10,      /* maximum number of segments */
+	     /* pic fails for large array of segments */
+
+    figText2,   /* text output function */
+    figSeg2,    /* segment  drawing function */
+    figDot2,    /* dot/marker drawing function */
+    figEnd2,    /* end of plot function */
+
+    NULL,   /* userInfo */
+};
+
+typedef struct {
+	int axis_w;
+	int axis_h;
+	int title_w;
+	int title_h;
+	int axis_f;
+	int title_f;
+	FILE *figFile;
+} mydata;
+
+/*ARGSUSED*/
+int
+figInit2(stream,width,height,title_family, title_size,
+		axis_family, axis_size, flags, outInfo,errmsg)
+    FILE *stream;	/* output stream */
+	int width;		/* desired width of space in microns */
+	int height;		/* desired height in microns */
+	char *title_family;	/* name of font for titles */
+	double title_size;	/* size of font for titles */
+	char *axis_family;	/* name of font for axes */
+	double axis_size;	/* size of font for axes */
+        int flags;		/* predicate values (ignored) */
+    xgOut *outInfo;	/* my structure */
+	char errmsg[ERRBUFSIZE];	/* a place to complain to */
+{
+	mydata *myInfo;
+
+	myInfo = (mydata*)malloc(sizeof(mydata));
+	if(myInfo == NULL) return(NULL);
+        *outInfo = figInfo;
+	outInfo->area_w = MIN(800,width*0.0064);
+	outInfo->area_h = MIN(640,height*0.0064);
+	/* magic formulas:  input sizes are in points = 1/72 inch */
+	/* my sizes are in 80 pixels/inch : 80/72 = 1.11*/
+
+    outInfo->axis_width =  axis_size * 0.74;
+    outInfo->axis_height = axis_size*1.11;
+    outInfo->title_width = title_size * 0.74;
+    outInfo->title_height = title_size * 1.11;
+    outInfo->user_state = (char *)myInfo;
+	myInfo->figFile = stream;
+	myInfo->axis_h = axis_size * 1.11;
+	myInfo->axis_f = axis_size ;
+	myInfo->title_h = title_size * 1.11;
+	myInfo->title_f = title_size ;
+	myInfo->axis_w = axis_size * 0.74;   /* two thirds */
+	myInfo->title_w = title_size * 0.74;
+	fprintf(myInfo->figFile,"%cFIG 2.1\n",'#');
+	fprintf(myInfo->figFile,"80 2\n");
+    return(1);
+}
+
+static void 
+figText2(userState,x,y,text,just,style)
+    mydata *userState;    /* my state information  */
+    int x,y;    /* coords of text origin (pixels) */
+    char *text; /* what to put there */
+    int just;   /* how to justify */
+    /* where the origin is relative to where the text should go
+     * as a function of the various values of just 
+
+    T_UPPERLEFT     T_TOP       T_UPPERRIGHT
+    T_LEFT          T_CENTER    T_RIGHT
+    T_LOWERLEFT     T_BOTTOM    T_LOWERRIGHT
+
+    */
+    int style;  /* T_AXIS = axis font, T_TITLE = title font */
+    /* you can only use Times-Roman and Bold-Roman */
+
+{
+    int my_just = 0;
+    int length;
+    int font;
+    switch(just) {
+	case T_CENTER:
+	case T_TOP:
+	case T_BOTTOM:
+		my_just = 1;
+		break;
+        case T_LEFT:
+	case T_UPPERLEFT:
+	case T_LOWERLEFT:
+		my_just = 0;
+		break;
+        case T_RIGHT:
+	case T_UPPERRIGHT:
+	case T_LOWERRIGHT:
+		my_just = 2;
+		break;
+	default:
+		my_just = 0;
+	}
+
+    switch(style) {
+        case T_AXIS:
+	    length = userState->axis_w * strlen(text);
+	    font = userState->axis_f;
+            fprintf(userState->figFile,"4 %d 0 %d 0 -1 0 0.000 4 %d %d %d %d\
+	    %s\01\n",my_just,font,userState->axis_h, length,x,y,text);
+            break;
+        case T_TITLE:
+	    length = userState->title_w * strlen(text);
+	    font = userState->title_f;
+            fprintf(userState->figFile,"4 %d 2 %d 0 -1 0 0.000 4 %d %d %d %d\
+	    %s\01\n",my_just,font,userState->title_h, length, x,y,text);
+            break;
+        default:
+            printf("bad text style %d in figText\n",style);
+            exit(1);
+            break;
+    }
+}
+
+
+
+static void 
+figSeg2(userState,ns,segs,width,style,lappr,color)
+    mydata *userState;    /* my state information (not used) */
+    int ns;         /* number of segments */
+    XSegment *segs; /* X array of segments */
+    int width;      /* width of lines in pixels */
+    int style;      /* L_VAR = dotted, L_AXIS = grid, L_ZERO = axis*/
+    int lappr;      /* line style :solid=0, dash=1, dotted=2*/
+    int color;      /* line color */
+{
+    int i=0;
+    int line_style=0;
+    static int s_val[3] = {0, 4, 3}; 
+    int line_val;
+
+    if (style == L_ZERO) {
+        line_style=0;                      /* solid line style */
+	line_val=0;
+    } else if (style == L_AXIS) {
+        line_style=2;                      /* dotted line style */
+	line_val=3;
+    } else if (style == L_VAR) {
+	line_style=(lappr+color)%3; 
+	line_val=s_val[line_style];
+    }
+    if(i==0) {
+	    fprintf(userState->figFile,"2 1 %d 1 -1 0 0 0 %d.000 -1 0 0\n",line_style,line_val);
+            fprintf(userState->figFile,"      %d %d ",segs[i].x1,segs[i].y1);
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+	    }
+	i++;
+
+    for(i=1;i<ns;i++) {
+		if((segs[i].x1!=segs[i-1].x2) || (segs[i].y1!=segs[i-1].y2) ){
+            /* MOVE */
+            fprintf(userState->figFile," 9999 9999\n");
+	    fprintf(userState->figFile,"2 1 %d 1 -1 0 0 0 %d.000 -1 0 0\n",line_style,line_val);
+            fprintf(userState->figFile,"      %d %d ",segs[i].x1,segs[i].y1);
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+        }
+	else {
+	    /* draw */
+            fprintf(userState->figFile,"%d %d ",segs[i].x2,segs[i].y2);
+	}
+    }
+    if(i==ns) fprintf(userState->figFile," 9999 9999\n");
+}
+
+static void 
+figDot2(userState,x,y,style,type,color)
+    mydata *userState;    /* my state information (not used) */
+    int x,y;    /* coord of dot */
+    int style;  /* type of dot */
+    int type;   /* dot style variation */
+    int color;  /* color of dot */
+{
+	static char *mark[8] = { "A", "B", "C", "D", "E", "F", "G", "H"};
+	if(style==P_PIXEL) /* print a single pixel = . */
+		fprintf(userState->figFile,"4 0 0 12 0 -1 0 0.000 4 1 3\
+ %d %d .\01\n",x,y);
+        else if(style==P_DOT) /* Draw a little circle of radius=4 pixels */
+		fprintf(userState->figFile,"1 3 0 1 -1 0 0 0 0.000 1\
+ 0.000 %d %d 4 4 %d %d %d %d\n",x,y,x,y,x,(y-4));
+	else if(style==P_MARK) /* Draw a mark */
+		switch(type) {
+
+		case 0: /* draw a circle */
+			fprintf(userState->figFile,"1 3 0 1 -1 0 0 0 0.000 1\
+0.000 %d %d 4 4 %d %d %d %d\n",x,y,x,y,x,(y-4));
+		       	break;
+		case 1: /* draw a square */
+			fprintf(userState->figFile,"2 2 0 1 -1 0 0 0 0.000 -1 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ %d %d 9999 9999\n", x-4,y+3,x-4,y-3,x+4,y-3, x+4,y+3,x-4,y+3);
+			break;
+		case 2: /* draw a diamond */
+			fprintf(userState->figFile,"2 3 0 1 -1 0 0 0 0.000 -1 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ %d %d 9999 9999\n", x-4,y,x,y-4,x+4,y, x,y+4,x-4,y);
+			break;
+		case 3: /* draw a triangle */
+			fprintf(userState->figFile,"2 3 0 1 -1 0 0 0 0.000 -1 0 0\n");
+			fprintf(userState->figFile,"    %d %d %d %d %d %d %d %d\
+ 9999 9999\n", x-3,y+4,x,y-4,x+3,y+4, x-3,y+4);
+			break;
+		case 4: /* draw a cross */
+			fprintf(userState->figFile,"4 1 0 16 0 -1 0 0.000 4 1 3\
+ %d %d %s\01\n",x,y,"+");
+			break;
+		case 5: /* draw a * */
+			fprintf(userState->figFile,"4 1 0 16 0 -1 0 0.000 4 1 3\
+ %d %d %s\01\n",x,y,"*");
+			break;
+		default:
+			fprintf(userState->figFile,"4 0 0 12 0 -1 0 0.000 4 1 3\
+ %d %d %s\01\n",x,y,mark[type]);
+		}
+		/*
+		fprintf(userState->figFile,"4 0 0 12 0 -1 0 0.000 4 1 3\
+           %d %d %s\01\n",x,y,mark[type]);
+		*/
+        else  fprintf(userState->figFile,"%cUnknown marker style\n","#");
+		
+}
+
+static void 
+figEnd2(userState)
+    mydata *userState;    /* my state information (not used) */
+
+{
+	fprintf(userState->figFile,"\n%cEnd of fig file\n",'#');
+    fflush(userState->figFile);
+    return;
+}
+@EOF
+
+chmod 644 fig2.1.c
+
+echo x - hard_devices.c
+cat >hard_devices.c <<'@EOF'
+/*
+ * Hardcopy Devices
+ *
+ * This file contains the basic output device table.  The hardcopy
+ * dialog is automatically constructed from this table.
+ */
+
+#include "copyright.h"
+#include "xgout.h"
+#include "hard_devices.h"
+#include "params.h"
+
+extern int hpglInit();
+extern int figInit();
+extern int figInit2();
+extern int psInit();
+extern int idrawInit();
+
+struct hard_dev hard_devices[] = {
+    { "HPGL", hpglInit, "lpr -P%s", "xgraph.hpgl", "paper",
+	27.5, "1", 14.0, "1", 12.0, NONE },
+    /*{ "Postscript", psInit, "lpr -P%s", "xgraph.ps", "lps40", */
+    { "Postscript", psInit, "lp -d%s -oraw", "xgraph.ps", "psjet",
+	19.0, "Times-Bold", 18.0, "Times-Roman", 12.0, NO },
+    { "Fig2.1", figInit2, "cat > $HOME/xgraph.fig", "xgraph.fig","don't print",
+       10.0, "Times-Bold", 14.0, "Times-Roman",12.0, NO },
+    { "Fig2.0", figInit, "cat > $HOME/xgraph.fig", "xgraph.fig","don't print",
+       10.0, "Times-Bold", 14.0, "Times-Roman",12.0, NO },
+    { "Idraw", idrawInit,
+	"cat > /usr/tmp/idraw.tmp.ps; %s /usr/tmp/idraw.tmp.ps&",
+	"~/.clipboard", "/usr/local/idraw", 19.0, "Times-Bold", 18.0,
+	"Times-Roman", 12.0, NONE }
+};
+
+int hard_count = sizeof(hard_devices)/sizeof(struct hard_dev);
+
+#define CHANGE_D(name, field) \
+if (param_get(name, &val)) { \
+    if (val.type == DBL) { \
+       hard_devices[idx].field = val.dblv.value; \
+    } \
+}
+
+#define CHANGE_S(name, field) \
+if (param_get(name, &val)) { \
+    if (val.type == STR) { \
+       (void) strcpy(hard_devices[idx].field, val.strv.value); \
+    } \
+}
+
+
+void hard_init()
+/*
+ * Changes values in hard_devices structures in accordance with
+ * parameters set using the parameters module.
+ */
+{
+    char newname[1024];
+    int idx;
+    params val;
+
+    for (idx = 0;  idx < hard_count;  idx++) {
+	(void) sprintf(newname, "%s.Dimension", hard_devices[idx].dev_name);
+	CHANGE_D(newname, dev_max_dim);
+	(void) sprintf(newname, "%s.OutputTitleFont", hard_devices[idx].dev_name);
+	CHANGE_S(newname, dev_title_font);
+	(void) sprintf(newname, "%s.OutputTitleSize", hard_devices[idx].dev_name);
+	CHANGE_D(newname, dev_title_size);
+	(void) sprintf(newname, "%s.OutputAxisFont", hard_devices[idx].dev_name);
+	CHANGE_S(newname, dev_axis_font);
+	(void) sprintf(newname, "%s.OutputAxisSize", hard_devices[idx].dev_name);
+	CHANGE_D(newname, dev_axis_size);
+    }
+}
+@EOF
+
+chmod 644 hard_devices.c
+
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

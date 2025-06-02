@@ -1,0 +1,433 @@
+Newsgroups: comp.sources.misc
+From: chris@sparky.sterling.com (Chris Olson)
+Subject: v36i112:  libtouch - Make utility to touch archive elements, Part01/01
+Message-ID: <1993Apr19.033100.13988@sparky.imd.sterling.com>
+X-Md4-Signature: bc85f95e64762cc8735fc2933d41bcc0
+Date: Mon, 19 Apr 1993 03:31:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: chris@sparky.sterling.com (Chris Olson)
+Posting-number: Volume 36, Issue 112
+Archive-name: libtouch/part01
+Environment: UNIX
+
+Why libtouch?  It helps to shorten make times and removes the need to
+have .o's and timestamp files lying around.  A personal pet peeve.
+A large archive (256 objects) could have an object deleted out of it
+in 10 secs, this gem updates the date of the file (accomplishing the
+same thing (see makefile)) in less than 3.
+
+A portable makefile which takes advantage of libtouch to put off the
+archive step until just before the end:
+
+LibFullName = lib$(LibName).a
+LibPath = ../lib
+LibFullPath = $(LibPath)/$(LibFullName)
+
+.c.a:
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $<
+	libtouch $(LibFullName) $%
+
+LibName = sample
+.PRECIOUS: $(LibFullPath)
+
+ALL: $(LibFullPath)
+
+LibObjects = sample1.o sample2.o sample3.o sample4.o sample5.o\
+	sample6.o
+
+$(LibFullPath): $(LibFullPath)(sample1.o)\
+	$(LibFullPath)(sample2.o)\
+	$(LibFullPath)(sample3.o)\
+	$(LibFullPath)(sample4.o)\
+	$(LibFullPath)(sample5.o)
+	ar ruv $@ `ls $(LibObjects) 2>/dev/null`
+	rm -f $(LibObjects)
+	ranlib $@
+
+depend:
+	  makedepend $(CFLAGS) -fGNUmakefile -- *.c
+	  fixdepend -l$(UnLibFullPath) -fGNUmakefile $(LibObjects)
+-----------8<----------------8<----------------8<----------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile libtouch.c libtouch.l
+# Wrapped by kent@sparky on Sun Apr 18 22:27:47 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1070 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XWhy libtouch?  It helps to shorten make times and removes the need to
+Xhave .o's and timestamp files lying around.  A personal pet peeve.
+XA large archive (256 objects) could have an object deleted out of it
+Xin 10 secs, this gem updates the date of the file (accomplishing the
+Xsame thing (see makefile)) in less than 3.
+X
+XA portable makefile which takes advantage of libtouch to put off the
+Xarchive step until just before the end:
+X
+XLibFullName = lib$(LibName).a
+XLibPath = ../lib
+XLibFullPath = $(LibPath)/$(LibFullName)
+X
+X.c.a:
+X	$(CC) -c $(CFLAGS) $(CPPFLAGS) $<
+X	libtouch $(LibFullName) $%
+X
+XLibName = sample
+X.PRECIOUS: $(LibFullPath)
+X
+XALL: $(LibFullPath)
+X
+XLibObjects = sample1.o sample2.o sample3.o sample4.o sample5.o\
+X	sample6.o
+X
+X$(LibFullPath): $(LibFullPath)(sample1.o)\
+X	$(LibFullPath)(sample2.o)\
+X	$(LibFullPath)(sample3.o)\
+X	$(LibFullPath)(sample4.o)\
+X	$(LibFullPath)(sample5.o)
+X	ar ruv $@ `ls $(LibObjects) 2>/dev/null`
+X	rm -f $(LibObjects)
+X	ranlib $@
+X
+Xdepend:
+X	  makedepend $(CFLAGS) -fGNUmakefile -- *.c
+X	  fixdepend -l$(UnLibFullPath) -fGNUmakefile $(LibObjects)
+END_OF_FILE
+  if test 1070 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(519 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X#  Copyright 1993 by Chris Olson
+X#
+X#  Permision is hereby granted to copy, distribute, or otherwise use any
+X#  part of this package as long as you do not try to make money from it or
+X#  pretend that you wrote it.  This copyright notice must be maintained in
+X#  any copy made.
+X#
+XCC=gcc
+XCFLAGS=-O -pipe
+XBINDIR=/usr/local/bin
+XMANDIR=/usr/local/man
+X
+Xlibtouch: libtouch.o
+X	$(CC) -o libtouch libtouch.o
+X
+Xinstall:
+X	cp libtouch $(BINDIR)
+X	chmod 755 $(BINDIR)/libtouch
+X	cp libtouch.l $(MANDIR)
+X	chmod 444 $(MANDIR)/libtouch.l
+END_OF_FILE
+  if test 519 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'libtouch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libtouch.c'\"
+else
+  echo shar: Extracting \"'libtouch.c'\" \(5966 characters\)
+  sed "s/^X//" >'libtouch.c' <<'END_OF_FILE'
+X/*
+X *  libtouch.c - Update just the datestamp of an archive for the files
+X *		 requested.  It's faster than any other way of updating the
+X *		 archive I've been able to find.
+X *
+X *  Chris Olson
+X *  v1.0
+X *  92/02/20
+X *
+X *  Copyright 1993 by Chris Olson
+X *
+X *  Permision is hereby granted to copy, distribute, or otherwise use any
+X *  part of this package as long as you do not try to make money from it or
+X *  pretend that you wrote it.  This copyright notice must be maintained in
+X *  any copy made.
+X *
+X *
+X *  Why libtouch?  It helps to shorten make times and removes the need to
+X *  have .o's and timestamp files lying around.	 A personal pet peeve.
+X *  A large archive (256 objects) could have an object deleted out of it
+X *  in 10 secs, this gem updates the date of the file (accomplishing the
+X *  same thing (see makefile)) in less than 3.
+X *
+X *  A portable makefile which takes advantage of libtouch to put off the
+X *  archive step until just before the end:
+X *
+X *  LibFullName = lib$(LibName).a
+X *  LibPath = ../lib
+X *  LibFullPath = $(LibPath)/$(LibFullName)
+X *
+X *  .c.a:
+X *	    $(CC) -c $(CFLAGS) $(CPPFLAGS) $<
+X *	    libtouch $(LibFullName) $%
+X *
+X *  LibName = sample
+X *  .PRECIOUS: $(LibFullPath)
+X *
+X *  ALL: $(LibFullPath)
+X *
+X *  LibObjects = sample1.o sample2.o sample3.o sample4.o sample5.o\
+X *	    sample6.o
+X *
+X *  $(LibFullPath): $(LibFullPath)(sample1.o)\
+X *	    $(LibFullPath)(sample2.o)\
+X *	    $(LibFullPath)(sample3.o)\
+X *	    $(LibFullPath)(sample4.o)\
+X *	    $(LibFullPath)(sample5.o)
+X *	    ar ruv $@ `ls $(LibObjects) 2>/dev/null`
+X *	    rm -f $(LibObjects)
+X *	    ranlib $@
+X *
+X *  depend:
+X *	  makedepend $(CFLAGS) -fGNUmakefile -- *.c
+X *	  fixdepend -l$(UnLibFullPath) -fGNUmakefile $(LibObjects)
+X */
+X
+X#include <stdio.h>
+X#include <ar.h>
+X#include <varargs.h>
+X#include <errno.h>
+X
+Xextern int errno;
+X
+X/*
+X *  Global variables used to keep track of the archive.
+X */
+Xstatic FILE *Archive;		      /* Handle used to access the archive. */
+Xstatic char *Archive_name;	      /* Name of the archive.		    */
+Xstatic unsigned long ArchiveDate;     /* Date stamp of the archive.	    */
+Xstatic struct ar_hdr Archive_header;  /* Archive entry header.		    */
+Xstatic unsigned long Archive_pos;     /* Location of current header.	    */
+X
+X/* The max length of an archive member name (Is this defined somewhere?) */
+X#define MAX_MEMBER_NAME 15
+X
+X/*
+X *  Simple error handling routine.
+X */
+Xstatic void error (va_alist)
+X   va_dcl
+X{
+X   char *format;  /* Format string to print from.		  */
+X   va_list ptr;	  /* Used to step through the function arguments. */
+X
+X   va_start(ptr);
+X   format = va_arg(ptr, char *);
+X   vfprintf(stderr, format, ptr);
+X   va_end(ptr);
+X   if (Archive)
+X      fclose(Archive);
+X   exit(-1);
+X} /* error */
+X
+X/*
+X *  Open the archive and check for integrety.
+X */
+Xstatic void open_archive (archive_name)
+X   char *archive_name;	/* Name of the archive. */
+X{
+X   char magic[SARMAG];	/* Archive magic number storage. */
+X
+X   if ((Archive = fopen(archive_name, "r+")) == NULL) {
+X      if (errno == EACCES ||
+X	  errno == EISDIR ||
+X	  errno == EROFS ||
+X	  errno == ELOOP ||
+X	  errno == ENAMETOOLONG ||
+X	  errno == EPERM) {
+X	 /*
+X	  *  It is an error not to be allowed to open the archive...
+X	  */
+X	 error("Unable to open archive, permision denied.\n");
+X      }
+X      /*
+X       *  It's not really an error not to find the archive...
+X       */
+X      fprintf(stderr, "Archive file is missing.\n");
+X      exit(0);
+X   }
+X   if (fread(magic, SARMAG, 1, Archive) != 1)
+X      error("Unable to read magic number for '%s'\n", archive_name);
+X   if (strncmp(magic, ARMAG, SARMAG))
+X      error("'%s' is not in archive format.\n", archive_name);
+X   Archive_name = archive_name;
+X} /* archive_name */
+X
+X/*
+X *  Read in the archive record header and check it's integrety.
+X */
+Xstatic int read_header ()
+X{
+X   Archive_pos = ftell(Archive);
+X   if (fread(&Archive_header, sizeof(struct ar_hdr), 1, Archive) != 1) {
+X      fclose(Archive);
+X      exit(0);
+X   }
+X   if (strncmp(Archive_header.ar_fmag, ARFMAG, 2))
+X      error("Error in archive member format.\n");
+X} /* read_header */
+X
+X/*
+X *  Skip over the body of the current archive record, rememeber to make sure
+X *  we stay aligned on an even boundary!
+X */
+Xstatic void skip_member ()
+X{
+X   unsigned long size;	/* Size of the data to be skipped. */
+X
+X   size = atol(Archive_header.ar_size);
+X   size += size % 2;
+X   fseek(Archive, size, 1);
+X} /* skip_member */
+X
+X/*
+X *  Update just the ar_date field of the record, and the rewrite that
+X *  record.
+X */
+Xstatic void touch_member ()
+X{
+X   char buffer[13];  /* Workspace to create new time stamp. */
+X   
+X   unsigned long time();
+X   
+X   fseek(Archive, Archive_pos, 0);
+X   sprintf(buffer, "%ld", time(NULL));
+X   memcpy(Archive_header.ar_date, buffer, strlen(buffer));
+X   fwrite(&Archive_header, sizeof(struct ar_hdr), 1, Archive);
+X} /* touch_member */
+X
+X/*
+X *  Usage:
+X *	libtouch archive-name [lib-members ...]
+X */
+Xint main (argc, argv)
+X   int argc;	  /* Number of arguments on the command line. */
+X   char **argv;	  /* Each command line argument...	      */
+X{
+X   int i;  /* Simple loop counter. */
+X   
+X   if (argc < 2)
+X      error("Usage: %s archive-name [lib-members]\n", argv[0]);
+X
+X   open_archive(argv[1]);
+X   do {
+X      read_header();
+X      for (i = 2; i < argc; i++) {
+X	 /* Check only the member name length */
+X	 if (!strncmp(argv[i], Archive_header.ar_name, 
+X		(strlen(argv[i]) <= MAX_MEMBER_NAME) ? 
+X			strlen(argv[i]) : MAX_MEMBER_NAME)) {
+X	    /*
+X	     *	A little tricky here: touch the current header, copy the
+X	     *	last header to here, and reduce the number to search through.
+X	     *	This lets us find the correct record with a steadily
+X	     *	reducing number of comparisons, does not require any sort
+X	     *	order on any of the two lists, and only makes one pass
+X	     *	through the archive.
+X	     */
+X	    touch_member();
+X	    argv[i] = argv[argc - 1];
+X	    argc--;
+X	    break;
+X	 }
+X      }
+X      skip_member();
+X   } while (argc != 2);
+X   fclose(Archive);
+X   return 0;
+X} /* main */
+END_OF_FILE
+  if test 5966 -ne `wc -c <'libtouch.c'`; then
+    echo shar: \"'libtouch.c'\" unpacked with wrong size!
+  fi
+  # end of 'libtouch.c'
+fi
+if test -f 'libtouch.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libtouch.l'\"
+else
+  echo shar: Extracting \"'libtouch.l'\" \(1620 characters\)
+  sed "s/^X//" >'libtouch.l' <<'END_OF_FILE'
+X.TH LIBTOUCH L "25 March 1993"
+X.SH NAME
+Xlibtouch \- update the access and modification times of an object in a library
+X.SH SYNOPSIS
+X.B libtouch
+X.I library
+X.I filename .\|.\|.
+X.SH DESCRIPTION
+X.IX  "libtouch command"  ""  "\fLlibtouch\fP \(em update last modified date of an object in a library"
+X.IX  "update last modified date of object in a library"  ""  "update last modified date of object in a library \(em \fLlibtouch\fP"
+X.IX  "object in library"  "update last modified date of"  ""  "update last modified date of \(em \fLlibtouch\fP"
+X.IX  "programming tools"  libtouch  ""  "\fLlibtouch\fP \(em update last modified date of object in library"
+X.B libtouch
+Xsets the access and modification times of each
+Xargument after the first to the current time.
+XThe first argument is a library containing the files in the rest of the list.
+X.LP
+X.B libtouch
+Xis valuable when used in conjunction with
+X.BR make (1),
+Xwhere, for instance, you might want to delay the actual archival and
+Xranlib'ing of a library composed of many pieces, but still mark the object
+Xas having been modified.  In such a case, you might use:
+X.RS
+X.IP
+X.nf
+X.B     \fBlibtouch  libsample.a test.o\fP
+X.fi
+X.RE
+X.LP
+X.BR make (1)
+Xwould then see that the
+X.B .c
+Xobject was more
+Xrecent than the corresponding
+X.B .o
+Xfiles, and would start
+Xthe compilation of dependent objects.  A rule later would see to the actual archiving and ranlib'ing.
+XIt would likely depend on the fact that the library's modification date was also changed by
+X.B libtouch
+X.SH SEE ALSO
+X.BR make (1),
+X.BR utimes (2)
+X.SH BUGS
+XIt also sets the modification time of the archive, which can be a problem.
+END_OF_FILE
+  if test 1620 -ne `wc -c <'libtouch.l'`; then
+    echo shar: \"'libtouch.l'\" unpacked with wrong size!
+  fi
+  # end of 'libtouch.l'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

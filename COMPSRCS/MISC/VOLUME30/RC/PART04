@@ -1,0 +1,2054 @@
+Newsgroups: comp.sources.misc
+From: byron@archone.tamu.edu (Byron Rakitzis)
+Subject:  v30i027:  rc - A Plan 9 shell reimplementation, v1.4, Part04/07
+Message-ID: <1992May30.031653.5456@sparky.imd.sterling.com>
+X-Md4-Signature: af485377e738596ad8a1fcfab92a3d86
+Date: Sat, 30 May 1992 03:16:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: byron@archone.tamu.edu (Byron Rakitzis)
+Posting-number: Volume 30, Issue 27
+Archive-name: rc/part04
+Environment: UNIX
+Supersedes: rc: Volume 23, Issue 61-66
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  addon.c footobar.c glom.c print.c trip.rc.uu walk.c
+# Wrapped by kent@sparky on Fri May 29 20:55:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 7)."'
+if test -f 'addon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'addon.c'\"
+else
+  echo shar: Extracting \"'addon.c'\" \(350 characters\)
+  sed "s/^X//" >'addon.c' <<'END_OF_FILE'
+X/*
+X   This file contains the implementations of any locally defined
+X   builtins.
+X*/
+X
+X#ifdef	DWS
+X
+X/*
+X   This is what DaviD Sanderson (dws@cs.wisc.edu) uses.
+X*/
+X
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <sys/stat.h>
+X
+X#include "rc.h"		/* for bool TRUE, FALSE */
+X#include "addon.h"
+X
+X#include "addon/access.c"
+X#include "addon/test.c"
+X
+X#endif
+END_OF_FILE
+  if test 350 -ne `wc -c <'addon.c'`; then
+    echo shar: \"'addon.c'\" unpacked with wrong size!
+  fi
+  # end of 'addon.c'
+fi
+if test -f 'footobar.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'footobar.c'\"
+else
+  echo shar: Extracting \"'footobar.c'\" \(9411 characters\)
+  sed "s/^X//" >'footobar.c' <<'END_OF_FILE'
+X/*
+X   footobar.c: a collection of functions to convert internal representations of
+X   variables and functions to external representations, and vice versa
+X*/
+X
+X#include "rc.h"
+X
+X#define FSCHAR '\1'
+X#define FSSTRING "\1"
+X
+Xstatic char *getenvw(char *, bool);
+X
+X#ifdef PROTECT_ENV
+Xstatic bool Fconv(Format *f, int ignore) {	/* protect an exported name from brain-dead shells */
+X	int c;
+X	unsigned const char *s = va_arg(f->args, unsigned const char *);
+X
+X	while ((c = *s++) != '\0')
+X		if (dnw[c] || c == '*' || (c == '_' && *s == '_'))
+X			fmtprint(f, "__%02x", c);
+X		else
+X			fmtputc(f, c);
+X	return FALSE;
+X}
+X#endif
+X
+X/* used to turn a function in Node * form into something we can export to the environment */
+X
+Xextern char *fun2str(char *name, Node *n) {
+X	return mprint("fn_%F={%T}", name, n);
+X}
+X
+X/* convert a redirection to a printable form */
+X
+Xstatic bool Dconv(Format *f, int ignore) {
+X	const char *name = "?";
+X	int n = va_arg(f->args, int);
+X	switch (n) {
+X	case rCreate:		name = ">";	break;
+X	case rAppend:		name = ">>";	break;
+X	case rFrom:		name = "<";	break;
+X	case rHeredoc:		name = "<<";	break;
+X	case rHerestring:	name = "<<<";	break;
+X	}
+X	fmtcat(f, name);
+X	return FALSE;
+X}
+X
+X/* defaultfd -- return the default fd for a given redirection operation */
+X
+Xextern int defaultfd(int op) {
+X	return (op == rCreate || op == rAppend) ? 1 : 0;
+X}
+X
+X/* convert a function in Node * form into something rc can parse (and humans can read?) */
+X
+Xstatic bool Tconv(Format *f, int ignore) {
+X	Node *n = va_arg(f->args, Node *);
+X	if (n == NULL) {
+X		fmtprint(f, "()");
+X		return FALSE;
+X	}
+X	switch (n->type) {
+X	case nWord:	fmtprint(f, "%S", n->u[0].s);				break;
+X	case nQword:	fmtprint(f, "%#S", n->u[0].s);				break;
+X	case nBang:	fmtprint(f, "! %T", n->u[0].p);				break;
+X	case nCase:	fmtprint(f, "case %T", n->u[0].p);			break;
+X	case nNowait:	fmtprint(f, "%T&", n->u[0].p);				break;
+X	case nCount:	fmtprint(f, "$#%T", n->u[0].p);				break;
+X	case nFlat:	fmtprint(f, "$^%T", n->u[0].p);				break;
+X	case nRmfn:	fmtprint(f, "fn %T", n->u[0].p);			break;
+X	case nSubshell:	fmtprint(f, "@ %T", n->u[0].p);				break;
+X	case nVar:	fmtprint(f, "$%T", n->u[0].p);				break;
+X	case nAndalso:	fmtprint(f, "%T&&%T", n->u[0].p, n->u[1].p);		break;
+X	case nAssign:	fmtprint(f, "%T=%T", n->u[0].p, n->u[1].p);		break;
+X	case nConcat:	fmtprint(f, "%T^%T", n->u[0].p, n->u[1].p);		break;
+X	case nElse:	fmtprint(f, "{%T}else %T", n->u[0].p, n->u[1].p);	break;
+X	case nNewfn:	fmtprint(f, "fn %T {%T}", n->u[0].p, n->u[1].p);	break;
+X	case nIf:	fmtprint(f, "if(%T)%T", n->u[0].p, n->u[1].p);		break;
+X	case nOrelse:	fmtprint(f, "%T||%T", n->u[0].p, n->u[1].p);		break;
+X	case nArgs:	fmtprint(f, "%T %T", n->u[0].p, n->u[1].p);		break;
+X	case nSwitch:	fmtprint(f, "switch(%T){%T}", n->u[0].p, n->u[1].p);	break;
+X	case nMatch:	fmtprint(f, "~ %T %T", n->u[0].p, n->u[1].p);		break;
+X	case nVarsub:	fmtprint(f, "$%T(%T)", n->u[0].p, n->u[1].p);		break;
+X	case nWhile:	fmtprint(f, "while(%T)%T", n->u[0].p, n->u[1].p);	break;
+X	case nLappend:	fmtprint(f, "(%T %T)", n->u[0].p, n->u[1].p);		break;
+X	case nForin:	fmtprint(f, "for(%T in %T)%T", n->u[0].p, n->u[1].p, n->u[2].p); break;
+X	case nDup:
+X		if (n->u[2].i != -1)
+X			fmtprint(f, "%D[%d=%d]", n->u[0].i, n->u[1].i, n->u[2].i);
+X		else
+X			fmtprint(f, "%D[%d=]", n->u[0].i, n->u[1].i);
+X		break;
+X	case nBackq: {
+X		Node *n0 = n->u[0].p, *n00;
+X		if (n0 != NULL && n0->type == nVar
+X		    && (n00 = n0->u[0].p) != NULL && n00->type == nWord && streq(n00->u[0].s, "ifs"))
+X			fmtprint(f, "`");
+X		else
+X			fmtprint(f, "``%T", n0);
+X		fmtprint(f, "{%T}", n->u[1].p);
+X		break;
+X	}
+X	case nCbody:
+X	case nBody: {
+X		Node *n0 = n->u[0].p;
+X		if (n0 != NULL)
+X			fmtprint(f, "%T", n->u[0].p);
+X		if (n->u[1].p != NULL) {
+X			if (n0 != NULL && n0->type != nNowait)
+X				fmtprint(f, ";");
+X			fmtprint(f, "%T", n->u[1].p);
+X		}
+X		break;
+X	}
+X	case nBrace:
+X		fmtprint(f, "{%T}", n->u[0].p);
+X		if (n->u[1].p != NULL)
+X			fmtprint(f, "%T", n->u[1].p);
+X		break;
+X	case nEpilog:
+X	case nPre:
+X		fmtprint(f, "%T", n->u[0].p);
+X		if (n->u[1].p != NULL)
+X			fmtprint(f, " %T", n->u[1].p);
+X		break;
+X	case nPipe: {
+X		int ofd = n->u[0].i, ifd = n->u[1].i;
+X		fmtprint(f, "%T|", n->u[2].p);
+X		if (ifd != 0)
+X			fmtprint(f, "[%d=%d]", ofd, ifd);
+X		else if (ofd != 1)
+X			fmtprint(f, "[%d]", ofd);
+X		fmtprint(f, "%T", n->u[3].p);
+X		break;
+X	}
+X	case nRedir: {
+X		int op = n->u[0].i;
+X		fmtprint(f, "%D", op);
+X		if (n->u[1].i != defaultfd(op))
+X			fmtprint(f, "[%d]", n->u[1].i);
+X		fmtprint(f, "%T", n->u[2].p);
+X		break;
+X	}
+X	case nNmpipe: {
+X		int op = n->u[0].i;
+X		fmtprint(f, "%D", op);
+X		if (n->u[1].i != defaultfd(op))
+X			fmtprint(f, "[%d]", n->u[1].i);
+X		fmtprint(f, "{%T}", n->u[2].p);
+X		break;
+X	}
+X 	}
+X	return FALSE;
+X}
+X
+X/* convert a List to a string, separating it with ^A characters. Used for exporting variables to the environment */
+X
+Xextern char *list2str(char *name, List *s) {
+X	SIZE_T size, step;
+X	List *t;
+X	char *w, *x;
+X	name = nprint("%F", name);
+X	size = strlen(name) + listlen(s);
+X	w = ealloc(size + 2);
+X	t = s;
+X	x = w;
+X	strcpy(x, name);
+X	strcpy(x += strlen(name), "=");
+X	strcpy(x += conststrlen("="), t->w);
+X	for (x += strlen(t->w), s = s->n; s != NULL; s = s->n) {
+X		memcpy(x, FSSTRING, step = conststrlen(FSSTRING));
+X		x += step;
+X		memcpy(x, s->w, step = strlen(s->w));
+X		x += step;
+X	}
+X	*x = '\0';
+X	return w;
+X}
+X
+X/* convert a List to an array, for execve() */
+X
+Xextern char **list2array(List *s, bool print) {
+X	char **av;
+X	int i;
+X
+X	/* 4 == 1 for the null terminator + 2 for the fake execve() + 1 for defaulting to sh */
+X	av = nalloc((listnel(s) + 4) * sizeof (char *));
+X	av += 3; /* hide the two free spots from rc (two for #! emulation, one for defaulting to sh) */
+X	if (print)
+X		fprint(2, "%L\n", s, " ");
+X	for (i = 0; s != NULL; i++) {
+X		av[i] = s->w;
+X		s = s->n;
+X	}
+X	av[i] = NULL;
+X	return av;
+X}
+X
+X/* figure out the name of a variable given an environment string. copy this into malloc space */
+X
+Xextern char *get_name(char *s) {
+X	int c;
+X	SIZE_T i;
+X	char *r, *namebuf;
+X	for (i = 0; s[i] != '\0' && s[i] != '='; i++)
+X		;
+X	if (s[i] == '\0')
+X		return NULL;
+X	r = namebuf = ealloc(i + 1);
+X	while (1)
+X		switch (c = *s++) {
+X		case '=':
+X			*r++ = '\0';
+X			return namebuf;
+X#ifdef PROTECT_ENV
+X		case '_':
+X			if (*s == '_') {
+X				static const char hexchar[] = "0123456789abcdef";
+X				char *h1 = strchr(hexchar, s[1]);
+X				char *h2 = strchr(hexchar, s[2]);
+X				if (h1 != NULL && h2 != NULL) {
+X					*r++ = ((h1 - hexchar) << 4) | (h2 - hexchar);
+X					s += 3;
+X					break;
+X				}
+X			}
+X			/* FALLTHROUGH */
+X#endif
+X		default:
+X			*r++ = c;
+X			break;
+X		}
+X}
+X
+X/* get the next word from a variable's value as represented in the environment. */
+X
+Xstatic char *getenvw(char *s, bool saw_alpha) {
+X	SIZE_T i;
+X	char *r;
+X	for (i = 0; s[i] != '\0' && s[i] != FSCHAR; i++)
+X		;
+X	if (i == 0) {
+X		if (s[i] == '\0' && !saw_alpha)
+X			return NULL;
+X		else
+X			return clear(enew(char), (SIZE_T) 1);
+X	}
+X	r = strncpy(ealloc(i + 1), s, i);
+X	r[i] = '\0';
+X	return r;
+X}
+X
+X/* take an environment entry for a variable (elements ^A separated) and turn it into a List */
+X
+Xextern List *parse_var(char *name, char *extdef) {
+X	List *r, *top;
+X	char *f;
+X	bool saw_alpha;
+X	top = r = enew(List);
+X	extdef = strchr(extdef, '=') + 1;
+X	if ((f = getenvw(extdef, FALSE)) == NULL) {
+X		r->w = "";
+X		r->m = NULL;
+X		r->n = NULL;
+X	} else {
+X		while (1) {
+X			r->w = f;
+X			r->m = NULL;
+X			extdef += strlen(f);
+X			if (*extdef == FSCHAR) {
+X				extdef++;
+X				saw_alpha = TRUE;
+X			} else {
+X				saw_alpha = FALSE;
+X			}
+X			if ((f = getenvw(extdef, saw_alpha)) == NULL) {
+X				r->n = NULL;
+X				break;
+X			}
+X			r = r->n = enew(List);
+X		}
+X	}
+X	return top;
+X}
+X
+X/* get an environment entry for a function and have rc parse it. */
+X
+X#define PREFIX "fn x"
+X#define PRELEN conststrlen(PREFIX)
+Xextern Node *parse_fn(char *name, char *extdef) {
+X	Node *def;
+X	char *s, old[PRELEN];
+X	if ((s = strchr(extdef, '=')) == NULL)
+X		return NULL;
+X	memcpy(old, s -= (PRELEN-1), PRELEN);
+X	memcpy(s, PREFIX, PRELEN);
+X	def = parseline(s);
+X	memcpy(s, old, PRELEN);
+X	return (def == NULL || def->type != nNewfn) ? NULL : def->u[1].p;
+X}
+X
+Xstatic bool Aconv(Format *f, int c) {
+X	char **a = va_arg(f->args, char **);
+X	if (*a != NULL) {
+X		fmtcat(f, *a);
+X		while (*++a != NULL)
+X			fmtprint(f, " %s", *a);
+X	}
+X	return FALSE;
+X}
+X
+Xstatic bool Lconv(Format *f, int c) {
+X	List *l = va_arg(f->args, List *);
+X	char *sep = va_arg(f->args, char *);
+X	char *fmt = (f->flags & FMT_leftside) ? "%s%s" : "%-S%s";
+X	if (l == NULL && (f->flags & FMT_leftside) == 0)
+X		fmtprint(f, "()");
+X	else {
+X		List *s;
+X		for (s = l; s != NULL; s = s->n)
+X			fmtprint(f, fmt, s->w, s->n == NULL ? "" : sep);
+X	}
+X	return FALSE;
+X}
+X
+X#define	ISMETA(c)	(c == '*' || c == '?' || c == '[')
+X
+Xstatic bool Sconv(Format *f, int ignore) {
+X	int c;
+X	unsigned char *s = va_arg(f->args, unsigned char *), *t = s;
+X	bool quoted    = (f->flags & FMT_altform)  != 0;	/* '#' */
+X	bool metaquote = (f->flags & FMT_leftside) != 0;	/* '-' */
+X	if (*s == '\0') {
+X		fmtprint(f, "''");
+X		return FALSE;
+X	}
+X	if (!quoted) {
+X		while ((c = *t++) != '\0')
+X			if (nw[c] == 1 || (metaquote && ISMETA(c)))
+X				goto quoteit;
+X		fmtprint(f, "%s", s);
+X		return FALSE;
+X	}
+Xquoteit:
+X	fmtputc(f, '\'');
+X	while ((c = *s++) != '\0') {
+X		fmtputc(f, c);
+X		if (c == '\'')
+X			fmtputc(f, '\'');
+X
+X	}
+X	fmtputc(f, '\'');
+X	return FALSE;
+X}
+X
+Xvoid initprint(void) {
+X	fmtinstall('A', Aconv);
+X	fmtinstall('L', Lconv);
+X	fmtinstall('S', Sconv);
+X	fmtinstall('T', Tconv);
+X	fmtinstall('D', Dconv);
+X#ifdef PROTECT_ENV
+X	fmtinstall('F', Fconv);
+X#else
+X	fmtinstall('F', fmtinstall('s', NULL));
+X#endif
+X}
+END_OF_FILE
+  if test 9411 -ne `wc -c <'footobar.c'`; then
+    echo shar: \"'footobar.c'\" unpacked with wrong size!
+  fi
+  # end of 'footobar.c'
+fi
+if test -f 'glom.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'glom.c'\"
+else
+  echo shar: Extracting \"'glom.c'\" \(8963 characters\)
+  sed "s/^X//" >'glom.c' <<'END_OF_FILE'
+X/* glom.c: builds an argument list out of words, variables, etc. */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <signal.h>
+X#include "rc.h"
+X#if !defined(S_IFIFO) && !defined(DEVFD)
+X#define NOCMDARG
+X#endif
+X
+Xstatic List *backq(Node *, Node *);
+Xstatic List *bqinput(List *, int);
+Xstatic List *count(List *);
+Xstatic List *mkcmdarg(Node *);
+X
+XRq *redirq = NULL;
+X
+Xextern List *word(char *w, char *m) {
+X	List *s = NULL;
+X	if (w != NULL) {
+X		s = nnew(List);
+X		s->w = w;
+X		s->m = m;
+X		s->n = NULL;
+X	}
+X	return s;
+X}
+X
+X/*
+X   Append list s2 to list s1 by copying s1 and making the new copy
+X   point at s2.
+X*/
+X
+Xextern List *append(List *s1, List *s2) {
+X	List *r, *top;
+X	if (s1 == NULL)
+X		return s2;
+X	if (s2 == NULL)
+X		return s1;
+X	for (r = top = nnew(List); 1; r = r->n = nnew(List)) {
+X		r->w = s1->w;
+X		r->m = s1->m;
+X		if ((s1 = s1->n) == NULL)
+X			break;
+X	}
+X	r->n = s2;
+X	return top;
+X}
+X
+Xextern List *concat(List *s1, List *s2) {
+X	int n1, n2;
+X	List *r, *top;
+X	if (s1 == NULL)
+X		return s2;
+X	if (s2 == NULL)
+X		return s1;
+X	if ((n1 = listnel(s1)) != (n2 = listnel(s2)) && n1 != 1 && n2 != 1)
+X		rc_error("bad concatenation");
+X	for (r = top = nnew(List); 1; r = r->n = nnew(List)) {
+X		SIZE_T x = strlen(s1->w);
+X		SIZE_T y = strlen(s2->w);
+X		SIZE_T z = x + y + 1;
+X		r->w = nalloc(z);
+X		strcpy(r->w, s1->w);
+X		strcat(r->w, s2->w);
+X		if (s1->m == NULL && s2->m == NULL) {
+X			r->m = NULL;
+X		} else {
+X			r->m = nalloc(z);
+X			if (s1->m == NULL)
+X				clear(r->m, x);
+X			else
+X				memcpy(r->m, s1->m, x);
+X			if (s2->m == NULL)
+X				clear(&r->m[x], y);
+X			else
+X				memcpy(&r->m[x], s2->m, y);
+X			r->m[z] = 0;
+X		}
+X		if (n1 > 1)
+X			s1 = s1->n;
+X		if (n2 > 1)
+X			s2 = s2->n;
+X		if (s1 == NULL || s2 == NULL || (n1 == 1 && n2 == 1))
+X			break;
+X	}
+X	r->n = NULL;
+X	return top;
+X}
+X
+Xextern List *varsub(List *var, List *subs) {
+X	List *r, *top;
+X	int n = listnel(var);
+X	for (top = r = NULL; subs != NULL; subs = subs->n) {
+X		int i = a2u(subs->w);
+X		if (i < 1)
+X			rc_error("bad subscript");
+X		if (i <= n) {
+X			List *sub = var;
+X			while (--i)
+X				sub = sub->n; /* loop until sub == var(i) */
+X			if (top == NULL)
+X				top = r = nnew(List);
+X			else
+X				r = r->n = nnew(List);
+X			r->w = sub->w;
+X			r->m = sub->m;
+X		}
+X	}
+X	if (top != NULL)
+X		r->n = NULL;
+X	return top;
+X}
+X
+Xextern List *flatten(List *s) {
+X	List *r;
+X	SIZE_T step;
+X	char *f;
+X	if (s == NULL || s->n == NULL)
+X		return s;
+X	r = nnew(List);
+X	f = r->w = nalloc(listlen(s) + 1);
+X	r->m = NULL; /* flattened lists come from variables, so no meta */
+X	r->n = NULL;
+X	strcpy(f, s->w);
+X	f += strlen(s->w);
+X	do {
+X		*f++ = ' ';
+X		s = s->n;
+X		step = strlen(s->w);
+X		memcpy(f, s->w, step);
+X		f += step;
+X	} while (s->n != NULL);
+X	*f = '\0';
+X	return r;
+X}
+X
+Xstatic List *count(List *l) {
+X	List *s = nnew(List);
+X	s->w = nprint("%d", listnel(l));
+X	s->n = NULL;
+X	s->m = NULL;
+X	return s;
+X}
+X
+Xextern void assign(List *s1, List *s2, bool stack) {
+X	List *val = s2;
+X	if (s1 == NULL)
+X		rc_error("null variable name");
+X	if (s1->n != NULL)
+X		rc_error("multi-word variable name");
+X	if (*s1->w == '\0')
+X		rc_error("zero-length variable name");
+X	if (a2u(s1->w) != -1)
+X		rc_error("numeric variable name");
+X	if (strchr(s1->w, '=') != NULL)
+X		rc_error("'=' in variable name");
+X	if (*s1->w == '*' && s1->w[1] == '\0')
+X		val = append(varlookup("0"), s2); /* preserve $0 when * is assigned explicitly */
+X	if (s2 != NULL || stack) {
+X		if (dashex)
+X			prettyprint_var(2, s1->w, val);
+X		varassign(s1->w, val, stack);
+X		alias(s1->w, varlookup(s1->w), stack);
+X	} else {
+X		if (dashex)
+X			prettyprint_var(2, s1->w, NULL);
+X		varrm(s1->w, stack);
+X	}
+X}
+X
+X/*
+X   The following two functions are by the courtesy of Paul Haahr,
+X   who could not stand the incompetence of my own backquote implementation.
+X*/
+X
+X#define BUFSIZE	((SIZE_T) 1000)
+X
+Xstatic List *bqinput(List *ifs, int fd) {
+X	char *end, *bufend, *s;
+X	List *r, *top, *prev;
+X	SIZE_T remain, bufsize;
+X	char isifs[256];
+X	int n, state; /* a simple FSA is used to read in data */
+X
+X	clear(isifs, sizeof isifs);
+X	for (isifs['\0'] = TRUE; ifs != NULL; ifs = ifs->n)
+X		for (s = ifs->w; *s != '\0'; s++)
+X			isifs[*(unsigned char *)s] = TRUE;
+X	remain = bufsize = BUFSIZE;
+X	top = r = nnew(List);
+X	r->w = end = nalloc(bufsize + 1);
+X	r->m = NULL;
+X	state = 0;
+X	prev = NULL;
+X
+X	while (1) {
+X		if (remain == 0) { /* is the string bigger than the buffer? */
+X			SIZE_T m = end - r->w;
+X			char *buf;
+X			while (bufsize < m + BUFSIZE)
+X				bufsize *= 2;
+X			buf = nalloc(bufsize + 1);
+X			memcpy(buf, r->w, m);
+X			r->w = buf;
+X			end = &buf[m];
+X			remain = bufsize - m;
+X		}
+X		if ((n = rc_read(fd, end, remain)) <= 0) {
+X			if (n == 0)
+X	/* break */		break;
+X			uerror("backquote read");
+X			rc_error(NULL);
+X		}
+X		remain -= n;
+X		for (bufend = &end[n]; end < bufend; end++)
+X			if (state == 0) {
+X				if (!isifs[*(unsigned char *)end]) {
+X					state = 1;
+X					r->w = end;
+X				}
+X			} else {
+X				if (isifs[*(unsigned char *)end]) {
+X					state = 0;
+X					*end = '\0';
+X					prev = r;
+X					r = r->n = nnew(List);
+X					r->w = end+1;
+X					r->m = NULL;
+X				}
+X			}
+X	}
+X	if (state == 1) { /* terminate last string */
+X		*end = '\0';
+X		r->n = NULL;
+X	} else {
+X		if (prev == NULL) /* no input at all? */
+X			top = NULL;
+X		else
+X			prev->n = NULL; /* else terminate list */
+X	}
+X	return top;
+X}
+X
+Xstatic List *backq(Node *ifs, Node *n) {
+X	int p[2], pid, sp;
+X	List *bq;
+X	if (n == NULL)
+X		return NULL;
+X	if (pipe(p) < 0) {
+X		uerror("pipe");
+X		rc_error(NULL);
+X	}
+X	if ((pid = rc_fork()) == 0) {
+X		setsigdefaults(FALSE);
+X		mvfd(p[1], 1);
+X		close(p[0]);
+X		redirq = NULL;
+X		walk(n, FALSE);
+X		exit(getstatus());
+X	}
+X	close(p[1]);
+X	bq = bqinput(glom(ifs), p[0]);
+X	close(p[0]);
+X	rc_wait4(pid, &sp, TRUE);
+X	statprint(-1, sp);
+X	SIGCHK;
+X	return bq;
+X}
+X
+Xextern void qredir(Node *n) {
+X	Rq *next;
+X	if (redirq == NULL) {
+X		next = redirq = nnew(Rq);
+X	} else {
+X		for (next = redirq; next->n != NULL; next = next->n)
+X			;
+X		next->n = nnew(Rq);
+X		next = next->n;
+X	}
+X	next->r = n;
+X	next->n = NULL;
+X}
+X
+X#ifdef NOCMDARG
+Xstatic List *mkcmdarg(Node *n) {
+X	rc_error("named pipes are not supported");
+X	return NULL;
+X}
+X#else
+X#ifndef DEVFD
+Xstatic List *mkcmdarg(Node *n) {
+X	int fd;
+X	char *name;
+X	Edata efifo;
+X	Estack *e = enew(Estack);
+X	List *ret = nnew(List);
+X	static int fifonumber = 0;
+X	name = nprint("%s/rc%d.%d", TMPDIR, getpid(), fifonumber++);
+X	if (mknod(name, S_IFIFO | 0666, 0) < 0) {
+X		uerror("mknod");
+X		return NULL;
+X	}
+X	if (rc_fork() == 0) {
+X		setsigdefaults(FALSE);
+X		fd = rc_open(name, (n->u[0].i != rFrom) ? rFrom : rCreate); /* stupid hack */
+X		if (fd < 0) {
+X			uerror("open");
+X			exit(1);
+X		}
+X		if (mvfd(fd, (n->u[0].i == rFrom)) < 0) /* same stupid hack */
+X			exit(1);
+X		redirq = NULL;
+X		walk(n->u[2].p, FALSE);
+X		exit(getstatus());
+X	}
+X	efifo.name = name;
+X	except(eFifo, efifo, e);
+X	ret->w = name;
+X	ret->m = NULL;
+X	ret->n = NULL;
+X	return ret;
+X}
+X#else
+Xstatic List *mkcmdarg(Node *n) {
+X	char *name;
+X	List *ret = nnew(List);
+X	Estack *e = nnew(Estack);
+X	Edata efd;
+X	int p[2];
+X	if (pipe(p) < 0) {
+X		uerror("pipe");
+X		return NULL;
+X	}
+X	if (rc_fork() == 0) {
+X		setsigdefaults(FALSE);
+X		if (mvfd(p[n->u[0].i == rFrom], n->u[0].i == rFrom) < 0) /* stupid hack */
+X			exit(1);
+X		close(p[n->u[0].i != rFrom]);
+X		redirq = NULL;
+X		walk(n->u[2].p, FALSE);
+X		exit(getstatus());
+X	}
+X	name = nprint("/dev/fd/%d", p[n->u[0].i != rFrom]);
+X	efd.fd = p[n->u[0].i != rFrom];
+X	except(eFd, efd, e);
+X	close(p[n->u[0].i == rFrom]);
+X	ret->w = name;
+X	ret->m = NULL;
+X	ret->n = NULL;
+X	return ret;
+X}
+X#endif /* DEVFD */
+X#endif /* !NOCMDARG */
+X
+Xextern List *glom(Node *n) {
+X	List *v, *head, *tail;
+X	Node *words;
+X	if (n == NULL)
+X		return NULL;
+X	switch (n->type) {
+X	case nArgs:
+X	case nLappend:
+X		words = n->u[0].p;
+X		tail = NULL;
+X		while (words != NULL && (words->type == nArgs || words->type == nLappend)) {
+X			if (words->u[1].p != NULL && words->u[1].p->type != nWord && words->u[1].p->type != nQword)
+X				break;
+X			head = glom(words->u[1].p);
+X			if (head != NULL) {
+X				head->n = tail;
+X				tail = head;
+X			}
+X			words = words->u[0].p;
+X		}
+X		v = append(glom(words), tail); /* force left to right evaluation */
+X		return append(v, glom(n->u[1].p));
+X	case nBackq:
+X		return backq(n->u[0].p, n->u[1].p);
+X	case nConcat:
+X		head = glom(n->u[0].p); /* force left-to-right evaluation */
+X		return concat(head, glom(n->u[1].p));
+X	case nDup:
+X	case nRedir:
+X		qredir(n);
+X		return NULL;
+X	case nWord:
+X	case nQword:
+X		return word(n->u[0].s, n->u[1].s);
+X	case nNmpipe:
+X		return mkcmdarg(n);
+X	default:
+X		/*
+X		   The next four operations depend on the left-child of glom
+X		   to be a variable name. Therefore the variable is looked up
+X		   here.
+X		*/
+X		if ((v = glom(n->u[0].p)) == NULL)
+X			rc_error("null variable name");
+X		if (v->n != NULL)
+X			rc_error("multi-word variable name");
+X		if (*v->w == '\0')
+X			rc_error("zero-length variable name");
+X		v = (*v->w == '*' && v->w[1] == '\0') ? varlookup(v->w)->n : varlookup(v->w);
+X		switch (n->type) {
+X		default:
+X			panic("unexpected node in glom");
+X			exit(1);
+X			/* NOTREACHED */
+X		case nCount:
+X			return count(v);
+X		case nFlat:
+X			return flatten(v);
+X		case nVar:
+X			return v;
+X		case nVarsub:
+X			return varsub(v, glom(n->u[1].p));
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 8963 -ne `wc -c <'glom.c'`; then
+    echo shar: \"'glom.c'\" unpacked with wrong size!
+  fi
+  # end of 'glom.c'
+fi
+if test -f 'print.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'print.c'\"
+else
+  echo shar: Extracting \"'print.c'\" \(9329 characters\)
+  sed "s/^X//" >'print.c' <<'END_OF_FILE'
+X/* print.c -- formatted printing routines (Paul Haahr, 12/91) */
+X
+X#include "rc.h"
+X#include <setjmp.h>
+X
+X#define	PRINT_ALLOCSIZE	((SIZE_T)64)
+X#define	SPRINT_BUFSIZ	((SIZE_T)1024)
+X
+X#define	MAXCONV 256
+X
+X/*
+X * conversion functions
+X *	true return -> flag changes only, not a conversion
+X */
+X
+X#define Flag(name, flag) \
+Xstatic bool name(Format *format, int c) { \
+X	format->flags |= flag; \
+X	return TRUE; \
+X}
+X
+XFlag(uconv,	FMT_unsigned)
+XFlag(hconv,	FMT_short)
+XFlag(lconv,	FMT_long)
+XFlag(altconv,	FMT_altform)
+XFlag(leftconv,	FMT_leftside)
+XFlag(dotconv,	FMT_f2set)
+X
+Xstatic bool digitconv(Format *format, int c) {
+X	if (format->flags & FMT_f2set)
+X		format->f2 = 10 * format->f2 + c - '0';
+X	else {
+X		format->flags |= FMT_f1set;
+X		format->f1 = 10 * format->f1 + c - '0';
+X	}
+X	return TRUE;
+X}
+X
+Xstatic bool zeroconv(Format *format, int c) {
+X	if (format->flags & (FMT_f1set | FMT_f2set))
+X		return digitconv(format, '0');
+X	format->flags |= FMT_zeropad;
+X	return TRUE;
+X}
+X
+Xstatic void pad(Format *format, SIZE_T len, int c) {
+X	while (len-- != 0)
+X		fmtputc(format, c);
+X}
+X
+Xstatic bool sconv(Format *format, int c) {
+X	char *s = va_arg(format->args, char *);
+X	if ((format->flags & FMT_f1set) == 0)
+X		fmtcat(format, s);
+X	else {
+X		SIZE_T len = strlen(s), width = format->f1 - len;
+X		if (format->flags & FMT_leftside) {
+X			fmtappend(format, s, len);
+X			pad(format, width, ' ');
+X		} else {
+X			pad(format, width, ' ');
+X			fmtappend(format, s, len);
+X		}
+X	}
+X	return FALSE;
+X}
+X
+Xstatic char *utoa(unsigned long u, char *t, unsigned int radix, const char *digit) {
+X	if (u >= radix) {
+X		t = utoa(u / radix, t, radix, digit);
+X		u %= radix;
+X	}
+X	*t++ = digit[u];
+X	return t;
+X}
+X
+Xstatic void intconv(Format *format, unsigned int radix, int upper, const char *altform) {
+X	static const char * const table[] = {
+X		"0123456789abcdefghijklmnopqrstuvwxyz",
+X		"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+X	};
+X	char padchar;
+X	SIZE_T len, pre, zeroes, padding, width;
+X	long n, flags;
+X	unsigned long u;
+X	char number[64], prefix[20];
+X
+X	if (radix > 36)
+X		return;
+X
+X	flags = format->flags;
+X	if (flags & FMT_long)
+X		n = va_arg(format->args, long);
+X	else if (flags & FMT_short)
+X		n = va_arg(format->args, short);
+X	else
+X		n = va_arg(format->args, int);
+X
+X	pre = 0;
+X	if ((flags & FMT_unsigned) || n >= 0)
+X		u = n;
+X	else {
+X		prefix[pre++] = '-';
+X		u = -n;
+X	}
+X
+X	if (flags & FMT_altform)
+X		while (*altform != '\0')
+X			prefix[pre++] = *altform++;
+X
+X	len = utoa(u, number, radix, table[upper]) - number;
+X	if ((flags & FMT_f2set) && (SIZE_T) format->f2 > len)
+X		zeroes = format->f2 - len;
+X	else
+X		zeroes = 0;
+X
+X	width = pre + zeroes + len;
+X	if ((flags & FMT_f1set) && (SIZE_T) format->f1 > width) {
+X		padding = format->f1 - width;
+X	} else
+X		padding = 0;
+X
+X	padchar = ' ';
+X	if (padding > 0 && flags & FMT_zeropad) {
+X		padchar = '0';
+X		if ((flags & FMT_leftside) == 0) {
+X			zeroes += padding;
+X			padding = 0;
+X		}
+X	}
+X
+X
+X	if ((flags & FMT_leftside) == 0)
+X		pad(format, padding, padchar);
+X	fmtappend(format, prefix, pre);
+X	pad(format, zeroes, '0');
+X	fmtappend(format, number, len);
+X	if (flags & FMT_leftside)
+X		pad(format, padding, padchar);
+X}
+X
+Xstatic bool cconv(Format *format, int c) {
+X	fmtputc(format, va_arg(format->args, int));
+X	return FALSE;
+X}
+X
+Xstatic bool dconv(Format *format, int c) {
+X	intconv(format, 10, 0, "");
+X	return FALSE;
+X}
+X
+Xstatic bool oconv(Format *format, int c) {
+X	intconv(format, 8, 0, "0");
+X	return FALSE;
+X}
+X
+Xstatic bool xconv(Format *format, int c) {
+X	intconv(format, 16, 0, "0x");
+X	return FALSE;
+X}
+X
+Xstatic bool pctconv(Format *format, int c) {
+X	fmtputc(format, '%');
+X	return FALSE;
+X}
+X
+Xstatic bool badconv(Format *format, int c) {
+X	panic("bad conversion character in printfmt");
+X	/* NOTREACHED */
+X	return FALSE; /* hush up gcc -Wall */
+X}
+X
+X
+X/*
+X * conversion table management
+X */
+X
+Xstatic Conv fmttab[MAXCONV];
+X
+Xstatic void inittab(void) {
+X	int i;
+X	for (i = 0; i < MAXCONV; i++)
+X		fmttab[i] = badconv;
+X
+X	fmttab['s'] = sconv;
+X	fmttab['c'] = cconv;
+X	fmttab['d'] = dconv;
+X	fmttab['o'] = oconv;
+X	fmttab['x'] = xconv;
+X	fmttab['%'] = pctconv;
+X
+X	fmttab['u'] = uconv;
+X	fmttab['h'] = hconv;
+X	fmttab['l'] = lconv;
+X	fmttab['#'] = altconv;
+X	fmttab['-'] = leftconv;
+X	fmttab['.'] = dotconv;
+X
+X	fmttab['0'] = zeroconv;
+X	for (i = '1'; i <= '9'; i++)
+X		fmttab[i] = digitconv;
+X}
+X
+Xextern bool (*fmtinstall(int c, bool (*f)(Format *, int)))(Format *, int) {
+X/*Conv fmtinstall(int c, Conv f) {*/
+X	Conv oldf;
+X	if (fmttab[0] == NULL)
+X		inittab();
+X	c &= MAXCONV - 1;
+X	oldf = fmttab[c];
+X	if (f != NULL)
+X		fmttab[c] = f;
+X	return oldf;
+X}
+X
+X
+X/*
+X * functions for inserting strings in the format buffer
+X */
+X
+Xextern void fmtappend(Format *format, const char *s, SIZE_T len) {
+X	while (format->buf + len > format->bufend) {
+X		SIZE_T split = format->bufend - format->buf;
+X		memcpy(format->buf, s, split);
+X		format->buf += split;
+X		s += split;
+X		len -= split;
+X		(*format->grow)(format, len);
+X	}
+X	memcpy(format->buf, s, len);
+X	format->buf += len;
+X}
+X
+Xextern void fmtcat(Format *format, const char *s) {
+X	fmtappend(format, s, strlen(s));
+X}
+X
+X/*
+X * printfmt -- the driver routine
+X */
+X
+Xextern int printfmt(Format *format, const char *fmt) {
+X	unsigned const char *s = (unsigned const char *) fmt;
+X
+X	if (fmttab[0] == NULL)
+X		inittab();
+X
+X	for (;;) {
+X		int c = *s++;
+X		switch (c) {
+X		case '%':
+X			format->flags = format->f1 = format->f2 = 0;
+X			do
+X				c = *s++;
+X			while ((*fmttab[c])(format, c));
+X			break;
+X		case '\0':
+X			return format->buf - format->bufbegin + format->flushed;
+X		default:
+X			fmtputc(format, c);
+X			break;
+X		}
+X	}
+X}
+X
+X
+X/*
+X * the public entry points
+X */
+X
+Xextern int fmtprint(Format *format, const char *fmt,...) {
+X	int n = -format->flushed;
+X	va_list saveargs = format->args;
+X
+X	va_start(format->args, fmt);
+X	n += printfmt(format, fmt);
+X	va_end(format->args);
+X	format->args = saveargs;
+X
+X	return n + format->flushed;
+X}
+X
+Xstatic void fprint_flush(Format *format, SIZE_T more) {
+X	SIZE_T n = format->buf - format->bufbegin;
+X	char *buf = format->bufbegin;
+X
+X	format->flushed += n;
+X	format->buf = format->bufbegin;
+X	writeall(format->u.n, buf, n);
+X}
+X
+Xextern int fprint(int fd, const char *fmt,...) {
+X	char buf[1024];
+X	Format format;
+X
+X	format.buf	= buf;
+X	format.bufbegin	= buf;
+X	format.bufend	= buf + sizeof buf;
+X	format.grow	= fprint_flush;
+X	format.flushed	= 0;
+X	format.u.n	= fd;
+X
+X	va_start(format.args, fmt);
+X	printfmt(&format, fmt);
+X	va_end(format.args);
+X
+X	fprint_flush(&format, (SIZE_T) 0);
+X	return format.flushed;
+X}
+X
+Xstatic void memprint_grow(Format *format, SIZE_T more) {
+X	char *buf;
+X	SIZE_T len = format->bufend - format->bufbegin + 1;
+X	len = (len >= more)
+X		? len * 2
+X		: ((len + more) + PRINT_ALLOCSIZE) &~ (PRINT_ALLOCSIZE - 1);
+X	if (format->u.n)
+X		buf = erealloc(format->bufbegin, len);
+X	else {
+X		SIZE_T used = format->buf - format->bufbegin;
+X		buf = nalloc(len);
+X		memcpy(buf, format->bufbegin, used);
+X	}
+X	format->buf	 = buf + (format->buf - format->bufbegin);
+X	format->bufbegin = buf;
+X	format->bufend	 = buf + len - 1;
+X}
+X
+Xstatic char *memprint(Format *format, const char *fmt, char *buf, SIZE_T len) {
+X	format->buf	 = buf;
+X	format->bufbegin = buf;
+X	format->bufend	 = buf + len - 1;
+X	format->grow	 = memprint_grow;
+X	format->flushed	 = 0;
+X	printfmt(format, fmt);
+X	*format->buf = '\0';
+X	return format->bufbegin;
+X}
+X
+Xextern char *mprint(const char *fmt,...) {
+X	Format format;
+X	char *result;
+X	format.u.n = 1;
+X	va_start(format.args, fmt);
+X	result = memprint(&format, fmt, ealloc(PRINT_ALLOCSIZE), PRINT_ALLOCSIZE);
+X	va_end(format.args);
+X	return result;
+X}
+X
+Xextern char *nprint(const char *fmt,...) {
+X	Format format;
+X	char *result;
+X	format.u.n = 0;
+X	va_start(format.args, fmt);
+X	result = memprint(&format, fmt, nalloc(PRINT_ALLOCSIZE), PRINT_ALLOCSIZE);
+X	va_end(format.args);
+X	return result;
+X}
+X
+X
+X/* THESE ARE UNUSED IN rc */
+X
+X#if 0
+X
+Xextern int print(const char *fmt,...) {
+X	char buf[1024];
+X	Format format;
+X
+X	format.buf	= buf;
+X	format.bufbegin	= buf;
+X	format.bufend	= buf + sizeof buf;
+X	format.grow	= fprint_flush;
+X	format.flushed	= 0;
+X	format.u.n	= 1;
+X
+X	va_start(format.args, fmt);
+X	printfmt(&format, fmt);
+X	va_end(format.args);
+X
+X	fprint_flush(&format, 0);
+X	return format.flushed;
+X}
+X
+Xextern int eprint(const char *fmt,...) {
+X	char buf[1024];
+X	Format format;
+X
+X	format.buf	= buf;
+X	format.bufbegin	= buf;
+X	format.bufend	= buf + sizeof buf;
+X	format.grow	= fprint_flush;
+X	format.flushed	= 0;
+X	format.u.n	= 2;
+X
+X	va_start(format.args, fmt);
+X	printfmt(&format, fmt);
+X	va_end(format.args);
+X
+X	fprint_flush(&format, 0);
+X	return format.flushed;
+X}
+X
+Xstatic void snprint_grow(Format *format, SIZE_T more) {
+X	longjmp(format->u.p, 1);
+X}
+X
+Xextern int snprint(char *buf, int buflen, const char *fmt,...) {
+X	int n;
+X	jmp_buf jbuf;
+X	Format format;
+X
+X	if (setjmp(jbuf)) {
+X		*format.buf = '\0';
+X		return format.buf - format.bufbegin;
+X	}
+X
+X	format.buf	= buf;
+X	format.bufbegin	= buf;
+X	format.bufend	= buf + buflen - 1;
+X	format.grow	= snprint_grow;
+X	format.flushed	= 0;
+X	format.u.p	= jbuf;
+X
+X	va_start(format.args, fmt);
+X	n = printfmt(&format, fmt);
+X	va_end(format.args);
+X
+X	*format.buf = '\0';
+X	return n;
+X}
+X
+Xextern int sprint(char *buf, const char *fmt,...) {
+X	int n;
+X	jmp_buf jbuf;
+X	Format format;
+X
+X	if (setjmp(jbuf)) {
+X		*format.buf = '\0';
+X		return format.buf - format.bufbegin;
+X	}
+X
+X	format.buf	= buf;
+X	format.bufbegin	= buf;
+X	format.bufend	= buf + SPRINT_BUFSIZ - 1;
+X	format.grow	= snprint_grow;
+X	format.flushed	= 0;
+X	format.u.p	= jbuf;
+X
+X	va_start(format.args, fmt);
+X	n = printfmt(&format, fmt);
+X	va_end(format.args);
+X
+X	*format.buf = '\0';
+X	return n;
+X}
+X#endif
+END_OF_FILE
+  if test 9329 -ne `wc -c <'print.c'`; then
+    echo shar: \"'print.c'\" unpacked with wrong size!
+  fi
+  # end of 'print.c'
+fi
+if test -f 'trip.rc.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'trip.rc.uu'\"
+else
+  echo shar: Extracting \"'trip.rc.uu'\" \(20258 characters\)
+  sed "s/^X//" >'trip.rc.uu' <<'END_OF_FILE'
+Xbegin 644 trip.rc
+XM(R!T<FEP+G)C("TM('1A:V4@82!T;W5R(&]F(')C"B,@26YV;VME(&%S(")P
+XM871H+71O+6YE=RUR8R`\('1R:7`N<F,B"@IR8STD,`IE8VAO('1R:7!P:6YG
+XM("1R8PH*9FX@9F%I;"!["@EE8VAO(#Y;,3TR72!T<FEP('1O;VL@82!W<F]N
+XM9R!T=7)N.B`D*@H)<FT@+68@)'1M<`H)97AI="`Q"GT*9FX@97AP96-T('L*
+XM"65C:&\@/ELQ/3)=("UN(&5X<&5C="`D7BI>)SH@)PI]"F9N('-U8FUA=&-H
+XM('L*"6EF("@A?B`D(RH@,RD*"0EF86EL(&EN8V]R<F5C="!I;G9O8V%T:6]N
+XM(&]F('-U8FUA=&-H"@EP<F]M<'0])&YL(&EF("@A?B!@8"`D;FP@>R1R8R`M
+XM:6,@)#$^6S(],5U]("0R*0H)"69A:6P@)#,*?0IF;B!S:6=E>&ET('-I9VEN
+XM="!S:6=Q=6ET('-I9W-E9W8*9FX@<VEG97AI="!["@EE8VAO('1R:7`@8V]M
+XM<&QE=&4*?0IT;7`]+W1M<"]T<FEP+B1P:60*<FT@+68@)'1M<`IN;#TG"B<*
+XM"B,*(R!R8R`M8PHC"@II9B`H)')C("UC(#Y;,ETO9&5V+VYU;&PI(&9A:6P@
+XM)W)C("UC(&1I9&XG)W0@<F5P;W)T(&$@8F%D(&5X:70@<W1A='5S)PIX/6![
+XM)')C("UC("=E8VAO("0P("0R("0C*B<@82!B(&,@9"!E(&9]"FEF("AF86QS
+XM92D@>PD)"0D)(R!705).24Y'.B!T:&ES(&1I9F9E<G,@9G)O;2!S:`H):68@
+XM*"%^("1X*#$I(&$I(&9A:6P@<F,@+6,@<F5P;W)T<R`G)#`G(&EN8V]R<F5C
+XM=&QY(&%S("1X*#$I"@EI9B`H(7X@)'@H,BD@8RD@9F%I;"!R8R`M8R!R97!O
+XM<G1S("<D,B<@:6YC;W)R96-T;'D@87,@)'@H,BD*"6EF("@A?B`D>"@S*2`U
+XM*2!F86EL(')C("UC(')E<&]R=',@)R0C)R!I;F-O<G)E8W1L>2!A<R`D>"@S
+XM*0I](&5L<V4@>PH):68@*"%^("1X*#$I("1R8RD@9F%I;"!R8R`M8R!R97!O
+XM<G1S("<D,"<@:6YC;W)R96-T;'D@87,@)'@H,2D*"6EF("@A?B`D>"@R*2!B
+XM*2!F86EL(')C("UC(')E<&]R=',@)R0R)R!I;F-O<G)E8W1L>2!A<R`D>"@R
+XM*0H):68@*"%^("1X*#,I(#8I(&9A:6P@<F,@+6,@<F5P;W)T<R`G)",G(&EN
+XM8V]R<F5C=&QY(&%S("1X*#,I"GT*"B,*(R!U;6%S:PHC"@IU;6%S:R`P"CX@
+XM)'1M<`IX/6![;',@+6P@)'1M<'T*:68@*"%^("1X*#$I("<M<G<M<G<M<G<M
+XM)RD@9F%I;"!U;6%S:R`P('!R;V1U8V5D(&EN8V]R<F5C="!R97-U;'0Z("1X
+XM*#$I"G)M("UF("1T;7`*=6UA<VL@,#(W"CX@)'1M<`IY/6![;',@+6P@)'1M
+XM<'T*:68@*"%^("1Y*#$I("<M<G<M<BTM+2TM)RD@9F%I;"!U;6%S:R`P,C<@
+XM<')O9'5C960@:6YC;W)R96-T(&9I;&4Z("1Y*#$I"G)M("UF("1T;7`*:68@
+XM*"%^(&!U;6%S:R`P,C<I(&9A:6P@=6UA<VL@<F5P;W)T960@8F%D('9A;'5E
+XM.B!@=6UA<VL*"G-U8FUA=&-H("=U;6%S:R!B860G("=B860@=6UA<VLG("=B
+XM860@=6UA<VLG"G-U8FUA=&-H("=U;6%S:R`M,#(W)R`G8F%D('5M87-K)R`G
+XM8F%D('5M87-K)PIS=6)M871C:"`G=6UA<VL@.3DY.3DY)R`G8F%D('5M87-K
+XM)R`G8F%D('5M87-K)PIS=6)M871C:"`G=6UA<VL@:&D@=&AE<F4G("=T;V\@
+XM;6%N>2!A<F=U;65N=',@=&\@=6UA<VLG("=U;6%S:R!A<F<@8V]U;G0G"@II
+XM9B`H(7X@8'5M87-K(#`R-RD@9F%I;"!B860@=6UA<VL@8VAA;F=E9"!U;6%S
+XM:R!V86QU92!T;R!@=6UA<VL*"B,*(R!R961I<F5C=&EO;G,*(PH*9FX@8GET
+XM97,@>R!F;W(@*&DI('@]8'MW8R`M8R`D:7T@96-H;R`D>"@Q*2!]"F5C:&\@
+XM9F]O(#X@9F]O(#X@8F%R"FEF("@A?B!@>V)Y=&5S(&9O;WT@,"D@9F%I;"!D
+XM;W5B;&4@<F5D:7)E8W1I;VX@8W)E871E9"!N;VXM96UP='D@96UP='D@9FEL
+XM90II9B`H(7X@8'MB>71E<R!B87)](#0I(&9A:6P@9&]U8FQE(')E9&ER96-T
+XM:6]N(&-R96%T960@=W)O;F<@<VEZ960@9FEL93H@8'MB>71E<R!B87)]"G)M
+XM("UF(&9O;R!B87(*96-H;R`M;B`^,2`^6S)=,B`^6S$],ET@9F]O"G@@/2!@
+XM8"`G)R![8V%T(#%]"FEF("@A?B`D(W@@,"D@9F%I;"!D=7`@8W)E871E9"!N
+XM;VXM96UP='D@96UP='D@9FEL93H@8&`@)R<@>V-A="`Q?0II9B`H(7X@8&`@
+XM)R<@>V-A="`R?2!F;V\I(&9A:6P@9'5P('!U="!W<F]N9R!C;VYT96YT<R!I
+XM;B!F:6QE(#H@8&`@)R<@>V-A="`R?0IR;2`M9B`Q(#(*"F5X<&5C="!E<G)O
+XM<B!F<F]M(&-A="P@8VQO<VEN9R!S=&1I;@IC870@/ELP/5T*"G-U8FUA=&-H
+XM("=C870^*#$@,B`S*2<@)VUU;'1I+7=O<F0@9FEL96YA;64@:6X@<F5D:7)E
+XM8W1I;VXG("=R961I<F5C=&EO;B!E<G)O<B<*<W5B;6%T8V@@)V-A=#XH*2<@
+XM)VYU;&P@9FEL96YA;64@:6X@<F5D:7)E8W1I;VXG("=R961I<F5C=&EO;B!E
+XM<G)O<B<*"B,*(R!B;&]W('1H92!I;G!U="!S=&%C:PHC"@II9B`H(7X@:&D@
+XM8'L*979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V
+XM86P@979A;"!E=F%L(&5V86P@979A;"!<"F5V86P@979A;"!E=F%L(&5V86P@
+XM979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@
+XM7`IE=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A
+XM;"!E=F%L(&5V86P@979A;"!E=F%L(%P*979A;"!E=F%L(&5V86P@979A;"!E
+XM=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!<
+XM"F5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L
+XM(&5V86P@979A;"!E=F%L(&5V86P@7`IE=F%L(&5V86P@979A;"!E=F%L(&5V
+XM86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(%P*
+XM979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@
+XM979A;"!E=F%L(&5V86P@979A;"!<"F5V86P@979A;"!E=F%L(&5V86P@979A
+XM;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@7`IE
+XM=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E
+XM=F%L(&5V86P@979A;"!E=F%L(%P*979A;"!E=F%L(&5V86P@979A;"!E=F%L
+XM(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!<"F5V
+XM86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V86P@979A;"!E=F%L(&5V
+XM86P@979A;"!E8VAO(&AI"GTI"@EF86EL(&AU9V4@979A;`H*(PHC(&AE<F5D
+XM;V-S(&%N9"!H97)E<W1R:6YG<PHC"@IB:6=F:6QE/2]T;7`O8FEG+B1P:60*
+XM;V0@)')C('P@<V5D(#4P,#!Q(#X@)&)I9V9I;&4*86)C/2AT:&ES(&ES(&$I
+XM"G@]*"D*<F5S=6QT/2=T:&ES(&ES(&$@:&5R961O8PIT:&ES(&ES(&%N(&AE
+XM<F5D;V,*)PII9B`H(7X@8&`@)R<@>SP\6S5=($5/1B!C870@/%LP/35=?2`D
+XM<F5S=6QT*2!F86EL('5N<75O=&5D(&AE<F5D;V,*)&%B8R!H97)E9&]C)'@*
+XM)&%B8UYN("1X7FAE<F4D>%YD;V,*14]&"GMI9B`H(7X@8&`@)&YL(&-A="`G
+XM"2<I(&9A:6P@<75O=&5D(&AE<F5D;V-](#P\("<@)PH)"B`*"CP\/%LY72!@
+XM8"<G>V-A="`D8FEG9FEL97T@7`I["B`):68H(7X@8&`G)WMC870@/%LP/3E=
+XM?6!@)R<@8V%T*69A:6P@;&%R9V4@:&5R97-T<FEN9W,*?2`\(%P*)&)I9V9I
+XM;&4*"G)M("UF("1B:6=F:6QE"@II9B`H(7X@8'MC870\/&5O9@HD)`IE;V8*
+XM?2`G)"<I"@EF86EL('%U;W1I;F<@)R0G(&EN(&AE<F5D;V,*"G-U8FUA=&-H
+XM("=C870\/&5O9B<@)VAE<F5D;V,@:6YC;VUP;&5T92<@)VEN8V]M<&QE=&4@
+XM:&5R961O8R<*<W5B;6%T8V@@)V-A=#P\96]F"B<@)VAE<F5D;V,@:6YC;VUP
+XM;&5T92<@)VEN8V]M<&QE=&4@:&5R961O8R<*"G-U8FUA=&-H("=C870\/"AE
+XM;V8@96]F*2<@)V5O9BUM87)K97(@;F]T(&$@<VEN9VQE(&QI=&5R86P@=V]R
+XM9"<@)V)A9"!H97)E9&]C(&UA<FME<B<*"B,*(R!L97AI8V%L(&%N86QY<VES
+XM"B,*"F5X<&5C="!W87)N:6YG"@`*"F5C:&\@:&5R95]I<U]A7W)E86QL>5]L
+XM;VYG7W=O<F0N271?:&%S7V=O=%]T;U]B95]L;VYG97)?=&AA;E\Q,#`P7V-H
+XM87)A8W1E<G-?9F]R7W1H95]L97AI8V%L7V%N86QY>F5R<U]B=69F97)?=&]?
+XM;W9E<F9L;W=?8G5T7W1H871?<VAO=6QD7VYO=%]B95]T;V]?9&EF9FEC=6QT
+XM7W1O7V1O+DQE=%]M95]S=&%R=%]W<FET:6YG7W-O;65?3&5W:7-?0V%R<F]L
+XM;"Y4=V%S7V)R:6QL:6=?86YD7W1H95]S;&ET:'E?=&]V97,L1&ED7V=Y<F5?
+XM86YD7V=I;6)L95]I;E]T:&5?=V%B92Y!;&Q?;6EM<WE?=V5R95]T:&5?8F]R
+XM;V=O=F5S+$%N9%]T:&5?;6]M92UR871H<U]O=71G<F%B92Y"97=A<F5?=&AE
+XM7TIA8F)E<G=O8VM?;7E?<V]N+%1H95]J87=S7W1H871?8FET92QT:&5?8VQA
+XM=W-?=&AA=%]C871C:"Y"97=A<F5?=&AE7TIU8BUJ=6)?8FER9"QA;F1?<VAU
+XM;E]4:&5?9G)U;6EO=7-?0F%N9&5R<VYA=&-H+DAE7W1O;VM?:&ES7W9O<G!A
+XM;%]S=V]R9%]I;E]H86YD+$QO;F=?=&EM95]T:&5?;6%N>&]M95]F;V5?:&5?
+XM<V]U9VAT+%-O7W)E<W1E9%]H95]B>5]T:&5?5'5M='5M7W1R964L06YD7W-T
+XM;V]D7V%W:&EL95]I;E]T:&]U9VAT+D%N9%]A<U]I;E]U9F9I<VA?=&AO=6=H
+XM=%]H95]S=&]O9"Q4:&5?2F%B8F5R=V]C:RQW:71H7V5Y97-?;V9?9FQA;64L
+XM0V%M95]W:&EF9FQI;F=?=&AR;W5G:%]T:&5?='5L9V5Y7W=O;V0L06YD7V)U
+XM<F)L961?87-?:71?8V%M92Y/;F5?='=O+&]N95]T=V\N06YD7W1H<F]U9VA?
+XM86YD7W1H<F]U9VA?5&AE7W9O<G!A;%]B;&%D95]W96YT7W-N:6-K97(M<VYA
+XM8VLN2&5?;&5F=%]I=%]D96%D7V%N9%]W:71H7VET<U]H96%D+$AE7W=E;G1?
+XM9V%L=6UP:&EN9U]B86-K+D%N9%]H87-T7W1H;W5?<VQA:6Y?=&AE7TIA8F)E
+XM<G=O8VL_0V]M95]T;U]M>5]A<FUS+&UY7V)E86UI<VA?8F]Y+$]H7V9R86)J
+XM;W5S7V1A>2Y#86QL;V]H7V-A;&QA>2Y(95]C:&]R=&QE9%]I;E]H:7-?:F]Y
+XM+E1W87-?8G)I;&QI9RQA;F1?=&AE7W-L:71H>5]T;W9E<RQ$:61?9WER95]A
+XM;F1?9VEM8FQE7VEN7W1H95]W86)E+$%L;%]M:6US>5]W97)E7W1H95]B;W)O
+XM9V]V97,L06YD7W1H95]M;VUE+7)A=&AS7V]U=&=R86)E+B`^("]T;7`O)'!I
+XM9"YL=PH*96-H;R`G:&5R95]I<U]A7W)E86QL>5]L;VYG7W=O<F0N271?:&%S
+XM7V=O=%]T;U]B95]L;VYG97)?=&AA;E\Q,#`P7V-H87)A8W1E<G-?9F]R7W1H
+XM95]L97AI8V%L7V%N86QY>F5R<U]B=69F97)?=&]?;W9E<F9L;W=?8G5T7W1H
+XM871?<VAO=6QD7VYO=%]B95]T;V]?9&EF9FEC=6QT7W1O7V1O+DQE=%]M95]S
+XM=&%R=%]W<FET:6YG7W-O;65?3&5W:7-?0V%R<F]L;"Y4=V%S7V)R:6QL:6=?
+XM86YD7W1H95]S;&ET:'E?=&]V97,L1&ED7V=Y<F5?86YD7V=I;6)L95]I;E]T
+XM:&5?=V%B92Y!;&Q?;6EM<WE?=V5R95]T:&5?8F]R;V=O=F5S+$%N9%]T:&5?
+XM;6]M92UR871H<U]O=71G<F%B92Y"97=A<F5?=&AE7TIA8F)E<G=O8VM?;7E?
+XM<V]N+%1H95]J87=S7W1H871?8FET92QT:&5?8VQA=W-?=&AA=%]C871C:"Y"
+XM97=A<F5?=&AE7TIU8BUJ=6)?8FER9"QA;F1?<VAU;E]4:&5?9G)U;6EO=7-?
+XM0F%N9&5R<VYA=&-H+DAE7W1O;VM?:&ES7W9O<G!A;%]S=V]R9%]I;E]H86YD
+XM+$QO;F=?=&EM95]T:&5?;6%N>&]M95]F;V5?:&5?<V]U9VAT+%-O7W)E<W1E
+XM9%]H95]B>5]T:&5?5'5M='5M7W1R964L06YD7W-T;V]D7V%W:&EL95]I;E]T
+XM:&]U9VAT+D%N9%]A<U]I;E]U9F9I<VA?=&AO=6=H=%]H95]S=&]O9"Q4:&5?
+XM2F%B8F5R=V]C:RQW:71H7V5Y97-?;V9?9FQA;64L0V%M95]W:&EF9FQI;F=?
+XM=&AR;W5G:%]T:&5?='5L9V5Y7W=O;V0L06YD7V)U<F)L961?87-?:71?8V%M
+XM92Y/;F5?='=O+&]N95]T=V\N06YD7W1H<F]U9VA?86YD7W1H<F]U9VA?5&AE
+XM7W9O<G!A;%]B;&%D95]W96YT7W-N:6-K97(M<VYA8VLN2&5?;&5F=%]I=%]D
+XM96%D7V%N9%]W:71H7VET<U]H96%D+$AE7W=E;G1?9V%L=6UP:&EN9U]B86-K
+XM+D%N9%]H87-T7W1H;W5?<VQA:6Y?=&AE7TIA8F)E<G=O8VL_0V]M95]T;U]M
+XM>5]A<FUS+&UY7V)E86UI<VA?8F]Y+$]H7V9R86)J;W5S7V1A>2Y#86QL;V]H
+XM7V-A;&QA>2Y(95]C:&]R=&QE9%]I;E]H:7-?:F]Y+E1W87-?8G)I;&QI9RQA
+XM;F1?=&AE7W-L:71H>5]T;W9E<RQ$:61?9WER95]A;F1?9VEM8FQE7VEN7W1H
+XM95]W86)E+$%L;%]M:6US>5]W97)E7W1H95]B;W)O9V]V97,L06YD7W1H95]M
+XM;VUE+7)A=&AS7V]U=&=R86)E+B<@/B`O=&UP+R1P:60N;'$*"FEF("@A?B!@
+XM8"@I>V-A="`O=&UP+R1P:60N;'=](&!@*"E[8V%T("]T;7`O)'!I9"YL<7TI
+XM"@EF86EL(&5X<&5C=&5D(&QO;F<@<W1R:6YG(&%N9"!L;VYG('=O<F0@=&\@
+XM8F4@:61E;G1I8V%L"FEF("@A('@]8'MW8R`M8R`O=&UP+R1P:60N;'=]('X@
+XM)'@H,2D@,3`X."D*"69A:6P@97AP96-T960@;&]N9R!W;W)D('1O(&)E(#$P
+XM.#@@8GET97,*:68@*"$@>#U@>W=C("UC("]T;7`O)'!I9"YL<7T@?B`D>"@Q
+XM*2`Q,#@X*0H)9F%I;"!E>'!E8W1E9"!L;VYG('%U;W1E('1O(&)E(#$P.#@@
+XM8GET97,*"G)M("]T;7`O)'!I9"YL=PIR;2`O=&UP+R1P:60N;'$*"G-U8FUA
+XM=&-H("=E8VAO(&AI('Q;,B<@)V5X<&5C=&5D("<G/2<G(&]R("<G72<G(&%F
+XM=&5R(&1I9VET)R`G<V-A;B!E<G)O<B<*<W5B;6%T8V@@)V5C:&\@:&D@?%LY
+XM,CU=)R`G97AP96-T960@9&EG:70@869T97(@)R<])R<G("=S8V%N(&5R<F]R
+XM)PIS=6)M871C:"`G96-H;R!H:2!\6V%=)R`G97AP96-T960@9&EG:70@869T
+XM97(@)R=;)R<G("=S8V%N(&5R<F]R)PIS=6)M871C:"`G96-H;R!H:2!\6S(M
+XM)R`G97AP96-T960@)R<])R<@;W(@)R==)R<@869T97(@9&EG:70G("=S8V%N
+XM(&5R<F]R)PIS=6)M871C:"`G96-H;R!H:2!\6S(].3EA72<@)V5X<&5C=&5D
+XM("<G72<G(&%F=&5R(&1I9VET)R`G<V-A;B!E<G)O<B<*<W5B;6%T8V@@)V5C
+XM:&\@:&D@?%LR/6$Y.5TG("=E>'!E8W1E9"!D:6=I="!O<B`G)UTG)R!A9G1E
+XM<B`G)STG)R<@)W-C86X@97)R;W(G"G-U8FUA=&-H("=E8VAO("<G:&DG("=E
+XM;V8@:6X@<75O=&5D('-T<FEN9R<@)W-C86X@97)R;W(G"@II9G,])R<@>PH)
+XM:68@*"%^("=H(&DG(&![96-H;R`M;B!H7`II?2D*"0EF86EL(&)A8VMS;&%S
+XM:"UN97=L:6YE('1O('-P86-E(&-O;G9E<G-I;VX*"6EF("@A?B`D<F->7')C
+XM(&![96-H;R`M;B`D<F-<<F-]*0H)"69A:6P@8F%C:W-L87-H(&%F=&5R('9A
+XM<FEA8FQE(&YA;64@9&ED(&YO="!T97)M:6YA=&4@=F%R:6%B;&4@;F%M92!S
+XM8V%N"@EI9B`H(7X@)')C7B<@<F,G(&![96-H;R`M;B`D<F-<"G)C?2D*"0EF
+XM86EL(&)A8VMS;&%S:"UN97=L:6YE(&%F=&5R('9A<FEA8FQE(&YA;64@<W!A
+XM8V4@8V]N=F5R<VEO;@H):68@*"%^("=H7&DG(&![96-H;R`M;B!H7&E]*0H)
+XM"69A:6P@8F%C:W-L87-H(&EN('1H92!M:61D;&4@;V8@=V]R9`H):68@*"%^
+XM("=H(%P@:2<@8'ME8VAO("UN(&@@7"!I?2D*"0EF86EL(&9R964M<W1A;F1I
+XM;F<@8F%C:W-L87-H"GT*"FEF("@A("1R8R`M8R`G(R!E;V8@:6X@8V]M;65N
+XM="<I"@EF86EL(&5O9B!I;B!C;VUM96YT(&5X:71E9"!W:71H(&YO;GIE<F\@
+XM<W1A='5S"@HC('1E<W0@=&AE('-Y;G1A>"!E<G)O<B!P<FEN=&5R"@IP<F]M
+XM<'0])R<@:68@*"%^(&!@("1N;"![)')C("UC:68^6S(],5U]("=L:6YE(#$Z
+XM("<J)R!E<G)O<B!N96%R(&EF)RD*"69A:6P@<')I;G0@<WEN=&%X(&5R<F]R
+XM"@IP<F]M<'0])R<@:68@*"%^(&!@("1N;"![)')C("UI8VEF/ELR/3%=?2`J
+XM)R!E<G)O<B<I"@EF86EL('!R:6YT('-Y;G1A>"!E<G)O<@H*(PHC(&)U:6QT
+XM:6YS"B,*"F9N(&9O;R!["@ER971U<FX@<VEG9G!E"GT*"F9O;PII9B`H(7X@
+XM)'-T871U<R!S:6=F<&4I"@EF86EL(')E='5R;B!B=6EL=&EN(&1I9"!N;W0@
+XM<F5T=7)N('-I9V9P90H*9FX@9F]O(",@=&5S="!D96QE=&EN9R!O9B!F=6YC
+XM=&EO;@IF;B!B87(@>PH)9F]R("AI(&EN(#$@,B`S(#0@-2D*"0EI9B`H?B`D
+XM:2`S*0H)"0ER971U<FX*?0H*8F%R"FEF("@A?B`D:2`S*0H)9F%I;"!R971U
+XM<FX@:6YS:61E(&QO;W`@:6YS:61E(&9U;F-T:6]N(&9A:6QE9`H*<W5B;6%T
+XM8V@@<F5T=7)N("=R971U<FX@;W5T<VED92!O9B!F=6YC=&EO;B<@)W)E='5R
+XM;B!O=71S:61E(&]F(&9U;F-T:6]N)PIS=6)M871C:"`G8G)E86L@,2<@)W1O
+XM;R!M86YY(&%R9W5M96YT<R!T;R!B<F5A:R<@)V)R96%K(&%R9R!C;W5N="<*
+XM<W5B;6%T8V@@8G)E86L@)V)R96%K(&]U='-I9&4@;V8@;&]O<"<@)V)R96%K
+XM(&]U='-I9&4@;V8@;&]O<"<*"F9O<B`H:2!I;B`Q(#(@,R`T(#4I"@EI9B`H
+XM?B`D:2`R*0H)"6)R96%K"FEF("@A?B`D:2`R*0H)9F%I;"!B<F5A:R!O=70@
+XM;V8@;&]O<`H*<W5B;6%T8V@@)W=A:70@9F]O)R`G9F]O(&ES(&$@8F%D(&YU
+XM;6)E<B<@)V)O9W5S(&%R9W5M96YT('1O('=A:70G"@II9B`H?B!@>V5C:&\@
+XM+6Y](#\I"@EF86EL(&5C:&\@+6X*:68@*'XA(&!@("<G('ME8VAO("TM?2`D
+XM;FPI"@EF86EL(&5C:&\@+2T*"G!W9#U@+V)I;B]P=V0@8V1P871H/2\@>R`C
+XM('-O;64@;&]C86P@87-S:6=N;65N=',*"6AO;64]+W1M<"!C9`H):68@*"%^
+XM(&`O8FEN+W!W9"!@>W-H("UC("=C9"`O=&UP.R`O8FEN+W!W9"=]*0H)"69A
+XM:6P@8V]U;&0@;F]T(&-D('1O("<D:&]M92<*"@EC9'!A=&@]+R!C9"!T;7`*
+XM"6EF("@A?B!@+V)I;B]P=V0@8'MS:"`M8R`G8V0@+W1M<#L@+V)I;B]P=V0G
+XM?2D*"0EF86EL(&-O=6QD(&YO="!C9"!T;R`O=&UP"@H)8V0@)'!W9`H):68@
+XM*"%^(&`O8FEN+W!W9"!@>W-H("UC("=C9"`D<'=D.R`O8FEN+W!W9"=]*0H)
+XM"69A:6P@8V]U;&0@;F]T(&-D('1O(&-U<G)E;G0@9&ER96-T;W)Y(0I]"@HJ
+XM/2@Q(#(@,R`T(#4I('L*"65X<&5C="!B860@;G5M8F5R"@ES:&EF="!F;V\*
+XM"65X<&5C="!A<F<@8V]U;G0*"7-H:69T(#$@,B`S"@EE>'!E8W0@<VAI9G0@
+XM;W9E<F9L;W<*"7-H:69T(#$R,PH)<VAI9G0@,PH):68@*"%^("0C*B`R*0H)
+XM"69A:6P@<VAI9G0@,R!O9B`G*#$@,B`S(#0@-2DG(&9A:6QE9`H)<VAI9G0*
+XM"6EF("@A?B`D*B`U*0H)"69A:6P@<VAI9G0@9F%I;&5D('1O('-H:69T(&QE
+XM9G0M=&\M<FEG:'0*?0H*+V)I;B]F86QS90IE=F%L("8F(&9A:6P@;G5L;"!E
+XM=F%L(')E<V5T("<D<W1A='5S)PH*:68@*"%^(&![<FT]*"D[(&9N(')M.R!P
+XM871H/2@N("]B:6XI.R!W:&%T:7,@<FU]("]B:6XO<FTI"@EF86EL(')M(&ES
+XM;B<G)R=T(&EN(&)I;B$_"@IE>'!E8W0@;&ES="!O9B!S:6=N86P@:&%N9&QE
+XM<G,*=VAA=&ES("US"@IE>'!E8W0@;&ES="!O9B!V87)I86)L97,@86YD(&9U
+XM;F-T:6]N<PIW:&%T:7,*"G-U8FUA=&-H("=W:&%T:7,@+68G("=W:&%T:7,Z
+XM(&)A9"!O<'1I;VXZ("UF)R`G8F%D(&]P=&EO;B!T;R!W:&%T:7,G"@IS=6)M
+XM871C:"`G=VAA=&ES("]F<F]B;F%T>B<@)R]F<F]B;F%T>B!N;W0@9F]U;F0G
+XM("=S96%R8V@@9F]R("]F<F]B;F%T>B<*"FEF("A^(&![=VAA=&ES(&QI;6ET
+XM(#Y;,ETO9&5V+VYU;&Q](&)U:6QT:6XI('L*"6QI;6ET(&-O<F5D=6UP<VEZ
+XM92`P"@EI9B`H(7X@8'ML:6UI="!C;W)E9'5M<'-I>F5](#`J*0H)"69A:6P@
+XM9F%I;&5D('1O('-E="!C;W)E9'5M<'-I>F4@=&\@>F5R;PH):68@*"%^(&!@
+XM("@I('ML:6UI="!C;W)E9'5M<'-I>F5](&!@("@I('ML:6UI='QG<F5P(&-O
+XM<F5D=6UP<VEZ97TI"@D)9F%I;"!L:6UI="!L:6UI=`H)<W5B;6%T8V@@)VQI
+XM;6ET(&9O;R<@)VYO('-U8V@@;&EM:70G("=B860@;&EM:70G"GT*"F9N(&-D
+XM"@IS=6)M871C:"`G8V0@82!B(&,G("=T;V\@;6%N>2!A<F=U;65N=',@=&\@
+XM8V0G("=C9"!A<F<@8V]U;G0G"B1R8R`M8R`G8V1P871H/2@I(&-D("]F<F]B
+XM;F%T>B<@/ELR72]D978O;G5L;"`F)B!F86EL("=C9"!T;R`O9G)O8FYA='H@
+XM<W5C8V5E9&5D(3\G"G-U8FUA=&-H("=C9'!A=&@])R<G)R!C9"!F<F]B;F%T
+XM>B<@)V-O=6QD;B<G="!C9"!T;R!F<F]B;F%T>B<@)V-D('1O(&9R;V)N871Z
+XM('-U8V-E961E9"$_)PH*)VEF)SUK97EW;W)D('L*"7MW:&%T:7,@:68@?"!F
+XM9W)E<"`G)R=I9B<G/6ME>7=O<F0G(#XO9&5V+VYU;&Q]('Q\(&9A:6P@=VAA
+XM=&ES(&]F(&ME>7=O<F0@:7,@;F]T('%U;W1E9`I]"@HC"B,@=V%I=`HC"@IS
+XM=6)M871C:"`G=V%I="`Q(#(@,R<@)W1O;R!M86YY(&%R9W5M96YT<R!T;R!W
+XM86ET)R`G87)G(&-O=6YT)PHD<F,@+6,@)W=A:70@,2<@/ELR72]D978O;G5L
+XM;"`F)B!F86EL('=A:70@,0H*<VQE97`@-28*97AP96-T("1A<&ED"F5C:&\@
+XM)&%P:61S"G=A:70*"FEF("A^(&!@("<G('MW86ET?2`_*0H)9F%I;"!W86ET
+XM:6YG(&9O<B!N;W1H:6YG"@HC"B,@;6%T8VAI;F<*(PH*=&]U8V@@+W1M<"]A
+XM8F,N)'!I9"`O=&UP+V)B8RXD<&ED"FUK9&ER("]T;7`O9&ER+B1P:60@+W1M
+XM<"]D:7`N)'!I9`IT;W5C:"`O=&UP+V1I<BXD<&ED+UXH82!B(&,I("]T;7`O
+XM9&EP+B1P:60O7BAA(&(@8RD*"FEF("@A?B`Q,C,@6WYX73];,"TY72D*"69A
+XM:6P@;6%T8V@*:68@*"%^("@I("HI"@EF86EL(&UA=&-H(&]F(&YU;&P@;&ES
+XM="!W:71H("<J)PII9B`H?B`H*2`J=BHI"@EF86EL(&UA=&-H(&]F(&YU;&P@
+XM;&ES="!W:71H("<J=BHG('-U8V-E961E9`II9B`H(7X@*&9O;R!B87(@>F%R
+XM*2`J*BHJ*GHJ*BHJ*BD*"69A:6P@;6%T8V@@;V8@;&ES="!B>2!O;F4@<&%T
+XM=&5R;B!F86EL960*:68@*'X@*&9O;R!B87(@>F%R*2`J8RHI"@EF86EL(&)A
+XM9"!M871C:`II9B`H(7X@6V%A82!;86%A*0H)9F%I;"!B860@<F%N9V5M871C
+XM:`II9B`H(7X@)UTG(%M=72D*"69A:6P@;6%T8V@@<FEG:'0@8G)A8VME=`II
+XM9B`H?B!X(%MY72D*"69A:6P@<F%N9V5M871C:"!O=70@;V8@<F%N9V4*:68@
+XM*'X@>"!X/RD*"69A:6P@=&]O(&UA;GD@8VAA<F%C=&5R<R!I;B!P871T97)N
+XM"@IT97-T("UF("\O+R\O=&UP+R\O+R\O83]C+B1P:60@?'P@9F%I;"!G;&]B
+XM('=I=&@@;6%N>2!S;&%S:&5S"FEF("@A?B`O+R\O+W1M<"\O+R\O+V$J+B1P
+XM:60@+R\O+R]T;7`O+R\O+R]A/V,N)'!I9"D*"69A:6P@9VQO8B!W:71H(&UA
+XM;GD@<VQA<VAE<PII9B`H(7X@+R\O+W1M<"\O+R]D:3\N)'!I9"\O+R\J("\O
+XM+R]T;7`O+R\O9&ER+B1P:60O+R\O*F(J*0H)9F%I;"!G;&]B('=I=&@@;6]R
+XM92!S;&%S:&5S"FEF("@A($![8V0@+SL@?B`J+V$J+B1P:60@=&UP+V$J?2D*
+XM"69A:6P@9VQO8B!I;B!C=7)R96YT(&1I<F5C=&]R>0II9B`H(7X@+W1M<"\_
+XM8F,N)'!I9"`O=&UP+V)B8RXD<&ED*0H)9F%I;"!M871C:"!O9B!B8F,N)'!I
+XM9"!A9V%I;G-T("<H)V%B8RXD<&ED(&)B8RXD<&ED)RDG"@IR;2`O=&UP+V%B
+XM8RXD<&ED("]T;7`O8F)C+B1P:60*<FT@+7)F("]T;7`O9&ER+B1P:60@+W1M
+XM<"]D:7`N)'!I9`H*(PHC('-I9VYA;',*(PH*9FX@<VEG:6YT('ME=F%L?0IK
+XM:6QL("TR("1P:60*9FX@<VEG:6YT"@HC"B,@<&%T:"!S96%R8VAI;F<*(PH*
+XM)')C("UC("]F<F]B;F%T>B`^6S)=+V1E=B]N=6QL("8F(&9A:6P@)W-E87)C
+XM:"!E<G)O<B<*"G1O=6-H("]T;7`O;F]E>&5C+B1P:60*8VAM;V0@82UX("]T
+XM;7`O;F]E>&5C+B1P:60*)')C("UC("]T;7`O;F]E>&5C+B1P:60@/ELR72]D
+XM978O;G5L;"`F)B!F86EL("]T;7`O;F]E>&5C+B1P:60@:7,@9F]U;F0A/PIR
+XM;2`O=&UP+VYO97AE8RXD<&ED"@IS=6)M871C:"`G<&%T:#TG)R<G(&9R;V)N
+XM871Z)R`G9G)O8FYA='H@;F]T(&9O=6YD)R`G<V5A<F-H(&5R<F]R)PH*>W!A
+XM=&@]*"D@+V)I;B]S:"`M8R`G97AI="`P)WT@?'P@9F%I;"!A8G,@<&%T:&YA
+XM;64@=VET:"!P871H('-E="!T;R!N=6QL"@HC"B,@;W!T:6]N<PHC"@HC('1H
+XM:7,@=&5S="!I<R!M96%N:6YG;&5S<SL@;F]T(')E86QL>2!A('1R:7`*97AP
+XM96-T('!R;VUP="P@96-H;R!H:0IH;VUE/2]F<F]B;F%T>B`D<F,@+6YO;'!E
+XM:79D>&,@)V5C:&\@:&DG"FEF("@A?B!@8"`D;FP@>R1R8R`M8SY;,CTQ77T@
+XM*B<Z(&]P=&EO;B!R97%U:7)E<R!A;B!A<F=U;65N="`M+2!C)RD*"69A:6P@
+XM9V5T;W!T(&]N("UC"FEF("@A?B!@8"`D;FP@>R1R8R`M<3Y;,CTQ77T@*B<Z
+XM(&)A9"!O<'1I;VXZ("UQ)RD*"69A:6P@9V5T;W!T(&]N("UQ("AB;V=U<R!O
+XM<'1I;VXI"FEF("@A?B!@>V5C:&\@)R-E8VAO)R!\("1R8R`M=B!\6S)=('-E
+XM9"`G<R\C+R\G?2!E8VAO*0H)9F%I;"!R8R`M=@H*(PHC(&1O=`HC"@II9B`H
+XM?B!@8"`G)R`N(#\J*0H)9F%I;"!N=6QL(&1O=`II9B`H?B!@8"`G)R![+B`M
+XM:7T@/RHI"@EF86EL(&YU;&P@9&]T("UI"@IC870@/B`O=&UP+V1O="XD<&ED
+XM(#P\(&5O9@IE8VAO(&AI"F5O9@H*<')O;7!T/2<[)R!I9B`H?B$@8&`@)R<@
+XM>RX@+6D@+W1M<"]D;W0N)'!I9#Y;,CTQ77T@)SMH:2=>)&YL)SLG*0H)9F%I
+XM;"!D;W0@+6D*<W5B;6%T8V@@+B<@)R]T;7`O9&]T+B1P:60@:&D@9&]T"@IR
+XM;2`O=&UP+V1O="XD<&ED"@HD<F,@+6,@)RX@+V9R;V)N871Z)R`^6S)=+V1E
+XM=B]N=6QL("8F(&9A:6P@)V1O="!O9B!A(&YO;F5X:7-T96YT(&9I;&4G"@HC
+XM"B,@<W1D:6X*(PH*:68@*"%^(&![96-H;R!E8VAO(&AI('P@)')C?2!H:2D*
+XM"69A:6P@<&EP:6YG('-T9&EN('1O(')C"@HC"B,@9G5N8W1I;VYS+"!V87)I
+XM86)L97,@)B!E;G9I<F]N;65N=`HC"@IF;B`M+2T@>V9O<BAI*6%\6S(],UUB
+XM/CYC/#P\)V4G)F8^6S(],5U]"@II9B`H=VAA=&ES('!R:6YT96YV(#XO9&5V
+XM+VYU;&P^6S(],5TI('L*"7!R:6YT96YV/7!R:6YT96YV"GT@96QS92!I9B`H
+XM=VAA=&ES(&5N=B`^+V1E=B]N=6QL/ELR/3%=*2!["@EP<FEN=&5N=CUE;G8*
+XM?2!E;'-E"@EP<FEN=&5N=CTH*0H*:68@*'X@)"-P<FEN=&5N=B`Q("8F("%^
+XM(&!@("1N;"![)'!R:6YT96YV('P@9W)E<"!F;E]?7S)D7U\R9%]?,F1]("=F
+XM;E]?7S)D7U\R9%]?,F0]>V9O<BAI(&EN("0J*6%\6S(],UUB(#X^8R`\/#PG
+XM)V4G)R9F(#Y;,CTQ77TG*0H)9F%I;"!P<F]T96-T7V5N=@H*9FX@+2TM('MR
+XM97!L86-E?0I^(&![=VAA=&ES("TM("TM+7T@*G)E<&QA8V4J('Q\(&9A:6P@
+XM<F5P;&%C92!A(&9U;F-T:6]N(&1E9FEN:71I;VX*9FX@+2TM"G=H871I<R`M
+XM+2`M+2T@/ELR72]D978O;G5L;"`F)B!F86EL(&9U;F-T:6]N(&1E;&5T:6]N
+XM"F9O;SUB87(@*CUB87(*9F]O/6YE<W0@*CUN97-T('L*"7X@)&9O;R!N97-T
+XM('Q\(&9A:6P@;&]C86P@87-S:6=N;65N=`H)?B`D*B!N97-T('Q\(&9A:6P@
+XM;&]C86P@87-S:6=N;65N="!T;R`G)"HG"@EF;V\]*"D*"2H]*"D*"7X@)&9O
+XM;R`H*2!\?"!F86EL(&QO8V%L(&1E;&5T:6]N"@E^("0J("@I('Q\(&9A:6P@
+XM;&]C86P@9&5L971I;VX@=&\@)R0J)PI]"GX@)&9O;R!B87(@?'P@9F%I;"!R
+XM97-T;W)E(&]F(&=L;V)A;"!A9G1E<B!L;V-A;"!G<F]U<`I^("0J(&)A<B!\
+XM?"!F86EL(')E<W1O<F4@;V8@)R0J)R!A9G1E<B!L;V-A;"!G<F]U<`I^(&![
+XM97AE8SY;,CTQ73LD<F,@+7AC("=F;V\]*"DG?2`G9F]O/2@I)R!\?"!F86EL
+XM("UX(&5C:&\@;V8@=F%R:6%B;&4@9&5L971I;VX*"F9N7V9F/2=[)R!P<F]M
+XM<'0])R<@:68@*'XA(&!@("1N;"![)')C("UC9F8^6S(],5U]("=L:6YE(#$Z
+XM("<J)R!E<G)O<B!N96%R(&5O9B<I"@EF86EL("=B;V=U<R!F=6YC=&EO;B!I
+XM;B!E;G9I<F]N;65N="<*"B,*(R!S=&%T=7-E<PHC"@I^(&![)')C("UE8R`G
+XM<VQE97`@,3`F:VEL;"`M.2`D87!I9#MW86ET)SY;,CTQ77T@:VEL;&5D('Q\
+XM"@EF86EL('-T871U<R!D:6%G;F]S=&EC"@HD<F,@+6,@)V5X:70@,"!S:6=F
+XM<&4G("8F(&9A:6P@97AI="!O9B!B860@<&EP96QI;F4@:7,@=')U90H*<W5B
+XM;6%T8V@@)V5X:70@9F]O)R`G8F%D('-T871U<R<@)V5X:70@9&EA9VYO<W1I
+XM8R<*"B,*(R!C;VYT<F]L('-T<G5C='5R97,*(PH*:68@*"%^(&![9F%L<V4@
+XM?'P@96-H;R!H:7T@:&DI"@EF86EL("=\?"<*:68@*"%^(&![=')U92`F)B!E
+XM8VAO(&AI?2!H:2D*"69A:6P@)R8F)PII9B`H?B!@>W1R=64@?'P@96-H;R!H
+XM:7T@:&DI"@EF86EL("=\?"<*:68@*'X@8'MF86QS92`F)B!E8VAO(&AI?2!H
+XM:2D*"69A:6P@)R8F)PH*=VAI;&4@*&9A;'-E*0H)9F%I;"!F86QS92!W:&EL
+XM90IW:&EL92`H=')U92D@>PH)8G)E86L*"69A:6P@8G)E86L@:6X@=VAI;&4*
+XM?0H*<W=I=&-H("AF;V\I('L*"6-A<V4@8F%R"@D)9F%I;"!M871C:&5D(&)A
+XM<B!I;B!S=VET8V@*"6-A<V4@9F]O"@D)979A;`H)8V%S92`J"@D)9F%I;"!M
+XM871C:"!F;V\@:6X@<W=I=&-H"GT*"G-W:71C:"`H;F]T:&EN9RD@>PH)8V%S
+XM92!B87(*"0EF86EL(&UA=&-H960@8F%R(&EN('-W:71C:`H)8V%S92`J"@D)
+XM:3UF<F]B;F%T>@I]"@I^("1I(&9R;V)N871Z('Q\(&9A:6P@;6%T8V@@)RHG
+XM(&EN('-W:71C:`H*<W5B;6%T8V@@)R@I/2@I)R`G;G5L;"!V87)I86)L92!N
+XM86UE)R`G87-S:6=N;65N="!D:6%G;F]S=&EC)PIS=6)M871C:"`G9FX@*"D@
+XM>V5V86Q])R`G;G5L;"!F=6YC=&EO;B!N86UE)R`G87-S:6=N:6YG(&YU;&P@
+XM9G5N8W1I;VX@;F%M92<*"B,*(R!P<F]M<'0*(PH*9FX@<')O;7!T('ME8VAO
+XM(&AI?0IP<F]M<'0]*"D@:68@*'XA(&![)')C("UI("]D978O;G5L;#Y;,ETO
+XM9&5V+VYU;&Q](&AI*2!F86EL(&9N('!R;VUP=`IF;B!P<F]M<'0*"B,*(R!H
+XM:7-T;W)Y"B,*"FAI<W1O<GD]+W1M<"]H:7-T+B1P:60@<')O;7!T/2<G(&5C
+XM:&\@)VAI<W1O<GD]*"DG('P@)')C("UI"@II9B`H(7X@8'MC870@+W1M<"]H
+XM:7-T+B1P:61]("=H:7-T;W)Y/2@I)RD*"69A:6P@;W5T<'5T('1O(&AI<W1O
+XM<GD@9FEL90H*:&ES=&]R>3TO=&UP+VAI<W0N)'!I9"!P<F]M<'0])R<@96-H
+XM;R`G:&ES=&]R>3TH*2<@?"`D<F,@+6D*"FEF("@A?B!@8"`H*2![8V%T("]T
+XM;7`O:&ES="XD<&ED?2`G:&ES=&]R>3TH*0IH:7-T;W)Y/2@I"B<I"@EF86EL
+XM(&%P<&5N9"!T;R!H:7-T;W)Y(&9I;&4*"G)M("]T;7`O:&ES="XD<&ED"@II
+XM9B`H(7X@8'MH:7-T;W)Y/2]F<F]B;F%T>B]F;V\@<')O;7!T/2<G(&5C:&\@
+XM979A;"!\("1R8R`M:2`^6S(],5U](#\J*0H)9F%I;"!A8V-E<W-I;F<@8F%D
+X.(&AI<W1O<GD@9FEL90H^
+X`
+Xend
+END_OF_FILE
+  if test 20258 -ne `wc -c <'trip.rc.uu'`; then
+    echo shar: \"'trip.rc.uu'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'trip.rc.uu'\" \(14684 characters\)
+    cat trip.rc.uu | uudecode
+    if test -f trip.rc ; then
+        rm trip.rc.uu
+    fi
+  fi
+  # end of 'trip.rc.uu'
+fi
+if test -f 'walk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'walk.c'\"
+else
+  echo shar: Extracting \"'walk.c'\" \(7929 characters\)
+  sed "s/^X//" >'walk.c' <<'END_OF_FILE'
+X/* walk.c: walks the parse tree. */
+X
+X#include <signal.h>
+X#include <setjmp.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X
+X/*
+X   global which indicates whether rc is executing a test;
+X   used by rc -e so that if (false) does not exit.
+X*/
+Xbool cond = FALSE;
+X
+Xstatic bool isallpre(Node *);
+Xstatic bool dofork(bool);
+Xstatic void dopipe(Node *);
+X
+X/* Tail-recursive version of walk() */
+X
+X#define WALK(x, y) { n = x; parent = y; goto top; }
+X
+X/* walk the parse-tree. "obvious". */
+X
+Xextern bool walk(Node *n, bool parent) {
+Xtop:	SIGCHK;
+X	if (n == NULL) {
+X		if (!parent)
+X			exit(0);
+X		set(TRUE);
+X		return TRUE;
+X	}
+X	switch (n->type) {
+X	case nArgs: case nBackq: case nConcat: case nCount:
+X	case nFlat: case nLappend: case nRedir: case nVar:
+X	case nVarsub: case nWord: case nQword:
+X		exec(glob(glom(n)), parent);	/* simple command */
+X		break;
+X	case nBody:
+X		walk(n->u[0].p, TRUE);
+X		WALK(n->u[1].p, parent);
+X		/* WALK doesn't fall through */
+X	case nNowait: {
+X		int pid;
+X		if ((pid = rc_fork()) == 0) {
+X#if !defined(NOJOB) && defined(SIGTTOU) && defined(SIGTTIN) && defined(SIGTSTP)
+X			setsigdefaults(FALSE);
+X			rc_signal(SIGTTOU, SIG_IGN);	/* Berkeleyized version: put it in a new pgroup. */
+X			rc_signal(SIGTTIN, SIG_IGN);
+X			rc_signal(SIGTSTP, SIG_IGN);
+X			setpgrp(0, getpid());
+X#else
+X			setsigdefaults(TRUE);		/* ignore SIGINT, SIGQUIT, SIGTERM */
+X#endif
+X			mvfd(rc_open("/dev/null", rFrom), 0);
+X			walk(n->u[0].p, FALSE);
+X			exit(getstatus());
+X		}
+X		if (interactive)
+X			fprint(2, "%d\n", pid);
+X		varassign("apid", word(nprint("%d", pid), NULL), FALSE);
+X		redirq = NULL; /* kill pre-redir queue */
+X		break;
+X	}
+X	case nAndalso: {
+X		bool oldcond = cond;
+X		cond = TRUE;
+X		if (walk(n->u[0].p, TRUE)) {
+X			cond = oldcond;
+X			WALK(n->u[1].p, parent);
+X		} else
+X			cond = oldcond;
+X		break;
+X	}
+X	case nOrelse: {
+X		bool oldcond = cond;
+X		cond = TRUE;
+X		if (!walk(n->u[0].p, TRUE)) {
+X			cond = oldcond;
+X			WALK(n->u[1].p, parent);
+X		} else
+X			cond = oldcond;
+X		break;
+X	}
+X	case nBang:
+X		set(!walk(n->u[0].p, TRUE));
+X		break;
+X	case nIf: {
+X		bool oldcond = cond;
+X		Node *true_cmd = n->u[1].p, *false_cmd = NULL;
+X		if (true_cmd != NULL && true_cmd->type == nElse) {
+X			false_cmd = true_cmd->u[1].p;
+X			true_cmd = true_cmd->u[0].p;
+X		}
+X		cond = TRUE;
+X		if (!walk(n->u[0].p, TRUE))
+X			true_cmd = false_cmd; /* run the else clause */
+X		cond = oldcond;
+X		WALK(true_cmd, parent);
+X	}
+X	case nWhile: {
+X		Jbwrap j;
+X		Edata jbreak;
+X		Estack e1, e2;
+X		bool testtrue, oldcond = cond;
+X		cond = TRUE;
+X		if (!walk(n->u[0].p, TRUE)) { /* prevent spurious breaks inside test */
+X			cond = oldcond;
+X			break;
+X		}
+X		if (setjmp(j.j))
+X			break;
+X		jbreak.jb = &j;
+X		except(eBreak, jbreak, &e1);
+X		do {
+X			Edata block;
+X			block.b = newblock();
+X			cond = oldcond;
+X			except(eArena, block, &e2);
+X			walk(n->u[1].p, TRUE);
+X			testtrue = walk(n->u[0].p, TRUE);
+X			unexcept(); /* eArena */
+X			cond = TRUE;
+X		} while (testtrue);
+X		cond = oldcond;
+X		unexcept(); /* eBreak */
+X		break;
+X	}
+X	case nForin: {
+X		List *l, *var = glom(n->u[0].p);
+X		Jbwrap j;
+X		Estack e1, e2;
+X		Edata jbreak;
+X		if (setjmp(j.j))
+X			break;
+X		jbreak.jb = &j;
+X		except(eBreak, jbreak, &e1);
+X		for (l = listcpy(glob(glom(n->u[1].p)), nalloc); l != NULL; l = l->n) {
+X			Edata block;
+X			assign(var, word(l->w, NULL), FALSE);
+X			block.b = newblock();
+X			except(eArena, block, &e2);
+X			walk(n->u[2].p, TRUE);
+X			unexcept(); /* eArena */
+X		}
+X		unexcept(); /* eBreak */
+X		break;
+X	}
+X	case nSubshell:
+X		if (dofork(TRUE)) {
+X			setsigdefaults(FALSE);
+X			walk(n->u[0].p, FALSE);
+X			rc_exit(getstatus());
+X		}
+X		break;
+X	case nAssign:
+X		if (n->u[0].p == NULL)
+X			rc_error("null variable name");
+X		assign(glom(n->u[0].p), glob(glom(n->u[1].p)), FALSE);
+X		set(TRUE);
+X		break;
+X	case nPipe:
+X		dopipe(n);
+X		break;
+X	case nNewfn: {
+X		List *l = glom(n->u[0].p);
+X		if (l == NULL)
+X			rc_error("null function name");
+X		while (l != NULL) {
+X			if (dashex)
+X				prettyprint_fn(2, l->w, n->u[1].p);
+X			fnassign(l->w, n->u[1].p);
+X			l = l->n;
+X		}
+X		set(TRUE);
+X		break;
+X	}
+X	case nRmfn: {
+X		List *l = glom(n->u[0].p);
+X		while (l != NULL) {
+X			if (dashex)
+X				fprint(2, "fn %S\n", l->w);
+X			fnrm(l->w);
+X			l = l->n;
+X		}
+X		set(TRUE);
+X		break;
+X	}
+X	case nDup:
+X		redirq = NULL;
+X		break; /* Null command */
+X	case nMatch: {
+X		List *a = glob(glom(n->u[0].p)), *b = glom(n->u[1].p);
+X		if (dashex)
+X			fprint(2, (a != NULL && a->n != NULL) ? "~ (%L) %L\n" : "~ %L %L\n", a, " ", b, " ");
+X		set(lmatch(a, b));
+X		break;
+X	}
+X	case nSwitch: {
+X		List *v = glom(n->u[0].p);
+X		while (1) {
+X			do {
+X				n = n->u[1].p;
+X				if (n == NULL)
+X					return istrue();
+X			} while (n->u[0].p == NULL || n->u[0].p->type != nCase);
+X			if (lmatch(v, glom(n->u[0].p->u[0].p))) {
+X				for (n = n->u[1].p; n != NULL && (n->u[0].p == NULL || n->u[0].p->type != nCase); n = n->u[1].p)
+X					walk(n->u[0].p, TRUE);
+X				break;
+X			}
+X		}
+X		break;
+X	}
+X	case nPre: {
+X		List *v;
+X		if (n->u[0].p->type == nRedir || n->u[0].p->type == nDup) {
+X			qredir(n->u[0].p);
+X			walk(n->u[1].p, parent);
+X		} else if (n->u[0].p->type == nAssign) {
+X			if (isallpre(n->u[1].p)) {
+X				walk(n->u[0].p, TRUE);
+X				WALK(n->u[1].p, parent);
+X			} else {
+X				Estack e;
+X				Edata var;
+X				v = glom(n->u[0].p->u[0].p);
+X				assign(v, glob(glom(n->u[0].p->u[1].p)), TRUE);
+X				var.name = v->w;
+X				except(eVarstack, var, &e);
+X				walk(n->u[1].p, parent);
+X				varrm(v->w, TRUE);
+X				unexcept(); /* eVarstack */
+X			}
+X		} else
+X			panic("unexpected node in preredir section of walk");
+X		break;
+X	}
+X	case nBrace:
+X		if (n->u[1].p == NULL) {
+X			WALK(n->u[0].p, parent);
+X		} else if (dofork(parent)) {
+X			setsigdefaults(FALSE);
+X			walk(n->u[1].p, TRUE); /* Do redirections */
+X			redirq = NULL;   /* Reset redirection queue */
+X			walk(n->u[0].p, FALSE); /* Do commands */
+X			rc_exit(getstatus());
+X			/* NOTREACHED */
+X		}
+X		break;
+X	case nEpilog:
+X		qredir(n->u[0].p);
+X		if (n->u[1].p != NULL) {
+X			WALK(n->u[1].p, parent); /* Do more redirections. */
+X		} else {
+X			doredirs();	/* Okay, we hit the bottom. */
+X		}
+X		break;
+X	case nNmpipe:
+X		rc_error("named pipes cannot be executed as commands");
+X		/* NOTREACHED */
+X	default:
+X		panic("unknown node in walk");
+X		/* NOTREACHED */
+X	}
+X	return istrue();
+X}
+X
+X/* checks to see whether a subtree is all pre-command directives, i.e., assignments and redirs only */
+X
+Xstatic bool isallpre(Node *n) {
+X	while (n != NULL && n->type == nPre)
+X		n = n->u[1].p;
+X	return n == NULL || n->type == nRedir || n->type == nAssign || n->type == nDup;
+X}
+X
+X/*
+X   A code-saver. Forks, child returns (for further processing in walk()), and the parent
+X   waits for the child to finish, setting $status appropriately.
+X*/
+X
+Xstatic bool dofork(bool parent) {
+X	int pid, sp;
+X
+X	if (!parent || (pid = rc_fork()) == 0)
+X		return TRUE;
+X	redirq = NULL; /* clear out the pre-redirection queue in the parent */
+X	rc_wait4(pid, &sp, TRUE);
+X	setstatus(-1, sp);
+X	SIGCHK;
+X	return FALSE;
+X}
+X
+Xstatic void dopipe(Node *n) {
+X	int i, j, sp, pid, fd_prev, fd_out, pids[512], stats[512], p[2];
+X	bool intr;
+X	Node *r;
+X
+X	fd_prev = fd_out = 1;
+X	for (r = n, i = 0; r != NULL && r->type == nPipe; r = r->u[2].p, i++) {
+X		if (i > 500) /* the only hard-wired limit in rc? */
+X			rc_error("pipe too long");
+X		if (pipe(p) < 0) {
+X			uerror("pipe");
+X			rc_error(NULL);
+X		}
+X		if ((pid = rc_fork()) == 0) {
+X			setsigdefaults(FALSE);
+X			redirq = NULL; /* clear preredir queue */
+X			mvfd(p[0], r->u[1].i);
+X			if (fd_prev != 1)
+X				mvfd(fd_prev, fd_out);
+X			close(p[1]);
+X			walk(r->u[3].p, FALSE);
+X			exit(getstatus());
+X		}
+X		if (fd_prev != 1)
+X			close(fd_prev); /* parent must close all pipe fd's */
+X		pids[i] = pid;
+X		fd_prev = p[1];
+X		fd_out = r->u[0].i;
+X		close(p[0]);
+X	}
+X	if ((pid = rc_fork()) == 0) {
+X		setsigdefaults(FALSE);
+X		mvfd(fd_prev, fd_out);
+X		walk(r, FALSE);
+X		exit(getstatus());
+X		/* NOTREACHED */
+X	}
+X	redirq = NULL; /* clear preredir queue */
+X	close(fd_prev);
+X	pids[i++] = pid;
+X
+X	/* collect statuses */
+X
+X	intr = FALSE;
+X	for (j = 0; j < i; j++) {
+X		rc_wait4(pids[j], &sp, TRUE);
+X		stats[j] = sp;
+X		intr |= (sp == SIGINT);
+X	}
+X	setpipestatus(stats, i);
+X	SIGCHK;
+X}
+END_OF_FILE
+  if test 7929 -ne `wc -c <'walk.c'`; then
+    echo shar: \"'walk.c'\" unpacked with wrong size!
+  fi
+  # end of 'walk.c'
+fi
+echo shar: End of archive 4 \(of 7\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

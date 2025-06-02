@@ -1,0 +1,2405 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i021:  xvi - portable multi-window vi-like editor, Part12/18
+Message-ID: <1992Oct24.172418.2156@sparky.imd.sterling.com>
+X-Md4-Signature: 8f7374fee308f770ad8c61be57b7067c
+Date: Sat, 24 Oct 1992 17:24:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 21
+Archive-name: xvi/part12
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/doc/xvi.1 xvi/src/edit.c xvi/src/termcap.h
+#   xvi/src/unix.c
+# Wrapped by kent@sparky on Thu Oct 22 09:03:43 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 18)."'
+if test -f 'xvi/doc/xvi.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/doc/xvi.1'\"
+else
+  echo shar: Extracting \"'xvi/doc/xvi.1'\" \(14933 characters\)
+  sed "s/^X//" >'xvi/doc/xvi.1' <<'END_OF_FILE'
+X.TH XVI 1 19/6/1992 Unix
+X.nh
+X.rm hy
+X.SH NAME
+Xxvi \- multi-file text editor
+X.SH SYNOPSIS
+X.B xvi
+X{
+X.B \-s
+X.I parameter-assignment
+X}
+X[
+X.B \-t
+X.I tag
+X|
+X.BI + number
+X|
+X.BI +/ pattern
+X]
+X{
+X.I filename
+X\&.\|.\|.
+X}
+X.SH DESCRIPTION
+X\fBXvi\fP (pronounced \fIecks-vee-eye\fP)
+Xis a free, portable, multi-window implementation of the popular
+X.BR vi (1)
+Xeditor.
+XIt has some useful enhancements, although, as described below,
+Xnot all of
+X.BR vi 's
+Xfeatures have been implemented yet, and some things work differently from
+X.BR vi .
+X.SH OPTIONS
+XThe following command-line options are available:
+X.TP
+X\fB\-s\fP \fIparameter-assignment\fP
+XSet the value of the specified parameter at startup.
+XThe assignment has the same form as when given as an editor command,
+Xi.e:
+X.RS
+X.TP
+X\fIname\fB=\fIstring\fP
+Xfor string parameters
+X.TP
+X\fIname\fB=\fInumber\fP
+Xfor numeric parameters
+X.TP
+X\fIname\fP
+Xto turn a Boolean parameter on
+X.TP
+X\fBno\fP\fIname\fP
+Xto turn a Boolean parameter off
+X.RE
+X.TP
+X\fB\-t\fP \fItag\fP
+XEdit the file containing the definition specified as \fItag\fP,
+Xat the start of the definition (as per \fBvi\fP).
+X.TP
+X\fB+\fP\fInumber\fP
+XGo to the specified line number of the file being edited.
+X.TP
+X\fB+\fP/\fIpattern\fP
+XGo to the first occurrence of the specified \fIpattern\fP within
+Xthe file being edited.
+X.LP
+XThe \fB\-r\fP command line option is not supported.
+X.SH ENHANCEMENTS
+X.SS Multiple buffers and windows
+X.LP
+XA
+X.I buffer
+Xis the internal object
+Xwhich holds a file in memory, while a
+X.I window
+Xis an area of the
+Xscreen which shows part of a buffer.
+XEvery window references a buffer, even if no file is being edited.
+XThe following commands are
+Xavailable for operating on buffers and windows:
+X.IP \fB:buffer\fP
+Xcreate a new buffer in a new window;
+Xcan be followed by a filename, which will be edited in the new buffer.
+X.IP \fB:split\fP
+Xcreate a new window on to the current buffer by
+Xsplitting the current window in half.
+XThe two resulting windows are similar to
+X.I viewports
+Xon to a single editing buffer,
+Xin that changes made in one window are reflected in the other one.
+X.IP \fB:close\fP
+Xclose the current window;
+Xwill also close the buffer if this is the last window on to it.
+X.IP "\fB:x\fP\ /\ \fBZZ\fP"
+Xclose only the current window.
+XIf the window is the only one on to the buffer,
+Xthe buffer will be closed as well,
+Xwriting it first if it is modified.
+X.IP \fBg\fP
+Xmove to the next window.
+X.IP \fB^W\fP
+Xincrease the size of the current window
+X(may be given a numeric prefix, default is one line).
+X.IP \fB^T\fP
+Xdecrease the size of the current window
+X(may be given a numeric prefix, default is one line).
+X.IP \fB^O\fP
+Xmake the current window as large as possible.
+X.IP \fB^]\fP
+Xas for
+X.BR vi ,
+Xbut create a new buffer window if appropriate
+X(and if
+X.B autosplit
+Xallows).
+X.LP
+XNote that the
+X.B :quit
+Xcommand quits out of the editor, not out of a window.
+XThe
+X.B :close
+Xcommand is thus the equivalent of
+X.B :quit
+Xfor windows.
+XThere
+Xis no equivalent of
+X.B :x
+Xor
+X.B ZZ
+Xfor the whole editor; these have been
+Xhijacked for operations on windows.
+X.LP
+XThe numeric
+X.B autosplit
+Xparameter specifies the maximum number
+Xof buffer windows that will be created automatically whenever you
+Xeither edit more than one file, or use tags to edit a different file.
+X.LP
+XUndo works per buffer, as do marks; yank/put and redo (the
+X.B .
+Xcommand)
+Xwork over all buffers, i.e. you can delete from one buffer and put
+Xthe text into a different buffer.
+X.SS "File preservation"
+X.LP
+XRather than use
+X.BR vi 's
+XUnix-specific method
+Xfor preservation,
+X.B xvi
+Xdoes periodic preservation of all files
+Xcurrently being edited into temporary files in the same directory.
+XIt
+Xtries to do this when you aren't typing, so that you won't
+Xnotice the short delay when the temporary file is written out.
+XObviously, only changed files are preserved in this way, and
+Xthe temporary file is removed once the real file has been successfully
+Xwritten.
+X.SS "8-bit character support"
+X.LP
+XCharacters with the top bit set are accepted by
+X.BR xvi ,
+Xbut
+Xit is not yet possible to have null
+X(\(fm\^\e\^0\^\(fm)
+Xbytes in a file buffer.
+XHow characters are displayed can be controlled by
+Xthe \fBcchars\fP and \fBmchars\fP
+Xparameters, which, if set, cause
+Xcontrol and meta-characters
+Xrespectively 
+Xto be
+Xoutput unchanged;
+Xotherwise they are shown as sequences of printable characters.
+X.LP
+XTabs are normally displayed as a series of spaces of the appropriate
+Xlength (according to the \fBtabstops\fP parameter);
+Xsetting \fBlist\fP mode will cause them to be displayed as control
+Xcharacters, as will unsetting the \fBtabs\fP parameter.
+XHow the tab character is displayed is then under the control of
+Xthe \fBcchars\fP parameter.
+X.LP
+XYou can use the
+X.B ^_
+X(control-underscore) command to flip the
+Xtop bit of the character the cursor is on.
+XThis may be useful on systems where it is otherwise impossible
+Xto enter 8-bit characters.
+X.SS "File formats"
+X.LP
+X.B Xvi
+Xcan read and write text files in non-Unix formats.
+XThe current format is given by the value of the
+X.B format
+Xparameter, which
+Xmay be set to "\fBunix\fP", "\fBmsdos\fP", etc.
+XTo see a list of available formats, type
+X.IP
+X.B ":se fmt=?"
+X.SS "Extended regular expressions"
+X.LP
+X.BR vi 's
+X.B magic
+Xparameter is superseded by the
+X.B regextype
+Xparameter,
+Xwhich can take the following values:
+X.IP \fBtags\fP
+Xonly
+X.B ^
+Xand
+X.B $
+Xare significant (used for tags)
+X.IP \fBgrep\fP
+Xlike
+X.BR grep (1),
+Xbut with
+X.B \e\^<
+Xand
+X.B \e\|\^>
+Xadded
+X.IP \fBegrep\fP
+Xlike
+X.BR egrep (1),
+Xbut with
+X.B \e\^<
+Xand
+X.B \e\|\^>
+Xadded
+X.LP
+XThe default is
+X.BR grep .
+X.LP
+XNote that it is still possible to set or unset \fBmagic\fP
+Xas in \fBvi\fP; this will simply result in \fBregextype\fP
+Xbeing set as appropriate.
+X.LP
+XThe \fBsections\fP and \fBparagraphs\fP parameters define
+X.BR egrep -style
+Xpatterns to search for, rather than
+X.BR vi 's
+Xsimplistic (and
+X.BR troff -dependent)
+Xcharacter pairs.
+X.SS "Improved replace mode"
+X.LP
+XThe
+X.B R
+Xcommand acts more intelligently when you press return \(em
+Xit leaves the rest of the current line alone,
+Xand just starts
+Xreplacing text on the next line,
+Xstarting at the screen column
+Xwhere you first typed
+X.BR R .
+X.SS "Command re-execution"
+X.LP
+XAs well as the normal named (conjugate) buffers,
+Xand the default one (named
+X.BR @ ),
+Xthere exist several extra ones named
+X.BR : ,
+X.BR / ,
+X.B ?
+Xand
+X.BR ! ,
+Xwhich contain the last command lines typed to each of the given
+Xcommands.
+XSo for instance,
+X.B @:
+Xwill re-execute the last \fBex\fP command, or you can insert
+Xit into your buffer, edit it and then re-execute it (e.g. with
+X.BR dd\^@@ ).
+X.SS Jumpscroll
+XWhen multiple windows are used,
+X.B xvi
+Xnormally has to be able to scroll individual windows
+Xwithout scrolling the whole screen.
+XThis can be very inefficient
+Xon terminals
+Xwithout
+Xscrolling regions,
+Xso the
+X.B jumpscroll
+Xparameter
+Xis provided to control the editor's scrolling behaviour.
+XIt can be set to one of:
+X.TP
+X.B off
+XWhen the cursor moves outside a window's boundaries,
+Xand the new position is near enough,
+Xthe window will scroll to the new position.
+X.TP
+X.B on
+XWhen the cursor moves outside a window's boundaries,
+Xthe window will always jump to the new position.
+X.TP
+X.B auto
+XA window will scroll only if it can do so efficiently;
+Xotherwise it will jump.
+X.LP
+XThe default value is
+X.BR auto .
+X.LP
+XOn ISA-type systems which have memory-mapped displays,
+Xhardware character generators
+Xand reasonably fast processors,
+X.B jumpscroll
+Xshould generally be set to
+X.BR off ;
+Xhowever,
+Xon LCD screens or other displays with a long image persistence,
+Xthis may actually make the text more difficult to read,
+Xand many users may be more comfortable with it turned
+X.BR on .
+X.LP
+XExplicit scroll commands (e.g.
+X.B ^D
+Xand
+X.BR ^E )
+Xare not affected by
+Xthe \fBjumpscroll\fP parameter.
+X.SS Colour
+X.LP
+XThere are four new parameters to control screen colours:
+X.ta 1.25i
+X.LP
+X\fBcolour\fP	colour used for text
+X.LP
+X\fBstatuscolour\fP	colour used for status lines
+X.LP
+X\fBroscolour\fP		as
+X.BR statuscolour ,
+Xbut for readonly files
+X.LP
+X\fBsystemcolour\fP	colour used for system mode
+X(i.e. subshells and after termination)
+X.LP
+X.DT
+XThese parameters are numeric, and the value means different
+Xthings on different operating systems.
+XOn Unix, it is an index into the
+X.BR termcap (5)
+Xentries "\fBc0\fP" to "\fBc9\fP",
+Xwhich are assumed to be colour-setting
+Xescape sequences if they are present.
+XIf they are not present,
+X"\fBso\fP"
+X(begin standout mode)
+Xand
+X"\fBse\fP"
+X(end standout mode)
+Xare used instead.
+XValues of 0 and 1 give normal text,
+Xwhereas 2 and above give standout mode.
+X.LP
+XThe default colour for
+Xthe
+X.B roscolour
+Xparameter will generally involve red
+Xif colours are available;
+Xthis is intended
+Xto provide a warning to the user that writing the file
+Xmay not be possible.
+X.SS "On-line help"
+X.LP
+XA primitive help facility is available; the
+X.B :help
+Xcommand
+Xsimply creates a new
+Xbuffer window on to a standard help file.
+XThe name of the file which is edited
+Xis given by the
+X.B helpfile
+Xstring parameter;
+Xthe default on Unix versions is
+X\fB"/usr/lib/xvi.help"\fP.
+XNote that the help file buffer will be marked "not editable"
+Xwhen it is created, which prevents accidental overwriting
+Xof the help file even when the file permissions would allow it.
+X.SS Miscellaneous
+X.LP
+XThe command
+X.B :wn
+X(write file and edit next) is provided, as in \fBPC-vi\fP.
+X.LP
+XThe new
+X.B edit
+Xparameter controls whether a buffer can be modified.
+XThis may be used to implement a nicer version of
+X.BR view (1)
+Xthan the
+Xstandard
+X.B vi
+Xversion, since it won't fool you into thinking that editing
+Xthe buffer is in any way safe.
+XBe warned:
+Xonce having set
+X.BR noedit ,
+Xit is not possible to do a
+X.B ":set edit"
+Xany more.
+XIt's a one-way street.
+X.LP
+XIn insert and replace modes,
+X.B ^A
+Xhas the same meaning as
+X.B ^@
+Xin vi, except that it
+Xworks at any time,
+Xnot just for the first character.
+XAlso, typing
+X.BI ^B x
+Xwhere
+X.I x
+Xis the name of a conjugate buffer, inserts the contents of that
+Xbuffer into the input stream at that point.
+XThe buffer named 
+X.B <
+Xalways contains the last thing inserted,
+Xso that
+X.B ^B<
+Xis the same as
+X.BR ^A .
+X.SH LIMITATIONS
+X.SS "Ex mode"
+X.LP
+XThe main area in which \fBxvi\fP is lacking is \fBvi\fP's
+X.B ex
+Xmode,
+Xwhich is not implemented at all (and neither are \fBedit\fP, \fBe\fP,
+Xor \fBopen\fP modes).
+XHowever, many of the \fBex\fP commands are available in
+X.B vi
+Xmode
+Xas colon commands;
+Xthe colon commands that have not been implemented
+Xare mostly those which offer
+Xthe same functionality as other commands in \fBvi\fP mode.
+X.LP
+XIn particular,
+X.BR abbreviate ,
+X.BR append ,
+X.BR change ,
+X.BR ex ,
+X.BR insert ,
+X.BR join ,
+X.BR open ,
+X.BR recover ,
+X.BR unabbreviate ,
+X.BR undo ,
+X.BR write>> ,
+X.B z
+Xand
+X.B |
+Xhave not been implemented as colon commands yet.
+X.SS "Vi mode"
+X.LP
+XIn
+X.B vi
+Xmode, the
+X.B U
+Xand
+X.B =
+Xcommands are not implemented,
+Xalthough there is no real reason why they shouldn't be,
+Xwhilst
+X.B Q
+Xis inappropriate in the context of
+X.BR xvi ,
+Xsince there is no
+X.B ex
+Xmode.
+X.SS Parameters
+X.LP
+XMany of
+X.BR vi 's
+Xparameters
+Xhave not been implemented;
+Xthe command
+X.B ":se all"
+Xgives a complete list, with current values,
+Xof those that have been.
+X.SS Miscellaneous
+X.LP
+XRepeat counts before insertions don't work.
+X.LP
+XAppending to named buffers is not yet implemented.
+X.LP
+XTyping \fB^Q\fP in input mode does not mean the same as \fB^V\fP;
+Xit just inserts a `\fB^Q\fR', assuming it gets as far as the editor at all.
+X.LP
+XTyping \fB^W\fP in insert mode does not back up one word as in \fBvi\fP.
+X.LP
+XIt is not possible to interrupt the editor while it is
+Xperforming certain operations.
+XIf you start off a big global command, you have to wait for it to finish.
+X.LP
+XFlags and counts after \fBex\fP mode commands are not supported.
+X.LP
+XIt is not possible to read the output of a system command using
+X.IP
+X\fB:r\ !\fP\fIcommand\fP
+X.LP
+Xor to write into a command using
+X.IP
+X\fB:w\ !\fP\fIcommand\fP.
+X.LP
+XRegular expressions, although implemented (see above),
+Xdo not support the \fB~\fP metacharacter;
+Xalso, the \fB\e\^u\fP and \fB\e\^l\fP escape sequences are not supported in
+Xsubstitute replacement patterns.
+XNewlines included on the right hand side of a substitution
+Xdo not currently cause the line to be split;
+Xthe newline character is literally inserted into the line.
+X.LP
+XThe \fB:global\fP command only supports the commands [\fBlps&~d\fP].
+X.SH "OTHER DIFFERENCES FROM VI"
+XThe
+X.B XVINIT
+Xenvironment variable is read instead of
+X.BR EXINIT .
+XWhilst no files are sourced
+Xautomatically,
+Xusers who wish to have a startup file can arrange it very easily.
+X.BR sh (1)
+Xor
+X.BR ksh (1)
+Xusers should add this line to their
+X.BR "$HOME/.profile" :
+X.IP
+X.BI "XVINIT=\(fmsource " xvi-startup-file "\(fm; export XVINIT"
+X.LP
+X.BR csh (1)
+Xusers should add this to their
+X.BR "$HOME/.login" :
+X.IP
+X.BI "setenv XVINIT \(fmsource " xvi-startup-file \(fm
+X.LP
+XThe \fBtags\fP parameter can be used to specify multiple tags files;
+Xthese can be separated by either
+X``\^\e\ \|''
+X(backslash space) or
+X``,''
+X(comma).
+X.LP
+XAlternate files are handled slightly differently,
+Xowing to the presence of buffer and window handling.
+XEssentially, when you close a buffer, its filename
+Xis remembered as the alternate file;
+Xwhen you invoke the \fB^^\fP or \fB:e\ #\fP commands,
+Xthis file is re-edited.
+XNote that \fB^^\fP edits the alternate file in a new buffer window,
+Xif \fBautosplit\fP allows.
+X.LP
+XHitting the escape key while in the command line does not terminate input;
+Xinstead, it cancels input, returning the prompt to the beginning
+Xof the line.
+XThis applies to input for
+X.BR : ,
+X.BR / ,
+X.B ?
+Xand
+X.BR ! .
+X.SH "FILES"
+X.DS
+X.ta 1.5i
+X\fB/usr/lib/xvi.help\fP	Default help file.
+X.DE
+X.SH "SEE ALSO"
+X.BR ex (1),
+X.BR vi (1),
+X.BR termcap (5).
+X.br
+X.IR "Summary of Differences between Vi and Xvi" .
+X.SH BUGS
+X.IP \(bu
+XWhen the cursor is on the last word of a buffer,
+Xthe command
+X.B dw 
+Xleaves the last character of the word undeleted.
+X.IP \(bu
+XSome screen updates do not get shown properly when buffers are split,
+Xand certain commands (e.g.
+X.BR x )
+Xare executed.
+X.IP \(bu
+XIf you do something like
+X\fBcf.WORD\fR\^<\^\fIesc\fR\^>
+Xand then redo it, and the
+X.B f.
+Xfails, then the
+X\fBWORD\fR\^<\^\fIesc\fR\^>
+Xgets taken as normal input.
+XThe rest of the input should really be cancelled when part of a redo fails.
+X.IP \(bu
+XA command of the form
+X.B :/pat/;+1m.
+Xwill not work because the
+Xeditor incorrectly detects a conflict between source and destination.
+X.IP \(bu
+XThe editor
+Xin its present form
+Xis very inefficient in terms of CPU cycles.
+X.IP \(bu
+XMost
+X.BR termcap (5)
+Xterminal descriptions are only tested with
+X.BR vi (1)
+X(and possibly
+X.BR rogue (6)).
+XSince
+X.B xvi
+Xis, in some ways, more demanding than
+X.B vi
+Xin its use of
+X.B termcap
+Xcapabilities, it sometimes exposes bugs or inadequacies in
+X.B termcap
+Xentries.
+XThis applies especially to scrolling regions.
+X.SH AVAILABILITY
+X.LP
+X.B Xvi
+Xhas been ported to \%MS-DOS, OS/2, QNX and many different versions of Unix.
+XSource code is available from the authors.
+X.SH AUTHORS
+X.LP
+XChris and John Downey.
+X.LP
+XDerived from STEVIE, written by Tim Thompson and Tony Andrews.
+END_OF_FILE
+  if test 14933 -ne `wc -c <'xvi/doc/xvi.1'`; then
+    echo shar: \"'xvi/doc/xvi.1'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/doc/xvi.1'
+fi
+if test -f 'xvi/src/edit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/edit.c'\"
+else
+  echo shar: Extracting \"'xvi/src/edit.c'\" \(13730 characters\)
+  sed "s/^X//" >'xvi/src/edit.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)edit.c	2.4 (Chris & John Downey) 8/26/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    edit.c
+X* module function:
+X    Insert and replace mode handling.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	void	end_replace P((int));
+X
+X/*
+X * Position of start of insert. This is used
+X * to prevent backing up past the starting point.
+X */
+Xstatic	Posn	Insertloc;
+X
+X/*
+X * This flexbuf is used to hold the current insertion text.
+X */
+Xstatic	Flexbuf	Insbuff;
+X
+X/*
+X * Replace-mode stuff.
+X */
+Xstatic	enum	{
+X		replace_one,	/* replace command was an 'r' */
+X		got_one,	/* normal ending state for replace_one */
+X		overwrite	/* replace command was an 'R' */
+X}		repstate;
+X
+Xstatic	char	*saved_line;	/*
+X				 * record of old line before replace
+X				 * started; note that, if
+X				 * (repstate != overwrite), this
+X				 * should never be referenced.
+X				 */
+Xstatic	int	nchars;		/* no of chars in saved_line */
+Xstatic	int	start_index;	/* index into line where we entered replace */
+Xstatic	int	start_column;	/* virtual col corresponding to start_index */
+X
+X/*
+X * Process the given character, in insert mode.
+X */
+Xbool_t
+Xi_proc(c)
+Xint	c;
+X{
+X    register Posn	*curpos;
+X    static bool_t	literal_next = FALSE;
+X    static bool_t	wait_buffer = FALSE;
+X
+X    curpos = curwin->w_cursor;
+X
+X    if (wait_buffer || (!literal_next && c == CTRL('A'))) {
+X	/*
+X	 * Add contents of named buffer, or the last
+X	 * insert buffer if CTRL('A') was typed.
+X	 */
+X	if (!wait_buffer) {
+X	    c = '<';
+X	}
+X	yp_stuff_input(curwin, c, TRUE);
+X	wait_buffer = FALSE;
+X	return(FALSE);
+X
+X    } else if (!literal_next) {
+X	/*
+X	 * This switch is for special characters; we skip over
+X	 * it for normal characters, or for literal-next mode.
+X	 */
+X	switch (c) {
+X	case ESC:	/* an escape ends input mode */
+X	{
+X	    char	*cltext;
+X
+X	    cltext = curpos->p_line->l_text;
+X
+X	    curwin->w_set_want_col = TRUE;
+X
+X	    /*
+X	     * If there is only auto-indentation
+X	     * on the current line, delete it.
+X	     */
+X	    if (curpos->p_index == indentchars &&
+X		cltext[indentchars] == '\0') {
+X		replchars(curwin, curpos->p_line, 0, indentchars, "");
+X		begin_line(curwin, FALSE);
+X	    }
+X	    indentchars = 0;
+X
+X	    /*
+X	     * The cursor should end up on the last inserted
+X	     * character. This is an attempt to match the real
+X	     * 'vi', but it may not be quite right yet.
+X	     */
+X	    while (one_left(curwin, FALSE) &&
+X				gchar(curwin->w_cursor) == '\0') {
+X		;
+X	    }
+X
+X	    State = NORMAL;
+X
+X	    end_command(curwin);
+X
+X	    (void) yank_str('<', flexgetstr(&Insbuff), FALSE);
+X	    flexclear(&Insbuff);
+X
+X	    if (!(echo & e_CHARUPDATE)) {
+X		echo |= e_CHARUPDATE;
+X		move_window_to_cursor(curwin);
+X		cursupdate(curwin);
+X	    }
+X	    update_buffer(curbuf);
+X	    return(TRUE);
+X	}
+X
+X	case CTRL('T'):
+X	case CTRL('D'):
+X	    /*
+X	     * If we're at the beginning of the line, or just
+X	     * after autoindent characters, move one shiftwidth
+X	     * left (CTRL('D')) or right (CTRL('T')).
+X	     */
+X	    if (curpos->p_index <= indentchars) {
+X		Line	*lp;
+X		int	ind;
+X
+X		lp = curpos->p_line;
+X		ind = get_indent(curpos->p_line);
+X		ind += (c == CTRL('D') ? (ind < Pn(P_shiftwidth) ?
+X					     -ind :
+X					     -Pn(P_shiftwidth)) :
+X					Pn(P_shiftwidth));
+X		indentchars = set_indent(lp, ind);
+X		move_cursor(curwin, curpos->p_line, indentchars);
+X		cursupdate(curwin);
+X		updateline(curwin);
+X		(void) flexaddch(&Insbuff, c);
+X	    } else {
+X		beep(curwin);
+X	    }
+X	    return(TRUE);
+X
+X	case '\b':
+X	case DEL:
+X	    /*
+X	     * Can't backup past starting point.
+X	     */
+X	    if (curpos->p_line == Insertloc.p_line &&
+X			    curpos->p_index <= Insertloc.p_index) {
+X		beep(curwin);
+X		return(TRUE);
+X	    }
+X
+X	    /*
+X	     * Can't backup to a previous line.
+X	     */
+X	    if (curpos->p_line != Insertloc.p_line && curpos->p_index <= 0) {
+X		beep(curwin);
+X		return(TRUE);
+X	    }
+X	    (void) one_left(curwin, FALSE);
+X	    if (curpos->p_index < indentchars)
+X		indentchars--;
+X	    replchars(curwin, curpos->p_line, curpos->p_index, 1, "");
+X	    (void) flexaddch(&Insbuff, '\b');
+X	    cursupdate(curwin);
+X	    if (curwin->w_col == 0) {
+X		/*
+X		 * Make sure backspacing over a physical line
+X		 * break updates the screen correctly.
+X		 */
+X		update_buffer(curbuf);
+X	    } else {
+X		updateline(curwin);
+X	    }
+X	    return(TRUE);
+X
+X	case '\r':
+X	case '\n':
+X	    {
+X		int	i;
+X		int	previndex;
+X		Line	*prevline;
+X
+X		(void) flexaddch(&Insbuff, '\n');
+X
+X		i = indentchars;
+X		prevline = curpos->p_line;
+X		previndex = curpos->p_index;
+X
+X		if (openfwd(TRUE) == FALSE) {
+X		    stuff("%c", ESC);
+X		    show_error(curwin,
+X			    "No buffer space - returning to command mode");
+X		    return(TRUE);
+X		}
+X
+X		/*
+X		 * If the previous line only had
+X		 * auto-indent on it, delete it.
+X		 */
+X		if (i == previndex) {
+X		    replchars(curwin, prevline, 0, i, "");
+X		}
+X
+X		move_window_to_cursor(curwin);
+X		cursupdate(curwin);
+X		update_buffer(curbuf);
+X	    }
+X	    return(TRUE);
+X
+X	case CTRL('B'):
+X	    wait_buffer = TRUE;
+X	    return(FALSE);
+X	    break;
+X
+X	case CTRL('V'):
+X	    (void) flexaddch(&Insbuff, CTRL('V'));
+X	    literal_next = TRUE;
+X	    return(FALSE);
+X	}
+X    }
+X
+X    /*
+X     * If we get here, we want to insert the character into the buffer.
+X     */
+X
+X    /*
+X     * We may already have been in literal-next mode.
+X     * Careful not to reset this until after we need it.
+X     */
+X    literal_next = FALSE;
+X
+X    /*
+X     * Deal with wrapmargin.
+X     *
+X     * OK, so it isn't really right yet.
+X     */
+X    if ((c == ' ' || c == '\t') && Pn(P_wrapmargin) != 0 &&
+X	curwin->w_cursor->p_index >= curwin->w_ncols - Pn(P_wrapmargin)) {
+X	(void) i_proc('\n');
+X	/*
+X	 * We shouldn't really be putting the newline
+X	 * in the redo buffer, so we change it to the
+X	 * character we actually got.
+X	 */
+X	flexrmchar(&Insbuff);
+X	(void) flexaddch(&Insbuff, c);
+X	return(TRUE);
+X    }
+X
+X    /*
+X     * Do the actual insertion of the new character.
+X     */
+X    replchars(curwin, curpos->p_line, curpos->p_index, 0, mkstr(c));
+X
+X    /*
+X     * Update the screen.
+X     */
+X    s_inschar(curwin, c);
+X    updateline(curwin);
+X
+X    /*
+X     * Put the character into the insert buffer.
+X     */
+X    (void) flexaddch(&Insbuff, c);
+X
+X    /*
+X     * If showmatch mode is set, check for right parens
+X     * and braces. If there isn't a match, then beep.
+X     * If there is a match AND it's on the screen,
+X     * flash to it briefly.
+X     *
+X     * These characters included to make this
+X     * source file work okay with showmatch: [ { (
+X     */
+X    if (Pb(P_showmatch) && (c == ')' || c == '}' || c == ']')) {
+X	Posn	*lpos, csave;
+X
+X	lpos = showmatch();
+X	if (lpos == NULL) {
+X	    beep(curwin);
+X	} else if (!earlier(lpos->p_line, curwin->w_topline) &&
+X		       earlier(lpos->p_line, curwin->w_botline)) {
+X	    /*
+X	     * Show the match if it's on screen.
+X	     */
+X	    update_buffer(curbuf);
+X
+X	    csave = *curpos;
+X	    move_cursor(curwin, lpos->p_line, lpos->p_index);
+X	    cursupdate(curwin);
+X	    wind_goto(curwin);
+X
+X	    delay();
+X
+X	    move_cursor(curwin, csave.p_line, csave.p_index);
+X	    cursupdate(curwin);
+X	}
+X    }
+X
+X    /*
+X     * Finally, move the cursor right one space.
+X     */
+X    (void) one_right(curwin, TRUE);
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * This function is the interface provided for functions in
+X * normal mode to go into insert mode. We only come out of
+X * insert mode when the user presses escape.
+X *
+X * The parameter is a flag to say whether we should start
+X * at the start of the line.
+X *
+X * Note that we do not have to call start_command() as the
+X * caller does that for us - this is so the caller can include
+X * any other stuff (e.g. an initial delete) into the command.
+X */
+Xvoid
+Xstartinsert(startln)
+Xint	startln;	/* if set, insert point really at start of line */
+X{
+X    Insertloc = *curwin->w_cursor;
+X    if (startln)
+X	Insertloc.p_index = 0;
+X    flexclear(&Insbuff);
+X    State = INSERT;
+X}
+X
+X/*
+X * Process the given character, in replace mode.
+X */
+Xbool_t
+Xr_proc(c)
+Xint	c;
+X{
+X    Posn		*curpos;
+X    static bool_t	literal_next = FALSE;
+X    static bool_t	wait_buffer = FALSE;
+X
+X    curpos = curwin->w_cursor;
+X
+X    if (wait_buffer || (!literal_next && c == CTRL('A'))) {
+X	/*
+X	 * Add contents of named buffer, or the last
+X	 * insert buffer if CTRL('A') was typed.
+X	 */
+X	if (!wait_buffer) {
+X	    c = '<';
+X	}
+X	yp_stuff_input(curwin, c, TRUE);
+X	wait_buffer = FALSE;
+X	return(FALSE);
+X
+X    } else if (!literal_next) {
+X	switch (c) {
+X	case ESC:			/* an escape ends input mode */
+X	    end_replace(c);
+X	    return(TRUE);
+X
+X	case '\b':			/* back space */
+X	case DEL:
+X	    if (repstate == overwrite &&
+X		curwin->w_virtcol > start_column) {
+X		(void) one_left(curwin, FALSE);
+X		replchars(curwin, curpos->p_line,
+X				curpos->p_index, 1,
+X				(curpos->p_index < nchars) ?
+X				mkstr(saved_line[curpos->p_index]) : "");
+X		updateline(curwin);
+X		(void) flexaddch(&Insbuff, '\b');
+X	    } else {
+X		beep(curwin);
+X		if (repstate == replace_one) {
+X		    end_replace(c);
+X		}
+X	    }
+X	    return(TRUE);
+X
+X	case K_LARROW:			/* left arrow */
+X	    if (repstate == overwrite && curwin->w_virtcol > start_column &&
+X						one_left(curwin, FALSE)) {
+X		(void) flexaddch(&Insbuff, c);
+X		return(TRUE);
+X	    } else {
+X		beep(curwin);
+X		if (repstate == replace_one) {
+X		    end_replace(c);
+X		}
+X		return(FALSE);
+X	    }
+X
+X	case K_RARROW:			/* right arrow */
+X	    if (repstate == overwrite && one_right(curwin, FALSE)) {
+X		(void) flexaddch(&Insbuff, c);
+X		return(TRUE);
+X	    } else {
+X		beep(curwin);
+X		if (repstate == replace_one) {
+X		    end_replace(c);
+X		}
+X		return(FALSE);
+X	    }
+X
+X	case '\r':			/* new line */
+X	case '\n':	
+X	    if (curpos->p_line->l_next == curbuf->b_lastline &&
+X					    repstate == overwrite) {
+X		/*
+X		 * Don't allow splitting of last line of
+X		 * buffer in overwrite mode. Why not?
+X		 */
+X		beep(curwin);
+X		return(TRUE);
+X	    }
+X
+X	    if (repstate == replace_one) {
+X		echo &= ~e_CHARUPDATE;
+X		if (openfwd(TRUE) == FALSE) {
+X		    show_error(curwin, "No buffer space!");
+X		    return(TRUE);
+X		}
+X
+X		(void) flexaddch(&Insbuff, c);
+X
+X		/*
+X		 * Having split the line, we must
+X		 * delete the character which was
+X		 * supposed to be replaced with
+X		 * the newline.
+X		 */
+X		replchars(curwin, curpos->p_line, curpos->p_index, 1, "");
+X		repstate = got_one;
+X		end_replace('\n');
+X
+X	    } else {
+X		(void) flexaddch(&Insbuff, '\n');
+X
+X		(void) onedown(curwin, 1L);
+X
+X		/*
+X		 * This is wrong, but it's difficult
+X		 * to get it right.
+X		 */
+X		coladvance(curwin, start_column);
+X
+X		free(saved_line);
+X		saved_line = strsave(curpos->p_line->l_text);
+X		if (saved_line == NULL) {
+X		    State = NORMAL;
+X		    return(TRUE);
+X		}
+X		nchars = strlen(saved_line);
+X	    }
+X
+X	    return(TRUE);
+X
+X	case CTRL('B'):
+X	    wait_buffer = TRUE;
+X	    return(FALSE);
+X	    break;
+X
+X	case CTRL('V'):	
+X	    (void) flexaddch(&Insbuff, CTRL('V'));
+X	    literal_next = TRUE;
+X	    return(TRUE);
+X	}
+X    }
+X
+X    /*
+X     * If we get here, we want to insert the character into the buffer.
+X     */
+X
+X    /*
+X     * We may already have been in literal-next mode.
+X     * Careful not to reset this until after we need it.
+X     */
+X    literal_next = FALSE;
+X
+X    /*
+X     * Put the character into the insert buffer.
+X     */
+X    (void) flexaddch(&Insbuff, c);
+X
+X    if (repstate == overwrite || repstate == replace_one) {
+X	replchars(curwin, curpos->p_line, curpos->p_index, 1, mkstr(c));
+X	updateline(curwin);
+X	(void) one_right(curwin, TRUE);
+X    }
+X
+X    /*
+X     * If command was an 'r', leave replace mode after one character.
+X     */
+X    if (repstate == replace_one) {
+X	repstate = got_one;
+X	end_replace(c);
+X    }
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * This function is the interface provided for functions in
+X * normal mode to go into replace mode. We only come out of
+X * replace mode when the user presses escape, or when they
+X * used the 'r' command and typed a single character.
+X *
+X * The parameter is the command character which took us into replace mode.
+X */
+Xvoid
+Xstartreplace(c)
+Xint	c;
+X{
+X    if (!start_command(curwin)) {
+X	return;
+X    }
+X    start_index = curwin->w_cursor->p_index;
+X    start_column = curwin->w_virtcol;
+X
+X    if (c == 'r') {
+X	repstate = replace_one;
+X	saved_line = NULL;
+X    } else {
+X	repstate = overwrite;
+X	saved_line = strsave(curwin->w_cursor->p_line->l_text);
+X	if (saved_line == NULL) {
+X	    beep(curwin);
+X	    end_command(curwin);
+X	    return;
+X	}
+X	nchars = strlen(saved_line);
+X
+X	/*
+X	 * Initialize Insbuff. Note that we don't do this if the
+X	 * command was 'r', because they might type ESC to abort
+X	 * the command, in which case we shouldn't change Insbuff.
+X	 */
+X	flexclear(&Insbuff);
+X
+X    }
+X    State = REPLACE;
+X}
+X
+Xstatic void
+Xend_replace(c)
+X    int	c;
+X{
+X    Posn	*curpos;
+X    char	*cltext;
+X
+X    curpos = curwin->w_cursor;
+X
+X    State = NORMAL;
+X    end_command(curwin);
+X
+X    /*
+X     * If (repstate == replace_one), they must have typed 'r', then
+X     * thought better of it & typed ESC; so we shouldn't complain or
+X     * change the buffer, the cursor position, or Insbuff.
+X     */
+X    if (repstate != replace_one) {
+X
+X	(void) yank_str('<', flexgetstr(&Insbuff), FALSE);
+X	flexclear(&Insbuff);
+X
+X	/*
+X	 * Free the saved line if necessary.
+X	 */
+X	if (repstate == overwrite) {
+X	    free(saved_line);
+X	}
+X
+X	/*
+X	 * The cursor should end up on the
+X	 * last replaced character.
+X	 */
+X	cltext = curpos->p_line->l_text;
+X	while (one_left(curwin, FALSE) && gchar(curwin->w_cursor) == '\0') {
+X	    ;
+X	}
+X
+X	if (!(echo & e_CHARUPDATE)) {
+X	    echo |= e_CHARUPDATE;
+X	    move_window_to_cursor(curwin);
+X	    cursupdate(curwin);
+X	}
+X	update_buffer(curbuf);
+X    }
+X}
+X
+Xchar *
+Xmkstr(c)
+Xint	c;
+X{
+X    static	char	s[2];
+X
+X    s[0] = c;
+X    s[1] = '\0';
+X
+X    return(s);
+X}
+END_OF_FILE
+  if test 13730 -ne `wc -c <'xvi/src/edit.c'`; then
+    echo shar: \"'xvi/src/edit.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/edit.c'
+fi
+if test -f 'xvi/src/termcap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/termcap.h'\"
+else
+  echo shar: Extracting \"'xvi/src/termcap.h'\" \(2356 characters\)
+  sed "s/^X//" >'xvi/src/termcap.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)termcap.h	2.1 (Chris & John Downey) 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    termcap.h
+X* module function:
+X    Definitions for termcap terminal interface module.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * Size of screen.
+X */
+Xextern	unsigned int	LI;
+Xextern	unsigned int	CO;
+X
+X#define Rows		LI
+X#define Columns 	CO
+X
+X/*
+X * Standout glitch - see termcap.c.
+X */
+Xextern	int		SG;
+X
+X#define SLINE_GLITCH	((unsigned int) SG)
+X
+X/*
+X * For the moment, inchar just maps to the routine provided
+X * by the system interface module.
+X */
+X#define inchar(t)	inch(t)
+X
+X/*
+X * There are no termcap capabilities for these:
+X */
+X#define invis_cursor()		/* invisible cursor (very optional) */
+X#define vis_cursor()		/* visible cursor (very optional) */
+X
+X/*
+X * In the current implementation, this doesn't have to do anything.
+X */
+X#define tty_close()
+X
+Xextern	int		cost_goto;	/* cost of using tty_goto() */
+X
+Xextern	bool_t		can_scroll_area;/* true if has scroll regions */
+Xextern	bool_t		can_del_line;	/* true if we can delete lines */
+Xextern	bool_t		can_ins_line;	/* true if we can insert lines */
+Xextern	bool_t		can_inschar;	/* true if we can insert characters */
+X
+X/*
+X * Colour handling is possible if we have termcap,
+X * using the entries c0 .. c9 (not documented).
+X */
+X#define DEF_SYSCOLOUR	0
+X#define DEF_COLOUR	1
+X#define DEF_STCOLOUR	2
+X#define DEF_ROSCOLOUR	3
+X
+Xextern	void		outchar P((int c));
+Xextern	void		outstr P((char *s));
+Xextern	void		alert P((void));
+Xextern	void		flush_output P((void));
+Xextern	void		set_colour P((int c));
+Xextern	void		tty_goto P((int row, int col));
+Xextern	void		tty_linefeed P((void));
+Xextern	void		insert_line P((void));
+Xextern	void		delete_line P((void));
+Xextern	void		inschar P((int));
+Xextern	void		erase_line P((void));
+Xextern	void		erase_display P((void));
+Xextern	void		scroll_up P((int start_row, int end_row, int nlines));
+Xextern	void		scroll_down P((int start_row, int end_row, int nlines));
+Xextern	void		tty_open P((unsigned int *, unsigned int *));
+Xextern	void		tty_startv P((void));
+Xextern	void		tty_endv P((void));
+END_OF_FILE
+  if test 2356 -ne `wc -c <'xvi/src/termcap.h'`; then
+    echo shar: \"'xvi/src/termcap.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/termcap.h'
+fi
+if test -f 'xvi/src/unix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/unix.c'\"
+else
+  echo shar: Extracting \"'xvi/src/unix.c'\" \(20793 characters\)
+  sed "s/^X//" >'xvi/src/unix.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)unix.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    unix.c
+X* module function:
+X    System interface routines for all versions of UNIX.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#ifndef SIGINT
+X#   include <signal.h>		/* get signals for call_shell() */
+X#endif
+X
+X#ifdef	BSD
+X#   include <sys/wait.h>	/* get wait stuff for call_shell() */
+X    typedef	union wait Wait_t;
+X#else
+X    typedef	int Wait_t;
+X#endif
+X
+X/*
+X * CTRL is defined by sgtty.h (or by a file it includes)
+X * so we undefine it here to avoid conflicts with the
+X * version defined in "xvi.h".
+X */
+X#undef	CTRL
+X
+X#ifdef	sun
+X#   ifndef TERMIOS
+X#	define	TERMIOS
+X#   endif
+X#endif
+X
+X#ifdef TERMIOS
+X#   ifndef TERMIO
+X#	define	TERMIO
+X#   endif
+X#endif
+X
+X#ifdef	TERMIO
+X#   ifdef	TERMIOS
+X#	include <termios.h>
+X   typedef struct termios	Termstate;
+X#	define getstate(p)	((void) tcgetattr(0, (p)))
+X#	define setstate(p)	((void) tcsetattr(0, TCSANOW, (p)))
+X#	define w_setstate(p)	((void) tcsetattr(0, TCSADRAIN, (p)))
+X#   else	/* no TERMIOS */
+X#	include <termio.h>
+X   typedef struct termio	Termstate;
+X#	define getstate(p)	((void) ioctl(0,TCGETA,(char *)(p)))
+X#	define setstate(p)	((void) ioctl(0,TCSETA,(char *)(p)))
+X#	define w_setstate(p)	((void) ioctl(0,TCSETAW,(char *)(p)))
+X#   endif	/* no TERMIOS */
+X
+X    /*
+X     * Table of line speeds ... exactly 16 long, and the CBAUD mask
+X     * is 017 (i.e. 15) so we will never access outside the array.
+X     */
+X    short	speeds[] = {
+X	/* B0 */	0,
+X	/* B50 */	50,
+X	/* B75 */	75,
+X	/* B110 */	110,
+X	/* B134 */	134,
+X	/* B150 */	150,
+X	/* B200 */	200,
+X	/* B300 */	300,
+X	/* B600 */	600,
+X	/* B1200 */	1200,
+X	/* B1800 */	1800,
+X	/* B2400 */	2400,
+X	/* B4800 */	4800,
+X	/* B9600 */	9600,
+X	/* EXTA */	19200,		/* not defined at V.2 */
+X	/* EXTB */	38400,		/* not defined at V.2 */
+X    };
+X
+X#else	/* not TERMIO */
+X
+X#   include <sgtty.h>
+X    typedef struct sgttyb	Termstate;
+X
+X    static	struct	tchars	ckd_tchars, raw_tchars;
+X    static	struct	ltchars	ckd_ltchars, raw_ltchars;
+X
+X#   ifdef FD_SET
+X#	define	fd_set_type	fd_set
+X#   else		/* FD_SET not defined */
+X	/*
+X	 * BSD 4.2 doesn't have these macros.
+X	 */
+X	typedef int fd_set_type;
+X#	define	FD_ZERO(p)	(*(p) = 0)
+X#	define	FD_SET(f,p)	(*(p) |= (1 << (f)))
+X#   endif		/* FD_SET not defined */
+X#endif	/* not TERMIO */
+X
+Xstatic	Termstate	cooked_state, raw_state;
+X
+X#undef	CTRL
+X
+X#ifdef	SETVBUF_AVAIL
+X    /*
+X     * Output buffer to save function calls.
+X     */
+X    static	char	outbuffer[128];
+X#endif
+X
+X#ifdef MEMTEST
+X#   include <sys/resource.h>
+X#endif		/* MEMTEST */
+X
+X/*
+X * Expected for termcap's benefit.
+X */
+Xshort		ospeed;			/* tty's baud rate */
+X
+X/*
+X * We sometimes use a lot of system calls while trying to read from
+X * the keyboard; these are needed to make our automatic buffer
+X * preservation and input timeouts work properly. Nevertheless, it
+X * is possible that, with this much overhead, a reasonably fast typist
+X * could get ahead of us, so we do a small amount of input buffering
+X * to reduce the number of system calls.
+X *
+X * This variable gives the number of characters in the buffer.
+X */
+Xstatic int	kb_nchars;
+X
+X/*
+X * Get a single byte from the keyboard.
+X *
+X * If the keyboard input buffer is empty, & read() fails or times out,
+X * return EOF.
+X */
+Xstatic int
+Xkbgetc()
+X{
+X    static unsigned char	kbuf[48];
+X    static unsigned char	*kbp;
+X
+X    if (kb_nchars <= 0) {
+X	int nread;
+X
+X	if ((nread = read(0, (char *) kbuf, sizeof kbuf)) <= 0) {
+X	    return EOF;
+X	} else {
+X	    kb_nchars = nread;
+X	    kbp = kbuf;
+X	}
+X    }
+X    --kb_nchars;
+X    return(*kbp++);
+X}
+X
+X#ifdef TERMIO
+X
+X/*
+X * Set a timeout on standard input. 0 means no timeout.
+X *
+X * This depends on raw_state having been properly initialized, which
+X * should have been done by sys_startv().
+X */
+Xstatic void
+Xinput_timeout(msec)
+Xlong	msec;
+X{
+X    int		vtime;
+X    static int	lastvtime;
+X
+X    /*
+X     * If the device state hasn't been changed since last time, we
+X     * don't need to do anything.
+X     */
+X    if ((vtime = (msec + 99) / 100) != lastvtime) {
+X	lastvtime = vtime;
+X	raw_state.c_cc[VMIN] = (vtime == 0 ? 1 : 0);
+X	raw_state.c_cc[VTIME] = vtime;
+X	setstate(&raw_state);
+X    }
+X}
+X
+X#endif	/* TERMIO */
+X
+X/*
+X * Get a character from the keyboard.
+X *
+X * Make sure screen is updated first.
+X */
+Xint
+Xinch(timeout)
+Xlong	timeout;
+X{
+X    int		c;
+X
+X    /*
+X     * If we had characters left over from last time, return one.
+X     *
+X     * Note that if this happens, we don't call flush_output().
+X     */
+X    if (kb_nchars > 0) {
+X	return(kbgetc());
+X    }
+X
+X    /*
+X     * Need to get a character. First, flush output to the screen.
+X     */
+X    flush_output();
+X
+X#ifdef TERMIO
+X    if (timeout != 0) {
+X	input_timeout(timeout);
+X	c = kbgetc();
+X	input_timeout(0L);
+X	return(c);
+X    }
+X#else	/* no TERMIO */
+X    if (timeout != 0) {
+X	struct timeval	tv;
+X	fd_set_type	readfds;
+X
+X	tv.tv_sec = (long) (timeout / 1000);
+X	tv.tv_usec = ((long) timeout * 1000) % (long) 1000000;
+X
+X	FD_ZERO(&readfds);
+X	FD_SET(0, &readfds);
+X
+X	/*
+X	 * If select does not return 0, some input is available
+X	 * (ignoring the possibility of errors). Otherwise, we
+X	 * timed out, so return EOF.
+X	 */
+X	if (select(1, &readfds, (fd_set_type *) NULL,
+X		    (fd_set_type *) NULL, &tv) == 0) {
+X	    return(EOF);
+X	}
+X    }
+X#endif	/* no TERMIO */
+X
+X    /*
+X     * Keep trying until we get at least one character.
+X     */
+X    while ((c = kbgetc()) == EOF)
+X	;
+X
+X    return(c);
+X}
+X
+X#if !(defined(__STDC__) || (defined(ultrix) && defined(mips)))
+X/*
+X * If we have ANSI C, we should have strerror() anyway. Also, Ultrix
+X * on DECStations provides it.
+X */
+Xconst char *
+Xstrerror(err)
+Xint	err;
+X{
+X    extern char	*sys_errlist[];
+X    extern int	sys_nerr;
+X
+X    return(
+X	err == 0 ?
+X	    "No error"
+X	    :
+X	    (err > 0 && err < sys_nerr) ?
+X		sys_errlist[err]
+X		:
+X		"Unknown error"
+X    );
+X}
+X
+X#endif /* !(defined(__STDC__) || (defined(ultrix) && defined(mips))) */
+X
+Xstatic int
+Xrunvp(args)
+Xchar	**args;
+X{
+X    int		pid;
+X    Wait_t	status;
+X
+X    pid = fork();
+X    switch (pid) {
+X    case -1:		/* fork() failed */
+X	return(-1);
+X
+X    case 0:			/* this is the child */
+X	(void) signal(SIGINT, SIG_DFL);
+X	(void) signal(SIGQUIT, SIG_DFL);
+X	(void) execvp(args[0], args);
+X
+X	/*
+X	 * Couldn't do it ... use standard output functions here
+X	 * because none of xvi's higher-level functions are usable
+X	 * from this module.
+X	 */
+X	(void) fputs("\007Can't execute ", stdout);
+X	(void) fputs(args[0], stdout);
+X	(void) fputs("\n(", stdout);
+X	(void) fputs(strerror(errno), stdout);
+X	(void) fputs(")\nHit return to continue", stdout);
+X	(void) fflush(stdout);
+X	(void) getc(stdin);
+X	exit(1);
+X
+X    default:		/* this is the parent */
+X	while (wait(&status) != pid)
+X	    ;
+X	return(0);
+X    }
+X}
+X
+Xint
+Xcall_shell(sh)
+Xchar	*sh;
+X{
+X    static char	*args[] = { NULL, NULL };
+X
+X    args[0] = sh;
+X    return(runvp(args));
+X}
+X
+Xint
+Xcall_system(command)
+Xchar	*command;
+X{
+X    static char	*args[] = { NULL, "-c", NULL, NULL };
+X
+X    if (Ps(P_shell) == NULL) {
+X	(void) puts("\007Can't execute command without SHELL parameter");
+X	return(-1);
+X    }
+X    args[0] = Ps(P_shell);
+X    args[2] = command;
+X    return(runvp(args));
+X}
+X
+X#ifdef ITIMER_REAL
+X    static int
+X    nothing()
+X    {
+X	return(0);
+X    }
+X#endif
+X
+X/*
+X * Delay for a short time - preferably less than 1 second.
+X * This is for use by showmatch, which wants to hold the
+X * cursor over the matching bracket for just long enough
+X * that it will be seen.
+X */
+Xvoid
+Xdelay()
+X{
+X#ifdef ITIMER_REAL
+X    struct itimerval	timer;
+X    
+X    (void) signal(SIGALRM, nothing);
+X
+X    /*
+X     * We want to pause for 200 msec (1/5th of a second) here,
+X     * as this seems like a reasonable figure. Note that we can
+X     * assume that the implementation will have defined tv_usec
+X     * of a type large enough to hold up to 999999, since that's
+X     * the largest number of microseconds we can possibly need.
+X     */
+X    timer.it_interval.tv_sec = 0;
+X    timer.it_interval.tv_usec = 0;
+X    timer.it_value.tv_sec = 0;
+X    timer.it_value.tv_usec = 200000;
+X    if (setitimer(ITIMER_REAL, &timer, (struct itimerval *) NULL) == -1)
+X	return;
+X    (void) pause();
+X
+X    timer.it_interval.tv_sec = 0;
+X    timer.it_interval.tv_usec = 0;
+X    (void) setitimer(ITIMER_REAL, &timer, (struct itimerval *) NULL);
+X#else /* not ITIMER_REAL */
+X    sleep(1);
+X#endif /* not ITIMER_REAL */
+X}
+X
+X/*
+X * Initialise the terminal so that we can do single-character
+X * input and output, with no strange mapping, and no echo of
+X * input characters.
+X *
+X * This must be done before any screen-based i/o is performed.
+X */
+Xvoid
+Xsys_init()
+X{
+X#ifdef	TIOCGWINSZ
+X    struct winsize	winsz;	/* for getting window wize */
+X#endif
+X
+X    /*
+X     * What the device driver thinks the window's dimensions are.
+X     */
+X    unsigned int	rows = 0;
+X    unsigned int	columns = 0;
+X
+X#ifdef MEMTEST
+X    {
+X	static struct rlimit dlimit = { 400 * 1024, 400 * 1024 };
+X
+X	(void) setrlimit(RLIMIT_DATA, &dlimit);
+X    }
+X#endif		/* MEMTEST */
+X
+X    /*
+X     * Set up tty flags in raw and cooked structures.
+X     * Do this before any termcap-initialisation stuff
+X     * so that start sequences can be sent.
+X     */
+X#ifdef	TERMIO
+X
+X    getstate(&cooked_state);
+X    raw_state = cooked_state;
+X#   ifdef   POSIX
+X	raw_state.c_oflag &= ~(OPOST
+X#	ifdef	ONLCR
+X				| ONLCR
+X#	endif
+X#	ifdef	OXTABS
+X				| OXTABS
+X#	endif
+X			    );
+X	raw_state.c_iflag &= ~(ICRNL | IGNCR | INLCR);
+X	raw_state.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL
+X#	ifdef	ECHOCTL
+X				| ECHOCTL
+X#	endif
+X#	ifdef	ECHOPRT
+X				| ECHOPRT
+X#	endif
+X#	ifdef	ECHOKE
+X				| ECHOKE
+X#	endif
+X			    );
+X#   else    /* not POSIX */
+X	/*
+X	 * Assume this is a Sun, but it might not be ...
+X	 */
+X	raw_state.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONLRET | XTABS);
+X	raw_state.c_iflag &= ~(ICRNL | IGNCR | INLCR);
+X	raw_state.c_lflag &= ~(ICANON | XCASE | ECHO | ECHOE | ECHOK |
+X		   ECHONL | ECHOCTL | ECHOPRT | ECHOKE);
+X#   endif
+X    raw_state.c_cc[VMIN] = 1;
+X    raw_state.c_cc[VTIME] = 0;
+X#   ifdef	TERMIOS
+X#	ifdef	    VDISCARD
+X	    raw_state.c_cc[VDISCARD] = 0;
+X#	endif
+X	raw_state.c_cc[VSUSP] = 0;
+X#   endif	/* TERMIOS */
+X
+X#else	/* not TERMIO */
+X
+X    /*
+X     * Probably a BSD system; we must
+X     *	turn off echo,
+X     *	set cbreak mode (not raw because we lose
+X     *		typeahead when switching modes),
+X     *	turn off tab expansion on output (in case termcap
+X     *		puts out any tabs in cursor motions etc),
+X     *	turn off CRMOD so we get \r and \n as they are typed,
+X     * and
+X     *	turn off nasty interrupt characters like ^Y so that
+X     *		we get the control characters we want.
+X     *
+X     * All this has to be put back as it was when we go into
+X     * system mode; a pain, but we have to get it right.
+X     */
+X    (void) ioctl(0, TIOCGETP, (char *) &cooked_state);
+X    raw_state = cooked_state;
+X    raw_state.sg_flags |= CBREAK;
+X    raw_state.sg_flags &= ~ (ECHO | XTABS | CRMOD);
+X
+X    (void) ioctl(0, TIOCGETC, (char *) &ckd_tchars);
+X    raw_tchars = ckd_tchars;
+X    raw_tchars.t_quitc = -1;
+X
+X    (void) ioctl(0, TIOCGLTC, (char *) &ckd_ltchars);
+X    raw_ltchars = ckd_ltchars;
+X    raw_ltchars.t_flushc = -1;
+X    raw_ltchars.t_lnextc = -1;
+X    raw_ltchars.t_suspc = -1;
+X    raw_ltchars.t_dsuspc = -1;
+X
+X#endif	/* not TERMIO */
+X
+X#ifdef	SETVBUF_AVAIL
+X    /*
+X     * Set output buffering to avoid calling _flsbuf()
+X     * for every character sent to the screen.
+X     */
+X    setvbuf(stdout, outbuffer, _IOFBF, sizeof(outbuffer));
+X#endif
+X
+X    /*
+X     * This is for termcap's benefit.
+X     */
+X#ifdef	TERMIO
+X#   ifdef	POSIX
+X	ospeed = cooked_state.c_ospeed;
+X#   else	/* not POSIX */
+X	ospeed = speeds[cooked_state.c_cflag & CBAUD];
+X#   endif
+X#else
+X    ospeed = cooked_state.sg_ospeed;
+X#endif
+X
+X#ifdef	TIOCGWINSZ
+X    /*
+X     * Find out how big the kernel thinks the window is.
+X     * These values (if they are non-zero) will override
+X     * any settings obtained by the terminal interface code.
+X     */
+X    (void) ioctl(0, TIOCGWINSZ, (char *) &winsz);
+X    rows = winsz.ws_row;
+X    columns = winsz.ws_col;
+X#else
+X    rows = columns = 0;
+X#endif
+X
+X    /*
+X     * Now set up the terminal interface.
+X     */
+X    tty_open(&rows, &columns);
+X
+X    /*
+X     * Go into raw/cbreak mode, and do any initialisation stuff.
+X     */
+X    sys_startv();
+X}
+X
+Xstatic enum { m_SYS = 0, m_VI = 1 } curmode;
+X
+X/*
+X * Set terminal into the mode it was in when we started.
+X *
+X * sys_endv() can be called when we're already in system mode, so we
+X * have to check.
+X */
+Xvoid
+Xsys_endv()
+X{
+X    if (curmode == m_SYS)
+X	return;
+X    tty_goto((int) Rows - 1, 0);
+X    set_colour(Pn(P_systemcolour));
+X    erase_line();
+X    tty_endv();
+X
+X    (void) fflush(stdout);
+X
+X    /*
+X     * Restore terminal modes.
+X     */
+X#ifdef	TERMIO
+X    w_setstate(&cooked_state);
+X#else
+X    (void) ioctl(0, TIOCSETN, (char *) &cooked_state);
+X    (void) ioctl(0, TIOCSETC, (char *) &ckd_tchars);
+X    (void) ioctl(0, TIOCSLTC, (char *) &ckd_ltchars);
+X#endif
+X    curmode = m_SYS;
+X}
+X
+X/*
+X * Set terminal to raw/cbreak mode.
+X */
+Xvoid
+Xsys_startv()
+X{
+X    if (curmode == m_VI)
+X	return;
+X#ifdef	TERMIO
+X    w_setstate(&raw_state);
+X#else
+X    (void) ioctl(0, TIOCSETN, (char *) &raw_state);
+X    (void) ioctl(0, TIOCSETC, (char *) &raw_tchars);
+X    (void) ioctl(0, TIOCSLTC, (char *) &raw_ltchars);
+X#endif
+X
+X    tty_startv();
+X
+X    set_colour(Pn(P_colour));
+X
+X    curmode = m_VI;
+X}
+X
+X/*
+X * "Safe" form of exit - doesn't leave the tty in yillruction mode.
+X */
+Xvoid
+Xsys_exit(code)
+Xint	code;
+X{
+X    sys_endv();
+X    tty_close();
+X    (void) fclose(stdin);
+X    (void) fclose(stdout);
+X    (void) fclose(stderr);
+X
+X    /*
+X     * This is desperation really.
+X     * On some BSD systems, calling exit() here produces a core dump.
+X     */
+X    _exit(code);
+X}
+X
+X/*
+X * This is a routine that can be passed to tputs() (in the termcap
+X * library): it does the same thing as putchar().
+X */
+Xvoid
+Xfoutch(c)
+Xint	c;
+X{
+X    putchar(c);
+X}
+X
+X/*
+X * Construct unique name for temporary file, to be used as a backup
+X * file for the named file.
+X */
+Xchar *
+Xtempfname(srcname)
+Xchar	*srcname;
+X{
+X    char	tailname[MAXNAMLEN + 1];
+X    char	*srctail;
+X    char	*endp;
+X    char	*retp;
+X    unsigned	headlen;
+X    unsigned	rootlen;
+X    unsigned	indexnum = 0;
+X
+X    if ((srctail = strrchr(srcname, '/')) == NULL) {
+X	srctail = srcname;
+X    } else {
+X	srctail++;
+X    }
+X    headlen = srctail - srcname;
+X
+X    /*
+X     * Make copy of filename's tail & change it from "wombat" to
+X     * "#wombat.tmp".
+X     */
+X    tailname [0] = '#';
+X    (void) strncpy(& tailname [1], srctail, sizeof tailname - 1);
+X    tailname [sizeof tailname - 1] = '\0';
+X    endp = tailname + strlen(tailname);
+X
+X    /*
+X     * Don't let name get too long.
+X     */
+X    if (endp > & tailname [sizeof tailname - 5]) {
+X	endp = & tailname [sizeof tailname - 5];
+X    }
+X    rootlen = endp - tailname;
+X
+X    /*
+X     * Now allocate space for new pathname.
+X     */
+X    retp = alloc(headlen + rootlen + 5);
+X    if (retp == NULL) {
+X	return(NULL);
+X    }
+X
+X    /*
+X     * Copy name to new storage, leaving space for ".tmp"
+X     * (or ".xxx") suffix ...
+X     */
+X    if (headlen > 0) {
+X	(void) memcpy(retp, srcname, (int) headlen);
+X    }
+X    (void) memcpy(&retp[headlen], tailname, (int) rootlen);
+X
+X    /*
+X     * ... & make endp point to the space we're leaving for the suffix.
+X     */
+X    endp = &retp[headlen + rootlen];
+X    strcpy(endp++, ".tmp");
+X    while (access(retp, 0) == 0) {
+X	/*
+X	 * Keep trying this until we get a unique file name.
+X	 */
+X	Flexbuf suffix;
+X
+X	flexnew(&suffix);
+X	(void) lformat(&suffix, "%03u", ++indexnum);
+X	(void) strncpy(endp, flexgetstr(&suffix), 3);
+X	flexdelete(&suffix);
+X    }
+X    return retp;
+X}
+X
+X/*
+X * Fork off children thus:
+X *
+X * [CHILD 1] --- pipe1 ---> [CHILD 2] --- pipe2 ---> [PARENT]
+X *    |                        |                        |
+X *    V                        V                        V
+X * writefunc                exec(cmd)                readfunc
+X *
+X * connecting the pipes to stdin/stdout as appropriate.
+X *
+X * We assume that on entry to this function, file descriptors 0, 1 and 2
+X * are already open, so we do not have to deal with the possibility of
+X * them being allocated as pipe descriptors.
+X */
+Xbool_t
+Xsys_pipe(cmd, writefunc, readfunc)
+Xchar	*cmd;
+Xint	(*writefunc) P((FILE *));
+Xlong	(*readfunc) P((FILE *));
+X{
+X    int		pd1[2], pd2[2];		/* descriptors for pipes 1 and 2 */
+X    int		pid1, pid2;		/* process ids for children 1 and 2 */
+X    int		died;
+X    int		retval;
+X    FILE	*fp;
+X    Wait_t	status;
+X    static char	*args[] = { NULL, "-c", NULL, NULL };
+X
+X    if (Ps(P_shell) == NULL) {
+X	return(FALSE);
+X    }
+X    args[0] = Ps(P_shell);
+X    args[2] = cmd;
+X
+X    /*
+X     * Initialise these values so we can work out what has happened
+X     * so far if we have to goto fail for any reason.
+X     */
+X    pd1[0] = pd1[1] = pd2[0] = pd2[1] = -1;
+X    pid1 = pid2 = -1;
+X
+X    if (pipe(pd1) == -1) {
+X	goto fail;
+X    }
+X
+X    switch (pid1 = fork()) {
+X    case -1:					/* error */
+X	goto fail;
+X
+X    case 0:					/* child 1 */
+X	/*
+X	 * Fdopen pipe1 to get a stream.
+X	 */
+X	(void) close(pd1[0]);
+X	fp = fdopen(pd1[1], "w");
+X	if (fp == NULL) {
+X	    exit(1);
+X	}
+X
+X	/*
+X	 * Call writefunc.
+X	 */
+X	(void) (*writefunc)(fp);
+X	(void) fclose(fp);
+X
+X	/*
+X	 * Our work is done.
+X	 */
+X	exit(0);
+X
+X    default:					/* parent */
+X	(void) close(pd1[1]);
+X	break;
+X    }
+X
+X    if (pipe(pd2) == -1) {
+X	goto fail;
+X    }
+X    switch (pid2 = fork()) {
+X    case -1:					/* error */
+X	goto fail;
+X
+X    case 0:						/* child 2 */
+X
+X	/*
+X	 * Rearrange file descriptors onto stdin/stdout/stderr.
+X	 */
+X	(void) close(pd1[1]);
+X	(void) close(pd2[0]);
+X
+X	(void) close(0);
+X	(void) dup(pd1[0]);		/* dup2(pd1[0], 0) */
+X	(void) close(pd1[0]);
+X
+X	(void) close(1);
+X	(void) dup(pd2[1]);		/* dup2(pd2[1], 1) */
+X	(void) close(pd2[1]);
+X
+X	(void) close(2);
+X	(void) dup(1);			/* dup2(1, 2) */
+X	
+X	/*
+X	 * Exec the command.
+X	 */
+X	(void) execvp(args[0], args);
+X	exit(1);
+X
+X    default:					/* parent */
+X	(void) close(pd1[0]);
+X	(void) close(pd2[1]);
+X	pd1[0] = pd2[1] = -1;
+X	fp = fdopen(pd2[0], "r");
+X	if (fp == NULL) {
+X	    goto fail;
+X	}
+X	(void) (*readfunc)(fp);
+X	(void) fclose(fp);
+X	break;
+X    }
+X
+X    /*
+X     * Finally, clean up the children.
+X     */
+X    retval = TRUE;
+X    goto cleanup;
+X
+Xfail:
+X    /*
+X     * Come here if anything fails (if we are the original process).
+X     * Close any open pipes and goto cleanup to reap the child processes.
+X     */
+X    if (pd1[0] >= 0) {
+X	(void) close(pd1[0]);
+X	(void) close(pd1[1]);
+X    }
+X    if (pd2[0] >= 0) {
+X	(void) close(pd2[0]);
+X	(void) close(pd2[1]);
+X    }
+X    retval = FALSE;
+X
+Xcleanup:
+X    /*
+X     * Come here whether or not we failed, to clean up the children ...
+X     */
+X#ifdef	WIFEXITED
+X#   define	FAILED(s)	(!WIFEXITED(s) || (s).w_retcode != 0)
+X#else
+X#   define	FAILED(s)	((s) != 0)
+X#endif
+X#ifndef WTERMSIG
+X#   ifdef   WIFSIGNALED
+X#	define	WTERMSIG(s)	(WIFSIGNALED(s) ? (s).w_termsig : 0)
+X#   else
+X#	define	WTERMSIG(s)	((s) & 0177)
+X#   endif
+X#endif
+X    while ((died = wait(&status)) != -1) {
+X	if (died == pid1 || died == pid2) {
+X	    /*
+X	     * If child 1 was killed with SIGPIPE -
+X	     * because child 2 exited before reading all
+X	     * of its input - it isn't necessarily an
+X	     * error.
+X	     */
+X	    if (
+X		FAILED(status)
+X		&&
+X		(
+X		    died == pid2
+X		    ||
+X		    WTERMSIG(status) != SIGPIPE
+X		)
+X	    ) {
+X		retval = FALSE;
+X	    }
+X	}
+X    }
+X
+X    return(retval);
+X}
+X
+Xchar *
+Xfexpand(name)
+Xchar	*name;
+X{
+X    static char	meta[] = "*?[]~${}`";
+X    char	*cp;
+X    int		pd[2];
+X    int		has_meta;
+X
+X    has_meta = FALSE;
+X    for (cp = meta; *cp != '\0'; cp++) {
+X	if (strchr(name, *cp) != NULL) {
+X	    has_meta = TRUE;
+X	    break;
+X	}
+X    }
+X    if (!has_meta) {
+X	return(name);
+X    }
+X
+X    if (Ps(P_shell) == NULL) {
+X	return(name);
+X    }
+X    if (pipe(pd) == -1) {
+X	return(name);
+X    }
+X    fflush(stdout);
+X    switch (fork()) {
+X    case -1:				/* error */
+X	return(name);
+X
+X    case 0:				/* child */
+X    {
+X	static char	*args[] = {
+X	    NULL,			/* path of shell */
+X	    "-c",
+X	    NULL,			/* echo %s */
+X	    NULL,
+X	};
+X	Flexbuf		cmd;
+X	int		errout;
+X
+X	args[0] = Ps(P_shell);
+X	flexnew(&cmd);
+X	(void) lformat(&cmd, "echo %s", name);
+X	args[2] = flexgetstr(&cmd);
+X	(void) fclose(stdout);
+X	(void) fclose(stderr);
+X	(void) close(pd[0]);
+X	while (dup(pd[1]) < 2)		/* redirect both stdout & stderr */
+X	    ;
+X	(void) close(pd[1]);
+X	(void) close(0);
+X	(void) execvp(args[0], args);
+X	puts(name);
+X	exit(0);
+X    }
+X    default:				/* parent */
+X    {
+X	Wait_t		status;
+X	FILE		*pfp;
+X	static Flexbuf	newname;
+X	register int	c;
+X
+X	flexclear(&newname);
+X	(void) close(pd[1]);
+X	pfp = fdopen(pd[0], "r");
+X	if (pfp != NULL) {
+X	    while ((c = getc(pfp)) != EOF && c != '\n') {
+X		if (!flexaddch(&newname, c)) {
+X		    break;
+X		}
+X	    }
+X	}
+X	(void) fclose(pfp);
+X	(void) wait(&status);
+X	if (flexempty(&newname)) {
+X	    return(name);
+X	}
+X	return(flexgetstr(&newname));
+X    }
+X    }
+X}
+END_OF_FILE
+  if test 20793 -ne `wc -c <'xvi/src/unix.c'`; then
+    echo shar: \"'xvi/src/unix.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/unix.c'
+fi
+echo shar: End of archive 12 \(of 18\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

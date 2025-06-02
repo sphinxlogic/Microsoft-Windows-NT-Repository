@@ -1,0 +1,1701 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i121:  mbase - MetalBase 5.0, Portable database engine, Part03/08
+Message-ID: <1992Nov23.232430.7223@sparky.imd.sterling.com>
+X-Md4-Signature: f81c89ae5f27e6945586775c564c7210
+Date: Mon, 23 Nov 1992 23:24:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 121
+Archive-name: mbase/part03
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dox/vr.dox sample/sample.c sample/sample.rpt src/input.c
+#   src/vr.c
+# Wrapped by kent@sparky on Mon Nov 23 16:33:12 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 8)."'
+if test -f 'dox/vr.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/vr.dox'\"
+else
+  echo shar: Extracting \"'dox/vr.dox'\" \(5167 characters\)
+  sed "s/^X//" >'dox/vr.dox' <<'END_OF_FILE'
+XVR -- View Relation                                               MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X                                   Curses
+X
+X     Take a look at curses.dox if you're using MS-DOS and don't have curses.
+X
+X                                  Functions
+X
+XVR is utility which allows visual querying and modification of the records
+Xin any relation.  I'll be honest here--I modeled it directly after Informix'
+Xenter2 command... not a bad port, if I do say so, seeing as I have no idea
+Xhow they did theirs.  So thanks for the idea, Informix; you know, imitation is
+Xthe sincerest form of flattery...
+X
+XThe command-line format is trivial:
+X    % vr [relationname[.rel]]
+XIf not compiled with -DNOENCRYPT, vr will ask for an encryption password after
+Xevery time a relation is specified; on the command line, or with the 'Rel'
+Xoption from the main menu.  This password is hashed using the standard
+Xstrtokey() function in MetalBase, and is used to open the relation.  If a
+Xrelation is specified on the command line which cannot be opened, vr will
+Xreturn to the command line after indicating the error.  Once at the main
+Xmenu, though, vr will not exit until you tell it to; errors instead appear on
+Xthe bottom line of the display, highlighted (nifty, eh?).
+X
+XThe various functions performed by vr are:
+X
+XFirst  -- Find the first record in the given relation, on the current index.
+X          When a relation is first opened, the current index is set to the
+X          first specified in the schema; afterwards, it may be selected using
+X          the 'Idx' option, described below.
+XLast   -- Find the last record in the relation, following the current index.
+XNext   -- Find the next record sequentially.  If no current record is selected
+X          (the fields shown will all be blank or 0), this function acts as if
+X          you had selected 'First'.
+XPrev   -- Find the previous record sequentially.  If no current record is
+X          selected, this function acts as if you had selected 'Last'.
+XGteq   -- Find the record which is greater than or equal to a specified record,
+X          alphabetically/numerically (whichever is appropriate for each field).
+X          When you select Gteq or Equ (described below), all fields will
+X          disappear from the display other than those used by the current
+X          index; these will appear in the order in which they are used by the
+X          index.  Enter as many as you like, starting with the first
+X          (naturally); when you hit accept the transaction (movement is
+X          described later), it will search for the appropriate record and, if
+X          found, display it.
+XEqu    -- Similar to Gteq, Equ will accept only a record which is exactly equal
+X          to that specified for the relevant fields; if one is not found, the
+X          query fails.
+XIdx    -- Selecting Idx will allow you to change which index is currently being
+X          used to search.  A list will appear for you of valid indices and
+X          their order; you may enter either their name or number.
+XScreen -- If a relation has more than 18 fields, they will not all fit on the
+X          display at once; selecting 'screen' will toggle which set of 18
+X          is displayed.
+XAdd    -- 'Add' allows you, obviously enough, to add a new record to the
+X          relation.
+XUpd    -- Similarly, 'Upd' allows you to update the current record.
+XDel    -- And, 'Del' deletes the current record.  After the record has been
+X          deleted, the record will disappear and you'll have to make another
+X          query.
+XRel    -- 'Rel' allows you to open a new relation.
+X
+X                               Standard Keys
+X
+XOther than movement keys, the following are accepted:
+X   Ctrl-A  : Accept data-entry--same as ":w" or ":x" if in vi-emulation mode.
+X   Ctrl-C  : Abort data-entry.
+X   Ctrl-Q  : Abort data-entry.
+X   Ctrl-U  : Undo any changes (to this field only)
+X   PgUp    : Works like an up-arrow
+X   PgDn    : Works like an down-arrow
+X   Del     : Works like a backspace
+X
+XThe arrow keys work just dandy in *nix, or if you're using the same curses
+Xpackage I am... don't know about any others.
+X
+X                                  Movement
+X
+XUsers who are not familiar with the editor vi will probably wish NOT to compile
+Xvr with -DVI_EMU; if this isn't present, it removes some of the input routine's
+Xediting and movement commands, but allows the user to enter text in a more
+Xintuitive manner.
+X
+XArrow keys operate as expected; vi'ers, you may ARROW _past_ the end of a line
+Xof text, whereas space and 'l' will not let you (in keeping with vi's
+Xconventions).  Others, you are in perpetual insert, with backspace and DEL
+Xalways destructive, and left-arrow not (unless in VI-emulation).
+X
+XVi'ers, there are some extra ways to exit a template entry: normally, you
+Xmay only accept a transaction, and then, only by hitting return on the last
+Xfield in the set.  Without VI you can abort a transaction by hitting ESC
+Xtwice; you may want to hit it 3 times, just to make it catch the second
+Xmore quickly; with vi, typing :q (no return) will abort a transaction, and :w
+Xor :x will accept it, from any point.
+X
+END_OF_FILE
+  if test 5167 -ne `wc -c <'dox/vr.dox'`; then
+    echo shar: \"'dox/vr.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/vr.dox'
+fi
+if test -f 'sample/sample.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/sample.c'\"
+else
+  echo shar: Extracting \"'sample/sample.c'\" \(15287 characters\)
+  sed "s/^X//" >'sample/sample.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#undef MODULE
+X
+X/*
+X * Lemme explain the above line--it's not necessary 'cause MODULE isn't
+X * defined anywhere else, but I put it in so I could put in this comment.
+X * The headers created by "build" and "form" include actual data, that should
+X * be local to only one module of a multiple .c-program executable; all the
+X * others should have the headers' variables declared as external.  So the
+X * headers use #ifdefs and check for the definition of MODULE--if it's there,
+X * variables are declared external, if not, they're declared local.  That way,
+X * variables always go in this one piece of .c code; if you were to link this
+X * with any others, add "#define MODULE" to 'em and the headers will tell the
+X * program that the variables therein are actually local to another C program.
+X * Works rather well.
+X *
+X */
+X
+X#include <mbase.h>
+X
+X#include "sample.h"     /* Created during "% build sample.s"  */
+X#include "sampl_fm.h"  /* Created during "% form sample.frm" */
+X
+X#ifdef LONGARGS
+X   void  main      (void);
+X   void  add_cust  (void);
+X   int   validate  (de_form *);
+X   void  do_datent (void);
+X   void  do_error  (char *);
+X   int   verify    (char *);
+X#else
+X   void  main();
+X   void  add_cust();
+X   int   validate();
+X   void  do_datent();
+X   void  do_error();
+X   int   verify();
+X#endif
+X
+X#ifdef MSDOS
+X#define Standout()   /* For some reason, the MSDOS curses package I use   */
+X#define Standend()   /* craps out with standout and standend.  Try yours. */
+X#else
+X#define Standout() standout()
+X#define Standend() standend()
+X#endif
+X
+Xstatic sample_str arr[] =
+X { { "Johnson Bill", 0L, 123.4567, 0L, 0L, "N", (ushort)15, "494-0220" },
+X   { "Calvin John",  0L,  23.00,   0L, 0L, "N", (ushort)3,  "216-881-2624"  },
+X   { "Moore Bob",    0L, 456.1234, 0L, 0L, "Y", (ushort)45, "882-8080x14651" },
+X   { "",             0L,   0.0,    0L, 0L, "",  (ushort)0,  ""  } };
+X
+Xrelation   *samp;
+Xint         iserr;
+Xsample_str  rec;
+X
+Xvoid
+Xmain ()
+X{
+X   int       i;
+X   long      l;
+X   char      temp[80];
+X
+X/*
+X * First, if we need one, we've gotta get an encryption key for sample.rel:
+X *
+X */
+X
+X#ifdef NOENCRYPT
+X   temp[0] = 0;
+X#else
+X   printf ("%s%s%sMetalBase 5.0 Sample________________________________%s",
+X            SNGCR, CLS, SNGCR, SNGCR);
+X   printf ("%sEncryption password : ", DUBCR);
+X   gets   (temp);
+X   printf (SNGCR);
+X#endif
+X
+X   if ((samp = mb_inc ("sample", strtokey (temp))) == RNULL)
+X    { fprintf (stderr, "Database could not be opened (%s).%s", mb_error,SNGCR);
+X      mb_exit (1);
+X    }
+X
+X   for (;;)
+X    { if ((l = mb_num(samp)) == 1L)
+X         printf ("%s%sThere is currently 1 customer in the database.%s",
+X                      CLS, SNGCR, DUBCR);
+X      else
+X         printf ("%s%sThere are currently %ld customers in the database.%s",
+X                 CLS, SNGCR, l, DUBCR);
+X      printf ("It is currently %s %s%s",
+X                fmt_time(curtime(),0), fmt_date(curdate(),0), SNGCR);
+X
+X      printf (SNGCR);
+X      printf (" [D] - Add demonstration customers%s", SNGCR);
+X      printf (" [F] - Use data-entry form%s", SNGCR);
+X      printf (" [Q] - Quit%s", SNGCR);
+X      printf ("%sOption : ", SNGCR);
+X      gets (temp);  if ((i = tolower (temp[0])) == 'q')  break;
+X
+X      switch (i)
+X       { case 'd':  add_cust  ();      gets(temp);  break;
+X         case 'f':  do_datent ();                   break;
+X         default:                                   break;
+X       }
+X    }
+X
+X   printf ("%s%s%s", SNGCR, CLS, SNGCR);
+X   if (mb_rmv (samp))
+X    { fprintf (stderr, "Database could not be closed (%s).%s", mb_error,SNGCR);
+X      mb_exit (1);
+X    }
+X   mb_exit (0);
+X}
+X
+X/*
+X * Here, we add three customers to the relation.  Basically so you can have
+X * some test data to play with, without thinking of anyone's names or
+X * whatever; also helps demonstrate mb_add().
+X *
+X */
+X
+Xvoid
+Xadd_cust ()
+X{
+X   int  i, n;
+X
+X   printf (SNGCR);
+X   for (n=0; ; n++)
+X      if (arr[n].custname[0] == 0)  break;
+X   for (i=0; i<n; i++)
+X    { printf ("Adding customer #%d/%d...", i+1, n);
+X      arr[i].date_en = curdate();
+X      arr[i].time_en = curtime();
+X
+X/*
+X * Note that the serial number is not set by us--it's assigned automatically
+X * by the system.  We just send in 0L, or whatever happens to be there--
+X * its value when passed is discarded.
+X *
+X */
+X
+X      if (mb_add (samp, &arr[i]) == MB_OKAY)
+X         printf ("Successfully added%s", SNGCR);
+X      else
+X         printf ("%s%s", mb_error, SNGCR);
+X
+X/*
+X * Note that after a successful mb_add() call, the record's serial number
+X * has been filled in automatically; if you looked in arr[i].custnum, the
+X * number is now set.  Most engines require you to look up the record before
+X * you can find out what number it was assigned; likewise, money values have
+X * been truncated appropriately.  Nya nya nya, Informix.  :)
+X *
+X */
+X
+X    }
+X   printf ("%sPress RETURN :", SNGCR);
+X}
+X
+X/*
+X * Here's the code for the data-entry stuff.  I'm including my notes
+X * for when I first designed this, to press a point--data-entry is SIMPLE
+X * if you're positive of what exactly you want BEFORE you start to code.
+X * I suggest you do something exactly like what I've got here, and DE will
+X * completely cease to be a problem for you.  :)  Likely, anyway...
+X *
+X * We've got:
+X *
+X *       +--------------------------------------------+
+X *       |                                            |
+X *       |  Customer Number...[custnum  ]             |
+X *       |  Customer Name.....[custname  ]            |
+X *       |                                            |
+X *       |  Current Balance...${balance  }            |
+X *       |  Accept Credit.....[A]..[B  ]              |
+X *       |                                            |
+X *       |  Date Entered......[date_en  ][time_en  ]  |
+X *       |                                            |
+X *       +--------------------------------------------+
+X *
+X * We want a menu that sez:
+X *  Add  Find  Change  Delete
+X *
+X * Where
+X * Add     == Mode 1 (everything inout, save date/time and custnum--
+X *                 they're set by the system)
+X * Find    == Mode 2 (only number and name inout, everything else out)
+X * Change  == Mode 1 (same stuff as for Add, above)
+X * Delete  == No mode--just a yes/no question.
+X *
+X * On second thought, let's not make it a menu.  Let's put 'em in the data-
+X * entry form... since there's no data, we'll start with Find == mode 2.  When
+X * they've entered something valid, we'll go on to Mode 1/Change; if they enter
+X * something invalid, we'll go to Mode 1/Add.  If they're in Mode 1/Change..
+X * hell, let's make it a mode 3.. If they're in Mode 3, and they hit
+X * EOF==Ctrl-D, we'll delete the record if they want to--and they'll go back
+X * to Mode 2 with no data.
+X * Let's also let 'em move around.  Ctrl-N and Ctrl-P will select the Next
+X * and previous records if they're in custnum or custname fields... if they're
+X * not, print an error.  Those two keys will work in.. hummm.  If they're
+X * in find mode, -N will do a FIRST, and -P will do a LAST; after any -N/-P,
+X * it'll pull up the record & put 'em in change mode, same field.  From change
+X * mode, they'll do NEXT and PREVIOUS, respectively... if you've updated the
+X * data, it'll ask you if you wanna save it.
+X *
+X * So:
+X *      Set Mode 2
+X *      Set Field Custnum
+X *      Go
+X *       : If (selected Previous or Next)
+X *       :  : if (! in custnum or custname)
+X *       :  :  : error--can't search on any other fields (nya nya)
+X *       :  : if (in mode 1 ("Add"))
+X *       :  :  : error--can't search during add
+X *       :  : if (in mode 2 ("Find"))
+X *       :  :  : make 'em do FIRST and LAST
+X *       :  :  : pull up record go to mode 3 ("Change")
+X *       :  : if (in mode 3 ("Change"))
+X *       :  :  : if they've updated the record, don't ask to save it  :)
+X *       :  :  : pull up record
+X *       :  : don't change fields
+X *       :  : return 0 (okay)
+X *       : If (mode 2 ("Find"))
+X *       :  : If (Abort DE)
+X *       :  :  : return -1 --abort
+X *       :  : If (valid custnum or valid custname)
+X *       :  :  : load information
+X *       :  :  : change to mode 3 ("Change")
+X *       :  : If (invalid custnum or invalid custname)
+X *       :  :  : error--cannot find record (stay in field)
+X *       :  : If (custname == "new")
+X *       :  :  : clear the form and go to mode 1
+X *       : If (mode 1 ("Add"))
+X *       :  : If (EOF)
+X *       :  :  : clear data--change to mode 2
+X *       :  : If (Accept DE)
+X *       :  :  : add new record
+X *       :  :  : change to mode 3 ("Change")
+X *       :  : If (Abort DE)
+X *       :  :  : clear data--change to mode 2
+X *       : If (mode 3 ("Change"))
+X *       :  : If (EOF)
+X *       :  :  : ask to delete--if so, clear data and change to mode 2 ("Find")
+X *       :  : If (Accept DE)
+X *       :  :  : add new record
+X *       :  : If (Abort DE)
+X *       :  :  : clear data--change to mode 2
+X *      Done
+X *
+X */
+X
+Xvoid
+Xdo_datent ()
+X{
+X   de_form *form = &sample_fm; /* Shorthand, basically. */
+X
+X   sprintf (quit_chars, "%c%c%c", CTRL_D, CTRL_P, CTRL_N);
+X
+X   form->curmode  = 2;
+X   form->curfield = fm_fldnum (form, "custnum");
+X   form->valid_fn = validate;
+X
+X/*
+X * Oh yeah.  If we left looking at a record, let's pull it up and start in
+X * Change mode:
+X *
+X */
+X
+X/* (naw)
+X *
+X * if (mb_sel (samp, 0, &rec, CURRENT, NULL) == MB_OKAY)
+X *  { form->curmode = 3;
+X *    reltoform (samp, form, &rec);
+X *  }
+X *
+X */
+X
+X   do_form (form);
+X}
+X
+Xint
+Xvalidate (form)
+Xde_form  *form;
+X{
+X   int   idx, n;
+X
+X   if (iserr)  do_error("");  /* Get rid of any old message */
+X
+X   if (form->key == CTRL_P || form->key == CTRL_N)
+X    { idx = -1;
+X      if (form->curfield == fm_fldnum (form, "custnum"))
+X         idx = idxnum (samp, "ix_number");
+X      if (form->curfield == fm_fldnum (form, "custname"))
+X         idx = idxnum (samp, "ix_name");
+X      if (idx == -1)
+X       { do_error ("Ctrl-N and Ctrl-P only work on CustNum / CustName");
+X         form->nextfield = form->curfield;
+X         return 0;
+X       }
+X      if (form->curmode == 1)
+X       { do_error ("you may not search during an add operation");
+X         form->nextfield = form->curfield;
+X         return 0;
+X       }
+X      do_error ("wait...");
+X      if (form->curmode == 3)
+X       { if (mb_sel (samp, idx, &rec, (form->key==CTRL_P) ?PREV:NEXT, NULL))
+X          { do_error ("no more records in that direction");
+X            form->nextfield = form->curfield;
+X            return 0;
+X          }
+X       }
+X      if (form->curmode == 2)
+X       { if (mb_sel (samp, idx, &rec, (form->key==CTRL_P) ?LAST:FIRST, NULL))
+X          { do_error ("no more records in that direction");
+X            form->nextfield = form->curfield;
+X            return 0;
+X          }
+X         fm_mode (form, 3);
+X       }
+X      form->nextfield = form->curfield;
+X      reltoform  (samp, form, &rec);
+X      fm_refrall (form);
+X      do_error ("record found successfully");
+X      return 0;
+X    }
+X
+X   switch (form->curmode)
+X    {
+X      case 2:  formtorel (form, samp, &rec);
+X               if (form->key == -1)
+X                  return -1;
+X
+X               if (rec.custname[0] != 0)
+X                { idx = idxnum (samp, "ix_name");
+X
+X                  if (! strcmp (rec.custname, "new"))
+X                   { fm_mode (form, 1);
+X                     form->nextfield = form->curfield;  /* Don't move */
+X                     fm_zero (form);
+X                     if ((n = fm_fldnum (form, "custname")) >= 0)
+X                        fm_refrnum (form, n);
+X                     do_error ("enter new record");
+X                     break;
+X                   }
+X                }
+X               else
+X                  if (rec.custnum != 0L)
+X                     idx = idxnum (samp, "ix_number");
+X                  else
+X                     break;
+X
+X               do_error ("wait...");
+X               if (mb_sel (samp, idx, &rec, GTEQ, NULL) == MB_OKAY)
+X                { reltoform  (samp, form, &rec);
+X                  fm_refrall (form);
+X                  fm_mode (form, 3);
+X                  do_error ("record found successfully");
+X                  break;
+X                }
+X               do_error ("the specified record cannot be found.");
+X               form->nextfield = form->curfield;
+X              break;
+X
+X      case 1:  if (form->key == 4)
+X                { fm_zero    (form);
+X                  fm_refrall (form);
+X                  fm_mode (form, 2);
+X                  do_error ("add aborted");
+X                  break;
+X                }
+X               if (form->key == 1)
+X                { formtorel (form, samp, &rec);
+X                  do_error ("wait...");
+X                  rec.date_en = curdate();
+X                  rec.time_en = curtime();
+X                  if (mb_add (samp, &rec) != MB_OKAY)
+X                     do_error (mb_error);
+X                  else
+X                   { do_error   ("record added successfully");
+X                     fm_mode    (form, 3);
+X                     reltoform  (samp, form, &rec);
+X                     fm_refrall (form);
+X                   }
+X                  break;
+X                }
+X               if (form->key == -1)
+X                { do_error   ("add aborted");
+X                  fm_mode    (form, 2);
+X                  fm_zero    (form);
+X                  fm_refrall (form);
+X                  formtorel  (form, samp, &rec);
+X                  break;
+X                }
+X              break;
+X
+X      case 3:  if (form->key == 4)
+X                { if (! verify ("delete this record ? [yN] "))
+X                   { do_error ("delete aborted");
+X                     break;
+X                   }
+X                  do_error ("wait...");
+X                  if (mb_del (samp) != MB_OKAY)
+X                   { do_error (mb_error);
+X                     break;
+X                   }
+X                  fm_zero    (form);
+X                  formtorel  (form, samp, &rec);
+X                  fm_refrall (form);
+X                  do_error ("record deleted");
+X                  break;
+X                }
+X               if (form->key == 1)
+X                { formtorel (form, samp, &rec);
+X                  do_error ("wait...");
+X                  if (mb_upd (samp, &rec) != MB_OKAY)
+X                     do_error (mb_error);
+X                  else
+X                     do_error ("record updated successfully");
+X                  break;
+X                }
+X               if (form->key == -1)
+X                { do_error   ("change aborted");
+X                  fm_mode    (form, 2);
+X                  fm_zero    (form);
+X                  fm_refrall (form);
+X                  formtorel  (form, samp, &rec);
+X                  break;
+X                }
+X             break;
+X    }
+X
+X   return 0;
+X}
+X
+X/*
+X * Stuff copied from vr.c to make life a little easier and a little prettier:
+X *
+X */
+X
+Xvoid
+Xdo_error (line)
+Xchar     *line;
+X{
+X   move (23, 0);   clrtoeol();  iserr = 0;
+X   if (! *line)  { refresh(); return; }
+X   Standout();     addstr (line);
+X   Standend();     refresh();   iserr = 1;
+X}
+X
+Xint
+Xverify (str)
+Xchar   *str;
+X{
+X   char  c;
+X   do_error (str);
+X   for (;;)
+X    { c = getarr();
+X      switch (tolower(c))
+X       { case 'q': case 'n':  case ' ':   do_error (""); return 0; break;
+X         case  27: case '\r': case '\n':  do_error (""); return 0; break;
+X         case 'y':                        do_error (""); return 1; break;
+X       }
+X    }
+X}
+X
+END_OF_FILE
+  if test 15287 -ne `wc -c <'sample/sample.c'`; then
+    echo shar: \"'sample/sample.c'\" unpacked with wrong size!
+  fi
+  # end of 'sample/sample.c'
+fi
+if test -f 'sample/sample.rpt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/sample.rpt'\"
+else
+  echo shar: Extracting \"'sample/sample.rpt'\" \(1120 characters\)
+  sed "s/^X//" >'sample/sample.rpt' <<'END_OF_FILE'
+X#
+X# METALBASE 5.0
+X#
+X# Released October 1st, 1992 by Huan-Ti [ virtual!root@owlnet.rice.edu ]
+X#                                       [ t-richj@microsoft.com ]
+X#
+X
+XData sample;
+X
+XSize
+X   Rows       23;  # Make the report screen-size (default is page-size)
+X   Top Margin  0;  #
+X   Bottom      0;  # And get rid of most margins.  This _is_ going to a screen,
+X   Left        4;  # most likely.  :)
+X   Right       8;
+X
+XFooter Keep
+X   print centered  : "-continued-";
+XLast
+X   print centered  : "-end of report-";
+X
+XHeader
+X   print centered  : system;
+X   print continued : system!date, system!time format 1;
+X   print right     : "Page", system!page;
+X   skip 1 line;
+X   print continued : "Customer Name" to 23, "Number" to 30, "Balance";
+X   print           : column 40, "Date Entered", column 60, "Credit";
+X   print continued : "-------------" to 23, "------" to 30, "-------";
+X   print           : column 40, "------------", column 60, "------";
+X
+XOn ix_name
+X   print continued : custname to 25, custnum to 30, balance using "$%7.2f";
+X   print continued : column 40, date_en, time_en format 1, column 63, credit;
+X   print : phone;
+X
+END_OF_FILE
+  if test 1120 -ne `wc -c <'sample/sample.rpt'`; then
+    echo shar: \"'sample/sample.rpt'\" unpacked with wrong size!
+  fi
+  # end of 'sample/sample.rpt'
+fi
+if test -f 'src/input.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/input.c'\"
+else
+  echo shar: Extracting \"'src/input.c'\" \(13695 characters\)
+  sed "s/^X//" >'src/input.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X   /**********************************************************************/
+X   /* Compile with -DTROUBLE if you have usleep() and your arrows act up */
+X   /**//**************************************************************//**/
+X       /* Compile with -DVI_EMU if you really want some vi emulation */
+X       /**************************************************************/
+X
+X#define INPUT_C
+X#include "mbase.h"
+X
+X#ifndef MSDOS
+X#ifdef LONGARGS
+X   extern long   atol(char *);
+X   extern double atof(char *);
+X#else
+X   extern long   atol();
+X   extern double atof();
+X#endif
+X#endif
+X
+X#ifdef LONGARGS
+X   void display (dataptr, int, int);
+X   char getarr  (void);
+X   char input   (dataptr, int, int);
+X#else
+X   void display();
+X   char getarr();
+X   char input();
+X#endif
+X
+X/*
+X * An option at compile time:  if you want the field to be accepted (as with
+X * a down arrow) automatically when the user has filled it completely, define
+X * ADVANCE_AT_END as below.  This makes DE a bit more natural for Choice
+X * fields and the like.
+X *
+X */
+X
+X#define ADVANCE_AT_END
+X
+X#define DELAY_TIME 10
+X
+X#define movech(c,y,x)  move(y,x);refresh();c=getarr();
+X
+X#ifndef ESC
+X#define ESC (char)27
+X#endif
+X
+Xstatic int  ins = 1;
+X
+Xchar  str[150], org[150];
+Xint   pos,y,x,len,tgt,inslt,cln,esc;
+X
+X/*
+X * getarr() functions like getch(), but returns special codes for arrow
+X * keys as well.
+X *
+X */
+X
+X#ifdef USE_CURKEY
+X
+Xchar
+Xgetarr ()
+X{
+X   int   ch;
+X
+X   do  ch = (int)getch();
+X   while (ch == 0);
+X
+X   if (ch == KEY_UP)     return (char)AR_UP;
+X   if (ch == KEY_DOWN)   return (char)AR_DOWN;
+X   if (ch == KEY_LEFT)   return (char)AR_LEFT;
+X   if (ch == KEY_RIGHT)  return (char)AR_RIGHT;
+X   if (ch == KEY_IC)     return (char)AR_INS;
+X   if (ch == KEY_DC)     return (char)AR_DEL;
+X   if (ch == KEY_HOME)   return (char)AR_HOME;
+X   if (ch == KEY_LL)     return (char)AR_END;
+X   if (ch == KEY_PPAGE)  return (char)AR_PGUP;
+X   if (ch == KEY_NPAGE)  return (char)AR_PGDN;
+X
+X   return (char)ch;
+X}
+X
+X#else
+X
+Xchar
+Xgetarr ()
+X{
+X   register int   x;
+X   char          *a,*b,*c,*d,*e,*f,*g,*h,*i,*j,ch;
+X   static char   *up="\033[A";
+X   static char   *down="\033[B";
+X   static char   *left="\033[D";
+X   static char   *right="\033[C";
+X   static char   *ins="\033[@";
+X   static char   *del="\033[P";
+X   static char   *home="\033[H";
+X   static char   *end="\033[24H";
+X   static char   *pgup="\033[V";
+X   static char   *pgdn="\033[U";
+X
+X   do
+X    { ch = (char)getch();  if (ch < 0)  ch = 0;
+X
+X      if (ch != *(a= up))     a=NULL;  else a++;
+X      if (ch != *(b= down))   b=NULL;  else b++;
+X      if (ch != *(c= left))   c=NULL;  else c++;
+X      if (ch != *(d= right))  d=NULL;  else d++;
+X      if (ch != *(e= ins))    e=NULL;  else e++;
+X      if (ch != *(f= del))    f=NULL;  else f++;
+X      if (ch != *(g= home))   g=NULL;  else g++;
+X      if (ch != *(h= end))    h=NULL;  else h++;
+X      if (ch != *(i= pgup))   i=NULL;  else i++;
+X      if (ch != *(j= pgdn))   j=NULL;  else j++;
+X
+X      if (!a && !b && !c && !d && !e && !f && !g && !h && !i && !j)  break;
+X
+X#ifndef MSDOS
+X#ifndef AMIGA
+X      fcntl (0, F_SETFL, O_NDELAY);  /* Turn off waiting for keys */
+X#endif
+X#endif
+X
+X      for (;;)
+X       { if (a && !*a) { ch = AR_UP;     break; }
+X         if (b && !*b) { ch = AR_DOWN;   break; }
+X         if (c && !*c) { ch = AR_LEFT;   break; }
+X         if (d && !*d) { ch = AR_RIGHT;  break; }
+X         if (e && !*e) { ch = AR_INS;    break; }
+X         if (f && !*f) { ch = AR_DEL;    break; }
+X         if (g && !*g) { ch = AR_HOME;   break; }
+X         if (h && !*h) { ch = AR_END;    break; }
+X         if (i && !*i) { ch = AR_PGUP;   break; }
+X         if (j && !*j) { ch = AR_PGDN;   break; }
+X
+X         if (!a && !b && !c && !d && !e && !f && !g && !h && !i && !j)
+X          { ch=*(up);
+X            break;
+X          }
+X         for (x=0; x < DELAY_TIME; x++)       /* DELAY_TIME quick reads */
+X          {
+X            if ((ch = (char)getch()) > 0)  break;
+X#ifdef TROUBLE
+X            usleep (100);
+X#endif
+X          }
+X         if (x == DELAY_TIME)
+X          { ch=*(up);
+X            break;
+X          }
+X         a=(a==NULL || ch != *a) ? NULL : a+1;
+X         b=(b==NULL || ch != *b) ? NULL : b+1;
+X         c=(c==NULL || ch != *c) ? NULL : c+1;
+X         d=(d==NULL || ch != *d) ? NULL : d+1;
+X         e=(e==NULL || ch != *e) ? NULL : e+1;
+X         f=(f==NULL || ch != *f) ? NULL : f+1;
+X         g=(g==NULL || ch != *g) ? NULL : g+1;
+X         h=(h==NULL || ch != *h) ? NULL : h+1;
+X         i=(i==NULL || ch != *i) ? NULL : i+1;
+X         j=(j==NULL || ch != *j) ? NULL : j+1;
+X       }
+X
+X#ifndef MSDOS
+X#ifndef AMIGA
+X      fcntl (0, F_SETFL, 0);
+X#endif
+X#endif
+X    } while (! ch);
+X
+X   return ch;
+X}
+X
+X#endif
+X
+Xvoid
+Xdisplay (buf, typ, siz)
+Xdataptr  buf;
+Xftype         typ;
+Xint                siz;
+X{
+X   int   b, a;
+X   long  ac, num, pre, ext;
+X   long  tlong;
+X   char  temp[22];
+X
+X   getyx    (win,b,a);
+X   sprintf  (str, "%-132.132s", "");  str[siz] = 0;
+X   mvaddstr (b,a, str);
+X
+X   switch (typ)
+X      {
+X      case T_CHAR:    strzcpy (str, buf,   siz);                      break;
+X      case T_SHORT:   sprintf (str, "%d",  (int)*(short  *)buf);      break;
+X      case T_USHORT:  sprintf (str, "%u",  (int)*(ushort *)buf);      break;
+X      case T_LONG:    sprintf (str, "%ld", *(long   *)buf);           break;
+X      case T_ULONG:   sprintf (str, "%lu", *(ulong  *)buf);           break;
+X      case T_FLOAT:   sprintf (str, "%f",  *(float  *)buf);           break;
+X      case T_DOUBLE:  sprintf (str, "%lf", *(double *)buf);           break;
+X      case T_MONEY:   tlong = (long)(*(double *)buf * 100.0);
+X                      sprintf (str, "%-.2lf", (double)tlong / 100.0); break;
+X      case T_TIME:    strcpy (str, fmt_time (*(mb_time *)buf, 0));    break;
+X      case T_DATE:    strcpy (str, fmt_date (*(mb_date *)buf, 0));    break;
+X      case T_SERIAL:  sprintf (str, "%ld", *(long   *)buf);           break;
+X      case T_PHONE:   strzcpy (temp, buf, 20);
+X                      scn_phone (&ac, &pre, &num, &ext, temp);
+X                      strcpy (str, fmt_phone (ac,pre,num,ext, 0));    break;
+X      }
+X   str[siz] = 0;
+X   mvaddstr (b,a, str);
+X   move     (b,a);
+X   refresh  ();
+X}
+X
+X/*
+X * Returns:     0 -- Continue to next field
+X *              1 -- Finished with DE
+X *             -1 -- Abort DE
+X *          other -- Field control (-/+/j/k)
+X *
+X */
+X
+Xchar
+Xinput   (buf, typ, siz)
+Xdataptr  buf;
+Xftype         typ;
+Xint                siz;
+X{
+X   register int  i;
+X   char          c;
+X   int           y1,x1, start;
+X   long          tlong;
+X   long          ac, num, pre, ext;
+X   char          temp[22];
+X
+X   inslt=pos=tgt=cln=esc=start=0;  raw();noecho();getyx(win,y,x);
+X   display (buf, typ, siz);        len=strlen(str);  strcpy (org,str);
+X
+X   for (;;)
+X    { movech (c,y,x+pos);
+X      if (strchr (quit_chars, c))  break;
+X#ifdef VI_EMU
+X      if (c == ESC)
+X       { if (tgt)           tgt=0;
+X         else if (ins)      ins=0,pos--;
+X         else esc++;
+X         if (esc == 2)  { c = 'q'; break; }  /* Two ESC's aborts too */
+X         if (pos==-1)  pos=0;
+X         continue;
+X       }
+X#else
+X      if (c != ESC)  esc = 0;
+X      else
+X       { esc++;
+X         if (esc == 2)   { c = 'q';  break; }
+X       }
+X#endif
+X      if (c == CTRL_C)   { c = 'q';  break; }  /* Ctrl-C aborts */
+X      if (c == CTRL_Q)   { c = 'q';  break; }  /* Ctrl-Q aborts */
+X      if (c == AR_PGUP)  { c = 'k';  break; }
+X      if (c == AR_UP)    { c = 'k';  break; }
+X      if (c == AR_PGDN)  { c = 'j';  break; }
+X      if (c == AR_DOWN)  { c = 'j';  break; }
+X      if (c == CTRL_L)   { clearok (win, TRUE);  refresh();  continue; }
+X      if (c == AR_END)   { pos = len;  continue; }
+X      if (c == CTRL_U)   { strcpy  (str, org);
+X                           move (y, x); display (buf, typ, siz);
+X                           len=strlen(str); start = 0;
+X                           c = AR_HOME;  /* Pretend they hit HOME afterward. */
+X                         }
+X      if (c == AR_HOME)  { pos = 0;    continue; }
+X
+X      if (c == AR_RIGHT)
+X       { if (pos < len)  pos++;
+X         continue;
+X       }
+X#ifndef VI_EMU
+X      if (c == AR_LEFT)
+X       { if (pos > 0)  pos--;
+X         continue;
+X       }
+X#endif
+X      esc = 0;
+X      if (ins)
+X       { if (c == '\b' || c == 127 || c == AR_LEFT || c == AR_DEL)
+X            if (pos != inslt)
+X             { pos--,len--,mvdelch(y,x+pos),mvinsch(y,x+siz-1,' ');
+X               for (i=pos; i<len; i++)
+X                  str[i] = str[i+1];
+X               str[i] = 0;
+X             }
+X         if (c == '\r' || c == '\n' || c == CTRL_A)  break;
+X         if (c < ' ' || c > 'z')  continue;
+X#ifndef VI_EMU
+X         if (pos == 0 && ! start)
+X          {
+X            for (i=0; i<len; i++)
+X               mvdelch(y,x),mvinsch(y,x+siz-1,' ');
+X            str[0] = 0;  len = 0;  move(y,x);  refresh();
+X          }
+X         start = 1;
+X#endif
+X         if (len == siz)  continue;
+X         insch(c);  mvdelch(y,x+siz);
+X         for (i=len-1; i>=pos; i--)
+X            str[i+1] = str[i];
+X         len++;  str[len] = 0;
+X         str[pos] = c;  pos++;
+X#ifdef ADVANCE_AT_END
+X         if (len == siz) { c = 'j'; break; }
+X#endif
+X         continue;
+X       }
+X      if (tgt)
+X       { if (c < ' ' || c > 'z' || len <= 1) { tgt=0; continue; }
+X         if (tgt < 3)
+X            for (i=pos-1; i>=0; i--)
+X               if (str[i] == c)  break;
+X         if (tgt > 2)
+X            for (i=pos+1; i<len; i++)
+X               if (str[i] == c)  break;
+X         if (i < 0 || i == len) { tgt=0; continue; }
+X         pos=i;
+X         if (tgt == 2) pos++;
+X         if (tgt == 3) pos--;
+X         tgt=0; continue;
+X       }
+X      if (cln==2) { move(23,0); clrtoeol(); cln=0; continue; }
+X      if (cln==1)
+X       { if (c > ' ' && c < 'z')
+X          { mvaddch (23, 1, c);
+X            c = (char)tolower (c);
+X            if (c == 'w' || c == 'x') { c = 'x'; break; }
+X            if (c == 'q')                        break;
+X          }
+X         cln=2; y=y1; x=x1;
+X         continue;
+X       }
+X
+X      if (c=='\r' || c=='j' || c=='k' || c=='z' || c=='q' || c == CTRL_A ||
+X          c=='\n' || c=='+' || c=='-' || c=='Z' || c=='Q')  break;
+X
+X      switch (c)
+X       { case 'F':  tgt = 1;  break;
+X         case 'T':  tgt = 2;  break;
+X         case 't':  tgt = 3;  break;
+X         case 'f':  tgt = 4;  break;
+X         case 'A':  pos=len;  ins=1;  break;
+X         case 'a':  if (pos != len)
+X                       pos++; ins=1;  break;
+X         case 'i':            ins=1;  break;
+X         case 'I':  pos=0;    ins=1;  break;
+X         case 'x':  if (len != 0)
+X                       len--,mvdelch(y,x+pos),mvinsch(y,x+siz-1,' ');
+X                    for (i=pos; i<len; i++)
+X                       str[i] = str[i+1];
+X                    str[i] = 0;
+X                    if (pos == len && pos != 0)  pos--;
+X                   break;
+X         case 'X':  if (pos != 0)
+X                     { pos--,len--,mvdelch(y,x+pos),mvinsch(y,x+siz-1,' ');
+X                       for (i=pos; i<len; i++)
+X                          str[i] = str[i+1];
+X                       str[i] = 0;
+X                     }
+X                   break;
+X         case ':':  cln=1; y1=y; x1=x; y=23; x=1;
+X                    move(23,0); clrtoeol(); mvaddch(23,0,':');  break;
+X         case '^':  pos=0;     break;
+X         case '_':  pos=0;     break;
+X         case '0':  pos=0;     break;
+X         case '$':  pos=len-1; if (pos==-1)  pos = 0;  break;
+X         case AR_RIGHT:
+X         case 'l':  if (pos < len-1)  pos++;  break;
+X         case ' ':  if (pos < len-1)  pos++;  break;
+X         case AR_LEFT:
+X         case 'h':  if (pos > 0)      pos--;  break;
+X         case 127:  if (pos > 0)      pos--;  break;
+X         case '\b': if (pos > 0)      pos--;  break;
+X         case 'D':  for (i=pos; i<len; i++)
+X                       mvdelch(y,x+pos),mvinsch(y,x+siz-1,' ');
+X                    len = pos;  pos--;  if (pos == -1)  pos = 0;
+X                    str[len] = 0;
+X                   break;
+X         case 'U':
+X         case 'u':  strcpy  (str, org);       move (y, x);
+X                    display (buf, typ, siz);  len=strlen(str);
+X                   break;
+X       }
+X      if (ins)  inslt=pos;
+X    }
+X   if (cln) { move(23,0);  clrtoeol();  }
+X
+X   switch (typ)
+X      {
+X      case T_CHAR:    strncpy (buf, str, siz);                 break;
+X      case T_SHORT:   *(short  *)buf  = (short) atoi(str);     break;
+X      case T_USHORT:  *(ushort *)buf  = (ushort)atoi(str);     break;
+X      case T_LONG:    *(long   *)buf  = (long)  atol(str);     break;
+X      case T_ULONG:   *(ulong  *)buf  = (ulong) atol(str);     break;
+X      case T_FLOAT:   *(float  *)buf  = (float) atof(str);     break;
+X      case T_DOUBLE:  *(double *)buf  = (double)atof(str);     break;
+X      case T_MONEY:   tlong = (long)(atof(str) * 100.0);
+X                      *(double  *)buf  = (double)tlong / 100.0; break;
+X      case T_SERIAL:  *(long   *)buf  = (long)  atoi(str);     break;
+X      case T_TIME:    *(mb_time *)buf = scn_time (str);        break;
+X      case T_DATE:    *(mb_date *)buf = scn_date (str);        break;
+X      case T_PHONE:   strzcpy (temp, str, 20);
+X                      scn_phone (&ac, &pre, &num, &ext, temp);
+X                      strcpy (buf, fmt_phone (ac,pre,num,ext, 0));  break;
+X      }
+X
+X   move    (y, x);
+X   display (buf, typ, siz);
+X
+X   return (char) ( (c=='\r') ? (char)0
+X                 : (c=='x'||c=='Z'||c=='\n'||c==CTRL_A) ? (char)1
+X                 : (c=='q'||c=='Q') ? (char)-1
+X                 : tolower(c) );
+X}
+X
+Xvoid
+Xinit_curses ()
+X{
+X#ifdef MSDOS
+X   initscr();
+X   win = stdscr;
+X#else
+X#ifdef AMIGA
+X   initscr();
+X   win = stdscr;
+X#else
+X   win = initscr();
+X#endif
+X#endif
+X#ifdef USE_CURKEY
+X   keypad(win, TRUE);
+X#endif
+X}
+X
+END_OF_FILE
+  if test 13695 -ne `wc -c <'src/input.c'`; then
+    echo shar: \"'src/input.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/input.c'
+fi
+if test -f 'src/vr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/vr.c'\"
+else
+  echo shar: Extracting \"'src/vr.c'\" \(15920 characters\)
+  sed "s/^X//" >'src/vr.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#include "mbase.h"
+X
+X#define movech(c,y,x)  move(y,x);refresh();c=getarr();
+X#define doing(x,o)    (arr == x && opt == o && go == 1)
+X
+X#ifdef LONGARGS
+X   void   main       (int, char **);
+X   void   paint_scrn (int, int);
+X   int    get_rel    (char *);
+X   void   get_index    (void);
+X   void   get_rel_name (void);
+X   void   add_rec      (int);
+X   void   del_rec      (void);
+X   void   do_error   (char *);
+X   void   sel_rec    (int);
+X   void   fill_page  (void);
+X   int    verify     (char *);
+X   void   zero_rec   (void);
+X   void   do_line    (int, int);
+X#else
+X   void   main();
+X   void   paint_scrn();
+X   int    get_rel();
+X   void   get_index();
+X   void   get_rel_name();
+X   void   do_error();
+X   void   add_rec();
+X   void   del_rec();
+X   void   sel_rec();
+X   void   fill_page();
+X   int    verify();
+X   void   zero_rec();
+X   void  do_line();
+X#endif
+X
+Xstatic int num_[]     = { 13 };
+Xstatic int opt_[][20] = {{ 0, 6, 11, 16, 21, 26, 30, 34, 41, 45, 49, 53, 57 }};
+Xstatic char *line_[]  =
+X { "First Last Next Prev Gteq Equ Idx Screen Add Upd Del Rel Quit" };
+X
+X#ifdef MSDOS
+X#define Standout()
+X#define Standend()
+X#else
+X#define Standout() standout()
+X#define Standend() standend()
+X#endif
+X
+Xrelation *rel = (relation *)0;
+Xchar      name[20];
+Xint       pg, pgmax, iserr=0, inw=0, pglst, idx;
+Xdataptr   buf;
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   int  c, opt = 0, arr = 0, go, esc=0;
+X
+X   if (argc > 2)
+X    { fprintf (stderr, "vr: format: vr [relation]%s", SNGCR);
+X      exit    (1);
+X    }
+X
+X   if (argc == 2)
+X      if (! get_rel (argv[1]))
+X       { fprintf (stderr,"vr: invalid argument (%s)%s",mb_error,SNGCR);
+X         exit    (1);
+X       }
+X
+X   init_curses();
+X
+X   inw = 1; savetty();
+X   raw(); noecho(); nl();
+X   paint_scrn (0, 1);
+X
+X   if (rel)  fill_page();
+X
+X   for (;;)
+X    { movech (c, 0,opt_[arr][opt]);  go = 0;  if (iserr)  do_error("");
+X#ifdef VI_EMU
+X      if (c != 27)  esc = 0;
+X      else
+X         if (esc == 1)  break;
+X         else           esc = 1;
+X#endif
+X
+X      switch (c)
+X       { case    ' ':           case AR_RIGHT: opt++;   break;
+X         case   '\b': case 127: case AR_LEFT:  opt--;   break;
+X         case    '?': case '/':  paint_scrn(-1,0);      break;
+X         case CTRL_L: clearok(win,TRUE); refresh();     break;
+X       }
+X      if (arr == 0)
+X         switch (c=tolower(c))
+X          { case '\n': case '\r': go = 1;  break;
+X            case  'f':  opt = 0;  go = 1;  break;
+X            case  'l':  opt = 1;  go = 1;  break;
+X            case  'n':  opt = 2;  go = 1;  break;
+X            case  'p':  opt = 3;  go = 1;  break;
+X            case  'g':  opt = 4;  go = 1;  break;
+X            case  'e':  opt = 5;  go = 1;  break;
+X            case  'i':  opt = 6;  go = 1;  break;
+X            case  's':  opt = 7;  go = 1;  break;
+X            case  'a':  opt = 8;  go = 1;  break;
+X            case  'u':  opt = 9;  go = 1;  break;
+X            case  'd':  opt =10;  go = 1;  break;
+X            case  'r':  opt =11;  go = 1;  break;
+X            case  'q':  opt =-1;  go = 1;  break;
+X          }
+X      if (opt == -1)         opt = num_[arr]-1;
+X      if (opt == num_[arr])  opt = 0;
+X
+X      if (arr==0 && go==1 && opt < 11 && rel==RNULL && opt >= 0)
+X         do_error("specify new relation first"),go=0;
+X      if (arr==0 && go==1 && (opt==9||opt==10) && rel->pos == 0L)
+X         do_error("select a record first"),go=0;
+X
+X      if (doing (0, -1))  break;
+X      if (doing (0, 12))  break;
+X      if (doing (0,  0))  sel_rec (FIRST);
+X      if (doing (0,  1))  sel_rec (LAST);
+X      if (doing (0,  2))  sel_rec (NEXT);
+X      if (doing (0,  3))  sel_rec (PREVIOUS);
+X      if (doing (0,  4))  sel_rec (GTEQ);
+X      if (doing (0,  5))  sel_rec (EQUAL);
+X      if (doing (0,  6))  get_index();
+X      if (doing (0,  7)) {pg++;if(pg>pgmax)pg=1;fill_page();paint_scrn(arr,0);}
+X      if (doing (0,  8))  add_rec(1);
+X      if (doing (0,  9))  add_rec(0);
+X      if (doing (0, 10))  del_rec();
+X      if (doing (0, 11))  get_rel_name();
+X    }
+X
+X   if (buf)  free(buf),  buf=NULL;
+X   clear   ();
+X   refresh ();
+X   endwin  ();
+X   resetty ();
+X   mb_exit (0);
+X}
+X
+Xvoid
+Xpaint_scrn (opt, init)
+Xint         opt, init;
+X{
+X   char temp[128];
+X
+X   if (init)
+X    { clear();
+X      mvaddstr (0, 66, "MetalBase 5.0");
+X      move     (1,  0);
+X      addstr   ("-------------------------------------------------------------------------------");
+X    }
+X   if (opt != -1)
+X      mvaddstr (0,  0, line_[opt]), refresh();
+X   if (opt == -1 || init)
+X    { if (rel == RNULL)
+X         strcpy  (temp, "no relation given");
+X      else
+X         sprintf (temp, "%s.rel -- %ld records, %d indices -- Page %d of %d",
+X                         name,     mb_num(rel), rel->num_i,        pg,pgmax);
+X      move     (2, 0);  clrtoeol();
+X      mvaddstr (2, (80-strlen(temp))/2, temp);
+X    }
+X   refresh();
+X}
+X
+Xvoid
+Xget_index ()
+X{
+X   register int  i;
+X   char          ptr[128];
+X
+X   move (4, 0);  clrtobot();
+X   for (i = 0; i < min (rel->num_i, 16); i++)
+X      sprintf (ptr, "Index #%2d - %s", i+1, rel->iname[i]),
+X      mvaddstr (6+i, 10, ptr);
+X   sprintf (ptr, "%s", rel->iname[idx]);  do_error ("Select index");
+X
+X   mvaddstr (4, 10, "Index Name or Number : ");  refresh();
+X   if ((input (ptr, 0, 20) < 0) || ptr[0] == 0)
+X    { fill_page();  do_error("Index selection aborted"); return; }
+X
+X   if ((i = atoi (ptr)-1) < 0)  i = idxnum (rel, ptr);
+X
+X   if (i < 0 || i > 16 || i >= rel->num_i)
+X    { fill_page ();
+X      do_error  ("Invalid index -- selection aborted");
+X      return;
+X    }
+X
+X   idx = i;  sprintf (ptr, "New index: #%d (%s)", idx+1, rel->iname[idx]);
+X   fill_page();  do_error(ptr);
+X}
+X
+Xvoid
+Xget_rel_name ()
+X{
+X   char   nm[128], *c;
+X   mb_err d;
+X
+X   move (4, 0);  clrtobot();
+X   addstr ("Relation Name      : ");  refresh();  nm[0] = 0;
+X   input  (nm, 0, 60);
+X   if ((! *nm) || (*nm && !get_rel(nm)))
+X    { c=mb_error;d=mb_errno;
+X      fill_page();  if (d)  do_error(c);
+X      paint_scrn(-1,0);
+X    }
+X}
+X
+Xint
+Xget_rel (file)
+Xchar    *file;
+X{
+X   char          pw[80], t[80];
+X   register int  i;
+X
+X   i = strlen(file);
+X   if (! strcmp (&file[i-4], ".rel"))  file[i-4] = 0;
+X   for (i = strlen(file); i >= 0; i--)
+X      if (file[i] == '/' || file[i] == ':')  break;
+X   strcpy (t, &file[i+1]);
+X
+X   if (mb_tst (file))  return 0;
+X
+X   if (rel)  mb_rmv(rel),rel=RNULL;
+X   if (buf)  free(buf),  buf=NULL;
+X   pg = pgmax = pglst = 0; strcpy (name, t);
+X
+X#ifdef NOENCRYPT
+X   pw[0] = 0;
+X#else
+X   if (! inw)  printf ("Encryption password: "), fflush(stdout), gets(pw);
+X   else
+X    { move (5, 0);
+X      addstr ("Encryption password: ");  refresh();
+X      pw[0] = 0;
+X      input (pw, 0, 60);
+X      move (4, 0);  clrtobot();  refresh();
+X    }
+X#endif
+X   if ((rel = mb_inc (file, strtokey (pw))) == RNULL)  return 0;
+X   buf = (dataptr)malloc (rel->rec_len + 1);
+X   pgmax=rel->num_f / 18 + 1;  idx=0;
+X   pglst=rel->num_f % 18;  pg=1;  if (inw)  fill_page();
+X   zero_rec();
+X   return 1;
+X}
+X
+Xvoid
+Xdo_error (line)
+Xchar     *line;
+X{
+X   move (23, 0);   clrtoeol();  iserr = 0;
+X   if (! *line) { refresh(); return; }
+X   Standout();     addstr (line);
+X   Standend();     refresh();   iserr = 1;
+X}
+X
+Xvoid
+Xsel_rec (act)
+Xint      act;
+X{
+X   char *a, c;
+X   int   i, m, arr[40], n;
+X
+X   if (act == GTEQ || act == EQUAL)
+X      {
+X      move (4,0); clrtobot();
+X      do_error("Enter comparison values (vi-style)");
+X      a=rel->idxs[idx]; m=(a[0]-'0')*100 +(a[1]-'0')*10 +(a[2]-'0');
+X      m=min(m,39);
+X      for (i=0; i<m; i++)
+X         {
+X         arr[i]= (a[i*3+3]-'0')*100 +(a[i*3+4]-'0')*10 +(a[i*3+5]-'0');
+X         do_line (4+i, arr[i]);
+X         }
+X      refresh();
+X      for (i=0; ; )
+X         {
+X         move (4+i, 18);
+X         switch (rel->type[arr[i]])
+X            {
+X            case T_CHAR:                  n=rel->siz[arr[i]]; break;
+X            case T_SHORT:  case T_USHORT: n=6;                break;
+X            case T_LONG:   case T_ULONG:  n=11;               break;
+X            case T_FLOAT:  case T_SERIAL: n=11;               break;
+X            case T_DOUBLE: case T_MONEY:  n=14;               break;
+X            case T_TIME:                  n=8;                break;
+X            case T_DATE:                  n=10;               break;
+X            case T_PHONE:                 n=20;               break;
+X            }
+X         if ((c=input ((char*)buf+rel->start[arr[i]], rel->type[arr[i]], n))<0)
+X            break;
+X         if (c == 1)
+X            break;
+X         if (c == 0 && i == m-1)  break;
+X         if (c == 0)  c='+';
+X         switch (c)
+X            {
+X            case '-': case 'k': case AR_UP:   i--; break;
+X            case '+': case 'j': case AR_DOWN: i++; break;
+X            }
+X         if (i == -1)  i = m-1;
+X         if (i ==  m)  i = 0;
+X         }
+X      if (c < 0)
+X         {
+X         fill_page();  do_error("Search aborted");
+X         return;
+X         }
+X      }
+X
+X   if (mb_sel (rel, idx, buf, act, buf) != MB_OKAY)
+X    { a=mb_error;  fill_page();
+X      do_error (a);
+X      return;
+X    }
+X   fill_page();
+X}
+X
+Xvoid
+Xfill_page ()
+X{
+X   register int  i, n;
+X
+X   move (4, 0);  clrtobot();
+X
+X   if (rel)
+X      for (i=0, n=(pg-1)*18; i < (pg == pgmax ? pglst : 18); i++,n++)
+X         do_line(4+i, n);
+X
+X   paint_scrn (-1, 0);
+X   refresh();
+X}
+X
+X#define getdata(b,f,t) sprintf (b, f, *(t *)((char *)buf +rel->start[n]));
+X
+Xvoid
+Xdo_line (y, n)
+Xint      y, n;
+X{
+X   char    temp[80];
+X   int     t;
+X   long    ac,pre,num,ext;
+X
+X   move (y, 0);  clrtoeol();
+X
+X   strzcpy  (temp, rel->name[n], 13);
+X   mvaddstr (y,  0, temp);
+X   mvaddstr (y, 15, "-");
+X
+X   switch (rel->type[n])
+X      {
+X      case T_CHAR:    mvaddch (y, 17, '\"');
+X                      mvaddch (y, 18 +min(rel->siz[n],60), '\"');
+X                     break;
+X      case T_SHORT:
+X      case T_USHORT:  mvaddstr (y, 17, "[      ]");               break;
+X      case T_LONG:
+X      case T_ULONG:
+X      case T_FLOAT:   mvaddstr (y, 17, "[           ]");          break;
+X      case T_DOUBLE:  mvaddstr (y, 17, "[              ]");       break;
+X      case T_MONEY:   mvaddstr (y, 17, "$              ");        break;
+X      case T_TIME:    mvaddstr (y, 17, "(  :  :  )");             break;
+X      case T_DATE:    mvaddstr (y, 17, "(  /  /    )");           break;
+X      case T_SERIAL:  mvaddstr (y, 17, "(           )");          break;
+X      case T_PHONE:   mvaddstr (y, 17, "(   -   -            )"); break;
+X      }
+X
+X   if (rel->pos != 0L)
+X      {
+X      switch (rel->type[n])
+X         {
+X         case T_CHAR:  t = min (rel->siz[n], 60);
+X                       strzcpy (temp, (char *)buf+rel->start[n], t);
+X                      break;
+X
+X         case T_SHORT:   getdata (temp, "%d",     short);   break;
+X         case T_USHORT:  getdata (temp, "%u",     ushort);  break;
+X         case T_LONG:    getdata (temp, "%ld",    long);    break;
+X         case T_ULONG:   getdata (temp, "%lu",    ulong);   break;
+X         case T_FLOAT:   getdata (temp, "%f",     float);   break;
+X         case T_DOUBLE:  getdata (temp, "%lf",    double);  break;
+X         case T_MONEY:   getdata (temp, "%-.2lf", double);  break;
+X
+X         case T_SERIAL:  getdata (temp, "%ld", long);                    break;
+X         case T_PHONE:   scn_phone (&ac,&pre,&num,&ext,
+X                                      ((char *)buf + rel->start[n]));
+X                         strcpy(temp, fmt_phone (ac, pre, num, ext, 0)); break;
+X         case T_TIME:    strcpy(temp, fmt_time (*(mb_time *)
+X                                      ((char *)buf +rel->start[n]), 0)); break;
+X         case T_DATE:    strcpy(temp, fmt_date (*(mb_date *)
+X                                      ((char *)buf +rel->start[n]), 0)); break;
+X         }
+X      mvaddstr (y, 18, temp);
+X      }
+X}
+X
+Xvoid
+Xadd_rec (opt)
+Xint      opt;
+X{
+X   register int  i;
+X   int           _pg, n, m, o;  /* Handles up to 500 fields */
+X   mb_err        e;
+X   char          c,  *p;
+X   long          tlong;
+X
+X   _pg=pg;
+X
+X   if (opt)  tlong=rel->pos, rel->pos=1L, zero_rec();  /* Add new rec */
+X
+X   for (pg = 1, i=0; ; )
+X    {
+X      fill_page ();
+X      if (opt)  do_error ("enter data to add");
+X      else      do_error ("enter new data for this record");
+X
+X      for (o=18*pg-18, m=o+(pg == pgmax ? pglst : 18); ; )
+X       { move (4+i -((pg-1)*18), 18);
+X         switch (rel->type[i])
+X            {
+X            case T_CHAR:                    n=rel->siz[i];  break;
+X            case T_SHORT:   case T_USHORT:  n=6;            break;
+X            case T_LONG:    case T_ULONG:   n=11;           break;
+X            case T_FLOAT:   case T_SERIAL:  n=11;           break;
+X            case T_DOUBLE:  case T_MONEY:   n=14;           break;
+X            case T_TIME:                    n=8;            break;
+X            case T_DATE:                    n=10;           break;
+X            case T_PHONE:                   n=20;           break;
+X            }
+X         n = min (n, 60);
+X         if (rel->type[i] == T_SERIAL)
+X            {
+X            if (rel->num_f == 1)  c = 1;    /* Nothing but serial#?  Done. */
+X            else                  c = '+';  /* Don't let 'em enter serial# */
+X            }
+X         else
+X            {
+X            if ((c = input ((char *)buf + rel->start[i], rel->type[i], n)) < 0)
+X               break;
+X            }
+X         if (c == 0 && i == m-1 && pg==pgmax)  c=1;
+X         if (c == 0)  c='+';
+X         if (c == 1)  break;
+X         switch (c)
+X          { case '-': case 'k': case AR_UP:   i--;  c='-';  break;
+X            case '+': case 'j': case AR_DOWN: i++;  c='+';  break;
+X          }
+X         if (c == '-' && rel->type[i] == T_SERIAL)  i--;
+X         if (i >=  m) { pg++;i=m;  c=0;if(pg>pgmax) pg=1, i=0;           break;}
+X         if (i <   o) { pg--;i=o-1;c=0;if(pg==0) pg=pgmax,i=rel->num_f-1;break;}
+X       }
+X      if (c != 0)  break;
+X    }
+X   if (opt)  pg=_pg, rel->pos=tlong;
+X
+X   if (c < 0)
+X    { mb_sel (rel, idx, buf, CURRENT, NULL);  if (! rel->pos)  zero_rec();
+X      fill_page ();
+X      do_error ("add aborted");
+X      return;
+X    }
+X
+X   fill_page();
+X   do_error ("wait...");
+X
+X   if (opt)  e=mb_add (rel, buf), p=mb_error;
+X   else      e=mb_upd (rel, buf), p=mb_error;
+X
+X   mb_sel (rel, idx, buf, CURRENT, NULL);  if (! rel->pos)  zero_rec();
+X   fill_page ();
+X
+X   if (e != MB_OKAY)
+X      do_error (p);
+X   else
+X    { if (opt)  do_error ("record successfully added");
+X      else      do_error ("record successfully updated");
+X      paint_scrn (-1, 0);
+X    }
+X}
+X
+Xvoid
+Xdel_rec ()
+X{
+X   if (! verify ("delete this record ? "))
+X    { do_error ("delete aborted");
+X      return;
+X    }
+X   do_error ("wait...");
+X   if (mb_del (rel) != MB_OKAY)
+X    { do_error (mb_error);
+X      return;
+X    }
+X   if (! rel->pos)  zero_rec();
+X   fill_page();
+X   do_error ("record deleted");
+X}
+X
+Xint
+Xverify (str)
+Xchar   *str;
+X{
+X   char  c;
+X   do_error (str);
+X   for (;;)
+X    { c = getarr();
+X      switch (tolower(c))
+X       { case 'q': case 'n':  case ' ':   do_error (""); return 0; break;
+X         case  27: case '\r': case '\n':  do_error (""); return 0; break;
+X         case 'y':                        do_error (""); return 1; break;
+X       }
+X    }
+X}
+X
+Xvoid
+Xzero_rec ()
+X{
+X   register int  i;
+X   char         *a;
+X
+X   for (i=0; i<rel->num_f; i++)
+X      {
+X      a=(char *)buf +rel->start[i];
+X      switch (rel->type[i])
+X         {
+X         case T_CHAR:    *a = 0;                      break;
+X         case T_PHONE:   *a = 0;                      break;
+X         case T_SHORT:   *(short  *)a = (short)0;     break;
+X         case T_USHORT:  *(ushort *)a = (ushort)0;    break;
+X         case T_LONG:    *(long   *)a = (long)0;      break;
+X         case T_ULONG:   *(ulong  *)a = (ulong)0;     break;
+X         case T_FLOAT:   *(float  *)a = (float)0.0;   break;
+X         case T_DOUBLE:
+X         case T_MONEY:   *(double *)a = (double)0.0;  break;
+X         case T_TIME:    *(mb_time*)a = (mb_time)0;   break;
+X         case T_DATE:    *(mb_date*)a = (mb_date)0;   break;
+X         case T_SERIAL:  *(long   *)a = (long)0;      break;
+X         }
+X      }
+X}
+X
+END_OF_FILE
+  if test 15920 -ne `wc -c <'src/vr.c'`; then
+    echo shar: \"'src/vr.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/vr.c'
+fi
+echo shar: End of archive 3 \(of 8\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

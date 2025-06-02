@@ -1,0 +1,2240 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject: v35i098:  xvi - portable multi-window vi-like editor, Patch01a/7
+Message-ID: <csm-v35i098=xvi.122551@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 32e16ff982d0fad63f2217c0bbe4b4d2
+Date: Tue, 23 Feb 1993 18:30:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 35, Issue 98
+Archive-name: xvi/patch01a
+Environment: Unix, MS-DOS, OS/2, QNX
+Patch-To: xvi: Volume 33, Issue 10-27
+
+These are some updates to the source release of the xvi editor which
+was posted last October. The most significant changes are:
+
+    + xterm/vt100 screen updating problems should now be fixed.
+
+    + Compiling on Xenix, System V or similar flavours of Unix should
+      now be much easier.
+
+    + The fixed limit on line length of input files is removed.
+
+    + The line number information given in each window's status line
+      can optionally be updated continuously as the cursor is moved up
+      or down within the buffer. This option is enabled with the
+      command
+
+	  :se iu=continuous
+
+      It works well on PC's, but is not recommended for serial
+      terminals or other slow displays.
+
+    + PostScript versions of the documents are provided.
+
+These patches, given the source for version 2.15, will generate
+version 2.19.
+
+Please let us know of any problems.
+
+Regards,
+
+Chris & John Downey
+------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 7)."
+# Contents:  doc/makefile src/patch01 src/patch02 src/patch03
+#   src/patch04 src/patch05 src/patch06 src/patch07 src/patch08
+#   src/patch10 src/patch11 src/patch12 src/patch13 src/patch16
+#   src/patch18 src/patch20 src/patch21 src/patch22 src/patch23
+#   src/patch24 src/patch25 src/patch26 src/patch27 src/patch28
+#   src/patch29 src/patch31
+# Wrapped by jmd@bealfeirste on Mon Feb  8 19:57:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'doc/makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/makefile'\"
+else
+echo shar: Extracting \"'doc/makefile'\" \(356 characters\)
+sed "s/^X//" >'doc/makefile' <<'END_OF_FILE'
+X#
+X# Copyright (C) 1991,1992 Chris and John Downey.
+X#
+X# These files are PostScript versions of the nroff/troff source
+X# distributed with xvi 2.15.
+X#
+X# To get source.ps, just concatenate source.ps1, source.ps2 &
+X# source.ps3.
+X#
+XSPS123=	source.ps1 source.ps2 source.ps3
+X
+Xsource.ps:
+X	cat $(SPS123) > $@
+X
+Xprint:
+X	cat $(SPS123) | lpr
+X	lpr summary.ps
+X	lpr xvi.ps
+END_OF_FILE
+if test 356 -ne `wc -c <'doc/makefile'`; then
+    echo shar: \"'doc/makefile'\" unpacked with wrong size!
+fi
+# end of 'doc/makefile'
+fi
+if test -f 'src/patch01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch01'\"
+else
+echo shar: Extracting \"'src/patch01'\" \(3260 characters\)
+sed "s/^X//" >'src/patch01' <<'END_OF_FILE'
+X*** old/alloc.c	Tue Jul 28 17:46:04 1992
+X--- new/alloc.c	Tue Dec 22 18:13:31 1992
+X***************
+X*** 109,115 ****
+X--- 109,131 ----
+X      return(space);
+X  }
+X  
+X+ #ifdef MSDOS
+X+ #   define MC_SHIFT	(sizeof (int) > 2 ? 5 : 3)
+X+ #else
+X+ #   define MC_SHIFT	(sizeof (int) > 2 ? 5 : 4)
+X+ #endif
+X+ 
+X  /*
+X+  * This is 8 for real mode MS-DOS, 16 for other 16-bit systems,
+X+  * otherwise 32.
+X+  */
+X+ #define MEMCHUNK	(1 << MC_SHIFT)
+X+ 
+X+ #define MC_MASK		(~0 << MC_SHIFT)
+X+ 
+X+ #define MC_ROUNDUP(n)	(((n) + MEMCHUNK - 1) & MC_MASK)
+X+ 
+X+ /*
+X   * Allocate and initialize a new line structure with room for
+X   * 'nchars' characters.
+X   */
+X***************
+X*** 165,172 ****
+X       * parameter - but we must never call malloc(0) as
+X       * this will break on many systems.
+X       */
+X!     if (nchars == 0)
+X! 	nchars = 1;
+X      ltp = alloc((unsigned) nchars);
+X      if (ltp == NULL) {
+X  	free((char *) l);
+X--- 181,187 ----
+X       * parameter - but we must never call malloc(0) as
+X       * this will break on many systems.
+X       */
+X!     nchars = (nchars == 0 ? MEMCHUNK : MC_ROUNDUP(nchars));
+X      ltp = alloc((unsigned) nchars);
+X      if (ltp == NULL) {
+X  	free((char *) l);
+X***************
+X*** 217,222 ****
+X--- 232,278 ----
+X  }
+X  
+X  /*
+X+  * Adjust the text size of a Line.
+X+  */
+X+ bool_t
+X+ lnresize(lp, newsize)
+X+ Line	*lp;
+X+ register unsigned	newsize;
+X+ {
+X+     register char	*oldtext;
+X+     register char	*newtext;
+X+     register unsigned	oldsize;
+X+ 
+X+     oldsize = (unsigned) lp->l_size;
+X+ 
+X+     if ((newsize = MC_ROUNDUP(newsize)) == 0)
+X+ 	return(TRUE);
+X+ 
+X+     if (newsize == oldsize)
+X+ 	return(TRUE);
+X+ 
+X+     oldtext = lp->l_text;
+X+ 
+X+     if (newsize < oldsize && oldtext != NULL) {
+X+ 	if ((newtext = realloc(oldtext, newsize)) == NULL) {
+X+ 	    newtext = oldtext;
+X+ 	}
+X+     } else {
+X+ 	if ((newtext = alloc(newsize)) == NULL) {
+X+ 	    return(FALSE);
+X+ 	}
+X+ 	if (oldtext) {
+X+ 	    (void) strncpy(newtext, oldtext, oldsize - 1);
+X+ 	    newtext[oldsize - 1] = '\0';
+X+ 	    free(oldtext);
+X+ 	}
+X+     }
+X+     lp->l_text = newtext;
+X+     lp->l_size = (int) newsize;
+X+     return(TRUE);
+X+ }
+X+ 
+X+ /*
+X   * grow_line(lp, n)
+X   *	- increase the size of the space allocated for the line by n bytes.
+X   *
+X***************
+X*** 228,259 ****
+X  bool_t
+X  grow_line(lp, n)
+X  Line	*lp;
+X! register int	n;
+X  {
+X!     register int	nsize;
+X!     register char	*s;		/* pointer to new space */
+X  
+X!     nsize = strlen(lp->l_text) + 1 + n;	/* size required */
+X  
+X      if (nsize <= lp->l_size)
+X  	return(TRUE);
+X  
+X!     /*
+X!      * Need to allocate more space for the string. Allow some extra
+X!      * space on the assumption that we may need it soon. This avoids
+X!      * excessive numbers of calls to malloc while entering new text.
+X!      */
+X!     s = alloc((unsigned) nsize + SLOP);
+X!     if (s == NULL) {
+X! 	return(FALSE);
+X!     }
+X! 
+X!     lp->l_size = nsize + SLOP;
+X!     (void) strcpy(s, lp->l_text);
+X!     free(lp->l_text);
+X!     lp->l_text = s;
+X! 
+X!     return(TRUE);
+X  }
+X  
+X  /*
+X--- 284,301 ----
+X  bool_t
+X  grow_line(lp, n)
+X  Line	*lp;
+X! int	n;
+X  {
+X!     int		nsize;
+X!     char	*ctp;
+X  
+X!     ctp = lp->l_text;
+X!     nsize = (ctp ? strlen(ctp) : 0) + 1 + n;	/* size required */
+X  
+X      if (nsize <= lp->l_size)
+X  	return(TRUE);
+X  
+X!     return lnresize(lp, nsize);
+X  }
+X  
+X  /*
+END_OF_FILE
+if test 3260 -ne `wc -c <'src/patch01'`; then
+    echo shar: \"'src/patch01'\" unpacked with wrong size!
+fi
+# end of 'src/patch01'
+fi
+if test -f 'src/patch02' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch02'\"
+else
+echo shar: Extracting \"'src/patch02'\" \(1726 characters\)
+sed "s/^X//" >'src/patch02' <<'END_OF_FILE'
+X*** old/ascii.h	Tue Jul 28 17:46:06 1992
+X--- new/ascii.h	Mon Nov 30 15:25:22 1992
+X***************
+X*** 1,7 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)ascii.h	2.1 (Chris & John Downey) 7/29/92
+X  
+X  * program name:
+X      xvi
+X--- 1,7 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)ascii.h	2.3 (Chris & John Downey) 11/6/92
+X  
+X  * program name:
+X      xvi
+X***************
+X*** 39,50 ****
+X  #define is_digit(c)	(isascii(c) && isdigit(c))
+X  #define is_xdigit(c)	(isascii(c) && isxdigit(c))
+X  #define is_octdigit(c)	((c) >= '0' && (c) <= '7')
+X- #define is_space(c)	(isascii(c) && isspace(c))
+X  #define is_punct(c)	(isascii(c) && ispunct(c))
+X  #define is_alnum(c)	(isascii(c) && isalnum(c))
+X  #define is_print(c)	(isascii(c) && isprint(c))
+X  #define is_graph(c)	(isascii(c) && isgraph(c))
+X  #define is_cntrl(c)	(isascii(c) && iscntrl(c))
+X  
+X  /*
+X   * Conversions.
+X--- 39,57 ----
+X  #define is_digit(c)	(isascii(c) && isdigit(c))
+X  #define is_xdigit(c)	(isascii(c) && isxdigit(c))
+X  #define is_octdigit(c)	((c) >= '0' && (c) <= '7')
+X  #define is_punct(c)	(isascii(c) && ispunct(c))
+X  #define is_alnum(c)	(isascii(c) && isalnum(c))
+X  #define is_print(c)	(isascii(c) && isprint(c))
+X  #define is_graph(c)	(isascii(c) && isgraph(c))
+X  #define is_cntrl(c)	(isascii(c) && iscntrl(c))
+X+ 
+X+ /*
+X+  * This is not like the usual isspace() macro; it only recognises space
+X+  * and tab characters as being whitespace. This is important for the
+X+  * editor, as other control characters do not normally occur, and if they
+X+  * do they should not be treated as whitespace but as control characters.
+X+  */
+X+ #define is_space(c)	((c) == ' ' || (c) == '\t')
+X  
+X  /*
+X   * Conversions.
+END_OF_FILE
+if test 1726 -ne `wc -c <'src/patch02'`; then
+    echo shar: \"'src/patch02'\" unpacked with wrong size!
+fi
+# end of 'src/patch02'
+fi
+if test -f 'src/patch03' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch03'\"
+else
+echo shar: Extracting \"'src/patch03'\" \(1791 characters\)
+sed "s/^X//" >'src/patch03' <<'END_OF_FILE'
+X*** old/cmdline.c	Tue Jul 28 17:46:08 1992
+X--- new/cmdline.c	Mon Nov 30 15:25:23 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)cmdline.c	2.2 (Chris & John Downey) 8/6/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)cmdline.c	2.4 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 507,513 ****
+X  	move_window_to_cursor(curwin);
+X  	update_buffer(curbuf);
+X  #if 0
+X! 	show_file_info(curwin);
+X  #endif
+X  	break;
+X  
+X--- 507,513 ----
+X  	move_window_to_cursor(curwin);
+X  	update_buffer(curbuf);
+X  #if 0
+X! 	show_file_info(curwin, TRUE);
+X  #endif
+X  	break;
+X  
+X***************
+X*** 521,527 ****
+X  		curbuf->b_tempfname = NULL;
+X  	    }
+X  	}
+X! 	show_file_info(curwin);
+X  	break;
+X  
+X      case EX_GLOBAL:
+X--- 521,527 ----
+X  		curbuf->b_tempfname = NULL;
+X  	    }
+X  	}
+X! 	show_file_info(curwin, TRUE);
+X  	break;
+X  
+X      case EX_GLOBAL:
+X***************
+X*** 570,577 ****
+X  	break;
+X  
+X      case EX_PRESERVE:
+X! 	if (do_preserve())
+X! 	    show_file_info(curwin);
+X  	break;
+X  
+X      case EX_LIST:
+X--- 570,580 ----
+X  	break;
+X  
+X      case EX_PRESERVE:
+X! 	if (do_preserve()) {
+X! #if 0
+X! 	    show_file_info(curwin, TRUE);
+X! #endif
+X! 	}
+X  	break;
+X  
+X      case EX_LIST:
+X***************
+X*** 636,642 ****
+X  	if (arg == NULL) {
+X  	    badcmd(interactive, "Missing filename");
+X  	} else if (do_source(interactive, arg) && interactive) {
+X! 	    show_file_info(curwin);
+X  	}
+X  	break;
+X  
+X--- 639,648 ----
+X  	if (arg == NULL) {
+X  	    badcmd(interactive, "Missing filename");
+X  	} else if (do_source(interactive, arg) && interactive) {
+X! #if 0
+X! 	    show_file_info(curwin, TRUE);
+X! #endif
+X! 	    ;
+X  	}
+X  	break;
+X  
+END_OF_FILE
+if test 1791 -ne `wc -c <'src/patch03'`; then
+    echo shar: \"'src/patch03'\" unpacked with wrong size!
+fi
+# end of 'src/patch03'
+fi
+if test -f 'src/patch04' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch04'\"
+else
+echo shar: Extracting \"'src/patch04'\" \(839 characters\)
+sed "s/^X//" >'src/patch04' <<'END_OF_FILE'
+X*** old/cursor.c	Tue Jul 28 17:46:10 1992
+X--- new/cursor.c	Mon Nov 30 15:25:23 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)cursor.c	2.2 (Chris & John Downey) 9/1/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)cursor.c	2.6 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 42,49 ****
+X      if (win->w_curs_new == FALSE) {
+X      	return;
+X      }
+X- #endif
+X      win->w_curs_new = FALSE;
+X  
+X      /*
+X       * Calculate physical lines from logical lines.
+X--- 42,49 ----
+X      if (win->w_curs_new == FALSE) {
+X      	return;
+X      }
+X      win->w_curs_new = FALSE;
+X+ #endif
+X  
+X      /*
+X       * Calculate physical lines from logical lines.
+END_OF_FILE
+if test 839 -ne `wc -c <'src/patch04'`; then
+    echo shar: \"'src/patch04'\" unpacked with wrong size!
+fi
+# end of 'src/patch04'
+fi
+if test -f 'src/patch05' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch05'\"
+else
+echo shar: Extracting \"'src/patch05'\" \(1411 characters\)
+sed "s/^X//" >'src/patch05' <<'END_OF_FILE'
+X*** old/defscr.c	Tue Jul 28 17:46:10 1992
+X--- new/defscr.c	Mon Nov 30 15:25:24 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)defscr.c	2.4 (Chris & John Downey) 9/4/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)defscr.c	2.5 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 64,72 ****
+X  
+X      ins_str,		/* v_insert	    */
+X      scroll,		/* v_scroll	    */
+X!     NULL,		/* v_flash	    */
+X!     NULL,		/* v_status	    */
+X!     NULL,		/* v_activate	    */
+X  };
+X  
+X  int
+X--- 64,72 ----
+X  
+X      ins_str,		/* v_insert	    */
+X      scroll,		/* v_scroll	    */
+X!     NOFUNC,		/* v_flash	    */
+X!     NOFUNC,		/* v_status	    */
+X!     NOFUNC,		/* v_activate	    */
+X  };
+X  
+X  int
+X***************
+X*** 85,94 ****
+X      sys_init();
+X  
+X      if (!can_inschar) {
+X! 	defscr.v_insert = NULL;
+X      }
+X      if (!can_scroll_area && !can_ins_line && !can_del_line) {
+X! 	defscr.v_scroll = NULL;
+X      }
+X      defscr.pv_rows = Rows;
+X      defscr.pv_cols = Columns;
+X--- 85,94 ----
+X      sys_init();
+X  
+X      if (!can_inschar) {
+X! 	defscr.v_insert = NOFUNC;
+X      }
+X      if (!can_scroll_area && !can_ins_line && !can_del_line) {
+X! 	defscr.v_scroll = NOFUNC;
+X      }
+X      defscr.pv_rows = Rows;
+X      defscr.pv_cols = Columns;
+END_OF_FILE
+if test 1411 -ne `wc -c <'src/patch05'`; then
+    echo shar: \"'src/patch05'\" unpacked with wrong size!
+fi
+# end of 'src/patch05'
+fi
+if test -f 'src/patch06' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch06'\"
+else
+echo shar: Extracting \"'src/patch06'\" \(786 characters\)
+sed "s/^X//" >'src/patch06' <<'END_OF_FILE'
+X*** old/events.c	Tue Jul 28 17:46:12 1992
+X--- new/events.c	Mon Nov 30 15:25:45 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)events.c	1.1 (Chris & John Downey) 7/31/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)events.c	1.3 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 155,161 ****
+X  	/*
+X  	 * Put the status line back as it should be.
+X  	 */
+X! 	show_file_info(curwin);
+X  	update_window(curwin);
+X  	return(FALSE);
+X  
+X--- 155,161 ----
+X  	/*
+X  	 * Put the status line back as it should be.
+X  	 */
+X! 	show_file_info(curwin, TRUE);
+X  	update_window(curwin);
+X  	return(FALSE);
+X  
+END_OF_FILE
+if test 786 -ne `wc -c <'src/patch06'`; then
+    echo shar: \"'src/patch06'\" unpacked with wrong size!
+fi
+# end of 'src/patch06'
+fi
+if test -f 'src/patch07' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch07'\"
+else
+echo shar: Extracting \"'src/patch07'\" \(2911 characters\)
+sed "s/^X//" >'src/patch07' <<'END_OF_FILE'
+X*** old/ex_cmds1.c	Tue Jul 28 17:46:14 1992
+X--- new/ex_cmds1.c	Mon Nov 30 15:25:24 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)ex_cmds1.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)ex_cmds1.c	2.6 (Chris & John Downey) 11/23/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 100,106 ****
+X       * Also update the window - this will almost certainly
+X       * have no effect on the screen, but is necessary.
+X       */
+X!     show_file_info(window);
+X      update_window(window);
+X  
+X      /*
+X--- 100,106 ----
+X       * Also update the window - this will almost certainly
+X       * have no effect on the screen, but is necessary.
+X       */
+X!     show_file_info(window, TRUE);
+X      update_window(window);
+X  
+X      /*
+X***************
+X*** 108,114 ****
+X       */
+X      init_sline(newwin);
+X      update_window(newwin);
+X!     show_file_info(newwin);
+X  
+X      /*
+X       * Update the global window variable.
+X--- 108,114 ----
+X       */
+X      init_sline(newwin);
+X      update_window(newwin);
+X!     show_file_info(newwin, TRUE);
+X  
+X      /*
+X       * Update the global window variable.
+X***************
+X*** 163,169 ****
+X       * Note that we don't need to call move_window_to_cursor() for
+X       * the old window until it becomes the current window again.
+X       */
+X!     show_file_info(window);
+X      init_sline(newwin);
+X  
+X      if (filename != NULL) {
+X--- 163,169 ----
+X       * Note that we don't need to call move_window_to_cursor() for
+X       * the old window until it becomes the current window again.
+X       */
+X!     show_file_info(window, TRUE);
+X      init_sline(newwin);
+X  
+X      if (filename != NULL) {
+X***************
+X*** 170,176 ****
+X  	(void) do_edit(newwin, FALSE, filename);
+X      } else {
+X  	new->b_filename = new->b_tempfname = NULL;
+X! 	show_file_info(newwin);
+X      }
+X  
+X      update_window(window);
+X--- 170,176 ----
+X  	(void) do_edit(newwin, FALSE, filename);
+X      } else {
+X  	new->b_filename = new->b_tempfname = NULL;
+X! 	show_file_info(newwin, TRUE);
+X      }
+X  
+X      update_window(window);
+X***************
+X*** 298,304 ****
+X  
+X  	}
+X  	update_window(curwin);
+X! 	show_file_info(curwin);
+X      }
+X  }
+X  
+X--- 298,304 ----
+X  
+X  	}
+X  	update_window(curwin);
+X! 	show_file_info(curwin, TRUE);
+X      }
+X  }
+X  
+X***************
+X*** 448,453 ****
+X--- 448,464 ----
+X  				    " [New file]");
+X  
+X      update_sline(window);		/* ensure colour is updated */
+X+ 
+X+     wp = window;
+X+     while ((wp = next_window(wp)) != window) {
+X+ 	/*
+X+ 	 * If there are any other windows on to the same buffer, make
+X+ 	 * sure they're properly updated.
+X+ 	 */
+X+ 	if (wp->w_buffer == buffer) {
+X+ 	    show_message(wp, "%s", sline_text(window));
+X+ 	}
+X+     }
+X  
+X      if (nlines == gf_NEWFILE) {	/* no such file */
+X  	return(FALSE);
+END_OF_FILE
+if test 2911 -ne `wc -c <'src/patch07'`; then
+    echo shar: \"'src/patch07'\" unpacked with wrong size!
+fi
+# end of 'src/patch07'
+fi
+if test -f 'src/patch08' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch08'\"
+else
+echo shar: Extracting \"'src/patch08'\" \(865 characters\)
+sed "s/^X//" >'src/patch08' <<'END_OF_FILE'
+X*** old/ex_cmds2.c	Tue Jul 28 17:46:14 1992
+X--- new/ex_cmds2.c	Mon Nov 30 15:25:25 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)ex_cmds2.c	2.2 (Chris & John Downey) 8/3/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)ex_cmds2.c	2.4 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 161,167 ****
+X  	 */
+X  	curbuf->b_flags |= FL_READONLY | FL_NOEDIT;
+X  	move_window_to_cursor(curwin);
+X! 	show_file_info(curwin);
+X  	update_window(curwin);
+X      }
+X      echo = savecho;
+X--- 161,167 ----
+X  	 */
+X  	curbuf->b_flags |= FL_READONLY | FL_NOEDIT;
+X  	move_window_to_cursor(curwin);
+X! 	show_file_info(curwin, TRUE);
+X  	update_window(curwin);
+X      }
+X      echo = savecho;
+END_OF_FILE
+if test 865 -ne `wc -c <'src/patch08'`; then
+    echo shar: \"'src/patch08'\" unpacked with wrong size!
+fi
+# end of 'src/patch08'
+fi
+if test -f 'src/patch10' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch10'\"
+else
+echo shar: Extracting \"'src/patch10'\" \(1706 characters\)
+sed "s/^X//" >'src/patch10' <<'END_OF_FILE'
+X*** old/makefile.xen	Tue Jul 28 17:46:36 1992
+X--- new/makefile.xen	Mon Nov 30 15:25:30 1992
+X***************
+X*** 1,7 ****
+X  # Copyright (c) 1990,1991,1992 Chris and John Downey
+X  #***
+X  #
+X! # @(#)makefile.xen	2.2 (Chris & John Downey) 7/31/92
+X  #
+X  # program name:
+X  #	xvi
+X--- 1,7 ----
+X  # Copyright (c) 1990,1991,1992 Chris and John Downey
+X  #***
+X  #
+X! # @(#)makefile.xen	2.3 (Chris & John Downey) 11/6/92
+X  #
+X  # program name:
+X  #	xvi
+X***************
+X*** 37,51 ****
+X  		edit.c ex_cmds1.c ex_cmds2.c events.c fileio.c \
+X  		find.c flexbuf.c map.c mark.c misccmds.c movement.c \
+X  		normal.c param.c pipe.c preserve.c ptrfunc.c \
+X! 		regexp.c screen.c search.c startup.c status.c tags.c \
+X! 		undo.c version.c windows.c yankput.c
+X  
+X  GENOBJ=		alloc.o ascii.o buffers.o cmdline.o cursor.o \
+X  		edit.o ex_cmds1.o ex_cmds2.o events.o fileio.o \
+X  		find.o flexbuf.o map.o mark.o misccmds.o movement.o \
+X  		normal.o param.o pipe.o preserve.o ptrfunc.o \
+X! 		regexp.o screen.o search.o startup.o status.o tags.o \
+X! 		undo.o version.o windows.o yankput.o
+X  
+X  all:		xvi
+X  
+X--- 37,51 ----
+X  		edit.c ex_cmds1.c ex_cmds2.c events.c fileio.c \
+X  		find.c flexbuf.c map.c mark.c misccmds.c movement.c \
+X  		normal.c param.c pipe.c preserve.c ptrfunc.c \
+X! 		regexp.c screen.c search.c signal.c startup.c status.c \
+X! 		tags.c undo.c version.c windows.c yankput.c
+X  
+X  GENOBJ=		alloc.o ascii.o buffers.o cmdline.o cursor.o \
+X  		edit.o ex_cmds1.o ex_cmds2.o events.o fileio.o \
+X  		find.o flexbuf.o map.o mark.o misccmds.o movement.o \
+X  		normal.o param.o pipe.o preserve.o ptrfunc.o \
+X! 		regexp.o screen.o search.o signal.o startup.o status.o \
+X! 		tags.o undo.o version.o windows.o yankput.o
+X  
+X  all:		xvi
+X  
+END_OF_FILE
+if test 1706 -ne `wc -c <'src/patch10'`; then
+    echo shar: \"'src/patch10'\" unpacked with wrong size!
+fi
+# end of 'src/patch10'
+fi
+if test -f 'src/patch11' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch11'\"
+else
+echo shar: Extracting \"'src/patch11'\" \(3519 characters\)
+sed "s/^X//" >'src/patch11' <<'END_OF_FILE'
+X*** old/misccmds.c	Tue Jul 28 17:46:40 1992
+X--- new/misccmds.c	Tue Dec 29 11:22:32 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)misccmds.c	2.2 (Chris & John Downey) 8/28/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)misccmds.c	2.4 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 53,59 ****
+X       * By asking for as much space as the prior line had we make sure
+X       * that we'll have enough space for any auto-indenting.
+X       */
+X!     l = newline(strlen(otext) + SLOP);
+X      if (l == NULL)
+X  	return(FALSE);
+X  
+X--- 53,59 ----
+X       * By asking for as much space as the prior line had we make sure
+X       * that we'll have enough space for any auto-indenting.
+X       */
+X!     l = newline(strlen(otext) + 1);
+X      if (l == NULL)
+X  	return(FALSE);
+X  
+X***************
+X*** 114,120 ****
+X      /*
+X       * First find space for new line.
+X       */
+X!     l = newline(strlen(otext) + SLOP);
+X      if (l == NULL)
+X  	return(FALSE);
+X  
+X--- 114,120 ----
+X      /*
+X       * First find space for new line.
+X       */
+X!     l = newline(strlen(otext) + 1);
+X      if (l == NULL)
+X  	return(FALSE);
+X  
+X***************
+X*** 321,329 ****
+X  {
+X      register char	*cp;		/* temp char pointer for loops */
+X      register int	ntabs;		/* number of tabs to use */
+X-     unsigned		nnew;		/* no of chars used in old line */
+X      unsigned		nold;		/* no of chars used in new version */
+X!     char		*newstr;	/* allocated string for new indent */
+X  
+X      if (lp == NULL || lp->l_text == NULL) {
+X  	show_error(curwin, "Internal error: set_indent(0)");
+X--- 321,328 ----
+X  {
+X      register char	*cp;		/* temp char pointer for loops */
+X      register int	ntabs;		/* number of tabs to use */
+X      unsigned		nold;		/* no of chars used in new version */
+X!     static Flexbuf	newstr;		/* space for new chars */
+X  
+X      if (lp == NULL || lp->l_text == NULL) {
+X  	show_error(curwin, "Internal error: set_indent(0)");
+X***************
+X*** 346,381 ****
+X      nold = cp - lp->l_text;
+X  
+X      /*
+X!      * "nnew" is the number of characters we will use
+X!      * for indentation in the new version of the line.
+X       */
+X!     nnew = ntabs + indent;
+X! 
+X!     /*
+X!      * Get some space, and place into it the string of tabs
+X!      * and spaces which will form the new indentation.
+X!      * If no space available, return nold as we have not
+X!      * changed the line; this is the correct action.
+X!      */
+X!     newstr = alloc((unsigned) nnew + 1);
+X!     if (newstr == NULL)
+X! 	return(nold);
+X! 
+X!     cp = newstr;
+X      while (ntabs-- > 0)
+X! 	*cp++ = '\t';
+X      while (indent-- > 0)
+X! 	*cp++ = ' ';
+X!     *cp = '\0';
+X  
+X      /*
+X       * Finally, replace the old with the new.
+X       */
+X!     replchars(curwin, lp, 0, (int) nold, newstr);
+X  
+X!     free(newstr);
+X! 
+X!     return(nnew);
+X  }
+X  
+X  /*
+X--- 345,368 ----
+X      nold = cp - lp->l_text;
+X  
+X      /*
+X!      * Collect the string of tabs and spaces which will form the new
+X!      * indentation.
+X       */
+X!     flexclear(&newstr);
+X      while (ntabs-- > 0)
+X! 	flexaddch(&newstr, '\t');
+X      while (indent-- > 0)
+X! 	flexaddch(&newstr, ' ');
+X  
+X      /*
+X       * Finally, replace the old with the new.
+X       */
+X!     replchars(curwin, lp, 0, (int) nold, flexgetstr(&newstr));
+X  
+X!     /*
+X!      * This is the number of characters we've inserted.
+X!      */
+X!     return flexlen(&newstr);
+X  }
+X  
+X  /*
+END_OF_FILE
+if test 3519 -ne `wc -c <'src/patch11'`; then
+    echo shar: \"'src/patch11'\" unpacked with wrong size!
+fi
+# end of 'src/patch11'
+fi
+if test -f 'src/patch12' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch12'\"
+else
+echo shar: Extracting \"'src/patch12'\" \(864 characters\)
+sed "s/^X//" >'src/patch12' <<'END_OF_FILE'
+X*** old/mouse.c	Tue Jul 28 17:46:42 1992
+X--- new/mouse.c	Mon Nov 30 15:25:31 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)mouse.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)mouse.c	2.3 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 209,215 ****
+X  	 * applies whether or not it was already the current
+X  	 * window.
+X  	 */
+X! 	show_file_info(wp);
+X      } else {
+X  	/*
+X  	 * Move the cursor as near as possible to where the
+X--- 209,215 ----
+X  	 * applies whether or not it was already the current
+X  	 * window.
+X  	 */
+X! 	show_file_info(wp, TRUE);
+X      } else {
+X  	/*
+X  	 * Move the cursor as near as possible to where the
+END_OF_FILE
+if test 864 -ne `wc -c <'src/patch12'`; then
+    echo shar: \"'src/patch12'\" unpacked with wrong size!
+fi
+# end of 'src/patch12'
+fi
+if test -f 'src/patch13' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch13'\"
+else
+echo shar: Extracting \"'src/patch13'\" \(2776 characters\)
+sed "s/^X//" >'src/patch13' <<'END_OF_FILE'
+X*** old/movement.c	Tue Jul 28 17:46:42 1992
+X--- new/movement.c	Mon Nov 30 15:25:32 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)movement.c	2.2 (Chris & John Downey) 9/1/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)movement.c	2.6 (Chris & John Downey) 11/30/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 167,172 ****
+X--- 167,174 ----
+X      pp->p_index = 0;
+X      win->w_curs_new = TRUE;
+X  
+X+     info_update(win);
+X+ 
+X      /*
+X       * Try to advance to the column we want to be at.
+X       */
+X***************
+X*** 209,214 ****
+X--- 211,218 ----
+X      pp->p_index = 0;
+X      win->w_curs_new = TRUE;
+X  
+X+     info_update(win);
+X+ 
+X      /*
+X       * Try to advance to the column we want to be at.
+X       */
+X***************
+X*** 336,344 ****
+X  do_goto(line)
+X  long line;
+X  {
+X!     curwin->w_cursor->p_line = gotoline(curbuf, line);
+X!     curwin->w_cursor->p_index = 0;
+X!     curwin->w_curs_new = TRUE;
+X      begin_line(curwin, TRUE);
+X  }
+X  
+X--- 340,346 ----
+X  do_goto(line)
+X  long line;
+X  {
+X!     move_cursor(curwin, gotoline(curbuf, line), 0);
+X      begin_line(curwin, TRUE);
+X  }
+X  
+X***************
+X*** 351,359 ****
+X  Line	*lp;
+X  int	index;
+X  {
+X!     win->w_cursor->p_line = lp;
+X!     win->w_cursor->p_index = index;
+X      win->w_curs_new = TRUE;
+X  }
+X  
+X  /*
+X--- 353,368 ----
+X  Line	*lp;
+X  int	index;
+X  {
+X!     Posn *p;
+X!     Line *oldline;
+X! 
+X!     p = win->w_cursor;
+X!     oldline = p->p_line;
+X!     p->p_line = lp;
+X!     p->p_index = index;
+X      win->w_curs_new = TRUE;
+X+     if (oldline != lp)
+X+ 	info_update(win);
+X  }
+X  
+X  /*
+X***************
+X*** 392,398 ****
+X       * - the status line is updated with the correct line number.
+X       * This is a small cost compared to updating the whole window.
+X       */
+X!     show_file_info(win);
+X  }
+X  
+X  /*
+X--- 401,409 ----
+X       * - the status line is updated with the correct line number.
+X       * This is a small cost compared to updating the whole window.
+X       */
+X!     show_file_info(win, TRUE);
+X! 
+X!     win->w_curs_new = TRUE;
+X  }
+X  
+X  /*
+X***************
+X*** 584,589 ****
+X--- 595,601 ----
+X  	    }
+X  
+X  	    win->w_topline = newtopline;
+X+ 	    win->w_curs_new = TRUE;
+X  	    update_window(win);
+X  	}
+X      }
+X***************
+X*** 604,613 ****
+X--- 616,627 ----
+X  
+X      if (earlier(cp->p_line, win->w_topline)) {
+X  	cp->p_line = win->w_topline;
+X+ 	info_update(win);
+X  	coladvance(win, win->w_curswant);
+X      } else if (!earlier(cp->p_line, win->w_botline)
+X  	       && earlier(win->w_topline, win->w_botline)) {
+X  	cp->p_line = win->w_botline->l_prev;
+X+ 	info_update(win);
+X  	coladvance(win, win->w_curswant);
+X      }
+X      win->w_curs_new = TRUE;
+END_OF_FILE
+if test 2776 -ne `wc -c <'src/patch13'`; then
+    echo shar: \"'src/patch13'\" unpacked with wrong size!
+fi
+# end of 'src/patch13'
+fi
+if test -f 'src/patch16' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch16'\"
+else
+echo shar: Extracting \"'src/patch16'\" \(2072 characters\)
+sed "s/^X//" >'src/patch16' <<'END_OF_FILE'
+X*** old/param.c	Tue Jul 28 17:46:54 1992
+X--- new/param.c	Mon Nov 30 15:25:35 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)param.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)param.c	2.5 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 49,55 ****
+X  
+X  #include "xvi.h"
+X  
+X! #define nofunc	PFUNCADDR(NULL)
+X  
+X  /*
+X   * Default settings for string parameters.
+X--- 49,55 ----
+X  
+X  #include "xvi.h"
+X  
+X! #define nofunc	PFUNCADDR(NOFUNC)
+X  
+X  /*
+X   * Default settings for string parameters.
+X***************
+X*** 118,123 ****
+X--- 118,124 ----
+X  {   "hardtabs",     "ht",           P_NUM,      0,              not_imp,   },
+X  {   "helpfile",     "hf",           P_STRING,   0,              nofunc,    },
+X  {   "ignorecase",   "ic",           P_BOOL,     0,              nofunc,    },
+X+ {   "infoupdate",   "iu",	    P_ENUM,     0,		nofunc,    },
+X  {   "jumpscroll",   "js",           P_ENUM,     0,              nofunc,    },
+X  {   "lisp",         "lisp",         P_BOOL,     0,              not_imp,   },
+X  {   "list",         "ls",           P_BOOL,     0,              nofunc,    },
+X***************
+X*** 199,204 ****
+X--- 200,218 ----
+X      NULL
+X  };
+X  
+X+ /*
+X+  * Names of values for the P_infoupdate enumerated parameter.
+X+  *
+X+  * It is essential that these are in the same order as the iu_...
+X+  * symbolic constants defined in xvi.h.
+X+  */
+X+ static char *iu_strings[] =
+X+ {
+X+     "terse",		/* iu_TERSE */
+X+     "continuous",	/* iu_CONTINUOUS */
+X+     NULL
+X+ };
+X+ 
+X  static struct {
+X      int		index;
+X      int		value;
+X***************
+X*** 205,210 ****
+X--- 219,225 ----
+X      char	**elist;
+X  } init_enum[] = {	/* enumerations */
+X      P_format,		DEF_TFF,	fmt_strings,
+X+     P_infoupdate,	iu_TERSE,	iu_strings,
+X      P_jumpscroll,	js_AUTO,	js_strings,
+X      P_preserve,		psv_STANDARD,	psv_strings,
+X      P_regextype,	rt_GREP,	rt_strings,
+END_OF_FILE
+if test 2072 -ne `wc -c <'src/patch16'`; then
+    echo shar: \"'src/patch16'\" unpacked with wrong size!
+fi
+# end of 'src/patch16'
+fi
+if test -f 'src/patch18' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch18'\"
+else
+echo shar: Extracting \"'src/patch18'\" \(2046 characters\)
+sed "s/^X//" >'src/patch18' <<'END_OF_FILE'
+X*** old/pipe.c	Tue Jul 28 17:46:58 1992
+X--- new/pipe.c	Tue Dec 22 17:04:19 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)pipe.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)pipe.c	2.3 (Chris & John Downey) 11/23/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 160,166 ****
+X  		 * the lines we've read in so far, &
+X  		 * return gf_NOMEM.
+X  		 */
+X! 		lp = newline(MAX_LINE_LENGTH);
+X  		if (lp == NULL) {
+X  		    if (lptr != NULL)
+X  			throw(lptr);
+X--- 160,166 ----
+X  		 * the lines we've read in so far, &
+X  		 * return gf_NOMEM.
+X  		 */
+X! 		lp = newline(1);
+X  		if (lp == NULL) {
+X  		    if (lptr != NULL)
+X  			throw(lptr);
+X***************
+X*** 175,187 ****
+X  	    }
+X  	}
+X  
+X! 	/*
+X! 	 * Fake eoln for lines which are too long.
+X! 	 * Don't lose the input character.
+X! 	 */
+X! 	if (col >= MAX_LINE_LENGTH - 1) {
+X! 	    (void) ungetc(c, fp);
+X! 	    state = at_eoln;
+X  	}
+X  
+X  	switch (state) {
+X--- 175,187 ----
+X  	    }
+X  	}
+X  
+X! 	if (col >= lp->l_size - 1) {
+X! 	    if (!lnresize(lp, col + 2)) {
+X! 		if (lptr != NULL)
+X! 		    throw(lptr);
+X! 		return(-1);
+X! 	    }
+X! 	    buff = lp->l_text;
+X  	}
+X  
+X  	switch (state) {
+X***************
+X*** 206,219 ****
+X  	     * If this fails, we squeak at the user and
+X  	     * then throw away the lines read in so far.
+X  	     */
+X! 	    buff = realloc(buff, (unsigned) col + 1);
+X! 	    if (buff == NULL) {
+X  		if (lptr != NULL)
+X  		    throw(lptr);
+X  		return(-1);
+X  	    }
+X- 	    lp->l_text = buff;
+X- 	    lp->l_size = col + 1;
+X  
+X  	    /*
+X  	     * Tack the line onto the end of the list,
+X--- 206,216 ----
+X  	     * If this fails, we squeak at the user and
+X  	     * then throw away the lines read in so far.
+X  	     */
+X! 	    if (!lnresize(lp, (unsigned) col + 1)) {
+X  		if (lptr != NULL)
+X  		    throw(lptr);
+X  		return(-1);
+X  	    }
+X  
+X  	    /*
+X  	     * Tack the line onto the end of the list,
+END_OF_FILE
+if test 2046 -ne `wc -c <'src/patch18'`; then
+    echo shar: \"'src/patch18'\" unpacked with wrong size!
+fi
+# end of 'src/patch18'
+fi
+if test -f 'src/patch20' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch20'\"
+else
+echo shar: Extracting \"'src/patch20'\" \(1068 characters\)
+sed "s/^X//" >'src/patch20' <<'END_OF_FILE'
+X*** old/search.c	Tue Jul 28 17:47:12 1992
+X--- new/search.c	Mon Nov 30 15:25:39 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)search.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)search.c	2.2 (Chris & John Downey) 11/30/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 764,771 ****
+X  	curline = lp;
+X  	lastline = up;
+X  	greptype = matchtype;
+X! 	disp_init(window, grep_line, (int) Columns,
+X! 	      (cmdchar == 'l'));
+X  	return;
+X      }
+X  
+X--- 764,770 ----
+X  	curline = lp;
+X  	lastline = up;
+X  	greptype = matchtype;
+X! 	disp_init(window, grep_line, (int) window->w_ncols, (cmdchar == 'l'));
+X  	return;
+X      }
+X  
+X***************
+X*** 797,803 ****
+X       * we are going to produce some more output anyway.
+X       */
+X      gotocmd(window, FALSE);
+X-     flush_output();
+X  
+X      /*
+X       * Try every line from lp up to (but not including) up.
+X--- 796,801 ----
+END_OF_FILE
+if test 1068 -ne `wc -c <'src/patch20'`; then
+    echo shar: \"'src/patch20'\" unpacked with wrong size!
+fi
+# end of 'src/patch20'
+fi
+if test -f 'src/patch21' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch21'\"
+else
+echo shar: Extracting \"'src/patch21'\" \(1623 characters\)
+sed "s/^X//" >'src/patch21' <<'END_OF_FILE'
+X*** old/startup.c	Tue Jul 28 17:47:16 1992
+X--- new/startup.c	Mon Nov 30 15:25:39 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)startup.c	2.3 (Chris & John Downey) 9/4/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)startup.c	2.6 (Chris & John Downey) 11/30/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 300,312 ****
+X      }
+X  
+X      /*
+X!      * Initialise the cursor and top of screen pointers
+X!      * to the start of the first buffer. Note that the
+X!      * bottom of screen pointer is also set up, as some
+X!      * code (e.g. move_window_to_cursor) depends on it.
+X       */
+X-     curwin->w_topline = curbuf->b_file;
+X-     curwin->w_botline = curbuf->b_file->l_next;
+X      move_cursor(curwin, curbuf->b_file, 0);
+X      curwin->w_col = 0;
+X      curwin->w_row = 0;
+X--- 300,307 ----
+X      }
+X  
+X      /*
+X!      * Initialise the cursor.
+X       */
+X      move_cursor(curwin, curbuf->b_file, 0);
+X      curwin->w_col = 0;
+X      curwin->w_row = 0;
+X***************
+X*** 342,352 ****
+X  	     * display the "no file" message.
+X  	     */
+X  	    sleep(2);
+X! 	    show_file_info(curwin);
+X  	}
+X      } else {
+X  	echo = e_CHARUPDATE | e_SHOWINFO;
+X! 	show_file_info(curwin);
+X      }
+X  
+X      setpcmark(curwin);
+X--- 337,347 ----
+X  	     * display the "no file" message.
+X  	     */
+X  	    sleep(2);
+X! 	    show_file_info(curwin, TRUE);
+X  	}
+X      } else {
+X  	echo = e_CHARUPDATE | e_SHOWINFO;
+X! 	show_file_info(curwin, TRUE);
+X      }
+X  
+X      setpcmark(curwin);
+END_OF_FILE
+if test 1623 -ne `wc -c <'src/patch21'`; then
+    echo shar: \"'src/patch21'\" unpacked with wrong size!
+fi
+# end of 'src/patch21'
+fi
+if test -f 'src/patch22' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch22'\"
+else
+echo shar: Extracting \"'src/patch22'\" \(2596 characters\)
+sed "s/^X//" >'src/patch22' <<'END_OF_FILE'
+X*** old/status.c	Tue Jul 28 17:47:16 1992
+X--- new/status.c	Mon Nov 30 15:25:40 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)status.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)status.c	2.2 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 82,116 ****
+X  }
+X  
+X  void
+X! show_file_info(window)
+X  Xviwin	*window;
+X  {
+X      if (echo & e_SHOWINFO) {
+X  	Buffer	*buffer;
+X  	Flexbuf	*slp;
+X- 	long	position, total;
+X- 	long	percentage;
+X  
+X  	buffer = window->w_buffer;
+X  
+X- 	position = lineno(buffer, window->w_cursor->p_line);
+X- 	total = lineno(buffer, buffer->b_lastline->l_prev);
+X- 	percentage = (total > 0) ? (position * 100) / total : 0;
+X- 
+X  	slp = &window->w_statusline;
+X  	flexclear(slp);
+X  	if (buffer->b_filename == NULL) {
+X! 	    (void) lformat(slp, "No File ");
+X  	} else {
+X! 	    (void) lformat(slp, "\"%s\" ", buffer->b_filename);
+X  	}
+X! 	(void) lformat(slp, "%s%s%sline %ld of %ld (%ld%%)",
+X! 		is_readonly(buffer) ? "[Read only] " : "",
+X! 		not_editable(buffer) ? "[Not editable] " : "",
+X! 		is_modified(buffer) ? "[Modified] " : "",
+X! 		position,
+X! 		total,
+X! 		percentage);
+X      }
+X      update_sline(window);
+X  }
+X--- 82,133 ----
+X  }
+X  
+X  void
+X! show_file_info(window, show_numbers)
+X  Xviwin	*window;
+X+ bool_t	show_numbers;
+X  {
+X      if (echo & e_SHOWINFO) {
+X  	Buffer	*buffer;
+X  	Flexbuf	*slp;
+X  
+X  	buffer = window->w_buffer;
+X  
+X  	slp = &window->w_statusline;
+X  	flexclear(slp);
+X  	if (buffer->b_filename == NULL) {
+X! 	    (void) lformat(slp, "No File");
+X! 	    if (bufempty(buffer)) {
+X! 		show_numbers = FALSE;
+X! 	    }
+X  	} else {
+X! 	    (void) lformat(slp, "\"%s\"", buffer->b_filename);
+X  	}
+X! 	if (is_readonly(buffer))
+X! 	    (void) lformat(slp, " [Read only]");
+X! 	if (not_editable(buffer))
+X! 	    (void) lformat(slp, " [Not editable]");
+X! 	if (is_modified(buffer))
+X! 	    (void) lformat(slp, " [Modified]");
+X! 	if (show_numbers) {
+X! 	    long	position, total;
+X! 	    long	percentage;
+X! 
+X! 	    position = lineno(buffer, window->w_cursor->p_line);
+X! 	    total = lineno(buffer, buffer->b_lastline->l_prev);
+X! 	    percentage = (total > 0) ? (position * 100) / total : 0;
+X! 
+X! 	    (void) lformat(slp, " line %ld of %ld --%ld%%--",
+X! 			position,
+X! 			total,
+X! 			percentage);
+X! 	}
+X      }
+X      update_sline(window);
+X+ }
+X+ 
+X+ void
+X+ info_update(win)
+X+     Xviwin *win;
+X+ {
+X+     show_file_info(win, Pen(P_infoupdate) == iu_CONTINUOUS);
+X  }
+END_OF_FILE
+if test 2596 -ne `wc -c <'src/patch22'`; then
+    echo shar: \"'src/patch22'\" unpacked with wrong size!
+fi
+# end of 'src/patch22'
+fi
+if test -f 'src/patch23' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch23'\"
+else
+echo shar: Extracting \"'src/patch23'\" \(1290 characters\)
+sed "s/^X//" >'src/patch23' <<'END_OF_FILE'
+X*** old/sunback.c	Tue Jul 28 17:47:18 1992
+X--- new/sunback.c	Mon Nov 30 15:25:40 1992
+X***************
+X*** 1,5 ****
+X  #ifndef lint
+X! static char *sccsid = "@(#)sunback.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,5 ----
+X  #ifndef lint
+X! static char *sccsid = "@(#)sunback.c	2.2 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 65,78 ****
+X  static void
+X  xyupdate()
+X  {
+X!     int hdisp,	/* horizontal (rightward) displacement wanted */
+X! 	vdisp,	/* vertical (downward) displacement wanted */
+X! 	ahdisp,	/* absolute horizontal displacement wanted */
+X! 	avdisp,	/* absolute vertical displacement wanted */
+X  	homedisp;	/* total displacement from home position */
+X  
+X      if (optimize) {
+X! 	if (virt_col == real_col && virt_row == real_row)
+X  	    /*
+X  	     * Nothing to do.
+X  	     */
+X--- 65,78 ----
+X  static void
+X  xyupdate()
+X  {
+X!     int hdisp,		/* horizontal (rightward) displacement wanted */
+X! 	vdisp,		/* vertical (downward) displacement wanted */
+X! 	ahdisp,		/* absolute horizontal displacement wanted */
+X! 	avdisp,		/* absolute vertical displacement wanted */
+X  	homedisp;	/* total displacement from home position */
+X  
+X      if (optimize) {
+X! 	if (virt_col == real_col && virt_row == real_row) {
+X  	    /*
+X  	     * Nothing to do.
+X  	     */
+END_OF_FILE
+if test 1290 -ne `wc -c <'src/patch23'`; then
+    echo shar: \"'src/patch23'\" unpacked with wrong size!
+fi
+# end of 'src/patch23'
+fi
+if test -f 'src/patch24' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch24'\"
+else
+echo shar: Extracting \"'src/patch24'\" \(856 characters\)
+sed "s/^X//" >'src/patch24' <<'END_OF_FILE'
+X*** old/tags.c	Tue Jul 28 17:47:20 1992
+X--- new/tags.c	Mon Nov 30 15:25:41 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)tags.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)tags.c	2.2 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 221,227 ****
+X  	    set_param(P_regextype, rt_TAGS, (char **) NULL);
+X  
+X  	    if (dosearch(curwin, field3, '/')) {
+X! 		show_file_info(curwin);
+X  	    } else {
+X  		beep(curwin);
+X  	    }
+X--- 221,227 ----
+X  	    set_param(P_regextype, rt_TAGS, (char **) NULL);
+X  
+X  	    if (dosearch(curwin, field3, '/')) {
+X! 		show_file_info(curwin, TRUE);
+X  	    } else {
+X  		beep(curwin);
+X  	    }
+END_OF_FILE
+if test 856 -ne `wc -c <'src/patch24'`; then
+    echo shar: \"'src/patch24'\" unpacked with wrong size!
+fi
+# end of 'src/patch24'
+fi
+if test -f 'src/patch25' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch25'\"
+else
+echo shar: Extracting \"'src/patch25'\" \(2380 characters\)
+sed "s/^X//" >'src/patch25' <<'END_OF_FILE'
+X*** old/termcap.c	Tue Jul 28 17:47:24 1992
+X--- new/termcap.c	Mon Nov 30 15:25:41 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)termcap.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)termcap.c	2.6 (Chris & John Downey) 11/10/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 615,624 ****
+X       * xyupdate(), or we will get infinite recursion.
+X       * The "right" place is:
+X       *	if we have sf or SF:
+X!      *		assume they will work with the cursor placed
+X!      *		anywhere inside the scroll region; so if we
+X!      *		are already there, we don't need to move.
+X!      *		This is a big win for normal editing usage.
+X       *	if no sf or SF capability:
+X       *		if we have a dl capability:
+X       *			the first row of the area
+X--- 615,624 ----
+X       * xyupdate(), or we will get infinite recursion.
+X       * The "right" place is:
+X       *	if we have sf or SF:
+X!      *		It would be nice to assume that "sf" / "SF"
+X!      *		would work anywhere within the scroll region;
+X!      *		unfortunately, this just isn't true. Sigh.
+X!      *		So we have to put the cursor on the last row.
+X       *	if no sf or SF capability:
+X       *		if we have a dl capability:
+X       *			the first row of the area
+X***************
+X*** 632,653 ****
+X       *			optimise will be turned off afterwards,
+X       *			and the caller save the cursor anyway.
+X       */
+X!     if (SF != NULL || sf != NULL) {
+X! 	if (virt_row < start_row || virt_row > end_row) {
+X  	    virt_row = start_row;
+X  	    virt_col = 0;
+X  	}
+X!     } else {	/* don't have sf or SF */
+X! 	if (DL != NULL) {
+X! 	    if (virt_row != start_row) {
+X! 		virt_row = start_row;
+X! 		virt_col = 0;
+X! 	    }
+X! 	} else {	/* no DL; use DO */
+X! 	    if (virt_row != end_row) {
+X! 		virt_row = end_row;
+X! 		virt_col = 0;
+X! 	    }
+X  	}
+X      }
+X  
+X--- 632,646 ----
+X       *			optimise will be turned off afterwards,
+X       *			and the caller save the cursor anyway.
+X       */
+X!     if (SF == NULL && sf == NULL && DL != NULL) {
+X! 	if (virt_row != start_row) {
+X  	    virt_row = start_row;
+X  	    virt_col = 0;
+X  	}
+X!     } else /* use SF or sf or DO */ {
+X! 	if (virt_row != end_row) {
+X! 	    virt_row = end_row;
+X! 	    virt_col = 0;
+X  	}
+X      }
+X  
+END_OF_FILE
+if test 2380 -ne `wc -c <'src/patch25'`; then
+    echo shar: \"'src/patch25'\" unpacked with wrong size!
+fi
+# end of 'src/patch25'
+fi
+if test -f 'src/patch26' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch26'\"
+else
+echo shar: Extracting \"'src/patch26'\" \(3285 characters\)
+sed "s/^X//" >'src/patch26' <<'END_OF_FILE'
+X*** old/unix.c	Tue Jul 28 17:47:28 1992
+X--- new/unix.c	Mon Nov 30 15:25:43 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)unix.c	2.1 (Chris & John Downey) 7/29/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)unix.c	2.7 (Chris & John Downey) 11/25/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 262,272 ****
+X      return(c);
+X  }
+X  
+X! #if !(defined(__STDC__) || (defined(ultrix) && defined(mips)))
+X! /*
+X!  * If we have ANSI C, we should have strerror() anyway. Also, Ultrix
+X!  * on DECStations provides it.
+X!  */
+X  const char *
+X  strerror(err)
+X  int	err;
+X--- 262,268 ----
+X      return(c);
+X  }
+X  
+X! #ifdef	NEED_STRERROR
+X  const char *
+X  strerror(err)
+X  int	err;
+X***************
+X*** 284,292 ****
+X  		"Unknown error"
+X      );
+X  }
+X  
+X- #endif /* !(defined(__STDC__) || (defined(ultrix) && defined(mips))) */
+X- 
+X  static int
+X  runvp(args)
+X  char	**args;
+X--- 280,287 ----
+X  		"Unknown error"
+X      );
+X  }
+X+ #endif /* NEED_STRERROR */
+X  
+X  static int
+X  runvp(args)
+X  char	**args;
+X***************
+X*** 432,467 ****
+X  
+X      getstate(&cooked_state);
+X      raw_state = cooked_state;
+X! #   ifdef   POSIX
+X! 	raw_state.c_oflag &= ~(OPOST
+X! #	ifdef	ONLCR
+X! 				| ONLCR
+X! #	endif
+X! #	ifdef	OXTABS
+X! 				| OXTABS
+X! #	endif
+X! 			    );
+X! 	raw_state.c_iflag &= ~(ICRNL | IGNCR | INLCR);
+X! 	raw_state.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL
+X! #	ifdef	ECHOCTL
+X! 				| ECHOCTL
+X! #	endif
+X! #	ifdef	ECHOPRT
+X! 				| ECHOPRT
+X! #	endif
+X! #	ifdef	ECHOKE
+X! 				| ECHOKE
+X! #	endif
+X! 			    );
+X! #   else    /* not POSIX */
+X! 	/*
+X! 	 * Assume this is a Sun, but it might not be ...
+X! 	 */
+X! 	raw_state.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONLRET | XTABS);
+X! 	raw_state.c_iflag &= ~(ICRNL | IGNCR | INLCR);
+X! 	raw_state.c_lflag &= ~(ICANON | XCASE | ECHO | ECHOE | ECHOK |
+X! 		   ECHONL | ECHOCTL | ECHOPRT | ECHOKE);
+X! #   endif
+X      raw_state.c_cc[VMIN] = 1;
+X      raw_state.c_cc[VTIME] = 0;
+X  #   ifdef	TERMIOS
+X--- 427,472 ----
+X  
+X      getstate(&cooked_state);
+X      raw_state = cooked_state;
+X! 
+X!     raw_state.c_oflag &= ~(0
+X! #ifdef   OPOST
+X! 			| OPOST
+X! #else	/* no OPOST */
+X! 			/*
+X! 			 * Not a POSIX system. If it's a Sun, this might work:
+X! 			 */
+X! 			| OLCUC | OCRNL | ONLRET
+X! #endif
+X! #ifdef	ONLCR
+X! 			| ONLCR
+X! #endif
+X! #ifdef	OXTABS
+X! 			| OXTABS
+X! #endif
+X! #ifdef	XTABS
+X! 			| XTABS
+X! #endif
+X! #ifdef	TAB3
+X! 			| TAB3
+X! #endif
+X!     );
+X! 
+X!     raw_state.c_lflag &= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL
+X! #ifdef	XCASE
+X! 			| XCASE
+X! #endif
+X! #ifdef	ECHOCTL
+X! 			| ECHOCTL
+X! #endif
+X! #ifdef	ECHOPRT
+X! 			| ECHOPRT
+X! #endif
+X! #ifdef	ECHOKE
+X! 			| ECHOKE
+X! #endif
+X!     );
+X! 
+X!     raw_state.c_iflag &= ~(ICRNL | IGNCR | INLCR);
+X      raw_state.c_cc[VMIN] = 1;
+X      raw_state.c_cc[VTIME] = 0;
+X  #   ifdef	TERMIOS
+X***************
+X*** 519,525 ****
+X       */
+X  #ifdef	TERMIO
+X  #   ifdef	POSIX
+X! 	ospeed = cooked_state.c_ospeed;
+X  #   else	/* not POSIX */
+X  	ospeed = speeds[cooked_state.c_cflag & CBAUD];
+X  #   endif
+X--- 524,530 ----
+X       */
+X  #ifdef	TERMIO
+X  #   ifdef	POSIX
+X! 	ospeed = cfgetospeed(&cooked_state);
+X  #   else	/* not POSIX */
+X  	ospeed = speeds[cooked_state.c_cflag & CBAUD];
+X  #   endif
+END_OF_FILE
+if test 3285 -ne `wc -c <'src/patch26'`; then
+    echo shar: \"'src/patch26'\" unpacked with wrong size!
+fi
+# end of 'src/patch26'
+fi
+if test -f 'src/patch27' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch27'\"
+else
+echo shar: Extracting \"'src/patch27'\" \(2251 characters\)
+sed "s/^X//" >'src/patch27' <<'END_OF_FILE'
+X*** old/unix.h	Tue Jul 28 17:47:30 1992
+X--- new/unix.h	Mon Nov 30 15:25:43 1992
+X***************
+X*** 1,7 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)unix.h	2.1 (Chris & John Downey) 7/29/92
+X  
+X  * program name:
+X      xvi
+X--- 1,7 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  /***
+X  
+X! * @(#)unix.h	2.5 (Chris & John Downey) 11/25/92
+X  
+X  * program name:
+X      xvi
+X***************
+X*** 20,25 ****
+X--- 20,32 ----
+X  ***/
+X  
+X  #include <errno.h>
+X+ #if defined(sel)
+X+ 	/*
+X+ 	 * errno is not defined by <errno.h> on the Gould PowerNode.
+X+ 	 */
+X+ 	extern	int	errno;
+X+ #endif
+X+ 
+X  #include <fcntl.h>
+X  #if defined(BSD) && !defined(__STDC__)
+X  #   include <sys/time.h>
+X***************
+X*** 27,32 ****
+X--- 34,43 ----
+X  #   include <time.h>
+X  #endif
+X  
+X+ #ifdef __STDC__
+X+ #   include <unistd.h>
+X+ #endif
+X+ 
+X  #if defined(SUNVIEW) || defined(XVIEW)
+X  #   include "sunview.h"
+X  #else
+X***************
+X*** 50,63 ****
+X  #endif
+X  
+X  /*
+X!  * If we don't have an ANSI compiler, strerror() is implemented in unix.c.
+X   */
+X  #define STRERROR_AVAIL
+X! 
+X! #ifndef	__STDC__
+X!     /*
+X!      * Conditionally compile this to be safe.
+X!      */
+X      extern const char	*strerror P((int));
+X  #endif
+X  
+X--- 61,77 ----
+X  #endif
+X  
+X  /*
+X!  * Strerror() is always available, because we define it in unix.c.
+X!  * Working out when it is already defined is a bit tricky.
+X!  *
+X!  * If we have ANSI C, we must have it. Ultrix on DECStations provides it.
+X!  * If it's defined as a macro, then that's okay. Otherwise, do it ourselves.
+X   */
+X  #define STRERROR_AVAIL
+X! #if defined(__STDC__) || (defined(ultrix)&&defined(mips)) || defined(strerror)
+X! 	/* got it already */
+X! #else
+X! #	define	NEED_STRERROR
+X      extern const char	*strerror P((int));
+X  #endif
+X  
+X***************
+X*** 80,86 ****
+X   * ANSI C libraries should have remove(), but unlink() does exactly
+X   * the same thing.
+X   */
+X! #define remove(f)	unlink(f)
+X  
+X  /*
+X   * BSD doesn't provide memcpy, but bcopy does the same thing.
+X--- 94,102 ----
+X   * ANSI C libraries should have remove(), but unlink() does exactly
+X   * the same thing.
+X   */
+X! #ifndef	__STDC__
+X! #   define remove(f)	unlink(f)
+X! #endif
+X  
+X  /*
+X   * BSD doesn't provide memcpy, but bcopy does the same thing.
+END_OF_FILE
+if test 2251 -ne `wc -c <'src/patch27'`; then
+    echo shar: \"'src/patch27'\" unpacked with wrong size!
+fi
+# end of 'src/patch27'
+fi
+if test -f 'src/patch28' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch28'\"
+else
+echo shar: Extracting \"'src/patch28'\" \(783 characters\)
+sed "s/^X//" >'src/patch28' <<'END_OF_FILE'
+X*** old/version.c	Tue Jul 28 17:47:30 1992
+X--- new/version.c	Thu Dec  3 19:32:54 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)version.c	2.4 (Chris & John Downey) 10/15/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)version.c	2.10 (Chris & John Downey) 11/23/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 26,32 ****
+X  #endif
+X  
+X  #ifdef __DATE__
+X!     char	Version[] = "Xvi 2.15 " __DATE__;
+X  #else
+X!     char	Version[] = "Xvi 2.15 15th October 1992";
+X  #endif
+X--- 26,32 ----
+X  #endif
+X  
+X  #ifdef __DATE__
+X!     char	Version[] = "Xvi 2.19 " __DATE__;
+X  #else
+X!     char	Version[] = "Xvi 2.19 4th February 1993";
+X  #endif
+END_OF_FILE
+if test 783 -ne `wc -c <'src/patch28'`; then
+    echo shar: \"'src/patch28'\" unpacked with wrong size!
+fi
+# end of 'src/patch28'
+fi
+if test -f 'src/patch29' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch29'\"
+else
+echo shar: Extracting \"'src/patch29'\" \(1292 characters\)
+sed "s/^X//" >'src/patch29' <<'END_OF_FILE'
+X*** old/windows.c	Tue Jul 28 17:47:32 1992
+X--- new/windows.c	Mon Nov 30 15:25:44 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)windows.c	2.2 (Chris & John Downey) 8/28/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)windows.c	2.3 (Chris & John Downey) 11/6/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 413,419 ****
+X  	    nextwin->w_nrows += amount;
+X  	    (void) shiftdown(nextwin, (unsigned) amount);
+X  	    if (wp->w_nrows > 0) {
+X! 		show_file_info(wp);
+X  	    }
+X  	}
+X  	nlines = -amount;	/* return value */
+X--- 413,419 ----
+X  	    nextwin->w_nrows += amount;
+X  	    (void) shiftdown(nextwin, (unsigned) amount);
+X  	    if (wp->w_nrows > 0) {
+X! 		show_file_info(wp, TRUE);
+X  	    }
+X  	}
+X  	nlines = -amount;	/* return value */
+X***************
+X*** 439,445 ****
+X  	    nextwin->w_nrows -= nlines;
+X  	    (void) shiftup(nextwin, (unsigned) nlines);
+X  	    if (wp->w_nrows > 0) {
+X! 		show_file_info(wp);
+X  	    }
+X  	}
+X      }
+X--- 439,445 ----
+X  	    nextwin->w_nrows -= nlines;
+X  	    (void) shiftup(nextwin, (unsigned) nlines);
+X  	    if (wp->w_nrows > 0) {
+X! 		show_file_info(wp, TRUE);
+X  	    }
+X  	}
+X      }
+END_OF_FILE
+if test 1292 -ne `wc -c <'src/patch29'`; then
+    echo shar: \"'src/patch29'\" unpacked with wrong size!
+fi
+# end of 'src/patch29'
+fi
+if test -f 'src/patch31' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/patch31'\"
+else
+echo shar: Extracting \"'src/patch31'\" \(865 characters\)
+sed "s/^X//" >'src/patch31' <<'END_OF_FILE'
+X*** old/yankput.c	Tue Jul 28 17:47:50 1992
+X--- new/yankput.c	Tue Dec 29 11:24:11 1992
+X***************
+X*** 1,6 ****
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)yankput.c	2.4 (Chris & John Downey) 8/6/92";
+X  #endif
+X  
+X  /***
+X--- 1,6 ----
+X  /* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X  #ifndef lint
+X! static char *sccsid = "@(#)yankput.c	2.5 (Chris & John Downey) 10/12/92";
+X  #endif
+X  
+X  /***
+X***************
+X*** 303,309 ****
+X  	    Line	*newl;
+X  
+X  	    end_of_1st_text = l + strlen(yp_buf->y_1st_text);
+X! 	    newl = newline(strlen(yp_buf->y_1st_text) + SLOP);
+X  	    if (newl == NULL)
+X  		return;
+X  
+X--- 303,309 ----
+X  	    Line	*newl;
+X  
+X  	    end_of_1st_text = l + strlen(yp_buf->y_1st_text);
+X! 	    newl = newline(strlen(yp_buf->y_1st_text) + 1);
+X  	    if (newl == NULL)
+X  		return;
+X  
+END_OF_FILE
+if test 865 -ne `wc -c <'src/patch31'`; then
+    echo shar: \"'src/patch31'\" unpacked with wrong size!
+fi
+# end of 'src/patch31'
+fi
+echo shar: End of archive 1 \(of 7\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

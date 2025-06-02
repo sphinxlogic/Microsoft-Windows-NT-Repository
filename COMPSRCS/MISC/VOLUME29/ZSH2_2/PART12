@@ -1,0 +1,2488 @@
+Newsgroups: comp.sources.misc
+From: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Subject:  v29i108:  zsh2.2 - The Z shell, Part12/17
+Message-ID: <1992May13.160617.10110@sparky.imd.sterling.com>
+X-Md4-Signature: 4f4958fa69994fbb18b4bc808dc08443
+Date: Wed, 13 May 1992 16:06:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Posting-number: Volume 29, Issue 108
+Archive-name: zsh2.2/part12
+Environment: BSD
+Supersedes: zsh2.1: Volume 24, Issue 1-19
+
+#!/bin/sh
+# this is aa.12 (part 12 of zsh2.2)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file zsh2.2/src/utils.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 12; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping zsh2.2/src/utils.c'
+else
+echo 'x - continuing file zsh2.2/src/utils.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'zsh2.2/src/utils.c' &&
+X	lineno = 0;
+X	oldshst = opts[SHINSTDIN];
+X	opts[SHINSTDIN] = OPT_UNSET;
+X	if ((SHIN = movefd(open(s,O_RDONLY))) == -1)
+X		{
+X		SHIN = fd;
+X		thisjob = cj;
+X		opts[SHINSTDIN] = oldshst;
+X		return 1;
+X		}
+X	bshin = fdopen(SHIN,"r");
+X	loop();
+X	fclose(bshin);
+X	bshin = obshin;
+X	opts[SHINSTDIN] = oldshst;
+X	SHIN = fd;
+X	thisjob = cj;
+X	errflag = 0;
+X	retflag = 0;
+X	lineno = oldlineno;
+X	return 0;
+X}
+X
+X/* try to source a file in the home directory */
+X
+Xvoid sourcehome(s) /**/
+Xchar *s;
+X{
+Xchar buf[MAXPATHLEN];
+Xchar *h;
+X
+X	if (!(h = getsparam("ZDOTDIR")))
+X		h = home;
+X	sprintf(buf,"%s/%s",h,s);
+X	(void) source(buf);
+X}
+X
+X/* print an error */
+X
+Xvoid zerrnam(cmd,fmt,str,num) /**/
+Xchar *cmd; char *fmt; char *str;int num;
+X{
+X	if (cmd)
+X		{
+X		if (errflag || noerrs)
+X			return;
+X		errflag = 1;
+X		trashzle();
+X		if (isset(SHINSTDIN))
+X			fprintf(stderr,"%s: ",cmd);
+X		else
+X			fprintf(stderr,"%s: %s: ",argzero,cmd);
+X		}
+X	while (*fmt)
+X		if (*fmt == '%')
+X			{
+X			fmt++;
+X			switch(*fmt++)
+X				{
+X				case 's':
+X					while (*str)
+X						niceputc(*str++,stderr);
+X					break;
+X				case 'l':
+X					while (num--)
+X						niceputc(*str++,stderr);
+X					break;
+X				case 'd':
+X					fprintf(stderr,"%d",num);
+X					break;
+X				case '%':
+X					putc('%',stderr);
+X					break;
+X				case 'c':
+X					niceputc(num,stderr);
+X					break;
+X				case 'e':
+X					if (num == EINTR)
+X						{
+X						fputs("interrupt\n",stderr);
+X						errflag = 1;
+X						return;
+X						}
+X					if (num == EIO)
+X						fputs(sys_errlist[num],stderr);
+X					else
+X						{
+X						fputc(tulower(sys_errlist[num][0]),stderr);
+X						fputs(sys_errlist[num]+1,stderr);
+X						}
+X					break;
+X				}
+X			}
+X		else
+X			putc(*fmt++,stderr);
+X	if (unset(SHINSTDIN) && lineno)
+X		fprintf(stderr," [%ld]\n",lineno);
+X	else
+X		putc('\n',stderr);
+X	fflush(stderr);
+X}
+X
+Xvoid zerr(fmt,str,num) /**/
+Xchar *fmt; char *str;int num;
+X{
+X	if (errflag || noerrs)
+X		return;
+X	errflag = 1;
+X	trashzle();
+X	fprintf(stderr,"%s: ",(isset(SHINSTDIN)) ? "zsh" : argzero);
+X	zerrnam(NULL,fmt,str,num);
+X}
+X
+Xvoid niceputc(c,f) /**/
+Xint c;FILE *f;
+X{
+X	if (itok(c))
+X		{
+X		if (c >= Pound && c <= Comma)
+X			putc(ztokens[c-Pound],f);
+X		return;
+X		}
+X	c &= 0xff;
+X	if (isprint(c))
+X		putc(c,f);
+X	else if (c == '\n')
+X		{
+X		putc('\\',f);
+X		putc('n',f);
+X		}
+X	else
+X		{
+X		putc('^',f);
+X		putc(c|'@',f);
+X		}
+X}
+X
+X/* enable ^C interrupts */
+X
+Xvoid intr() /**/
+X{
+X#ifdef SV_INTERRUPT
+Xstatic struct sigvec vec = { handler,sigmask(SIGINT),SV_INTERRUPT };
+X
+X	if (interact)
+X		sigvec(SIGINT,&vec,NULL);
+X#else
+X	if (interact)
+X		signal(SIGINT,handler);
+X#endif
+X}
+X
+Xvoid noholdintr() /**/
+X{
+X	intr();
+X}
+X
+Xvoid holdintr() /**/
+X{
+X#ifdef SV_INTERRUPT
+Xstatic struct sigvec vec = { handler,sigmask(SIGINT),0 };
+X
+X	if (interact) sigvec(SIGINT,&vec,NULL);
+X#else
+X	if (interact) signal(SIGINT,SIG_IGN);
+X#endif
+X}
+X
+Xchar *fgetline(buf,len,in) /**/
+Xchar *buf;int len;FILE *in;
+X{
+X	if (!fgets(buf,len,in))
+X		return NULL;
+X	buf[len] = '\0';
+X	buf[strlen(buf)-1] = '\0';
+X	return buf;
+X}
+X
+X/* get a symlink-free pathname for s relative to PWD */
+X
+Xchar *findpwd(s) /**/
+Xchar *s;
+X{
+Xchar *t;
+X
+X	if (*s == '/')
+X		return xsymlink(s);
+X	s = tricat((pwd[1]) ? pwd : "","/",s);
+X	t = xsymlink(s);
+X	free(s);
+X	return t;
+X}
+X
+Xstatic char xbuf[MAXPATHLEN];
+X
+X#if 0
+Xchar *fixpwd(s) /**/
+Xchar *s;
+X{
+Xstruct stat sbuf,tbuf;
+Xchar *t;
+X
+X	strcpy(xbuf,"");
+X	if (*s == '/')
+X		t = ztrdup(s);
+X	else
+X		t = tricat((pwd[1]) ? pwd : "","/",s);
+X	(void) xsymlinks(t+1,0); 
+X	free(t);
+X	if (!*xbuf)
+X		strcpy(xbuf,"/");
+X	if (stat(xbuf,&sbuf) == 0 && stat(".",&tbuf) == 0)
+X		if (!(sbuf.st_dev == tbuf.st_dev && sbuf.st_ino == tbuf.st_ino))
+X			chdir(xbuf);
+X	return ztrdup(xbuf);
+X}
+X#endif
+X
+Xint ispwd(s) /**/
+Xchar *s;
+X{
+Xstruct stat sbuf,tbuf;
+X
+X	if (stat(s,&sbuf) == 0 && stat(".",&tbuf) == 0)
+X		if (sbuf.st_dev == tbuf.st_dev && sbuf.st_ino == tbuf.st_ino)
+X			return 1;
+X	return 0;
+X}
+X
+X/* expand symlinks in s, and remove other weird things */
+X
+Xchar *xsymlink(s) /**/
+Xchar *s;
+X{
+X	if (unset(CHASELINKS))
+X		return ztrdup(s);
+X	if (*s != '/')
+X		return NULL;
+X	strcpy(xbuf,"");
+X	if (xsymlinks(s+1,1))
+X		return ztrdup(s);
+X	if (!*xbuf)
+X		return ztrdup("/");
+X	return ztrdup(xbuf);
+X}
+X
+Xchar **slashsplit(s) /**/
+Xchar *s;
+X{
+Xchar *t,**r,**q;
+Xint t0;
+X
+X	if (!*s)
+X		return (char **) zcalloc(sizeof(char **));
+X	for (t = s, t0 = 0; *t; t++)
+X		if (*t == '/')
+X			t0++;
+X	q  = r = (char **) zalloc(sizeof(char **)*(t0+2));
+X	while (t = strchr(s,'/'))
+X		{
+X		*t = '\0';
+X		*q++ = ztrdup(s);
+X		*t = '/';
+X		while (*t == '/')
+X			t++;
+X		if (!*t)
+X			{
+X			*q = NULL;
+X			return r;
+X			}
+X		s = t;
+X		}
+X	*q++ = ztrdup(s);
+X	*q = NULL;
+X	return r;
+X}
+X
+Xint islink(s) /**/
+Xchar *s;
+X{
+X	return readlink(s,NULL,0) == 0;
+X}
+X
+X/* expands symlinks and .. or . expressions */
+X/* if flag = 0, only expand .. and . expressions */
+X
+Xint xsymlinks(s,flag) /**/
+Xchar *s;int flag;
+X{
+Xchar **pp,**opp;
+Xchar xbuf2[MAXPATHLEN],xbuf3[MAXPATHLEN];
+Xint t0;
+X
+X	opp = pp = slashsplit(s);
+X	for (; *pp; pp++)
+X		{
+X		if (!strcmp(*pp,"."))
+X			{
+X			free(*pp);
+X			continue;
+X			}
+X		if (!strcmp(*pp,".."))
+X			{
+X			char *p;
+X
+X			free(*pp);
+X			if (!strcmp(xbuf,"/"))
+X				continue;
+X			p = xbuf+strlen(xbuf);
+X			while (*--p != '/');
+X			*p = '\0';
+X			continue;
+X			}
+X		if (unset(CHASELINKS))
+X			{
+X			strcat(xbuf,"/");
+X			strcat(xbuf,*pp);
+X			free(*pp);
+X			continue;
+X			}
+X		sprintf(xbuf2,"%s/%s",xbuf,*pp);
+X		t0 = readlink(xbuf2,xbuf3,MAXPATHLEN);
+X		if (t0 == -1 || !flag)
+X			{
+X			strcat(xbuf,"/");
+X			strcat(xbuf,*pp);
+X			free(*pp);
+X			}
+X		else
+X			{
+X			xbuf3[t0] = '\0'; /* STUPID */
+X			if (*xbuf3 == '/')
+X				{
+X				strcpy(xbuf,"");
+X				if (xsymlinks(xbuf3+1,flag))
+X					return 1;
+X				}
+X			else
+X				if (xsymlinks(xbuf3,flag))
+X					return 1;
+X			free(*pp);
+X			}
+X		}
+X	free(opp);
+X	return 0;
+X}
+X
+X/* print a directory */
+X
+Xvoid fprintdir(s, f) /**/
+Xchar *s; FILE *f;
+X{
+Xint t0;
+X
+X	t0 = finddir(s);
+X	if (t0 == -1)
+X		{
+X		if (!strncmp(s,home,t0 = strlen(home)) && t0 > 1)
+X			{
+X			putc('~', f);
+X			fputs(s+t0,f);
+X			}
+X		else
+X			fputs(s,f);
+X		}
+X	else
+X		{
+X		putc('~', f);
+X		fputs(usernames[t0],f);
+X		fputs(s+strlen(userdirs[t0]),f);
+X		}
+X}
+X
+Xvoid printdir(s) /**/
+Xchar *s;
+X{
+X	fprintdir(s, stdout);
+X}
+X
+Xvoid printdircr(s) /**/
+Xchar *s;
+X{
+X	fprintdir(s, stdout);
+X	putchar('\n');
+X}
+X
+X/* see if a path has a named directory as its prefix */
+X
+Xint finddir(s) /**/
+Xchar *s;
+X{
+Xint t0,t1,step;
+X
+X	if (userdirsz)
+X		{
+X		step = t0 = userdirsz/2;
+X		for(;;)
+X			{
+X			t1 = (userdirs[t0]) ? dircmp(userdirs[t0],s) : 1;
+X			if (!t1)
+X				{
+X				while (t0 != userdirsz-1 && userdirs[t0+1] && 
+X						!dircmp(userdirs[t0+1],s)) 
+X					t0++;
+X				return t0;
+X				}
+X			if (!step)
+X				break;
+X			if (t1 > 0)
+X				t0 = t0-step+step/2;
+X			else
+X				t0 += step/2;
+X			step /= 2;
+X			}
+X		}
+X	return -1;
+X}
+X
+X/* add a named directory */
+X
+Xvoid adduserdir(s,t) /**/
+Xchar *s;char *t;
+X{
+Xint t0,t1;
+X
+X	if (!interact || ((t0 = finddir(t)) != -1 && !strcmp(s,usernames[t0])))
+X		return;
+X	if (!strcmp(t,"/"))
+X		return;
+X	if ((t0 = finddir(t)) != -1 && !strcmp(s,usernames[t0]))
+X		return;
+X	if (userdirsz == userdirct)
+X		{
+X		userdirsz *= 2;
+X		userdirs = (char **) realloc((char *) userdirs,
+X			sizeof(char **)*userdirsz);
+X		usernames = (char **) realloc((char *) usernames,
+X			sizeof(char **)*userdirsz);
+X		for (t0 = userdirct; t0 != userdirsz; t0++)
+X			userdirs[t0] = usernames[t0] = NULL;
+X		}
+X	for (t0 = 0; t0 != userdirct; t0++)
+X		if (strcmp(userdirs[t0],t) > 0)
+X			break;
+X	for (t1 = userdirct-1; t1 >= t0; t1--)
+X		{
+X		userdirs[t1+1] = userdirs[t1];
+X		usernames[t1+1] = usernames[t1];
+X		}
+X	userdirs[t0] = ztrdup(t);
+X	usernames[t0] = ztrdup(s);
+X	userdirct++;
+X}
+X
+Xint dircmp(s,t) /**/
+Xchar *s;char *t;
+X{
+X	for (; *s && *t; s++,t++)
+X		if (*s != *t)
+X			return *s-*t;
+X	if (!*s && (!*t || *t == '/'))
+X		return 0;
+X	return *s-*t;
+X}
+X
+Xint ddifftime(t1,t2) /**/
+Xtime_t t1;time_t t2;
+X{
+X	return ((long) t2-(long) t1);
+X}
+X
+X/* see if jobs need printing */
+X
+Xvoid scanjobs() /**/
+X{
+Xint t0;
+X
+X	for (t0 = 1; t0 != MAXJOB; t0++)
+X		if (jobtab[t0].stat & STAT_CHANGED)
+X			printjob(jobtab+t0,0);
+X}
+X
+X/* do pre-prompt stuff */
+X
+Xvoid preprompt() /**/
+X{
+Xint diff;
+XList list;
+Xstruct schedcmd *sch,*schl;
+X
+X	if (unset(NOTIFY))
+X		scanjobs();
+X	if (errflag)
+X		return;
+X	if (list = getshfunc("precmd")) doshfuncnoval(list,NULL,0);
+X	if (errflag)
+X		return;
+X	if (period && (time(NULL) > lastperiod+period) &&
+X			(list = getshfunc("periodic"))) {
+X		doshfuncnoval(list,NULL,0);
+X		lastperiod = time(NULL);
+X	}
+X	if (errflag)
+X		return;
+X	if (watch)
+X		{
+X		diff = (int) ddifftime(lastwatch,time(NULL));
+X		if (diff > logcheck)
+X			{
+X			dowatch();
+X			lastwatch = time(NULL);
+X			}
+X		}
+X	if (errflag)
+X		return;
+X	diff = (int) ddifftime(lastmailcheck,time(NULL));
+X	if (diff > mailcheck)
+X		{
+X		if (mailpath && *mailpath)
+X			checkmailpath(mailpath);
+X		else if (mailfile)
+X			{
+X			char *x[2];
+X
+X			x[0] = mailfile;
+X			x[1] = NULL;
+X			checkmailpath(x);
+X			}
+X		lastmailcheck = time(NULL);
+X		}
+X	for (schl = (struct schedcmd *) &schedcmds, sch = schedcmds; sch;
+X			sch = (schl = sch)->next)
+X		{
+X		if (sch->time < time(NULL))
+X			{
+X			execstring(sch->cmd);
+X			schl->next = sch->next;
+X			free(sch->cmd);
+X			free(sch);
+X			}
+X		if (errflag)
+X			return;
+X		}
+X}
+X
+Xint arrlen(s) /**/
+Xchar **s;
+X{
+Xint t0;
+X
+X	for (t0 = 0; *s; s++,t0++);
+X	return t0;
+X}
+X
+Xvoid checkmailpath(s) /**/
+Xchar **s;
+X{
+Xstruct stat st;
+Xchar *v,*u,c;
+X
+X	while (*s)
+X		{
+X		for (v = *s; *v && *v != '?'; v++);
+X		c = *v;
+X		*v = '\0';
+X		if (c != '?')
+X			u = NULL;
+X		else
+X			u = v+1;
+X		if (stat(*s,&st) == -1)
+X			{
+X			if (errno != ENOENT)
+X				zerr("%e: %s",*s,errno);
+X			}
+X		else if (S_ISDIR(st.st_mode))
+X			{
+X			Lklist l;
+X			DIR *lock = opendir(*s);
+X			char buf[MAXPATHLEN*2],**arr,**ap;
+X			struct direct *de;
+X			int ct = 1;
+X
+X			if (lock)
+X				{
+X				pushheap();
+X				heapalloc();
+X				l = newlist();
+X				readdir(lock); readdir(lock);
+X				while (de = readdir(lock))
+X					{
+X					if (errflag)
+X						break;
+X					if (u)
+X						sprintf(buf,"%s/%s?%s",*s,de->d_name,u);
+X					else
+X						sprintf(buf,"%s/%s",*s,de->d_name);
+X					addnode(l,strdup(buf));
+X					ct++;
+X					}
+X				closedir(lock);
+X				ap = arr = (char **) alloc(ct*sizeof(char *));
+X				while (*ap++ = ugetnode(l));
+X				checkmailpath(arr);
+X				popheap();
+X				}
+X			}
+X		else
+X			{
+X			if (st.st_size && st.st_atime <= st.st_mtime &&
+X					st.st_mtime > lastmailcheck)
+X				if (!u)
+X					{
+X					fprintf(stderr,"You have new mail.\n",*s);
+X					fflush(stderr);
+X					}
+X				else
+X					{
+X					char *z = u;
+X
+X					while (*z)
+X						if (*z == '$' && z[1] == '_')
+X							{
+X							fprintf(stderr,"%s",*s);
+X							z += 2;
+X							}
+X						else
+X							fputc(*z++,stderr);
+X					fputc('\n',stderr);
+X					fflush(stderr);
+X					}
+X			if (isset(MAILWARNING) && st.st_atime > st.st_mtime &&
+X					st.st_atime > lastmailcheck && st.st_size)
+X				{
+X				fprintf(stderr,"The mail in %s has been read.\n",*s);
+X				fflush(stderr);
+X				}
+X			}
+X		*v = c;
+X		s++;
+X		}
+X}
+X
+Xvoid saveoldfuncs(x,y) /**/
+Xchar *x;Cmdnam y;
+X{
+XCmdnam cc;
+X
+X	if (y->type == SHFUNC || y->type == DISABLED)
+X		{
+X		cc = (Cmdnam) zcalloc(sizeof *cc);
+X		*cc = *y;
+X		y->u.list = NULL;
+X		addhnode(ztrdup(x),cc,cmdnamtab,freecmdnam);
+X		}
+X}
+X
+X/* create command hashtable */
+X
+Xvoid newcmdnamtab() /**/
+X{
+XHashtab oldcnt;
+X
+X	oldcnt = cmdnamtab;
+X	permalloc();
+X	cmdnamtab = newhtable(101);
+X	addbuiltins();
+X	if (oldcnt) {
+X		listhtable(oldcnt,(HFunc) saveoldfuncs);
+X		freehtab(oldcnt,freecmdnam);
+X	}
+X	lastalloc();
+X	pathchecked = path;
+X}
+X
+Xvoid freecmdnam(a) /**/
+Xvptr a;
+X{
+Xstruct cmdnam *c = (struct cmdnam *) a;
+X
+X	if (c->type == SHFUNC) {
+X		if (c->u.list)
+X			freestruct(c->u.list);
+X	} else if (c->type != BUILTIN && c->type != DISABLED)
+X		free(c->u.nam);
+X	free(c);
+X}
+X
+Xvoid freecompctl(a) /**/
+Xvptr a;
+X{
+XCompctl cc = (Compctl) a;
+X
+X	free(cc);
+X}
+X
+Xvoid freestr(a) /**/
+Xvptr a;
+X{
+X	free(a);
+X}
+X
+Xvoid freeanode(a) /**/
+Xvptr a;
+X{
+Xstruct alias *c = (struct alias *) a;
+X
+X	free(c->text);
+X	free(c);
+X}
+X
+Xvoid freepm(a) /**/
+Xvptr a;
+X{
+Xstruct param *pm = (Param) a;
+X
+X	free(pm);
+X}
+X
+Xvoid restoretty() /**/
+X{
+X	settyinfo(&shttyinfo);
+X}
+X
+Xvoid gettyinfo(ti) /**/
+Xstruct ttyinfo *ti;
+X{
+X	if (SHTTY != -1)
+X		{
+X#ifdef TERMIOS
+X#ifdef HAS_TCCRAP
+X		if (tcgetattr(SHTTY,&ti->tio) == -1)
+X#else
+X		if (ioctl(SHTTY,TCGETS,&ti->tio) == -1)
+X#endif
+X			zerr("bad tcgets: %e",NULL,errno);
+X#else
+X#ifdef TERMIO
+X		ioctl(SHTTY,TCGETA,&ti->tio);
+X#else
+X		ioctl(SHTTY,TIOCGETP,&ti->sgttyb);
+X		ioctl(SHTTY,TIOCLGET,&ti->lmodes);
+X		ioctl(SHTTY,TIOCGETC,&ti->tchars);
+X		ioctl(SHTTY,TIOCGLTC,&ti->ltchars);
+X#endif
+X#endif
+X#ifdef TIOCGWINSZ
+X		if (ioctl(SHTTY,TIOCGWINSZ,&ti->winsize) == -1)
+X		/*	zerr("bad tiocgwinsz: %e",NULL,errno)*/;
+X#endif
+X		}
+X}
+X
+Xvoid settyinfo(ti) /**/
+Xstruct ttyinfo *ti;
+X{
+X	if (SHTTY != -1)
+X		{
+X#ifdef TERMIOS
+X#ifdef HAS_TCCRAP
+X#ifndef TCSADRAIN
+X#define TCSADRAIN 1   /* XXX Princeton's include files are screwed up */
+X#endif
+X		if (tcsetattr(SHTTY, TCSADRAIN, &ti->tio) == -1)
+X#else
+X		if (ioctl(SHTTY,TCSETS,&ti->tio) == -1)
+X#endif
+X		/*	zerr("settyinfo: %e",NULL,errno)*/;
+X#else
+X#ifdef TERMIO
+X		ioctl(SHTTY,TCSETA,&ti->tio);
+X#else
+X		ioctl(SHTTY,TIOCSETN,&ti->sgttyb);
+X		ioctl(SHTTY,TIOCLSET,&ti->lmodes);
+X		ioctl(SHTTY,TIOCSETC,&ti->tchars);
+X		ioctl(SHTTY,TIOCSLTC,&ti->ltchars);
+X#endif
+X#endif
+X#ifdef TIOCGWINSZ
+X		signal(SIGWINCH,SIG_IGN);
+X		if (ioctl(SHTTY,TIOCSWINSZ,&ti->winsize) == -1)
+X		/*	zerr("settyinfo: %e",NULL,errno)*/;
+X		signal(SIGWINCH,handler);
+X#endif
+X		}
+X}
+X
+X#define SANEKEY(X) \
+X	if (ti->X == -1 && savedttyinfo.X != -1) ti->X = savedttyinfo.X;
+X
+Xvoid sanetty(ti) /**/
+Xstruct ttyinfo *ti;
+X{
+Xint t0;
+X
+X#ifdef TIO
+X	ti->tio.c_lflag |= ICANON|ECHO;
+X#ifdef FLUSHO
+X	ti->tio.c_lflag &= ~FLUSHO;
+X#endif
+X	for (t0 = 0; t0 !=
+X#ifdef NCCS
+X	NCCS
+X#else
+X	NCC
+X#endif
+X	; t0++)
+X		if (ti->tio.c_cc[t0] == VDISABLEVAL &&
+X				savedttyinfo.tio.c_cc[t0] != VDISABLEVAL)
+X			ti->tio.c_cc[t0] = savedttyinfo.tio.c_cc[t0];
+X#else
+X	ti->sgttyb.sg_flags = (ti->sgttyb.sg_flags & ~CBREAK) | ECHO;
+X	ti->lmodes &= ~LFLUSHO;
+X	SANEKEY(tchars.t_quitc);
+X	SANEKEY(tchars.t_startc);
+X	SANEKEY(tchars.t_stopc);
+X	SANEKEY(ltchars.t_suspc);
+X	SANEKEY(ltchars.t_dsuspc);
+X	SANEKEY(ltchars.t_lnextc);
+X	SANEKEY(ltchars.t_flushc);
+X#endif
+X}
+X
+Xvoid adjustwinsize() /**/
+X{
+X#ifdef TIOCGWINSZ
+X	ioctl(SHTTY,TIOCGWINSZ,&shttyinfo.winsize);
+X	if (!(columns = shttyinfo.winsize.ws_col)) columns = 80;
+X	lines = shttyinfo.winsize.ws_row;
+X	setintenv("COLUMNS",columns);
+X	setintenv("LINES",lines);
+X	if (zleactive) refresh();
+X#endif
+X}
+X
+Xint zyztem(s,t) /**/
+Xchar *s;char *t;
+X{
+X#ifdef WAITPID
+Xint pid,statusp;
+X
+X	if (!(pid = fork()))
+X		{
+X		s = tricat(s," ",t);
+X		execl("/bin/sh","sh","-c",s,(char *) 0);
+X		_exit(1);
+X		}
+X	while (waitpid(pid,&statusp,WUNTRACED) == -1 && errno == EINTR);
+X	if (WIFEXITED(statusp))
+X		return WEXITSTATUS(statusp);
+X	return 1;
+X#else
+X	if (!waitfork())
+X		{
+X		s = tricat(s," ",t);
+X		execl("/bin/sh","sh","-c",s,(char *) 0);
+X		_exit(1);
+X		}
+X	return 0;
+X#endif
+X}
+X
+X#ifndef WAITPID
+X
+X/* fork a process and wait for it to complete without confusing
+X	the SIGCHLD handler */
+X
+Xint waitfork() /**/
+X{
+Xint pipes[2];
+Xchar x;
+X
+X	pipe(pipes);
+X	if (!fork())
+X		{
+X		close(pipes[0]);
+X		signal(SIGCHLD,SIG_DFL);
+X		if (!fork())
+X			return 0;
+X		wait(NULL);
+X		_exit(0);
+X		}
+X	close(pipes[1]);
+X	read(pipes[0],&x,1);
+X	close(pipes[0]);
+X	return 1;
+X}
+X
+X#endif
+X
+X/* move a fd to a place >= 10 */
+X
+Xint movefd(fd) /**/
+Xint fd;
+X{
+Xint fe;
+X
+X	if (fd == -1)
+X		return fd;
+X#ifdef F_DUPFD
+X	fe = fcntl(fd,F_DUPFD,10);
+X#else
+X	if ((fe = dup(fd)) < 10)
+X		fe = movefd(fe);
+X#endif
+X	close(fd);
+X	return fe;
+X}
+X
+X/* move fd x to y */
+X
+Xvoid redup(x,y) /**/
+Xint x;int y;
+X{
+X	if (x != y)
+X		{
+X		dup2(x,y);
+X		close(x);
+X		}
+X}
+X
+Xvoid settrap(t0,l) /**/
+Xint t0;List l;
+X{
+XCmd c;
+X
+X	if (l)
+X		{
+X		c = l->left->left->left;
+X		if (c->type == SIMPLE && !full(c->args) && !full(c->redir)
+X				&& !full(c->vars) && !c->flags)
+X			l = NULL;
+X		}
+X	if (t0 == -1)
+X		return;
+X	if (jobbing && (t0 == SIGTTOU || t0 == SIGTSTP || t0 == SIGTTIN
+X			|| t0 == SIGPIPE))
+X		{
+X		zerr("can't trap SIG%s in interactive shells",sigs[t0-1],0);
+X		return;
+X		}
+X	if (!l)
+X		{
+X		sigtrapped[t0] = 2;
+X		if (t0 && t0 < SIGCOUNT && t0 != SIGCHLD)
+X			{
+X			signal(t0,SIG_IGN);
+X			sigtrapped[t0] = 2;
+X			}
+X		}
+X	else
+X		{
+X		if (t0 && t0 < SIGCOUNT && t0 != SIGCHLD)
+X			signal(t0,handler);
+X		sigtrapped[t0] = 1;
+X		permalloc();
+X		sigfuncs[t0] = (List) dupstruct(l);
+X		heapalloc();
+X		}
+X}
+X
+Xvoid unsettrap(t0) /**/
+Xint t0;
+X{
+X	if (t0 == -1)
+X		return;
+X	if (jobbing && (t0 == SIGTTOU || t0 == SIGTSTP || t0 == SIGTTIN
+X			|| t0 == SIGPIPE)) {
+X		return;
+X	}
+X	sigtrapped[t0] = 0;
+X	if (t0 == SIGINT) intr();
+X	else if (t0 && t0 < SIGCOUNT && t0 != SIGCHLD) signal(t0,SIG_DFL);
+X	if (sigfuncs[t0]) freestruct(sigfuncs[t0]);
+X}
+X
+Xvoid dotrap(sig) /**/
+Xint sig;
+X{
+Xint sav,savval;
+X
+X	sav = sigtrapped[sig];
+X	savval = lastval;
+X	if (sav == 2)
+X		return;
+X	sigtrapped[sig] = 2;
+X	if (sigfuncs[sig]) {
+X		lexsave();
+X		doshfuncnoval(sigfuncs[sig],NULL,0);
+X		lexrestore();
+X	}
+X	sigtrapped[sig] = sav;
+X	lastval = savval;
+X}
+X
+X/* copy len chars from t into s, and null terminate */
+X
+Xvoid ztrncpy(s,t,len) /**/
+Xchar *s;char *t;int len;
+X{
+X	while (len--) *s++ = *t++;
+X	*s = '\0';
+X}
+X
+X/* copy t into *s and update s */
+X
+Xvoid strucpy(s,t) /**/
+Xchar **s;char *t;
+X{
+Xchar *u = *s;
+X
+X	while (*u++ = *t++);
+X	*s = u-1;
+X}
+X
+Xvoid struncpy(s,t,n) /**/
+Xchar **s;char *t;int n;
+X{
+Xchar *u = *s;
+X
+X	while (n--)
+X		*u++ = *t++;
+X	*s = u;
+X	*u = '\0';
+X}
+X
+Xvoid checkrmall(s) /**/
+Xchar *s;
+X{
+X	fflush(stdin);
+X	if (*s == '/')
+X		fprintf(stderr,"zsh: sure you want to delete all the files in %s? ",s);
+X	else
+X		fprintf(stderr,"zsh: sure you want to delete all the files in %s/%s? ",
+X			(pwd[1]) ? pwd : "",s);
+X	fflush(stderr);
+X	feep();
+X	errflag |= (getquery() != 'y');
+X}
+X
+Xint getquery() /**/
+X{
+Xchar c;
+Xlong val;
+X
+X	setcbreak();
+X#ifdef FIONREAD
+X	ioctl(SHTTY,FIONREAD,&val);
+X	if (val) { unsetcbreak(); write(2,"n\n",2); return 'n'; }
+X#endif
+X	if (read(SHTTY,&c,1) == 1)
+X		if (c == 'y' || c == 'Y' || c == '\t') c = 'y';
+X	unsetcbreak();
+X	if (c != '\n')
+X		write(2,"\n",1);
+X	return (int) c;
+X}
+X
+Xstatic int d;
+Xstatic char *guess,*best;
+X
+Xvoid spscannodis(s,cn) /**/
+Xchar *s;char *cn;
+X{
+X	if (((Cmdnam) cn)->type != DISABLED)
+X		spscan(s,NULL);
+X}
+X
+Xvoid spscan(s,junk) /**/
+Xchar *s;char *junk;
+X{
+Xint nd;
+X
+X	nd = spdist(s,guess,strlen(guess)/4+1);
+X	if (nd <= d) {
+X		best = s;
+X		d = nd;
+X	}
+X}
+X
+X/* spellcheck a word */
+X/* fix s and s2 ; if s2 is non-null, fix the history list too */
+X
+Xvoid spckword(s,s2,tptr,cmd,ask) /**/
+Xchar **s;char **s2;char **tptr;int cmd;int ask;
+X{
+Xchar *t,*u;
+Xchar firstchar;
+Xint x;
+Xint pram = 0;
+X
+X	if (**s == '-' || **s == '%')
+X		return;
+X	if (!strcmp(*s,"in"))
+X		return;
+X	if (!(*s)[0] || !(*s)[1]) return;
+X	if (gethnode(*s,cmdnamtab) || gethnode(*s,aliastab)) return;
+X	t = *s;
+X	if (*t == Tilde || *t == Equals || *t == String) t++;
+X	for (; *t; t++) if (itok(*t)) return;
+X	best = NULL;
+X	for (t = *s; *t; t++) if (*t == '/') break;
+X	if (**s == String) {
+X		if (*t) return;
+X		pram = 1;
+X		guess = *s+1;
+X		d = 100;
+X		listhtable(paramtab,spscan);
+X	} else {
+X		if ((u = spname(guess = *s)) != *s)
+X			best = u;
+X		if (!*t && !cmd) {
+X			if (access(*s,F_OK) == 0) return;
+X			if (hashcmd(*s,pathchecked)) return;
+X			guess = *s;
+X			d = 100;
+X			listhtable(aliastab,spscan);
+X			listhtable(cmdnamtab,spscan);
+X		}
+X	}
+X	if (errflag) return;
+X	if (best && strlen(best) > 1 && strcmp(best,guess)) {
+X		if (ask) {
+X			char *pp;
+X			int junk;
+X
+X			rstring = best; Rstring = guess;
+X			firstchar = *guess;
+X			if (*guess == Tilde) *guess = '~';
+X			else if (*guess == String) *guess = '$';
+X			else if (*guess == Equals) *guess = '=';
+X			pp = putprompt(sprompt,&junk);
+X			*guess = firstchar;
+X			fprintf(stderr,"%s",pp);
+X			fflush(stderr);
+X			feep();
+X			x = getquery();
+X		} else
+X			x = 'y';
+X		if (x == 'y') {
+X			if (!pram) {
+X				*s = strdup(best);
+X			} else {
+X				*s = alloc(strlen(best)+2);
+X				strcpy(*s+1,best);
+X				**s = String;
+X			}
+X			if (s2) {
+X				if (*tptr && !strcmp(hlastw,*s2) && hlastw < hptr) {
+X					char *z;
+X					hptr = hlastw;
+X					if (pram) hwaddc('$');
+X					for (z = best; *z; z++) hwaddc(*z);
+X					hwaddc(HISTSPACE);
+X					*tptr = hptr-1;
+X					**tptr = '\0';
+X				}
+X				*s2 = strdup(best);
+X			}
+X		} else if (x == 'a') {
+X			histdone |= HISTFLAG_NOEXEC;
+X		} else if (x == 'e') {
+X			histdone |= HISTFLAG_NOEXEC|HISTFLAG_RECALL;
+X		}
+X	}
+X}
+X
+Xint ztrftime(buf,bufsize,fmt,tm) /**/
+Xchar *buf;int bufsize;char *fmt;struct tm *tm;
+X{
+Xstatic char *astr[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+Xstatic char *estr[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul",
+X	"Aug","Sep","Oct","Nov","Dec"};
+Xstatic char *lstr[] = {"12"," 1"," 2"," 3"," 4"," 5"," 6"," 7"," 8"," 9",
+X	"10","11"};
+Xchar tmp[3];
+X#ifdef HAS_STRFTIME
+Xchar *origbuf = buf;
+X#endif
+X
+X	tmp[0] = '%'; tmp[2] = '\0';
+X	while (*fmt)
+X		if (*fmt == '%')
+X			{
+X			fmt++;
+X			switch(*fmt++)
+X				{
+X				case 'a':
+X					strucpy(&buf,astr[tm->tm_wday]);
+X					break;
+X				case 'b':
+X					strucpy(&buf,estr[tm->tm_mon]);
+X					break;
+X				case 'd':
+X					*buf++ = '0'+tm->tm_mday/10;
+X					*buf++ = '0'+tm->tm_mday%10;
+X					break;
+X				case 'e':
+X					if (tm->tm_mday > 9)
+X						*buf++ = '0'+tm->tm_mday/10;
+X					*buf++ = '0'+tm->tm_mday%10;
+X					break;
+X				case 'k':
+X					if (tm->tm_hour > 9)
+X						*buf++ = '0'+tm->tm_hour/10;
+X					*buf++ = '0'+tm->tm_hour%10;
+X					break;
+X				case 'l':
+X					strucpy(&buf,lstr[tm->tm_hour%12]);
+X					break;
+X				case 'm':
+X					*buf++ = '0'+(tm->tm_mon+1)/10;
+X					*buf++ = '0'+(tm->tm_mon+1)%10;
+X					break;
+X				case 'M':
+X					*buf++ = '0'+tm->tm_min/10;
+X					*buf++ = '0'+tm->tm_min%10;
+X					break;
+X				case 'p':
+X					*buf++ = (tm->tm_hour > 11) ? 'p' : 'a';
+X					*buf++ = 'm';
+X					break;
+X				case 'S':
+X					*buf++ = '0'+tm->tm_sec/10;
+X					*buf++ = '0'+tm->tm_sec%10;
+X					break;
+X				case 'y':
+X					*buf++ = '0'+tm->tm_year/10;
+X					*buf++ = '0'+tm->tm_year%10;
+X					break;
+X				default:
+X#ifdef HAS_STRFTIME
+X					*buf = '\0';
+X					tmp[1] = fmt[-1];
+X					strftime(buf,bufsize-strlen(origbuf),tmp,tm);
+X					buf += strlen(buf);
+X#else
+X					*buf++ = '%';
+X					*buf++ = fmt[-1];
+X#endif
+X					break;
+X				}
+X			}
+X		else
+X			*buf++ = *fmt++;
+X	*buf = '\0';
+X	return 0;
+X}
+X
+Xchar *join(arr,delim) /**/
+Xchar **arr;int delim;
+X{
+Xint len = 0;
+Xchar **s,*ret,*ptr;
+Xstatic char *lastmem = NULL;
+X
+X	for (s = arr; *s; s++)
+X		len += strlen(*s)+1;
+X	if (!len) return "";
+X	if (lastmem) free(lastmem);
+X	lastmem = ptr = ret = zalloc(len);
+X	for (s = arr; *s; s++) {
+X		strucpy(&ptr,*s);
+X		*ptr++ = delim;
+X	}
+X	ptr[-1] = '\0';
+X	return ret;
+X}
+X
+Xchar *spacejoin(s) /**/
+Xchar **s;
+X{
+X	return join(s,*ifs);
+X}
+X
+Xchar *colonjoin(s) /**/
+Xchar **s;
+X{
+X	return join(s,':');
+X}
+X
+Xchar **colonsplit(s) /**/
+Xchar *s;
+X{
+Xint ct;
+Xchar *t,**ret,**ptr;
+Xchar **lastmem = NULL;
+X
+X	for (t = s, ct = 0; *t; t++) if (*t == ':') ct++;
+X	if (lastmem) freearray(lastmem);
+X	lastmem = ptr = ret = (char **) zalloc(sizeof(char **)*(ct+2));
+X	t = s;
+X	do {
+X		for (s = t; *t && *t != ':'; t++);
+X		*ptr = zalloc((t-s)+1);
+X		ztrncpy(*ptr++,s,t-s);
+X	}
+X	while (*t++);
+X	*ptr = NULL;
+X	return ret;
+X}
+X
+Xchar **spacesplit(s) /**/
+Xchar *s;
+X{
+Xint ct;
+Xchar *t,**ret,**ptr;
+X
+X	for (t = s, ct = 0; *t; t++)
+X		if (isep(*t)) ct++;
+X	ptr = ret = (char **) zalloc(sizeof(char **)*(ct+2));
+X	t = s;
+X	do {
+X		for (s = t; *t && !isep(*t); t++);
+X		*ptr = zalloc((t-s)+1);
+X		ztrncpy(*ptr++,s,t-s);
+X	} while (*t++);
+X	*ptr = NULL;
+X	return ret;
+X}
+X
+XList getshfunc(nam) /**/
+Xchar *nam;
+X{
+XCmdnam x = (Cmdnam) gethnode(nam,cmdnamtab);
+X
+X	return (x && x->type == SHFUNC) ? x->u.list : NULL;
+X}
+X
+X/* allocate a tree element */
+X
+Xvptr allocnode(type) /**/
+Xint type;
+X{
+Xint t0;
+Xstruct node *n = (struct node *) alloc(sizeof *n);
+Xstatic int typetab[N_COUNT][4] = {
+X	NT_NODE,NT_NODE,0,0,
+X	NT_NODE,NT_NODE,0,0,
+X	NT_NODE,NT_NODE,0,0,
+X	NT_STR|NT_LIST,NT_NODE,NT_NODE|NT_LIST,NT_NODE|NT_LIST,
+X	NT_STR,0,0,0,
+X	NT_NODE,NT_NODE,0,0,
+X	NT_STR,NT_NODE,0,0,
+X	NT_NODE,NT_STR,NT_NODE,0,
+X	NT_NODE,NT_NODE,NT_NODE,0,
+X	NT_NODE,NT_NODE,0,0,
+X	NT_STR,NT_STR,NT_STR|NT_LIST,0
+X	};
+X
+X	n->type = type;
+X	for (t0 = 0; t0 != 4; t0++)
+X		n->types[t0] = typetab[type][t0];
+X	return (vptr) n;
+X}
+X
+X/* duplicate a syntax tree */
+X
+Xvptr dupstruct(a) /**/
+Xvptr a;
+X{
+Xstruct node *n = a,*m;
+Xint t0;
+X
+X	if (!a) return NULL;
+X	m = alloc(sizeof *m);
+X	*m = *n;
+X	for (t0 = 0; t0 != 4; t0++)
+X		if (m->ptrs[t0])
+X			switch(m->types[t0])
+X				{
+X				case NT_NODE: m->ptrs[t0] = dupstruct(m->ptrs[t0]); break;
+X				case NT_STR: m->ptrs[t0] =
+X					(useheap) ? strdup(m->ptrs[t0]) : ztrdup(m->ptrs[t0]); break;
+X				case NT_LIST|NT_NODE:
+X					m->ptrs[t0] = duplist(m->ptrs[t0],dupstruct); break;
+X				case NT_LIST|NT_STR:
+X					m->ptrs[t0] = duplist(m->ptrs[t0],(VFunc)
+X						((useheap) ? strdup : ztrdup));
+X					break;
+X				}
+X	return (vptr) m;
+X}
+X
+X/* free a syntax tree */
+X
+Xvoid freestruct(a) /**/
+Xvptr a;
+X{
+Xstruct node *n = (struct node *) a;
+Xint t0;
+X
+X	for (t0 = 0; t0 != 4; t0++)
+X		if (n->ptrs[t0])
+X			switch(n->types[t0])
+X				{
+X				case NT_NODE: freestruct(n->ptrs[t0]); break;
+X				case NT_STR: free(n->ptrs[t0]); break;
+X				case NT_LIST|NT_STR: freetable(n->ptrs[t0],freestr); break;
+X				case NT_LIST|NT_NODE: freetable(n->ptrs[t0],freestruct); break;
+X				}
+X	free(n);
+X}
+X
+XLklist duplist(l,func) /**/
+XLklist l;VFunc func;
+X{
+XLklist ret;
+XLknode node;
+X
+X	ret = newlist();
+X	for (node = firstnode(l); node; incnode(node))
+X		addnode(ret,func(getdata(node)));
+X	return ret;
+X}
+X
+Xchar **mkarray(s) /**/
+Xchar *s;
+X{
+Xchar **t = (char **) zalloc((s) ? (2*sizeof s) : (sizeof s));
+X
+X	if (*t = s) t[1] = NULL;
+X	return t;
+X}
+X
+Xvoid feep() /**/
+X{
+X	if (unset(NOBEEP))
+X		write(2,"\07",1);
+X}
+X
+Xvoid freearray(s) /**/
+Xchar **s;
+X{
+Xchar **t = s;
+X
+X	while (*s)
+X		free(*s++);
+X	free(t);
+X}
+X
+Xint equalsplit(s,t) /**/
+Xchar *s;char **t;
+X{
+X	for (; *s && *s != '='; s++);
+X	if (*s == '=')
+X		{
+X		*s++ = '\0';
+X		*t = s;
+X		return 1;
+X		}
+X	return 0;
+X}
+X
+X/* see if the right side of a list is trivial */
+X
+Xvoid simplifyright(l) /**/
+XList l;
+X{
+XCmd c;
+X
+X	if (!l->right)
+X		return;
+X	if (l->right->right || l->right->left->right ||
+X			l->right->left->left->right)
+X		return;
+X	c = l->left->left->left;
+X	if (c->type != SIMPLE || full(c->args) || full(c->redir)
+X			|| full(c->vars))
+X		return;
+X	l->right = NULL;
+X	return;
+X}
+X
+X/* initialize the ztypes table */
+X
+Xvoid inittyptab() /**/
+X{
+Xint t0;
+Xchar *s;
+X
+X	for (t0 = 0; t0 != 256; t0++)
+X		typtab[t0] = 0;
+X	for (t0 = 0; t0 != 32; t0++)
+X		typtab[t0] = typtab[t0+128] = ICNTRL;
+X	typtab[127] = ICNTRL;
+X	for (t0 = '0'; t0 <= '9'; t0++)
+X		typtab[t0] = IDIGIT|IALNUM|IWORD|IIDENT|IUSER;
+X	for (t0 = 'a'; t0 <= 'z'; t0++)
+X		typtab[t0] = typtab[t0-'a'+'A'] = IALPHA|IALNUM|IIDENT|IUSER|IWORD;
+X	for (t0 = 0240; t0 != 0400; t0++)
+X		typtab[t0] = IALPHA|IALNUM|IIDENT|IUSER|IWORD;
+X	typtab['_'] = IIDENT|IUSER;
+X	typtab['-'] = IUSER;
+X	typtab[' '] |= IBLANK|INBLANK;
+X	typtab['\t'] |= IBLANK|INBLANK;
+X	typtab['\n'] |= INBLANK;
+X	for (t0 = (int) (unsigned char) ALPOP; t0 <= (int) (unsigned char) Nularg;
+X			t0++)
+X		typtab[t0] |= ITOK;
+X	for (s = ifs; *s; s++)
+X		typtab[(int) (unsigned char) *s] |= ISEP;
+X	for (s = wordchars; *s; s++)
+X		typtab[(int) (unsigned char) *s] |= IWORD;
+X	for (s = SPECCHARS; *s; s++)
+X		typtab[(int) (unsigned char) *s] |= ISPECIAL;
+X}
+X
+Xchar **arrdup(s) /**/
+Xchar **s;
+X{
+Xchar **x,**y;
+X
+X	y = x = (char **) ncalloc(sizeof(char *)*(arrlen(s)+1));
+X	while (*x++ = strdup(*s++));
+X	return y;
+X}
+X
+X/* next few functions stolen (with changes) from Kernighan & Pike */
+X/* "The UNIX Programming Environment" (w/o permission) */
+X
+Xchar *spname (oldname) /**/
+Xchar *oldname;
+X{
+X	char *p,guess[MAXPATHLEN+1],best[MAXPATHLEN+1];
+X	static char newname[MAXPATHLEN+1];
+X	char *new = newname, *old;
+X
+X	if (itok(*oldname)) {
+X		singsub(&oldname);
+X		if (!oldname) return NULL;
+X	}
+X	if (access(oldname,F_OK) == 0) return NULL;
+X	old = oldname;
+X	for (;;) {
+X		while (*old == '/') *new++ = *old++;
+X		*new = '\0';
+X		if (*old == '\0') return newname;
+X		p = guess;
+X		for (; *old != '/' && *old != '\0'; old++)
+X			if (p < guess+MAXPATHLEN) *p++ = *old;
+X		*p = '\0';
+X		if (mindist(newname,guess,best) >= 3) return NULL;
+X		for (p = best; *new = *p++; ) new++;
+X	}
+X}
+X
+Xint mindist(dir,guess,best) /**/
+Xchar *dir;char *guess;char *best;
+X{
+X	int d,nd;
+X	DIR *dd;
+X	struct direct *de;
+X	char buf[MAXPATHLEN];
+X
+X	if (dir[0] == '\0')
+X		dir = ".";
+X	d = 100;
+X	sprintf(buf,"%s/%s",dir,guess);
+X	if (access(buf,F_OK) == 0) { strcpy(best,guess); return 0; }
+X	if (!(dd = opendir(dir))) return d;
+X	while (de = readdir(dd)) {
+X		nd = spdist(de->d_name,guess,strlen(guess)/4+1);
+X		if (nd <= d) {
+X			strcpy(best,de->d_name);
+X			d = nd;
+X			if (d == 0) break;
+X		}
+X	}
+X	closedir(dd);
+X	return d;
+X}
+X
+Xint spdist(s,t,thresh) /**/
+Xchar *s;char *t;int thresh;
+X{
+Xchar *p,*q;
+Xchar *keymap =
+X"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
+X\t1234567890-=\t\
+X\tqwertyuiop[]\t\
+X\tasdfghjkl;'\n\t\
+X\tzxcvbnm,./\t\t\t\
+X\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
+X\t!@#$%^&*()_+\t\
+X\tQWERTYUIOP{}\t\
+X\tASDFGHJKL:\"\n\t\
+X\tZXCVBNM<>?\n\n\t\
+X\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
+X
+X	if (!strcmp(s,t))
+X		return 0;
+X	/* any number of upper/lower mistakes allowed (dist = 1) */
+X	for (p = s, q = t; *p && tulower(*p) == tulower(*q); p++,q++);
+X	if (!*p && !*q)
+X		return 1;
+X	if (!thresh)
+X		return 200;
+X	for (p = s, q = t; *p && *q; p++,q++)
+X		if (*p == *q) continue;	/* don't consider "aa" transposed, ash */
+X		else if (p[1] == q[0] && q[1] == p[0])  /* transpositions */
+X			return spdist(p+2,q+2,thresh-1)+1;
+X		else if (p[1] == q[0])	/* missing letter */
+X			return spdist(p+1,q+0,thresh-1)+2;
+X		else if (p[0] == q[1])	/* missing letter */
+X			return spdist(p+0,q+1,thresh-1)+2;
+X		else if (*p != *q)
+X			break;
+X	if ((!*p && strlen(q) == 1) || (!*q && strlen(p) == 1))
+X		return 2;
+X	for (p = s, q = t; *p && *q; p++,q++)
+X		if (p[0] != q[0] && p[1] == q[1])
+X			{
+X			int t0;
+X			char *z;
+X
+X			/* mistyped letter */
+X
+X			if (!(z = strchr(keymap,p[0])) || *z == '\n' || *z == '\t')
+X				return spdist(p+1,q+1,thresh-1)+1;
+X			t0 = z-keymap;
+X			if (*q == keymap[t0-15] || *q == keymap[t0-14] ||
+X					*q == keymap[t0-13] ||
+X					*q == keymap[t0-1] || *q == keymap[t0+1] ||
+X					*q == keymap[t0+13] || *q == keymap[t0+14] ||
+X					*q == keymap[t0+15])
+X				return spdist(p+1,q+1,thresh-1)+2;
+X			return 200;
+X			}
+X		else if (*p != *q)
+X			break;
+X	return 200;
+X}
+X
+Xchar *zgetenv(s) /**/
+Xchar *s;
+X{
+Xchar **av,*p,*q;
+X
+X	for (av = environ; *av; av++)
+X		{
+X		for (p = *av, q = s; *p && *p != '=' && *q && *p == *q; p++,q++);
+X		if (*p == '=' && !*q)
+X			return p+1;
+X		}
+X	return NULL;
+X}
+X
+Xint tulower(c) /**/
+Xint c;
+X{
+X	c &= 0xff;
+X	return (isupper(c) ? tolower(c) : c);
+X}
+X
+Xint tuupper(c) /**/
+Xint c;
+X{
+X	c &= 0xff;
+X	return (islower(c) ? toupper(c) : c);
+X}
+X
+X#ifdef SYSV
+X#include <sys/utsname.h>
+X
+Xint gethostname(nameptr, maxlength)
+Xchar *nameptr;
+Xint maxlength;
+X{
+Xstruct utsname *name;
+Xint result;
+X
+X	result = uname(name);
+X	if (result >= 0) {
+X		strcpy(nameptr,name->sysname);
+X		return 0;
+X	} else return -1;
+X}
+X#endif
+X
+X/* set cbreak mode, or the equivalent */
+X
+Xvoid setcbreak() /**/
+X{
+Xstruct ttyinfo ti;
+X
+X	ti = shttyinfo;
+X#ifdef TIO
+X	ti.tio.c_lflag &= ~ICANON;
+X	ti.tio.c_cc[VMIN] = 1;
+X	ti.tio.c_cc[VTIME] = 0;
+X#else
+X	ti.sgttyb.sg_flags |= CBREAK;
+X#endif
+X	settyinfo(&ti);
+X}
+X
+Xint getlineleng() /**/
+X{
+Xint z;
+X
+X#ifdef TIOCSWINSZ
+X	z = shttyinfo.winsize.ws_col;
+X	return (z) ? z : 80;
+X#else
+X	return 80;
+X#endif
+X}
+X
+Xvoid unsetcbreak() /**/
+X{
+X	settyinfo(&shttyinfo);
+X}
+X
+X/* give the tty to some process */
+X
+Xvoid attachtty(pgrp) /**/
+Xlong pgrp;
+X{
+Xstatic int ep = 0;
+X
+X	if (jobbing) {
+X#ifdef HAS_TCSETPGRP
+X		if (SHTTY != -1 && tcsetpgrp(SHTTY,pgrp) == -1 && !ep)
+X#else
+X		int arg = pgrp;
+X		if (SHTTY != -1 && ioctl(SHTTY,TIOCSPGRP,&arg) == -1 && !ep)
+X#endif
+X			{
+X			zerr("can't set tty pgrp: %e",NULL,errno);
+X			fflush(stderr);
+X			opts[MONITOR] = OPT_UNSET;
+X			ep =1;
+X			errflag = 0;
+X			}
+X	}
+X}
+X
+X/* get the tty pgrp */
+X
+Xlong gettygrp() /**/
+X{
+Xint arg = -1;
+X
+X	if (SHTTY == -1) return -1;
+X#ifdef HAS_TCSETPGRP
+X	arg = tcgetpgrp(SHTTY);
+X#else
+X	ioctl(SHTTY,TIOCGPGRP,&arg);
+X#endif
+X	return arg;
+X}
+SHAR_EOF
+echo 'File zsh2.2/src/utils.c is complete' &&
+chmod 0644 zsh2.2/src/utils.c ||
+echo 'restore of zsh2.2/src/utils.c failed'
+Wc_c="`wc -c < 'zsh2.2/src/utils.c'`"
+test 32116 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/utils.c: original size 32116, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/watch.c ==============
+if test -f 'zsh2.2/src/watch.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/watch.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/watch.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/watch.c' &&
+X/*
+X *
+X * watch.c - login/logout watching
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X#include <utmp.h>
+X
+Xstatic int wtabsz;
+Xstruct utmp *wtab;
+X
+X/* get the time of login/logout for WATCH */
+X
+Xtime_t getlogtime(u,inout) /**/
+Xstruct utmp *u;int inout;
+X{
+XFILE *in;
+Xstruct utmp uu;
+Xint first = 1;
+Xint srchlimit = 50; /* max number of wtmp records to search */
+X
+X	if (inout)
+X		return u->ut_time;
+X	if (!(in = fopen(WTMP_FILE,"r")))
+X		return time(NULL);
+X	fseek(in,0,2);
+X	do
+X		{
+X		if (fseek(in,((first) ? -1 : -2)*sizeof(struct utmp),1))
+X			{
+X			fclose(in);
+X			return time(NULL);
+X			}
+X		first = 0;
+X		if (!fread(&uu,sizeof(struct utmp),1,in))
+X			{
+X			fclose(in);
+X			return time(NULL);
+X			}
+X		if (uu.ut_time < lastwatch || !srchlimit--)
+X			{
+X			fclose(in);
+X			return time(NULL);
+X			}
+X		}
+X	while (memcmp(&uu,u,sizeof(struct utmp)));
+X	do
+X		if (!fread(&uu,sizeof(struct utmp),1,in))
+X			{
+X			fclose(in);
+X			return time(NULL);
+X			}
+X	while (strncmp(uu.ut_line,u->ut_line,8));
+X	fclose(in);
+X	return uu.ut_time;
+X}
+X
+X/* print a login/logout event */
+X
+Xvoid watchlog2(inout,u,fmt) /**/
+Xint inout;struct utmp *u;char *fmt;
+X{
+Xchar *p,buf[40],*bf;
+Xint i;
+Xtime_t timet;
+Xstruct tm *tm = NULL;
+X
+X	while (*fmt)
+X		if (*fmt != '%')
+X			putchar(*fmt++);
+X		else
+X			{
+X			fmt++;
+X			switch(*fmt++)
+X				{
+X				case 'n':
+X					printf("%.*s",8,u->ut_name);
+X					break;
+X				case 'a':
+X					printf("%s",(!inout) ? "logged off" : "logged on");
+X					break;
+X				case 'l':
+X					if (u->ut_line[0] == 't')
+X						printf("%.*s",5,u->ut_line+3);
+X					else
+X						printf("%.*s",8,u->ut_line);
+X					break;
+X#ifdef UTMP_HOST
+X				case 'm':
+X					for (p = u->ut_host,i = 16; i && *p;i--,p++)
+X						{
+X						if (*p == '.' && !idigit(p[1]))
+X							break;
+X						putchar(*p);
+X						}
+X					break;
+X				case 'M':
+X					printf("%.*s",16,u->ut_host);
+X					break;
+X#endif
+X				case 't':
+X				case '@':
+X					timet = getlogtime(u,inout);
+X					tm = localtime(&timet);
+X					ztrftime(buf,40,"%l:%M%p",tm);
+X					printf("%s",(*buf == ' ') ? buf+1 : buf);
+X					break;
+X				case 'T':
+X					timet = getlogtime(u,inout);
+X					tm = localtime(&timet);
+X					ztrftime(buf,40,"%k:%M",tm);
+X					printf("%s",buf);
+X					break;
+X				case 'w':
+X					timet = getlogtime(u,inout);
+X					tm = localtime(&timet);
+X					ztrftime(buf,40,"%a %e",tm);
+X					printf("%s",buf);
+X					break;
+X				case 'W':
+X					timet = getlogtime(u,inout);
+X					tm = localtime(&timet);
+X					ztrftime(buf,40,"%m/%d/%y",tm);
+X					printf("%s",buf);
+X					break;
+X				case 'D':
+X					timet = getlogtime(u,inout);
+X					tm = localtime(&timet);
+X					ztrftime(buf,40,"%y-%m-%d",tm);
+X					printf("%s",buf);
+X					break;
+X				case '%':
+X					putchar('%');
+X					break;
+X				case 'S':
+X					bf = buf;
+X					if (tgetstr("so",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				case 's':
+X					bf = buf;
+X					if (tgetstr("se",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				case 'B':
+X					bf = buf;
+X					if (tgetstr("md",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				case 'b':
+X					bf = buf;
+X					if (tgetstr("me",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				case 'U':
+X					bf = buf;
+X					if (tgetstr("us",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				case 'u':
+X					bf = buf;
+X					if (tgetstr("ue",&bf))
+X						fputs(buf,stdout);
+X					break;
+X				default:
+X					putchar('%');
+X					putchar(fmt[-1]);
+X					break;
+X				}
+X			}
+X	putchar('\n');
+X}
+X
+X/* check the List for login/logouts */
+X
+Xvoid watchlog(inout,u,w,fmt) /**/
+Xint inout;struct utmp *u;char **w;char *fmt;
+X{
+Xchar *v,*vv,sav;
+Xint bad;
+X
+X	if (*w && !strcmp(*w,"all"))
+X		{
+X		watchlog2(inout,u,fmt);
+X		return;
+X		}
+X	for (; *w; w++)
+X		{
+X		bad = 0;
+X		v = *w;
+X		if (*v != '@' && *v != '%')
+X			{
+X			for (vv = v; *vv && *vv != '@' && *vv != '%'; vv++);
+X			sav = *vv;
+X			*vv = '\0';
+X			if (strncmp(u->ut_name,v,8))
+X				bad = 1;
+X			*vv = sav;
+X			v = vv;
+X			}
+X		for (;;)
+X			if (*v == '%')
+X				{
+X				for (vv = ++v; *vv && *vv != '@'; vv++);
+X				sav = *vv;
+X				*vv = '\0';
+X				if (strncmp(u->ut_line,v,8))
+X					bad = 1;
+X				*vv = sav;
+X				v = vv;
+X				}
+X#ifdef UTMP_HOST
+X			else if (*v == '@')
+X				{
+X				for (vv = ++v; *vv && *vv != '%'; vv++);
+X				sav = *vv;
+X				*vv = '\0';
+X				if (strncmp(u->ut_host,v,strlen(v)))
+X					bad = 1;
+X				*vv = sav;
+X				v = vv;
+X				}
+X#endif
+X			else
+X				break;
+X		if (!bad)
+X			{
+X			watchlog2(inout,u,fmt);
+X			return;
+X			}
+X		}
+X}
+X
+X/* compare 2 utmp entries */
+X
+Xint ucmp(u,v) /**/
+Xstruct utmp *u;struct utmp *v;
+X{
+X	if (u->ut_time == v->ut_time)
+X		return strncmp(u->ut_line,v->ut_line,8);
+X	return u->ut_time - v->ut_time;
+X}
+X
+X/* initialize the user List */
+X
+Xvoid readwtab() /**/
+X{
+Xstruct utmp *uptr;
+Xint wtabmax = 32;
+XFILE *in;
+X
+X	wtabsz = 0;
+X	if (!(in = fopen(UTMP_FILE,"r"))) return;
+X	uptr = wtab = (struct utmp *) zalloc(wtabmax*sizeof(struct utmp));
+X	while (fread(uptr,sizeof(struct utmp),1,in))
+X#ifdef USER_PROCESS
+X		if (uptr->ut_type == USER_PROCESS)
+X#else
+X		if (uptr->ut_name[0])
+X#endif
+X			{
+X			uptr++;
+X			if (++wtabsz == wtabmax)
+X				uptr = (wtab = (struct utmp *) realloc((vptr) wtab,(wtabmax*=2)*
+X					sizeof(struct utmp)))+wtabsz;
+X			}
+X	fclose(in);
+X	if (wtabsz)
+X		qsort(wtab,wtabsz,sizeof(struct utmp),ucmp);
+X}
+X
+X/* check for login/logout events; executed before each prompt
+X	if WATCH is set */
+X
+Xvoid dowatch() /**/
+X{
+Xchar **s = watch;
+Xchar *fmt = (watchfmt) ? watchfmt : DEFWATCHFMT;
+XFILE *in;
+Xint utabsz = 0,utabmax = wtabsz+4,uct,wct;
+Xstruct utmp *utab,*uptr,*wptr;
+X
+X	holdintr();
+X	if (!fmt)
+X		fmt = "%n has %a %l from %m.";
+X	if (!wtab) {
+X		readwtab();
+X		noholdintr();
+X		return;
+X	}
+X	uptr = utab = (struct utmp *) zalloc(utabmax*sizeof(struct utmp));
+X	if (!(in = fopen(UTMP_FILE,"r"))) {
+X		free(utab);
+X		return;
+X	}
+X	while (fread(uptr,sizeof *uptr,1,in))
+X#ifdef USER_PROCESS
+X		if (uptr->ut_type == USER_PROCESS)
+X#else
+X		if (uptr->ut_name[0])
+X#endif
+X			{
+X			uptr++;
+X			if (++utabsz == utabmax)
+X				uptr = (utab = (struct utmp *) realloc((vptr) utab,(utabmax*=2)*
+X					sizeof(struct utmp)))+utabsz;
+X			}
+X	fclose(in);
+X	noholdintr();
+X	if (errflag) {
+X		free(utab);
+X		return;
+X	}
+X	if (utabsz)
+X		qsort(utab,utabsz,sizeof(struct utmp),ucmp);
+X
+X	wct = wtabsz; uct = utabsz;
+X	uptr = utab; wptr = wtab;
+X	if (errflag) {
+X		free(utab);
+X		return;
+X	}
+X	while ((uct || wct) && !errflag)
+X		if (!uct || (wct && ucmp(uptr,wptr) > 0))
+X			wct--,watchlog(0,wptr++,s,fmt);
+X		else if (!wct || (uct && ucmp(uptr,wptr) < 0))
+X			uct--,watchlog(1,uptr++,s,fmt);
+X		else
+X			uptr++,wptr++,wct--,uct--;
+X	free(wtab);
+X	wtab = utab;
+X	wtabsz = utabsz;
+X	fflush(stdout);
+X}
+X
+Xint bin_log(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+X	if (!watch)
+X		return 1;
+X	if (wtab)
+X		free(wtab);
+X	wtab = (struct utmp *) zalloc(1);
+X	wtabsz = 0;
+X	dowatch();
+X	return 0;
+X}
+X
+SHAR_EOF
+chmod 0644 zsh2.2/src/watch.c ||
+echo 'restore of zsh2.2/src/watch.c failed'
+Wc_c="`wc -c < 'zsh2.2/src/watch.c'`"
+test 7149 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/watch.c: original size 7149, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle.h ==============
+if test -f 'zsh2.2/src/zle.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle.h' &&
+X/*
+X *
+X * zle.h - header file for line editor
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#ifdef ZLEGLOBALS
+X#define ZLEXTERN
+X#else
+X#define ZLEXTERN extern
+X#endif
+X
+X#ifdef ZLE
+X
+X/* cursor position */
+XZLEXTERN int cs;
+X
+X/* line length */
+XZLEXTERN int ll;
+X
+X/* size of line buffer */
+XZLEXTERN int linesz;
+X
+X/* location of mark */
+XZLEXTERN int mark;
+X
+X/* last character pressed */
+XZLEXTERN int c;
+X
+X/* the z_ binding id for this key */
+XZLEXTERN int bindk;
+X
+X/* command argument */
+XZLEXTERN int mult;
+X
+X/* insert mode/overwrite mode flag */
+XZLEXTERN int insmode;
+X
+X/* cost of last update */
+XZLEXTERN int cost;
+X
+X/* flags associated with last command */
+XZLEXTERN int lastcmd;
+X
+X/* column position before last LINEMOVE movement */
+XZLEXTERN int lastcol;
+X
+X/* != 0 if we're getting a vi range */
+XZLEXTERN int virangeflag;
+X
+X/* kludge to get cw and dw to work right */
+XZLEXTERN int wordflag;
+X
+X#endif
+X
+X/* last named command done */
+XZLEXTERN int lastnamed;
+X
+X/* != 0 if we're done editing */
+XZLEXTERN int done;
+X
+X/* length of prompt on screen */
+XZLEXTERN int pptlen;
+X
+X/* current history line number */
+XZLEXTERN int histline;
+X
+XZLEXTERN int eofsent;
+X
+X/* != 0 if we need to call resetvideo() */
+XZLEXTERN int resetneeded;
+X
+X/* != 0 if the line editor is active */
+XZLEXTERN int zleactive;
+X
+X/* the line buffer */
+XZLEXTERN unsigned char *line;
+X
+X/* the cut buffer */
+XZLEXTERN char *cutbuf;
+X
+X/* prompt and rprompt */
+XZLEXTERN char *pmpt, *pmpt2;
+X
+X/* the last line in the history (the current one) */
+XZLEXTERN char *curhistline;
+X
+X/* the status line */
+XZLEXTERN char *statusline;
+X
+X/* 1 if a complete added a slash at the end of a directory name */
+XZLEXTERN int addedslash;
+X
+X/*
+X	the current history line and cursor position for the top line
+X	on the buffer stack
+X*/
+X
+XZLEXTERN int stackhist,stackcs;
+X
+X/* != 0 if we are in the middle of a menu completion */
+XZLEXTERN int menucmp;
+X
+X/* != 0 if we are making undo records */
+XZLEXTERN int undoing;
+X
+X/* last vi change buffer */
+XZLEXTERN int vichgbufsz,vichgbufptr,vichgflag;
+XZLEXTERN char *vichgbuf;
+X
+XZLEXTERN int viinsbegin;
+X
+Xtypedef void bindfunc DCLPROTO((void));
+Xtypedef bindfunc *F;
+X
+Xstruct key {
+X	struct hashnode *next; int canfree; char *nam; /* hash data */
+X	int func;			/* function code for this key */
+X	char *str;			/* string corresponding to this key,
+X								if func = z_sequenceleadin				 */
+X	int len;				/* length of string */
+X	};
+Xstruct zlecmd {
+X	char *name;			/* name of function */
+X	F func;				/* handler function */
+X	int flags;
+X	};
+X
+X/* undo event */
+X
+Xstruct undoent {
+X	int pref;		/* number of initial chars unchanged */
+X	int suff;		/* number of trailing chars unchanged */
+X	int len;			/* length of changed chars */
+X	int cs;			/* cursor pos before change */
+X	char *change;	/* NOT null terminated */
+X	};
+X
+X#define UNDOCT 64
+X
+Xstruct undoent undos[UNDOCT];
+X
+X/* the line before last mod (for undo purposes) */
+XZLEXTERN unsigned char *lastline;
+X
+X/* buffer specified with "x */
+XZLEXTERN int vibufspec;
+X
+XZLEXTERN int undoct,lastcs;
+X
+XZLEXTERN char *visrchstr;
+XZLEXTERN int visrchsense;
+X
+X#define ZLE_MOVEMENT  	 1
+X#define ZLE_MENUCMP  	 2
+X#define ZLE_UNDO      	 4
+X#define ZLE_YANK     	 8
+X#define ZLE_LINEMOVE 	 16
+X#define ZLE_ARG      	 32
+X#define ZLE_NAMEDBUFFER 128
+X#define ZLE_KILL        (64|ZLE_NAMEDBUFFER)
+X#define ZLE_HISTSEARCH  256
+X#define ZLE_NEGARG      512
+X#define ZLE_INSERT     1024
+X
+Xtypedef struct key *Key;
+X
+XZLEXTERN int *bindtab;
+Xextern int emacsbind[256];
+XZLEXTERN int altbindtab[256],mainbindtab[256];
+Xextern int viinsbind[],vicmdbind[];
+XZLEXTERN int vimarkcs[27],vimarkline[27];
+X
+X#define KRINGCT 8
+XZLEXTERN char *kring[KRINGCT];
+XZLEXTERN int kringnum;
+XZLEXTERN char *vibuf[36];
+X
+X#define z_acceptandhold 0
+X#define z_acceptandinfernexthistory 1
+X#define z_acceptandmenucomplete 2
+X#define z_acceptline 3
+X#define z_acceptlineanddownhistory 4
+X#define z_backwardchar 5
+X#define z_backwarddeletechar 6
+X#define z_backwarddeleteword 7
+X#define z_backwardkillline 8
+X#define z_backwardkillword 9
+X#define z_backwardword 10
+X#define z_beginningofbufferorhistory 11
+X#define z_beginningofhistory 12
+X#define z_beginningofline 13
+X#define z_beginningoflinehist 14
+X#define z_capitalizeword 15
+X#define z_clearscreen 16
+X#define z_completeword 17
+X#define z_copyprevword 18
+X#define z_copyregionaskill 19
+X#define z_deletechar 20
+X#define z_deletecharorlist 21
+X#define z_deleteword 22
+X#define z_digitargument 23
+X#define z_downcaseword 24
+X#define z_downhistory 25
+X#define z_downlineorhistory 26
+X#define z_endofbufferorhistory 27
+X#define z_endofhistory 28
+X#define z_endofline 29
+X#define z_endoflinehist 30
+X#define z_exchangepointandmark 31
+X#define z_executelastnamedcmd 32
+X#define z_executenamedcmd 33
+X#define z_expandhistory 34
+X#define z_expandorcomplete 35
+X#define z_expandword 36
+X#define z_forwardchar 37
+X#define z_forwardword 38
+X#define z_getline 39
+X#define z_gosmacstransposechars 40
+X#define z_historyincrementalsearchbackward 41
+X#define z_historyincrementalsearchforward 42
+X#define z_historysearchbackward 43
+X#define z_historysearchforward 44
+X#define z_infernexthistory 45
+X#define z_insertlastword 46
+X#define z_killbuffer 47
+X#define z_killline 48
+X#define z_killregion 49
+X#define z_killwholeline 50
+X#define z_listchoices 51
+X#define z_listexpand 52
+X#define z_magicspace 53
+X#define z_menucompleteword 54
+X#define z_menuexpandorcomplete 55
+X#define z_overwritemode 56
+X#define z_pushline 57
+X#define z_quotedinsert 58
+X#define z_quoteline 59
+X#define z_quoteregion 60
+X#define z_redisplay 61
+X#define z_reversemenucomplete 62
+X#define z_runhelp 63
+X#define z_selfinsert 64
+X#define z_selfinsertunmeta 65
+X#define z_sendbreak 66
+X#define z_sendstring 67
+X#define z_sequenceleadin 68
+X#define z_setmarkcommand 69
+X#define z_spellword 70
+X#define z_toggleliteralhistory 71
+X#define z_transposechars 72
+X#define z_transposewords 73
+X#define z_undefinedkey 74
+X#define z_undo 75
+X#define z_universalargument 76
+X#define z_upcaseword 77
+X#define z_uphistory 78
+X#define z_uplineorhistory 79
+X#define z_viaddeol 80
+X#define z_viaddnext 81
+X#define z_vibackwardblankword 82
+X#define z_vibackwardchar 83
+X#define z_vibackwarddeletechar 84
+X#define z_vibeginningofline 85
+X#define z_vicapslockpanic 86
+X#define z_vichange 87
+X#define z_vichangeeol 88
+X#define z_vichangewholeline 89
+X#define z_vicmdmode 90
+X#define z_videlete 91
+X#define z_videletechar 92
+X#define z_vidigitorbeginningofline 93
+X#define z_viendofline 94
+X#define z_vifetchhistory 95
+X#define z_vifindnextchar 96
+X#define z_vifindnextcharskip 97
+X#define z_vifindprevchar 98
+X#define z_vifindprevcharskip 99
+X#define z_vifirstnonblank 100
+X#define z_viforwardblankword 101
+X#define z_viforwardblankwordend 102
+X#define z_viforwardchar 103
+SHAR_EOF
+true || echo 'restore of zsh2.2/src/zle.h failed'
+fi
+echo 'End of zsh2.2 part 12'
+echo 'File zsh2.2/src/zle.h is continued in part 13'
+echo 13 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

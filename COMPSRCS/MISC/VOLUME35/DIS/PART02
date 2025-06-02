@@ -1,0 +1,2074 @@
+Newsgroups: comp.sources.misc
+From: bediger@nugget.rmnug.org (Bruce Allen Ediger)
+Subject: v35i016:  dis - SPARC/SunOS disassembler, Part02/03
+Message-ID: <1993Feb2.064300.20999@sparky.imd.sterling.com>
+X-Md4-Signature: 8f8a1d5c909e54a9fe8b999e9619b4df
+Date: Tue, 2 Feb 1993 06:43:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bediger@nugget.rmnug.org (Bruce Allen Ediger)
+Posting-number: Volume 35, Issue 16
+Archive-name: dis/part02
+Environment: SunOS4.1.x
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  arithmetic.c arithmetic.h decode.c dis.1 hash.h line.c
+#   memory.c printout.c relocation.c sparc_stuff.h
+# Wrapped by kent@sparky on Tue Feb  2 00:31:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'arithmetic.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'arithmetic.c'\"
+else
+  echo shar: Extracting \"'arithmetic.c'\" \(7361 characters\)
+  sed "s/^X//" >'arithmetic.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include "formats.h"
+X#include "arithmetic.h"
+X
+X/*
+X * Decode integer arithmetic, logical, and shift instructions.
+X * Assume pre-allocated buffer "buf" can be filled with text
+X * describing the instruction.
+X */
+X
+Xvoid
+Xarithmetic(instr, buf)
+X	unsigned long   instr;
+X	char           *buf;
+X{
+X	struct format3a instr3a;
+X	struct format3b instr3b;
+X
+X	int             op3_5_4, op3_3_0;
+X	int             immediate;
+X	char           *opcode_ptr;
+X
+X	char           *user_mode();
+X
+X
+X
+X	bcopy((char *) &instr, (char *) &instr3a, 4);
+X
+X	/* trim off op3 <5:4> */
+X	op3_5_4 = (instr3a.op3 & 0x30) >> 4;
+X	/* trim off op3 <3:0> */
+X	op3_3_0 = (instr3a.op3 & 0x0f);
+X
+X	opcode_ptr = table_f_3[op3_3_0][op3_5_4];
+X
+X	if (immediate = instr3a.i)
+X		bcopy((char *) &instr, (char *) &instr3b, 4);
+X
+X	/* many different output formats: use switch */
+X	switch (instr3a.op3) {
+X	case 0x30:
+X		/* WRASR, WRY */
+X		if (instr3a.rd) {
+X			/* WRASR */
+X			if (immediate) {
+X				sprintf(buf, "wr %s, %d, %s ! WRASR", user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13),
+X					user_mode(instr3a.rd));
+X			} else {
+X				sprintf(buf, "wr %s, %s, %s ! WRASR", user_mode(instr3a.rs1),
+X					user_mode(instr3a.rs2), user_mode(instr3a.rd));
+X			}
+X		} else {
+X			/* WRY */
+X			if (immediate) {
+X				sprintf(buf, "wr %s, %d, %%y ! WRY", user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13));
+X
+X			} else {
+X				sprintf(buf, "wr %s, %s, %%y ! WRY", user_mode(instr3a.rs1),
+X					user_mode(instr3a.rs2));
+X			}
+X		}
+X		break;
+X
+X	case 0x31:
+X		/* WRPSR */
+X		if (immediate) {
+X			sprintf(buf, "wr %s, %d, %%psr ! WRPSR", user_mode(instr3a.rs1),
+X				SIGN_EXT13(instr3b.simm13));
+X
+X		} else {
+X			sprintf(buf, "wr %s, %s, %%psr ! WRPSR", user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	case 0x32:
+X		/* WRWIM */
+X		if (immediate) {
+X			sprintf(buf, "wr %s, %d, %%wim ! WRWIM", user_mode(instr3a.rs1),
+X				SIGN_EXT13(instr3b.simm13));
+X
+X		} else {
+X			sprintf(buf, "wr %s, %s, %%wim ! WRWIM", user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	case 0x33:
+X		/* WRTBR */
+X		if (immediate) {
+X			sprintf(buf, "wr %s, %d, %%tbr ! WRTBR", user_mode(instr3a.rs1),
+X				SIGN_EXT13(instr3b.simm13));
+X
+X		} else {
+X			sprintf(buf, "wr %s, %s, %%tbr ! WRTBR", user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	case 0x28:
+X		/* RDASR, RDY, STBAR */
+X		if (instr3a.rs1) {
+X			if (instr3a.rs1 == 15 && instr3a.rd == 0) {
+X				strcpy(buf, "stbar");
+X			} else {
+X				sprintf(buf, "rd %s, %s ! RDASR", user_mode(instr3a.rs1),
+X					user_mode(instr3a.rd));
+X			}
+X		} else {
+X			sprintf(buf, "rd %%y, %s ! RDY", user_mode(instr3a.rd));
+X		}
+X		break;
+X
+X	case 0x29:
+X		/* RDPSR */
+X		sprintf(buf, "rd %%psr, %s ! RDPSR", user_mode(instr3a.rd));
+X		break;
+X
+X	case 0x2a:
+X		/* RDWIM */
+X		sprintf(buf, "rd %%wim, %s ! RDWIM", user_mode(instr3a.rd));
+X		break;
+X
+X	case 0x2b:
+X		/* RDTBR */
+X		sprintf(buf, "rd %%tbr, %s ! RDWIM", user_mode(instr3a.rd));
+X		break;
+X
+X	case 0x38:
+X		/* JMPL */
+X		if (immediate) {
+X			if (instr3a.rs1 > 0) {
+X				sprintf(buf, "%s [%s + %d], %s",
+X					opcode_ptr, user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13),
+X					user_mode(instr3a.rd));
+X			} else {
+X				/* %g0 is rs1: ignore it for clarity */
+X				sprintf(buf, "%s [%d], %s", opcode_ptr,
+X					SIGN_EXT13(instr3b.simm13),
+X					user_mode(instr3a.rd));
+X			}
+X		} else {
+X			sprintf(buf, "%s [%s + %s], %s",
+X				opcode_ptr, user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2),
+X				user_mode(instr3a.rd));
+X		}
+X		break;
+X
+X	case 0x39:
+X		/* RETT */
+X		if (immediate) {
+X			if (instr3a.rs1 > 0) {
+X				sprintf(buf, "%s [%s + %d]",
+X					opcode_ptr, user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13));
+X			} else {
+X				/* %g0 is rs1: ignore it for clarity */
+X				sprintf(buf, "%s [%d]", opcode_ptr,
+X					SIGN_EXT13(instr3b.simm13));
+X			}
+X		} else {
+X			sprintf(buf, "%s [%s + %s]",
+X				opcode_ptr, user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	case 0x3b:
+X		/* FLUSH */
+X		if (immediate) {
+X			if (instr3a.rs1 > 0) {
+X				sprintf(buf, "%s [%s + %d]",
+X					opcode_ptr, user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13));
+X			} else {
+X				/* %g0 is rs1: ignore it for clarity */
+X				sprintf(buf, "%s [%d]", opcode_ptr,
+X					SIGN_EXT13(instr3b.simm13));
+X			}
+X		} else {
+X			sprintf(buf, "%s [%s + %s]",
+X				opcode_ptr, user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	case 0x3a:
+X		/* Ticc */
+X		opcode_ptr = traps[instr3a.rd & 0x0f];
+X		if (immediate) {
+X			if (instr3a.rs1 > 0) {
+X				sprintf(buf, "%s %s + %d",
+X					opcode_ptr, user_mode(instr3b.rs1),
+X					SIGN_EXT13(instr3b.simm13));
+X			} else {
+X				sprintf(buf, "%s %d", opcode_ptr, SIGN_EXT13(instr3b.simm13));
+X			}
+X		} else {
+X			sprintf(buf, "%s %s + %s",
+X				opcode_ptr, user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2));
+X		}
+X		break;
+X
+X	/* invalid ops or stuff I haven't covered 
+X	 * (floating point and co-processor) */
+X	case 0x34:
+X	case 0x35:
+X	case 0x36:
+X	case 0x37:
+X	case 0x09:
+X	case 0x19:
+X	case 0x2c:
+X	case 0x0d:
+X	case 0x1d:
+X	case 0x2d:
+X	case 0x2e:
+X	case 0x2f:
+X	case 0x3e:
+X	case 0x3f:
+X		strcpy(buf, opcode_ptr);
+X		break;
+X
+X	default:
+X		/* most of arithmetic, logical and shift instructions */
+X
+X		/* I am really proud of the nifty use of the "?:" tertiary
+X		 * operator in the next two or three sprintf()s, but lint
+X		 * hates it. */
+X#ifndef NOSYNTHETIC
+X		/* some "synthetic" instructions: special cases where %g0 is in it */
+X		if (instr3a.rd == 0 && instr3a.op3 == 0x14) {
+X			/* subcc becoming "cmp" */
+X			sprintf(buf, immediate?"cmp %s, %d":"cmp %s, %s",
+X				user_mode(instr3a.rs1),
+X				immediate?SIGN_EXT13(instr3b.simm13):user_mode(instr3a.rs2));
+X			break;
+X		}
+X		if (instr3a.rs1 == 0 && instr3a.op3 == 0x02) {
+X			if (!immediate && instr3a.rs2 == 0) {
+X				/* or %g0,%g0,rd becomes clr rd */
+X				sprintf(buf, "clr %s", user_mode(instr3a.rd));
+X			} else {
+X				/* or %g0,something,r[rd] turns into mov something, r[rd] */
+X				sprintf(buf, immediate?"mov %d, %s":"mov %s, %s",
+X					immediate?SIGN_EXT13(instr3b.simm13):user_mode(instr3a.rs2),
+X					user_mode(instr3a.rd));
+X			}
+X			break;
+X		}
+X		/* add rd,simm13,rd becomes inc something,rd */
+X		if (instr3a.op3 == 0x00
+X			&& immediate 
+X			&& instr3a.rs1 == instr3a.rd) {
+X			if (instr3b.simm13 == 0x01) {
+X				sprintf(buf, "inc %s", user_mode(instr3a.rd));
+X			} else {
+X				sprintf(buf, "inc %d, %s", instr3b.simm13, user_mode(instr3a.rd));
+X			}
+X			break;
+X		}
+X
+X		/* sub rd,simm13,rd becomes dec something,rd */
+X		if (instr3a.op3 == 0x04
+X			&& immediate 
+X			&& instr3a.rs1 == instr3a.rd) {
+X			if (instr3b.simm13 == 0x01) {
+X				sprintf(buf, "dec %s", user_mode(instr3a.rd));
+X			} else {
+X				sprintf(buf, "dec %d, %s", instr3b.simm13, user_mode(instr3a.rd));
+X			}
+X			break;
+X		}
+X		/* orcc %g0,rs2,%g0 becomes tst rs2 */
+X		if (instr3a.op3 == 0x12 && instr3a.rs1 == 0 && instr3a.rd == 0) {
+X			sprintf(buf, "tst %s", user_mode(instr3a.rs2));
+X			break;
+X		}
+X#endif
+X
+X
+X		
+X		if (immediate) {
+X			if (instr3a.rs1 > 0) {
+X				sprintf(buf, "%s %s, %d, %s",
+X					opcode_ptr, user_mode(instr3a.rs1),
+X					SIGN_EXT13(instr3b.simm13),
+X					user_mode(instr3a.rd));
+X			} else {
+X				/* %g0 is rs1: ignore it for clarity */
+X				sprintf(buf, "%s %d, %s", opcode_ptr,
+X					SIGN_EXT13(instr3b.simm13),
+X					user_mode(instr3a.rd));
+X			}
+X		} else {
+X			sprintf(buf, "%s %s, %s, %s",
+X				opcode_ptr, user_mode(instr3a.rs1),
+X				user_mode(instr3a.rs2),
+X				user_mode(instr3a.rd));
+X		}
+X		break;
+X	}
+X
+X	return;
+X}
+END_OF_FILE
+  if test 7361 -ne `wc -c <'arithmetic.c'`; then
+    echo shar: \"'arithmetic.c'\" unpacked with wrong size!
+  fi
+  # end of 'arithmetic.c'
+fi
+if test -f 'arithmetic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'arithmetic.h'\"
+else
+  echo shar: Extracting \"'arithmetic.h'\" \(1185 characters\)
+  sed "s/^X//" >'arithmetic.h' <<'END_OF_FILE'
+X#ifndef ARITHMETIC_H
+X#define ARITHMETIC_H
+X
+X/* Table F-3 in "The SPARC Architecture Manual", version 8 */
+X
+Xstatic char *table_f_3[16][4] = {
+X{ "add", "addcc", "taddcc", "XXXX" },  /* WRASR, WRY special case */
+X{ "and", "andcc", "tsubcc", "wrpsr" },
+X{ "or", "orcc", "taddcctv", "wrmwim" },
+X{ "xor", "xorcc", "tsubcctv", "wrtbr" },
+X{ "sub", "subcc", "mulscc", "fpop1" },
+X{ "andn", "andncc", "sll", "fpop2" },
+X{ "orn", "orncc", "srl", "cpop1" },
+X{ "xnor", "xnorcc", "sra", "cpop2" },
+X{ "addx", "addxcc",  "XXXX", "jmpl" }, /* RDASR, RDY, STBAR special case */
+X{ "invalid op3 (0x09)", "invalid op3 (0x19)", "rdpsr", "rett" },
+X{ "umul", "umulcc", "rdwim", "XXXX" }, /* Ticc special case */
+X{ "smul", "smulcc", "rdtbr", "flush" },
+X{ "subx", "subxcc", "invalid op3 (0x2c)", "save" },
+X{ "invalid op3 (0x0d)", "invalid op3 (0x1d)", "invalid op3 (0x2d)", "restore" },
+X{ "udiv", "udivcc", "invalid op3 (0x2e)", "invalid op3 (0x3e)" },
+X{ "sdiv", "sdivcc", "invalid op3 (0x2f)", "invalid op3 (0x3f)" }
+X};
+X
+X/* "Ticc" column of Table F-7 */
+Xstatic char *traps[16] = {
+X"tn", "te", "tle", "tl", "tleu", "tcs", "tneg", "tvs",
+X"ta", "tne", "tg", "tge", "tgu", "tcc", "tpos", "tvc"
+X};
+X
+X#endif ARITHMETIC_H
+END_OF_FILE
+  if test 1185 -ne `wc -c <'arithmetic.h'`; then
+    echo shar: \"'arithmetic.h'\" unpacked with wrong size!
+  fi
+  # end of 'arithmetic.h'
+fi
+if test -f 'decode.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'decode.c'\"
+else
+  echo shar: Extracting \"'decode.c'\" \(4080 characters\)
+  sed "s/^X//" >'decode.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include "formats.h"
+X
+X/*
+X * Given 32 bit instruction to decode, and current program counter,
+X * put a string in "buf" that represents the decoded intstruction.
+X * Hopefully, this is enough separation from the executable image
+X * format for this to be re-usable if/when Sun switches to another
+X * format (ELF?).
+X */
+Xchar *
+Xdecode_instr(instr, pc, buf)
+Xunsigned long   instr, pc; 
+Xchar           *buf;
+X{
+X	struct format1  *instr1;
+X	struct format2  *instr2;
+X
+X	char *user_mode(), *bicc(), *fbfcc(), *cbcc();
+X	void  memory(), arithmetic();
+X
+X	instr1 = (struct format1  *)&instr;
+X
+X	/*
+X	 * handle simpler instructions here inside a switch, call
+X	 * a function to do lookups for memory load/stores and
+X	 * the arithmetic instructions.
+X	 * This switch() is essentially tables F-1 and F-2 of
+X	 * "The SPARC Architecture Manual: Version 8".
+X	 */
+X	switch (instr1->op) {
+X	case 0:
+X		/* op == 0, UNIMP, Bicc, SETHI, NOP, FBfcc, CBccc */
+X		instr2 = (struct format2  *)&instr;
+X		switch (instr2->op2) {
+X		case 0:
+X			strcpy(buf, "UNIMP");
+X			break;
+X		case 1:
+X			strcpy(buf, "unimplemented, op2 = 1");
+X			break;
+X		case 2:
+X			/* BRANCH On Integer Condition Codes */
+X			sprintf(buf, "%s 0x%08x", bicc(instr2->rd),
+X				(unsigned int)pc + (unsigned int)(4 * (unsigned int)(SIGN_EXT22(instr2->imm22))));
+X			break;
+X		case 3:
+X			strcpy(buf, "unimplemented, op2 = 3");
+X			break;
+X		case 4:
+X			/* SETHI */
+X			if (instr2->rd == 0 && instr2->imm22 == 0)
+X				sprintf(buf, "nop");
+X			else
+X				sprintf(buf, "sethi %%hi(0x%x) %s",
+X			   	  instr2->imm22 << 10, user_mode(instr2->rd));
+X			break;
+X		case 5:
+X			strcpy(buf, "unimplemented, op2 = 5");
+X			break;
+X		case 6:
+X			/* BRANCH On Floating-point Condition Codes */
+X			sprintf(buf, "%s 0x%08x", fbfcc(instr2->rd),
+X				(unsigned int)pc + (unsigned int)(4 * (unsigned int)SIGN_EXT22(instr2->imm22)));
+X			break;
+X		case 7:
+X			/* BRANCH On Coprocessor Condition Codes */
+X			sprintf(buf, "%s 0x%08x", cbcc(instr2->rd),
+X				(unsigned int)pc + (unsigned int)(4 * (unsigned int)SIGN_EXT22(instr2->imm22)));
+X			break;
+X		default:
+X			/* bogus instruction */
+X			sprintf(buf, "bogus instruction: op = %d, op2 = %d",
+X				instr2->op, instr2->op2);
+X			break;
+X		}
+X
+X		break;
+X
+X	case 1:
+X		/* op == 1, CALL AND LINK */
+X		sprintf(buf, "call 0x%08x", 4 * instr1->disp30 + (unsigned int)pc);
+X		break;
+X
+X	case 2:
+X		/* op == 2, Arithmetic, logical, shift, misc */
+X		arithmetic(instr, buf);
+X		break;
+X
+X	case 3:
+X		/* op == 3, Memory Instructions */
+X		memory(instr, buf);
+X		break;
+X
+X	default:
+X		/* bogus */
+X		sprintf(buf, "bogus instruction: op = %d, bad value",
+X			instr1->op);
+X	}
+X
+X
+X	return buf;
+X}
+X
+Xstatic char     bozo[32];
+X
+X/*
+X * take a register number and transliterate it into a "user-mode" type of
+X * register name: the user mode is the name inside the current "window"
+X */
+Xchar *
+Xuser_mode(rd)
+Xunsigned int rd;
+X{
+X	char           *ptr;
+X
+X	switch (rd) {
+X	case 0:
+X		ptr = "%g0";
+X		break;
+X	case 1:
+X		ptr = "%g1";
+X		break;
+X	case 2:
+X		ptr = "%g2";
+X		break;
+X	case 3:
+X		ptr = "%g3";
+X		break;
+X	case 4:
+X		ptr = "%g4";
+X		break;
+X	case 5:
+X		ptr = "%g5";
+X		break;
+X	case 6:
+X		ptr = "%g6";
+X		break;
+X	case 7:
+X		ptr = "%g7";
+X		break;
+X	case 8:
+X		ptr = "%o0";
+X		break;
+X	case 9:
+X		ptr = "%o1";
+X		break;
+X	case 10:
+X		ptr = "%o2";
+X		break;
+X	case 11:
+X		ptr = "%o3";
+X		break;
+X	case 12:
+X		ptr = "%o4";
+X		break;
+X	case 13:
+X		ptr = "%o5";
+X		break;
+X	case 14:
+X		ptr = "%sp";
+X		break;
+X	case 15:
+X		ptr = "%o7";
+X		break;
+X	case 16:
+X		ptr = "%l0";
+X		break;
+X	case 17:
+X		ptr = "%l1";
+X		break;
+X	case 18:
+X		ptr = "%l2";
+X		break;
+X	case 19:
+X		ptr = "%l3";
+X		break;
+X	case 20:
+X		ptr = "%l4";
+X		break;
+X	case 21:
+X		ptr = "%l5";
+X		break;
+X	case 22:
+X		ptr = "%l6";
+X		break;
+X	case 23:
+X		ptr = "%l7";
+X		break;
+X	case 24:
+X		ptr = "%i0";
+X		break;
+X	case 25:
+X		ptr = "%i1";
+X		break;
+X	case 26:
+X		ptr = "%i2";
+X		break;
+X	case 27:
+X		ptr = "%i3";
+X		break;
+X	case 28:
+X		ptr = "%i4";
+X		break;
+X	case 29:
+X		ptr = "%i5";
+X		break;
+X	case 30:
+X		ptr = "%fp";
+X		break;
+X	case 31:
+X		ptr = "%i7";
+X		break;
+X	default:
+X		sprintf(bozo, "bozotic value: %d (0x%x)", rd, rd);
+X		ptr = bozo;
+X		break;
+X	}
+X
+X	return ptr;
+X}
+END_OF_FILE
+  if test 4080 -ne `wc -c <'decode.c'`; then
+    echo shar: \"'decode.c'\" unpacked with wrong size!
+  fi
+  # end of 'decode.c'
+fi
+if test -f 'dis.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dis.1'\"
+else
+  echo shar: Extracting \"'dis.1'\" \(2140 characters\)
+  sed "s/^X//" >'dis.1' <<'END_OF_FILE'
+X.\" .TH name section cent-foot
+X.TH DIS 1 "22 December 1992"
+X.SH NAME
+X.\" name \- function
+Xdis \- disassemble SunOS 4.1 SPARC object files
+X.SH SYNOPSIS
+X.\" Bold keywords, Italic variables, [] options, | alternatives.
+X.B dis
+X[
+X.IR -rnlad
+X]
+X[
+X.IR -t filename
+X]
+X[
+X.IR -b hex
+X.IR address
+X]
+X<
+X.IR filename
+X| -
+X>
+X.SH DESCRIPTION
+X.\" Italic files, commands, IR manual-entry (manual-section)
+X.I dis
+Xproduces a disassembly of SunOS 4.1, 4.1.1 and 4.1.2
+X.IR a.out (5)
+Xfiles on standard output.
+X.SH OPTIONS
+X.\" Itemised list of options
+X.TP
+X.B \-r
+XAssume input file does not have an a.out header.
+X
+X.TP
+X.B \-n
+XDon't try to find symbolic names.
+X
+X.TP
+X.B \-l
+XDon't try to find source file line numbers.
+X
+X.TP
+X.B \-a
+XPrint disassembly without memory addresses.
+X
+X.TP
+X.B \-d
+XAttempt to symbolically indicate branch destinations.
+X
+X.TP
+X.B \-t filename
+XTry to get symbol table from file
+X.IR filename
+X
+X.TP
+X.B \-b hex address
+XSet initial program counter to
+X.IR hex
+X.IR address
+X
+X.LP
+XFile name of object file to disassemble
+Xor "-" (to indicate standard input) must be present.
+X
+X.\".SH FILES
+X.\" List of all files used by the program
+X.SH "SEE ALSO"
+X.\" List of references, textual, and MAN pages.
+XFor SunOS 4.1 and up,
+Xcc(1), ld(1), as(1), size(1), strip(1), a.out(5)
+X.br
+XThe SPARC Architecture Manual, version 8
+X.\".SH DIAGNOSTICS
+X.\" List of error messages and return codes the user may expect
+X.SH BUGS
+X.\" Known Limitations or Desirable additions to the command
+X.LP
+XIt doesn't do very well with floating point and coprocessor instructions.
+X.LP
+XIt does not put in symbolic labels of branch destinations.
+XThis leads to a disassembly that won't re-assemble without major
+Xmodifications.
+X.LP
+XRather firmly wedded to the
+X.IR a.out(5)
+Xformat of object files.
+X.LP
+XIt won't make any distinction between ASCII text included in the text segment,
+Xand a bunch of invalid opcodes.
+X.LP
+XSymbolic naming of branch destinations doesn't work as well as it could.
+XIn some cases the relocation information and/or symbol table information
+Xis misinterpreted.
+XThis leads to some bizarre assertions about where branches end up.
+X.LP
+XHasn't been tested very thoroughly on non-SPARC platforms.
+END_OF_FILE
+  if test 2140 -ne `wc -c <'dis.1'`; then
+    echo shar: \"'dis.1'\" unpacked with wrong size!
+  fi
+  # end of 'dis.1'
+fi
+if test -f 'hash.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hash.h'\"
+else
+  echo shar: Extracting \"'hash.h'\" \(4509 characters\)
+  sed "s/^X//" >'hash.h' <<'END_OF_FILE'
+X/*
+X * $Author: djh $ $Date: 91/02/15 23:07:37 $
+X * $Header: hash.h,v 2.1 91/02/15 23:07:37 djh Rel $
+X * $Revision: 2.1 $
+X*/
+X
+X/*
+X * hash.h - external definitions for hash.c - generalized hashing function
+X *
+X *  written by Charlie C. Kim
+X *     Academic Networking, Communications and Systems Group
+X *     Center For Computing Activities
+X *     Columbia University
+X *   September 1988
+X *
+X *
+X * Copyright (c) 1988 by The Trustees of Columbia University 
+X *  in the City of New York.
+X *
+X * Permission is granted to any individual or institution to use,
+X * copy, or redistribute this software so long as it is not sold for
+X * profit, provided that this notice and the original copyright
+X * notices are retained.  Columbia University nor the author make no
+X * representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied
+X * warranty.
+X *
+X *
+X * Edit History:
+X *
+X *  Sept 5, 1988  CCKim Created
+X *  Sept 6, 1988  CCKim Finished: level 0
+X *
+X*/
+X
+X#ifndef _HASH_HEADER_INCLUDED
+X#define _HASH_HEADER_INCLUDED "yes"
+X
+X/* hash table operations recognized */
+X#define HASH_OP_DELETE 2
+X#define HASH_OP_MEMBER 1 
+X#define HASH_OP_INSERT 0
+X#define HASH_OP_NUM 3
+X
+X#define HASH_OP_VALID(n) ((n) < HASH_OP_NUM && (n) >= HASH_OP_INSERT)
+X#define HASH_OP_INVALID(n) ((n) >= HASH_OP_NUM || (n) < HASH_OP_INSERT)
+X
+X/* hashing collision policies */
+X#define HASH_POLICY_OLD -1	/* old for redefine */
+X#define HASH_POLICY_CHAIN 0	/* chain on collisions */
+X#define HASH_POLICY_LINEAR_PROBE 1 /* linear probes on collisions */
+X#define HASH_POLICY_DOUBLE_HASH 2 /* double hash on collisions */
+X
+X/* given a hash policy, returns true if it is a valid policy */
+X#define HASH_POLICY_VALID(n) ((n) <= HASH_POLICY_DOUBLE_HASH && \
+X			      (n) >= HASH_POLICY_CHAIN)
+X#define HASH_POLICY_LINKSNEEDED(n) ((n) == HASH_POLICY_CHAIN)
+X
+X/* hash function types */
+X#define HASH_TYPE_OLD -1	/* old for redefine */
+X#define HASH_TYPE_OWN 0		/* our own */
+X#define HASH_TYPE_DIVISION 1	/* division method */
+X#define HASH_TYPE_MULTIPLICATIVE 2 /* multiplicative method */
+X/* for multiplicative mode: try for fibonacci */
+X/* only valid for 32 bit machines! */
+X#define A_MULTIPLIER 2630561063 /* gotta figure out a good one */
+X
+X#define HASH_TYPE_NUM 3
+X
+X#define HASH_TYPE_VALID(n) ((n) < HASH_TYPE_NUM && \
+X  (n) >= HASH_TYPE_OWN)
+X
+X
+X/*
+X * structure to allow operations other than a linear list off a hash
+X * bucket in the chain policy
+X *
+X*/
+Xstruct hash_bucket_list_ops {
+X  caddr_t (*hlo_find)();	/* find a member */
+X  caddr_t (*hlo_insert)();	/* insert a member (returns ptr to */
+X				/* data) */
+X  int (*hlo_delete)();		/* delete a member */
+X  caddr_t (*hlo_get)();		/* get any member and remove from list */
+X};
+X
+X/* averages are fixed decimal with 2 digits after the decimal */
+X/* they are kept in case we want to do something when average */
+X/* distances get too large */
+Xstruct hash_statistics {
+X  int hs_buckets;		/* number of buckets in table */
+X  /* describes # of entries in chain */
+X  int hs_used;			/* # of buckets filled */
+X  /* describes table (not accurate for chain policy) */
+X  int hs_davg;			/* average distance from hash index */
+X  int hs_dsum;			/* sum of distances from hash index */
+X  int hs_dmax;			/* maximum distance from hash index */
+X  /* describes lookup patterns (describes distance into linear table */
+X  /* if the policy is chain */
+X  int hs_lnum;			/* remember number of lookups */
+X  int hs_lsum;			/* sum of lookup distances */
+X  int hs_lavg;			/* average lookup distance */
+X  /* cumulative for lookup patterns (describes overall efficiency) */
+X  int hs_clnum;			/* remember number of lookups */
+X  int hs_clsum;			/* sum of lookup distances */
+X};
+X
+X/* function declarations */
+Xcaddr_t h_new();		/* create new table */
+Xcaddr_t h_operation();		/* hash operations */
+Xstruct hash_statistics *h_statistics(); /* returns stats on a table */
+Xvoid h_free();			/* free a table */
+X/* must specify policy and type */
+Xcaddr_t h_redefine();		/* redefine operating parameters for a */
+X				/* hash table, forces a rehash */
+X#define h_rehash(ht,M) (h_redefine((ht),HASH_POLICY_OLD,HASH_TYPE_OLD,\
+X				   (M),NULL,NULL,NULL,NULL,NULL,NULL))
+X/* call hash operation for these */
+X#define h_member(ht,key) (h_operation(HASH_OP_MEMBER,(ht),(key),-1,-1,\
+X				      NULL,NULL))
+X#define h_insert(ht,key) (h_operation(HASH_OP_INSERT,(ht),(key),\
+X					  -1,-1, NULL, NULL))
+X#define h_delete(ht,key) (h_operation(HASH_OP_DELETE,(ht),(key),-1,-1,\
+X				       NULL,NULL))
+X
+X
+X#endif /* _HASH_HEADER_INCLUDED */
+END_OF_FILE
+  if test 4509 -ne `wc -c <'hash.h'`; then
+    echo shar: \"'hash.h'\" unpacked with wrong size!
+  fi
+  # end of 'hash.h'
+fi
+if test -f 'line.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'line.c'\"
+else
+  echo shar: Extracting \"'line.c'\" \(4292 characters\)
+  sed "s/^X//" >'line.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <stab.h>
+X#include <sys/types.h>
+X#include "hash.h"
+X#ifdef sparc
+X#include <a.out.h>
+X#else
+X#include "sparc_stuff.h"
+X#endif
+X
+X/*
+X * Functions for lookup of source code line numbers.
+X * Uses "CAP 2.0" hash functions to do so.
+X * line_at_address(), initialize_line() the only externally visible functions.
+X */
+X
+Xextern char         *string_table;
+Xextern struct nlist *symbol_table;
+X
+Xcaddr_t         line_hash_table;
+X
+Xstatic int
+Xline_address_compare(key, data)
+Xcaddr_t key, data;
+X{
+X	unsigned long   address = ((struct nlist *) key)->n_value;
+X
+X	if (address > ((struct nlist *) data)->n_value)
+X		return 1;
+X	if (address == ((struct nlist *) data)->n_value)
+X		return 0;
+X	if (address < ((struct nlist *) data)->n_value)
+X		return -1;
+X
+X	return 0;
+X}
+X
+Xstatic u_int
+Xline_address_compress(key)
+Xcaddr_t key;
+X{
+X	return ((struct nlist *) key)->n_value;
+X}
+X
+Xstatic caddr_t
+Xline_address_allocate(p)
+Xcaddr_t p;
+X{
+X	struct nlist *tmp
+X	= (struct nlist *) malloc(sizeof(struct nlist));
+X
+X	if (tmp != NULL)
+X		bcopy(p, (caddr_t) tmp, sizeof(struct nlist));
+X
+X	return (caddr_t) tmp;
+X}
+X
+Xint
+Xinitialize_line(exhdr_p, fp)
+Xstruct exec *exhdr_p;
+XFILE        *fp;
+X{
+X	int sym_number, string_table_size, i;
+X
+X	sym_number = exhdr_p->a_syms / sizeof(struct nlist);
+X	if (sym_number <= 0) {
+X		fprintf(stderr, "no symbol table\n");
+X		return 0;
+X	}
+X	/* read in symbol table, string table */
+X	if (symbol_table == NULL) {
+X		if ((symbol_table = (struct nlist *) malloc((unsigned) exhdr_p->a_syms))
+X		    == NULL) {
+X			fprintf(stderr, "hosed malloc() on symbol table\n");
+X			return 0;
+X		}
+X		if (fseek(fp, (long)(N_SYMOFF(*exhdr_p)), 0) < 0) {
+X			fprintf(stderr, "buggered fseek to symbol table\n");
+X			return 0;
+X		}
+X		if (fread((char *) symbol_table, sizeof(struct nlist),
+X			  sym_number, fp) != sym_number) {
+X			fprintf(stderr, "noinkered fread() of symbol table\n");
+X			return 0;
+X		}
+X	}
+X	if (string_table == NULL) {
+X		if (fseek(fp, (long)(N_STROFF(*exhdr_p)), 0) < 0) {
+X			fprintf(stderr, "screwed up fseek to string table\n");
+X			return 0;
+X		}
+X		if (fread((char *) &string_table_size, sizeof(int), 1, fp) != 1) {
+X			fprintf(stderr, "honked up fread() of string table size\n");
+X			return 0;
+X		}
+X		if ((string_table = malloc((unsigned) (string_table_size - 4))) == NULL) {
+X			fprintf(stderr, "crapped out on malloc() of string table\n");
+X			return 0;
+X		}
+X		if (fread(string_table, 1, string_table_size - 4, fp)
+X		    != string_table_size - 4) {
+X			fprintf(stderr, "fucked up fread() of string table\n");
+X			return 0;
+X		}
+X	}
+X	/* initialize hash table */
+X	line_hash_table = h_new(HASH_POLICY_CHAIN, HASH_TYPE_DIVISION,
+X				sym_number > 100 ? sym_number / 2 : sym_number,
+X				line_address_compare, line_address_allocate, line_address_compress, NULL, NULL, NULL);
+X
+X	if (line_hash_table == NULL) {
+X		fprintf(stderr, "h_new() failed to allocate line number hash table\n");
+X		return 0;
+X	}
+X
+X	/* put N_SLINE and N_FUN things into line no. table */
+X	for (i = 0; i < sym_number; ++i) {
+X		int tmp;
+X		tmp = symbol_table[i].n_type;
+X		if ((tmp & N_STAB) && ((tmp & ~N_EXT) == N_SLINE || (tmp & ~N_EXT) == N_FUN)) {
+X			if (h_insert(line_hash_table, &(symbol_table[i])) == NULL) {
+X				fprintf(stderr, "botched adding reloc entry %d to hash table (h_insert)\n", i);
+X				return 0;
+X			}
+X		}
+X	}
+X	return 1;
+X}
+X
+Xstatic struct nlist *
+Xfind_nlist_at_addrs(addr)
+Xunsigned long addr;
+X{
+X	struct nlist *ret, tmp;
+X
+X	tmp.n_value = addr;
+X
+X	if ((ret = (struct nlist *) h_member(line_hash_table,
+X						  (caddr_t) & tmp)) != NULL)
+X		return ret;
+X	return NULL;
+X}
+X
+Xstatic int
+Xline_of_nlist(entry, buffer)
+Xstruct nlist *entry;
+Xchar         *buffer;
+X{
+X	int             str_table_index;
+X
+X	if (entry == NULL) {
+X		buffer[0] = '\0';
+X		return 0;
+X	}
+X	if ((entry->n_type & (~N_EXT)) == N_FUN) {
+X		str_table_index = entry->n_un.n_strx;
+X		if (str_table_index)
+X			sprintf(buffer, "Function %s", &(string_table[str_table_index - 4]));
+X		else
+X			strcpy(buffer, "No Name Function");
+X	} else {
+X		sprintf(buffer, "source file line %d", entry->n_desc);
+X	}
+X
+X	return 1;
+X}
+X
+X/* fills in pre-allocated buffer with a string
+X * derived from the symbol table line number and
+X * function name info */
+Xint
+Xline_at_address(addr, buffer)
+Xunsigned long   addr;
+Xchar           *buffer;
+X{
+X	return line_of_nlist(find_nlist_at_addrs(addr), buffer);
+X}
+END_OF_FILE
+  if test 4292 -ne `wc -c <'line.c'`; then
+    echo shar: \"'line.c'\" unpacked with wrong size!
+  fi
+  # end of 'line.c'
+fi
+if test -f 'memory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'memory.c'\"
+else
+  echo shar: Extracting \"'memory.c'\" \(3396 characters\)
+  sed "s/^X//" >'memory.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include "formats.h"
+X#include "memory.h"
+X
+X/*
+X * decode load, store and swap: all instructions that access memory
+X */
+X
+Xvoid
+Xmemory(instr, buf)
+Xunsigned long instr;
+Xchar *buf;
+X{
+X	struct format3a *instr3a;
+X	struct format3b *instr3b;
+X
+X	int   op3_5_4, op3_3_0;
+X	int   immediate;
+X	int   asi;
+X	char *opcode_ptr;
+X
+X	char *user_mode();
+X
+X	/* output formats */
+X	static char *load_r_r        = "%s [%s + %s], %s";
+X	static char *load_r_g0       = "%s [%s], %s";
+X	static char *load_r_r_a      = "%s [%s + %s]%d, %s";
+X	static char *load_r_i_plus   = "%s [%s + %d], %s";
+X	static char *load_r_i_minus  = "%s [%s - %d], %s";
+X
+X	static char *store_r_r       = "%s %s, [%s + %s]";
+X	static char *store_r_g0      = "%s %s, [%s]";
+X	static char *store_r_r_a     = "%s %s, [%s + %s]%d";
+X	static char *store_r_i_plus  = "%s %s, [%s + %d]";
+X	static char *store_r_i_minus = "%s %s, [%s - %d]";
+X	/*
+X	 * can't use these: in a .o file, can't tell if it's
+X	 * _really_ something that turns into a synthetic op
+X	 * or something that gets relocated.
+X	 * static char *load_r_i_zero =   "%s [%s], %s";
+X	 * static char *store_r_i_zero =  "%s %s, [%s]";
+X	 */
+X
+X	instr3a = (struct format3a *)&instr;
+X
+X	/* trim off op3 <5:4> */
+X	op3_5_4 = (instr3a->op3 & 0x30) >> 4;
+X	/* trim off op3 <3:0> */
+X	op3_3_0 = (instr3a->op3 & 0x0f);
+X
+X	opcode_ptr = table_f_4[op3_3_0][op3_5_4];
+X
+X	if (immediate = instr3a->i)
+X		instr3b = (struct format3b *)&instr;
+X	asi = instr3a->asi;
+X
+X	switch (*opcode_ptr) {
+X	case 'i':
+X		/* check for invalid instruction */
+X		strcpy(buf, opcode_ptr);
+X		return;
+X	case 'l':  /* load */
+X		if (immediate) {
+X			if (instr3b->simm13 & 0x1000) {
+X				sprintf(buf, load_r_i_minus, opcode_ptr, user_mode(instr3b->rs1),
+X					0 - (instr3b->simm13 | 0xffffe000), user_mode(instr3b->rd));
+X			} else {
+X				sprintf(buf, load_r_i_plus, opcode_ptr, user_mode(instr3b->rs1),
+X					instr3b->simm13, user_mode(instr3b->rd));
+X			}
+X		} else {
+X			if (asi) {
+X				sprintf(buf, load_r_r_a, opcode_ptr, user_mode(instr3a->rs1),
+X					user_mode(instr3a->rs2), instr3a->asi, user_mode(instr3a->rd));
+X			} else {
+X				if (instr3a->rs2 == 0)
+X					sprintf(buf, load_r_g0, opcode_ptr, user_mode(instr3a->rs1),
+X						user_mode(instr3a->rd));
+X				else
+X					sprintf(buf, load_r_r, opcode_ptr, user_mode(instr3a->rs1),
+X						user_mode(instr3a->rs2), user_mode(instr3a->rd));
+X			}
+X		}
+X		break;
+X	case 's':  /* store or swap */
+X		if (opcode_ptr[1] == 'w') {
+X			/* swap */
+X			strcpy(buf, "??swap or swapa");
+X		} else {
+X			/* store */
+X			if (immediate) {
+X				if (instr3b->simm13 & 0x1000) {
+X					sprintf(buf, store_r_i_minus, opcode_ptr, user_mode(instr3b->rd),
+X						user_mode(instr3b->rs1), 0 - (instr3b->simm13 | 0xffffe000));
+X				} else {
+X					sprintf(buf, store_r_i_plus, opcode_ptr, user_mode(instr3b->rd),
+X						user_mode(instr3b->rs1), instr3b->simm13);
+X				}
+X			} else {
+X				if (asi) {
+X					sprintf(buf, store_r_r_a, opcode_ptr, user_mode(instr3a->rd),
+X						user_mode(instr3a->rs1), user_mode(instr3a->rs2), instr3a->asi);
+X				} else {
+X					if (instr3a->rs2 == 0)
+X						sprintf(buf, store_r_g0, opcode_ptr, user_mode(instr3a->rd),
+X							user_mode(instr3a->rs1));
+X					else
+X						sprintf(buf, store_r_r, opcode_ptr, user_mode(instr3a->rd),
+X							user_mode(instr3a->rs1), user_mode(instr3a->rs2));
+X				}
+X			}
+X		}
+X		break;
+X	default:
+X		sprintf(buf, "bad opcode: \"%s\"", opcode_ptr);
+X		break;
+X	}
+X
+X	return;
+X}
+END_OF_FILE
+  if test 3396 -ne `wc -c <'memory.c'`; then
+    echo shar: \"'memory.c'\" unpacked with wrong size!
+  fi
+  # end of 'memory.c'
+fi
+if test -f 'printout.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'printout.c'\"
+else
+  echo shar: Extracting \"'printout.c'\" \(5399 characters\)
+  sed "s/^X//" >'printout.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <string.h>
+X
+X
+X/*
+X * Functions dealing with output of data segment.
+X *
+X * finish_dumping(), dump_out(), line_break() are the only
+X * externally callable functions.
+X */
+X
+X/* internal use functions */
+Xvoid printBuffer();
+Xvoid addAByte();
+Xvoid breakLine();
+Xvoid setAddress();
+X
+X#define MIN_STRING_SIZE 7
+X
+Xvoid
+Xdump_out(iChar, lAddr)
+Xint iChar;
+Xunsigned long lAddr;
+X{
+X	addAByte(iChar, lAddr);
+X	return;
+X}
+X
+Xvoid
+Xfinish_dumping()
+X{
+X	printBuffer();
+X}
+X
+Xvoid
+Xline_break()
+X{
+X	printBuffer();
+X	breakLine();
+X}
+X
+Xchar bvBuffer[512];			/* buffer for composition of printable string */
+Xunsigned long lLastAddress = 0;		/* data segment address of beginning of that string */
+Xunsigned long lCurrentAddress = 0;	/* data segment address of byte being added */
+Xchar *bpIntoBuffer = bvBuffer;		/* location of "end" of printable part of buffer */
+Xint icInBuffer = 0;			/* "flatsize" of printable part of buffer */
+X
+Xint iAsciiCount = 0;			/* count of ASCII characters tenatively in a string */
+Xint yInString = 0;			/* in a string or not? marker */
+Xint ivTenativeString[MIN_STRING_SIZE];	/* values of bytes tenatively in printable string */
+Xint ivStringSize[MIN_STRING_SIZE];	/* printable rep size of those bytes */
+X
+X/*
+X * set _data_segment_address_ of beginning of the string
+X * being formed in the buffer.
+X */
+Xvoid
+XsetAddress(lBeginAddress)
+Xunsigned long lBeginAddress;
+X{
+X	lCurrentAddress = lBeginAddress;
+X	lLastAddress = lBeginAddress;
+X	return;
+X}
+X
+X/* a few special cases of "non-printing" ascii characters */
+Xstatic char *bpvCharArray[] = { "\\0", NULL, NULL, NULL, NULL, NULL, NULL, NULL, 
+X	NULL, "\\t", "\\n", NULL, NULL, "\\r" };
+X
+X/* 
+X * add this byte to end of current printable string
+X */
+Xvoid
+XaddAByte(iChar, lAddr)
+Xint iChar;
+Xunsigned long lAddr;
+X{
+X	if (icInBuffer > 0) {
+X		/* just tacking stuff on end of buffer */
+X		++lCurrentAddress;  /* change current address */
+X		if (lAddr != lCurrentAddress)
+X			fprintf(stderr, "Hoseup: byte should be at 0x%x, function called with 0x%x\n",
+X				lCurrentAddress, lAddr);
+X	} else {
+X		/* first printable rep of bytes into buffer */
+X		setAddress(lAddr);
+X	}
+X
+X	/* small state machine. 2 states: "in string", "not in string", marked
+X	 * by yInString boolean.  Transitions occur on receipt of new byte whose
+X	 * printable representation is to be added to the buffer.
+X	 *
+X	 * Transition from "in string" to "not in string" occurs on receipt of
+X	 * non-ascii character, as defined by isascii().  If there are MIN_STRING_SIZE
+X	 * or more ascii chars in a row, a "string" has occurred, and gets printed out
+X	 * as such.  Otherwise, it backs up to beginning of what tenatively
+X	 * was considered a string, and replaces that printable rep with a hex
+X	 * digit rep.
+X	 *
+X	 * Transition from "not in string" to "in string" occurs on receipt of
+X	 * ascii character.
+X	 *
+X	 */
+X	if (isascii(iChar)) {
+X		if (!yInString) {
+X			yInString = 1;
+X			iAsciiCount = 0;
+X		}
+X		ivTenativeString[iAsciiCount % MIN_STRING_SIZE] = iChar;
+X		if (iChar < ' ') {
+X			/* handle some special case "ctrl" characters */
+X			switch (iChar) {
+X			case '\0':
+X			case '\t':
+X			case '\n':
+X			case '\r':
+X				strcpy(bpIntoBuffer, bpvCharArray[iChar]);
+X				icInBuffer += 2;
+X				bpIntoBuffer += 2;
+X				ivStringSize[iAsciiCount % MIN_STRING_SIZE] = 2;
+X				break;
+X			default:
+X				/* general case of a "ctrl" character */
+X				sprintf(bpIntoBuffer, "\\%03o", iChar);
+X				icInBuffer += 4;
+X				bpIntoBuffer += 4;
+X				ivStringSize[iAsciiCount % MIN_STRING_SIZE] = 4;
+X				break;
+X			}
+X		} else {
+X			/* general case printable char */
+X			sprintf(bpIntoBuffer, "%c", iChar);
+X			++icInBuffer;
+X			++bpIntoBuffer;
+X			ivStringSize[iAsciiCount % MIN_STRING_SIZE] = 1;
+X		}
+X		++iAsciiCount;
+X	} else {
+X		/* not an ASCII character */
+X		if (yInString) {
+X			/* tenatively, we're in a string: check that */
+X			if (iAsciiCount < MIN_STRING_SIZE) {
+X				/* too few ascii chars in a row to be a real string.
+X				 * back out the (tenative) printout, and replace. */
+X				int icCnt, iPrintableLength = 0;;
+X				
+X				/* find printable length of last iAsciiCount bytes */
+X				for (icCnt = 0; icCnt < iAsciiCount; ++icCnt)
+X					iPrintableLength += ivStringSize[icCnt];
+X
+X				/* back up pointer into buffer, flatsize of buffer */
+X				bpIntoBuffer -= iPrintableLength;
+X				icInBuffer   -= iPrintableLength;
+X				/* copy last iAsciiCount bytes from tenative string into buffer */
+X				for (icCnt = 0; icCnt < iAsciiCount; ++icCnt) {
+X					sprintf(bpIntoBuffer, "%02x ", ivTenativeString[icCnt]);
+X					icInBuffer += 3;
+X					bpIntoBuffer += 3;
+X				}
+X			} /* else, it was a string.  Leave it's printable rep in buffer. */
+X			yInString = 0;
+X			iAsciiCount = 0;
+X		}
+X		/* tack a printing representation of current byte onto end of buffer */
+X		sprintf(bpIntoBuffer, "%02x ", iChar);
+X		icInBuffer += 3;
+X		bpIntoBuffer += 3;
+X	}
+X
+X	/* check flatsize of buffer, print it if necessary */
+X	if (icInBuffer >= 60) {
+X		printBuffer();
+X		breakLine();
+X	}
+X
+X	return;
+X}
+X
+Xvoid
+XprintBuffer()
+X{
+X	int icOut;
+X
+X	if (icInBuffer == 0)
+X		return;  /* no printable chars in buffer */
+X
+X	printf("0x%08x\t", lLastAddress);
+X	for (icOut = 0; icOut < icInBuffer; ++icOut)
+X		putc(bvBuffer[icOut], stdout);
+X	putc('\n', stdout);
+X}
+X
+Xvoid
+XbreakLine()
+X{
+X	if (icInBuffer == 0)
+X		return;  /* no printable chars in buffer */
+X
+X	/* reset static variables to "start of buffer" state */
+X	icInBuffer = 0;
+X	lLastAddress = lCurrentAddress;
+X	bpIntoBuffer = bvBuffer;
+X}
+END_OF_FILE
+  if test 5399 -ne `wc -c <'printout.c'`; then
+    echo shar: \"'printout.c'\" unpacked with wrong size!
+  fi
+  # end of 'printout.c'
+fi
+if test -f 'relocation.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'relocation.c'\"
+else
+  echo shar: Extracting \"'relocation.c'\" \(13113 characters\)
+  sed "s/^X//" >'relocation.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#ifdef sparc
+X#include <a.out.h>
+X#else
+X#include "sparc_stuff.h"
+X#endif
+X#include <stab.h>
+X#include <sys/types.h>
+X#include "hash.h"
+X
+X/*
+X * Functions dealing with lookup of addresses in relocation info
+X * and in symbol table.
+X */
+X
+X/* these two have to be global: persistent info */
+Xchar                    *string_table = NULL;
+Xstruct nlist            *symbol_table = NULL;
+X
+X/* pointers to hash tables for relocation info and symbol table.
+X * hash tables will be full of pointers into tables above */
+Xcaddr_t                 reloc_hash_table = NULL;	/* text and data */
+Xcaddr_t                 symbol_hash_table = NULL;
+X
+X/*
+X * function to allow ordering of pointers to "struct reloc_info_sparc" along
+X * the hash chains.
+X */
+Xstatic int
+Xreloc_address_compare(key, data)
+Xcaddr_t  key, data;
+X{
+X	unsigned long   address = ((struct reloc_info_sparc *) key)->r_address;
+X
+X	if (address > ((struct reloc_info_sparc *) data)->r_address)
+X		return 1;
+X	if (address == ((struct reloc_info_sparc *) data)->r_address)
+X		return 0;
+X	if (address < ((struct reloc_info_sparc *) data)->r_address)
+X		return -1;
+X
+X	return 0;
+X}
+X
+X/* function to get the "hash value" of a "struct reloc_info_sparc" */
+Xstatic u_int
+Xreloc_address_compress(key)
+Xcaddr_t key;
+X{
+X	return ((struct reloc_info_sparc *) key)->r_address;
+X}
+X
+X/* function to allocate another "struct reloc_info_sparc" */
+Xstatic caddr_t
+Xreloc_address_allocate(p)
+Xcaddr_t p;
+X{
+X	struct reloc_info_sparc *tmp
+X	= (struct reloc_info_sparc *) malloc(sizeof(struct reloc_info_sparc));
+X
+X	if (tmp != NULL)
+X		bcopy(p, (caddr_t) tmp, sizeof(struct reloc_info_sparc));
+X
+X	return (caddr_t) tmp;
+X}
+X
+Xstatic int
+Xsymbol_address_compare(key, data)
+Xcaddr_t key, data;
+X{
+X	unsigned long   address = ((struct nlist *) key)->n_value;
+X
+X	if (address > ((struct nlist *) data)->n_value)
+X		return 1;
+X	if (address == ((struct nlist *) data)->n_value)
+X		return 0;
+X	if (address < ((struct nlist *) data)->n_value)
+X		return -1;
+X
+X	return 0;
+X}
+X
+Xstatic u_int
+Xsymbol_address_compress(key)
+Xcaddr_t key;
+X{
+X	return ((struct nlist *) key)->n_value;
+X}
+X
+Xstatic caddr_t
+Xsymbol_address_allocate(p)
+Xcaddr_t p;
+X{
+X	struct nlist   *tmp
+X	= (struct nlist *) malloc(sizeof(struct nlist));
+X
+X	if (tmp != NULL)
+X		bcopy(p, (caddr_t) tmp, sizeof(struct nlist));
+X
+X	return (caddr_t) tmp;
+X}
+X
+X/*
+X * initialize hash table containing text and data
+X * relocation info items.
+X */
+Xint
+Xinitialize_relocation(exhdr_p, fp)
+X	struct exec    *exhdr_p;
+X	FILE           *fp;
+X{
+X	int             string_table_size, total_relocations;
+X	struct reloc_info_sparc *text_reloc_table;
+X	struct reloc_info_sparc *data_reloc_table;
+X
+X	void            initialize_text_reloc(), initialize_data_reloc();
+X	void            initialize_sym_table(), initialize_string_table();
+X	void            initialize_reloc();
+X
+X	if (exhdr_p == NULL) {
+X		/* read in exec header */
+X		if ((exhdr_p = (struct exec *) malloc(sizeof(struct exec))) == NULL)
+X			return 0;;
+X		if (fread((char *) exhdr_p, sizeof(struct exec), 1, fp) == NULL) {
+X			return 0;	/* can't do anything from here */
+X		}
+X	}
+X	total_relocations = (exhdr_p->a_trsize + exhdr_p->a_drsize)/sizeof(struct reloc_info_sparc);
+X	if (total_relocations > 0) {
+X		/* text segment relocations */
+X		if (exhdr_p->a_trsize > 0) {
+X			if (fseek(fp, (long)(N_TRELOFF(*exhdr_p)), 0) < 0) {
+X				fprintf(stderr, "goofed fseek() to text relocation info\n");
+X				text_reloc_table = NULL;
+X			} else
+X				initialize_reloc(fp, &text_reloc_table, 0, exhdr_p->a_trsize, total_relocations);
+X		}
+X		/* data segment relocations */
+X		if (exhdr_p->a_drsize > 0) {
+X			if (fseek(fp, N_DRELOFF(*exhdr_p), 0) < 0) {
+X				fprintf(stderr, "goofed fseek() to data relocation info\n");
+X				data_reloc_table = NULL;
+X			} else
+X				initialize_reloc(fp, &data_reloc_table, N_DATADDR(*exhdr_p),
+X					exhdr_p->a_drsize, total_relocations);
+X		}
+X	}
+X	/* symbol table */
+X	if (exhdr_p->a_syms > 0) {
+X		if (fseek(fp, (long)(N_SYMOFF(*exhdr_p)), 0) < 0) {
+X			fprintf(stderr, "goofed fseek() to symbol table\n");
+X		} else
+X			initialize_sym_table(exhdr_p, fp);
+X	}
+X	/* string table */
+X	if (fseek(fp, (long)(N_STROFF(*exhdr_p)), 0) < 0) {
+X		fprintf(stderr, "screwed up fseek to string table\n");
+X		return 0;
+X	}
+X	if (fread((char *) &string_table_size, sizeof(int), 1, fp) != 1) {
+X		fprintf(stderr, "honked up fread() of string table size\n");
+X		return 0;
+X	}
+X	if (string_table_size > 4)
+X		initialize_string_table(fp, string_table_size);
+X
+X	return 1;
+X}
+X
+X/*
+X * read string table into memory.
+X * calling routine fseek()s to string table
+X * before this is called.
+X */
+Xvoid
+Xinitialize_string_table(psInputFile, iTableSize)
+X	FILE    *psInputFile;
+X	int      iTableSize;
+X{
+X	/* file pointer is right at string table */
+X
+X	if ((string_table = malloc((unsigned) (iTableSize - 4))) == NULL) {
+X		fprintf(stderr, "crapped out on malloc() of string table\n");
+X	} else if (fread(string_table, 1, iTableSize - 4, psInputFile)
+X		   != iTableSize - 4) {
+X		fprintf(stderr, "fucked up fread() of string table\n");
+X	}
+X}
+X
+X/*
+X * read relocation info into memory.
+X * put pointers to text reloc info into reloc info hash table.
+X */
+Xvoid
+Xinitialize_reloc(psInputFile, sppTablePointer, iOffset, iTableSize, iTotalRelocations)
+X	FILE                     *psInputFile;
+X	struct reloc_info_sparc **sppTablePointer;
+X	int                       iTotalRelocations;
+X	unsigned long             iTableSize, iOffset;
+X{
+X	int             inRelocations;
+X
+X	inRelocations = iTableSize / sizeof(struct reloc_info_sparc);
+X
+X	fprintf(stderr, "%d relocations\n", inRelocations);
+X	if (inRelocations) {
+X		/* fseek() to text relocation in file */
+X		if ((*sppTablePointer = (struct reloc_info_sparc *)malloc((unsigned) iTableSize)) == NULL) {
+X			/* allocation failed */
+X			fprintf(stderr, "screwed up malloc() of some relocation info\n");
+X		} else if (fread((char *)*sppTablePointer, sizeof(struct reloc_info_sparc),
+X		     inRelocations, psInputFile) != inRelocations) {
+X			/* fread failed */
+X			fprintf(stderr, "fread() of relocation done wrong\n");
+X		} else {
+X			if (!reloc_hash_table) {
+X				/* initialize relocation info hash table */
+X				reloc_hash_table = h_new(HASH_POLICY_CHAIN, HASH_TYPE_DIVISION,
+X				  iTotalRelocations > 2 ? iTotalRelocations / 2 : 2,
+X			      reloc_address_compare, reloc_address_allocate,
+X				  reloc_address_compress, NULL, NULL, NULL);
+X			}
+X			if (reloc_hash_table == NULL) {
+X				fprintf(stderr,
+X					"screwed up allocating relocation table hash table: %d relocations\n",
+X					iTotalRelocations);
+X			} else {
+X				/* put relocation info into hash table */
+X				int             i;
+X				for (i = 0; i < inRelocations; ++i) {
+X					(*sppTablePointer)[i].r_address += iOffset;
+X					if (h_insert(reloc_hash_table, &((*sppTablePointer)[i])) == NULL) {
+X						fprintf(stderr,
+X							"botched adding reloc entry %d to hash table (h_insert)\n", i);
+X					}
+X				}
+X			}
+X			free((char *)*sppTablePointer);
+X		}
+X	}
+X}
+X
+Xvoid
+Xinitialize_sym_table(exhdr_p, fp)
+X	struct exec    *exhdr_p;
+X	FILE           *fp;
+X{
+X	int             sym_number, i;
+X
+X	/* do up symbol table */
+X	if ((symbol_table = (struct nlist *) malloc((unsigned) exhdr_p->a_syms))
+X	    == NULL) {
+X		fprintf(stderr, "hosed malloc() on symbol table\n");
+X		return;
+X	}
+X	sym_number = exhdr_p->a_syms / sizeof(struct nlist);
+X	if (fread((char *) symbol_table, sizeof(struct nlist),
+X		  sym_number, fp) != sym_number) {
+X		fprintf(stderr, "noinkered fread() of symbol table\n");
+X		return;
+X	}
+X	if (sym_number > 0) {
+X		/* initialize relocation info hash table */
+X		symbol_hash_table = h_new(HASH_POLICY_CHAIN, HASH_TYPE_DIVISION,
+X					sym_number > 2 ? sym_number / 2 : 2,
+X			    symbol_address_compare, symbol_address_allocate,
+X				 symbol_address_compress, NULL, NULL, NULL);
+X
+X		if (symbol_hash_table == NULL)
+X			fprintf(stderr, "screwed up allocating symbol table hash table\n");
+X
+X		else {
+X			/* put symbol table info into hash table */
+X			for (i = 0; i < sym_number; ++i) {
+X				if (h_insert(symbol_hash_table, &(symbol_table[i])) == NULL) {
+X					fprintf(stderr,
+X						"botched adding symbol table entry %d to hash table (h_insert)\n", i);
+X					return;
+X				}
+X			}
+X		}
+X	} else {
+X		if (symbol_hash_table) {
+X			free(symbol_hash_table);
+X			symbol_hash_table = NULL;
+X		}
+X	}
+X}
+X/*
+X * look in relocation info hashtable to find
+X * out if there's a relocation to be done at this address.
+X */
+Xstatic struct reloc_info_sparc *
+Xfind_entry_at_addrs(addr)
+Xunsigned long addr;
+X{
+X	struct reloc_info_sparc *ret, tmp;
+X
+X	tmp.r_address = addr;
+X
+X	if ((ret = (struct reloc_info_sparc *) h_member(reloc_hash_table,
+X						  (caddr_t) & tmp)) != NULL)
+X		return ret;
+X
+X	return NULL;
+X}
+X
+Xstatic struct nlist *
+Xfind_symbol_at_addrs(addr)
+Xunsigned long addr;
+X{
+X	struct nlist   *ret, tmp;
+X
+X	bzero((char *)&tmp, sizeof(struct nlist));
+X	tmp.n_value = addr;
+X
+X	if ((ret = (struct nlist *) h_member(symbol_hash_table,
+X					     (caddr_t) & tmp)) != NULL)
+X		return ret;
+X	return NULL;
+X}
+X
+Xstatic char *segment[9] = {
+X"undef", "", "abs", "", "text", "", "data", "", "bss"};
+X
+Xchar *
+Xname_of_reloc(entry, buffer)
+Xstruct reloc_info_sparc *entry;
+Xchar                    *buffer;
+X{
+X	int str_table_index;
+X
+X	if (entry == NULL)
+X		return NULL;
+X
+X	str_table_index = symbol_table[entry->r_index].n_un.n_strx;
+X	if (entry->r_extern) {
+X		sprintf(buffer, "external relocation: %s", &(string_table[str_table_index - 4]));
+X	} else {
+X		struct nlist   *symb = find_symbol_at_addrs((unsigned long)entry->r_addend);
+X		if (symb) {
+X			sprintf(buffer, "relocation of 0x%x in %s segment: %s",
+X				entry->r_addend, segment[entry->r_index & 0xf],
+X				symb->n_un.n_strx ? &(string_table[symb->n_un.n_strx - 4]) : "no name"
+X			);
+X		} else {
+X			sprintf(buffer, "relocation of 0x%x in %s segment",
+X				entry->r_addend, segment[entry->r_index & 0xf]);
+X		}
+X	}
+X	return buffer;
+X}
+X
+Xstatic char *
+Xname_of_symbol(entry, buffer)
+Xstruct nlist   *entry;
+Xchar           *buffer;
+X{
+X	int str_table_index;
+X
+X	if (entry == NULL)
+X		return NULL;
+X
+X	str_table_index = entry->n_un.n_strx;
+X	if (str_table_index > 0)
+X		strcpy(buffer, &(string_table[str_table_index - 4]));
+X	else {
+X		/* what the hell goes here? */
+X	}
+X	return buffer;
+X}
+X
+Xchar *
+Xname_at_address(addr, buffer)
+Xunsigned long   addr;
+Xchar           *buffer;
+X{
+X	struct reloc_info_sparc *entry = find_entry_at_addrs(addr);
+X	struct nlist   *symb;
+X
+X	if (entry)
+X		return name_of_reloc(entry, buffer);	/* found in relocation info */
+X
+X	symb = find_symbol_at_addrs(addr);
+X	if (symb)
+X		return name_of_symbol(symb, buffer);	/* found in symbol table */
+X	return NULL;
+X}
+X
+Xchar *
+Xname_at_destination(addr, buffer)
+Xunsigned long   addr;
+Xchar           *buffer;
+X{
+X	struct reloc_info_sparc *entry = find_entry_at_addrs(addr);
+X	struct nlist   *symb = NULL;
+X
+X	/* try to get a symbol table entry */
+X	if (entry) {
+X		if (entry->r_index > 0)
+X			symb = (&symbol_table[entry->r_index]);
+X		/* else, r_index is segment number (???) */
+X	} else {
+X		symb = find_symbol_at_addrs(addr);
+X	}
+X
+X	/* decide if this is a good symbol table entry */
+X	if (symb) {
+X		if (symb->n_type & N_EXT)
+X			return name_of_symbol(symb, buffer);	/* found in symbol table */
+X
+X		/* is a switch or an if with a complicated condition better? */
+X		switch ((symb->n_type & N_STAB) & (~N_EXT)) {
+X		case N_FNAME:
+X		case N_FUN:
+X		case N_GSYM:
+X		case N_ENTRY:
+X			return name_of_symbol(symb, buffer);	/* found in symbol table */
+X		}
+X	}
+X	buffer[0] = '\0';
+X	return NULL;
+X}
+X
+X#ifdef RELOCATIONS
+X/* print out relocation type per /usr/include/machine/a.out.h */
+Xstatic char *
+Xprint_reloc(type)
+Xenum reloc_type type;
+X{
+X	char *retptr = NULL;
+X	if (type == RELOC_8) {
+X		retptr = "8 bit simple\n" ;
+X	} else if (type == RELOC_16) {
+X		retptr = "16 bit simple\n";
+X	} else if (type == RELOC_32) {
+X		retptr = "32 bit simple\n";
+X	} else if (type == RELOC_DISP8) {
+X		retptr = "8 bit PC relative\n";
+X	} else if (type == RELOC_DISP16) {
+X		retptr = "16 bit PC relative\n";
+X	} else if (type == RELOC_DISP32) {
+X		retptr = "32 bit PC relative\n";
+X	} else if (type == RELOC_WDISP30) {
+X		retptr = "30 bit PC relative CALL\n";
+X	} else if (type == RELOC_WDISP22) {
+X		retptr = "22 bit PC relative BRANCH\n";
+X	} else if (type == RELOC_HI22) {
+X		retptr = "RELOC_HI22\n";
+X	} else if (type == RELOC_22) {
+X		retptr = "RELOC_22\n";
+X	} else if (type == RELOC_13) {
+X		retptr = "RELOC_13\n";
+X	} else if (type == RELOC_LO10) {
+X		retptr = "RELOC_LO10\n";
+X	} else if (type == RELOC_SFA_BASE) {
+X		retptr = "RELOC_SFA_BASE\n";
+X	} else if (type == RELOC_SFA_OFF13) {
+X		retptr = "RELOC_SFA_OFF13\n";
+X	} else if (type == RELOC_BASE10) {
+X		retptr = "RELOC_BASE10\n";
+X	} else if (type == RELOC_BASE13) {
+X		retptr = "RELOC_BASE13\n";
+X	} else if (type == RELOC_BASE22) {
+X		retptr = "RELOC_BASE22\n";
+X	} else if (type == RELOC_PC10) {
+X		retptr = "10 bit PC relative PIC\n";
+X	} else if (type == RELOC_PC22) {
+X		retptr = "22 bit PC relative PIC\n";
+X	} else if (type == RELOC_JMP_TBL) {
+X		retptr = "jump table relative PIC\n";
+X	} else if (type == RELOC_SEGOFF16) {
+X		retptr = "ShLib offset-in-seg\n";
+X	} else if (type == RELOC_GLOB_DAT) {
+X		retptr = "rtld global data\n";
+X	} else if (type == RELOC_JMP_SLOT) {
+X		retptr = "rtld jump slot\n";
+X	} else if (type == RELOC_RELATIVE) {
+X		retptr = "rtld relative\n";
+X	} else {
+X		retptr = "some unknown reloc type...\n";
+X	}
+X
+X	return retptr;
+X}
+X#endif
+END_OF_FILE
+  if test 13113 -ne `wc -c <'relocation.c'`; then
+    echo shar: \"'relocation.c'\" unpacked with wrong size!
+  fi
+  # end of 'relocation.c'
+fi
+if test -f 'sparc_stuff.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sparc_stuff.h'\"
+else
+  echo shar: Extracting \"'sparc_stuff.h'\" \(2818 characters\)
+  sed "s/^X//" >'sparc_stuff.h' <<'END_OF_FILE'
+X#ifndef SPARC_STUFF_H
+X#define SPARC_STUFF_H
+X
+Xstruct exec {
+X	unsigned char	a_dynamic:1;
+X	unsigned char	a_toolversion:7;
+X	unsigned char	a_machtype;	
+X	unsigned short	a_magic;
+X	unsigned long	a_text;
+X	unsigned long	a_data;
+X	unsigned long	a_bss;
+X	unsigned long	a_syms;
+X	unsigned long	a_entry;
+X	unsigned long	a_trsize;
+X	unsigned long	a_drsize;
+X};
+X
+X#define	OMAGIC	0407
+X#define	NMAGIC	0410
+X#define	ZMAGIC	0413
+X
+X#define M_OLDSUN2	0
+X#define M_68010		1
+X#define M_68020		2
+X#define M_SPARC		3
+X
+X#define TV_SUN2_SUN3	0
+X#define TV_SUN4		1
+X
+X#define PAGSIZ		0x02000
+X#define SEGSIZ		PAGSIZ
+X#define	OLD_PAGSIZ	0x00800
+X#define	OLD_SEGSIZ	0x08000
+X
+X#define	N_BADMAG(x) \
+X	((x).a_magic!=OMAGIC && (x).a_magic!=NMAGIC && (x).a_magic!=ZMAGIC)
+X
+X#define	N_PAGSIZ(x) \
+X	((x).a_machtype == M_OLDSUN2? OLD_PAGSIZ : PAGSIZ)
+X#define	N_SEGSIZ(x) \
+X	((x).a_machtype == M_OLDSUN2? OLD_SEGSIZ : SEGSIZ)
+X
+X#define	N_TXTOFF(x) \
+X	/* text segment */ \
+X	( (x).a_machtype == M_OLDSUN2 \
+X	? ((x).a_magic==ZMAGIC ? N_PAGSIZ(x) : sizeof (struct exec)) \
+X	: ((x).a_magic==ZMAGIC ? 0 : sizeof (struct exec)) )
+X
+X#define	N_DATOFF(x)   \
+X	(N_TXTOFF(x) + (x).a_text)
+X
+X#define	N_TRELOFF(x)  \
+X	(N_DATOFF(x) + (x).a_data)
+X
+X#define	N_DRELOFF(x) \
+X	(N_TRELOFF(x) + (x).a_trsize)
+X
+X#define	N_SYMOFF(x) \
+X	 \
+X	(N_TXTOFF(x)+(x).a_text+(x).a_data+(x).a_trsize+(x).a_drsize)
+X
+X#define	N_STROFF(x) \
+X	 \
+X	(N_SYMOFF(x) + (x).a_syms)
+X
+X#define	_N_BASEADDR(x) \
+X	(((x).a_magic == ZMAGIC) && ((x).a_entry < N_PAGSIZ(x)) ? \
+X	    0 : N_PAGSIZ(x))
+X
+X#define N_TXTADDR(x) \
+X	((x).a_machtype == M_OLDSUN2 ? N_SEGSIZ(x) : _N_BASEADDR(x))
+X
+X#define N_DATADDR(x) \
+X	(((x).a_magic==OMAGIC)? (N_TXTADDR(x)+(x).a_text) \
+X	: (N_SEGSIZ(x)+((N_TXTADDR(x)+(x).a_text-1) & ~(N_SEGSIZ(x)-1))))
+X
+X#define N_BSSADDR(x)  (N_DATADDR(x)+(x).a_data)
+X
+Xenum reloc_type
+X{
+X	RELOC_8,	RELOC_16,	RELOC_32,
+X	RELOC_DISP8,	RELOC_DISP16,	RELOC_DISP32,
+X	RELOC_WDISP30,	RELOC_WDISP22,
+X	RELOC_HI22,	RELOC_22,
+X	RELOC_13,	RELOC_LO10,
+X	RELOC_SFA_BASE,	RELOC_SFA_OFF13,
+X	RELOC_BASE10,	RELOC_BASE13,	RELOC_BASE22,
+X	RELOC_PC10,	RELOC_PC22,
+X	RELOC_JMP_TBL,
+X	RELOC_SEGOFF16,
+X	RELOC_GLOB_DAT, RELOC_JMP_SLOT, RELOC_RELATIVE,
+X};
+X
+Xstruct reloc_info_sparc
+X{
+X	unsigned long int r_address;
+X	unsigned int	r_index   :24;
+X	unsigned int	r_extern  : 1;
+X	int			  : 2;
+X	enum reloc_type r_type    : 5;
+X	long int	r_addend;
+X};
+X
+X
+X
+Xstruct	nlist {
+X	union {
+X		char	*n_name;
+X		long	n_strx;
+X	} n_un;
+X	unsigned char	n_type;
+X	char	n_other;
+X	short	n_desc;
+X	unsigned long	n_value;
+X};
+X
+X#define	N_UNDF	0x0
+X#define	N_ABS	0x2
+X#define	N_TEXT	0x4
+X#define	N_DATA	0x6
+X#define	N_BSS	0x8
+X#define	N_COMM	0x12
+X#define	N_FN	0x1e
+X
+X#define	N_EXT	01
+X#define	N_TYPE	0x1e
+X
+X#define	N_STAB	0xe0
+X
+X#define	N_FORMAT	"%08x"
+X
+X 
+X#define EXTRA_MAGIC     1040
+X#define EXTRA_IDENT     0
+X
+Xstruct extra_sections {
+X	   	int     extra_magic;
+X	   	int     extra_nsects;
+X};
+X
+X#endif SPARC_STUFF_H
+END_OF_FILE
+  if test 2818 -ne `wc -c <'sparc_stuff.h'`; then
+    echo shar: \"'sparc_stuff.h'\" unpacked with wrong size!
+  fi
+  # end of 'sparc_stuff.h'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

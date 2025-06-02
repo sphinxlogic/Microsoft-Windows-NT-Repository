@@ -1,0 +1,894 @@
+Newsgroups: comp.sources.x
+From: lusol@Turkey.CC.Lehigh.EDU (Stephen O. Lidie)
+Subject: v19i039:  xodometer - Track pointer and measure distance moved, Part03/04
+Message-ID: <1993Mar11.161628.17444@sparky.imd.sterling.com>
+X-Md4-Signature: 2886fc330ffa9651aee3add14b9f7154
+Date: Thu, 11 Mar 1993 16:16:28 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: lusol@Turkey.CC.Lehigh.EDU (Stephen O. Lidie)
+Posting-number: Volume 19, Issue 39
+Archive-name: xodometer/part03
+Environment: X11
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  evap/evap.h
+# Wrapped by lusol@Turkey.CC.Lehigh.EDU on Wed Mar 10 19:42:13 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'evap/evap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'evap/evap.h'\"
+else
+echo shar: Extracting \"'evap/evap.h'\" \(32868 characters\)
+sed "s/^X//" >'evap/evap.h' <<'END_OF_FILE'
+X/*
+X
+X  evap.h - header file for evaluate_parameters (PDT Version 1.2)
+X
+X  Copyright (C) 1990 - 1993 by Lehigh University.  All rights reserved.
+X
+X
+X                               Table of Contents
+X
+X  Revision History
+X  Introduction
+X  PDT Syntax
+X  Creating a PDT
+X  Usage Notes
+X  Separately Compiled Modules
+X  Further Information on Types
+X  Special Default Value $required
+X  Using Environment Variables as Default Values
+X  Customization of the PDT Structure
+X  Interface to X11 Release 4 XGetDefault
+X  Human Interface Guidlines
+X  Installation
+X  Display Command Information
+X  Adding New Message Modules
+X  Notes and Cautions
+X  Acknowledgment
+X
+X
+X                               Revision History                            
+X
+X  Stephen.O.Lidie@CDC1.CC.Lehigh.EDU, LUCC, 90/12/28. (PDT version 1.0)
+X    . Original release - evaluate_parameters and generate_pdt.
+X
+X  Stephen.O.Lidie@CDC1.CC.Lehigh.EDU, LUCC, 91/07/01. (PDT version 1.1)
+X    . Minor bug fixes in generate_pdt.
+X    . Add support for the name type.
+X    . Add the new command display_command_information (disci).
+X    . Add support for help message modules.
+X    . Add the new command add_message_modules (addmm).
+X    . Minor bug fix in evaluate_parameters handling of key type.
+X    . Improve evaluate_parameters error messages.
+X    . Provide an install script for VX/VE, EP/IX, SunOS, Stardent and AIX.
+X    . Add support for PDTEND file_list option.
+X    . Add -qualifier parameter to generate_pdt so that the PDT/PVT names
+X      can be qualified for 'multiple entry point' programs.  Similar to
+X      COMPASS QUAL blocks.
+X
+X   Stephen.O.Lidie@CDC1.CC.Lehigh.EDU, LUCC, 91/08/01. (PDT version 1.1)
+X    . Allow -- to end command line parameters.
+X    . Don't print the colon after the type for disci; generate_pdt supplies
+X      it for us.  This allows the description to be better customized.
+X    . When type-checking keywords, first search for an exact match (as is
+X      currently done) and if that fails, search for a substring match.
+X    . In a similar manner, when the exact match for a command line parameter
+X      fails, try a substring match (but not for the alias).
+X    . If the evaluate_parameters message module is missing, generate a short
+X      Usage: display.
+X    . If no parameter alias, use the full spelling for Usage: and -help.
+X
+X   Stephen.O.Lidie@CDC1.CC.Lehigh.EDU, LUCC, 91/12/02. (PDT version 1.2)
+X    . Do the 'which' function internally rather than using slow system.
+X    . exec the ar command to display the message module rather than
+X      using slow system.
+X    . If an environment variable is specified as a default value for a
+X      parameter, the variable is defined and the parameter is not 
+X      specified, use the value of the environment variable for the
+X      parameter's value.
+X 
+X  lusol@Lehigh.EDU 93/01/02. (PDT version 1.2)  Version 1.4
+X    . Evaluate parameter values within grave accents, or
+X      backticks.  Add -usage_help to display_command_information.
+X      Add support for parameter descriptions in the message module
+X      file for -full_help.
+X 
+X  lusol@Lehigh.EDU 93/02/19. (PDT version 1.2)  Version 1.5
+X    . Document the interface to X11 Release 4 XGetDefault.
+X    . For parameters of type File expand $HOME and ~.
+X    . Make evap.c more ANSI-like - define function prototypes and use returns
+X      consistently.
+X    . Make evap.h more ANSI-like - replace the #if .. #endif surrounding the 
+X      evaluate_parameters documentation with a C comment construct.  However,
+X      all the C comments embedded in the sample code are now PASCAL comments
+X      of the form {* ... *}.  Ugh, but that's the price I had to pay to make
+X      the code portable!
+X  
+X
+X
+X                                 Introduction
+X
+X  Function evaluate_parameters parses a U*X command line in a simple and
+X  consistent manner, performs type checking of parameter values, and provides
+X  the user with first-level help.  evaluate_parameters handles command lines
+X  in the following format:
+X
+X    command [-parameters] [file_list]
+X
+X  where parameters and file_list are all optional.  A typical example is the
+X  C compiler:
+X
+X    cc -O -o chunk chunk.c
+X
+X  In this case there are two parameters and a file_list consisting of a
+X  single file name for the cc command.
+X
+X  There are several advantages to using evaluate_parameters in all your C
+X  programs:
+X
+X    - Every program calling evaluate_parameters has a -help switch which
+X      lists all the command line arguments and their aliases, the types
+X      of parameter values they expect, and their default values.  Many U*X
+X      commands have no man pages so this first-level help is the only help
+X      available to a user.  This is provided automatically as part of
+X      evaluate_parameters; no code is required in your application.  
+X
+X      An optional help message module can be defined to provide additional
+X      help.  (See the section Adding New Message Modules.)
+X
+X    - The command display_command_information is available which emulates its
+X      NOS/VE counterpart.  This command displays information about any command
+X      using evaluate_parameters.
+X
+X    - Because evaluate_parameters allows command line arguments to have an
+X      alias, parameters can be given meaningful names which a user can readily
+X      understand.  Hackers, on the other hand, can use the abbreviation to
+X      speed their work.
+X
+X    - evaluate_parameters verifies that the value specified for a command
+X      line argument is of the appropriate type. Types currently supported are
+X      switch, string, real, integer, boolean, file, key, application and name.
+X      Parameter values are available in two forms; unconverted C strings and
+X      type-converted values.
+X
+X    - Your job of developing applications is simplified because you don't
+X      waste time writing code to process arguments again, and again, and again!
+X
+X    - Automatic man page generation for programs calling evaluate_parameters.
+X
+X    - New versions of evaluate_parameters will guarantee backward compatability
+X      with previous versions until the Universe ends.
+X
+X    - Most importantly, as long as you adhere to the Human Interface Guidlines,
+X      evaluate_parameters provides for a consistent user interface.
+X
+X  Using evaluate_parameters is extremely easy:
+X
+X    1) Create a Parameter Description Table, analogous to a C function
+X       prototype, which names all command line arguments and their types.
+X       Additionally, a PDT specifies the parameter alias and a default value.
+X       (Optionally, a help message module can be defined which names a text
+X       file of additional help information.  See Adding New Message Modules
+X       for more information.)
+X
+X    2) Feed the PDT to program generate_pdt, which generates a C structure
+X       that can be #included into your application.  This structure, known
+X       as a Parameter Description Table (PDT) assists evaluate_parameters in
+X       parsing the command line.
+X
+X    3) Call evaluate_parameters in function main.  Command line parameters
+X       are scanned and their values are stored in the PDT for later use.
+X
+X    4) (Optionally, add a help message module to the message module archive
+X       file.  See Adding New Message Modules for more details.)
+X
+X  Examine addmm.c for an extremely simple example of using evaluate_parameters.
+X
+X
+X                                 PDT Syntax
+X
+X  Here is the PDT syntax.  Optional constructs are enclosed in [], and the
+X  | character separates possible values in a list.
+X
+X    PDT [(message_module_name.mm)] [program_name, program_alias]
+X      [parameter_name[, parameter_alias]: parameter_type [ = default_value]]
+X    PDTEND [optional_file_list | required_file_list | no_file_list]
+X
+X  So, the simplest possible PDT would be:
+X
+X    PDT
+X    PDTEND
+X
+X  This PDT would simply define a -help switch for the command, but is rather
+X  useless. 
+X
+X  A typical PDT would look more like this:
+X
+X    PDT (frog.mm) frog
+X      number, n: integer = 1
+X    PDTEND no_file_list
+X
+X  This PDT, for command frog, defines a help message module frog.mm and a
+X  single parameter, number (or n), of type integer with a default value of 1.
+X  The PDTEND no_file_list indicator indicates that no trailing file_list
+X  can appear on the command line.  Of course, the -help switch is defined
+X  automatically.
+X
+X  The default_value can also be an environment variable - see the section
+X  Using Environment Variables as Default Values for complete details.
+X
+X
+X                                Creating a PDT
+X
+X  evaluate_parameters requires a Parameter Description Table (PDT) to guide it
+X  in parsing the command line.  The program generate_pdt interprets a
+X  Parameter Description Table (PDT) and generates C statements that declare
+X  and initialize the PDT.  Here is generate_pdt's PDT; it declares -input (or
+X  -i) and -output (or -o) parameters, of type file, and that default to
+X  standard input and standard output, respectively.  The -qualifier (or -q)
+X  parameter, of type string, defaults to an empty string.
+X
+X    PDT (genpdt.mm) generate_pdt, genpdt
+X      input, i: file = stdin
+X      output, o: file = stdout
+X      qualifier, q: string = ""
+X    PDTEND no_file_list
+X
+X  A PDT for the 'mini' C compiler example described in the Introduction could
+X  be:
+X
+X    PDT cc
+X      Optimize, O: switch
+X      object, o: file
+X    PDTEND optional_file_list
+X
+X  The PDT says that the Optimize parameter can have no parameter value; that
+X  is, it must stand alone.  The object parameter is of type file.  An
+X  optional file_list can follow the command line parameters.
+X
+X  If cc used evaluate_parameters with this PDT a user could envoke the
+X  compiler in various ways, some of which are more obvious than others (of
+X  course, the command line parameters could be specified in any order):
+X
+X    cc -Optimize -object chunk chunk.c
+X    cc -Optimize -o chunk chunk.c
+X    cc -O -object chunk chunk.c
+X    cc -O -o chunk chunk.c
+X
+X  A special -help (or -disci) parameter is automatically generated.  Executing
+X  any command that uses evaluate_parameters and specifying the -help option
+X  produces a display of all command line arguments for that command, similar
+X  to NOS/VE's DISPLAY_COMMAND_INFORMATION.  Continuing our cc example, the
+X  following command:
+X
+X    cc -help
+X
+X  would produce this first-level help display:
+X
+X    Name:  cc
+X
+X    Parameters:
+X
+X    -help, disci: Display Command Information
+X    -Optimize, O: switch
+X    -object, o: file
+X
+X     [file(s)] optionally required by this command
+X
+X  The first line of a Parameter Description Table declaration must be PDT (or
+X  pdt) and the last line must be PDTEND (or pdtend).  Everything in between
+X  defines one or more command line arguments, one per line.  The synatx is
+X  similar to CYBIL, Pascal and C function headers:  a parameter name followed
+X  by an optional alias, a colon followed by the type of parameter (switch,
+X  string, real, integer, boolean, file, key, application, name) and an equal
+X  sign followed by the parameter's default value.
+X
+X  With this information evaluate_parameters can parse a command line in a
+X  consistent manner, perform type checking, and provide first-level help via
+X  the -help parameter, similar to NOS/VE's System Command Language.
+X
+X  Here are examples of all the supported types:
+X
+X    PDT beam
+X      verbose, v: switch
+X      command, c: string = "ps -el"
+X      scale_factor, sf: real = 1.23408900023456e-1
+X      millisecond_update_interval, mui: integer = 500
+X      ignore_output_file_column_one, iofco: boolean = TRUE
+X      output, o: file = stdout
+X      queue, q: key plotter, postscript, text, printer, keyend = printer
+X      destination, d: application = `hostname`
+X      tty, t: name = /dev/console
+X    PDTEND optional_file_list
+X
+X
+X                                 Usage Notes
+X
+X  Here are two sample main programs that simply print the envoking command's
+X  name, command line arguments as described by the PDT, and all file names.
+X  They are essentially identical, although the first uses the array approach
+X  and prints the unconverted values (stored as C strings), while the second
+X  uses pointers and prints the converted values (stored as a type appropriate
+X  for the parameter).  These programs are patterned after the examples in K&R,
+X  page 115, second edition.  There are a few items worth noting in each:
+X
+X    1) The first executable statement in your C application must be a call
+X       to evaluate_parameters.
+X
+X                                    NOTE
+X
+X            Because of variations in U*X implementations, the actual
+X            name of evaluate_parameters is evap.  This unobvious name
+X            was chosen simply because it was short enough to prevent
+X            problems with C compilers, loaders and archive programs.
+X            The real name, evaluate_parameters, will continue to be
+X            used everywhere except in actual examples.
+X
+X    2) evaluate_parameters increments argv and decrements argc as it parses
+X       the command line, leaving argv pointing to just before the file
+X       names (if any).  The net result is that argc will be >= 1.  If it is
+X       one, there are no trailing file names.  This is analogous to the
+X       situation where a command, not using evaluate_parameters, is envoked
+X       with no parameters; argc = 1 and argv simply points to the envoking
+X       program's name.
+X
+X    3) Parameter values are stored in the Parameter Value Table structure
+X       (pvt) in a format appropriate for the type (string for string, long
+X       double for real, int for integer, short for boolean, etcetera).  The
+X       unconverted parameter value is also available as a C string.
+X
+X    4) Because of item #2 above, the name of the program in argv[0] is no
+X       longer available.  Therefore, evaluate_parameters stores it in the PDT
+X       structure pvt[P_HELP].unconverted_value just in case you need it.
+X
+X  Assume that the file beam_pdt_in contains the PDT described at the end of
+X  the section Creating a PDT.  First use the command generate_pdt to convert
+X  the file beam_pdt_in into a C structure declaration for use by your
+X  application and evaluate_parameters:
+X
+X      generate_pdt -input beam_pdt_in -output beam_pdt_out
+X
+X  The resulting PDT declaration on file beam_pdt_out can be included in main:
+X
+X  Sample main using arrays:
+X
+X    #include <evap.h>
+X    #include "beam_pdt_out"
+X
+X    main (argc, argv)
+X          int argc;
+X          char *argv[];
+X
+X    {* evaluate_parameters, array version, unconverted values. *}
+X
+X    {
+X      int i;
+X
+X      evap (&argc, &argv, pdt, NULL, pvt);
+X      printf("\nProgram name:\n  %s\n", pvt[P_HELP].unconverted_value);
+X
+X      if (P_NUMBER_OF_PARAMETERS > 1 ) {
+X        printf("\nCommand line parameters and values:\n");
+X        for (i=1; i < P_NUMBER_OF_PARAMETERS; i++)
+X          printf("  Parameter %s=\"%s\"\n", pvt[i].parameter,
+X                pvt[i].unconverted_value);
+X      }
+X
+X      if (argc > 1) {
+X        printf("\nFile names:\n  ");
+X        for(i=1; i < argc; i++)
+X          printf("%s%s", argv[i], (i < argc-1) ? " " : "");
+X        printf("\n");
+X      }
+X    } {* end main *}
+X
+X
+X  Sample main using pointers:
+X
+X    #include <evap.h>
+X    #include "beam_pdt_out"
+X
+X    main (argc, argv)
+X          int argc;
+X          char *argv[];
+X
+X    {* evaluate_parameters, pointer version, type-converted values. *}
+X
+X    {
+X      Parameter_Value *pvte; {* parameter value table entry *}
+X
+X      evap (&argc, &argv, pdt, NULL, pvt);
+X      printf("\nProgram name:\n  %s\n", pvt[P_HELP].unconverted_value);
+X
+X      if (P_NUMBER_OF_PARAMETERS > 1) {
+X        printf("\nCommand parameters and values:\n");
+X        pvte = &pvt[1];
+X        while (pvte->parameter != NULL) {
+X          switch (pvte->type) {
+X
+X          case P_TYPE_SWITCH:
+X            printf("  switch      parameter %s=%d\n", pvte->parameter,
+X                  pvte->value.switch_value);
+X            break;
+X
+X          case P_TYPE_STRING:
+X            printf("  string      parameter %s=\"%s\"\n", pvte->parameter,
+X                  pvte->value.string_value);
+X            break;
+X
+X          case P_TYPE_REAL:
+X            printf("  real        parameter %s=%.15lg\n", pvte->parameter,
+X                  pvte->value.real_value);
+X            break;
+X
+X          case P_TYPE_INTEGER:
+X            printf("  integer     parameter %s=%d\n", pvte->parameter,
+X                  pvte->value.integer_value);
+X            break;
+X
+X          case P_TYPE_BOOLEAN:
+X            printf("  boolean     parameter %s=%d\n", pvte->parameter,
+X                  pvte->value.boolean_value);
+X            break;
+X
+X          case P_TYPE_FILE:
+X            printf("  file        parameter %s=\"%s\"\n", pvte->parameter,
+X                  pvte->value.file_value);
+X            break;
+X
+X          case P_TYPE_KEY:
+X            printf("  key         parameter %s=\"%s\"\n", pvte->parameter,
+X                  pvte->value.key_value);
+X            break;
+X
+X          case P_TYPE_APPLICATION:
+X            printf("  application parameter %s=\"%s\"\n", pvte->parameter,
+X                  pvte->value.application_value);
+X            break;
+X
+X          case P_TYPE_NAME:
+X            printf("  name        parameter %s=\"%s\"\n", pvte->parameter,
+X                  pvte->value.name_value);
+X            break;
+X
+X          default:
+X            printf("Error!  Murphy says 'Plugh'!\n");
+X            break;
+X          } {* casend *}
+X
+X          pvte++; {* next parameter value table entry *}
+X
+X        } {* whilend *}
+X      }
+X
+X      if (argc > 1) {
+X        printf("\nFile names:\n  ");
+X          while (*++argv != NULL)
+X            printf("%s%s",*argv, (*argv != NULL) ? " " : "");
+X        printf("\n");
+X      }
+X    } {* end main *}
+X
+X
+X  Parameter names and their aliases can be at most 31 characters long.
+X
+X  The values for parameters are stored in a format appropriate for their type.
+X  Please examine the pvt structure (below) for complete details.  Parameter
+X  values are also available, as a C string, exactly as they appeared on the
+X  command line.
+X
+X  Each parameter has a structure of type parameter_value, which is defined
+X  below.  All the parameter structures are grouped together in a Parameter
+X  Value Table array named pvt, which is an array of elements of type
+X  parameter_value.  An application indexes into the pvt array using a defined
+X  symbol of the form P_FULL_PARAMETER_NAME.  So, to access the parameter_value
+X  structure for the scale_factor, references of the following form would be
+X  used:
+X
+X    sf = pvt[P_SCALE_FACTOR].value.real_value; {* get long double value *}
+X
+X  After calling evaluate_parameters, a program accesses the PDT structure for
+X  information on what parameters were specified and their values.  To
+X  determine if the verbose switch in the example above was specified code such
+X  as the following could be used:
+X
+X    if(pvt[P_VERBOSE].specified)
+X        ... do verbose stuff ...
+X    else
+X        ... do quiet stuff ...
+X
+X  Of course, there are numerous examples of PDT code in the C source files
+X  genpdt.c, disci.c and addmm.c.
+X
+X
+X                          Separately Compiled Modules
+X
+X  evaluate_parameters can be used when you compile C functions separately from
+X  main.  Include <evap.h> as usual and include the PDT structure created by
+X  generate_pdt too.  Define the symbol P_EVAP_EXTERN somewhere before the
+X  include for the PDT structure.  This will declare the Parameter Value Table
+X  (pvt) as an external and will not allocate storage.  For example:
+X
+X    #include <evap.h>
+X    #define P_EVAP_EXTERN
+X    #include "beam_pdt_out"
+X
+X    void test_func()
+X    {
+X      printf("Program name is %s\n", pvt[P_HELP].unconverted_value);
+X    }
+X
+X
+X                         Further Information on Types
+X
+X  The switch type is a special type that emulates the typical U*X standalone
+X  switch.  It means that no parameter value can appear after the switch.
+X  evaluate_parameters treats this type similarly to a boolean type:  the value
+X  in the PDT structure is initialized to FALSE, and if the switch parameter is
+X  specified the value is reset to TRUE.  You can therefore use either of the
+X  structure members specified or value to test if the parameter was specified
+X  on the command line.  The switch type is short int.
+X
+X  The string type is simply a C string.
+X
+X  The real type is a floating point number.  Currently, there is no type
+X  checking for this type.  A real number on my machine (a CYBER) ranges from
+X  -5.221944407065762533458763552E+1232 to 5.221944407065762533458763552E+1232.
+X  The real type is long double.
+X
+X  The integer type is an integer number.  Range is -9223372036854775808 to
+X  9223372036854775807, at least on real machines :-).  The integer type is
+X  int.
+X
+X  The boolean type is either TRUE or FALSE.  The boolean type is short int.
+X
+X  The file type is a standard U*X file name, which as far as I can tell can be
+X  any random string of characters, as long as its length is less than 256.
+X  Here is sample C code to process the output file defined previously (o is a
+X  variable of type FILE *):
+X
+X    if (pvt[P_OUTPUT].specified) {
+X      if ((o=fopen(pvt[P_OUTPUT].value.file_value, "w")) == NULL) {
+X        printf("Cannot open output file!\n");
+X        exit(1);
+X      }
+X    } else  {* just use standard output *}
+X      o = stdout;
+X
+X  The key type is a special type that enumerates valid values.  The queue
+X  parameter in a previous example above only recognizes the values plotter,
+X  postscript, text, and printer.  evaluate_parameters will not accept other
+X  values for this parameter.  Currently, a maximum of 32 values can be
+X  specified.  The key type is a C string.
+X
+X  The applicaton type is a special type that is not type checked because its
+X  interpretation is application specific.  This means that anything can be
+X  specified for this type of parameter.
+X
+X  The name type is a string of characters without imbedded spaces.  It is just
+X  like a string except that it can be specified without the bounding quotes.
+X  If you require a parameter that may included imbedded spaces use a string.
+X
+X
+X                        Special Default Value $required
+X
+X  All parameters can have a special default value $required.  When this
+X  default is specified, evaluate_parameters will ensure that the parameter is
+X  specified and given a valid value.
+X
+X
+X                  Using Environment Variables as Default Values
+X
+X  Consider the following PDT:
+X
+X    PDT (frog.mm) frog
+X      number, n: integer = D_FROG_NUMBER, 1
+X    PDTEND no_file_list
+X
+X  The integer parameter number (or n) has a default value of 1.  However,
+X  if the environment variable D_FROG_NUMBER is defined AND if number is
+X  not specified on the command line, evaluate_parameters will use the value
+X  of the environment variable as the parameter's default value.  With this
+X  feature users can easily customize command parameters to their liking.
+X
+X  Although the name of the environment variable can be whatever you choose,
+X  the following scheme is suggested for consistency and to avoid conflicts
+X  in names:  
+X
+X    . Use all uppercase characters.
+X    . Begin the variable name with D_, to suggest a default variable.
+X    . Continue with the name of the command followed by an underscore.
+X    . Complete the variable name with the name of the parameter or its
+X      alias.
+X
+X  So, for example, D_DISCI_DO would name a default variable for the
+X  display_option (do) parameter of the display_command_information
+X  (disci) command.
+X
+X
+X                       Customization of the PDT Structure
+X
+X  The PDT structure parameter_value is defined below, and, although
+X  initialized by generate_pdt, can be customized in the following ways:
+X
+X    . You can change the description as displayed by -help.
+X    . You can change the changeable member to -1 so that a parameter is
+X      not advertised in response to a -help, although it can still be
+X      changed by the user, similar to the NOS/VE HIDDEN attribute.
+X
+X
+X                     Interface to X11 Release 4 XGetDefault
+X
+X  For X11 applications call evaluate_parameters as usual then open the X
+X  display.  You can then use code similar to the following to establish
+X  default X values for all unspecified command line parameters:
+X
+X  {*
+X     For all unspecified parameters see if there is an X default value. 
+X     Variable "i" is type integer and "X_default" is type char *.       
+X  *}
+X
+X  for ( i = 0 ; i < P_NUMBER_OF_PARAMETERS; i++ ) {
+X    if ( ! pvt[i].specified ) {
+X      X_default = XGetDefault( theDisplay, ProgramName, pvt[i].parameter );
+X      if ( X_default != NULL ) {
+X        pvt[i].unconverted_value = X_default;
+X        evap_type_conversion( &pvt[i] ); {* convert string to proper type *}
+X      } {* ifend non-null X default for this parameter *}
+X    } {* ifend unspecified parameter *}
+X  } {* forend all evaluate_parameters parameters *}
+X
+X
+X
+X                           Human Interface Guidlines
+X
+X  To make evaluate_parameters successful, you, the application developer, must
+X  follow certain conventions when choosing parameter names and aliases.
+X
+X  Parameter names consist of one or more words, separated by underscores, and
+X  describe the parameter (for example, OUTPUT and TERMINAL_MODEL).
+X
+X  You can abbreviate parameters:  use the first letter of each word in the
+X  parameter name.  Do not use underscores.  For example, you can abbreviate
+X  Command as C and Delay_Period as DP.
+X
+X  There are exceptions to this standard:
+X
+X    - PASSWORD is abbreviated PW.
+X    - The words MINIMUM and MAXIMUM are abbreviated MIN and MAX.  So, the
+X      abbreviation for the parameter maximum_byte_count is maxbc.
+X
+X
+X                                 Installation
+X
+X  Execute the shell script install_evap, probably as root, which seems to
+X  work on EP/IX, SunOS, AIX and Stardent; changes may be required for your
+X  particular flavor of U*x.  For VX/VE use the install_evap_vxve script.
+X
+X  The default catalog for the install is /usr/local.  If this is not
+X  appropriate for your machine then edit the script and change the value
+X  of the variables INC, LIB and BIN.
+X
+X
+X                           Display Command Information
+X
+X  Besides evap.c, genpdt.c and addmm.c, this package includes the
+X  special command display_command_information (disci).  disci does just what
+X  it says:  it displays information about any evap-compliant command (that is,
+X  any application that uses evaluate_parameters to parse its command line).
+X  There are usage, brief and full display options on the command.  For example,
+X  try disci on itself:
+X
+X    display_command_information -command disci
+X
+X  This will give brief command information.  Then examine the full display:
+X
+X    disci -c disci -do f
+X
+X  Try disci on generate_pdt and add_message_modules too.
+X
+X
+X                            Adding New Message Modules
+X
+X  A message module is simply a text file of additional information used by
+X  disci (in reality evaluate_parameters).  Message modules for applications
+X  using evaluate_parameters are maintained in an archive file named
+X  libevapmm.a, typically in the catalog /usr/local/lib.  The name of the
+X  message module associated with a command is stored in the command's PDT. 
+X  Please examine the files in the directory message_module for examples.
+X  So, to create a message module for your command you must do two things:
+X
+X    1) Use the add_message_modules (addmm) command to add your help text
+X       to the ar message module database.  Use a text editor and create
+X       your file, with a name of the form hhhh.mm, where hhhh is the
+X       name of your application (the .mm 'extension' implies a message
+X       module).  The file name cannot exceed 14 characters, a limit 
+X       imposed by the ar utility.  Then:
+X
+X         add_message_modules hhhh.mm
+X
+X    2) Modify the command's PDT to include the name of this file.  Either
+X       manually change the pdt_header structure member help_module_name
+X       from NULL to "hhhh.mm" (not recommended), or re-create your PDT
+X       using generate_pdt (highly recommended).  The message module name 
+X       is specified on the PDT statement:
+X
+X         PDT (hhhh.mm) command_hhhh
+X           parameter declarations ...
+X         PDTEND required_file_list
+X
+X       Examine the sample PDTs in the catalog pdt.  Then simply re-compile.
+X
+X  You can maintain a private message module too.  If the message module name
+X  specified in the PDT header has one or more slashes in it, then the
+X  message module name specifies BOTH a path name to the message module
+X  archive file and the name of the message module contained in that library.
+X  For instance, in the following PDT declaration the message module name is
+X  again hhhh.mm, but this time it resides in the archive file my_mm_library
+X  rather than in libevapmm.a in the installation catalog:
+X
+X       PDT (my_mm_library/hhhh.mm) command_hhhh
+X         parameter declarations ...
+X       PDTEND required_file_list
+X
+X  Now use add_message_modules:
+X
+X       addmm -mml my_mm_library hhhh.mm
+X
+X  Use display_command_information -command add_message_modules -display_option
+X  full (disci -c addmm -do f) to see further information.
+X    
+X
+X                               Notes and Cautions
+X
+X  The PDT parsing code in genpdt.c is really pretty stupid.  Although most of
+X  the PDT declaration is free-form there are two contructs that must be
+X  entered in a particular fashion:
+X
+X    1) A key type declaration MUST be entered such that a trailing comma
+X       separates all the valid keywords, as in this example:
+X
+X         display_option, do: key brief, b, full, f, keyend = brief
+X
+X       The following key declaration would not parse properly:
+X
+X         display_option, do: key brief b full f keyend = brief
+X
+X    2) When specifying a help message module on the PDT statement, the
+X       message module name MUST be surrounded by parentheses without any
+X       embedded spaces.  Here is a valid example:
+X
+X         PDT (disci.mm) display_command_information, disci
+X
+X       This example is illegal and will not parse correctly:
+X
+X         PDT ( disci.mm ) display_command_information, disci
+X
+X  Finally, be sure to end the last line of the PDT declaration, the PDTEND
+X  statement, with a <cr>.  Failure to do so will cause generate_pdt to sense
+X  end-of-file prematurely.  
+X
+X
+X                                 Acknowledgment
+X
+X  Many thanks to Control Data Corporation for pioneering the concept of a
+X  typed, consistent user interface; an interface used by the NOS/VE operating
+X  system and ALL its applications; an interface that has meaningful command
+X  and parameter names instead of short, cryptic ones.  Control Data invented
+X  the concept of first-level help for ALL commands with
+X  DISPLAY_COMMAND_INFORMATION and DISPLAY_FUNCTION_INFORMATION, providing a
+X  level of global consistency not found in any other OS in the world (well,
+X  as I write this on my Mac I might have to reconsider (-:)!
+X
+X  Also, many thanks to Mark 'dog' Miller for coding the alpha version of
+X  evaluate_parameters.
+X
+X  Copyright (C) 1990 - 1993 by Lehigh University.  All rights reserved.
+X
+X*/
+X
+X#define P_PDT_VERSION "1.2"	/* PDT version */
+X
+X#ifndef NULL
+X#define NULL 0			/* NULL */
+X#endif
+X#ifndef TRUE
+X#define TRUE  1			/* TRUE */
+X#endif
+X#ifndef FALSE
+X#define FALSE 0			/* FALSE */
+X#endif
+X
+X#define P_TYPE_SWITCH      0	/* type ordinals */
+X#define P_TYPE_STRING      1
+X#define P_TYPE_REAL        2
+X#define P_TYPE_INTEGER     3
+X#define P_TYPE_BOOLEAN     4
+X#define P_TYPE_FILE        5
+X#define P_TYPE_KEY         6
+X#define P_TYPE_APPLICATION 7
+X#define P_TYPE_NAME        8
+X#define P_MAXIMUM_TYPES    9	/* maximum types supported */
+X
+X#define P_MAX_KEYWORD_LENGTH 31	/* maximum parameter length */
+X#define P_MAX_KEYWORD_VALUE_LENGTH 256 /* maximum parameter value length */
+X#define P_MAX_PARAMETER_HELP 256 /* maximum parameters that can have full_help */
+X#define P_MAX_PARAMETER_HELP_LENGTH 1024 /* maximum parameter help length */
+X#define P_MAX_VALID_VALUES 32	/* maximum number of key values */
+X
+X#define P_HELP 0		/* display command information */
+X
+Xstruct pdt_header {		/* PDT header */
+X  char *version;		/* PDT version */
+X  char *help_module_name;	/* help module */
+X  char *file_list;		/* trailing file list flag */
+X};
+X
+Xstruct parameter_value {	/* parameter value */
+X  char  *parameter;		/* official parameter spelling */
+X  char  *alias;			/* this parameter also known as */
+X  short int specified;		/* if this param entered by user */
+X  short int changeable;		/* if param changeable by user */
+X  short int type;		/* this parameter's type */
+X  char  *default_variable;	/* default environment variable */
+X  char  *unconverted_value;	/* value before type converstion */
+X  char  *description;		/* for usage information */
+X  char  *valid_values[P_MAX_VALID_VALUES]; /* valid values, last one NULL */
+X  union {			/* type dependent value */
+X    short int switch_value;
+X    char *string_value;
+X#ifdef nosve
+X    long double real_value;
+X#else
+X    double real_value;
+X#endif
+X    int integer_value;
+X    short int boolean_value;
+X    char *file_value;
+X    char *key_value;
+X    char *application_value;
+X    char *name_value;
+X  } value;
+X};
+X
+Xtypedef struct parameter_value Parameter_Value; /* an alias */
+END_OF_FILE
+if test 32868 -ne `wc -c <'evap/evap.h'`; then
+    echo shar: \"'evap/evap.h'\" unpacked with wrong size!
+fi
+chmod +x 'evap/evap.h'
+# end of 'evap/evap.h'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    echo "Read README for installation instructions."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

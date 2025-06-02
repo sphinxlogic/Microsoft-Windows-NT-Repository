@@ -1,0 +1,1824 @@
+Newsgroups: comp.sources.misc
+From: drt@chinet.chi.il.us (Donald Tveter)
+Subject:  v31i132:  backprop - Fast Backpropagation, Part04/04
+Message-ID: <1992Sep2.180801.28220@sparky.imd.sterling.com>
+X-Md4-Signature: 22e9ea4124ae514281f5d106620a1edf
+Date: Wed, 2 Sep 1992 18:08:01 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: drt@chinet.chi.il.us (Donald Tveter)
+Posting-number: Volume 31, Issue 132
+Archive-name: backprop/part04
+Supersedes: backprop: Volume 28, Issue 63-66
+Environment: UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  real.c misc.c int.c
+# Wrapped by drt@chinet on Sat Jun 13 14:58:12 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'real.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'real.c'\"
+else
+echo shar: Extracting \"'real.c'\" \(10612 characters\)
+sed "s/^X//" >'real.c' <<'END_OF_FILE'
+X/* *********************************************************** */
+X/* file real.c:  contains the network evaluation and weight    */
+X/* adjustment procedures for the 64-bit floating point program */
+X/*                                                             */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter          */
+X/*                                                             */
+X/* *********************************************************** */
+X
+X#include "rbp.h"
+X#include <stdio.h>
+X
+Xextern char activation, backprop, deriv;
+Xextern REAL alpha, D, decay, eta, eta2, etamax, kappa, qpdecay, qpeta;
+Xextern REAL mu, noise, theta1, theta2, toler, totaldiff;
+Xextern int qpslope;
+Xextern LAYER *last, *start;
+X
+Xextern double exp(); /* built-in functions */
+X
+Xvoid forward()       /* computes unit activations */
+X{
+XUNIT *u, *predu;
+XLAYER *layer;
+XWTNODE *b;
+Xregister REAL fract, x, sum;
+XREAL val; /* should be in a register, but UNIX pc C-compiler does */
+X          /* not handle it correctly */
+Xint intpart;
+X
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    sum = 0.0;
+X    b = (WTNODE *) u->wtlist;
+X    while (b != NULL)
+X     {
+X      predu = (UNIT *) b->backunit;
+X#ifdef SYMMETRIC
+X      sum = sum + *(b->weight) * predu->oj;
+X#else
+X      sum = sum + b->weight * predu->oj;
+X#endif
+X      b = b->next;
+X     };
+X    sum = sum * D;
+X    if (activation == 'p' || activation == 't')
+X     {
+X      if (sum >= 0.0) x = sum; else x = - sum;
+X      intpart = x;
+X      fract = x - intpart;
+X      switch (intpart) {
+Xcase 0:  val = 0.5 + 0.231 * fract;          /* 0 <= x < 1 */
+X         break;
+Xcase 1:  val = 0.731059 + 0.149738 * fract;  /* 1 <= x < 2 */
+X         break;
+Xcase 2:  val = 0.880797 + 0.071777 * fract;  /* 2 <= x < 3 */
+X         break;
+Xcase 3:
+Xcase 4:  val = 0.9525741 + (x - 3.0) * 0.02; /* 3 <= x < 5 */
+X         break;
+Xdefault: val = 1.0;                          /* x >= 5 */
+X            };
+X      if (sum < 0.0) u->oj = 1.0 - val; else u->oj = (REAL) val;
+X      if (activation == 't') u->oj = (u->oj - 0.5) * 2;
+X     }  /* end of p or t */
+X    else if (activation == 's') u->oj = 1.0 / (1.0 + exp(-sum));
+X    else if (activation == 'l') u->oj = sum;
+X    else if (activation == 'T') u->oj = 2.0 / (1.0 + exp(-sum)) - 1.0;
+X    u = u->next;
+X   };
+X  layer = layer->next;
+X };
+X}
+X
+Xshort backoutput()  /* back propagate errors from the output units */
+X{                   /* send down errors for any previous layers    */
+Xregister REAL deltaj, diff, adiff, uoj;
+Xregister UNIT *u, *bunit;
+Xregister WTNODE *w;
+Xregister short notclose;
+X
+Xnotclose = last->unitcount;
+Xu = (UNIT *) last->units;
+Xwhile (u != NULL)
+X {
+X  diff = u->tj - u->oj;
+X  if (diff > 0) adiff = diff; else adiff = -diff;
+X  if (adiff < toler) notclose = notclose - 1;
+X  totaldiff = totaldiff + adiff;
+X  if (adiff >= toler || backprop)
+X   {
+X    if (deriv == 'd') /* differential step size */
+X       deltaj = diff;
+X    else if (deriv == 'f' || deriv == 'F') /* Fahlman's derivative */
+X     {
+X      if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X      else uoj = u->oj;
+X      deltaj = diff * (0.1 + uoj * (1.0 - uoj));
+X     }
+X    else /* the original derivative */
+X     {
+X      if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X      else uoj = u->oj;
+X      deltaj = diff * uoj * (1.0 - uoj);
+X     };
+X    w = (WTNODE *) u->wtlist;
+X#ifdef SYMMETRIC
+X    while (w->next != NULL)
+X#else
+X    while (w != NULL)
+X#endif
+X     {
+X      bunit = (UNIT *) w->backunit;
+X#ifdef SYMMETRIC
+X      *(w->total) = *(w->total) + deltaj * bunit->oj;
+X#else
+X      w->total = w->total + deltaj * bunit->oj;
+X      if (bunit->layernumber > 1)  /* pass back the error */
+X         bunit->error = bunit->error + deltaj * w->weight;
+X#endif
+X      w = w->next;
+X     };
+X   }
+X  u = u->next;
+X }
+Xreturn(notclose);
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid backinner()  /* compute weight changes for hidden layers */
+X{                 /* send down errors for any previous layers */
+XLAYER *layer;
+Xregister REAL deltaj, uoj;
+Xregister UNIT *bunit;
+Xregister WTNODE *w;
+Xregister UNIT *u;
+X
+Xlayer = last->backlayer;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X    else uoj = u->oj;
+X    if (deriv == 'f') /* Fahlman's derivative */
+X       deltaj = (0.1 + uoj * (1.0 - uoj)) * u->error;
+X    else /* for o, d and F */
+X       deltaj = (uoj * (1.0 - uoj)) * u->error;
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      bunit = (UNIT *) w->backunit;
+X      w->total = w->total + deltaj * bunit->oj;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + deltaj * w->weight;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X
+X#endif
+X
+X#ifdef SYMMETRIC
+Xvoid dbd_update() {pg("symmetric dbd update no longer supported\n");}
+X#else
+Xvoid dbd_update() /* delta-bar-delta method for changing weights */
+X{
+Xregister short stotal,sdbarm1;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+X/* w->olddw is used for delta-bar minus 1 */
+X
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      if (w->total > 0) stotal = 1;
+X        else if (w->total < 0) stotal = -1;
+X         else stotal = 0;
+X      if (w->olddw > 0) sdbarm1 = 1;
+X        else if (w->olddw < 0) sdbarm1 = -1;
+X         else sdbarm1 = 0;
+X      w->olddw = theta2 * w->total + theta1 * w->olddw;
+X      if ((stotal > 0) && (sdbarm1 > 0)) w->eta = w->eta + kappa;
+X      else if ((stotal < 0) && (sdbarm1 < 0)) w->eta = w->eta + kappa;
+X      else if ((stotal > 0) && (sdbarm1 < 0)) w->eta = w->eta * decay;
+X      else if ((stotal < 0) && (sdbarm1 > 0)) w->eta = w->eta * decay;
+X      if (w->eta > etamax) w->eta = etamax;
+X      w->weight = w->weight + w->eta * w->total;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#endif
+X
+Xvoid periodic_update()  /* the original periodic method */
+X{
+Xregister REAL reta, ralpha;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+Xralpha = alpha;
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  if (layer == last) reta = eta; else reta = eta2;
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      if (((UNIT *) w->backunit)->unitnumber > u->unitnumber)
+X       {
+X        *(w->olddw) = *(w->total) * reta + ralpha * *(w->olddw);
+X        *(w->weight) = *(w->weight) + *(w->olddw);
+X       };
+X#else
+X      w->olddw = w->total * reta + ralpha * w->olddw;
+X      w->weight = w->weight + w->olddw;
+X#endif
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X
+X#ifndef SYMMETRIC
+Xvoid qp_update()
+X{
+Xregister REAL reta, s, nextdw, shrinkfactor, rqpdecay;
+Xregister short addslope;
+Xregister REAL rmu;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+Xrqpdecay = qpdecay * 0.001;
+Xrmu = mu;
+Xshrinkfactor = rmu / (1.0 + rmu);
+Xreta = qpeta;
+Xif (qpslope == '+') addslope = 1; else addslope = 0;
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      s = rqpdecay * w->weight - w->total;
+X      if (w->olddw < 0.0)
+X       {
+X        if (s >= (shrinkfactor * w->eta)) nextdw = rmu * w->olddw;
+X        else nextdw = w->olddw * s / (w->eta - s);
+X        if (addslope && s > 0.0) nextdw = nextdw - reta * s;
+X       }
+X      else if (w->olddw > 0.0)
+X       {
+X        if (s <= (shrinkfactor * w->eta)) nextdw = rmu * w->olddw;
+X        else nextdw = w->olddw * s / (w->eta - s);
+X        if (addslope && s < 0.0) nextdw = nextdw - reta * s;
+X       }
+X      else nextdw = - reta * s;
+X      w->olddw = nextdw;
+X      w->weight = w->weight + nextdw;
+X      w->eta = s;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#else
+Xvoid qp_update() {}
+Xvoid supersab() {}
+X#endif
+X
+Xshort cbackoutput()  /* backoutput for continuous updates */
+X{
+Xregister REAL deltaj, etadeltaj, diff, adiff, uoj, reta, ralpha;
+Xregister UNIT *u, *bunit;
+Xregister WTNODE *b;
+Xregister short notclose;
+X
+Xreta = eta;
+Xralpha = alpha;
+Xnotclose = last->unitcount;
+Xu = (UNIT *) last->units;
+Xwhile (u != NULL)
+X {
+X  diff = u->tj - u->oj;
+X  if (diff > 0) adiff = diff; else adiff = -diff;
+X  if (adiff < toler) notclose = notclose - 1;
+X  totaldiff = totaldiff + adiff;
+X  if (adiff >= toler || backprop)
+X   {
+X    if (deriv == 'd') /* differential step size derivative */
+X       deltaj = diff;
+X    else if (deriv == 'f' || deriv == 'F') /* Fahlman's derivative */
+X     {
+X      if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X      else uoj = u->oj;
+X      deltaj = diff * (0.1 + uoj * (1.0 - uoj));
+X     }
+X    else /* the original derivative */
+X     {
+X      if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X      else uoj = u->oj;
+X      deltaj = diff * uoj * (1.0 - uoj);
+X     };
+X    etadeltaj = deltaj * reta;
+X    b = (WTNODE *) u->wtlist;
+X#ifdef SYMMETRIC
+X    while (b->next != NULL)
+X#else
+X    while (b != NULL)
+X#endif
+X     {
+X      bunit = (UNIT *) b->backunit;
+X#ifdef SYMMETRIC
+X      *(b->olddw) = etadeltaj * bunit->oj + ralpha * *(b->olddw);
+X      *(b->weight) = *(b->weight) + *(b->olddw);
+X#else
+X      b->olddw = etadeltaj * bunit->oj + ralpha * b->olddw;
+X      b->weight = b->weight + b->olddw;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + deltaj * b->weight;
+X#endif
+X      b = b->next;
+X     };
+X   };
+X  u = u->next;
+X }
+Xreturn(notclose);
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid cbackinner()  /* backinner for continuous updates */
+X{
+XLAYER *layer;
+Xregister REAL deltaj, etadeltaj, reta, uoj, ralpha;
+Xregister UNIT *bunit, *u;
+Xregister WTNODE *b;
+X
+Xreta = eta2;
+Xralpha = alpha;
+Xlayer = last->backlayer;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    if (activation == 't' || activation == 'T') uoj = u->oj / 2 + 0.5;
+X    else uoj = u->oj;
+X    if (deriv == 'f') /* Fahlman's derivative */
+X       deltaj = (0.1 + uoj * (1.0 - uoj)) * u->error;
+X    else /* for o, d and F */
+X       deltaj = (uoj * (1.0 - uoj)) * u->error;
+X    etadeltaj = reta * deltaj;
+X    b = (WTNODE *) u->wtlist;
+X    while (b != NULL)
+X     {
+X      bunit = (UNIT *) b->backunit;
+X      b->olddw = etadeltaj * bunit->oj + ralpha * b->olddw;
+X      b->weight = b->weight + b->olddw;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + deltaj * b->weight;
+X      b = b->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#endif
+END_OF_FILE
+if test 10612 -ne `wc -c <'real.c'`; then
+    echo shar: \"'real.c'\" unpacked with wrong size!
+fi
+# end of 'real.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+echo shar: Extracting \"'misc.c'\" \(17659 characters\)
+sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/* **************************************************** */
+X/* file misc.c:  contains pattern manipulation routines */
+X/*               and miscellaneous other functions.     */
+X/*                                                      */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter   */
+X/*                                                      */
+X/* **************************************************** */
+X
+X#include <stdio.h>
+X
+X#ifdef UNIX
+X#include <malloc.h>
+X#else
+X#include <stdlib.h>
+X#include <conio.h>
+X#endif
+X
+X#ifdef INTEGER
+X#include "ibp.h"
+X#else
+X#include "rbp.h"
+X#endif
+X
+X/* an addition for large data sets */
+X
+Xextern INT32 g;
+X
+X/* built-in function */
+X
+Xextern int rand();
+X
+X/* homemade functions */
+X
+X#ifdef INTEGER
+Xextern REAL unscale(), unscaleint();
+Xextern WTTYPE scale();
+X#endif
+X
+Xextern short backoutput(), cbackoutput();
+Xextern void backinner(), cbackinner(), saveweights();
+Xextern WTTYPE rdr();
+Xextern void dbd_update(), periodic_update(), qp_update();
+Xextern REAL readchar();
+X
+Xextern char backprop,emptystring,informat,outstr[],patform,ringbell;
+Xextern char summary, *testfile, update, up_to_date_stats, wtlimithit;
+Xextern int bad, benchmark,bufferptr,lastprint,lastsave,npats;
+Xextern int prevnpats,readerror,readingpattern,right,saverate,testpat;
+Xextern int totaliter,unlearned,wrong,wttotal;
+Xextern WTTYPE dbdeta, error, initialkick, toler, toosmall;
+Xextern REAL errorperunit, pct_right;
+Xextern UNIT *hlayer, *ilayer, *jlayer, *klayer;
+Xextern LAYER *last, *start;
+Xextern short skiprate;
+X#ifdef INTEGER
+Xextern INT32 totaldiff;
+X#else
+Xextern REAL totaldiff;
+X#endif
+X
+Xvoid nullpatterns()  /* dispose of any patterns before reading more */
+X{
+XPATLIST *pl, *nextpl;
+XWTTYPE *p;
+X
+Xif (start->patstart != NULL)
+X {
+X  pl = start->patstart;
+X  while (pl != NULL)
+X   {
+X    nextpl = pl->next;
+X    p = pl->pats;
+X    free(p);
+X    pl = nextpl;
+X   };
+X  pl = last->patstart;
+X  while (pl != NULL)
+X   {
+X    nextpl = pl->next;
+X    p = pl->pats;
+X    free(p);
+X    pl = nextpl;
+X   };
+X };
+Xstart->patstart = NULL;
+Xlast->patstart = NULL;
+Xnpats = 0;
+Xprevnpats = 0;
+X}
+X
+Xvoid resetpats()
+X{
+Xstart->currentpat = NULL;
+Xlast->currentpat = NULL;
+X}
+X
+Xvoid findendofpats(layer)  /* purpose is to set all layer->currentpat */
+XLAYER *layer;              /* fields to end of pattern list so more   */
+X{                          /* patterns can be added at the end.       */
+XPATLIST *pl;
+Xpl = (PATLIST *) layer->patstart;
+Xwhile (pl->next != NULL) pl = pl->next;
+Xlayer->currentpat = pl;
+X}
+X
+Xint copyhidden(u,hidden,layerno)
+XUNIT *u, **hidden;
+Xint layerno;
+X{
+Xif (hidden == NULL)
+X {
+X  sprintf(outstr,"ran out of hidden units in layer %d\n",layerno);
+X  pg(outstr);
+X  return(0);
+X }
+Xu->oj = (*hidden)->oj;
+X*hidden = (*hidden)->next;
+Xreturn(1);
+X}
+X
+Xint loadpat(command)
+Xchar command;
+X{
+XUNIT *u, *hunit, *iunit, *junit, *kunit;
+Xhunit = hlayer;
+Xiunit = ilayer;
+Xjunit = jlayer;
+Xkunit = klayer;
+Xreadingpattern = 1;
+Xu = (UNIT *) start->units;
+Xwhile (u != NULL)
+X {
+X  if (informat == 'r') u->oj = rdr(GE,(REAL) HCODE,command);
+X  else u->oj = scale(readchar());
+X  if (readerror) goto errorexit;
+X  if (u->oj <= KCODE)
+X   {
+X    if (u->oj == HCODE)
+X       {if (!copyhidden(u,&hunit,2)) goto errorexit;}
+X    else if (u->oj == ICODE)
+X       {if (!copyhidden(u,&iunit,3)) goto errorexit;}
+X    else if (u->oj == JCODE)
+X       {if (!copyhidden(u,&junit,4)) goto errorexit;}
+X    else if (!copyhidden(u,&kunit,5)) goto errorexit;
+X   };
+X  u = u->next;
+X };
+Xreadingpattern = 0;
+Xforward();
+Xreturn(1);
+X
+Xerrorexit:
+Xreadingpattern = 0;
+Xreturn(0);
+X}
+X
+Xvoid nextpat()
+X{
+Xif (start->currentpat == NULL)
+X {
+X  start->currentpat = start->patstart;
+X  last->currentpat = last->patstart;
+X }
+Xelse
+X {
+X  start->currentpat = (start->currentpat)->next;
+X  last->currentpat = (last->currentpat)->next;
+X };
+X}
+X
+Xvoid setoutputpat()
+X{
+Xregister WTTYPE *p;
+Xregister UNIT *u;
+Xregister short i, answer;
+XPATLIST *pl;
+X
+Xif (patform == 'c' || patform == 'C')
+X {
+X  pl = last->currentpat;
+X  p = pl->pats;
+X  answer = *p;
+X  u = (UNIT *) last->units;
+X  for (i=1;i<=last->unitcount;i++)
+X   {
+X    if (i == answer) u->tj = scale(1.0); else u->tj = scale(0.0);
+X    u = u->next;
+X   };
+X }
+Xelse
+X {
+X  pl = last->currentpat;
+X  p = pl->pats;
+X  u = (UNIT *) last->units;
+X  while (u != NULL)
+X   {
+X    u->tj = *p++;
+X    u = u->next;
+X   };
+X }
+X}
+X
+Xvoid setinputpat()
+X{
+Xregister WTTYPE *p;
+Xregister UNIT *u;
+XUNIT *hunit, *iunit, *junit, *kunit;
+XPATLIST *pl;
+X  
+Xhunit = hlayer;
+Xiunit = ilayer;
+Xjunit = jlayer;
+Xkunit = klayer;
+Xpl = start->currentpat;
+Xp = pl->pats;
+Xu = (UNIT *) start->units;
+Xwhile (u != NULL)
+X {
+X  if (*p > KCODE) u->oj = *p++;
+X  else if (*p++ == HCODE)
+X     {if (!copyhidden(u,&hunit,2)) return;}
+X  else if (*p++ == ICODE)
+X     {if (!copyhidden(u,&iunit,3)) return;}
+X  else if (*p++ == JCODE)
+X     {if (!copyhidden(u,&junit,4)) return;}
+X  else if (!copyhidden(u,&kunit,5)) {p++; return;};
+X  u = u->next;
+X };
+X}
+X
+Xvoid setonepat() /* set input and output patterns */
+X{
+Xregister UNIT *u;
+Xregister LAYER *innerlayers;
+X
+Xsetinputpat();
+Xsetoutputpat();
+Xinnerlayers = start->next;
+Xwhile (innerlayers->next != NULL)
+X {  /* set errors on the inner layer units to 0 */
+X  u = (UNIT *) innerlayers->units;
+X  while (u != NULL)
+X   {
+X    u->error = 0;
+X    u = u->next;
+X   };
+X  innerlayers = innerlayers->next;
+X };
+X}
+X
+Xvoid clear()
+X{
+XLAYER *p;
+XUNIT *u;
+XWTNODE *w;
+Xint i;
+X
+Xif (toosmall != -1)
+X {
+X  pg("cannot restart with the weights removed\n");
+X  return;
+X };
+Xright = 0;
+Xwrong = npats;
+Xpct_right = 0.0;
+Xunlearned = npats;
+Xwtlimithit = 0;
+Xtotaliter = 0;
+Xlastsave = 0;
+Xinitialkick = -1;
+Xlastprint = 0;
+Xresetpats();
+Xfor (i=1;i<=npats;i++)
+X {
+X  nextpat();
+X  if (last->currentpat->bypass > 0) last->currentpat->bypass = 0;
+X  else if (last->currentpat->bypass < 0) last->currentpat->bypass = -1;
+X };
+Xp = start->next;
+Xwhile (p != NULL)
+X {
+X  u = (UNIT *) p->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      if (w->next != NULL)
+X       { /* skip threshold weight */
+X        *(w->weight) = 0;
+X        *(w->olddw) = 0;
+X        *(w->eta) = dbdeta;
+X       };
+X#else
+X      w->weight = 0;
+X      w->olddw = 0;
+X      w->eta = dbdeta;
+X      w->slope = 0;
+X#endif
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  p = p->next;
+X };
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid whittle(amount)    /* removes weights whose absolute */
+XWTTYPE amount;          /* value is less than amount      */
+X{LAYER *layer;
+X UNIT *u;
+X WTNODE *w, *wprev;
+X
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    wprev = (WTNODE *) NULL;
+X    while (w->next != (WTNODE *) NULL)
+X     {
+X      if ((w->weight) < amount && (w->weight) > -amount)
+X       {
+X        if (wprev == NULL) (WTNODE *) u->wtlist = w->next;
+X        else (WTNODE *) wprev->next = w->next;
+X        wttotal = wttotal - 1;
+X       }
+X      else wprev = w;
+X      w = w->next;
+X     }
+X    u = u->next;
+X   }
+X  layer = layer->next;
+X }
+X}
+X
+X#endif
+X
+Xvoid testcheck()  /* checks the testfile */
+X{
+Xint class, best, count, tcright, tcwrong, testcount, printing;
+Xint tright, twrong, ch2;
+XREAL pct, testerr, eperunit;
+XWTTYPE max;
+XUNIT *u;
+X
+Xif (!pushfile(testfile)) return;
+Xtesterr = 0.0;
+Xtestcount = 0;
+Xtcright = 0;
+Xtcwrong = 0;
+Xtright = 0;
+Xtwrong = 0;
+Xif (patform == 'c' || patform == 'g') printing = 0; else printing = 1;
+Xch2 = readch();
+Xwhile (ch2 != EOF)
+X {
+X  bufferptr = bufferptr - 1;
+X  if (!loadpat('t')) if (readerror == 2) goto summarize; else goto exit;
+X  class = 0;
+X  if (patform == 'c' || patform == 'C')
+X   {
+X    class = readint(1,last->unitcount,'t');
+X    if (readerror) goto exit;
+X    count = 0;
+X    max = -MAXINT;
+X    best = 0;
+X   };
+X  u = (UNIT *) last->units;
+X  while (u != NULL)
+X   {
+X    if (class)
+X     {
+X      count = count + 1;
+X      if (u->oj > max)
+X       {
+X        max = u->oj;
+X        best = count;
+X       }
+X      if (count == class) u->tj = scale(1.0); else u->tj = scale(0.0);
+X     }
+X    else
+X     {
+X      if (informat == 'r') u->tj = rdr(GT,(REAL) KCODE,'t');
+X      else u->tj = scale(readchar());
+X      if (readerror) goto exit;
+X     };
+X    u = u->next;
+X   };
+X  testcount = testcount + 1;
+X  if (class)
+X   if (best == class) tcright = tcright + 1; else tcwrong = tcwrong + 1;
+X  if (printing)
+X   {
+X    sprintf(outstr,"%5d",testcount);
+X    pg(outstr);
+X   };
+X  if (printoutunits(printing,last,1))
+X   {
+X    popfile();
+X    return;
+X   };
+X  testerr = testerr + unscale(error);
+X  if (bad) twrong = twrong + 1; else tright = tright + 1;
+X  do ch2 = readch(); while (ch2 != '\n');
+X  ch2 = readch();
+X };
+X
+Xsummarize:
+Xpct = 100.0 * (REAL) tright / (REAL) testcount;
+Xif (pg("based on tolerance:\n")) return;
+Xsprintf(outstr,"   %6.2f%%,   (%d right,  %d wrong)",pct,tright,twrong);
+Xpg(outstr);
+Xeperunit = testerr / (REAL) (last->unitcount * testcount);
+Xsprintf(outstr,"   %7.5f error/unit\n",eperunit); pg(outstr);
+Xif (patform == 'c' || patform == 'C')
+X {
+X  pct = 100.0 * (REAL) tcright / (REAL) testcount;
+X  if (pg("based on maximum value:\n")) return;
+X  sprintf(outstr,"   %6.2f%%,   (%d right,   %d wrong)\n",pct,tcright,tcwrong);
+X  pg(outstr);
+X };
+Xpopfile();
+Xreturn;
+X
+Xexit:
+Xsprintf(outstr,"error while reading pattern %d\n",testcount+1);
+Xpg(outstr);
+Xpopfile();
+X}
+X
+Xvoid stats(callfromrun)
+Xint callfromrun;
+X{
+X if (callfromrun) wrong = unlearned;
+X right = npats - wrong;
+X if (testpat) right = right - 1;
+X errorperunit =
+X    unscaleint(totaldiff) / (REAL) ((right + wrong) * last->unitcount);
+X pct_right = 100.0 * (REAL) right / (REAL) (right + wrong);
+X}
+X
+Xint patcheck(first,finish,printoutputs,printerrors,sumup,printsumup,skip)
+Xint first,finish,printoutputs,printerrors,sumup,printsumup,skip;
+X{
+Xint i;
+X
+Xif (skip && printoutputs == 0) goto shortcut;
+Xif (sumup)
+X {
+X  totaldiff = 0;
+X  wrong = 0;
+X };
+Xresetpats();
+Xfor (i=1;i<first;i++) nextpat();
+Xfor (i=first;i<=finish;i++)
+X { 
+X  nextpat();
+X  setonepat();
+X  forward();
+X  if (printoutputs)
+X   {
+X    sprintf(outstr,"%3d ",i);
+X    pg(outstr);
+X   };
+X  if (printoutunits(printoutputs,last,printerrors)) return(1);
+X  if (i != testpat && sumup)
+X    {
+X     wrong = wrong + bad;
+X     totaldiff = totaldiff + error;
+X    };
+X };
+Xif (printoutputs) lastprint = totaliter;
+Xif (sumup) stats(0);
+X
+Xshortcut:
+Xif (printsumup)
+X {
+X  sprintf(outstr,"%5d iterations  ",totaliter); pg(outstr);
+X  sprintf(outstr,"%6.2f%% right ",pct_right); pg(outstr);
+X  sprintf(outstr,"(%1d right ",right); pg(outstr);
+X  sprintf(outstr,"  %1d wrong)   ",wrong); pg(outstr);
+X  sprintf(outstr,"%7.5f error/unit\n",errorperunit);
+X  if (pg(outstr)) return(1);
+X }
+Xreturn(0);
+X}
+X
+Xvoid oneset() /* go through the patterns once and update weights */
+X{ 
+Xint i;
+XLAYER *layer;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+Xshort numbernotclose, attempted, passed;
+X
+Xlayer = last;      /* make all b->totals = 0 */
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      *(w->total) = 0;
+X#else
+X      w->total = 0;
+X#endif
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+Xattempted = 0;
+Xpassed = 0;
+Xif (testpat) unlearned = npats - 1; else unlearned = npats;
+Xresetpats();
+Xfor(i=1;i<=npats;i++)
+X {
+X  nextpat();
+X  if (last->currentpat->bypass == 0)
+X   {
+X    setonepat();
+X    forward();
+X    attempted = attempted + 1;
+X    if (update == 'c') numbernotclose = cbackoutput();
+X    else numbernotclose = backoutput();
+X    if (numbernotclose != 0)
+X     {
+X#ifndef SYMMETRIC
+X      if (update == 'c') cbackinner(); else backinner();
+X#endif
+X     }
+X    else /* this one pattern has been learned */
+X     {
+X      passed = passed + 1;
+X      unlearned = unlearned - 1;
+X      last->currentpat->bypass = skiprate;
+X#ifndef SYMMETRIC
+X      if (backprop) if (update == 'c') cbackinner(); else backinner();
+X#endif
+X     }
+X   }
+X  else last->currentpat->bypass = last->currentpat->bypass - 1;
+X };
+Xif (update == 'c') totaliter = totaliter + 1;
+Xif (up_to_date_stats == '+' && update == 'c') patcheck(1,npats,0,0,1,0,0);
+Xif (unlearned == 0) return;
+Xif (skiprate && (attempted == passed))
+X {
+X  resetpats();
+X  for (i=1;i<=npats;i++)
+X   {
+X    nextpat();
+X    if (last->currentpat->bypass > 0) last->currentpat->bypass = 0;
+X   };
+X };
+Xif (update == 'c') return;
+Xelse if (update == 'd') dbd_update();
+Xelse if (update == 'p') periodic_update();
+Xelse if (update == 'q') qp_update();
+Xif (up_to_date_stats == '+') patcheck(1,npats,0,0,1,0,0);
+Xtotaliter = totaliter + 1;
+X}
+X
+Xvoid kick(size,amount) /* give the network a kick */
+XWTTYPE size, amount;
+X{ 
+XLAYER *layer;
+XUNIT *u;
+XWTNODE *w;
+XWTTYPE value;
+XWTTYPE delta;
+Xint sign;
+X
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      value = *(w->weight);
+X#else
+X      value = w->weight;
+X#endif
+X      if (value != 0) sign = 1;
+X      else if ((rand() & 32767) > 16383) sign = -1;
+X      else sign = 1;
+X      delta = (INT32) sign * amount * (rand() & 32767) / 32768;
+X      if (value >= size) value = value - delta;
+X      else if (value < -size) value = value + delta;
+X#ifdef SYMMETRIC
+X      if (((UNIT *) w->backunit)->unitnumber != u->unitnumber &&
+X         w->next != NULL)
+X         *(w->weight) = value;
+X#else
+X      w->weight = value;
+X#endif
+X      w = w->next;
+X     }
+X    u = u->next;
+X   }
+X  layer = layer->next;
+X } 
+X}
+X
+Xvoid newoneset() /* go through the patterns once and update weights */
+X{ int i;
+X  LAYER *layer;
+X  register UNIT *u;
+X  register WTNODE *w;
+X  short numbernotclose, attempted, passed;
+X
+Xbegin:
+X layer = last;      /* make all b->totals = 0 */
+X while (layer->backlayer != NULL)
+X  {
+X   u = (UNIT *) layer->units;
+X   while (u != NULL)
+X    {
+X     w = (WTNODE *) u->wtlist;
+X     while (w != NULL)
+X      {
+X#ifdef SYMMETRIC
+X       *(w->total) = 0;
+X#else
+X       w->total = 0;
+X#endif
+X       w = w->next;
+X      };
+X     u = u->next;
+X    };
+X   layer = layer->backlayer;
+X  };
+X attempted = 0;
+X passed = 0;
+X unlearned = npats;
+X resetpats();
+X for(i=1;i<=npats;i++)
+X  {
+X   nextpat();
+X   if (last->currentpat->bypass == 0)
+X    {
+X     setonepat();
+X     forward();
+X     attempted = attempted + 1;
+X     if (update == 'c') numbernotclose = cbackoutput();
+X     else numbernotclose = backoutput();
+X     if (numbernotclose != 0)
+X      {
+X#ifndef SYMMETRIC
+X       if (update == 'c') cbackinner(); else backinner();
+X#endif
+X      }
+X     else /* this one pattern has been learned */
+X      {
+X       passed = passed + 1;
+X       unlearned = unlearned - 1;
+X       last->currentpat->bypass = skiprate;
+X#ifndef SYMMETRIC
+X       if (backprop) if (update == 'c') cbackinner(); else backinner();
+X#endif
+X      }
+X    }
+X   else last->currentpat->bypass = last->currentpat->bypass - 1;
+X   if (g && (i % g == 0 || i == npats))
+X    {
+X     if (update == 'd') dbd_update();
+X     else if (update == 'p') periodic_update();
+X     layer = last;      /* make all b->totals = 0 */
+X     while (layer->backlayer != NULL)
+X      {
+X       u = (UNIT *) layer->units;
+X       while (u != NULL)
+X        {
+X         w = (WTNODE *) u->wtlist;
+X         while (w != NULL)
+X          {
+X           w->total = 0;
+X           w = w->next;
+X          };
+X         u = u->next;
+X        };
+X       layer = layer->backlayer;
+X      }; /* end while */
+X    };  /* end if g */
+X}; /* end for i */
+Xif (update == 'c'|| g != 0) totaliter = totaliter + 1;
+Xif (up_to_date_stats == '+' && update == 'c') patcheck(1,npats,0,0,1,0,0);
+Xif (unlearned == 0) return;
+Xif (skiprate && (attempted == passed))
+X {
+X  resetpats();
+X  for (i=1;i<=npats;i++)
+X   {
+X    nextpat();
+X    last->currentpat->bypass = 0;
+X   };
+X  goto begin;
+X };
+Xif (g == 0)
+X {
+X  if (update == 'c') return;
+X  else if (update == 'd') dbd_update();
+X  else if (update == 'p') periodic_update();
+X  else if (update == 'q') qp_update();
+X };
+Xif (up_to_date_stats == '+') patcheck(1,npats,0,0,1,0,0);
+Xif (g == 0) totaliter = totaliter + 1;
+X}
+X
+Xint run(n,prpatsrate)
+Xint n;            /* the number of iterations to run */
+Xint prpatsrate;   /* rate at which to print output patterns */
+X{
+Xint i, wtlimitbefore;
+X#ifndef UNIX
+Xint chx;
+X#endif
+X
+Xif (pg("running . . .\n")) return(1);
+Xfor (i=1;i<=n;i++)
+X {
+X  totaldiff = 0;
+X  wtlimitbefore = wtlimithit;
+X  if (g == 0) oneset(); else newoneset();
+X  stats(1);
+X  if (wtlimitbefore == 0 && wtlimithit == 1)
+X   {
+X    sprintf(outstr,">>>>> WEIGHT LIMIT HIT <<<<< at %d\n",totaliter);
+X    if (pg(outstr)) return(1);
+X   };
+X  if (unlearned == 0) /* training finished */
+X   {
+X    if (benchmark && testpat)
+X     {
+X      sprintf(outstr,"S  %d iterations",totaliter); pg(outstr);
+X      sprintf(outstr," %9.5f error/unit\n",errorperunit); pg(outstr);
+X      if (patcheck(testpat,testpat,1,1,0,0,0)) return(1);
+X     };
+X    if ((prpatsrate > 0 && lastprint != totaliter))
+X     if (patcheck(1,npats,summary == '-',summary == '-',1,1,0)) return(1);
+X    sprintf(outstr,"patterns learned to within %4.2f",unscale(toler));
+X    pg(outstr);
+X    pg(" at iteration");
+X    if (ringbell == '+') putchar(7);
+X    sprintf(outstr," %d\n",totaliter);
+X    if (pg(outstr)) return(1);
+X    if (benchmark && *testfile != emptystring) testcheck();
+X    return(0);
+X   };
+X  if (benchmark && testpat && (prpatsrate > 0 && i % prpatsrate == 0))
+X   {
+X    if (unlearned == 1) pg("S"); else pg("F");
+X    sprintf(outstr," %d iterations",totaliter); pg(outstr);
+X    sprintf(outstr," %7.5f error/unit\n",errorperunit);
+X    if (pg(outstr)) return(1);
+X    if (patcheck(testpat,testpat,1,1,0,0,0)) return(1);
+X   }
+X  if (totaliter % saverate == 0) saveweights();
+X  if ((prpatsrate > 0) && ((i % prpatsrate == 0) || (i == n)))
+X   {
+X    if (patcheck(1,npats,summary == '-',summary == '-',1,1,
+X             up_to_date_stats == '-')) return(1);
+X    if (benchmark && (*testfile != emptystring)) testcheck();
+X   };
+X#ifndef UNIX
+X  if (kbhit() && getch() == 27 /* escape key */) return(1);
+X#endif
+X };
+Xreturn(0);
+X} 
+END_OF_FILE
+if test 17659 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+fi
+# end of 'misc.c'
+fi
+if test -f 'int.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'int.c'\"
+else
+echo shar: Extracting \"'int.c'\" \(16375 characters\)
+sed "s/^X//" >'int.c' <<'END_OF_FILE'
+X/* *********************************************************** */
+X/* file int.c:  Contains the network evaluation and weight     */
+X/*              adjustment procedures for the integer versions */
+X/*              bp and sbp.                                    */
+X/*                                                             */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter          */
+X/*                                                             */
+X/* *********************************************************** */
+X
+X#include "ibp.h"
+X#include <stdio.h>
+X
+Xextern char activation, backprop, deriv, wtlimithit;
+Xextern WTTYPE alpha, D, decay, eta, eta2, etamax, kappa, qpdecay, qpeta;
+Xextern WTTYPE qpnoise, mu, noise, theta1, theta2, toler;
+Xextern int qpslope;
+Xextern LAYER *last, *start;
+Xextern INT32 totaldiff;
+X
+Xvoid forward()             /* computes unit activations */
+X{ 
+Xregister INT32 sum, x, intpart;
+Xregister WTNODE *w;
+Xregister UNIT *u, *predu;
+XLAYER *layer;
+Xregister short fract, val;
+X
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    sum = 0;
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      predu = (UNIT *) w->backunit;
+X#ifdef SMART
+X#   ifdef SYMMETRIC
+X      sum = sum + (INT32) *(w->weight) * predu->oj / 1024;
+X#   else
+X      sum = sum + (INT32) w->weight * predu->oj / 1024;
+X#   endif
+X#else
+X#   ifdef SYMMETRIC
+X      x = (INT32) *(w->weight) * predu->oj;
+X#   else
+X      x = (INT32) w->weight * predu->oj;
+X#   endif
+X      if (x >= 0) sum = sum + (x >> 10); else sum = sum - ( (-x) >> 10);
+X#endif
+X      w = w->next;
+X     };
+X    sum = (INT32) D * sum / 1024;
+X    if (activation == 'p' || activation == 't')
+X     {
+X      if (sum > 0) x = sum; else x = -sum;
+X      intpart = x >> 10;
+X      fract = x & 01777;
+X      switch (intpart) {
+Xcase 0:  val = 512 + (((INT32) 237 * fract) >> 10);       /* 0 <= x < 1 */
+X         break;
+Xcase 1:  val = 748 + (((INT32) 153 * fract) >> 10);       /* 1 <= x < 2 */
+X         break;
+Xcase 2:  val = 901 + (((INT32) 73 * fract) >> 10);        /* 2 <= x < 3 */
+X         break;
+Xcase 3:
+Xcase 4:  val = 976 + (((INT32) (x - 3072) * 20) >> 10);   /* 3 <= x < 5 */
+X         break;
+Xdefault: val = 1024;                                      /* x >= 5 */ };
+X         if (sum < 0) u->oj = 1024 - val; else u->oj = val;
+X         if (activation == 't') u->oj = (u->oj - 512) * 2;
+X     }
+X    else if (activation == 'l') u->oj = sum;
+X    u = u->next;
+X   };
+X    layer = layer->next;
+X   };
+X}
+X
+Xshort backoutput()  /* computes weight changes from the output layer */
+X{
+Xregister short deltaj, temp2, temp3;
+Xregister INT32 temp;
+Xregister UNIT *bunit, *u;
+Xregister WTNODE *w;
+Xregister short adiff, notclose;
+X
+Xnotclose = last->unitcount;
+Xu = (UNIT *) last->units;
+Xwhile (u != NULL)
+X { 
+X  temp3 = u->oj;
+X  temp2 = u->tj - temp3;
+X  if (temp2 > 0) adiff = temp2; else adiff = -temp2;
+X  if (adiff < toler) notclose = notclose - 1;
+X  totaldiff = totaldiff + adiff;
+X  if (adiff >= toler || backprop)  /* then compute errors */
+X   {
+X    if (deriv == 'd') /* diff. step size method */
+X       deltaj = temp2;
+X    else if (deriv == 'f' || deriv == 'F') /* Fahlman's derivative */
+X     {
+X      if (activation == 't') temp3 = temp3 / 2 + 512;
+X      temp = (INT32) temp2 * ((INT32) 104448 + (INT32) temp3 * ((short)(1024 - temp3)));
+X      if (temp > 0) deltaj = (INT32) (temp + 524288) >> 20;
+X      else deltaj = -((INT32) (524288 - temp) >> 20);
+X     }
+X    else /* the derivative in the original formula */
+X     {
+X      if (activation == 't') temp3 = temp3 / 2 + 512;
+X      temp = (INT32) temp2 * ((INT32) temp3 * ((short)(1024 - temp3)));
+X      if (temp > 0) deltaj = (INT32) (temp + 524288) >> 20;
+X      else deltaj = -((INT32) (524288 - temp) >> 20);
+X     }
+X    w = (WTNODE *) u->wtlist;
+X#ifdef SYMMETRIC
+X    while (w->next != NULL)  /* skips threshold unit at end */
+X#else
+X    while (w != NULL)
+X#endif
+X     {
+X      bunit = (UNIT *) w->backunit;
+X#ifdef SYMMETRIC
+X      *(w->total) = *(w->total) + (INT32) deltaj * bunit->oj;
+X#else
+X      w->total = w->total + (INT32) deltaj * bunit->oj;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + (INT32) deltaj * w->weight;
+X#endif
+X      w = w->next;
+X     }
+X   };
+X  u = u->next;
+X };
+Xreturn(notclose);
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid backinner()             /* Computes slopes and passes back */
+X{                            /* errors from hidden layers.      */
+Xregister short deltaj, temp3;
+Xregister INT32 temp;
+Xregister UNIT *bunit, *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+Xlayer = last->backlayer;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    if (activation == 't') temp3 = u->oj / 2 + 512; else temp3 = u->oj;
+X    if (deriv == 'f') /* Fahlman's derivative */
+X       temp = (INT32) (((short)(((INT32) temp3*((short)(1024-temp3))+512) >> 10))
+X              + 102) * u->error;
+X    else /* either for the original or diff. step size */
+X       temp = (INT32) ((short)(((INT32) temp3*((short)(1024-temp3))+512) >> 10))
+X          * u->error;
+X    if (temp > 0) deltaj = (INT32) (temp + 524288) >> 20;
+X    else deltaj = -((INT32) (524288 - temp) >> 20);
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      bunit = (UNIT *) w->backunit;
+X      w->total = w->total + (INT32) deltaj * bunit->oj;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + (INT32) deltaj * w->weight;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X
+X#endif
+X
+X#ifdef SYMMETRIC
+Xvoid dbd_update() {pg("symmetric dbd update no longer supported\n");}
+X#else
+Xvoid dbd_update() /* the delta-bar-delta method for weight updates */
+X{
+Xregister short rkappa, temp2, dbarm1, rdecay;
+Xregister INT32 temp;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+X/* w->olddw is used for delta-bar minus 1 */
+X
+Xrkappa = kappa;
+Xrdecay = decay;
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      if (w->total > 0) temp2 = (INT32) (w->total + 512) >> 10;
+X      else temp2 = -((INT32) (512 - w->total) >> 10);
+X      dbarm1 = w->olddw;
+X      temp = (INT32) theta2 * temp2 + (INT32) theta1 * dbarm1;
+X      if (temp > 0) w->olddw = (INT32) (temp + 512) >> 10;
+X      else w->olddw = -((INT32) (512 - temp) >> 10);
+X      if (temp2 > 0 && dbarm1 > 0) w->eta = w->eta + rkappa;
+X      else if (temp2 < 0 && dbarm1 < 0) w->eta = w->eta + rkappa;
+X      else if (temp2 > 0 && dbarm1 < 0)w->eta = ((INT32) w->eta * rdecay) >> 10;
+X      else if (temp2 < 0 && dbarm1 > 0)w->eta = ((INT32) w->eta * rdecay) >> 10;
+X      if (w->eta > etamax) w->eta = etamax;
+X      temp = (INT32) temp2 * w->eta;
+X      if (temp > 0) temp2 = (INT32) (temp + 512) >> 10;
+X      else if (temp < 0) temp2 = -((INT32) (512 - temp) >> 10);
+X
+X      else if (w->slope == 0)
+X         {if (w->total < 0) temp2 = noise; else temp2 = -noise;}
+X      w->slope = temp2;
+X
+X      temp = (INT32) w->weight + temp2;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MINSHORT;
+X       }
+X      else w->weight = temp;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#endif
+X
+Xvoid periodic_update()   /* update weights for the original method */
+X{                        /* and the differential step size algorithm */
+Xregister short reta, ralpha;
+Xregister INT32 temp;
+Xregister short temp2;
+Xregister UNIT *u;
+Xregister WTNODE *w;
+XLAYER *layer;
+X
+Xralpha = alpha;
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  if (layer == last) reta = eta; else reta = eta2;
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      if (((UNIT *) w->backunit)->unitnumber > u->unitnumber)
+X       {
+X        if (*(w->total) > 0) temp = (INT32) ((INT32)(*(w->total) + 512) >> 10) * reta 
+X           + (INT32) ralpha * *(w->olddw);
+X        else temp = (INT32) -(((INT32) 512 - *(w->total)) >> 10) * reta
+X           + (INT32) ralpha * *(w->olddw);
+X        if (temp > 0) temp2 = (INT32) (temp + 512) >> 10;
+X        else temp2 = -(((INT32) 512 - temp) >> 10);
+X        *(w->olddw) = temp2;
+X        temp = (INT32) *(w->weight) + temp2;
+X        if (temp > MAXSHORT)
+X         {
+X          wtlimithit = 1;
+X          *(w->weight) = MAXSHORT;
+X         }
+X        else if (temp < MINSHORT)
+X         {
+X          wtlimithit = 1;
+X          *(w->weight) = MINSHORT;
+X         }
+X        else *(w->weight) = temp;
+X       };
+X#else
+X      if (w->total > 0)
+X        temp = (INT32) (((INT32) w->total + 512) >> 10) * reta + (INT32) ralpha * w->olddw;
+X      else
+X        temp = (INT32) -(((INT32) 512 - w->total) >> 10) * reta + (INT32) ralpha * w->olddw;
+X      if (temp > 0) temp2 = (INT32) (temp + 512) >> 10;
+X      else temp2 = -(((INT32) 512 - temp) >> 10);
+X      w->olddw = temp2;
+X      temp = (INT32) w->weight + temp2;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MINSHORT;
+X       }
+X      else w->weight = temp;
+X#endif
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X
+X#ifndef SYMMETRIC
+Xvoid qp_update()
+X{
+Xregister INT32 temp, s, nextdw;
+Xregister WTNODE *w;
+Xregister short rmu, reta, shrinkfactor, rqpdecay, addslope;
+Xregister UNIT *u;
+XLAYER *layer;
+X
+Xrmu = mu;
+Xshrinkfactor = ((INT32) rmu * 1024 + 512) / (1024 + rmu);
+Xreta = qpeta;
+Xrqpdecay = qpdecay;
+Xif (qpslope == '+') addslope = 1; else addslope = 0;
+Xlayer = last;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      if (w->weight > 0)
+X         s = (((INT32) rqpdecay * w->weight + 512) >> 10) - w->total;
+X      else s = -(((INT32) 512 - (INT32) rqpdecay * w->weight) >> 10) - w->total;
+X      if (s > 0) s = (s + 512) >> 10;
+X      else s = -(((INT32) 512 - s) >> 10);
+X      if (w->olddw < 0)
+X       {
+X        if (s >= (((INT32) shrinkfactor * w->eta) >> 10))
+X           nextdw =  - (((INT32) 512 - (INT32) rmu * w->olddw) >> 10);
+X        else nextdw = ((INT32) w->olddw * s) / (w->eta - s);
+X        if (addslope && s > 0)
+X           nextdw = nextdw - (((INT32) reta * s + 512) >> 10);
+X       }
+X      else if (w->olddw > 0)
+X       {
+X        if (s <= (((INT32) shrinkfactor * w->eta) >> 10))
+X           nextdw = (((INT32) rmu * w->olddw + 512) >> 10);
+X        else nextdw = ((INT32) w->olddw * s) / (w->eta - s);
+X        if (addslope && s < 0)
+X           nextdw = nextdw + (((INT32) 512 - (INT32) reta * s) >> 10);
+X       }
+X      else
+X       {
+X        temp = (INT32) reta * s;
+X        if (temp > 0) nextdw = - ((temp + 512) >> 10);
+X        else if (temp < 0) nextdw = (((INT32) 512 - temp) >> 10);
+X        else if (s > 0) nextdw = qpnoise;
+X        else nextdw = -qpnoise;
+X       };
+X      if (nextdw > MAXSHORT) nextdw = MAXSHORT;
+X      else if (nextdw < MINSHORT) nextdw = MINSHORT;
+X      w->olddw = nextdw;
+X      temp = (INT32) w->weight + nextdw;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        w->weight = MINSHORT;
+X       }
+X      else w->weight = temp;
+X      if (s > MAXSHORT) w->eta = MAXSHORT;
+X      else if (s < MINSHORT) w->eta = MINSHORT;
+X      else w->eta = s;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#endif
+X
+Xshort cbackoutput()          /* The continuous update version */
+X{                            /* of back-propagation */
+Xregister short deltaj;
+Xregister INT32 etadeltaj, temp, temp2;
+Xregister short temp3, adiff;
+Xregister UNIT *bunit;
+Xregister WTNODE *w;
+Xregister UNIT *u;
+Xregister short ralpha, reta, notclose;
+X
+Xralpha = alpha;
+Xreta = eta;
+Xnotclose = last->unitcount;
+Xu = (UNIT *) last->units;
+Xwhile (u != NULL)
+X { 
+X  temp3 = u->oj;
+X  temp2 = u->tj - temp3;
+X  if (temp2 > 0) adiff = temp2; else adiff = -temp2;
+X  if (adiff < toler) notclose = notclose - 1;
+X  totaldiff = totaldiff + adiff;
+X  if (adiff >= toler || backprop)
+X   {
+X    if (deriv == 'd') /* the differential step size method */
+X      deltaj = temp2;
+X    else if (deriv == 'f' || deriv == 'F') /* Fahlman's derivative */
+X     { /* deltaj = (u->tj - u->oj) * [0.1 + u->oj*(1.0 - u->oj)] */
+X      if (activation == 't') temp3 = temp3 / 2 + 512;
+X      temp = (INT32) temp2 * ((INT32) 104448 + (INT32) temp3 * ((short)(1024 - temp3)));
+X      if(temp > 0) deltaj = (INT32) (temp + 524288) >> 20;
+X      else deltaj = -(((INT32) 524288 - temp) >> 20);
+X     }
+X    else /* the original derivative */
+X     { /* deltaj = (u->tj - u->oj) * u->oj * (1.0 - u->oj) */
+X      if (activation == 't') temp3 = temp3 / 2 + 512;
+X      temp = (INT32) temp2 * ((INT32) temp3 * ((short)(1024 - temp3)));
+X      if(temp > 0) deltaj = ((INT32) temp + 524288) >> 20;
+X      else deltaj = -(((INT32) 524288 - temp) >> 20);
+X     };
+X    etadeltaj = (INT32) deltaj * reta;
+X    w = (WTNODE *) u->wtlist;
+X#ifdef SYMMETRIC
+X    while (w->next != NULL)
+X#else
+X    while (w != NULL)
+X#endif
+X     { /* get a slope for each weight */
+X      bunit = (UNIT *) w->backunit;
+X      temp = (INT32) etadeltaj * bunit->oj;
+X      if(temp > 0) temp = (INT32) (temp + 524288) >> 20;
+X      else temp = -(((INT32) 524288 - temp) >> 20);
+X#ifdef SYMMETRIC
+X      temp2 = (INT32) ralpha * *(w->olddw);
+X#else
+X      temp2 = (INT32) ralpha * w->olddw;
+X#endif
+X      if (temp2 > 0) temp3 = temp + (((INT32) temp2 + 512) >> 10);
+X      else temp3 = temp - (((INT32) 512 - temp2) >> 10);
+X#ifdef SYMMETRIC
+X      *(w->olddw) = temp3;
+X#else
+X      w->olddw = temp3;
+X#endif
+X      /* w->weight = w->weight + w->olddw */
+X#ifdef SYMMETRIC
+X      temp = (INT32) *(w->weight) + temp3;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        *(w->weight) = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        *(w->weight) = MINSHORT;
+X       }
+X      else *(w->weight) = temp;
+X#else
+X      temp = (INT32) w->weight + temp3;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        temp3 = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        temp3 = MINSHORT;
+X       }
+X      else temp3 = temp;
+X      w->weight = temp3;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + (INT32) deltaj * temp3;
+X#endif
+X      w = w->next;
+X     }
+X   }
+X  u = u->next;
+X }
+Xreturn(notclose);
+X}
+X
+X#ifndef SYMMETRIC
+X
+Xvoid cbackinner()
+X{
+Xregister short deltaj;
+Xregister INT32 etadeltaj, temp, temp2;
+Xregister short temp3, reta, ralpha;
+Xregister UNIT *bunit;
+Xregister WTNODE *w;
+Xregister UNIT *u;
+XLAYER *layer;
+X
+Xreta = eta2;
+Xralpha = alpha;
+Xlayer = last->backlayer;
+Xwhile (layer->backlayer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    if (activation == 't') temp3 = u->oj / 2 + 512;
+X    else temp3 = u->oj;
+X    if (deriv == 'f')  /* Fahlman's derivative */
+X       temp = (INT32) ((((INT32) temp3 * ((short)(1024 - temp3)) + 512) >> 10) + 102)
+X               * u->error;
+X    else  /* diff. step size and original derivative */
+X       temp = (((INT32) temp3 * ((short)(1024 - temp3)) + 512) >> 10)
+X                * u->error;
+X    if (temp > 0) deltaj = (INT32) (temp + 524288) >> 20;
+X    else deltaj = -(((INT32) 524288 - temp) >> 20);
+X    etadeltaj = (INT32) reta * deltaj;
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      bunit = (UNIT *) w->backunit;
+X      temp = (INT32) etadeltaj * bunit->oj;
+X      if (temp > 0) temp = (INT32) (temp + 524288) >> 20;
+X      else temp = -(((INT32) 524288 - temp) >> 20);
+X      temp2 = (INT32) ralpha * w->olddw;
+X      if (temp2 > 0) temp3 = temp + ((INT32) (temp2 + 512) >> 10);
+X      else temp3 = temp - (((INT32) 512 - temp2) >> 10);
+X      w->olddw = temp3;
+X      temp = (INT32) w->weight + temp3;
+X      if (temp > MAXSHORT)
+X       {
+X        wtlimithit = 1;
+X        temp3 = MAXSHORT;
+X       }
+X      else if (temp < MINSHORT)
+X       {
+X        wtlimithit = 1;
+X        temp3 = MINSHORT;
+X       }
+X      else temp3 = temp;       
+X      w->weight = temp3;
+X      if (bunit->layernumber > 1)
+X         bunit->error = bunit->error + (INT32) deltaj * temp3;
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->backlayer;
+X };
+X}
+X#endif
+END_OF_FILE
+if test 16375 -ne `wc -c <'int.c'`; then
+    echo shar: \"'int.c'\" unpacked with wrong size!
+fi
+# end of 'int.c'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

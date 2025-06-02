@@ -1,0 +1,1731 @@
+Newsgroups: comp.sources.misc
+From: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Subject: v38i045:  ibpag2 - Icon-Based Parser Generator, Part01/05
+Message-ID: <csm-v38i045=ibpag2.233906@sparky.Sterling.COM>
+X-Md4-Signature: 83e10741e44515851ddc5808b75cb8f8
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: goer@midway.uchicago.edu
+Organization: University of Chicago
+Date: Tue, 13 Jul 1993 04:39:31 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Posting-number: Volume 38, Issue 45
+Archive-name: ibpag2/part01
+Environment: Icon
+
+This shell archive contains an Icon-based parser generator that
+has pretty much the features one expects such systems to have (and
+a few extras as well).  Note that it is not written in C.  It is,
+as its title implies, an Icon program, and produces Icon-based
+automata.
+
+Icon is a language particularly well suited to parsing, conversion,
+and other high-level language/text-processing chores.  So far no-
+one has written a full LR-based parser generator for Icon (mostly
+because it's so easy to write good parsers in it by hand).  There
+are some occasions where such a generator is useful, though, so I
+wrote Ibpag2 to fill the gap.
+
+Ibpag2 uses a standard SLR table-generator algorithm, and a YACC-
+like input syntax.  For those wanting total YACC compatibility,
+there is an "iacc" preprocessor (someone suggested this name to
+me because it sounds a bit like "yacc" - especially to those who
+studied Latin :-)).  There is a README file containing an exten-
+sive nontechnical tutorial.
+
+Note that Ibpag2 has a separate quasi-GLR parser subsystem, as well
+as a standard SLR one.  This means that, if need be, it can be used
+to recognize and manipulate any context-free language (unlike YACC).
+I label this parser subsysten "quasi-GLR" because it does not use a
+graph structured stack, the way Masaru Tomita's do.  It works out to
+be much faster than most chart parsers, but slower than strict Tom-
+ita parsers.  Doing things this way makes support of all the same
+directives, rules, and actions used in SLR mode easy to do in quasi-
+GLR mode as well.  The GLR subsystem is in early beta testing.
+
+Ibpag2, taken as a straight SLR parser generator, is in late beta
+testing.  It's been posted to alt.sources, and has found a fair
+amount of off-site use.  I've also put together an extensive test
+suite here.  Still, it's not gotten the kind of heavy use that
+would make me feel safe with a non-beta release.
+
+I maintain no special copyright over Ibpag2, and ask nothing of
+anyone who uses it.
+
+-Richard Goerwitz
+
+P.S.  I just graduated with a Ph.D. in Near Eastern Languages &
+      Civilizations, and am hunting hard for work, both in my own
+      field, and as a humanities computing specialist.  Given my
+      uncertain near future, I don't know precisely how much time
+      I'll have to work on Ibpag2.  Still, please send comments
+      and bug reports!
+
+---- Cut Here and feed the following to sh ----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ibreader.icn iiglrpar.lib rewrap.icn version.icn
+# Wrapped by kent@sparky on Sun Jul 11 18:51:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 5)."'
+if test -f 'ibreader.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ibreader.icn'\"
+else
+  echo shar: Extracting \"'ibreader.icn'\" \(16970 characters\)
+  sed "s/^X//" >'ibreader.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 ibreader.icn
+X#
+X#	Title:	 reader for Ibpag2 source files
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.27
+X#
+X############################################################################
+X#
+X#  This file contains a collection of procedures that 1) read in an
+X#  Ibpag2 source file, 2) output token defines, 3) emit action code,
+X#  and finally 4) pass a start symbol, list of productions, and token
+X#  table back to the calling procedure.  Described formally:
+X#
+X#      ibreader:  file x file x string  -> ib_grammar record
+X#                 (in,   out,   module) -> grammar
+X#
+X#  In is the input stream; out is the output stream; module is an
+X#  optional string that distinguishes this grammar from others that
+X#  might also be running simultaneously.  Grammar is an ib_grammar
+X#  record containing the start symbol in its first field and the
+X#  production list in its second.  Its third field contains a table
+X#  used to map integers to actual token names or character literals,
+X#  i.e. its keys are things like -1, 0, etc. and its values are things
+X#  like "error," "EOF," etc.
+X#
+X#  Note that if a module argument is supplied to ibreader(), one must
+X#  also be supplied to ibwriter().  See ibwriter.icn.
+X#
+X#  The format of the input file is highly reminiscent of YACC.  It
+X#  consists of three basic sections, the first two of which are
+X#  followed by %%.  See the main documentation to Ibpag2 for
+X#  specifics.  Major differences between Ibpag2 and YACC input format
+X#  include:
+X#
+X#      1) "$$ = x" constructs are replaced by "return x" (e.g. "$$ =
+X#         $1 + $3" -> "return $1 + $3")
+X#
+X#      2) all variables within a given action are, by default, local
+X#         to that action; i.e. they cannot be accessed by other
+X#         actions unless you declare them global elsewhere (e.g. in
+X#         the pass-through part of the declarations section %{ ... %})
+X#
+X#      3) the %union declaration is not needed by Ibpag
+X#
+X#      4) tokens and symbols are separated from each other by a comma
+X#         (e.g. %token '+', '-' and S : NP, VP)
+X#
+X#      5) epsilon is indicated by the keyword "epsilon" (e.g. REL :
+X#         epsilon)
+X#
+X#      6) both epsilon and error *may* be declared as %tokens for
+X#         reasons of precedence, although they retain hard-coded
+X#         internal values (-2 and -1, respectively)
+X#
+X#      7) all actions must follow the last RHS symbol of the rule they
+X#         apply to (preceded by an optional %prec directive); to
+X#         achieve S : NP { action1 }, VP { action2 }, insert a dummy
+X#         rule: S : NP, dummy, VP { action2 }; dummy : epsilon {
+X#         action1 } ;
+X#
+X#      8) YYERROR, YYACCEPT, yyclearin, and yyerrok are the same,
+X#         except they are written IIERROR, IIACCEPT, iiclearin, and
+X#         iierrok (i.e. "ii" replaces "yy")
+X#
+X#      9) Ibpag2's input files are tokenized like modified Icon files,
+X#         and, as a consequence, Icon's reserved words must not be
+X#         used as symbols (e.g. "if : if, then" is no go)
+X#
+X############################################################################
+X#
+X#  Links: ibtokens, escape
+X#
+X#  See also: ibwriter
+X#
+X############################################################################
+X
+X#link ibtokens, escape
+Xlink escape
+X
+Xrecord ib_grammar(start, rules, tbl)
+Xrecord tokstats(str, no, prec, assoc)
+X
+X# Declared in ibtokens.icn:
+X# global line_number
+X
+X#
+X# ibreader:  file x file x string x string        -> ib_grammar record
+X#            (in,   out,   module,  source_fname) -> grammar
+X#
+X#     Where in is an input stream, out is an output stream, module is
+X#     some string uniquely identifying this module (optional), and
+X#     where grammar is an ib_grammar record containing the start
+X#     symbol in its first field and a list of production records in
+X#     its second.  Source_fname is the string name of Ibpag2's input
+X#     grammar file.  Defaults to "source file."
+X#
+Xprocedure ibreader(in, out, module, source_fname)
+X
+X    local tmp, grammar, toktbl, next_token, next_token_no_nl,
+X	token, LHS, t
+X
+X    /source_fname    := "source file"
+X    grammar          := ib_grammar(&null, list(), table())
+X    toktbl           := table()
+X    next_token       := create ibtokens(in)
+X    next_token_no_nl := create 1(tmp := |@next_token, \tmp.sym)
+X    token            := @next_token_no_nl | iohno(4)
+X
+X    # Do the %{ $} and %token stuff, i.e. everything up to %%
+X    # (NEWSECT).
+X    #
+X    until token.sym == "NEWSECT" do {
+X	case token.sym of {
+X	    default     : {
+X		iohno(48, "token "||image(token.str) ||"; line "|| line_number)
+X	    }
+X	    "SEMICOL"   :  {
+X		# Skip semicolon.  Get another token while we're at it.
+X		token := @next_token_no_nl | iohno(47, "line "||line_number)
+X	    }
+X	    "BEGGLOB" : {
+X		write(out, "\n$line ", line_number, " ", image(source_fname))
+X		# Copy token values to out until we reach "%}" (ENDGLOB).
+X		(token := copy_icon_stuff(next_token, out)).sym == "ENDGLOB"
+X		token := @next_token_no_nl
+X	    }
+X	    "MOD"     : {
+X		(token := @next_token_no_nl).sym == "IDENT" |
+X		    iohno(30, "line " || line_number)
+X		#
+X		# Read in token declarations, set associativity and
+X		# precedences, and enter the tokens into toktbl.
+X		#
+X		token := {
+X		    case token.str of {
+X			 default  : iohno(30, "line " || line_number)
+X			"token"   : read_decl(next_token_no_nl, toktbl, &null)
+X			"right"   : read_decl(next_token_no_nl, toktbl, "r")
+X			"left"    : read_decl(next_token_no_nl, toktbl, "l")
+X			"nonassoc": read_decl(next_token_no_nl, toktbl, "n")
+X			"union"   : iohno(45, "line "|| line_number)
+X			"start"   : {
+X			    (token := @next_token_no_nl).sym == "IDENT" |
+X				iohno(31, "line " || line_number)
+X			    /grammar.start := token.str |
+X				iohno(32, "line " || line_number)
+X			    @next_token_no_nl | iohno(4)
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X    # Skip past %% (NEWSECT) and semicolon (if present).
+X    token := @next_token_no_nl | iohno(47, "line "|| line_number)
+X    (token := token | @next_token_no_nl | iohno(4)).sym ~== "SEMICOL"
+X    token.sym == "NEWSECT" & iohno(47, "line "|| line_number)
+X
+X    #
+X    # Fetch start symbol if it wasn't defined above via %start; by
+X    # default the start symbol is the LHS of rule 1.
+X    #
+X    /grammar.start := token.str
+X
+X    # Having reached the end of the declarations section, we can now
+X    # copy out a define for each token number, not counting character
+X    # literals (which are stored as integers).  While we're at it,
+X    # create a table that maps token numbers back to character
+X    # literals and strings (for use in later verbose and debugging
+X    # displays).
+X    #
+X    write(out, "\n")
+X    every t := !toktbl do {
+X	if type(t.str) == "integer" then
+X	    insert(grammar.tbl, t.no, image(char(t.str)))
+X	else {
+X	    insert(grammar.tbl, t.no, t.str)
+X	    write(out, "$define ", t.str, "\t", t.no)
+X	}
+X    }
+X
+X    # Now, finally, read in rules up until we reach EOF or %% (i.e.
+X    # NEWSECT).  EOF is signaled below by failure of read_RHS().
+X    #
+X    until token.sym == "NEWSECT" do {
+X	token.sym == "IDENT" | iohno(33, token.str ||" line "|| line_number)
+X	LHS := token.str
+X	token := @next_token_no_nl | iohno(4)
+X	token.sym == "COLON" | iohno(34, token.str ||" line "|| line_number)
+X	#
+X	# Read in RHS, then the action (if any) then the prec (if
+X	# any).  If we see a BAR, then repeat, re-using the same
+X	# left-hand side symbol.
+X	#
+X	while token := 
+X	    read_RHS(next_token, next_token_no_nl, out, toktbl, LHS,
+X		     grammar, module, source_fname) |
+X	    # if read_RHS fails, we're at EOF
+X	    break break
+X	do token.sym == "BAR" | break
+X    }
+X
+X    # Copy the remainder of the file to out as Icon code.
+X    write(out, "\n$line ", line_number, " ", image(source_fname))
+X    every copy_icon_stuff(next_token, out, "EOFX")
+X
+X    # Do final setup on the reverse token table.  This table will be
+X    # used later to map integers to their original names in verbose or
+X    # debugging displays.
+X    #
+X    insert(grammar.tbl,  0, "$")
+X
+X    return grammar
+X
+Xend
+X
+X
+X#
+X# copy_icon_stuff:  coexpression x file x string  -> ib_TOK records
+X#                   (next_token,   out,   except) -> token records
+X#
+X#     Copy Icon code to output stream, also suspending as we go.
+X#     Insert separators between tokens where needed.  Do not output
+X#     any token whose sym field matches except.  The point in
+X#     suspending tokens as we go is to enable the calling procedure to
+X#     look for signal tokens that indicate insertion or termination
+X#     points.
+X#
+Xprocedure copy_icon_stuff(next_token, out, except)
+X
+X    local separator, T
+X
+X    separator := ""
+X    while T := @next_token do {
+X	if \T.sym then suspend T
+X	if \T.sym == \except then next
+X	if any(&digits ++ &letters ++ '_.', \T.str, 1, 2) & \T.sym ~== "DOT"
+X	then writes(out, separator)
+X	writes(out, T.str)
+X	if any(&digits ++ &letters ++ '_.', \T.str, -1, 0) & \T.sym ~== "DOT"
+X	then separator := " " else separator := ""
+X    }
+X
+X    # unexpected EOF error
+X    (except === "EOFX") | iohno(4)
+X
+Xend
+X
+X
+X#
+X# read_decl:  coexpression     x table x string -> ib_TOK
+X#             (next_token_no_nl, toktbl, assoc) -> token
+X#
+X#     Read in token declarations, assigning them the correct
+X#     precedence and associativity.  Number the tokens for later
+X#     $define preprocessor directives.  When done, return the last
+X#     token processed.  Toktbl is the table that holds the stats for
+X#     each declared token.
+X#
+Xprocedure read_decl(next_token_no_nl, toktbl, assoc)
+X
+X    local   token, c
+X    static  token_no, prec
+X    initial {
+X	token_no := 256
+X	prec := 0
+X    }
+X
+X    # All tokens in this list have the same prec and assoc.
+X    # Precedence is determined by order.  Associativity is determined
+X    # by keyword in the calling procedure, and is passed as arg 3.
+X    #
+X    prec +:= 1
+X    assoc === ("n"|"r"|"l"|&null) | iohno(5, image(assoc))
+X
+X    # As long as we find commas and token names, keep on adding tokens
+X    # to the token table.  Return the unused token when done.  If we
+X    # reach EOF, there's been an error.
+X    #
+X    repeat {
+X	token := @next_token_no_nl | iohno(4)
+X	case token.sym of {
+X	    default  : iohno(31, token.str ||" line "|| line_number)
+X	    "CSETLIT" | "STRING": {
+X		# Enter character literals as integers.
+X		*escape(token.str[2:-1]) = 1 | iohno(49, token.str)
+X		c := ord(escape(token.str[2:-1]))
+X		toktbl[c] := tokstats(c, c, prec, assoc)
+X	    }
+X	    "IDENT"  : {
+X		case token.str of {
+X		    "error"  :
+X			toktbl[token.str] := tokstats("error", -1, prec, assoc)
+X		    "epsilon":
+X			toktbl[token.str] := tokstats("epsilon",-2,prec, assoc)
+X		    default  : {
+X			# Enter TOKENs as string-keyed records in toktbl.
+X			token_no +:= 1
+X			toktbl[token.str] :=
+X			    tokstats(token.str, token_no, prec, assoc)
+X		    }
+X		}
+X	    }
+X	}
+X	# As long as we're seeing commas, go back for more tokens.
+X	token := @next_token_no_nl | iohno(4)
+X	token.sym == "COMMA" | break
+X    }
+X
+X    # Skip past semicolon, if present (as set up now, it shouldn't be).
+X    (token := token | @next_token_no_nl | iohno(4)).sym ~== "SEMICOL"
+X    return token
+X
+Xend
+X
+X
+X#
+X# read_RHS:  coexpression x coexpression x file x table x
+X#            string x ib_grammar record x string x string -> token
+X#
+X#     Read_RHS goes through the RHS of rule definitions, inserting the
+X#     resulting productions into a master rule list.  At the same
+X#     time, it outputs the actions corresponding to those productions
+X#     as procedures that are given names corresponding to the numbers
+X#     of the productions.  I.e. production 1, if endowed with an {
+X#     action }, will correspond to procedure _1_.  Prec and assoc are
+X#     automatically set to that of the last RHS nonterminal, but this
+X#     may be changed explicitly by the %prec keyword, as in YACC.
+X#     Source_fname is the name of the source grammar file we're pro-
+X#     cessing (caller will give us some reasonable default if we're
+X#     reading &input).
+X#
+X#     Fails on EOF.
+X#
+Xprocedure read_RHS(next_token, next_token_no_nl, out, toktbl, LHS,
+X		   grammar, module, source_fname)
+X
+X    local   token, rule, c
+X    static  rule_no
+X    initial rule_no := 0
+X
+X    rule_no +:= 1
+X    #                  LHS  RHS     POS    LOOK   no       prec   assoc
+X    rule := production(LHS, list(), &null, &null, rule_no, &null, &null)
+X    put(grammar.rules, rule)
+X
+X    # Read in RHS symbols.
+X    #
+X    repeat {
+X	token := @next_token_no_nl | iohno(4)
+X	case token.sym of {
+X	    default  :
+X		iohno(35, "token "|| image(token.str)||"; line "|| line_number)
+X	    "CSETLIT" | "STRING": {
+X		*escape(token.str[2:-1]) = 1 | iohno(49, token.str)
+X		c := ord(escape(token.str[2:-1]))
+X		if \toktbl[c] then {
+X		    rule.prec  := toktbl[c].prec
+X		    rule.assoc := toktbl[c].assoc
+X		}
+X		# literals not declared earlier will get caught here
+X		else insert(grammar.tbl, c, image(char(c)))
+X		put(rule.RHS, c)
+X	    }
+X	    "IDENT"  : {
+X		# If it's a terminal (i.e. a declared token), assign
+X		# this rule its precedence and associativity.  If it's
+X		# not in toktbl, then it's not a declared token....
+X		if \toktbl[token.str] then {
+X		    rule.prec  := toktbl[token.str].prec
+X		    rule.assoc := toktbl[token.str].assoc
+X		    put(rule.RHS, toktbl[token.str].no)
+X		    if toktbl[token.str].no = -2 then {
+X			*rule.RHS > 1 & iohno(44, "line ", line_number)
+X		        rule.POS := 2
+X		    }
+X		}
+X		# ...undeclared stuff.  Could be a nonterminal.  If
+X		# error and/or epsilon weren't declared as tokens,
+X		# they will get caught here, too.
+X		else {
+X		    case token.str of {
+X			&null     : stop("What is going on here?")
+X			default   : put(rule.RHS, token.str)
+X			"error"   : {
+X			    put(rule.RHS, -1)
+X			    insert(grammar.tbl, -1, "error")
+X			}
+X			"epsilon" : {
+X			    if *put(rule.RHS, -2) > 1
+X			    then iohno(44, "line ", line_number)
+X			    else rule.POS := 2
+X			    insert(grammar.tbl, -2, "epsilon")
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X	# Comma means:  Go back for another RHS symbol.
+X	token := @next_token_no_nl | fail
+X	token.sym == "COMMA" | break
+X    }
+X
+X    # Skip semicolon token, if present.
+X    (token := token | @next_token_no_nl | fail).sym ~== "SEMICOL"
+X
+X    # Read and set (optional) precedence.
+X    #
+X    if token.sym == "MOD" then {
+X	token := @next_token_no_nl | iohno(4)
+X	(token.sym == "IDENT" & token.str == "prec") |
+X	    iohno(43, token.str || " line " || line_number)
+X	token := @next_token_no_nl | iohno(4)
+X	case token.sym of {
+X	    "CSETLIT" | "STRING" : {
+X		*escape(token.str[2:-1]) = 1 | iohno(49, token.str)
+X		c := ord(escape(token.str[2:-1])) &
+X		rule.prec  := toktbl[c].prec &
+X		rule.assoc := toktbl[c].assoc
+X	    }
+X	    "IDENT"    : {
+X		\toktbl[token.str] |
+X		    iohno(43, token.str || " line " || line_number)
+X		rule.prec  := toktbl[token.str].prec &
+X		rule.assoc := toktbl[token.str].assoc
+X	    }
+X	    default    : 1 = 4	# deliberate failure
+X	} | iohno(43, "line ", line_number)
+X	token := @next_token_no_nl | fail
+X    }
+X
+X    # Skip semicolon token, if present.
+X    (token := token | @next_token_no_nl | fail).sym ~== "SEMICOL"
+X
+X    # Read in (optional) action.
+X    #
+X    if token.sym == "LBRACE" then {
+X	write_action_as_procedure(next_token, out, rule,
+X				  module, source_fname)
+X	token := @next_token_no_nl | fail
+X    }
+X
+X    # Skip semicolon token, if present.
+X    (token := token | @next_token_no_nl | fail).sym ~== "SEMICOL"
+X    return token
+X
+Xend
+X
+X
+X#
+X# write_action_as_procedure
+X#
+Xprocedure write_action_as_procedure(next_token, out, rule,
+X				    module, source_fname)
+X
+X    local argstr, bracelevel, token, i, neg
+X
+X    /module := ""
+X     argstr := ""
+X    #
+X    # Decide the number of arguments based on the length of the RHS of
+X    # rule.  Exception: Epsilon productions are empty, and pop nothing
+X    # off the stack, so take zero args.
+X    #
+X    if rule.RHS[1] ~=== -2 then {
+X	every argstr ||:= "arg" || (1 to *rule.RHS) || ","
+X	argstr := trim(argstr, ',')
+X    }
+X    write(out, "procedure _", rule.no, "_", module, "(", argstr, ")")
+X    write(out, "\n$line ", line_number, " ", image(source_fname))
+X
+X    bracelevel := 1
+X    until bracelevel = 0 do {
+X	every token := copy_icon_stuff(next_token, out, "RHSARG") do {
+X	    case token.sym of {
+X		default   : next
+X		"LBRACE"  : bracelevel +:= 1
+X		"RBRACE"  : bracelevel -:= 1
+X		"RHSARG"  : {
+X		    until \ (token := @next_token).sym do
+X			writes(out, token.str)
+X		    if neg := (token.sym == "MINUS") then
+X			until \ (token := @next_token).sym do 
+X			    writes(out, token.str)
+X		    else neg := &null
+X		    token.sym == "INTLIT"  | iohno(37, "$"||token.str)
+X		    if /neg & token.str ~== "0" then {
+X			token.str <= *rule.RHS | iohno(38, "$"||token.str)
+X			writes(out, " arg", token.str, " ")
+X		    } else {
+X			# Code for $0, $-1, etc.
+X			#
+X			# Warning!  If the name of the stack is changed
+X			# in iiparse.lib, it has to be changed here, too.
+X			#
+X			i := abs(token.str)+1
+X			writes(out, " value_stack", module, "[", i, "] ")
+X		    }
+X	        }
+X	    }
+X	    if bracelevel = 0 then {
+X		write(out, "\nend\n")
+X		return token
+X	    }
+X        }
+X    }
+X	    
+X    iohno(39, "line "|| line_number)
+X
+Xend
+X
+END_OF_FILE
+  if test 16970 -ne `wc -c <'ibreader.icn'`; then
+    echo shar: \"'ibreader.icn'\" unpacked with wrong size!
+  fi
+  # end of 'ibreader.icn'
+fi
+if test -f 'iiglrpar.lib' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'iiglrpar.lib'\"
+else
+  echo shar: Extracting \"'iiglrpar.lib'\" \(26996 characters\)
+  sed "s/^X//" >'iiglrpar.lib' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 iiglrpar.lib
+X#
+X#	Title:	 Quasi-GLR parser code
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.18
+X#
+X############################################################################
+X#
+X#  This file contains quasi-GLR parser code for use by Ibpag2's
+X#  output.  See below on what I mean by "quasi-GLR."  Entry point is
+X#  iiparse(infile, fail_on_error).  Infile is the stream from which
+X#  input is to be taken.  Infile is passed as argument 1 to the
+X#  user-supplied lexical analyzer, iilex_module() (where _module is
+X#  the string supplied with the -m option to Ibpag2).  If
+X#  fail_on_error is nonnull, the parser, iiparse, will fail on errors,
+X#  rather than abort.  Iiparse() returns the top element on its value
+X#  stack on a successful parse (which can be handy).
+X#
+X#  Iilex_module() must suspend integers for tokens and may also set
+X#  iilval_module to the actual string values.  Tokens -2, -1, and 0
+X#  are reserved.  -2 is epsilon, and -1 is error.  0 is EOF, and is
+X#  automatically appended to the token stream when iilex_module, the
+X#  tokenizer, fails.  These values should not normally be returned by
+X#  the analyzer.  In general, it is a good idea to $include
+X#  iilex_module from your Ibpag2 source files, so that it can use the
+X#  symbolic %token names declared in the original Ibpag2 source file.
+X#  As implied above ("suspend"), iilex_module must be a generator,
+X#  failing on EOF.
+X#
+X#  If desired, you may include your own error-handling routine.  It
+X#  must be called iiparse_module (where _module is once again the
+X#  module name supplied to ibpag2 via the -m option).  The global
+X#  variable line_number_module is automatically defined below, so a
+X#  typical arrangement would be for the lexical analyzer to initialize
+X#  line_number_module to 0, and increment by 1 for each line read.
+X#  The error handler, iierror_module() can then display this variable.
+X#  Note that the error handler should accept a single string argument
+X#  (set by iiparse to describe the token on the input stream when the
+X#  error was encountered).
+X#
+X#  I label this parser "GLR" because it does support multiple parallel
+X#  parsers (like GLR parsers are supposed to).  I use the qualifier
+X#  "quasi," though, because it does not use a graph-structured stack.
+X#  Instead it copies both value and state stacks (in fact, the whole
+X#  parser environment) when creating new automata to handle
+X#  alternative parse paths.  Slower, yes.  But it enables the user to
+X#  use almost precisely the action and input format that is used for
+X#  the standard parser.
+X#
+X#  Note that iiparse(), as implemented here, may suspend multiple
+X#  results.  So be sure to call it in some context where multiple
+X#  results can be used (e.g. every parse := iiparse(&input, 1), or the
+X#  like).  Note also that when new parser "edges" get created, a
+X#  rather cumbersome recursive copy routine is used.  Sorry, but it's
+X#  necessary to prevent unintended side-effects.
+X#
+X############################################################################
+X#
+X#  The algorithm:
+X#
+X#      A = list of active parsers needing action lookup
+X#      S = list of parsers to be shifted
+X#      R = list of parsers to be reduced
+X#      B = list of parsers that "choked"
+X#
+X#      for every token on the input stream
+X#      begin
+X#        until length of R = 0 and length of A = 0
+X#        begin
+X#          - pop successive parsers off of A, and placing them in S,
+X#            R, or B, depending on parse table directives; suspend a 
+X#            result for each parser that has reached an accepting
+X#            state
+X#         -  pop successive parsers off of R, reducing them, and
+X#            placing them back in A; perform the action code
+X#            associated with each reduction
+X#        end
+X#        - pop successive parsers off of S, shifting them, and placing
+X#          them back in A; mark recovering parsers as recovered when
+X#          they have successfully shifted three tokens
+X#        if length of A = 0 and token not = EOF
+X#        then
+X#          - initiate error recovery on the parsers in B, i.e. for
+X#            each parser in B that is not already recovering, pop its
+X#            stack until error (-1) can legally be shifted, then shift
+X#            error, mark the parser as recovering from an error, and
+X#            place it back in A; if the parser is already recovering,
+X#            discard the current token
+X#        else
+X#          - clobber the parsers in B
+X#        end
+X#      end
+X#
+X#  Note that when a given active parser in A is being classified
+X#  as needing a reduction, shift, suspension, or entry into the error
+X#  list (B), more than one action may apply due to ambiguity in the
+X#  grammar.  At such points, the parser environment is duplicated,
+X#  once for each alternative pathway, and each of the new parsers is
+X#  then entered into the appropriate list (R or S; if accept is an
+X#  alternative, the classification routine suspends).
+X#
+X#  Note also that when performing the action code associated with
+X#  reductions, parsers may be reclassified as erroneous, accepting,
+X#  etc. via "semantic" directives like IIERROR and IIACCEPT.  See the
+X#  README file.  Multiple-result action code will cause new parser
+X#  threads to be created, just as ambiguities in the grammar do within
+X#  the classification routine above.
+X#
+X#############################################################################
+X#
+X#  See also: ibpag2.icn, iiparse.icn
+X#
+X############################################################################
+X
+X$$line 119 "iiglrpar.lib"
+X
+X$$ifndef IIDEBUG
+X    $$define $iidebug	1
+X    $$define show_new_forest	1
+X$$endif				# not IIDEBUG
+X
+X# These defines are output by Ibpag2 ahead of time (with the module
+X# name appended, if need be):
+X#
+X# IIERROR
+X# IIACCEPT
+X# iiprune     - GLR mode only
+X# iiisolate   - GLR mode only
+X# iierrok
+X# iiclearin
+X
+X# Parser environment + lookahead and pending action field.
+X#
+Xrecord $ib_pe(state_stack, value_stack, action, errors,
+X	      recover_shifts, discards, clearin)
+X
+X# Warning!  If you change the name of the value stack, change it also
+X# in ibreader.icn, procedure write_action_as_procedure().
+X#
+Xglobal $iilval, $line_number, $state_stack, $value_stack,
+X    $iidirective, $ttbl, $errors
+X
+X#
+X# iiparse: file x   anything        -> ?s (a generator)
+X#          (stream, fail_on_error)  -> ?
+X#
+X#     Where stream is an open file, where fail_on_error is a switch
+X#     that (if nonnull) tells the iiparse to fail, rather than abort,
+X#     on error, and where ?s represent the user-defined results of a
+X#     completed parse of file, from the current location up to the
+X#     point where the parser executes an "accept" action.  Note that
+X#     iiparse, as implemented here, is a generator.
+X#
+Xprocedure $iiparse(stream, fail_on_error)
+X
+X    local token, actives, reducers, shifters, barfers
+X    #global ttbl, errors
+X    static atbl
+X    initial {
+X	atbl  := $atbl_insertion_point
+X	$ttbl := $ttbl_insertion_point
+X    $$line 166 "iiglrpar.lib"
+X	\$iilex | stop("no iilex tokenizer defined")
+X    }
+X
+X    actives  := [ $ib_pe([1], [], &null, 0) ]
+X    $state_stack := actives[1].state_stack
+X    $value_stack := actives[1].value_stack
+X    $errors := actives[1].errors
+X    reducers := list()
+X    shifters := list()
+X    # I get tired of bland error code.  We'll call the list of
+X    # parsers in an error state "barfers" :-).
+X    barfers  := list()
+X
+X    every token := $iilex(stream, fail_on_error) | 0
+X    do {
+X	until *actives = *reducers = 0
+X	do {
+X
+X	    # Prune out parsers that are doing the same thing as some
+X	    # other parser.
+X	    #
+X	    $$ifdef AUTO_PRUNE
+X	    auto_prune(actives)
+X	    $$endif
+X
+X	    # Suspends $value_stack[1] on accept actions.  Otherwise,
+X	    # puts parsers that need shifting into the shifters list,
+X	    # parsers that need reducing into the reducers list, and
+X	    # error-state parsers into the barfers list.  Creates new
+X	    # parser environments as needed.
+X	    #
+X	    suspend $ib_action(atbl, token, actives, shifters,
+X			       reducers, barfers)
+X
+X	    # Perform reductions.  If instructed via the iiaccept
+X	    # macro, simulate an accept action, and suspend with a
+X	    # result.
+X	    #
+X	    suspend $perform_reductions(token, actives, shifters,
+X					reducers, barfers)
+X	}
+X
+X	# Shift token for every parser in the shifters list.  This
+X        # will create a bunch of new active parsers.
+X	#
+X	$perform_shifts(token, actives, shifters)
+X	#
+X	# If we get to here and have no actives, and we're not at the
+X	# end of the input stream, then we are at an error impasse.
+X	# Do formal error recovery.
+X	#
+X	if *actives = 0 & token ~=== 0 then {
+X	    suspend $perform_barfs(atbl, token, actives, barfers,fail_on_error)
+X	    #
+X	    # If there *still* aren't any active parsers, we've
+X	    # reached an impasse (or there are no error productions).
+X	    # Abort.
+X	    #
+X	    if *actives = 0 then {
+X		if \fail_on_error then fail
+X		else stop()
+X	    }
+X	}
+X	else {
+X	    #
+X	    # Parsers in an error state should be weeded out, since if
+X	    # we get to here, we have some valid parsers still going.
+X	    # I.e. only use them if there are *no* actives (see above).
+X	    #
+X	$$ifdef IIDEBUG
+X	    write(&errout, "+++ pruning ", *barfers, " erroneous parsers")
+X	    while parser := pop(barfers)
+X	    do $iidebug("p", token, &null, parser)
+X	$$else
+X	    while pop(barfers)
+X	$$endif	#IIDEBUG
+X        }
+X    }
+X
+Xend
+X
+X
+X#
+X# ib_action
+X#
+Xprocedure $ib_action(atbl, token, actives, shifters, reducers,
+X		     barfers)
+X
+X    local a, act, num, parser, new_parser
+X
+X    # While there is an active parser, take it off the actives list,
+X    # and...
+X    while parser := pop(actives) do {
+X
+X	# ...check for a valid action (if none, then there is an
+X	# error; put it into the barfers list).
+X	#
+X	if a := \ (\atbl[token])[parser.state_stack[1]]
+X	then {
+X	    a ? {
+X		# Keep track of how many actions we've seen.
+X		num := 0
+X
+X		# Snip off successive actions.  If there's no
+X		# ambiguity, there will be only one action, & no
+X		# additional parser environments will be created.
+X		#
+X		while {
+X		$$ifdef COMPRESSED_TABLES
+X		    # "\x80" is the accept action; uncompress_action
+X		    # does its own move()ing
+X		    act := $uncompress_action()
+X		$$else
+X		    act := ="a" | {
+X			tab(any('sr')) || tab(upto('.<')) ||
+X			    ((="<" || tab(find(">")+1)) | =".") ||
+X			    tab(many(&digits))
+X		    }
+X		$$endif	#COMPRESSED TABLES
+X		}
+X		do {
+X		    # New parser environment only needed for num > 1.
+X		    #
+X		    if (num +:= 1) > 1 then {
+X			new_parser := $fullcopy(parser)
+X			show_new_forest("=== table conflict; new parser",
+X			    actives, shifters, reducers, barfers, new_parser)
+X		    }
+X		    else new_parser := parser
+X		    new_parser.action := act
+X
+X		    # Classify the action as s, r, or a, and place i
+X		    # the appropriate list (or suspend a result if a).
+X		    #
+X		    case act[1] of {
+X			"s"  : put(shifters, new_parser)
+X			"r"  : put(reducers, new_parser)
+X			"a"  : {
+X			    $iidebug("a", token, ruleno, parser)
+X			    suspend parser.value_stack[1]
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X	else {
+X	    #
+X	    # Error.  Parser will get garbage collected before another
+X	    # token is read from iilex, unless the parsers all fail -
+X	    # in which case, error recovery will be tried.
+X	    #
+X	    $iidebug("e", token, &null, parser)
+X	    put(barfers, parser)
+X	}
+X    }
+X
+Xend
+X
+X
+X#
+X# perform_reductions
+X#
+Xprocedure $perform_reductions(token, actives, shifters, reducers, barfers)
+X
+X    local parser, ruleno, newsym, rhsize, arglist, result, num,
+X	new_parser, tmp, p
+X    static gtbl
+X    initial {
+X	gtbl := $gtbl_insertion_point
+X    $$line 336 "iiglrpar.lib"
+X    }
+X
+X    while parser := get(reducers)
+X    do {
+X
+X	# Set up global state and value stacks, so that the action
+X	# code can access them.
+X	#
+X	$state_stack := parser.state_stack
+X	$value_stack := parser.value_stack
+X	$errors := parser.errors
+X
+X	# Finally, perform the given action:
+X	#
+X	parser.action ? {
+X	    #
+X	    # Reduce action format, e.g. r1<S>2 = reduce by rule 1
+X	    # (LHS = S, RHS length = 2).
+X	    #
+X	    move(1)
+X	    ruleno := integer(1(tab(find("<")), move(1)))
+X	    newsym := 1(tab(find(">")), move(1))
+X	    rhsize := integer(tab(many(&digits)))
+X	    arglist := []
+X	    every 1 to rhsize do {
+X		pop($state_stack)
+X		push(arglist, pop($value_stack))
+X	    }
+X	    # Gtbl is "backwards," i.e. token first, state second.
+X	    # The value produced is the "goto" state.
+X	    #
+X	    push($state_stack, gtbl[newsym][$state_stack[1]])
+X	    #
+X	    # The actions are in procedures having the same name as
+X	    # the number of their rule, bracketed by underscores, &
+X	    # followed by the current module name.  If there is such a
+X	    # procedure associated with the current reduce action,
+X	    # call it.
+X	    #
+X	    if func := proc("_" || ruleno || "_" || $module)
+X	    then {
+X		num := 0
+X		#
+X		# For every valid result from the action code for the
+X		# current reduction, create a new parser if need be
+X		# (i.e. if num > 1), and check iidirective.  Push the
+X		# result onto the stack of the new parser & put the
+X		# new parser into the actives list.
+X		#
+X		every result := func!arglist do {
+X		    # For all but the first result, create a new parser.
+X		    if (num +:= 1) > 1 then {
+X			new_parser := $fullcopy(parser)
+X			pop(new_parser.value_stack) # take off pushed result
+X			show_new_forest("=== multi-result action; new parser",
+X			    actives, shifters, reducers, barfers, new_parser)
+X		    }
+X		    else new_parser := parser
+X		    #
+X		    # IIERROR, IIACCEPT, iierrok, iiisolate, and iiprune
+X		    # are all implemented using a switch on a global
+X		    # iidirective variable; see the $defines described
+X		    # above.
+X		    #
+X		    tmp := $iidirective
+X		    $iidirective := &null
+X		    case tmp of {
+X			&null    : &null
+X			"clearin": {
+X			    # see perform_shifts() below
+X			    new_parser.clearin := 1
+X			}
+X			"error"  : {
+X			    $iidebug("e", token, ruleno, new_parser)
+X			    put(barfers, new_parser)
+X			    next
+X			}
+X			"errok"  : {
+X			    new_parser.recover_shifts := &null
+X			    new_parser.discards := 0
+X			}
+X			"prune"  : {
+X			    # Garden path.
+X			    $iidebug("p", token, ruleno, new_parser)
+X			    break next
+X			}
+X			"isolate"  : {
+X			    # Prune all but the current parser.
+X			$$ifdef IIDEBUG
+X			    write(&errout, "+++ isolating by pruning")
+X			    while p := pop(actives) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(reducers) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(shifters) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(barfers) do
+X				$iidebug("p", token, ruleno, p)
+X			$$else
+X			    while pop(actives)
+X			    while pop(reducers)
+X			    while pop(shifters)
+X			    while pop(barfers)
+X			$$endif	#IIDEBUG
+X			    push(new_parser.value_stack, result)
+X			    $iidebug("r", token, ruleno, new_parser)
+X			    put(actives, new_parser)
+X			    break next
+X			}
+X			"accept" : {
+X			    $iidebug("a", token, ruleno, new_parser)
+X			    suspend arglist[-1] | &null
+X			    next
+X			}
+X			default  : stop("error: bad iidirective")
+X		    }
+X		    #
+X		    # Push result onto the new parser thread's value
+X		    # stack.
+X		    #
+X		    push(new_parser.value_stack, result)
+X		    $iidebug("r", token, ruleno, new_parser)
+X		    put(actives, new_parser)
+X		    #
+X		    # Action code must have the stack in its original
+X		    # form.  So restore the stack's old form before
+X		    # going back to the action code.
+X		    #
+X		    if num = 1 then
+X			$value_stack := parser.value_stack[2:0]
+X	        }
+X		#
+X		# If the action code for this rule failed, push &null.
+X		# But first check $iidirective.
+X		#
+X		if num = 0 then {
+X		    #
+X		    # Same $iidirective code as above repeated
+X		    # (inelegantly) because it accesses too many
+X		    # variables to be easily isolated.
+X		    #
+X		    tmp := $iidirective
+X		    $iidirective := &null
+X		    case tmp of {
+X			&null    : &null
+X			"clearin": {
+X			    # see perform_shifts() below
+X			    parser.clearin := 1
+X			}
+X			"error"  : {
+X			    $iidebug("e", token, ruleno, parser)
+X			    put(barfers, parser)
+X			    next
+X			}
+X			"errok"  : {
+X			    parser.recover_shifts := &null
+X			    parser.discards := 0
+X			}
+X			"prune"  : {
+X			    # Garden path.
+X			    $iidebug("p", token, ruleno, parser)
+X			    next # go back to enclosing while pop...
+X			}
+X			"isolate"  : {
+X			    # Prune all but the current parser.
+X			$$ifdef IIDEBUG
+X			    write(&errout, "+++ isolating by pruning")
+X			    while p := pop(actives) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(reducers) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(shifters) do
+X				$iidebug("p", token, ruleno, p)
+X			    while p := pop(barfers) do
+X				$iidebug("p", token, ruleno, p)
+X			$$else
+X			    while pop(actives)
+X			    while pop(reducers)
+X			    while pop(shifters)
+X			    while pop(barfers)
+X			$$endif	#IIDEBUG
+X			}
+X			"accept" : {
+X			    $iidebug("a", token, ruleno, parser)
+X			    suspend arglist[-1] | &null
+X			    next
+X			}
+X			default  : stop("error: bad iidirective")
+X		    }
+X		    # Finally, push the result!
+X		    result := arglist[-1] | &null
+X		    push(parser.value_stack, result)
+X		    $iidebug("r", token, ruleno, parser)
+X		    put(actives, parser)
+X		}
+X	    }
+X	    # If there is no action code for this rule...
+X	    else {
+X		# ...push the value of the last RHS arg.
+X		# For 0-length e-productions, push &null.
+X		result := arglist[-1] | &null
+X		push(parser.value_stack, result)
+X		$iidebug("r", token, ruleno, parser)
+X		put(actives, parser)
+X	    }
+X	}
+X    }
+X
+Xend
+X
+X
+X#
+X# perform_shifts
+X#
+Xprocedure $perform_shifts(token, actives, shifters)
+X    
+X    local parser, ruleno
+X
+X    *shifters = 0 & fail
+X
+X    while parser := pop(shifters) do {
+X	#
+X	# One of the iidirectives is iiclearin, i.e. clear the input
+X	# token and try again on the next token.
+X	#
+X	\parser.clearin := &null & {
+X	    put(actives, parser)
+X	    next
+X	}
+X	parser.action ? {
+X	    #
+X            # Shift action format, e.g. s2.1 = shift and go to state 2
+X	    # by rule 1.
+X            #
+X	    move(1)
+X	    push(parser.state_stack, integer(tab(find("."))))
+X	    push(parser.value_stack, $iilval)
+X	    ="."; ruleno := integer(tab(many(&digits)))
+X	    $iidebug("s", token, ruleno, parser)
+X	    pos(0) | stop("malformed action:  ", act)
+X	    #
+X	    # If, while recovering, we can manage to shift 3 tokens,
+X	    # then we consider ourselves resynchronized.  Don't count
+X	    # the error token (-1).
+X	    #
+X	    if token ~= -1 then {
+X		if \parser.recover_shifts +:= 1 then {
+X		    # 3 shifts make a successful recovery
+X		    if parser.recover_shifts > 3 then {
+X			parser.recover_shifts := &null
+X			parser.discards := 0
+X		    }
+X		}
+X	    }
+X	}
+X	put(actives, parser)
+X    }
+X
+X    return
+X    
+Xend
+X
+X
+X#
+X# perform_barfs
+X#
+Xprocedure $perform_barfs(atbl, token, actives, barfers, fail_on_error)
+X
+X    #
+X    # Note how this procedure has its own local reducers and shifters
+X    # list.  These are *not* passed from the parent environment!
+X    #
+X    local parser, count, reducers, shifters, recoverers
+X
+X    # To hold the list of parsers that need to shift error (-1).
+X    recoverers := list()
+X
+X    count := 0
+X    while parser := pop(barfers) do {
+X	count +:= 1
+X	if \parser.recover_shifts := 0 then {
+X	    #
+X	    # If we're already in an error state, discard the
+X	    # current token, and increment the number of discards
+X	    # we have made.  500 is too many; abort.
+X	    #
+X	    if (parser.discards +:= 1) > 500 then {
+X		if proc($iierror)
+X		then $iierror("fatal error: can't resynchronize")
+X		else write(&errout, "fatal error: can't resynchronize")
+X		if \fail_on_error then fail
+X		else stop()
+X	    }
+X	    # try again on this one with the next token
+X	    put(actives, parser)
+X	} else {
+X	    parser.errors +:= 1 # error count for this parser
+X	    parser.discards := parser.recover_shifts := 0
+X	    # If this is our first erroneous parser, print a message.
+X	    if count = 1 then {
+X		if proc($iierror)
+X		then $iierror(image(\$ttbl[token]) | image(token))
+X		else write(&errout, "parse error")
+X	    }
+X	    #
+X	    # If error appears in a RHS, pop states until we get to a
+X	    # spot where error (-1) is a valid lookahead token:
+X	    #
+X	    if \$ttbl[-1] then {
+X		until *parser.state_stack = 0 do {
+X		    if \atbl[-1][parser.state_stack[1]] then {
+X			put(recoverers, parser)
+X			break next
+X		    } else pop(parser.state_stack) & pop(parser.value_stack)
+X		}
+X	    }
+X	    # If we get past here, the stack is now empty or there
+X	    # are no error productions.  Abandon this parser.
+X	    $iidebug("p", token, &null, parser)
+X	}
+X    }
+X
+X    # Parsers still recovering are in the actives list; those that
+X    # need to shift error (-1) are in the recoverers list.  The
+X    # following turns recoverers into actives:
+X    #
+X    if *recoverers > 0 then {
+X	reducers := list()	# a scratch list
+X	shifters := list()	# ditto
+X	until *recoverers = *reducers = 0 do {
+X	    $$ifdef AUTO_PRUNE
+X	    auto_prune(actives)
+X	    $$endif
+X	    suspend $ib_action(atbl, -1, recoverers, shifters,
+X			       reducers, barfers)
+X	    suspend $perform_reductions(-1, recoverers, shifters,
+X					reducers, barfers)
+X	}
+X	$perform_shifts(-1, recoverers, shifters)
+X	every put(actives, !recoverers)
+X    }
+X
+Xend
+X
+X
+X$$ifdef IIDEBUG
+X
+Xrecord production(LHS, RHS, POS, LOOK, no, prec, assoc)
+X#
+X# iidebug
+X#
+Xprocedure $iidebug(action, token, ruleno, parser)
+X
+X    local p, t, state
+X    static rule_list
+X    initial {
+X	rule_list := $rule_list_insertion_point
+X    $$line 693 "iiglrpar.lib"
+X    }
+X
+X    write(&errout, "---  In parser ", image(parser), ":")
+X    case action of {
+X	"a"     : writes(&errout, "accepting ")    &
+X	    state := parser.state_stack[1]
+X	"e"     : writes(&errout, "***ERROR***\n") &
+X	          writes(&errout, "error action ") &
+X	    state := parser.state_stack[1]
+X	"p"     : writes(&errout, "***PRUNING***\n") &
+X	          writes(&errout, "prune action ") &
+X	    state := parser.state_stack[1]
+X	"r"     : writes(&errout, "reducing ")     &
+X	    state := parser.state_stack[2]
+X	"s"     : writes(&errout, "shifting ")     &
+X	    state := parser.state_stack[2]
+X	default : stop("malformed action argument to iidebug")
+X    }
+X
+X    t := image(token) || (" (" || (\$ttbl[token] | "unknown") || ")")
+X    writes(&errout, "on lookahead ", t, ", in state ", state)
+X    if \ruleno then {
+X	(p := !rule_list).no === ruleno &
+X	    write(&errout, "; rule ", $production_2_string(p, $ttbl))
+X    }
+X    # for errors, ruleno is null
+X    else write(&errout)
+X
+X    write(&errout, "    state stack now: ")
+X    every write(&errout, "\t", image(!parser.state_stack))
+X    write(&errout, "    value stack now: ")
+X    if *parser.value_stack > 0
+X    then every write(&errout, "\t", image(!parser.value_stack))
+X    else write(&errout, "\t(empty)")
+X
+X    return
+X
+Xend
+X
+X
+X#
+X# production_2_string:  production record -> string
+X#                       p                 -> s
+X#
+X#     Stringizes an image of the LHS and RHS of production p in
+X#     human-readable form.
+X#
+Xprocedure $production_2_string(p, ibtoktbl)
+X
+X    local s, m, t
+X
+X    s := image(p.LHS) || " -> "
+X    every m := !p.RHS do {
+X	if t := \ (\ibtoktbl)[m]
+X	then s ||:= t || " "
+X	else s ||:= image(m) || " "
+X    }
+X    # if the POS field is nonnull, print it
+X    s ||:= "(POS = " || image(\p.POS) || ") "
+X    # if the LOOK field is nonnull, print it, too
+X    s ||:= "lookahead = " || image(\p.LOOK)
+X
+X    return trim(s)
+X
+Xend
+X
+X#
+X# show_new_forest
+X#
+Xprocedure show_new_forest(msg, actives, shifters, reducers, barfers, parser)
+X    write(&errout, msg)
+X    write(&errout, "    List of active parsers:")
+X    every write(&errout, "\t", image(!actives))
+X    every write(&errout, "\t", image(!shifters))
+X    every write(&errout, "\t", image(!reducers))
+X    every write(&errout, "\t", image(!barfers), " (error)")
+X    write(&errout, "\tnew -> ", image(parser))
+Xend
+X$$endif				# IIDEBUG
+X
+X
+X$$ifdef COMPRESSED_TABLES
+X
+X#
+X# uncompress_action
+X#
+Xprocedure $uncompress_action()
+X
+X    local next_chunk, full_action
+X
+X    next_chunk := create ord(!&subject[&pos:0])
+X    case $in_ib_bits(next_chunk, 2) of {
+X	0: {
+X	    full_action := "s"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= "."
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    move(3)
+X	}
+X	1: {
+X	    full_action := "r"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= "<"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= ">"
+X	    full_action ||:= $in_ib_bits(next_chunk, 8)
+X	    move(4)
+X	}
+X        2: {
+X	    full_action := "a"
+X	    move(1)
+X	}
+X    } | fail
+X
+X    return full_action
+X
+Xend
+X
+X
+X#
+X# in_ib_bits:  like inbits (IPL), but with coexpression for file
+X#
+Xprocedure $in_ib_bits(next_chunk, len)
+X
+X    local i, byte, old_byte_mask
+X    static old_byte, old_len, byte_length
+X    initial {
+X	old_byte := old_len := 0
+X	byte_length := 8
+X    }
+X
+X    old_byte_mask := (0 < 2^old_len - 1) | 0
+X    old_byte := iand(old_byte, old_byte_mask)
+X    i := ishift(old_byte, len-old_len)
+X
+X    len -:= (len > old_len) | {
+X	old_len -:= len
+X	return i
+X    }
+X    
+X    while byte := @next_chunk do {
+X	i := ior(i, ishift(byte, len-byte_length))
+X	len -:= (len > byte_length) | {
+X	    old_len := byte_length-len
+X	    old_byte := byte
+X	    return i
+X	}
+X    }
+X
+Xend
+X
+X$$endif				# COMPRESSED_TABLES
+X
+X#
+X# fullcopy:  make full recursive copy of object obj
+X#
+Xprocedure $fullcopy(obj)
+X
+X    local retval, i, k
+X
+X    case type(obj) of {
+X        "co-expression"  : return obj
+X        "cset"           : return obj
+X        "file"           : return obj
+X        "integer"        : return obj
+X        "list"           : {
+X            retval := list(*obj)
+X            every i := 1 to *obj do
+X                retval[i] := $fullcopy(obj[i])
+X            return retval
+X        }
+X        "null"           :  return &null
+X        "procedure"      :  return obj
+X        "real"           :  return obj
+X        "set"            :  {
+X            retval := set()
+X            every insert(retval, $fullcopy(!obj))
+X            return retval
+X        }
+X        "string"         :  return obj
+X        "table"          :  {
+X            retval := table(obj[[]])
+X            every k := key(obj) do
+X                insert(retval, $fullcopy(k), $fullcopy(obj[k]))
+X            return retval
+X        }
+X        # probably a record; if not, we're dealing with a new
+X        # version of Icon or a nonstandard implementation, and
+X	# we're screwed
+X        default          :  {
+X            retval := copy(obj)
+X            every i := 1 to *obj do
+X                retval[i] := $fullcopy(obj[i])
+X            return retval
+X        }
+X    }
+X
+Xend
+X
+X
+X$$ifdef AUTO_PRUNE
+Xprocedure auto_prune(actives)
+X
+X    new_actives := []
+X    while parser1 := pop(actives) do {
+X	every parser2 := actives[j := 1 to *actives] do {
+X	    parser1.state_stack[1] = parser2.state_stack[1] | next
+X	    *parser1.value_stack   = *parser2.value_stack   | next
+X	    every i := 1 to *parser1.value_stack do {
+X		parser1.value_stack[i] === parser2.value_stack[i] | 
+X		    break next
+X	    }
+X	    if parser1.errors < parser2.errors then
+X		actives[j] := parser1
+X	    break next
+X	}
+X	put(new_actives, parser1)
+X    }
+X
+X    every put(actives, !new_actives)
+X    return &null
+X
+Xend
+X$$endif				# AUTO_PRUNE
+END_OF_FILE
+  if test 26996 -ne `wc -c <'iiglrpar.lib'`; then
+    echo shar: \"'iiglrpar.lib'\" unpacked with wrong size!
+  fi
+  # end of 'iiglrpar.lib'
+fi
+if test -f 'rewrap.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rewrap.icn'\"
+else
+  echo shar: Extracting \"'rewrap.icn'\" \(4314 characters\)
+  sed "s/^X//" >'rewrap.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 rewrap.icn
+X#
+X#	Title:	 advanced line rewrap utility
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.4
+X#
+X############################################################################
+X#
+X#  The procedure rewrap(s,i), included in this file, reformats text
+X#  fed to it into strings < i in length.  Rewrap utilizes a static
+X#  buffer, so it can be called repeatedly with different s arguments,
+X#  and still produce homogenous output.  This buffer is flushed by
+X#  calling rewrap with a null first argument.  The default for
+X#  argument 2 (i) is 70.
+X#
+X#  Here's a simple example of how rewrap could be used.  The following
+X#  program reads the standard input, producing fully rewrapped output.
+X#
+X#  procedure main()
+X#      every write(rewrap(!&input))
+X#      write(rewrap())
+X#  end
+X#
+X#  Naturally, in practice you would want to do things like check for in-
+X#  dentation or blank lines in order to wrap only on a paragraph-by para-
+X#  graph basis, as in
+X#
+X#  procedure main()
+X#      while line := read(&input) do {
+X#          if line == "" then {
+X#              write("" ~== rewrap())
+X#              write(line)
+X#          } else {
+X#              if match("\t", line) then {
+X#                  write(rewrap())
+X#                  write(rewrap(line))
+X#              } else {
+X#                  write(rewrap(line))
+X#              }
+X#          }
+X#      }
+X#  end
+X#
+X#  Fill-prefixes can be implemented simply by prepending them to the
+X#  output of rewrap:
+X#
+X#      i := 70; fill_prefix := " > "
+X#      while line := read(input_file) do {
+X#          line ?:= (f_bit := tab(many('> ')) | "", tab(0))
+X#          write(fill_prefix || f_bit || rewrap(line, i - *fill_prefix))
+X#          etc.
+X#
+X#  Obviously, these examples are fairly simplistic.  Putting them to
+X#  actual use would certainly require a few environment-specific
+X#  modifications and/or extensions.  Still, I hope they offer some
+X#  indication of the kinds of applications rewrap might be used in.
+X# 
+X#  Note:  If you want leading and trailing tabs removed, map them to
+X#  spaces first.  Rewrap only fools with spaces, leaving tabs intact.
+X#  This can be changed easily enough, by running its input through the
+X#  Icon detab() function.
+X#
+X############################################################################
+X#
+X#  See also:  wrap.icn
+X#
+X############################################################################
+X
+X
+Xprocedure rewrap(s,i)
+X
+X    local extra_bit, line
+X    static old_line
+X    initial old_line := ""
+X
+X    # Default column to wrap on is 70.
+X    /i := 70
+X    # Flush buffer on null first argument.
+X    if /s then {
+X	extra_bit := old_line
+X	old_line := ""
+X	return "" ~== extra_bit
+X    }
+X
+X    # Prepend to s anything that is in the buffer (leftovers from the last s).
+X    s ?:= { tab(many(' ')); old_line || trim(tab(0)) }
+X
+X    # If the line isn't long enough, just add everything to old_line.
+X    if *s < i then old_line := s || " " & fail
+X
+X    s ? {
+X
+X	# While it is possible to find places to break s, do so.
+X	while any(' -',line := EndToFront(i),-1) do {
+X	    # Clean up and suspend the last piece of s tabbed over.
+X	    line ?:= (tab(many(' ')), trim(tab(0)))
+X            if *&subject - &pos + *line > i
+X	    then suspend line
+X	    else {
+X		old_line := ""
+X		return line || tab(0)
+X	    }
+X	}
+X
+X	# Keep the extra section of s in a buffer.
+X	old_line := tab(0)
+X
+X	# If the reason the remaining section of s was unrewrapable was
+X	# that it was too long, and couldn't be broken up, then just return
+X	# the thing as-is.
+X	if *old_line > i then {
+X	    old_line ? {
+X		if extra_bit := tab(upto(' -')+1) || (tab(many(' ')) | "")
+X		then old_line := tab(0)
+X		else extra_bit := old_line & old_line := ""
+X		return trim(extra_bit)
+X	    }
+X	}
+X	# Otherwise, clean up the buffer for prepending to the next s.
+X	else {
+X	    # If old_line is blank, then don't mess with it.  Otherwise,
+X	    # add whatever is needed in order to link it with the next s.
+X	    if old_line ~== "" then {
+X		# If old_line ends in a dash, then there's no need to add a
+X		# space to it.
+X		if old_line[-1] ~== "-"
+X		then old_line ||:= " "
+X	    }
+X	}
+X    }
+X    
+Xend
+X
+X
+X
+Xprocedure EndToFront(i)
+X    # Goes with rewrap(s,i)
+X    *&subject+1 - &pos >= i | fail
+X    suspend &subject[.&pos:&pos <- &pos+i to &pos by -1]
+Xend
+END_OF_FILE
+  if test 4314 -ne `wc -c <'rewrap.icn'`; then
+    echo shar: \"'rewrap.icn'\" unpacked with wrong size!
+  fi
+  # end of 'rewrap.icn'
+fi
+if test -f 'version.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.icn'\"
+else
+  echo shar: Extracting \"'version.icn'\" \(439 characters\)
+  sed "s/^X//" >'version.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 version.icn
+X#
+X#	Title:	 return Ibpag2 version number
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.10
+X#
+X############################################################################
+X#
+X#  See also: ibpag2.icn
+X#
+X############################################################################
+X
+Xprocedure ib_version()
+X    return "Ibpag2, version 1.3.4"
+Xend
+END_OF_FILE
+  if test 439 -ne `wc -c <'version.icn'`; then
+    echo shar: \"'version.icn'\" unpacked with wrong size!
+  fi
+  # end of 'version.icn'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1386 @@
+Newsgroups: comp.sources.x
+From: paysan@informatik.tu-muenchen.de (Bernd Paysan)
+Subject: v21i086:  t3d - 3D Flying Balls as Clock, Part01/01
+Message-ID: <1994Jan5.230811.24505@sparky.sterling.com>
+X-Md4-Signature: aed08c2a4840dac83e9a6b3ba12c52bf
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 5 Jan 1994 23:08:11 GMT
+Approved: chris@sterling.com
+
+Submitted-by: paysan@informatik.tu-muenchen.de (Bernd Paysan)
+Posting-number: Volume 21, Issue 86
+Archive-name: t3d/part01
+Environment: X11
+
+      Time 3D is a clock. It uses flying balls to display the time. This
+      balls moves and wobbers around to give you the impression your graphic
+      workstation with its many XStones is doing something.
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 11/24/1993 10:05 UTC by paysan@unknown
+# Source directory /usr/share/hphalle4/stud/acher/exp/t3d
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  21021 -rw-r--r-- t3d.c
+#    848 -rw-rw-r-- t3d.icon
+#    353 -rw-r--r-- patchlevel.h
+#    338 -rw-rw-r-- Imakefile
+#   3658 -rw-r--r-- README
+#   2987 -rw-r--r-- t3d.man
+#
+# ============= t3d.c ==============
+if test -f 't3d.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping t3d.c (File already exists)'
+else
+echo 'x - extracting t3d.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 't3d.c' &&
+/*   
+X	t3d
+X
+Flying Balls Demo for X
+by Georg Acher , acher@informatik.tu-muenchen.de
+(developed on HP9000/720 (55 MIPS,20 MFLOPS) )
+NO warranty at all ! Complaints to /dev/null !
+X
+Clock Demo for X
+by Bernd Paysan , paysan@informatik.tu-muenchen.de
+*/
+X
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xos.h>
+#include <stdlib.h>
+/* #include <unistd.h>*/
+#include <stdio.h>
+#include <math.h>
+/* #include <time.h>*/
+#include "patchlevel.h"
+X
+int maxk=34;
+X
+#define   WIDTH      200
+#define   HEIGHT     200
+#define   norm       20.0
+X
+int timewait=40000;
+X
+#define   ROOT       0x1
+#define PI M_PI
+#define TWOPI 2*M_PI
+X
+#define kmax ((minutes?60:24))
+/* Anzahl der Kugeln */
+#define sines 52
+/* Werte in der Sinus-Tabelle */
+/*-----------------------------------------------------------------*/
+#define setink(inkcolor) \
+X	XSetForeground (dpy,gc,inkcolor)
+X
+#define drawline(xx1,yy1,xx2,yy2) \
+X	XDrawLine(dpy,win,gc,xx1,yy1,xx2,yy2) 
+X
+#define drawseg(segments,nr_segments) \
+X	XDrawSegments(dpy,win,gc,segments,nr_segments) 
+X
+X
+#define polyfill(ppts,pcount) \
+X	XFillPolygon(dpy,win,gc,ppts,pcount,Convex,CoordModeOrigin)
+X
+X
+#define frac(argument) argument-floor(argument)
+X
+#define abs(x) ((x)<0.0 ? -(x) : (x))
+X
+Colormap cmap;
+XXColor gray1;
+double r=1.0,g=1.0,b=1.0;
+double hue=0.0,sat=0.0,val=1.0;
+X
+typedef struct {
+double x,y,z,r,d,r1;
+int x1,y1;
+} kugeldat;
+X
+/* Felder fuer 3D */
+X
+kugeldat kugeln[100];
+X
+double  a[3],m[3],am[3],x[3],y[3],v[3];
+double zoom,speed,zaehler,vspeed,AE;
+double vturn,aturn;
+XXPoint track[sines];
+double sinus[sines];
+double cosinus[sines];
+X
+int startx,starty;
+double magx,magy,mag=10;
+double lastx,lasty,lastz;
+int lastcx,lastcy,lastcz;
+/* int move=1; */
+int minutes=0;
+int cycl=0;
+double hsvcycl=0.0;
+double movef =0.5, wobber=2.0, cycle=6.0;
+X
+/* time */
+X
+double sec;
+X
+/* Windows */
+GC	gc;
+GC orgc;
+GC andgc;
+Window	win;
+Font font;
+Display	*dpy;
+int	screen, scrnWidth = WIDTH, scrnHeight = HEIGHT;
+Pixmap  buffer;
+#define maxfast 100
+int fastch=40;
+#ifdef FASTDRAW
+#	ifdef FASTCOPY
+#		define sum1ton(a) (((a)*(a)+1)/2)
+#		define fastcw sum1ton(fastch)
+X		Pixmap fastcircles;
+X		Pixmap fastmask;
+#	else
+X		XImage* fastcircles[maxfast];
+X		XImage* fastmask[maxfast];
+#	endif
+#endif
+X
+int fastdraw=0;
+int scrnW2,scrnH2;
+unsigned short flags = 0;
+char *text;
+XXColor colors[64];
+struct tm *zeit;
+X
+int planes;
+/* compute time */
+X
+double gettime ()
+{
+X	struct timeval time1;
+X	struct timezone zone1;
+X	struct tm *zeit;
+X
+X	gettimeofday(&time1,&zone1);
+X	zeit=localtime(&time1.tv_sec);
+X
+X	return (zeit->tm_sec+60*(zeit->tm_min+60*(zeit->tm_hour))
+X			  + time1.tv_usec*1.0E-6);
+X
+}
+X
+/* --------------------COLORMAP---------------------*/ 
+X
+void hsv2rgb(h, s, v, r, g, b)
+double h, s, v, *r, *g, *b;
+{
+X	h/=360.0;	h=6*(h-floor(h));
+X
+X	if(s==0.0)
+X	{
+X		*r=*g=*b=v;
+X	}
+X	else
+X	{	int i=(int)h;
+X		double t,u,w;
+X
+X		h=h-floor(h);
+X
+X		u=v*(s*(1.0-h));
+X		w=v*(1.0-s);
+X		t=v*(s*h+1.0-s);
+X
+X		switch(i)
+X		{
+X			case 0:	*r=v;	*g=t;	*b=w;	break;
+X			case 1:	*r=u;	*g=v;	*b=w;	break;
+X			case 2:	*r=w;	*g=v;	*b=t;	break;
+X			case 3:	*r=w;	*g=u;	*b=v;	break;
+X			case 4:	*r=t;	*g=w;	*b=v;	break;
+X			case 5:	*r=v;	*g=w;	*b=u;	break;
+X		}
+X	}
+#ifdef PRTDBX
+X	printf("HSV: %f %f %f to\nRGB: %f %f %f\n",h,s,v,*r,*g,*b);
+#endif
+}
+X
+void changeColor (r, g, b)
+double r,g,b;
+{
+X	int n,n1;
+X
+X	n1=0;
+X	for(n=30;n<64;n+=3)
+X	{
+X		colors[n1].red   =1023+ n*(int)(1024.*r);
+X		colors[n1].blue  =1023+ n*(int)(1024.*b);
+X		colors[n1].green =1023+ n*(int)(1024.*g);
+X
+X		n1++;
+X	}
+X
+X	if (!(XStoreColors (dpy, cmap, colors, 12)))
+X	{
+X   	(void) fprintf (stderr, "Error:  Cannot set colors\n");
+X   	exit (1);
+X	}
+}
+X
+void initColor (r, g, b)
+double r,g,b;
+{
+X	int n,n1;
+X	unsigned long pixels[12];
+X	long dummy;
+X
+X   cmap = DefaultColormap (dpy, screen);
+X
+X	if(hsvcycl!=0.0 && XAllocColorCells(dpy, cmap, 0, &dummy, 0, pixels, 12))
+X	{
+X		for(n1=0;n1<12;n1++)
+X		{
+X			colors[n1].pixel=pixels[n1];
+X			colors[n1].flags=DoRed | DoGreen | DoBlue;
+X		}
+X
+X		changeColor(r,g,b);
+X	}
+X	else
+X	{
+X		n1=0;
+X		for(n=30;n<64;n+=3)
+X		{
+X			colors[n1].red   =1023+ n*(int)(1024.*r);
+X			colors[n1].blue  =1023+ n*(int)(1024.*b);
+X			colors[n1].green =1023+ n*(int)(1024.*g);
+X
+X		   if (!(XAllocColor (dpy, cmap, &colors[n1]))) {
+X   		   (void) fprintf (stderr, "Error:  Cannot allocate colors\n");
+X   		   exit (1);
+X   		}
+X
+X			n1++;
+X		}
+X	}
+}
+X
+/* ----------------WINDOW-------------------*/
+X
+void initialize (argc,argv)
+int argc;
+char *argv[];
+{	XGCValues *xgc;
+X	XGCValues *xorgc;
+X	XGCValues *xandgc;
+X	char* display = getenv("DISPLAY");
+X	char* geometry = "";
+X	XSetWindowAttributes xswa;
+X	XSizeHints hints;
+X	Font font;
+X	int xswamask=0, retval=0;
+X	int x=0, y=0, w=scrnWidth, h=scrnHeight;
+X	int wr,hr,hx,hy;
+X	int niced=19;
+X	double magfac;
+X	Pixmap icon;
+X
+X	while (++argv, --argc)
+X	{
+X		if (!strcmp(*argv,"-cycle"))
+X			{	cycle=60.0/atof(*(++argv));argc--;}
+X		else if (!strcmp(*argv,"-display"))
+X			{	display=*(++argv);argc--;}
+X		else if (!strcmp(*argv,"-geometry") )
+X			{	geometry=*(++argv);argc--;}
+X		else if (!strcmp(*argv,"-move") )
+X			{	movef = atof(*(++argv))/2 ;argc--;}
+X		else if (!strcmp(*argv,"-wobber") )
+X			{	wobber *= atof(*(++argv));argc--;}
+X		else if (!strcmp(*argv,"-nice") )
+X			{	niced=(atoi(*(++argv)));argc--;}
+X		else if (!strcmp(*argv,"-mag"))
+X			{
+X				magfac = atof(*(++argv));argc--;
+X				mag *= magfac;
+X				w = (int)(w*magfac);
+X				h = (int)(h*magfac);
+X				fastch=(int)(fastch*magfac);
+X			}
+X		else if (!strcmp(*argv,"-minutes"))
+X			{	minutes=1; maxk+=60-24;}
+X		else if (!strcmp(*argv,"-wait"))
+X			{	timewait=(atoi(*(++argv)));argc--;}
+X		else if (!strcmp(*argv,"-fast"))
+X			{	fastch=(atoi(*(++argv)));argc--;}
+X		else if (!strcmp(*argv,"-colcycle"))
+X			{	cycl=1;}
+X		else if (!strcmp(*argv,"-hsvcycle"))
+X			{
+X				hsvcycl=atof(*(++argv));
+X				argc--;
+X			}
+X		else if (!strcmp(*argv,"-rgb"))
+X			{
+X				r=atof(*(++argv));
+X				g=atof(*(++argv));
+X				b=atof(*(++argv));
+X				argc-=3;
+X			}
+X		else if (!strcmp(*argv,"-hsv"))
+X			{
+X				hue=atof(*(++argv));
+X				sat=atof(*(++argv));
+X				val=atof(*(++argv));
+X				hsv2rgb(hue,sat,val,&r,&g,&b);
+X				argc-=3;
+X			}
+X		else if (!strcmp(*argv,"-help"))
+X			{
+X				puts("Time 3D (c) Bernd Paysan\nusage: t3d {option }");
+X				puts("\t-display <host>:<dpy>\n\t-geometry <geometry string>");
+X				puts("\t-move <factor>\n\t-wobber <factor>\n\t-nice <factor>");
+X				puts("\t-minutes\n\t-mag <factor>\n\t-cycle <period>");
+X				puts("\t-wait <microsec>\n\t-fast <precalc radius>");
+X				puts("\t-colcycle\n\t-rgb <red> <green> <blue>");
+X				puts("\t-hsv <hue> <value> <saturation>\n\t-hsvcycle <speed>\n\t-help");
+X				exit(0);
+X			}
+X		else
+X			{
+X				printf("unrecognised option '%s'\ntype 't3d -help' for help\n",*argv);
+X			}
+X	}
+X
+X	if (fastch>maxfast)
+X		fastch=maxfast;
+X
+#ifdef PRTDBX
+X	printf("Set options:\ndisplay: '%s'\ngeometry: '%s'\n",display,geometry);
+X	printf("move\t%.2f\nwobber\t%.2f\nmag\t%.2f\ncycle\t%.4f\n",
+X			movef,wobber,mag/10,cycle);
+X	printf("nice\t%i\nfast\t%i\nmarks\t%i\nwait\t%i\n",niced,fastch,maxk,timewait);
+#endif
+X
+X	(void)nice(niced);
+X
+X	xgc=( XGCValues *) malloc(sizeof(XGCValues) );
+X	xorgc=( XGCValues *) malloc(sizeof(XGCValues) );
+X	xandgc=( XGCValues *) malloc(sizeof(XGCValues) );
+X   if (!(dpy = XOpenDisplay (display))) {
+X      (void) fprintf (stderr, "Error:  Can't open display '%s'!\n",display);
+X      exit (1);
+X   }
+X
+X	screen = DefaultScreen (dpy);
+X	if(geometry[00])
+X		retval=XParseGeometry(geometry,&x,&y,&w,&h);
+X	if (retval & XValue && retval & XNegative)
+X		x = XDisplayWidth(dpy,screen)-w-abs(x);
+X	if (retval & YValue && retval & YNegative)
+X		y = XDisplayHeight(dpy,screen)-h-abs(y);
+X	hints.flags = 0;
+X	if(retval & (XValue | YValue))
+X		hints.flags |= USPosition;
+X	hints.flags |= USSize;
+X	hints.x = x; hints.y = y;
+X	hints.width = w; hints.height = h;
+X
+X	if (flags & ROOT)
+X		{
+X      	win = DefaultRootWindow (dpy);
+X      	scrnWidth = DisplayWidth (dpy, screen);
+X      	scrnHeight = DisplayHeight (dpy, screen);
+X	   }
+X	else
+X		{  xswamask |= CWBackPixel | CWBorderPixel;
+X			xswa.background_pixel=BlackPixel(dpy, screen);
+X			xswa.border_pixel=BlackPixel(dpy, screen);
+X
+X			scrnWidth=w; scrnHeight=h;
+X
+X		   win = XCreateWindow (dpy, DefaultRootWindow (dpy),
+X					x, y, scrnWidth, scrnHeight, 1, 0,
+X					CopyFromParent, CopyFromParent,
+X					xswamask, &xswa
+X					);
+X
+X			XSetStandardProperties(dpy,win,"Time 3D","Time 3D",
+X				(!XReadBitmapFile(dpy, win, T3DICON,
+X									  &wr, &hr, &icon, &hx, &hy) ? icon : None),
+X				0,0,&hints);
+X
+X     		XMapWindow (dpy, win);
+X     		XSelectInput (dpy, win, ExposureMask | StructureNotifyMask
+X											| KeyPressMask | ButtonPressMask
+X											| VisibilityChangeMask | PropertyChangeMask);
+X			for (;;)
+X			{
+X				XEvent event;
+X				XNextEvent(dpy, &event);
+X	 			if (event.type == Expose) break;
+X      	}
+X		}
+X
+X	xswa.override_redirect = 0;
+X
+X	planes=DefaultDepth(dpy,screen);
+X
+X   gc = XCreateGC (dpy, win, 0,  xgc);
+X	xorgc->function =GXor;
+X   orgc = XCreateGC (dpy, win, GCFunction,  xorgc);
+X	xandgc->function =GXandInverted;
+X   andgc = XCreateGC (dpy, win, GCFunction,  xandgc);
+X
+X 	buffer = XCreatePixmap (dpy, DefaultRootWindow(dpy), scrnWidth, scrnHeight,
+X									DefaultDepth (dpy, screen)); 
+X
+X	printf("Time 3D drawing ");
+#ifdef FASTDRAW
+#	ifdef FASTCOPY
+X	puts("fast by Pixmap copy");
+#	else
+X	puts("fast by XImage copy");
+#	endif
+#else
+X	puts("slow");
+#endif
+X
+#ifdef FASTCOPY
+X	fastcircles = XCreatePixmap (dpy, DefaultRootWindow(dpy), fastcw, fastch+1,
+X											DefaultDepth (dpy,screen));
+X	fastmask    = XCreatePixmap (dpy, DefaultRootWindow(dpy), fastcw, fastch+1,
+X											DefaultDepth (dpy,screen));
+#endif
+X
+X	setink(BlackPixel (dpy, screen));
+X	XFillRectangle (dpy, buffer     , gc, 0, 0, scrnWidth, scrnHeight);	
+X
+#ifdef FASTCOPY
+X
+X	setink(BlackPixel (dpy, screen));
+X	XFillRectangle (dpy, fastcircles, gc, 0, 0, fastcw, fastch+1);
+X	XFillRectangle (dpy, fastmask   , gc, 0, 0, fastcw, fastch+1);
+X
+#endif
+}
+X
+X
+/*------------------------------------------------------------------*/
+void init_kugel()
+{
+X	int i;
+X
+#ifdef FASTDRAW
+X	for(i=0; i<fastch; i++)
+X	{
+#	ifdef FASTCOPY
+X		kugeln[i].r1=-((double) i)/2 -1;
+X		kugeln[i].x1=sum1ton(i);
+X		kugeln[i].y1=((double) i)/2 +1;
+X
+X		fill_kugel(i,fastcircles,1);
+X		setink((1<<DefaultDepth (dpy, screen))-1);
+X		fill_kugel(i,fastmask,0);
+#	else
+X		kugeln[i].r1=-((double) i)/2 -1;
+X		kugeln[i].x1=kugeln[i].y1=((double) i)/2 +1;
+X
+X		fill_kugel(i,buffer,1);
+X		fastcircles[i]=XGetImage(dpy,buffer,0,0,i+2,i+2,(1<<planes)-1,ZPixmap);
+X
+X		setink((1<<DefaultDepth (dpy, screen))-1);
+X		fill_kugel(i,buffer,0);
+X		fastmask[i]=XGetImage(dpy,buffer,0,0,i+2,i+2,(1<<planes)-1,ZPixmap);
+X
+X		setink(0);
+X		XFillRectangle (dpy, buffer     , gc, 0, 0, scrnWidth, scrnHeight);	
+#	endif
+X	}
+X	fastdraw=1;
+#endif
+}
+X
+/* Zeiger zeichnen */
+X
+void zeiger(dist,rad,z,sec,q)
+double dist,rad,z,sec;
+int *q;
+{
+X	int i,n;
+X	double gratio=sqrt(2.0/(1.0+sqrt(5.0)));
+X
+X	n = *q;
+X
+X	for(i=0;i<3;i++)
+X	{
+X		kugeln[n].x=dist*cos(sec);
+X		kugeln[n].y=-dist*sin(sec);
+X		kugeln[n].z=z;
+X		kugeln[n].r=rad;
+X		n++;
+X
+X		dist += rad;
+X		rad = rad*gratio;
+X	}
+X	*q = n;
+}
+X
+/*-----------------------------------------------------------------*
+X *                           Uhr zeichnen                          *
+X *-----------------------------------------------------------------*/
+X
+void manipulate(k)
+double k;
+{
+X	double i,l,xs,ys,zs,mod;
+X	double persec,sec,min,hour;
+X	int n;
+X
+X	sec=TWOPI*modf(k/60,&mod);
+X	min=TWOPI*modf(k/3600,&mod);
+X	hour=TWOPI*modf(k/43200,&mod);
+X
+X	l=TWOPI*modf(k/300,&mod);
+X	i=0.0;
+X	for (n=0;n<kmax;n++)
+X	{
+X
+X		kugeln[n].x=4.0*sin(i);
+X		kugeln[n].y=4.0*cos(i);
+X		kugeln[n].z=wobber* /* (sin(floor(2+2*l/(PI))*i)*sin(2*l)); */
+X						 cos((i-sec)*floor(2+5*l/(PI)))*sin(5*l);
+X		if(minutes)
+X		{	kugeln[n].r=/* (1.0+0.3*cos(floor(2+2*l/(PI))*i)*sin(2*l))* */
+X		   	          ((n % 5!=0) ? 0.3 : 0.6)*
+X							 ((n % 15 ==0) ? 1.25 : .75);
+X		}
+X		else
+X		{	kugeln[n].r=/* (1.0+0.3*cos(floor(2+2*l/(PI))*i)*sin(2*l))* */
+X		   	          ((n & 1) ? 0.5 : 1.0)*
+X							 ((n % 6==0) ? 1.25 : .75);
+X		}
+X		i+=TWOPI/kmax;
+X	}
+X
+X	kugeln[n].x=0.0;
+X	kugeln[n].y=0.0;
+X	kugeln[n].z=0.0;
+X	kugeln[n].r=2.0+cos(TWOPI*modf(k,&mod))/2;
+X	n++;
+X
+X	zeiger(2.0,0.75,-2.0,sec,&n);
+X	zeiger(1.0,1.0,-1.5,min,&n);
+X	zeiger(0.0,1.5,-1.0,hour,&n);
+X
+X	for(n=0;n<maxk;n++)
+X	{
+X		ys=kugeln[n].y*cos(movef*sin(cycle*sec))+kugeln[n].z*sin(movef*sin(cycle*sec));
+X		zs=-kugeln[n].y*sin(movef*sin(cycle*sec))+kugeln[n].z*cos(movef*sin(cycle*sec));
+X		kugeln[n].y=ys;
+X		kugeln[n].z=zs;
+X	}
+}
+/*------------------------------------------------------------------*/
+void sort(l,r)
+int l,r;
+{
+X	int i,j;
+X	kugeldat ex;
+X	double x;
+X
+X	i=l;j=r;
+X	x=kugeln[(l+r)/2].d;
+X	while(1)
+X	{
+X		while(kugeln[i].d>x) i++;
+X		while(x>kugeln[j].d) j--;
+X		if (i<=j)
+X		{
+X			ex=kugeln[i];kugeln[i]=kugeln[j];kugeln[j]=ex;
+X			i++;j--;
+X		}
+X		if (i>j) break;
+X	}
+X	if (l<j) sort(l,j);
+X	if (i<r) sort (i,r);
+}
+/*------------------------------------------------------------------*/
+void draw_kugel()
+{
+X	int i;
+X
+X	XSetForeground(dpy,gc,WhitePixel (dpy, screen));
+X	XFillRectangle(dpy,buffer,gc,0,0,10,10);
+X	for (i=0;i<maxk;i++)
+X	{
+X		if (kugeln[i].d>0.0)
+X		{
+X			XFillRectangle(dpy,buffer,gc,kugeln[i].x1,kugeln[i].y1,kugeln[i].r1,kugeln[i].r1);
+X		}
+X	}
+}
+/*------------------------------------------------------------------*/
+int fill_kugel(i,buf,setcol)
+int i, setcol;
+Pixmap buf;
+{
+X	double ra,ra1;
+X	int nr=0,m,col,n,inc=1,inr=3,d;
+X	d=(int)((abs(kugeln[i].r1)*2));
+X	if (d==0) d=1;
+X
+#ifdef FASTDRAW
+X	if(fastdraw && d<fastch)
+X	{
+#	ifdef FASTCOPY
+X		XCopyArea(dpy, fastmask, buf, andgc, sum1ton(d)-(d+1)/2, 1,d,d,
+X					 (int)(kugeln[i].x1)-d/2, (int)(kugeln[i].y1)-d/2);
+X		XCopyArea(dpy, fastcircles, buf, orgc, sum1ton(d)-(d+1)/2, 1,d,d,
+X					 (int)(kugeln[i].x1)-d/2, (int)(kugeln[i].y1)-d/2);
+#	else
+X		XPutImage(dpy, buf, andgc, fastmask[d-1], 0, 0,
+X					 (int)(kugeln[i].x1)-d/2, (int)(kugeln[i].y1)-d/2, d, d);
+X		XPutImage(dpy, buf, orgc, fastcircles[d-1], 0, 0,
+X					 (int)(kugeln[i].x1)-d/2, (int)(kugeln[i].y1)-d/2, d, d);
+#	endif
+X	}
+X	else
+#endif
+X	{
+X		if(abs(kugeln[i].r1)<6.0) inr=9;
+X
+X		for (m=0;m<=28;m+=inr)
+X		{
+X			ra=kugeln[i].r1*sqrt(1-m*m/(28.0*28.0));
+#ifdef PRTDBX
+X			printf("Radius: %f\n",ra);
+#endif
+X			     if(-ra< 3.0) inc=14;
+X			else if(-ra< 6.0) inc=8;
+X			else if(-ra<20.0) inc=4;
+X			else if(-ra<40.0) inc=2;
+X			if(setcol)
+X			{
+X				if (m==27) col=33;
+X				else
+X					col=(int)(m);
+X				if (col>33) col=33;	col/=3;
+X				setink(colors[col].pixel);
+X			}
+X
+X			for (n=0,nr=0;n<=sines-1;n+=inc,nr++)
+X			{
+X				track[nr].x=kugeln[i].x1+(int)(ra*sinus[n])+(kugeln[i].r1-ra)/2;
+X				track[nr].y=kugeln[i].y1+(int)(ra*cosinus[n])+(kugeln[i].r1-ra)/2;
+X			}
+X			XFillPolygon(dpy,buf,gc,track,nr,Convex,CoordModeOrigin);
+X		}
+X	}
+}
+X
+/*------------------------------------------------------------------*/
+X
+void init_3d()
+{
+X	double i;
+X	int n=0;
+X
+X	a[0]=0.0;
+X	a[1]=0.0;
+X	a[2]=-10.0;
+X
+X	x[0]=10.0;
+X	x[1]=0.0;
+X	x[2]=0.0;
+X
+X	y[0]=0.0;
+X	y[1]=10.0;
+X	y[2]=0.0;
+X
+X
+X	zoom=-10.0;
+X	speed=.0;
+X
+X	for (i=0.0;n<sines;i+=TWOPI/sines,n++)
+X	{
+X		sinus[n]=sin(i);
+X		cosinus[n]=cos(i);
+X	}
+}
+/*------------------------------------------------------------------*/
+X
+X
+void vektorprodukt(feld1,feld2,feld3)
+double feld1[],feld2[],feld3[];
+{
+X	feld3[0]=feld1[1]*feld2[2]-feld1[2]*feld2[1];
+X	feld3[1]=feld1[2]*feld2[0]-feld1[0]*feld2[2];
+X	feld3[2]=feld1[0]*feld2[1]-feld1[1]*feld2[0];
+}
+/*------------------------------------------------------------------*/
+void turn(feld1,feld2,winkel)
+double feld1[],feld2[];
+double winkel;
+{
+X	double temp[3];
+X	double s,ca,sa,sx1,sx2,sx3;
+X
+X	vektorprodukt(feld1,feld2,temp);
+X
+X	s=feld1[0]*feld2[0]+feld1[1]*feld2[1]+feld1[2]*feld2[2];
+X
+X	sx1=s*feld2[0];
+X	sx2=s*feld2[1];
+X	sx3=s*feld2[2];
+X	sa=sin(winkel);ca=cos(winkel);
+X	feld1[0]=ca*(feld1[0]-sx1)+sa*temp[0]+sx1;
+X	feld1[1]=ca*(feld1[1]-sx2)+sa*temp[1]+sx2;
+X	feld1[2]=ca*(feld1[2]-sx3)+sa*temp[2]+sx3;
+}
+/*------------------------------------------------------------------*/
+X
+void viewpoint()
+X
+/* 1: Blickrichtung v;3:Ebenenmittelpunkt m 
+double feld1[],feld3[]; */
+{
+X 	am[0]=-zoom*v[0];
+X	am[1]=-zoom*v[1];
+X	am[2]=-zoom*v[2];
+X
+X	zaehler=norm*norm*zoom;
+}
+/*------------------------------------------------------------------*/
+void projektion()
+{
+X	double c1[3],c2[3],k[3],x1,y1;
+X	double cno,cnorm,magnit;
+X	int i;
+X
+X	for (i=0;i<maxk;i++)
+X	{
+X		c1[0]=kugeln[i].x-a[0];
+X		c1[1]=kugeln[i].y-a[1];
+X		c1[2]=kugeln[i].z-a[2];
+X		cnorm=sqrt(c1[0]*c1[0]+c1[1]*c1[1]+c1[2]*c1[2]);
+X
+X		c2[0]=c1[0];
+X		c2[1]=c1[1];
+X		c2[2]=c1[2];
+X
+X		cno=c2[0]*v[0]+c2[1]*v[1]+c2[2]*v[2];
+X		kugeln[i].d=cnorm;
+X		if (cno<0) kugeln[i].d=-20.0;
+X
+X
+X		kugeln[i].r1=(mag*zoom*kugeln[i].r/cnorm);
+X
+X		c2[0]=v[0]/cno;
+X		c2[1]=v[1]/cno;
+X		c2[2]=v[2]/cno;
+X
+X		vektorprodukt(c2,c1,k);
+X
+X
+X		x1=(startx+(x[0]*k[0]+x[1]*k[1]+x[2]*k[2])*mag);
+X		y1=(starty-(y[0]*k[0]+y[1]*k[1]+y[2]*k[2])*mag);
+X		if((x1>-2000.0)
+X			&& (x1<scrnWidth+2000.0)
+X			&& (y1>-2000.0)
+X			&& (y1<scrnHeight+2000.0))
+X		{
+X			kugeln[i].x1=(int)x1;
+X			kugeln[i].y1=(int)y1;
+X		}
+X		else
+X		{
+X			kugeln[i].x1=0;
+X			kugeln[i].y1=0;
+X			kugeln[i].d=-20.0;
+X		}
+X	}
+}
+X
+/*---------- event-handler ----------------*/
+void event_handler()
+{
+X	int kpr;
+X	while (XEventsQueued (dpy, QueuedAfterReading))
+X	{
+X		XEvent event;
+X
+X		XNextEvent (dpy, &event);
+X		switch (event.type)
+X		{
+X			case ConfigureNotify:
+X				if (event.xconfigure.width != scrnWidth ||
+X					 event.xconfigure.height != scrnHeight)
+X				{
+X					XFreePixmap (dpy, buffer); 
+X					scrnWidth = event.xconfigure.width;
+X					scrnHeight = event.xconfigure.height;
+X					buffer = XCreatePixmap (dpy, DefaultRootWindow (dpy),
+X													scrnWidth, scrnHeight,
+X					DefaultDepth (dpy, screen));
+X	 
+X					startx=scrnWidth/2;
+X					starty=scrnHeight/2;
+X					scrnH2=startx;
+X					scrnW2=starty;
+X       		}
+X			case KeyPress:
+X			{
+X				kpr=event.xkey.keycode;
+X				if (kpr==52) /* s */
+X					vspeed=0.5;
+X				if (kpr==53)
+X					vspeed=-0.3;
+X				if (kpr==62)
+X				{
+X					speed=0;vspeed=0;
+X				}
+X				/*	printf("%i\n",event.xkey.keycode);*/
+X				if (kpr==36) mag*=1.02;
+X				if (kpr==35) mag/=1.02;
+X			}
+X	    	default:
+X				kpr=0;
+X	      break;
+X		}
+X	}
+X	/*nap(40);-Ersatz*/ 
+X	{
+X		struct timeval timeout;
+X		timeout.tv_sec=timewait/1000000;
+X		timeout.tv_usec=timewait%1000000;
+X		(void)select(0,0,0,0,&timeout);
+X	}
+}
+/*-------------------------------------------------*/
+main(argc,argv)
+int argc;
+char *argv[];
+{	Window junk_win,in_win;
+X
+X	int px,py,junk,kb,wai;
+X	int act,act1,tc;
+X	double vnorm;
+X	/* double var=0.0; */
+X	int color=0, dir=1;
+X	
+X	initialize(argc,argv);
+X	
+X	initColor(r,g,b);
+X	init_3d();
+X	zeit=malloc(sizeof(struct tm));
+X	init_kugel();
+X
+X	startx=scrnWidth/2;
+X	starty=scrnHeight/2;
+X	scrnH2=startx;
+X	scrnW2=starty;
+X	vspeed=0;
+X
+X
+X	vektorprodukt(x,y,v);
+X	viewpoint(m,v);
+X   
+X	setink (BlackPixel (dpy, screen));
+X	XFillRectangle (dpy, win, gc, 0, 0, scrnWidth, scrnHeight);
+X	XQueryPointer (dpy, win, &junk_win, &junk_win, &junk, &junk,
+X						&px, &py, &kb);
+X
+X	for (;;)
+X	{	double dtime;
+X
+X		/*--------------- Zeichenteil --------------*/
+X
+X		event_handler();
+X
+X		vektorprodukt(x,y,v);
+X
+X		vnorm=sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+X		v[0]=v[0]*norm/vnorm;
+X		v[1]=v[1]*norm/vnorm;
+X		v[2]=v[2]*norm/vnorm;
+X		vnorm=sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]);
+X		x[0]=x[0]*norm/vnorm;
+X		x[1]=x[1]*norm/vnorm;
+X		x[2]=x[2]*norm/vnorm;
+X		vnorm=sqrt(y[0]*y[0]+y[1]*y[1]+y[2]*y[2]);
+X		y[0]=y[0]*norm/vnorm;
+X		y[1]=y[1]*norm/vnorm;
+X		y[2]=y[2]*norm/vnorm;
+X
+X		projektion();
+X		sort(0,maxk-1);
+X
+X		dtime=gettime();
+X
+X		if(cycl)
+X		{
+X			color=(int)(64.0*(dtime/60-floor(dtime/60)))-32;
+X
+X			if(color<0)
+X				color=-color;
+X
+X			setink(colors[color/3].pixel);
+X		}
+X		else
+X			setink(BlackPixel (dpy, screen));
+X
+X		XFillRectangle(dpy,buffer,gc,0,0,scrnWidth,scrnHeight);
+X
+X		{
+X			int i;
+X
+X			manipulate(dtime);
+X
+X			for (i=0;i<maxk;i++)
+X			{
+X				if (kugeln[i].d>0.0)
+X				fill_kugel(i,buffer,1);
+X			}
+X		}
+X
+X		XSync(dpy,0);
+X
+X		/* manipulate(gettime());
+X		var+=PI/500;
+X		if (var>=TWOPI) var=PI/500; */
+X
+X		/*event_handler();*/
+X
+X		if(hsvcycl!=0.0)
+X		{
+X			dtime=hsvcycl*dtime/10.0+hue/360.0;
+X			dtime=360*(dtime-floor(dtime));
+X
+X			hsv2rgb(dtime,sat,val,&r,&g,&b);
+X			changeColor(r,g,b);
+X		}
+X
+X		XCopyArea (dpy, buffer, win, gc, 0, 0, scrnWidth, scrnHeight, 0, 0);
+X
+X
+X		/*-------------------------------------------------*/
+X		XSync(dpy,0);
+X
+X		event_handler();
+X
+X		(void)(XQueryPointer (dpy, win, &junk_win, &in_win, &junk, &junk,
+X									&px, &py, &kb));
+X	
+X		if ((px>0)&&(px<scrnWidth)&&(py>0)&&(py<scrnHeight) )		
+X		{
+X			if ((px !=startx)&&(kb&Button2Mask))
+X			{
+/*				printf("y=(%f,%f,%f)",y[0],y[1],y[2]);*/
+X				turn(y,x,((double)(px-startx))/(8000*mag));
+/*				printf("->(%f,%f,%f)\n",y[0],y[1],y[2]);*/
+X			}
+X			if ((py !=starty)&&(kb&Button2Mask)) 
+X			{
+/*				printf("x=(%f,%f,%f)",x[0],x[1],x[2]);*/
+X				turn(x,y,((double)(py-starty))/(-8000*mag));
+/*				printf("->(%f,%f,%f)\n",x[0],x[1],x[2]);*/
+X			}
+X			if ((kb&Button1Mask)) 
+X			{
+X				if (vturn==0.0) vturn=.005; else if (vturn<2)  vturn+=.01;
+X				turn(x,v,.002*vturn);
+X				turn(y,v,.002*vturn); 
+X			}
+X			if ((kb&Button3Mask)) 
+X			{
+X				if (vturn==0.0) vturn=.005; else if (vturn<2) vturn+=.01;
+X				turn(x,v,-.002*vturn);
+X				turn(y,v,-.002*vturn);
+X			}
+X		}
+X		if (!(kb&Button1Mask)&&!(kb&Button3Mask)) 
+X		vturn=0;
+X
+X		speed=speed+speed*vspeed;
+X		if ((speed<0.0000001) &&(vspeed>0.000001)) speed=0.000001;
+X		vspeed=.1*vspeed;
+X		if (speed>0.01) speed=.01;
+X		a[0]=a[0]+speed*v[0];
+X		a[1]=a[1]+speed*v[1];
+X		a[2]=a[2]+speed*v[2];
+X	}
+}
+SHAR_EOF
+chmod 0644 t3d.c ||
+echo 'restore of t3d.c failed'
+Wc_c="`wc -c < 't3d.c'`"
+test 21021 -eq "$Wc_c" ||
+	echo 't3d.c: original size 21021, current size' "$Wc_c"
+fi
+# ============= t3d.icon ==============
+if test -f 't3d.icon' -a X"$1" != X"-c"; then
+	echo 'x - skipping t3d.icon (File already exists)'
+else
+echo 'x - extracting t3d.icon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 't3d.icon' &&
+#define t3d_width 31
+#define t3d_height 31
+static char t3d_bits[] = {
+X   0x00, 0xc0, 0x01, 0x00, 0x00, 0x48, 0x09, 0x00, 0x00, 0xc1, 0x41, 0x00,
+X   0x80, 0x02, 0xa0, 0x00, 0x00, 0x01, 0x40, 0x00, 0x20, 0x00, 0x00, 0x02,
+X   0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x08, 0x14, 0x00, 0x00, 0x14,
+X   0x08, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x18, 0x20,
+X   0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x07, 0x80, 0x0f, 0x70,
+X   0x05, 0x40, 0x02, 0x50, 0x07, 0x40, 0x02, 0x70, 0x00, 0x80, 0x01, 0x00,
+X   0x00, 0x00, 0x1c, 0x00, 0x02, 0x00, 0x14, 0x20, 0x00, 0x00, 0x3c, 0x00,
+X   0x08, 0x06, 0x30, 0x08, 0x14, 0x06, 0x40, 0x14, 0x08, 0x01, 0x00, 0x08,
+X   0x80, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x02, 0x00, 0x01, 0x40, 0x00,
+X   0x80, 0x02, 0xa0, 0x00, 0x00, 0xc1, 0x41, 0x00, 0x00, 0x48, 0x09, 0x00,
+X   0x00, 0xc0, 0x01, 0x00};
+SHAR_EOF
+chmod 0664 t3d.icon ||
+echo 'restore of t3d.icon failed'
+Wc_c="`wc -c < 't3d.icon'`"
+test 848 -eq "$Wc_c" ||
+	echo 't3d.icon: original size 848, current size' "$Wc_c"
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+else
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+/* This file contains the current patch level. Not all patch levels are
+X * released, I also use this number to keep track of my changes to t3d,
+X * so don't be suprised by jumps in this number.
+X * Any new patches will say which patchlevel the patch is intended for, 
+X * and should be applied only to programs of that patchlevel.
+X */
+#define PATCHLEVEL 0
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 353 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 353, current size' "$Wc_c"
+fi
+# ============= Imakefile ==============
+if test -f 'Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Imakefile (File already exists)'
+else
+echo 'x - extracting Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Imakefile' &&
+# t3d
+# by Georg Acher, acher@informatik.tu-muenchen.de
+# Imakefile for t3d
+# make Makefile with xmkmf
+# 
+X          SRCS1 = t3d.c 
+X          OBJS1 = t3d.o 
+X       INCLUDES = -I$(TOP) -Im $(T3DFLAGS)
+X       PROGRAMS =  t3d
+X       T3DFLAGS = -DFASTDRAW -DFASTCOPY -DT3DICON='"'$(PWD)/t3d.icon'"'
+X	
+X
+ComplexProgramTarget_1(t3d,$(XLIB),-lm)
+X
+SHAR_EOF
+chmod 0664 Imakefile ||
+echo 'restore of Imakefile failed'
+Wc_c="`wc -c < 'Imakefile'`"
+test 338 -eq "$Wc_c" ||
+	echo 'Imakefile: original size 338, current size' "$Wc_c"
+fi
+# ============= README ==============
+if test -f 'README' -a X"$1" != X"-c"; then
+	echo 'x - skipping README (File already exists)'
+else
+echo 'x - extracting README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README' &&
+X
+X
+X
+X t3d(1)                            Time 3D                            t3d(1)
+X                                 Version 1.0
+X
+X
+X
+X NAME
+X      t3d - clock using flying balls to display the time
+X
+X SYNOPSIS
+X      t3d [  options ]...
+X
+X DESCRIPTION
+X      Time 3D is a clock. It uses flying balls to display the time. This
+X      balls moves and wobbers around to give you the impression your graphic
+X      workstation with its many XStones is doing something.
+X
+X      t3d uses mouse and keyboard to let you fly through the balls. Hit S to
+X      speed up, A to slow down, Z to zoom in and X to zoom out.  Use the
+X      left mouse button to rotate to the left and the right mouse button to
+X      rotate the view to the right. Use the middle mouse button to change
+X      the optical axis and the moving direction.  Q will stop you.
+X
+X OPTIONS
+X      -display host:dpy
+X           Specifys the display in the usual way.
+X
+X      -geometry WxH+X+Y
+X           Sets the size and location of the t3d window.
+X
+X      -move factor
+X           Modifies the direction move of t3d. The clock looks 30 degrees*
+X           factor to the left and to the right periodically.
+X
+X      -wobber factor
+X           Modifies the "wobbering" (sounds nice :-) of t3d by multiplying
+X           the default deformation of the clock by factor.
+X
+X      -nice factor
+X           Renices t3d by factor because t3d uses your process time. The
+X           default renice factor is 20, so you can't do anything wrong by
+X           not renicing t3d. If you want more speed, you should set nice to
+X           a smaller value.
+X
+X      -minutes
+X           Shows one small ball for every minute, instead of one for every
+X           2.5 minutes.
+X
+X      -mag factor
+X           Changes the magnification of t3d. By default, t3d uses a 200x200
+X           window. A factor of 2 means, it will use a 400x400 window.
+X
+X      -cycle period
+X           Sets the moving cycle to period seconds. By default, this value
+X           is 10 seconds.
+X
+X
+X
+X
+X
+X                                    - 1 -      Formatted:  November 23, 1993
+X
+X
+X
+X
+X
+X
+X t3d(1)                            Time 3D                            t3d(1)
+X                                 Version 1.0
+X
+X
+X
+X      -wait microsec
+X           Inserts a wait after drawing one view of the clock. By default,
+X           t3d waits 40 ms after each drawing. This helps you to keep the
+X           performance loss small.
+X
+X      -fast precalc radius
+X           t3d uses bitmap copy to draw precalculated balls. You can specify
+X           the radius in pixels up to which t3d should precalculate balls.
+X           t3d will set a useful range by itself using the magnification
+X           when it is started.
+X
+X      -colcycle
+X           Draws cyclic the color scale used for the balls in the background
+X           instead of the normal black.
+X
+X      -rgb red green blue
+X           Selects the color in RGB color space of the lighning spot on the
+X           balls.  All the other colors used for balls or -colcycle are less
+X           intensive colors of the same hue and saturation. All values in
+X           range of 0 to 1.
+X
+X      -hsv hue value saturation
+X           Selects the color in HSV color space.  hue is in degrees from 0
+X           to 360, all other values in range of 0 to 1.
+X
+X      -hsvcycle speed
+X           Rotates the hue axis every 10 seconds* speed.
+X
+X      -help
+X           Prints a short usage message.
+X
+X      Bernd Paysan
+X
+X      Email: paysan@informatik.tu-muenchen.de
+X
+X ACKNOLEDGEMENT
+X      Acknoledgement to Georg Acher, who wrote the initial program
+X      displaying balls.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X                                    - 2 -      Formatted:  November 23, 1993
+X
+X
+X
+SHAR_EOF
+chmod 0644 README ||
+echo 'restore of README failed'
+Wc_c="`wc -c < 'README'`"
+test 3658 -eq "$Wc_c" ||
+	echo 'README: original size 3658, current size' "$Wc_c"
+fi
+# ============= t3d.man ==============
+if test -f 't3d.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping t3d.man (File already exists)'
+else
+echo 'x - extracting t3d.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 't3d.man' &&
+.TH t3d 1 "Version 1.0" "Time 3D"
+.SH NAME
+t3d \- clock using flying balls to display the time
+.SH SYNOPSIS
+t3d [ \f2 options\f1 ]...
+.SH DESCRIPTION
+.PP
+Time 3D is a clock. It uses flying balls to display the time. This
+balls moves and wobbers around to give you the impression your
+graphic workstation with its many XStones is doing something.
+.PP
+t3d uses mouse and keyboard to let you fly through the balls. Hit
+.B S
+to speed up, 
+.B A
+to slow down,
+.B Z
+to zoom in and
+.B X
+to zoom out.
+Use the
+.B left mouse button
+to rotate to the left and the
+.B right mouse button
+to rotate the view to the right. Use the
+.B middle mouse button
+to change the optical axis and the moving direction.
+.B Q
+will stop you.
+.PP
+.SH OPTIONS
+.TP
+.BI "-display " "host:dpy"
+Specifys the display in the usual way.
+.TP
+.BI "-geometry " "WxH+X+Y"
+Sets the size and location of the t3d window.
+.TP
+.BI "-move " "factor"
+Modifies the direction move of t3d. The clock looks 30 degrees*
+.I factor
+to the left and to the right periodically.
+.TP
+.BI "-wobber " "factor"
+Modifies the "wobbering" (sounds nice :-) of t3d by multiplying the
+default deformation of the clock by
+.I factor.
+.TP
+.BI "-nice " "factor"
+Renices t3d by
+.I factor
+because t3d uses your process time. The default renice factor is 20, so
+you can't do anything wrong by not renicing t3d. If you want more speed,
+you should set nice to a smaller value.
+.TP
+.B -minutes
+Shows one small ball for every minute, instead of one for every 2.5 minutes.
+.TP
+.BI "-mag " "factor"
+Changes the magnification of t3d. By default, t3d uses a 200x200 window. A
+.I factor
+of 2 means, it will use a 400x400 window.
+.TP
+.BI "-cycle " "period"
+Sets the moving cycle to
+.I period
+seconds. By default, this value is 10 seconds.
+.TP
+.BI "-wait " "microsec"
+Inserts a wait after drawing one view of the clock. By default, t3d waits
+40 ms after each drawing. This helps you to keep the performance loss
+small.
+.TP
+.BI "-fast " "precalc radius"
+t3d uses bitmap copy to draw precalculated balls. You can specify the radius
+in pixels up to which t3d should precalculate balls. t3d will set a useful
+range by itself using the magnification when it is started.
+.TP
+.B -colcycle
+Draws cyclic the color scale used for the balls in the background instead
+of the normal black.
+.TP
+.BI "-rgb " "red green blue"
+Selects the color in RGB color space of the lighning spot on the balls.
+All the other colors used for balls or
+.B -colcycle
+are less intensive colors of the same hue and saturation. All values
+in range of 0 to 1.
+.TP
+.BI "-hsv " "hue value saturation"
+Selects the color in HSV color space.
+.I hue
+is in degrees from 0 to 360, all other values in range of 0 to 1.
+.TP
+.BI "-hsvcycle " "speed"
+Rotates the hue axis every 10 seconds*
+.I speed.
+.TP
+.B -help
+Prints a short usage message.
+.TP
+.SH AUTHOR
+.nf
+Bernd Paysan
+X
+Email: paysan@informatik.tu-muenchen.de
+.fi
+.PP
+X
+.SH ACKNOLEDGEMENT
+.PP
+Acknoledgement to Georg Acher, who wrote the initial program displaying
+balls.
+SHAR_EOF
+chmod 0644 t3d.man ||
+echo 'restore of t3d.man failed'
+Wc_c="`wc -c < 't3d.man'`"
+test 2987 -eq "$Wc_c" ||
+	echo 't3d.man: original size 2987, current size' "$Wc_c"
+fi
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

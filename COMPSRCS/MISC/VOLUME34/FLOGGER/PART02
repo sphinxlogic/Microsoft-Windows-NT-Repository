@@ -1,0 +1,817 @@
+Newsgroups: comp.sources.misc
+From: mikey@ontek.com (Mike Lee)
+Subject:  v34i074:  flogger - Sort Flogger v0.0, Part02/02
+Message-ID: <1992Dec18.152304.10018@sparky.imd.sterling.com>
+X-Md4-Signature: 16f87fcec79ce1120461338e75f2a1fc
+Date: Fri, 18 Dec 1992 15:23:04 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mikey@ontek.com (Mike Lee)
+Posting-number: Volume 34, Issue 74
+Archive-name: flogger/part02
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  INSTALLATION Makefile bogo_sort.c bubble_sort.c
+#   insert_sort.c shell_sort.c sorting.h
+# Wrapped by kent@sparky on Thu Dec 17 13:50:35 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'INSTALLATION' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALLATION'\"
+else
+  echo shar: Extracting \"'INSTALLATION'\" \(1740 characters\)
+  sed "s/^X//" >'INSTALLATION' <<'END_OF_FILE'
+X
+XMakefile is set up for SunOS 4.1.  If you want to use gcc, move 
+Xthe # comment characters in the makefile around appropriately.
+X
+XIf your machine has memmove() comment out the #define in sorting.h
+X
+XIf you don't have memcpy, comment back in:
+X  #define memcpy(to, from, n) bcopy(from, to, n)
+Xor better yet upgrade your OS.
+X
+XType "make" or "make flogger.static"
+X
+XIf you want to install the sort algorithm library for real
+X
+X  su root
+X  make install
+X
+X---
+X
+XPotential portability problems:
+X
+XShared libraries might work differently, or not at all, on your
+Xmachine.  Edit the makefile as necessary.
+X
+XYou might be missing mallinfo.  Some rewriting of the code will
+Xbe in order.  I'll put some ifdef's around this sooner or later.
+X
+XIf your machine doesn't use a traditional stack, the stack information
+Xwill be either plain wrong or it might cause segmentation faults.
+XBut if you don't care about the flogger routine-- no big deal.  The
+Xsort library itself should be quite portable, even if the test routine
+Xisn't.
+X
+XThe typedefs for chunk4 and chunk8 are thoroughly questionable.  If
+Xyou have a more "natural" size on your machine, experiment.
+X
+XIf you are porting to a machine which doesn't care about alignment
+Xvery much, you can remove the extra alignment tests from merge
+Xsort and quick sort for a marginal increase in sort speed under some 
+Xcircumstances.
+X
+Xmemcpy() is used--if you have a better block-copy function at your
+Xdisposal, by all means plug it in.  Won't help much if you're only
+Xsorting 4-byte things like ints or pointers, though, 'cause
+Xmerge_sort has special code for these anyway.  
+X
+Xsend patches, bug fixes, plane tickets to pittsburgh, etc to mikey@ontek.com
+X
+XI'm especially interested in portability of the merge_sort routine.
+X
+END_OF_FILE
+  if test 1740 -ne `wc -c <'INSTALLATION'`; then
+    echo shar: \"'INSTALLATION'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALLATION'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1541 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X
+XCC =		cc
+XCFLAGS =	-O4 -pic
+XSTATICFLAGS =	-Bstatic
+X
+X# CC = gcc
+X# CFLAGS = 	-fpic -O2 -ansi -traditional \
+X# 		-W -Wunused -Wcomment -Wtrigraphs -Wformat -Wuninitialized \
+X# 		-Wparentheses -Wshadow -Wpointer-arith -Wcast-qual \
+X# 		-Wconversion -Wswitch -Wid-clash-32
+X# STATICFLAGS =	-static
+X
+X
+XLDFLAGS = 	-assert pure-text
+XLINTFLAGS = 	-abhuxz
+X
+X# don't insert a line break after the -d
+XSHARFLAGS =	-v -l40 -M -d__KRILL_ARE_YUMMY_AND_CRUNCHY
+X
+XVERSION =	0.0
+XSHELL =		/bin/sh
+X
+XOBJS = 	merge_sort.o \
+X	quick_sort.o \
+X	heap_sort.o \
+X	shell_sort.o \
+X	bubble_sort.o \
+X	bogo_sort.o \
+X	insert_sort.o
+X
+Xflogger: flogger.o libsort.so.$(VERSION)
+X	$(CC) $(CFLAGS) -o flogger flogger.o -L. -lsort
+X
+Xflogger.static: flogger.o libsort.a
+X	$(CC) $(CFLAGS) $(STATICFLAGS) -o flogger.static flogger.o -L. -lsort
+X
+Xlibsort.a: $(OBJS)
+X	ar ru libsort.a $(OBJS)
+X	ranlib libsort.a
+X
+Xlibsort.so.$(VERSION): $(OBJS)
+X	ld $(LDFLAGS) $(OBJS) -o libsort.so.$(VERSION)
+X
+X$(OBJS): sorting.h
+X
+Xinstall: libsort.so.$(VERSION) libsort.a
+X	cp libsort.a /usr/lib
+X	chmod 644 /usr/lib/libsort.a
+X	cp libsort.so.$(VERSION) /usr/lib
+X	chmod 755 /usr/lib/libsort.so.$(VERSION)
+X	/usr/etc/ldconfig
+X
+Xlint:	lint.out
+X
+Xlint.out: *.c sorting.h
+X	lint $(LINTFLAGS) *.c > lint.out 2>&1
+X
+Xclean:
+X	-rm -f core shar0? $(OBJS) \
+X	libsort.so.$(VERSION) libsort.a flogger.o \
+X	flogger flogger.static lint.out
+X
+Xshar:	
+X	shar $(SHARFLAGS) -o shar \
+X	README INSTALLATION TODO OPTIMIZING Makefile bubble_sort.c \
+X	heap_sort.c merge_sort.c quick_sort.c shell_sort.c insert_sort.c \
+X	sorting.h flogger.c bogo_sort.c
+X
+END_OF_FILE
+  if test 1541 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'bogo_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bogo_sort.c'\"
+else
+  echo shar: Extracting \"'bogo_sort.c'\" \(4211 characters\)
+  sed "s/^X//" >'bogo_sort.c' <<'END_OF_FILE'
+X
+X#undef TEST
+X#define EXIT_SUCCESS 0
+X#define EXIT_FAILURE 1
+X#define RAND_MAX 32767
+X
+X/*
+X
+XIn alt.folklore.computers, there has been a discussion of the worst
+Xpossible sorting algorithm, which has been called "bogosort".
+X
+XMy interpretation of the algorithm is this: Exchange two randomly
+Xchosen elements of the array to be sorted.  Check to see if the array
+Xis in order.  Iterate until done.
+X
+XFrom what I've read, theoretical analysis of this algorithm gives it a
+Xperformance of O(n!), which means that the time to sort is
+Xproportional to the factorial of the number of elements.  And since
+Xthe algorithm is random in nature, it could range from instantaneous
+X(only two entries out of order, and it happens to exchange them first)
+Xto to infinite (it might never succeed).
+X
+XSo, for kicks I coded up a bogosort routine.
+X
+XIn my testing, I discovered that the mean time to sort an array of ten
+Xintegers was 75 seconds (25MHz 486, Unix, gcc 2.1, "optimized").
+X
+XExtrapolating from this, assuming O(n!), gives 312 days to sort 15
+Xintegers and 1,593,378 years to sort 20 integers.  Someone with a much
+Xfaster machine than mine will have to verify these figures.
+X
+X-- 
+XRichard Krehbiel                                 richk@grebyn.com
+XOS/2 2.0 will do for me until AmigaDOS for the 386 comes along...
+X
+X
+X===== cut here ====== bogosort.c =====================================
+X
+X*/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <time.h>
+X#include <assert.h>
+X
+X#define TRUE 1
+X#define FALSE 0
+X
+X#if 0
+X#define range_rand(range) ((long)rand() * (long)range / (RAND_MAX + 1))
+X
+X#if ! defined(range_rand)
+Xint range_rand(range) int range;
+X{
+X	return (long)rand() * (long)range / (RAND_MAX + 1);
+X}
+X#endif
+X
+X#endif
+X
+X/* bogo sort is sensitive to rand()'s repeating-lower-digits feature 
+X   plus the above macro and function gave me different results with
+X   and without -O, so I replaced them with this slow but serviceable
+X   function. */
+X
+Xint range_rand(range) 
+X  int range;
+X{
+X  int result;
+X  extern long random();
+X
+X  do { 
+X    result = (int) random(); 
+X  } 
+X  while (result < 0);
+X  
+X  result = result % range;
+X
+X  return result;
+X}
+X
+X
+Xvoid swap_elem(elem1, elem2, elem_size) 
+X			   register char *elem1;
+X			   register char *elem2;
+X			   register size_t elem_size;
+X
+X{
+X	/***
+X	int temp;
+X
+X	temp = *(int*) elem1;
+X	*(int*) elem1 = *(int*) elem2;
+X	*(int*) elem2 = temp;
+X	***/
+X
+X	while(elem_size-- > 0)
+X	{
+X		char temp;
+X		temp = *elem1;
+X		*elem1++ = *elem2;
+X		*elem2++ = temp;
+X	}
+X
+X}
+X
+Xint in_order(base, n_elem, elem_size, compare)
+X   register char *base;
+X   register int n_elem;
+X   register size_t elem_size;
+X   int (*compare)();
+X{
+X	while(--n_elem > 0)
+X	{
+X		if(compare(base, base+elem_size) > 0)
+X			return FALSE;
+X		base += elem_size;
+X	}
+X	return TRUE;
+X}
+X
+X/*
+X  The bogo() function:
+X
+X  This function is called with the same arguments as qsort.  When it returns,
+X  the elements of the given array are in order.
+X
+X  You may wish to call srand() before using bogosort.
+X*/
+X
+Xint bogo_sort(base, n_elem, elem_size, compare)
+X		  char *base;
+X		  int n_elem;
+X		  size_t elem_size;
+X		  int (*compare)();
+X{
+X	assert(n_elem <= RAND_MAX);
+X
+X	while(!in_order(base, n_elem, elem_size, compare))
+X	{
+X		register char *elem1, *elem2;
+X
+X		elem1 = base + (range_rand(n_elem) * elem_size);
+X		elem2 = base + (range_rand(n_elem) * elem_size);
+X
+X		swap_elem(elem1, elem2, elem_size);
+X	}
+X}
+X
+X#ifdef TEST
+X
+Xint array[100];		/* Up to 100 elements - no further */
+X
+Xint int_compare(i1, i2)
+X  char *i1; char *i2;
+X{
+X	return *(int *)i1 - *(int *)i2;
+X}
+X
+Xmain(argc, argv)
+X  int argc; char *argv[];
+X{
+X	time_t now;
+X	int n_elem;
+X	int i;
+X
+X	if(argc < 2)
+X	{
+X		fprintf(stderr, "useage: %s <number of elements>\n",
+X				argv[0]);
+X		exit(EXIT_FAILURE);
+X	}
+X
+X	n_elem = atoi(argv[1]);
+X	if(n_elem > 100)
+X	{
+X		fprintf(stderr, 
+X  "No more than 100 elements, please (as if your life is that long...)\n");
+X		exit(EXIT_FAILURE);
+X	}
+X
+X	now = time((time_t *)NULL);
+X	srandom(now);
+X
+X	fputs("Starting array:\n", stdout);
+X
+X	for(i = 0; i < n_elem; i++)
+X	{
+X		array[i] = random();
+X		printf("%d ", array[i]);
+X	}
+X	fputs("\n", stdout);
+X
+X	bogo_sort((char *)array, n_elem, sizeof(int), int_compare);
+X
+X	fputs("Ending array:\n", stdout);
+X	for(i = 0; i < n_elem; i++)
+X	{
+X		printf("%d ", array[i]);
+X	}
+X	fputs("\n", stdout);
+X}
+X#endif
+X
+END_OF_FILE
+  if test 4211 -ne `wc -c <'bogo_sort.c'`; then
+    echo shar: \"'bogo_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'bogo_sort.c'
+fi
+if test -f 'bubble_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bubble_sort.c'\"
+else
+  echo shar: Extracting \"'bubble_sort.c'\" \(3389 characters\)
+  sed "s/^X//" >'bubble_sort.c' <<'END_OF_FILE'
+X
+X/* 
+X
+XNAME
+X  bubble sort
+X
+XDESCRIPTION
+X
+X  Traipse up and down the records until the entire array is in order
+X  exchanging records with their neighbors if the adjacent records are
+X  out of order with respect to each other.  A flag keeps track of
+X  whether exchanges were done; when an entire pass is made and no
+X  exchanges were performed, the sort is complete.  Also, after each
+X  pass, the element at the end of the pass is guaranteed to be in it's
+X  final place so the next pass excludes it.
+X
+X  This algorithm reverses direction on each pass, so that a single item
+X  out of order won't force worst-case behavior.  Knuth refers to this
+X  as the "cocktail shaker sort."
+X
+XAUTHORSHIP
+X
+X  Unknown to me.
+X
+XREFERENCES
+X
+X  Knuth Vol 3, page 106-111
+X
+XCOMPLEXITY
+X
+X  Best case O(n)
+X  Worst case O(n^2)
+X  Iterative.
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <assert.h>
+X
+X#include "sorting.h"
+X
+Xint bubble_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  int top = nelem - 1;
+X  int bottom = 0;
+X  int i, did_swap = 1;
+X  char * temp;
+X
+X  temp = malloc(width);
+X  assert(temp != NULL);
+X
+X  while (top > bottom)
+X  {
+X    did_swap = 0;
+X    for (i = bottom; i < top; i++)
+X      if ((*cmpr_func)(base+i*width, base+(i+1)*width) > 0)
+X      {
+X        memcpy(temp, base+i*width, width);
+X        memcpy(base+i*width, base+(i+1)*width, width);
+X        memcpy(base+(i+1)*width, temp, width);
+X        did_swap = 1;
+X      }
+X
+X    if (!did_swap) break;
+X    top--;
+X
+X    did_swap = 0;
+X    for (i = top - 1; i >= bottom; i--)
+X      if ((*cmpr_func)(base+i*width, base+(i+1)*width) > 0)
+X      {
+X        memcpy(temp, base+i*width, width);
+X        memcpy(base+i*width, base+(i+1)*width, width);
+X        memcpy(base+(i+1)*width, temp, width);
+X        did_swap = 1;
+X      }
+X
+X    if (!did_swap) break;
+X    bottom ++;
+X  }
+X
+X  free(temp);
+X  return 0;
+X
+X}
+END_OF_FILE
+  if test 3389 -ne `wc -c <'bubble_sort.c'`; then
+    echo shar: \"'bubble_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'bubble_sort.c'
+fi
+if test -f 'insert_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'insert_sort.c'\"
+else
+  echo shar: Extracting \"'insert_sort.c'\" \(3298 characters\)
+  sed "s/^X//" >'insert_sort.c' <<'END_OF_FILE'
+X
+X/* 
+X
+XNAME
+X  insertion sort 
+X
+XDESCRIPTION
+X
+X  Sorts by inserting each successive record into its proper place in
+X  the preceeding, already sorted records.   Perform a binary search on
+X  the preceeding records to find where to insert the current record,
+X  then shift all the records over to make room in the right place.
+X
+XAUTHORSHIP
+X
+X  This is properly called the binary insertion sort and credit is
+X  given for first publication to John Mauchly, 1946.
+X
+XREFERENCES
+X
+X  Knuth, Art of Computer Programming Vol 3, page 83.
+X
+XCOMPLEXITY
+X
+X  O(n log n) comparisons 
+X  O(0.25 * n^2) memory operations
+X  Iterative.
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <assert.h>
+X
+X#include "sorting.h"
+X
+Xint insertion_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  int i, top, middle, bottom;
+X  int found, test;
+X  char * temp;
+X
+X  temp = malloc(width);
+X  assert(temp != NULL);
+X
+X  for (i = 1; i < nelem; i++)
+X  {
+X    /* binary search looking for place between base[0] and base[i-1] where
+X       you can insert base[i] into in order. */
+X
+X    bottom = 0;
+X    top = i-1;
+X    middle = 0;
+X    found = 0;
+X
+X    while (top >= bottom && ! found)
+X    {
+X      middle = (top+bottom) / 2;
+X      test = (*cmpr_func)(base+middle*width, base+i*width);
+X
+X      if (test > 0)
+X        top = middle - 1;
+X      else if (test < 0)
+X      {
+X        middle ++;
+X        bottom = middle;
+X      }
+X      else
+X      {
+X        middle ++;
+X        found = 1;
+X      }
+X    }
+X
+X    /* make room at base[middle] for base[i] */
+X
+X    if (i != middle)
+X    {
+X      memcpy(temp, base+i*width, width);
+X      memmove(base+middle*width+width, base+middle*width, (i-middle)*width);
+X      memcpy(base+middle*width, temp, width);
+X    }
+X  }
+X
+X  if (temp != NULL) free(temp);
+X
+X  return 0;
+X
+X}
+END_OF_FILE
+  if test 3298 -ne `wc -c <'insert_sort.c'`; then
+    echo shar: \"'insert_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'insert_sort.c'
+fi
+if test -f 'shell_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shell_sort.c'\"
+else
+  echo shar: Extracting \"'shell_sort.c'\" \(2668 characters\)
+  sed "s/^X//" >'shell_sort.c' <<'END_OF_FILE'
+X
+X/*
+X
+XNAME
+X  shell sort 
+X
+XDESCRIPTION
+X
+X  An exhange sort algorithm which exchanges over larger distances
+X  than bubble sort, thus reducing the number of exchanges needed.
+X
+XAUTHORSHIP
+X
+X  D. L. Shell
+X
+XREFERENCES
+X
+X  D. L. Shell, CACM 2, July 1959
+X  Kernighan & Ritchie, C Programming Language, Second Edition, pg 62
+X  Knuth, Art of Computer Programming Vol 3, pg 84-95
+X
+XCOMPLEXITY
+X
+X  I'm not exactly sure, but I think it's O(N^1.5) 
+X  Iterative.
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <assert.h>
+X
+X#include "sorting.h"
+X
+Xint shell_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  int gap, i, j;
+X  char * temp;
+X
+X  temp = malloc(width);
+X  assert(temp != NULL);
+X
+X  for (gap = nelem / 2; gap > 0; gap /= 2)
+X  {
+X    for (i = gap; i < nelem; i++)
+X    {
+X      for (j = i-gap; 
+X           j >=0 && (*cmpr_func)(base+j*width, base+(j+gap)*width) > 0;
+X           j -= gap)
+X      {
+X        memcpy(temp, base+j*width, width);
+X        memcpy(base+j*width, base+(j+gap)*width, width);
+X        memcpy(base+(j+gap)*width, temp, width);
+X      }
+X    }
+X  }
+X
+X  if (temp != NULL) free(temp);
+X
+X  return 0;
+X
+X}
+END_OF_FILE
+  if test 2668 -ne `wc -c <'shell_sort.c'`; then
+    echo shar: \"'shell_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'shell_sort.c'
+fi
+if test -f 'sorting.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sorting.h'\"
+else
+  echo shar: Extracting \"'sorting.h'\" \(797 characters\)
+  sed "s/^X//" >'sorting.h' <<'END_OF_FILE'
+X
+X/* use the next line if your C library does not have memmove */
+X
+X#define memmove(a, b, n) bcopy(b, a, n)
+X
+X/* use the next line if your C library does not have memcpy */
+X
+X/* #define memcpy(to, from, n) bcopy(from, to, n)  */
+X
+X
+X#define MAYBE_THRESHOLD 8
+Xextern int _maybe_sorted;
+X
+Xextern void exit();
+Xextern int qsort();
+X
+Xextern int merge_sort();
+Xextern int heap_sort();
+Xextern int bubble_sort();
+Xextern int quick_sort();
+Xextern int shell_sort();
+Xextern int insertion_sort();
+Xextern int bogo_sort();
+X
+X/* It's more important that these represent common sizes on your
+X   machine than that they represent a certain number of bytes. */
+X
+Xtypedef short               chunk2;
+Xtypedef long                chunk4;
+Xtypedef double              chunk8;
+X
+X#define FLOGGER_VERSION 0
+X#define FLOGGER_PATCHLEVEL 0
+X
+END_OF_FILE
+  if test 797 -ne `wc -c <'sorting.h'`; then
+    echo shar: \"'sorting.h'\" unpacked with wrong size!
+  fi
+  # end of 'sorting.h'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

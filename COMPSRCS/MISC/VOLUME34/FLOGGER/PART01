@@ -1,0 +1,1789 @@
+Newsgroups: comp.sources.misc
+From: mikey@ontek.com (Mike Lee)
+Subject:  v34i073:  flogger - Sort Flogger v0.0, Part01/02
+Message-ID: <csm-v34i073=flogger.091818@sparky.IMD.Sterling.COM>
+X-Md4-Signature: ff0ada04ad7449b6a5af60991e3ce2a2
+Date: Fri, 18 Dec 1992 15:21:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mikey@ontek.com (Mike Lee)
+Posting-number: Volume 34, Issue 73
+Archive-name: flogger/part01
+Environment: UNIX
+
+This is a small collection of some of the more popular sort
+algorithms, including:
+
+      bubble sort -- any 1st semester course in CS
+      heap sort -- contributed by der Mouse
+      insertion sort -- any 1st semester course in CS
+      merge sort -- roughly patterned after Knuth Vol. 3
+      quick sort -- C.A.R. Hoare's as given in K&R 2 pg 87
+      shell sort -- D.L. Shell as given in K&R 2 pg 62
+      bogo sort -- worst-case sort by Richard Krehbiel
+
+A slightly weird test routine is provided which calculates some
+performance measurements on the above algorithms and also on the
+qsort() function provided with your system, as well as verifying that
+the sort actually worked and that it didn't modify anything immediately
+above or below the array, that it doesn't leak memory, and whether
+or not it's stable.  These tests are carried out in a variety of
+situations designed to highlight worst-case behavior.
+
+These implementations of the sort functions are all compatible with
+qsort()'s parameter list, so if you think your application spends too
+much time sorting, you can just s/qsort/merge_sort/ and link in the
+sort library and give it a try.  If you think it doesn't spend *enough*
+time sorting, try bubble_sort instead.
+
+The heapsort was contributed by mouse@larry.mcrcim.mcgill.edu
+aka "der Mouse".
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README OPTIMIZING TODO flogger.c heap_sort.c merge_sort.c
+#   quick_sort.c
+# Wrapped by kent@sparky on Thu Dec 17 13:50:34 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(7993 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X
+XVERSION
+X
+X    This is version 0 of the the Sort Flogger.
+X
+XOVERVIEW
+X
+X    This is a small collection of some of the more popular sort
+Xalgorithms, including:
+X
+X      bubble sort -- any 1st semester course in CS
+X      heap sort -- contributed by der Mouse
+X      insertion sort -- any 1st semester course in CS
+X      merge sort -- roughly patterned after Knuth Vol. 3
+X      quick sort -- C.A.R. Hoare's as given in K&R 2 pg 87
+X      shell sort -- D.L. Shell as given in K&R 2 pg 62
+X      bogo sort -- worst-case sort by Richard Krehbiel
+X
+X    A slightly weird test routine is provided which calculates some
+Xperformance measurements on the above algorithms and also on the
+Xqsort() function provided with your system, as well as verifying that
+Xthe sort actually worked and that it didn't modify anything immediately
+Xabove or below the array, that it doesn't leak memory, and whether
+Xor not it's stable.  These tests are carried out in a variety of
+Xsituations designed to highlight worst-case behavior.
+X
+X    These implementations of the sort functions are all compatible with
+Xqsort()'s parameter list, so if you think your application spends too
+Xmuch time sorting, you can just s/qsort/merge_sort/ and link in the
+Xsort library and give it a try.  If you think it doesn't spend *enough*
+Xtime sorting, try bubble_sort instead.
+X
+X    The merge sort declares a global int called _maybe_sorted which
+Xtells merge sort that the data in the array may already be mostly in
+Xorder.  It is advisory--the algorithm will produce the correct results
+Xregardless of _maybe_sorted's value; however the execution time for
+Xmerge_sort will be quite a bit less if this is set and the array is
+Xalready mostly sorted.  If the array isn't sorted at all, this option
+Xextracts about 2% speed penalty.
+X
+X    The heapsort was contributed by mouse@larry.mcrcim.mcgill.edu
+Xaka "der Mouse".
+X
+X    The merge_sort() function is the only one I've taken any trouble to
+Xoptimize.
+X
+XINSTALLATION
+X
+X    See the INSTALLATION document which should be nearby.
+X
+XUSAGE
+X
+X    Just type "flogger" or "flogger <number>" and watch what happens.
+X
+XDESCRIPTION OF OUTPUT
+X
+X    It seems like it doesn't really do anything but spit out numbers,
+Xand rather slowly at that.  The version and patch level of the program
+Xis printed; the resolution of the clock is printed; the size of the
+Xelements is reported; and the number of elements to be sorted is
+Xreported.
+X
+X    For each sort algorithm, a table of measurements is reported.  The
+Xrows describe the situation the sort algorithm was presented with for
+Xthose measurements and the columns represent the type of measurement
+Xtaken.  The rows (situations) are:
+X
+X    random:   The contents of the array to be sorted are pseudo 
+X              random numbers generated by rand(), with two special
+X              values excluded for the purpose of detecting overwrites
+X              at the ends of the array.
+X    ascend:   The array is already completely in order.  To simply
+X              verify this fact is all that's required of the sort
+X              algorithm; ironically, bubble sort outperforms all
+X              the rest in this case.
+X    descend:  The array is exactly in reverse order.  Theoretically,
+X              an sort function could detect this and swap ends in
+X              linear time, but it hardly seems useful.
+X    fib asc:  The contents of the array are irrelevant; the comparison
+X              function passed to the routine always says that its
+X              first argument is less than its second.
+X    fib desc: Similarly, the comparison function always says that its
+X              first argument is greater than its second.
+X    surprise: A pseudorandom result is returned from the comparison 
+X              function in an attempt to confound the algorithms' efforts
+X              at sorting.
+X    mostly:   Similar to ascend, but the first and last elements
+X              are reversed.  This is meant to simulate an index which
+X              is pretty much already sorted and only a small number
+X              of new items need to be inserted.
+X    equiv:    The comparison function reports that all elements 
+X              compare equal.  The data is arranged so that a
+X              check can be made for whether the algorithm is
+X              stable; that is the property that records with
+X              equal keys stay in the same relative order in the
+X              array that they were in before the sort began.
+X
+XThe columns refer to these measurements:
+X
+X    compares: The number of calls to the comparison routine during
+X              the sort.  I consider this very important, as most
+X              of the sorting bottlenecks I've experience center
+X              around the comparison function.
+X    stack:    (Estimated) Some semi-non-portable attempts to record
+X              the growth of the stack are made and a number comes
+X              out.  I consider O(log n) use of the stack acceptable
+X              on modern machines and none of these algorithms are
+X              worse than that. 
+X    heap:     Amount of malloc'd storage as reported by mallinfo().
+X              If your C library doesn't support mallinfo(), the
+X              compiler will probably barf on flogger.c.  The flogger
+X              checks for memory leaks.
+X    user:     Amount of user mode CPU time as reported by times().
+X              This includes time for both the operation of the
+X              sort function and the comparison function; as these
+X              are only marginally related, this number is not
+X              useful for estimating how long it might take to 
+X              sort useful data in some other program.
+X    system:   Amount of system CPU time as reported by times().
+X              Generally 0.00 or very small.  If a sort algorithm
+X              uses lots of system time it's probably a Trojan horse
+X              trying to break into the passwd file or delete your
+X              home directory or something so maybe you should
+X              start shuffling through your desk looking for a recent
+X              backup tape.  I may remove this in a future version
+X              (the report of system time, not the Trojan horse)
+X              in favor of another metric, perhaps wall clock time.
+X
+X    But it isn't enough simply to be fast, a sort algorithm also has
+Xto be correct.  To that end, the flogger routine verifies that
+Xthe array was actually sorted, at least when the comparison routine
+Xwasn't lying.  It also checks that magic values in the memory locations
+Ximmediately above and below the array were not accidentally accessed
+Xor overwritten.
+X
+X    The bogo sort run is skipped if n is sufficiently large that
+Xit's execution would run into trillions of cycles (approx n = 15).
+X
+XMISCELLANEOUS
+X
+X    When running the test routine, some sorts take so long that you
+Xmight lose patience.  Keyboard interrupt (aka Control-C) will abort the
+Xcurrent sort test and move on to the next.  If you really want the
+Xprogram to end, give it a quit signal (Control-\) or send it a signal
+Xwith the kill command.   You can also background it (Control-Z) from
+Xthe C-shell then kill it.
+X
+X    The size of the elements being sorted is hard-coded at the moment,
+Xbut it can be changed by going into flogger.c and changing the typedefs for
+X
+X    #define TEST_TYPE double
+X    #define TEST_FUNC double_compare
+X
+Xinto
+X
+X    #define TEST_TYPE int
+X    #define TEST_FUNC int_compare
+X
+Xor back again.  Or add a new type and a new comparison function.
+X
+X    Several of the sort algorithms are not re-entrant which means
+Xyou shouldn't call the sort from within the very same comparison 
+Xfunction you passed into that sort in the first place.
+X
+XCOPYRIGHT
+X
+X    Since none of the sort algorithms are mine and anyone with a copy
+Xof Knuth Vol 3 and a little knowledge of C could type them in as easily
+Xas I did, there isn't much point in claiming a copyright, much less
+Xapplying for a patent.  I wanted to disclaim liability though, so I put
+Xa few minor restrictions on the code, as set forth in each of the
+Xsource files.
+END_OF_FILE
+  if test 7993 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'OPTIMIZING' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OPTIMIZING'\"
+else
+  echo shar: Extracting \"'OPTIMIZING'\" \(4452 characters\)
+  sed "s/^X//" >'OPTIMIZING' <<'END_OF_FILE'
+X
+XA brief word about optimizing code, in particular, code that
+Xcalls a sorting function.
+X
+XThe qsort() that comes with most C implementations is fast enough for
+Xnearly all purposes.  The sort algorithms in this package are here
+Xmostly for intellectual curiousity.  The merge_sort algorithm is
+Xsuperior in some ways, mostly that it requires fewer callbacks to the
+Xcomparison function, but that alone is no reason to sed -e s/qsort/merge_sort/
+Xover all your code.
+X
+XSome general approaches to consider before borrowing one of these
+Xsort algorithms for use in your code, approximately in decreasing
+Xorder of effectiveness:
+X
+X1. run prof or gprof to make sure the sorting is an actual
+X   bottleneck; often, reading in the records to be sorted
+X   takes more wall clock time than the sort itself and effort
+X   spent optimizing the sort is completely pointless.
+X
+X2. Use your compiler's maximal optimization level when compiling
+X   the comparison function.  This can result in a surprising 
+X   improvement in performance.
+X
+X3. Hand optimize the comparison function.  Consider sorting on
+X   a "predigested" key that requires less work to compare than 
+X   the records themselves.  Make as few calls to other functions 
+X   as necessary from within the comparison function.
+X
+X4. Reduce the size of the items being sorted.  Create an
+X   array of pointers to records already existing elsewhere
+X   in memory; the sort will then only have to shuffle the
+X   pointers around rather than copy entire records.  Works
+X   well in combination with #3.
+X
+X5. Consider maintaining a b-tree or other index which
+X   lasts beyond program termination.  If the index is updated
+X   infrequently and only one or two elements are added
+X   to it at a time, the much-maligned bubble sort might
+X   actually be of use.
+X
+X6. Plug in merge_sort from this package.  Expect only a slight
+X   improvement.  But a degradation is possible as well: this merge
+X   sort allocates a big chunk of memory, which can eat up swap 
+X   space and slow things down.
+X
+X7. Make a copy of the merge_sort code and replace the calls
+X   to the cmpr_func with the actual code of the compare.
+X   Or if you have gcc, take advantage of inlining to achieve
+X   the same thing.  Expect an even less noticeable improvement.
+X
+X8. If it's *still too slow*, write a sort that takes advantage
+X   of the distribution of keys to calculate the position of a
+X   record directly without having to compare it to other records.
+X
+X
+XThe comp.lang.c FAQ list has this to say about the subject of
+Xefficiency in general.  "Read it.  Learn it.  Live it."
+X
+X---------------------------------------------------------------------------
+X17.13:  How can I make this code more efficient?
+X
+XA:      Efficiency, though a favorite comp.lang.c topic, is not
+X        important nearly as often as people tend to think it is.  Most
+X        of the code in most programs is not time-critical.  When code is
+X        not time-critical, it is far more important that it be written
+X        clearly and portably than that it be written maximally
+X        efficiently.  (Remember that computers are very, very fast, and
+X        that even "inefficient" code can run without apparent delay.)
+X
+X        It is notoriously difficult to predict what the "hot spots" in a
+X        program will be.  When efficiency is a concern, it is important
+X        to use profiling software to determine which parts of the
+X        program deserve attention.  Often, actual computation time is
+X        swamped by peripheral tasks such as I/O and memory allocation,
+X        which can be sped up by using buffering and cacheing techniques.
+X
+X        For the small fraction of code that is time-critical, it is
+X        vital to pick a good algorithm; it is less important to
+X        "microoptimize" the coding details.  Many of the "efficient
+X        coding tricks" which are frequently suggested (e.g. substituting
+X        shift operators for multiplication by powers of two) are
+X        performed automatically by even simpleminded compilers.
+X        Heavyhanded "optimization" attempts can make code so bulky that
+X        performance is degraded.
+X
+X        For more discussion of efficiency tradeoffs, as well as good
+X        advice on how to increase efficiency when it is important, see
+X        chapter 7 of Kernighan and Plauger's The Elements of Programming
+X        Style, and Jon Bentley's Writing Efficient Programs.
+X---------------------------------------------------------------------------
+X
+END_OF_FILE
+  if test 4452 -ne `wc -c <'OPTIMIZING'`; then
+    echo shar: \"'OPTIMIZING'\" unpacked with wrong size!
+  fi
+  # end of 'OPTIMIZING'
+fi
+if test -f 'TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'TODO'\"
+else
+  echo shar: Extracting \"'TODO'\" \(935 characters\)
+  sed "s/^X//" >'TODO' <<'END_OF_FILE'
+X
+Xreturn -1 or something rather than calling assert() in many places
+X
+Xuse "tag" sort when size of records is so large 
+X  that memcpy takes a significant amount of time.
+X
+Xbetter flow control in flogger; add some command line options
+X  for selecting which algorithms to test and which situations
+X  to present them with.
+X
+Xthe check for stable sorting isn't decisive.
+X
+Xsome of the file names exceed 14 characters
+X
+Xmake the alignment checking easier to configure (merge and quick sorts)
+X
+Xmaybe analyze increase in space/time complexity as array size grows
+X  and figure out O() empirically.
+X
+Xinclude file "sorting.h" is of questionable utility.
+X
+X/usr/lib/lint/llib-lsort might be a nice touch for "make install"
+X
+Xshould be more flexible about what size and complexity of thing to sort
+X
+Xmaybe add a parallelizing sort
+X
+Xmakefile and flogger arent't very portable
+X
+Xcc -pic is unnecessary when making libsort.a
+X
+Xadd test for re-entrancy of sort
+X
+END_OF_FILE
+  if test 935 -ne `wc -c <'TODO'`; then
+    echo shar: \"'TODO'\" unpacked with wrong size!
+  fi
+  # end of 'TODO'
+fi
+if test -f 'flogger.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flogger.c'\"
+else
+  echo shar: Extracting \"'flogger.c'\" \(16075 characters\)
+  sed "s/^X//" >'flogger.c' <<'END_OF_FILE'
+X
+X/* 
+X
+XNAME
+X  flogger
+X
+XDESCRIPTION
+X
+X  Put the sort routines through the paces.  Verify that they actually
+X  order data properly and that they don't molest the memory locations
+X  immediately above or below the array.  Tries some common worst-case
+X  situations like already-ordered data and comparison functions which
+X  are defective.
+X
+X  Prints out estimates for each sort algorithm for usage of heap space,
+X  stack space, and run time and also for the number of calls to the
+X  comparison function.
+X
+X  Takes one command line argument which specifies the number of items
+X  to put in the array.  Larger values take longer to run.
+X
+XAUTHORSHIP
+X
+X  Mike Lee, currently mikey@ontek.com
+X
+XREFERENCES
+X
+X  Knuth, Art of Computer Programming Vol 3: Searching and Sorting
+X  Kernighan & Richtie, The C Programming Language, Second Edition
+X
+XWORK REMAINING
+X
+X  The main loop is hopeless.
+X  See the TODO document (which should accompany this program.)
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X
+X#include <sys/types.h>
+X#include <sys/times.h>
+X#include <sys/param.h>
+X
+X#include "sorting.h"
+X
+X#define TEST_TYPE double
+X#define TEST_FUNC double_compare
+X#define DEFAULT_COUNT 2220 /* product of 4 and several primes */
+X
+X#define CANARY_LOW -77.0
+X#define CANARY_HIGH -88.0
+X
+X#define TEST_RANDOM 1
+X#define TEST_ASCEND 2
+X#define TEST_DESCEND 3
+X#define TEST_FIB_ASC 4
+X#define TEST_FIB_DESC 5
+X#define TEST_SURPRISE 6
+X#define TEST_MOSTLY 7
+X#define TEST_EQUIV 8
+X
+Xstatic int compare_count;
+Xstatic int s_heap;
+Xstatic char * s_low, * s_high;
+X
+X#define CHECK_CANARIES \
+X  { \
+X    if (*(TEST_TYPE *) a == CANARY_LOW || *(TEST_TYPE *) b == CANARY_LOW)\
+X    { \
+X      printf("ran off the bottom of the array!\n"); \
+X      fflush(stdout); \
+X      longjmp(next, 1); \
+X    } \
+X    if (*(TEST_TYPE *) a == CANARY_HIGH || *(TEST_TYPE *) b == CANARY_HIGH)\
+X    { \
+X      printf("ran off the top of the array!\n"); \
+X      fflush(stdout); \
+X      longjmp(next, 1); \
+X    } \
+X  }
+X
+X#define UPDATE_S_HEAP \
+X  { struct mallinfo mi; \
+X    mi = mallinfo();  \
+X    if (s_heap < mi.uordblks) s_heap = mi.uordblks;  \
+X    if (s_low == NULL || where < s_low) s_low = where; \
+X    if (s_high == NULL || where > s_high) s_high = where; \
+X    compare_count ++; }
+X
+Xstatic jmp_buf next;
+X
+Xvoid catch_quit()
+X{
+X  printf("\n");
+X  fflush(stdout);
+X  longjmp(next, 1);
+X}
+X
+Xvoid test_sort_func();
+X
+Xint int_compare(a, b) int * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  if (*a > *b) return 1;
+X  if (*a < *b) return -1;
+X  return 0;
+X}
+X
+Xint double_compare(a, b) double * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  if (*a > *b) return 1;
+X  if (*a < *b) return -1;
+X  return 0;
+X}
+X
+X/*ARGSUSED*/
+Xint lie_ascending(a, b) char * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  return -1;
+X}
+X
+X/*ARGSUSED*/
+Xint lie_descending(a, b) char * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  return 1;
+X}
+X
+X/*ARGSUSED*/
+Xint lie_equal(a, b) char * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  return 0;
+X}
+X
+X/*ARGSUSED*/
+Xint surprise(a, b) char * a, *b; 
+X{ 
+X  char foo;
+X  char * where = &foo;
+X
+X  CHECK_CANARIES;
+X  UPDATE_S_HEAP;
+X
+X  foo = rand() >> 23;
+X  if ((unsigned char) foo < 85) return -1;
+X  if ((unsigned char) foo < 171) return 0;
+X  return 1;
+X}
+X
+Xint main(argc, argv) int argc; char * argv[];
+X{
+X  int n;
+X  int stage = 0;
+X  int done = 0;
+X
+X  printf("sort flogger version %d patch level %d.\n",
+X    FLOGGER_VERSION, FLOGGER_PATCHLEVEL);
+X  if (argc > 1) 
+X    n = atoi(argv[1]);
+X  else
+X    n = DEFAULT_COUNT;
+X  if (n < 0) n = -n;
+X
+X  printf("timer resolution = %1.6f\n", 1.0/(double)HZ);
+X  printf("element size = %d\n", sizeof(TEST_TYPE));
+X  printf("number of elements = %d", n);
+X  fflush(stdout);
+X
+X  setjmp(next);
+X  signal(SIGINT, catch_quit);
+X
+X  /* apologies for the bizarre code layout */
+X
+X  while (! done) switch (stage)
+X  {
+X    case 0: printf("\n*** qsort ***\n");
+X            printf("data         compares      stack       ");
+X            printf("heap       user       system\n");
+X            fflush(stdout);
+X            stage ++; test_sort_func(qsort, n, 1); break;
+X    case 1: stage ++; test_sort_func(qsort, n, 2); break;
+X    case 2: stage ++; test_sort_func(qsort, n, 3); break;
+X    case 3: stage ++; test_sort_func(qsort, n, 4); break;
+X    case 4: stage ++; test_sort_func(qsort, n, 5); break;
+X    case 5: stage ++; test_sort_func(qsort, n, 6); break;
+X    case 6: stage ++; test_sort_func(qsort, n, 7); break;
+X    case 7: stage ++; test_sort_func(qsort, n, 8); break;
+X
+X    case 10: _maybe_sorted = 0;
+X             printf("\n*** merge_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(merge_sort, n, 1); break;
+X    case 11: stage ++; test_sort_func(merge_sort, n, 2); break;
+X    case 12: stage ++; test_sort_func(merge_sort, n, 3); break;
+X    case 13: stage ++; test_sort_func(merge_sort, n, 4); break;
+X    case 14: stage ++; test_sort_func(merge_sort, n, 5); break;
+X    case 15: stage ++; test_sort_func(merge_sort, n, 6); break;
+X    case 16: stage ++; test_sort_func(merge_sort, n, 7); break;
+X    case 17: stage ++; test_sort_func(merge_sort, n, 8); break;
+X
+X    case 20: _maybe_sorted = 1;
+X             printf("\n*** merge_sort(_maybe_sorted) ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(merge_sort, n, 1); break;
+X    case 21: stage ++; test_sort_func(merge_sort, n, 2); break;
+X    case 22: stage ++; test_sort_func(merge_sort, n, 3); break;
+X    case 23: stage ++; test_sort_func(merge_sort, n, 4); break;
+X    case 24: stage ++; test_sort_func(merge_sort, n, 5); break;
+X    case 25: stage ++; test_sort_func(merge_sort, n, 6); break;
+X    case 26: stage ++; test_sort_func(merge_sort, n, 7); break;
+X    case 27: stage ++; test_sort_func(merge_sort, n, 8); break;
+X
+X    case 30: printf("\n*** heap_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(heap_sort, n, 1); break;
+X    case 31: stage ++; test_sort_func(heap_sort, n, 2); break;
+X    case 32: stage ++; test_sort_func(heap_sort, n, 3); break;
+X    case 33: stage ++; test_sort_func(heap_sort, n, 4); break;
+X    case 34: stage ++; test_sort_func(heap_sort, n, 5); break;
+X    case 35: stage ++; test_sort_func(heap_sort, n, 6); break;
+X    case 36: stage ++; test_sort_func(heap_sort, n, 7); break;
+X    case 37: stage ++; test_sort_func(heap_sort, n, 8); break;
+X
+X    case 40: printf("\n*** shell_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(shell_sort, n, 1); break;
+X    case 41: stage ++; test_sort_func(shell_sort, n, 2); break;
+X    case 42: stage ++; test_sort_func(shell_sort, n, 3); break;
+X    case 43: stage ++; test_sort_func(shell_sort, n, 4); break;
+X    case 44: stage ++; test_sort_func(shell_sort, n, 5); break;
+X    case 45: stage ++; test_sort_func(shell_sort, n, 6); break;
+X    case 46: stage ++; test_sort_func(shell_sort, n, 7); break;
+X    case 47: stage ++; test_sort_func(shell_sort, n, 8); break;
+X
+X    case 50: printf("\n*** quick_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(quick_sort, n, 1); break;
+X    case 51: stage ++; test_sort_func(quick_sort, n, 2); break;
+X    case 52: stage ++; test_sort_func(quick_sort, n, 3); break;
+X    case 53: stage ++; test_sort_func(quick_sort, n, 4); break;
+X    case 54: stage ++; test_sort_func(quick_sort, n, 5); break;
+X    case 55: stage ++; test_sort_func(quick_sort, n, 6); break;
+X    case 56: stage ++; test_sort_func(quick_sort, n, 7); break;
+X    case 57: stage ++; test_sort_func(quick_sort, n, 8); break;
+X
+X    case 60: printf("\n*** insertion_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(insertion_sort, n, 1); break;
+X    case 61: stage ++; test_sort_func(insertion_sort, n, 2); break;
+X    case 62: stage ++; test_sort_func(insertion_sort, n, 3); break;
+X    case 63: stage ++; test_sort_func(insertion_sort, n, 4); break;
+X    case 64: stage ++; test_sort_func(insertion_sort, n, 5); break;
+X    case 65: stage ++; test_sort_func(insertion_sort, n, 6); break;
+X    case 66: stage ++; test_sort_func(insertion_sort, n, 7); break;
+X    case 67: stage ++; test_sort_func(insertion_sort, n, 8); break;
+X
+X    case 70: printf("\n*** bubble_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(bubble_sort, n, 1); break;
+X    case 71: stage ++; test_sort_func(bubble_sort, n, 2); break;
+X    case 72: stage ++; test_sort_func(bubble_sort, n, 3); break;
+X    case 73: stage ++; test_sort_func(bubble_sort, n, 4); break;
+X    case 74: stage ++; test_sort_func(bubble_sort, n, 5); break;
+X    case 75: stage ++; test_sort_func(bubble_sort, n, 6); break;
+X    case 76: stage ++; test_sort_func(bubble_sort, n, 7); break;
+X    case 77: stage ++; test_sort_func(bubble_sort, n, 8); break;
+X
+X    case 80: if (n >= 15)
+X             {
+X               stage += 10;   
+X               break;        /* algorithm is factorial!  give up! */
+X             }
+X             printf("\n*** bogo_sort ***\n");
+X             printf("data         compares      stack       ");
+X             printf("heap       user       system\n");
+X             fflush(stdout);
+X             stage ++; test_sort_func(bogo_sort, n, 1); break;
+X    case 81: stage ++; test_sort_func(bogo_sort, n, 2); break;
+X    case 82: stage ++; test_sort_func(bogo_sort, n, 3); break;
+X    case 83: stage ++; test_sort_func(bogo_sort, n, 4); break;
+X    case 84: stage ++; test_sort_func(bogo_sort, n, 5); break;
+X    case 85: stage ++; test_sort_func(bogo_sort, n, 6); break;
+X    case 86: stage ++; test_sort_func(bogo_sort, n, 7); break;
+X    case 87: stage ++; test_sort_func(bogo_sort, n, 8); break;
+X
+X    case 90: done = 1;
+X
+X    default: stage++;
+X  }
+X
+X  return 0;
+X}
+X
+Xvoid test_sort_func(func, n, situation)
+X  int             (*func)();
+X  int             n;
+X  int             situation;
+X{
+X  unsigned int i;
+X  static TEST_TYPE * foo = NULL;
+X  TEST_TYPE temp;
+X  int (*fp)();
+X  int old_heap;
+X  struct tms start, finish;
+X
+X  /* in case of ctrl-c */
+X  if (foo != NULL) free((char *) foo);
+X
+X  foo = (TEST_TYPE *) malloc((n+2) * sizeof(TEST_TYPE));
+X  if (foo == NULL)
+X  {
+X    printf("insufficient memory to conduct test.\n");
+X    exit(1);
+X  }
+X
+X  /* store magic values above and below the array so that we
+X     can verify the the sort didn't run off either end */
+X
+X  foo[0] = (TEST_TYPE) CANARY_LOW;
+X  foo[n+1] = (TEST_TYPE) CANARY_HIGH;
+X
+X  srand((int) n);
+X
+X  /* initialize the contents of the array appropriately for
+X     the situation we are presenting to the sort function */
+X
+X  for (i = 1; i <= n; i ++) 
+X  {
+X    switch(situation)
+X    {
+X      case TEST_RANDOM:
+X      case TEST_FIB_ASC:
+X      case TEST_FIB_DESC:
+X      case TEST_SURPRISE:
+X        do {
+X          foo[i] = rand();
+X        } while (foo[i] == CANARY_LOW || foo[i] == CANARY_HIGH);
+X      break;
+X
+X      case TEST_ASCEND:
+X      case TEST_MOSTLY: 
+X      case TEST_EQUIV: 
+X        foo[i] = i;
+X      break;
+X
+X      case TEST_DESCEND: 
+X        foo[i] = n - i;
+X      break;
+X    }
+X  }
+X
+X  if (situation == TEST_MOSTLY && n > 0)
+X  {
+X    temp = foo[1];
+X    foo[1] = foo[n];
+X    foo[n] = temp;
+X  }
+X
+X  compare_count = 0;
+X  s_low = NULL;
+X  s_high = NULL;
+X  old_heap = mallinfo().uordblks;
+X  s_heap = old_heap;
+X
+X  switch(situation)
+X  {
+X    case TEST_RANDOM:   printf("random:   "); fp = TEST_FUNC; break;
+X    case TEST_ASCEND:   printf("ascend:   "); fp = TEST_FUNC; break;
+X    case TEST_DESCEND:  printf("descend:  "); fp = TEST_FUNC; break;
+X    case TEST_FIB_ASC:  printf("fib asc:  "); fp = lie_ascending; break;
+X    case TEST_FIB_DESC: printf("fib desc: "); fp = lie_descending; break;
+X    case TEST_SURPRISE: printf("surprise: "); fp = surprise;  break;
+X    case TEST_MOSTLY:   printf("mostly:   "); fp = TEST_FUNC;  break;
+X    case TEST_EQUIV:    printf("equiv:    "); fp = lie_equal;  break;
+X    default: fp = NULL; break;
+X  }
+X
+X  fflush(stdout);
+X
+X  times(&start);
+X
+X  /* actually call the sort function */
+X  (*func)((char *) &foo[1], (int) n, sizeof(TEST_TYPE), fp);
+X
+X  times(&finish);
+X
+X/*
+X  printf("\n");
+X  for (i = 0; i < n; i ++) printf(i % 5 == 4 ? "%11d\n" : "%11d ", foo[i]);
+X  printf("\n");
+X*/
+X
+X  /* print out one row of data */
+X
+X  printf("%11d", compare_count);
+X  printf("%11ld", (long) (s_high - s_low));
+X  printf("%11d", s_heap - old_heap);
+X  printf("%11.2f", 
+X    (double) (finish.tms_utime - start.tms_utime) / (double) HZ);
+X  printf("%11.2f", 
+X    (double) (finish.tms_stime - start.tms_stime) / (double) HZ);
+X  fflush(stdout);
+X
+X  if (mallinfo().uordblks - old_heap != 0)
+X    printf(" (%d leak!)", mallinfo().uordblks - old_heap);
+X  printf("\n");
+X
+X  /* check the areas immediately above and immediately below
+X     the array for contamination */
+X
+X  if (foo[0] != CANARY_LOW)
+X    printf("wrote before beginning of array!\n");
+X
+X  if (foo[n+1] != CANARY_HIGH)
+X    printf("wrote past end of array!\n");
+X
+X  /* if appropriate, make sure the data was actually sorted */
+X
+X  if (situation == TEST_RANDOM || situation == TEST_ASCEND ||
+X      situation == TEST_DESCEND || situation == TEST_MOSTLY)
+X    for (i = 2; i <= n; i ++)
+X    {
+X      if ((*TEST_FUNC)(&foo[i], &foo[i-1]) < 0) 
+X      {
+X        printf("out of order at position %d\n", i);
+X        break;
+X      }
+X    }
+X  
+X  /* check for sortedness, but for this case it's not an error
+X     just the normal behavior of the algorithm */
+X
+X  if (situation == TEST_EQUIV)
+X  {
+X    int stable = 1;
+X
+X    for (i = 2; i <= n && stable; i ++)
+X    {
+X      if ((*TEST_FUNC)(&foo[i], &foo[i-1]) < 0) stable = 0;
+X    }
+X
+X    if (stable)
+X      printf("algorithm appears to be stable.\n");
+X    else
+X      printf("algorithm is not stable.\n");
+X  }
+X  
+X
+X  if (foo != NULL) 
+X  {
+X    free((char *) foo);
+X    foo = NULL;
+X  }
+X
+X  return;
+X}
+X
+END_OF_FILE
+  if test 16075 -ne `wc -c <'flogger.c'`; then
+    echo shar: \"'flogger.c'\" unpacked with wrong size!
+  fi
+  # end of 'flogger.c'
+fi
+if test -f 'heap_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'heap_sort.c'\"
+else
+  echo shar: Extracting \"'heap_sort.c'\" \(4436 characters\)
+  sed "s/^X//" >'heap_sort.c' <<'END_OF_FILE'
+X
+X/* 
+X
+XNAME
+X  heap sort 
+X
+XDESCRIPTION
+X
+X  See some of the comments below for a partial description.
+X
+XAUTHORSHIP
+X
+X  This version was written by mouse@larry.mcrcim.mcgill.edu
+X  who has gracefully given me permission to include it in
+X  this package of sort algorithms. 
+X
+X  The original heapsort is credited to Williams by Knuth and
+X  some improvements are credited to Floyd by Standish.
+X
+XREFERENCES
+X
+X  J. W. J. Williams, CACM 7 1964
+X  R. W. Floyd, Algorithm 245: Treesort 3, CACM 7:12 December, 1964
+X  Knuth, Art of Computer Programming Vol 3, page 145ff
+X  Thomas A. Standish, Data Structure Techniques, page 91-92
+X
+XCOMPLEXITY
+X
+X  O(n log n)
+X  Iterative.
+X
+XCOPYRIGHT
+X
+X  Questions about the copyright status of should be addressed
+X  to the author.
+X
+X*/
+X
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <string.h>
+X
+X/* this is an interface routine that takes a parameter
+X   list like qsort's and then calls the real heapsort. */
+X   
+Xint heap_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  char ** temp_in;
+X  char * temp_out;
+X  int i;
+X
+X  temp_in = (char **) malloc(nelem * sizeof(char *));
+X  for (i = 0; i < nelem; i++)
+X    temp_in[i] = base+i*width;
+X
+X  heapsort(temp_in, nelem, cmpr_func);
+X
+X  temp_out = malloc(nelem * width);
+X  for (i = 0; i < nelem; i++)
+X    memcpy(temp_out+i*width, temp_in[i], width);
+X
+X  memcpy(base, temp_out, nelem*width);
+X
+X  free((char *) temp_in);
+X  free(temp_out);
+X
+X  return 0;
+X}
+X
+X/*
+XFrom uunet!Thunder.McRCIM.McGill.EDU!mouse Fri Nov 20 04:41:30 1992
+XDate: Fri, 20 Nov 92 05:13:19 -0500
+XFrom: der Mouse  <uunet!Thunder.McRCIM.McGill.EDU!mouse>
+XTo: mikey@ontek.com
+XSubject: Re: qucik, merge, shell and bubble sort
+XStatus: R
+X
+X> I'll also be adding heapsort and shellsort algorithms; if anyone has
+X> a qsort-like drop-in replacement for either or both of those I'd
+X> appreciate a copy.
+X
+XNote the interface difference (an extra level of pointers, which is a
+Xbit of a pain because it often means allocating an array of char *),
+Xbut here's a heapsort I've been using.  (I wrote it.)
+X*/
+X
+X#if 0
+Xheapsort(ptrs,nels,cmp)
+Xchar **ptrs; /* should be `<unknown>**ptrs', but no such type exists */
+Xint nels;
+Xint (*cmp)();
+X#endif
+X/*
+X        Sorts the ptrs vector.  (*cmp)(ptrs[i],ptrs[j]) should return:
+X
+X                < 0        if *ptrs[i] < *ptrs[j]
+X                = 0        if *ptrs[i] = *ptrs[j]
+X                > 0        if *ptrs[i] > *ptrs[j]
+X
+X        For example, if the ptrs are actually pointers to int, it would
+X        be perfectly good to write a cmp function as follows (unless the
+X        integers are so large that overflow can occur in the subtraction):
+X
+X                int cmp(p1,p2)
+X                char *p1;
+X                char *p2;
+X                {
+X                 return(*(int *)p1 - *(int *)p2);
+X                }
+X
+X        Tip:  If the ptrs are character string pointers, the standard
+X        strcmp() function is a good cmp function.
+X
+X        The vector will be in non-decreasing order by this criterion on
+X        return from heapsort.
+X*/
+X
+Xstatic _heapsort_bubble_up(size,ptrs,cmp)
+Xint size;
+Xchar **ptrs;
+Xint (*cmp)();
+X{
+X int i;
+X int p;
+X char *temp;
+X
+X i = size;
+X while (1)
+X  { if (i == 0)
+X     { return;
+X     }
+X    p = (i - 1) >> 1;
+X    if ((*cmp)(ptrs[i],ptrs[p]) > 0)
+X     { temp = ptrs[i];
+X       ptrs[i] = ptrs[p];
+X       ptrs[p] = temp;
+X       i = p;
+X     }
+X    else
+X     { return;
+X     }
+X  }
+X}
+X
+Xstatic _heapsort_bubble_down(size,ptrs,cmp)
+Xint size;
+Xchar **ptrs;
+Xint (*cmp)();
+X{
+X int i;
+X int j;
+X int l;
+X int r;
+X int cl;
+X int cr;
+X char *temp;
+X
+X i = 0;
+X while (1)
+X  { if (i >= size)
+X     { return;
+X     }
+X    l = i + i + 1;
+X    r = l + 1;
+X    cl = (l >= size) ? 1 : ((*cmp)(ptrs[i],ptrs[l]) >= 0);
+X    cr = (r >= size) ? 1 : ((*cmp)(ptrs[i],ptrs[r]) >= 0);
+X    switch ((cl<<1)|cr)
+X     { case 0:
+X          j = ((*cmp)(ptrs[l],ptrs[r]) > 0) ? l : r;
+X          break;
+X       case 1:
+X          j = l;
+X          break;
+X       case 2:
+X          j = r;
+X          break;
+X       case 3:
+X          return;
+X     }
+X    temp = ptrs[j];
+X    ptrs[j] = ptrs[i];
+X    ptrs[i] = temp;
+X    i = j;
+X  }
+X}
+X
+Xheapsort(ptrs,nels,cmp)
+Xchar **ptrs;
+Xint nels;
+Xint (*cmp)();
+X{
+X int size;
+X char *temp;
+X
+X if (nels <= 1)
+X  { return;
+X  }
+X size = 1;
+X while (size < nels)
+X  { _heapsort_bubble_up(size,ptrs,cmp);
+X    size ++;
+X  }
+X while (size > 1)
+X  { size --;
+X    temp = ptrs[size];
+X    ptrs[size] = ptrs[0];
+X    ptrs[0] = temp;
+X    _heapsort_bubble_down(size,ptrs,cmp);
+X  }
+X}
+END_OF_FILE
+  if test 4436 -ne `wc -c <'heap_sort.c'`; then
+    echo shar: \"'heap_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'heap_sort.c'
+fi
+if test -f 'merge_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'merge_sort.c'\"
+else
+  echo shar: Extracting \"'merge_sort.c'\" \(8283 characters\)
+  sed "s/^X//" >'merge_sort.c' <<'END_OF_FILE'
+X
+X/* 
+X
+XNAME
+X  merge sort
+X
+XDESCRIPTION
+X
+X  Divide up the array into halves, then quarters, then eighths and so
+X  on until it can be divided no more.  Perform a "tape merge" on
+X  adjacent sections, building up larger ordered subsections until
+X  you're done.
+X
+X  This version has some nifty features:
+X
+X  1. It avoids mempcy for arrays of 4 byte or 8 bytes, so sorting
+X     pointers, ints, longs, float, doubles, or appropriately size tiny
+X     structures works quickly.  Someday I will add merge2 and merge16
+X     and round out the collection, but beyond that the savings are
+X     questionable.
+X
+X  2. After the merges of subsections become larger than a certain
+X     number of records, a quick check is made to see if the last item
+X     of the first subsection is less than the first item of the second
+X     subsection; in this case the array is already in order there so
+X     there's no point in doing a merge of the two subsections.  This
+X     feature can be turned off by setting _maybe_sorted to 0.
+X
+X  3. Array indexes and pointer math have been simplified to a degree.
+X     A sophisticated compiler would have no trouble performing strength
+X     reduction, but this way some improvement is available even if you
+X     don't cc -O.
+X
+X  4. If it can't malloc the space it needs, it gives up and calls qsort().
+X
+XAUTHORSHIP
+X
+X  Knuth mentions Von Neumann as the first person who implemented a
+X  decent merge sort.  Merge sort as an algorithm probably predates 
+X  electronic computers.
+X
+XREFERENCES
+X
+X  John Von Neumann, Collected Works 5, 1963
+X  Knuth, Art of Computer Programming Vol 3, pg 159-168
+X
+XCOMPLEXITY
+X
+X  O(n log n)
+X
+X  This code is recursive, although the algorithm can be (and often is)
+X  implemented without recursion.
+X
+X  Unlike many sort algorithms, this takes 2n memory.
+X
+XPORTABILITY PROBLEMS
+X
+X  My choice of sizes for special sort functions and for the
+X  MAYBE_THRESHOLD aren't necessarily ideal for all computers
+X  for all time.  
+X  
+X  The alignment check is hopelessly RISC-centric, but easy to remove.
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X
+X#include "sorting.h"
+X
+X#ifdef PARANOID
+X#include <assert.h>
+X#endif
+X
+Xint _maybe_sorted = 1;
+X
+Xstatic int merge4();
+Xstatic int merge8();
+Xstatic int mergen();
+X
+Xint merge_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  if (width == sizeof(chunk4) && (int) base % sizeof(chunk4) == 0)
+X    return merge4((chunk4 *) base, nelem, cmpr_func);
+X  else if (width == sizeof(chunk8) && (int) base % sizeof(chunk8) == 0) 
+X    return merge8((chunk8 *) base, nelem, cmpr_func);
+X  else 
+X    return mergen(base, nelem, width, cmpr_func);
+X}
+X
+X
+Xstatic int merge4(base, nelem, cmpr_func)
+X  chunk4 * base;
+X  int nelem;
+X  int (*cmpr_func)();
+X{
+X  int split;
+X  int a, b;
+X  chunk4 * c;
+X  int in_order;
+X  static chunk4 * out = NULL;
+X  int mine = 0;
+X
+X  if (out == NULL)
+X  {
+X    out = (chunk4 *) malloc(nelem * sizeof(chunk4));
+X    if (out == NULL)
+X    {
+X      qsort((char *) base, nelem, sizeof(chunk4), cmpr_func);
+X      return 0;
+X    }
+X    mine = 1;
+X  }
+X
+X  split = (nelem+1) / 2;
+X
+X  if (split > 1) 
+X    (void) merge4(base, split, cmpr_func);
+X  if (nelem - split > 1) 
+X    (void) merge4(base+split, nelem-split, cmpr_func);
+X
+X  if (_maybe_sorted && nelem > MAYBE_THRESHOLD &&
+X      (*cmpr_func)(base+split, base+split-1) >= 0) 
+X  {
+X    if (mine)
+X    {
+X      free((char *) out);
+X      out = NULL;
+X    }
+X    return 0;
+X  }
+X
+X  a = 0; 
+X  b = split;
+X
+X  c = out;
+X
+X  while(a < split)
+X  {
+X    if (b >= nelem)
+X      in_order = 1;
+X    else 
+X      in_order = ((*cmpr_func)(base+a, base+b) <= 0);
+X    
+X    if (in_order)
+X    {
+X      *c = *(base + a);
+X      c ++;
+X      a ++;
+X    }
+X    else
+X    {
+X      *c = *(base + b);
+X      c ++;
+X      b ++;
+X    }
+X
+X#ifdef PARANOID
+X    assert(c - out <= nelem);
+X#endif
+X
+X  }
+X
+X#ifdef PARANOID
+X  assert(c - out <= nelem);
+X#endif
+X
+X  for (a = 0; a < c - out; a ++) base[a] = out[a];
+X
+X  if (mine)
+X  {
+X    free((char *) out);
+X    out = NULL;
+X  }
+X    
+X  return 0;
+X}
+X
+X
+X
+Xstatic int merge8(base, nelem, cmpr_func)
+X  chunk8 * base;
+X  int nelem;
+X  int (*cmpr_func)();
+X{
+X  int split;
+X  int a, b;
+X  chunk8 * c;
+X  int in_order;
+X  static chunk8 * out = NULL;
+X  int mine = 0;
+X
+X  if (out == NULL)
+X  {
+X    out = (chunk8 *) malloc(nelem * sizeof(chunk8));
+X    if (out == NULL)
+X    {
+X      qsort((char *) base, nelem, sizeof(chunk8), cmpr_func);
+X      return 0;
+X    }
+X    mine = 1;
+X  }
+X
+X  split = (nelem+1) / 2;
+X
+X  if (split > 1) 
+X    (void) merge8(base, split, cmpr_func);
+X  if (nelem - split > 1) 
+X    (void) merge8(base+split, nelem-split, cmpr_func);
+X
+X  if (_maybe_sorted && nelem > MAYBE_THRESHOLD &&
+X      (*cmpr_func)(base+split, base+split-1) >= 0) 
+X  {
+X    if (mine) 
+X    {
+X      free((char *) out);
+X      out = NULL;
+X    }
+X    return 0;
+X  }
+X
+X  a = 0; 
+X  b = split;
+X
+X  c = out;
+X
+X  while(a < split)
+X  {
+X    if (b >= nelem)
+X      in_order = 1;
+X    else 
+X      in_order = ((*cmpr_func)(base+a, base+b) <= 0);
+X    
+X    if (in_order)
+X    {
+X      *c = *(base + a);
+X      c ++;
+X      a ++;
+X    }
+X    else
+X    {
+X      *c = *(base + b);
+X      c ++;
+X      b ++;
+X    }
+X
+X#ifdef PARANOID
+X    assert(c - out <= nelem);
+X#endif
+X
+X  }
+X
+X#ifdef PARANOID
+X  assert(c - out <= nelem);
+X#endif
+X
+X  for (a = 0; a < c - out; a ++) base[a] = out[a];
+X    
+X  if (mine)
+X  {
+X    free((char *) out);
+X    out = NULL;
+X  }
+X
+X  return 0;
+X}
+X
+X
+Xstatic int mergen(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int (*cmpr_func)();
+X  int width;
+X{
+X  int split, nw, sw;
+X  int a, b;
+X  char * c;
+X  int in_order;
+X  static char * out = NULL;
+X  int mine = 0;
+X
+X  nw = nelem*width;
+X
+X  if (out == NULL)
+X  {
+X    out = (char *) malloc(nw);
+X    if (out == NULL)
+X    {
+X      qsort(base, nelem, width, cmpr_func);
+X      return 0;
+X    }
+X    mine = 1;
+X  }
+X
+X  split = (nelem+1) / 2;
+X  sw = split*width;
+X
+X  if (split > 1) 
+X    (void) mergen(base, split, width, cmpr_func);
+X  if (nelem - split > 1) 
+X    (void) mergen(base+sw, nelem-split, width, cmpr_func);
+X
+X  if (_maybe_sorted && nelem > MAYBE_THRESHOLD &&
+X      (*cmpr_func)(base+sw, base+sw-width) >= 0) 
+X  {
+X    if (mine) 
+X    {
+X      free(out);
+X      out = NULL;
+X    }
+X    return 0;
+X  }
+X
+X  a = 0; 
+X  b = sw;
+X  c = out;
+X
+X  while(a < sw)
+X  {
+X    if (b >= nw)
+X      in_order = 1;
+X    else 
+X      in_order = ((*cmpr_func)(base+a, base+b) <= 0);
+X    
+X    /* todo: try coalescing adjacent iterations into the
+X       same call to memcpy when in_order is the same */
+X
+X    if (in_order)
+X    {
+X      memcpy(c, base+a, width);
+X      c += width;
+X      a += width;
+X    }
+X    else
+X    {
+X      memcpy(c, base+b, width);
+X      c += width;
+X      b += width;
+X    }
+X
+X#ifdef PARANOID
+X    assert(c - out <= nelem * width);
+X#endif
+X
+X  }
+X
+X#ifdef PARANOID
+X  assert(c - out <= nelem * width); 
+X#endif
+X
+X  memcpy(base, out, c - out);
+X
+X  if (mine)
+X  {
+X    free(out);
+X    out = NULL;
+X  }
+X
+X  return 0;
+X}
+END_OF_FILE
+  if test 8283 -ne `wc -c <'merge_sort.c'`; then
+    echo shar: \"'merge_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'merge_sort.c'
+fi
+if test -f 'quick_sort.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'quick_sort.c'\"
+else
+  echo shar: Extracting \"'quick_sort.c'\" \(5105 characters\)
+  sed "s/^X//" >'quick_sort.c' <<'END_OF_FILE'
+X
+X/*
+X
+XNAME
+X  quicksort, or partition exchange sort
+X
+XDESCRIPTION
+X
+X  Sort by partitioning, then sort the partitions, and so on.
+X
+XAUTHORSHIP
+X
+X  C. A. R. Hoare.
+X  This particular implementation is taken from K&R2.
+X
+XREFERENCES
+X
+X  Hoare, Comp. J. 5, 1962
+X  Knuth, Vol 3, page 114ff
+X  Kernighan & Ritchie The C Programming Language, Revised Edition, pg 87
+X  Standish, Data Structure Techniques pg 23-27
+X  Sedgewick, Implementing Quicksort Programs CACM 21:10 October 1978
+X
+XCOMPLEXITY
+X
+X  Best case O(n log n)
+X  Worse case O(n^2)
+X  Recursive.
+X
+XPORTABILITY PROBLEMS
+X
+X  Same problems as with merge_sort.
+X
+XCOPYRIGHT
+X
+X  Copyright 1992 Michael Lee.
+X
+X  (1) Permission to use, copy, distribute, and make changes is granted
+X  providing that (a) that you do so without charging anyone a fee and
+X  (b) this copyright notice must be included verbatim in all copies and 
+X  distributions.  
+X
+X  (2) There is no warranty for this program, to the extent permitted by
+X  applicable law.  This program is provided "AS IS" without warranty of
+X  any kind, either expressed or implied, including, but not limited to,
+X  the implied warranties of merchantability and fitness for a particular 
+X  purpose.  The entire risk as to the quality and performance of this 
+X  program is with the user.  Should this program prove defective, the 
+X  user assumes the cost of all necessary servicing, repair or correction.
+X
+X  (3) In no event unless required by applicable law will the copyright
+X  holder be liable to the user for damages, including any general,
+X  special, incidental or consequential damages arising out of the use
+X  or inability to use this program (including but not limited to loss of
+X  data or data being rendered inaccurate or losses sustained by the
+X  user or third parties or a failure of this program to operate with any
+X  other programs), even if such holder or third party has been advised
+X  of the possibility of such damages.
+X
+X  (4) Object code produced by a compiler from this code may be 
+X  incorporated into commercial products without being subject to 
+X  restrictions (1)(a) or (1)(b).
+X
+X*/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <memory.h>
+X#include <string.h>
+X#include <assert.h>
+X
+X#include "sorting.h"
+X
+Xstatic char * copy_buffer = NULL;
+X
+Xstatic int quick_sortn();
+Xstatic int quick_sort4();
+Xstatic int quick_sort8();
+X
+Xint quick_sort(base, nelem, width, cmpr_func)
+X  char * base;
+X  int nelem;
+X  int width;
+X  int (*cmpr_func)();
+X{
+X  copy_buffer = malloc(width); 
+X  assert(copy_buffer != NULL);
+X
+X  if (width == sizeof(chunk4) && (long) base % sizeof(chunk4) == 0) 
+X    quick_sort4((chunk4 *) base, cmpr_func, 0, nelem-1);
+X  else if (width == sizeof(chunk8) && (long) base % sizeof(chunk8) == 0) 
+X    quick_sort8((chunk8 *) base, cmpr_func, 0, nelem-1);
+X  else 
+X    quick_sortn(base, width, cmpr_func, 0, nelem-1);
+X
+X  free(copy_buffer);
+X  copy_buffer = NULL;
+X}
+X
+X
+Xstatic quick_sortn(base, width, cmpr_func, left, right)
+X  char * base;
+X  int width;
+X  int (*cmpr_func)();
+X  int left, right;
+X{
+X  int i, last;
+X  int half = (left+right)/2;
+X
+X  if (left >= right) return;
+X
+X  memcpy(copy_buffer, base+width*left, width);
+X  memcpy(base+width*left, base+width*half, width);
+X  memcpy(base+width*half, copy_buffer, width);
+X
+X  last = left;
+X  for (i = left + 1; i <= right; i++)
+X    if ((*cmpr_func)(base+width*i, base+width*left) < 0)
+X    {
+X      last ++;
+X      if (last == i) continue;
+X      memcpy(copy_buffer, base+width*last, width);
+X      memcpy(base+width*last, base+width*i, width);
+X      memcpy(base+width*i, copy_buffer, width);
+X    }
+X
+X  memcpy(copy_buffer, base+width*left, width);
+X  memcpy(base+width*left, base+width*last, width);
+X  memcpy(base+width*last, copy_buffer, width);
+X
+X  quick_sortn(base, width, cmpr_func, left, last-1);
+X  quick_sortn(base, width, cmpr_func, last+1, right);
+X}
+X
+X
+Xstatic quick_sort4(base, cmpr_func, left, right)
+X  chunk4 * base;
+X  int (*cmpr_func)();
+X  int left, right;
+X{
+X  int i, last; 
+X  chunk4 temp;
+X
+X  if (left >= right) return;
+X
+X  temp = base[left];
+X  base[left] = base[(left+right)/2];
+X  base[(left+right)/2] = temp;
+X
+X  last = left;
+X  for (i = left + 1; i <= right; i++)
+X    if ((*cmpr_func)(&base[i], &base[left]) < 0)
+X    {
+X      last ++;
+X      if (last == i) continue;
+X      temp = base[last];
+X      base[last] = base[i];
+X      base[i] = temp;
+X    }
+X
+X  temp = base[left];
+X  base[left] = base[last];
+X  base[last] = temp;
+X
+X  quick_sort4(base, cmpr_func, left, last-1);
+X  quick_sort4(base, cmpr_func, last+1, right);
+X}
+X
+X
+Xstatic quick_sort8(base, cmpr_func, left, right)
+X  chunk8 * base;
+X  int (*cmpr_func)();
+X  int left, right;
+X{
+X  int i, last; 
+X  chunk8 temp;
+X
+X  if (left >= right) return;
+X
+X  temp = base[left];
+X  base[left] = base[(left+right)/2];
+X  base[(left+right)/2] = temp;
+X
+X  last = left;
+X  for (i = left + 1; i <= right; i++)
+X    if ((*cmpr_func)(&base[i], &base[left]) < 0)
+X    {
+X      last ++;
+X      if (last == i) continue;
+X      temp = base[last];
+X      base[last] = base[i];
+X      base[i] = temp;
+X    }
+X
+X  temp = base[left];
+X  base[left] = base[last];
+X  base[last] = temp;
+X
+X  quick_sort8(base, cmpr_func, left, last-1);
+X  quick_sort8(base, cmpr_func, last+1, right);
+X}
+X
+END_OF_FILE
+  if test 5105 -ne `wc -c <'quick_sort.c'`; then
+    echo shar: \"'quick_sort.c'\" unpacked with wrong size!
+  fi
+  # end of 'quick_sort.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

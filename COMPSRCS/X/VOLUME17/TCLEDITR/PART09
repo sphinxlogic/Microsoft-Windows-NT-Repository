@@ -1,0 +1,1937 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i010: point text editor (TCL and TK), Part09/16
+Message-ID: <1992Mar18.141542.27063@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:15:42 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 10
+Archive-name: tcl-editor/part09
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 15)."
+# Contents:  browser.c regex.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'browser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'browser.c'\"
+else
+echo shar: Extracting \"'browser.c'\" \(20828 characters\)
+sed "s/^X//" >'browser.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/browser.c,v 1.12 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <sys/types.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include "pt.h"
+X#ifdef SYSV
+X/*** NECESSARY? #include <libgen.h> ***/
+X#include <dirent.h>
+X#else
+X#include <sys/dir.h>
+X#endif
+X#include <sys/stat.h>
+X/***#include <stdio.h>***/
+X#include <X11/keysym.h>
+X#include <X11/StringDefs.h>
+X
+X
+X#define FILENAMESSIZE		10000
+X#define FILELISTSIZE		 1000
+X#define FILETREECHARSIZE	10000
+X#define FILETREELISTSIZE	 1000
+X#define HOME			    1
+X#define N_OLD_DIRS		   30
+X
+BrowserData *mainBrowser = NULL;
+BrowserData *activeBrowser = NULL;
+BrowserData *browserList = NULL;
+X
+X/* open window list data */
+OpenWindowStruct *openWindowList;
+int numberOfOpenWindows;
+X
+X/* cache of old directory data */
+int nextOldDirs = 0;
+XFileListData *oldDirs[N_OLD_DIRS];
+X
+X#ifdef VAX_FIX
+char *
+getcwd( buffer, length )
+X	char * buffer;
+X	int length;
+X{
+X	char *getwd();
+X
+X	return getwd( buffer );
+X}
+int
+isspace( c )
+X	char c;
+X{
+X	return c==' '||c=='\t'||c=='\n'||c=='\r'||c=='\f';
+X}
+double
+strtod( str, ptr )
+X	char * str;
+X	char ** ptr;
+X{
+X	double d = atof( str );
+X
+X	/* this is not exactly correct put will do for here */
+X	if( ptr != NULL )
+X		*ptr = str + strlen(str);
+X	return d;
+X}
+X#endif
+X
+static void
+InitializeDirectoryCache()
+X{
+X	int i;
+X	FileListData *fl;
+X	int size = sizeof(FileListData);
+X	
+X	for( i = 0; i < N_OLD_DIRS; ++i ) {
+X		fl = (FileListData *)PtMalloc( size, "list of files" );
+X		fl->fileNames = NULL;
+X		fl->listOfFilesShowing = NULL;
+X		fl->numberOfFilesShowing = 0;
+X		fl->ino = 0;
+X		fl->mtime = 0;
+X		fl->directoryName = NULL;
+X		fl->age = 0;
+X		fl->use_count = 0;
+X		fl->flags = 0;
+X		fl->filePattern[0] = '\0';
+X		oldDirs[i] = fl;
+X	}
+X}
+X
+BrowserData *
+XFindBrowserByTkName( name )
+X	char * name;
+X{
+X	extern BrowserData * browserList;
+X
+X	BrowserData * browser = browserList;
+X
+X	while( browser != NULL ) {
+X		if( strcmp( browser->tk_pathname, name ) == 0 )
+X			break;
+X		browser = browser->nextBrowser;
+X	}
+X	return browser;
+X}
+X
+void
+ReduceUseCount( fl )
+X	FileListData *fl;
+X{
+X	int i;
+X
+X	for( i = 0; i < N_OLD_DIRS; ++i ) {
+X		if( fl == oldDirs[i] ) {
+X			--(fl->use_count);
+X			break;
+X		}
+X	}
+X}
+X
+extern struct window *activeWindow;
+extern Display *MainDisplay;
+X
+X#ifdef LATERLATER
+void
+ptBrowserLetter(w, event, args, nargs)
+X	int w;
+X	XKeyEvent *event;
+X	String *args;
+X	Cardinal *nargs;
+X{
+X	extern char msgBuffer[];
+X	extern char * textGeometry;
+X	extern int debug;
+X
+X	char buf[4];
+X	int ret;
+X	KeySym keysym;
+X	static char prefix[100];
+X	static int iprefix = 0;
+X	static int last_index = -1;
+X
+X	if( event->type != KeyPress )
+X		return;
+X	ret = XLookupString(event, buf, 4, &keysym, NULL);
+X	buf[ret] = '\0';
+X	if( ret != 1 ) {
+X		switch( keysym ) {
+X		case XK_Shift_L:
+X		case XK_Shift_R:
+X		case XK_Control_L:
+X		case XK_Control_R:
+X		case XK_Caps_Lock:
+X		case XK_Shift_Lock:
+X		case XK_Meta_L:
+X		case XK_Meta_R:
+X		case XK_Alt_L:
+X		case XK_Alt_R:
+X		case XK_Super_L:
+X		case XK_Super_R:
+X		case XK_Hyper_L:
+X		case XK_Hyper_R:
+X			/* modifier keys, ignore them */
+X			return;
+X		}
+X	}
+X	if( ret == 1 ) {
+X		char **list = activeBrowser->fileListData->listOfFilesShowing;
+X		int num = activeBrowser->fileListData->numberOfFilesShowing;
+X		int i;
+X		if( buf[0] == '\r' ) {
+X			if( last_index != -1 ) {
+X#ifdef LATER
+X				OpenListFile( buf, textGeometry );
+X#endif
+X				printf("Unhighlight list item\n");
+X			} else if( iprefix == 0 ) {
+X				XBell( MainDisplay, 0 );
+X				printf("No file selected\n");
+X			} else {
+X				GetNewFile( NULL, prefix, textGeometry );
+X			}
+X		} else {
+X	startOver:
+X			prefix[iprefix++] = buf[0];
+X			prefix[iprefix] = '\0';
+X			for( i = 0; i < num; ++i ) {
+X				if( strncmp(prefix,list[i],iprefix) == 0 ) {
+X					printf("Highlight list item\n");
+X					last_index = i;
+X					break;
+X				}
+X			}
+X			if( i >= num ) {
+X				last_index = -1;
+X				printf("Unhighlight list item\n");
+X			}
+X		}
+X	} else {
+X		iprefix = 0;
+X		last_index = -1;
+X		printf("Unhighlight list item\n");
+X	}
+X}
+X#endif
+X
+void
+ChangeBrowserFontTo( browser, fontName )
+X	BrowserData *browser;
+X	char *fontName;
+X{
+X	extern char msgBuffer[];
+X	extern Tcl_Interp * interp;
+X
+X	XFontStruct *fontInfo;
+X
+retry_font:
+X	fontInfo = Tk_GetFontStruct( interp, browser->tk_toplevel,
+X						Tk_GetUid(fontName) );
+X	if( fontInfo == NULL ) {
+X		printf("Cannot load font %s, using \"fixed\"\n", fontName );
+X		fontName = "fixed";
+X		goto retry_font;
+X	}
+X	(browser->browserFont).height = fontInfo->ascent + fontInfo->descent;
+X	(browser->browserFont).width  = fontInfo->max_bounds.width;
+X	(browser->browserFont).ascent = fontInfo->ascent;
+X	Tk_FreeFontStruct( fontInfo );
+X
+X	sprintf( msgBuffer, "%s.fileList.list configure -font %s",
+X					browser->tk_pathname, fontName );
+X	(void)ExecTclCommand( (char *)msgBuffer );
+X
+X	sprintf( msgBuffer, "%s.openList.list configure -font %s",
+X					browser->tk_pathname, fontName );
+X	(void)ExecTclCommand( (char *)msgBuffer );
+X}
+X
+void
+RaiseListWindow( n, geometry )
+X	int n;
+X	char * geometry;
+X{
+X	extern char msgBuffer[];
+X
+X	struct window * w;
+X
+X	if( n < 0 || n >= numberOfOpenWindows ) {
+X		printf("MakeActiveWindow: index=%d should be < %d\n",
+X			n, numberOfOpenWindows );
+X		return;
+X	}
+X	w = openWindowList[n].w;
+X	if( w != NULL ) {
+X		activeWindow = w;
+X		sprintf( msgBuffer, "MoveWindow %s", geometry );
+X		(void)ExecTclCommand( (char *)msgBuffer );
+X	} else
+X		printf("ERROR: window %s not found in list of open windows\n",
+X			openWindowList[n].name);
+X}
+X
+int
+listComp( a, b )
+X	char *a;
+X	char *b;
+X{
+X	extern int showDirsFirst;
+X	extern int showSizes;
+X
+X	if( showDirsFirst ) {
+X		char last_in_a;
+X		char last_in_b;
+X		char * end_of_a = strlen(*(char **)a) - 1 + *(char **)a;
+X		char * end_of_b = strlen(*(char **)b) - 1 + *(char **)b;
+X		/* ignore the file size if present */
+X		if( showSizes ) {
+X			/* back up past the ' (NNNk)' */
+X			while( *end_of_a-- != ' ' )
+X				/*EMPTY*/
+X				;
+X			while( *end_of_b-- != ' ' )
+X				/*EMPTY*/
+X				;
+X		}
+X		/* get the last character in the file name */
+X		last_in_a = *end_of_a;
+X		last_in_b = *end_of_b;
+X		if( last_in_a == '/' ) {
+X			if( last_in_b != '/' )
+X				return -1;
+X		} else {
+X			if( last_in_b == '/' )
+X				return 1;
+X		}
+X	}
+X	return strcmp(*(char **)a, *(char **)b);
+X}
+X
+int
+openComp( a, b )
+X	char *a;
+X	char *b;
+X{
+X	return strcmp(  ((OpenWindowStruct *)a)->name,
+X			((OpenWindowStruct *)b)->name );
+X}
+X
+X#ifdef SVR4
+X#undef SYSV
+X#define SYSV
+X#endif
+X
+X/*SUPPRESS 68*/ /*SUPPRESS 544*/
+X
+void
+NewFilelist( browser )
+X	BrowserData *browser;
+X{
+X	extern char * filePattern;
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern char currentDirectory[];
+X	extern int showSizes;
+X	extern int debug;
+X
+X	DIR *dirp;
+X#ifdef SYSV
+X	struct dirent *dp;
+X#else
+X	struct direct *dp;
+X#endif
+X	int namelength;
+X	char *endFileNames, *curFileNames;
+X	char **endList, **curList;
+X	int wide;
+X	struct stat statbuf;
+X	int nCols;
+X	int longestName;
+X	int i, col, oldest_unused, oldest_age, new_dir;
+X	char *p;
+X	char *pp;
+X	FileListData *fl;
+X	char flags;
+X	char buffer[256];
+X	char * from, * to, * re_bad;
+X
+X	/* to save computation keep local copies of these */
+X	char *fileNames;
+X	char **listOfFilesShowing;
+X	int numberOfFilesShowing;
+X
+X	/* protect myself (this happens during initialization) */
+X	if( browser == NULL )
+X		return;
+X	/* make up the flags byte */
+X	flags = 0;
+X	if( showSizes )
+X		flags |= SHOW_SIZES_FLAG;
+X
+X	/* get the current directory and change the label to display it */
+X	(void)getcwd(currentDirectory, FILENAMESIZE);
+X	strncpy(browser->cwd, currentDirectory, FILENAMESIZE);
+X
+X	/* see if this directory is in our cache (and has not changed) */
+X	stat( currentDirectory, &statbuf );	/* get inode and mtime */
+X	oldest_unused = 0;	/* always have a legal value */
+X	oldest_age = -1;
+X	new_dir = -1;
+X	for( i = 0; i < N_OLD_DIRS; ++i ) {
+X		fl = oldDirs[i];	/* constantly used so get ptr */
+X		/* increment the age and look for the oldest, unused one */
+X		++(fl->age);
+X		if( fl->use_count == 0 && fl->age > oldest_age ) {
+X			oldest_age = fl->age;
+X			oldest_unused = i;
+X		}
+X		/* look for the old directory in the cache */
+X		if( fl == browser->fileListData ) {
+X			--(fl->use_count);
+X		}
+X		/* if this directory is in the cache and unchanged, use it */
+X		if( fl->ino==statbuf.st_ino && fl->mtime==statbuf.st_mtime
+X		 && fl->flags==flags && fl->showSizes==showSizes
+X		 && strcmp(fl->filePattern,filePattern)==0 ) {
+X		 	fl->age = 0;	/* restart aging */
+X		 	++(fl->use_count);	/* another user of this one */
+X		 	new_dir = i;
+X		 }
+X	}
+X	if( new_dir >= 0 ) {	/* found it in the cache */
+X		fl = oldDirs[new_dir];
+X		browser->fileListData = fl;
+X		longestName = fl->longestname;
+X		listOfFilesShowing = fl->listOfFilesShowing;
+X		numberOfFilesShowing = fl->numberOfFilesShowing;
+X		goto changeDisplay;
+X	}
+X	/* else erase the oldest entry in the directory cache, */
+X	fl = oldDirs[oldest_unused];
+X
+X	/* free the strings whose pointers we will write over */
+X	PtFree( fl->fileNames );
+X	PtFree( (char *)(fl->listOfFilesShowing) );
+X	PtFree( fl->directoryName );
+X
+X	/* initialize the fields */
+X	browser->fileListData = fl;
+X	fl->age = 0;
+X	fl->use_count = 1;
+X	fl->ino = statbuf.st_ino;
+X	fl->mtime = statbuf.st_mtime;
+X	fl->flags = flags;
+X	strncpy( fl->filePattern, filePattern, 128 );
+X
+X	/* remember the directory name */
+X	p = (char *)PtMalloc( strlen(currentDirectory)+1, "directory name" );
+X	strcpy( p, currentDirectory );
+X	fl->directoryName = (char *)p;
+X	
+X	/* allocate the space for the lists */
+X	fileNames = PtMalloc(FILENAMESSIZE*sizeof(char), "file names" );
+X	endFileNames = fileNames + FILENAMESSIZE;
+X	curFileNames = fileNames;
+X	listOfFilesShowing = (char **)PtMalloc(FILELISTSIZE*sizeof(char *),
+X						(char *)"files showing" );
+X	endList = listOfFilesShowing + FILELISTSIZE;
+X	curList = listOfFilesShowing;
+X
+X	/* set up the regular expression to check the filenames against */
+X	to = buffer;
+X	from = fl->filePattern;
+X	*to++ = '^';
+X	while( 1 ) {
+X		char ch = *from++;
+X		switch( ch ) {
+X			case '\0':
+X				*to++ = '$';
+X				*to = '\0';
+X				goto out;
+X			case '*':
+X				*to++ = '.';
+X				break;
+X			case '?':
+X				ch = '.';
+X				break;
+X			case '.':
+X				*to++ = '\\';
+X				break;
+X		}
+X		*to++ = ch;
+X	}
+out:
+X	if( (re_bad = re_comp(buffer)) != NULL ) {
+X		printf("RE error: %s\n", re_bad);
+X	}
+X	
+X	dirp = opendir(".");
+X	if( dirp == NULL ) {
+X		extern int errno;
+X		extern int sys_nerr;
+X		extern char *sys_errlist[];
+X		if( errno < sys_nerr )
+X			p = (char *)sys_errlist[errno];
+X		else
+X			p = (char *)"";
+X		sprintf( msgBuffer, "Open directory failed: %s", (char *)p );
+X		msg( (char *)msgBuffer, 1 );
+X		*curList = "Could not open directory";
+X		longestName = strlen(*curList);
+X		numberOfFilesShowing = 1;
+X		goto skipDirectorySearch;
+X	}
+X	/* put in the Tk command */
+X	numberOfFilesShowing = 0;
+X	longestName = 0;
+X	dp = readdir(dirp);	/* skip '.' (which is always first) */
+X	for( dp = readdir(dirp); dp != NULL; dp = readdir(dirp) ) {
+X#ifdef SYSV
+X		namelength = strlen(dp->d_name);
+X#else
+X		namelength = dp->d_namlen;
+X#endif
+X		stat(dp->d_name, &statbuf);
+X		if( (statbuf.st_mode & S_IFMT)!=S_IFDIR &&  re_bad==NULL ) {
+X			i = re_match( dp->d_name );
+X			if( i < 1 ) {
+printf(" (NoMatch %s)", dp->d_name);
+X				continue;
+X			}
+X		}
+X		if( curFileNames + namelength >= endFileNames ) {
+X			printf("name list overflow\n");
+X/* LATER REALLOCATE THE LIST LARGER */
+X			break;
+X		}
+X		if( curList >= endList ) {
+X			printf("pointer list overflow\n");
+X			/* later reallocate the list larger */
+X			break;
+X		}
+X		*curList++ = curFileNames;
+X		strcpy(curFileNames, dp->d_name);
+X		curFileNames += namelength + 1;	/* +1 for the nul */
+X		if( (statbuf.st_mode & S_IFMT) == S_IFDIR ) {
+X			*--curFileNames = '/';
+X			*++curFileNames = '\0';
+X			++curFileNames;
+X			++(namelength);
+X		}
+X		if( showSizes ) {
+X			char s[25];
+X			int i, l;
+X			sprintf( s, " (%dk)", (statbuf.st_size+1023)/1024 );
+X			l = strlen( s );
+X			--curFileNames;		/* back up over the '\0' */
+X			for( i = 0; i <= l; ++i ) {
+X				*curFileNames++ = s[i];
+X			}
+X			/* this loop will copy the '\0' also */
+X			namelength += l;
+X		}
+X		if( namelength > longestName )
+X			longestName = namelength;
+X		++numberOfFilesShowing;
+X	}
+X	closedir(dirp);
+X
+X	/* sort the file names */
+X	qsort( (char *)listOfFilesShowing, numberOfFilesShowing,
+X			sizeof(char *), listComp);
+X
+skipDirectorySearch:
+X	/* put everything back into the structure */
+X	fl->fileNames = fileNames;
+X	fl->listOfFilesShowing = listOfFilesShowing;
+X	fl->numberOfFilesShowing = numberOfFilesShowing;
+X	fl->longestname = longestName;
+X	fl->showSizes = showSizes;
+X
+changeDisplay:
+X	/* figure out how many columns to use */
+X		/* for big browsers only */
+X	{
+X		int columnSpacing = 7;
+X		int overhead = 46;
+X
+X		wide = Tk_Width( browser->tk_toplevel ) - overhead;
+X		col = longestName*((browser->browserFont).width)+columnSpacing;
+X		nCols = (wide + columnSpacing) / col;
+X		if( nCols < 1 )
+X			nCols = 1;
+X		sprintf(msgBuffer,"%s.fileList.list configure -columns %d",
+X						browser->tk_pathname, nCols );
+X		(void)ExecTclCommand( (char *)msgBuffer );
+X	}
+X
+X	/* make this the new list */
+X	/* first delete all the old list elements */
+X	sprintf( msgBuffer, "catch {%s.fileList.list delete 0 end}",
+X							browser->tk_pathname );
+X	(void)ExecTclCommand( (char *)msgBuffer );
+X	
+X	/* then insert each file name in the new list */
+X	for( i = 0; i < numberOfFilesShowing; ++i ) {
+X		sprintf( msgBuffer, "%s.fileList.list insert end \"%s\"",
+X				browser->tk_pathname, listOfFilesShowing[i] );
+X		(void)ExecTclCommand( (char *)msgBuffer );
+X	}
+X
+X	/* store the directory name in the window title */
+X	strcpy( msgBuffer, browser->cwd );
+X	pp = tildefyFilename( (char *)msgBuffer );
+X	sprintf( textBuffer,
+X		"wm title %s {%s};wm iconname %s {%s}",
+X			browser->tk_pathname, pp, browser->tk_pathname, pp );
+X	(void)ExecTclCommand( textBuffer );
+X}
+X
+void
+NewOpenList( )
+X{
+X	extern struct openFile *files;
+X	extern struct window *windowList;
+X	extern char msgBuffer[];
+X	extern int pathNames;
+X	extern int debug;
+X	extern struct openFile *files;
+X	extern BrowserData *browserList;
+X
+X	int col;
+X	int n, wide, nCols, len, longestName;
+X	struct window *w;
+X	char *s, *new_s;
+X	BrowserData *browser;
+X
+X	/* free the old space first */
+X	if( openWindowList != NULL ) {
+X		int i = 0;
+X		OpenWindowStruct *sp = openWindowList;
+X		while( i++ < numberOfOpenWindows )
+X			PtFree( (sp++)->name );
+X		PtFree((char *)openWindowList);
+X	}
+X		
+X	/* see how many windows there are */
+X	w = windowList;
+X	numberOfOpenWindows = 0;
+X	while( w != NULL ) {
+X		++numberOfOpenWindows;
+X		w = w->nextWindow;
+X	}
+X
+X	/* always have at least one space in openWindowList */
+X	if( (n = numberOfOpenWindows) == 0 )
+X		n = 1;
+X	openWindowList = (OpenWindowStruct *) PtMalloc(
+X			n * sizeof(OpenWindowStruct), "open window list" );
+X
+X	if( numberOfOpenWindows > 0 ) {
+X		w = windowList;
+X		longestName = 0;
+X		n = 0;
+X		while( n < numberOfOpenWindows ) {
+X			/* see if we should use the full pathname */
+X			col = (pathNames ? 0 : w->nameOffset);
+X			s = &((files[w->fileId].origName)[col]);
+X			len = strlen(s) + 2;
+X			/* allocate space for the name and copy it in */
+X			new_s = (char *)PtMalloc(len, "file name");
+X			strncpy( new_s, s, len );
+X			if( files[w->fileId].flags & IS_CHANGED ) {
+X				/* if changed add a '*' at the end */
+X				--len;	/* we added one for the '\0' */
+X				new_s[len-1] = '*';
+X				new_s[len] = '\0';
+X			} else
+X				/* otherwise correct the length */
+X				len -= 2;
+X			openWindowList[n].name = new_s;
+X			if( len > longestName )
+X				longestName = len;
+X			/* remember the window ID so we can raise it easily */
+X			openWindowList[n].w = w;
+X			w = w->nextWindow;
+X			++n;
+X		}
+X		qsort( (char *)openWindowList, numberOfOpenWindows,
+X				sizeof(OpenWindowStruct), openComp );
+X	
+X	} else {
+X#define NO_WINDOWS "No Open Windows"
+X		s = (char *)PtMalloc( strlen(NO_WINDOWS)+1, "file name" );
+X		strcpy( s, NO_WINDOWS );
+X#undef NO_WINDOWS
+X		openWindowList[numberOfOpenWindows].w = NULL;
+X		openWindowList[numberOfOpenWindows++].name = s;
+X		longestName = strlen(s);
+X	}
+X
+X	/* loop through all the browsers and change their open lists */
+X	for( browser = browserList; browser != NULL;
+X					browser = browser->nextBrowser) {
+X		int columnSpacing = 7;
+X
+X		if( browser->tk_pathname[0] == '\0' )
+X			/* main browser was not created, so skip it */
+X			continue;
+X		/* make this the new list */
+X		/* first delete all the old list elements */
+X		sprintf( msgBuffer, "catch {%s.openList.list delete 0 end}",
+X							browser->tk_pathname );
+X		(void)ExecTclCommand( (char *)msgBuffer );
+X
+X		/* then insert each file name in the new list */
+X		for( n = 0; n < numberOfOpenWindows; ++n ) {
+X			sprintf( msgBuffer, "%s.openList.list insert end {%s}",
+X				browser->tk_pathname, openWindowList[n].name );
+X			(void)ExecTclCommand( (char *) msgBuffer );
+X		}
+X
+X		wide = Tk_Width( browser->tk_toplevel ) - 50;
+X		col = longestName*((browser->browserFont).width)+columnSpacing;
+X		nCols = (wide + columnSpacing) / col;
+X		if( nCols < 1 )
+X			nCols = 1;
+X		sprintf(msgBuffer,"%s.openList.list configure -columns %d",
+X						browser->tk_pathname, nCols );
+if( debug == 0 )
+X		(void)ExecTclCommand( (char *) msgBuffer );
+X	}
+X
+X}
+X
+void
+CreateNewBrowser( bigBrowser, geometry )
+X	int bigBrowser;
+X	char * geometry;
+X{
+X	extern struct window *windowList;
+X	extern int debug;
+X	extern int thinBrowser;
+X
+X	BrowserData *browser;
+X
+X	/* create the browser data structure */
+X	browser = (BrowserData *)PtMalloc(sizeof(BrowserData),"browser data");
+X	browser->fileListData = NULL; /* this is allocated in NewFilelist */
+X
+X	thinBrowser = !bigBrowser;
+X
+X	/* put on the browserList */
+X	browser->nextBrowser = browserList;
+X	browser->prevBrowser = NULL;
+X	browserList->prevBrowser = browser;
+X	browserList = browser;
+X	browser->tk_toplevel = NULL;
+X	CreateBigBrowser( browser, geometry );
+X}
+X
+void
+CreateBigBrowser( browser, geometry )
+X	BrowserData *browser;
+X	char * geometry;
+X{
+X	extern BrowserData *activeBrowser;
+X	extern char msgBuffer[];
+X	extern char * browserFont;
+X	extern Tcl_Interp * interp;
+X	extern int debug;
+X
+X	char * name;
+X
+X	sprintf (msgBuffer, "BrowserWindow %s", geometry );
+X	name = ExecTclCommand( (char *)msgBuffer );
+X	browser->tk_pathname = Tk_GetUid( name );
+X	browser->tk_toplevel = Tk_NameToWindow( interp, browser->tk_pathname,
+X						mainBrowser->tk_toplevel );
+X
+X	Tk_SetWindowBackground( browser->tk_toplevel,
+X			WhitePixelOfScreen(Tk_Screen(browser->tk_toplevel)));
+X	XSetForeground( Tk_Display(browser->tk_toplevel),
+X			DefaultGCOfScreen(Tk_Screen(browser->tk_toplevel)),
+X			BlackPixelOfScreen(Tk_Screen(browser->tk_toplevel)));
+X			
+X	ChangeBrowserFontTo( browser, browserFont );
+X
+X	activeBrowser = browser;
+X	(void)ExecTclCommand( "update" );
+X	NewOpenList();
+X
+X	/* Now create the list of files */
+X	NewFilelist( browser );
+X}
+X
+Tk_Window TkMainWindow;
+X
+void
+CreateFilelist()
+X{
+X	extern Tcl_Interp * interp;
+X	extern int Pt_ColboxCmd();
+X	extern char * browserGeometry;
+X	extern char * thinBrowserGeometry;
+X	extern int noBrowser;
+X	extern int thinBrowser;
+X	extern char msgBuffer[];
+X
+X	Tk_Uid uid;
+X
+X	InitializeDirectoryCache();
+X
+X	/* create the browser data structure */
+X	mainBrowser = (BrowserData *)PtMalloc( sizeof(BrowserData),
+X						"browser data" );
+X	mainBrowser->fileListData = NULL; /* this is allocated in NewFileList */
+X	numberOfOpenWindows = 0;
+X	openWindowList = NULL;
+X
+X	/* make this the only entry in the browserList */
+X	mainBrowser->nextBrowser = NULL;
+X	mainBrowser->prevBrowser = NULL;
+X	browserList = mainBrowser;
+X
+X	/* finish creating the browser */
+X	/* create the main tcl interpreter and add the Point commands */
+X	interp = Tcl_CreateInterp();
+X	AddPointCommands( interp );
+X	
+X	/* create the main window and set up some options */
+X	TkMainWindow = Tk_CreateMainWindow( interp, (char *) NULL, "point");
+X	mainBrowser->tk_toplevel = TkMainWindow;
+X	if( mainBrowser->tk_toplevel == NULL ) {
+X		printf("%s\n", interp->result);
+X		exit(1);
+X	}
+X
+X	Tk_SetClass( mainBrowser->tk_toplevel, "Point");
+X
+X	/* check the user's default font, foreground and background. */
+X	/* Use those if they are defined */
+X	uid = Tk_GetOption( mainBrowser->tk_toplevel, "font", NULL );
+X	if( uid == NULL )
+X		uid = Tk_GetOption( mainBrowser->tk_toplevel, "Font", NULL );
+X	if( uid != NULL ) {
+X		SetPointOption( "browserFont", uid );
+X		SetPointOption( "textFont", uid );
+X	}
+X	uid = Tk_GetOption( mainBrowser->tk_toplevel, "foreground", NULL );
+X	if( uid != NULL )
+X		SetPointOption( "textForeground", uid );
+X	uid = Tk_GetOption( mainBrowser->tk_toplevel, "background", NULL );
+X	if( uid != NULL )
+X		SetPointOption( "textBackground", uid );
+X
+X	Tcl_CreateCommand( interp, "colbox", Pt_ColboxCmd,
+X			(ClientData)(mainBrowser->tk_toplevel), NULL );
+X
+X	/* read in the Point proc's and create a browser window */
+X	sprintf( msgBuffer,
+X"global PointTclLibrary\n\
+set PointTclLibrary \"%s\"\n\
+if [file exists $PointTclLibrary/startup.tcl] \"\n\
+X	source $PointTclLibrary/startup.tcl\n\
+X\" {puts stderr \"CANNOT FIND A STARTUP FILE. POINT WILL NOT WORK.\"}",
+X		POINT_LIBRARY );
+X	(void)ExecTclCommand( msgBuffer );
+X
+X	(void)ExecTclCommand( "if [file exists .ptdirrc] {source .ptdirrc}" );
+X	Tk_MakeWindowExist( mainBrowser->tk_toplevel );
+X	mainBrowser->tk_pathname = "";
+X	if( !noBrowser )
+X		CreateNewBrowser( !thinBrowser,
+X			(thinBrowser ? thinBrowserGeometry : browserGeometry));
+X}
+X
+END_OF_FILE
+if test 20828 -ne `wc -c <'browser.c'`; then
+    echo shar: \"'browser.c'\" unpacked with wrong size!
+fi
+# end of 'browser.c'
+fi
+if test -f 'regex.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regex.c'\"
+else
+echo shar: Extracting \"'regex.c'\" \(22890 characters\)
+sed "s/^X//" >'regex.c' <<'END_OF_FILE'
+X#ifdef uts
+X#include <ctype.h>
+X#endif /* uts */
+X#include "pt.h"
+X/*
+X * These routines are BSD regex(3)/ed(1) compatible regular-expression
+X * routines written by Ozan S. Yigit, Computer Science, York University.
+X * Parts of the code that are not needed by Prospero have been removed,
+X * but most of the accompanying information has been left intact. 
+X * This file is to be included on those operating systems that do not
+X * support re_comp and re_exec.
+X */
+X
+X/*
+X * regex - Regular expression pattern matching
+X *         and replacement
+X *
+X * by:  Ozan S. Yigit (oz@nexus.yorku.ca)
+X *      York University
+X *
+X * These routines are the PUBLIC DOMAIN equivalents 
+X * of regex routines as found in 4.nBSD UN*X, with minor
+X * extensions.
+X *
+X * Modification history:
+X *
+X * $Log: regex.c,v $
+X * Revision 1.3  1992/03/04  17:07:18  crowley
+X * Backup
+X *
+X * Revision 1.2  1992/02/19  19:56:49  crowley
+X * Backup
+X *
+X * Revision 1.1  1992/02/19  16:43:42  crowley
+X * Backup
+X *
+X * Revision 1.3  89/04/01  14:18:09  oz
+X * Change all references to a dfa: this is actually an nfa.
+X * 
+X * Revision 1.2  88/08/28  15:36:04  oz
+X * Use a complement bitmap to represent NCL.
+X * This removes the need to have seperate 
+X * code in the pmatch case block - it is 
+X * just CCL code now.
+X * 
+X * Use the actual CCL code in the CLO
+X * section of pmatch. No need for a recursive
+X * pmatch call.
+X * 
+X * Use a bitmap table to set char bits in an
+X * 8-bit chunk.
+X * 
+X * Routines:
+X *      re_comp:        compile a regular expression into
+X *                      a NFA.
+X *
+X *			char *re_comp(s)
+X *			char *s;
+X *
+X *      re_exec:        execute the NFA to match a pattern.
+X *
+X *			int re_exec(s)
+X *			char *s;
+X *
+X * Regular Expressions:
+X *
+X *      [1]     char    matches itself, unless it is a special
+X *                      character (metachar): . \ [ ] * + ^ $
+X *
+X *      [2]     .       matches any character.
+X *
+X *      [3]     \       matches the character following it, except
+X *			when followed by a left or right round bracket,
+X *			a digit 1 to 9 or a left or right angle bracket. 
+X *			(see [7], [8] and [9])
+X *			It is used as an escape character for all 
+X *			other meta-characters, and itself. When used
+X *			in a set ([4]), it is treated as an ordinary
+X *			character.
+X *
+X *      [4]     [set]   matches one of the characters in the set.
+X *                      If the first character in the set is "^",
+X *                      it matches a character NOT in the set, i.e. 
+X *			complements the set. A shorthand S-E is 
+X *			used to specify a set of characters S upto 
+X *			E, inclusive. The special characters "]" and 
+X *			"-" have no special meaning if they appear 
+X *			as the first chars in the set.
+X *                      examples:        match:
+X *
+X *                              [a-z]    any lowercase alpha
+X *
+X *                              [^]-]    any char except ] and -
+X *
+X *                              [^A-Z]   any char except uppercase
+X *                                       alpha
+X *
+X *                              [a-zA-Z] any alpha
+X *
+X *      [5]     *       any regular expression form [1] to [4], followed by
+X *                      closure char (*) matches zero or more matches of
+X *                      that form.
+X *
+X *      [6]     +       same as [5], except it matches one or more.
+X *
+X *      [7]             a regular expression in the form [1] to [10], enclosed
+X *                      as \(form\) matches what form matches. The enclosure
+X *                      creates a set of tags, used for [8] and for
+X *                      pattern substution. The tagged forms are numbered
+X *			starting from 1.
+X *
+X *      [8]             a \ followed by a digit 1 to 9 matches whatever a
+X *                      previously tagged regular expression ([7]) matched.
+X *
+X *	[9]	\<	a regular expression starting with a \< construct
+X *		\>	and/or ending with a \> construct, restricts the
+X *			pattern matching to the beginning of a word, and/or
+X *			the end of a word. A word is defined to be a character
+X *			string beginning and/or ending with the characters
+X *			A-Z a-z 0-9 and _. It must also be preceded and/or
+X *			followed by any character outside those mentioned.
+X *
+X *      [10]            a composite regular expression xy where x and y
+X *                      are in the form [1] to [10] matches the longest
+X *                      match of x followed by a match for y.
+X *
+X *      [11]	^	a regular expression starting with a ^ character
+X *		$	and/or ending with a $ character, restricts the
+X *                      pattern matching to the beginning of the line,
+X *                      or the end of line. [anchors] Elsewhere in the
+X *			pattern, ^ and $ are treated as ordinary characters.
+X *
+X *
+X * Acknowledgements:
+X *
+X *	HCR's Hugh Redelmeier has been most helpful in various
+X *	stages of development. He convinced me to include BOW
+X *	and EOW constructs, originally invented by Rob Pike at
+X *	the University of Toronto.
+X *
+X * References:
+X *              Software tools			Kernighan & Plauger
+X *              Software tools in Pascal        Kernighan & Plauger
+X *              Grep [rsx-11 C dist]            David Conroy
+X *		ed - text editor		Un*x Programmer's Manual
+X *		Advanced editing on Un*x	B. W. Kernighan
+X *		regexp routines			Henry Spencer
+X *
+X * Notes:
+X *
+X *	This implementation uses a bit-set representation for character
+X *	classes for speed and compactness. Each character is represented 
+X *	by one bit in a 128-bit block. Thus, CCL always takes a 
+X *	constant 16 bytes in the internal nfa, and re_exec does a single
+X *	bit comparison to locate the character in the set.
+X *
+X * Examples:
+X *
+X *	pattern:	foo*.*
+X *	compile:	CHR f CHR o CLO CHR o END CLO ANY END END
+X *	matches:	fo foo fooo foobar fobar foxx ...
+X *
+X *	pattern:	fo[ob]a[rz]	
+X *	compile:	CHR f CHR o CCL bitset CHR a CCL bitset END
+X *	matches:	fobar fooar fobaz fooaz
+X *
+X *	pattern:	foo\\+
+X *	compile:	CHR f CHR o CHR o CHR \ CLO CHR \ END END
+X *	matches:	foo\ foo\\ foo\\\  ...
+X *
+X *	pattern:	\(foo\)[1-3]\1	(same as foo[1-3]foo)
+X *	compile:	BOT 1 CHR f CHR o CHR o EOT 1 CCL bitset REF 1 END
+X *	matches:	foo1foo foo2foo foo3foo
+X *
+X *	pattern:	\(fo.*\)-\1
+X *	compile:	BOT 1 CHR f CHR o CLO ANY END EOT 1 CHR - REF 1 END
+X *	matches:	foo-foo fo-fo fob-fob foobar-foobar ...
+X * 
+X */
+X
+X#define MAXNFA  1024
+X#define MAXTAG  10
+X
+X#define OKP     1
+X#define NOP     0
+X
+X#define CHR     1
+X#define ANY     2
+X#define CCL     3
+X#define BOL     4
+X#define EOL     5
+X#define BOT     6
+X#define EOT     7
+X#define BOW	8
+X#define EOW	9
+X#define REF     10
+X#define CLO     11
+X#define CHR2    12
+X	/* two characters (for case insensitive search) */
+X
+X#define END     0
+X
+X/*
+X * The following defines are not meant
+X * to be changeable. They are for readability
+X * only.
+X *
+X */
+X#define MAXCHR	128
+X#define CHRBIT	8
+X#define BITBLK	MAXCHR/CHRBIT
+X#define BLKIND	0170
+X#define BITIND	07
+X
+X#define ASCIIB	0177
+X
+typedef /*unsigned*/ char CHAR;
+X
+static int  tagstk[MAXTAG];             /* subpat tag stack..*/
+static CHAR nfa[MAXNFA];		/* automaton..       */
+static int  sta = NOP;               	/* status of lastpat */
+X
+static CHAR bittab[BITBLK];		/* bit table for CCL */
+X					/* pre-set bits...   */
+static CHAR bitarr[] = {1,2,4,8,16,32,64,128};
+X
+static int internal_error;
+X
+static void
+chset(c)
+register CHAR c;
+X{
+X	bittab[((c) & BLKIND) >> 3] |= bitarr[(c) & BITIND];
+X}
+X
+X#define badpat(x)	return (*nfa = END, x)
+X#define store(x)	*mp++ = x
+X 
+char *     
+re_comp(pat)
+char *pat;
+X{
+X	extern int ignoreCase;
+X	register char *p;               /* pattern pointer   */
+X	register CHAR *mp = nfa;        /* nfa pointer       */
+X	register CHAR *lp;              /* saved pointer..   */
+X	register CHAR *sp = nfa;        /* another one..     */
+X
+X	register int tagi = 0;          /* tag stack index   */
+X	register int tagc = 1;          /* actual tag count  */
+X
+X	register int n;
+X	register CHAR mask;		/* xor mask -CCL/NCL */
+X	int c1, c2;
+X	char ch;
+X		
+X	if (!pat || !*pat)
+X		if (sta)
+X			return 0;
+X		else
+X			badpat("No previous regular expression");
+X	sta = NOP;
+X
+X	for (p = pat; *p; p++) {
+X		lp = mp;
+X		switch(*p) {
+X
+X		case '.':               /* match any char..  */
+X			store(ANY);
+X			break;
+X
+X		case '^':               /* match beginning.. */
+X			store(BOL);
+X			break;
+X
+X		case '$':               /* match endofline.. */
+X			store(EOL);
+X			break;
+X
+X		case '[':               /* match char class..*/
+X			store(CCL);
+X
+X			if (*++p == '^') {
+X				mask = 0377;	
+X				p++;
+X			}
+X			else
+X				mask = 0;
+X
+X			if (*p == '-')		/* real dash */
+X				chset(*p++);
+X			if (*p == ']')		/* real brac */
+X				chset(*p++);
+X			while (*p && *p != ']') {
+X				if (*p == '-' && *(p+1) && *(p+1) != ']') {
+X					p++;
+X					c1 = *(p-2) + 1;
+X					c2 = *p++;
+X					while (c1 <= c2) {
+X						if(isalpha(c1) && ignoreCase) {
+X							chset(toupper(c1));
+X							chset(tolower(c1));
+X						} else
+X							chset(c1);
+X						++c1;
+X					}
+X				}
+X#ifdef EXTEND
+X				else if (*p == '\\' && *(p+1)) {
+X					p++;
+X					chset(*p++);
+X				}
+X#endif
+X				else {
+X					ch = *p++;
+X					if( isalpha(ch) && ignoreCase ) {
+X						chset(toupper(ch));
+X						chset(tolower(ch));
+X					} else
+X						chset(ch);
+X				}
+X			}
+X			if (!*p)
+X				badpat("Missing ]");
+X
+X			for (n = 0; n < BITBLK; bittab[n++] = (char) 0)
+X				store(mask ^ bittab[n]);
+X	
+X			break;
+X
+X		case '*':               /* match 0 or more.. */
+X		case '+':               /* match 1 or more.. */
+X			if (p == pat)
+X				badpat("Empty closure");
+X			lp = sp;		/* previous opcode */
+X			if (*lp == CLO)		/* equivalence..   */
+X				break;
+X			switch(*lp) {
+X
+X			case BOL:
+X			case BOT:
+X			case EOT:
+X			case BOW:
+X			case EOW:
+X			case REF:
+X				badpat("Illegal closure");
+X			default:
+X				break;
+X			}
+X
+X			if (*p == '+')
+X				for (sp = mp; lp < sp; lp++)
+X					store(*lp);
+X
+X			store(END);
+X			store(END);
+X			sp = mp;
+X			while (--mp > lp)
+X				*mp = mp[-1];
+X			store(CLO);
+X			mp = sp;
+X			break;
+X
+X		case '\\':              /* tags, backrefs .. */
+X			switch(*++p) {
+X
+X			case '(':
+X				if (tagc < MAXTAG) {
+X					tagstk[++tagi] = tagc;
+X					store(BOT);
+X					store(tagc++);
+X				}
+X				else
+X					badpat("Too many \\(\\) pairs");
+X				break;
+X			case ')':
+X				if (*sp == BOT)
+X					badpat("Null pattern inside \\(\\)");
+X				if (tagi > 0) {
+X					store(EOT);
+X					store(tagstk[tagi--]);
+X				}
+X				else
+X					badpat("Unmatched \\)");
+X				break;
+X			case '<':
+X				store(BOW);
+X				break;
+X			case '>':
+X				if (*sp == BOW)
+X					badpat("Null pattern inside \\<\\>");
+X				store(EOW);
+X				break;
+X			case '1':
+X			case '2':
+X			case '3':
+X			case '4':
+X			case '5':
+X			case '6':
+X			case '7':
+X			case '8':
+X			case '9':
+X				n = *p-'0';
+X				if (tagi > 0 && tagstk[tagi] == n)
+X					badpat("Cyclical reference");
+X				if (tagc > n) {
+X					store(REF);
+X					store(n);
+X				}
+X				else
+X					badpat("Undetermined reference");
+X				break;
+X			case 'b':
+X				store(CHR);
+X				store('\b');
+X				break;
+X			case 'n':
+X				store(CHR);
+X				store('\n');
+X				break;
+X			case 'f':
+X				store(CHR);
+X				store('\f');
+X				break;
+X			case 'r':
+X				store(CHR);
+X				store('\r');
+X				break;
+X			case 't':
+X				store(CHR);
+X				store('\t');
+X				break;
+X			default:
+X				store(CHR);
+X				store(*p);
+X			}
+X			break;
+X
+X		default :               /* an ordinary char  */
+X			ch = *p;
+X			if( isalpha(ch) && ignoreCase ) {
+X				store(CHR2);
+X				store(toupper(ch));
+X				store(tolower(ch));
+X			} else {
+X				store(CHR);
+X				store(ch);
+X			}
+X			break;
+X		}
+X		sp = lp;
+X	}
+X	if (tagi > 0)
+X		badpat("Unmatched \\(");
+X	store(END);
+X	sta = OKP;
+X	return 0;
+X}
+X
+static char * bol;
+int regex_bopat[MAXTAG];
+int regex_eopat[MAXTAG];
+int regex_pmatch();
+X
+static int line_count;
+X
+X/*
+X * re_exec:
+X * 	execute nfa to find a match.
+X *
+X *	special cases: (nfa[0])	
+X *		BOL
+X *			Match only once, starting from the
+X *			beginning.
+X *		CHR
+X *			First locate the character without
+X *			calling pmatch, and if found, call
+X *			pmatch for the remaining string.
+X *		END
+X *			re_comp failed, poor luser did not
+X *			check for it. Fail fast.
+X *
+X *	If a match is found, regex_bopat[0] and regex_eopat[0] are set
+X *	to the beginning and the end of the matched fragment,
+X *	respectively.
+X *
+X */
+X 
+static void
+re_exec_init()
+X{
+X	line_count = 0;
+X
+X	regex_bopat[0] = 0;
+X	regex_bopat[1] = 0;
+X	regex_bopat[2] = 0;
+X	regex_bopat[3] = 0;
+X	regex_bopat[4] = 0;
+X	regex_bopat[5] = 0;
+X	regex_bopat[6] = 0;
+X	regex_bopat[7] = 0;
+X	regex_bopat[8] = 0;
+X	regex_bopat[9] = 0;
+X	
+X	ClearByteCache();
+X}
+X
+int
+re_exec( fid, cp, end_cp, lines_passed)
+X	int fid;
+X	register int cp;
+X	int end_cp;
+X	int *lines_passed;
+X{
+X	char c, c2;
+X	int ep = 0;
+X	CHAR *ap = nfa;
+X	char ch;
+X
+X	re_exec_init();
+X
+X	switch(*ap) {
+X
+X	case CHR2:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		c2 = *(ap+2);
+X		ch = getCachedFileByte( fid, cp );
+X		if( ch == '\n' )
+X			++line_count;
+X		while( (cp<=end_cp) && (ch != c) && (ch != c2) ) {
+X			ch = getCachedFileByte( fid, ++cp );
+X			if( ch == '\n' )
+X				++line_count;
+X		}
+X		if( cp > end_cp )	/* if EOS, fail, else fall thru. */
+X			return 0;
+X		goto normalCase;
+X
+X	case CHR:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		ch = getCachedFileByte( fid, cp );
+X		if( ch == '\n' )
+X			++line_count;
+X		while( (cp<=end_cp) && (ch != c) ) {
+X			ch = getCachedFileByte( fid, ++cp );
+X			if( ch == '\n' )
+X				++line_count;
+X		}
+X		if( cp > end_cp )	/* if EOS, fail, else fall thru. */
+X			return 0;
+X	default:			/* regular matching all the way. */
+X	normalCase:
+X		while( cp<=end_cp ) {
+X			/*SUPPRESS 560*/
+X			if ((ep = pmatch(fid,cp,end_cp,ap)))
+X				break;
+X			++cp;
+X		}
+X		break;
+X	case END:			/* munged automaton. fail always */
+X		return 0;
+X	}
+X	if (!ep)
+X		return 0;
+X
+X	if (internal_error)
+X		return -1;
+X
+X	regex_bopat[0] = cp;
+X	regex_eopat[0] = ep;
+X	*lines_passed = line_count;
+X	return 1;
+X}
+X
+int
+re_exec_reversed( fid, cp, end_cp, lines_passed)
+X	int fid;
+X	register int cp;
+X	int end_cp;
+X	int *lines_passed;
+X{
+X	char c, c2;
+X	int ep = 0;
+X	CHAR *ap = nfa;
+X	char ch;
+X	int end_file = fileSize(fid) - 1;
+X
+X	re_exec_init();
+X
+X	switch(*ap) {
+X
+X	case CHR2:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		c2 = *(ap+2);
+X		ch = getCachedFileByte( fid, end_cp );
+X		if( ch == '\n' )
+X			++line_count;
+X		while( (cp<=end_cp) && (ch != c) && (ch != c2) ) {
+X			ch = getCachedFileByte( fid, --end_cp );
+X			if( ch == '\n' )
+X				++line_count;
+X		}
+X		if( cp > end_cp )	/* if EOS, fail, else fall thru. */
+X			return 0;
+X		goto normalCase;
+X
+X	case CHR:			/* ordinary char: locate it fast */
+X		c = *(ap+1);
+X		ch = getCachedFileByte( fid, end_cp );
+X		if( ch == '\n' )
+X			++line_count;
+X		while( (cp<=end_cp) && (ch != c) ) {
+X			ch = getCachedFileByte( fid, --end_cp );
+X			if( ch == '\n' )
+X				++line_count;
+X		}
+X		if( cp > end_cp )	/* if EOS, fail, else fall thru. */
+X			return 0;
+X	default:			/* regular matching all the way. */
+X	normalCase:
+X		while( cp<=end_cp ) {
+X			/*SUPPRESS 560*/
+X			if ((ep = pmatch(fid,end_cp,end_file,ap)))
+X				break;
+X			--end_cp;
+X		}
+X		break;
+X	case END:			/* munged automaton. fail always */
+X		return 0;
+X	}
+X	if (!ep)
+X		return 0;
+X
+X	if (internal_error)
+X		return -1;
+X
+X	regex_bopat[0] = end_cp;
+X	regex_eopat[0] = ep;
+X	*lines_passed = line_count;
+X	return 1;
+X}
+X
+X
+X/* 
+X * pmatch: 
+X *	internal routine for the hard part
+X *
+X * 	This code is mostly snarfed from an early
+X * 	grep written by David Conroy. The backref and
+X * 	tag stuff, and various other mods are by oZ.
+X *
+X *	special cases: (nfa[n], nfa[n+1])
+X *		CLO ANY
+X *			We KNOW ".*" will match ANYTHING
+X *			upto the end of line. Thus, go to
+X *			the end of line straight, without
+X *			calling pmatch recursively. As in
+X *			the other closure cases, the remaining
+X *			pattern must be matched by moving
+X *			backwards on the string recursively,
+X *			to find a match for xy (x is ".*" and 
+X *			y is the remaining pattern) where
+X *			the match satisfies the LONGEST match
+X *			for x followed by a match for y.
+X *		CLO CHR
+X *			We can again scan the string forward
+X *			for the single char without recursion, 
+X *			and at the point of failure, we execute 
+X *			the remaining nfa recursively, as
+X *			described above.
+X *
+X *	At the end of a successful match, regex_bopat[n] and regex_eopat[n]
+X *	are set to the beginning and end of subpatterns matched
+X *	by tagged expressions (n = 1 to 9).	
+X *
+X */
+X
+X/*
+X * character classification table for word boundary
+X * operators BOW and EOW. the reason for not using 
+X * ctype macros is that we can let the user add into 
+X * our own table. see re_modw. This table is not in
+X * the bitset form, since we may wish to extend it
+X * in the future for other character classifications. 
+X *
+X *	TRUE for 0-9 A-Z a-z _
+X */
+static char chrtyp[MAXCHR] = {
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+X	0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 
+X	0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
+X	1, 1, 1, 0, 0, 0, 0, 0
+X	};
+X
+X#define inascii(x)	(0177&(x))
+X#define iswordc(x) 	chrtyp[inascii(x)]
+X#define isinset(x,y) 	((x)[((y)&BLKIND)>>3] & bitarr[(y)&BITIND])
+X
+X/*
+X * skip values for CLO XXX to skip past the closure
+X *
+X */
+X
+X#define ANYSKIP	2 	/* [CLO] ANY END ...	     */
+X#define CHRSKIP	3	/* [CLO] CHR chr END ...     */
+X#define CHR2SKIP 4	/* [CLO] CHR chr END ...     */
+X#define CCLSKIP 18	/* [CLO] CCL 16bytes END ... */
+X
+static int
+pmatch( fid, cp, end_cp, ap )
+X	int fid;
+X	register int cp;
+X	register int end_cp;
+X	register CHAR *ap;
+X{
+X	register int op, c, n;
+X	register int e;		/* extra pointer for CLO */
+X	register int bp;		/* beginning of subpat.. */
+X	register int ep;		/* ending of subpat..	 */
+X	int are;			/* to save the line ptr. */
+X	char ch, c2;
+X
+X	while ((op = *ap++) != END) {
+X		ch = getCachedFileByte( fid, cp );
+X		if( ch == '\n' )
+X			++line_count;
+X		switch(op) {
+X
+X		case CHR:
+X			++cp;
+X			if( ch != *ap++ )
+X				return 0;
+X			break;
+X		case CHR2:
+X			++cp;
+X			/* first check against the upper case letter */
+X			if( ch != *ap++ ) {
+X				/* check against the lower case letter */
+X				if( ch != *ap++ )
+X					/* if neither, then no match */
+X					return 0;
+X			} else
+X				++ap; /* skip the lower case character */
+X			break;
+X		case ANY:
+X			++cp;
+X			/* the ANY wildcard does not match newlines */
+X			if( (ch == '\n') || (cp > end_cp) )
+X				return 0;
+X			break;
+X		case CCL:
+X			++cp;
+X			if( !isinset(ap,ch) )
+X				return 0;
+X			ap += BITBLK;
+X			break;
+X		case BOL:
+X			if( cp > 0 && '\n' != getCachedFileByte(fid,cp-1) )
+X				return 0;
+X			break;
+X		case EOL:
+X			if( getCachedFileByte(fid,cp+1) != '\n' )
+X				return 0;
+X			break;
+X		case BOT:
+X			regex_bopat[*ap++] = cp;
+X			break;
+X		case EOT:
+X			regex_eopat[*ap++] = cp;
+X			break;
+X 		case BOW:
+X			if(
+X			    (cp > 0 && iswordc( getCachedFileByte(fid,cp-1) ))
+X			    || !iswordc(ch)
+X			 )
+X				return 0;
+X			break;
+X		case EOW:
+X			if( !iswordc(getCachedFileByte(fid,cp-1)) || iswordc(ch) )
+X				return 0;
+X			break;
+X		case REF:
+X			n = *ap++;
+X			bp = regex_bopat[n];
+X			ep = regex_eopat[n];
+X			while( bp < ep ) {
+X				if( getCachedFileByte(fid,bp++)
+X						!= getCachedFileByte(fid,cp++) )
+X					return 0;
+X			}
+X			break;
+X		case CLO:
+X/************************************
+Handle line counts in closures correctly
+X***************************************/
+X			are = cp;
+X			switch( *ap ) {
+X
+X			case ANY:
+X				/* the ANY wildcard does not match newlines */
+X				while( (ch != '\n') && (cp <= end_cp) )
+X					ch = getCachedFileByte( fid, ++cp );
+X				n = ANYSKIP;
+X				break;
+X			case CHR:
+X				c = *(ap+1);
+X				while( (cp<=end_cp) && c == ch )
+X					ch = getCachedFileByte( fid, ++cp );
+X				n = CHRSKIP;
+X				break;
+X			case CHR2:
+X				c = *(ap+1);
+X				c2 = *(ap+2);
+X				while( (cp<=end_cp) && (c == ch || c2 == ch) )
+X					ch = getCachedFileByte( fid, ++cp );
+X				n = CHR2SKIP;
+X				break;
+X			case CCL:
+X				while( (cp <= end_cp) && isinset(ap+1,ch) )
+X					ch = getCachedFileByte( fid, ++cp );
+X				n = CCLSKIP;
+X				break;
+X			default:
+X				internal_error++;
+X				return 0;
+X			}
+X
+X			ap += n;
+X
+X			while( cp >= are ) {
+X				/*SUPPRESS 560*/
+X				if( e = pmatch(fid,cp,end_cp,ap) )
+X					return e;
+X				--cp;
+X			}
+X			return 0;
+X		default:
+X			internal_error++;
+X			return 0;
+X		}
+X	}
+X	return cp;
+X}
+X
+char * pmatch2();
+X
+int
+re_match( lp )
+X	CHAR *lp;
+X{
+X	char * ep;
+X	
+X	bol = lp;
+X
+X	ep = pmatch2( lp, nfa );
+X
+X	if( ep == 0 )
+X		return 0;
+X	else
+X		return 1;
+X}
+X
+static char *
+pmatch2( lp, ap )
+X	register CHAR *lp;
+X	register CHAR *ap;
+X{
+X	register int op, c, n;
+X	register char * e;		/* extra pointer for CLO */
+X	char * are;			/* to save the line ptr. */
+X
+X	while ((op = *ap++) != END) {
+X		switch(op) {
+X
+X		case CHR:
+X			if( *lp++ != *ap++ )
+X				return 0;
+X			break;
+X		case ANY:
+X			if( !*lp++ )
+X				return 0;
+X			break;
+X		case CCL:
+X			c = *lp++;
+X			if( !isinset(ap,c) )
+X				return 0;
+X			ap += BITBLK;
+X			break;
+X		case BOL:
+X			if( lp != bol )
+X				return 0;
+X			break;
+X		case EOL:
+X			if( *lp )
+X				return 0;
+X			break;
+X		case CLO:
+X			are = lp;
+X			switch( *ap ) {
+X
+X			case ANY:
+X				while( *lp )
+X					lp++;
+X				n = ANYSKIP;
+X				break;
+X			case CHR:
+X				c = *(ap+1);
+X				while( *lp && c == *lp )
+X					lp++;
+X				n = CHRSKIP;
+X				break;
+X			case CCL:
+X				while( (c = *lp) && isinset(ap+1,c) )
+X					lp++;
+X				n = CCLSKIP;
+X				break;
+X			default:
+X				internal_error++;
+X				return 0;
+X			}
+X
+X			ap += n;
+X
+X			while( lp >= are ) {
+X				/*SUPPRESS 560*/
+X				if( e = pmatch2( lp, ap ) )
+X					return e;
+X				--lp;
+X			}
+X			return 0;
+X		default:
+X			internal_error++;
+X			return 0;
+X		}
+X	}
+X	return lp;
+X}
+X
+X/*ARGSUSED*/
+void
+RegexReplaceAll( w, searchFor, replaceWith, inSelection )
+X	struct window * w;
+X	char * searchFor;
+X	char * replaceWith;
+X	int inSelection;
+X{
+X	printf("RegexReplaceAll: not implemented yet\n");
+X}
+X
+X#define BUFFER_LENGTH	1024
+X
+X/*ARGSUSED*/
+int
+RegexReplaceOne( w, searchFor, replaceWith )
+X	struct window * w;
+X	char * searchFor;
+X	char * replaceWith;
+X{
+X	extern Offset selBegin, selEnd;
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X
+X	int cp, cp_limit, diff_lengths;
+X	char buffer[BUFFER_LENGTH];
+X	char * to = buffer;
+X	char * to_limit = to + BUFFER_LENGTH;
+X	char * from = replaceWith;
+X
+X	while( *from != '\0' ) {
+X		char ch = *from++;
+X		switch( ch ) {
+X		default:
+X			*to++ = ch;
+X			break;
+X		case '&':
+X			cp = regex_bopat[0];
+X			cp_limit = regex_eopat[0];
+X			while( cp < cp_limit ) {
+X				*to++ = getFileByte(w->fileId, cp++);
+X				if( to >= to_limit )
+X					--to;
+X			}
+X			break;
+X		case '\\':
+X			ch = *from++;
+X			switch( ch ) {
+X			default:
+X				*to++ = ch;
+X				break;
+X			case '\\':
+X				*to++ = '\\';
+X				break;
+X			case '1': case '2': case '3': case '4': case '5':
+X			case '6': case '7': case '8': case '9': 
+X				cp = regex_bopat[ch-'0'];
+X				cp_limit = regex_eopat[ch-'0'];
+X				while( cp < cp_limit ) {
+X					*to++ = getFileByte(w->fileId, cp++);
+X					if( to >= to_limit )
+X						--to;
+X				}
+X				break;
+X			}
+X		}
+X		if( to >= to_limit )
+X			--to;
+X	}
+X	*to = '\0';
+X	selBegin = regex_bopat[0];
+X	selEnd = regex_eopat[0] - 1;
+X	diff_lengths = strlen(buffer) - (selEnd-selBegin);
+X	if( selBegin <= selEnd )
+X		deleteChars( w->fileId, UPDATEWINDOWS, 1 );
+X	else
+X		selEnd = selBegin;
+X	for( from = buffer; *from != '\0'; ++from )
+X		insertChar( *from );
+X	drawWindow( selWindow );
+X	return diff_lengths;
+X}
+X
+END_OF_FILE
+if test 22890 -ne `wc -c <'regex.c'`; then
+    echo shar: \"'regex.c'\" unpacked with wrong size!
+fi
+# end of 'regex.c'
+fi
+echo shar: End of archive 8 \(of 15\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

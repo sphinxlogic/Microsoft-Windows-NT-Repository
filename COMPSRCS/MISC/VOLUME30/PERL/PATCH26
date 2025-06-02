@@ -1,0 +1,1971 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i037:  perl - The perl programming language, Patch26
+Message-ID: <1992Jun11.180523.527@sparky.imd.sterling.com>
+X-Md4-Signature: 18c4bf1a1e924dd0670a7367ed2631c7
+Date: Thu, 11 Jun 1992 18:05:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 37
+Archive-name: perl/patch26
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 26
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 25
+1c1
+< #define PATCHLEVEL 25
+---
+> #define PATCHLEVEL 26
+
+Index: doio.c
+*** doio.c.old	Mon Jun  8 17:46:42 1992
+--- doio.c	Mon Jun  8 17:46:44 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: doio.c,v $$Revision: 4.0.1.4 $$Date: 91/11/05 16:51:43 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: doio.c,v $$Revision: 4.0.1.5 $$Date: 92/06/08 13:00:21 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,21 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	doio.c,v $
++  * Revision 4.0.1.5  92/06/08  13:00:21  lwall
++  * patch20: some machines don't define ENOTSOCK in errno.h
++  * patch20: new warnings for failed use of stat operators on filenames with \n
++  * patch20: wait failed when STDOUT or STDERR reopened to a pipe
++  * patch20: end of file latch not reset on reopen of STDIN
++  * patch20: seek(HANDLE, 0, 1) went to eof because of ancient Ultrix workaround
++  * patch20: fixed memory leak on system() for vfork() machines
++  * patch20: get*by* routines now return something useful in a scalar context
++  * patch20: h_errno now accessible via $?
++  * 
+   * Revision 4.0.1.4  91/11/05  16:51:43  lwall
+   * patch11: prepared for ctype implementations that don't define isascii()
+   * patch11: perl mistook some streams for sockets because they return mode 0 too
+***************
+*** 41,47 ****
+--- 51,60 ----
+  #ifdef HAS_SOCKET
+  #include <sys/socket.h>
+  #include <netdb.h>
++ #ifndef ENOTSOCK
++ #include <net/errno.h>
+  #endif
++ #endif
+  
+  #ifdef HAS_SELECT
+  #ifdef I_SYS_SELECT
+***************
+*** 83,88 ****
+--- 96,103 ----
+  int laststatval = -1;
+  int laststype = O_STAT;
+  
++ static char* warn_nl = "Unsuccessful %s on filename containing newline";
++ 
+  bool
+  do_open(stab,name,len)
+  STAB *stab;
+***************
+*** 100,105 ****
+--- 115,121 ----
+      FILE *saveofp = Nullfp;
+      char savetype = ' ';
+  
++     mode[0] = mode[1] = mode[2] = '\0';
+      name = myname;
+      forkprocess = 1;		/* assume true if no fork */
+      while (len && isSPACE(name[len-1]))
+***************
+*** 130,136 ****
+  	    result = fclose(stio->ifp);
+  	if (result == EOF && fd > maxsysfd)
+  	    fprintf(stderr,"Warning: unable to close filehandle %s properly.\n",
+! 	      stab_name(stab));
+  	stio->ofp = stio->ifp = Nullfp;
+      }
+      if (*name == '+' && len > 1 && name[len-1] != '|') {	/* scary */
+--- 146,152 ----
+  	    result = fclose(stio->ifp);
+  	if (result == EOF && fd > maxsysfd)
+  	    fprintf(stderr,"Warning: unable to close filehandle %s properly.\n",
+! 	      stab_ename(stab));
+  	stio->ofp = stio->ifp = Nullfp;
+      }
+      if (*name == '+' && len > 1 && name[len-1] != '|') {	/* scary */
+***************
+*** 244,252 ****
+  		fp = fopen(name,"r");
+  	}
+      }
+!     Safefree(myname);
+!     if (!fp)
+  	goto say_false;
+      if (stio->type &&
+        stio->type != '|' && stio->type != '-') {
+  	if (fstat(fileno(fp),&statbuf) < 0) {
+--- 260,272 ----
+  		fp = fopen(name,"r");
+  	}
+      }
+!     if (!fp) {
+! 	if (dowarn && stio->type == '<' && index(name, '\n'))
+! 	    warn(warn_nl, "open");
+! 	Safefree(myname);
+  	goto say_false;
++     }
++     Safefree(myname);
+      if (stio->type &&
+        stio->type != '|' && stio->type != '-') {
+  	if (fstat(fileno(fp),&statbuf) < 0) {
+***************
+*** 263,269 ****
+  	    !statbuf.st_mode
+  #endif
+  	) {
+! 	    if (getsockname(fileno(fp), tokenbuf, 0) >= 0 || errno != ENOTSOCK)
+  		stio->type = 's'; /* some OS's return 0 on fstat()ed socket */
+  				/* but some return 0 for streams too, sigh */
+  	}
+--- 283,291 ----
+  	    !statbuf.st_mode
+  #endif
+  	) {
+! 	    int buflen = sizeof tokenbuf;
+! 	    if (getsockname(fileno(fp), tokenbuf, &buflen) >= 0
+! 		|| errno != ENOTSOCK)
+  		stio->type = 's'; /* some OS's return 0 on fstat()ed socket */
+  				/* but some return 0 for streams too, sigh */
+  	}
+***************
+*** 280,289 ****
+--- 302,321 ----
+  	    }
+  	}
+  	if (fd != fileno(fp)) {
++ 	    int pid;
++ 	    STR *str;
++ 
+  	    dup2(fileno(fp), fd);
++ 	    str = afetch(fdpid,fileno(fp),TRUE);
++ 	    pid = str->str_u.str_useful;
++ 	    str->str_u.str_useful = 0;
++ 	    str = afetch(fdpid,fd,TRUE);
++ 	    str->str_u.str_useful = pid;
+  	    fclose(fp);
++ 
+  	}
+  	fp = saveifp;
++ 	clearerr(fp);
+      }
+  #if defined(HAS_FCNTL) && defined(F_SETFD)
+      fd = fileno(fp);
+***************
+*** 384,390 ****
+  		    }
+  #endif
+  #ifdef HAS_RENAME
+! #ifndef MSDOS
+  		    if (rename(oldname,str->str_ptr) < 0) {
+  			warn("Can't rename %s to %s: %s, skipping file",
+  			  oldname, str->str_ptr, strerror(errno) );
+--- 416,422 ----
+  		    }
+  #endif
+  #ifdef HAS_RENAME
+! #ifndef DOSISH
+  		    if (rename(oldname,str->str_ptr) < 0) {
+  			warn("Can't rename %s to %s: %s, skipping file",
+  			  oldname, str->str_ptr, strerror(errno) );
+***************
+*** 411,417 ****
+  #endif
+  		}
+  		else {
+! #ifndef MSDOS
+  		    if (UNLINK(oldname) < 0) {
+  			warn("Can't rename %s to %s: %s, skipping file",
+  			  oldname, str->str_ptr, strerror(errno) );
+--- 443,449 ----
+  #endif
+  		}
+  		else {
+! #ifndef DOSISH
+  		    if (UNLINK(oldname) < 0) {
+  			warn("Can't rename %s to %s: %s, skipping file",
+  			  oldname, str->str_ptr, strerror(errno) );
+***************
+*** 536,542 ****
+      stio = stab_io(stab);
+      if (!stio) {		/* never opened */
+  	if (dowarn && explicit)
+! 	    warn("Close on unopened file <%s>",stab_name(stab));
+  	return FALSE;
+      }
+      if (stio->ifp) {
+--- 568,574 ----
+      stio = stab_io(stab);
+      if (!stio) {		/* never opened */
+  	if (dowarn && explicit)
+! 	    warn("Close on unopened file <%s>",stab_ename(stab));
+  	return FALSE;
+      }
+      if (stio->ifp) {
+***************
+*** 621,628 ****
+--- 653,662 ----
+      if (!stio || !stio->ifp)
+  	goto phooey;
+  
++ #ifdef ULTRIX_STDIO_BOTCH
+      if (feof(stio->ifp))
+  	(void)fseek (stio->ifp, 0L, 2);		/* ultrix 1.2 workaround */
++ #endif
+  
+      return ftell(stio->ifp);
+  
+***************
+*** 648,655 ****
+--- 682,691 ----
+      if (!stio || !stio->ifp)
+  	goto nuts;
+  
++ #ifdef ULTRIX_STDIO_BOTCH
+      if (feof(stio->ifp))
+  	(void)fseek (stio->ifp, 0L, 2);		/* ultrix 1.2 workaround */
++ #endif
+  
+      return fseek(stio->ifp, pos, whence) >= 0;
+  
+***************
+*** 700,706 ****
+      }
+      else {
+  	retval = (int)str_gnum(argstr);
+! #ifdef MSDOS
+  	s = (char*)(long)retval;		/* ouch */
+  #else
+  	s = (char*)retval;		/* ouch */
+--- 736,742 ----
+      }
+      else {
+  	retval = (int)str_gnum(argstr);
+! #ifdef DOSISH
+  	s = (char*)(long)retval;		/* ouch */
+  #else
+  	s = (char*)retval;		/* ouch */
+***************
+*** 711,717 ****
+      if (optype == O_IOCTL)
+  	retval = ioctl(fileno(stio->ifp), func, s);
+      else
+! #ifdef MSDOS
+  	fatal("fcntl is not implemented");
+  #else
+  #ifdef HAS_FCNTL
+--- 747,753 ----
+      if (optype == O_IOCTL)
+  	retval = ioctl(fileno(stio->ifp), func, s);
+      else
+! #ifdef DOSISH
+  	fatal("fcntl is not implemented");
+  #else
+  #ifdef HAS_FCNTL
+***************
+*** 768,775 ****
+  	else
+  #endif
+  	    laststatval = stat(str_get(statname),&statcache);
+! 	if (laststatval < 0)
+  	    max = 0;
+      }
+  
+      if (gimme != G_ARRAY) {
+--- 804,814 ----
+  	else
+  #endif
+  	    laststatval = stat(str_get(statname),&statcache);
+! 	if (laststatval < 0) {
+! 	    if (dowarn && index(str_get(statname), '\n'))
+! 		warn(warn_nl, "stat");
+  	    max = 0;
++ 	}
+      }
+  
+      if (gimme != G_ARRAY) {
+***************
+*** 1000,1006 ****
+  	if (*tmps == 'S' && tmps[1] == 't' && tmps[2] == 'B' && tmps[3] == '\0'
+  	  && str->str_cur == sizeof(STBP) && strlen(tmps) < str->str_cur) {
+  	    STR *tmpstr = str_mortal(&str_undef);
+! 	    stab_fullname(tmpstr,((STAB*)str));/* a stab value, be nice */
+  	    str = tmpstr;
+  	    tmps = str->str_ptr;
+  	    putc('*',fp);
+--- 1039,1045 ----
+  	if (*tmps == 'S' && tmps[1] == 't' && tmps[2] == 'B' && tmps[3] == '\0'
+  	  && str->str_cur == sizeof(STBP) && strlen(tmps) < str->str_cur) {
+  	    STR *tmpstr = str_mortal(&str_undef);
+! 	    stab_efullname(tmpstr,((STAB*)str));/* a stab value, be nice */
+  	    str = tmpstr;
+  	    tmps = str->str_ptr;
+  	    putc('*',fp);
+***************
+*** 1072,1078 ****
+  		return laststatval;
+  	    if (dowarn)
+  		warn("Stat on unopened file <%s>",
+! 		  stab_name(arg[1].arg_ptr.arg_stab));
+  	    statstab = Nullstab;
+  	    str_set(statname,"");
+  	    return (laststatval = -1);
+--- 1111,1117 ----
+  		return laststatval;
+  	    if (dowarn)
+  		warn("Stat on unopened file <%s>",
+! 		  stab_ename(arg[1].arg_ptr.arg_stab));
+  	    statstab = Nullstab;
+  	    str_set(statname,"");
+  	    return (laststatval = -1);
+***************
+*** 1082,1088 ****
+  	statstab = Nullstab;
+  	str_set(statname,str_get(str));
+  	laststype = O_STAT;
+! 	return (laststatval = stat(str_get(str),&statcache));
+      }
+  }
+  
+--- 1121,1130 ----
+  	statstab = Nullstab;
+  	str_set(statname,str_get(str));
+  	laststype = O_STAT;
+! 	laststatval = stat(str_get(str),&statcache);
+! 	if (laststatval < 0 && dowarn && index(str_get(str), '\n'))
+! 	    warn(warn_nl, "stat");
+! 	return laststatval;
+      }
+  }
+  
+***************
+*** 1104,1113 ****
+      statstab = Nullstab;
+      str_set(statname,str_get(str));
+  #ifdef HAS_LSTAT
+!     return (laststatval = lstat(str_get(str),&statcache));
+  #else
+!     return (laststatval = stat(str_get(str),&statcache));
+  #endif
+  }
+  
+  STR *
+--- 1146,1158 ----
+      statstab = Nullstab;
+      str_set(statname,str_get(str));
+  #ifdef HAS_LSTAT
+!     laststatval = lstat(str_get(str),&statcache);
+  #else
+!     laststatval = stat(str_get(str),&statcache);
+  #endif
++     if (laststatval < 0 && dowarn && index(str_get(str), '\n'))
++ 	warn(warn_nl, "lstat");
++     return laststatval;
+  }
+  
+  STR *
+***************
+*** 1137,1143 ****
+  	    stio = stab_io(statstab);
+  	}
+  	if (stio && stio->ifp) {
+! #ifdef STDSTDIO
+  	    fstat(fileno(stio->ifp),&statcache);
+  	    if (S_ISDIR(statcache.st_mode))	/* handle NFS glitch */
+  		return arg->arg_type == O_FTTEXT ? &str_no : &str_yes;
+--- 1182,1188 ----
+  	    stio = stab_io(statstab);
+  	}
+  	if (stio && stio->ifp) {
+! #if defined(STDSTDIO) || defined(atarist) /* this will work with atariST */
+  	    fstat(fileno(stio->ifp),&statcache);
+  	    if (S_ISDIR(statcache.st_mode))	/* handle NFS glitch */
+  		return arg->arg_type == O_FTTEXT ? &str_no : &str_yes;
+***************
+*** 1157,1163 ****
+  	else {
+  	    if (dowarn)
+  		warn("Test on unopened file <%s>",
+! 		  stab_name(arg[1].arg_ptr.arg_stab));
+  	    errno = EBADF;
+  	    return &str_undef;
+  	}
+--- 1202,1208 ----
+  	else {
+  	    if (dowarn)
+  		warn("Test on unopened file <%s>",
+! 		  stab_ename(arg[1].arg_ptr.arg_stab));
+  	    errno = EBADF;
+  	    return &str_undef;
+  	}
+***************
+*** 1167,1174 ****
+  	str_set(statname,str_get(str));
+        really_filename:
+  	i = open(str_get(str),0);
+! 	if (i < 0)
+  	    return &str_undef;
+  	fstat(i,&statcache);
+  	len = read(i,tbuf,512);
+  	(void)close(i);
+--- 1212,1222 ----
+  	str_set(statname,str_get(str));
+        really_filename:
+  	i = open(str_get(str),0);
+! 	if (i < 0) {
+! 	    if (dowarn && index(str_get(str), '\n'))
+! 		warn(warn_nl, "open");
+  	    return &str_undef;
++ 	}
+  	fstat(i,&statcache);
+  	len = read(i,tbuf,512);
+  	(void)close(i);
+***************
+*** 1201,1206 ****
+--- 1249,1257 ----
+  	return &str_yes;
+  }
+  
++ static char **Argv = Null(char **);
++ static char *Cmd = Nullch;
++ 
+  bool
+  do_aexec(really,arglast)
+  STR *really;
+***************
+*** 1210,1221 ****
+      register int sp = arglast[1];
+      register int items = arglast[2] - sp;
+      register char **a;
+-     char **argv;
+      char *tmps;
+  
+      if (items) {
+! 	New(401,argv, items+1, char*);
+! 	a = argv;
+  	for (st += ++sp; items > 0; items--,st++) {
+  	    if (*st)
+  		*a++ = str_get(*st);
+--- 1261,1271 ----
+      register int sp = arglast[1];
+      register int items = arglast[2] - sp;
+      register char **a;
+      char *tmps;
+  
+      if (items) {
+! 	New(401,Argv, items+1, char*);
+! 	a = Argv;
+  	for (st += ++sp; items > 0; items--,st++) {
+  	    if (*st)
+  		*a++ = str_get(*st);
+***************
+*** 1224,1244 ****
+  	}
+  	*a = Nullch;
+  #ifdef TAINT
+! 	if (*argv[0] != '/')	/* will execvp use PATH? */
+  	    taintenv();		/* testing IFS here is overkill, probably */
+  #endif
+  	if (really && *(tmps = str_get(really)))
+! 	    execvp(tmps,argv);
+  	else
+! 	    execvp(argv[0],argv);
+! 	Safefree(argv);
+      }
+      return FALSE;
+  }
+  
+- static char **Argv = Null(char **);
+- static char *Cmd = Nullch;
+- 
+  void
+  do_execfree()
+  {
+--- 1274,1291 ----
+  	}
+  	*a = Nullch;
+  #ifdef TAINT
+! 	if (*Argv[0] != '/')	/* will execvp use PATH? */
+  	    taintenv();		/* testing IFS here is overkill, probably */
+  #endif
+  	if (really && *(tmps = str_get(really)))
+! 	    execvp(tmps,Argv);
+  	else
+! 	    execvp(Argv[0],Argv);
+      }
++     do_execfree();
+      return FALSE;
+  }
+  
+  void
+  do_execfree()
+  {
+***************
+*** 1551,1558 ****
+      register int sp = arglast[1];
+      register STIO *stio;
+      int fd;
+!     int lvl;
+!     int optname;
+  
+      if (!stab)
+  	goto nuts;
+--- 1598,1605 ----
+      register int sp = arglast[1];
+      register STIO *stio;
+      int fd;
+!     unsigned int lvl;
+!     unsigned int optname;
+  
+      if (!stab)
+  	goto nuts;
+***************
+*** 1562,1575 ****
+  	goto nuts;
+  
+      fd = fileno(stio->ifp);
+!     lvl = (int)str_gnum(st[sp+1]);
+!     optname = (int)str_gnum(st[sp+2]);
+      switch (optype) {
+      case O_GSOCKOPT:
+  	st[sp] = str_2mortal(Str_new(22,257));
+  	st[sp]->str_cur = 256;
+  	st[sp]->str_pok = 1;
+! 	if (getsockopt(fd, lvl, optname, st[sp]->str_ptr, &st[sp]->str_cur) < 0)
+  	    goto nuts;
+  	break;
+      case O_SSOCKOPT:
+--- 1609,1623 ----
+  	goto nuts;
+  
+      fd = fileno(stio->ifp);
+!     lvl = (unsigned int)str_gnum(st[sp+1]);
+!     optname = (unsigned int)str_gnum(st[sp+2]);
+      switch (optype) {
+      case O_GSOCKOPT:
+  	st[sp] = str_2mortal(Str_new(22,257));
+  	st[sp]->str_cur = 256;
+  	st[sp]->str_pok = 1;
+! 	if (getsockopt(fd, lvl, optname, st[sp]->str_ptr,
+! 			(int*)&st[sp]->str_cur) < 0)
+  	    goto nuts;
+  	break;
+      case O_SSOCKOPT:
+***************
+*** 1615,1625 ****
+      fd = fileno(stio->ifp);
+      switch (optype) {
+      case O_GETSOCKNAME:
+! 	if (getsockname(fd, st[sp]->str_ptr, &st[sp]->str_cur) < 0)
+  	    goto nuts2;
+  	break;
+      case O_GETPEERNAME:
+! 	if (getpeername(fd, st[sp]->str_ptr, &st[sp]->str_cur) < 0)
+  	    goto nuts2;
+  	break;
+      }
+--- 1663,1673 ----
+      fd = fileno(stio->ifp);
+      switch (optype) {
+      case O_GETSOCKNAME:
+! 	if (getsockname(fd, st[sp]->str_ptr, (int*)&st[sp]->str_cur) < 0)
+  	    goto nuts2;
+  	break;
+      case O_GETPEERNAME:
+! 	if (getpeername(fd, st[sp]->str_ptr, (int*)&st[sp]->str_cur) < 0)
+  	    goto nuts2;
+  	break;
+      }
+***************
+*** 1654,1664 ****
+      struct hostent *hent;
+      unsigned long len;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GHBYNAME) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  
+--- 1702,1707 ----
+***************
+*** 1677,1682 ****
+--- 1720,1747 ----
+  #else
+  	fatal("gethostent not implemented");
+  #endif
++ 
++ #ifdef HOST_NOT_FOUND
++     if (!hent)
++ 	statusvalue = (unsigned short)h_errno & 0xffff;
++ #endif
++ 
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (hent) {
++ 	    if (which == O_GHBYNAME) {
++ #ifdef h_addr
++ 		str_nset(str, *hent->h_addr, hent->h_length);
++ #else
++ 		str_nset(str, hent->h_addr, hent->h_length);
++ #endif
++ 	    }
++ 	    else
++ 		str_set(str, hent->h_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (hent) {
+  #ifndef lint
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+***************
+*** 1726,1736 ****
+      struct netent *getnetent();
+      struct netent *nent;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GNBYNAME) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  
+--- 1791,1796 ----
+***************
+*** 1745,1750 ****
+--- 1805,1821 ----
+      else
+  	nent = getnetent();
+  
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (nent) {
++ 	    if (which == O_GNBYNAME)
++ 		str_numset(str, (double)nent->n_net);
++ 	    else
++ 		str_set(str, nent->n_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (nent) {
+  #ifndef lint
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+***************
+*** 1784,1794 ****
+      struct protoent *getprotoent();
+      struct protoent *pent;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GPBYNAME) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  
+--- 1855,1860 ----
+***************
+*** 1802,1807 ****
+--- 1868,1884 ----
+      else
+  	pent = getprotoent();
+  
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (pent) {
++ 	    if (which == O_GPBYNAME)
++ 		str_numset(str, (double)pent->p_proto);
++ 	    else
++ 		str_set(str, pent->p_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (pent) {
+  #ifndef lint
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+***************
+*** 1839,1849 ****
+      struct servent *getservent();
+      struct servent *sent;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GSBYNAME) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  	char *proto = str_get(ary->ary_array[sp+2]);
+--- 1916,1921 ----
+***************
+*** 1861,1866 ****
+--- 1933,1955 ----
+      }
+      else
+  	sent = getservent();
++ 
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (sent) {
++ 	    if (which == O_GSBYNAME) {
++ #ifdef HAS_NTOHS
++ 		str_numset(str, (double)ntohs(sent->s_port));
++ #else
++ 		str_numset(str, (double)(sent->s_port));
++ #endif
++ 	    }
++ 	    else
++ 		str_set(str, sent->s_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (sent) {
+  #ifndef lint
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+***************
+*** 2007,2012 ****
+--- 2096,2102 ----
+  		for (j = 0, k=ORDERBYTE; j < masksize; j++, (k >>= 4))
+  		    s[(k % masksize) + offset] = fd_sets[i][j+offset];
+  	    }
++ 	    Safefree(fd_sets[i]);
+  	}
+      }
+  #endif
+***************
+*** 2098,2108 ****
+      struct passwd *getpwent();
+      struct passwd *pwent;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GPWNAM) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  
+--- 2188,2193 ----
+***************
+*** 2116,2121 ****
+--- 2201,2217 ----
+      else
+  	pwent = getpwent();
+  
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (pwent) {
++ 	    if (which == O_GPWNAM)
++ 		str_numset(str, (double)pwent->pw_uid);
++ 	    else
++ 		str_set(str, pwent->pw_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (pwent) {
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+  	str_set(str, pwent->pw_name);
+***************
+*** 2179,2189 ****
+      struct group *getgrent();
+      struct group *grent;
+  
+-     if (gimme != G_ARRAY) {
+- 	astore(ary, ++sp, str_mortal(&str_undef));
+- 	return sp;
+-     }
+- 
+      if (which == O_GGRNAM) {
+  	char *name = str_get(ary->ary_array[sp+1]);
+  
+--- 2275,2280 ----
+***************
+*** 2197,2202 ****
+--- 2288,2304 ----
+      else
+  	grent = getgrent();
+  
++     if (gimme != G_ARRAY) {
++ 	astore(ary, ++sp, str = str_mortal(&str_undef));
++ 	if (grent) {
++ 	    if (which == O_GGRNAM)
++ 		str_numset(str, (double)grent->gr_gid);
++ 	    else
++ 		str_set(str, grent->gr_name);
++ 	}
++ 	return sp;
++     }
++ 
+      if (grent) {
+  	(void)astore(ary, ++sp, str = str_mortal(&str_no));
+  	str_set(str, grent->gr_name);
+***************
+*** 2231,2239 ****
+      register int sp = arglast[1];
+      register STIO *stio;
+      long along;
+- #ifndef telldir
+-     long telldir();
+- #endif
+  #ifndef apollo
+      struct DIRENT *readdir();
+  #endif
+--- 2333,2338 ----
+***************
+*** 2278,2307 ****
+  #endif
+  	}
+  	break;
+! #if MACH
+!     case O_TELLDIR:
+      case O_SEEKDIR:
+-         goto nope;
+- #else
+-     case O_TELLDIR:
+  	st[sp] = str_mortal(&str_undef);
+- 	str_numset(st[sp], (double)telldir(stio->dirp));
+- 	break;
+-     case O_SEEKDIR:
+- 	st[sp] = str_mortal(&str_undef);
+  	along = (long)str_gnum(st[sp+1]);
+  	(void)seekdir(stio->dirp,along);
+  	break;
+  #endif
+      case O_REWINDDIR:
+  	st[sp] = str_mortal(&str_undef);
+  	(void)rewinddir(stio->dirp);
+  	break;
+      case O_CLOSEDIR:
+  	st[sp] = str_mortal(&str_undef);
+  	(void)closedir(stio->dirp);
+  	stio->dirp = 0;
+  	break;
+      }
+      return sp;
+  
+--- 2377,2412 ----
+  #endif
+  	}
+  	break;
+! #if defined(HAS_TELLDIR) || defined(telldir)
+!     case O_TELLDIR: {
+! #ifndef telldir
+! 	    long telldir();
+! #endif
+! 	    st[sp] = str_mortal(&str_undef);
+! 	    str_numset(st[sp], (double)telldir(stio->dirp));
+! 	    break;
+! 	}
+! #endif
+! #if defined(HAS_SEEKDIR) || defined(seekdir)
+      case O_SEEKDIR:
+  	st[sp] = str_mortal(&str_undef);
+  	along = (long)str_gnum(st[sp+1]);
+  	(void)seekdir(stio->dirp,along);
+  	break;
+  #endif
++ #if defined(HAS_REWINDDIR) || defined(rewinddir)
+      case O_REWINDDIR:
+  	st[sp] = str_mortal(&str_undef);
+  	(void)rewinddir(stio->dirp);
+  	break;
++ #endif
+      case O_CLOSEDIR:
+  	st[sp] = str_mortal(&str_undef);
+  	(void)closedir(stio->dirp);
+  	stio->dirp = 0;
+  	break;
++     default:
++ 	goto phooey;
+      }
+      return sp;
+  
+***************
+*** 2311,2321 ****
+  	errno = EBADF;
+      return sp;
+  
+- #else
+-     fatal("Unimplemented directory operation");
+  #endif
+  }
+  
+  apply(type,arglast)
+  int type;
+  int *arglast;
+--- 2416,2427 ----
+  	errno = EBADF;
+      return sp;
+  
+  #endif
++ phooey:
++     fatal("Unimplemented directory operation");
+  }
+  
++ int
+  apply(type,arglast)
+  int type;
+  int *arglast;
+***************
+*** 2469,2475 ****
+  int effective;
+  register struct stat *statbufp;
+  {
+! #ifdef MSDOS
+      /* [Comments and code from Len Reed]
+       * MS-DOS "user" is similar to UNIX's "superuser," but can't write
+       * to write-protected files.  The execute permission bit is set
+--- 2575,2581 ----
+  int effective;
+  register struct stat *statbufp;
+  {
+! #ifdef DOSISH
+      /* [Comments and code from Len Reed]
+       * MS-DOS "user" is similar to UNIX's "superuser," but can't write
+       * to write-protected files.  The execute permission bit is set
+***************
+*** 2488,2493 ****
+--- 2594,2602 ----
+       *		Sun's PC-NFS.]
+       */
+  
++      /* Atari stat() does pretty much the same thing. we set x_bit_set_in_stat
++       * too so it will actually look into the files for magic numbers
++       */
+       return (bit & statbufp->st_mode) ? TRUE : FALSE;
+  
+  #else /* ! MSDOS */
+***************
+*** 2658,2664 ****
+      {
+  #ifdef HAS_MSG
+      case O_MSGCTL:
+! 	ret = msgctl(id, cmd, a);
+  	break;
+  #endif
+  #ifdef HAS_SEM
+--- 2767,2773 ----
+      {
+  #ifdef HAS_MSG
+      case O_MSGCTL:
+! 	ret = msgctl(id, cmd, (struct msqid_ds *)a);
+  	break;
+  #endif
+  #ifdef HAS_SEM
+***************
+*** 2668,2674 ****
+  #endif
+  #ifdef HAS_SHM
+      case O_SHMCTL:
+! 	ret = shmctl(id, cmd, a);
+  	break;
+  #endif
+      }
+--- 2777,2783 ----
+  #endif
+  #ifdef HAS_SHM
+      case O_SHMCTL:
+! 	ret = shmctl(id, cmd, (struct shmid_ds *)a);
+  	break;
+  #endif
+      }
+***************
+*** 2699,2705 ****
+  	return -1;
+      }
+      errno = 0;
+!     return msgsnd(id, mbuf, msize, flags);
+  #else
+      fatal("msgsnd not implemented");
+  #endif
+--- 2808,2814 ----
+  	return -1;
+      }
+      errno = 0;
+!     return msgsnd(id, (struct msgbuf *)mbuf, msize, flags);
+  #else
+      fatal("msgsnd not implemented");
+  #endif
+***************
+*** 2728,2734 ****
+  	mbuf = str_get(mstr);
+      }
+      errno = 0;
+!     ret = msgrcv(id, mbuf, msize, mtype, flags);
+      if (ret >= 0) {
+  	mstr->str_cur = sizeof(long)+ret;
+  	mstr->str_ptr[sizeof(long)+ret] = '\0';
+--- 2837,2843 ----
+  	mbuf = str_get(mstr);
+      }
+      errno = 0;
+!     ret = msgrcv(id, (struct msgbuf *)mbuf, msize, mtype, flags);
+      if (ret >= 0) {
+  	mstr->str_cur = sizeof(long)+ret;
+  	mstr->str_ptr[sizeof(long)+ret] = '\0';
+***************
+*** 2802,2808 ****
+  	    STR_GROW(mstr, msize+1);
+  	    mbuf = str_get(mstr);
+  	}
+! 	bcopy(shm + mpos, mbuf, msize);
+  	mstr->str_cur = msize;
+  	mstr->str_ptr[msize] = '\0';
+      }
+--- 2911,2917 ----
+  	    STR_GROW(mstr, msize+1);
+  	    mbuf = str_get(mstr);
+  	}
+! 	Copy(shm + mpos, mbuf, msize, char);
+  	mstr->str_cur = msize;
+  	mstr->str_ptr[msize] = '\0';
+      }
+***************
+*** 2811,2819 ****
+  
+  	if ((n = mstr->str_cur) > msize)
+  	    n = msize;
+! 	bcopy(mbuf, shm + mpos, n);
+  	if (n < msize)
+! 	    bzero(shm + mpos + n, msize - n);
+      }
+      return shmdt(shm);
+  #else
+--- 2920,2928 ----
+  
+  	if ((n = mstr->str_cur) > msize)
+  	    n = msize;
+! 	Copy(mbuf, shm + mpos, n, char);
+  	if (n < msize)
+! 	    memzero(shm + mpos + n, msize - n);
+      }
+      return shmdt(shm);
+  #else
+
+Index: form.c
+*** form.c.old	Mon Jun  8 17:47:24 1992
+--- form.c	Mon Jun  8 17:47:25 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: form.c,v $$Revision: 4.0.1.2 $$Date: 91/11/05 17:18:43 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: form.c,v $$Revision: 4.0.1.3 $$Date: 92/06/08 13:21:42 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,16 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	form.c,v $
++  * Revision 4.0.1.3  92/06/08  13:21:42  lwall
++  * patch20: removed implicit int declarations on funcions
++  * patch20: form feed for formats is now specifiable via $^L
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * 
+   * Revision 4.0.1.2  91/11/05  17:18:43  lwall
+   * patch11: formats didn't fill their fields as well as they could
+   * patch11: ^ fields chopped hyphens on line break
+***************
+*** 25,30 ****
+--- 30,37 ----
+  
+  /* Forms stuff */
+  
++ static int countlines();
++ 
+  void
+  form_parseargs(fcmd)
+  register FCMD *fcmd;
+***************
+*** 80,85 ****
+--- 87,93 ----
+      curlen = orec->o_len - 2; \
+  }
+  
++ void
+  format(orec,fcmd,sp)
+  register struct outrec *orec;
+  register FCMD *fcmd;
+***************
+*** 219,225 ****
+  		*d++ = ' ';
+  	    }
+  	    size = s - t;
+! 	    (void)bcopy(t,d,size);
+  	    d += size;
+  	    *s = tmpchar;
+  	    if (fcmd->f_flags & FC_CHOP)
+--- 227,233 ----
+  		*d++ = ' ';
+  	    }
+  	    size = s - t;
+! 	    Copy(t,d,size,char);
+  	    d += size;
+  	    *s = tmpchar;
+  	    if (fcmd->f_flags & FC_CHOP)
+***************
+*** 264,270 ****
+  		*d++ = ' ';
+  	    }
+  	    size = s - t;
+! 	    (void)bcopy(t,d,size);
+  	    d += size;
+  	    *s = tmpchar;
+  	    if (fcmd->f_next && fcmd->f_next->f_pre[0] == '\n')
+--- 272,278 ----
+  		*d++ = ' ';
+  	    }
+  	    size = s - t;
+! 	    Copy(t,d,size,char);
+  	    d += size;
+  	    *s = tmpchar;
+  	    if (fcmd->f_next && fcmd->f_next->f_pre[0] == '\n')
+***************
+*** 286,292 ****
+  	    size = str_len(str);
+  	    CHKLEN(size+1);
+  	    orec->o_lines += countlines(s,size) - 1;
+! 	    (void)bcopy(s,d,size);
+  	    d += size;
+  	    if (size && s[size-1] != '\n') {
+  		*d++ = '\n';
+--- 294,300 ----
+  	    size = str_len(str);
+  	    CHKLEN(size+1);
+  	    orec->o_lines += countlines(s,size) - 1;
+! 	    Copy(s,d,size,char);
+  	    d += size;
+  	    if (size && s[size-1] != '\n') {
+  		*d++ = '\n';
+***************
+*** 325,330 ****
+--- 333,339 ----
+      *d++ = '\0';
+  }
+  
++ static int
+  countlines(s,size)
+  register char *s;
+  register int size;
+***************
+*** 338,343 ****
+--- 347,353 ----
+      return count;
+  }
+  
++ void
+  do_write(orec,stab,sp)
+  struct outrec *orec;
+  STAB *stab;
+***************
+*** 374,380 ****
+  	    stio->top_stab = topstab;
+  	}
+  	if (stio->lines_left >= 0 && stio->page > 0)
+! 	    (void)putc('\f',ofp);
+  	stio->lines_left = stio->page_len;
+  	stio->page++;
+  	format(&toprec,stab_form(stio->top_stab),sp);
+--- 384,390 ----
+  	    stio->top_stab = topstab;
+  	}
+  	if (stio->lines_left >= 0 && stio->page > 0)
+! 	    fwrite(formfeed->str_ptr, formfeed->str_cur, 1, ofp);
+  	stio->lines_left = stio->page_len;
+  	stio->page++;
+  	format(&toprec,stab_form(stio->top_stab),sp);
+
+Index: atarist/test/gdbm
+*** atarist/test/gdbm.old	Mon Jun  8 17:45:03 1992
+--- atarist/test/gdbm	Mon Jun  8 17:45:04 1992
+***************
+*** 0 ****
+--- 1,28 ----
++ die "cant create dbmtest" unless dbmopen(%keys, "dbmtest", 0666);
++ 
++ print "Writing...\n";
++ 
++ foreach (0..100) {
++     $keys{"$_"} = $_;
++ }
++ 
++ print "Done\n";
++ 
++ dbmclose (%keys);
++ 
++ die "cant read dbmtest" unless dbmopen(%rkeys, "dbmtest", undef);
++ 
++ $i = 0;
++ print "Reading...\n";
++ while (($key, $val) = each %rkeys)
++ {
++   if ($keys{$key} != $val)
++   {
++      print 'Incorrect val ', $key, ' = ', $val, ' expecting ', $keys{$key}, "\n";
++      $i = $i + 1;
++   }
++ }
++ print "Done\n";
++ dbmclose (%keys);
++ print $i, " Error(s)\n";
++ unlink "dbmtest";
+
+Index: atarist/test/gdbm.t
+*** atarist/test/gdbm.t.old	Mon Jun  8 17:45:06 1992
+--- atarist/test/gdbm.t	Mon Jun  8 17:45:06 1992
+***************
+*** 0 ****
+--- 1,101 ----
++ #!./perl
++ 
++ #
++ # based on t/op/dbm.t modified for gdbm and atariST stat() semantics
++ #
++ print "1..12\n";
++ 
++ unlink <Op.dbm>;
++ umask(0);
++ print (dbmopen(h,'Op.dbm',0640) ? "ok 1\n" : "not ok 1\n");
++ ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
++    $blksize,$blocks) = stat('Op.dbm');
++ print (($mode & 0770) == 0640 ? "ok 2\n" : "not ok 2\n");
++ while (($key,$value) = each(h)) {
++     $i++;
++ }
++ print (!$i ? "ok 3\n" : "not ok 3\n");
++ 
++ $h{'goner1'} = 'snork';
++ 
++ $h{'abc'} = 'ABC';
++ $h{'def'} = 'DEF';
++ $h{'jkl','mno'} = "JKL\034MNO";
++ $h{'a',2,3,4,5} = join("\034",'A',2,3,4,5);
++ $h{'a'} = 'A';
++ $h{'b'} = 'B';
++ $h{'c'} = 'C';
++ $h{'d'} = 'D';
++ $h{'e'} = 'E';
++ $h{'f'} = 'F';
++ $h{'g'} = 'G';
++ $h{'h'} = 'H';
++ $h{'i'} = 'I';
++ 
++ $h{'goner2'} = 'snork';
++ delete $h{'goner2'};
++ 
++ dbmclose(h);
++ print (dbmopen(h,'Op.dbm',0640) ? "ok 4\n" : "not ok 4\n");
++ 
++ $h{'j'} = 'J';
++ $h{'k'} = 'K';
++ $h{'l'} = 'L';
++ $h{'m'} = 'M';
++ $h{'n'} = 'N';
++ $h{'o'} = 'O';
++ $h{'p'} = 'P';
++ $h{'q'} = 'Q';
++ $h{'r'} = 'R';
++ $h{'s'} = 'S';
++ $h{'t'} = 'T';
++ $h{'u'} = 'U';
++ $h{'v'} = 'V';
++ $h{'w'} = 'W';
++ $h{'x'} = 'X';
++ $h{'y'} = 'Y';
++ $h{'z'} = 'Z';
++ 
++ $h{'goner3'} = 'snork';
++ 
++ delete $h{'goner1'};
++ delete $h{'goner3'};
++ 
++ @keys = keys(%h);
++ @values = values(%h);
++ 
++ if ($#keys == 29 && $#values == 29) {print "ok 5\n";} else {print "not ok 5\n";}
++ 
++ while (($key,$value) = each(h)) {
++     if ($key eq $keys[$i] && $value eq $values[$i] && $key gt $value) {
++ 	$key =~ y/a-z/A-Z/;
++ 	$i++ if $key eq $value;
++     }
++ }
++ 
++ if ($i == 30) {print "ok 6\n";} else {print "not ok 6\n";}
++ 
++ @keys = ('blurfl', keys(h), 'dyick');
++ if ($#keys == 31) {print "ok 7\n";} else {print "not ok 7\n";}
++ 
++ $h{'foo'} = '';
++ $h{''} = 'bar';
++ 
++ # check cache overflow and numeric keys and contents
++ $ok = 1;
++ for ($i = 1; $i < 200; $i++) { $h{$i + 0} = $i + 0; }
++ for ($i = 1; $i < 200; $i++) { $ok = 0 unless $h{$i} == $i; }
++ print ($ok ? "ok 8\n" : "not ok 8\n");
++ 
++ ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
++    $blksize,$blocks) = stat('Op.dbm');
++ print ($size > 0 ? "ok 9\n" : "not ok 9\n");
++ 
++ @h{0..200} = 200..400;
++ @foo = @h{0..200};
++ print join(':',200..400) eq join(':',@foo) ? "ok 10\n" : "not ok 10\n";
++ 
++ print ($h{'foo'} eq '' ? "ok 11\n" : "not ok 11\n");
++ print ($h{''} eq 'bar' ? "ok 12\n" : "not ok 12\n");
++ 
++ unlink 'Op.dbm';
+
+Index: os2/glob.c
+*** os2/glob.c.old	Mon Jun  8 17:49:54 1992
+--- os2/glob.c	Mon Jun  8 17:49:54 1992
+***************
+*** 1,18 ****
+  /*
+   * Globbing for OS/2.  Relies on the expansion done by the library
+!  * startup code. (dds)
+   */
+  
+! #include <stdio.h>
+! #include <string.h>
+  
+! main(int argc, char *argv[])
+  {
+!   register i;
+  
+    for (i = 1; i < argc; i++)
+    {
+!     fputs(IsFileSystemFAT(argv[i]) ? strlwr(argv[i]) : argv[i], stdout);
+!     putchar(0);
+    }
+  }
+--- 1,21 ----
+  /*
+   * Globbing for OS/2.  Relies on the expansion done by the library
+!  * startup code.
+   */
+  
+! #define PERLGLOB
+! #include "director.c"
+  
+! int main(int argc, char **argv)
+  {
+!   SHORT i;
+!   USHORT r;
+!   CHAR *f;
+  
+    for (i = 1; i < argc; i++)
+    {
+!     f = IsFileSystemFAT(argv[i]) ? strlwr(argv[i]) : argv[i];
+!     DosWrite(1, f, strlen(f) + 1, &r);
+    }
++   return argc - 1;
+  }
+
+Index: t/op/goto.t
+Prereq: 4.0
+*** t/op/goto.t.old	Mon Jun  8 17:52:07 1992
+--- t/op/goto.t	Mon Jun  8 17:52:08 1992
+***************
+*** 1,6 ****
+  #!./perl
+  
+! # $Header: goto.t,v 4.0 91/03/20 01:52:52 lwall Locked $
+  
+  print "1..3\n";
+  
+--- 1,6 ----
+  #!./perl
+  
+! # $RCSfile: goto.t,v $$Revision: 4.0.1.1 $$Date: 92/06/08 15:43:25 $
+  
+  print "1..3\n";
+  
+***************
+*** 30,34 ****
+  if ($foo == 4) {print "ok 2\n";} else {print "not ok 2\n";}
+  
+  $x = `./perl -e 'goto foo;' 2>&1`;
+- print "#3\t/label/ in :$x";
+  if ($x =~ /label/) {print "ok 3\n";} else {print "not ok 3\n";}
+--- 30,33 ----
+
+Index: h2ph.SH
+*** h2ph.SH.old	Mon Jun  8 17:47:28 1992
+--- h2ph.SH	Mon Jun  8 17:47:29 1992
+***************
+*** 19,24 ****
+--- 19,25 ----
+  : Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+  : Protect any dollar signs and backticks that you do not want interpreted
+  : by putting a backslash in front.  You may delete these comments.
++ rm -f h2ph
+  $spitshell >h2ph <<!GROK!THIS!
+  #!$bin/perl
+  'di';
+
+Index: handy.h
+*** handy.h.old	Mon Jun  8 17:47:31 1992
+--- handy.h	Mon Jun  8 17:47:32 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: handy.h,v $$Revision: 4.0.1.3 $$Date: 91/11/05 22:54:26 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: handy.h,v $$Revision: 4.0.1.4 $$Date: 92/06/08 13:23:17 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,15 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	handy.h,v $
++  * Revision 4.0.1.4  92/06/08  13:23:17  lwall
++  * patch20: isascii() may now be supplied by a library routine
++  * patch20: Perl now distinguishes overlapped copies from non-overlapped
++  * 
+   * Revision 4.0.1.3  91/11/05  22:54:26  lwall
+   * patch11: erratum
+   * 
+***************
+*** 58,64 ****
+  #define strnNE(s1,s2,l) (strncmp(s1,s2,l))
+  #define strnEQ(s1,s2,l) (!strncmp(s1,s2,l))
+  
+! #if defined(CTYPE256) || !defined(isascii)
+  #define isALNUM(c) (isalpha(c) || isdigit(c) || c == '_')
+  #define isALPHA(c) isalpha(c)
+  #define isSPACE(c) isspace(c)
+--- 62,68 ----
+  #define strnNE(s1,s2,l) (strncmp(s1,s2,l))
+  #define strnEQ(s1,s2,l) (!strncmp(s1,s2,l))
+  
+! #if defined(CTYPE256) || (!defined(isascii) && !defined(HAS_ISASCII))
+  #define isALNUM(c) (isalpha(c) || isdigit(c) || c == '_')
+  #define isALPHA(c) isalpha(c)
+  #define isSPACE(c) isspace(c)
+***************
+*** 74,81 ****
+  #define isLOWER(c) (isascii(c) && islower(c))
+  #endif
+  
+- #define MEM_SIZE unsigned int
+- 
+  /* Line numbers are unsigned, 16 bits. */
+  typedef unsigned short line_t;
+  #ifdef lint
+--- 78,83 ----
+***************
+*** 95,101 ****
+  #define New(x,v,n,t)  (v = (t*)safemalloc((MEM_SIZE)((n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safemalloc((MEM_SIZE)((n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safemalloc((MEM_SIZE)((n) * sizeof(t)))), \
+!     bzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)saferealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)saferealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #else
+--- 97,103 ----
+  #define New(x,v,n,t)  (v = (t*)safemalloc((MEM_SIZE)((n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safemalloc((MEM_SIZE)((n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safemalloc((MEM_SIZE)((n) * sizeof(t)))), \
+!     memzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)saferealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)saferealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #else
+***************
+*** 102,108 ****
+  #define New(x,v,n,t)  (v = (t*)safemalloc(((unsigned long)(n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safemalloc(((unsigned long)(n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safemalloc(((unsigned long)(n) * sizeof(t)))), \
+!     bzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)saferealloc((char*)(v),((unsigned long)(n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)saferealloc((char*)(v),((unsigned long)(n)*sizeof(t))))
+  #endif /* MSDOS */
+--- 104,110 ----
+  #define New(x,v,n,t)  (v = (t*)safemalloc(((unsigned long)(n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safemalloc(((unsigned long)(n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safemalloc(((unsigned long)(n) * sizeof(t)))), \
+!     memzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)saferealloc((char*)(v),((unsigned long)(n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)saferealloc((char*)(v),((unsigned long)(n)*sizeof(t))))
+  #endif /* MSDOS */
+***************
+*** 115,121 ****
+  #define New(x,v,n,t)  (v = (t*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t)))), \
+!     bzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)safexrealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)safexrealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Safefree(d) safexfree((char*)d)
+--- 117,123 ----
+  #define New(x,v,n,t)  (v = (t*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t))))
+  #define Newc(x,v,n,t,c)  (v = (c*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t))))
+  #define Newz(x,v,n,t) (v = (t*)safexmalloc(x,(MEM_SIZE)((n) * sizeof(t)))), \
+!     memzero((char*)(v), (n) * sizeof(t))
+  #define Renew(v,n,t) (v = (t*)safexrealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Renewc(v,n,t,c) (v = (c*)safexrealloc((char*)(v),(MEM_SIZE)((n)*sizeof(t))))
+  #define Safefree(d) safexfree((char*)d)
+***************
+*** 124,137 ****
+  long xcount[MAXXCOUNT];
+  long lastxcount[MAXXCOUNT];
+  #endif /* LEAKTEST */
+! #define Copy(s,d,n,t) (void)bcopy((char*)(s),(char*)(d), (n) * sizeof(t))
+! #define Zero(d,n,t) (void)bzero((char*)(d), (n) * sizeof(t))
+  #else /* lint */
+  #define New(x,v,n,s) (v = Null(s *))
+  #define Newc(x,v,n,s,c) (v = Null(s *))
+  #define Newz(x,v,n,s) (v = Null(s *))
+  #define Renew(v,n,s) (v = Null(s *))
+  #define Copy(s,d,n,t)
+  #define Zero(d,n,t)
+  #define Safefree(d) d = d
+  #endif /* lint */
+--- 126,147 ----
+  long xcount[MAXXCOUNT];
+  long lastxcount[MAXXCOUNT];
+  #endif /* LEAKTEST */
+! #define Move(s,d,n,t) (void)memmove((char*)(d),(char*)(s), (n) * sizeof(t))
+! #define Copy(s,d,n,t) (void)memcpy((char*)(d),(char*)(s), (n) * sizeof(t))
+! #define Zero(d,n,t) (void)memzero((char*)(d), (n) * sizeof(t))
+  #else /* lint */
+  #define New(x,v,n,s) (v = Null(s *))
+  #define Newc(x,v,n,s,c) (v = Null(s *))
+  #define Newz(x,v,n,s) (v = Null(s *))
+  #define Renew(v,n,s) (v = Null(s *))
++ #define Move(s,d,n,t)
+  #define Copy(s,d,n,t)
+  #define Zero(d,n,t)
+  #define Safefree(d) d = d
+  #endif /* lint */
++ 
++ #ifdef STRUCTCOPY
++ #define StructCopy(s,d,t) *((t*)(d)) = *((t*)(s))
++ #else
++ #define StructCopy(s,d,t) Copy(s,d,1,t)
++ #endif
+
+Index: hash.c
+*** hash.c.old	Mon Jun  8 17:47:34 1992
+--- hash.c	Mon Jun  8 17:47:35 1992
+***************
+*** 1,4 ****
+! /* $RCSfile: hash.c,v $$Revision: 4.0.1.2 $$Date: 91/11/05 17:24:13 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! /* $RCSfile: hash.c,v $$Revision: 4.0.1.3 $$Date: 92/06/08 13:26:29 $
+   *
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,16 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	hash.c,v $
++  * Revision 4.0.1.3  92/06/08  13:26:29  lwall
++  * patch20: removed implicit int declarations on functions
++  * patch20: delete could cause %array to give too low a count of buckets filled
++  * patch20: hash tables now split only if the memory is available to do so
++  * 
+   * Revision 4.0.1.2  91/11/05  17:24:13  lwall
+   * patch11: saberized perl
+   * 
+***************
+*** 20,25 ****
+--- 25,32 ----
+  #include "EXTERN.h"
+  #include "perl.h"
+  
++ static void hsplit();
++ 
+  static char coeff[] = {
+  		61,59,53,47,43,41,37,31,29,23,17,13,11,7,3,1,
+  		61,59,53,47,43,41,37,31,29,23,17,13,11,7,3,1,
+***************
+*** 247,256 ****
+  	if (bcmp(entry->hent_key,key,klen))	/* is this it? */
+  	    continue;
+  	*oentry = entry->hent_next;
+  	str = str_mortal(entry->hent_val);
+  	hentfree(entry);
+- 	if (i)
+- 	    tb->tbl_fill--;
+  #ifdef SOME_DBM
+        do_dbm_delete:
+  	if (tb->tbl_dbm) {
+--- 254,263 ----
+  	if (bcmp(entry->hent_key,key,klen))	/* is this it? */
+  	    continue;
+  	*oentry = entry->hent_next;
++ 	if (i && !*oentry)
++ 	    tb->tbl_fill--;
+  	str = str_mortal(entry->hent_val);
+  	hentfree(entry);
+  #ifdef SOME_DBM
+        do_dbm_delete:
+  	if (tb->tbl_dbm) {
+***************
+*** 273,278 ****
+--- 280,286 ----
+  #endif
+  }
+  
++ static void
+  hsplit(tb)
+  HASH *tb;
+  {
+***************
+*** 285,291 ****
+--- 293,305 ----
+      register HENT **oentry;
+  
+      a = tb->tbl_array;
++     nomemok = TRUE;
+      Renew(a, newsize, HENT*);
++     nomemok = FALSE;
++     if (!a) {
++ 	tb->tbl_dosplit = tb->tbl_max + 1;	/* never split again */
++ 	return;
++     }
+      Zero(&a[oldsize], oldsize, HENT*);		/* zero 2nd half*/
+      tb->tbl_max = --newsize;
+      tb->tbl_dosplit = tb->tbl_max * FILLPCT / 100;
+***************
+*** 369,375 ****
+      tb->tbl_fill = 0;
+  #ifndef lint
+      if (tb->tbl_array)
+! 	(void)bzero((char*)tb->tbl_array, (tb->tbl_max + 1) * sizeof(HENT*));
+  #endif
+  }
+  
+--- 383,389 ----
+      tb->tbl_fill = 0;
+  #ifndef lint
+      if (tb->tbl_array)
+! 	(void)memzero((char*)tb->tbl_array, (tb->tbl_max + 1) * sizeof(HENT*));
+  #endif
+  }
+  
+
+Index: hints/hp9000_700.sh
+*** hints/hp9000_700.sh.old	Mon Jun  8 17:47:54 1992
+--- hints/hp9000_700.sh	Mon Jun  8 17:47:55 1992
+***************
+*** 0 ****
+--- 1,5 ----
++ libswanted='ndbm m'
++ ccflags="$ccflags -DJMPCLOBBER"
++ optimize='+O1'
++ d_mymalloc=define
++ alignbytes=8
+
+Index: hints/hp9000_800.sh
+*** hints/hp9000_800.sh.old	Mon Jun  8 17:47:56 1992
+--- hints/hp9000_800.sh	Mon Jun  8 17:47:57 1992
+***************
+*** 1,2 ****
+  libswanted=`echo $libswanted | sed -e 's/malloc //' -e 's/BSD //`
+! optimize='+O1'
+--- 1,3 ----
+  libswanted=`echo $libswanted | sed -e 's/malloc //' -e 's/BSD //`
+! eval_cflags='optimize=+O1'
+! teval_cflags=$eval_cflags
+
+Index: hints/hpux.sh
+*** hints/hpux.sh.old	Mon Jun  8 17:47:59 1992
+--- hints/hpux.sh	Mon Jun  8 17:47:59 1992
+***************
+*** 5,7 ****
+--- 5,8 ----
+  *3.1*) d_syscall=$undef ;;
+  *2.1*) libswanted=`echo $libswanted | sed 's/ malloc / /'` ;;
+  esac
++ d_index=define
+
+Index: installperl
+*** installperl.old	Mon Jun  8 17:48:36 1992
+--- installperl	Mon Jun  8 17:48:36 1992
+***************
+*** 1,5 ****
+--- 1,7 ----
+  #!./perl
+  
++ $mainperldir = "/usr/bin";
++ 
+  while (@ARGV) {
+      $nonono = 1 if $ARGV[0] eq '-n';
+      $versiononly = 1 if $ARGV[0] eq '-v';
+***************
+*** 11,20 ****
+  @scripts = ('cppstdin', 'h2ph', 'c2ph', 'pstruct', 'x2p/s2p', 'x2p/find2perl');
+  @manpages = ('perl.man', 'h2ph.man', 'x2p/a2p.man', 'x2p/s2p.man');
+  
+- $version = sprintf("%5.3f", $]);
+- $release = substr($version,0,3);
+- $patchlevel = substr($version,3,2);
+- 
+  # Read in the config file.
+  
+  open(CONFIG, "config.sh") || die "You haven't run Configure yet!\n";
+--- 13,18 ----
+***************
+*** 26,32 ****
+--- 24,43 ----
+      }
+      $accum .= $_;
+  }
++ close CONFIG;
+  
++ open(PERL_C, "perl.c");
++ while (<PERL_C>) {
++     last if /Revision:/;
++ }
++ close PERL_C;
++ s/.*Revision: //;
++ $major = $_ + 0;
++ 
++ $ver = sprintf("%5.3f", $major + $PATCHLEVEL / 1000);
++ $release = substr($ver,0,3);
++ $patchlevel = substr($ver,3,2);
++ 
+  # Do some quick sanity checks.
+  
+  if ($d_dosuid && $>) { die "You must run as root to install suidperl\n"; }
+***************
+*** 45,52 ****
+  
+  # First we install the version-numbered executables.
+  
+- $ver = sprintf("%5.3f", $]);
+- 
+  &unlink("$installbin/perl$ver");
+  &cmd("cp perl $installbin/perl$ver");
+  
+--- 56,61 ----
+***************
+*** 80,96 ****
+  if ($bdev != $ddev || $bino != $dino) {
+      &unlink("$installbin/a2p");
+      &cmd("cp x2p/a2p $installbin/a2p");
+  }
+  
+  # Make some enemies in the name of standardization.   :-)
+  
+! ($udev,$uino) = stat("/usr/bin");
+  
+! if (-w _ && ($udev != $ddev || $uino != $dino) && !$nonono) {
+!     &unlink("/usr/bin/perl");
+!     eval 'symlink("$installbin/perl", "/usr/bin/perl")' ||
+!     eval 'link("$installbin/perl", "/usr/bin/perl")' ||
+!     &cmd("cp $installbin/perl /usr/bin");
+  }
+  
+  # Install scripts.
+--- 89,106 ----
+  if ($bdev != $ddev || $bino != $dino) {
+      &unlink("$installbin/a2p");
+      &cmd("cp x2p/a2p $installbin/a2p");
++     &chmod(0755, "$installbin/a2p");
+  }
+  
+  # Make some enemies in the name of standardization.   :-)
+  
+! ($udev,$uino) = stat($mainperldir);
+  
+! if (-w _ && ($udev != $bdev || $uino != $bino) && !$nonono) {
+!     &unlink("$mainperldir/perl");
+!     eval 'link("$installbin/perl", "$mainperldir/perl")' ||
+!     eval 'symlink("$installbin/perl", "$mainperldir/perl")' ||
+!     &cmd("cp $installbin/perl $mainperldir");
+  }
+  
+  # Install scripts.
+***************
+*** 114,121 ****
+  	    $new =~ s#.*/##;
+  	    print STDERR "  Installing $mansrc/$new\n";
+  	    next if $nonono;
+! 	    open(MI,$_);
+! 	    open(MO,">$mansrc/$new");
+  	    print MO ".ds RP Release $release Patchlevel $patchlevel\n";
+  	    while (<MI>) {
+  		print MO;
+--- 124,131 ----
+  	    $new =~ s#.*/##;
+  	    print STDERR "  Installing $mansrc/$new\n";
+  	    next if $nonono;
+! 	    open(MI,$_) || warn "Can't open $_: $!\n";
+! 	    open(MO,">$mansrc/$new") || warn "Can't install $mansrc/$new: $!\n";
+  	    print MO ".ds RP Release $release Patchlevel $patchlevel\n";
+  	    while (<MI>) {
+  		print MO;
+
+Index: hints/isc_3_2_2.sh
+*** hints/isc_3_2_2.sh.old	Mon Jun  8 17:48:01 1992
+--- hints/isc_3_2_2.sh	Mon Jun  8 17:48:01 1992
+***************
+*** 1,4 ****
+! set `echo $libswanted | sed -e 's/ x / /' -e 's/ PW / /' -e s/ malloc / /`
+  libswanted="inet malloc $*"
+  doio_cflags='ccflags="$ccflags -DENOTSOCK=103"'
+  tdoio_cflags='ccflags="$ccflags -DENOTSOCK=103"'
+--- 1,4 ----
+! set `echo $libswanted | sed -e 's/ x / /' -e 's/ PW / /' -e 's/ malloc / /'`
+  libswanted="inet malloc $*"
+  doio_cflags='ccflags="$ccflags -DENOTSOCK=103"'
+  tdoio_cflags='ccflags="$ccflags -DENOTSOCK=103"'
+
+Index: makedir.SH
+Prereq: 4.0
+*** makedir.SH.old	Mon Jun  8 17:49:24 1992
+--- makedir.SH	Mon Jun  8 17:49:25 1992
+***************
+*** 13,23 ****
+  */*) cd `expr X$0 : 'X\(.*\)/'` ;;
+  esac
+  echo "Extracting makedir (with variable substitutions)"
+  $spitshell >makedir <<!GROK!THIS!
+  $startsh
+! # $Header: makedir.SH,v 4.0 91/03/20 01:27:13 lwall Locked $
+  # 
+  # $Log:	makedir.SH,v $
+  # Revision 4.0  91/03/20  01:27:13  lwall
+  # 4.0 baseline.
+  # 
+--- 13,27 ----
+  */*) cd `expr X$0 : 'X\(.*\)/'` ;;
+  esac
+  echo "Extracting makedir (with variable substitutions)"
++ rm -f makedir
+  $spitshell >makedir <<!GROK!THIS!
+  $startsh
+! # $RCSfile: makedir.SH,v $$Revision: 4.0.1.1 $$Date: 92/06/08 14:24:55 $
+  # 
+  # $Log:	makedir.SH,v $
++ # Revision 4.0.1.1  92/06/08  14:24:55  lwall
++ # patch20: SH files didn't work well with symbolic links
++ # 
+  # Revision 4.0  91/03/20  01:27:13  lwall
+  # 4.0 baseline.
+  # 
+
+Index: atarist/usub/makefile.st
+*** atarist/usub/makefile.st.old	Mon Jun  8 17:45:34 1992
+--- atarist/usub/makefile.st	Mon Jun  8 17:45:35 1992
+***************
+*** 0 ****
+--- 1,17 ----
++ CC = cgcc
++ SRC = ..
++ GLOBINCS = 
++ LOCINCS = 
++ LIBS = -lcurses  -lgdbm -lpml -lgnu
++ 
++ cperl.ttp: $(SRC)/uperl.a usersub.o curses.o
++ 	$(CC) $(SRC)/uperl.a usersub.o curses.o $(LIBS) -o cperl.ttp
++ 
++ usersub.o: usersub.c
++ 	$(CC) -c -I$(SRC) $(GLOBINCS) -O usersub.c
++ 
++ curses.o: curses.c
++ 	$(CC) -c -I$(SRC) $(GLOBINCS) -O curses.c
++ 
++ curses.c: acurses.mus
++ 	perl mus acurses.mus >curses.c
+
+Index: hints/mc6000.sh
+*** hints/mc6000.sh.old	Mon Jun  8 17:48:03 1992
+--- hints/mc6000.sh	Mon Jun  8 17:48:04 1992
+***************
+*** 0 ****
+--- 1,5 ----
++ # defaults for the masscomp (concurrent) 6000 series running RTU 5.0
++ cppstdin=/lib/cpp
++ cmd_cflags='optimize=""'
++ tcmd_cflags='optimize=""'
++ d_mymalloc=define
+
+*** End of Patch 26 ***
+exit 0 # Just in case...

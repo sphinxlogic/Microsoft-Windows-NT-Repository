@@ -1,0 +1,1838 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i073:  astrolog - Generation of astrology charts v3.05, Part04/12
+Message-ID: <1993May19.061600.11298@sparky.imd.sterling.com>
+X-Md4-Signature: 4bc3d1d99d40050f2a22ad575247c0a7
+Date: Wed, 19 May 1993 06:16:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 73
+Archive-name: astrolog/part04
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 12)."
+# Contents:  general.c options.c
+# Wrapped by pul@hardy on Sun May 16 22:23:16 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'general.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'general.c'\"
+else
+echo shar: Extracting \"'general.c'\" \(16126 characters\)
+sed "s/^X//" >'general.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: general.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X
+X/*
+X*******************************************************************************
+X** General and numeric routines
+X*******************************************************************************
+X*/
+X
+X/* Swap two real float values. */
+X
+Xvoid SwapReal(d1, d2)
+Xreal *d1, *d2;
+X{
+X  real temp;
+X
+X  temp = *d1; *d1 = *d2; *d2 = temp;
+X}
+X
+X
+X/* Return the length of a string. */
+X
+Xint StringLen(line)
+Xchar *line;
+X{
+X  int i;
+X
+X  for (i = 0; *line++; i++)
+X    ;
+X  return i;
+X}
+X
+X
+X/* Determine the sign of a number: -1 if value negative, +1 if value */
+X/* positive, and 0 if it's zero.                                     */
+X
+Xreal Sgn(d)
+Xreal d;
+X{
+X  return d < 0.0 ? -1.0 : (d > 0.0 ? 1.0 : 0.0);
+X}
+X
+X
+X/* Convert an inputed fractional degrees/minutes value to a true decimal   */
+X/* degree quantity. For example, the user enters the decimal value "10.30" */
+X/* to mean 10 degrees and 30 minutes; this will return 10.5, i.e. 10       */
+X/* degrees and 30 minutes expressed as a floating point degree value.      */
+X
+Xreal DecToDeg(d)
+Xreal d;
+X{
+X  return Sgn(d)*(floor(dabs(d))+FRACT(dabs(d))*100.0/60.0);
+X}
+X
+X
+X/* Modulus function for floating point values. The modulus value itself */
+X/* has been specified earlier: it is usually either 360.0 or PI/2.0.    */
+X
+Xreal Mod(d)
+Xreal d;
+X{
+X  if (d > modulus)         /* In most cases, our value is only slightly */
+X    d -= modulus;          /* out of range, so we can test for it and   */
+X  else if (d < modulus)    /* avoid the more complicated arithmetic.    */
+X    d += modulus;
+X  if (d >= 0 && d < modulus)
+X    return d;
+X  return (d - floor(d/modulus)*modulus);
+X}
+X
+X
+X/* A similar modulus function: convert an integer to value from 1..12. */
+X
+Xint Mod12(i)
+Xint i;
+X{
+X  while (i > SIGNS)
+X    i -= SIGNS;
+X  while (i < 1)
+X    i += SIGNS;
+X  return i;
+X}
+X
+X
+X/* Return the shortest distance between two degrees in the zodiac. This is  */
+X/* normally their difference, but we have to check if near the Aries point. */
+X
+Xreal MinDistance(deg1, deg2)
+Xreal deg1, deg2;
+X{
+X  real i;
+X
+X  i = dabs(deg1-deg2);
+X  return i < 180 ? i : DEGREES - i;
+X}
+X
+X
+X/* Return the degree of the midpoint between two zodiac positions, making */
+X/* sure we return the true midpoint closest to the positions in question. */
+X
+Xreal Midpoint(deg1, deg2)
+Xreal deg1, deg2;
+X{
+X  real mid;
+X
+X  mid = (deg1+deg2)/2.0;
+X  return MinDistance(deg1, mid) < 90.0 ? mid : Mod(mid+180.0);
+X}
+X
+X
+X/* Given a planet and sign, determine whether: The planet rules the sign, */
+X/* the planet has its fall in the sign, the planet exalts in the sign, or */
+X/* is debilitated in the sign; and return an appropriate character.       */
+X
+Xchar Dignify(body, sign)
+Xint body, sign;
+X{
+X  if (body > OBJECTS)
+X    return ' ';
+X  if (ruler1[body] == sign || ruler2[body] == sign)
+X    return 'R';
+X  if (ruler1[body] == Mod12(sign+6) || ruler2[body] == Mod12(sign+6))
+X    return 'F';
+X  if (exalt[body] == sign)
+X    return 'e';
+X  if (exalt[body] == Mod12(sign+6))
+X    return 'd';
+X  return '-';
+X}
+X
+X
+X/* Determine the number of days in a particular month. The year is needed, */
+X/* too, because we have to check for leap years in the case of February.   */
+X
+Xint DayInMonth(month, year)
+Xint month, year;
+X{
+X  return (month == 9 || month == 4 || month == 6 || month == 11 ? 30 :
+X    (month != 2 ? 31 : 28 +
+X    (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))));
+X}
+X
+X
+X/* Given an aspect and two objects making that aspect with each other,   */
+X/* return the maximum orb allowed for such an aspect. Normally this only */
+X/* depends on the aspect itself, but some objects require narrow orbs,   */
+X/* and some allow wider orbs, so check for these cases.                  */
+X
+Xreal Orb(body1, body2, aspect)
+Xint body1, body2, aspect;
+X{
+X  real orb, i;
+X
+X  orb = aspectorb[aspect];
+X  i = body1 > BASE ? 2.0 : (body1 > OBJECTS ? 360.0 : planetorb[body1]);
+X  orb = MIN(orb, i);
+X  i = body2 > BASE ? 2.0 : (body2 > OBJECTS ? 360.0 : planetorb[body2]);
+X  orb = MIN(orb, i);
+X  if (body1 <= OBJECTS)
+X    orb += planetadd[body1];
+X  if (body2 <= OBJECTS)
+X    orb += planetadd[body2];
+X  return orb;
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** IO routines
+X*******************************************************************************
+X*/
+X
+X/* Exit the program, and do any cleanup necessary. */
+X
+Xvoid Terminate(value)
+Xint value;
+X{
+X  if (ansi)
+X    printf("%c[0m", ESCAPE);    /* Get out of any Ansi color mode. */
+X  exit(value);
+X}
+X
+X
+X/* Simplification for a commonly printed error message. */
+X
+Xvoid TooFew(option)
+Xchar *option;
+X{
+X  fprintf(stderr, "%s: Too few options to switch -%s\n", appname, option);
+X  Terminate(1);
+X}
+X
+X
+X/* More simplifications for commonly printed error messages. */
+X
+Xvoid BadVal(option, value)
+Xchar *option;
+Xint value;
+X{
+X  fprintf(stderr, "%s: Value %d passed to switch -%s out of range.\n",
+X    appname, value, option);
+X  Terminate(1);
+X}
+X
+Xvoid BadVal2(option, value)
+Xchar *option;
+Xreal value;
+X{
+X  fprintf(stderr, "%s: Value %.0f passed to switch -%s out of range.\n",
+X    appname, value, option);
+X  Terminate(1);
+X}
+X
+X
+X/* A simple procedure used throughout Astrolog: Print a particular */
+X/* character on the screen 'n' times.                              */
+X
+Xvoid PrintTab(chr, count)
+Xchar chr;
+Xint count;
+X{
+X  int i;
+X
+X  for (i = 0; i < count; i++)
+X    putchar(chr);
+X}
+X
+X
+X/* Set an Ansi text color. */
+X
+Xvoid AnsiColor(col)
+Xint col;
+X{
+X  if (!ansi)
+X    return;
+X  printf("%c[", ESCAPE);
+X  if (col < 0)              /* Hack: Negative color means normal text. */
+X    putchar('0');
+X  else
+X    printf("%c;%d", '0' + (col > 7), 30 + (col & 7));
+X  putchar('m');
+X}
+X
+X
+X/* Nicely format the current longitude and latitude locations and return  */
+X/* them in a string. Various parts of the program display a chart header, */
+X/* and this allows the similar computations to be coded only once.        */
+X
+Xchar *StringLocation(Lon, Lat, norm)
+Xreal Lon, Lat, norm;
+X{
+X  static char loc[14];
+X  int i, j;
+X
+X  i = (int) (FRACT(dabs(Lon))*norm+0.1);
+X  j = (int) (FRACT(dabs(Lat))*norm+0.1);
+X  sprintf(loc, "%3.0f%c%d%d%c %2.0f%c%d%d%c",
+X    floor(dabs(Lon)), DEGR1, i/10, i%10, Lon < 0.0 ? 'E' : 'W',
+X    floor(dabs(Lat)), DEGR1, j/10, j%10, Lat < 0.0 ? 'S' : 'N');
+X  return loc;
+X}
+X
+X
+X/* Return the next value in a stream of values describing how to calculate */
+X/* the positions of the various planets.                                   */
+X
+Xreal ReadPlanetData(reset)
+Xint reset;
+X{
+X  static real *datapointer = planetdata;
+X
+X  if (!reset)
+X    return *datapointer++;
+X  datapointer = planetdata;
+X  return 0.0;
+X}
+X
+X
+X/* Similarly, return the next value in a stream of values describing the */
+X/* locations of the various fixed stars.                                 */
+X
+Xreal ReadStarData(reset)
+Xint reset;
+X{
+X  static real *datapointer = stardata;
+X
+X  if (!reset)
+X    return *datapointer++;
+X  datapointer = stardata;
+X  return 0.0;
+X}
+X
+X
+X#ifdef GRAPH
+X/* Another stream reader, this one is used by the globe drawing routine: */
+X/* for the next body of land/water, return its name (and color), its     */
+X/* longitude and latitude, and a vector description of its outline.      */
+X
+Xint ReadWorldData(nam, loc, lin)
+Xchar **nam, **loc, **lin;
+X{
+X  static char **datapointer = worlddata;
+X
+X  *loc = *datapointer++;
+X  *lin = *datapointer++;
+X  *nam = *datapointer++;
+X  if ((exdisplay & DASHXP0) && xbitmap)
+X    printf("%s\n", *nam+1);
+X  if (*loc[0])
+X    return TRUE;
+X  datapointer = worlddata;    /* Reset stream when no data left. */
+X  return FALSE;
+X}
+X#endif
+X
+X
+X/* Print a zodiac position on the screen. */
+X
+Xvoid PrintMinute(deg)
+Xreal deg;
+X{
+X  int sign, d, m;
+X
+X  if (!(operation & DASHs0)) {
+X
+X    /* Normally, we print out the position in degrees/sign/minutes format: */
+X
+X    deg = Mod(deg + 1.0/60.0/2.0);
+X    AnsiColor(elemansi[(int) (deg / 30.0) & 3]);
+X    sign = (int) (deg / 30.0);
+X    d = (int) deg - sign*30;
+X    m = (int) (FRACT(deg)*60.0);
+X    printf("%2d%c%c%c%s%d", d, SIGNAM(sign + 1), m < 10 ? "0" : "", m);
+X  } else {
+X
+X    /* However, if -s0 switch in effect, print position in hours/minutes: */
+X
+X    deg = Mod(deg + 1.0/4.0/2.0);
+X    AnsiColor(elemansi[(int) (deg / 30.0) & 3]);
+X    d = (int) (deg / 15.0);
+X    m = (int) ((deg - (real)d*15.0)*60.0/24.0);
+X    printf("%2dh,%s%dm", d, m < 10 ? "0" : "", m);
+X  }
+X  AnsiColor(-1);
+X}
+X
+X
+X/* This is similar to printing out a zodiac degree, but here we print out */
+X/* a (signed) declination value in degrees and minutes.                   */
+X
+Xvoid PrintAltitude(deg)
+Xreal deg;
+X{
+X  int d, m;
+X
+X  while (deg > 90.0)    /* Make sure declination value is from -90..+90 deg. */
+X    deg -= 180.0;
+X  while (deg < -90.0)
+X    deg += 180.0;
+X  putchar(deg < 0.0 ? '-' : '+');
+X  deg = dabs(deg) + 1.0/60.0/2.0;
+X  d = (int) deg;
+X  m = (int) (FRACT(deg)*60.0);
+X  printf("%2d%c%s%d'", d, DEGR2, m < 10 ? "0" : "", m);
+X}
+X
+X
+X/* Prompt the user for a floating point value, and make sure it conforms  */
+X/* to the specified bounds before returning it. If a non-numeric value is */
+X/* entered, then assume it's the name of a month, and try to convert it   */
+X/* to the appropriate number from 1 to 12; and also check for an "AM" or  */
+X/* "PM" suffix to hour values, and adjust the number appropriately.       */
+X
+Xreal Input(prompt, low, high)
+Xchar *prompt;
+Xreal low, high;
+X{
+X  char line[STRING], c;
+X  real x;
+X  int i, j;
+X
+X  while (TRUE) {
+X    printf("%s", prompt);
+X    AnsiColor(YELLOW);
+X    printf(" > ");
+X    AnsiColor(-1);
+X    if (gets(line) == (char *) NULL) {
+X      printf("\n%s terminated.\n", appname);
+X      Terminate(2);
+X    }
+X    i = StringLen(line);
+X    for (j = 0; j < i; j++)
+X      if (line[j] == ':')      /* Convert all colons in the */
+X        line[j] = '.';         /* entered line to periods.  */
+X    c = CAP(line[0]);
+X
+X    /* If they entered a string, then check to see if it's a month name. */
+X
+X    if (c >= 'A' && c <= 'Z') {
+X      switch (c) {
+X      case 'J': x = CAP(line[1]) == 'U' ?                   /* January,     */
+X        (CAP(line[2]) == 'L' ? 7.0 : 6.0) : 1.0; break;     /* June,July    */
+X      case 'F': x = 2.0; break;                             /* February     */
+X      case 'M': x = CAP(line[2]) == 'Y' ? 5.0 : 3.0; break; /* March,May    */
+X      case 'A': x = CAP(line[1]) == 'U' ? 8.0 : 4.0; break; /* April,August */
+X      case 'S': x = 9.0; break;                             /* September    */
+X      case 'O': x = 10.0; break;                            /* October      */
+X      case 'N': x = 11.0; break;                            /* November     */
+X      case 'D': x = 12.0; break;                            /* December     */
+X      default: x = 0.0;
+X      }
+X    } else {
+X      sscanf(line, "%lf", &x);    /* Convert entered line to number. */
+X      i = StringLen(line)-1;
+X      if (i > 0 && CAP(line[i]) == 'M')
+X        i--;
+X      if (i > 0) {
+X        c = CAP(line[i]);
+X        if (c == 'A')                    /* Adjust value appropriately */
+X          x = x >= 12.0 ? x-12.0 : x;    /* if 'AM' or 'PM' suffix.    */
+X        else if (c == 'P')
+X          x = x >= 12.0 ? x : x+12.0;
+X      }
+X    }
+X    if (x >= low && x <= high)
+X      return x;
+X    printf("Value out of range of from %.0f to %.0f.\n", low, high);
+X  }
+X}
+X
+X
+X/* This important procedure gets all the parameters defining the chart that  */
+X/* will be worked with later. Given a "filename", it gets from it all the    */
+X/* pertinent chart information. This is more than just reading from a file - */
+X/* the procedure also takes care of the cases of prompting the user for the  */
+X/* information and using the time functions to determine the date now - the  */
+X/* program considers these cases "virtual" files. Furthermore, when reading  */
+X/* from a real file, we have to check if it was written in the -o0 format.   */
+X
+Xvoid InputData(filename)
+Xchar *filename;
+X{
+X  FILE *data;
+X  char name[STRING], c;
+X  int i;
+X  real k, l, m;
+X#ifdef TIME
+X  struct tm curtime;
+X  long curtimer;
+X
+X  /* If we are to read from the file "now" then that means use the time */
+X  /* functions to calculate the present date and time.                  */
+X
+X  if (filename[0] == 'n' && filename[1] == 'o' && filename[2] == 'w' &&
+X      filename[3] == 0) {
+X    autom = 1;
+X    curtimer = (long) time((long *) 0);
+X    curtime = *localtime(&curtimer);
+X    M = (real) curtime.tm_mon + 1.0;
+X    D = (real) curtime.tm_mday;
+X    Y = (real) curtime.tm_year + 1900.0;
+X    F = (real) curtime.tm_hour + (real) curtime.tm_min / 100.0 +
+X      (real) curtime.tm_sec / 6000.0;
+X    X = defzone; L5 = deflong; LA = deflat;
+X    return;
+X  }
+X#endif
+X
+X  /* If we are to read from the file "tty" then that means prompt the user */
+X  /* for all the chart information.                                        */
+X
+X  if (filename[0] == 't' && filename[1] == 't' && filename[2] == 'y' &&
+X      filename[3] == 0) {
+X    AnsiColor(WHITE);
+X    printf("** %s version %s (%s) **\n", appname, VERSION, ADDRESS);
+X    AnsiColor(-1);
+X#ifdef SWITCHES
+X    printf("   Invoke as 'astrolog %cH' for brief list of command options.\n",
+X      DASH);
+X#endif
+X    M = Input("Enter month of birth (e.g. '7', 'Jul')", 1.0, 12.0);
+X    D = Input("Enter day   of birth (e.g. '1', '31') ", 1.0,
+X      (real) DayInMonth((int) M, 0));
+X    Y = Input("Enter year  of birth (e.g. '1993')    ", -5000.0, 5000.0);
+X    printf("Subtract one hour if Daylight Saving time in effect.\n");
+X    F = Input("Enter time  of birth (e.g. '18:30' '6:30pm')", -2.0, 24.0);
+X    printf("Negative values imply time zones east of Greenwich.\n");
+X    X = Input("Time zone in hours before GMT (5=Eastern, 8=Pacific)",
+X      -24.0, 24.0);
+X    printf("Negative values imply eastern and southern locations.\n");
+X    L5 = Input("Longitude west of place (i.e. DEG:MIN)", -180.0, 180.0);
+X    LA = Input("Latitude north of place (i.e. DEG:MIN)", -90.0, 90.0);
+X    putchar('\n');
+X    return;
+X  }
+X
+X  /* Now that the special cases are taken care of, we can assume we are */
+X  /* to read from a real file.                                          */
+X
+X  autom = 1;
+X  data = fopen(filename, "r");      /* Look for file in current directory. */
+X  if (data == NULL) {
+X    sprintf(name, "%s%s", DEFAULT_DIR, filename);    /* Look for file in   */
+X    data = fopen(name, "r");                         /* default directory. */
+X    if (data == NULL) {
+X      fprintf(stderr, "%s: File '%s' not found.\n", appname, filename);
+X      Terminate(1);
+X    }
+X  }
+X
+X  /* Read the chart parameters from a normal file. */
+X
+X  if ((c = getc(data)) != 'S') {
+X    ungetc(c, data);
+X    fscanf(data, "%lf%lf%lf%lf%lf%lf%lf", &M, &D, &Y, &F, &X, &L5, &LA);
+X
+X  /* Read the actual chart positions from a file produced with the -o0. */
+X
+X  } else {
+X
+X    /* Hack: A negative month value means the chart parameters are invalid, */
+X    /* hence -o0 is in effect and we can assume the chart positions are     */
+X    /* already in memory so we don't have to calculate them later.          */
+X
+X    M = -1.0;
+X    for (i = 1; i <= OBJECTS; i++) {
+X      fscanf(data, "%s%lf%lf%lf", name, &k, &l, &m);
+X      planet[i] = (l-1.0)*30.0+k+m/60.0;
+X      fscanf(data, "%s%lf%lf", name, &k, &l);
+X      planetalt[i] = k+l/60.0;
+X      ret[i] = DTOR(name[1] == 'D' ? 1.0 : -1.0);
+X    }
+X    for (i = 1; i <= SIGNS/2; i++) {
+X      fscanf(data, "%s%lf%lf%lf", name, &k, &l, &m);
+X      house[i+6] = Mod((house[i] = Mod((l-1.0)*30.0+k+m/60.0))+180.0);
+X    }
+X  }
+X  fclose(data);
+X}
+X
+X/* general.c */
+END_OF_FILE
+if test 16126 -ne `wc -c <'general.c'`; then
+    echo shar: \"'general.c'\" unpacked with wrong size!
+fi
+# end of 'general.c'
+fi
+if test -f 'options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.c'\"
+else
+echo shar: Extracting \"'options.c'\" \(40939 characters\)
+sed "s/^X//" >'options.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: options.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X
+X/*
+X*******************************************************************************
+X** Display subroutines
+X*******************************************************************************
+X*/
+X
+X/* This is a subprocedure of CreateGrid() and CreateGridRelation(). Given */
+X/* two planets, determine what aspect, if any, is present between them,   */
+X/* and save the aspect name and orb in the specified grid cell.           */
+X
+Xvoid GetAspect(planet1, planet2, i, j)
+Xreal *planet1, *planet2;
+Xint i, j;
+X{
+X  int k;
+X  real l, m;
+X
+X  grid->n[i][j] = grid->v[i][j] = 0;
+X  l = MinDistance(planet2[i], planet1[j]);
+X  for (k = aspects; k >= 1; k--) {
+X    m = l-aspectangle[k];
+X    if (dabs(m) < Orb(i, j, k)) {
+X      grid->n[i][j] = k;
+X
+X      /* If -ga switch in effect, then change the sign of the orb to    */
+X      /* correspond to whether the aspect is applying or separating.    */
+X      /* To do this, we check the velocity vectors to see if the        */
+X      /* planets are moving toward, away, or are overtaking each other. */
+X
+X      if (exdisplay & DASHga)
+X        m = (ret[j]-ret[i] < 0 ? -1 : 1)*Sgn(planet1[j]-planet2[i])*
+X          (dabs(planet1[j]-planet2[i])>180.0 ? -1.0 : 1.0)*Sgn(m)*dabs(m);
+X          grid->v[i][j] = (int) (m*60.0);
+X    }
+X  }
+X}
+X
+X
+X/* Set up the aspect/midpoint grid. Allocate memory for this array, if not */
+X/* already done. Allocation is only done once, first time this is called.  */
+X
+Xvoid EnsureGrid()
+X{
+X  if (grid != NULL)
+X    return;
+X  Allocate(grid, sizeof(gridstruct), gridstruct PTR);
+X  if (grid == NULL
+X#ifndef NOPC
+X    /* For PC's the grid better not cross a segment boundary. */
+X    || HIWORD(LOWORD(grid) + sizeof(gridstruct)) > 0
+X#endif
+X    ) {
+X    fprintf(stderr, "%s: Out of memory for grid.\n", appname);
+X    Terminate(1);
+X  }
+X}
+X
+X
+X/* Fill in the aspect grid based on the aspects taking place among the */
+X/* planets in the present chart. Also fill in the midpoint grid.       */
+X
+Xvoid CreateGrid(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  real l;
+X
+X  EnsureGrid();
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (i = 1; i <= total; i++) if (!ignore[i])
+X
+X      /* The parameter 'acc' determine what half of the grid is filled in */
+X      /* with the aspects and what half is filled in with the midpoints.  */
+X
+X      if (acc ? i > j : i < j)
+X        GetAspect(planet, planet, i, j);
+X      else if (acc ? i < j : i > j) {
+X        l = Mod(Midpoint(planet[i], planet[j])); k = (int)l;    /* Calculate */
+X        grid->n[i][j] = k/30+1;                                 /* midpoint. */
+X        grid->v[i][j] = (int)((l-(real)(k/30)*30.0)*60.0);
+X      } else {
+X        grid->n[i][j] = (int)planet[j]/30+1;
+X        grid->v[i][j] = (int)(planet[j]-(real)(grid->n[i][j]-1)*30.0);
+X      }
+X}
+X
+X
+X/* This is similar to the previous function; however, this time fill in the */
+X/* grid based on the aspects (or midpoints if 'acc' set) taking place among */
+X/* the planets in two different charts, as in the -g -r0 combination.       */
+X
+Xvoid CreateGridRelation(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  real l;
+X
+X  EnsureGrid();
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (i = 1; i <= total; i++) if (!ignore[i])
+X      if (!acc)
+X        GetAspect(planet1, planet2, i, j);
+X      else {
+X        l = Mod(Midpoint(planet2[i], planet1[j])); k = (int)l;  /* Calculate */
+X        grid->n[i][j] = k/30+1;                                 /* midpoint. */
+X        grid->v[i][j] = (int)((l-(real)(k/30)*30.0)*60.0);
+X      }
+X}
+X
+X
+X/* Print an interpretation for a particular aspect in effect in a comparison */
+X/* relationship chart. This is called from the InterpretGridRelation and     */
+X/* the DisplayAspectRelation routines.                                       */
+X
+Xvoid InterpretAspectRelation(x, y)
+X{
+X  int n;
+X
+X  n = grid->n[y][x];
+X  if (n > 0 && n <= ASPECTI && x <= OBJECTS && y <= OBJECTS) {
+X    AnsiColor(aspectansi[n]);
+X    sprintf(string, "%s %s %s: Person1's", objectname[x],
+X      aspectname[n], objectname[y]);
+X    FieldWord(string); FieldWord(mindpart[x]);
+X    sprintf(string, interact[n],
+X      modifier[MIN(abs(grid->v[y][x])/150, 2)][n-1]);
+X    FieldWord(string);
+X    sprintf(string, "Person2's %s.", mindpart[y]); FieldWord(string);
+X    if (therefore[n][0]) {
+X      if (n != 1) {
+X        sprintf(string, "%s.", therefore[n]); FieldWord(string);
+X      } else
+X        FieldWord("These parts affect each other prominently.");
+X    }
+X    FieldWord("");
+X  }
+X}
+X
+X
+X/* Print the interpretation of each aspect in the relationship aspect grid, */
+X/* as specified with the -r0 -g -I switch combination.                      */
+X
+Xvoid InterpretGridRelation()
+X{
+X  int i, j;
+X
+X  for (i = 1; i <= OBJECTS; i++) if (!ignore[i])
+X    for (j = 1; j <= OBJECTS; j++) if (!ignore[j])
+X      InterpretAspectRelation(i, j);
+X}
+X
+X
+X/* Print out an aspect (or midpoint if -g0 switch in effect) grid of a      */
+X/* relationship chart. This is similar to the ChartGrid() routine; however, */
+X/* here we have both axes labeled with the planets for the two charts in    */
+X/* question, instead of just a diagonal down the center for only one chart. */
+X
+Xvoid DisplayGridRelation()
+X{
+X  int i, j, k, tot = total, temp;
+X
+X  if (interpret && !(exdisplay & DASHg0)) {
+X    InterpretGridRelation();
+X    return;
+X  }
+X  printf(" 2>");
+X  for (temp = 0, i = 1; i <= total; i++) if (!ignore[i]) {
+X    putchar(BOXV);
+X    AnsiColor(objectansi[i]);
+X    printf("%c%c%c", OBJNAM(i));
+X    AnsiColor(-1);
+X    temp++;
+X    if (column80 && temp >= 19) {
+X      tot = i;
+X      i = total;
+X    }
+X  }
+X  printf("\n1  ");
+X  for (i = 1; i <= tot; i++) if (!ignore[i]) {
+X    putchar(BOXV);
+X    AnsiColor(elemansi[(int)(planet2[i]/30.0) & 3]);
+X    printf("%2d%c", (int)planet2[i] % 30, DEGR2);
+X    AnsiColor(-1);
+X  }
+X  printf("\nV  ");
+X  for (i = 1; i <= tot; i++) if (!ignore[i]) {
+X    putchar(BOXV);
+X    temp = (int)(planet2[i]/30.0)+1;
+X    AnsiColor(elemansi[temp-1 & 3]);
+X    printf("%c%c%c", SIGNAM(temp));
+X    AnsiColor(-1);
+X  }
+X  putchar('\n');
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (k = 1; k <= 4; k++) {
+X      if (k < 2)
+X        PrintTab(BOXH, 3);
+X      else if (k == 2) {
+X        AnsiColor(objectansi[j]);
+X        printf("%c%c%c", OBJNAM(j));
+X      } else {
+X        temp = (int)(planet1[j]/30.0)+1;
+X        AnsiColor(elemansi[temp-1 & 3]);
+X        if (k == 3)
+X          printf("%2d%c", (int)planet1[j] - (temp-1)*30, DEGR2);
+X        else
+X          printf("%c%c%c", SIGNAM(temp));
+X      }
+X      if (k > 1)
+X        AnsiColor(-1);
+X      for (i = 1; i <= tot; i++) if (!ignore[i]) {
+X        putchar(k < 2 ? BOXC : BOXV);
+X        temp = grid->n[i][j];
+X        if (k > 1)
+X          AnsiColor(exdisplay & DASHg0 ? elemansi[temp-1 & 3] :
+X            aspectansi[temp]);
+X        if (k < 2)
+X          PrintTab(BOXH, 3);
+X        else if (k == 2) {
+X          if (exdisplay & DASHg0)
+X            printf("%c%c%c", SIGNAM(temp));
+X          else
+X            printf("%s", aspectabbrev[temp]);
+X        } else if (k == 3) {
+X          if (exdisplay & DASHg0)
+X            printf("%2d%c", grid->v[i][j]/60, DEGR2);
+X          else
+X            if (grid->n[i][j]) {
+X              if (grid->v[i][j] < 600)
+X                printf("%c%2d", exdisplay & DASHga ?
+X                  (grid->v[i][j] < 0 ? 'a' : 's') :
+X                  (grid->v[i][j] < 0 ? '-' : '+'), abs(grid->v[i][j])/60);
+X              else
+X                printf("%3d", abs(temp)/60);
+X            } else
+X              printf("   ");
+X        } else {
+X          if (grid->n[i][j]) {
+X            temp = abs(grid->v[i][j])%60;
+X            printf("%d%d'", temp/10, temp%10);
+X          } else
+X            printf("   ");
+X        }
+X        AnsiColor(-1);
+X      }
+X      putchar('\n');
+X    }
+X}
+X
+X
+X/* Display all aspects between objects in the relationship comparison chart, */
+X/* one per line, in sorted order based on the total "power" of the aspects,  */
+X/* as specified with the -r0 -m0 switch combination.                         */
+X
+Xvoid DisplayAspectRelation()
+X{
+X  int pcut = 30000, icut, jcut, phi, ihi, jhi, ahi, p, i, j, k, count = 0;
+X  real ip, jp;
+X
+X  while (TRUE) {
+X    phi = -1;
+X
+X    /* Search for the next most powerful aspect in the aspect grid. */
+X
+X    for (i = 1; i <= TOTAL; i++) if (!ignore[i])
+X      for (j = 1; j <= TOTAL; j++) if (!ignore[j])
+X        if (k = grid->n[i][j]) {
+X          ip = i <= OBJECTS ? objectinf[i] : 2.5;
+X          jp = j <= OBJECTS ? objectinf[j] : 2.5;
+X          p = (int) (aspectinf[k]*(ip+jp)/2.0*
+X            (1.0-dabs((real)(grid->v[i][j]))/60.0/aspectorb[k])*1000.0);
+X          if ((p < pcut || (p == pcut && (i > icut ||
+X            (i == icut && j > jcut)))) && p > phi) {
+X            ihi = i; jhi = j; phi = p; ahi = k;
+X          }
+X        }
+X    if (phi < 0)    /* Exit when no less powerful aspect found. */
+X      break;
+X    pcut = phi; icut = ihi; jcut = jhi;
+X    count++;                               /* Display the current aspect. */
+X    if (interpret)
+X      InterpretAspectRelation(jhi, ihi);
+X    else {
+X      printf("%3d:", count);
+X      AnsiColor(objectansi[jhi]);
+X      printf(" %7.7s ", objectname[jhi]);
+X      k = (int) planet1[jhi]/30;
+X      AnsiColor(elemansi[k & 3]);
+X      printf("%c%c%c%c%c", ret1[jhi] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X        ret1[jhi] >= 0.0 ? ')' : ']');
+X      AnsiColor(aspectansi[ahi]);
+X      printf(" %s with ", aspectabbrev[ahi]);
+X      k = (int) planet2[ihi]/30.0;
+X      AnsiColor(elemansi[k & 3]);
+X      printf("%c%c%c%c%c", ret2[ihi] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X        ret2[ihi] >= 0.0 ? ')' : ']');
+X      AnsiColor(objectansi[ihi]);
+X      printf(" %s", objectname[ihi]);
+X      PrintTab(' ', 11-StringLen(objectname[ihi]));
+X      AnsiColor(-1);
+X      k = grid->v[ihi][jhi];
+X      printf("- orb: %c%d,%d%d' - power:%6.2f\n",
+X        exdisplay & DASHga ? (k < 0 ? 'a' : 's') : (k < 0 ? '-' : '+'),
+X        abs(k)/60, abs(k)%60/10, abs(k)%60%10, (real) phi/1000.0);
+X    }
+X  }
+X}
+X
+X
+X/* Display locations of all midpoints between objects in the relationship */
+X/* comparison chart, one per line, in sorted zodiac order from zero Aries */
+X/* onward, as specified with the -r0 -m switch combination.               */
+X
+Xvoid DisplayMidpointRelation()
+X{
+X  int mcut = -1, icut, jcut, mlo, ilo, jlo, m, i, j, k, count = 0;
+X
+X  if (exdisplay & DASHm0) {
+X    DisplayAspectRelation();
+X    return;
+X  }
+X  while (TRUE) {
+X    mlo = 21600;
+X
+X    /* Search for the next closest midpoint farther down in the zodiac. */ 
+X
+X    for (i = 1; i <= TOTAL; i++) if (!ignore[i])
+X      for (j = 1; j <= TOTAL; j++) if (!ignore[j]) {
+X        m = (grid->n[j][i]-1)*30*60 + grid->v[j][i];
+X        if ((m > mcut || (m == mcut && (i > icut ||
+X          (i == icut && j > jcut)))) && m < mlo) {
+X          ilo = i; jlo = j; mlo = m;
+X        }
+X      }
+X    if (mlo >= 21600)    /* Exit when no midpoint farther in zodiac found. */
+X      break;
+X    mcut = mlo; icut = ilo; jcut = jlo;
+X    count++;                               /* Display the current midpoint. */
+X    printf("%4d: ", count);
+X    PrintMinute((real) mlo/60.0);
+X    AnsiColor(objectansi[ilo]);
+X    printf(" %7.7s ", objectname[ilo]);
+X    k = (int) planet1[ilo]/30;
+X    AnsiColor(elemansi[k & 3]);
+X    printf("%c%c%c%c%c", ret1[ilo] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X      ret1[ilo] >= 0.0 ? ')' : ']');
+X    AnsiColor(WHITE);
+X    printf(" with ");
+X    k = (int) planet2[jlo]/30.0;
+X    AnsiColor(elemansi[k & 3]);
+X    printf("%c%c%c%c%c", ret2[jlo] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X      ret2[jlo] >= 0.0 ? ')' : ']');
+X    AnsiColor(objectansi[jlo]);
+X    printf(" %s", objectname[jlo]);
+X    PrintTab(' ', 11-StringLen(objectname[jlo]));
+X    AnsiColor(-1);
+X    printf("-%4d degree span.\n",
+X      (int) MinDistance(planet1[ilo], planet2[jlo]));
+X  }
+X}
+X
+X
+X/* Calculate any of the various kinds of relationship charts. This involves */
+X/* reading in and storing the planet and house positions for both charts,   */
+X/* and then combining them in the main single chart in the proper manner.   */
+X
+X#define DegToDec(A) Sgn(A)*(floor(dabs(A))+FRACT(dabs(A))*60/100.0)
+X
+Xvoid CastRelation()
+X{
+X  real zon, lon, lat, t1, t2, t;
+X  int i;
+X
+X  /* Read in the first chart. */
+X
+X  InputData(filename);
+X  zon = X; lon = L5; lat = LA;
+X  t1 = CastChart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house1[i] = house[i];
+X    inhouse1[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = planet[i];
+X    planetalt1[i] = planetalt[i];
+X    ret1[i] = ret[i];
+X  }
+X
+X  /* Read in the second chart. */
+X
+X  InputData(filename2);
+X  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X  t2 = CastChart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house2[i] = house[i];
+X    inhouse2[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= total; i++) {
+X    planet2[i] = planet[i];
+X    planetalt2[i] = planetalt[i];
+X    ret2[i] = ret[i];
+X  }
+X
+X  /* Now combine the two charts based on what relation we are doing.   */
+X  /* For the standard -r synastry chart, use the house cusps of chart1 */
+X  /* and the planets positions of chart2.                              */
+X
+X  if (relation <= DASHr)
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = house1[i];
+X
+X  /* For the -rc composite chart, take the midpoints of the planets/houses. */
+X
+X  else if (relation == DASHrc) {
+X    for (i = 1; i <= total; i++) {
+X      planet[i] = Midpoint(planet1[i], planet2[i]);
+X      planetalt[i] = (planetalt1[i]+planetalt2[i])/2.0;
+X      ret[i] = (ret1[i]+ret2[i])/2.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = Midpoint(house1[i], house2[i]);
+X
+X    /* Make sure we don't have any 180 degree errors in house cusp    */
+X    /* complement pairs, which may happen if the cusps are far apart. */
+X
+X    for (i = 1; i <= SIGNS; i++)
+X      if (MinDistance(house[10], Mod(house[i]-(real)(i+2)*30.0)) > 90.0)
+X        house[i] = Mod(house[i]+180.0);
+X
+X  /* For the -rm time space midpoint chart, calculate the midpoint time and */
+X  /* place between the two charts and then recast for the new chart info.   */
+X
+X  } else if (relation == DASHrm) {
+X    T = (t1+t2)/2.0;
+X    t = (T*36525.0)+0.5; JD = floor(t)+2415020.0; F = FRACT(t)*24.0;
+X    X = (DecToDeg(zon)+DecToDeg(Zon))/2.0; X = DegToDec(X);
+X    F = DecToDeg(F)-DecToDeg(X); F = DegToDec(F);
+X    if (F < 0.0) {
+X      F = DecToDeg(F)+24.0; F = DegToDec(F); JD -= 1.0;
+X    }
+X    JulianToMdy(JD, &M, &D, &Y);
+X    L5 = (DecToDeg(lon)+DecToDeg(Lon))/2.0;
+X    if (dabs(Lon-lon) > 180.0)
+X      L5 = Mod(L5+180.0);
+X    L5 = DegToDec(L5);
+X    LA = (DecToDeg(lat)+DecToDeg(Lat))/2.0; LA = DegToDec(LA);
+X    Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X    CastChart(FALSE);
+X
+X  /* There are a couple of non-astrological charts, which only require the */
+X  /* number of days that have passed between the two charts to be done.    */
+X
+X  } else
+X    JD = floor((dabs(t2-t1)*36525.0)+0.5);
+X  HousePlace();
+X}
+X
+X
+X/* This is a subprocedure of DisplayInDay(). Print the interpretation for */
+X/* a particular instance of the various exciting events that can happen.  */ 
+X
+Xvoid InterpretInDay(source, aspect, dest)
+Xint source, aspect, dest;
+X{
+X  if (source > OBJECTS || dest > OBJECTS)
+X    return;
+X
+X  /* Interpret object changing direction. */
+X
+X  if (aspect == -2) {
+X    AnsiColor(objectansi[source]);
+X    FieldWord("Energy representing"); FieldWord(mindpart[source]);
+X    FieldWord("will tend to manifest in");
+X    FieldWord(dest ? "an independent, backward, introverted" :
+X      "the standard, direct, open");
+X    FieldWord("manner.");
+X    FieldWord("");
+X
+X  /* Interpret object entering new sign. */
+X
+X  } else if (aspect == -1) {
+X    AnsiColor(objectansi[source]);
+X    FieldWord("Energy representing"); FieldWord(mindpart[source]);
+X    sprintf(string, "will be %s,", description[dest]);
+X    FieldWord(string);
+X    sprintf(string, "and it %s.", desire[dest]); FieldWord(string);
+X    FieldWord("");
+X
+X  /* Interpret aspect between transiting planets. */
+X
+X  } else if (aspect > 0 && aspect <= ASPECTI) {
+X    AnsiColor(aspectansi[aspect]);
+X    FieldWord("Energy representing"); FieldWord(mindpart[source]);
+X    sprintf(string, interact[aspect], modifier[1][aspect-1]);
+X    FieldWord(string);
+X    sprintf(string, "energies of %s.", mindpart[dest]); FieldWord(string);
+X    if (therefore[aspect][0]) {
+X      if (aspect > 1) {
+X        sprintf(string, "%s.", therefore[aspect]); FieldWord(string);
+X      } else
+X        FieldWord("They will affect each other prominently.");
+X    }
+X    FieldWord("");
+X  }
+X}
+X
+X
+X/* Search through a day, and print out the times of exact aspects among the  */
+X/* planets during that day, as specified with the -d switch, as well as the  */
+X/* times when a planet changes sign or direction. To do this, we cast charts */
+X/* for the beginning and end of the day, or a part of a day, and do a linear */
+X/* equation check to see if anything exciting happens during the interval.   */
+X/* (This is probably the single most complicated procedure in the program.)  */
+X
+Xvoid DisplayInDay(prog)
+Xint prog;
+X{
+X  int time[MAXINDAY], source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY],
+X    sign1[MAXINDAY], sign2[MAXINDAY], occurcount, division, div,
+X    i, j, k, s1, s2;
+X  real Day2, D1, D2, divsiz, d1, d2, e1, e2, f1, f2, g;
+X
+X  /* If parameter 'prog' is set, look for changes in a progressed chart. */
+X
+X  division = prog ? 1 : divisions;
+X  divsiz = 24.0/ (real) division*60.0;
+X
+X  /* If -d0 in effect, then search through the whole month, day by day. */
+X
+X  if (exdisplay & DASHdm) {
+X    D1 = 1.0;
+X    if (prog && Mon2 == 0.0) {
+X      Mon2 = 1.0; D2 = 365.0-28.0+(real)DayInMonth(2, (int) Yea2);
+X    } else D2 = (real)
+X      DayInMonth((int) (prog ? Mon2 : Mon), (int) (prog ? Yea2 : Yea));
+X  } else
+X    D1 = D2 = Day;
+X
+X  /* Start searching the day or days in question for exciting stuff. */
+X
+X  for (Day2 = D1; Day2 <= D2; Day2 += 1.0) {
+X    occurcount = 0;
+X
+X    /* Cast chart for beginning of day and store it for future use. */
+X
+X    M = Mon; D = Day2; Y = Yea; F = 0.0; X = Zon; L5 = Lon; LA = Lat;
+X    if (progress = prog) {
+X      Jdp = MdyToJulian(Mon2, D, Yea2);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    CastChart(TRUE);
+X    for (i = 1; i <= SIGNS; i++) {
+X      house2[i] = house[i];
+X      inhouse2[i] = inhouse[i];
+X    }
+X    for (i = 1; i <= total; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X
+X    /* Now divide the day into segments and search each segment in turn. */
+X    /* More segments == slower, but slightly better time accuracy.       */
+X
+X    for (div = 1; div <= division; div++) {
+X
+X      /* Cast the chart for the ending time of the present segment. The   */
+X      /* beginning time chart is copied from the previous end time chart. */
+X
+X      M = Mon; D = Day2; Y = Yea; X = Zon; L5 = Lon; LA = Lat;
+X      F = 24.0*div/ (real) division;
+X      if (prog) {
+X        Jdp = MdyToJulian(Mon2, D+1.0, Yea2);
+X        M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      CastChart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X        house1[i] = house2[i]; inhouse1[i] = inhouse2[i];
+X        house2[i] = house[i];  inhouse2[i] = inhouse[i];
+X      }
+X      for (i = 1; i <= total; i++) {
+X        planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X        planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X
+X      /* Now search through the present segment for anything exciting. */
+X
+X      for (i = 1; i <= total; i++) if (!ignore[i] &&
+X        (prog || i <= THINGS || i > C_HI)) {
+X        s1 = (int) planet1[i] / 30;
+X        s2 = (int) planet2[i] / 30;
+X
+X        /* Does the current planet change into the next or previous sign? */
+X
+X        if (!ignore[i] && s1 != s2) {
+X          source[occurcount] = i;
+X          aspect[occurcount] = -1;
+X          dest[occurcount] = s2+1;
+X          time[occurcount] = (int) (MinDistance(planet1[i],
+X            (real) (ret1[i] >= 0.0 ? s2 : s1) * 30.0) /
+X            MinDistance(planet1[i], planet2[i])*divsiz) +
+X            (int) ((real) (div-1)*divsiz);
+X          sign1[occurcount] = sign2[occurcount] = s1+1;
+X          occurcount++;
+X        }
+X
+X        /* Does the current planet go retrograde or direct? */
+X
+X        if (!ignore[i] && (ret1[i] < 0.0) != (ret2[i] < 0.0)) {
+X          source[occurcount] = i;
+X          aspect[occurcount] = -2;
+X          dest[occurcount] = ret2[i] < 0.0;
+X          time[occurcount] = (int) (dabs(ret1[i])/(dabs(ret1[i])+dabs(ret2[i]))
+X            *divsiz) + (int) ((real) (div-1)*divsiz);
+X          sign1[occurcount] = sign2[occurcount] = s1+1;
+X          occurcount++;
+X        }
+X
+X        /* Now search for anything making an aspect to the current planet. */
+X
+X        for (j = i+1; j <= total; j++) if (!ignore[j] &&
+X          (prog || j <= THINGS || j > C_HI))
+X          for (k = 1; k <= aspects; k++) {
+X            d1 = planet1[i]; d2 = planet2[i];
+X            e1 = planet1[j]; e2 = planet2[j];
+X            if (MinDistance(d1, d2) < MinDistance(e1, e2)) {
+X              SwapReal(&d1, &e1);
+X              SwapReal(&d2, &e2);
+X            }
+X
+X            /* We are searching each aspect in turn. Let's subtract the  */
+X            /* size of the aspect from the angular difference, so we can */
+X            /* then treat it like a conjunction.                         */
+X
+X            if (MinDistance(e1, Mod(d1-aspectangle[k])) <
+X                MinDistance(e2, Mod(d2+aspectangle[k]))) {
+X              e1 = Mod(e1+aspectangle[k]);
+X              e2 = Mod(e2+aspectangle[k]);
+X            } else {
+X              e1 = Mod(e1-aspectangle[k]);
+X              e2 = Mod(e2-aspectangle[k]);
+X            }
+X
+X            /* Check to see if the aspect actually occurs during our    */
+X            /* segment, making sure we take into account if one or both */
+X            /* planets are retrograde or if they cross the Aries point. */
+X
+X            f1 = e1-d1;
+X            if (dabs(f1) > 180.0)
+X              f1 -= Sgn(f1)*DEGREES;
+X            f2 = e2-d2;
+X            if (dabs(f2) > 180.0)
+X              f2 -= Sgn(f2)*DEGREES;
+X            if (MinDistance(Midpoint(d1, d2), Midpoint(e1, e2)) < 90.0 &&
+X              Sgn(f1) != Sgn(f2)) {
+X              source[occurcount] = i;
+X              aspect[occurcount] = k;
+X              dest[occurcount] = j;
+X
+X              /* Horray! The aspect occurs sometime during the interval.   */
+X              /* Now we just have to solve an equation in two variables to */
+X              /* find out where the "lines" cross, i.e. the aspect's time. */
+X
+X              f1 = d2-d1;
+X              if (dabs(f1) > 180.0)
+X                f1 -= Sgn(f1)*DEGREES;
+X              f2 = e2-e1;
+X              if (dabs(f2) > 180.0)
+X                f2 -= Sgn(f2)*DEGREES;
+X              g = (dabs(d1-e1) > 180.0 ?
+X                (d1-e1)-Sgn(d1-e1)*DEGREES : d1-e1)/(f2-f1);
+X                time[occurcount] = (int) (g*divsiz) +
+X                (int) ((real) (div-1)*divsiz);
+X              sign1[occurcount] = (int) (Mod(planet1[i]+
+X                Sgn(planet2[i]-planet1[i])*
+X                (dabs(planet2[i]-planet1[i]) > 180.0 ? -1 : 1)*
+X                dabs(g)*MinDistance(planet1[i], planet2[i]))/30.0)+1;
+X              sign2[occurcount] = (int) (Mod(planet1[j]+
+X                Sgn(planet2[j]-planet1[j])*
+X                (dabs(planet2[j]-planet1[j]) > 180.0 ? -1 : 1)*
+X                dabs(g)*MinDistance(planet1[j], planet2[j]))/30.0)+1;
+X              occurcount++;
+X            }
+X          }
+X      }
+X    }
+X
+X    /* After all the aspects, etc, in the day have been located, sort   */
+X    /* them by time at which they occur, so we can print them in order. */
+X
+X    for (i = 1; i < occurcount; i++) {
+X      j = i-1;
+X      while (j >= 0 && time[j] > time[j+1]) {
+X        SWAP(source[j], source[j+1]);
+X        SWAP(aspect[j], aspect[j+1]);
+X        SWAP(dest[j], dest[j+1]);
+X        SWAP(time[j], time[j+1]);
+X        SWAP(sign1[j], sign1[j+1]); SWAP(sign2[j], sign2[j+1]);
+X        j--;
+X      }
+X    }
+X
+X    /* Finally, loop through and display each aspect and when it occurs. */
+X
+X    for (i = 0; i < occurcount; i++) {
+X      s1 = time[i]/60;
+X      s2 = time[i]-s1*60;
+X      s1 = Mod12(s1);
+X      j = (int) Day2;
+X      if (prog) {
+X        g = Mon2;
+X        while (j > (k = DayInMonth((int) g, (int) Yea2))) {
+X          j -= k;
+X          g += 1.0;
+X        }
+X      }
+X      printf("%2.0f/%d%d/%4.0f ",
+X        prog ? g : Mon, j/10, j%10, prog ? Yea2 : Yea);  /* Print date. */
+X      printf("%2d:%d%d%cm ",
+X        s1, s2/10, s2%10, time[i] < 12*60 ? 'a' : 'p');  /* Print time. */
+X      AnsiColor(objectansi[source[i]]);
+X      if (prog)
+X        printf("progr ");
+X      printf("%7.7s", objectname[source[i]]);
+X      AnsiColor(elemansi[sign1[i]-1 & 3]);
+X      j = (ret1[source[i]] < 0.0)+(ret2[source[i]] < 0.0);
+X      printf(" %c%c%c%c%c", j < 1 ? '(' : (j > 1 ? '[' : '<'),
+X        SIGNAM(sign1[i]), j < 1 ? ')' : (j > 1 ? ']' : '>'));
+X      if (aspect[i] > 0)
+X        AnsiColor(aspectansi[aspect[i]]);
+X      else
+X        AnsiColor(WHITE);
+X      if (aspect[i] == -1)
+X        printf(" --> ");
+X      else if (aspect[i] == -2)
+X        printf(" S/%c", dest[i] ? 'R' : 'D');   /* Print a direction change. */
+X      else
+X        printf(" %s ", aspectabbrev[aspect[i]]);
+X      if (aspect[i] == -1) {
+X        AnsiColor(elemansi[dest[i]-1 & 3]);
+X        printf("%s", signname[dest[i]]);
+X        if (source[i] == 1) {
+X          if (dest[i] == 1)
+X            printf(" (Vernal Equinox)");      /* If the Sun changes sign, */
+X          else if (dest[i] == 4)              /* then print out if this   */
+X            printf(" (Summer Solstice)");     /* is a season change.      */
+X          else if (dest[i] == 7)
+X            printf(" (Autumnal Equinox)");
+X          else if (dest[i] == 10)
+X            printf(" (Winter Solstice)");
+X        }
+X      } else if (aspect[i] > 0) {
+X        AnsiColor(elemansi[sign2[i]-1 & 3]);
+X        j = (ret1[dest[i]] < 0.0)+(ret2[dest[i]] < 0.0);
+X        printf("%c%c%c%c%c ",
+X          j < 1 ? '(' : (j > 1 ? '[' : '<'), SIGNAM(sign2[i]),
+X          j < 1 ? ')' : (j > 1 ? ']' : '>'));
+X        AnsiColor(objectansi[dest[i]]);
+X        printf("%s", objectname[dest[i]]);
+X        if (source[i] == 1 && dest[i] == 2) {
+X          if (aspect[i] <= 3)
+X            AnsiColor(WHITE);
+X          if (aspect[i] == 1)
+X            printf(" (New Moon)");     /* Print out if the present */
+X          else if (aspect[i] == 2)     /* aspect is a New, Full,   */
+X            printf(" (Full Moon)");    /* or Half Moon.            */
+X          else if (aspect[i] == 3)
+X            printf(" (Half Moon)");
+X        }
+X      }
+X      putchar('\n');
+X      if (interpret)
+X        InterpretInDay(source[i], aspect[i], dest[i]);
+X      AnsiColor(-1);
+X    }
+X  }
+X}
+X
+X
+X/* This is a subprocedure of DisplayTransit(). Print the interpretation for */
+X/* a particular transit of a planet to a natal object of a chart.           */ 
+X
+Xvoid InterpretTransit(source, aspect, dest)
+Xint source, aspect, dest;
+X{
+X  if (source <= OBJECTS && dest <= OBJECTS) {
+X    AnsiColor(aspectansi[aspect]);
+X    FieldWord("Energy representing"); FieldWord(mindpart[source]);
+X    sprintf(string, interact[aspect], modifier[1][aspect-1]);
+X    FieldWord(string);
+X    sprintf(string, "the person's %s.", mindpart[dest]); FieldWord(string);
+X    if (therefore[aspect][0]) {
+X      if (aspect > 1) {
+X        sprintf(string, "%s.", therefore[aspect]); FieldWord(string);
+X      } else
+X        FieldWord("This part of their psyche will be strongly influenced.");
+X    }
+X    FieldWord("");
+X  }
+X}
+X
+X
+X/* Search through a month, and print out the times of exact transits where   */
+X/* planets in the time frame make aspect to the planets in some other chart, */
+X/* as specified with the -T switch. To do this, we cast charts for the start */
+X/* and end of the month, or part of the month, and do an equation check for  */
+X/* aspects to the other base chart during the interval.                      */
+X
+Xvoid DisplayTransit(prog)
+Xint prog;
+X{
+X  real planet3[TOTAL+1], house3[SIGNS+1], ret3[TOTAL+1];
+X  unsigned time[MAXINDAY];
+X  int source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY], sign[MAXINDAY],
+X    isret[MAXINDAY], occurcount, div, i, j, k, s1, s2, s3;
+X  real M1, M2, divsiz, daysiz, d, e1, e2, f1, f2;
+X
+X  for (i = 1; i <= SIGNS; i++)
+X    house3[i] = house[i];
+X  for (i = 1; i <= total; i++) {
+X    planet3[i] = planet[i];
+X    ret3[i] = ret[i];
+X  }
+X  if (Mon2 == 0.0) {        /* Searching month number zero means to search */
+X    M1 = 1.0; M2 = 12.0;    /* the whole year instead, month by month.     */
+X  } else
+X    M1 = M2 = Mon2;
+X
+X  /* Start searching the month or months in question for any transits. */
+X
+X  for (Mon2 = M1; Mon2 <= M2; Mon2 += 1.0) {
+X    daysiz = (real) DayInMonth((int) Mon2, (int) Yea2)*24.0*60.0;
+X    divsiz = daysiz/ (real) divisions;
+X
+X    /* Cast chart for beginning of month and store it for future use. */
+X
+X    M = Mon2; D = 1.0; Y = Yea2; F = 0.0;
+X    X = defzone; L5 = deflong; LA = deflat;
+X    if (progress = prog) {
+X      Jdp = MdyToJulian(M, D, Y);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    CastChart(TRUE);
+X    for (i = 1; i <= SIGNS; i++)
+X      house2[i] = house[i];
+X    for (i = 1; i <= OBJECTS; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X
+X    /* Divide our month into segments and then search each segment in turn. */
+X
+X    for (div = 1; div <= divisions; div++) {
+X      occurcount = 0;
+X
+X      /* Cast the chart for the ending time of the present segment, and */
+X      /* copy the start time chart from the previous end time chart.    */
+X
+X      M = Mon2; Y = Yea2; F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      D = 1.0+(daysiz/24.0/60.0)*div/ (real) divisions;
+X      if (prog) {
+X        Jdp = MdyToJulian(M, D, Y);
+X        M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      CastChart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X        house1[i] = house2[i]; house2[i] = house[i];
+X      }
+X      for (i = 1; i <= OBJECTS; i++) {
+X        planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X        planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X
+X      /* Now search through the present segment for any transits. Note that */
+X      /* stars can be transited, but they can't make transits themselves.   */
+X
+X      for (i = 1; i <= total; i++) if (!ignore[i])
+X        for (j = 1; j <= BASE; j++) if (!ignore2[j] &&
+X          (prog || j <= THINGS || j > C_HI))
+X
+X          /* Between each pair of planets, check if they make any aspects. */
+X
+X          for (k = 1; k <= aspects; k++) {
+X            d = planet3[i]; e1 = planet1[j]; e2 = planet2[j];
+X            if (MinDistance(e1, Mod(d-aspectangle[k])) <
+X                MinDistance(e2, Mod(d+aspectangle[k]))) {
+X              e1 = Mod(e1+aspectangle[k]);
+X              e2 = Mod(e2+aspectangle[k]);
+X            } else {
+X              e1 = Mod(e1-aspectangle[k]);
+X              e2 = Mod(e2-aspectangle[k]);
+X            }
+X
+X            /* Check to see if the present aspect actually occurs during the */
+X            /* segment, making sure we check any Aries point crossings.      */
+X
+X            f1 = e1-d;
+X            if (dabs(f1) > 180.0)
+X              f1 -= Sgn(f1)*DEGREES;
+X            f2 = e2-d;
+X            if (dabs(f2) > 180.0)
+X              f2 -= Sgn(f2)*DEGREES;
+X            if (MinDistance(d, Midpoint(e1, e2)) < 90.0 &&
+X              Sgn(f1) != Sgn(f2) && occurcount < MAXINDAY) {
+X
+X              /* Ok, we have found a transit. Now determine the time */
+X              /* and save this transit in our list to be printed.    */
+X
+X              source[occurcount] = j;
+X              aspect[occurcount] = k;
+X              dest[occurcount] = i;
+X              time[occurcount] = (int) (dabs(f1)/(dabs(f1)+dabs(f2))*divsiz) +
+X                (int) ((real) (div-1)*divsiz);
+X              sign[occurcount] = (int) (Mod(
+X                MinDistance(planet1[j], Mod(d-aspectangle[k])) <
+X                MinDistance(planet2[j], Mod(d+aspectangle[k])) ?
+X                d-aspectangle[k] : d+aspectangle[k])/30.0)+1;
+X              isret[occurcount] = (ret1[j] < 0.0)+(ret2[j] < 0.0);
+X              occurcount++;
+X            }
+X          }
+X
+X      /* After all transits located, sort them by time at which they occur. */
+X
+X      for (i = 1; i < occurcount; i++) {
+X        j = i-1;
+X        while (j >= 0 && time[j] > time[j+1]) {
+X          SWAP(source[j], source[j+1]);
+X          SWAP(aspect[j], aspect[j+1]);
+X          SWAP(dest[j], dest[j+1]);
+X          SWAP(time[j], time[j+1]);
+X          SWAP(sign[j], sign[j+1]);
+X          SWAP(isret[j], isret[j+1]);
+X          j--;
+X        }
+X      }
+X
+X      /* Now loop through list and display all the transits. */
+X
+X      for (i = 0; i < occurcount; i++) {
+X        k = smartcusp && dest[i] >= C_LO && dest[i] <= C_HI;
+X        if (k && aspect[i] > 2)
+X          continue;
+X        else
+X          k = k && aspect[i] == 2;
+X        s1 = time[i]/24/60;
+X        s3 = time[i]-s1*24*60;
+X        s2 = s3/60;
+X        s3 = s3-s2*60;
+X        printf("%2.0f/%d%d/%4.0f %2d:%d%d%cm ",
+X          Mon2, (s1+1)/10, (s1+1)%10, Yea2, Mod12(s2),
+X          s3/10, s3%10, s2 < 12 ? 'a' : 'p');
+X        AnsiColor(objectansi[source[i]]);
+X        printf("%s %7.7s", !prog ? "trans" : "progr", objectname[source[i]]);
+X        j = sign[i];
+X        AnsiColor(elemansi[j-1 & 3]);
+X        printf(" %c%c%c%c%c ",
+X          isret[i] < 1 ? '(' : (isret[i] > 1 ? '[' : '<'), SIGNAM(j),
+X          isret[i] < 1 ? ')' : (isret[i] > 1 ? ']' : '>'));
+X        AnsiColor(aspectansi[k ? 1 : aspect[i]]);
+X        printf("%s ", aspectabbrev[k ? 1 : aspect[i]]);
+X        j = k ? sign[i] : (int)planet3[dest[i]]/30 + 1;
+X        AnsiColor(elemansi[j-1 & 3]);
+X        printf("%c%c%c%c%c ", ret3[dest[i]] >= 0.0 ? '(' : '[',
+X          SIGNAM(j), ret3[dest[i]] >= 0.0 ? ')' : ']');
+X        AnsiColor((objectansi[dest[i]]-1 ^ k)+1);
+X        printf("natal ");
+X        if (k)
+X          printf("%dth cusp", dest[i]-15 - (dest[i] < 23));
+X        else
+X          printf("%s", objectname[dest[i]]);
+X        AnsiColor(-1);
+X
+X        /* Check for a Solar, Lunar, or any other return. */
+X
+X        if (aspect[i] == 1 && source[i] == dest[i]) {
+X          AnsiColor(WHITE);
+X          printf(" (%s Return)", source[i] == 1 ? "Solar" :
+X            (source[i] == 2 ? "Lunar" : objectname[source[i]]));
+X        }
+X        putchar('\n');
+X        if (interpret)
+X          InterpretTransit(source[i], aspect[i], dest[i]);
+X        AnsiColor(-1);
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Print out an ephemeris - the positions of the planets at midnight each */
+X/* day during a specified month, as done with the -E switch.              */
+X
+Xvoid DisplayEphemeris()
+X{
+X  real M0, M1, M2;
+X  int daysiz, i, j, k, s, d, m;
+X
+X  /* If -Ey is in effect, then loop through all months in the whole year. */
+X
+X  if (exdisplay & DASHEy) {
+X    M1 = 1.0; M2 = 12.0;
+X  } else
+X    M1 = M2 = Mon;
+X
+X  /* Loop through the month or months in question, printing each ephemeris. */
+X
+X  for (M0 = M1; M0 <= M2; M0 += 1.0) {
+X    daysiz = DayInMonth((int) M0, (int) Yea);
+X    printf("Mo/Dy/Yr");
+X    for (k = 0, j = 1; j <= total; j++) {
+X      if (!ignore[j] && (j <= THINGS || j > C_HI)) {
+X        printf("  %c%c%c%c ", OBJNAM(j), objectname[j][3] != 0 ?
+X          objectname[j][3] : ' ');
+X        k++;
+X        if (column80 && k >= 10)
+X          j = total;
+X      }
+X    }
+X    putchar('\n');
+X    for (i = 1; i <= daysiz; i++) {
+X
+X      /* Loop through each day in the month, casting a chart for that day. */
+X
+X      M = M0; D = (real) i; Y = Yea;
+X      F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      CastChart(TRUE);
+X      printf("%2d/%2d/%2d ", (int) M0, i, ((int) Yea) % 100);
+X      for (k = 0, j = 1; j <= total; j++)
+X        if (!ignore[j] && (j <= THINGS || j > C_HI)) {
+X          AnsiColor(objectansi[j]);
+X          s = (int) (planet[j]/30.0) + 1;
+X          d = (int) planet[j] - (s-1)*30;
+X          m = (int) (FRACT(planet[j])*60.0);
+X          printf("%2d%s%s%d%c", d, signabbrev[s], m < 10 ? "0" : "", m,
+X            ret[j] >= 0.0 ? ' ' : '.');
+X          k++;
+X          if (column80 && k >= 10)
+X            j = total;
+X        }
+X      putchar('\n');
+X      AnsiColor(-1);
+X    }
+X    if (M0 < M2)
+X      putchar('\n');
+X  }
+X}
+X
+X
+X/* Display either a biorhythm chart or the number of days that have passed */
+X/* between two charts, i.e. two types of relationship "charts" that aren't */
+X/* related in any way to planetary positions, as specified by either the   */
+X/* -rb or -rd switches, respectively.                                      */
+X
+Xvoid DisplayRelation()
+X{
+X  int i, j;
+X  real k, l;
+X
+X  /* If we are calculating the difference between two dates, then display */
+X  /* the value and return, as with the -rd switch.                        */
+X
+X  if (relation == DASHrd) {
+X    printf("%.0f day%s ha%s passed between the dates in the two charts.\n",
+X     JD, JD != 1.0 ? "s" : "", JD != 1.0 ? "ve" : "s");
+X    return;
+X  }
+X
+X  /* If we are doing a biorhythm (-rb switch), then we'll calculate it for */
+X  /* someone born on the older date, at the time of the younger date. Loop */
+X  /* through the week preceeding and following the date in question.       */
+X
+X  for (JD -= 7.0, i = -7; i <= 7; i++, JD += 1.0) {
+X    if (i == 0)
+X      AnsiColor(WHITE);
+X    else if (i == 1)
+X      AnsiColor(-1);
+X    printf("T%c%d Day%c:", i < 0 ? '-' : '+', abs(i), abs(i) != 1 ? 's' : ' ');
+X    for (j = 1; j <= 3; j++) {
+X      putchar(' ');
+X      switch (j) {
+X      case 1: k = 23.0; AnsiColor(RED);   printf("Physical");     break;
+X      case 2: k = 28.0; AnsiColor(BLUE);  printf("Emotional");    break;
+X      case 3: k = 33.0; AnsiColor(GREEN); printf("Intellectual"); break;
+X      }
+X      AnsiColor(i ? -1 : WHITE);
+X
+X      /* The biorhythm formula is below. */
+X
+X      l = sin((JD/k)*PI*2.0)*100.0;
+X      printf(" at %c%3.0f%%", l < 0.0 ? '-' : '+', dabs(l));
+X
+X      /* Print smiley face, medium face, or sad face based on current cycle. */
+X
+X      printf(" :%c", l > 50.0 ? ')' : (l < -50.0 ? '(' : '|'));
+X      if (j < 3)
+X        putchar(',');
+X    }
+X    putchar('\n');
+X  }
+X}
+X
+X
+X/* Another important procedure: Display any of the types of (text) charts    */
+X/* that the user specified they wanted, by calling the appropriate routines. */
+X
+Xvoid PrintChart(prog)
+X{
+X  if (todisplay == 0)          /* Assume the -v chart if user */
+X    todisplay |= DASHv;        /* didn't indicate anything.   */
+X  if (todisplay & DASHv) {
+X    if (relation < DASHrd)
+X      ChartLocation(FALSE);
+X    else
+X
+X      /* If the -rb or -rd relationship charts are in effect, then instead  */
+X      /* of doing the standard -v chart, print either of these chart types. */
+X
+X      DisplayRelation();
+X    if (todisplay - (todisplay & DASHv*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHw) {
+X    ChartWheel();
+X    if (todisplay - (todisplay & DASHw*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHg) {
+X    if (relation != DASHr0) {
+X      CreateGrid(FALSE);
+X      ChartGrid(FALSE);
+X      if (exdisplay & DASHg0) {    /* If -g0 switch in effect, then  */
+X        putchar('\n');             /* display aspect configurations. */
+X        DisplayGrands();
+X      }
+X    } else {
+X
+X      /* Do a relationship aspect grid between two charts if -r0 in effect. */
+X
+X      CreateGridRelation(exdisplay & DASHg0 ? 2 : FALSE);
+X      DisplayGridRelation();
+X    }
+X    if (todisplay - (todisplay & DASHg*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHm) {
+X    if (!(todisplay & DASHg) || relation == DASHr0)
+X      CreateGrid(FALSE);
+X    if (relation != DASHr0) {
+X      ChartMidpoint();
+X      if (todisplay - (todisplay & DASHm*2-1))
+X        printf("\n\n");
+X    } else {
+X      CreateGridRelation((exdisplay & DASHm0) == 0);
+X      DisplayMidpointRelation();
+X    }
+X  }
+X  if (todisplay & DASHZ) {
+X    ChartHorizon();
+X    if (todisplay - (todisplay & DASHZ*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHS) {
+X    ChartSpace();
+X    if (todisplay - (todisplay & DASHS*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHj) {
+X    ChartInfluence();
+X    if (todisplay - (todisplay & DASHj*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHL) {
+X    ChartAstroGraph();
+X    if (todisplay - (todisplay & DASHL*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHd) {
+X    DisplayInDay(prog);
+X    if (todisplay - (todisplay & DASHd*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHE) {
+X    DisplayEphemeris();
+X    if (todisplay - (todisplay & DASHE*2-1))
+X      printf("\n\n");
+X  }
+X  if (todisplay & DASHT)
+X    DisplayTransit(prog);
+X}
+X
+X/* options.c */
+END_OF_FILE
+if test 40939 -ne `wc -c <'options.c'`; then
+    echo shar: \"'options.c'\" unpacked with wrong size!
+fi
+# end of 'options.c'
+fi
+echo shar: End of archive 4 \(of 12\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

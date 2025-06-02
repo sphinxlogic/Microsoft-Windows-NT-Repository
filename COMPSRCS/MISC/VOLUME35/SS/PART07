@@ -1,0 +1,2009 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i093:  ss - Simple Spreadsheet program, v1.2b, Part07/11
+Message-ID: <1993Feb22.153009.21758@sparky.imd.sterling.com>
+X-Md4-Signature: 23af6a4947d819d990232be57e0cb5fa
+Date: Mon, 22 Feb 1993 15:30:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 93
+Archive-name: ss/part07
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/Makefile.ultrix ss_12b/menu.c ss_12b/ss.h
+#   ss_12b/sunfkeys/README ss_12b/version.c
+# Wrapped by kent@sparky on Sat Feb 20 16:01:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 11)."'
+if test -f 'ss_12b/Makefile.ultrix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/Makefile.ultrix'\"
+else
+  echo shar: Extracting \"'ss_12b/Makefile.ultrix'\" \(16515 characters\)
+  sed "s/^X//" >'ss_12b/Makefile.ultrix' <<'END_OF_FILE'
+X#############################################################################
+X# Makefile $Revision: 6.21 $
+X#
+X# How to build the 'ss' package:
+X# 1) Read this Makefile, keeping an eye out for anything that appears to
+X#    have a bearing on your situation.
+X#
+X# 2) Customize these variables, to match the situation at your site:
+X#    EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID, RE_COMP/REGCMP, 
+X#    DFLT_PAGER, and FMOD. 
+X#
+X#    There are lost of other variables, but most shouldn't need to be
+X#    changed.  (If you followed #1, you probably already know that, and
+X#    have probably already changed any you think should be changed.)
+X#
+X# 3) Underneath the heading "SYSTEM DEFINES", below, there are sections
+X#    of code for many different machine/compiler/OS setups.  Select
+X#    the section that corresponds to your site, and:
+X#      (a) Uncomment it.
+X#      (b) Customize it, if needed.
+X#      (c) Ensure that all other System Defines are commented out.
+X#
+X# 4) "make"
+X#    This will build everything, but will not install it.  If you want
+X#    you can install the pieces yourself, or issue the "make install"
+X#    command.
+X#
+X# 4) If you have the command 'file' that uses /etc/magic you can
+X#    add the line:
+X#	38	string		Spreadsheet	sc/ss file
+X#############################################################################
+X
+X#
+X#       Commonly Changed Variables.  Modify as necessary for your site
+X#---------------------------------------------------------------------------
+X
+X# This is where the install step puts the executables.
+X# EXDIR		= /site/bin
+X  EXDIR		= /usr/local/bin
+X
+X# This is where the man page goes.
+X# MANDIR	= /usr/local/src/man/man1	# reno
+X# MANEXT	= 1				# reno
+X  MANDIR	= /usr/man/manl
+X  MANEXT	= l
+X  MANMODE	= 644
+X
+X# This is where the library file (tutorial) goes.
+X# LIBDIR	=/usr/local/share/$(name) # reno
+X  LIBDIR	= /usr/local/lib/$(name)
+X
+X# Set SIGVOID if signal routines are type void.
+X# use: SIGVOID=-DSIGVOID for:
+X#	System 5.3, SunOS 4.X, VMS, BSD4.4 (reno), and ANSI C Compliant systems
+X# use: SIGVOID=		 for:
+X#  BSD systems (excluding reno, BSD4.4), and the UNIXPC 'cc'
+X  SIGVOID	=-DSIGVOID
+X# SIGVOID	=
+X
+X# Set RE_COMP if you have the re_comp/re_exec regular expression routines
+X# (most BSD based systems do).
+X  RE_COMP	=-DRE_COMP
+X##RE_COMP	=
+X
+X# Set REGCMP if you have the regcmp/regex regular expression routines
+X# (most System V based systems do)
+X##REGCMP	=-DREGCMP
+X  REGCMP	=
+X
+X# This is the name of a pager like "more".
+X# "pg" may be appropriate for SYSV.
+X  DFLT_PAGER	=-DDFLT_PAGER=\"less\"
+X# DFLT_PAGER	=-DDFLT_PAGER=\"more\"	# generic && reno
+X
+X# If you get errors about fmod being undefined when you try to
+X# compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+X# FMOD		=-DNO_FMOD
+X  FMOD		=
+X
+X#
+X#       Variables which are NOT commonly changed.  
+X#---------------------------------------------------------------------------
+X
+X# Specify the name of the program.
+X# All documentation and installation keys on this value.
+X  name		= ss
+X  NAME		= SS
+X
+X# Set NOUNGETCH for lex.c if you don't have ungetch() in your
+X# curses library.
+X  NOUNGETCH = -DNOUNGETCH
+X# NOUNGETCH = 
+X
+X# Set SIMPLE for lex.c if you don't want arrow keys or lex.c blows up
+X  SIMPLE	=
+X# SIMPLE	=-DSIMPLE
+X
+X# Set BROKENCURSES if your curses has the nl/nonl bug
+X# if it does and you don't set BROKENCURSES, the display will
+X# be staggered across the screen. Also try IDLOKBAD below.
+X  BROKENCURSES	=
+X# BROKENCURSES	=-DBROKENCURSES
+X
+X# Set DOBACKUPS if you would like a backup copy of a source file on a save
+X# DOBACKUPS	=
+X  DOBACKUPS	=-DDOBACKUPS
+X
+X# Set INTERNATIONAL if you need 8 bit characters.  You should
+X# not set this if you are running 5.3.0.  I think it is OK in 5.3.1.
+X# INTERNATIONAL	=-DINTERNATIONAL
+X  INTERNATIONAL	=
+X
+X# Set IEEE_MATH if you need setsticky() calls in your signal handlers
+X# IEEE_MATH	=-DIEEE_MATH
+X  IEEE_MATH	=
+X
+X# Set RINT=-DRINT if you do not have rint() in math.h
+X# Set RINT=	on/with (they have rint):
+X#	SunOS 4.0.3c, 4.1.1 compiler
+X#	BSD4.4 (reno)
+X  RINT	=
+X# RINT	=-DRINT
+X
+X# this is the name to save back ups in
+X  SAVE		=-DSAVENAME=\"$(NAME).SAVE\"
+X
+X# Path to crypt, do NOT define if you don't have crypt.
+X# most systems:
+X##CRYPT		=-DCRYPT_PATH=\"/bin/crypt\"
+X# BSD:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/bin/crypt\"
+X# other people?:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/local/bin/crypt\"
+X
+X# If your system doesn't have notimeout() in curses define NONOTIMEOUT
+X# NONOTIMEOUT	=
+X  NONOTIMEOUT	=-DNONOTIMEOUT
+X
+X# flags for lint
+X  LINTFLAGS	=-abchxv
+X
+X## # Format of quick reference guide generated by $(name)qref
+X## # Leave undefined for normal text output.
+X## # QREF_FMT=
+X##   QREF_FMT=-DTROFF
+X
+X
+X# *** SPECIAL NOTES ***
+X# HP-UX 7.0: Do NOT use -O
+X#	(known broken, try sc's boolean operators if you wish)
+X#
+X# **** SYSV curses bugs... ****
+X# Try setting IDLOKBAD to fix (with an empty spreadsheet):
+X#	a) Redrawing the bottom half of the screen when you
+X#	 	move between row 9 <-> 10
+X#	b) the highlighted row labels being trash when you
+X#		move between row 9 <-> 10
+X#	c) On an xterm on Esix Rev. D+ from eating lines
+X#		 -goto (or move) a few lines (or more) past the bottom
+X#		 of the screen, goto (or move) to the top line on the
+X#		 screen, move upward and the current line is deleted, the
+X#		 others move up even when they should not, check by
+X#		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+X#	Known systems/terminfos w/ curses problems:
+X#	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+X  IDLOKISBAD	=-DIDLOKBAD
+X# IDLOKISBAD	=
+X
+X# If you don't have idlok() in your curses define NOIDLOK
+X  NO_IDLOK=
+X# NO_IDLOK=-DNOIDLOK
+X
+X# If moving right off the screen causes the screen to not redraw
+X# properly, define RIGHT_CBUG to get around a curses problem on some
+X# boxes, this forces screen redraws when going right off the screen
+X  RIGHTBUG	=
+X# RIGHTBUG	=-DRIGHT_CBUG
+X
+X# IF you have problems w/ your yacc try bison, Berkeley yacc, or
+X# some other yacc. Some systems don't allow you to
+X# increase the number of terminals (mostly AT&T), SCO's does though.
+X# NOTE: Do not use with bison 1.16! Get a new version...
+X# YACC		=yacc
+X  YACC		=bison -y
+X
+X# MS-DOS needs y_tab instead of the normal y.tab
+X# YTAB	    	=y_tab
+X  YTAB	    	=y.tab
+X
+X# Command to use to make temporary copies of some source files.
+X  LN		=ln
+X# LN		=ln -s
+X# LN		=cp
+X
+X#	SYSTEM DEFINES
+X#---------------------------------------------------------------------------
+X# Locate your System in the following ALPHABETICAL list of systems, and
+X# uncomment the defintions relating to it.  See the comments accompanying
+X# each system for further information.  
+X#
+X# **> Make sure that all other systems are commented out! <**
+X
+X# system AIX V3.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 -DCHTYPE=int -DNLS
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X
+X# BSD 4.2
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD42
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X# with gcc also use:
+X#CC		=gcc
+X
+X# BSD 4.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD43
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# Microport
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DSYSV2 -O -DUPORT -Ml
+X#LDFLAGS	=-Ml
+X#LIB		=-lm -lcurses -lPW
+X
+X# Mips (preliminary, based on System V.3 entry)
+X#- - - - - - - - - - - - - - - - - - - -
+X# On Mips use: "/usr/bsd43/bin/make"
+X# CC            = gcc
+X# CFLAGS        = -DSYSV3 -O -I/usr/include -I/usr/include/posix
+X# LDFLAGS       = -s
+X# YACC          = bison -y
+X# LIB           = -lm -lcurses -lPW
+X
+X# MS-DOS, Microsoft C 5.1 and NDMAKE
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cl
+X#CFLAGS		= -AL -O -Fo$*.o
+X#LDFLAGS	=/noi /st:0x4000
+X#LIB		=lcurses
+X#YACC		=bison -y
+X#
+X#.SUFFIXES : .o .c
+X#.c.o:
+X#	$(CC) $(CFLAGS) -c $*.c
+X
+X# SCO Unix V rel. 3.2.0
+X#- - - - - - - - - - - - - - - - - - - -
+X#       -compile using rcc, cc does not cope with gram.c
+X#       -edit /usr/include/curses.h, rcc does not understand #error
+X#       -link: make CC=cc, rcc's loader gets unresolved __cclass, __range
+X#               (rather strange,?)
+X#CC		=rcc
+X#CC		=cc
+X#CC		=gcc -fstrength-reduce
+X#SIGVOID	=-DSIGVOID
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltinfo -lPW
+X#YACC		=yacc -Sm10000
+X
+X# SCO Unix 3.2.2 and ODT 1.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cc
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -lPW -lmalloc -lc_s
+X#YACC		=yacc -Sm10000
+X
+X# Sequent boxes
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=atscc
+X#CFLAGS		=-O -DBSD42
+X#LDFLAGS	= 
+X#LIB		=-lm -lcurses  -ltermcap
+X#PSCLIB		=-lseq
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -O -DBSD42 -pipe
+X
+X# Sun Systems
+X#- - - - - - - - - - - - - - - - - - - -
+X# Use this for SunOS 4.X if you have the System V package installed.
+X# This will link with the System V curses which is preferable to the
+X# BSD curses (especially helps scrolling on slow (9600bps or less)
+X# serial lines).
+X#
+X# Be sure to define SIGVOID and RE_COMP above.
+X# 
+X# CC		= /usr/5bin/cc
+X# CFLAGS	= -O -DSYSV3 
+X# LDFLAGS	=
+X# LIB		= -lm -lcurses 
+X
+X### Try gcc 2.0
+X# CC		=/usr/gnu/bin/gcc
+X# CFLAGS	= -O -DSYSV3  -I/usr/5include
+X# LDFLAGS	= -L/usr/5lib
+X
+X# Ultrix Systems (preliminary - Ultrix V4.2a, Rev. 47)
+X#- - - - - - - - - - - - - - - - - - - -
+X# The following comments came with `sc'.
+X#       # For ULTRIX: define the BSD4.2 section and SIGVOID above
+X#       #   tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+X# I'm not _quite_ listening to them.  Specifically: I use gcc and am
+X# using the System V curses -- cursesX -- in Ultrix.  Art Mulder
+X  CC		= /usr/gnu/bin/gcc
+X  CFLAGS	= -O -DULTRIX
+X  LIB		= -lm -lcursesX
+X  LDFLAGS	=
+X
+X# system V.2 (includes: HP-UX 7.05, UNIXPC)
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X# with gcc on a Sequent also use:
+X#CC		=att gcc
+X#CFLAGS		=  -DSYSV2 -g -pipe -traditional
+X
+X# system V.3
+X#- - - - - - - - - - - - - - - - - - - -
+X##CFLAGS	=  -DSYSV3 -O
+X##LDFLAGS	= -s
+X##CFLAGS	=  -DSYSV3 -g
+X##LDFLAGS	= -g
+X##LIB		=-lm -lcurses -lPW
+X
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -DSYSV3 -O -pipe -traditional
+X#YACC		=bison -y
+X# debugging bison (bison 1.16 is broken)
+X#CFLAGS=  -DSYSV3 -g -pipe -traditional
+X#YACC=bison -y -v -t -l
+X
+X
+X# system V.4
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		=  -DSYSV4 -DSYSV3 -O
+X#LDFLAGS	= -s
+X#LIB		=-lm -lcurses -lgen
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		=  -DSYSV3 -O -pipe
+X
+X# VENIX
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DVENIX -DBSD42 -DV7
+X#LDFLAGS	= -z -i 
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX Version 2.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII -DXENIX2_3
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX system III 
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X#
+X#       Some Definitions used in compiling/installing
+X#---------------------------------------------------------------------------
+X
+X# All of the source files
+XSRC=Makefile cmds.c crypt.c eres.sed format.c gram.y interp.c \
+X	lex.c pss.c range.c ss.c ss.h screen.c sres.sed version.c \
+X	vmtbl.c xmalloc.c ctrl.c disprange.c getinput.c \
+X    	menu.c menu_file.c menu_edit.c menu_cell.c menu_rowcol.c \
+X    	menu_name.c menu_misc.c menu_macro.c help.c
+X
+X# The objects
+XOBJS=cmds.o crypt.o format.o gram.o interp.o lex.o range.o ss.o \
+X	screen.o version.o vmtbl.o xmalloc.o ctrl.o \
+X        disprange.o getinput.o \
+X	menu.o menu_file.o menu_edit.o menu_cell.o menu_rowcol.o \
+X	menu_name.o menu_misc.o menu_macro.o help.o
+X
+X# The documents in the Archive
+XDOCS=README ss.man pss.doc VMS_NOTES torev build.com
+X
+X
+X#   	MAIN MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+X# Default Make Target:  Make ``ss'' and ``pss''.
+X# Nothing is installed.
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xall:	$(name) p$(name) 
+X
+X
+X# Make ``ss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X$(name):$(PAR) 	$(OBJS)
+X	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+X
+X# Alternative link for MS-DOS
+X# $(name): 	$(OBJS)
+X#	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+X
+X
+X# Make ``pss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xp$(name):	pss.c pvmtbl.o pxmalloc.o
+X	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) pss.c pvmtbl.o pxmalloc.o ${PSCLIB}
+X
+X# Alternative link for MS-DOS (NB: MSC 5.1 has no getopt.c)
+X# p$(name):    pss.o pvmtbl.o pxmalloc.o getopt.o
+X#     link ${LDFLAGS} pss.o pvmtbl.o pxmalloc.o getopt.o,p$(name);
+X
+X# Documentation
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X# 1) convert ``ss.man'' to ``ss.l''
+X#	- replace all occurances of ``pname'' with ``ss'' (or whatever
+X#	  the NAME is above)
+X#	- insert the proper revision number
+X
+Xman:	ss.man
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev ss.man > $(name).$(MANEXT)
+X 
+X
+X# - Do the same for ``pss.doc''
+Xpman:	pss.doc
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev pss.doc > p$(name).$(MANEXT)
+X 
+X 
+X#  	Make Install
+X#---------------------------------------------------------------------------
+X
+Xinstall: $(EXDIR)/$(name) $(EXDIR)/p$(name) \
+X	 $(MANDIR)/$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X
+X$(EXDIR)/$(name): $(name)
+X	cp $(name) $(EXDIR)
+X	strip $(EXDIR)/$(name)
+X
+X$(EXDIR)/p$(name): p$(name)
+X	cp p$(name) $(EXDIR)
+X	strip $(EXDIR)/p$(name)
+X
+X$(MANDIR)/$(name).$(MANEXT): man
+X	cp $(name).$(MANEXT) $(MANDIR)/$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/$(name).$(MANEXT)
+X
+X$(MANDIR)/p$(name).$(MANEXT): pman
+X	cp p$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/p$(name).$(MANEXT)
+X
+X
+X# 	SUPPLEMENTARY MAKE TARGETS
+X#---------------------------------------------------------------------------
+X# (These are usually not made directly themselves)
+X
+X
+X# ``ss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xgram.c:	gram.y
+X	$(YACC) -d gram.y
+X	mv $(YTAB).c gram.c
+X
+X$(YTAB).h:	gram.y
+X
+Xcmds.o: cmds.c ss.h
+X	$(CC) ${CFLAGS} ${DOBACKUPS} ${CRYPT} -c cmds.c
+X
+Xcrypt.o: crypt.c ss.h
+X	$(CC) ${CFLAGS} ${CRYPT} ${DOBACKUPS} -c crypt.c
+X
+Xformat.o: format.c
+X
+Xinterp.o:	interp.c ss.h
+X	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+X
+Xgram.o:	ss.h $(YTAB).h gram.c
+X	$(CC) ${CFLAGS} -c gram.c
+X	sed < gram.y > experres.h -f eres.sed
+X	sed < gram.y > statres.h -f sres.sed
+X
+Xlex.o:	ss.h $(YTAB).h gram.o lex.c
+X	$(CC) ${CFLAGS} ${NOUNGETCH} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NONOTIMEOUT} -c lex.c
+X
+Xrange.o: range.c ss.h
+X
+Xss.o:	ss.h ss.c menu.h disprange.h ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} $(RIGHTBUG) ${SIGVOID} ${SAVE} -c ss.c
+X
+Xdisprange.o:	ss.h disprange.c ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c disprange.c
+X
+Xmenu.o:	ss.h menu.c ctrl.h menu_file.h menu_edit.h menu_cell.h\
+X    menu_rowcol.h menu_name.h menu_misc.h menu_macro.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu.c
+X
+Xmenu_file.o:	ss.h menu_file.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_file.c
+X
+Xmenu_edit.o:	ss.h menu_edit.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_edit.c
+X
+Xmenu_cell.o:	ss.h menu_cell.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_cell.c
+X
+Xmenu_rowcol.o:	ss.h menu_rowcol.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_rowcol.c
+X
+Xmenu_misc.o:	ss.h menu_misc.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_misc.c
+X
+Xmenu_macro.o:	ss.h menu_macro.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_macro.c
+X
+Xmenu_name.o:	ss.h menu_name.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_name.c
+X
+Xgetinput.o:	ss.h getinput.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c getinput.c
+X
+Xctrl.o:	ss.h ctrl.c ctrl.h menu.h disprange.h menu_cell.h menu_misc.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c ctrl.c
+X
+Xscreen.o:	ss.h screen.c
+X	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKISBAD} ${INTERNATIONAL} ${RIGHTBUG} ${SIGVOID} -c screen.c
+X
+Xhelp.o: ss.h help.c
+X	$(CC) ${CFLAGS} -c help.c
+X
+X# ``pss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xpvmtbl.c: vmtbl.c
+X	-rm -f pvmtbl.c
+X	${LN} vmtbl.c pvmtbl.c
+X
+Xpvmtbl.o: ss.h pvmtbl.c
+X	$(CC) ${CFLAGS} -c -DPSC pvmtbl.c
+X
+Xpxmalloc.c: xmalloc.c
+X	-rm -f pxmalloc.c
+X	${LN} xmalloc.c pxmalloc.c
+X
+Xpxmalloc.o: ss.h pxmalloc.c
+X	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+X
+X
+X# 	OTHER MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+Xclean:
+X	rm -f *.o *res.h $(YTAB).h debug core gram.c $(name).$(MANEXT) \
+X	$(name).$(MANEXT) p$(name).man p$(name).$(MANEXT) y.output \
+X	pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+X
+Xspotless: clean
+X	rm -f $(name) p$(name) 
+X
+X#---------------------------------------------------------------------------
+X#       end
+END_OF_FILE
+  if test 16515 -ne `wc -c <'ss_12b/Makefile.ultrix'`; then
+    echo shar: \"'ss_12b/Makefile.ultrix'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/Makefile.ultrix'
+fi
+if test -f 'ss_12b/menu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/menu.c'\"
+else
+  echo shar: Extracting \"'ss_12b/menu.c'\" \(15391 characters\)
+  sed "s/^X//" >'ss_12b/menu.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* ss 	:	A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Menu Driver
+X***********************************************************************
+X* Functions for displaying the command menus and processing the 
+X* related input.
+X* NOTE: this is not the ONLY interface to the user.
+X* These functions are used exclusively by ss.c
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X/*
+X** #ifdef BSD42
+X** # include <strings.h>
+X** #else
+X** # ifndef SYSIII
+X** #   include <string.h>
+X** # endif
+X** #endif
+X*/
+X
+X#include "ss.h"
+X#include "keys.h"
+X#include "menu.h"
+X#include "menu_file.h"
+X#include "menu_edit.h"
+X#include "menu_cell.h"
+X#include "menu_rowcol.h"
+X#include "menu_misc.h"
+X#include "menu_macro.h"
+X
+X#include "menu_name.h"
+X
+X
+X/*	Function Prototypes (lib func's)
+X *----------------------------------------------------------------------
+X */
+X    extern	char	*getenv();
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X    extern int showneed;	/* From main.c */
+X    extern int  showrange;	/* ditto */
+X    extern int running;		/* ditto */
+X    extern int anychanged; 	/* ditto */
+X    extern int showexpr;	/* ditto */
+X    extern int ClearScreen;	/* ditto */
+X
+X    extern int lastmx, lastmy;	/* From screen.c */
+X    extern int lastcol, lcols;	/* ditto */
+X
+X/*	Internal Function Prototypes
+X ***********************************************************************
+X */
+X
+Xstatic int Menu();
+Xstatic void FileMenu();
+Xstatic void EditMenu();     
+Xstatic void CellMenu();
+Xstatic void RowColumnMenu();
+Xstatic void NameMenu();
+Xstatic void MiscMenu();
+Xstatic void MacroMenu();
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+Xvoid MainMenu()
+X/*----------------------------------------------------------------------
+X** Top command level/menu.  Invoked by the "/" command
+X*/
+X{
+X#   define MainSize 8
+X    static char MainKeys[] =  {'F',   'E',    'C',   'R', 'O', 'M', 'A', 'Q'};
+X    static char *MainDesc[] = {"File","Edit", "Cell","Row", "Column","Misc",
+X		"Macro", "Quit"};
+X
+X    switch (Menu(MainSize, MainKeys, MainDesc, MAINHELP)) {
+X
+X    case 'F':	FileMenu();		break;
+X    case 'E':	EditMenu();		break;
+X    case 'C':	CellMenu();		break;
+X      
+X    case 'R':	RowColumnMenu(TRUE);	break; /* TRUE = Row */
+X    case 'O':	RowColumnMenu(FALSE);	break;
+X      
+X    case 'M':	MiscMenu();		break;
+X    case 'A':	MacroMenu();		break;
+X    case 'Q':	FileQuit();		break;
+X    }
+X} /* MainMenu() */
+X
+X
+X/*	Internal Functions
+X ***********************************************************************
+X */
+X
+X/**
+X ** ADD message to Menu() so we can say
+X ** "Insert Row or Column", optionally		???????????
+X **/
+X
+Xstatic int Menu(size, keys, keydesc, helpcontext)
+X/*----------------------------------------------------------------------
+X** The Main Menu display function.  Displays a menu and does rough
+X** preprocessign of the input.  Ensures that only valid input is received,
+X** also deals with aborts and help requests.
+X**
+X** NOTE: The Keys should all be in uppercase.  (if they are letters).
+X*/
+X    int 	size;		/* # of elements in keys & keydesc arrays */
+X    char	keys[];		/* Menu keys */
+X    char	*keydesc[];	/* Corresponding descriptions of keys */
+X    int		helpcontext;	/* A flag to pass along to help() */
+X/*
+X * Size must be a correct number.  Anything else has an undefined effect.
+X * No checking is made to ensure that all the keys & descriptions fit
+X * across the screen.
+X */
+X{
+X    int x;
+X    int  ValidInput;		/* Loop Control */
+X    int c;			/* input */
+X
+X    FullUpdate++;		/* to clear the message line */
+X
+X/*
+X * The Command line is the top line of the display.	starts at(0,0)
+X * The message/error line is the second line.		starts at(1,0)
+X */
+X
+X/*
+X * 1) Display the Menu on the Command/error line 
+X *
+X * Given a size of 3, and a set of keys and descriptions like this:
+X * 	key[0] = 'f',        key[1] = 'e',        key[2] = 'o',
+X * 	keydesc[0] = "File", keydesc[1] = "Edit", keydesc[2] = "Options".
+X * A menu looking like this would be displayed:
+X *	f:File e:Edit o:Options
+X * Except the keys would be highlighted.
+X */
+X    (void)move(0,0); 		/* Get into position */
+X    (void)clrtoeol(); 		/* Clear line */
+X    for (x=0; x < size; x++) {
+X	addch(keys[x] | A_STANDOUT);	/* Display key, highlighted */
+X	addch(':');			/* Separator */
+X	addstr(keydesc[x]);		/* Key Description */
+X	addch(' ');
+X    }
+X
+X/* 2) Display a Prompt on the Message Line */
+X    Message("Enter Command, or <Space> to Abort: ");
+X
+X/*
+X * 3) Get and Process input
+X *
+X * Valid Input:
+X * a)	A '?' will invoke help.  Pass along 'helpcontext' so that help()
+X *	knows from where it was invoked, so context-sensitive help can
+X *	be provided.
+X * b)	<Space> or kABORT will Abort the menu.
+X * c)	Any of the keys (Case is unimportant) will be accepted as valid
+X *	and be returned to the calling routine for processing there.
+X * d)	Anything else will result in an error (beep!)
+X */
+X    for (;;) {			/* Forever... */
+X	c = nmgetch();
+X	switch (c) {
+X
+X	case '?':		/* Help */
+X	    /** Context sensitive help **/		/** WRITE THIS **/
+X	    /* refresh needed? */
+X	    break;
+X	case kABORT:		/* Abort current command */
+X	case ' ':
+X	    ClearMessage;
+X/**	    (void) refresh(); **/
+X	    return(' ');
+X	    break;
+X	default:
+X	    c = (char) toupper(c);
+X	    for (x=0; x < size; x++) {	/* Check if input is valid key */
+X		if ( c == keys[x]) {
+X		    ClearMessage;
+X		    return(c);
+X		}
+X	    }
+X	    beep();		/* error bell */
+X	    break;
+X	}
+X    } 
+X    /* NOTREACHED */
+X} /* Menu() */
+X
+Xstatic void FileMenu()
+X/*----------------------------------------------------------------------
+X** File command level/menu.  Invoked from the Main menu
+X*/
+X{
+X#   define FileSize 	8
+X    static char FileKeys[]  = {'N',  'L',   'M',    'S',   'A', 'W','T','Q'};
+X    char tbl_mode[MAXSTR];
+X/* 
+X * Set up menu to show the current mode of ``Tbl Save''
+X *	- end up with something like ``Tbl Save(TeX)''
+X */
+X    strcpy(tbl_mode, "Tbl Save(");
+X    switch (tbl_style) {
+X    case TBL:		strcat(tbl_mode, "tbl)");	break;
+X    case TEX:		strcat(tbl_mode, "TeX)");	break;
+X    case LATEX:		strcat(tbl_mode, "LaTeX)");	break;
+X    case SLATEX: 	strcat(tbl_mode, "SLaTeX)");	break;
+X    case FRAME:		strcat(tbl_mode, "FrameMaker)"); break;
+X    default:		strcat(tbl_mode, "?)");		break;
+X    }
+X
+X    {
+X#ifdef __STDC__                               /* Ansi C can handle this: */
+X    char *FileDesc[] = {"New", "Load", "Merge", "Save", "Save As",
+X	"Write txt", tbl_mode, "Quit"};
+X#else                                         /* Non-Ansi Can't. */
+X    static char *FileDesc[] = {"New", "Load", "Merge", "Save", "Save As",
+X    	"Write txt", "", "Quit"};
+X    FileDesc[6] = tbl_mode;
+X#endif
+X
+X	switch (Menu(FileSize, FileKeys, FileDesc, FILEHELP)) {
+X
+X	case 'N':			/* New */
+X	    Message("** New -> Unimplemented");
+X	    break;
+X	case 'L': 	FileLoad(); 		break;
+X	case 'M':	FileMerge(); 		break;
+X	case 'S':	FileSave(); 		break;
+X	case 'A':	FileSaveAs(); 		break;
+X	case 'W':	FileWriteTxt(); 	break;
+X	case 'T':	FileTblSave(tbl_mode); 	break;
+X	case 'Q':	FileQuit();		break;
+X
+X	} /* switch */
+X    } /* filemenu declaration */
+X
+X} /* FileMenu() */
+X
+Xstatic void EditMenu()
+X/*----------------------------------------------------------------------
+X** Edit command level/menu.  Invoked from the Main menu
+X** - commands that operate either on the entire worksheet,
+X**   or on a range of cells.  (see the range commands of sc)
+X*/
+X{
+X#   define WorkSize 	8
+X    static char WorkKeys[]  ={'C','E','N','L','U','F','I','V'};
+X    static char *WorkDesc[] ={"Copy", "Erase", "Name", "Lock", "Unlck",
+X			      "Format", "Fill", "Valueize"};
+X
+X    switch (Menu(WorkSize, WorkKeys, WorkDesc, WORKHELP)) {
+X
+X    case 'C':	EditCopy();	break;
+X    case 'E': 	EditErase();	break;
+X    case 'N':	NameMenu();	break;
+X    case 'L':	EditLock();	break;
+X    case 'U': 	EditUnLock();	break;
+X    case 'F':	EditFormat();	break;
+X    case 'I':	EditFill();	break;
+X    case 'V':	EditValueize();	break;
+X    }
+X
+X} /* EditMenu() */
+X
+X
+Xstatic void CellMenu()
+X/*----------------------------------------------------------------------
+X** Cell command level/menu.  Invoked from the Main menu
+X*/
+X{
+X#   define CellSize 	5
+X    static char CellKeys[]  ={'G',    'M',    'C', 'L', 'V'};
+X    static char *CellDesc[] ={"Goto", "Mark", "Copy marked cell",
+X				  "edit Label", "edit Value"};
+X
+X    switch (Menu(CellSize, CellKeys, CellDesc, CELLHELP)) {
+X/**   case 'E':	CellErase();		break; **/
+X      case 'G':	CellGoto();		break;	
+X      case 'M':	CellMark();		break;
+X      case 'C':	CellCopy();		break;
+X      case 'L':	CellEditLabel();	break;
+X      case 'V':	CellEditValue();	break;
+X    }
+X} /* CellMenu() */
+X
+X
+Xstatic void RowColumnMenu(IsRow)
+X/*----------------------------------------------------------------------
+X** Row & Column command level/menu.  Invoked from the Main menu
+X*/
+X    int IsRow;
+X{
+X    /*
+X     * The Row & the Column Menu are *ALMOST* identical.
+X     * "Format: is a Column option only.
+X     */
+X#   define RowSize 	8
+X    static char RowKeys[]  ={'I','D','Y','M','C','H','S','V'};
+X    static char *RowDesc[] ={"Insert", "Delete", "Yank", "Merge", "Copy",
+X			     "Hide", "Show", "Valueize"};
+X#   define ColSize 	9
+X    static char ColKeys[]  ={'I','D','Y','M','C','H','S','V','F'};
+X    static char *ColDesc[] ={"Insert", "Delete", "Yank", "Merge", "Copy",
+X			     "Hide", "Show", "Valueize","Fmt"};
+X
+X    int menuchoice;
+X
+X    if (IsRow == TRUE)		/* Processing a Row */
+X	menuchoice = Menu(RowSize, RowKeys, RowDesc, ROWHELP);
+X    else			/* Processing a Column */
+X	menuchoice = Menu(ColSize, ColKeys, ColDesc, ROWHELP);
+X    
+X    switch (menuchoice) {
+X
+X      case 'I':	RCInsert(IsRow);	break; /* Insert */
+X      case 'D': RCDelete(IsRow);	break; /* Delete */
+X      case 'Y': RCYank(IsRow);		break; /* Yank */
+X      case 'M': RCMerge();		break; /* Merge */
+X      case 'C': RCCopy(IsRow);		break; /* Copy */
+X      case 'H': RCHide(IsRow);		break; /* Hide */
+X      case 'S': RCShow(IsRow);		break; /* Show */
+X      case 'V': RCValueize(IsRow);	break; /* Valueize */
+X      case 'F': ColFormat();		break; /* Format Column */
+X    }
+X
+X} /* RowColumnMenu() */
+X
+X
+Xstatic void NameMenu()
+X/*----------------------------------------------------------------------
+X** Name command level/sub-menu.  Invoked from the Top-Level Edit menu.
+X*/
+X{
+X#   define NSize 	3
+X    static char NKeys[]  ={'D','E','S'};
+X    static char *NDesc[] ={"Define Name", "Erase Name", "Show Names"};
+X
+X    switch (Menu(NSize, NKeys, NDesc, WNHELP)) {
+X
+X      case 'D':	NameDefine();	break; /* Define a name */
+X      case 'E':	NameErase();	break; /* Erase a name */
+X      case 'S':	NameShow();	break; /* Show all names */
+X    }
+X
+X} /* NameMenu() */
+X
+Xstatic void MiscMenu()
+X/*----------------------------------------------------------------------
+X** Misc commands menu.  Invoked from the Main menu
+X*/
+X{
+X#   define MiscSize 	6
+X    static char MiscKeys[]  ={'!','O','S','V','E','R'};
+X    static char *MiscDesc[] ={ "Shell Cmd", "Options", "Settings",
+X			       "show Values", "show Expr.", "Recalc"};
+X
+X    switch (Menu(MiscSize, MiscKeys, MiscDesc, MISCHELP)) {
+X
+X      case '!': MiscShell(); break; 	/* Execute a Shell command */
+X      case 'O': OptionsMenu();	break; 	/* WorkSheet - Toggle Options */
+X      case 'S': MiscSettings(); break; 	/* WorkSheet - Settings */
+X      case 'V': MiscRedraw(TRUE); break; /* Hilite Cells containing Values */
+X      case 'E': MiscRedraw_Expr(); break; /* Hilite Cells containing Exp'ns */
+X      case 'R': MiscRecalc(); break;	/* Recalc Spreadsheet */
+X    }
+X
+X} /* MiscMenu() */
+X
+X
+Xstatic void MacroMenu()
+X/*----------------------------------------------------------------------
+X** Macro command level/menu.  Invoked from the Main menu
+X*/
+X{
+X#   define MacroSize 	2
+X    static char MacroKeys[]  = {'R',  'D',    };
+X    static char *MacroDesc[] = {"Run","Define"};
+X
+X    switch (Menu(MacroSize, MacroKeys, MacroDesc, MACROHELP)) {
+X      case 'R':	MacroRun();	break; /* Run macros */
+X      case 'D':	MacroDefine();	break; /* Define path */
+X    }
+X
+X} /* MacroMenu() */
+X
+X/*** SO FAR UPDATED ***/
+X
+Xvoid OptionsMenu()
+X/*----------------------------------------------------------------------
+X** Options command level/menu.  Invoked from the WorkSheet menu
+X** - Toggle options governing the spreadsheet
+X*/
+X{
+X/* Options Menu */
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X#   define OptSize 	9
+X    static char OptKeys[]  ={'X','A','C','E','L','R','T','Z','$'};
+X    static char *OptDesc[] ={"Encrypt", "Auto", "Cell", "Ext fn's", "Label",
+X			     "Return", "Top", "Limits", "Pre-Scale"};
+X#else	/* No Encryption */
+X#   define OptSize 	8
+X    static char OptKeys[]  ={'A','C','E','L','R','T','Z','$'};
+X    static char *OptDesc[] ={"Auto", "Cell", "Ext fn's", "Label", 
+X			     "Return", "Top", "Limits", "Pre-Scale"};
+X#endif
+X
+X    switch (Menu(OptSize, OptKeys, OptDesc, OPTHELP)) {
+X    case 'A': 	/* WorkSheet - Options - Auto Recalc */
+X	autocalc ^= 1;
+X	Message("** Automatic recalculation %sabled.", autocalc ? "en":"dis");
+X	break;
+X    case 'C':	/* WorkSheet - Options - Cell Highlight */
+X	showcell = (! showcell);
+X	repaint(lastmx, lastmy, fwidth[lastcol]);
+X	Message ("** Cell highlighting %sabled.", showcell ? "en" : "dis");
+X	break;
+X    case 'E':	/* WorkSheet - Options - Ext Funcs */
+X	extfunc = (! extfunc);
+X	Message ("** External functions %sabled.", extfunc? "en" : "dis");
+X	break;
+X    case 'T':	/* WorkSheet - Options - Top Line Display */
+X	showtop = (! showtop);
+X	Message ("** Top line display of cell contents %sabled.",
+X	    showtop ? "en" : "dis");
+X	break;
+X    case 'L':	/* WorkSheet - Options - Auto Labeling */
+X	autolabel = (! autolabel);
+X	Message ("** Autolabel %sabled.", autolabel? "en" : "dis");
+X	break;
+X    case 'R':	/* WorkSheet - Options - Return Action */
+X	++craction;
+X	if(craction >= 3)
+X	    craction = 0;
+X	switch(craction) {
+X	default:
+X	    craction = 0; 			/* fall through */
+X	case 0:
+X	    Message("** After a <CR> the Cell Cursor stays put.");
+X	    break;
+X	case CRROWS:
+X	    Message("** After a <CR> the Cell Cursor moves down one row.");
+X	    break;
+X	case CRCOLS:
+X	    Message("** After a <CR> the Cell Cursor moves right one column.");
+X	    break;
+X	}
+X	break;
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X    case 'X': 	/* WorkSheet - Options - Encrypt */
+X	Crypt = (! Crypt);
+X	Message ("** Encryption %sabled.", Crypt? "en" : "dis");
+X	break;
+X#endif
+X    case 'Z': 	/* WorkSheet - Options - Row/Col Limits */
+X	rowlimit = currow;
+X	collimit = curcol;
+X	Message("** Row and column limits set");
+X	break;
+X    case '$': 	 	/* WorkSheet - Options - Prescale $ */
+X	if (prescale == 1.0) {
+X	    Message ("** Prescale enabled.  (Numbers are multiplied by .01)");
+X	    prescale = 0.01;
+X	} else {
+X	    prescale = 1.0;
+X	    Message ("** Prescale disabled.");
+X	}
+X	break;
+X    }
+X
+X    modflg++;		/* So options get saved in Spreadsheet file */
+X} /* OptionsMenu() */
+X
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 15391 -ne `wc -c <'ss_12b/menu.c'`; then
+    echo shar: \"'ss_12b/menu.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/menu.c'
+fi
+if test -f 'ss_12b/ss.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/ss.h'\"
+else
+  echo shar: Extracting \"'ss_12b/ss.h'\" \(16550 characters\)
+  sed "s/^X//" >'ss_12b/ss.h' <<'END_OF_FILE'
+X/**********************************************************************
+X* %W% %G%
+X*
+X* ss    :       A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Main Header file
+X***********************************************************************
+X* May/92 - Art Mulder.  Hacked a bit to bring it up to Rev 6.21 of `sc' 
+X*          Additions and changes for conversion to `ss'.
+X*          Cosmetic rearrangements.
+X* 
+X* Mar/88 - More mods by Alan Silverstein, 3-4/88, see list of changes.
+X* Dec/86 - R. Bond 
+X* ??     - Modified by Mark Weiser and Bruce Israel, University of Maryland
+X* Sep/82 - Original by James Gosling, September 1982
+X**********************************************************************/
+X
+X#ifndef ss_h
+X#  define ss_h
+X
+X#if defined(MSDOS)
+X#  include <stdio.h>
+X#endif
+X
+X/*
+X * False & True
+X */
+X#ifndef FALSE
+X# define	FALSE	0
+X# define	TRUE	1
+X#endif 
+X
+X#define	ATBL(tbl, row, col)	(*(tbl + row) + (col))
+X  /* Macro to ease accessing the contents of the spreadsheet table */
+X
+X/*	Defaults and Initial Settings of variables
+X *----------------------------------------------------------------------
+X */
+X#define MINROWS 100 	/* minimum size of the spreadsheet at startup */
+X#define MINCOLS 30 
+X#define	ABSMAXCOLS 702	/* absolute cols: ZZ (base 26) */
+X	/** I *think* this is the largest permitted column (Art M) **/
+X
+X#define CRROWS 1
+X#define CRCOLS 2
+X	/* See "craction" variable.  When the user enters a value
+X	 * into a cell and types return, the action taken (the <CR> action,
+X	 * or the craction) can be: 0 - Stay put, 1 (CRROWS) - move down
+X	 * one row, or 2 (CRCOLS) - move right one column.
+X	 */
+X
+X#define RESCOL 4
+X#define RESROW 3 
+X	/* The number of reserved Columns at the left of the screen -
+X	 * Reserved for the row numbers.  Also, the number of reserved
+X	 * rows at the top of the screen -- reserved for the prompt line,
+X	 * error line, and the line containing the column numbers.
+X	 */
+X
+X
+X#define REFMTFIX	0	/* Formats, used in engformat() */
+X#define REFMTFLT	1	/* (in format.c)		*/
+X#define REFMTENG	2
+X#define REFMTDATE	3
+X
+X#define DEFWIDTH 	10	/* Default column width 	*/
+X#define DEFPREC   	2	/* Default column precision 	*/
+X#define DEFREFMT  	REFMTFIX  
+X	/* Make default format fixed point  THA 10/14/90 */
+X
+X#define	FBUFLEN		1024	/* buffer size for a single field */
+X#define	PATHLEN		1024	/* maximum path length */
+X
+X#define MAXSTR  	128	/* Max. string length (for messages, errors) */
+X
+X#define BYCOLS 		1 	/* calculation order */
+X#define BYROWS 		2
+X
+X/* 
+X * tblprint style output for:
+X */
+X#define	TBL		1	/* `tbl' */
+X#define	LATEX		2	/* `LaTeX' */
+X#define	TEX		3	/* `TeX' */
+X#define	SLATEX		4	/* `SLaTeX' (Scandinavian LaTeX) */
+X#define FRAME   	5	/* `FrameMaker' */
+X
+X/*
+X * Cell error (1st generation (ERROR) or 2nd+ (INVALID)) 
+X */
+X#define	CELLOK		0
+X#define	CELLERROR	1
+X#define	CELLINVALID	2
+X
+X/*
+X * Types for etype() 
+X */
+X#define NUM	1
+X#define STR	2
+X
+X#define	GROWAMT		30	/* default minimum amount to grow */
+X
+X#define	GROWNEW		1	/* first time table */
+X#define	GROWROW		2	/* add rows */
+X#define	GROWCOL		3	/* add columns */
+X#define	GROWBOTH	4	/* grow both */
+X
+X/*	 ??
+X *----------------------------------------------------------------------
+X */
+X
+X#if (defined(BSD42) || defined(BSD43)) && !defined(strrchr)
+X#  define strrchr rindex
+X#endif
+X
+X#if (defined(BSD42) || defined(BSD43)) && !defined(strchr)
+X#  define strchr index
+X#endif
+X
+X#ifdef SYSV4
+X   size_t	strlen();
+X#endif
+X
+X
+X/*	 Global Structure Definitions
+X *----------------------------------------------------------------------
+X */
+X
+X/*
+X * ent_ptr holds the row/col # and address type of a cell
+X *
+X * vf is the type of cell address, 0 non-fixed, or bitwise OR of FIX_ROW or
+X *	FIX_COL
+X * vp : we just use vp->row or vp->col, vp may be a new cell just for holding
+X *	row/col (say in gram.y) or a pointer to an existing cell
+X */
+Xstruct ent_ptr {
+X    int vf;
+X    struct ent *vp;
+X};
+X
+X#define FIX_ROW 1
+X#define FIX_COL 2
+X
+X
+X/*
+X * holds the beginning/ending cells of a range
+X */
+Xstruct range_s {
+X	struct ent_ptr left, right;
+X};
+X
+X
+X/*
+X * Flag Values:
+X *   Some not too obvious things about the flags:
+X *   is_valid means there is a valid number in v.
+X *   is_locked means that the cell cannot be edited.
+X *   label set means it points to a valid constant string.
+X *   is_strexpr set means expr yields a string expression.
+X *    If is_strexpr is not set, and expr points to an expression
+X *      tree, the expression yields a numeric expression.
+X *    So, either v or label can be set to a constant. 
+X *
+X *    Either (but not both at the same time) can be set from
+X *      an expression.
+X */
+X#define is_valid     	0001
+X#define is_changed   	0002
+X#define is_strexpr   	0004
+X#define is_leftflush 	0010
+X#define is_deleted   	0020
+X#define is_locked    	0040
+X#define is_label     	0100
+X
+X#define VALID_CELL(p, r, c) ((p = *ATBL(tbl, r, c)) && \
+X			     ((p->flags & is_valid) || p->label))
+X
+X/*
+X * info for each cell, only alloc'd when something is stored in a cell
+X */
+Xstruct ent {
+X    double v;		/* v && label are set in EvalAll() */
+X    char *label;
+X    struct enode *expr;	/* cell's contents */
+X    short flags;	
+X    short row, col;
+X    struct ent *next;	/* next deleted ent (pulled, deleted cells) */
+X    char *format;	/* printf format for this cell */
+X    char cellerror;	/* error in a cell? */
+X};
+X
+X/*
+X * stores a range (left, right)
+X */
+Xstruct range {
+X    struct ent_ptr r_left, r_right;
+X    char *r_name;			/* possible name for this range */
+X    struct range *r_next, *r_prev;	/* chained ranges */
+X    int r_is_range;
+X};
+X
+X/*
+X * stores type of operation this cell will perform
+X */
+Xstruct enode {
+X    int op;
+X    union {
+X	int gram_match;         /* some compilers (hp9000ipc) need this */
+X	double k;		/* constant # */
+X	struct ent_ptr v;	/* ref. another cell */
+X	struct range_s r;	/* op is on a range */
+X	char *s;		/* string part of a cell */
+X	struct {		/* other cells use to eval()/seval() */
+X	    struct enode *left, *right;
+X	} o;
+X    } e;
+X};
+X
+X/* op values */
+X#define O_VAR 'v'
+X#define O_CONST 'k'
+X#define O_ECONST 'E'	/* constant cell w/ an error */
+X#define O_SCONST '$'
+X#define REDUCE 0200	/* Or'ed into OP if operand is a range */
+X
+X#define OP_BASE 256
+X#define ACOS 	(OP_BASE + 0)
+X#define ASIN 	(OP_BASE + 1)
+X#define ATAN 	(OP_BASE + 2)
+X#define CEIL 	(OP_BASE + 3)
+X#define COS 	(OP_BASE + 4)
+X#define EXP 	(OP_BASE + 5)
+X#define FABS 	(OP_BASE + 6)
+X#define FLOOR 	(OP_BASE + 7)
+X#define HYPOT 	(OP_BASE + 8)
+X#define LOG 	(OP_BASE + 9)
+X#define LOG10 	(OP_BASE + 10)
+X#define POW 	(OP_BASE + 11)
+X#define SIN 	(OP_BASE + 12)
+X#define SQRT 	(OP_BASE + 13)
+X#define TAN 	(OP_BASE + 14)
+X#define DTR 	(OP_BASE + 15)
+X#define RTD 	(OP_BASE + 16)
+X#define MIN 	(OP_BASE + 17)
+X#define MAX 	(OP_BASE + 18)
+X#define RND 	(OP_BASE + 19)
+X#define HOUR 	(OP_BASE + 20)
+X#define MINUTE 	(OP_BASE + 21)
+X#define SECOND 	(OP_BASE + 22)
+X#define MONTH 	(OP_BASE + 23)
+X#define DAY 	(OP_BASE + 24)
+X#define YEAR 	(OP_BASE + 25)
+X#define NOW 	(OP_BASE + 26)
+X#define DATE 	(OP_BASE + 27)
+X#define FMT 	(OP_BASE + 28)
+X#define SUBSTR 	(OP_BASE + 29)
+X#define STON 	(OP_BASE + 30)
+X#define EQS 	(OP_BASE + 31)
+X#define EXT 	(OP_BASE + 32)
+X#define ELIST 	(OP_BASE + 33)	/* List of expressions */
+X#define LMAX  	(OP_BASE + 34)
+X#define LMIN  	(OP_BASE + 35)
+X#define NVAL 	(OP_BASE + 36)
+X#define SVAL 	(OP_BASE + 37)
+X#define PV 	(OP_BASE + 38)
+X#define FV 	(OP_BASE + 39)
+X#define PMT 	(OP_BASE + 40)
+X#define STINDEX (OP_BASE + 41)
+X#define LOOKUP 	(OP_BASE + 42)
+X#define ATAN2 	(OP_BASE + 43)
+X#define INDEX 	(OP_BASE + 44)
+X#define DTS 	(OP_BASE + 45)
+X#define TTS 	(OP_BASE + 46)
+X#define ABS 	(OP_BASE + 47)
+X#define HLOOKUP (OP_BASE + 48)
+X#define VLOOKUP (OP_BASE + 49)
+X#define ROUND 	(OP_BASE + 50)
+X#define IF 	(OP_BASE + 51)
+X#define MYROW 	(OP_BASE + 52)
+X#define MYCOL 	(OP_BASE + 53)
+X#define COLTOA 	(OP_BASE + 54)
+X#define UPPER 	(OP_BASE + 55)
+X#define LOWER 	(OP_BASE + 56)
+X#define CAPITAL (OP_BASE + 57)
+X#define NUMITER (OP_BASE + 58)
+X
+X
+X/* 	Global Variables
+X *----------------------------------------------------------------------
+X * See ``ss.c'' for documentation on each.
+X */
+Xextern char message[MAXSTR];	
+Xextern char *buff;
+Xextern char *range;	
+X
+Xextern	struct ent ***tbl;	
+Xextern	char curfile[];
+Xextern	int strow, stcol;
+Xextern	int currow, curcol;
+Xextern	int savedrow, savedcol;
+Xextern	int FullUpdate;
+Xextern	int maxrow, maxcol;
+Xextern	int maxrows, maxcols;	/* # cells currently allocated */
+Xextern	int *fwidth;
+Xextern	int *precision;
+Xextern  int *realfmt;
+Xextern	char *col_hidden;
+Xextern	char *row_hidden;
+Xextern	char line[FBUFLEN];
+Xextern	int linelim;
+Xextern	int changed;
+Xextern	struct ent *to_fix;
+Xextern	int showsc, showsr;
+X
+X/* 	Function Prototypes
+X *----------------------------------------------------------------------
+X */
+Xextern	FILE *openout();
+Xextern	FILE *fdopen(), *fopen();
+Xextern	char *coltoa();
+Xextern	char *findhome();
+Xextern	char *r_name();
+Xextern	char *strrchr();
+Xextern	char *v_name();
+Xextern	int any_locked_cells();
+Xextern	int are_ranges();
+Xextern	int atocol();
+Xextern	int cwritefile();
+Xextern	int engformat();
+Xextern	int etype();
+Xextern	int fork();
+Xextern	int format();
+Xextern	int get_rcqual();
+Xextern	int growtbl();
+Xextern	int locked_cell();
+Xextern	int modcheck();
+Xextern	int nmgetch();
+Xextern	int nmungetch();
+Xextern	int writefile();
+Xextern	int yn_ask();
+Xextern	struct enode *copye();
+Xextern	struct enode *new();
+Xextern	struct enode *new_const();
+Xextern	struct enode *new_range();
+Xextern	struct enode *new_str();
+Xextern	struct enode *new_var();
+Xextern	struct ent *lookat();
+Xextern	struct range *find_range();
+Xextern	void EvalAll();
+Xextern	void add_range();
+Xextern	void backcol();
+Xextern	void backrow();
+Xextern	void checkbounds();
+Xextern	void clearent();
+Xextern	void clean_range();
+Xextern	void closecol();
+Xextern	void closeout();
+Xextern	void closerow();
+Xextern	void colshow_op();
+Xextern	void copy();
+Xextern	void copyent();
+Xextern	void creadfile();
+Xextern	void deleterow();
+Xextern	void del_range();
+Xextern	void deraw();
+Xextern	void diesave();
+Xextern	void doend();
+Xextern	void doformat();
+Xextern	void dupcol();
+Xextern	void duprow();
+Xextern	void editexp();
+Xextern	void editfmt();
+Xextern	void edit_mode();
+Xextern	void edits();
+Xextern	void editv();
+Xextern	void efree();
+Xextern	void erase_area();
+Xextern	void erasedb();
+Xextern	void eraser();
+Xextern	void fill();
+Xextern	void flush_saved();
+Xextern	void format_cell();
+Xextern	void forwcol();
+Xextern	void forwrow();
+Xextern	void free_ent();
+Xextern	void go_last();
+Xextern	void goraw();
+Xextern	void help();
+Xextern	void hide_col();
+Xextern	void hide_row();
+Xextern	void hidecol();
+Xextern	void hiderow();
+Xextern	void initkbd();
+Xextern	void ins_string();
+Xextern	void insert_mode();
+Xextern	void insertrow();
+Xextern	void kbd_again();
+Xextern	void label();
+Xextern	void let();
+Xextern	void list_range();
+Xextern	void lock_cells();
+Xextern	void moveto();
+Xextern	void num_search();
+Xextern	void opencol();
+Xextern	void printfile();
+Xextern	void pullcells();
+Xextern	void readfile();
+Xextern	void resetkbd();
+Xextern	void rowshow_op();
+Xextern	void setauto();
+Xextern	void setiterations();
+Xextern	void setorder();
+Xextern	void showcol();
+X
+Xextern	void showrow();
+Xextern	void showstring();
+Xextern	void signals();
+Xextern	void slet();
+X
+Xextern	void str_search();
+Xextern	void sync_ranges();
+Xextern	void sync_refs();
+Xextern	void tblprintfile();
+Xextern	void unlock_cells();
+Xextern	void valueize_area();
+Xextern	void write_fd();
+Xextern	void write_range();
+X
+Xextern	void yyerror();
+X#ifdef DOBACKUPS
+Xextern	int backup_file();
+X#endif
+X
+Xextern	int modflg;
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X    extern	int Crypt;
+X#endif
+Xextern	char *mdir;
+Xextern	double prescale;
+Xextern	int extfunc;
+Xextern	int propagation;
+Xextern	int calc_order;
+Xextern	int autocalc;
+Xextern	int autolabel;
+Xextern	int numeric;
+Xextern	int showcell;
+Xextern	int showtop;
+Xextern	int loading;
+Xextern	int getrcqual;
+Xextern	int tbl_style;
+Xextern	int rndinfinity;
+Xextern	char *progname;
+Xextern	int craction;
+Xextern	int rowlimit;
+Xextern	int collimit;
+X
+X#if BSD42 || SYSIII
+X#  ifndef cbreak
+X#    define cbreak	crmode
+X#    define nocbreak	nocrmode
+X#  endif
+X#endif
+X
+X#if defined(BSD42) || defined(BSD43) && !defined(ultrix)
+X#  define memcpy(dest, source, len)	bcopy(source, dest, (unsigned int)len);
+X#  define memset(dest, zero, len)	bzero((dest), (unsigned int)(len));
+X#else
+X#  ifndef SYSV3
+X	/* May 13/92 - Art Mulder - on my Sun Sparc (SunOS 4.1.1) using
+X	 * gcc 2.0 and the System V stuff, this gives errors/warnings.
+X	 * So skip it.  Never had problems skipping it under `sc 6.19'
+X	 */
+X#    include <memory.h>
+X#  endif
+X#endif
+X
+X/*	xmalloc.c stuff
+X *----------------------------------------------------------------------
+X */
+X  extern	char *scxmalloc();
+X  extern	char *scxrealloc();
+X  extern 	void scxfree();
+X
+X#define 	Malloc 	scxmalloc
+X#define		Realloc	scxrealloc
+X#define		Free	scxfree
+X    /* This is primarily to make the programs cosmetically nicer,
+X     * since ``malloc'' is more familiar than ``scxmalloc'' etc.
+X     */
+X
+X/*	Prompt/Message macros
+X *----------------------------------------------------------------------
+X * Top Row: Cell Display, Menu Display, Data Entry 	(Prompt Row)
+X * 2nd Row: Informative or Error Messages		(Message Row)
+X *	"error" macro is retained for backward compatibility for now.
+X */
+X
+X#ifdef PSC	/* for "psc.c" */
+X#   define error(msg)	fprintf(stderr, msg);
+X#   define Message(msg)	fprintf(stderr, msg);
+X#else
+X#   define error 	(void)move(1,0), (void)clrtoeol(), (void)printw
+X#   define Message 	(void)move(1,0), (void)clrtoeol(), (void)printw
+X#endif
+X
+X#   define ClearMessage	(void)move(1,0), (void)clrtoeol()
+X
+X#   define Prompt 	(void)move(0,0), (void)clrtoeol(), (void)printw
+X#   define ClearPrompt	(void)move(0,0), (void)clrtoeol()
+X
+X/* 	Help Contexts 
+X *----------------------------------------------------------------------
+X * NOTE: These are unfinished "hooks" to context sensitive help,
+X * see "menu.c"
+X */
+X#   define HELP		1
+X#   define MAINHELP	2
+X#   define FILEHELP	3
+X#   define CELLHELP	4
+X#   define ROWHELP	5
+X#   define WORKHELP	6
+X#   define WNHELP	7
+X#   define MISCHELP	8
+X#   define OPTHELP	9
+X#   define CNHELP	10
+X#   define MACROHELP	11
+X
+X
+X/* 	Useful Macros
+X *----------------------------------------------------------------------
+X */
+X
+X/*
+X * Void or Int (for function declarations) depending on SIGVOID
+X */
+X#ifdef SIGVOID 
+X#  define VOID_OR_INT	void
+X#else
+X#  define VOID_OR_INT	int
+X#endif
+X
+X
+X/*
+X * Run the command in 'line' through the parser.  Also perform
+X * any necessary housekeeping.  
+X */
+X#define PROCESS_line { 		\
+X	ClearMessage;		\
+X        linelim = 0;    	\
+X        (void) yyparse ();	\
+X        linelim = -1; }
+X
+X/*
+X * If ``buff'' is NULL, issue an ``Aborted'' message, and return
+X * from the current function.  Buff is the standard name for
+X * pointers to the input buffers returned by the ``getinput.c''
+X * functions.
+X */
+X#define ABORT_AND_RETURN_IF_BUFF_NULL {		\
+X	if (buff == NULL) {			\
+X	    Message("** Operation Aborted");	\
+X	    return;				\
+X        } }						
+X
+X/*
+X * Similar to ABORT_AND_RETURN...
+X */
+X#define ABORT_AND_BREAK_IF_BUFF_NULL {		\
+X	if (buff == NULL) {			\
+X	    Message("** Operation Aborted");	\
+X	    break;				\
+X        } }						
+X
+X/* 	Misc
+X *----------------------------------------------------------------------
+X */
+X
+X/*
+X * define some macro's so we don't have to have have (void)'s scattered
+X * all over the place in the code.  
+X * (These have not been universally implemented throughout the package)
+X */
+X#define Sprintf		(void) sprintf /* stdio.h voids... */
+X#define Fprintf		(void) fprintf
+X#define Printf		(void) printf
+X#define Fflush		(void) fflush
+X#define Close		(void) close
+X#define Fclose 		(void) fclose
+X#define Fputs		(void) fputs
+X    
+X#define Execl		(void) execl /* System Calls(?) voids... */
+X#define Dup		(void) dup
+X    
+X#define Strcat		(void) strcat /* string.h voids... */
+X#define Strcpy		(void) strcpy
+X#define Strtof		(void) strtof
+X    
+X#define Refresh		(void) refresh /* curses.h voids... */
+X#define Move		(void) move
+X#define Addstr		(void) addstr
+X#define Clrtoeol	(void) clrtoeol
+X    
+X#define Signal		(void) signal /* signal.h voids... */
+X#define Kill		(void) kill
+X
+X#define Yyparse		(void) yyparse
+X
+X
+Xint numeric;
+X    /*
+X     * This variable is NOT USED in `ss'.  It is currently retained for
+X     * compatibility with `sc' data files.  If you modify ``gram.y''
+X     * to do nothing with the `K_NUMERIC' token, then this variable
+X     * can probably be safely deleted.
+X     */
+X
+X#endif /* ifndef ss_h */
+X
+X/*----------------------------------------------------------------------
+X *	End
+X */
+END_OF_FILE
+  if test 16550 -ne `wc -c <'ss_12b/ss.h'`; then
+    echo shar: \"'ss_12b/ss.h'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/ss.h'
+fi
+if test -f 'ss_12b/sunfkeys/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/sunfkeys/README'\"
+else
+  echo shar: Extracting \"'ss_12b/sunfkeys/README'\" \(8111 characters\)
+  sed "s/^X//" >'ss_12b/sunfkeys/README' <<'END_OF_FILE'
+X---------- ---------- ---------- ---------- ---------- ---------- ----------
+X			  XTERM-SUN
+X---------- ---------- ---------- ---------- ---------- ---------- ----------
+X
+XSUMMARY:
+X========
+X  Xterm-sun is an enhanced terminfo (and termcap) database entry for
+X  the xterm terminal program running under X11 on a Sun Workstation.
+X
+X  The termcap and terminfo database entries for xterm (used in many
+X  programs, especially curses-based programs) are missing many function
+X  key entries.  This package seeks to rectify that situation.
+X
+X  Included are definitions for the function keys <Home>, <End>, <PgUp>,
+X  <PgDn>, and <F1> through <F12>.
+X
+X  Using xterm-sun lets you use those function keys in curses-based programs
+X  from within an xterm window.
+X
+XDESCRIPTION
+X===========
+X  Xterm is one of the most widely used pieces of X-windows software.
+X  But it is certainly not one of the best.  The README file that
+X  accompanies it describes it as ``the most ugly program in the
+X  distribution''.  One flaw with xterm (IMHO) lies in its sparse
+X  termcap/terminfo entry, and in it's handling of function keys on the
+X  Sun keyboard.
+X
+X  ASIDE:    I have never used Xterm on anything other than a Sun, so I
+X	    have no idea how it functions on those platforms.
+X
+X  The termcap (and terminfo) entry for xterm is lacking definitions for
+X  the Home,End, PageUp, and PageDown function keys.  Furthermore, while
+X  it does contain definitions for functions keys F1 through F10, those
+X  definitions (at least on my system) are WRONG.  That is, they do not
+X  match the codes that are produced by xterm when those keys are
+X  pressed.
+X
+X  This caused me some annoyance while developing a curses-based
+X  program.  I wanted to make use of the Home, End, PageUp, and PageDn
+X  in my program but was unable to.  Since I am not qualified to fix
+X  xterm (Somebody, please fix it!), I have instead put together an
+X  enhanced termcap and terminfo database entry for a Sun Sparc with a
+X  Type-4 keyboard.
+X
+X  ASIDE:    These also work on a Sun3 with the type-2 keyboard.
+X	    However, I have not tested them extensively on such.  There
+X	    may be some problems lurking in the darkness, ready to
+X	    pounce on unsuspecting programmers.
+X
+XRESTRICTION
+X===========
+X  These enhanced termcap / terminfo entries require that you run xterm
+X  with the ``-sf'' command line option, to force xterm to generate Sun
+X  function key escape codes.
+X
+X  This is necessary, because with the default option (+sf, standard
+X  function key escape codes) I found that xterm produces NO output
+X  whatsoever when the Home, End, PageUp, or PageDown keys were
+X  pressed.
+X
+XTHE TERMCAP / TERMINFO FILES
+X============================
+X
+X  There are two files included in this package: xterm-sun.ti and
+X  xterm-sun.tc.  xterm-sun.ti contains the terminfo database entry for
+X  a Sun, entitled xterm-sun.  The corresponding termcap entry is stored
+X  in xterm-sun.tc.  The xterm-sun.tc file was produced from
+X  xterm-sun.ti using ``/usr/5bin/infocmp -C''.
+X
+X  Please refer to the comments in those files, for additional
+X  information.
+X
+X  The ``vanilla'' xterm termcap / terminfo database entry contains
+X  definitions for only the keypad arrow keys.  (Yes, I know I already
+X  mentioned that it contained WRONG definitions for the function keys
+X  F1 through F10.  I'm trying to forget about that :-).  I have added
+X  the following function key definitions:
+X
+X	<Home>, <End>, <Page Down>, <Page Up>, <Insert>, <F1> through
+X	<F12>, <Shift><End>, <Shift><Home>, <Shift><Left Arrow>,
+X	<Shift><Right Arrow>.
+X
+X  NOTE:     Under ``xterm -sf'', xterm produces the same key codes for
+X	    function keys <F11> and <F12> as it does for the function
+X	    keys <Stop> and <Again>.  This may cause you some grief, be
+X	    careful.
+X
+X  BEEF:     Why doesn't terminfo / termcap allow a shifted Up/Down
+X	    Arrow when it does have a shifted Left/Right Arrow?  What
+X	    about shifted PageUp/PageDown, after all, there are shifted
+X	    Home/End Keys.  Seems rather arbitrary.  Mutter mutter,
+X	    grumble grumble.
+X
+X  Note that on a Sun3 with the type-2 keyboard, there are no function
+X  keys F10 through F12.  Also, the Home, End, PageUp, PageDown are not
+X  labelled as such.  They are:
+X
+X	    Home :   R7
+X	     End :   R13
+X	    PgUp :   R9
+X	    PgDn :   R15
+X
+XINSTALLATION
+X============
+X  There are a number of ways that you can install these database
+X  entries.
+X
+X  1) Rename them from ``xterm-sun'' to ``xterm'' and replaces the
+X     standard entries in the termcap and terminfo databases with these
+X     enhanced entries.  This will require some fiddling on your part,
+X     since as distributed, these refer to the original xterm entries.
+X
+X  This would cause the least amount of disruption for xterm users, but
+X  remember that these termcap / terminfo function key descriptions only
+X  work with ``xterm -sf''.
+X
+X  2) Install the ``xterm-sun'' entries into your system termcap and
+X     terminfo databases.
+X
+X  This is also a nice option, but like option 1, it requires System
+X  Administrator privileges.
+X
+X  3) If you are a ``lowly user'' you can install them in your own
+X     home account.
+X
+X  Pick a subdirectory under your user id (I use /lib/terminfo)
+X  and put the files there.
+X
+X  Nothing special is required with xterm-sun.tc, but xterm-sun.ti must
+X  be compiled before it can be used.  See the man page for tic(8v) for
+X  instructions on that.  (Note:  tic is probably in /usr/5bin on your
+X  Sun system).
+X
+X  When it is compiled, xterm-sun.ti will also produce a compiled
+X  ``xterm'' and ``vs100'' entry.  See the comments in xterm-sun.ti.
+X  Those can safely be deleted.
+X
+XUSAGE
+X=====
+X  For option 1 above, all you need to do to make this enhanced termcap
+X  / terminfo database entry available to all your curses programs is to
+X  remember to start xterm with the ``- sf'' option.
+X
+X  If you choose option 2 above, you must also give the command like
+X  option ``-tn xterm-sun'' when you run xterm.
+X
+X  Those of us forced to use option 3 above, have the most grief.
+X
+X	Set your TERM environment variable to ``xterm-sun''.
+X
+X	Set your TERMINFO environment variable to the parent directory
+X	of the directory where the compiled `xterm- sun' entry is.
+X
+X	Set your TERMCAP environment variable to be the directory of
+X	where you stored `xterm-sun.tc'.  This MUST begin with a slash
+X	(`/') due to the way the function tgetent() works.  (See the
+X	source code of xterm, and the man page of tgetent() to learn
+X	more of this.)
+X
+X        An example, based on option 3, above.
+X	   % setenv TERM xterm-sun
+X	   % setenv TERMINFO /usr/users/joeblow/termlib
+X		(the xterm-sun compiled terminfo entry is stored
+X		in the x subdirectory under termlib)
+X	   % setenv TERMCAP /usr/users/joeblow/termlib/xterm-sun.tc
+X	   % xterm -sf -tn xterm-sun &
+X
+XTESTING
+X=======
+X  Included with this package is a simple curses program ``f1.c''.
+X  To compile this program, edit the Makefile to match your sight
+X  and then give the command ``make f1''
+X
+X  If you then run f1, you can check and see that you can indeed
+X  detect the various function keys from within a curses program.
+X
+X  REMEMBER to first set your TERMINFO and TERM environment variables.
+X  Oh yah, ``f1.c'' uses System V curses and terminfo, NOT termcap.
+X
+XDISCLAIMER
+X==========
+X  I hope you find this package to be useful to you.  But I make no
+X  warranty as to accuracy/correctness of these files.  Caveat Emptor.
+X
+X  This material is dated April 4, 1992.  Hopefully, someone will soon
+X  fix xterm, and this package will no longer be of any use to anyone.
+X
+XFILES:
+X======
+X  README	- this file
+X  xterm-sun.ti	- terminfo database entry (see comments)
+X  xterm-sun.tc	- termcap database entry (see comments)
+X
+X  Makefile	- makefile for f1.c
+X  f1.c		- simple curses program to test the terminfo entry
+X
+XSEE ALSO
+X========
+X  xterm(1), curses(3v), termcap(5), terminfo(5v), infocmp(8v), tic(8v),
+X  tgetent(3x).
+X
+XBUGS
+X====
+X  Hopefully none, but this *is* a beta release.
+X
+XAUTHOR:
+X=======
+X  ...art mulder                       Department of Computing Science
+X  art@cs.ualberta.ca          University of Alberta, Edmonton, Canada
+X---------- ---------- ---------- ---------- ---------- ---------- ----------
+END_OF_FILE
+  if test 8111 -ne `wc -c <'ss_12b/sunfkeys/README'`; then
+    echo shar: \"'ss_12b/sunfkeys/README'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/sunfkeys/README'
+fi
+if test -f 'ss_12b/version.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/version.c'\"
+else
+  echo shar: Extracting \"'ss_12b/version.c'\" \(242 characters\)
+  sed "s/^X//" >'ss_12b/version.c' <<'END_OF_FILE'
+X/*
+X * CODE REVISION NUMBER:
+X *
+X * The part after the first colon, except the last char, appears on the screen.
+X * It is also placed into the manpage by 'Makefile' and 'torev'.
+X */
+X
+Xchar *rev = "$Revision: 1.2b $";
+X	           /** ^^^^^^ **/ 
+END_OF_FILE
+  if test 242 -ne `wc -c <'ss_12b/version.c'`; then
+    echo shar: \"'ss_12b/version.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/version.c'
+fi
+echo shar: End of archive 7 \(of 11\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

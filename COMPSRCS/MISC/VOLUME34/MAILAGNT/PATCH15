@@ -1,0 +1,1279 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject: v34i115:  mailagent - Rule Based Mail Filtering, Patch15
+Message-ID: <1993Jan17.205549.1935@sparky.imd.sterling.com>
+X-Md4-Signature: f7bc2d707c6e5bec66eabacf6f95f6e7
+Date: Sun, 17 Jan 1993 20:55:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 34, Issue 115
+Archive-name: mailagent/patch15
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[The latest patch for mailagent version 2.9 is #16.]
+
+System: mailagent version 2.9
+Patch #: 15
+Priority: MEDIUM
+Subject: military timezones did not parse correctly
+Subject: (fix by Paul Marquess <pmarquess@rosebud.bfsec.bt.co.uk>)
+Subject: Configure now asks if #! is to be used to start perl
+Subject: minor tr argument problem fixed within Configure
+Subject: new standard format for vacation message
+Subject: new parameters: nfslock, mmdf, mmdfbox and compress
+Subject: can now deal with compression
+Subject: knows about MMDF-style mailboxes
+Subject: leading perl start up is now configured
+Subject: documents new features: compression and MMDF mailboxes
+Subject: can now perform NFS-safe lockings
+Subject: locking operation automatically checks for outdated locks
+Subject: saving operation now knows about compression
+Subject: sanity checks performed on saved mail for NFS failure
+Subject: outdated locks checking now performed by &acs_rqst
+Subject: typo fix
+Subject: now checks for error on file closing (buffer flushing)
+Subject: undocumented feature commented (WRITE may allow hooks)
+Subject: now knows about NFS-safe locks
+Subject: lock outdating now performed by &acs_rqst
+Subject: make sure tests are not run as super-user
+Subject: perload now knows about leading ':' for shell startup
+Subject: two new (empty) test files in agent/test/misc
+Subject: new library files for folder compression and MMDF support
+Date: Tue Jan 12 13:41:57 PST 1993
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	Military timezones did not parse correctly.
+	(fix by Paul Marquess <pmarquess@rosebud.bfsec.bt.co.uk> posted
+	on comp.lang.perl and integrated)
+
+	Configure now asks if #! is to be used to start perl. This should take
+	care of the "Illegal variable name" error message emitted when csh
+	attempts to start a perl script!
+
+	New standard format for vacation message.
+
+	New configuration parameters: nfslock, mmdf, mmdfbox and compress.
+	It is now possible to get NFS-safe locks. Moreover, the mailagent
+	can now deal with compression and knows about MMDF-style mailboxes.
+
+	Documents new features: compression and MMDF mailboxes.
+
+	Sanity checks are now performed on saved mail for NFS failure. The
+	mail file is stat()'ed to make sure all the NFS write() have been
+	correctly performed. Otherwise, some soft-mounted partitions could
+	end-up with an empty mail message without any error report!
+	Thank you NFS.
+
+	Make sure tests are not run as super-user. Some of the tests involve
+	writing permissions checks, which does not concern the super-user.
+	The test suite expects some failure which cannot happen when root is
+	involved.
+
+	Perload now knows about leading ':' for shell startup. Putting a
+	leading colon should tell the kernel that the file is a "shell"
+	script to be run using the Bourne shell and not by the current
+	shell held in the SHELL environment variable. We want to avoid all
+	the csh-like shells.
+
+	Two new (empty) test files in agent/test/misc. You will have to create
+	those files by hand at the end of the patching process, or further
+	patches will not apply. Those files are empty because I did not find
+	the time to write them, but this set of patches had to get out.
+
+	New library files for folder compression and MMDF support.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #16 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 14
+4c4
+< #define PATCHLEVEL 14
+---
+> #define PATCHLEVEL 15
+
+Index: agent/pl/compress.pl
+*** agent/pl/compress.pl.old	Tue Jan 12 13:41:15 1993
+--- agent/pl/compress.pl	Tue Jan 12 13:41:15 1993
+***************
+*** 0 ****
+--- 1,172 ----
++ ;# $Id: compress.pl,v 2.9.1.1 93/01/12 12:12:08 ram Exp $
++ ;#
++ ;#  Copyright (c) 1992, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	compress.pl,v $
++ ;# Revision 2.9.1.1  93/01/12  12:12:08  ram
++ ;# patch15: created
++ ;# 
++ ;# 
++ ;# This module handles compressed folders. Each folder specified in the file
++ ;# 'compress' from the configuration file is candidate for compression checks.
++ ;# The file specifies folders using shell patterns. If the pattern does not
++ ;# start with a /, the match is only attempted to the basename of the folder.
++ ;# 
++ ;# Folder uncompressed are recompressed only before the mailagent is about
++ ;# to exit, so that the burden of successive decompressions is avoided should
++ ;# two or more mails be delivered to the same compressed folder. However, if
++ ;# there is not enough disk space to hold all the uncompressed folder, the
++ ;# mailagent will try to recompress them to try to make some room.
++ ;#
++ ;# The initial patterns are held in the @compress array, while the compression
++ ;# status is stored within %compress. The key is the file name, and the value
++ ;# is 0 if uncompression was attempted but failed somehow so recompression must
++ ;# not be done, or 1 if uncompression was successful and the folder is flagged
++ ;# for delayed recompression.
++ #
++ # Folder compression
++ #
++ 
++ package compress;
++ 
++ # Read in the compression file into the @compress array. As usual, shell
++ # comments are ignored.
++ sub init {
++ 	unless (open(COMPRESS, "$cf'compress")) {
++ 		&'add_log("WARNING cannot open compress file $cf'compress: $!")
++ 			if $'loglvl > 5;
++ 		return;
++ 	}
++ 	while (<COMPRESS>) {
++ 		chop;
++ 		next if /^\s*#/;			# Skip comments
++ 		next if /^\s*$/;			# And blank lines
++ 		$_ = &'perl_pattern($_);	# Shell pattern to perl one
++ 		s/^~/$cf'home/;				# ~ substitution
++ 		$_ = '.*/'.$_ unless m|^/|;	# Focus on basename unless absolute path
++ 		push(@compress, $_);		# Record pattern
++ 	}
++ 	close COMPRESS;
++ }
++ 
++ # Uncompress a folder, and record it in the %compress array for further
++ # recompression at the end of the mailagent processing. Return 1 for success.
++ # If the $retry parameter is set, other folders will be recompressed should
++ # this particular uncompression fail.
++ sub uncompress {
++ 	local($folder, $retry) = @_;	# Folder to be decompressed
++ 	return if defined $compress{$folder};	# We already dealt with that folder
++ 	# Make sure there is a .Z file, and that the corresponding folder is not
++ 	# already present. If there is no .Z file but the folder already exists,
++ 	# mark it uncompressed.
++ 	if (-f "$folder.Z") {		# A compressed form exists
++ 		if (-f $folder) {		# As well as an uncompressed form
++ 			&'add_log("WARNING both folders $folder and $folder.Z exist")
++ 				if $'loglvl > 5;
++ 			&'add_log("NOTICE ignoring compressed file") if $'loglvl > 6;
++ 			$compress{$folder} = 0;		# Do not recompress it
++ 			return 1;
++ 		}
++ 		# Normal case: there is a compressed file and no uncompressed version
++ 		local($status) = system("uncompress $folder.Z");
++ 		if ($status) {			# Uncompression failed
++ 			local($retrying);
++ 			$retrying = " (retrying)" if $retry;
++ 			&'add_log("ERROR cannot uncompress $folder$retrying") if $'loglvl;
++ 			# Maybe there is not enough disk space, and maybe we can get some
++ 			# by recompressing the folders we have decompressed so far.
++ 			if ($retry) {			# Attempt is to be retried
++ 				&recompress;		# Recompress other folders, if any
++ 				return 0;			# And report failure
++ 			}
++ 			&'add_log("WARNING $folder present before delivery")
++ 				if -f $folder && $'loglvl > 5;
++ 			&'add_log("ERROR original $folder.Z lost")
++ 				if ! -f "$folder.Z" && $'loglvl;
++ 			$compress{$folder} = 0;		# Do not recompress it
++ 		} else {				# Folder should be decompressed
++ 			if (-f "$folder.Z") {
++ 				&'add_log("WARNING compressed $folder still present")
++ 					if $'loglvl > 5;
++ 				$compress{$folder} = 0;	# Do not recompress it
++ 			} else {
++ 				$compress{$folder} = 1;	# Will be recompressed after delivery
++ 			}
++ 			&'add_log("uncompressed $folder") if $'loglvl > 8;
++ 		}
++ 	} else {
++ 		$compress{$folder} = 1;		# Folder will be compressed after creation
++ 	}
++ 	1;			# Success
++ }
++ 
++ # Compress a folder
++ sub compress {
++ 	local($folder) = @_;		# Folder to be compressed
++ 	return unless $compress{$folder};	# Folder not to be recompressed
++ 	delete $compress{$folder};			# Mark it compressed anyway
++ 	if (-f "$folder.Z") {		# A compressed form exists
++ 		&'add_log("ERROR compressed $folder already present") if $'loglvl;
++ 		return;
++ 	}
++ 	if (0 != &'acs_rqst($folder)) {		# Cannot compress if not locked
++ 		&'add_log("NOTICE $folder locked, skiping compression") if $'loglvl > 6;
++ 		return;
++ 	}
++ 	local($status) = system("compress $folder");
++ 	if ($status) {
++ 		&'add_log("ERROR cannot compress $folder") if $'loglvl;
++ 		if (-f $folder) {
++ 			unless (unlink "$folder.Z") {
++ 				&'add_log("ERROR cannot remove $folder.Z: $!") if $'loglvl;
++ 			} else {
++ 				&'add_log("NOTICE removing $folder.Z") if $'loglvl > 6;
++ 			}
++ 		} else {
++ 			&'add_log("ERROR original $folder lost") if $'loglvl;
++ 		}
++ 	} else {
++ 		&'add_log("WARNING uncompressed $folder still present")
++ 			if -f $folder && $'loglvl > 5;
++ 		&'add_log("compressed $folder") if $'loglvl > 8;
++ 	}
++ 	&'free_file($folder);
++ }
++ 
++ # Recompress all folders which have been delivered to
++ sub recompress {
++ 	foreach $file (keys %compress) {
++ 		&compress($file);
++ 	}
++ }
++ 
++ # Restore uncompressed folder if listed in the compression list
++ sub restore {
++ 	return unless $cf'compress;		# Do nothing if no compress parameter
++ 	return unless -s $cf'compress;	# No compress list file, or empty
++ 	&init unless defined @compress;	# Initialize array only once
++ 	local($folder) = @_;			# Folder candidate for uncompression
++ 	&'add_log("candidate folder is $folder") if $'loglvl > 18;
++ 
++ 	# Loop over each pattern in the compression file and see if the folder
++ 	# matches one of them. As soon as one matches, the folder is uncompressed
++ 	# if necessary and the processing is over.
++ 	foreach $pattern (@compress) {
++ 		&'add_log("matching against '$pattern'") if $'loglvl > 19;
++ 		if ($folder =~ /^$pattern$/) {
++ 			&'add_log("matched '$pattern'") if $'loglvl > 18;
++ 			# Give it two shots. The second parameter is a retrying flag.
++ 			# The difference between the two is that recompression of other
++ 			# uncompressed folders is attempted the first time if the folder
++ 			# cannot be uncompressed (assuming low disk space).
++ 			&uncompress($folder, 0) unless &uncompress($folder, 1);
++ 			last;
++ 		}
++ 	}
++ }
++ 
++ package main;
++ 
+
+Index: agent/man/mailagent.SH
+Prereq: 2.9.1.7
+*** agent/man/mailagent.SH.old	Tue Jan 12 13:41:03 1993
+--- agent/man/mailagent.SH	Tue Jan 12 13:41:05 1993
+***************
+*** 18,24 ****
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.7 92/12/01 09:16:23 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+--- 18,24 ----
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.8 93/01/12 12:09:46 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+***************
+*** 26,31 ****
+--- 26,34 ----
+  '''  License as specified in the README file that comes with dist.
+  '''
+  ''' $Log:	mailagent.SH,v $
++ ''' Revision 2.9.1.8  93/01/12  12:09:46  ram
++ ''' patch15: documents new features: compression and MMDF mailboxes
++ ''' 
+  ''' Revision 2.9.1.7  92/12/01  09:16:23  ram
+  ''' patch13: fixed various typos on the word "Precedence"
+  ''' patch13: new paragraph about file inclusion
+***************
+*** 186,191 ****
+--- 189,198 ----
+  Name of the file containing authorized commands. Needed when PROCESS is used.
+  (suggested: \$spool/commands).
+  .TP
++ .I compress
++ Name of the file containing the list of compressed folders. See section about
++ folder compression. This is an optional parameter. (suggested: ~/.compress).
++ .TP
+  .I context
+  File holding the mailagent context. The context saves some variables which
+  need to be kept over the life of the process. Needed if auto cleaning is
+***************
+*** 230,239 ****
+--- 237,264 ----
+  Maximum size in bytes of files before using \fIkit\fR for sending files. This
+  is used by PROCESS. (suggested: 150000).
+  .TP
++ .I mmdf
++ Set this to ON if you wish to be able to save mail in MMDF-style mailboxes.
++ (suggested: OFF, unless you use MMDF or MH).
++ .TP
++ .I mmdfbox
++ The value of this variable only matters when \fImmdf\fR is on. If set to ON,
++ then new folders will be created as MMDF ones. This variable is not used when
++ saving to an existing folder, since in that case the \fImailagent\fR will
++ automatically determine the type and save the message accordingly.
++ (suggested: OFF, unless you use MMDF or wish to use MH's \fImshf\fR).
++ .TP
+  .I name
+  First name of the user, used by the mailagent when referring to you. This sets
+  the value of the %U macro.
+  .TP
++ .I nfslock
++ Set it to ON to ensure NFS-secure locks. The difference is that the hostname
++ is used in conjunction with the PID to obtain a lock. However, the mailagent
++ has to fork/exec to obtain that information. This is an optional parameter
++ which is set to OFF by default. (suggested: OFF if you deliver
++ mail from only one machine, even though it's via NFS).
++ .TP
+  .I path
+  Minimum path to be used by C filter program. To set a specific path
+  for a machine \fIhost\fR, set up a \fIp_host\fR variable. This will
+***************
+*** 2083,2088 ****
+--- 2108,2170 ----
+  For those hooks which are finally ran by perl, the special @INC array has
+  the mailagent's own private library path prepended to it, so that \fIrequire\fR
+  first looks in this place.
++ .SH "FOLDERS"
++ A folder is a file which can be the target of a delivery by the mailagent,
++ that is to say the argument of SAVE-like commands.
++ '''
++ .SS "Folder Format"
++ .PP
++ By default, mails are written into folders according to the standard UNIX-style
++ mailbox format: each mail starts with a leading \fIFrom\fR line bearing the
++ sender's address and the date. However, by setting the \fImmdf\fR parameter
++ from the \fI~/.mailagent\fR to ON, the \fImailagent\fR will be able to save
++ messages in MMDF format: each message is sandwiched between two lines of four
++ ctrl-A characters (ASCII code 1) and the leading \fIFrom\fR line is removed.
++ .PP
++ When MMDF mode is activated, each folder will be scanned to see if it is a
++ UNIX-style or MMDF-style mailbox and the message will be saved accordingly.
++ When saving to a new folder, the default is to create a UNIX-style mailbox,
++ unless the \fImmdfbox\fR configuration variable was set to ON, in which case
++ the MMDF format prevails.
++ .PP
++ Note that the MMDF format is also the standard for MH packed folders, so by
++ enabling the MMDF mode, you can actually deliver directly to those packed
++ folders. The MH command \fIinc\fR is able to incorporate mail from either
++ form anyway, i.e. it does not matter whether the folder is in UNIX format
++ (also called UUCP-style) or in MMDF format.
++ '''
++ .SS "Folder Compression"
++ .PP
++ If you have \fIcompress\fR in your PATH (as set up by \fI~/.mailagent\fR), then
++ you may wish to use folder compression to save some disk space, especially when
++ you are away for some time and do not want to see your mail fill-up the
++ filesystem.
++ .PP
++ To achieve folder compression, you have to set up a file, referred to by the
++ \fIcompress\fR configuration variable. This file must list folder names, one
++ per line, with blank lines ignored and shell-style (#) comments allowed. You
++ may use shell-style patterns to specify the folders, and the match will be
++ attempted on the full pathname of the folder (~ subsitution occurs). If you
++ do not specify a pattern starting with a leading '/' character, then the match
++ will be attempted on the basename of the folder (i.e. the last componenent of
++ the folder path). If you want to compress all your folders, then simply put
++ a single '*' inside this file.
++ .PP
++ When attempting delivery, the mailagent will check the folder name against
++ the list of patterns in the compress file. If there is a match, the folder is
++ flagged as compressed. Then the mailagent attempts decompression if there
++ is already a compressed form (a .Z file) and if no uncompressed form is present.
++ Delivery is then made to the uncompressed folder. However, recompression is not
++ done immediately, since it is still possible to get messages to that folder in
++ a single batch delivery. Should disk space become so tight that decompression
++ of other folders is impossible, the mailagent will recompress the folders
++ it has already uncompressed. Otherwise, it waits until the last moment.
++ .PP
++ If for some reason there is a .Z compresed folder which cannot be decompressed,
++ the mailagent will deliver the mail to the plain folder. Further delivery
++ to that folder will be faced with both a compressed and a plain version of the
++ folder, and that will get you a warning in the log file, but delivery will be
++ made automatically to the plain file.
+  .SH EXAMPLES
+  Here are some examples of rule files. First, if you do not specify a rule
+  file or if it is empty, the following built-in rule applies:
+
+Index: agent/pl/actions.pl
+Prereq: 2.9.1.4
+*** agent/pl/actions.pl.old	Tue Jan 12 13:41:12 1993
+--- agent/pl/actions.pl	Tue Jan 12 13:41:13 1993
+***************
+*** 1,4 ****
+! ;# $Id: actions.pl,v 2.9.1.4 92/12/01 09:18:05 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: actions.pl,v 2.9.1.5 93/01/12 12:11:44 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	actions.pl,v $
++ ;# Revision 2.9.1.5  93/01/12  12:11:44  ram
++ ;# patch15: saving operation now knows about compression
++ ;# patch15: sanity checks performed on saved mail for NFS failure
++ ;# 
+  ;# Revision 2.9.1.4  92/12/01  09:18:05  ram
+  ;# patch13: allowed file inclusion for KEEP and STRIP
+  ;# patch13: file inclusion processing now handled by &include_file
+***************
+*** 55,83 ****
+  	local($failed) = 0;				# Printing status
+  	&add_log("starting SAVE $mailbox") if $loglvl > 15;
+  	if (-x $mailbox) {				# Folder hook
+! 		&save_hook;
+! 	} else {
+! 		&save_folder;
+  	}
+  	&emergency_save if $failed;
+  	($mailbox, $failed);			# Where save was made and failure status
+  }
+  
+! # Called by &save when folder is a regular one (i.e. not a hook). Manipulates
+! # variables in the context of &save.
+  sub save_folder {
+  	if (open(MBOX, ">>$mailbox")) {
+! 		do mbox_lock($mailbox);			# Lock mailbox
+! 		# First print the Header, and add the X-Filter: line.
+! 		(print MBOX $Header{'Head'}) || ($failed = 1);
+! 		(print MBOX $FILTER, "\n\n") || ($failed = 1);
+! 		(print MBOX $Header{'Body'}) || ($failed = 1);
+! 		print MBOX "\n";				# Allow parsing by other tools
+! 		do mbox_unlock($mailbox);		# Will close file
+! 		# Logging only in case of error
+! 		if ($failed) {
+! 			do add_log("ERROR could not save mail in $mailbox") if $loglvl > 0;
+  		}
+  	} else {
+  		if (-f "$mailbox") {
+  			do add_log("ERROR cannot append to $mailbox") if $loglvl;
+--- 59,116 ----
+  	local($failed) = 0;				# Printing status
+  	&add_log("starting SAVE $mailbox") if $loglvl > 15;
+  	if (-x $mailbox) {				# Folder hook
+! 		$failed = &save_hook;		# Deliver to program
+! 	} else {						# Saving to a normal folder
+! 		# Uncompress folders if necessary. The restore routine will perform
+! 		# the necessary checks and return immediately if no compression is
+! 		# wanted for that particular folder. However, we can avoid the overhead
+! 		# of calling this routine (and loading it when using dataloading) if
+! 		# the 'compress' configuration parameter is missing.
+! 		&compress'restore($mailbox) if $cf'compress;
+! 		$failed = &save_folder($mailbox);
+  	}
++ 	&add_log("ERROR could not save mail in $mailbox") if $failed && $loglvl;
+  	&emergency_save if $failed;
+  	($mailbox, $failed);			# Where save was made and failure status
+  }
+  
+! # Called by &save when folder is a regular one (i.e. not a hook).
+  sub save_folder {
++ 	local($mailbox) = @_;			# Where mail should be saved
++ 	local($amount);					# Amount of bytes written
++ 	local($failed);
+  	if (open(MBOX, ">>$mailbox")) {
+! 
+! 		&mbox_lock($mailbox);		# Lock mailbox, now have exclusive access
+! 		local($size) = -s $mailbox;	# Initial mailbox size
+! 
+! 		# If MMDF-style mailboxes are allowed, then the saving routine will
+! 		# try to determine what kind of folder it is delivering to and choose
+! 		# the right format. Otherwise, standard Unix format is assumed.
+! 		if ($cf'mmdf =~ /on/i) {	# MMDF-style allowed
+! 			# Save to mailbox, selecting the right format (UNIX vs MMDF)
+! 			($failed, $amount) = &mmdf'save(*MBOX, $mailbox);
+! 		} else {
+! 			# Save to UNIX folder
+! 			($failed, $amount) = &mmdf'save_unix(*MBOX);
+  		}
++ 
++ 		# Because we might write over NFS, and because we might have had to
++ 		# force fate to get a lock, it is wise to make sure the folder has the
++ 		# right size, which would tend to indicate the mail made it to the
++ 		# buffer cache, if not to the disk itself.
++ 		local($should) = $size + $amount;	# Computed new size for mailbox
++ 		local($new_size) = -s $mailbox;		# Last write was flushed to disk
++ 		&add_log("ERROR $mailbox has $new_size bytes (should have $should)")
++ 			if $new_size != $should && $loglvl;
++ 		$failed = 1 if $new_size != $should;
++ 
++ 		# Finally, release the lock on the mailbox and close the file. If the
++ 		# closing operation fails for whatever reason, the routine will return
++ 		# a 1, so $failed will be set. Of course, "normally" it should not
++ 		# fail at that point, since the mail was previously flushed.
++ 		$failed |= &mbox_unlock($mailbox);	# Will close file
++ 
+  	} else {
+  		if (-f "$mailbox") {
+  			do add_log("ERROR cannot append to $mailbox") if $loglvl;
+***************
+*** 86,91 ****
+--- 119,125 ----
+  		}
+  		$failed = 1;
+  	}
++ 	$failed;		# Propagate failure status
+  }
+  
+  # Called by &save when folder is a hook. This simply calls the mailhook
+***************
+*** 92,99 ****
+  # program, which will analyze the hook and perform the necessary actions.
+  sub save_hook {
+  	&add_log("hooking mail on folder") if $loglvl > 15;
+! 	$failed =
+! 		&shell_command("$privlib/mailhook $mailbox", $MAIL_INPUT, $NO_FEEDBACK);
+  }
+  
+  # The "PROCESS" command
+--- 126,133 ----
+  # program, which will analyze the hook and perform the necessary actions.
+  sub save_hook {
+  	&add_log("hooking mail on folder") if $loglvl > 15;
+! 	# Return command failure status (0 means ok)
+! 	&shell_command("$privlib/mailhook $mailbox", $MAIL_INPUT, $NO_FEEDBACK);
+  }
+  
+  # The "PROCESS" command
+
+Index: agent/pl/acs_rqst.pl
+Prereq: 2.9
+*** agent/pl/acs_rqst.pl.old	Tue Jan 12 13:41:08 1993
+--- agent/pl/acs_rqst.pl	Tue Jan 12 13:41:08 1993
+***************
+*** 1,4 ****
+! ;# $Id: acs_rqst.pl,v 2.9 92/07/14 16:49:28 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: acs_rqst.pl,v 2.9.1.1 93/01/12 12:10:37 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+***************
+*** 6,46 ****
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	acs_rqst.pl,v $
+  ;# Revision 2.9  92/07/14  16:49:28  ram
+  ;# 3.0 beta baseline.
+  ;# 
+  ;#
+! # Asks for the exclusive access of a file
+! # The given parameter (let's say F) is the absolute path
+! # of the file we want to access. The routine checks for the
+! # presence of F.lock. If it exists, it sleeps 1 second and tries
+! # again. After 10 trys, it reports failure by returning -1.
+! # Otherwise, file F.lock is created and the pid of the current
+  # process is written. It is checked afterwards.
+  sub acs_rqst {
+  	local($file) = @_;	# file to be locked
+  	local($max) = 10;	# max number of attempts
+  	local($mask);		# to save old umask
+  	while ($max) {
+  		$max--;
+  		if (-f "$file.lock") {
+! 			sleep(2);	# busy: wait
+  			next;
+  		}
+  		# Attempt to create lock
+  		$mask = umask(0333);			# no write permission
+  		if (open(FILE, ">$file.lock")) {
+! 			print FILE "$$\n";			# write pid
+  			close FILE;
+  			umask($mask);				# restore old umask
+  			# Check lock
+  			open(FILE, "$file.lock");
+! 			$_ = <FILE>;				# read contents
+  			close FILE;
+! 			last if int($_) == $$;		# lock is ok
+  		} else {
+  			umask($mask);				# restore old umask
+! 			sleep(2);					# busy: wait
+  		}
+  	}
+  	if ($max) {
+--- 6,77 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	acs_rqst.pl,v $
++ ;# Revision 2.9.1.1  93/01/12  12:10:37  ram
++ ;# patch15: can now perform NFS-safe lockings
++ ;# patch15: locking operation automatically checks for outdated locks
++ ;# 
+  ;# Revision 2.9  92/07/14  16:49:28  ram
+  ;# 3.0 beta baseline.
+  ;# 
+  ;#
+! ;# The basic file locking scheme implemented here by acs_rqst is not completely
+! ;# suitable with NFS if multiple mailagent can run, since they could have the
+! ;# same PID on different machine and both think they got a lock. To make this
+! ;# work with NFS, the ~/.mailagent config file must have the 'nfslock' variable
+! ;# set to 'YES', which will cause the mailagent to include hostname informations
+! ;# in the lock file.
+! ;#
+! ;# The traditional NFS scheme of having a `hostname`.pid file linked to .lock
+! ;# (since the linking operation remains atomic even with NFS) does not seem
+! ;# suitable here, since I want to be able to recover from crashes, and detect
+! ;# out-of-date locks. Therefore, I must be able to know what is the name of the
+! ;# lock file. The link/unlink trick could leave some temporary files around.
+! ;# Since write on disks are atomic anyway, only one process can conceivably
+! ;# obtain a lock with my scheme.
+! ;#
+! ;# The NFS-secure lock is made optional because, in order to get the hostname,
+! ;# perl must fork to exec an appropriate program. This added overhead might not
+! ;# be necessary in all the situations.
+! ;#
+! # Asks for the exclusive access of a file. The config variable 'nfslock'
+! # determines whether the locking scheme has to be NFS-secure or not.
+! # The given parameter (let's say F) is the absolute path of the file we want
+! # to access. The routine checks for the presence of F.lock. If it exists, it
+! # sleeps 2 seconds and tries again. After 10 trys, it reports failure by
+! # returning -1. Otherwise, file F.lock is created and the pid of the current
+  # process is written. It is checked afterwards.
+  sub acs_rqst {
+  	local($file) = @_;	# file to be locked
+  	local($max) = 10;	# max number of attempts
++ 	local($delay) = 2;	# seconds to wait between attempts
+  	local($mask);		# to save old umask
++ 	local($stamp);		# string written in lock file
++ 	&checklock($file);	# avoid long-lasting locks
++ 	if ($cf'nfslock =~ /on/i) {			# NFS-secure lock wanted
++ 		$stamp = "$$" . &hostname;		# use PID and hostname
++ 	} else {
++ 		$stamp = "$$";					# use PID only (may spare a fork)
++ 	}
+  	while ($max) {
+  		$max--;
+  		if (-f "$file.lock") {
+! 			sleep($delay);				# busy: wait
+  			next;
+  		}
+  		# Attempt to create lock
+  		$mask = umask(0333);			# no write permission
+  		if (open(FILE, ">$file.lock")) {
+! 			print FILE "$stamp\n";		# write locking stamp
+  			close FILE;
+  			umask($mask);				# restore old umask
+  			# Check lock
+  			open(FILE, "$file.lock");
+! 			chop($_ = <FILE>);			# read contents
+  			close FILE;
+! 			last if $_ eq $stamp;		# lock is ok
+  		} else {
+  			umask($mask);				# restore old umask
+! 			sleep($delay);				# busy: wait
+  		}
+  	}
+  	if ($max) {
+
+Index: agent/pl/mmdf.pl
+*** agent/pl/mmdf.pl.old	Tue Jan 12 13:41:40 1993
+--- agent/pl/mmdf.pl	Tue Jan 12 13:41:40 1993
+***************
+*** 0 ****
+--- 1,110 ----
++ ;# $Id: mmdf.pl,v 2.9.1.1 93/01/12 13:34:34 ram Exp $
++ ;#
++ ;#  Copyright (c) 1992, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	mmdf.pl,v $
++ ;# Revision 2.9.1.1  93/01/12  13:34:34  ram
++ ;# patch15: created
++ ;# 
++ ;# 
++ ;# This set of routine handles MMDF-style mailboxes, which differ from the
++ ;# traditional Unix-style boxes by encapsulating each message between 2 lines
++ ;# of 4 ^A, one at the begining and one at the end. The leading From_ line is
++ ;# consequently not needed and is removed.
++ ;#
++ ;# Note: this MMDF-style mailbox is also used by MH packed folders.
++ ;#
++ #
++ # MMDF-style saving routines
++ #
++ 
++ package mmdf;
++ 
++ # Attempt to save in a possible MMDF mailbox. The routine opens the mailbox
++ # and tries to determine what kind of mailbox it is, then selects the
++ # appropriate saving routine.
++ sub save {
++ 	local(*FD, $mailbox) = @_;	# File descriptor and mailbox name
++ 	if (&is_mmdf($mailbox)) {	# Folder looks like an MMDF mailbox
++ 		&save_mmdf(*FD);		# Use MMDF format then
++ 	} else {
++ 		&save_unix(*FD);		# Be conservative and use standard format
++ 	}
++ }
++ 	
++ # Save to a MMDF-style mailbox and return failure status with message length
++ sub save_mmdf {
++ 	local(*FD) = @_;			# File descriptor
++ 	local($amount) = 0;			# Amount of bytes saved
++ 	local($failed);
++ 	local($from);
++ 	local(@head) = split(/\n/, $'Header{'Head'});
++ 	$from = shift(@head);		# The first From_ line has to be skipped
++ 	unless ($from =~ /^From\s/) {
++ 		&'add_log("WARNING leading From line absent") if $'loglvl > 5;
++ 		unshift(@head, $from);	# Put it back if not a From_ line
++ 	}
++ 	(print FD "\01\01\01\01\n") || ($failed = 1);
++ 	foreach $line (@head) {
++ 		(print FD $line, "\n") || ($failed = 1);
++ 		$amount += length($line) + 1;
++ 	}
++ 	(print FD $'FILTER, "\n\n") || ($failed = 1);
++ 	(print FD $'Header{'Body'}) || ($failed = 1);
++ 	&force_flushing(*FD);
++ 	(print FD "\01\01\01\01\n") || ($failed = 1);
++ 	$amount +=
++ 		length($'Header{'Body'}) +	# Message body
++ 		length($'FILTER) + 2 +		# X-Filter line plus two newlines
++ 		5 + 5;						# MMDF message delimiter lines
++ 	($failed, $amount);
++ }
++ 
++ # Save to a Unix-style mailbox and return failure status with message length
++ sub save_unix {
++ 	local(*FD) = @_;			# File descriptor
++ 	local($amount) = 0;			# Amount of bytes saved
++ 	local($failed);
++ 	# First print the Header, then add the X-Filter: line, followed by body.
++ 	(print FD $'Header{'Head'}) || ($failed = 1);
++ 	(print FD $'FILTER, "\n\n") || ($failed = 1);
++ 	(print FD $'Header{'Body'}) || ($failed = 1);
++ 	&force_flushing(*FD);
++ 	(print FD "\n") || ($failed = 1);		# Allow parsing by other tools
++ 	$amount +=
++ 		length($'Header{'Head'}) +	# Message header
++ 		length($'Header{'Body'}) +	# Message body
++ 		length($'FILTER) + 2 +		# X-Filter line plus two newlines
++ 		1;							# Trailing new-line
++ 	($failed, $amount);
++ }
++ 
++ # Force flushing on file descriptor, so that after next print, we may rest
++ # assured everything as been written on disk. That way, we may stat the file
++ # without closing it (since that would release any flock-style lock).
++ sub force_flushing {
++ 	local(*FD) = @_;			# File descriptor we want to flush
++ 	select((select(FD), $| = 1)[0]);
++ }
++ 
++ # Guess whether the folder we are writing to is MMDF-style or not.
++ sub is_mmdf {
++ 	local($folder) = @_;		# The folder to be scanned
++ 	open(FOLDER, "$folder") || return 0;	# Can't open -> not MMDF, say.
++ 	local($_);					# First line from folder
++ 	$_ = <FOLDER>;				# Can be empty
++ 	close FOLDER;
++ 	return 0 if /^From\s/;			# Looks like an Unix-style mailbox
++ 	return 1 if /^\01\01\01\01\n/;	# This must be an MMDF-style mailbox
++ 	# If we can't decide (most probably because $_ is empty), then choose
++ 	# according to the 'mmdfbox' parameter.
++ 	&'add_log("WARNING folder $folder may be corrupted")
++ 		if $_ ne '' && $'loglvl > 5;
++ 	$cf'mmdfbox =~ /on/i ? 1 : 0;	# Force MMDF if mmdfbox is ON
++ }
++ 
++ package main;
++ 
+
+Index: agent/magent.SH
+Prereq: 2.9.1.3
+*** agent/magent.SH.old	Tue Jan 12 13:40:43 1993
+--- agent/magent.SH	Tue Jan 12 13:40:44 1993
+***************
+*** 14,20 ****
+  esac
+  echo "Extracting agent/magent (with variable substitutions)"
+  $spitshell >magent <<!GROK!THIS!
+! # feed this into perl
+  	eval 'exec perl -S \$0 "\$@"'
+  		if \$running_under_some_shell;
+  
+--- 14,20 ----
+  esac
+  echo "Extracting agent/magent (with variable substitutions)"
+  $spitshell >magent <<!GROK!THIS!
+! $startperl
+  	eval 'exec perl -S \$0 "\$@"'
+  		if \$running_under_some_shell;
+  
+***************
+*** 22,28 ****
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: magent.SH,v 2.9.1.3 92/12/01 09:14:07 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 22,28 ----
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: magent.SH,v 2.9.1.4 93/01/12 12:08:31 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 30,35 ****
+--- 30,40 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	magent.SH,v $
++ # Revision 2.9.1.4  93/01/12  12:08:31  ram
++ # patch15: can now deal with compression
++ # patch15: knows about MMDF-style mailboxes
++ # patch15: leading perl start up is now configured
++ # 
+  # Revision 2.9.1.3  92/12/01  09:14:07  ram
+  # patch13: hostname is now computed once and cached
+  # patch13: three new .pl files are now appended
+***************
+*** 190,196 ****
+  $jobnum = &jobnum;				# Compute a job number
+  
+  # Allow only ONE mailagent at a time (resource consumming)
+! do checklock($baselock);		# Make sure old locks do not remain
+  unless (-f $lockfile) {
+  	# Try to get the lock file (acting as a token). We do not need locking if
+  	# we have been invoked with an option and that option is not -q.
+--- 195,201 ----
+  $jobnum = &jobnum;				# Compute a job number
+  
+  # Allow only ONE mailagent at a time (resource consumming)
+! &checklock($baselock);			# Make sure old locks do not remain
+  unless (-f $lockfile) {
+  	# Try to get the lock file (acting as a token). We do not need locking if
+  	# we have been invoked with an option and that option is not -q.
+***************
+*** 287,292 ****
+--- 292,298 ----
+  
+  # End of mailagent processing
+  &write_stats;					# Resynchronizes the statistics file
++ &compress'recompress;			# Compress some of the folders we delivered to
+  &contextual_operations;			# Perform all the contextual operations
+  &add_log("mailagent exits") if $loglvl > 17;
+  unlink $lockfile if $locked;
+***************
+*** 446,456 ****
+  	seek(MBOX, 0, 2);				# Someone may have appended something
+  }
+  
+! # Remove lock on mailbox
+  sub mbox_unlock {
+  	local($file) = @_;				# File name
+! 	close MBOX;						# Closing will remove flock lock
+  	&free_file($file) unless $flock_only;		# Remove the .lock
+  }
+  
+  # Computes the e-mail address of the user
+--- 452,464 ----
+  	seek(MBOX, 0, 2);				# Someone may have appended something
+  }
+  
+! # Remove lock on mailbox and return a failure status if closing failed
+  sub mbox_unlock {
+  	local($file) = @_;				# File name
+! 	local($status);					# Error status from close
+! 	$status = close(MBOX);			# Closing will remove flock lock
+  	&free_file($file) unless $flock_only;		# Remove the .lock
++ 	$status ? 0 : 1;				# Return 0 for ok, 1 if close failed
+  }
+  
+  # Computes the e-mail address of the user
+***************
+*** 575,579 ****
+--- 583,589 ----
+  $grep -v '^;#' pl/include.pl >>magent
+  $grep -v '^;#' pl/plural.pl >>magent
+  $grep -v '^;#' pl/hostname.pl >>magent
++ $grep -v '^;#' pl/mmdf.pl >>magent
++ $grep -v '^;#' pl/compress.pl >>magent
+  chmod 755 magent
+  $eunicefix magent
+
+Index: Configure
+Prereq: 2.9.1.1
+*** Configure.old	Tue Jan 12 13:40:34 1993
+--- Configure	Tue Jan 12 13:40:35 1993
+***************
+*** 16,22 ****
+  # Write to ram@eiffel.com (Raphael Manfredi) and I will send you the
+  # latest revision of the dist package, which includes metaconfig.)
+  
+! # $Id: Configure,v 2.9.1.1 92/12/01 09:09:08 ram Exp $
+  #
+  # Generated on Tue Jul 14 19:38:33 PDT 1992 [metaconfig 2.8 PL13]
+  
+--- 16,22 ----
+  # Write to ram@eiffel.com (Raphael Manfredi) and I will send you the
+  # latest revision of the dist package, which includes metaconfig.)
+  
+! # $Id: Configure,v 2.9.1.2 93/01/12 12:06:33 ram Exp $
+  #
+  # Generated on Tue Jul 14 19:38:33 PDT 1992 [metaconfig 2.8 PL13]
+  
+***************
+*** 205,210 ****
+--- 205,211 ----
+  orgname=''
+  package=''
+  perlpath=''
++ startperl=''
+  pidtype=''
+  privlib=''
+  reg10=''
+***************
+*** 2548,2553 ****
+--- 2549,2583 ----
+  	esac
+  done
+  
++ : figure out how to guarantee perl startup
++ case "$sharpbang" in
++ *!)
++ 	$cat <<EOH
++ 
++ I can use the #! construct to start perl on your system. This will make
++ startup of perl scripts faster, but may cause problems if you want to share
++ those scripts and perl is not in a standard place (/usr/bin/perl) on all your
++ platforms. The alternative is to force a shell by starting the script with a
++ single ':' character.
++ 
++ EOH
++ 	dflt=n
++ 	case "$startperl" in
++ 	*!*) dflt=y;;
++ 	'') case "$d_portable" in
++ 		"$define") ;;
++ 		*) dflt=y;;
++ 		esac;;
++ 	esac
++ 	rp='Shall I use #! to start up perl?'
++ 	. ./myread
++ 	case "$ans" in
++ 	y*|Y*) startperl="#!$perlpath";;
++ 	*) startperl=": # use perl";;
++ 	esac;;
++ *) startperl=": # use perl";;
++ esac
++ 
+  : see what type pids are declared as in the kernel
+  case "$pidtype" in
+  '')
+***************
+*** 2672,2678 ****
+  
+  : get C preprocessor symbols handy
+  echo " "
+! echo $attrlist | $tr '[ - ]' '[\012-\012]' >Cppsym.know
+  $cat <<EOSS >Cppsym
+  $startsh
+  case "\$1" in
+--- 2702,2708 ----
+  
+  : get C preprocessor symbols handy
+  echo " "
+! echo $attrlist | $tr ' ' '\012' >Cppsym.know
+  $cat <<EOSS >Cppsym
+  $startsh
+  case "\$1" in
+***************
+*** 2699,2705 ****
+  case \$# in
+  0) exit 1;;
+  esac
+! echo \$* | $tr '[ - ]' '[\012-\012]' | $sed -e 's/\(.*\)/\\
+  #ifdef \1\\
+  exit 0; _ _ _ _\1\\	 \1\\
+  #endif\\
+--- 2729,2735 ----
+  case \$# in
+  0) exit 1;;
+  esac
+! echo \$* | $tr ' ' '\012' | $sed -e 's/\(.*\)/\\
+  #ifdef \1\\
+  exit 0; _ _ _ _\1\\	 \1\\
+  #endif\\
+***************
+*** 3044,3049 ****
+--- 3074,3080 ----
+  orgname='$orgname'
+  package='$package'
+  perlpath='$perlpath'
++ startperl='$startperl'
+  pidtype='$pidtype'
+  privlib='$privlib'
+  reg10='$reg10'
+
+Index: agent/pl/free_file.pl
+Prereq: 2.9
+*** agent/pl/free_file.pl.old	Tue Jan 12 13:41:29 1993
+--- agent/pl/free_file.pl	Tue Jan 12 13:41:30 1993
+***************
+*** 1,4 ****
+! ;# $Id: free_file.pl,v 2.9 92/07/14 16:50:00 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: free_file.pl,v 2.9.1.1 93/01/12 13:28:16 ram Exp $
+  ;#
+  ;#  Copyright (c) 1991, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	free_file.pl,v $
++ ;# Revision 2.9.1.1  93/01/12  13:28:16  ram
++ ;# patch15: now knows about NFS-safe locks
++ ;# 
+  ;# Revision 2.9  92/07/14  16:50:00  ram
+  ;# 3.0 beta baseline.
+  ;# 
+***************
+*** 13,30 ****
+  # Remove the lock on a file. Returns 0 if ok, -1 otherwise
+  sub free_file {
+  	local($file) = @_;
+  
+  	if ( -f "$file.lock") {
+  		# if lock exists, check for pid
+  		open(FILE, "$file.lock");
+! 		$_ = <FILE>;
+  		close FILE;
+! 		if (int($_) == $$) {
+! 			# pid is correct
+  			$result = 0;
+  			unlink "$file.lock";
+  		} else {
+! 			# pid is not correct
+  			$result = -1;
+  		}
+  	} else {
+--- 16,40 ----
+  # Remove the lock on a file. Returns 0 if ok, -1 otherwise
+  sub free_file {
+  	local($file) = @_;
++ 	local($stamp);		# string written in lock file
++ 
++ 	if ($cf'nfslock =~ /on/i) {			# NFS-secure lock wanted
++ 		$stamp = "$$" . &hostname;		# use PID and hostname
++ 	} else {
++ 		$stamp = "$$";					# use PID only (may spare a fork)
++ 	}
+  
+  	if ( -f "$file.lock") {
+  		# if lock exists, check for pid
+  		open(FILE, "$file.lock");
+! 		chop($_ = <FILE>);
+  		close FILE;
+! 		if ($_ eq $stamp) {
+! 			# pid (plus hostname eventually) is correct
+  			$result = 0;
+  			unlink "$file.lock";
+  		} else {
+! 			# pid is not correct (we did not get that lock)
+  			$result = -1;
+  		}
+  	} else {
+
+Index: agent/pl/matching.pl
+Prereq: 2.9.1.2
+*** agent/pl/matching.pl.old	Tue Jan 12 13:41:38 1993
+--- agent/pl/matching.pl	Tue Jan 12 13:41:38 1993
+***************
+*** 1,4 ****
+! ;# $Id: matching.pl,v 2.9.1.2 92/12/01 09:25:48 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: matching.pl,v 2.9.1.3 93/01/12 13:34:10 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	matching.pl,v $
++ ;# Revision 2.9.1.3  93/01/12  13:34:10  ram
++ ;# patch15: typo fix
++ ;# 
+  ;# Revision 2.9.1.2  92/12/01  09:25:48  ram
+  ;# patch13: new perl_pattern function to transform shell-style patterns
+  ;# patch13: file inclusion now handled by include_file
+***************
+*** 115,121 ****
+  		# one of them matches, we stop and return true. A selector may contain
+  		# metacharacters, in which case a regular pattern matching is attempted
+  		# on the true *header* fields (i.e. we skip the pseudo keys like Body,
+! 		# Head, etc..). For instance, Return* would attempt a match on the
+  		# field Return-Receipt-To:, if present. The special macro %& is set
+  		# to the list of all the fields on which the match succeeded
+  		# (alphabetically sorted).
+--- 118,124 ----
+  		# one of them matches, we stop and return true. A selector may contain
+  		# metacharacters, in which case a regular pattern matching is attempted
+  		# on the true *header* fields (i.e. we skip the pseudo keys like Body,
+! 		# Head, etc..). For instance, Return.* would attempt a match on the
+  		# field Return-Receipt-To:, if present. The special macro %& is set
+  		# to the list of all the fields on which the match succeeded
+  		# (alphabetically sorted).
+
+Index: agent/pl/emergency.pl
+Prereq: 2.9.1.1
+*** agent/pl/emergency.pl.old	Tue Jan 12 13:41:23 1993
+--- agent/pl/emergency.pl	Tue Jan 12 13:41:23 1993
+***************
+*** 1,4 ****
+! ;# $Id: emergency.pl,v 2.9.1.1 92/08/12 21:33:04 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: emergency.pl,v 2.9.1.2 93/01/12 12:13:41 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	emergency.pl,v $
++ ;# Revision 2.9.1.2  93/01/12  12:13:41  ram
++ ;# patch15: now checks for error on file closing (buffer flushing)
++ ;# 
+  ;# Revision 2.9.1.1  92/08/12  21:33:04  ram
+  ;# patch6: do not read mail if stdin is connected to a tty
+  ;# 
+***************
+*** 95,101 ****
+  	if (open(MBOX, ">>$mbox")) {
+  		(print MBOX $Header{'All'}) && ($ok = 1);
+  		print MBOX "\n";				# allow parsing by other mail tools
+! 		close MBOX;
+  		if ($ok) {
+  			do add_log("DUMPED in $mbox") if $loglvl > 5;
+  			return 1;
+--- 98,104 ----
+  	if (open(MBOX, ">>$mbox")) {
+  		(print MBOX $Header{'All'}) && ($ok = 1);
+  		print MBOX "\n";				# allow parsing by other mail tools
+! 		close(MBOX) || ($ok = 0);
+  		if ($ok) {
+  			do add_log("DUMPED in $mbox") if $loglvl > 5;
+  			return 1;
+***************
+*** 126,132 ****
+  				$printed = 1;
+  			}
+  		}
+! 		close WAITING;
+  		if ($printed) {
+  			if (!$ok) {
+  				do add_log("ERROR could not update waiting file") if $loglvl;
+--- 129,135 ----
+  				$printed = 1;
+  			}
+  		}
+! 		close(WAITING) || ($ok = 0);
+  		if ($printed) {
+  			if (!$ok) {
+  				do add_log("ERROR could not update waiting file") if $loglvl;
+
+Index: agent/test/TEST
+*** agent/test/TEST.old	Tue Jan 12 13:41:45 1993
+--- agent/test/TEST	Tue Jan 12 13:41:46 1993
+***************
+*** 26,31 ****
+--- 26,32 ----
+  -f "../$mailagent" && -x _ || die "No $mailagent.\n";
+  -f "../mailhook" && -x _ || die "No mailhook.\n";
+  -f '../filter/filter' && -x _ || die "No filter.\n";
++ $> || die "Cannot run tests as super-user.\n";
+  
+  &load_ok;		# Don't rerun successful tests if up to date
+  
+
+*** End of Patch 15 ***
+
+exit 0 # Just in case...

@@ -1,0 +1,44 @@
+#!/bin/csh -f
+#	Make a shar-type .COM file for VAX/VMS systems,
+#	so we can transfer whole filesystem heirarchies
+#	back and forth.  On VMS, unpack via
+#
+#		$ @SHARFILE.COM
+#
+#	On Unix, suggest you generate a tape via something
+#	like
+#
+#	% dclshar * | dd of=/dev/rmt8 cbs=240 obs=4800 conv=block
+#
+set myname = $0
+
+set noglob
+echo '$\! This is a DCL shar-type archive created by Unix dclshar.'
+foreach unix ($argv)
+    @ dirflag = -d $unix
+    if ( $dirflag ) then
+	set name
+	set dir = $unix
+    else
+	set name = $unix:t
+	set dir = $unix:h
+	if ( "$dir" == "$unix" ) set dir
+    endif
+
+    set dcldir = `echo XXX$dir | /bin/sed -e s:\\.:_:g -e s:^XXX/:: -e s:^XXX:.: -e s:/:.:g`
+    set dcldir = "[$dcldir]"
+    if ( "$dcldir" == "[]" || "$dcldir" == "[.]" ) set dcldir
+    set dclname = "${dcldir}$name"
+
+    echo \$\!
+    if ( $dirflag ) then
+	echo \$CREATE/DIRECTORY $dcldir
+	( unset noglob; $myname {$unix}/* )
+    else
+	echo \$CREATE $dclname
+	echo \$DECK
+	/bin/cat $unix
+	echo \$EOD
+    endif
+end
+

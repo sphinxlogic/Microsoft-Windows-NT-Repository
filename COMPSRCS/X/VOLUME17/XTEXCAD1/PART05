@@ -1,0 +1,2122 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Subject: v17i069: TeXcad (X) version 1.2, Part05/10
+Message-ID: <1992Apr21.131021.2357@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i065-xtexcad-1.2@uunet.UU.NET>
+Date: Tue, 21 Apr 1992 13:10:21 GMT
+Approved: dcmartin@msi.com
+Lines: 2108
+
+Submitted-by: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Posting-number: Volume 17, Issue 69
+Archive-name: xtexcad-1.2/part05
+
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file graphics.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping graphics.c'
+else
+echo 'x - continuing file graphics.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'graphics.c' &&
+X  int anz_text;
+X  XtTranslations  trans_table,trans_table2;
+X  char		  leave_str[100]="<LeaveNotify> : fb_beende_textedit() fb_correct_text_error()\n";
+X  char		  ok_str[100]="<ButtonRelease> : fb_beende_textedit() fb_correct_text_error()\n";
+X  char		  more_str[100]="<ButtonRelease>    : fb_beende_textedit() fb_textedit()\n";
+X  char		  del_str[100]="<ButtonRelease>    : fb_delete_textedit() fb_beende_textedit() fb_textedit()\n";
+X
+X  char            temp_str2[100] = 
+X			"<KeyPress>Return	: dummy() \n";
+X  
+X  static XtActionsRec actions[200] = {{"dummy", dummy},
+X				      {"fb_textedit", fb_textedit},
+X				      {"fb_beende_textedit", fb_beende_textedit},
+X				      {"fb_delete_textedit", fb_delete_textedit},
+X				      {"fb_correct_text_error",fb_correct_text_error}};
+X  Position x_rel, y_rel, x, y;
+X	
+X
+X	fb_muschel=XtCreatePopupShell("Edit/Delete", transientShellWidgetClass, canvas, NULL, 0);
+X
+X	trans_table = XtParseTranslationTable(leave_str);
+X	XtOverrideTranslations(fb_muschel, trans_table);
+X
+X	perle=XtCreateManagedWidget("behaelter", boxWidgetClass, fb_muschel, NULL, 0);
+X	
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Edit Text: FRAMED BOX");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,560);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	
+X	XtCreateManagedWidget("", labelWidgetClass, perle, args, n);
+X
+X
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Accept");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,130);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	XtSetArg(args[n], XtNshapeStyle,XmuShapeOval);n++;
+X	
+X	ok=XtCreateManagedWidget("ok", commandWidgetClass, perle, args, n);
+X	trans_table = XtParseTranslationTable(ok_str);
+X	XtOverrideTranslations(ok, trans_table);
+X
+X
+X	/* compute number of text-entries */
+X	anz_text=fb_number_of_text();
+X
+X	if (anz_text==0)
+X	{
+X		leave_pick("Sorry - No text available !\n");
+X		return;
+X	}	
+X
+X
+X	if (anz_text>10)
+X	{
+X		n=0;
+X		XtSetArg(args[n], XtNlabel,"More");n++;
+X		XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X		XtSetArg(args[n], XtNwidth,130);n++;
+X		XtSetArg(args[n], XtNheight,40);n++;
+X		XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);n++;
+X		
+X	
+X		more=XtCreateManagedWidget("more", commandWidgetClass, perle, args, n);
+X		trans_table = XtParseTranslationTable(more_str);
+X		XtOverrideTranslations(more, trans_table);
+X	}
+X
+X
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Delete");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,130);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	XtSetArg(args[n], XtNshapeStyle,XmuShapeOval);n++;
+X	
+X	del=XtCreateManagedWidget("del", commandWidgetClass, perle, args, n);
+X	trans_table = XtParseTranslationTable(del_str);
+X	XtOverrideTranslations(del, trans_table);
+X	
+X	
+X	if (ab>anz_text) ab=-9;
+X	ab+=10; /* ab was initially -9 */
+X	if (ab>anz_text) ab=1;
+X
+X	/* framedBox_marker must point to the "ab"th text! */
+X
+X	framedBox_marker=framedBox_start;
+X	for (i=2; i<=ab; i++) framedBox_marker=framedBox_marker->next;
+X
+X	for (i=ab; ( (i<=anz_text) && (i-ab<10) ); i++)
+X	{
+X		n=0;
+X		XtSetArg(args[n],XtNorientation,XtorientHorizontal);n++;
+X		XtSetArg(args[n],XtNborderWidth,0);n++;
+X		kiste=XtCreateManagedWidget("drin", boxWidgetClass, perle, args, n);
+X		n=0;
+X		XtSetArg(args[n],XtNstate,False);n++;
+X		XtSetArg(args[n],XtNheight,20);n++;
+X		XtSetArg(args[n],XtNwidth,20);n++;
+X		XtSetArg(args[n],XtNshapeStyle,XmuShapeOval);n++;
+X		toggle=XtCreateManagedWidget("!", toggleWidgetClass, kiste, args, n);
+X		n=0;
+X		XtSetArg(args[n],XtNuseStringInPlace,True);n++;
+X		XtSetArg(args[n],XtNstring,framedBox_marker->text);n++;
+X		XtSetArg(args[n],XtNwidth,500);n++;
+X		if (lenn<1+strlen(framedBox_marker->text)) lenn=1+strlen(framedBox_marker->text);
+X		XtSetArg(args[n],XtNlength,lenn);n++; 
+X		/* warning, this is constant */
+X	/* it is a fact, that each of these pointers point to a memory-location, which */
+X	/* is at last exactly 80 Bytes big. */
+X	/* Well, this is an arbitrary restriction */
+X		XtSetArg(args[n],XtNeditType,XawtextEdit);n++;
+X		
+X	
+X		blabla=XtCreateManagedWidget("text", asciiTextWidgetClass, kiste, args, n);
+X		XtAddActions(actions, XtNumber(actions));
+X		trans_table2 = XtParseTranslationTable(temp_str2);
+X		XtOverrideTranslations(blabla, trans_table2);
+X
+X		/* Store the pointers, used for a delete action */
+X		mem[i-ab].tg=toggle;
+X		mem[i-ab].obj=(struct fig3 *)framedBox_marker;
+X		mem[i-ab+1].tg=NULL;
+X		mem[i-ab+1].obj=NULL;
+X
+X		framedBox_marker=framedBox_marker->next;
+X		
+X	}
+X
+X	XtAddActions(actions, XtNumber(actions));
+X	
+X	
+X
+X	/* setting position of widget */
+X	n = 0;
+X	XtSetArg(args[n], XtNx, &x_rel);
+X	n++;
+X	XtSetArg(args[n], XtNy, &y_rel);
+X	n++;
+X	XtGetValues(canvas, args, n);	/* get the relative coordinates of
+X					 * widget: canvas */
+X	XtTranslateCoords(canvas, x_rel, y_rel, &x, &y);
+X	n = 0;
+X	XtSetArg(args[n], XtNx, x + cmd_btn_width);
+X	n++;
+X	XtSetArg(args[n], XtNy, y + 2 * cmd_btn_height);
+X	n++;
+X	XtSetValues(fb_muschel, args, n);
+X	/* position set ! */
+X
+X
+X	XtPopupSpringLoaded(fb_muschel);
+X
+X	
+}
+X
+void fb_correct_text_error()
+{
+X
+X	/* remove special chars from text */
+X
+X	framedBox_marker=framedBox_start;
+X	if (framedBox_marker==NULL) return;
+X
+X	while (framedBox_marker!=NULL)
+X	{
+X		transform(framedBox_marker->text);
+X		framedBox_marker=framedBox_marker->next;
+X	}
+X	
+X	ab=-9; /* for a new start */
+X	
+}
+X		
+void fb_beende_textedit()	
+{
+X	XtPopdown(fb_muschel);
+X	XtDestroyWidget(fb_muschel); /* and its children ! */
+}	
+X
+X
+X
+void fb_delete_textedit()
+{
+X	/* perform an erase on the selected (toggled) text */
+X
+X int i=0; /* counter */
+X Boolean offon;
+X struct fig3 * three;
+X
+X	while ( (mem[i].tg!=NULL) && (i<10) )
+X	{
+X		/* was the toggle active ? */
+X		n=0;
+X		XtSetArg(args[n],XtNstate,&offon);n++;
+X		XtGetValues(mem[i].tg, args, n);
+X
+X		if (offon==True) /* it was selected - delete text ! */
+X		{
+X			framedBox_marker = (struct fig3 *)mem[i].obj;
+X			if (framedBox_start == mem[i].obj)
+X			{	/* first entry */
+X				if (framedBox_curr == framedBox_start)
+X				{	/* exactly 1 entry */
+X
+X					framedBox_start = NULL;
+X					framedBox_curr = NULL;
+X
+X				} else
+X					framedBox_start = framedBox_start->next;
+X
+X				free(framedBox_marker);
+X			} else
+X			{
+X				framedBox_marker = framedBox_start;
+X				do
+X				{
+X					three = (struct fig3 *) framedBox_marker;
+X					/* remember the last object */
+X					framedBox_marker = framedBox_marker->next;
+X
+X				} while (framedBox_marker != mem[i].obj);
+X				/* <framedBox_marker> points to the desired object and */
+X				/* <three> to the object before */
+X
+X				/* last entry ? */
+X				if (framedBox_marker == framedBox_curr)
+X				{
+X					framedBox_marker = NULL;
+X					free(framedBox_curr);
+X					framedBox_curr = three;
+X					three->next=NULL;
+X				} else
+X					/* no! the object was somewhere in the middle */
+X				{
+X					three->next = framedBox_marker->next;
+X					free(framedBox_marker);
+X				}
+X			} /* else */
+X		
+X
+X			
+X		} /* if offon */
+X
+X		i++;
+X
+X	} /* while */
+} /* proc */
+X
+X
+/* ------- */
+X
+X
+int db_number_of_text()
+{
+X  int i;
+X	/* compute number of text-entries */
+X	i=1;
+X	if (dashedBox_start==NULL) return 0;
+X	if (dashedBox_start==dashedBox_curr) return 1;
+X	dashedBox_marker=dashedBox_start;
+X	do
+X	{
+X		i++;
+X		if (dashedBox_marker!=dashedBox_curr) dashedBox_marker=dashedBox_marker->next;
+X	} while (dashedBox_marker!=dashedBox_curr);
+X
+X	return i;
+}
+X
+X
+X
+void db_textedit()
+{
+X  Widget perle;
+X  Widget kiste,toggle,blabla;
+X  Widget ok,del,more;
+X  int i,lenn=81;
+X  int anz_text;
+X  XtTranslations  trans_table,trans_table2;
+X  char		  leave_str[100]="<LeaveNotify> : db_beende_textedit() db_correct_text_error()\n";
+X  char		  ok_str[100]="<ButtonRelease> : db_beende_textedit() db_correct_text_error()\n";
+X  char		  more_str[100]="<ButtonRelease>    : db_beende_textedit() db_textedit()\n";
+X  char		  del_str[100]="<ButtonRelease>    : db_delete_textedit() db_beende_textedit() db_textedit()\n";
+X
+X  char            temp_str2[100] = 
+X			"<KeyPress>Return	: dummy() \n";
+X  
+X  static XtActionsRec actions[200] = {{"dummy", dummy},
+X				      {"db_textedit", db_textedit},
+X				      {"db_beende_textedit", db_beende_textedit},
+X				      {"db_delete_textedit", db_delete_textedit},
+X				      {"db_correct_text_error",db_correct_text_error}};
+X  Position x_rel, y_rel, x, y;
+X	
+X
+X	db_muschel=XtCreatePopupShell("Edit/Delete", transientShellWidgetClass, canvas, NULL, 0);
+X
+X	trans_table = XtParseTranslationTable(leave_str);
+X	XtOverrideTranslations(db_muschel, trans_table);
+X
+X	perle=XtCreateManagedWidget("behaelter", boxWidgetClass, db_muschel, NULL, 0);
+X	
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Edit Text: DASHED BOX");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,560);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	
+X	XtCreateManagedWidget("", labelWidgetClass, perle, args, n);
+X
+X
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Accept");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,130);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	XtSetArg(args[n], XtNshapeStyle,XmuShapeOval);n++;
+X	
+X	ok=XtCreateManagedWidget("ok", commandWidgetClass, perle, args, n);
+X	trans_table = XtParseTranslationTable(ok_str);
+X	XtOverrideTranslations(ok, trans_table);
+X
+X
+X	/* compute number of text-entries */
+X	anz_text=db_number_of_text();
+X
+X	if (anz_text==0)
+X	{
+X		leave_pick("Sorry - No text available !\n");
+X		return;
+X	}	
+X
+X
+X	if (anz_text>10)
+X	{
+X		n=0;
+X		XtSetArg(args[n], XtNlabel,"More");n++;
+X		XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X		XtSetArg(args[n], XtNwidth,130);n++;
+X		XtSetArg(args[n], XtNheight,40);n++;
+X		XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);n++;
+X		
+X		more=XtCreateManagedWidget("more", commandWidgetClass, perle, args, n);
+X		trans_table = XtParseTranslationTable(more_str);
+X		XtOverrideTranslations(more, trans_table);
+X	}
+X
+X
+X	n=0;
+X	XtSetArg(args[n], XtNlabel,"Delete");n++;
+X	XtSetArg(args[n], XtNjustify,XtJustifyCenter);n++;
+X	XtSetArg(args[n], XtNwidth,130);n++;
+X	XtSetArg(args[n], XtNheight,40);n++;
+X	XtSetArg(args[n], XtNshapeStyle,XmuShapeOval);n++;
+X	
+X	del=XtCreateManagedWidget("del", commandWidgetClass, perle, args, n);
+X	trans_table = XtParseTranslationTable(del_str);
+X	XtOverrideTranslations(del, trans_table);
+X	
+X	
+X	if (ab>anz_text) ab=-9;
+X	ab+=10; /* ab was initially -9 */
+X	if (ab>anz_text) ab=1;
+X
+X	/* dashedBox_marker must point to the "ab"th text! */
+X
+X	dashedBox_marker=dashedBox_start;
+X	for (i=2; i<=ab; i++) dashedBox_marker=dashedBox_marker->next;
+X
+X	for (i=ab; ( (i<=anz_text) && (i-ab<10) ); i++)
+X	{
+X		n=0;
+X		XtSetArg(args[n],XtNorientation,XtorientHorizontal);n++;
+X		XtSetArg(args[n],XtNborderWidth,0);n++;
+X		kiste=XtCreateManagedWidget("drin", boxWidgetClass, perle, args, n);
+X		n=0;
+X		XtSetArg(args[n],XtNstate,False);n++;
+X		XtSetArg(args[n],XtNheight,20);n++;
+X		XtSetArg(args[n],XtNwidth,20);n++;
+X		XtSetArg(args[n],XtNshapeStyle,XmuShapeOval);n++;
+X		toggle=XtCreateManagedWidget("!", toggleWidgetClass, kiste, args, n);
+X		n=0;
+X		XtSetArg(args[n],XtNuseStringInPlace,True);n++;
+X		XtSetArg(args[n],XtNstring,dashedBox_marker->text);n++;
+X		XtSetArg(args[n],XtNwidth,500);n++;
+X		if (lenn<1+strlen(dashedBox_marker->text)) lenn=1+strlen(dashedBox_marker->text);
+X		XtSetArg(args[n],XtNlength,lenn);n++; 
+X		/* warning, this is constant */
+X	/* it is a fact, that each of these pointers point to a memory-location, which */
+X	/* is at last exactly 80 Bytes big. */
+X	/* Well, this is an arbitrary restriction */
+X		XtSetArg(args[n],XtNeditType,XawtextEdit);n++;
+X		
+X	
+X		blabla=XtCreateManagedWidget("text", asciiTextWidgetClass, kiste, args, n);
+X		XtAddActions(actions, XtNumber(actions));
+X		trans_table2 = XtParseTranslationTable(temp_str2);
+X		XtOverrideTranslations(blabla, trans_table2);
+X
+X		/* Store the pointers, used for a delete action */
+X		mem[i-ab].tg=toggle;
+X		mem[i-ab].obj=(struct fig4 *)dashedBox_marker;
+X		mem[i-ab+1].tg=NULL;
+X		mem[i-ab+1].obj=NULL;
+X
+X		dashedBox_marker=dashedBox_marker->next;
+X		
+X	}
+X
+X	XtAddActions(actions, XtNumber(actions));
+X	
+X	
+X
+X	/* setting position of widget */
+X	n = 0;
+X	XtSetArg(args[n], XtNx, &x_rel);
+X	n++;
+X	XtSetArg(args[n], XtNy, &y_rel);
+X	n++;
+X	XtGetValues(canvas, args, n);	/* get the relative coordinates of
+X					 * widget: canvas */
+X	XtTranslateCoords(canvas, x_rel, y_rel, &x, &y);
+X	n = 0;
+X	XtSetArg(args[n], XtNx, x + cmd_btn_width);
+X	n++;
+X	XtSetArg(args[n], XtNy, y + 2 * cmd_btn_height);
+X	n++;
+X	XtSetValues(db_muschel, args, n);
+X	/* position set ! */
+X
+X
+X	XtPopupSpringLoaded(db_muschel);
+X
+X	
+}
+X
+void db_correct_text_error()
+{
+X
+X	/* remove special chars from text */
+X
+X	dashedBox_marker=dashedBox_start;
+X	if (dashedBox_marker==NULL) return;
+X
+X	while (dashedBox_marker!=NULL)
+X	{
+X		transform(dashedBox_marker->text);
+X		dashedBox_marker=dashedBox_marker->next;
+X	}
+X	
+X	ab=-9; /* for a new start */
+X	
+}
+X		
+void db_beende_textedit()	
+{
+X	XtPopdown(db_muschel);
+X	XtDestroyWidget(db_muschel); /* and its children ! */
+}	
+X
+X
+X
+void db_delete_textedit()
+{
+X	/* perform an erase on the selected (toggled) text */
+X
+X int i=0; /* counter */
+X Boolean offon;
+X struct fig4 * four;
+X
+X	while ( (mem[i].tg!=NULL) && (i<10) )
+X	{
+X		/* was the toggle active ? */
+X		n=0;
+X		XtSetArg(args[n],XtNstate,&offon);n++;
+X		XtGetValues(mem[i].tg, args, n);
+X
+X		if (offon==True) /* it was selected - delete text ! */
+X		{
+X			dashedBox_marker = (struct fig4 *)mem[i].obj;
+X			if (dashedBox_start == mem[i].obj)
+X			{	/* first entry */
+X				if (dashedBox_curr == dashedBox_start)
+X				{	/* exactly 1 entry */
+X
+X					dashedBox_start = NULL;
+X					dashedBox_curr = NULL;
+X
+X				} else
+X					dashedBox_start = dashedBox_start->next;
+X
+X				free(dashedBox_marker);
+X			} else
+X			{
+X				dashedBox_marker = dashedBox_start;
+X				do
+X				{
+X					four = (struct fig4 *) dashedBox_marker;
+X					/* remember the last object */
+X					dashedBox_marker = dashedBox_marker->next;
+X
+X				} while (dashedBox_marker != mem[i].obj);
+X				/* <dashedBox_marker> points to the desired object and */
+X				/* <four> to the object before */
+X
+X				/* last entry ? */
+X				if (dashedBox_marker == dashedBox_curr)
+X				{
+X					dashedBox_marker = NULL;
+X					free(dashedBox_curr);
+X					dashedBox_curr = four;
+X					four->next=NULL;
+X				} else
+X					/* no! the object was somewhere in the middle */
+X				{
+X					four->next = dashedBox_marker->next;
+X					free(dashedBox_marker);
+X				}
+X			} /* else */
+X		
+X
+X			
+X		} /* if offon */
+X
+X		i++;
+X
+X	} /* while */
+} /* proc */
+X
+X
+X
+void move_base(Widget cmd, char typ, caddr_t call_data)
+{
+X int xsteps = 10;
+X int ysteps = 10;
+X FILE *fd; /* dummy */
+X int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X unsigned int mask;
+X int x,y;
+X 
+X  do 
+X  {
+X 
+X 	/* global */
+X 	xmotion=0;
+X 	ymotion=0;
+X 	
+X 	/* resetting values, global */
+X 	dim_x_max = -99999.0;
+X	dim_x_min = 99999.0;
+X	dim_y_max = -99999.0;
+X	dim_y_min = 99999.0;
+X 
+X	switch (typ)
+X	{
+X		case 'U':	ymotion=ysteps;
+X				break;
+X		case 'D':	ymotion=-ysteps;
+X				break;
+X		case 'L':	xmotion=xsteps;
+X				break;
+X		case 'R':	xmotion=-xsteps;
+X				break;
+X		default: 	/* compute the dimension of the image */
+X				/* this is the center image function */
+X				manage_line(0, fd);
+X				manage_vector(0, fd);
+X				manage_filled(0, fd);
+X				manage_framed(0, fd);
+X				manage_dashed(0, fd);
+X				manage_kreis(0, fd);
+X				manage_disc(0, fd);
+X				manage_oval(0, fd);
+X				manage_text(0, fd);
+X				manage_bezier(0, fd);
+X				/* dimensions are set ! */
+X				
+X				/* compute the move steps */
+X				xmotion=(x_A4_max-dim_x_max+dim_x_min)/2;
+X				ymotion=(y_A4_max-dim_y_max+dim_y_min)/2;
+X				xmotion=xmotion-dim_x_min;
+X				ymotion=ymotion-dim_y_min;
+X				break;
+X	} /* eoswitch */
+X	
+X	/* move the objects now */
+X	
+X	manage_line(2, fd);
+X	manage_vector(2, fd);
+X	manage_filled(2, fd);
+X	manage_framed(2, fd);
+X	manage_dashed(2, fd);
+X	manage_kreis(2, fd);
+X	manage_disc(2, fd);
+X	manage_oval(2, fd);
+X	manage_text(2, fd);
+X	manage_bezier(2, fd);
+X
+X	/* redraw screen by refresh */
+X	refresh((Widget)DUMMY, '?', (caddr_t)DUMMY);	/* force refresh */
+X
+X	
+X	PointerPosition(&x,&y,&mask);
+X	
+X	
+X	
+X
+X
+X   } while ( ((mask&btn1) || (mask&btn2) || (mask&btn3)) && (typ!='Z') );
+X	
+}
+X
+X
+X
+X
+X
+X
+void DrawBezier(float ax, float ay, float ex, float ey, float sx, float sy)
+{
+X /* ax,ay,ex,ey are expected to be always in real coordinate system */
+X /* sx,sy depends on variable 'zoomed' !!! : if (zoomed==True), sx,sy are */
+X /* expected to be zoomed coordinates */
+X 
+X	float u=0;
+X	Display *disp=XtDisplay(pboard);
+X	Window win=XtWindow(pboard);
+X	float x,y,x_old,y_old;
+X	float steps=0.04;
+X	
+X 
+X  if (zoomed==True)
+X  {
+X	real2zoomed(&ax,&ay);
+X	real2zoomed(&ex,&ey);
+X  } 
+X 
+X
+X  /* draw from u=0, the first point of the curve (that is ax,ay) */
+X  x_old=ax;
+X  y_old=ay;
+X
+X  do
+X  {
+X        u+=steps;
+X
+X        x=ax*(1-u)*(1-u)+sx*(1-u)*2*u+ex*u*u;
+X        y=ay*(1-u)*(1-u)+sy*(1-u)*2*u+ey*u*u;
+X        
+X        XDrawLine(disp,win,gc,(int)x_old,(int)y_old,(int)x,(int)y);
+X
+X        x_old=x;
+X        y_old=y;
+X  } while (u<1-steps);
+X
+X  /* draw to u=1, the last point of the curve (that is ex,ey) */
+X  XDrawLine(disp,win,gc,(int)x_old,(int)y_old,(int)ex,(int)ey);
+X  
+}
+X
+X
+void set_lastBezier_press()
+{
+X	/* Override Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[200] = "<Btn1Down>: entry_bezier()\n\
+X					   <Btn2Down>: cancel_curve()\n\
+X					   <Btn3Down>: cancel_curve()\n\
+X					   <LeaveNotify>:exit_curve()";
+X	char            destination2[80] = "<MotionNotify>: manage_curve()";
+X	static XtActionsRec actions[80] = {{"manage_curve", manage_curve},
+X					   {"entry_bezier", entry_bezier},
+X					   {"cancel_curve", cancel_curve},
+X					   {"exit_curve", exit_curve}
+X					  };
+X
+X	XtAddActions(actions, XtNumber(actions));
+X
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+X	trans_table = XtParseTranslationTable(destination2);
+X	XtOverrideTranslations(pboard, trans_table);
+}
+X
+X
+void manage_curve()
+{
+X /* controlling the curve */
+X
+X unsigned int mask;
+X int x,y;
+X
+X
+X	snapPointerPosition(&x,&y,&mask);
+X
+X	if ( (x!=(int)bezier_curr->sx) || (y!=(int)bezier_curr->sy) ) /* redraw necessary */
+X	{
+X	/* delete old curve, if exists */
+X	if (bezier_curr->sx!=-999.0) /* ax,ay,ex,ey are in real coordinate system */
+X		DrawBezier(bezier_curr->ax,bezier_curr->ay,
+X			   bezier_curr->ex,bezier_curr->ey,
+X			   bezier_curr->sx,bezier_curr->sy);
+X
+X	bezier_curr->sx=(float)x;
+X	bezier_curr->sy=(float)y;
+X
+X	/* draw the curve */
+X	DrawBezier(bezier_curr->ax,bezier_curr->ay,
+X		bezier_curr->ex,bezier_curr->ey,
+X		bezier_curr->sx,bezier_curr->sy);
+X	}
+}
+X
+void entry_bezier()
+{
+X	if (bezier_curr->sx==-999.0) return; /* MotionNotify first, please */
+X	XtUninstallTranslations(pboard);
+X	if (zoomed==True) zoomed2real(&bezier_curr->sx,&bezier_curr->sy);
+X	set_first(); /* for the next curve */
+}
+X	
+X
+void cancel_curve()
+{
+X /* btn3 or btn2 was pressed */
+X
+X	if (bezier_curr->sx!=-999.0) /* delete curve */
+X		DrawBezier(bezier_curr->ax,bezier_curr->ay,
+X			   bezier_curr->ex,bezier_curr->ey,
+X			   bezier_curr->sx,bezier_curr->sy);
+X	
+X	XDrawLine(XtDisplay(pboard),XtWindow(pboard),gc,
+X		(int)bezier_curr->ax,(int)bezier_curr->ay,(int)bezier_curr->ex,(int)bezier_curr->ey);	
+X	newline();
+}
+X
+void exit_curve()
+{
+X	cancel_curve();
+X	XtUninstallTranslations(pboard);
+X	graph_action='?';
+X	headline(pboard,titlename);
+X	
+}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+SHAR_EOF
+echo 'File graphics.c is complete' &&
+chmod 0644 graphics.c ||
+echo 'restore of graphics.c failed'
+Wc_c="`wc -c < 'graphics.c'`"
+test 134559 -eq "$Wc_c" ||
+	echo 'graphics.c: original size 134559, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= graphics.h ==============
+if test -f 'graphics.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping graphics.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting graphics.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'graphics.h' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* header-file graphics.h */
+X
+#ifndef GRAPHICSH
+#define GRAPHICSH
+X
+X
+/* patch for Data General by JM , all patches by JM are marked with JM ! */
+extern int black_white_patch;
+X
+X
+/* prototypes */
+X
+void shorten(int *x, int *y);
+void make_GCcontext(void);
+void PointerPosition(int *x, int *y, unsigned int *mask);
+void set_TM_btn1_first(Widget w, XEvent *event, String *id, Cardinal *num); 
+void btn1_press_first(Widget w, XEvent *event, String *id, Cardinal *num);
+void set_TM_btn1_second(void);
+void btn1_press_second(Widget w, XEvent *event, String *id, Cardinal *num);
+void set_first(void);
+void enable_tracker(void);
+void disable_tracker(void);
+void track_it(int *xo, int *yo);
+void dummy(void);
+void leaving(void);
+void zoomed2real(float *x, float *y);
+void real2zoomed(float *x, float *y);
+int ggt(int a, int b);
+int valid_line_coords(int x_or, int y_or, int *x_ret, int *y_ret);
+int valid_vector_coords(int x_or, int y_or, int *x_ret, int *y_ret);
+void init_l_slope(void);
+void l_insert(float value, int x, int y);
+void init_a_slope(void);
+void a_insert(float value, int x, int y);
+void graphics_init(void);
+void left(void);
+void set_zoom_window(void);
+void frame_track(int *x0, int *y0);
+void zoom_it(void);
+void clear_zoom(void);
+void cancel_zoom(void);
+int sorry_msg(void);
+void refresh(Widget cmd, char id, caddr_t call_data);
+void init_prompt_text();
+void cancel_text();
+void ok_text();
+void manage_text_input();
+void show_zoomed_objects();
+void set_text_input();
+void valid_length(int x_or, int y_or, int *x_ret, int *y_ret);
+void draw_vector_marker(float a1, float a2, float e1, float e2);
+void norm_rectangle(float *x, float *y, float *h, float *v);
+void init_text_and_position(void);
+void box_text(Widget cmd, char id, caddr_t call_data);
+void query_box_text_and_position(void);
+void print_box_text(char *a,float b, float c, float d, float e, char *f);
+void valid_kreis_coords(int x, int y, int *h, int *v,int *rad);
+void valid_disc_coords(int x, int y, int *h, int *v,int *rad);
+void DrawOval(int x_old,int y_old,int h_old,int v_old);
+void query_ask_erase(void);
+void perform_erase(void);
+void init_ask_erase(void);
+void valid_snap_coords(int *x, int *y);
+void snapPointerPosition(int *x, int *y, unsigned int *mask);
+void draw_the_shadow(void *object,char id);
+void init_text_adjustment(void);
+void adjust_text(Widget cmd, char id, caddr_t call_data);
+void query_text_adjustment(void);
+void newline(void);
+void print_head(char ch);
+void leave_translation(void);
+void textedit(void);
+int number_of_text(void);
+void correct_text_error(void);
+void beende_textedit(void);	
+void fb_textedit(void);
+int fb_number_of_text(void);
+void fb_correct_text_error(void);
+void fb_beende_textedit(void);	
+void fb_delete_textedit(void);
+void db_textedit(void);
+int db_number_of_text(void);
+void db_correct_text_error(void);
+void db_beende_textedit(void);	
+void db_delete_textedit(void);
+void print_text_text_marker(char *pos, float x, float y, char *txt);
+void delete_textedit(void);
+void move_base(Widget cmd, char typ, caddr_t call_data);
+void manage_curve();
+void entry_bezier();
+void DrawBezier(float ax, float ay, float ex, float ey, float sx, float sy);
+void set_lastBezier_press(void);
+void cancel_curve(void);
+void exit_curve();
+X
+X
+X
+X
+extern int line_slope;
+extern int slope_line;
+extern int arrow_slope;
+extern int slope_arrow;
+extern int line_length;
+extern int circle_diameter[];
+extern int disc_diameter[];
+extern int rast_height;
+extern Boolean visible;
+X
+#endif
+SHAR_EOF
+chmod 0644 graphics.h ||
+echo 'restore of graphics.h failed'
+Wc_c="`wc -c < 'graphics.h'`"
+test 3541 -eq "$Wc_c" ||
+	echo 'graphics.h: original size 3541, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= io_trans.c ==============
+if test -f 'io_trans.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping io_trans.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting io_trans.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'io_trans.c' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* io_trans.c */
+X
+X
+#include "x_stuff.h"
+#include "oberfl.h"
+#include "graphics.h"/* xtexcad  V1.1 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* io_trans.c */
+X
+X
+#include "x_stuff.h"
+#include "oberfl.h"
+#include "graphics.h"
+#include "io_trans.h"
+#include "yyscan.h"
+X
+X
+float    dim_x_max = -99999.0, dim_x_min = 99999.0, dim_y_max = -99999.0, dim_y_min = 99999.0;
+X
+static struct object_buffer
+{
+X	float           xpos, ypos, hpos, vpos, dash_length;
+X	float		sxpos,sypos; /* for curves only ! */
+X	char            text[256];	/* that should be enough !!! */
+X	char            textpos[2];
+X	int             radius;
+}               buffer;	/* the buffer struct - used while scanning
+X			 * LaTeX-sources */
+X
+X
+int      unit = 1;	/* 1=pt 2=cm 3=mm 4=pc 5=in */
+float    ulen = 1.0;	/* unitlength */
+X
+X
+X
+X
+Boolean
+file_exists(char *fn)
+{
+X	FILE           *fd;
+X	Boolean         res;
+X	if ((fd = fopen(fn, "r")) == NULL)
+X		res = False;
+X	else
+X	{
+X		res = True;
+X		fclose(fd);
+X	}
+X	return res;
+}
+X
+X
+X
+void
+error(char *name)
+{/* prints error messages to report window */
+X
+X	fprintf(stderr, "while scanning: ");
+X	fprintf(stderr, "%s", name);
+X	fprintf(stderr, "......skipping to next known token !\n");
+X
+}
+X
+X
+X
+X
+void
+load_it(char *fn)
+/* opening, creating, error handling, etc. */
+/* be sure, database is empty, all memory is given back */
+{
+X	FILE           *fd;
+X	int             t;	/* token */
+X	float           c;
+X	int 		store_unit;
+X
+X	if (file_exists(fn) == False)
+X	{
+X		leave_pick("ERROR - file not found.");
+X		return;
+X	}
+X	/* open file */
+X	fd = fopen(fn, "r");
+X	/* file pointer points to the beginning of this file */
+X
+X	/* scan it ! */
+X
+X	yyinitscan(fd); /* init scanner */
+X
+X	t = TOK_BEGIN;	/* now a dummy */
+X	while (t != TOK_END)
+X	{
+X
+X		buffer.textpos[0] = 'c';
+X		buffer.textpos[1] = 'c';
+X
+X		switch (t = yylex())
+X		{
+X
+X		case TOK_BEGIN:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{	/* the x dimension; not used ! */
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{	/* the y-dimension; not used */
+X					if ((t = yylex()) == TOK_FLOAT)
+X					{	/* optional: reference
+X						 * x-coordinate */
+X						xur = yyfloatval;
+X						if ((t = yylex()) == TOK_FLOAT)
+X						{	/* optional: reference
+X							 * y-coordinate */
+X							yur = yyfloatval;
+X							break;
+X						} else
+X							error("missing y-coordinate !\n");
+X					}
+X				} else
+X					error("missing y-dimension !\n");
+X			} else
+X				error("float/int expected (dimension)!\n");
+X
+X		case TOK_PUT:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.xpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.ypos = yyfloatval;
+X					break;
+X				} else
+X					error("missing y-coordinate of PUT-command.\n");
+X			} else
+X				error("missing x-coordinate of PUT-command.\n");
+X
+X		case TOK_TEXT:
+X			strcpy(buffer.text, yystrval);
+X			buffer.textpos[1] = 'b';
+X			buffer.textpos[1] = 'l';
+X			read_message();
+X			break;
+X
+X		case TOK_FRAMEBOX:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					if ((t = yylex()) == TOK_LETTERS_OPT)
+X					{
+X						buffer.textpos[0] = yystrval[0];
+X						buffer.textpos[1] = yystrval[1];
+X					} else
+X					{
+X						buffer.textpos[0] = 'c';
+X						buffer.textpos[1] = 'c';
+X					}
+X					if ((t = yylex()) == TOK_TEXT)
+X					{
+X						strcpy(buffer.text, yystrval);
+X						read_framebox();
+X						break;
+X					} else
+X						error("text expected...\n");
+X				} else
+X					error("height of framebox not found.\n");
+X			} else
+X				error("width of framebox not found.\n");
+X
+X		case TOK_MAKEBOX:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;	/* dummy; not used here */
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;	/* dummy; not used here */
+X					if ((t = yylex()) == TOK_LETTERS_OPT)
+X					{
+X						buffer.textpos[0] = yystrval[0];
+X						buffer.textpos[1] = yystrval[1];
+X					} else
+X					{
+X						buffer.textpos[0] = 'c';
+X						buffer.textpos[1] = 'c';
+X					}
+X					if ((t = yylex()) == TOK_TEXT)
+X					{
+X						strcpy(buffer.text, yystrval);
+X						read_message();
+X						break;
+X					} else
+X						error("text expected...\n");
+X				} else
+X					error("height of box not found.\n");
+X			} else
+X				error("width of box not found.\n");
+X
+X		case TOK_DASHBOX:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{	/* read dash-length */
+X				buffer.dash_length = yyfloatval;
+X			} else
+X				error("missing dashlength...\n");
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					if ((t = yylex()) == TOK_LETTERS_OPT)
+X					{
+X						buffer.textpos[0] = yystrval[0];
+X						buffer.textpos[1] = yystrval[1];
+X					} else
+X					{
+X						buffer.textpos[0] = 'c';
+X						buffer.textpos[1] = 'c';
+X					}
+X					if ((t = yylex()) == TOK_TEXT)
+X					{
+X						strcpy(buffer.text, yystrval);
+X						read_dashbox();
+X						break;
+X					} else
+X						error("dashbox: text expected...\n");
+X				} else
+X					error("height of dashbox not found.\n");
+X			} else
+X				error("width of dashbox not found.\n");
+X
+X
+X		case TOK_LINE:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					if ((t = yylex()) == TOK_FLOAT)
+X					{
+X						buffer.dash_length = yyfloatval;	/* line length !!! */
+X						read_line();
+X						break;
+X					} else
+X						error("length of line not specified...\n");
+X				} else
+X					error("line slope error (denominator) !\n");
+X			} else
+X				error("line slope error (nominator) !\n");
+X
+X		case TOK_VECTOR:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					if ((t = yylex()) == TOK_FLOAT)
+X					{
+X						buffer.dash_length = yyfloatval;	/* vector length !!! */
+X						read_vector();
+X						break;
+X					} else
+X						error("length of vector not specified...\n");
+X				} else
+X					error("vector slope error (denominator) !\n");
+X			} else
+X				error("vector slope error (nominator) !\n");
+X
+X		case TOK_CIRCLE:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.radius = (int) yyfloatval;
+X				read_circle();
+X				break;
+X			} else
+X				error("missing circle diameter.\n");
+X
+X		case TOK_CIRCLE_AST:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.radius = (int) yyfloatval;
+X				read_disc();
+X				break;
+X			} else
+X				error("missing (filled) circle diameter.\n");
+X
+X		case TOK_OVAL:
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X				buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					read_oval();
+X					break;
+X				} else
+X					error("height of oval not found.\n");
+X			} else
+X				error("width of oval not found.\n");
+X
+X		case TOK_RULE: /* werte werden direkt im richtigen masstab gespeichert... */
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X			  buffer.hpos = yyfloatval;
+X			  t=yylex(); /* entweder es kommt eine einheit oder "unitlength" */
+X			  if (t!=TOK_DIM_UNITLENGTH) /* 1=pt 2=cm 3=mm 4=pc 5=in */
+X			  {
+X			    store_unit=unit;
+X			    switch (t){
+X			     case TOK_DIM_PT  :	unit=1;  
+X			     			break;     
+X			     case TOK_DIM_CM  : unit=2;
+X			     			break;     
+X			     case TOK_DIM_MM  : unit=3;
+X			     			break; 
+X			     case TOK_DIM_PC  : unit=4;
+X			     			break;    
+X			     case TOK_DIM_IN  : unit=5;
+X			     			break;
+X			     default:error("See LaTeX manual for proper use of the rule command...\n");
+X			     	     break;
+X			     } /* switch */   
+X			     buffer.hpos=compute_length(buffer.hpos); 
+X			     unit=store_unit;
+X			  } else buffer.hpos=compute_length(buffer.hpos); 
+X	
+X				if ((t = yylex()) == TOK_FLOAT)
+X				{
+X					buffer.vpos = yyfloatval;
+X					t=yylex(); /* s.o. */
+X					if (t!=TOK_DIM_UNITLENGTH) /* 1=pt 2=cm 3=mm 4=pc 5=in */
+X					{
+X						store_unit=unit;
+X						switch (t){
+X						case TOK_DIM_PT  :	unit=1;  
+X			     						break;     
+X			     			case TOK_DIM_CM  : 	unit=2;
+X			     						break;     
+X			     			case TOK_DIM_MM  : 	unit=3;
+X			     						break; 
+X			     			case TOK_DIM_PC  : 	unit=4;
+X			     						break;    
+X			     			case TOK_DIM_IN  : 	unit=5;
+X			     						break;
+X			     			default:error("See LaTeX manual for proper use of the rule command...\n");
+X			     			        break;
+X			     			} /* switch */ 
+X			     			buffer.vpos=compute_length(buffer.vpos);
+X			     			unit=store_unit;  
+X					} else buffer.vpos=compute_length(buffer.vpos); 
+X					
+X						
+X							read_filledbox(); /* .hpos und .vpos sind bereits im richtigen format */
+X							break; /* switch,case global */
+X							
+X				
+X				} else
+X					error("height of filled box (rule) not found.\n");
+X			} else
+X				error("width of filled Box (rule) not found.\n");
+X
+X		case TOK_BEZIER:
+X			if ((t = yylex()) == TOK_FLOAT) buffer.dash_length=yyfloatval;
+X			/* the number of points, the curve consists of, is stored in <dash_length> */
+X			/* no further use ! */
+X			if ((t = yylex()) == TOK_FLOAT)
+X			{
+X			  buffer.xpos = yyfloatval;
+X			  if ((t = yylex()) == TOK_FLOAT)
+X			  {
+X			     buffer.ypos = yyfloatval;
+X			     if ((t = yylex()) == TOK_FLOAT)
+X			     {
+X			        buffer.hpos = yyfloatval;
+X				if ((t = yylex()) == TOK_FLOAT)
+X			  	{
+X			     	   buffer.vpos = yyfloatval;
+X			     	   if ((t = yylex()) == TOK_FLOAT)
+X			     	   {
+X			              buffer.sxpos = yyfloatval;
+X				      if ((t = yylex()) == TOK_FLOAT)
+X			  	      {
+X			     	   	 buffer.sypos = yyfloatval;
+X					 read_bezier();
+X					 break;
+X				      } else
+X			     		  error("missing last number.\n");
+X				   } else
+X				       error("missing fifth number.\n");
+X				} else
+X				    error("missing fourth number.\n");
+X			     } else
+X				 error("missing third number.\n");		
+X			  } else
+X			      error("missing second number.\n");
+X			} else
+X			    error("missing first number.\n");
+X
+X		case TOK_UNITLENGTH:
+X			ulen = yyfloatval;
+X			switch (t = yylex())
+X			{
+X			case TOK_DIM_PT:
+X				unit = 1;
+X				break;
+X			case TOK_DIM_IN:
+X				unit = 2;
+X				break;
+X			case TOK_DIM_CM:
+X				unit = 3;
+X				break;
+X			case TOK_DIM_MM:
+X				unit = 4;
+X				break;
+X			case TOK_DIM_PC:
+X				unit = 5;
+X				break;
+X			default:
+X				error("unit not found !\n");
+X				break;
+X			}
+X			break;
+X
+X
+X		default:
+X			break;
+X
+X
+X
+X		}	/* switch */
+X
+X	}	/* while */
+X
+X
+X	fclose(fd);
+X
+X
+}
+X
+X
+X
+float
+compute_length(float inp)
+{
+X	/* int unit: 1=pt 2=in 3=cm 4=mm 5=pc */
+X
+X
+X
+X	float           outp;
+X	switch (unit)
+X	{
+X	case 1:
+X		outp = inp * ulen;	/* 1pt remains 1pt */
+X		/* unitlength=1.0pt */
+X		break;
+X	case 2:
+X		outp = inp * ulen * 72.27;	/* 1inch=72.27pt */
+X		/* unitlength=1.0pt */
+X		break;
+X	case 3:
+X		outp = inp * ulen * 28.35;	/* 1cm=28.35pt */
+X		/* unitlength=1.0pt */
+X		break;
+X	case 4:
+X		outp = inp * ulen * 2.835;	/* 1mm=2.835pt */
+X		/* unitlength=1.0pt */
+X		break;
+X	case 5:
+X		outp = inp * ulen * 12;	        /* 1pica=12pt */
+X		/* unitlength=1.0pt */
+X		break;
+X
+X	default:
+X		outp = 1;	/* dummy */
+X		fprintf(stderr, "in function compute_length: default-case must not occur !!!\n\n");
+X		break;
+X	}
+X
+X	return outp;
+X
+}
+X
+X
+X
+X
+X
+X
+X
+/* the following read_xxx - routines insert a new object into the database */
+/* and then return to the scanner... */
+X
+void
+read_framebox()
+{
+X	struct fig3    *drei = (struct fig3 *) malloc(sizeof(framedBox));
+X	/* fill the struct */
+X	drei->x = compute_length(buffer.xpos);
+X	drei->y = compute_length(buffer.ypos);
+X
+X	drei->h = drei->x + compute_length(buffer.hpos);
+X	drei->v = drei->y + compute_length(buffer.vpos);
+X
+X	drei->text = (char *) malloc(strlen(buffer.text) + 1);
+X	strcpy(drei->text, buffer.text);
+X
+X	if (
+X	    (buffer.textpos[0] != 'b') &&
+X	    (buffer.textpos[0] != 't') &&
+X	    (buffer.textpos[0] != 'l') &&
+X	    (buffer.textpos[0] != 'r')
+X		)
+X		buffer.textpos[0] = '\0';
+X
+X	if (
+X	    (buffer.textpos[1] != 'b') &&
+X	    (buffer.textpos[1] != 't') &&
+X	    (buffer.textpos[1] != 'l') &&
+X	    (buffer.textpos[1] != 'r')
+X		)
+X		buffer.textpos[1] = '\0';
+X
+X	drei->textpos[0] = buffer.textpos[0];
+X	drei->textpos[1] = buffer.textpos[1];
+X	drei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	drei->y = oldy(drei->y);
+X	drei->v = oldy(drei->v);
+X
+X	norm_rectangle(&drei->x, &drei->y, &drei->h, &drei->v);
+X
+X	/* insert the struct into database */
+X
+X	if (framedBox_start == NULL)
+X	{
+X		framedBox_start = drei;
+X		framedBox_curr = drei;
+X	} else
+X	{
+X		framedBox_curr->next = drei;
+X		framedBox_curr = drei;
+X	}
+X
+}
+X
+void
+read_dashbox()
+{
+X	struct fig4    *vier = (struct fig4 *) malloc(sizeof(dashedBox));
+X	/* fill the struct */
+X	vier->x = compute_length(buffer.xpos);
+X	vier->y = compute_length(buffer.ypos);
+X
+X	vier->h = vier->x + compute_length(buffer.hpos);
+X	vier->v = vier->y + compute_length(buffer.vpos);
+X
+X	vier->text = (char *) malloc(strlen(buffer.text) + 1);
+X	strcpy(vier->text, buffer.text);
+X
+X	if (
+X	    (buffer.textpos[0] != 'b') &&
+X	    (buffer.textpos[0] != 't') &&
+X	    (buffer.textpos[0] != 'l') &&
+X	    (buffer.textpos[0] != 'r')
+X		)
+X		buffer.textpos[0] = '\0';
+X
+X	if (
+X	    (buffer.textpos[1] != 'b') &&
+X	    (buffer.textpos[1] != 't') &&
+X	    (buffer.textpos[1] != 'l') &&
+X	    (buffer.textpos[1] != 'r')
+X		)
+X		buffer.textpos[1] = '\0';
+X
+X	vier->textpos[0] = buffer.textpos[0];
+X	vier->textpos[1] = buffer.textpos[1];
+X
+X	vier->dashlength = compute_length(buffer.dash_length);
+X
+X	vier->next = NULL;
+X
+X	/* use internal coordinate system */
+X	vier->y = oldy(vier->y);
+X	vier->v = oldy(vier->v);
+X
+X	norm_rectangle(&vier->x, &vier->y, &vier->h, &vier->v);
+X
+X	/* insert the struct into database */
+X
+X	if (dashedBox_start == NULL)
+X	{
+X		dashedBox_start = vier;
+X		dashedBox_curr = vier;
+X	} else
+X	{
+X		dashedBox_curr->next = vier;
+X		dashedBox_curr = vier;
+X	}
+}
+X
+void
+read_filledbox()
+{
+X /* buffer.hpos und buffer.vpos sind bereits waehrend des scannens ins richtige format konvertiert worden */
+X 
+X 
+X	struct fig2    *zwei = (struct fig2 *) malloc(sizeof(filledBox));
+X	/* fill the struct */
+X	zwei->x = compute_length(buffer.xpos);
+X	zwei->y = compute_length(buffer.ypos);
+X
+X	zwei->h = zwei->x + buffer.hpos;
+X	zwei->v = zwei->y + buffer.vpos;
+X
+X	zwei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	zwei->y = oldy(zwei->y);
+X	zwei->v = oldy(zwei->v);
+X
+X	norm_rectangle(&zwei->x, &zwei->y, &zwei->h, &zwei->v);
+X
+X	/* insert the struct into database */
+X
+X	if (filledBox_start == NULL)
+X	{
+X		filledBox_start = zwei;
+X		filledBox_curr = zwei;
+X	} else
+X	{
+X		filledBox_curr->next = zwei;
+X		filledBox_curr = zwei;
+X	}
+}
+X
+void
+read_line()
+{
+X	struct fig2    *zwei = (struct fig2 *) malloc(sizeof(strich));
+X	/* fill the struct */
+X	zwei->x = compute_length(buffer.xpos);
+X	zwei->y = compute_length(buffer.ypos);
+X
+X	/* the vector */
+X	zwei->h = buffer.hpos;
+X	zwei->v = buffer.vpos;
+X
+X	compute_end_coords(zwei->x, zwei->y, &zwei->h, &zwei->v, compute_length(buffer.dash_length));
+X
+X	zwei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	zwei->y = oldy(zwei->y);
+X	zwei->v = oldy(zwei->v);
+X
+X
+X	/* insert the struct into database */
+X
+X	if (strich_start == NULL)
+X	{
+X		strich_start = zwei;
+X		strich_curr = zwei;
+X	} else
+X	{
+X		strich_curr->next = zwei;
+X		strich_curr = zwei;
+X	}
+}
+X
+void
+read_vector()
+{
+X	struct fig2    *zwei = (struct fig2 *) malloc(sizeof(pfeil));
+X	/* fill the struct */
+X	zwei->x = compute_length(buffer.xpos);
+X	zwei->y = compute_length(buffer.ypos);
+X
+X	/* the vector */
+X	zwei->h = buffer.hpos;
+X	zwei->v = buffer.vpos;
+X
+X	compute_end_coords(zwei->x, zwei->y, &zwei->h, &zwei->v, compute_length(buffer.dash_length));
+X
+X	zwei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	zwei->y = oldy(zwei->y);
+X	zwei->v = oldy(zwei->v);
+X
+X	/* insert the struct into database */
+X
+X	if (pfeil_start == NULL)
+X	{
+X		pfeil_start = zwei;
+X		pfeil_curr = zwei;
+X	} else
+X	{
+X		pfeil_curr->next = zwei;
+X		pfeil_curr = zwei;
+X	}
+}
+X
+X
+void
+read_circle()
+{
+X	struct fig2    *zwei = (struct fig2 *) malloc(sizeof(kreis));
+X	/* fill the struct */
+X	zwei->x = compute_length(buffer.xpos);
+X	zwei->y = compute_length(buffer.ypos);
+X	zwei->radius = (int) compute_length((float) buffer.radius / 2);
+X
+X	zwei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	zwei->y = oldy(zwei->y);
+X
+X	/* insert the struct into database */
+X
+X	if (kreis_start == NULL)
+X	{
+X		kreis_start = zwei;
+X		kreis_curr = zwei;
+X	} else
+X	{
+X		kreis_curr->next = zwei;
+X		kreis_curr = zwei;
+X	}
+}
+X
+void
+read_disc()
+{
+X	struct fig2    *zwei = (struct fig2 *) malloc(sizeof(disc));
+X	/* fill the struct */
+X	zwei->x = compute_length(buffer.xpos);
+X	zwei->y = compute_length(buffer.ypos);
+X	zwei->radius = (int) compute_length((float) buffer.radius / 2);
+X
+X	zwei->next = NULL;
+X
+X	/* use internal coordinate system */
+X	zwei->y = oldy(zwei->y);
+X
+X	/* insert the struct into database */
+X
+X	if (disc_start == NULL)
+X	{
+X		disc_start = zwei;
+X		disc_curr = zwei;
+X	} else
+X	{
+X		disc_curr->next = zwei;
+X		disc_curr = zwei;
+X	}
+}
+X
+void
+read_oval()
+{
+X	struct fig1    *eins = (struct fig1 *) malloc(sizeof(oval));
+X	/* fill the struct */
+X	eins->x = compute_length(buffer.xpos);
+X	eins->y = compute_length(buffer.ypos);
+X
+X	eins->h = compute_length(buffer.hpos);
+X	eins->v = compute_length(buffer.vpos);
+X
+X	(eins->x) -= (eins->h / 2);
+X	(eins->y) -= (eins->v / 2);
+X
+X	eins->h = eins->h + eins->x;
+X	eins->v = eins->v + eins->y;
+X
+X	eins->next = NULL;
+X
+X	/* use internal coordinate system */
+X	eins->y = oldy(eins->y);
+X	eins->v = oldy(eins->v);
+X
+X	norm_rectangle(&eins->x, &eins->y, &eins->h, &eins->v);
+X
+X	/* insert the struct into database */
+X
+X	if (oval_start == NULL)
+X	{
+X		oval_start = eins;
+X		oval_curr = eins;
+X	} else
+X	{
+X		oval_curr->next = eins;
+X		oval_curr = eins;
+X	}
+}
+X
+void
+read_message()
+{
+X  int lenn=81;
+X
+X	struct fig5    *fuenf = (struct fig5 *) malloc(sizeof(message));
+X	/* fill the struct */
+X
+X	if (1+strlen(buffer.text)>lenn) lenn=1+strlen(buffer.text);
+X
+X	fuenf->x = compute_length(buffer.xpos);
+X	fuenf->y = compute_length(buffer.ypos);
+X
+X	fuenf->text = (char *) malloc(lenn);
+X	strcpy(fuenf->text, buffer.text);
+X
+X	if (
+X	    (buffer.textpos[0] != 'b') &&
+X	    (buffer.textpos[0] != 't') &&
+X	    (buffer.textpos[0] != 'l') &&
+X	    (buffer.textpos[0] != 'r')
+X		)
+X		buffer.textpos[0] = 'c';
+X
+X	if (
+X	    (buffer.textpos[1] != 'b') &&
+X	    (buffer.textpos[1] != 't') &&
+X	    (buffer.textpos[1] != 'l') &&
+X	    (buffer.textpos[1] != 'r')
+X		)
+X		buffer.textpos[1] = 'c';
+X
+X	fuenf->textpos[0] = buffer.textpos[0];
+X	fuenf->textpos[1] = buffer.textpos[1];
+X
+X	fuenf->next = NULL;
+X
+X	/* use internal coordinate system */
+X	fuenf->y = oldy(fuenf->y);
+X
+X	/* insert the struct into database */
+X
+X	if (message_start == NULL)
+X	{
+X		message_start = fuenf;
+X		message_curr = fuenf;
+X	} else
+X	{
+X		message_curr->next = fuenf;
+X		message_curr = fuenf;
+X	}
+}
+X
+void
+read_bezier()
+{
+X	struct fig6    *six = (struct fig6 *) malloc(sizeof(bezier));
+X	/* fill the struct */
+X	six->ax = compute_length(buffer.xpos);
+X	six->ay = compute_length(buffer.ypos);
+X
+X	six->sx = compute_length(buffer.hpos);
+X	six->sy = compute_length(buffer.vpos);
+X
+X	six->ex = compute_length(buffer.sxpos);
+X	six->ey = compute_length(buffer.sypos);
+X
+X	six->next = NULL;
+X
+X	/* use internal coordinate system */
+X	six->ay = oldy(six->ay);
+X	six->ey = oldy(six->ey);
+X	six->sy = oldy(six->sy);
+X
+X	/* insert the struct into database */
+X
+X	if (bezier_start == NULL)
+X	{
+X		bezier_start = six;
+X		bezier_curr = six;
+X	} else
+X	{
+X		bezier_curr->next = six;
+X		bezier_curr = six;
+X	}
+}
+X
+void
+compute_end_coords(float x, float y, float *h, float *v, float len)
+{
+X	int             sgn;
+X	float           ziel, lambda;
+X	/* vertical ? */
+X	if ((*h) == 0)
+X	{
+X		sgn = ((*v) < 0) ? -1 : 1;
+X		(*v) = y + (float) sgn *len;
+X		(*h) = x;
+X	} else
+X	{
+X		len = ((*h) > 0) ? len : -len;
+X		ziel = x + len;
+X		lambda = (ziel - x) / (*h);
+X		(*h) = ziel;
+X		(*v) = y + lambda * (*v);
+X	}
+X	return;
+}
+X
+X
+X
+X
+X
+void
+trans_it(char *fn)
+{
+X	char            name[256];
+X	FILE           *fd;
+X	int             i;
+X	float           xdim, ydim;
+X
+X	dim_x_max = 0;
+X	dim_x_min = 999;
+X	dim_y_max = 0;
+X	dim_y_min = 999;
+X
+X	if (file_exists(fn) == True)
+X	{
+X		strcpy(name, fn);
+X		strcat(name, ".old");
+X		rename(fn, name);
+X	}
+X	fd = fopen(fn, "w+");
+X	manage_line(0, fd);
+X	manage_vector(0, fd);
+X	manage_filled(0, fd);
+X	manage_framed(0, fd);
+X	manage_dashed(0, fd);
+X	manage_kreis(0, fd);
+X	manage_disc(0, fd);
+X	manage_oval(0, fd);
+X	manage_text(0, fd);
+X	manage_bezier(0, fd);
+X
+X	xdim = dim_x_max - dim_x_min;
+X	ydim = dim_y_max - dim_y_min;
+X	xur = (xur == 0.0) ? dim_x_min : xur;
+X	yur = (yur == 0.0) ? newy(dim_y_max) : yur;
+X
+X	
+X	if ((dina4 == True) && (xdim > 300))
+X	{
+X		fprintf(fd, "%% ...images, whose extensions are to large for the\n");
+X		fprintf(fd, "%% current style, can be centered with one of the following\n");
+X		fprintf(fd, "%% modifications\n");
+X		fprintf(fd, "%%    -  if there is only one page to translate:\n");
+X		fprintf(fd, "%%       in the preamble: \\setlength{\\textheight}{%ipt}\n", y_A4_max);
+X		fprintf(fd, "%%                        \\setlength{\\textwidth}{%ipt}\n", x_A4_max);
+X		fprintf(fd, "%%    -  use the 2nd coordinate of the \\picture-command to adjust\n");
+X		fprintf(fd, "%%       your image! X-Dimension is %3.2f, Y-Dimension is %3.2f\n", xdim, ydim);
+X		fprintf(fd, "%% small images can be centered with the 'center'-environment.\n");
+X	}
+X	/* write header */
+X
+X	
+X
+X	fprintf(fd, "\\unitlength=1.0pt\n");
+X	if (dina4 == True)
+X		fprintf(fd, "\\begin{center}\n");
+X	fprintf(fd, "\\begin{picture}(%3.2f,%3.2f)(%3.2f,%3.2f)\n",
+X		xdim, ydim, xur, yur);
+X
+X
+X	/* objects */
+X
+X	manage_line(1, fd);
+X	manage_vector(1, fd);
+X	manage_filled(1, fd);
+X	manage_framed(1, fd);
+X	manage_dashed(1, fd);
+X	manage_kreis(1, fd);
+X	manage_disc(1, fd);
+X	manage_oval(1, fd);
+X	manage_text(1, fd);
+X	manage_bezier(1, fd);
+X
+X	fprintf(fd, "\\end{picture}\n");
+X
+X	if (dina4 == True)
+X		fprintf(fd, "\\end{center}\n");
+X
+X	
+X	fclose(fd);
+X
+}
+X
+X
+void
+dimension_update(float x, float y)
+{
+X	dim_x_min = (x < dim_x_min) ? x : dim_x_min;
+X	dim_x_max = (x > dim_x_max) ? x : dim_x_max;
+X
+X	dim_y_min = (y < dim_y_min) ? y : dim_y_min;
+X	dim_y_max = (y > dim_y_max) ? y : dim_y_max;
+X
+/*
+X	if (dim_y_min < 0)
+X		dim_y_min = 0;
+X	if (dim_y_max > y_A4_max)
+X		dim_y_max = y_A4_max;
+X	if (dim_x_min < 0)
+X		dim_x_min = 0;
+X	if (dim_x_max > x_A4_max)
+X		dim_x_max = x_A4_max;
+*/
+X
+}
+X
+X
+float
+newy(float y)
+{/* compute new y-coordinate for LaTeX' coord.-system */
+X
+X	return y_A4_max - y;
+}
+X
+float
+oldy(float y)
+{/* does the opposite... */
+X
+X	return newy(y);
+}
+X
+X
+void
+get_line_info(float x, float y, float h, float v, int *x_slp, int *y_slp, float *len)
+{
+X	int             t, a, b, i;
+X
+X
+X	if (line_slope == 0)
+X	{	/* unlimited slopes */
+X		y = newy(y);
+X		v = newy(v);
+X
+X		if ((abs((int) (h - x)) != 0) && (abs((int) (v - y)) != 0))
+X		{	/* not horizontal; not vertical */
+X			a = abs((int) (h - x));
+X			b = abs((int) (v - y));
+X			t = ggt(a, b);
+X
+X			a = a / t;
+X			b = b / t;
+X			a = (x < h) ? a : -a;
+X			b = (y < v) ? b : -b;
+X			(*x_slp) = a;
+X			(*y_slp) = b;
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		} else
+X		{
+X			if ((abs((int) (h - x)) != 0))
+X			{	/* horizontal line */
+X				(*x_slp) = (x < h) ? 1 : -1;
+X				(*y_slp) = 0;
+X				(*len) = (x < h) ? (h - x) : (x - h);
+X			} else
+X			{	/* vertical line */
+X				(*x_slp) = 0;
+X				(*y_slp) = (y < v) ? 1 : -1;
+X				(*len) = (y < v) ? (v - y) : (y - v);
+X			}
+X		}
+X	}
+X	/* line_slope unlimited ! */
+X	else
+X	{	/* normal LaTex slopes... */
+X		a = (int) h;
+X		b = (int) v;
+X		i = valid_line_coords((int) x, (int) y, &a, &b);
+X
+X
+X		/* use LaTeX coordinate-system: */
+X		y = newy(y);
+X		v = newy(v);
+X
+X		/* horizontal, vertical line ? */
+X
+X		if (abs((int) (v - y)) == 0)
+X		{	/* horizontal */
+X			(*x_slp) = (x < h) ? 1 : -1;
+X			(*y_slp) = 0;
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		} else if (abs((int) (h - x)) == 0)
+X		{	/* vertical */
+X			(*y_slp) = (y < v) ? 1 : -1;
+X			(*x_slp) = 0;
+X			(*len) = (y < v) ? (v - y) : (y - v);
+X		} else
+X		{	/* normal line */
+X			(*x_slp) = (x < h) ? l_slope[i][1] : -l_slope[i][1];
+X			(*y_slp) = (y < v) ? l_slope[i][2] : -l_slope[i][2];
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		}
+X	}	/* else */
+X
+X	/* (*len)+=1.0; */
+X
+}
+X
+X
+X
+X
+void
+get_vector_info(float x, float y, float h, float v, int *x_slp, int *y_slp, float *len)
+{
+X	int             t, a, b, i;
+X
+X
+X	if (arrow_slope == 0)
+X	{	/* unlimited slopes */
+X		y = newy(y);
+X		v = newy(v);
+X
+X		if ((abs((int) (h - x)) != 0) && (abs((int) (v - y)) != 0))
+X		{	/* not horizontal; not vertical */
+X			a = abs((int) (h - x));
+X			b = abs((int) (v - y));
+X			t = ggt(a, b);
+X
+X			a = a / t;
+X			b = b / t;
+X			a = (x < h) ? a : -a;
+X			b = (y < v) ? b : -b;
+X			(*x_slp) = a;
+X			(*y_slp) = b;
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		} else
+X		{
+X			if ((abs((int) (h - x)) != 0))
+X			{	/* horizontal line */
+X				(*x_slp) = (x < h) ? 1 : -1;
+X				(*y_slp) = 0;
+X				(*len) = (x < h) ? (h - x) : (x - h);
+X			} else
+X			{	/* vertical line */
+X				(*x_slp) = 0;
+X				(*y_slp) = (y < v) ? 1 : -1;
+X				(*len) = (y < v) ? (v - y) : (y - v);
+X			}
+X		}
+X	}
+X	/* arrow_slope unlimited ! */
+X	else
+X	{	/* normal LaTeX slopes... */
+X		a = (int) h;
+X		b = (int) v;
+X		i = valid_vector_coords((int) x, (int) y, &a, &b);
+X
+X
+X
+X		/* use LaTeX coordinate-system: */
+X		y = newy(y);
+X		v = newy(v);
+X
+X		/* horizontal, vertical line ? */
+X
+X		if (abs((int) (v - y)) == 0)
+X		{	/* horizontal */
+X			(*x_slp) = (x < h) ? 1 : -1;
+SHAR_EOF
+true || echo 'restore of io_trans.c failed'
+fi
+echo 'End of  part 5'
+echo 'File io_trans.c is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

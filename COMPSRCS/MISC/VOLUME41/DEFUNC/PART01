@@ -1,0 +1,1852 @@
+Newsgroups: comp.sources.misc
+From: jinke@sparky.Phy.QueensU.CA (Ke Jin)
+Subject: v41i032:  defunc - C library package for runtime function constructing, Part01/02
+Message-ID: <csm-v41i032=defunc.225802@sparky.Sterling.COM>
+X-Md4-Signature: a0b095960a70d23d3d63ce23a542cd0f
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 14 Dec 1993 04:58:54 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jinke@sparky.Phy.QueensU.CA (Ke Jin)
+Posting-number: Volume 41, Issue 32
+Archive-name: defunc/part01
+Environment: UNIX, yacc
+
+This submission includes source code and documentation for defunc 1.2 
+(Dynamic Expressible Function Constructing). With this library, one can 
+construct functions from runtime inputted expression strings in a handy
+and totally transparent way. That is, send your string to a defunc function,
+the return on success is a pointer to the constructed function. The package 
+has been test on UNIX with sun-cc gcc(2.2.2). The yacc file has been tested 
+with yacc and bison.
+
+Ke Jin 
+------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README defunc.c dfcparse.y dfcsymtable.c dfctoken.3.UU
+#   dfctree.c
+# Wrapped by kent@sparky on Mon Dec 13 22:36:49 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1003 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X        Copyright (c) 1993  Ke Jin
+X
+X        Permission to use, copy, modify, and distribute
+X        this software and its documentation without fee
+X        is granted, provided that the author's name and
+X        this copyright notice are retained.
+X
+X        This package includes 15 files of defunc version 1.2.1:
+X
+X	README		This file
+X	defunc.c 	high level module of defunc
+X	defunc.h 	interface to defunc.c
+X	dfctree.c	defunc low level module
+X	dfctree.h       interface to defunc.c
+X	dfcsymtable.c	defunc external token system
+X	dfcsymtable.h 	interface to dfcsymtable.c
+X	dfcscan.h	defunc lexical scaner
+X	dfcparse.y	yacc file of defunc parser
+X	y.tab.c		generated from dfcparse.y by yacc
+X	Makefile	install make file
+X	defunc.3	manual page of defunc
+X	dfopen.3 	manual page of dfopen() etc. functions 
+X	dftoken.3	manual page of defunc token system
+X	demo.c		example program of using defunc 
+X
+X
+X	Author Ke Jin.
+X	Physics Dept.
+X	Queen's Unviersity
+X	Kingstion Ontario
+X	Canada  K7L 3N6
+X
+X	(jinke@sparky.phy.queensu.ca)
+X
+END_OF_FILE
+  if test 1003 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'defunc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'defunc.c'\"
+else
+  echo shar: Extracting \"'defunc.c'\" \(14109 characters\)
+  sed "s/^X//" >'defunc.c' <<'END_OF_FILE'
+X/*********************************************************
+X *
+X *    Copyright (c) 1993  Ke Jin 
+X *
+X *    Permission to use, copy, modify, and distribute 
+X *    this software and its documentation without fee
+X *    is granted, provided that the author's name and
+X *    this copyright notice are retained.
+X * 
+X * -----------------------------------------------------
+X *
+X *    defunc.c -- defunc high level module 
+X *
+X *    public  function : dfopen();
+X *                       dfclose();
+X *                       dfcloseall();
+X *
+X *    private function : getfreehdl();
+X *                       tdfopen();
+X *                       getexprbody();
+X *                       getexprname();
+X *                       getexprset();
+X *                       isfnctexpr();
+X *
+X *                       brkbalance();
+X *
+X *                       hdl00() to hdl31();
+X *
+X *    private variable : tr_arr[];
+X *                     : hdl_arr[];
+X *
+X *********************************************************/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <ctype.h> 
+X#include <string.h>
+X
+X#include "dfctree.h"
+X#include "dfcsymtable.h"
+X#include "defunc.h"
+X
+X#ifdef __cplusplus   /* for c++ */
+X  extern "C" {
+X#endif
+X
+X#define MAXHANDLE 32
+X
+Xtypedef Node* Tree;
+Xtypedef double (*FP)();
+X
+X#if NeedFunctionPrototypes
+X  static Tree   tr_arr[MAXHANDLE];  /* predeclare static member */
+X  static FP     hdl_arr[MAXHANDLE]; /* predeclare static member */
+X  static char*  getexprbody(char* inputstr);
+X  static char*  getexprname(char* inputstr);
+X  static char*  getarguset(char* inputstr, int argidx);
+X  static int    isfnctexpr(char* inputstr);
+X  static int    brkbalance(char* inputstr);
+X#else
+X  extern Tree   tr_arr[MAXHANDLE];  /* predeclare static member */
+X  extern FP     hdl_arr[MAXHANDLE]; /* predeclare static member */
+X  extern char*  getexprbody();
+X  extern char*  getexprname();
+X  extern char*  getarguset();
+X  extern int    isfnctexpr();
+X  extern int    brkbalance();
+X#endif /* predeclare private function */
+X
+X#if NeedFunctionPrototypes
+X  static int getfreehdl(void)
+X#else
+X  static int getfreehdl() 
+X#endif
+X/* return the index of free handle on success. return -1 on fail */
+X{
+X    int i;
+X
+X    for(i=0;i<MAXHANDLE;i++)
+X    {
+X	if(tr_arr[i]==(Node*)0) return i;
+X    }
+X
+X    return -1;    /* if no free handle */
+X};
+X
+X#if NeedFunctionPrototypes
+X  static double (*tdfopen(char* exprbody))(double x, double y)
+X#else
+X  static double (*tdfopen(exprbody))() 
+X  char* exprbody;
+X#endif
+X/* Only accept expression body. Return handle function or NULL */
+X{
+X    int i, size;
+X
+X    if(brkbalance(exprbody)!=0)  
+X    {
+X        exparserror = "unbalanced ( ) in expression";
+X	return 0;
+X    }
+X
+X    if((i=getfreehdl())==-1)  return 0; /* no free handle */
+X    
+X    size = exparse(exprbody);
+X    if(size<=0) return 0;
+X
+X    tr_arr[i] = (Node*)malloc(sizeof(Node)*size); 
+X    if(tr_arr[i]==0) 
+X    {
+X	exparserror = "fail to alloc memory for new parse tree";
+X	return 0;
+X    }
+X
+X    getparsetree(tr_arr[i]);
+X    reduce(tr_arr[i], 0);
+X
+X    return hdl_arr[i];
+X};
+X
+X#if NeedFunctionPrototypes
+X  double (*dfopen(char* expr))(double x, double y)
+X#else
+X  double (*dfopen(expr))()
+X  char* expr;
+X#endif 
+X/* Accept full expression as well as expression 
+X * body.  Return handle function or NULL */
+X{
+X    double (*fnctptr)();
+X
+X    char* exprbody;
+X    char* exprname;
+X    char  *arg1, *arg2;
+X
+X    exparserror = 0;
+X    if(brkbalance(expr)!=0)
+X    {
+X	exparserror = "unbalanced ( ) in expression";
+X	return 0;
+X    }
+X
+X    exprbody = getexprbody(expr);
+X    exprname = getexprname(expr);
+X    arg1     = getarguset(expr, 1);
+X    arg2     = getarguset(expr, 2);
+X
+X    if(nameargu(arg1, arg2)==-1)
+X    {
+X	exparserror = "error on reset argument";
+X	return 0;
+X    }
+X
+X    fnctptr = tdfopen(exprbody);
+X
+X    if(exprname!=0)
+X    {
+X	if(arg1!=0||isfnctexpr(expr)) 
+X	{
+X	    namefnct(exprname, fnctptr);
+X        }
+X	else if(fnctptr!=0)
+X	{
+X	    namecnst(exprname, fnctptr());
+X        }
+X    }
+X
+X    return fnctptr;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int dfclose(double (*fnctptr)())
+X#else
+X  int dfclose(fnctptr)
+X  double (*fnctptr)();
+X#endif
+X/* close a dynamic function(getten from dfopen) if it not on
+X * the global name-function association table. On success,
+X * return 0. On fail return -1 
+X */
+X{
+X    int i;
+X    if(getsym(getfnctname(fnctptr))!=0) return -1; 
+X    /* function still on symbol table can't be closed */ 
+X
+X    for(i=0;i<MAXHANDLE;i++)
+X    {
+X	if(fnctptr==hdl_arr[i])
+X	{
+X	    if(tr_arr[i]!=0) free(tr_arr[i]);
+X	    tr_arr[i]=0;
+X	    return 0; /* success */
+X        }
+X    }
+X
+X    return -1; /* fail to close */
+X};
+X
+X#if NeedFunctionPrototypes
+X  int dfcloseall(void)
+X#else
+X  int dfcloseall()
+X#endif
+X/* close all (not on the association table) dynamic functions  
+X * Return the total number of handler freed by this calling.
+X */
+X{
+X     int i, j;
+X
+X     for(i=0, j=0; i<MAXHANDLE; i++)
+X     {
+X	 if(tr_arr[i]!=0)  /* unfreed handle */ 
+X	 {
+X	     if(dfclose(hdl_arr[i])==0) /* success */
+X	     {
+X	       tr_arr[i]=0;
+X	       j++;
+X             }
+X         }
+X     }
+X
+X     return j;
+X};
+X
+X#if NeedFunctionPrototypes
+X   static char* getexprbody(char* str)
+X#else 
+X   static char* getexprbody(str)
+X   char* str;
+X#endif
+X/* extract the expression body from an input string */
+X{
+X    int i;
+X
+X    for(i=0;i<strlen(str);i++)
+X    {
+X        if(str[i]=='=') return str+i+1;
+X	/* found '=' in str, substring after '=' be returned */
+X
+X    }
+X
+X    return str; /* no '=' be found, then return str itself */
+X};
+X
+X#if NeedFunctionPrototypes
+X   static char* getexprname(char* str)
+X#else
+X   static char* getexprname(str)
+X   char* str;
+X#endif
+X/* extract the expression title from an input string */
+X{
+X    int i, j=0, len;
+X    static char* name;
+X
+X    for(i=0; i<strlen(str);i++)
+X    {
+X	if(str[i]=='=') break;
+X	/* if no '=' be found, then it's a anonymous expression */
+X    }
+X    if(i==strlen(str)) return 0;
+X
+X    len = i;
+X
+X    name = (char*)malloc(len*sizeof(char));
+X    if(name == 0) 
+X    {
+X	perror("malloc in getarguset()");
+X	exit(1);
+X    }
+X
+X    for(i=0; i<len; i++)
+X    {
+X        if(isalnum(str[i])) 
+X	{
+X	    name[j] = str[i];
+X	    j++;
+X        }
+X	else break;
+X    }
+X
+X    name[j]= '\0';
+X    if(strlen(name)==0) return 0;
+X    return name;
+X};
+X
+X#if NeedFunctionPrototypes
+X    static char* getarguset(char* str, int argidx)
+X#else
+X    static char* getarguset(str, argidx)
+X    char* str;
+X    int   argidx;
+X#endif
+X/* extract an argument name from input string */
+X{
+X    int i, j=0, len;
+X    char   c;
+X    static char *name1;
+X    static char *name2;
+X
+X    for(i=0; i<strlen(str); i++)
+X    {
+X	if(str[i]=='=') break;
+X	/* if no '=' be found, then it's a anonymous expression */
+X    }
+X    if(i==strlen(str)) return 0;
+X    len=i; 
+X    /* len is the length of substring (those part in front of '=') */
+X
+X    for(i=0; i<len; i++)
+X    {
+X	if(argidx==1)  
+X        {
+X	    name1 = (char*)malloc(len*sizeof(char));
+X	    if(name1 == 0)
+X	    {
+X	        perror("malloc in getarguset()");
+X                exit(1);
+X            }
+X
+X	    if(str[i] == '(')     /* skim over the expr name */
+X	    {
+X	        for(i=i+1;i<len;i++)
+X	        {
+X		    c = str[i];
+X		    if(j==0&&(c==' '||c=='\t')) continue;
+X	            if(c!=','&&c!=')'&&c!='='&&c!=' '&&c!='\t') 
+X		    { 
+X		        name1[j]=c;
+X		        j++;
+X                    }
+X		    else break;
+X                }
+X		name1[j]='\0';
+X		if(strlen(name1)==0) return 0;
+X		return name1; 
+X            }
+X        }
+X
+X	if(argidx==2)
+X	{
+X	    name2 = (char*)malloc(len*sizeof(char));
+X	    if(name2 == 0)
+X            {
+X	        perror("malloc in getarguset()");
+X		exit(1);
+X            }	
+X
+X	    if(str[i] == ',')     
+X	          /* skim over the expr and 1st argu names */
+X            {
+X		for(i=i+1;i<len;i++)
+X		{
+X		    c=str[i];
+X		    if(j==0&&(c==' '||c=='\t')) continue;
+X		    if(c!=','&&c!=')'&&c!='='&&c!=' '&&c!='\t')
+X		    {
+X			name2[j]=str[i];
+X			j++;
+X                    }
+X		    else break; 
+X                }
+X		name2[j]='\0';
+X		if(strlen(name2)==0) return 0;
+X		return name2;
+X            }
+X        }
+X    }
+X
+X    return 0;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int isfnctexpr(char* expression)
+X#else
+X  static int isfnctexpr(expression)
+X  char* expression;
+X#endif
+X/* to see the title is in "name(...)=" form or in "name=" form */
+X{
+X    int i, tag=0;
+X    char c;
+X
+X    if(expression==0) return 0;
+X
+X    for(i=0; i<strlen(expression); i++)
+X    {
+X	c=expression[i];
+X	if(c=='(') tag=1;
+X	if(c=='=') return tag;
+X    }
+X
+X    return tag;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int brkbalance(char* expression) 
+X#else
+X  static int brkbalance(expression)
+X  char* expression;
+X#endif
+X/* check the balance of '(' and ')'. Return 0 on balance */
+X{
+X    int  i,j;
+X    char c;
+X
+X    for(i=0, j=0;i<strlen(expression);i++)
+X    {
+X	c = expression[i];
+X	if(c=='(') j++;
+X	if(c==')') j--;
+X    }
+X
+X    return j;
+X};
+X	    
+X/* ------------------------- private members  ------------------------ */
+Xstatic  Tree   tr_arr[MAXHANDLE];
+X
+X#if NeedFunctionPrototypes
+X static double hdl00(double x,double y){return evaluate(tr_arr[ 0],0,x,y);};
+X static double hdl01(double x,double y){return evaluate(tr_arr[ 1],0,x,y);};
+X static double hdl02(double x,double y){return evaluate(tr_arr[ 2],0,x,y);};
+X static double hdl03(double x,double y){return evaluate(tr_arr[ 3],0,x,y);};
+X static double hdl04(double x,double y){return evaluate(tr_arr[ 4],0,x,y);};
+X static double hdl05(double x,double y){return evaluate(tr_arr[ 5],0,x,y);};
+X static double hdl06(double x,double y){return evaluate(tr_arr[ 6],0,x,y);};
+X static double hdl07(double x,double y){return evaluate(tr_arr[ 7],0,x,y);};
+X static double hdl08(double x,double y){return evaluate(tr_arr[ 8],0,x,y);};
+X static double hdl09(double x,double y){return evaluate(tr_arr[ 9],0,x,y);};
+X static double hdl10(double x,double y){return evaluate(tr_arr[10],0,x,y);};
+X static double hdl11(double x,double y){return evaluate(tr_arr[11],0,x,y);};
+X static double hdl12(double x,double y){return evaluate(tr_arr[12],0,x,y);};
+X static double hdl13(double x,double y){return evaluate(tr_arr[13],0,x,y);};
+X static double hdl14(double x,double y){return evaluate(tr_arr[14],0,x,y);};
+X static double hdl15(double x,double y){return evaluate(tr_arr[15],0,x,y);};
+X static double hdl16(double x,double y){return evaluate(tr_arr[16],0,x,y);};
+X static double hdl17(double x,double y){return evaluate(tr_arr[17],0,x,y);};
+X static double hdl18(double x,double y){return evaluate(tr_arr[18],0,x,y);};
+X static double hdl19(double x,double y){return evaluate(tr_arr[19],0,x,y);};
+X static double hdl20(double x,double y){return evaluate(tr_arr[20],0,x,y);};
+X static double hdl21(double x,double y){return evaluate(tr_arr[21],0,x,y);};
+X static double hdl22(double x,double y){return evaluate(tr_arr[22],0,x,y);};
+X static double hdl23(double x,double y){return evaluate(tr_arr[23],0,x,y);};
+X static double hdl24(double x,double y){return evaluate(tr_arr[24],0,x,y);};
+X static double hdl25(double x,double y){return evaluate(tr_arr[25],0,x,y);};
+X static double hdl26(double x,double y){return evaluate(tr_arr[26],0,x,y);};
+X static double hdl27(double x,double y){return evaluate(tr_arr[27],0,x,y);};
+X static double hdl28(double x,double y){return evaluate(tr_arr[28],0,x,y);};
+X static double hdl29(double x,double y){return evaluate(tr_arr[29],0,x,y);};
+X static double hdl30(double x,double y){return evaluate(tr_arr[30],0,x,y);};
+X static double hdl31(double x,double y){return evaluate(tr_arr[31],0,x,y);};
+X#else
+X static double hdl00(x,y) double x,y; {return evaluate(tr_arr[ 0],0,x,y);};
+X static double hdl01(x,y) double x,y; {return evaluate(tr_arr[ 1],0,x,y);};
+X static double hdl02(x,y) double x,y; {return evaluate(tr_arr[ 2],0,x,y);};
+X static double hdl03(x,y) double x,y; {return evaluate(tr_arr[ 3],0,x,y);};
+X static double hdl04(x,y) double x,y; {return evaluate(tr_arr[ 4],0,x,y);};
+X static double hdl05(x,y) double x,y; {return evaluate(tr_arr[ 5],0,x,y);};
+X static double hdl06(x,y) double x,y; {return evaluate(tr_arr[ 6],0,x,y);};
+X static double hdl07(x,y) double x,y; {return evaluate(tr_arr[ 7],0,x,y);};
+X static double hdl08(x,y) double x,y; {return evaluate(tr_arr[ 8],0,x,y);};
+X static double hdl09(x,y) double x,y; {return evaluate(tr_arr[ 9],0,x,y);};
+X static double hdl10(x,y) double x,y; {return evaluate(tr_arr[10],0,x,y);};
+X static double hdl11(x,y) double x,y; {return evaluate(tr_arr[11],0,x,y);};
+X static double hdl12(x,y) double x,y; {return evaluate(tr_arr[12],0,x,y);};
+X static double hdl13(x,y) double x,y; {return evaluate(tr_arr[13],0,x,y);};
+X static double hdl14(x,y) double x,y; {return evaluate(tr_arr[14],0,x,y);};
+X static double hdl15(x,y) double x,y; {return evaluate(tr_arr[15],0,x,y);};
+X static double hdl16(x,y) double x,y; {return evaluate(tr_arr[16],0,x,y);};
+X static double hdl17(x,y) double x,y; {return evaluate(tr_arr[17],0,x,y);};
+X static double hdl18(x,y) double x,y; {return evaluate(tr_arr[18],0,x,y);};
+X static double hdl19(x,y) double x,y; {return evaluate(tr_arr[19],0,x,y);};
+X static double hdl20(x,y) double x,y; {return evaluate(tr_arr[20],0,x,y);};
+X static double hdl21(x,y) double x,y; {return evaluate(tr_arr[21],0,x,y);};
+X static double hdl22(x,y) double x,y; {return evaluate(tr_arr[22],0,x,y);};
+X static double hdl23(x,y) double x,y; {return evaluate(tr_arr[23],0,x,y);};
+X static double hdl24(x,y) double x,y; {return evaluate(tr_arr[24],0,x,y);};
+X static double hdl25(x,y) double x,y; {return evaluate(tr_arr[25],0,x,y);};
+X static double hdl26(x,y) double x,y; {return evaluate(tr_arr[26],0,x,y);};
+X static double hdl27(x,y) double x,y; {return evaluate(tr_arr[27],0,x,y);};
+X static double hdl28(x,y) double x,y; {return evaluate(tr_arr[28],0,x,y);};
+X static double hdl29(x,y) double x,y; {return evaluate(tr_arr[29],0,x,y);};
+X static double hdl30(x,y) double x,y; {return evaluate(tr_arr[30],0,x,y);};
+X static double hdl31(x,y) double x,y; {return evaluate(tr_arr[31],0,x,y);}; 
+X#endif
+X
+Xstatic FP     hdl_arr[MAXHANDLE] ={ 
+X              hdl00, hdl01, hdl02, hdl03, hdl04, hdl05, hdl06, hdl07, 
+X              hdl08, hdl09, hdl10, hdl11, hdl12, hdl13, hdl14, hdl15, 
+X              hdl16, hdl17, hdl18, hdl19, hdl20, hdl21, hdl22, hdl23,
+X              hdl24, hdl25, hdl26, hdl27, hdl28, hdl29, hdl30, hdl31 };
+X
+X#ifdef __cplusplus
+X  }        /* end for c++ */
+X#endif
+END_OF_FILE
+  if test 14109 -ne `wc -c <'defunc.c'`; then
+    echo shar: \"'defunc.c'\" unpacked with wrong size!
+  fi
+  # end of 'defunc.c'
+fi
+if test -f 'dfcparse.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dfcparse.y'\"
+else
+  echo shar: Extracting \"'dfcparse.y'\" \(8520 characters\)
+  sed "s/^X//" >'dfcparse.y' <<'END_OF_FILE'
+X/****************************************************************
+X *
+X *    Copyright (c) 1993  Ke Jin
+X *
+X *    Permission to use, copy, modify, and distribute
+X *    this software and its documentation without fee
+X *    is granted, provided that the author's name and
+X *    this copyright notice are retained.
+X *
+X * ------------------------------------------------------------
+X *
+X *   dfcparse.y -- the yacc file of defunc parser 
+X *
+X *   public  function : yyparse();
+X *                      yyinit();
+X *                      getparsetree();
+X *
+X *   public  variable : exparserror;
+X *  
+X *   private function : addnode();
+X *                      yyreverse();
+X *                      yyerror();
+X *                      yywrap();
+X *
+X *   private variable : yyparsetree;
+X *                      yytreesize;
+X *                      newnode;
+X *
+X ****************************************************************/
+X
+X%{
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <math.h>
+X#include <string.h>
+X#include "dfctree.h"
+X#include "dfcsymtable.h"
+X
+Xchar*         exparserror;
+Xstatic char   ermsgbuff[128];
+Xstatic Node*  yyparsetree; 
+Xstatic int    yytreesize;
+Xstatic Node   newnode;
+X
+X#if NeedFunctionPrototypes
+X  int yyparse(void);
+X  static int yyreverse(void);
+X#else
+X  extern int yyparse();
+X  extern int yyreverse();
+X#endif
+X
+X#if NeedFunctionPrototypes
+X  static int addnode(Node *ptr)
+X#else
+X  static int addnode(ptr)
+X  Node *ptr;
+X#endif
+X{
+X    yytreesize++;
+X
+X    if(yytreesize==1)
+X    {
+X        yyparsetree = (Node*)malloc(sizeof(Node));
+X    }
+X    else
+X    {
+X        yyparsetree = (Node*)realloc((Node*)yyparsetree, 
+X                                 yytreesize*sizeof(Node));
+X    }
+X    if(yyparsetree==0)
+X    {
+X	perror("malloc/realloc in addnode()");
+X	exit(1);
+X    }
+X
+X    if(yyparsetree == 0) 
+X    {
+X        fprintf(stderr, "fail to allocate memory in add node\n");
+X        exit(1);
+X    }
+X
+X    /* yyparsetree[yytreesize-1] = *ptr; */
+X    memcpy(yyparsetree+yytreesize-1, ptr, sizeof(Node)); 
+X
+X    return yytreesize-1;
+X};
+X
+X%}
+X
+X%union {
+X    int    nodeidx;
+X    int    argidx;
+X    double value;
+X    double (*fnctptr)();
+X    char   name[32];
+X}
+X
+X%token <value>   CONST  /* constant              */
+X%token <argidx>  ARG    /* function arguments    */
+X%token <fnctptr> FNCT   /* intrinsic function    */
+X%token <name>    SYM    /* new symbol            */
+X%type  <nodeidx> expr   /* function expression   */
+X
+X%left  '-' '+'
+X%left  '*' '/'
+X%left  SIG
+X%right '^'
+X
+X%% /*  ------------------- syntax rules ------------------------ */ 
+Xinput : '\n'               {  
+X			      return 0;
+X 			   } 
+X      | ';'                {
+X			      return 0;
+X                           }
+X      | expr '\n'          {  
+X                              return yyreverse(); 
+X                           } 
+X      | expr ';'           {
+X			      return yyreverse();
+X                           }
+X      | error '\n'         {  
+X                              return -1;
+X                           } 
+X      ;
+X
+Xexpr  : CONST              {  
+X                              newnode.type = const_node;
+X                              newnode.content.value = $1;
+X
+X                              $$ = addnode(&newnode); 
+X                           }
+X      | SYM                {
+X			      sprintf(ermsgbuff, 
+X				  "unknow token \"%s\"", $1);
+X			      exparserror = ermsgbuff;
+X			      return -1;
+X                           }
+X      | CONST '(' ')'      {
+X			      newnode.type = const_node;
+X			      newnode.content.value = $1;
+X
+X			      $$ = addnode(&newnode);
+X                           }
+X      | CONST '(' expr ')' {
+X			      newnode.type = const_node;
+X			      newnode.content.value = $1;
+X
+X			      $$ = addnode(&newnode);
+X			   }
+X      | ARG                {
+X                              newnode.type = arg_node;
+X			      newnode.content.argidx = $1;
+X                              $$ = addnode(&newnode);
+X                           }
+X      | FNCT '(' expr ')'  { 
+X                              newnode.type = simplex_fnct_node;
+X                              newnode.content.fnctptr = $1;
+X                              newnode.right = $3;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | FNCT '(' expr ',' expr ')' {
+X                              newnode.type = duplex_fnct_node;
+X                              newnode.content.fnctptr = $1;
+X                              newnode.left = $3;
+X                              newnode.right= $5;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | FNCT '(' expr ',' expr ',' expr ')' {
+X			      exparserror 
+X				= "not support triplex function yet";
+X		              return -1;	
+X	                   } 
+X      | expr '+' expr      {
+X                              newnode.type = binary_op_node;
+X                              newnode.content.op = op_sum;
+X                              newnode.left = $1;
+X                              newnode.right= $3;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | expr '-' expr      {
+X                              newnode.type = binary_op_node;
+X                              newnode.content.op = op_sub;
+X                              newnode.left = $1;
+X                              newnode.right= $3;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | expr '*' expr      {
+X                              newnode.type = binary_op_node;
+X                              newnode.content.op = op_mul;
+X                              newnode.left = $1;
+X                              newnode.right= $3;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | expr '/' expr      {
+X                              newnode.type = binary_op_node;
+X                              newnode.content.op = op_div;
+X                              newnode.left =$1;
+X                              newnode.right=$3;
+X
+X                              $$ = addnode(&newnode); 
+X                           }
+X      | '-' expr %prec SIG {
+X                              newnode.type = unary_op_node; 
+X			      newnode.content.op = op_neg;
+X                              newnode.right = $2;
+X
+X                              $$ = addnode(&newnode);
+X                           }
+X      | '+' expr %prec SIG { 
+X                              $$ = $2;
+X                           } 
+X      | expr '^' expr      {
+X                              newnode.type = duplex_fnct_node;
+X                              newnode.content.fnctptr = pow;
+X                              newnode.left = $1;
+X                              newnode.right= $3;
+X
+X                              $$ = addnode(&newnode);
+X                           } 
+X      | '(' expr ')'       { 
+X                              $$ = $2; 
+X                           }
+X      ;
+X%% /* --------------------------------------------------------- */
+X#include "dfcscan.h"
+X
+X#if NeedFunctionPrototype
+X  int yyinit(char* expr)
+X#else
+X  int yyinit(expr)
+X  char *expr; 
+X#endif
+X{
+X    initargu();
+X
+X    yyexpr = expr;
+X    yyexprlen = strlen(yyexpr);
+X    yypos = 0;
+X    yytreesize = 0;
+X
+X    return 0;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int yyreverse(void)
+X#else
+X  static int yyreverse()  
+X#endif
+X/* yyparse() use a LALR(1) bottom-up algorithem to construct the
+X   parse tree. Thus the result tree is upsetdown, i.e. the root
+X   is place on the end of the yyparsetree[]. yyreverse make it
+X   in right order, i.e. yyparsetree[0] be the root */
+X{
+X    int   i;
+X    Node* buff;
+X
+X    if(yytreesize==0) return 0;
+X
+X    buff = (Node*)malloc(sizeof(Node)*yytreesize);
+X    if(buff==0) 
+X    {
+X	perror("malloc in reverse()");
+X	exit(1);
+X    }
+X
+X    for(i=0; i<yytreesize; i++) /* reverse */
+X    {
+X	
+X 	/* buff[i] = yyparsetree[yytreesize-1-i]; */
+X	memcpy(buff+i, yyparsetree+yytreesize-1-i, sizeof(Node));
+X	buff[i].left = yytreesize - 1 - buff[i].left;
+X	buff[i].right= yytreesize - 1 - buff[i].right;
+X
+X    }
+X
+X    for(i=0; i<yytreesize; i++) /* put it back */ 
+X    {
+X	yyparsetree[i] = buff[i];
+X    }
+X
+X    free(buff);
+X
+X    return yytreesize;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int getparsetree(Node* buff)
+X#else
+X  int getparsetree(buff)
+X  Node* buff;
+X#endif
+X/* copy the parse into buff */
+X{
+X    int i;
+X
+X    for(i=0; i<yytreesize; i++)
+X    {
+X	buff[i] = yyparsetree[i];
+X    }
+X
+X    return yytreesize;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static void yyerror(char* s)
+X#else
+X  static yyerror(s)
+X  char *s;
+X#endif
+X{
+X    exparserror=s;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int yywrap(void)
+X#else
+X  static int yywrap()
+X#endif
+X{
+X   return 1;
+X};
+END_OF_FILE
+  if test 8520 -ne `wc -c <'dfcparse.y'`; then
+    echo shar: \"'dfcparse.y'\" unpacked with wrong size!
+  fi
+  # end of 'dfcparse.y'
+fi
+if test -f 'dfcsymtable.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dfcsymtable.c'\"
+else
+  echo shar: Extracting \"'dfcsymtable.c'\" \(11913 characters\)
+  sed "s/^X//" >'dfcsymtable.c' <<'END_OF_FILE'
+X/*********************************************************
+X *
+X *    Copyright (c) 1993  Ke Jin
+X *
+X *    Permission to use, copy, modify, and distribute
+X *    this software and its documentation without fee
+X *    is granted, provided that the author's name and
+X *    this copyright notice are retained.
+X *
+X * -----------------------------------------------------
+X *
+X *    dfcsymtable.c -- symbol table of defunc
+X *
+X *    public  function : getsym(); 
+X *                       getfnctname();
+X *                       getarguname();
+X *
+X *                       nameargu();
+X *                       initargu();
+X *                       namefnct();
+X *                       namecnst();
+X *                       clrfnct();
+X *                       clrfnctall();
+X *                       clrcnst();
+X *                       clrcnstall();
+X *
+X *                       matha2z();  
+X *
+X *    private variable : sym_table;
+X *                       tablen;
+X *
+X *    private function : top();
+X *                       isname();
+X *                       clrname();
+X *                       clrall();
+X *
+X *********************************************************/
+X
+X#include <stdio.h>
+X#include <malloc.h>
+X#include <string.h>
+X#include <math.h>
+X#include <ctype.h>
+X#include "dfcsymtable.h"
+X
+X#ifdef __cplusplus
+X  extern "C" {   /* for c++ */
+X#endif
+X
+Xstatic Symbol_record* sym_table = 0; 
+X/* The defunc system global name-object association table */
+X
+X#if NeedFunctionPrototypes
+X  Symbol_record* getsym(char *name) 
+X#else
+X  Symbol_record* getsym(name)   
+X  char *name;
+X#endif
+X/* search for record with the given name from sym_table */
+X{
+X    Symbol_record* ptr;
+X
+X    if(name==0) return 0;
+X
+X    for(ptr=sym_table; ptr!=0; ptr=(Symbol_record*)ptr->next)
+X    {
+X       if(strcmp(ptr->name, name)==0) break;
+X    }
+X
+X    return ptr;  
+X       /* if symbol with name not in sym_table, return will be NULL */
+X};
+X
+X#if NeedFunctionPrototypes
+X  char* getfnctname(double (*fnct)())
+X#else
+X  char* getfnctname(fnct)
+X  double (*fnct)();
+X#endif
+X{
+X    Symbol_record* ptr;
+X
+X    for(ptr=sym_table;ptr!=0;ptr=ptr->next)
+X    {
+X        if(ptr->type==fnct_symbol)
+X        {
+X            if(fnct==ptr->content.fnctptr) return ptr->name;
+X        }
+X    }
+X		    
+X    return 0;
+X};
+X
+X#if NeedFunctionPrototypes
+X  char* getarguname(int argidx)
+X#else
+X  char* getarguname(argidx)
+X  int argidx;
+X#endif
+X/* return the name of the argument with specific index */ 
+X{
+X    Symbol_record* ptr;
+X
+X    for(ptr=sym_table; ptr!=0; ptr=ptr->next)
+X    {
+X        if(ptr->type==arg_symbol)
+X        {
+X            if(argidx==ptr->content.argidx) return ptr->name;
+X        }	
+X    }
+X
+X    return 0;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static Symbol_record* top(void)
+X#else
+X  static Symbol_record* top() 
+X#endif
+X/* return the top symbol record in the sym_table heap */
+X{
+X    Symbol_record* ptr;
+X
+X    for(ptr=sym_table; ptr->next!=0; ptr=(Symbol_record*)ptr->next) 
+X    { 
+X	/* skim over the table, do nothing on it */ 
+X    };
+X
+X    return ptr;
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int isname(char* str)
+X#else
+X  static int isname(str)
+X  char *str;
+X#endif
+X/* Is the string str a legal name? (start with alphabetic character
+X * followed by alphabetics or numberical characters) */
+X{
+X    int i;
+X
+X    if(str==0||strlen(str)==0) return 0;
+X
+X    if(!isalpha(str[0])) return 0; /* fail */
+X
+X    for(i=1;i<strlen(str);i++)
+X    {
+X	if(!isalnum(str[i])) return 0;  /* fail */
+X    }
+X
+X    return 1; /* true */
+X};
+X
+X#if NeedFunctionPrototypes
+X  static int clrname(char* name, Symbol_type type)
+X#else
+X  static int clrname(name, type)
+X  char* name;
+X  Symbol_type type;
+X#endif
+X/* delete a specific name with given type from symbol table */
+X{
+X    Symbol_record *ptr=sym_table, *newnext;
+X
+X    if(sym_table==0) return 0;    /* empty table, no delete action */
+X
+X    if(strcmp(sym_table->name, name)==0&&ptr->type==type)
+X    /* name and type matched with the 1st record */
+X    {
+X	ptr = sym_table;
+X	sym_table = sym_table->next;     /* cut out the 1st record */
+X	free(ptr->name);           
+X	free(ptr);
+X	return 1;
+X    }
+X
+X    for(ptr=sym_table; ptr->next!=0; ptr=(Symbol_record*)ptr->next)
+X    /* skim through the table */
+X    {
+X	if(strcmp(ptr->next->name, name)==0&&ptr->next->type==type)
+X	/* name and type matched with the next record */
+X	{
+X	    newnext=ptr->next->next; /* cut out the next record */
+X	    free(ptr->next->name);
+X	    free(ptr->next);
+X	    ptr->next=newnext;
+X	    return 1;
+X        }
+X    }
+X
+X    return 0;  /* no matching */
+X};
+X
+X#if NeedFunctionPrototypes
+X  int clrfnct(char* name)
+X      { return clrname(name, fnct_symbol);};
+X  int clrcnst(char* name)
+X      { return clrname(name, const_symbol);};
+X#else
+X  int clrfnct(name) char* name;
+X      { return clrname(name, fnct_symbol);};
+X  int clrcnst(name) char* name; 
+X      { return clrname(name, const_symbol);};
+X#endif
+X
+X#if NeedFunctionPrototypes
+X  static int clrall(Symbol_type type)
+X#else
+X  static int clrall(type)
+X  Symbol_type type;
+X#endif
+X/* delete all symbols with specific type from symbol table */
+X{
+X    Symbol_record* ptr, *newnext;
+X    int i=0; 
+X
+X    if(sym_table==0) return 0;   /* empty, no delete action */
+X
+X    for(ptr=sym_table;sym_table!=0;ptr=sym_table)
+X                /* always point to 1st record */
+X    {
+X        if(sym_table->type==type)    /* type matched with the 1st record */
+X        {
+X	    sym_table=sym_table->next; /* cut out the 1st record */
+X	    free(ptr->name);
+X	    free(ptr);
+X	    i++;
+X        }
+X	else break;   /* if new 1st record not match, jump out */
+X    }
+X
+X    if(sym_table == 0) return i;  /* still have record ? */
+X
+X    for(ptr=sym_table; ptr->next!=0; ptr=(Symbol_record*)ptr->next)
+X    /* skim through the table */
+X    {
+X	if(ptr->next->type==type) /* type matched with next record */
+X	{
+X	    newnext = ptr->next->next;  /* cut out the next record */
+X	    free(ptr->next->name);
+X	    free(ptr->next);
+X	    ptr->next = newnext;
+X	    i++;
+X        }
+X    }
+X
+X    return i;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int clrfnctall(void)
+X      { return clrall(fnct_symbol);};
+X  int clrcnstall(void)
+X      { return clrall(const_symbol);};
+X#else
+X  int clrfnctall()
+X      { return clrall(fnct_symbol);};
+X  int clrcnstall()
+X      { return clrall(const_symbol);};
+X#endif
+X
+X#if NeedFunctionPrototypes
+X  int namefnct(char* str, double (*fnctptr)())
+X#else
+X  int namefnct(str, fnctptr)   
+X  char *str;
+X  double (*fnctptr)();
+X#endif
+X/* add a function symbol to the end of sym_table */
+X{
+X    Symbol_record* ptr=0; 
+X
+X    if(!isname(str)||fnctptr==0) return 0;
+X
+X    if(sym_table==0) /* table is empty */
+X    {
+X	if(nameargu("x", "y")<=0) return -1;
+X    }
+X
+X    ptr = getsym(str);
+X
+X    if(ptr==0) /* symbol not exist in sym_table */
+X    {
+X        ptr = top()->next  
+X            = (Symbol_record*)malloc(sizeof(Symbol_record));
+X        if(ptr==0)
+X	{
+X	    perror("malloc for new function token item");
+X	    exit(1);
+X        }
+X    }
+X    else if(ptr->type==arg_symbol)
+X    {
+X        return -1;  /* forbiding override argument symbols */
+X    }
+X
+X    ptr->name = (char*)malloc((strlen(str)+1)*sizeof(char));
+X    if(ptr->name==0)
+X    {
+X	perror("malloc for new function token name");
+X	exit(1);
+X    }
+X    
+X    strncpy(ptr->name, str, strlen(str)+1);
+X    ptr->type = fnct_symbol;
+X    ptr->content.fnctptr = fnctptr;
+X
+X    return 1;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int namecnst(char* str, double number)
+X#else
+X  int namecnst(str, number)  
+X  char *str;
+X  double number;
+X#endif
+X/* add a constnat symbol to the end of sym_table */
+X{
+X    Symbol_record* ptr=0;
+X
+X    if(!isname(str)) return 0;
+X
+X    if(sym_table==0) /* table is empty */
+X    {
+X	if(nameargu("x", "y")<=0) return -1;
+X    } 
+X
+X    ptr = getsym(str);
+X
+X    if(ptr==0) /* symbol not exist in sym_table */
+X    {
+X        ptr = top()->next 
+X            = (Symbol_record*)malloc(sizeof(Symbol_record));
+X        if(ptr==0)
+X	{
+X	    perror("malloc for constant token item");
+X	    exit(1);
+X        }
+X    }
+X    else if(ptr->type==arg_symbol)
+X    {
+X        return -1;    /* forbiding override argument symbols */
+X    }
+X
+X    ptr->name = (char*)malloc((strlen(str)+1)*sizeof(char));
+X    if(ptr->name==0) 
+X    {
+X	perror("malloc for constant token name");
+X	exit(1);
+X    }
+X
+X    strncpy(ptr->name, str, strlen(str)+1);
+X    ptr->type = const_symbol;
+X    ptr->content.value = number;
+X
+X    return 1;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int nameargu(char* arg1, char* arg2)
+X#else
+X  int nameargu(arg1, arg2)
+X  char *arg1, *arg2;
+X#endif
+X/* on error return -1, on success return 1, if no change return 0 */
+X{
+X    if(!isname(arg1)) return 0;
+X
+X    if(!isname(arg2)) arg2 = "_";
+X
+X    if(strcmp(arg1, arg2)==0) return -1;  /* stupid */
+X
+X    clrname(arg1, fnct_symbol);
+X    clrname(arg1, const_symbol);
+X    clrname(arg2, fnct_symbol);
+X    clrname(arg2, const_symbol);
+X
+X    if(sym_table==0)
+X    {
+X	sym_table = (Symbol_record*)malloc(sizeof(Symbol_record));
+X	if(sym_table==0)
+X	{
+X	    perror("malloc for the 1st argument token item");
+X	    exit(1);
+X        }
+X    }
+X
+X    sym_table->name = (char*)malloc((strlen(arg1)+1)*sizeof(char));
+X    if(sym_table->name==0)
+X    {
+X	perror("malloc for the 1st argument token name");
+X	exit(1);
+X    }
+X
+X    strncpy(sym_table->name, arg1, strlen(arg1)+1);
+X    sym_table->type = arg_symbol;
+X    sym_table->content.argidx = 1;
+X
+X    if(sym_table->next==0)
+X    {
+X	sym_table->next = (Symbol_record*)malloc(sizeof(Symbol_record));
+X	if(sym_table->next==0)
+X	{
+X	    perror("malloc for the 2nd token token item");
+X	    exit(1);
+X        }
+X    }
+X
+X    sym_table->next->name = (char*)malloc((strlen(arg2)+1)*sizeof(char));
+X    if(sym_table->next->name==0)
+X    {
+X	perror("alloc memory for 2nd arguement name");
+X        exit(1);
+X    }
+X
+X    strncpy(sym_table->next->name, arg2, strlen(arg2)+1);
+X
+X    sym_table->next->type = arg_symbol;
+X    sym_table->next->content.argidx = 2;
+X
+X    return 1;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int initargu(void)
+X#else
+X  int initargu()
+X#endif
+X/* if no argument names then use default */
+X{
+X    if(sym_table==0) return nameargu("x", "y");
+X    return 0;
+X};
+X
+Xstatic struct {
+X    char* name;
+X    double (*fnctptr)();
+X} initfnct[] = {
+X    "sin"  , sin  ,
+X    "cos"  , cos  ,
+X    "tan"  , tan  , 
+X    "tg"   , tan  ,
+X    "asin" , asin ,
+X    "acos" , acos ,
+X    "atan" , atan ,
+X    "atan2", atan2,
+X    "exp"  , exp  ,
+X    "sinh" , sinh ,
+X    "sh"   , sinh ,
+X    "cosh" , cosh ,
+X    "ch"   , cosh ,
+X    "tanh" , tanh ,
+X    "th"   , tanh ,
+X    "asinh", asinh,
+X    "ash"  , asinh,
+X    "acosh", acosh,
+X    "ach"  , acosh,
+X    "atanh", atanh,
+X    "ath"  , atanh,
+X    "pow"  , pow  ,
+X    "log"  , log  ,
+X    "ln"   , log  ,
+X    "log10", log10,
+X    "log2" , log2 ,
+X    "sqrt" , sqrt ,
+X    "abs"  , fabs ,
+X    0      , 0      };
+X
+X#if NeedFunctionPrototypes
+X  int matha2z(void)
+X#else
+X  int matha2z()
+X#endif
+X/* set up a symbol table include math "a to z" functions */
+X{
+X    int i=0, j=0;
+X
+X    initargu();
+X
+X    for(i=0;initfnct[i].name!=0;i++)
+X    {
+X        j = j + namefnct(initfnct[i].name, initfnct[i].fnctptr); 
+X    }
+X
+X    j = j + namecnst("pi", 2*asin(1.0));
+X
+X    return j;
+X};
+X
+X/* codes for debug  -------------------------------------------  */
+X
+X#if NeedFunctionPrototypes
+X  int printrec(Symbol_record* ptr, double x)
+X#else
+X  int printrec(ptr, x)
+X  Symbol_record* ptr;
+X  double x;
+X#endif
+X{
+X    printf("type = %d\n", ptr->type);
+X    if(ptr->name!=0) printf("name = %s\n", ptr->name);
+X   
+X    switch(ptr->type)
+X    {
+X	case const_symbol:
+X	     printf("value= %f\n", ptr->content.value);
+X	     break;
+X
+X        case arg_symbol:
+X	     printf("arg[%d] = %s\n", ptr->content.argidx,
+X				      getfnctname(ptr->content.fnctptr));
+X	     break;
+X
+X        case fnct_symbol:
+X	     printf("%s(%f) = %f\n", ptr->name, x, (ptr->content.fnctptr)(x));
+X             break;
+X
+X        default: break;
+X    }
+X
+X    return 0;
+X};
+X
+X#if NeedFunctionPrototypes
+X  int printab(double x)
+X#else
+X  int printab(x)
+X  double x;
+X#endif
+X{
+X    Symbol_record* ptr;
+X    int len = 0;
+X
+X    for(ptr=sym_table; ptr!=0; ptr=ptr->next)
+X    {
+X       len ++;
+X       printrec(ptr, x);
+X    }
+X
+X    return len;
+X};
+X
+X#ifdef __cplusplus
+X  }    /* end for c++ */
+X#endif
+END_OF_FILE
+  if test 11913 -ne `wc -c <'dfcsymtable.c'`; then
+    echo shar: \"'dfcsymtable.c'\" unpacked with wrong size!
+  fi
+  # end of 'dfcsymtable.c'
+fi
+if test -f 'dfctoken.3.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dfctoken.3.UU'\"
+else
+  echo shar: Extracting \"'dfctoken.3.UU'\" \(7385 characters\)
+  sed "s/^X//" >'dfctoken.3.UU' <<'END_OF_FILE'
+Xbegin 644 dfctoken.3
+XM"@H*1$5&54Y#*#,I(" @(" @(" @(" @("!#($Q)0E)!4ED@1E5.0U1)3TY3
+XM(" @(" @(" @(" @("!$14953D,H,RD*"@H*3D%-10H@(" @(&=E=&%R9W5N
+XM86UE+" @(&YA;65A<F=U+" @(&YA;65F;F-T+" @(&YA;65C;G-T+" @("!C
+XM;')F;F-T+ H@(" @(&-L<F9N8W1A;&PL("!C;')C;G-T+" @8VQR8VYS=&%L
+XM;" @+2T@(%\(9%\(95\(9E\(=5\(;E\(8R!E>'1E<FYA;"!T;VME;@H@(" @
+XM(&UA;F%G96UE;G0@9G5N8W1I;VYS+@H*4UE.3U!325,*(" @(" C:6YC;'5D
+XM92 \9&5F=6YC+F@^"@H@(" @(&-H87(J("!G971A<F=U;F%M92AI;G0@87)G
+XM=6ED>"D["B @(" @:6YT(" @(&YA;65A<F=U*&-H87(J(&%R9W4Q+"!C:&%R
+XM*B!A<F=U,BD["@H@(" @(&EN=" @("!N86UE9FYC="AC:&%R*B!N86UE+"!D
+XM;W5B;&4@*"IF;BDH*2D["B @(" @:6YT(" @(&YA;65C;G-T*&-H87(J(&YA
+XM;64L(&1O=6)L92D["@H@(" @(&EN=" @("!C;')F;F-T*&-H87(J(&YA;64I
+XM.PH@(" @(&EN=" @("!C;')F;F-T86QL*'9O:60I.PH@(" @(&EN=" @("!C
+XM;')C;G-T*&-H87(J(&YA;64I.PH@(" @(&EN=" @("!C;')C;G-T86QL*'9O
+XM:60I.PH*"D1%4T-225!424]."B @(" @5&AE<V4@9G5N8W1I;VYS(&%R92!U
+XM<V5D(&EN("!M86YA9VEN9R @=&AE("!G;&]B86P@(&5X=&5R;F%L"B @(" @
+XM=&]K96X@('1A8FQE+B @7PAD7PAE7PAF7PAU7PAN7PAC("!F=6YC=&EO;B!?
+XM"&1?"&9?"&]?"'!?"&5?"&XH*2!P87)S92!A;B!E>'!R97-S:6]N"B @(" @
+XM8F%S960@;VX@=&AE('1O:V5N<R @:70@(')E8V]G;FEZ960N("!%>&-E<'0@
+XM(&9O<B @;G5M97)I8V%L"B @(" @<W1R:6YG(&-O;G-T86YT('1O:V5N<RAI
+XM+F4N(&%N;VYY;6]U<R!C;VYS=&%N="!T;VME;G,I(&%N9" X"B @(" @8G5I
+XM;&0@:6X@=&]K96YS("(K(BP@(BTB+" B*B(L("(O(BP@(EXB+" B*"(L("(I
+XM(BP@(BPB("!P;'5S"B @(" @82 @<'-E=61O("!T;VME;B @(CTB+"!A;&P@
+XM;W1H97(@=&]K96YS(&%R92!E>'1E<FYA;"!T;VME;G,N"B @(" @17AT97)N
+XM86P@=&]K96YS(&%R92!U<W5A;&QY(&)E('!U='1E9"!I;G1O("!A("!G;&]B
+XM86P@('1O:V5N"B @(" @=&%B;&4@(&)Y("!U<V5R+B @5&AE>2 @:6YC;'5D
+XM92 @,B!A<F=U;65N="!T;VME;G,L(&9U;F-T:6]N"B @(" @=&]K96YS(&%N
+XM9"!N86UE9"!C;VYS=&%N="!T;VME;G,N(%1H97D@8V%N(&)E("!S970O<F5S
+XM970@(&]R"B @(" @861D960O9&5L971E9"!S=&%T:6-A;&QY(&%S('=E;&P@
+XM87,@9'EN86UI8V%L;'DN"@H@(" @(%\(9U\(95\(=%\(85\(<E\(9U\(=5\(
+XM;E\(85\(;5\(92@I(')E='5R;B!T:&4@;F%M92!O9B @<W!E8VEF:6,@(&%R
+XM9W5M96YT("!T;VME;BX*(" @("!4:&ES("!W:6QL("!B92 @=7-E9G5L("!A
+XM9G1E<B @=&AE(&%R9W5M96YT('1O:V5N<R!H879E(&)E96X*(" @("!R97-E
+XM="X@3VX@<W5C8V5S<RP@7PAG7PAE7PAT7PAA7PAR7PAG7PAU7PAN7PAA7PAM
+XM7PAE*"D@<F5T=7)N(&$@(&-H87(@('!O:6YT97(@('1O"B @(" @=&AE("!N
+XM86UE('-T<FEN9RX@3VX@97)R;W(L(&4N9RX@82!I;&QE9V%L(&%R9W5M96YT
+XM(&EN9&5X(&)E"B @(" @<&%S<V5D+"!I="!W:6QL(')E='5R;B P('!O:6YT
+XM97(N"@H@(" @(%\(;E\(85\(;5\(95\(85\(<E\(9U\(=2@I(')E<V5T<R R
+XM(&%R9W5M96YT<R!T;VME;G,N($EN(%\(9%\(95\(9E\(=5\(;E\(8RP@=&AE
+XM(&1E9F%U;'0*(" @("!T;VME;B @;F%M97,@(&9O<B!T:&4@,7-T(&%N9" R
+XM;F0@87)G=6UE;G1S(&%R92 B>"(@86YD(")Y(BX*(" @("!!(&QE9V%L('1O
+XM:V5N(&YA;64@<VAO=6QD('-T87)T("!W:71H("!A;'!H86)E=&EC("!C:&%R
+XM86-T97(*(" @("!A;F0@(&9O;&QO=V5D("!B>2 @86QP:&%B971I8R @;W(@
+XM(&YU;6)E<FEC("!C:&%R86-T97)S+B!4:&4*(" @("!L96YG=&@@;V8@82!N
+XM86UE(&ES(&QI;6ET960@=&\@,S$@8GD@7PAD7PAE7PAF7PAU7PAN7PAC+B!?
+XM"&Y?"&%?"&U?"&5?"&%?"')?"&=?"'4H*2!W:6QL"B @(" @<F5T=7)N(" H
+XM:6YT*3$@(&]N('-U8V-E<W,L("AI;G0I*"TQ*2!O;B!E<G)O<B!A;F0@*&EN
+XM="DP(&]N"B @(" @;F\@8VAA;F=E+B @7PAD7PAE7PAF7PAU7PAN7PAC(&%L
+XM<V\@<')O=FED97,@86X@96%S>2!W87D@=&\@(&-H86YG92 @=&AE"B @(" @
+XM87)G=6UE;G0@(&YA;65S("!D:7)E8W1L>2 @9G)O;2 @=&AE("!E>'!R97-S
+XM:6]N("!P87-S960@('1O"B @(" @7PAD7PAF7PAO7PAP7PAE7PAN*"D@*'-E
+XM92!?"&1?"&5?"&9?"'5?"&Y?"&,H7P@S*2 I+@H*(" @("!?"&Y?"&%?"&U?
+XM"&5?"&9?"&Y?"&-?"'0H*2!!9&0@82!F=6YC=&EO;B!T;VME;B!T;R!T:&4@
+XM97AT97)N86P@=&]K96X@=&%B;&4N"B @(" @268@(&%N;W1H97(@('1O:V5N
+XM("!W:71H("!T:&4@('-A;64@(&YA;64@:&%S(&%L<F5A9'D@:6X@=&AE"B @
+XM(" @=&%B;&4L('1H96X@=&AE(&]L9"!O;F4@=VEL;"!B92!O=F5R;&%P<&5D
+XM(&5X8V5P="!F;W(@:70@(&ES"B @(" @82 @(&%R9W5M96YT(" @=&]K96XN
+XM("!!<F=U;65N=" @=&]K96X@(&ET96US("!C86X@(&]N;'D@(&)E"@H*"F1E
+XM9G5N8R Q+C(@(" @(" @(" @(" @($QA<W0@8VAA;F=E.B Q.3DS(" @(" @
+XM(" @(" @(" @(" @(" @(" Q"@H*"@H*"D1%1E5.0R@S*2 @(" @(" @(" @
+XM(" @0R!,24)205)9($953D-424].4R @(" @(" @(" @(" @1$5&54Y#*#,I
+XM"@H*"B @(" @;W9E<FQA<'!E9"!B>2!N97<@87)G=6UE;G1S('-E='1I;F<N
+XM("!!9G1E<B!A(&9U;F-T:6]N('1O:V5N"B @(" @8F5I;F<@('-U8V-E<W-F
+XM=6QL>2!P=70@:6YT;R!T:&4@=&]K96X@=&%B;&4L(&ET(&-A;B!B92!U<V5D
+XM"B @(" @:6X@86YY(%\(9%\(95\(9E\(=5\(;E\(8R!E>'!R97-S:6]N<RX@
+XM7PAN7PAA7PAM7PAE7PAF7PAN7PAC7PAT*"D@=VEL;"!R971U<FX@*&EN="DQ
+XM("!O;@H@(" @('-U8V-E<W,L(" H:6YT*2@M,2D@(&]N("!E<G)O<B @86YD
+XM(" H:6YT*3 @(&]N(&YO(&-H86YG:6YG+@H@(" @(%\(9%\(95\(9E\(=5\(
+XM;E\(8R!A;'-O('!R;W9I9&5S(&$@9'EN86UI8V%L;'D@=V%Y('1O(&5X<&%N
+XM9" @=&AE("!T;VME;@H@(" @('1A8FQE("!W:71H("!D>6YA;6EC86QL>2!C
+XM;VYS=')U8W1E9"!F=6YC=&EO;G,@9&ER96-T;'D@9G)O;0H@(" @(&5X<')E
+XM<W-I;VX@<&%S<V5D('1O(%\(9%\(9E\(;U\(<%\(95\(;B@I+B H<V5E(%\(
+XM9%\(9E\(;U\(<%\(95\(;BA?"#,I("DN"@H@(" @(%\(;E\(85\(;5\(95\(
+XM8U\(;E\(<U\(="@I('!U=',@82!C;VYS=&%N="!T;VME;B!I;G1O('1H92!T
+XM;VME;B!T86)L92X@(%1H:7,*(" @("!W:6QL('-H;W)T('1H92!L;VYG(&5X
+XM<')E<W-I;VX@:6X@=W)I='1I;F<@<V]M92!S<&5C:6%L(&-O;BT*(" @("!S
+XM=&%N="X@92YG+@H*(" @(" @(" @(&YA;65C;G-T*")P:2(L(#(N,"IA<VEN
+XM*#$N,"DI.PH*(" @("!W:6QL(&%D9"!T:&4@;F%M92UC;VYS=&%N="!A<W-O
+XM8VEA=&EO;B H(G!I(BP@(#,N,30Q-3DR-BXN+BD*(" @("!I;G1O("!T:&4@
+XM('1A8FQE+B!!9G1E<B!T:&%T+"!T:&4@<WEM8F]L(")P:2(@8V%N(&)E('5S
+XM960@:6X*(" @("!?"&1?"&5?"&9?"'5?"&Y?"&,@(&5X<')E<W-I;VX@(&%S
+XM("!A("!C;VYS=&%N="X@("!386UE("!A<R @7PAN7PAA7PAM7PAE7PAF7PAN
+XM7PAC7PAT*"DL"B @(" @7PAN7PAA7PAM7PAE7PAC7PAN7PAS7PAT*"D@(&-A
+XM;B @;W9E<FQA<" @86X@(&]L9"!F=6YC=&EO;B!O<B!C;VYS=&%N="!T;VME
+XM;@H@(" @(&ET96T@8G5T(&-A;B=T(&]V97)L87 @86X@87)G=6UE;G0@=&]K
+XM96X@(&ET96TN(" @7PAN7PAA7PAM7PAE7PAC7PAN7PAS7PAT*"D*(" @("!W
+XM:6QL(')E='5R;B H:6YT*3$@;VX@<W5C8V5S<RP@*&EN="DH+3$I(&]N(&5R
+XM<F]R(&%N9" H:6YT*3 *(" @("!O;B!N;R!C:&%N9VEN9RX@3&EK92!A<F=U
+XM;65N="!A;F0@9G5N8W1I;VXL(%\(9%\(95\(9E\(=5\(;E\(8R!A;'-O('!R
+XM;RT*(" @("!V:61E<R @86X@('=A>2!T;R!E>'!A;F0@=&]K96X@=&%B;&4@
+XM=VET:"!N97<@8V]N<W1A;G0@=&]K96X*(" @("!I=&5M(&%T(')U;G1I;64@
+XM*'-E92!?"&1?"&9?"&]?"'!?"&5?"&XH*2 I+@H*(" @("!?"&-?"&Q?"')?
+XM"&9?"&Y?"&-?"'0H*2P@7PAC7PAL7PAR7PAF7PAN7PAC7PAT7PAA7PAL7PAL
+XM*"DL(%\(8U\(;%\(<E\(8U\(;E\(<U\(="@I+"!?"&-?"&Q?"')?"&-?"&Y?
+XM"'-?"'1?"&%?"&Q?"&PH*2!C86X@8F4@=7-E9 H@(" @('1O("!D96QE=&4@
+XM(&$@<W!E8VEF:6,@=&]K96X@;W(@<W!E8VEF:6,@=&]K96X@='EP92!F<F]M
+XM('1H90H@(" @('1O:V5N('1A8FQE+@H*4T5%($%,4T\*(" @("!?"&1?"&5?
+XM"&9?"'5?"&Y?"&,L(&1F;W!E;B@S*0H*15A!35!,15,*(" @(" @(" @(&YA
+XM;65A<F=U*")R92(L(")I;2(I.PH*(" @("!4:&ES('=I;&P@<F5S970@(&%R
+XM9W5M96YT("!T;VME;G,@('1O(" B<F4B("!A;F0@(")I;2(@("AT:&4*(" @
+XM("!D969A=6QT(&ES(")X(B!A;F0@(GDB*2X*"B @(" @(" @("!N86UE9FYC
+XM="@B;&]G(BP@;&]G*3L*(" @(" @(" @(&YA;65F;F-T*")L;B(@+"!L;V<I
+XM.PH*(" @("!4:&ES('=I;&P@861D(&5X=&5R;F%L(&9U;F-T:6]N(&QO9R@I
+XM(&EN=&\@=&]K96X@;&ES="!W:71H(#(*(" @("!A;&EA<R!N86UE<R B;&]G
+XM(B!A;F0@(FQN(BX*"B @(" @(" @("!N86UE8VYS="@B<&DB+" R+C J87-I
+XM;B@Q+C I*3L*(" @(" @(" @(&YA;65C;G-T*")022(L(#(N,"IA<VEN*#$N
+XM,"DI.PH*(" @("!4:&ES('=I;&P@<'5T(&$@;F%M960@8V]N<W1A;G0@=&]K
+XM96X@:6YT;R @=&AE("!T;VME;B @=&%B;&4*(" @("!W:71H('9A;'5E(#,N
+XM,30Q-3DN+BX@86YD(#(@86QI87,@;F%M97,@(G!I(B!A;F0@(E!)(BX*"D%5
+XM5$A/4@H@(" @($ME($II;@H@(" @(%!H>7-I8W,@1&5P87)T;65N= H*"@ID
+XM969U;F,@,2XR(" @(" @(" @(" @("!,87-T(&-H86YG93H@,3DY,R @(" @
+XM(" @(" @(" @(" @(" @(" @,@H*"@H*"@I$14953D,H,RD@(" @(" @(" @
+XM(" @($,@3$E"4D%262!&54Y#5$E/3E,@(" @(" @(" @(" @($1%1E5.0R@S
+XM*0H*"@H@(" @(%%U965N)W,@56YI=F5R<VET>0H@(" @($MI;F=S=&]N+"!/
+XM;G1A<FEO"B @(" @0V%N861A($LW3" S3C8*(" @("!J:6YK94!S<&%R:WDN
+XM<&AY+G%U965N<W4N8V$*"D)51U,*(" @("!297!O<G0@8G5G<R!O9B!?"&1?
+XM"&5?"&9?"'5?"&Y?"&,@;&EB<F%R>2!T;R!T:&4@875T:&]R(&)Y(&5M86EL
+XM+@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*"@H*
+XM"@H*"@ID969U;F,@,2XR(" @(" @(" @(" @("!,87-T(&-H86YG93H@,3DY
+X=,R @(" @(" @(" @(" @(" @(" @(" @,PH*"@I,
+X 
+Xend
+END_OF_FILE
+  if test 7385 -ne `wc -c <'dfctoken.3.UU'`; then
+    echo shar: \"'dfctoken.3.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'dfctoken.3'\" \(5339 characters\)
+    cat dfctoken.3.UU | uudecode
+    if test 5339 -ne `wc -c <'dfctoken.3'`; then
+      echo shar: \"'dfctoken.3'\" uudecoded with wrong size!
+    else
+      rm dfctoken.3.UU
+    fi
+  fi
+  # end of 'dfctoken.3.UU'
+fi
+if test -f 'dfctree.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dfctree.c'\"
+else
+  echo shar: Extracting \"'dfctree.c'\" \(4419 characters\)
+  sed "s/^X//" >'dfctree.c' <<'END_OF_FILE'
+X/*********************************************************
+X *
+X *    Copyright (c) 1993  Ke Jin
+X *
+X *    Permission to use, copy, modify, and distribute
+X *    this software and its documentation without fee
+X *    is granted, provided that the author's name and
+X *    this copyright notice are retained.
+X *
+X * -----------------------------------------------------
+X *
+X *    dfctree.c -- defunc low level module
+X *
+X *    public  function : exparse();
+X *                       evaluate();
+X *                       reduce();
+X *     
+X *********************************************************/
+X
+X#include <stdio.h>
+X#include "dfctree.h"
+X
+X#ifdef __cplusplus
+X  extern "C" {    /* for c++ */
+X#endif
+X
+X#if NeedFunctionPrototypes
+X  extern yyinit(char* expression);
+X  extern int yyparse(void);
+X#else
+X  extern yyinit();
+X  extern int yyparse();
+X#endif
+X
+X#define ltree  reduce(tree+tree->left-i,  tree->left)
+X#define rtree  reduce(tree+tree->right-i, tree->right)
+X#define trval  tree->content.value
+X#define ltrval ltree->content.value
+X#define rtrval rtree->content.value
+X
+X#if NeedFunctionPrototypes
+X  Node* reduce(Node* tree, int i)
+X#else
+X  Node* reduce(tree, i)
+X  Node* tree;
+X  int   i;
+X#endif
+X/* constant folding. i is the shift relative to root 
+X * reduce tree still in original memory address. the
+X * root of the tree be returned */
+X{ 
+X    if(tree == 0) return 0;
+X
+X    switch(tree->type)
+X    {
+X	case const_node:
+X	case arg_node:
+X             break;
+X
+X	case simplex_fnct_node:
+X	     if(rtree->type==const_node)
+X	     {
+X		 tree->type = const_node;
+X		 trval = (tree->content.fnctptr)(rtrval);
+X             }
+X	     break;
+X
+X        case duplex_fnct_node:
+X	     if((ltree->type==const_node)&&(rtree->type==const_node))
+X	     {
+X		 tree->type = const_node;
+X		 trval = (tree->content.fnctptr)(ltrval, rtrval);
+X             }
+X	     break;
+X
+X        case unary_op_node:
+X 	     if(rtree->type==const_node)
+X	     {
+X	 	 tree->type = const_node;
+X		 switch(tree->content.op)
+X		 {
+X		     case op_neg: trval = -rtrval; break;
+X
+X		     default: break;
+X                 }
+X             }
+X	     break;
+X
+X        case binary_op_node:
+X	     if(rtree->type==const_node&&tree->content.op==op_div)
+X	     {
+X		 tree->content.op=op_mul;
+X		 rtree->content.value = 1.0/(rtree->content.value);
+X             }
+X
+X	     if(ltree->type==const_node&&rtree->type==const_node)
+X	     {
+X		 tree->type = const_node;
+X		 switch(tree->content.op)
+X		 {
+X		     case op_sum: trval = ltrval+rtrval; break;
+X		     case op_sub: trval = ltrval-rtrval; break;
+X		     case op_mul: trval = ltrval*rtrval; break;
+X		     case op_div: trval = ltrval/rtrval; break; 
+X
+X		     default: break;
+X                 }
+X             }
+X             break;
+X
+X        default: break;
+X    }  
+X
+X    return tree;
+X}; 
+X
+X#if NeedFunctionPrototype
+X  int exparse(char* expression)
+X#else
+X  int exparse(expression)
+X  char* expression;
+X#endif
+X{
+X    yyinit(expression);  /* initial the parser */
+X
+X    return yyparse();    /* on success, return 0 or tree size
+X			  * on error  , return -1 */
+X};
+X
+X#define lval evaluate(tree+tree->left-i,  tree->left , x, y)
+X#define rval evaluate(tree+tree->right-i, tree->right, x, y) 
+X
+X#if NeedFunctionPrototype
+X  double evaluate(Node* tree, int i, double x, double y)
+X#else
+X  double evaluate(tree, i, x, y) 
+X  Node*  tree;
+X  int    i;
+X  double x, y;
+X#endif
+X/* evaluate a parse tree. i is the shift relative to root */
+X{
+X    if(tree == 0) 
+X    {
+X	fprintf(stderr, "Null parse tree\n");
+X        exit(1) ;
+X    }
+X
+X    switch (tree->type) 
+X    {
+X	case const_node:
+X	     return tree->content.value;
+X
+X        case arg_node:
+X	     switch(tree->content.argidx)
+X	     {
+X		 case 1: return x;
+X		 case 2: return y;
+X		 default: exit(1);
+X             }
+X	     break;
+X
+X	case simplex_fnct_node:
+X	     return (tree->content.fnctptr)(rval);
+X
+X        case duplex_fnct_node:
+X	     return (tree->content.fnctptr)(lval, rval);
+X
+X        case unary_op_node:
+X	     switch(tree->content.op)
+X	     {
+X		case op_neg: return -rval;
+X
+X		default: break;
+X             }
+X	     break;
+X
+X        case binary_op_node:
+X             switch(tree->content.op)
+X	     {
+X		case op_sum: return lval + rval; 
+X                case op_sub: return lval - rval;
+X		case op_mul: return lval * rval;
+X		case op_div: return lval / rval;
+X
+X		default: break;
+X             }
+X	     break;
+X
+X        default:
+X	     exit(1) ;   /* something wrong */
+X    }
+X
+X    return 0; /* turn off the warning of lint */
+X};
+X
+X#ifdef __cplusplus
+X  }    /* end for c++ */
+X#endif
+END_OF_FILE
+  if test 4419 -ne `wc -c <'dfctree.c'`; then
+    echo shar: \"'dfctree.c'\" unpacked with wrong size!
+  fi
+  # end of 'dfctree.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

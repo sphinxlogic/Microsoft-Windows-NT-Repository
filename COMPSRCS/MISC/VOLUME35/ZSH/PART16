@@ -1,0 +1,1958 @@
+Newsgroups: comp.sources.misc
+From: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Subject: v35i066:  zsh - The Z Shell, version 2.3.1, Part16/22
+Message-ID: <1993Feb20.212657.29208@sparky.imd.sterling.com>
+X-Md4-Signature: b887384bca352f9a0b413ad7c595f74f
+Date: Sat, 20 Feb 1993 21:26:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zsh-list@cs.uow.edu.au (The Zsh Mailing List)
+Posting-number: Volume 35, Issue 66
+Archive-name: zsh/part16
+Environment: UNIX
+Supersedes: zsh2.2: Volume 29, Issue 97-113
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  src/buildzsh src/init.c src/zle_bindings.c
+# Wrapped by mattson@odin on Sat Feb  6 14:41:54 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 22)."'
+if test -f 'src/buildzsh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/buildzsh'\"
+else
+  echo shar: Extracting \"'src/buildzsh'\" \(18846 characters\)
+  sed "s/^X//" >'src/buildzsh' <<'END_OF_FILE'
+X#! /bin/sh
+Xecho
+Xecho 'Trying to determine host type...'
+X
+Xheaderdir=/usr/include
+Xarch=`(uname) 2>/dev/null`
+Xcase "$arch" in
+X"")	case `(head -2 /etc/motd) 2>/dev/null` in
+X	*"HP-UX"*)	HPUX=yep; machid=hp9000;;
+X	*"Iris"*)	SGI=yep; host=iris4d;;
+X	*"Ultrix"*)	ULTRIX=yep; host=vax;;
+X	*"RISC iX"*)	ARM=yep; host=arm;;
+X	*"Umax 4.2"*)	ENCORE=yep; host=encore;;
+X	*"Alliant Concentrix"*) ALLIANT=yep; host=alliant;;
+X	*"FPS Model 500"*) FPS=yep; host=fps500;;
+X	*"HCX/UX"*)	HARRIS=yep; host=harris;;
+X	*"nX Operating System"*)	BBN=yep; host=`arch`;;
+X	*)
+X		if test -d ${headerdir}/caif
+X		then AIX=yep; host=ibm032
+X		elif test -d /sys/node_data
+X		then APOLLO=yep; host=apollo-$ISP
+X		elif test -f /bin/pyr && /bin/pyr
+X		then PYR=yes; host=pyr
+X		elif test -d /NextApps
+X		then host=next
+X                      if test -d /NextDeveloper/Headers/bsd
+X                      then NEXT=3.x; headerdir=${headerdir}/bsd
+X                      else NEXT=2.x
+X                      fi
+X		elif test -f /etc/comply
+X		then SUN=yes; host=sun3
+X		elif test -f /bin/hinv
+X		then SGI=yep; host=iris4d
+X		elif grep ULTRIX ${headerdir}/stdio.h >/dev/null 2>&1
+X		then ULTRIX=yep; host=vax
+X		elif grep 'Property of IBM' ${headerdir}/stdio.h >/dev/null 2>&1
+X		then AIX=yep
+X		else host=`(tcsh -fc 'echo $HOSTTYPE' || arch || machine || mach || echo $machine) 2>/dev/null`
+X		fi;;
+X	esac;;
+XHP-UX)	HPUX=`uname -r 2>/dev/null || echo yep`; machid=`uname -m`
+X	case "$machid" in
+X	"") host=hp9000;;
+X	9000/[0-9][0-9][0-9])
+X		host=`echo "hp$machid" | sed 's,/\(.\)..,s\100,'`;;
+X	*) host=hp-unknown;;
+X	esac;;
+XAIX*)	AIX=yep; machid=`uname -m`
+X	case "$machid" in
+X	00*) host=rs6000;;
+X	10*) host=ibm032;;
+X	20*) host=ibm032;;
+X	esac;;
+XA/UX)	MAC=yep; host=macII;;
+Xdgux)	DGUX=yep; machid=`uname -m`
+X	case "$machid" in
+X	AViiON) host=aviion;;
+X	esac;;
+XSunOS)	machid=`uname -m`
+X	SUN=yep; case "$machid" in
+X	sun3*) host=sun3;;
+X	sun4*) host=sun4;;
+X	*) host=$machid;;
+X	esac;;
+XULTRIX)	machid=`uname -m`
+X	ULTRIX=yep; case "$machid" in
+X	VAX) host=vax;;
+X	*) host=$machid;;
+X	esac;;
+XIRIX)	SGI=yep; host=iris4d;;
+XOSF1)	OSF=yep; host=alpha;;
+X*)	machid=`uname -m`
+X	case "$machid" in
+X	mips|IP6|IP7) MIPS=yep; host=mips;;
+X	*) host=`(tcsh -fc 'echo $HOSTTYPE' || arch || machine || mach || echo $machine || echo $machid) 2>/dev/null`
+X	esac;;
+Xesac
+Xif test "$host"
+Xthen echo "...looks like a $host"
+X	case $host in
+X	mips) if test -d /usr/include/bsd43; then headerdir=/usr/include/bsd43; fi;;
+X	esac
+Xelse echo "...no luck on that score.  Continuing..."
+Xfi
+Xecho '
+XBuilding config.h...
+X'
+Xexec >config.h
+Xcat <<'foo'
+X/* this file is created automatically by buildzsh */
+X
+X/* define this if you are sysvish */
+Xfoo
+Xif test -f ${headerdir}/sys/resource.h -a ! -f ${headerdir}/sys/elf.h
+Xthen echo '/* #define SYSV */'; echo 'looks like a BSDish system...' >&2
+Xelse echo '#define SYSV'; echo 'looks like a SYSVish system...' >&2
+X PATH=/usr/bin:$PATH; export PATH; echo 'forcing /usr/bin early in PATH' >&2
+X if test -f ${headerdir}/sys/elf.h
+X then echo '#define SYSVR4'; echo 'looks like a SYSVR4 system...' >&2
+X fi
+Xfi
+Xecho
+Xif test "$ULTRIX"
+Xthen echo '#define ULTRIX
+X/* ULTRIX termios is weird... */
+X/* #define TERMIOS */'; echo 'using sgttyb...' >&2
+Xelse
+Xif test -f ${headerdir}/termios.h -a -z "$HPUX" -a -z "$APOLLO" -a -z "$BBN"
+Xthen echo '#define TERMIOS
+X/* #define TTY_NEEDS_DRAINING */
+X/* #define CLOBBERS_TYPEAHEAD */'
+Xecho 'using termios...' >&2
+Xelse
+Xif grep sgttyb ${headerdir}/sys/ioctl.h >/dev/null 2>&1
+Xthen echo '/* #define TERMIO */'
+Xelse echo '#define TERMIO'
+Xecho 'using termio...' >&2
+Xfi
+Xecho '#define TTY_NEEDS_DRAINING
+X#define CLOBBERS_TYPEAHEAD'
+Xecho 'using sgttyb...' >&2
+Xfi
+Xfi
+Xecho
+Xif test -f ${headerdir}/dirent.h -a -z "$ULTRIX"
+Xthen echo '#define HAS_DIRENT'; echo 'using <dirent.h>...' >&2
+Xelse echo '/*#define HAS_DIRENT*/'; echo 'not using <dirent.h>...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/unistd.h
+Xthen echo '#define HAS_UNISTD'; echo 'using <unistd.h>...' >&2
+Xelse echo '/*#define HAS_UNISTD*/'; echo 'not using <unistd.h>...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/stdlib.h &&
+X	grep alloc ${headerdir}/stdlib.h >/dev/null 2>&1
+Xthen echo '#define HAS_STDLIB'; echo 'using <stdlib.h>...' >&2
+Xelif test -n "${NEXT}"
+Xthen echo '#define HAS_STDLIB'; echo 'using <stdlib.h> (where NeXT hid it) ...' >&2
+Xelse echo '/*#define HAS_STDLIB*/'; echo 'not using <stdlib.h>...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/string.h
+Xthen echo '#define HAS_STRING'; echo 'using <string.h>...' >&2
+Xelse echo '/*#define HAS_STRING*/'; echo 'using <strings.h>...' >&2
+Xif test "${NEXT}" != "3.x"
+Xthen echo '#define strchr	index
+X#define strrchr	rindex'
+Xfi
+Xfi
+Xecho
+Xif test -f ${headerdir}/memory.h
+Xthen echo '#define HAS_MEMORY'; echo 'using <memory.h>...' >&2
+Xelse echo '/*#define HAS_MEMORY*/'; echo 'not using <memory.h>...' >&2
+Xif grep memset ${headerdir}/string.h >/dev/null 2>&1
+Xthen echo 'using memcpy,memset,memcmp from <string.h>...' >&2
+Xelse echo 'redefining memcpy,memset,memcmp...' >&2
+Xecho '#define memcpy(dst, src, n)	bcopy(src, dst, n)
+X#define memset(dst, ch, n)	do {\
+X	char *__DST__ = (char *)(dst);\
+X	int __N__ = (int)(n), __CH__ = (int)(ch);\
+X	while (__N__--) { __DST__[__N__] = __CH__; } } while(0)
+X#define memcmp(s1, s2, n)	bcmp(s1, s2, n)'
+Xfi
+Xfi
+Xecho
+Xif test -f ${headerdir}/locale.h
+Xthen echo '#define HAS_LOCALE'; echo 'using <locale.h>...' >&2
+Xelse echo '/*#define HAS_LOCALE*/'; echo 'not using <locale.h>...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/utmpx.h
+Xthen echo '#define HAS_UTMPX'; echo 'using <utmpx.h>...' >&2
+Xutmphdr=${headerdir}/utmpx.h
+Xelse echo '/*#define HAS_UTMPX*/'; echo 'not using <utmpx.h>...' >&2
+Xutmphdr=${headerdir}/utmp.h
+Xfi
+Xecho
+Xif grep ut_host $utmphdr >/dev/null 2>&1 && test "$host" != mips
+Xthen echo '#define UTMP_HOST'; echo 'host field in utmp...' >&2
+Xelse echo '/* #define UTMP_HOST */'; echo 'no host field in utmp...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/time.h && 
+X	grep timeval ${headerdir}/time.h >/dev/null 2>&1
+Xthen echo '#define HAS_TIME'; echo 'using <time.h>...' >&2
+Xelse echo '/*#define HAS_TIME*/'; echo 'using <sys/time.h>...' >&2
+Xfi
+Xecho
+Xif test -f ${headerdir}/wait.h
+Xthen echo '#define HAS_WAIT'; echo 'using <wait.h>...' >&2
+Xelse echo '/*#define HAS_WAIT*/'; echo 'using <sys/wait.h>...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have WAITPID */'
+Xif man 2 wait 2>/dev/null | sed 's/_.//g' | grep waitpid >/dev/null || \
+X grep 'waitpid.*(' ${headerdir}/wait.h >/dev/null 2>&1 || \
+X grep 'waitpid.*(' ${headerdir}/sys/wait.h >/dev/null 2>&1
+Xthen echo '#define WAITPID'; echo 'using waitpid()...' >&2
+Xelse echo '/* #define WAITPID */'; echo 'not using waitpid()...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have SELECT */'
+Xif grep FD_SET ${headerdir}/sys/types.h >/dev/null 2>&1 ||
+X	test -f ${headerdir}/sys/select.h
+Xthen echo '#define HAS_SELECT'; echo 'using select()...' >&2
+Xelse echo '/* #define HAS_SELECT */'; echo 'not using select()...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have <sys/select.h> */'
+Xif test -f ${headerdir}/sys/select.h
+Xthen echo '#define HAS_SYS_SELECT'
+Xelse echo '/* #define HAS_SYS_SELECT */'
+Xfi
+Xecho "
+X/* we can't just test for S_IFIFO or check to see if the mknod worked,
+X   because the NeXTs sold by a vendor which will remain nameless will
+X   happily create the FIFO for you, and then panic when you try to do
+X	something weird with them, because they aren't supported by the OS. */
+X"
+Xif test -n "$NEXT" -a "$NEXT" = "2.x"
+Xthen echo '#define NO_FIFOS'; echo 'no FIFOs...' >&2
+Xelse echo '/* #define NO_FIFOS */'; echo 'using FIFOs...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have strftime() */'
+Xif test "$host" != mips &&
+X	man 3 strftime 2>/dev/null | grep return >/dev/null
+Xthen echo '#define HAS_STRFTIME'; echo 'using strftime()...' >&2
+Xelse echo '/* #define HAS_STRFTIME */'; echo 'not using strftime()...' >&2
+Xfi
+Xecho
+Xif test "$host" != mips &&
+X	man tcsetpgrp 2>/dev/null | grep process >/dev/null || \
+X	grep tcsetpgrp ${headerdir}/unistd.h >/dev/null 2>&1
+Xthen echo '#define HAS_TCSETPGRP'; echo 'using tcsetpgrp()...' >&2
+Xelse echo '/* #define HAS_TCSETPGRP */'; echo 'not using tcsetpgrp()...' >&2
+Xfi
+Xecho
+Xif grep tcgetattr ${headerdir}/termios.h >/dev/null 2>&1 ||
+X	grep tcgetattr ${headerdir}/sys/termios.h >/dev/null 2>&1 ||
+X	grep tcgetattr ${headerdir}/sys/termio.h >/dev/null 2>&1
+Xthen echo '#define HAS_TCCRAP'; echo 'using tcgetattr() and friends...' >&2
+Xelse echo '/* #define HAS_TCCRAP */'; echo 'not using tcgetattr()...' >&2
+Xfi
+Xecho
+Xif test "$SGI" -o "$MIPS"
+Xthen echo '/* SGI setpgid() is weird...  setpgrp() is better anyway */
+X/* #define HAS_SETPGID */'; echo 'using setpgrp()...' >&2
+Xelif man setpgid 2>/dev/null | grep process >/dev/null
+Xthen echo '#define HAS_SETPGID'; echo 'using setpgid()...' >&2
+Xelse echo '/* #define HAS_SETPGID */'; echo 'using setpgrp()...' >&2
+Xfi
+Xecho
+Xif test -z "$HPUX" -a -z "$PYR" -a -z "$MIPS" &&
+X	{ man sigrelse 2>/dev/null | grep signal >/dev/null ||
+X	grep SIGRELSE ${headerdir}/sys/signal.h > /dev/null 2>&1 ; }
+Xthen echo '#define HAS_SIGRELSE'; echo 'using sigrelse()...' >&2
+Xelse echo '/* #define HAS_SIGRELSE */'; echo 'using sigblock()...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have RFS */'
+Xif test -d /../.CONTROL
+Xthen echo '#define HAS_RFS'; echo 'you seem to have RFS...' >&2
+Xelse echo '/* #define HAS_RFS */'; echo 'no RFS, it seems...' >&2
+Xfi
+Xecho
+Xecho '/* define this if you have a working getrusage and wait3 */'
+Xif test "$HPUX"
+Xthen echo '/* #define HAS_RUSAGE */'; echo 'no getrusage...' >&2
+Xelif test -f ${headerdir}/sys/resource.h
+Xthen echo '#define HAS_RUSAGE'; echo 'has getrusage...' >&2
+Xelse echo '/* #define HAS_RUSAGE */'; echo 'no getrusage...' >&2
+Xfi
+Xif test "$host" = hp9000s700
+Xthen echo '/* kludge RLIM code for HPUX s700 - These limits are all readable,and
+X * some like coredumpsize are settable by users
+X */
+X#define RLIMIT_CPU      0               /* cpu time in milliseconds */
+X#define RLIMIT_FSIZE    1               /* maximum file size */
+X#define RLIMIT_DATA     2               /* data size */
+X#define RLIMIT_STACK    3               /* stack size */
+X#define RLIMIT_CORE     4               /* core file size */
+X#define RLIMIT_RSS      5               /* resident set size */
+X
+X#define RLIM_INFINITY   0x7fffffff
+X'
+Xfi
+Xecho '/* define this if you use NIS for your passwd map */'
+Xif test -f /usr/bin/ypcat && ypcat passwd.byname >/dev/null 2>&1
+Xthen echo '#define HAS_NIS_PASSWD'; echo 'using NIS passwd code...' >&2
+Xelse echo '/* #define HAS_NIS_PASSWD */'; echo 'no NIS passwd map, it seems...' >&2
+Xfi
+Xecho '
+X/* define this if your signal handlers return void */'
+Xif egrep 'SIG_DFL|sighandler_t' ${headerdir}/signal.h ${headerdir}/sys/signal.h 2>/dev/null |
+X	grep void >/dev/null
+Xthen echo '#define SIGVOID'; echo 'signal handlers return void...' >&2
+Xelse echo '/* #define SIGVOID */'; echo 'signal handlers return int...' >&2
+Xfi
+Xcat <<'foo'
+X#ifdef sgi
+X#undef SIGVOID
+X#endif
+Xfoo
+Xecho
+Xecho '/* define this if signal handlers need to be reset each time */'
+Xif grep SIGTSTP ${headerdir}/signal.h >/dev/null 2>&1 ||
+X	grep SIGTSTP ${headerdir}/sys/signal.h >/dev/null 2>&1
+Xthen echo '/* #define RESETHANDNEEDED */'
+Xecho 'signal handlers need no resetting...' >&2
+X if test -z "$HPUX" -a -z "$MIPS" &&
+X	man 2 sigset 2>/dev/null | grep handler >/dev/null
+X then echo '#define signal sigset'; echo '.. when installed with sigset()' >&2
+X fi
+Xelse echo '#define RESETHANDNEEDED'
+Xecho 'signal handlers need to be reset...' >&2
+Xfi
+Xecho
+Xcat <<'foo'
+X#ifdef SIGVOID
+X#define HANDTYPE void
+X#else
+X#define HANDTYPE int
+X#define INTHANDTYPE
+X#endif
+X
+X/* a string corresponding to the host type */
+Xfoo
+Xecho '#define HOSTTYPE "' | tr -d '\012'
+Xif test -z "$host"
+Xthen
+X	echo 1>&2 '
+X
+XI cannot figure out what sort of host this is.  Please enter one
+Xshort alphanumeric string describing this host.  (This will be used
+Xto set the $HOSTTYPE variable, so '"you don't have to be very
+Xaccurate if you're not in a multivendor environment.)
+X"
+X	 echo "? " | tr -d '\012' 1>&2
+X	 read host
+X	 echo ' ' 1>&2
+Xfi
+Xecho $host'"'
+Xecho "using host type $host..." >&2
+Xecho
+Xecho '/* the default editor for the fc builtin */'
+Xecho '#define DEFFCEDIT "vi"'
+Xecho
+Xif egrep 'UTMP_FILE|_PATH_UTMP' ${headerdir}/utmp.h >/dev/null 2>&1
+Xthen :
+Xelse 
+Xecho '/* the path of wtmp */'
+Xecho '#define WTMP_FILE "' | tr -d '\012'
+Xif test -f /etc/wtmp
+Xthen echo /etc/wtmp
+Xelif test -f /usr/etc/wtmp
+Xthen echo /usr/etc/wtmp
+Xelif test -f /var/adm/wtmp
+Xthen echo /var/adm/wtmp
+Xelif test -f /usr/adm/wtmp
+Xthen echo /usr/adm/wtmp
+Xelse echo /dev/null
+Xfi | tr -d '\012'
+Xecho '"
+X
+X/* the path of utmp */
+X#define UTMP_FILE "/etc/utmp"
+X'
+Xfi
+Xcat <<'foo'
+X/* default prefix for temporary files */
+X#define DEFTMPPREFIX "/tmp/zsh"
+X
+X/* define if you prefer "suspended" to "stopped" */
+X#define USE_SUSPENDED
+X
+X/* the file to source absolutely first whenever zsh is run; if undefined,
+X      don't source anything */
+X#define GLOBALZSHENV "/etc/zshenv"
+X
+X/* the file to source whenever zsh is run; if undefined, don't source
+X	anything */
+X#define GLOBALZSHRC "/etc/zshrc"
+X
+X/* the file to source whenever zsh is run as a login shell; if
+X	undefined, don't source anything */
+X#define GLOBALZLOGIN "/etc/zlogin"
+X
+X/* the file to source whenever zsh is run as a login shell, before
+X	zshrc is read; if undefined, don't source anything */
+X#define GLOBALZPROFILE "/etc/zprofile"
+X
+X/* the default HISTSIZE */
+X#define DEFAULT_HISTSIZE 30
+X
+X#define _BSD_SIGNALS   /* this could be an iris, you never know */
+X#define _BSD           /* this could be HP-UX, you never know */
+X#define _BSD_INCLUDES  /* this could be AIX, you never know */
+X#define _BBN_POSIX_SUPPORT	/* this could be nX, you never know */
+X
+X/* if your compiler doesn't like void *, change this to char *
+X	and ignore all the warnings.
+X*/
+X
+Xtypedef void *vptr;
+X
+X#define JOB_CONTROL
+Xfoo
+Xexec 1>&2
+Xecho
+Xecho 'Building signals.h...' | tr -d '\012'
+Xecho `csh -fc 'kill -l'` | tr ' ' '\012' >signals.h
+Xlct=`wc -l < signals.h`
+Xcp signals.h signams.h
+X(
+Xecho '/* this file is created automatically by buildzsh */
+X/* if all this is wrong, blame csh ;-) */
+X
+X#define SIGCOUNT '"$lct"'
+X
+X#ifdef GLOBALS
+X
+Xchar *sigmsg[SIGCOUNT+2] = {
+X	"done",'
+Xsed -e 's/^/SIG/' -e '/SIGHUP/s//hangup/
+X/SIGINT/s//interrupt/
+X/SIGQUIT/s//quit/
+X/SIGILL/s//illegal instruction/
+X/SIGTRAP/s//trace trap/
+X/SIGIOT/s//IOT instruction/
+X/SIGABRT/s//abort/
+X/SIGEMT/s//EMT instruction/
+X/SIGFPE/s//floating point exception/
+X/SIGKILL/s//killed/
+X/SIGBUS/s//bus error/
+X/SIGSEGV/s//segmentation fault/
+X/SIGSYS/s//bad system call/
+X/SIGPIPE/s//broken pipe/
+X/SIGTERM/s//terminated/
+X/SIGPWR/s//power fail/
+X/SIGVTALRM/s//virtual time alarm/
+X/SIGCONT/s//continued/
+X/SIGXCPU/s//cpu limit exceeded/
+X/SIGXFSZ/s//filesize limit exceeded/' -e 's/.*/	"&",/' signals.h
+Xecho '	NULL
+X};
+X
+Xchar *sigs[SIGCOUNT+4] = {
+X	"EXIT",' ) >sigtmp.h
+Xmv sigtmp.h signals.h
+Xif grep SIGSTOP signals.h >/dev/null
+Xthen ed signals.h <<'foo' >/dev/null 2>&1
+X/SIGSTOP/c
+X#ifdef USE_SUSPENDED
+X	"suspended (signal)",
+X#else
+X	"stopped (signal)",
+X#endif
+X.
+X/SIGTSTP/c
+X#ifdef USE_SUSPENDED
+X	"suspended",
+X#else
+X	"stopped",
+X#endif
+X.
+X/SIGTTIN/c
+X#ifdef USE_SUSPENDED
+X	"suspended (tty input)",
+X#else
+X	"stopped (tty input)",
+X#endif
+X.
+X/SIGTTOU/c
+X#ifdef USE_SUSPENDED
+X	"suspended (tty output)",
+X#else
+X	"stopped (tty output)",
+X#endif
+X.
+Xw
+Xq
+Xfoo
+Xfi
+X(sed 's/.*/	"&",/' signams.h
+Xecho '	"ERR",
+X	"DEBUG",
+X	NULL
+X};
+X
+X#else
+X
+Xextern char *sigs[SIGCOUNT+4],*sigmsg[SIGCOUNT+2];
+X
+X#endif') >>signals.h
+Xrm signams.h
+Xecho done
+Xecho 'Building Makefile...' | tr -d '\012'
+Xexec >Makefile
+Xcat <<'foo'
+X#! /bin/make -f
+X# Makefile for zsh
+X# generated by buildzsh
+X
+XAUX=buildzsh
+X
+XSRC=builtin.c cond.c exec.c glob.c hist.c init.c jobs.c lex.c loop.c \
+Xmath.c mem.c params.c parse.c subst.c table.c text.c utils.c watch.c \
+Xzle_bindings.c zle_hist.c zle_main.c zle_misc.c zle_move.c zle_refresh.c \
+Xzle_tricky.c zle_utils.c zle_vi.c zle_word.c
+X
+XHEADER=funcs.h zle.h zsh.h ztype.h
+X
+XPROTO=builtin.pro cond.pro exec.pro glob.pro hist.pro init.pro jobs.pro \
+Xlex.pro loop.pro math.pro mem.pro params.pro parse.pro subst.pro table.pro \
+Xtext.pro utils.pro watch.pro zle_bindings.pro zle_hist.pro zle_main.pro \
+Xzle_misc.pro zle_move.pro zle_refresh.pro zle_tricky.pro zle_utils.pro \
+Xzle_vi.pro zle_word.pro
+X
+XOBJS=builtin.o cond.o exec.o glob.o hist.o init.o jobs.o lex.o loop.o \
+Xmath.o mem.o params.o parse.o subst.o table.o text.o utils.o watch.o \
+Xzle_bindings.o zle_hist.o zle_main.o zle_misc.o zle_move.o zle_refresh.o \
+Xzle_tricky.o zle_utils.o zle_vi.o zle_word.o
+X
+XBINDIR=/usr/local/bin
+XMANDIR=/usr/local/man/man1
+X
+X# Debugging flags
+XDFLAGS = # -DQDEBUG
+X
+X# For gcc 2.3.3
+X#CC=gcc -fpcc-struct-return
+X#CFLAGS= -O2 -g -Wall -Wno-implicit -Wno-parentheses -Wno-comment $(DFLAGS)
+X
+Xfoo
+Xif test "$MIPS"
+Xthen echo 'CC=cc -systype bsd43'
+Xelse echo 'CC=cc'
+Xfi
+Xif test "$APOLLO"
+Xthen echo 'CFLAGS= -O -A nansi'
+Xelif test "$HPUX"
+Xthen export HPUX; echo "CFLAGS= -O `[ "$HPUX" = "7.03" ] && echo -Wc,-Ns5000`"
+Xelif test "$ULTRIX"
+Xthen echo 'CFLAGS= -O -Olimit 600'
+Xelif test "$MIPS"
+Xthen echo 'CFLAGS= -O -Olimit 1000 -Wf,-XNd5000 -Wf,-XNl4096'
+Xelif test "$OSF"
+Xthen echo 'CFLAGS= -O -I/usr/sys/include  -I/usr/sys/BINARY -D__rpc_types_h -Dbool_t=int -Denum_t=int'
+Xelif test -f ${headerdir}/ndir.h -a ! -f /usr/lib/libBSD.a
+Xthen echo 'CFLAGS= -O -Aa'
+Xelif strings /usr/bin/cc 2>/dev/null | grep cckr >/dev/null 2>&1
+Xthen echo 'CFLAGS= -O -cckr'
+Xelif cc -v 2>&1 | egrep '^gcc version (1\.9|[2-9])' >/dev/null 2>&1
+Xthen echo 'CFLAGS= -O2 -pipe'
+Xelse echo 'CFLAGS= -O'
+Xfi
+Xif test "$SGI"
+Xthen
+Xif grep '^\+' /etc/passwd >/dev/null 2>&1
+Xthen echo 'LIBS= -lcurses -lmalloc -lbsd -lsun'
+Xelse echo 'LIBS= -lcurses -lmalloc -lbsd'
+Xfi
+Xelif test "$BBN"
+Xthen echo 'LIBS= -ltermcap -lposix'
+Xelif test "$HPUX"
+Xthen echo 'LIBS= -ltermcap -lBSD'
+Xelif test -f /usr/lib/libcposix.a
+Xthen echo 'LIBS= -lcposix -ltermcap'
+Xelif test -f /usr/lib/libBSD.a
+Xthen echo 'LIBS= -ltermcap -lBSD'
+Xelif test -f /usr/lib/libtermcap.a -o -f /usr/ucblib/libtermcap.a
+Xthen
+X	if test "$AIX"
+X	then echo 'LIBS= -lcurses'
+X	else echo 'LIBS= -ltermcap'
+X	fi
+Xelse echo 'LIBS= -lcurses'
+Xfi
+Xcat <<'foo'
+X
+XZSHPATH=zsh
+X
+X.SUFFIXES: .c .o .pro
+X
+X.c.o:
+X	$(CC) $(CFLAGS) $(DFLAGS) -c $<
+X
+X.c.pro:
+X	sed -n '/\/\*\*\/$$/{N;s/^\([^(]*\).*\/\*\*\/.\(.*\)/\1 DCLPROTO((\2))/p;}' $< | sed -e 's/;/,/g' -e 's/,))$$/));/' -e 's/(({))$$/((void));/' >$@
+X
+Xall: $(PROTO) $(ZSHPATH)
+X
+X$(ZSHPATH): $(OBJS)
+X	$(CC) -o $(ZSHPATH) $(OBJS) $(LIBS) $(LFLAGS)
+X	
+Xtags: /tmp
+X	ctags *.[cy]
+X
+X# I hate this next line
+X$(OBJS): config.h zsh.h zle.h signals.h ztype.h funcs.h
+X
+Xparams.o: version.h
+X
+Xclean:
+X	rm -f *.o *.pro zsh core 
+X
+Xcleanall:
+X	rm -f *.o *.pro zsh core Makefile signals.h config.h
+X
+Xinstall: zsh
+X	install -s -m 755 zsh $(BINDIR)
+X	install -m 444 ../man/man1/zsh.1 $(MANDIR)
+Xfoo
+Xexec 1>&2
+Xecho done
+Xcat <<'foo'
+Xdone
+X
+XYou may want to look at the files I just created (config.h, Makefile,
+Xand signals.h) to make sure they are correct.  Or you may just want
+Xto go ahead and try running make now to see what happens.
+X
+Xfoo
+Xecho 'Shall I execute make now?' | tr -d '\012' 
+Xread reply
+Xecho
+Xcase "$reply" in
+X[yY]*) exec make ;;
+Xesac
+END_OF_FILE
+  if test 18846 -ne `wc -c <'src/buildzsh'`; then
+    echo shar: \"'src/buildzsh'\" unpacked with wrong size!
+  fi
+  chmod +x 'src/buildzsh'
+  # end of 'src/buildzsh'
+fi
+if test -f 'src/init.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/init.c'\"
+else
+  echo shar: Extracting \"'src/init.c'\" \(14274 characters\)
+  sed "s/^X//" >'src/init.c' <<'END_OF_FILE'
+X/*
+X *
+X * init.c - main loop and initialization routines
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define GLOBALS
+X#include "zsh.h"
+X#include <pwd.h>
+X
+Xstatic int noexitct = 0;
+X
+Xvoid main(argc,argv,envp) /**/
+Xint argc; char **argv; char **envp;
+X{
+Xchar *zshname;
+X
+X#ifdef LC_ALL
+X	setlocale(LC_ALL, "");
+X#endif
+X	environ = envp;
+X	meminit();
+X	if (!(zshname = strrchr(argv[0], '/')))
+X		zshname = argv[0];
+X	else
+X		zshname++;
+X	setflags(zshname);
+X	parseargs(argv);
+X	setmoreflags();
+X	setupvals();
+X	initialize();
+X	heapalloc();
+X	runscripts(zshname);
+X	for(;;)
+X		{
+X		do
+X			loop(1);
+X		while (tok != ENDINPUT);
+X		if (!(isset(IGNOREEOF) && interact))
+X			{
+X#if 0
+X			if (interact)
+X				fputs(islogin ? "logout\n" : "exit\n",stderr);
+X#endif
+X			zexit(lastval);
+X			continue;
+X			}
+X		noexitct++;
+X		if (noexitct >= 10)
+X			{
+X			stopmsg = 1;
+X			zexit(lastval);
+X			}
+X		zerrnam("zsh",(!islogin) ? "use 'exit' to exit."
+X			: "use 'logout' to logout.",NULL,0);
+X		}
+X}
+X
+X/* keep executing lists until EOF found */
+X
+Xvoid loop(toplevel) /**/
+Xint toplevel;
+X{
+XList list;
+XHeap h = (Heap) peekfirst(heaplist);
+X
+X	pushheap();
+X	for(;;)
+X		{
+X		freeheap();
+X		if (interact && isset(SHINSTDIN))
+X			preprompt();
+X		hbegin();		/* init history mech */
+X		intr();			/* interrupts on */
+X		ainit();			/* init alias mech */
+X		lexinit();
+X		errflag = 0;
+X		if (!(list = parse_event()))
+X			{				/* if we couldn't parse a list */
+X			hend();
+X			if (tok == ENDINPUT && !errflag)
+X				break;
+X			continue;
+X			}
+X		if (hend())
+X			{
+X			if (stopmsg)		/* unset 'you have stopped jobs' flag */
+X				stopmsg--;
+X			execlist(list);
+X			if (toplevel)
+X				noexitct = 0;
+X			}
+X		if (ferror(stderr))
+X			{
+X			zerr("write error",NULL,0);
+X			clearerr(stderr);
+X			}
+X		if (subsh)				/* how'd we get this far in a subshell? */
+X			exit(lastval);
+X		if ((!interact && errflag) || retflag)
+X			break;
+X		if (isset('t') || (lastval && isset(ERREXIT)))
+X			{
+X			if (sigtrapped[SIGEXIT])
+X				dotrap(SIGEXIT);
+X			exit(lastval);
+X			}
+X		}
+X	while ((Heap) peekfirst(heaplist) != h)
+X		popheap();
+X}
+X
+Xvoid setflags(zshname) /**/
+Xconst char *zshname;
+X{
+Xint c;
+X
+X	for (c = 0; c != 32; c++)		opts[c] = OPT_UNSET;
+X	for (c = 32; c != 128; c++)	opts[c] = OPT_INVALID;
+X	for (c = 'a'; c <= 'z'; c++)	opts[c] = opts[c-'a'+'A'] = OPT_UNSET;
+X	for (c = '0'; c <= '9'; c++)	opts[c] = OPT_UNSET;
+X	opts['A'] = OPT_INVALID;
+X	opts['i'] = (isatty(0)) ? OPT_SET : OPT_UNSET;
+X	opts[BGNICE] = opts[NOTIFY] = OPT_SET;
+X	opts[USEZLE] = (interact && SHTTY != -1) ? OPT_SET : OPT_UNSET;
+X	opts[HASHCMDS] = opts[HASHLISTALL] = opts[HASHDIRS] = OPT_SET;
+X
+X	/* KSH Mode:
+X		The following seven options cause zsh to behave more like KSH
+X		when invoked as "ksh".
+X		K - don't recognize csh-style history subst
+X		k - allow interactive comments
+X		I - don't perform brace expansion
+X		3 - don't print error for unmatched wildcards
+X		H - don't query 'rm *'
+X		y - split parameters using IFS
+X		KSHOPTIONPRINT - print options ksh-like
+X		wnp@rcvie.co.at, 1992-05-14
+X	*/
+X
+X	if ( strcmp(zshname, "ksh") == 0 )
+X	{
+X		opts['K'] = opts['k'] = opts['I'] = opts['3'] = OPT_SET ;
+X		opts['H'] = opts['y'] = opts[KSHOPTIONPRINT] = OPT_SET ;
+X	}
+X}
+X
+Xstatic char *cmd;
+X
+Xvoid parseargs(argv) /**/
+Xchar **argv;
+X{
+Xchar **x;
+Xint bk = 0,action;
+XLklist paramlist;
+X
+X	hackzero = argzero = *argv;
+X	opts[LOGINSHELL] = (**(argv++) == '-') ? OPT_SET : OPT_UNSET;
+X	SHIN = 0;
+X	while (!bk && *argv && (**argv == '-' || **argv == '+'))
+X		{
+X		action = (**argv == '-') ? OPT_SET : OPT_UNSET;
+X		while (*++*argv) {
+X			if (opts[(int)**argv] == OPT_INVALID) {
+X				zerr("bad option: -%c",NULL,**argv);
+X				exit(1);
+X			}
+X			if (bk = **argv == 'b') break;
+X			if (**argv == 'c') { /* -c command */
+X				argv++;
+X				if (!*argv) {
+X					zerr("string expected after -c",NULL,0);
+X					exit(1);
+X				}
+X				cmd = *argv;
+X				opts[INTERACTIVE] = OPT_UNSET;
+X				opts['c'] = OPT_SET;
+X				break;
+X			} else if (**argv == 'o') {
+X				int c;
+X
+X				if (!*++*argv)
+X					argv++;
+X				if (!*argv) {
+X					zerr("string expected after -o",NULL,0);
+X					exit(1);
+X				}
+X				c = optlookup(*argv);
+X				if (c == -1)
+X					zerr("no such option: %s",*argv,0);
+X				else
+X					opts[c] = action;
+X				break;
+X			} else opts[(int)**argv] = action;
+X		}
+X		argv++;
+X	}
+X	paramlist = newlist();
+X	if (*argv)
+X		{
+X		if (opts[SHINSTDIN] == OPT_UNSET)
+X			{
+X			SHIN = movefd(open(argzero = *argv,O_RDONLY));
+X			if (SHIN == -1)
+X				{
+X				zerr("can't open input file: %s",*argv,0);
+X				exit(1);
+X				}
+X			opts[INTERACTIVE] = OPT_UNSET;
+X			argv++;
+X			}
+X		while (*argv)
+X			addnode(paramlist,ztrdup(*argv++));
+X		}
+X	else
+X		opts[SHINSTDIN] = OPT_SET;
+X	pparams = x = zcalloc((countnodes(paramlist)+1)*sizeof(char *));
+X	while (*x++ = getnode(paramlist));
+X	free(paramlist);
+X	argzero = ztrdup(argzero);
+X}
+X
+Xvoid setmoreflags() /**/
+X{
+X#ifndef NOCLOSEFUNNYFDS
+Xint t0;
+X#endif
+Xlong ttpgrp;
+X
+X	/* stdout,stderr fully buffered */
+X#ifdef _IOFBF
+X	setvbuf(stdout,malloc(BUFSIZ),_IOFBF,BUFSIZ);
+X	setvbuf(stderr,malloc(BUFSIZ),_IOFBF,BUFSIZ);
+X#else
+X	setbuffer(stdout,malloc(BUFSIZ),BUFSIZ);
+X	setbuffer(stderr,malloc(BUFSIZ),BUFSIZ);
+X#endif
+X	subsh = 0;
+X#ifndef NOCLOSEFUNNYFDS
+X	/* this works around a bug in some versions of in.rshd */
+X	for (t0 = 3; t0 != 10; t0++)
+X		close(t0);
+X#endif
+X#ifdef JOB_CONTROL
+X	opts[MONITOR] = (interact) ? OPT_SET : OPT_UNSET;
+X	if (jobbing) {
+X		SHTTY = movefd((isatty(0)) ? dup(0) : open("/dev/tty",O_RDWR));
+X		if (SHTTY == -1)
+X			opts[MONITOR] = OPT_UNSET;
+X		else {
+X#ifdef TIOCSETD
+X#ifdef NTTYDISC
+X			int ldisc = NTTYDISC;
+X			ioctl(SHTTY, TIOCSETD, &ldisc);
+X#endif
+X#endif
+X			gettyinfo(&shttyinfo);	/* get tty state */
+X#ifdef sgi
+X			if (shttyinfo.tio.c_cc[VSWTCH] <= 0) /* hack for irises */
+X				shttyinfo.tio.c_cc[VSWTCH] = CSWTCH;
+X#endif
+X			savedttyinfo = shttyinfo;
+X		}
+X#ifdef sgi
+X		setpgrp(0,getpgrp(0));
+X#endif
+X		if ((mypgrp = getpgrp(0)) <= 0)
+X			opts[MONITOR] = OPT_UNSET;
+X		else while ((ttpgrp = gettygrp()) != -1 && ttpgrp != mypgrp) {
+X			sleep(1);
+X			mypgrp = getpgrp(0);
+X			if (mypgrp == gettygrp()) break;
+X			killpg(mypgrp,SIGTTIN);
+X			mypgrp = getpgrp(0);
+X		}
+X	} else
+X		SHTTY = -1;
+X#else
+X	opts[MONITOR] = OPT_UNSET;
+X	SHTTY = movefd((isatty(0)) ? dup(0) : open("/dev/tty",O_RDWR));
+X	if (SHTTY != -1) {
+X		gettyinfo(&shttyinfo);
+X		savedttyinfo = shttyinfo;
+X	}
+X#endif
+X}
+X
+Xstatic long
+Xget_baudrate(speedcode)
+Xint speedcode;
+X{
+X	switch(speedcode) {
+X		case B0:	return(0L);
+X		case B50:	return(50L);
+X		case B75:	return(75L);
+X		case B110:	return(110L);
+X		case B134:	return(134L);
+X		case B150:	return(150L);
+X		case B200:	return(200L);
+X		case B300:	return(300L);
+X		case B600:	return(600L);
+X#ifdef _B900
+X		case _B900:	return(900L);
+X#endif
+X		case B1200:	return(1200L);
+X		case B1800:	return(1800L);
+X		case B2400:	return(2400L);
+X#ifdef _B3600
+X		case _B3600:	return(3600L);
+X#endif
+X		case B4800:	return(4800L);
+X#ifdef _B7200
+X		case _B7200:	return(7200L);
+X#endif
+X		case B9600:	return(9600L);
+X#ifdef B19200
+X		case B19200:	return(19200L);
+X#else
+X#ifdef EXTA
+X              case EXTA:      return(19200L);
+X#endif
+X#endif
+X#ifdef B38400
+X		case B38400:	return(38400L);
+X#else
+X#ifdef EXTB
+X              case EXTB:      return(38400L);
+X#endif
+X#endif
+X		default:	break;
+X	}
+X	return(0L);
+X}
+X
+Xvoid setupvals() /**/
+X{
+Xstruct passwd *pswd;
+Xchar *ptr,*s;
+X
+X	curhist = 0;
+X	histsiz = DEFAULT_HISTSIZE;
+X	lithistsiz = 5;
+X	inithist();
+X	mailcheck = logcheck = 60;
+X	dirstacksize = -1;
+X	listmax = 100;
+X	reporttime = -1;
+X	bangchar = '!';
+X	hashchar = '#';
+X	hatchar = '^';
+X	termok = 0;
+X	curjob = prevjob = coprocin = coprocout = -1;
+X	shtimer = time(NULL);	/* init $SECONDS */
+X	srand((unsigned int) shtimer);
+X	/* build various hash tables; argument to newhtable is table size */
+X	aliastab = newhtable(37);
+X	addreswords();
+X	paramtab = newhtable(151);
+X	cmdnamtab = newhtable(37);
+X	compctltab = newhtable(13);
+X	initxbindtab();
+X	nullcmd = ztrdup("cat");
+X	readnullcmd = ztrdup("more");
+X	prompt = ztrdup("%m%# ");
+X	prompt2 = ztrdup("> ");
+X	prompt3 = ztrdup("?# ");
+X	prompt4 = ztrdup("+ ");
+X	sprompt = ztrdup("zsh: correct `%R' to `%r' [nyae]? ");
+X	term = ztrdup("");
+X	ppid = getppid();
+X#ifdef TIO
+X#if defined(HAS_TCCRAP) && defined(TERMIOS)
+X	baud = cfgetospeed(&shttyinfo.tio);
+X	if (baud < 100) baud = get_baudrate(baud); /* aren't "standards" great?? */
+X#else
+X	baud = get_baudrate(shttyinfo.tio.c_cflag & CBAUD);
+X#endif
+X#else
+X	baud = get_baudrate(shttyinfo.sgttyb.sg_ospeed);
+X#endif
+X#ifdef TIOCGWINSZ
+X	if (!(columns = shttyinfo.winsize.ws_col))
+X		columns = 80;
+X	if (!(lines = shttyinfo.winsize.ws_row))
+X		lines = 24;
+X#else
+X	columns = 80;
+X	lines = 24;
+X#endif
+X	ifs = ztrdup(" \t\n");
+X	if (pswd = getpwuid(getuid())) {
+X		username = ztrdup(pswd->pw_name);
+X		home = ztrdup(pswd->pw_dir);
+X	} else {
+X		username = ztrdup("");
+X		home = ztrdup("/");
+X	}
+X	if (ptr = zgetenv("LOGNAME"))
+X		logname = ztrdup(ptr);
+X	else
+X		logname = ztrdup(username);
+X	timefmt = ztrdup(DEFTIMEFMT);
+X	watchfmt = ztrdup(DEFWATCHFMT);
+X	if (!(ttystrname = ztrdup(ttyname(SHTTY))))
+X		ttystrname = ztrdup("");
+X	wordchars = ztrdup(DEFWORDCHARS);
+X	fceditparam = ztrdup(DEFFCEDIT);
+X	tmpprefix = ztrdup(DEFTMPPREFIX);
+X	postedit = ztrdup("");
+X	if (ispwd(home)) pwd = ztrdup(home);
+X	else if ((ptr = zgetenv("PWD")) && ispwd(ptr)) pwd = ztrdup(ptr);
+X	else pwd = zgetwd();
+X	oldpwd = ztrdup(pwd);
+X	hostnam = zalloc(256);
+X	underscore = ztrdup("");
+X	gethostname(hostnam,256);
+X	mypid = getpid();
+X	cdpath = mkarray(NULL);
+X	manpath = mkarray(NULL);
+X	fignore = mkarray(NULL);
+X	fpath = mkarray(NULL);
+X	mailpath = mkarray(NULL);
+X	watch = mkarray(NULL);
+X	hosts = mkarray(NULL);
+X	psvar = mkarray(NULL);
+X	compctlsetup();
+X	userdirs = (char **) zcalloc(sizeof(char *)*2);
+X	usernames = (char **) zcalloc(sizeof(char *)*2);
+X	userdirsz = 2;
+X	userdirct = 0;
+X	adduserdir("",home);
+X	optarg = ztrdup("");
+X	zoptind = 1;
+X	schedcmds = NULL;
+X	path = (char **) zalloc(4*sizeof *path);
+X	path[0] = ztrdup("/bin"); path[1] = ztrdup("/usr/bin");
+X	path[2] = ztrdup("/usr/ucb"); path[3] = NULL;
+X	inittyptab();
+X	initlextabs();
+X	setupparams();
+X	setparams();
+X	inittyptab();
+X	if ((s = zgetenv("EMACS")) && !strcmp(s,"t") && !strcmp(term,"emacs"))
+X		opts[USEZLE] = OPT_UNSET;
+X#ifndef HAS_RUSAGE
+X	times(&shtms);
+X#endif
+X}
+X
+Xvoid compctlsetup() /**/
+X{
+Xstatic char
+X	*hs[] = {"telnet","rlogin","ftp","rup","rusers","rsh",NULL},
+X	*os[] = {"setopt","unsetopt",NULL},
+X	*vs[] = {"export","typeset","vared","unset",NULL},
+X	*cs[] = {"which","builtin",NULL},
+X	*bs[] = {"bindkey",NULL};
+X
+X	compctl_process(hs,CC_HOSTS,NULL);
+X	compctl_process(os,CC_OPTIONS,NULL);
+X	compctl_process(vs,CC_VARS,NULL);
+X	compctl_process(bs,CC_BINDINGS,NULL);
+X	compctl_process(cs,CC_COMMPATH,NULL);
+X	cc_compos.mask   = CC_COMMPATH;
+X	cc_default.mask  = CC_FILES;
+X}
+X
+Xvoid initialize() /**/
+X{
+Xint t0;
+X#ifdef SYSVR4
+X	static struct sigaction chldaction;
+X#endif
+X
+X	breaks = loops = 0;
+X	lastmailcheck = time(NULL);
+X	locallist = NULL;
+X	dirstack = newlist();
+X	bufstack = newlist();
+X	newcmdnamtab();
+X	inbuf = zalloc(inbufsz = 256);
+X	inbufptr = inbuf+inbufsz;
+X	inbufct = 0;
+X#ifndef QDEBUG
+X	signal(SIGQUIT,SIG_IGN);
+X#endif
+X#ifdef RLIM_INFINITY
+X	for (t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X		getrlimit(t0,limits+t0);
+X#endif
+X	hsubl = hsubr = NULL;
+X	lastpid = 0;
+X	bshin = fdopen(SHIN,"r");
+X#ifdef SYSVR4
+X	memset(&chldaction, 0, sizeof(chldaction));
+X	chldaction.sa_handler = handler;
+X	sigaction(SIGCHLD, &chldaction, NULL);
+X#else
+X	signal(SIGHUP,handler);
+X	signal(SIGCHLD,handler);
+X#endif
+X	if (jobbing)
+X		{
+X		long ttypgrp;
+X		while ((ttypgrp = gettygrp()) != -1 && ttypgrp != mypgrp)
+X			kill(0,SIGTTIN);
+X		if (ttypgrp == -1)
+X			{
+X			opts[MONITOR] = OPT_UNSET;
+X			}
+X		else
+X			{
+X			signal(SIGTTOU,SIG_IGN);
+X			signal(SIGTSTP,SIG_IGN);
+X			signal(SIGTTIN,SIG_IGN);
+X			signal(SIGPIPE,SIG_IGN);
+X			attachtty(mypgrp);
+X			}
+X		}
+X	if (interact)
+X		{
+X		signal(SIGTERM,SIG_IGN);
+X#ifdef SIGWINCH
+X		signal(SIGWINCH,handler);
+X#endif
+X		signal(SIGALRM,handler);
+X		intr();
+X		}
+X}
+X
+Xvoid addreswords() /**/
+X{
+Xstatic char *reswds[] = {
+X	"do", "done", "esac", "then", "elif", "else", "fi", "for", "case",
+X	"if", "while", "function", "repeat", "time", "until", "exec", "command",
+X	"select", "coproc", "noglob", "-", "nocorrect", "foreach", "end", NULL
+X	};
+Xint t0;
+X
+X	for (t0 = 0; reswds[t0]; t0++)
+X		addhperm(reswds[t0],mkanode(NULL,-1-t0),aliastab,(FFunc) 0);
+X}
+X
+Xvoid runscripts(zshname) /**/
+Xchar *zshname;
+X{
+X	/*
+X	   KSH Mode:
+X	   if called as "ksh", we source the standard
+X	   sh/ksh scripts:
+X	   wnp@rcvie.co.at 1992/05/14
+X	 */
+X
+X	if ( strcmp(zshname, "ksh") == 0 )
+X	{
+X		if (islogin) source("/etc/profile") ;
+X		if (islogin) sourcehome(".profile");
+X		source(getsparam("ENV"));
+X	}
+X	else if (isset(NORCS))
+X	{
+X#ifdef GLOBALZSHENV
+X		source(GLOBALZSHENV);
+X#endif
+X	}
+X	else
+X	{
+X#ifdef GLOBALZSHENV
+X		source(GLOBALZSHENV);
+X#endif
+X		if (isset(NORCS)) {
+X#ifdef GLOBALZPROFILE
+X			if (islogin) source(GLOBALZPROFILE);
+X#endif
+X#ifdef GLOBALZSHRC
+X			if (! isset(NORCS))
+X				source(GLOBALZSHRC);
+X#endif
+X#ifdef GLOBALZLOGIN
+X			if (islogin && ! isset(NORCS))
+X				source(GLOBALZLOGIN);
+X#endif
+X		} else {
+X			sourcehome(".zshenv");
+X			if (interact && ! isset(NORCS)) {
+X				if (islogin) {
+X#ifdef GLOBALZPROFILE
+X					source(GLOBALZPROFILE);
+X					if (! isset(NORCS))
+X#endif
+X						sourcehome(".zprofile");
+X				}
+X#ifdef GLOBALZSHRC
+X				if (! isset(NORCS))
+X					source(GLOBALZSHRC);
+X				if (! isset(NORCS))
+X#endif
+X					sourcehome(".zshrc");
+X				if (islogin && ! isset(NORCS)) {
+X#ifdef GLOBALZLOGIN
+X					source(GLOBALZLOGIN);
+X					if (! isset(NORCS))
+X#endif
+X						sourcehome(".zlogin");
+X				}
+X			}
+X		}
+X	}
+X	if (isset('c'))
+X		{
+X		if (SHIN >= 10)
+X			close(SHIN);
+X		SHIN = movefd(open("/dev/null",O_RDONLY));
+X		execstring(cmd);
+X		stopmsg = 1;
+X		zexit(lastval);
+X		}
+X	if (interact && ! isset(NORCS))
+X		readhistfile(getsparam("HISTFILE"),0);
+X#ifdef TIOCSWINSZ
+X	if (!(columns = shttyinfo.winsize.ws_col))
+X		columns = 80;
+X	if (!(lines = shttyinfo.winsize.ws_row))
+X		lines = 24;
+X#endif
+X}
+X
+Xvoid ainit() /**/
+X{
+X	alstackind = 0;		/* reset alias stack */
+X	alstat = 0;
+X	isfirstln = 1;
+X}
+END_OF_FILE
+  if test 14274 -ne `wc -c <'src/init.c'`; then
+    echo shar: \"'src/init.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/init.c'
+fi
+if test -f 'src/zle_bindings.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/zle_bindings.c'\"
+else
+  echo shar: Extracting \"'src/zle_bindings.c'\" \(17791 characters\)
+  sed "s/^X//" >'src/zle_bindings.c' <<'END_OF_FILE'
+X/*
+X *
+X * zle_bindings.c - commands and keymaps
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+X
+Xstruct zlecmd zlecmds[] = {
+X{"accept-and-hold",acceptandhold,0},
+X{"accept-and-infer-next-history",acceptandinfernexthistory,0},
+X{"accept-and-menu-complete", acceptandmenucomplete, ZLE_MENUCMP},
+X{"accept-line",acceptline,0},
+X{"accept-line-and-down-history",acceptlineanddownhistory,0},
+X{"backward-char",backwardchar,ZLE_MOVEMENT},
+X{"backward-delete-char",backwarddeletechar,ZLE_DELETE},
+X{"backward-delete-word",backwarddeleteword,ZLE_DELETE},
+X{"backward-kill-line",backwardkillline,ZLE_KILL},
+X{"backward-kill-word",backwardkillword,ZLE_KILL|ZLE_DELETE},
+X{"backward-word",backwardword,ZLE_MOVEMENT},
+X{"beginning-of-buffer-or-history",beginningofbufferorhistory,ZLE_MOVEMENT},
+X{"beginning-of-history",beginningofhistory,0},
+X{"beginning-of-line",beginningofline,ZLE_MOVEMENT},
+X{"beginning-of-line-hist",beginningoflinehist,ZLE_MOVEMENT},
+X{"capitalize-word",capitalizeword,0},
+X{"clear-screen",clearscreen,0},
+X{"complete-word",completeword,ZLE_MENUCMP},
+X{"copy-prev-word",copyprevword,0},
+X{"copy-region-as-kill",copyregionaskill,ZLE_KILL},
+X{"delete-char",deletechar,ZLE_DELETE},
+X{"delete-char-or-list",deletecharorlist,ZLE_MENUCMP},
+X{"delete-word",deleteword,ZLE_DELETE},
+X{"digit-argument",digitargument,ZLE_ARG},
+X{"down-case-word",downcaseword,0},
+X{"down-history",downhistory,0},
+X{"down-line-or-history",downlineorhistory,ZLE_MOVEMENT|ZLE_LINEMOVE},
+X{"end-of-buffer-or-history",endofbufferorhistory,ZLE_MOVEMENT},
+X{"end-of-history",endofhistory,0},
+X{"end-of-line",endofline,ZLE_MOVEMENT},
+X{"end-of-line-hist",endoflinehist,ZLE_MOVEMENT},
+X{"exchange-point-and-mark",exchangepointandmark,ZLE_MOVEMENT},
+X{"execute-last-named-cmd",(F) 0,0},
+X{"execute-named-cmd",(F) 0,0},
+X{"expand-history",expandhistory,0},
+X{"expand-or-complete",expandorcomplete,ZLE_MENUCMP},
+X{"expand-word",expandword,0},
+X{"forward-char",forwardchar,ZLE_MOVEMENT},
+X{"forward-word",forwardword,ZLE_MOVEMENT},
+X{"get-line",getline,0},
+X{"gosmacs-transpose-chars",gosmacstransposechars,0},
+X{"history-incremental-search-backward",historyincrementalsearchbackward,0},
+X{"history-incremental-search-forward",historyincrementalsearchforward,0},
+X{"history-search-backward",historysearchbackward,ZLE_HISTSEARCH},
+X{"history-search-forward",historysearchforward,ZLE_HISTSEARCH},
+X{"infer-next-history",infernexthistory,0},
+X{"insert-last-word",insertlastword,ZLE_INSERT},
+X{"kill-buffer",killbuffer,ZLE_KILL},
+X{"kill-line",killline,ZLE_KILL},
+X{"kill-region",killregion,ZLE_KILL},
+X{"kill-whole-line",killwholeline,ZLE_KILL},
+X{"list-choices",listchoices,ZLE_DELETE},	/* ZLE_DELETE fixes autoremoveslash */
+X{"list-expand",listexpand,ZLE_MENUCMP},
+X{"magic-space",magicspace,0},
+X{"menu-complete",menucompleteword,ZLE_MENUCMP},
+X{"menu-expand-or-complete",menuexpandorcomplete,ZLE_MENUCMP},
+X{"overwrite-mode",overwritemode,0},
+X{"push-line",pushline,0},
+X{"quoted-insert",quotedinsert,ZLE_INSERT},
+X{"quote-line",quoteline,0},
+X{"quote-region",quoteregion,0},
+X{"redisplay",redisplay,0},
+X{"reverse-menu-complete",reversemenucomplete,ZLE_MENUCMP},
+X{"run-help",processcmd,0},
+X{"self-insert",selfinsert,ZLE_INSERT},
+X{"self-insert-unmeta",selfinsertunmeta,ZLE_INSERT},
+X{"send-break",sendbreak,0},
+X{"send-string",sendstring,0},
+X{"",(F) 0,0},
+X{"set-mark-command",setmarkcommand,0},
+X{"spell-word",spellword,0},
+X{"toggle-literal-history",toggleliteralhistory,0},
+X{"transpose-chars",transposechars,0},
+X{"transpose-words",transposewords,0},
+X{"undefined-key",undefinedkey,0},
+X{"undo",undo,ZLE_UNDO},
+X{"universal-argument",universalargument,ZLE_ARG},
+X{"up-case-word",upcaseword,0},
+X{"up-history",uphistory,0},
+X{"up-line-or-history",uplineorhistory,ZLE_LINEMOVE|ZLE_MOVEMENT},
+X{"vi-add-eol",viaddeol,0},
+X{"vi-add-next",viaddnext,0},
+X{"vi-backward-blank-word",vibackwardblankword,ZLE_MOVEMENT},
+X{"vi-backward-char",vibackwardchar,ZLE_MOVEMENT},
+X{"vi-backward-delete-char",vibackwarddeletechar,ZLE_KILL},
+X{"vi-beginning-of-line",vibeginningofline,ZLE_MOVEMENT},
+X{"vi-caps-lock-panic",vicapslockpanic,0},
+X{"vi-change",vichange,0},
+X{"vi-change-eol",vichangeeol,0},
+X{"vi-change-whole-line",vichangewholeline,0},
+X{"vi-cmd-mode",vicmdmode,0},
+X{"vi-delete",videlete,ZLE_KILL},
+X{"vi-delete-char",videletechar,ZLE_KILL},
+X{"vi-digit-or-beginning-of-line",(F) 0,0},
+X{"vi-end-of-line",viendofline,ZLE_MOVEMENT},
+X{"vi-fetch-history",vifetchhistory,0},
+X{"vi-find-next-char",vifindnextchar,ZLE_MOVEMENT},
+X{"vi-find-next-char-skip",vifindnextcharskip,ZLE_MOVEMENT},
+X{"vi-find-prev-char",vifindprevchar,ZLE_MOVEMENT},
+X{"vi-find-prev-char-skip",vifindprevcharskip,ZLE_MOVEMENT},
+X{"vi-first-non-blank",vifirstnonblank,ZLE_MOVEMENT},
+X{"vi-forward-blank-word",viforwardblankword,ZLE_MOVEMENT},
+X{"vi-forward-blank-word-end",viforwardblankwordend,ZLE_MOVEMENT},
+X{"vi-forward-char",viforwardchar,ZLE_MOVEMENT},
+X{"vi-forward-word-end",viforwardwordend,ZLE_MOVEMENT},
+X{"vi-goto-column",vigotocolumn,ZLE_MOVEMENT},
+X{"vi-goto-mark",vigotomark,ZLE_MOVEMENT},
+X{"vi-goto-mark-line",vigotomarkline,ZLE_MOVEMENT},
+X{"vi-history-search-backward",vihistorysearchbackward,0},
+X{"vi-history-search-forward",vihistorysearchforward,0},
+X{"vi-indent",viindent,0},
+X{"vi-insert",viinsert,0},
+X{"vi-insert-bol",viinsertbol,0},
+X{"vi-join",vijoin,0},
+X{"vi-match-bracket",vimatchbracket,ZLE_MOVEMENT},
+X{"vi-open-line-above",viopenlineabove,0},
+X{"vi-open-line-below",viopenlinebelow,0},
+X{"vi-oper-swap-case",vioperswapcase,0},
+X{"vi-put-after",viputafter,ZLE_YANK},
+X{"vi-repeat-change",virepeatchange,ZLE_ARG},
+X{"vi-repeat-find",virepeatfind,ZLE_MOVEMENT},
+X{"vi-repeat-search",virepeatsearch,ZLE_MOVEMENT},
+X{"vi-replace",vireplace,0},
+X{"vi-replace-chars",vireplacechars,0},
+X{"vi-rev-repeat-find",virevrepeatfind,ZLE_MOVEMENT},
+X{"vi-rev-repeat-search",virevrepeatsearch,ZLE_MOVEMENT},
+X{"vi-set-buffer",visetbuffer,0},
+X{"vi-set-mark",visetmark,0},
+X{"vi-substitute",visubstitute,0},
+X{"vi-swap-case",viswapcase,0},
+X{"vi-undo-change",undo,0},
+X{"vi-unindent",viunindent,0},
+X{"vi-yank",viyank,0},
+X{"vi-yank-eol",viyankeol,0},
+X{"which-command",processcmd,0},
+X{"yank",yank,ZLE_YANK|ZLE_NAMEDBUFFER},
+X{"yank-pop",yankpop,ZLE_YANK},
+X{"emacs-forward-word",emacsforwardword,ZLE_MOVEMENT},
+X{"emacs-backward-word",emacsbackwardword,ZLE_MOVEMENT},
+X{"kill-word",killword,ZLE_KILL},
+X{"vi-kill-line",vikillline,0},
+X{"vi-backward-kill-word",vibackwardkillword,ZLE_KILL},
+X{"expand-cmd-path",expandcmdpath,0},
+X{"neg-argument",negargument,ZLE_NEGARG|ZLE_ARG},
+X{"pound-insert",poundinsert,0},
+X{"vi-forward-word",viforwardword,ZLE_MOVEMENT},
+X{"vi-backward-word",vibackwardword,ZLE_MOVEMENT},
+X{"up-line-or-search",uplineorsearch,ZLE_MOVEMENT|ZLE_LINEMOVE|ZLE_HISTSEARCH},
+X{"down-line-or-search",downlineorsearch,ZLE_MOVEMENT|ZLE_LINEMOVE|ZLE_HISTSEARCH},
+X{"",(F) 0,0}
+X};
+X
+Xint emacsbind[256] = {
+X/* ^@ */ z_setmarkcommand,
+X/* ^A */ z_beginningofline,
+X/* ^B */ z_backwardchar,
+X/* ^C */ z_sendbreak,
+X/* ^D */ z_deletecharorlist,
+X/* ^E */ z_endofline,
+X/* ^F */ z_forwardchar,
+X/* ^G */ z_undefinedkey,
+X/* ^H */ z_backwarddeletechar,
+X/* ^I */ z_expandorcomplete,
+X/* ^J */ z_acceptline,
+X/* ^K */ z_killline,
+X/* ^L */ z_clearscreen,
+X/* ^M */ z_acceptline,
+X/* ^N */ z_downlineorhistory,
+X/* ^O */ z_acceptlineanddownhistory,
+X/* ^P */ z_uplineorhistory,
+X/* ^Q */ z_pushline,
+X/* ^R */ z_historyincrementalsearchbackward,
+X/* ^S */ z_historyincrementalsearchforward,
+X/* ^T */ z_transposechars,
+X/* ^U */ z_killwholeline,
+X/* ^V */ z_quotedinsert,
+X/* ^W */ z_backwardkillword,
+X/* ^X */ z_sequenceleadin,
+X/* ^Y */ z_yank,
+X/* ^Z */ z_undefinedkey,
+X/* ^[ */ z_sequenceleadin,
+X/* ^\ */ z_undefinedkey,
+X/* ^] */ z_undefinedkey,
+X/* ^^ */ z_undefinedkey,
+X/* ^_ */ z_undo,
+X/*   */ z_selfinsert,
+X/* ! */ z_selfinsert,
+X/* " */ z_selfinsert,
+X/* # */ z_selfinsert,
+X/* $ */ z_selfinsert,
+X/* % */ z_selfinsert,
+X/* & */ z_selfinsert,
+X/* ' */ z_selfinsert,
+X/* ( */ z_selfinsert,
+X/* ) */ z_selfinsert,
+X/* * */ z_selfinsert,
+X/* + */ z_selfinsert,
+X/* , */ z_selfinsert,
+X/* - */ z_selfinsert,
+X/* . */ z_selfinsert,
+X/* / */ z_selfinsert,
+X/* 0 */ z_selfinsert,
+X/* 1 */ z_selfinsert,
+X/* 2 */ z_selfinsert,
+X/* 3 */ z_selfinsert,
+X/* 4 */ z_selfinsert,
+X/* 5 */ z_selfinsert,
+X/* 6 */ z_selfinsert,
+X/* 7 */ z_selfinsert,
+X/* 8 */ z_selfinsert,
+X/* 9 */ z_selfinsert,
+X/* : */ z_selfinsert,
+X/* ; */ z_selfinsert,
+X/* < */ z_selfinsert,
+X/* = */ z_selfinsert,
+X/* > */ z_selfinsert,
+X/* ? */ z_selfinsert,
+X/* @ */ z_selfinsert,
+X/* A */ z_selfinsert,
+X/* B */ z_selfinsert,
+X/* C */ z_selfinsert,
+X/* D */ z_selfinsert,
+X/* E */ z_selfinsert,
+X/* F */ z_selfinsert,
+X/* G */ z_selfinsert,
+X/* H */ z_selfinsert,
+X/* I */ z_selfinsert,
+X/* J */ z_selfinsert,
+X/* K */ z_selfinsert,
+X/* L */ z_selfinsert,
+X/* M */ z_selfinsert,
+X/* N */ z_selfinsert,
+X/* O */ z_selfinsert,
+X/* P */ z_selfinsert,
+X/* Q */ z_selfinsert,
+X/* R */ z_selfinsert,
+X/* S */ z_selfinsert,
+X/* T */ z_selfinsert,
+X/* U */ z_selfinsert,
+X/* V */ z_selfinsert,
+X/* W */ z_selfinsert,
+X/* X */ z_selfinsert,
+X/* Y */ z_selfinsert,
+X/* Z */ z_selfinsert,
+X/* [ */ z_selfinsert,
+X/* \ */ z_selfinsert,
+X/* ] */ z_selfinsert,
+X/* ^ */ z_selfinsert,
+X/* _ */ z_selfinsert,
+X/* ` */ z_selfinsert,
+X/* a */ z_selfinsert,
+X/* b */ z_selfinsert,
+X/* c */ z_selfinsert,
+X/* d */ z_selfinsert,
+X/* e */ z_selfinsert,
+X/* f */ z_selfinsert,
+X/* g */ z_selfinsert,
+X/* h */ z_selfinsert,
+X/* i */ z_selfinsert,
+X/* j */ z_selfinsert,
+X/* k */ z_selfinsert,
+X/* l */ z_selfinsert,
+X/* m */ z_selfinsert,
+X/* n */ z_selfinsert,
+X/* o */ z_selfinsert,
+X/* p */ z_selfinsert,
+X/* q */ z_selfinsert,
+X/* r */ z_selfinsert,
+X/* s */ z_selfinsert,
+X/* t */ z_selfinsert,
+X/* u */ z_selfinsert,
+X/* v */ z_selfinsert,
+X/* w */ z_selfinsert,
+X/* x */ z_selfinsert,
+X/* y */ z_selfinsert,
+X/* z */ z_selfinsert,
+X/* { */ z_selfinsert,
+X/* | */ z_selfinsert,
+X/* } */ z_selfinsert,
+X/* ~ */ z_selfinsert,
+X/* ^? */ z_backwarddeletechar,
+X/* M-^@ */ z_undefinedkey,
+X/* M-^A */ z_undefinedkey,
+X/* M-^B */ z_undefinedkey,
+X/* M-^C */ z_undefinedkey,
+X/* M-^D */ z_listchoices,
+X/* M-^E */ z_undefinedkey,
+X/* M-^F */ z_undefinedkey,
+X/* M-^G */ z_undefinedkey,
+X/* M-^H */ z_backwardkillword,
+X/* M-^I */ z_selfinsertunmeta,
+X/* M-^J */ z_selfinsertunmeta,
+X/* M-^K */ z_undefinedkey,
+X/* M-^L */ z_clearscreen,
+X/* M-^M */ z_selfinsertunmeta,
+X/* M-^N */ z_undefinedkey,
+X/* M-^O */ z_undefinedkey,
+X/* M-^P */ z_undefinedkey,
+X/* M-^Q */ z_undefinedkey,
+X/* M-^R */ z_undefinedkey,
+X/* M-^S */ z_undefinedkey,
+X/* M-^T */ z_undefinedkey,
+X/* M-^U */ z_undefinedkey,
+X/* M-^V */ z_undefinedkey,
+X/* M-^W */ z_undefinedkey,
+X/* M-^X */ z_undefinedkey,
+X/* M-^Y */ z_undefinedkey,
+X/* M-^Z */ z_undefinedkey,
+X/* M-^[ */ z_undefinedkey,
+X/* M-^\ */ z_undefinedkey,
+X/* M-^] */ z_undefinedkey,
+X/* M-^^ */ z_undefinedkey,
+X/* M-^_ */ z_copyprevword,
+X/* M-  */ z_expandhistory,
+X/* M-! */ z_expandhistory,
+X/* M-" */ z_quoteregion,
+X/* M-# */ z_undefinedkey,
+X/* M-$ */ z_spellword,
+X/* M-% */ z_undefinedkey,
+X/* M-& */ z_undefinedkey,
+X/* M-' */ z_quoteline,
+X/* M-( */ z_undefinedkey,
+X/* M-) */ z_undefinedkey,
+X/* M-* */ z_undefinedkey,
+X/* M-+ */ z_undefinedkey,
+X/* M-, */ z_undefinedkey,
+X/* M-- */ z_negargument,
+X/* M-. */ z_insertlastword,
+X/* M-/ */ z_undefinedkey,
+X/* M-0 */ z_digitargument,
+X/* M-1 */ z_digitargument,
+X/* M-2 */ z_digitargument,
+X/* M-3 */ z_digitargument,
+X/* M-4 */ z_digitargument,
+X/* M-5 */ z_digitargument,
+X/* M-6 */ z_digitargument,
+X/* M-7 */ z_digitargument,
+X/* M-8 */ z_digitargument,
+X/* M-9 */ z_digitargument,
+X/* M-: */ z_undefinedkey,
+X/* M-; */ z_undefinedkey,
+X/* M-< */ z_beginningofbufferorhistory,
+X/* M-= */ z_undefinedkey,
+X/* M-> */ z_endofbufferorhistory,
+X/* M-? */ z_whichcommand,
+X/* M-@ */ z_undefinedkey,
+X/* M-A */ z_acceptandhold,
+X/* M-B */ z_backwardword,
+X/* M-C */ z_capitalizeword,
+X/* M-D */ z_deleteword,
+X/* M-E */ z_undefinedkey,
+X/* M-F */ z_forwardword,
+X/* M-G */ z_getline,
+X/* M-H */ z_runhelp,
+X/* M-I */ z_undefinedkey,
+X/* M-J */ z_undefinedkey,
+X/* M-K */ z_undefinedkey,
+X/* M-L */ z_downcaseword,
+X/* M-M */ z_undefinedkey,
+X/* M-N */ z_historysearchforward,
+X/* M-O */ z_undefinedkey,
+X/* M-P */ z_historysearchbackward,
+X/* M-Q */ z_pushline,
+X/* M-R */ z_toggleliteralhistory,
+X/* M-S */ z_spellword,
+X/* M-T */ z_transposewords,
+X/* M-U */ z_upcaseword,
+X/* M-V */ z_undefinedkey,
+X/* M-W */ z_copyregionaskill,
+X/* M-X */ z_undefinedkey,
+X/* M-Y */ z_undefinedkey,
+X/* M-Z */ z_undefinedkey,
+X/* M-[ */ z_sequenceleadin,
+X/* M-\ */ z_undefinedkey,
+X/* M-] */ z_undefinedkey,
+X/* M-^ */ z_undefinedkey,
+X/* M-_ */ z_insertlastword,
+X/* M-` */ z_undefinedkey,
+X/* M-a */ z_acceptandhold,
+X/* M-b */ z_backwardword,
+X/* M-c */ z_capitalizeword,
+X/* M-d */ z_deleteword,
+X/* M-e */ z_undefinedkey,
+X/* M-f */ z_forwardword,
+X/* M-g */ z_getline,
+X/* M-h */ z_runhelp,
+X/* M-i */ z_undefinedkey,
+X/* M-j */ z_undefinedkey,
+X/* M-k */ z_undefinedkey,
+X/* M-l */ z_downcaseword,
+X/* M-m */ z_undefinedkey,
+X/* M-n */ z_historysearchforward,
+X/* M-o */ z_undefinedkey,
+X/* M-p */ z_historysearchbackward,
+X/* M-q */ z_pushline,
+X/* M-r */ z_toggleliteralhistory,
+X/* M-s */ z_spellword,
+X/* M-t */ z_transposewords,
+X/* M-u */ z_upcaseword,
+X/* M-v */ z_undefinedkey,
+X/* M-w */ z_copyregionaskill,
+X/* M-x */ z_executenamedcmd,
+X/* M-y */ z_yankpop,
+X/* M-z */ z_executelastnamedcmd,
+X/* M-{ */ z_undefinedkey,
+X/* M-| */ z_vigotocolumn,
+X/* M-} */ z_undefinedkey,
+X/* M-~ */ z_undefinedkey,
+X/* M-^? */ z_backwardkillword,
+X};
+X
+Xint viinsbind[32] = {
+X/* ^@ */ z_undefinedkey,
+X/* ^A */ z_selfinsert,
+X/* ^B */ z_selfinsert,
+X/* ^C */ z_sendbreak,
+X/* ^D */ z_listchoices,
+X/* ^E */ z_selfinsert,
+X/* ^F */ z_selfinsert,
+X/* ^G */ z_selfinsert,
+X/* ^H */ z_vibackwarddeletechar,
+X/* ^I */ z_expandorcomplete,
+X/* ^J */ z_acceptline,
+X/* ^K */ z_killline,
+X/* ^L */ z_clearscreen,
+X/* ^M */ z_acceptline,
+X/* ^N */ z_selfinsert,
+X/* ^O */ z_selfinsert,
+X/* ^P */ z_selfinsert,
+X/* ^Q */ z_selfinsert,
+X/* ^R */ z_redisplay,
+X/* ^S */ z_selfinsert,
+X/* ^T */ z_selfinsert,
+X/* ^U */ z_vikillline,
+X/* ^V */ z_quotedinsert,
+X/* ^W */ z_vibackwardkillword,
+X/* ^X */ z_selfinsert,
+X/* ^Y */ z_selfinsert,
+X/* ^Z */ z_selfinsert,
+X/* ^[ */ z_vicmdmode,
+X/* ^\ */ z_selfinsert,
+X/* ^] */ z_selfinsert,
+X/* ^^ */ z_selfinsert,
+X/* ^_ */ z_selfinsert,
+X};
+X
+Xint vicmdbind[128] = {
+X/* ^@ */ z_undefinedkey,
+X/* ^A */ z_beginningofline,
+X/* ^B */ z_undefinedkey,
+X/* ^C */ z_sendbreak,
+X/* ^D */ z_listchoices,
+X/* ^E */ z_endofline,
+X/* ^F */ z_undefinedkey,
+X/* ^G */ z_listexpand,
+X/* ^H */ z_backwarddeletechar,
+X/* ^I */ z_completeword,
+X/* ^J */ z_acceptline,
+X/* ^K */ z_killline,
+X/* ^L */ z_clearscreen,
+X/* ^M */ z_acceptline,
+X/* ^N */ z_downhistory,
+X/* ^O */ z_undefinedkey,
+X/* ^P */ z_uphistory,
+X/* ^Q */ z_undefinedkey,
+X/* ^R */ z_redisplay,
+X/* ^S */ z_undefinedkey,
+X/* ^T */ z_undefinedkey,
+X/* ^U */ z_killbuffer,
+X/* ^V */ z_undefinedkey,
+X/* ^W */ z_backwardkillword,
+X/* ^X */ z_expandorcomplete,
+X/* ^Y */ z_undefinedkey,
+X/* ^Z */ z_undefinedkey,
+X/* ^[ */ z_sequenceleadin,
+X/* ^\ */ z_undefinedkey,
+X/* ^] */ z_undefinedkey,
+X/* ^^ */ z_undefinedkey,
+X/* ^_ */ z_undefinedkey,
+X/*   */ z_viforwardchar,
+X/* ! */ z_undefinedkey,
+X/* " */ z_visetbuffer,
+X/* # */ z_poundinsert,
+X/* $ */ z_viendofline,
+X/* % */ z_vimatchbracket,
+X/* & */ z_undefinedkey,
+X/* ' */ z_vigotomarkline,
+X/* ( */ z_undefinedkey,
+X/* ) */ z_undefinedkey,
+X/* * */ z_undefinedkey,
+X/* + */ z_downlineorhistory,
+X/* , */ z_virevrepeatfind,
+X/* - */ z_uplineorhistory,
+X/* . */ z_virepeatchange,
+X/* / */ z_vihistorysearchbackward,
+X/* 0 */ z_vidigitorbeginningofline,
+X/* 1 */ z_digitargument,
+X/* 2 */ z_digitargument,
+X/* 3 */ z_digitargument,
+X/* 4 */ z_digitargument,
+X/* 5 */ z_digitargument,
+X/* 6 */ z_digitargument,
+X/* 7 */ z_digitargument,
+X/* 8 */ z_digitargument,
+X/* 9 */ z_digitargument,
+X/* : */ z_undefinedkey,
+X/* ; */ z_virepeatfind,
+X/* < */ z_viunindent,
+X/* = */ z_listchoices,
+X/* > */ z_viindent,
+X/* ? */ z_vihistorysearchforward,
+X/* @ */ z_undefinedkey,
+X/* A */ z_viaddeol,
+X/* B */ z_vibackwardblankword,
+X/* C */ z_vichangeeol,
+X/* D */ z_killline,
+X/* E */ z_viforwardblankwordend,
+X/* F */ z_vifindprevchar,
+X/* G */ z_vifetchhistory,
+X/* H */ z_vicapslockpanic,
+X/* I */ z_viinsertbol,
+X/* J */ z_historysearchforward,
+X/* K */ z_historysearchbackward,
+X/* L */ z_undefinedkey,
+X/* M */ z_undefinedkey,
+X/* N */ z_virevrepeatsearch,
+X/* O */ z_viopenlineabove,
+X/* P */ z_yank,
+X/* Q */ z_undefinedkey,
+X/* R */ z_vireplace,
+X/* S */ z_vichangewholeline,
+X/* T */ z_vifindprevcharskip,
+X/* U */ z_undefinedkey,
+X/* V */ z_undefinedkey,
+X/* W */ z_viforwardblankword,
+X/* X */ z_vibackwarddeletechar,
+X/* Y */ z_viyankeol,
+X/* Z */ z_undefinedkey,
+X/* [ */ z_undefinedkey,
+X/* \ */ z_completeword,
+X/* ] */ z_undefinedkey,
+X/* ^ */ z_vifirstnonblank,
+X/* _ */ z_undefinedkey,
+X/* ` */ z_vigotomark,
+X/* a */ z_viaddnext,
+X/* b */ z_vibackwardword,
+X/* c */ z_vichange,
+X/* d */ z_videlete,
+X/* e */ z_viforwardwordend,
+X/* f */ z_vifindnextchar,
+X/* g */ z_undefinedkey,
+X/* h */ z_vibackwardchar,
+X/* i */ z_viinsert,
+X/* j */ z_downlineorhistory,
+X/* k */ z_uplineorhistory,
+X/* l */ z_viforwardchar,
+X/* m */ z_visetmark,
+X/* n */ z_virepeatsearch,
+X/* o */ z_viopenlinebelow,
+X/* p */ z_viputafter,
+X/* q */ z_undefinedkey,
+X/* r */ z_vireplacechars,
+X/* s */ z_visubstitute,
+X/* t */ z_vifindnextcharskip,
+X/* u */ z_viundochange,
+X/* v */ z_undefinedkey,
+X/* w */ z_viforwardword,
+X/* x */ z_videletechar,
+X/* y */ z_viyank,
+X/* z */ z_undefinedkey,
+X/* { */ z_undefinedkey,
+X/* | */ z_vigotocolumn,
+X/* } */ z_undefinedkey,
+X/* ~ */ z_viswapcase,
+X/* ^? */ z_backwarddeletechar,
+X};
+X
+END_OF_FILE
+  if test 17791 -ne `wc -c <'src/zle_bindings.c'`; then
+    echo shar: \"'src/zle_bindings.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/zle_bindings.c'
+fi
+echo shar: End of archive 16 \(of 22\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

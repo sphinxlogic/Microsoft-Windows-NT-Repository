@@ -1,0 +1,1991 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i053: Video Extension for X (v2r2), Part02/29
+Message-ID: <1992Feb6.145334.29668@msi.com>
+Date: 6 Feb 92 14:53:34 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1978
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 53
+Archive-name: vex.v2r2/part02
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 2 (of 29)."
+# Contents:  extensions/xv/server/ddx/decrop/libpip.c
+#   server/ddx/sun/xfbstruct.h
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/server/ddx/decrop/libpip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/decrop/libpip.c'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/decrop/libpip.c'\" \(49044 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/decrop/libpip.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   libpip.c -- Support routines for Picture In a Picture Option Hardware.
+X**
+X**		Copyright(c) 1990, RasterOps, Inc.
+X**
+X** Author: 
+X**
+X**   RasterOps folk
+X**
+X** Revisions:
+X**
+X**   20.09.91 Carver
+X**     - added code to use new driver interface for pip waiting if it exists
+X**     - fixed gray scaled parameters
+X**
+X**   18.09.91 Carver
+X**     - added two new procedures: pip_src_area and pip_dst_area: xvrop.c uses.
+X**     - now uses field mode to size in y to less than 1/2 signal size
+X**     - made some very hardware specific adjustments for sizing and alignment
+X**     - replaced old size mask procs with new ones from Don Fong
+X**       still had an off by one problem in X made adjustment.
+X**     - changed video region offset in video source signal to latest values
+X**       given to me my RasterOps.
+X**
+X**   29.08.91 Carver
+X**     - changed pip_source_type to fix svideo href
+X**     - added support for gray scaled video
+X**     - changed all interfaces to take RopPtr as first argument
+X**       RopPtr is defined in rop.h
+X**
+X**   16.08.91 Carver
+X**     - fixed spin wait problem
+X**     - fixed sizing problem
+X**
+X**   04.06.91 Carver
+X**   22.04.91 Carver
+X**     - added TC1_CSR2_SYNC_NOT_HREF that should be define in pmagro.h
+X**     - added variable to manage i2c delay; reduced delay to 5
+X**     - added variable to shadow DCSC source type since DCSC is write only
+X**     - added timeout stuff
+X*/
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <sys/time.h>
+X#include <sys/tty.h>
+X#include <errno.h>
+X#include <sys/ioctl.h>
+X#include <sys/workstation.h>
+X
+X#include "pmagro.h"
+X
+X#include "misc.h" /* GET MAXSCREENS SYMBOL */
+X#include "rop.h" /* RopPtr STRUCT DEFINITION SHARED WITH ROP.C */
+X#include "libpip.h"
+X#include "i2c.h"
+X
+Xextern RopRec ropInfo[];
+Xextern int wsFd;
+X
+X#define SET_MAP_REG(off) { *map_reg = (*map_reg & 0xfffffff0) | (off);}
+X
+X/*
+X*/
+X
+X#define HALFWAY         ((unsigned long)1<<31)
+X#define AFTER(ta, tb)   ((tb) - (ta) >=  HALFWAY)
+X#define BEFORE(ta, tb)  ((ta) - (tb) >=  HALFWAY)
+X
+Xstatic int pipDCSCSourceType = DCSC_COMPOSITE_LUT;
+X
+X#define I2CDELAY 5
+Xstatic int i2cDelay = I2CDELAY;
+Xstatic int *waitPtr = &i2cDelay;
+Xstatic int waitMem[I2CDELAY];
+X
+X#ifndef TC1_CSR2_SYNC_NOT_HREF
+X#define TC1_CSR2_SYNC_NOT_HREF 0x01
+X#endif
+X
+X#include <machine/cpuconf.h>
+Xextern int ws_cpu;
+X
+X/* END DCC MOD */
+X
+X/*
+X *	Address pointer union used to alias a location to more than
+X *	one width
+X */
+Xtypedef union
+X{
+X	u_char		*byte;		/* Address of an 8-bit entity. */
+X	u_short		*half_word;	/* Address of a 16-bit entity. */
+X	u_int		integer;	/* Address value as an integer. */
+X	u_int		*word;		/* Address of a 32-bit entity. */
+X}	Access;
+X
+Xstatic int	exit_on_error = 0;
+X
+X/*"i2c_clock"
+X *
+X *	Set the i2c bus clock signal to high or low state. This is used by diagnostics
+X *	to get the i2c bus into a known state.
+X */
+Xi2c_clock(port, state)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		state;	/* = 1 for high, 0 for low. */
+X{
+X	if ( state )
+X	{
+X		I2C_CLOCK_HIGH;
+X	}
+X	else
+X	{
+X		I2C_CLOCK_LOW;
+X	}
+X}
+X
+X/*"i2c_clock_delay"
+X *
+X *	Delay an interval to let i2c bus clock signal settle.
+X */
+Xi2c_clock_delay()
+X{
+X    int i,*p;
+X    p = waitPtr;
+X    for (i = 0; i < i2cDelay; i++)
+X      {
+X	waitMem[i] = *p++;
+X      }
+X    return i;
+X}
+X
+X/*"i2c_data"
+X *
+X *	Set the i2c bus data signal to high or low state. This is used by diagnostics
+X *	to get the i2c bus into a known state.
+X */
+Xi2c_data(port, state)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		state;	/* = 1 for high, 0 for low. */
+X{
+X	if ( state )
+X	{
+X		I2C_DATA_HIGH;
+X	}
+X	else
+X	{
+X		I2C_DATA_LOW;
+X	}
+X}
+X
+X/*"i2c_data_delay"
+X *
+X *	Delay an interval to let i2c bus clock signal settle.
+X */
+Xi2c_data_delay()
+X{
+X    int i,*p;
+X    p = waitPtr;
+X    for (i = 0; i < i2cDelay; i++)
+X      {
+X	waitMem[i] = *p++;
+X      }
+X    return i;
+X}
+X	
+X/*"i2c_exit_on_error"
+X *
+X *	Set quick exit bit to indicate quick exit on error, or to continue processing.
+X */
+Xi2c_exit_on_error( flag )
+X	int		flag;		/*  = value to set quick exit flag to. */
+X{
+X	extern int	exit_on_error;	/* Flag indicating if quick exit to be taken on error. */
+X
+X	exit_on_error = flag;
+X}
+X/*"i2c_read"
+X *
+X *	Write a slave address and subcomponent request to the i2c bus and read back the
+X *	data associated with it.
+X *
+X *		= 1 if success
+X *		= 0 if error detected
+X */
+Xi2c_read(port, slave, subaddr, data)
+X	u_char	*port;		/* -> port for i2c bus. */
+X	int		slave;		/* =  address of slave device writing to. */
+X	int		subaddr;	/* =  address of subcomponent writing to. */
+X	int		*data;		/* -> where to place data read. */
+X{
+X	int				delay;		/* Index: number of times tested for clock and data both high. */
+X	int				retry;		/* Index: number of attempt to get clock and data both high. */
+X
+X    /*  Make sure the i2c interface is in the proper state (both clock and data
+X     *  bits are high). If they are not, try toggling the clock and sending
+X     *  a stop command sequence.
+X     */
+X    for ( retry = 0; retry < 20; retry++ )
+X    {
+X        for (delay = 0; delay < 100000; delay++)
+X        {
+X            if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) == I2C_CLOCK_ON_DATA_ONE ) goto start;
+X        }
+X        I2C_DATA_HIGH;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_HIGH;
+X     
+X        I2C_CLOCK_LOW;
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_HIGH;
+X        I2C_DATA_HIGH;
+X    }
+X
+X    if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) != I2C_CLOCK_ON_DATA_ONE )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x,%02x): i2c bus not ready!!!!\n", slave, subaddr, data);
+X        return 0;
+X    }
+X
+X    /*  Send out the start pulse signals. 
+X     */
+Xstart:
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_LOW;
+X
+X	/*	Send out the slave device address. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_write_byte(port, slave) )
+X	{
+X		fprintf(stderr,"i2c_read(%02x,%02x): unable to send slave byte in set address correctly\n", slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Send out the slave subcomponent address. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_write_byte(port, subaddr) )
+X	{
+X		fprintf(stderr,"i2c_read(%02x,%02x): unable to send subaddress byte correctly \n", slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Initiate a new sequence by setting the data value low while clock is high.
+X	 *	(The data value was already high from the last byte write acknowledge
+X	 *	cycle - see "i2c_write_byte" below.)
+X	 *	Send out the slave device address with a read indication. 
+X	 *	If there is an error pull down data then clock, then pull both high 
+X	 *	together, then clock high, and wait a while.
+X	 */
+X	I2C_CLOCK_LOW;
+X	I2C_CLOCK_HIGH;
+X	I2C_DATA_LOW;
+X	if ( !i2c_write_byte(port, slave | I2C_READ_BIT) )
+X	{
+X		fprintf(stderr,"i2c_read(%02x,%02x): unable to send slave byte in read cmd correctly \n", slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	/*	Read back the data byte. If there is an error
+X	 *	pull down data then clock, then pull both high together,
+X	 *	then clock high, and wait a while.
+X	 */
+X	if ( !i2c_read_byte(port, data) )
+X	{
+X		fprintf(stderr,"i2c_read(%02x,%02x): unable to read data byte correctly \n", slave, subaddr);
+X		I2C_DATA_LOW;
+X		I2C_CLOCK_LOW;
+X		I2C_CLOCK_DATA_HIGH;
+X		I2C_CLOCK_HIGH;
+X		return 0;
+X	}
+X
+X	return 1;
+X}
+X
+X/*"i2c_read_byte"
+X *
+X *  Toggle a byte value off the i2c bus and wait for an acknowledgment.
+X *  This routine assumes that the i2c interface is properly prepared to
+X *  send data. Each data bit is transmitted by:
+X *      a) setting the clock bit low
+X *      b) setting the data bit to the appropriate sense (0 or 1)
+X *      c) setting the clock bit high
+X *
+X *      = 1 if successful
+X *      = 0 if error detected
+X */
+Xi2c_read_byte(port, data)
+X    u_char  *port;      /* -> i2c port to read from. */
+X    int     *data;      /* -> where to place data read. */
+X{
+X    int     bit;        /* Index: next bit to be transmitted. */
+X    int     delay;      /* How long to loop waiting for i2c to become ready. */
+X 
+X 
+X	/*	Loop reading in the bits, assembling them into a byte.
+X	 */
+X    for (bit = 0, *data = 0; bit < 8; bit++)
+X    {
+X        I2C_CLOCK_LOW;
+X		I2C_DATA_HIGH;	/* #### make sure slave is driving bus, (I'm not!). */
+X        I2C_CLOCK_HIGH;
+X		*data |= (*port & I2C_DATA_ONE) >> bit;
+X    }
+X 
+X	/*	We only read a single byte, so don't send an acknowledgement, rather
+X	 *	send the stop sequence.
+X	 */
+X	I2C_CLOCK_LOW;
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_HIGH;
+X    I2C_DATA_HIGH;
+X}
+X
+X/*"i2c_write"
+X *
+X *      = 1 if success
+X *      = 0 if error detected
+X */
+Xi2c_write(port, slave, subaddr, data)
+X    u_char  *port;      /* -> port for i2c bus. */
+X    int     slave;      /* =  address of slave device writing to. */
+X    int     subaddr;    /* =  address of subcomponent writing to. */
+X    int     data;       /* =  data to write. */
+X{
+X	int		delay;		/* Index: number of times tested for clock and data both high. */
+X	int		retry;		/* Index: number of attempt to get clock and data both high. */
+X
+X    /*  Make sure the i2c interface is in the proper state (both clock and data
+X     *  bits are high). If they are not, try toggling the clock and sending
+X     *  a stop command sequence.
+X     */
+X    for ( retry = 0; retry < 20; retry++ )
+X    {
+X        for (delay = 0; delay < 100000; delay++)
+X        {
+X            if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) == I2C_CLOCK_ON_DATA_ONE ) goto start;
+X        }
+X        I2C_DATA_HIGH;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_HIGH;
+X     
+X        I2C_CLOCK_LOW;
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_HIGH;
+X        I2C_DATA_HIGH;
+X    }
+X
+X	if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) != I2C_CLOCK_ON_DATA_ONE )
+X	{
+X		fprintf(stderr,"i2c_write(%02x,%02x,%02x): i2c bus not ready!!!!\n", slave, subaddr, data);
+X		return 0;
+X	}
+X
+X	/*	Send out the start pulse signals. 
+X	 */
+Xstart:
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_LOW;
+X 
+X    /*  Send out the slave device address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, slave) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x,%02x): unable to send slave byte correctly\n", slave, subaddr, data);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the slave subcomponent address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, subaddr) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x,%02x): unable to send subaddress byte correctly\n", slave, subaddr, data);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the data byte. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, data) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x,%02x): unable to send data byte correctly\n", slave, subaddr, data);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X	/*	All done with the transmission, so make sure i2c bus is in a known stopped
+X	 *	state and return success to our caller.
+X	 */
+X	I2C_DATA_LOW;
+X	I2C_CLOCK_HIGH;
+X	I2C_DATA_HIGH;
+X    return 1;
+X}
+X
+X/*"i2c_write_byte"
+X *
+X *	Toggle a byte value into the i2c bus and wait for an acknowledgment.
+X *	This routine assumes that the i2c interface is properly prepared to
+X *	accept data. Each data bit is transmitted by:
+X *		a) setting the clock bit low
+X *		b) setting the data bit to the appropriate sense (0 or 1)
+X *		c) setting the clock bit high
+X *
+X *		= 1 if successful
+X *		= 0 if error detected
+X */
+Xi2c_write_byte(port, data)
+X	u_char	*port;		/* -> i2c port to write to. */
+X	int		data;		/* =  data to be written. */
+X{
+X	int			bit;			/* Index: next bit to be transmitted. */
+X	int			delay;			/* How long to loop waiting for i2c to become ready. */
+X	extern int	exit_on_error;	/* Flag indicating if quick exit to be taken on error. */
+X
+X
+X	for (bit = 0; bit < 8; bit++)
+X	{
+X		I2C_CLOCK_LOW;
+X		*port = (*port & I2C_DATA_ZERO) | ( (data << bit) & I2C_DATA_ONE );
+X		I2C_DATA_DELAY;
+X		I2C_CLOCK_HIGH;
+X		I2C_CLOCK_DELAY;
+X	}
+X
+X	/*	Set the clock is low, set the data bit high and look for the acknowledge from 
+X	 *	the slave device we have written to. When we receive the acknowledge
+X	 *	bring the clock back high then low.
+X	 */
+X	I2C_CLOCK_LOW;
+X	I2C_DATA_HIGH;
+X	I2C_CLOCK_DATA_HIGH;
+X	for (delay = 0; delay < 100000; delay++)
+X	{
+X		if ( (*port & I2C_DATA_ONE) == 0 ) break;
+X	}
+X	if ( (*port & (I2C_DATA_ONE)) != 0 ) 
+X	{
+X		fprintf(stderr,"i2c_write_byte(%02x): i2c bus not ready!!!!\n", data);
+X		if ( exit_on_error ) 
+X		{
+X			exit(1); 
+X		}
+X		else 
+X		{
+X			return 0;
+X		}
+X	}
+X	I2C_CLOCK_LOW;
+X	I2C_DATA_HIGH;		/*####*/
+X	return 1;
+X}
+X
+X/*"i2c_write_bytes"
+X *
+X *	Toggle a byte value into the i2c bus and wait for an acknowledgment.
+X *	This routine assumes that the i2c interface is properly prepared to
+X *	accept data. Each data bit is transmitted by:
+X *		a) setting the clock bit low
+X *		b) setting the data bit to the appropriate sense (0 or 1)
+X *		c) setting the clock bit high
+X *
+X *		= 1 if successful
+X *		= 0 if error detected
+X */
+Xi2c_write_bytes(port, count, data)
+X	u_char	*port;		/* -> i2c port to write to. */
+X	int		count;		/* =  number of data bytes to write. */
+X	u_char	*data;		/* =  data to be written. */
+X{
+X	int			bit;			/* Index: next bit to be transmitted. */
+X	int			data_i;			/* Index: next data byte to write. */
+X	int			delay;			/* How long to loop waiting for i2c to become ready. */
+X	extern int	exit_on_error;	/* Flag indicating if quick exit to be taken on error. */
+X
+X
+X	for ( data_i = 0; data_i < count; data_i++ )
+X	{
+X		for (bit = 0; bit < 8; bit++)
+X		{
+X			I2C_CLOCK_LOW;
+X			*port = (*port & I2C_DATA_ZERO) | 
+X				( (data[data_i] << bit) & I2C_DATA_ONE );
+X			I2C_DATA_DELAY;
+X			I2C_CLOCK_HIGH;
+X			I2C_CLOCK_DELAY;
+X		}
+X
+X		/*	Set the clock is low, set the data bit high and look for the acknowledge from 
+X		 *	the slave device we have written to. When we receive the acknowledge
+X		 *	bring the clock back high then low.
+X		 */
+X		I2C_CLOCK_LOW;
+X		I2C_DATA_HIGH;
+X		I2C_CLOCK_DATA_HIGH;
+X		for (delay = 0; delay < 100000; delay++)
+X		{
+X			if ( (*port & I2C_DATA_ONE) == 0 ) break;
+X		}
+X		if ( (*port & (I2C_DATA_ONE)) != 0 ) 
+X		{
+X			fprintf(stderr,"i2c_write_byte(%02x): i2c bus not ready!!!!\n", data);
+X			if ( exit_on_error ) 
+X			{
+X				exit(1); 
+X			}
+X			else 
+X			{
+X				return 0;
+X			}
+X		}
+X	}
+X	I2C_CLOCK_LOW;
+X	I2C_DATA_HIGH;		/*####*/
+X	return 1;
+X}
+X
+X/*"i2c_write_list"
+X *
+X *      = 1 if success
+X *      = 0 if error detected
+X */
+Xi2c_write_list(port, slave, subaddr, count, data)
+X    u_char  *port;      /* -> port for i2c bus. */
+X    int     slave;      /* =  address of slave device writing to. */
+X    int     subaddr;    /* =  address of subcomponent writing to. */
+X	int		count;		/* =  count of data to be written. */
+X    u_char  *data;      /* =  data to write. */
+X{
+X	int		delay;		/* Index: number of times tested for clock and data both high. */
+X	int		retry;		/* Index: number of attempt to get clock and data both high. */
+X
+X    /*  Make sure the i2c interface is in the proper state (both clock and data
+X     *  bits are high). If they are not, try toggling the clock and sending
+X     *  a stop command sequence.
+X     */
+X    for ( retry = 0; retry < 20; retry++ )
+X    {
+X        for (delay = 0; delay < 100000; delay++)
+X        {
+X            if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) == I2C_CLOCK_ON_DATA_ONE ) goto start;
+X        }
+X        I2C_DATA_HIGH;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_HIGH;
+X     
+X        I2C_CLOCK_LOW;
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_HIGH;
+X        I2C_DATA_HIGH;
+X    }
+X
+X	if ( (*port & (I2C_CLOCK_ON_DATA_ONE)) != I2C_CLOCK_ON_DATA_ONE )
+X	{
+X		fprintf(stderr,"i2c_write_list(%02x,%02x): i2c bus not ready!!!!\n", slave, subaddr);
+X		return 0;
+X	}
+X
+X	/*	Send out the start pulse signals. 
+X	 */
+Xstart:
+X    I2C_DATA_LOW;
+X    I2C_CLOCK_LOW;
+X 
+X    /*  Send out the slave device address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, slave) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x): unable to send slave byte correctly\n", slave, subaddr);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the slave subcomponent address. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_byte(port, subaddr) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x,%02x): unable to send subaddress byte correctly\n", slave, subaddr, data);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X    /*  Send out the data bytes. If there is an error
+X     *  pull down data then clock, then pull both high together,
+X     *  then clock high, and wait a while.
+X     */
+X    if ( !i2c_write_bytes(port, count, data) )
+X    {
+X        fprintf(stderr,"i2c_write(%02x,%02x): unable to send data byte correctly\n", slave, subaddr);
+X        I2C_DATA_LOW;
+X        I2C_CLOCK_LOW;
+X        I2C_CLOCK_DATA_HIGH;
+X        I2C_CLOCK_HIGH;
+X        return 0;
+X    }
+X 
+X	/*	All done with the transmission, so make sure i2c bus is in a known stopped
+X	 *	state and return success to our caller.
+X	 */
+X	I2C_DATA_LOW;
+X	I2C_CLOCK_HIGH;
+X	I2C_DATA_HIGH;
+X    return 1;
+X}
+X
+X
+X#ifdef PIP_WAIT
+X
+X/* USE DRIVER INTERFACE FOR WAITING IF IT IS AVAILABLE */
+X
+Xint pip_which_screen(prop)
+X     RopPtr prop;
+X{
+X  int i;
+X  for(i = 0; i < MAXSCREENS; i++) {
+X    if(prop == &ropInfo[i])
+X      return i;
+X  }
+X  fprintf(stderr, "libpip.c: which_screen: screen not found!\n", i);
+X  return -1;
+X}
+X
+Xpip_wait_off(prop)
+X     RopPtr prop;
+X{
+X  rop_wait_ioctl rip;
+X
+X  if ((rip.screen = pip_which_screen(prop)) < 0) return 0;
+X  rip.command = PIP_WAIT_OFF;
+X  if (ioctl(wsFd, PIP_WAIT, &rip) != 0) {
+X    return 0;
+X  }
+X  return 1;
+X}
+X
+Xpip_wait_on(prop)
+X     RopPtr prop;
+X{
+X  rop_wait_ioctl rip;
+X
+X  if ((rip.screen = pip_which_screen(prop)) < 0) return 0;
+X  rip.command = PIP_WAIT_ON;
+X  if (ioctl(wsFd, PIP_WAIT, &rip) != 0) {
+X    return 0;
+X  }
+X  return 1;
+X}
+X#else
+X
+X/* IF DRIVER INTERFACE NOT AVAILABLE THEN JUST RETURN 0 */
+X
+Xpip_wait_off(prop)
+X     RopPtr prop;
+X{
+X  return 0;
+X}
+X
+Xpip_wait_on(prop)
+X     RopPtr prop;
+X{
+X  return 0;
+X}
+X#endif
+X
+X/* DCC MOD  --- NEW PROCEDURE TO DETERMINE IF PIP IS ACTIVE --- 24.05.91 */
+X
+Xpip_active(prop)
+X     RopPtr prop;
+X{
+X
+X  Pip_Device_Regs	*pregs;
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE)
+X    return 1;
+X
+X  return 0;
+X
+X}
+X
+X/* DCC MOD --- NEW PIP PROCEDURE FROM RASTEROPS --- 04.06.91 */
+X
+X/*"pip_hue"
+X *
+X *  Set the color hue for the incoming pip signal. This is 
+X *  controlled by a register in the DMSD.
+X */
+Xvoid pip_hue(prop, level)
+X     RopPtr prop;
+X     int level;	                /* =  level of hue (0 to 255). */
+X{
+X  Pip_Device_Regs	*pregs;
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  i2c_write( &pregs->control_status1, I2C_ADDR_DMSD, 0x07, level&0xff );
+X}
+X
+Xpip_priority(prop, prio)
+X     RopPtr prop;
+X     unsigned int prio;
+X{
+X
+X  if (prio > 0xB0) prio = 0xB0;
+X  *prop->dutyCycle = prio;
+X
+X}
+X
+X/* DCC MOD --- CHANGED TO USE LIBPIP.H SYMBOLS --- 04.06.91 */
+X
+Xpip_close(index)
+Xint index;
+X{
+X  return;
+X}
+X
+X/*"pip_init"
+X *
+X *	Initialize pip hardware to an operable state. 
+X */
+XRopPtr
+Xpip_init(index, type)
+X     int index;
+X     int		type;	/* =  type of video source: see libpip.h */
+X{
+X  /*
+X   *	Set default source to composite, with pip turned off. Disable 
+X   *	all special effects (e.g., inverted fields, flipped video).
+X   *	Set pitch register to 1280.
+X   */
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X  RopPtr prop;
+X
+X  prop = &ropInfo[index];
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (!pip_installed(index)) return (RopPtr)NULL;
+X
+X  /* UGLY, NO VERY UGLY */
+X
+X  waitPtr = (int *)prop->SelectionPlane;
+X
+X  pregs->control_status = 0;
+X  pregs->control_status1 = 0xC0;
+X  pregs->control_status2 = 0;
+X  
+X  pregs->fb_pitch_hi = 0x05;
+X  pregs->fb_pitch_low = 0x00;
+X  
+X  /*
+X   *	Set signal source size to encompass the source type specified
+X   *	by the caller.
+X   */
+X  switch( type & PIP_SOURCE_TIMING )
+X    {
+X    default:
+X      fprintf(stderr,
+X	      "pip_init: unknown source type %d; defaulting to NTSC\n", type);
+X
+X    case PIP_NTSC:
+X      pregs->x_source_start_hi =  0x00;
+X      pregs->x_source_start_low = 0x0c;
+X      pregs->x_source_end_hi =    0x02;
+X      pregs->x_source_end_low =   0x8c;
+X      
+X      pregs->x_source_scale_hi =  0x03;
+X      pregs->x_source_scale_low = 0xff;
+X      
+X      pregs->y_source_start_hi =  0x00;
+X      pregs->y_source_start_low = 0x07;
+X      pregs->y_source_end_hi =    0x00;
+X      pregs->y_source_end_low =   0xF7;
+X      
+X      pregs->y_source_scale_hi =  0x01;
+X      pregs->y_source_scale_low = 0xff;
+X      break;
+X    case PIP_PAL:
+X    case PIP_SECAM:
+X      pregs->x_source_start_hi =  0x00;
+X      pregs->x_source_start_low = 0x0a;
+X      pregs->x_source_end_hi =    0x03;
+X      pregs->x_source_end_low =   0x09;
+X      
+X      pregs->x_source_scale_hi =  0x03;
+X      pregs->x_source_scale_low = 0xff;
+X      
+X      pregs->y_source_start_hi =  0x00;
+X      pregs->y_source_start_low = 0x0b;
+X      pregs->y_source_end_hi =    0x01;
+X      pregs->y_source_end_low =   0x28;
+X      
+X      pregs->y_source_scale_hi =  0x01;
+X      pregs->y_source_scale_low = 0xff;
+X      break;
+X    }
+X  
+X  /*
+X   *	Initialize the DMSD and dcsc chips, which reside on the I2C bus.
+X   */
+X  pip_init_dmsd(&pregs->control_status1, type);
+X  pip_init_dcsc(&pregs->control_status1, 16, 240);
+X
+X  return prop;
+X
+X}
+X
+X/*"pip_init_dcsc"
+X *
+X *  Initialize the Digital Color Space Convertor chip with a color ramp 
+X *  for "digitizing" data received from the DMSD chip. Note that the 
+X *  DCSC is left in composite video configuration, use pip_source to
+X *  change to another one if that is appropriate.
+X */
+Xpip_init_dcsc(port, _min, _max)
+X     u_char *port;	/* -> port containing I2C bus interface. */
+X     int _min;		/* =  min value expected from DMSD chip for pixel. */
+X     int _max;		/* =  max value expected from DMSD chip for pixel. */
+X{
+X  float	lut_delta;	/* DCSC lookup table inter-entry increment. */
+X  int	lut_index;	/* DCSC lookup table value to load next. */
+X  float	lut_value;	/* DCSC lookup table value to load next. */
+X  
+X  if ( _max-_min > 0) lut_delta = 255. / (_max-_min);
+X  
+X  i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_CONTROL, DCSC_LOAD_LUT);
+X  for ( lut_index = 0; lut_index < _min; lut_index++ )
+X    {
+X      i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_DATA, 0);
+X    }
+X  for ( lut_value = 0; lut_index < _max; lut_index++, lut_value+=lut_delta )
+X    {
+X      i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_DATA, (int)lut_value);
+X    }
+X  for ( ; lut_index < 256; lut_index++ )
+X    {
+X      i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_DATA, 240);
+X    }
+X  i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_CONTROL, pipDCSCSourceType);
+X}
+X
+X/* DCC MOD --- 04.06.91 
+X**   - changed to use libpip.h symbols
+X**   - broke out type and timing init into different procedure
+X*/
+X
+X/*"pip_init_dmsd"
+X *
+X *  Initialize the Phillips Digital Multi-Standard Decoder chip's parameters. 
+X *  Send data serially over the on-board I2C bus to set up the DMSD chip to 
+X *  provide scan conversion of NTSC and PAL signals.
+X *
+X */
+Xpip_init_dmsd(port, type)
+X     u_char	*port;		/* -> port containing I2C bus interface. */
+X     int	type;		/* =  type of timing regimen see libpip.h */
+X{
+X  i2c_write( port, I2C_ADDR_DMSD, 0x00, 0x50 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x01, 0x30 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x02, 0x00 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x03, 0xE8 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x04, 0xB6 );
+X  
+X  i2c_write( port, I2C_ADDR_DMSD, 0x07, 0x00 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x08, 0xFE );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x09, 0xF0 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x0A, 0xFE );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x0B, 0xE0 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x0C, 0x20 );
+X  
+X  i2c_write( port, I2C_ADDR_DMSD, 0x10, 0x00 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x11, 0x80 );
+X  
+X  i2c_write( port, I2C_ADDR_DMSD, 0x14, 0x3A );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x15, 0x06 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x16, 0xFA );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x17, 0xD6 );
+X  i2c_write( port, I2C_ADDR_DMSD, 0x18, 0x20 );
+X
+X  pip_init_dmsd_type(port, type);
+X
+X}
+X
+Xpip_init_dmsd_type(port, type)
+X     u_char	*port;		/* -> port containing I2C bus interface. */
+X     int	type;		/* =  type of timing regimen see libpip.h */
+X{
+X
+X  switch(type & PIP_SOURCE_TIMING)
+X    {
+X    default:
+X    case PIP_NTSC: 
+X      i2c_write( port, I2C_ADDR_DMSD, 0x05, 0xF2 ); 
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0D, 0x80 );
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0F, 0x58 ); 
+X      break;
+X    case PIP_PAL:  
+X      i2c_write( port, I2C_ADDR_DMSD, 0x05, 0x34 ); 
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0D, 0x80 );
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0F, 0x39 );
+X      break;
+X    case PIP_SECAM:
+X      i2c_write( port, I2C_ADDR_DMSD, 0x05, 0x34 ); 
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0D, 0x81 );
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0F, 0x3F );
+X      break;
+X    } 
+X
+X  switch(type & PIP_SOURCE_TYPE)
+X    {
+X    default:
+X    case PIP_COMPOSITE: 
+X      if (type & PIP_GRAY)
+X	{
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x06, 0x13 );
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x0E, 0x37 );
+X	}
+X      else
+X	{
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x06, 0x13 );
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x0E, 0x33 );
+X	}
+X      pipDCSCSourceType = DCSC_COMPOSITE_LUT;
+X      break;
+X    case PIP_SVIDEO:  
+X      if (type & PIP_GRAY)
+X	{
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x06, 0x13 );
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x0E, 0x33 );
+X	}
+X      else
+X	{
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x06, 0x93 );
+X	  i2c_write( port, I2C_ADDR_DMSD, 0x0E, 0x33 );
+X	}
+X      pipDCSCSourceType = DCSC_S_VIDEO_LUT;
+X      break;
+X    case PIP_RGB:
+X      i2c_write( port, I2C_ADDR_DMSD, 0x06, 0x13 );
+X      i2c_write( port, I2C_ADDR_DMSD, 0x0E, 0x30 );
+X      pipDCSCSourceType = DCSC_RGB_LUT;
+X      break;
+X    } 
+X
+X}
+X
+X/* DCC MOD --- NEW PROCEDURE FOR XV --- 24.5.91 */
+X
+Xpip_input_connected(prop)
+X     RopPtr prop;
+X{
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (pregs->control_status1 & TC1_CSR1_INPUT_CONNECTED)
+X    return 1;
+X
+X  return 0;
+X
+X}
+X
+Xpip_installed(index)
+X     int index;
+X{
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X  RopPtr prop;
+X
+X  prop = &ropInfo[index];
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  return (!(pregs->control_status1 & TC1_CSR1_NO_PIP));
+X}
+X
+X/* END DCC MOD */
+X
+X/*"pip_ioctl"
+X *
+X *	I/O Control Interface support for Picture In a Picture hardware.
+X *	This routine is called from the normal ioctl code for the frame
+X *	buffer device driver.
+X */
+Xpip_ioctl(dev, softc, cmd, data)
+X	int		dev;	/* =  device this ioctl is for. */
+X	caddr_t	softc;	/* -> per unit software characteristics area. */
+X	int		cmd;	/* =  ioctl command to execute. */
+X	caddr_t	data;	/* -> where to get or place data associated with this ioctl. */
+X{
+X	switch( cmd )
+X	{
+X		default:
+X		break;
+X	}
+X}
+X
+X/* DCC MOD --- LOAD DCSC --- 04.06.91 */
+X
+X/*"pip_load_dcsc"
+X *
+X *  Set the Digital Color Space Convertor chip load
+X */
+Xpip_load_dcsc(prop, values)
+X     RopPtr prop;
+X     unsigned char *values;     /* array[0..255] of values */
+X{
+X  u_char *port;	        /* -> port containing I2C bus interface. */
+X  int lut_index;	/* DCSC lookup table value to load next. */
+X  unsigned char *lut_value;       /* pointer to current value */
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  port = (u_char *)&pregs->control_status1;
+X  lut_value = values;
+X
+X  i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_CONTROL, DCSC_LOAD_LUT);
+X  for ( lut_index = 0; lut_index < 255; lut_index++ )
+X    {
+X      i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_DATA, *lut_value++);
+X    }
+X  i2c_write(port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_CONTROL, pipDCSCSourceType);
+X}
+X
+X/* END DCC MOD */
+X
+X/* DCC MOD for Xv --- 22.4.91 */
+X
+X/*"pip_off"
+X *
+X *	Turn off pip and return its previous operational state.
+X */
+Xpip_off(prop, wait)
+X     RopPtr prop;
+X     int wait;	/* =  1 if should wait for pip to actually turn off. */
+X{
+X  unsigned long entryTime,currentTime;
+X  int old_state;	/* Previous state of pip operations. */
+X  struct timeval to;
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  old_state = (pregs->control_status & TC1_CSR0_PIP_IS_ON) ? 1 : 0;
+X
+X  pregs->control_status = pregs->control_status & 
+X    ~(TC1_CSR0_TURN_PIP_ON|TC1_CSR0_PIP_IS_ON);
+X  pregs->control_status = pregs->control_status & 
+X    ~(TC1_CSR0_TURN_PIP_ON|TC1_CSR0_PIP_IS_ON);
+X
+X  if ( wait )
+X    {
+X
+X      if (!(pregs->control_status &
+X	    (TC1_CSR0_PIP_IS_ON | TC1_CSR0_PIP_IS_ACTIVE))) return old_state;
+X
+X      if (!pip_wait_off(prop))
+X	{
+X	  entryTime = currentTime = GetTimeInMillis();
+X	  while (BEFORE(currentTime, entryTime+100))
+X	    {
+X	      if (!(pregs->control_status &
+X		    (TC1_CSR0_PIP_IS_ON | TC1_CSR0_PIP_IS_ACTIVE))) 
+X		return old_state;
+X	      currentTime = GetTimeInMillis();
+X	      to.tv_sec = 0;             /* Sleep for 1 millisecond */
+X	      to.tv_usec = 1000;         /* (actually 4 because of */
+X	      select(0,0,0,0,&to);       /* scheduler granularity)   */
+X	    }
+X	}
+X    }
+X  return old_state;
+X}
+X
+X/*"pip_on"
+X *
+X *	Turn on pip and return its previous operational state.
+X */
+Xpip_on(prop)
+X     RopPtr prop;
+X{
+X  int old_state;	/* Previous state of pip operations. */
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  old_state = (pregs->control_status & TC1_CSR0_PIP_IS_ON) ? 1 : 0;
+X  pregs->control_status = pregs->control_status | TC1_CSR0_TURN_PIP_ON;
+X  return old_state;
+X}
+X
+X/* DCC MOD FOR Xv --- 28.5.91 */
+X
+X/* pip_off_with_timeout --- added by dcc
+X *
+X *	Turn off pip and return true if it turned on; otherwise false
+X */
+Xpip_off_with_timeout(prop, wait)
+X     RopPtr prop;
+X     int wait;	/* =  1 if should wait for pip to actually turn off. */
+X{
+X  unsigned long entryTime,currentTime;
+X  struct timeval to;
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (!pip_input_connected(prop)) return 0;
+X
+X  pregs->control_status = pregs->control_status & 
+X    ~(TC1_CSR0_TURN_PIP_ON|TC1_CSR0_PIP_IS_ON);
+X  pregs->control_status = pregs->control_status & 
+X    ~(TC1_CSR0_TURN_PIP_ON|TC1_CSR0_PIP_IS_ON);
+X
+X  if ( wait )
+X    {
+X      if (!(pregs->control_status & 
+X	    (TC1_CSR0_PIP_IS_ON | TC1_CSR0_PIP_IS_ACTIVE))) return 1;
+X
+X      if(!pip_wait_off(prop))
+X	{
+X	  entryTime = currentTime = GetTimeInMillis();
+X	  while (BEFORE(currentTime, entryTime+100))
+X	    {
+X	      if (!(pregs->control_status &
+X		    (TC1_CSR0_PIP_IS_ON | TC1_CSR0_PIP_IS_ACTIVE))) return 1;
+X	      currentTime = GetTimeInMillis();
+X	      to.tv_sec = 0;             /* Sleep for 1 millisecond */
+X	      to.tv_usec = 1000;         /* (actually 4 because of */
+X	      select(0,0,0,0,&to);       /* scheduler granularity)   */
+X	    }
+X	  
+X	  return 0;
+X	}
+X      
+X      if (!(pregs->control_status &
+X	    (TC1_CSR0_PIP_IS_ON | TC1_CSR0_PIP_IS_ACTIVE))) return 1;
+X      
+X      return 0;
+X
+X    }
+X
+X  return 1;
+X
+X}
+X
+X/* pip_on_with_timeout --- added by dcc
+X *
+X *	Turn on pip and return its previous operational state.
+X */
+Xpip_on_with_timeout(prop,wait)
+X     RopPtr prop;
+X     int wait;
+X{
+X  unsigned long entryTime,currentTime;
+X  struct timeval to;
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (!pip_input_connected(prop)) return 0;
+X
+X  pregs->control_status = pregs->control_status | TC1_CSR0_TURN_PIP_ON;
+X
+X  if ( wait )
+X    {
+X
+X      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X
+X      if (!pip_wait_on(prop))
+X	{
+X	  entryTime = currentTime = GetTimeInMillis();
+X	  while (BEFORE(currentTime, entryTime+100))
+X	    {
+X	      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X	      currentTime = GetTimeInMillis();
+X	      to.tv_sec = 0;             /* Sleep for 1 millisecond */
+X	      to.tv_usec = 1000;         /* (actually 4 because of */
+X	      select(0,0,0,0,&to);       /* scheduler granularity)   */
+X	    }
+X	  return 0;
+X	}
+X
+X      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X
+X      return 0;
+X
+X    }
+X
+X  return 1;
+X
+X}
+X
+X/* END DCC MOD */
+X
+X/* DCC MOD --- NEW PROCEDURE FOR STILL FRAMES --- 24.05.91 */
+X
+Xpip_one_shot(prop,wait)
+X     RopPtr prop;
+X     int wait;
+X{
+X  unsigned long entryTime,currentTime;
+X  struct timeval to;
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  if (!pip_input_connected(prop)) return 0;
+X
+X  pregs->control_status = pregs->control_status | TC1_CSR0_PIP_ONE_SHOT;
+X
+X  if ( wait )
+X    {
+X
+X      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X
+X      if (!pip_wait_on(prop))
+X	{
+X	  entryTime = currentTime = GetTimeInMillis();
+X	  while (BEFORE(currentTime, entryTime+100))
+X	    {
+X	      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X	      currentTime = GetTimeInMillis();
+X	      to.tv_sec = 0;             /* Sleep for 1 millisecond */
+X	      to.tv_usec = 1000;         /* (actually 4 because of */
+X	      select(0,0,0,0,&to);       /* scheduler granularity)   */
+X	    }
+X	  return 0;
+X	}
+X
+X      if (pregs->control_status & TC1_CSR0_PIP_IS_ACTIVE) return 1;
+X
+X      return 0;
+X
+X    }
+X  return 1;
+X}
+X
+X/* END DCC MOD */
+X
+X/*"pip_origin"
+X *
+X *	Set the origin of the pip image (upper left corner.)
+X *	Note the hardware expects an offset three rows before 
+X *	where we want things to show up on the screen.
+X */
+Xpip_origin(prop, left, top)
+X     RopPtr prop;
+X     int left;	/* =  x coordinate of pip image start. */
+X     int top;	/* =  y coordinate of pip image start. */
+X{
+X  u_int	offset;			/* Offset into frame buffer of x and y. */
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  offset = (left + (1280*(top-3)));
+X  pregs->start_offset_hi = (offset & 0xff0000) >> 16;
+X  pregs->start_offset_mid = (offset & 0x00ff00) >> 8;
+X  pregs->start_offset_low = offset & 0xff;
+X}
+X
+X/* DCC MOD --- NEW PIP PROCEDURE FROM RASTEROPS --- 04.06.91 */
+X
+X/*"pip_saturation"
+X *
+X *  Set the color saturation level for the incoming pip
+X *  signal. This is controlled by a register in the DMSD.
+X */
+Xvoid pip_saturation(prop, level)
+X     RopPtr prop;
+X     int level;	                /* =  level of saturation (0 to 255). */
+X{
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  i2c_write( &pregs->control_status1, I2C_ADDR_DMSD, 0x11, level&0xff );
+X}
+X
+X/* END DCC MOD */
+X
+X/*"pip_size"
+X *
+X *	Set the size of the image in the x and y directions.
+X *	Note if the image will be less than half size in y use
+X *	field only mode to reduce the y size and provide a
+X *	better image.
+X */
+Xvoid pip_size(prop, x, y)
+X     RopPtr prop;
+X     u_long x;		/* =  x size of image in pixels. */
+X     u_long y;		/* =  y size of image in pixels. */
+X{
+X  u_long on_off;		/* Current setting of live video. */
+X  int x_signal;	/* Width of current x video signal. */
+X  u_short x_size;		/* X size mask. */
+X  int y_signal;	/* Height of current y video signal. */
+X  u_short y_size;		/* Y size mask. */
+X  Pip_Device_Regs	*pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X
+X  /*
+X   *	Save the state of control register zero and turn off the pip.
+X   */
+X  on_off = pip_off(prop, 0);
+X
+X  /*	Calculate mask for x size and load it in. 
+X   */
+X
+X/* DCC MOD --- 30.5.91 --- added + 1 */
+X  x_signal = (int)X_Source_End - (int)X_Source_Start + 1;
+X/* END DCC MOD */
+X
+X  x_size = pip_x_size_mask(x_signal, x);
+X  pregs->x_source_scale_hi = (x_size & 0xff00) >> 8;
+X  pregs->x_source_scale_low = (x_size & 0xff);
+X  
+X  /*	Calculate mask for y size and load it in. 
+X   */
+X  /* DCC MOD --- 30.5.91 --- added + 1 */
+X  y_signal = 2*(((int)Y_Source_End - (int)Y_Source_Start) + 1);
+X  /* END DCC MOD */
+X
+X  /* DCC MOD --- 16.9.91 --- added code from Ricky */
+X  if(y <= y_signal/2) 
+X    {
+X      pregs->control_status1 |= TC1_CSR1_FIELD_ONLY;
+X      y_size = pip_y_size_mask(y_signal, 2*y);
+X    } 
+X  else 
+X    {
+X      pregs->control_status1 &= ~TC1_CSR1_FIELD_ONLY;
+X      y_size = pip_y_size_mask(y_signal, y);
+X    }
+X  /* END DCC MOD */
+X
+X  pregs->y_source_scale_hi = (y_size & 0xff00) >> 8;
+X  pregs->y_source_scale_low = (y_size & 0xff);
+X  
+X  if ( on_off ) pip_on(prop);
+X}
+X
+X/*"pip_source_area"
+X *
+X *	Set the portion of the source signal to be sampled.
+X *	Note the y specification is in scan lines, but the registers
+X *	take scan line pairs, so we divide by 2!
+X */
+Xvoid pip_source_area(prop, x_start, x_end, y_start, y_end)
+X     RopPtr prop;
+X     int	x_start;	/* =  start of signal in x direction. */
+X     int	x_end;	    /* =  end of signal in x direction. */
+X     int	y_start;	/* =  start of signal in y_ direction. */
+X     int	y_end;		/* =  start of signal in y_ direction. */
+X{
+X  u_long	on_off;	/* Current setting of control status register 0. */
+X  Pip_Device_Regs *pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  
+X  on_off = pip_off(prop, 0);
+X
+X  /* ADJUST VALUES FOR LOCATION OF VIDEO IMAGE INSIDE SIGNAL */
+X
+X  x_start += 12;
+X  x_end += 12;
+X  y_start += 14;
+X  y_end += 14;
+X
+X  y_end /= 2;
+X  y_start /= 2;
+X  
+X  pregs->x_source_start_hi = (x_start & 0xff00) >> 8;
+X  pregs->x_source_start_low = (x_start & 0xff);
+X  pregs->x_source_end_hi = (x_end & 0xff00) >> 8;
+X  pregs->x_source_end_low = (x_end & 0xff);
+X  
+X  pregs->y_source_start_hi = (y_start & 0xff00) >> 8;
+X  pregs->y_source_start_low = (y_start & 0xff);
+X  pregs->y_source_end_hi = (y_end & 0xff00) >> 8;
+X  pregs->y_source_end_low = (y_end & 0xff);
+X  
+X  if ( on_off ) pip_on(prop);
+X}
+X
+X/* DCC MOD --- 18.09.91 --- ADDED NEW PROCEDURES */
+X
+X/*"pip_src_area"
+X *
+X *	Set the portion of the source signal to be sampled.
+X *	Note the y specification is in scan lines, but the registers
+X *	take scan line pairs, so we divide by 2!
+X */
+Xvoid pip_src_area(prop, x, y, w, h)
+X     RopPtr prop;
+X     int	x;
+X     int	y;
+X     int        w;
+X     int        h;
+X{
+X  Pip_Device_Regs *pregs;	/* -> pip device register area. */
+X  u_long	on_off;	/* Current setting of control status register 0. */
+X  int	x_end;
+X  int	y_end;
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  
+X  on_off = pip_off(prop, 0);
+X
+X  /* ADJUST VALUES FOR LOCATION OF VIDEO IMAGE INSIDE SIGNAL */
+X
+X  x += 12;
+X  x_end = x + w - 1;
+X  y += 14;
+X  y_end = y + h - 1;
+X
+X  y /= 2;
+X  y_end /= 2;
+X  
+X  pregs->x_source_start_hi = (x & 0xff00) >> 8;
+X  pregs->x_source_start_low = (x & 0xff);
+X  pregs->x_source_end_hi = (x_end & 0xff00) >> 8;
+X  pregs->x_source_end_low = (x_end & 0xff);
+X  
+X  pregs->y_source_start_hi = (y & 0xff00) >> 8;
+X  pregs->y_source_start_low = (y & 0xff);
+X  pregs->y_source_end_hi = (y_end & 0xff00) >> 8;
+X  pregs->y_source_end_low = (y_end & 0xff);
+X  
+X  if ( on_off ) pip_on(prop);
+X}
+X
+X
+Xvoid pip_dst_area(prop, x, y, w, h)
+X     RopPtr prop;
+X     int	x;
+X     int	y;
+X     int        w;
+X     int        h;
+X{
+X  Pip_Device_Regs *pregs;	/* -> pip device register area. */
+X  u_long	on_off;	/* Current setting of control status register 0. */
+X  int x_end;
+X  int y_end;
+X  int signal_w;
+X  int signal_h;
+X  u_short x_size;		/* X size mask. */
+X  u_short y_size;		/* Y size mask. */
+X  u_int offset;
+X  int adjustment;
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  
+X  on_off = pip_off(prop, 0);
+X
+X  /* GET THE CURRENT SOURCE SIZE */
+X
+X  signal_w = (int)X_Source_End - (int)X_Source_Start + 1;
+X  signal_h = 2*(((int)Y_Source_End - (int)Y_Source_Start) + 1);
+X
+X  /* IF WE ARE USING FIELD MODE THEN CHANGE THE OFFSET ADJUSTMENT */
+X
+X  if(h <= signal_h/2 && h >= signal_h/4) adjustment = 2;
+X  else adjustment = 3;
+X
+X  /* SET THE ORIGIN */
+X
+X  offset = (x + (1280*(y-adjustment)));
+X  pregs->start_offset_hi = (offset & 0xff0000) >> 16;
+X  pregs->start_offset_mid = (offset & 0x00ff00) >> 8;
+X  pregs->start_offset_low = offset & 0xff;
+X
+X  x_size = pip_x_size_mask(signal_w, w);
+X  pregs->x_source_scale_hi = (x_size & 0xff00) >> 8;
+X  pregs->x_source_scale_low = (x_size & 0xff);
+X  
+X  if(h <= signal_h/2) 
+X    {
+X      pregs->control_status1 |= TC1_CSR1_FIELD_ONLY;
+X      y_size = pip_y_size_mask(signal_h, 2*h);
+X    } 
+X  else 
+X    {
+X      pregs->control_status1 &= ~TC1_CSR1_FIELD_ONLY;
+X      y_size = pip_y_size_mask(signal_h, h);
+X    }
+X
+X  pregs->y_source_scale_hi = (y_size & 0xff00) >> 8;
+X  pregs->y_source_scale_low = (y_size & 0xff);
+X
+X}
+X
+X
+X/* END DCC MOD */
+X
+X/* DCC MOD --- USE pip_init_dmsd_type AND libpip.h symbols --- 04.06.91 */
+X
+X/*"pip_source_type"
+X *
+X *	Set the type of source being used. This involves setting the source
+X *	bit in pip control status register 0, and changing certain dmsd and
+X *	dcsc chip values.
+X */
+Xvoid pip_source_type(prop, type)
+X     RopPtr prop;
+X     int type;                  /* =  type of source. */
+X{
+X  u_char			*port;	/* I2C port. */
+X  int csr0;
+X  Pip_Device_Regs *pregs;	/* -> pip device register area. */
+X
+X  pregs = (Pip_Device_Regs *)prop->pipRegisters;
+X  
+X  port = (u_char *)&pregs->control_status1;
+X
+X  pip_init_dmsd_type(port, type);
+X
+X  i2c_write( port, I2C_ADDR_DCSC, I2C_SUBA_DCSC_CONTROL, pipDCSCSourceType);
+X
+X  csr0 = pregs->control_status & ~TC1_CSR0_SOURCE_TYPE_MASK;
+X
+X  switch(type & PIP_SOURCE_TYPE)
+X    {
+X    default:
+X    case PIP_COMPOSITE: 
+X      csr0 |= TC1_CSR0_COMPOSITE_SOURCE;
+X      pregs->control_status2 &= ~TC1_CSR2_SYNC_NOT_HREF;
+X      break;
+X    case PIP_SVIDEO:  
+X      csr0 |= TC1_CSR0_S_VIDEO_SOURCE;
+X      /* THE FOLLOWIN LINE ISN'T WHAT RASTEROPS WANTED THERE, BUT IT WORKS */
+X      pregs->control_status2 &= ~TC1_CSR2_SYNC_NOT_HREF;
+X      break;
+X    case PIP_RGB:
+X      csr0 |= TC1_CSR0_RGB_SOURCE;
+X      pregs->control_status2 &= ~TC1_CSR2_SYNC_NOT_HREF;
+X      break;
+X    } 
+X
+X  pregs->control_status = csr0;
+X
+X}
+X	
+X/* END DCC MOD */
+X
+X/* DCC MOD --- 16.9.91 --- Added code from Don Fong */
+X
+Xint
+Xpip_x_size_mask(signal, view)
+X	int signal, view;
+X{
+X# define PIP_X_SCALE_REG_BITS	10
+X
+X# define PIP_X_OVERRUN_SLOP	1
+X
+X	if (view < signal)
+X		view -= PIP_X_OVERRUN_SLOP;
+X
+X	return compute_scale_reg(view, PIP_X_SCALE_REG_BITS, signal);
+X}
+X
+Xint
+Xpip_y_size_mask(signal, view)
+X	int signal, view;
+X{
+X# define PIP_Y_SCALE_REG_BITS	9
+X/*
+X# define PIP_Y_OVERRUN_SLOP	2
+X	if (view < signal)
+X		view -= PIP_Y_OVERRUN_SLOP;
+X */
+X	/* y scale reg refers to line pairs */
+X	return compute_scale_reg(view/2, PIP_Y_SCALE_REG_BITS, signal/2);
+X}
+X
+X
+X/*
+X * compute_scale_reg --
+X * Given a size q, find a PIP scaling register value
+X * to enable exactly q out of M (horizontal or vertical)
+X * lines in the picture.
+X *
+X * The lines of the picture are numbered from [0..M-1].
+X * The bits of the scaling register are numbered from [1..Mbits].
+X * Each bit of the scaling register enables a (disjoint)
+X * subset of lines in the picture.  The n-th bit enables
+X * lines with numbers L_i = A_n/2 - 1 + i*A_n, where A_n = 2^n,
+X * and i is any non-negative integer such that L_i < M.
+X * Rearranging, we find
+X *	i < (M-A_n/2+1)/A_n
+X * so the number of L_i's in the n-th set is
+X *	ceil((M-A/2+1)/A) = floor((M+A/2)/A)
+X * since A_n is always a power of 2, the division may be accomplished
+X * using shifts.
+X */
+Xint
+Xcompute_scale_reg(q, Mbits, M)
+X	int q; int Mbits; int M;
+X{
+X# define subsetsize(n, M)	(((M) + (1<<((n)-1))) >> (n))
+X	int mask; int n; int s;
+X
+X	mask = 0;
+X	for (n = 1; n <= Mbits; n++)
+X		if ((s = subsetsize(n, M)) <= q)
+X			{ mask |= 1<<(Mbits-n); q -= s; }
+X	/* NOTE: q should always be 0 here unless q > M originally */
+X	return mask;
+X}
+X
+X/* END DCC MOD */
+X
+X#ifdef nomore /* THE CODE BELOW HAS AN OFF BY PROBLEM WHICH I HAVEN'T FIXED */
+X
+X/*"pip_x_size_mask"
+X *
+X *	Calculate the mask value for the pip x size register that will produce a proper-sized 
+X *	viewing image, given the size of the video signal image. The sizing mechanism is
+X *	implemented with a rate multiplier, each bit in the mask reduces the original image
+X *	by one over a power of two (i.e. 1/2, 1/4, 1/8, 1/16, etc.)
+X *
+X *		= mask value to use
+X */
+Xpip_x_size_mask(signal, view)
+X    int signal;	/* = current size of signal image in pixels in x direction. */
+X    int view;	/* = desired size of viewing image in pixels in x direction. */
+X{
+X
+X/* 
+X**
+X**  FORMULA
+X**
+X**    n = mask bit
+X**    i = 10-n (n=9..0)
+X**
+X**    BITS ENABLED ACCORDING TO HARDWARE SPEC
+X**    a IS FIRST BIT ASSERTED; b IS THE INCREMENT TO THE NEXT BIT ASSERTED
+X**
+X**    a = 2**(i-1)-1
+X**    b = 2**i
+X**
+X**    pixels IS THE NUMBER OF PIXELS THAT MASK BIT n ENABLES FOR THE
+X**    GIVEN SIGNAL SIZE signal; NOTE THERE ARE HOLES
+X**
+X**    pixels = (signal - 1 - a)/b + 1
+X**
+X**    FOR PURPOSES OF ITERATION NOTE THAT
+X**
+X**    a[i] = b[i-1] - 1; THUS
+X**
+X**    pixels[i] = (signal - 1 - (b[i-1]-1))/b[i] + 1 OR
+X**
+X**    pixels[i] = (signal - b[i-1])/b[i] + 1 AND LET
+X**
+X**    t = (signal - b[i-1])
+X*/
+X
+X  int mask;	/* Mask value to return to our caller. */
+X  int b,t;
+X  int pixels;
+X  int blog;     /* blog is log2(b) so we can use shifts instead of div */
+X  
+X  if (view > signal) view = signal;
+X
+X  /* THIS IS TO MAKE SURE THAT RATE MULTIPLIER ERRORS DON'T CAUSE BOUNDS
+X     TO BE OVERRUN */
+X
+X  if (view < signal) view-=2;
+X  
+X  t = signal - 1;
+X  b = 2;
+X  mask = 0;
+X  
+X  for (blog = 1; blog < 11; blog++)
+X    {
+X      mask <<= 1;
+X
+X      pixels = (t >> blog) + (b-1 < signal);
+X      t = signal - b;
+X      b <<= 1;
+X      
+X      if ( /* pixels && */ view >= pixels )
+X        {
+X	  mask |= 1;
+X	  view -= pixels;
+X        }
+X      
+X    }
+X  
+X  return mask;
+X
+X}
+X
+X/*"pip_y_size_mask"
+X *
+X *	Calculate the mask value for the pip y size register that will produce a proper-sized 
+X *	viewing image, given the size of the video signal image. The sizing mechanism is
+X *	implemented with a rate multiplier, each bit in the mask reduces the original image
+X *	by one over a power of two (i.e. 1/2, 1/4, 1/8, 1/16, etc.)
+X *
+X *		= mask value to use
+X */
+Xpip_y_size_mask(signal, view)
+X    int signal; /* = current size of signal image in pixels in y direction. */
+X    int view;	/* = desired size of viewing image in pixels in y direction. */
+X{
+X
+X/* 
+X**
+X**  FORMULA
+X**
+X**    n = mask bit
+X**    i = 9-n (n=8..0)
+X**
+X**    BITS ENABLED ACCORDING TO HARDWARE SPEC
+X**    a IS FIRST BIT ASSERTED; b IS THE INCREMENT TO THE NEXT BIT ASSERTED
+X**
+X**    a = 2**(i-1)-1
+X**    b = 2**i
+X**
+X**    pixels IS THE NUMBER OF PIXELS THAT MASK BIT n ENABLES FOR THE
+X**    GIVEN SIGNAL SIZE signal; NOTE THERE ARE HOLES
+X**
+X**    pixels = (signal - 1 - a)/b + 1
+X**
+X**    FOR PURPOSES OF ITERATION NOTE THAT
+X**
+X**    a[i] = b[i-1] - 1; THUS
+X**
+X**    pixels[i] = (signal - 1 - (b[i-1]-1))/b[i] + 1 OR
+X**
+X**    pixels[i] = (signal - b[i-1])/b[i] + 1 AND LET
+X**
+X**    t = (signal - b[i-1])
+X*/
+X
+X  int mask;	/* Mask value to return to our caller. */
+X  int b,t;
+X  int pixels;
+X  int blog;     /* blog is log2(b) so we can use shifts instead of div */
+X  
+X  if (view > signal) view = signal;
+X
+X  signal >>= 1;
+X  view >>= 1;
+X
+X  /* THIS IS TO MAKE SURE THAT RATE MULTIPLIER ERRORS DON'T CAUSE BOUNDS
+X     TO BE OVERRUN */
+X
+X/*  if (view < signal) view-=2; */
+X
+X  t = signal - 1;
+X  b = 2;
+X  mask = 0;
+X  
+X  for (blog = 1; blog < 10; blog++)
+X    {
+X      
+X      mask <<= 1;
+X
+X      pixels = (t >> blog) + (b-1 < signal);
+X      t = signal - b;
+X      b <<= 1;
+X      
+X      if ( /* pixels && */ view >= pixels )
+X        {
+X	  mask |= 1;
+X	  view -= pixels;
+X        }
+X      
+X    }
+X
+X  return mask;
+X
+X}
+X#endif nomore
+X
+X
+X
+X
+X
+X
+END_OF_FILE
+if test 49044 -ne `wc -c <'extensions/xv/server/ddx/decrop/libpip.c'`; then
+    echo shar: \"'extensions/xv/server/ddx/decrop/libpip.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/decrop/libpip.c'
+fi
+if test -f 'server/ddx/sun/xfbstruct.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbstruct.h'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbstruct.h'\" \(2695 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbstruct.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "pixmap.h"
+X#include "region.h"
+X#include "colormap.h"
+X
+Xtypedef struct _xfbScreenPrivRec {
+X  void (* SetDepth)();
+X  Bool cfb1_1,cfb8_1,cfb32_1;
+X} xfbScreenPrivRec, *xfbScreenPrivPtr;
+X
+X/* edg: output of C prototyper needs to be rearranged */
+Xextern int xfbListInstalledColormaps();
+Xextern void xfbInstallColormap();
+Xextern void xfbUninstallColormap();
+Xextern void xfbResolveColor();
+Xextern Bool xfbInitializeColormap();
+Xextern void xfbGetImage();
+Xextern void xfbGetSpans();
+Xextern Bool xfbCreateGC();
+Xextern PixmapPtr xfbCreatePixmap();
+Xextern Bool xfbDestroyPixmap();
+Xextern void xfbPaintWindow();
+Xextern void xfbWindowExposures();
+Xextern Bool xfbScreenInit();
+Xextern int xfbGetSelectDepth();
+Xextern Bool xfbCreateWindow();
+Xextern Bool xfbDestroyWindow();
+Xextern Bool xfbMapWindow();
+Xextern Bool xfbPositionWindow();
+Xextern Bool xfbUnmapWindow();
+Xextern void xfbFindDepthAndHwCmap();
+Xextern void xfbCopyWindowSetCmaps();
+Xextern void xfbCopyWindow();
+Xextern Bool xfbChangeWindowAttributes();
+Xextern void xfbSaveAreas();
+Xextern void xfbRestoreAreas();
+X
+X
+X
+X/* included from mfb.h; we can't include mfb.h directly because of other 
+X * conflicts */
+Xextern void mfbPushPixels();
+Xextern void mfbSetSpans();
+Xextern void mfbGetSpans();
+Xextern void mfbUnnaturalTileFS();
+Xextern void mfbUnnaturalStippleFS();
+Xextern Bool mfbRealizeFont();
+Xextern Bool mfbUnrealizeFont();
+Xextern void mfbQueryBestSize();
+Xextern RegionPtr mfbPixmapToRegion();
+Xextern void mfbCopyRotatePixmap();
+END_OF_FILE
+if test 2695 -ne `wc -c <'server/ddx/sun/xfbstruct.h'`; then
+    echo shar: \"'server/ddx/sun/xfbstruct.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbstruct.h'
+fi
+echo shar: End of archive 2 \(of 29\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

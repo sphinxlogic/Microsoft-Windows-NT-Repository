@@ -1,0 +1,1621 @@
+From ramin@rtgvax.UUCP Sat Sep  6 19:18:04 1986
+Path: beno!seismo!uwvax!husc6!panda!genrad!decvax!decwrl!amdcad!cae780!leadsv!rtgvax!ramin
+From: ramin@rtgvax.UUCP
+Newsgroups: net.decus
+Subject: Reading TAR from VMS
+Message-ID: <91@rtgvax.UUCP>
+Date: 6 Sep 86 23:18:04 GMT
+Organization: Erewhon Travel
+Lines: 1607
+Keywords: Summaries, *ACTUAL PROGRAMS* (yow!)
+Posted: Sat Sep  6 19:18:04 1986
+
+
+Well... my recent inquiry about TAR programs in VMS garnished me
+the following responses... The last two have actual programs
+that were enclosed and I have included them verbatim (though
+it seems they are closely related... but I thought I'd throw them
+both in anyway...) I also have another FORTRAN one here that someone at
+a sister company wrote. I haven't included it since I don't know
+if he wants it distributed...
+
+I have not fully tested any of them. But since this machine is
+shortly due to go off the net I figured I should send it out
+before they pull the plug...(:-( Barring circumstances I should be
+back on the net via another system in about a month and I might
+fix up the programs to allow subdirectory creations, etc...)
+
+Again, thanks to all who responded.
+
+P.S. John Gilmore (hoptoad!gnu) has also offered a copy of a C TAR program
+he has... Hopefully I'll get it soon enough... If someone needs to
+try it out they could contact him directly if I'm not around...
+
+ramin
+
+***************************************************************************
+
+From: H}vard Eidnes <lll-lcc!caip!seismo!mcvax!vax.runit.unit.uninett!H_Eidnes>
+
+I saw your recent request for some TAR program on VMS. It just
+happens that a friend of mine recently wrote such a program.
+The program is written in VMS Pascal. It has mainly been used
+to read TAR tapes down to TAR files on disk to be transferred
+to a Unix system to be unpacked. We've used Kermit to transfer
+from our VMS computer to a MicroVAX II (without 1/2" tape), and
+that has worked, but is slow, eg. it took 12hrs transferring
+TeX, but it worked...
+
+The Pascal program is capable of just extracting a part of a tape
+by giving it a starting and ending filename prefix. It also has
+routines to do actual extraction on VMS, but we haven't used these
+routines much. NB: the program only handles TAR files blocked 20.
+
+I will be happy to send you the program if you want it.
+
+***************************************************************************
+
+From: lll-lcc!caip!uw-beaver!uw-june!gordon (Gordon Davisson)
+
+Here's a program that does what you want.  It did get into a recent decus
+tape (VAX85C?), but that version happens to not work.  Use this instead.
+
+-- 
+Human:    Gordon Davisson
+ARPA:     gordon@uw-june.ARPA
+UUCP:     {ihnp4,decvax,tektronix}!uw-beaver!uw-june!gordon
+Bitnet:   gordon@uwaphast
+ATT:      (206) 527-0832
+USnail:   5008 12th NE, Seattle, WA, 98105
+
+--------------- cut here, then run the file (with an @) ---------------
+$!
+$ write sys$output "creating CVT.FOR"
+$ create CVT.FOR
+$ deck
+c
+c this subroutine converts a complete filespec (directory+file) name from
+c unix format to VMS
+c
+      subroutine cvt_dir_uv( unix, vms, vlen )
+
+      parameter reserved = 10
+      character*(*) unix, vms
+      integer*2 vlen, i, j
+
+      vms( 1:1 ) = '['
+      vlen = 1
+      i = 1
+      if ( unix( 1:1 ) .eq. '/' ) i = 2
+      j = index( unix( i: ), '/' )
+      do while ( j .ne. 0 )
+         vms( vlen+1:vlen+1 ) = '.'
+         call cvt_string_uv( unix( i : i+j-2 ), vms( vlen+2: ), k )
+         i = i + j
+         j = index( unix( i: ), '/' )
+         vlen = vlen + k + 1
+         if ( vlen + reserved .gt. len( vms )) then
+            vlen = len( vms ) - reserved
+            if ( vms( vlen:vlen ) .eq. '.' ) vlen = vlen - 1
+            do while ( j .ne. 0 )
+               i = i + j
+               j = index( unix( i: ), '/' )
+            end do
+         end if
+      end do
+
+      if ( vlen .eq. 1 ) then
+         vlen = 0
+      else
+         vlen = vlen + 1
+         vms( vlen:vlen ) = ']'
+      end if
+
+      call cvt_file_uv( unix( i: ), vms( vlen+1: ), k )
+      vlen = vlen + k
+      return
+
+      end      
+
+c
+c this subroutine converts an individual file name from unix format to VMS
+c
+      subroutine cvt_file_uv( unix, vms, vlen )
+
+      parameter mlen1 = 64, mlen2 = 64
+c     parameter mlen1 = 9, mlen2 = 3       ! for version 3 and before
+      character*(*) unix, vms
+      integer*2 vlen, i, j
+
+      i = index( unix, '.' )
+      if ( i .eq. 0 ) i = len( unix ) + 1
+
+      call cvt_string_uv( unix( :i-1 ), vms, j )
+      if ( j .gt. mlen1 ) j = mlen1
+      vlen = j + 1
+      if ( vlen .gt. len( vms )) vlen = len( vms )
+      vms( vlen:vlen ) = '.'
+
+      if ( i .ge. len( unix )) return
+
+      call cvt_string_uv( unix( i+1: ), vms( vlen+1: ), j )
+      if ( j .gt. mlen2 ) j = mlen2
+      vlen = vlen + j
+      return
+
+      end
+
+c
+c this subroutine converts a string to characters that can appear in
+c VMS filenames
+c
+c if you're using a version 3 or pervious VMS system, you'll have to
+c rewrite this to avoid _ and $.
+c
+      subroutine cvt_string_uv( unix, vms, vlen )
+
+      character*(*) unix, vms, c*1
+      integer*2 vlen, i
+
+      vms = unix
+      vlen = min( len( unix ), len( vms ))
+      do i = 1, vlen
+         c = vms( i:i )
+         if ( 'A' .le. c .and. c .le. 'Z' .or.
+     -        '0' .le. c .and. c .le. '9' .or.
+     -        c .eq. '_' .or. c .eq. '$'  ) then
+            continue
+         else if ( 'a' .le. c .and. c .le. 'z' ) then
+            vms( i:i ) = char( ichar( c ) - 32 )
+         else if ( c .eq. '-' ) then
+            vms( i:i ) = '_'
+         else
+            vms( i:i ) = '$'
+         end if
+      end do
+
+      return
+
+      end
+
+c
+c this souroutine converts an octal digit to a 3-character protection mask
+c
+      subroutine cvt_prot( c, out )
+
+      character c*1, out*3, mask( 8 )*3
+      data mask / '---', '--x', '-w-', '-wx',
+     -            'r--', 'r-x', 'rw-', 'rwx' /
+
+      out = mask( ichar( c ) - ichar( '0' ) + 1 )
+      return
+
+      end
+
+$ eod
+$!
+$ write sys$output "creating TAPEIO.DCK"
+$ create TAPEIO.DCK
+$ deck
+c
+c parameters:
+c   blocklen is the size of the units tar works with
+c   saveblocks is the number of blocks into the file saved for a second chance
+c   maxrecl is the maximum length of record a text can have
+c   maxblockfactor is the maximum blocking factor this program can deal with
+c
+      parameter blocklen = 512, saveblocks = 5, maxrecl = 512,
+     -    maxblockfactor = 20
+
+c secondary parameters calculated from those above
+      parameter recblocks = 2 + maxrecl/blocklen,
+     -   maxblocks = maxblockfactor + saveblocks + recblocks,
+     -   maxlen = blocklen*maxblocks
+
+c these are numbers for fortran units to be used for various files
+      parameter inunit = 1, outunit = 2, listunit = 3, nameunit = 4
+
+c
+c variables:
+c
+c i/o control stuff
+      integer*2 channel
+      logical*1 tape_file
+
+c this is the buffer records get read into
+      character buffer*( maxlen ), block( maxblocks )*( blocklen )
+      equivalence ( buffer, block )
+
+c control info for the buffer
+      integer*2 using, using2, curr
+      logical*1 eof
+
+
+      common /commonbuf/ buffer
+      common /commonints/ using, using2, curr, eof, tape_file, channel
+$ eod
+$!
+$ write sys$output "creating TAPEIO.FOR"
+$ create TAPEIO.FOR
+$ deck
+c
+c this routine accesses, checks, and rewinds the specified tape (or file,
+c if tape_file is true.
+c
+      subroutine open_tape( name )
+
+      include 'tapeio.dck/list'
+      include '($iodef)/nolist'
+      include '($dvidef)/nolist'
+      include '($devdef)/nolist'
+      character*(*) name
+
+      integer*2 iosb( 2 ), devreq_w( 2 )
+      integer*4 stat, devreq( 4 ), devchar, sys$assign, sys$qiow,
+     -    sys$getdvi
+
+      equivalence ( devreq, devreq_w )
+      data devreq_w, devreq( 3 ), devreq( 4 )
+     -    / 4, dvi$_devchar, 0, 0 /
+
+      if ( tape_file ) then
+         stat = sys$assign( name, channel,, )
+         if ( .not. stat ) goto 900
+         devreq( 2 ) = %loc( devchar )
+         stat = sys$getdvi( , %val( channel ),, devreq, iosb,,, )
+         if ( .not. stat ) goto 900
+         stat = iosb( 1 )
+         if ( .not. stat ) goto 900
+         if ( .not. btest( devchar, dev$v_avl )) goto 910
+         if ( .not. btest( devchar, dev$v_for )) goto 920
+         stat = sys$qiow( , %val( channel ), %val( io$_rewind ),
+     -       iosb,,,,,,,, )
+         if ( .not. stat ) goto 930
+         stat = iosb( 1 )
+         if ( .not. stat ) goto 930
+      else
+         open( inunit, err=950, name=name,
+     -       type='old', readonly )
+      end if
+
+      return
+
+c
+c fatal errors
+c
+  900 type *, 'Error accessing tape, ', name
+      call exit( stat )
+  910 type *, 'Tape offline or not available.'
+      call exit
+  920 type *, 'Tape must be mounted /foreign.'
+      call exit
+  930 type *, 'Error rewinding tape.'
+      call exit( stat )
+
+  950 type *, 'Error opening input file, ', name
+      call exit
+
+      end
+
+c
+c this routine makes sure the next block is available, reading it from
+c tape if necessary.
+c
+      subroutine next_block
+      include 'tapeio.dck'
+      include '($iodef)/nolist'
+      integer*2 blen, u, i, iosb( 4 )
+      integer*4 stat, sys$qiow
+      data curr, blen / 0, 0 /
+
+      eof = .false.
+      curr = curr + 1
+      if ( curr .le. blen / blocklen ) return
+
+      if ( using2 .le. 0 ) then
+         u = using
+      else if ( using .le. 0 ) then
+         u = using2
+      else
+         u = min( using, using2 )
+      end if
+
+      if ( u .gt. blen / blocklen ) then
+         type *, 'Internal error.  Call the debugger.'
+         call exit
+      else if ( u .gt. 1 ) then
+         buffer( 1 : blen - blocklen*(u-1)) =
+     -       buffer( 1+blocklen*(u-1) : blen )
+         blen = blen - blocklen*(u-1)
+         curr = curr - u + 1
+         using = using - u + 1
+         using2 = using2 - u + 1
+      else if ( u .lt. 1 ) then
+         blen = 0
+         curr = 1
+      end if
+
+      do while ( curr .gt. blen / blocklen )
+         if ( tape_file ) then
+            stat = sys$qiow( , %val( channel ), %val( io$_readlblk ),
+     -          iosb,,, %ref( buffer( blen+1: )), %val( maxlen-blen )
+     -          ,,,, )
+            if ( .not. stat ) then
+               type *, 'Error reading from tape'
+               call exit( stat )
+            else if ( .not. iosb( 1 )) then
+               type *, 'Error reading from tape'
+               call exit( iosb( 1 ))
+            else if ( iosb( 2 ) .eq. 0 ) then
+               goto 99
+            endif
+            blen = blen + iosb( 2 )
+         else
+            read( inunit, 10, end=99 ) i, buffer( blen+1: )
+   10       format( q, a )
+            blen = blen + i
+         end if
+         if ( blen .gt. maxlen ) then
+            type *, 'Blocking factor too large.'
+            call exit
+         end if
+      end do
+      return
+
+99    curr = curr - 1
+      eof = .true.
+      return
+      end
+$ eod
+$!
+$ write sys$output "creating TAR.CLD"
+$ create TAR.CLD
+$ deck
+!**************************************TAR**************************************
+define verb TAR
+   image drc0:[gordon.decus.tar]TAR
+   parameter P1 , label=TAPE , prompt="Tape drive"
+      value (required,type=$infile)
+   qualifier FILE
+   qualifier EXTRACT
+   qualifier BINARY
+   qualifier INQUIRE
+   qualifier SECOND_CHANCE
+      default
+   qualifier NAMES
+      value (default="sys$output:",type=$outfile)
+   qualifier LIST
+      value (default="sys$output:",type=$outfile)
+   qualifier VERBOSE
+   qualifier FLATTEN
+      default
+$ eod
+$!
+$ write sys$output "creating TAR.FOR"
+$ create TAR.FOR
+$ deck
+c
+c This is tar for VMS, by Gordon Davisson (gordon@uw-june).  It is
+c not based on any liscenced software, and is completely in the
+c public domain.
+c
+c Version 1.0, Gordon Davisson, July 24 1985
+c revised by G.D. July 29 1985 to use io$_rewind right and not abuse rms$_eof
+c revised by G.D. Oct 17 1985 to make sure tape is mounted
+c
+      program tar
+
+      parameter bell = char( 7 ), lf = char( 10 )
+      external cli$_present, cli$_negated, cli$_locpres, cli$_locneg,
+     -    cli$_absent, cli$_defaulted, cli$_normal,
+     -    cli$_comma, cli$_concat
+      include 'tapeio.dck/list'
+      character fname*100, out*128, pstr*9, prot*3, link*1, tmp*1
+      integer*2 i, j, start, finish, flen, olen, files,
+     -    stuff1, stuff2, stuff3, iosb( 2 )
+      integer*4 size, blocks, time, stat,
+     -    cli$get_value, cli$present, sys$assign, sys$qiow
+      logical*1 listing, naming, extracting, binary, inquiring,
+     -    verbose, second_chance, flatten, absent
+
+      absent( stat ) = ( stat .eq. %loc( cli$_absent ) .or.
+     -                   stat .eq. %loc( cli$_negated ))
+c
+c parse command line
+c
+c file -- read from normal file, not a tape
+      stat = cli$present( 'file' )
+      if ( absent( stat )) then
+         tape_file = .true.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        tape_file = .false.
+      end if
+
+c p1 -- tape drive name
+      stat = cli$get_value( 'tape', fname, flen )
+      if ( .not. stat ) goto 900
+      call open_tape( fname( :flen ))
+
+c p2 -- files to extract/list/whatever.  NOT IMPLEMENTED
+c     files = 0
+c     stat = cli$get_value( 'match', fname, flen )
+c     do while ( .not. absent( stat ))
+c        if ( .not. stat ) goto 900
+c        type *, 'File selector: ', fname( :flen )
+c        files = files + 1
+c        stat = cli$get_value( 'match', fname, flen )
+c     end do
+
+c extract -- copy files to disk
+      stat = cli$present( 'extract' )
+      if ( absent( stat )) then
+         extracting = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        extracting = .true.
+      end if
+
+c binary -- copy to disk in block mode
+      stat = cli$present( 'binary' )
+      if ( absent( stat )) then
+         binary = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        binary = .true.
+      end if
+
+c inquire -- ask what to do to each file
+      stat = cli$present( 'inquire' )
+      if ( absent( stat )) then
+         inquiring = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        inquiring = .true.
+      end if
+
+c second_chance -- try to recognize binary files and save them as such
+      stat = cli$present( 'second_chance' )
+      if ( absent( stat )) then
+         second_chance = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        second_chance = .true.
+      end if
+
+c list -- list files on tape
+      stat = cli$get_value( 'list', fname, flen )     
+      if ( absent( stat )) then
+         listing = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+         open( listunit, err=920, name=fname( :flen ), type='new',
+     -       defaultfile='tar.lis', carriagecontrol='list' )
+         listing = .true.
+      end if
+
+c verbose -- make a verbose list
+      stat = cli$present( 'verbose' )
+      if ( absent( stat )) then
+         verbose = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        verbose = .true.
+      end if
+
+c flatten -- extract all files to the current directory
+      stat = cli$present( 'flatten' )
+      if ( absent( stat )) then
+         flatten = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+        flatten = .true.
+      end if
+
+c names -- make a list of what unix filenames mapped to what VMS filenames
+      stat = cli$get_value( 'names', fname, flen )     
+      if ( absent( stat )) then
+         naming = .false.
+      else if ( .not. stat ) then
+         goto 900
+      else
+         open( nameunit, err=930, name=fname( :flen ), type='new',
+     -       defaultfile='tar.nam', carriagecontrol='list' )
+         naming = .true.
+      end if
+
+c
+c file loop: executed for each file in the archive
+c
+      do while ( .true. )
+   10    using = 0
+         using2 = 0
+         call next_block
+         if ( eof .or. block( curr ) (1:1) .eq. char( 0 )) goto 899
+
+c start parsing out a file entry -- parse the header
+         read( block( curr ), 1001 ) fname, prot, stuff1, stuff2,
+     -      size, time, stuff3, link
+ 1001    format( a100, 3x, a3, 2x, 2(o6,2x), 2(o11,1x), o6, 2x, a1 )
+         blocks = ( size + blocklen - 1 ) / blocklen
+         flen = index( fname, char( 0 )) - 1
+         if ( flen .lt. 0 ) flen = len( fname )
+
+c add it to the list
+         if ( listing .and. verbose ) then
+            call cvt_prot( prot( 1:1 ), pstr( 1:3 ))
+            call cvt_prot( prot( 2:2 ), pstr( 4:6 ))
+            call cvt_prot( prot( 3:3 ), pstr( 7:9 ))
+            write( listunit, 2001 ) pstr, stuff1, stuff2, size,
+     -          time, fname( :flen )
+ 2001       format( a9, i3, '/', i3, i7, i11, 1x, a )
+         else if ( listing ) then
+            write( listunit, 2002 ) fname( :flen )
+ 2002       format( a )
+         end if
+
+c ignore links
+         if ( link .eq. '1' ) goto 10
+
+c skip if not extracting
+         if ( .not. extracting ) goto 40
+
+c figure out what to do with the file
+         if ( inquiring ) then
+            call lib$get_input( tmp, fname( :flen ) // ': [ynbtq]' )
+            do while ( index( ' yYnNbBtTqQ', tmp ) .eq. 0 )
+               call lib$get_input( tmp,
+     -             bell // fname( :flen ) // ': [ynbtq]' )
+            end do
+            call str$upcase( tmp, tmp )
+            if ( tmp .eq. 'Q' ) goto 899
+         else
+            tmp = 'Y'
+         end if
+
+         if ( tmp .eq. 'Y' .or. tmp .eq. ' ' ) then
+            tmp = 'T'
+            if ( binary ) tmp = 'B'
+         else if ( tmp .eq. 'N' ) then
+            goto 40
+         end if
+
+c parse file name
+         call cvt_dir_uv( fname( :flen ), out, olen )
+         if ( flatten ) then
+            i = index( out( :olen ), ']' )
+            out = out( i+1:olen )
+            olen = olen - i
+         end if
+         if ( tmp .eq. 'B' ) goto 30
+
+c create a text file
+   20    open( outunit, name=out( :olen ), type='new', recl=maxrecl,
+     -       defaultfile='.', carriagecontrol='list', err=38 )
+         if ( size .le. 0 ) then
+            close( outunit )
+            goto 99
+         end if
+
+c copy the file to disk
+         if ( second_chance ) using2 = curr
+         call next_block
+         blocks = blocks - 1
+         start = 1
+         do while ( size .gt. 0 )
+            using = curr
+            finish = index( block( curr ) ( start: ), lf )
+            do while ( finish .eq. 0 .and. blocks .gt. 0 .and.
+     -          curr - using + 1 .lt. recblocks )
+               call next_block
+               blocks = blocks - 1
+               if ( eof ) goto 990
+               finish = index( block( curr ), lf )
+            end do
+            if ( finish .eq. 0 ) finish = 2 * blocklen + 1
+            if ( using .eq. curr ) finish = finish + start - 1
+            i = start + blocklen * (using-1)
+            j = finish + blocklen * (curr-1)
+            start = finish + 1
+            size = size - j + i - 1
+            if ( size .lt. 0 ) then
+               j = j + size
+               size = 0
+            end if
+            if ( using2 .ne. 0 .and. j - i .gt. maxrecl ) then
+               type *, 'Giving ', fname( :flen ), ' a second chance...'
+               blocks = blocks + curr - using2
+               curr = using2
+               using = 0
+               using2 = 0
+               close( outunit, dispose='delete' )
+               goto 30
+            end if
+            write( outunit, 2005, err=39, iostat=stat )
+     -          buffer( i : j-1 )
+2005        format( a )
+            if ( curr - using2 .ge. saveblocks ) using2 = 0
+         end do
+
+         close( outunit )
+         goto 99
+
+c create a binary file
+   30    using = 0
+         using2 = 0
+         open( outunit, name=out( :olen ), type='new',
+     -       recl=blocklen, recordtype='fixed', defaultfile='.',
+     -       carriagecontrol='none', err=39 )
+
+         do while ( blocks .gt. 0 )
+            call next_block
+            blocks = blocks - 1
+            write( outunit, 3001, err=39, iostat=stat ) block( curr )
+ 3001       format( a )
+         end do
+         close( outunit )
+         goto 99
+
+c got an error creating the file: skip it.
+   38    type *, 'Error creating ', out( :olen ), ' skipping...'
+         goto 40
+
+c got an error writing the file: skip the rest of it.
+   39    type *, 'Error writing ', out( :olen ), ' skipping...'
+         close( outunit, dispose='delete' )
+
+c skip the file
+   40    using = 0
+         using2 = 0
+         do i = 1, blocks
+            call next_block
+            if ( eof ) goto 990
+         end do
+         goto 10
+
+c successfully copied file to disk: enter it in the names file
+   99    if ( naming ) write( nameunit, 2000 ) out( :olen ),
+     -       fname( :flen )
+ 2000    format( a, ' -> ', a )
+
+      end do
+
+c end of tape: close it and exit!
+  899 close( inunit )
+      call exit
+
+c
+c fatal errors
+c
+  900 type *, 'Error parsing command line'
+      call exit
+
+  920 type *, 'Error opening listing file, ', fname( :flen )
+      call exit
+
+  930 type *, 'Error opening names file, ', fname( :flen )
+      call exit
+
+  990 type *, 'Premature end of tape while reading ', fname( :flen )
+      call exit
+
+      end
+$ eod
+$!
+$ write sys$output "creating TAR.HLP"
+$ create TAR.HLP
+$ deck
+1 TAR
+  Invokes the tape archive reader to read unix-format tapes.
+
+  Format:
+
+    TAR tape-name[:]
+2 Parameter
+
+ tape-name[:]
+
+  Specifies the device name of the tape drive the archive is mounted on.
+  The archive must be mounted foreign.
+
+  If the /FILE qualifier is specified, this parameter is interpreted as
+  the file name for the archive.
+2 Command_Qualifiers
+
+/BINARY
+
+  Specifies that the files extracted should be put into fixed-length-512-
+  byte-record files and that no interpretation should be preformed on
+  the contents.
+
+/EXTRACT
+
+  Specifies that the files in the archive should be copied into the
+  directory, or subdirectories (depending on the /FLATTEN qualifier).
+
+/FILE
+
+  Specifies that, instead of a tape, the archive is contained in a normal
+  file.
+
+/FLATTEN (D)
+
+  Specifies that files extracted from the archive should be put in the
+  default directory even when the files would normally be put in
+  subdirectories.
+
+  This qualifier is on by default because the program is incapable of
+  creating subdirectories to put the extracted files in, so unless they
+  exist already, /NOFLATTEN in a pure loss.
+
+/INQUIRE
+
+  Tells the program to ask the user what to do with each file it has been
+  told to extract.  The program prompts with the filename followed by a
+  list of options.  The options are:
+
+     y - extract the file normally
+     n - skip the file
+     t - extract the file in text (not binary) mode
+     b - extract the file in binary mode
+     q - exit the program
+
+  The y option is equivalent t or b depending on whether the /BINARY
+  qualifier was given.
+
+/LIST
+
+ /LIST=filename (default = sys$output:)
+
+  Tells the program to create a list of all of the files on the tape.
+  If the /VERBOSE qualifier is also specified, the list contains more
+  than just the file names.
+
+/NAMES
+
+ /NAMES=filename (default = sys$output:)
+
+  If files are extracted, the program creates a file giving the names
+  of the files on the tape and the VMS filenames they were mapped into
+  when extracted.
+
+/SECOND_CHANCE (D)
+
+  This specifies that if a file is being extracted in text mode, and
+  a line longer then 512 bytes in encountered sufficiently near the
+  beginning of the file, it should be re-extracted in binary mode.
+
+  If negated, files with long lines are discarded in text mode.
+
+/VERBOSE
+
+  This specifies that lists should contain more information than just
+  the filename.
+
+2 Bugs
+  Here's a list of some of the more noticable bugs and deficiencies:
+     - It can't write tar tapes.
+     - It can't operate on only some of the files on a tape.
+     - Verbose listings contain the date in seconds since 1970 or so,
+         rather than any reasonable format.
+     - It can't create subdirectories to put files in. (that's why
+         /FLATTEN is the default)
+     - Error recovery and reporting could use improvement.
+     - probably others I can't think of at the moment.
+
+  If you discover more bugs, fix them, or just have suggestions, mail
+  them to Gordon Davisson ({ihnp4|decvax}!uw-beaver!uw-june!gordon,
+  gordon@uw-june.ARPA, or gordon@uwaphast.BITNET).
+$ eod
+
+***************************************************************************
+
+From: lll-lcc!ucdavis!vega!ccrdave (Lord Kahless)
+
+I received this program from somebody, who received this program
+from somebody.  I don't know if it works because I've been to busy
+to test it.  Just substitute out the X@X@'s and go for it. Tell
+me how it works...
+X@X@From:	ALCOR::CCRDAN       "DAN GOLD" 11-AUG-1986 10:01
+X@X@To:	CCRDAVE
+X@X@Subj:	
+X@X@
+X@X@From ucbvax!sdcsvax.ucsd.edu!gr66@sdcc12 Sun Aug 10 13:41:14 1986
+X@X@Received: by deneb.UCDAVIS.EDU (4.12/4.7)
+X@X@	id AA28769; Sun, 10 Aug 86 13:40:07 pdt
+X@X@From: ucbvax!sdcsvax.ucsd.edu!gr66@sdcc12
+X@X@Received: by ucdavis.UCDAVIS.EDU (4.12/4.7)
+X@X@	id AA24315; Sun, 10 Aug 86 13:41:25 pdt
+X@X@Received: by ucbvax.Berkeley.EDU (5.53/1.14)
+X@X@	id AA08804; Sun, 10 Aug 86 13:14:35 PDT
+X@X@Received: by sdcsvax.ucsd.edu (5.31/4.42)
+X@X@	id AA20134; Sun, 10 Aug 86 13:15:05 PDT hops=0
+X@X@Received: by sdcc12.ARPA (5.5/4.41)
+X@X@	id AA17718; Sun, 10 Aug 86 13:14:43 PDT
+X@X@Date: Sun, 10 Aug 86 13:14:43 PDT
+X@X@Message-Id: <8608102014.AA17718@sdcc12.ARPA>
+X@X@To: ucdavis!deneb!ccrdan
+X@X@Status: R
+X@X@
+X@X@-----------------------------------------------------------------
+X@X@
+X@X@Dan Gold:
+X@X@
+X@X@   Here are the 7 files I received in response to my tar read/write
+X@X@program request.  This is a DECUS program from Fall, 1985 I think.i
+X@X@As TAR.HLP explains, it does not write TAR tapes
+X@X@(just reads them) and has a no. of shortcomings.  I tried it and
+X@X@it works nicely.  I plan to improve on it a bit so if you 
+X@X@ask later I may have more to send you.  Send any questions you have
+X@X@about bugs to gordon (address in TAR.HLP).
+X@X@
+X@X@steve piper
+X@X@gr66%sdcc12@sdcsvax.ARPA
+X@X@
+X@X@TAR.COM
+X@X@-------
+X@X@
+X@X@$ fortran tar
+X@X@$ fortran cvt
+X@X@$ fortran tapeio
+X@X@$ link tar,cvt,tapeio
+X@X@
+X@X@TAR.CLD
+X@X@-------
+X@X@
+X@X@!**************************************TAR**************************************
+X@X@define verb TAR
+X@X@   image u$dir:TAR
+X@X@   parameter P1 , label=TAPE , prompt="Tape drive"
+X@X@      value (required,type=$infile)
+X@X@   qualifier FILE
+X@X@   qualifier EXTRACT
+X@X@   qualifier BINARY
+X@X@   qualifier INQUIRE
+X@X@   qualifier SECOND_CHANCE
+X@X@      default
+X@X@   qualifier NAMES
+X@X@      value (default="sys$output:",type=$outfile)
+X@X@   qualifier LIST
+X@X@      value (default="sys$output:",type=$outfile)
+X@X@   qualifier VERBOSE
+X@X@   qualifier FLATTEN
+X@X@      default
+X@X@
+X@X@TAR.FOR
+X@X@-------
+X@X@
+X@X@c
+X@X@c This is tar for VMS, by Gordon Davisson (gordon@uw-june).  It is
+X@X@c not based on any liscenced software, and is completely in the
+X@X@c public domain.
+X@X@c
+X@X@c Version 1.0, Gordon Davisson, July 24 1985
+X@X@c revised by G.D. July 29 1985 to use io$_rewind right and not abuse rms$_eof
+X@X@c revised by G.D. Oct 17 1985 to make sure tape is mounted
+X@X@c
+X@X@      program tar
+X@X@
+X@X@      parameter bell = char( 7 ), lf = char( 10 )
+X@X@      external cli$_present, cli$_negated, cli$_locpres, cli$_locneg,
+X@X@     -    cli$_absent, cli$_defaulted, cli$_normal,
+X@X@     -    cli$_comma, cli$_concat
+X@X@      include 'tapeio.dck/list'
+X@X@      character fname*100, out*128, pstr*9, prot*3, link*1, tmp*1
+X@X@      integer*2 i, j, start, finish, flen, olen, files,
+X@X@     -    stuff1, stuff2, stuff3, iosb( 2 )
+X@X@      integer*4 size, blocks, time, stat,
+X@X@     -    cli$get_value, cli$present, sys$assign, sys$qiow
+X@X@      logical*1 listing, naming, extracting, binary, inquiring,
+X@X@     -    verbose, second_chance, flatten, absent
+X@X@
+X@X@      absent( stat ) = ( stat .eq. %loc( cli$_absent ) .or.
+X@X@     -                   stat .eq. %loc( cli$_negated ))
+X@X@c
+X@X@c parse command line
+X@X@c
+X@X@c file -- read from normal file, not a tape
+X@X@      stat = cli$present( 'file' )
+X@X@      if ( absent( stat )) then
+X@X@         tape_file = .true.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        tape_file = .false.
+X@X@      end if
+X@X@
+X@X@c p1 -- tape drive name
+X@X@      stat = cli$get_value( 'tape', fname, flen )
+X@X@      if ( .not. stat ) goto 900
+X@X@      call open_tape( fname( :flen ))
+X@X@
+X@X@c p2 -- files to extract/list/whatever.  NOT IMPLEMENTED
+X@X@c     files = 0
+X@X@c     stat = cli$get_value( 'match', fname, flen )
+X@X@c     do while ( .not. absent( stat ))
+X@X@c        if ( .not. stat ) goto 900
+X@X@c        type *, 'File selector: ', fname( :flen )
+X@X@c        files = files + 1
+X@X@c        stat = cli$get_value( 'match', fname, flen )
+X@X@c     end do
+X@X@
+X@X@c extract -- copy files to disk
+X@X@      stat = cli$present( 'extract' )
+X@X@      if ( absent( stat )) then
+X@X@         extracting = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        extracting = .true.
+X@X@      end if
+X@X@
+X@X@c binary -- copy to disk in block mode
+X@X@      stat = cli$present( 'binary' )
+X@X@      if ( absent( stat )) then
+X@X@         binary = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        binary = .true.
+X@X@      end if
+X@X@
+X@X@c inquire -- ask what to do to each file
+X@X@      stat = cli$present( 'inquire' )
+X@X@      if ( absent( stat )) then
+X@X@         inquiring = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        inquiring = .true.
+X@X@      end if
+X@X@
+X@X@c second_chance -- try to recognize binary files and save them as such
+X@X@      stat = cli$present( 'second_chance' )
+X@X@      if ( absent( stat )) then
+X@X@         second_chance = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        second_chance = .true.
+X@X@      end if
+X@X@
+X@X@c list -- list files on tape
+X@X@      stat = cli$get_value( 'list', fname, flen )     
+X@X@      if ( absent( stat )) then
+X@X@         listing = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@         open( listunit, err=920, name=fname( :flen ), type='new',
+X@X@     -       defaultfile='tar.lis', carriagecontrol='list' )
+X@X@         listing = .true.
+X@X@      end if
+X@X@
+X@X@c verbose -- make a verbose list
+X@X@      stat = cli$present( 'verbose' )
+X@X@      if ( absent( stat )) then
+X@X@         verbose = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        verbose = .true.
+X@X@      end if
+X@X@
+X@X@c flatten -- extract all files to the current directory
+X@X@      stat = cli$present( 'flatten' )
+X@X@      if ( absent( stat )) then
+X@X@         flatten = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@        flatten = .true.
+X@X@      end if
+X@X@
+X@X@c names -- make a list of what unix filenames mapped to what VMS filenames
+X@X@      stat = cli$get_value( 'names', fname, flen )     
+X@X@      if ( absent( stat )) then
+X@X@         naming = .false.
+X@X@      else if ( .not. stat ) then
+X@X@         goto 900
+X@X@      else
+X@X@         open( nameunit, err=930, name=fname( :flen ), type='new',
+X@X@     -       defaultfile='tar.nam', carriagecontrol='list' )
+X@X@         naming = .true.
+X@X@      end if
+X@X@
+X@X@c
+X@X@c file loop: executed for each file in the archive
+X@X@c
+X@X@      do while ( .true. )
+X@X@   10    using = 0
+X@X@         using2 = 0
+X@X@         call next_block
+X@X@         if ( eof .or. block( curr ) (1:1) .eq. char( 0 )) goto 899
+X@X@
+X@X@c start parsing out a file entry -- parse the header
+X@X@         read( block( curr ), 1001 ) fname, prot, stuff1, stuff2,
+X@X@     -      size, time, stuff3, link
+X@X@ 1001    format( a100, 3x, a3, 2x, 2(o6,2x), 2(o11,1x), o6, 2x, a1 )
+X@X@         blocks = ( size + blocklen - 1 ) / blocklen
+X@X@         flen = index( fname, char( 0 )) - 1
+X@X@         if ( flen .lt. 0 ) flen = len( fname )
+X@X@
+X@X@c add it to the list
+X@X@         if ( listing .and. verbose ) then
+X@X@            call cvt_prot( prot( 1:1 ), pstr( 1:3 ))
+X@X@            call cvt_prot( prot( 2:2 ), pstr( 4:6 ))
+X@X@            call cvt_prot( prot( 3:3 ), pstr( 7:9 ))
+X@X@            write( listunit, 2001 ) pstr, stuff1, stuff2, size,
+X@X@     -          time, fname( :flen )
+X@X@ 2001       format( a9, i3, '/', i3, i7, i11, 1x, a )
+X@X@         else if ( listing ) then
+X@X@            write( listunit, 2002 ) fname( :flen )
+X@X@ 2002       format( a )
+X@X@         end if
+X@X@
+X@X@c ignore links
+X@X@         if ( link .eq. '1' ) goto 10
+X@X@
+X@X@c skip if not extracting
+X@X@         if ( .not. extracting ) goto 40
+X@X@
+X@X@c figure out what to do with the file
+X@X@         if ( inquiring ) then
+X@X@            call lib$get_input( tmp, fname( :flen ) // ': [ynbtq]' )
+X@X@            do while ( index( ' yYnNbBtTqQ', tmp ) .eq. 0 )
+X@X@               call lib$get_input( tmp,
+X@X@     -             bell // fname( :flen ) // ': [ynbtq]' )
+X@X@            end do
+X@X@            call str$upcase( tmp, tmp )
+X@X@            if ( tmp .eq. 'Q' ) goto 899
+X@X@         else
+X@X@            tmp = 'Y'
+X@X@         end if
+X@X@
+X@X@         if ( tmp .eq. 'Y' .or. tmp .eq. ' ' ) then
+X@X@            tmp = 'T'
+X@X@            if ( binary ) tmp = 'B'
+X@X@         else if ( tmp .eq. 'N' ) then
+X@X@            goto 40
+X@X@         end if
+X@X@
+X@X@c parse file name
+X@X@         call cvt_dir_uv( fname( :flen ), out, olen )
+X@X@         if ( flatten ) then
+X@X@            i = index( out( :olen ), ']' )
+X@X@            out = out( i+1:olen )
+X@X@            olen = olen - i
+X@X@         end if
+X@X@         if ( tmp .eq. 'B' ) goto 30
+X@X@
+X@X@c create a text file
+X@X@   20    open( outunit, name=out( :olen ), type='new', recl=maxrecl,
+X@X@     -       defaultfile='.', carriagecontrol='list', err=38 )
+X@X@         if ( size .le. 0 ) then
+X@X@            close( outunit )
+X@X@            goto 99
+X@X@         end if
+X@X@
+X@X@c copy the file to disk
+X@X@         if ( second_chance ) using2 = curr
+X@X@         call next_block
+X@X@         blocks = blocks - 1
+X@X@         start = 1
+X@X@         do while ( size .gt. 0 )
+X@X@            using = curr
+X@X@            finish = index( block( curr ) ( start: ), lf )
+X@X@            do while ( finish .eq. 0 .and. blocks .gt. 0 .and.
+X@X@     -          curr - using + 1 .lt. recblocks )
+X@X@               call next_block
+X@X@               blocks = blocks - 1
+X@X@               if ( eof ) goto 990
+X@X@               finish = index( block( curr ), lf )
+X@X@            end do
+X@X@            if ( finish .eq. 0 ) finish = 2 * blocklen + 1
+X@X@            if ( using .eq. curr ) finish = finish + start - 1
+X@X@            i = start + blocklen * (using-1)
+X@X@            j = finish + blocklen * (curr-1)
+X@X@            start = finish + 1
+X@X@            size = size - j + i - 1
+X@X@            if ( size .lt. 0 ) then
+X@X@               j = j + size
+X@X@               size = 0
+X@X@            end if
+X@X@            if ( using2 .ne. 0 .and. j - i .gt. maxrecl ) then
+X@X@               type *, 'Giving ', fname( :flen ), ' a second chance...'
+X@X@               blocks = blocks + curr - using2
+X@X@               curr = using2
+X@X@               using = 0
+X@X@               using2 = 0
+X@X@               close( outunit, dispose='delete' )
+X@X@               goto 30
+X@X@            end if
+X@X@            write( outunit, 2005, err=39, iostat=stat )
+X@X@     -          buffer( i : j-1 )
+X@X@2005        format( a )
+X@X@            if ( curr - using2 .ge. saveblocks ) using2 = 0
+X@X@         end do
+X@X@
+X@X@         close( outunit )
+X@X@         goto 99
+X@X@
+X@X@c create a binary file
+X@X@   30    using = 0
+X@X@         using2 = 0
+X@X@         open( outunit, name=out( :olen ), type='new',
+X@X@     -       recl=blocklen, recordtype='fixed', defaultfile='.',
+X@X@     -       carriagecontrol='none', err=39 )
+X@X@
+X@X@         do while ( blocks .gt. 0 )
+X@X@            call next_block
+X@X@            blocks = blocks - 1
+X@X@            write( outunit, 3001, err=39, iostat=stat ) block( curr )
+X@X@ 3001       format( a )
+X@X@         end do
+X@X@         close( outunit )
+X@X@         goto 99
+X@X@
+X@X@c got an error creating the file: skip it.
+X@X@   38    type *, 'Error creating ', out( :olen ), ' skipping...'
+X@X@         goto 40
+X@X@
+X@X@c got an error writing the file: skip the rest of it.
+X@X@   39    type *, 'Error writing ', out( :olen ), ' skipping...'
+X@X@         close( outunit, dispose='delete' )
+X@X@
+X@X@c skip the file
+X@X@   40    using = 0
+X@X@         using2 = 0
+X@X@         do i = 1, blocks
+X@X@            call next_block
+X@X@            if ( eof ) goto 990
+X@X@         end do
+X@X@         goto 10
+X@X@
+X@X@c successfully copied file to disk: enter it in the names file
+X@X@   99    if ( naming ) write( nameunit, 2000 ) out( :olen ),
+X@X@     -       fname( :flen )
+X@X@ 2000    format( a, ' -> ', a )
+X@X@
+X@X@      end do
+X@X@
+X@X@c end of tape: close it and exit!
+X@X@  899 close( inunit )
+X@X@      call exit
+X@X@
+X@X@c
+X@X@c fatal errors
+X@X@c
+X@X@  900 type *, 'Error parsing command line'
+X@X@      call exit
+X@X@
+X@X@  920 type *, 'Error opening listing file, ', fname( :flen )
+X@X@      call exit
+X@X@
+X@X@  930 type *, 'Error opening names file, ', fname( :flen )
+X@X@      call exit
+X@X@
+X@X@  990 type *, 'Premature end of tape while reading ', fname( :flen )
+X@X@      call exit
+X@X@
+X@X@      end
+X@X@
+X@X@
+X@X@
+X@X@TAPEIO.FOR
+X@X@----------
+X@X@
+X@X@c
+X@X@c this routine accesses, checks, and rewinds the specified tape (or file,
+X@X@c if tape_file is true.
+X@X@c
+X@X@      subroutine open_tape( name )
+X@X@
+X@X@      include 'tapeio.dck/list'
+X@X@      include '($iodef)/nolist'
+X@X@      include '($dvidef)/nolist'
+X@X@      include '($devdef)/nolist'
+X@X@      character*(*) name
+X@X@
+X@X@      integer*2 iosb( 2 ), devreq_w( 2 )
+X@X@      integer*4 stat, devreq( 4 ), devchar, sys$assign, sys$qiow,
+X@X@     -    sys$getdvi
+X@X@
+X@X@      equivalence ( devreq, devreq_w )
+X@X@      data devreq_w, devreq( 3 ), devreq( 4 )
+X@X@     -    / 4, dvi$_devchar, 0, 0 /
+X@X@
+X@X@      if ( tape_file ) then
+X@X@         stat = sys$assign( name, channel,, )
+X@X@         if ( .not. stat ) goto 900
+X@X@         devreq( 2 ) = %loc( devchar )
+X@X@         stat = sys$getdvi( , channel,, devreq, iosb,,, )
+X@X@         if ( .not. stat ) goto 900
+X@X@         stat = iosb( 1 )
+X@X@         if ( .not. stat ) goto 900
+X@X@         if ( .not. btest( devchar, dev$v_avl )) goto 910
+X@X@         if ( .not. btest( devchar, dev$v_for )) goto 920
+X@X@         stat = sys$qiow( , %val( channel ), %val( io$_rewind ),
+X@X@     -       iosb,,,,,,,, )
+X@X@         if ( .not. stat ) goto 930
+X@X@         stat = iosb( 1 )
+X@X@         if ( .not. stat ) goto 930
+X@X@      else
+X@X@         open( inunit, err=950, name=name,
+X@X@     -       type='old', readonly )
+X@X@      end if
+X@X@
+X@X@      return
+X@X@
+X@X@c
+X@X@c fatal errors
+X@X@c
+X@X@  900 type *, 'Error accessing tape, ', name( :flen )
+X@X@      call exit( stat )
+X@X@  910 type *, 'Tape offline or not available.'
+X@X@      call exit
+X@X@  920 type *, 'Tape must be mounted /foreign.'
+X@X@      call exit
+X@X@  930 type *, 'Error rewinding tape.'
+X@X@      call exit( stat )
+X@X@
+X@X@  950 type *, 'Error opening input file, ', name( :flen )
+X@X@      call exit
+X@X@
+X@X@      end
+X@X@
+X@X@c
+X@X@c this routine makes sure the next block is available, reading it from
+X@X@c tape if necessary.
+X@X@c
+X@X@      subroutine next_block
+X@X@      include 'tapeio.dck'
+X@X@      integer*2 blen, u, i, iosb( 4 )
+X@X@      integer*4 stat, sys$qiow
+X@X@      data curr, blen / 0, 0 /
+X@X@
+X@X@      eof = .false.
+X@X@      curr = curr + 1
+X@X@      if ( curr .le. blen / blocklen ) return
+X@X@
+X@X@      if ( using2 .le. 0 ) then
+X@X@         u = using
+X@X@      else if ( using .le. 0 ) then
+X@X@         u = using2
+X@X@      else
+X@X@         u = min( using, using2 )
+X@X@      end if
+X@X@
+X@X@      if ( u .gt. blen / blocklen ) then
+X@X@         type *, 'Internal error.  Call the debugger.'
+X@X@         call exit
+X@X@      else if ( u .gt. 1 ) then
+X@X@         buffer( 1 : blen - blocklen*(u-1)) =
+X@X@     -       buffer( 1+blocklen*(u-1) : blen )
+X@X@         blen = blen - blocklen*(u-1)
+X@X@         curr = curr - u + 1
+X@X@         using = using - u + 1
+X@X@         using2 = using2 - u + 1
+X@X@      else if ( u .lt. 1 ) then
+X@X@         blen = 0
+X@X@         curr = 1
+X@X@      end if
+X@X@
+X@X@      do while ( curr .gt. blen / blocklen )
+X@X@         if ( tape_file ) then
+X@X@            stat = sys$qiow( , %val( channel ), %val( io$_readlblk ),
+X@X@     -          iosb,,, %ref( buffer( blen+1: )), %val( maxlen-blen )
+X@X@     -          ,,,, )
+X@X@            if ( .not. stat ) then
+X@X@               type *, 'Error reading from tape'
+X@X@               call exit( stat )
+X@X@            else if ( .not. iosb( 1 )) then
+X@X@               type *, 'Error reading from tape'
+X@X@               call exit( iosb( 1 ))
+X@X@            else if ( iosb( 2 ) .eq. 0 ) then
+X@X@               goto 99
+X@X@            endif
+X@X@            blen = blen + iosb( 2 )
+X@X@         else
+X@X@            read( inunit, 10, end=99 ) i, buffer( blen+1: )
+X@X@   10       format( q, a )
+X@X@            blen = blen + i
+X@X@         end if
+X@X@         if ( blen .gt. maxlen ) then
+X@X@            type *, 'Blocking factor too large.'
+X@X@            call exit
+X@X@         end if
+X@X@      end do
+X@X@      return
+X@X@
+X@X@99    curr = curr - 1
+X@X@      eof = .true.
+X@X@      return
+X@X@      end
+X@X@
+X@X@
+X@X@
+X@X@TAPEIO.DCK
+X@X@----------
+X@X@c
+X@X@c parameters:
+X@X@c   blocklen is the size of the units tar works with
+X@X@c   saveblocks is the number of blocks into the file saved for a second chance
+X@X@c   maxrecl is the maximum length of record a text can have
+X@X@c   maxblockfactor is the maximum blocking factor this program can deal with
+X@X@c
+X@X@      parameter blocklen = 512, saveblocks = 5, maxrecl = 512,
+X@X@     -    maxblockfactor = 20
+X@X@
+X@X@c secondary parameters calculated from those above
+X@X@      parameter recblocks = 2 + maxrecl/blocklen,
+X@X@     -   maxblocks = maxblockfactor + saveblocks + recblocks,
+X@X@     -   maxlen = blocklen*maxblocks
+X@X@
+X@X@c these are numbers for fortran units to be used for various files
+X@X@      parameter inunit = 1, outunit = 2, listunit = 3, nameunit = 4
+X@X@
+X@X@c
+X@X@c variables:
+X@X@c
+X@X@c i/o control stuff
+X@X@      integer*2 channel
+X@X@      logical*1 tape_file
+X@X@
+X@X@c this is the buffer records get read into
+X@X@      character buffer*( maxlen ), block( maxblocks )*( blocklen )
+X@X@      equivalence ( buffer, block )
+X@X@
+X@X@c control info for the buffer
+X@X@      integer*2 using, using2, curr
+X@X@      logical*1 eof
+X@X@
+X@X@
+X@X@      common /commonbuf/ buffer
+X@X@      common /commonints/ using, using2, curr, eof, tape_file, channel
+X@X@
+X@X@
+X@X@CVT.FOR
+X@X@-------
+X@X@
+X@X@c
+X@X@c this subroutine converts a complete filespec (directory+file) name from
+X@X@c unix format to VMS
+X@X@c
+X@X@      subroutine cvt_dir_uv( unix, vms, vlen )
+X@X@
+X@X@      parameter reserved = 10
+X@X@      character*(*) unix, vms
+X@X@      integer*2 vlen, i, j
+X@X@
+X@X@      vms( 1:1 ) = '['
+X@X@      vlen = 1
+X@X@      i = 1
+X@X@      if ( unix( 1:1 ) .eq. '/' ) i = 2
+X@X@      j = index( unix( i: ), '/' )
+X@X@      do while ( j .ne. 0 )
+X@X@         vms( vlen+1:vlen+1 ) = '.'
+X@X@         call cvt_string_uv( unix( i : i+j-2 ), vms( vlen+2: ), k )
+X@X@         i = i + j
+X@X@         j = index( unix( i: ), '/' )
+X@X@         vlen = vlen + k + 1
+X@X@         if ( vlen + reserved .gt. len( vms )) then
+X@X@            vlen = len( vms ) - reserved
+X@X@            if ( vms( vlen:vlen ) .eq. '.' ) vlen = vlen - 1
+X@X@            do while ( j .ne. 0 )
+X@X@               i = i + j
+X@X@               j = index( unix( i: ), '/' )
+X@X@            end do
+X@X@         end if
+X@X@      end do
+X@X@
+X@X@      if ( vlen .eq. 1 ) then
+X@X@         vlen = 0
+X@X@      else
+X@X@         vlen = vlen + 1
+X@X@         vms( vlen:vlen ) = ']'
+X@X@      end if
+X@X@
+X@X@      call cvt_file_uv( unix( i: ), vms( vlen+1: ), k )
+X@X@      vlen = vlen + k
+X@X@      return
+X@X@
+X@X@      end      
+X@X@
+X@X@c
+X@X@c this subroutine converts an individual file name from unix format to VMS
+X@X@c
+X@X@      subroutine cvt_file_uv( unix, vms, vlen )
+X@X@
+X@X@      parameter mlen1 = 64, mlen2 = 64
+X@X@c     parameter mlen1 = 9, mlen2 = 3       ! for version 3 and before
+X@X@      character*(*) unix, vms
+X@X@      integer*2 vlen, i, j
+X@X@
+X@X@      i = index( unix, '.' )
+X@X@      if ( i .eq. 0 ) i = len( unix ) + 1
+X@X@
+X@X@      call cvt_string_uv( unix( :i-1 ), vms, j )
+X@X@      if ( j .gt. mlen1 ) j = mlen1
+X@X@      vlen = j + 1
+X@X@      if ( vlen .gt. len( vms )) vlen = len( vms )
+X@X@      vms( vlen:vlen ) = '.'
+X@X@
+X@X@      if ( i .ge. len( unix )) return
+X@X@
+X@X@      call cvt_string_uv( unix( i+1: ), vms( vlen+1: ), j )
+X@X@      if ( j .gt. mlen2 ) j = mlen2
+X@X@      vlen = vlen + j
+X@X@      return
+X@X@
+X@X@      end
+X@X@
+X@X@c
+X@X@c this subroutine converts a string to characters that can appear in
+X@X@c VMS filenames
+X@X@c
+X@X@c if you're using a version 3 or pervious VMS system, you'll have to
+X@X@c rewrite this to avoid _ and $.
+X@X@c
+X@X@      subroutine cvt_string_uv( unix, vms, vlen )
+X@X@
+X@X@      character*(*) unix, vms, c*1
+X@X@      integer*2 vlen, i
+X@X@
+X@X@      vms = unix
+X@X@      vlen = min( len( unix ), len( vms ))
+X@X@      do i = 1, vlen
+X@X@         c = vms( i:i )
+X@X@         if ( 'A' .le. c .and. c .le. 'Z' .or.
+X@X@     -        '0' .le. c .and. c .le. '9' .or.
+X@X@     -        c .eq. '_' .or. c .eq. '$'  ) then
+X@X@            continue
+X@X@         else if ( 'a' .le. c .and. c .le. 'z' ) then
+X@X@            vms( i:i ) = char( ichar( c ) - 32 )
+X@X@         else if ( c .eq. '-' ) then
+X@X@            vms( i:i ) = '_'
+X@X@         else
+X@X@            vms( i:i ) = '$'
+X@X@         end if
+X@X@      end do
+X@X@
+X@X@      return
+X@X@
+X@X@      end
+X@X@
+X@X@c
+X@X@c this souroutine converts an octal digit to a 3-character protection mask
+X@X@c
+X@X@      subroutine cvt_prot( c, out )
+X@X@
+X@X@      character c*1, out*3, mask( 8 )*3
+X@X@      data mask / '---', '--x', '-w-', '-wx',
+X@X@     -            'r--', 'r-x', 'rw-', 'rwx' /
+X@X@
+X@X@      out = mask( ichar( c ) - ichar( '0' ) + 1 )
+X@X@      return
+X@X@
+X@X@      end
+X@X@
+X@X@
+X@X@
+X@X@TAR.HLP
+X@X@-------
+X@X@
+X@X@
+X@X@1 TAR
+X@X@  Invokes the tape archive reader to read unix-format tapes.
+X@X@
+X@X@  Format:
+X@X@
+X@X@    TAR tape-name[:]
+X@X@2 Parameter
+X@X@
+X@X@ tape-name[:]
+X@X@
+X@X@  Specifies the device name of the tape drive the archive is mounted on.
+X@X@  The archive must be mounted foreign.
+X@X@
+X@X@  If the /FILE qualifier is specified, this parameter is interpreted as
+X@X@  the file name for the archive.
+X@X@2 Command_Qualifiers
+X@X@
+X@X@/BINARY
+X@X@
+X@X@  Specifies that the files extracted should be put into fixed-length-512-
+X@X@  byte-record files and that no interpretation should be preformed on
+X@X@  the contents.
+X@X@
+X@X@/EXTRACT
+X@X@
+X@X@  Specifies that the files in the archive should be copied into the
+X@X@  directory, or subdirectories (depending on the /FLATTEN qualifier).
+X@X@
+X@X@/FILE
+X@X@
+X@X@  Specifies that, instead of a tape, the archive is contained in a normal
+X@X@  file.
+X@X@
+X@X@/FLATTEN (D)
+X@X@
+X@X@  Specifies that files extracted from the archive should be put in the
+X@X@  default directory even when the files would normally be put in
+X@X@  subdirectories.
+X@X@
+X@X@  This qualifier is on by default because the program is incapable of
+X@X@  creating subdirectories to put the extracted files in, so unless they
+X@X@  exist already, /NOFLATTEN in a pure loss.
+X@X@
+X@X@/INQUIRE
+X@X@
+X@X@  Tells the program to ask the user what to do with each file it has been
+X@X@  told to extract.  The program prompts with the filename followed by a
+X@X@  list of options.  The options are:
+X@X@
+X@X@     y - extract the file normally
+X@X@     n - skip the file
+X@X@     t - extract the file in text (not binary) mode
+X@X@     b - extract the file in binary mode
+X@X@     q - exit the program
+X@X@
+X@X@  The y option is equivalent t or b depending on whether the /BINARY
+X@X@  qualifier was given.
+X@X@
+X@X@/LIST
+X@X@
+X@X@ /LIST=filename (default = sys$output:)
+X@X@
+X@X@  Tells the program to create a list of all of the files on the tape.
+X@X@  If the /VERBOSE qualifier is also specified, the list contains more
+X@X@  than just the file names.
+X@X@
+X@X@/NAMES
+X@X@
+X@X@ /NAMES=filename (default = sys$output:)
+X@X@
+X@X@  If files are extracted, the program creates a file giving the names
+X@X@  of the files on the tape and the VMS filenames they were mapped into
+X@X@  when extracted.
+X@X@
+X@X@/SECOND_CHANCE (D)
+X@X@
+X@X@  This specifies that if a file is being extracted in text mode, and
+X@X@  a line longer then 512 bytes in encountered sufficiently near the
+X@X@  beginning of the file, it should be re-extracted in binary mode.
+X@X@
+X@X@  If negated, files with long lines are discarded in text mode.
+X@X@
+X@X@/VERBOSE
+X@X@
+X@X@  This specifies that lists should contain more information than just
+X@X@  the filename.
+X@X@
+X@X@2 Bugs
+X@X@  Here's a list of some of the more noticable bugs and deficiencies:
+X@X@     - It can't write tar tapes.
+X@X@     - It can't operate on only some of the files on a tape.
+X@X@     - Verbose listings contain the date in seconds since 1970 or so,
+X@X@         rather than any reasonable format.
+X@X@     - It can't create subdirectories to put files in. (that's why
+X@X@         /FLATTEN is the default)
+X@X@     - Error recovery and reporting could use improvement.
+X@X@     - probably others I can't think of at the moment.
+X@X@
+X@X@  If you discover more bugs, fix them, or just have suggestions, mail
+X@X@  them to Gordon Davisson ({ihnp4|decvax}!uw-beaver!uw-june!gordon, or
+X@X@  gordon@uw-june.ARPA).
+X@X@
+X@X@  I'll probably fix some of these eventually, in which case I'll post
+X@X@  the new version to net.sources.
+X@X@----------------------------------------------------------------
+X@X@
+
+

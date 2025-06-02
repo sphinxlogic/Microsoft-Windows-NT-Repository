@@ -1,0 +1,328 @@
+From amos@instable.UUCP Thu Apr  9 10:31:23 1987
+Path: seismo!lll-lcc!styx!ames!ucbcad!ucbvax!decvax!decwrl!nsc!nsta!instable!amos
+From: amos@instable.UUCP (Amos Shapir)
+Newsgroups: net.sources
+Subject: Text line adjuster
+Keywords: text, adjust, center
+Message-ID: <741@instable.UUCP>
+Date: 9 Apr 87 14:31:23 GMT
+Organization: National Semiconductor (Israel) Ltd.
+Lines: 315
+
+
+                    Have    you    ever
+                 wished  you had  something
+              to  replace   nroff?  Something
+            small, fast  and versatile,  yet at
+           the same time  flexible and powerful?
+          Well, your troubles  are over. 'Adj' is
+          not  as powerful  as nroff  or TeX,  but
+          it's ok for small portions of text, (and
+          much  more  useful than  4BSD's  'fmt').
+          Combined  with  the  trivial  centering
+           filter 'ctr',  it can do  fancy stuff
+            like  this  text.   This  text  was
+                  produced by the command:
+                              
+adj -w 19,26,31,35,37,39,40,40,40,39,37,35,31,26,19 | ctr -w 60
+
+		o /		o /		o /		o /
+-----------------X---------------X---------------X---------------X----
+		o \		o \		o \		o \
+
+#!/bin/sh
+: "This is a shell archive, meaning:                              "
+: "1. Remove everything above the #! /bin/sh line.                "
+: "2. Save the rest in a file.                                    "
+: "3. Execute the file with /bin/sh (not csh) to create the files:"
+: "	adj.6"
+: "	adj.c"
+: "	ctr.6"
+: "	ctr.c"
+: "This archive created:  Thu Mar 19 12:31:56 EET 1987 "
+if [ -f adj.6 ]
+then
+echo file adj.6 exists
+else
+echo extracting file: adj.6
+sed 's/^X//' >adj.6 << 'END-of-adj.6'
+X.TH ADJ 6 Local
+X.UC 4
+X.SH NAME
+Xadj \- fill and adjust text lines
+X.SH SYNOPSIS
+X.B adj
+X[
+X.B \-h
+X] [
+X.B \-n
+X] [
+X.B \-p
+X] [
+X.B \-w
+X.I n1,...
+X] [ file ]
+X.SH DESCRIPTION
+X.I Adj
+Xcopies the given file (standard input if none is given) to the standard output,
+Xfilling lines and adjusting the right margin. Indentation and empty lines
+Xare preserved.
+X.PP
+XNormally, words (uninterrupted sequences of non-blank characters) are not
+Xbroken, unless the
+X.B \-h
+X(hyphen) flag is given.
+X.PP
+XThe
+X.B \-n
+X(no adjust) prevents
+X.I adj
+Xfrom adjusting the right margin.
+X.PP
+XIf the 
+X.B \-p
+X(paragraph) option is specified, indentation is preserved only on
+Xthe first line of a paragraph, assuming paragraphs are separated by empty lines.
+X.PP
+XThe
+X.B \-w
+X.I n
+X(width) option sets the line width to
+X.I n
+X(default 65).
+XWhen given as
+X.B \-w
+X.I n1,n2,...
+X(a comma-separated sequence of numbers) the output lines will be
+X.I "n1, n2"
+Xetc. characters long, respectively.
+XWhen the sequence is exhausted, it is restarted.
+X.SH "SEE ALSO"
+Xctr(6)
+X.SH BUGS
+X.B \-n
+Xdoes not break words intelligently.
+X.PP
+XChange of indentation is done ungracefully.
+X.PP
+XThere's probably a better way tp specify line lengths.
+END-of-adj.6
+fi
+if [ -f adj.c ]
+then
+echo file adj.c exists
+else
+echo extracting file: adj.c
+sed 's/^X//' >adj.c << 'END-of-adj.c'
+X/*
+X * Trivial line-fill filter
+X * white space at col 1 and empty lines
+X * are preserved.
+X * flags: -n - dont adjust right margin
+X *	  -w {n} line is {n} chars wide
+X *	  -w {n1,n2,...} line is cyclically n1, n2... chars wide
+X *	  -h - break words with a hyphen
+X *	  -p - indent only 1st line of a paragraph
+X */
+X#define MAXB 1024
+X#define MAXW 100	/* words in a line */
+X#define NLL  50		/* line lengths vector size */
+X#define EOF (-1)
+X/* flags */
+X#define NOADJ 01	/* no adjust */
+X#define HYPHN 02	/* hyphenate */
+X#define PARAG 04	/* indent 1 line */
+Xint ll[NLL] = { 65 };	/* line lengths */
+Xint nll;		/* current line length index */
+Xint nw;		/* current no. of words */
+Xint ind;	/* current indentation */
+Xstatic char buf[MAXB];
+Xmain(argc, argv)
+X	char **argv;
+X{
+X	register char *pb, *pw, *pe;
+X	register c, flags, nl;
+X
+X	while(--argc > 0)
+X		if(**++argv == '-')
+X			switch(argv[0][1]) {
+X			case 'n':
+X				flags = NOADJ;
+X				break;
+X			case 'h':
+X				flags = HYPHN;
+X				break;
+X			case 'p':
+X				flags |= PARAG;
+X				break;
+X			case 'w':
+X				--argc;
+X				pb = *++argv;
+X				nl=0;
+X				do {
+X					for(ll[nl]=0; *pb>='0' && *pb<='9'; pb++)
+X						ll[nl] = ll[nl]*10+*pb-'0';
+X					nl++;
+X				}while(*pb++);
+X			}
+X		else {
+X			close(0);
+X			open(*argv, 0, 0);
+X		}
+X	nl = 2;
+X	pb = pw = buf-1;
+X	while((c = getchar()) != EOF) {
+X		if(c==' ' || c=='\t' || c=='\n') {
+X			if(pb>=buf && *pb!=' ') {
+X				*++pb = ' ';
+X				nw++;
+X				pw = pb;	/* word marker in buf */
+X			}
+X			if(c == '\n') {
+X				if(++nl > 1) {
+X					if(nw > 0) {
+X						putline(pb, NOADJ);
+X						pb = pw = buf-1;
+X						nw = 0;
+X					}
+X					putchar('\n');
+X					ind = 0;
+X				}
+X			} else if(nl > 1) {
+X				if(c == '\t')
+X					ind = (ind/8+1)*8;
+X				else
+X					ind++;
+X			}
+X		} else if(c>' ' && c<0177) {
+X			*++pb = c;
+X			if(nl) {
+X				nl = 0;
+X				pe = &buf[ll[nll]-ind];
+X			}
+X		}
+X		if(pb == pe) {	/* line overflow */
+X			if((flags&HYPHN) && pb-pw>2) {	/* insert hyphen */
+X				*++pb = pe[-1];
+X				pe[-1] = '-';
+X				*++pb = c;
+X				pw = pe;
+X				nw++;
+X			} else if(nw == 0) {	/* insert blank */
+X				*++pb = c;
+X				pw = pe;
+X				nw++;
+X			}
+X			putline(pw, flags);
+X			for(pe=buf, ++pw; pw<=pb; )
+X				*pe++ = *pw++;
+X			pb = pe-1;
+X			pw = buf-1;
+X			pe = &buf[ll[nll]-ind];
+X			nw = 0;
+X		}
+X	}
+X	if(nw > 0)
+X		putline(pb, NOADJ);
+X	return(0);
+X}
+X
+X/*
+X * adjust & print line
+X */
+Xputline(pw, flags)
+X	register char *pw;
+X{
+X	register char *pb;
+X	register i, n, b, m;
+X
+X	for(i=ind; i>=8; i-=8)
+X		putchar('\t');
+X	for(; i>0; i--)
+X		putchar(' ');
+X	n = nw-1;
+X	b = buf+ll[nll]-ind-pw;	/* no. of blanks to distribute */
+X	m = n/2;
+X	for(pb=buf; pb<pw; pb++) {
+X		putchar(*pb);
+X		if(!(flags&NOADJ) && *pb==' ') {
+X			m += b;
+X			for(i=m/n; i>0; i--)
+X				putchar(' ');
+X			m %= n;
+X		}
+X	}
+X	putchar('\n');
+X	/* cyclic increment line lengths vector */
+X	if(ll[++nll] == 0)
+X		nll = 0;
+X	if(flags&PARAG)
+X		ind = 0;
+X}
+END-of-adj.c
+fi
+if [ -f ctr.6 ]
+then
+echo file ctr.6 exists
+else
+echo extracting file: ctr.6
+sed 's/^X//' >ctr.6 << 'END-of-ctr.6'
+X.TH CTR 6 Local
+X.UC 4
+X.SH NAME
+Xctr \- center text lines
+X.SH SYNOPSIS
+X.B ctr
+X[
+X.B \-w
+X.I n
+X]
+X.SH DESCRIPTION
+X.I Ctr
+Xcopies its standard input to its standard output,
+Xcentering text in the output lines.
+X.PP
+XThe
+X.B \-w
+X.I n
+X(width) option sets the output line width to
+X.I n
+X(default 65).
+X.SH "SEE ALSO"
+Xadj(6)
+X.SH BUGS
+END-of-ctr.6
+fi
+if [ -f ctr.c ]
+then
+echo file ctr.c exists
+else
+echo extracting file: ctr.c
+sed 's/^X//' >ctr.c << 'END-of-ctr.c'
+X#define NULL ((char *)0)
+Xmain(argc, argv)
+X	char **argv;
+X{
+X	static int ll = 65;	/* line length */
+X	static buf[100];
+X
+X	if(argc > 1 && **++argv == '-' && argv[0][1] == 'w')
+X			ll = atoi(*++argv);
+X	while(gets(buf) != NULL)
+X		printf("%*s%s\n", (ll-strlen(buf))/2, "", buf);
+X}
+END-of-ctr.c
+fi
+exit 0
+
+		o /		o /		o /		o /
+-----------------X---------------X---------------X---------------X----
+		o \		o \		o \		o \
+May the Source be with you, always...
+-- 
+	Amos Shapir
+National Semiconductor (Israel)
+6 Maskit st. P.O.B. 3007, Herzlia 46104, Israel  Tel. (972)52-522261
+amos%nsta@nsc.com {hplabs,pyramid,sun,decwrl} 34.48'E 32.10'N
+
+

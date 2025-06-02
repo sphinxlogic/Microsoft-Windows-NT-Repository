@@ -1,0 +1,2273 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Subject: v17i072: TeXcad (X) version 1.2, Part08/10
+Message-ID: <1992Apr21.131424.2534@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i065-xtexcad-1.2@uunet.UU.NET>
+Date: Tue, 21 Apr 1992 13:14:24 GMT
+Approved: dcmartin@msi.com
+Lines: 2259
+
+Submitted-by: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Posting-number: Volume 17, Issue 72
+Archive-name: xtexcad-1.2/part08
+
+# this is part.08 (part 8 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file pickedit.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping pickedit.c'
+else
+echo 'x - continuing file pickedit.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'pickedit.c' &&
+X				four->v = y_pos;
+X			} else if (low_val == dist4)
+X			{
+X				four->x = h_pos;
+X				four->h = x_pos;
+X			}
+X			/* low_val==dist2 is default... */
+X			edit_frame(dd);
+X			if (refr_auto == True)
+X				refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X		}	/* if low_val<=points */
+X		break;
+X
+X	case 'O':	/* which point ? */
+X		one = (struct fig1 *) obj[currIndex];
+X		dist1 = calc_distance(x, y, (int) one->x, (int) one->y);	/* upper left */
+X		dist2 = calc_distance(x, y, (int) one->h, (int) one->v);	/* lower right */
+X		dist3 = calc_distance(x, y, (int) one->h, (int) one->y);	/* upper right */
+X		dist4 = calc_distance(x, y, (int) one->x, (int) one->v);	/* lower left */
+X		if (zoomed == True)
+X		{
+X			dist1 *= 10;
+X			dist2 *= 10;
+X			dist3 *= 10;
+X			dist4 *= 10;
+X		}
+X		/* compute minimum */
+X		if (dist1 < dist2)
+X			low_val = dist1;
+X		else
+X			low_val = dist2;
+X		if (dist3 < low_val)
+X			low_val = dist3;
+X		if (dist4 < low_val)
+X			low_val = dist4;
+X		if (low_val <= points)
+X		{
+X			x_pos = one->x;
+X			y_pos = one->y;
+X			h_pos = one->h;
+X			v_pos = one->v;
+X			if (low_val == dist1)
+X			{
+X				one->x = h_pos;
+X				one->y = v_pos;
+X				one->h = x_pos;
+X				one->v = y_pos;
+X				/*
+X				 * now, coordinates are in the correct
+X				 * order...
+X				 */
+X			} else if (low_val == dist3)
+X			{
+X				one->y = v_pos;
+X				one->v = y_pos;
+X			} else if (low_val == dist4)
+X			{
+X				one->x = h_pos;
+X				one->h = x_pos;
+X			}
+X			/* low_val==dist2 is default... */
+X			edit_frame(oo);
+X			if (refr_auto == True)
+X				refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X		}	/* if low_val<=points */
+X		break;
+X
+X	case 'C':
+X		low_val = valid_circle_edit(x, y);
+X		if (zoomed == True)
+X			low_val *= 10;
+X		if (low_val <= points)
+X		{
+X			edit_circle(cc);
+X			if (refr_auto == True)
+X				refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X		}
+X		break;
+X
+X	case 'B':
+X		low_val = valid_circle_edit(x, y);
+X		if (zoomed == True)
+X			low_val *= 10;
+X		if (low_val <= points)
+X		{
+X			edit_circle(bb);
+X			if (refr_auto == True)
+X				refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X		}
+X		break;
+X
+X
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+}/* pick_edit */
+X
+X
+int
+valid_circle_edit(int x, int y)
+{
+X	struct fig2    *two;
+X	int             dist;
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	dist = calc_distance((int) two->x, (int) two->y, x, y);
+X
+X	return abs(dist - two->radius);
+}
+X
+X
+X
+X
+X
+void
+edit_circle(char ch)
+{
+X	struct fig2    *two;
+X	int             x, y, rad, zoom, rad2, oldrad;
+X	unsigned int    mask;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X
+X
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	oldrad = two->radius;
+X
+X
+X	if (zoomed == True)
+X	{
+X		real2zoomed(&two->x, &two->y);
+X		zoom = 10;
+X	} else
+X		zoom = 1;
+X
+X
+X
+X	do
+X	{
+X		PointerPosition(&x, &y, &mask);
+X
+X		/* delete old */
+X		rad = two->radius;
+X		if (ch == 'C')
+X			valid_kreis_coords((int) (two->x), (int) (two->y), &x, &y, &rad2);
+X		else
+X			valid_disc_coords((int) (two->x), (int) (two->y), &x, &y, &rad2);
+X
+X		if (rad2 != rad)
+X		{	/* redraw necessary */
+X
+X
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X
+X			if (ch == 'C')
+X				XDrawArc(disp, win, gc,
+X					 (int) (two->x) - (rad * zoom), (int) (two->y) - (rad * zoom),
+X					 (unsigned int) (zoom * (rad + rad)),
+X					 (unsigned int) (zoom * (rad + rad)), 0, 360 * 64);
+X			else
+X				XFillArc(disp, win, gc,
+X					 (int) (two->x) - (rad * zoom), (int) (two->y) - (rad * zoom),
+X					 (unsigned int) (zoom * (rad + rad)),
+X					 (unsigned int) (zoom * (rad + rad)), 0, 360 * 64);
+X
+X			rad = rad2;
+X			two->radius = rad;
+X			if (ch == 'C')
+X				XDrawArc(disp, win, gc,
+X					 (int) (two->x) - (rad * zoom), (int) (two->y) - (rad * zoom),
+X					 (unsigned int) (zoom * (rad + rad)),
+X					 (unsigned int) (zoom * (rad + rad)), 0, 360 * 64);
+X			else
+X				XFillArc(disp, win, gc,
+X					 (int) (two->x) - (rad * zoom), (int) (two->y) - (rad * zoom),
+X					 (unsigned int) (zoom * (rad + rad)),
+X					 (unsigned int) (zoom * (rad + rad)), 0, 360 * 64);
+X
+X		}	/* redraw necessary */
+X	} while (mask & btn1);
+X
+X
+X	if (zoomed == True)
+X		zoomed2real(&two->x, &two->y);
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))
+X	{	/* cancel */
+X		two->radius = oldrad;
+X		return;
+X	}
+}
+X
+X
+void
+edit_bezier_curveA()
+{
+X  struct fig6 *six=(struct fig6 *) obj[currIndex];
+X  float sx,sy;
+X  float x_old;
+X  float y_old;
+X  Display *disp=XtDisplay(pboard);
+X  Window win=XtWindow(pboard);
+X  int x,y;
+X  unsigned int mask;
+X  int btn1=256, btn2=512, btn3=1024;
+X  float help1,help2;
+X
+X
+X	sx=six->sx;
+X	sy=six->sy;
+X
+X	if (zoomed==True) real2zoomed(&sx,&sy);
+X
+X	x_old=six->ax;
+X	y_old=six->ay;
+X 
+X	do
+X	{
+X		snapPointerPosition(&x, &y, &mask);
+X		
+X		if (zoomed==True)
+X			{
+X				help1=(float)x;
+X				help2=(float)y;
+X				zoomed2real(&help1,&help2);
+X				x=(int)help1;
+X				y=(int)help2;
+X			}
+X		
+X		if ((x != (int)x_old) || (y != (int)y_old)) 
+X		{	/* redraw necessary */
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X
+X			
+X
+X			/* delete old object */
+X			
+X			DrawBezier(x_old,y_old,six->ex,six->ey,sx,sy);
+X
+X			x_old=(float)x;
+X			y_old=(float)y;
+X
+X			/* draw new */
+X
+X			DrawBezier(x_old,y_old,six->ex,six->ey,sx,sy);
+X
+X		}  /* redraw */
+X
+X	} while (mask & btn1);
+X
+X	/* btn1 was released... */
+X	/* cancel, if pointer is outside of pboard */
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))	/* cancel */
+X		return;
+X
+X
+X	/* save new coordinates & translate them to the right mode */
+X	/* new coordinate is in x_old,y_old */
+X
+X	six->ax=x_old;
+X	six->ay=y_old;
+}
+X
+X
+X
+void edit_bezier_curveE()
+{
+X  struct fig6 *six=(struct fig6 *) obj[currIndex];
+X  float sx,sy;
+X  float x_old;
+X  float y_old;
+X  Display *disp=XtDisplay(pboard);
+X  Window win=XtWindow(pboard);
+X  int x,y;
+X  unsigned int mask;
+X  int btn1=256,btn2=512,btn3=1024;
+X  float help1,help2;
+X
+X
+X	sx=six->sx;
+X	sy=six->sy;
+X
+X	if (zoomed==True) real2zoomed(&sx,&sy);
+X
+X	x_old=six->ex;
+X	y_old=six->ey;
+X 
+X	do
+X	{
+X		snapPointerPosition(&x, &y, &mask);
+X		if (zoomed==True)
+X		{
+X			help1=(float)x;
+X			help2=(float)y;
+X			zoomed2real(&help1,&help2);
+X			x=(int)help1;
+X			y=(int)help2;
+X		}
+X		if ((x != (int)x_old) || (y != (int)y_old))
+X		{	/* redraw necessary */
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X
+X			/* delete old object */
+X			
+X			DrawBezier(six->ax,six->ay,x_old,y_old,sx,sy);
+X
+X			x_old=(float)x;
+X			y_old=(float)y;
+X
+X			/* draw new */
+X
+X			DrawBezier(six->ax,six->ay,x_old,y_old,sx,sy);
+X
+X		} /* redraw */
+X
+X	} while (mask & btn1);
+X
+X	/* btn1 was released... */
+X	/* cancel, if pointer is outside of pboard */
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))	/* cancel */
+X		return;
+X
+X
+X	/* save new coordinates & translate them to the right mode */
+X	/* new coordinate is in x_old,y_old */
+X
+X	six->ex=x_old;
+X	six->ey=y_old;
+}
+X
+X
+void edit_bezier_curveS()
+{
+X  struct fig6 *six=(struct fig6 *) obj[currIndex];
+X  float sx,sy;
+X  float x_old;
+X  float y_old;
+X  Display *disp=XtDisplay(pboard);
+X  Window win=XtWindow(pboard);
+X  int x,y;
+X  unsigned int mask;
+X  int btn1=256,btn2=512,btn3=1024;
+X  
+X
+X	
+X
+X	
+X
+X	x_old=six->sx;
+X	y_old=six->sy;
+X
+X	if (zoomed==True) real2zoomed(&x_old,&y_old);
+X 
+X	do
+X	{
+X		snapPointerPosition(&x, &y, &mask);
+X		if ((x != (int)x_old) || (y != (int)y_old))
+X		{	/* redraw necessary */
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X
+X			/* delete old object */
+X			
+X			DrawBezier(six->ax,six->ay,six->ex,six->ey,x_old,y_old);
+X
+X			x_old=(float)x;
+X			y_old=(float)y;
+X
+X			/* draw new */
+X
+X			DrawBezier(six->ax,six->ay,six->ex,six->ey,x_old,y_old);
+X
+X		} /* redraw */
+X
+X	} while (mask & btn1);
+X
+X	/* btn1 was released... */
+X	/* cancel, if pointer is outside of pboard */
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))	/* cancel */
+X		return;
+X
+X
+X	/* save new coordinates & translate them to the right mode */
+X	/* new coordinate is in x_old,y_old */
+X
+X	if (zoomed==True) zoomed2real(&x_old,&y_old);
+X
+X	six->sx=x_old;
+X	six->sy=y_old;
+}
+X
+X
+void
+edit_frame(char ch)
+{
+X	struct fig1    *one;
+X	struct fig2    *two;
+X	struct fig3    *three;
+X	struct fig4    *four;
+X	unsigned int    mask;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X	float           x1, x2, y1, y2, y1old, y2old;
+X	float           x11, x22, y11, y22;
+X	int             x, y;
+X	y22 = 999.0;
+X
+X	switch (ch)
+X	{
+X
+X	case 'N':
+X		three = (struct fig3 *) obj[currIndex];
+X		x1 = three->x;
+X		x2 = three->y;
+X		y1 = three->h;
+X		y2 = three->v;
+X		break;
+X
+X	case 'D':
+X		four = (struct fig4 *) obj[currIndex];
+X		x1 = four->x;
+X		x2 = four->y;
+X		y1 = four->h;
+X		y2 = four->v;
+X		break;
+X
+X	case 'F':
+X		two = (struct fig2 *) obj[currIndex];
+X		x1 = two->x;
+X		x2 = two->y;
+X		y1 = two->h;
+X		y2 = two->v;
+X		break;
+X
+X	case 'O':
+X		one = (struct fig1 *) obj[currIndex];
+X		x1 = one->x;
+X		x2 = one->y;
+X		y1 = one->h;
+X		y2 = one->v;
+X		break;
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+X
+X
+X
+X
+X
+X	/* x=(x1,x2)  y=(y1,y2) */
+X
+X	/* save y-coordinate */
+X	y1old = y1;
+X	y2old = y2;
+X
+X
+X	if (zoomed == True)
+X	{
+X		real2zoomed(&x1, &x2);
+X		real2zoomed(&y1, &y2);
+X	}
+X	/* (x1,x2) is a fixed point, 'edit' influences (y1,y2) only */
+X
+X
+X
+X	do
+X	{
+X		snapPointerPosition(&x, &y, &mask);
+X		if ((x != y1) || (y != y2))
+X		{	/* redraw necessary */
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X			/* delete old object */
+X			if (y22 == 999.0)
+X			{
+X				y11 = y1;
+X				y22 = y2;
+X				x11 = x1;
+X				x22 = x2;
+X				norm_rectangle(&x11, &x22, &y11, &y22);
+X			}
+X			switch (ch)
+X			{
+X			case 'N':
+X				XDrawRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				break;
+X			case 'F':
+X				XFillRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				break;
+X
+X
+X			case 'D':
+X				XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X				XDrawRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X				break;
+X
+X			case 'O':
+X				DrawOval((int) x11, (int) x22, (int) y11, (int) y22);
+X				break;
+X
+X			default:
+X				break;
+X
+X			}	/* switch */
+X
+X
+X
+X			/* draw new */
+X			x11 = x1;
+X			x22 = x2;
+X			y11 = (float) x;
+X			y22 = (float) y;
+X			y1 = y11;
+X			y2 = y22;
+X			norm_rectangle(&x11, &x22, &y11, &y22);
+X			switch (ch)
+X			{
+X			case 'N':
+X				XDrawRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				break;
+X			case 'F':
+X				XFillRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				break;
+X
+X
+X			case 'D':
+X				XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X				XDrawRectangle(disp, win, gc, (int) x11, (int) x22,
+X					 (unsigned int) ((int) (y11 - x11)),
+X					(unsigned int) ((int) (y22 - x22)));
+X				XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X				break;
+X
+X			case 'O':
+X				DrawOval((int) x11, (int) x22, (int) y11, (int) y22);
+X				break;
+X
+X			default:
+X				break;
+X
+X			}	/* switch */
+X
+X		}	/* redraw */
+X	} while (mask & btn1);
+X
+X	/* btn1 was released... */
+X	/* cancel, if pointer is outside of pboard */
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))	/* cancel */
+X		return;
+X
+X
+X	/* save new coordinates & translate them to the right mode */
+X
+X	switch (ch)
+X	{
+X	case 'N':
+X		three->h = y1;
+X		three->v = y2;
+X		if (zoomed == True)
+X			zoomed2real(&three->h, &three->v);
+X		norm_rectangle(&three->x, &three->y, &three->h, &three->v);
+X		break;
+X
+X	case 'D':
+X		four->h = y1;
+X		four->v = y2;
+X		if (zoomed == True)
+X			zoomed2real(&four->h, &four->v);
+X		norm_rectangle(&four->x, &four->y, &four->h, &four->v);
+X		break;
+X
+X	case 'F':
+X		two->h = y1;
+X		two->v = y2;
+X		if (zoomed == True)
+X			zoomed2real(&two->h, &two->v);
+X		norm_rectangle(&two->x, &two->y, &two->h, &two->v);
+X		break;
+X
+X	case 'O':
+X		one->h = y1;
+X		one->v = y2;
+X		if (zoomed == True)
+X			zoomed2real(&one->h, &one->v);
+X		norm_rectangle(&one->x, &one->y, &one->h, &one->v);
+X		break;
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+X
+X
+}
+X
+X
+X
+int
+calc_distance(int x, int y, int h, int v)
+{
+X	double          res;
+X	x -= h;
+X	y -= v;
+X
+X	res = (double) (x * x + y * y);
+X	return (int) sqrt(res);
+}
+X
+X
+X
+X
+X
+void
+edit_x_line()
+{
+X
+X	struct fig2    *two;
+X	int             x, y;
+X	unsigned int    mask;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X	float           xold, yold;
+X	float           x1, x2, y1, y2;
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	if (zoomed == True)
+X	{	/* prepare coordinates for right mode */
+X		real2zoomed(&two->x, &two->y);
+X		real2zoomed(&two->h, &two->v);
+X	}
+X	/* save coordinates */
+X	xold = two->x;
+X	yold = two->y;
+X
+X	do
+X	{
+X		PointerPosition(&x, &y, &mask);
+X		/*
+X		 * watch the correct slopes (line and vector slopes are
+X		 * different !)
+X		 */
+X		/* so, what object is selected ? line or vector ? */
+X		if (kind[currIndex] == 'L')
+X			valid_line_coords((int) two->h, (int) two->v, &x, &y);
+X		else
+X			valid_vector_coords((int) two->h, (int) two->v, &x, &y);
+X
+X		if ((two->x != (float) x) || (two->y != (float) y))
+X		{	/* redraw necessary */
+X
+X
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);	/* dummy parameters */
+X
+X			/* delete old */
+X			XDrawLine(disp, win, gc, (int) two->x, (int) two->y, (int) two->h, (int) two->v);
+X			/* draw new */
+X			two->x = (float) x;
+X			two->y = (float) y;
+X			XDrawLine(disp, win, gc, (int) two->x, (int) two->y, (int) two->h, (int) two->v);
+X		}	/* redraw */
+X	} while (mask & btn1);
+X
+X	/* btn1 was released... */
+X	/* cancel, if pointer is outside of pboard */
+X
+X	if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))
+X	{	/* cancel */
+X		two->x = xold;
+X		two->y = yold;
+X		if (zoomed == True)
+X		{
+X			zoomed2real(&two->h, &two->v);
+X			zoomed2real(&two->x, &two->y);
+X		}
+X		return;
+X	}
+X	/* translate coordinates to the right mode */
+X
+X	if (zoomed == True)
+X	{
+X		zoomed2real(&two->h, &two->v);
+X		zoomed2real(&two->x, &two->y);
+X	}
+}/* edit_x_line */
+X
+X
+X
+X
+void
+edit_y_line()
+{
+X	float           swap_x, swap_y;
+X	struct fig2    *two;
+X
+X
+X	/* swap x,y with h,v and call edit_x_line() */
+X
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	swap_x = two->x;
+X	swap_y = two->y;
+X
+X	two->x = two->h;
+X	two->y = two->v;
+X
+X	two->h = swap_x;
+X	two->v = swap_y;
+X
+X	edit_x_line();
+X
+}/* edit_y_line */
+X
+X
+X
+void
+del_vector_marker(float x, float y, float h, float v)
+{
+X	if (zoomed == True)
+X	{
+X		real2zoomed(&x, &y);
+X		real2zoomed(&h, &v);
+X	}
+X	draw_vector_marker(x, y, h, v);
+}
+X
+X
+X
+void
+edit_x_vector()
+{
+X	struct fig2    *two;
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	del_vector_marker(two->x, two->y, two->h, two->v);
+X
+X	edit_x_line();
+X
+X	if (refr_auto == True)
+X		refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X
+}
+X
+X
+X
+void
+edit_y_vector()
+{
+X	struct fig2    *two;
+X	float           x, y;
+X	two = (struct fig2 *) obj[currIndex];
+X
+X	del_vector_marker(two->x, two->y, two->h, two->v);
+X
+X	edit_y_line();
+X
+X	/* swap coordinates */
+X	x = two->x;
+X	y = two->y;
+X	two->x = two->h;
+X	two->y = two->v;
+X	two->v = y;
+X	two->h = x;
+X
+X	if (refr_auto == True)
+X		refresh(pboard, '?', (caddr_t)DUMMY);	/* wipe screen */
+X
+X
+}
+X
+X
+X
+X
+X
+X
+/* --==--==--==--==--==--==--==--==--==-- */
+void
+set_pick_erase()
+{
+X	/* Override Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<Btn1Down>: pick_erase()";
+X	static XtActionsRec actions[80] = {{"pick_erase", pick_erase}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+}
+X
+X
+X
+void
+pick_erase()
+{
+X	/* pointer button one was pressed */
+X
+X
+X	Display        *disp;
+X	Window          win;
+X	unsigned int    mask, mask2;
+X	int             h, v, x, y;
+X	Position        x_rel, y_rel, xx, yy;
+X	int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X	PointerPosition(&x, &y, &mask);
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X
+X	XtUninstallTranslations(pboard);
+X
+X	set_pick_stack(x, y);
+X
+X	while (True)
+X	{
+X		h = nextObject();
+X
+X		if (h == -1)
+X		{
+X			left();
+X			leave_pick("No valid object found !");
+X			return;
+X		}
+X		prepare_top_stack_object();
+X
+X		headline(toplevel, "Actions: press Button 2 to ERASE object ----- press Button 3 for MORE");
+X
+X		do
+X		{	/* listen closely to button number 2! If pressed ->
+X			 * erase object */
+X			PointerPosition(&x, &y, &mask);
+X			if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))
+X			{
+X				left();
+X				prepare_top_stack_object();
+X				return;
+X			}
+X		} while ((!(mask & btn3)) && (!(mask & btn2)));
+X
+X		do
+X		{
+X			PointerPosition(&x, &y, &mask2);
+X			if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))
+X			{
+X				left();
+X				prepare_top_stack_object();
+X				return;
+X			}
+X		} while (mask == mask2);
+X
+X
+X		prepare_top_stack_object();
+X
+X		if (mask & 512)
+X			erase_current_object();	/* yes, erase this object */
+X
+X		/* now work with the next object on the pick-stack */
+X	}
+X
+}
+X
+X
+void
+set_dash_mode()
+{
+X	XGCValues       gcvals;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	XSetLineAttributes(disp, gc, 0, LineDoubleDash, CapButt, JoinMiter);
+X
+X	gcvals.dashes = 12;
+X	XChangeGC(disp, gc, GCDashList, &gcvals);
+}
+X
+X
+X
+void
+set_normal_mode()
+{
+X	XGCValues       gcvals;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X
+X	gcvals.dashes = 5;
+X	XChangeGC(disp, gc, GCDashList, &gcvals);
+}
+X
+X
+X
+void
+prepare_top_stack_object()
+{
+X	struct fig1    *one;
+X	struct fig2    *two;
+X	struct fig3    *three;
+X	struct fig4    *four;
+X	struct fig6    *six;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	float           x, y, h, v, a, b;
+X	int             rad;
+X
+X
+X
+X	switch (kind[currIndex])
+X	{
+X	case 'I':
+X		six = (struct fig6 *) obj[currIndex];
+X		x = six->ax;
+X		y = six->ay;
+X		h = six->ex;
+X		v = six->ey;
+X		a = six->sx;
+X		b = six->sy;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X			real2zoomed(&a, &b);
+X		}
+X		XDrawArc(disp, win, gc, (int) x - points, (int) y - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		XDrawArc(disp, win, gc, (int) a - points, (int) b - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		XDrawArc(disp, win, gc, (int) h - points, (int) v - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		set_dash_mode();
+X		XDrawLine(disp,win,gc,(int)a,(int)b,(int)h,(int)v);
+X		XDrawLine(disp,win,gc,(int)h,(int)v,(int)x,(int)y);
+X		XDrawLine(disp,win,gc,(int)x,(int)y,(int)a,(int)b);
+X		set_normal_mode();
+X		break;
+X
+X	case 'L':
+X		two = (struct fig2 *) obj[currIndex];
+X		x = two->x;
+X		y = two->y;
+X		h = two->h;
+X		v = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		set_dash_mode();
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		set_normal_mode();
+X		XDrawArc(disp, win, gc, (int) x - points, (int) y - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		XDrawArc(disp, win, gc, (int) h - points, (int) v - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		break;
+X
+X	case 'V':
+X		two = (struct fig2 *) obj[currIndex];
+X		x = two->x;
+X		y = two->y;
+X		h = two->h;
+X		v = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		set_dash_mode();
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		set_normal_mode();
+X		XDrawArc(disp, win, gc, (int) x - points, (int) y - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		XDrawArc(disp, win, gc, (int) h - points, (int) v - points,
+X			 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X		break;
+X
+X
+X	case 'N':
+X		three = (struct fig3 *) obj[currIndex];
+X		x = three->x;
+X		y = three->y;
+X		h = three->h;
+X		v = three->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		set_dash_mode();
+X		XDrawRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		XDrawLine(disp, win, gc, (int) x, (int) v, (int) h, (int) y);
+X		set_normal_mode();
+X		draw_edit_marker(x, y, h, v);
+X		break;
+X
+X	case 'D':
+X		four = (struct fig4 *) obj[currIndex];
+X		x = four->x;
+X		y = four->y;
+X		h = four->h;
+X		v = four->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		x -= 1;
+X		y -= 1;
+X		h += 1;
+X		v += 1;
+X		set_dash_mode();
+X		XDrawRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		XDrawLine(disp, win, gc, (int) x, (int) v, (int) h, (int) y);
+X		set_normal_mode();
+X		draw_edit_marker(x, y, h, v);
+X		break;
+X
+X	case 'F':
+X		two = (struct fig2 *) obj[currIndex];
+X		x = two->x;
+X		y = two->y;
+X		h = two->h;
+X		v = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		set_dash_mode();
+X		XDrawRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		XDrawLine(disp, win, gc, (int) x, (int) v, (int) h, (int) y);
+X		set_normal_mode();
+X		draw_edit_marker(x, y, h, v);
+X		break;
+X
+X	case 'C':
+X		two = (struct fig2 *) obj[currIndex];
+X		x = two->x;
+X		y = two->y;
+X		rad = two->radius;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			rad *= 10;
+X		}
+X		set_dash_mode();
+X		XDrawArc(disp, win, gc, (int) x - rad, (int) y - rad,
+X			 (unsigned int) (2 * rad), (unsigned int) (2 * rad), 0, 360 * 64);
+X		set_normal_mode();
+X
+X		break;
+X
+X	case 'B':
+X		two = (struct fig2 *) obj[currIndex];
+X		x = two->x;
+X		y = two->y;
+X		rad = two->radius;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			rad *= 10;
+X		}
+X		rad += 5;
+X		set_dash_mode();
+X		XDrawArc(disp, win, gc, (int) x - rad, (int) y - rad,
+X			 (unsigned int) (2 * rad), (unsigned int) (2 * rad), 0, 360 * 64);
+X		set_normal_mode();
+X		break;
+X
+X	case 'O':
+X		one = (struct fig1 *) obj[currIndex];
+X		x = one->x;
+X		y = one->y;
+X		h = one->h;
+X		v = one->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		set_dash_mode();
+X		DrawOval(x, y, h, v);
+X		set_normal_mode();
+X		draw_edit_marker(x, y, h, v);
+X		break;
+X
+X	default:
+X		break;
+X	}	/* switch */
+X
+X
+X	set_normal_mode();
+X
+}
+X
+X
+X
+void
+draw_edit_marker(float x, float y, float h, float v)
+{
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	XDrawArc(disp, win, gc, (int) x - points, (int) y - points,
+X		 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X	XDrawArc(disp, win, gc, (int) h - points, (int) v - points,
+X		 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X	XDrawArc(disp, win, gc, (int) x - points, (int) v - points,
+X		 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+X	XDrawArc(disp, win, gc, (int) h - points, (int) y - points,
+X		 (unsigned int) (2 * points), (unsigned int) (2 * points), 0, 360 * 64);
+}
+X
+X
+X
+void
+erase_current_object()
+{
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	struct fig1    *one;
+X	struct fig2    *two;
+X	struct fig3    *three;
+X	struct fig4    *four;
+X	struct fig6    *six;
+X	float           x, y, h, v;
+X	int             rad;
+X
+X
+X	/* the object with index currIndex is to be erased */
+X
+X	switch (kind[currIndex])
+X	{
+X	case 'I':
+X		bezier_marker = (struct fig6 *) obj[currIndex];
+X		/* redraw object */
+X		if (zoomed == True) real2zoomed(&bezier_marker->sx, &bezier_marker->sy);
+X		
+X		DrawBezier(bezier_marker->ax, bezier_marker->ay,
+X			   bezier_marker->ex, bezier_marker->ey,
+X			   bezier_marker->sx, bezier_marker->sy);
+X
+X		if (bezier_start == obj[currIndex])
+X		{	/* first entry */
+X			bezier_marker = (struct fig6 *) obj[currIndex];
+X
+X			if (bezier_curr == bezier_start)
+X			{	/* exactly 1 entry */
+X
+X				bezier_start = NULL;
+X				bezier_curr = NULL;
+X
+X			} else
+X				bezier_start = bezier_start->next;
+X
+X			free(bezier_marker);
+X		} else
+X		{
+X			bezier_marker = bezier_start;
+X			do
+X			{
+X				six = (struct fig6 *) bezier_marker;
+X				/* remember the last object */
+X				bezier_marker = bezier_marker->next;
+X
+X			} while (bezier_marker != obj[currIndex]);
+X			/* <bezier_marker> points to the desired object and */
+X			/* <six> to the object before */
+X
+X			/* last entry ? */
+X			if (bezier_marker == bezier_curr)
+X			{
+X				bezier_marker = NULL;
+X				free(bezier_curr);
+X				bezier_curr = six;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				six->next = bezier_marker->next;
+X				free(bezier_marker);
+X			}
+X		}	/* else & line */
+X		break;
+X
+X	case 'L':
+X		strich_marker = (struct fig2 *) obj[currIndex];
+X		/* redraw object */
+X		x = strich_marker->x;
+X		y = strich_marker->y;
+X		h = strich_marker->h;
+X		v = strich_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X
+X		if (strich_start == obj[currIndex])
+X		{	/* first entry */
+X			strich_marker = (struct fig2 *) obj[currIndex];
+X
+X			if (strich_curr == strich_start)
+X			{	/* exactly 1 entry */
+X
+X				strich_start = NULL;
+X				strich_curr = NULL;
+X
+X			} else
+X				strich_start = strich_start->next;
+X
+X			free(strich_marker);
+X		} else
+X		{
+X			strich_marker = strich_start;
+X			do
+X			{
+X				two = (struct fig2 *) strich_marker;
+X				/* remember the last object */
+X				strich_marker = strich_marker->next;
+X
+X			} while (strich_marker != obj[currIndex]);
+X			/* <strich_marker> points to the desired objects and */
+X			/* <two> to the object before */
+X
+X			/* last entry ? */
+X			if (strich_marker == strich_curr)
+X			{
+X				strich_marker = NULL;
+X				free(strich_curr);
+X				strich_curr = two;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				two->next = strich_marker->next;
+X				free(strich_marker);
+X			}
+X		}	/* else & line */
+X		break;
+X
+X	case 'V':
+X		pfeil_marker = (struct fig2 *) obj[currIndex];
+X		/* redraw object */
+X		x = pfeil_marker->x;
+X		y = pfeil_marker->y;
+X		h = pfeil_marker->h;
+X		v = pfeil_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		XDrawLine(disp, win, gc, (int) x, (int) y, (int) h, (int) v);
+X		draw_vector_marker(x, y, h, v);
+X
+X		if (pfeil_start == obj[currIndex])
+X		{	/* first entry */
+X			pfeil_marker = (struct fig2 *) obj[currIndex];
+X
+X			if (pfeil_curr == pfeil_start)
+X			{	/* exactly 1 entry */
+X
+X				pfeil_start = NULL;
+X				pfeil_curr = NULL;
+X
+X			} else
+X				pfeil_start = pfeil_start->next;
+X
+X			free(pfeil_marker);
+X		} else
+X		{
+X			pfeil_marker = pfeil_start;
+X			do
+X			{
+X				two = (struct fig2 *) pfeil_marker;
+X				/* remember the last object */
+X				pfeil_marker = pfeil_marker->next;
+X
+X			} while (pfeil_marker != obj[currIndex]);
+X			/* <pfeil_marker> points to the desired objects and */
+X			/* <two> to the object before */
+X
+X			/* last entry ? */
+X			if (pfeil_marker == pfeil_curr)
+X			{
+X				pfeil_marker = NULL;
+X				free(pfeil_curr);
+X				pfeil_curr = two;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				two->next = pfeil_marker->next;
+X				free(pfeil_marker);
+X			}
+X		}	/* else & pfeil */
+X		break;
+X
+X	case 'N':
+X		framedBox_marker = (struct fig3 *) obj[currIndex];
+X		/* redraw object */
+X		x = framedBox_marker->x;
+X		y = framedBox_marker->y;
+X		h = framedBox_marker->h;
+X		v = framedBox_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		XDrawRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X
+X		if (framedBox_start == obj[currIndex])
+X		{	/* first entry */
+X			framedBox_marker = (struct fig3 *) obj[currIndex];
+X
+X			if (framedBox_curr == framedBox_start)
+X			{	/* exactly 1 entry */
+X
+X				framedBox_start = NULL;
+X				framedBox_curr = NULL;
+X
+X			} else
+X				framedBox_start = framedBox_start->next;
+X
+X			free(framedBox_marker);
+X		} else
+X		{
+X			framedBox_marker = framedBox_start;
+X			do
+X			{
+X				three = (struct fig3 *) framedBox_marker;
+X				/* remember the last object */
+X				framedBox_marker = framedBox_marker->next;
+X
+X			} while (framedBox_marker != obj[currIndex]);
+X			/*
+X			 * <framedBox_marker> points to the desired objects
+X			 * and
+X			 */
+X			/* <three> to the object before */
+X
+X			/* last entry ? */
+X			if (framedBox_marker == framedBox_curr)
+X			{
+X				framedBox_marker = NULL;
+X				free(framedBox_curr);
+X				framedBox_curr = three;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				three->next = framedBox_marker->next;
+X				free(framedBox_marker);
+X			}
+X		}	/* else & framedBox */
+X		break;
+X
+X	case 'D':
+X		dashedBox_marker = (struct fig4 *) obj[currIndex];
+X		/* redraw object */
+X		x = dashedBox_marker->x;
+X		y = dashedBox_marker->y;
+X		h = dashedBox_marker->h;
+X		v = dashedBox_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X		XDrawRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X		XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X
+X		if (dashedBox_start == obj[currIndex])
+X		{	/* first entry */
+X			dashedBox_marker = (struct fig4 *) obj[currIndex];
+X
+X			if (dashedBox_curr == dashedBox_start)
+X			{	/* exactly 1 entry */
+X
+X				dashedBox_start = NULL;
+X				dashedBox_curr = NULL;
+X
+X			} else
+X				dashedBox_start = dashedBox_start->next;
+X
+X			free(dashedBox_marker);
+X		} else
+X		{
+X			dashedBox_marker = dashedBox_start;
+X			do
+X			{
+X				four = (struct fig4 *) dashedBox_marker;
+X				/* remember the last object */
+X				dashedBox_marker = dashedBox_marker->next;
+X
+X			} while (dashedBox_marker != obj[currIndex]);
+X			/*
+X			 * <dashedBox_marker> points to the desired objects
+X			 * and
+X			 */
+X			/* <four> to the object before */
+X
+X			/* last entry ? */
+X			if (dashedBox_marker == dashedBox_curr)
+X			{
+X				dashedBox_marker = NULL;
+X				free(dashedBox_curr);
+X				dashedBox_curr = four;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				four->next = dashedBox_marker->next;
+X				free(dashedBox_marker);
+X			}
+X		}	/* else & dashedBox */
+X		break;
+X
+X	case 'F':
+X		filledBox_marker = (struct fig2 *) obj[currIndex];
+X		/* redraw object */
+X		x = filledBox_marker->x;
+X		y = filledBox_marker->y;
+X		h = filledBox_marker->h;
+X		v = filledBox_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		XFillRectangle(disp, win, gc, (int) x, (int) y,
+X			    (unsigned int) (h - x), (unsigned int) (v - y));
+X
+X		if (filledBox_start == obj[currIndex])
+X		{	/* first entry */
+X			filledBox_marker = (struct fig2 *) obj[currIndex];
+X
+X			if (filledBox_curr == filledBox_start)
+X			{	/* exactly 1 entry */
+X
+X				filledBox_start = NULL;
+X				filledBox_curr = NULL;
+X
+X			} else
+X				filledBox_start = filledBox_start->next;
+X
+X			free(filledBox_marker);
+X		} else
+X		{
+X			filledBox_marker = filledBox_start;
+X			do
+X			{
+X				two = (struct fig2 *) filledBox_marker;
+X				/* remember the last object */
+X				filledBox_marker = filledBox_marker->next;
+X
+X			} while (filledBox_marker != obj[currIndex]);
+X			/*
+X			 * <filledBox_marker> points to the desired object
+X			 * and
+X			 */
+X			/* <two> to the object before */
+X
+X			/* last entry ? */
+X			if (filledBox_marker == filledBox_curr)
+X			{
+X				filledBox_marker = NULL;
+X				free(filledBox_curr);
+X				filledBox_curr = two;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				two->next = filledBox_marker->next;
+X				free(filledBox_marker);
+X			}
+X		}	/* else & filledBox */
+X		break;
+X
+X	case 'C':
+X		kreis_marker = (struct fig2 *) obj[currIndex];
+X		/* redraw object */
+X		x = kreis_marker->x;
+X		y = kreis_marker->y;
+X		rad = kreis_marker->radius;
+X
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			rad *= 10;
+X		}
+X		XDrawArc(disp, win, gc, (int) (x - rad), (int) (y - rad),
+X			 (unsigned int) (rad + rad),
+X			 (unsigned int) (rad + rad), 0, 360 * 64);
+X
+X		if (kreis_start == obj[currIndex])
+X		{	/* first entry */
+X			kreis_marker = (struct fig2 *) obj[currIndex];
+X
+X			if (kreis_curr == kreis_start)
+X			{	/* exactly 1 entry */
+X
+X				kreis_start = NULL;
+X				kreis_curr = NULL;
+X
+X			} else
+X				kreis_start = kreis_start->next;
+X
+X			free(kreis_marker);
+X		} else
+X		{
+X			kreis_marker = kreis_start;
+X			do
+X			{
+X				two = (struct fig2 *) kreis_marker;
+X				/* remember the last object */
+X				kreis_marker = kreis_marker->next;
+X
+X			} while (kreis_marker != obj[currIndex]);
+X			/* <kreis_marker> points to the desired object and */
+X			/* <two> to the object before */
+X
+X			/* last entry ? */
+X			if (kreis_marker == kreis_curr)
+X			{
+X				kreis_marker = NULL;
+X				free(kreis_curr);
+X				kreis_curr = two;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				two->next = kreis_marker->next;
+X				free(kreis_marker);
+X			}
+X		}	/* else & kreis */
+X		break;
+X
+X	case 'B':
+X		disc_marker = (struct fig2 *) obj[currIndex];
+X		/* redraw object */
+X		x = disc_marker->x;
+X		y = disc_marker->y;
+X		rad = disc_marker->radius;
+X
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			rad *= 10;
+X		}
+X		XFillArc(disp, win, gc, (int) (x - rad), (int) (y - rad),
+X			 (unsigned int) (rad + rad),
+X			 (unsigned int) (rad + rad), 0, 360 * 64);
+X
+X		if (disc_start == obj[currIndex])
+X		{	/* first entry */
+X			disc_marker = (struct fig2 *) obj[currIndex];
+X
+X			if (disc_curr == disc_start)
+X			{	/* exactly 1 entry */
+X
+X				disc_start = NULL;
+X				disc_curr = NULL;
+X
+X			} else
+X				disc_start = disc_start->next;
+X
+X			free(disc_marker);
+X		} else
+X		{
+X			disc_marker = disc_start;
+X			do
+X			{
+X				two = (struct fig2 *) disc_marker;
+X				/* remember the last object */
+X				disc_marker = disc_marker->next;
+X
+X			} while (disc_marker != obj[currIndex]);
+X			/* <disc_marker> points to the desired object and */
+X			/* <two> to the object before */
+X
+X			/* last entry ? */
+X			if (disc_marker == disc_curr)
+X			{
+X				disc_marker = NULL;
+X				free(disc_curr);
+X				disc_curr = two;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				two->next = disc_marker->next;
+X				free(disc_marker);
+X			}
+X		}	/* else & disc */
+X		break;
+X
+X	case 'O':
+X		oval_marker = (struct fig1 *) obj[currIndex];
+X		/* redraw object */
+X		x = oval_marker->x;
+X		y = oval_marker->y;
+X		h = oval_marker->h;
+X		v = oval_marker->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&x, &y);
+X			real2zoomed(&h, &v);
+X		}
+X		DrawOval((int) x, (int) y, (int) h, (int) v);
+X
+X		if (oval_start == obj[currIndex])
+X		{	/* first entry */
+X			oval_marker = (struct fig1 *) obj[currIndex];
+X
+X			if (oval_curr == oval_start)
+X			{	/* exactly 1 entry */
+X
+X				oval_start = NULL;
+X				oval_curr = NULL;
+X
+X			} else
+X				oval_start = oval_start->next;
+X
+X			free(oval_marker);
+X		} else
+X		{
+X			oval_marker = oval_start;
+X			do
+X			{
+X				one = (struct fig1 *) oval_marker;
+X				/* remember the last object */
+X				oval_marker = oval_marker->next;
+X
+X			} while (oval_marker != obj[currIndex]);
+X			/* <oval_marker> points to the desired object and */
+X			/* <one> to the object before */
+X
+X			/* last entry ? */
+X			if (oval_marker == oval_curr)
+X			{
+X				oval_marker = NULL;
+X				free(oval_curr);
+X				oval_curr = one;
+X			} else
+X				/* no! the object was somewhere in the middle */
+X			{
+X				one->next = oval_marker->next;
+X				free(oval_marker);
+X			}
+X		}	/* else & oval */
+X		break;
+X
+X
+X
+X	}	/* switch */
+X
+}
+X
+X
+void
+init_no_objects_sign()
+{
+X	XtTranslations  trans_table =
+X	XtParseTranslationTable("<LeaveNotify>	:	XtMenuPopdown() \n");
+X	n = 0;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 250);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) 250);
+X	n++;
+X	
+X	sign_up = XtCreatePopupShell("Report", transientShellWidgetClass, pboard, args, n);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 200);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) 200);
+X	n++;
+X	XtSetArg(args[n], XtNborderWidth, (XtArgVal) 5);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNlabel, "No valid object found !");
+X	n++;
+X	
+X	sign_msg = XtCreateManagedWidget("dialogue", labelWidgetClass, sign_up, args, n);
+X
+X	XtOverrideTranslations(sign_up, trans_table);
+X
+}
+X
+X
+X
+void
+manage_copy(void)
+{
+X
+X
+X	int             index;
+X	unsigned int    mask;
+X
+X
+X
+X
+X	PointerPosition(&x_pick, &y_pick, &mask);
+X
+X	XtUninstallTranslations(pboard);
+X
+X	set_pick_stack(x_pick, y_pick);	/* pick_stack is filled with matching
+X					 * objects */
+X
+X	index = nextObject();
+X
+X	if (index == -1)
+X	{	/* no objects found */
+X		left();
+X		leave_pick("No valid object found !");
+X		return;
+X	} else
+X		copy_manager();
+}
+X
+X
+X
+void
+copy_manager()
+{
+X	int             btn1 = 256, btn2 = 512, btn3 = 1024;
+X	int             index;
+X	int             x, y, h, v;
+X	unsigned int    mask, mask2;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	headline(toplevel, "Actions: hold Button 2 to MOVE  -----  press Button 3 for MORE");
+X
+X	while (True)
+X	{
+X
+X		prepare_top_stack_object();
+X
+X		do
+X		{	/* watch for any buttonPress */
+X			PointerPosition(&x, &y, &mask);
+X			if ((x < x_A4_min) || (x > x_A4_max) || (y < y_A4_min) || (y > y_A4_max))
+X			{
+X				left();
+X				prepare_top_stack_object();
+X				return;
+X			}
+X			draw_coords(pboard, (caddr_t) x, (caddr_t) y);
+X
+X
+X		} while ((!(mask & btn3)) && (!(mask & btn2)));
+X
+X
+X		/* wait for btn3 release */
+X		do
+X			PointerPosition(&x, &y, &mask2);
+X		while (mask2 & btn3);
+X
+X
+X
+X		prepare_top_stack_object();	/* redraw */
+X
+X
+X
+X		if (mask & btn2)
+X			copy_it(x, y);
+X		else
+X		{	/* more */
+X			index = nextObject();
+X
+X			if (index == -1)
+X			{	/* no objects found */
+X				left();
+X				leave_pick("No valid object found !");
+X				return;
+X			}
+X		}
+X
+X	}	/* while */
+}
+X
+X
+X
+X
+void
+copy_it(int x, int y)
+{
+X	/* min. 1 object exists ! */
+X	struct fig1    *one, *one_mark;
+X	struct fig2    *two, *two_mark;
+X	struct fig3    *three, *three_mark;
+X	struct fig4    *four, *four_mark;
+X	struct fig6    *six, *six_mark;
+X	Display        *disp = XtDisplay(pboard);
+X	Window          win = XtWindow(pboard);
+X	float           ax, ay, bx, by;
+X	int             res, rad;
+X
+X
+X	switch (kind[currIndex])
+X	{
+X	case 'I':
+X		six = (struct fig6 *) malloc(sizeof(bezier));
+X		/* copy struct */
+X		bezier_marker = (struct fig6 *) obj[currIndex];
+X		six->ax = bezier_marker->ax + 5.0;
+X		six->ay = bezier_marker->ay + 5.0;
+X		six->ex = bezier_marker->ex + 5.0;
+X		six->ey = bezier_marker->ey + 5.0;
+X		six->sx = bezier_marker->sx + 5.0;
+X		six->sy = bezier_marker->sy + 5.0;
+X		six->next = NULL;
+X		bezier_marker = bezier_curr;
+X		bezier_curr->next = six;
+X		obj[currIndex] = six;
+X		bezier_curr = bezier_curr->next;
+X		/* make a copy */
+X		ax = six->sx;
+X		ay = six->sy;
+X		if (zoomed == True) real2zoomed(&ax, &ay);
+X			
+X		DrawBezier(six->ax, six->ay,
+X			   six->ex, six->ey,
+X			   ax,ay);
+X
+X		six_mark = bezier_marker;
+X		break;
+X
+X	case 'L':
+X		two = (struct fig2 *) malloc(sizeof(strich));
+X		/* copy struct */
+X		strich_marker = (struct fig2 *) obj[currIndex];
+X		two->x = strich_marker->x + 5.0;
+X		two->y = strich_marker->y + 5.0;
+X		two->h = strich_marker->h + 5.0;
+X		two->v = strich_marker->v + 5.0;
+X		two->next = NULL;
+X		strich_marker = strich_curr;
+X		strich_curr->next = two;
+X		obj[currIndex] = two;
+X		strich_curr = strich_curr->next;
+X		/* make a copy */
+X		ax = two->x;
+X		ay = two->y;
+X		bx = two->h;
+X		by = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		XDrawLine(disp, win, gc, (int) ax, (int) ay, (int) bx, (int) by);
+X		two_mark = strich_marker;
+X		break;
+X
+X	case 'V':
+X		two = (struct fig2 *) malloc(sizeof(pfeil));
+X		/* copy struct */
+X		pfeil_marker = (struct fig2 *) obj[currIndex];
+X		two->x = pfeil_marker->x + 5.0;
+X		two->y = pfeil_marker->y + 5.0;
+X		two->h = pfeil_marker->h + 5.0;
+X		two->v = pfeil_marker->v + 5.0;
+X		two->next = NULL;
+X		pfeil_marker = pfeil_curr;
+X		pfeil_curr->next = two;
+X		obj[currIndex] = two;
+X		pfeil_curr = pfeil_curr->next;
+X		/* make a copy */
+X		ax = two->x;
+X		ay = two->y;
+X		bx = two->h;
+X		by = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		XDrawLine(disp, win, gc, (int) ax, (int) ay, (int) bx, (int) by);
+X		draw_vector_marker(ax, ay, bx, by);
+X		two_mark = pfeil_marker;
+X
+X		break;
+X
+X	case 'F':
+X		two = (struct fig2 *) malloc(sizeof(filledBox));
+X		/* copy struct */
+X		filledBox_marker = (struct fig2 *) obj[currIndex];
+X		two->x = filledBox_marker->x + 5.0;
+X		two->y = filledBox_marker->y + 5.0;
+X		two->h = filledBox_marker->h + 5.0;
+X		two->v = filledBox_marker->v + 5.0;
+X		two->next = NULL;
+X		filledBox_marker = filledBox_curr;
+X		filledBox_curr->next = two;
+X		obj[currIndex] = two;
+X		filledBox_curr = filledBox_curr->next;
+X		/* make a copy */
+X		ax = two->x;
+X		ay = two->y;
+X		bx = two->h;
+X		by = two->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		XFillRectangle(disp, win, gc, (int) ax, (int) ay,
+X			(unsigned int) (bx - ax), (unsigned int) (by - ay));
+X		two_mark = filledBox_marker;
+X		break;
+X
+X	case 'C':
+X		two = (struct fig2 *) malloc(sizeof(kreis));
+X		/* copy struct */
+X		kreis_marker = (struct fig2 *) obj[currIndex];
+X		two->x = kreis_marker->x + 5.0;
+X		two->y = kreis_marker->y + 5.0;
+X		two->radius = kreis_marker->radius;
+X		two->next = NULL;
+X		rad = two->radius;
+X		kreis_marker = kreis_curr;
+X		kreis_curr->next = two;
+X		obj[currIndex] = two;
+X		kreis_curr = kreis_curr->next;
+X		/* make a copy */
+X		ax = two->x;
+X		ay = two->y;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			rad *= 10;
+X		}
+X		XDrawArc(disp, win, gc, (int) (ax - rad), (int) (ay - rad),
+X			 (unsigned int) (rad + rad),
+X			 (unsigned int) (rad + rad), 0, 360 * 64);
+X		two_mark = kreis_marker;
+X		break;
+X
+X
+X	case 'B':
+X		two = (struct fig2 *) malloc(sizeof(disc));
+X		/* copy struct */
+X		disc_marker = (struct fig2 *) obj[currIndex];
+X		two->x = disc_marker->x + 5.0;
+X		two->y = disc_marker->y + 5.0;
+X		two->radius = disc_marker->radius;
+X		two->next = NULL;
+X		rad = two->radius;
+X		disc_marker = disc_curr;
+X		disc_curr->next = two;
+X		obj[currIndex] = two;
+X		disc_curr = disc_curr->next;
+X		/* make a copy */
+X		ax = two->x;
+X		ay = two->y;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			rad *= 10;
+X		}
+X		XFillArc(disp, win, gc, (int) (ax - rad), (int) (ay - rad),
+X			 (unsigned int) (rad + rad),
+X			 (unsigned int) (rad + rad), 0, 360 * 64);
+X		two_mark = disc_marker;
+X		break;
+X
+X	case 'N':
+X		three = (struct fig3 *) malloc(sizeof(framedBox));
+X		/* copy struct */
+X		framedBox_marker = (struct fig3 *) obj[currIndex];
+X		three->x = framedBox_marker->x + 5.0;
+X		three->y = framedBox_marker->y + 5.0;
+X		three->h = framedBox_marker->h + 5.0;
+X		three->v = framedBox_marker->v + 5.0;
+X		three->next = NULL;
+X		framedBox_marker = framedBox_curr;
+X		framedBox_curr->next = three;
+X		obj[currIndex] = three;
+X		framedBox_curr = framedBox_curr->next;
+X		/* make a copy */
+X		ax = three->x;
+X		ay = three->y;
+X		bx = three->h;
+X		by = three->v;
+X		three->text = (char *) malloc(strlen(framedBox_marker->text) + 1);
+X		strcpy(three->text, framedBox_marker->text);
+X		strcpy(three->textpos, framedBox_marker->textpos);
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		XDrawRectangle(disp, win, gc, (int) ax, (int) ay,
+X			(unsigned int) (bx - ax), (unsigned int) (by - ay));
+X		print_box_text(three->textpos, ax, ay, bx, by, three->text);
+X		three_mark = framedBox_marker;
+X		break;
+X
+X	case 'D':
+X		four = (struct fig4 *) malloc(sizeof(dashedBox));
+X		/* copy struct */
+X		dashedBox_marker = (struct fig4 *) obj[currIndex];
+X		four->x = dashedBox_marker->x + 5.0;
+X		four->y = dashedBox_marker->y + 5.0;
+X		four->h = dashedBox_marker->h + 5.0;
+X		four->v = dashedBox_marker->v + 5.0;
+X		four->next = NULL;
+X		dashedBox_marker = dashedBox_curr;
+X		dashedBox_curr->next = four;
+X		obj[currIndex] = four;
+X		dashedBox_curr = dashedBox_curr->next;
+X		/* make a copy */
+X		ax = four->x;
+X		ay = four->y;
+X		bx = four->h;
+X		by = four->v;
+X		four->text = (char *) malloc(strlen(dashedBox_marker->text) + 1);
+X		strcpy(four->text, dashedBox_marker->text);
+X		strcpy(four->textpos, dashedBox_marker->textpos);
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		XSetLineAttributes(disp, gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X		XDrawRectangle(disp, win, gc, (int) ax, (int) ay,
+X			(unsigned int) (bx - ax), (unsigned int) (by - ay));
+X		XSetLineAttributes(disp, gc, 0, LineSolid, CapButt, JoinMiter);
+X		print_box_text(four->textpos, ax, ay, bx, by, four->text);
+X		four_mark = dashedBox_marker;
+X		break;
+X
+X	case 'O':
+X		one = (struct fig1 *) malloc(sizeof(oval));
+X		/* copy struct */
+X		oval_marker = (struct fig1 *) obj[currIndex];
+X		one->x = oval_marker->x + 5.0;
+X		one->y = oval_marker->y + 5.0;
+X		one->h = oval_marker->h + 5.0;
+X		one->v = oval_marker->v + 5.0;
+X		one->next = NULL;
+X		oval_marker = oval_curr;
+X		oval_curr->next = one;
+X		obj[currIndex] = one;
+X		oval_curr = oval_curr->next;
+X		/* make a copy */
+X		ax = one->x;
+X		ay = one->y;
+X		bx = one->h;
+X		by = one->v;
+X		if (zoomed == True)
+X		{
+X			real2zoomed(&ax, &ay);
+X			real2zoomed(&bx, &by);
+X		}
+X		DrawOval(ax, ay, bx, by);
+X		one_mark = oval_marker;
+X		break;
+X
+X	default:
+X		break;
+X
+X	}	/* switch */
+X
+X
+X
+X	res = pick_move(x, y);
+X
+X
+X
+X
+X	if (res == -1)
+X	{	/* cancel */
+X		switch (kind[currIndex])
+X		{
+X		case 'I':
+X			bezier_curr = six_mark;
+X			bezier_curr->next = NULL;
+X			free(six);
+X			break;
+X
+X		case 'L':
+X			strich_curr = two_mark;
+X			strich_curr->next = NULL;
+X			free(two);
+X			break;
+X
+X		case 'V':
+X			pfeil_curr = two_mark;
+X			pfeil_curr->next = NULL;
+X			free(two);
+X			break;
+X
+X		case 'B':
+X			disc_curr = two_mark;
+X			disc_curr->next = NULL;
+X			free(two);
+X			break;
+X
+X		case 'C':
+X			kreis_curr = two_mark;
+X			kreis_curr->next = NULL;
+X			free(two);
+X			break;
+X
+X		case 'F':
+X			filledBox_curr = two_mark;
+X			filledBox_curr->next = NULL;
+X			free(two);
+X			break;
+X
+X		case 'O':
+X			oval_curr = one_mark;
+X			oval_curr->next = NULL;
+X			free(one);
+X			break;
+X
+X		case 'N':
+X			framedBox_curr = three_mark;
+X			framedBox_curr->next = NULL;
+X			free(three);
+X			break;
+X
+X		case 'D':
+X			dashedBox_curr = four_mark;
+X			dashedBox_curr->next = NULL;
+X			free(four);
+X			break;
+X
+X		default:
+X			break;
+X
+X		}	/* switch */
+X		refresh(pboard, '?', (caddr_t)DUMMY);
+X	}	/* cancel */
+}/* copy_it */
+SHAR_EOF
+echo 'File pickedit.c is complete' &&
+chmod 0644 pickedit.c ||
+echo 'restore of pickedit.c failed'
+Wc_c="`wc -c < 'pickedit.c'`"
+test 85301 -eq "$Wc_c" ||
+	echo 'pickedit.c: original size 85301, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pickedit.h ==============
+if test -f 'pickedit.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pickedit.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pickedit.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pickedit.h' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* header-file pickedit.h */
+X
+#ifndef PICKEDITH
+#define PICKEDITH
+X
+int analyse_pin(struct fig2 *p, int *d, int xpos, int ypos);
+int analyse_nbox(struct fig3 *p, int *d, int xpos, int ypos);
+int analyse_dbox(struct fig4 *p, int *d, int xpos, int ypos);
+int analyse_fbox(struct fig2 *p, int *d, int xpos, int ypos);
+int analyse_ncircle(struct fig2 *p, int *d, int xpos, int ypos);
+int analyse_ocircle(struct fig1 *p, int *d, int xpos, int ypos);
+int analyse_fcircle(struct fig2 *p, int *d, int xpos, int ypos);
+void init_pick(void);
+void set_pick_stack(int x, int y);
+void insert_object(void *p, int d, char c);
+int nextObject(void);
+void set_pick_object(void);
+void set_copy_object();
+void manage_pick(void);
+int pick_move(int x, int y);
+void pick_edit(void);
+void erase_current_object(void);
+void prepare_top_stack_object(void);
+void set_pick_erase(void);
+void pick_erase(void);
+void init_no_objects_sign(void);
+void pick_manager(void);
+void leave_pick(char *msg);
+void edit_y_line(void);
+void edit_x_line(void);
+void edit_y_vector(void);
+void edit_x_vector(void);
+void set_dash_mode(void);
+void set_normal_mode(void);
+void del_vector_marker(float x, float y, float h, float v);
+int calc_distance(int x, int y, int h, int v);
+void edit_frame(char c);
+void draw_edit_marker(float x, float y, float h, float v);
+void edit_circle(char c);
+int valid_circle_edit(int x, int y);
+void manage_copy(void);
+void copy_manager(void);
+void copy_it(int x, int y);
+void edit_bezier_curveS(void);
+SHAR_EOF
+true || echo 'restore of pickedit.h failed'
+fi
+echo 'End of  part 8'
+echo 'File pickedit.h is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

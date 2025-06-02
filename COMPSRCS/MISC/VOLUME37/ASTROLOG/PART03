@@ -1,0 +1,1721 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i072:  astrolog - Generation of astrology charts v3.05, Part03/12
+Message-ID: <1993May19.061531.11217@sparky.imd.sterling.com>
+X-Md4-Signature: b3f14a56716e73cde4857c8ab5f0d7ca
+Date: Wed, 19 May 1993 06:15:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 72
+Archive-name: astrolog/part03
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 12)."
+# Contents:  charts.c xdata.c
+# Wrapped by pul@hardy on Sun May 16 22:23:16 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'charts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'charts.c'\"
+else
+echo shar: Extracting \"'charts.c'\" \(43383 characters\)
+sed "s/^X//" >'charts.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: charts.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X
+X/*
+X*******************************************************************************
+X** Display subprograms
+X*******************************************************************************
+X*/
+X
+X/* This function is used by the interpretation routines to print out lines  */
+X/* of text with newlines inserted just before the end of screen is reached. */
+X
+Xvoid FieldWord(string)
+Xchar *string;
+X{
+X  static char line[STRING*2];
+X  static int cursor = 0;
+X  int i, j;
+X
+X  /* Hack: Dump buffer if function called with a null string. */
+X
+X  if (*string == 0) {
+X    line[cursor] = 0;
+X    printf("%s\n", line);
+X    cursor = 0;
+X    return;
+X  }
+X  if (cursor)
+X    line[cursor++] = ' ';
+X  for (i = 0; (line[cursor] = string[i]); i++, cursor++)
+X    ;
+X
+X  /* When buffer overflows 80 columns, print out one line and start over. */
+X
+X  while (cursor >= STRING-1) {
+X    for (i = STRING-1; line[i] != ' '; i--)
+X      ;
+X    line[i] = 0;
+X    printf("%s\n", line);
+X    line[0] = line[1] = ' ';
+X    for (j = 2; (line[j] = line[i+j-1]) != 0; j++)
+X      ;
+X    cursor -= (i-1);
+X  }
+X}
+X
+X
+X/* Print the interpretation of each planet in sign and house, as specified */
+X/* with the -I switch. This is basically array accessing combining the     */
+X/* meanings of each planet, sign, and house, and a couple of other things. */
+X
+Xvoid InterpretLocation(general)
+Xint general;
+X{
+X  int i, j;
+X  char c;
+X
+X  /* If parameter 'general' set, then, instead of an interpretation, just */
+X  /* print out what each sign, house, and planet means, as in -I0 switch. */
+X
+X  if (general) {
+X    printf("Signs of the zodiac represent psychological characteristics.\n\n");
+X    for (i = 1; i <= SIGNS; i++) {
+X      AnsiColor(elemansi[i-1 & 3]);
+X      sprintf(string, "%s is", signname[i]); FieldWord(string);
+X      sprintf(string, "%s, and", description[i]); FieldWord(string);
+X      sprintf(string, "%s.", desire[i]); FieldWord(string);
+X      FieldWord("");
+X    }
+X    AnsiColor(-1);
+X    printf("\nHouses represent different areas within one's life.\n\n");
+X    for (i = 1; i <= SIGNS; i++) {
+X      AnsiColor(elemansi[i-1 & 3]);
+X      sprintf(string, "The %d%s House is the area of life dealing with",
+X        i, post[i]); FieldWord(string);
+X      sprintf(string, "%s.", lifearea[i]); FieldWord(string);
+X      FieldWord("");
+X    }
+X    AnsiColor(-1);
+X    printf("\nPlanets represent various parts of one's mind or self.\n\n");
+X    for (i = 1; i <= OBJECTS; i++) if (!ignore[i]) {
+X      AnsiColor(objectansi[i]);
+X      sprintf(string, "%s%s%s%s represents one's",
+X        i < 3 || i >= 16 ? "The " : "",
+X        i == 16 ? "North " : (i == 17 ? "Part of " : ""), objectname[i],
+X        i == 13 ? " Athena" : ""); FieldWord(string);
+X      sprintf(string, "%s.", mindpart[i]); FieldWord(string);
+X      FieldWord("");
+X    }
+X    AnsiColor(-1);
+X    return;
+X  }
+X
+X  /* If parameter 'general' not set, then print out interpretation. */
+X
+X  putchar('\n');
+X  for (i = 1; i <= OBJECTS; i++) if (!ignore[i]) {
+X    AnsiColor(objectansi[i]);
+X    j = (int) (planet[i]/30.0)+1; c = Dignify(i, j);
+X    sprintf(string, "%s%s%s%s in %s", ret[i] < 0.0 ? "Retrograde " : "",
+X      i == 16 ? "North " : (i == 17 ? "Part of " : ""), objectname[i],
+X      i == 13 ? " Athena" : "", signname[j]);
+X    FieldWord(string);
+X    sprintf(string, "and %d%s House:", inhouse[i], post[inhouse[i]]);
+X    FieldWord(string);
+X    FieldWord("This person's"); FieldWord(mindpart[i]); FieldWord("is");
+X    if (((int) planet[i]) % 30 < 10)
+X      FieldWord("very");
+X    sprintf(string, "%s, and", description[j]); FieldWord(string);
+X    sprintf(string, "%s.", desire[j]); FieldWord(string);
+X    FieldWord("Most often this manifests");
+X    if (ret[i] < 0.0 && i != 16)
+X      FieldWord("in an independent, backward, introverted manner, and");
+X    FieldWord("in the area of life dealing with");
+X    sprintf(string, "%s.", lifearea[inhouse[i]]); FieldWord(string);
+X
+X    /* Extra information if planet is in its ruling, falling, etc, sign. */
+X
+X    if (c == 'R')
+X      FieldWord("This is a major aspect of the person's psyche!");
+X    else if (c == 'F')
+X      FieldWord("(This bit plays only a minor part in the person's psyche.)");
+X    else if (c == 'e')
+X      FieldWord("It is easy for them to express this part of themself.");
+X    else if (c == 'd')
+X      FieldWord("It is difficult for them to express this part of themself.");
+X    FieldWord("");
+X  }
+X}
+X
+X
+X/* Print the straight listing of planet and house positions and specified */
+X/* by the -v switch, along with the element table, etc.                   */
+X
+Xvoid ChartLocation(general)
+Xint general;
+X{
+X  int elemode[4][3], elem[4], mo[3], pos = 0, abo = 0, lef = 0, lea = 0;
+X  int count = 0, i, j, k;
+X
+X  if (general) {                /* If parameter 'general' set, then ignore */
+X    InterpretLocation(TRUE);    /* chart, and display general meanings of  */
+X    return;                     /* signs, houses, and planets.             */
+X  }
+X  for (i = 0; i < 4; i++)
+X    elem[i] = 0;
+X  for (j = 0; j < 3; j++)
+X    mo[j] = 0;
+X  for (i = 0; i < 4; i++)
+X    for (j = 0; j < 3; j++)
+X      elemode[i][j] = 0;
+X
+X  /* Calculate number of objects in each element, mode, hemisphere, etc. */
+X
+X  for (i = 1; i <= total; i++) if (!ignore[i]) {
+X    count++;
+X    j = (int) (planet[i]/30.0) + 1;
+X    elemode[(j-1)%4][(j-1)%3]++;
+X    elem[(j-1)%4]++; mo[(j-1)%3]++;
+X    pos += (j & 1);
+X    lea += (j <= 6);
+X    j = inhouse[i];
+X    abo += (j >= 7);
+X    lef += (j < 4 || j >= 10);
+X  }
+X
+X  /* Print header showing time and date of the chart being displayed. */
+X
+X  printf("%s (%s) chart ", appname, VERSION);
+X  if (Mon == -1)
+X    printf("(no time or space)\n");
+X  else if (relation == DASHrc)
+X    printf("(composite)\n");
+X  else {
+X    i = (int) (FRACT(dabs(Tim))*100.0+0.5);
+X    j = (int) (FRACT(dabs(Zon))*100.0+0.5);
+X    printf("for %d %s %d %.0f:%d%d (%c%.0f:%d%d GMT) ",
+X      (int) Day, monthname[(int) Mon], (int) Yea, floor(Tim), 
+X      i/10, i%10, Zon > 0.0 ? '-' : '+', dabs(Zon), j/10, j%10);
+X    printf("%s\n", StringLocation(Lon, Lat, 100.0));
+X  }
+X  if (interpret) {
+X    InterpretLocation(FALSE);    /* Print interpretation if -I in effect. */
+X    return;
+X  }
+X  printf("Body  Locat. Ret. Decl. Rul.      House  Rul. Veloc.    ");
+X  printf("%s Houses.\n\n", systemname[housesystem]);
+X
+X  /* Ok, now print out each location of each object. */
+X
+X  for (i = 1, j = 1; i <= BASE; i++, j++)
+X    if (i <= OBJECTS || (i > C_HI && !ignore[i])) {
+X    while (i <= OBJECTS && j <= OBJECTS && ignore[j])
+X      j++;
+X    if (i <= OBJECTS && j > OBJECTS)
+X      PrintTab(' ', 51);
+X    else {
+X      if (i > OBJECTS)
+X        j = i;
+X      AnsiColor(objectansi[j]);
+X      printf("%-4.4s: ", objectname[j]);
+X      PrintMinute(planet[j]);
+X      printf(" %c ", ret[j] >= 0.0 ? ' ' : 'R');
+X      if (j <= THINGS || j > OBJECTS)
+X        PrintAltitude(planetalt[i]);
+X      else
+X        printf("_______");
+X      printf(" (%c)", Dignify(j, (int)planet[i]/30+1));
+X      k = inhouse[j];
+X      AnsiColor(elemansi[k-1 & 3]);
+X      printf(" [%2d%c%c house]", k, post[k][0], post[k][1]);
+X      AnsiColor(-1);
+X      printf(" [%c]", Dignify(j, k));
+X      if (j != 2 && j < THINGS || j > C_HI)
+X        printf(" %c%5.3f", ret[i] < 0.0 ? '-' : '+', RTOD(dabs(ret[j])));
+X      else
+X        printf(" ______");
+X    }
+X
+X    /* For some lines, we have to append the house cusp positions. */
+X
+X    if (i <= SIGNS) {
+X      printf("  -  ");
+X      AnsiColor(elemansi[i-1 & 3]);
+X      printf("House cusp %2d: ", i);
+X      PrintMinute(house[i]);
+X    }
+X
+X    /* For some lines, we have to append the element table information. */
+X
+X    if (i == SIGNS+2)
+X      printf("     Car Fix Mut TOT");
+X    else if (i > SIGNS+2 && i < SIGNS+7) {
+X      k = i-(SIGNS+2)-1;
+X      AnsiColor(elemansi[k]);
+X      printf("  %c%c%c%3d %3d %3d %3d",
+X        element[k][0], element[k][1], element[k][2],
+X        elemode[k][0], elemode[k][1], elemode[k][2], elem[k]);
+X      AnsiColor(-1);
+X    } else if (i == SIGNS+7)
+X      printf("  TOT %2d %3d %3d %3d", mo[0], mo[1], mo[2], count);
+X    else if (i == OBJECTS)
+X      PrintTab(' ', 23);
+X    else if (i >= U_LO)
+X      printf("  Uranian #%d", i-U_LO+1);
+X    switch (i-SIGNS-1) {
+X    case 1: printf("   +:%2d", pos);       break;
+X    case 2: printf("   -:%2d", count-pos); break;
+X    case 3: printf("   M:%2d", abo);       break;
+X    case 4: printf("   N:%2d", count-abo); break;
+X    case 5: printf("   A:%2d", lef);       break;
+X    case 6: printf("   D:%2d", count-lef); break;
+X    case 7: printf(   "<:%2d", lea);       break;
+X    }
+X    putchar('\n');
+X  }
+X
+X  /* Do another loop to print out the stars in their specified order. */
+X
+X  if (universe) for (i = S_LO; i <= S_HI; i++) if (!ignore[i]) {
+X    j = BASE+starname[i-BASE];
+X    AnsiColor(objectansi[j]);
+X    printf("%.4s: ", objectname[j]);
+X    PrintMinute(planet[j]);
+X    printf("   ");
+X    PrintAltitude(planetalt[j]);
+X    k = inhouse[j];
+X    printf("     [%2d%c%c house]", k, post[k][0], post[k][1]);
+X    printf("     ______  Star #%2d: %5.2f\n", i-BASE, starbright[j-BASE]);
+X  }
+X}
+X
+X
+X/* Print an interpretation for a particular aspect in effect in a chart. */
+X/* This is called from the InterpretGrid and ChartAspect routines.       */
+X
+Xvoid InterpretAspect(x, y)
+Xint x, y;
+X{
+X  int n;
+X
+X  n = grid->n[x][y];
+X  if (n > 0 && n <= ASPECTI && x <= OBJECTS && y <= OBJECTS) {
+X    AnsiColor(aspectansi[n]);
+X    sprintf(string, "%s %s %s: This person's", objectname[x],
+X      aspectname[n], objectname[y]);
+X    FieldWord(string); FieldWord(mindpart[x]);
+X    sprintf(string, interact[n],
+X      modifier[MIN(abs(grid->v[x][y])/150, 2)][n-1]);
+X    FieldWord(string);
+X    sprintf(string, "their %s.", mindpart[y]); FieldWord(string);
+X    if (therefore[n][0]) {
+X      sprintf(string, "%s.", therefore[n]); FieldWord(string);
+X    }
+X    FieldWord("");
+X  }
+X}
+X
+X
+X/* Print the interpretation of each aspect in the aspect grid, as specified */
+X/* with the -g -I switch. Again, this is basically array accessing of the   */
+X/* meanings of the two planets in aspect and of the aspect itself.          */
+X
+Xvoid InterpretGrid(general)
+Xint general;
+X{
+X  int i, j;
+X
+X  /* Again, if parameter 'general' is set, then ignore chart and print */
+X  /* general meanings of each aspect as specified with the -I0 switch. */
+X
+X  if (general) {
+X    printf("\nAspects are different relationships between planets.\n\n");
+X    for (i = 1; i <= MIN(aspects, ASPECTI); i++) {
+X      AnsiColor(aspectansi[i]);
+X      sprintf(string, "When planets are %s, one", aspectname[i]);
+X      FieldWord(string); sprintf(string, interact[i], ""); FieldWord(string);
+X      FieldWord("another.");
+X      if (therefore[i][0]) {
+X        sprintf(string, "%s.", therefore[i]); FieldWord(string);
+X      }
+X      FieldWord("");
+X    }
+X    return;
+X  }
+X
+X  /* If parameter 'general' not set, then actually do the interpretation. */
+X
+X  for (i = 1; i < OBJECTS; i++) if (!ignore[i])
+X    for (j = i+1; j <= OBJECTS; j++) if (!ignore[j])
+X      InterpretAspect(i, j);
+X}
+X
+X
+X/* Print out the aspect and midpoint grid for a chart, as specified with the */
+X/* -g switch. (Each grid row takes up 4 lines of text.)                      */
+X
+Xvoid ChartGrid(general)
+Xint general;
+X{
+X  int i, j, k, l, temp;
+X
+X  if (general || interpret) {                   /* If -I or -I0 in effect, */
+X    InterpretGrid(general);                     /* ignore chart and print  */
+X    return;                                     /* interpretation.         */
+X  }
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (k = 1; k <= 4; k++) {
+X      for (l = 0, i = 1; i <= total; i++) if (!ignore[i]) {
+X        if (i > 1 && j+k > 2)
+X          putchar(k > 1 ? BOXV : BOXC);
+X        if (k > 1) {
+X          temp = grid->n[i][j];
+X
+X          /* Print aspect rows. */
+X
+X          if (i < j) {
+X            if (temp);
+X              AnsiColor(aspectansi[temp]);
+X            if (k == 2)
+X              printf("%s", aspectabbrev[temp]);
+X            else if (!temp)
+X              printf("   ");
+X            else
+X              if (k == 3) {
+X                if (grid->v[i][j] < 600)
+X                  printf("%c%2d", exdisplay & DASHga ?
+X                    (grid->v[i][j] < 0 ? 'a' : 's') :
+X                    (grid->v[i][j] < 0 ? '-' : '+'), abs(grid->v[i][j])/60);
+X                else
+X                  printf("%3d", abs(grid->v[i][j])/60);
+X              } else {
+X                temp = abs(grid->v[i][j])%60;
+X                printf("%d%d'", temp/10, temp%10);
+X              }
+X
+X          /* Print midpoint rows. */
+X
+X          } else if (i > j) {
+X            AnsiColor(elemansi[temp-1 & 3]);
+X            if (k == 2) {
+X              temp = grid->n[i][j];
+X              printf("%c%c%c", SIGNAM(temp));
+X            } else if (k == 3) {
+X              printf("%2d%c", grid->v[i][j]/60, DEGR2);
+X            } else {
+X              temp = grid->v[i][j]%60;
+X              printf("%d%d'", temp/10, temp%10);
+X            }
+X
+X          /* Print the diagonal of object names. */
+X
+X          } else {
+X            if (k == 2) {
+X              AnsiColor(objectansi[j]);
+X              printf("%c%c%c", OBJNAM(j));
+X            } else {
+X              temp = (int)(planet[j]/30.0)+1;
+X              AnsiColor(elemansi[i-1 & 3]);
+X              if (k == 3)
+X                printf("%2d%c", (int)planet[j] - (temp-1)*30, DEGR2);
+X              else
+X                printf("%c%c%c", SIGNAM(temp));
+X            }
+X          }
+X          AnsiColor(-1);
+X        } else
+X          if (j > 1)
+X            PrintTab(BOXH, 3);
+X        l++;
+X        if (column80 && l >= 20)
+X          i = total;
+X      }
+X      if (j+k > 2)
+X        putchar('\n');
+X    }
+X}
+X
+X
+X/* This is a subprocedure of DisplayGrands(). Here we print out one aspect */
+X/* configuration found by the parent procedure.                            */
+X
+Xvoid PrintGrand(nam, i1, i2, i3, i4)
+Xchar nam;
+Xint i1, i2, i3, i4;
+X{
+X  switch (nam) {
+X  case '.': printf("Stellium   "); break;
+X  case 't': printf("Grand Trine"); break;
+X  case 's': printf("T-Square   "); break;
+X  case 'y': printf("Yod        "); break;
+X  case 'g': printf("Grand Cross"); break;
+X  case 'c': printf("Cradle     "); break;
+X  default: ;
+X  }
+X  printf(" %s ", nam == '.' || nam == 't' || nam == 'g' ? "with" : "from");
+X  printf("%c%c%c: ", OBJNAM(i1));
+X  PrintMinute(planet[i1]);
+X  printf(" %s %c%c%c: ", nam == '.' || nam == 't' ? "and" : "to ", OBJNAM(i2));
+X  PrintMinute(planet[i2]);
+X  printf(" %s %c%c%c: ", nam == 'g' || nam == 'c' ? "to " : "and", OBJNAM(i3));
+X  PrintMinute(planet[i3]);
+X  if (nam == 'g' || nam == 'c') {
+X    printf(" to %c%c%c: ", OBJNAM(i4));
+X    PrintMinute(planet[i4]);
+X  }
+X  printf("\n");
+X}
+X
+X
+X/* Scan the aspect grid of a chart and print out any major configurations, */
+X/* as specified with the -g0 switch.                                       */
+X
+Xvoid DisplayGrands()
+X{
+X  int count = 0, i, j, k, l;
+X
+X  for (i = 1; i <= OBJECTS; i++) if (!ignore[i])
+X    for (j = 1; j <= OBJECTS; j++) if (j != i && !ignore[j])
+X      for (k = 1; k <= OBJECTS; k++) if (k != i && k != j && !ignore[k]) {
+X
+X        /* Is there a Stellium among the current three planets? */
+X
+X        if (i < j && j < k && grid->n[i][j] == 1 &&
+X            grid->n[i][k] == 1 && grid->n[j][k] == 1) {
+X          count++;
+X          PrintGrand('.', i, j, k, l);
+X
+X        /* Is there a Grand Trine? */
+X
+X        } else if (i < j && j < k && grid->n[i][j] == 4 &&
+X            grid->n[i][k] == 4 && grid->n[j][k] == 4) {
+X          count++;
+X          PrintGrand('t', i, j, k, l);
+X
+X        /* Is there a T-Square? */
+X
+X        } else if (j < k && grid->n[j][k] == 2 &&
+X            grid->n[MIN(i, j)][MAX(i, j)] == 3 &&
+X            grid->n[MIN(i, k)][MAX(i, k)] == 3) {
+X          count++;
+X          PrintGrand('s', i, j, k, l);
+X
+X        /* Is there a Yod? */
+X
+X        } else if (j < k && grid->n[j][k] == 5 &&
+X            grid->n[MIN(i, j)][MAX(i, j)] == 6 &&
+X            grid->n[MIN(i, k)][MAX(i, k)] == 6) {
+X          count++;
+X          PrintGrand('y', i, j, k, l);
+X        }
+X        for (l = 1; l <= OBJECTS; l++) if (!ignore[l]) {
+X
+X          /* Is there a Grand Cross among the current four planets? */
+X
+X          if (i < j && i < k && i < l && j < l && grid->n[i][j] == 3 &&
+X              grid->n[MIN(j, k)][MAX(j, k)] == 3 &&
+X              grid->n[MIN(k, l)][MAX(k, l)] == 3 &&
+X              grid->n[i][l] == 3 && MinDistance(planet[i], planet[k]) > 150.0
+X              && MinDistance(planet[j], planet[l]) > 150.0) {
+X            count++;
+X            PrintGrand('g', i, j, k, l);
+X
+X          /* Is there a Cradle? */
+X
+X          } else if (i < l && grid->n[MIN(i, j)][MAX(i, j)] == 5 &&
+X              grid->n[MIN(j, k)][MAX(j, k)] == 5 &&
+X              grid->n[MIN(k, l)][MAX(k, l)] == 5 &&
+X              MinDistance(planet[i], planet[l]) > 150.0) {
+X            count++;
+X            PrintGrand('c', i, j, k, l);
+X          }
+X        }
+X      }
+X  if (!count)
+X    printf("No major configurations in aspect grid.\n");
+X}
+X
+X
+Xbyte wheel[SIGNS][WHEELROWS];    /* Array used by ChartWheel(). */
+X
+X/* This is a subprocedure of ChartWheel(). Here we print out one line in a */
+X/* particular house cell (which may be blank).                             */
+X
+Xvoid PrintWheelSlot(house, row)
+Xint house, row;
+X{
+X  int i;
+X
+X  i = wheel[house-1][row];
+X  if (i) {
+X    AnsiColor(objectansi[i]);
+X    printf(" %c%c%c ", OBJNAM(i));    /* Print planet and its position. */
+X    PrintMinute(planet[i]);
+X    printf("%c ", ret[i] < 0.0 ? 'r' : ' ');
+X    PrintTab(' ', WHEELCOLS-14-1);
+X  } else
+X    PrintTab(' ', WHEELCOLS-1);       /* This particular line is blank. */
+X}
+X
+X
+X/* Another subprocedure of ChartWheel(). Here we print out the location */
+X/* of a particular house cusp as well as what house cusp number it is.  */
+X
+Xvoid PrintHouse(i, left)
+Xint i, left;
+X{
+X  if (!left)
+X    PrintMinute(house[i]);
+X  AnsiColor(elemansi[i-1 & 3]);
+X  printf("<%d>", i);
+X  if (left)
+X    PrintMinute(house[i]);
+X  else
+X    AnsiColor(-1);
+X}
+X
+X
+X/* Display all the objects in a wheel format on the screen, as specified */
+X/* with the -w switch. The wheel is divided into the 12 houses and the   */
+X/* planets are placed accordingly.                                       */
+X
+Xvoid ChartWheel()
+X{
+X  int i, j, k, l, count = 0;
+X
+X  for (i = 0; i < SIGNS; i++)
+X    for (j = 0; j < wheelrows; j++)    /* Clear out array from the */
+X      wheel[i][j] = 0;                 /* last time we used it.    */
+X
+X  /* This section of code places each object in the wheel house array. */
+X
+X  for (i = 1; i <= total && count < wheelrows*12; i++) {
+X    if (ignore[i] || !(i < 18 || i == 20 || i > C_HI))
+X      continue;
+X
+X    /* Try to put object in its proper house. If no room, */
+X    /* then overflow over to the succeeding house.        */
+X
+X    for (j = inhouse[i]-1; j < SIGNS; j = j < SIGNS ? (j+1)%SIGNS : j) {
+X
+X      /* Now try to find the proper place in the house to put the object. */
+X      /* This is in sorted order, although a check is made for 0 Aries.   */
+X
+X      if (wheel[j][wheelrows-1] > 0)
+X        continue;
+X      l = house[j+1] > house[Mod12(j+2)];
+X      for (k = 0; wheel[j][k] > 0 &&
+X           (planet[i] >= planet[wheel[j][k]] ||
+X            (l && planet[i] < 180.0 && planet[wheel[j][k]] > 180.0)) &&
+X           !(l && planet[i] > 180.0 && planet[wheel[j][k]] < 180.0); k++)
+X        ;
+X
+X      /* Actually insert object in proper place. */
+X
+X      if (wheel[j][k] <= 0)
+X        wheel[j][k] = i;
+X      else {
+X        for (l = wheelrows-1; l > k; l--)
+X          wheel[j][l] = wheel[j][l-1];
+X        wheel[j][k] = i;
+X      }
+X      count++;
+X      j = SIGNS;
+X    }
+X  }
+X
+X  /* Now, if this is really the -w switch and not -w0, then reverse the */
+X  /* order of objects in western houses for more intuitive reading.     */
+X
+X  if (!(exdisplay & DASHw0))
+X    for (i = 3; i < 9; i++)
+X      for (j = 0; j < wheelrows/2; j++) {
+X        k = wheelrows-1-j;
+X        l = wheel[i][j]; wheel[i][j] = wheel[i][k]; wheel[i][k] = l;
+X      }
+X
+X  /* Here we actually print the wheel and the objects in it. */
+X
+X  putchar(BOXNW); PrintTab(BOXH, WHEELCOLS-8); PrintHouse(11, TRUE);
+X  PrintTab(BOXH, WHEELCOLS-11); PrintHouse(10, TRUE);
+X  PrintTab(BOXH, WHEELCOLS-10); PrintHouse(9, TRUE);
+X  PrintTab(BOXH, WHEELCOLS-4); printf("%c\n", BOXNE);
+X  for (i = 0; i < wheelrows; i++) {
+X    for (j = 11; j >= 8; j--) {
+X      putchar(BOXV); PrintWheelSlot(j, i);
+X    }
+X    printf("%c\n", BOXV);
+X  }
+X  PrintHouse(12, TRUE); PrintTab(BOXH, WHEELCOLS-11);
+X  putchar(BOXC); PrintTab(BOXH, WHEELCOLS-1); putchar(BOXJN);
+X  PrintTab(BOXH, WHEELCOLS-1); putchar(BOXC); PrintTab(BOXH, WHEELCOLS-10);
+X  PrintHouse(8, FALSE); putchar('\n');
+X  for (i = 0; i < wheelrows; i++) {
+X    putchar(BOXV); PrintWheelSlot(12, i); putchar(BOXV);
+X
+X    /* For some rows, we have to insert the chart header information. */
+X
+X    if (i) {
+X      PrintTab(' ', WHEELCOLS-11);
+X      if (i == 1)
+X        printf("%s (%s) chart", appname, VERSION);
+X      else if (i == 2) {
+X        j = (int) Mon;
+X        k = ((long) MdyToJulian(Mon, Day, Yea) + 1) % 7;
+X        printf("%c%c%c %2d %c%c%c ",
+X          dayname[k][0], dayname[k][1], dayname[k][2], (int) Day,
+X          monthname[j][0], monthname[j][1], monthname[j][2]);
+X        k = (int) (FRACT(dabs(Tim))*100.0+0.5);
+X        printf("%4d %2.0f:%d%d", (int) Yea, floor(Tim), k/10, k%10);
+X      } else if (i == 3) {
+X        printf("%c%d%d:", Zon > 0.0 ? '-' : '+',
+X          (int)dabs(Zon)/10, (int)dabs(Zon)%10);
+X        j = (int) (FRACT(dabs(Zon))*100.0+0.5);
+X        printf("%d%d %s", j/10, j%10, StringLocation(Lon, Lat, 100.0));
+X      } else
+X        PrintTab(' ', 21);
+X      PrintTab(' ', WHEELCOLS-11);
+X
+X    } else
+X      PrintTab(' ', WHEELCOLS*2-1);
+X    putchar(BOXV); PrintWheelSlot(7, i); printf("%c\n", BOXV);
+X  }
+X  PrintHouse(1, TRUE); PrintTab(BOXH, WHEELCOLS-10);
+X  putchar(BOXJW); PrintTab(' ', WHEELCOLS-11);
+X  printf("%s", systemname[housesystem]);
+X  PrintTab(' ', 14-StringLen(systemname[housesystem]));
+X  printf("Houses."); PrintTab(' ', WHEELCOLS-11); putchar(BOXJE);
+X  PrintTab(BOXH, WHEELCOLS-10); PrintHouse(7, FALSE); putchar('\n');
+X  for (i = 0; i < wheelrows; i++) {
+X    putchar(BOXV); PrintWheelSlot(1, i); putchar(BOXV);
+X    PrintTab(' ', WHEELCOLS*2-1); putchar(BOXV); PrintWheelSlot(6, i);
+X    printf("%c\n", BOXV);
+X  }
+X  PrintHouse(2, TRUE); PrintTab(BOXH, WHEELCOLS-10);
+X  putchar(BOXC); PrintTab(BOXH, WHEELCOLS-1); putchar(BOXJS);
+X  PrintTab(BOXH, WHEELCOLS-1); putchar(BOXC);
+X  PrintTab(BOXH, WHEELCOLS-10); PrintHouse(6, FALSE); putchar('\n');
+X  for (i = 0; i < wheelrows; i++) {
+X    for (j = 2; j <= 5; j++) {
+X      putchar(BOXV); PrintWheelSlot(j, i);
+X    }
+X    printf("%c\n", BOXV);
+X  }
+X  putchar(BOXSW); PrintTab(BOXH, WHEELCOLS-4); PrintHouse(3, FALSE);
+X  PrintTab(BOXH, WHEELCOLS-10); PrintHouse(4, FALSE);
+X  PrintTab(BOXH, WHEELCOLS-10); PrintHouse(5, FALSE);
+X  PrintTab(BOXH, WHEELCOLS-7); printf("%c\n", BOXSE);
+X}
+X
+X
+X/* Display all aspects between objects in the chart, one per line, in       */
+X/* sorted order based on the total "power" of the aspect, as specified with */
+X/* the -m0 switch. The same influences used for -I charts are used here.    */
+X
+Xvoid ChartAspect()
+X{
+X  int pcut = 30000, icut, jcut, phi, ihi, jhi, ahi, p, i, j, k, count = 0;
+X  real ip, jp;
+X
+X  while (TRUE) {
+X    phi = -1;
+X
+X    /* Search for the next most powerful aspect in the aspect grid. */
+X
+X    for (i = 2; i <= TOTAL; i++) if (!ignore[i])
+X      for (j = 1; j < i; j++) if (!ignore[j])
+X        if (k = grid->n[j][i]) {
+X          ip = i <= OBJECTS ? objectinf[i] : 2.5;
+X          jp = j <= OBJECTS ? objectinf[j] : 2.5;
+X          p = (int) (aspectinf[k]*(ip+jp)/2.0*
+X            (1.0-dabs((real)(grid->v[j][i]))/60.0/aspectorb[k])*1000.0);
+X          if ((p < pcut || (p == pcut && (i > icut ||
+X            (i == icut && j > jcut)))) && p > phi) {
+X            ihi = i; jhi = j; phi = p; ahi = k;
+X          }
+X        }
+X    if (phi < 0)    /* Exit when no less powerful aspect found. */
+X      break;
+X    pcut = phi; icut = ihi; jcut = jhi;
+X    count++;                               /* Display the current aspect. */
+X    if (interpret)
+X      InterpretAspect(jhi, ihi);
+X    else {
+X      printf("%3d:", count);
+X      AnsiColor(objectansi[jhi]);
+X      printf(" %7.7s ", objectname[jhi]);
+X      k = (int) planet[jhi]/30;
+X      AnsiColor(elemansi[k & 3]);
+X      printf("%c%c%c%c%c", ret[jhi] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X        ret[jhi] >= 0.0 ? ')' : ']');
+X      AnsiColor(aspectansi[ahi]);
+X      printf(" %s ", aspectabbrev[ahi]);
+X      k = (int) planet[ihi]/30.0;
+X      AnsiColor(elemansi[k & 3]);
+X      printf("%c%c%c%c%c", ret[ihi] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X        ret[ihi] >= 0.0 ? ')' : ']');
+X      AnsiColor(objectansi[ihi]);
+X      printf(" %s", objectname[ihi]);
+X      PrintTab(' ', 11-StringLen(objectname[ihi]));
+X      AnsiColor(-1);
+X      k = grid->v[jhi][ihi];
+X      printf("- orb: %c%d,%d%d' - power:%6.2f\n",
+X        exdisplay & DASHga ? (k < 0 ? 'a' : 's') : (k < 0 ? '-' : '+'),
+X        abs(k)/60, abs(k)%60/10, abs(k)%60%10, (real) phi/1000.0);
+X    }
+X  }
+X}
+X
+X
+X/* Display locations of all midpoints between objects in the chart, */
+X/* one per line, in sorted zodiac order from zero Aries onward, as  */
+X/* specified with the -m switch.                                    */
+X
+Xvoid ChartMidpoint()
+X{
+X  int mcut = -1, icut, jcut, mlo, ilo, jlo, m, i, j, k, count = 0;
+X
+X  if (exdisplay & DASHm0) {
+X    ChartAspect();
+X    return;
+X  }
+X  while (TRUE) {
+X    mlo = 21600;
+X
+X    /* Search for the next closest midpoint farther down in the zodiac. */ 
+X
+X    for (i = 1; i < TOTAL; i++) if (!ignore[i])
+X      for (j = i+1; j <= TOTAL; j++) if (!ignore[j]) {
+X        m = (grid->n[j][i]-1)*30*60 + grid->v[j][i];
+X        if ((m > mcut || (m == mcut && (i > icut ||
+X          (i == icut && j > jcut)))) && m < mlo) {
+X          ilo = i; jlo = j; mlo = m;
+X        }
+X      }
+X    if (mlo >= 21600)    /* Exit when no midpoint farther in zodiac found. */
+X      break;
+X    mcut = mlo; icut = ilo; jcut = jlo;
+X    count++;                               /* Display the current midpoint. */
+X    printf("%4d: ", count);
+X    PrintMinute((real) mlo/60.0);
+X    AnsiColor(objectansi[ilo]);
+X    printf(" %7.7s ", objectname[ilo]);
+X    k = (int) planet[ilo]/30;
+X    AnsiColor(elemansi[k & 3]);
+X    printf("%c%c%c%c%c", ret[ilo] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X      ret[ilo] >= 0.0 ? ')' : ']');
+X    AnsiColor(WHITE);
+X    printf(" & ");
+X    k = (int) planet[jlo]/30.0;
+X    AnsiColor(elemansi[k & 3]);
+X    printf("%c%c%c%c%c", ret[jlo] >= 0.0 ? '(' : '[', SIGNAM(k+1),
+X      ret[jlo] >= 0.0 ? ')' : ']');
+X    AnsiColor(objectansi[jlo]);
+X    printf(" %s", objectname[jlo]);
+X    PrintTab(' ', 11-StringLen(objectname[jlo]));
+X    AnsiColor(-1);
+X    printf("-%4d degree span.\n", (int) MinDistance(planet[ilo], planet[jlo]));
+X  }
+X}
+X
+X
+X/* Display locations of the objects on the screen with respect to the local */
+X/* horizon, as specified with the -Z switch.                                */
+X
+Xvoid ChartHorizon()
+X{
+X  real lon, lat, sx, sy, vx, vy,
+X    lonz[TOTAL+1], latz[TOTAL+1], azi[TOTAL+1], alt[TOTAL+1];
+X  int i, j, k;
+X
+X  lon = DTOR(Mod(Lon)); lat = DTOR(Lat);
+X
+X  /* First find zenith location on Earth of each object. */
+X
+X  for (i = 1; i <= total; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X
+X  /* Then, convert this to local horizon altitude and azimuth. */
+X
+X  for (i = 1; i <= total; i++) if (i != 18) {
+X    lonz[i] = DTOR(Mod(RTOD(lonz[18]-lonz[i]+lon)));
+X    lonz[i] = DTOR(Mod(RTOD(lonz[i]-lon+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X  }
+X
+X  /* Now, actually print the location of each object. */
+X
+X  printf("Body Altitude Azimuth  Azi. Vector   %s Vector    Moon Vector\n\n",
+X    centerplanet ? " Sun" : " Earth");
+X  for (k = 1; k <= total; k++) {
+X    i = k <= BASE ? k : BASE+starname[k-BASE];
+X    if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      printf("%-4.4s: ", objectname[i]);
+X      PrintAltitude(alt[i]);
+X
+X      /* Determine directional vector based on azimuth. */
+X
+X      j = (int) (FRACT(azi[i])*60.0);
+X      printf(" %3d%c%d%d'", (int) azi[i], DEGR1, j/10, j%10);
+X      sx = cos(DTOR(azi[i])); sy = sin(DTOR(azi[i]));
+X      if (dabs(sx) < dabs(sy)) {
+X        vx = dabs(sx / sy); vy = 1.0;
+X      } else {
+X        vy = dabs(sy / sx); vx = 1.0;
+X      }
+X      printf(" (%.2f%c %.2f%c)",
+X        vy, sy < 0.0 ? 's' : 'n', vx, sx > 0.0 ? 'e' : 'w');
+X
+X      /* Determine distance vector of current object from Sun and Moon. */
+X
+X      vx = azi[1]-azi[i]; vy = azi[2]-azi[i];
+X      printf(" [%6.1f%6.1f] [%6.1f%6.1f]",
+X        dabs(vx) < 180.0 ? vx : Sgn(vx)*(DEGREES-dabs(vx)), alt[1]-alt[i],
+X        dabs(vy) < 180.0 ? vy : Sgn(vy)*(DEGREES-dabs(vy)), alt[2]-alt[i]);
+X      if (i >= U_LO) {
+X        if (i <= U_HI)
+X          printf("  Uranian #%d", i-U_LO+1);
+X        else
+X          printf("  Star #%2d", i-S_LO+1);
+X      }
+X      putchar('\n');
+X    }
+X  }
+X  AnsiColor(-1);
+X}
+X
+X
+X/* Display x,y,z locations of each body (in AU) with respect to the Sun */
+X/* (or whatever the specified center planet is), as in the -S switch.   */
+X/* These values were already determined when calculating the planet     */
+X/* positions themselves, so this procedure is basically just a loop.    */
+X
+Xvoid ChartSpace()
+X{
+X  real x, y, z;
+X  int i;
+X
+X  printf("Body     Angle    X axis    Y axis    Z axis    Length\n");
+X  for (i = 0; i <= BASE; i++)
+X    if (!ignore[i] && i != 2 && (i < THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      printf("%c%c%c%c: ", OBJNAM(i),
+X        objectname[i][3] ? objectname[i][3] : ' ');
+X      x = spacex[i]; y = spacey[i]; z = spacez[i];
+X      printf("[%7.2f] [%7.2f] [%7.3f] [%7.3f] [%7.3f]",
+X        planet[i], x, y, z, sqrt(x*x+y*y+z*z));
+X      if (i >= U_LO) {
+X        if (i <= U_HI)
+X          printf("  Uranian #%d", i-U_LO+1);
+X        else
+X          printf("  Star #%2d", i-S_LO+1);
+X      }
+X      printf("\n");
+X    }
+X  AnsiColor(-1);
+X}
+X
+X
+X/* This is a subprocedure of ChartInfluence(). Based on the values in the */
+X/* array parameter 'value', store numbers in array 'rank' reflecting the  */
+X/* relative order, e.g. value[x] 2nd greatest array value -> rank[x] = 2. */
+X
+Xvoid SortRank(value, rank, size)
+Xreal *value;
+Xint *rank;
+X{
+X  int h, i, j, k;
+X
+X  value[0] = -1.0;
+X  for (i = 1; i <= size; i++)
+X    rank[i] = -1;
+X  for (h = 1, i = 0; h <= size; h++) if (!ignore[h] || size == SIGNS) {
+X    i++;
+X    k = 0;
+X    for (j = 1; j <= size; j++) if (!ignore[j] || size == SIGNS)
+X      if (value[j] > value[k] && rank[j] < 0)
+X        k = j;
+X
+X        /* 'k' is the current position of the 'i'th place planet. */
+X
+X    rank[k] = i;
+X  }
+X}
+X
+X
+X/* Print out a list of power values and relative rankings, based on the */
+X/* placements of the planets, and their aspects in the aspect grid, as  */
+X/* specified with the -j "find influences" switch.                      */
+X
+Xvoid ChartInfluence()
+X{
+X  real power[OBJECTS+1], power1[OBJECTS+1], power2[OBJECTS+1],
+X    total, total1, total2, x;
+X  int rank[OBJECTS+1], rank1[OBJECTS+1], rank2[OBJECTS+1], i, j, k, l;
+X  char c;
+X
+X  for (i = 1; i <= OBJECTS; i++) {
+X    power1[i] = power2[i] = 0.0;
+X  }
+X  total = total1 = total2 = 0.0;
+X
+X  /* First, for each object, find its power based on its placement alone. */
+X
+X  for (i = 1; i <= THINGS; i++) {
+X    j = (int)planet[i]/30+1;
+X    power1[i] += objectinf[i];            /* Influence of planet itself. */
+X    power1[i] += houseinf[inhouse[i]];    /* Influence of house it's in. */
+X    c = Dignify(i, j);
+X    switch (c) {
+X    case 'R': x = objectinf[21]; break;    /* Planets in signs they rule or  */
+X    case 'e': x = objectinf[22]; break;    /* are exalted in have influence. */
+X    default:  x =  0.0;
+X    }
+X    c = Dignify(i, inhouse[i]);
+X    switch (c) {
+X    case 'R': x += houseinf[13]; break;  /* Planet in house corresponding to */
+X    case 'e': x += houseinf[14]; break;  /* sign it rules has influence.     */
+X    default: ;
+X    }
+X    power1[i] += x;
+X    if (i != rules[j])                         /* The planet ruling the sign */
+X      power1[rules[j]] += objectinf[i]/2.0;    /* and the house that the     */
+X    if (i != (j = rules[inhouse[i]]))          /* current planet is in, gets */
+X      power1[j] += objectinf[i]/2.0;           /* extra influence.           */
+X  }
+X  for (i = 1; i <= SIGNS; i++) {        /* Various planets get influence */
+X    j = (int)(house[i]/30.0)+1;         /* if house cusps fall in signs  */
+X    power1[rules[j]] += houseinf[i];    /* they rule.                    */
+X  }
+X
+X  /* Second, for each object, find its power based on aspects it makes. */
+X
+X  CreateGrid(FALSE);
+X  for (j = 1; j <= OBJECTS; j++) if (!ignore[j])
+X    for (i = 1; i <= OBJECTS; i++) if (!ignore[i] && i != j) {
+X      k = grid->n[MIN(i, j)][MAX(i, j)];
+X      if (k) {
+X        l = grid->v[MIN(i, j)][MAX(i, j)];
+X        power2[j] += aspectinf[k]*objectinf[i]*
+X          (1.0-dabs((real)l)/60.0/aspectorb[k]);
+X      }
+X    }
+X
+X  /* Calculate total power of each planet. */
+X
+X  for (i = 1; i <= THINGS; i++) if (!ignore[i]) {
+X    power[i] = power1[i]+power2[i]; total1 += power1[i]; total2 += power2[i];
+X  }
+X  total = total1+total2;
+X
+X  /* Finally, determine ranks of the arrays, then print everything out. */
+X
+X  SortRank(power1, rank1, THINGS); SortRank(power2, rank2, THINGS);
+X  SortRank(power, rank, THINGS);
+X  printf("  Planet:    Position      Aspects    Total Rank  Percent\n");
+X  for (i = 1; i <= THINGS; i++) if (!ignore[i]) {
+X    AnsiColor(objectansi[i]);
+X    printf("%8.8s: ", objectname[i]);
+X    printf("%6.1f (%2d) +%6.1f (%2d) =%7.1f (%2d) /%6.1f%%\n",
+X      power1[i], rank1[i], power2[i], rank2[i],
+X      power[i], rank[i], power[i]/total*100.0);
+X  }
+X  AnsiColor(-1);
+X  printf("   Total: %6.1f      +%6.1f      =%7.1f      / 100.0%%\n",
+X    total1, total2, total);
+X
+X  /* Now, print out a list of power values and relative rankings, based on  */
+X  /* the power of each sign of the zodiac, as indicated by the placement of */
+X  /* the planets above, in the chart, as specified with the -j0 switch.     */
+X
+X  if (!(exdisplay & DASHj0))
+X    return;
+X  for (i = 1; i <= SIGNS; i++) {
+X    power1[i] = 0.0;
+X  }
+X
+X  /* For each sign, determine its power based on the power of the object. */
+X
+X  for (i = 1; i <= OBJECTS; i++) if (!ignore[i]) {
+X    power1[(int)planet[i]/30+1] +=
+X      (i <= THINGS ? power[i] : objectinf[i]) / 2.0;
+X    power1[inhouse[i]]  += (i <= THINGS ? power[i] : objectinf[i]) / 4.0;
+X    power1[ruler1[i]]   += (i <= THINGS ? power[i] : objectinf[i]) / 3.0;
+X    if (ruler2[i])
+X      power1[ruler2[i]] += (i <= THINGS ? power[i] : objectinf[i]) / 4.0;
+X  }
+X  if (!ignore[THINGS]) {
+X    power1[Mod12((int)planet[THINGS]/30+7)] += power[THINGS] / 2.0; /* South */
+X    power1[Mod12(inhouse[THINGS]+6)]        += power[THINGS] / 4.0; /* Node. */
+X  }
+X  total1 = 0.0;
+X  for (i = 1; i <= SIGNS; i++)
+X    total1 += power1[i];
+X
+X  /* Again, determine ranks in the array, and print everything out. */
+X
+X  SortRank(power1, rank1, SIGNS);
+X  printf("\n       Sign:  Power Rank  Percent  - Element  Power  Percent\n");
+X  for (i = 1; i <= SIGNS; i++) {
+X    AnsiColor(elemansi[i-1 & 3]);
+X    printf("%11.11s: ", signname[i]);
+X    printf("%6.1f (%2d) /%6.1f%%",
+X      power1[i], rank1[i], power1[i]/total*100.0);
+X    if (i <= 4) {
+X      printf("  -%7.7s:", element[i-1]);
+X      total2 = 0.0;
+X      for (j = 1; j < SIGNS; j += 4)
+X        total2 += power1[i+j-1];
+X      printf("%7.1f /%6.1f%%", total2, total2/total1*100.0);
+X    }
+X    putchar('\n');
+X  }
+X  AnsiColor(-1);
+X  printf("      Total:%7.1f      / 100.0%%\n", total1);
+X}
+X
+X
+X/* Print the locations of the astro-graph lines on the Earth as specified */
+X/* with the -L switch. This includes Midheaven and Nadir lines, zenith    */
+X/* positions, and locations of Ascendant and Descendant lines.            */
+X
+Xvoid ChartAstroGraph()
+X{
+X  real planet1[TOTAL+1], planet2[TOTAL+1], lat[MAXCROSS], lon[MAXCROSS],
+X    mc[TOTAL+1], ic[TOTAL+1], as[TOTAL+1], ds[TOTAL+1], as1[TOTAL+1],
+X    ds1[TOTAL+1], lo = Lon, longm, w, x, y, z, ad, oa, am, od, dm;
+X  int obj1[MAXCROSS], obj2[MAXCROSS], occurcount = 0, tot = total,
+X    i, j, k, l, m, n;
+X
+X  for (i = 1; i <= TOTAL; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);      /* Calculate zenith location on */
+X    ecltoequ(&planet1[i], &planet2[i]);   /* Earth of each object.        */
+X  }
+X
+X  /* Print header. */
+X
+X  printf("Object :");
+X  for (j = 0, i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      printf(" %c%c%c", OBJNAM(i));
+X      j++;
+X      if (column80 && j >= 17) {
+X        tot = i;
+X        i = total;
+X      }
+X    }
+X  AnsiColor(-1);
+X  printf("\n------ :");
+X  for (i = 1; i <= tot; i++)
+X    if (!ignore[i] && (i <= THINGS || i > C_HI))
+X      printf(" ###");
+X
+X  /* Print the longitude locations of the Midheaven lines. */
+X
+X  printf("\nMidheav: ");
+X  if (lo < 0.0)
+X    lo += DEGREES;
+X  for (i = 1; i <= tot; i++)
+X    if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X    AnsiColor(objectansi[i]);
+X    x = DTOR(MC)-planet1[i];
+X    if (x < 0.0)
+X      x += 2.0*PI;
+X    if (x > PI)
+X      x -= 2.0*PI;
+X    z = lo+RTOD(x);
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    mc[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  AnsiColor(-1);
+X
+X  /* The Nadir lines are just always 180 degrees away from the Midheaven. */
+X
+X  printf("\nNadir  : ");
+X  for (i = 1; i <= tot; i++)
+X    if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X    AnsiColor(objectansi[i]);
+X    z = mc[i] + 180.0;
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    ic[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  AnsiColor(-1);
+X
+X  /* Print the Zenith latitude locations. */
+X
+X  printf("\nZenith : ");
+X  for (i = 1; i <= tot; i++)
+X    if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      y = RTOD(planet2[i]);
+X      printf("%3.0f%c", dabs(y), y < 0.0 ? 's' : 'n');
+X      as[i] = ds[i] = as1[i] = ds1[i] = 1000.0;
+X    }
+X  printf("\n\n");
+X
+X  /* Now print the locations of Ascendant and Descendant lines. Since these */
+X  /* are curvy, we loop through the latitudes, and for each object at each  */
+X  /* latitude, print the longitude location of the line in question.        */
+X
+X  longm = DTOR(Mod(MC+lo));
+X  for (j = 80; j >= -80; j -= graphstep) {
+X    AnsiColor(-1); 
+X    printf("Asc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= tot; i++)
+X      if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      ad = tan(planet2[i])*tan(DTOR(j));
+X      if (ad*ad > 1.0) {
+X        printf(" -- ");
+X        as1[i] = ds1[i] = ret2[i] = 1000.0;
+X      } else {
+X        ad = ASIN(ad);
+X        oa = planet1[i]-ad;
+X        if (oa < 0.0)
+X          oa += 2.0*PI;
+X        am = oa-PI/2.0;
+X        if (am < 0.0)
+X          am += 2.0*PI;
+X        z = longm-am;
+X        if (z < 0.0)
+X          z += 2.0*PI;
+X        if (z > PI)
+X          z -= 2.0*PI;
+X        as1[i] = as[i];
+X        as[i] = z = RTOD(z);
+X        ret2[i] = ad;
+X        printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X
+X    /* Again, the Descendant position is related to the Ascendant's,  */
+X    /* being a mirror image, so it can be calculated somewhat easier. */
+X
+X    AnsiColor(-1);
+X    printf("\nDsc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= tot; i++)
+X      if (!ignore[i] && (i <= THINGS || i > C_HI)) {
+X      AnsiColor(objectansi[i]);
+X      ad = ret2[i];
+X      if (ad == 1000.0)
+X        printf(" -- ");
+X      else {
+X        od = planet1[i]+ad;
+X        dm = od+PI/2.0;
+X        z = longm-dm;
+X        if (z < 0.0)
+X          z += 2.0*PI;
+X        if (z > PI)
+X          z -= 2.0*PI;
+X        ds1[i] = ds[i];
+X        ds[i] = z = RTOD(z);
+X        printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X    putchar('\n');
+X
+X    /* Now, if the -L0 switch is in effect, then take these line positions, */
+X    /* which we saved in an array above as we were printing them, and       */
+X    /* calculate and print the latitude crossings.                          */
+X
+X    if (exdisplay & DASHL0)
+X      for (l = 1; l <= total; l++) if (!ignore[l] && (l <= THINGS || l > C_HI))
+X        for (k = 1; k <= total; k++)
+X        if (!ignore[k] && (k <= THINGS || k > C_HI))
+X        for (n = 0; n <= 1; n++) {
+X        x = n ? ds1[l] : as1[l];
+X        y = n ? ds[l] : as[l];
+X        for (m = 0; m <= 1; m++) {
+X
+X        /* Check if Ascendant/Descendant cross Midheaven/Nadir. */
+X
+X        z = m ? ic[k] : mc[k];
+X        if (occurcount < MAXCROSS &&
+X          dabs(x-y) < 180.0 && Sgn(z-x) != Sgn(z-y)) {
+X          obj1[occurcount] = n ? -l : l;
+X          obj2[occurcount] = m ? -k : k;
+X          lat[occurcount] = (real)j+5.0*dabs(z-y)/dabs(x-y);
+X          lon[occurcount] = z;
+X          occurcount++;
+X        }
+X
+X        /* Check if Ascendant/Descendant cross another Asc/Des. */
+X
+X        w = m ? ds1[k] : as1[k];
+X        z = m ? ds[k] : as[k];
+X        if (occurcount < MAXCROSS && k > l &&
+X            dabs(x-y)+dabs(w-z) < 180.0 && Sgn(w-x) != Sgn(z-y)) {
+X          obj1[occurcount] = n ? -l : l;
+X          obj2[occurcount] = 100+(m ? -k : k);
+X          lat[occurcount] = (real)j+5.0*
+X            dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X          lon[occurcount] = MIN(x, y)+dabs(x-y)*
+X            dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X          occurcount++;
+X        }
+X      }
+X    }
+X  }
+X  if ((exdisplay & DASHL0) == 0)
+X    return;
+X  putchar('\n');
+X
+X  /* Now, print out all the latitude crossings we found.  */
+X  /* First, we sort them in order of decreasing latitude. */
+X
+X  for (i = 1; i < occurcount; i++) {
+X    j = i-1;
+X    while (j >= 0 && lat[j] < lat[j+1]) {
+X      SWAP(obj1[j], obj1[j+1]); SWAP(obj2[j], obj2[j+1]);
+X      SwapReal(&lat[j], &lat[j+1]); SwapReal(&lon[j], &lon[j+1]);
+X      j--;
+X    }
+X  }
+X  for (i = 1; i < occurcount; i++) {
+X    j = abs(obj1[i]);
+X    AnsiColor(objectansi[j]);
+X    printf("%c%c%c ", OBJNAM(j));
+X    AnsiColor(elemansi[obj1[i] > 0 ? 0 : 2]);
+X    printf("%s ", obj1[i] > 0 ? "Ascendant " : "Descendant");
+X    AnsiColor(WHITE);
+X    printf("crosses ");
+X    j = abs(obj2[i] - (obj2[i] < 50 ? 0 : 100));
+X    AnsiColor(objectansi[j]);
+X    printf("%c%c%c ", OBJNAM(j));
+X    AnsiColor(elemansi[obj2[i] < 50 ?
+X      (obj2[i] > 0 ? 1 : 3) : (obj2[i] > 100 ? 0 : 2)]);
+X    printf("%s ", obj2[i] < 50 ? (obj2[i] > 0 ? "Midheaven " :
+X      "Nadir     ") : (obj2[i] > 100 ? "Ascendant " : "Descendant"));
+X    j = (int) (FRACT(dabs(lon[i]))*60.0);
+X    AnsiColor(-1);
+X    printf("at %3d%c%d%d'%c, ", (int) dabs(lon[i]), DEGR2,
+X      j/10, j%10, lon[i] < 0.0 ? 'E' : 'W');
+X    j = (int) (FRACT(dabs(lat[i]))*60.0);
+X    printf("%2d%c%d%d'%c\n", (int) dabs(lat[i]), DEGR2,
+X      j/10, j%10, lat[i] < 0.0 ? 'S' : 'N');
+X  }
+X  if (!occurcount) {
+X    AnsiColor(-1);
+X    printf("No latitude crossings.\n");
+X  }
+X}
+X
+X/* charts.c */
+END_OF_FILE
+if test 43383 -ne `wc -c <'charts.c'`; then
+    echo shar: \"'charts.c'\" unpacked with wrong size!
+fi
+# end of 'charts.c'
+fi
+if test -f 'xdata.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdata.c'\"
+else
+echo shar: Extracting \"'xdata.c'\" \(15016 characters\)
+sed "s/^X//" >'xdata.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: xdata.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef GRAPH
+X
+X
+X/*
+X*******************************************************************************
+X** Graphics global variables
+X*******************************************************************************
+X*/
+X
+Xbitmap bm;
+Xchar modex = 'c', bitmapmode = BITMAPMODE,
+X  *dispname = NULL, outputfile[STRING] = "tty";
+X#ifdef WIN
+Xint xbitmap = FALSE;
+X#else
+Xint xbitmap = TRUE;
+X#endif
+Xint xmono = FALSE, xcolor = TRUE, xreverse = FALSE, xroot = FALSE,
+X  xtext = TRUE, bonus = FALSE, label = TRUE,
+X  xeast = 0, turtlex = 0, turtley = 0, scale = 200,
+X  chartx = DEFAULTX, charty = DEFAULTY, xnow = 0, degree = 0;
+Xreal tilt = 0.0;
+X
+X/* Color tables for Astrolog's graphic palette. */
+X
+Xcolor rgbbmp[] = {
+X  0x000000, 0x00007F, 0x007F00, 0x007F7F,
+X  0x7F0000, 0x7F007F, 0x7F7F00, 0xBFBFBF,
+X  0x7F7F7F, 0x0000FF, 0x00FF00, 0x00FFFF,
+X  0xFF0000, 0xFF00FF, 0xFFFF00, 0xFFFFFF};
+X#ifdef MSC
+Xcolor rgb[] = {
+X  _BLACK, _RED, _GREEN, _BROWN,
+X  _BLUE, _MAGENTA, _CYAN, _WHITE,
+X  _GRAY, _LIGHTRED, _LIGHTGREEN, _YELLOW,
+X  _LIGHTBLUE, _LIGHTMAGENTA, _LIGHTCYAN, _BRIGHTWHITE};
+X#endif
+X#ifdef X11
+Xchar *rgbname[] = {
+X  "black", "orangered3", "green4", "darkorange2",
+X  "blue4", "violet", "cyan4", "grey65",
+X  "grey35", "orangered1", "green1", "yellow1",
+X  "blue1", "pink", "cyan1", "white"};
+Xcolor rgbind[16];
+X#endif
+X
+X/* These are the actual color arrays and variables used by the program.      */
+X/* Technically, Astrolog always assumes we are drawning on a color terminal; */
+X/* for B/W graphics, all the values below are filled with black or white.    */
+X
+Xcolor fg, bg, on, off, hilite, gray,
+X  maincolor[6+1], rainbowcolor[7+1],
+X  elemcolor[4], aspectcolor[ASPECTS+1], objectcolor[TOTAL+1];
+X
+X/* A bunch of physical X window variables dealing with the window itself. */
+X
+X#ifdef X11
+XColormap cmap;
+XDisplay *disp;
+XGC gc, pmgc;
+XKeySym key;
+XPixmap pixmap, icon;
+XWindow window, root;
+XXEvent event;
+XXSizeHints hint;
+X/*XWMHints *wmhint;*/
+Xint screen, depth;
+Xchar xkey[10];
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Astrolog icon
+X*******************************************************************************
+X*/
+X
+X#ifdef X11
+X/* This information used to define Astrolog's X icon (Rainbow over Third */
+X/* Eye) is identical to the output format used by the bitmap program.    */
+X/* You could extract this section and run xsetroot -bitmap on it.        */
+X
+X#define icon_width 63
+X#define icon_height 32
+X/*static*/ char icon_bits[] = {
+X 0x00,0x00,0x00,0xa8,0x0a,0x00,0x00,0x00,0x00,0x00,0x40,0x55,0x55,0x01,0x00,
+X 0x00,0x00,0x00,0xa8,0xaa,0xaa,0x0a,0x00,0x00,0x00,0x00,0x54,0xf5,0x57,0x15,
+X 0x00,0x00,0x00,0x80,0xaa,0xaa,0xaa,0xaa,0x00,0x00,0x00,0x40,0xd5,0xff,0xff,
+X 0x55,0x01,0x00,0x00,0xa0,0xaa,0xaa,0xaa,0xaa,0x02,0x00,0x00,0x50,0xfd,0xff,
+X 0xff,0x5f,0x05,0x00,0x00,0xa8,0xaa,0x2a,0xaa,0xaa,0x0a,0x00,0x00,0xd4,0xff,
+X 0xaf,0xfa,0xff,0x15,0x00,0x00,0xaa,0x2a,0x00,0x00,0xaa,0x2a,0x00,0x00,0xf5,
+X 0xbf,0xaa,0xaa,0xfe,0x57,0x00,0x80,0xaa,0x02,0x00,0x00,0xa0,0xaa,0x00,0x40,
+X 0xfd,0xab,0xfa,0xaf,0xea,0x5f,0x01,0xa0,0xaa,0x80,0xff,0xff,0x80,0xaa,0x02,
+X 0x50,0xff,0xea,0xff,0xff,0xab,0x7f,0x05,0xa0,0x2a,0xf0,0xff,0xff,0x07,0xaa,
+X 0x02,0xd0,0xbf,0xfa,0x0f,0xf8,0xaf,0x7e,0x05,0xa8,0x0a,0xfc,0x01,0xc0,0x1f,
+X 0xa8,0x0a,0xd4,0xaf,0x7e,0x00,0x00,0xbf,0xfa,0x15,0xa8,0x0a,0x3f,0x00,0x00,
+X 0x7e,0xa8,0x0a,0xf4,0xaf,0x1f,0xe0,0x03,0xfc,0xfa,0x15,0xaa,0x82,0x0f,0xdc,
+X 0x1d,0xf8,0xa0,0x2a,0xf4,0xab,0x07,0x23,0x62,0xf0,0xea,0x17,0xaa,0xc2,0x87,
+X 0x91,0xc4,0xf0,0xa1,0x2a,0xf4,0xeb,0xc3,0xd0,0x85,0xe1,0xeb,0x17,0xaa,0xe0,
+X 0x83,0x91,0xc4,0xe0,0x83,0x2a,0xf5,0xeb,0x03,0x23,0x62,0xe0,0xeb,0x57,0xaa,
+X 0xe0,0x01,0xdc,0x1d,0xc0,0x83,0x2a,0xf5,0xeb,0x01,0xe0,0x03,0xc0,0xeb,0x57,
+X 0xaa,0xe0,0x01,0x00,0x00,0xc0,0x83,0x2a,0xfd,0xeb,0x01,0x00,0x00,0xc0,0xeb,
+X 0x5f};
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Graphics table data
+X*******************************************************************************
+X*/
+X
+Xchar *signdraw[] = {"",
+X  "ND4HU2HLGDFBR6EUHLGD2G",                /* Aries */
+X  "BL3D2F2R2E2U2H2NE2L2NH2G2",             /* Taurus */
+X  "BLU3LHBR7GLNL3D6NL3RFBL7ERU3",          /* Gemini */
+X  "BGNDHLGDFRNEFR2EREBU3NHDGLHUENRHL2GLG", /* Cancer */
+X  "BF4H2UEU2H2L2G2D2FDGH",                 /* Leo */
+X  "BF4BLHNGNHEU5GHND5HGND6HGND6H",         /* Virgo */
+X  "BGNL3HUER2FDGR3BD2L8",                  /* Libra */
+X  "BH4FND6EFND6EFD6FREU",                  /* Scorpio */
+X  "BG4E3NH2NF2E5NL2D2",                    /* Sagittarius */
+X  "BH3NLNUD3FND2EU2ENF2UFERFDGLF2D2G",     /* Capricorn */
+X  "BG4EUEDFDEUEDFDEUEBU5GDGUHUGDGUHUGDG",  /* Aquarius */
+X  "NL4NR4BH4F2D4G2BR8H2U4E2"};             /* Pisces */
+X
+Xchar *objectdraw[] = {"ND4NL4NR4U4LGLDGD2FDRFR2ERUEU2HULHL", /* Earth */
+X  "U0BH3DGD2FDRFR2ERUEU2HULHL2GL",          /* Sun */
+X  "BG3E2U2H2ER2FRDFD2GDLGL2H",              /* Moon */
+X  "BD4UNL2NR2U2REU2HNEL2NHGD2FR",           /* Mercury */
+X  "LHU2ER2FD2GLD2NL2NR2D2",                 /* Venus */
+X  "HLG2DF2RE2UHE4ND2L2",                    /* Mars */
+X  "BH3RFDGDGDR5NDNR2U6E",                   /* Jupiter */
+X  "BH3R2NUNR2D3ND3RERFDGDF",                /* Saturn */
+X  "BD4NEHURBFULU3NUNR2L2NU2DGBU5NFBR6GD3F", /* Uranus */
+X  "BD4U2NL2NR2U5NUNRLBL2NUNLDF2R2E2UNRU",   /* Neptune */
+X  "D2NL2NR2D2BU8GFEHBL3D2F2R2E2U2",         /* Pluto */
+X  "BG2LDFEULU3NURFRFBU5GLGLU2",             /* Chiron */
+X  "BD4UNL3NR3U2RE2UH2L2G",                  /* Ceres */
+X  "BD4UNL3NR3UE2HUHNUGDGF2",                /* Pallas Athena */
+X  "BD4UNL2NR2U4NL4NR4NE3NF3NG3NH3U3",       /* Juno */
+X  "BU4DBG3NLFDF2E2UERBH2GDGHUH",            /* Vesta */
+X  "BG2LGFEU2HU2E2R2F2D2GD2FEHL",            /* North Node */
+X  "NE2NF2NG2H2GD2F2R2E2U2H2L2G",            /* Part of Fortune */
+X  "BG4U8F4E4D8",                            /* Midheaven */
+X  "NR4L4ND4UE3R2F3D5",                      /* Ascendant */
+X  "U2NHNEBD4NGNFU2L2NHNGR4NEF"};            /* Vertex */
+X
+Xchar *housedraw[] = {"",
+X  "BD2NLNRU4L", "BHBUR2D2L2D2R2", "BHBUR2D2NL2D2L2",
+X  "BHBUD2R2NU2D2", "BEBUL2D2R2D2L2", "NLRD2L2U4R2",
+X  "BHBUR2DG2D", "NRLU2R2D4L2U2", "NRLU2R2D4L2",
+X  "BH2NLD4NLRBR2U4R2D4L2", "BH2NLD4NLRBR2RNRU4L", "BH2NLD4NLRBR2NR2U2R2U2L2"};
+X
+Xchar *aspectdraw[] = {"",
+X  "HLG2DF2RE2UHE4", "BGL2GDFREU2E2U2ERFDGL2", "BH4R8D8L8U8",
+X  "BU4GDGDGDGDR8UHUHUHUH", "BLNH3NG3RNU4ND4RNE3F3",
+X  "BG4EUEUEUEUNL4NR4BDFDFDFDF", "BH4FDFDFDFDNL4NR4BUEUEUEUE", "BE4G8R8",
+X  "BD2L3U6R6D6L3D2R2", "F4BU3U2HULHL2GLDGD2FDRFR2E3", "BD2U3NR3NU3L3BD5R6",
+X  "BU2D3NR3ND3L3BU5R6", "BH3R6G6", "BR3L5HUER4FD4GL4H",
+X  "BF2UHL2GFR3DGL3BE6LNLU2NRLBL4LNLD2NLR", "BL2R4G4BE6LNLU2NRLBL4LNLD2NLR",
+X  "BL2R4G4BE6L7NLU2NLR3ND2R3ND2R", "BF2UHL2GFR3DGL3BU6LNLU2NLRBR2F2E2"};
+X
+Xchar *asciidraw[] = {"",
+X  "BR2D4BD2D0", "BRD2BR2U2", "BD2R4BD2L4BFU4BR2D4", "BR2D6BENL3EHL2HER3",
+X  "RDLNUBR4G4BR4DLUR", "BD2NF4UEFDG2DFRE2", "BR2DG", "BR3G2D2F2", "BRF2D2G2",
+X  "BD2FNGRNU2ND2RNEF", "BD3R2NU2ND2R2", "BD5BR2DG", "BD3R4", "BD6BRRULD",
+X  "BD5E4", /* Special Characters */
+X  "BDD4NE4FR2EU4HL2G", "BFED6NLR", "BDER2FDG4R4", "BDER2FDGNLFDGL2H",
+X  "D3R3NU3ND3R", "NR4D3R3FDGL2H", "BR3NFL2GD4FR2EUHL3", "R4DG4D",
+X  "BDDFNR2GDFR2EUHEUHL2G", "BD5FR2EU4HL2GDFR3", /* Numbers */
+X  "BR2BD2D0BD2D0", "BR2BD2D0BD2G", "BR3G3F3", "BD2R4BD2L4", "BRF3G3",
+X  "BDER2FDGLDBD2D0", "BF2DFEU2HL2GD4FR2", /* Special Characters */
+X  "BD6U4E2F2D2NL4D2", "D6R3EUHNL3EUHL3", "BR3NFL2GD4FR2E", "D6R2E2U2H2L2",
+X  "NR4D3NR3D3R4", "NR4D3NR3D3", "BR3NFL2GD4FR2EU2L2", "D3ND3R4NU3D3",
+X  "BRRNRD6NLR", "BD4DFR2EU5", "D3ND3RNE3F3", "D6R4", "ND6F2NDE2D6",
+X  "ND6F4ND2U4", "BDD4FR2EU4HL2G", "R3FDGL3NU3D3", "BDD4FRENHNFEU3HL2G",
+X  "ND6R3FDGL2NLF3", "BR3NFL2GDFR2FDGL2H", "R2NR2D6", "D5FR2EU5",
+X  "D2FDFNDEUEU2", "D6E2NUF2U6", "DF4DBL4UE4U", "D2FRND3REU2",
+X  "R4DG4DR4", /* Upper Case Letters */
+X  "BR3L2D6R2", "BDF4", "BRR2D6L2", "BD2E2F2", "BD6R4", "BR2DF", /* Symbols */
+X  "BF4G2LHU2ER2FD3", "D5NDFR2EU2HL2G", "BF4BUHL2GD2FR2E", "BR4D5NDGL2HU2ER2F",
+X  "BF4NL4UHL2GD2FR3", "BD3RNR3ND3U2ERF", "BD8R3EU4HL2GD2FR2E", "D3ND3ER2FD3",
+X  "BR2D0BD2D4", "BR2D0BD2D5GLH", "D4ND2REREBD4HLH", "BR2D6", "BD2DND3EFNDEFD3",
+X  "BD2DND3ER2FD3", "BD3D2FR2EU2HL2G", "BD2DND5ER2FD2GL2H",
+X  "BR4BD8U5HL2GD2FR2E", "BD2DND3ER2F", "BD6R3EHL2HER3", "BR2D2NL2NR2D4",
+X  "BD2D3FRE2NU2D2", "BD2DFDFEUEU", "BD2D3FENUFEU3", "BD2F2NG2NE2F2",
+X  "BD2D3FR2ENU3D2GL3", "BD2R4G4R4", /* Lower Case Letters */
+X  "BR3GDGFDF", "BR2D2BD2D2", "BRFDFGDG", "BFEFE", "BD6R4"}; /* Symbols */
+X
+Xchar *worlddata[] = {
+X"-031+70",
+X"LLRRHLLLLDULLGLLLDULGLLLGLRREDEGGLGGLGLGLLGDRLDRLFFRRERFDFRRREUEEHLUERERUERRF\
+XGLGLDDFRRRRREFRLGLLLLLGEFDLHGDDLGHLGLLHGLHURDLRRELLLRHUGLDFDLGLLFHGGLGLLLDLLLD\
+XRRFFDDGLLLLLLGDFGDDRRFRERREEUEREUEFRRERRFFFRFRDDLLLLRFRUREURULHLHHHEF",
+X"5EUROPE",
+X"+006+50", "RRERRRRUELLUHHLLREULLELLDGHDUFDEGRDRRLFDLLRGRRGGL", "5ENGLAND",
+X"+008+55", "GLFGRRREUULL", "5IRELAND",
+X"+023+64", "RRFRERRREHLLLLLGHLLRFLLRFL", "5ICELAND",
+X"-011+80", "DDURFRERLGRRLLFRRREEFRRRLHGELLLHRRFRRRRERLLLLLLLLLLLDHGULLL",
+X"5SVALBARD",
+X"-014+45",
+X"FRFRFDDFRDRRLLFRURFHHUERRRRRHUUEERRRRGRDERRLHLRRERRGGRFRFFGLLLLHLLLLGLLDLLLFG\
+XRFFRERFRERDDDGDGLLDFFEUDDFFDFFDDFFFDFDDDRRERRERRRUERRERURUEEHHLHUGGLLLUUGUHUHU\
+XRRFFRFRRRDRRFRRRRRRRF",
+X"5MIDDLE EAST",
+X"-009+41", "DDRUULEUGD", "5SARDINIA",
+X"-024+35", "RRLL", "5CRETE",
+X"-032+35", "RRLL", "5CYPRUS",
+X"-052+37", "LLHUURHUHUHERERRRDDLLLFFDDURFLLDFDDL", "0CASPAIN SEA",
+X"-060+44", "LLUEERDFLDL", "0ARAL SEA",
+X"-068+24",
+X"FRGFRREDDDDDFDFDDFDDFERUEUUUUEEEEEREURRREFDFRDDDDRREFDDFDDGDDRFDDFDFFRUHUUHHH\
+XULUEUUURDRFDFRDEEREUUUHHHUUEERRDDEURRERREREEEUEULLREUHUHLEERRHLGLULUREERDLDRER\
+XRFGRFDGRRREUHHUREUE",
+X"6ASIA S",
+X"-140+36",
+X"DEUUEUHURREREEGLLHHDDGLDRGDDGGLGLLLGGLDLRDFEUHRRGEERDLLRGLRERRERRE",
+X"6JAPAN",
+X"-121+25", "GDFUEUL", "6TAIWAN",
+X"-080+10", "DDDDREUHH", "6SRI LANKA",
+X"-121+18", "LDDDRDDRHRRFFDDDLLEHDULRHDFDDGERDDREUUULUUHHLHEUUL",
+X"2PHILIPPINES",
+X"-131+43",
+X"EFREEREEEUUUEUHLLUDLULEERERERRRRRRERRFLRRRRLUERERRRDRERURRGDLGLGLGLGGDDFDFEUR\
+XRUERUURULEEREDERRFRERERRRERRHLHLRRRREURDRRFRFRUURRHLLLDHHLLHLLHLLLLLLLDLLHRLLL\
+XLLLLGHULLLLLLLLLLULLLGL",
+X"6SIBERIA",
+X"-145+71",
+X"RELLRHLLLLGDHGHLLLLGLLHUHLLLLLDLLLLHLLLLLDULUDLGLLLLRRERERRRELHLLLLLLLELLLLGD\
+XLLLLLUDLLLLLGLLLDLLLLLLLDFRDDHELLLLLLDRRLLHUDLGFGRRRRFRLHLLDGLGLLHRRREUHUUULLG\
+XGLDRFGHLLLHLLLLRFGHLGLLLULGLLLGLLHRHLDDDLLLLDLLLFLLHUHLRRFRRRREHLLHLLLHLL",
+X"6RUSSIA",
+X"-143+54", "GDDDDDDDEDUUURUUHUU", "6SAKHALIN",
+X"-180+72", "GRRRRULLL", "6WRANGEL I.",
+X"-137+76", "DRRRRRRRELLLLLLLL", "6SIBERIAN I.",
+X"-091+80", "FERDRRRRRRULLLLLRRULLLLGL", "6SEVERNAYA",
+X"-101+79", "GRRRRELLLL", "6ZEMLYA",
+X"-068+77", "LLGLLLLLLGLLGGLGLRFRRRRLHERERERRRERRRREL", "6NOVAYA",
+X"+123+49",
+X"FGULLFDDDGFDDDFFDFRFRFDFFFDLFFRDFFEHHHHUHHUFRDFFFRDFFFDFGFRFRFRRFRRRRFFRRFRFF\
+XDRFFRFEUUGLHHUUEUHLLLLLEUUEULLLGDLLGLHHUHUUUEHEERERRFRRHRREFRRFDFDFEUUHUUUEERE\
+XRUUUHFDEUHFEURRRELUERRE",
+X"4NORTH AMERICA S",
+X"+113+42", "FH", "0SALT LAKE",
+X"+156+20", "DRULHLHL", "4HAWAII",
+X"+085+22", "RERFRRFRGRRRRHLHLHLLLLLG", "4CUBA",
+X"+070+18", "RRHHLLLFLLLFRRRRRR", "4HAITI",
+X"+078+18", "RRHLLF", "4JAMAICA",
+X"+066+18", "ELLDR", "4PUERTO RICO",
+X"+078+24", "UD", "4NASSAU",
+X"+067+45",
+X"REFLGDERERREHDLLLHUELLLGLGLREEERRRRRRREERRGGDGRRRFEFUUHLLLEUUHHGLRELLHHUHHHDG\
+XLGHHULLHLLLLLDFGFDDGLLFDDGHHUULLLLHLLHLLLUHUUEREEREERRRREUUHLLLDDGHULLLHLUHLGD\
+XRFGGULLLLLLLLLHLLGFLHLLLLLRHLLLLLHLLLLLLHGLLLLGUGLLLHLL",
+X"4CANADA",
+X"+088+49",
+X"LGLGRRRRRRRFLLLGRGDDREUURUFRGRFGFERERREEREERLGGLGLLLGRLLGLEUERHLLLHULHL",
+X"0GREAT LAKES",
+X"+117+61", "REHRFRRERGLGLLLL", "0SLAVE LAKE",
+X"+125+66", "RRERRRGREDLFHGLLLERLLLL", "0BEAR LAKE",
+X"+097+50", "UULHURFDFG", "0LAKE WINNIPEG",
+X"+090+72",
+X"FRRLLFRRRRRRRRRRFRRGLLGRREEFRFLGLFLLLLFRERFRFRRFRRHLHFRRRUHLHRRFRURELLHLLLHRR\
+XHLHLHGHLHLLGLLEHFRRRHLLLLLLGLDFHLUELLGG",
+X"4BAFFIN I.",
+X"+125+72",
+X"RFRREERRRLLGFFRRRRRLLLLLFRRRRRRRREFRRRRHRRLHLHHLRRULGLFLHLDLLULLLLHLLLLLLLDG",
+X"4VICTORIA I.",
+X"+141+70",
+X"LLLLLLLLHGLHLLLHGLLGLLGLLDRRFRRDLLLULGLLFRRRRRRDLGLLGFDRRRDRRRRRGGGLLGLLGGLLR\
+XRERERRRERREERRELEERRRLLGDRERRURRFRRRRRFRRFUDRUDDHFDURDURLURDDLFRULURDHFFRGFEGR\
+XFFRFRFLHLHLFFRFE",
+X"4ALASKA",
+X"+045+60",
+X"REUEREUERRRRERERRRERRRRERLLLLLLHRRRGERHFRRRRHLUDLLHLRERFRERLEUHRRHLEERLLURRRR\
+XRRRRELLLLLLLLLLGLLLRERHGLRELLLLLLLELLLLLLLLLLGLLLLLLGLLLLLLGLULLLLLLLFRLLLLLGL\
+XRRRGLLLLLLLGRRRRRRRGLLLLRRFRRRRRRRRRRFDFDLFREFRDLLLDERRFGLLGFFDRFFFRRRF",
+X"4GREENLAND",
+X"+080+10",
+X"DRFDFDDGGGDDGRDGDDFFDFDFFDFFRFFFDDDDDDGDDDDGDDDDGDGFGDDDEUDDDGUDDLDRGDDDFDFRF\
+XRRFERRLHLUHUURUEELHEREURULURREURREREUHUUDFRREEEEEUEUUEERERRREUEUEUUUUUEEEEUUUH\
+XLHLHLLLLHLHLGEHLGEUHUUHLHLLLHHLHULEDLLELLGHLLHLGDDHUELLGLGDGHHL",
+X"3SOUTH AMERICA",
+X"+060-51", "LDRRELL", "3FALKLAND ISLANDS",
+X"+092+00", "FUL", "3GALAPAGOS I.",
+X"-032+32",
+X"LLGLHLLLLHLGDGHLLHHLLHLEUULLLLLLLLLGLGLLLLHDGLGDGDGGLDGGGDGDFDDDDGDDFFFFDFRFF\
+XRRRRRRRRERERRFFRRFFDDDGDFFFDFDDDFDGDGDDDFDFDFDDDFDFDFDDFFERRRRREEEEEEEUUEREUUH\
+XUEEEREEUUUUHUUUHUEUEEEEEREEUEUEEUUULLLLGLLHUHHLHUHHUUHHUUHUHHUU",
+X"1AFRICA",
+X"-049-12", "DGGGLGDDDDGDDFFREUEUEUUUEUUUUH", "1MADAGASCAR",
+X"-032+00", "DDDREUELLL", "0LAKE VICTORIA",
+X"-014+14", "LRFLU", "0LAKE CHAD",
+X"-124-16",
+X"LGDGGLGLLGLDDDGFDDFDFDGFRRRERRRRURERRRRRRRFFFEEDDRFDFRFREFRERRUUEUEEUUUUUUUHH\
+XHHHHHUUHHHUULDDDDGDGHLHLHEUELLLHLFLLULDRGDDLLHLGG",
+X"2AUSTRALIA",
+X"-173-35", "FFDGFDREURULHHHL", "2NEW ZEALAND N",
+X"-174-41", "LLDGLGLGGRFREEUREEU", "2NEW ZEALAND S",
+X"-145-41", "DFRRUUUDLLL", "2TASMANIA",
+X"-178-17", "GRRURUGDH", "2FIJI",
+X"-130+00", "FRFRLGFEFRFRFDGRRFRRUERFFFRRRLHHHHRHLHHLHLLHGGLHUHLGH",
+X"2NEW GUINEA",
+X"-115-04", "RUUEEURHUUEHHGGGGLLDDHLDDFDDRRDERF", "2BORNEO",
+X"-095+06", "DFFFFFFDFFFFRUUUHFRHLHLUHHHHHLLH", "2SUMATRA",
+X"-106-06", "GRFRRRRRRFRRHLHLLLLLHL", "2JAVA",
+X"-120+00", "DGDDRDFHUEDFRHUHREFHLGHURRRRELLLLG", "2CELEBES",
+X"+000-70",
+X"ULDLLLLLLLLGLLGLLLGLLGLLLLGLGLLGLLLLGLLLLLHLGLLLLLHLLLLLHLLLLHLLUERLEUUUUUUEE\
+XRRRULLGLLLLGLGGLLLDRUDRDLGHLLGLLFGRRFLLLLLLLDHLLLLHLLLLLGLLLLHLLLLLLLGRFDLLLUL\
+XLLGHLLLLLLLLLLHGHLLGLLLLLLLGLLLLLLLLLLLGLLLGLLLLLLLLGLLLLLLLLLLLLLLLLLLLLL",
+X"7ANTARCTICA W",
+X"+180-78",
+X"LLLLLLLHLLGHLLGHLUEERRERREHLLLLHLLLLLLHLLLLLLLLLLLHLHLLLLLHLLULDLLLLLDLLHLLLL\
+XGHFLLLLLHLLLLLLGLHLLHLGLLLLHLGLLGLLLULLLGLLHDFLLLGLGLLLELLLLHLLLLLLLLLLHLLLHLL\
+XLLGGHGHGLLLGLDLLLLHLLGHGLLLLLLLLLLLLLLHLGLLLLLLLLLLLLLL",
+X"7ANTARCTICA E",
+X"", "", ""};
+X#endif
+X
+X/* xdata.c */
+END_OF_FILE
+if test 15016 -ne `wc -c <'xdata.c'`; then
+    echo shar: \"'xdata.c'\" unpacked with wrong size!
+fi
+# end of 'xdata.c'
+fi
+echo shar: End of archive 3 \(of 12\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

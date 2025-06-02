@@ -1,0 +1,1349 @@
+Newsgroups: comp.sources.x
+From: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Subject: v21i041:  pan - A post a note program, Part05/06
+Message-ID: <1993Nov9.000730.10980@sparky.sterling.com>
+X-Md4-Signature: 5c82d394f16ea73400a8de8aeed77d1a
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 00:07:30 GMT
+Approved: chris@sterling.com
+
+Submitted-by: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Posting-number: Volume 21, Issue 41
+Archive-name: pan/part05
+Environment: X11, OpenLook, XView
+Supersedes: pan: Volume 16, Issue 137-142
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 05 of a multipart archive
+# ============= pan3.0/pan.c ==============
+if test ! -d 'pan3.0'; then
+    echo 'x - creating directory pan3.0'
+    mkdir 'pan3.0'
+fi
+if test -f 'pan3.0/pan.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/pan.c (File already exists)'
+else
+echo 'x - extracting pan3.0/pan.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/pan.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#define public
+X
+X#include "pan.h"
+X#include "patchlevel.h"
+X#include <signal.h>
+X
+X#include <X11/X.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xos.h>
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xint  xverror(), xerror();
+X
+Xextern char *optarg;
+X
+Xstatic char init_search_val[MAXSEARCHLEN];
+X
+XNotify_value aborted();
+X
+Xmain(argc, argv)
+X    int  argc;
+X    char *argv[];
+X    {
+X    Xv_Server server;
+X    FILE *fp;
+X    char *cp;
+X    int  opt;
+X
+X    debug_on = 0;
+X    move_up = 0;
+X    destroy_up = 0;
+X    search_up = 0;
+X    notecount = 0;
+X    *init_search_val = 0;
+X
+X    LLM_init(&subdir_rt, sizeof(struct SubDir));
+X    LLM_init(&freewin_rt, sizeof(struct FreeWin));
+X
+X    strcpy(myname, argv[0]);
+X    cp = getenv("HOME");
+X    if(cp == NULL)
+X        {
+X        fprintf(stderr, "%s:  Can't determine value of HOME\n", myname);
+X        exit(1);
+X        }
+X
+X    /* If first time run, set up default dirs */
+X    sprintf(note_dir, "%s/%s", cp, NOTEDIR);
+X    (void) mkdir(note_dir, 0700);
+X    sprintf(note_dir, "%s/%s/Miscellaneous", cp, NOTEDIR);
+X    (void) mkdir(note_dir, 0700);
+X
+X    sprintf(note_dir, "%s/%s", cp, NOTEDIR);
+X
+X    server = xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv,
+X        XV_ERROR_PROC, xverror,
+X        XV_X_ERROR_PROC, xerror,
+X        NULL);
+X
+X    /* Process the X resources database for what we need */
+X    defaults_load_db(NULL);
+X
+X    cp = defaults_get_string(resources[RES_IDIR].a, resources[RES_IDIR].b,
+X         note_dir);
+X    if(cp != note_dir)
+X        {
+X        strcpy(note_dir, cp);
+X        }
+X
+X    while((opt = getopt(argc, argv, "d:x")) != -1)
+X        {
+X        switch(opt)
+X            {
+X            case 'd' : /* Initial directory */
+X                strcpy(note_dir, optarg);
+X                break;
+X            case 'x' : /* Turn on debugs.  Undocumented flag */
+X                debug_on = 1;
+X                break;
+X            }
+X        }
+X
+X    if(chdir(note_dir) < 0)
+X        {
+X        fprintf(stderr, "%s:  Couldn't chdir to %s\n", myname, note_dir);
+X        exit(1);
+X        }
+X
+X    fp = fopen(PIDNAM, "w");
+X    if(fp != NULL)
+X        {
+X        fprintf(fp, "%d\n", getpid());
+X        (void) fclose(fp);
+X        }
+X
+X    confirmdestroy = (defaults_get_boolean(resources[RES_CDESTROY].a,
+X        resources[RES_CDESTROY].b, RESDEF_CDESTROY) == TRUE);
+X
+X    /* Reverse boolean */
+X    noticenobeep = (defaults_get_boolean(resources[RES_NBEEP].a,
+X        resources[RES_NBEEP].b, RESDEF_NBEEP) == FALSE);
+X
+X    icontransparent = (defaults_get_boolean(resources[RES_ITRANSPARENT].a,
+X        resources[RES_ITRANSPARENT].b, RESDEF_ITRANSPARENT) == TRUE);
+X
+X    cp = defaults_get_string(resources[RES_FORDER].a, resources[RES_FORDER].b,
+X         RESDEF_FORDER);
+X    strcpy(folderorder, cp);
+X
+X    cp = defaults_get_string(resources[RES_DSEARCH].a, resources[RES_DSEARCH].b,
+X         RESDEF_DSEARCH);
+X    strcpy(init_search_val, cp);
+X
+X    fintitle = (defaults_get_boolean(resources[RES_FINTITLE].a,
+X        resources[RES_FINTITLE].b, RESDEF_FINTITLE) == TRUE);
+X
+X    cp = defaults_get_string(resources[RES_TEXTFONT].a,
+X         resources[RES_TEXTFONT].b, RESDEF_TEXTFONT);
+X    if(cp != NULL)
+X        strcpy(textfont, cp);
+X    else
+X        *textfont = 0;
+X
+X    windowmax = defaults_get_integer(resources[RES_WINDOWMAX].a,
+X        resources[RES_WINDOWMAX].b, RESDEF_WINDOWMAX);
+X
+X    cp = defaults_get_string(resources[RES_ACTIONDEF].a,
+X         resources[RES_ACTIONDEF].b, RESDEF_ACTIONDEF);
+X    strcpy(actiondef, cp);
+X
+X    menutextlen = defaults_get_integer(resources[RES_MENUTEXTLEN].a,
+X        resources[RES_MENUTEXTLEN].b, RESDEF_MENUTEXTLEN);
+X    if(menutextlen < 5) menutextlen = 5;
+X    if(menutextlen > MAXTITLELEN) menutextlen = MAXTITLELEN;
+X
+X    setwidth = defaults_get_integer(resources[RES_SETWIDTH].a,
+X        resources[RES_SETWIDTH].b, RESDEF_SETWIDTH);
+X    if(setwidth < 0 || setwidth > 200) setwidth = RESDEF_SETWIDTH;
+X    sprintf(widthtext, "Width %d", setwidth);
+X
+X    logging = (defaults_get_boolean(resources[RES_LOGGING].a,
+X        resources[RES_LOGGING].b, RESDEF_LOGGING) == TRUE);
+X
+X    topmargin = defaults_get_integer(resources[RES_TOPMARGIN].a,
+X        resources[RES_TOPMARGIN].b, RESDEF_TOPMARGIN);
+X    if(topmargin < 0) topmargin = 0;
+X
+X    bottommargin = defaults_get_integer(resources[RES_BOTTOMMARGIN].a,
+X        resources[RES_BOTTOMMARGIN].b, RESDEF_BOTTOMMARGIN);
+X    if(bottommargin < 0) bottommargin = 0;
+X
+X    leftmargin = defaults_get_integer(resources[RES_LEFTMARGIN].a,
+X        resources[RES_LEFTMARGIN].b, RESDEF_LEFTMARGIN);
+X    if(leftmargin < 0) leftmargin = 0;
+X
+X    rightmargin = defaults_get_integer(resources[RES_RIGHTMARGIN].a,
+X        resources[RES_RIGHTMARGIN].b, RESDEF_RIGHTMARGIN);
+X    if(rightmargin < 0) rightmargin = 0;
+X
+X    checkinterval = defaults_get_integer(resources[RES_CHECKINTERVAL].a,
+X        resources[RES_CHECKINTERVAL].b, RESDEF_CHECKINTERVAL);
+X    if(checkinterval < 5) checkinterval = 5;
+X
+X    cp = defaults_get_string(resources[RES_SEARCHMENU].a,
+X         resources[RES_SEARCHMENU].b, RESDEF_SEARCHMENU);
+X    strcpy(searchmenu, cp);
+X    trim(searchmenu);
+X    if(*searchmenu == 0) strcpy(searchmenu, RESDEF_SEARCHMENU);
+X
+X    notewidth = defaults_get_integer(resources[RES_NOTEWIDTH].a,
+X        resources[RES_NOTEWIDTH].b, RESDEF_NOTEWIDTH);
+X    noteheight = defaults_get_integer(resources[RES_NOTEHEIGHT].a,
+X        resources[RES_NOTEHEIGHT].b, RESDEF_NOTEHEIGHT);
+X
+X    setup_display();
+X#ifdef PAN_DND
+X    drag_init(server);
+X#endif
+X    restorenotes();
+X    xv_main_loop(main_frame);
+X    (void) unlink(PIDNAM);
+X    exit(0);
+X    /* NOTREACHED */
+X    }
+X
+X/*
+X    Routine to set up main frame and buttons.
+X*/
+Xsetup_display()
+X    {
+X    char *cp;
+X    struct ps_component *lp, *np;
+X    Menu menu;
+X    Menu_item mitem;
+X    Server_image image, image2;
+X    Icon icon;
+X    static XClassHint chint;
+X    struct itimerval itv;
+X    Rect *rect;
+X    Panel_item item;
+X    int  x, num, mnum;
+X
+X    main_frame = xv_create(NULL, FRAME,
+X                           XV_LABEL, PAN_VERSION,
+X                           FRAME_NO_CONFIRM, TRUE,
+X                           NULL);
+X    if(main_frame == NULL)
+X        {
+X        fprintf(stderr, "%s:  Couldn't create base frame.\n", myname);
+X        exit(1);
+X        }
+X
+X    /* Set up the X class since xview doesn't */
+X    chint.res_name = "panmain";
+X    chint.res_class = "PanMain";
+X    XSetClassHint((Display *)xv_get(main_frame, XV_DISPLAY),
+X        xv_get(main_frame, XV_XID), &chint);
+X
+X    notify_interpose_destroy_func(main_frame, aborted);
+X
+X    main_panel = (Panel) xv_create(main_frame, PANEL, 
+X                     WIN_RETAINED, FALSE, 
+X                     NULL);
+X
+X    main_newnote = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, newnote,
+X                     NULL);
+X    item = (Panel_item) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "New Note", 
+X                     PANEL_ITEM_MENU, main_newnote,
+X                     XV_X, xv_col(main_panel, 0),
+X                     XV_Y, xv_row(main_panel, 0),
+X                     NULL);
+X    rect = (Rect *) xv_get(item, PANEL_ITEM_RECT);
+X    x = rect->r_width + DEFPANELSPACING;
+X    
+X    item = (Panel_item) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "Hide Notes",
+X                     PANEL_NOTIFY_PROC, hideall,
+X                     XV_X, x,
+X                     XV_Y, xv_row(main_panel, 0),
+X                     NULL);
+X    main_expose = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, exposemenu,
+X                     MENU_STRINGS, CHOICE_ALL, NULL,
+X                     NULL);
+X    item = (Panel_item) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "Expose Notes", 
+X                     PANEL_ITEM_MENU, main_expose,
+X                     XV_X, xv_col(main_panel, 0),
+X                     XV_Y, xv_row(main_panel, 1),
+X                     NULL);
+X    rect = (Rect *) xv_get(item, PANEL_ITEM_RECT);
+X    x = rect->r_width + DEFPANELSPACING;
+X
+X    main_print = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, actionmenu,
+X                     NULL);
+X    menu = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, actionmenu,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_FOLDER,
+X                         MENU_NOTIFY_PROC, createfolder,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_MOVE,
+X                         MENU_NOTIFY_PROC, movenote,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_PRINT,
+X                         MENU_PULLRIGHT, main_print,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_DESTROY,
+X                         MENU_NOTIFY_PROC, destroyfolder,
+X                         NULL,
+X                     MENU_ITEM,
+X                         MENU_STRING, CHOICE_QUIT,
+X                         NULL,
+X                     NULL);
+X    mitem = (Menu_item) xv_find(menu, MENUITEM,
+X                                MENU_STRING, actiondef,
+X                                XV_AUTO_CREATE, FALSE,
+X                                NULL);
+X    if(mitem)
+X        {
+X        mnum = xv_get(menu, MENU_NITEMS);
+X        num = 0;
+X        while(!num && mnum)
+X            {
+X            if(mitem == (Menu_item) xv_get(menu, MENU_NTH_ITEM, mnum))
+X                num = mnum;
+X            mnum--;
+X            }
+X        xv_set(menu, MENU_DEFAULT, num, NULL);
+X        }
+X
+X    item = (Panel_item) xv_create(main_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "Action",
+X                     PANEL_ITEM_MENU, menu,
+X                     XV_X, x,
+X                     XV_Y, xv_row(main_panel, 1),
+X                     NULL);
+X
+X    search_item = xv_create(main_panel, PANEL_TEXT,
+X                     PANEL_LABEL_STRING, "Search:",
+X                     PANEL_VALUE, init_search_val,
+X                     PANEL_VALUE_DISPLAY_LENGTH, MAXSEARCHDISLEN + 1,
+X                     PANEL_VALUE_STORED_LENGTH, MAXSEARCHLEN,
+X                     PANEL_NOTIFY_PROC, notesearch,
+X                     XV_X, xv_col(main_panel, 0),
+X                     XV_Y, xv_row(main_panel, 2),
+X                     NULL);
+X
+X    rect = (Rect *) xv_get(search_item, PANEL_ITEM_RECT);
+X    x = rect->r_width + DEFPANELSPACING;
+X
+X    menu = xv_create(NULL, MENU,
+X                     MENU_NOTIFY_PROC, search_menu_proc,
+X                     NULL);
+X    lp = parse_string(searchmenu, ", \t\n", 1, 1, 1);
+X    np = lp;
+X    while(np != NULL)
+X        {
+X        cp = malloc(strlen(np->ps_text) + 1);
+X        if(cp == NULL)
+X            {
+X            fprintf(stderr, "%s:  Couldn't allocate memory.\n", myname);
+X            exit(1);
+X            }
+X        strcpy(cp, np->ps_text);
+X        mitem = xv_create(NULL, MENUITEM,
+X            MENU_STRING, cp,
+X            MENU_RELEASE,
+X            MENU_RELEASE_IMAGE,
+X            NULL);
+X        xv_set(menu, MENU_APPEND_ITEM, mitem, NULL);
+X        np = np->ps_next;
+X        }
+X    free_ps_list(lp);
+X    search_button = (Panel_item) xv_create(main_panel, PANEL_ABBREV_MENU_BUTTON,
+X                     PANEL_ITEM_MENU, menu,
+X                     XV_X, x,
+X                     XV_Y, xv_row(main_panel, 2),
+X                     NULL);
+X
+X    image = xv_create(NULL, SERVER_IMAGE, XV_WIDTH, 64, XV_HEIGHT, 64,
+X                      SERVER_IMAGE_BITS, mainicon, NULL);
+X    image2 = xv_create(NULL, SERVER_IMAGE, XV_WIDTH, 64, XV_HEIGHT, 64,
+X                      SERVER_IMAGE_BITS, mainiconmask, NULL);
+X    icon = xv_create(main_frame, ICON,
+X                     ICON_IMAGE, image,
+X                     ICON_MASK_IMAGE, image2,
+X                     ICON_LABEL, "Notes",
+X                     ICON_TRANSPARENT, icontransparent,
+X                     NULL);
+X    xv_set(main_frame, FRAME_ICON, icon, NULL);
+X    window_fit(main_panel);
+X    window_fit(main_frame);
+X
+X    itv.it_interval.tv_sec = checkinterval;
+X    itv.it_interval.tv_usec = 0;
+X    itv.it_value.tv_sec = checkinterval;
+X    itv.it_value.tv_usec = 0;
+X    notify_set_itimer_func(main_frame, check_ctl_file, ITIMER_REAL, &itv, NULL);
+X
+X    notify_set_signal_func(main_frame, check_ctl_file, SIGUSR1, NOTIFY_SYNC);
+X
+X    init_menu_string_normalize();
+X    }
+X
+XNotify_value aborted(client, status)
+X    Notify_client client;
+X    Destroy_status status;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X 
+X    if(status == DESTROY_CHECKING) return(NOTIFY_DONE);
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            update(np);
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X
+X    if(status == DESTROY_CLEANUP)
+X        return(notify_next_destroy_func(client, status));
+X
+X    return(NOTIFY_DONE);
+X    }
+X
+X/*
+X    Routine called to safely cleanup and exit pan.  Called by Action Quit menu
+X    item.
+X*/
+Xcleanup(errnum)
+X    int  errnum;
+X    {
+X    struct SubDir *sp;
+X    struct Note *np;
+X
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            update(np);
+X            updateinfo(np, NOFORCE);
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    xv_destroy_safe(main_frame);
+X    (void) unlink(PIDNAM);
+X    exit(errnum);
+X    }
+X
+X/*
+X    Scan the notes directory and locate all notes.  Create frames of the
+X    appropriate attributes for any notes found.  Called on startup or
+X    folder change.
+X*/
+Xrestorenotes()
+X    {
+X    int  found;
+X    char *cp;
+X    DIR *dp;
+X    struct dirent *ent;
+X    struct stat st;
+X    struct Note *np;
+X    struct SubDir *sp;
+X    struct ps_component *list, *tok;
+X    Menu_item mi;
+X    char buf[MAXBUFLEN];
+X
+X    /* parse requested order */
+X    list = parse_string(folderorder, ", \t", 0, 0, 0);
+X    if(list != NULL)
+X        {
+X        tok = list;
+X        while(tok != NULL)
+X            {
+X            if(stat(tok->ps_text, &st) == 0 && (S_IFMT & st.st_mode) == S_IFDIR)
+X                {
+X                sp = (struct SubDir *)LLM_add(&subdir_rt);
+X                if(sp == NULL)
+X                    {
+X                    notice_prompt(main_frame, NULL,
+X                        NOTICE_MESSAGE_STRINGS,
+X                            "Insufficient memory - Exiting",
+X                            sys_errlist[errno],
+X                            NULL,
+X                        NOTICE_BUTTON_YES, "Acknowledge",
+X                        NOTICE_NO_BEEPING, noticenobeep,
+X                        NULL);
+X                    cleanup(1);
+X                    }
+X                strcpy(sp->subdir, tok->ps_text);
+X                LLM_init(&sp->note_rt, sizeof(struct Note));
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_NOTIFY_PROC, newnote,
+X                    NULL);
+X                xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_GEN_PULLRIGHT, gen_exposemenu,
+X                    NULL);
+X                xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X                mi = xv_create(NULL, MENUITEM,
+X                    MENU_STRING, sp->subdir,
+X                    MENU_GEN_PULLRIGHT, gen_prtmenu,
+X                    NULL);
+X                xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X                }
+X            tok = tok->ps_next;
+X            }
+X        free_ps_list(list);
+X        }
+X
+X    dp = opendir(note_dir);
+X    if(dp == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't read directory",
+X                note_dir,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    (void) re_comp("Note_[0-9][0-9]*.*\\.info$");
+X    while((ent = readdir(dp)) != NULL)
+X        {
+X        if(*ent->d_name != '.' && stat(ent->d_name, &st) == 0 &&
+X           (S_IFMT & st.st_mode) == S_IFDIR)
+X            {
+X            found = 0;
+X            sp = (struct SubDir *)LLM_first(&subdir_rt);
+X            while(sp != NULL)
+X                {
+X                if(strcmp(ent->d_name, sp->subdir) == 0)/* already processed */
+X                    {
+X                    found = 1;
+X                    break;
+X                    }
+X                sp = (struct SubDir *)LLM_next(&subdir_rt);
+X                }
+X            if(found) continue;
+X            sp = (struct SubDir *)LLM_add(&subdir_rt);
+X            if(sp == NULL)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Insufficient memory - Exiting",
+X                        sys_errlist[errno],
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                cleanup(1);
+X                }
+X            strcpy(sp->subdir, ent->d_name);
+X            LLM_init(&sp->note_rt, sizeof(struct Note));
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_NOTIFY_PROC, newnote,
+X                NULL);
+X            xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_GEN_PULLRIGHT, gen_exposemenu,
+X                NULL);
+X            xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X            mi = xv_create(NULL, MENUITEM,
+X                MENU_STRING, sp->subdir,
+X                MENU_GEN_PULLRIGHT, gen_prtmenu,
+X                NULL);
+X            xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X            }
+X        }
+X    closedir(dp);
+X    sp = (struct SubDir *)LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        sprintf(buf, "%s/%s", note_dir, sp->subdir);
+X        dp = opendir(buf);
+X        if(dp == NULL)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Couldn't read directory",
+X                    note_dir,
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            while((ent = readdir(dp)) != NULL)
+X                {
+X                if(re_exec(ent->d_name) == 1)
+X                    {
+X                    np = (struct Note *)LLM_add(&sp->note_rt);
+X                    if(np == NULL)
+X                        {
+X                        notice_prompt(main_frame, NULL,
+X                            NOTICE_MESSAGE_STRINGS,
+X                                "Insufficient memory - Exiting",
+X                                note_dir,
+X                                sys_errlist[errno],
+X                                NULL,
+X                            NOTICE_BUTTON_YES, "Acknowledge",
+X                            NOTICE_NO_BEEPING, noticenobeep,
+X                            NULL);
+X                        cleanup(1);
+X                        }
+X                    memset((char *)np, 0, sizeof(struct Note));
+X                    np->sp = sp;
+X                    strcpy(np->basename, ent->d_name);
+X                    cp = np->basename;
+X                    while(*cp)
+X                        {
+X                        if(*cp == '.') *cp = 0;
+X                        cp++;
+X                        }
+X                    setnote(np);
+X                    adjust_sorted(np);
+X                    }
+X                }
+X            closedir(dp);
+X            }
+X        sp = (struct SubDir *)LLM_next(&subdir_rt);
+X        }
+X    }
+X
+X/*
+X   Trims trailing blanks, tabs, newlines, and carriage returns from a string 
+X*/
+X
+Xtrim(start)
+X    register char *start;
+X    {
+X    register int  slen;
+X    register char *end;
+X
+X    slen = strlen(start);
+X    if(slen == 0) return;
+X    end = start + slen - 1;
+X    while( (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
+X           && end >= start) end--;
+X    end++;
+X    *end = '\0';
+X    }
+X
+X/* Searches for first occurrence of spattern in string */
+X
+Xchar *instr(string, spattern)
+X    char *string;
+X    char *spattern;
+X    {
+X    register char *pos1, *pos2;
+X
+X    while(*string != '\0')
+X        {
+X        pos1 = string;
+X        pos2 = spattern;
+X        while(*pos1 == *pos2)
+X            {
+X            pos1++;
+X            pos2++;
+X            if(*pos2 == '\0') return(string);
+X            }
+X        string++;
+X        }
+X    return(NULL);
+X    }
+X
+Xxverror(obj, list)
+X    Xv_object obj;
+X    Attr_avlist list;
+X    {
+X    fprintf(stderr, "XView error:  %s\n", xv_error_format(obj, list));
+X    kill(getpid(), SIGBUS);
+X    }
+X
+Xxerror()
+X    {
+X    if(fork() == 0)
+X        kill(getpid(), SIGBUS);
+X    return(XV_ERROR);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/pan.c ||
+echo 'restore of pan3.0/pan.c failed'
+Wc_c="`wc -c < 'pan3.0/pan.c'`"
+test 21826 -eq "$Wc_c" ||
+	echo 'pan3.0/pan.c: original size 21826, current size' "$Wc_c"
+fi
+# ============= pan3.0/update.c ==============
+if test -f 'pan3.0/update.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/update.c (File already exists)'
+else
+echo 'x - extracting pan3.0/update.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/update.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+X/*
+X    Routine called when an update of the notes size and position and title
+X    is desired.  Only write to a file if changes have been made or the
+X    force flag is set.
+X*/
+Xupdateinfo(np, force)
+X    struct Note *np;
+X    int  force;
+X    {
+X    int  closed;
+X    FILE *fp;
+X    Rect rect;
+X    char fname[MAXBUFLEN];
+X
+X    if(!np->mapped) return;
+X    closed = xv_get(np->frame, FRAME_CLOSED);
+X    if(!closed)
+X        {
+X        frame_get_rect(np->frame, &rect);
+X        if(force != FORCE)
+X            {
+X            if(np->rect.r_left == rect.r_left &&
+X               np->rect.r_top == rect.r_top &&
+X               np->rect.r_width == rect.r_width &&
+X               np->rect.r_height == rect.r_height)
+X                {
+X                return;
+X                }
+X            }
+X        memcpy((char *)&np->rect, (char *)&rect, sizeof(rect));
+X        }
+X    makeinfoname(fname, np);
+X    fp = fopen(fname, "w");
+X    if(fp != NULL)
+X        {
+X        if(np->state == Hidden)
+X            fprintf(fp, "%d\t%d\t%d\t%d\tHIDDEN\n", np->rect.r_left,
+X                np->rect.r_top, np->rect.r_width, np->rect.r_height);
+X        else
+X            fprintf(fp, "%d\t%d\t%d\t%d\tVISIBLE\n", np->rect.r_left,
+X                np->rect.r_top, np->rect.r_width, np->rect.r_height);
+X        fprintf(fp, "%s\n", np->ntitle);
+X        fprintf(fp, "%d\n", np->crttime);
+X        fclose(fp);
+X        }
+X    else
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't open note geometry file",
+X                fname,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        }
+X    }
+X
+X/*
+X    Called when a save of the note text is desired.  Only writes to the file
+X    if modifications have been made.
+X*/
+Xupdate(np)
+X    struct Note *np;
+X    {
+X    int  mod;
+X    char fname[MAXBUFLEN];
+X
+X    if(!np->mapped) return(0);
+X    mod = xv_get(np->textsw, TEXTSW_MODIFIED);
+X    if(mod)
+X        {
+X        xv_set(np->textsw, TEXTSW_CONFIRM_OVERWRITE, FALSE, NULL);
+X        makename(fname, np);
+X        textsw_store_file(np->textsw, fname, 0, 0);
+X        }
+X    return(mod);
+X    }
+X
+X/*
+X    Make a note file name.
+X*/
+Xmakename(fname, np)
+X    char *fname;
+X    struct Note *np;
+X    {
+X    struct SubDir *sp;
+X
+X    sp = np->sp;
+X    sprintf(fname, "%s/%s/%s", note_dir, sp->subdir, np->basename);
+X    }
+X
+X/*
+X    Make a note information file name.
+X*/
+Xmakeinfoname(fname, np)
+X    char *fname;
+X    struct Note *np;
+X    {
+X    struct SubDir *sp;
+X
+X    sp = np->sp;
+X    sprintf(fname, "%s/%s/%s.info", note_dir, sp->subdir, np->basename);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/update.c ||
+echo 'restore of pan3.0/update.c failed'
+Wc_c="`wc -c < 'pan3.0/update.c'`"
+test 3543 -eq "$Wc_c" ||
+	echo 'pan3.0/update.c: original size 3543, current size' "$Wc_c"
+fi
+# ============= pan3.0/search.c ==============
+if test -f 'pan3.0/search.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/search.c (File already exists)'
+else
+echo 'x - extracting pan3.0/search.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/search.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X#include <X11/X.h>
+X#include <X11/Xutil.h>
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xint applysearch(), searchdone(), search_resize_proc();
+XPanel_item srchlist, srchapply;
+X
+Xstatic char re [MAXSEARCHLEN + 1];
+X
+Xnotesearch(item, event) /* don't use event without mods to search_menu_proc */
+X    Panel_item item;
+X    Event *event;
+X    {
+X    struct LLM_root root;
+X    struct Note *np;
+X    struct Note **npp;
+X    int  count;
+X    char buf [MAXSEARCHLEN + 1];
+X
+X    count = 0;
+X
+X    strcpy(buf, (char *) xv_get(item, PANEL_VALUE));
+X    trim(buf);
+X    if(strlen(buf) == 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "No search string entered",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    strcpy(re, buf);
+X    count = w_matchingnotes(&root, re, 1);
+X    if(count == -1)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Invalid regular expression entered",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    if(count == -2)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Memory allocation failure",
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        LLM_free(&root);
+X        return;
+X        }
+X    if(count == 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "No hidden notes matching search string found",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    if(count == 1)
+X        {
+X        npp = (struct Note **) LLM_first(&root);
+X        np = *npp;
+X        w_exposenote(np, ERRONDISPLAY);
+X        }
+X    else
+X        {
+X        postsearch(&root);
+X        }
+X    LLM_free(&root);
+X    }
+X
+Xpostsearch(root)
+X    struct LLM_root *root;
+X    {
+X    struct Note **npp;
+X    int  x, y;
+X    int  row;
+X    Panel search_panel;
+X    static XClassHint chint;
+X
+X    w_popupxy(&x, &y, SEARCHWIDTH, SEARCHHEIGHT, SEARCHSPACING);
+X    search_frame = xv_create(main_frame, FRAME_CMD,
+X                           XV_LABEL, "Matching Notes",
+X                           XV_X, x,
+X                           XV_Y, y,
+X                           XV_WIDTH, SEARCHWIDTH,
+X                           XV_HEIGHT, SEARCHHEIGHT,
+X                           FRAME_NO_CONFIRM, TRUE,
+X                           FRAME_DONE_PROC, searchdone,
+X                           FRAME_SHOW_RESIZE_CORNER, TRUE,
+X                           WIN_EVENT_PROC, search_resize_proc,
+X                           WIN_CONSUME_EVENTS,
+X                               WIN_RESIZE,
+X                               NULL,
+X                           NULL);
+X    if(search_frame == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Unable to create sub-frame (internal error)",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    /* Set up the X class since xview doesn't */
+X    chint.res_name = "pan";
+X    chint.res_class = "Pan";
+X    XSetClassHint((Display *)xv_get(search_frame, XV_DISPLAY),
+X        xv_get(search_frame, XV_XID), &chint);
+X
+X    xv_set(search_frame, XV_SHOW, TRUE, NULL);
+X
+X    search_panel = (Panel) xv_get(search_frame, FRAME_CMD_PANEL);
+X    xv_set(search_panel, WIN_RETAINED, FALSE, NULL);
+X
+X    (void) xv_create(search_panel, PANEL_MESSAGE,
+X        XV_X, xv_col(search_panel, 0),
+X        XV_Y, xv_row(search_panel, 0),
+X        PANEL_LABEL_STRING, "Matching Notes",
+X        NULL);
+X    srchlist = xv_create(search_panel, PANEL_LIST,
+X        XV_X, xv_col(search_panel, 0),
+X        XV_Y, xv_row(search_panel, 1),
+X        PANEL_LIST_DISPLAY_ROWS, 7,
+X        PANEL_LIST_WIDTH, xv_col(search_panel, 25),
+X        PANEL_CHOOSE_ONE, FALSE,
+X        PANEL_READ_ONLY, TRUE,
+X        NULL);
+X    row = 0;
+X    npp = (struct Note **) LLM_first(root);
+X    while(npp != NULL)
+X        {
+X        xv_set(srchlist,
+X            PANEL_LIST_INSERT, row,
+X            PANEL_LIST_STRING, row, (*npp)->ntitle, 
+X            PANEL_LIST_CLIENT_DATA, row, *npp, 
+X            NULL);
+X        npp = (struct Note **) LLM_next(root);
+X        row++;
+X        }
+X
+X
+X    srchapply = xv_create(search_panel, PANEL_BUTTON,
+X                 XV_X, SEARCHWIDTH / 2 - 30,
+X                 XV_Y, SEARCHHEIGHT - 30,
+X                 PANEL_LABEL_STRING, "Apply",
+X                 PANEL_NOTIFY_PROC, applysearch,
+X                 NULL);
+X
+X    (void) xv_set(search_item, PANEL_INACTIVE, TRUE, NULL);
+X    (void) xv_set(search_button, PANEL_INACTIVE, TRUE, NULL);
+X    search_up = 1;
+X    }
+X
+Xsearchdone()
+X    {
+X    xv_destroy_safe(search_frame);
+X    (void) xv_set(search_item, PANEL_INACTIVE, FALSE, NULL);
+X    (void) xv_set(search_button, PANEL_INACTIVE, FALSE, NULL);
+X    (void) xv_set(main_panel, PANEL_CARET_ITEM, search_item, NULL);
+X    search_up = 0;
+X    }
+X
+Xapplysearch(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    struct Note *np;
+X    int  i, row;
+X
+X    row = xv_get(srchlist, PANEL_LIST_NROWS);
+X    for(i = 0; i < row; i++)
+X        {
+X        if(xv_get(srchlist, PANEL_LIST_SELECTED, i))
+X            {
+X            np = (struct Note *) xv_get(srchlist, PANEL_LIST_CLIENT_DATA, i);
+X            if(np != NULL) w_exposenote(np, ERRONDISPLAY);
+X            }
+X        }
+X    if(xv_get(search_frame, FRAME_CMD_PUSHPIN_IN) == FALSE)
+X        {
+X        xv_destroy_safe(search_frame);
+X        (void) xv_set(search_item, PANEL_INACTIVE, FALSE, NULL);
+X        (void) xv_set(search_button, PANEL_INACTIVE, FALSE, NULL);
+X        (void) xv_set(main_panel, PANEL_CARET_ITEM, search_item, NULL);
+X        search_up = 0;
+X        }
+X    refresh_popups();
+X    }
+X
+Xrefresh_search()
+X    {
+X    struct LLM_root root;
+X    struct Note **npp;
+X    int  i;
+X    int  row;
+X
+X    if(!search_up) return;
+X
+X    xv_set(srchlist, XV_SHOW, FALSE, NULL);
+X
+X    row = xv_get(srchlist, PANEL_LIST_NROWS);
+X    for(i = row - 1; i >= 0; i--)
+X        {
+X        xv_set(srchlist, PANEL_LIST_DELETE, i, NULL);
+X        }
+X
+X    w_matchingnotes(&root, re, 1);
+X    row = 0;
+X    npp = (struct Note **) LLM_first(&root);
+X    while(npp != NULL)
+X        {
+X        xv_set(srchlist,
+X            PANEL_LIST_INSERT, row,
+X            PANEL_LIST_STRING, row, (*npp)->ntitle,
+X            PANEL_LIST_CLIENT_DATA, row, *npp,
+X            NULL);
+X        npp = (struct Note **) LLM_next(&root);
+X        row++;
+X        }
+X    LLM_free(&root);
+X
+X    xv_set(srchlist, XV_SHOW, TRUE, NULL);
+X    }
+X
+Xsearch_resize_proc(frame, event, arg)
+X    Frame frame;
+X    Event *event;
+X    Notify_arg arg;
+X    {
+X    Rect rect, brect, lrect;
+X    Rect *prect;
+X    int  rh, h;
+X
+X    if(event_id(event) != WIN_RESIZE) return;
+X    frame_get_rect(frame, &rect);
+X    rect.r_height -= (topmargin + bottommargin); /* correct for wm borders */
+X    rect.r_width -= (leftmargin + rightmargin);
+X
+X    prect = (Rect *) xv_get(srchapply, PANEL_ITEM_RECT);
+X    brect = *prect;
+X    xv_set(srchapply,
+X        XV_X, (rect.r_width / 2) - (brect.r_width / 2),
+X        XV_Y, rect.r_height - brect.r_height - DEFPANELSPACING,
+X        NULL);
+X
+X    prect = (Rect *) xv_get(srchlist, PANEL_ITEM_RECT);
+X    lrect = *prect;
+X    prect = (Rect *) xv_get(srchapply, PANEL_ITEM_RECT);
+X    brect = *prect;
+X    rh = xv_get(srchlist, PANEL_LIST_ROW_HEIGHT);
+X    h = brect.r_top - lrect.r_top - (2 * rh);
+X    h = h / rh;
+X    if(h <= 0) h = 1;
+X    xv_set(srchlist,
+X        PANEL_LIST_WIDTH, rect.r_width - SCROLLWIDTH,
+X        PANEL_LIST_DISPLAY_ROWS, h,
+X        NULL);
+X    }
+X
+Xsearch_menu_proc(menu, mitem)
+X    Menu menu;
+X    Menu_item mitem;
+X    {
+X    char buf1[MAXSEARCHLEN + 1];
+X    char buf2[MAXSEARCHLEN + 1];
+X
+X    strcpy(buf1, (char *) xv_get(search_item, PANEL_VALUE));
+X    strcpy(buf2, (char *) xv_get(mitem, MENU_STRING));
+X    xv_set(search_item, PANEL_VALUE, buf2, NULL);
+X    notesearch(search_item, NULL); /* event isn't used, so NULL is ok */
+X    xv_set(search_item, PANEL_VALUE, buf1, NULL);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/search.c ||
+echo 'restore of pan3.0/search.c failed'
+Wc_c="`wc -c < 'pan3.0/search.c'`"
+test 9168 -eq "$Wc_c" ||
+	echo 'pan3.0/search.c: original size 9168, current size' "$Wc_c"
+fi
+# ============= pan3.0/win.c ==============
+if test -f 'pan3.0/win.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/win.c (File already exists)'
+else
+echo 'x - extracting pan3.0/win.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/win.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xget_win(np)
+X    struct Note *np;
+X    {
+X    struct FreeWin *fp;
+X
+X    fp = (struct FreeWin *)LLM_first(&freewin_rt);
+X    if(fp == NULL) return(0);
+X    np->frame = fp->frame;
+X    np->panel = fp->panel;
+X    np->textsw = fp->textsw;
+X    np->title = fp->title;
+X    np->hide = fp->hide;
+X    np->action = fp->action;
+X    np->actionmenu = fp->actionmenu;
+X    np->cdate = fp->cdate;
+X    np->ctime = fp->ctime;
+X    np->icon = fp->icon;
+X#ifdef PAN_DND
+X    np->drag_obj = fp->drag_obj;
+X    np->drag_tgt = fp->drag_tgt;
+X    np->got_itms = fp->got_itms;
+X    np->sel_itm1 = fp->sel_itm1;
+X    np->sel_itm2 = fp->sel_itm2;
+X    np->sel_itm3 = fp->sel_itm3;
+X#endif
+X    LLM_delete(&freewin_rt, fp);
+X    return(1);
+X    }
+X
+Xput_win(np)
+X    struct Note *np;
+X    {
+X    struct FreeWin *fp;
+X
+X    fp = (struct FreeWin *)LLM_add(&freewin_rt);
+X    if(fp == NULL)
+X        {
+X        fprintf(stderr, "Internal memory allocation error\n");
+X        exit(1);
+X        }
+X    fp->frame = np->frame;
+X    fp->panel = np->panel;
+X    fp->textsw = np->textsw;
+X    fp->title = np->title;
+X    fp->hide = np->hide;
+X    fp->action = np->action;
+X    fp->actionmenu = np->actionmenu;
+X    fp->cdate = np->cdate;
+X    fp->ctime = np->ctime;
+X    fp->icon = np->icon;
+X#ifdef PAN_DND
+X    fp->drag_obj = np->drag_obj;
+X    fp->drag_tgt = np->drag_tgt;
+X    fp->got_itms = np->got_itms;
+X    fp->sel_itm1 = np->sel_itm1;
+X    fp->sel_itm2 = np->sel_itm2;
+X    fp->sel_itm3 = np->sel_itm3;
+X#endif
+X    xv_set(fp->frame, XV_SHOW, FALSE, NULL);
+X    if(xv_get(fp->frame, FRAME_CLOSED))
+X        xv_set(fp->frame, FRAME_CLOSED, FALSE, NULL);
+X    xv_set(fp->title, PANEL_VALUE, "", NULL);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/win.c ||
+echo 'restore of pan3.0/win.c failed'
+Wc_c="`wc -c < 'pan3.0/win.c'`"
+test 2517 -eq "$Wc_c" ||
+	echo 'pan3.0/win.c: original size 2517, current size' "$Wc_c"
+fi
+true || echo 'restore of pan3.0/work.c failed'
+echo End of part 5, continue with part 6
+exit 0
+
+--
+Jeffrey Bailey
+Racal-Datacom, Inc.
+Mail Stop E-110
+1601 N. Harrison Parkway                  INET : jeff@rd1.interlan.com
+Sunrise, FL 33323-2899                    UUCP : ...uflorida!novavax!rd1!jeff
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

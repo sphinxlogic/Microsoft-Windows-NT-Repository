@@ -1,0 +1,1061 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb12.lbl.gov (Brian V. Smith)
+Subject: v21i027:  xfig - Draw amd manipulate objects in an X-Window, Patch02g/16
+Message-ID: <1993Oct21.185833.7050@sparky.sterling.com>
+X-Md4-Signature: c37bf795d3adacd9ab16bf658236a215
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 18:58:33 GMT
+Approved: chris@sterling.com
+
+Submitted-by: envbvs@epb12.lbl.gov (Brian V. Smith)
+Posting-number: Volume 21, Issue 27
+Archive-name: xfig/patch02g
+Environment: patch, X11, xfig
+Patch-To: xfig: Volume 19, Issue 113-139
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xfig.04
+# Wrapped by chris@sparky on Thu Oct 21 13:40:06 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 16)."'
+if test -f 'xfig.04' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xfig.04'\"
+else
+  echo shar: Extracting \"'xfig.04'\" \(31142 characters\)
+  sed "s/^X//" >'xfig.04' <<'END_OF_FILE'
+X  {
+X!     if (path == NULL || *path == '\0') {
+X  	*cur_dir = '\0';
+X  	return (0);
+X      }
+X***************
+X*** 107,113 ****
+X  	put_msg("%s", direct);	/* err msg is in directory */
+X  #endif
+X  	*direct = '\0';
+X! 	return NULL;
+X      }
+X      return 1;
+X  }
+X--- 107,113 ----
+X  	put_msg("%s", direct);	/* err msg is in directory */
+X  #endif
+X  	*direct = '\0';
+X! 	return 0;
+X      }
+X      return 1;
+X  }
+X***************
+X*** 142,148 ****
+X  	    } else {
+X  		if (warnexist) {
+X  		    sprintf(string, "\"%s\" already exists.\nDo you want to overwrite it?", file_name);
+X! 		    if (!popup_query(QUERY_YES, string)) {
+X  			put_msg("%s cancelled", op_name);
+X  			return (0);
+X  		    }
+X--- 142,148 ----
+X  	    } else {
+X  		if (warnexist) {
+X  		    sprintf(string, "\"%s\" already exists.\nDo you want to overwrite it?", file_name);
+X! 		    if (!popup_query(QUERY_YESCAN, string)) {
+X  			put_msg("%s cancelled", op_name);
+X  			return (0);
+X  		    }
+X***************
+X*** 162,165 ****
+X--- 162,179 ----
+X      }
+X  
+X      return (1);
+X+ }
+X+ 
+X+ char *
+X+ basename(filename)
+X+     char	   *filename;
+X+ {
+X+     char	   *p;
+X+     if (filename == NULL || *filename == '\0')
+X+ 	return NULL;
+X+     if (p=strrchr(filename,'/')) {
+X+ 	return ++p;
+X+     } else {
+X+ 	return filename;
+X+     }
+X  }
+Xdiff -rc xfig.2.1.7a/f_xbitmap.c xfig.2.1.8/f_xbitmap.c
+X*** xfig.2.1.7a/f_xbitmap.c	Thu Feb 25 12:03:20 1993
+X--- xfig.2.1.8/f_xbitmap.c	Tue Aug 10 13:43:33 1993
+X***************
+X*** 17,22 ****
+X--- 17,23 ----
+X  #include "paintop.h"
+X  #include "w_setup.h"
+X  #include "w_drawprim.h"
+X+ #include "w_zoom.h"
+X  
+X  static int	create_n_write_bitmap();
+X  
+X***************
+X*** 47,52 ****
+X--- 48,57 ----
+X      Pixmap	    largepm, bitmap;
+X      extern F_compound objects;
+X      int		    i;
+X+     float	    savezoom;
+X+     int		    savexoff, saveyoff;
+X+     int		    status;
+X+     Boolean	    zoomchanged;
+X      GC		    xgc, gc_bitmap;
+X  
+X      /* this may take a while */
+X***************
+X*** 54,62 ****
+X--- 59,81 ----
+X      put_msg("Capturing canvas image...");
+X      app_flush();
+X  
+X+     /* set the zoomscale to 1 and offset to origin */
+X+     zoomchanged = (zoomscale != 1.0);
+X+     savezoom = zoomscale;
+X+     savexoff = zoomxoff;
+X+     saveyoff = zoomyoff;
+X+     zoomscale = 1.0;
+X+     zoomxoff = zoomyoff = 0;
+X+     /* resize texts back to zoomscale 1 if necessary */
+X+     if (zoomchanged)
+X+ 	reload_text_fstructs();
+X+ 
+X      /* Assume that there is at least one object */
+X      compound_bound(&objects, &xmin, &ymin, &xmax, &ymax);
+X  
+X+     /* set the clipping to include ALL objects */
+X+     set_clip_window(xmin, ymin, xmax, ymax);
+X+ 
+X      if (appres.DEBUG) {
+X  	elastic_box(xmin, ymin, xmax, ymax);
+X      }
+X***************
+X*** 65,74 ****
+X  	xmin = 0;
+X      if ((ymin -= 10) < 0)
+X  	ymin = 0;
+X!     if ((xmax += 10) > CANVAS_WD)
+X! 	xmax = CANVAS_WD;
+X!     if ((ymax += 10) > CANVAS_HT)
+X! 	ymax = CANVAS_HT;
+X  
+X      width = xmax - xmin + 1;
+X      height = ymax - ymin + 1;
+X--- 84,91 ----
+X  	xmin = 0;
+X      if ((ymin -= 10) < 0)
+X  	ymin = 0;
+X!     xmax += 10;
+X!     ymax += 10;
+X  
+X      width = xmax - xmin + 1;
+X      height = ymax - ymin + 1;
+X***************
+X*** 149,165 ****
+X      if (XWriteBitmapFile(tool_d, filename, bitmap, width, height, -1, -1)
+X  	!= BitmapSuccess) {
+X  	put_msg("Couldn't write bitmap file");
+X! 	XFreePixmap(tool_d, largepm);
+X! 	XFreePixmap(tool_d, bitmap);
+X! 	/* all done */
+X! 	reset_cursor();
+X! 	return (1);
+X      } else {
+X  	put_msg("Bitmap written to \"%s\"", filename);
+X! 	XFreePixmap(tool_d, largepm);
+X! 	XFreePixmap(tool_d, bitmap);
+X! 	/* all done */
+X! 	reset_cursor();
+X! 	return (0);
+X      }
+X  }
+X--- 166,187 ----
+X      if (XWriteBitmapFile(tool_d, filename, bitmap, width, height, -1, -1)
+X  	!= BitmapSuccess) {
+X  	put_msg("Couldn't write bitmap file");
+X! 	status = 1;
+X      } else {
+X  	put_msg("Bitmap written to \"%s\"", filename);
+X! 	status = 0;
+X      }
+X+     XFreePixmap(tool_d, largepm);
+X+     XFreePixmap(tool_d, bitmap);
+X+     reset_cursor();
+X+     /* restore the zoom */
+X+     zoomscale = savezoom;
+X+     zoomxoff = savexoff;
+X+     zoomyoff = saveyoff;
+X+     /* resize texts back to original if necessary */
+X+     if (zoomchanged)
+X+ 	reload_text_fstructs();
+X+     /* reset the clipping to the canvas */
+X+     reset_clip_window();
+X+     return (status);
+X  }
+Xdiff -rc xfig.2.1.7a/fig.h xfig.2.1.8/fig.h
+X*** xfig.2.1.7a/fig.h	Tue Apr 20 10:05:25 1993
+X--- xfig.2.1.8/fig.h	Tue Jul  6 08:41:06 1993
+X***************
+X*** 174,190 ****
+X--- 174,202 ----
+X  
+X  #ifndef X_NOT_STDC_ENV
+X  #include <string.h>
+X+ #ifndef index
+X  #define index strchr
+X+ #endif
+X+ #ifndef rindex
+X  #define rindex strrchr
+X+ #endif
+X  #else  /* X_NOT_STDC_ENV IS defined */
+X  #ifdef SYSV
+X  #include <string.h>
+X+ #ifndef index
+X  #define index strchr
+X+ #endif
+X+ #ifndef rindex
+X  #define rindex strrchr
+X+ #endif
+X  #else  /* NOT SYSV */
+X  #include <strings.h>
+X+ #ifndef strchr
+X  #define strchr index
+X+ #endif
+X+ #ifndef strrchr
+X  #define strrchr rindex
+X+ #endif
+X  #endif  /* SYSV */
+X  #endif  /* X_NOT_STDC_ENV */
+X  
+X***************
+X*** 228,234 ****
+X  #endif /* __STDC__ */
+X  #else  /* NOT defined(SYS) && defined(SYSV386) */
+X  #ifdef X_NOT_STDC_ENV
+X! #if defined(sun) && !defined(sparc) || defined(titan)
+X  extern double atof();
+X  extern char *getenv();
+X  #endif /* (sun) !(sparc) (titan) */
+X--- 240,247 ----
+X  #endif /* __STDC__ */
+X  #else  /* NOT defined(SYS) && defined(SYSV386) */
+X  #ifdef X_NOT_STDC_ENV
+X! #if defined(ultrix) || defined(sun) && !defined(sparc) || defined(titan) || \
+X! 	(defined(ibm032) && !defined(_AIX))
+X  extern double atof();
+X  extern char *getenv();
+X  #endif /* (sun) !(sparc) (titan) */
+Xdiff -rc xfig.2.1.7a/main.c xfig.2.1.8/main.c
+X*** xfig.2.1.7a/main.c	Wed Apr 28 15:38:38 1993
+X--- xfig.2.1.8/main.c	Tue Aug 31 10:06:02 1993
+X***************
+X*** 41,47 ****
+X  Pixmap		fig_icon;
+X  
+X  static char	tool_name[100];
+X- static		sigwinched();
+X  
+X  /************** FIG options ******************/
+X  
+X--- 41,46 ----
+X***************
+X*** 49,56 ****
+X  
+X  static Boolean	true = True;
+X  static Boolean	false = False;
+X! static int	zero = 0;
+X! static float	one = 1.0;
+X  
+X  /* actions so that we may install accelerators at the top level */
+X  static XtActionsRec	main_actions[] =
+X--- 48,56 ----
+X  
+X  static Boolean	true = True;
+X  static Boolean	false = False;
+X! static int	Izero = 0;
+X! static float	Fone = 1.0;
+X! static int	Itwo = 2;
+X  
+X  /* actions so that we may install accelerators at the top level */
+X  static XtActionsRec	main_actions[] =
+X***************
+X*** 80,88 ****
+X      {"debug", "Debug", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, DEBUG), XtRBoolean, (caddr_t) & false},
+X      {"pwidth", XtCWidth, XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, tmp_width), XtRInt, (caddr_t) & zero},
+X      {"pheight", XtCHeight, XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, tmp_height), XtRInt, (caddr_t) & zero},
+X      {XtNreverseVideo, XtCReverseVideo, XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, INVERSE), XtRBoolean, (caddr_t) & false},
+X      {"trackCursor", "Track", XtRBoolean, sizeof(Boolean),
+X--- 80,88 ----
+X      {"debug", "Debug", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, DEBUG), XtRBoolean, (caddr_t) & false},
+X      {"pwidth", XtCWidth, XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, tmp_width), XtRInt, (caddr_t) & Izero},
+X      {"pheight", XtCHeight, XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, tmp_height), XtRInt, (caddr_t) & Izero},
+X      {XtNreverseVideo, XtCReverseVideo, XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, INVERSE), XtRBoolean, (caddr_t) & false},
+X      {"trackCursor", "Track", XtRBoolean, sizeof(Boolean),
+X***************
+X*** 99,114 ****
+X      XtOffset(appresPtr, startlatexFont), XtRString, (caddr_t) NULL},
+X      {"startpsFont", "StartpsFont", XtRString, sizeof(char *),
+X      XtOffset(appresPtr, startpsFont), XtRString, (caddr_t) NULL},
+X!     {"startfontsize", "StartFontSize", XtRInt, sizeof(int),
+X!     XtOffset(appresPtr, startfontsize), XtRInt, (caddr_t) & zero},
+X      {"internalborderwidth", "InternalBorderWidth", XtRInt, sizeof(int),
+X!     XtOffset(appresPtr, internalborderwidth), XtRInt, (caddr_t) & zero},
+X      {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X      {"specialtext", "SpecialText", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, specialtext), XtRBoolean, (caddr_t) & false},
+X      {"scalablefonts", "ScalableFonts", XtRBoolean, sizeof(Boolean),
+X!     XtOffset(appresPtr, SCALABLEFONTS), XtRBoolean, (caddr_t) & false},
+X      {"color0", "Color0", XtRPixel, sizeof(Pixel),
+X      XtOffset(appresPtr, color[0]), XtRString, (caddr_t) "black"},
+X      {"color1", "Color1", XtRPixel, sizeof(Pixel),
+X--- 99,114 ----
+X      XtOffset(appresPtr, startlatexFont), XtRString, (caddr_t) NULL},
+X      {"startpsFont", "StartpsFont", XtRString, sizeof(char *),
+X      XtOffset(appresPtr, startpsFont), XtRString, (caddr_t) NULL},
+X!     {"startfontsize", "StartFontSize", XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, startfontsize), XtRInt, (caddr_t) & Izero},
+X      {"internalborderwidth", "InternalBorderWidth", XtRInt, sizeof(int),
+X!     XtOffset(appresPtr, internalborderwidth), XtRInt, (caddr_t) & Izero},
+X      {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, latexfonts), XtRBoolean, (caddr_t) & false},
+X      {"specialtext", "SpecialText", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, specialtext), XtRBoolean, (caddr_t) & false},
+X      {"scalablefonts", "ScalableFonts", XtRBoolean, sizeof(Boolean),
+X!     XtOffset(appresPtr, SCALABLEFONTS), XtRBoolean, (caddr_t) & true},
+X      {"color0", "Color0", XtRPixel, sizeof(Pixel),
+X      XtOffset(appresPtr, color[0]), XtRString, (caddr_t) "black"},
+X      {"color1", "Color1", XtRPixel, sizeof(Pixel),
+X***************
+X*** 125,130 ****
+X--- 125,149 ----
+X      XtOffset(appresPtr, color[6]), XtRString, (caddr_t) "yellow"},
+X      {"color7", "Color7", XtRPixel, sizeof(Pixel),
+X      XtOffset(appresPtr, color[7]), XtRString, (caddr_t) "white"},
+X+     /* don't get any ideas about using the following colors yet */
+X+     /* the protocol needs modification before we can do that */
+X+     {"color8", "Color8", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[8]), XtRString, (caddr_t) "lightblue"},
+X+     {"color9", "Color9", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[9]), XtRString, (caddr_t) "darkgreen"},
+X+     {"color10", "Color10", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[10]), XtRString, (caddr_t) "brown"},
+X+     {"color11", "Color11", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[11]), XtRString, (caddr_t) "orange"},
+X+     {"color12", "Color12", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[12]), XtRString, (caddr_t) "purple"},
+X+     {"color13", "Color13", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[13]), XtRString, (caddr_t) "pink"},
+X+     {"color14", "Color14", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[14]), XtRString, (caddr_t) "firebrick"},
+X+     {"color15", "Color15", XtRPixel, sizeof(Pixel),
+X+     XtOffset(appresPtr, color[15]), XtRString, (caddr_t) "gold"},
+X+ 
+X      {"monochrome", "Monochrome", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, monochrome), XtRBoolean, (caddr_t) & false},
+X      {"latexfonts", "Latexfonts", XtRBoolean, sizeof(Boolean),
+X***************
+X*** 138,146 ****
+X      {"textoutline", "TextOutline", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, textoutline), XtRBoolean, (caddr_t) & false},
+X      {"userscale", "UserScale", XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, user_scale), XtRFloat, (caddr_t) & one},
+X      {"userunit", "UserUnit", XtRString, sizeof(char *),
+X      XtOffset(appresPtr, user_unit), XtRString, (caddr_t) ""},
+X  };
+X  
+X  static XrmOptionDescRec options[] =
+X--- 157,167 ----
+X      {"textoutline", "TextOutline", XtRBoolean, sizeof(Boolean),
+X      XtOffset(appresPtr, textoutline), XtRBoolean, (caddr_t) & false},
+X      {"userscale", "UserScale", XtRFloat, sizeof(float),
+X!     XtOffset(appresPtr, user_scale), XtRFloat, (caddr_t) & Fone},
+X      {"userunit", "UserUnit", XtRString, sizeof(char *),
+X      XtOffset(appresPtr, user_unit), XtRString, (caddr_t) ""},
+X+     {"but_per_row", "But_per_row", XtRInt, sizeof(int),
+X+     XtOffset(appresPtr, but_per_row), XtRInt, (caddr_t) & Itwo},
+X  };
+X  
+X  static XrmOptionDescRec options[] =
+X***************
+X*** 183,188 ****
+X--- 204,210 ----
+X      {"-textoutline", ".textoutline", XrmoptionNoArg, "True"},
+X      {"-userscale", ".userscale", XrmoptionSepArg, 0},
+X      {"-userunit", ".userunit", XrmoptionSepArg, 0},
+X+     {"-but_per_row", ".but_per_row", XrmoptionSepArg, 0},
+X  };
+X  
+X  Atom wm_delete_window;
+X***************
+X*** 236,241 ****
+X--- 258,264 ----
+X      char	    i;
+X      char	   *userhome;
+X      Dimension	    w, h;
+X+     XGCValues	    gcv;
+X  
+X      DeclareArgs(5);
+X  
+X***************
+X*** 246,252 ****
+X      if ((TMPDIR = getenv("XFIGTMPDIR"))==NULL)
+X  	TMPDIR = "/tmp";
+X  
+X!     (void) sprintf(tool_name, " XFIG %s(.%s) (Protocol %s)",
+X  		   FIG_VERSION, PATCHLEVEL, PROTOCOL_VERSION);
+X      (void) strcat(file_header, PROTOCOL_VERSION);
+X      tool = XtAppInitialize(&tool_app, (String) "Fig", (XrmOptionDescList) options,
+X--- 269,275 ----
+X      if ((TMPDIR = getenv("XFIGTMPDIR"))==NULL)
+X  	TMPDIR = "/tmp";
+X  
+X!     (void) sprintf(tool_name, " XFIG %s patchlevel %s (Protocol %s)",
+X  		   FIG_VERSION, PATCHLEVEL, PROTOCOL_VERSION);
+X      (void) strcat(file_header, PROTOCOL_VERSION);
+X      tool = XtAppInitialize(&tool_app, (String) "Fig", (XrmOptionDescList) options,
+X***************
+X*** 348,361 ****
+X      init_font();
+X  
+X      gc = DefaultGC(tool_d, tool_sn);
+X!     bold_gc = DefaultGC(tool_d, tool_sn);
+X!     button_gc = DefaultGC(tool_d, tool_sn);
+X! 
+X!     /* set the roman and bold fonts for the message windows */
+X      XSetFont(tool_d, gc, roman_font->fid);
+X-     XSetFont(tool_d, bold_gc, bold_font->fid);
+X-     XSetFont(tool_d, button_gc, button_font->fid);
+X  
+X      /*
+X       * check if the NUMCOLORS drawing colors could be allocated and have
+X       * different palette entries
+X--- 371,385 ----
+X      init_font();
+X  
+X      gc = DefaultGC(tool_d, tool_sn);
+X!     /* set the roman font for the message window */
+X      XSetFont(tool_d, gc, roman_font->fid);
+X  
+X+     /* make a gc for the command buttons */
+X+     gcv.font = button_font->fid;
+X+     button_gc = XCreateGC(tool_d, DefaultRootWindow(tool_d), GCFont, &gcv);
+X+     /* copy the other components from the default gc to the button_gc */
+X+     XCopyGC(tool_d, gc, ~GCFont, button_gc);
+X+ 
+X      /*
+X       * check if the NUMCOLORS drawing colors could be allocated and have
+X       * different palette entries
+X***************
+X*** 378,389 ****
+X  	cur_ps_font = psfontnum (appres.startpsFont);
+X  
+X      if (INTERNAL_BW == 0)
+X! 	INTERNAL_BW = (int) appres.internalborderwidth;
+X      if (INTERNAL_BW <= 0)
+X  	INTERNAL_BW = DEF_INTERNAL_BW;
+X  
+X!     SW_PER_ROW = SW_PER_ROW_PORT;
+X!     SW_PER_COL = SW_PER_COL_PORT;
+X      init_canv_wd = appres.tmp_width *
+X  	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X      init_canv_ht = appres.tmp_height *
+X--- 402,418 ----
+X  	cur_ps_font = psfontnum (appres.startpsFont);
+X  
+X      if (INTERNAL_BW == 0)
+X! 	INTERNAL_BW = appres.internalborderwidth;
+X      if (INTERNAL_BW <= 0)
+X  	INTERNAL_BW = DEF_INTERNAL_BW;
+X  
+X!     /* get the desired number of buttons per row for the mode panel */
+X!     SW_PER_ROW = appres.but_per_row;
+X!     if (SW_PER_ROW <= 0)
+X! 	SW_PER_ROW = DEF_SW_PER_ROW;
+X!     else if (SW_PER_ROW > 6)
+X! 	SW_PER_ROW = 6;
+X! 
+X      init_canv_wd = appres.tmp_width *
+X  	(appres.INCHES ? PIX_PER_INCH : PIX_PER_CM);
+X      init_canv_ht = appres.tmp_height *
+X***************
+X*** 397,407 ****
+X  	init_canv_ht = appres.landscape ? DEF_CANVAS_HT_LAND :
+X  	    DEF_CANVAS_HT_PORT;
+X  
+X-     if ((init_canv_ht < DEF_CANVAS_HT_PORT) ||
+X- 	(HeightOfScreen(tool_s) < DEF_CANVAS_HT_PORT)) {
+X- 	SW_PER_ROW = SW_PER_ROW_LAND;
+X- 	SW_PER_COL = SW_PER_COL_LAND;
+X-     }
+X      setup_sizes(init_canv_wd, init_canv_ht);
+X      (void) init_cmd_panel(form);
+X      (void) init_msg(form,filename);
+X--- 426,431 ----
+X***************
+X*** 529,535 ****
+X      XSetIOErrorHandler((XIOErrorHandler) X_error_handler);
+X      (void) signal(SIGHUP, error_handler);
+X      (void) signal(SIGFPE, error_handler);
+X! #ifndef NO_SIBGUS
+X      (void) signal(SIGBUS, error_handler);
+X  #endif
+X      (void) signal(SIGSEGV, error_handler);
+X--- 553,559 ----
+X      XSetIOErrorHandler((XIOErrorHandler) X_error_handler);
+X      (void) signal(SIGHUP, error_handler);
+X      (void) signal(SIGFPE, error_handler);
+X! #ifdef SIGBUS
+X      (void) signal(SIGBUS, error_handler);
+X  #endif
+X      (void) signal(SIGSEGV, error_handler);
+X***************
+X*** 768,774 ****
+X  	cutoff = neg ? -(unsigned long)LONG_MIN : LONG_MAX;
+X  	cutlim = cutoff % (unsigned long)base;
+X  	cutoff /= (unsigned long)base;
+X! 	for (acc = 0, any = 0; c = *s++) {
+X  		if (isdigit(c))
+X  			c -= '0';
+X  		else if (isalpha(c))
+X--- 792,798 ----
+X  	cutoff = neg ? -(unsigned long)LONG_MIN : LONG_MAX;
+X  	cutlim = cutoff % (unsigned long)base;
+X  	cutoff /= (unsigned long)base;
+X! 	for (acc = 0, any = 0; c = *s++; ) {
+X  		if (isdigit(c))
+X  			c -= '0';
+X  		else if (isalpha(c))
+Xdiff -rc xfig.2.1.7a/mode.c xfig.2.1.8/mode.c
+X*** xfig.2.1.7a/mode.c	Mon Mar 22 14:15:21 1993
+X--- xfig.2.1.8/mode.c	Fri Jul  2 11:04:23 1993
+X***************
+X*** 17,24 ****
+X  #include "w_indpanel.h"
+X  
+X  int		cur_mode = F_NULL;
+X! int		cur_halign = NONE;
+X! int		cur_valign = NONE;
+X  int		manhattan_mode = 0;
+X  int		mountain_mode = 0;
+X  int		latexline_mode = 0;
+X--- 17,24 ----
+X  #include "w_indpanel.h"
+X  
+X  int		cur_mode = F_NULL;
+X! int		cur_halign = ALIGN_NONE;
+X! int		cur_valign = ALIGN_NONE;
+X  int		manhattan_mode = 0;
+X  int		mountain_mode = 0;
+X  int		latexline_mode = 0;
+Xdiff -rc xfig.2.1.7a/mode.h xfig.2.1.8/mode.h
+X*** xfig.2.1.7a/mode.h	Mon Mar 22 14:16:07 1993
+X--- xfig.2.1.8/mode.h	Fri Jul  2 11:04:02 1993
+X***************
+X*** 55,66 ****
+X  extern int	cur_mode;
+X  
+X  /* alignment mode */
+X! #define		NONE			0
+X! #define		LEFT			1
+X! #define		TOP			1
+X! #define		CENTER			2
+X! #define		RIGHT			3
+X! #define		BOTTOM			3
+X  
+X  extern int	cur_halign;
+X  extern int	cur_valign;
+X--- 55,66 ----
+X  extern int	cur_mode;
+X  
+X  /* alignment mode */
+X! #define		ALIGN_NONE		0
+X! #define		ALIGN_LEFT		1
+X! #define		ALIGN_TOP		1
+X! #define		ALIGN_CENTER		2
+X! #define		ALIGN_RIGHT		3
+X! #define		ALIGN_BOTTOM		3
+X  
+X  extern int	cur_halign;
+X  extern int	cur_valign;
+Xdiff -rc xfig.2.1.7a/object.h xfig.2.1.8/object.h
+X*** xfig.2.1.7a/object.h	Thu Feb 25 11:06:28 1993
+X--- xfig.2.1.8/object.h	Mon Aug 23 15:26:19 1993
+X***************
+X*** 148,154 ****
+X  #define					T_CENTER_JUSTIFIED	1
+X  #define					T_RIGHT_JUSTIFIED	2
+X      int		    font;
+X!     PIX_ROT_FONT    fontstruct;
+X      int		    size;	/* point size */
+X      Color	    color;
+X      int		    depth;
+X--- 148,154 ----
+X  #define					T_CENTER_JUSTIFIED	1
+X  #define					T_RIGHT_JUSTIFIED	2
+X      int		    font;
+X!     PIX_FONT	    fontstruct;
+X      int		    size;	/* point size */
+X      Color	    color;
+X      int		    depth;
+X***************
+X*** 170,176 ****
+X  }
+X  		F_text;
+X  
+X! #define MAXFONT(T) (psfont_text(T) ? NUM_PS_FONTS : NUM_LATEX_FONTS)
+X  
+X  #define		rigid_text(t) \
+X  			(t->flags == DEFAULT \
+X--- 170,176 ----
+X  }
+X  		F_text;
+X  
+X! #define MAXFONT(T) (psfont_text(T) ? NUM_FONTS : NUM_LATEX_FONTS)
+X  
+X  #define		rigid_text(t) \
+X  			(t->flags == DEFAULT \
+Xdiff -rc xfig.2.1.7a/paintop.h xfig.2.1.8/paintop.h
+X*** xfig.2.1.7a/paintop.h	Wed Dec  9 17:30:23 1992
+X--- xfig.2.1.8/paintop.h	Wed Jun 16 14:57:55 1993
+X***************
+X*** 21,23 ****
+X--- 21,27 ----
+X  #define UNDRAW		0
+X  
+X  #define DEFAULT_COLOR	-1
+X+ 
+X+ /* size of markers for selected objects */
+X+ #define	MARK_SIZ	5
+X+ #define SM_MARK		3
+Xdiff -rc xfig.2.1.7a/patchlevel.h xfig.2.1.8/patchlevel.h
+X*** xfig.2.1.7a/patchlevel.h	Thu Oct 21 10:22:59 1993
+X--- xfig.2.1.8/patchlevel.h	Fri Oct  1 13:02:29 1993
+X***************
+X*** 10,13 ****
+X   * any purpose.  It is provided "as is" without express or implied warranty."
+X   */
+X  
+X! #define PATCHLEVEL "7a"
+X--- 10,13 ----
+X   * any purpose.  It is provided "as is" without express or implied warranty."
+X   */
+X  
+X! #define PATCHLEVEL "8"
+Xdiff -rc xfig.2.1.7a/resources.c xfig.2.1.8/resources.c
+X*** xfig.2.1.7a/resources.c	Thu Feb 11 14:22:12 1993
+X--- xfig.2.1.8/resources.c	Tue Aug 17 08:42:28 1993
+X***************
+X*** 15,20 ****
+X--- 15,24 ----
+X  
+X  char	       *colorNames[] = {"Default", "Black", "Blue", "Green", "Cyan",
+X  				"Red", "Magenta", "Yellow", "White"};
+X+ 				/**** for future expansion 
+X+ 				"Lgtblue", "Dkgreen", "Brown", "Orange",
+X+ 				"Purple", "Pink", "Brick", "Gold"};
+X+ 				****/
+X  Boolean		all_colors_available;
+X  
+X  appresStruct	appres;
+X***************
+X*** 40,46 ****
+X  Screen	       *tool_s;
+X  int		tool_sn;
+X  
+X! GC		gc, bold_gc, button_gc, ind_button_gc, color_gc, mouse_button_gc,
+X  		blank_gc, ind_blank_gc, mouse_blank_gc, gccache[NUMOPS],
+X  		fillgc, fill_gc[NUMFILLPATS],	/* fill style gc's */
+X  		black_fill_gc[NUMFILLPATS],
+X--- 44,50 ----
+X  Screen	       *tool_s;
+X  int		tool_sn;
+X  
+X! GC		gc, button_gc, ind_button_gc, color_gc, mouse_button_gc,
+X  		blank_gc, ind_blank_gc, mouse_blank_gc, gccache[NUMOPS],
+X  		fillgc, fill_gc[NUMFILLPATS],	/* fill style gc's */
+X  		black_fill_gc[NUMFILLPATS],
+Xdiff -rc xfig.2.1.7a/resources.h xfig.2.1.8/resources.h
+X*** xfig.2.1.7a/resources.h	Tue Feb 16 09:11:39 1993
+X--- xfig.2.1.8/resources.h	Mon Aug 23 10:06:51 1993
+X***************
+X*** 11,17 ****
+X   */
+X  
+X  #include "paintop.h"
+X- #include "w_rottext.h"
+X  
+X  typedef struct {
+X      unsigned int    x, y, z;
+X--- 11,16 ----
+X***************
+X*** 66,71 ****
+X--- 65,71 ----
+X      float	    tmp_height;
+X      float	    startfontsize;	/* ges 6 Feb 91 */
+X      int		    internalborderwidth;
+X+     int		    but_per_row;	/* number of buttons wide for the mode panel */
+X      Pixel	    color[NUMCOLORS];
+X      Boolean	    monochrome;
+X      char	   *keyFile;
+X***************
+X*** 107,113 ****
+X  typedef XImage	PIXRECTREC;
+X  typedef XImage *PIXRECT;
+X  typedef XFontStruct *PIX_FONT;
+X- typedef XRotFontStruct *PIX_ROT_FONT;
+X  typedef MprData MPR_DATA;
+X  typedef Widget	TOOL;
+X  typedef Widget	TOOLSW;
+X--- 107,112 ----
+X***************
+X*** 138,144 ****
+X  
+X  #define NUMFILLPATS 21
+X  
+X! extern GC	gc, bold_gc, button_gc, ind_button_gc, mouse_button_gc,
+X  		color_gc, blank_gc, ind_blank_gc, mouse_blank_gc, gccache[NUMOPS],
+X  		fillgc, fill_gc[NUMFILLPATS],	/* fill style gc's */
+X  		black_fill_gc[NUMFILLPATS],
+X--- 137,143 ----
+X  
+X  #define NUMFILLPATS 21
+X  
+X! extern GC	gc, button_gc, ind_button_gc, mouse_button_gc,
+X  		color_gc, blank_gc, ind_blank_gc, mouse_blank_gc, gccache[NUMOPS],
+X  		fillgc, fill_gc[NUMFILLPATS],	/* fill style gc's */
+X  		black_fill_gc[NUMFILLPATS],
+Xdiff -rc xfig.2.1.7a/u_bound.c xfig.2.1.8/u_bound.c
+X*** xfig.2.1.7a/u_bound.c	Wed Jan  6 17:07:24 1993
+X--- xfig.2.1.8/u_bound.c	Thu Jun 17 10:07:15 1993
+X***************
+X*** 14,19 ****
+X--- 14,20 ----
+X  #include "resources.h"
+X  #include "object.h"
+X  #include "mode.h"
+X+ #include "paintop.h"
+X  #include "u_bound.h"
+X  
+X  #define		Ninety_deg		M_PI_2
+X***************
+X*** 22,46 ****
+X  #define		Three_sixty_deg		(M_PI + M_PI)
+X  #define		half(z1 ,z2)		((z1+z2)/2.0)
+X  
+X- /* macro which rounds DOWN the coordinates depending on point positioning mode */
+X- #define		floor_coords(x) \
+X-     if (cur_pointposn != P_ANY) { \
+X- 	    tmp_t = ((x) + 1) % posn_rnd[cur_pointposn]; \
+X- 	    (x) = (x) - tmp_t; \
+X- 	}
+X- 
+X- /* macro which rounds UP the coordinates depending on point positioning mode */
+X- #define		ceil_coords(x) \
+X-     if (cur_pointposn != P_ANY) { \
+X- 	    (x) = (x) + posn_rnd[cur_pointposn]; \
+X- 	    tmp_t = (x)%posn_rnd[cur_pointposn]; \
+X- 	    (x) = (x) - tmp_t - 1; \
+X- 	}
+X- 
+X  static void	points_bound();
+X  static void	int_spline_bound();
+X  static void	normal_spline_bound();
+X- static int	tmp_t;
+X  
+X  arc_bound(arc, xmin, ymin, xmax, ymax)
+X      F_arc	   *arc;
+X--- 23,31 ----
+X***************
+X*** 221,228 ****
+X  
+X      for (t = compound->texts; t != NULL; t = t->next) {
+X  	int    dum;
+X! 	text_bound_actual(t, t->angle, &sx, &sy, &bx, &by, 
+X! 			  &dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X  	if (first) {
+X  	    first = 0;
+X  	    llx = sx;
+X--- 206,213 ----
+X  
+X      for (t = compound->texts; t != NULL; t = t->next) {
+X  	int    dum;
+X! 	text_bound(t, &sx, &sy, &bx, &by, 
+X! 		  &dum,&dum,&dum,&dum,&dum,&dum,&dum,&dum);
+X  	if (first) {
+X  	    first = 0;
+X  	    llx = sx;
+X***************
+X*** 492,533 ****
+X      }
+X  }
+X  
+X! /* This procedure calculates the bounding box for text that is displayed
+X!    horizontally or vertically (all text on the canvas in otherwords)
+X!    Use text_bound_actual() to decide whether or not text would be off
+X!    the PRINTED page (if rotated) */
+X! 
+X! text_bound(t, xmin, ymin, xmax, ymax)
+X!     F_text	   *t;
+X!     int		   *xmin, *ymin, *xmax, *ymax;
+X! {
+X!     int		    length, dx, dy, mx, my, dum;
+X!     double	    angle;
+X! 
+X!     angle = t->angle;
+X!     /* fix the angle to one of four - 0, 90, 180 or 270 */
+X!     if (angle < M_PI_2 - 0.001)
+X! 	angle = 0.0;
+X!     else if (angle < M_PI - 0.001)
+X! 	angle = M_PI_2;
+X!     else if (angle < 3*M_PI_2 - 0.001)
+X! 	angle = M_PI;
+X!     else
+X! 	angle = 3*M_PI_2;
+X!     text_bound_actual(t, angle, xmin, ymin, xmax, ymax,
+X! 		  &dum, &dum, &dum, &dum, &dum, &dum, &dum, &dum);
+X! }
+X! 
+X! /* this procedure calculates the bouding box for text ASSUMING that it 
+X!    will be DISPLAYED rotated (if it has any rotation angle).
+X     The actual corners of the rectangle are returned in (rx1,ry1)...(rx4,ry4)
+X!    The min and max x and y are returned in (xmin, ymin) (xmax, ymax)
+X! */
+X  
+X! text_bound_actual(t, angle, xmin, ymin, xmax, ymax, 
+X  		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4)
+X      F_text	   *t;
+X-     double	    angle;
+X      int		   *xmin, *ymin, *xmax, *ymax;
+X      int		   *rx1,*ry1, *rx2,*ry2, *rx3,*ry3, *rx4,*ry4;
+X  {
+X--- 477,490 ----
+X      }
+X  }
+X  
+X! /* This procedure calculates the bounding box for text.  It returns
+X!    the min/max x and y coords of the enclosing HORIZONTAL rectangle.
+X     The actual corners of the rectangle are returned in (rx1,ry1)...(rx4,ry4)
+X!  */
+X  
+X! text_bound(t, xmin, ymin, xmax, ymax, 
+X  		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4)
+X      F_text	   *t;
+X      int		   *xmin, *ymin, *xmax, *ymax;
+X      int		   *rx1,*ry1, *rx2,*ry2, *rx3,*ry3, *rx4,*ry4;
+X  {
+X***************
+X*** 538,545 ****
+X  
+X      l = text_length(t);
+X      h = t->height;
+X!     cost = cos((double)angle);
+X!     sint = sin((double)angle);
+X      lcost = round(l*cost);
+X      lsint = round(l*sint);
+X      hcost = round(h*cost);
+X--- 495,502 ----
+X  
+X      l = text_length(t);
+X      h = t->height;
+X!     cost = cos((double)t->angle);
+X!     sint = sin((double)t->angle);
+X      lcost = round(l*cost);
+X      lsint = round(l*sint);
+X      hcost = round(h*cost);
+X***************
+X*** 575,602 ****
+X      *rx2=x2; *ry2=y2;
+X      *rx3=x3; *ry3=y3;
+X      *rx4=x4; *ry4=y4;
+X- }
+X- 
+X- /* this procedure calculates the union of the two types of bounding boxes */
+X- /* this is usually called by the redisplay code which needs the bounding
+X-    rectangle if the user is displaying the textoutline */
+X- 
+X- text_bound_both(t, xmin, ymin, xmax, ymax,
+X- 		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4)
+X-     F_text	  *t;
+X-     int		  *xmin, *ymin, *xmax, *ymax;
+X-     int		   *rx1,*ry1, *rx2,*ry2, *rx3,*ry3, *rx4,*ry4;
+X- {
+X-     int		   xmin1, ymin1, xmax1, ymax1;
+X-     int		   xmin2, ymin2, xmax2, ymax2;
+X-     int		   dum;
+X-     text_bound_actual(t, t->angle, &xmin1, &ymin1, &xmax1, &ymax1, 
+X- 		  rx1, ry1, rx2, ry2, rx3, ry3, rx4, ry4);
+X-     text_bound(t, &xmin2, &ymin2, &xmax2, &ymax2);
+X-     *xmin = min2(xmin1,xmin2);
+X-     *xmax = max2(xmax1,xmax2);
+X-     *ymin = min2(ymin1,ymin2);
+X-     *ymax = max2(ymax1,ymax2);
+X  }
+X  
+X  static void
+X--- 532,537 ----
+Xdiff -rc xfig.2.1.7a/u_bound.h xfig.2.1.8/u_bound.h
+X*** xfig.2.1.7a/u_bound.h	Wed Dec  9 17:31:41 1992
+X--- xfig.2.1.8/u_bound.h	Thu Jun 17 10:08:40 1993
+X***************
+X*** 11,13 ****
+X--- 11,30 ----
+X   */
+X  
+X  extern int	overlapping();
+X+ 
+X+ /* macro which rounds DOWN the coordinates depending on point positioning mode */
+X+ #define		floor_coords(x) \
+X+     if (cur_pointposn != P_ANY) { \
+X+ 	    register int tmp_t; \
+X+ 	    tmp_t = ((x) + 1) % posn_rnd[cur_pointposn]; \
+X+ 	    (x) = (x) - tmp_t; \
+X+ 	}
+X+ 
+X+ /* macro which rounds UP the coordinates depending on point positioning mode */
+X+ #define		ceil_coords(x) \
+X+     if (cur_pointposn != P_ANY) { \
+X+ 	    register int tmp_t; \
+X+ 	    (x) = (x) + posn_rnd[cur_pointposn]; \
+X+ 	    tmp_t = (x)%posn_rnd[cur_pointposn]; \
+X+ 	    (x) = (x) - tmp_t - 1; \
+X+ 	}
+Xdiff -rc xfig.2.1.7a/u_drag.c xfig.2.1.8/u_drag.c
+X*** xfig.2.1.7a/u_drag.c	Wed Apr 28 11:55:52 1993
+X--- xfig.2.1.8/u_drag.c	Mon May 24 16:50:40 1993
+X***************
+X*** 222,229 ****
+X      F_text	   *t;
+X      int		    x, y;
+X  {
+X!     int		   cw,cw2;
+X!     float	   angle;
+X  
+X      new_t = t;
+X      /* adjust in case text was off positioning grid and positioning is now on */
+X--- 222,228 ----
+X      F_text	   *t;
+X      int		    x, y;
+X  {
+X!     float	   cw,cw2;
+X  
+X      new_t = t;
+X      /* adjust in case text was off positioning grid and positioning is now on */
+X***************
+X*** 234,260 ****
+X      y1off = new_t->base_y - y;
+X      if (t->type == T_CENTER_JUSTIFIED || t->type == T_RIGHT_JUSTIFIED) {
+X  	txsize = pf_textwidth(t->fontstruct, strlen(t->cstring), t->cstring);
+X- 	angle = t->angle*180.0/M_PI;
+X  	if (t->type == T_CENTER_JUSTIFIED) {
+X! 	    cw2 = round(txsize.x/2/zoomscale);
+X! 	    if (angle < 90.0 - 0.001)
+X! 		x1off -= cw2;
+X! 	    else if (angle < 180.0 - 0.001) 
+X! 		y1off += cw2;
+X! 	    else if (angle < 270.0 - 0.001) 
+X! 		x1off += cw2;
+X! 	    else 
+X! 		y1off -= cw2;
+X  	} else { /* T_RIGHT_JUSTIFIED */
+X! 	    cw = round(txsize.x/zoomscale);
+X! 	    if (angle < 90.0 - 0.001)
+X! 		x1off -= cw;
+X! 	    else if (angle < 180.0 - 0.001) 
+X! 		y1off += cw;
+X! 	    else if (angle < 270.0 - 0.001) 
+X! 		x1off += cw;
+X! 	    else 
+X! 		y1off -= cw;
+X  	}
+X      }
+X      canvas_locmove_proc = moving_text;
+X--- 233,246 ----
+X      y1off = new_t->base_y - y;
+X      if (t->type == T_CENTER_JUSTIFIED || t->type == T_RIGHT_JUSTIFIED) {
+X  	txsize = pf_textwidth(t->fontstruct, strlen(t->cstring), t->cstring);
+X  	if (t->type == T_CENTER_JUSTIFIED) {
+X! 	    cw2 = txsize.x/2.0/zoomscale;
+X! 	    x1off = round(x1off - cos((double)t->angle)*cw2);
+X! 	    y1off = round(y1off + sin((double)t->angle)*cw2);
+X  	} else { /* T_RIGHT_JUSTIFIED */
+X! 	    cw = 1.0*txsize.x/zoomscale;
+X! 	    x1off = round(x1off - cos((double)t->angle)*cw);
+X! 	    y1off = round(y1off + sin((double)t->angle)*cw);
+X  	}
+X      }
+X      canvas_locmove_proc = moving_text;
+Xdiff -rc xfig.2.1.7a/u_draw.c xfig.2.1.8/u_draw.c
+X*** xfig.2.1.7a/u_draw.c	Wed Apr 28 17:44:47 1993
+X--- xfig.2.1.8/u_draw.c	Tue Sep 14 09:08:32 1993
+X***************
+X*** 24,30 ****
+X  #include "w_zoom.h"
+X  
+X  typedef unsigned char byte;
+X! extern PIX_ROT_FONT lookfont();
+X  
+X  /************** POLYGON/CURVE DRAWING FACILITIES ****************/
+X  
+X--- 24,30 ----
+X  #include "w_zoom.h"
+X  
+X  typedef unsigned char byte;
+X! extern PIX_FONT lookfont();
+X  
+X  /************** POLYGON/CURVE DRAWING FACILITIES ****************/
+X  
+X***************
+X*** 71,76 ****
+X--- 71,80 ----
+X  	}
+END_OF_FILE
+  if test 31142 -ne `wc -c <'xfig.04'`; then
+    echo shar: \"'xfig.04'\" unpacked with wrong size!
+  fi
+  # end of 'xfig.04'
+fi
+echo shar: End of archive 7 \(of 16\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 16 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Creating merged patch file xfig.p2
+    cat xfig.[01][0-9] > xfig.p2
+    rm -f xfig.[01][0-9]
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

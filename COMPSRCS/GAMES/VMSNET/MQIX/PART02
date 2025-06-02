@@ -1,0 +1,1008 @@
+Path: uunet!wupost!waikato.ac.nz!ccc_rex
+From: ccc_rex@waikato.ac.nz
+Newsgroups: vmsnet.sources.games
+Subject: MQIX 2/2 (mulit-user QIX)
+Message-ID: <1992Apr9.151554.7337@waikato.ac.nz>
+Date: 9 Apr 92 15:15:54 +1200
+Organization: University of Waikato, Hamilton, New Zealand
+Lines: 999
+
+-+-+-+-+-+-+-+-+ START OF PART 2 -+-+-+-+-+-+-+-+
+X`09.ascii`09<esc>'<'`09`09; enter ANSI mode
+X`09.ascii`09<esc>'(B'`09`09; select ascii character set
+X`09.ascii`09<esc>'`5B2J'`09`09; erase entire screen
+X`09.ascii`09<esc>'`5B1;1H'`09`09; jump to top left corner
+X`09.ascii`09<10>`09`09`09; linefeed
+X.if ne $$SOCCER
+X`09.ascii`09<esc>'#3                 SOCCER' ; double-height top half
+X`09.ascii`09<13><10>
+X`09.ascii`09<esc>'#4                 SOCCER' ; double-height bottom half
+X.endc
+X.if ne $$MQIX
+X`09.ascii`09<esc>'#3                 MULTI QIX' ; double-height top half
+X`09.ascii`09<13><10>
+X`09.ascii`09<esc>'#4                 MULTI QIX' ; double-height bottom half
+X.endc
+X`09.ascii`09<13><10><10>
+X`09.ascii`09<esc>'#6        Thank you for playing'
+X`09.ascii`09<13><10><10>
+Xtext_len = . - text
+X`09.align`09long
+Xtext_end_game:
+X`09.long`092
+X`09.long`09text
+X`09.address 10$
+X10$:`09.long`09text_len
+X
+Xtext = .
+X`09.ascii`09<13><10><10>
+X`09.ascii`09'Game aborted because master '
+X`09.ascii`09'player'
+X`09.ascii`09' quitted'<13><10><10>
+Xtext_len = . - text
+X`09.align`09long
+Xtext_abort:
+X`09.long`092
+X`09.long`09text
+X`09.address 10$
+X10$:`09.long`09text_len
+X
+Xtext = .
+X`09.ascii`09<esc> 'Y' <31+24> <31+1>`09; col 1, row 24
+X`09.ascii`09<esc> 'G'`09`09`09; exit graphics
+X`09.ascii`09<7> ' Please wait for next game ...'
+X`09.ascii`09<esc> 'F'`09`09`09; enter graphics
+Xtext_len = . - text
+X`09.align`09long
+Xtext_wait:
+X`09.long`092
+X`09.long`09text
+X`09.address 10$
+X10$:`09.long`09text_len
+X
+X`09.align`09long
+Xusername_jpi:
+X`09.word`0912, jpi$_username
+X`09.address username_buf
+X`09.address username_siz
+X`09.long`090
+X
+X`09.align`09long
+Xstart_wait:
+X`09.long`09-10000000*5, -1`09`09; wait 5 seconds
+Xsecond_1:
+X`09.long`09-10000000*1, -1`09`09; wait 1 second
+Xsecond_2:
+X`09.long`09-10000000*2, -1`09`09; wait 2 seconds
+X
+X.if ne $$SOCCER
+Xupdate_wait:
+X`09.long`09-100000*40, -1`09`09; wait 40/100 ths of a second
+X.endc
+X
+X.if ne $$MQIX
+Xupdate_wait:
+X`09.long`09-100000*30, -1`09`09; wait 30/100 ths of a second
+X.endc
+X
+Xcheck_wait:
+X`09.long`09-10000000*5, -1`09`09; wait 5 seconds for checking
+Xvalid_move:
+X`09.long`09`5EB101110100`09`09; valid moves are 2,4,6,8 and 5!!
+Xstart_direction:
+X.if ne $$MQIX
+X`09.byte`092, 8, 2, 8, 2, 8, 6, 4`09; initial move directions for snake
+X.endc
+X;.if ne $$TANK
+X;`09.byte`096, 4, 4, 6, 2, 8, 6, 4`09;  for tank
+X;.endc
+X`09.align`09long
+Xadd_head_par:
+X`09.long`091`09`09`09; parameter list to Pascal routine
+X`09.address move`09`09`09; each players move
+Xupdate_par:
+X`09.long`092
+X`09.address outbuf
+X`09.address screen_len
+Xupdate_par2:`09`09`09; if we have died, then there is no head
+X`09.long`092`09`09; to change to a diamond, so write screen
+X`09.address screen_buf`09; update directly from global memory.
+X`09.address screen_len
+X
+X`09.psect`09$rwbuf`09wrt, noexe, noshr, pic, page
+X
+Xmbxname_len = 16
+Xmbxname:`09`09`09; room to hold the physical mbx name
+X`09.blkb`09mbxname_len
+Xmbxname_descr:
+X`09.word`09mbxname_len, 0
+X`09.long`09mbxname
+Xmbxiosb:
+X`09.long`090,0
+Xmbxbuf_siz = 32
+Xmbxbuf:
+X`09.blkb`09mbxbuf_siz
+X
+Xdibbuf:
+X`09.blkb`09dib$k_length
+X
+X`09.align`09long
+Xttiosb:
+X`09.long`090,0
+X
+Xsave_bit:`09.long
+X
+Xttmode:`09`09.blkq
+Xttmode_save:`09.blkq
+X
+Xttbuf_siz = 128
+Xttbuf:
+X`09.blkb`09ttbuf_siz
+X`09.align`09page
+X
+X.if ne $$MQIX
+Xtrans_table:
+X`09.blkb`09256`09`09; converts your number to diamond
+X.endc
+X
+Xoutbuf_siz = 2048
+Xoutbuf::
+X`09.blkb`09outbuf_siz
+X
+Xmap_range:
+X`09.address share_data
+X`09.address share_data+<512*3>
+Xret_range:
+X`09.long`090, 0
+X
+X
+X`09.psect`09$sharedata wrt, noexe, shr, pic, page
+Xshare_data:
+X
+Xgame_count:
+X`09.long`09`09`09; count of number of games played
+Xmaster_flag:
+X`09.long`09`09`09; = 1 if we are master snake
+Xabort:
+X`09.long`09`09`09; = 1 if all snakes should abort
+Xplayer_bits:
+X`09.long`09`09`09; bit set if that snake is playing
+Xplayers:
+X`09.long`09`09`09; bit set if that snake is reserved
+Xother_players:
+X`09.long`09`09`09; used by master snake to wait for other
+X`09`09`09`09; snakes to indicate operation completed
+Xmove_count:
+X`09.long`09`09`09; incremented every move.  Used for detecting
+X`09`09`09`09; other snakes hanging the game
+Xgame_going:
+X`09.long`09`09`09; <> 0 if a game is going
+Xyou_just_died:
+X`09.long`09`09`09; bit I set if snake I just died
+Xseed:
+X`09.long`09`09`09; random number seed
+Xstart_position:
+X`09.blkl`09snake`09`09; position of starting (1-8)
+X;
+X;`09`095
+X;    1`09+---------------+  3
+X;`09`7C`09`09`7C
+X;`09`7C`09`09`7C
+X;    7`09`7C`09`09`7C  8
+X;`09`7C`09`09`7C
+X;`09`7C`09`09`7C
+X;    4`09+---------------+  2
+X;`09`096
+X;
+Xscore:
+X`09.blkl`09snake`09`09; players' score
+Xn_games:
+X`09.blkl`09snake`09`09; # of games each player has played
+Xwins:
+X`09.blkl`09snake`09`09; # of wins for each player
+Xplayer_pos:
+X`09.blkl`09snake`09`09; starting position of each snake
+X`09.align`09quad
+Xmove:
+X.if ne $$SOCCER
+X`09.blkw`09snake`09`09; each players move (word)
+X.endc
+X.if ne $$MQIX
+X`09.blkb`09snake`09`09; each players move (word)
+X`09.blkb`09snake`09`09; we had some problems overwritting name
+X.endc
+Xname_size = 32
+Xname:
+X`09.blkb`09name_size * snake ; each snakes name (32 chars long)
+X. = . + 512 - < . - share_data >
+X`09.align`09long
+Xscreen_len:
+X`09.long`09`09`09; # chars to be output
+Xscreen_buf:
+X`09.blkb`092048`09`09; buffer containing screen update
+X. = . + <512*6> - < . - share_data >
+X
+X
+X`09.psect`09$rwdata`09wrt, noexe, noshr, pic, long
+X
+Xttchan:
+X`09.word
+Xmbxchan:
+X`09.word
+Xdata_ready:
+X`09.word
+Xmaster:
+X`09.word`09`09`09; = 1 if we are master snake
+Xcontrol_c_flag:
+X`09.word`09`09`09; non zero if `5EC typed
+Xdead:
+X`09.word`09`09`09; bit I set if snake I just died
+X`09.align`09long
+Xcluster_2:
+X`09.long
+Xcluster_3:
+X`09.long
+Xplayer:
+X`09.long
+Xplayer_efn:`09`09`09; my player efn in cluster 2
+X`09.long
+Xcurrent_players:
+X`09.long
+Xchars_left:`09`09`09; # of chars left in buffer
+X`09.long
+Xchar_pointer:
+X`09.long`09`09`09; address of next character
+Xlast_move_count:
+X`09.long
+Xusername_buf:
+X`09.ascii`09'            '`09;`09.blkb`0912
+Xusername_siz:
+X`09.long
+X
+Xoutbuf_qio:
+X`09$qio`09func=io$_writevblk!io$m_noformat,-
+X`09`09p1=outbuf
+Xoutput_qio:
+X`09$qio`09func=io$_writevblk!io$m_noformat
+X
+Xread_qio:
+X`09$qio`09func=io$_readvblk!io$m_noecho, -
+X`09`09iosb=ttiosb, efn=flag$v_io, -
+X`09`09p1=ttbuf, p2=1, -`09`09; read 1 char with wait
+X`09`09p4=term_blk`09`09`09; say no terminators
+X
+X;`09$qio`09func=io$_readvblk!io$m_timed!io$m_noecho, - ; !io$m_nofiltr,-
+X;`09`09iosb=ttiosb,-
+X;`09`09p1=ttbuf, p2=ttbuf_siz, p3=0`09; wait time = 0
+X
+Xterm_blk:
+X`09.long`090, 0`09`09; no terminators
+X
+Xexit_block:`09`09`09; exit handler block
+X`09.long
+X`09.address snake_exit
+X`09.long`091`09`09; 1 argument
+X`09.address 10$
+X10$:`09.long`09`09`09; exit reason
+X
+X
+X`09.psect`09$$code`09nowrt, exe, shr, pic, long
+X
+X`09.entry`09-
+XTTINIT, `5Em<>
+X;+
+X; Create a mailbox.  Assign a channel to terminal with an associated mailbox
+V.
+X;-
+X.if ne 0
+X`09$crembx_s`09chan=mbxchan, promsk=#`5ExFF00
+X`09bsbw`09`09error
+X`09$getchn_s`09chan=mbxchan, pribuf=dibbuf_descr
+X`09bsbw`09`09error
+X`09$fao_s`09`09ctrstr=mbxcnv, outbuf=mbxname_descr,-
+X`09`09`09outlen=mbxname_descr, p1=dibbuf+dib$w_unit
+X.endc
+X`09$assign_s`09devnam=ttname_descr, chan=ttchan
+X;`09`09`09mbxnam=mbxname_descr
+X`09bsbw`09error
+X`09movw`09ttchan, outbuf_qio+qio$_chan`09`09;store channel #
+X`09movw`09ttchan, output_qio+qio$_chan`09`09;store channel #
+X`09movw`09ttchan, read_qio+qio$_chan`09`09;store channel #
+X`09$qiow_s`09func=#io$_setmode!io$m_ctrlcast, chan=ttchan,-
+X`09`09p1=control_c
+X`09ret
+X
+X.if ne 0
+X`09$qiow_s func=#io$_sensemode, chan=ttchan, -
+X`09`09iosb=ttiosb, p1=ttmode`09; get terminal characteristics
+X`09bsbw`09error
+X`09movzwl`09ttiosb, r0
+X`09bsbw`09error
+X`09movq`09ttmode, ttmode_save
+X`09bbss`09#tt$v_escape, ttmode+4, 80$`09; want escape mode
+X80$:`09$qiow_s func=#io$_setmode, chan=ttchan, p1=ttmode
+X`09ret
+X.endc
+X
+X`09.entry`09-
+XTT1CHAR,`09`5Em<>
+X`09clrb`09ttbuf
+X`09$qiow_s`09func=#io$_readvblk!io$m_timed!io$m_noecho!io$m_nofiltr,-
+X`09`09chan=ttchan, iosb=ttiosb,-
+X`09`09p1=ttbuf, p2=#1, p3=#0`09; wait time = 0
+X`09cvtbl`09ttbuf, r0
+X`09cmpb`09r0, #13`09`09`09; is it <CR> ?
+X`09bneq`09100$
+X`09clrb`09data_ready
+X100$:`09ret
+X
+XTTREAD::
+X;`09blbs`09control_c_flag, 10$
+X
+X`09tstl`09ttiosb`09`09`09; did we read any characters ?
+X`09`09`09`09`09; has read completed ?
+X`09beql`09100$`09`09`09; br if no
+X`09movzbl`09ttbuf, r2`09`09; get character before next read
+X`09$qio_g`09read_qio`09 `09; start read of another character
+X;
+X;`09$qiow_s`09func=#io$_writevblk,chan=ttchan,-`09; debug write
+X;`09`09p1=ttbuf, p2=ttiosb+2, p4=#`5Ex1000
+X
+X`09movl`09r2, r0`09`09`09; copy character back into r0
+X`09cmpb`09r0, #`5EA/a/`09`09; is it lowercase
+X`09bgeq`0950$`09`09`09; br if yes
+X80$:
+X`09cmpb`09r0, #`5EA/ /
+X`09beql`0990$
+X`09cmpb`09r0, #`5EA/5/
+X`09beql`0990$
+X`09rsb
+X90$:
+X`09movb`09#`5EX80, r0
+X`09rsb
+X50$:
+X`09bicb2`09#`5EX20, r0`09`09; make into uppercase
+X`09brb`0980$`09`09`09; go check for "5", " "
+X100$:
+X`09clrl`09r0
+X`09rsb
+X
+X
+X`09.entry`09-
+XMBXREAD,`09`5Em<>
+X;+
+X; This is an AST routine which executes when the mailbox record has been rea
+Vd.
+X; The record itself is a status message which is assumed to say that
+X; unsolicited data is available at the terminal
+X;-
+X`09blbc`09mbxiosb, 100$`09`09; on error, dont re-que read
+X;`09we could have SS$_CANCEL or SS$_ABORT from the $CANCEL in the
+X;`09exit handler
+X`09movb`09#1, data_ready`09`09; indicate data is there
+X`09bsbw`09queue_mbxread`09`09; queue another read request
+X100$:
+X`09ret
+X
+XQUEUE_MBXREAD:
+X`09$qio_s`09efn=#2, func=#io$_readvblk, chan=mbxchan, iosb=mbxiosb,-
+X`09`09astadr=mbxread,-
+X`09`09p1=mbxbuf, p2=#mbxbuf_siz
+X`09blbc`09r0, 100$
+X`09rsb
+X100$:
+X`09bsbw`09error
+X`09rsb
+X
+XTTWRITE::
+X;+
+X;`09bsbw`09ttwrite
+X;`09r3 contains length of buffer to write
+X;`09the buffer is outbuf
+X;-
+X`09movl`09r3, outbuf_qio+qio$_p2`09`09; store length of buffer
+X`09$qiow_g`09outbuf_qio
+X`09blbc`09r0, 100$
+X`09rsb
+X100$:
+X`09bsbw`09error
+X`09rsb
+X
+X
+X`09.entry`09-
+Xsnake_screen, `5Em<r2,r3,r4,r5>
+X;+
+X;`09CALL SNAKE_SCREEN( array, length )
+X;`09BYTE ARRAY( LENGTH )
+X;`09copies string to update screen into shared memory
+X;-
+X`09movl`09@8(ap), r0`09`09; get length
+X`09movl`09r0, screen_len`09`09; store length
+X`09movc3`09r0, @4(ap), screen_buf`09; copy text
+X`09ret
+X
+X`09.entry`09-
+Xsnake_write, `5Em<r2,r3>
+X;+
+X;`09CALL SNAKE_WRITE( array, length )
+X;`09BYTE ARRAY( LENGTH )
+X;`09writes buffer to terminal in noformat mode
+X;-
+X`09movl`094(ap), r3`09`09`09; get address
+X`09movl`09@8(ap), r2`09`09`09; get length
+X50$:
+X`09movl`09r2, r0`09`09`09`09; copy length
+X`09cmpw`09r0, #512`09`09`09; is it too big
+X`09bleq`0980$`09`09`09`09; br if not
+X`09movl`09#512, r0
+X80$:
+X`09movl`09r3, output_qio+qio$_p1`09`09; store address of buffer
+X`09movl`09r0, output_qio+qio$_p2`09`09; store length of buffer
+X`09addl2`09r0, r3`09`09`09`09; update address
+X`09subl2`09r0, r2`09`09`09`09; update length
+X`09$qiow_g`09output_qio
+X`09blbc`09r0, 100$
+X`09tstl`09r2`09`09`09`09; anything else to write ?
+X`09bgtr`0950$`09`09`09`09; br if yes
+X`09ret
+X100$:
+X`09bsbw`09error
+X`09ret
+X
+X`09.entry`09-
+Xsnake_dead, `5Em<>
+X;+
+X;`09CALL SNAKE_DEAD( player # )
+X;-
+X`09subl3`09#1, @4(ap), r0`09`09`09; get # of snake who died
+X`09bbss`09r0, you_just_died, 100$`09`09; set flag saying he died
+X100$:`09ret
+X
+X
+X
+XCANCELTYPEAHEAD::
+X`09tstw`09ttchan`09`09; check channel is open
+X`09beql`09100$
+X`09$qiow_s`09func=#io$_readvblk!io$m_purge!io$m_timed,-
+X`09`09chan=ttchan, -
+X`09`09p1=ttbuf, p2=1, p3=0`09; do read with 0 length buffer (p2)
+X100$:`09ret`09`09`09`09; return with status in r0
+X
+XERROR:
+X`09blbs`09r0, 100$
+X`09pushl`09r0
+X`09calls`09#1, G`5Elib$signal
+X100$:
+X`09rsb
+X
+X`09.entry`09-
+Xcontrol_c, `5Em<>
+X`09movb`09#1, control_c_flag
+X`09ret
+X
+X
+X`09.page
+X`09.entry`09-
+XSNAKE_INIT, `5Em<r2,r3,r4,r5>`09`09`09`09; snake game
+X;+
+X;`09I = SNAKE_INIT( player # , game )
+X;`09returns I = 1 if you are master snake.
+X;`09returns your player # as a integer
+X;`09returns game = 1 if there is a game in progress
+X;-
+X
+X`09calls`09#0, ttinit`09`09`09; open terminal
+X;
+X`09$ascefc_s efn=#64, name=snake_desc_2`09; associate event flag cluster
+X`09bsbw`09error
+X;
+X;`09$open`09fab=snake_fab`09`09`09; open section file
+X;`09bsbw`09error
+X
+X`09$deltva_s inadr=map_range`09`09; delete memory were global
+X`09bsbw`09error`09`09`09`09;  memory will be mapped
+X`09$crmpsc_s inadr=map_range, flags=#sec$m_gbl!sec$m_wrt!sec$m_pagfil,-
+X`09`09gsdnam=snake_map_name, - ; chan=snake_fab+fab$l_stv,`20
+X`09`09pagcnt=#4
+X`09bsbw`09error
+X`09cmpl`09r0, #ss$_created`09`09; are we first to map section
+X`09bneq`0950$`09`09`09`09; no
+X`09movab`09share_data+4, r3
+X`09movc5`09#0, (r3), #0, #512-4, (r3)`09; clear everything except count
+X`09$clref_s efn=#flag$v_game+64`09`09; say not game
+X`09movl`09#39814571, seed`09`09`09; init random n.g. seed
+X`09movl`09#snake, r0`09`09`09; 8 snakes
+X20$:
+X`09movl`09r0, start_position-4`5Br0`5D`09; init start position
+X`09sobgtr`09r0, 20$
+X50$:
+X`09blbc`09abort, 60$`09`09`09; if not abort --> 60$
+X`09callg`09text_abort, snake_write
+X`09$exit_s #1
+X60$:
+X;`09$qio_g`09read_qio`09 `09; start read of another character
+X;`09the above line shifted into SNAKE_START
+X
+X;`09bsbw`09queue_mbxread`09`09`09; start terminal read
+X;
+X`09bbss`09#0, master_flag, 100$`09`09; see if a master snake exists
+X`09`09`09; this should be interlocked on a multi-processor
+X;+
+X; We will have to be the master snake
+X;-
+X`09movb`09#1, master`09`09`09; indicate we are master snake
+X`09$setef_s efn=#7`09`09`09`09; set for first call
+X100$:
+X;
+X`09clrl`09r1`09`09`09`09; start at player 0 (bit0=1)
+X150$:
+X`09bbcs`09r1, players, 200$`09`09; see if this snake is free
+X`09incl`09r1`09`09`09`09; go to next snake
+X`09cmpl`09r1, #snake`09`09`09; have we checked all snakes?
+X`09blss`09150$`09`09`09`09; no --> 150$
+X`09mnegl`09#1, r1`09`09`09`09; player = -1 means none
+X200$:
+X`09movl`09r1, player`09`09`09; store my snake number (0-7)
+X`09movl`09player, @4(ap)`09`09`09;  and return it
+X500$:
+X`09movzbl`09game_going, @8(ap)`09`09; return game going flag
+X
+X`09movl`09r1, r3
+X`09blss`09600$`09`09`09`09; no snakes available
+X`09$getjpi_s itmlst=username_jpi`09`09; get our username
+X`09mull2`09#name_size, r3`09`09`09; get offset to start of name
+X`09movc5`09username_siz, username_buf, #`5Ea/ /, #name_size, name(r3)
+X`09`09`09`09`09`09; copy username
+X600$:
+X`09$dclexh_s desblk=exit_block`09`09; declare exit handler
+X`09bsbw`09error
+X;+
+X;`09init translation table for converting all ascii chars for your
+X;`09snake to a diamond
+X;-
+X`09movab`09trans_table, r3
+X`09clrl`09r4
+X700$:
+X`09movb`09r4, (r3)+`09`09`09; store byte
+X`09aoblss`09#256, r4, 700$
+X`09movl`09player, r0`09`09`09; get our player #
+X`09blss`09800$`09`09`09`09; br if no players available
+X`09movb`09#`5EA/`60/, trans_table+`5EA/1/+`5EX80(r0)`09; convert us to diamo
+Vnd
+X`09movab`09trans_table+128, r3
+X`09movb`09#`5EA/1/, `5EA/a/(r3)
+X`09movb`09#`5EA/2/, `5EA/b/(r3)
+X`09movb`09#`5EA/3/, `5EA/c/(r3)
+X`09movb`09#`5EA/4/, `5EA/d/(r3)
+X`09movb`09#`5EA/5/, `5EA/e/(r3)
+X`09movb`09#`5EA/6/, `5EA/f/(r3)
+X`09movb`09#`5EA/7/, `5EA/g/(r3)
+X`09movb`09#`5EA/8/, `5EA/h/(r3)
+X`09movb`09#`5EA/ /, trans_table+`5EA/a/+`5EX80(r0)`09; convert us to space
+X800$:
+X
+X`09movzbl`09master, r0`09`09`09; return master snake status
+X`09ret
+X
+Xmaster_wait:
+X;+
+X; master snake has to wait some time for other snakes to start playing
+X; called from SNAKE_START
+X;-
+X`09incl`09game_count`09`09`09; say another game being played
+X220$:`09clrb`09player_bits`09`09`09; no other players
+X`09bbss`09player, player_bits, 400$`09; say I am playing
+X400$:
+X`09$clref_s efn=#flag$v_synch+64
+X
+X.if ne $$MQIX
+X;+
+X;`09randomise starting positions
+X;-
+X`09moval`09start_position, r4`09`09; starting position numbers
+X`09movl`09#1, r2`09`09`09`09; snake index (start at 1)
+X500$:
+X`09pushal`09seed`09`09`09`09; random number seed
+X`09calls`09#1, G`5Emth$random`09`09; random real in r0
+X`09addl3`09#1, r2, r3`09`09`09; snake + 1
+X`09cvtlf`09r3, r3`09`09`09`09; as real
+X`09mulf2`09r3, r0`09`09`09`09; get snake to change pos with
+X`09cvtfl`09r0, r0
+X`09movl`09(r4)`5Br0`5D, r1`09`09`09; swap these positions
+X`09movl`09(r4)`5Br2`5D, (r4)`5Br0`5D
+X`09movl`09r1, (r4)`5Br2`5D
+X`09aobleq`09#7, r2, 500$
+X;
+X`09moval`09start_position, r4
+X`09movab`09move, r3
+X`09movl`09#snake, r2`09`09`09; number of snakes
+X600$:
+X`09movl`09(r4)+, r0`09`09`09; get start position (1-8)
+X`09movb`09start_direction-1`5Br0`5D, (r3)+`09; copy start direction
+X`09sobgtr`09r2, 600$
+X.endc
+X
+X.if ne $$SOCCER
+X`09movab`09move, r3
+X`09clrq`09(r3)+`09`09`09`09; no move to start with
+X`09clrq`09(r3)+
+X.endc
+X;
+X`09$setimr_s efn=#flag$v_game+64,-`20
+X`09`09`09daytim=second_1`09`09; wait a time for other snakes
+X`09$waitfr_s efn=#flag$v_game+64`09`09; say that a game is going
+X`09movb`09#1, game_going`09`09`09; say game going
+X`09$clref_s efn=#flag$v_endofgame+64`09; say not end of game
+X`09$setef_s efn=#7`09`09`09`09; sets event flag for first
+X`09`09`09`09`09`09;  call to snake_wait
+X`09$setimr_s efn=#flag$v_synch+64,-`09`09
+X`09`09`09 daytim=start_wait
+X`09$waitfr_s efn=#flag$v_synch+64
+X`09; this allows other snakes to set bit saying they are playing
+X
+X`09rsb
+X
+X`09.entry`09-
+XSNAKE_START, `5Em<r2,r3,r4>
+X;+
+X;`09CALL SNAKE_START( PLAYERS , START_POSITION )
+X;`09INTEGER PLAYERS, START_POSITION(8)
+X;`09waits 5? seconds for other players to run game
+X;`09The master snake is assumed to have waited some additional time
+X;`09Returns PLAYERS, bit I <> 0 if that player is active
+X;`09START_POSITION(I) is the starting location of snake I, (1-8)
+X;-
+X`09$cancel_s chan=ttchan`09`09`09; cancel the outstanding read
+X
+X`09blbc`09master, 500$`09`09`09; are we master snake ?
+X`09bsbw`09master_wait
+X`09brb`09800$
+X200$:
+X`09$exit_s #1`09`09`09`09; game aborted so stop
+X500$:
+X`09$waitfr_s efn=#flag$v_game+64`09`09; wait until a game starts
+X`09blbs`09abort, 200$`09`09`09; if game stopped --> 200$
+X`09bbss`09player, player_bits, 600$`09; say I am playing
+X600$:`09$waitfr_s efn=#flag$v_synch+64`09`09; synchronise
+X`09blbs`09abort, 200$`09`09`09; if game stopped --> 200$
+X800$:
+X`09movzbl`09player_bits, r4`09`09`09; get player bits
+X`09ashl`09#flag$v_done, r4, other_players ; used by master snake
+X`09movl`09r4, @4(ap)`09`09`09; store player bits
+X`09clrl`09chars_left`09`09`09; cancel type ahead
+X`09clrb`09data_ready`09`09`09; make us do a read
+X;;`09calls`09#0, canceltypeahead
+X`09$qio_g`09read_qio`09 `09; start read of another character
+X
+X.if ne $$MQIX
+X;`09return starting positions
+X`09moval`09start_position, r0`09`09; address of new positions
+X`09movl`098(ap), r2`09`09`09; address of where to put them
+X`09movl`09#snake, r1`09`09`09; number of snakes
+X910$:
+X`09movl`09(r0)+, (r2)+
+X`09sobgtr`09r1, 910$
+X.endc
+X
+X;`09init starting directions
+X`09movaw`09move, r2`09`09`09; address of where to put them
+X`09movl`09#snake, r1`09`09`09; number of snakes
+X900$:
+X.if ne $$MQIX
+X`09movb`09#`5EA/9/, (r2)+`09`09`09; 9 = invalid move
+X.endc
+X
+X.if ne $$SOCCER
+X`09movw`09#5, (r2)+`09`09`09; 5 = stop
+X.endc
+X
+X`09sobgtr`09r1, 900$
+X
+X`09mnegl`09#1, last_move_count`09`09; invalidate last counter
+X
+X`09ret
+X
+X
+XSNAKE_WAIT::
+X;+
+X;`09BSBW SNAKE_WAIT
+X; `09wait until we are told to read players command(s)
+X;-
+X`09blbs`09master, 200$`09`09`09; are we master snake ?
+X`09$waitfr_s efn=#flag$v_read+64`09`09; if not then wait for flag
+X`09rsb
+X200$:`09; master snake waits and then sets flag for all players
+X`09$cantim_s reqidt=#check_timer`09`09; cancel checking timer
+X`09$waitfr_s efn=#7`09`09`09; wait for previous timer
+X`09$setimr_s efn=#8, daytim=check_wait, -
+X`09`09astadr=check_ast, reqidt=#check_timer ; set off checking timer
+X`09$setimr_s efn=#7, daytim=update_wait
+X`09$clref_s efn=#flag$v_update+64`09`09; clear next flag to wait on
+X`09movl`09#flag$v_done+64, r2`09`09; clear each players done flag
+X`09$clref_s efn=r2`09`09`09`09; player 0
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2
+X`09incl`09r2
+X`09$clref_s efn=r2`09`09`09`09; player 7
+X;
+X`09$clref_s efn=#flag$v_synch+64
+X`09$setef_s efn=#flag$v_read+64`09`09; tell everybody to do read
+X`09rsb
+X
+X
+XSNAKE_READ::
+X;+
+X;`09BSBW SNAKE_READ
+X;`09read all users moves and store them into the byte array MOVES(*)
+X;-
+X`09bsbw`09ttread`09`09`09`09; read users commands, if any
+X`09movl`09player, r1`09`09`09; get our player number
+X
+X.if ne $$SOCCER
+X`09tstw`09r0`09`09`09`09; anything typed ?
+X`09beql`0910$`09`09`09`09; br if no
+X`09movw`09r0, move`5Br1`5D`09`09`09; store our move
+X.endc
+X
+X.if ne $$MQIX
+X`09tstb`09r0`09`09`09`09; anything typed ?
+X`09beql`0910$
+X`09blss`095$
+X`09movb`09r0, move`5Br1`5D`09`09`09; store our move
+X`09brb`0910$
+X5$:
+X`09bisb2`09r0, move`5Br1`5D`09`09`09; r0 = `5EX80 (set parity bit)
+X.endc
+X
+X10$:
+X`09addl3`09#flag$v_done+64, player, r1
+X`09$setef_s efn=r1`09`09`09`09; say that read is complete
+X900$:
+X`09blbc`09master, 1000$
+X`09$wfland_s efn=#64, mask=other_players`09; wait for all players to read
+X`09incl`09move_count`09`09`09; onto next move
+X`09$clref_s efn=#flag$v_read+64`09`09; clear next flag to wait on
+X`09$setef_s efn=#flag$v_update+64`09`09; tell everybody to update
+X`09brb`091050$
+X1000$:
+X`09$waitfr_s efn=#flag$v_update+64`09`09; wait for all reads to complete
+X`09blbs`09master_flag, 1050$`09`09; check for master snake OK
+X`09movl`09player, r1`09`09`09; get our player number
+X`09clrb`09move(r1)`09`09`09; store our move ( quit )
+X1050$:
+X`09rsb
+X
+X
+X`09.entry`09-
+XSNAKE_PLAY, `5Em<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+X;+
+X;`09called once at the start of the game.
+X;`09I then call the Pascal routine ADD_HEAD to perform the moves.
+X;-
+X`09blbs`09master, 1000$`09`09; master snake does all the work
+X100$:
+X`09bsbw`09snake_wait
+X`09bsbw`09snake_read
+X`09$waitfr_s efn=#flag$v_synch+64`09; wait until screen update there
+X`09bsbw`09snake_update`09`09; update screen
+X`09brb`09100$
+X
+X900$:
+X`09clrb`09game_going`09`09; tell other snakes games finished
+X`09$setef_s efn=#flag$v_synch+64`09; wake other snakes up
+X`09bsbb`09snake_update`09`09; write out last move
+X`09ret
+X
+X1000$:`09; master snake moves every snake
+X`09bsbw`09snake_wait
+X`09bsbw`09snake_read
+X`09callg`09add_head_par, L`5Eadd_head ; call Pascal routine
+X`09`09`09`09`09; returns 1 if game still going
+X`09blbc`09r0, 900$`09`09; game has ended --> 900$
+X`09$setef_s efn=#flag$v_synch+64`09; wake other snakes up
+X`09bsbb`09snake_update`09`09; update our screen
+X`09brb`091000$
+X
+X
+X`09.enable local_block
+X500$:
+X`09$exit_s #1`09`09`09; game aborted, so exit image
+X
+Xsnake_update::
+X`09blbs`09abort, 500$
+X`09blbs`09dead, 80$`09`09; if we are dead, then no head
+X
+X.if ne $$SOCCER
+X`09movc3`09screen_len, screen_buf, outbuf`09; copy update string
+X.endc
+X
+X.if ne $$MQIX
+X;`09replace your snake head with a diamond symbol
+X`09movl`09screen_len, r0`09`09; get length of output string
+X`09movtc`09r0, screen_buf, #`5EA/ /, trans_table, r0, outbuf
+X.endc
+X
+X;`09movl`09player, r2`09`09; get my snake number
+X;`09addw2`09#`5EA/1/+`5EX80, r2`09`09; get number with parity bit set
+X;`09locc`09r2, screen_len, outbuf
+X;`09beql`0950$`09`09`09; could not find it !!!
+X;`09movb`09#`5EA/`60/, (r1)`09`09; change to diamond
+X50$:
+X`09callg`09update_par, snake_write
+X`09blbc`09game_going, 100$`09; bit clear if game has finished
+X`09bbsc`09player, you_just_died, 60$ ; see if we just died
+X`09rsb
+X60$:`09movb`09#1, dead`09`09; say we are dead
+X`09callg`09text_wait, snake_write`09; tell them to wait for next game_exit,
+X`09rsb
+X80$:`09; dont copy buffer if no head to update because we are dead
+X`09callg`09update_par2, snake_write
+X`09blbc`09game_going, 100$
+X`09rsb
+X100$:
+X`09$setimr_s efn=#6, daytim=second_1`09; so we can see last move
+X`09$waitfr_s efn=#6
+X`09ret`09`09`09`09; return from SNAKE_PLAY if end game
+X`09.disable local_block
+X
+X
+X`09.entry`09-
+XCHECK_AST, `5Em<r2,r3,r4>
+X;+
+X;`09called when check_timer expires (2 seconds)
+X;`09we should only get here if one of the other snakes has aborted
+X;`09or `5ES ed  .  Force the snake out of the game.
+X;-
+X`09$readef_s efn=#64, state=cluster_2`09; get done flags
+X`09extzv`09#flag$v_done, #snake, cluster_2, r2 ; get done flags
+X;`09movb`09other_players+1, r3`09`09; get other players
+X`09bicw3`09r2, other_players+1, r3`09`09; find players who have not
+X`09`09`09`09`09`09; responded
+X`09bicw2`09r3, other_players+1`09`09; and say they are dead
+X`09clrl`09r2`09`09`09`09; snake 0
+X100$:`09bbc`09r2, r3, 200$
+X`09clrb`09move(r2)`09`09`09; say snake has quitted
+X`09addl3`09#flag$v_done+64, r2, r0`09`09; get event flag
+X`09$setef_s efn=r0`09`09`09`09; set event flag so I will
+X`09`09`09`09`09`09; wake up on return from here
+X200$:`09aoblss`09#snake, r2, 100$`09`09; for all 8 snakes
+X
+X`09ret
+X
+X
+X`09.entry`09-
+XSNAKE_GAME_END, `5Em<>
+X;+
+X;`09synchronizes the end of the game
+X;-
+X`09clrb`09dead`09`09`09; we are not dead
+X`09blbc`09master, 500$`09`09; if not master snake --> 500$
+X`09$clref_s efn=#flag$v_game+64`09; say game not in progress
+X`09clrb`09game_going`09`09; and again
+X`09$setimr_s efn=#flag$v_endofgame+64, daytim=second_2
+X`09clrw`09you_just_died`09`09; reset died flags
+X500$:
+X`09$waitfr_s efn=#flag$v_endofgame+64 ; wait for end of game
+X`09blbs`09abort, 800$`09`09; if we should abort --> 800$
+X`09ret
+X800$:`09; we must abort. Probably because master snake stopped
+X`09$exit_s #1
+X
+X
+X`09.entry`09-
+XSNAKE_EXIT, `5Em<r2,r3,r4,r5>
+X;+
+X;`09called as an exit handler
+X;-
+X;`09$cancel_s chan=mbxchan`09`09; cancel mailbox read
+X
+X`09movl`09player, r3`09`09; get my snake number
+X`09blss`0980$`09`09`09; we never were playing
+X`09clrb`09move(r3)`09`09; make next move a quit
+X`09addl3`09#flag$v_done, r3, r2`09; get done bit
+X`09bbcc`09r2, other_players, 50$`09; stop master snake from waiting for me
+X50$:`09addl2`09#64, r2`09`09`09; make into event flag
+X`09$setef_s efn=r2`09`09`09; say input done
+X`09bbcc`09r3, players, 60$`09; say this snake available
+X60$:
+X`09clrl`09score`5Br3`5D`09`09; zero score
+X`09clrl`09n_games`5Br3`5D`09`09; zero # of games played
+X80$:
+X`09blbc`09master, 100$`09`09; are we master snake ?
+X`09movb`09#1, abort`09`09; tell all other snakes to abort
+X`09clrb`09master_flag`09`09; say no master snake
+X`09$setef_s efn=#flag$v_read+64`09; wake everybody up
+X`09$setef_s efn=#flag$v_update+64
+X`09$setef_s efn=#flag$v_endofgame+64
+X`09$setef_s efn=#flag$v_synch+64
+X`09$setef_s efn=#flag$v_game+64`09; for people waiting for a game
+X100$:
+X
+X;`09$qiow_s func=#io$_setmode, chan=ttchan, p1=ttmode ;reset terminal
+X
+X;`09clear screen and put out of graphics mode
+X`09callg`09text_end_game, snake_write
+X`09blbc`09abort, 200$`09`09; game is not being aborted --> 200$
+X`09callg`09text_abort, snake_write
+X200$:
+X`09$deltva_s inadr=ret_range`09; delete global section
+X;`09$dassgn_s chan=snake_fab+fab$l_stv ; deassign channel
+X
+X`09ret
+X
+X`09
+X`09.entry`09-
+XNAME_SET, `5Em<r2,r3,r4,r5>
+X;+
+X;`09CALL NAME_SET( name )
+X;`09set this players name
+X;-
+X`09mull3`09#name_size, player, r3`09; get our player number (0-7)
+X`09addl2`09#13, r3`09`09`09; skip username
+X`09movc3`09#name_size-13, @4(ap), name(r3) ; store name in shared memory
+X`09ret
+X
+X`09.entry`09-
+XNAME_GET, `5Em<r2,r3,r4,r5>
+X;+
+X;`09CALL NAME_GET( name , player # )
+X;`09returns the name of specified player (1-8)
+X;-
+X`09subl3`09#1, @8(ap), r1`09`09; get player number (0-7)
+X`09mull2`09#name_size, r1`09`09; offset to this players name
+X`09movc3`09#name_size, name(r1), @4(ap) ; return players name
+X`09ret
+X
+X`09.entry`09-
+XSCORE_SET, `5Em<>
+X;+
+X;`09CALL SCORE_SET( player #, score , # games , # wins )
+X;-
+Xplayer_arg = 4
+Xscore_arg = 8
+Xgames_arg = 12
+Xwins_arg = 16
+X`09subl3`09#1, @player_arg(ap), r1`09`09; get our player # (0-snake)
+X`09movl`09@score_arg(ap), score`5Br1`5D`09; store score
+X`09movl`09@games_arg(ap), n_games`5Br1`5D
+X`09movl`09@wins_arg(ap), wins`5Br1`5D
+X`09ret
+X
+X`09.entry`09-
+XSCORE_GET, `5Em<>
+X;+
+X;`09CALL SCORE_GET( player , score , # games , # wins )
+X;-
+X;player_arg = 4
+X;score_arg = 8
+X;games_arg = 12
+X;wins_arg = 16
+X`09subl3`09#1, @player_arg(ap), r1`09`09; get player # (0-snake)
+X`09movl`09score`5Br1`5D, @score_arg(ap)`09; return score
+X`09movl`09n_games`5Br1`5D, @games_arg(ap)`09; return # of games played
+X`09movl`09wins`5Br1`5D, @wins_arg(ap)`09`09; return # of wins
+X`09ret
+X
+X`09.entry`09-
+Xsnake_game_count, `5Em<>
+X;+
+X;`09CALL SNAKE_GAME_COUNT( # games )
+X;`09returns # of games played (total)
+X;-
+X`09movl`09game_count, @4(ap)
+X`09ret
+X
+X`09.end
+$ CALL UNPACK MQIXM.MAR;13 1312308785
+$ v=f$verify(v)
+$ EXIT

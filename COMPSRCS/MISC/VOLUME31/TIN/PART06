@@ -1,0 +1,2429 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Subject:  v31i006:  tin - threaded full screen newsreader v1.1 PL4, Part06/15
+Message-ID: <1992Jul7.181526.7020@sparky.imd.sterling.com>
+X-Md4-Signature: 21d1983ae44eb1de8360abe76a621e1e
+Date: Tue, 7 Jul 1992 18:15:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@Germany.EU.net (Iain Lea)
+Posting-number: Volume 31, Issue 6
+Archive-name: tin/part06
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 30, Issue 1-14
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  art.c post.c
+# Wrapped by kent@sparky on Mon Jun 29 23:35:11 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 15)."'
+if test -f 'art.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'art.c'\"
+else
+  echo shar: Extracting \"'art.c'\" \(22975 characters\)
+  sed "s/^X//" >'art.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : art.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 12-05-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xchar index_file[PATH_LEN];
+Xchar *glob_art_group;
+Xstatic long last_read_article;
+X
+X
+X/*
+X *  Construct the pointers to the basenotes of each thread
+X *  arts[] contains every article in the group.  inthread is
+X *  set on each article that is after the first article in the
+X *  thread.  Articles which have been expired have their thread
+X *  set to -2 (ART_EXPIRED).
+X */
+X
+Xvoid find_base (only_unread)
+X	int only_unread;
+X{
+X	register int i;
+X	register int j;
+X
+X	top_base = 0;
+X
+X	debug_print_arts ();
+X
+X	if (only_unread) {
+X		for (i = 0; i < top; i++) {
+X			if (IGNORE_ART(i) || arts[i].inthread != FALSE) {
+X				continue;
+X			}	
+X			if (top_base >= max_art) {
+X				expand_art ();
+X			}
+X			if (arts[i].unread == ART_UNREAD) {
+X				base[top_base++] = i;
+X			} else {
+X				for (j = i ; j >= 0 ; j = arts[j].thread) {
+X					if (arts[j].unread) {
+X						base[top_base++] = i;
+X						break;
+X					}
+X				}
+X			}
+X		}
+X	} else {
+X		for (i = 0; i < top; i++) {
+X			if (IGNORE_ART(i) || arts[i].inthread != FALSE) {
+X				continue;
+X			}	
+X			if (top_base >= max_art) {
+X				expand_art ();
+X			}
+X			base[top_base++] = i;
+X		}
+X	}
+X}
+X
+X/* 
+X *  Count the number of non-expired articles in arts[]
+X */
+X
+Xint num_of_arts ()
+X{
+X	int sum = 0;
+X	register int i;
+X
+X	for (i = 0; i < top; i++) {
+X		if (arts[i].thread != ART_EXPIRED) {
+X			sum++;
+X		}
+X	}
+X
+X	return sum;
+X}
+X
+X/*
+X *  Do we have an entry for article art?
+X */
+X
+Xint valid_artnum (art)
+X	long art;
+X{
+X	register int i;
+X
+X	for (i = 0; i < top; i++)
+X		if (arts[i].artnum == art)
+X			return i;
+X
+X	return -1;
+X}
+X
+X/*
+X *  Return TRUE if arts[] contains any expired articles
+X *  (articles we have an entry for which don't have a corresponding
+X *   article file in the spool directory)
+X */
+X
+Xint purge_needed ()
+X{
+X	register int i;
+X
+X	for (i = 0; i < top; i++)
+X		if (arts[i].thread == ART_EXPIRED)
+X			return TRUE;
+X
+X	return FALSE;
+X}
+X
+X/*
+X *  Main group indexing routine.  Group should be the name of the
+X *  newsgroup, i.e. "comp.unix.amiga".  group_path should be the
+X *  same but with the .'s turned into /'s: "comp/unix/amiga"
+X *
+X *  Will read any existing index, create or incrementally update
+X *  the index by looking at the articles in the spool directory,
+X *  and attempt to write a new index if necessary.
+X */
+X
+Xvoid index_group (group, group_path)
+X	char *group;
+X	char *group_path;
+X{
+X	int killed = FALSE;
+X	int modified = FALSE;
+X	glob_art_group = group;
+X
+X	set_alarm_clock_off ();
+X
+X	set_signals_art ();
+X	
+X	if (! update) {
+X		sprintf (msg, txt_group, group);
+X		wait_message (msg);
+X	}
+X	hash_reclaim ();
+X	free_art_array ();
+X
+X	/*
+X	 *  load articles from index file if it exists
+X	 */
+X	read_index_file (group);
+X
+X	/*
+X	 *  add any articles to arts[] that are new or were killed
+X	 */
+X	modified = read_group (group, group_path);
+X
+X	if (modified || purge_needed ()) {
+X		write_index_file (group);
+X	}
+X	read_newsrc_line (group);
+X	killed = kill_any_articles (group); /* do after read_newsrc_line() */
+X	make_threads (FALSE);
+X	find_base (show_only_unread);
+X	
+X	if ((modified || killed) && ! update) {
+X		clear_message ();
+X	}
+X	
+X	set_alarm_clock_on ();
+X}
+X
+X/*
+X *  Index a group.  Assumes any existing index has already been
+X *  loaded.
+X */
+X
+Xint read_group (group, group_path)
+X	char *group;
+X	char *group_path;
+X{
+X	FILE *fp;
+X	int count = 0;
+X	int modified = FALSE;
+X	int respnum;
+X	long art;
+X	register int i;
+X
+X	setup_base (group, group_path);	/* load article numbers into base[] */
+X
+X	for (i = 0; i < top_base; i++) {	/* for each article # */
+X		art = base[i];
+X
+X/*
+X *  Do we already have this article in our index?  Change thread from
+X *  (ART_EXPIRED) to (ART_NORMAL) if so and skip the header eating.
+X */
+X
+X		if ((respnum = valid_artnum (art)) >= 0 || art <= last_read_article) {
+X			if (respnum >= 0) {
+X				arts[respnum].thread = ART_NORMAL;
+X				arts[respnum].unread = ART_UNREAD;
+X			}	
+X			continue;
+X		}
+X
+X		if (! modified) {
+X			modified = TRUE;   /* we've modified the index */
+X							   /* it will need to be re-written */
+X		}
+X
+X		if ((fp = open_header_fp (group_path, art)) == (FILE *) 0) {
+X			continue;
+X		}
+X		
+X		/*
+X		 *  Add article to arts[]
+X		 */
+X		if (top >= max_art)
+X			expand_art();
+X
+X		arts[top].artnum = art;
+X		arts[top].thread = ART_NORMAL;
+X
+X		set_article (&arts[top]);
+X
+X		if (! parse_headers (fp, &arts[top])) {
+X			debug_nntp ("read_group", "FAILED parse_header()");
+X			continue;
+X		}
+X
+X		fclose (fp);
+X		last_read_article = arts[top].artnum;	/* used if arts are killed */
+X		top++;
+X
+X		if (++count % MODULO_COUNT_NUM == 0 && ! update) {
+X#ifndef SLOW_SCREEN_UPDATE
+X			sprintf (msg, txt_indexing_num, group, count);
+X#else
+X			sprintf (msg, txt_indexing, group);
+X#endif
+X			wait_message (msg);
+X		}
+X	}
+X
+X	return modified;
+X}
+X
+X
+X/*
+X *  Go through the articles in arts[] and use .thread to snake threads
+X *  through them.  Use the subject line to construct threads.  The
+X *  first article in a thread should have .inthread set to FALSE, the
+X *  rest TRUE.  Only do unexprired articles we haven't visited yet
+X *  (arts[].thread == -1 ART_NORMAL).
+X */
+X
+Xvoid make_threads (rethread)
+X	int rethread;
+X{
+X	extern int cur_groupnum;
+X	register int i;
+X	register int j;
+X
+X	if (!cmd_line) {
+X		if (thread_arts) {
+X			wait_message (txt_threading_arts);
+X		} else {
+X			wait_message (txt_unthreading_arts);
+X		}
+X	}
+X
+X	/*
+X	 *  .thread & .inthread need to be reset if re-threading arts[]
+X	 */
+X	if (rethread && active[my_group[cur_groupnum]].attribute.thread) {
+X		for (i=0 ; i < top ; i++) {
+X			arts[i].thread = ART_NORMAL;
+X			arts[i].inthread = FALSE;
+X		}
+X	}
+X
+X	switch (sort_art_type) {
+X		case SORT_BY_NOTHING:		/* don't sort at all */
+X			qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X			break;
+X		case SORT_BY_SUBJ_DESCEND:
+X		case SORT_BY_SUBJ_ASCEND:
+X			qsort ((char *) arts, top, sizeof (struct article_t), subj_comp);
+X			break;
+X		case SORT_BY_FROM_DESCEND:
+X		case SORT_BY_FROM_ASCEND:
+X			qsort ((char *) arts, top, sizeof (struct article_t), from_comp);
+X			break;
+X		case SORT_BY_DATE_DESCEND:
+X		case SORT_BY_DATE_ASCEND:
+X			qsort ((char *) arts, top, sizeof (struct article_t), date_comp);
+X			break;
+X		default:
+X			break;
+X	}
+X
+X	if (thread_arts == 0 || active[my_group[cur_groupnum]].attribute.thread == 0) {
+X		return;
+X	}
+X
+X	for (i = 0; i < top; i++) {
+X		if (arts[i].thread != ART_NORMAL || IGNORE_ART(i)) {
+X			continue;
+X		}	
+X		for (j = i+1; j < top; j++) {
+X			if (! IGNORE_ART(j) && 
+X			   ((arts[i].subject == arts[j].subject) ||
+X			   ((arts[i].part || arts[i].patch) &&
+X			   arts[i].archive == arts[j].archive))) {
+X				arts[i].thread = j;
+X				arts[j].inthread = TRUE;
+X				break;
+X			}
+X		}
+X	}
+X}
+X
+X
+Xint parse_headers (fp, h)
+X	FILE *fp;
+X	struct article_t *h;
+X{
+X	char buf[HEADER_LEN];
+X	char buf2[HEADER_LEN];
+X	char art_from_addr[LEN];
+X	char art_full_name[LEN];
+X	char *ptr, *ptrline, *s;
+X	int flag, n = 0;
+X	int len = 0, lineno = 0;
+X	int got_subject = FALSE;
+X	int got_from = FALSE;
+X	int got_date = FALSE;
+X	int got_archive = FALSE;
+X	extern int errno;
+X
+X	while ((n = fread (buf, 1, sizeof (buf)-1, fp)) == 0) {
+X		if (feof (fp)) {
+X			break;
+X		}
+X  
+X		if (ferror (fp) && errno != EINTR) {
+X			break;
+X		}
+X 
+X		clearerr (fp);
+X	}
+X
+X	if (n == 0) {
+X		return FALSE;
+X	}
+X
+X	buf[n-1] = '\0';
+X  	
+X	ptr = buf;
+X
+X	while (1) {
+X		for (ptrline = ptr; *ptr && *ptr != '\n'; ptr++) {
+X			if (((*ptr) & 0xFF) < ' ') {
+X				*ptr = ' ';
+X			}
+X		}
+X		flag = *ptr;
+X		*ptr++ = '\0';
+X		lineno++;
+X
+X		if (! got_from && match_header (ptrline, "From", buf2, HEADER_LEN)) {
+X			parse_from (buf2, art_from_addr, art_full_name); 
+X			h->from = hash_str (art_from_addr);
+X			h->name = hash_str (art_full_name);
+X			got_from = TRUE;
+X		} else if (! got_subject && match_header (ptrline, "Subject", buf2, HEADER_LEN)) {
+X			s = eat_re (buf2);
+X			h->subject = hash_str (eat_re (s));
+X			got_subject = TRUE;
+X		} else if (! got_date && match_header (ptrline, "Date", buf2, HEADER_LEN)) {
+X			parse_date (buf2, h->date);
+X			got_date = TRUE;
+X		} else if (match_header (ptrline, "Archive-name", buf2, HEADER_LEN) ||
+X					match_header (ptrline, "Archive-Name", buf2, HEADER_LEN)) {
+X			if ((s = (char *) strchr (buf2, '/')) != NULL) {
+X				if (strncmp (s+1, "part", 4) == 0 ||
+X				    strncmp (s+1, "Part", 4) == 0) {
+X					h->part = str_dup (s+5);
+X					len = (int) strlen (h->part);
+X					if (h->part[len-1] == '\n') {
+X						h->part[len-1] = '\0';
+X					}
+X				} else {
+X					if (strncmp (s+1,"patch",5) == 0 ||
+X					    strncmp (s+1,"Patch",5) == 0) {
+X						h->patch = str_dup (s+6);
+X						len = (int) strlen (h->patch);
+X						if (h->patch[len-1] == '\n') {
+X							h->patch[len-1] = '\0';
+X						}
+X					}
+X				}
+X				if (h->part || h->patch) {
+X					s = buf2;
+X					while (*s && *s != '/')
+X						s++;
+X					*s = '\0';	
+X					s = buf2;
+X					h->archive = hash_str (s);
+X					got_archive = TRUE;
+X				}
+X			}
+X		}
+X
+X		if (! flag || lineno > 25 || got_archive) {
+X			if (got_subject && got_from && got_date) {
+X				debug_print_header (h);
+X				return TRUE;
+X			} else {
+X				return FALSE;
+X			}	
+X		}
+X	}
+X	/* NOTREACHED */
+X}
+X
+X/* 
+X *  Write out  an index file.  Write the group name first so if
+X *  local indexing is done so we can disambiguate between group
+X *  name hash collisions by looking at the index file.
+X */
+X
+Xvoid write_index_file (group)
+X	char *group;
+X{
+X	char nam[LEN];
+X	FILE *fp;
+X	int *iptr;
+X	int realnum;
+X	register int i;
+X
+X	set_tin_uid_gid();
+X
+X        sprintf (nam, "%s.%d", index_file, process_id);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		perror_message (txt_cannot_open, nam);
+X		set_real_uid_gid ();
+X		return;
+X	}
+X
+X	/*
+X	 *  dump group header info.
+X	 */
+X	if (sort_art_type != SORT_BY_NOTHING) {
+X		qsort ((char *) arts, top, sizeof (struct article_t), artnum_comp);
+X	}
+X	fprintf (fp, "%s\n", group);
+X	fprintf (fp, "%d\n", num_of_arts ());
+X	if (top <= 0) {
+X		fprintf (fp, "0\n");
+X	} else {
+X		if (last_read_article > arts[top-1].artnum) {
+X			fprintf (fp, "%ld\n", last_read_article);
+X		} else {
+X			fprintf (fp, "%ld\n", arts[top-1].artnum);
+X		}
+X	}
+X
+X	/*
+X	 *  dump articles
+X	 */
+X	realnum = 0; 
+X	for (i = 0; i < top; i++) {
+X		if (arts[i].thread == ART_EXPIRED) { 
+X			continue;
+X		}
+X#ifdef DEBUG			
+X		debug_print_header (&arts[i]);
+X#endif
+X		fprintf(fp, "%ld\n", arts[i].artnum);
+X
+X		iptr = (int *) arts[i].subject;
+X		iptr--;
+X
+X		if (! arts[i].subject) {
+X			fprintf(fp, " \n");
+X		} else if (*iptr < 0 || *iptr > top) {
+X			fprintf(fp, " %s\n", arts[i].subject);
+X			*iptr = realnum;
+X		} else if (*iptr == i) {
+X			fprintf(fp, " %s\n", arts[i].subject);
+X		} else {
+X			fprintf(fp, "%%%d\n", *iptr);
+X		}
+X	
+X		iptr = (int *) arts[i].from;
+X		iptr--;
+X
+X		if (! arts[i].from) {
+X			fprintf (fp, " \n");
+X		} else if (*iptr < 0 || *iptr > top) {
+X			fprintf (fp, " %s\n", arts[i].from);
+X			*iptr = realnum;
+X		} else if (*iptr == i) {
+X			fprintf(fp, " %s\n", arts[i].from);
+X		} else {
+X			fprintf(fp, "%%%d\n", *iptr);
+X		}
+X
+X		iptr = (int *) arts[i].name;
+X		iptr--;
+X
+X		if (! arts[i].name) {
+X			fprintf (fp, " \n");
+X		} else if (*iptr < 0 || *iptr > top) {
+X			fprintf (fp, " %s\n", arts[i].name);
+X			*iptr = realnum;
+X		} else if (*iptr == i) {
+X			fprintf(fp, " %s\n", arts[i].name);
+X		} else {
+X			fprintf(fp, "%%%d\n", *iptr);
+X		}
+X
+X		fprintf (fp, "%s\n", arts[i].date);
+X			
+X		iptr = (int *) arts[i].archive;
+X		iptr--;
+X
+X		if (! arts[i].archive) {
+X			fprintf (fp, "\n");
+X		} else if (*iptr < 0 || *iptr > top) {
+X			fprintf (fp, " %s\n", arts[i].archive);
+X			*iptr = realnum;
+X		} else if (arts[i].part || arts[i].patch) {
+X			if (*iptr == i) {
+X				fprintf(fp, " %s\n", arts[i].archive);
+X			} else {
+X				fprintf (fp, "%%%d\n", *iptr);
+X			}
+X		} else {
+X			fprintf (fp, "\n");
+X		}
+X			
+X		if (! arts[i].part) {
+X			fprintf (fp, " \n");
+X		} else {
+X			fprintf (fp, "%s\n", arts[i].part);
+X		}
+X
+X		if (! arts[i].patch) {
+X			fprintf (fp, " \n");
+X		} else {
+X			fprintf (fp, "%s\n", arts[i].patch);
+X		}
+X
+X		realnum++;
+X	}
+X	fclose (fp);
+X	rename_file (nam, index_file);
+X	chmod (index_file, 0644);
+X	set_real_uid_gid();
+X	if (debug == 2) {
+X		sprintf (msg, "cp %s INDEX", index_file);
+X		system (msg);
+X	}
+X}
+X
+X/*
+X *  Read in an index file.
+X *
+X *  index file header 
+X *    1.  newsgroup name (ie. alt.sources)
+X *    2.  number of articles (ie. 26)
+X *    3.  number of last read article (ie. 210)
+X *    4.  Is this a complete/killed index file (ie. COMPLETE/KILLED)
+X *
+X *  index file record
+X *    1.  article number    (ie. 183)               [mandatory]
+X *    2.  Subject: line     (ie. Which newsreader?) [mandatory]
+X *    3.  From: line (addr) (ie. iain@norisc)       [mandatory]
+X *    4.  From: line (name) (ie. Iain Lea)          [mandatory]
+X *    5.  Date: of posting  (ie. 911231125959)      [mandatory]
+X *    6.  Archive: name     (ie. compiler)          [optional]
+X *    7.  Part number of Archive: name  (ie. 01)    [optional]
+X *    8.  Patch number of Archive: name (ie. 01)    [optional]
+X */
+X
+Xint read_index_file (group_name)
+X	char *group_name;
+X{
+X	int error = 0;
+X	int i, n;
+X	char buf[LEN], *p;
+X	FILE *fp = NULL;
+X
+X	top = 0;
+X	last_read_article = 0L;
+X
+X	if ((fp = open_index_fp (group_name)) == NULL) {
+X		return FALSE;
+X	}
+X
+X	/*
+X	 *  load header - discard group name, num. of arts in index file after any arts were killed
+X	 */
+X	if (fgets(buf, sizeof buf, fp) == NULL ||
+X		fgets(buf, sizeof buf, fp) == NULL) {
+X		error = 0;			
+X		goto corrupt_index;	
+X	}
+X	i = atoi (buf);
+X
+X	/*
+X	 * num. of last_read_article including any that were killed
+X	 */
+X	if (fgets(buf, sizeof buf, fp) == NULL) {
+X		error = 1;				
+X		goto corrupt_index;	
+X	}							
+X	last_read_article = (long) atol (buf);
+X	
+X	/*
+X	 *  load articles
+X	 */
+X	for (; top < i ; top++) {
+X		if (top >= max_art) {
+X			expand_art ();
+X		}
+X
+X		arts[top].thread = ART_EXPIRED;
+X		set_article (&arts[top]);
+X
+X		/*
+X		 * Article no.
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 2;
+X			goto corrupt_index;
+X		}
+X		arts[top].artnum = (long) atol (buf);
+X
+X		/*
+X		 * Subject:
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 3;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] == '%') {
+X			n = atoi (&buf[1]);
+X			if (n >= top || n < 0) {
+X				error = 4;
+X				goto corrupt_index;
+X			}
+X			arts[top].subject = arts[n].subject;
+X		} else if (buf[0] == ' ') {
+X			for (p = &buf[1];  *p && *p != '\n'; p++)
+X				continue;	
+X			*p = '\0';
+X			arts[top].subject = hash_str (&buf[1]);
+X		} else {
+X			error = 5;
+X			goto corrupt_index;
+X		}
+X			
+X		/*
+X		 * From: (addr part)
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 6;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] == '%') {
+X			n = atoi (&buf[1]);
+X			if (n >= top || n < 0) {
+X				error = 7;
+X				goto corrupt_index;
+X			}
+X			arts[top].from = arts[n].from;
+X		} else if (buf[0] == ' ') {
+X			for (p = &buf[1];  *p && *p != '\n'; p++)
+X				continue;
+X			*p = '\0';
+X			arts[top].from = hash_str (&buf[1]);
+X		} else {
+X			error = 8;
+X			goto corrupt_index;
+X		}
+X
+X		/*
+X		 * From: (full name)
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 9;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] == '%') {
+X			n = atoi (&buf[1]);
+X			if (n > top || n < 0) {
+X				error = 10;
+X				goto corrupt_index;
+X			}
+X			if (n == top) {		/* no full name so .name = .from */
+X				arts[top].name = arts[top].from;
+X			} else {
+X				arts[top].name = arts[n].name;
+X			}
+X		} else if (buf[0] == ' ') {
+X			for (p = &buf[1];  *p && *p != '\n'; p++)
+X				continue;
+X			*p = '\0';
+X			arts[top].name = hash_str (&buf[1]);
+X		} else {
+X			error = 11;
+X			goto corrupt_index;
+X		}
+X
+X		/*
+X		 * Date:
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 12;
+X			goto corrupt_index;
+X		}
+X
+X		buf[strlen (buf)-1] = '\0';
+X		my_strncpy (arts[top].date, buf, 12);
+X
+X		/*
+X		 * Archive-name:
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 13;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] == '\n') {
+X			arts[top].archive = (char *) 0;
+X		} else if (buf[0] == '%') {
+X			n = atoi (&buf[1]);
+X			if (n > top || n < 0) {
+X				error = 14;
+X				goto corrupt_index;
+X			}
+X			arts[top].archive = arts[n].archive;
+X		} else if (buf[0] == ' ') {
+X			for (p = &buf[1]; *p && *p != '\n' ; p++)
+X				continue;
+X			*p = '\0';
+X			arts[top].archive = hash_str (&buf[1]);
+X		} else {
+X			error = 15;
+X			goto corrupt_index;
+X		}
+X
+X		/*
+X		 * part no.
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 16;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] != ' ') { 
+X			buf[strlen (buf)-1] = '\0';
+X			arts[top].part = str_dup (buf);
+X		}
+X
+X		/*
+X		 * patch no.
+X		 */
+X		if (fgets(buf, sizeof buf, fp) == NULL) {
+X			error = 17;
+X			goto corrupt_index;
+X		}
+X
+X		if (buf[0] != ' ') { 
+X			buf[strlen (buf)-1] = '\0';
+X			arts[top].patch = str_dup (buf);
+X		}
+X
+X		debug_print_header (&arts[top]);
+X	}
+X
+X	fclose(fp);
+X	return TRUE;
+X
+Xcorrupt_index:
+X	if (! update) {
+X		sprintf (msg, txt_corrupt_index, index_file, error, top); 
+X		error_message (msg, "");
+X	}
+X
+X	if (debug == 2) {
+X		sprintf (msg, "cp %s INDEX.BAD", index_file);
+X		system (msg);
+X	}
+X
+X	last_read_article = 0L;
+X	if (fp) {
+X		fclose(fp);
+X	}	
+X	set_tin_uid_gid();
+X	unlink (index_file);
+X	set_real_uid_gid();
+X	top = 0;
+X	return FALSE;
+X}
+X
+X
+X/*
+X *  Look in the local $HOME/RCDIR/INDEXDIR (or wherever) directory for the
+X *  index file for the given group.  Hashing the group name gets
+X *  a number.  See if that #.1 file exists; if so, read first line.
+X *  Group we want?  If no, try #.2.  Repeat until no such file or
+X *  we find an existing file that matches our group.
+X */
+X
+Xvoid find_index_file (group)
+X	char *group;
+X{
+X	char *p;
+X	FILE *fp;
+X	int i = 1;
+X	static char buf[LEN];
+X	char dir[PATH_LEN];
+X	unsigned long h;
+X
+X	h = hash_groupname (group);
+X
+X	if (read_news_via_nntp && xindex_supported) {
+X		sprintf (index_file, "/tmp/xindex.%d", process_id);
+X		return;
+X	}
+X	
+X	if (local_index) {
+X		my_strncpy (dir, indexdir, sizeof (dir));
+X	} else {
+X		sprintf (dir, "%s/%s", spooldir, INDEXDIR);
+X	}
+X	
+X	while (TRUE) {
+X		sprintf (index_file, "%s/%lu.%d", dir, h, i);
+X		
+X		if ((fp = fopen (index_file, "r")) == (FILE *) 0) {
+X			return;
+X		}
+X
+X		if (fgets (buf, sizeof (buf), fp) == (char *) 0) {
+X			fclose (fp);
+X			return;
+X		}
+X		fclose (fp);
+X
+X		for (p = buf; *p && *p != '\n'; p++) {
+X			continue;
+X		}	
+X		*p = '\0';
+X
+X		if (strcmp (buf, group) == 0) {
+X			return;
+X		}	
+X		i++;
+X	}	
+X}
+X
+X/*
+X *  Run the index file updater only for the groups we've loaded.
+X */
+X
+Xvoid do_update ()
+X{
+X	int i, j;
+X	char group_path[PATH_LEN];
+X	char *p;
+X	long beg_epoch, end_epoch;
+X	
+X	if (verbose) {
+X		time (&beg_epoch);
+X	}
+X
+X	for (i = 0; i < group_top; i++) {
+X		my_strncpy (group_path, active[my_group[i]].name, sizeof (group_path));
+X		for (p = group_path ; *p ; p++) {
+X			if (*p == '.') {
+X				*p = '/';
+X			}
+X		}
+X		if (verbose) {
+X			printf ("%s %s\n", (catchup ? "Catchup" : "Updating"),
+X					active[my_group[i]].name);
+X			fflush (stdout);
+X		}
+X		index_group (active[my_group[i]].name, group_path);
+X		if (catchup) {
+X			for (j = 0; j < top; j++) {
+X				arts[j].unread = ART_READ;
+X			}
+X			update_newsrc (active[my_group[i]].name, my_group[i], FALSE);
+X		}
+X	}
+X
+X	if (verbose) {
+X		time (&end_epoch);
+X		sprintf (msg, "%s %d groups in %ld seconds\n", 
+X			(catchup ? "Caughtup" : "Updated"), group_top, end_epoch - beg_epoch);
+X		wait_message (msg);
+X	}
+X}
+X
+X/*
+X * convert date from ctime format to sortable format
+X * "24 Jul 91 12:59:59", "Mon, 24 Jul 91 12:59:59" and
+X * "Mon, 24 Jul 1991 12:59:59" are parsed and produce
+X * output of the form "910724125959"
+X */
+X
+Xchar *parse_date (date, str)
+X	char *date;
+X	char *str;
+X{
+X	char buf[4];
+X	int i = 0;
+X
+X	/* Check for extraneous day-of-week at start of date */
+X	while (isalpha(date[i]) || date[i] == ',' || date[i] == ' ') {
+X		i++;
+X	}
+X	
+X	if (date[i+1] == ' ') {	/* ie. "2 Aug..." instead of "12 Aug... */
+X		str[4] = '0';		/* day */
+X		str[5] = date[i++];
+X		i++;
+X	} else {
+X		str[4] = date[i++];		/* day */
+X		str[5] = date[i++];
+X		i++;
+X	}
+X	
+X	buf[0] = date[i++];		/* month in Jan,Feb,.. form */
+X	buf[1] = date[i++];
+X	buf[2] = date[i++];
+X	buf[3] = '\0';
+X
+X	i++;
+X	
+X	str[0] = date[i++];		/* year */
+X	str[1] = date[i++];
+X	if (isdigit(date[i])) {         /* 19xx format */
+X		str[0] = date[i++];
+X		str[1] = date[i++];
+X	}
+X	
+X	i++;
+X	
+X	if (strcmp (buf, "Jan") == 0) {		/* convert Jan to 01 etc */
+X		str[2] = '0';
+X		str[3] = '1';
+X	} else if (strcmp (buf, "Feb") == 0) {
+X		str[2] = '0';
+X		str[3] = '2';
+X	} else if (strcmp (buf, "Mar") == 0) {
+X		str[2] = '0';
+X		str[3] = '3';
+X	} else if (strcmp (buf, "Apr") == 0) {
+X		str[2] = '0';
+X		str[3] = '4';
+X	} else if (strcmp (buf, "May") == 0) {
+X		str[2] = '0';
+X		str[3] = '5';
+X	} else if (strcmp (buf, "Jun") == 0) {
+X		str[2] = '0';
+X		str[3] = '6';
+X	} else if (strcmp (buf, "Jul") == 0) {
+X		str[2] = '0';
+X		str[3] = '7';
+X	} else if (strcmp (buf, "Aug") == 0) {
+X		str[2] = '0';
+X		str[3] = '8';
+X	} else if (strcmp (buf, "Sep") == 0) {
+X		str[2] = '0';
+X		str[3] = '9';
+X	} else if (strcmp (buf, "Oct") == 0) {
+X		str[2] = '1';
+X		str[3] = '0';
+X	} else if (strcmp (buf, "Nov") == 0) {
+X		str[2] = '1';
+X		str[3] = '1';
+X	} else if (strcmp (buf, "Dec") == 0) {
+X		str[2] = '1';
+X		str[3] = '2';
+X	} else {
+X		str[2] = '0';
+X		str[3] = '0';
+X	}
+X	
+X	str[6] = date[i++];		/* hour */
+X	str[7] = date[i++];
+X
+X	i++;
+X	
+X	str[8] = date[i++];		/* minutes */
+X	str[9] = date[i++];
+X	
+X	i++;
+X	
+X	str[10] = date[i++];	/* seconds */
+X	str[11] = date[i++];
+X
+X	str[12] = '\0';		/* terminate string */
+X
+X	return (str);
+X}
+X
+X
+Xint artnum_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+X{
+X	struct article_t *s1 = (struct article_t *) p1;
+X	struct article_t *s2 = (struct article_t *) p2;
+X
+X	/* s1->artnum less than s2->artnum */
+X	if (s1->artnum < s2->artnum) {
+X		return -1;
+X	}
+X	/* s1->artnum greater than s2->artnum */
+X	if (s1->artnum > s2->artnum) {
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X
+Xint subj_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+X{
+X	struct article_t *s1 = (struct article_t *) p1;
+X	struct article_t *s2 = (struct article_t *) p2;
+X
+X	/* return result of strcmp (reversed for descending) */
+X	return (sort_art_type == SORT_BY_SUBJ_ASCEND 
+X			? my_stricmp (s1->subject, s2->subject) 
+X			: my_stricmp (s2->subject, s1->subject));
+X}
+X
+X
+Xint from_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+X{
+X	struct article_t *s1 = (struct article_t *) p1;
+X	struct article_t *s2 = (struct article_t *) p2;
+X
+X	/* return result of strcmp (reversed for descending) */
+X	return (sort_art_type == SORT_BY_FROM_ASCEND 
+X			? my_stricmp (s1->from, s2->from) 
+X			: my_stricmp (s2->from, s1->from));
+X}
+X
+X
+Xint date_comp (p1, p2)
+X	char *p1;
+X	char *p2;
+X{
+X	struct article_t *s1 = (struct article_t *) p1;
+X	struct article_t *s2 = (struct article_t *) p2;
+X	/* return result of strcmp (reversed for descending) */
+X	return (sort_art_type == SORT_BY_DATE_ASCEND 
+X			? strcmp (s1->date, s2->date) 
+X			: strcmp (s2->date, s1->date));
+X}
+X
+X
+Xvoid set_article (art)
+X	struct article_t *art;
+X{	
+X	art->subject = (char *) 0;
+X	art->from = (char *) 0;
+X	art->name = (char *) 0;
+X	art->date[0] = '\0';
+X	art->archive = (char *) 0;
+X	art->part = (char *) 0;
+X	art->patch = (char *) 0;
+X	art->xref = NULL;
+X	art->unread = ART_UNREAD;
+X	art->inthread = FALSE;
+X	art->killed = FALSE;
+X	art->tagged = FALSE;
+X	art->hot = FALSE;
+X	art->zombie = FALSE;
+X}
+END_OF_FILE
+  if test 22975 -ne `wc -c <'art.c'`; then
+    echo shar: \"'art.c'\" unpacked with wrong size!
+  fi
+  # end of 'art.c'
+fi
+if test -f 'post.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'post.c'\"
+else
+  echo shar: Extracting \"'post.c'\" \(28095 characters\)
+  sed "s/^X//" >'post.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : post.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 16-06-92
+X *  Notes     : mail/post/replyto/followup/crosspost & cancel articles
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xextern char note_h_distrib[LEN];		/* Distribution: */
+Xextern char note_h_followup[LEN];		/* Followup-To: */
+Xextern char note_h_messageid[LEN];		/* Message-ID:	*/
+Xextern char note_h_newsgroups[LEN];		/* Newsgroups:	*/
+Xextern char note_h_subj[LEN];			/* Subject:	*/
+Xextern char note_h_date[LEN];			/* Date:	*/
+Xextern FILE *note_fp;				/* the body of the current article */
+Xextern int cur_groupnum;
+Xextern long note_mark[MAX_PAGES];		/* ftells on beginnings of pages */
+X
+Xchar default_post_subject[LEN];	
+X
+Xint unlink_article = TRUE;
+Xstruct posted_t *posted;
+X
+X
+Xint user_posted_messages ()
+X{
+X	char buf[LEN];
+X	FILE *fp;
+X	int i, j, k;
+X	int no_of_lines = 0;
+X
+X	if ((fp = fopen (postfile, "r")) == NULL) {
+X		clear_message ();
+X		return FALSE;
+X	} else {
+X		while (fgets (buf, sizeof (buf), fp) != NULL) {
+X			no_of_lines++;
+X		}
+X		if (! no_of_lines) {
+X			fclose (fp);
+X			info_message (txt_no_arts_posted);
+X			return FALSE;
+X		}
+X		rewind (fp);
+X		posted = (struct posted_t *) my_malloc ((unsigned) (no_of_lines+1) * sizeof (struct posted_t));
+X		for (i=0 ; fgets (buf, sizeof (buf), fp) != NULL ; i++) {
+X			for (j=0 ; buf[j] != '|' && buf[j] != '\n' ; j++) {
+X				posted[i].date[j] = buf[j];		/* posted date */
+X			}
+X			if (buf[j] == '\n') {	
+X				error_message ("Corrupted file %s", postfile);
+X				sleep (1);
+X				fclose (fp);
+X				clear_message ();
+X				return FALSE;
+X			}
+X			posted[i].date[j++] = '\0';
+X			posted[i].action = buf[j];
+X			j += 2;
+X			for (k=j,j=0 ; buf[k] != '|' && buf[k] != ',' ; k++, j++) {
+X				posted[i].group[j] = buf[k];
+X			}
+X			if (buf[k] == ',') {
+X				while (buf[k] != '|' && buf[k] != '\n') {
+X					k++;
+X				}
+X				posted[i].group[j++] = ',';
+X				posted[i].group[j++] = '.';
+X				posted[i].group[j++] = '.';
+X				posted[i].group[j++] = '.';
+X			}
+X			posted[i].group[j++] = '\0';
+X			k++;
+X			for (j=k,k=0 ; buf[j] != '\n' ; j++, k++) {
+X				posted[i].subj[k] = buf[j];
+X			}
+X			posted[i].subj[k++] = '\0';
+X		}
+X		fclose (fp);
+X
+X		show_info_page (POST_INFO, (char **) 0, txt_post_history_menu);
+X		if (posted != (struct posted_t *) 0) {
+X			free ((char *) posted);
+X			posted = (struct posted_t *) 0;
+X		}
+X		return TRUE;
+X	}
+X}
+X
+X
+Xvoid update_art_posted_file (group, action, subj)
+X	char *group;
+X	int action;
+X	char *subj;
+X{
+X	char buf[LEN];
+X	char tmp_post[LEN];
+X	FILE *fp, *tmp_fp;
+X	long epoch;
+X	struct tm *tm;
+X
+X	sprintf (tmp_post, "%s.%d", postfile, process_id);
+X
+X	if ((tmp_fp = fopen (tmp_post, "w")) != NULL) {
+X		time (&epoch);
+X		tm = localtime (&epoch);
+X		fprintf (tmp_fp, "%02d-%02d-%02d|%c|%s|%s\n",
+X			tm->tm_mday, tm->tm_mon+1, tm->tm_year,
+X			action, group, subj);
+X		fclose (tmp_fp);
+X	}
+X
+X	if ((tmp_fp = fopen (tmp_post, "a+")) != NULL) {
+X		if ((fp = fopen (postfile, "r")) != NULL) {
+X			while (fgets (buf, sizeof buf, fp) != NULL) {
+X				fprintf (tmp_fp, "%s", buf);
+X			}	
+X			fclose (fp);
+X			rename_file (tmp_post, postfile);
+X		}
+X		fclose (tmp_fp);
+X	}
+X}
+X
+X/*
+X * Check the article file so that it is not missing the blank line
+X * between the header information and the text.
+X */
+X
+Xint post_header_ok (article)
+X	char* article;
+X{
+X	FILE *fp;
+X	char line[LEN];
+X	int cnt= 0;
+X	int len, ind;
+X	char prev_ch;
+X	int header;
+X
+X	if ((fp = fopen (article, "r")) == NULL) {
+X		perror_message (txt_cannot_open, article);
+X		return FALSE;
+X	}
+X
+X	while (fgets (line, sizeof (line), fp) != NULL) {
+X		cnt++;
+X		len= strlen (line);
+X		if (len > 0)
+X			if (line[len - 1] == '\n') 
+X				line[--len]= 0;
+X				
+X		if ((len == 0) && (cnt >= 2)) {
+X			fclose(fp);
+X			return TRUE;
+X		}
+X		prev_ch= ' ';
+X		header= FALSE;
+X		for (ind= 0; ind < len; ind++) /* Skip white space */
+X			if ((line[ind] != ' ') && (line[ind] != '\t'))
+X				break;
+X		for (; ind < len; ind++) {   
+X			/* Header as long as the first token ends with ':' */
+X			if (((ind == len - 1) &&
+X			     (line[ind] == ':')) ||
+X			    (((line[ind] == ' ') ||
+X			      (line[ind] == '\t')) &&
+X			     (prev_ch == ':'))) {
+X				header= TRUE;
+X				break;
+X			}
+X
+X			if ((line[ind] == ' ') ||
+X			    (line[ind] == '\t'))
+X				break;
+X			prev_ch= line[ind];
+X		}
+X		if (! header) {
+X			fclose (fp);
+X			return FALSE;
+X		}
+X	}
+X	fclose (fp);
+X	return FALSE;
+X}
+X
+X/*
+X *  Post an original article (not a followup)
+X */
+X
+Xint post_base (group, posted)
+X	char *group;
+X	int *posted;
+X{
+X	FILE *fp;
+X	char ch;
+X	char ch_default = 'p';
+X	char subj[LEN];
+X	char buf[LEN];
+X	int redraw_screen = FALSE;
+X
+X	/*
+X	 * Don't allow if not active news feed 
+X	 */
+X	if (! spooldir_is_active) {
+X		info_message (txt_not_active_newsfeed);
+X		return (redraw_screen);
+X	}
+X	
+X	*posted = FALSE;
+X	start_line_offset = 7;
+X
+X	if (active[my_group[cur_groupnum]].moderated == 'm') {
+X		sprintf (msg, "Group %s is moderated. Continue? (y/n): ", group);
+X		if (! prompt_yn (LINES, msg, 'y')) {
+X			clear_message ();
+X			return (redraw_screen);
+X		}
+X	}
+X
+X	sprintf (msg, txt_post_subject, default_post_subject);
+X	
+X	if (! prompt_string (msg, subj)) {
+X		clear_message ();
+X		return (redraw_screen);
+X	}
+X
+X	if (strlen (subj)) {
+X		my_strncpy (default_post_subject, subj,
+X			sizeof (default_post_subject));
+X	} else {
+X		if (default_post_subject[0]) {
+X			my_strncpy (subj, default_post_subject, sizeof (subj));
+X		} else {
+X			info_message (txt_no_subject);
+X			return (redraw_screen);
+X		}
+X	}
+X	
+X	wait_message (txt_post_an_article);
+X
+X	if ((fp = fopen (article, "w")) == NULL) {
+X		perror_message (txt_cannot_open, article);
+X		return (redraw_screen);
+X	}
+X	chmod (article, 0600);
+X
+X	fprintf (fp, "Subject: %s\n", subj);
+X	fprintf (fp, "Newsgroups: %s\n", group);
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fprintf (fp, "Distribution: %s\n", my_distribution);
+X	fprintf (fp, "Summary: \n");
+X	fprintf (fp, "Keywords: \n\n\n");
+X
+X	add_signature (fp, FALSE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (article);
+X			while (! post_header_ok(article)) {
+X				do {
+X					sprintf (msg, "%s%c", txt_no_blank_line, 'e');
+X					wait_message (msg);
+X					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X					if ((ch = (char) ReadCh ()) == CR)
+X						ch = 'e';
+X				} while (ch != ESC && ch != 'q' && ch != 'e');
+X				if (ch == 'e')
+X					invoke_editor (article);
+X				else
+X					break;
+X			}
+X			redraw_screen = TRUE;
+X			if (ch == 'e') {
+X				break;
+X			}
+X		case 'q':
+X		case ESC:
+X			if (unlink_article)
+X				unlink (article);
+X			clear_message ();
+X			return (redraw_screen);
+X
+X		case 'p':
+X			wait_message (txt_posting);
+X			if (submit_file (article)) {
+X				info_message (txt_art_posted);
+X				*posted = TRUE;
+X				goto post_base_done;
+X			} else {
+X				rename_file (article, dead_article);
+X				sprintf (buf, txt_art_rejected, dead_article);
+X				info_message (buf);
+X				sleep (3);
+X				return (redraw_screen);
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s%c", txt_quit_edit_post, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (txt_quit_edit_post));
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X	}
+X
+Xpost_base_done:
+X	find_mail_header (HEADER_SUBJECT, article, subj);
+X	if (unlink_article)
+X		unlink (article);
+X	update_art_posted_file (group, 'w', subj);
+X	/*
+X	 * Update default posting prompt
+X	 */
+X	my_strncpy (default_post_subject, subj, sizeof (default_post_subject));
+X
+X	return (redraw_screen);
+X}
+X
+X
+Xint post_response (group, respnum, copy_text)
+X	char *group;
+X	int respnum;
+X	int copy_text;
+X{
+X	FILE *fp;
+X	char ch, *ptr;
+X	char ch_default = 'p';
+X	char buf[LEN];
+X	int ret_code = POSTED_NONE;
+X	int followup_to_poster = FALSE;
+X	
+X	/*
+X	 * Don't allow if not active news feed 
+X	 */
+X	if (! spooldir_is_active) {
+X		info_message (txt_not_active_newsfeed);
+X		return (ret_code);
+X	}
+X
+X	start_line_offset = 4;
+X
+X	wait_message (txt_post_a_followup);
+X	
+X	if (*note_h_followup && strcmp (note_h_followup, "poster") == 0) {
+X		clear_message ();
+X		if (! prompt_yn (LINES, txt_resp_to_poster, 'y')) {
+X			return (ret_code);
+X		}
+X		*note_h_followup = '\0';
+X		followup_to_poster = TRUE;
+X
+X		find_reply_to_addr (respnum, buf);
+X		mail_to_someone (buf, TRUE, FALSE, &ret_code);
+X		return (ret_code);
+X	} else if (*note_h_followup && strcmp (note_h_followup, group) != 0) {
+X		MoveCursor (LINES/2, 0);
+X		CleartoEOS ();
+X		center_line ((LINES/2)+2, TRUE, txt_resp_redirect);
+X		MoveCursor ((LINES/2)+4, 0);
+X
+X		fputs ("    ", stdout);
+X		ptr = note_h_followup;
+X		while (*ptr) {
+X			if (*ptr != ',') {
+X				fputc (*ptr, stdout);
+X			} else {
+X				fputs ("\r\n    ", stdout);
+X			}
+X			ptr++;
+X		}
+X		fflush (stdout);
+X
+X		if (! prompt_yn (LINES, txt_continue, 'y')) {
+X			return (ret_code);
+X		}
+X	}
+X
+X	if ((fp = fopen (article, "w")) == NULL) {
+X		perror_message (txt_cannot_open, article);
+X		return (ret_code);
+X	}
+X	chmod (article, 0600);
+X
+X	fprintf (fp, "Subject: Re: %s\n", eat_re (note_h_subj));
+X
+X	if (*note_h_followup && strcmp (note_h_followup, "poster") != 0) {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X
+X	fprintf (fp, "References: %s\n", note_h_messageid);
+X
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	if (note_h_distrib != '\0') {
+X		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X		start_line_offset++;
+X	}
+X	fprintf (fp, "\n");
+X
+X	if (copy_text) {	/* if "copy_text" */
+X		if (arts[respnum].from != (char *) 0) { 	
+X			if (arts[respnum].name == arts[respnum].from) { 	
+X				fprintf (fp, txt_writes, arts[respnum].from);
+X			} else {
+X				fprintf (fp, txt_writes_name, arts[respnum].from, arts[respnum].name);
+X			}
+X		}
+X		fseek (note_fp, note_mark[0], 0);
+X		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X	}
+X
+X	add_signature (fp, FALSE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (article);
+X			while (! post_header_ok (article)) {
+X				do {
+X					sprintf (msg, "%s%c", txt_no_blank_line, 'e');
+X					wait_message (msg);
+X					MoveCursor (LINES, (int) strlen (txt_no_blank_line));
+X					if ((ch = (char) ReadCh ()) == CR)
+X						ch = 'e';
+X				} while (ch != ESC && ch != 'q' && ch != 'e');
+X				if (ch == 'e')
+X					invoke_editor (article);
+X				else
+X					break;
+X			}
+X			if (ch == 'e') {
+X				break;
+X			}
+X			ret_code = POSTED_REDRAW;
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			if (unlink_article)
+X				unlink (article);
+X			clear_message ();
+X			return (ret_code);
+X
+X		case 'p':
+X			wait_message (txt_posting);
+X			if (submit_file (article)) {
+X				ret_code = POSTED_OK;
+X				info_message (txt_art_posted);
+X				goto post_response_done;
+X			} else {
+X				rename_file (article, dead_article);
+X				sprintf (buf, txt_art_rejected, dead_article);
+X				info_message (buf);
+X				sleep (3);
+X				return (ret_code);
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s%c", txt_quit_edit_post, ch_default);
+X			wait_message (msg);
+X			MoveCursor(LINES, (int) strlen (txt_quit_edit_post));
+X			if ((ch = (char) ReadCh()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X	}
+X
+Xpost_response_done:
+X	if (*note_h_followup && strcmp(note_h_followup, "poster") != 0) {
+X		find_mail_header (HEADER_SUBJECT, article, buf);
+X		update_art_posted_file (note_h_followup, 'f', buf);
+X	} else {
+X		find_mail_header (HEADER_SUBJECT, article, buf);
+X		update_art_posted_file (note_h_newsgroups, 'f', buf);
+X	}
+X	/*
+X	 * Update default posting prompt
+X	 */
+X	my_strncpy (default_post_subject, buf, sizeof (default_post_subject));
+X
+X	if (unlink_article) {
+X		unlink (article);
+X	}
+X	
+X	return (ret_code);
+X}
+X
+X
+Xint mail_to_someone (address, mail_to_poster, confirm_to_mail, mailed_ok)
+X	char *address;
+X	int mail_to_poster;
+X	int confirm_to_mail;
+X	int *mailed_ok;
+X{
+X	char nam[100];
+X	char ch = 's';
+X	char ch_default = 's';
+X	char buf[LEN];
+X	char mail_to[LEN];
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	start_line_offset = 4;
+X	
+X	strcpy (mail_to, address);
+X	clear_message ();
+X	
+X	sprintf (nam, "%s/.letter", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		perror_message (txt_cannot_open, nam);
+X		return (redraw_screen);
+X	}
+X	chmod (nam, 0600);
+X
+X	fprintf (fp, "To: %s\n", mail_to);
+X
+X	if (mail_to_poster) {
+X		fprintf (fp, "Subject: Re: %s\n", eat_re (note_h_subj));
+X	} else {
+X		fprintf (fp, "Subject: (fwd) %s\n", note_h_subj);
+X	}
+X	
+X	if (*note_h_followup) {
+X		fprintf (fp, "Newsgroups: %s\n\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fputc ('\n', fp);
+X	
+X	if (mail_to_poster) {
+X		ch = 'e';
+X		fprintf (fp, "In article %s you wrote:\n", note_h_messageid);
+X		fseek (note_fp, note_mark[0], 0);
+X		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X	} else {
+X		fseek (note_fp, 0L, 0);
+X		copy_fp (note_fp, fp, "");
+X	}
+X	
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X	
+X	while (1) {
+X		if (confirm_to_mail) {
+X			do {
+X				sprintf (msg, "%s [%.*s]: %c", txt_quit_edit_send, 
+X					COLS-30, note_h_subj, ch_default);
+X				wait_message (msg);
+X				MoveCursor (LINES, (int) (strlen (msg)-1));
+X				if ((ch = (char) ReadCh ()) == CR)
+X					ch = ch_default;
+X			} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X		}
+X		switch (ch) {
+X			case 'e':
+X				invoke_editor (nam);
+X				redraw_screen = TRUE;
+X				break;
+X
+X			case 'q':
+X			case ESC:
+X				unlink (nam);
+X				clear_message ();
+X				*mailed_ok = FALSE;
+X				return (redraw_screen);
+X
+X			case 's':
+X				/*
+X				 *  Open letter and get the To: line in case they changed
+X				 *  it with the editor
+X				 */
+X				find_mail_header (HEADER_TO, nam, mail_to);
+X				sprintf (msg, txt_mailing_to, mail_to);
+X				wait_message (msg);
+X				sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X				if (invoke_cmd (buf)) {
+X					goto mail_to_someone_done;
+X				} else {
+X					error_message (txt_command_failed_s, buf);
+X					*mailed_ok = FALSE;
+X					break;
+X				}
+X		}
+X		if (mail_to_poster) {
+X			do {
+X				sprintf (msg, "%s [Re: %.*s]: %c", txt_quit_edit_send, 
+X					COLS-34, eat_re (note_h_subj), ch_default);
+X				wait_message (msg);
+X				MoveCursor (LINES, (int) (strlen (msg)-1));
+X				if ((ch = (char) ReadCh ()) == CR)
+X					ch = ch_default;
+X			} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X		}	
+X	}
+X
+Xmail_to_someone_done:
+X	unlink (nam);
+X	*mailed_ok = TRUE;
+X	return (redraw_screen);
+X}
+X
+X
+Xint mail_bug_report ()
+X{
+X	char nam[100];
+X	char ch;
+X	char ch_default = 's';
+X	char buf[LEN];
+X	char mail_to[LEN];
+X	FILE *fp;
+X	FILE *fp_uname;
+X	int is_nntp = FALSE;
+X	int is_nntp_only   = FALSE;
+X	int is_longfiles   = FALSE;
+X	int is_resync_active = 0;
+X	int uname_ok = FALSE;
+X
+X	start_line_offset = 5;
+X	
+X	wait_message (txt_mail_bug_report);
+X	
+X	sprintf (nam, "%s/.bugreport", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		perror_message (txt_cannot_open, nam);
+X		return FALSE;
+X	}
+X	chmod(nam, 0600);
+X
+X	fprintf (fp, "To: %s%s\n", bug_addr, add_addr);
+X	fprintf (fp, "Subject: BUG REPORT %s %s PL%d %s\n",	progname,
+X		VERSION, PATCHLEVEL, (compiled_with_nntp ? "(NNTP)" : ""));
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X
+X	if ((fp_uname = (FILE *) popen ("uname -a", "r")) != NULL) {
+X		while (fgets (buf, sizeof (buf), fp_uname) != NULL) {
+X			fprintf (fp, "\nBOX1: %s", buf);
+X			start_line_offset += 2;
+X			uname_ok = TRUE;
+X		}
+X		fclose (fp_uname);
+X	}
+X	if (! uname_ok) {
+X		fprintf (fp, "\nPlease enter the following information:\n");
+X		fprintf (fp, "BOX1: Machine+OS:\n");
+X	}
+X#ifndef NO_RESYNC_ACTIVE_FILE
+X	is_resync_active = RESYNC_ACTIVE_SECS;
+X#endif
+X#ifdef USE_LONG_FILENAMES
+X	is_longfiles = TRUE;
+X#endif
+X#ifdef NNTP_ABLE
+X	is_nntp = TRUE;
+X#endif
+X#ifdef NNTP_ONLY
+X	is_nntp_only = TRUE;
+X#endif
+X	fprintf (fp, "\nCFG1: active=%d  arts=%d  resync=%d  longfilenames=%d  setuid=%d\n\
+XCFG2: nntp=%d  nntp_only=%d  nntp_xuser=%d  nntp_xindex=%d  nntp_xspooldir=%d\n",
+X		DEFAULT_ACTIVE_NUM,DEFAULT_ARTICLE_NUM,is_resync_active,
+X		is_longfiles, (tin_uid == real_uid ? 0 : 1), is_nntp, 
+X		is_nntp_only,  xuser_supported, xindex_supported, 
+X		xspooldir_supported);
+X	start_line_offset += 2;
+X	
+X	fprintf (fp, "\nPlease enter bug report/gripe/comment:\n");
+X
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X	
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (nam);
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			unlink (nam);
+X			clear_message ();
+X			return TRUE;
+X
+X		case 's':
+X			sprintf (msg, txt_mail_bug_report_confirm, bug_addr, add_addr);
+X			if (prompt_yn (LINES, msg, 'y')) {
+X				strcpy (mail_to, bug_addr);
+X				find_mail_header (HEADER_TO, nam, mail_to);
+X				sprintf (msg, txt_mailing_to, mail_to);
+X				wait_message (msg);
+X				sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X				if (invoke_cmd (buf)) {
+X					sprintf (msg, txt_mailed, 1);
+X					info_message (msg);
+X					goto mail_bug_report_done;
+X				} else {
+X					error_message (txt_command_failed_s, buf);
+X					break;
+X				}
+X			} else {
+X				goto mail_bug_report_done;
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s: %c", txt_quit_edit_send, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X	}
+X
+Xmail_bug_report_done:
+X	unlink (nam);
+X
+X	return TRUE;
+X}
+X
+X
+Xint mail_to_author (group, respnum, copy_text)
+X	char *group;
+X	int respnum;
+X	int copy_text;
+X{
+X	char buf[LEN];
+X	char from_addr[LEN];
+X	char nam[100];
+X	char mail_to[LEN];
+X	char ch, ch_default = 's';
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	start_line_offset = 4;
+X	
+X	wait_message (txt_reply_to_author);
+X
+X	sprintf (nam, "%s/.letter", homedir);
+X	if ((fp = fopen (nam, "w")) == NULL) {
+X		perror_message (txt_cannot_open, nam);
+X		return (redraw_screen);
+X	}
+X	chmod (nam, 0600);
+X
+X	find_reply_to_addr (respnum, from_addr);
+X
+X	fprintf (fp, "To: %s\n", from_addr);
+X	fprintf (fp, "Subject: Re: %s\n", eat_re(note_h_subj) );
+X	fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	fputc ('\n', fp);
+X
+X	if (copy_text) {		/* if "copy_text" */
+X		fprintf (fp, txt_in_art_you_write, note_h_messageid);
+X		fseek (note_fp, note_mark[0], 0);
+X		copy_fp (note_fp, fp, DEFAULT_COMMENT);
+X	}
+X
+X	add_signature (fp, TRUE);
+X	fclose (fp);
+X
+X	ch = 'e';
+X	while (1) {
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (nam);
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			unlink (nam);
+X			clear_message ();
+X			return (redraw_screen);
+X
+X		case 's':
+X			my_strncpy (mail_to, arts[respnum].from, sizeof (mail_to));
+X			find_mail_header (HEADER_TO, nam, mail_to);
+X			sprintf (msg, txt_mailing_to, mail_to);
+X			wait_message (msg);
+X			sprintf (buf, "%s \"%s\" < %s", mailer, mail_to, nam);
+X			if (invoke_cmd (buf)) {
+X				sprintf (msg, txt_mailed, 1);
+X				info_message (msg);
+X				goto mail_to_author_done;
+X			} else {
+X				error_message (txt_command_failed_s, buf);
+X				break;
+X			}
+X		}
+X
+X		do {
+X			sprintf (msg, "%s: %c", txt_quit_edit_send, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 's');
+X	}
+X
+Xmail_to_author_done:
+X	find_mail_header (HEADER_SUBJECT, nam, buf);
+X	unlink (nam);
+X	update_art_posted_file (group, 'r', buf);
+X
+X	return (redraw_screen);
+X}
+X
+X/*
+X *  Read a file grabbing the value of the specified mail header line
+X */
+X
+Xvoid find_mail_header (header, file, value)
+X	int header;
+X	char *file;
+X	char *value;
+X{
+X	FILE *fp;
+X	char buf[LEN];
+X	char buf2[LEN];
+X	char new_value[LEN];
+X	char *p;
+X
+X	*new_value = '\0';
+X
+X	if ((fp = fopen (file, "r")) == NULL) {
+X		perror_message (txt_cannot_open, file);
+X		return;
+X	}
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		for (p = buf; *p && *p != '\n'; p++)
+X			continue;
+X		*p = '\0';
+X
+X		if (*buf == '\0')
+X			break;
+X
+X		switch (header) {
+X			case HEADER_TO:
+X				if (strncmp (buf, "To: ", 4) == 0 ||
+X				    strncmp (buf, "Cc: ", 4) == 0) {
+X					my_strncpy (buf2, &buf[4], sizeof (buf2));
+X					yank_to_addr (buf2, new_value);
+X				} 
+X				break;
+X
+X			case HEADER_SUBJECT:
+X				if (strncmp (buf, "Subject: ", 9) == 0) {
+X					my_strncpy (new_value, &buf[9], sizeof (new_value));
+X				}
+X				break;
+X		}
+X	}
+X
+X	fclose (fp);
+X
+X	if (new_value[0] == ' ') {
+X		strcpy (value, &new_value[1]);
+X	} else {
+X		strcpy (value, new_value);
+X	}
+X}
+X
+X
+Xint cancel_article (group, respnum)
+X	char *group;
+X	int respnum;
+X{
+X	char ch, ch_default = 'c';
+X	char buf[LEN];
+X	char cancel[PATH_LEN];
+X	char from[PATH_LEN];
+X	FILE *fp;
+X	int redraw_screen = FALSE;
+X
+X	/*
+X	 * Don't allow if not active news feed 
+X	 */
+X	if (! spooldir_is_active) {
+X		info_message (txt_not_active_newsfeed);
+X		return (redraw_screen);
+X	}
+X
+X	start_line_offset = 4;
+X
+X	get_from_name (cancel);
+X
+X	if (arts[respnum].from != arts[respnum].name) {
+X		sprintf (from, "%s (%s)", arts[respnum].from, arts[respnum].name);
+X	} else {
+X		my_strncpy (from, arts[respnum].from, sizeof (from));
+X	}
+X
+X	if (debug == 2) {
+X		sprintf (msg, "From=[%s]  Cancel=[%s]", from, cancel);		
+X		error_message (msg, "");
+X	}
+X	
+X	if (strcmp (from, cancel) != 0) {
+X		info_message (txt_art_cannot_cancel);
+X		return (redraw_screen);
+X	}
+X			
+X	clear_message ();
+X	
+X	sprintf (cancel, "%s/.cancel", homedir);
+X	if ((fp = fopen (cancel, "w")) == NULL) {
+X		perror_message (txt_cannot_open, cancel);
+X		return (redraw_screen);
+X	}
+X	chmod (cancel, 0600);
+X
+X	fprintf (fp, "Subject: cancel %s\n", note_h_messageid);
+X	if (*note_h_followup) {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_followup);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X	}
+X	fprintf (fp, "Control: cancel %s\n", note_h_messageid);
+X	if (*my_org) { 
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;	
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;	
+X	}
+X	fputc ('\n', fp);
+X
+X	fprintf (fp, "Article cancelled from within tin\n");
+X	
+X	fclose (fp);
+X	
+X	while (1) {
+X		do {
+X			sprintf (msg, "%s [%.*s]: %c", txt_quit_edit_cancel,
+X				COLS-30, note_h_subj, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'c');
+X
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (cancel);
+X			redraw_screen = TRUE;
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			unlink (cancel);
+X			clear_message ();
+X			return (redraw_screen);
+X
+X		case 'c':
+X			wait_message (txt_cancelling);
+X			if (submit_file (cancel)) {
+X				info_message (txt_art_cancelled);
+X				goto cancel_article_done;
+X			} else {
+X				error_message (txt_command_failed_s, cancel);
+X				break;
+X			}
+X		}
+X	}
+X
+Xcancel_article_done:
+X	find_mail_header (HEADER_SUBJECT, cancel, buf);
+X	unlink (cancel);
+X	update_art_posted_file (group, 'c', buf);
+X
+X	return (redraw_screen);
+X}
+X
+X/*
+X * Crosspost an already existing article to another group (ie. local group)
+X */
+X 
+Xint crosspost_article (group, respnum)
+X	char *group;
+X	int respnum;
+X{
+X	char buf[LEN];
+X	char ch;
+X	char ch_default = 'p';
+X	FILE *fp;
+X	int ret_code = POSTED_NONE;
+X	
+X	start_line_offset = 4;
+X
+X	if ((fp = fopen (article, "w")) == NULL) {
+X		perror_message (txt_cannot_open, article);
+X		return (ret_code);
+X	}
+X	chmod (article, 0600);
+X
+X	fprintf (fp, "Subject: %s\n", eat_re (note_h_subj));
+X	fprintf (fp, "Newsgroups: %s\n", group);
+X
+X	if (*my_org) {
+X		fprintf (fp, "Organization: %s\n", my_org);
+X		start_line_offset++;
+X	}
+X	if (*reply_to) {
+X		fprintf (fp, "Reply-To: %s\n", reply_to);
+X		start_line_offset++;
+X	}
+X	if (note_h_distrib != '\0') {
+X		fprintf (fp, "Distribution: %s\n", note_h_distrib);
+X		start_line_offset++;
+X	}
+X
+X	fprintf (fp, "\n[ Article crossposted from %s ]", note_h_newsgroups);
+X	get_author (FALSE, respnum, buf);
+X	fprintf (fp, "\n[ Author was %s ]", buf);
+X	fprintf (fp, "\n[ Posted on %s ]\n\n", note_h_date);
+X  
+X	fseek (note_fp, note_mark[0], 0);
+X	copy_fp (note_fp, fp, "");
+X
+X	add_signature (fp, FALSE);
+X	fclose (fp);
+X
+X	while (1) {
+X		do {
+X			sprintf (msg, txt_quit_edit_xpost, 
+X				COLS-(strlen (txt_quit_edit_xpost)-1),
+X				note_h_subj, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'q' && ch != 'e' && ch != 'p');
+X		switch (ch) {
+X		case 'e':
+X			invoke_editor (article);
+X			ret_code = POSTED_REDRAW;
+X			break;
+X
+X		case 'q':
+X		case ESC:
+X			if (unlink_article)
+X				unlink (article);
+X			clear_message ();
+X			return (ret_code);
+X
+X		case 'p':
+X			wait_message (txt_crosspost_an_article);
+X			if (submit_file (article)) {
+X				ret_code = POSTED_OK;
+X				info_message (txt_art_posted);
+X				goto crosspost_done;
+X			} else {
+X				rename_file (article, dead_article);
+X				sprintf (buf, txt_art_rejected, dead_article);
+X				info_message (buf);
+X				sleep (3);
+X				return (ret_code);
+X			}
+X		}
+X	}
+X
+Xcrosspost_done:
+X	find_mail_header (HEADER_SUBJECT, article, buf);
+X	update_art_posted_file (group, 'x', buf);
+X
+X	if (unlink_article) {
+X		unlink (article);
+X	}
+X	
+X	return (ret_code);
+X}
+X
+X
+Xint submit_file (name)
+X	char *name;
+X{
+X	char buf[LEN];
+X	char *cp = buf;
+X	int ret_code = FALSE;
+X
+X	insert_x_headers (name);
+X
+X	if (read_news_via_nntp) {
+X#ifdef DEBUG
+X		if (debug == 2) {
+X			wait_message ("Using BUILTIN inews");
+X			sleep (3);	
+X		}
+X#endif /* DEBUG */			
+X		ret_code = submit_inews (name);
+X	} else {
+X#ifdef DEBUG
+X		if (debug == 2) {
+X			wait_message ("Using EXTERNAL inews");
+X			sleep (3);	
+X		}	
+X#endif /* DEBUG */			
+X#ifdef INEWSDIR
+X		strcpy (buf, INEWSDIR);
+X		strcat (buf, "/");
+X		cp = &buf[strlen(buf)];
+X#endif /* INEWSDIR */
+X		sprintf (cp, "inews -h < %s %s", name, redirect_output);
+X	
+X		ret_code = invoke_cmd (buf);
+X	} 
+X
+X	return (ret_code);
+X}
+X
+X
+Xvoid add_signature (fp, flag)
+X	FILE *fp;
+X	int flag;
+X{
+X	FILE *sigfp;
+X
+X	if (read_news_via_nntp) {
+X#ifdef NNTP_INEWS
+X		flag = TRUE;
+X#endif
+X	}
+X
+X	/*
+X	 * Use ~/.signature or ~/.Sig or custom .Sig files
+X	 */
+X	if ((sigfp = fopen (default_signature, "r")) != NULL) {
+X		if (flag) {
+X			fprintf (fp, "\n--\n");
+X			copy_fp (sigfp, fp, "");
+X		}
+X		fclose (sigfp);
+X		return;
+X	}
+X
+X	if ((sigfp = fopen (active[my_group[cur_groupnum]].attribute.sigfile, "r")) != NULL) {
+X		fprintf (fp, "\n--\n");
+X		copy_fp (sigfp, fp, "");
+X		fclose (sigfp);
+X	}
+X}
+X
+X
+Xvoid insert_x_headers (infile)
+X	char *infile;
+X{
+X	char line[LEN];
+X	char outfile[PATH_LEN];
+X	FILE *fp_in, *fp_out;
+X	int gotit = FALSE;
+X	
+X	if ((fp_in = fopen (infile, "r")) != NULL) {
+X		sprintf (outfile, "%s.%d", infile, process_id);
+X		if ((fp_out = fopen (outfile, "w")) != NULL) {
+X			while (fgets (line, sizeof (line), fp_in) != NULL) {
+X				if (! gotit && line[0] == '\n') {
+X					fprintf (fp_out, "X-Newsreader: Tin %s PL%d\n\n",
+X						VERSION, PATCHLEVEL);
+X					gotit = TRUE;
+X				} else {
+X					fputs (line, fp_out); 
+X				}	
+X			}
+X			fclose (fp_out);
+X			fclose (fp_in);
+X			rename_file (outfile, infile);
+X		}
+X	}
+X}
+X
+X
+Xvoid find_reply_to_addr (respnum, from_addr)
+X	int respnum;
+X	char *from_addr;
+X{
+X	char buf[LEN];
+X	int found = FALSE;
+X	int len = 0;
+X	long orig_offset;
+X
+X	orig_offset = ftell (note_fp);
+X	fseek (note_fp, 0L, 0);
+X	
+X	while (fgets (buf, sizeof (buf), note_fp) != NULL && 
+X		found == FALSE && buf[0] != '\n') {
+X		if (strncmp (buf, "Reply-To: ", 10) == 0) {
+X			strcpy (from_addr, &buf[10]);
+X			len = strlen (from_addr);
+X			from_addr[len-1] = '\0';
+X			sprintf (buf, "%s%s", from_addr, add_addr);
+X			strcpy (from_addr, buf);
+X			found = TRUE;
+X		}	
+X	}
+X
+X	if (! found) {
+X		if (arts[respnum].name != arts[respnum].from) { 
+X			sprintf (buf, "%s%s (%s)",
+X				 arts[respnum].from, add_addr,
+X				 arts[respnum].name);
+X			strcpy (from_addr, buf);
+X		} else { 
+X			sprintf (from_addr, "%s%s",
+X				 arts[respnum].from, add_addr);
+X		}	
+X	}
+X	
+X	fseek (note_fp, orig_offset, 0);
+X}
+X		
+END_OF_FILE
+  if test 28095 -ne `wc -c <'post.c'`; then
+    echo shar: \"'post.c'\" unpacked with wrong size!
+  fi
+  # end of 'post.c'
+fi
+echo shar: End of archive 6 \(of 15\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

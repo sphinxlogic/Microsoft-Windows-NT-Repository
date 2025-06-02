@@ -1,0 +1,1414 @@
+Newsgroups: comp.sources.misc
+From: bart@zigzag.z-code.com (Bart Schaefer)
+Subject:  v28i067:  mush - Mail User's Shell, Patch04a/2
+Message-ID: <csm-v28i067=mush.213653@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 745678f835c093a01dc4e1fe3e37b59c
+Date: Mon, 24 Feb 1992 03:37:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bart@zigzag.z-code.com (Bart Schaefer)
+Posting-number: Volume 28, Issue 67
+Archive-name: mush/patch04a
+Environment: UNIX
+Patch-To: mush: Volume 18, Issue 58-79
+
+This is Part 01 of Official Patch #4 for Mush 7.2.  To apply this patch,
+save this message to a file in your mush source directory and type:
+
+	patch -N -p1 < file
+
+If you are using an Apollo workstation, you will first need to apply
+Part 02 of this patch, and then proceed with:
+
+	sh apollo.shar
+	patch -N -p1 < apollo.patch
+
+See the files README and README.apollo for details.
+
+Bug fixes in this patch (see README and README-7.2.4 for other changes):
+
+  * A couple of long-standing array overflow and "underflow" bugs found
+    and squished.
+
+  * Interrupting the "bind" curses-mode command now works more like the
+    other interruptible commands.
+
+  * The "stty" command behaves itself.
+
+  * Non-SYSV systems using DOT_LOCK won't get strange reports from the
+    "save" command about messages saved to the lock file.  (That wasn't
+    happening but the output was confusing.)
+
+  * Using the "folder" curses-mode command will now remove empty folder
+    files if the line-mode "folder" would do so.
+
+  * SYSV systems should have no more complaints about EWOULDBLOCK not
+    being defined in file.c.
+
+  * The "folder" command won't print the folder status line if piping
+    or otherwise told to shut up (e.g. "mush -N").
+
+  * Attempting to reference a $[%x] header-formatted variable during
+    initialization no longer causes a core dump.  You still can't do
+    it, but at least mush refuses politely.
+
+  * The "reply" family of commands do a better job with addresses
+    whose real name or comment fields contain double-quote characters.
+    Specifically, they put such names in ( ) instead of in " ".
+
+  * Over-long lines in init files and "source" files now generate an
+    error message instead of truncating silently.
+
+  * Systems using DOT_LOCK should no longer find dead lock files lying
+    about.  The whole DOT_LOCK procedure has been made more robust so
+    it can be used as a failsafe on systems with NFS-mounted spools.
+
+  * Tty twiddling is no longer done in headers-only mode ("mush -H").
+
+  * The little-used feature of referencing another variable from within
+    the autosign and autosign2 variables actually works now.  I probably
+    should just have removed it altogether.
+
+  * Compiling with SUNTOOL defined no longer breaks the lock-failed case
+    in folder updating for line mode.
+
+  * The descriptive output from "pick" is now correct when using -x with
+    a date search.
+
+@OFF
+
+As usual, complete sources for Mush (already including the changes in this
+patch) can be obtained via anonymous ftp from:
+
+                  cse.ogi.edu:pub/mush/mush-7.2.tar.Z
+
+It may be a few days before I have a chance to update the cse.ogi.edu
+archive, so if you need 7.2.4 _now_, save this patch before retrieving
+the rest of the source.
+
+Mush 7.2 was most recently posted to comp.sources.misc at patchlevel 2.
+Patches 3, 4, and any future patches will be made available for ftp from
+cse.ogi.edu, or you can send E-mail to me:
+
+                         schaefer@cse.ogi.edu
+
+Include in your message a line of the form
+
+@PATCH patch-number path-from-ogicse-to-you
+
+where patch-number is the number of the patch you need (digit, 1 or 2)
+and path-from-ogicse-to-you is either your Internet domain address or
+a UUCP path from site ogicse to you at your site.  There continue to
+be sendmail configuration problems at ogicse so please do not use mixed
+UUCP and Internet addresses and do not use domain names (with `.'s) in
+UUCP paths.  Ogicse does do UUCP map lookups now, so user@site.UUCP will
+often work if your site is registered.  If you don't get your patches
+in 2 or 3 days, try again, but use a different path.
+
+You may include one @PATCH line for each patch you need.
+
+You can also recieve a complete set of sources by E-mail by including
+a line of the form
+
+@MUSH path-from-ogicse-to-you
+
+where path-from-ogicse-to-you is as above.  You need not request both
+source and patches; the source you receive will include all current
+patches.  Sources are shipped as a 10-part compressed tar file, encoded
+for mailing with the "btoa" utility.  You will receive instructions
+explaining how to unpack the tar file in a separate message.
+
+Decwrl also operates an E-mail server that accesses anonymous ftp.  To
+get instructions, send a message to:
+
+                        ftpmail@decwrl.dec.com
+
+Include the following lines in the text:
+
+help
+quit
+
+To get the mush sources, send the following:
+
+reply your-email-address
+connect cse.ogi.edu
+chdir pub/mush
+btoa				<-- replace with uuencode if you prefer
+binary
+get mush-7.2.tar.Z
+quit
+
+Other information, plus questions and answers, on mush and mush patches
+is available from the mush-users mailing list, which is gatewayed in
+both directions with newsgroup comp.mail.mush.  The list currently
+resides at mush-users@apple.com.  Requests to be added to or deleted
+from the list should be sent to mush-users-request@apple.com
+
+Prereq: "5/22/91"
+*** 7.2.3/version.h	Wed May 22 19:08:41 1991
+--- 7.2.4/version.h	Thu Jan 30 22:53:42 1992
+***************
+*** 1,7 ****
+  /* @(#)version.h	(c) Copyright 1989, 1990, 1991 (Dan Heller) */
+  
+  #define MUSHNAME	"Mail User's Shell"
+! #define RELEASE_DATE	"5/22/91"
+  #define RELEASE		7
+  #define REVISION	"2"
+! #define PATCHLEVEL	3
+--- 1,7 ----
+  /* @(#)version.h	(c) Copyright 1989, 1990, 1991 (Dan Heller) */
+  
+  #define MUSHNAME	"Mail User's Shell"
+! #define RELEASE_DATE	"2/2/92"
+  #define RELEASE		7
+  #define REVISION	"2"
+! #define PATCHLEVEL	4
+*** 7.2.3/README	Wed May 22 23:50:44 1991
+--- 7.2.4/README	Sun Feb  2 09:21:32 1992
+***************
+*** 1,11 ****
+! /* @(#)README		(c) copyright 9/15/89	(Dan Heller) */
+  
+! Author:
+      Dan Heller
+  
+  Network addresses:
+!     argv@sun.com		argv@monet.berkeley.edu.
+!     argv@garp.mit.edu		dheller@ucbcory.berkeley.edu
+  
+  When sending mail, mail to the addresses in the order given.
+  
+--- 1,12 ----
+! /* @(#)README		(c) copyright 2/1/92	(Dan Heller) */
+  
+! Authors:
+      Dan Heller
++     Bart Schaefer
+  
+  Network addresses:
+!     argv@z-code.com		argv@sun.com		argv@ora.com
+!     schaefer@zigzag.z-code.com			schaefer@cse.ogi.edu
+  
+  When sending mail, mail to the addresses in the order given.
+  
+***************
+*** 33,47 ****
+  may be used in any other product, free or otherwise, without consent from
+  the authors.
+  
+  With that out of the way...
+  
+  Mush runs on various flavors of unix.  To build mush, you should identify
+  which unix you are running:
+  
+!     Sun (all versions from 3.5 and higher).
+      BSD (versions 4.2 and up, or SunOS earlier than 3.5)
+      System-V / Version 7 / System III (Bell Labs)
+      Xenix (this might be tricky)
+  
+  You will need to copy "config.h-dist" to config.h and edit it to reflect
+  the system dependencies described there.  These consist of "compile-time
+--- 34,53 ----
+  may be used in any other product, free or otherwise, without consent from
+  the authors.
+  
++ MUSH IS PROVIDED AS IS, WITHOUT WARRANTY.  AUTHORS HEREBY DISCLAIM
++ ALL WARRANTIES INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES
++ OF FITNESS FOR A PARTICULAR PURPOSE.
++ 
+  With that out of the way...
+  
+  Mush runs on various flavors of unix.  To build mush, you should identify
+  which unix you are running:
+  
+!     SunOS (all versions from 3.5 and higher).
+      BSD (versions 4.2 and up, or SunOS earlier than 3.5)
+      System-V / Version 7 / System III (Bell Labs)
+      Xenix (this might be tricky)
++     Hybrids including HP-UX and IRIX (Version 4.0 and up is best)
+  
+  You will need to copy "config.h-dist" to config.h and edit it to reflect
+  the system dependencies described there.  These consist of "compile-time
+***************
+*** 118,123 ****
+--- 124,135 ----
+      BSD and probably running a system-v flavor of unix -- this defines USG
+      so that termio will be used.
+  
++     True System V Release 2 systems should define SVR2 to get full support
++     for dot-locking (see DOT_LOCK below).  The default for SYSV is SVR3.
++     See below for SVR4.  Some SVR3 machines (e.g. Motorola SysV/88) are
++     close enough to SVR4 that you may need to use the libraries described
++     below.  However, this does not normally mean you should define SVR4.
++ 
+      SCO UNIX V.2.0 users should add -lx to OTHERLIBS in makefile.sys.v.
+      It may also be desirable to change MANDIR to /usr/man/man.C and
+      MANEXT to C in the makefile.  SCO UNIX V.3.2 users should avoid -lx
+***************
+*** 128,148 ****
+      defined in mush.h.  It should be fairly trivial to generate an
+      equivalent function.
+  
+  If you are using Ultrix:
+  
+      Start with makefile.bsd.
+  
+!     For Ultrix 2.2, change LIBES in makefile.bsd from
+! 	LIBES= -lcurses -ltermlib
+      to 
+! 	LIBES= -lcurses -ltermcap
+  
+!     For Ultrix V3.0, use the standard makefile.bsd LIBES, but add
+  	-DSIGRET=void
+      to the CFLAGS, or add
+  	#define SIGRET void
+      to config.h (see discussion below).
+  
+  If you are using HP-UX:
+  
+      Use makefile.hpux.
+--- 140,174 ----
+      defined in mush.h.  It should be fairly trivial to generate an
+      equivalent function.
+  
++ If you have System V Release 4:
++ 
++     Use makefile.sys.v as above, but define SVR4 and DIRECTORY.  You
++     should also change
++ 	LIBS= 		-lcurses -lPW
++     to
++ 	LIBS= 		-lcurses -lgen
++ 
+  If you are using Ultrix:
+  
+      Start with makefile.bsd.
+  
+!     For Ultrix 2.2, change LIBS in makefile.bsd from
+! 	LIBS= -lcurses -ltermlib
+      to 
+! 	LIBS= -lcurses -ltermcap
+  
+!     For Ultrix V3.0, use the standard makefile.bsd LIBS, but add
+  	-DSIGRET=void
+      to the CFLAGS, or add
+  	#define SIGRET void
+      to config.h (see discussion below).
+  
++     Ultrix V4.0 is generally the same as 3.0 but may exhibit problems with
++     alignment errors in the environment of forked children (e.g. the MTA).
++     The only workaround is to replace the popen(3) function with one of
++     your own that passes the environment explicitly via execve().  If you
++     never use mush's "setenv" command you'll probably never see this.
++ 
+  If you are using HP-UX:
+  
+      Use makefile.hpux.
+***************
+*** 153,158 ****
+--- 179,196 ----
+      from the CFLAGS.  This will cause the portable directory access
+      routines in that file to be compiled.
+  
++ If you are using Apollo Domain/OS:
++ 
++     Good luck.
++ 
++     Actually, there is some hope for you, but best if you have Domain/OS
++     version 10.3.x with the 4.3 BSD environment installed.  Included with
++     the distribution as of version 7.2.4 is apollo.shar, which contains
++     patches, auxiliary files, and makefile.apollo to put them all together.  
++     Run "sh apollo.shar" and "patch -N -p1 apollo.patch" (or patch by hand)
++     then make using makefile.apollo.  You *should* be able to make this
++     procedure work under the System V environment, but ....
++ 
+  If you are using Apple A/UX:
+  
+      Use makefile.sys.v, and add -DAUX -DDIRECTORY to CFLAGS.
+***************
+*** 159,164 ****
+--- 197,219 ----
+  
+      Mush uses 4.2-BSD compatible signal handling when AUX is defined.
+  
++ If you have SGI Iris or Indigo workstations:
++ 
++     Silicon Graphics IRIX workstations should use makefile.sys.v.  If you
++     have IRIX version 3.x, you're pretty much on your own.
++ 
++     Add -DDIRECTORY to prevent the portable directory routines from being
++     compiled in.  You may optionally add -DSELECT if you want to use the BSD
++     style select() function.  If you do this, you must also add -lbsd to the
++     OTHERLIBS macro definition in the Makefile.
++     
++     For IRIX 4.x you should add -DIRIX4 to CFLAGS and use:
++ 	CC= cc -signed -cckr
++ 	OTHERLIBS= -lsun -lmalloc
++     Note that -lsun is used in place of -lbsd here.  This provides network
++     compatibility with sun workstations, or something like that.  You may
++     be able to get by with -lbsd.
++ 
+  If you are using a hybrid BSD/SysV system:
+  
+      You may have to use a combination of many of the defines listed
+***************
+*** 168,191 ****
+      routines ...  you may have to define additional parameters such as
+      -DSELECT, -DGETWD, -DDIRECTORY, ... and possibly add -lbsd.
+  
+- Notes for some hybrid systems:
+-     SGI workstations:
+-     Silicon Graphics Iris workstations should add -DDIRECTORY to prevent
+-     the portable directory routines from being compiled in.
+- 
+-     You may optionally add -DSELECT if you want to use the BSD style
+-     select() function.  If you do this, you must also add -lbsd to the
+-     LIBS macro definition in the Makefile.
+-     You will also need to #include <sys/times.h> in curs_io.c.
+- 
+      MIPS workstations:
+      These are also hybrid systems that may require additional hand-
+      configuration in order to work properly.  There seem to be
+      major differences between the last several releases, so your
+!     milage may vary.  Currently, lock.c should be compiled with BSD
+!     defined, but everything else should be SYSV.  -DGETWD should be
+!     used and -lbsd may have to be added to LIBS in the Makefile.
+  
+  When you decide on an appropriate makefile, _copy_ it to a new file called
+  Makefile _before_ making any of local changes.  Please read the following
+  sections for addtional configuration information.  In addition to changing
+--- 223,243 ----
+      routines ...  you may have to define additional parameters such as
+      -DSELECT, -DGETWD, -DDIRECTORY, ... and possibly add -lbsd.
+  
+      MIPS workstations:
++ 
+      These are also hybrid systems that may require additional hand-
+      configuration in order to work properly.  There seem to be
+      major differences between the last several releases, so your
+!     milage may vary.  Before RISC/OS 3.2, there are numerous curses
+!     library bugs, and, lock.c should be compiled with BSD defined, but
+!     everything else should be SYSV.  -DGETWD should be used and -lbsd
+!     must be added to OTHERLIBS in the Makefile.
+  
++     For RISC/OS 3.2 and later, start with makefile.bsd, add -DDIRECTORY
++     to CFLAGS, and use:
++ 	CC= cc -Wf,-XNd5000 -std0 -systype bsd43
++ 	OTHERLIBS= -lbsd
++ 
+  When you decide on an appropriate makefile, _copy_ it to a new file called
+  Makefile _before_ making any of local changes.  Please read the following
+  sections for addtional configuration information.  In addition to changing
+***************
+*** 204,209 ****
+--- 256,271 ----
+      by itself as an end-of-file marker.  This has been obsleted by "-oi",
+      but "-i" still works and is backwards compatible with older sendmails.
+  
++     If you are compiling on a machine that has the Rand MH mail system as
++     its native user agent (machines at Rand Corp. and Tektronix boxes
++     running Utek 3.x or 4.x, among others) your system mailbox may be in
++     MMDF format even though your MTA is sendmail.  Define MMDF to parse
++     the mailbox, but also define M_EXECMAIL to use sendmail-style protocol
++     for talking to the MTA.  However, do NOT use /usr/lib/mail/execmail
++     as the MAIL_DELIVERY.  Make sure MAIL_DELIVERY is /usr/lib/sendmail
++     as usual, and that the VERBOSE_ARG, METOO_ARG, and MTA_EXIT macros
++     are the ones associated with the sendmail MAIL_DELIVERY.
++ 
+  Delivermail:
+      Some mailers such as delivermail and MMDF use special strings to separate
+      messages stored in a folder.  Older delivermail versions would use "^C".
+***************
+*** 226,232 ****
+--- 288,308 ----
+      If you are using SCO UNIX 3.2 and the MMDF "submit" program gives you
+      trouble because of file permissions, define M_EXECMAIL to use the
+      execmail program instead.
++     
++     Another reason you may need execmail is that under MMDF, the system
++     knows itself only by its hostname; other names, including the fully-
++     qualified domain name, have to be specified in the local channel file.
++     If this is not done, mail From: user@host.domain will be returned with
++     a "no valid author spec" message.  However, it won't fail if the mail
++     is submitted by root; /usr/lib/mail/execmail is setuid root, so mail
++     submitted that way will succeed.  You should only resort to M_EXECMAIL
++     if you are unable to change the MMDF permissions or cannot edit the
++     channel file.
+  
++ Smail:
++     If you are using smail-2.x you need to define NO_COMMAS and PICKY_MAILER.
++     On a SYSV system, define MAIL_DELIVERY as /bin/rmail.
++ 
+  All others:
+      Chances are, your MTA uses the "From " format to separate messges in
+      a folder.  This includes, /bin/mail, rmail, smail, execmail, and so on.
+***************
+*** 260,265 ****
+--- 336,352 ----
+  MSG_SEPARATOR
+      See the discussion above.
+  
++ MAILDIR
++     This is automatically defined as /usr/mail for SYSV prior to SVR4 and
++     as /usr/spool/mail for BSD and SVR4.  However, some systems are unusual,
++     so you may need to define this explicitly.
++ 
++ MAIL_DELIVERY
++     This is the program that mush invokes to send your messages off to your
++     list of recipients.  It defaults to "sendmail" (or "submit" for MMDF).
++     See notes below on modifying this via M_EXECMAIL for misconfigured MMDFs.
++     For vanilla SYSV, redefine MAIL_DELIVERY as /bin/mail or /bin/rmail.
++ 
+  UUCP
+      This should be defined if your MTA does not automatically create a
+      From: header *and* your machine talks to other computers via uucp.
+***************
+*** 285,296 ****
+      VERBOSE_ARG defined.  Otherwise, define it to be whatever the verbose
+      argument is for your mailer.  The default is -v.
+  
+! METOO
+      Sendmail uses the -m argument to say, "metoo" -- when sending to sendmail
+      aliases (e.g. mailing lists), sendmail will expand the alias, but if your
+      address appears in the expansion, you are excluded from getting your own
+      mail.  However, if you have the variable metoo set with your variables,
+!     then the METOO argument is passed to sendmail to say, "I know I'm on this
+      mailing list, but send me a copy of my message even tho I sent it."  For
+      sendmail, this is -m.  If your mailer uses something else, then define
+      METOO_ARG in the config.h file.  If you don't have it (sys-v), then this
+--- 372,383 ----
+      VERBOSE_ARG defined.  Otherwise, define it to be whatever the verbose
+      argument is for your mailer.  The default is -v.
+  
+! METOO_ARG
+      Sendmail uses the -m argument to say, "metoo" -- when sending to sendmail
+      aliases (e.g. mailing lists), sendmail will expand the alias, but if your
+      address appears in the expansion, you are excluded from getting your own
+      mail.  However, if you have the variable metoo set with your variables,
+!     then the metoo argument is passed to sendmail to say, "I know I'm on this
+      mailing list, but send me a copy of my message even tho I sent it."  For
+      sendmail, this is -m.  If your mailer uses something else, then define
+      METOO_ARG in the config.h file.  If you don't have it (sys-v), then this
+***************
+*** 318,323 ****
+--- 405,415 ----
+      .lock file.  If it exists, mush loops until it goes away and then mush
+      creates it mode 600.  Regardless of whether you use dot-locking, mush
+      will continue to try to use flock(), or whatever.
++ 
++     If your MTA is smail-2.x, you should define DOT_LOCK regardless of
++     your operating system type.  DOT_LOCK may also be helpful in preventing
++     corruption of NFS-mounted mail spools, but only if the MTA can be made
++     to also use this protocol.
+  
+      Dot-locking requires mush to have write access to the directory where
+      your mailbox exists.  Normally, this directory isn't writable by the
+*** /dev/null	Sun Feb  2 11:15:57 1992
+--- 7.2.4/README-7.2.4	Sun Feb  2 20:00:09 1992
+***************
+*** 0 ****
+--- 1,133 ----
++ 
++ This is release 7.2.4 of the Mail User's Shell (mush).
++ 
++ Mush was last posted as a complete package at release 7.2.2.  Before that,
++ the last complete posting was 7.1.1.  If your version of mush is older
++ than 7.2.2, refer to README-7.0 and README-7.1 for lists of other changes.
++ See README-7.2.0 for changes from 7.1.1 to 7.2.  Patch 3 was bugfixes only;
++ there was no README-7.2.3, so the list of bugfixes in that patch has been
++ appended.
++ 
++ Changes in compilation:
++ 
++     Be sure to check out the README file for complete details of new info
++     on compilation for SysVr2, SysVr4, Ultrix, Domain/OS, IRIX, and MIPS.
++     There are new preprocessor definitions for SVR2, SVR4, and IRIX4, plus
++     a set of patches and auxiliary files for Apollo.  There are also new
++     instructions for compiling mush to read MMDF-style spool files while
++     still using sendmail as the MTA (some "native" MH sites need this).
++ 
++     If you have a csh with filec set and typing ahead at an exiting mush
++     seems to send end-of-file to your shell, define CSH_FILEC_FIX.  It's
++     completely ridiculous that mush has to deal with this so I refuse to
++     mention it in README with the mush-configuration defines.
++ 
++ New/changed commands:
++ 
++     There aren't any.
++ 
++ New/changed variables:
++ 
++     pager
++ 	If $pager has the value "NONE", mush will not run an external
++ 	pager and will not pause for input at the end of each screenful
++ 	of output.
++ 
++ Tool mode changes:
++ 
++     None of these, either.
++ 
++ Miscellaneous:
++ 
++     The config.h file has been reorganized a bit more.
++ 
++     The "digestify" script has a clever perl-style startup conditional
++     so you can #! it as a csh script if your path to mush is too long.
++ 
++     The environment variable MAIL is now recognized at startup time to
++     specify the location of the spool folder.
++ 
++     When SVR2 and DOT_LOCK are defined at compile time, mush assumes that
++     saved-set-group-id is not available.  The file lock.c can be compiled
++     into a separate locking program to handle the setgid requirements.
++     See extensive comments at the top of lock.c.
++ 
++ Bugs fixed in Patch #4:
++ 
++   * A couple of long-standing array overflow and "underflow" bugs found
++     and squished.
++ 
++   * Interrupting the "bind" curses-mode command now works more like the
++     other interruptible commands.
++ 
++   * The "stty" command behaves itself.
++ 
++   * Non-SYSV systems using DOT_LOCK won't get strange reports from the
++     "save" command about messages saved to the lock file.  (That wasn't
++     happening but the output was confusing.)
++ 
++   * Using the "folder" curses-mode command will now remove empty folder
++     files if the line-mode "folder" would do so.
++ 
++   * SYSV systems should have no more complaints about EWOULDBLOCK not
++     being defined in file.c.
++ 
++   * The "folder" command won't print the folder status line if piping
++     or otherwise told to shut up (e.g. "mush -N").
++ 
++   * Attempting to reference a $[%x] header-formatted variable during
++     initialization no longer causes a core dump.  You still can't do
++     it, but at least mush refuses politely.
++ 
++   * The "reply" family of commands do a better job with addresses whose
++     real name or comment fields that contain double-quote characters.
++     Specifically, they put such names in ( ) instead of in " ".
++ 
++   * Over-long lines in init files and "source" files now generate an
++     error message instead of truncating silently.
++ 
++   * Systems using DOT_LOCK should no longer find dead lock files lying
++     about.  The whole DOT_LOCK procedure has been made more robust so
++     it can be used as a failsafe on systems with NFS-mounted spools.
++ 
++   * Tty twiddling is no longer done in headers-only mode ("mush -H").
++ 
++   * The little-used feature of referencing another variable from within
++     the autosign and autosign2 variables actually works now.  I probably
++     should just have removed it altogether.
++ 
++   * Compiling with SUNTOOL defined no longer breaks the lock-failed case
++     in folder updating for line mode.
++ 
++   * The descriptive output from "pick" is now correct when using -x with
++     a date search.
++ 
++ Bugs fixed in Patch #3:
++ 
++   * The user's real name ($realname) is no longer left empty.
++ 
++   * REGCMP users (mostly SysV) no longer get core dumps when using pick.
++ 
++   * Attempts to send mail (e.g. via Fcc: headers) to the same file or
++     folder more than once *silently* sends only one copy to the file.
++     (Before, it complained about not being able to write to the file
++     for the second and later attempts.)
++ 
++   * SCO UNIX 3.2 users who are having problems with "submit" can now
++     define M_EXECMAIL to use execmail as their interface to MMDF.  This
++     has the pleasant side-effect of making the MTA invocation compatible
++     with sendmail, so resetting the variable "sendmail" works cleanly.
++ 
++   * Problems with file locking and lock.c typos for SCO UNIX have been
++     corrected (we hope).
++ 
++   * SCO UNIX correctly includes <sys/select.h> (we hope).
++ 
++   * Attempts to load folders containing more than the defined maximum
++     number of messages work a bit better.  You still can't load all the
++     messages, but the results are less strange.
++ 
++   * Some <curses.h> macro name clashes for unusual UNIXen have been
++     forcibly suppressed.
++ 
++   * An amazingly old string overflow bug in toolmode has been fixed.
+*** /dev/null	Tue Feb 18 03:03:49 1992
+--- 7.2.4/apollo.shar	Tue Feb 18 22:47:32 1992
+***************
+*** 0 ****
+--- 1,758 ----
++ #!/bin/sh
++ # shar:	Shell Archiver  (v1.22+)
++ #
++ #	Run the following text with /bin/sh to create:
++ #	  README.apollo
++ #	  makefile.apollo
++ #	  apollo.patch
++ #	  apollo_file.c
++ #	  apollo_pad.c
++ #
++ echo "x - extracting README.apollo (Text)"
++ sed 's/^X//' << 'SHAR_EOF' > README.apollo &&
++ XREADME.apollo - modifications to allow mush to operate smoothly in an Apollo
++ X		environment.
++ X
++ XAuthor:
++ X	Mike Pelletier, stealth@engin.umich.edu
++ X------------
++ X
++ XSeveral changes have been made to make mush interact more smoothly with
++ Xseveral aspects of the Apollo operating and display system.  The changes
++ Xinclude modified versions of open(), fopen(), and flock(), a check for
++ Xthe height of the screen using the Display Manager "pad" interfaces,
++ Xand a change to make input and output in a pad operate more cleanly.
++ X
++ XNEW OPEN() ROUTINES:
++ X
++ X  The default operation of the Apollo filesystem closely mimics the
++ X  UNIX OS -- any number of processes can have a file open for reading or
++ X  writing at any given time, and writing is essentially on a last come,
++ X  first served basis -- the last update to the file is what sticks.
++ X  This mode is called FILE_$COWRITERS.  However, this only works correctly
++ X  when all the processes in question are running on the same machine.
++ X  If a process on another machine tries to open() the file, it will fail
++ X  completely no matter what access mode it wants, saying "Text file busy."
++ X  In the case of mail, it's very common to have a mail transfer agent
++ X  on one central machine, and a user on another machine, and if the COWRITERS
++ X  lock mode were used, one or the other would fail to access the file
++ X  if they both tried at the same time, even if the user just wanted to
++ X  read the mailbox, not update it.
++ X  
++ X  The Apollo filesystem has another locking mode that works for
++ X  processes on multiple nodes, with the caveat that only one
++ X  process at a time may have write access to the file.  This is
++ X  called FILE_$NR_XOR_1W mode.  In this case, if a MTA opened a users
++ X  mailbox for writing to deliver new mail, the user could still open
++ X  and read the mailbox at the start of a mail session, and vice-versa
++ X  for the end of a mail session.
++ X  
++ X  The open() replacements in apollo_file.c simply change the default
++ X  concurrency control mode from FILE_$COWRITERS to FILE_$NR_XOR_1W,
++ X  and can stall for a certain amount of time if the attempt to open
++ X  the file fails for concurrency reasons, say if an MTA was updating
++ X  the mailbox at the same time that a user wanted to end a mail session.
++ X  The stall and frequency of checking can be set with setdeadtime() and
++ X  setintervaltime() according to the needs of the application.  A user-
++ X  agent would want a longer stall with more frequent checks than a
++ X  transfer agent, since the transfer agent can always queue the request
++ X  and try again later whereas a user gets upset if he or she gets a
++ X  "can't update system mailbox" error.
++ X
++ X  Since only one routine can have a file open for reading at a time, the
++ X  flock() command is essentially useless.  In order to release a lock,
++ X  the application must close the file.
++ X
++ X  These routines are #define-level compatible with their UNIX counterparts.
++ X  I.e., #define open apollo_open, #define fopen apollo_fopen,
++ X  #define flock apollo_flock may be put in the application header file,
++ X  surrounded with "#ifdef apollo .. #endif".
++ X
++ XDISPLAY MANAGER PAD ROUTINES:
++ X
++ X  The foremost routine in apollo_pad.c is apollo_ispad().  This simply
++ X  returns the logical truth value of the question "Is the standard output
++ X  stream a display manager pad?"
++ X
++ X  Based on this, the screen height for mush may be set according to the
++ X  number of lines in the pad, using the apollo_padheight() function.  This
++ X  is handled in init.c.
++ X
++ X  Other special cases to note if the output stream is a pad include the
++ X  fact that cbreak and echo mode should not be changed.  If this is done,
++ X  the pad will switch into vt100 mode, which is essentially a different
++ X  window from the pad.  The switch is visually unpleasant, interrupting
++ X  the flow of text, and any transcript is lost once the vt100 window exits.
++ X
++ X  Also, pagers should not be used in DM pads.  Since they switch into
++ X  cbreak mode, the previous problem comes up, and besides, the DM pad
++ X  has a large number of commands available for quick scrolling and
++ X  searching within the pad, as well as the HOLD key, so pagers aren't
++ X  even really necessary.
++ X
++ X  All these changes are transparent to someone using mush from a terminal.
++ X  These only apply when someone is sitting at the display console of an
++ X  Apollo workstation.
++ X
++ X------------------------
++ X
++ X		Many thanks to Paul Killey <paul@engin.umich.edu>
++ X		for his invaluable assistance in making these modifications.
++ X
++ X			Mike Pelletier, <stealth@engin.umich.edu>
++ SHAR_EOF
++ chmod 0600 README.apollo || echo "restore of README.apollo fails"
++ set `wc -c README.apollo`;Sum=$1
++ if test "$Sum" != "4455"
++ then echo original size 4455, current size $Sum;fi
++ echo "x - extracting makefile.apollo (Text)"
++ sed 's/^X//' << 'SHAR_EOF' > makefile.apollo &&
++ X# makefile.apollo
++ X#
++ XHDRS= mush.h config.h-dist strings.h bindings.h options.h version.h glob.h
++ X
++ XSRCS= main.c init.c misc.c mail.c hdrs.c execute.c commands.c print.c dates.c \
++ X      signals.c setopts.c msgs.c pick.c sort.c expr.c folders.c \
++ X      loop.c viewopts.c curses.c curs_io.c bind.c file.c strings.c \
++ X      lock.c macros.c options.c addrs.c malloc.c glob.c command2.c \
++ X      apollo_file.c apollo_pad.c
++ XOBJS= main.o init.o misc.o mail.o hdrs.o execute.o commands.o print.o file.o \
++ X      signals.o setopts.o msgs.o pick.o sort.o expr.o strings.o \
++ X      folders.o dates.o loop.o viewopts.o curses.o curs_io.o bind.o \
++ X      lock.o macros.o options.o addrs.o malloc.o glob.o command2.o \
++ X      apollo_file.o apollo_pad.o
++ X
++ XHELP_FILES= README README-7.0 README-7.1 README-7.2.0 README-7.2.2 \
++ X	README-7.2.4 mush.1 cmd_help Mushrc Mailrc Gnurc \
++ X	sample.mushrc advanced.mushrc digestify
++ X
++ XMAKES= makefile.bsd makefile.xenix makefile.sys.v makefile.hpux makefile.sun \
++ X	makefile.apollo
++ X
++ XFIXES= file.c init.c lock.c mail.c main.c msgs.c
++ X
++ XCC= cc -A nansi
++ XCFLAGS= -O -DCURSES -DBSD
++ XLDFLAGS=
++ XLINTFLAGS= -bxah -Dlint -DCURSES -DBSD
++ XLIBS= -lcurses -ltermcap
++ XOTHERLIBS=
++ X
++ Xmush: $(OBJS)
++ X	@echo loading...
++ X	@$(CC) $(LDFLAGS) $(OBJS) $(LIBS) $(OTHERLIBS) -o mush
++ X
++ X$(FIXES): apollo.patch
++ X	@echo '$@ needs patching -- run "patch -N -p1 < apollo.patch"'; exit 1
++ X
++ X$(OBJS): config.h mush.h
++ Xloop.o: version.h
++ X
++ Xlint:
++ X	lint $(LINTFLAGS) $(SRCS)
++ X
++ Xclean:
++ X	rm -f *.o core mush
++ X
++ XBINDIR= /usr/local/bin
++ XLIBDIR= /usr/local/lib
++ XMRCDIR= /usr/lib
++ XMANDIR= /usr/local/man/man1
++ XMANEXT= 1
++ X
++ Xinstall: mush
++ X	mv mush $(BINDIR)
++ X	strip $(BINDIR)/mush
++ X	chmod 0755 $(BINDIR)/mush
++ X	cp mush.1 $(MANDIR)/mush.$(MANEXT)
++ X	chmod 0644 $(MANDIR)/mush.$(MANEXT)
++ X	cp cmd_help $(LIBDIR)
++ X	chmod 0644 $(LIBDIR)/cmd_help
++ X	cp Mushrc $(MRCDIR)/Mushrc
++ X	chmod 0644 $(MRCDIR)/Mushrc
++ SHAR_EOF
++ chmod 0644 makefile.apollo || echo "restore of makefile.apollo fails"
++ set `wc -c makefile.apollo`;Sum=$1
++ if test "$Sum" != "1828"
++ then echo original size 1828, current size $Sum;fi
++ echo "x - extracting apollo.patch (Text)"
++ sed 's/^X//' << 'SHAR_EOF' > apollo.patch &&
++ X*** 7.2.4/file.c	Thu Jan 30 20:50:48 1992
++ X--- apollo/file.c	Fri Feb 14 07:48:54 1992
++ X***************
++ X*** 467,473 ****
++ X--- 467,477 ----
++ X  mask_fopen(file, mode)
++ X  char *file, *mode;
++ X  {
++ X+ #ifdef apollo
++ X+     int needs_chmod = (Access(file, F_OK) < 0);
++ X+ #else
++ X      int omask = umask(077);
++ X+ #endif
++ X      FILE *fp;
++ X  #ifdef SYSV
++ X      /* XENIX and other older sytems can't handle "a+".	Even newer
++ X***************
++ X*** 482,490 ****
++ X  	if (fp = fopen(file, mode))
++ X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
++ X      } else
++ X! #endif /* SYSV */
++ X      fp = fopen(file, mode);
++ X      (void) umask(omask);
++ X      return fp;
++ X  }
++ X  
++ X--- 486,500 ----
++ X  	if (fp = fopen(file, mode))
++ X  	    (void) fseek(fp, 0L, 2); /* assure we're at the end of the file */
++ X      } else
++ X! #endif /* M_XENIX || SYSV && !USG */
++ X      fp = fopen(file, mode);
++ X+ #ifdef apollo
++ X+     /* Initial file ACL's override umask so make sure mode is right */
++ X+     if (fp && needs_chmod)
++ X+ 	(void) chmod(file, 0600);
++ X+ #else
++ X      (void) umask(omask);
++ X+ #endif
++ X      return fp;
++ X  }
++ X  
++ X*** 7.2.4/init.c	Thu Jan 30 00:14:42 1992
++ X--- apollo/init.c	Thu Jan 30 20:51:42 1992
++ X***************
++ X*** 90,95 ****
++ X--- 90,102 ----
++ X  	(void) add_option(&set_options, argv);
++ X      }
++ X      crt = 24;
++ X+ #ifdef apollo
++ X+     if (apollo_ispad()) {
++ X+ 	/* If a pad, set the screen height properly */
++ X+ 	screen = apollo_padheight() - 2;
++ X+ 	crt = screen + 3;
++ X+     } else
++ X+ #endif /* apollo */
++ X      screen = 18;
++ X      wrapcolumn = 0; /* Default is no wrap */
++ X      escape = DEF_ESCAPE;
++ X*** 7.2.4/lock.c	Sun Feb  2 19:43:53 1992
++ X--- apollo/lock.c	Sun Feb  2 19:46:24 1992
++ X***************
++ X*** 303,308 ****
++ X--- 303,311 ----
++ X  {
++ X      struct options *tmp;
++ X      FILE *fp;
++ X+ #ifdef apollo
++ X+     int oldinterval, olddead;
++ X+ #endif /* apollo */
++ X      
++ X      for (tmp = exclude_list; tmp; tmp = tmp->next)
++ X  	if (strcmp(tmp->option, filename) == 0) {
++ X***************
++ X*** 317,323 ****
++ X      if (dot_lock(filename) != 0)
++ X  	return NULL_FILE;
++ X  #endif /* DOT_LOCK */
++ X!     if (!(fp = mask_fopen(filename, mode)))
++ X  	return NULL_FILE;
++ X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
++ X  	tmp->option = savestr(filename);
++ X--- 320,336 ----
++ X      if (dot_lock(filename) != 0)
++ X  	return NULL_FILE;
++ X  #endif /* DOT_LOCK */
++ X! #ifdef apollo
++ X!     /* Set up only one open attempt and no wait time on failure */
++ X!     oldinterval = setintervaltime(0);
++ X!     olddead = setdeadtime(1);
++ X! #endif /* apollo */
++ X!     fp = mask_fopen(filename, mode);
++ X! #ifdef apollo
++ X!     (void) setintervaltime(oldinterval);
++ X!     (void) setdeadtime(olddead);
++ X! #endif /* apollo */
++ X!     if (!fp)
++ X  	return NULL_FILE;
++ X      if (tmp = (struct options *)malloc(sizeof(struct options))) {
++ X  	tmp->option = savestr(filename);
++ X***************
++ X*** 384,389 ****
++ X--- 397,408 ----
++ X  
++ X      if (!(mail_fp = exclusive_fopen(filename, mode)))
++ X  	return NULL_FILE;
++ X+ 
++ X+ #ifndef apollo
++ X+     /* On the Apollo, mask_fopen() implies a lock,
++ X+      * so we needn't mess with any of this stuff.
++ X+      */
++ X+ 
++ X      fd = fileno(mail_fp);
++ X  
++ X      if (mode[0] != 'r' || mode[1] == '+')
++ X***************
++ X*** 436,441 ****
++ X--- 455,462 ----
++ X  	(void) exclusive_fclose(mail_fp);
++ X  	return NULL_FILE;
++ X      }
++ X+ #endif /* !apollo */
++ X+ 
++ X      return mail_fp;
++ X  }
++ X  
++ X*** 7.2.4/mail.c	Thu May 16 20:05:57 1991
++ X--- apollo/mail.c	Thu Jan 30 20:26:42 1992
++ X***************
++ X*** 601,606 ****
++ X--- 601,612 ----
++ X  	    if (!*p || *p == 'i')
++ X  		switch (line[1]) {
++ X  		    case 'p' :
++ X+ #ifdef apollo
++ X+ 			if (apollo_ispad()) {
++ X+ 			    p = "NONE";		/* The pad IS the pager */
++ X+ 			    break;
++ X+ 			}
++ X+ #endif /* apollo */
++ X  			if (!*p && !(p = do_set(set_options, "pager")))
++ X  			    p = DEF_PAGER;
++ X  			if (!*p || !strcmp(p, "internal"))
++ X*** 7.2.4/main.c	Wed Jan 29 23:34:31 1992
++ X--- apollo/main.c	Thu Jan 30 21:08:54 1992
++ X***************
++ X*** 140,145 ****
++ X--- 140,150 ----
++ X  	(void) signal(SIGINT, catch);
++ X  	(void) signal(SIGQUIT, catch);
++ X  	(void) signal(SIGHUP, catch);
++ X+ #ifdef apollo
++ X+         if (apollo_ispad())
++ X+             turnon(glob_flags, ECHO_FLAG);
++ X+         else
++ X+ #endif /* apollo */
++ X  	if (istool || hdrs_only)
++ X  	    turnon(glob_flags, ECHO_FLAG);
++ X  	if (!hdrs_only)
++ X*** 7.2.4/msgs.c	Wed Nov 13 01:28:43 1991
++ X--- apollo/msgs.c	Thu Jan 30 20:30:55 1992
++ X***************
++ X*** 31,36 ****
++ X--- 31,41 ----
++ X  #ifdef MSG_SEPARATOR
++ X      turnon(flg, NO_SEPARATOR);
++ X  #endif /* MMDF */
++ X+ #ifdef apollo
++ X+     if (!istool && apollo_ispad())
++ X+ 	pager = "NONE";		/* The pad IS the pager */
++ X+     else
++ X+ #endif /* apollo */
++ X      if (!istool && isoff(flg, NO_PAGE) &&
++ X  	    crt < msg[n].m_lines && isoff(flg, M_TOP)) {
++ X  	if (!(pager = do_set(set_options, "pager")))
++ X*** 7.2.4/mush.h	Wed Jan 29 21:57:49 1992
++ X--- apollo/mush.h	Thu Jan 30 20:25:40 1992
++ X***************
++ X*** 56,61 ****
++ X--- 56,67 ----
++ X  #ifdef BSD
++ X  #define fputs Fputs	/* See comments in print.c */
++ X  #endif /* BSD */
++ X+ #ifdef apollo		/* See apollo_file.c */
++ X+ extern FILE *apollo_lkfopen();
++ X+ #define fopen(f,m)	apollo_lkfopen(f,m)
++ X+ #define open(p,f,m)	apollo_lkopen(p,f,m)
++ X+ #define flock(d,o)	apollo_flock(d,o)
++ X+ #endif /* apollo */
++ X  
++ X  #if defined(BSD) || defined(GETWD)
++ X  extern char *getwd();
++ SHAR_EOF
++ chmod 0644 apollo.patch || echo "restore of apollo.patch fails"
++ set `wc -c apollo.patch`;Sum=$1
++ if test "$Sum" != "5160"
++ then echo original size 5160, current size $Sum;fi
++ echo "x - extracting apollo_file.c (Text)"
++ sed 's/^X//' << 'SHAR_EOF' > apollo_file.c &&
++ X/*
++ X *	Take unix open() args, and call ios_$open() appropriately.
++ X *
++ X *	Written by Paul Killey, paul@engin.umich.edu
++ X *	Incorporated into mush by Mike Pelletier, stealth@engin.umich.edu
++ X *					Mon Oct 25 13:09:38 EDT 1991
++ X */
++ X
++ X#ifdef apollo
++ X
++ X#ifdef __STDC__
++ X#include <apollo_$std.h>
++ X#include <apollo/base.h>
++ X#include <apollo/ios.h>
++ X#include <apollo/error.h>
++ X#include <apollo/type_uids.h>
++ X#include <apollo/cal.h>
++ X#include <apollo/time.h>
++ X#else
++ X#include "/sys/ins/base.ins.c"
++ X#include "/sys/ins/ios.ins.c"
++ X#include "/sys/ins/error.ins.c"
++ X#include "/sys/ins/type_uids.ins.c"
++ X#include "/sys/ins/cal.ins.c"
++ X#include "/sys/ins/time.ins.c"
++ X#endif /* __STDC__ */
++ X
++ X
++ X#include <stdio.h>
++ X#include <sys/file.h>
++ X
++ Xstd_$call boolean unix_fio_$status_to_errno();
++ X
++ X/*
++ X * total amount of time to try for.
++ X */
++ X#ifndef DEADTIME
++ X#define DEADTIME	15
++ X#endif
++ X
++ X/*
++ X * number of tries to make.
++ X */
++ X#ifndef INTERVAL
++ X#define INTERVAL	3
++ X#endif
++ X
++ Xstatic int lockdeadtime = DEADTIME;
++ Xstatic int lockintervaltime = INTERVAL;
++ X
++ Xapollo_lkopen(path, flags, mode)
++ X    char * path;
++ X    int flags, mode;
++ X{
++ X
++ X    ios_$open_options_t	ios_open_options;
++ X    ios_$create_mode_t	ios_create_options;
++ X    status_$t			status;
++ X    ios_$id_t			stream_id;
++ X
++ X    int i;
++ X
++ X
++ X/*
++ X *	From file.h
++ X *
++ X *	#define	O_RDONLY	000		open for reading
++ X *	#define	O_WRONLY	001		open for writing
++ X *	#define	O_RDWR		002		open for read & write
++ X *	#define	O_NDELAY	FNDELAY		non-blocking open
++ X *	#define	O_APPEND	FAPPEND		append on each write
++ X *	#define	O_CREAT		FCREAT		open with file create
++ X *	#define	O_TRUNC		FTRUNC		open with truncation
++ X *	#define	O_EXCL		FEXCL		error on create if file exists
++ X */
++ X
++ X/*
++ X *	First, figure out the open mode ...
++ X */
++ X
++ X    if (flags == O_RDONLY)
++ X	ios_open_options = ios_$no_open_options;
++ X    else
++ X	ios_open_options = ios_$write_opt;
++ X
++ X    if (flags & O_WRONLY)
++ X	ios_open_options |= ios_$no_read_opt;
++ X
++ X    if (flags & O_NDELAY)
++ X	ios_open_options |= ios_$no_open_delay_opt;
++ X
++ X/*
++ X *	Now, check the create mode ...
++ X */
++ X
++ X    if (flags & O_EXCL)
++ X	ios_create_options = ios_$no_pre_exist_mode;
++ X    else if (flags & O_TRUNC)
++ X	ios_create_options = ios_$truncate_mode;
++ X    else
++ X	ios_create_options = ios_$preserve_mode;
++ X
++ X/*
++ X *	OK, now what?  These routines are intended for mail applications
++ X *	where I wanted some consistency across applications.  My rules are:
++ X *		(1)	Try every ten seconds for a minute to open the file.
++ X *			If the failure is ios_$concurrency, sleep an try again.
++ X *		(2)	Unless a non-blocking open is desired, in which case
++ X *			return.  (That runs counter to what I wanted here, so
++ X *			I don't call it with that flag, because I *want* this
++ X *			routine to do things so callers can take it easy.
++ X *		(3)	Or, if there is any other error, return.
++ X */
++ X
++ X
++ X    for (i = 0; i < lockdeadtime; i += lockintervaltime) {
++ X	if (flags & O_CREAT)
++ X#ifdef __STDC__
++ X	    ios_$create(path, (short) strlen(path),
++ X	    uid_$nil,
++ X	    ios_create_options, ios_open_options, &stream_id, &status);
++ X#else
++ X 	    ios_$create(*path, (short) strlen(path), uid_$nil,
++ X		    ios_create_options, ios_open_options, stream_id, status);
++ X#endif /* _STDC__ */
++ X      	else
++ X#ifdef __STDC__
++ X      	    stream_id = ios_$open(path, (short)strlen(path),
++ X				ios_open_options, &status);
++ X#else
++ X	    stream_id = ios_$open(*path, (short)strlen(path),
++ X				ios_open_options, status);
++ X#endif /* __STDC__ */
++ X
++ X	if (status.all == status_$ok) {
++ X	    if ((ios_open_options & ios_$write_opt) &&
++ X	    	(ios_create_options ==  ios_$truncate_mode)) {
++ X#ifdef __STDC__
++ X	    	ios_$truncate(stream_id, &status);
++ X#else
++ X	    	ios_$truncate(stream_id, status);
++ X#endif
++ X	    	if (status.all != status_$ok &&
++ X	    		status.all != ios_$illegal_operation) {
++ X		    unix_fio_$status_to_errno (status, path, strlen(path));
++ X#ifdef __STDC__
++ X		    ios_$close(stream_id, &status);
++ X#else
++ X		    ios_$close(stream_id, status);
++ X#endif
++ X		    return (-1);
++ X	    	}
++ X	    }
++ X#ifdef __STDC__
++ X	    ios_$set_obj_flag(stream_id, ios_$of_sparse_ok, true, &status);
++ X#else
++ X	    ios_$set_obj_flag(stream_id, ios_$of_sparse_ok, true, status);
++ X#endif
++ X	    if (flags & O_APPEND)
++ X#ifdef  __STDC__
++ X	    	ios_$set_conn_flag(stream_id, ios_$cf_append, true, &status);
++ X#else
++ X	    	ios_$set_conn_flag(stream_id, ios_$cf_append, true, status);
++ X#endif
++ X	    return (stream_id);
++ X	}
++ X
++ X	if (status.all == ios_$concurrency_violation &&
++ X		(flags & O_NDELAY) == 0)
++ X	    apollo_sleep(INTERVAL);
++ X	else {
++ X	    /* error_$print (status); */
++ X	    unix_fio_$status_to_errno (status, *path, (short)strlen(path));
++ X	    return (-1);
++ X	}
++ X    }
++ X    /* error_$print (status); */
++ X    unix_fio_$status_to_errno (status, path, strlen(path));
++ X
++ X    return (-1);
++ X}
++ X
++ X
++ X/*
++ X *	An interface to get a FILE *
++ X */
++ X
++ XFILE *
++ Xapollo_lkfopen(file, mode)
++ X    char *file, *mode;
++ X{
++ X 	int rw, f, oflags;
++ X    FILE *fp; 
++ X    rw = (mode[1] == '+');
++ X
++ X    switch (*mode) {
++ X    case 'a':
++ X	oflags = O_CREAT | (rw ? O_RDWR : O_WRONLY);
++ X	break;
++ X    case 'r':
++ X	oflags = rw ? O_RDWR : O_RDONLY;
++ X	break;
++ X    case 'w':
++ X	oflags = O_TRUNC | O_CREAT | (rw ? O_RDWR : O_WRONLY);
++ X	break;
++ X    default:
++ X	return (NULL);
++ X    }
++ X
++ X    f = apollo_lkopen(file, oflags, 0666);
++ X    if (f < 0)
++ X	return (NULL);
++ X
++ X    /*
++ X     *  should just use ios_$position_to_eof_opt!
++ X     */
++ X
++ X    if (*mode == 'a')
++ X	lseek(f, (long)0, L_XTND);
++ X
++ X    fp = fdopen(f, mode);
++ X
++ X    return(fp);
++ X}
++ X
++ X
++ Xapollo_sleep(seconds)
++ X    unsigned int seconds;
++ X{
++ X    status_$t s;
++ X    time_$clock_t sleeptime;
++ X
++ X    cal_$sec_to_clock((unsigned long)seconds, &sleeptime);
++ X
++ X    time_$wait(time_$relative, sleeptime, &s);
++ X
++ X    return(s.all);
++ X}
++ X
++ X/*
++ X * The following functions set the amount of time that the open
++ X * command waits for the file, and how frequently it tries.
++ X */
++ X
++ Xsetdeadtime(n)
++ X    int n;
++ X{
++ X    int oldvalue = lockdeadtime;
++ X    lockdeadtime = n;
++ X    return(oldvalue);
++ X}
++ X
++ Xsetintervaltime(n)
++ X{
++ X    int oldvalue = lockintervaltime;
++ X    lockintervaltime = n;
++ X    return(oldvalue);
++ X}
++ X
++ X/*
++ X * Because of Domain/OS's file locking semantics, the flock() command
++ X * isn't really meaningful in the UNIX usage.
++ X */
++ X
++ Xapollo_flock(fd, operation)
++ X{
++ X    return 0;
++ X}
++ X
++ X#endif
++ SHAR_EOF
++ chmod 0600 apollo_file.c || echo "restore of apollo_file.c fails"
++ set `wc -c apollo_file.c`;Sum=$1
++ if test "$Sum" != "6006"
++ then echo original size 6006, current size $Sum;fi
++ echo "x - extracting apollo_pad.c (Text)"
++ sed 's/^X//' << 'SHAR_EOF' > apollo_pad.c &&
++ X/*
++ X * apollo_pad.c: 10/24/1991 version 1.2
++ X *
++ X * apollo_ispad() - returns true if output is going into an Display Manger
++ X * 			pad.  Needed because "more" won't work right in a pad.
++ X *
++ X * apollo_padheight() - Returns the height in characters of the pad associated
++ X *			with stdout.  If an error occurs or the stream isn't
++ X *			a pad, a default value of 20 is returned.
++ X *
++ X *	Written by Mike Pelletier, <stealth@engin.umich.edu>, based heavily
++ X *	on work by Paul Killey, <paul@engin.umich.edu>.
++ X */
++ X
++ X#ifdef apollo
++ X
++ X#ifdef __STDC__
++ X#include <apollo/base.h>
++ X#include <apollo/pad.h>
++ X#include <apollo/ios.h>
++ X#else
++ X#include "/sys/ins/base.ins.c"
++ X#include "/sys/ins/pad.ins.c"
++ X#include "/sys/ins/ios.ins.c"
++ X#endif /* __STDC__ */
++ X
++ X#ifdef __STDC__
++ Xextern status_$t errno_$status;
++ X#else
++ Xextern  status_$t unix_fio_$status;
++ X#define errno_$status unix_fio_$status
++ X#endif
++ X
++ X/*
++ X *	Return true if we're outputting into an Apollo DM pad...
++ X */
++ X
++ Xapollo_ispad() {
++ X
++ X    short disunit = 1;
++ X    pad_$display_type_t distype;
++ X    status_$t status;
++ X
++ X#ifdef __STDC__
++ X    pad_$inq_disp_type(ios_$stdout, &distype, &disunit, &status);
++ X#else
++ X    pad_$inq_disp_type(ios_$stdout, distype, disunit, status);
++ X#endif /* __STDC__ */
++ X
++ X    return (status.all == status_$ok);
++ X}
++ X
++ X
++ X/*
++ X * Returns the height of the pad associated with stdout
++ X */
++ X
++ Xapollo_padheight() {
++ X
++ X    static short FontHeight, FontWidth, FontNameLength;
++ X    static int height;
++ X    status_$t Status;
++ X    char FontName[256];
++ X    short WindowCount;
++ X
++ X#ifdef __STDC__
++ X    pad_$window_list_t CurrentWindow;
++ X#else
++ X    pad_$window_desc_t CurrentWindow;
++ X#endif /* __STDC__ */
++ X
++ X#ifdef __STDC__
++ X    pad_$inq_font(ios_$stdout, &FontWidth, &FontHeight, FontName, 256,
++ X			&FontNameLength, &Status);
++ X#else
++ X    pad_$inq_font(ios_$stdout, FontWidth, FontHeight, FontName, 256,
++ X			FontNameLength, Status);
++ X#endif /* __STDC__ */
++ X
++ X    if (Status.all == status_$ok) {
++ X#ifdef __STDC__
++ X	pad_$set_scale(ios_$stdout, 1, 1, &Status);
++ X	pad_$inq_windows(ios_$stdout, CurrentWindow, 1, &WindowCount, &Status);
++ X	height = CurrentWindow[0].height / FontHeight;
++ X#else
++ X        pad_$set_scale(ios_$stdout, 1, 1, Status);
++ X        pad_$inq_windows(ios_$stdout, CurrentWindow, 1, WindowCount, Status);
++ X        height = CurrentWindow.height / FontHeight;
++ X#endif /* __STDC__ */
++ X    } else {
++ X	height = 20;
++ X    }
++ X}
++ X
++ X#endif /* apollo */
++ SHAR_EOF
++ chmod 0600 apollo_pad.c || echo "restore of apollo_pad.c fails"
++ set `wc -c apollo_pad.c`;Sum=$1
++ if test "$Sum" != "2324"
++ then echo original size 2324, current size $Sum;fi
++ exit 0
+
+-- 
+Bart Schaefer                                     schaefer@zigzag.z-code.com
+Z-Code Software Corp.                             schaefer@z-code.com
+New male in /home/schaefer:
+  1  N  Benjamin Timothy Schaefer  Nov 26 1991 (3572g) Happy Birthday!
+
+exit 0 # Just in case...

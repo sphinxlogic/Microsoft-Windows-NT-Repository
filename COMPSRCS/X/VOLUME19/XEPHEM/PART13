@@ -1,0 +1,2736 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i101:  xephem - astronomical ephemeris program, Part13/21
+Message-ID: <1993May10.221132.9035@sparky.imd.sterling.com>
+X-Md4-Signature: bca8025bd4c95e0807b6324109fdda78
+Date: Mon, 10 May 1993 22:11:32 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 101
+Archive-name: xephem/part13
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  mainmenu.c satmenu.c
+# Wrapped by chris@nova on Mon May 10 16:41:49 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 21)."'
+if test -f 'mainmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mainmenu.c'\"
+else
+  echo shar: Extracting \"'mainmenu.c'\" \(35808 characters\)
+  sed "s/^X//" >'mainmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the (permanent) main menu.
+X * this is also where the single static Now struct is maintained.
+X * the calendar is managed in calmenu.c.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <X11/keysym.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/Separator.h>
+X#include <Xm/SelectioB.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "preferences.h"
+X
+Xtypedef struct {
+X    int id;		/* see below -- used just as a cross-check */
+X    char *prompt;	/* used when asking for new value or NULL if can't */
+X    char *label;	/* used for the menu label or NULL */
+X    char *name;		/* used when selecting for plotting or NULL if can't */
+X    char *altp[3];	/* alternate prompts based on preferences */
+X    Widget pb_w;	/* pushbutton for display and changing/selecting */
+X} Field;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern double mjd_day P_((double jd));
+Xextern double mjd_hr P_((double jd));
+Xextern int f_ison P_((void));
+Xextern int listing_ison P_((void));
+Xextern int plot_cartesian P_((FILE *pfp, Widget widget, unsigned int nx, unsigned int ny, int flipx, int flipy, int grid));
+Xextern int plot_ison P_((void));
+Xextern int srch_eval P_((double Mjd, double *tmincp));
+Xextern void all_update P_((Now *np, int how_much));
+Xextern void cal_mjd P_((int mn, double dy, int yr, double *Mjd));
+Xextern void calm_set P_((Now *np));
+Xextern void db_invalidate P_((void));
+Xextern void f_date P_((Widget w, double jd));
+Xextern void f_dec_sexsign P_((double x, int *h, int *m, int *s));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void f_gangle P_((Widget w, double a));
+Xextern void f_mtime P_((Widget w, double t));
+Xextern void f_off P_((void));
+Xextern void f_on P_((void));
+Xextern void f_signtime P_((Widget w, double t));
+Xextern void f_sscandate P_((char *bp, int pref, int *m, double *d, int *y));
+Xextern void f_sscansex P_((char *bp, int *d, int *m, int *s));
+Xextern void f_string P_((Widget w, char *s));
+Xextern void f_time P_((Widget w, double t));
+Xextern void get_xmstring P_((Widget w, char *resource, char **txtp));
+Xextern void gst_utc P_((double Mjd, double gst, double *utc));
+Xextern void inc_mjd P_((Now *np, double inc));
+Xextern void listing P_((void));
+Xextern void mjd_cal P_((double Mjd, int *mn, double *dy, int *yr));
+Xextern void mjd_year P_((double Mjd, double *yr));
+Xextern void now_lst P_((Now *np, double *lst));
+Xextern void plot P_((void));
+Xextern void plot_manage P_((void));
+Xextern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xextern void range P_((double *v, double r));
+Xextern void register_selection P_((char *name));
+Xextern void set_t0 P_((Now *np));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void sex_dec P_((int hd, int m, int s, double *d));
+Xextern void time_fromsys P_((Now *np));
+Xextern void twilight_cir P_((Now *np, double dis, double *dawn, double *dusk, int *status));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+Xextern void year_mjd P_((double y, double *Mjd));
+X
+Xvoid mm_manage P_((Widget main_window));
+Xvoid mm_reset P_((void));
+Xvoid mm_newcaldate P_((double newmjd));
+Xvoid mm_selection_mode P_((int whether));
+XNow *mm_get_now P_((void));
+Xvoid redraw_screen P_((int how_much));
+Xstatic void create_main_form P_((Widget main_window));
+Xstatic void read_default_resources P_((void));
+Xstatic Widget fw P_((int fid));
+Xstatic void mm_set_buttons P_((int whether));
+Xstatic void mm_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mm_set_pref_prompts P_((Field *fp));
+Xstatic void mm_timer_cb P_((XtPointer client, XtIntervalId *id));
+Xstatic void mm_go_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mm_go P_((void));
+Xstatic void print_tminc P_((int force));
+Xstatic void print_updating P_((void));
+Xstatic void print_idle P_((void));
+Xstatic void print_running P_((void));
+Xstatic void print_status P_((char *s));
+Xstatic void print_nstep P_((int force));
+Xstatic void print_spause P_((int force));
+Xstatic crack_fieldset P_((char *buf));
+Xstatic chg_fld P_((char *bp, Field *fp));
+Xstatic void prompt_ok_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void prompt P_((Field *fp));
+Xstatic void mm_now P_((int all));
+Xstatic void mm_twilight P_((int force));
+Xstatic void mm_newcir P_((int y));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+Xextern char *myclass;
+Xextern XtAppContext xe_app;
+X#define	XtD	XtDisplay(toplevel_w)
+Xextern char *sys_errlist[];
+Xextern errno;
+Xextern Widget calm_create();
+X
+X/* shorthands for fields of a Now structure, now.
+X * first undo the ones for a Now pointer from circum.h.
+X */
+X#undef mjd
+X#undef lat
+X#undef lng
+X#undef tz
+X#undef temp
+X#undef pressure
+X#undef elev
+X#undef dip
+X#undef epoch
+X#undef tznm
+X
+X#define mjd	now.n_mjd
+X#define lat	now.n_lat
+X#define lng	now.n_lng
+X#define tz	now.n_tz
+X#define temp	now.n_temp
+X#define pressure now.n_pressure
+X#define elev	now.n_elev
+X#define	dip	now.n_dip
+X#define epoch	now.n_epoch
+X#define tznm	now.n_tznm
+X
+Xstatic Now now;		/* where when and how, right now */
+Xstatic double tminc;	/* hrs to inc time by each loop; RTC means use clock */
+Xstatic int nstep;	/* steps to go before stopping */
+Xstatic int spause;	/* secs to pause between steps */
+Xstatic int newcir = 1; /* set when circumstances change - means don't tminc */
+X
+Xstatic XtIntervalId mm_interval_id;	/* set while waiting in a pause loop */
+Xstatic int mm_selecting;        /* set while our fields are being selected */
+X
+X/* field ids
+X * N.B. must be in same order as they appear in mm_field_map[].
+X */
+Xenum {
+X    UD_FID, UT_FID, JD_FID, LST_FID,TZN_FID, TZONE_FID, LD_FID, LT_FID, 
+X    DIP_FID, DAWN_FID, DUSK_FID, LON_FID, GAP, NSTEP_FID, STPSZ_FID, PAUSE_FID,
+X    LAT_FID, LONG_FID, ELEV_FID, TEMP_FID, PRES_FID, EPOCH_FID
+X};
+X
+X/* array of label/button pairs.
+X * N.B. these must be in the same order as the _FID enums so the XX_FID may
+X *   be used as indices into the array.
+X * N.B. some of the prompts get set based on preferences but we need to put
+X *   *something* in the prompt field of selectable fields to trigger making a
+X *   button. These alternate prompts must be set to match the PREF_ enums.
+X */
+Xstatic Field mm_field_map[] = {
+X    {UD_FID,	"dummy",				"UTC Date:","UD",
+X	{   "UTC date (m/d/y or year.d): ",
+X	    "UTC date (y/m/d or year.d): ",
+X	    "UTC date (d/m/y or year.d): "
+X	}
+X    },
+X    {UT_FID,	"UTC time (h:m:s): ",			"UTC Time:", "UT"},
+X    {JD_FID,	"Julian Date: ",			"Julian:", "JD"},
+X    {LST_FID,	"Local sidereal time (h:m:s): ",	"Sidereal:", "LST"},
+X    {TZN_FID,	"Timezone abbreviation (3 char max): ",	"TZ Name:", NULL},
+X    {TZONE_FID,	"Hours behind UTC: ",			"TZ Offset:", "TZ"},
+X    {LD_FID,	"dummy",				"Local Date:", "LD",
+X	{   "Local date (m/d/y or year.d): ",
+X	    "Local date (y/m/d or year.d): ",
+X	    "Local date (d/m/y or year.d): "
+X	}
+X    },
+X    {LT_FID,	"Local time (h:m:s): ",	"Local Time:",	"LT"},
+X    {DIP_FID,	"Sun's twilight dip, degrees below",	"Twilight Dip:", NULL},
+X    {DAWN_FID,	NULL,					"Dawn:", "Dawn"},
+X    {DUSK_FID,	NULL,					"Dusk:", "Dusk"},
+X    {LON_FID,	NULL,				    "Night Length:", "NiteLen"},
+X    {GAP},
+X    {NSTEP_FID, "Number of steps to run: ",		"N Steps:", NULL},
+X    {STPSZ_FID,	"\
+XStep size increment:\n\
+X    h:m:s, or\n\
+X    <x>d for x days, or\n\
+X    <x>s for x sidereal days, or\n\
+X    r for RTC",						"Step Size:", NULL},
+X    {PAUSE_FID,	"Seconds to pause between steps: ",	"Pause:", NULL},
+X    {LAT_FID,	"Latitude (+ north) (d:m:s): ",		"Latitude:", "Lat"},
+X    {LONG_FID,	"Longitude (+ west) (d:m:s): ",		"Longitude:", "Long"},
+X    {ELEV_FID,	"dummy",				"Elevation:", "Elev",
+X	{   "Elevation above sea level (ft): ",
+X	    "Elevation above sea level (m): "
+X	}
+X    },
+X    {TEMP_FID,	"dummy",				"Temperature:", "Temp",
+X	{   "Temperature (degrees F): ",
+X	    "Temperature (degrees C): "
+X	}
+X    },
+X    {PRES_FID,	"dummy",				"Atm Pressure:","AtmPr",
+X	{   "Atmospheric pressure (inches of Mercury):",
+X	    "Atmospheric pressure (mBar):"
+X	}
+X    },
+X    {EPOCH_FID,	"Epoch (decimal year): ", "Epoch:", NULL},
+X};
+X
+X#define	NFM	XtNumber(mm_field_map)
+X#define	LFM	(&mm_field_map[NFM])
+X
+Xstatic Widget newcir_w;
+Xstatic Widget status_w;
+Xstatic Widget go_w;
+X
+X/* this is the list of keywords that allow some initial values to be set.
+X * these are resources to the XEphem class as "XEphem.<keyword>: <value>".
+X */
+X/* N.B. index of item is its switch/case value in crack_fieldset ()
+X */
+Xstatic char *keywords[] = {
+X    /*  0 */	"Epoch",
+X    /*  1 */	"Elevation",
+X    /*  2 */	"JD",
+X    /*  3 */	"Lat",
+X    /*  4 */	"Long",
+X    /*  5 */	"NSteps",
+X    /*  6 */	"Pause",
+X    /*  7 */	"Pressure",
+X    /*  8 */	"StepSize",
+X    /*  9 */	"Temp",
+X    /* 10 */	"TZName",
+X    /* 11 */	"TZone",
+X    /* 12 */	"UD",
+X    /* 13 */	"UT",
+X    /* 14 */	"TwilightDip",
+X    /* 15 */	"LD",
+X    /* 16 */	"LT",
+X    /* 17 */	"LST",
+X};
+X
+X/* called exactly once when the main form is made.
+X * create and manage all the widgets as children of the form_w.
+X */
+Xvoid
+Xmm_manage (main_window)
+XWidget main_window;
+X{
+X	create_main_form(main_window);
+X	mm_reset();
+X}
+X
+X/* reset things to their initial resource settings */
+Xvoid
+Xmm_reset()
+X{
+X	read_default_resources ();
+X	redraw_screen (1);
+X	mm_newcir(0);
+X	mm_set_buttons (mm_selecting);
+X	print_idle();
+X}
+X
+X/* called by the calendar subsystem to set a new UT date.
+X * newmjd is the new UT date/time as a modifed Julian date.
+X */
+Xvoid
+Xmm_newcaldate (newmjd)
+Xdouble newmjd;
+X{
+X	mjd = newmjd;
+X	set_t0 (&now);
+X	mm_now (1);
+X	mm_newcir(1);
+X	newcir = 1;
+X}
+X
+X/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+Xvoid
+Xmm_selection_mode (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	mm_selecting += whether ? 1 : -1;
+X
+X	if (whether && mm_selecting == 1     /* first one to want on */
+X	    || !whether && mm_selecting == 0 /* last one to want off */)
+X	    mm_set_buttons (whether);
+X}
+X
+X/* a way for anyone to know what now is */
+XNow *
+Xmm_get_now()
+X{
+X	return (&now);
+X}
+X
+X/* draw all the stuff on the managed menus.
+X * if how_much == 0 then just update fields that need it;
+X * if how_much == 1 then redraw all fields;
+X */
+Xvoid
+Xredraw_screen (how_much)
+Xint how_much;
+X{
+X	watch_cursor(1);
+X
+X	/* invalidate any cached values in the database */
+X	db_invalidate();
+X
+X	/* print the single-step message if this is the last loop */
+X	if (nstep < 1)
+X	    print_updating();
+X
+X	/* if just updating changed fields while plotting or listing
+X	 * unattended then suppress most screen updates except
+X	 * always show nstep to show plot loops to go and
+X	 * always show tminc to show search convergence progress.
+X	 */
+X	print_nstep(how_much);
+X	print_tminc(how_much);
+X	print_spause(how_much);
+X	if (how_much == 0 && nstep > 0 && spause == 0)
+X	    f_off();
+X
+X	/* print all the time-related fields */
+X	mm_now (how_much);
+X
+X	mm_twilight (how_much);
+X
+X	/* print stuff on other menus */
+X	all_update(&now, how_much);
+X
+X	f_on();
+X
+X	watch_cursor(0);
+X}
+X
+Xstatic void
+Xcreate_main_form(main_window)
+XWidget main_window;
+X{
+X	static int fmi[4] = {0, 8, 16, NFM};
+X	XmString str;
+X	Widget mrc_w, hrc_w, rc_w;
+X	Widget sep_w;
+X	Widget w;
+X	Arg args[20];
+X	int i, n;
+X
+X	/* create the main vertical r/c */
+X	n = 0;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	mrc_w = XmCreateRowColumn (main_window, "MainRC", args, n);
+X
+X	/* make the status label */
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X	status_w = XmCreateLabel (mrc_w, "Status", args, n);
+X	XtManageChild (status_w);
+X
+X	/* make a separator widget */
+X	n = 0;
+X	sep_w = XmCreateSeparator (mrc_w, "HSep2", args, n);
+X	XtManageChild (sep_w);
+X
+X	/* make the "NEW CIRCUMSTANCES" label */
+X	n = 0;
+X	XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X	newcir_w = XmCreateLabel (mrc_w, "NewCir", args, n);
+X	XtManageChild(newcir_w);
+X
+X	/* make a separator widget */
+X	n = 0;
+X	sep_w = XmCreateSeparator (mrc_w, "HSep3", args, n);
+X	XtManageChild (sep_w);
+X
+X	/* make a horizontal r/c across the bottom.
+X	 * fill it in with three vertical r/cs and the calendar, with
+X	 * separators.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	hrc_w = XmCreateRowColumn (mrc_w, "BottomRC", args, n);
+X	XtManageChild (hrc_w);
+X
+X	for (i = 0; i < 3; i++) {
+X	    int f;
+X
+X	    n = 0;
+X	    rc_w = XmCreateRowColumn (hrc_w, "MainRC", args, n);
+X	    XtManageChild (rc_w);
+X
+X	    for (f = fmi[i]; f < fmi[i+1]; f++) {
+X		Field *fp = &mm_field_map[f];
+X		Widget f_w;
+X
+X		switch (fp->id) {
+X		case GAP: /* make a gap label */
+X		    n = 0;
+X		    w = XmCreateSeparator (rc_w, "GapSep", args, n);
+X		    XtManageChild (w);
+X		    n = 0;
+X		    fp->pb_w = XmCreatePushButton (rc_w, "Gap", args, n);
+X		    XtManageChild (fp->pb_w);
+X		    set_xmstring (fp->pb_w, XmNlabelString, " ");
+X		    continue;
+X		}
+X
+X		/* make a form */
+X		n = 0;
+X		f_w = XmCreateForm (rc_w, "MainF", args, n);
+X		XtManageChild (f_w);
+X
+X		/* make the pushbutton in the right half. */
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		if (fp->name)
+X		    XtSetArg (args[n], XmNuserData, fp->name); n++;
+X		fp->pb_w = XmCreatePushButton (f_w, "MainPB", args, n);
+X		if (fp->prompt || fp->name)
+X		    XtAddCallback (fp->pb_w, XmNactivateCallback,
+X							mm_activate_cb, fp);
+X		XtManageChild(fp->pb_w);
+X
+X		/* make the label in the left half */
+X		n = 0;
+X		str = XmStringCreateLtoR(fp->label, XmSTRING_DEFAULT_CHARSET);
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X		XtSetArg (args[n], XmNrightWidget, fp->pb_w); n++;
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		w = XmCreateLabel (f_w, "MainLabel", args, n);
+X		XtManageChild(w);
+X		XmStringFree (str);
+X	    }
+X
+X	    /* make a separator widget */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	    sep_w = XmCreateSeparator (hrc_w, "VSep", args, n);
+X	    XtManageChild (sep_w);
+X	}
+X
+X	/* make the calendar */
+X
+X	w = calm_create (hrc_w);
+X	XtManageChild (w);
+X
+X	/* make a separator widget */
+X	n = 0;
+X	sep_w = XmCreateSeparator (mrc_w, "HSep4", args, n);
+X	XtManageChild (sep_w);
+X
+X	/* put a wide and thick "go" button below all */
+X	n = 0;
+X	XtSetArg (args[n], XmNshowAsDefault, True); n++;
+X	XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X	XtSetArg (args[n], XmNmarginTop, 3); n++;
+X	XtSetArg (args[n], XmNmarginBottom, 3); n++;
+X	go_w = XmCreatePushButton (mrc_w, "Update", args, n);
+X	XtAddCallback (go_w, XmNactivateCallback, mm_go_cb, 0);
+X	XtManageChild (go_w);
+X
+X	XtManageChild (mrc_w);
+X}
+X
+X/* set the initial stuff in the Now struct and looping params from the XEphem
+X * resources.
+X */
+Xstatic void
+Xread_default_resources()
+X{
+X	int i;
+X
+X	for (i = 0; i < XtNumber(keywords); i++) {
+X	    char *dp = XGetDefault (XtD, myclass, keywords[i]);
+X	    if (dp) {
+X		char buf[128];
+X		(void) sprintf (buf, "%s=%s", keywords[i], dp);
+X		if (crack_fieldset (buf) < 0) {
+X		    printf ("Bad resource spec: %s", buf);
+X		    exit (1);
+X		}
+X	    }
+X	}
+X}
+X
+X/* get the widget associated with this _FID.
+X * We do some error checking.
+X */
+Xstatic Widget
+Xfw(fid)
+Xint fid;
+X{
+X	Field *fp;
+X
+X	if (fid < 0 || fid >= NFM || (fp = &mm_field_map[fid])->id != fid) {
+X	    printf ("mainmenu:fw(): bad field id: %d\n", fid);
+X	    exit(1);
+X	}
+X	return (fp->pb_w);
+X}
+X
+X/* go through all the buttons just pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+Xstatic void
+Xmm_set_buttons (whether)
+Xint whether;
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	Field *fp;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     * arbitrarily get these from the go_w button.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    int n;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (go_w, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    called = 1;
+X	}
+X
+X	for (fp = mm_field_map; fp < LFM; fp++)
+X	    if (whether) {
+X	      if (fp->name)
+X	        XtSetValues(fp->pb_w, look_like_button,
+X						    XtNumber(look_like_button));
+X	      else
+X	        XtSetValues(fp->pb_w, look_like_label,
+X						    XtNumber(look_like_label));
+X	    } else {
+X	      if (fp->prompt)
+X	        XtSetValues(fp->pb_w, look_like_button,
+X						    XtNumber(look_like_button));
+X	      else
+X	        XtSetValues(fp->pb_w, look_like_label,
+X						    XtNumber(look_like_label));
+X	    }
+X}
+X
+X/* callback from any of the main menu buttons being activated.
+X * if we are currently selecting fields to plot and the field has a name
+X *   then inform all the potentially interested parties;
+X * else if the field has a prompt then ask the user for a new value.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmm_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Field *fp = (Field *)client;
+X
+X	if (mm_selecting) {
+X	    if (fp->name)
+X		register_selection (fp->name);
+X	} else {
+X	    if (fp->prompt) {
+X		mm_set_pref_prompts (fp);
+X		prompt (fp);
+X	    }
+X	}
+X}
+X
+X/* set up those prompts that depend in preferences.
+X */
+Xstatic void
+Xmm_set_pref_prompts(fp)
+XField *fp;
+X{
+X	switch (fp->id) {
+X	case UD_FID:
+X	case LD_FID:
+X	    fp->prompt = fp->altp[pref_get(PREF_DATE_FORMAT)];
+X	    break;
+X	case ELEV_FID:
+X	case TEMP_FID:
+X	case PRES_FID:
+X	    fp->prompt = fp->altp[pref_get(PREF_UNITS)];
+X	    break;
+X	}
+X}
+X
+X/* function called from the interval timer used to implement the
+X * auto repeat feature.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmm_timer_cb (client, id)
+XXtPointer client;
+XXtIntervalId *id;
+X{
+X	int waited_so_far = (int)client + 1;
+X
+X	mm_interval_id = 0;
+X
+X	if (waited_so_far < spause)
+X	    mm_interval_id = XtAppAddTimeOut (xe_app, 1000, mm_timer_cb,
+X						    (XtPointer)waited_so_far);
+X	else
+X	    mm_go();
+X}
+X
+X/* callback from the main "go" button being armed.
+X * if we are looping (as evidenced by an active timer) then stop, else go.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmm_go_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (mm_interval_id != 0) {
+X	    XtRemoveTimeOut (mm_interval_id);
+X	    mm_interval_id = 0;
+X	    redraw_screen (1);
+X	    print_idle();
+X	} else {
+X	    if (nstep > 1)
+X		print_running();
+X	    mm_go();
+X	}
+X}
+X
+X/* increment, update all fields, and go again if more steps.
+X */
+Xstatic void
+Xmm_go()
+X{
+X	int srchdone;
+X
+X	/* increment time only if op didn't change cirumstances */
+X	if (!newcir)
+X	    inc_mjd (&now, tminc);
+X
+X	nstep -= 1;
+X
+X	/* recalculate everything and update all the fields */
+X	redraw_screen(newcir);
+X	mm_newcir(0);
+X
+X	/* let searching functions change tminc and check for done */
+X	srchdone = srch_eval (mjd, &tminc) < 0;
+X	print_tminc(0); /* to show possibly new search increment */
+X
+X	/* update plot and listing files, now that all fields are up
+X	 * to date and search function has been evaluated.
+X	 */
+X	plot();
+X	listing();
+X
+X	/* stop loop to allow op to change parameters:
+X	 * if a search evaluation converges (or errors out),
+X	 * or if steps are done,
+X	 * or if op hits any key.
+X	 */
+X	newcir = 0;
+X	if (srchdone || nstep <= 0) {
+X
+X	    /* update screen with the current stuff if stopped during
+X	     * searching, unattended plotting or listing since last
+X	     * redraw_screen() didn't.
+X	     */
+X	    if ((srchdone || plot_ison() || listing_ison()) && nstep > 0)
+X		redraw_screen (1);
+X
+X	    /* return nstep to default of 1 */
+X	    if (nstep <= 0) {
+X		nstep = 1;
+X		print_nstep (0);
+X	    }
+X	    print_idle();
+X	} else {
+X	    mm_interval_id =
+X		XtAppAddTimeOut (xe_app, spause>0 ? 1000 : 120, mm_timer_cb, 0);
+X	}
+X}
+X
+Xstatic void
+Xprint_tminc(force)
+Xint force;
+X{
+X	static double last = -123.456;	/* anything unlikely */
+X
+X	if (force || tminc != last) {
+X	    if (tminc == RTC)
+X		f_string (fw(STPSZ_FID), " RT CLOCK");
+X	    else if (fabs(tminc) >= 24.0)
+X		f_double (fw(STPSZ_FID), "%6.4g dy", tminc/24.0);
+X	    else
+X		f_signtime (fw(STPSZ_FID), tminc);
+X	    last = tminc;
+X	}
+X}
+X
+Xstatic void
+Xprint_updating()
+X{
+X	print_status ("Updating...");
+X}
+X
+Xstatic void
+Xprint_idle()
+X{
+X	print_status ("Make changes as desired or select Update to run.");
+X	f_string (go_w, "Update");
+X}
+X
+Xstatic void
+Xprint_running()
+X{
+X	print_status ("Running... select Stop to stop.");
+X	f_string (go_w, "Stop");
+X}
+X
+Xstatic void
+Xprint_status (s)
+Xchar *s;
+X{
+X	static char *last_s;
+X
+X	if (s != last_s) {
+X	    f_string (status_w, s);
+X	    XFlush (XtD);
+X	    last_s = s;
+X	}
+X}
+X
+Xstatic void
+Xprint_nstep(force)
+Xint force;
+X{
+X	static int last;
+X
+X	if (force || nstep != last) {
+X	    char buf[16];
+X	    (void) sprintf (buf, "%8d", nstep);
+X	    f_string (fw(NSTEP_FID), buf);
+X	    last = nstep;
+X	}
+X}
+X
+Xstatic void
+Xprint_spause(force)
+Xint force;
+X{
+X	static int last;
+X
+X	if (force || spause != last) {
+X	    char buf[16];
+X	    (void) sprintf (buf, "%8d", spause);
+X	    f_string (fw(PAUSE_FID), buf);
+X	    last = spause;
+X	}
+X}
+X
+X/* process a field spec in buf, either from config file or argv.
+X * return 0 if recognized ok, else -1.
+X */
+Xstatic
+Xcrack_fieldset (buf)
+Xchar *buf;
+X{
+X	int i;
+X
+X	for (i = 0; i < XtNumber(keywords); i++) {
+X	    int l = strlen(keywords[i]);
+X	    if (strncmp (buf, keywords[i], l) == 0) {
+X		buf += l+1;	/* skip keyword and its subsequent delimiter */
+X		break;
+X	    }
+X	}
+X
+X	/* N.B. the switch entries must match the order in keywords[] */
+X	switch (i) {
+X	case 0:  (void) chg_fld (buf, &mm_field_map[EPOCH_FID]); break;
+X	case 1:  (void) chg_fld (buf, &mm_field_map[ELEV_FID]); break;
+X	case 2:  (void) chg_fld (buf, &mm_field_map[JD_FID]); break;
+X	case 3:  (void) chg_fld (buf, &mm_field_map[LAT_FID]); break;
+X	case 4:  (void) chg_fld (buf, &mm_field_map[LONG_FID]); break;
+X	case 5:  (void) chg_fld (buf, &mm_field_map[NSTEP_FID]); break;
+X	case 6:  (void) chg_fld (buf, &mm_field_map[PAUSE_FID]); break;
+X	case 7:  (void) chg_fld (buf, &mm_field_map[PRES_FID]); break;
+X	case 8:  (void) chg_fld (buf, &mm_field_map[STPSZ_FID]); break;
+X	case 9:  (void) chg_fld (buf, &mm_field_map[TEMP_FID]); break;
+X	case 10: (void) chg_fld (buf, &mm_field_map[TZN_FID]); break;
+X	case 11: (void) chg_fld (buf, &mm_field_map[TZONE_FID]); break;
+X	case 12: (void) chg_fld (buf, &mm_field_map[UD_FID]); break;
+X	case 13: (void) chg_fld (buf, &mm_field_map[UT_FID]); break;
+X	case 14: (void) chg_fld (buf, &mm_field_map[DIP_FID]); break;
+X	case 15: (void) chg_fld (buf, &mm_field_map[LD_FID]); break;
+X	case 16: (void) chg_fld (buf, &mm_field_map[LT_FID]); break;
+X	case 17: (void) chg_fld (buf, &mm_field_map[LST_FID]); break;
+X	default: return (-1);
+X	}
+X	return (0);
+X}
+X
+X/* react to the field at *fp according to the string input at bp.
+X * crack the buffer and update the corresponding (global) variable(s)
+X * or do whatever a pick at that field should do.
+X * return 1 if we change a field that invalidates any of the times or
+X * to update all related fields.
+X */
+Xstatic
+Xchg_fld (bp, fp)
+Xchar *bp;
+XField *fp;
+X{
+X	int deghrs = 0, mins = 0, secs = 0;
+X	int new = 0;
+X	double tmp;
+X
+X	switch (fp->id) {
+X	case JD_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else
+X		mjd = atof(bp) - MJD0;
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case UD_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double day, newmjd0;
+X		int month, year;
+X
+X		mjd_cal (mjd, &month, &day, &year); /* init with now */
+X		f_sscandate (bp, pref_get(PREF_DATE_FORMAT),
+X						    &month, &day, &year);
+X		cal_mjd (month, day, year, &newmjd0);
+X
+X		/* if don't give a fractional part to days
+X		 * then retain current hours.
+X		 */
+X		if ((long)day == day)
+X		    mjd = newmjd0 + mjd_hr(mjd)/24.0;
+X		else
+X		    mjd = newmjd0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case UT_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double newutc = (mjd-mjd_day(mjd)) * 24.0;
+X		f_dec_sexsign (newutc, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &newutc);
+X		mjd = mjd_day(mjd) + newutc/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case LD_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double day, newlmjd0;
+X		int month, year;
+X
+X		mjd_cal (mjd-tz/24.0, &month, &day, &year); /* now */
+X		f_sscandate (bp, pref_get(PREF_DATE_FORMAT),
+X						    &month, &day, &year);
+X		cal_mjd (month, day, year, &newlmjd0);
+X
+X		/* if don't give a fractional part to days
+X		 * then retain current hours.
+X		 */
+X		if ((long)day == day)
+X		    mjd = newlmjd0 + mjd_hr(mjd-tz/24.0)/24.0;
+X		else
+X		    mjd = newlmjd0;
+X		mjd += tz/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case LT_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double newlt = (mjd-mjd_day(mjd)) * 24.0 - tz;
+X		range (&newlt, 24.0);
+X		f_dec_sexsign (newlt, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &newlt);
+X		mjd = mjd_day(mjd-tz/24.0) + (newlt + tz)/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case LST_FID:
+X	    if (bp[0] == 'n' || bp[0] == 'N')
+X		time_fromsys (&now);
+X	    else {
+X		double lst, utc;
+X		now_lst (&now, &lst);
+X		f_dec_sexsign (lst, &deghrs, &mins, &secs);
+X		f_sscansex (bp, &deghrs, &mins, &secs);
+X		sex_dec (deghrs, mins, secs, &lst);
+X		lst -= radhr(lng); /* convert to gst */
+X		range (&lst, 24.0);
+X		gst_utc (mjd_day(mjd), lst, &utc);
+X		mjd = mjd_day(mjd) + utc/24.0;
+X	    }
+X	    set_t0 (&now);
+X	    new = 1;
+X	    break;
+X	case TZN_FID:
+X	    (void) strncpy (tznm, bp, sizeof(tznm)-1);
+X	    new = 1;
+X	    break;
+X	case TZONE_FID:
+X	    f_dec_sexsign (tz, &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &tz);
+X	    new = 1;
+X	    break;
+X	case LONG_FID:
+X	    f_dec_sexsign (-raddeg(lng), &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &lng);
+X	    lng = degrad (-lng); 		/* want - radians west */
+X	    new = 1;
+X	    break;
+X	case LAT_FID:
+X	    f_dec_sexsign (raddeg(lat), &deghrs, &mins, &secs);
+X	    f_sscansex (bp, &deghrs, &mins, &secs);
+X	    sex_dec (deghrs, mins, secs, &lat);
+X	    lat = degrad (lat);
+X	    new = 1;
+X	    break;
+X	case ELEV_FID:
+X	    if (sscanf (bp, "%lf", &elev) == 1) {
+X		if (pref_get(PREF_UNITS) == PREF_ENGLISH)
+X		    elev /= (ERAD*FTPM);	/* ft to earth radii */
+X		else
+X		    elev /= ERAD;		/* m to earth radii */
+X		new = 1;
+X	    }
+X	    break;
+X	case DIP_FID:
+X	    if (sscanf (bp, "%lf", &tmp) == 1) {
+X		if (tmp < 0)
+X		    xe_msg ("Twilight dip must be at least 0", 1);
+X		else {
+X		    dip = degrad(tmp);
+X		    mm_twilight (1);
+X		}
+X	    }
+X	    break;
+X	case NSTEP_FID:
+X	    (void) sscanf (bp, "%d", &nstep);
+X	    print_nstep (0);
+X	    break;
+X	case PAUSE_FID:
+X	    (void) sscanf (bp, "%d", &spause);
+X	    print_spause (0);
+X	    break;
+X	case TEMP_FID:
+X	    if (sscanf (bp, "%lf", &temp) == 1) {
+X		if (pref_get(PREF_UNITS) == PREF_ENGLISH)
+X		    temp = 5./9.*(temp - 32.0);	/* want degs C */
+X		new = 1;
+X	    }
+X	    break;
+X	case PRES_FID:
+X	    if (sscanf (bp, "%lf", &pressure) == 1) {
+X		if (pref_get(PREF_UNITS) == PREF_ENGLISH)
+X		    pressure *= 33.86;		/* want mBar */
+X		new = 1;
+X	    }
+X	    break;
+X	case EPOCH_FID:
+X	    if (bp[0] == 'e' || bp[0] == 'E')
+X		epoch = EOD;
+X	    else {
+X		double e;
+X		e = atof(bp);
+X		year_mjd (e, &epoch);
+X	    }
+X	    new = 1;
+X	    break;
+X	case STPSZ_FID:
+X	    if (bp[0] == 'r' || bp[0] == 'R')
+X		tminc = RTC;
+X	    else {
+X		char lastc = bp[strlen(bp)-1];
+X		if (lastc == 'd' || lastc == 'D') {
+X		    /* ends in d so treat as a number of days */
+X		    double x;
+X		    if (sscanf (bp, "%lf", &x) == 1)
+X			tminc = x * 24.0;
+X		} else if (lastc == 's' || lastc == 'S') {
+X		    /* ends in s so treat as a number of sidereal days */
+X		    double x;
+X		    if (sscanf (bp, "%lf", &x) == 1)
+X			tminc = x * 24.0 * SIDRATE;
+X		} else {
+X		    if (tminc == RTC)
+X			deghrs = mins = secs = 0;
+X		    else
+X			f_dec_sexsign (tminc, &deghrs, &mins, &secs);
+X		    f_sscansex (bp, &deghrs, &mins, &secs);
+X		    sex_dec (deghrs, mins, secs, &tminc);
+X		}
+X	    }
+X	    print_tminc(0);
+X	    set_t0 (&now);
+X	    break;
+X	default:
+X	    printf ("chg_fld: unknown id: 0x%x\n", fp->id);
+X	    exit (1);
+X	}
+X
+X	return (new);
+X}
+X
+X/* user typed OK to a prompt for fp. get his new value and use it */
+Xstatic void
+Xprompt_ok_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmSelectionBoxCallbackStruct *s = (XmSelectionBoxCallbackStruct *)call;
+X	Field *fp = (Field *)client;
+X	char *text, *tmptext;
+X	
+X	switch (s->reason) {
+X	case XmCR_OK:
+X	    get_xmstring(w, XmNtextString, &text);
+X	    break;
+X	case XmCR_APPLY:	/* used for several special short cuts */
+X	    switch (fp->id) {
+X	    case STPSZ_FID:
+X		tmptext = "r";	/* command to mean "RTC" */
+X		break;
+X	    case EPOCH_FID:
+X		tmptext = "e";	/* command to mean "EOD" */
+X		break;
+X	    case NSTEP_FID:
+X		tmptext = "99999999";	/* command to mean "Many steps" */
+X		break;
+X	    case PAUSE_FID:
+X		tmptext = "0";	/* command to mean "no pause" */
+X		break;
+X	    case PRES_FID:
+X		tmptext = "0";	/* command to mean "no refraction" */
+X		break;
+X	    case UD_FID:
+X	    case JD_FID:
+X	    case LST_FID:
+X	    case LD_FID:
+X	    case LT_FID:
+X		tmptext = "n";	/* command to mean "Now" */
+X		break;
+X	    case UT_FID:
+X		tmptext = "0:00:00";	/* command to mean midnight */
+X		break;
+X	    default:
+X		printf ("mainmenu:prompt_ok_cb: bad fid=%d\n", fp->id);
+X		exit (1);
+X		break;
+X	    }
+X	    (void) strcpy (text = XtMalloc(strlen(tmptext)+1), tmptext);
+X	    break;
+X	default:
+X	    return;
+X	}
+X
+X	if (chg_fld (text, fp)) {
+X	    mm_now (1);
+X	    mm_newcir(1);
+X	    newcir = 1;
+X	}
+X	XtDestroyWidget (w);
+X	XtFree (text);
+X}
+X
+X/* put up a prompt dialog near the cursor to ask about fp.
+X * use the Apply button for special shortcuts.
+X */
+Xstatic void
+Xprompt (fp)
+XField *fp;
+X{
+X	Widget w, sw, hw, aw;
+X	XmString str, title;
+X	Arg args[20];
+X	int n;
+X	
+X	str = XmStringCreateLtoR (fp->prompt, XmSTRING_DEFAULT_CHARSET);
+X	title = XmStringCreateLtoR ("xephem Prompt", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg(args[n], XmNselectionLabelString, str);  n++;
+X	XtSetArg(args[n], XmNdefaultPosition, False);  n++;
+X	XtSetArg(args[n], XmNdialogTitle, title);  n++;
+X	XtSetArg(args[n], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL);  n++;
+X	sw = XmCreatePromptDialog(toplevel_w, "MainPrompt", args, n);
+X	XtAddCallback (sw, XmNmapCallback, prompt_map_cb, NULL);
+X	XtAddCallback (sw, XmNokCallback, prompt_ok_cb, fp);
+X	XmStringFree (str);
+X	XmStringFree (title);
+X
+X	/* we don't use the Help button at all. */
+X	hw = XmSelectionBoxGetChild (sw, XmDIALOG_HELP_BUTTON);
+X	XtUnmanageChild (hw);
+X
+X	/* we don't use the Apply button except for the special shortcuts */
+X	aw = XmSelectionBoxGetChild (sw, XmDIALOG_APPLY_BUTTON);
+X	XtUnmanageChild (aw);
+X
+X	/* use the Apply button for several special shortcuts */
+X	switch (fp->id) {
+X	case JD_FID: case UD_FID:
+X	case LD_FID: case LT_FID: case LST_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "Now");
+X	    break;
+X	case UT_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "0:00:00");
+X	    break;
+X	case STPSZ_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "RTC");
+X	    break;
+X	case EPOCH_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "Of Date");
+X	    break;
+X	case NSTEP_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "Many");
+X	    break;
+X	case PAUSE_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "No Pause");
+X	    break;
+X	case PRES_FID:
+X	    XtAddCallback (sw, XmNapplyCallback, prompt_ok_cb, fp);
+X	    XtManageChild (aw);
+X	    set_xmstring (sw, XmNapplyLabelString, "No Refraction");
+X	    break;
+X	}
+X
+X	XtManageChild (sw);
+X
+X#if XmVersion >= 1001
+X	w = XmSelectionBoxGetChild (sw, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+X#endif
+X}
+X
+X/* print all the time/date/where related stuff: the Now structure.
+X * print in a nice order, based on the field locations, as much as possible.
+X */
+Xstatic void
+Xmm_now (all)
+Xint all;
+X{
+X	char buf[32];
+X	double lmjd = mjd - tz/24.0;
+X	double jd = mjd + MJD0;
+X	double tmp;
+X
+X	(void) sprintf (buf, "%-3.3s", tznm);
+X	f_string (fw(TZN_FID), buf);
+X	f_time (fw(LT_FID), mjd_hr(lmjd));
+X	f_date (fw(LD_FID), lmjd);
+X
+X	f_time (fw(UT_FID), mjd_hr(mjd));
+X	f_date (fw(UD_FID), mjd);
+X
+X	f_double (fw(JD_FID), "%14.5f", jd);
+X
+X	now_lst (&now, &tmp);
+X	f_time (fw(LST_FID), tmp);
+X
+X	if (all) {
+X	    f_gangle (fw(LAT_FID), lat);
+X	    f_gangle (fw(LONG_FID), -lng);	/* + west */
+X
+X	    if (pref_get(PREF_UNITS) == PREF_ENGLISH) {
+X		tmp = elev * (ERAD*FTPM);	/* want ft, not earth radii*/
+X		f_double (fw(ELEV_FID), "%8.1f ft", tmp);
+X	    } else {
+X		tmp = elev * ERAD;		/* want m, not earth radii */
+X		f_double (fw(ELEV_FID), "%8.1f m", tmp);
+X	    }
+X
+X	    tmp = temp;
+X	    if (pref_get(PREF_UNITS) == PREF_ENGLISH) {
+X		tmp = 9.*temp/5. + 32.0;   /* want to see degrees F, not C */
+X#ifdef XK_degree
+X		(void) sprintf (buf, "%%5.1f %cF", XK_degree);
+X	    } else
+X		(void) sprintf (buf, "%%5.1f %cC", XK_degree);
+X#else
+X		(void) sprintf (buf, "%%5.1f F");
+X	    } else
+X		(void) sprintf (buf, "%%5.1f C");
+X#endif
+X	    f_double (fw(TEMP_FID), buf, tmp);
+X
+X	    tmp = pressure;
+X	    if (pref_get(PREF_UNITS) == PREF_ENGLISH) {
+X		tmp /= 33.86;    /* want to see in. Hg, not mBar */
+X		f_double (fw(PRES_FID), "%5.2f in", tmp);
+X	    } else {
+X		f_double (fw(PRES_FID), "%5.0f mB", tmp);
+X	    }
+X
+X	    f_signtime (fw(TZONE_FID), tz);
+X
+X	    if (epoch == EOD)
+X		f_string (fw(EPOCH_FID), "Of Date");
+X	    else {
+X		mjd_year (epoch, &tmp);
+X		f_double (fw(EPOCH_FID), "%8.1f", tmp);
+X	    }
+X	}
+X
+X	if (f_ison())
+X	    calm_set (&now);
+X}
+X
+X/* display dawn/dusk/length-of-night times.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmm_twilight (force)
+Xint force;
+X{
+X	double dusk, dawn;
+X	int status;
+X	char buf[64];
+X
+X	twilight_cir (&now, dip, &dawn, &dusk, &status);
+X	if (status & (RS_NORISE|RS_RISERR|RS_NOSET|RS_CIRCUMPOLAR|RS_NEVERUP)) {
+X	    static char nope[] = "-----";
+X	    f_string (fw(DAWN_FID), nope);
+X	    f_string (fw(DUSK_FID), nope);
+X	    f_string (fw(LON_FID), nope);
+X	} else {
+X	    double tmp;
+X	    f_mtime (fw(DAWN_FID), dawn);
+X	    f_mtime (fw(DUSK_FID), dusk);
+X	    tmp = dawn - dusk; range (&tmp, 24.0);
+X	    f_mtime (fw(LON_FID), tmp);
+X	}
+X#ifdef XK_degree
+X	(void) sprintf (buf, "%%g%c", XK_degree);
+X#else
+X	(void) sprintf (buf, "%%g degs");
+X#endif
+X	f_double (fw(DIP_FID), buf, raddeg(dip));
+X}
+X
+Xstatic void
+Xmm_newcir (y)
+Xint y;
+X{
+X	static char ncmsg[] = "NEW CIRCUMSTANCES";
+X	static char nomsg[] = "                 ";
+X	static int last_y = -1;
+X
+X	if (y != last_y) {
+X	    f_string (newcir_w, y ? ncmsg : nomsg);
+X	    last_y = y;
+X	}
+X}
+END_OF_FILE
+  if test 35808 -ne `wc -c <'mainmenu.c'`; then
+    echo shar: \"'mainmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'mainmenu.c'
+fi
+if test -f 'satmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'satmenu.c'\"
+else
+  echo shar: Extracting \"'satmenu.c'\" \(36774 characters\)
+  sed "s/^X//" >'satmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "saturn" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/Scale.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/ToggleB.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern int any_ison P_((void));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void register_selection P_((char *name));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void timestamp P_((Now *np, Widget w));
+X
+Xvoid sm_manage P_((void));
+Xint sm_ison P_((void));
+Xvoid sm_selection_mode P_((int whether));
+Xvoid sm_cursor P_((Cursor c));
+Xstatic void sm_create_form_w P_((void));
+Xstatic void sm_set_buttons P_((int whether));
+Xstatic void sm_set_a_button P_((Widget pbw, int whether));
+Xstatic void sm_bigd_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sm_tags_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sm_scale_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sm_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sm_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void sm_da_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xvoid sm_update P_((Now *np, int how_much));
+Xstatic double polynom P_((double jd, double a[4]));
+Xstatic void saturn P_((double jd, double L_, double a_, double e_, double i_, double omega_, double Omega_, double M_, double *r_p, double *l_p, double *b_p, double *C_p));
+Xstatic void anom_calc P_((double M, double e, double *E_p, double *nu_p));
+Xstatic double obl_jd P_((double jd));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+Xstatic Widget satform_w;	/* main form */
+Xstatic Widget sda_w;		/* drawing area */
+Xstatic Widget ringt_w;		/* widget containing ring tilt */
+Xstatic Widget scale_w;		/* size scale */
+Xstatic Widget dt_w;		/* date/time stamp widget */
+X#define	NM	8		/* number of moons */
+Xstatic Widget	s_w[NM][4];	/* the data display widgets */
+Xenum {X, Y, Z, MAG};		/* s_w column index */
+Xstatic int sm_selecting;	/* set while our fields are being selected */
+Xstatic int bigdots;		/* whether we want big dots */
+Xstatic int s_tags;		/* whether we want tags on the drawing */
+X
+X#define	MAXSCALE	20.0	/* max sclae mag factor */
+X
+Xstatic struct MoonNames {
+X    char *full;
+X    char *tag;
+X} mnames[NM] = {
+X    {"Mimas",	"I"},
+X    {"Enceladus","II"},
+X    {"Tethys",	"III"},
+X    {"Dione",	"IV"},
+X    {"Rhea",	"V"},
+X    {"Titan",	"VI"},
+X    {"Hyperion","VII"},
+X    {"Iapetus",	"VIII"},
+X};
+X
+X/* called when the saturn menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xsm_manage ()
+X{
+X	if (!satform_w)
+X	    sm_create_form_w();
+X	
+X	if (XtIsManaged(satform_w))
+X	    XtUnmanageChild (satform_w);
+X	else {
+X	    XtManageChild (satform_w);
+X	    sm_set_buttons(sm_selecting);
+X	    /* rely on expose to do the first draw */
+X	}
+X}
+X
+Xsm_ison()
+X{
+X	return (satform_w && XtIsManaged(satform_w));
+X}
+X
+X/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+Xvoid
+Xsm_selection_mode (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	sm_selecting += whether ? 1 : -1;
+X
+X	if (satform_w && XtIsManaged(satform_w))
+X	    if (whether && sm_selecting == 1     /* first one to want on */
+X		|| !whether && sm_selecting == 0 /* last one to want off */)
+X		sm_set_buttons (whether);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xsm_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (satform_w && (win = XtWindow(satform_w))) {
+X	    Display *dsp = XtDisplay(satform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xsm_create_form_w()
+X{
+X	Widget w;
+X	Widget f_w, fr_w, frame_w, r_w, title_w, col_w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	satform_w = XmCreateFormDialog (toplevel_w, "Saturn", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Saturn Table"); n++;
+X	XtSetValues (XtParent(satform_w), args, n);
+X
+X	/* make top row for ring tilt info */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNrightPosition, 50); n++;
+X	r_w = XmCreatePushButton (satform_w, "SatTiltMsg", args, n);
+X	XtManageChild (r_w);
+X	set_xmstring (r_w, XmNlabelString, "Ring tilt (degs):");
+X	sm_set_a_button (r_w, False);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNuserData, "Saturn.Tilt"); n++;
+X	w = ringt_w = XmCreatePushButton(satform_w, "SatTilt", args, n);
+X	XtAddCallback(w, XmNactivateCallback, sm_activate_cb, 0);
+X	XtManageChild (w);
+X
+X	/* make table title label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, r_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	title_w = XmCreateLabel (satform_w, "SatLab", args, n);
+X	XtManageChild (title_w);
+X	set_xmstring (title_w, XmNlabelString,
+X				" \nMoon positions -- in Saturn Radii");
+X
+X	/* make the moon table, one column at a time */
+X
+X	/* moon designator column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatDes", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, " ", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (col_w, mnames[i].tag, args, n);
+X		XtManageChild (w);
+X		sm_set_a_button (w, False);
+X	    }
+X
+X	/* moon name column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 8); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatName", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, " ", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (col_w, mnames[i].full, args, n);
+X		XtManageChild (w);
+X		sm_set_a_button (w, False);
+X	    }
+X
+X	/* moon X column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 30); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatX", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "SatLab", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X	    set_xmstring (w, XmNlabelString, "X (+E)");
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.X\0' */
+X		(void) sprintf (sel, "%s.X", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = s_w[i][X] = XmCreatePushButton(col_w, "SatPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, sm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* moon Y column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatY", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "SatLab", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X	    set_xmstring (w, XmNlabelString, "Y (+S)");
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.Y\0' */
+X		(void) sprintf (sel, "%s.Y", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = s_w[i][Y] = XmCreatePushButton(col_w, "SatPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, sm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* moon Z column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 70); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatZ", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "SatLab", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X	    set_xmstring (w, XmNlabelString, "Z (+front)");
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.Z\0' */
+X		(void) sprintf (sel, "%s.Z", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = s_w[i][Z] = XmCreatePushButton(col_w, "SatPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, sm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* moon mag column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 90); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (satform_w, "SatMag", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "SatLab", args, n);
+X	    XtManageChild (w);
+X	    sm_set_a_button (w, False);
+X	    set_xmstring (w, XmNlabelString, "Mag");
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 5); /* '.Mag\0' */
+X		(void) sprintf (sel, "%s.Mag", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = s_w[i][MAG] = XmCreatePushButton(col_w, "SatPB",args,n);
+X		XtAddCallback(w, XmNactivateCallback, sm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make a Form to hold the bottom controls */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 15); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	f_w = XmCreateForm (satform_w, "CtlForm", args, n);
+X	XtManageChild (f_w);
+X
+X	    /* make the close button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 4); n++;
+X	    w = XmCreatePushButton (f_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, sm_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the tags button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 6); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 9); n++;
+X	    fr_w = XmCreateFrame (f_w, "TagsFr", args, n);
+X	    XtManageChild (fr_w);
+X	    w = XmCreateToggleButton (fr_w, "Tags", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, sm_tags_cb, 0);
+X	    XtManageChild (w);
+X	    s_tags = XmToggleButtonGetState(w);
+X
+X	    /* "big dots" toggle button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 11); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 14); n++;
+X	    fr_w = XmCreateFrame(f_w,"BigDotsFr", args, n);
+X	    XtManageChild (fr_w);
+X	    str = XmStringCreate("Big dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton(fr_w,"BigDots",args,n);
+X	    XtAddCallback(w, XmNvalueChangedCallback, sm_bigd_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X	    bigdots = XmToggleButtonGetState(w);
+X
+X	/* make the date/time stamp label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, f_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	dt_w = XmCreateLabel (satform_w, "DateStamp", args, n);
+X	timestamp (mm_get_now(), dt_w);	/* establishes size */
+X	XtManageChild (dt_w);
+X
+X	/* make the scale widget
+X	 * attach both top and bottom so it's the one to follow resizing.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, col_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNmaximum, 100); n++;
+X	XtSetArg (args[n], XmNminimum, 0); n++;
+X	XtSetArg (args[n], XmNscaleMultiple, 10); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_TOP); n++;
+X	scale_w = XmCreateScale (satform_w, "Scale", args, n);
+X	XtAddCallback (scale_w, XmNdragCallback, sm_scale_cb, 0);
+X	XtAddCallback (scale_w, XmNvalueChangedCallback, sm_scale_cb, 0);
+X	XtManageChild (scale_w);
+X
+X	/* make a frame for the drawing area.
+X	 * attach both top and bottom so it's the one to follow resizing.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, col_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, scale_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	frame_w = XmCreateFrame (satform_w, "SatFrame", args, n);
+X	XtManageChild (frame_w);
+X
+X	    /* make a drawing area for drawing the little map */
+X
+X	    n = 0;
+X	    sda_w = XmCreateDrawingArea (frame_w, "Map", args, n);
+X	    XtAddCallback (sda_w, XmNexposeCallback, sm_da_exp_cb, 0);
+X	    XtManageChild (sda_w);
+X}
+X
+X/* go through all the buttons pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+Xstatic void
+Xsm_set_buttons (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	int i;
+X
+X	for (i = 0; i < NM; i++) {
+X	    sm_set_a_button (s_w[i][X], whether);
+X	    sm_set_a_button (s_w[i][Y], whether);
+X	    sm_set_a_button (s_w[i][Z], whether);
+X	    sm_set_a_button (s_w[i][MAG], whether);
+X	}
+X	sm_set_a_button (ringt_w, whether);
+X}
+X
+X/* set whether the given button looks like a label.
+X */
+Xstatic void
+Xsm_set_a_button(pbw, whether)
+XWidget pbw;
+Xint whether;
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	Arg *ap;
+X	int na;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    Widget tmpw;
+X	    int n;
+X
+X	    n = 0;
+X	    tmpw = XmCreatePushButton (satform_w, "tmp", args, n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (tmpw, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    XtDestroyWidget (tmpw);
+X	     
+X	    called = 1;
+X	}
+X
+X	if (whether) {
+X	    ap = look_like_button;
+X	    na = XtNumber(look_like_button);
+X	} else {
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	}
+X
+X	XtSetValues (pbw, ap, na);
+X}
+X
+X/* callback from the big dots toggle button
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_bigd_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	bigdots = XmToggleButtonGetState(w);
+X	sm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from the tags toggle button
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_tags_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	s_tags = XmToggleButtonGetState(w);
+X	sm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from the scale.
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_scale_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	sm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from any of the data menu buttons being activated.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (sm_selecting) {
+X	    char *name;
+X	    get_something (w, XmNuserData, (char *)&name);
+X	    register_selection (name);
+X	}
+X}
+X
+X/* callback from the Close button
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (satform_w);
+X}
+X
+X/* callback from either expose or resize of the drawing area.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsm_da_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	/* filter out a few oddball cases */
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand.
+X	     */
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window, 
+X							    CWBitGravity, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected satform_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	sm_update (mm_get_now(), 1);
+X}
+X
+X/* computional support for saturn's detail menu.
+X * courtesy Craig Counterman.
+X */
+X
+Xtypedef struct {
+X  double alpha, delta;		/* position in equinox of date */
+X  double l, b;			/* ecliptical longitude and latitude */
+X  double lambda, beta;		/* geocentric longitude and latitude */
+X  double Cen;			/* Center */
+X  double psi;			/* elongation */
+X  double r, Delta;		/* Distance to sun, and earth */
+X  double mag, phase, size;	/* magnitude, phase (degrees) size (arcsec) */
+X  double illum_frac;		/* illuminated fraction of disk */
+X  double beta_e;
+X				/* beta_e, p_n, lambda_e */
+X} planet_data_t;
+X
+X
+Xtypedef struct {
+X  char *name;
+X  double alpha, delta;		/* position in equinox of date */
+X  double R, Theta;		/* Distance to earth, Theta equinox of date */
+X				/* times of these events */
+X} sun_data_t;
+X
+Xtypedef struct {
+X  double dx, dy, dz;		/* relative to planet,
+X				   units of equatorial radius */
+X  double dalpha, ddelta;	/* displacements in RA and dec. */
+X  double mag;
+X  char *name;
+X} sat_t;
+X
+X/* functions */
+Xstatic void anom_calc();
+Xstatic void planet_pos(), sun_pos();
+Xstatic double obl_jd();
+Xstatic void satsat();
+Xstatic void sm_draw_map();
+Xstatic double into_range();
+X
+X
+X/* called to recompute and fill in values for the saturn menu.
+X * don't bother if it doesn't exist or is unmanaged now or no one is logging.
+X */
+Xvoid
+Xsm_update (np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	static char fmt[] = "%7.3f";
+X        double jd;
+X        sat_t  saturnsats[8];
+X        planet_data_t planets;
+X        sun_data_t sun_data;
+X	int i;
+X
+X	if (!satform_w)
+X	    return;
+X	if (!XtIsManaged(satform_w) && !any_ison() && !how_much)
+X	    return;
+X
+X        jd = mjd + MJD0;
+X	sun_pos(jd, &sun_data);
+X	planet_pos(jd, sun_data, 4, &planets);
+X        satsat(jd, planets, saturnsats);
+X
+X	for (i = 0; i < NM; i++) {
+X	    f_double (s_w[i][X], fmt, -saturnsats[i].dx);
+X	    f_double (s_w[i][Y], fmt, -saturnsats[i].dy);
+X	    f_double (s_w[i][Z], fmt, saturnsats[i].dz);
+X	    f_double (s_w[i][MAG], "%5.1f", saturnsats[i].mag);
+X	}
+X
+X	f_double (ringt_w, fmt, planets.beta_e);
+X
+X	if (XtIsManaged(satform_w)) {
+X	    sm_draw_map (sda_w, saturnsats, planets.beta_e);
+X	    timestamp (np, dt_w);
+X	}
+X}
+X
+X/* given the loc of the moons, draw a nifty little picture.
+X * scale of the locations is in terms of saturn radii == 1.
+X */
+Xstatic void
+Xsm_draw_map (w, moons, tilt)
+XWidget w;
+Xsat_t moons[NM];
+Xdouble tilt;	/* degrees */
+X{
+X	static GC s_fgc, s_bgc, s_xgc;
+X	static XFontStruct *s_fs;
+X	static last_nx, last_ny;
+X	static int cw, ch;
+X	static Pixmap pm;
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow(w);
+X	Window root;
+X	double scale;
+X	int sv;
+X	char c;
+X	int x, y;
+X	unsigned int nx, ny, bw, d;
+X	int irw, orw, irh, orh, irx, iry, orx, ory;
+X	int i;
+X#define	RLW	3	/* ring line width, pixels */
+X#define	NORM	60.0	/* max Iapetus orbit radius; used to normalize */
+X#define	MAPSCALE(v)	((v)*((int)nx)/NORM/2*scale)
+X#define	XCORD(x)	((int)(((int)nx)/2.0 + MAPSCALE(x) + 0.5))
+X#define	YCORD(y)	((int)(((int)ny)/2.0 - MAPSCALE(y) + 0.5))
+X
+X	if (!s_fgc) {
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X	    Pixel fg, bg;
+X
+X	    gcm = GCForeground;
+X	    get_something (w, XmNforeground, (char *)&fg);
+X	    gcv.foreground = fg;
+X	    s_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    s_fs = XQueryFont (dsp, XGContextFromGC (s_fgc));
+X	    cw = s_fs->max_bounds.width;
+X	    ch = s_fs->max_bounds.ascent + s_fs->max_bounds.descent;
+X
+X	    gcm = GCForeground;
+X	    get_something (w, XmNbackground, (char *)&bg);
+X	    gcv.foreground = bg;
+X	    s_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X
+X	    gcm = GCForeground | GCFunction;
+X	    gcv.foreground = fg ^ bg;
+X	    gcv.function = GXxor;
+X	    s_xgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	XmScaleGetValue (scale_w, &sv);
+X	scale = pow(MAXSCALE, sv/100.0);
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X	if (!pm || nx != last_nx || ny != last_ny) {
+X	    if (pm)
+X		XFreePixmap (dsp, pm);
+X	    pm = XCreatePixmap (dsp, win, nx, ny, d);
+X	    last_nx = nx;
+X	    last_ny = ny;
+X	}
+X
+X	XFillRectangle (dsp, pm, s_bgc, 0, 0, nx, ny);
+X
+X	c = 'E'; XDrawString(dsp, pm, s_fgc, nx-cw-1, ny/2-2, &c, 1);
+X	c = 'S'; XDrawString(dsp, pm, s_fgc, (nx-cw)/2-1, s_fs->ascent, &c, 1);
+X
+X	/* draw Saturn of radius 1 */
+X	XFillArc (dsp, pm, s_fgc, XCORD(-1), YCORD(1), 2*(int)MAPSCALE(1),
+X						2*(int)MAPSCALE(1), 0, 360*64);
+X	
+X	/* rings of radius IRR and ORR.
+X	 * draw rings in front of planet using xor.
+X	 * positive tilt means the southern edge of the rings are in front.
+X	 * always draw the solid s_fgc last in case we are near the ring plane.
+X	 */
+X#define	IRR	1.528	/* inner edge of ring system */
+X#define	ORR	2.267	/* outter edge of A ring */
+X	irh = MAPSCALE(2*IRR*fabs(sin(degrad(tilt))));
+X	irw = (int)MAPSCALE(2*IRR);
+X	orh = MAPSCALE(2*ORR*fabs(sin(degrad(tilt))));
+X	orw = (int)MAPSCALE(2*ORR);
+X	irx = XCORD(-IRR);
+X	iry = YCORD(IRR*fabs(sin(degrad(tilt))));
+X	orx = XCORD(-ORR);
+X	ory = YCORD(ORR*fabs(sin(degrad(tilt))));
+X	if (irh < RLW || orh < RLW) {
+X	    /* too near the ring plane to draw a fill ellipse */
+X	    XDrawLine (dsp, pm, s_fgc, orx, ny/2, nx-orx, ny/2);
+X	} else {
+X	    XDrawArc (dsp, pm, s_xgc, irx, iry, irw, irh,
+X					tilt > 0.0 ? 0 : 180*64, 180*64-1);
+X	    XDrawArc (dsp, pm, s_xgc, orx, ory, orw, orh,
+X					tilt > 0.0 ? 0 : 180*64, 180*64-1);
+X	    XDrawArc (dsp, pm, s_fgc, irx, iry, irw, irh,
+X					tilt > 0.0 ? 180*64 : 0, 180*64-1);
+X	    XDrawArc (dsp, pm, s_fgc, orx, ory, orw, orh,
+X					tilt > 0.0 ? 180*64 : 0, 180*64-1);
+X	}
+X
+X	/* draw each moon that is visible.
+X	 */
+X	for (i = 0; i < NM; i++) {
+X	    double mx = -moons[i].dx;
+X	    double my = -moons[i].dy;
+X	    double mz =  moons[i].dz;
+X	    int outside = mx*mx + my*my > 1.0;
+X	    int infront = mz > 0.0;
+X
+X	    if (!outside && !infront)
+X		continue;	/* behind saturn */
+X
+X	    x = XCORD(mx);
+X	    y = YCORD(my);
+X	    XDrawPoint (dsp, pm, s_xgc, x, y);
+X	    if (bigdots) {
+X		XDrawPoint(dsp,pm, s_xgc, x+1, y);
+X		XDrawPoint(dsp,pm, s_xgc, x,   y+1);
+X		XDrawPoint(dsp,pm, s_xgc, x+1, y+1);
+X	    }
+X	    if (s_tags)
+X		XDrawString(dsp, pm, s_xgc, x-cw/2, y+2*ch,
+X					mnames[i].tag, strlen(mnames[i].tag));
+X	}
+X
+X	XCopyArea (dsp, pm, win, s_fgc, 0, 0, nx, ny, 0, 0);
+X}
+X
+X
+X/* the following is from starchart */
+X
+X#define DEG_TO_RAD 0.01745329251994329600
+X#define RAD_TO_DEG 57.29577951308232
+X#define DSIN(x) (sin((x)*DEG_TO_RAD))
+X#define DCOS(x) (cos((x)*DEG_TO_RAD))
+X#define DTAN(x) (tan((x)*DEG_TO_RAD))
+X#define DASIN(x) (asin(x)*RAD_TO_DEG)
+X#define DACOS(x) (acos(x)*RAD_TO_DEG)
+X#define DATAN(x) (atan(x)*RAD_TO_DEG)
+X#define DATAN2(x,y) (atan2(x,y)*RAD_TO_DEG)
+X
+X/* siderial Periods of satellites:
+X 0.942421813
+X 1.370217855
+X 1.887802160
+X 2.736914742
+X 4.517500436
+X15.94542068
+X21.2766088
+X79.3301825
+X
+Xsynodic (approx)
+X 0.94250436287643326
+X 1.3703923657888438
+X 1.8881334260185879
+X 2.7376110810451278
+X 4.519397869256954
+X 15.969085530060568
+X 21.318764097751611
+X 79.919403771981642
+X
+Xsemimajor axes
+X185.52
+X238.02
+X294.66
+X377.40
+X527.04
+X1221.83
+X1481.1
+X3561.3
+X*/
+X
+Xstatic struct {
+X  double off; /* angle of satellite at jd 2415020.0 */
+X  double angvel; /* anbular velocity, degrees per day */
+X  double r; /* Distance to saturn in saturn radii */
+X  double mag; /* V(1,0) */
+X  char *name; /* Name */
+X} satsat_data[] = {
+X  {49.0, 381.96109660576467, 3.092, 3.3, "Mimas"},
+X  {98.7, 262.69848620527883, 3.967, 2.1, "Enceladus"},
+X  {263.0, 190.66449173515979, 4.911, 0.6, "Tethys"},
+X  {101.3, 131.50151330574105, 6.290, 0.8, "Dione"},
+X  {11.2, 79.656629138338852, 8.784, 0.1, "Rhea"},
+X  {183.7, 22.543557633424146, 20.364, -1.28, "Titan"},
+X  {95.0, 16.886532368823739, 24.685, 4.63, "Hyperion"},
+X  {338.4, 4.5045381097576426, 59.355, 1.5, "Iapetus"}
+X};
+X
+X/* given jd, return sat_t list of major satellites of Saturn */
+X/* Ignore many corrections to Saturn's orbit,
+X   assume moons in circular orbits in Saturn's equatorial plane */
+Xstatic void
+Xsatsat(jd, saturn, sats)
+X     double jd;
+X     planet_data_t saturn;
+X     sat_t sats[8];
+X{
+X  double d;			/* modified julian date */
+X  double B;			/* Center of saturn */
+X  double Delta;			/* Distance from earth to Saturn */
+X  double psi;			/* Phase angle */
+X  double u[8];			/* angle */
+X  double X[8];			/* relative Positions (radii) */
+X  double Y[8];			/* relative Positions (radii) */
+X  double Z[8];			/* relative Positions (radii) */
+X  double dmag;
+X  int i;
+X
+X  d = jd - MJD0;
+X
+X  Delta = saturn.Delta;
+X  psi = saturn.phase;
+X  B = saturn.Cen;
+X
+X
+X  dmag = 5.0 * log10(saturn.r*saturn.Delta)
+X    - 2.5 * log10(saturn.illum_frac);
+X
+X  for (i = 0; i < 8; i++) {
+X    u[i] = satsat_data[i].off
+X      + satsat_data[i].angvel * (d - Delta * 0.00577167643528) + psi - B;
+X    u[i] = into_range(u[i]);
+X
+X    X[i] = satsat_data[i].r * DSIN(u[i]);
+X    Z[i] = satsat_data[i].r * DCOS(u[i]);
+X    Y[i] = - satsat_data[i].r * DCOS(u[i]) * DSIN(saturn.beta_e);
+X
+X    sats[i].dx = X[i];
+X    sats[i].dy = Y[i];
+X    sats[i].dz = Z[i];
+X    sats[i].name = satsat_data[i].name;
+X    sats[i].mag = satsat_data[i].mag + dmag;
+X  };
+X}
+X
+Xtypedef struct {
+X  double L[4];
+X  double a;
+X  double e[4];
+X  double i[4];
+X  double omega[4];
+X  double Omega[4];
+X  double size_1au;
+X  double mag0;
+X} pelements;
+X
+Xstatic pelements peles = {
+X 
+X    /* Saturn */
+X    {266.564377, 1223.509884, 0.0003245, -0.0000058},
+X    9.554747,
+X    {0.05589232, -0.00034550, -0.000000728, 0.00000000074},
+X    {2.492519, -0.0039189, -0.00001549, 0.00000004},
+X    {338.307800, 1.0852207, 0.00097854, 0.00000992},
+X    {112.790414, 0.8731951, -0.00015218, -0.00000531},
+X    165.6,
+X    -8.88
+X    
+X};
+X
+Xtypedef struct {
+X  double alpha_1, delta_1;
+X  double W_0, W_dot;
+X} rot_els_t;
+Xstatic rot_els_t rot_els = {
+X    40.09, 83.49,
+X    223.60, 810.79390
+X};
+X
+Xstatic double polynom(jd, a)
+X     double jd;
+X     double a[4];
+X{
+X  double T;
+X
+X  T = (jd - MJD0)/36525.0;
+X
+X  return (a[0] + a[1]*T + a[2]*T*T + a[3]*T*T*T);
+X}
+X
+Xstatic void  saturn();
+X
+X
+X/* Calculate alpha and delta
+X   from lambda and beta (and epsilon)
+X   which are from r, Delta, psi, b, l, and Theta (in sun_data)
+X   which are from u, i (given), and Omega (given)
+X   u is from L (given), nu, and M
+X   nu and M are calculated.
+X   r is from E, a (given) and e (given)
+X   E is calculated
+X
+X   calculate mag from Delta, size form Delta, phase (== beta).
+X */
+X
+X/* ARGSUSED */
+Xstatic void
+Xplanet_pos(jd, sun_data, nplanet, data)
+X     double jd;			/* time, jd */
+X     sun_data_t sun_data;
+X     planet_data_t *data;
+X{
+X  double L_, a_, e_, i_, omega_, Omega_, M_;
+X  double r;			/* radius distance to sun */
+X  double l, b;			/* ecliptical longitude and latitude */
+X  double Delta;			/* Distance to earth */
+X  double lambda, beta;		/* geocentric longitude and latitude */
+X  double alpha, delta;		/* R.A. and dec. both degrees */
+X  double psi;			/* elongation */
+X  double N, D;			/* temporary variables */
+X  double Theta;			/* Theta of the sun */
+X  double epsilon;		/* obliquity */
+X  double Cen;			/* center */
+X
+X  L_ = into_range(polynom(jd, peles.L));
+X  a_ = peles.a;
+X  e_ = polynom(jd, peles.e);
+X  i_ = polynom(jd, peles.i);
+X  omega_ = into_range(polynom(jd, peles.omega));
+X  Omega_ = into_range(polynom(jd, peles.Omega));
+X  M_ = into_range(L_ - omega_ - Omega_);
+X
+X  /* Perturb */
+X    saturn(jd, L_, a_, e_, i_, omega_, Omega_, M_, &r, &l, &b, &Cen);
+X
+X  Theta = sun_data.Theta;
+X  N = r * DCOS(b) * DSIN(l - Theta);
+X  D = r * DCOS(b) * DCOS(l - Theta) + sun_data.R;
+X
+X  epsilon = obl_jd(jd);
+X
+X  lambda = into_range(RAD_TO_DEG * atan2(N, D)) + Theta;
+X  Delta = sqrt(N*N + D*D + (r * DSIN(b))*(r * DSIN(b)));
+X  beta = RAD_TO_DEG * asin(r * DSIN(b) / Delta);
+X  psi = RAD_TO_DEG * acos(DCOS(beta) * DCOS(lambda - Theta));
+X  if (into_range(lambda - Theta) > 180.0)
+X    psi = -psi;
+X  alpha = RAD_TO_DEG * atan2(DSIN(lambda)*DCOS(epsilon)
+X			     - DTAN(beta) * DSIN(epsilon),
+X			     DCOS(lambda));
+X  delta = RAD_TO_DEG * asin(DSIN(beta)*DCOS(epsilon)
+X			    + DCOS(beta)*DSIN(epsilon)*DSIN(lambda));
+X  alpha = into_range(alpha);
+X
+X/* should correct for nutation and aberration */
+X  data->alpha = alpha;
+X  data->delta = delta;
+X  data->l = l;
+X  data->b = b;
+X  data->lambda = lambda;
+X  data->beta = beta;
+X  data->psi = psi;
+X  data->phase =
+X    DACOS((r*r + Delta*Delta - sun_data.R*sun_data.R) / (2*r*Delta));
+X  if (psi < 0) data->phase = -data->phase;
+X  data->r = r;
+X  data->Delta = Delta;
+X  data->illum_frac = ((r+Delta)*(r+Delta) - sun_data.R*sun_data.R)/(4*r*Delta);
+X  data->Cen = Cen;
+X
+X  data->mag = 5.0 * log10(r*Delta)
+X    - 2.5 * log10(data->illum_frac)
+X    + peles.mag0;
+X
+X  data->size = peles.size_1au / Delta;
+X
+X  data->beta_e =
+X    DASIN(-DSIN(rot_els.delta_1)*DSIN(delta)
+X	  - DCOS(rot_els.delta_1) * DCOS(delta)
+X	      * DCOS(rot_els.alpha_1 - alpha));
+X
+X
+X}
+X
+Xstatic void saturn(jd, L_, a_, e_, i_, omega_, Omega_, M_, r_p, l_p, b_p, C_p)
+Xdouble jd, L_, a_, e_, i_, omega_, Omega_, M_;
+Xdouble *r_p, *l_p, *b_p, *C_p;
+X{
+X  double E, nu;
+X  double r, l, b;
+X
+X  double u;			/* argument of latitude */
+X  double T;
+X  double A, B, e_pert, a_pert, b_pert, v, zeta;
+X  double P, Q, V;
+X  double Szeta, S2zeta, Dzeta, D2zeta,
+X                 DQ, SQ, D2Q, S2Q;
+X
+X  /* for perturbations */
+X  T = (jd - MJD0)/36525.0;
+X
+X  v = T/5.0 + 0.1;
+X  P = 237.47555 +3034.9061*T;
+X  Q = 265.91650 + 1222.1139*T;
+X  V = 5.0*Q -2.0*P;
+X  zeta = Q - P;
+X
+X  Szeta = DSIN(zeta);
+X  S2zeta = DSIN(2*zeta);
+X  Dzeta = DCOS(zeta);
+X  D2zeta = DCOS(2*zeta);
+X  DQ = DCOS(Q);
+X  D2Q = DCOS(2*Q);
+X  SQ = DSIN(Q);
+X  S2Q = DSIN(2*Q);
+X  A = (-0.814181 + 0.018150*v + 0.016714*v*v)*DSIN(V)
+X    +(-0.010497 + 0.160906*v - 0.004100*v*v)*DCOS(V);
+X  A +=	    -0.040786*S2zeta
+X  + ( (0.008931 + 0.002728*v)*Szeta )*SQ;
+X
+X
+X  A +=	  ((0.081344 )*Dzeta+
+X	    0.015019*D2zeta)*SQ;
+X  A +=	      ((0.085581 + 0.002494*v)*Szeta
+X		+(0.025328 - 0.003117*v)*Dzeta
+X      )*DQ;
+X 
+X
+X  e_pert = (-.0007927 + .0002548*v +.0000091*v*v)*DSIN(V)
+X    +(.0013381 + .0001226*v -.0000253*v*v)*DCOS(V)
+X      ;
+X  e_pert += 	    .0012415*SQ;
+X  e_pert +=  (
+X        	  .0026599*Dzeta)*SQ;
+X  e_pert += 	    (
+X	      -.0012696*Szeta
+X)*DQ;
+X
+X
+X
+X  B = (0.077108 + 0.007186*v - 0.001533*v*v)*DSIN(V)
+X    +(0.045803 - 0.014766*v - 0.000536*v*v)*DCOS(V);
+X  B +=  
+X	(-0.075825*Szeta
+X	  -0.024839*S2zeta
+X  	    )*SQ;
+X  B +=	      (-0.072586
+X  		-0.150383*Dzeta
+X		  +0.026897*D2zeta
+X		    )*DQ;
+X  B += (-(0.013597 +0.001719*v)*Szeta
+X )*S2Q;
+X  B +=	 ( (-0.013667 + 0.001239*v)*Szeta
+X  	    +0.011981*S2zeta
+X	      +(0.014861 + 0.001136*v)*Dzeta
+X  		-(0.013064 + 0.001628*v)*D2zeta)*D2Q;
+X
+X  a_pert =  .033629*Dzeta 
+X	-.003081*D2zeta ;
+X  a_pert += (.001098 
+X      -.002812*Szeta 
+X         +.002138*Dzeta
+X	      )*SQ;
+X  a_pert +=    ( -.000890
+X		  +.002206*Szeta)*DQ;
+X  L_ += A;
+X  M_ += A - B / e_;
+X  e_ += e_pert;
+X  a_ += a_pert;
+X  omega_ += B;
+X
+X  /* Calculate E and nu */
+X  anom_calc(M_, e_, &E, &nu);
+X  r = a_ * (1 - e_ * DCOS(E));
+X
+X
+X  u = L_ + nu - M_ - Omega_;
+X  *C_p = nu - M_;
+X  l = into_range(RAD_TO_DEG * atan2(DCOS(i_) * DSIN(u), DCOS(u)) + Omega_);
+X  b = RAD_TO_DEG * asin(DSIN(u)*DSIN(i_));
+X
+X  b_pert = 0.000747*Dzeta*SQ
+X      +0.001069*Dzeta*DQ
+X	+0.002108*S2zeta*S2Q;
+X  b_pert += 0.001261*D2zeta*S2Q
+X	    +0.001236*S2zeta*D2Q
+X	      -0.002075*D2zeta*D2Q;
+X
+X  *r_p = r;
+X  *l_p = l;
+X  *b_p = b + b_pert;
+X}
+X
+Xstatic void anom_calc(M, e, E_p, nu_p)
+X     double M, e, *E_p, *nu_p;
+X{
+X  double corr, e_0, E_0, E_1;
+X
+X  e_0 = e * RAD_TO_DEG;
+X
+X  corr = 1;
+X  E_0 = M;
+X  while (corr > 0.00001) {
+X    corr = (M + e_0 * DSIN(E_0) - E_0)/(1 - e * DCOS(E_0));
+X    E_1 = E_0 + corr;
+X    if (corr < 0) corr *= -1.0;
+X    E_0 = E_1;
+X  };
+X	
+X  *E_p = E_1;
+X
+X  *nu_p = 2.0 * RAD_TO_DEG * atan(sqrt((1+e)/(1-e))*DTAN(E_1/2));
+X}
+X
+X
+X
+X
+X/* Obliquity epsilon 
+Xepsilon = 23.439291 - 0.0130042* T - 0.00000016* T*T - 0.000000504* T*T*T;
+X*/
+Xstatic double
+Xobl_jd(jd)
+Xdouble jd;
+X{
+X  double T = (jd - 2451545.0)/36525.0;
+X
+X  return (23.439291 - 0.0130042* T - 0.00000016* T*T - 0.000000504* T*T*T);
+X}
+X
+X
+X
+Xstatic double
+Xinto_range(ang)
+Xdouble ang;
+X{
+X  long i;
+X
+X  i = (long)floor(ang/360.0);
+X
+X  ang = ang - i * 360;
+X
+X  return(ang);
+X}  
+X  
+Xstatic void
+Xsun_pos(jd, sun_data)
+X     double jd;
+X     sun_data_t *sun_data;
+X{
+X  double L, M, Theta, R;
+X  double e, nu, E;
+X  double T;
+X  double epsilon;
+X
+X  T =  (jd - MJD0)/36525.0;
+X
+X  M = into_range(358.47583 + 35999.04975*T - 0.000150*T*T - 0.0000033*T*T*T);
+X  e = 0.01675104 - 0.0000418*T - 0.000000126*T*T;
+X  L = into_range(279.69668 + 36000.76892*T + 0.0003025*T*T);
+X  anom_calc(M, e, &E, &nu);
+X  Theta = into_range(L + nu - M);
+X  R = 1.0000002*(1.0 - e * DCOS(E));
+X
+X
+X  sun_data->R = R;
+X  sun_data->Theta = Theta;
+X  epsilon = 23.439291 - 0.0130042* T - 0.00000016* T*T - 0.000000504* T*T*T;
+X  sun_data->alpha
+X    = into_range(RAD_TO_DEG * atan2(DCOS(epsilon)*DSIN(Theta), DCOS(Theta)));
+X  sun_data->delta = 
+X    RAD_TO_DEG * asin(DSIN(epsilon)*DSIN(Theta));
+X}
+END_OF_FILE
+  if test 36774 -ne `wc -c <'satmenu.c'`; then
+    echo shar: \"'satmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'satmenu.c'
+fi
+echo shar: End of archive 13 \(of 21\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

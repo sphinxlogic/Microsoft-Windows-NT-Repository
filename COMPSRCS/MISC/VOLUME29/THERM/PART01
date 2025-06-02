@@ -1,0 +1,267 @@
+Newsgroups: comp.sources.misc
+From: erc@Apple.COM (Ed Carp)
+Subject:  v29i127:  therm - simple ASCII graphic display of numerical data, Part01/01
+Message-ID: <1992May17.185749.1274@sparky.imd.sterling.com>
+X-Md4-Signature: 02fd6fefb761fb03aa14455d8614ce2d
+Date: Sun, 17 May 1992 18:57:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: erc@Apple.COM (Ed Carp)
+Posting-number: Volume 29, Issue 127
+Archive-name: therm/part01
+Environment: UNIX, MS-DOS
+
+Here are some simple (yet powerful) routines for displaying numerical
+data in a graphical way.  I use these routines when I need to give a
+status report to a user showing how much, how far, or how long.
+They've managed to worm their way into DES routines, compress(1) --
+anywhere there's a need to give a status feedback to the user.
+
+These routines work under unix (well, sort of), but they aren't
+really fancy-looking, since most unix curses implementations
+don't pay attention to graphics characters.  They work very well
+(and look nicest) under MS-DOS.
+
+Comments, suggesions, and (shudder) bug fixes are welcome!
+
+#! /bin/sh
+#
+# Created by shar, version 0.5 - 04/10/91
+#
+# This is a shell archive, meaning:
+# 1. Remove everything about the #! /bin/sh line.
+# 2. Save the resulting text in a file.
+# 3. Execute the file with /bin/sh to create:
+#
+#        length  name
+#        ------  -------------------------------------
+#          1892  therm.3
+#          2245  therm.c
+#
+
+#
+# Archive number 1
+# This archive created Tue Apr 28 12:03:06 1992
+#
+
+echo "shar: extracting therm.3 - (1892 characters)"
+if test -f 'therm.3' ; then
+   echo shar: will not over-write existing file therm.3
+else
+sed 's/^X//' << \SHAR_EOF > 'therm.3'
+X.TH THERM 3 "April 28, 1992" "Version 1.0"
+X.SH NAME
+Xtherm \- ASCII graphic display of data
+X.SH SYNOPSIS
+X.DS
+X.sp
+XWINDOW *thermstart(title, comment, ypos, xpos)
+X.br
+Xchar *title; /* window title */
+X.br
+Xchar *comment; /* window text */
+X.br
+Xint ypos; /* starting vertical position of window, EOF if centered */
+X.br
+Xint xpos; /* starting horiz position of window, EOF if centered */
+X.br
+X
+Xthermometer(w1, percent)
+X.br
+XWINDOW *w1; /* returned from thermstart() */
+X.br
+Xint percent; /* percent (0-100) of scale */
+X.br
+X
+Xthermend(w1)
+X.br
+XWINDOW *w1; /* returned from thermstart() */
+X.br
+X.DE
+X.SH DESCRIPTION
+XThese routines give the programmer a simple way to display
+Xnumerical information graphically.  Any number of therm windows
+Xmay be active at one time.
+X.PP
+XThe therm window is opened by calling
+X.I thermstart(),
+Xwhich returns a WINDOW pointer which is used in subsequent references.
+XTo display data, call
+X.I thermometer()
+Xwith the appropriate parameters.
+XTo end a therm window display, call
+X.I thermend().
+X.SH EXAMPLE
+XThe following is a trivial code fragment illustrating the use of the therm
+Xroutines:
+X.PP
+X.DS
+XWINDOW *tw1, *tw2, *thermstart();
+X.br
+X.I ...
+X.br
+Xsprintf(message, "Copying file %s to %s", argv[1], argv[2]);
+X.br
+X/* center therm windows horizontally */
+X.br
+Xtw1 = thermstart("File 1 Status", message, 2, EOF);
+X.br
+Xtw2 = thermstart("File 2 Status", message, 10, EOF);
+X.br
+X.I ...
+X.br
+Xwhile(.../* copying */...)
+X.br
+X{
+X.br
+X.I ...
+X.br
+X   thermometer(tw1, (int) (100.0 * ((float) read / (float) total)));
+X.br
+X.I ...
+X   thermometer(tw2, (int) (100.0 * ((float) written / (float) total)));
+X.br
+X.I ...
+X.br
+X}
+X.br
+X.I ...
+X.br
+Xthermend(tw2); /* drop window */
+X.br
+Xthermend(tw1); /* drop window */
+X.br
+X.I ...
+X.br
+X.DE
+X.SH SEE ALSO
+Xcurses(3).
+X.SH CREDITS
+XThese routines were written by Ed Carp (erc@apple.com).
+XCopyright 1992 by Ed Carp.
+XCommercial use of these routines without permission is prohibited.
+SHAR_EOF
+if test 1892 -ne "`wc -c < 'therm.3'`" ; then
+   echo "shar: ***** error transmitting file therm.3 (should have been 1892 characters, but was "`wc -c < 'therm.3'`" characters) *****"
+fi
+fi
+
+touch 0428120392 therm.3
+chmod 0644 therm.3
+
+echo "shar: extracting therm.c - (2245 characters)"
+if test -f 'therm.c' ; then
+   echo shar: will not over-write existing file therm.c
+else
+sed 's/^X//' << \SHAR_EOF > 'therm.c'
+X/*
+X * therm - thermometer-like "walking bar" status boxes for curses
+X * 
+X * This stuff will work on either unix or ms-dos (with just about anyone's
+X * curses package).
+X * 
+X * written 04/92 by ed carp (erc@apple.com)
+X * 
+X * Copyright 1992 by Ed Carp. Commercial use prohibited without permission.
+X * 
+X */
+X
+X#include <curses.h>
+X#define THERMLEN 70
+X#ifdef MSDOS
+X#define TFULL '\333'
+X#define TEMPTY '\261'
+X#define TLFBAR '\336'
+X#define TRTBAR '\335'
+X#else
+X#define TFULL '*'
+X#define TEMPTY ' '
+X#define TLFBAR '|'
+X#define TRTBAR '|'
+X#endif
+Xchar            therm[THERMLEN];
+Xint             therm_m, therm_m2;
+X
+XWINDOW         *
+Xthermstart(title, comment, ypos, xpos)
+X   char           *title, *comment;
+X   int             ypos, xpos;
+X{
+X   int             i, mx, mt, mc;
+X   WINDOW         *therm_w1;
+X
+X   mt = strlen(title);
+X   mc = strlen(comment);
+X   mx = (mt > mc ? mt : mc);
+X   if (ypos == EOF)
+X      ypos = (LINES - 5) / 2;
+X   if (xpos == EOF)
+X      xpos = (COLS - THERMLEN) / 2;
+X   therm_w1 = newwin(5, THERMLEN + 2, (LINES - 5) / 2, (COLS - THERMLEN) / 2);
+X   if (therm_w1 != (WINDOW *) ERR)
+X   {
+X      attron(A_ALTCHARSET);
+X      box(therm_w1, NULL, NULL);
+X      mvwaddstr(therm_w1, 0, ((THERMLEN + 2 - mt) / 2), title);
+X      mvwaddstr(therm_w1, 1, ((THERMLEN + 2 - mc) / 2), comment);
+X      for (i = 0; i < THERMLEN; i++)
+X	 *(therm + i) = TEMPTY;
+X      *(therm) = TLFBAR;
+X      *(therm + (THERMLEN - 2)) = TRTBAR;
+X      *(therm + (THERMLEN - 1)) = (0);
+X      mvwaddstr(therm_w1, 3, 2, therm);
+X      wrefresh(therm_w1);
+X      therm_m2 = 0;
+X   }
+X   attron(A_NORMAL);
+X   return (therm_w1);
+X}
+X
+Xthermend(therm_w1)
+X   WINDOW         *therm_w1;
+X{
+X   delwin(therm_w1);
+X}
+X
+Xthermometer(therm_w1, percent)
+X   WINDOW         *therm_w1;
+X   int             percent;
+X{
+X   int             i;
+X
+X   if (percent > 100)
+X      percent = 100;
+X   if (percent < 0)
+X      percent = 0;
+X   therm_m = 1 + (int) ((float) (THERMLEN - 4) * ((float) percent / 100.0));
+X   if (therm_m != therm_m2)
+X   {
+X      for (i = 0; i < THERMLEN - 2; i++)
+X	 if (i < therm_m + 1)
+X	    *(therm + i) = TFULL;
+X	 else
+X	    *(therm + i) = TEMPTY;
+X      therm_m2 = therm_m;
+X      attron(A_ALTCHARSET);
+X      mvwaddstr(therm_w1, 3, 2, therm);
+X      attron(A_NORMAL);
+X      wrefresh(therm_w1);
+X   }
+X}
+SHAR_EOF
+if test 2245 -ne "`wc -c < 'therm.c'`" ; then
+   echo "shar: ***** error transmitting file therm.c (should have been 2245 characters, but was "`wc -c < 'therm.c'`" characters) *****"
+fi
+fi
+
+touch 0428120392 therm.c
+chmod 0644 therm.c
+echo End of all shell archives
+exit 0
+-- 
+Ed Carp  N7EKG/6	erc@khijol.UUCP		erc@apple.com
+			Cupertino, CA		415/336-0797
+
+-- Absolutely unabashed Gates McFadden groupie! --
+
+exit 0 # Just in case...

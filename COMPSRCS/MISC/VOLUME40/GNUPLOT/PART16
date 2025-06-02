@@ -1,0 +1,2793 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i028:  gnuplot - interactive function plotting utility, Part16/33
+Message-ID: <1993Oct22.163527.24041@sparky.sterling.com>
+X-Md4-Signature: 04e2fd17e40810e5d5ad2b144d4521d9
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 22 Oct 1993 16:35:27 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 28
+Archive-name: gnuplot/part16
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/binary.c gnuplot/demo/prob.dem gnuplot/graph3d.c.B
+# Wrapped by kent@sparky on Wed Oct 20 17:14:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 33)."'
+if test -f 'gnuplot/binary.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/binary.c'\"
+else
+  echo shar: Extracting \"'gnuplot/binary.c'\" \(14608 characters\)
+  sed "s/^X//" >'gnuplot/binary.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: binary.c%v 3.50.1.16 1993/08/27 05:04:42 woo Exp $";
+X#endif
+X
+X/*
+X * The addition of gnubin and binary, along with a small patch
+X * to command.c, will permit gnuplot to plot binary files.
+X * gnubin  - contains the code that relies on gnuplot include files
+X *                     and other definitions
+X * binary      - contains those things that are independent of those 
+X *                     definitions and files
+X *
+X * With these routines, hidden line removal of your binary data is possible!
+X *
+X * Last update:  3/29/92 memory allocation bugs fixed. jvdwoude@hut.nl
+X *               3/09/92 spelling errors, general cleanup, use alloc with no
+X *                       nasty fatal errors
+X *               3/03/92 for Gnuplot 3.24.
+X * Created from code for written by RKC for gnuplot 2.0b.
+X *
+X * Copyright (c) 1991,1992 Robert K. Cunningham, MIT Lincoln Laboratory
+X *
+X */
+X#include <stdio.h>
+X#if !defined(apollo) && !defined(sequent) && !defined(u3b2) && !defined(alliant) &&!defined(sun386)
+X#include <stdlib.h> /* realloc() */
+X#else
+X#include <sys/types.h> /* typedef long size_t; */
+Xextern char *realloc();
+X#endif
+X#include <math.h>
+X
+X#if defined(MSDOS) && defined(__TURBOC__) && !defined(DOSX286)
+X#include <alloc.h>		/* for farmalloc, farrealloc */
+X#define SMALLMALLOC
+X#endif
+X#if defined(_Windows) && !defined(WIN32)
+X#include <windows.h>
+X#include <windowsx.h>
+X#define farmalloc(s) GlobalAllocPtr(GHND,s)
+X#define farrealloc(p,s) GlobalReAllocPtr(p,s,GHND)
+X#define SMALLMALLOC
+X#endif
+X#ifdef sequent
+X#include <sys/types.h>      /* unsigned long size_t; */
+X#endif
+X
+X#include "plot.h"   /* We have to get TRUE and FALSE */
+X
+Xfloat GPFAR *vector();
+Xfloat GPFAR *extend_vector();
+Xfloat GPFAR *retract_vector();
+Xfloat GPFAR * GPFAR *matrix();
+Xfloat GPFAR * GPFAR *extend_matrix();
+Xfloat GPFAR * GPFAR *retract_matrix();
+Xvoid free_matrix();
+Xvoid free_vector();
+X
+X/* versions of alloc, realloc and free that work with segmented
+X   architectures (yuk!) */
+Xchar GPFAR *
+Xgpfaralloc(size, message)
+X	unsigned long size;		/* # of bytes */
+X	char *message;			/* description of what is being allocated */
+X{
+X#ifdef SMALLMALLOC
+X	char GPFAR *p;				/* the new allocation */
+X	char errbuf[100];		/* error message string */
+X	p = farmalloc(size);
+X	if (p == (char *)NULL) {
+X		/* really out of memory */
+X		if (message != NULL) {
+X			(void) sprintf(errbuf, "out of memory for %s", message);
+X			int_error(errbuf, NO_CARET);
+X			/* NOTREACHED */
+X		}
+X		/* else we return NULL */
+X	}
+X	return(p);
+X#else
+X	return alloc(size, message);
+X#endif
+X}
+X
+Xchar GPFAR *
+Xgpfarrealloc(p, size)
+X	char GPFAR *p;			/* old pointer */
+X	unsigned long size;		/* # of bytes */
+X{
+X#ifdef SMALLMALLOC
+X	return farrealloc(p, size);
+X#else
+X	return realloc(p, (size_t)size);
+X#endif
+X}
+X
+Xvoid
+Xgpfarfree(p)
+Xchar GPFAR *p;
+X{
+X#ifdef SMALLMALLOC
+X#ifdef _Windows
+XHGLOBAL hGlobal = GlobalHandle(SELECTOROF(p));
+X	GlobalUnlock(hGlobal);
+X	GlobalFree(hGlobal);
+X#else
+X	farfree(p);
+X#endif
+X#else
+X	free(p);
+X#endif
+X}
+X
+X
+X/* 
+X * This routine scans the first block of the file to see if the file is a 
+X * binary file.  A file is considered binary if 10% of the characters in it 
+X * are not in the ascii character set. (values < 128), or if a NUL is found.
+X * I hope this doesn't break when used on the bizzare PC's.
+X */
+Xint
+X  is_binary_file(fp)
+Xregister FILE *fp;
+X{
+X  register int i,len;
+X  register int odd;                /* Contains a count of the odd characters */
+X  long where;
+X  register unsigned char *c;
+X  unsigned char buffer[512];
+X
+X  if((where = ftell(fp)) == -1){ /* Find out where we start */
+X    fprintf(stderr,"Notice: Assuming unseekable data is not binary\n");
+X    return(FALSE);
+X  }
+X  else {
+X    rewind(fp);
+X
+X    len = fread(buffer,sizeof(char),512,fp);
+X    if (len <= 0)	                  /* Empty file is declared ascii */
+X      return(FALSE);
+X
+X    c = buffer;
+X
+X    /* now scan buffer to look for odd characters */
+X    odd = 0;
+X    for (i=0; i<len; i++,c++) {
+X      if (!*c) {			  /* NUL _never_ allowed in text */
+X	odd += len;
+X	break;
+X      }
+X      else if ((*c & 128) ||/* Meta-characters--we hope it's not formatting */
+X	       (*c == 127)|| /* DEL */
+X	       (*c < 32 && 
+X		*c != '\n' && *c != '\r' && *c != '\b' &&
+X		*c != '\t' && *c != '\f' && *c != 27 /*ESC*/))
+X	odd++;
+X    }
+X  
+X    fseek(fp,where,0); /* Go back to where we started */
+X
+X    if (odd * 10 > len)             /* allow 10% of the characters to be odd */
+X      return(TRUE);
+X    else
+X      return(FALSE);
+X  }
+X}
+X/*========================= I/O Routines ================================
+X  These may be useful for situations other than just gnuplot.  Note that I 
+X  have included the reading _and_ the writing routines, so others can create 
+X  the file as well as read the file.
+X*/
+X
+X/*
+X  This function reads a matrix from a stream
+X
+X  This routine never returns anything other than vectors and arrays
+X  that range from 0 to some number.  
+X
+X*/
+X#define START_ROWS 100/* Each of these must be at least 1 */
+X#define ADD_ROWS 50
+Xint
+X  fread_matrix(fin,ret_matrix,nr,nc,row_title,column_title)
+XFILE *fin;
+Xfloat GPFAR * GPFAR * GPFAR *ret_matrix,GPFAR * GPFAR * row_title, GPFAR * GPFAR *column_title;
+Xint *nr,*nc;
+X{
+X  float  GPFAR * GPFAR *m, GPFAR *rt, GPFAR *ct;
+X  register int num_rows = START_ROWS;
+X  register int num_cols;
+X  register int current_row = 0;
+X  register float  GPFAR * GPFAR *temp_array;
+X  float fdummy;
+X  
+X  fread(&fdummy,sizeof(fdummy),1,fin);
+X  num_cols = (int)fdummy;
+X  
+X  /* 
+X    Choose a reasonable number of rows,
+X    allocate space for it and continue until this space
+X    runs out, then extend the matrix as necessary.
+X    */
+X  ct = vector(0,num_cols-1);
+X  fread(ct,sizeof(*ct),num_cols,fin);
+X
+X  rt = vector(0,num_rows-1);
+X  m = matrix(0,num_rows-1,0,num_cols-1);
+X
+X  while(fread(&rt[current_row], sizeof(rt[current_row]), 1, fin)==1){ 
+X    /* We've got another row */
+X    if(fread(m[current_row],sizeof(*(m[current_row])),num_cols,fin)!=num_cols)
+X      return(FALSE);      /* Not a True matrix */
+X
+X    current_row++;
+X    if(current_row>=num_rows){ /* We've got to make a bigger rowsize */
+X      temp_array = extend_matrix(m,0,num_rows-1,0,num_cols-1,
+X				 num_rows+ADD_ROWS-1,num_cols-1);
+X      rt = extend_vector(rt,0,num_rows-1,num_rows+ADD_ROWS-1);
+X      
+X      num_rows+= ADD_ROWS;
+X      m = temp_array;
+X    }
+X  }
+X  /*  finally we force the matrix to be the correct row size */
+X  /*  bug fixed. procedure called with incorrect 6th argument. jvdwoude@hut.nl */
+X  temp_array = retract_matrix(m,0,num_rows-1,0,num_cols-1,current_row-1,num_cols-1);
+X  /* Now save the things that change */
+X  *ret_matrix = temp_array;
+X  *row_title = retract_vector(rt, 0, num_rows-1, current_row-1);
+X  *column_title = ct;
+X  *nr = current_row;/* Really the total number of rows */
+X  *nc = num_cols;
+X  return(TRUE);
+X}
+X
+X/* This writes a matrix to a stream 
+X   Note that our ranges are inclusive ranges--and we can specify subsets.
+X   This behaves similarly to the xrange and yrange operators in gnuplot
+X   that we all are familiar with.
+X*/
+Xint
+X  fwrite_matrix(fout,m,nrl,nrh,ncl,nch,row_title,column_title)
+Xregister FILE *fout;
+Xregister float  GPFAR * GPFAR *m, GPFAR *row_title, GPFAR *column_title;
+Xregister int nrl,nrh,ncl,nch;
+X{
+X  register int j;
+X  float length;
+X  register int col_length;
+X  register int status;
+X  float  GPFAR *title = NULL;
+X
+X  length = col_length = nch-ncl+1;
+X
+X  if((status = fwrite((char*)&length,sizeof(float),1,fout))!=1){
+X    fprintf(stderr,"fwrite 1 returned %d\n",status);
+X    return(FALSE);
+X  }
+X  
+X  if(!column_title){
+X    column_title = title = vector(ncl,nch);
+X    for(j=ncl; j<=nch; j++)
+X      title[j] = j;
+X  }
+X  fwrite((char*)column_title,sizeof(float),col_length,fout);
+X  if(title){
+X    free_vector(title,ncl,nch);
+X    title = NULL;
+X  }
+X
+X  if(!row_title){
+X    row_title = title = vector(nrl,nrh);
+X    for(j=nrl; j<=nrh; j++)
+X      title[j] = j;
+X  }
+X    
+X  for(j=nrl; j<=nrh; j++){
+X    fwrite((char*)&row_title[j],sizeof(float),1,fout);
+X    fwrite((char*)(m[j]+ncl),sizeof(float),col_length,fout);
+X  }
+X  if(title)
+X    free_vector(title,nrl,nrh);
+X
+X  return(TRUE);
+X}
+X
+X/*===================== Support routines ==============================*/
+X
+X/******************************** VECTOR *******************************
+X *       The following routines interact with vectors.
+X *
+X *   If there is an error we don't really return - int_error breaks us out.
+X *
+X *   This subroutine based on a subroutine listed in "Numerical Recipies in C",
+X *   by Press, Flannery, Teukoilsky and Vetterling (1988).
+X *
+X */
+Xfloat GPFAR *vector(nl,nh)
+X     register int nl,nh;
+X{
+X  register float GPFAR *vec;
+X
+X  if (!(vec = (float GPFAR *)gpfaralloc((unsigned long) (nh-nl+1)*sizeof(float),NULL))){
+X    int_error("not enough memory to create vector",NO_CARET);
+X    return NULL;/* Not reached */
+X  }
+X  return (vec-nl);
+X}
+X/* 
+X *  Free a vector allocated above
+X *
+X *   This subroutine based on a subroutine listed in "Numerical Recipies in C",
+X *   by Press, Flannery, Teukoilsky and Vetterling (1988).
+X *
+X */
+Xvoid 
+X  free_vector(vec,nl,nh)
+Xfloat  GPFAR *vec;
+Xint nl,nh;
+X{
+X  gpfarfree((char GPFAR *)(vec+nl));
+X}
+X/************ Routines to modify the length of a vector ****************/  
+Xfloat  GPFAR *
+X  extend_vector(vec,old_nl,old_nh,new_nh)
+Xfloat  GPFAR *vec;
+Xregister int old_nl,old_nh,new_nh;
+X{
+X  register float  GPFAR *new_v;
+X  if(!(new_v = (float GPFAR *)gpfarrealloc((void*)(vec+old_nl),
+X                       (unsigned long)(new_nh-old_nl+1)*sizeof(float)) )){
+X    int_error("not enough memory to extend vector",NO_CARET);
+X    return NULL;
+X  } 
+X  return new_v-old_nl;
+X}
+X
+Xfloat  GPFAR *
+X  retract_vector(v,old_nl,old_nh,new_nh)
+Xfloat  GPFAR *v;
+Xregister int old_nl,old_nh,new_nh;
+X{
+X  register float GPFAR *new_v;
+X  if(!(new_v = (float GPFAR *)gpfarrealloc((void*)(v+old_nl),
+X                               (unsigned long)(new_nh-old_nl+1)*sizeof(float)))){
+X    int_error("not enough memory to retract vector",NO_CARET);
+X    return NULL;
+X  }
+X  return new_v-old_nl;
+X}
+X/***************************** MATRIX ************************
+X *
+X * 	  The following routines work with matricies
+X *
+X * 	 I always get confused with this, so here I write it down:
+X * 			  for nrl<= nri <=nrh and
+X * 			  for ncl<= ncj <=nch
+X *  
+X *   This matrix is accessed as:
+X *   
+X *     matrix[nri][ncj];
+X *     where nri is the offset to the pointer to a vector where the
+X *     ncjth element lies.
+X * 
+X *   If there is an error we don't really return - int_error breaks us out.
+X *
+X *   This subroutine based on a subroutine listed in "Numerical Recipies in C",
+X *   by Press, Flannery, Teukoilsky and Vetterling (1988).
+X *
+X */
+Xfloat 
+X   GPFAR * GPFAR *matrix(nrl,nrh,ncl,nch)
+Xregister int nrl,nrh,ncl,nch;
+X{
+X  register int i;
+X  register float GPFAR * GPFAR *m;
+X
+X  if (!(m = (float GPFAR * GPFAR *)gpfaralloc((unsigned long)(nrh-nrl+1)*sizeof(float GPFAR *),NULL))){
+X    int_error("not enough memory to create matrix",NO_CARET);
+X    return NULL;
+X  }
+X  m -= nrl;
+X
+X  for (i=nrl; i<=nrh; i++)
+X    {
+X      if (!(m[i] = (float GPFAR *) gpfaralloc((unsigned long)(nch-ncl+1)*sizeof(float),NULL))){
+X	free_matrix(m,nrl,i-1,ncl,nch);
+X	int_error("not enough memory to create matrix",NO_CARET);
+X	return NULL;
+X      }
+X      m[i] -= ncl;
+X    }
+X  return m;
+X}
+X/* 
+X * Free a matrix allocated above
+X *
+X *
+X *   This subroutine based on a subroutine listed in "Numerical Recipies in C",
+X *   by Press, Flannery, Teukoilsky and Vetterling (1988).
+X *
+X */
+Xvoid 
+X  free_matrix(m,nrl,nrh,ncl,nch)
+Xfloat  GPFAR * GPFAR *m;
+Xunsigned nrl,nrh,ncl,nch;
+X{
+X  register int i;
+X
+X  for (i=nrl; i<=nrh; i++) 
+X    gpfarfree((char GPFAR *) (m[i]+ncl));
+X  gpfarfree((char GPFAR *) (m+nrl));
+X}
+X/*
+X  This routine takes a sub matrix and extends the number of rows and 
+X  columns for a new matrix
+X*/
+Xfloat GPFAR * GPFAR *extend_matrix(a,nrl,nrh,ncl,nch,srh,sch)
+X     register float  GPFAR * GPFAR *a;
+X     register int nrl,nrh,ncl,nch;
+X     register int srh,sch;
+X{
+X  register int i;
+X  register float GPFAR * GPFAR *m;
+X
+X  /*  bug fixed. realloc() called with incorrect 2nd argument. jvdwoude@hut.nl */
+X  if(!(m = (float GPFAR * GPFAR *)gpfarrealloc((void*)(a+nrl),(unsigned long)(srh-nrl+1)*sizeof(float GPFAR *)) )){
+X    int_error("not enough memory to extend matrix",NO_CARET);
+X    return NULL;
+X  }
+X
+X  m -= nrl;
+X
+X  if(sch != nch){
+X    for(i=nrl; i<=nrh; i++)
+X      {/* Copy and extend rows */
+X	if(!(m[i] = extend_vector(m[i],ncl,nch,sch))){
+X	  free_matrix(m,nrl,nrh,ncl,sch);
+X	  int_error("not enough memory to extend matrix",NO_CARET);
+X	  return NULL;
+X	}
+X      }
+X  }
+X  for(i=nrh+1; i<=srh; i++)
+X    {
+X      if(!(m[i] = (float GPFAR *) gpfaralloc((unsigned long) (nch-ncl+1)*sizeof(float),NULL))){
+X	free_matrix(m,nrl,i-1,nrl,sch);
+X	int_error("not enough memory to extend matrix",NO_CARET);
+X	return NULL;
+X      }
+X      m[i] -= ncl;
+X    }
+X  return m;
+X}
+X/*
+X  this routine carves a large matrix down to size
+X*/
+Xfloat GPFAR * GPFAR *retract_matrix(a,nrl,nrh,ncl,nch,srh,sch)
+X     register float  GPFAR * GPFAR *a;
+X     register int nrl,nrh,ncl,nch;
+X     register int srh,sch;
+X{
+X  register int i;
+X  register float  GPFAR * GPFAR *m;
+X
+X  for(i=srh+1; i<=nrh; i++) {
+X    free_vector(a[i],ncl,nch);
+X  }
+X
+X  /*  bug fixed. realloc() called with incorrect 2nd argument. jvdwoude@hut.nl */
+X  if(!(m = (float GPFAR * GPFAR *)gpfarrealloc((void*)(a+nrl), (unsigned long)(srh-nrl+1)*sizeof(float GPFAR *)) )){
+X    int_error("not enough memory to retract matrix",NO_CARET);
+X    return NULL;
+X  }
+X
+X  m -= nrl;
+X
+X  if(sch != nch){
+X    for(i=nrl; i<=srh; i++)       
+X	if(!(m[i] = retract_vector(m[i],ncl,nch,sch))){ {/* Shrink rows */
+X	  free_matrix(m,nrl,srh,ncl,sch);
+X	  int_error("not enough memory to retract matrix",NO_CARET);
+X	  return NULL;
+X	}
+X      }
+X  }
+X
+X  return m;
+X}
+X
+Xfloat 
+X   GPFAR * GPFAR *convert_matrix(a,nrl,nrh,ncl,nch)
+Xfloat GPFAR *a;
+Xregister int nrl,nrh,ncl,nch;
+X
+X/* allocate a float matrix m[nrl...nrh][ncl...nch] that points to the
+Xmatrix declared in the standard C manner as a[nrow][ncol], where 
+Xnrow=nrh-nrl+1, ncol=nch-ncl+1.  The routine should be called with
+Xthe address &a[0][0] as the first argument.  This routine does
+Xnot free the memory used by the original array a but merely assigns
+Xpointers to the rows. */
+X
+X{
+X  register int i,j,ncol,nrow;
+X  register float GPFAR * GPFAR *m;
+X
+X  nrow=nrh-nrl+1;
+X  ncol=nch-ncl+1;
+X  if (!(m = (float GPFAR * GPFAR *)gpfaralloc((unsigned long)(nrh-nrl+1)*sizeof(float GPFAR *),NULL))){
+X	  int_error("allocation failure in convert_matrix()",NO_CARET);
+X	  return NULL;
+X  }
+X  m -= nrl;
+X
+X  m[nrl]=a-ncl;
+X  for(i=1,j=nrl+1;i<=nrow-1;i++,j++) m[j]=m[j-1]+ncol;
+X  return m;
+X}
+X
+Xvoid free_convert_matrix(b,nrl,nrh,ncl,nch)
+Xfloat GPFAR* GPFAR *b;
+Xregister int nrl,nrh,ncl,nch;
+X{
+X	free((char*) (b+nrl));
+X}
+END_OF_FILE
+  if test 14608 -ne `wc -c <'gnuplot/binary.c'`; then
+    echo shar: \"'gnuplot/binary.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/binary.c'
+fi
+if test -f 'gnuplot/demo/prob.dem' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/demo/prob.dem'\"
+else
+  echo shar: Extracting \"'gnuplot/demo/prob.dem'\" \(21935 characters\)
+  sed "s/^X//" >'gnuplot/demo/prob.dem' <<'END_OF_FILE'
+X#
+X# $Id: prob.demo 3.38.2.32 1992/12/04 18:33:59 woo Exp $
+X#
+X# Demo Statistical Functions version 2.3
+X#
+X# Permission granted to distribute freely for non-commercial purposes only
+X#
+X# Copyright (c) 1991, 1992 Jos van der Woude, jvdwoude@hut.nl
+X
+Xpause 0 "                   Statistical Library Demo, version 2.3"
+Xpause 0 ""
+Xpause 0 "          Copyright (c) 1991, 1992, Jos van de Woude, jvdwoude@hut.nl"
+Xpause 0 "Permission granted to distribute freely for non-commercial purposes only"
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 ""
+Xpause 0 "NOTE: contains 54 plots and consequently takes a lot of time to run"
+Xpause 0 "                      Press Ctrl-C to exit right now"
+Xpause -1 "                      Press Return to start demo ..."
+X
+Xsave set "defaults.ini"
+Xload "stat.inc"
+X
+X# Arcsinus PDF and CDF
+Xr = 2.0
+Xmu = 0.0
+Xsigma = r / sqrt2
+Xxmin = -r
+Xxmax = r
+Xymax = 1.1 * r #No mode
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 200
+Xset title "arcsin PDF with r = 2.0"
+Xplot arcsin(x)
+Xpause -1 "Hit return to continue"
+Xset title "arcsin CDF with r = 2.0"
+Xset yrange [0 : 1.1]
+Xplot carcsin(x)
+Xpause -1 "Hit return to continue"
+X
+X# Beta PDF and CDF
+X#p = 0.5; q = 0.7
+X#mu = p / (p + q)
+X#sigma = sqrt(p**q) / ((p + q ) * sqrt(p + q + 1.0))
+X#xmin = 0.0
+X#xmax = 1.0
+X#Mode of beta PDF used
+X#ymax = (p < 1.0 || q < 1.0) ? 2.0 : 1.1 * beta((p - 1.0)/(p + q - 2.0))
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "beta PDF"
+Xplot [0:1] [0:5] p = 0.5, q = 0.7, beta(x) title "p = 0.5, q = 0.7", \
+X                 p = 5.0, q = 3.0, beta(x) title "p = 5.0, q = 3.0", \
+X                 p = 0.5, q = 2.5, beta(x) title "p = 0.5, q = 2.5"
+Xpause -1 "Hit return to continue"
+Xset title "incomplete beta CDF"
+Xplot [0:1] [0:1.1] p = 0.5, q = 0.7, cbeta(x) title "p = 0.5, q = 0.7", \
+X                   p = 5.0, q = 3.0, cbeta(x) title "p = 5.0, q = 3.0", \
+X                   p = 0.5, q = 2.5, cbeta(x) title "p = 0.5, q = 2.5"
+Xpause -1 "Hit return to continue"
+X
+X# Binomial PDF and CDF
+Xn = 25; p = 0.15
+Xmu = n * p
+Xsigma = sqrt(n * p * (1.0 - p))
+Xxmin = int(mu - 4.0 * sigma)
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = int(mu + 4.0 * sigma)
+Xymax = 1.1 * binom(mu) #Mode of normal PDF used
+Xxinc = ceil((xmax - xmin) / 10)
+Xxinc = xinc > 1 ? xinc : 1
+Xset nokey
+Xset nozeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "k ->"
+Xset ylabel "probability density ->"
+Xset xtics xmin + 0.499, xinc, xmax
+Xset ytics 0, ymax / 10, ymax
+Xset format x "%2.0f"
+Xset format y "%3.2f"
+Xset sample (xmax - xmin) + 1
+Xset title "binomial PDF with n = 25, p = 0.15"
+Xplot binom(x) with steps
+Xpause -1 "Hit return to continue"
+Xset title "binomial CDF with n = 25, p = 0.15"
+Xset yrange [0 : 1.1]
+Xset ytics 0, 1.1 / 10.5, 1.1
+Xplot cbinom(x) with steps
+Xpause -1 "Hit return to continue"
+X
+X# Cauchy PDF and CDF
+X#a = 0.0; b = 2.0
+X#cauchy PDF has no moments
+X#xmin = a - 4.0 * b
+X#xmax = a + 4.0 * b
+X#ymax = 1.1 * cauchy(a) #Mode of cauchy PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "cauchy PDF"
+Xplot [-15:15] [0:0.2] a = 0, b = 2, cauchy(x) title "a = 0, b = 2", \
+X                      a = 0, b = 4, cauchy(x) title "a = 0, b = 4"
+Xpause -1 "Hit return to continue"
+Xset title "cauchy CDF"
+Xplot [-30:30] [0:1.1] a = 0, b = 2, ccauchy(x) title "a = 0, b = 2", \
+X                      a = 0, b = 4, ccauchy(x) title "a = 0, b = 4"
+Xpause -1 "Hit return to continue"
+X
+X# Chi-square PDF and CDF
+X#df1 = 4.0
+X#mu = df1
+X#sigma = sqrt(2.0 * df1)
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#ymax = 1.1 * (df1 > 2.0 ? chi(df1 - 2.0) : 1.0) #Mode of chi PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "chi-square PDF"
+Xplot [0:15] [0:0.2] df1 = 4, chi(x) title "df = 4", \
+X                    df1 = 6, chi(x) title "df = 6", \
+X                    df1 = 8, chi(x) title "df = 8"
+Xpause -1 "Hit return to continue"
+Xset title "chi-square CDF"
+Xplot [0:15] [0:1.1] df1 = 4, cchi(x) title "df = 4", \
+X                    df1 = 6, cchi(x) title "df = 6", \
+X                    df1 = 8, cchi(x) title "df = 8"
+Xpause -1 "Hit return to continue"
+X
+X# Erlang PDF and CDF
+X#lambda = 1.0; n = 2.0
+X#mu = n / lambda
+X#sigma = sqrt(n) / lambda
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#ymax = n < 2.0 ? 1.0 : 1.1 * erlang((n - 1.0) / lambda) #Mode of erlang PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "erlang PDF"
+Xplot [0:10] [0:1] lambda = 1, n = 2, erlang(x) title "lambda = 1, n = 2", \
+X                  lambda = 2, n = 2, erlang(x) title "lambda = 2, n = 2"
+Xpause -1 "Hit return to continue"
+Xset title "erlang CDF"
+Xplot [0:10] [0:1.1] lambda = 1, n = 2, cerlang(x) title "lambda = 1, n = 2", \
+X                    lambda = 2, n = 2, cerlang(x) title "lambda = 2, n = 2"
+Xpause -1 "Hit return to continue"
+X
+X# Thanks to mrb2j@kelvin.seas.Virginia.EDU for telling us about this.
+X# Extreme (Gumbel extreme value) PDF and CDF
+X#alpha = 0.5; u = 1.0
+X#mu = u + (0.577215665/alpha)   # Euler's constant
+X#sigma = pi/(sqrt(6.0)*alpha)
+X#xmin = mu - 4.0 * sigma
+X#xmax = mu + 4.0 * sigma
+X#ymax = 1.1 * extreme(u) #Mode of extreme PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "extreme PDF"
+Xplot [-10:10] [0:0.4] alpha = 0.5, u = 1.0, extreme(x) title "alpha = 0.5, u = 1.0", \
+X                      alpha = 1.0, u = 0.0, extreme(x) title "alpha = 1.0, u = 0.0"
+Xpause -1 "Hit return to continue"
+Xset title "extreme CDF"
+Xplot [-10:10] [0:1.1] alpha = 0.5, u = 1.0, cextreme(x) title "alpha = 0.5, u = 1.0", \
+X                      alpha = 1.0, u = 0.0, cextreme(x) title "alpha = 1.0, u = 0.0"
+Xpause -1 "Hit return to continue"
+X
+X# F PDF and CDF
+X#df1 = 5.0; df2 = 9.0
+X#mu = df2 < 2.0 ? 1.0 : df2 / (df2 - 2.0)
+X#sigma = df2 < 4.0 ? 1.0 : mu * sqrt(2.0 * (df1 + df2 - 2.0) / (df1 * (df2 - 4.0)))
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#Mode of F PDF used
+X#ymax = df1 < 3.0 ? 1.0 : 1.1 * f((df1 / 2.0 - 1.0) / (df1 / 2.0 + df1 / df2))
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0 : ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "F PDF"
+Xplot [0:4] [0:0.8] df1 = 5.0, df2 = 9.0, f(x) title "df1 = 5, df2 = 9", \
+X                   df1 = 7.0, df2 = 6.0, f(x) title "df1 = 7, df2 = 6"
+Xpause -1 "Hit return to continue"
+Xset title "F CDF"
+Xplot [0:4] [0:1.1] df1 = 5.0, df2 = 9.0, cf(x) title "df1 = 5, df2 = 9", \
+X                   df1 = 7.0, df2 = 6.0, cf(x) title "df1 = 7, df2 = 6"
+Xpause -1 "Hit return to continue"
+X
+X# Gamma PDF and incomplete gamma CDF
+X#rho = 0.5; lambda = 1.0
+X#mu = rho / lambda
+X#sigma = sqrt(rho) / lambda
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#ymax = rho < 1.0 ? 2.0 : 1.1 * g((rho - 1.0) / lambda) #Mode of gamma pdf used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin: xmax]
+X#set yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "gamma PDF"
+Xplot [0:5] [0:1.5] rho = 0.5, lambda = 1.0, g(x) title "rho = 0.5, lambda = 1.0", \
+X                   rho = 1.0, lambda = 1.0, g(x) title "rho = 1.0, lambda = 1.0", \
+X                   rho = 2.0, lambda = 2.0, g(x) title "rho = 2.0, lambda = 2.0"
+Xpause -1 "Hit return to continue"
+Xset title "incomplete gamma CDF (lambda == 1.0)"
+Xplot [0:5] [0:1.1] rho = 0.5, cgamma(x) title "rho = 0.5", \
+X                   rho = 1.0, cgamma(x) title "rho = 1.0", \
+X                   rho = 2.0, cgamma(x) title "rho = 2.0"
+Xpause -1 "Hit return to continue"
+X
+X# Geometric PDF and CDF
+Xp = 0.4
+Xmu = (1.0 - p) / p
+Xsigma = sqrt(mu / p)
+Xxmin = int(mu - 4.0 * sigma)
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = int(mu + 4.0 * sigma)
+Xxinc = ceil((xmax - xmin) / 10)
+Xxinc = xinc > 1 ? xinc : 1
+Xymax = 1.1 * geometric(mu - 1/p) #mode of gamma PDF used
+Xset nokey
+Xset nozeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "k ->"
+Xset ylabel "probability density ->"
+Xset xtics xmin + 0.499, xinc, xmax
+Xset ytics 0, ymax / 10, ymax
+Xset format x "%2.0f"
+Xset format y "%3.2f"
+Xset sample (xmax - xmin) + 1
+Xset title "geometric PDF with p = 0.4"
+Xplot geometric(x) with steps
+Xpause -1 "Hit return to continue"
+Xset title "geometric CDF with p = 0.4"
+Xset yrange [0 : 1.1]
+Xset ytics 0, 1.1 / 10.5, 1.1
+Xplot cgeometric(x) with steps
+Xpause -1 "Hit return to continue"
+X
+X# Half normal PDF and CDF
+Xmu = sqrt2invpi
+Xsigma = 1.0
+Xs = sigma*sqrt(1.0 - 2.0/pi)
+Xxmin = 0.0
+Xxmax = mu + 4.0 * s
+Xymax = 1.1 * halfnormal(0) #Mode of half normal PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "half normal PDF, sigma = 1.0"
+Xplot halfnormal(x)
+Xpause -1 "Hit return to continue"
+Xset title "half normal CDF, sigma = 1.0"
+Xset yrange [0:1.1]
+Xplot chalfnormal(x)
+Xpause -1 "Hit return to continue"
+X
+X# Hypergeometric PDF and CPF
+Xnn = 75; mm = 25; n = 10
+Xp = real(mm) / nn
+Xmu = n * p
+Xsigma = sqrt(real(nn - n) / (nn - 1.0) * n * p * (1.0 - p))
+Xxmin = int(mu - 4.0 * sigma)
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = int(mu + 4.0 * sigma)
+Xxinc = ceil((xmax - xmin) / 10)
+Xxinc = xinc > 1 ? xinc : 1
+Xymax = 1.1 * hypgeo(mu) #mode of binomial PDF used
+Xset nokey
+Xset nozeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "k ->"
+Xset ylabel "probability density ->"
+Xset xtics xmin + 0.499, xinc, xmax
+Xset ytics 0, ymax / 10, ymax
+Xset format x "%2.0f"
+Xset format y "%3.2f"
+Xset sample (xmax - xmin) + 1
+Xset title "hypergeometric PDF with nn = 75, mm = 25, n = 10"
+Xplot hypgeo(x) with steps
+Xpause -1 "Hit return to continue"
+Xset yrange [0 : 1.1]
+Xset ytics 0, 1.1 / 10.5, 1.1
+Xset title "hypergeometric CDF with nn = 75, mm = 25, n = 10"
+Xplot chypgeo(x) with steps
+Xpause -1 "Hit return to continue"
+X
+X# Laplace PDF
+Xa = 0.0; b = 1.0
+Xmu = a
+Xsigma = sqrt(2.0) * b
+Xxmin = mu - 4.0 * sigma
+Xxmax = mu + 4.0 * sigma
+Xymax = 1.1 * laplace(a) #Mode of laplace PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "laplace (or double exponential) PDF with a = 0, b = 1"
+Xplot laplace(x)
+Xpause -1 "Hit return to continue"
+Xset title "laplace (or double exponential) CDF with a = 0, b = 1"
+Xset yrange [0: 1.1]
+Xplot claplace(x)
+Xpause -1 "Hit return to continue"
+X
+X# Logistic PDF and CDF
+Xa = 0.0; lambda = 2.0
+Xmu = a
+Xsigma = pi / (sqrt(3.0) * lambda)
+Xxmin = mu - 4.0 * sigma
+Xxmax = mu + 4.0 * sigma
+Xymax = 1.1 * logistic(mu) #Mode of logistic PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset nokey
+Xset zeroaxis
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "logistic PDF with a = 0, lambda = 2"
+Xplot logistic(x)
+Xpause -1 "Hit return to continue"
+Xset title "logistic CDF with a = 0, lambda = 2"
+Xset yrange [0: 1.1]
+Xplot clogistic(x)
+Xpause -1 "Hit return to continue"
+X
+X# Lognormal PDF and CDF
+Xmu = 1.0; sigma = 0.5
+Xm = exp(mu + 0.5 * sigma**2)
+Xs = sqrt(exp(2.0 * mu + sigma**2) * (2.0 * exp(sigma) - 1.0))
+Xxmin = m - 4.0 * s
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = m + 4.0 * s
+Xymax = 1.1 * lognormal(exp(mu - sigma**2)) #Mode of lognormal PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "lognormal PDF with mu = 1.0, sigma = 0.5"
+Xplot lognormal(x)
+Xpause -1 "Hit return to continue"
+Xset title "lognormal CDF with mu = 1.0, sigma = 0.5"
+Xset yrange [0: 1.1]
+Xplot clognormal(x)
+Xpause -1 "Hit return to continue"
+X
+X# Maxwell PDF
+X#a = 0.1
+X#mu = 2.0 / sqrt(pi) / a
+X#sigma = sqrt(3.0 - 8.0/pi) / a
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#ymax = 1.1 * maxwell(1.0 / a) #Mode of maxwell PDF used
+Xset key
+Xset zeroaxis
+X#set xrange[xmin: xmax]
+X#set yrange[0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "maxwell PDF"
+Xplot [0:6] [0:1.4] a = 1.5, maxwell(x) title "a = 1.5", \
+X                   a = 1.0, maxwell(x) title "a = 1.0", \
+X                   a = 0.5, maxwell(x) title "a = 0.5"
+Xpause -1 "Hit return to continue"
+Xset title "maxwell CDF"
+Xplot [0:6] [0:1.1] a = 1.5, cmaxwell(x) title "a = 1.5", \
+X                   a = 1.0, cmaxwell(x) title "a = 1.0", \
+X                   a = 0.5, cmaxwell(x) title "a = 0.5"
+Xpause -1 "Hit return to continue"
+X
+X# Negative binomial PDF and CDF
+Xr = 8; p = 0.4
+Xmu = r * (1.0 - p) / p
+Xsigma = sqrt(mu / p)
+Xxmin = int(mu - 4.0 * sigma)
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = int(mu + 4.0 * sigma)
+Xxinc = ceil((xmax - xmin) / 10)
+Xxinc = xinc > 1 ? xinc : 1
+Xymax = 1.1 * negbin(mu - 1.0/p) #mode of gamma PDF used
+Xset nokey
+Xset nozeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "k ->"
+Xset ylabel "probability density ->"
+Xset xtics xmin + 0.499, xinc, xmax
+Xset ytics 0, ymax / 10, ymax
+Xset format x "%2.0f"
+Xset format y "%3.2f"
+Xset sample (xmax - xmin) + 1
+Xset title "negative binomial (or pascal or polya) PDF with r = 8, p = 0.4"
+Xplot negbin(x) with steps
+Xpause -1 "Hit return to continue"
+Xset yrange [0 : 1.1]
+Xset ytics 0, 1.1 / 10.5, 1.1
+Xset title "negative binomial (or pascal or polya) CDF with r = 8, p = 0.4"
+Xplot cnegbin(x) with steps
+Xpause -1 "Hit return to continue"
+X
+X# Negative exponential PDF and CDF
+Xlambda = 2.0
+Xmu = 1.0 / lambda
+Xsigma = 1.0 / lambda
+Xxmax =  mu + 4.0 * sigma
+Xymax = lambda #No mode
+Xset nokey
+Xset zeroaxis
+Xset xrange [0: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "negative exponential (or exponential) PDF with lambda = 2.0"
+Xplot nexp(x)
+Xpause -1 "Hit return to continue"
+Xset title "negative exponential (or exponential) CDF with lambda = 2.0"
+Xset yrange [0: 1.1]
+Xplot cnexp(x)
+Xpause -1 "Hit return to continue"
+X
+X# Normal PDF and CDF
+X#mu = 0.0; sigma = 1.0
+X#xmin = mu - 4.0 * sigma
+X#xmax = mu + 4.0 * sigma
+X#ymax = 1.1 * normal(mu) #Mode of normal PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin: xmax]
+X#set yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "normal (also called gauss or bell-curved) PDF"
+Xplot [-4:4] [0:1] mu = 0, sigma = 1.0, normal(x) title "mu = 0, sigma = 1.0", \
+X                  mu = 2, sigma = 0.5, normal(x) title "mu = 2, sigma = 0.5", \
+X                  mu = 1, sigma = 2.0, normal(x) title "mu = 1, sigma = 2.0"
+Xpause -1 "Hit return to continue"
+Xset title "normal (also called gauss or bell-curved) CDF"
+Xplot [-4:4] [0:1.1] mu = 0, sigma = 1.0, cnormal(x) title "mu = 0, sigma = 1.0", \
+X                    mu = 2, sigma = 0.5, cnormal(x) title "mu = 2, sigma = 0.5", \
+X                    mu = 1, sigma = 2.0, cnormal(x) title "mu = 1, sigma = 2.0"
+Xpause -1 "Hit return to continue"
+X
+X# Pareto PDF and CDF
+Xa = 1.0; b = 3.0
+Xmu = a * b / (b - 1.0)
+Xsigma = a * sqrt(b) / (sqrt(b - 2.0) * (b - 1.0))
+Xxmin = mu - 4.0 * sigma
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = mu + 4.0 * sigma
+Xymax = 1.1 * pareto(a) #mode of pareto PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.1f"
+Xset sample 500
+Xset title "pareto PDF with a = 1, b = 3"
+Xplot pareto(x)
+Xpause -1 "Hit return to continue"
+Xset title "pareto CDF with a = 1, b = 3"
+Xset yrange [0: 1.1]
+Xplot cpareto(x)
+Xpause -1 "Hit return to continue"
+X
+X# Poisson PDF and CDF
+Xmu = 4.0
+Xsigma = sqrt(mu)
+Xxmin = int(mu - 4.0 * sigma)
+Xxmin = xmin < 0 ? 0 : xmin
+Xxmax = int(mu + 4.0 * sigma)
+Xxinc = ceil((xmax - xmin) / 10)
+Xxinc = xinc > 1 ? xinc : 1
+Xymax = 1.1 * poisson(mu) #mode of poisson PDF used
+Xset nokey
+Xset nozeroaxis
+Xset xrange [xmin : xmax]
+Xset yrange [0 : ymax]
+Xset xlabel "k ->"
+Xset ylabel "probability density ->"
+Xset xtics xmin + 0.499, xinc, xmax
+Xset ytics 0, ymax / 10, ymax
+Xset format x "%2.0f"
+Xset format y "%3.2f"
+Xset sample (xmax - xmin) + 1
+Xset title "poisson PDF with mu = 4.0"
+Xplot poisson(x) with steps
+Xpause -1 "Hit return to continue"
+Xset yrange [0 : 1.1]
+Xset ytics 0, 1.1 / 10.5, 1.1
+Xset title "poisson CDF with mu = 4.0"
+Xplot cpoisson(x) with steps
+Xpause -1 "Hit return to continue"
+X
+X# Rayleigh PDF and CDF
+Xlambda = 2.0
+Xmu = 0.5 * sqrt(pi / lambda)
+Xsigma = sqrt((1.0 - pi / 4.0) / lambda)
+Xxmax = mu + 4.0 * sigma
+Xymax = 1.1 * rayleigh(1.0 / sqrt(2.0 * lambda)) #Mode of rayleigh PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [0: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "rayleigh PDF with lambda = 2.0"
+Xplot rayleigh(x)
+Xpause -1 "Hit return to continue"
+Xset title "rayleigh CDF with lambda = 2.0"
+Xset yrange [0: 1.1]
+Xplot crayleigh(x)
+Xpause -1 "Hit return to continue"
+X
+X# Sine PDF and CDF
+X#a = 3.0; n = 2
+X#mu = a / 2.0
+X#sigma = sqrt(a * a / 3.0 * (1.0 - 3.0 / (2.0 * n * n * pi * pi)) - mu * mu)
+X#xmin = 0.0
+X#xmax = a
+X#ymax = 1.1 * 2.0 / a #Mode of sine PDF used
+Xset key
+Xset zeroaxis
+X#set xrange [xmin: xmax]
+X#set yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "sine PDF"
+Xplot [0:2] [0:1.1] a = 2.0, n = 1, sine(x) title "a = 2.0, n = 1", \
+X                   a = 2.0, n = 3, sine(x) title "a = 2.0, n = 3"
+Xpause -1 "Hit return to continue"
+Xset title "sine CDF"
+Xplot [0:2] [0:1.1] a = 2.0, n = 1, csine(x) title "a = 2.0, n = 1", \
+X                   a = 2.0, n = 3, csine(x) title "a = 2.0, n = 3"
+Xpause -1 "Hit return to continue"
+X
+X# t PDF and CDF
+Xdf1 = 3.0
+Xmu = 0.0
+Xsigma = df1 > 2.0 ? sqrt(df1 / (df1 - 2.0)) : 1.0
+Xxmin = mu - 4.0 * sigma
+Xxmax = mu + 4.0 * sigma
+Xymax = 1.1 * t(mu) #Mode of t PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "t PDF with df1 = 3.0"
+Xplot t(x)
+Xpause -1 "Hit return to continue"
+Xset title "t CDF with df1 = 3.0"
+Xset yrange [0: 1.1]
+Xplot ct(x)
+Xpause -1 "Hit return to continue"
+X
+X# Thanks to efrank@upenn5.hep.upenn.edu for telling us about this
+X# triangular PDF and CDF
+Xm = 3.0
+Xg = 2.0
+Xmu = m
+Xsigma = g/sqrt(6.0)
+Xxmin = m - g
+Xxmax = m + g
+Xymax = 1.1 * triangular(m) #Mode of triangular PDF used
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.1f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "triangular PDF with m = 3.0, g = 2.0"
+Xplot triangular(x)
+Xpause -1 "Hit return to continue"
+Xset title "triangular CDF with m = 3.0, g = 2.0"
+Xset yrange [0: 1.1]
+Xplot ctriangular(x)
+Xpause -1 "Hit return to continue"
+X
+X# Uniform PDF and CDF
+Xa = -2.0; b= 2.0
+Xmu = (a + b) / 2.0
+Xsigma = (b - a) / sqrt(12.0)
+Xxmin = a
+Xxmax = b
+Xymax = 1.1 * uniform(mu) #No mode
+Xset nokey
+Xset zeroaxis
+Xset xrange [xmin: xmax]
+Xset yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.2f"
+Xset sample 100
+Xset title "uniform PDF with a = -2.0, b = 2.0"
+Xplot uniform(x)
+Xpause -1 "Hit return to continue"
+Xset title "uniform CDF with a = -2.0, b = 2.0"
+Xset yrange [0: 1.1]
+Xplot cuniform(x)
+Xpause -1 "Hit return to continue"
+X
+X# Weibull PDF and CDF
+X#lambda = 1.0; n = 1.5
+X#mu = lambda**(-1.0 / n) * gamma(1.0 / n) / n
+X#sigma = sqrt(2.0 * lambda**(-2.0 / n) * gamma(2.0 / n) / n - mu * mu)
+X#xmin = mu - 4.0 * sigma
+X#xmin = xmin < 0 ? 0 : xmin
+X#xmax = mu + 4.0 * sigma
+X#Mode of weibull PDF used
+X#ymax = 1.1 * (n > 1.0 ? weibull(((n - 1.0) / (lambda * n))**(1.0 / n)) : 2.0)
+Xset key
+Xset zeroaxis
+X#set xrange [xmin : xmax]
+X#set yrange [0: ymax]
+Xset xlabel "x ->"
+Xset ylabel "probability density ->"
+Xset xtics
+Xset ytics
+Xset format x "%.2f"
+Xset format y "%.1f"
+Xset sample 100
+Xset title "weibull PDF"
+Xplot [0:2] [0:1.5] lambda = 1, n = 0.5, weibull(x) title "lambda = 1, n = 0.5", \
+X                   lambda = 1, n = 1.0, weibull(x) title "lambda = 1, n = 1.0", \
+X                   lambda = 1, n = 2.0, weibull(x) title "lambda = 1, n = 2.0", \
+X                   lambda = 3, n = 2.0, weibull(x) title "lambda = 3, n = 2.0"
+Xpause -1 "Hit return to continue"
+Xset title "weibull CDF"
+Xplot [0:3] [0:1.2] lambda = 1, n = 0.5, cweibull(x) title "lambda = 1, n = 0.5", \
+X                   lambda = 1, n = 1.0, cweibull(x) title "lambda = 1, n = 1.0", \
+X                   lambda = 1, n = 2.0, cweibull(x) title "lambda = 1, n = 2.0", \
+X                   lambda = 3, n = 2.0, cweibull(x) title "lambda = 3, n = 2.0"
+Xload "defaults.ini"
+END_OF_FILE
+  if test 21935 -ne `wc -c <'gnuplot/demo/prob.dem'`; then
+    echo shar: \"'gnuplot/demo/prob.dem'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/demo/prob.dem'
+fi
+if test -f 'gnuplot/graph3d.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/graph3d.c.B'\"
+else
+  echo shar: Extracting \"'gnuplot/graph3d.c.B'\" \(39930 characters\)
+  sed "s/^X//" >'gnuplot/graph3d.c.B' <<'END_OF_FILE'
+X      xmin_box = 0x7fff; 
+X      xmax_box = 0;
+X      ymin_box = 0x7fff; 
+X      ymax_box = 0;
+X      TESTBOX(nodes[j].x-xleft,nodes[j].y-ybot);
+X      TESTBOX(nodes[j+1].x-xleft,nodes[j+1].y-ybot);
+X      TESTBOX(nodes[j+row_offset].x-xleft,nodes[j+row_offset].y-ybot);
+X      TESTBOX(nodes[j+row_offset+1].x-xleft,nodes[j+row_offset+1].y-ybot);
+X      z=0;
+X      if(xmin_box < 0) xmin_box = 0;
+X      if(ymin_box < 0) ymin_box = 0;
+X      if(xmax_box > xright-xleft) xmax_box = xright-xleft;
+X      if(ymax_box > ytop-ybot) ymax_box = ytop-ybot;
+X      /* Now check bitmap.  These coordinates have not been reduced */
+X      if(xmin_box <= xmax_box && ymin_box <= ymax_box){
+X	ymin_box = YREDUCE(ymin_box);
+X	ymax_box = YREDUCE(ymax_box);
+X	xmin_box = XREDUCE(xmin_box);
+X	xmax_box = XREDUCE(xmax_box);
+X	indx1 = ymin_box >> 4;
+X	indx2 = ymax_box >> 4;
+X	mask1 = 0xffff << (ymin_box & 0x0f);
+X	mask2 = 0xffff >> (0x0f-(ymax_box & 0x0f));
+X	for(m=xmin_box;m<=xmax_box;m++) {
+X	  if(pnt[m] == 0) {z++; break;};
+X	  cpnt = pnt[m] + indx1;
+X	  if(indx1 == indx2){
+X	    if((*cpnt & mask1 & mask2) != (mask1 & mask2)) {z++; break;}
+X	  } else {
+X	    if((*cpnt++ & mask1) != mask1) {z++; break;}
+X	    k = indx1+1;
+X	    while (k != indx2) {
+X	      if((unsigned short)*cpnt++ != 0xffff) {z++; break;}
+X	      k++;
+X	    };
+X	    if((*cpnt++ & mask2) != mask2) {z++; break;}
+X	  };
+X	};
+X      };
+X      /* z is 0 if all of the pixels used by the current box are already covered.
+X	 No point in proceeding, so we just skip all further processing of this
+X	 box. */
+X      if(!z) continue;
+X      /* Now we need to figure out whether we are looking at the top or the
+X	 bottom of the square.  A simple cross product will tell us this.
+X	 If the square is really distorted then this will not be accurate,
+X	 but in such cases we would actually be seeing both sides at the same
+X	 time.  We choose the vertex with the largest z component to
+X	 take the cross product at.  */
+X      {
+X	int z1, z2 ,z3, z4;
+X	z1 = XPRD(j+row_offset,j,j+1);
+X	z2 = XPRD(j,j+1,j+1+row_offset);
+X	z3 = XPRD(j+1,j+row_offset+1,j+row_offset);
+X	z4 = XPRD(j+row_offset+1,j+row_offset,j);
+X	z=0;
+X	z += (z1 > 0 ? 1 : -1);
+X	z += (z2 > 0 ? 1 : -1);
+X	z += (z3 > 0 ? 1 : -1);
+X	z += (z4 > 0 ? 1 : -1);
+X	/* See if the box is uniformly one side or another. */
+X	if(z != 4 && z != -4) {
+X/* It isn't.  Now find the corner of the box with the largest z value that
+X   has already been plotted, and use the same style used for that node.  */
+X	  k = -1000;
+X	  x = -32768;
+X	  if (nodes[j].z > x && nodes[j].style_used !=-1000) {
+X	    k = nodes[j].style_used;
+X	    x = nodes[j].z;
+X	  };
+X	  if (nodes[j+1].z > x && nodes[j+1].style_used !=-1000) {
+X	    k = nodes[j+1].style_used;
+X	    x = nodes[j+1].z;
+X	  };
+X	  if (nodes[j+row_offset+1].z > x && nodes[j+row_offset+1].style_used !=-1000) {
+X	    k = nodes[j+row_offset+1].style_used;
+X	    x = nodes[j+row_offset+1].z;
+X	  };
+X	  if (nodes[j+row_offset].z > x && nodes[j+row_offset].style_used !=-1000) {
+X	    k = nodes[j+row_offset].style_used;
+X	    x = nodes[j+row_offset].z;
+X	  };
+X	  if( k != -1000){
+X	    z = 0; /* To defeat the logic to come.  */
+X	    current_style = k;
+X	    (*t->linetype)(current_style);
+X	  };
+X	};
+X	/* If k == -1000 then no corner found.  I guess it does not matter.  */
+X      };
+X      if(z > 0 && current_style != plot_info[nplot].above_color) {
+X	current_style = plot_info[nplot].above_color;
+X	(*t->linetype)(current_style);
+X      };
+X      if(z < 0 && current_style != plot_info[nplot].below_color) {
+X	current_style = plot_info[nplot].below_color;
+X	(*t->linetype)(current_style);
+X      };
+X      xmin_hl = (sizeof(xleft) == 4 ? 0x7fffffff : 0x7fff ); 
+X      xmax_hl = 0;
+X      clip_move(nodes[j].x,nodes[j].y);
+X      clip_vector(nodes[j+1].x,nodes[j+1].y);
+X      clip_vector(nodes[j+row_offset+1].x,nodes[j+row_offset+1].y);
+X      clip_vector(nodes[j+row_offset].x,nodes[j+row_offset].y);
+X      clip_vector(nodes[j].x,nodes[j].y);
+X      nodes[j].style_used = current_style;
+X      nodes[j+1].style_used = current_style;
+X      nodes[j+row_offset+1].style_used = current_style;
+X      nodes[j+row_offset].style_used = current_style;
+X      MAYBE_LINEPOINT(j);
+X      MAYBE_LINEPOINT(j+1);
+X      MAYBE_LINEPOINT(j+row_offset+1);
+X      MAYBE_LINEPOINT(j+row_offset);
+X      if( xmin_hl < 0 || xmax_hl > XREDUCE(xright)-XREDUCE(xleft))
+X	int_error("Logic error #3 in hidden line",NO_CARET);
+X      /* now mark the area as being filled in the bitmap.  These coordinates
+X         have already been reduced. */
+X      if (xmin_hl < xmax_hl)
+X	for(j=xmin_hl;j<=xmax_hl;j++) {
+X	  if (ymin_hl[j] == 0x7fff) 
+X	    int_error("Logic error #2 in hidden line",NO_CARET);
+X	  if(pnt[j] == 0) {
+X	    pnt[j] = (short int *) alloc((unsigned long)y_malloc,"hidden");
+X	    bzero(pnt[j],y_malloc);
+X	  };
+X	  if(ymin_hl[j] < 0 || ymax_hl[j] > YREDUCE(ytop)-YREDUCE(ybot))
+X	    int_error("Logic error #1 in hidden line",NO_CARET);
+X/* this shift is wordsize dependent */
+X	  indx1 = ymin_hl[j] >> 4;
+X	  indx2 = ymax_hl[j] >> 4;
+X	  mask1 = 0xffff << (ymin_hl[j] & 0xf);
+X	  mask2 = 0xffff >> (0xf-(ymax_hl[j] & 0xf));
+X	  cpnt = pnt[j] + indx1;
+X	  if(indx1 == indx2){
+X	    *cpnt |= (mask1 & mask2);
+X	  } else {
+X	    *cpnt++ |= mask1;
+X	    k = indx1+1;
+X	    while (k != indx2) {
+X	      *cpnt++ = 0xffff; 
+X	      k++;
+X	    };
+X	    *cpnt |= mask2;
+X	  };
+X	  ymin_hl[j]=0x7fff; 
+X	  ymax_hl[j]=0;
+X	};
+X    };
+X  };
+X  free(nodes);
+X  free(boxlist);
+X  free(plot_info);
+X}
+X
+X#endif /* not LITE */
+X
+Xstatic plot3d_lines(plot)
+X	struct surface_points *plot;
+X{
+X    int i;
+X    int x,y;				/* point in terminal coordinates */
+X    struct iso_curve *icrvs = plot->iso_crvs;
+X    struct coordinate GPHUGE *points;
+X
+X#ifndef LITE
+X/* These are handled elsewhere.  */
+X    if (plot->has_grid_topology && hidden3d)
+X	return(0);
+X#endif /* not LITE */
+X
+X    while (icrvs) {
+X
+X	for (i = 0, points = icrvs->points; i < icrvs->p_count; i++) {
+X	    if (real_z_max3d<points[i].z)
+X		real_z_max3d=points[i].z;
+X	    if (real_z_min3d>points[i].z)
+X		real_z_min3d=points[i].z;
+X
+X	    map3d_xy(points[i].x, points[i].y, points[i].z, &x, &y);
+X
+X	    if (i > 0)
+X		clip_vector(x,y);
+X	    else
+X		clip_move(x,y);
+X	}
+X
+X	icrvs = icrvs->next;
+X    }
+X}
+X
+X/* plot3d_points:
+X * Plot the surfaces in POINTSTYLE style
+X */
+Xstatic plot3d_points(plot)
+X	struct surface_points *plot;
+X{
+X    int i,x,y;
+X    struct termentry *t = &term_tbl[term];
+X    struct iso_curve *icrvs = plot->iso_crvs;
+X
+X    while ( icrvs ) {
+X	struct coordinate GPHUGE *points = icrvs->points;
+X
+X	for (i = 0; i < icrvs->p_count; i++) {
+X	    if (real_z_max3d<points[i].z)
+X		real_z_max3d=points[i].z;
+X	    if (real_z_min3d>points[i].z)
+X		real_z_min3d=points[i].z;
+X
+X	    map3d_xy(points[i].x, points[i].y, points[i].z, &x, &y);
+X
+X	    if (!clip_point(x,y))
+X		(*t->point)(x,y, plot->point_type);
+X	}
+X
+X	icrvs = icrvs->next;
+X    }
+X}
+X
+X/* plot3d_dots:
+X * Plot the surfaces in DOTS style
+X */
+Xstatic plot3d_dots(plot)
+X	struct surface_points *plot;
+X{
+X    int i,x,y;
+X    struct termentry *t = &term_tbl[term];
+X    struct iso_curve *icrvs = plot->iso_crvs;
+X
+X    while ( icrvs ) {
+X	struct coordinate GPHUGE *points = icrvs->points;
+X
+X    	for (i = 0; i < icrvs->p_count; i++) {
+X	    if (real_z_max3d<points[i].z)
+X		real_z_max3d=points[i].z;
+X	    if (real_z_min3d>points[i].z)
+X    		real_z_min3d=points[i].z;
+X
+X    	    map3d_xy(points[i].x, points[i].y, points[i].z, &x, &y);
+X
+X    	    if (!clip_point(x,y))
+X		(*t->point)(x,y, -1);
+X    	}
+X
+X	icrvs = icrvs->next;
+X    }
+X}
+X
+X/* cntr3d_impulses:
+X * Plot a surface contour in IMPULSES style
+X */
+Xstatic cntr3d_impulses(cntr, plot)
+X	struct gnuplot_contours *cntr;
+X	struct surface_points *plot;
+X{
+X    int i;				/* point index */
+X    int x,y,x0,y0;			/* point in terminal coordinates */
+X
+X    if (draw_contour == CONTOUR_SRF || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
+X		     &x, &y);
+X	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, z_min3d,
+X		     &x0, &y0);
+X
+X	    clip_move(x0,y0);
+X	    clip_vector(x,y);
+X	}
+X    }
+X    else
+X	cntr3d_points(cntr, plot);   /* Must be on base grid, so do points. */
+X}
+X
+X/* cntr3d_lines:
+X * Plot a surface contour in LINES style
+X */
+Xstatic cntr3d_lines(cntr)
+X	struct gnuplot_contours *cntr;
+X{
+X    int i;				/* point index */
+X    int x,y;				/* point in terminal coordinates */
+X
+X    if (draw_contour == CONTOUR_SRF || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
+X    		     &x, &y);
+X
+X 			if (i > 0) {
+X 				clip_vector(x,y);
+X 				if(i == 1) suppressMove = TRUE;
+X 			} else {
+X 				clip_move(x,y);
+X 			}
+X    	}
+X    }
+X 	suppressMove = FALSE;  /* beginning a new contour level, so moveto() required */
+X
+X    if (draw_contour == CONTOUR_BASE || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, z_min3d,
+X    		     &x, &y);
+X
+X 			if (i > 0) {
+X 				clip_vector(x,y);
+X 				if(i == 1) suppressMove = TRUE;
+X 			} else {
+X 				clip_move(x,y);
+X 			}
+X 		}
+X 	}
+X 	suppressMove = FALSE;  /* beginning a new contour level, so moveto() required */
+X}
+X
+X/* cntr3d_points:
+X * Plot a surface contour in POINTSTYLE style
+X */
+Xstatic cntr3d_points(cntr, plot)
+X	struct gnuplot_contours *cntr;
+X	struct surface_points *plot;
+X{
+X    int i;
+X    int x,y;
+X    struct termentry *t = &term_tbl[term];
+X
+X    if (draw_contour == CONTOUR_SRF || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
+X    		     &x, &y);
+X
+X	    if (!clip_point(x,y))
+X		(*t->point)(x,y, plot->point_type);
+X    	}
+X    }
+X
+X    if (draw_contour == CONTOUR_BASE || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, z_min3d,
+X    		     &x, &y);
+X
+X	    if (!clip_point(x,y))
+X		(*t->point)(x,y, plot->point_type);
+X    	}
+X    }
+X}
+X
+X/* cntr3d_dots:
+X * Plot a surface contour in DOTS style
+X */
+Xstatic cntr3d_dots(cntr)
+X	struct gnuplot_contours *cntr;
+X{
+X    int i;
+X    int x,y;
+X    struct termentry *t = &term_tbl[term];
+X
+X    if (draw_contour == CONTOUR_SRF || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
+X    		     &x, &y);
+X
+X	    if (!clip_point(x,y))
+X		(*t->point)(x,y, -1);
+X    	}
+X    }
+X
+X    if (draw_contour == CONTOUR_BASE || draw_contour == CONTOUR_BOTH) {
+X	for (i = 0; i < cntr->num_pts; i++) {
+X	    if (real_z_max3d<cntr->coords[i].z)
+X		real_z_max3d=cntr->coords[i].z;
+X	    if (real_z_min3d>cntr->coords[i].z)
+X		real_z_min3d=cntr->coords[i].z;
+X
+X    	    map3d_xy(cntr->coords[i].x, cntr->coords[i].y, z_min3d,
+X    		     &x, &y);
+X
+X	    if (!clip_point(x,y))
+X		(*t->point)(x,y, -1);
+X    	}
+X    }
+X}
+X
+Xstatic update_extrema_pts(ix, iy, min_sx_x, min_sx_y, min_sy_x, min_sy_y,
+X			  x, y)
+X	int ix, iy, *min_sx_x, *min_sx_y, *min_sy_x, *min_sy_y;
+X	double x, y;
+X{
+X
+X    if (*min_sx_x > ix + 2 ||         /* find (bottom) left corner of grid */
+X	(abs(*min_sx_x - ix) <= 2 && *min_sx_y > iy)) {
+X	*min_sx_x = ix;
+X	*min_sx_y = iy;
+X	min_sx_ox = x;
+X	min_sx_oy = y;
+X    }
+X    if (*min_sy_y > iy + 2 ||         /* find bottom (right) corner of grid */
+X	(abs(*min_sy_y - iy) <= 2 && *min_sy_x < ix)) {
+X	*min_sy_x = ix;
+X	*min_sy_y = iy;
+X	min_sy_ox = x;
+X	min_sy_oy = y;
+X    }
+X}
+X
+X/* Draw the bottom grid for the parametric case. */
+Xstatic draw_parametric_grid(plot)
+X	struct surface_points *plot;
+X{
+X    int i,ix,iy,			/* point in terminal coordinates */
+X	min_sx_x = 10000,min_sx_y = 10000,min_sy_x = 10000,min_sy_y = 10000,
+X        grid_iso_1 = plot->plot_type == DATA3D && plot->has_grid_topology ?
+X					plot->iso_crvs->p_count : iso_samples_1,
+X        grid_iso_2 = plot->plot_type == DATA3D && plot->has_grid_topology ?
+X					plot->num_iso_read : iso_samples_2;
+X    double x,y,dx,dy;
+X
+X    if (grid && plot->has_grid_topology) {
+X
+X	/* fix grid lines to tic marks, D. Taber, 02-01-93 */
+X	if(xtics && xticdef.type == TIC_SERIES) {
+X		dx = xticdef.def.series.incr;
+X		x = xticdef.def.series.start;
+X		grid_iso_1 = 1 + (xticdef.def.series.end - x) / dx;
+X	} else {
+X		x = x_min3d;
+X	dx = (x_max3d-x_min3d) / (grid_iso_1-1);
+X	}
+X
+X	if(ytics && yticdef.type == TIC_SERIES) {
+X		dy = yticdef.def.series.incr;
+X		y = yticdef.def.series.start;
+X		grid_iso_2 = 1 + (yticdef.def.series.end - y) / dy;
+X	} else {
+X		y = y_min3d;
+X	dy = (y_max3d-y_min3d) / (grid_iso_2-1);
+X	}
+X
+X	for (i = 0; i < grid_iso_2; i++) {
+X	        if (i == 0 || i == grid_iso_2-1)	        
+X		    setlinestyle(-2);
+X		else
+X		    setlinestyle(-1);
+X		map3d_xy(x_min3d, y, z_min3d, &ix, &iy);
+X		clip_move(ix,iy);
+X		update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X				   &min_sy_x,&min_sy_y,x_min3d,y);
+X
+X		map3d_xy(x_max3d, y, z_min3d, &ix, &iy);
+X		clip_vector(ix,iy);
+X		update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X				   &min_sy_x,&min_sy_y,x_max3d,y);
+X
+X		y += dy;
+X	}
+X
+X	for (i = 0; i < grid_iso_1; i++) {
+X	        if (i == 0 || i == grid_iso_1-1)
+X		    setlinestyle(-2);
+X		else
+X		    setlinestyle(-1);
+X		map3d_xy(x, y_min3d, z_min3d, &ix, &iy);
+X		clip_move(ix,iy);
+X		update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X				   &min_sy_x,&min_sy_y,x,y_min3d);
+X
+X		map3d_xy(x, y_max3d, z_min3d, &ix, &iy);
+X		clip_vector(ix,iy);
+X		update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X				   &min_sy_x,&min_sy_y,x,y_max3d);
+X
+X		x += dx;
+X	}
+X    }
+X    else {
+X	setlinestyle(-2);
+X
+X	map3d_xy(x_min3d, y_min3d, z_min3d, &ix, &iy);
+X	clip_move(ix,iy);
+X	update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X			   &min_sy_x,&min_sy_y,x_min3d,y_min3d);
+X
+X	map3d_xy(x_max3d, y_min3d, z_min3d, &ix, &iy);
+X	clip_vector(ix,iy);
+X	update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X			   &min_sy_x,&min_sy_y,x_max3d,y_min3d);
+X
+X	map3d_xy(x_max3d, y_max3d, z_min3d, &ix, &iy);
+X	clip_vector(ix,iy);
+X	update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X			   &min_sy_x,&min_sy_y,x_max3d,y_max3d);
+X
+X	map3d_xy(x_min3d, y_max3d, z_min3d, &ix, &iy);
+X	clip_vector(ix,iy);
+X	update_extrema_pts(ix,iy,&min_sx_x,&min_sx_y,
+X			   &min_sy_x,&min_sy_y,x_min3d,y_max3d);
+X
+X
+X	map3d_xy(x_min3d, y_min3d, z_min3d, &ix, &iy);
+X	clip_vector(ix,iy);
+X    }
+X}
+X
+X/* Draw the bottom grid for non parametric case. */
+Xstatic draw_non_param_grid(plot)
+X	struct surface_points *plot;
+X{
+X    int i,is_boundary=TRUE,crv_count=0,
+X	x,y,				/* point in terminal coordinates */
+X	min_sx_x = 10000,min_sx_y = 10000,min_sy_x = 10000,min_sy_y = 10000,
+X        grid_iso = plot->plot_type == DATA3D && plot->has_grid_topology ?
+X					plot->num_iso_read : iso_samples_2;
+X    struct iso_curve *icrvs = plot->iso_crvs;
+X
+X    while ( icrvs ) {
+X	struct coordinate GPHUGE *points = icrvs->points;
+X	int saved_hidden_active = hidden_active;
+X	int z1 = map3d_z(points[0].x, points[0].y, 0.0),
+X	       z2 = map3d_z(points[icrvs->p_count-1].x,
+X                            points[icrvs->p_count-1].y, 0.0);
+X
+X	for (i = 0; i < icrvs->p_count; i += icrvs->p_count-1) {
+X	    map3d_xy(points[i].x, points[i].y, z_min3d, &x, &y);
+X	    if (is_boundary) {
+X		setlinestyle(-2);
+X	    }
+X	    else {
+X	        setlinestyle(-1);
+X	    }
+X
+X	    if (i > 0) {
+X	    	clip_vector(x,y);
+X	    }
+X	    else {
+X	    	clip_move(x,y);
+X	    }
+X
+X	    if (draw_surface &&
+X	        is_boundary &&
+X	    	(i == 0 || i == icrvs->p_count-1)) {
+X	    	int x1,y1;		    /* point in terminal coordinates */
+X
+X		/* Draw a vertical line to surface corner from grid corner. */
+X	    	map3d_xy(points[i].x, points[i].y, points[i].z, &x1, &y1);
+X#ifndef LITE
+X	    	if (hidden3d) {
+X		    if ((i == 0 && z1 > z2) ||
+X		        (i == icrvs->p_count-1 && z2 > z1)) {
+X		        hidden_active = FALSE; /* This one is always visible. */
+X		    }	    		
+X	    	}
+X#endif /* not LITE */
+X	    	clip_vector(x1,y1);
+X	    	clip_move(x,y);
+X		hidden_active = saved_hidden_active;
+X		update_extrema_pts(x,y,&min_sx_x,&min_sx_y, &min_sy_x,&min_sy_y,
+X				   points[i].x,points[i].y);
+X	    }
+X	}
+X
+X	if (grid) {
+X	    crv_count++;
+X	    icrvs = icrvs->next;
+X	    is_boundary = crv_count == grid_iso - 1 ||
+X			  crv_count == grid_iso ||
+X			  (icrvs && icrvs->next == NULL);
+X	}
+X	else {
+X	    switch (crv_count++) {
+X		case 0:
+X		    for (i = 0; i < grid_iso - 1; i++)
+X			icrvs = icrvs->next;
+X		    break;
+X		case 1:
+X		    icrvs = icrvs->next;
+X		    break;
+X		case 2:
+X		    while (icrvs->next)
+X			icrvs = icrvs->next;
+X		    break;
+X		case 3:
+X		    icrvs = NULL;
+X		    break;
+X	    }
+X    	}
+X    }
+X    if(hidden3d){
+X      struct iso_curve *lcrvs = plot->iso_crvs;
+X      struct coordinate GPHUGE *points, GPHUGE *lpoints;
+X      icrvs = lcrvs;
+X      while(lcrvs->next) lcrvs = lcrvs->next;
+X      points = icrvs->points;
+X      lpoints = lcrvs->points;
+X      is_boundary = TRUE;
+X      for (i = 0; i < icrvs->p_count; i += (grid ? 1 : icrvs->p_count - 1)) {
+X	if ((i == 0) || (i == icrvs->p_count - 1)) {
+X	  setlinestyle(-2);
+X	}
+X	else {
+X	  setlinestyle(-1);
+X	}
+X	map3d_xy(points[i].x, points[i].y, z_min3d, &x, &y);
+X	clip_move(x, y);
+X	map3d_xy(lpoints[i].x, lpoints[i].y, z_min3d, &x, &y);
+X	clip_vector(x, y);
+X      };
+X    };
+X}
+X
+X/* Draw the bottom grid that hold the tic marks for 3d surface. */
+Xstatic draw_bottom_grid(plot, min_z, max_z)
+X	struct surface_points *plot;
+X	double min_z, max_z;
+X{
+X    int x,y;	/* point in terminal coordinates */
+X    double xtic,ytic,ztic;
+X    struct termentry *t = &term_tbl[term];
+X
+X    xtic = make_3dtics(x_min3d,x_max3d,'x',is_log_x,base_log_x);
+X    ytic = make_3dtics(y_min3d,y_max3d,'y',is_log_y,base_log_y);
+X    ztic = make_3dtics(min_z,max_z,'z',is_log_z,base_log_z);
+X
+X    if (draw_border)
+X	if (parametric || !plot->has_grid_topology)
+X	    draw_parametric_grid(plot);
+X	else
+X	    draw_non_param_grid(plot);
+X
+X    setlinestyle(-2); /* border linetype */
+X
+X/* label x axis tics */
+X    if (xtics && xtic > 0.0) {
+X    	switch (xticdef.type) {
+X    	    case TIC_COMPUTED:
+X 		if (x_min3d < x_max3d)
+X		    draw_3dxtics(xtic * floor(x_min3d/xtic),
+X    				 xtic,
+X    				 xtic * ceil(x_max3d/xtic),
+X    				 min_sy_oy);
+X    	    	else
+X		    draw_3dxtics(xtic * floor(x_max3d/xtic),
+X    				 xtic,
+X    				 xtic * ceil(x_min3d/xtic),
+X    				 min_sy_oy);
+X    		break;
+X	    case TIC_MONTH:
+X		draw_month_3dxtics(min_sy_oy);
+X		break;
+X	    case TIC_DAY:
+X		draw_day_3dxtics(min_sy_oy);
+X		break;
+X	    case TIC_SERIES:
+X		draw_series_3dxtics(xticdef.def.series.start, 
+X				    xticdef.def.series.incr, 
+X				    xticdef.def.series.end,
+X				    min_sy_oy);
+X		break;
+X	    case TIC_USER:
+X		draw_set_3dxtics(xticdef.def.user,
+X				 min_sy_oy);
+X		break;
+X    	    default:
+X    		(*t->text)();
+X    		(void) fflush(outfile);
+X    		int_error("unknown tic type in xticdef in do_3dplot", NO_CARET);
+X    		break;		/* NOTREACHED */
+X    	}
+X    }
+X/* label y axis tics */
+X    if (ytics && (ytic > 0.0)) {
+X    	switch (yticdef.type) {
+X    	    case TIC_COMPUTED:
+X 		if (y_min3d < y_max3d) {
+X		    draw_3dytics(ytic * floor(y_min3d/ytic),
+X    				 ytic,
+X    				 ytic * ceil(y_max3d/ytic),
+X    				 min_sy_ox);
+X		 }else{
+X		    draw_3dytics(ytic * floor(y_max3d/ytic),
+X    				 ytic,
+X    				 ytic * ceil(y_min3d/ytic),
+X    				 min_sy_ox);
+X		}
+X    		break;
+X	    case TIC_MONTH:
+X		draw_month_3dytics(min_sy_ox);
+X		break;
+X	    case TIC_DAY:
+X		draw_day_3dytics(min_sy_ox);
+X		break;
+X	    case TIC_SERIES:
+X		draw_series_3dytics(yticdef.def.series.start, 
+X				    yticdef.def.series.incr, 
+X				    yticdef.def.series.end,
+X				    min_sy_ox);
+X		break;
+X	    case TIC_USER:
+X		draw_set_3dytics(yticdef.def.user,
+X				 min_sy_ox);
+X		break;
+X    	    default:
+X    		(*t->text)();
+X    		(void) fflush(outfile);
+X    		int_error("unknown tic type in yticdef in do_3dplot", NO_CARET);
+X    		break;		/* NOTREACHED */
+X    	}
+X    }
+X/* label z axis tics */
+X    if (ztics && ztic > 0.0 && (draw_surface ||
+X				draw_contour == CONTOUR_SRF ||
+X				draw_contour == CONTOUR_BOTH)) {
+X    	switch (zticdef.type) {
+X    	    case TIC_COMPUTED:
+X 		if (min_z < max_z)
+X		    draw_3dztics(ztic * floor(min_z/ztic),
+X    				 ztic,
+X    				 ztic * ceil(max_z/ztic),
+X				 min_sx_ox,
+X    				 min_sx_oy,
+X    				 min_z,
+X				 max_z);
+X    	    	else
+X		    draw_3dztics(ztic * floor(max_z/ztic),
+X    				 ztic,
+X    				 ztic * ceil(min_z/ztic),
+X    				 min_sx_ox,
+X				 min_sx_oy,
+X    				 max_z,
+X				 min_z);
+X    		break;
+X	    case TIC_MONTH:
+X		draw_month_3dztics(min_sx_ox,min_sx_oy,min_z,max_z);
+X		break;
+X	    case TIC_DAY:
+X		draw_day_3dztics(min_sx_ox,min_sx_oy,min_z,max_z);
+X		break;
+X	    case TIC_SERIES:
+X		draw_series_3dztics(zticdef.def.series.start, 
+X				    zticdef.def.series.incr, 
+X				    zticdef.def.series.end,
+X				    min_sx_ox,
+X				    min_sx_oy,
+X				    min_z,
+X				    max_z);
+X
+X		break;
+X	    case TIC_USER:
+X		draw_set_3dztics(zticdef.def.user,
+X				 min_sx_ox,
+X    				 min_sx_oy,
+X    				 min_z,
+X				 max_z);
+X		break;
+X    	    default:
+X    		(*t->text)();
+X    		(void) fflush(outfile);
+X    		int_error("unknown tic type in zticdef in do_3dplot", NO_CARET);
+X    		break;		/* NOTREACHED */
+X    	}
+X    }
+X
+X/* PLACE XLABEL - along the middle grid X axis */
+X    if (strlen(xlabel) > 0) {
+X	   int x1,y1;
+X	   double step = apx_eq( min_sy_oy, y_min3d ) ?	(y_max3d-y_min3d)/4
+X						      : (y_min3d-y_max3d)/4;
+X    	   map3d_xy((x_min3d+x_max3d)/2,min_sy_oy-step, z_min3d,&x1,&y1);
+X	   x1 += xlabel_xoffset * t->h_char;
+X	   y1 += xlabel_yoffset * t->v_char;
+X	   if ((*t->justify_text)(CENTRE))
+X		clip_put_text(x1,y1,xlabel);
+X	   else
+X		clip_put_text(x1 - strlen(xlabel)*(t->h_char)/2,y1,xlabel);
+X    }
+X
+X/* PLACE YLABEL - along the middle grid Y axis */
+X    if (strlen(ylabel) > 0) {
+X	   int x1,y1;
+X	   double step = apx_eq( min_sy_ox, x_min3d ) ?	(x_max3d-x_min3d)/4
+X						      : (x_min3d-x_max3d)/4;
+X    	   map3d_xy(min_sy_ox-step,(y_min3d+y_max3d)/2,z_min3d,&x1,&y1);
+X	   x1 += ylabel_xoffset * t->h_char;
+X	   y1 += ylabel_yoffset * t->v_char;
+X	   if ((*t->justify_text)(CENTRE))
+X		clip_put_text(x1,y1,ylabel);
+X	   else
+X		clip_put_text(x1 - strlen(ylabel)*(t->h_char)/2,y1,ylabel);
+X    }
+X
+X/* PLACE ZLABEL - along the middle grid Z axis */
+X    if (strlen(zlabel) > 0 &&
+X        (draw_surface ||
+X	 draw_contour == CONTOUR_SRF ||
+X	 draw_contour == CONTOUR_BOTH)) {
+X    	   map3d_xy(min_sx_ox,min_sx_oy,max_z + (max_z-min_z)/4, &x, &y);
+X
+X	   x += zlabel_xoffset * t->h_char;
+X	   y += zlabel_yoffset * t->v_char;
+X	   if ((*t->justify_text)(CENTRE))
+X		clip_put_text(x,y,zlabel);
+X	   else
+X		clip_put_text(x - strlen(zlabel)*(t->h_char)/2,y,zlabel);
+X    }
+X}
+X
+X/* DRAW_3DXTICS: draw a regular tic series, x axis */
+Xstatic draw_3dxtics(start, incr, end, ypos)
+X	double start, incr, end, ypos; /* tic series definition */
+X		/* assume start < end, incr > 0 */
+X{
+X	double ticplace;
+X	int ltic;		/* for mini log tics */
+X	double lticplace;	/* for mini log tics */
+X
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X		if (ticplace < start || ticplace > end) continue;
+X		xtick(ticplace, xformat, incr, 1.0, ypos);
+X		if (is_log_x && incr == 1.0) {
+X			/* add mini-ticks to log scale ticmarks */
+X			for (ltic = 2; ltic < (int)base_log_x; ltic++) {
+X				lticplace = ticplace+log((double)ltic)/log_base_log_x;
+X				xtick(lticplace, "\0", incr, 0.5, ypos);
+X			}
+X		}
+X	}
+X}
+X
+X/* DRAW_3DYTICS: draw a regular tic series, y axis */
+Xstatic draw_3dytics(start, incr, end, xpos)
+X	double start, incr, end, xpos; /* tic series definition */
+X		/* assume start < end, incr > 0 */
+X{
+X	double ticplace;
+X	int ltic;		/* for mini log tics */
+X	double lticplace;	/* for mini log tics */
+X
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X		if (ticplace < start || ticplace > end) continue;
+X		ytick(ticplace, yformat, incr, 1.0, xpos);
+X		if (is_log_y && incr == 1.0) {
+X			/* add mini-ticks to log scale ticmarks */
+X			for (ltic = 2; ltic < (int)base_log_y; ltic++) {
+X				lticplace = ticplace+log((double)ltic)/log_base_log_y;
+X				ytick(lticplace, "\0", incr, 0.5, xpos);
+X			}
+X		}
+X	}
+X}
+X
+X/* DRAW_3DZTICS: draw a regular tic series, z axis */
+Xstatic draw_3dztics(start, incr, end, xpos, ypos, z_min, z_max)
+X	double start, incr, end, xpos, ypos, z_min, z_max;
+X		/* assume start < end, incr > 0 */
+X{
+X	int x, y;
+X	double ticplace;
+X	int ltic;		/* for mini log tics */
+X	double lticplace;	/* for mini log tics */
+X
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X		if (ticplace < start || ticplace > end) continue;
+X
+X		ztick(ticplace, zformat, incr, 1.0, xpos, ypos);
+X		if (is_log_z && incr == 1.0) {
+X			/* add mini-ticks to log scale ticmarks */
+X			for (ltic = 2; ltic < (int)base_log_z; ltic++) {
+X				lticplace = ticplace+log((double)ltic)/log_base_log_z;
+X				ztick(lticplace, "\0", incr, 0.5, xpos, ypos);
+X			}
+X		}
+X	}
+X
+X	/* Make sure the vertical line is fully drawn. */
+X	setlinestyle(-2);	/* axis line type */
+X
+X	map3d_xy(xpos, ypos, z_min3d, &x, &y);
+X	clip_move(x,y);
+X	map3d_xy(xpos, ypos, min(end,z_max)+(is_log_z ? incr : 0.0), &x, &y);
+X	clip_vector(x,y);
+X
+X	setlinestyle(-1); /* border linetype */
+X}
+X
+X/* DRAW_SERIES_3DXTICS: draw a user tic series, x axis */
+Xstatic draw_series_3dxtics(start, incr, end, ypos)
+X		double start, incr, end, ypos; /* tic series definition */
+X		/* assume start < end, incr > 0 */
+X{
+X	double ticplace, place;
+X	double ticmin, ticmax;	/* for checking if tic is almost inrange */
+X	double spacing = is_log_x ? log(incr)/log_base_log_x : incr;
+X
+X	if (end == VERYLARGE)
+X		end = max(CheckLog(is_log_x, base_log_x, x_min3d),
+X			  CheckLog(is_log_x, base_log_x, x_max3d));
+X	else
+X	  /* limit to right side of plot */
+X	  end = min(end, max(CheckLog(is_log_x, base_log_x, x_min3d),
+X			     CheckLog(is_log_x, base_log_x, x_max3d)));
+X
+X	/* to allow for rounding errors */
+X	ticmin = min(x_min3d,x_max3d) - SIGNIF*incr;
+X	ticmax = max(x_min3d,x_max3d) + SIGNIF*incr;
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X	    place = (is_log_x ? log(ticplace)/log_base_log_x : ticplace);
+X	    if ( inrange(place,ticmin,ticmax) )
+X		 xtick(place, xformat, spacing, 1.0, ypos);
+X	}
+X}
+X
+X/* DRAW_SERIES_3DYTICS: draw a user tic series, y axis */
+Xstatic draw_series_3dytics(start, incr, end, xpos)
+X		double start, incr, end, xpos; /* tic series definition */
+X		/* assume start < end, incr > 0 */
+X{
+X	double ticplace, place;
+X	double ticmin, ticmax;	/* for checking if tic is almost inrange */
+X	double spacing = is_log_y ? log(incr)/log_base_log_y : incr;
+X
+X	if (end == VERYLARGE)
+X		end = max(CheckLog(is_log_y, base_log_y, y_min3d),
+X			  CheckLog(is_log_y, base_log_y, y_max3d));
+X	else
+X	  /* limit to right side of plot */
+X	  end = min(end, max(CheckLog(is_log_y, base_log_y, y_min3d),
+X			     CheckLog(is_log_y, base_log_y, y_max3d)));
+X
+X	/* to allow for rounding errors */
+X	ticmin = min(y_min3d,y_max3d) - SIGNIF*incr;
+X	ticmax = max(y_min3d,y_max3d) + SIGNIF*incr;
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X	    place = (is_log_y ? log(ticplace)/log_base_log_y : ticplace);
+X	    if ( inrange(place,ticmin,ticmax) )
+X		 ytick(place, xformat, spacing, 1.0, xpos);
+X	}
+X}
+X
+X/* DRAW_SERIES_3DZTICS: draw a user tic series, z axis */
+Xstatic draw_series_3dztics(start, incr, end, xpos, ypos, z_min, z_max)
+X		double start, incr, end; /* tic series definition */
+X		double xpos, ypos, z_min, z_max;
+X		/* assume start < end, incr > 0 */
+X{
+X	int x, y;
+X	double ticplace, place;
+X	double ticmin, ticmax;	/* for checking if tic is almost inrange */
+X	double spacing = is_log_x ? log(incr)/log_base_log_x : incr;
+X
+X	if (end == VERYLARGE)
+X		end = max(CheckLog(is_log_z, base_log_z, z_min),
+X			  CheckLog(is_log_z, base_log_z, z_max));
+X	else
+X	  /* limit to right side of plot */
+X	  end = min(end, max(CheckLog(is_log_z, base_log_z, z_min),
+X			     CheckLog(is_log_z, base_log_z, z_max)));
+X
+X	/* to allow for rounding errors */
+X	ticmin = min(z_min,z_max) - SIGNIF*incr;
+X	ticmax = max(z_min,z_max) + SIGNIF*incr;
+X	end = end + SIGNIF*incr; 
+X
+X	for (ticplace = start; ticplace <= end; ticplace +=incr) {
+X	    place = (is_log_z ? log(ticplace)/log_base_log_z : ticplace);
+X	    if ( inrange(place,ticmin,ticmax) )
+X		 ztick(place, zformat, spacing, 1.0, xpos, ypos);
+X	}
+X
+X	/* Make sure the vertical line is fully drawn. */
+X	setlinestyle(-2);	/* axis line type */
+X
+X	map3d_xy(xpos, ypos, z_min3d, &x, &y);
+X	clip_move(x,y);
+X	map3d_xy(xpos, ypos, min(end,z_max)+(is_log_z ? incr : 0.0), &x, &y);
+X	clip_vector(x,y);
+X
+X	setlinestyle(-1); /* border linetype */
+X}
+Xextern char *month[];
+Xextern char *day[];
+Xdraw_month_3dxtics(ypos)
+Xdouble ypos;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)x_min3d;
+X    if((double)l_ticplace<x_min3d)l_ticplace++;
+X    l_end=(long)x_max3d;
+X    l_incr=(l_end-l_ticplace)/12;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=(l_ticplace-1)%12;
+X	if(m_calc<0)m_calc += 12;
+X	xtick((double)l_ticplace,month[m_calc],(double)l_incr,1.0,ypos);
+X	l_ticplace += l_incr;
+X    }
+X}
+Xdraw_month_3dytics(xpos)
+Xdouble xpos;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)y_min3d;
+X    if((double)l_ticplace<y_min3d)l_ticplace++;
+X    l_end=(long)y_max3d;
+X    l_incr=(l_end-l_ticplace)/12;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=(l_ticplace-1)%12;
+X	if(m_calc<0)m_calc += 12;
+X	ytick((double)l_ticplace,month[m_calc],(double)l_incr,1.0,xpos);
+X	l_ticplace += l_incr;
+X    }
+X}
+Xdraw_month_3dztics(xpos,ypos,z_min3d,z_max3d)
+Xdouble xpos,ypos,z_min3d,z_max3d;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)z_min3d;
+X    if((double)l_ticplace<z_min3d)l_ticplace++;
+X    l_end=(long)z_max3d;
+X    l_incr=(l_end-l_ticplace)/12;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=(l_ticplace-1)%12;
+X	if(m_calc<0)m_calc += 12;
+X	ztick((double)l_ticplace,month[m_calc],(double)l_incr,1.0,xpos,ypos);
+X	l_ticplace += l_incr;
+X    }
+X}
+Xdraw_day_3dxtics(ypos)
+Xdouble ypos;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)x_min3d;
+X    if((double)l_ticplace<x_min3d)l_ticplace++;
+X    l_end=(long)x_max3d;
+X    l_incr=(l_end-l_ticplace)/14;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=l_ticplace%7;
+X	if(m_calc<0)m_calc += 7;
+X	xtick((double)l_ticplace,day[m_calc],(double)l_incr,1.0,ypos);
+X	l_ticplace += l_incr;
+X    }
+X}
+Xdraw_day_3dytics(xpos)
+Xdouble xpos;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)y_min3d;
+X    if((double)l_ticplace<y_min3d)l_ticplace++;
+X    l_end=(long)y_max3d;
+X    l_incr=(l_end-l_ticplace)/14;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=l_ticplace%7;
+X	if(m_calc<0)m_calc += 7;
+X	ytick((double)l_ticplace,day[m_calc],(double)l_incr,1.0,xpos);
+X	l_ticplace += l_incr;
+X    }
+X}
+Xdraw_day_3dztics(xpos,ypos,z_min3d,z_max3d)
+Xdouble xpos,ypos,z_min3d,z_max3d;
+X{
+X    long l_ticplace,l_incr,l_end,m_calc;
+X
+X    l_ticplace = (long)z_min3d;
+X    if((double)l_ticplace<z_min3d)l_ticplace++;
+X    l_end=(long)z_max3d;
+X    l_incr=(l_end-l_ticplace)/14;
+X    if(l_incr<1)l_incr=1;
+X    while(l_ticplace<=l_end)
+X    {	m_calc=l_ticplace%7;
+X	if(m_calc<0)m_calc += 7;
+X	ztick((double)l_ticplace,day[m_calc],(double)l_incr,1.0,xpos,ypos);
+X	l_ticplace += l_incr;
+X    }
+X}
+X/* DRAW_SET_3DXTICS: draw a user tic set, x axis */
+Xstatic draw_set_3dxtics(list, ypos)
+X	struct ticmark *list;	/* list of tic marks */
+X	double ypos;
+X{
+X    double ticplace;
+X    double incr = (x_max3d - x_min3d) / 10;
+X    /* global x_min3d, x_max3d, xscale, y_min3d, y_max3d, yscale */
+X
+X    while (list != NULL) {
+X	   ticplace = (is_log_x ? log(list->position)/log_base_log_x
+X				: list->position);
+X	   if ( inrange(ticplace, x_min3d, x_max3d) 		/* in range */
+X		  || NearlyEqual(ticplace, x_min3d, incr)	/* == x_min */
+X		  || NearlyEqual(ticplace, x_max3d, incr))	/* == x_max */
+X		xtick(ticplace, list->label, incr, 1.0, ypos);
+X
+X	   list = list->next;
+X    }
+X}
+X
+X/* DRAW_SET_3DYTICS: draw a user tic set, y axis */
+Xstatic draw_set_3dytics(list, xpos)
+X	struct ticmark *list;	/* list of tic marks */
+X	double xpos;
+X{
+X    double ticplace;
+X    double incr = (y_max3d - y_min3d) / 10;
+X    /* global x_min3d, x_max3d, xscale, y_min3d, y_max3d, yscale */
+X
+X    while (list != NULL) {
+X	   ticplace = (is_log_y ? log(list->position)/log_base_log_y
+X				: list->position);
+X	   if ( inrange(ticplace, y_min3d, y_max3d) 		  /* in range */
+X		  || NearlyEqual(ticplace, y_min3d, incr)	/* == y_min3d */
+X		  || NearlyEqual(ticplace, y_max3d, incr))	/* == y_max3d */
+X		ytick(ticplace, list->label, incr, 1.0, xpos);
+X
+X	   list = list->next;
+X    }
+X}
+X
+X/* DRAW_SET_3DZTICS: draw a user tic set, z axis */
+Xstatic draw_set_3dztics(list, xpos, ypos, z_min, z_max)
+X	struct ticmark *list;	/* list of tic marks */
+X	double xpos, ypos, z_min, z_max;
+X{
+X    int x, y;
+X    double ticplace;
+X    double incr = (z_max - z_min) / 10;
+X
+X    while (list != NULL) {
+X	   ticplace = (is_log_z ? log(list->position)/log_base_log_z
+X				: list->position);
+X	   if ( inrange(ticplace, z_min, z_max) 		/* in range */
+X		  || NearlyEqual(ticplace, z_min, incr)		/* == z_min */
+X		  || NearlyEqual(ticplace, z_max, incr))	/* == z_max */
+X		ztick(ticplace, list->label, incr, 1.0, xpos, ypos);
+X
+X	   list = list->next;
+X    }
+X
+X    /* Make sure the vertical line is fully drawn. */
+X    setlinestyle(-2);	/* axis line type */
+X
+X    map3d_xy(xpos, ypos, z_min, &x, &y);
+X    clip_move(x,y);
+X    map3d_xy(xpos, ypos, z_max+(is_log_z ? incr : 0.0), &x, &y);
+X    clip_vector(x,y);
+X
+X    setlinestyle(-1); /* border linetype */
+X}
+X
+X/* draw and label a x-axis ticmark */
+Xstatic xtick(place, text, spacing, ticscale, ypos)
+X        double place;                   /* where on axis to put it */
+X        char *text;                     /* optional text label */
+X        double spacing;         /* something to use with checkzero */
+X        double ticscale;         /* scale factor for tic mark (0..1] */
+X	double ypos;
+X{
+X    register struct termentry *t = &term_tbl[term];
+X    char ticlabel[101];
+X    int x0,y0,x1,y1,x2,y2,x3,y3;
+X    int ticsize = (int)((t->h_tic) * ticscale);
+X    double v[2], len;
+X
+X    place = CheckZero(place,spacing); /* to fix rounding error near zero */
+X
+X
+X    if(x_max3d> x_min3d){
+X    	if (place > x_max3d || place < x_min3d) return(0);
+X    }else{
+X    	if (place > x_min3d || place < x_max3d) return(0);
+X    }
+X
+X    map3d_xy(place, ypos, z_min3d, &x0, &y0);
+X    /* need to figure out which is in. pick the middle point along the */
+X    /* axis as in.						       */
+X    map3d_xy(place, (y_max3d + y_min3d) / 2, z_min3d, &x1, &y1);
+X
+X    /* compute a vector of length 1 into the grid: */
+X    v[0] = x1 - x0;
+X    v[1] = y1 - y0;
+X    len = sqrt(v[0] * v[0] + v[1] * v[1]);
+X    if (len == 0.0) return;
+X    v[0] /= len;
+X    v[1] /= len;
+X
+X    if (tic_in) {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x1 + ((int) (v[0] * ticsize));
+X	y2 = y1 + ((int) (v[1] * ticsize));
+X    	x3 = x0 - ((int) (v[0] * ticsize * 3)); /* compute text position */
+X    	y3 = y0 - ((int) (v[1] * ticsize * 3));
+X    } else {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x0 - ((int) (v[0] * ticsize));
+X	y2 = y0 - ((int) (v[1] * ticsize));
+X    	x3 = x0 - ((int) (v[0] * ticsize * 4)); /* compute text position */
+X    	y3 = y0 - ((int) (v[1] * ticsize * 4));
+X    }
+X    clip_move(x1,y1);
+X    clip_vector(x2,y2);
+X
+X    /* label the ticmark */
+X    if (text == NULL)
+X	 text = xformat;
+X
+X    (void) sprintf(ticlabel, text, CheckLog(is_log_x, base_log_x, place));
+X    if (apx_eq(v[0], 0.0)) {
+X    	if ((*t->justify_text)(CENTRE)) {
+X    	    clip_put_text(x3,y3,ticlabel);
+X    	} else {
+X    	    clip_put_text(x3-(t->h_char)*strlen(ticlabel)/2,y3,ticlabel);
+X    	}
+X    }
+X    else if (v[0] > 0) {
+X    	if ((*t->justify_text)(RIGHT)) {
+X    	    clip_put_text(x3,y3,ticlabel);
+X    	} else {
+X    	    clip_put_text(x3-(t->h_char)*strlen(ticlabel),y3,ticlabel);
+X    	}
+X    } else {
+X    	(*t->justify_text)(LEFT);
+X	clip_put_text(x3,y3,ticlabel);
+X    }
+X}
+X
+X/* draw and label a y-axis ticmark */
+Xstatic ytick(place, text, spacing, ticscale, xpos)
+X        double place;                   /* where on axis to put it */
+X        char *text;                     /* optional text label */
+X        double spacing;         /* something to use with checkzero */
+X        double ticscale;         /* scale factor for tic mark (0..1] */
+X	double xpos;
+X{
+X    register struct termentry *t = &term_tbl[term];
+X    char ticlabel[101];
+X    int x0,y0,x1,y1,x2,y2,x3,y3;
+X    int ticsize = (int)((t->h_tic) * ticscale);
+X    double v[2], len;
+X
+X    place = CheckZero(place,spacing); /* to fix rounding error near zero */
+X
+X    if(y_max3d> y_min3d){
+X    	if (place > y_max3d || place < y_min3d) return(0);
+X    }else{
+X    	if (place > y_min3d || place < y_max3d) return(0);
+X    }
+X
+X    map3d_xy(xpos, place, z_min3d, &x0, &y0);
+X    /* need to figure out which is in. pick the middle point along the */
+X    /* axis as in.						       */
+X    map3d_xy((x_max3d + x_min3d) / 2, place, z_min3d, &x1, &y1);
+X
+X    /* compute a vector of length 1 into the grid: */
+X    v[0] = x1 - x0;
+X    v[1] = y1 - y0;
+X    len = sqrt(v[0] * v[0] + v[1] * v[1]);
+X    if (len == 0.0) return(0);
+X    v[0] /= len;
+X    v[1] /= len;
+X
+X    if (tic_in) {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x1 + ((int) (v[0] * ticsize));
+X	y2 = y1 + ((int) (v[1] * ticsize));
+X    	x3 = x0 - ((int) (v[0] * ticsize * 3)); /* compute text position */
+X    	y3 = y0 - ((int) (v[1] * ticsize * 3));
+X    } else {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x0 - ((int) (v[0] * ticsize));
+X	y2 = y0 - ((int) (v[1] * ticsize));
+X    	x3 = x0 - ((int) (v[0] * ticsize * 4)); /* compute text position */
+X    	y3 = y0 - ((int) (v[1] * ticsize * 4));
+X    }
+X    clip_move(x1,y1);
+X    clip_vector(x2,y2);
+X
+X    /* label the ticmark */
+X    if (text == NULL)
+X	 text = yformat;
+X
+X    (void) sprintf(ticlabel, text, CheckLog(is_log_y, base_log_y, place));
+X    if (apx_eq(v[0], 0.0)) {
+X    	if ((*t->justify_text)(CENTRE)) {
+X    	    clip_put_text(x3,y3,ticlabel);
+X    	} else {
+X    	    clip_put_text(x3-(t->h_char)*strlen(ticlabel)/2,y3,ticlabel);
+X    	}
+X    }
+X    else if (v[0] > 0) {
+X    	if ((*t->justify_text)(RIGHT)) {
+X    	    clip_put_text(x3,y3,ticlabel);
+X    	} else {
+X    	    clip_put_text(x3-(t->h_char)*strlen(ticlabel),y3,ticlabel);
+X    	}
+X    } else {
+X    	(*t->justify_text)(LEFT);
+X	clip_put_text(x3,y3,ticlabel);
+X    }
+X}
+X
+X/* draw and label a z-axis ticmark */
+Xstatic ztick(place, text, spacing, ticscale, xpos, ypos)
+X        double place;                   /* where on axis to put it */
+X        char *text;                     /* optional text label */
+X        double spacing;         /* something to use with checkzero */
+X        double ticscale;         /* scale factor for tic mark (0..1] */
+X	double xpos, ypos;
+X{
+X    register struct termentry *t = &term_tbl[term];
+X    char ticlabel[101];
+X    int x0,y0,x1,y1,x2,y2,x3,y3;
+X    int ticsize = (int)((t->h_tic) * ticscale);
+X
+X    place = CheckZero(place,spacing); /* to fix rounding error near zero */
+X
+X    map3d_xy(xpos, ypos, place, &x0, &y0);
+X
+X    if (tic_in) {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x0 + ticsize;
+X	y2 = y0;
+X    	x3 = x0 - ticsize;
+X    	y3 = y0;
+X    } else {
+X	x1 = x0;
+X	y1 = y0;
+X	x2 = x0 - ticsize;
+X	y2 = y0;
+X    	x3 = x0 - ticsize * 2; /* compute text position */
+X    	y3 = y0;
+X    }
+X    clip_move(x1,y1);
+X    clip_vector(x2,y2);
+X
+X    /* label the ticmark */
+X    if (text == NULL)
+X	 text = zformat;
+X
+X    (void) sprintf(ticlabel, text, CheckLog(is_log_z, base_log_z, place));
+X    if ((*t->justify_text)(RIGHT)) {
+X        clip_put_text(x3,y3,ticlabel);
+X    } else {
+X        clip_put_text(x3-(t->h_char)*(strlen(ticlabel)+1),y3,ticlabel);
+X    }
+X}
+END_OF_FILE
+  if test 39930 -ne `wc -c <'gnuplot/graph3d.c.B'`; then
+    echo shar: \"'gnuplot/graph3d.c.B'\" unpacked with wrong size!
+  elif test -f 'gnuplot/graph3d.c.A' ; then
+    echo shar: Combining  \"'gnuplot/graph3d.c'\" \(82372 characters\)
+    cat 'gnuplot/graph3d.c.A' 'gnuplot/graph3d.c.B' > 'gnuplot/graph3d.c'
+    if test 82372 -ne `wc -c <'gnuplot/graph3d.c'`; then
+      echo shar: \"'gnuplot/graph3d.c'\" combined with wrong size!
+    else  
+      rm gnuplot/graph3d.c.A gnuplot/graph3d.c.B
+    fi
+  fi
+  # end of 'gnuplot/graph3d.c.B'
+fi
+echo shar: End of archive 16 \(of 33\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

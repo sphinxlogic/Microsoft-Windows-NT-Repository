@@ -1,0 +1,1301 @@
+From: eay@psych.psy.uq.oz.au (Eric Young)
+Newsgroups: comp.sources.misc
+Subject: v40i012: libdes - DES encryption library, Part05/05
+Date: 14 Oct 1993 18:02:12 +0100
+Sender: aem@aber.ac.uk
+Approved: aem@aber.ac.uk
+Message-ID: <29k0mk$1ml@uk-usenet.uk.sun.com>
+X-Md4-Signature: caf29918256b2dc5b90cf0ee4d4b796b
+
+Submitted-by: eay@psych.psy.uq.oz.au (Eric Young)
+Posting-number: Volume 40, Issue 12
+Archive-name: libdes/part05
+Environment: C
+Supersedes: libdes: Volume 29, Issue 43-46
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  3cbc_enc.c 3ecb_enc.c CHANGES INSTALL Imakefile KERBEROS
+#   PC1 PC2 cbc_enc.c cfb_enc.c doIP doPC1 ofb_enc.c podd.h qud_cksm.c
+#   rand_key.c rpw.c shifts.pl
+# Wrapped by alecm@uk-usenet on Wed Oct 13 10:33:50 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 5)."'
+if test -f '3cbc_enc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'3cbc_enc.c'\"
+else
+  echo shar: Extracting \"'3cbc_enc.c'\" \(1370 characters\)
+  sed "s/^X//" >'3cbc_enc.c' <<'END_OF_FILE'
+X/* 3cbc_enc.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+Xint des_3cbc_encrypt(input,output,length,ks1,ks2,iv1,iv2,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule ks1,ks2;
+Xdes_cblock *iv1,*iv2;
+Xint encrypt;
+X	{
+X	int off=length/8-1;
+X	des_cblock niv1,niv2;
+X
+Xprintf("3cbc\n");
+Xxp(iv1);
+Xxp(iv1);
+Xxp(iv2);
+Xxp(input);
+X	if (encrypt == DES_ENCRYPT)
+X		{
+X		des_cbc_encrypt(input,output,length,ks1,iv1,encrypt);
+X		if (length >= sizeof(des_cblock))
+X			bcopy(output[off],niv1,sizeof(des_cblock));
+X		des_cbc_encrypt(output,output,length,ks2,iv1,!encrypt);
+X		des_cbc_encrypt(output,output,length,ks1,iv2, encrypt);
+X		if (length >= sizeof(des_cblock))
+X			bcopy(output[off],niv2,sizeof(des_cblock));
+X		bcopy(niv1,*iv1,sizeof(des_cblock));
+X		}
+X	else
+X		{
+X		if (length >= sizeof(des_cblock))
+X			bcopy(input[off],niv1,sizeof(des_cblock));
+X		des_cbc_encrypt(input,output,length,ks1,iv1,encrypt);
+X		des_cbc_encrypt(output,output,length,ks2,iv2,!encrypt);
+X		if (length >= sizeof(des_cblock))
+X			bcopy(output[off],niv2,sizeof(des_cblock));
+X		des_cbc_encrypt(output,output,length,ks1,iv2, encrypt);
+X		}
+X	bcopy(niv1,iv1,sizeof(des_cblock));
+X	bcopy(niv2,iv2,sizeof(des_cblock));
+Xxp(iv1);
+Xxp(iv1);
+Xxp(iv2);
+Xxp(output);
+X	return(0);
+X	}
+X
+Xxp(a)
+Xunsigned char *a;
+X{ int i; for(i=0; i<8; i++) printf("%02X",a[i]);printf("\n");}
+END_OF_FILE
+  if test 1370 -ne `wc -c <'3cbc_enc.c'`; then
+    echo shar: \"'3cbc_enc.c'\" unpacked with wrong size!
+  fi
+  # end of '3cbc_enc.c'
+fi
+if test -f '3ecb_enc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'3ecb_enc.c'\"
+else
+  echo shar: Extracting \"'3ecb_enc.c'\" \(600 characters\)
+  sed "s/^X//" >'3ecb_enc.c' <<'END_OF_FILE'
+X/* 3ecb_enc.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+Xint des_3ecb_encrypt(input,output,ks1,ks2,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xdes_key_schedule ks1,ks2;
+Xint encrypt;
+X	{
+X	register unsigned long l0,l1,t;
+X	register unsigned char *in,*out;
+X	unsigned long ll[2];
+X
+X	in=(unsigned char *)input;
+X	out=(unsigned char *)output;
+X	c2l(in,l0);
+X	c2l(in,l1);
+X	ll[0]=l0;
+X	ll[1]=l1;
+X	des_encrypt(ll,ll,ks1,encrypt);
+X	des_encrypt(ll,ll,ks2,!encrypt);
+X	des_encrypt(ll,ll,ks1,encrypt);
+X	l0=ll[0];
+X	l1=ll[1];
+X	l2c(l0,out);
+X	l2c(l1,out);
+X	return(0);
+X	}
+X
+END_OF_FILE
+  if test 600 -ne `wc -c <'3ecb_enc.c'`; then
+    echo shar: \"'3ecb_enc.c'\" unpacked with wrong size!
+  fi
+  # end of '3ecb_enc.c'
+fi
+if test -f 'CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CHANGES'\"
+else
+  echo shar: Extracting \"'CHANGES'\" \(663 characters\)
+  sed "s/^X//" >'CHANGES' <<'END_OF_FILE'
+XThe main changes in this package since it was last posted to
+Xcomp.sources.misc are
+X
+XThe main changes are
+X- Major changes to the Copyright restrictions.
+X- Lots and lots of features added to the des(1) command, including
+X  - Triple DES, both triple ECB and triple CBC options.
+X  - uuencodeing/uudecoding built in to des(1).
+X  - generate checksums.
+X  - hex keys.
+X- Cleaned up the prototypes in des.h
+X- Filenames are now mostly <= 8 characters long.
+X- OFB, CFB, triple ECB and triple CBC modes of DES added to the library.
+X- Compiles and runs of all 64bit machines I could test the code on
+X  (Cray, ETA10, DEC Alpha).
+X- It really does work with kerberos v 4 now :-).
+END_OF_FILE
+  if test 663 -ne `wc -c <'CHANGES'`; then
+    echo shar: \"'CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'CHANGES'
+fi
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(2169 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+XCheck the CC and CFLAGS lines in the makefile
+X
+XIf your C library does not support the times(3) function, change the
+X#define TIMES to
+X#undef TIMES in speed.c
+XIf it does, check the HZ value for the times(3) function.
+XIf your system does not define CLK_TCK it will be assumed to
+Xbe 60.
+X
+XIf possible use gcc v 2.2.2
+XTurn on the maximum optimising
+X
+Xtype 'make'
+X
+Xrun './destest' to check things are ok.
+Xrun './rpw' to check the tty code for reading passwords works.
+Xrun './speed' to see how fast those optimisations make the library run :-)
+X
+XA make install will by default install
+Xlibdes.a      in /usr/local/lib/libdes.a
+Xdes           in /usr/local/bin/des
+Xdes_crypt.man in /usr/local/man/man3/des_crypt.3
+Xdes.man       in /usr/local/man/man1/des.1
+Xdes.h         in /usr/include/des.h
+X
+Xdes(1) should be compatible with sunOS's but I have been unable to
+Xtest it.
+X
+XThese routines should compile on MSDOS, most 32bit and 64bit version
+Xof Unix (BSD and SYSV) and VMS, without modification.
+XThe only problems should be #include files that are in the wrong places.
+X
+XThese routines can be compiled under MSDOS.
+XI have successfully encrypted files using des(1) under MSDOS and then
+Xdecrypted the files on a SparcStation.
+XI have been able to compile and test the routines with
+XMicrosoft C v 5.1 and Turbo C v 2.0.
+XThe code in this library is in no way optimised for the 16bit
+Xoperation of MSDOS.  Microsoft C generates code that is 40% slower
+Xthan Turbo C's code.  I believe this is due to problems it has with
+Xcode generation with the 32bit shift operation in the IP and FP
+Xsections.  I have added some 16bit optimization in ecb_encrypt.c
+Xand this generated a %70 speedup under Turbo C.  Such are the
+Xlimitations of DOS compilers :-(.
+X
+XFor Turbo C v 2.0, make sure to define MSDOS, in the relevant menu.
+X
+XThere is an alternative version of the D_ENCRYPT macro that can be
+Xenabled with the -DALT_ECB option in the makefile.  This alternative
+Xmacro can make a +-%20 speed difference to the DES encryption speed,
+Xdepending on the compiler/CPU combinations.
+XIt has its greatest effect on Sparc machines when using the sun compiler.
+XIf in doubt, try enable/disable it and running speed.
+END_OF_FILE
+  if test 2169 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Imakefile'\"
+else
+  echo shar: Extracting \"'Imakefile'\" \(1013 characters\)
+  sed "s/^X//" >'Imakefile' <<'END_OF_FILE'
+X# This Imakefile has not been tested for a while but it should still
+X# work when placed in the correct directory in the kerberos v 4 distribution
+X
+XSRCS=   cbc_cksm.c cbc_enc.c ecb_enc.c pcbc_enc.c \
+X        qud_cksm.c rand_key.c read_pwd.c set_key.c str2key.c \
+X        enc_read.c enc_writ.c fcrypt.c cfb_enc.c \
+X	3ecb_enc.c ofb_enc.c
+X
+XOBJS=   cbc_cksm.o cbc_enc.o ecb_enc.o pcbc_enc.o \
+X	qud_cksm.o rand_key.o read_pwd.o set_key.o str2key.o \
+X	enc_read.o enc_writ.o fcrypt.o cfb_enc.o \
+X	3ecb_enc.o ofb_enc.o
+X
+XGENERAL=COPYING FILES INSTALL Imakefile README VERSION makefile times \
+X	vms.com KERBEROS
+XDES=    des.c des.man
+XTESTING=destest.c speed.c rpw.c
+XLIBDES= des_crypt.man des.h des_locl.h podd.h sk.h spr.h
+X
+XPERL=   des.pl testdes.pl doIP doPC1 doPC2 PC1 PC2 shifts.pl
+X
+XCODE=    $(GENERAL) $(DES) $(TESTING) $(SRCS) $(LIBDES) $(PERL)
+X
+XSRCDIR=$(SRCTOP)/lib/des
+X
+XDBG= -O
+XINCLUDE= -I$(SRCDIR)
+XCC= cc
+X
+Xlibrary_obj_rule()
+X
+Xinstall_library_target(des,$(OBJS),$(SRCS),)
+X
+Xtest(destest,libdes.a,)
+Xtest(rpw,libdes.a,)
+END_OF_FILE
+  if test 1013 -ne `wc -c <'Imakefile'`; then
+    echo shar: \"'Imakefile'\" unpacked with wrong size!
+  fi
+  # end of 'Imakefile'
+fi
+if test -f 'KERBEROS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'KERBEROS'\"
+else
+  echo shar: Extracting \"'KERBEROS'\" \(1398 characters\)
+  sed "s/^X//" >'KERBEROS' <<'END_OF_FILE'
+XTo use this library with Bones (kerberos without DES):
+X1) Get my modified Bones - eBones.  It can be found on
+X   gondwana.ecr.mu.oz.au (128.250.1.63) /pub/athena/eBones-p9.tar.Z
+X   and
+X   nic.funet.fi (128.214.6.100) /pub/unix/security/Kerberos/eBones-p9.tar.Z
+X
+X2) Unpack this library in src/lib/des, makeing sure it is version
+X   3.00 or greater (libdes.tar.93-10-07.Z).  This versions differences
+X   from the version in comp.sources.misc volume 29 patchlevel2.
+X   The primarily difference is that it should compile under kerberos :-).
+X   It can be found at.
+X   ftp.psy.uq.oz.au (130.102.32.1) /pub/DES/libdes.tar.93-10-07.Z
+X
+XNow do a normal kerberos build and things should work.
+X
+XOne problem I found when I was build on my local sun.
+X---
+XFor sunOS 4.1.1 apply the following patch to src/util/ss/make_commands.c
+X
+X*** make_commands.c.orig	Fri Jul  3 04:18:35 1987
+X--- make_commands.c	Wed May 20 08:47:42 1992
+X***************
+X*** 98,104 ****
+X       if (!rename(o_file, z_file)) {
+X  	  if (!vfork()) {
+X  	       chdir("/tmp");
+X! 	       execl("/bin/ld", "ld", "-o", o_file+5, "-s", "-r", "-n",
+X  		     z_file+5, 0);
+X  	       perror("/bin/ld");
+X  	       _exit(1);
+X--- 98,104 ----
+X       if (!rename(o_file, z_file)) {
+X  	  if (!vfork()) {
+X  	       chdir("/tmp");
+X! 	       execl("/bin/ld", "ld", "-o", o_file+5, "-s", "-r",
+X  		     z_file+5, 0);
+X  	       perror("/bin/ld");
+X  	       _exit(1);
+END_OF_FILE
+  if test 1398 -ne `wc -c <'KERBEROS'`; then
+    echo shar: \"'KERBEROS'\" unpacked with wrong size!
+  fi
+  # end of 'KERBEROS'
+fi
+if test -f 'PC1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PC1'\"
+else
+  echo shar: Extracting \"'PC1'\" \(454 characters\)
+  sed "s/^X//" >'PC1' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X@PC1=(  57,49,41,33,25,17, 9,
+X	 1,58,50,42,34,26,18,
+X	10, 2,59,51,43,35,27,
+X	19,11, 3,60,52,44,36,
+X	"-","-","-","-",
+X	63,55,47,39,31,23,15,
+X	 7,62,54,46,38,30,22,
+X	14, 6,61,53,45,37,29,
+X	21,13, 5,28,20,12, 4,
+X	"-","-","-","-",
+X	);
+X
+Xforeach (@PC1)
+X	{
+X	if ($_ ne "-")
+X		{
+X		$_--;
+X		$_=int($_/8)*8+7-($_%8);
+X		printf "%2d  ",$_;
+X		}
+X	else
+X		{ print "--  "; }
+X	print "\n" if (((++$i) % 8) == 0);
+X	print "\n" if ((($i) % 32) == 0);
+X	}
+X
+END_OF_FILE
+  if test 454 -ne `wc -c <'PC1'`; then
+    echo shar: \"'PC1'\" unpacked with wrong size!
+  fi
+  # end of 'PC1'
+fi
+if test -f 'PC2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PC2'\"
+else
+  echo shar: Extracting \"'PC2'\" \(861 characters\)
+  sed "s/^X//" >'PC2' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X@PC2_C=(14,17,11,24, 1, 5,
+X	 3,28,15, 6,21,10,
+X	23,19,12, 4,26, 8,
+X	16, 7,27,20,13, 2,
+X	);
+X
+X@PC2_D=(41,52,31,37,47,55,
+X	30,40,51,45,33,48,
+X	44,49,39,56,34,53,
+X	46,42,50,36,29,32,
+X	);
+X
+Xforeach (@PC2_C) {
+X	if ($_ ne "-")
+X		{
+X		$_--;
+X		printf "%2d  ",$_; }
+X	else { print "--  "; }
+X	$C{$_}=1;
+X	print "\n" if (((++$i) % 8) == 0);
+X	}
+X$i=0;
+Xprint "\n";
+Xforeach (@PC2_D) {
+X	if ($_ ne "-")
+X		{
+X		$_-=29;
+X		printf "%2d  ",$_; }
+X	else { print "--  "; }
+X	$D{$_}=1;
+X	print "\n" if (((++$i) % 8) == 0); }
+X
+Xprint "\n";
+Xforeach $i (0 .. 27)
+X	{
+X	$_=$C{$i};
+X	if ($_ ne "-") {printf "%2d ",$_;}
+X	else { print "--  "; }
+X	print "\n" if (((++$i) % 8) == 0);
+X	}
+Xprint "\n";
+X
+Xprint "\n";
+Xforeach $i (0 .. 27)
+X	{
+X	$_=$D{$i};
+X	if ($_ ne "-") {printf "%2d  ",$_;}
+X	else { print "--  "; }
+X	print "\n" if (((++$i) % 8) == 0);
+X	}
+Xprint "\n";
+Xsub numsort
+X	{
+X	$a-$b;
+X	}
+END_OF_FILE
+  if test 861 -ne `wc -c <'PC2'`; then
+    echo shar: \"'PC2'\" unpacked with wrong size!
+  fi
+  # end of 'PC2'
+fi
+if test -f 'cbc_enc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cbc_enc.c'\"
+else
+  echo shar: Extracting \"'cbc_enc.c'\" \(1451 characters\)
+  sed "s/^X//" >'cbc_enc.c' <<'END_OF_FILE'
+X/* cbc_enc.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+Xint des_cbc_encrypt(input,output,length,schedule,ivec,encrypt)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+Xint encrypt;
+X	{
+X	register unsigned long tin0,tin1;
+X	register unsigned long tout0,tout1,xor0,xor1;
+X	register unsigned char *in,*out;
+X	register long l=length;
+X	unsigned long tout[2],tin[2];
+X	unsigned char *iv;
+X
+X	in=(unsigned char *)input;
+X	out=(unsigned char *)output;
+X	iv=(unsigned char *)ivec;
+X
+X	if (encrypt)
+X		{
+X		c2l(iv,tout0);
+X		c2l(iv,tout1);
+X		for (; l>0; l-=8)
+X			{
+X			if (l >= 8)
+X				{
+X				c2l(in,tin0);
+X				c2l(in,tin1);
+X				}
+X			else
+X				c2ln(in,tin0,tin1,l);
+X			tin0^=tout0;
+X			tin1^=tout1;
+X			tin[0]=tin0;
+X			tin[1]=tin1;
+X			des_encrypt((unsigned long *)tin,(unsigned long *)tout,
+X				schedule,encrypt);
+X			tout0=tout[0];
+X			tout1=tout[1];
+X			l2c(tout0,out);
+X			l2c(tout1,out);
+X			}
+X		}
+X	else
+X		{
+X		c2l(iv,xor0);
+X		c2l(iv,xor1);
+X		for (; l>0; l-=8)
+X			{
+X			c2l(in,tin0);
+X			c2l(in,tin1);
+X			tin[0]=tin0;
+X			tin[1]=tin1;
+X			des_encrypt((unsigned long *)tin,(unsigned long *)tout,
+X				schedule,encrypt);
+X			tout0=tout[0]^xor0;
+X			tout1=tout[1]^xor1;
+X			if (l >= 8)
+X				{
+X				l2c(tout0,out);
+X				l2c(tout1,out);
+X				}
+X			else
+X				l2cn(tout0,tout1,out,l);
+X			xor0=tin0;
+X			xor1=tin1;
+X			}
+X		}
+X	tin0=tin1=tout0=tout1=xor0=xor1=0;
+X	tin[0]=tin[1]=tout[0]=tout[1]=0;
+X	return(0);
+X	}
+X
+END_OF_FILE
+  if test 1451 -ne `wc -c <'cbc_enc.c'`; then
+    echo shar: \"'cbc_enc.c'\" unpacked with wrong size!
+  fi
+  # end of 'cbc_enc.c'
+fi
+if test -f 'cfb_enc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cfb_enc.c'\"
+else
+  echo shar: Extracting \"'cfb_enc.c'\" \(2172 characters\)
+  sed "s/^X//" >'cfb_enc.c' <<'END_OF_FILE'
+X/* cfb_enc.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+X/* The input and output are loaded in multiples of 8 bits.
+X * What this means is that if you hame numbits=12 and length=2
+X * the first 12 bits will be retrieved from the first byte and half
+X * the second.  The second 12 bits will come from the 3rd and half the 4th
+X * byte.
+X */
+Xint des_cfb_encrypt(in,out,numbits,length,schedule,ivec,encrypt)
+Xunsigned char *in,*out;
+Xint numbits;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+Xint encrypt;
+X	{
+X	register unsigned long d0,d1,v0,v1,n=(numbits+7)/8;
+X	register unsigned long mask0,mask1;
+X	register long l=length;
+X	register int num=numbits;
+X	unsigned long ti[2],to[2];
+X	unsigned char *iv;
+X
+X	if (num > 64) return(0);
+X	if (num > 32)
+X		{
+X		mask0=0xffffffff;
+X		if (num == 64)
+X			mask1=mask0;
+X		else
+X			mask1=(1L<<(num-32))-1;
+X		}
+X	else
+X		{
+X		if (num == 32)
+X			mask0=0xffffffff;
+X		else
+X			mask0=(1L<<num)-1;
+X		mask1=0x00000000;
+X		}
+X
+X	iv=(unsigned char *)ivec;
+X	c2l(iv,v0);
+X	c2l(iv,v1);
+X	if (encrypt)
+X		{
+X		while (l-- > 0)
+X			{
+X			ti[0]=v0;
+X			ti[1]=v1;
+X			des_encrypt((unsigned long *)ti,(unsigned long *)to,
+X					schedule,DES_ENCRYPT);
+X			c2ln(in,d0,d1,n);
+X			in+=n;
+X			d0=(d0^to[0])&mask0;
+X			d1=(d1^to[1])&mask1;
+X			l2cn(d0,d1,out,n);
+X			out+=n;
+X			if (num > 32)
+X				{
+X				v0=((v1>>(num-32))|(d0<<(64-num)))&0xffffffff;
+X				v1=((d0>>(num-32))|(d1<<(64-num)))&0xffffffff;
+X				}
+X			else
+X				{
+X				v0=((v0>>num)|(v1<<(32-num)))&0xffffffff;
+X				v1=((v1>>num)|(d0<<(32-num)))&0xffffffff;
+X				}
+X			}
+X		}
+X	else
+X		{
+X		while (l-- > 0)
+X			{
+X			ti[0]=v0;
+X			ti[1]=v1;
+X			des_encrypt((unsigned long *)ti,(unsigned long *)to,
+X					schedule,DES_ENCRYPT);
+X			c2ln(in,d0,d1,n);
+X			in+=n;
+X			if (num > 32)
+X				{
+X				v0=((v1>>(num-32))|(d0<<(64-num)))&0xffffffff;
+X				v1=((d0>>(num-32))|(d1<<(64-num)))&0xffffffff;
+X				}
+X			else
+X				{
+X				v0=((v0>>num)|(v1<<(32-num)))&0xffffffff;
+X				v1=((v1>>num)|(d0<<(32-num)))&0xffffffff;
+X				}
+X			d0=(d0^to[0])&mask0;
+X			d1=(d1^to[1])&mask1;
+X			l2cn(d0,d1,out,n);
+X			out+=n;
+X			}
+X		}
+X	iv=(unsigned char *)ivec;
+X	l2c(v0,iv);
+X	l2c(v1,iv);
+X	v0=v1=d0=d1=ti[0]=ti[1]=to[0]=to[1]=0;
+X	return(0);
+X	}
+X
+END_OF_FILE
+  if test 2172 -ne `wc -c <'cfb_enc.c'`; then
+    echo shar: \"'cfb_enc.c'\" unpacked with wrong size!
+  fi
+  # end of 'cfb_enc.c'
+fi
+if test -f 'doIP' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doIP'\"
+else
+  echo shar: Extracting \"'doIP'\" \(831 characters\)
+  sed "s/^X//" >'doIP' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X@l=(
+X	 0, 1, 2, 3, 4, 5, 6, 7,
+X	 8, 9,10,11,12,13,14,15,
+X	16,17,18,19,20,21,22,23,
+X	24,25,26,27,28,29,30,31
+X	);
+X@r=(
+X	32,33,34,35,36,37,38,39,
+X	40,41,42,43,44,45,46,47,
+X	48,49,50,51,52,53,54,55,
+X	56,57,58,59,60,61,62,63
+X	);
+X
+Xrequire 'shifts.pl';
+X
+Xsub PERM_OP
+X	{
+X	local(*a,*b,*t,$n,$m)=@_;
+X
+X	@z=&shift(*a,-$n);
+X	@z=&xor(*b,*z);
+X	@z=&and(*z,$m);
+X	@b=&xor(*b,*z);
+X	@z=&shift(*z,$n);
+X	@a=&xor(*a,*z);
+X	}
+X
+X
+X@L=@l;
+X@R=@r;
+X&PERM_OP(*R,*L,*T,4,0x0f0f0f0f);
+X&PERM_OP(*L,*R,*T,16,0x0000ffff);
+X&PERM_OP(*R,*L,*T,2,0x33333333);
+X&PERM_OP(*L,*R,*T,8,0x00ff00ff);
+X&PERM_OP(*R,*L,*T,1,0x55555555);
+X	&printit(@L);
+X	&printit(@R);
+X&PERM_OP(*R,*L,*T,1,0x55555555);
+X&PERM_OP(*L,*R,*T,8,0x00ff00ff);
+X&PERM_OP(*R,*L,*T,2,0x33333333);
+X&PERM_OP(*L,*R,*T,16,0x0000ffff);
+X&PERM_OP(*R,*L,*T,4,0x0f0f0f0f);
+X	&printit(@L);
+X	&printit(@R);
+END_OF_FILE
+  if test 831 -ne `wc -c <'doIP'`; then
+    echo shar: \"'doIP'\" unpacked with wrong size!
+  fi
+  # end of 'doIP'
+fi
+if test -f 'doPC1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doPC1'\"
+else
+  echo shar: Extracting \"'doPC1'\" \(2106 characters\)
+  sed "s/^X//" >'doPC1' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X@l=(
+X	 0, 1, 2, 3, 4, 5, 6, 7,
+X	 8, 9,10,11,12,13,14,15,
+X	16,17,18,19,20,21,22,23,
+X	24,25,26,27,28,29,30,31
+X	);
+X@r=(
+X	32,33,34,35,36,37,38,39,
+X	40,41,42,43,44,45,46,47,
+X	48,49,50,51,52,53,54,55,
+X	56,57,58,59,60,61,62,63
+X	);
+X
+Xrequire 'shifts.pl';
+X
+Xsub PERM_OP
+X	{
+X	local(*a,*b,*t,$n,$m)=@_;
+X
+X	@z=&shift(*a,-$n);
+X	@z=&xor(*b,*z);
+X	@z=&and(*z,$m);
+X	@b=&xor(*b,*z);
+X	@z=&shift(*z,$n);
+X	@a=&xor(*a,*z);
+X	}
+X
+Xsub HPERM_OP2
+X	{
+X	local(*a,*t,$n,$m)=@_;
+X	local(@x,@y,$i);
+X
+X	@z=&shift(*a,16-$n);
+X	@z=&xor(*a,*z);
+X	@z=&and(*z,$m);
+X	@a=&xor(*a,*z);
+X	@z=&shift(*z,$n-16);
+X	@a=&xor(*a,*z);
+X	}
+X
+Xsub HPERM_OP
+X        {
+X        local(*a,*t,$n,$m)=@_;
+X        local(@x,@y,$i);
+X
+X        for ($i=0; $i<16; $i++)
+X                {
+X                $x[$i]=$a[$i];
+X                $y[$i]=$a[16+$i];
+X                }
+X        @z=&shift(*x,-$n);
+X        @z=&xor(*y,*z);
+X        @z=&and(*z,$m);
+X        @y=&xor(*y,*z);
+X        @z=&shift(*z,$n);
+X        @x=&xor(*x,*z);
+X        for ($i=0; $i<16; $i++)
+X                {
+X                $a[$i]=$x[$i];
+X                $a[16+$i]=$y[$i];
+X                }
+X        }
+X
+X@L=@l;
+X@R=@r;
+X
+X	print "---\n"; &printit(@R);
+X&PERM_OP(*R,*L,*T,4,0x0f0f0f0f);
+X	print "---\n"; &printit(@R);
+X&HPERM_OP2(*L,*T,-2,0xcccc0000);
+X&HPERM_OP2(*R,*T,-2,0xcccc0000);
+X	print "---\n"; &printit(@R);
+X&PERM_OP(*R,*L,*T,1,0x55555555);
+X	print "---\n"; &printit(@R);
+X&PERM_OP(*L,*R,*T,8,0x00ff00ff);
+X	print "---\n"; &printit(@R);
+X&PERM_OP(*R,*L,*T,1,0x55555555);
+X	print "---\n"; &printit(@R);
+X#	&printit(@L);
+X	&printit(@R);
+Xprint <<"EOF";
+X==============================
+X63  55  47  39  31  23  15   7  
+X62  54  46  38  30  22  14   6  
+X61  53  45  37  29  21  13   5  
+X60  52  44  36  --  --  --  --  
+X
+X57  49  41  33  25  17   9   1  
+X58  50  42  34  26  18  10   2  
+X59  51  43  35  27  19  11   3  
+X28  20  12   4  --  --  --  --  
+XEOF
+Xexit(1);
+X@A=&and(*R,0x000000ff);
+X@A=&shift(*A,16);
+X@B=&and(*R,0x0000ff00);
+X@C=&and(*R,0x00ff0000);
+X@C=&shift(*C,-16);
+X@D=&and(*L,0xf0000000);
+X@D=&shift(*D,-4);
+X@A=&or(*A,*B);
+X@B=&or(*D,*C);
+X@R=&or(*A,*B);
+X@L=&and(*L,0x0fffffff);
+X
+X	&printit(@L);
+X	&printit(@R);
+X
+END_OF_FILE
+  if test 2106 -ne `wc -c <'doPC1'`; then
+    echo shar: \"'doPC1'\" unpacked with wrong size!
+  fi
+  # end of 'doPC1'
+fi
+if test -f 'ofb_enc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ofb_enc.c'\"
+else
+  echo shar: Extracting \"'ofb_enc.c'\" \(1368 characters\)
+  sed "s/^X//" >'ofb_enc.c' <<'END_OF_FILE'
+X/* ofb_enc.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+X/* The input and output are loaded in multiples of 8 bits.
+X * What this means is that if you hame numbits=12 and length=2
+X * the first 12 bits will be retrieved from the first byte and half
+X * the second.  The second 12 bits will come from the 3rd and half the 4th
+X * byte.
+X */
+Xint des_ofb_encrypt(in,out,numbits,length,schedule,ivec)
+Xunsigned char *in,*out;
+Xint numbits;
+Xlong length;
+Xdes_key_schedule schedule;
+Xdes_cblock *ivec;
+X	{
+X	register unsigned long d0,d1,v0,v1,n=(numbits+7)/8;
+X	register unsigned long mask0,mask1;
+X	register long l=length;
+X	register int num=numbits;
+X	unsigned long ti[2];
+X	unsigned char *iv;
+X
+X	if (num > 64) return(0);
+X	if (num > 32)
+X		{
+X		mask0=0xffffffff;
+X		if (num >= 64)
+X			mask1=mask0;
+X		else
+X			mask1=(1L<<(num-32))-1;
+X		}
+X	else
+X		{
+X		if (num == 32)
+X			mask0=0xffffffff;
+X		else
+X			mask0=(1L<<num)-1;
+X		mask1=0x00000000;
+X		}
+X
+X	iv=(unsigned char *)ivec;
+X	c2l(iv,v0);
+X	c2l(iv,v1);
+X	ti[0]=v0;
+X	ti[1]=v1;
+X	while (l-- > 0)
+X		{
+X		des_encrypt((unsigned long *)ti,(unsigned long *)ti,
+X				schedule,DES_ENCRYPT);
+X		c2ln(in,d0,d1,n);
+X		in+=n;
+X		d0=(d0^ti[0])&mask0;
+X		d1=(d1^ti[1])&mask1;
+X		l2cn(d0,d1,out,n);
+X		out+=n;
+X		}
+X	v0=ti[0];
+X	v1=ti[1];
+X	iv=(unsigned char *)ivec;
+X	l2c(v0,iv);
+X	l2c(v1,iv);
+X	v0=v1=d0=d1=ti[0]=ti[1]=0;
+X	return(0);
+X	}
+X
+END_OF_FILE
+  if test 1368 -ne `wc -c <'ofb_enc.c'`; then
+    echo shar: \"'ofb_enc.c'\" unpacked with wrong size!
+  fi
+  # end of 'ofb_enc.c'
+fi
+if test -f 'podd.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'podd.h'\"
+else
+  echo shar: Extracting \"'podd.h'\" \(1159 characters\)
+  sed "s/^X//" >'podd.h' <<'END_OF_FILE'
+X/* podd.h */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+Xstatic unsigned char odd_parity[256]={
+X  1,  1,  2,  2,  4,  4,  7,  7,  8,  8, 11, 11, 13, 13, 14, 14,
+X 16, 16, 19, 19, 21, 21, 22, 22, 25, 25, 26, 26, 28, 28, 31, 31,
+X 32, 32, 35, 35, 37, 37, 38, 38, 41, 41, 42, 42, 44, 44, 47, 47,
+X 49, 49, 50, 50, 52, 52, 55, 55, 56, 56, 59, 59, 61, 61, 62, 62,
+X 64, 64, 67, 67, 69, 69, 70, 70, 73, 73, 74, 74, 76, 76, 79, 79,
+X 81, 81, 82, 82, 84, 84, 87, 87, 88, 88, 91, 91, 93, 93, 94, 94,
+X 97, 97, 98, 98,100,100,103,103,104,104,107,107,109,109,110,110,
+X112,112,115,115,117,117,118,118,121,121,122,122,124,124,127,127,
+X128,128,131,131,133,133,134,134,137,137,138,138,140,140,143,143,
+X145,145,146,146,148,148,151,151,152,152,155,155,157,157,158,158,
+X161,161,162,162,164,164,167,167,168,168,171,171,173,173,174,174,
+X176,176,179,179,181,181,182,182,185,185,186,186,188,188,191,191,
+X193,193,194,194,196,196,199,199,200,200,203,203,205,205,206,206,
+X208,208,211,211,213,213,214,214,217,217,218,218,220,220,223,223,
+X224,224,227,227,229,229,230,230,233,233,234,234,236,236,239,239,
+X241,241,242,242,244,244,247,247,248,248,251,251,253,253,254,254};
+END_OF_FILE
+  if test 1159 -ne `wc -c <'podd.h'`; then
+    echo shar: \"'podd.h'\" unpacked with wrong size!
+  fi
+  # end of 'podd.h'
+fi
+if test -f 'qud_cksm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'qud_cksm.c'\"
+else
+  echo shar: Extracting \"'qud_cksm.c'\" \(2121 characters\)
+  sed "s/^X//" >'qud_cksm.c' <<'END_OF_FILE'
+X/* qud_cksm.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X/* From "Message Authentication"  R.R. Jueneman, S.M. Matyas, C.H. Meyer
+X * IEEE Communications Magazine Sept 1985 Vol. 23 No. 9 p 29-40
+X * This module in only based on the code in this paper and is
+X * almost definitely not the same as the MIT implementation.
+X */
+X#include "des_locl.h"
+X
+X/* bug fix for dos - 7/6/91 - Larry hughes@logos.ucs.indiana.edu */
+X#define B0(a)	(((unsigned long)(a)))
+X#define B1(a)	(((unsigned long)(a))<<8)
+X#define B2(a)	(((unsigned long)(a))<<16)
+X#define B3(a)	(((unsigned long)(a))<<24)
+X
+X/* used to scramble things a bit */
+X/* Got the value MIT uses via brute force :-) 2/10/90 eay */
+X#define NOISE	((unsigned long)83653421)
+X
+Xunsigned long des_quad_cksum(input,output,length,out_count,seed)
+Xdes_cblock *input;
+Xdes_cblock *output;
+Xlong length;
+Xint out_count;
+Xdes_cblock *seed;
+X	{
+X	unsigned long z0,z1,t0,t1;
+X	int i;
+X	long l=0;
+X	unsigned char *cp;
+X	unsigned char *lp;
+X
+X	if (out_count < 1) out_count=1;
+X	lp=(unsigned char *)output;
+X
+X	z0=B0((*seed)[0])|B1((*seed)[1])|B2((*seed)[2])|B3((*seed)[3]);
+X	z1=B0((*seed)[4])|B1((*seed)[5])|B2((*seed)[6])|B3((*seed)[7]);
+X
+X	for (i=0; ((i<4)&&(i<out_count)); i++)
+X		{
+X		cp=(unsigned char *)input;
+X		l=length;
+X		while (l > 0)
+X			{
+X			if (l > 1)
+X				{
+X				t0= (unsigned long)(*(cp++));
+X				t0|=(unsigned long)B1(*(cp++));
+X				l--;
+X				}
+X			else
+X				t0= (unsigned long)(*(cp++));
+X			l--;
+X			/* add */
+X			t0+=z0;
+X			t0&=0xffffffff;
+X			t1=z1;
+X			/* square, well sort of square */
+X			z0=((((t0*t0)&0xffffffff)+((t1*t1)&0xffffffff))
+X				&0xffffffff)%0x7fffffff; 
+X			z1=((t0*((t1+NOISE)&0xffffffff))&0xffffffff)%0x7fffffff;
+X			}
+X		if (lp != NULL)
+X			{
+X			/* I believe I finally have things worked out.
+X			 * The MIT library assumes that the checksum
+X			 * is one huge number and it is returned in a
+X			 * host dependant byte order.
+X			 */
+X			static unsigned long l=1;
+X			static unsigned char *c=(unsigned char *)&l;
+X
+X			if (c[0])
+X				{
+X				l2c(z0,lp);
+X				l2c(z1,lp);
+X				}
+X			else
+X				{
+X				lp=output[out_count-i-1];
+X				l2n(z1,lp);
+X				l2n(z0,lp);
+X				}
+X			}
+X		}
+X	return(z0);
+X	}
+X
+END_OF_FILE
+  if test 2121 -ne `wc -c <'qud_cksm.c'`; then
+    echo shar: \"'qud_cksm.c'\" unpacked with wrong size!
+  fi
+  # end of 'qud_cksm.c'
+fi
+if test -f 'rand_key.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rand_key.c'\"
+else
+  echo shar: Extracting \"'rand_key.c'\" \(918 characters\)
+  sed "s/^X//" >'rand_key.c' <<'END_OF_FILE'
+X/* rand_key.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include "des_locl.h"
+X
+Xint des_random_key(ret)
+Xdes_cblock ret;
+X	{
+X	des_key_schedule ks;
+X	static unsigned long c=0;
+X	static unsigned short pid=0;
+X	static des_cblock data={0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef};
+X	des_cblock key;
+X	unsigned char *p;
+X	unsigned long t;
+X
+X#ifdef MSDOS
+X	pid=1;
+X#else
+X	if (!pid) pid=getpid();
+X#endif
+X	p=key;
+X	t=(unsigned long)time(NULL);
+X	l2c(t,p);
+X	t=(unsigned long)((pid)|((c++)<<16));
+X	l2c(t,p);
+X
+X	des_set_odd_parity((des_cblock *)data);
+X	des_set_key((des_cblock *)data,ks);
+X	des_cbc_cksum((des_cblock *)key,(des_cblock *)key,
+X		(long)sizeof(key),ks,(des_cblock *)data);
+X	des_set_odd_parity((des_cblock *)key);
+X	des_cbc_cksum((des_cblock *)key,(des_cblock *)key,
+X		(long)sizeof(key),ks,(des_cblock *)data);
+X
+X	bcopy(key,ret,sizeof(key));
+X	bzero(key,sizeof(key));
+X	bzero(ks,sizeof(ks));
+X	t=0;
+X	return(0);
+X	}
+END_OF_FILE
+  if test 918 -ne `wc -c <'rand_key.c'`; then
+    echo shar: \"'rand_key.c'\" unpacked with wrong size!
+  fi
+  # end of 'rand_key.c'
+fi
+if test -f 'rpw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpw.c'\"
+else
+  echo shar: Extracting \"'rpw.c'\" \(728 characters\)
+  sed "s/^X//" >'rpw.c' <<'END_OF_FILE'
+X/* rpw.c */
+X/* Copyright (C) 1993 Eric Young - see README for more details */
+X#include <stdio.h>
+X#include "des.h"
+X
+Xmain()
+X	{
+X	des_cblock k,k1;
+X	int i;
+X
+X	printf("read passwd\n");
+X	if ((i=des_read_password((C_Block *)k,"Enter password:",0)) == 0)
+X		{
+X		printf("password = ");
+X		for (i=0; i<8; i++)
+X			printf("%02x ",k[i]);
+X		}
+X	else
+X		printf("error %d\n",i);
+X	printf("\n");
+X	printf("read 2passwds and verify\n");
+X	if ((i=des_read_2passwords((C_Block *)k,(C_Block *)k1,
+X		"Enter verified password:",1)) == 0)
+X		{
+X		printf("password1 = ");
+X		for (i=0; i<8; i++)
+X			printf("%02x ",k[i]);
+X		printf("\n");
+X		printf("password2 = ");
+X		for (i=0; i<8; i++)
+X			printf("%02x ",k1[i]);
+X		printf("\n");
+X		}
+X	else
+X		printf("error %d\n",i);
+X	}
+END_OF_FILE
+  if test 728 -ne `wc -c <'rpw.c'`; then
+    echo shar: \"'rpw.c'\" unpacked with wrong size!
+  fi
+  # end of 'rpw.c'
+fi
+if test -f 'shifts.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shifts.pl'\"
+else
+  echo shar: Extracting \"'shifts.pl'\" \(1978 characters\)
+  sed "s/^X//" >'shifts.pl' <<'END_OF_FILE'
+Xsub lab_shift
+X	{
+X	local(*a,$n)=@_;
+X	local(@r,$i,$j,$k,$d,@z);
+X
+X	@r=&shift(*a,$n);
+X	foreach $i (0 .. 31)
+X		{
+X		@z=split(/\^/,$r[$i]);
+X		for ($j=0; $j <= $#z; $j++)
+X			{
+X			($d)=($z[$j] =~ /^(..)/);
+X			($k)=($z[$j] =~ /\[(.*)\]$/);
+X			$k.=",$n" if ($k ne "");
+X			$k="$n"	  if ($k eq "");
+X			$d="$d[$k]";
+X			$z[$j]=$d;
+X			}
+X		$r[$i]=join('^',@z);
+X		}
+X	return(@r);
+X	}
+X
+Xsub shift
+X	{
+X	local(*a,$n)=@_;
+X	local(@f);
+X
+X	if ($n > 0)
+X		{
+X		@f=&shiftl(*a,$n);
+X		}
+X	else
+X		{
+X		@f=&shiftr(*a,-$n);
+X		}
+X	return(@f);
+X	}
+X
+Xsub shiftr
+X	{
+X	local(*a,$n)=@_;
+X	local(@r,$i);
+X
+X	$#r=31;
+X	foreach $i (0 .. 31)
+X		{
+X		if (($i+$n) > 31)
+X			{
+X			$r[$i]="--";
+X			}
+X		else
+X			{
+X			$r[$i]=$a[$i+$n];
+X			}
+X		}
+X	return(@r);
+X	}
+X
+Xsub shiftl
+X	{
+X	local(*a,$n)=@_;
+X	local(@r,$i);
+X
+X	$#r=31;
+X	foreach $i (0 .. 31)
+X		{
+X		if ($i < $n)
+X			{
+X			$r[$i]="--";
+X			}
+X		else
+X			{
+X			$r[$i]=$a[$i-$n];
+X			}
+X		}
+X	return(@r);
+X	}
+X
+Xsub printit
+X	{
+X	local(@a)=@_;
+X	local($i);
+X
+X	foreach $i (0 .. 31)
+X		{
+X		printf "%2s  ",$a[$i];
+X		print "\n" if (($i%8) == 7);
+X		}
+X	print "\n";
+X	}
+X
+Xsub xor
+X	{
+X	local(*a,*b)=@_;
+X	local(@r,$i);
+X
+X	$#r=31;
+X	foreach $i (0 .. 31)
+X		{
+X		$r[$i]=&compress($a[$i].'^'.$b[$i]);
+X#		$r[$i]=$a[$i]."^".$b[$i];
+X		}
+X	return(@r);
+X	}
+X
+Xsub and
+X	{
+X	local(*a,$m)=@_;
+X	local(@r,$i);
+X
+X	$#r=31;
+X	foreach $i (0 .. 31)
+X		{
+X		$r[$i]=(($m & (1<<$i))?($a[$i]):('--'));
+X		}
+X	return(@r);
+X	}
+X
+Xsub or
+X	{
+X	local(*a,*b)=@_;
+X	local(@r,$i);
+X
+X	$#r=31;
+X	foreach $i (0 .. 31)
+X		{
+X		$r[$i]='--'   if (($a[$i] eq '--') && ($b[$i] eq '--'));
+X		$r[$i]=$a[$i] if (($a[$i] ne '--') && ($b[$i] eq '--'));
+X		$r[$i]=$b[$i] if (($a[$i] eq '--') && ($b[$i] ne '--'));
+X		$r[$i]='++'   if (($a[$i] ne '--') && ($b[$i] ne '--'));
+X		}
+X	return(@r);
+X	}
+X
+Xsub compress
+X	{
+X	local($s)=@_;
+X	local($_,$i,@a,%a,$r);
+X
+X	$s =~ s/\^\^/\^/g;
+X	$s =~ s/^\^//;
+X	$s =~ s/\^$//;
+X	@a=split(/\^/,$s);
+X
+X	while ($#a >= 0)
+X		{
+X		$_=shift(@a);
+X		next unless /\d/;
+X		$a{$_}++;
+X		}
+X	foreach $i (sort keys %a)
+X		{
+X		next if ($a{$i}%2 == 0);
+X		$r.="$i^";
+X		}
+X	chop($r);
+X	return($r);
+X	}
+X1;
+END_OF_FILE
+  if test 1978 -ne `wc -c <'shifts.pl'`; then
+    echo shar: \"'shifts.pl'\" unpacked with wrong size!
+  fi
+  # end of 'shifts.pl'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

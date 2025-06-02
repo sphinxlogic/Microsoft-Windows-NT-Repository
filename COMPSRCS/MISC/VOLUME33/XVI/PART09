@@ -1,0 +1,2269 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i018:  xvi - portable multi-window vi-like editor, Part09/18
+Message-ID: <1992Oct23.181408.474@sparky.imd.sterling.com>
+X-Md4-Signature: 926bf559148a32b7a7be6e4b10deec51
+Date: Fri, 23 Oct 1992 18:14:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 18
+Archive-name: xvi/part09
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/cmdline.c xvi/src/param.c xvi/src/regexp.h
+# Wrapped by kent@sparky on Thu Oct 22 09:03:42 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 18)."'
+if test -f 'xvi/src/cmdline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/cmdline.c'\"
+else
+  echo shar: Extracting \"'xvi/src/cmdline.c'\" \(27270 characters\)
+  sed "s/^X//" >'xvi/src/cmdline.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)cmdline.c	2.2 (Chris & John Downey) 8/6/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    cmdline.c
+X* module function:
+X    Command-line handling (i.e. :/? commands) - most
+X    of the actual command functions are in ex_cmds.c.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews	(onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#ifdef	MEGAMAX
+Xoverlay "cmdline"
+X#endif
+X
+X/*
+X * The next two variables contain the bounds of any range
+X * given in a command. If no range was given, both will be NULL.
+X * If only a single line was given, u_line will be NULL.
+X * The a_line variable is used for those commands which take
+X * a third line specifier after the command, e.g. "move", "copy".
+X */
+Xstatic	Line	*l_line, *u_line;
+Xstatic	Line	*a_line;
+X
+X/*
+X * Definitions for all ex commands.
+X */
+X
+X#define	EX_ENOTFOUND	-1		/* command not found */
+X#define	EX_EAMBIGUOUS	-2		/* could be more than one */
+X#define	EX_ECANTFORCE	-3		/* ! given where not appropriate */
+X#define	EX_EBADARGS	-4		/* inappropriate args given */
+X
+X#define	EX_NOCMD	1
+X#define	EX_SHCMD	2
+X#define	EX_UNUSED	3	/* unused */
+X#define	EX_AMPERSAND	4
+X#define	EX_EXBUFFER	5
+X#define	EX_LSHIFT	6
+X#define	EX_EQUALS	7
+X#define	EX_RSHIFT	8
+X#define	EX_COMMENT	9
+X#define	EX_ABBREVIATE	10
+X#define	EX_APPEND	11
+X#define	EX_ARGS		12
+X#define	EX_BUFFER	13
+X#define	EX_CHDIR	14
+X#define	EX_CHANGE	15
+X#define	EX_CLOSE	16
+X#define	EX_COMPARE	17
+X#define	EX_COPY		18
+X#define	EX_DELETE	19
+X#define	EX_ECHO		20
+X#define	EX_EDIT		21
+X#define	EX_EX		22
+X#define	EX_FILE		23
+X#define	EX_GLOBAL	24
+X#define	EX_HELP		25
+X#define	EX_INSERT	26
+X#define	EX_JOIN		27
+X#define	EX_K		28
+X#define	EX_LIST		29
+X#define	EX_MAP		30
+X#define	EX_MARK		31
+X#define	EX_MOVE		32
+X#define	EX_NEXT		33
+X#define	EX_NUMBER	34
+X#define	EX_OPEN		35
+X#define	EX_PRESERVE	36
+X#define	EX_PRINT	37
+X#define	EX_PUT		38
+X#define	EX_QUIT		39
+X#define	EX_READ		40
+X#define	EX_RECOVER	41
+X#define	EX_REWIND	42
+X#define	EX_SET		43
+X#define	EX_SHELL	44
+X#define	EX_SOURCE	45
+X#define	EX_SPLIT	46
+X#define	EX_SUSPEND	47
+X#define	EX_SUBSTITUTE	48
+X#define	EX_TAG		49
+X#define	EX_UNABBREV	50
+X#define	EX_UNDO		51
+X#define	EX_UNMAP	52
+X#define	EX_V		53
+X#define	EX_VERSION	54
+X#define	EX_VISUAL	55
+X#define	EX_WN		56
+X#define	EX_WQ		57
+X#define	EX_WRITE	58
+X#define	EX_XIT		59
+X#define	EX_YANK		60
+X#define	EX_Z		61
+X#define	EX_GOTO		62
+X#define	EX_TILDE	63
+X
+X/*
+X * Table of all ex commands, and whether they take an '!'.
+X *
+X * Note that this table is in strict order, sorted on
+X * the ASCII value of the first character of the command.
+X *
+X * The priority field is necessary to resolve clashes in
+X * the first one or two characters; so each group of commands
+X * beginning with the same letter should have at least one
+X * priority 1, so that there is a sensible default.
+X *
+X * Commands with argument type ec_rest need no delimiters;
+X * they need only be matched. This is really only used for
+X * single-character commands like !, " and &.
+X */
+Xstatic	struct	ecmd	{
+X    char	*ec_name;
+X    short	ec_command;
+X    short	ec_priority;
+X    unsigned	ec_flags;
+X    /*
+X     * Flags: EXCLAM means can use !, FILEXP means do filename
+X     * expansion, INTEXP means do % and # expansion. EXPALL means
+X     * do INTEXP and FILEXP (they are done in that order).
+X     *
+X     * EC_RANGE0 means that the range specifier (if any)
+X     * may include line 0.
+X     */
+X#   define	EC_EXCLAM	0x1
+X#   define	EC_FILEXP	0x2
+X#   define	EC_INTEXP	0x4
+X#   define	EC_EXPALL	EC_FILEXP|EC_INTEXP
+X#   define	EC_RANGE0	0x8
+X
+X    enum {
+X	ec_none,		/* no arguments after command */
+X	ec_strings,		/* whitespace-separated strings */
+X	ec_1string,		/* like ec_strings but only one */
+X	ec_line,		/* line number or target argument */
+X	ec_rest,		/* rest of line passed entirely */
+X	ec_nonalnum,		/* non-alphanumeric delimiter */
+X	ec_1lower		/* single lower-case letter */
+X    }	ec_arg_type;
+X} cmdtable[] = {
+X/*  name		command	     priority	exclam	*/
+X
+X    /*
+X     * The zero-length string is used for the :linenumber command.
+X     */
+X    "",		    EX_NOCMD,	    1,	EC_RANGE0,		ec_none,
+X    "!",	    EX_SHCMD,	    0,	EC_INTEXP,		ec_rest,
+X
+X    "#",	    EX_NUMBER,	    0,	0,			ec_none,
+X    "&",	    EX_AMPERSAND,   0,	0,			ec_rest,
+X    "*",	    EX_EXBUFFER,    0,	0,			ec_rest,
+X    "<",	    EX_LSHIFT,	    0,	0,			ec_none,
+X    "=",	    EX_EQUALS,	    0,	0,			ec_none,
+X    ">",	    EX_RSHIFT,	    0,	0,			ec_none,
+X    "@",	    EX_EXBUFFER,    0,	0,			ec_rest,
+X    "\"",	    EX_COMMENT,	    0,	0,			ec_rest,
+X
+X    "abbreviate",   EX_ABBREVIATE,  0,	0,			ec_strings,
+X    "append",	    EX_APPEND,	    1,	0,			ec_none,
+X    "args",	    EX_ARGS,	    0,	0,			ec_none,
+X
+X    "buffer",	    EX_BUFFER,	    0,	EC_EXPALL,		ec_1string,
+X
+X    "cd",	    EX_CHDIR,	    1,	EC_EXPALL,		ec_1string,
+X    "change",	    EX_CHANGE,	    2,	0,			ec_none,
+X    "chdir",	    EX_CHDIR,	    1,	EC_EXPALL,		ec_1string,
+X    "close",	    EX_CLOSE,	    1,	EC_EXCLAM,		ec_none,
+X    "compare",	    EX_COMPARE,	    0,	0,			ec_none,
+X    "copy",	    EX_COPY,	    1,	0,			ec_line,
+X
+X    "delete",	    EX_DELETE,	    0,	0,			ec_none,
+X
+X    "echo",	    EX_ECHO,	    0,	EC_INTEXP,		ec_strings,
+X    "edit",	    EX_EDIT,	    1,	EC_EXCLAM|EC_EXPALL,	ec_1string,
+X    "ex",	    EX_EX,	    0,	EC_EXPALL,		ec_1string,
+X
+X    "file",	    EX_FILE,	    0,	EC_EXPALL,		ec_1string,
+X
+X    "global",	    EX_GLOBAL,	    0,	EC_EXCLAM,		ec_nonalnum,
+X
+X    "help",	    EX_HELP,	    0,	0,			ec_none,
+X
+X    "insert",	    EX_INSERT,	    0,	0,			ec_none,
+X
+X    "join",	    EX_JOIN,	    0,	0,			ec_none,
+X
+X    "k",	    EX_K,	    0,	0,			ec_1lower,
+X
+X    "list",	    EX_LIST,	    0,	0,			ec_none,
+X
+X    "map",	    EX_MAP,	    0,	EC_EXCLAM,		ec_strings,
+X    "mark",	    EX_MARK,	    0,	0,			ec_1lower,
+X    "move",	    EX_MOVE,	    1,	0,			ec_line,
+X
+X    "next",	    EX_NEXT,	    1,	EC_EXCLAM|EC_EXPALL,	ec_strings,
+X    "number",	    EX_NUMBER,	    0,	0,			ec_none,
+X
+X    "open",	    EX_OPEN,	    0,	0,			ec_none,
+X
+X    "preserve",	    EX_PRESERVE,    0,	0,			ec_none,
+X    "print",	    EX_PRINT,	    1,	0,			ec_none,
+X    "put",	    EX_PUT,	    0,	EC_RANGE0,		ec_none,
+X
+X    "quit",	    EX_QUIT,	    0,	EC_EXCLAM,		ec_none,
+X
+X    "read",	    EX_READ,	    1,	EC_EXPALL|EC_RANGE0,	ec_1string,
+X    "recover",	    EX_RECOVER,	    0,	0,			ec_none,
+X    "rewind",	    EX_REWIND,	    0,	EC_EXCLAM,		ec_none,
+X
+X    "set",	    EX_SET,	    0,	0,			ec_strings,
+X    "shell",	    EX_SHELL,	    0,	0,			ec_none,
+X    "source",	    EX_SOURCE,	    0,	EC_EXPALL,		ec_1string,
+X    "split",	    EX_SPLIT,	    0,	0,			ec_none,
+X    "stop",	    EX_SUSPEND,	    0,	0,			ec_none,
+X    "substitute",   EX_SUBSTITUTE,  1,	0,			ec_nonalnum,
+X    "suspend",	    EX_SUSPEND,	    0,	0,			ec_none,
+X
+X    "t",	    EX_COPY,	    1,	0,			ec_line,
+X    "tag",	    EX_TAG,	    0,	EC_EXCLAM,		ec_1string,
+X
+X    "unabbreviate", EX_UNABBREV,    0,	0,			ec_strings,
+X    "undo",	    EX_UNDO,	    1,	0,			ec_none,
+X    "unmap",	    EX_UNMAP,	    0,	EC_EXCLAM,		ec_strings,
+X
+X    "v",	    EX_V,	    1,	0,			ec_nonalnum,
+X    "version",	    EX_VERSION,	    0,	0,			ec_none,
+X    "visual",	    EX_VISUAL,	    0,	EC_EXCLAM|EC_EXPALL,	ec_1string,
+X
+X    "wn",	    EX_WN,	    0,	EC_EXCLAM,		ec_none,
+X    "wq",	    EX_WQ,	    0,	EC_EXCLAM|EC_EXPALL,	ec_1string,
+X    "write",	    EX_WRITE,	    1,	EC_EXCLAM|EC_EXPALL,	ec_1string,
+X
+X    "xit",	    EX_XIT,	    0,	0,			ec_none,
+X
+X    "yank",	    EX_YANK,	    0,	0,			ec_none,
+X
+X    "z",	    EX_Z,	    0,	0,			ec_none,
+X
+X    "|",	    EX_GOTO,	    0,	0,			ec_none,
+X    "~",	    EX_TILDE,	    0,	0,			ec_rest,
+X
+X    NULL,	    0,		    0,	0,			ec_none,
+X};
+X
+X/*
+X * Internal routine declarations.
+X */
+Xstatic	int	decode_command P((char **, bool_t *, struct ecmd **));
+Xstatic	bool_t	get_line P((char **, Line **));
+Xstatic	bool_t	get_range P((char **));
+Xstatic	void	badcmd P((bool_t, char *));
+Xstatic	char	*show_line P((void));
+Xstatic	char	*expand_percents P((char *));
+X
+X/*
+X * These are used for display mode.
+X */
+Xstatic	Line	*curline;
+Xstatic	Line	*lastline;
+Xstatic	bool_t	do_line_numbers;
+X
+X/*
+X * Macro to skip over whitespace during command line interpretation.
+X */
+X#define skipblanks(p)	{ while (*(p) != '\0' && is_space(*(p))) (p)++; }
+X
+X/*
+X * do_colon() - process a ':' command.
+X *
+X * The cmdline argument points to a complete command line to be processed
+X * (this does not include the ':' itself).
+X */
+Xvoid
+Xdo_colon(cmdline, interactive)
+Xchar	*cmdline;			/* optional command string */
+Xbool_t	interactive;			/* true if reading from tty */
+X{
+X    char	*arg;			/* ptr to string arg(s) */
+X    int		argc = 0;		/* arg count for ec_strings */
+X    char	**argv = NULL;		/* arg vector for ec_strings */
+X    bool_t	exclam;			/* true if ! was given */
+X    int		command;		/* which command it is */
+X    struct ecmd	*ecp;			/* ptr to command entry */
+X    unsigned	savecho;		/* previous value of echo */
+X
+X    /*
+X     * Clear the range variables.
+X     */
+X    l_line = NULL;
+X    u_line = NULL;
+X
+X    /*
+X     * Parse a range, if present (and update the cmdline pointer).
+X     */
+X    if (!get_range(&cmdline)) {
+X	return;
+X    }
+X
+X    /*
+X     * Decode the command.
+X     */
+X    skipblanks(cmdline);
+X    command = decode_command(&cmdline, &exclam, &ecp);
+X
+X    if (command > 0) {
+X	/*
+X	 * Check that the range specified,
+X	 * if any, is legal for the command.
+X	 */
+X	if (!(ecp->ec_flags & EC_RANGE0)) {
+X	    if (l_line == curbuf->b_line0 || u_line == curbuf->b_line0) {
+X		show_error(curwin,
+X		    "Specification of line 0 not allowed");
+X		return;
+X	    }
+X	}
+X
+X	switch (ecp->ec_arg_type) {
+X	case ec_none:
+X	    if (*cmdline != '\0' &&
+X		    (*cmdline != '!' || !(ecp->ec_flags & EC_EXCLAM))) {
+X		command = EX_EBADARGS;
+X	    }
+X	    break;
+X
+X	case ec_line:
+X	    a_line = NULL;
+X	    skipblanks(cmdline);
+X	    if (!get_line(&cmdline, &a_line) || a_line == NULL) {
+X		command = EX_EBADARGS;
+X	    }
+X	    break;
+X
+X	case ec_1lower:
+X	    /*
+X	     * One lower-case letter.
+X	     */
+X	    skipblanks(cmdline);
+X	    if (!is_lower(cmdline[0]) || cmdline[1] != '\0') {
+X		command = EX_EBADARGS;
+X	    } else {
+X		arg = cmdline;
+X	    }
+X	    break;
+X
+X	case ec_nonalnum:
+X	case ec_rest:
+X	case ec_strings:
+X	case ec_1string:
+X	    arg = cmdline;
+X	    if (ecp->ec_arg_type == ec_strings ||
+X				    ecp->ec_arg_type == ec_1string) {
+X		if (*arg == '\0') {
+X		    /*
+X		     * No args.
+X		     */
+X		    arg = NULL;
+X		} else {
+X		    /*
+X		     * Null-terminate the command and skip
+X		     * whitespace to arg or end of line.
+X		     */
+X		    *arg++ = '\0';
+X		    skipblanks(arg);
+X
+X		    /*
+X		     * There was trailing whitespace,
+X		     * but no args.
+X		     */
+X		    if (*arg == '\0') {
+X			arg = NULL;
+X		    }
+X		}
+X	    } else if (ecp->ec_arg_type == ec_nonalnum && exclam) {
+X		/*
+X		 * We don't normally touch the arguments for
+X		 * this type, but we have to null-terminate
+X		 * the '!' at least.
+X		 */
+X		*arg++ = '\0';
+X	    }
+X
+X	    if (arg != NULL) {
+X		/*
+X		 * Perform expansions on the argument string.
+X		 */
+X		if (ecp->ec_flags & EC_INTEXP) {
+X		    arg = expand_percents(arg);
+X		}
+X		if (ecp->ec_flags & EC_FILEXP) {
+X		    arg = fexpand(arg);
+X		}
+X
+X		if (ecp->ec_arg_type == ec_strings) {
+X		    makeargv(arg, &argc, &argv, " \t");
+X		}
+X	    }
+X	}
+X    }
+X
+X    savecho = echo;
+X
+X    /*
+X     * Now do the command.
+X     */
+X    switch (command) {
+X    case EX_SHCMD:
+X	/*
+X	 * If a line range was specified, this must be a pipe command.
+X	 * Otherwise, it's just a simple shell command.
+X	 */
+X	if (l_line != NULL) {
+X	    specify_pipe_range(curwin, l_line, u_line);
+X	    do_pipe(curwin, arg);
+X	} else {
+X	    do_shcmd(curwin, arg);
+X	}
+X	break;
+X
+X    case EX_ARGS:
+X	do_args(curwin);
+X	break;
+X
+X    case EX_BUFFER:
+X	if (arg != NULL)
+X	    echo &= ~(e_SCROLL | e_REPORT | e_SHOWINFO);
+X	(void) do_buffer(curwin, arg);
+X	move_window_to_cursor(curwin);
+X	update_window(curwin);
+X	break;
+X
+X    case EX_CHDIR:
+X    {
+X	char	*error;
+X
+X	if ((error = do_chdir(arg)) != NULL) {
+X	    badcmd(interactive, error);
+X	} else if (interactive) {
+X	    char	*dirp;
+X
+X	    if ((dirp = alloc(MAXPATHLEN + 2)) != NULL &&
+X		getcwd(dirp, MAXPATHLEN + 2) != NULL) {
+X		show_message(curwin, "%s", dirp);
+X	    }
+X	    if (dirp) {
+X		free(dirp);
+X	    }
+X	}
+X	break;
+X    }
+X
+X    case EX_CLOSE:
+X	do_close_window(curwin, exclam);
+X	break;
+X
+X    case EX_COMMENT:		/* This one is easy ... */
+X	break;
+X
+X    case EX_COMPARE:
+X	do_compare();
+X	break;
+X
+X    case EX_COPY:
+X	do_cdmy('c', l_line, u_line, a_line);
+X	break;
+X
+X    case EX_DELETE:
+X	do_cdmy('d', l_line, u_line, (Line *) NULL);
+X	break;
+X
+X    case EX_ECHO:			/* echo arguments on command line */
+X    {
+X	int	i;
+X
+X	flexclear(&curwin->w_statusline);
+X	for (i = 0; i < argc; i++) {
+X	    if (!lformat(&curwin->w_statusline, "%s ", argv[i])
+X		    || flexlen(&curwin->w_statusline) >= curwin->w_ncols) {
+X		break;
+X	    }
+X	}
+X	update_sline(curwin);
+X	break;
+X    }
+X
+X    case EX_EDIT:
+X    case EX_VISUAL:			/* treat :vi as :edit */
+X	echo &= ~(e_SCROLL | e_REPORT | e_SHOWINFO);
+X	(void) do_edit(curwin, exclam, arg);
+X	move_window_to_cursor(curwin);
+X	update_buffer(curbuf);
+X#if 0
+X	show_file_info(curwin);
+X#endif
+X	break;
+X
+X    case EX_FILE:
+X	if (arg != NULL) {
+X	    if (curbuf->b_filename != NULL)
+X		free(curbuf->b_filename);
+X	    curbuf->b_filename = strsave(arg);
+X	    if (curbuf->b_tempfname != NULL) {
+X		free(curbuf->b_tempfname);
+X		curbuf->b_tempfname = NULL;
+X	    }
+X	}
+X	show_file_info(curwin);
+X	break;
+X
+X    case EX_GLOBAL:
+X	do_global(curwin, l_line, u_line, arg, !exclam);
+X	break;
+X
+X    case EX_HELP:
+X	do_help(curwin);
+X	break;
+X
+X    case EX_MAP:
+X	xvi_map(argc, argv, exclam, interactive);
+X	break;
+X
+X    case EX_UNMAP:
+X	xvi_unmap(argc, argv, exclam, interactive);
+X	break;
+X
+X    case EX_MARK:
+X    case EX_K:
+X    {
+X	Posn	pos;
+X
+X	pos.p_index = 0;
+X	if (l_line == NULL) {
+X	    pos.p_line = curwin->w_cursor->p_line;
+X	} else {
+X	    pos.p_line = l_line;
+X	}
+X	(void) setmark(arg[0], curbuf, &pos);
+X	break;
+X    }
+X
+X    case EX_MOVE:
+X	do_cdmy('m', l_line, u_line, a_line);
+X	break;
+X
+X    case EX_NEXT:
+X	/*
+X	 * do_next() handles turning off the appropriate bits
+X	 * in echo, & also calls move_window_to_cursor() &
+X	 * update_buffer() as required, so we don't have to
+X	 * do any of that here.
+X	 */
+X	do_next(curwin, argc, argv, exclam);
+X	break;
+X
+X    case EX_PRESERVE:
+X	if (do_preserve())
+X	    show_file_info(curwin);
+X	break;
+X
+X    case EX_LIST:
+X    case EX_PRINT:
+X    case EX_NUMBER:
+X	if (l_line == NULL) {
+X	    curline = curwin->w_cursor->p_line;
+X	    lastline = curline->l_next;
+X	} else if (u_line ==  NULL) {
+X	    curline = l_line;
+X	    lastline = l_line->l_next;
+X	} else {
+X	    curline = l_line;
+X	    lastline = u_line->l_next;
+X	}
+X	do_line_numbers = (Pb(P_number) || command == EX_NUMBER);
+X	disp_init(curwin, show_line, (int) curwin->w_ncols,
+X				command == EX_LIST || Pb(P_list));
+X	break;
+X
+X    case EX_PUT:
+X    {
+X	Posn	where;
+X
+X	if (l_line != NULL) {
+X	    where.p_index = 0;
+X	    where.p_line = l_line;
+X	} else {
+X	    where.p_index = curwin->w_cursor->p_index;
+X	    where.p_line = curwin->w_cursor->p_line;
+X	}
+X	do_put(curwin, &where, FORWARD, '@');
+X	break;
+X    }
+X
+X    case EX_QUIT:
+X	do_quit(curwin, exclam);
+X	break;
+X
+X    case EX_REWIND:
+X	do_rewind(curwin, exclam);
+X	break;
+X
+X    case EX_READ:
+X	if (arg == NULL) {
+X	    badcmd(interactive, "Unrecognized command");
+X	    break;
+X	}
+X	do_read(curwin, arg, (l_line != NULL) ? l_line :
+X					    curwin->w_cursor->p_line);
+X	break;
+X
+X    case EX_SET:
+X	do_set(curwin, argc, argv, interactive);
+X	break;
+X
+X    case EX_SHELL:
+X	do_shell(curwin);
+X	break;
+X
+X    case EX_SOURCE:
+X	if (arg == NULL) {
+X	    badcmd(interactive, "Missing filename");
+X	} else if (do_source(interactive, arg) && interactive) {
+X	    show_file_info(curwin);
+X	}
+X	break;
+X
+X    case EX_SPLIT:
+X	/*
+X	 * "split".
+X	 */
+X	do_split_window(curwin);
+X	break;
+X
+X    case EX_SUBSTITUTE:
+X    case EX_AMPERSAND:
+X    case EX_TILDE:
+X    {
+X	long		nsubs;
+X	register long	(*func) P((Xviwin *, Line *, Line *, char *));
+X
+X	switch (command) {
+X	case EX_SUBSTITUTE:
+X	    func = do_substitute;
+X	    break;
+X	case EX_AMPERSAND:
+X	    func = do_ampersand;
+X	    break;
+X	case EX_TILDE:
+X	    func = do_tilde;
+X	}
+X
+X	nsubs = (*func)(curwin, l_line, u_line, arg);
+X	update_buffer(curbuf);
+X	cursupdate(curwin);
+X	begin_line(curwin, TRUE);
+X	if (nsubs >= Pn(P_report)) {
+X	    show_message(curwin, "%ld substitution%c",
+X			nsubs,
+X			(nsubs > 1) ? 's' : ' ');
+X	}
+X	break;
+X    }
+X
+X    case EX_SUSPEND:
+X	do_suspend(curwin);
+X	break;
+X
+X    case EX_TAG:
+X	(void) do_tag(curwin, arg, exclam, TRUE, TRUE);
+X	break;
+X
+X    case EX_V:
+X	do_global(curwin, l_line, u_line, arg, FALSE);
+X	break;
+X
+X    case EX_VERSION:
+X	show_message(curwin, Version);
+X	break;
+X
+X    case EX_WN:
+X	/*
+X	 * This is not a standard "vi" command, but it
+X	 * is provided in PC vi, and it's quite useful.
+X	 */
+X	if (do_write(curwin, (char *) NULL, (Line *) NULL, (Line *) NULL,
+X								exclam)) {
+X	    /*
+X	     * See comment for EX_NEXT (above).
+X	     */
+X	    do_next(curwin, 0, argv, exclam);
+X#if 0
+X	    move_window_to_cursor(curwin);
+X	    update_buffer(curbuf);
+X#endif
+X	}
+X	break;
+X
+X    case EX_WQ:
+X	do_wq(curwin, arg, exclam);
+X	break;
+X
+X    case EX_WRITE:
+X	(void) do_write(curwin, arg, l_line, u_line, exclam);
+X	break;
+X
+X    case EX_XIT:
+X	do_xit(curwin);
+X	break;
+X
+X    case EX_YANK:
+X	do_cdmy('y', l_line, u_line, (Line *) NULL);
+X	break;
+X
+X    case EX_EXBUFFER:
+X	yp_stuff_input(curwin, arg[0], FALSE);
+X	break;
+X
+X    case EX_EQUALS:
+X	do_equals(curwin, l_line);
+X	break;
+X
+X    case EX_LSHIFT:
+X    case EX_RSHIFT:
+X	if (l_line == NULL) {
+X	    l_line = curwin->w_cursor->p_line;
+X	}
+X	if (u_line == NULL) {
+X	    u_line = l_line;
+X	}
+X	tabinout((command == EX_LSHIFT) ? '<' : '>', l_line, u_line);
+X	begin_line(curwin, TRUE);
+X	update_buffer(curbuf);
+X	break;
+X
+X    case EX_NOCMD:
+X	/*
+X	 * If we got a line, but no command, then go to the line.
+X	 */
+X	if (l_line != NULL) {
+X	    if (l_line == curbuf->b_line0) {
+X		l_line = l_line->l_next;
+X	    }
+X	    move_cursor(curwin, l_line, 0);
+X	    begin_line(curwin, TRUE);
+X	}
+X	break;
+X
+X    case EX_ENOTFOUND:
+X	badcmd(interactive, "Unrecognized command");
+X	break;
+X
+X    case EX_EAMBIGUOUS:
+X	badcmd(interactive, "Ambiguous command");
+X	break;
+X
+X    case EX_ECANTFORCE:
+X	badcmd(interactive, "Inappropriate use of !");
+X	break;
+X
+X    case EX_EBADARGS:
+X	badcmd(interactive, "Inappropriate arguments given");
+X	break;
+X
+X    default:
+X	/*
+X	 * Decoded successfully, but unknown to us. Whoops!
+X	 */
+X	badcmd(interactive, "Internal error - unimplemented command.");
+X	break;
+X
+X    case EX_ABBREVIATE:
+X    case EX_APPEND:
+X    case EX_CHANGE:
+X    case EX_EX:
+X    case EX_GOTO:
+X    case EX_INSERT:
+X    case EX_JOIN:
+X    case EX_OPEN:
+X    case EX_RECOVER:
+X    case EX_UNABBREV:
+X    case EX_UNDO:
+X    case EX_Z:
+X	badcmd(interactive, "Unimplemented command.");
+X	break;
+X    }
+X
+X    echo = savecho;
+X
+X    if (argc > 0 && argv != NULL) {
+X	free((char *) argv);
+X    }
+X}
+X
+X/*
+X * Find the correct command for the given string, and return it.
+X *
+X * Updates string pointer to point to 1st char after command.
+X *
+X * Updates boolean pointed to by forcep according
+X * to whether an '!' was given after the command;
+X * if an '!' is given for a command which can't take it,
+X * this is an error, and EX_ECANTFORCE is returned.
+X * For unknown commands, EX_ENOTFOUND is returned.
+X * For ambiguous commands, EX_EAMBIGUOUS is returned.
+X *
+X * Also updates *cmdp to point at entry in command table.
+X */
+Xstatic int
+Xdecode_command(str, forcep, cmdp)
+Xchar		**str;
+Xbool_t		*forcep;
+Xstruct	ecmd	**cmdp;
+X{
+X    struct ecmd	*cmdptr;
+X    struct ecmd	*last_match = NULL;
+X    bool_t	last_exclam = FALSE;
+X    int		nmatches = 0;
+X    char	*last_delimiter = *str;
+X
+X    for (cmdptr = cmdtable; cmdptr->ec_name != NULL; cmdptr++) {
+X	char	*name = cmdptr->ec_name;
+X	char	*strp;
+X	bool_t	matched;
+X
+X	strp = *str;
+X
+X	while (*strp == *name && *strp != '\0') {
+X	    strp++;
+X	    name++;
+X	}
+X
+X	matched = (
+X	    /*
+X	     * we've got a full match, or ...
+X	     */
+X	    *strp == '\0'
+X	    ||
+X	    /*
+X	     * ... a whitespace delimiter, or ...
+X	     */
+X	    is_space(*strp)
+X	    ||
+X	    (
+X		/*
+X		 * ... at least one character has been
+X		 * matched, and ...
+X		 */
+X		name > cmdptr->ec_name
+X		&&
+X		(
+X		    (
+X			/*
+X			 * ... this command can accept a
+X			 * '!' qualifier, and we've found
+X			 * one ...
+X			 */
+X			(cmdptr->ec_flags & EC_EXCLAM)
+X			&&
+X			*strp == '!'
+X		    )
+X		    ||
+X		    (
+X			/*
+X			 * ... or it can take a
+X			 * non-alphanumeric delimiter
+X			 * (like '/') ...
+X			 */
+X			cmdptr->ec_arg_type == ec_nonalnum
+X			&&
+X			!is_alnum(*strp)
+X		    )
+X		    ||
+X		    (
+X			/*
+X			 * ... or it doesn't need any
+X			 * delimiter ...
+X			 */
+X			cmdptr->ec_arg_type == ec_rest
+X		    )
+X		    ||
+X		    (
+X			/*
+X			 * ... or we've got a full match,
+X			 * & the command expects a single
+X			 * lower-case letter as an
+X			 * argument, and we've got one ...
+X			 */
+X			cmdptr->ec_arg_type == ec_1lower
+X			&&
+X			*name == '\0'
+X			&&
+X			is_lower(*strp)
+X		    )
+X		    ||
+X		    (
+X			/*
+X			 * ... or we've got a partial match,
+X			 * and the command expects a line
+X			 * specifier as an argument, and the
+X			 * next character is not alphabetic.
+X			 */
+X			cmdptr->ec_arg_type == ec_line
+X			&&
+X			!is_alpha(*strp)
+X		    )
+X		)
+X	    )
+X	);
+X
+X	if (!matched)
+X	    continue;
+X
+X	if (last_match == NULL ||
+X		(last_match != NULL &&
+X		 last_match->ec_priority < cmdptr->ec_priority)) {
+X	    /*
+X	     * No previous match, or this one is better.
+X	     */
+X	    last_match = cmdptr;
+X	    last_exclam = (*strp == '!');
+X	    last_delimiter = strp;
+X	    nmatches = 1;
+X
+X	    /*
+X	     * If this is a complete match, we don't
+X	     * need to search the rest of the table.
+X	     */
+X	    if (*name == '\0')
+X		break;
+X
+X	} else if (last_match != NULL &&
+X	       last_match->ec_priority == cmdptr->ec_priority) {
+X	    /*
+X	     * Another match with the same priority - remember it.
+X	     */
+X	    nmatches++;
+X	}
+X    }
+X
+X    /*
+X     * For us to have found a good match, there must have been
+X     * exactly one match at a certain priority, and if an '!'
+X     * was used, it must be allowed by that match.
+X     */
+X    if (last_match == NULL) {
+X	return(EX_ENOTFOUND);
+X    } else if (nmatches != 1) {
+X	return(EX_EAMBIGUOUS);
+X    } else if (last_exclam && ! (last_match->ec_flags & EC_EXCLAM)) {
+X	return(EX_ECANTFORCE);
+X    } else {
+X	*forcep = last_exclam;
+X	*str = last_delimiter;
+X	*cmdp = last_match;
+X	return(last_match->ec_command);
+X    }
+X}
+X
+X/*
+X * get_range - parse a range specifier
+X *
+X * Ranges are of the form
+X *
+X * ADDRESS1,ADDRESS2
+X * ADDRESS		(equivalent to "ADDRESS,ADDRESS")
+X * ADDRESS,		(equivalent to "ADDRESS,.")
+X * ,ADDRESS		(equivalent to ".,ADDRESS")
+X * ,			(equivalent to ".")
+X * %			(equivalent to "1,$")
+X *
+X * where ADDRESS is
+X *
+X * /regular expression/ [INCREMENT]
+X * ?regular expression? [INCREMENT]
+X * $   [INCREMENT]
+X * 'x  [INCREMENT]	(where x denotes a currently defined mark)
+X * .   [INCREMENT]
+X * INCREMENT		(equivalent to . INCREMENT)
+X * number [INCREMENT]
+X *
+X * and INCREMENT is
+X *
+X * + number
+X * - number
+X * +			(equivalent to +1)
+X * -			(equivalent to -1)
+X * ++			(equivalent to +2)
+X * --			(equivalent to -2)
+X *
+X * etc.
+X *
+X * The pointer *cpp is updated to point to the first character following
+X * the range spec. If an initial address is found, but no second, the
+X * upper bound is equal to the lower, except if it is followed by ','.
+X *
+X * Return FALSE if an error occurred, otherwise TRUE.
+X */
+Xstatic bool_t
+Xget_range(cpp)
+Xregister char	**cpp;
+X{
+X    register char	*cp;
+X    char		sepchar;
+X
+X#define skipp	{ cp = *cpp; skipblanks(cp); *cpp = cp; }
+X
+X    skipp;
+X
+X    if (*cp == '%') {
+X	/*
+X	 * "%" is the same as "1,$".
+X	 */
+X	l_line = curbuf->b_file;
+X	u_line = curbuf->b_lastline->l_prev;
+X	++*cpp;
+X	return TRUE;
+X    }
+X
+X    if (!get_line(cpp, &l_line)) {
+X	return FALSE;
+X    }
+X
+X    skipp;
+X
+X    sepchar = *cp;
+X    if (sepchar != ',' && sepchar != ';') {
+X	u_line = l_line;
+X	return TRUE;
+X    }
+X
+X    ++*cpp;
+X
+X    if (l_line == NULL) {
+X	/*
+X	 * So far, we've got ",".
+X	 *
+X	 * ",address" is equivalent to ".,address".
+X	 */
+X	l_line = curwin->w_cursor->p_line;
+X    }
+X
+X    if (sepchar == ';') {
+X	move_cursor(curwin, (l_line != curbuf->b_line0) ?
+X		    l_line : l_line->l_next, 0);
+X    }
+X
+X    skipp;
+X    if (!get_line(cpp, &u_line)) {
+X	return FALSE;
+X    }
+X    if (u_line == NULL) {
+X	/*
+X	 * "address," is equivalent to "address,.".
+X	 */
+X	u_line = curwin->w_cursor->p_line;
+X    }
+X
+X    /*
+X     * Check for reverse ordering.
+X     */
+X    if (earlier(u_line, l_line)) {
+X	Line	*tmp;
+X
+X	tmp = l_line;
+X	l_line = u_line;
+X	u_line = tmp;
+X    }
+X
+X    skipp;
+X    return TRUE;
+X}
+X
+Xstatic bool_t
+Xget_line(cpp, lpp)
+X    char		**cpp;
+X    Line		**lpp;
+X{
+X    Line		*pos;
+X    char		*cp;
+X    char		c;
+X    long		lnum;
+X
+X    cp = *cpp;
+X
+X    /*
+X     * Determine the basic form, if present.
+X     */
+X    switch (c = *cp++) {
+X
+X    case '/':
+X    case '?':
+X	pos = linesearch(curwin, (c == '/') ? FORWARD : BACKWARD,
+X				    &cp);
+X	if (pos == NULL) {
+X	    return FALSE;
+X	}
+X	break;
+X
+X    case '$':
+X	pos = curbuf->b_lastline->l_prev;
+X	break;
+X
+X	/*
+X	 * "+n" is equivalent to ".+n".
+X	 */
+X    case '+':
+X    case '-':
+X	cp--;
+X	 /* fall through ... */
+X    case '.':
+X	pos = curwin->w_cursor->p_line;
+X	break;
+X
+X    case '\'': {
+X	Posn		*lp;
+X
+X	lp = getmark(*cp++, curbuf);
+X	if (lp == NULL) {
+X	    show_error(curwin, "Unknown mark");
+X	    return FALSE;
+X	}
+X	pos = lp->p_line;
+X	break;
+X    }
+X    case '0': case '1': case '2': case '3': case '4':
+X    case '5': case '6': case '7': case '8': case '9':
+X	for (lnum = c - '0'; is_digit(*cp); cp++)
+X	    lnum = lnum * 10 + *cp - '0';
+X
+X	if (lnum == 0) {
+X	    pos = curbuf->b_line0;
+X	} else {
+X	    pos = gotoline(curbuf, lnum);
+X	}
+X	break;
+X	
+X    default:
+X	return TRUE;
+X    }
+X
+X    skipblanks(cp);
+X
+X    if (*cp == '-' || *cp == '+') {
+X	char	dirchar = *cp++;
+X
+X	skipblanks(cp);
+X	if (is_digit(*cp)) {
+X	    for (lnum = 0; is_digit(*cp); cp++) {
+X		lnum = lnum * 10 + *cp - '0';
+X	    }
+X	} else {
+X	    for (lnum = 1; *cp == dirchar; cp++) {
+X		lnum++;
+X	    }
+X	}
+X
+X	if (dirchar == '-')
+X	    lnum = -lnum;
+X
+X	pos = gotoline(curbuf, lineno(curbuf, pos) + lnum);
+X    }
+X
+X    *cpp = cp;
+X    *lpp = pos;
+X    return TRUE;
+X}
+X
+X/*
+X * This routine is called for ambiguous, unknown,
+X * badly defined or unimplemented commands.
+X */
+Xstatic void
+Xbadcmd(interactive, str)
+Xbool_t	interactive;
+Xchar	*str;
+X{
+X    if (interactive) {
+X	show_error(curwin, str);
+X    }
+X}
+X
+Xstatic char *
+Xshow_line()
+X{
+X    Line	*lp;
+X
+X    if (curline == lastline) {
+X	return(NULL);
+X    }
+X
+X    lp = curline;
+X    curline = curline->l_next;
+X
+X    if (do_line_numbers) {
+X	static Flexbuf	nu_line;
+X
+X	flexclear(&nu_line);
+X	(void) lformat(&nu_line, NUM_FMT, lineno(curbuf, lp));
+X	(void) lformat(&nu_line, "%s", lp->l_text);
+X	return flexgetstr(&nu_line);
+X    } else {
+X	return(lp->l_text);
+X    }
+X}
+X
+Xstatic char *
+Xexpand_percents(str)
+Xchar	*str;
+X{
+X    static Flexbuf	newstr;
+X    register char	*from;
+X    register bool_t	escaped;
+X
+X    if (strpbrk(str, "%#") == (char *) NULL) {
+X	return str;
+X    }
+X    flexclear(&newstr);
+X    escaped = FALSE;
+X    for (from = str; *from != '\0'; from++) {
+X	if (!escaped) {
+X	    if (*from == '%' && curbuf->b_filename != NULL) {
+X		(void) lformat(&newstr, "%s", curbuf->b_filename);
+X	    } else if (*from == '#' && altfilename != NULL) {
+X		(void) lformat(&newstr, "%s", altfilename);
+X	    } else if (*from == '\\') {
+X		escaped = TRUE;
+X	    } else {
+X		(void) flexaddch(&newstr, *from);
+X	    }
+X	} else {
+X	    if (*from != '%' && *from != '#') {
+X		(void) flexaddch(&newstr, '\\');
+X	    }
+X	    (void) flexaddch(&newstr, *from);
+X	    escaped = FALSE;
+X	}
+X    }
+X    return flexgetstr(&newstr);
+X}
+END_OF_FILE
+  if test 27270 -ne `wc -c <'xvi/src/cmdline.c'`; then
+    echo shar: \"'xvi/src/cmdline.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/cmdline.c'
+fi
+if test -f 'xvi/src/param.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/param.c'\"
+else
+  echo shar: Extracting \"'xvi/src/param.c'\" \(23114 characters\)
+  sed "s/^X//" >'xvi/src/param.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)param.c	2.1 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    param.c
+X* module function:
+X    Code to handle user-settable parameters. This is all pretty much
+X    table-driven. To add a new parameter, put it in the params array,
+X    and add a macro for it in param.h.
+X
+X    The idea of the parameter table is that access to any particular
+X    parameter has to be fast, so it is done with a table lookup. This
+X    unfortunately means that the index of each parameter is recorded
+X    as a macro in param.h, so that file must be changed at the same
+X    time as the table below, and in the same way.
+X
+X    When a parameter is changed, a function is called to do the actual
+X    work; this function is part of the parameter structure.  For many
+X    parameters, it's just a simple function that prints "not implemented";
+X    for most others, there are "standard" functions to set bool, numeric
+X    and string parameters, with a certain amount of checking.
+X
+X    No bounds checking is done here; we should really include limits
+X    to numeric parameters in the table. Maybe this will come later.
+X
+X    The data structures will be changed again shortly to enable
+X    buffer- and window-local parameters to be implemented.
+X
+X    One problem with numeric parameters is that they are of type "int";
+X    this obviously places some restrictions on the sort of things they
+X    may be used for, and it may be necessary at some point to change
+X    this type to something like "unsigned long".
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X#define nofunc	PFUNCADDR(NULL)
+X
+X/*
+X * Default settings for string parameters.
+X * These are set by the exported function init_params(),
+X * which must be called before any parameters are accessed.
+X */
+X#define	DEF_TAGS	"tags,/usr/lib/tags"
+X#define	DEF_PARA	"^($|\\.([ILPQ]P|LI|[plib]p))"
+X#define	DEF_SECTIONS	"^({|\\.([NS]H|HU|nh|sh))"
+X#define	DEF_SENTENCES	"\\<[A-Z]"
+X
+X/*
+X * Default setting for roscolour parameter is the same
+X * as the statuscolour if not specified otherwise.
+X */
+X#ifndef	DEF_ROSCOLOUR
+X#define	DEF_ROSCOLOUR	DEF_STCOLOUR
+X#endif
+X
+X/*
+X * Default settings for showing control- and meta-characters are
+X * as for "normal" vi, i.e. "old" xvi without SHOW_META_CHARS set.
+X */
+X#ifndef	DEF_CCHARS
+X#   define	DEF_CCHARS	FALSE
+X#endif
+X#ifndef	DEF_MCHARS
+X#   define	DEF_MCHARS	FALSE
+X#endif
+X
+X/*
+X * Internal functions.
+X */
+Xstatic	int	strtoi P((char **));
+Xstatic	bool_t	_do_set P((Xviwin *, char *, bool_t));
+Xstatic	char	*parmstring P((Param *, int));
+Xstatic	void	enum_usage P((Xviwin*, Param *));
+Xstatic	bool_t	not_imp P((Xviwin *, Paramval, bool_t));
+Xstatic	bool_t	set_magic P((Xviwin *, Paramval, bool_t));
+Xstatic	bool_t	set_rt P((Xviwin *, Paramval, bool_t));
+Xstatic	char	*par_show P((void));
+X
+X/*
+X * These are the available parameters. The following are non-standard:
+X *
+X *	autosplit format helpfile jumpscroll preserve
+X *	preservetime regextype vbell edit
+X *	colour statuscolour roscolour systemcolour
+X */
+XParam	params[] = {
+X/*  fullname        shortname       flags       value           function ... */
+X{   "ada",          "ada",          P_BOOL,     0,              not_imp,   },
+X{   "adapath",      "adapath",      P_STRING,   0,              not_imp,   },
+X{   "autoindent",   "ai",           P_BOOL,     0,              nofunc,    },
+X{   "autoprint",    "ap",           P_BOOL,     0,              not_imp,   },
+X{   "autosplit",    "as",           P_NUM,      2,              nofunc,    },
+X{   "autowrite",    "aw",           P_BOOL,     0,              not_imp,   },
+X{   "beautify",     "bf",           P_BOOL,     0,              not_imp,   },
+X{   "cchars",       "cchars",       P_BOOL,     DEF_CCHARS,     nofunc,    },
+X{   "colour",       "co",           P_NUM,      DEF_COLOUR,     nofunc,    },
+X{   "directory",    "dir",          P_STRING,   0,              not_imp,   },
+X{   "edcompatible", "edcompatible", P_BOOL,     0,              not_imp,   },
+X{   "edit",         "edit",         P_BOOL,     TRUE,           set_edit,  },
+X{   "errorbells",   "eb",           P_BOOL,     0,              nofunc,    },
+X{   "format",       "fmt",          P_ENUM,     0,              set_format,},
+X{   "hardtabs",     "ht",           P_NUM,      0,              not_imp,   },
+X{   "helpfile",     "hf",           P_STRING,   0,              nofunc,    },
+X{   "ignorecase",   "ic",           P_BOOL,     0,              nofunc,    },
+X{   "jumpscroll",   "js",           P_ENUM,     0,              nofunc,    },
+X{   "lisp",         "lisp",         P_BOOL,     0,              not_imp,   },
+X{   "list",         "ls",           P_BOOL,     0,              nofunc,    },
+X{   "magic",        "magic",        P_BOOL,     TRUE,           set_magic, },
+X{   "mchars",       "mchars",       P_BOOL,     DEF_MCHARS,     nofunc,    },
+X{   "mesg",         "mesg",         P_BOOL,     0,              not_imp,   },
+X{   "minrows",      "min",          P_NUM,      2,              nofunc,    },
+X{   "modeline",     "modeline",     P_BOOL,     0,              not_imp,   },
+X{   "number",       "nu",           P_BOOL,     0,              nofunc,    },
+X{   "open",         "open",         P_BOOL,     0,              not_imp,   },
+X{   "optimize",     "opt",          P_BOOL,     0,              not_imp,   },
+X{   "paragraphs",   "para",         P_STRING,   0,              nofunc,    },
+X{   "preserve",     "psv",          P_ENUM,     0,              nofunc,    },
+X{   "preservetime", "psvt",         P_NUM,      5,              nofunc,    },
+X{   "prompt",       "prompt",       P_BOOL,     0,              not_imp,   },
+X{   "readonly",     "ro",           P_BOOL,     0,              nofunc,	   },
+X{   "redraw",       "redraw",       P_BOOL,     0,              not_imp,   },
+X{   "regextype",    "rt",           P_ENUM,     0,              set_rt,    },
+X{   "remap",        "remap",        P_BOOL,     0,              nofunc,    },
+X{   "report",       "report",       P_NUM,      5,              nofunc,    },
+X{   "roscolour",    "rst",          P_NUM,      DEF_ROSCOLOUR,  nofunc,    },
+X{   "scroll",       "scroll",       P_NUM,      0,              not_imp,   },
+X{   "sections",     "sections",     P_STRING,   0,              nofunc,    },
+X{   "sentences",    "sentences",    P_STRING,   0,              nofunc,    },
+X{   "shell",        "sh",           P_STRING,   0,              nofunc,    },
+X{   "shiftwidth",   "sw",           P_NUM,      8,              nofunc,    },
+X{   "showmatch",    "sm",           P_BOOL,     0,              nofunc,    },
+X{   "slowopen",     "slowopen",     P_BOOL,     0,              not_imp,   },
+X{   "sourceany",    "sourceany",    P_BOOL,     0,              not_imp,   },
+X{   "statuscolour", "st",           P_NUM,      DEF_STCOLOUR,   nofunc,    },
+X{   "systemcolour", "sy",           P_NUM,      DEF_SYSCOLOUR,  nofunc,    },
+X{   "tabs",         "tabs",         P_BOOL,     TRUE,           nofunc,    },
+X{   "tabstop",      "ts",           P_NUM,      8,              nofunc,    },
+X{   "taglength",    "tlh",          P_NUM,      0,              nofunc,    },
+X{   "tags",         "tags",         P_LIST,     0,              nofunc,    },
+X{   "term",         "term",         P_STRING,   0,              not_imp,   },
+X{   "terse",        "terse",        P_BOOL,     0,              not_imp,   },
+X{   "timeout",      "timeout",      P_NUM,      DEF_TIMEOUT,    nofunc,    },
+X{   "ttytype",      "ttytype",      P_STRING,   0,              not_imp,   },
+X{   "vbell",        "vb",           P_BOOL,     0,              nofunc,    },
+X{   "warn",         "warn",         P_BOOL,     0,              not_imp,   },
+X{   "window",       "window",       P_NUM,      0,              not_imp,   },
+X{   "wrapmargin",   "wm",           P_NUM,      0,              nofunc,    },
+X{   "wrapscan",     "ws",           P_BOOL,     TRUE,           nofunc,    },
+X{   "writeany",     "wa",           P_BOOL,     0,              not_imp,   },
+X
+X{   (char *) NULL,  (char *) NULL,  0,          0,              nofunc,    },
+X
+X};
+X
+X/*
+X * Special initialisations for string, list and enum parameters,
+X * which we cannot put in the table above because C does not
+X * allow the initialisation of unions.
+X */
+Xstatic struct {
+X    int		index;
+X    char	*value;
+X} init_str[] = {	/* strings and lists */
+X    P_helpfile,		HELPFILE,
+X    P_paragraphs,	DEF_PARA,
+X    P_sections,		DEF_SECTIONS,
+X    P_sentences,	DEF_SENTENCES,
+X    P_tags,		DEF_TAGS,
+X};
+X#define	NSTRS	(sizeof(init_str) / sizeof(init_str[0]))
+X
+X/*
+X * Names of values for the P_jumpscroll enumerated parameter.
+X *
+X * It is essential that these are in the same order as the js_...
+X * symbolic constants defined in xvi.h.
+X */
+Xstatic char *js_strings[] =
+X{
+X    "off",		/* js_OFF */
+X    "auto",		/* js_AUTO */
+X    "on",		/* js_ON */
+X    NULL
+X};
+X
+Xstatic struct {
+X    int		index;
+X    int		value;
+X    char	**elist;
+X} init_enum[] = {	/* enumerations */
+X    P_format,		DEF_TFF,	fmt_strings,
+X    P_jumpscroll,	js_AUTO,	js_strings,
+X    P_preserve,		psv_STANDARD,	psv_strings,
+X    P_regextype,	rt_GREP,	rt_strings,
+X};
+X#define	NENUMS	(sizeof(init_enum) / sizeof(init_enum[0]))
+X
+X/*
+X * These are used by par_show().
+X */
+Xstatic	bool_t	show_all;
+Xstatic	Param	*curparam;
+X
+X/*
+X * Initialise parameters.
+X *
+X * This function is called once from startup().
+X */
+Xvoid
+Xinit_params()
+X{
+X    Paramval	pv;
+X    Param	*pp;
+X    int		i;
+X
+X    /*
+X     * First go through the special string and enum initialisation
+X     * tables, setting the values into the union field in the
+X     * parameter structures.
+X     */
+X    for (i = 0; i < NSTRS; i++) {
+X	set_param(init_str[i].index, init_str[i].value);
+X    }
+X    for (i = 0; i < NENUMS; i++) {
+X	set_param(init_enum[i].index, init_enum[i].value,
+X			init_enum[i].elist);
+X    }
+X
+X    /*
+X     * Call any special functions that have been set up for
+X     * any parameters, using the default values included in
+X     * the parameter table.
+X     */
+X    for (pp = &params[0]; pp->p_fullname != NULL; pp++) {
+X	if (pp->p_func != nofunc && pp->p_func != PFUNCADDR(not_imp)) {
+X	    switch (pp->p_flags & P_TYPE) {
+X	    case P_NUM:
+X	    case P_ENUM:
+X		pv.pv_i = pp->p_value;
+X		break;
+X	    case P_BOOL:
+X		pv.pv_b = pp->p_value;
+X		break;
+X	    case P_STRING:
+X		pv.pv_s = pp->p_str;
+X		break;
+X	    case P_LIST:
+X		pv.pv_l = pp->p_list;
+X	    }
+X	    (void) (*pp->p_func)(curwin, pv, FALSE);
+X	}
+X    }
+X}
+X
+Xvoid
+Xdo_set(window, argc, argv, inter)
+XXviwin	*window;
+Xint	argc;		/* number of parameters to set */
+Xchar	*argv[];	/* vector of parameter strings */
+Xbool_t	inter;		/* TRUE if called interactively */
+X{
+X    int	count;
+X
+X    /*
+X     * First check to see if there were any parameters to set,
+X     * or if the user just wants us to display the parameters.
+X     */
+X    if (argc == 0 || (argc == 1 && (argv[0][0] == '\0' ||
+X				strncmp(argv[0], "all", 3) == 0))) {
+X	if (inter) {
+X	    int pcwidth;
+X
+X	    show_all = (argc != 0 && argv[0][0] != '\0');
+X	    curparam = &params[0];
+X	    pcwidth = (window->w_ncols < 90 ?
+X			window->w_ncols :
+X			(window->w_ncols < 135 ?
+X			    window->w_ncols / 2 :
+X			    window->w_ncols / 3));
+X
+X	    disp_init(window, par_show, pcwidth, FALSE);
+X	}
+X
+X	return;
+X    }
+X
+X    for (count = 0; count < argc; count++) {
+X	if (!_do_set(window, argv[count], inter)) {
+X	    break;
+X	}
+X    }
+X
+X    if (inter) {
+X
+X	/*
+X	 * Finally, update the screen in case we changed
+X	 * something like "tabstop" or "list" that will change
+X	 * its appearance. We don't always have to do this,
+X	 * but it's easier for now.
+X	 */
+X	update_all();
+X    }
+X}
+X
+X/*
+X * Convert a string to an integer. The string may encode the integer
+X * in octal, decimal or hexadecimal form, in the same style as C. On
+X * return, make the string pointer, which is passed to us by
+X * reference, point to the first character which isn't valid for the
+X * base the number seems to be in.
+X */
+Xstatic int
+Xstrtoi(sp)
+Xchar	**sp;
+X{
+X    register char	*s;
+X    register int	i, c;
+X    bool_t		neg;
+X
+X    i = 0;
+X    neg = FALSE;
+X    s = *sp;
+X    c = *s;
+X    while (is_space(c)) {
+X	c = *++s;
+X    }
+X    if (c == '-') {
+X	neg = TRUE;
+X	c = *++s;
+X    }
+X    while (is_space(c)) {
+X	c = *++s;
+X    }
+X    if (c == '0') {
+X	switch (c = *++s) {
+X	case 'x': case 'X':
+X	    /*
+X	     * We've got 0x ... or 0X ..., so it
+X	     * looks like a hex. number.
+X	     */
+X	    while ((c = *++s) != '\0' && is_xdigit(c)) {
+X		i = (i * 16) + hex_to_bin(c);
+X	    }
+X	    break;
+X
+X	case '0': case '1': case '2': case '3':
+X	case '4': case '5': case '6': case '7':
+X	    /*
+X	     * It looks like an octal number.
+X	     */
+X	    do {
+X		i = (i * 8) + c - '0';
+X	    } while ((c = *++s) != '\0' && is_octdigit(c));
+X	    break;
+X
+X	default:
+X	    *sp = s;
+X	    return(0);
+X	}
+X    } else {
+X	/*
+X	 * Assume it's decimal.
+X	 */
+X	while (c != '\0' && is_digit(c)) {
+X	    i = (i * 10) + c - '0';
+X	    c = *++s;
+X	}
+X    }
+X    *sp = s;
+X    return(neg ? -i : i);
+X}
+X
+X/*
+X * Internal version of do_set(). Returns TRUE if set of specified
+X * parameter was successful, otherwise FALSE.
+X */
+Xstatic bool_t
+X_do_set(window, arg, inter)
+XXviwin	*window;
+Xchar	*arg;				/* parameter string */
+Xbool_t	inter;				/* TRUE if called interactively */
+X{
+X    int		settype = 0;		/* type they want to set */
+X    bool_t	bool_value;		/* value they want to set */
+X    char	*str_value;		/* value they want to set */
+X    Param	*pp;
+X    Paramval	val;
+X    char	*cp;
+X    char	**ep;
+X
+X
+X    /*
+X     * "arg" points at the parameter we are going to try to set.
+X     * Spot "no" and "=" keys.
+X     */
+X
+X    /*
+X     * Note that we will have to change this later if we
+X     * want to implement "nomatch" and "nonomatch". :-(
+X     */
+X    if (strncmp(arg, "no", 2) == 0) {
+X	settype = P_BOOL;
+X	bool_value = FALSE;
+X	arg += 2;
+X    } else {
+X	bool_value = TRUE;
+X    }
+X
+X    str_value = strchr(arg, '=');
+X    if (str_value != NULL) {
+X	if (settype == P_BOOL) {
+X	    if (inter) {
+X		show_error(window, "Can't give \"no\" and a value");
+X		return(FALSE);
+X	    }
+X	}
+X
+X	/*
+X	 * Null-terminate the parameter name
+X	 * and point str_value at the value to
+X	 * the right of the '='.
+X	 */
+X	*str_value++ = '\0';
+X	settype = P_STRING;
+X
+X    } else if (settype != P_BOOL) {
+X
+X	/*
+X	 * Not already set to P_BOOL, so we haven't seen a "no".
+X	 * No '=' sign, so assume we are setting a boolean
+X	 * parameter to TRUE.
+X	 */
+X	settype = P_BOOL;
+X	bool_value = TRUE;
+X    }
+X
+X    /*
+X     * Now search for a complete match of the parameter
+X     * name with either the full or short name in the
+X     * parameter table.
+X     */
+X    for (pp = &params[0]; pp->p_fullname != NULL; pp++) {
+X	if (strcmp(arg, pp->p_fullname) == 0 ||
+X	    strcmp(arg, pp->p_shortname) == 0)
+X	    break;
+X    }
+X
+X    if (pp->p_fullname == NULL) {		/* no match found */
+X	if (inter) {
+X	    show_error(window, "No such parameter");
+X	    return(FALSE);
+X	}
+X    }
+X
+X    /*
+X     * Check the passed type is appropriate for the
+X     * parameter's type. If it isn't, winge and return.
+X     */
+X    switch (pp->p_flags & P_TYPE) {
+X    case P_STRING:
+X    case P_LIST:
+X    case P_NUM:
+X	if (settype != P_STRING) {
+X	    if (inter) {
+X		show_error(window,
+X		    (pp->p_flags & P_STRING) ?
+X		    "Invalid set of string parameter"
+X		    : (pp->p_flags & P_NUM) ?
+X		    "Invalid set of numeric parameter"
+X		    : /* else */
+X		    "Invalid set of list parameter");
+X	    }
+X	    return(FALSE);
+X	}
+X	break;
+X
+X    case P_ENUM:
+X	if (settype != P_STRING) {
+X	    if (inter) {
+X		enum_usage(window, pp);
+X	    }
+X	    return(FALSE);
+X	}
+X	break;
+X
+X    case P_BOOL:
+X	if (settype != P_BOOL) {
+X	    if (inter) {
+X		show_error(window, "Invalid set of boolean parameter");
+X	    }
+X	    return(FALSE);
+X	}
+X    }
+X
+X    /*
+X     * Do any type-specific checking, and set up the
+X     * "val" union to contain the (decoded) value.
+X     */
+X    switch (pp->p_flags & P_TYPE) {
+X    case P_NUM:
+X    {
+X	int i;
+X
+X	cp = str_value;
+X	i = strtoi(&cp);
+X	/*
+X	 * If there are extra characters after the number,
+X	 * don't accept it.
+X	 */
+X	if (*cp != '\0') {
+X	    if (inter) {
+X		show_error(window, "Invalid numeric parameter");
+X	    }
+X	    return(FALSE);
+X	}
+X
+X	val.pv_i = i;
+X	break;
+X    }
+X
+X    case P_ENUM:
+X	for (ep = pp->p_elist; *ep != NULL; ep++) {
+X	    if (strcmp(*ep, str_value) == 0)
+X		break;
+X	}
+X
+X	if (*ep == NULL) {
+X	    if (inter) {
+X		enum_usage(window, pp);
+X	    }
+X	    return(FALSE);
+X	}
+X
+X	val.pv_i = ep - pp->p_elist;
+X	break;
+X
+X    case P_STRING:
+X    case P_LIST:
+X	val.pv_s = str_value;
+X	break;
+X
+X    case P_BOOL:
+X	val.pv_b = bool_value;
+X	break;
+X    }
+X
+X    /*
+X     * Call the check function if there is one.
+X     */
+X    if (pp->p_func != nofunc && (*pp->p_func)(window, val, inter) == FALSE) {
+X	return(FALSE);
+X    }
+X
+X    /*
+X     * Set the value.
+X     */
+X    switch (pp->p_flags & P_TYPE) {
+X    case P_NUM:
+X    case P_ENUM:
+X	pp->p_value = val.pv_i;
+X	break;
+X
+X    case P_BOOL:
+X	pp->p_value = bool_value;
+X	break;
+X
+X    case P_STRING:
+X    case P_LIST:
+X	set_param(pp - params, str_value);
+X	break;
+X    }
+X    pp->p_flags |= P_CHANGED;
+X
+X    /*
+X     * Check the bounds for numeric parameters here.
+X     * We will have to make this table-driven later.
+X     */
+X    if (Pn(P_tabstop) <= 0 || Pn(P_tabstop) > MAX_TABSTOP) {
+X	if (inter) {
+X	    show_error(window, "Invalid tab size specified");
+X	}
+X	set_param(P_tabstop, 8);
+X	return(FALSE);
+X    }
+X
+X    /*
+X     * Got through all the bounds checking, so we're okay.
+X     */
+X    return TRUE;
+X}
+X
+X/*
+X * Internal parameter setting - parameters are not considered
+X * to have been changed unless they are set by the user.
+X *
+X * All types of parameter are handled by this function.
+X * Enumerated types are special, because two arguments
+X * are expected: the first, always present, is the index,
+X * but the second may be either a valid list of strings
+X * a NULL pointer, the latter indicating that the list
+X * of strings is not to be changed.
+X *
+X * The P_LIST type accepts a string argument and converts
+X * it to a vector of strings which is then stored.
+X */
+X/*VARARGS1*/
+Xvoid
+X#ifdef	__STDC__
+X    set_param(int n, ...)
+X#else
+X    set_param(n, va_alist)
+X    int		n;
+X    va_dcl
+X#endif
+X{
+X    va_list		argp;
+X    Param		*pp;
+X    char		*cp;
+X    char		**elist;
+X
+X    pp = &params[n];
+X
+X    VA_START(argp, n);
+X
+X    switch (pp->p_flags & P_TYPE) {
+X    case P_ENUM:
+X	pp->p_value = va_arg(argp, int);
+X
+X	/*
+X	 * If the second argument is a non-NULL list of
+X	 * strings, set it into the parameter structure.
+X	 * Note that this is not dependent on the return
+X	 * value from the check function being TRUE,
+X	 * since the check cannot be made until the
+X	 * array of strings is in place.
+X	 */
+X	elist = va_arg(argp, char **);
+X	if (elist != NULL) {
+X	    pp->p_elist = elist;
+X	}
+X	break;
+X
+X    case P_BOOL:
+X    case P_NUM:
+X	pp->p_value = va_arg(argp, int);
+X	break;
+X
+X    case P_LIST:
+X	{
+X	    int	argc;
+X	    char	**argv;
+X
+X	    cp = strsave(va_arg(argp, char *));
+X	    if (cp == NULL) {
+X		/*
+X		 * This is not necessarily a good idea.
+X		 */
+X		show_error(curwin, "Can't allocate memory for parameter");
+X		return;
+X	    }
+X
+X	    makeargv(cp, &argc, &argv, " \t,");
+X	    if (argc == 0 || argv == NULL) {
+X		free(cp);
+X		return;
+X	    }
+X	    if (pp->p_list != NULL) {
+X		if (pp->p_list[0] != NULL) {
+X		    free(pp->p_list[0]);
+X		}
+X		free((char *) pp->p_list);
+X	    }
+X	    pp->p_list = argv;
+X	}
+X	break;
+X
+X    case P_STRING:
+X	cp = strsave(va_arg(argp, char *));
+X	if (cp == NULL) {
+X	    /*
+X	     * This is not necessarily a good idea.
+X	     */
+X	    show_error(curwin, "Can't allocate memory for parameter");
+X	} else {
+X	    /*
+X	     * We always free up the old string, because
+X	     * it must have been allocated at some point.
+X	     */
+X	    if (pp->p_str != NULL) {
+X		free(pp->p_str);
+X	    }
+X	    pp->p_str = cp;
+X	}
+X	break;
+X    }
+X
+X    va_end(argp);
+X}
+X
+X/*
+X * Display helpful usage message for an enumerated parameter, listing
+X * the legal values for it.
+X */
+Xstatic void
+Xenum_usage(w, pp)
+X    Xviwin		*w;
+X    Param		*pp;
+X{
+X    Flexbuf		s;
+X    char		**sp;
+X
+X    flexnew(&s);
+X    (void) lformat(&s, "Must be one of:");
+X    for (sp = (char **) pp->p_str; *sp != NULL; sp++) {
+X	(void) lformat(&s, " %s", *sp);
+X    }
+X    show_error(w, "%s", flexgetstr(&s));
+X    flexdelete(&s);
+X}
+X
+X/*
+X * Return a string representation for a single parameter.
+X */
+Xstatic char *
+Xparmstring(pp, leading)
+XParam	*pp;			/* parameter */
+Xint	leading;		/* number of leading spaces in string */
+X{
+X    static Flexbuf	b;
+X
+X    flexclear(&b);
+X    while (leading-- > 0) {
+X	(void) flexaddch(&b, ' ');
+X    }
+X    switch (pp->p_flags & P_TYPE) {
+X    case P_BOOL:
+X	(void) lformat(&b, "%s%s", (pp->p_value ? "" : "no"), pp->p_fullname);
+X	break;
+X
+X    case P_NUM:
+X	(void) lformat(&b, "%s=%d", pp->p_fullname, pp->p_value);
+X	break;
+X
+X    case P_ENUM:
+X    {
+X	int	n;
+X	char	*estr;
+X
+X	for (n = 0; ; n++) {
+X	    if ((estr = ((char **) pp->p_str)[n]) == NULL) {
+X		estr = "INTERNAL ERROR";
+X		break;
+X	    }
+X	    if (n == pp->p_value)
+X		break;
+X	}
+X	(void) lformat(&b, "%s=%s", pp->p_fullname, estr);
+X	break;
+X    }
+X
+X    case P_STRING:
+X	(void) lformat(&b, "%s=%s", pp->p_fullname,
+X				    (pp->p_str != NULL) ? pp->p_str : "");
+X	break;
+X
+X    case P_LIST:
+X	{
+X	    register char	**cpp;
+X
+X	    (void) lformat(&b, "%s=%s", pp->p_fullname, pp->p_list[0]);
+X	    for (cpp = pp->p_list + 1; *cpp != NULL; cpp++) {
+X		(void) lformat(&b, " %s", *cpp);
+X	    }
+X	}
+X	break;
+X    }
+X    return(flexgetstr(&b));
+X}
+X
+Xstatic char *
+Xpar_show()
+X{
+X    static bool_t	started = FALSE;
+X
+X    if (!started) {
+X	started = TRUE;
+X	return("Parameters:");
+X    }
+X
+X    for ( ; curparam->p_fullname != NULL; curparam++) {
+X
+X	/*
+X	 * Ignore unimplemented parameters.
+X	 */
+X	if (curparam->p_func != PFUNCADDR(not_imp)) {
+X	    /*
+X	     * Display all parameters if show_all is set;
+X	     * otherwise, just display changed parameters.
+X	     */
+X	    if (show_all || (curparam->p_flags & P_CHANGED) != 0) {
+X		break;
+X	    }
+X	}
+X    }
+X
+X    if (curparam->p_fullname == NULL) {
+X	started = FALSE;		/* reset for next time */
+X	return(NULL);
+X    } else {
+X	char	*retval;
+X
+X	retval = parmstring(curparam, 3);
+X	curparam++;
+X	return(retval);
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xstatic bool_t
+Xnot_imp(window, new_value, interactive)
+XXviwin		*window;
+XParamval	new_value;
+Xbool_t		interactive;
+X{
+X    if (interactive) {
+X	show_message(window, "That parameter is not implemented!");
+X    }
+X    return(TRUE);
+X}
+X
+X/*ARGSUSED*/
+Xstatic bool_t
+Xset_magic(window, new_value, interactive)
+XXviwin			*window;
+XParamval		new_value;
+Xbool_t			interactive;
+X{
+X    static int	prev_rt = rt_GREP;
+X
+X    if (new_value.pv_b) {
+X	/*
+X	 * Turn magic on.
+X	 */
+X	if (Pn(P_regextype) == rt_TAGS) {
+X	    set_param(P_regextype, prev_rt, (char **) NULL);
+X	}
+X    } else {
+X	/*
+X	 * Turn magic off.
+X	 */
+X	if (Pn(P_regextype) != rt_TAGS) {
+X	    prev_rt = Pn(P_regextype);
+X	    set_param(P_regextype, rt_TAGS, (char **) NULL);
+X	}
+X    }
+X    return(TRUE);
+X}
+X
+X/*ARGSUSED*/
+Xstatic bool_t
+Xset_rt(window, new_value, interactive)
+XXviwin		*window;
+XParamval	new_value;
+Xbool_t		interactive;
+X{
+X    switch (new_value.pv_i) {
+X    case rt_TAGS:
+X    case rt_GREP:
+X    case rt_EGREP:
+X	set_param(P_magic, (new_value.pv_i != rt_TAGS));
+X	return(TRUE);
+X    default:
+X	return(FALSE);
+X    }
+X}
+END_OF_FILE
+  if test 23114 -ne `wc -c <'xvi/src/param.c'`; then
+    echo shar: \"'xvi/src/param.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/param.c'
+fi
+if test -f 'xvi/src/regexp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/regexp.h'\"
+else
+  echo shar: Extracting \"'xvi/src/regexp.h'\" \(1300 characters\)
+  sed "s/^X//" >'xvi/src/regexp.h' <<'END_OF_FILE'
+X/***
+X
+X* @(#)regexp.h	2.1 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    regexp.h
+X* module function:
+X    Definitions for regular expression routines.
+X
+X* history:
+X    Regular expression routines by Henry Spencer.
+X    Modfied for use with STEVIE (ST Editor for VI Enthusiasts,
+X     Version 3.10) by Tony Andrews.
+X    Adapted for use with Xvi by Chris & John Downey.
+X    Original copyright notice is in regexp.c.
+X    Please note that this is a modified version.
+X***/
+X
+X/*
+X * Caveat:  this is V8 regexp(3) [actually, a reimplementation thereof],
+X * not the System V one.
+X */
+X
+X#define NSUBEXP 10
+Xtypedef struct regexp {
+X    char    *startp[NSUBEXP];
+X    char    *endp[NSUBEXP];
+X    char    regstart;		/* Internal use only. */
+X    char    reganch;		/* Internal use only. */
+X    char    *regmust;		/* Internal use only. */
+X    int     regmlen;		/* Internal use only. */
+X    char    program[1];		/* Unwarranted chumminess with compiler. */
+X} regexp;
+X
+X#ifndef P
+X#   include "xvi.h"
+X#endif
+X
+X/* regerror.c */
+Xextern	void	regerror P((char *s));
+X
+X/* regexp.c */
+Xextern	regexp	*regcomp P((char *exp));
+Xextern	int	regexec P((regexp *prog, char *string, int at_bol));
+X
+X/* regsub.c */
+Xextern void	regsub P((regexp *prog, char *source, char *dest));
+END_OF_FILE
+  if test 1300 -ne `wc -c <'xvi/src/regexp.h'`; then
+    echo shar: \"'xvi/src/regexp.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/regexp.h'
+fi
+echo shar: End of archive 9 \(of 18\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

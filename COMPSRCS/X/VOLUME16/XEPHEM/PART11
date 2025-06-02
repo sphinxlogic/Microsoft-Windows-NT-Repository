@@ -1,0 +1,1748 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i122: xephem - astronomical ephemeris program., Part11/24
+Message-ID: <1992Mar6.135441.2468@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:54:41 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 122
+Archive-name: xephem/part11
+
+# this is part.11 (part 11 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file sun.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 11; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping sun.c'
+else
+echo 'x - continuing file sun.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'sun.c' &&
+X	b = 360*(a-(long)a);
+X	c1 = degrad(312.69+b);
+X	a = 1236.853095*t;
+X	b = 360*(a-(long)a);
+X	d1 = degrad(350.74-.00144*t2+b);
+X	e1 = degrad(231.19+20.2*t);
+X	a = 183.1353208*t;
+X	b = 360*(a-(long)a);
+X	h1 = degrad(353.4+b);
+X	dl = .00134*cos(a1)+.00154*cos(b1)+.002*cos(c1)+.00179*sin(d1)+
+X								.00178*sin(e1);
+X	dr = 5.43e-06*sin(a1)+1.575e-05*sin(b1)+1.627e-05*sin(c1)+
+X					    3.076e-05*cos(d1)+9.27e-06*sin(h1);
+X	*lsn = nu+degrad(ls-ms+dl);
+X	*rsn = 1.0000002*(1-s*cos(ea))+dr;
+X	range (lsn, 2*PI);
+}
+SHAR_EOF
+echo 'File sun.c is complete' &&
+chmod 0644 sun.c ||
+echo 'restore of sun.c failed'
+Wc_c="`wc -c < 'sun.c'`"
+test 1760 -eq "$Wc_c" ||
+	echo 'sun.c: original size 1760, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= time.c ==============
+if test -f 'time.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping time.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting time.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'time.c' &&
+/* get the time from the os.
+X *
+X * here are two methods I was able to verify; pick one for your system and
+X *   define exactly one of TZA or TZB:
+X * TZA works on our ibm-pc/turbo-c and at&t systems,
+X * TZB works on our 4.2 BSD vax.
+X *
+X * I'm told that on Sun OS 4.0.3 (BSD 4.3?) and Apollo SR 10.1 TZB works if
+X *   you use <sys/time.h> in place of <time.h>.
+X * 
+X * On VMS, you DON'T want to define EITHER TZA nor TZB since it can't handle
+X *   time zones, period. time_fromsys() will detect that fact based on gmtime()
+X *   returning 0.
+X */
+X
+/* try to infer a setting for TZ?
+X */
+#ifdef SYSV
+#define	TZA
+#endif
+#ifdef BSD
+#define	TZB
+#endif
+#ifdef BSD43
+#define	TZB
+#endif
+#ifdef ultrix
+#define	TZB
+#endif
+X
+/* default to TZA */
+#ifndef TZA
+#ifndef TZB
+#define	TZA
+#endif
+#endif
+X
+#ifdef VMS
+#undef TZA
+#undef TZB
+#endif
+X
+#ifdef VAXC
+#undef TZA
+#undef TZB
+#include <time.h>
+#endif
+X
+#include <stdio.h>
+#ifdef TZA
+#include <time.h>
+#endif
+#ifdef TZB
+#include <sys/time.h>
+#endif
+X
+#include "astro.h"
+#include "circum.h"
+X
+extern char *strncpy();
+#ifndef VMS
+extern long time();
+#endif
+X
+static long c0;
+static double mjd0;
+X
+/* save current mjd and corresponding system clock for use by inc_mjd().
+X * this establishes the base correspondence between the mjd and system clock.
+X */
+set_t0 (np)
+Now *np;
+{
+X	mjd0 = mjd;
+X	(void) time (&c0);
+}
+X
+/* fill in n_mjd/tz/tznm from system clock.
+X */
+time_fromsys (np)
+Now *np;
+{
+X	extern struct tm *gmtime(), *localtime();
+X	struct tm *tp;
+X	long c;
+X	double day, hr;
+X
+X	(void) time (&c);
+X
+X	tp = gmtime (&c);
+X	if (tp) {
+X	    cal_mjd (tp->tm_mon+1, (double)tp->tm_mday, tp->tm_year+1900, &day);
+X	    sex_dec (tp->tm_hour, tp->tm_min, tp->tm_sec, &hr);
+X	    mjd = day + hr/24.0;
+X	    tp = localtime (&c);
+X	    settzstuff (tp->tm_isdst ? 1 : 0, np);
+X	} else {
+X	    /* if gmtime() doesn't work, we assume the timezone stuff won't
+X	     * either, so we just use what it is and leave it alone. Some
+X	     * systems (like VMS) do not know about time zones, so this is the
+X	     * best guess in that case.
+X	     */
+X	    tp = localtime (&c);
+X	    cal_mjd (tp->tm_mon+1, (double)tp->tm_mday, tp->tm_year+1900, &day);
+X	    sex_dec (tp->tm_hour, tp->tm_min, tp->tm_sec, &hr);
+X	    mjd = day + hr/24.0 + tz/24.0;
+X	}
+}
+X
+/* given whether dst is now in effect (must be strictly 0 or 1), fill in
+X * tzname and tz within np.
+X */
+static
+settzstuff (dst, np)
+int dst;
+Now *np;
+{
+#ifdef TZA
+X	extern long timezone;
+X	extern char *tzname[2];
+X
+X	tzset();
+X	tz = timezone/3600;
+X	if (dst)
+X	    tz -= 1.0;
+X	(void) strncpy (tznm, tzname[dst], sizeof(tznm)-1);
+#endif
+#ifdef TZB
+X	extern char *timezone();
+X	struct timeval timev;
+X	struct timezone timez;
+X
+X	gettimeofday (&timev, &timez);
+X	tz = timez.tz_minuteswest/60;
+X	if (dst)
+X	    tz -= 1.0;
+X	(void) strncpy (tznm, timezone(timez.tz_minuteswest, dst),
+X								sizeof(tznm)-1);
+#endif
+X	tznm[sizeof(tznm)-1] = '\0';	/* insure string is terminated */
+}
+X
+inc_mjd (np, inc)
+Now *np;
+double inc;
+{
+X	if (inc == RTC) {
+X	    long c;
+X	    (void) time (&c);
+X	    mjd = mjd0 + (c - c0)/SPD;
+X	} else
+X	    mjd += inc/24.0;
+X
+X	/* round to nearest whole second.
+X	 * without this, you can get fractional days so close to .5 but
+X	 * not quite there that mjd_hr() can return 24.0
+X	 */
+X	rnd_second (&mjd);
+}
+SHAR_EOF
+chmod 0644 time.c ||
+echo 'restore of time.c failed'
+Wc_c="`wc -c < 'time.c'`"
+test 3230 -eq "$Wc_c" ||
+	echo 'time.c: original size 3230, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= utc_gst.c ==============
+if test -f 'utc_gst.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping utc_gst.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting utc_gst.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'utc_gst.c' &&
+#include "astro.h"
+X
+/* given a modified julian date, mjd, and a universally coordinated time, utc,
+X * return greenwich mean siderial time, *gst.
+X */
+utc_gst (mjd, utc, gst)
+double mjd;
+double utc;
+double *gst;
+{
+X	double tnaught();
+X	static double lastmjd = -10000;
+X	static double t0;
+X
+X	if (mjd != lastmjd) {
+X	    t0 = tnaught (mjd);
+X	    lastmjd = mjd;
+X	}
+X	*gst = (1.0/SIDRATE)*utc + t0;
+X	range (gst, 24.0);
+}
+X
+/* given a modified julian date, mjd, and a greenwich mean siderial time, gst,
+X * return universally coordinated time, *utc.
+X */
+gst_utc (mjd, gst, utc)
+double mjd;
+double gst;
+double *utc;
+{
+X	double tnaught();
+X	static double lastmjd = -10000;
+X	static double t0;
+X
+X	if (mjd != lastmjd) {
+X	    t0 = tnaught (mjd);
+X	    range (&t0, 24.0);
+X	    lastmjd = mjd;
+X	}
+X	*utc = gst - t0;
+X	range (utc, 24.0);
+X	*utc *= SIDRATE;
+}
+X
+static double
+tnaught (mjd)
+double mjd;	/* julian days since 1900 jan 0.5 */
+{
+X	double dmjd;
+X	int m, y;
+X	double d;
+X	double t, t0;
+X
+X	mjd_cal (mjd, &m, &d, &y);
+X	cal_mjd (1, 0., y, &dmjd);
+X	t = dmjd/36525;
+X	t0 = 6.57098e-2 * (mjd - dmjd) - 
+X	     (24 - (6.6460656 + (5.1262e-2 + (t * 2.581e-5))*t) -
+X		   (2400 * (t - (((double)y - 1900)/100))));
+X	return (t0);
+}
+SHAR_EOF
+chmod 0644 utc_gst.c ||
+echo 'restore of utc_gst.c failed'
+Wc_c="`wc -c < 'utc_gst.c'`"
+test 1189 -eq "$Wc_c" ||
+	echo 'utc_gst.c: original size 1189, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= version.c ==============
+if test -f 'version.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping version.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting version.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'version.c' &&
+/* code to manage the stuff on the version display.
+X * first thing is our modification history, then code to put up the dialog.
+X */
+X
+/* increment version and date and add a note after each change.
+X * increment PATCHLEVEL, in patchlevel.h, after each patch is distributed.
+X */
+static char vmsg[] = "Version 1.0 February 24, 1992";
+X
+/*
+X * 1.0 2/24/92	baseline release to comp.sources.x.
+X * .19 1/17	invert icon pixmap.
+X *		change default font to "fixed".
+X *     1/24	fix {} bugs around case XmCR_RESIZE events.
+X *     1/27	change to XX_all() to XX_update() in sol/altaz/sky view exposes.
+X *     1/29	date/sep/riset: toggle object state, don't force all on or off.
+X *     2/3	add toggle buttons to altaz/sky/solsys views as well.
+X *     2/7	call XmProcessTraversal() >>twice<< to set PromptDialog focus.
+X *     2/10	clean up widget names.
+X *     2/11	better plot file error messages.
+X *     2/13	add patchlevel.h.
+X *     2/19	many small changes, as per beta test feedback...
+X *     2/20	fix version background color.
+X *		add bigdots toggle to jupmenu and fix expose bug.
+X *     2/21	add resources XEphem.plotColor[0-9] to set plot colors.
+X *     2/24	allow trailing s on step size to indicate sidereal days.
+X * .18 1/14	always show ddd:mm in sep menu.
+X *     1/16	move moonmenu loc to fallbacks.
+X * .17 1/3/92	rework menu schemes a bit to better handle different font sizes.
+X * .16 11/27	switch to using XtAppContext with timer.
+X *		add error checking in get_xmstring().
+X *		add "if (!w)" to all the *_ison() functions.
+X *     12/16	obj.c: switch to XmListDeleteAllItems - Motif 1.1!!
+X *		add check for m_ison() in main's ANYTHING_ISON macro.
+X *     12/23	set resizePolicy to RESIZE_NONE in skydome.c and moonmenu.c
+X * .15 9/18	work up a nicer version menu.
+X *     9/19	rearrange obj menu and fix trailing \n List bug.
+X * .14 8/28	add help file facility.
+X *     9/4	add some optional earthshine to bitmapped moon scene.
+X *     9/5	f_sscansex: allow for decimal seconds.
+X *     9/9	allow user to toggle between moon views, and tweak them a bit.
+X * .13 8/14	add Moon to View menu.
+X *     8/21	obj.c: nxt_db(): add isdigit() to allow numeric entries.
+X *     8/22	add "big dots" options to views.
+X *         	allow building up trails even while views are unmanaged.
+X * .12 8/6	fixed nesting of selection buttons.
+X *     8/7	add "All on/off" pushbuttons.
+X *		teach f_string() not to set string if it didn't change.
+X *		circum.c: about_now(): turn off change storage - not good enuf.
+X *     8/8	obj.c: obj_crack_dbline(): loop from 2 .. sizeof(ids)+2
+X *		add more built-in functions to the compiler.
+X * .11 7/31	first do-nothing search menu.
+X *     8/2	completed search menu but don't like compiler messages much.
+X * .10		skip so nobody rounds 0.10 to 0.1 somewhere sometime.
+X * 0.9 6/12	add test for !lstform in lst_selection()
+X *		get di by get_something(w,XmNuserData,&di) in plt_da_unmap_cb()
+X *		use l-3, not l-2, in XDrawString call in plot_cartesian()
+X *		add test for (propts&(1<<points[i].p)) in {aa,sd,ss}_identify()
+X *     7/9	remove internet address from version notice.
+X *     7/12	print cal after loop stops: mm_calendar(): add f_ison() check
+X *     7/17	mainmenu.c: mm_activate_cb(): only select of how & PLT
+X * 0.8 1/17	refinements to graphical displays. change Update/Stop button.
+X *     1/18	swap order of mm_readcfg() and mm_crackargs()
+X *     1/21	PROPTS sets initial objects on for all menus.
+X *     1/22	remove the Help button from obj's prompts.
+X *     1/23	just Stop stops looping.
+X *     3/18	update times when stop an automatic looping run.
+X * 0.7 1/11	added alt/az display.
+X * 0.6 1/10	added sky dome display
+X * 0.5 1/8	eliminate .uil file (about 10% smaller program now)
+X * 0.4 1/7/91	par with ephem now except for alt/az & dome skies and searching.
+X * 0.1 12/13/90 first viable beginnings. main three menus working ok.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/DrawingA.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include <Xm/Scale.h>
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+#include "patchlevel.h"
+X
+extern Widget toplevel_w;
+extern XtAppContext xe_app;
+X
+static char *msg[] = {
+"xephem - An Interactive Astronomical Ephemeris Program for X",
+vmsg,
+0, /* placeholder for PATCHLEVEL message */
+"",
+"Copyright (c) 1990,1991,1992 by Elwood Charles Downey",
+"",
+"Permission is granted to make and distribute copies of this program free of",
+"charge, provided the copyright notices and this permission notice are",
+"preserved on all copies.  All other rights reserved.  No representation is",
+"made about the suitability of this software for any purpose.  It is provided",
+"\"as is\" without express or implied warranty, to the extent permitted by",
+"applicable law.",
+};
+X
+#define	NMSGR	(sizeof(msg)/sizeof(msg[0]))
+X
+static Widget v_w;
+static Widget vda_w;
+static XtIntervalId v_timer_id;
+static GC v_fgc;
+static double rotrate;	/* rotation rate constant - filled on first manage */
+X
+/* table of circular orbit radii to portray and the last screen coords.
+X * the real solar system has planet radii from .3 to 30, but the 100:1 ratio is
+X * so large we don't try and include everything.
+X */
+typedef struct {
+X    double r;		/* radius, AU */
+X    double theta;	/* angle */
+X    int x, y;		/* last X x,y coord drawn */
+} Orbit;
+X
+#define	UNDEFX	(-1)		/* value of x when never drawn yet */
+static Orbit orbit[] = {
+X    /*
+X    {1.0, 0.0, UNDEFX, 0},
+X    */
+X    {1.6, 0.0, UNDEFX, 0},
+X    {5.4, 0.0, UNDEFX, 0},
+X    {10., 0.0, UNDEFX, 0},
+X    {19., 0.0, UNDEFX, 0},
+X    {30., 0.0, UNDEFX, 0}
+};
+#define NORBIT	(sizeof(orbit)/sizeof(orbit[0]))
+#define	MAXRAD	(orbit[NORBIT-1].r)	/* N.B.use orbit[] with largest radius*/
+#define	MINRAD	(orbit[0].r)	/* N.B. use orbit[] with smallest radius */
+#define PR 	4		/* radius of planet, in pixels */
+#define	DT	100		/* ms pause between screen updates */
+#define	NSTARS	100		/* number of background stars to sprinkle in */
+#define	DPI	30		/* degrees of inner orbit motion per iteration*/
+X
+/* called when mainmenu "on Version" help is selected.
+X */
+version()
+{
+X	/* make the version form if this is our first time.
+X	 * also take this opportunity to do things once to init the
+X	 * planet locations and set the rotation rate.
+X	 */
+X	if (!v_w) {
+X	    int i;
+X	    v_makew();
+X	    for (i = 0; i < NORBIT; i++)
+X		orbit[i].theta = ((rand()>>2) & 0xfff) * 2*PI / 0xfff;
+X	    rotrate = degrad(DPI)/pow(MINRAD/MAXRAD, -3./2.);
+X	}
+X	    
+X	/* toggle whether up now.
+X	 * autoUnmanage can bring back down too.
+X	 */
+X	if (XtIsManaged(v_w))
+X	    XtUnmanageChild (v_w);
+X	else
+X	    XtManageChild (v_w);
+}
+X
+/* make the v_w widget.
+X */
+static
+v_makew()
+{
+X	void v_unmap_cb();
+X	void v_da_exp_cb();
+X	Widget w;
+X	Widget ok_w;
+X	Widget frame_w;
+X	Widget text_w;
+X	XmString str;
+X	Arg args[20];
+X	int x, y;
+X	int n;
+X
+X	/* get location of our main app menu and place nearby */
+X	n = 0;
+X	XtSetArg (args[n], XmNx, &x); n++;
+X	XtSetArg (args[n], XmNy, &y); n++;
+X	XtGetValues (toplevel_w, args, n);
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNunitType, Xm100TH_FONT_UNITS); n++;
+X	XtSetArg (args[n], XmNheight, (2*NMSGR+1)*250); n++;
+X	XtSetArg (args[n], XmNwidth, 84*100); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_ANY); n++;
+X	XtSetArg (args[n], XmNautoUnmanage, True); n++;
+X	XtSetArg (args[n], XmNhorizontalSpacing, 100); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 75); n++;
+X	XtSetArg (args[n], XmNx, 10*x+200); n++;
+X	XtSetArg (args[n], XmNy, 10*y+200); n++;
+X	v_w = XmCreateFormDialog (toplevel_w, "Version", args, n);
+X	XtAddCallback (v_w, XmNunmapCallback, v_unmap_cb, 0);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Version"); n++;
+X	XtSetValues (XtParent(v_w), args, n);
+X
+X	/* make text widget for the version info */
+X
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNbottomPosition, 50); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNeditMode, XmMULTI_LINE_EDIT); n++;
+X	XtSetArg (args[n], XmNeditable, False); n++;
+X	text_w = XmCreateScrolledText (v_w, "VText", args, n);
+X	fill_msg (text_w);
+X	XtManageChild (text_w);
+X
+X	/* make the "Ok" push button */
+X
+X	str = XmStringCreate("Ok", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshowAsDefault, True); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	ok_w = XmCreatePushButtonGadget (v_w, "VOk", args, n);
+X	XtManageChild (ok_w);
+X	XmStringFree (str);
+X	set_something (v_w, XmNdefaultButton, ok_w);
+X
+X	/* make a frame for the drawing area */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, XtParent(text_w)); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ok_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 20); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNrightPosition, 80); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	frame_w = XmCreateFrame (v_w, "VFrame", args, n);
+X	XtManageChild (frame_w);
+X
+X	/* make a drawing area for drawing the solar system */
+X
+X	n = 0;
+X	vda_w = XmCreateDrawingArea (frame_w, "VMap", args, n);
+X	XtAddCallback (vda_w, XmNexposeCallback, v_da_exp_cb, 0);
+X	XtAddCallback (vda_w, XmNresizeCallback, v_da_exp_cb, 0);
+X	XtManageChild (vda_w);
+}
+X
+static
+fill_msg (w)
+Widget w;
+{
+X	char m[100*NMSGR], *mp = m;
+X	char patchmsg[100];
+X	int i;
+X
+X	sprintf (patchmsg, "Patch level %d", PATCHLEVEL);
+X	msg[2] = patchmsg;	/* "2" must match placeholder location! */
+X
+X	/* Generate message to display as one string */
+X	for (i = 0; i < NMSGR; i++) {
+X	    (void) sprintf (mp, "%*s%s\n", (78 - strlen(msg[i]))/2, "", msg[i]);
+X	    mp += strlen(mp);
+X	}
+X
+X	/* remove final \n to avoid extra blank line at end */
+X	*--mp = '\0';
+X
+X	XmTextSetString (w, m);
+}
+X
+/* version dialog is going away.
+X * stop the rotation timer.
+X */
+static void
+v_unmap_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	if (v_timer_id) {
+X	    XtRemoveTimeOut (v_timer_id);
+X	    v_timer_id = 0;
+X	}
+}
+X
+/* expose version drawing area.
+X * redraw the scene to the (new?) size.
+X */
+static void
+v_da_exp_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected v_w event. type=%d\n", c->reason);
+X	    return;
+X	}
+X
+X	v_draw();
+}
+X
+static
+v_draw()
+{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	unsigned int w, h;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	int i;
+X
+X	if (!v_fgc)
+X	    v_define_fgc();
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X	XClearWindow (dsp, win);
+X
+X	/* draw the orbit ellipsii and forget last drawn locs */
+X	for (i = 0; i < NORBIT; i++) {
+X	    int lx, ty;	/* left and top x */
+X	    int nx, ny; /* width and height */
+X	    lx = w/2 - orbit[i].r/MAXRAD*w/2 + 0.5;
+X	    nx = orbit[i].r/MAXRAD*w + 0.5;
+X	    ty = h/2 - orbit[i].r/MAXRAD*h/2 + 0.5;
+X	    ny = orbit[i].r/MAXRAD*h + 0.5;
+X	    XDrawArc (dsp, win, v_fgc, lx, ty, nx-1, ny-1, 0, 360*64);
+X	    orbit[i].x = UNDEFX;
+X	}
+X
+X	/* draw sun at the center */
+X	drawPlanet (dsp, win, v_fgc, w/2-PR, h/2-PR, 2*PR-1, 2*PR-1);
+X
+X	/* draw some background stars */
+X	for (i = 0; i < NSTARS; i++) {
+X	    int sx, sy;
+X	    sx = ((rand()>>2) & 0xfff) * (w-1) / 0xfff;
+X	    sy = ((rand()>>2) & 0xfff) * (h-1) / 0xfff;
+X	    XDrawPoint (dsp, win, v_fgc, sx, sy);
+X	}
+X
+X	if (!v_timer_id)
+X	    v_timer_cb (0, 0);
+X
+}
+X
+/* called whenever the timer goes off.
+X * we advance all the planets, draw any that have moved at least a few
+X * pixels, and restart a timer.
+X */
+static
+v_timer_cb (client, id)
+caddr_t client;
+XXtIntervalId *id;
+{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	unsigned int w, h;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	int i;
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X
+X	for (i = 0; i < NORBIT; i++) {
+X	    int px, py;	/* planets new center position */
+X	    double f = orbit[i].r/MAXRAD;	/* fraction of largest radius */
+X	    orbit[i].theta += rotrate*pow(f, -3./2.);
+X	    px = w/2 + cos(orbit[i].theta)*w*f/2 + 0.5;
+X	    py = h/2 - sin(orbit[i].theta)*h*f/2 + 0.5;
+X	    if (px != orbit[i].x || py != orbit[i].y) {
+X		/* erase then redraw at new pos, using the XOR GC */
+X		if (orbit[i].x != UNDEFX)
+X		    drawPlanet (dsp, win, v_fgc,
+X				orbit[i].x-PR, orbit[i].y-PR, 2*PR-1, 2*PR-1);
+X		drawPlanet (dsp, win, v_fgc, px-PR, py-PR, 2*PR-1, 2*PR-1);
+X		orbit[i].x = px;
+X		orbit[i].y = py;
+X	    }
+X	}
+X
+X	v_timer_id = XtAppAddTimeOut (xe_app, DT, v_timer_cb, 0);
+}
+X
+/* draw the planet.
+X * would use XFillArc but it is VERY SLOW on the IBM 6091 X terminal.
+X */
+static
+drawPlanet (dsp, win, gc, sx, sy, w, h)
+Display *dsp;
+Window win;
+GC gc;
+int sx, sy, w, h;
+{
+X	int y;
+X
+X	XFillArc (dsp, win, gc, sx, sy, w, h, 0, 360*64);
+X	/*
+X	for (y = sy; y <= sy+h; y++) 
+X	    XDrawLine (dsp, win, gc, sx, y, sx+w, y);
+X	*/
+}
+X
+static
+v_define_fgc()
+{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	XGCValues gcv;
+X	unsigned int gcm;
+X	Pixel fg, bg;
+X
+X	gcm = GCForeground | GCFunction;
+X	get_something (vda_w, XmNforeground, (char *)&fg);
+X	get_something (vda_w, XmNbackground, (char *)&bg);
+X	gcv.foreground = fg ^ bg;
+X	gcv.function = GXxor;
+X	v_fgc = XCreateGC (dsp, win, gcm, &gcv);
+}
+SHAR_EOF
+chmod 0644 version.c ||
+echo 'restore of version.c failed'
+Wc_c="`wc -c < 'version.c'`"
+test 14200 -eq "$Wc_c" ||
+	echo 'version.c: original size 14200, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xephem.c ==============
+if test -f 'xephem.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xephem.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xephem.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xephem.c' &&
+/* main() for xephem.
+X */
+X
+#include <stdio.h>
+X
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <X11/Shell.h>
+#include <Xm/PushB.h>
+#include <Xm/CascadeB.h>
+#include <Xm/Form.h>
+#include <Xm/Separator.h>
+#include <Xm/MainW.h>
+#include <Xm/RowColumn.h>
+X
+/* client arg to m_activate_cb().
+X */
+#define	QUIT		0
+#define	DATA		1
+#define	RISET		2
+#define	SEP		3
+#define	JUPMOON		4
+#define	ALTAZ		5
+#define	DOME		6
+#define	SOLARSYS	7
+#define	PLOT		8
+#define	LIST		9
+#define	SEARCH		10
+#define	OBJXY		11
+#define	VERSION		12
+#define	MOON		13
+#define	REFERENCES	14
+#define	INTRO		15
+#define	CONFIGFILE	16
+#define	DATETIME	17
+#define	OPERATION	18
+#define	NOTES		19
+X
+Widget toplevel_w;
+XXtAppContext xe_app;
+X
+#define xephem_width 50
+#define xephem_height 50
+static char xephem_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00,
+X   0x00, 0x00, 0xf8, 0xff, 0xff, 0x7f, 0x00, 0x00, 0xc0, 0x07, 0x00, 0x00,
+X   0xa0, 0x0f, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x10, 0xf0, 0x00, 0x02, 0x00,
+X   0x00, 0x00, 0x0c, 0x00, 0x01, 0x01, 0x00, 0x00, 0x08, 0x0c, 0x00, 0x02,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xfc, 0xff, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x03,
+X   0x00, 0x0f, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0xf0, 0x0c, 0x00, 0x00,
+X   0x03, 0x00, 0x00, 0x00, 0x1f, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x1e,
+X   0x00, 0x30, 0x00, 0xf8, 0x7f, 0x00, 0x3c, 0x00, 0x08, 0xb0, 0x07, 0x80,
+X   0x07, 0x40, 0x00, 0x04, 0x78, 0x00, 0x00, 0x18, 0x80, 0x00, 0x04, 0x78,
+X   0x00, 0x00, 0x20, 0x80, 0x00, 0x02, 0x30, 0x00, 0x02, 0x20, 0x00, 0x01,
+X   0x02, 0x08, 0x80, 0x0f, 0x40, 0x00, 0x01, 0x82, 0x08, 0x00, 0x07, 0x40,
+X   0x00, 0x01, 0x02, 0x08, 0x80, 0x0f, 0x40, 0x00, 0x01, 0x02, 0x10, 0x00,
+X   0x02, 0x20, 0x04, 0x01, 0x04, 0x10, 0x00, 0x00, 0x20, 0x80, 0x00, 0x04,
+X   0x60, 0x00, 0x00, 0x18, 0x80, 0x00, 0x08, 0x80, 0x07, 0x80, 0x07, 0x40,
+X   0x00, 0x30, 0x00, 0xf8, 0x7f, 0x00, 0x30, 0x00, 0xc0, 0x00, 0x00, 0x00,
+X   0x00, 0x0c, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x3c,
+X   0x00, 0x00, 0xf0, 0x00, 0x00, 0x00, 0xc0, 0x03, 0x00, 0x0f, 0x00, 0x00,
+X   0x00, 0x00, 0xfc, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x3c,
+X   0x00, 0x00, 0x00, 0x60, 0xf0, 0x00, 0xc0, 0x07, 0x00, 0x00, 0xf0, 0x0f,
+X   0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x20, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00};
+X
+String fallbacks[] = {
+X    "XEphem*traversalOn:   		false",
+X
+X    "XEphem*highlightOnEnter:	false",
+X    "XEphem*highlightThickness:	0",
+X
+X    "XEphem*XmText*traversalOn:   	true",
+X    "XEphem*XmText*highlightOnEnter:	false",
+X    "XEphem*XmText*highlightThickness:	0",
+X
+X    "XEphem*Data.x: 100",
+X    "XEphem*Data.y: 200",
+X    "XEphem*Riset.x: 150",
+X    "XEphem*Riset.y: 250",
+X    "XEphem*Separation.x: 200",
+X    "XEphem*Separation.y: 300",
+X    "XEphem*Jupiter.x: 100",
+X    "XEphem*Jupiter.y: 200",
+X    "XEphem*SkyDome.x: 150",
+X    "XEphem*SkyDome.y: 250",
+X    "XEphem*AltAz.x: 200",
+X    "XEphem*AltAz.y: 300",
+X    "XEphem*SolarSystem.x: 250",
+X    "XEphem*SolarSystem.y: 350",
+X    "XEphem*Plot.x: 100",
+X    "XEphem*Plot.y: 200",
+X    "XEphem*List.x: 150",
+X    "XEphem*List.y: 250",
+X    "XEphem*Srch.x: 200",
+X    "XEphem*Srch.y: 300",
+X    "XEphem*MoonForm.x: 200",
+X    "XEphem*MoonForm.y: 200",
+X
+X    "XEphem*foreground: #fce089",
+X    "XEphem*background: #7c8498",
+X
+X    "XEphem*fontList: fixed",
+X
+X    "XEphem*JupMap*background: black",
+X    "XEphem*JupMap*foreground: white",
+X    "XEphem*AltAzMap*background: black",
+X    "XEphem*AltAzMap*foreground: white",
+X    "XEphem*SolarMap*background: black",
+X    "XEphem*SolarMap*foreground: white",
+X    "XEphem*SkyDomeMap*background: black",
+X    "XEphem*SkyDomeMap*foreground: white",
+X    "XEphem*PlotDA*foreground: white",
+X    "XEphem*PlotDA*background: black",
+X    "XEphem.plotColor0: red",
+X    "XEphem.plotColor1: green",
+X    "XEphem.plotColor2: blue",
+X    "XEphem.plotColor3: orange",
+X    "XEphem.plotColor4: magenta",
+X    "XEphem.plotColor5: cyan",
+X    "XEphem.plotColor6: black",
+X    "XEphem.plotColor7: wheat",
+X    "XEphem.plotColor8: gray",
+X    "XEphem.plotColor9: pink",
+X    "XEphem*MoonDA*foreground: white",
+X    "XEphem*MoonDA*background: black",
+X    "XEphem*VMap*foreground: white",
+X    "XEphem*VMap*background: black",
+X    NULL
+};
+X
+main(argc, argv)
+unsigned int argc;
+char *argv[];
+{
+X	Widget make_main_window();
+X	Widget main_window_w;
+X
+X	/* init the X Toolkit. We get back a top level shell widget.
+X	 * XtInit mungs argc and the argv array to take out what it recognizes.
+X	 */
+X	toplevel_w = XtVaAppInitialize (&xe_app, "XEphem", NULL, 0,
+X						&argc, argv, fallbacks, NULL);
+X
+X	/* make the main menu bar and form (other stuff is in mainmenu.c) */
+X	main_window_w = make_main_window (argc, argv);
+X
+X	/* Manage and realize the main window.
+X	 * The interface comes up on the display now.
+X	 */
+X	XtManageChild(main_window_w);
+X	XtRealizeWidget(toplevel_w);
+X
+X	/* connect up the icon pixmap */
+X	setup_window_properties (toplevel_w);
+X
+X	/* Sit around forever waiting to process X-events.  We never leave
+X	 * XtMainLoop. only way out is to call exit. From here on, we only
+X	 * execute our callback routines.
+X	 */
+X	XtAppMainLoop(xe_app);
+}
+X
+/* put together the menu bar, the main form, and fill in the form with the
+X * initial xephem buttons.
+X */
+static Widget
+make_main_window (ac, av)
+unsigned int ac;
+char *av[];
+{
+X
+X	void m_activate_cb();
+X	Widget main_window;
+X	Widget menu_bar;
+X	Widget menu_pane;
+X	Widget button;
+X	Widget cascade;
+X	Widget w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X
+X	/*	Create MainWindow.  */
+X	n = 0;
+X	main_window = XmCreateMainWindow (toplevel_w, "xephem_main", args, n);
+X	XtManageChild (main_window);
+X
+X	/*	Create MenuBar in MainWindow.  */
+X	n = 0;
+X	menu_bar = XmCreateMenuBar (main_window, "menu_bar", args, n); 
+X	XtManageChild (menu_bar);
+X
+X	/*	Create "File" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "file_pane", args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNaccelerator, "Ctrl<Key>d:"); n++;
+X	str = XmStringCreate ("Ctrl/d", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNacceleratorText, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'Q'); n++;
+X	button = XmCreatePushButton (menu_pane, "Quit", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, QUIT);
+X	XmStringFree (str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'F'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "File", args, n);
+X	XtManageChild (cascade);
+X	
+X	/*	Create "View" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "view_pane", args, n);
+X	
+X	n = 0;
+X	str = XmStringCreate ("General Data", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'G'); n++;
+X	button = XmCreatePushButton (menu_pane, "GenData", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, DATA);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Rise/Set", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'R'); n++;
+X	button = XmCreatePushButton (menu_pane, "RiSet", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, RISET);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'S'); n++;
+X	button = XmCreatePushButton (menu_pane, "Separations", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, SEP);
+X	
+X	n = 0;
+X	w = XmCreateSeparator (menu_pane, "ViewSep1", args, n);
+X	XtManageChild (w);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'J'); n++;
+X	button = XmCreatePushButton (menu_pane, "Jupiter", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, JUPMOON);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'M'); n++;
+X	button = XmCreatePushButton (menu_pane, "Moon", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, MOON);
+X	
+X	n = 0;
+X	w = XmCreateSeparator (menu_pane, "ViewSep2", args, n);
+X	XtManageChild (w);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Sky dome", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'd'); n++;
+X	button = XmCreatePushButton (menu_pane, "SkyDome", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, DOME);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Alt/Az sky", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'A'); n++;
+X	button = XmCreatePushButton (menu_pane, "AltAz", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, ALTAZ);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	str = XmStringCreate ("Solar system", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'o'); n++;
+X	button = XmCreatePushButton (menu_pane, "SolSys", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, SOLARSYS);
+X	XmStringFree(str);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "View", args, n);
+X	XtManageChild (cascade);
+X	
+X	/*	Create "Control" PulldownMenu.  */
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "control_pane", args, n);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'P'); n++;
+X	button = XmCreatePushButton (menu_pane, "Plot", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, PLOT);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'L'); n++;
+X	button = XmCreatePushButton (menu_pane, "Listing", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, LIST);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'S'); n++;
+X	button = XmCreatePushButton (menu_pane, "Search", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, SEARCH);
+X	
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'C'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "Control", args, n);
+X	XtManageChild (cascade);
+X	
+X	/*	Create "ObjX/Y" Cascade Button.  */
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'O'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "ObjX/Y", args, n);
+X	XtManageChild (cascade);
+X	XtAddCallback (cascade, XmNactivateCallback, m_activate_cb, OBJXY);
+X	
+X	
+X	/*	Create "Help" button.
+X	*/
+X	n = 0;
+X	menu_pane = XmCreatePulldownMenu (menu_bar, "help_pane", args, n);
+X	
+X	n = 0;
+X	str = XmStringCreate ("on Version", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+X	button = XmCreatePushButton (menu_pane, "onVersion", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, VERSION);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on References", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'R'); n++;
+X	button = XmCreatePushButton (menu_pane, "onReferences", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, REFERENCES);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'I'); n++;
+X	button = XmCreatePushButton (menu_pane, "Introduction", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, INTRO);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Initialization", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'z'); n++;
+X	button = XmCreatePushButton (menu_pane, "onInitialization", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, CONFIGFILE);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Operation", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'O'); n++;
+X	button = XmCreatePushButton (menu_pane, "onOperation", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, OPERATION);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	str = XmStringCreate ("on Date and time formats",
+X						    XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNmnemonic, 'D'); n++;
+X	button = XmCreatePushButton (menu_pane, "onDate", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, DATETIME);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmnemonic, 'N'); n++;
+X	button = XmCreatePushButton (menu_pane, "Notes", args, n);
+X	XtManageChild (button);
+X	XtAddCallback (button, XmNactivateCallback, m_activate_cb, NOTES);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_pane);  n++;
+X	XtSetArg (args[n], XmNmnemonic, 'H'); n++;
+X	cascade = XmCreateCascadeButton (menu_bar, "Help", args, n);
+X	XtManageChild (cascade);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNmenuHelpWidget, cascade);  n++;
+X	XtSetValues (menu_bar, args, n);
+X
+X	/* create and manage the main form */
+X	mm_manage(main_window, ac, av);
+X
+X	return (main_window);
+}
+X
+static
+setup_window_properties (w)
+Widget w;
+{
+X	Pixmap icon_pm;
+X	XSizeHints xsh;
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow (w);
+X
+X	icon_pm = XCreateBitmapFromData (dsp, win, xephem_bits, xephem_width,
+X								xephem_height);
+X	/* can set window size hints here if we like */
+X	xsh.flags = 0;
+X
+X	XSetStandardProperties (dsp, win, "xephem", "xephem", icon_pm,
+X	    (char **)0, 0, &xsh);
+}
+X
+/* handy way to set one resource for a widget.
+X * shouldn't use this if you have several things to set for the same widget.
+X */
+set_something (w, resource, value)
+Widget w;
+char *resource;
+char *value;
+{
+X	Arg a[1];
+X
+X	if (!w) {
+X	    fprintf (stderr, "set_something called with w==0\n");
+X	    return;
+X	}
+X
+X	XtSetArg (a[0], resource, value);
+X	XtSetValues (w, a, 1);
+}
+X
+/* handy way to get one resource for a widget.
+X * shouldn't use this if you have several things to get for the same widget.
+X */
+get_something (w, resource, value)
+Widget w;
+char *resource;
+char *value;
+{
+X	Arg a[1];
+X
+X	if (!w) {
+X	    fprintf (stderr, "get_something called with w==0\n");
+X	    exit(1);
+X	}
+X
+X	XtSetArg (a[0], resource, value);
+X	XtGetValues (w, a, 1);
+}
+X
+/* given a widget an XmString resource, set *txtp to an ASCII string of it.
+X * N.B. it appears that *txtp is NOT to be XtFree'd. thus, we remalloc it to be
+X *   sure and so OUR caller should always XtFree (*txtp).
+X */
+get_xmstring (w, resource, txtp)
+Widget w;
+char *resource;
+char **txtp;
+{
+X	char *tmp;
+X
+X	if (!w) {
+X	    fprintf (stderr, "get_xmstring called with w==0\n");
+X	    tmp = "?w";
+X	} else {
+X	    XmString str;
+X	    get_something(w, resource, (char *)&str); 
+X	    if (!XmStringGetLtoR (str, XmSTRING_DEFAULT_CHARSET, &tmp)) {
+X		/*
+X		fprintf (stderr, "can't get string for %s\n", resource);
+X		*/
+X		tmp = "?s";
+X	    }
+X	    XmStringFree (str);
+X	}
+X	strcpy (*txtp = XtMalloc (strlen(tmp)+1), tmp);
+}
+X
+set_xmstring (w, resource, txt)
+Widget w;
+char *resource;
+char *txt;
+{
+X	XmString str;
+X
+X	if (!w) {
+X	    fprintf (stderr, "set_xmstring called with w==0\n");
+X	    return;
+X	}
+X
+X	str = XmStringCreateLtoR (txt, XmSTRING_DEFAULT_CHARSET);
+X	set_something (w, resource, str);
+X	XtFree (str);
+}
+X
+static int char_w, char_h;
+X
+char_width()
+{
+X	if (!char_w)
+X	    get_char_wh();
+X	return (char_w);
+}
+X
+char_height()
+{
+X	if (!char_h)
+X	    get_char_wh();
+X	return (char_h);
+}
+X
+static
+get_char_wh()
+{
+X	static char sample[] = "M";
+X	Widget pb;
+X	XmFontList fl;
+X	XmString str;
+X	Dimension xw, xh;
+X
+X	if (!toplevel_w) {
+X	    printf ("called get_char_wh() before making toplevel\n");
+X	    exit(1);
+X	}
+X
+X	pb = XtCreateManagedWidget("fontexample", xmPushButtonWidgetClass,
+X						    toplevel_w, (Arg *)0, 0);
+X	get_something (pb, XmNfontList, &fl);
+X
+X	str = XmStringCreateLtoR (sample, XmSTRING_DEFAULT_CHARSET);
+X	XmStringExtent (fl, str, &xw, &xh);
+X	/*
+X	printf ("'%s': xw=%d xh=%d\n", sample, xw, xh);
+X	*/
+X	char_w = xw + 1;
+X	char_h = 2*xh;
+X	XmStringFree(str);
+X	XtDestroyWidget (pb);
+}
+X
+/* make a string of width n characters.
+X * N.B. we save these for reuse, so DON'T XmStringFree it!
+X */
+XXmString
+str_width(n)
+int n;
+{
+X	typedef struct {
+X	    XmString str;
+X	    int n;
+X	} Str;
+X	static Str *strtbl;
+X	static int nstrtbl;
+X	char proto[100];
+X	Str *new;
+X	int i;
+X
+X	if (n > sizeof(proto)-1) {
+X	    fprintf (stderr, "str_width request too long\n");
+X	    exit(1);
+X	}
+X
+X	/* search existing set first */
+X	for (i = 0; i < nstrtbl; i++)
+X	    if (strtbl[i].n == n)
+X		return (strtbl[i].str);
+X
+X	/* not found, so make a new entry */
+X	for (i = 0; i < n; i++)
+X	    proto[i] = ' ';
+X	proto[i] = '\0';
+X	strtbl = (Str *) XtRealloc ((char *)strtbl, (nstrtbl+1)*sizeof(Str));
+X	new = &strtbl[nstrtbl++];
+X	new->str = XmStringCreateLtoR (proto, XmSTRING_DEFAULT_CHARSET);
+X	new->n = n;
+X	return (new->str);
+}
+X
+static void
+nyi ()
+{
+X	query (toplevel_w, "Not yet implemeted", "Ok", (char*)0, (char*)0,
+X				(void (*)())0, (void (*)())0, (void (*)())0);
+X
+}
+X
+usage (why)
+char *why;
+{
+X	if (why)
+X	    printf ("%s\n", why);
+X	exit (1);
+}
+X
+static void
+m_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	int code = (int)client;
+X
+X	switch (code) {
+X	case QUIT:	exit(0); break;
+X	case DATA:	dm_manage(); break;
+X	case RISET:	rm_manage(); break;
+X	case SEP:	sm_manage(); break;
+X	case JUPMOON:	jm_manage(); break;
+X	case ALTAZ:	aa_manage(); break;
+X	case DOME:	sd_manage(); break;
+X	case SOLARSYS:	ss_manage(); break;
+X	case PLOT:	plot_manage(); break;
+X	case LIST:	lst_manage(); break;
+X	case SEARCH:	srch_manage(); break;
+X	case OBJXY:	obj_manage(); break;
+X	case VERSION:	version(); break;
+X	case REFERENCES:references(); break;
+X	case OPERATION:	operation_help(); break;
+X	case INTRO:	intro(); break;
+X	case MOON:	m_manage(); break;
+X	case CONFIGFILE:config_help(); break;
+X	case DATETIME:	datetime_help(); break;
+X	case NOTES:	notes_help(); break;
+X	default: 	printf ("Main menu bug: code=%d\n", code); break;
+X	}
+}
+X
+static
+references()
+{
+X	static char *msg[] = {
+"Many formulas and tables are based, with permission, on material found in",
+"\"Astronomy with your Personal Computer\" by Dr. Peter Duffett-Smith,",
+"Cambridge University Press, (c) 1985."
+};
+X
+X	hlp_dialog ("References", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+static
+intro()
+{
+X	static char *msg[] = {
+"Xephem computes all sorts of information about the planets, some moons and",
+"two user defined objects. The program displays this in a variety of tabular",
+"and graphical formats. It can also solve a user defined function built from",
+"this data and save values in plot and listing files for later display.",
+"",
+"Many dialogs have further \"Help\" of their own as well."
+};
+X
+X	hlp_dialog ("Intro", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+static
+config_help()
+{
+X	static char *msg[] = {
+"When xephem starts up it looks for a file named ephem.cfg. The name may be",
+"changed with the -c option or the EPHEMCFG environ variable. The file",
+"contains initialization information in the form of keyword=value pairs.",
+"The same keyword=value pairs can be used from the command line as well."
+};
+X
+X	hlp_dialog ("Initialization", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+static
+datetime_help()
+{
+X	static char *msg[] = {
+"Dates are mm/dd/yy - you need only specify what changes. Dates can also be",
+"given as decimal years. Times are hh:mm:ss - again, only specify what changes."
+};
+X
+X	hlp_dialog ("Date/time", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+static
+operation_help()
+{
+X	static char *msg[] = {
+"Set location details, starting date and time, step size and number of steps,",
+"select desired views, then select \"Update\" to run.",
+};
+X
+X	hlp_dialog ("Operation", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+static
+notes_help()
+{
+X	static char *msg[] = {
+"floating point errors are not trapped gracefully. especially be careful not",
+"  to turn on Objx/y before they are properly defined.",
+"",
+"planet magnitudes are not very accurate."
+};
+X
+X	hlp_dialog ("Notes", msg, sizeof(msg)/sizeof(msg[0]));
+}
+SHAR_EOF
+chmod 0644 xephem.c ||
+echo 'restore of xephem.c failed'
+Wc_c="`wc -c < 'xephem.c'`"
+test 20532 -eq "$Wc_c" ||
+	echo 'xephem.c: original size 20532, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= astro.h ==============
+if test -f 'astro.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping astro.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting astro.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'astro.h' &&
+#ifndef PI
+#define	PI		3.141592653589793
+#endif
+X
+/* conversions among hours (of ra), degrees and radians. */
+#define	degrad(x)	((x)*PI/180.)
+#define	raddeg(x)	((x)*180./PI)
+#define	hrdeg(x)	((x)*15.)
+#define	deghr(x)	((x)/15.)
+#define	hrrad(x)	degrad(hrdeg(x))
+#define	radhr(x)	deghr(raddeg(x))
+X
+/* ratio of from synodic (solar) to sidereal (stellar) rate */
+#define	SIDRATE		.9972695677
+X
+/* manifest names for planets.
+X * N.B. must cooincide with usage in pelement.c and plans.c.
+X */
+#define	MERCURY	0
+#define	VENUS	1
+#define	MARS	2
+#define	JUPITER	3
+#define	SATURN	4
+#define	URANUS	5
+#define	NEPTUNE	6
+#define	PLUTO	7
+SHAR_EOF
+chmod 0644 astro.h ||
+echo 'restore of astro.h failed'
+Wc_c="`wc -c < 'astro.h'`"
+test 620 -eq "$Wc_c" ||
+	echo 'astro.h: original size 620, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= circum.h ==============
+if test -f 'circum.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping circum.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting circum.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'circum.h' &&
+#define	SPD	(24.0*3600.0)	/* seconds per day */
+X
+#define	EOD	(-9786)		/* special epoch flag: use epoch of date */
+#define	RTC	(-1324)		/* special tminc flag: use rt clock */
+#define	NOMJD	(-58631.)	/* an unlikely mjd for initing static mjd's */
+#define	NOHELIO	(-2314)		/* special s_hlong flag: means it and s_hlat are
+X				 * undefined
+X				 */
+X
+#define	STDHZN		0	/* rise/set times based on nominal conditions */
+#define	ADPHZN		1	/* rise/set times based on exact current " */
+#define	TWILIGHT	2	/* rise/set times for sun 18 degs below hor */
+X
+/* info about our local observing circumstances */
+typedef struct {
+X	double n_mjd;	/* modified Julian date, ie, days since
+X			 * Jan 0.5 1900 (== 12 noon, Dec 30, 1899), utc.
+X			 * enough precision to get well better than 1 second.
+X			 * N.B. if not first member, must move NOMJD inits.
+X			 */
+X	double n_lat;	/* latitude, >0 north, rads */
+X	double n_lng;	/* longitude, >0 east, rads */
+X	double n_tz;	/* time zone, hrs behind UTC */
+X	double n_temp;	/* atmospheric temp, degrees C */
+X	double n_pressure; /* atmospheric pressure, mBar */
+X	double n_height;	/* height above sea level, earth radii */
+X	double n_epoch;	/* desired precession display epoch as an mjd, or EOD */
+X	char n_tznm[4];	/* time zone name; 3 chars or less, always 0 at end */
+} Now;
+extern double	mjd_day(), mjd_hr();
+X
+/* info about where and how we see something in the sky */
+typedef struct {
+X	double s_ra;	/* ra, rads (precessed to n_epoch) */
+X	double s_dec;	/* dec, rads (precessed to n_epoch) */
+X	double s_az;	/* azimuth, >0 e of n, rads */
+X	double s_alt;	/* altitude above topocentric horizon, rads */
+X	double s_sdist;	/* dist from object to sun, au */
+X	double s_edist;	/* dist from object to earth, au */
+X	double s_elong;	/* angular sep between object and sun, >0 if east */
+X	double s_hlong;	/* heliocentric longitude, rads */
+X	double s_hlat;	/* heliocentric latitude, rads */
+X	double s_size;	/* angular size, arc secs */
+X	double s_phase;	/* phase, % */
+X	double s_mag;	/* visual magnitude */
+} Sky;
+X
+/* flags for riset_cir() status */
+#define	RS_NORISE	0x001	/* object does not rise as such today */
+#define	RS_2RISES	0x002	/* object rises more than once today */
+#define	RS_NOSET	0x004	/* object does not set as such today */
+#define	RS_2SETS	0x008	/* object sets more than once today */
+#define	RS_CIRCUMPOLAR	0x010	/* object stays up all day today */
+#define	RS_2TRANS	0x020	/* transits twice in one day */
+#define	RS_NEVERUP	0x040	/* object never rises today */
+#define	RS_NOTRANS	0x080	/* doesn't transit today */
+#define	RS_ERROR	0x100	/* can't figure out times... */
+X
+/* shorthands for fields a Now pointer, np */
+#define mjd	np->n_mjd
+#define lat	np->n_lat
+#define lng	np->n_lng
+#define tz	np->n_tz
+#define temp	np->n_temp
+#define pressure np->n_pressure
+#define height	np->n_height
+#define epoch	np->n_epoch
+#define tznm	np->n_tznm
+SHAR_EOF
+chmod 0644 circum.h ||
+echo 'restore of circum.h failed'
+Wc_c="`wc -c < 'circum.h'`"
+test 2856 -eq "$Wc_c" ||
+	echo 'circum.h: original size 2856, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= fieldmap.h ==============
+if test -f 'fieldmap.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping fieldmap.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fieldmap.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fieldmap.h' &&
+/* info about a "Field Map".
+X * this is what we use to keep track of each of the oodles of pushbuttons.
+X * we store an id (unique only within a given menu), flags as to how the
+X * button can be used, field width (for initial button creation) and the
+X * Widget of the button, once it is managed, for subsequent control.
+X */
+typedef struct {
+X	int id;		/* field id; managed by mkid/xpos/ypos */
+X	int how;	/* whether field is CHG and/or PLT */
+X	int width;	/* button width (chars) */
+X	char *prompt;	/* prompt, or label string if !how */
+X	char *name;	/* name it goes by in search equations, etc */
+X	Widget w;	/* field's pushbutton widget id */
+} FieldMap;
+X
+#define	CHG		0x1	/* field may be picked for operator changing */
+#define	PLT		0x2	/* may be picked for plotting/listing/srching */
+X
+/* convert a row and col into an id and back.
+X * [xy]pos generate a permillage location.
+X * N.B. NR and NC must be defined in .c before using these.
+X */
+#define	mkid(r,c)	(((r) << 8) | (c))
+#define	f2r(f)		((f) >> 8)
+#define	f2c(f)		((f) & 0xff)
+#define	r2ypos(r)	(1000*((r)-1)/NR)
+#define	c2xpos(c)	(1000*((c)-1)/NC)
+#define	xpos(f)		c2xpos(f2c(f))
+#define	ypos(f)		r2ypos(f2r(f))
+SHAR_EOF
+chmod 0644 fieldmap.h ||
+echo 'restore of fieldmap.h failed'
+Wc_c="`wc -c < 'fieldmap.h'`"
+test 1165 -eq "$Wc_c" ||
+	echo 'fieldmap.h: original size 1165, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= moreobjs.h ==============
+if test -f 'moreobjs.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping moreobjs.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting moreobjs.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'moreobjs.h' &&
+/* additions to the planet defines from astro.h.
+X * must not conflict, and must fit in range 0..15.
+X */
+#define	SUN	(PLUTO+1)
+#define	MOON	(PLUTO+2)
+#define	OBJX	(PLUTO+3)	/* the user-defined object */
+#define	OBJY	(PLUTO+4)	/* the user-defined object */
+#define	NOBJ	(OBJY+1)	/* total number of objects */
+SHAR_EOF
+chmod 0644 moreobjs.h ||
+echo 'restore of moreobjs.h failed'
+Wc_c="`wc -c < 'moreobjs.h'`"
+test 307 -eq "$Wc_c" ||
+	echo 'moreobjs.h: original size 307, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+/* the following is a separate number that will be incremented after each
+SHAR_EOF
+true || echo 'restore of patchlevel.h failed'
+fi
+echo 'End of  part 11'
+echo 'File patchlevel.h is continued in part 12'
+echo 12 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

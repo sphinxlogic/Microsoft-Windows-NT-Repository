@@ -1,0 +1,2428 @@
+Newsgroups: comp.sources.x
+From: daven@ctron.com ("David N. Nedde")
+Subject: v20i004:  xball - simulate bouncing balls in a window, Part04/05
+Message-ID: <1993May24.202909.24274@sparky.imd.sterling.com>
+X-Md4-Signature: 24313c58a7cc0e2830cde92407fead99
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Mon, 24 May 1993 20:29:09 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: daven@ctron.com ("David N. Nedde")
+Posting-number: Volume 20, Issue 4
+Archive-name: xball/part04
+Environment: X11, OSF/Motif, Athena
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 5)."
+# Contents:  xball.c xball_sys.c color_l.h demo.h fallback.h file_sel.h
+#   item.h items.h list.h menu.h misc.h names.h room.h scrollbar.h
+#   sim.h table.h xball_sys.h act_area.c act_area.h filemenu.c
+#   gen_fallback run_demos xball.man
+# Wrapped by daven@osiris on Tue May  4 16:35:08 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xball.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xball.c'\"
+else
+echo shar: Extracting \"'xball.c'\" \(3794 characters\)
+sed "s/^X//" >'xball.c' <<'END_OF_FILE'
+X/**********************************************************************
+X/* XBall.c - Written by David Nedde (daven@ivy.wpi.edu) 5/93
+X/* Features: Motif or Athena widget interface
+X/*           Item collision detection
+X/*           Window resize -> boundry change
+X/*           Kind-of Randomly colored balls
+X/*	     Shaded 3-D-looking balls
+X/*           Different ball creation algorithms
+X/*
+X/* Copyright 1991, 1993 David Nedde
+X/*
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X/**********************************************************************/
+X
+X/* System Headers */
+X#include <stdio.h>
+X#include <X11/Intrinsic.h>
+X
+X/* Local headers */
+X#include "xball_sys.h"
+X#include "miscx.h"
+X#include "patchlevel.h"
+X
+X/* Macros */
+X#define VERSION 3
+X
+X
+X/*** Start of main program ***/
+Xmain(argc,argv)
+Xunsigned argc;
+Xchar * * argv;
+X{
+X    /* Use the app-defaults file as a set of strings for the fallback */
+X    static String fallback_resources[] = {
+X#include "fallback.h"
+X    };
+X    Widget            toplevel;
+X    XtAppContext      app_context;
+X    xball_system_type xball_system;
+X
+X
+X    static XrmOptionDescRec options[] = {
+X        {"-delay",      "*delay",      XrmoptionSepArg, NULL },
+X        {"-gravity",    "*gravity",    XrmoptionSepArg, NULL },
+X        {"-elasticity", "*elasticity", XrmoptionSepArg, NULL },
+X        {"-itemWidth",  "*itemWidth",  XrmoptionSepArg, NULL },
+X        {"-itemHeight", "*itemHeight", XrmoptionSepArg, NULL },
+X        {"-rgbTxt",     "*rgbTxt",     XrmoptionSepArg, NULL },
+X        {"-help",       "*help",       XrmoptionNoArg, "True"},
+X        {"-collide",    "*collide",    XrmoptionNoArg, "True"},
+X        {"-perpetual",  "*perpetual",  XrmoptionNoArg, "True"},
+X        {"-haltSim",    "*haltSim",    XrmoptionNoArg, "True"},
+X        {"-demoFile",   "*demoFile",   XrmoptionSepArg, NULL}
+X    };
+X
+X
+X    if (argc > 1 && strncmp(argv[1],"-help", strlen(argv[1])) == 0)
+X    {
+X        printf("XBall - version %d, patchlevel %d.\n\n", VERSION, PATCHLEVEL);
+X        puts("Usage:\n\txball [-options ...]\n\nWhere options include:");
+X        puts(" Option          Default  Resource    Meaning");
+X        puts(" -help                                Print out this message");
+X        puts(" -delay number      0     delay       Default delay setting to slow program");
+X        puts(" -gravity          10     gravity     Default gravity setting");
+X        puts(" -elasticity       90     elasticity  Default elasticity value");
+X        puts(" -itemWidth        10     itemWidth   Width of the drawn item");
+X        puts(" -itemHeight       10     itemHeight  Height of the drawn item");
+X        puts(" -collide                 collide     Balls hit each other if specified");
+X        puts(" -perpetual               perpetual   Balls do not die if specified");
+X        puts(" -haltSim                 haltSim     Starts w/simulation halted if specified");
+X        puts(" -demoFile                demoFile    A demo file to run at startup");
+X        puts(" -rgbTxt         /usr/lib/X11/app-defaults/rgb.txt");
+X        puts("                          rgbTxt      Path of the rgb.txt file");
+X
+X        exit(0);
+X    }
+X
+X    toplevel = XtAppInitialize(&app_context,"XBall",
+X                               options, XtNumber( options),
+X                               &argc, argv,     
+X                               fallback_resources,
+X                               /*args*/(ArgList)NULL, /*num_args*/(Cardinal)0);
+X    setupConverters();
+X
+X    xball_system = xball_system__create( toplevel);
+X
+X    XtRealizeWidget(toplevel);
+X
+X    XtAppMainLoop(app_context);
+X
+X    return 0;
+X}
+END_OF_FILE
+if test 3794 -ne `wc -c <'xball.c'`; then
+    echo shar: \"'xball.c'\" unpacked with wrong size!
+fi
+# end of 'xball.c'
+fi
+if test -f 'xball_sys.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xball_sys.c'\"
+else
+echo shar: Extracting \"'xball_sys.c'\" \(6487 characters\)
+sed "s/^X//" >'xball_sys.c' <<'END_OF_FILE'
+X/**********************************************************************
+X * xball_sys.c - xball system object definition.
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X/* System Headers */
+X#include <X11/StringDefs.h>
+X#include <X11/Intrinsic.h>
+X
+X#ifdef MOTIF
+X#include <Xm/Form.h>
+X#include <Xm/Label.h>
+X#endif
+X
+X#ifdef ATHENA
+X#include <X11/Xaw/Form.h>
+X#endif
+X
+X/* Local headers */
+X#include "xball_sys.h"
+X#include "names.h"
+X#include "misc.h"
+X
+X
+X/* Creates the xball system.  This object holds together the other
+X   objects in the system. */
+Xxball_system_type xball_system__create( w)
+XWidget w;
+X{
+X    xball_system_type xball_system;
+X    menu_type         menu;
+X    room_type         room;
+X    demo_type         demo;
+X    help_type         help;
+X    sim_type          sim;
+X    items_type        items;
+X    file_sel_type     file_sel;
+X    scrollbar_type    gravity_bar;
+X    scrollbar_type    elasticity_bar;
+X    Widget            form_widget;
+X
+X
+X    typedef struct {
+X        int gravity;
+X        int elasticity;
+X        Boolean ball_collide;
+X        Boolean perpetual;
+X        Boolean halt_sim;
+X    } app_data,*app_data_ptr;
+X    app_data res_data;
+X    static XtResource resources[] = {
+X    { "gravity", "Gravity", XtRInt, sizeof(int),
+X          XtOffset(app_data_ptr,gravity), XtRImmediate, (caddr_t)GRAVITY },
+X    { "elasticity", "Elasticity", XtRInt, sizeof(int),
+X          XtOffset(app_data_ptr,elasticity), XtRImmediate,(caddr_t)ELASTICITY },
+X    { "collide", "Collide", XtRBoolean, sizeof(Boolean),
+X	XtOffset(app_data_ptr,ball_collide), XtRString, "False"},
+X    { "perpetual", "Perpetual", XtRBoolean, sizeof(Boolean),
+X	XtOffset(app_data_ptr,perpetual), XtRString, "False"},
+X    { "haltSim", "HaltSim", XtRBoolean, sizeof(Boolean),
+X	XtOffset(app_data_ptr,halt_sim), XtRString, "False"}
+X    };
+X
+X
+X    XtGetApplicationResources(w, (XtPointer)&res_data, 
+X                              resources, XtNumber(resources), 
+X                              (ArgList)NULL,(Cardinal)0);
+X
+X    xball_system = XtNew( xball_system_struct);
+X
+X
+X    /* Create the various objects in the system */
+X
+X#ifdef MOTIF
+X    xball_system->form_w = form_widget = 
+X        XtCreateWidget("form", xmFormWidgetClass, w, NULL,0);
+X#endif
+X
+X#ifdef ATHENA
+X    xball_system->form_w = form_widget = 
+X        XtVaCreateWidget( "formAW", formWidgetClass, w, NULL);
+X#endif
+X
+X    xball_system->menu = menu = menu__create( form_widget);
+X
+X    xball_system->elasticity_bar = elasticity_bar =
+X        scrollbar__create( form_widget, ELASTICITY_BAR);
+X
+X    xball_system->gravity_bar = gravity_bar =
+X        scrollbar__create( form_widget, GRAVITY_BAR);
+X
+X    item__set_perpetual( menu__get_toggle( menu, PERPETUAL));
+X    item__set_ball_collide( menu__get_toggle( menu, BALL_COLLIDE));
+X
+X    xball_system->file_sel = file_sel = file_sel__create(w);
+X
+X    xball_system->items = items = items__create();
+X    xball_system->room = room = room__create( form_widget, items, file_sel);
+X
+X    xball_system->demo = demo = demo__create(w, menu, gravity_bar,
+X                                             elasticity_bar, file_sel,
+X                                             items, room);
+X
+X    xball_system->sim = sim = sim__create(w, menu, items, room, demo);
+X
+X    xball_system->help = help = help__create(w);
+X
+X
+X    XtManageChild( form_widget);
+X
+X
+X    /* Add the scrollbar callbacks and set their values */
+X
+X    scrollbar__add_callback( xball_system->gravity_bar,
+X                             room__set_gravity_cb,
+X                             (XtPointer)xball_system->room);
+X    scrollbar__set_value( xball_system->gravity_bar, res_data.gravity);
+X
+X    scrollbar__add_callback( xball_system->elasticity_bar,
+X                             item__set_elasticity_cb,
+X                             (XtPointer)NULL);
+X    scrollbar__set_value( xball_system->elasticity_bar, res_data.elasticity);
+X
+X
+X    /* Register avaliable menu callbacks */
+X
+X    menu__add_callback(menu, "runDemo",  demo__run_mcb,  demo);
+X    menu__add_callback(menu, "stopDemo", demo__stop_mcb, demo);
+X
+X    menu__add_callback(menu, "clear",      room__clear_mcb,       room);
+X    menu__add_callback(menu, "randomize",  room__randomize_mcb,   room);
+X    menu__add_callback(menu, "loadBitmap", room__load_bitmap_mcb, room);
+X
+X    menu__add_callback(menu, "quit",   xball_system__quit_mcb,   xball_system);
+X
+X    menu__add_callback(menu, "perpetual",   item__perpetual_mcb, NULL);
+X    menu__add_callback(menu, "ballCollide", item__collide_mcb,   NULL);
+X    menu__add_callback(menu, "haltSim",     sim__halt_mcb,       sim);
+X    menu__add_callback(menu, "stepSim",     sim__step_mcb,       sim);
+X
+X    /* Set the values of these menu toggle widgets */
+X    menu__set_toggle( menu, PERPETUAL,     res_data.perpetual);
+X    menu__set_toggle( menu, BALL_COLLIDE,  res_data.ball_collide);
+X    menu__set_toggle( menu, HALT_SIM,      res_data.halt_sim);
+X
+X
+X    menu__add_callback(menu, "about",     help__display_mcb, help);
+X    menu__add_callback(menu, "onMenus",   help__display_mcb, help);
+X    menu__add_callback(menu, "onScroll",  help__display_mcb, help);
+X    menu__add_callback(menu, "onButtons", help__display_mcb, help);
+X    menu__add_callback(menu, "onDemos",   help__display_mcb, help);
+X    menu__add_callback(menu, "onParams",  help__display_mcb, help);
+X
+X    return xball_system;
+X}
+X
+X
+X/* Free the xball system object */
+Xvoid xball_system__destroy(xball_system)
+Xxball_system_type xball_system;
+X{
+X    file_sel__destroy( xball_system->file_sel);
+X    help__destroy( xball_system->help);
+X    demo__destroy( xball_system->demo);
+X    room__destroy( xball_system->room);
+X    sim__destroy( xball_system->sim);
+X    items__destroy( xball_system->items);
+X    scrollbar__destroy( xball_system->elasticity_bar);
+X    scrollbar__destroy( xball_system->gravity_bar);
+X    menu__destroy( xball_system->menu);
+X
+X    XtDestroyWidget( xball_system->form_w);
+X
+X
+X
+X    XtFree( (char *)xball_system);
+X}
+X
+X
+X/* Called if the user selects the quit menu item */
+Xvoid xball_system__quit_mcb( w, xball_system, call_data, extra)
+XWidget            w;
+Xxball_system_type xball_system;
+Xcaddr_t           call_data;
+Xchar *            extra;
+X{
+X    XtCloseDisplay(XtDisplay(xball_system->form_w));
+X
+X    exit(EXIT_SUCCESS);
+X}
+END_OF_FILE
+if test 6487 -ne `wc -c <'xball_sys.c'`; then
+    echo shar: \"'xball_sys.c'\" unpacked with wrong size!
+fi
+# end of 'xball_sys.c'
+fi
+if test -f 'color_l.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'color_l.h'\"
+else
+echo shar: Extracting \"'color_l.h'\" \(1347 characters\)
+sed "s/^X//" >'color_l.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * color_l.h - Color list object declaration
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __COLOR_L_H__
+X#define __COLOR_L_H__
+X
+X#include "list.h"
+X
+X
+X#define SHADES 4  /* Number of shades for colors in the rgb.txt file */
+X
+X
+Xtypedef struct {
+X    list_type shaded_4_list;
+X} color_list_struct, *color_list_type;
+X
+Xtypedef struct {
+X    int    r,g,b;
+X    char * name;
+X    int    last_char;
+X} color_struct, *color_type;
+X
+X
+Xcolor_list_type color_list__create(/*filename*/);
+Xvoid            color_list__destroy(/*color_list*/);
+Xcolor_type      color_list__remove(/* color_list, index*/);
+Xint             color_list__get_count(/* color_list*/);
+Xcolor_type      color_list__get_last(/* color_list*/);
+Xcolor_type      color_list__get_prev(/* color_list*/);
+Xchar *          color__get_shade(/* color, shade_num*/);
+X
+X/* Inline functions */
+X#define color_list__get_cell(list, index) \
+X    ((color_type)list__get_cell((list)->shaded_4_list, index))
+X
+X
+X#endif
+END_OF_FILE
+if test 1347 -ne `wc -c <'color_l.h'`; then
+    echo shar: \"'color_l.h'\" unpacked with wrong size!
+fi
+# end of 'color_l.h'
+fi
+if test -f 'demo.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demo.h'\"
+else
+echo shar: Extracting \"'demo.h'\" \(1826 characters\)
+sed "s/^X//" >'demo.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * demo.h - declares the demo object
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __DEMO_H__
+X#define __DEMO_H__
+X
+X#include <stdio.h>
+X#include <X11/Intrinsic.h>
+X
+X#include "menu.h"
+X#include "scrollbar.h"
+X#include "file_sel.h"
+X#include "items.h"
+X#include "room.h"
+X
+X
+Xtypedef struct {
+X    Bool interactive;           /* Demo 'exit' will not exit program if 
+X                                   interactive is True */
+X    scrollbar_type gravity;     /* Gravity scrollbar */
+X    scrollbar_type elasticity;  /* Elasticity acrollbar */
+X    menu_type      menu;
+X    file_sel_type  file_sel;    /* To query user for demo file */
+X    items_type     items;
+X    room_type      room;
+X
+X    FILE *   file_ptr;      /* The file pointer for the current demo file */
+X    char *   file_name;     /* The name of the current demo file */
+X    unsigned iterations;    /* Number of iterations we are currently pausing */
+X} demo_struct_type, *demo_type;
+X
+X
+X/* Public methods */
+Xdemo_type demo__create(/* w, menu, gravity, elasticity, file_sel, items, 
+X                       room*/);
+Xvoid      demo__destroy(/* demo*/);
+Xvoid      demo__run_mcb(/* w, demo, call_data, extra*/);
+Xvoid      demo__stop_mcb(/* w, demo, call_data, extra*/);
+Xvoid      demo__stop(/* demo*/);
+XBool      demo__running(/*demo*/);
+Xvoid      demo__process(/*demo*/);
+X
+X/* Inline functions */
+X#define demo__set_interactive( demo, inter) ((demo)->interactive = (inter))
+X
+X
+X#endif
+END_OF_FILE
+if test 1826 -ne `wc -c <'demo.h'`; then
+    echo shar: \"'demo.h'\" unpacked with wrong size!
+fi
+# end of 'demo.h'
+fi
+if test -f 'fallback.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fallback.h'\"
+else
+echo shar: Extracting \"'fallback.h'\" \(17606 characters\)
+sed "s/^X//" >'fallback.h' <<'END_OF_FILE'
+X/* fallback.h generated by gen_fallback from XBall.ad - do not edit! */
+X
+X"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+X"! XBall.ad - xball resource file",
+X"!",
+X"! Copyright 1991, David Nedde",
+X"!",
+X"! Permission to use, copy, modify, and distribute this",
+X"! software and its documentation for any purpose and without fee",
+X"! is granted provided that the above copyright notice appears in all copies.",
+X"! It is provided 'as is' without express or implied warranty.",
+X"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+X"",
+X"XBall.title: XBall - Written by David Nedde",
+X"",
+X"XBall*form.horizontalSpacing:   2",
+X"XBall*form.verticalSpacing:     2",
+X"XBall*form.width:               400",
+X"XBall*form.height:              400",
+X"XBall.allowShellResize: 	True",
+X"XBall*resizable:                True",
+X"",
+X"",
+X"!!!!!!!!!!",
+X"! Menu Bar",
+X"!!!!!!!!!!",
+X"",
+X"XBall*menuBar.rightAttachment:  ATTACH_FORM",
+X"XBall*menuBar.leftAttachment:   ATTACH_FORM",
+X"! Athena resources",
+X"XBall*menuBar*MenuButton.borderWidth: 0",
+X"XBall*menuBar.borderWidth:            1",
+X"XBall.formAW*translations: #override        \n\
+X        <Key>q: menu_action( quit)        \n\
+X        Ctrl<Key>q: menu_action( quit)    \n\
+X        Ctrl<Key>c: menu_action( quit)    \n\
+X        <Key>c: menu_action( clear)       \n\
+X        <Key>r: menu_action( randomize)   \n\
+X        <Key>s: menu_action( stepSim)     \n\
+X        <Key>p: menu_action( perpetual)   \n\
+X        <Key>b: menu_action( ballCollide) \n\
+X        <Key>h: menu_action( haltSim)     \n\
+X        <Key>l: menu_action( loadBitmap)  \n\
+X        <Key>d: menu_action( runDemo)     \n\
+X        <Key>a: menu_action( about)       \n\
+X",
+X"",
+X"",
+X"! File Submenu",
+X"XBall*file.labelString:         File",
+X"XBall*file.label:               File",
+X"XBall*file.mnemonic:            F",
+X"XBall*about.labelString:        About...",
+X"XBall*about.label:              About...        A",
+X"XBall*about.mnemonic:           A",
+X"XBall*about.accelerator:        <Key>A",
+X"XBall*about.acceleratorText:    A",
+X"XBall*runDemo.labelString:      Run Demo...",
+X"XBall*runDemo.label:            Run Demo...     D",
+X"XBall*runDemo.mnemonic:             D",
+X"XBall*runDemo.accelerator:      <Key>D",
+X"XBall*runDemo.acceleratorText:  D",
+X"XBall*loadBitmap.labelString:   Load Bitmap...",
+X"XBall*loadBitmap.label:         Load Bitmap...  L",
+X"XBall*loadBitmap.mnemonic:      L",
+X"XBall*loadBitmap.accelerator:   <Key>L",
+X"XBall*loadBitmap.acceleratorText: L",
+X"XBall*quit.labelString:         Quit",
+X"XBall*quit.label:               Quit            Q",
+X"XBall*quit.mnemonic:            Q",
+X"XBall*quit.accelerator:         <Key>Q",
+X"XBall*quit.acceleratorText:     Q",
+X"",
+X"! Action Submenu",
+X"XBall*actions.labelString:      Actions",
+X"XBall*actions.label:            Actions",
+X"XBall*actions.mnemonic:         A",
+X"XBall*clear.labelString:        Clear",
+X"XBall*clear.label:              Clear            C",
+X"XBall*clear.mnemonic:           C",
+X"XBall*clear.acceleratorText:    C",
+X"XBall*clear.accelerator:        <Key>C",
+X"XBall*randomize.labelString:    Randomize",
+X"XBall*randomize.label:          Randomize        R",
+X"XBall*randomize.mnemonic:       R",
+X"XBall*randomize.acceleratorText:R",
+X"XBall*randomize.accelerator:    <Key>R",
+X"XBall*stopDemo.labelString:     Stop Demo",
+X"XBall*stopDemo.label:           Stop Demo",
+X"XBall*stepSim.labelString:      Step Simulation",
+X"XBall*stepSim.label:            Step Simulation  S",
+X"XBall*stepSim.mnemonic:         S",
+X"XBall*stepSim.acceleratorText:  S",
+X"XBall*stepSim.accelerator:      <Key>S",
+X"",
+X"! Options Submenu",
+X"XBall*options.labelString:              Options",
+X"XBall*options.label:                    Options",
+X"XBall*options.mnemonic:                 O",
+X"XBall*perpetual.labelString:            Perpetual",
+X"XBall*perpetual.label:                  Perpetual        P",
+X"XBall*perpetual.mnemonic:               P",
+X"XBall*perpetual.acceleratorText:        P",
+X"XBall*perpetual.accelerator:            <Key>P",
+X"XBall*ballCollide.labelString:          Ball Collide",
+X"XBall*ballCollide.label:                Ball Collide     B",
+X"XBall*ballCollide.mnemonic:             B",
+X"XBall*ballCollide.acceleratorText:      B",
+X"XBall*ballCollide.accelerator:          <Key>B",
+X"XBall*haltSim.labelString:              Halt Simulation",
+X"XBall*haltSim.label:                    Halt Simulation  H",
+X"XBall*haltSim.mnemonic:                 H",
+X"XBall*haltSim.acceleratorText:          H",
+X"XBall*haltSim.accelerator:              <Key>H",
+X"",
+X"! Help Submenu",
+X"XBall*help.labelString:         Help",
+X"XBall*help.label:               Help",
+X"XBall*help.mnemonic:            H",
+X"XBall*onAuthor.labelString:     On Author...",
+X"XBall*onAuthor.label:           On Author...",
+X"XBall*onMenus.labelString:      On Menus...",
+X"XBall*onMenus.label:            On Menus...",
+X"XBall*onScroll.labelString:     On Scrollbars...",
+X"XBall*onScroll.label:           On Scrollbars...",
+X"XBall*onButtons.labelString:    On Buttons...",
+X"XBall*onButtons.label:          On Buttons...",
+X"XBall*onDemos.labelString:      On Demos...",
+X"XBall*onDemos.label:            On Demos...",
+X"XBall*onParams.labelString:     On Parameters...",
+X"XBall*onParams.label:           On Parameters...",
+X"",
+X"",
+X"XBall*elasticityBar.topAttachment:      ATTACH_WIDGET",
+X"XBall*elasticityBar.topWidget:          menuBar",
+X"XBall*elasticityBar.leftAttachment:     ATTACH_FORM",
+X"",
+X"XBall*elasticityBar.label.labelString:          Elasticity",
+X"XBall*elasticityBar.label.leftAttachment:       ATTACH_FORM",
+X"XBall*elasticityBar.label.leftOffset:           10",
+X"XBall*elasticityBar.label.topAttachment:        ATTACH_FORM",
+X"XBall*elasticityBar.label.bottomAttachment:     ATTACH_FORM",
+X"! Athena resources",
+X"XBall*elasticityBar.fromVert:                   menuBar",
+X"XBall*elasticityBar.label.label:                Elasticity",
+X"XBall*elasticityBar.label.borderWidth:          0",
+X"",
+X"XBall*elasticityBar.bar.width:          100",
+X"XBall*elasticityBar.bar.orientation:    HORIZONTAL",
+X"XBall*elasticityBar.bar.maximum:        100",
+X"XBall*elasticityBar.bar.minimum:        0",
+X"XBall*elasticityBar.bar.showValue:      True",
+X"! Athena resources",
+X"XBall*elasticityBar.bar.shown:          0.1",
+X"XBall*elasticityBar.borderWidth:        0",
+X"XBall*elasticityBar.label.borderWidth:  0",
+X"XBall*elasticityBar.feedback.borderWidth: 0",
+X"XBall*elasticityBar.defaultDistance:    0",
+X"",
+X"",
+X"",
+X"XBall*gravityBar.label.labelString:      Gravity",
+X"XBall*gravityBar.label.leftAttachment:   ATTACH_FORM",
+X"XBall*gravityBar.label.topAttachment:    ATTACH_FORM",
+X"XBall*gravityBar.label.bottomAttachment: ATTACH_FORM",
+X"! Athena resources",
+X"XBall*gravityBar.label.label:           Gravity",
+X"XBall*gravityBar.label.borderWidth:     0",
+X"",
+X"XBall*gravityBar.leftAttachment:        ATTACH_WIDGET",
+X"XBall*gravityBar.leftWidget:            elasticityBar",
+X"XBall*gravityBar.leftOffset:            20",
+X"XBall*gravityBar.topAttachment:         ATTACH_WIDGET",
+X"XBall*gravityBar.topWidget:             menuBar",
+X"XBall*gravityBar.bar.width:             100",
+X"XBall*gravityBar.bar.orientation:       HORIZONTAL",
+X"XBall*gravityBar.bar.maximum:           100",
+X"XBall*gravityBar.bar.minimum:           0",
+X"XBall*gravityBar.bar.showValue:         True",
+X"! Athena resources",
+X"XBall*gravityBar.fromVert:              menuBar",
+X"XBall*gravityBar.horizDistance:         20",
+X"XBall*gravityBar.fromHoriz:             elasticityBar",
+X"XBall*gravityBar.bar.shown:             0.1",
+X"XBall*gravityBar.borderWidth:           0",
+X"XBall*gravityBar.label.borderWidth:     0",
+X"XBall*gravityBar.feedback.borderWidth:  0",
+X"XBall*gravityBar.defaultDistance:       0",
+X"",
+X"XBall*canvas.resizable:                 True",
+X"XBall*canvas.borderWidth:               1",
+X"XBall*canvas.topAttachment:             ATTACH_WIDGET",
+X"XBall*canvas.topWidget:                 gravityBar",
+X"XBall*canvas.bottomAttachment:          ATTACH_FORM",
+X"XBall*canvas.rightAttachment:           ATTACH_FORM",
+X"XBall*canvas.leftAttachment:            ATTACH_FORM",
+X"! Athena resources",
+X"XBall*canvas.fromVert:                  gravityBar",
+X"XBall*canvas.width:                     400",
+X"XBall*canvas.height:                    330",
+X"",
+X"",
+X"XBall*help_dialog_popup.title:                      XBall Information",
+X"XBall*help_dialog_action_area.leftAttachment:       ATTACH_FORM",
+X"XBall*help_dialog_action_area.rightAttachment:      ATTACH_FORM",
+X"XBall*help_dialog_action_area.bottomAttachment:     ATTACH_FORM",
+X"XBall*help_dialog_action_area.close.labelString:    Close",
+X"XBall*help_dialog.close.label:                      Close",
+X"XBall*help_dialog.separator.rightAttachment:        ATTACH_FORM",
+X"XBall*help_dialog.separator.leftAttachment:         ATTACH_FORM",
+X"XBall*help_dialog.separator.topOffset:              5",
+X"XBall*help_dialog.separator.bottomAttachment:       ATTACH_WIDGET",
+X"XBall*help_dialog.separator.bottomWidget:           help_dialog_action_area",
+X"XBall*help_dialog*help_text.rows:                   12",
+X"XBall*help_dialog*help_text.columns:                60",
+X"! Athena Resources",
+X"XBall*help_dialog*help_textAW.displayCaret:         False",
+X"XBall*help_dialog*help_textAW.height:               150",
+X"XBall*help_dialog*help_textAW.width:                470",
+X"XBall*help_dialog*help_textAW.scrollHorizontal:     WhenNeeded",
+X"XBall*help_dialog*help_textAW.scrollVertical:       WhenNeeded",
+X"",
+X"XBall*help_dialog*close.accelerators: \
+X        <KeyPress>Escape: set() notify() unset() \n\
+X        <KeyPress>Return: set() notify() unset() \n\
+X",
+X"",
+X"",
+X"",
+X"!!!!!!!!!!!",
+X"! Help text",
+X"!!!!!!!!!!!",
+X"!",
+X"! Note that since fallback resources cannot handle \n in the text,",
+X"! a ~ is used to indicate a newline.",
+X"!",
+X"!!!!!!!!!!",
+X"",
+X"XBall.pointerHelp: \
+X                   MOUSE BUTTON USAGE ~~~\
+XButton 1: o Hold down to create a ball. ~\
+X          o Throw the ball by moving the mouse and ~\
+X            letting go of button 1. ~\
+X          o The ball will be going the speed of the ~\
+X            pointer at release time. ~\
+XButton 2: o Hold down and move the mouse to create ~\
+X            random velocity balls. ~\
+XButton 3: o Hold down and move the mouse to create ~\
+X            zero velocity balls. \
+X",
+X"",
+X"XBall.menuHelp: \
+X                   PULLDOWN MENU USAGE~~~\
+XFile~\
+X  About...        A description of the program and author~\
+X  Run Demo...     Allows you to execute XBall demo files~\
+X                  See 'Help On Demos' for demo file format~\
+X  Load Bitmap...  Load an X bitmap as a set of balls~\
+X                  Analogous Demo command: ~\
+X                    bitmap filename posx,posy~\
+X  Quit            Exits the program~~\
+XActions~\
+X  Clear           Clear the screen of balls~\
+X                  Analogous Demo command: clear~\
+X  Randomize       Give each ball a random velocity~\
+X                  Analogous Demo command: ~\
+X                    randomize minx,maxx,miny,maxy~\
+X  Stop Demo       Stops the execution of a demo in progress~\
+X                  Enabled by the Run Demo... menu option~\
+X                  Analogous Demo command: stop~\
+X  Step Simulation Perform one step of the Halted simulation~\
+X                  Enabled by the Halt Simulation menu option~~\
+XOptions~\
+X  Perpetual       If toggled on, balls will live forever~\
+X                  Analogous Demo command: perpetual on|off~\
+X                  Command line option: -perpetual True|False~\
+X  Ball Collide    If on, balls will collide with one another~\
+X                  Analogous Demo command: collide on|off~\
+X                  Command line option: -collide True|False~~\
+X  Help Simulation Stop the simulation.  You can then step the~\
+X                  simulation using Step Simulation menu option~~\
+XHelp~\
+X  On Menus      Help using the menu system~\
+X  On Scrollbars Help on the Elasticity and Gravity bars~\
+X  On Buttons    Help on using the mouse buttons to create balls~\
+X  On Demos      Help on the Demo language and how to run demos~\
+X  On Parameters Help with command-line arguments to xball \
+X",
+X"",
+X"",
+X"XBall.scrollbarHelp: \
+X                      SCROLLBAR USAGE~~~\
+XElasticity~\
+X  o This scrollbar controls the balls' elasticity, or how~\
+X    much energy is lost each time the balls hit the ground.~\
+X  o Scrollbar to left:  low elasticity (eggs)~\
+X  o Scrollbar to right: high elasticity (superballs)~\
+X  o Demo command: elasticity %d~\
+X  o Command line options: -elasticity %d~~~\
+XGravity~\
+X  o This scrollbar controls the gravity, or how~\
+X    much vertical velocity is added (subtracted)~\
+X    from the balls for each iteration.~\
+X  o Scrollbar to the left:  Zero gravity (outer space)~\
+X  o Scrollbar to the right: Large gravity (Jupiter)~\
+X  o Demo command: gravity %d~\
+X  o Command line options: -gravity %d \
+X",
+X"",
+X"",
+X"XBall.demoHelp: \
+X                     DEMO FILE COMMANDS~~\
+X  %s1, %s2... - Replace with a string~\
+X  %d1, %d2... - Replace with an integer~~\
+X  create %d1,%d2,%d3,%d4: Create a ball with x,y position~\
+X                          %d1,%d2 and an x & y velocity~\
+X                          of %d2,%d4~\
+X  randomize %d1,%d2,%d3,%d4: randomize velocities of all ~\
+X                balls on screen with:~\
+X                a max negative x velocity of %d1,~\
+X                a max positive x velocity of %d2,~\
+X                a max negative y velocity of %d3,~\
+X                a max positive y velocity of %d4,~\
+X  load_bitmap %s %d1,%d2: load a bitmap file (where %s is~\
+X                         the file path) to an x,y position~\
+X                         of %d1,%d2 on the screen~\
+X  set_velocity %s %d1,%d2: set ball velocities (%s is~\
+X                         relative or absolute) to the x ~\
+X                         and y velocities %d1,%d2~\
+X  gravity %d: set gravity to %d~\
+X  elasticity %d: set elasticity to %d~\
+X  backwards %d: Run simulation backwards %d iterations~\
+X  visible %s: Make ball display 'on' or 'off'~\
+X  iterate %d: simulate for %d iterations~\
+X  sleep %d: sleep for %d seconds~\
+X  perpetual %s: toggle perpetual (%s is 'on' or 'off')~\
+X  collide %s: toggle ball collision (%s is 'on' or 'off')~\
+X  window_width %d: Change window width to %d~\
+X  window_height %d: Change window height to %d~\
+X  backwards %d: Iterate backwards %d steps~\
+X  clear: delete all balls in window~\
+X  create_random %d1,%d2: create %d1 random balls with a ~\
+X                         max velocity of %d2~\
+X  exit or quit: quit the xball program if demo is not~\
+X                interactive~\
+X  stop: stop demo but leave program alive \
+X",
+X"",
+X"XBall.startupHelp: \
+X                PROGRAM STARTUP PARAMETERS~~~\
+X Run xball -help for a list of command-line startup~\
+X",
+X" parameters",
+X"",
+X"XBall.aboutString: \
+XXBall Version 3.0~~\
+X  April 1993~~\
+XThe Premire Ball Bouncing Software~~\
+X  Allows you to throw 3-D balls around in a 2-D space.~~\
+XAuthor (Send bugs, comments, and interesting demos to):~\
+X  David Nedde~\
+X  daven@ivy.wpi.edu~\
+X  Computer Science Department~\
+X  Worcester Polytechnic Institute~\
+X  Worcester, MA 01609~~\
+XCopyright 1990, 1993 David Nedde~\
+XPermission to use, copy, modify, and distribute this~\
+Xsoftware and its documentation for any purpose and~\
+Xwithout fee is granted provided that the above~\
+Xcopyright notice appears in all copies.  It is~\
+Xprovided \"as is\" without express or implied warranty. \
+X",
+X"",
+X"",
+X"!!!!!!!!!!!!!!!!!",
+X"! Menu Definition",
+X"!!!!!!!!!!!!!!!!!",
+X"!",
+X"! Format:",
+X"!   pulldownName~",
+X"!     widgetName,widgetClass,menuCallbackName,optionalParams...~",
+X"!",
+X"! The widgetName is referenced above to set the menu's label.",
+X"!",
+X"! Note that the pulldownName of 'help' is automatically used as the help ",
+X"! pulldown.",
+X"!",
+X"! Avaliable WidgetClasses are:",
+X"!   PushButton   - push it and cause the action",
+X"!   ToggleButton - Push it and toggle the state",
+X"!   Separator    - A line in the menu",
+X"!",
+X"! Avaliable menuCallbackNames avaliable (none take optional parameters):",
+X"!   runDemo       - Lets user select a demo and run the demo",
+X"!   loadBitmap    - Lets user load a bitmap file",
+X"!   quit          - quits xball program",
+X"!   clear         - Clear all balls from the screen",
+X"!   randomize     - Randomize all balls from the screen",
+X"!   stopDemo      - Stop a demo in progress",
+X"!   stepSim       - Steps the simulation once (if simulation halted)",
+X"!   perpetual     - Toggles perpetual balls state",
+X"!   ballCollide   - Toggles colliding ball state",
+X"!   haltSim       - Toggles halting the simulation",
+X"!   about         - Displays help about the program",
+X"!   onMenus       - Displays help on the menus",
+X"!   onScroll      - Displays help on setting elasticity and gravity",
+X"!   onButtons     - Displays help on using the mouse buttons to create balls",
+X"!   onDemos       - Displays help on writing a demo",
+X"!   onParams      - Displays help on command-line arguments",
+X"!",
+X"!!!!!!!!!!!!!!!!!",
+X"",
+X"XBall.menuDef: \
+X\
+X    file~\
+X    about,PushButton,about~\
+X    runDemo,PushButton,runDemo~\
+X    loadBitmap,PushButton,loadBitmap~\
+X    separator,Separator~\
+X    quit,PushButton,quit~\
+X    actions~\
+X    clear,PushButton,clear~\
+X    randomize,PushButton,randomize~\
+X    stopDemo,PushButton,stopDemo~\
+X    stepSim,PushButton,stepSim~\
+X    options~\
+X    perpetual,ToggleButton,perpetual~\
+X    ballCollide,ToggleButton,ballCollide~\
+X    haltSim,ToggleButton,haltSim~\
+X    help~\
+X    about,PushButton,about~\
+X    onMenus,PushButton,onMenus~\
+X    onScroll,PushButton,onScroll~\
+X    onButtons,PushButton,onButtons~\
+X    onDemos,PushButton,onDemos~\
+X    onParams,PushButton,onParams~\
+X",
+X"",
+XNULL
+END_OF_FILE
+if test 17606 -ne `wc -c <'fallback.h'`; then
+    echo shar: \"'fallback.h'\" unpacked with wrong size!
+fi
+# end of 'fallback.h'
+fi
+if test -f 'file_sel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'file_sel.h'\"
+else
+echo shar: Extracting \"'file_sel.h'\" \(1504 characters\)
+sed "s/^X//" >'file_sel.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * file_sel.h - Public interface to the file_sel object.
+X * 
+X * Copyright 1992, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X/**********************************************************************
+X * File Sel Object
+X *
+X * The file object is allows you to request a file from the user.
+X *
+X * Public methods:
+X *
+X *   void file_sel__init(file_sel_type *file_sel, help_type *help)
+X *     Initialise the file_sel object.
+X *
+X *   void file_sel__free( file_sel_type *file_sel)
+X *     Free data associated with file_sel object
+X *
+X *   char *file_sel__display(file_sel_type *file_sel, char *title)
+X *     Display the file selection box and return selected file
+X *
+X **********************************************************************/
+X
+X#ifndef __FILE_SEL_H__
+X#define __FILE_SEL_H__
+X
+X#include <X11/Intrinsic.h>
+X
+Xtypedef struct {
+X    Widget dialog_w;
+X    Bool   searching;
+X    char * filename;
+X
+X    Widget toplevel;
+X} file_sel_struct_type, *file_sel_type;
+X
+X
+Xfile_sel_type file_sel__create(/*toplevel*/);
+Xvoid          file_sel__destroy(/*file_sel*/);
+Xchar         *file_sel__display(/*file_sel, title*/);
+X
+X#endif /* __FILE_SEL_H__ */
+END_OF_FILE
+if test 1504 -ne `wc -c <'file_sel.h'`; then
+    echo shar: \"'file_sel.h'\" unpacked with wrong size!
+fi
+# end of 'file_sel.h'
+fi
+if test -f 'item.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'item.h'\"
+else
+echo shar: Extracting \"'item.h'\" \(3604 characters\)
+sed "s/^X//" >'item.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * item.h - item (ball) declaration
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __ITEM_H__
+X#define __ITEM_H__
+X
+X#include <X11/Xlib.h>
+X#include <X11/Intrinsic.h>
+X
+X#include "misc.h"
+X#include "intf.h"
+X
+X#define MAX_COLORS 256
+X
+X#ifndef ELASTICITY
+X#define ELASTICITY  90  /* Default */
+X#endif
+X
+X
+X/* Static data shared for all items */
+Xtypedef struct {
+X    int    width;
+X    int    height;
+X    int    half_width;  /* Precalculated for copying pixmap offset */
+X    int    half_height;
+X    double elasticity;
+X    Bool   ball_collide;
+X    Bool   perpetual;
+X    Bool   visible;
+X    char * rgb_txt;
+X
+X    Display * display;
+X    Window    window;
+X    Pixel     background;
+X    GC        gc;
+X    Pixmap    pixmaps[ MAX_COLORS];/* Holds all item drawings */
+X    int       num_colors;          /* Holds number of colors/pixmaps used */
+X    int       curr_pixmap;         /* Holds pixmap index to use for next item*/
+X} item_static_struct_type, *item_static_type;
+X
+X
+Xtypedef struct {
+X    item_static_type static_data;
+X
+X    Display *display;
+X    Window   window;
+X    intf     x,y;              /* Location of items center */
+X    intf     y_vel;            /* vel < 0 means dropping, > 0 means climbing */
+X    intf     x_vel;            /* vel < 0 means to left, > 0 means to right */
+X    int      rebounded;        /* Used to determine if item collision */
+X                               /* had already been calculated for this item */
+X    Bool     shown;            /* True if items image is visible */
+X    Pixmap   pixmap;           /* Pixel map to use for drawing item */
+X} item_struct_type, *item_type;
+X
+X
+Xitem_type item__create(/* display, window, x, y, x_vel, y_vel*/);
+Xvoid      item__init(/*display, window, background*/);
+XBool      item__initted(/**/);
+Xvoid      item__destroy(/* item*/);
+Xvoid      item__draw(/* item*/);
+Xvoid      item__undraw(/* item, x, y*/);
+Xvoid      item__redraw(/* item*/);
+Xvoid      item__erase(/* item*/);
+Xvoid      item__redraw(/* item*/);
+Xvoid      item__move_pos(/* item, x, y*/);
+Xvoid      item__randomize(/* item, min_x_vel, max_x_vel, 
+X			     min_y_vel, max_y_vel*/);
+Xvoid      item__move(/* item, room, items*/);
+Xvoid      item__rebound_item(/* moved_item, fixed_item*/);
+Xvoid      item__set_elasticity_cb(/*w, datap_ptr, call_data*/);
+Xint       item__get_width(/**/);
+Xint       item__get_height(/**/);
+Xvoid      item__perpetual_mcb(/*w, item, call_data, extra*/);
+Xvoid      item__collide_mcb(/*w, item, call_data, extra*/);
+Xvoid      item__set_perpetual(/* set */);
+Xvoid      item__set_ball_collide(/* set*/);
+Xvoid      item__set_visible(/*visible*/);;
+X
+X
+X/* Inline functions */
+X#define item__set_x_vel( item, vel) ((item)->x_vel = int2intf(vel))
+X#define item__set_y_vel( item, vel) ((item)->y_vel = int2intf(vel))
+X#define item__get_x_vel( item) (intf2int((item)->x_vel))
+X#define item__get_y_vel( item) (intf2int((item)->y_vel))
+X#define item__get_x( item) (intf2int((item)->x))
+X#define item__get_y( item) (intf2int((item)->y))
+X#define item__erase( item) (item__undraw( (item), (item)->x, (item)->y))
+X#define item__stopped(item, room) \
+X     (item->y_vel == 0)  && \
+X     (ABS(item->y) >= room__get_floor(room) - room__get_gravity(room)) && \
+X     (item->x_vel == 0)
+X
+X
+X#endif
+END_OF_FILE
+if test 3604 -ne `wc -c <'item.h'`; then
+    echo shar: \"'item.h'\" unpacked with wrong size!
+fi
+# end of 'item.h'
+fi
+if test -f 'items.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'items.h'\"
+else
+echo shar: Extracting \"'items.h'\" \(1283 characters\)
+sed "s/^X//" >'items.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * file - description
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __ITEMS_H__
+X#define __ITEMS_H__
+X
+X#include "list.h"
+X#include "item.h"
+X
+Xtypedef struct {
+X    list_type list;
+X    int current;  /* Used to increase efficiency */
+X} items_struct_type, *items_type;
+X
+Xitems_type items__create(/**/);
+Xitems_type items__destroy(/*items*/);
+Xitem_type  items__get_first(/* items */);
+Xitem_type  items__get_next(/* items */);
+Xvoid       items__add(/* items, item */);
+Xvoid       items__destroy_all(/* items*/);
+Xvoid       items__new_item(/* items, x, y, x_vel, y_vel */);
+Xvoid       items__move_items(/* items, room*/);
+Xvoid       items__move_items_backwards(/* items, room, count*/);
+Xvoid       items__rebound_items(/* items, item*/);
+Xvoid       items__set_visible( /*items, visible*/);
+X
+X/* Inline functions */
+X#define items__get_count( items) (list__get_count((items)->list))
+X
+X#endif
+END_OF_FILE
+if test 1283 -ne `wc -c <'items.h'`; then
+    echo shar: \"'items.h'\" unpacked with wrong size!
+fi
+# end of 'items.h'
+fi
+if test -f 'list.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'list.h'\"
+else
+echo shar: Extracting \"'list.h'\" \(1446 characters\)
+sed "s/^X//" >'list.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * list.h - declares the list object
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __LIST_H__
+X#define __LIST_H__
+X
+Xtypedef struct {
+X    void      **data;
+X    int         count;
+X    int         max_count;
+X    int         curr_item;
+X} list_struct, *list_type;
+X
+X#define LIST_INITIAL_SIZE 100
+X
+Xlist_type       list__create();
+Xvoid            list__destroy(/* list */);
+Xvoid *          list__add_start(/* list, data_item */);
+Xvoid *          list__add_end(/* list, data_item */);
+Xvoid *          list__get_first(/* list */);
+Xvoid *          list__get_next(/* list */);
+Xvoid *          list__get_last(/* list */);
+Xvoid *          list__get_prev(/* list */);
+Xvoid *          list__remove_last(/* list */);
+Xvoid *          list__remove_first(/* list */);
+Xvoid            list__remove_all(/* list */);
+Xvoid *          list__remove(/* list, index */);
+X
+X/* Inline functions */
+X#define list__get_cell(list, index) ((list)->data[ index])
+X#define list__set_cell(list, index) ((list)->data[ index])
+X#define list__get_count(list) ((list)->count)
+X
+X
+X#endif
+END_OF_FILE
+if test 1446 -ne `wc -c <'list.h'`; then
+    echo shar: \"'list.h'\" unpacked with wrong size!
+fi
+# end of 'list.h'
+fi
+if test -f 'menu.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'menu.h'\"
+else
+echo shar: Extracting \"'menu.h'\" \(1410 characters\)
+sed "s/^X//" >'menu.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * menu,h - Menu system declarations
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __MENU_H__
+X#define __MENU_H__
+X
+X#include <X11/Intrinsic.h>
+X
+X#include "table.h"
+X
+Xtypedef struct {
+X    table_type mc_table;      /* Table of callbacks avalibale for use */
+X    table_type closure_table; /* Table of callbacks added */
+X    Widget     menubar;
+X#ifdef ATHENA
+X    Pixmap     on_bitmap;
+X    Pixmap     off_bitmap;
+X#endif
+X} menu_struct_type, *menu_type;
+X
+X
+Xtypedef struct {
+X    int      set;
+X} menuCallbackStruct;
+X
+X
+Xtypedef void (*menuCallbackProc)(/* Widget, caddr_t, 
+X                                    menuCallbackStruct *, char * */);
+X
+X
+Xmenu_type menu__create(/* form */);
+Xvoid      menu__destroy(/*menu*/);
+Xvoid      menu__add_callback(/* menu, action_name, 
+X                             menu_callback_proc, user_data */);
+Xvoid      menu__set_toggle(/* menu, widget_name, set*/);
+XBool      menu__get_toggle(/* menu, widget_name*/);
+Xvoid      menu__set_sensitivity(/* menu, widget_name, sensitive*/);
+X
+X#endif
+END_OF_FILE
+if test 1410 -ne `wc -c <'menu.h'`; then
+    echo shar: \"'menu.h'\" unpacked with wrong size!
+fi
+# end of 'menu.h'
+fi
+if test -f 'misc.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.h'\"
+else
+echo shar: Extracting \"'misc.h'\" \(986 characters\)
+sed "s/^X//" >'misc.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * misc.h - misc function declarations
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X#ifndef __MISC_H__
+X#define __MISC_H__
+X
+X#include <malloc.h>
+X
+Xchar * get_string(/* char *str */);
+Xchar * my_strdup(/* char *str */);
+Xint    rand_range(/* min, max*/);
+Xvoid   convert_newlines(/* str*/);
+X
+X#define ABS(x) ((x) < 0 ? -(x) : (x))
+X#define SWAP(x,y,type) { type t; t = (x); (x) = (y); (y) = t; }
+X
+X#undef MIN
+X#undef MAX
+X#define MIN(x,y) ((x) > (y) ? (y) : (x))
+X#define MAX(x,y) ((x) < (y) ? (y) : (x))
+X
+X#ifndef EXIT_FAILURE
+X#define EXIT_FAILURE (int)1
+X#define EXIT_SUCCESS (int)0
+X#endif
+X
+X
+X#endif
+END_OF_FILE
+if test 986 -ne `wc -c <'misc.h'`; then
+    echo shar: \"'misc.h'\" unpacked with wrong size!
+fi
+# end of 'misc.h'
+fi
+if test -f 'names.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'names.h'\"
+else
+echo shar: Extracting \"'names.h'\" \(703 characters\)
+sed "s/^X//" >'names.h' <<'END_OF_FILE'
+X#ifndef __NAMES_H__
+X#define __NAMES_H__
+X
+X#define GRAVITY_BAR     "gravityBar"
+X#define ELASTICITY_BAR  "elasticityBar"
+X#define FILE_SB         "fileSB"
+X#define HELP_DIALOG     "help_dialog"
+X
+X#define RUN_DEMO     "runDemo"
+X#define STOP_DEMO    "stopDemo"
+X#define CLEAR        "clear"
+X#define RANDOMIZE    "randomize"
+X#define LOAD_BITMAP  "loadBitmap"
+X#define QUIT         "quit"
+X#define PERPETUAL    "perpetual"
+X#define BALL_COLLIDE "ballCollide"
+X#define STEP_SIM     "stepSim"
+X#define HALT_SIM     "haltSim"
+X#define ABOUT        "about"
+X#define ON_MENUS     "onMenus"
+X#define ON_SCROLL    "onScroll"
+X#define ON_BUTTONS   "onButtons"
+X#define ON_DEMOS     "onDemos"
+X#define ON_PARAMS    "onParams"
+X
+X#endif
+END_OF_FILE
+if test 703 -ne `wc -c <'names.h'`; then
+    echo shar: \"'names.h'\" unpacked with wrong size!
+fi
+# end of 'names.h'
+fi
+if test -f 'room.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'room.h'\"
+else
+echo shar: Extracting \"'room.h'\" \(2448 characters\)
+sed "s/^X//" >'room.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * room.h - room object declaration
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __ROOM_H__
+X#define __ROOM_H__
+X
+X#include <X11/Intrinsic.h>
+X
+X#include "item.h"
+X#include "items.h"
+X#include "file_sel.h"
+X#include "intf.h"
+X
+Xtypedef struct {
+X    Widget      canvas;
+X    Pixel       background;
+X
+X    int         gravity;
+X
+X    items_type  items;       /* List of items in the rooom */
+X    item_type   item;        /* Item currently being created by user */
+X    file_sel_type file_sel;  /* Used to query for a bitmap file */
+X
+X    /* Input state */
+X    int         oldx,oldy;
+X    int         newx,newy;
+X    Bool        button1,button2,button3;
+X
+X    /* Locations of room structures */
+X    intf        right_wall; 
+X    intf        left_wall;
+X    intf        ceiling;
+X    intf        floor;
+X
+X    /* Used to wait for window resize when caused by the program */
+X    Boolean resized;
+X} room_struct_type, *room_type;
+X
+X
+X#ifndef GRAVITY
+X#define GRAVITY      8          /* Default gravity */
+X#endif
+X
+Xroom_type room__create(/* form_w */);
+Xvoid      room__destroy(/* room */);
+Xvoid      room__set_gravity_cb(/*w, room, call_data */);
+Xvoid      room__clear_mcb(/*w, room, call_data, extra */);
+Xvoid      room__randomize_mcb(/*w, room, call_data, extra */);
+Xvoid      room__load_bitmap_mcb(/*w, room, call_data, extra */);
+Xvoid      room__load_bitmap(/*room, filename, pos_x, pos_y*/);
+Xvoid      room__set_height(/*room, height*/);
+Xvoid      room__set_width(/*room, width*/);
+X
+X/* Inline functions */
+X/* Note that values passed and returned are of type intf */
+X#define room__get_item( room)       ((room)->item)
+X#define room__get_ceiling( room)    ((room)->ceiling)
+X#define room__get_left_wall( room)  ((room)->left_wall)
+X#define room__get_right_wall( room) ((room)->right_wall)
+X#define room__get_floor( room)      ((room)->floor)
+X#define room__flush( room)          (XFlush( XtDisplay(room->canvas)))
+X
+X
+X/* gravity is of type int */
+X#define room__get_gravity( room)       ((room)->gravity)
+X#define room__set_gravity( room, grav) ((room)->gravity = (grav))
+X
+X
+X#endif
+END_OF_FILE
+if test 2448 -ne `wc -c <'room.h'`; then
+    echo shar: \"'room.h'\" unpacked with wrong size!
+fi
+# end of 'room.h'
+fi
+if test -f 'scrollbar.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'scrollbar.h'\"
+else
+echo shar: Extracting \"'scrollbar.h'\" \(1715 characters\)
+sed "s/^X//" >'scrollbar.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * scrollbar.h - declares scrollbar object
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __SCROLLBAR_H__
+X#define __SCROLLBAR_H__
+X
+X#include <X11/Intrinsic.h>
+X
+X#include "list.h"
+X
+Xtypedef struct {
+X    Widget    form;
+X    Widget    label;
+X    Widget    scale;
+X#ifdef ATHENA
+X    Widget    feedback;   /* Used to display value like Motif scale widget */
+X#endif
+X
+X    int       value;      /* Current value of the scrollbar */
+X    list_type callbacks;  /* List of callbacks on this scrollbar */
+X} scrollbar_struct, *scrollbar_type;
+X
+X
+X/* We need to make the callbacks ourself, because the callback data is
+X   so different between Motif and Athena */
+Xtypedef struct {
+X    int      reason;
+X    XEvent * event;
+X    int      value;
+X    int      pixel;
+X} scrollbarCallbackStruct;
+X
+X
+Xtypedef void (*scrollbarCallbackProc)(/* Widget, caddr_t closure,
+X                                         scrollbarCallbackStruct call_data */);
+X
+X
+X/* Inline functions */
+X#define         scrollbar__get_value( scrollbar) ((scrollbar)->value)
+X
+X/* Regular functions */
+Xscrollbar_type  scrollbar__create(/* Widget w */);
+Xvoid            scrollbar__destroy(/* scrollbar_type scrollbar */);
+Xvoid            scrollbar__set_value(/* scrollbar_type *, int value */);
+Xvoid            scrollbar__add_callback(/* scrollbar, proc, closure*/);
+X
+X
+X#endif
+END_OF_FILE
+if test 1715 -ne `wc -c <'scrollbar.h'`; then
+    echo shar: \"'scrollbar.h'\" unpacked with wrong size!
+fi
+# end of 'scrollbar.h'
+fi
+if test -f 'sim.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sim.h'\"
+else
+echo shar: Extracting \"'sim.h'\" \(1169 characters\)
+sed "s/^X//" >'sim.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * sim.h - simulation object declarations
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __SIM_H__
+X#define __SIM_H__
+X
+X#include <X11/Intrinsic.h>
+X
+X#include "items.h"
+X#include "room.h"
+X#include "demo.h"
+X#include "menu.h"
+X
+Xtypedef struct {
+X    menu_type    menu;
+X    items_type   items;
+X    room_type    room;
+X    demo_type    demo;
+X
+X    XtWorkProcId wpid;             /* Work process id */
+X    int          delay;            /* Amount of delay we should do */
+X    Bool         step_simulation;  /* True if we are steeping the simulation */
+X} sim_struct_type, *sim_type;
+X
+X
+Xsim_type sim__create(/*w, items, room*/);
+Xvoid     sim__destroy(/*sim*/);
+Xvoid     sim__step_mcb(/*w, sim, call_data, extra*/);
+Xvoid     sim__halt_mcb(/*w, sim, call_data, extra*/);
+X
+X
+X#endif
+X
+END_OF_FILE
+if test 1169 -ne `wc -c <'sim.h'`; then
+    echo shar: \"'sim.h'\" unpacked with wrong size!
+fi
+# end of 'sim.h'
+fi
+if test -f 'table.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'table.h'\"
+else
+echo shar: Extracting \"'table.h'\" \(772 characters\)
+sed "s/^X//" >'table.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * file - description
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __TABLE_H__
+X#define __TABLE_H__
+X
+X#include "list.h"
+X
+Xtypedef struct {
+X   list_type list;
+X} table_struct_type, *table_type;
+X
+X
+Xtable_type table__create();
+Xvoid       table__destroy(/* table */);
+Xvoid       table__store(/* table, key, data */);
+Xvoid *     table__retrieve(/* table, key */);
+X
+X
+X#endif
+END_OF_FILE
+if test 772 -ne `wc -c <'table.h'`; then
+    echo shar: \"'table.h'\" unpacked with wrong size!
+fi
+# end of 'table.h'
+fi
+if test -f 'xball_sys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xball_sys.h'\"
+else
+echo shar: Extracting \"'xball_sys.h'\" \(1337 characters\)
+sed "s/^X//" >'xball_sys.h' <<'END_OF_FILE'
+X/**********************************************************************
+X * xball_sys.h - xball system object declarations
+X *
+X * Copyright 1993, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X **********************************************************************/
+X
+X#ifndef __XBALL_SYS_H__
+X#define __XBALL_SYS_H__
+X
+X#include <X11/Intrinsic.h>
+X
+X#include "menu.h"
+X#include "demo.h"
+X#include "room.h"
+X#include "items.h"
+X#include "sim.h"
+X#include "scrollbar.h"
+X#include "file_sel.h"
+X#include "help.h"
+X
+Xtypedef struct {
+X    Widget              form_w;
+X    Widget              pane_w;
+X    menu_type           menu;
+X    demo_type           demo;
+X    items_type          items;
+X    room_type           room;
+X    sim_type            sim;
+X    help_type           help;
+X    scrollbar_type      gravity_bar;
+X    scrollbar_type      elasticity_bar;
+X    file_sel_type       file_sel;
+X} xball_system_struct, *xball_system_type;
+X
+Xxball_system_type xball_system__create(/* w*/);
+Xvoid              xball_system__destroy(/*xball_system*/);
+Xvoid              xball_system__quit_mcb(/* w, datap_ptr, call_data, extra*/);
+X
+X#endif
+END_OF_FILE
+if test 1337 -ne `wc -c <'xball_sys.h'`; then
+    echo shar: \"'xball_sys.h'\" unpacked with wrong size!
+fi
+# end of 'xball_sys.h'
+fi
+if test -f 'act_area.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'act_area.c'\"
+else
+echo shar: Extracting \"'act_area.c'\" \(2635 characters\)
+sed "s/^X//" >'act_area.c' <<'END_OF_FILE'
+X/**********************************************************************
+X * act_area.c - Creates an action area
+X *
+X * An action area is a form widget holding an array of button widgets.
+X * The name of the action area for is <name of the parent widget>_action_area.
+X *
+X **********************************************************************/
+X
+X/* Written by Dan Heller.  Copyright 1991, O'Reilly && Associates.
+X * This program is freely distributable without licensing fees and
+X * is provided without guarantee or warrantee expressed or implied.
+X * This program is -not- in the public domain.
+X */
+X
+X#include <X11/Intrinsic.h>
+X#include <Xm/Form.h>
+X#include <Xm/PushB.h>
+X#include <stdio.h>
+X
+X#include "act_area.h"
+X
+X#define TIGHTNESS 20
+X
+XWidget
+XCreateActionArea(parent, actions, num_actions)
+XWidget          parent;
+XActionAreaItem *actions;
+XCardinal        num_actions;
+X{
+X    Widget action_area, widget;
+X    char name[50];
+X    int i;
+X
+X
+X    sprintf(name,"%s_action_area", XtName(parent));
+X    action_area = 
+X        XtVaCreateWidget(name, xmFormWidgetClass, parent,
+X                         XmNfractionBase, TIGHTNESS*num_actions - 1,
+X                         XmNmarginHeight, 10,
+X                         XmNmarginWidth,  10,
+X                         NULL);
+X
+X    for (i = 0; i < num_actions; i++) {
+X        widget = XtVaCreateManagedWidget(actions[i].label,
+X            xmPushButtonWidgetClass, action_area,
+X            XmNleftAttachment,       i? XmATTACH_POSITION : XmATTACH_FORM,
+X            XmNleftPosition,         TIGHTNESS*i,
+X            XmNtopAttachment,        XmATTACH_FORM,
+X            XmNbottomAttachment,     XmATTACH_FORM,
+X            XmNrightAttachment,
+X                    i != num_actions-1? XmATTACH_POSITION : XmATTACH_FORM,
+X            XmNrightPosition,        TIGHTNESS*i + (TIGHTNESS-1),
+X            XmNshowAsDefault,        i == 0,
+X            XmNdefaultButtonShadowThickness, 1,
+X            NULL);
+X        if (actions[i].callback)
+X            XtAddCallback(widget, XmNactivateCallback,
+X                actions[i].callback, (XtPointer)actions[i].data);
+X        if (i == 0 ) {
+X            /* Set the action_area's default button to the first widget
+X             * created (or, make the index a parameter to the function
+X             * or have it be part of the data structure). Also, set the
+X             * pane window constraint for max and min heights so this
+X             * particular pane in the PanedWindow is not resizable.
+X             */
+X            XtVaSetValues(parent,
+X                XmNdefaultButton, widget,
+X                NULL);
+X        }
+X    }
+X
+X    XtManageChild(action_area);
+X
+X    return action_area;
+X}
+END_OF_FILE
+if test 2635 -ne `wc -c <'act_area.c'`; then
+    echo shar: \"'act_area.c'\" unpacked with wrong size!
+fi
+# end of 'act_area.c'
+fi
+if test -f 'act_area.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'act_area.h'\"
+else
+echo shar: Extracting \"'act_area.h'\" \(313 characters\)
+sed "s/^X//" >'act_area.h' <<'END_OF_FILE'
+X#ifndef __ACT_AREA_H__
+X#define __ACT_AREA_H__
+X
+Xtypedef struct {
+X    char *label;                /* Button widget's name */
+X    void (*callback)();         /* Button widget's callback */
+X    caddr_t data;               /* Callback data */
+X} ActionAreaItem;
+X
+XWidget CreateActionArea();
+X
+X#endif /* __ACT_AREA_H__ */
+END_OF_FILE
+if test 313 -ne `wc -c <'act_area.h'`; then
+    echo shar: \"'act_area.h'\" unpacked with wrong size!
+fi
+# end of 'act_area.h'
+fi
+if test -f 'filemenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'filemenu.c'\"
+else
+echo shar: Extracting \"'filemenu.c'\" \(14879 characters\)
+sed "s/^X//" >'filemenu.c' <<'END_OF_FILE'
+X/**********************************************************************
+X * filemenu.c
+X * 
+X * See SelFile() header for interface description.
+X *
+X * Copyright 1990, David Nedde
+X *
+X * Permission to use, copy, modify, and distribute this software
+X * and its documentation for any purpose and without fee is granted
+X * provided that the above copyright notice appears in all copies.
+X * It is provided "as is" without express or implied warranty.
+X *
+X * This source is derived from xdbx source with the following disclaimer:
+X **********************************************************************/
+X/*****************************************************************************
+X *
+X *  xdbx - X Window System interface to the dbx debugger
+X *
+X *  Copyright 1989 The University of Texas at Austin
+X *  Copyright 1990 Microelectronics and Computer Technology Corporation
+X *
+X *  Permission to use, copy, modify, and distribute this software and its
+X *  documentation for any purpose and without fee is hereby granted,
+X *  provided that the above copyright notice appear in all copies and that
+X *  both that copyright notice and this permission notice appear in
+X *  supporting documentation, and that the name of The University of Texas
+X *  and Microelectronics and Computer Technology Corporation (MCC) not be 
+X *  used in advertising or publicity pertaining to distribution of
+X *  the software without specific, written prior permission.  The
+X *  University of Texas and MCC makes no representations about the 
+X *  suitability of this software for any purpose.  It is provided "as is" 
+X *  without express or implied warranty.
+X *
+X *  THE UNIVERSITY OF TEXAS AND MCC DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X *  THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X *  FITNESS, IN NO EVENT SHALL THE UNIVERSITY OF TEXAS OR MCC BE LIABLE FOR
+X *  ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+X *  RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF
+X *  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X *  CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X *  Author:  	Po Cheung
+X *  Created:   	March 10, 1989
+X *
+X *****************************************************************************/
+X
+X/* filemenu.c
+X *
+X *  Construct a file menu (directory browser) which allows a user to go
+X *  up and down the directory tree, to select files.
+X *  The file menu is popped up by the 'file' command button.
+X *  Duane Voth (duanev@mcc.com) contributed to the layout of the file menu, 
+X *  plus some code and ideas.
+X *
+X *  changeDir():	Record the current working directory.
+X *  InList():		Select files to be displayed in the menu.
+X *  ScanDir():		Scan the directory and record selected filenames.
+X *  DisplayMenuFile():	Callback for the file menu.
+X *  CancelFileMenu():	Pop down the file menu.
+X *  SetUpFileMenu():	Create the file menu popupshell.
+X *  UpdateFileMenu():	Update entries in the file menu.
+X *  File():		Command callback for the 'file' command button.
+X */
+X
+X#include <ctype.h>
+X#include <X11/Xos.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Shell.h>
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xaw/Dialog.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/List.h>
+X#include <X11/Xaw/Paned.h>
+X#include <sys/stat.h>
+X#include <sys/param.h>
+X#ifdef SUNOS4
+X#include <dirent.h>
+X#else
+X#include <sys/dir.h>
+X#endif
+X/*#include "global.h"*/
+X
+X#ifdef SUNOS4
+Xtypedef struct dirent 	Directory;
+X#else
+Xtypedef struct direct 	Directory;
+X#endif
+X
+X#define MAXPATHLEN	1024
+X#define LINESIZ		512
+X#define LASTCH(s)	(s[strlen(s)-1])
+X#define SECLASTCH(s)	(s[strlen(s)-2])
+X
+X#define MAXCOLUMNS      8 	/* max number of columns in file menu */
+X#define MAXARGS		20	/* max number of args */
+X#define FILES_PER_COL   10 	/* # of files per column in file menu */
+X
+X#define	INVALID		(-2)
+X#define CANCELED	(-1)
+X#define OK		0
+Xstatic int	glob_status;
+Xstatic char	**glob_path;
+Xstatic Widget	parent_w;
+X
+X
+Xchar		cwd[MAXPATHLEN] = "";	/* current working directory */
+Xstatic char	fileMenuDir[MAXPATHLEN];/* current directory of file menu */
+Xstatic char  	**filelist; 		/* list of file names in fileMenu */
+Xstatic int	nfiles = 0;		/* number of files in filelist */
+Xstatic Widget	popupshell,		/* parent of popup */
+X		popup, 			/* vpane widget containing file menu */
+X		fileMenu, 		/* list widget as file menu */
+X		fileMenuLabel; 		/* label widget as file menu label */
+X
+Xvoid		File();
+Xstatic int	UpdateFileMenu();
+Xstatic void 	CancelFileMenu();
+X
+X/*  Change working directory to 'dir'.
+X *  Modify static global variable, cwd, to keep track of 
+X *  current working directory.
+X */
+Xstatic void changeDir(dir)
+Xchar *dir;
+X{
+X    int i;
+X
+X    if (strcmp(dir, "./") == NULL) 
+X	return;
+X    if (dir[0] == '/' || dir[0] == '~') 
+X	strcpy(cwd, dir);
+X    if (strcmp(dir, "../") == NULL) {
+X	for (i=strlen(cwd); cwd[i] != '/' && i > 0; i--);
+X	cwd[i] = '\0';
+X	if (strcmp(cwd, "") == NULL)
+X	    strcpy(cwd, "/");
+X    }
+X    else {
+X	sprintf(cwd, "%s/%s", cwd, dir);
+X	LASTCH(cwd) = '\0';
+X    }
+X}
+X
+X
+X/*  Determines if a directory entry should appear in the file menu. 
+X *  The files included in the menu are :
+X *    ..  (parent directory)
+X *    directories
+X *    text files 
+X *    executable files
+X */
+Xstatic int InList(entry)
+XDirectory *entry;
+X{
+X    char pathname[LINESIZ];
+X    struct stat statbuf;
+X
+X    if (strcmp(entry->d_name, ".") == NULL || 	/* ignore current directory */
+X	LASTCH(entry->d_name) == '~' ||		/* ignore Emacs backup files */
+X	entry->d_name[0] == '#' ||		/* Ignore emacs backup files */
+X	(LASTCH(entry->d_name) == 'o' && SECLASTCH(entry->d_name) == '.'))
+X						/* ignore object files */
+X	return False;
+X    if (entry->d_name[0] == '.' && entry->d_name[1] != '.')
+X	return False;				/* ignore hidden files */
+X    if (strcmp(cwd, "")) 			/* give full path name */
+X    	sprintf(pathname, "%s/%s", cwd, entry->d_name);
+X    else
+X    	strcpy(pathname, entry->d_name);
+X    if (stat(pathname, &statbuf) == -1) 
+X	return False;
+X    if (statbuf.st_mode & S_IFDIR) {		/* is directory */
+X	strcat(entry->d_name, "/");
+X	++(entry->d_namlen);
+X	return True;
+X    }
+X    if (statbuf.st_mode & S_IEXEC) {		/* is executable */
+X	strcat(entry->d_name, "*");
+X	++(entry->d_namlen);
+X	return True;
+X    }
+X    return True;
+X}
+X
+X
+X/*  Scans the working directory for files selected by InList(), sorted
+X *  alphabetically, and stored in an array of pointers to directory
+X *  entries called namelist.
+X *  The names of the selected files are stored in filelist.
+X */
+Xstatic int ScanDir(dir)
+Xchar *dir;
+X{
+X    extern 	alphasort();
+X    Directory   **namelist;
+X    int		i, j;
+X    char	*format_static();
+X
+X    nfiles = scandir(dir, &namelist, InList, alphasort);
+X    if (nfiles <= 0) {
+X      XBell(XtDisplay(popupshell),0);
+X      return(INVALID);
+X    }
+X    if (filelist) {
+X	for (i=0; filelist[i]; i++)
+X	    XtFree(filelist[i]);
+X	XtFree((char *)filelist);
+X    }
+X    filelist = (char **) XtMalloc((nfiles+1) * sizeof(char *));
+X    i = 0;
+X    for (j=0; j<nfiles; j++) {
+X	filelist[i++] = XtNewString(namelist[j]->d_name);
+X    	XtFree((char *)namelist[j]);
+X    }
+X    filelist[i++] = NULL;
+X    XtFree((char *)namelist);
+X    return(OK);
+X}
+X    
+X
+X/* Delete the current directory prefix from the passed path */
+Xchar *remove_current_prefix(path)
+Xchar *path;
+X{
+X  char	wd[MAXPATHLEN];
+X  char	*temp_str;
+X
+X
+X  getwd(wd);
+X  if (!strncmp(wd,path,strlen(wd)))
+X  {
+X    /* wd matches path prefix */
+X    temp_str = &path[strlen(wd)];
+X    if (temp_str[0] == '/')
+X      /* If first char of prefix is a '/',	 *
+X       * remove it since we want a relative path */
+X      temp_str++;
+X    return(temp_str);
+X  }
+X
+X  /* Couldn't find the prefix -- return the whole path */
+X  return(path);
+X}
+X
+X
+X/*  Callback for the fileMenu list widget.
+X *  >  if the selected item is a directory, display contents of that directory.
+X *  >  if the selected item is a readable file, return the file name
+X */
+X/* ARGSUSED */
+Xstatic void DisplayMenuFile(w, popupshell, call_data)
+X    Widget w;
+X    Widget popupshell;
+X    XawListReturnStruct *call_data;
+X{
+X    char *filename;
+X
+X    XtPopdown(popupshell);
+X    filename = call_data->string;
+X    if (filename == NULL) return;
+X    if (LASTCH(filename) == '/') {
+X	changeDir(filename);
+X	XtDestroyWidget(popupshell);
+X
+X	if (UpdateFileMenu() == INVALID)
+X	  changeDir("../");
+X
+X	/* create new menu */
+X	File(w,(XtPointer )0,(XtPointer )0);			/* pop it up */
+X    }
+X    else {
+X      *glob_path = XtMalloc(strlen(filename)+strlen(cwd)+2);
+X      strcpy(*glob_path, remove_current_prefix(cwd));
+X      if (strlen(*glob_path) != 0)
+X	strcat(*glob_path, "/");
+X      strcat(*glob_path, filename);
+X      glob_status = OK;
+X    }
+X}
+X
+X
+X/*  Callback to popdown the file menu
+X */
+X/* ARGSUSED */
+Xstatic void CancelFileMenu(w, popupshell, call_data)
+X    Widget w;
+X    Widget popupshell;
+X    XtPointer call_data;
+X{
+X    XtPopdown(popupshell);
+X    glob_status = CANCELED;
+X}
+X
+X
+X
+Xvoid DisableWindowResize(w)
+XWidget w;
+X{
+X    Arg args[MAXARGS];
+X    Cardinal n;
+X    Dimension height;
+X
+X    n = 0;
+X    XtSetArg(args[n], XtNheight, &height);                       n++;
+X    XtGetValues(w, args, n);
+X    XawPanedSetMinMax(w, height, height);
+X    XawPanedAllowResize(w, False);
+X}
+X
+X
+X/*  Creates a popup shell with its child being a vpane widget containing
+X *  a file menu label, a file menu containing file names returned from 
+X *  ScanDir(), and a cancel command button.
+X *  When an item in the list is selected, DisplayMenuFile is called.
+X */
+Xstatic int SetUpFileMenu(dir) 
+Xchar *dir;
+X{
+X    Widget	cancelButton;
+X    Arg 	args[MAXARGS];
+X    Cardinal	n;
+X    char	menulabel[LINESIZ];
+X    int		ncolumns;
+X
+X    n = 0;
+X    popupshell = XtCreatePopupShell("File Directory", transientShellWidgetClass,
+X				    parent_w, args, n);
+X
+X    n = 0;
+X    popup = XtCreateManagedWidget("popup", panedWidgetClass, popupshell,
+X				  args, n);
+X    if (ScanDir(dir) == OK)
+X      /* It worked OK */
+X      strcpy(fileMenuDir, dir);
+X    else
+X      return(INVALID);
+X
+X    n = 0;
+X    sprintf(menulabel, "   %s   ", dir);
+X    XtSetArg(args[n], XtNlabel, (XtArgVal) menulabel); 			n++;
+X    XtSetArg(args[n], XtNjustify, (XtArgVal) XtJustifyCenter);          n++;
+X    fileMenuLabel = XtCreateManagedWidget("fileMenuLabel", labelWidgetClass,
+X                                          popup, args, n);
+X
+X    n = 0;
+X    ncolumns = nfiles/FILES_PER_COL + 1;
+X    ncolumns = MIN(ncolumns, MAXCOLUMNS);
+X    XtSetArg(args[n], XtNlist, filelist);				n++;
+X    XtSetArg(args[n], XtNverticalList, True);				n++;
+X    XtSetArg(args[n], XtNdefaultColumns, (XtArgVal) ncolumns);		n++;
+X    fileMenu = XtCreateManagedWidget("fileMenu", listWidgetClass, 
+X				     popup, args, n);
+X    XtAddCallback(fileMenu, XtNcallback, DisplayMenuFile,(XtPointer)popupshell);
+X
+X    n = 0;
+X    XtSetArg(args[n], XtNresize, False);				n++;
+X    XtSetArg(args[n], XtNlabel, "CANCEL");				n++;
+X    cancelButton = XtCreateManagedWidget("cancelButton", commandWidgetClass,
+X					 popup, args, n);
+X    XtAddCallback(cancelButton, XtNcallback, CancelFileMenu, 
+X                  (XtPointer)popupshell);
+X
+X    DisableWindowResize(fileMenuLabel);
+X    DisableWindowResize(cancelButton);
+X    return(OK);
+X}
+X
+X
+X/*  This routine is called when there is a a change in current directory.
+X *  It destroys the existing popup shell and creates a new file menu based
+X *  on the new current directory.  A new directory list is created.
+X */
+Xstatic int UpdateFileMenu()
+X{
+X    return(SetUpFileMenu(cwd));
+X}
+X
+X
+X/*  File command button callback.
+X */
+X/* ARGSUSED */
+Xvoid File(w, client_data, call_data)
+X    Widget w;
+X    XtPointer client_data;
+X    XtPointer call_data;
+X{
+X    Arg 	args[MAXARGS];
+X    Cardinal	n;
+X    Dimension	fileMenu_width, fileMenuLabel_width, border_width;
+X    Dimension	fileMenu_height, fileMenuLabel_height;
+X    Dimension   dialog_width, dialog_height;
+X    int         width, height;
+X    int         x_offset, y_offset;
+X    Position    x,y;
+X
+X/*    if (strcmp(fileMenuDir, cwd))*/
+X      if (UpdateFileMenu() != OK)
+X	return;
+X
+X
+X    n = 0;
+X    XtSetArg(args[n], XtNwidth, &fileMenu_width);		n++;
+X    XtSetArg(args[n], XtNheight, &fileMenu_height);		n++;
+X    XtSetArg(args[n], XtNborderWidth, &border_width);		n++;
+X    XtGetValues(fileMenu, args, n);
+X
+X    n = 0;
+X    XtSetArg(args[n], XtNwidth, &fileMenuLabel_width);		n++;
+X    XtSetArg(args[n], XtNheight, &fileMenuLabel_height);	n++;
+X    XtGetValues(fileMenuLabel, args, n);
+X
+X    
+X    /* Place the popup window centered on parent */
+X    n = 0;
+X    XtSetArg(args[n], XtNwidth,  &dialog_width);		n++;
+X    XtSetArg(args[n], XtNheight, &dialog_height);		n++;
+X    XtGetValues(parent_w, args, n);
+X
+X    width = MAX(fileMenu_width, fileMenuLabel_width);
+X    x_offset = (Position) (dialog_width - width - border_width) / 2;
+X
+X    height = fileMenu_height + fileMenuLabel_height;
+X    y_offset = (Position) (dialog_height - height - border_width) / 2;
+X
+X    XtTranslateCoords(parent_w, x_offset, y_offset, &x, &y);
+X
+X    x = MAX(0, x);
+X    y = MAX(0, y);
+X
+X    n = 0;
+X    XtSetArg(args[n], XtNx, x);					n++;
+X    XtSetArg(args[n], XtNy, y);					n++;
+X    XtSetValues(popupshell, args, n);
+X
+X
+X    /*XtManageChild( popupshell);*/
+X    XtPopup(popupshell, XtGrabNonexclusive);
+X
+X    /*UpdateMessageWindow("Select a file or directory");*/
+X}
+X
+X
+X/**********************************************************************
+X * SelFile
+X *
+X * Pop up a window, letting the user select a file.  When the file
+X * is selected, the string is returned to the caller.
+X *
+X * If the init_path is NULL and this is the first call, the current
+X *   directory is used, else the previous call's directory is used.
+X * If the init_path is an empty string, the current directory is used.
+X * A passed init path will have the current dir prepended if the path
+X *   doesn't start with a '/'.
+X * If the popup is canceled, -1 is returned, otherwise 0 is returned.
+X **********************************************************************/
+Xint SelFile(w,prompt,cancel,init_path,show_entry,path_return)
+XWidget		w;
+Xchar		*prompt;		/* Not used yet */
+Xchar		*cancel;		/* Not used yet */
+Xchar		*init_path;
+Xint		*(*show_entry)();	/* Not used yet */
+Xchar		**path_return;
+X{
+X  XtAppContext app_context;
+X  XEvent event;
+X
+X
+X  parent_w = w;
+X  glob_path = path_return;
+X
+X  if (init_path == (char *)0 || init_path[0] == '\0')
+X  {
+X    /* No init_path -- Use the current working directory */
+X    if (cwd[0] == '\0' || init_path == (char *)0 || init_path[0] == '\0')
+X      getwd(cwd);
+X  }
+X  else
+X  if (strcmp(cwd,init_path))
+X  {
+X    /* They are different -- copy requested starting dir in */
+X    /* Prefix with wd if init_path is a relative path */
+X    if (init_path[0] != '/')
+X    {
+X      getwd(cwd);
+X      strcat(cwd,"/");
+X    }
+X    else
+X      cwd[0] = '\0';
+X    strcat(cwd,init_path);
+X  }
+X
+X  glob_status = INVALID;
+X  File(w, (XtPointer )0, (XtPointer )0);
+X
+X  app_context = XtWidgetToApplicationContext( w);
+X  while (glob_status == INVALID)
+X  {
+X    XtAppNextEvent(app_context, &event);
+X    XtDispatchEvent(&event);
+X  }
+X
+X  return(glob_status);
+X}
+X
+END_OF_FILE
+if test 14879 -ne `wc -c <'filemenu.c'`; then
+    echo shar: \"'filemenu.c'\" unpacked with wrong size!
+fi
+# end of 'filemenu.c'
+fi
+if test -f 'gen_fallback' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gen_fallback'\"
+else
+echo shar: Extracting \"'gen_fallback'\" \(698 characters\)
+sed "s/^X//" >'gen_fallback' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X# Usage: gen_fallback app-defaults-file
+X#        Generates a list of fallback resources suitable for including
+X#        in the fallback resources array
+X
+X# This shellscript just echos each line in the source file with a " at
+X# the beginning of the line, and a ", at the and of the line.
+X
+Xecho '/* fallback.h generated by gen_fallback from '$1' - do not edit! */'
+Xecho ""
+Xcat $1 | awk ' \
+X  BEGIN { first = 1 } \
+X  /\\$/ && first == 0 { printf("%s\n", $0); } \
+X  /\\$/ && first == 1 { first = 0; printf("\"%s\n", $0); } \
+X  $0 !~ /\\$/ && first == 1  { printf("\"%s\",\n", $0); } \
+X  $0 !~ /\\$/ && first == 0  { first = 1 ; printf("\",\n\"%s\",\n", $0); } \
+X  END  { printf("NULL\n"); }'
+END_OF_FILE
+if test 698 -ne `wc -c <'gen_fallback'`; then
+    echo shar: \"'gen_fallback'\" unpacked with wrong size!
+fi
+chmod +x 'gen_fallback'
+# end of 'gen_fallback'
+fi
+if test -f 'run_demos' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'run_demos'\"
+else
+echo shar: Extracting \"'run_demos'\" \(306 characters\)
+sed "s/^X//" >'run_demos' <<'END_OF_FILE'
+X#!/bin/sh
+X
+Xecho '*** Xball Demos ***'
+Xecho "Hit 'q' in the xball window to exit a demo early"
+Xecho ""
+X
+Xfor f in demo1 demo2 demo3 demo4 demo5 demo6 demo7 demo8 demo9 demo10 demo11 \
+X         demo12 demo13 demo14
+Xdo
+X  echo "Running demo: $f"
+X  xball -demo $f
+X  sleep 1  # Let X catch up with events...
+Xdone
+END_OF_FILE
+if test 306 -ne `wc -c <'run_demos'`; then
+    echo shar: \"'run_demos'\" unpacked with wrong size!
+fi
+chmod +x 'run_demos'
+# end of 'run_demos'
+fi
+if test -f 'xball.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xball.man'\"
+else
+echo shar: Extracting \"'xball.man'\" \(2080 characters\)
+sed "s/^X//" >'xball.man' <<'END_OF_FILE'
+X.TH XBALL 6 "1/5/93" " "
+X.SH NAME
+Xxball \- bounce colored balls on the screen
+X.SH SYNOPSIS
+X.B xball
+X[ -help -delay
+X.I delay
+X-gravity
+X.I percent-gravity
+X-elasticity
+X.I percent-elasticity
+X-itemWidth
+X.I ball-width
+X-itemHeight
+X.I ball-height
+X-collide -perpetual -haltSim -demoFile
+X.I demo-file
+X-rgbTxt
+X.I rgb.txt-file
+X]
+X[XToolkit options]
+X.sp
+X.SH DESCRIPTION
+X.PP
+X.I XBall
+Xallows the user to create colored, 3-d shaded balls, or to write and
+Xrun demo which create and manipulate the balls in various ways.
+XDocumentation is included on-line via the Help menu and is not
+Xreproduced here.
+X.SH OPTIONS
+XRun xball -help for a decription of the command line options
+X.SH DEMOS
+XSeveral demo files are included with the distribution.  To run all the
+Xdemos, run 'run_demos'.
+X.SH RESOURCES
+XMost resources are avaliable for user modification.  See the XBall
+Xapp-defaults file for a complete listing of widgets,
+X.sp
+XFollowing is a list of the most useful resources:
+X.RS
+X.TP 3
+X\fBXBall*canvas.width, height\fR
+XThe default width and height of the window in which balls bounce in.
+X.TP 3
+X\fBXBall.delay\fR
+XThe amount to slow the simulation, in case the computer is too fast.
+XA reasonable range is 0 to 200.
+X.TP 3
+X\fBXBall.itemWidth, itemHeight\fR
+XThe default width and height of the balls.
+X.TP 3
+X\fBXBall.collide\fR
+XIf true, balls are colliding on startup.
+X.TP 3
+X\fBXBall.perpetual\fR
+XIf true, balls are perpetual on startup.
+X.TP 3
+X\fBXBall.haltSim\fR
+XIf true, simulation is halted on startup.
+X.TP 3
+X\fBXBall.demoFile\fR
+XSpecified the file to run as a demo on startup.
+X.TP 3
+X\fBXBall.rgbTxt\fR
+XSpecified the file to load for the colors.  The default file is
+X/usr/lib/X11/app-defaults/rgb.txt
+X.SH FILES
+X.TP
+X/usr/lib/X11/rgb.txt
+XX11 color names and values.
+X.sp
+X.SH AUTHOR
+X.PP
+XDavid Nedde (daven@ivy.wpi.edu).
+X.sp
+X.SH COPYRIGHT
+XCopyright 1991, 1993 David Nedde.
+X.br
+XPermission to use, copy, modify, and distribute this
+Xsoftware and its documentation for any purpose and without
+Xfee provided that the above copyright notice appears in all copies.
+XIt is provided "as is" without express or implied warranty.
+END_OF_FILE
+if test 2080 -ne `wc -c <'xball.man'`; then
+    echo shar: \"'xball.man'\" unpacked with wrong size!
+fi
+# end of 'xball.man'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

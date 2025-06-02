@@ -1,0 +1,2109 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i004: point text editor (TCL and TK), Part03/16
+Message-ID: <1992Mar18.141336.26587@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:13:36 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 4
+Archive-name: tcl-editor/part03
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 15)."
+# Contents:  Changes.log anaDialogs.c findpos.c goto.c inschar.c
+#   library.c repaint.c replace.c stats.c tclLib/init.tcl
+#   tclLib/subs.tcl tclLib/windows.tcl
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Changes.log' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Changes.log'\"
+else
+echo shar: Extracting \"'Changes.log'\" \(4484 characters\)
+sed "s/^X//" >'Changes.log' <<'END_OF_FILE'
+X	Changes to Point
+X
+X7 feb 92 -- Version 1.1 of Point which is compatible with the Tk1.4 toolkit
+X         and Tcl 6.2
+X
+X13 feb 92 -- compile bug in tkColbox.c fixed.  Wrong number of arguments.
+X
+X18 feb 92 -- add regular expression seach and regular expression replace.
+X          The form of the regular expression is the same as in grep/ed
+X          (not full regular expressions as in egrep).  The replace is the
+X          same as in the 's' command in ed, ex, sed and vi. Added commands:
+X          * RegexSearch -- search for a regular expression
+X          * RepeatRegexSearch -- search for the last RE entered
+X          * RegexReplaceOne -- replace the last string found in an RE search
+X          * RegexReplaceAll -- do a complete RE replace operation
+X
+X18 feb 92 -- rearranged the order in most of the menus.
+X
+X20 feb 92 -- Version 1.2 of Point with regular expressions.
+X
+X21 feb 92 -- corrected some problems with cursor motion from keys, that is,
+X	the MoveSel cluster of operations.  They seem to work now in that
+X	they don't mess up the display.  Also cursor right and cursor left
+X	now move the next or previous line as expected.
+X
+X23 feb 92 -- fixed a problem where Point would fail on partial geometries,
+X	that is, ones with the +N+N at the end (only the dimensions)
+X
+X28 feb 92 -- changed tkerror so that it doesn't print anything.  I was getting
+X	too many spurious errors caused by Tk menu problems
+X
+X3 mar 92 -- Sel get now returns the line number of the first character of
+X	the selection as an argument: firstChar lastChar windowName
+X	selectionMode lineNumberOfFirstChar
+X
+X3 mar 92 -- selecting in line mode (triple clicking) now displays the line
+X	numer of the first character of the selection in the browwser
+X	message area
+X
+X3 mar 92 -- changed FILE menu, 'Close' --> 'Close window' and added a
+X	'Quit Point =>'	menu
+X
+X4 mar 92 -- fixed bugs: when the browser was showing file sizes the names
+X	were not gotten correctly and you could not open and files or CD.
+X	Also directories were not sorted first when file sizes were
+X	showing.
+X
+X4 mar 92 -- added option 'insertReplaces'.  The default is False.  When it
+X	is set to True, then a selection of more than one character will
+X	be deleted when characters are typed.  This makes the insert like
+X	the Macintosh for selection larger than one character.  This
+X	facility is a compromise.  It does not replace for selections
+X	of only one character because Point does not allow zero width
+X	selections.
+X
+X4 mar 92 -- added an option 'titleFormat' that allows you to format the
+X	contents of the title line.  It is like a printf format with
+X	the following conversions:
+X	%n -- the file name (affected by pathNames option)
+X	%N -- the full path name of the file
+X	%s -- the short file name
+X	%c/modMsg/ -- "modMsg" if the file has changed and "" otherwise.
+X		The matching '/'s can be any character.
+X	%r/readOnlyMsg/ -- "readOnlyMsg" if file is read only
+X		and "" otherwise.  The matching '/'s can be any character.
+X	%o/overtypeMsg/ -- "overtypeMsg" if Point is in overType mode
+X		and "" otherwise.  The matching '/'s can be any character.
+X	%l -- the line number of the top line in the window
+X	%L -- the line number of the bottom line in the window
+X	%p -- the character number of the first character in the window
+X	%P -- the character number of the last character in the window
+X	%S -- the size of the file in characters
+X	%v -- the column number of the leftmost column in the window
+X	%V -- the column number of the rightmost column in the window
+X
+X4 mar 92 -- added an option "iconFormat" which is specified like "titleFormat"
+X	but affects the icon name of text windows.
+X
+X5 mar 92 -- changed pt to open windows at location1, location2 or location3.
+X	location1 is the default.  pt takes arguments of the form -1, -2
+X	and -3 that affect all subsequent windows until changed.  E.g.:
+X		pt -2 file1 -1 *.c -3 file2
+X
+X5 mar 92 -- removed 'lineNumbers' option.  Instead line numbering is done
+X	on a window by window basis.  There is a new command 'SetLineNumbers'.
+X	The first argument is the window to be affected ("" means the
+X	current window.  The second argument can be "0" to turn off line
+X	numbering and "1" to turn it on.  Anything else	toggles the it.
+X
+X5 mar 92 -- fixed but in pt where it used the cwd of point rather than
+X	of pt.  Also changed the default to not wait for the windows
+X	to close.  Thus the -nw and -nowait options are eliminated and
+X	replaced by option -w and -wait.
+X
+X5 mar 92 -- Version 1.3 of Point with the above changes and fixes.
+X
+X
+END_OF_FILE
+if test 4484 -ne `wc -c <'Changes.log'`; then
+    echo shar: \"'Changes.log'\" unpacked with wrong size!
+fi
+# end of 'Changes.log'
+fi
+if test -f 'anaDialogs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'anaDialogs.c'\"
+else
+echo shar: Extracting \"'anaDialogs.c'\" \(3942 characters\)
+sed "s/^X//" >'anaDialogs.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/anaDialogs.c,v 1.4 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#ifdef HYPERTEXT
+X#include <string.h>
+X#include "pt.h"
+X
+DBM *currentDB;
+Document currentDocument;
+AttributeID mainFileBlock;
+MapID naturalMap;
+X
+PickListItem *
+GenerateIDList( id_in, magic )
+X	ID id_in;
+X	MagicNumber magic;
+X{
+X	extern DBM *currentDB;
+X
+X	PickListItem * itemListFront;
+X	PickListItem * itemListBack = NULL;
+X	ID id = id_in;
+X	AnaObject ana_object;
+X	int len;
+X	
+X	while( id != NullObject ) {
+X		/* allocate a new struct to hold the next item */
+X		PickListItem * new_item =
+X			(PickListItem *)PtMalloc(sizeof(PickListItem),"list");
+X		ana_object = GetObject( currentDB, magic, id, NO_ALLOCATE );
+X		/* copy the name and id into the struct */
+X		len = strlen(ana_object->name) + 1;
+X		new_item->name = (char *)PtMalloc( len, "name" );
+X		strcpy( new_item->name, ana_object->name );
+X		new_item->id = id;
+X		new_item->next = NULL;
+X		/* link it on the back of the list */
+X		if( itemListBack == NULL ) {
+X			itemListFront = new_item;
+X			itemListBack = new_item;
+X		} else {
+X			itemListBack->next = new_item;
+X			itemListBack = new_item;
+X		}
+X		/* and move to the next item */
+X		id = ana_object->next;
+X	}
+X	return itemListFront;
+X}
+X
+void
+XFreeIDList( itemList )
+X	PickListItem * itemList;
+X{
+X	while( itemList != NULL ) {
+X		PickListItem * toGo = itemList;
+X		itemList = itemList->next;
+X		PtFree( toGo->name );
+X		PtFree( (char *)toGo );
+X	}
+X}
+X
+static ID ID_chosen;
+X
+ID
+AnaPickBox( id_in, magic, label_string )
+X	ID id_in;
+X	MagicNumber magic;
+X	String label_string;
+X{
+X	extern DBM *currentDB;
+X	extern char msgBuffer[];
+X	extern char * returnString;
+X
+X	char *box_name, *s;
+X	PickListItem * itemList, *item;
+X
+X	/* get the list of items */
+X	itemList = GenerateIDList( id_in, magic );
+X        /* Create the list box */
+X	(void)ExecTclCommand( "update" );
+X	sprintf( msgBuffer, "MakePickBox {%s}", label_string );
+X	s = ExecTclCommand( msgBuffer );
+X	/* make a copy of the name */
+X	box_name = (char *)PtMalloc( strlen(s)+1, "name" );
+X	strcpy( box_name, s );
+X	/* fill the list box */
+X	item = itemList;
+X	while( item != NULL ) {
+X		sprintf( msgBuffer, "%s.slist.items insert end {%s}",
+X						box_name, itemList->name );
+X		(void)ExecTclCommand( msgBuffer );
+X		item = item->next;
+X	}
+X
+X	/*  run a local event loop until the box is acted on */
+X	command( FWAITFORRETURNSTRING, "", "", "", "", "", "" );
+X	if( strcmp(returnString,"XXXcancelXXX") != 0 ) {
+X		int index = atoi(returnString);
+X		while( index-- > 0 )
+X			item = item->next;
+X		ID_chosen = item->id;
+printf( "Picked item %d, id %d, name <%s>\n", index, item->id, item->name );
+X	} else
+X		ID_chosen = -1;
+X
+X	FreeIDList( itemList );
+X	
+X	return ID_chosen;
+X}
+X
+AttributeID
+PickAttribute( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (AttributeID) AnaPickBox( (ID)(document->firstAttribute),
+X					AttributeMagic, label_string );
+X}
+X
+LinkID
+PickLink( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (LinkID) AnaPickBox( (ID)(document->firstLink),
+X					LinkMagic, label_string );
+X}
+X
+BlockID
+PickBlock( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (BlockID) AnaPickBox( (ID)(document->firstBlock),
+X					BlockMagic, label_string );
+X}
+X
+XFileID
+PickFile( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (FileID) AnaPickBox( (ID)(document->firstFile),
+X					FileMagic, label_string );
+X}
+X
+TextID
+PickText( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (TextID) AnaPickBox( (ID)(document->firstText),
+X					TextMagic, label_string );
+X}
+X
+MapID
+PickMap( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (MapID) AnaPickBox( (ID)(document->firstMap),
+X					MapMagic, label_string );
+X}
+X
+ViewID
+PickView( document, label_string )
+X	Document document;
+X	String label_string;
+X{
+X	return (ViewID) AnaPickBox( (ID)(document->firstView),
+X					ViewMagic, label_string );
+X}
+X#endif
+X
+END_OF_FILE
+if test 3942 -ne `wc -c <'anaDialogs.c'`; then
+    echo shar: \"'anaDialogs.c'\" unpacked with wrong size!
+fi
+# end of 'anaDialogs.c'
+fi
+if test -f 'findpos.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'findpos.c'\"
+else
+echo shar: Extracting \"'findpos.c'\" \(4059 characters\)
+sed "s/^X//" >'findpos.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/findpos.c,v 1.2 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include "pt.h"
+X
+Offset
+xyToOffset( w, row, col )
+X	struct window *w;
+X	int row, col;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *windowList;
+X	extern int tabWidth;
+X	extern int debug;
+X
+X	Offset cp;
+X	int n, tabStop, rowsDown, iLine;
+X	int uch;
+X	int fid = w->fileId;
+X
+X	rowsDown = row;	/* rows down */
+X
+X#ifdef XXXXXXX
+X/* fix this later, maybe keep a flag to tell if the window has moved */
+X	/* has window moved since we last found a line? */
+X	doRowCache = 1;
+X	if( w->lastPosTop == w->posTopline ) {
+X		/* if so find the new line relative to it */
+X		cp = w->posCurLast;
+X		rowsDown -= w->rowCurLast;
+X		if( rowsDown < 0 ) {
+X			rowsDown = -rowsDown;
+X			cp = prevLine( fid, cp, &rowsDown );
+X		} else if( rowsDown > 0 )
+X			goto countDown;
+X	} else {
+X#endif
+X
+X		/* just count down from the top line */
+X		cp = w->posTopline;
+X#ifdef XXXXXXX
+X	countDown:
+X#endif
+X		n = rowsDown;
+X		cp = nextLine( fid, cp, &rowsDown );
+X
+X#ifdef FIX_THIS_LATER
+X		/* fix so that EOF works */
+X		if( (n -= rowsDown) > 0 ) {
+X			*inRow -= n;
+X			doRowCache = 0;
+X		}
+X		/* see if EOF on a line alone */
+X		if( (cp-1) > 0 &&
+X		  (char)getFileByte( fid, cp-1 ) != '\n') {
+X			/* another fix so EOF works */
+X			--*inRow;
+X			doRowCache = 0;
+X		}
+X	}
+X	/* if we are near end of file, "row" and the */
+X	/* "cp" will not really be right.  The +3 is */
+X	/* superstitious but I want to be sure we don't get */
+X	/* get off on the counts.  There is little need */
+X	/* to optimize at the end of the file, we can forgo */
+X	/* that to be safe */
+X	if( (cp + 3 < fileSize(w->fileId)) && doRowCache ) {
+X		/* compute the number of rows down */
+X		w->rowCurLast = row;
+X		w->posCurLast = cp;
+X		w->lastPosTop = w->posTopline;
+X	} else
+X		w->lastPosTop = NULL;
+X#endif
+X
+X	n = col + w->indent;
+X	iLine = 0;
+X	if( w->lineNumbers )
+X		iLine = 5;
+X	while( iLine <= n ) {
+X		uch = getFileByte( fid, cp++ );
+X		switch( uch ) {
+X		case '\n':	/* end of line */
+X		case BLOCK_EOF:	/* end of file */
+X			/* NOTE: cp could get two past EOF since we post- */
+X			/* increment above and do not fix it below */
+X			goto endLoop;
+X		case '\t':
+X			tabStop = iLine + tabWidth - (iLine % tabWidth);
+X			if( tabStop > n )
+X				goto endLoop;
+X			else
+X				iLine = tabStop;
+X			break;
+X		default:
+X			iLine++;
+X			break;
+X		}
+X	}
+endLoop:
+X	return cp-1;
+X}
+X
+void
+OffsetToXY( w, offset, outRow, outCol )
+X	struct window *w;
+X	Offset offset;
+X	int *outRow, *outCol;
+X{
+X	extern int tabWidth;
+X	extern int getSpanSize;
+X
+X	Offset cp;
+X	int tabStop, row, lastRow, iLine;
+X	int fid = w->fileId;
+X        unsigned char *firstByte = (unsigned char *)1;
+X        unsigned char *lastByte = (unsigned char *)0;
+X
+X	/* see if offset is above the window */
+X	if( offset < w->posTopline )
+X		goto NotFound;
+X
+X	/* find out which row it is on */
+X	cp = w->posTopline;
+X	row = 0;
+X	iLine = 0;
+X	lastRow = w->nRows;
+X	while( row < lastRow ) {
+X		if( cp == offset ) {
+X			if( outRow != NULL )
+X				*outRow = row;
+X			if( outCol != NULL )
+X				*outCol = iLine - w->indent;
+X			return;
+X		}
+X                if( firstByte > lastByte ) {
+X                        if( getSpan( fid, cp, &firstByte, &lastByte, 0 ) )
+X                                break;
+X                }
+X                ++cp;
+X		switch( *firstByte++ ) {
+X		case '\n':
+X			iLine = 0;
+X			++row;
+X			break;
+X		case '\t':
+X			tabStop = iLine + tabWidth - (iLine % tabWidth);
+X			iLine = tabStop;
+X			break;
+X		default:
+X			iLine++;
+X			break;
+X		}
+X++getSpanSize;
+X	}
+NotFound:
+X	if( outRow != NULL )
+X		*outRow = -1;
+X	if( outCol != NULL )
+X		*outCol = -1;
+X	return;
+X}
+X
+int
+OffsetToCol( w, offset, beginRowOffset )
+X	struct window *w;
+X	Offset offset, beginRowOffset;
+X{
+X	extern int tabWidth;
+X
+X	Offset cp;
+X	int tabStop, iLine;
+X	int uch;
+X	int fid = w->fileId;
+X
+X	iLine = 0;
+X	cp = beginRowOffset;
+X	while( cp < offset ) {
+X		uch = getFileByte( fid, cp++ );
+X		switch( uch ) {
+X		case BLOCK_EOF:	/* not found */
+X		case '\n':
+X			break;
+X		case '\t':
+X			tabStop = iLine + tabWidth - (iLine % tabWidth);
+X			iLine = tabStop;
+X			break;
+X		default:
+X			iLine++;
+X			break;
+X		}
+X	}
+X	return iLine;
+X}
+END_OF_FILE
+if test 4059 -ne `wc -c <'findpos.c'`; then
+    echo shar: \"'findpos.c'\" unpacked with wrong size!
+fi
+# end of 'findpos.c'
+fi
+if test -f 'goto.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'goto.c'\"
+else
+echo shar: Extracting \"'goto.c'\" \(4133 characters\)
+sed "s/^X//" >'goto.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/goto.c,v 1.5 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include "pt.h"
+X
+void
+matchChar()
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	int uch;
+X	Offset cp;
+X	char ch1, ch2;
+X	int n, matchDirection;
+X	int fid = selWindow->fileId;
+X
+X	cp = selBegin;
+X	uch = getFileByte( fid, cp );
+X	switch( uch ) {
+X	case '(': ch1 = '('; ch2 = ')'; matchDirection =  1; break;
+X	case ')': ch1 = ')'; ch2 = '('; matchDirection = -1; break;
+X	case '[': ch1 = '['; ch2 = ']'; matchDirection =  1; break;
+X	case ']': ch1 = ']'; ch2 = '['; matchDirection = -1; break;
+X	case '{': ch1 = '{'; ch2 = '}'; matchDirection =  1; break;
+X	case '}': ch1 = '}'; ch2 = '{'; matchDirection = -1; break;
+X	default:  ch1 = ' '; ch2 = ' '; matchDirection = -1; break;
+X	}
+X	if( ch1 == ' ' ) {
+X		msg(
+X"Matching s defined for (, ), [, ], {, and } only", 1);
+X		return;
+X	}
+X	n = 1;	/* n==0 ==> we found the matching character */
+X	while( 1 ) {
+X		uch = getFileByte( fid, cp );
+X		cp += matchDirection;
+X		if( (char)uch == ch1 )
+X			++n;
+X		else if( (char)uch == ch2 )
+X			--n;
+X		if( n == 0 || uch == BLOCK_EOF )
+X			break;
+X	}
+X	if( n == 0 ) {
+X		selBegin = cp;
+X		selEnd = selBegin;
+X		/* put the selection on the third line */
+X		if( selBegin >= selWindow->posBotline
+X		 || selBegin < selWindow->posTopline ) {
+X			/* remember where we came from */
+X			selWindow->rowLastline = selWindow->numTopline;
+X			n = 4;
+X			cp = prevLine( fid, cp, &n );
+X			selWindow->posTopline = cp;
+X			/* recalculate the line number by letting */
+X			/* prevLine count as far back as it can */
+X			n = 3000000;
+X			cp = prevLine( fid, cp, &n );
+X			selWindow->numTopline = n + 1;
+X		}
+X		drawWindow(selWindow);
+X	} else
+X		msg("No matching character was found.", 1);
+X}
+X
+void
+doGoSel(w)
+X	struct window *w;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int linesOverFind;
+X	extern int debug;
+X
+X	int n;
+X	int i;
+X	Offset cp, toCp;
+X	int fid = w->fileId;
+X
+X	/* remember where we came from */
+X	w->rowLastline = w->numTopline;
+X
+X	/* n is the number of lines to move */
+X	cp = selWindow->posTopline;
+X	i = linesOverFind;
+X
+X	/* find the number of lines in the window */
+X	i = selWindow->nRows;
+X	if( linesOverFind > i )
+X		/* if linesOverFind would place it outside the */
+X		/* window then put it in the middle of the window */
+X		i >>= 1;
+X	else
+X		/* otherwise put it linesOverFind lines down */
+X		i = linesOverFind;
+X	toCp = prevLine( fid, selBegin, &i );
+X	n = selWindow->numTopline;
+X	if( cp <= toCp ) {
+X		while( cp < toCp ) {
+X			i = 1;
+X			cp = nextLine( fid, cp, &i );
+X			++n;
+X		}
+X	} else {	/* cp > toCp */
+X		while( cp > toCp ) {
+X			i = 1;
+X			cp = prevLine( fid, cp, &i );
+X			--n;
+X		}
+X	}
+X	selWindow->posTopline = toCp;
+X	selWindow->numTopline = n;
+X	(void)indentToShowSelection(-1);
+X	topWindow(selWindow);
+X	drawWindow(selWindow);
+X}
+X
+void
+doGoto(w, line_number_to_goto, adjustAndSelect)
+X	register struct window *w;
+X	int line_number_to_goto;
+X	int adjustAndSelect;
+X{
+X	extern char msgBuffer[];
+X	extern int linesOverFind;
+X	extern Offset selBegin, selEnd;
+X
+X	int n;
+X	int fid = w->fileId;
+X	int lof;
+X
+X	/* remember where we came from */
+X	w->rowLastline = w->numTopline;
+X
+X	/* n is the number of lines to move */
+X	n = line_number_to_goto - w->numTopline;
+X	if( n > 0 && n < w->nRows ) {
+X		/* the line is already showing on the screen */
+X		goto SelectOnly;
+X	}
+X	if( adjustAndSelect ) {
+X		lof = linesOverFind;
+X		if( lof >= w->nRows )
+X			lof = w->nRows / 2;
+X		n -= lof;
+X	}
+X	if( n > 0 ) {
+X		w->posTopline = nextLine( fid, w->posTopline, &n );
+X		w->numTopline += n;
+X		w->posBotline = nextLine( fid, w->posBotline, &n );
+X		w->numBotline += n;
+X	} else {	/* n < 0 */
+X		n = -n;
+X		/* prevLine will stop at line 1 no matter how big n is */
+X		/* (and return the number of lines actually moved) */
+X		w->posTopline = prevLine( fid, w->posTopline, &n );
+X		w->numTopline -= n;
+X		w->posBotline = prevLine( fid, w->posBotline, &n );
+X		w->numBotline -= n;
+X	}
+SelectOnly:
+X	if( adjustAndSelect ) {
+X		n = line_number_to_goto - w->numTopline;
+X		selBegin = nextLine( fid, w->posTopline, &n );
+X		n = 1;
+X		selEnd =  nextLine( fid, selBegin, &n ) - 1;
+X	}
+X	
+X	w->indent = 0;
+X	drawWindow(w);
+X}
+END_OF_FILE
+if test 4133 -ne `wc -c <'goto.c'`; then
+    echo shar: \"'goto.c'\" unpacked with wrong size!
+fi
+# end of 'goto.c'
+fi
+if test -f 'inschar.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'inschar.c'\"
+else
+echo shar: Extracting \"'inschar.c'\" \(5530 characters\)
+sed "s/^X//" >'inschar.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/inschar.c,v 1.5 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include "pt.h"
+X
+void
+HandleKey( keysym, state )
+X	int keysym;
+X	int state;
+X{
+X	char ch;
+X
+X	if( keysym <= 127 ) {
+X		ch = (char)keysym;
+X		if( state & ControlMask )
+X			ch &= 0x1f;
+X	} else {
+X		keysym &= 0xff;
+X		/* ignore shift keys */
+X		if( 0xe1 <= keysym && keysym <= 0xee )
+X			return;
+X		ch = (char)keysym;
+X	}
+X	if( ch == '\r' )
+X		/* convert CRs to NLs */
+X		ch = '\n';
+X	else if( ch == '\377' )
+X		/* convert DELs to BSs */
+X		ch = '\b';
+X	if( (ch == '\b') && (state & (ShiftMask|ControlMask|Mod1Mask)) )
+X		ch = '\177';	/* word erase */
+X	insChar( ch, 1 );
+X}
+X
+void
+insChar( c2, update )
+X	int c2;
+X	int update;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern struct window *windowList;
+X	extern int overType;
+X	extern int autoIndent;
+X	extern int rightMargin;
+X	extern int unixMode;
+X	extern int insertReplaces;
+X	extern int debug;
+X
+X	Offset cp;
+X	Offset saveSelBegin, saveSelEnd;
+X	int insrow1;
+X	int n, row, col;
+X	char ch;
+X	int fid = selWindow->fileId;
+X	unsigned char c = (unsigned char)c2;
+X	
+X	/* erase the old selection */
+X	drawSelection( 1 );
+X
+X	/* selection mode is character after an insert */
+X	selMode = SELCHAR;
+X
+X	if( c == '\177') {	/* erase word */
+X		cp = selBegin;
+X		/* first scan back over white space */
+X		while( 1 ) {
+X			ch = (char)getFileByte( fid, --cp );
+X			switch( ch ) {
+X			case ' ':
+X			case '\t':
+X			case '\r':
+X			case '\n':
+X				break;
+X			default:
+X				goto endWhite;	/* break out of while loop */
+X			}
+X		}
+X	endWhite:
+X		/* now scan over alphanumerics */
+X		if( isalnum(ch) ) {
+X			while( isalnum(ch) ) {
+X				if( cp < 0 )
+X					break;
+X				ch = (char)getFileByte( fid, --cp );
+X			}
+X		} else {
+X			while( !isalnum(ch) && !isspace(ch) && !iscntrl(ch) ) {
+X				if( cp < 0 )
+X					break;
+X				ch = (char)getFileByte( fid, --cp );
+X			}
+X		}
+X		/* set up the selection to delete the chars passed over */
+X		selEnd = selBegin - 1;
+X		selBegin = cp + 1;
+X		if( selBegin <= selEnd ) {
+X			if( deleteChars(selWindow->fileId, NOUPDATE, 0) )
+X				c = '\n'; /* if so, force a drawWindow */
+X		} else
+X			selEnd = selBegin;
+X	} else if( c == '\b') {
+X		if( selBegin > 0 ) {
+X			if( (char)getFileByte(fid,selBegin) == '\n'
+X							|| !delChar() ) {
+X				selEnd = --selBegin;
+X				/* deleted a newline? */
+X				if( deleteChars(selWindow->fileId,NOUPDATE,0) )
+X					/* if so, force a drawWindow */
+X					c = '\n';
+X			}
+X		}
+X	} else {
+X		if( insertReplaces && selBegin < selEnd )
+X			deleteChars( fid, update, 1 );
+X		insertChar((unsigned char)c);
+X		if( rightMargin < 999 && c != '\n' ) {
+X			OffsetToXY( selWindow, selBegin, &row, &col );
+X			if( col > (rightMargin-selWindow->indent+1)) {
+X				saveSelBegin = selBegin;
+X				saveSelEnd = selEnd;
+X				while( 1 ) {
+X					ch = (char)getFileByte(fid, --selBegin);
+X					if( ch == ' ' || ch == '\t'
+X					 || ch=='\n' || selBegin <= 0 )
+X						break;
+X				}
+X				if( ch == ' ' ) {
+X					selEnd = selBegin;
+X					deleteChars( fid, 0, 0 );
+X					n = 0;
+X				} else {
+X					selBegin = saveSelBegin - 1;
+X					n = 1;
+X				}
+X				/* no need to set selEnd since */
+X				/* insertChar does not use it */
+X				insertChar('\n');
+X				if( autoIndent )
+X					n += doAutoIndent();
+X				updateFile(selWindow->fileId,selBegin-1,1,0);
+X				selBegin = saveSelBegin + n;
+X				selEnd = saveSelEnd + n;
+X			}
+X		}
+X		if( c == '\n' && autoIndent ) {
+X			(void)doAutoIndent();
+X		}
+X		if( overType ) {
+X			selEnd = selBegin;
+X			ch = (char)getFileByte( fid, selBegin );
+X			if( ch != '\n' )
+X				(void)deleteChars(selWindow->fileId,NOUPDATE,0);
+X		}
+X	}
+X	if( !update )
+X		return;
+X	if( c == '\n' ) {
+X#ifdef XXXXXXX
+X/* I'm not sure now why this was put in, so I'll take it out */
+X		/* back up one character (to the one before the '\n') */
+X		--selBegin;
+X#endif
+X		OffsetToXY( selWindow, selBegin, &insrow1, NULL );
+X		/* auto-scroll at the bottom of a page */
+X		if( insrow1+1 >= selWindow->nRows ) {
+X			n = (selWindow->nRows)/3;
+X			selWindow->posTopline = nextLine( fid,
+X				selWindow->posTopline, &n);
+X			selWindow->numTopline += n;
+X		}
+X#ifdef XXXXXX
+X		/* this is to fix the problem of the very first line of */
+X		/* a new file not updating correctly */
+X		if( selWindow->posBotline <= 0 )
+X			selWindow->posBotline = selBegin;
+X#endif
+X		n = indentToShowSelection(-1);
+X		/* find the '\n' that was inserted */
+X		cp = selBegin;
+X		while( (char)getFileByte( fid, --cp ) != '\n' )
+X			/*EMPTY*/
+X			;
+X		updateFile( selWindow->fileId, cp, selBegin-cp, 0 );
+X		if( n ) {
+X			drawWindow(selWindow);
+X			return;
+X		}
+X	} else {
+X		int n, y, row, col;
+X		Offset cp;
+X
+X		if( selBegin < selWindow->posTopline )
+X			doGoSel(selWindow);
+X
+X		/* if we have to indent, then redraw the screen */
+X		if( indentToShowSelection(-1) ) {
+X			drawWindow(selWindow);
+X			return;
+X		}
+X		OffsetToXY( selWindow, selBegin, &row, &col );
+X		y = selWindow->topMargin + (selWindow->font).ascent
+X				+ row*((selWindow->font).height);
+X		n = -1;
+X		cp = prevLine( selWindow->fileId, selBegin, &n );
+X		fillLine(selWindow, cp, row, col, selWindow->nCols, y, 1 );
+X	}
+X}
+X
+X
+int
+doAutoIndent()
+X{
+X	extern char msgBuffer[];
+X	extern Offset selBegin;
+X	extern struct window *selWindow;
+X
+X	unsigned char uch;
+X	Offset cp;
+X	int n, charsInserted;
+X	int fid = selWindow->fileId;
+X
+X	n = -1;
+X	cp = prevLine( fid, selBegin - 1, &n );
+X	charsInserted = 0;
+X	while( 1 ) {
+X		uch = getFileByte( fid, cp++ );
+X		switch( uch ) {
+X			case ' ':
+X			case '\t':
+X				insertChar( uch );
+X				++charsInserted;
+X				break;
+X			default:
+X				return charsInserted;
+X		}
+X	}
+X}
+END_OF_FILE
+if test 5530 -ne `wc -c <'inschar.c'`; then
+    echo shar: \"'inschar.c'\" unpacked with wrong size!
+fi
+# end of 'inschar.c'
+fi
+if test -f 'library.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'library.c'\"
+else
+echo shar: Extracting \"'library.c'\" \(3751 characters\)
+sed "s/^X//" >'library.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/library.c,v 1.10 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include "pt.h"
+X#include "ctype.h"
+X#include "string.h"
+X#include "stdlib.h"
+X
+char scratchName[FILENAMESIZE];
+X
+int
+LineNumberOfSelection()
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X
+X	int cp = 0;
+X	int n;
+X	int line_number = 1;
+X	int fid = selWindow->fileId;
+X	
+X	while( cp < selBegin ) {
+X		n = 1;
+X		cp = nextLine( fid, cp, &n );
+X		++line_number;
+X	}
+X	if( cp > selBegin )
+X		--line_number;
+X	return line_number;
+X}
+X
+void
+XFixName( s )
+X	char *s;
+X{
+X	int l = strlen(s) - 1;
+X	char ch = s[l];
+X	if( ch=='@' || ch=='*' || ch=='=' )
+X		s[l] = '\0';
+X}
+X
+char *
+tildefyFilename( buffer )
+X	char * buffer;
+X{
+X	extern char homeDirectory[];
+X
+X	int home_dir_len = strlen(homeDirectory);
+X	char *p;
+X
+X	if( strncmp(buffer, homeDirectory, home_dir_len)==0 ) {
+X		p = &(buffer[home_dir_len-1]);
+X		*p = '~';
+X	} else
+X		p = buffer;
+X	return p;
+X}
+X
+char *
+findFile(name)
+X	char *name;
+X{
+X	extern char scratchName[];
+X	extern char *getenv();
+X	
+X	char *env;
+X	int i;
+X
+X	/* first look in the current directory */
+X	if( access(name, 0) == 0 )
+X		return name;
+X	/* now look in the path or PATH directories */
+X	env = getenv("path");
+X	if( env == NULL ) {
+X		env = getenv("PATH");
+X		if( env == NULL )
+X			return NULL;
+X	}
+X	while( *env != '\0' ) {
+X		/* find the next directory name */
+X		i = 0;
+X		while( *env != ';' && *env != '\0' )
+X			scratchName[i++] = *env++;
+X		if( scratchName[i-1] != '/' )
+X			scratchName[i++] = '/';
+X		scratchName[i] = '\0';
+X		strcat(scratchName, name);
+X		if( access(scratchName, 0) == 0 )
+X			return &scratchName[0];
+X		if( *env != '\0' )
+X			++env;
+X	}
+X	return NULL;
+X}
+X
+X/*ARGSUSED*/
+char *
+PtMalloc( size, purpose )
+X	int size;
+X	char *purpose;
+X{
+X	extern int debug;
+X
+X	char *mem = (char *)malloc( size );
+X
+X	return mem;
+X}
+X
+void
+PtFree( s )
+X	char *s;
+X{
+X	extern int debug;
+X
+X	if( s != NULL )
+X		free( s );
+X}
+X
+void
+justifyLines()
+X{
+X	/* external declarations */
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern int rightMargin;
+X	extern int tabWidth;
+X	extern int debug;
+X
+X	Offset cp, selFirst = selBegin, selLast = selEnd;
+X	int fileId, n, col;
+X	char ch, lastCh;
+X	int fid = selWindow->fileId;
+X
+X	selMode = SELCHAR;
+X	fileId = selWindow->fileId;
+X	n = -1;
+X	selBegin = prevLine( fileId, selBegin, &n );
+X	n = 1;
+X	selEnd = nextLine( fileId, selEnd, &n );
+X	col = 0;
+X	lastCh = 0;
+X	while( 1 ) {
+X		ch = getFileByte( fid, selBegin );
+X		if( ch == '\n' ) {
+X			/* replace the LF with a space */
+X			selEnd = selBegin;
+X			(void)deleteChars( fileId, 0, 0 );
+X			insertChar(' ');
+X			ch = ' ';
+X		}
+X		if( col >= rightMargin ) {
+X			cp = selBegin;
+X			while( ch != ' ' && ch != '\n' && ch != '\t' )
+X				ch = (char)getFileByte(fileId, --cp);
+X			if( ch == ' ' || ch == '\t' ) {
+X				selEnd = selBegin = cp;
+X				(void)deleteChars(fileId, 0, 0);
+X				insertChar('\n');
+X			}
+X			/* else NL is already in place */
+X			col = 0;
+X			lastCh = '\n';
+X		} else {
+X			if( ch == '\t' ) {
+X				if( (n = (col % tabWidth)) == 0 )
+X					n = tabWidth;
+X				col += n;
+X			} else
+X				++col;
+X			++selBegin;
+X			lastCh = ch;
+X		}
+X		if( selBegin >= selLast )
+X			break;
+X	}
+X	/* see how many spaces and tabs are at the end */
+X	/* selEnd remembers the end of the string of spaces and tabs */
+X	selEnd = --selBegin;
+X	/* loop through the spaces and tabs */
+X	while( 1 ) {
+X		ch = getFileByte( fid, selBegin++ );
+X		if( ch != ' ' && ch != '\t' )
+X			break;
+X		--selBegin;
+X	}
+X	/* (selBegin went one too) */
+X	/* if we found some spaces, then delete them */
+X	if( ++selBegin <= selEnd ) {
+X		selLast -= (selEnd - selBegin + 1);
+X		(void)deleteChars(fileId, 0, 0);
+X	}
+X	if( lastCh != '\n' ) {
+X		insertChar('\n');
+X		selLast += 2;
+X	}
+X	selBegin = selFirst;
+X	selEnd = selLast - 1;
+X	drawWindow( selWindow );
+X}
+X
+END_OF_FILE
+if test 3751 -ne `wc -c <'library.c'`; then
+    echo shar: \"'library.c'\" unpacked with wrong size!
+fi
+# end of 'library.c'
+fi
+if test -f 'repaint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'repaint.c'\"
+else
+echo shar: Extracting \"'repaint.c'\" \(4471 characters\)
+sed "s/^X//" >'repaint.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/repaint.c,v 1.9 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X#include <X11/StringDefs.h>
+X
+void
+SetTextColor( w, normal, foreground, colorName )
+X	struct window *w;
+X	int normal, foreground;
+X	char * colorName;
+X{
+X	extern Display *MainDisplay;
+X	extern Tcl_Interp * interp;
+X	extern char msgBuffer[];
+X
+X	struct fontDataStruct *fontData = &(w->font);
+X	Tk_Uid s = Tk_GetUid( colorName );
+X	XColor * color = Tk_GetColor( interp, w->tk_toplevel, NULL, s );
+X
+X	if( color == NULL )
+X		return;
+X	if( normal && foreground ) {
+X		XSetForeground( MainDisplay, fontData->gc_normal,
+X							color->pixel );
+X	} else if( normal && !foreground ) {
+X		XSetBackground( MainDisplay, fontData->gc_normal,
+X							color->pixel);
+X		Tk_SetWindowBackground( w->tk_text, color->pixel );
+X	} else if( !normal && foreground ) {
+X		XSetForeground( MainDisplay, fontData->gc_selected,
+X							color->pixel);
+X	} else {
+X		XSetBackground( MainDisplay, fontData->gc_selected,
+X							color->pixel);
+X	}
+X}
+X
+void InitRedisplay( w )
+X	struct window *w;
+X{
+X	extern Display *MainDisplay;
+X	extern int debug;
+X	extern char * textBackground;
+X	extern char * textForeground;
+X	extern char * selectedTextBackground;
+X	extern char * selectedTextForeground;
+X	extern Tcl_Interp * interp;
+X	extern char msgBuffer[];
+X
+X	XFontStruct *fontInfo;
+X	struct fontDataStruct *fontData = &(w->font);
+X
+X	if( w->x_window_id == NULL ) {
+X		sprintf( msgBuffer, "%s.VScrollAndText.Text", w->tk_pathname );
+X		w->tk_text = Tk_NameToWindow(interp, msgBuffer, w->tk_toplevel);
+X		w->x_window_id = Tk_WindowId( w->tk_text );
+X	}
+X
+X	if( fontData->height == 0 && w->x_window_id != NULL ) {
+X	retry_font:
+X		fontInfo = Tk_GetFontStruct( interp, w->tk_toplevel,
+X							fontData->name );
+X		if( fontInfo == NULL ) {
+X			printf("Cannot load font %s, using fixed\n",
+X				fontData->name );
+X			fontData->name = "fixed";
+X			goto retry_font;
+X		}
+X		fontData->font = fontInfo->fid;
+X		fontData->height = fontInfo->ascent + fontInfo->descent;
+X		fontData->width = fontInfo->max_bounds.width;
+X		fontData->ascent = fontInfo->ascent;
+X
+X		/* set up the gc for normal text */
+X		XSetFont(MainDisplay, fontData->gc_normal, fontData->font);
+X
+X		/* set up the gc for selected text */
+X		XSetFont(MainDisplay, fontData->gc_selected, fontData->font);
+X		SetTextColor( w, 1, 1, textForeground );
+X		SetTextColor( w, 1, 0, textBackground );
+X		SetTextColor( w, 0, 1, selectedTextForeground );
+X		SetTextColor( w, 0, 0, selectedTextBackground );
+X		Tk_FreeFontStruct( fontInfo );
+X	}
+X}
+X
+void
+WorkspaceResized( w )
+X	struct window * w;
+X{
+X	extern Display *MainDisplay;
+X	extern int debug;
+X	extern int showPartialLines;
+X	extern Tcl_Interp * interp;
+X
+X	int font_height, font_width;
+X	int high, wide;
+X
+X	InitRedisplay( w );
+X	wide = Tk_Width( w->tk_text );
+X	high = Tk_Height( w->tk_text );
+X
+X	/* These calculations do not allow partially hidden rows and columns */
+X	if( (font_height = (w->font).height) == 0 )
+X		font_height = 15;
+X	w->nRows = (high - w->topMargin) / font_height;
+X	if( (font_width = (w->font).width) == 0 )
+X		font_width = 8;
+X	w->nCols = (wide - w->leftMargin) / font_width;
+X	if( showPartialLines ) {
+X		w->nRows = (high - w->topMargin + font_height - 1)
+X						/ font_height;
+X		w->nCols = (wide - w->leftMargin + font_width - 1)
+X						/ font_width;
+X	}
+X#ifdef FIX_DISPLAY_LATER
+X	/* reallocate the screen image and set to nuls */
+X	PtFree( w->screen_image );
+X	high = w->nRows * w->nCols;
+X	w->screen_image = (char *)PtMalloc( high, "screen image" );
+X	memset( w->screen_image, '\0', high );
+X#endif
+X}
+X
+void
+repaint( w, left, top, right, bottom )
+X	struct window * w;
+X	int left;
+X	int top;
+X	int right;
+X	int bottom;
+X{
+X	int firstRow, lastRow;
+X	int firstCol, lastCol;
+X
+X	InitRedisplay( w );
+X	if( w->nRows == 0 )
+X		WorkspaceResized( w );
+X
+X	/* this is necessary when the whole window is exposed */
+X	if( top < w->topMargin )
+X		top = w->topMargin;
+X	if( bottom < w->topMargin )
+X		bottom = w->topMargin;
+X	if( left < w->leftMargin )
+X		left = w->leftMargin;
+X	if( right < w->topMargin )
+X		right = w->leftMargin;
+X	firstRow =    (top - w->topMargin) / (w->font).height;
+X	lastRow  = (bottom - w->topMargin) / (w->font).height;
+X	/* never write a partial line at the bottom of the screen */
+X	if( lastRow >= w->nRows )
+X		lastRow = w->nRows - 1;
+X	firstCol =  (left - w->leftMargin) / (w->font).width;
+X	lastCol  = (right - w->leftMargin) / (w->font).width;
+X	drawWindowFast( w, firstRow, lastRow, firstCol, lastCol );
+X}
+X
+END_OF_FILE
+if test 4471 -ne `wc -c <'repaint.c'`; then
+    echo shar: \"'repaint.c'\" unpacked with wrong size!
+fi
+# end of 'repaint.c'
+fi
+if test -f 'replace.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'replace.c'\"
+else
+echo shar: Extracting \"'replace.c'\" \(3845 characters\)
+sed "s/^X//" >'replace.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/replace.c,v 1.5 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <ctype.h>
+X#include <stdio.h>
+X#include "pt.h"
+X
+void
+replaceText( w, fromString, toString, inSelection )
+X	struct window *w;
+X	char * fromString;
+X	char * toString;
+X	int inSelection;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern char msgBuffer[];
+X	extern Offset addPosition;
+X	extern int addHandle;
+X	extern int debug;
+X	extern struct openFile *files;
+X
+X	struct window *saveSelWindow;
+X	Offset saveSelBegin, saveSelEnd, repEnd;
+X	int n, fileId, fromLength;
+X	int nLines, nReplaces;
+X	int diffLengths;
+X	Offset toLength, fSize;
+X	Offset cp;
+X	Piece tempPP, newPP;
+X	struct changeItem *thisChange;
+X	struct openFile *ff;
+X
+X	fileId = w->fileId;
+X	ff = &files[fileId];
+X	fSize = fileSize(fileId);
+X	nReplaces = 0;
+X	
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only", ff->origName);
+X		msg(msgBuffer, 1);
+X		return;
+X	}
+X
+X	/* Create a piece for the replacement string and record it in */
+X	/* the piece buffer.  This makes it easy to insert the replace */
+X	/* string by copying this piece */
+X	toLength = strlen(toString);
+X	tempPP = getFreePiece();
+X
+X	tempPP->file = addHandle;
+X	tempPP->position = addPosition;
+X	for(n = 0; n < (int)toLength; n++ )
+X		writeChar(toString[n], addPosition++);
+X	tempPP->length = toLength;
+X
+X	if( inSelection )
+X		repEnd = selEnd;
+X	else
+X		repEnd = fileSize(w->fileId);
+X
+X	if( w == selWindow )
+X		cp = selBegin + 1;
+X	else
+X		cp = 0;
+X	
+X	/* How will the replace change character counts? */
+X	/* we need to adjust repEnd after each replace */
+X	fromLength = strlen(fromString);
+X	diffLengths = strlen(toString) - fromLength;
+X
+X	/* set things up so the line counts will be right */
+X	if( (char)getFileByte(fileId, cp) == '\n' )
+X		nLines = 1;
+X	else
+X		nLines = 0;
+X
+X	/* save the location of the current selection */
+X	saveSelWindow = selWindow;
+X	saveSelBegin = selBegin;
+X	saveSelEnd = selEnd;
+X
+X/* while loop to repeat the replace */
+while( 1 ) {
+X
+X	sprintf(msgBuffer, "Replace is %d%% completed",
+X		(int)( (100*cp) / (fSize + nReplaces*(toLength-fromLength)) )
+X		);
+X	msg(msgBuffer, 1);
+X
+X	/* find the string */
+X	cp = searchSpans(fileId, cp, repEnd, fromString, fromLength, &n);
+X	nLines += n;
+X	if( cp == -1 )
+X		break;
+X	if( selWindow != w ) {
+X		drawSelection( 1 );
+X		selWindow = w;
+X	}
+X	selBegin = cp;
+X	selEnd = selBegin + fromLength - 1;
+X	selMode = SELCHAR;
+X
+X	/* remember where we came from */
+X	selWindow->rowLastline = selWindow->numTopline;
+X	
+X	(void)deleteChars(selWindow->fileId, NOUPDATE, 0);
+X		
+X	/* record in the change history */
+X	thisChange = GetNewChange( ff );
+X	thisChange->type = CINSERT;
+X	thisChange->position = selBegin;
+X	thisChange->length = toLength;
+X	thisChange->flags = 0;
+X	thisChange->lineNumber = selWindow->numTopline;
+X	thisChange->fileId = selWindow->fileId;
+X	thisChange->w = selWindow;
+X	newPP = getFreePiece();
+X	newPP->file = addHandle;
+X	newPP->position = tempPP->position;
+X	newPP->length = toLength;
+X	thisChange->firstPiece = newPP;
+X	RecordChange( ff, thisChange );
+X	
+X	copyPieces( tempPP, selWindow, selBegin, toLength, 0, 0 );
+X	cp = selBegin;
+X	/* as we change the length of the text in the file with */
+X	/* a replacement, we have to adjust repEnd so that we  */
+X	/* will not quit early */
+X	repEnd += diffLengths;
+X
+X	/* we want the final */
+X	/* selection to be the same as the original */
+X	/* selection even though we are replaceing */
+X	/* inside it.  This makes the adjustment */
+X	saveSelEnd += diffLengths;
+X
+X	++nReplaces;
+X}
+X
+X	/* free the temp piece */
+X	freePieces(tempPP);
+X
+X	/* restore the previous selection */
+X	selWindow = saveSelWindow;
+X	selBegin = saveSelBegin;
+X	selEnd = saveSelEnd;
+X	drawWindow(selWindow);
+X
+X	sprintf(msgBuffer, "Made %d replacement%s", nReplaces,
+X		nReplaces==1?"":"s");
+X	msg(msgBuffer, 1);
+X}
+END_OF_FILE
+if test 3845 -ne `wc -c <'replace.c'`; then
+    echo shar: \"'replace.c'\" unpacked with wrong size!
+fi
+# end of 'replace.c'
+fi
+if test -f 'stats.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'stats.c'\"
+else
+echo shar: Extracting \"'stats.c'\" \(3635 characters\)
+sed "s/^X//" >'stats.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/stats.c,v 1.2 1992/03/04 17:07:18 crowley Exp crowley $ */
+X#include <stdio.h>
+X/* stuff for edit tracing */
+int trace_file = 0;	/* 0 ==> no tracing */
+X
+X/* some performance measuring counters */
+int piecesRequested;
+int piecesAllocated;
+int getSpanSize;
+int piecesFreed;
+int piecesSearchedFor;
+int piecesScanned;
+int scanned0pieces;
+int scanned1pieces;
+int scanned2pieces;
+int scanned3PlusPieces;
+int hashChainBuffersScanned;
+int buffersRequested;
+int buffersNotFound;
+int buffersInUse;
+int buffersWritten;
+int fileBytesRequested;
+int getSpansRequested;
+int spansOutOfRange;
+int spansInBufferCache;
+int spansInPieceCache;
+int cacheBufferSizes;
+int charsWritten;
+X
+void
+PrintStats( fileId )
+X	int fileId;
+X{
+X	extern char msgBuffer[];
+X	
+X	sprintf(msgBuffer,"***** Point caching statistics *****\n");
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"%8d characters accessed\n", getSpansRequested);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d (%5.1f%%) through getFileByte\n", fileBytesRequested,
+X				100.0 * (float)fileBytesRequested
+X					/ getSpansRequested);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d (%5.1f%%) through getSpan\n",
+X				getSpansRequested - fileBytesRequested,
+X				100.0 * (getSpansRequested-fileBytesRequested)
+X					/ getSpansRequested);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"%8d calls to getSpan\n", getSpansRequested);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f%% of getSpans found in buffer cache\n",
+X				100.0 * (float)spansInBufferCache
+X					/ getSpansRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f%% of getSpans found in piece cache\n",
+X				100.0 * (float)spansInPieceCache
+X					/ getSpansRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f bytes provided per span\n",
+X				(float)cacheBufferSizes / getSpansRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f bytes USED per span\n",
+X				(float)getSpanSize / getSpansRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"%8d piece table searches\n", piecesSearchedFor);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f scans per piece search\n",
+X				(float)piecesScanned / piecesSearchedFor );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d times 0 pieces scanned\n", scanned0pieces);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d times 1 pieces scanned\n", scanned1pieces);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d times 2 pieces scanned\n", scanned2pieces);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d times 3 or more pieces scanned\n", scanned3PlusPieces);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"%8d buffers requested\n", buffersRequested);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f%% of buffers found in the cache\n", 
+X				100.0 * (float)(buffersRequested
+X					- buffersNotFound) / buffersRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8.1f buffers searched in an average hash chain lookup\n",
+X				(float)hashChainBuffersScanned
+X							/ buffersRequested );
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X	sprintf(msgBuffer,"     %8d buffers had to be written out to disk\n",
+X				buffersWritten);
+X	write( fileId, msgBuffer, strlen(msgBuffer) );
+X}
+END_OF_FILE
+if test 3635 -ne `wc -c <'stats.c'`; then
+    echo shar: \"'stats.c'\" unpacked with wrong size!
+fi
+# end of 'stats.c'
+fi
+if test -f 'tclLib/init.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/init.tcl'\"
+else
+echo shar: Extracting \"'tclLib/init.tcl'\" \(3992 characters\)
+sed "s/^X//" >'tclLib/init.tcl' <<'END_OF_FILE'
+X# init.tcl --
+X#
+X# Default system startup file for Tcl-based applications.  Defines
+X# "unknown" procedure and auto-load facilities.
+X#
+X# $Header: /nfs/unmvax/faculty/crowley/x/pt/tclLib/init.tcl,v 1.1 1992/02/19 19:55:01 crowley Exp crowley $ SPRITE (Berkeley)
+X#
+X# Copyright 1991 Regents of the University of California
+X# Permission to use, copy, modify, and distribute this
+X# software and its documentation for any purpose and without
+X# fee is hereby granted, provided that this copyright
+X# notice appears in all copies.  The University of California
+X# makes no representations about the suitability of this
+X# software for any purpose.  It is provided "as is" without
+X# express or implied warranty.
+X#
+X
+X# unknown:
+X# Invoked when a Tcl command is invoked that doesn't exist in the
+X# interpreter:
+X#
+X#	1. See if the autoload facility can locate the command in a
+X#	   Tcl script file.  If so, load it and execute it.
+X#	2. See if the command exists as an executable UNIX program.
+X#	   If so, "exec" the command.
+X#	3. See if the command is a valid abbreviation for another command.
+X#	   if so, invoke the command.  However, only permit abbreviations
+X#	   at top-level.
+X
+proc unknown args {
+X    global auto_noexec auto_noload env unknown_active
+X
+X    if [info exists unknown_active] {
+X	unset unknown_active
+X	error "unexpected recursion in \"unknown\" command"
+X    }
+X    set unknown_active 1
+X    set name [lindex $args 0]
+X    if ![info exists auto_noload] {
+X	if [auto_load $name] {
+X	    unset unknown_active
+X	    return [uplevel $args]
+X	}
+X    }
+X    if ![info exists auto_noexec] {
+X	if [auto_execok $name] {
+X	    unset unknown_active
+X	    return [uplevel exec $args]
+X	}
+X    }
+X    if {([info level] == 1) && ([info script] == "")} {
+X	set cmds [info commands $name*]
+X	if {[llength $cmds] == 1} {
+X	    unset unknown_active
+X	    return [uplevel [lreplace $args 0 0 $cmds]]
+X	}
+X	if {[llength $cmds] != 0} {
+X	    unset unknown_active
+X	    error "ambiguous command name \"$name\": $cmds"
+X	}
+X    }
+X    unset unknown_active
+X    error "invalid command name \"$name\""
+X}
+X
+X# auto_load:
+X# Checks a collection of library directories to see if a procedure
+X# is defined in one of them.  If so, it sources the appropriate
+X# library file to create the procedure.  Returns 1 if it successfully
+X# loaded the procedure, 0 otherwise.
+X
+proc auto_load cmd {
+X    global auto_index auto_path env
+X
+X    if [info exists auto_index($cmd)] {
+X	source $auto_index($cmd)
+X	return 1
+X    }
+X    if [catch {set path $auto_path}] {
+X	if [catch {set path $env(TCLLIBPATH)}] {
+X	    if [catch {set path [info library]}] {
+X		return 0
+X	    }
+X	}
+X    }
+X    foreach dir $path {
+X	set f ""
+X	catch {
+X	    set f [open $dir/tclIndex]
+X	    if {[gets $f] != "# Tcl autoload index file: each line identifies a Tcl"} {
+X		puts stdout "Bad id line in file $dir/tclIndex"
+X		error done
+X	    }
+X	    while {[gets $f line] >= 0} {
+X		if {([string index $line 0] == "#") || ([llength $line] != 2)} {
+X		    continue
+X		}
+X		set name [lindex $line 0]
+X		if {![info exists auto_index($name)]} {
+X		    set auto_index($name) $dir/[lindex $line 1]
+X		}
+X	    }
+X	}
+X	if {$f != ""} {
+X	    close $f
+X	}
+X    }
+X    if [info exists auto_index($cmd)] {
+X	source $auto_index($cmd)
+X	return 1
+X    }
+X    return 0
+X}
+X
+X# auto_execok:
+X# Returns 1 if there's an executable in the current path for the
+X# given name, 0 otherwise.  Builds an associative array auto_execs
+X# that caches information about previous checks, for speed.
+X
+proc auto_execok name {
+X    global auto_execs env
+X
+X    if [info exists auto_execs($name)] {
+X	return $auto_execs($name)
+X    }
+X    set auto_execs($name) 0
+X    foreach dir [split $env(PATH) :] {
+X	if {[file executable $dir/$name] && ![file isdirectory $dir/$name]} {
+X	    set auto_execs($name) 1
+X	    return 1
+X	}
+X    }
+X    return 0
+X}
+X
+X# auto_reset:
+X# Destroy all cached information for auto-loading and auto-execution,
+X# so that the information gets recomputed the next time it's needed.
+X
+proc auto_reset {} {
+X    global auto_execs auto_index
+X    unset auto_execs auto_index
+X}
+END_OF_FILE
+if test 3992 -ne `wc -c <'tclLib/init.tcl'`; then
+    echo shar: \"'tclLib/init.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/init.tcl'
+fi
+if test -f 'tclLib/subs.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/subs.tcl'\"
+else
+echo shar: Extracting \"'tclLib/subs.tcl'\" \(3547 characters\)
+sed "s/^X//" >'tclLib/subs.tcl' <<'END_OF_FILE'
+X
+X# The purpose of the following is to prevent too many interpretations
+X# of strings that are gotten from the selection (and other places)
+X
+proc InsertSelectedString {} {
+X	InsertString [selection get]
+X}
+X
+proc SearchForSel {regex direction} {
+X	set sel [selection get]
+X	if {$regex == 1} then {
+X		RegexSearch $sel $direction
+X	} else {
+X		Search $sel $direction
+X	}
+X}
+X
+X# Miscellaneous subroutines
+X
+proc FixGeometry {g} {
+X	global screen_width screen_height
+X	# set default values for width and height
+X	set w 500
+X	set h 450
+X	set ret [regexp {([0-9]+)x([0-9]+)([+-])([0-9]+)([+-])([0-9]+)} $g \
+X		junk w h sx x sy y]
+X	if [info exists y] {
+X		if ![string compare $sx "-"] {
+X			set x [expr $screen_width-$w-$x]
+X		}
+X		if ![string compare $sy "-"] {
+X			set y [expr $screen_height-$h-$y]
+X		}
+X		return [format "%dx%d+%d+%d" $w $h $x $y]
+X	} else {
+X		return [format "%dx%d" $w $h]
+X	}
+X}
+X
+proc execButton { w cmd } {
+X	global insideButton
+X	if $insideButton then {$w flash;catch "eval $cmd"}
+X}
+X
+proc pr {s} {puts stdout $s}
+X
+proc OpenFileOrCD {button} {
+X	global location1 location2 location3
+X	global browser1 browser2 browser3
+X	set name [selection get]
+X	# check for a file size at the end of the name
+X	set pat "\{(.*) \(\[0-9\]+k\)\}$"
+X	if [regexp "$pat" "$name" junk fname] {
+X		# and remove the file size if it is found
+X		set name $fname
+X	}
+X	if [file isdirectory $name] then {
+X		if {$button==1} {
+X			CD $name
+X		}
+X		if {$button==2} {
+X			Browser $browser2 small
+X			CD $name
+X		}
+X		if {$button==3} {
+X			Browser $browser3 small
+X			CD $name
+X		}
+X	} else {
+X		OpenWindow $name "[set location$button]"
+X	}
+X}
+X
+proc RemoteOpen {name {loc 1}} {
+X	global location1 location2 location3
+X	OpenWindow $name "[set location$loc]"
+X}
+X	
+proc bind.entry args {
+X    foreach w $args {
+X	bind $w <Any-KeyPress> {%W insert cursor "%A"}
+X	bind $w <Any-space> {%W insert cursor " "}
+X	bind $w <Any-2> {puts stdout "character [%W index @%x]"}
+X	bind $w <Any-Delete> {bs %W}
+X	bind $w <Any-BackSpace> {bs %W}
+X	bind $w <Any-Control-h> {bs %W}
+X	bind $w <Any-1> {%W cursor @%x; %W select from @%x}
+X#	bind $w <Any-1> {%W cursor @%x; focus %W; %W select from @%x}
+X	bind $w <Any-B1-Motion> {%W select to @%x}
+X	bind $w <Shift-1> {%W select adjust @%x}
+X	bind $w <Shift-B1-Motion> {%W select to @%x}
+X	bind $w <Any-3> {%W scan mark %x}
+X	bind $w <Any-B3-Motion> {%W scan dragto %x}
+X	bind $w <Any-Control-d> {%W delete sel.first sel.last}
+X	bind $w <Any-Control-v> {%W insert cursor [selection get]}
+X	bind $w <Any-Control-u> {%W delete 0 end}
+X	# from here to the end are addtions from Mark Harrison 
+X	# <harrison@csl.dl.nec.com> on mail list tcl@allspice.Berkeley.EDU
+X        # quote, backslash, and left bracket need
+X        # to be handled specially.
+X        bind $w <Any-quotedbl> {%W insert cursor "\""}
+X        bind $w <Any-backslash> {%W insert cursor "\\"}
+X        bind $w <Any-bracketleft> {%W insert cursor "\["}
+X        # left, right arrows move cursor
+X        bind $w <Any-Left>  {%W cursor [expr [%W index cursor]-1] }
+X        bind $w <Any-Right> {%W cursor [expr [%W index cursor]+1] }
+X    }
+X}
+X
+proc bind.menu args {
+X    foreach w $args {
+X	bind $w <Any-Enter> "$w activate @%y"
+X	bind $w <Any-Leave> "$w activate none"
+X	bind $w <Any-Motion> "$w activate @%y"
+X	bind $w <Any-ButtonRelease-1> "$w invoke active"
+X    }
+X}
+X
+proc bs win {
+X    set x [expr {[$win index cursor] - 1}]
+X    if {$x != -1} {$win delete $x}
+X}
+X
+proc tkerror {msg} {
+X        if ![string match "*.ThinBrowserMenu.*" $msg] {
+X# This gives spurious messages so omit it for now
+X#                puts stderr "Tk background error: $msg"
+X        }
+X}
+X
+END_OF_FILE
+if test 3547 -ne `wc -c <'tclLib/subs.tcl'`; then
+    echo shar: \"'tclLib/subs.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/subs.tcl'
+fi
+if test -f 'tclLib/windows.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclLib/windows.tcl'\"
+else
+echo shar: Extracting \"'tclLib/windows.tcl'\" \(5527 characters\)
+sed "s/^X//" >'tclLib/windows.tcl' <<'END_OF_FILE'
+X#
+X#
+X# Create a browser window
+X#
+X#
+proc BrowserWindow {geometry} {
+X
+X	global wcounter raised bd location1 location2 location3
+X	global screen_width screen_height
+X
+X	set wcounter [expr $wcounter+1]
+X	set name [format ".bw%05d" $wcounter]
+X
+X	set thinBrowser [Option get thinBrowser]
+X	if $thinBrowser then {
+X		set geom 10x3
+X		set cols 1
+X	} else {
+X		set geom 20x1
+X		set cols 4
+X	}
+X	toplevel $name -class PtBrowser -relief $raised -bd $bd
+X	wm geometry $name [FixGeometry $geometry]
+X	wm positionfrom $name user
+X	wm minsize $name 0 0
+X	bind $name <Any-Enter>	"EnterBrowser $name"
+X	bind $name <Configure>	"Configure $name"
+X
+X	# create the list of open windows
+X	# first a frame to contain the scrollbar and the list
+X	frame $name.openList
+X
+X	# then a scrollbar
+X	scrollbar $name.openList.scroll -relief $raised -bd $bd \
+X		-command "$name.openList.list view"
+X
+X	# then a list
+X	colbox $name.openList.list -relief $raised -bd $bd \
+X		-geometry $geom -scroll "$name.openList.scroll set"
+X	bind $name.openList.list <Any-Button-1> \
+X		"RaiseListWindow \[%W nearest %x %y\] $location1
+X			RaiseWindow"
+X	bind $name.openList.list <Any-Button-2> \
+X		"RaiseListWindow \[%W nearest %x %y\] $location2
+X			RaiseWindow"
+X	bind $name.openList.list <Any-Button-3> \
+X		"RaiseListWindow \[%W nearest %x %y\] $location3
+X			RaiseWindow"
+X	$name.openList.list insert 0 "No open files"
+X
+X	# then pack then in
+X	pack append $name.openList \
+X		$name.openList.scroll {left fill} \
+X		$name.openList.list {right fill expand}
+X
+X	# create the menu bar
+X	global BrowserMenuSpec ThinBrowserMenuSpec
+X	if $thinBrowser then {
+X		MakeMenubar $name.menu $ThinBrowserMenuSpec
+X	} else {
+X		MakeMenubar $name.menu $BrowserMenuSpec
+X	}
+X	BrowserMenuBindings $name.menu
+X
+X	# create the list of files in the current directory
+X	# first a frame to contain the scrollbar and the list
+X	frame $name.fileList
+X
+X	# then a scrollbar
+X	scrollbar $name.fileList.scroll -relief $raised -bd $bd \
+X		-command "$name.fileList.list view"
+X
+X	# then a list
+X	colbox $name.fileList.list -relief $raised  -bd $bd -geometry 20x10 \
+X		-columns $cols -scroll "$name.fileList.scroll set"
+X	bind $name.fileList.list <Any-Double-Button-1> "OpenFileOrCD 1"
+X	bind $name.fileList.list <Any-Double-Button-2> "OpenFileOrCD 2"
+X	bind $name.fileList.list <Any-Double-Button-3> "OpenFileOrCD 3"
+X	bind $name.fileList.list <Any-Button> "set item \[%W nearest %x %y\]
+X							%W select from \$item"
+X	bind $name.fileList.list <Any-B1-Motion> "set item \[%W nearest %x %y\]
+X							%W select from \$item"
+X	# then pack then in
+X	pack append $name.fileList \
+X		$name.fileList.scroll {left fill} \
+X		$name.fileList.list {right fill expand}
+X
+X	# create a message line
+X	entry $name.msg -relief $raised -bd $bd
+X	bind.entry $name.msg
+X
+X	# pack everything in the frame
+X	pack append $name \
+X		$name.openList {top fill} \
+X		$name.menu {top fill} \
+X		$name.fileList {top fill expand} \
+X		$name.msg {bottom fill}
+X	set screen_width [winfo screenwidth $name]
+X	set screen_height [winfo screenheight $name]
+X	return $name
+X}
+X
+X#
+X#
+X# Create a text window
+X#
+X#
+proc TextWindow {geometry} {
+X
+X	global wcounter raised bd
+X
+X	set wcounter [expr $wcounter+1]
+X	set name [format ".tw%05d" $wcounter]
+X
+X	toplevel $name -class PtText -relief $raised -bd $bd
+X	wm geometry $name [FixGeometry $geometry]
+X	wm positionfrom $name user
+X	wm minsize $name 0 0
+X	bind $name <Any-Enter> "EnterText $name"
+X
+X	# the menu bar at the top (the window manager provides the title)
+X	global TextMenuSpec
+X	MakeMenubar $name.menu $TextMenuSpec
+X	TextMenuBindings $name.menu
+X
+X	# a frame to hold the vertical scroll bar and the text window
+X	frame $name.VScrollAndText -relief $raised -bd $bd
+X	scrollbar $name.VScrollAndText.VScroll -relief $raised -bd $bd \
+X		-width 12 -command "VScroll tk"
+X	bind $name.VScrollAndText.VScroll <Any-ButtonPress> {VScroll press %y %b}
+X	bind $name.VScrollAndText.VScroll <Any-B1-Motion> {VScroll press %y 1}
+X	bind $name.VScrollAndText.VScroll <Any-B2-Motion> {VScroll motion %y 2}
+X	bind $name.VScrollAndText.VScroll <Any-B3-Motion> {VScroll press %y 3}
+X	bind $name.VScrollAndText.VScroll <Any-ButtonRelease-1> \
+X						{VScroll release %y 1}
+X	bind $name.VScrollAndText.VScroll <Any-ButtonRelease-3> \
+X						{VScroll release %y 3}
+X	frame $name.VScrollAndText.Text
+X	TextBindings $name.VScrollAndText.Text $name
+X	pack append $name.VScrollAndText \
+X		$name.VScrollAndText.VScroll {left fill} \
+X		$name.VScrollAndText.Text {right expand fill}
+X
+X	# a frame to hold the filler (splitter) and the horizontal scroll bar
+X	frame $name.SplitterAndHScroll
+X	frame $name.SplitterAndHScroll.Splitter -geometry "12x12"
+X	scrollbar $name.SplitterAndHScroll.HScroll -orient horizontal \
+X		-relief $raised -bd $bd -width 10 -command "HScroll tk"
+X	bind $name.SplitterAndHScroll.HScroll <Any-ButtonPress> \
+X							{HScroll press %x %b}
+X	bind $name.SplitterAndHScroll.HScroll <Any-B1-Motion> \
+X							{HScroll press %x 1}
+X	bind $name.SplitterAndHScroll.HScroll <Any-B2-Motion> \
+X							{HScroll motion %x 2}
+X	bind $name.SplitterAndHScroll.HScroll <Any-B3-Motion> \
+X							{HScroll press %x 3}
+X	bind $name.SplitterAndHScroll.HScroll <Any-ButtonRelease-1> \
+X							{HScroll release %x 1}
+X	bind $name.SplitterAndHScroll.HScroll <Any-ButtonRelease-3> \
+X							{HScroll release %x 3}
+X	pack append $name.SplitterAndHScroll \
+X		$name.SplitterAndHScroll.Splitter {left fill} \
+X		$name.SplitterAndHScroll.HScroll {right expand fill}
+X
+X	# now pack them all up in a column
+X	pack append $name \
+X		$name.menu {top fill} \
+X		$name.VScrollAndText {top expand fill} \
+X		$name.SplitterAndHScroll {bottom fill}
+X	return $name
+X}
+X
+END_OF_FILE
+if test 5527 -ne `wc -c <'tclLib/windows.tcl'`; then
+    echo shar: \"'tclLib/windows.tcl'\" unpacked with wrong size!
+fi
+# end of 'tclLib/windows.tcl'
+fi
+echo shar: End of archive 2 \(of 15\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

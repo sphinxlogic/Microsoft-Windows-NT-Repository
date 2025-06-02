@@ -1,0 +1,1721 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i115: xephem - astronomical ephemeris program., Part04/24
+Message-ID: <1992Mar6.135244.2052@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:52:44 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 115
+Archive-name: xephem/part04
+
+# this is part.04 (part 4 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file help.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping help.c'
+else
+echo 'x - continuing file help.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'help.c' &&
+X	cb_w = XmCreatePushButton (hlp_w, "HelpC", args, n);
+X	XtAddCallback (cb_w, XmNactivateCallback, hlp_ok_cb, (caddr_t)hlp_w);
+X	set_xmstring (cb_w, XmNlabelString, "Ok");
+X	XtManageChild (cb_w);
+X	set_something (hlp_w, XmNdefaultButton, cb_w);
+X
+X	/* make the scrolled text area to help the help text */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNheight, NR*char_height()); n++;
+X	XtSetArg (args[n], XmNwidth, NC*char_width()); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, cb_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNeditMode, XmMULTI_LINE_EDIT); n++;
+X	XtSetArg (args[n], XmNeditable, False); n++;
+X	XtSetArg (args[n], XmNcursorPositionVisible, False); n++;
+X	t_w = XmCreateScrolledText (hlp_w, "SrchST", args, n);
+X	XtManageChild (t_w);
+X
+X	return (t_w);
+}
+X
+static void
+hlp_ok_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	Widget d_w = (Widget) client;
+X
+X	XtDestroyWidget (d_w);
+}
+X
+/* open the help file and position at first line after we see "@tag\n".
+X * if successfull return a FILE *, else return 0.
+X */
+static FILE *
+hlp_openfile (tag)
+char *tag;
+{
+X	char *fn;
+X	FILE *fp;
+X	char buf[MAXLINE];
+X	char tagline[MAXLINE];
+X
+X	if (hlpfile)
+X	    fn = hlpfile;
+X	else {
+X	    fn = getenv ("XEPHEMHELP");
+X	    if (!fn)
+X		fn = hlpfdef;
+X	}
+X
+X	fp = fopen (fn, "r");
+X	if (!fp)
+X	    return ((FILE *)0);
+X
+X	(void) sprintf (tagline, "%c%s\n", HLP_TAG, tag);
+X	while (fgets (buf, sizeof(buf), fp))
+X	    if (strcmp (buf, tagline) == 0)
+X		return (fp);
+X
+X	fclose (fp);
+X	return ((FILE *)0);
+}
+X
+/* search help file for tag entry, then copy that entry into txt_w.
+X * l is the number of chars already in txt_w.
+X * also recursively follow any NESTed entries found.
+X * return new length of txt_w, else -1 if error.
+X */
+static
+hlp_fillfromfile(tag, txt_w, l)
+char *tag;
+Widget txt_w;
+int l;
+{
+X	FILE *fp;
+X	char buf[MAXLINE];
+X	
+X	fp = hlp_openfile (tag);
+X	if (!fp)
+X	    return (-1);
+X
+X	while (fgets (buf, sizeof(buf), fp)) {
+X	    if (buf[0] == HLP_TAG)
+X		break;
+X	    else if (buf[0] == HLP_NEST) {
+X		int newl;
+X		buf[strlen(buf)-1] = '\0';	/* remove trailing \n */
+X		newl = hlp_fillfromfile (buf+1, txt_w, l);
+X		if (newl > l)
+X		    l = newl;
+X	    } else {
+X		/* buf already includes a trailing \n */
+X		XmTextReplace (txt_w, l, l, buf);
+X		l += strlen (buf);
+X	    }
+X	}
+X
+X	fclose (fp);
+X	return (l);
+}
+X
+static
+hlp_fillfromstrings(msg, nmsg, txt_w)
+char *msg[];
+int nmsg;
+Widget txt_w;
+{
+X	int i, l;
+X
+X	l = 0;
+X	for (i = 0; i < nmsg; i++) {
+X	    XmTextReplace (txt_w, l, l, msg[i]);
+X	    l += strlen (msg[i]);
+X	    XmTextReplace (txt_w, l, l, "\n");
+X	    l += 1;
+X	}
+}
+SHAR_EOF
+echo 'File help.c is complete' &&
+chmod 0644 help.c ||
+echo 'restore of help.c failed'
+Wc_c="`wc -c < 'help.c'`"
+test 5658 -eq "$Wc_c" ||
+	echo 'help.c: original size 5658, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= jupmenu.c ==============
+if test -f 'jupmenu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping jupmenu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting jupmenu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'jupmenu.c' &&
+/* code to manage the stuff on the "jupiter" menu.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/DrawingA.h>
+#include <Xm/ToggleBG.h>
+#include "fieldmap.h"
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *strncpy();
+extern char *getenv();
+extern Widget toplevel_w;
+extern XmString str_width();
+extern Now *mm_get_now();
+extern char *objname[];
+#define	XtD	XtDisplay(toplevel_w)
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	(R_MAP+5)
+#define	NC	60
+X
+#define	R_TOP		1
+X
+/* menu for jupiter aux info items */
+#define	R_JCMLI		(R_TOP)
+#define	R_JCMLII	(R_TOP+1)
+#define	C_JCMLSI	36
+#define	C_JCMLSII	36
+#define	C_JMNAMES	(2)
+#define	C_JMX		(1*NC/4+2)
+#define	C_JMY		(2*NC/4+2)
+#define	C_JMZ		(3*NC/4+2)
+#define	R_JCOLHDNGS	(R_TOP+4)
+#define	R_IO		(R_JCOLHDNGS+1)
+#define	R_EUROPA	(R_JCOLHDNGS+2)
+#define	R_GANYMEDE	(R_JCOLHDNGS+3)
+#define	R_CALLISTO	(R_JCOLHDNGS+4)
+#define	R_MAP		(R_CALLISTO+1)
+#define	R_CONTROL	NR
+X
+static FieldMap jm_field_map[] = {
+X    {mkid(R_IO,C_JMX), PLT, 7, 0, "Io.X"},
+X    {mkid(R_IO,C_JMY), PLT, 7, 0, "Io.Y"},
+X    {mkid(R_IO,C_JMZ), PLT, 7, 0, "Io.Z"},
+X    {mkid(R_EUROPA,C_JMX), PLT, 7, 0, "Europa.X"},
+X    {mkid(R_EUROPA,C_JMY), PLT, 7, 0, "Europa.Y"},
+X    {mkid(R_EUROPA,C_JMZ), PLT, 7, 0, "Europa.Z"},
+X    {mkid(R_GANYMEDE,C_JMX), PLT, 7, 0, "Ganymede.X"},
+X    {mkid(R_GANYMEDE,C_JMY), PLT, 7, 0, "Ganymede.Y"},
+X    {mkid(R_GANYMEDE,C_JMZ), PLT, 7, 0, "Ganymede.Z"},
+X    {mkid(R_CALLISTO,C_JMX), PLT, 7, 0, "Callisto.X"},
+X    {mkid(R_CALLISTO,C_JMY), PLT, 7, 0, "Callisto.Y"},
+X    {mkid(R_CALLISTO,C_JMZ), PLT, 7, 0, "Callisto.Z"},
+X
+X    {mkid(R_JCMLI,1), 0, 0, "Central Meridian Longitude (degs):"},
+X    {mkid(R_JCMLI,C_JCMLSI), PLT, 7, 0, "Jup.CMLI"},
+X    {mkid(R_JCMLI,45), 0, 0, "(Sys I)"},
+X    {mkid(R_JCMLII,C_JCMLSII), PLT, 7, 0, "Jup.CMLII"},
+X    {mkid(R_JCMLII,1), 0, 0, "(GRS is at 30 degs in System II)"},
+X    {mkid(R_JCMLII,45), 0, 0, "(Sys II)"},
+X
+X    {mkid(R_IO,C_JMNAMES), 0, 0, "I   Io"},
+X    {mkid(R_EUROPA,C_JMNAMES), 0, 0, "II  Europa"},
+X    {mkid(R_GANYMEDE,C_JMNAMES), 0, 0, "III Ganymede"},
+X    {mkid(R_CALLISTO,C_JMNAMES), 0, 0, "IV  Callisto"},
+X    {mkid(R_JCOLHDNGS-1,C_JMY-2), 0, 0, "Jupiter Radii"},
+X    {mkid(R_JCOLHDNGS,C_JMX+1), 0, 0, "X (+E)"},
+X    {mkid(R_JCOLHDNGS,C_JMY+1), 0, 0, "Y (+S)"},
+X    {mkid(R_JCOLHDNGS,C_JMZ-2), 0, 0, "Z (+towards)"},
+};
+#define	NFM	(sizeof(jm_field_map)/sizeof(jm_field_map[0]))
+#define	LFM	(&jm_field_map[NFM])
+#define	fw(r,c)	(fm(r,c)->w)
+X
+static Widget jupform_w;
+static Widget jda_w;
+static int jm_selecting;	/* set while our fields are being selected */
+static int bigdots = 1;
+X
+static FieldMap *
+fm(r,c)
+int r, c;
+{
+X	FieldMap *fp;
+X	int id = mkid(r,c);
+X
+X	for (fp = jm_field_map; fp < LFM; fp++)
+X	    if (fp->id == id)
+X		return (fp);
+X	printf ("fm: can't find id 0x%x (%d,%d)\n", id, r, c);
+X	exit (1);
+X	return(0);	/* for lint */
+}
+X
+/* method by which another module can access our field map.
+X * this is used by the search compiler.
+X */
+jm_getfieldmap (fmpp)
+FieldMap **fmpp;
+{
+X	*fmpp = jm_field_map;
+X	return (NFM);
+}
+X
+/* called when the jupiter menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+jm_manage ()
+{
+X	if (!jupform_w) {
+X	    void jm_activate_cb();
+X	    void jm_da_exp_cb();
+X	    void jm_control_cb();
+X	    void jm_close_cb();
+X	    void jm_bigd_cb();
+X	    FieldMap *fp;
+X	    Widget w, cl_w, frame_w;
+X	    Widget big_w;
+X	    XmString str;
+X	    Arg args[20];
+X	    int n;
+X
+X	    /* create form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNwidth, char_width()*NC); n++;
+X	    jupform_w = XmCreateFormDialog (toplevel_w, "Jupiter", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Jupiter Table"); n++;
+X	    XtSetValues (XtParent(jupform_w), args, n);
+X
+X	    /* establish the buttons and labels */
+X	    for (fp = jm_field_map; fp < LFM; fp++) {
+X		int free_str;
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, ypos(fp->id)); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, xpos(fp->id)); n++;
+X		free_str = 0;
+X		if (fp->prompt) {
+X		    str = XmStringCreate (fp->prompt,XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		} else if (fp->width) {
+X		    str = str_width (fp->width);
+X		    XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X		} else {
+X		    str = XmStringCreate("?",XmSTRING_DEFAULT_CHARSET);
+X		    free_str = 1;
+X		}
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		if (fp->how) {
+X		    /* pushbutton */
+X		    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		    fp->w = XtCreateManagedWidget ("JupButton",
+X				xmPushButtonGadgetClass, jupform_w, args, n);
+X		    XtAddCallback (fp->w, XmNactivateCallback, jm_activate_cb,
+X									    fp);
+X		} else {
+X		    /* label */
+X		    fp->w = XtCreateManagedWidget ("JupLabel",
+X				    xmLabelGadgetClass, jupform_w, args, n);
+X		}
+X		if (free_str)
+X		    XmStringFree(str);
+X	    }
+X
+X	    /* make the close button */
+X	    str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    cl_w = XmCreatePushButtonGadget (jupform_w, "JupClose", args, n);
+X	    XtAddCallback (cl_w, XmNactivateCallback, jm_close_cb, 0);
+X	    XtManageChild (cl_w);
+X	    XmStringFree (str);
+X
+X	    /* "big dots" toggle button */
+X
+X	    str = XmStringCreate("Big dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNset, bigdots); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    big_w = XmCreateToggleButtonGadget(jupform_w,"JupBigDots",args,n);
+X	    XmStringFree (str);
+X	    XtManageChild (big_w);
+X	    XtAddCallback(big_w, XmNvalueChangedCallback, jm_bigd_cb, 0);
+X
+X
+X	    /* make a frame for the drawing area */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_MAP)); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	    XtSetArg (args[n], XmNbottomWidget, cl_w); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	    frame_w = XmCreateFrame (jupform_w, "JupFrame", args, n);
+X	    XtManageChild (frame_w);
+X
+X	    /* make a drawing area for drawing the little map */
+X	    n = 0;
+X	    jda_w = XmCreateDrawingArea (frame_w, "JupMap", args, n);
+X	    XtAddCallback (jda_w, XmNexposeCallback, jm_da_exp_cb, 0);
+X	    XtAddCallback (jda_w, XmNresizeCallback, jm_da_exp_cb, 0);
+X	    XtManageChild (jda_w);
+X	}
+X	
+X	if (XtIsManaged(jupform_w))
+X	    XtUnmanageChild (jupform_w);
+X	else {
+X	    XtManageChild (jupform_w);
+X	    jm_update (mm_get_now(), 1);
+X	    jm_set_buttons(jm_selecting);
+X	}
+}
+X
+jm_ison()
+{
+X	return (jupform_w && XtIsManaged(jupform_w));
+}
+X
+/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+jm_selection_mode (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	jm_selecting += whether ? 1 : -1;
+X
+X	if (jupform_w && XtIsManaged(jupform_w))
+X	    if (whether && jm_selecting == 1     /* first one to want on */
+X		|| !whether && jm_selecting == 0 /* last one to want off */)
+X		jm_set_buttons (whether);
+}
+X
+/* go through all the buttons pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+static
+jm_set_buttons (whether)
+int whether;	/* whether setting up for plotting or for not plotting */
+{
+X	static Arg look_like_button[] = {
+X	    {XmNshadowThickness, (XtArgVal) 2},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNshadowThickness, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	FieldMap *fp;
+X
+X	for (fp = jm_field_map; fp < LFM; fp++)
+X	    if (whether && fp->how & PLT)
+X		XtSetValues (fp->w,look_like_button,XtNumber(look_like_button));
+X	    else
+X		XtSetValues (fp->w,look_like_label,XtNumber(look_like_label));
+}
+X
+/* callback from the big dots toggle button
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+void
+jm_bigd_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	bigdots = XmToggleButtonGadgetGetState(w);
+X	jm_update (mm_get_now(), 1);
+}
+X
+/* callback from any of the data menu buttons being activated.
+X */
+void
+jm_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X
+X	if (jm_selecting) {
+X	    plt_selection (fp);
+X	    lst_selection (fp);
+X	    srch_selection (fp);
+X	}
+}
+X
+/* callback from the Close button
+X */
+void
+jm_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (jupform_w);
+}
+X
+/* callback from either expose or resize of the drawing area.
+X */
+void
+jm_da_exp_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	/* filter out a few oddball cases */
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected jupform_w event. type=%d\n", c->reason);
+X	    return;
+X	}
+X
+X	jm_update (mm_get_now(), 1);
+}
+X
+/* called to recompute and fill in values for the jupiter menu.
+X * don't bother if it doesn't exist or is unmanaged now.
+X */
+jm_update (np, how_much)
+Now *np;
+int how_much;
+{
+X	static char fmt[] = "%7.3f";
+X	double ix, ex, gx, cx;
+X	double iy, ey, gy, cy;
+X	double iz, ez, gz, cz;
+X	double sIcml, sIIcml;
+X
+X	if (!jupform_w || !(how_much || XtIsManaged(jupform_w)))
+X	    return;
+X
+X	/* compute jupiter info.
+X	 */
+X	jupinfo (mjd, &ix, &ex, &gx, &cx, &iy, &ey, &gy, &cy,
+X					&iz, &ez, &gz, &cz, &sIcml, &sIIcml);
+X
+X	f_double (fw(R_JCMLI,C_JCMLSI), fmt, sIcml);
+X	f_double (fw(R_JCMLII,C_JCMLSII), fmt, sIIcml);
+X	f_double (fw(R_IO,C_JMX), fmt, ix);
+X	f_double (fw(R_EUROPA,C_JMX), fmt, ex);
+X	f_double (fw(R_GANYMEDE,C_JMX), fmt, gx);
+X	f_double (fw(R_CALLISTO,C_JMX), fmt, cx);
+X	f_double (fw(R_IO,C_JMY), fmt, iy);
+X	f_double (fw(R_EUROPA,C_JMY), fmt, ey);
+X	f_double (fw(R_GANYMEDE,C_JMY), fmt, gy);
+X	f_double (fw(R_CALLISTO,C_JMY), fmt, cy);
+X	f_double (fw(R_IO,C_JMZ), fmt, iz);
+X	f_double (fw(R_EUROPA,C_JMZ), fmt, ez);
+X	f_double (fw(R_GANYMEDE,C_JMZ), fmt, gz);
+X	f_double (fw(R_CALLISTO,C_JMZ), fmt, cz);
+X
+X	jm_draw_map (jda_w, ix, ex, gx, cx, iy, ey, gy, cy,
+X					iz, ez, gz, cz, sIcml, sIIcml);
+}
+X
+/* given the loc of the moons, draw a nifty little picture.
+X * scale of the locations is in terms of jupiter radii == 1.
+X */
+static
+jm_draw_map (w, ix, ex, gx, cx, iy, ey, gy, cy, iz, ez, gz, cz, sIcml, sIIcml)
+Widget w;
+double ix, ex, gx, cx;
+double iy, ey, gy, cy;
+double iz, ez, gz, cz;
+double sIcml, sIIcml;
+{
+X	static GC j_fgc, j_bgc;
+X	static XFontStruct *j_fs;
+#define	NORM	26.6	/* max callisto orbit radius; used to normalize */
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow(w);
+X	Window root;
+X	char c;
+X	int x, y;
+X	int nx, ny, bw, d;
+X	int cw;
+#define	MAPSCALE(v)	((v)*nx/NORM/2)
+#define	XCORD(x)	((int)(nx/2.0 + MAPSCALE(x) + 0.5))
+#define	YCORD(y)	((int)(ny/2.0 - MAPSCALE(y) + 0.5))
+X
+X	if (!j_fgc) {
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X	    gcm = GCForeground;
+X	    get_something (w, XmNforeground, (char *)&gcv.foreground);
+X	    j_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    get_something (w, XmNbackground, (char *)&gcv.foreground);
+X	    j_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    j_fs = XQueryFont (dsp, XGContextFromGC (j_fgc));
+X	}
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X	XClearWindow (dsp, win);
+X
+X	c = 'E'; XDrawString (dsp, win, j_fgc, nx-j_fs->max_bounds.width-1,
+X							    ny/2-2, &c, 1);
+X	c = 'S'; XDrawString (dsp, win, j_fgc, (nx-j_fs->max_bounds.width)/2-1,
+X							j_fs->ascent, &c, 1);
+X	XFillArc (dsp, win, j_fgc, XCORD(-1), YCORD(1), 2*(int)MAPSCALE(1),
+X					    2*(int)MAPSCALE(1), 0, 360*64);
+X
+X	cw = j_fs->max_bounds.width;
+X	x = XCORD(ix);
+X	y = YCORD(iy);
+X	XDrawPoint (dsp, win, (fabs(ix)>1 || iz<0) ? j_fgc : j_bgc, x, y);
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, (fabs(ix)>1 || iz<0) ? j_fgc:j_bgc, x+1, y);
+X	    XDrawPoint (dsp, win, (fabs(ix)>1 || iz<0) ? j_fgc:j_bgc, x,   y+1);
+X	    XDrawPoint (dsp, win, (fabs(ix)>1 || iz<0) ? j_fgc:j_bgc, x+1, y+1);
+X	}
+X	XDrawString(dsp, win, j_fgc, x-cw/2, y+ny/3, "I", 1);
+X
+X	x = XCORD(ex);
+X	y = YCORD(ey);
+X	XDrawPoint (dsp, win, (fabs(ex)>1 || ez<0) ? j_fgc : j_bgc, x, y);
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, (fabs(ex)>1 || ez<0) ? j_fgc:j_bgc, x+1, y);
+X	    XDrawPoint (dsp, win, (fabs(ex)>1 || ez<0) ? j_fgc:j_bgc, x,   y+1);
+X	    XDrawPoint (dsp, win, (fabs(ex)>1 || ez<0) ? j_fgc:j_bgc, x+1, y+1);
+X	}
+X	XDrawString(dsp, win, j_fgc, x-cw, y+ny/3, "II", 2);
+X
+X	x = XCORD(gx);
+X	y = YCORD(gy);
+X	XDrawPoint (dsp, win, (fabs(gx)>1 || gz<0) ? j_fgc : j_bgc, x, y);
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, (fabs(gx)>1 || gz<0) ? j_fgc:j_bgc, x+1, y);
+X	    XDrawPoint (dsp, win, (fabs(gx)>1 || gz<0) ? j_fgc:j_bgc, x,   y+1);
+X	    XDrawPoint (dsp, win, (fabs(gx)>1 || gz<0) ? j_fgc:j_bgc, x+1, y+1);
+X	}
+X	XDrawString(dsp, win,j_fgc, x-3*cw/2, y+ny/3, "III", 3);
+X
+X	x = XCORD(cx);
+X	y = YCORD(cy);
+X	XDrawPoint (dsp, win, (fabs(cx)>1 || cz<0) ? j_fgc : j_bgc, x, y);
+X	if (bigdots) {
+X	    XDrawPoint (dsp, win, (fabs(cx)>1 || cz<0) ? j_fgc:j_bgc, x+1, y);
+X	    XDrawPoint (dsp, win, (fabs(cx)>1 || cz<0) ? j_fgc:j_bgc, x,   y+1);
+X	    XDrawPoint (dsp, win, (fabs(cx)>1 || cz<0) ? j_fgc:j_bgc, x+1, y+1);
+X	}
+X	XDrawString(dsp, win, j_fgc, x-cw, y+ny/3, "IV", 2);
+}
+X
+X
+#define	dsin(x)	sin(degrad(x))
+#define	dcos(x)	cos(degrad(x))
+X
+/* given a modified julian date (ie, days since Jan .5 1900), d, return x, y, z
+X *   location of each Galilean moon as a multiple of Jupiter's radius. on this
+X *   scale, Callisto is never more than 26.5593. +x is easterly, +y is
+X *   southerly, +z is towards earth. x and z are relative to the equator
+X *   of Jupiter; y is further corrected for earth's position above or below
+X *   this plane. also, return the system I and II central meridian longitude,
+X *   in degress, relative to the true disk of jupiter and corrected for light
+X *   travel time.
+X * from "Astronomical Formulae for Calculators", 2nd ed, by Jean Meeus,
+X *   Willmann-Bell, Richmond, Va., U.S.A. (c) 1982, chapters 35 and 36.
+X */
+static
+jupinfo (d, ix, ex, gx, cx, iy, ey, gy, cy, iz, ez, gz, cz, sIcml, sIIcml)
+double d;
+double *ix, *ex, *gx, *cx;
+double *iy, *ey, *gy, *cy;
+double *iz, *ez, *gz, *cz;
+double *sIcml, *sIIcml;
+{
+X	double A, B, Del, J, K, M, N, R, V;
+X	double cor_u1, cor_u2, cor_u3, cor_u4;
+X	double solc, tmp, G, H, psi, r, r1, r2, r3, r4;
+X	double u1, u2, u3, u4;
+X	double lam, Ds;
+X	double z1, z2, z3,  z4;
+X	double De, dsinDe;
+X
+X	V = 134.63 + 0.00111587 * d;
+X
+X	M = (358.47583 + 0.98560003*d);
+X	N = (225.32833 + 0.0830853*d) + 0.33 * dsin (V);
+X
+X	J = 221.647 + 0.9025179*d - 0.33 * dsin(V);;
+X
+X	A = 1.916*dsin(M) + 0.02*dsin(2*M);
+X	B = 5.552*dsin(N) + 0.167*dsin(2*N);
+X	K = (J+A-B);
+X	R = 1.00014 - 0.01672 * dcos(M) - 0.00014 * dcos(2*M);
+X	r = 5.20867 - 0.25192 * dcos(N) - 0.00610 * dcos(2*N);
+X	Del = sqrt (R*R + r*r - 2*R*r*dcos(K));
+X	psi = raddeg (asin (R/Del*dsin(K)));
+X
+X	solc = (d - Del/173.);	/* speed of light correction */
+X	tmp = psi - B;
+X
+X	u1 = 84.5506 + 203.4058630 * solc + tmp;
+X	u2 = 41.5015 + 101.2916323 * solc + tmp;
+X	u3 = 109.9770 + 50.2345169 * solc + tmp;
+X	u4 = 176.3586 + 21.4879802 * solc + tmp;
+X
+X	G = 187.3 + 50.310674 * solc;
+X	H = 311.1 + 21.569229 * solc;
+X      
+X	cor_u1 =  0.472 * dsin (2*(u1-u2));
+X	cor_u2 =  1.073 * dsin (2*(u2-u3));
+X	cor_u3 =  0.174 * dsin (G);
+X	cor_u4 =  0.845 * dsin (H);
+X      
+X	r1 = 5.9061 - 0.0244 * dcos (2*(u1-u2));
+X	r2 = 9.3972 - 0.0889 * dcos (2*(u2-u3));
+X	r3 = 14.9894 - 0.0227 * dcos (G);
+X	r4 = 26.3649 - 0.1944 * dcos (H);
+X
+X	*ix = -r1 * dsin (u1+cor_u1);
+X	*ex = -r2 * dsin (u2+cor_u2);
+X	*gx = -r3 * dsin (u3+cor_u3);
+X	*cx = -r4 * dsin (u4+cor_u4);
+X
+X	lam = 238.05 + 0.083091*d + 0.33*dsin(V) + B;
+X	Ds = 3.07*dsin(lam + 44.5);
+X	De = Ds - 2.15*dsin(psi)*dcos(lam+24.)
+X		- 1.31*(r-Del)/Del*dsin(lam-99.4);
+X	dsinDe = dsin(De);
+X
+X	z1 = r1 * dcos(u1+cor_u1);
+X	z2 = r2 * dcos(u2+cor_u2);
+X	z3 = r3 * dcos(u3+cor_u3);
+X	z4 = r4 * dcos(u4+cor_u4);
+X
+X	*iy = z1*dsinDe;
+X	*ey = z2*dsinDe;
+X	*gy = z3*dsinDe;
+X	*cy = z4*dsinDe;
+X
+X	*iz = z1;
+X	*ez = z2;
+X	*gz = z3;
+X	*cz = z4;
+X
+X	*sIcml  = 268.28 + 877.8169088*(d - Del/173) + psi - B;
+X	range (sIcml, 360.0);
+X	*sIIcml = 290.28 + 870.1869088*(d - Del/173) + psi - B;
+X	range (sIIcml, 360.0);
+}
+SHAR_EOF
+chmod 0644 jupmenu.c ||
+echo 'restore of jupmenu.c failed'
+Wc_c="`wc -c < 'jupmenu.c'`"
+test 17844 -eq "$Wc_c" ||
+	echo 'jupmenu.c: original size 17844, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= listing.c ==============
+if test -f 'listing.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping listing.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting listing.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'listing.c' &&
+/* code to manage the stuff on the "listing" menu.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/DrawingA.h>
+#include <Xm/LabelG.h>
+#include <Xm/PushBG.h>
+#include <Xm/ToggleBG.h>
+#include <Xm/Text.h>
+#include "fieldmap.h"
+X
+extern Widget toplevel_w;
+X
+#ifdef VMS
+#include <perror.h>
+#include <errno.h>
+#else
+extern char *sys_errlist[];
+extern errno;
+#endif
+X
+#define	errsys	(sys_errlist[errno])
+X
+#define MAXLSTFLDS      10      /* max number of fields we can track.
+X				 * note we can't store more than NFLOGS fields
+X				 * anyway (see flog.c).
+X			         */
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	(R_TABLE+MAXLSTFLDS+1)	/* +1 for close and help buttons */
+#define	NC	35
+X
+#define	R_SELECT	1
+#define	R_ACTIVE	2
+#define	R_SHOW		3
+X
+#define	R_FNLABEL	5
+#define	R_FILENAME	6
+X
+#define	R_TLABEL	8
+#define	R_TITLE		9
+X
+#define	R_PROMPT	11
+#define	R_TABLE		12
+#define	R_CONTROL	NR
+X
+#define	C_TAG		(3*NC/8)
+X
+static Widget lstform_w;
+static Widget select_w, active_w, prompt_w;
+static Widget title_w, filename_w;
+static Widget table_w[MAXLSTFLDS];	/* row indeces follow.. */
+X
+#define	DEF_LSTFN	"ephem.lst"	/* default plot file name */
+static FILE *lst_fp;            /* the listing file; == 0 means don't plot */
+X
+X
+/* lst_activate_cb client values. */
+#define	SELECT	0
+#define	ACTIVE	1
+X
+/* store the Widget for each field to track.
+X * we get the label straight from the Text widget in the table as needed.
+X */
+static Widget lstflds[MAXLSTFLDS];
+static int nlstflds;		/* number of lstflds[] in actual use */
+X
+/* called when the list menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+lst_manage ()
+{
+X	if (!lstform_w) {
+X	    void lst_activate_cb();
+X	    void lst_close_cb();
+X	    void lst_help_cb();
+X	    XmString str;
+X	    Widget w;
+X	    Arg args[20];
+X	    int i, n;
+X
+X	    /* create form */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	    XtSetArg (args[n], XmNwidth, char_width()*NC); n++;
+X	    XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	    XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	    XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	    lstform_w = XmCreateFormDialog (toplevel_w, "List", args, n);
+X
+X	    /* set some stuff in the parent DialogShell.
+X	     * setting XmNdialogTitle in the Form didn't work..
+X	     */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtitle, "xephem Listing Control"); n++;
+X	    XtSetValues (XtParent(lstform_w), args, n);
+X
+X	    /* make the control controls */
+X
+X	    str = XmStringCreate("Select fields", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_SELECT)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    select_w = XmCreateToggleButtonGadget(lstform_w, "ListSelect",
+X								    args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (select_w);
+X	    XtAddCallback(select_w,XmNvalueChangedCallback, lst_activate_cb,
+X									SELECT);
+X
+X	    str = XmStringCreate("List to file", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_ACTIVE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    active_w = XmCreateToggleButtonGadget(lstform_w, "ListActive",
+X								    args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (active_w);
+X	    XtAddCallback (active_w, XmNvalueChangedCallback, lst_activate_cb,
+X									ACTIVE);
+X
+X	    /* make the close button */
+X
+X	    str = XmStringCreate ("Close", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    w = XmCreatePushButtonGadget (lstform_w, "ListClose", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, lst_close_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* make the help button */
+X
+X	    str = XmStringCreate ("Help", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CONTROL)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 1000); n++;
+X	    w = XmCreatePushButtonGadget (lstform_w, "ListHelp", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, lst_help_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* create filename text area and its label */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_FILENAME)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 950); n++;
+X	    filename_w = XmCreateText (lstform_w, "ListFilename", args, n);
+X	    XmTextSetString (filename_w, DEF_LSTFN);
+X	    XtManageChild (filename_w);
+X
+X	    n = 0;
+X	    str = XmStringCreate("File name:", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_FNLABEL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateLabelGadget (lstform_w, "ListFnL", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (w);
+X
+X	    /* create title text area and its label */
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_TITLE)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 950); n++;
+X	    title_w = XmCreateText (lstform_w, "ListTitle", args, n);
+X	    XtManageChild (title_w);
+X
+X	    n = 0;
+X	    str = XmStringCreate("Title:", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_TLABEL)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateLabelGadget (lstform_w, "ListTL", args, n);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X
+X	    /* create prompt line and table headings */
+X
+X	    n = 0;
+X	    str = XmStringCreate("", XmSTRING_DEFAULT_CHARSET);
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_PROMPT)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 50); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 950); n++;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    prompt_w = XmCreateLabelGadget (lstform_w, "ListPrompt", args, n);
+X	    XtManageChild (prompt_w);
+X	    XmStringFree (str);
+X
+X	    /* make the field name table, but don't manage them now */
+X	    for (i = 0; i < MAXLSTFLDS; i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, r2ypos(R_TABLE+i)); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, c2xpos(C_TAG)); n++;
+X		table_w[i] = XmCreateLabelGadget (lstform_w, "ListLabel",
+X								    args, n);
+X	    }
+X	}
+X	
+X	if (XtIsManaged(lstform_w))
+X	    XtUnmanageChild (lstform_w);
+X	else
+X	    XtManageChild (lstform_w);
+}
+X
+/* called by the other menus (data, riset, etc) as their buttons are
+X * selected to inform us that that button is to be included in a listing.
+X */
+lst_selection (fp)
+FieldMap *fp;
+{
+X	Widget tw;
+X
+X
+X	if (!lstform_w
+X		|| !XtIsManaged(lstform_w)
+X		|| !XmToggleButtonGadgetGetState(select_w))
+X		    return;
+X
+X	if (flog_add(fp->w) < 0) {
+X	    f_msg ("Sorry; can not log any more fields.", 0);
+X	    return;
+X	}
+X
+X	tw = table_w[nlstflds];
+X	set_xmstring (tw, XmNlabelString, fp->name);
+X	XtManageChild (tw);
+X
+X	lstflds[nlstflds] = fp->w;
+X	if (++nlstflds == MAXLSTFLDS)
+X	    lst_stop_selecting();
+}
+X
+/* write the active listing to the current listing file, if one is open. */
+listing()
+{
+X	if (lst_fp) {
+X	    /* list in order of original selection */
+X	    int n;
+X	    double flx;
+X	    char flstr[32];
+X	    for (n = 0; n < nlstflds; n++)
+X		if (flog_get (lstflds[n], &flx, flstr) == 0)
+X		    (void) fprintf (lst_fp, "%s  ", flstr);
+X	    (void) fprintf (lst_fp, "\n");
+X	}
+}
+X
+listing_ison()
+{
+X	return (lst_fp != 0);
+}
+X
+/* callback from any of the listing menu toggle buttons being activated.
+X */
+void
+lst_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int what = (int) client;
+X
+X	switch (what) {
+X	case SELECT:
+X	    if (t->set) {
+X		/* first turn off listing, if on, while we change things */
+X		if (XmToggleButtonGadgetGetState(active_w))
+X		    XmToggleButtonGadgetSetState(active_w, False, True);
+X		lst_reset();	/* reset lstflds array and unmanage the table*/
+X		lst_select(1);	/* inform other menus to inform us of fields */
+X		f_string (prompt_w, "Select quantity for next column...");
+X	    } else
+X		lst_stop_selecting();
+X	    break;
+X	case ACTIVE:
+X	    if (t->set) {
+X		/* first turn off selecting, if on */
+X		if (XmToggleButtonGadgetGetState(select_w))
+X		    XmToggleButtonGadgetSetState(select_w, False, True);
+X		lst_try_turn_on();
+X	    } else
+X		lst_turn_off();
+X	    break;
+X	}
+}
+X
+/* callback from the Close button.
+X */
+void
+lst_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (lstform_w);
+}
+X
+/* callback from the Help
+X */
+void
+lst_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg[] = {
+"Select fields to become each column of a listing, then run xephem. Each step",
+"will yield one line in the output file. The filename may be specified in the",
+"text area provided."
+};
+X
+X	hlp_dialog ("Listing", msg, sizeof(msg)/sizeof(msg[0]));
+}
+X
+/* inform the other menues whether we are setting up for them to tell us
+X * what fields to list.
+X */
+lst_select(whether)
+int whether;
+{
+X	dm_selection_mode(whether);
+X	mm_selection_mode(whether);
+X	rm_selection_mode(whether);
+X	sm_selection_mode(whether);
+X	jm_selection_mode(whether);
+X	srch_selection_mode(whether);
+}
+X
+/* stop logging our collection of selected widgets, forget our list,
+X * and unmanage the table.
+X */
+static
+lst_reset()
+{
+X	Widget *lp;
+X	int i;
+X
+X	for (lp = lstflds; lp < &lstflds[nlstflds]; lp++) {
+X	    (void) flog_delete (*lp);
+X	    *lp = 0;
+X	}
+X
+X	for (i = 0; i < nlstflds; i++)
+X	    XtUnmanageChild (table_w[i]);
+X
+X	nlstflds = 0;
+}
+X
+/* stop selecting: tell everybody else to drop their buttons, make sure toggle
+X * is off.
+X */
+static
+lst_stop_selecting()
+{
+X	XmToggleButtonGadgetSetState (select_w, False, False);
+X	lst_select(0);
+X	f_string (prompt_w, "");
+}
+X
+static
+lst_turn_off ()
+{
+X	if (lst_fp) {
+X	    (void) fclose (lst_fp);
+X	    lst_fp = 0;
+X	}
+}
+X
+/* called from the query routine when want to append to an existing list file.*/
+static void
+lst_try_append()
+{
+X	lst_turn_on("a");
+}
+X
+/* called from the query routine when want to overwrite to an existing list
+X * file.
+X */
+static void
+lst_try_overwrite()
+{
+X	lst_turn_on("w");
+}
+X
+/* called from the query routine when decided not to make a listing file.  */
+static void
+lst_try_cancel()
+{
+X	XmToggleButtonGadgetSetState (active_w, False, False);
+}
+X
+/* attempt to open file for use as a listing file.
+X * if it doesn't exist, then go ahead and make it.
+X * but if it does, first ask wheher to append or overwrite.
+X */
+static
+lst_try_turn_on()
+{
+X	char *txt = XmTextGetString (filename_w);
+X	if (access (txt, 0) == 0) {
+X	    char *buf;
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "%s exists: Append or Overwrite?", txt);
+X	    query (toplevel_w, buf, "Append", "Overwrite", "Cancel",
+X			    lst_try_append, lst_try_overwrite, lst_try_cancel);
+X	    XtFree (buf);
+X	} else
+X	    lst_turn_on("w");
+X	XtFree (txt);
+}
+X
+/* turn on listing facility.
+X * establish a file to use (and thereby set lst_fp, the "listing-is-on" flag).
+X */
+static
+lst_turn_on (how)
+char *how;	/* fopen how argument */
+{
+X	char *txt;
+X
+X	/* listing is on if file opens ok */
+X	txt = XmTextGetString (filename_w);
+X	lst_fp = fopen (txt, how);
+X	if (!lst_fp) {
+X	    char *buf;
+X	    XmToggleButtonGadgetSetState (active_w, False, False);
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "can not open %s: %s", txt, errsys);
+X	    f_msg (buf, 0);
+X	    XtFree (buf);
+X	}
+X	XtFree (txt);
+X	
+X	if (lst_fp) {
+X	    /* add a title if desired */
+X	    txt = XmTextGetString (title_w);
+X	    if (txt[0] != '\0')
+X		(void) fprintf (lst_fp, "* %s\n", txt);
+X	    XtFree (txt);
+X	}
+}
+SHAR_EOF
+chmod 0644 listing.c ||
+echo 'restore of listing.c failed'
+Wc_c="`wc -c < 'listing.c'`"
+test 13788 -eq "$Wc_c" ||
+	echo 'listing.c: original size 13788, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mainmenu.c ==============
+if test -f 'mainmenu.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mainmenu.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mainmenu.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mainmenu.c' &&
+/* code to manage the stuff on the (permanent) top half of the main menu.
+X * this is also where the single static Now struct is maintained.
+X */
+X
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef VMS
+#include <stdlib.h>
+#endif
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Label.h>
+#include <Xm/PushB.h>
+#include <Xm/Separator.h>
+#include <Xm/SelectioB.h>
+#include "fieldmap.h"
+#include "astro.h"
+#include "circum.h"
+#include "moreobjs.h"
+X
+extern char *strncpy();
+extern char *getenv();
+extern Widget toplevel_w;
+extern XtAppContext xe_app;
+#define	XtD	XtDisplay(toplevel_w)
+X
+/* shorthands for fields of a Now structure, now.
+X * first undo the ones for a Now pointer from circum.h.
+X */
+#undef mjd
+#undef lat
+#undef lng
+#undef tz
+#undef temp
+#undef pressure
+#undef height
+#undef epoch
+#undef tznm
+X
+#define mjd	now.n_mjd
+#define lat	now.n_lat
+#define lng	now.n_lng
+#define tz	now.n_tz
+#define temp	now.n_temp
+#define pressure now.n_pressure
+#define height	now.n_height
+#define epoch	now.n_epoch
+#define tznm	now.n_tznm
+X
+/* Name of each object.
+X * N.B. index must match the object name #define (in astro.h)
+X */
+char *objname[] = {
+X    "Me", "Ve", "Ma", "Ju", "Sa", "Ur", "Ne", "Pl", "Su", "Mo", "X", "Y"
+};
+X
+static char *cfgfile;		/* !0 if -c used */
+static char cfgdef[] = "ephem.cfg"; /* default configuration file name */
+static Now now;		/* where when and how, right now */
+static double tminc;	/* hrs to inc time by each loop; RTC means use clock */
+static int nstep;	/* steps to go before stopping */
+static int spause;	/* secs to pause between steps */
+static int newcir = 1; /* set when circumstances change - means don't tminc */
+static int oppl;	/* mask of (1<<planet) bits; set when want to show it */
+X
+static XtIntervalId mm_interval_id;	/* set while waiting in a pause loop */
+static int mm_selecting;        /* set while our fields are being selected */
+X
+/* locations of each field.
+X * these are in terms of a 1-based row/col on a 24x80 alpha screen, for
+X * historical reasons.
+X */
+#define	NR	9
+#define	NC	82
+X
+#define	COL1		1
+#define	COL2		26
+#define	COL3		44
+#define	COL4		62	/* calendar */
+X
+#define	R_STATUS	1
+#define	R_TOP		2	/* first row of top menu items */
+X
+/* we use FieldMap.width to mean anchor the left side at xpos(id) if 0,
+X * else anchor the right
+X */
+#define	LS	0
+#define	RS	1
+X
+#define	R_TZN	(R_TOP+0)
+#define	C_TZN	COL1
+#define	R_LT	R_TZN
+#define	C_LT	(C_TZN+5)
+#define	R_LD	R_TZN
+#define	C_LD	(COL2-1)
+X
+#define	R_UT	(R_TOP+1)
+#define	C_UT	COL1
+#define	C_UTV	(C_UT+5)
+#define	R_UD	R_UT
+#define	C_UD	(COL2-1)
+X
+#define	R_JD	(R_TOP+2)
+#define	C_JD	COL1
+#define	C_JDV	(COL2-1)
+X
+#define	R_LST	(R_TOP)
+#define	C_LST	(COL2+1)
+#define	C_LSTV	(COL3-1)
+X
+#define	R_DAWN	(R_TOP+2)
+#define	C_DAWN	(COL2+1)
+#define	C_DAWNV	(COL3-1)
+X
+#define	R_DUSK	(R_TOP+3)
+#define	C_DUSK	(COL2+1)
+#define	C_DUSKV	(COL3-1)
+X
+#define	R_LON	(R_TOP+4)
+#define	C_LON	(COL2+1)
+#define	C_LONV	(COL3-1)
+X
+#define	R_NSTEP (R_TOP+6)
+#define	C_NSTEP	(COL2+1)
+#define	C_NSTEPV (COL3-1)
+X
+#define	R_STPSZ	(R_TOP+7)
+#define	C_STPSZ	(COL2+1)
+#define	C_STPSZV (COL3-1)
+X
+#define	R_LAT	(R_TOP+0)
+#define	C_LAT	(COL3+1)
+#define	C_LATV	(COL4-1)
+X
+#define	R_LONG	(R_TOP+1)
+#define	C_LONG	(COL3+1)
+#define	C_LONGV	(COL4-1)
+X
+#define	R_HEIGHT (R_TOP+2)
+#define	C_HEIGHT (COL3+1)
+#define	C_HEIGHTV (COL4-1)
+X
+#define	R_TEMP	(R_TOP+3)
+#define	C_TEMP	(COL3+1)
+#define	C_TEMPV	(COL4-1)
+X
+#define	R_PRES	(R_TOP+4)
+#define	C_PRES	(COL3+1)
+#define	C_PRESV	(COL4-1)
+X
+#define	R_TZONE	(R_TOP+5)
+#define	C_TZONE	(COL3+1)
+#define	C_TZONEV (COL4-1)
+X
+#define	R_EPOCH	(R_TOP+6)
+#define	C_EPOCH	(COL3+1)
+#define	C_EPOCHV (COL4-1)
+X
+#define	R_PAUSE (R_TOP+7)
+#define	C_PAUSE	(COL3+1)
+#define	C_PAUSEV (COL4-1)
+X
+#define	R_CAL	R_TOP
+#define	C_CAL   (COL4+1)
+X
+#define	R_NEWCIR (R_TOP+4)
+#define	C_NEWCIR COL1
+X
+#define	R_GO	(R_TOP+6)
+X
+static FieldMap mm_field_map[] = {
+X    {mkid(R_TZN,C_TZN),	CHG, LS, "timezone abbreviation (3 char max): "},
+X    {mkid(R_LT,C_LT), CHG|PLT, LS, "local time (h:m:s, or n for Now): ", "LT"},
+X    {mkid(R_LD,C_LD), CHG|PLT, RS,"local date (m/d/y, or year.d, n for Now): ",
+X									"LD"},
+X    {mkid(R_UT,C_UT), 0, LS, "UTC"},
+X    {mkid(R_UT,C_UTV), CHG|PLT,	LS, "utc time (h:m:s, or n for Now): ", "UT"},
+X    {mkid(R_UD,C_UD), CHG|PLT,RS,"utc date (m/d/y, or year.d, or n for Now): ",
+X									"UD"},
+X    {mkid(R_JD,C_JD), 0, LS, "JulianDat"},
+X    {mkid(R_JD,C_JDV), CHG|PLT,	RS, "Julian Date (or n for Now): ", "JD"},
+X    {mkid(R_LST,C_LST),	0, LS, "LST"},
+X    {mkid(R_LST,C_LSTV),CHG|PLT,RS,"local sidereal time (h:m:s or n for Now): ",
+X									"LST"},
+X    {mkid(R_DAWN,C_DAWN), 0, LS, "Dawn"},
+X    {mkid(R_DAWN,C_DAWNV), PLT, RS, "", "Dawn"},
+X    {mkid(R_DUSK,C_DUSK), 0, LS, "Dusk"},
+X    {mkid(R_DUSK,C_DUSKV), PLT, RS, "", "Dusk"},
+X    {mkid(R_LON,C_LON),	0, LS, "NiteLn"},
+X    {mkid(R_LON,C_LONV), PLT, RS, "", "NiteLen"},
+X    {mkid(R_NSTEP,C_NSTEP), 0, LS, "NStep"},
+X    {mkid(R_NSTEP,C_NSTEPV), CHG, RS, "number of steps to run: "},
+X    {mkid(R_STPSZ,C_STPSZ), 0,LS, "StpSz"},
+X    {mkid(R_STPSZ,C_STPSZV), CHG, RS, "\
+step size increment:\n\
+X    h:m:s, or\n\
+X    <x>d for x days, or\n\
+X    <x>s for x sidereal days, or\n\
+X    r for RTC"},
+X    {mkid(R_LAT,C_LAT),	0, LS, "Lat"},
+X    {mkid(R_LAT,C_LATV), CHG|PLT, RS, "latitude (+ north) (d:m:s): ", "Lat"},
+X    {mkid(R_LONG,C_LONG), 0, LS, "Long"},
+X    {mkid(R_LONG,C_LONGV), CHG|PLT, RS, "longitude (+ west) (d:m:s): ", "Long"},
+X    {mkid(R_HEIGHT,C_HEIGHT), 0, LS, "Elev"},
+X    {mkid(R_HEIGHT,C_HEIGHTV), CHG|PLT,	RS, "height above sea level (ft): ",
+X									"Elev"},
+X    {mkid(R_TEMP,C_TEMP), 0, LS, "Temp"},
+X    {mkid(R_TEMP,C_TEMPV), CHG|PLT, RS, "temperature (deg.F): ", "Temp"},
+X    {mkid(R_PRES,C_PRES), 0, LS, "AtmPr"},
+X    {mkid(R_PRES,C_PRESV), CHG|PLT, RS,
+X	"atmos pressure (in. Hg; 0 for no refraction correction): ", "AtmPr"},
+X    {mkid(R_TZONE,C_TZONE), 0, LS, "TZ"},
+X    {mkid(R_TZONE,C_TZONEV), CHG|PLT, RS, "hours behind utc: ", "TZ"},
+X    {mkid(R_EPOCH,C_EPOCH), 0, LS, "Epoch"},
+X    {mkid(R_EPOCH,C_EPOCHV), CHG,RS,"epoch (year, or e for Epoch of Date): "},
+X    {mkid(R_PAUSE,C_PAUSE), 0, LS, "Pause"},
+X    {mkid(R_PAUSE,C_PAUSEV), CHG,RS, "seconds to pause between steps: "},
+};
+#define	NFM	(sizeof(mm_field_map)/sizeof(mm_field_map[0]))
+#define	LFM	(&mm_field_map[NFM])
+#define	fw(r,c)	(fm(r,c)->w)
+X
+#define	CAL_ROWS	8
+#define	CAL_COLS	20
+static Widget cal_w[CAL_ROWS];
+static Widget newcir_w;
+static Widget status_w;
+static Widget go_w;
+X
+static FieldMap *
+fm(r,c)
+int r, c;
+{
+X	FieldMap *fp;
+X	int id = mkid(r,c);
+X
+X	for (fp = mm_field_map; fp < LFM; fp++)
+X	    if (fp->id == id)
+X		return (fp);
+X	printf ("fm: can't find id 0x%x (%d,%d)\n", id, r, c);
+X	exit (1);
+X	return(0);	/* for lint */
+}
+X
+/* method by which another module can access our field map.
+X * this is used by the search compiler.
+X */
+mm_getfieldmap (fmpp)
+FieldMap **fmpp;
+{
+X	*fmpp = mm_field_map;
+X	return (NFM);
+}
+X
+/* called exactly once when the main form is made.
+X * create and manage all the widgets in the top half as children of the form_w.
+X */
+mm_manage (main_window, argc, argv)
+Widget main_window;
+int argc;
+char *argv[];
+{
+X	void mm_activate_cb(), mm_go_cb();
+X	Widget form_w;
+X	FieldMap *fp;
+X	XmString str;
+X	Arg args[20];
+X	int i, n;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNshowSeparator, True);  n++;
+X	XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	XtSetArg (args[n], XmNwidth, char_width()*NC); n++;
+X	XtSetArg (args[n], XmNheight, char_height()*NR); n++;
+X	form_w = XmCreateForm (main_window, "MainForm", args, n);
+X
+X	/* establish the buttons and labels */
+X	for (fp = mm_field_map; fp < LFM; fp++) {
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, ypos(fp->id)); n++;
+X	    if (fp->width == LS) {
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, xpos(fp->id)); n++;
+X	    } else {
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, xpos(fp->id)); n++;
+X	    }
+X	    if (fp->how) {
+X		/* pushbutton */
+X		XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		fp->w = XtCreateManagedWidget ("MainButton",
+X				    xmPushButtonWidgetClass, form_w, args, n);
+X		XtAddCallback (fp->w, XmNactivateCallback, mm_activate_cb, fp);
+X	    } else {
+X		/* label */
+X		str = XmStringCreate(fp->prompt, XmSTRING_DEFAULT_CHARSET);
+X		XtSetArg (args[n], XmNlabelString, str); n++;
+X		fp->w = XtCreateManagedWidget ("MainLabel",
+X				    xmLabelWidgetClass, form_w, args, n);
+X		XmStringFree(str);
+X	    }
+X	}
+X
+X	/* establish the "NEW CIRCUMSTANCES" label */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNtopPosition, r2ypos(R_NEWCIR)); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, c2xpos(COL1)); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNrightPosition, c2xpos(COL2-1)); n++;
+X	newcir_w = XtCreateManagedWidget ("NewCir",
+X			    xmLabelWidgetClass, form_w, args, n);
+X
+X	/* establish the main "go" button */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNtopPosition, r2ypos(R_GO)); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, c2xpos(COL1)); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNrightPosition, c2xpos(COL2-1)); n++;
+X	XtSetArg (args[n], XmNshowAsDefault, True); n++;
+X	go_w = XmCreatePushButton (form_w, "Update", args, n);
+X	XtAddCallback (go_w, XmNactivateCallback, mm_go_cb, 0);
+X	XtManageChild (go_w);
+X	/*
+X	set_something (form_w, XmNdefaultButton, go_w);
+X	*/
+X
+X	/* establish the status label */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNtopPosition, r2ypos(R_STATUS)); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X	status_w = XtCreateManagedWidget ("Status",
+X			    xmLabelWidgetClass, form_w, args, n);
+X
+X	/* establish the separator widgets */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, status_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, c2xpos(COL2)); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	(void) XtCreateManagedWidget ("MainCol1",
+X				    xmSeparatorWidgetClass, form_w, args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, status_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, c2xpos(COL3)); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	(void) XtCreateManagedWidget ("MainCol2",
+X				    xmSeparatorWidgetClass, form_w, args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, status_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, c2xpos(COL4)); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	(void) XtCreateManagedWidget ("MainCol3",
+X				    xmSeparatorWidgetClass, form_w, args, n);
+X
+X	/* establish the labels used for the calendar */
+X	for (i = 0; i < CAL_ROWS; i++) {
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNtopPosition, r2ypos(R_CAL+i)); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, c2xpos(C_CAL)); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, c2xpos(NC)); n++;
+X	    cal_w[i] = XtCreateManagedWidget ("Calendar",
+X				xmLabelWidgetClass, form_w, args, n);
+X	}
+X
+X	mm_crackargs(&argc, &argv);
+X	mm_readcfg();
+X	read_fieldargs (argc, argv);
+X
+X	/* can now set which objects are to be on in each of the menus. */
+X	dm_set_objs_on (oppl);
+X	rm_set_objs_on (oppl);
+X	sm_set_objs_on (oppl);
+X	ss_set_objs_on (oppl);
+X	aa_set_objs_on (oppl);
+X	sd_set_objs_on (oppl);
+X
+X	redraw_screen (1);
+X	mm_newcir(0);
+X	mm_set_buttons (mm_selecting);
+X	print_idle();
+X
+X	XtManageChild (form_w);
+}
+X
+mm_crackargs (ac, av)
+int *ac;
+char **av[];
+{
+X	while ((--*ac > 0) && (**++*av == '-')) {
+X	    char *s;
+X	    for (s = **av+1; *s != '\0'; s++)
+X		switch (*s) {
+X		case 'c': /* set name of config file to use */
+X		    if (--*ac <= 0) usage("-c but no config file");
+X		    cfgfile = *++*av;
+X		    break;
+X		case 'd': /* set alternate database file name */
+SHAR_EOF
+true || echo 'restore of mainmenu.c failed'
+fi
+echo 'End of  part 4'
+echo 'File mainmenu.c is continued in part 5'
+echo 5 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

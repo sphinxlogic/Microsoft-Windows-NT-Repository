@@ -1,0 +1,1862 @@
+Newsgroups: comp.sources.x
+Path: uunet!darwin.sura.net!mips!msi!dcmartin
+From: Simon Marshall <S.Marshall@sequent.cc.hull.ac.uk>
+Subject: v18i005: Xalarm 3.04, Part04/05
+Message-ID: <1992Jul8.154525.20553@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i002-xalarm-3.04@uunet.UU.NET>
+Date: Wed, 8 Jul 1992 15:45:25 GMT
+Approved: dcmartin@msi.com
+Lines: 1849
+
+Submitted-by: Simon Marshall <S.Marshall@sequent.cc.hull.ac.uk>
+Posting-number: Volume 18, Issue 5
+Archive-name: xalarm-3.04/part04
+
+# this is part.04 (part 4 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fns.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fns.c'
+else
+echo 'x - continuing file fns.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'fns.c' &&
+X		exit (-1);
+X	    }
+X	} else if ((STREQUAL (argv[i], DAEMONOPTION1)) or
+X		 (STREQUAL (argv[i], DAEMONOPTION2))) {
+X	    if (++i == last) {
+X		(void) fprintf (stderr, "No daemon date to parse alarm file with.\n");
+X		exit (-1);
+X	    } else if (ISINVALID (*days = DaysTo (argv[i], instance = Daemon))) {
+X		(void) fprintf (stderr, "Can't use daemon date: %s", xalarm.errormessage);
+X		exit (-1);
+X	    } else if (*days == 0) {
+X		(void) fprintf (stderr, "Zero days means daemon would not sleep!\n");
+X		exit (-1);
+X	    }
+X	} else
+X	    /* Just copy the option.
+X	     */
+X	    (*args)[(*argc)++] = XtNewString (argv[i]);
+X
+X    for (i=1; i<last; i++) {
+X	ch = argv[i];
+X	while (*ch != '\0')
+X	    *(ch++) = ' ';
+X    }
+X
+X    return (instance);
+}
+X
+X
+X
+/* 
+X * Fork off an xalarm process which will repeatedly parse the
+X * alarm file.
+X */
+X
+void StartDaemon (days, argv, argc)
+X  String  *argv;
+X  int 	   days, argc;
+{
+X    Display    *display;
+X    String 	displayname = DisplayName (argv, argc);
+X    int 	pid, kids;
+X    time_t 	abstime;
+X    struct tm  *now;
+X
+X    /* 
+X     * Fork off the daemon.
+X     */
+X
+X    switch (pid = (int) fork ()) {
+X     case -1:
+X	perror ("xalarm");
+X	exit (-1);
+X     case 0:
+X	(void) signal (SIGUSR1, SIG_IGN);
+X	(void) signal (SIGUSR2, (SIGRET (*)()) KillDaemon);
+X	break;
+X     default:
+X	(void) printf ("xalarm: Daemon started (%d).\n", pid);
+X	exit (0);
+X    }
+X
+X    /* 
+X     * Open the display for the daemon and parse & sleep until we 
+X     * loose the connection.
+X     */
+X
+X    if (NONNIL (Display *, (display = XOpenDisplay (displayname)))) {
+X	(void) time (&abstime);
+X	now = localtime (&abstime);
+X
+X	while (True) {
+X	    /* 
+X	     * Start any alarms in the alarm file, then wait for them 
+X	     * to finish.
+X	     */
+X	    if (ISWEEKLYD (days))
+X		kids = ParseAlarmFile (7 - now->tm_wday, argv, argc);
+X	    else
+X		kids = ParseAlarmFile (days - 1, argv, argc);
+X
+X	    while (kids-- > 0)
+X		(void) wait ((int *) NULL);
+X
+X	    /* 
+X	     * Sleep until the next time, then test the connection.
+X	     */
+X	    (void) time (&abstime);
+X	    now = localtime (&abstime);
+X	    (void) sleep ((unsigned)
+X		(30 + ((ISWEEKLYD (days) ?
+X			(days = 7) - now->tm_wday + 1 : days) * SECSIN1DAY) -
+X		 (now->tm_hour * SECSIN1HR) - (now->tm_min * SECSIN1MIN) - now->tm_sec));
+X
+X	    XSync (display, False);
+X	}
+X    }
+}
+X
+X
+X
+/* 
+X * Signal handler for a daemon - it just kills the process.
+X */
+X
+static SIGRET KillDaemon (sig, code, scp, addr)
+X  int 		      sig, code;
+X  struct sigcontext  *scp;
+X  char 		     *addr;
+{
+X    (void) fprintf (stderr, "xalarm: Daemon killed (%d).\n", getpid ());
+X    exit (0);
+}
+X
+X
+X
+/* 
+X * Signal handler for a normal alarm - it just kills the process.
+X */
+X
+SIGRET KillAlarm (sig, code, scp, addr)
+X  int 		      sig, code;
+X  struct sigcontext  *scp;
+X  char 		     *addr;
+{
+X    Quit ((Widget) NULL, (XtPointer) NULL, (XtPointer) NULL);
+}
+X
+X
+X
+/* 
+X * We add the time outs for the alarm & warnings.
+X * The warnings are added only if there is time enuf to go.
+X * ie. if "-time +10 -warn 15" you will get nowt.
+X * "-time +10 -warn 9" will, however, give you a warning in 1 min.
+X */
+X
+void AddTimeOuts ()
+{
+X    unsigned long   timeout = SUMTIMEOUTS (xalarm.dateout, xalarm.timeout);
+X    int 	    i;
+X    
+X    xalarm.settime = (unsigned long) time ((time_t *) NULL);
+X    xalarm.offtime = xalarm.settime + (timeout / MSECSIN1SEC);
+X
+X    for (i=0; i<xalarm.numwarnings; i++)
+X	if (timeout > xalarm.warnings[i])
+X	    xalarm.timeoutid[i] =
+X		XtAppAddTimeOut (xalarm.appcon,
+X				 TIMEOUT (timeout - xalarm.warnings[i]),
+X				 (XtTimerCallbackProc) Warning,
+X				 (XtPointer) (xalarm.warnings[i] / MSECSIN1MIN));
+X    xalarm.timeoutid[xalarm.numwarnings] =
+X	XtAppAddTimeOut (xalarm.appcon, TIMEOUT (timeout),
+X			 (XtTimerCallbackProc) WakeUp, (XtPointer) NULL);
+}
+X  
+X   
+X
+/* 
+X * Set the window manager name of the given widget.
+X */
+X
+void SetWMName (widget, name)
+X  Widget   widget;
+X  String   name;
+{
+X    Display 	   *display = XtDisplay (xalarm.toplevel);
+X    String 	    wmname[1];
+X    XTextProperty   property;
+X
+X    if (not XtIsRealized (widget))
+X	XtRealizeWidget (widget);
+X
+X    wmname[0] = name;
+X    if (XStringListToTextProperty (wmname, 1, &property)) {
+X	XSetWMName (display, XtWindow (widget), &property);
+X	XSetWMIconName (display, XtWindow (widget), &property);
+X	XtFree (property.value);
+X    }
+}
+X
+X
+X
+/* 
+X * Reset the tracker so it calls itself.
+X */
+X
+XXtIntervalId ResetTracker (tracker, clientdata, triggered)
+X  XtTimerCallbackProc 	tracker;
+X  XtPointer 		clientdata;
+X  int 			triggered;
+{
+X    time_t 	now;
+X    struct tm  *clock;
+X
+X    (void) time (&now);
+X    clock = localtime (&now);
+X    /*
+X     * 60 seconds from when it triggered.
+X     */
+X    return (XtAppAddTimeOut (xalarm.appcon, 
+X			     TIMEOUT (MSECSIN1SEC * (60 - clock->tm_sec + triggered)),
+X			     tracker, clientdata));
+}
+X
+X
+X
+/* 
+X * Set the geometry of the given widget.
+X */
+X
+void SetGeometry (widget)
+X  Widget   widget;
+{
+X    Dimension 	width, height, borderwidth;
+X		
+X    if (not XtIsRealized (widget))
+X	XtRealizeWidget (widget);
+X
+X    XtVaGetValues (widget, XtNwidth, &width, XtNheight, &height,
+X		   XtNborderWidth, &borderwidth, NULL);
+X
+X    if (STREQUAL (xalarm.geometry, NOGEOMETRY))
+X	CentreWidgetUnderPointer (widget, width, height, borderwidth);
+X    else
+X	ParseGeometry (widget, width, height, borderwidth, xalarm.geometry);
+}
+X
+X
+X
+/* 
+X * Move the given widget so that it is directly underneath the pointer.
+X */
+X
+static void CentreWidgetUnderPointer (widget, width, height, borderwidth)
+X  Widget      widget;
+X  Dimension   width, height, borderwidth;
+{
+X    Window 	   root, child;
+X    int 	   x, y, dummy;
+X    unsigned int   mask;
+X
+X    width += (borderwidth * 2);
+X    height += (borderwidth * 2);
+X
+X    if (XQueryPointer (XtDisplay (widget), XtWindow (widget),
+X		       &root, &child, &x, &y, &dummy, &dummy, &mask)) {
+X	x = MAX (0, MIN (x - ((int) width / 2),
+X			 XWidthOfScreen (XtScreen (widget)) - (int) width));
+X	y = MAX (0, MIN (y - ((int) height / 2),
+X			 XHeightOfScreen (XtScreen (widget)) - (int) height));
+X	XtVaSetValues (widget, XtNx, (XtArgVal) x, XtNy, (XtArgVal) y, NULL);
+X    }
+}
+X
+X
+X
+/* 
+X * Move +/ resize the given widget so that it has the given geometry.
+X */
+X
+static void ParseGeometry (widget, currentwidth, currentheight, borderwidth, geometry)
+X  Widget      widget;
+X  Dimension   currentwidth, currentheight, borderwidth;
+X  String      geometry;
+{
+X    unsigned int   width = (unsigned int) currentwidth,
+X		   height = (unsigned int) currentheight;
+X    int 	   x = 0, y = 0, mask;
+X
+X    mask = XParseGeometry (geometry, &x, &y, &width, &height);
+X
+X    if (mask & WidthValue)
+X	XtVaSetValues (widget, XtNwidth, (XtArgVal) width, NULL);
+X    if (mask & HeightValue)
+X	XtVaSetValues (widget, XtNheight, (XtArgVal) height, NULL);
+X    if (mask & (WidthValue | HeightValue))
+X	XtVaSetValues (widget, XtNallowShellResize, (XtArgVal) False, NULL);
+X
+X    if (not (mask & (XValue | YValue)))
+X	CentreWidgetUnderPointer (widget, width, height, borderwidth);
+X    else {
+X	if (mask & XNegative)
+X	    x = x + XWidthOfScreen (XtScreen (widget)) - (int) width;
+X	if (mask & YNegative)
+X	    y = y + XHeightOfScreen (XtScreen (widget)) - (int) height;
+X	XtVaSetValues (widget, XtNx, (XtArgVal) x, XtNy, (XtArgVal) y, NULL);
+X    }
+}
+X
+X
+X
+/* 
+X * Make sure that the widget's right side is visible.
+X * For resizing popups.
+X */
+X
+void EnsureNotGrownOffScreen (widget)
+X  Widget   widget;
+{
+X    Position 	x;
+X    Dimension 	width, borderwidth, screenwidth = XWidthOfScreen (XtScreen (widget));
+X
+X    XtVaGetValues (widget, XtNx, &x, XtNwidth, &width, XtNborderWidth, &borderwidth,
+X		   NULL);
+X    width += (borderwidth * 2);
+X    if (screenwidth > width)
+X	XtVaSetValues (widget, XtNx, (XtArgVal) MIN (x, screenwidth - width), NULL);
+}
+X
+X
+X
+/* 
+X * Pull out any display arg.
+X */
+X
+String DisplayName (argv, argc)
+X  String  *argv;
+X  int 	   argc;
+{
+X    String   displayname = (String) NULL;
+X    int      i;
+X
+X    for (i=1; i<argc; i++)
+X	if ((strcmp (argv[i], "-display") == 0) or (strcmp (argv[i], "-d") == 0))
+X	    if (i < argc-1)
+X		displayname = argv[i+1];
+X	    else {
+X		(void) printf ("xalarm: No display to open.\n");
+X		exit (-1);
+X	    }
+X
+X    return (displayname);
+}
+X
+X
+X
+/* 
+X * Make a sound, if that's what's wanted.
+X */
+void Audio (sound)
+X  String   sound;
+{
+X    if ((STREQUAL (sound, BELL)) or (STREQUAL (sound, BEEP)))
+X	XBell (XtDisplay (xalarm.toplevel), xalarm.volume);
+X    else if (not STREQUAL (sound, QUIET))
+X	if (system (sound) != 0)
+X	    perror (sound);
+}
+X
+X
+X
+/* 
+X * Returns a string concated from the given array of strings.
+X * Separates the strings with a newline.
+X *
+X * Hacked from various books on X & Xt.
+X */
+X
+String Concat (strings, n)
+X  String  *strings;
+X  int 	   n;
+{
+X    String 	   buffer;
+X    unsigned int   i, len = 0;
+X
+X    if (n <= 1)
+X	return ((String) NULL);
+X
+X    for (i=1; i<n; i++)
+X	len += strlen (strings[i]);
+X    len += (n-1);
+X
+X    buffer = XtMalloc (len+1);
+X    buffer[0] = '\0';
+X    for (i=1; i<n; i++) {
+X	if (i > 1)
+X	    (void) strcat (buffer, "\n");
+X	(void) strcat (buffer, strings[i]);
+X    }
+X
+X    return (buffer);
+}
+X
+X
+X
+/* 
+X * Replace each newline by a space.  Returns the new string.
+X */
+X
+String ReplaceNewlines (str)
+X  String   str;
+{
+X    String   s, newstr = XtNewString (str);
+X
+X    if (NONNIL (String, s = newstr))
+X	do
+X	    if (*s == '\n')
+X		*s = ' ';
+X	while (*(s++) != '\0');
+X
+X    return (newstr);
+}
+X
+X
+X
+/* 
+X * Return the next word in str, starting at position chpos in the 
+X * string.  The returned word is in lower case.
+X */
+X
+String NextWord (str, chpos)
+X  String   str;
+X  int 	  *chpos;
+{
+X    String   word;
+X    int      start, i;
+X
+X    while (isspace (str[*chpos]))
+X	(*chpos)++;
+X
+X    start = *chpos;
+X    while ((not isspace (str[*chpos])) and (str[*chpos] != '\0'))
+X	(*chpos)++;
+X
+X    if ((str[*chpos] == '\0') and (start == *chpos))
+X	return ("");
+X    else {
+X	word = XtMalloc (*chpos - start + 1);
+X	for (i=0; i<(*chpos-start); i++)
+X	    word[i] = DOWNCASE (str[start+i]);
+X	word[*chpos-start] = '\0';
+X	
+X	return (word);
+X    }
+}
+X
+X
+X
+/* 
+X * Returns true iff the string contains a valid integer.
+X */
+X
+Boolean IsInteger (str)
+X  String   str;
+{
+X    if (*str == '+')
+X	str++;
+X    while (*str != '\0')
+X	if (not isdigit (*str++))
+X	    return (False);
+X    return (True);
+}
+X
+X
+X
+/* 
+X * Return the user, users' home directory & host names.
+X */
+X
+String UserName ()
+{
+X    static String   name = (String) NULL;
+X
+X    if (NIL (String, name))
+#if defined (USEGETLOGIN)
+X	name = (String) getlogin ();
+#elif defined (USECUSERID)
+X	(void) cuserid (name = XtMalloc ((Cardinal) L_cuserid + 1));
+#elif defined (USEGETPWUID)
+X	name = XtNewString (getpwuid (getuid ())->pw_name);
+#else
+X	name = getenv ("USER");
+#endif
+X
+X    return ((NIL (String, name)) ? NOTKNOWN : name);
+}
+X
+X
+X
+String HomeDirectory ()
+{
+X    static String   name = (String) NULL;
+X
+X    if (NIL (String, name))
+#if defined (USEGETPWUID)
+X	name = XtNewString (getpwuid (getuid ())->pw_dir);
+#else
+X	name = getenv ("HOME");
+#endif
+X
+X    return ((NIL (String, name)) ? NOTKNOWN : name);
+}
+X
+X
+X
+String MachineName ()
+{
+#if defined (USEGETHOSTNAME)
+X    static char   name[TEXT];
+X
+X    return ((gethostname (name, TEXT) < 0) ? NOTKNOWN : name);
+#elif defined (USEUNAME)
+X    static struct utsname   name;
+X
+X    return ((uname (&name) < 0) ? NOTKNOWN : name.nodename);
+#else
+X    return (NOTKNOWN);
+#endif
+}
+X
+X
+X
+/* 
+X * This function generates a random number and stuffs it down the pipe.
+X */
+X
+void Quit (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    XtDestroyApplicationContext (xalarm.appcon);
+X    exit (0);
+}
+SHAR_EOF
+echo 'File fns.c is complete' &&
+chmod 0644 fns.c ||
+echo 'restore of fns.c failed'
+Wc_c="`wc -c < 'fns.c'`"
+test 18097 -eq "$Wc_c" ||
+	echo 'fns.c: original size 18097, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= fullpath ==============
+if test -f 'fullpath' -a X"$1" != X"-c"; then
+	echo 'x - skipping fullpath (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fullpath (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fullpath' &&
+#!/bin/sh
+X
+PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/usr/ucb:/usr/local:/usr/lbin:/etc:/usr/new:/usr/new/bin:/usr/nbin:/usr/games:/usr/local/lib/emacs/etc:/usr/local/emacs/etc."
+export PATH
+X
+case $1 in
+X	-quick)	mode=-quick
+X		shift;;
+X	*)	mode=;;
+esac
+X
+loc=`which $1 2>/dev/null`
+case "$loc" in
+X	# For a Tek:
+X	"command is /"*)
+X		loc=`echo $loc | sed 's/command is //'`;;
+X	# For normal whiches:
+X	"$1"*|"no $1"*|"command is "*)
+X		loc=;;
+esac
+X
+if test ! "$loc" = "" -a "$mode" = "-quick"; then
+X	echo Assuming $1 is $loc. >&2
+else
+X	echo -n "Where is your \"$1\"? [$loc] " >&2
+X	read ans
+X
+X	if test ! "$ans" = ""; then
+X		loc=$ans
+X	fi
+X	if test "$loc" = ""; then
+X		loc=$1
+X	fi
+X	if test -d "$loc"; then
+X		case "$loc" in
+X			*"/")	loc=$loc$1;;
+X			*)	loc=$loc/$1;;
+X		esac
+X	fi
+X	if test ! -f "$loc"; then
+X		echo Warning: \"$loc\" does not exist. >&2
+X	fi
+fi
+X
+echo $loc
+SHAR_EOF
+chmod 0755 fullpath ||
+echo 'restore of fullpath failed'
+Wc_c="`wc -c < 'fullpath'`"
+test 850 -eq "$Wc_c" ||
+	echo 'fullpath: original size 850, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+#define		XALARMVERSION	"3.04"
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 30 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 30, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= times.c ==============
+if test -f 'times.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping times.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting times.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'times.c' &&
+/*
+X      Copyright (c) 1991, 1992 by Simon Marshall, University of Hull, UK
+X
+X		   If you still end up late, don't blame me!
+X				       
+X  Permission to use, copy, modify, distribute, and sell this software and its
+X       documentation for any purpose and without fee is hereby granted,
+X    provided that the above copyright notice appear in all copies and that
+X	both that copyright notice and this permission notice appear in
+X			   supporting documentation.
+X				       
+X  This software is provided AS IS with no warranties of any kind.  The author
+X    shall have no liability with respect to the infringement of copyrights,
+X     trade secrets or any patents by this file or any part thereof.  In no
+X      event will the author be liable for any lost revenue or profits or
+X	      other special, indirect and consequential damages.
+*/
+X
+/* 
+X * Parse times.
+X */
+X
+X
+X
+#include "xalarm.h"
+#include "dates.h"
+X
+#define		VALUE(ch)	((int) (ch) - (int) '0')
+#define		INSTRING(ch, s)	(((ch) != '\0') and (index ((s), (ch))))
+X
+X
+long		TimeToMilliSeconds();
+Boolean		ParseTimeString();
+extern time_t	time();
+extern struct tm *localtime();
+X
+X
+X
+extern AlarmData xalarm;
+X
+X
+X
+/* 
+X * Convert the string into milliseconds, or INVALID if 
+X * not recognised.
+X * Recognises quite a lot, really, but doesn't like non absolute times 
+X * having "am" or "pm" etc.
+X */	
+X
+long TimeToMilliSeconds (timestr)
+X  String   timestr;
+{
+X    Boolean 	in24hrformat;
+X    int 	hours, minutes, seconds;
+X    time_t 	abstime;
+X    struct tm  *now;
+X
+X    if (not ParseTimeString (timestr, &hours, &minutes, &in24hrformat))
+X	return ((long) INVALID);
+X
+X    if ((*timestr == '+') or (STREQUAL (timestr, NOW)))
+X	seconds = (hours * SECSIN1HR) + (minutes * SECSIN1MIN);
+X    else {
+X	(void) time (&abstime);
+X	now = localtime (&abstime);
+X	seconds = ((hours - now->tm_hour) * SECSIN1HR) +
+X	    ((minutes - now->tm_min) * SECSIN1MIN) - now->tm_sec;
+X	if ((seconds < 0) and (not in24hrformat))
+X	    seconds += (12 * SECSIN1HR);
+X    }
+X
+X    if ((xalarm.dateout > 0) or ((xalarm.dateout == 0) and (seconds >= 0)))
+X	return ((long) seconds * MSECSIN1SEC);
+X    else {
+X	ADDERROR (TIMEPASSED, (String) NULL);
+X	return ((long) INVALID);
+X    }
+}
+X
+X
+X
+/* 
+X * Parse that string.  Robbed and hacked from xcal (3.2) by Peter 
+X * Collinson et al.
+X */
+X
+Boolean ParseTimeString (str, hrs, mins, in24hrf)
+X  String    str;
+X  int 	   *hrs, *mins;
+X  Boolean  *in24hrf;
+{
+X    enum      {Hhmm, hHmm, hh_mm, hhMm, hhmM, AmPm, aMpM} state;
+X    Boolean   relative, finished = False;
+X    int       numdigits = 0;
+X    char     *s = str, badtime[TEXT];
+X		      
+X    RESETERROR ();
+X
+X    if (relative = (*str == '+'))
+X	str++;
+X    else if (STREQUAL (str, NOW)) {
+X	*hrs = *mins = 0;
+X	return (True);
+X    } else if (STREQUAL (str, NOON)) {
+X	*hrs = 12;
+X	*mins = 0;
+X	return (*in24hrf = True);
+X    }
+X
+X    while (*s != '\0')
+X	if (isdigit (*s++))
+X	    numdigits++;
+X
+X    if (relative)
+X	switch (numdigits) {
+X	 case 1: state = hhmM; break;
+X	 case 2: state = hhMm; break;
+X	 case 3: state = hHmm; break;
+X	 case 4: state = Hhmm; break;
+X	 default:
+X	    (void) sprintf (badtime, "just %d", numdigits);
+X	    ADDERROR (WRONGNUMDIGITS, badtime);
+X	    return (False);
+X	}
+X    else
+X	switch (numdigits) {
+X	 case 1:
+X	 case 2:
+X	 case 4: state = Hhmm; break;
+X	 case 3: state = hHmm; break;
+X	 default:
+X	    (void) sprintf (badtime, "just %d", numdigits);
+X	    ADDERROR (WRONGNUMDIGITS, badtime);
+X	    return (False);
+X	}
+X
+X    *hrs = *mins = 0;
+X    *in24hrf = False;
+X
+X    while (not finished)
+X	switch (state) {
+X	 case Hhmm:
+X	    if (isdigit (*str)) {
+X		*hrs = VALUE (*str++);
+X		state = hHmm;
+X		continue;
+X	    } else {
+X		ADDERROR (UNRECOGNISED, str);
+X		return (False);
+X	    }
+X	 case hHmm:
+X	    if (isdigit (*str)) {
+X		*hrs = *hrs*10 + VALUE (*str++);
+X		state = hh_mm;
+X		continue;
+X	    }
+X	 case hh_mm:
+X	    if (INSTRING (*str, ".:-")) {
+X		state = hhMm;
+X		str++;
+X		continue;
+X	    }
+X	 case hhMm:
+X	    if (isdigit (*str)) {
+X		*mins = VALUE (*str++);
+X		state = hhmM;
+X		continue;
+X	    }
+X	 case hhmM:
+X	    if (isdigit (*str)) {
+X		*mins = *mins*10 + VALUE (*str++);
+X		state = AmPm;
+X		continue;
+X	    }
+X	 case AmPm:
+X	    if (*str == '\0') {
+X		*in24hrf = (*hrs > 12) or ((*hrs < 10) and (numdigits % 2 == 0));
+X		finished = True;
+X		continue;
+X	    } else if (relative) {
+X		ADDERROR (UNRECOGNISED, str);
+X		return (False);
+X	    }
+X
+X	    if (INSTRING (*str, "Aa")) {
+X		if (*hrs == 12)
+X		    *hrs = 0;
+X		state = aMpM;
+X		continue;
+X	    } else if (INSTRING (*str, "Pp")) {
+X		    if (*hrs < 12)
+X			*hrs = *hrs + 12;
+X		    state = aMpM;
+X		    continue;
+X		}
+X	    ADDERROR (EXPECTEDAMPM, str);
+X	    return (False);
+X	 case aMpM:
+X	    str++;
+X	    if (INSTRING (*str, "Mm")) {
+X		*in24hrf = finished = True;
+X		str++;
+X	    } else {
+X		ADDERROR (EXPECTEDAMPM, str);
+X		return (False);
+X	    }
+X	}
+X
+X    if ((*hrs < 24) and (*mins < 60) and (*str == '\0'))
+X	return (True);
+X    else {
+X	if (*hrs >= 24) {
+X	    (void) sprintf (badtime, "%d", *hrs);
+X	    ADDERROR (BADHOURS, badtime);
+X	} else if (*mins >= 60) {
+X	    (void) sprintf (badtime, "%d", *mins);
+X	    ADDERROR (BADMINUTES, badtime);
+X	} else {
+X	    ADDERROR (UNRECOGNISED, str);
+X	}
+X	return (False);
+X    }
+}
+SHAR_EOF
+chmod 0644 times.c ||
+echo 'restore of times.c failed'
+Wc_c="`wc -c < 'times.c'`"
+test 5094 -eq "$Wc_c" ||
+	echo 'times.c: original size 5094, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= warnings.c ==============
+if test -f 'warnings.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping warnings.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting warnings.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'warnings.c' &&
+/*
+X      Copyright (c) 1991, 1992 by Simon Marshall, University of Hull, UK
+X
+X		   If you still end up late, don't blame me!
+X				       
+X  Permission to use, copy, modify, distribute, and sell this software and its
+X       documentation for any purpose and without fee is hereby granted,
+X    provided that the above copyright notice appear in all copies and that
+X	both that copyright notice and this permission notice appear in
+X			   supporting documentation.
+X				       
+X  This software is provided AS IS with no warranties of any kind.  The author
+X    shall have no liability with respect to the infringement of copyrights,
+X     trade secrets or any patents by this file or any part thereof.  In no
+X      event will the author be liable for any lost revenue or profits or
+X	      other special, indirect and consequential damages.
+*/
+X
+/* 
+X * The stuff for dealing with warnings; processing to get the times & 
+X * the fns for popping up the warnings themselves.
+X */
+X
+X
+X
+#include "xalarm.h"
+X
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Command.h>
+X
+X
+#define		WARNINGFORMAT	"Warning!  (%d:%02d)"
+#define		WARNING		"Warning: %s due in "
+X
+X
+void		SetWarningTimes(), Warning(), QuitWarning();
+static void	TimeTracker(), Reset();
+extern XtIntervalId ResetTracker();
+extern SIGRET	ResetAlarm();
+extern long	TimeToMilliSeconds();
+extern void	SetGeometry(), SetWMName(), Audio(), Quit();
+extern time_t	time();
+extern struct tm *localtime();
+X
+X
+X
+extern AlarmData	xalarm;
+X
+X
+X
+/* 
+X * Process the string to extract warning times.  Currently just gives 
+X * a message if a warning time is invalid.
+X */
+X
+void SetWarningTimes (warnings)
+X  String   warnings;
+{
+X    String 	    warnstr = warnings;
+X    char 	    warning[TEXT];
+X    unsigned long   biggest;
+X    int 	    i, j, bigindex;
+X	            
+X    xalarm.numwarnings = 0;
+X    while ((*warnstr != '\0') and (ISVALID (xalarm.numwarnings))) {
+X	warning[i=0] = '+';
+X	while ((*warnstr != ',') and (*warnstr != '\0'))
+X	    warning[++i] = *warnstr++;
+X	warning[++i] = '\0';
+X
+X	switch (xalarm.warnings[xalarm.numwarnings] =
+X		(unsigned long) TimeToMilliSeconds (warning)) {
+X	 case 0:
+X	    break;
+X	 case INVALID:
+X	    xalarm.numwarnings = INVALID;
+X	    break;
+X	 default:
+X	    xalarm.numwarnings++;
+X	    break;
+X	}
+X
+X	while (*warnstr == ',')
+X	    warnstr++;
+X    }
+X    if ((warnstr != warnings) and (*(warnstr-1) == ','))
+X	xalarm.numwarnings = INVALID;
+X
+X    /* 
+X     * Sort it, why not?
+X     */
+X    for (i=0; i<xalarm.numwarnings-1; i++) {
+X	biggest = xalarm.warnings[bigindex = i];
+X	for (j=i+1; j<xalarm.numwarnings; j++)
+X	    if (xalarm.warnings[j] > biggest)
+X		biggest = xalarm.warnings[bigindex = j];
+X	xalarm.warnings[bigindex] = xalarm.warnings[i];
+X	xalarm.warnings[i] = biggest;
+X    }
+}
+X
+X
+X
+/* 
+X * pop up a warning.  includes a dismiss & quit button.
+X */
+X
+void Warning (clientdata, id)
+X  XtPointer 	 clientdata;
+X  XtIntervalId 	 id;
+{
+X    static Widget   popup = NONWIDGET;
+X    Widget 	    warningbox, dismiss, reset, quit;
+X
+X    if (ISNONWIDGET (popup)) {
+X	popup = XtVaCreatePopupShell ("Warning!", transientShellWidgetClass,
+X				      xalarm.toplevel, NULL);
+X	warningbox = XtVaCreateManagedWidget ("warning", formWidgetClass, popup, NULL);
+X
+X	CreateManagedButton (dismiss, "dismiss", warningbox, QuitWarning, popup);
+X	xalarm.warningwidget = XtVaCreateManagedWidget ("message", labelWidgetClass,
+X							warningbox, NULL);
+X	CreateManagedButton (reset, "reset", warningbox, Reset, popup);
+X	CreateManagedButton (quit, "quit", warningbox, Quit, NULL);
+X    }
+X
+X    if (ISNONID (xalarm.warningid))
+X	TimeTracker ((XtPointer) popup, (XtIntervalId) NULL);
+X    SetGeometry (popup);
+X    Audio (xalarm.warningaudio);
+X    XtPopup (popup, XtGrabNone);
+X    XRaiseWindow (XtDisplay (popup), XtWindow (popup));
+X    XFlush (XtDisplay (popup));
+}
+X  
+X	     
+X
+/* 
+X * Track the time for this widget.  Puts a clock in the WM name, and 
+X * keeps the warning message upto date.
+X */
+X
+static void TimeTracker (clientdata, id)
+X  XtPointer 	 clientdata;
+X  XtIntervalId 	 id;
+{
+X    char 	buf[TEXT], wmname[TEXT], warnmessage[TEXT], *wm = warnmessage;
+X    int 	mins, count;
+X    time_t 	now;
+X    struct tm  *clock;
+X    
+X    (void) time (&now);
+X    clock = localtime (&now);
+X
+X    if ((mins = (int) (((unsigned long) 59 + xalarm.offtime - (unsigned long) now)
+X		       / SECSIN1MIN)) == 0)
+X	xalarm.warningid = NONID;
+X    else {
+X	(void) sprintf (wmname, WARNINGFORMAT, clock->tm_hour, clock->tm_min);
+X	SetWMName ((Widget) clientdata, wmname);
+X
+X	if (xalarm.warningwords == 0)
+X	    (void) sprintf (buf, WARNING, xalarm.proggie+1);
+X	else {
+X	    (void) sprintf (warnmessage, "`%s", xalarm.messagestr);
+X	    count = xalarm.warningwords;
+X	    while ((count-- > 0) and (*wm != '\0')) {
+X		while (isspace (*wm))
+X		    *wm++ = ' ';
+X		while (not isspace (*wm) and (*wm != '\0'))
+X		    wm++;
+X	    }
+X	    (void) sprintf (wm, "%s", (*wm == '\0') ? "' " : "...' ");
+X	    (void) sprintf (buf, WARNING, warnmessage);
+X	}
+X	MAKETIMESTRING (ENDOF (buf), mins);
+X
+X	XtVaSetValues (xalarm.warningwidget, XtNlabel, (XtArgVal) buf, NULL);
+X
+X	xalarm.warningid = ResetTracker (TimeTracker, clientdata,
+X					 (int) (xalarm.offtime % 60));
+X    }
+}
+X
+X
+X
+/* 
+X * Popdown the warning window & popup to reset the alarm.
+X */
+X
+static void Reset (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    QuitWarning (widget, clientdata, calldata);
+X    (void) ResetAlarm ((int) NULL, (int) NULL, (struct sigcontext *) NULL,
+X		       (char *) NULL);
+}
+X
+X
+X
+/* 
+X * Popdown the warning window.
+X */
+X
+void QuitWarning (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    if (ISID (xalarm.warningid)) {
+X	XtRemoveTimeOut (xalarm.warningid);
+X	xalarm.warningid = NONID;
+X    }
+X    XtPopdown ((Widget) clientdata);
+}
+SHAR_EOF
+chmod 0644 warnings.c ||
+echo 'restore of warnings.c failed'
+Wc_c="`wc -c < 'warnings.c'`"
+test 5720 -eq "$Wc_c" ||
+	echo 'warnings.c: original size 5720, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= when.c ==============
+if test -f 'when.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping when.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting when.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'when.c' &&
+/*
+X      Copyright (c) 1991, 1992 by Simon Marshall, University of Hull, UK
+X
+X		   If you still end up late, don't blame me!
+X				       
+X  Permission to use, copy, modify, distribute, and sell this software and its
+X       documentation for any purpose and without fee is hereby granted,
+X    provided that the above copyright notice appear in all copies and that
+X	both that copyright notice and this permission notice appear in
+X			   supporting documentation.
+X				       
+X  This software is provided AS IS with no warranties of any kind.  The author
+X    shall have no liability with respect to the infringement of copyrights,
+X     trade secrets or any patents by this file or any part thereof.  In no
+X      event will the author be liable for any lost revenue or profits or
+X	      other special, indirect and consequential damages.
+*/
+X
+/* 
+X * Stuff for getting the time the alarm is due to go off, and 
+X * confirmation if needed.
+X */
+X
+X
+X
+#include "xalarm.h"
+#include "dates.h"
+X
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Dialog.h>
+X
+X
+#define		TIMEINSTRUCTIONS	"Enter time (as [+]time[am/pm]):"
+#define		DATEINSTRUCTIONS	"Enter date (as +days|date):"
+#define		WARNINGINSTRUCTIONS	"Enter warnings (as time[,time...]):"
+#define		CONFIRMFORMAT		"%s %s %d, %02d:%02d (in %d+%d:%02d), "
+#define		WHENFORMAT		"When?  (%d:%02d)"
+#define		EDITTIME		(0)
+#define		EDITDATE		(1)
+#define		EDITWARNINGS		(2)
+#define		EDITED(str, widget)	(strcmp (str, XawDialogGetValueString (widget)))
+#define		DIALOGVALUE(widget)	(XtNewString (XawDialogGetValueString (widget)))
+#define		UPCASE(ch)		(((ch) >= 'a') and ((ch) <= 'z') ? \
+X					 ((ch) - 'a' + 'A') : (ch))
+X
+X
+X
+void		PopupAndAsk(), EnteredTime(), EnteredDate(), EnteredWarnings(),
+X		Confirmed(), MakeConfirmMessage(), EditedText();
+static void	PopupAndConfirm(), Popup(), PopupNext(), Edit(), Cancel(), TimeTracker();
+extern XtIntervalId ResetTracker();
+extern String	HomeDirectory();
+extern void	Quit(), AddTimeOuts(), SetWarningTimes(), SetGeometry(),
+X		SaveAlarmSettings(), SetWMName(), EnsureNotGrownOffScreen();
+extern long	TimeToMilliSeconds();
+extern unsigned long DateToMilliSeconds();
+extern time_t	time();
+extern struct tm *localtime();
+X
+X
+X
+extern AlarmData	xalarm;
+X
+X
+X
+/* 
+X * just pop up a dialog widget to get an at/in time.  won't pop down 
+X * until a valid time is given.  EnteredTime() does this.
+X */
+X
+void PopupAndAsk ()
+{
+X    static Widget   popup = NONWIDGET;
+X    Widget 	    when, gettime, getdate, getwtime, confirm;
+X
+X    if (ISNONWIDGET (popup)) {
+X	popup = XtVaCreatePopupShell ("When?", transientShellWidgetClass,
+X				      xalarm.toplevel, NULL);
+X	when = XtVaCreateManagedWidget ("when", formWidgetClass, popup, NULL);
+X
+X	/* 
+X	 * Widget for time input.
+X	 */
+X	gettime = XtVaCreateManagedWidget ("time", dialogWidgetClass, when,
+X					   XtNvalue, (XtArgVal) xalarm.timestr, NULL);
+X	XawDialogAddButton (gettime, "ok", EnteredTime, (XtPointer) NULL);
+X	XawDialogAddButton (gettime, "editdate", Edit, (XtPointer) EDITDATE);
+X	XawDialogAddButton (gettime, "editwarnings", Edit, (XtPointer) EDITWARNINGS);
+X	XawDialogAddButton (gettime, "quit", Quit, (XtPointer) NULL);
+X
+X	/* 
+X	 * Widget for date input.
+X	 */
+X	getdate = XtVaCreateWidget ("date", dialogWidgetClass, when,
+X				    XtNvalue, (XtArgVal) xalarm.datestr, NULL);
+X	XawDialogAddButton (getdate, "ok", EnteredDate, (XtPointer) NULL);
+X	XawDialogAddButton (getdate, "edittime", Edit, (XtPointer) EDITTIME);
+X	XawDialogAddButton (getdate, "editwarnings", Edit, (XtPointer) EDITWARNINGS);
+X	XawDialogAddButton (getdate, "quit", Quit, (XtPointer) NULL);
+X
+X	/* 
+X	 * Widget for warning times input.
+X	 */
+X	getwtime = XtVaCreateWidget ("warnings", dialogWidgetClass, when,
+X				     XtNvalue, (XtArgVal) xalarm.warningsstr, NULL);
+X	XawDialogAddButton (getwtime, "ok", EnteredWarnings, (XtPointer) NULL);
+X	XawDialogAddButton (getwtime, "edittime", Edit, (XtPointer) EDITTIME);
+X	XawDialogAddButton (getwtime, "editdate", Edit, (XtPointer) EDITDATE);
+X	XawDialogAddButton (getwtime, "quit", Quit, (XtPointer) NULL);
+X
+X	/* 
+X	 * Widget for confirmation.
+X	 */
+X	confirm = XtVaCreateWidget ("confirm", dialogWidgetClass, when,
+X				    XtNvalue, (XtArgVal) xalarm.messagestr, NULL);
+X	XawDialogAddButton (confirm, "ok", Confirmed, (XtPointer) popup);
+X	XawDialogAddButton (confirm, "cancel", Cancel, (XtPointer) NULL);
+X	XawDialogAddButton (confirm, "save", SaveAlarmSettings, (XtPointer) NULL);
+X	XawDialogAddButton (confirm, "quit", Quit, (XtPointer) NULL);
+X
+X	/* 
+X	 * Set the callback for the value widget in each Dialog.
+X	 */
+X	AddValueCallback (xalarm.gettimewidget = gettime, EditedText, True);
+X	AddValueCallback (xalarm.getdatewidget = getdate, EditedText, True);
+X	AddValueCallback (xalarm.getwtimewidget = getwtime, EditedText, True);
+X	AddValueCallback (xalarm.confirmwidget = confirm, EditedText, True);
+X	xalarm.dialog = gettime;
+X	xalarm.savebutton = XtNameToWidget (confirm, "save");
+X    }
+X
+X    if (ISNONID (xalarm.whenid))
+X	TimeTracker ((XtPointer) popup, (XtIntervalId) NULL);
+X    SetGeometry (popup);
+X    XtPopup (popup, XtGrabExclusive);
+X    XRaiseWindow (XtDisplay (popup), XtWindow (popup));
+X    PopupNext ();
+X    XFlush (XtDisplay (popup));
+}
+X
+X
+X
+/* 
+X * Track the time for this widget.  Puts a clock in the WM name, and 
+X * keeps the confirmation time message upto date.
+X */
+X
+static void TimeTracker (clientdata, id)
+X  XtPointer 	 clientdata;
+X  XtIntervalId 	 id;
+{
+X    char 	wmname[TEXT], buf[TEXT];
+X    time_t 	now;
+X    struct tm  *clock;
+X    
+X    (void) time (&now);
+X    clock = localtime (&now);
+X
+X    (void) sprintf (wmname, WHENFORMAT, clock->tm_hour, clock->tm_min);
+X    SetWMName ((Widget) clientdata, wmname);
+X
+X    if (xalarm.dialog == xalarm.confirmwidget) {
+X	/* 
+X	 * Make sure that the alarm is not now out of date.
+X	 */
+X	xalarm.dateout = DateToMilliSeconds (xalarm.datestr);
+X	xalarm.timeout = TimeToMilliSeconds (xalarm.timestr);
+X	if ((xalarm.timeout == 0) and (xalarm.dateout == 0) and
+X	    (xalarm.timestr[0] != '+'))
+X	    Popup (xalarm.gettimewidget, TIMEINSTRUCTIONS);
+X	else {
+X	    MakeConfirmMessage (buf);
+X	    if (not XtIsSensitive (xalarm.savebutton))
+X		(void) sprintf (ENDOF (buf), "\nSaved in %s/%s",
+X				HomeDirectory (), XALARMFILE);
+X	    XtVaSetValues (xalarm.confirmwidget, XtNlabel, (XtArgVal) buf, NULL);
+X	}
+X    }
+X
+X    xalarm.whenid = ResetTracker (TimeTracker, clientdata, 0);
+}
+X
+X
+X
+/* 
+X * Popup the next dialog, if more needs to be entered.
+X */
+X
+static void PopupNext ()
+{
+X    if (ISINVALID (xalarm.timeout) or
+X	EDITED (xalarm.timestr, xalarm.gettimewidget))
+X	Popup (xalarm.gettimewidget, TIMEINSTRUCTIONS);
+X    else if (ISINVALID (xalarm.dateout) or
+X	     EDITED (xalarm.datestr, xalarm.getdatewidget))
+X	Popup (xalarm.getdatewidget, DATEINSTRUCTIONS);
+X    else if (ISINVALID (xalarm.numwarnings) or
+X	     EDITED (xalarm.warningsstr, xalarm.getwtimewidget))
+X	Popup (xalarm.getwtimewidget, WARNINGINSTRUCTIONS);
+X    else
+X	PopupAndConfirm ();
+}
+X
+X
+X
+/* 
+X * If invalid, stay.  Otherwise, get the rest, if any.
+X */
+X
+void EnteredTime (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    char   message[TEXT];
+X
+X    xalarm.timeout = TimeToMilliSeconds
+X	(xalarm.timestr = DIALOGVALUE (xalarm.gettimewidget));
+X
+X    if (ISVALID (xalarm.timeout))
+X	PopupNext ();
+X    else {
+X	(void) sprintf (message, "%s%s", xalarm.errormessage, TIMEINSTRUCTIONS);
+X	XtVaSetValues (xalarm.gettimewidget, XtNlabel, (XtArgVal) message, NULL);
+X    }
+}
+X
+X
+X
+/* 
+X * If invalid, stay.  Otherwise, get the rest, if any.
+X */
+X
+void EnteredDate (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    char   message[TEXT];
+X
+X    xalarm.dateout = DateToMilliSeconds
+X	(xalarm.datestr = DIALOGVALUE (xalarm.getdatewidget));
+X
+X    if (ISVALID (xalarm.dateout))
+X	PopupNext ();
+X    else {
+X	(void) sprintf (message, "%s%s", xalarm.errormessage, DATEINSTRUCTIONS);
+X	XtVaSetValues (xalarm.getdatewidget, XtNlabel, (XtArgVal) message, NULL);
+X    }
+}
+X
+X
+X
+/* 
+X * If invalid, stay.  Otherwise, get the rest, if any.
+X */
+X
+void EnteredWarnings (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    char   message[TEXT];
+X
+X    SetWarningTimes (xalarm.warningsstr = DIALOGVALUE (xalarm.getwtimewidget));
+X
+X    if (ISVALID (xalarm.numwarnings))
+X	PopupNext ();
+X    else {
+X	(void) sprintf (message, "%s%s", xalarm.errormessage, WARNINGINSTRUCTIONS);
+X	XtVaSetValues (xalarm.getwtimewidget, XtNlabel, (XtArgVal) message, NULL);
+X    }
+}
+X
+X
+X
+/* 
+X * Just toggle whether i/t concerns alarm time/date/warning time(s).
+X */
+X
+static void Edit (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    switch ((int) clientdata) {
+X     case EDITTIME:
+X	Popup (xalarm.gettimewidget, TIMEINSTRUCTIONS);
+X	break;
+X     case EDITDATE:
+X	Popup (xalarm.getdatewidget, DATEINSTRUCTIONS);
+X	break;
+X     case EDITWARNINGS:
+X	Popup (xalarm.getwtimewidget, WARNINGINSTRUCTIONS);
+X	break;
+X    }
+}
+X
+X
+X
+/* 
+X * Set the sensitivity of the save button.
+X */
+X
+void EditedText (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    static Boolean   edited = True;
+X
+X    if (not (Boolean) clientdata)
+X	XtSetSensitive (xalarm.savebutton, edited = False);
+X    else if (not edited)
+X	XtSetSensitive (xalarm.savebutton, edited = True);
+}
+X
+X
+X
+/* 
+X * Popup to confirm, showing the time which the alarm will trigger.
+X */
+X
+static void PopupAndConfirm ()
+{
+X    char   message[TEXT];
+X
+X    MakeConfirmMessage (message);
+X    Popup (xalarm.confirmwidget, message);
+}
+X
+X
+X
+/* 
+X * Make the message that should be displayed as the label in the 
+X * confirmation window.
+X */
+X
+void MakeConfirmMessage (message)
+X  String   message;
+{
+X    static char     strings[][4] = {WEEKDAYS, MONTHS};
+X    time_t 	    now;
+X    struct tm 	   *alarmtime;
+X    unsigned long   msecsout;
+X    int 	    count = 0, i;
+X
+X    msecsout = SUMTIMEOUTS (DateToMilliSeconds (xalarm.datestr),
+X			    TimeToMilliSeconds (xalarm.timestr));
+X    (void) time (&now);
+X    now += (time_t) (msecsout / MSECSIN1SEC);
+X    alarmtime = localtime (&now);
+X
+X    strings[alarmtime->tm_wday][0] = UPCASE (strings[alarmtime->tm_wday][0]);
+X    strings[alarmtime->tm_mon+7][0] = UPCASE (strings[alarmtime->tm_mon+7][0]);
+X    msecsout += (59 * MSECSIN1SEC);
+X    (void) sprintf (message, CONFIRMFORMAT,
+X		    strings[alarmtime->tm_wday], strings[alarmtime->tm_mon+7],
+X		    alarmtime->tm_mday, alarmtime->tm_hour, alarmtime->tm_min,
+X		    msecsout / MSECSIN1DAY, (msecsout / MSECSIN1HR) % 24,
+X		    (msecsout / MSECSIN1MIN) % 60);
+X    msecsout -= (59 * MSECSIN1SEC);
+X
+X    for (i=0; i<xalarm.numwarnings; i++)
+X	if (msecsout > xalarm.warnings[i])
+X	    count++;
+X
+X    if (count == 0)
+X	(void) sprintf (ENDOF (message), "no warnings:");
+X    else 
+X	(void) sprintf (ENDOF (message), "warning%s: ", PLURAL (count));
+X
+X    for (i=0; i<xalarm.numwarnings; i++)
+X	if (xalarm.timeout > xalarm.warnings[i]) {
+X	    MAKETIME (ENDOF (message), xalarm.warnings[i] / MSECSIN1MIN);
+X	    if (--count > 0)
+X		(void) strcat (message, ",");
+X	}
+}
+X
+X
+X
+/* 
+X * Yow!  Let's go!
+X */
+X
+void Confirmed (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    String   message = DIALOGVALUE (xalarm.confirmwidget);
+X
+X    if (*message != '\0')
+X	XtVaSetValues (xalarm.messagewidget,
+X		       XtNlabel, (XtArgVal) (xalarm.messagestr = message), NULL);
+X
+X    /* 
+X     * Reset the timeout, since the gap between entering 
+X     * and confirming may be significant.
+X     */
+X
+X    xalarm.timeout = TimeToMilliSeconds (xalarm.timestr);
+X    XtRemoveTimeOut (xalarm.whenid); 
+X    xalarm.whenid = NONID;
+X    AddTimeOuts ();
+X
+X    XtPopdown (XtParent (XtParent (xalarm.confirmwidget)));
+}
+X
+X
+X
+/* 
+X * Swap back to gettime widget & remove kbd focus.
+X */
+X
+static void Cancel (widget, clientdata, calldata)
+X  Widget      widget;
+X  XtPointer   clientdata, calldata;
+{
+X    Popup (xalarm.gettimewidget, TIMEINSTRUCTIONS);
+}
+X
+X
+X
+/* 
+X * Show this widget, and set its label.
+X * If there's not enough room for the new widget, move it.
+X */
+X
+static void Popup (widget, label)
+X  Widget   widget;
+X  String   label;
+{
+X    Widget   form = XtParent (widget);
+X
+X    XtVaSetValues (widget, XtNlabel, (XtArgVal) label, NULL);
+X
+X    XawFormDoLayout (form, False);
+X    if (xalarm.dialog != widget) {
+X	XtManageChild (widget);
+X	XtUnmanageChild (xalarm.dialog);
+X	xalarm.dialog = widget;
+X    }
+X    XawFormDoLayout (form, True);
+X
+X    EnsureNotGrownOffScreen (XtParent (form));
+}
+SHAR_EOF
+chmod 0644 when.c ||
+echo 'restore of when.c failed'
+Wc_c="`wc -c < 'when.c'`"
+test 12351 -eq "$Wc_c" ||
+	echo 'when.c: original size 12351, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xalarm.c ==============
+if test -f 'xalarm.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xalarm.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xalarm.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xalarm.c' &&
+/*
+X      Copyright (c) 1991, 1992 by Simon Marshall, University of Hull, UK
+X
+X		   If you still end up late, don't blame me!
+X				       
+X  Permission to use, copy, modify, distribute, and sell this software and its
+X       documentation for any purpose and without fee is hereby granted,
+X    provided that the above copyright notice appear in all copies and that
+X	both that copyright notice and this permission notice appear in
+X			   supporting documentation.
+X				       
+X  This software is provided AS IS with no warranties of any kind.  The author
+X    shall have no liability with respect to the infringement of copyrights,
+X     trade secrets or any patents by this file or any part thereof.  In no
+X      event will the author be liable for any lost revenue or profits or
+X	      other special, indirect and consequential damages.
+*/
+X
+/* 
+X * Main bit of prog, just deal with parsing command line options etc 
+X * (well, letting XtAppInitialize() do it) & setting up stuff by 
+X * calling out to other fns.
+X */
+X
+X
+X
+#include "xalarm.h"
+X
+X
+int		main();
+void		DoAlarm();
+static void	SetAlarm();
+extern Instance	PreParseArgList();
+extern String   Concat();
+extern SIGRET	ResetAlarm(), KillAlarm();
+extern void	Initialise(), StartDaemon(), CreateAlarmWidget(), PopupAndAsk(),
+X		AddTimeOuts(), SetWarningTimes(), AlarmDying(), RestartDiedAlarms(),
+X		EnteredTime(), EnteredDate(), EnteredWarnings(), Confirmed(),
+X		ShowSnoozeValue(), ShowClickToZero(), Quit();
+extern int	ParseAlarmFile();
+extern long	TimeToMilliSeconds();
+extern unsigned long DateToMilliSeconds();
+X
+X
+X
+static XtResource resources[] = {
+X    {XtNtime,		XtCTime,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, time),	XtRString,		(XtPointer) ""},
+X    {XtNdate,		XtCDate,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, date),	XtRString,		(XtPointer) ""},
+X    {XtNwarnings,	XtCWarnings,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, warnings),	XtRString,		(XtPointer) ""},
+X    {XtNwarningwords,	XtCWarningwords,XtRInt,			sizeof (int),
+X     XtOffsetOf (ApplData,warningwords),XtRImmediate,		(XtPointer) 0},
+X    {XtNpester,		XtCPester,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, pester),	XtRString,		(XtPointer) "0"},
+X    {XtNsnooze,		XtCSnooze,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, snooze),	XtRString,		(XtPointer) "0"},
+X    {XtNconfirm,	XtCConfirm,	XtRBoolean,		sizeof (Boolean),
+X     XtOffsetOf (ApplData, confirm),	XtRImmediate,		(XtPointer) True},
+X    {XtNkill,		XtCKill,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, kill),	XtRString,		(XtPointer) NULL},
+X    {XtNreset,		XtCReset,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, reset),	XtRString,		(XtPointer) NULL},
+X    {XtNlist,		XtCList,	XtRBoolean,		sizeof (Boolean),
+X     XtOffsetOf (ApplData, list),	XtRImmediate,		(XtPointer) False},
+X    {XtNvolume,		XtCVolume,	XtRInt,			sizeof (int),
+X     XtOffsetOf (ApplData, volume),	XtRImmediate,		(XtPointer) 50},
+X    {XtNversion,	XtCVersion,	XtRBoolean,		sizeof (Boolean),
+X     XtOffsetOf (ApplData, version),	XtRImmediate,		(XtPointer) False},
+X    {XtNhelp,		XtCHelp,	XtRBoolean,		sizeof (Boolean),
+X     XtOffsetOf (ApplData, help),	XtRImmediate,		(XtPointer) False},
+X    {XtNname,		XtCName,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, proggie),	XtRString,		(XtPointer) "xalarm"},
+X    {XtNgeometry,	XtCGeometry,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, geometry),	XtRString,		(XtPointer) NOGEOMETRY},
+X    {XtNalarmaudio,	XtCAlarmaudio,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, alarmaudio),	XtRString,		(XtPointer) ""},
+X    {XtNwarnaudio,	XtCWarnaudio,	XtRString,		sizeof (String),
+X     XtOffsetOf (ApplData, warnaudio),	XtRString,		(XtPointer) ""},
+X    {XtNquiet,		XtCQuiet,	XtRBoolean,		sizeof (Boolean),
+X     XtOffsetOf (ApplData, quiet),	XtRImmediate,		(XtPointer) False},
+};
+X	    
+X
+X
+static XrmOptionDescRec options[] = {
+X    {"-time",		".time",	XrmoptionSepArg,	(XtPointer) ""},
+X    {"-t",		".time",	XrmoptionSepArg,	(XtPointer) ""},
+X    {"-date",		".date",	XrmoptionSepArg,	(XtPointer) ""},
+X    {"-warn",		".warnings",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-w",		".warnings",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-nowarn",		".warnings",	XrmoptionNoArg,		(XtPointer) ""},
+X    {"-nw",		".warnings",	XrmoptionNoArg,		(XtPointer) ""},
+X    {"-warnwords",	".warningwords",XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-ww",		".warningwords",XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-nowarnwords",	".warningwords",XrmoptionNoArg,		(XtPointer) "0"},
+X    {"-nww",		".warningwords",XrmoptionNoArg,		(XtPointer) "0"},
+X    {"-confirm",	".confirm",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-c",		".confirm",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-noconfirm",	".confirm",	XrmoptionNoArg,		(XtPointer) "False"},
+X    {"-nc",		".confirm",	XrmoptionNoArg,		(XtPointer) "False"},
+X    {"-pester",		".pester",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-p",		".pester",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-nopester",	".pester",	XrmoptionNoArg,		(XtPointer) "0"},
+X    {"-np",		".pester",	XrmoptionNoArg,		(XtPointer) "0"},
+X    {"-snooze",		".snooze",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-s",		".snooze",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-list",		".list",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-l",		".list",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-kill",		".kill",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-reset",		".reset",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-r",		".reset",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-alarmaudio",	".alarmaudio",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-aa",		".alarmaudio",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-noalarmaudio",	".alarmaudio",	XrmoptionNoArg,		(XtPointer) QUIET},
+X    {"-naa",		".alarmaudio",	XrmoptionNoArg,		(XtPointer) QUIET},
+X    {"-warningaudio",	".warningaudio",XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-warnaudio",	".warningaudio",XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-wa",		".warningaudio",XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-nowarningaudio",	".warningaudio",XrmoptionNoArg,		(XtPointer) QUIET},
+X    {"-nowarnaudio",	".warningaudio",XrmoptionNoArg,		(XtPointer) QUIET},
+X    {"-nwa",		".warningaudio",XrmoptionNoArg,		(XtPointer) QUIET},
+X    {"-quiet",		".quiet",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-q",		".quiet",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-volume",		".volume",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-v",		".volume",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-version",	".version",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-help",		".help",	XrmoptionNoArg,		(XtPointer) "True"},
+X    {"-geometry",	".geometry",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-geom",		".geometry",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-g",		".geometry",	XrmoptionSepArg,	(XtPointer) NULL},
+X    {"-d",		".display",	XrmoptionSepArg,	(XtPointer) NULL},
+};
+X
+X
+X
+static XtActionsRec actions[] = {
+X    {"Quit",		(XtActionProc) Quit},
+X    {"EnteredTime",	(XtActionProc) EnteredTime},
+X    {"EnteredDate",	(XtActionProc) EnteredDate},
+X    {"EnteredWarnings",	(XtActionProc) EnteredWarnings},
+X    {"Confirmed",	(XtActionProc) Confirmed},
+X    {"ShowClickToZero",	(XtActionProc) ShowClickToZero},
+X    {"ShowSnoozeValue",	(XtActionProc) ShowSnoozeValue}
+};
+X
+X
+X
+AlarmData       xalarm;
+X
+X
+X
+/* 
+X * The main entry.  DoAlarm() and StartDaemon() never return.
+X */
+X
+int main (argc, argv)
+X  int 	   argc;
+X  String  *argv;
+{
+X    Instance   instance;
+X    String    *args;
+X    int        days;
+X
+X    instance = PreParseArgList (argv, &argc, &days, &args);
+X
+X    RestartDiedAlarms (args, argc);
+X
+X    switch (instance) {
+X     case RestartOnly:
+X	break;
+X     case Alarm:
+X	xalarm.saveonshutdown = True;
+X	DoAlarm (args, argc);
+X     case Daemon:
+X	xalarm.saveonshutdown = False;
+X	StartDaemon (days, args, argc);
+X     case File:
+X	xalarm.saveonshutdown = False;
+X	(void) ParseAlarmFile (days, args, argc);
+X    }
+X
+X    return (0);
+}
+X
+X
+X
+/* 
+X * Do the actual alarm as given.
+X */
+X
+void DoAlarm (argv, argc)
+X  String  *argv;
+X  int 	   argc;
+{
+X    ApplData   data;
+X
+X    xalarm.toplevel = XtAppInitialize (&xalarm.appcon, "XAlarm",
+X				       options, XtNumber (options), &argc, argv,
+X				       (String *) NULL, (ArgList) NULL, 0);
+X
+X    XtGetApplicationResources (xalarm.toplevel, &data, resources, XtNumber (resources),
+X			       (ArgList) NULL, 0);
+X
+X    XtAppAddActions (xalarm.appcon, actions, XtNumber (actions));
+X
+X    /* 
+X     * First initialise; exit or fork.
+X     * We have to make the alarm widget first, as SetAlarm() may popup 
+X     * a dialog box which may need to know the alarm widget's label.
+X     */
+X
+X    Initialise (*argv, &data);
+X    CreateAlarmWidget (Concat (argv, argc));
+X    SetAlarm (&data);
+X
+X    XtAppMainLoop (xalarm.appcon);
+}       
+X	       
+X	       
+X
+/* 
+X * If the time is not given, pop up and ask for it, otherwise add the 
+X * time outs.  Get the warnings first, tho.
+X */
+X
+static void SetAlarm (data)
+X  ApplData  *data;
+{
+X    char   time[TEXT];
+X
+X    (void) sprintf (time, "+%s", data->pester);
+X    xalarm.pester = (int) (TimeToMilliSeconds (time) / MSECSIN1MIN);
+X    (void) sprintf (time, "+%s", data->snooze);
+X    xalarm.snooze = (int) (TimeToMilliSeconds (time) / MSECSIN1MIN);
+X
+X    xalarm.warningwords = data->warningwords;
+X    xalarm.confirm = data->confirm;
+X    xalarm.proggie = data->proggie;
+X    xalarm.geometry = data->geometry;
+X    xalarm.volume = (data->volume - 50) * 2;
+X    if (data->quiet)
+X	xalarm.alarmaudio = xalarm.warningaudio = QUIET;
+X    else {
+X	xalarm.alarmaudio = data->alarmaudio;
+X	xalarm.warningaudio = data->warnaudio;
+X    }
+X
+X    xalarm.warningwidget = NONWIDGET;
+X    xalarm.whenid = xalarm.warningid = xalarm.alarmid = xalarm.pesterid = NONID;
+X
+X    /* 
+X     * Get the date & time from the date & time string,
+X     * and the warnings from the warnings string...
+X     */
+X    xalarm.dateout = DateToMilliSeconds (xalarm.datestr = data->date);
+X    xalarm.timeout = TimeToMilliSeconds (xalarm.timestr = data->time);
+X    SetWarningTimes (xalarm.warningsstr = data->warnings);
+X
+X    /* 
+X     * If ``invalid'' (may not have been given anyway), popup.
+X     * If ok, but we want confirmation, popup to check.  (this is cheating!)
+X     * There is no waiting for confirmation if the timeout is 0 - the user
+SHAR_EOF
+true || echo 'restore of xalarm.c failed'
+fi
+echo 'End of  part 4'
+echo 'File xalarm.c is continued in part 5'
+echo 5 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

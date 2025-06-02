@@ -1,0 +1,3585 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i101:  wwfs - WorldWide File System, Part16/22
+Message-ID: <1994Jan17.202441.20352@sparky.sterling.com>
+X-Md4-Signature: 73dde9757a235b3572248fd7a4c8f345
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Nara Institute of Science and Technology, Japan
+Date: Mon, 17 Jan 1994 20:24:41 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 101
+Archive-name: wwfs/part16
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config/misc_rpc.c config/os-aix3.h config/os-bsd386.h
+#   csd/acc.c csd/bfs.c csd/callout.c csd/cs.c csd/icmp.c csd/log.c
+#   libmm/libmm.pl mosaic/dirutil.pl rpc/cs_prot.x rpc/nfs_prot.h
+#   rpc/nfs_prot_clnt.c wwmount/wwumount.c
+# Wrapped by kent@sparky on Sun Jan 16 17:48:37 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 22)."'
+if test -f 'config/misc_rpc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/misc_rpc.c'\"
+else
+  echo shar: Extracting \"'config/misc_rpc.c'\" \(5154 characters\)
+  sed "s/^X//" >'config/misc_rpc.c' <<'END_OF_FILE'
+X/*
+X * extracted from amd5.3b1/misc_rpc.c
+X * I think neither 'amd' copyright nor WWFS copyright apply.
+X */
+X
+X#include "am.h"
+X
+X/*
+X * Early RPC seems to be missing these..
+X * Extracted from the RPC 3.9 sources as indicated
+X */
+X
+X#ifdef NEED_XDR_POINTER
+X/* @(#)xdr_reference.c	1.1 87/11/04 3.9 RPCSRC */
+X/*
+X * Sun RPC is a product of Sun Microsystems, Inc. and is provided for
+X * unrestricted use provided that this legend is included on all tape
+X * media and as a part of the software program in whole or part.  Users
+X * may copy or modify Sun RPC without charge, but are not authorized
+X * to license or distribute it to anyone else except as part of a product or
+X * program developed by the user.
+X * 
+X * SUN RPC IS PROVIDED AS IS WITH NO WARRANTIES OF ANY KIND INCLUDING THE
+X * WARRANTIES OF DESIGN, MERCHANTIBILITY AND FITNESS FOR A PARTICULAR
+X * PURPOSE, OR ARISING FROM A COURSE OF DEALING, USAGE OR TRADE PRACTICE.
+X * 
+X * Sun RPC is provided with no support and without any obligation on the
+X * part of Sun Microsystems, Inc. to assist in its use, correction,
+X * modification or enhancement.
+X * 
+X * SUN MICROSYSTEMS, INC. SHALL HAVE NO LIABILITY WITH RESPECT TO THE
+X * INFRINGEMENT OF COPYRIGHTS, TRADE SECRETS OR ANY PATENTS BY SUN RPC
+X * OR ANY PART THEREOF.
+X * 
+X * In no event will Sun Microsystems, Inc. be liable for any lost revenue
+X * or profits or other special, indirect and consequential damages, even if
+X * Sun has been advised of the possibility of such damages.
+X * 
+X * Sun Microsystems, Inc.
+X * 2550 Garcia Avenue
+X * Mountain View, California  94043
+X */
+X
+X
+X/*
+X * xdr_pointer():
+X *
+X * XDR a pointer to a possibly recursive data structure. This
+X * differs with xdr_reference in that it can serialize/deserialiaze
+X * trees correctly.
+X *
+X *  What's sent is actually a union:
+X *
+X *  union object_pointer switch (boolean b) {
+X *  case TRUE: object_data data;
+X *  case FALSE: void nothing;
+X *  }
+X *
+X * > objpp: Pointer to the pointer to the object.
+X * > obj_size: size of the object.
+X * > xdr_obj: routine to XDR an object.
+X *
+X */
+Xbool_t
+Xxdr_pointer(xdrs,objpp,obj_size,xdr_obj)
+X	register XDR *xdrs;
+X	char **objpp;
+X	u_int obj_size;
+X	xdrproc_t xdr_obj;
+X{
+X
+X	bool_t more_data;
+X
+X	more_data = (*objpp != NULL);
+X	if (! xdr_bool(xdrs,&more_data)) {
+X		return (FALSE);
+X	}
+X	if (! more_data) {
+X		*objpp = NULL;
+X		return (TRUE);
+X	}
+X	return (xdr_reference(xdrs,objpp,obj_size,xdr_obj));
+X}
+X#endif /* NEED_XDR_POINTER */
+X
+X#ifdef NEED_CLNT_SPERRNO
+X/* @(#)clnt_perror.c	1.1 87/11/04 3.9 RPCSRC */
+X/*
+X * Sun RPC is a product of Sun Microsystems, Inc. and is provided for
+X * unrestricted use provided that this legend is included on all tape
+X * media and as a part of the software program in whole or part.  Users
+X * may copy or modify Sun RPC without charge, but are not authorized
+X * to license or distribute it to anyone else except as part of a product or
+X * program developed by the user.
+X * 
+X * SUN RPC IS PROVIDED AS IS WITH NO WARRANTIES OF ANY KIND INCLUDING THE
+X * WARRANTIES OF DESIGN, MERCHANTIBILITY AND FITNESS FOR A PARTICULAR
+X * PURPOSE, OR ARISING FROM A COURSE OF DEALING, USAGE OR TRADE PRACTICE.
+X * 
+X * Sun RPC is provided with no support and without any obligation on the
+X * part of Sun Microsystems, Inc. to assist in its use, correction,
+X * modification or enhancement.
+X * 
+X * SUN MICROSYSTEMS, INC. SHALL HAVE NO LIABILITY WITH RESPECT TO THE
+X * INFRINGEMENT OF COPYRIGHTS, TRADE SECRETS OR ANY PATENTS BY SUN RPC
+X * OR ANY PART THEREOF.
+X * 
+X * In no event will Sun Microsystems, Inc. be liable for any lost revenue
+X * or profits or other special, indirect and consequential damages, even if
+X * Sun has been advised of the possibility of such damages.
+X * 
+X * Sun Microsystems, Inc.
+X * 2550 Garcia Avenue
+X * Mountain View, California  94043
+X */
+X
+Xstruct rpc_errtab {
+X	enum clnt_stat status;
+X	char *message;
+X};
+X
+Xstatic struct rpc_errtab  rpc_errlist[] = {
+X	{ RPC_SUCCESS, 
+X		"RPC: Success" }, 
+X	{ RPC_CANTENCODEARGS, 
+X		"RPC: Can't encode arguments" },
+X	{ RPC_CANTDECODERES, 
+X		"RPC: Can't decode result" },
+X	{ RPC_CANTSEND, 
+X		"RPC: Unable to send" },
+X	{ RPC_CANTRECV, 
+X		"RPC: Unable to receive" },
+X	{ RPC_TIMEDOUT, 
+X		"RPC: Timed out" },
+X	{ RPC_VERSMISMATCH, 
+X		"RPC: Incompatible versions of RPC" },
+X	{ RPC_AUTHERROR, 
+X		"RPC: Authentication error" },
+X	{ RPC_PROGUNAVAIL, 
+X		"RPC: Program unavailable" },
+X	{ RPC_PROGVERSMISMATCH, 
+X		"RPC: Program/version mismatch" },
+X	{ RPC_PROCUNAVAIL, 
+X		"RPC: Procedure unavailable" },
+X	{ RPC_CANTDECODEARGS, 
+X		"RPC: Server can't decode arguments" },
+X	{ RPC_SYSTEMERROR, 
+X		"RPC: Remote system error" },
+X	{ RPC_UNKNOWNHOST, 
+X		"RPC: Unknown host" },
+X/*	{ RPC_UNKNOWNPROTO,
+X		"RPC: Unknown protocol" },*/
+X	{ RPC_PMAPFAILURE, 
+X		"RPC: Port mapper failure" },
+X	{ RPC_PROGNOTREGISTERED, 
+X		"RPC: Program not registered"},
+X	{ RPC_FAILED, 
+X		"RPC: Failed (unspecified error)"}
+X};
+X
+X
+X/*
+X * This interface for use by clntrpc
+X */
+Xchar *
+Xclnt_sperrno(stat)
+X	enum clnt_stat stat;
+X{
+X	int i;
+X
+X	for (i = 0; i < sizeof(rpc_errlist)/sizeof(struct rpc_errtab); i++) {
+X		if (rpc_errlist[i].status == stat) {
+X			return (rpc_errlist[i].message);
+X		}
+X	}
+X	return ("RPC: (unknown error code)");
+X}
+X
+X#endif /* NEED_CLNT_SPERRNO */
+END_OF_FILE
+  if test 5154 -ne `wc -c <'config/misc_rpc.c'`; then
+    echo shar: \"'config/misc_rpc.c'\" unpacked with wrong size!
+  fi
+  # end of 'config/misc_rpc.c'
+fi
+if test -f 'config/os-aix3.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-aix3.h'\"
+else
+  echo shar: Extracting \"'config/os-aix3.h'\" \(5183 characters\)
+  sed "s/^X//" >'config/os-aix3.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-aix3.h,v 5.2.2.2 1992/05/31 16:38:49 jsp Exp $
+X *
+X * AIX 3.1 definitions for Amd (automounter)
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#define	VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_4
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_AIX3
+X
+X/*
+X * Does this OS have NDBM support?
+X */
+X#define OS_HAS_NDBM
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * Pick up BSD bits from include files
+X * Try for 4.4 compatibility if available (AIX 3.2 and later)
+X */
+X#define	_BSD 44
+X
+X/*
+X * No mntent info on AIX 3
+X */
+X#undef	MNTENT_HDR
+X#define	MNTENT_HDR <sys/mntctl.h>
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	MNT_NFS
+X#define	MOUNT_TYPE_UFS	MNT_JFS
+X#undef MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"jfs"
+X
+X/*
+X * How to unmount filesystems
+X */
+X#undef MOUNT_TRAP
+X#define	MOUNT_TRAP(type, mnt, flag, mnt_data) \
+X	aix3_mount(mnt->mnt_fsname, mnt->mnt_dir, flag, type, mnt_data, mnt->mnt_opts)
+X#undef	UNMOUNT_TRAP
+X#define	UNMOUNT_TRAP(mnt)	uvmount(mnt->mnt_passno, 0)
+X
+X
+X/*
+X * Byte ordering
+X */
+X#ifndef BYTE_ORDER
+X#include <sys/machine.h>
+X#endif /* BYTE_ORDER */
+X
+X#undef ARCH_ENDIAN
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X#define ARCH_ENDIAN "little"
+X#else
+X#if BYTE_ORDER == BIG_ENDIAN
+X#define ARCH_ENDIAN "big"
+X#else
+XXXX - Probably no hope of running Amd on this machine!
+X#endif /* BIG */
+X#endif /* LITTLE */
+X
+X/*
+X * Miscellaneous AIX 3 bits
+X */
+X#define	NEED_MNTOPT_PARSER
+X#define	SHORT_MOUNT_NAME
+X
+X#define	MNTMAXSTR       128
+X
+X#define	MNTTYPE_UFS	"jfs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X
+X#define	NFS_HDR "misc-aix3.h"
+X#define	UFS_HDR "misc-aix3.h"
+X#undef NFS_FH_DREF
+X#define	NFS_FH_DREF(dst, src) { (dst) = *(src); }
+X#undef NFS_SA_DREF
+X#define	NFS_SA_DREF(dst, src) { (dst).addr = *(src); }
+X#define	M_RDONLY MNT_READONLY
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_AIX3_STYLE
+X
+X/*
+X * The data for the mount syscall needs the path in addition to the
+X * host name since that is the only source of information about the
+X * mounted filesystem.
+X#define	NFS_ARGS_NEEDS_PATH
+X */
+X
+X#define	NFS_LOMAP	34
+X#define	NFS_HIMAP	99
+X#define NFS_ERROR_MAPPING \
+Xstatic nfs_errormap[] = {	     0,75,77,99,99,99, \
+X			99,99,99,99,99,78,99,99,99,79, \
+X			99,99,70,99,35,36,37,38,39,40, \
+X			41,42,43,44,45,46,47,48,49,50, \
+X			51,52,53,54,55,56,57,58,60,61, \
+X			64,65,99,67,68,62,63,66,69,68, \
+X			99,99,99,71,99,99,99,99,99,99 \
+X			};
+X
+X#define	MOUNT_HELPER_SOURCE "mount_aix.c"
+X
+X/*
+X * Need this too
+X */
+X#include <time.h>
+END_OF_FILE
+  if test 5183 -ne `wc -c <'config/os-aix3.h'`; then
+    echo shar: \"'config/os-aix3.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-aix3.h'
+fi
+if test -f 'config/os-bsd386.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config/os-bsd386.h'\"
+else
+  echo shar: Extracting \"'config/os-bsd386.h'\" \(5150 characters\)
+  sed "s/^X//" >'config/os-bsd386.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1990 Jan-Simon Pendry
+X * Copyright (c) 1990 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1990 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: os-bsd44.h,v 5.2.2.1 1992/02/09 15:10:11 jsp beta $
+X *
+X * BSD/386 (and possibly other NET2 derivatives) definitions for Amd
+X */
+X
+X/*
+X * Does the compiler grok void *
+X */
+X#define	VOIDP
+X
+X/*
+X * Which version of the Sun RPC library we are using
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	RPC_4
+X
+X/*
+X * Which version of the NFS interface are we using.
+X * This is the implementation release number, not
+X * the protocol revision number.
+X */
+X#define	NFS_44
+X#define HAS_TCP_NFS
+X
+X/*
+X * Does this OS have NDBM support?
+X */
+X#define OS_HAS_NDBM
+X
+X/*
+X * BSD/386 doesn't provide NIS.
+X */
+X#undef HAS_NIS_MAPS
+X
+X/*
+X * The mount table is obtained from the kernel
+X */
+X#undef	UPDATE_MTAB
+X
+X/*
+X * No mntent info on BSD/386
+X */
+X#undef	MNTENT_HDR
+X
+X/*
+X * Name of filesystem types
+X */
+X#define	MOUNT_TYPE_NFS	MOUNT_NFS
+X#define	MOUNT_TYPE_UFS	MOUNT_UFS
+X#undef MTAB_TYPE_UFS
+X#define	MTAB_TYPE_UFS	"ufs"
+X#define	MTAB_TYPE_MFS	"mfs"
+X
+X/*
+X * How to unmount filesystems
+X */
+X#undef UNMOUNT_TRAP
+X#undef	NEED_UMOUNT_FS
+X#define	NEED_UMOUNT_BSD
+X
+X/*
+X * How to copy an address into an NFS filehandle
+X */
+X#undef NFS_SA_DREF
+X#define	NFS_SA_DREF(dst, src) { \
+X		(dst).addr = (struct sockaddr *) (src); \
+X		(dst).sotype = SOCK_DGRAM; \
+X		(dst).proto = 0; \
+X	}
+X
+X/*
+X * Byte ordering
+X */
+X#ifndef BYTE_ORDER
+X#include <machine/endian.h>
+X#endif /* BYTE_ORDER */
+X
+X#undef ARCH_ENDIAN
+X#if BYTE_ORDER == LITTLE_ENDIAN
+X#define ARCH_ENDIAN "little"
+X#else
+X#if BYTE_ORDER == BIG_ENDIAN
+X#define ARCH_ENDIAN "big"
+X#else
+XXXX - Probably no hope of running Amd on this machine!
+X#endif /* BIG */
+X#endif /* LITTLE */
+X
+X/*
+X * Miscellaneous BSD/386 bits
+X */
+X#define	NEED_MNTOPT_PARSER
+X#define	SHORT_MOUNT_NAME
+X
+X#define	MNTMAXSTR       128
+X
+X#define	MNTTYPE_UFS	"ufs"		/* Un*x file system */
+X#define	MNTTYPE_NFS	"nfs"		/* network file system */
+X#define	MNTTYPE_MFS	"mfs"		/* memory file system */
+X#define	MNTTYPE_IGNORE	"ignore"	/* No type specified, ignore this entry */
+X
+X#define	M_RDONLY	MNT_RDONLY
+X#define	M_SYNC		MNT_SYNCHRONOUS
+X#define	M_NOEXEC	MNT_NOEXEC
+X#define	M_NOSUID	MNT_NOSUID
+X#define	M_NODEV		MNT_NODEV
+X
+X#define	MNTOPT_SOFT	"soft"		/* soft mount */
+X#define	MNTOPT_INTR	"intr"		/* interrupts allowed */
+X
+Xstruct mntent {
+X	char	*mnt_fsname;	/* name of mounted file system */
+X	char	*mnt_dir;	/* file system path prefix */
+X	char	*mnt_type;	/* MNTTYPE_* */
+X	char	*mnt_opts;	/* MNTOPT* */
+X	int	mnt_freq;	/* dump frequency, in days */
+X	int	mnt_passno;	/* pass number on parallel fsck */
+X};
+X
+X/*
+X * Type of a file handle
+X */
+X#undef NFS_FH_TYPE
+X#define	NFS_FH_TYPE	nfsv2fh_t *
+X
+X/*
+X * How to get a mount list
+X */
+X#undef	READ_MTAB_FROM_FILE
+X#define	READ_MTAB_BSD_STYLE
+X
+X/*
+X * The data for the mount syscall needs the path in addition to the
+X * host name since that is the only source of information about the
+X * mounted filesystem.
+X */
+X#define	NFS_ARGS_NEEDS_PATH
+X
+X/*
+X * struct statfs is in <sys/mount.h>
+X */
+X#undef STATFS_HDR
+X
+X/*
+X * BSD/386 has RE support built in
+X */
+X#undef RE_HDR
+X#define RE_HDR <regexp.h>
+X
+X/*
+X * prototype for index(), strdup() etc.
+X */
+X#include <string.h>
+END_OF_FILE
+  if test 5150 -ne `wc -c <'config/os-bsd386.h'`; then
+    echo shar: \"'config/os-bsd386.h'\" unpacked with wrong size!
+  fi
+  # end of 'config/os-bsd386.h'
+fi
+if test -f 'csd/acc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/acc.c'\"
+else
+  echo shar: Extracting \"'csd/acc.c'\" \(5191 characters\)
+  sed "s/^X//" >'csd/acc.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* Access control functions */
+Xstatic char *AtFSid = "$Header: acc.c[109.0] Wed Nov 24 03:47:01 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/file.h>		/* for R_OK */
+X#ifndef R_OK
+X#include <unistd.h>
+X#endif
+X#include <ctype.h>
+X#include <string.h>		/* for strchr */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X/* all access control data is chained on acc_head with wf_accq */
+Xtypedef struct wf_accq {
+X	qelem	q;
+X	wf_acc	*accp;
+X	char	*dir;
+X} wf_accq;
+X
+Xextern qelem acc_head;
+Xqelem acc_head = { &acc_head, &acc_head };
+X
+Xstatic wf_cap acc_cap[] = {
+X	{ "nfs", WF_ACC_NFS },
+X	{ "uip", WF_ACC_UIP },
+X	{ "fdp", WF_ACC_FDP },
+X	{ "raw", WF_ACC_RAW },
+X	{ NULL, 0 }
+X};
+X
+Xstatic unsigned long
+Xwildcard_inet_addr(name, replacement)	/* in HOST byte order for later use */
+Xchar *name;
+Xunsigned char replacement;
+X{
+X	unsigned long ip;
+X	char *p;
+X	int i;
+X	unsigned char *r;
+X
+X	if (p = strchr(name, '*')) {
+X		/*
+X		 * IP address with wildcard; "163.221.*"
+X		 * We do not accept network number 0 for now, sorry.
+X		 */
+X		if (p == name) {
+X			/* star alone: class A to class C */
+X			if (replacement == 0)
+X				ip = 0;
+X			else /* if (replacement == 255) */
+X				ip = inet_addr("0xdf.0xff.0xff.0xff");
+X		} else {
+X			/*
+X			 * Ensure trailing dot is present.
+X			 *
+X			 * Probably tricky, undocumented feature:
+X			 * 133.1. --> 133.1.0.0
+X			 * 133.1  --> 133.0.0.1
+X			 * We use the former one.
+X			 */
+X			if (*(p-1) == '.') {
+X				*p = '\0';
+X			} else {
+X				*p = '.';
+X			}
+X			ip = inet_addr(name);
+X			*p = '*';
+X		}
+X	} else {
+X		ip = inet_addr(name);
+X	}
+X
+X#ifndef	INADDR_NONE
+X#define	INADDR_NONE	0xffffffff
+X#endif
+X	if ((ip & INADDR_NONE) == INADDR_NONE) {
+X		dlog("Invalid address specification: %s", name);
+X	} else {
+X		r = (char *) &ip;
+X		for (i = 0; i < sizeof(ip); ++i) {
+X			if (r[i] == 0) r[i] = replacement;
+X		}
+X		ip = ntohl(ip);
+X	}
+X	return ip;
+X}
+X
+Xstatic wf_acc *new_accp;
+Xstatic wf_accq *new_accq;
+X
+Xint
+Xacc_bind(name, value)
+Xchar *name;
+Xchar *value;
+X{
+X	char *p;
+X	wf_acc *accp;
+X	unsigned long from, to;
+X	long flag;
+X
+X	if (isdigit(name[0])) {
+X		if (p = strchr(name, '-')) {
+X			*p = '\0';
+X			from = wildcard_inet_addr(name, 0);
+X			to = wildcard_inet_addr(p+1, 255);
+X			*p = '-';
+X		} else {
+X			from = wildcard_inet_addr(name, 0);
+X			to = wildcard_inet_addr(name, 255);
+X		}
+X		if (from == INADDR_NONE || to == INADDR_NONE) {
+X			dlog("invalid IP address");
+X			return -1;
+X		}
+X		flag = parse_cap(acc_cap, value);
+X		if (flag < 0) {
+X			dlog("invalid flag");
+X			return -1;
+X		}
+X	} else {
+X		/*
+X		 * Domain name or special keywords?
+X		 * Just reject them for now.
+X		 */
+X		dlog("Not an IP address");
+X		return -1;
+X	}
+X	accp = ALLOC(wf_acc);
+X	accp->from = from;
+X	accp->to = to;
+X	accp->flag = flag;
+X	q_insert(accp, new_accp);
+X	return 0;
+X}
+X
+Xwf_acc *
+Xacc_load(dir)
+Xchar *dir;
+X{
+X	char path[MAXPATHLEN];
+X
+X	new_accp = (wf_acc *) q_alloc();
+X	sprintf(path, "%s/vol/%s/access", cs_topdir, dir);
+X	if (access(path, F_OK) < 0 || parse_conf(path, acc_bind) < 0) {
+X		FREE(new_accp);
+X		return (wf_acc *)0;
+X	}
+X	new_accq = ALLOC(wf_accq);
+X	new_accq->accp = new_accp;
+X	new_accq->dir = strdup(dir);
+X	q_insert(new_accq, LAST(wf_accq, &acc_head));
+X	return new_accp;
+X}
+X
+X/* find access control data by directory name */
+Xwf_acc *
+Xacc_findname(dir)
+Xchar *dir;
+X{
+X	wf_accq *accq;
+X
+X	/* search memory cache */
+X	ITER(accq, wf_accq, &acc_head) {
+X		if (strcmp(accq->dir, dir) == 0) {
+X			return accq->accp;
+X		}
+X	}
+X
+X	/* search disk cache */
+X	return acc_load(dir);
+X}
+X
+Xint
+Xacc_check(accp, ip, mask)
+Xwf_acc *accp;
+Xunsigned long ip;
+Xlong mask;
+X{
+X	unsigned long host_ip;
+X	wf_acc *p;
+X
+X	host_ip = ntohl(ip);
+X	ITER(p, wf_acc, &accp->q) {
+X		/* comparison in HOST byte order */
+X		if (p->from <= host_ip && host_ip <= p->to
+X		    && (p->flag & mask)) {
+X			return 0;
+X		}
+X	}
+X	return -1;
+X}
+X
+END_OF_FILE
+  if test 5191 -ne `wc -c <'csd/acc.c'`; then
+    echo shar: \"'csd/acc.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/acc.c'
+fi
+if test -f 'csd/bfs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/bfs.c'\"
+else
+  echo shar: Extracting \"'csd/bfs.c'\" \(5503 characters\)
+  sed "s/^X//" >'csd/bfs.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/*
+X * Bootstrap file system. Provide service address information.
+X * Gross hack!  Talented ladies&gentlemen should not read further!
+X */
+Xstatic char *AtFSid = "$Header: bfs.c[109.0] Wed Nov 24 03:47:03 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <string.h>	/* for strlen */
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X#if 0
+Xwf_proto proto_host = {
+X	"host", host_getattr, err_getattr_miss,
+X	err_lookup, err_lookup_miss, err_readlink,
+X	host_read, err_read_miss, err_readdir, err_readdir_miss,
+X	err_getuda, err_keepalive, err_close, err_shutdown, 0
+X};
+X
+Xwf_proto proto_cwd = {
+X	"cwd", cwd_getattr, err_getattr_miss,
+X	err_lookup, err_lookup_miss, err_readlink,
+X	cwd_read, err_read_miss, err_readdir, err_readdir_miss,
+X	err_getuda, err_keepalive, err_close, err_shutdown, 0
+X};
+X#endif
+X
+Xwf_proto proto_fh = {
+X	"fh", fh_getattr, err_getattr_miss,
+X	err_lookup, err_lookup_miss, err_readlink,
+X	fh_read, err_read_miss, err_readdir, err_readdir_miss,
+X	err_getuda, err_keepalive, err_close, err_shutdown, 0
+X};
+X
+Xvoid
+Xbfs_start()
+X{
+X#if 0
+X	wf_vol *host_volp, *cwd_volp;
+X
+X	host_volp = vol_alloc();
+X	host_volp->id = WF_HOST_VOL_ID;
+X	host_volp->name = "host(fake)";
+X	host_volp->dir = "host(fake)";
+X
+X	cwd_volp = vol_alloc();
+X	cwd_volp->id = WF_CWD_VOL_ID;
+X	cwd_volp->name = "cwd(fake)";
+X	cwd_volp->dir = "cwd(fake)";
+X#endif
+X	wf_vol *fh_volp;
+X
+X	fh_volp = vol_alloc();
+X	fh_volp->id = WF_FH_VOL_ID;
+X	fh_volp->name = "fh(fake)";
+X	fh_volp->dir = "fh(fake)";
+X}
+X
+X/*
+X * We do bypass protocol switch here, since this kind of ugly hack is
+X * only necessary in the NFS.
+X */
+X
+Xstatic void
+Xfake_attr(attrp, size, fhp)
+Xfattr *attrp;
+Xlong size;
+Xwf_fh *fhp;
+X{
+X	bzero(attrp, sizeof(*attrp));
+X	/* hostname in ASCIZ */
+X	attr_initfile(attrp, size);
+X	attrp->fsid = fhp->child_vol;
+X	attrp->fileid = fhp->file_id;
+X}
+X
+X#if 0
+Xvoid
+Xhost_fake(c)
+Xwf_thrd *c;
+X{
+X	static wf_file file;
+X	fake_attr(&file.fattr, strlen(cs_hostname)+1, c->fhp);
+X	c->filep = &file;
+X}
+X
+Xvoid
+Xhost_getattr(c)
+Xwf_thrd *c;
+X{
+X	host_fake(c);
+X	nfs_getattr_reply(c, WF_REP_OK);
+X}
+X
+Xvoid
+Xhost_read(c)
+Xwf_thrd *c;
+X{
+X	static fattr attr;
+X	int namelen;
+X
+X	namelen = strlen(cs_hostname)+1;
+X	fake_attr(&attr, namelen, c->fhp);
+X	nfs_read_reply(c, WF_REP_OK, &attr, namelen, cs_hostname);
+X}
+X
+Xvoid
+Xcwd_getattr(c)
+Xwf_thrd *c;
+X{
+X	int ret;
+X	ret = cwd_fake(c, c->fhp);
+X	nfs_getattr_reply(c, ret);
+X}
+X
+Xvoid
+Xcwd_read(c)
+Xwf_thrd *c;
+X{
+X	static fattr attr;
+X	wf_vol *nfs_volp;
+X	int namelen;
+X	char path[MAXPATHLEN];
+X
+X	nfs_volp = vol_findid(c->fhp->parent_vol);
+X	if (nfs_volp == NULL) {
+X		nfs_read_reply(c, WF_ERR_STALE, 0, 0, 0);
+X		return;
+X	}
+X	c->dirp = dir_findcache(nfs_volp, c->fhp->child_dir);
+X	if (c->dirp == (wf_dir *)0) {
+X		nfs_read_reply(c, WF_ERR_STALE, 0, 0, 0);
+X		return;
+X	}
+X	namelen = strlen(nfs_volp->dir) + strlen(nfs_volp->name)
+X		+ strlen(c->dirp->name) + 3;
+X	fake_attr(&attr, namelen, c->fhp);
+X	sprintf(path, "%s/%s%s/", nfs_volp->dir,
+X		nfs_volp->name, c->dirp->name);
+X	nfs_read_reply(c, WF_REP_OK, &attr, namelen, path);
+X}
+X
+X#endif
+X
+Xint
+Xcwd_fake(c, fhp)
+Xwf_thrd *c;
+Xwf_fh *fhp;
+X{
+X	static wf_file file;
+X	wf_vol *nfs_volp;
+X
+X	nfs_volp = vol_findid(fhp->parent_vol);
+X	if (nfs_volp == NULL) {
+X		return WF_ERR_STALE;
+X	}
+X	c->dirp = dir_findcache(nfs_volp, fhp->child_dir);
+X	if (c->dirp == (wf_dir *)0) {
+X		return WF_ERR_STALE;
+X	}
+X	fake_attr(&file.fattr, strlen(nfs_volp->dir)
+X		  + strlen(nfs_volp->name) + strlen(c->dirp->name) + 3, fhp);
+X	c->filep = &file;
+X	return WF_REP_OK;
+X}
+X
+X#define FH_STRING_LEN	36
+Xvoid
+Xfh_fake(c)
+Xwf_thrd *c;
+X{
+X	static wf_file file;
+X	fake_attr(&file.fattr, FH_STRING_LEN, c->fhp);
+X	c->filep = &file;
+X}
+X
+Xvoid
+Xfh_getattr(c)
+Xwf_thrd *c;
+X{
+X	fh_fake(c);
+X	nfs_getattr_reply(c, WF_REP_OK);
+X}
+X
+Xvoid
+Xfh_read(c)
+Xwf_thrd *c;
+X{
+X	fattr attr;
+X	char fh_string[FH_STRING_LEN];
+X
+X	fake_attr(&attr, FH_STRING_LEN, c->fhp);
+X	sprintf(fh_string, "%08x.%08x.%08x.%08x",
+X		c->fhp->parent_vol, c->fhp->parent_dir,
+X		c->fhp->parent_vol, c->fhp->child_dir);
+X	/*
+X	 * we don't use child_vol here since it's WF_FH_VOL_ID, a fake.
+X	 */
+X	nfs_read_reply(c, WF_REP_OK, &attr, FH_STRING_LEN, fh_string);
+X}
+X
+END_OF_FILE
+  if test 5503 -ne `wc -c <'csd/bfs.c'`; then
+    echo shar: \"'csd/bfs.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/bfs.c'
+fi
+if test -f 'csd/callout.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/callout.c'\"
+else
+  echo shar: Extracting \"'csd/callout.c'\" \(5388 characters\)
+  sed "s/^X//" >'csd/callout.c' <<'END_OF_FILE'
+X/* callout; borrowed and modified amd5.3alpha14 source */
+Xstatic char *AtFSid = "$Header: callout.c[109.0] Wed Nov 24 03:47:03 1993 youki-k@is.aist-nara.ac.jp saved $";
+X/*
+X * Copyright (c) 1989 Jan-Simon Pendry
+X * Copyright (c) 1989 Imperial College of Science, Technology & Medicine
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Jan-Simon Pendry at Imperial College, London.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the University of
+X *      California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X *
+X *	%W% (Berkeley) %G%
+X *
+X * $Id: clock.c,v 5.2.2.1 1992/02/09 15:08:20 jsp beta $
+X *
+X */
+X
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+X/*
+X * Callouts.
+X *
+X * Modelled on kernel object of the same name.
+X * See usual references.
+X *
+X * Use of a heap-based mechanism was rejected:
+X * 1.  more complex implementation needed.
+X * 2.  not obvious that a list is too slow for Amd.
+X */
+X
+Xstruct callout {
+X	qelem	q;			/* list of callouts */
+X	void	(*c_fn)();		/* function to call */
+X	void	*c_closure;		/* closure to pass to call */
+X	time_t	c_time;			/* time of call */
+X};
+X
+Xextern qelem callouts;
+Xqelem callouts = { &callouts, &callouts };
+Xtime_t next_softclock;			/* Time of next call to softclock() */
+X
+X/* Schedule a callout */
+Xvoid *
+Xtimeout_set(t, fn, closure)
+Xtime_t t;
+Xvoid (*fn)();
+Xvoid *closure;
+X{
+X	callout *cp;
+X
+X	/*
+X	 * Allocate and fill in a new callout structure
+X	 */
+X	callout *cpnew = ALLOC(struct callout);
+X	cpnew->c_closure = closure;
+X	cpnew->c_fn = fn;
+X	cpnew->c_time = t;
+X
+X	if (t < next_softclock)
+X		next_softclock = t;
+X
+X	/*
+X	 * Find the correct place in the list
+X	 */
+X	ITER(cp, callout, &callouts) {
+X		if (cp->c_time >= t)
+X			break;
+X	}
+X	q_insert(cpnew, PREV(callout, cp));
+X
+X	/*
+X	 * Return callout
+X	 */
+X	return (void *) cpnew;
+X}
+X
+X/* Reconfigure a callout */
+Xvoid
+Xtimeout_reset(t, cp)
+Xtime_t t;
+Xcallout *cp;
+X{
+X	callout *p;
+X
+X	if (cp->c_time < t) {
+X		if (NEXT(callout, &callouts) == cp) {
+X			next_softclock = MIN(t, NEXT(callout, cp)->c_time);
+X		}
+X		q_remove(cp);
+X		ITER(p, callout, &callouts) {
+X			if (p->c_time > t)
+X				break;
+X		}
+X		q_insert(cp, PREV(callout, p));
+X	} else if (t < cp->c_time) {
+X		q_remove(cp);
+X		REVITER(p, callout, &callouts) {
+X			if (p->c_time < t)
+X				break;
+X		}
+X		q_insert(cp, p);
+X		if (p == (callout *) &callouts) {
+X			next_softclock = t;
+X		}
+X	} else {
+X		syslog(LOG_WARNING, "unneeded timeout_reset");
+X	}
+X}
+X
+X/* De-schedule a callout */
+Xvoid
+Xtimeout_clear(cp)
+Xcallout *cp;
+X{
+X	q_remove(cp);
+X	FREE(cp);
+X	return;
+X}
+X
+X/* Reschedule after clock changed */
+Xvoid
+Xtimeout_reschedule(now, then)
+Xtime_t now;
+Xtime_t then;
+X{
+X	callout *cp;
+X
+X	ITER(cp, callout, &callouts) {
+X		if (cp->c_time >= now && cp->c_time <= then) {
+X#ifdef DEBUG
+X			dlog("rescheduling job %ld back %d seconds",
+X			     cp->c_time, cp->c_time - now);
+X#endif
+X			next_softclock = cp->c_time = now;
+X		}
+X	}
+X}
+X
+X/* Clock handler */
+Xint
+Xsoftclock()
+X{
+X	callout *cp;
+X
+X	realtime();
+X
+X	/* While there are more callouts waiting... */
+X	while ((cp = NEXT(callout, &callouts))
+X	       != HEAD(callout, &callouts)
+X	       && cp->c_time <= now) {
+X		/*
+X		 * Extract first from list, save fn & closure and
+X		 * unlink callout from list and free.  Finally call
+X		 * function.
+X		 * The free is done first because it is quite common
+X		 * that the function will call timeout() and try to
+X		 * allocate a callout
+X		 */
+X		void (*fn)() = cp->c_fn;
+X		void *closure = cp->c_closure;
+X		
+X		q_remove(cp);
+X		FREE(cp);
+X#ifdef DEBUG
+X		/*dlog("Calling %#x(%#x)", fn, closure);*/
+X#endif /* DEBUG */
+X		(*fn)(closure);
+X	}
+X
+X	/*
+X	 * Return number of seconds to next event, or 0 if there is no
+X	 * event.
+X	 */
+X	if (MORE(&callouts)) {
+X		cp = NEXT(callout, &callouts);
+X		return cp->c_time - now;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 5388 -ne `wc -c <'csd/callout.c'`; then
+    echo shar: \"'csd/callout.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/callout.c'
+fi
+if test -f 'csd/cs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/cs.c'\"
+else
+  echo shar: Extracting \"'csd/cs.c'\" \(5191 characters\)
+  sed "s/^X//" >'csd/cs.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* CS filesystem */
+Xstatic char *AtFSid = "$Header: cs.c[109.0] Wed Nov 24 03:47:04 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <rpc/rpc.h>
+X#include "wfs.h"
+X#include "global.h"
+X#include "util.h"
+X
+X/* translation of WFS semantics to CS semantics */
+Xstatic cs_stat cserr[] = {
+X	CS_OK,		/* WF_REP_OK: no error */
+X	CSERR_OTHER,	/* WF_ERR_PERM: Not owner *//* ROFS */
+X	CSERR_NOENT,	/* WF_ERR_NOENT: No such entity */
+X	CSERR_OTHER,	/* WF_ERR_IO: I/O error *//* ROFS */
+X	CSERR_OTHER,	/* WF_ERR_NXIO: No such device or address *//* NODEV */
+X	CSERR_ACCES,	/* WF_ERR_ACCES: Permission denied */
+X	CSERR_OTHER,	/* WF_ERR_EXIST: Given resource exists *//* ROFS */
+X	CSERR_OTHER,	/* WF_ERR_NODEV: No such device *//* NODEV */
+X	CSERR_NOTDIR,	/* WF_ERR_NOTDIR: Not a directory*/
+X	CSERR_ISDIR,	/* WF_ERR_ISDIR: Is a directory */
+X	CSERR_FBIG,	/* WF_ERR_FBIG: Resource too large */
+X	CSERR_NOSPC,	/* WF_ERR_NOSPC: No space left on device */
+X	CSERR_ROFS,	/* WF_ERR_ROFS: Read-only file system */
+X	CSERR_OTHER,	/* WF_ERR_NAMETOOLONG: Resource name too long *//*XXX*/
+X	CSERR_OTHER,	/* WF_ERR_NOTEMPTY: Directory not empty *//* ROFS */
+X	CSERR_OTHER,	/* WF_ERR_DQUOT: Disc quota exceeded *//* ROFS */
+X	CSERR_STALE,	/* WF_ERR_STALE: Stale file handle */
+X	CSERR_OTHER,	/* WF_ERR_WFLUSH: Write cache flushed *//* ROFS */
+X	CS_WAIT,	/* WF_REP_WAIT: Operation would block */
+X	CSERR_ALREADY,	/* WF_ERR_ALREADY: Operation already in progress */
+X	CSERR_PROTO,	/* WF_ERR_PROTO: Protocol not available */
+X	CSERR_NDOWN,	/* WF_ERR_NDOWN: Network is down */
+X	CSERR_NUNREACH,	/* WF_ERR_NUNREACH: Network is unreachable */
+X	CSERR_XABORT,	/* WF_ERR_XABORT: Transfer aborted */
+X	CSERR_TIMEOUT,	/* WF_ERR_TIMEOUT: Connection timed out */
+X	CSERR_REFUSED,	/* WF_ERR_REFUSED: Connection refused */
+X	CSERR_HDOWN,	/* WF_ERR_HDOWN: Host is down */
+X	CSERR_HUNREACH,	/* WF_ERR_HUNREACH: No route to host */
+X	CSERR_NQUOT,	/* WF_ERR_NQUOT: Network quota exceeded */
+X};
+X
+Xint
+Xcs_namei(pname, fhp)
+Xchar *pname;
+Xwf_fh *fhp;	/* result */
+X{
+X	int ret;
+X	ret = root_name2fh(pname, fhp);
+X	return cserr[ret];
+X}
+X
+Xlong
+Xcs_error(msg)
+Xchar *msg;
+X{
+X	long err_context;
+X
+X	return err_context;
+X}
+X
+Xextern wf_vol *root_vol;
+Xextern wf_dir *root_dir;
+X
+Xvoid
+Xcs_mount(c)
+Xwf_thrd *c;
+X{
+X	wf_file *filep;
+X	filep = file_findname(root_dir, c->fname);
+X	if (filep) {
+X		/* already mounted */
+X		(*c->reply)(c, WF_REP_OK);
+X		return;
+X	}
+X
+X	/* mount it */
+X	c->parent_volp = c->child_volp = root_vol;
+X	c->fhp = ALLOC(wf_fh);
+X	c->fhp->parent_vol = c->fhp->child_vol = WF_ROOT_VOL_ID;
+X	c->fhp->dir_id = c->fhp->file_id = WF_ROOT_DIR_ID;
+X	c->dotdotp = root_dir;
+X	root_lookup_miss(c);
+X}
+X
+Xvoid
+Xcs_mount_done(c, status)
+Xwf_thrd *c;
+Xint status;
+X{
+X	static cs_res res;
+X
+X	if (status == WF_REP_WAIT) {
+X		return;
+X	}
+X	res.status = cserr[status];
+X	svc_sendreply(c->rqstp->rq_xprt, xdr_cs_res, &res);
+X	if (c->fhp) FREE(c->fhp);
+X	if (! (c->flag & WF_THREAD_BUSY)) thrd_free(c);
+X}
+X
+Xint
+Xcs_umount(vol)
+Xchar *vol;
+X{
+X	wf_file *filep;
+X	wf_vol *volp;
+X
+X	filep = file_findname(root_dir, vol);
+X	if (! filep) {
+X		return CSERR_NOENT;
+X	}
+X	q_remove((qelem *) filep);
+X	volp = vol_findname(".", vol);		/* XXX must support subdirs */
+X	if (! volp) {
+X		return CSERR_NOENT;
+X	}
+X	vol_free(volp);
+X	return CS_OK;
+X}
+X
+Xvoid
+Xcs_lookup(rqstp, volp, fhp, fname)
+Xsvc_req *rqstp;
+Xwf_vol *volp;
+Xwf_fh *fhp;
+Xchar *fname;
+X{
+X}
+X
+Xvoid
+Xcs_readdir(rqstp, volp, fhp, cookie, count)
+Xsvc_req *rqstp;
+Xwf_vol *volp;
+Xwf_fh *fhp;
+Xlong cookie;
+Xu_int count;
+X{
+X}
+X
+Xvoid
+Xcs_read(rqstp, volp, fhp, offset, count, totalcount)
+Xsvc_req *rqstp;
+Xwf_vol *volp;
+Xwf_fh *fhp;
+Xu_int offset, count, totalcount;
+X{
+X}
+X
+Xvoid
+Xcs_getuda(rqstp, fhp, attrname)
+Xsvc_req *rqstp;
+Xwf_fh *fhp;
+Xchar *attrname;
+X{
+X}
+X
+Xvoid
+Xcs_geterr(rqstp, err_context)
+Xsvc_req *rqstp;
+Xlong err_context;
+X{
+X}
+END_OF_FILE
+  if test 5191 -ne `wc -c <'csd/cs.c'`; then
+    echo shar: \"'csd/cs.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/cs.c'
+fi
+if test -f 'csd/icmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/icmp.c'\"
+else
+  echo shar: Extracting \"'csd/icmp.c'\" \(6074 characters\)
+  sed "s/^X//" >'csd/icmp.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+Xstatic char *AtFSid = "$Header: icmp.c[109.0] Wed Nov 24 03:47:10 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include "wfs.h"
+X#include <netinet/in_systm.h>
+X#include <netinet/ip.h>
+X#include <netinet/ip_icmp.h>
+X#include <netdb.h>
+X#include "util.h"
+X#include "global.h"
+X
+Xstatic int seq;
+Xstatic int so;
+X#define	WF_ICMP_LEN	56
+X#define	WF_ICMP_MAX	512	/* XXX should be enough */
+Xstatic char buf[WF_ICMP_MAX];
+X
+Xvoid
+Xicmp_start()
+X{
+X	struct protoent *proto;
+X	proto = getprotobyname("icmp");
+X	so = socket(AF_INET, SOCK_RAW, proto->p_proto);
+X	if (so < 0) {
+X		errno_diag();
+X		return;
+X	}
+X	so_register(so, WF_SO_READ);
+X	so_callback(so, icmp_recv, (void *)so);
+X}
+X
+Xstatic int
+Xicmp_cksum(ptr, nbytes)
+Xu_short *ptr;
+Xint nbytes;
+X{
+X	/* icmp_cksum is verbatim copy, whilst I checked errata carefully, from
+X	 * "UNIX Network Programming", W. Richard Stevens
+X	 *
+X	 * Refer to "Computing the Internet Checksum" by R.Braden, D.Borman and
+X	 * C.Partridge, Computer Communication Review 19(2), April 1989,
+X	 * pp.86-101, for additional details.
+X	 */
+X	long sum;
+X	u_short oddbyte;
+X	u_short answer;
+X
+X	sum = 0;
+X	while (nbytes > 1) {
+X		sum += *ptr++;
+X		nbytes -= 2;
+X	}
+X	if (nbytes == 1) {
+X		oddbyte = 0;
+X		*((u_char *) &oddbyte) = *(u_char *)ptr;
+X		sum += oddbyte;
+X	}
+X	sum = (sum >> 16) + (sum & 0xffff);
+X	sum += (sum >> 16);
+X	answer = ~sum;
+X	return answer;
+X}
+X
+Xvoid
+Xicmp_send(to)
+Xsockaddr_in *to;
+X{
+X	struct icmp *p = (struct icmp *)buf;
+X
+X	p->icmp_type = ICMP_ECHO;
+X	p->icmp_code = 0;
+X	p->icmp_cksum = 0;
+X	p->icmp_id = cs_pid & 0xFFFF;
+X	p->icmp_seq = seq++;
+X	gettimeofday((struct timeval *) buf+ICMP_MINLEN, (struct timezone *)0);
+X	p->icmp_cksum = icmp_cksum(p, WF_ICMP_LEN);
+X
+X	sendto(so, buf, WF_ICMP_LEN, 0, (struct sockaddr *)to, sizeof(*to));
+X}
+X
+Xstatic void
+Xtvsub(out, in)
+Xstruct timeval *out, *in;
+X{
+X	/* also from "UNIX Network Programming", W. Richard Stevens */
+X	if ((out->tv_usec -= in->tv_usec) < 0) {
+X		out->tv_sec--;
+X		out->tv_usec += 1000000;
+X	}
+X	out->tv_sec -= in->tv_sec;
+X}
+X
+Xvoid
+Xicmp_recv(so)
+Xint so;
+X{
+X	int n, fromlen;
+X	struct sockaddr_in from;
+X	int iphdrlen;
+X	struct ip *ip = (struct ip *)buf;
+X	wf_srv *srvp;
+X	wf_srvstat *stat;
+X	struct icmp *p;
+X	struct timeval tv;
+X	long rtt;		/* in milliseconds */
+X
+X	/*
+X	 * receive packet
+X	 */
+X	fromlen = sizeof(from);
+X resume:
+X	n = recvfrom(so, buf, WF_ICMP_MAX, 0, (struct sockaddr *)&from,
+X		       &fromlen);
+X	if (n < 0) {
+X		errno_diag();
+X		return;
+X	}
+X
+X	/*
+X	 * verify header
+X	 */
+X	iphdrlen = ip->ip_hl << 2;
+X	if (n < iphdrlen + ICMP_MINLEN) {
+X		dlog("icmp: packet too short");
+X		return;
+X	}
+X	n -= iphdrlen;
+X
+X	/*
+X	 * analyse
+X	 */
+X	p = (struct icmp *) (buf + iphdrlen);
+X	switch(p->icmp_type) {
+X	case ICMP_ECHOREPLY:
+X		/* check if it's response to my echo request */
+X		if (p->icmp_id != (cs_pid & 0xFFFF))
+X			return;
+X		/* check if I have talked with the server */
+X		srvp = srv_findip(from.sin_addr.s_addr);
+X		if (! srvp)
+X			return;
+X		stat = &srvp->stats;
+X		gettimeofday((struct timeval *)&tv, (struct timezone *) 0);
+X		tvsub(&tv, (struct timeval *) p->icmp_data);
+X		rtt = tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+X		stat->icmp_reply++;
+X		if (stat->rtt)
+X			stat->rtt = stat->rtt * 3 / 4 + rtt / 4;
+X		else
+X			stat->rtt = rtt;	/* initial boost */
+X		return;
+X	case ICMP_UNREACH:
+X		switch(p->icmp_code) {
+X		case 2:		/* ICMP_UNREACH_PROTOCOL */
+X			dlog("%s: bad protocol", inet_ntoa(from.sin_addr));
+X			return;
+X		case 3:		/* ICMP_UNREACH_PORT */
+X#if 0	/* it's noisy... */
+X			dlog("%s: bad port", inet_ntoa(from.sin_addr));
+X#endif
+X			return;
+X		case 4:		/* ICMP_UNREACH_NEEDFRAG */
+X			dlog("%s: IP_DF caused drop",
+X			     inet_ntoa(from.sin_addr));
+X			return;
+X		case 5:		/* ICMP_UNREACH_SRCFAIL */
+X			dlog("%s: source route failed",
+X			     inet_ntoa(from.sin_addr));
+X			return;
+X		}
+X		ip = (struct ip *) (buf + iphdrlen + 8);
+X		/* check if it's response to my packet */
+X		if (ip->ip_src.s_addr != cs_ipaddr.s_addr)
+X			return;
+X		/* check if I have talked with the server */
+X		srvp = srv_findip(ip->ip_dst.s_addr);
+X		if (! srvp)
+X			return;
+X		switch(p->icmp_code) {
+X		case 0:		/* ICMP_UNREACH_NET */
+X			dlog("%s: network unreachable", srvp->name);
+X			srv_flag(srvp, WF_SRV_NUNREACH);
+X			thrd_srvfailure(srvp);
+X			return;
+X		case 1:		/* ICMP_UNREACH_HOST */
+X			dlog("%s: host unreachable", srvp->name);
+X			srv_flag(srvp, WF_SRV_HUNREACH);
+X			thrd_srvfailure(srvp);
+X			return;
+X		}
+X		return;
+X	case ICMP_SOURCEQUENCH:
+X		return;
+X	case ICMP_TIMXCEED:
+X		return;
+X	case ICMP_PARAMPROB:
+X		return;
+X	default:
+X#if 0	/* it's noisy... */
+X		dlog("spurious ICMP packet from %s, type=%d",
+X		     inet_ntoa(from.sin_addr), p->icmp_type);
+X#endif
+X		return;
+X	}
+X}
+X
+END_OF_FILE
+  if test 6074 -ne `wc -c <'csd/icmp.c'`; then
+    echo shar: \"'csd/icmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/icmp.c'
+fi
+if test -f 'csd/log.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/log.c'\"
+else
+  echo shar: Extracting \"'csd/log.c'\" \(5225 characters\)
+  sed "s/^X//" >'csd/log.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+Xstatic char *AtFSid = "$Header: log.c[109.0] Wed Nov 24 03:47:11 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <stdio.h>
+X#ifdef __STDC__
+X#include <stdarg.h>
+X#else
+X#include <varargs.h>
+X#endif
+X#include "wfs.h"
+X#include "global.h"
+X#include "util.h"
+X
+Xstatic void *dlog_callout;
+X
+Xstatic int idle = 0;
+Xstatic int closed = 1;
+Xstatic FILE *logfp;
+X#ifdef _POSIX_SOURCE
+Xstatic char linebuf[BUFSIZ];
+X#endif
+X
+Xstatic int
+Xdlog_open()
+X{
+X	char path[MAXPATHLEN];
+X
+X	sprintf(path, "%s/log/wwfs.log", cs_topdir);
+X	logfp = fopen(path, "a+");
+X	if (logfp == NULL) {
+X		syslog(LOG_WARNING, "%s: %m", path);
+X		return -1;
+X	}
+X	closed = 0;
+X#ifdef _POSIX_SOURCE
+X	setvbuf(logfp, linebuf, _IOLBF, sizeof(linebuf));
+X#else
+X	setlinebuf(logfp);
+X#endif
+X	return 0;
+X}
+X
+X#ifdef __STDC__
+Xvoid
+Xdlog(char *fmt, ...)
+X{
+X	va_list ap;
+X	char *buf, *timestr;
+X	time_t t = gettime();
+X	static time_t last_t = 0;
+X	static char *last_ctime = 0;
+X
+X	buf = so_getbuf(0);
+X	va_start(ap, fmt);
+X	vsprintf(buf, fmt, ap);
+X	va_end(ap);
+X	if (!cs_topdir) {
+X		/* as a last resort.. */
+X		syslog(LOG_WARNING, buf);
+X		return;
+X	}
+X	idle = 0;
+X	if (closed) {
+X		if (dlog_open() < 0) return;
+X	}
+X	if (t != last_t) {
+X		last_ctime = ctime(&t);
+X		last_t = t;
+X	}
+X	fprintf(logfp, "%15.15s %s csd[%d]: %s\n",
+X		last_ctime+4, cs_hostname, cs_pid, buf);
+X}
+X#else
+X
+Xvoid
+Xdlog(va_alist)
+Xva_dcl
+X{
+X	va_list ap;
+X	char *fmt, *buf;
+X	time_t t = gettime();
+X	static time_t last_t = 0;
+X	static char *last_ctime = 0;
+X
+X	buf = so_getbuf(0);
+X	va_start(ap);
+X	fmt = va_arg(ap, char *);
+X	vsprintf(buf, fmt, ap);
+X	va_end(ap);
+X	if (!cs_topdir) {
+X		/* as a last resort.. */
+X		syslog(LOG_WARNING, buf);
+X		return;
+X	}
+X	idle = 0;
+X	if (closed) {
+X		if (dlog_open() < 0) return;
+X	}
+X	if (t != last_t) {
+X		last_ctime = ctime(&t);
+X		last_t = t;
+X	}
+X	fprintf(logfp, "%15.15s %s csd[%d]: %s\n",
+X		last_ctime+4, cs_hostname, cs_pid, buf);
+X}
+X#endif
+X
+X/*
+X * automagically close trace file if no activity has been observed recently.
+X */
+Xstatic void
+Xdlog_gc()
+X{
+X	if (!closed) {
+X		idle += 60;
+X		if (idle > 120) {
+X			fclose(logfp);
+X			closed = 1;
+X		}
+X	}
+X	dlog_callout = timeout_set(gettime()+60, dlog_gc, 0);
+X}
+X
+Xvoid
+Xdlog_start()
+X{
+X	FILE *fp;
+X	char path[MAXPATHLEN];
+X
+X	sprintf(path, "%s/log/csd.pid", cs_topdir);
+X	fp = fopen(path, "w");
+X	if (fp) {
+X		fprintf(fp, "%d", cs_pid);
+X		fclose(fp);
+X	} else {
+X		syslog(LOG_WARNING, "%s: %m", path);
+X	}
+X
+X	dlog_callout = timeout_set(gettime()+60, dlog_gc, 0);
+X}
+X
+Xvoid
+Xdlog_stop()
+X{
+X	if (!closed) {
+X		fclose(logfp);
+X		closed = 1;
+X	}
+X}
+X
+X#if 0	/* XXX for production use */
+Xvoid
+Xerrno_diag()
+X{
+X	syslog(LOG_WARNING, "%m");
+X}
+X#endif
+X
+Xvoid
+Xerrno_log(file, line)
+Xchar *file;
+Xint line;
+X{
+X	extern char *sys_errlist[];
+X	dlog("%s:%d, %s", file, line, sys_errlist[errno]);
+X}
+X
+Xstatic int ts;
+X
+Xvoid
+Xtalk_start()
+X{
+X	sockaddr_in from;
+X	int ret;
+X
+X	ts = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+X	from.sin_family = AF_INET;
+X	from.sin_addr.s_addr = htonl(INADDR_ANY);
+X	from.sin_port = htons(0);
+X	ret = bind(ts, (struct sockaddr *) &from, sizeof (from));
+X	if (ret < 0) {
+X		errno_diag();
+X	}
+X}
+X
+X#ifdef __STDC__
+Xvoid
+Xtalk(long ip_addr, char *fmt, ...)
+X{
+X	va_list ap;
+X	char *buf;
+X	sockaddr_in to;
+X
+X	buf = so_getbuf(0);
+X	va_start(ap, fmt);
+X	vsprintf(buf, fmt, ap);
+X	va_end(ap);
+X	to.sin_family = AF_INET;
+X	to.sin_port = htons(8001);	/* XXX */
+X	to.sin_addr.s_addr = ip_addr;
+X	sendto(ts, buf, strlen(buf)+1, 0, (struct sockaddr *)&to, sizeof(to));
+X}
+X
+X#else
+X
+Xvoid
+Xtalk(va_alist)
+Xva_dcl
+X{
+X	va_list ap;
+X	char *fmt, *buf;
+X	sockaddr_in to;
+X	long ip_addr;
+X
+X	buf = so_getbuf(0);
+X	va_start(ap);
+X	ip_addr = va_arg(ap, long);
+X	fmt = va_arg(ap, char *);
+X	vsprintf(buf, fmt, ap);
+X	va_end(ap);
+X	to.sin_family = AF_INET;
+X	to.sin_port = htons(8001);	/* XXX */
+X	to.sin_addr.s_addr = ip_addr;
+X	sendto(ts, buf, strlen(buf)+1, 0, (struct sockaddr *)&to, sizeof(to));
+X}
+X
+X#endif
+END_OF_FILE
+  if test 5225 -ne `wc -c <'csd/log.c'`; then
+    echo shar: \"'csd/log.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/log.c'
+fi
+if test -f 'libmm/libmm.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libmm/libmm.pl'\"
+else
+  echo shar: Extracting \"'libmm/libmm.pl'\" \(7307 characters\)
+  sed "s/^X//" >'libmm/libmm.pl' <<'END_OF_FILE'
+X# libmm.pl -- package for accessing csd cache.
+X# Author: Youki Kadobayashi <youki@wide.ad.jp>
+X#
+X# It is written in the hope that perl scripts built upon this package
+X# complements features not implemented in csd, thereby enabling much
+X# more advanced features such as cache strategy selection, cache statistics
+X# and cache consistency management.  I have also added UIP commands that
+X# enables close collaboration of csd and these perl programs.
+X#
+X# This package only works on localhost (that is, the machine running csd)
+X# for security reasons.  Current implementation of UIP server restricts
+X# CTOR/RTOC access to localhost.
+X
+X# You may need to run `h2ph' on `sys/socket.h' to get the proper values
+X# handy in a perl library file.
+Xrequire 'sys/socket.ph' || die $!;
+X
+Xpackage mm;
+X$S_IFDIR = 040000;	# because most of you don't have 'sys/stat.pl'...
+X$S_IFREG = 0100000;
+X
+X#
+X#	initialization: create UDP socket for UIP.
+X#
+X$uip_port = 8002;
+X$sockaddr = 'S n a4 x8';
+X@addr = gethostbyname('localhost');
+X$localip = pop(@addr);
+X$laddr = pack($sockaddr, &'AF_INET, 0, $localip);
+X$faddr = pack($sockaddr, &'AF_INET, $uip_port, $localip);
+Xsocket(SO, &'AF_INET, &'SOCK_DGRAM, 0) || die $!;
+Xbind(SO, $laddr) || die $!;
+X
+X$serial = 0;
+X$debug = 0;			# 1 if you want to debug your code
+X
+Xsub uip_send
+X{
+X    local ($msg) = @_;
+X    send(SO, "$msg\n", 0, $faddr);
+X    print "$msg\n" if $debug;
+X}
+X
+Xsub uip_recv
+X{
+X    local ($msg, $from);
+X    do {
+X	$from = recv(SO, $msg, 256, 0);
+X	print "$msg" if $debug;
+X    } until unpack("x4 a4 x8", $from) eq $localip;
+X    return $msg;
+X}
+X
+X#
+X#	mm'fstoc: convert from real (filesystem) pathname to cache pathname.
+X#	static.
+X#
+Xsub fstoc
+X{
+X    local ($path, $type) = @_;
+X    local ($cachepath, $msg);
+X
+X    if ($type == $S_IFDIR) {
+X	# convert it to the pathname of a cached directory information,
+X	# namely, "%s/%lx/dir/%lx"
+X	&uip_send("RTOC dir $path");
+X    }
+X    elsif ($type == $S_IFREG) {
+X	# convert it to the pathname of a cached file,
+X	# namely, "%s/%lx/%lx/%s"
+X	&uip_send("RTOC fil $path");
+X    }
+X    else {
+X	$error = "fstoc: unsupported file type: $type\n";
+X	return undef;
+X    }
+X
+X    while (1) {
+X	$msg = &uip_recv;
+X	if ($msg =~ /^2..\.... c_p /) {
+X	    # we got cache path
+X	    $cachepath = $';
+X	    chop $cachepath;
+X	    return ($cachepath);	# unique pathname can be the key
+X	}
+X	elsif ($msg =~ /^[45]..\.... /) {
+X	    $error = $';
+X	    return undef;
+X	}
+X    }
+X}
+X
+Xsub dir_file
+X{
+X    local ($path) = @_;
+X    local ($dir, $file, @components);
+X
+X    @components = split(m:/+:, $path);
+X    $file = pop(@components);
+X    $dir = join('/', @components);
+X    return ($dir, $file);
+X}
+X
+X#
+X#	mm'ctofs: convert from cache pathname to real (filesystem) pathname.
+X#	static.
+X#
+Xsub ctofs
+X{
+X    local ($path) = @_;
+X    local (@res, $realpath);
+X    local ($dir, $file);
+X
+X    @res = stat($path);
+X    if ($res[2] & $S_IFDIR) {
+X	open(IN, "< $path/.realdir") || return undef;
+X	$realpath = <IN>; close(IN);
+X	return $realpath;
+X    }
+X    elsif ($res[2] & $S_IFREG) {
+X	($dir, $file) = &dir_file($path);
+X	open(IN, "$dir/.realdir") || return undef;
+X	$realpath = <IN>; close(IN);
+X	return "$realpath/$file";
+X    }
+X    else {
+X	$error = "ctofs: no such file or directory: $path\n";
+X	return undef;
+X    }
+X}
+X
+X#
+X#	&mm'opendir(*DIRHANDLE, pathname)
+X#
+Xsub opendir
+X{
+X    local (*DIR, $pathname) = @_;
+X    local ($cachepath, $key, $size);
+X    local ($magic, $namelen, $name, $ctime, $nfile);
+X
+X    $cachepath = &fstoc($pathname, $S_IFDIR) || return undef;
+X    open(DIR, "<$cachepath") || return undef;
+X    $key = fileno(DIR);		# use file number as the unique key
+X    $size = (stat(DIR))[7];
+X    $list{$key} = "";		# otherwise bad address occur
+X    read(DIR, $list{$key}, $size) || return undef;
+X
+X    ($namelen) = unpack("x4 i", $list{$key});
+X    ($magic, $name, $ctime, $nfile) = unpack("l x4 A$namelen l i",$list{$key});
+X    $name{$key} = $name;
+X    $ctime{$key} = $ctime;
+X    $nfile{$key} = $nfile;
+X    $index{$key} = 0;
+X    $offset{$key} = 4 * 4 + $namelen;
+X    1;
+X}
+X
+X#
+X#	&mm'closedir(*DIRHANDLE)
+X#
+Xsub closedir
+X{
+X    local (*DIR) = @_;
+X    local ($key) = fileno(DIR);
+X
+X    close(DIR);
+X    # conserve memory...
+X    undef($list{$key});
+X    undef($name{$key});
+X    undef($ctime{$key});
+X    undef($nfile{$key});
+X    undef($index{$key});
+X    undef($offset{$key});
+X    0;
+X}
+X
+X#
+X#	($name, $link, $type, $crc, $ausec, $musec, $cusec,
+X#	 $fsid, $fid, $mode, $nlink, $uid, $gid, $rdev, $size,
+X#	 $asec, $msec, $csec, $blocksize, $blocks)
+X#		= &mm'getnext(*DIRHANDLE)
+X#
+X#	getnext: readdir + stat complex.  Return next directory entry.
+X#	mm'opendir must be called before getnext.
+X#
+Xsub getnext
+X{
+X    local (*DIR) = @_;
+X    local ($key) = fileno(DIR);
+X    local ($namelen, $linklen, $name, $link);
+X    local ($fid, $type, $mode, $nlink, $uid, $gid,
+X	   $size, $blocksize, $rdev, $blocks, $fsid, $crc,
+X	   $asec, $ausec, $msec, $musec, $csec, $cusec);
+X    local ($off) = $offset{$key};
+X
+X    die "getnext: directory not opened\n" if !defined($name{$key});
+X    return () if (++$index{$key} >= $nfile{$key});
+X    ($fid, $namelen) = unpack("x$off l l", $list{$key});
+X    ($name) = unpack("x$off x8 A$namelen", $list{$key});
+X    ($linklen) = unpack("x$off x8 x$namelen l", $list{$key});
+X    ($link) = unpack("x$off x8 x$namelen x4 A$linklen", $list{$key});
+X    $off += 12 + $namelen + $linklen;
+X    ($type, $mode, $nlink, 
+X     $uid, $gid, $size, $blocksize, $rdev, $blocks, $fsid, $crc,
+X     $asec, $ausec, $msec, $musec, $csec, $cusec)
+X	= unpack("x$off l l l l l l l l l l l l l l l l l", $list{$key});
+X    $off += 4 * 17;
+X    $offset{$key} = $off;
+X
+X    return ($name, $link, $type, $crc, $ausec, $musec, $cusec,
+X	    $fsid, $fid, $mode, $nlink, $uid, $gid, $rdev, $size,
+X	    $asec, $msec, $csec, $blocksize, $blocks)
+X}
+X
+X#
+X#	$name = &mm'readdir(*DIRHANDLE)
+X#	@names = &mm'readdir(*DIRHANDLE)
+X#
+X#	In array context, return list of filenames.
+X#	In scalar context, return next directory entry.
+X#
+Xsub readdir
+X{
+X    local (*DIR) = @_;
+X    local ($key) = fileno(DIR);
+X    local (@files, $i);
+X
+X    die "readdir: directory not opened\n" if !defined($name{$key});
+X    if (wantarray) {
+X	for ($i = 0; $i < $nfile{$key}; ++$i) {
+X	    push(@files, (&getnext(*DIR))[0]);
+X	}
+X	return @files;
+X    }
+X    return (&getnext(*DIR))[0];
+X}
+X
+X#
+X#	rewinddir, seekdir, telldir is not implemented yet.
+X#	do you need it?
+X#
+X
+X#
+X#	($fsid, $fid, $mode, $nlink, $uid, $gid, $rdev, $size,
+X#	 $asec, $msec, $csec, $blocksize, $blocks)
+X#		= &mm'stat(*DIRHANDLE, $filename)
+X#
+X#	Stat call is heavyweight in this library.  Not recommended.
+X#	As a penalty, I made it incompatible with stat system call.
+X#
+Xsub stat
+X{
+X    local (*DIR, $filename) = @_;
+X    local ($key) = fileno(DIR);
+X    local (@res, $i);
+X
+X    for ($i = 0; $i < $nfile{$key}; ++$i) {
+X	@res = &getnext(*DIR);
+X	if ($res[0] eq $filename) {
+X	    return @res[7 .. $#res];
+X	}
+X    }
+X    -1;		# errno = ENOENT
+X}
+X
+X#
+X#	$status = &mm'open(FILEHANDLE, EXPR)
+X#
+Xsub open
+X{
+X    local (*FH, $expr) = @_;
+X    local ($key, $pos, $flag, $pathname);
+X
+X    $pos = index($expr, "/");
+X    if ($pos < 0) {
+X	open(FH, $expr) || return undef;
+X	return 1;
+X    }
+X    ($flag, $pathname) = unpack("a$pos a*", $expr);
+X    $key = &fstoc($pathname, $S_IFREG) || return undef;
+X    open(FH, "$flag$key") || return undef;
+X    return 1;
+X}
+X
+X#
+X#	There are no counterpart for built-in functions like
+X#	read(), write(), seek() and close(); they just work fine.
+X#
+X
+X1;
+END_OF_FILE
+  if test 7307 -ne `wc -c <'libmm/libmm.pl'`; then
+    echo shar: \"'libmm/libmm.pl'\" unpacked with wrong size!
+  fi
+  # end of 'libmm/libmm.pl'
+fi
+if test -f 'mosaic/dirutil.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/dirutil.pl'\"
+else
+  echo shar: Extracting \"'mosaic/dirutil.pl'\" \(755 characters\)
+  sed "s/^X//" >'mosaic/dirutil.pl' <<'END_OF_FILE'
+X# dirutil: directory-related goodies
+X# Youki Kadobayashi <youki@wide.ad.jp>
+X# This file is part of WWFS.
+X#
+X
+Xsub basename {
+X    local ($pathname) = @_;
+X    local ($dir, $file, $pos);
+X
+X    $pos = rindex($pathname, "/");
+X    if ($pos < 0) {
+X        return (".", $pathname);
+X    }
+X    ++$pos;
+X    ($dir, $file) = unpack("a$pos a*", $pathname);
+X    return ($dir, $file);
+X}
+X
+Xsub mkdirhier {
+X        local($dir) = @_;
+X        local($mk, @components);
+X        # four-line implementation
+X	@components = split (/\//, $dir);
+X	$mk = shift(@components);
+X        foreach $i (@components) {
+X                $mk .= "/" . $i;
+X		next if -d $mk;
+X                mkdir($mk, 0755) || warn "$mk: $!" && return undef;
+X        }
+X	1;
+X}
+X
+X1;
+X
+X# Local Variables:
+X# mode: perl
+X# End:
+END_OF_FILE
+  if test 755 -ne `wc -c <'mosaic/dirutil.pl'`; then
+    echo shar: \"'mosaic/dirutil.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mosaic/dirutil.pl'
+fi
+if test -f 'rpc/cs_prot.x' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/cs_prot.x'\"
+else
+  echo shar: Extracting \"'rpc/cs_prot.x'\" \(7575 characters\)
+  sed "s/^X//" >'rpc/cs_prot.x' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* RPC stubs for CS (WWFS Cluster Server) protocol. */
+X/* $Header: cs_prot.x[109.0] Wed Nov 24 03:50:23 1993 youki-k@is.aist-nara.ac.jp saved $ */
+X
+Xconst CS_MAXDATA	= 8192;		/* as per NFS */
+Xconst CS_FHSIZE		= 32;		/* as per NFS */
+Xconst CS_MAXPATHLEN	= 1024;		/* sys/param.h */
+Xconst CS_MAXNAMLEN	= 255;		/* sys/dir.h etc., vary */
+Xconst CS_MAXHOSTLEN	= 64;		/* sys/param.h */
+X
+Xenum cs_stat {
+X	CS_OK = 0,		/* Okay */
+X	CS_BULK = 201,		/* Bulk data transfer */
+X	CS_WAIT = 202,		/* Operation would block */
+X	CSERR_NOENT = 2,	/* No such file or directory */
+X	CSERR_ACCES = 13,	/* Access denied */
+X	CSERR_NOTDIR = 20,	/* Not a directory */
+X	CSERR_ISDIR = 21,	/* Is a directory */
+X	CSERR_FBIG = 27,	/* File too large */
+X	CSERR_NOSPC = 28,	/* No space left on device */
+X	CSERR_ROFS = 30,	/* Read-only file system */
+X	CSERR_STALE = 70,	/* Stale filehandle */
+X	CSERR_OTHER = 100,	/* Other errors; use geterr */
+X	CSERR_ALREADY = 101,	/* Operation already in progress */
+X	CSERR_PROTO = 102,	/* Protocol not available */
+X	CSERR_NDOWN = 103,	/* Network is down */
+X	CSERR_NUNREACH = 104,	/* Network unreachable */
+X	CSERR_XABORT = 105,	/* Transfer aborted */
+X	CSERR_TIMEOUT = 106,	/* Connection timed out */
+X	CSERR_REFUSED = 107,	/* Connection refused */
+X	CSERR_HDOWN = 108,	/* Host is down */
+X	CSERR_HUNREACH = 109,	/* No route to host */
+X	CSERR_NQUOT = 110	/* Network quota exceeded */
+X};
+X
+X#ifndef RPC_XDR
+X%#ifndef NFS_FH_DEFINED
+X
+X/* NFS compatible type definitions */
+Xstruct nfs_fh {
+X	opaque data[CS_FHSIZE];
+X};
+X
+Xtypedef string filename<CS_MAXNAMLEN>; 
+Xtypedef string nfspath<CS_MAXPATHLEN>;
+X
+Xstruct nfstime {
+X	unsigned seconds;
+X	unsigned useconds;
+X};
+X
+Xenum ftype {
+X	NFNON = 0,	/* non-file */
+X	NFREG = 1,	/* regular file */
+X	NFDIR = 2,	/* directory */
+X	NFBLK = 3,	/* block special */
+X	NFCHR = 4,	/* character special */
+X	NFLNK = 5,	/* symbolic link */
+X	NFSOCK = 6,	/* unix domain sockets */
+X	NFBAD = 7,	/* unused */
+X	NFFIFO = 8 	/* named pipe */
+X};
+X
+Xstruct fattr {
+X	ftype type;		/* file type */
+X	unsigned mode;		/* protection mode bits */
+X	unsigned nlink;		/* # hard links */
+X	unsigned uid;		/* owner user id */
+X	unsigned gid;		/* owner group id */
+X	unsigned size;		/* file size in bytes */
+X	unsigned blocksize;	/* prefered block size */
+X	unsigned rdev;		/* special device # */
+X	unsigned blocks;	/* Kb of disk used by file */
+X	unsigned fsid;		/* device # */
+X	unsigned fileid;	/* inode # */
+X	nfstime	atime;		/* time of last access */
+X	nfstime	mtime;		/* time of last modification */
+X	nfstime	ctime;		/* time of last change */
+X};
+X/* end of NFS compatible type definitions */
+X
+X%#define NFS_FH_DEFINED
+X%#endif
+X#endif
+X
+Xunion cs_fhres switch (cs_stat status) {
+X	case CS_OK:
+X		nfs_fh	file;
+X	default:
+X		long	err_context;
+X};
+X
+Xunion cs_res switch (cs_stat status) {
+X	case CS_OK:
+X		void;
+X	default:
+X		long	err_context;
+X};
+X
+Xtypedef string volname<CS_MAXNAMLEN>;
+X
+Xstruct cs_volargs {
+X	volname		vol;
+X};
+X
+Xstruct cs_volokres {
+X	long	volume_id;
+X	/* verbatim copy from wfs.h */
+X	long	bytes_to_server;	/* # of bytes sent to servers */
+X	long	bytes_from_server;	/* # of bytes received from servers */
+X	long	bytes_to_client;	/* # of bytes sent to clients */
+X	long	bytes_from_client;	/* # of bytes received from clients */
+X	long	n_request_readdir;	/* # of readdir requests */
+X	long	n_request_lookup;	/* # of lookup requests */
+X	long	n_request_read;		/* # of read requests */
+X	long	n_request_readdir_miss;	/* # of readdir actually done */
+X	long	n_request_lookup_miss;	/* # of lookup actually done */
+X	long	n_request_read_miss;	/* # of read actually done */
+X};
+X
+Xunion cs_volres switch (cs_stat status) {
+X	case CS_OK:
+X		cs_volokres volok;
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_xferent {
+X	int	status;
+X	int	uid;		/* uid of originator */
+X	int	gid;		/* gid of originator */
+X	long	ip_address;	/* hostname of originator */
+X	long	bytes;		/* done so far */
+X	int	idle;		/* risky but no response */
+X	char	server<CS_MAXHOSTLEN>;	/* server name */
+X};
+X
+Xunion cs_xferres switch (cs_stat status) {
+X	case CS_OK:
+X		cs_xferent xfer;
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_udaargs {
+X	nfs_fh		file;
+X	string		attrname<CS_MAXNAMLEN>;
+X};
+X
+Xunion cs_udares switch (cs_stat status) {
+X	case CS_OK:
+X		char	attr<CS_MAXDATA>;	/* attribute value */
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_diropargs {
+X	nfspath		pname;
+X	filename	fname;
+X};
+X
+Xstruct cs_diropokres {
+X	nfs_fh	file;
+X	fattr	attr;
+X};
+X
+Xunion cs_diropres switch (cs_stat status) {
+X	case CS_OK:
+X		cs_diropokres diropok;
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_readdirargs {
+X	nfs_fh		dir;
+X	long		cookie;
+X	unsigned	count;
+X};
+X
+Xstruct cs_dirent {
+X	unsigned	fileid;
+X	filename	name;
+X	fattr		attr;
+X	cs_dirent	*nextentry;
+X};
+X
+Xstruct cs_readdirokres {
+X	cs_dirent	*entries;
+X	bool		eof;
+X};
+X
+Xunion cs_readdirres switch (cs_stat status) {
+X	case CS_OK:
+X		cs_readdirokres readdirok;
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_readargs {
+X	nfs_fh		file;
+X	unsigned	offset;
+X	unsigned	count;
+X	unsigned	totalcount;
+X	bool		prefer_bulk;	/* prefer bulk data xfer */
+X};
+X
+Xstruct cs_readokres {
+X	fattr	attr;
+X	opaque	data<CS_MAXDATA>;
+X};
+X
+Xstruct cs_readbulkres {
+X	fattr	attr;
+X	long	sin_port;
+X};
+X
+Xunion cs_readres switch (cs_stat status) {
+X	case CS_OK:
+X		cs_readokres readok;
+X	case CS_BULK:
+X		cs_readbulkres readbulk;
+X	default:
+X		long	err_context;
+X};
+X
+Xstruct cs_geterrargs {
+X	long	err_context;
+X};
+X
+Xunion cs_geterrres switch (cs_stat status) {
+X	case CS_OK:
+X		string err_string<CS_MAXNAMLEN>;
+X	default:
+X		void;
+X};
+X
+Xprogram CS_PROGRAM {
+X	version CS_VERSION {
+X		void
+X		CS_PROC_NULL(void) = 0;
+X
+X		int
+X		CS_PROC_GETPORT(void) = 1;	/* obsolete */
+X
+X		cs_fhres
+X		CS_PROC_REGISTER(void) = 2;
+X
+X		cs_res
+X		CS_PROC_UNREGISTER(void) = 3;
+X
+X		cs_res
+X		CS_PROC_MOUNT(cs_volargs) = 4;
+X
+X		cs_res
+X		CS_PROC_UMOUNT(cs_volargs) = 5;
+X
+X		cs_diropres
+X		CS_PROC_LOOKUP(cs_diropargs) = 6;
+X
+X		cs_readdirres
+X		CS_PROC_READDIR(cs_readdirargs) = 7;
+X
+X		cs_readres
+X		CS_PROC_READ(cs_readargs) = 8;
+X
+X		cs_volres
+X		CS_PROC_GETVOL(cs_volargs) = 9;
+X
+X		cs_xferres
+X		CS_PROC_GETXFER(nfs_fh) = 10;
+X
+X		cs_udares
+X		CS_PROC_GETUDA(cs_udaargs) = 11;
+X
+X		cs_geterrres
+X		CS_PROC_GETERR(cs_geterrargs) = 12;
+X
+X	} = 1;
+X} = 300128;	/* XXX unlikely to be assigned */
+END_OF_FILE
+  if test 7575 -ne `wc -c <'rpc/cs_prot.x'`; then
+    echo shar: \"'rpc/cs_prot.x'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/cs_prot.x'
+fi
+if test -f 'rpc/nfs_prot.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/nfs_prot.h'\"
+else
+  echo shar: Extracting \"'rpc/nfs_prot.h'\" \(6080 characters\)
+  sed "s/^X//" >'rpc/nfs_prot.h' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/types.h>
+X
+X#define NFS_PORT 2049
+X#define NFS_MAXDATA 8192
+X#define NFS_MAXPATHLEN 1024
+X#define NFS_MAXNAMLEN 255
+X#define NFS_FHSIZE 32
+X#define NFS_COOKIESIZE 4
+X#define NFS_FIFO_DEV -1
+X#define NFSMODE_FMT 0170000
+X#define NFSMODE_DIR 0040000
+X#define NFSMODE_CHR 0020000
+X#define NFSMODE_BLK 0060000
+X#define NFSMODE_REG 0100000
+X#define NFSMODE_LNK 0120000
+X#define NFSMODE_SOCK 0140000
+X#define NFSMODE_FIFO 0010000
+X
+Xenum nfsstat {
+X	NFS_OK = 0,
+X	NFSERR_PERM = 1,
+X	NFSERR_NOENT = 2,
+X	NFSERR_IO = 5,
+X	NFSERR_NXIO = 6,
+X	NFSERR_ACCES = 13,
+X	NFSERR_EXIST = 17,
+X	NFSERR_NODEV = 19,
+X	NFSERR_NOTDIR = 20,
+X	NFSERR_ISDIR = 21,
+X	NFSERR_FBIG = 27,
+X	NFSERR_NOSPC = 28,
+X	NFSERR_ROFS = 30,
+X	NFSERR_NAMETOOLONG = 63,
+X	NFSERR_NOTEMPTY = 66,
+X	NFSERR_DQUOT = 69,
+X	NFSERR_STALE = 70,
+X	NFSERR_WFLUSH = 99,
+X};
+Xtypedef enum nfsstat nfsstat;
+Xbool_t xdr_nfsstat();
+X
+Xenum ftype {
+X	NFNON = 0,
+X	NFREG = 1,
+X	NFDIR = 2,
+X	NFBLK = 3,
+X	NFCHR = 4,
+X	NFLNK = 5,
+X	NFSOCK = 6,
+X	NFBAD = 7,
+X	NFFIFO = 8,
+X};
+Xtypedef enum ftype ftype;
+Xbool_t xdr_ftype();
+X#ifndef NFS_FH_DEFINED	/* nfs_fh has been declared in cs_prot.h */
+X
+Xstruct nfs_fh {
+X	char data[NFS_FHSIZE];
+X};
+Xtypedef struct nfs_fh nfs_fh;
+Xbool_t xdr_nfs_fh();
+X#define NFS_FH_DEFINED
+X#endif
+X
+Xstruct nfstime {
+X	u_int seconds;
+X	u_int useconds;
+X};
+Xtypedef struct nfstime nfstime;
+Xbool_t xdr_nfstime();
+X
+Xstruct fattr {
+X	ftype type;
+X	u_int mode;
+X	u_int nlink;
+X	u_int uid;
+X	u_int gid;
+X	u_int size;
+X	u_int blocksize;
+X	u_int rdev;
+X	u_int blocks;
+X	u_int fsid;
+X	u_int fileid;
+X	nfstime atime;
+X	nfstime mtime;
+X	nfstime ctime;
+X};
+Xtypedef struct fattr fattr;
+Xbool_t xdr_fattr();
+X
+Xstruct sattr {
+X	u_int mode;
+X	u_int uid;
+X	u_int gid;
+X	u_int size;
+X	nfstime atime;
+X	nfstime mtime;
+X};
+Xtypedef struct sattr sattr;
+Xbool_t xdr_sattr();
+X
+Xtypedef char *filename;
+Xbool_t xdr_filename();
+X
+Xtypedef char *nfspath;
+Xbool_t xdr_nfspath();
+X
+Xstruct attrstat {
+X	nfsstat status;
+X	union {
+X		fattr attributes;
+X	} attrstat_u;
+X};
+Xtypedef struct attrstat attrstat;
+Xbool_t xdr_attrstat();
+X
+Xstruct sattrargs {
+X	nfs_fh file;
+X	sattr attributes;
+X};
+Xtypedef struct sattrargs sattrargs;
+Xbool_t xdr_sattrargs();
+X
+Xstruct diropargs {
+X	nfs_fh dir;
+X	filename name;
+X};
+Xtypedef struct diropargs diropargs;
+Xbool_t xdr_diropargs();
+X
+Xstruct diropokres {
+X	nfs_fh file;
+X	fattr attributes;
+X};
+Xtypedef struct diropokres diropokres;
+Xbool_t xdr_diropokres();
+X
+Xstruct diropres {
+X	nfsstat status;
+X	union {
+X		diropokres diropres;
+X	} diropres_u;
+X};
+Xtypedef struct diropres diropres;
+Xbool_t xdr_diropres();
+X
+Xstruct readlinkres {
+X	nfsstat status;
+X	union {
+X		nfspath data;
+X	} readlinkres_u;
+X};
+Xtypedef struct readlinkres readlinkres;
+Xbool_t xdr_readlinkres();
+X
+Xstruct readargs {
+X	nfs_fh file;
+X	u_int offset;
+X	u_int count;
+X	u_int totalcount;
+X};
+Xtypedef struct readargs readargs;
+Xbool_t xdr_readargs();
+X
+Xstruct readokres {
+X	fattr attributes;
+X	struct {
+X		u_int data_len;
+X		char *data_val;
+X	} data;
+X};
+Xtypedef struct readokres readokres;
+Xbool_t xdr_readokres();
+X
+Xstruct readres {
+X	nfsstat status;
+X	union {
+X		readokres reply;
+X	} readres_u;
+X};
+Xtypedef struct readres readres;
+Xbool_t xdr_readres();
+X
+Xstruct writeargs {
+X	nfs_fh file;
+X	u_int beginoffset;
+X	u_int offset;
+X	u_int totalcount;
+X	struct {
+X		u_int data_len;
+X		char *data_val;
+X	} data;
+X};
+Xtypedef struct writeargs writeargs;
+Xbool_t xdr_writeargs();
+X
+Xstruct createargs {
+X	diropargs where;
+X	sattr attributes;
+X};
+Xtypedef struct createargs createargs;
+Xbool_t xdr_createargs();
+X
+Xstruct renameargs {
+X	diropargs from;
+X	diropargs to;
+X};
+Xtypedef struct renameargs renameargs;
+Xbool_t xdr_renameargs();
+X
+Xstruct linkargs {
+X	nfs_fh from;
+X	diropargs to;
+X};
+Xtypedef struct linkargs linkargs;
+Xbool_t xdr_linkargs();
+X
+Xstruct symlinkargs {
+X	diropargs from;
+X	nfspath to;
+X	sattr attributes;
+X};
+Xtypedef struct symlinkargs symlinkargs;
+Xbool_t xdr_symlinkargs();
+X
+Xtypedef char nfscookie[NFS_COOKIESIZE];
+Xbool_t xdr_nfscookie();
+X
+Xstruct readdirargs {
+X	nfs_fh dir;
+X	nfscookie cookie;
+X	u_int count;
+X};
+Xtypedef struct readdirargs readdirargs;
+Xbool_t xdr_readdirargs();
+X
+Xstruct entry {
+X	u_int fileid;
+X	filename name;
+X	nfscookie cookie;
+X	struct entry *nextentry;
+X};
+Xtypedef struct entry entry;
+Xbool_t xdr_entry();
+X
+Xstruct dirlist {
+X	entry *entries;
+X	bool_t eof;
+X};
+Xtypedef struct dirlist dirlist;
+Xbool_t xdr_dirlist();
+X
+Xstruct readdirres {
+X	nfsstat status;
+X	union {
+X		dirlist reply;
+X	} readdirres_u;
+X};
+Xtypedef struct readdirres readdirres;
+Xbool_t xdr_readdirres();
+X
+Xstruct statfsokres {
+X	u_int tsize;
+X	u_int bsize;
+X	u_int blocks;
+X	u_int bfree;
+X	u_int bavail;
+X};
+Xtypedef struct statfsokres statfsokres;
+Xbool_t xdr_statfsokres();
+X
+Xstruct statfsres {
+X	nfsstat status;
+X	union {
+X		statfsokres reply;
+X	} statfsres_u;
+X};
+Xtypedef struct statfsres statfsres;
+Xbool_t xdr_statfsres();
+X
+X#define NFS_PROGRAM ((u_long)100003)
+X#define NFS_VERSION ((u_long)2)
+X#define NFSPROC_NULL ((u_long)0)
+Xextern void *nfsproc_null_2();
+X#define NFSPROC_GETATTR ((u_long)1)
+Xextern attrstat *nfsproc_getattr_2();
+X#define NFSPROC_SETATTR ((u_long)2)
+Xextern attrstat *nfsproc_setattr_2();
+X#define NFSPROC_ROOT ((u_long)3)
+Xextern void *nfsproc_root_2();
+X#define NFSPROC_LOOKUP ((u_long)4)
+Xextern diropres *nfsproc_lookup_2();
+X#define NFSPROC_READLINK ((u_long)5)
+Xextern readlinkres *nfsproc_readlink_2();
+X#define NFSPROC_READ ((u_long)6)
+Xextern readres *nfsproc_read_2();
+X#define NFSPROC_WRITECACHE ((u_long)7)
+Xextern void *nfsproc_writecache_2();
+X#define NFSPROC_WRITE ((u_long)8)
+Xextern attrstat *nfsproc_write_2();
+X#define NFSPROC_CREATE ((u_long)9)
+Xextern diropres *nfsproc_create_2();
+X#define NFSPROC_REMOVE ((u_long)10)
+Xextern nfsstat *nfsproc_remove_2();
+X#define NFSPROC_RENAME ((u_long)11)
+Xextern nfsstat *nfsproc_rename_2();
+X#define NFSPROC_LINK ((u_long)12)
+Xextern nfsstat *nfsproc_link_2();
+X#define NFSPROC_SYMLINK ((u_long)13)
+Xextern nfsstat *nfsproc_symlink_2();
+X#define NFSPROC_MKDIR ((u_long)14)
+Xextern diropres *nfsproc_mkdir_2();
+X#define NFSPROC_RMDIR ((u_long)15)
+Xextern nfsstat *nfsproc_rmdir_2();
+X#define NFSPROC_READDIR ((u_long)16)
+Xextern readdirres *nfsproc_readdir_2();
+X#define NFSPROC_STATFS ((u_long)17)
+Xextern statfsres *nfsproc_statfs_2();
+END_OF_FILE
+  if test 6080 -ne `wc -c <'rpc/nfs_prot.h'`; then
+    echo shar: \"'rpc/nfs_prot.h'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/nfs_prot.h'
+fi
+if test -f 'rpc/nfs_prot_clnt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rpc/nfs_prot_clnt.c'\"
+else
+  echo shar: Extracting \"'rpc/nfs_prot_clnt.c'\" \(5251 characters\)
+  sed "s/^X//" >'rpc/nfs_prot_clnt.c' <<'END_OF_FILE'
+X/*
+X * Please do not edit this file.
+X * It was generated using rpcgen.
+X */
+X
+X#include <rpc/rpc.h>
+X#include "nfs_prot.h"
+X#ifndef NFS_FH_DEFINED	/* nfs_fh has been declared in cs_prot.h */
+X#define NFS_FH_DEFINED
+X#endif
+X
+X/* Default timeout can be changed using clnt_control() */
+Xstatic struct timeval TIMEOUT = { 25, 0 };
+X
+Xvoid *
+Xnfsproc_null_2(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static char res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_NULL, xdr_void, argp, xdr_void, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return ((void *)&res);
+X}
+X
+Xattrstat *
+Xnfsproc_getattr_2(argp, clnt)
+X	nfs_fh *argp;
+X	CLIENT *clnt;
+X{
+X	static attrstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_GETATTR, xdr_nfs_fh, argp, xdr_attrstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xattrstat *
+Xnfsproc_setattr_2(argp, clnt)
+X	sattrargs *argp;
+X	CLIENT *clnt;
+X{
+X	static attrstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_SETATTR, xdr_sattrargs, argp, xdr_attrstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xvoid *
+Xnfsproc_root_2(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static char res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_ROOT, xdr_void, argp, xdr_void, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return ((void *)&res);
+X}
+X
+Xdiropres *
+Xnfsproc_lookup_2(argp, clnt)
+X	diropargs *argp;
+X	CLIENT *clnt;
+X{
+X	static diropres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_LOOKUP, xdr_diropargs, argp, xdr_diropres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xreadlinkres *
+Xnfsproc_readlink_2(argp, clnt)
+X	nfs_fh *argp;
+X	CLIENT *clnt;
+X{
+X	static readlinkres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_READLINK, xdr_nfs_fh, argp, xdr_readlinkres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xreadres *
+Xnfsproc_read_2(argp, clnt)
+X	readargs *argp;
+X	CLIENT *clnt;
+X{
+X	static readres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_READ, xdr_readargs, argp, xdr_readres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xvoid *
+Xnfsproc_writecache_2(argp, clnt)
+X	void *argp;
+X	CLIENT *clnt;
+X{
+X	static char res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_WRITECACHE, xdr_void, argp, xdr_void, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return ((void *)&res);
+X}
+X
+Xattrstat *
+Xnfsproc_write_2(argp, clnt)
+X	writeargs *argp;
+X	CLIENT *clnt;
+X{
+X	static attrstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_WRITE, xdr_writeargs, argp, xdr_attrstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xdiropres *
+Xnfsproc_create_2(argp, clnt)
+X	createargs *argp;
+X	CLIENT *clnt;
+X{
+X	static diropres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_CREATE, xdr_createargs, argp, xdr_diropres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xnfsstat *
+Xnfsproc_remove_2(argp, clnt)
+X	diropargs *argp;
+X	CLIENT *clnt;
+X{
+X	static nfsstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_REMOVE, xdr_diropargs, argp, xdr_nfsstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xnfsstat *
+Xnfsproc_rename_2(argp, clnt)
+X	renameargs *argp;
+X	CLIENT *clnt;
+X{
+X	static nfsstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_RENAME, xdr_renameargs, argp, xdr_nfsstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xnfsstat *
+Xnfsproc_link_2(argp, clnt)
+X	linkargs *argp;
+X	CLIENT *clnt;
+X{
+X	static nfsstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_LINK, xdr_linkargs, argp, xdr_nfsstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xnfsstat *
+Xnfsproc_symlink_2(argp, clnt)
+X	symlinkargs *argp;
+X	CLIENT *clnt;
+X{
+X	static nfsstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_SYMLINK, xdr_symlinkargs, argp, xdr_nfsstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xdiropres *
+Xnfsproc_mkdir_2(argp, clnt)
+X	createargs *argp;
+X	CLIENT *clnt;
+X{
+X	static diropres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_MKDIR, xdr_createargs, argp, xdr_diropres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xnfsstat *
+Xnfsproc_rmdir_2(argp, clnt)
+X	diropargs *argp;
+X	CLIENT *clnt;
+X{
+X	static nfsstat res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_RMDIR, xdr_diropargs, argp, xdr_nfsstat, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xreaddirres *
+Xnfsproc_readdir_2(argp, clnt)
+X	readdirargs *argp;
+X	CLIENT *clnt;
+X{
+X	static readdirres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_READDIR, xdr_readdirargs, argp, xdr_readdirres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+X
+Xstatfsres *
+Xnfsproc_statfs_2(argp, clnt)
+X	nfs_fh *argp;
+X	CLIENT *clnt;
+X{
+X	static statfsres res;
+X
+X	bzero((char *)&res, sizeof(res));
+X	if (clnt_call(clnt, NFSPROC_STATFS, xdr_nfs_fh, argp, xdr_statfsres, &res, TIMEOUT) != RPC_SUCCESS) {
+X		return (NULL);
+X	}
+X	return (&res);
+X}
+END_OF_FILE
+  if test 5251 -ne `wc -c <'rpc/nfs_prot_clnt.c'`; then
+    echo shar: \"'rpc/nfs_prot_clnt.c'\" unpacked with wrong size!
+  fi
+  # end of 'rpc/nfs_prot_clnt.c'
+fi
+if test -f 'wwmount/wwumount.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wwmount/wwumount.c'\"
+else
+  echo shar: Extracting \"'wwmount/wwumount.c'\" \(5109 characters\)
+  sed "s/^X//" >'wwmount/wwumount.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* WWFS umount */
+Xstatic char *AtFSid = "$Header: wwumount.c[109.0] Wed Nov 24 03:49:38 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include "am.h"		/* amd compatibility */
+X
+X/* NFS headers and definitions */
+X#define NFS
+X#define NFSCLIENT
+X#ifdef NFS_3
+Xtypedef nfs_fh fhandle_t;
+X#endif /* NFS_3 */
+X#include <sys/mount.h>
+X#ifdef NFS_HDR
+X#include NFS_HDR
+X#endif /* NFS_HDR */
+X
+X/* miscellaneous headers */
+X#include <sys/signal.h>
+X#include <sys/stat.h>
+X#include "cs_prot.h"
+X
+X#ifdef MOUNTED
+Xchar *mtab = MOUNTED;
+X#endif /* MOUNTED */
+Xtime_t clock_valid = 0;
+Xint mypid;
+X
+X#if defined(NEED_UMOUNT_BSD) || defined(NEED_UMOUNT_OSF)
+X#ifdef NEED_UMOUNT_OSF
+X#define unmount umount
+X#endif
+Xint umount_fs P((char *fs_name));
+Xint umount_fs(fs_name)
+Xchar *fs_name;
+X{
+X	int error;
+X
+Xeintr:
+X	error = unmount(fs_name, MNT_NOFORCE);
+X	if (error < 0)
+X		error = errno;
+X
+X	switch (error) {
+X	case EINVAL:
+X	case ENOTBLK:
+X	case ENOENT:
+X		plog(XLOG_WARNING, "unmount: %s is not mounted", fs_name);
+X		error = 0;	/* Not really an error */
+X		break;
+X
+X	case EINTR:
+X#ifdef DEBUG
+X		/* not sure why this happens, but it does.  ask kirk one day... */
+X		dlog("%s: unmount: %m", fs_name);
+X#endif /* DEBUG */
+X		goto eintr;
+X
+X#ifdef DEBUG
+X	default:
+X		dlog("%s: unmount: %m", fs_name);
+X		break;
+X#endif /* DEBUG */
+X	}
+X
+X	return error;
+X}
+X
+X#endif /* NEED_UMOUNT_BSD || NEED_UMOUNT_OSF */
+X
+X#ifdef NEED_UMOUNT_FS
+X
+Xint umount_fs(fs_name)
+Xchar *fs_name;
+X{
+X	mntlist *mlist, *mp, *mp_save = 0;
+X	int error = 0;
+X
+X	mp = mlist = read_mtab(fs_name);
+X
+X	/*
+X	 * Search the mount table looking for
+X	 * the correct (ie last) matching entry
+X	 */
+X	while (mp) {
+X		if (strcmp(mp->mnt->mnt_fsname, fs_name) == 0 ||
+X				strcmp(mp->mnt->mnt_dir, fs_name) == 0)
+X			mp_save = mp;
+X		mp = mp->mnext;
+X	}
+X
+X	if (mp_save) {
+X#ifdef DEBUG
+X		dlog("Trying unmount(%s)", mp_save->mnt->mnt_dir);
+X#endif /* DEBUG */
+X		/*
+X		 * This unmount may hang leaving this
+X		 * process with an exlusive lock on
+X		 * /etc/mtab. Therefore it is necessary
+X		 * to unlock mtab, do the unmount, then
+X		 * lock mtab (again) and reread it and
+X		 * finally update it.
+X		 */
+X#ifdef UPDATE_MTAB
+X		unlock_mntlist();
+X#endif
+X		if (UNMOUNT_TRAP(mp_save->mnt) < 0) {
+X			switch (error = errno) {
+X			case EINVAL:
+X			case ENOTBLK:
+X				plog(XLOG_WARNING,
+X				     "unmount: %s is not mounted",
+X				     mp_save->mnt->mnt_dir);
+X				error = 0;	/* Not really an error */
+X				break;
+X
+X			case ENOENT:
+X				plog(XLOG_ERROR,
+X				     "mount point %s: %m",
+X				     mp_save->mnt->mnt_dir);
+X				break;
+X
+X			default:
+X#ifdef DEBUG
+X				dlog("%s: unmount: %m", mp_save->mnt->mnt_dir);
+X#endif /* DEBUG */
+X				break;
+X			}
+X		}
+X#ifdef DEBUG
+X		dlog("Finished unmount(%s)", mp_save->mnt->mnt_dir);
+X#endif
+X
+X#ifdef UPDATE_MTAB
+X		if (!error) {
+X			mp = mlist = read_mtab(fs_name);
+X			
+X			/*
+X			 * Search the mount table looking for
+X			 * the correct (ie last) matching entry
+X			 */
+X			mp_save = 0;
+X			while (mp) {
+X				if (strcmp(mp->mnt->mnt_fsname, fs_name) == 0
+X				    || strcmp(mp->mnt->mnt_dir, fs_name) == 0)
+X					mp_save = mp;
+X				mp = mp->mnext;
+X			}
+X			
+X			if (mp_save) {
+X				mp_save->mnt = 0;
+X				rewrite_mtab(mlist);
+X			}
+X		}
+X#endif /* UPDATE_MTAB */
+X	} else {
+X		plog(XLOG_ERROR, "Couldn't find how to unmount %s", fs_name);
+X		/*
+X		 * Assume it is already unmounted
+X		 */
+X		error = 0;
+X	}
+X
+X	return error;
+X}
+X
+X#endif /* NEED_UMOUNT_FS */
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	char *mp_name;
+X	int ret;
+X
+X	/* amd compat code */
+X	mypid = getpid();
+X
+X	if (argc < 2) {
+X		usage(argv[0]);
+X		exit(1);
+X	}
+X	mp_name = argv[1];
+X	ret = umount_fs(mp_name);
+X	if (ret < 0) {
+X		perror(argv[0]);
+X		exit(1);
+X	}
+X}
+X
+Xusage(name)
+Xchar *name;
+X{
+X	printf("Usage: %s directory\n", name);
+X}
+END_OF_FILE
+  if test 5109 -ne `wc -c <'wwmount/wwumount.c'`; then
+    echo shar: \"'wwmount/wwumount.c'\" unpacked with wrong size!
+  fi
+  # end of 'wwmount/wwumount.c'
+fi
+echo shar: End of archive 16 \(of 22\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

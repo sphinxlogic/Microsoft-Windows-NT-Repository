@@ -1,0 +1,1602 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i081:  chiaro - Image Utilities, Part11/18
+Message-ID: <1993Mar26.202816.14695@sparky.imd.sterling.com>
+X-Md4-Signature: 3112b7f12fc074979e59a201fdf25c66
+Date: Fri, 26 Mar 1993 20:28:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 81
+Archive-name: chiaro/part11
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/blocproc.c.B src/formats.c src/gifstrip.man
+# Wrapped by kent@sparky on Thu Mar 25 11:20:05 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 18)."'
+if test -f 'src/blocproc.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/blocproc.c.B'\"
+else
+  echo shar: Extracting \"'src/blocproc.c.B'\" \(34266 characters\)
+  sed "s/^X//" >'src/blocproc.c.B' <<'END_OF_FILE'
+X        if (dlevel >= DLEVEL_FASCINATING)
+X        {
+X            fprintf(outstr, "\nFASCINATING: code table never cleared\n");
+X        }
+X        if (elevel >= ELEVEL_FASCINATING)
+X        {
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X    cratio = ((long)imd->im_wid * (long)imd->im_hi) *
+X              (long)((0 == imd->lct_flag) ? globsize : imd->lct_size);
+X    cratio = (blockbytes * 800L) / cratio;
+X    fprintf(outstr, "        compressed data is %ld%% of the size of uncompressed image\n", cratio);
+X    if (decomp != 0)
+X    {
+X        fprintf(outstr, "        %d colors referenced ", gld_colors);
+X
+X        if ((chandle = col_open()) != 0)
+X        {
+X            fprintf(outerr, "\nERROR: Cannot open color hash table.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        for (loop = 0; loop < (imd->lct_flag ? colors : globcolors); loop++)
+X        {
+X            if (gld_indused[loop] != 0)
+X            {
+X                if (col_enter(chandle, (imd->lct_flag ? &(ctable[loop]) : 
+X                                                        &(gct[loop]))) != 0)
+X                {
+X                    fprintf(outerr, 
+X                            "\nERROR: Error entering in color hash table.\n");
+X                    col_close(chandle, (HASHIT **) NULL);
+X                    fb_close(infile);
+X                    if (imd->lct_flag)
+X                    {
+X                        free(ctable);
+X                    }
+X                    return EXIT_ERROR;
+X                }
+X            }
+X        }
+X        if (col_getstat(chandle, &uniques, &entries) != 0)
+X        {
+X            fprintf(outerr,
+X                    "\nERROR: Error retrieving from color hash table.\n");
+X            col_close(chandle, (HASHIT **) NULL);
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        if (col_close(chandle, (HASHIT **) NULL) != 0)
+X        {
+X            fprintf(outerr, "\nERROR: Error closing color hash table.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        if (entries != gld_colors)
+X        {
+X            fprintf(outerr, "\nERROR: Unique color count returned by decomp does not match index count.\n");
+X            fb_close(infile);
+X            if (imd->lct_flag)
+X            {
+X                free(ctable);
+X            }
+X            return EXIT_ERROR;
+X        }
+X        fprintf(outstr, "(%ld unique)\n", uniques);
+X    }
+X
+X    /* If local color table, clean up. */
+X
+X    if (imd->lct_flag)
+X    {
+X        free(ctable);
+X    }
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of image_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: PTE_PRINTOUT                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from Plain Text Extension.                         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - handle of file                                            *
+X*       ptes   - number of this Plain Text Extension                       *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xpte_printout(FB *infile, int ptes)
+X#else
+Xpte_printout(infile, ptes)
+XFB *infile;
+Xint ptes;
+X#endif
+X{
+X    ULONG status;
+X    GIF_PTE pte;
+X    int charhi, charwid;
+X    int loop;
+X    int unprint = 0;
+X    unsigned int fillcount;
+X    char toprint;
+X    unsigned int linecount;
+X
+X    fprintf(outstr, "PLAIN TEXT EXTENSION BLOCK %d:\n", ptes);
+X
+X    /* Check order. */
+X
+X    if ((status = follow(STATE_PTE)) != EXIT_OK)
+X    {
+X        fb_close(infile);
+X        return (int) status;
+X    }
+X
+X    /* Read extension. */
+X
+X    if ((status = gif_plaintextext(infile, &pte)) != ST_SUCCESS)
+X    {
+X        fprintf(outerr, "%s\n", errxlate(status));
+X        fb_close(infile);
+X        return EXIT_ERROR;
+X    }
+X
+X    /* Dump info. */
+X
+X    if (((RGB_TRIPLET *) NULL) == gct)
+X    {
+X        if (dlevel >= DLEVEL_FASCINATING)
+X        {
+X            fprintf(outstr, "\nFASCINATING: this file has no Global Color Table (GCT is used by PTE)\n");
+X        }
+X        if (elevel >= ELEVEL_FASCINATING)
+X        {
+X            fb_close(infile);
+X            free(pte.text);
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X    charhi = pte.hi / pte.cellhi;
+X    charwid = pte.wid / pte.cellwid;
+X    if (verbose != 0)
+X    {
+X        fprintf(outstr,
+X          "   Character cell grid upper left corner (column, row): %5u, %5u\n",
+X          pte.left, pte.top);
+X        fprintf(outstr,
+X                "   Character cell size (pixels, width x height): %3u x %3u\n",
+X                pte.cellwid, pte.cellhi);
+X        fprintf(outstr,
+X                "   Character grid size (pixels, width x height): %3u x %3u\n",
+X                pte.wid, pte.hi);
+X        fprintf(outstr,
+X                "   Character grid size (chars, width x height): %3u x %3u\n",
+X                charwid, charhi);
+X    }
+X    else
+X    {
+X        fprintf(outstr,
+X              "   char cell %3u x %3u, grid %3u(%3u) x %3u(%3u) at %5u, %5u\n",
+X              pte.cellwid, pte.cellhi, pte.wid, charwid, pte.hi, charhi,
+X              pte.left, pte.top);
+X    }
+X
+X    if (((pte.left + pte.wid) > logwid) || ((pte.top + pte.hi) > loghi))
+X    {
+X        if (dlevel >= DLEVEL_VIOLATION)
+X        {
+X            fprintf(outstr, "\nVIOLATION: character grid does not fit on logical screen\n");
+X        }
+X        if (elevel >= ELEVEL_VIOLATION)
+X        {
+X            fb_close(infile);
+X            free(pte.text);
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X
+X    if (((pte.wid % pte.cellwid) != 0) && (dlevel >= DLEVEL_NITPICK))
+X    {
+X        fprintf(outstr, "\nNITPICK: character grid not an integral number of character cells wide\n");
+X    }
+X    if (((pte.hi % pte.cellhi) != 0) && (dlevel >= DLEVEL_NITPICK))
+X    {
+X        fprintf(outstr, "\nNITPICK: character grid not an integral number of character cells high\n");
+X    }
+X    fprintf(outstr, "   Foreground color index %d ", pte.forecolor);
+X    if (gct != (RGB_TRIPLET *) NULL)
+X    {
+X        if (pte.forecolor > globcolors)
+X        {
+X            fprintf(outstr, "\nANOMALY: foreground color index off end of global color table.\n");
+X            fb_close(infile);
+X            free(pte.text);
+X            return EXIT_NOTGIF;
+X        }
+X        else
+X        {
+X            fprintf(outstr, "(RGB %03d/%03d/%03d)", gct[pte.forecolor].red,
+X                    gct[pte.forecolor].green, gct[pte.forecolor].blue);
+X        }
+X    }
+X    fprintf(outstr, "\n   Background color index %d ", pte.backcolor);
+X    if (gct != (RGB_TRIPLET *) NULL)
+X    {
+X        if (pte.backcolor > globcolors)
+X        {
+X            fprintf(outstr, "\nANOMALY: background color index off end of global color table.\n");
+X            fb_close(infile);
+X            free(pte.text);
+X            return EXIT_NOTGIF;
+X        }
+X        else
+X        {
+X            fprintf(outstr, "(RGB %03d/%03d/%03d)", gct[pte.backcolor].red,
+X                    gct[pte.backcolor].green, gct[pte.backcolor].blue);
+X        }
+X    }
+X    fprintf(outstr, "\n");
+X    if (transparent != -1)
+X    {
+X        if (transparent > globcolors)
+X        {
+X            if (dlevel >= DLEVEL_VIOLATION)
+X            {
+X                fprintf(outstr, "\nVIOLATION: bad transparency index(%d)\n",
+X                                                                  transparent);
+X            }
+X            if (elevel >= ELEVEL_VIOLATION)
+X            {
+X                fb_close(infile);
+X                free(pte.text);
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X        if ((transparent != pte.backcolor) && (transparent != pte.forecolor))
+X        {
+X            if (dlevel >= DLEVEL_FASCINATING)
+X            {
+X                fprintf(outstr, "\nFASCINATING: transparency index does not match either foreground or background\n");
+X            }
+X            if (elevel >= ELEVEL_FASCINATING)
+X            {
+X                fb_close(infile);
+X                free(pte.text);
+X                return EXIT_NOTGIF;
+X            }
+X        }
+X    }
+X    transparent = -1;
+X
+X    unprint = count_unprint((UCHAR *) pte.text, pte.textln);
+X    fprintf(outstr, "   START TEXT (%u characters):\n", pte.textln);
+X    if (0 == do_hexdump)
+X    {
+X        for (loop = 0; loop < pte.textln; loop++)
+X        {
+X            if ((pte.text[loop] & 0x80) != 0)
+X            {
+X                toprint = ' ';
+X            }
+X            else if (isprint(pte.text[loop]))
+X            {
+X                toprint = pte.text[loop];
+X            }
+X            else
+X            {
+X                toprint = ' ';
+X            }
+X            fputc(toprint, outstr);
+X            if (((loop + 1) % charwid) == 0)
+X            {
+X                fputc('\n', outstr);
+X            }
+X        }
+X        if ((loop % charwid) != 0)
+X        {
+X            fputc('\n', outstr);
+X        }
+X    }
+X    else
+X    {
+X        for (linecount = 0, fillcount = pte.textln; fillcount != 0; linecount++)
+X        {
+X            fprintf(outstr, "   LINE %u:\n", (linecount + 1));
+X            hexdump((UCHAR *) (pte.text + (linecount * charwid)),
+X                    ((fillcount > charwid) ? charwid : fillcount));
+X            fillcount -= ((fillcount > charwid) ? charwid : fillcount);
+X        }
+X    }
+X    fprintf(outstr, "   END TEXT.\n");
+X
+X    if ((unprint != 0) && (dlevel >= DLEVEL_NITPICK))
+X    {
+X        fprintf(outstr, "\nNITPICK: %d unprintable characters in text\n",
+X                unprint);
+X    }
+X
+X    if (pte.textln > (charhi * charwid))
+X    {
+X        if (dlevel >= DLEVEL_VIOLATION)
+X        {
+X            fprintf(outstr, "VIOLATION: text is too long to fit into character grid\n");
+X        }
+X        if (elevel >= ELEVEL_VIOLATION)
+X        {
+X            fb_close(infile);
+X            free(pte.text);
+X            return EXIT_NOTGIF;
+X        }
+X    }
+X
+X    /* Clean up. */
+X
+X    free(pte.text);
+X
+X    return EXIT_OK;
+X} /* end of pte_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: GCE_PRINTOUT                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from Graphic Control Extension.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - handle of file                                            *
+X*       gces   - number of this Graphic Control Extension                  *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xgce_printout(FB *infile, int gces)
+X#else
+Xgce_printout(infile, gces)
+X#endif
+X{
+X    ULONG status;
+X    GIF_GCE gce;
+X
+X    fprintf(outstr, "GRAPHIC CONTROL EXTENSION BLOCK %d:\n", gces);
+X
+X    /* Check order. */
+X
+X    if ((status = follow(STATE_GCE)) != EXIT_OK)
+X    {
+X        fb_close(infile);
+X        return (int) status;
+X    }
+X
+X    /* Read the graphic control extension. */
+X
+X    if ((status = gif_grafctrlext(infile, &gce)) != ST_SUCCESS)
+X    {
+X        fprintf(outerr, "%s\n", errxlate(status));
+X        fb_close(infile);
+X        return EXIT_ERROR;
+X    }
+X
+X    /* Dump info. */
+X
+X    if ((gce.raw_packed & 0xE0) != 0)
+X    {
+X        if (dlevel >= DLEVEL_NITPICK)
+X        {
+X            fprintf(outstr, "NITPICK: bits 5-7, byte 1 of graphic control extension should be 0\n");
+X        }
+X    }
+X    if (gce.disposal > 3)
+X    {
+X        fprintf(outstr,
+X                "ANOMALY: an undefined disposal method (%d) is given.\n",
+X                gce.disposal);
+X        fb_close(infile);
+X        return EXIT_NOTGIF;
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   Disposal method: %d (", gce.disposal);
+X        switch (gce.disposal)
+X        {
+X            case 0:
+X                fprintf(outstr, "none");
+X                break;
+X
+X            case 1:
+X                fprintf(outstr, "leave in place");
+X                break;
+X
+X            case 2:
+X                fprintf(outstr, "restore to background");
+X                break;
+X
+X            case 3:
+X                fprintf(outstr, "restore to previous");
+X                break;
+X
+X            default:
+X                fprintf(outstr, "SANITY CHECK FAILED");
+X                break;
+X        }
+X        fprintf(outstr, ")\n");
+X    }
+X    fprintf(outstr, "   User input is %sexpected\n",
+X            ((0 == gce.userinflag) ? "not " : ""));
+X    if (0 == gce.transflag)
+X    {
+X        fprintf(outstr, "   Transparency disabled\n");
+X        transparent = -1;
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   Transparency enabled (index %d)\n",
+X                gce.transparent);
+X        transparent = gce.transparent;
+X    }
+X    if (0 == gce.delay)
+X    {
+X        fprintf(outstr, "   No delay time specified\n");
+X    }
+X    else
+X    {
+X        fprintf(outstr, "   Delay time %d.%02d seconds\n", (gce.delay / 100),
+X                (gce.delay % 100));
+X    }
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of gce_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: GENEXT_PRINTOUT                                              *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from a generic extension.                          *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - handle of file                                            *
+X*       gens   - number of this generic extension                          *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xgenext_printout(FB *infile, int extype, int gens)
+X#else
+Xgenext_printout(infile, extype, gens)
+XFB *infile;
+Xint extype;
+Xint gens;
+X#endif
+X{
+X    ULONG status;
+X    ULONG blockbytes;
+X    unsigned int blocks;
+X
+X    UCHAR *data;
+X    int datalen;
+X
+X    fprintf(outstr, "GENERIC EXTENSION BLOCK %d:\n", gens);
+X    fprintf(outstr, "   extension block type %d\n", extype);
+X
+X    /* Check order. */
+X
+X    if ((status = follow(STATE_GENEXT)) != EXIT_OK)
+X    {
+X        fb_close(infile);
+X        return (int) status;
+X    }
+X
+X    /* Read data blocks until done. */
+X
+X    blockbytes = 0;
+X    blocks = 0;
+X    while (1)
+X    {
+X        /* Read block. */
+X
+X        if ((status = gif_readblock(infile, &data, &datalen)) != ST_SUCCESS)
+X        {
+X            fprintf(outerr, "%s\n", errxlate(status));
+X            fb_close(infile);
+X            return ((GIF_UNEOF_E == status) ? EXIT_UNEOF : EXIT_ERROR);
+X        }
+X
+X        /* Check length. */
+X
+X        if (0 == datalen)
+X        {
+X            /* If zero length, at end. */
+X
+X            break;
+X        }
+X
+X        /* Dump. */
+X
+X        fprintf(outstr, "   BLOCK %d (%d bytes):\n", blocks, datalen);
+X        hexdump(data, datalen);
+X
+X        /* Update. */
+X
+X        blockbytes += (ULONG) datalen;
+X        blocks++;
+X
+X        /* Free block. */
+X
+X        free(data);
+X    }
+X
+X    /* Print more info. */
+X
+X    fprintf(outstr, "   totals: %lu bytes of data in %u blocks\n", blockbytes,
+X            blocks);
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of genext_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: COMMENT_PRINTOUT                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from a comment extension.                          *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile   - handle of file                                          *
+X*       comments - number of this comment extension                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xcomment_printout(FB *infile, int comments)
+X#else
+Xcomment_printout(infile, comments)
+XFB *infile;
+Xint comments;
+X#endif
+X{
+X    char *text;
+X    unsigned int textln;
+X    unsigned int loop;
+X    unsigned int unprint;
+X    char toprint;
+X    ULONG status;
+X
+X    fprintf(outstr, "COMMENT EXTENSION BLOCK %d:\n", comments);
+X
+X    /* Check order. */
+X
+X    if ((status = follow(STATE_COMMENT)) != EXIT_OK)
+X    {
+X        fb_close(infile);
+X        return (int) status;
+X    }
+X
+X    /* Read the comment extension. */
+X
+X    if ((status = gif_commentext(infile, &text, &textln)) != ST_SUCCESS)
+X    {
+X        fprintf(outerr, "%s\n", errxlate(status));
+X        fb_close(infile);
+X        return EXIT_ERROR;
+X    }
+X
+X    fprintf(outstr, "   START TEXT (%u characters):\n", textln);
+X
+X    unprint = count_unprint((UCHAR *) text, textln);
+X    if (0 == do_hexdump)
+X    {
+X        for (loop = 0; loop < textln; loop++)
+X        {
+X            if ((text[loop] & 0x80) != 0)
+X            {
+X                toprint = ' ';
+X            }
+X            else if ((isprint(text[loop])) || (0x0A == text[loop]))
+X            {
+X                toprint = text[loop];
+X            }
+X            else
+X            {
+X                toprint = ' ';
+X            }
+X            fputc(toprint, outstr);
+X        }
+X        if ((toprint != 0x0D) && (toprint != 0x0A))
+X        {
+X            fputc('\n', outstr);
+X        }
+X    }
+X    else
+X    {
+X        hexdump((UCHAR *) text, textln);
+X    }
+X    fprintf(outstr, "   END TEXT.\n");
+X
+X    fprintf(outstr, "   %u unprintable characters.\n", unprint);
+X
+X    /* Clean up. */
+X
+X    free(text);
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of comment_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: APP_PRINTOUT                                                 *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Prints out info from an application-specific extension             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile - handle of file                                            *
+X*       apps   - number of this application-specific extension             *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an errorlevel code.                                        *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xapp_printout(FB *infile, int apps)
+X#else
+Xapp_printout(infile, apps)
+XFB *infile;
+Xint apps;
+X#endif
+X{
+X    GIF_APPL appl;
+X    ULONG status;
+X
+X    fprintf(outstr, "APPLICATION EXTENSION BLOCK %d:\n", apps);
+X
+X    /* Check order. */
+X
+X    if ((status = follow(STATE_APP)) != EXIT_OK)
+X    {
+X        fb_close(infile);
+X        return (int) status;
+X    }
+X
+X    /* Read the application extension. */
+X
+X    if ((status = gif_applext(infile, &appl)) != ST_SUCCESS)
+X    {
+X        fprintf(outerr, "%s\n", errxlate(status));
+X        fb_close(infile);
+X        return EXIT_ERROR;
+X    }
+X
+X    fprintf(outstr, "   application identifier:\n");
+X    hexdump((unsigned char *) appl.appl_id, GIF_APPL_APPLID_LEN);
+X
+X    fprintf(outstr, "   application authentication code:\n");
+X    hexdump(appl.appl_auth, GIF_APPL_AUTH_LEN);
+X
+X    fprintf(outstr, "   %d bytes of application data.\n", appl.appldatlen);
+X    hexdump(appl.appldata, appl.appldatlen);
+X
+X    /* Clean up. */
+X
+X    free(appl.appldata);
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of app_printout() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: FOLLOW                                                       *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Determines whether a given block can legally follow the preceding  *
+X*       block.                                                             *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       state - type of next block                                         *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns EXIT_OK if next block can follow last block, EXIT_NOTGIF   *
+X*       otherwise.                                                         *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Requires type of last block in global laststate. Updates laststate *
+X*       with type of next block.                                           *
+X*                                                                          *
+X***************************************************************************/
+Xint 
+X#ifdef __STDC__
+Xfollow(int state)
+X#else
+Xfollow(state)
+Xint state;
+X#endif
+X{
+X    /* Can the given state follow the last state? */
+X
+X    if (0 == state_trans[laststate][state])
+X    {
+X        fprintf(outstr, "ANOMALY: a %s cannot follow a %s\n",
+X                state_names[state], state_names[laststate]);
+X        return EXIT_NOTGIF;
+X    }
+X
+X    /* Save current state. */
+X
+X    laststate = state;
+X
+X    /* Return OK. */
+X
+X    return EXIT_OK;
+X} /* end of follow() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: COUNT_UNPRINT  (STATIC)                                      *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Counts unprintable characters in a string. Unprintable characters  *
+X*       are those > 127 and those for whom isprint() returns 0, except     *
+X*       CR and LF.                                                         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       data - pointer to data to be checked                               *
+X*       len  - length of data to be checked                                *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns number of unprintable characters found.                    *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic unsigned int 
+X#ifdef __STDC__
+Xcount_unprint(UCHAR *data, unsigned int len)
+X#else
+Xcount_unprint(data, len)
+XUCHAR *data;
+Xunsigned int len;
+X#endif
+X{
+X    unsigned int loop;
+X    unsigned int unprint;
+X
+X    unprint = 0;
+X    for (loop = 0; loop < len; loop++)
+X    {
+X        if (((data[loop] & 0x80) != 0) ||
+X            ((isprint(data[loop]) == 0) && (data[loop] != 0x0D) &&
+X             (data[loop] != 0x0A)))
+X        {
+X            unprint++;
+X        }
+X    }
+X
+X    return unprint;
+X} /* end of static count_unprint() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: HEXDUMP  (STATIC)                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Does a hex/ASCII dump of a block of data.                          *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       data - pointer to data to be dumped                                *
+X*       len  - length of data to be dumped                                 *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Void.                                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID 
+X#ifdef __STDC__
+Xhexdump(UCHAR *data, unsigned int len)
+X#else
+Xhexdump(data, len)
+XUCHAR *data;
+Xunsigned int len;
+X#endif
+X{
+X    unsigned int loop;
+X    UCHAR toprint;
+X
+X    for (loop = 0; loop < len; loop++)
+X    {
+X        if ((data[loop] & 0x80) != 0)
+X        {
+X            toprint = ' ';
+X        }
+X        else if (isgraph(data[loop]))
+X        {
+X            toprint = data[loop];
+X        }
+X        else
+X        {
+X            toprint = ' ';
+X        }
+X        fprintf(outstr, "%c %02X    ", toprint, (int) data[loop]);
+X        if (((loop + 1) % HEXLINELEN) == 0)
+X        {
+X            fprintf(outstr, "\n");
+X        }
+X    }
+X    if ((loop % HEXLINELEN) != 0)
+X    {
+X        fprintf(outstr, "\n");
+X    }
+X
+X    return;
+X} /* end of static hexdump() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: COLORDUMP  (STATIC)                                          *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Dumps RGB values from a color table.                               *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       ctable - pointer to color table to be dumped                       *
+X*       colors - length of color table, in colors                          *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Void.                                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xcolordump(RGB_TRIPLET *ctable, int colors)
+X#else
+Xcolordump(ctable, colors)
+XRGB_TRIPLET *ctable;
+Xint colors;
+X#endif
+X{
+X    int loop;
+X
+X    for (loop = 0; loop < colors; loop++)
+X    {
+X        fprintf(outstr, "   %03d/%03d/%03d", ctable[loop].red,
+X                ctable[loop].green, ctable[loop].blue);
+X        if (((loop + 1) % COLORLINELEN) == 0)
+X        {
+X            fputc('\n', outstr);
+X        }
+X    }
+X    if ((loop % COLORLINELEN) != 0)
+X    {
+X        fputc('\n', outstr);
+X    }
+X
+X    return;
+X} /* end of static colordump() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: CALLBACK  (STATIC)                                           *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       The callback function required by the GLD module.                  *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       donelen  - number of bytes already placed in buffer by GLD module  *
+X*       buffer   - pointer to pointer-to-buffer variable within GLD        *
+X*                  module, so this function can change it if necessary     *
+X*       availlen - pointer to buffer-length variable within GLD module,    *
+X*                  so this function can change it if necessary             *
+X*       bufpos   - pointer to index-in-buffer variable within GLD module,  *
+X*                  so this function can change it if necessary             *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xcallback(long donelen, UCHAR **buffer, long *availlen, long *bufpos)
+X#else
+Xcallback(donelen, buffer, availlen, bufpos)
+Xlong donelen;
+XUCHAR **buffer;
+Xlong *availlen;
+Xlong *bufpos;
+X#endif
+X{
+X    return;
+X} /* end of static callback() */
+X
+END_OF_FILE
+  if test 34266 -ne `wc -c <'src/blocproc.c.B'`; then
+    echo shar: \"'src/blocproc.c.B'\" unpacked with wrong size!
+  elif test -f 'src/blocproc.c.A'; then
+    echo shar: Combining  \"'src/blocproc.c'\" \(64047 characters\)
+    cat 'src/blocproc.c.A' 'src/blocproc.c.B' > 'src/blocproc.c'
+    if test 64047 -ne `wc -c <'src/blocproc.c'`; then
+      echo shar: \"'src/blocproc.c'\" combined with wrong size!
+    else 
+      rm src/blocproc.c.A src/blocproc.c.B
+    fi 
+  fi 
+  # end of 'src/blocproc.c.B'
+fi
+if test -f 'src/formats.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/formats.c'\"
+else
+  echo shar: Extracting \"'src/formats.c'\" \(5999 characters\)
+  sed "s/^X//" >'src/formats.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   FORMATS.C                                                              *
+X*   MODULE:  FM (FORMATS)                                                  *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   The Graphics Interchange Format(c) is the Copyright property of        *
+X*   CompuServe Incorporated. GIF(sm) is a Service Mark property of         *
+X*   CompuServe Incorporated.                                               *
+X*                                                                          *
+X*   $Id: formats.c,v 1.0 1993/02/10 01:50:36 jwbirdsa Exp $
+X*                                                                          *
+X*   Contains format table.                                                 *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X
+X#include "fb.h"
+X#include "formats.h"
+X#include "gif.h"
+X#include "img.h"
+X#include "jfif.h"
+X#include "sr.h"
+X#include "tga.h"
+X#include "pnm.h"
+X#include "xbm.h"
+X#include "bmp.h"
+X#include "pcx.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: formats.c,v 1.0 1993/02/10 01:50:36 jwbirdsa Exp $";
+X
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+Xfsearch formatsearch[] =
+X{ { GIF_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_GIF,  NULL } },
+X  { "GIF87A",  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), GIF_87A,     NULL } },
+X  { "GIF89A",  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), GIF_89A,     NULL } },
+X  { IMG_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_IMG,  NULL } },
+X  { "IMG_1",   { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), IMG_VER1,    NULL } },
+X  { JFIF_MAIN, { FORMAT_TYPE_MASK,                      FORMAT_JFIF, NULL } },
+X  { "JFIF101", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), JFIF_VER101, NULL } },
+X  { SR_MAIN,   { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), SR_1,        NULL } },
+X  { TGA_MAIN,  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), TGA_1,       NULL } },
+X  { PBM_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_PBM,  NULL } },
+X  { "PBM_NORM",{ (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PBM_NORM,    NULL } },
+X  { "PBM_RAW", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PBM_RAW,     NULL } },
+X  { PGM_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_PGM,  NULL } },
+X  { "PGM_NORM",{ (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PGM_NORM,    NULL } },
+X  { "PGM_RAW", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PGM_RAW,     NULL } },
+X  { PPM_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_PPM,  NULL } },
+X  { "PPM_NORM",{ (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PPM_NORM,    NULL } },
+X  { "PPM_RAW", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PPM_RAW,     NULL } },
+X  { XBM_MAIN,  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), XBM_1,       NULL } },
+X  { BMP_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_BMP,  NULL } },
+X  { "WIN2BMP", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), BMP_WIN2,    NULL } },
+X  { "OS2BMP11",{ (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), BMP_OS2_11,  NULL } },
+X  { "WIN3BMP", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), BMP_WIN3,    NULL } },
+X  { "OS2BMP20",{ (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), BMP_OS2_20,  NULL } },
+X  { PCX_MAIN,  { FORMAT_TYPE_MASK,                      FORMAT_PCX,  NULL } },
+X  { "PCX_25",  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PCX_VER25,   NULL } },
+X  { "PCX_28",  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PCX_VER28,   NULL } },
+X  { "PCX_28P", { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PCX_VER28P,  NULL } },
+X  { "PCX_30",  { (FORMAT_TYPE_MASK | FORMAT_VERS_MASK), PCX_VER30,   NULL } },
+X  { "",        { 0,                                     0,           NULL } }
+X};
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:  fm_name                                                     *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Searches in the formatsearch[] table for an entry with a matching  *
+X*       format ID and returns the string associated.                       *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       format - format ID to match                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns pointer to string or NULL.                                 *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xfm_name(ULONG format)
+X#else
+Xfm_name(format)
+XULONG format;
+X#endif
+X{
+X    int loop;
+X
+X    for (loop = 0; formatsearch[loop].name[0] != '\0'; loop++)
+X    {
+X        if (formatsearch[loop].value.value == format)
+X        {
+X            return formatsearch[loop].name;
+X        }
+X    }
+X
+X    return NULL;
+X} /* end of fm_name() */
+X
+END_OF_FILE
+  if test 5999 -ne `wc -c <'src/formats.c'`; then
+    echo shar: \"'src/formats.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/formats.c'
+fi
+if test -f 'src/gifstrip.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gifstrip.man'\"
+else
+  echo shar: Extracting \"'src/gifstrip.man'\" \(12508 characters\)
+  sed "s/^X//" >'src/gifstrip.man' <<'END_OF_FILE'
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+XNAME
+X     gifstrip - GIF file rebuilder
+X
+XSYNOPSIS
+X     gifstrip [ -b ][ -r ][ -- ][ -f ][ -n ][ -m ][ -o ][  -h  ][
+X     -c ][ -d ][ -s ][ -tpath ] target [ target... ]
+X
+XDESCRIPTION
+X     Gifstrip is used to remove excess characters from the begin-
+X     ning  and/or  end  of  a  GIF  file (usually the end). These
+X     excess characters may be added in a variety of ways, includ-
+X     ing XMODEM-protocol file transfers or transfer from a Macin-
+X     tosh computer.  Gifstrip also does some basic file  analysis
+X     and  enforces  a few format requirements which are sometimes
+X     ignored. For temporary storage, it can use memory  or  disk.
+X     By default, it uses memory first and only uses disk space to
+X     make up the shortfall if there  is  not  enough  memory.  By
+X     default,  gifstrip also keeps the original file around until
+X     the new file has been  written  to  disk  successfully,  and
+X     attempts  to  preserve the timestamp, owner, and permissions
+X     of the original file.
+X
+XTARGETS
+X     A target is a filename or directory. Multiple targets may be
+X     specified  on  the command line. If a target is a directory,
+X     all files in that directory will be processed. If no targets
+X     are  specified  on the command line, a usage message will be
+X     printed.
+X
+XOPTIONS
+X     Options may not be combined. In the case of the  -t  option,
+X     there  cannot be a space between the option and the argument
+X     to the option.
+X
+X     -b   Operate in batch mode. All output is  suppressed.  This
+X          option  should  be  first  on the command line or other
+X          options may  generate  output  before  this  option  is
+X          found.  When in batch mode, gifstrip adjusts its status
+X          return to reflect the results of processing. The status
+X          may be:
+X
+X               0     the file is GIF format and did not need
+X                      stripping, or was stripped OK
+X               1     file is not GIF format
+X               2     an unexpected EOF was encountered
+X                      (usually indicates a corrupt file)
+X               3     any other error
+X
+X          Note that the status reflects the result  of  only  the
+X          last file processed.  Therefore, in batch mode only one
+X          file should be specified on the command line.
+X
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           1
+X
+X
+X
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+X     --   Read targets from stdin. The list of targets must  have
+X          only one target per line. Targets which are directories
+X          will be expanded as usual, but wildcards  will  not  be
+X          expanded.  Targets on the command line will be ignored.
+X          For use with the -f option of chils.
+X
+X     -r   Redirects error messages to stderr.
+X
+X     -f   Forces gifstrip to rebuild the  file.  Normally,  files
+X          are  rebuilt only when extra characters are found or if
+X          the file does not meet strict format requirements  (see
+X          the -n option below).
+X
+X     -m   Enables the stripping of files which have excess  char-
+X          acters at the beginning. Ordinarily, such files are not
+X          recognized as GIF  format  files.   With  this  option,
+X          gifstrip  searches through the file looking for the GIF
+X          format signature, and starts rebuilding the  file  when
+X          it  finds  it.  Files  without excess characters at the
+X          beginning will be processed normally.
+X
+X     -n   Disables strict format checking. Normally, the  follow-
+X          ing violations are checked for, and the file rebuilt if
+X          any are found:
+X
+X               (GIF87a only)    Global or local color table sorted
+X                                 flag set
+X               (GIF87a only)    Aspect ratio value nonzero
+X               (GIF87a, GIF89a) Local color table size given but local
+X                                 color table flag not set (no local
+X                                 color table)
+X               (GIF89a only)    Local color table sorted flag set but
+X                                 local color table flag not set (no
+X                                 local color table)
+X
+X          If the -n option is used, these violations are ignored.
+X          If  the  file  is rebuilt due to excess characters, any
+X          violations will be propagated into the rebuilt file.
+X
+X     -o   Erases the original file  before  writing  the  rebuilt
+X          file.  By  default,  gifstrip retains the original file
+X          until the rebuilt file has been completely  written  to
+X          disk.  Thus, in case of error, either the original file
+X          or the rebuilt file will exist on disk no  matter  when
+X          gifstrip  is  aborted, providing a measure of security.
+X          However, sometimes it is necessary to  process  a  file
+X          which is on a nearly-full drive, with insufficient room
+X          for a second copy of the file. This option  allows  for
+X          that case.
+X
+X     -h   Prints a usage message. No files are processed and  all
+X          other options are ignored.
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           2
+X
+X
+X
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+X     -c   Disables use of memory for temporary storage. Cannot be
+X          combined with the -d option.
+X
+X     -d   Disables use of disk for temporary storage.  Cannot  be
+X          combined with the -c option.
+X
+X     -s   Equivalent to -c.
+X
+X     -tpath
+X          Specifies a path for the  disk  temporary  file.  There
+X          must not be space between the "-t" and the path.
+X
+XOUTPUT
+X     Gifstrip produces at least two  lines  of  output  for  each
+X     file. In some cases, it may produce several pages of output.
+X
+X     For each file specified, gifstrip outputs the line "Process-
+X     ing  filename...   ".  If the file is not a GIF format file,
+X     gifstrip then outputs the message "ERROR: File is not a  GIF
+X     format file." and proceeds to the next file.
+X
+X  FILE HEADER LINE
+X     GIF87A  G--   21463    250 x   200 @ 128   junk/vla.gif
+X     GIF89A  G-A   34256    320 x   200 @ 256   junk/glass.gif
+X
+X     The columns from left to right are:
+X        +  the format identifier (GIF87A or GIF89A)
+X        +  G file has a global color table
+X           - file does not have a global color table
+X        +  S global color table is sorted
+X           - global color table is not sorted
+X        +  A aspect ratio is specified
+X           - no aspect ratio
+X        +  the file size
+X        +  the width in pixels of the logical screen
+X        +  the height in pixels of the logical screen
+X        +  the number of colors in the global color table (--- if
+X             no global color table)
+X        +  the filename
+X
+X     If gifstrip encounters in the file header one of the  format
+X     violations  listed under the -n option, and the -n option is
+X     not in effect, it will print a message describing the viola-
+X     tion  after  the  file  header line. This message will start
+X     with "FYI:".
+X
+X  IMAGE LINE
+X     G-S  (  0,  0)    250 x   200 @ 128   20970BY    83BL
+X
+X     The columns from left to right are:
+X        +  G image uses global color table
+X
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           3
+X
+X
+X
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+X           L image uses local color table
+X        +  S local color table is sorted
+X           - local color table is not sorted
+X        +  S image is stored sequentially
+X           I image is stored interlaced
+X        +  offset of upper left corner of the image on the  logi-
+X             cal screen, (horizontal,vertical)
+X        +  the width in pixels of the image
+X        +  the height in pixels of the image
+X        +  the number of colors in either  the  global  or  local
+X             color table, whichever the image uses
+X        +  the number of data bytes in the image
+X        +  the number of blocks into which  the  data  bytes  are
+X             broken up
+X
+X     If gifstrip encounters in an image one of the format  viola-
+X     tions  listed  under the -n option, and the -n option is not
+X     in effect, it will print a mesasge describing the  violation
+X     BEFORE it prints the image line for that image. This message
+X     will start with "FYI:".
+X
+X  EXTENSION BLOCK LINE
+X     When an extension block is encountered, gifstrip will  print
+X     one of several lines. If the format is GIF87a, or the exten-
+X     sion block is not one of the four dedicated types defined in
+X     GIF89a, gifstrip prints:
+X
+X        Type xxx Extension Block
+X
+X     where xxx is the type number given in  the  extension  block
+X     header.  If it is one of the four dedicated types defined in
+X     GIF89a, gifstrip prints:
+X
+X        Plain Text Extension Block
+X        Graphic Control Extension Block
+X        Comment Extension Block
+X        Application Extension Block
+X
+X     as appropriate.
+X
+X     After identifying the extenion  type,  gifstrip  prints  the
+X     number of data bytes and data blocks in the extension block,
+X     on the same line, in the same format as for an image.
+X
+X  TERMINATOR LINE
+X     If the file is not corrupt, gifstrip will eventually come to
+X     the  GIF  format  terminator  character.  When it encounters
+X     this, it prints:
+X
+X        GIF Terminator
+X
+X
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           4
+X
+X
+X
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+X     and ceases processing the original file. It then  determines
+X     whether the file needs to be rebuilt or not.
+X
+X  NO REBUILD
+X     If the file does not have excess characters  on  either  the
+X     beginning  or  the  end, and either does not have any format
+X     violations or the -n option is in effect, and the -f  option
+X     is  not  in  effect, the file will not be rebuilt.  Gifstrip
+X     prints:
+X
+X        No work to be done. File unchanged.
+X
+X     and proceeds to the next file.
+X
+X  REBUILD
+X     If the file does need to be rebuilt, gifstrip prints:
+X
+X         New size:    xxx   Bytes removed:    yyy
+X     Recopying... done.
+X
+X     where xxx is the size in bytes of the rebuilt file, and  yyy
+X     is  the difference between the size of the original file and
+X     the size of the rebuilt file. The next line ("Recopying...")
+X     is simply to indicate that gifstrip is doing something. When
+X     gifstrip prints "done." it is finished writing  the  rebuilt
+X     file  and  proceeds  to the next file. The timestamp, owner,
+X     and permissions of the original file are preserved  as  well
+X     as possible in the rebuilt file.
+X
+X  OTHER LINES
+X     Gifstrip may issue error messages at any  time.  These  will
+X     begin with "WARNING:", "ERROR:", or "FATAL ERROR:".
+X
+X     There are two other messages that gifstrip may issue:
+X
+X     If gifstrip is used with the -m option and encounters excess
+X     characters  at  the beginning of a file, it prints an "FYI:"
+X     message stating that leading junk bytes  have  been  skipped
+X     over  and  gives  the  number of bytes skipped. This message
+X     appears before the file header line.
+X
+X     If gifstrip encounters extraneous  characters  between  sec-
+X     tions, it will issue an "FYI:" message describing the viola-
+X     tion and giving the number of  extraneous  characters.  This
+X     message appears between the lines describing the sections on
+X     either side of the extraneous characters.  This  is  an  FYI
+X     message  because, technically, gifstrip can fix the problem.
+X     However, extraneous characters between sections are  forbid-
+X     den by the format specification. If present, they indicate a
+X     serious problem in the encoder which produced the image, or,
+X     more likely, a corrupt GIF file.
+X
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           5
+X
+X
+X
+X
+X
+X
+XGIFSTRIP(1)              USER COMMANDS                GIFSTRIP(1)
+X
+X
+X
+XCOPYRIGHT
+X     Gifstrip is copyright 1993 by James W. Birdsall, all  rights
+X     reserved.
+X
+X     The Graphics Interchange Format(c) is the Copyright property
+X     of  CompuServe  Incorporated. GIF(sm) is a Service Mark pro-
+X     perty of CompuServe Incorporated.
+X
+XAUTHOR
+X     James W. Birdsall
+X        support@picarefy.com
+X        uunet!uw-coco!amc-gw!picarefy!support
+X        CompuServe: 71261,1731
+X        GEnie: J.BIRDSALL2
+X
+XSEE ALSO
+X     chils(1), gifcheck(1)
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+XSun Release Last change: $Date: 1993/03/02 00:44:17 $           6
+X
+X
+X
+END_OF_FILE
+  if test 12508 -ne `wc -c <'src/gifstrip.man'`; then
+    echo shar: \"'src/gifstrip.man'\" unpacked with wrong size!
+  fi
+  # end of 'src/gifstrip.man'
+fi
+echo shar: End of archive 11 \(of 18\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

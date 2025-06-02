@@ -1,0 +1,1735 @@
+Newsgroups: comp.sources.misc
+From: <dfs@doe.carleton.ca> (David F. Skoll)
+Subject: v37i028:  remind - A replacement for calendar, Patch05a/3
+Message-ID: <csm-v37i028=remind.215009@sparky.IMD.Sterling.COM>
+X-Md4-Signature: e0a19834a933a0508eaf4233180f0b1b
+Date: Wed, 28 Apr 1993 02:50:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: <dfs@doe.carleton.ca> (David F. Skoll)
+Posting-number: Volume 37, Issue 28
+Archive-name: remind/patch05a
+Environment: UNIX, MS-DOS, OS/2
+Patch-To: remind: Volume 33, Issue 58-69
+
+This is patch 5 for version 3.0 of Remind.
+
+Remind is a sophisticated calendar/alarm program, which runs under
+MS-DOS, UNIX and OS/2.
+
+>From the WHATSNEW file:
+
+* Version 3.0 Patch 5
+
++ MAJOR ENHANCEMENTS:
+
+- Added support for the Hebrew calendar - can now specify Jewish holidays
+  easily.  Thanks to Amos Shapir for explaining the Hebrew calendar, and
+  to Danny Sadinoff, from whose HEBCAL program I got some inspiration.
+  Also thanks to David W. Tamkin and Frank Yellin for explaining the rules
+  for jahrzeits.
+
++ MINOR ENHANCEMENTS:
+
+- Allowed the default page size used by Rem2PS to be selected in config.h
+
+- Edited the defs.rem file to contain Jewish holidays.  Cleaned up some
+  of the examples and improved the layout - thanks to George M. Sipe.
+
+- Modified the IIF function to be more general
+
+- Updated finnish.h to support the ISO 8859-1 character set, courtesy
+  of Mikko Silvonen.
+
+- Changed the date conversion routines to greatly speed up conversion from
+  Julian to yyyy/mm/dd form.
+
++ BUG FIXES:
+
+- Fixed a bug in which Remind complained incorrectly about a missing quote
+  in the command SET foo ""
+
+- Fixed bugs in dosubst.c which caused the %o, %1 and %@ substitutions
+  to be incorrect
+
+- Fixed a bug in the man page - thanks to Ed Oskiewicz.
+
+
+Availability:
+
+You can get Remind via ftp from ftp.doe.carleton.ca (134.117.9.35)
+in the directory "pub/remind-3.0".
+
+The files are:
+
+man-ps.tar.Z		Man pages in PostScript
+man-txt.tar.Z		Man pages in formatted ASCII
+msdos-exe.tar.Z		MS-DOS executables (remind.exe and rem2ps.exe)
+patch01.tar.Z		Patch: 03.00.00 to 03.00.01
+patch02.tar.Z		Patch: 03.00.01 to 03.00.02
+patch03.tar.Z		Patch: 03.00.02 to 03.00.03
+patch04.tar.Z		Patch: 03.00.03 to 03.00.04
+patch05.tar.Z		Patch: 03.00.04 to 03.00.05
+remind-3.0.5.tar.Z	Entire 03.00.05 source distribution.
+
+--
+David F. Skoll
+--------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch.05.B
+# Wrapped by kent@sparky on Tue Apr 27 21:38:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'patch.05.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.05.B'\"
+else
+  echo shar: Extracting \"'patch.05.B'\" \(53816 characters\)
+  sed "s/^X//" >'patch.05.B' <<'END_OF_FILE'
+X*** ../p4rel/lnk.msc	Thu Mar  4 10:44:28 1993
+X--- ./lnk.msc	Thu Apr 22 10:24:09 1993
+X***************
+X*** 5,10 ****
+X--- 5,11 ----
+X  files.obj +
+X  funcs.obj +
+X  globals.obj +
+X+ hbcal.obj +
+X  init.obj +
+X  main.obj +
+X  omit.obj +
+X*** ../p4rel/lnk.tc	Thu Mar  4 10:44:16 1993
+X--- ./lnk.tc	Thu Apr 22 10:24:09 1993
+X***************
+X*** 6,11 ****
+X--- 6,12 ----
+X  files.obj
+X  funcs.obj
+X  globals.obj
+X+ hbcal.obj
+X  init.obj
+X  main.obj
+X  omit.obj
+X*** ../p4rel/main.c	Mon Mar  1 17:34:01 1993
+X--- ./main.c	Thu Apr 22 10:24:10 1993
+X***************
+X*** 262,280 ****
+X  int day, month, year;
+X  #endif
+X  {
+X!    register int jul, iy;
+X  
+X!    if (year < BASE) return -1;
+X  
+X!    if (JulFirst == -1 || year < FirstYear) {
+X!       jul = 0;
+X!       for (iy = BASE; iy < year; iy++) jul += DaysInYear(iy);
+X!    } else {
+X!       jul = JulFirst;
+X!       for (iy = FirstYear; iy < year; iy++) jul += DaysInYear(iy);
+X!    }
+X! 
+X!    return jul + MonthIndex[IsLeapYear(year)][month] + day - 1;
+X  }
+X  
+X  /***************************************************************/
+X--- 262,275 ----
+X  int day, month, year;
+X  #endif
+X  {
+X!    int y1 = BASE-1, y2 = year-1;
+X  
+X!    int y4 = (y2 / 4) - (y1 / 4);  /* Correct for leap years */
+X!    int y100 = (y2 / 100) - (y1 / 100); /* Don't count multiples of 100... */
+X!    int y400 = (y2 / 400) - (y1 / 400); /* ... but do count multiples of 400 */
+X  
+X!    return 365 * (year-BASE) + y4 - y100 + y400 +
+X!           MonthIndex[IsLeapYear(year)][month] + day - 1;
+X  }
+X  
+X  /***************************************************************/
+X***************
+X*** 292,319 ****
+X  int *y, *m, *d;
+X  #endif
+X  {
+X!    register int t;
+X  
+X!    if (jul >= JulFirst && JulFirst != -1) {
+X!       *y = FirstYear;
+X!       jul -= JulFirst;
+X!    } else *y = BASE;
+X  
+X!    *m = 0;
+X! 
+X!    t = DaysInYear(*y);
+X!    while (jul >= t) {
+X!       jul -= t;
+X!       (*y)++;
+X!       t = DaysInYear(*y);
+X     }
+X! 
+X!    t = DaysInMonth(*m, *y);
+X     while (jul >= t) {
+X        jul -= t;
+X!       (*m)++;
+X!       t = DaysInMonth(*m, *y);
+X     }
+X     *d = jul + 1;
+X     return;
+X  }
+X--- 287,318 ----
+X  int *y, *m, *d;
+X  #endif
+X  {
+X!    int try_yr = (jul / 365) + BASE;
+X!    int try_mon = 0;
+X!    int t;
+X  
+X!    /* Inline code for speed... */
+X!    int y1 = BASE-1, y2 = try_yr-1;
+X!    int y4 = (y2 / 4) - (y1 / 4);  /* Correct for leap years */
+X!    int y100 = (y2 / 100) - (y1 / 100); /* Don't count multiples of 100... */
+X!    int y400 = (y2 / 400) - (y1 / 400); /* ... but do count multiples of 400 */
+X  
+X!    int try_jul= 365 * (try_yr-BASE) + y4 - y100 + y400;
+X!    
+X!    while (try_jul > jul) {
+X!       try_yr--;
+X!       try_jul -= DaysInYear(try_yr);
+X     }
+X!    jul -= try_jul;
+X!    
+X!    t = DaysInMonth(try_mon, try_yr);
+X     while (jul >= t) {
+X        jul -= t;
+X!       try_mon++;
+X!       t = DaysInMonth(try_mon, try_yr);
+X     }
+X+    *y = try_yr;
+X+    *m = try_mon;
+X     *d = jul + 1;
+X     return;
+X  }
+X*** ../p4rel/makefile.msc	Thu Mar  4 10:46:02 1993
+X--- ./makefile.msc	Thu Apr 22 10:58:29 1993
+X***************
+X*** 2,8 ****
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj sort.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X--- 2,8 ----
+X  
+X  OBJS= calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj token.obj trigger.obj userfns.obj \
+X! utils.obj var.obj sort.obj hbcal.obj
+X  
+X  DEFINES= /D__MSDOS__ /D__MSC__
+X  
+X***************
+X*** 19,24 ****
+X--- 19,27 ----
+X  
+X  expr.obj: expr.c
+X  	cl /c $(DEFINES) $(MODEL) /Foexpr.obj expr.c
+X+ 
+X+ hbcal.obj: hbcal.c
+X+ 	cl /c $(DEFINES) $(MODEL) /Fohbcal.obj hbcal.c
+X  
+X  sort.obj: sort.c
+X  	cl /c $(DEFINES) $(MODEL) /Fosort.obj sort.c
+X*** ../p4rel/makefile.os2	Mon Mar  1 16:55:19 1993
+X--- ./makefile.os2	Thu Apr 22 10:24:11 1993
+X***************
+X*** 25,31 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.04
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h
+X--- 25,31 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.05
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finish.h
+X***************
+X*** 33,39 ****
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X--- 33,39 ----
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X*** ../p4rel/makefile.tc	Mon Mar  1 16:55:05 1993
+X--- ./makefile.tc	Thu Apr 22 10:24:11 1993
+X***************
+X*** 1,6 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.04
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h
+X--- 1,6 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.05
+X  
+X  HDRS= config.h err.h expr.h globals.h protos.h types.h version.h \
+X  lang.h english.h german.h dutch.h finnish.h
+X***************
+X*** 8,18 ****
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj sort.obj token.obj trigger.obj \
+X! utils.obj userfns.obj var.obj
+X  
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X--- 8,18 ----
+X  STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X! main.c omit.c sort.c token.c trigger.c userfns.c utils.c var.c hbcal.c
+X  
+X  OBJS=calendar.obj dorem.obj dosubst.obj expr.obj files.obj funcs.obj \
+X  globals.obj init.obj main.obj omit.obj sort.obj token.obj trigger.obj \
+X! utils.obj userfns.obj var.obj hbcal.obj
+X  
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X*** ../p4rel/protos.h	Tue Mar  2 16:20:16 1993
+X--- ./protos.h	Thu Apr 22 10:24:12 1993
+X***************
+X*** 97,103 ****
+X  int StrMatch ARGS ((const char *s1, const char *s2, int n));
+X  int StrinCmp ARGS ((const char *s1, const char *s2, int n));
+X  char *StrDup ARGS ((const char *s));
+X! int StrCmpi ARGS ((char *s1, char *s2));
+X  Var *FindVar ARGS ((const char *str, int create));
+X  int DeleteVar ARGS ((const char *str));
+X  int SetVar ARGS ((const char *str, Value *val));
+X--- 97,103 ----
+X  int StrMatch ARGS ((const char *s1, const char *s2, int n));
+X  int StrinCmp ARGS ((const char *s1, const char *s2, int n));
+X  char *StrDup ARGS ((const char *s));
+X! int StrCmpi ARGS ((const char *s1, const char *s2));
+X  Var *FindVar ARGS ((const char *str, int create));
+X  int DeleteVar ARGS ((const char *str));
+X  int SetVar ARGS ((const char *str, Value *val));
+X***************
+X*** 117,119 ****
+X--- 117,130 ----
+X  int InsertIntoSortBuffer ARGS ((int jul, int tim, char *body, int typ));
+X  void IssueSortedReminders ARGS ((void));    
+X  int UserFuncExists ARGS ((char *fn));
+X+ void JulToHeb ARGS((int jul, int *hy, int *hm, int *hd));
+X+ int HebNameToNum ARGS((const char *mname));
+X+ char *HebMonthName ARGS((int m, int y));
+X+ int RoshHashana ARGS((int i));
+X+ long DaysToHebYear ARGS((int y));
+X+ int DaysInHebYear ARGS((int y));
+X+ char *DaysInHebMonths ARGS((int ylen));
+X+ int HebToJul ARGS((int hy, int hm, int hd));
+X+ int GetValidHebDate ARGS((int yin, int min, int din, int *mout, int *dout, int yahr));
+X+ int GetNextHebrewDate ARGS((int julstart, int hm, int hd, int yahr, int *ans));
+X+ int ComputeJahr ARGS ((int y, int m, int d, int *ans));
+X*** ../p4rel/rem	Wed Dec 16 10:51:43 1992
+X--- ./rem	Thu Apr 22 10:24:13 1993
+X***************
+X*** 3,9 ****
+X  # rem - by David Skoll - 26 February 1991
+X  #
+X  # This script runs 'remind' with a default reminder file assumed.  You
+X! # can override the default by using "rem -f newfile ..."  (But why would
+X  # you use rem unless you wanted to accept the default??)
+X  
+X  # ------ You may wish to change the defaults below this line ------
+X--- 3,9 ----
+X  # rem - by David Skoll - 26 February 1991
+X  #
+X  # This script runs 'remind' with a default reminder file assumed.  You
+X! # can override the default by using "rem -F newfile ..."  (But why would
+X  # you use rem unless you wanted to accept the default??)
+X  
+X  # ------ You may wish to change the defaults below this line ------
+X*** ../p4rel/rem2ps.1	Mon Feb 15 18:45:11 1993
+X--- ./rem2ps.1	Thu Apr 22 10:24:28 1993
+X***************
+X*** 70,76 ****
+X  .PP
+X  Type "rem2ps -m help" for a list of available media.  Note that the media
+X  type (and all \fBRem2ps\fR options) are case-sensitive.  If you don't use
+X! the \fB\-m\fR option, the media defaults to Letter.
+X  .RE
+X  .TP
+X  \fB\-f\fR[\fBshed\fR] \fIfont\fR
+X--- 70,78 ----
+X  .PP
+X  Type "rem2ps -m help" for a list of available media.  Note that the media
+X  type (and all \fBRem2ps\fR options) are case-sensitive.  If you don't use
+X! the \fB\-m\fR option, the media defaults to a compiled-in default - this
+X! is usually Letter for North America and A4 for Europe.  The "-m help"
+X! option will display the compiled-in default.
+X  .RE
+X  .TP
+X  \fB\-f\fR[\fBshed\fR] \fIfont\fR
+X*** ../p4rel/rem2ps.c	Mon Mar  1 12:59:48 1993
+X--- ./rem2ps.c	Thu Apr 22 10:24:26 1993
+X***************
+X*** 61,66 ****
+X--- 61,71 ----
+X     {"10x14", 720, 1008}
+X  };
+X  
+X+ PageType DefaultPage[1] =
+X+ {
+X+    DEFAULT_PAGE
+X+ };
+X+ 
+X  #define NUMPAGES (sizeof(Pages)/sizeof(Pages[0]))
+X  
+X  CalEntry *CurEntries;
+X***************
+X*** 449,455 ****
+X     BotMarg = 36;
+X     UseISO = 0;
+X  
+X!    CurPage = Pages;  /* Letter size by default */
+X  
+X     while (i < argc) {
+X        s = argv[i];
+X--- 454,460 ----
+X     BotMarg = 36;
+X     UseISO = 0;
+X  
+X!    CurPage = DefaultPage;  /* Letter size by default */
+X  
+X     while (i < argc) {
+X        s = argv[i];
+X***************
+X*** 500,505 ****
+X--- 505,511 ----
+X                 fprintf(stderr, "\nAvailable media types:\n");
+X                 for (j=0; j<NUMPAGES; j++)
+X  	          fprintf(stderr, "   %s\n", Pages[j].name);
+X+                fprintf(stderr, "Default media type is %s\n", DefaultPage[0].name);
+X  	       exit(1);
+X              }
+X  	    break;
+X***************
+X*** 563,568 ****
+X--- 569,575 ----
+X     fprintf(stderr, "              and next month.\n");
+X     fprintf(stderr, "-i            Use ISO 8859-1 encoding in PostScript output\n");
+X     fprintf(stderr, "-m media      Set page size (eg, Letter, Legal, A4.)  Case sensitive!\n");
+X+    fprintf(stderr, "              (Default page size is %s)\n", DefaultPage[0].name);
+X     fprintf(stderr, "-f[shed] font Set font for small cal, hdr, cal entries and/or day numbers.\n");
+X     fprintf(stderr, "-s[hed] size  Set size for header, calendar entries and/or day numbers.\n");
+X     fprintf(stderr, "-b size       Set border size for calendar entries.\n");
+X*** ../p4rel/remind.1	Fri Mar  5 11:51:37 1993
+X--- ./remind.1	Thu Apr 22 10:24:17 1993
+X***************
+X*** 1,4 ****
+X! .TH REMIND 1 "22 January 1993"
+X  .UC 4
+X  .SH NAME
+X  remind \- a sophisticated reminder service
+X--- 1,4 ----
+X! .TH REMIND 1 "14 April 1993"
+X  .UC 4
+X  .SH NAME
+X  remind \- a sophisticated reminder service
+X***************
+X*** 135,141 ****
+X  \fBoverrides\fR the \fB\-r\fR option and the \fBRUN OFF\fR command.
+X  .PP
+X  .RS
+X! As an example, suppose you have an X-Windows program called xmessage, which
+X  pops up a window and displays its invocation arguments.  You could use:
+X  .PP
+X  .nf
+X--- 135,141 ----
+X  \fBoverrides\fR the \fB\-r\fR option and the \fBRUN OFF\fR command.
+X  .PP
+X  .RS
+X! As an example, suppose you have an X Window program called xmessage, which
+X  pops up a window and displays its invocation arguments.  You could use:
+X  .PP
+X  .nf
+X***************
+X*** 1451,1457 ****
+X  Tests the access permissions for the file \fIfile\fR.  \fIMode\fR can
+X  be a string, containing a mix of the characters "rwx" for read,
+X  write and execute permission testing.  Alternatively, \fImode\fR can
+X! be a number as described in the Unix \fBaccess\fR(2) system call.  The
+X  function returns 0 if the file can be accessed with the specified \fImode\fR,
+X  and -1 otherwise.
+X  .TP
+X--- 1451,1457 ----
+X  Tests the access permissions for the file \fIfile\fR.  \fIMode\fR can
+X  be a string, containing a mix of the characters "rwx" for read,
+X  write and execute permission testing.  Alternatively, \fImode\fR can
+X! be a number as described in the UNIX \fBaccess\fR(2) system call.  The
+X  function returns 0 if the file can be accessed with the specified \fImode\fR,
+X  and -1 otherwise.
+X  .TP
+X***************
+X*** 1542,1548 ****
+X  This function takes a \fBDATE\fR as an argument, and returns an \fBINT\fR
+X  which is the day-of-month component of \fIdate\fR.
+X  .TP
+X! .B daysimon(i_m, i_y)
+X  Returns the number of days in month \fIm\fR (1-12) of the year \fIy\fR.
+X  .TP
+X  .B defined(s_var)
+X--- 1542,1548 ----
+X  This function takes a \fBDATE\fR as an argument, and returns an \fBINT\fR
+X  which is the day-of-month component of \fIdate\fR.
+X  .TP
+X! .B daysinmon(i_m, i_y)
+X  Returns the number of days in month \fIm\fR (1-12) of the year \fIy\fR.
+X  .TP
+X  .B defined(s_var)
+X***************
+X*** 1597,1606 ****
+X  .B hour(t_time)
+X  Returns the hour component of \fItime\fR.
+X  .TP
+X! .B iif(si_test, x_argtrue, x_argfalse)
+X! If \fItest\fR is not zero, and not the null string "", returns
+X! \fIargtrue\fR.  Otherwise, returns \fIargfalse\fR.  Note that all
+X! arguments are \fIalways\fR evaluated.
+X  .TP
+X  .B index(s_search, s_target [,i_start)
+X  Returns an \fBINT\fR which is the location of \fItarget\fR in the
+X--- 1597,1610 ----
+X  .B hour(t_time)
+X  Returns the hour component of \fItime\fR.
+X  .TP
+X! .B iif(si_test1, x_arg1, [si_test2, x_arg2,...], x_default)
+X! If \fItest1\fR is not zero or the null string, returns \fIarg1\fR.
+X! Otherwise, if \fItest2\fR is not zero or the null string, returns
+X! \fIarg2\fR, and so on.  If all of the \fItest\fR arguments are false,
+X! returns \fIdefault\fR.  Note that all arguments are \fIalways\fR evaluated.
+X! This function accepts an odd number of arguments - note that prior to version
+X! 03.00.05 of \fBRemind\fR, it accepted 3 arguments only.  The 3-argument
+X! version of \fBiif()\fR is compatible with previous versions of \fBRemind\fR.
+X  .TP
+X  .B index(s_search, s_target [,i_start)
+X  Returns an \fBINT\fR which is the location of \fItarget\fR in the
+X***************
+X*** 1621,1626 ****
+X--- 1625,1642 ----
+X  Returns 1 if \fIdate\fR is omitted, given the current global \fBOMIT\fR
+X  context.  Returns 0 otherwise.
+X  .TP
+X+ .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahrflag]])
+X+ Support for Hebrew dates - see the section "The Hebrew Calendar"
+X+ .TP
+X+ .B hebday(d_date)
+X+ Support for Hebrew dates - see the section "The Hebrew Calendar"
+X+ .TP
+X+ .B hebmon(d_date)
+X+ Support for Hebrew dates - see the section "The Hebrew Calendar"
+X+ .TP
+X+ .Bhebyear(d_date)
+X+ Support for Hebrew dates - see the section "The Hebrew Calendar"
+X+ .TP
+X  .B language()
+X  Returns a \fBSTRING\fR naming the language supported by \fBRemind\fR.
+X  (See "Foreign Language Support.") By default, \fBRemind\fR is compiled
+X***************
+X*** 2342,2348 ****
+X  provide a default definition for SORTBANNER in a system-wide file included
+X  at the end of the user's file.)  Here's an example:
+X  .PP
+X! .nd
+X  	# Create a default sortbanner function if it hasn't already
+X  	# been defined
+X  	if args("sortbanner") != 1
+X--- 2358,2364 ----
+X  provide a default definition for SORTBANNER in a system-wide file included
+X  at the end of the user's file.)  Here's an example:
+X  .PP
+X! .nf
+X  	# Create a default sortbanner function if it hasn't already
+X  	# been defined
+X  	if args("sortbanner") != 1
+X***************
+X*** 2365,2370 ****
+X--- 2381,2552 ----
+X  However, for compatibility between versions of \fBRemind\fR, you should
+X  use only the English names in your scripts.
+X  .PP
+X+ .SH THE HEBREW CALENDAR
+X+ .PP
+X+ \fBRemind\fR has support for the Hebrew calendar, which is a luni-solar
+X+ calendar.  This allows you to create reminders for Jewish holidays,
+X+ jahrzeits (anniversaries of deaths) and smachot (joyous occasions.)
+X+ .PP
+X+ .B THE HEBREW YEAR
+X+ .PP
+X+ The Hebrew year has 12 months, alternately 30 and 29 days long.  The months
+X+ are: Tishrey, Heshvan, Kislev, Tevet, Shvat, Adar, Nisan, Iyar, Sivan, Tamuz,
+X+ Av and Elul.  In Biblical times, the year started in Nisan, but Rosh Hashana
+X+ (Jewish New Year) is now celebrated on the 1st and 2nd of Tishrey.
+X+ .PP
+X+ In a cycle of 19 years, there are 7 leap years, being years 3, 6, 8, 11,
+X+ 14, 17 and 19 of the cycle.  In a leap year, an extra month of 30 days
+X+ is added before Adar.  The two Adars are called Adar A and Adar B.
+X+ .PP
+X+ For certain religious reasons, the year cannot start on a Sunday, Wednesday
+X+ or Friday.  To adjust for this, a day is taken off Kislev or added to Heshvan.
+X+ Thus, a regular year can have from 353 to 355 days, and a leap year from
+X+ 383 to 385.
+X+ .PP
+X+ When Kislev or Heshvan is short, it is called "chaser", or lacking.  When
+X+ it is long, it is called "shalem", or full.
+X+ .PP
+X+ The Jewish date changes at sunset.  However, \fBRemind\fR will change the date
+X+ at midnight, not sunset.  So in the period between sunset and midnight,
+X+ Remind will be a day earlier than the true Jewish date.  This should not be
+X+ much of a problem in practice.
+X+ .PP
+X+ The computations for the Jewish calendar were based on the program "hdate"
+X+ written by Amos Shapir of the Hebrew University of Jerusalem, Israel.  He
+X+ also supplied the preceding explanation of the calendar.
+X+ .PP
+X+ .B HEBREW DATE FUNCTIONS
+X+ .TP
+X+ .B hebday(d_date)
+X+ Returns the day of the Hebrew month corresponding to the \fIdate\fR
+X+ parameter.  For example, 12 April 1993 corresponds to 21 Nisan 5753.
+X+ Thus, hebday('1993/04/12') returns 21.
+X+ .TP
+X+ .B hebmon(d_date)
+X+ Returns the name of the Hebrew month corresponding to \fIdate\fR.
+X+ For example, hebmon('1993/04/12') returns "Nisan".
+X+ .TP
+X+ .B hebyear(d_date)
+X+ Returns the Hebrew year corresponding to \fIdate\fR.  For example,
+X+ hebyear('1993/04/12') returns 5753.
+X+ .TP
+X+ .B hebdate(i_day, s_hebmon [,id_yrstart [,i_jahrflag]])
+X+ The \fBhebdate()\fR function is the most complex of the Hebrew support
+X+ functions.  It can take from 2 to 4 arguments.  It returns a \fBDATE\fR
+X+ corresponding to the Hebrew date.
+X+ .PP
+X+ .RS
+X+ The \fIday\fR parameter can range from 1 to 30, and specifies the day of
+X+ the Hebrew month.  The \fIhebmon\fR parameter is a string which must name
+X+ one of the Hebrew months specified above.  Note that the month must be spelled
+X+ out in full, and use the English transliteration shown previously.  You can
+X+ also specify "Adar A" and "Adar B."  Month names are not case-sensitive.
+X+ .PP
+X+ The \fIyrstart\fR parameter can either be a \fBDATE\fR or an \fBINT\fR.  If
+X+ it is a \fBDATE\fR, then the \fBhebdate()\fR scans for the first Hebrew
+X+ date on or after that date.  For example:
+X+ .PP
+X+ .nf
+X+ 		hebdate(15, "Nisan", '1990/01/01')
+X+ .fi
+X+ .PP
+X+ returns 1990/03/30, because that is the first occurrence of 15 Nisan on
+X+ or after 1 January 1990.
+X+ .PP
+X+ If \fIyrstart\fR is an \fBINT\fR, it is interpreted as a Hebrew year.  Thus:
+X+ .PP
+X+ .nf
+X+ 		hebdate(22, "Kislev", 5756)
+X+ .fi
+X+ .PP
+X+ returns 1995/12/15, because that date corresponds to 22 Kislev, 5756.  Note
+X+ that none of the Hebrew date functions will work with dates outside
+X+ \fBRemind's\fR normal range for dates.
+X+ .PP
+X+ If \fIyrstart\fR is not supplied, it defaults to \fBtoday()\fR.
+X+ .PP
+X+ The \fIjahrflag\fR modifies the behaviour of \fBhebdate()\fR as follows:
+X+ .PP
+X+ If \fIjahrflag\fR is 0 (the default),
+X+ then \fBhebdate()\fR keeps scanning until it
+X+ finds a date which exactly satisfies the other parameters.  For example:
+X+ .PP
+X+ .nf
+X+ 		hebdate(30, "Adar A", 1993/01/01)
+X+ .fi
+X+ .PP
+X+ returns 1995/03/02, corresponding to 30 Adar A, 5755, because that is the
+X+ next occurrence of 30 Adar A after 1 January, 1993.  This behaviour is
+X+ appropriate for Purim Katan, which only appears in leap years.
+X+ .PP
+X+ If \fIjahrflag\fR is 1, then the date is modified as follows:
+X+ .TP
+X+ o
+X+ 30 Heshvan is converted to 1 Kislev in years when Heshvan is chaser
+X+ .TP
+X+ o
+X+ 30 Kislev is converted to 1 Tevet in years when Kislev is chaser
+X+ .TP
+X+ o
+X+ 30 Adar A is converted to 1 Nisan in non-leapyears
+X+ .TP
+X+ o
+X+ Other dates in Adar A are moved to the corresponding day in Adar in
+X+ non-leapyears
+X+ .PP
+X+ This behaviour is appropriate for smachot (joyous occasions) and for
+X+ some jahrzeits - see "JAHRZEITS."
+X+ .PP
+X+ if \fIjahrflag\fR is 2, then the date is modified as follows:
+X+ .TP
+X+ o
+X+ 30 Kislev and 30 Heshvan are converted to 29 Kislev and 29 Heshvan,
+X+ respectively, if the month is chaser
+X+ .TP
+X+ o
+X+ 30 Adar A is converted to 30 Shvat in non-leapyears
+X+ .TP
+X+ o
+X+ Other dates in Adar A are moved to the corresponding day in Adar in
+X+ non-leapyears
+X+ .PP
+X+ if \fIjahrflag\fR is not 0, 1, or 2, it is interpreted as a Hebrew year,
+X+ and the behaviour is calculated as described in the next section,
+X+ "JAHRZEITS."
+X+ .RE
+X+ .PP
+X+ .B JAHRZEITS
+X+ .PP
+X+ A jahrzeit is a yearly commemoration of someone's death.  It normally takes
+X+ place on the anniversary of the death, but may be delayed if burial is
+X+ delayed - consult a rabbi.
+X+ .PP
+X+ In addition, because some months change length, it is not obvious which day
+X+ the anniversary of a death is.  The following rules are used:
+X+ .TP
+X+ o
+X+ If the death occurred on 30 Heshvan, and Heshvan in the year after the
+X+ death is chaser, then the jahrzeit is observed on 29 Heshvan in years
+X+ when Heshvan is chaser.  Otherwise, the yahrzeit is observed on 1
+X+ Kislev when Heshvan is chaser.
+X+ .TP
+X+ o
+X+ If the death occurred on 30 Kislev, and Kislev in the year after the
+X+ death is chaser, then the jahrzeit is observed on 29 Kislev in years
+X+ when Kislev is chaser.  Otherwise, the yahrzeit is observed on 1
+X+ Tevet when Kislev is chaser.
+X+ .TP
+X+ o
+X+ If the death occurred on 1-29 Adar A, it is observed on 1-29 Adar in
+X+ non-leapyears.
+X+ .TP
+X+ o
+X+ If the death occurred on 30 Adar A, it is observed on 30 Shvat in a
+X+ non-leapyear.
+X+ .PP
+X+ Specifying a Hebrew year for the \fIjahrflag\fR parameter causes the
+X+ correct behaviour to be selected for a death in that year.
+X+ .PP
+X  .SH MISCELLANEOUS
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X***************
+X*** 2507,2516 ****
+X  the current year will continue to be triggered until 7 days after it has
+X  occurred.  This allows you to safely use the AFTER keyword as shown.
+X  .PP
+X! In general, use \fBSCANFROM\fR as shown for safe moveable \fBOMITs\fR.  The
+X  amount you should scan back by (7 days in the example above) depends on
+X  the number of possible consecutive \fBOMITted\fR days which may occur, and
+X! on the range of the moveable holiday.  Generally, a value of 7 is safe.
+X  .PP
+X  Note that if you use one \fBREM\fR command to calculate a trigger date,
+X  perform date calculations (addition or subtraction, for example) and
+X--- 2689,2698 ----
+X  the current year will continue to be triggered until 7 days after it has
+X  occurred.  This allows you to safely use the AFTER keyword as shown.
+X  .PP
+X! In general, use \fBSCANFROM\fR as shown for safe movable \fBOMITs\fR.  The
+X  amount you should scan back by (7 days in the example above) depends on
+X  the number of possible consecutive \fBOMITted\fR days which may occur, and
+X! on the range of the movable holiday.  Generally, a value of 7 is safe.
+X  .PP
+X  Note that if you use one \fBREM\fR command to calculate a trigger date,
+X  perform date calculations (addition or subtraction, for example) and
+X***************
+X*** 2541,2547 ****
+X  David F. Skoll
+X  .SH BUGS
+X  .PP
+X! Date calculation is a bit "brute force."
+X  .PP
+X  The MS-DOS and OS/2 versions of \fBRemind\fR do not support queuing or timed
+X  activation of reminders.
+X--- 2723,2729 ----
+X  David F. Skoll
+X  .SH BUGS
+X  .PP
+X! Hebrew dates change at midnight, not sunset.
+X  .PP
+X  The MS-DOS and OS/2 versions of \fBRemind\fR do not support queuing or timed
+X  activation of reminders.
+X*** ../p4rel/test.cmp	Wed Mar  3 17:01:52 1993
+X--- ./test.cmp	Thu Apr 22 10:24:19 1993
+X***************
+X*** 5,223 ****
+X  #
+X  # 	./test-rem  # From WITHIN Remind source directory!
+X  
+X  # Test each possible case of the basic reminders.
+X  
+X  REM MSG Every Day
+X! ./test.rem(10): Trig = Saturday, 16 February, 1991
+X! Reminders for Saturday, 16th February, 1991:
+X! 
+X  Every Day
+X  
+X  
+X  REM 18 MSG Every 18th 
+X! ./test.rem(12): Trig = Monday, 18 February, 1991
+X  REM 15 MSG Every 15th
+X! ./test.rem(13): Trig = Friday, 15 March, 1991
+X  
+X  REM Feb MSG February
+X! ./test.rem(15): Trig = Saturday, 16 February, 1991
+X  February
+X  
+X  REM Jan MSG January
+X! ./test.rem(16): Trig = Wednesday, 1 January, 1992
+X  REM March MSG March
+X! ./test.rem(17): Trig = Friday, 1 March, 1991
+X  
+X  REM 13 Jan MSG 13 Jan
+X! ./test.rem(19): Trig = Monday, 13 January, 1992
+X  REM 15 Feb MSG 15 Feb
+X! ./test.rem(20): Trig = Saturday, 15 February, 1992
+X  REM 28 Feb MSG 28 Feb
+X! ./test.rem(21): Trig = Thursday, 28 February, 1991
+X  REM 29 Feb MSG 29 Feb
+X! ./test.rem(22): Trig = Saturday, 29 February, 1992
+X  REM 5 Mar MSG 5 Mar
+X! ./test.rem(23): Trig = Tuesday, 5 March, 1991
+X  
+X  REM 1990 MSG 1990
+X! ./test.rem(25): Expired
+X  REM 1991 MSG 1991
+X! ./test.rem(26): Trig = Saturday, 16 February, 1991
+X  1991
+X  
+X  REM 1992 MSG 1991
+X! ./test.rem(27): Trig = Wednesday, 1 January, 1992
+X  
+X  REM 1 1990 MSG 1 1990
+X! ./test.rem(29): Expired
+X  REM 29 1991 MSG 29 1991
+X! ./test.rem(30): Trig = Friday, 29 March, 1991
+X  REM 29 1992 MSG 29 1992
+X! ./test.rem(31): Trig = Wednesday, 29 January, 1992
+X  REM 16 1991 MSG 16 1991
+X! ./test.rem(32): Trig = Saturday, 16 February, 1991
+X  16 1991
+X  
+X  
+X  REM Jan 1990 MSG Jan 1990
+X! ./test.rem(34): Expired
+X  REM Feb 1991 MSG Feb 1991
+X! ./test.rem(35): Trig = Saturday, 16 February, 1991
+X  Feb 1991
+X  
+X  REM Dec 1991 MSG Dec 1991
+X! ./test.rem(36): Trig = Sunday, 1 December, 1991
+X  REM May 1992 MSG May 1992
+X! ./test.rem(37): Trig = Friday, 1 May, 1992
+X  
+X  REM 1 Jan 1991 MSG 1 Jan 1991
+X! ./test.rem(39): Expired
+X  REM 16 Feb 1991 MSG 16 Feb 1991
+X! ./test.rem(40): Trig = Saturday, 16 February, 1991
+X  16 Feb 1991
+X  
+X  REM 29 Dec 1992 MSG 29 Dec 1992
+X! ./test.rem(41): Trig = Tuesday, 29 December, 1992
+X  
+X  REM Sun MSG Sun
+X! ./test.rem(43): Trig = Sunday, 17 February, 1991
+X  REM Fri Sat Tue MSG Fri Sat Tue
+X! ./test.rem(44): Trig = Saturday, 16 February, 1991
+X  Fri Sat Tue
+X  
+X  
+X  REM Sun 16 MSG Sun 16
+X! ./test.rem(46): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue Wed Thu Fri 1 MSG Mon Tue Wed Thu Fri 1
+X! ./test.rem(47): Trig = Friday, 1 March, 1991
+X  
+X  REM Sun Feb MSG Sun Feb
+X! ./test.rem(49): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue March MSG Mon Tue March
+X! ./test.rem(50): Trig = Monday, 4 March, 1991
+X  
+X  REM Sun 16 Feb MSG Sun 16 Feb
+X! ./test.rem(52): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue 10 March MSG Mon Tue 10 March
+X! ./test.rem(53): Trig = Monday, 11 March, 1991
+X  
+X  REM Sat Sun 1991 MSG Sat Sun 1991
+X! ./test.rem(55): Trig = Saturday, 16 February, 1991
+X  Sat Sun 1991
+X  
+X  REM Mon Tue 1992 MSG Mon Tue 1992
+X! ./test.rem(56): Trig = Monday, 6 January, 1992
+X  
+X  REM Sun 16 1991 MSG Sun 16 1991
+X! ./test.rem(58): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue Wed Thu Fri 1 1992 MSG Mon Tue Wed Thu Fri 1 1992
+X! ./test.rem(59): Trig = Wednesday, 1 January, 1992
+X  
+X  REM Mon Feb 1991 MSG Mon Feb 1991
+X! ./test.rem(61): Trig = Monday, 18 February, 1991
+X  REM Tue Jan 1992 MSG Tue Jan 1992
+X! ./test.rem(62): Trig = Tuesday, 7 January, 1992
+X  
+X  REM Sun Mon 16 Feb 1991 MSG Sun Mon 16 Feb 1991
+X! ./test.rem(64): Trig = Sunday, 17 February, 1991
+X  REM Tue 28 Jan 1992 MSG Tue 28 Jan 1992
+X! ./test.rem(65): Trig = Tuesday, 28 January, 1992
+X  
+X  # Try some Backs
+X  CLEAR-OMIT-CONTEXT
+X  REM 1 -1 OMIT sat sun MSG 1 -1 OMIT Sat Sun
+X! ./test.rem(69): Trig = Thursday, 28 February, 1991
+X  REM 1 --1 OMIT sat sun MSG 1 --1 OMIT Sat Sun
+X! ./test.rem(70): Trig = Thursday, 28 February, 1991
+X  
+X  OMIT 28 Feb
+X  REM 1 -1 OMIT sat sun MSG 1 -1 OMIT Sat Sun (28 Feb omitted)
+X! ./test.rem(73): Trig = Wednesday, 27 February, 1991
+X  REM 1 --1 OMIT sat sun MSG 1 --1 OMIT Sat Sun (28 Feb omitted)
+X! ./test.rem(74): Trig = Thursday, 28 February, 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X  
+X  # Try out UNTIL
+X  REM Wed UNTIL 21 Feb 1991 MSG Wed UNTIL 21 Feb 1991
+X! ./test.rem(79): Trig = Wednesday, 20 February, 1991
+X  
+X  # Try playing with the OMIT context
+X  
+X  OMIT 28 Feb 1991
+X  REM 1 Mar -1 MSG 1 mar -1 (28feb91 omitted)
+X! ./test.rem(84): Trig = Wednesday, 27 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1 (28Feb91 omitted)
+X! ./test.rem(85): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE (28Feb91 omitted)
+X! ./test.rem(86): Trig = Wednesday, 27 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP (28Feb91 omitted)
+X! ./test.rem(87): Trig = Friday, 28 February, 1992
+X  REM 28 Feb AFTER MSG 28 Feb AFTER (28Feb91 omitted)
+X! ./test.rem(88): Trig = Friday, 1 March, 1991
+X  
+X  PUSH-OMIT-CONTEXT
+X  CLEAR-OMIT-CONTEXT
+X  REM 1 Mar -1 MSG 1 mar -1
+X! ./test.rem(92): Trig = Thursday, 28 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1
+X! ./test.rem(93): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE
+X! ./test.rem(94): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP 
+X! ./test.rem(95): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb AFTER MSG 28 Feb AFTER
+X! ./test.rem(96): Trig = Thursday, 28 February, 1991
+X  
+X  POP-OMIT-CONTEXT
+X  REM 1 Mar -1 MSG 1 mar -1 (28feb91 omitted)
+X! ./test.rem(99): Trig = Wednesday, 27 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1 (28Feb91 omitted)
+X! ./test.rem(100): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE (28Feb91 omitted)
+X! ./test.rem(101): Trig = Wednesday, 27 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP (28Feb91 omitted)
+X! ./test.rem(102): Trig = Friday, 28 February, 1992
+X  REM 28 Feb AFTER MSG 28 Feb AFTER (28Feb91 omitted)
+X! ./test.rem(103): Trig = Friday, 1 March, 1991
+X  
+X  
+X  REM 13 March 1991 *1 UNTIL 19 March 1991 MSG 13-19 Mar 91
+X! ./test.rem(106): Trig = Wednesday, 13 March, 1991
+X   
+X  # Test BACK
+X  CLEAR-OMIT-CONTEXT
+X  REM 18 Feb 1991 +1 MSG 18 Feb 1991 +1
+X! ./test.rem(110): Trig = Monday, 18 February, 1991
+X  
+X  OMIT 17 Feb 1991
+X  REM 18 Feb 1991 +1 MSG 18 Feb 1991 +1 (17Feb91 omitted)
+X! ./test.rem(113): Trig = Monday, 18 February, 1991
+X  18 Feb 1991 +1 (17Feb91 omitted)
+X  
+X  REM 18 Feb 1991 ++1 MSG 18 Feb 1991 ++1 (17Feb91 omitted)
+X! ./test.rem(114): Trig = Monday, 18 February, 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X  # Test the scanfrom clause
+X  REM Fri SATISFY 1
+X! ./test.rem(118): Trig = Friday, 22 February, 1991
+X  OMIT [trigger(trigdate())]
+X  trigdate() => 1991/02/22
+X  trigger(1991/02/22) => "22 February 1991"
+X  REM Fri after MSG 23 Feb 1991
+X! ./test.rem(120): Trig = Saturday, 23 February, 1991
+X  CLEAR-OMIT-CONTEXT
+X  REM Fri SCANFROM [trigger(today()-7)] SATISFY 1
+X  today() => 1991/02/16
+X  1991/02/16 - 7 => 1991/02/09
+X  trigger(1991/02/09) => "9 February 1991"
+X! ./test.rem(122): Trig = Friday, 15 February, 1991
+X  OMIT [trigger(trigdate())]
+X  trigdate() => 1991/02/15
+X  trigger(1991/02/15) => "15 February 1991"
+X  REM Fri after MSG 16 Feb 1991
+X! ./test.rem(124): Trig = Saturday, 16 February, 1991
+X  16 Feb 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X--- 5,483 ----
+X  #
+X  # 	./test-rem  # From WITHIN Remind source directory!
+X  
+X+ REM MSG Today is [hebday(today())] [hebmon(today())] [hebyear(today())]
+X+ ./test.rem(8): Trig = Saturday, 16 February, 1991
+X+ Reminders for Saturday, 16th February, 1991:
+X+ 
+X+ today() => 1991/02/16
+X+ hebday(1991/02/16) => 2
+X+ today() => 1991/02/16
+X+ hebmon(1991/02/16) => "Adar"
+X+ today() => 1991/02/16
+X+ hebyear(1991/02/16) => 5751
+X+ Today is 2 Adar 5751
+X+ 
+X+ fset _h(x, y) trigger(hebdate(x,y))
+X+ 
+X+ [_h(1,  "Tishrey")] MSG Rosh Hashana 1
+X+ Entering UserFN _h(1, "Tishrey")
+X+ x => 1
+X+ y => "Tishrey"
+X+ hebdate(1, "Tishrey") => 1991/09/09
+X+ trigger(1991/09/09) => "9 September 1991"
+X+ Leaving UserFN _h() => "9 September 1991"
+X+ ./test.rem(11): Trig = Monday, 9 September, 1991
+X+ [_h(2,  "Tishrey")] MSG Rosh Hashana 2
+X+ Entering UserFN _h(2, "Tishrey")
+X+ x => 2
+X+ y => "Tishrey"
+X+ hebdate(2, "Tishrey") => 1991/09/10
+X+ trigger(1991/09/10) => "10 September 1991"
+X+ Leaving UserFN _h() => "10 September 1991"
+X+ ./test.rem(12): Trig = Tuesday, 10 September, 1991
+X+ [_h(3,  "Tishrey")] MSG Tzom Gedalia
+X+ Entering UserFN _h(3, "Tishrey")
+X+ x => 3
+X+ y => "Tishrey"
+X+ hebdate(3, "Tishrey") => 1991/09/11
+X+ trigger(1991/09/11) => "11 September 1991"
+X+ Leaving UserFN _h() => "11 September 1991"
+X+ ./test.rem(13): Trig = Wednesday, 11 September, 1991
+X+ [_h(10, "Tishrey")] MSG Yom Kippur
+X+ Entering UserFN _h(10, "Tishrey")
+X+ x => 10
+X+ y => "Tishrey"
+X+ hebdate(10, "Tishrey") => 1991/09/18
+X+ trigger(1991/09/18) => "18 September 1991"
+X+ Leaving UserFN _h() => "18 September 1991"
+X+ ./test.rem(14): Trig = Wednesday, 18 September, 1991
+X+ [_h(15, "Tishrey")] MSG Sukkot 1
+X+ Entering UserFN _h(15, "Tishrey")
+X+ x => 15
+X+ y => "Tishrey"
+X+ hebdate(15, "Tishrey") => 1991/09/23
+X+ trigger(1991/09/23) => "23 September 1991"
+X+ Leaving UserFN _h() => "23 September 1991"
+X+ ./test.rem(15): Trig = Monday, 23 September, 1991
+X+ [_h(25, "Kislev")]  MSG Channuka
+X+ Entering UserFN _h(25, "Kislev")
+X+ x => 25
+X+ y => "Kislev"
+X+ hebdate(25, "Kislev") => 1991/12/02
+X+ trigger(1991/12/02) => "2 December 1991"
+X+ Leaving UserFN _h() => "2 December 1991"
+X+ ./test.rem(16): Trig = Monday, 2 December, 1991
+X+ [_h(10, "Tevet")]   MSG Asara B'Tevet
+X+ Entering UserFN _h(10, "Tevet")
+X+ x => 10
+X+ y => "Tevet"
+X+ hebdate(10, "Tevet") => 1991/12/17
+X+ trigger(1991/12/17) => "17 December 1991"
+X+ Leaving UserFN _h() => "17 December 1991"
+X+ ./test.rem(17): Trig = Tuesday, 17 December, 1991
+X+ [_h(15, "Shvat")]   MSG Tu B'Shvat
+X+ Entering UserFN _h(15, "Shvat")
+X+ x => 15
+X+ y => "Shvat"
+X+ hebdate(15, "Shvat") => 1992/01/20
+X+ trigger(1992/01/20) => "20 January 1992"
+X+ Leaving UserFN _h() => "20 January 1992"
+X+ ./test.rem(18): Trig = Monday, 20 January, 1992
+X+ [_h(15, "Adar A")]  MSG Purim Katan
+X+ Entering UserFN _h(15, "Adar A")
+X+ x => 15
+X+ y => "Adar A"
+X+ hebdate(15, "Adar A") => 1992/02/19
+X+ trigger(1992/02/19) => "19 February 1992"
+X+ Leaving UserFN _h() => "19 February 1992"
+X+ ./test.rem(19): Trig = Wednesday, 19 February, 1992
+X+ [_h(14, "Adar")]    MSG Purim
+X+ Entering UserFN _h(14, "Adar")
+X+ x => 14
+X+ y => "Adar"
+X+ hebdate(14, "Adar") => 1991/02/28
+X+ trigger(1991/02/28) => "28 February 1991"
+X+ Leaving UserFN _h() => "28 February 1991"
+X+ ./test.rem(20): Trig = Thursday, 28 February, 1991
+X+ [_h(15, "Nisan")]   MSG Pesach
+X+ Entering UserFN _h(15, "Nisan")
+X+ x => 15
+X+ y => "Nisan"
+X+ hebdate(15, "Nisan") => 1991/03/30
+X+ trigger(1991/03/30) => "30 March 1991"
+X+ Leaving UserFN _h() => "30 March 1991"
+X+ ./test.rem(21): Trig = Saturday, 30 March, 1991
+X+ [_h(27, "Nisan")]   MSG Yom HaShoah
+X+ Entering UserFN _h(27, "Nisan")
+X+ x => 27
+X+ y => "Nisan"
+X+ hebdate(27, "Nisan") => 1991/04/11
+X+ trigger(1991/04/11) => "11 April 1991"
+X+ Leaving UserFN _h() => "11 April 1991"
+X+ ./test.rem(22): Trig = Thursday, 11 April, 1991
+X+ [_h(4,  "Iyar")]    MSG Yom HaZikaron
+X+ Entering UserFN _h(4, "Iyar")
+X+ x => 4
+X+ y => "Iyar"
+X+ hebdate(4, "Iyar") => 1991/04/18
+X+ trigger(1991/04/18) => "18 April 1991"
+X+ Leaving UserFN _h() => "18 April 1991"
+X+ ./test.rem(23): Trig = Thursday, 18 April, 1991
+X+ [_h(5,  "Iyar")]    MSG Yom Ha'atzmaut
+X+ Entering UserFN _h(5, "Iyar")
+X+ x => 5
+X+ y => "Iyar"
+X+ hebdate(5, "Iyar") => 1991/04/19
+X+ trigger(1991/04/19) => "19 April 1991"
+X+ Leaving UserFN _h() => "19 April 1991"
+X+ ./test.rem(24): Trig = Friday, 19 April, 1991
+X+ [_h(28, "Iyar")]    MSG Yom Yerushalayim
+X+ Entering UserFN _h(28, "Iyar")
+X+ x => 28
+X+ y => "Iyar"
+X+ hebdate(28, "Iyar") => 1991/05/12
+X+ trigger(1991/05/12) => "12 May 1991"
+X+ Leaving UserFN _h() => "12 May 1991"
+X+ ./test.rem(25): Trig = Sunday, 12 May, 1991
+X+ [_h(6,  "Sivan")]   MSG Shavuot
+X+ Entering UserFN _h(6, "Sivan")
+X+ x => 6
+X+ y => "Sivan"
+X+ hebdate(6, "Sivan") => 1991/05/19
+X+ trigger(1991/05/19) => "19 May 1991"
+X+ Leaving UserFN _h() => "19 May 1991"
+X+ ./test.rem(26): Trig = Sunday, 19 May, 1991
+X+ [_h(9,  "Av")]      MSG Tish'a B'Av
+X+ Entering UserFN _h(9, "Av")
+X+ x => 9
+X+ y => "Av"
+X+ hebdate(9, "Av") => 1991/07/20
+X+ trigger(1991/07/20) => "20 July 1991"
+X+ Leaving UserFN _h() => "20 July 1991"
+X+ ./test.rem(27): Trig = Saturday, 20 July, 1991
+X+ 
+X+ # Test some jahrzeit cases
+X+ fset _i(x,y,z,a) trigger(hebdate(x,y,z,a))
+X+ [_i(30, "Heshvan", today(), 5759)] MSG Complete-Complete
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Heshvan", 1991/02/16, 5759)
+X+ x => 30
+X+ y => "Heshvan"
+X+ z => 1991/02/16
+X+ a => 5759
+X+ hebdate(30, "Heshvan", 1991/02/16, 5759) => 1991/11/07
+X+ trigger(1991/11/07) => "7 November 1991"
+X+ Leaving UserFN _i() => "7 November 1991"
+X+ ./test.rem(31): Trig = Thursday, 7 November, 1991
+X+ [_i(30, "Heshvan", today(), 5760)] MSG Complete-Defective
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Heshvan", 1991/02/16, 5760)
+X+ x => 30
+X+ y => "Heshvan"
+X+ z => 1991/02/16
+X+ a => 5760
+X+ hebdate(30, "Heshvan", 1991/02/16, 5760) => 1991/11/07
+X+ trigger(1991/11/07) => "7 November 1991"
+X+ Leaving UserFN _i() => "7 November 1991"
+X+ ./test.rem(32): Trig = Thursday, 7 November, 1991
+X+ [_i(30, "Heshvan", today(), 5761)] MSG Illegal
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Heshvan", 1991/02/16, 5761)
+X+ x => 30
+X+ y => "Heshvan"
+X+ z => 1991/02/16
+X+ a => 5761
+X+ hebdate(30, "Heshvan", 1991/02/16, 5761) => ./test.rem(33): No 30 Heshvan 5761
+X+ Bad date specification
+X+ Leaving UserFN _i() => Bad date specification
+X+ 
+X+ [_i(30, "Kislev", today(), 5759)] MSG Complete-Complete
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Kislev", 1991/02/16, 5759)
+X+ x => 30
+X+ y => "Kislev"
+X+ z => 1991/02/16
+X+ a => 5759
+X+ hebdate(30, "Kislev", 1991/02/16, 5759) => 1991/12/07
+X+ trigger(1991/12/07) => "7 December 1991"
+X+ Leaving UserFN _i() => "7 December 1991"
+X+ ./test.rem(35): Trig = Saturday, 7 December, 1991
+X+ [_i(30, "Kislev", today(), 5760)] MSG Complete-Defective
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Kislev", 1991/02/16, 5760)
+X+ x => 30
+X+ y => "Kislev"
+X+ z => 1991/02/16
+X+ a => 5760
+X+ hebdate(30, "Kislev", 1991/02/16, 5760) => 1991/12/07
+X+ trigger(1991/12/07) => "7 December 1991"
+X+ Leaving UserFN _i() => "7 December 1991"
+X+ ./test.rem(36): Trig = Saturday, 7 December, 1991
+X+ [_i(30, "Kislev", today(), 5761)] MSG Illegal
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Kislev", 1991/02/16, 5761)
+X+ x => 30
+X+ y => "Kislev"
+X+ z => 1991/02/16
+X+ a => 5761
+X+ hebdate(30, "Kislev", 1991/02/16, 5761) => ./test.rem(37): No 30 Kislev 5761
+X+ Bad date specification
+X+ Leaving UserFN _i() => Bad date specification
+X+ 
+X+ [_i(30, "Adar A", today(), 5755)] MSG Leap
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Adar A", 1991/02/16, 5755)
+X+ x => 30
+X+ y => "Adar A"
+X+ z => 1991/02/16
+X+ a => 5755
+X+ hebdate(30, "Adar A", 1991/02/16, 5755) => 1992/03/05
+X+ trigger(1992/03/05) => "5 March 1992"
+X+ Leaving UserFN _i() => "5 March 1992"
+X+ ./test.rem(39): Trig = Thursday, 5 March, 1992
+X+ [_i(30, "Adar A", today(), 5756)] MSG Illegal
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(30, "Adar A", 1991/02/16, 5756)
+X+ x => 30
+X+ y => "Adar A"
+X+ z => 1991/02/16
+X+ a => 5756
+X+ hebdate(30, "Adar A", 1991/02/16, 5756) => ./test.rem(40): No Adar A in 5756
+X+ Bad date specification
+X+ Leaving UserFN _i() => Bad date specification
+X+ [_i(29, "Adar A", today(), 5755)] MSG Leap
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(29, "Adar A", 1991/02/16, 5755)
+X+ x => 29
+X+ y => "Adar A"
+X+ z => 1991/02/16
+X+ a => 5755
+X+ hebdate(29, "Adar A", 1991/02/16, 5755) => 1991/03/15
+X+ trigger(1991/03/15) => "15 March 1991"
+X+ Leaving UserFN _i() => "15 March 1991"
+X+ ./test.rem(41): Trig = Friday, 15 March, 1991
+X+ [_i(29, "Adar A", today(), 5756)] MSG Illegal
+X+ today() => 1991/02/16
+X+ Entering UserFN _i(29, "Adar A", 1991/02/16, 5756)
+X+ x => 29
+X+ y => "Adar A"
+X+ z => 1991/02/16
+X+ a => 5756
+X+ hebdate(29, "Adar A", 1991/02/16, 5756) => ./test.rem(42): No Adar A in 5756
+X+ Bad date specification
+X+ Leaving UserFN _i() => Bad date specification
+X+ 
+X  # Test each possible case of the basic reminders.
+X  
+X  REM MSG Every Day
+X! ./test.rem(46): Trig = Saturday, 16 February, 1991
+X  Every Day
+X  
+X  
+X  REM 18 MSG Every 18th 
+X! ./test.rem(48): Trig = Monday, 18 February, 1991
+X  REM 15 MSG Every 15th
+X! ./test.rem(49): Trig = Friday, 15 March, 1991
+X  
+X  REM Feb MSG February
+X! ./test.rem(51): Trig = Saturday, 16 February, 1991
+X  February
+X  
+X  REM Jan MSG January
+X! ./test.rem(52): Trig = Wednesday, 1 January, 1992
+X  REM March MSG March
+X! ./test.rem(53): Trig = Friday, 1 March, 1991
+X  
+X  REM 13 Jan MSG 13 Jan
+X! ./test.rem(55): Trig = Monday, 13 January, 1992
+X  REM 15 Feb MSG 15 Feb
+X! ./test.rem(56): Trig = Saturday, 15 February, 1992
+X  REM 28 Feb MSG 28 Feb
+X! ./test.rem(57): Trig = Thursday, 28 February, 1991
+X  REM 29 Feb MSG 29 Feb
+X! ./test.rem(58): Trig = Saturday, 29 February, 1992
+X  REM 5 Mar MSG 5 Mar
+X! ./test.rem(59): Trig = Tuesday, 5 March, 1991
+X  
+X  REM 1990 MSG 1990
+X! ./test.rem(61): Expired
+X  REM 1991 MSG 1991
+X! ./test.rem(62): Trig = Saturday, 16 February, 1991
+X  1991
+X  
+X  REM 1992 MSG 1991
+X! ./test.rem(63): Trig = Wednesday, 1 January, 1992
+X  
+X  REM 1 1990 MSG 1 1990
+X! ./test.rem(65): Expired
+X  REM 29 1991 MSG 29 1991
+X! ./test.rem(66): Trig = Friday, 29 March, 1991
+X  REM 29 1992 MSG 29 1992
+X! ./test.rem(67): Trig = Wednesday, 29 January, 1992
+X  REM 16 1991 MSG 16 1991
+X! ./test.rem(68): Trig = Saturday, 16 February, 1991
+X  16 1991
+X  
+X  
+X  REM Jan 1990 MSG Jan 1990
+X! ./test.rem(70): Expired
+X  REM Feb 1991 MSG Feb 1991
+X! ./test.rem(71): Trig = Saturday, 16 February, 1991
+X  Feb 1991
+X  
+X  REM Dec 1991 MSG Dec 1991
+X! ./test.rem(72): Trig = Sunday, 1 December, 1991
+X  REM May 1992 MSG May 1992
+X! ./test.rem(73): Trig = Friday, 1 May, 1992
+X  
+X  REM 1 Jan 1991 MSG 1 Jan 1991
+X! ./test.rem(75): Expired
+X  REM 16 Feb 1991 MSG 16 Feb 1991
+X! ./test.rem(76): Trig = Saturday, 16 February, 1991
+X  16 Feb 1991
+X  
+X  REM 29 Dec 1992 MSG 29 Dec 1992
+X! ./test.rem(77): Trig = Tuesday, 29 December, 1992
+X  
+X  REM Sun MSG Sun
+X! ./test.rem(79): Trig = Sunday, 17 February, 1991
+X  REM Fri Sat Tue MSG Fri Sat Tue
+X! ./test.rem(80): Trig = Saturday, 16 February, 1991
+X  Fri Sat Tue
+X  
+X  
+X  REM Sun 16 MSG Sun 16
+X! ./test.rem(82): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue Wed Thu Fri 1 MSG Mon Tue Wed Thu Fri 1
+X! ./test.rem(83): Trig = Friday, 1 March, 1991
+X  
+X  REM Sun Feb MSG Sun Feb
+X! ./test.rem(85): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue March MSG Mon Tue March
+X! ./test.rem(86): Trig = Monday, 4 March, 1991
+X  
+X  REM Sun 16 Feb MSG Sun 16 Feb
+X! ./test.rem(88): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue 10 March MSG Mon Tue 10 March
+X! ./test.rem(89): Trig = Monday, 11 March, 1991
+X  
+X  REM Sat Sun 1991 MSG Sat Sun 1991
+X! ./test.rem(91): Trig = Saturday, 16 February, 1991
+X  Sat Sun 1991
+X  
+X  REM Mon Tue 1992 MSG Mon Tue 1992
+X! ./test.rem(92): Trig = Monday, 6 January, 1992
+X  
+X  REM Sun 16 1991 MSG Sun 16 1991
+X! ./test.rem(94): Trig = Sunday, 17 February, 1991
+X  REM Mon Tue Wed Thu Fri 1 1992 MSG Mon Tue Wed Thu Fri 1 1992
+X! ./test.rem(95): Trig = Wednesday, 1 January, 1992
+X  
+X  REM Mon Feb 1991 MSG Mon Feb 1991
+X! ./test.rem(97): Trig = Monday, 18 February, 1991
+X  REM Tue Jan 1992 MSG Tue Jan 1992
+X! ./test.rem(98): Trig = Tuesday, 7 January, 1992
+X  
+X  REM Sun Mon 16 Feb 1991 MSG Sun Mon 16 Feb 1991
+X! ./test.rem(100): Trig = Sunday, 17 February, 1991
+X  REM Tue 28 Jan 1992 MSG Tue 28 Jan 1992
+X! ./test.rem(101): Trig = Tuesday, 28 January, 1992
+X  
+X  # Try some Backs
+X  CLEAR-OMIT-CONTEXT
+X  REM 1 -1 OMIT sat sun MSG 1 -1 OMIT Sat Sun
+X! ./test.rem(105): Trig = Thursday, 28 February, 1991
+X  REM 1 --1 OMIT sat sun MSG 1 --1 OMIT Sat Sun
+X! ./test.rem(106): Trig = Thursday, 28 February, 1991
+X  
+X  OMIT 28 Feb
+X  REM 1 -1 OMIT sat sun MSG 1 -1 OMIT Sat Sun (28 Feb omitted)
+X! ./test.rem(109): Trig = Wednesday, 27 February, 1991
+X  REM 1 --1 OMIT sat sun MSG 1 --1 OMIT Sat Sun (28 Feb omitted)
+X! ./test.rem(110): Trig = Thursday, 28 February, 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X  
+X  # Try out UNTIL
+X  REM Wed UNTIL 21 Feb 1991 MSG Wed UNTIL 21 Feb 1991
+X! ./test.rem(115): Trig = Wednesday, 20 February, 1991
+X  
+X  # Try playing with the OMIT context
+X  
+X  OMIT 28 Feb 1991
+X  REM 1 Mar -1 MSG 1 mar -1 (28feb91 omitted)
+X! ./test.rem(120): Trig = Wednesday, 27 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1 (28Feb91 omitted)
+X! ./test.rem(121): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE (28Feb91 omitted)
+X! ./test.rem(122): Trig = Wednesday, 27 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP (28Feb91 omitted)
+X! ./test.rem(123): Trig = Friday, 28 February, 1992
+X  REM 28 Feb AFTER MSG 28 Feb AFTER (28Feb91 omitted)
+X! ./test.rem(124): Trig = Friday, 1 March, 1991
+X  
+X  PUSH-OMIT-CONTEXT
+X  CLEAR-OMIT-CONTEXT
+X  REM 1 Mar -1 MSG 1 mar -1
+X! ./test.rem(128): Trig = Thursday, 28 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1
+X! ./test.rem(129): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE
+X! ./test.rem(130): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP 
+X! ./test.rem(131): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb AFTER MSG 28 Feb AFTER
+X! ./test.rem(132): Trig = Thursday, 28 February, 1991
+X  
+X  POP-OMIT-CONTEXT
+X  REM 1 Mar -1 MSG 1 mar -1 (28feb91 omitted)
+X! ./test.rem(135): Trig = Wednesday, 27 February, 1991
+X  REM 1 Mar --1 MSG 1 mar --1 (28Feb91 omitted)
+X! ./test.rem(136): Trig = Thursday, 28 February, 1991
+X  REM 28 Feb BEFORE MSG 28 Feb BEFORE (28Feb91 omitted)
+X! ./test.rem(137): Trig = Wednesday, 27 February, 1991
+X  REM 28 Feb SKIP MSG 28 Feb SKIP (28Feb91 omitted)
+X! ./test.rem(138): Trig = Friday, 28 February, 1992
+X  REM 28 Feb AFTER MSG 28 Feb AFTER (28Feb91 omitted)
+X! ./test.rem(139): Trig = Friday, 1 March, 1991
+X  
+X  
+X  REM 13 March 1991 *1 UNTIL 19 March 1991 MSG 13-19 Mar 91
+X! ./test.rem(142): Trig = Wednesday, 13 March, 1991
+X   
+X  # Test BACK
+X  CLEAR-OMIT-CONTEXT
+X  REM 18 Feb 1991 +1 MSG 18 Feb 1991 +1
+X! ./test.rem(146): Trig = Monday, 18 February, 1991
+X  
+X  OMIT 17 Feb 1991
+X  REM 18 Feb 1991 +1 MSG 18 Feb 1991 +1 (17Feb91 omitted)
+X! ./test.rem(149): Trig = Monday, 18 February, 1991
+X  18 Feb 1991 +1 (17Feb91 omitted)
+X  
+X  REM 18 Feb 1991 ++1 MSG 18 Feb 1991 ++1 (17Feb91 omitted)
+X! ./test.rem(150): Trig = Monday, 18 February, 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X  # Test the scanfrom clause
+X  REM Fri SATISFY 1
+X! ./test.rem(154): Trig = Friday, 22 February, 1991
+X  OMIT [trigger(trigdate())]
+X  trigdate() => 1991/02/22
+X  trigger(1991/02/22) => "22 February 1991"
+X  REM Fri after MSG 23 Feb 1991
+X! ./test.rem(156): Trig = Saturday, 23 February, 1991
+X  CLEAR-OMIT-CONTEXT
+X  REM Fri SCANFROM [trigger(today()-7)] SATISFY 1
+X  today() => 1991/02/16
+X  1991/02/16 - 7 => 1991/02/09
+X  trigger(1991/02/09) => "9 February 1991"
+X! ./test.rem(158): Trig = Friday, 15 February, 1991
+X  OMIT [trigger(trigdate())]
+X  trigdate() => 1991/02/15
+X  trigger(1991/02/15) => "15 February 1991"
+X  REM Fri after MSG 16 Feb 1991
+X! ./test.rem(160): Trig = Saturday, 16 February, 1991
+X  16 Feb 1991
+X  
+X  CLEAR-OMIT-CONTEXT
+X***************
+X*** 243,249 ****
+X  coerce("string", 11:44) => "11:44"
+X  set a009 coerce("int", "badnews")
+X  coerce("int", "badnews") => Can't coerce
+X! ./test.rem(135): Can't coerce
+X  set a010 coerce("int", "12")
+X  coerce("int", "12") => 12
+X  set a011 coerce("int", 11:44)
+X--- 503,509 ----
+X  coerce("string", 11:44) => "11:44"
+X  set a009 coerce("int", "badnews")
+X  coerce("int", "badnews") => Can't coerce
+X! ./test.rem(171): Can't coerce
+X  set a010 coerce("int", "12")
+X  coerce("int", "12") => 12
+X  set a011 coerce("int", 11:44)
+X***************
+X*** 255,261 ****
+X  date(1992, 2, 2) => 1992/02/02
+X  set a014 date(1993, 2, 29)
+X  date(1993, 2, 29) => Bad date specification
+X! ./test.rem(140): Bad date specification
+X  set a015 day(today())
+X  today() => 1991/02/16
+X  day(1991/02/16) => 16
+X--- 515,521 ----
+X  date(1992, 2, 2) => 1992/02/02
+X  set a014 date(1993, 2, 29)
+X  date(1993, 2, 29) => Bad date specification
+X! ./test.rem(176): Bad date specification
+X  set a015 day(today())
+X  today() => 1991/02/16
+X  day(1991/02/16) => 16
+X***************
+X*** 350,364 ****
+X  set a050 substr(a049, 2)
+X  a049 => 21
+X  substr(21, 2) => Type mismatch
+X! ./test.rem(178): Type mismatch
+X  set a051 substr(a050, 2, 6)
+X! a050 => ./test.rem(179): Undefined variable: a050
+X  set a052 time(1+2, 3+4)
+X  1 + 2 => 3
+X  3 + 4 => 7
+X  time(3, 7) => 03:07
+X  rem 10 jan 1992 AT 11:22 CAL
+X! ./test.rem(181): Trig = Friday, 10 January, 1992
+X  set a053 trigdate()
+X  trigdate() => 1992/01/10
+X  set a054 trigtime()
+X--- 610,624 ----
+X  set a050 substr(a049, 2)
+X  a049 => 21
+X  substr(21, 2) => Type mismatch
+X! ./test.rem(214): Type mismatch
+X  set a051 substr(a050, 2, 6)
+X! a050 => ./test.rem(215): Undefined variable: a050
+X  set a052 time(1+2, 3+4)
+X  1 + 2 => 3
+X  3 + 4 => 7
+X  time(3, 7) => 03:07
+X  rem 10 jan 1992 AT 11:22 CAL
+X! ./test.rem(217): Trig = Friday, 10 January, 1992
+X  set a053 trigdate()
+X  trigdate() => 1992/01/10
+X  set a054 trigtime()
+X***************
+X*** 371,377 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.04"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 631,637 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.05"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 450,456 ****
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(204): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  
+X      Variable  Value
+X--- 710,716 ----
+X  x => "foo"
+X  y => 11:33
+X  "foo" * 11:33 => Type mismatch
+X! ./test.rem(240): Operator '*' Type mismatch
+X  Leaving UserFN h() => Type mismatch
+X  
+X      Variable  Value
+X***************
+X*** 475,481 ****
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.04"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X--- 735,741 ----
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.05"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X*** ../p4rel/test.rem	Wed Mar  3 17:01:45 1993
+X--- ./test.rem	Thu Apr 22 10:24:19 1993
+X***************
+X*** 5,10 ****
+X--- 5,46 ----
+X  #
+X  # 	./test-rem  # From WITHIN Remind source directory!
+X  
+X+ REM MSG Today is [hebday(today())] [hebmon(today())] [hebyear(today())]
+X+ fset _h(x, y) trigger(hebdate(x,y))
+X+ 
+X+ [_h(1,  "Tishrey")] MSG Rosh Hashana 1
+X+ [_h(2,  "Tishrey")] MSG Rosh Hashana 2
+X+ [_h(3,  "Tishrey")] MSG Tzom Gedalia
+X+ [_h(10, "Tishrey")] MSG Yom Kippur
+X+ [_h(15, "Tishrey")] MSG Sukkot 1
+X+ [_h(25, "Kislev")]  MSG Channuka
+X+ [_h(10, "Tevet")]   MSG Asara B'Tevet
+X+ [_h(15, "Shvat")]   MSG Tu B'Shvat
+X+ [_h(15, "Adar A")]  MSG Purim Katan
+X+ [_h(14, "Adar")]    MSG Purim
+X+ [_h(15, "Nisan")]   MSG Pesach
+X+ [_h(27, "Nisan")]   MSG Yom HaShoah
+X+ [_h(4,  "Iyar")]    MSG Yom HaZikaron
+X+ [_h(5,  "Iyar")]    MSG Yom Ha'atzmaut
+X+ [_h(28, "Iyar")]    MSG Yom Yerushalayim
+X+ [_h(6,  "Sivan")]   MSG Shavuot
+X+ [_h(9,  "Av")]      MSG Tish'a B'Av
+X+ 
+X+ # Test some jahrzeit cases
+X+ fset _i(x,y,z,a) trigger(hebdate(x,y,z,a))
+X+ [_i(30, "Heshvan", today(), 5759)] MSG Complete-Complete
+X+ [_i(30, "Heshvan", today(), 5760)] MSG Complete-Defective
+X+ [_i(30, "Heshvan", today(), 5761)] MSG Illegal
+X+ 
+X+ [_i(30, "Kislev", today(), 5759)] MSG Complete-Complete
+X+ [_i(30, "Kislev", today(), 5760)] MSG Complete-Defective
+X+ [_i(30, "Kislev", today(), 5761)] MSG Illegal
+X+ 
+X+ [_i(30, "Adar A", today(), 5755)] MSG Leap
+X+ [_i(30, "Adar A", today(), 5756)] MSG Illegal
+X+ [_i(29, "Adar A", today(), 5755)] MSG Leap
+X+ [_i(29, "Adar A", today(), 5756)] MSG Illegal
+X+ 
+X  # Test each possible case of the basic reminders.
+X  
+X  REM MSG Every Day
+X*** ../p4rel/token.c	Tue Mar  2 12:10:53 1993
+X--- ./token.c	Thu Apr 22 10:59:12 1993
+X***************
+X*** 188,194 ****
+X     }
+X  
+X     /* Quickly give up the search if first char not a letter */
+X!    if ( ! ((*s >= 'A' && *s <= 'Z') || (*s >= 'a' && *s <= 'z')) ) {
+X        FindNumericToken(s, tok);
+X        return;
+X     }
+X--- 188,194 ----
+X     }
+X  
+X     /* Quickly give up the search if first char not a letter */
+X!    if ( ! isalpha(*s)) {
+X        FindNumericToken(s, tok);
+X        return;
+X     }
+X*** ../p4rel/utils.c	Thu Feb 18 13:28:38 1993
+X--- ./utils.c	Thu Apr 22 10:24:22 1993
+X***************
+X*** 183,189 ****
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int StrCmpi(char *s1, char *s2)
+X  #else
+X  int StrCmpi(s1, s2)
+X  char *s1, *s2;
+X--- 183,189 ----
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X! PUBLIC int StrCmpi(const char *s1, const char *s2)
+X  #else
+X  int StrCmpi(s1, s2)
+X  char *s1, *s2;
+END_OF_FILE
+  if test 53816 -ne `wc -c <'patch.05.B'`; then
+    echo shar: \"'patch.05.B'\" unpacked with wrong size!
+  elif test -f 'patch.05.A' ; then 
+    echo shar: Combining  \"'patch.05'\" \(106166 characters\) 
+    cat 'patch.05.A' 'patch.05.B' > 'patch.05' 
+    if test 106166 -ne `wc -c <'patch.05'`; then 
+      echo shar: \"'patch.05'\" combined with wrong size! 
+    else 
+      rm patch.05.A patch.05.B
+    fi 
+  fi
+  # end of 'patch.05.B'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

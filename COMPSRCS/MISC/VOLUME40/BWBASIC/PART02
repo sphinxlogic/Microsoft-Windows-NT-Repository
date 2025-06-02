@@ -1,0 +1,3002 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i053:  bwbasic - Bywater BASIC interpreter version 2.10, Part02/15
+Message-ID: <1993Oct29.162415.3367@sparky.sterling.com>
+X-Md4-Signature: 29f518cff4716c65dce6de042c946015
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:24:15 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 53
+Archive-name: bwbasic/part02
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_cnd.c bwbasic-2.10/bwbtest/assign.bas
+#   bwbasic-2.10/bwx_tty.c
+# Wrapped by kent@sparky on Thu Oct 21 10:47:48 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_cnd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_cnd.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_cnd.c'\" \(55621 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_cnd.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_cnd.c       Conditional Expressions and Commands
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include <ctype.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/* declarations of functions visible to this file only */
+X
+X#if ANSI_C
+Xstatic int cnd_thenels( char *buffer, int position, int *then, int *els );
+Xstatic int cnd_tostep( char *buffer, int position, int *to, int *step );
+Xstatic struct bwb_line *find_wend( struct bwb_line *l );
+Xstatic struct bwb_line *find_endif( struct bwb_line *l,
+X   struct bwb_line **else_line );
+Xstatic int is_endif( struct bwb_line *l );
+Xextern int var_setnval( struct bwb_variable *v, bnumber i );
+Xstatic int case_eval( struct exp_ese *expression, struct exp_ese *minval,
+X   struct exp_ese *maxval );
+Xstatic struct bwb_line *find_case( struct bwb_line *l );
+Xstatic struct bwb_line *find_endselect( struct bwb_line *l );
+Xstatic int is_endselect( struct bwb_line *l );
+Xstatic struct bwb_line *bwb_caseif( struct bwb_line *l );
+X
+X#if STRUCT_CMDS
+Xstatic struct bwb_line *find_next( struct bwb_line *l );
+X#endif
+X
+X#else
+Xstatic int cnd_thenels();
+Xstatic int cnd_tostep();
+Xstatic struct bwb_line *find_wend();
+Xstatic struct bwb_line *find_endif();
+Xstatic int is_endif();
+Xextern int var_setnval();
+Xstatic int case_eval();
+Xstatic struct bwb_line *find_case();
+Xstatic struct bwb_line *find_endselect();
+Xstatic int is_endselect();
+Xstatic struct bwb_line *bwb_caseif();
+X
+X#if STRUCT_CMDS
+Xstatic struct bwb_line *find_next();
+X#endif
+X
+X#endif                          /* ANSI_C for prototypes */
+X
+X/***    IF-THEN-ELSE ***/
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_if()
+X
+X        DESCRIPTION:    This function handles the BASIC IF
+X                        statement.
+X
+X   	SYNTAX:		IF expression THEN [statement [ELSE statement]]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_if( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_if( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int then, els;
+X   struct exp_ese *e;
+X   int glnumber;
+X   int tpos;
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];
+X   static struct bwb_line gline;
+X#if STRUCT_CMDS
+X   static struct bwb_line *else_line;
+X   static struct bwb_line *endif_line;
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_if(): entry, line <%d> buffer <%s>",
+X      l->number, &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X   getchar();
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   if ( l == &gline )
+X      {
+X      sprintf( bwb_ebuf, "in bwb_if(): recursive call, l = &gline" );
+X      bwb_debug( bwb_ebuf );
+X      }
+X#endif
+X
+X   /* Call bwb_exp() to evaluate the condition. This should return
+X      with position set to the "THEN" statement */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_if(): line <%d> condition returns <%d>",
+X      l->number, exp_getnval( e ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* test for "THEN" and "ELSE" statements */
+X
+X   cnd_thenels( l->buffer, l->position, &then, &els );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_if(): return from cnd_thenelse, line is <%s>",
+X      l->buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* test for multiline IF statement: this presupposes ANSI-compliant
+X      structured BASIC */
+X
+X#if STRUCT_CMDS
+X   tpos = then + strlen( CMD_THEN ) + 1;
+X   if ( is_eol( l->buffer, &tpos ) == TRUE )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_if(): found multi-line IF statement, line <%d>",
+X         l->number );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* find END IF and possibly ELSE[IF] line(s) */
+X
+X      else_line = NULL;
+X      endif_line = find_endif( l, &else_line );
+X
+X      /* evaluate the expression */
+X
+X      if ( (int) exp_getnval( e ) != FALSE )
+X         {
+X         bwb_incexec();
+X         bwb_setexec( l->next, 0, EXEC_IFTRUE );
+X
+X#if MULTISEG_LINES
+X         adv_eos( l->buffer, &( l->position ));
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      else if ( else_line != NULL )
+X         {
+X         bwb_incexec();
+X         bwb_setexec( else_line, 0, EXEC_IFFALSE );
+X         else_line->position = 0;
+X         return else_line;
+X         }
+X      else
+X         {
+X         bwb_setexec( endif_line, 0, CURTASK excs[ CURTASK exsc ].code );
+X         endif_line->position = 0;
+X         return endif_line;
+X         }
+X      }
+X
+X#endif			/* STRUCT_CMDS for Multi-line IF...THEN */
+X
+X   /* Not a Multi-line IF...THEN: test for THEN line-number */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_if(): not multi-line; line is <%s>",
+X      l->buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* evaluate and execute */
+X
+X   if ( (int) exp_getnval( e ) != FALSE )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_if(): expression is TRUE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( then == FALSE )
+X         {
+X#if PROG_ERRORS
+X	 sprintf( bwb_ebuf, "in bwb_if(): IF without THEN" );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         }
+X      else
+X         {
+X
+X	 /* check for THEN followed by literal line number */
+X
+X	 tpos = then + strlen( CMD_THEN ) + 1;
+X	 adv_element( l->buffer, &tpos, tbuf );
+X
+X	 if ( isdigit( tbuf[ 0 ] ) != 0 )
+X	    {
+X
+X	    glnumber = atoi( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "Detected THEN followed by line number <%d>",
+X	       glnumber );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    sprintf( tbuf, "%s %d", CMD_GOTO, glnumber );
+X	    gline.buffer = tbuf;
+X	    gline.marked = FALSE;
+X	    gline.position = 0;
+X	    gline.next = l->next;
+X	    bwb_setexec( &gline, 0, CURTASK excs[ CURTASK exsc ].code );
+X	    return &gline;
+X	    }
+X
+X	 /* form is not THEN followed by line number */
+X
+X	 else
+X	    {
+X	    bwb_setexec( l, then, CURTASK excs[ CURTASK exsc ].code );
+X	    l->position = then + strlen( CMD_THEN ) + 1;
+X	    }
+X
+X	 return l;
+X	 }
+X      }
+X   else
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_if(): expression is FALSE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( els != FALSE )
+X         {
+X         l->position = els + strlen( CMD_ELSE ) + 1;
+X         bwb_setexec( l, els, EXEC_NORM );
+X	 return l;
+X	 }
+X      }
+X
+X   /* if neither then nor else were found, advance to next line */
+X   /* DO NOT advance to next segment (only if TRUE should we do that */
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       cnd_thenelse()
+X
+X        DESCRIPTION:    This function searches through the
+X                        <buffer> beginning at point <position>
+X                        and attempts to find positions of THEN
+X                        and ELSE statements.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xcnd_thenels( char *buffer, int position, int *then, int *els )
+X#else
+Xstatic int
+Xcnd_thenels( buffer, position, then, els )
+X   char *buffer;
+X   int position;
+X   int *then;
+X   int *els;
+X#endif
+X   {
+X   int loop, t_pos, b_pos, p_word;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in cnd_thenels(): entry, line is <%s>",
+X      &( buffer[ position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* set then and els to 0 initially */
+X
+X   *then = *els = 0;
+X
+X   /* loop to find words */
+X
+X   p_word = b_pos = position;
+X   t_pos = 0;
+X   tbuf[ 0 ] = '\0';
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X
+X      switch( buffer[ b_pos ] )
+X         {
+X         case '\0':                     /* end of string */
+X         case ' ':                      /* whitespace = end of word */
+X         case '\t':
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in cnd_thenels(): word is <%s>", tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( strncmp( tbuf, CMD_THEN, (size_t) strlen( CMD_THEN ) ) == 0 )
+X               {
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in cnd_thenels(): THEN found at position <%d>.",
+X                  p_word );
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in cnd_thenelse(): after THEN, line is <%s>", buffer );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               *then = p_word;
+X               }
+X            else if ( strncmp( tbuf, CMD_ELSE, (size_t) strlen( CMD_ELSE ) ) == 0 )
+X               {
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in cnd_thenels(): ELSE found at position <%d>.",
+X                  p_word );
+X               bwb_debug( bwb_ebuf );
+X               sprintf( bwb_ebuf, "in cnd_thenelse(): after ELSE, line is <%s>", buffer );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               *els = p_word;
+X               }
+X
+X            /* check for end of the line */
+X
+X            if ( buffer[ b_pos ] == '\0' )
+X               {
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in cnd_thenels(): return: end of string" );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X               return TRUE;
+X               }
+X
+X            ++b_pos;
+X            p_word = b_pos;
+X            t_pos = 0;
+X            tbuf[ 0 ] = '\0';
+X            break;
+X
+X         default:
+X            if ( islower( buffer[ b_pos ] ) != FALSE )
+X               {
+X               tbuf[ t_pos ] = (char) toupper( buffer[ b_pos ] );
+X               }
+X            else
+X               {
+X               tbuf[ t_pos ] = buffer[ b_pos ];
+X               }
+X            ++b_pos;
+X            ++t_pos;
+X            tbuf[ t_pos ] = '\0';
+X            break;
+X         }
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in cnd_thenelse(): exit, line is <%s>", buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   return FALSE;
+X
+X   }
+X
+X#if STRUCT_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_else()
+X
+X        DESCRIPTION:    This function handles the BASIC ELSE
+X                        statement.
+X
+X   	SYNTAX:		ELSE
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_else( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_else( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *endif_line;
+X   struct bwb_line *else_line;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_else(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* If the code is EXEC_NORM, then this is a continuation of a single-
+X      line IF...THEN...ELSE... statement and we should return */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code == EXEC_NORM )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_else(): detected EXEC_NORM" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X
+X   endif_line = find_endif( l, &else_line );
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code == EXEC_IFTRUE )
+X      {
+X      endif_line->position = 0;
+X      return endif_line;
+X      }
+X   else if ( CURTASK excs[ CURTASK exsc ].code == EXEC_IFFALSE )
+X      {
+X
+X      return bwb_zline( l );
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in bwb_else(): ELSE without IF" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax );
+X#endif
+X
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_elseif()
+X
+X        DESCRIPTION:    This function handles the BASIC ELSEIF
+X                        statement.
+X
+X	SYNTAX:		ELSEIF
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_elseif( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_elseif( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *endif_line;
+X   struct bwb_line *else_line;
+X   struct exp_ese *e;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_elseif(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   else_line = NULL;
+X   endif_line = find_endif( l, &else_line );
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code == EXEC_IFTRUE )
+X      {
+X      endif_line->position = 0;
+X      return endif_line;
+X      }
+X
+X   else if ( CURTASK excs[ CURTASK exsc ].code == EXEC_IFFALSE )
+X      {
+X
+X      /* Call bwb_exp() to evaluate the condition. This should return
+X         with position set to the "THEN" statement */
+X
+X      e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X
+X      if ( (int) exp_getnval( e ) == TRUE )
+X         {
+X
+X         /* ELSEIF condition is TRUE: proceed to the next line */
+X
+X         CURTASK excs[ CURTASK exsc ].code = EXEC_IFTRUE;
+X
+X#if MULTISEG_LINES
+X         adv_eos( l->buffer, &( l->position ));
+X#endif
+X         return bwb_zline( l );
+X
+X         }
+X
+X      /* ELSEIF condition FALSE: proceed to next ELSE line if there is one */
+X
+X      else if ( else_line != NULL )
+X         {
+X         bwb_setexec( else_line, 0, EXEC_IFFALSE );
+X         else_line->position = 0;
+X         return else_line;
+X         }
+X
+X      /* ELSEIF condition is FALSE and no more ELSExx lines: proceed to END IF */
+X
+X      else
+X         {
+X         bwb_setexec( endif_line, 0, CURTASK excs[ CURTASK exsc ].code );
+X         endif_line->position = 0;
+X         return endif_line;
+X         }
+X
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in bwb_elseif(): ELSEIF without IF" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax );
+X#endif
+X
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_endif()
+X
+X        DESCRIPTION:    This function handles the BASIC END IF
+X                        statement.
+X
+X	SYNTAX:		END IF
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_endif( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_endif( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_endif(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if (( CURTASK excs[ CURTASK exsc ].code != EXEC_IFTRUE )
+X      && ( CURTASK excs[ CURTASK exsc ].code != EXEC_IFFALSE ))
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_endif(): END IF without IF" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   bwb_decexec();
+X
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       find_endif()
+X
+X        DESCRIPTION:    This C function attempts to find an
+X			END IF statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xfind_endif( struct bwb_line *l, struct bwb_line **else_line )
+X#else
+Xstatic struct bwb_line *
+Xfind_endif( l, else_line )
+X   struct bwb_line *l;
+X   struct bwb_line **else_line;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int i_level;
+X   int position;
+X
+X   *else_line = NULL;
+X   i_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X         {
+X         line_start( current->buffer, &position, &( current->lnpos ),
+X            &( current->lnum ),
+X            &( current->cmdpos ),
+X            &( current->cmdnum ),
+X            &( current->startpos ) );
+X         }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X         {
+X
+X         if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_if )
+X            {
+X            ++i_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_endif(): found IF at line %d, level %d",
+X               current->number, i_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         else if ( is_endif( current ) == TRUE )
+X            {
+X            --i_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_endif(): found END IF at line %d, level %d",
+X               current->number, i_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( i_level == 0 )
+X               {
+X               return current;
+X               }
+X            }
+X
+X         else if ( ( bwb_cmdtable[ current->cmdnum ].vector == bwb_else )
+X            || ( bwb_cmdtable[ current->cmdnum ].vector == bwb_elseif ))
+X            {
+X
+X            /* we must only report the first ELSE or ELSE IF we encounter
+X               at level 1 */
+X
+X            if ( ( i_level == 1 ) && ( *else_line == NULL ))
+X               {
+X               *else_line = current;
+X               }
+X
+X            }
+X         }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "Multiline IF without END IF" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       is_endif()
+X
+X	DESCRIPTION:    This C function attempts to determine if
+X			a given line contains an END IF statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xis_endif( struct bwb_line *l )
+X#else
+Xstatic int
+Xis_endif( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int position;
+X   char tbuf[ MAXVARNAMESIZE + 1];
+X
+X   if ( bwb_cmdtable[ l->cmdnum ].vector != bwb_xend )
+X      {
+X      return FALSE;
+X      }
+X
+X   position = l->startpos;
+X   adv_ws( l->buffer, &position );
+X   adv_element( l->buffer, &position, tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   if ( strcmp( tbuf, "IF" ) == 0 )
+X      {
+X      return TRUE;
+X      }
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_select()
+X
+X        DESCRIPTION:    This C function handles the BASIC SELECT
+X                        statement.
+X
+X	SYNTAX:		SELECT CASE expression
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_select( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_select( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   struct exp_ese *e;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_select(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* first element should be "CASE" */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X   if ( strcmp( tbuf, "CASE" ) != 0 )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "SELECT without CASE" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X
+X      return bwb_zline( l );
+X#endif
+X      }
+X
+X   /* increment the level and set to EXEC_SELFALSE */
+X
+X   bwb_incexec();
+X   CURTASK excs[ CURTASK exsc ].code = EXEC_SELFALSE;
+X
+X   /* evaluate the expression at this level */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X
+X#if OLDWAY
+X   memcpy( &( CURTASK excs[ CURTASK exsc ].expression ), e,
+X      sizeof( struct exp_ese ) );
+X#endif
+X
+X   if ( e->type == STRING )
+X      {
+X      CURTASK excs[ CURTASK exsc ].expression.type = STRING;
+X      str_btob( &( CURTASK excs[ CURTASK exsc ].expression.sval ),
+X	 &( e->sval ) );
+X      }
+X   else
+X      {
+X      CURTASK excs[ CURTASK exsc ].expression.type = NUMBER;
+X      CURTASK excs[ CURTASK exsc ].expression.nval
+X	 = exp_getnval( e );
+X      }
+X
+X   /* return */
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_case()
+X
+X        DESCRIPTION:    This C function handles the BASIC CASE
+X                        statement.
+X
+X	SYNTAX:		CASE constant | IF partial-expression | ELSE
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_case( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_case( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   int oldpos;
+X   struct exp_ese minvalue;
+X   struct exp_ese *maxval, *minval;
+X   struct bwb_line *retline;
+X   char cbuf1[ MAXSTRINGSIZE + 1 ];
+X   char cbuf2[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_case(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* if code is EXEC_SELTRUE, then we should jump to the end */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code == EXEC_SELTRUE )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_case(): exit EXEC_SELTRUE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      retline = find_endselect( l );
+X      retline->position = 0;
+X      return retline;
+X      }
+X
+X   /* read first element */
+X
+X   oldpos = l->position;
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   /* check for CASE IF */
+X
+X   if ( strcmp( tbuf, CMD_IF ) == 0 )
+X      {
+X      return bwb_caseif( l );
+X      }
+X
+X   /* check for CASE ELSE: if true, simply proceed to the next line,
+X      because other options should have been detected by now */
+X
+X   else if ( strcmp( tbuf, CMD_ELSE ) == 0 )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_case(): execute CASE ELSE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X
+X   /* neither CASE ELSE nor CASE IF; presume constant here for min value */
+X
+X   l->position = oldpos;
+X   minval = bwb_exp( l->buffer, FALSE, &( l->position ));
+X   memcpy( &minvalue, minval, sizeof( struct exp_ese ) );
+X   maxval = minval = &minvalue;
+X
+X   /* check for string value */
+X
+X   if ( minvalue.type == STRING )
+X      {
+X
+X      str_btoc( cbuf1, &( CURTASK excs[ CURTASK exsc ].expression.sval ) );
+X      str_btoc( cbuf2, &( minvalue.sval ) );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_case(): compare strings <%s> and <%s>",
+X	 cbuf1, cbuf2 );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( strncmp( cbuf1, cbuf2, MAXSTRINGSIZE ) == 0 )
+X	 {
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_case(): string comparison returns TRUE" );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X	 CURTASK excs[ CURTASK exsc ].code = EXEC_SELTRUE;
+X
+X#if MULTISEG_LINES
+X         adv_eos( l->buffer, &( l->position ));
+X#endif
+X	 return bwb_zline( l );
+X	 }
+X
+X      else
+X	 {
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_case(): string comparison returns FALSE" );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X	 retline = find_case( l );
+X	 retline->position = 0;
+X	 return retline;
+X	 }
+X
+X      }
+X
+X   /* not a string; advance */
+X
+X   adv_ws( l->buffer, &( l->position ));
+X
+X   /* check for TO */
+X
+X   if ( is_eol( l->buffer, &( l->position )) != TRUE )
+X      {
+X
+X      /* find the TO statement */
+X
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      bwb_strtoupper( tbuf );
+X      if ( strcmp( tbuf, CMD_TO ) != 0 )
+X         {
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "CASE has inexplicable code following expression" );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_syntax );
+X
+X#if MULTISEG_LINES
+X         adv_eos( l->buffer, &( l->position ));
+X#endif
+X         return bwb_zline( l );
+X#endif
+X         }
+X
+X      /* now evaluate the MAX expression */
+X
+X      maxval = bwb_exp( l->buffer, FALSE, &( l->position ));
+X
+X      }
+X
+X   /* evaluate the expression */
+X
+X   if ( case_eval( &( CURTASK excs[ CURTASK exsc ].expression ),
+X      minval, maxval ) == TRUE )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_case(): evaluation returns TRUE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      CURTASK excs[ CURTASK exsc ].code = EXEC_SELTRUE;
+X
+X#if MULTISEG_LINES
+X      adv_eos( l->buffer, &( l->position ));
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* evaluation returns a FALSE value; find next CASE or END SELECT statement */
+X
+X   else
+X      {
+X#if INTENSIVE_DEBUGb
+X      sprintf( bwb_ebuf, "in bwb_case(): evaluation returns FALSE" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      retline = find_case( l );
+X      retline->position = 0;
+X      return retline;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_caseif()
+X
+X        DESCRIPTION:    This C function handles the BASIC CASE IF
+X                        statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xbwb_caseif( struct bwb_line *l )
+X#else
+Xstatic struct bwb_line *
+Xbwb_caseif( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   int position;
+X   struct exp_ese *r;
+X   struct bwb_line *retline;
+X
+X   if ( CURTASK excs[ CURTASK exsc ].expression.type == NUMBER )
+X      {
+X      sprintf( tbuf, "%f %s",
+X         (float) CURTASK excs[ CURTASK exsc ].expression.nval,
+X         &( l->buffer[ l->position ] ) );
+X      }
+X   else
+X      {
+X      bwb_error( err_mismatch );
+X#if MULTISEG_LINES
+X      adv_eos( l->buffer, &( l->position ));
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   position = 0;
+X   r = bwb_exp( tbuf, FALSE, &position );
+X
+X   if ( r->nval == (bnumber) TRUE )
+X      {
+X      CURTASK excs[ CURTASK exsc ].code = EXEC_SELTRUE;
+X
+X#if MULTISEG_LINES
+X      adv_eos( l->buffer, &( l->position ));
+X#endif
+X      return bwb_zline( l );
+X      }
+X   else
+X      {
+X      retline = find_case( l );
+X      retline->position = 0;
+X      return retline;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       case_eval()
+X
+X        DESCRIPTION:    This function evaluates a case statement
+X			by comparing minimum and maximum values
+X			with a set expression. It returns either
+X			TRUE or FALSE
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xcase_eval( struct exp_ese *expression, struct exp_ese *minval,
+X   struct exp_ese *maxval )
+X#else
+Xstatic int
+Xcase_eval( expression, minval, maxval )
+X   struct exp_ese *expression;
+X   struct exp_ese *minval;
+X   struct exp_ese *maxval;
+X#endif
+X   {
+X
+X   /* string value */
+X
+X   if ( expression->type == STRING )
+X      {
+X      bwb_error( err_mismatch );
+X      return FALSE;
+X      }
+X
+X   /* numerical value */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in case_eval(): n <%f> min <%f> max <%f>",
+X      (float) expression->nval,
+X      (float) minval->nval,
+X      (float) maxval->nval );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if (  ( expression->nval >= minval->nval )
+X      && ( expression->nval <= maxval->nval ))
+X      {
+X      return TRUE;
+X      }
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       find_case()
+X
+X        DESCRIPTION:    This function searches for a line containing
+X                        a CASE statement corresponding to a previous
+X                        SELECT CASE statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xfind_case( struct bwb_line *l )
+X#else
+Xstatic struct bwb_line *
+Xfind_case( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int c_level;
+X   int position;
+X
+X   c_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X         {
+X         line_start( current->buffer, &position, &( current->lnpos ),
+X            &( current->lnum ),
+X            &( current->cmdpos ),
+X            &( current->cmdnum ),
+X            &( current->startpos ) );
+X         }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X         {
+X
+X         if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_select )
+X            {
+X            ++c_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_case(): found SELECT at line %d, level %d",
+X               current->number, c_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         else if ( is_endselect( current ) == TRUE )
+X            {
+X            --c_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_endif(): found END SELECT at line %d, level %d",
+X               current->number, c_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( c_level == 0 )
+X               {
+X               return current;
+X               }
+X            }
+X
+X         else if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_case )
+X            {
+X            --c_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_case(): found CASE at line %d, level %d",
+X               current->number, c_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( c_level == 0 )
+X               {
+X               return current;
+X               }
+X            }
+X         }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "SELECT without CASE" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       find_case()
+X
+X        DESCRIPTION:    This function searches for a line containing
+X                        an END SELECT statement corresponding to a previous
+X                        SELECT CASE statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xfind_endselect( struct bwb_line *l )
+X#else
+Xstatic struct bwb_line *
+Xfind_endselect( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int c_level;
+X   int position;
+X
+X   c_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X         {
+X         line_start( current->buffer, &position, &( current->lnpos ),
+X            &( current->lnum ),
+X            &( current->cmdpos ),
+X            &( current->cmdnum ),
+X            &( current->startpos ) );
+X         }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X         {
+X
+X         if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_select )
+X            {
+X            ++c_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_case(): found SELECT at line %d, level %d",
+X               current->number, c_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         else if ( is_endselect( current ) == TRUE )
+X            {
+X            --c_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in find_endif(): found END SELECT at line %d, level %d",
+X               current->number, c_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( c_level == 0 )
+X               {
+X               return current;
+X               }
+X            }
+X         }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "SELECT without END SELECT" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       is_endselect()
+X
+X	DESCRIPTION:    This C function attempts to determine if
+X			a given line contains an END SELECT statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xis_endselect( struct bwb_line *l )
+X#else
+Xstatic int
+Xis_endselect( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int position;
+X   char tbuf[ MAXVARNAMESIZE + 1];
+X
+X   if ( bwb_cmdtable[ l->cmdnum ].vector != bwb_xend )
+X      {
+X      return FALSE;
+X      }
+X
+X   position = l->startpos;
+X   adv_ws( l->buffer, &position );
+X   adv_element( l->buffer, &position, tbuf );
+X   bwb_strtoupper( tbuf );
+X
+X   if ( strcmp( tbuf, "SELECT" ) == 0 )
+X      {
+X      return TRUE;
+X      }
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_endselect()
+X
+X        DESCRIPTION:    This function handles the BASIC END
+X                        SELECT statement.
+X
+X	SYNTAX:		END SELECT
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_endselect( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_endselect( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_endselect(): entered function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if (  ( CURTASK excs[ CURTASK exsc ].code != EXEC_SELTRUE  )
+X      && ( CURTASK excs[ CURTASK exsc ].code != EXEC_SELFALSE ))
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_endselect(): END SELECT without SELECT" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   bwb_decexec();
+X
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X   return bwb_zline( l );
+X   }
+X
+X#endif				/* STRUCT_CMDS */
+X
+X#if COMMON_CMDS || STRUCT_CMDS
+X
+X/***    WHILE-WEND ***/
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_while()
+X
+X        DESCRIPTION:    This function handles the BASIC WHILE
+X			statement and also the ANSI DO WHILE
+X			statement.
+X
+X	SYNTAX:		WHILE expression
+X			DO WHILE expression
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_while( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_while( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   struct bwb_line *r;
+X
+X   /* call bwb_exp() to interpret the expression */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X
+X   if ( (int) exp_getnval( e ) == TRUE )
+X      {
+X
+X      /* if this is the first time at this WHILE statement, note it */
+X
+X      if ( CURTASK excs[ CURTASK exsc ].while_line != l )
+X         {
+X
+X         bwb_incexec();
+X         CURTASK excs[ CURTASK exsc ].while_line = l;
+X
+X         /* find the WEND statement (or LOOP statement) */
+X
+X#if STRUCT_CMDS
+X	 if ( l->cmdnum == getcmdnum( CMD_DO ))
+X            {
+X	    CURTASK excs[ CURTASK exsc ].wend_line = find_loop( l );
+X            }
+X         else
+X            {
+X	    CURTASK excs[ CURTASK exsc ].wend_line = find_wend( l );
+X	    }
+X#else
+X	 CURTASK excs[ CURTASK exsc ].wend_line = find_wend( l );
+X#endif
+X
+X         if ( CURTASK excs[ CURTASK exsc ].wend_line == NULL )
+X            {
+X            return bwb_zline( l );
+X            }
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_while(): initialize WHILE loop, line <%d>",
+X            l->number );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         }
+X#if INTENSIVE_DEBUG
+X      else
+X         {
+X         sprintf( bwb_ebuf, "in bwb_while(): return to WHILE loop, line <%d>",
+X            l->number );
+X         bwb_debug( bwb_ebuf );
+X         }
+X#endif
+X
+X      bwb_setexec( l, l->position, EXEC_WHILE );
+X      return bwb_zline( l );
+X      }
+X   else
+X      {
+X      CURTASK excs[ CURTASK exsc ].while_line = NULL;
+X      r = CURTASK excs[ CURTASK exsc ].wend_line;
+X      bwb_setexec( r, 0, CURTASK excs[ CURTASK exsc - 1 ].code );
+X      r->position = 0;
+X      bwb_decexec();
+X      return r;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_wend()
+X
+X        DESCRIPTION:    This function handles the BASIC WEND
+X			statement and the LOOP statement ending
+X			a DO WHILE loop.
+X
+X	SYNTAX:		WEND
+X			LOOP
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_wend( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_wend( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X   /* check integrity of WHILE loop */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code != EXEC_WHILE )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_wend(): exec stack code != EXEC_WHILE" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   if ( CURTASK excs[ CURTASK exsc ].while_line == NULL )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_wend(): exec stack while_line == NULL" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   /* reset to the top of the current WHILE loop */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_wend() return to line <%d>",
+X      CURTASK excs[ CURTASK exsc ].while_line->number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   CURTASK excs[ CURTASK exsc ].while_line->position = 0;
+X   bwb_setexec( CURTASK excs[ CURTASK exsc ].while_line, 0, EXEC_WHILE );
+X
+X   return CURTASK excs[ CURTASK exsc ].while_line;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       find_wend()
+X
+X        DESCRIPTION:    This function searches for a line containing
+X                        a WEND statement corresponding to a previous
+X                        WHILE statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xfind_wend( struct bwb_line *l )
+X#else
+Xstatic struct bwb_line *
+Xfind_wend( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int w_level;
+X   int position;
+X
+X   w_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X         {
+X         line_start( current->buffer, &position, &( current->lnpos ),
+X            &( current->lnum ),
+X            &( current->cmdpos ),
+X            &( current->cmdnum ),
+X            &( current->startpos ) );
+X         }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X         {
+X
+X         if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_while )
+X            {
+X            ++w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in find_wend(): found WHILE at line %d, level %d",
+X               current->number, w_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X         else if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_wend )
+X            {
+X            --w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in find_wend(): found WEND at line %d, level %d",
+X               current->number, w_level );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( w_level == 0 )
+X               {
+X               return current->next;
+X               }
+X            }
+X         }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in find_wend(): WHILE without WEND" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X#if STRUCT_CMDS
+X
+X/***************************************************************
+X
+X	FUNCTION:       find_loop()
+X
+X	DESCRIPTION:    This function searches for a line containing
+X			a LOOP statement corresponding to a previous
+X			DO statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xextern struct bwb_line *
+Xfind_loop( struct bwb_line *l )
+X#else
+Xextern struct bwb_line *
+Xfind_loop( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int w_level;
+X   int position;
+X
+X   w_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X	 {
+X	 line_start( current->buffer, &position, &( current->lnpos ),
+X	    &( current->lnum ),
+X	    &( current->cmdpos ),
+X	    &( current->cmdnum ),
+X	    &( current->startpos ) );
+X	 }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X	 {
+X
+X	 if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_do )
+X	    {
+X	    ++w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in find_loop(): found DO at line %d, level %d",
+X	       current->number, w_level );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    }
+X	 else if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_loop )
+X	    {
+X	    --w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in fnd_loop(): found LOOP at line %d, level %d",
+X	       current->number, w_level );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    if ( w_level == 0 )
+X	       {
+X	       return current->next;
+X	       }
+X	    }
+X	 }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "in find_loop(): DO without LOOP" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X#endif                          /* STRUCT_CMDS */
+X
+X#endif                          /* COMMON_CMDS || STRUCT_CMDS */
+X
+X/***    FOR-NEXT ***/
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_for()
+X
+X        DESCRIPTION:    This function handles the BASIC FOR
+X                        statement.
+X
+X	SYNTAX:		FOR counter = start TO finish [STEP increment]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_for( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_for( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   register int n;
+X   int e, loop;
+X   int to, step, p;
+X   int for_step, for_target;
+X   struct exp_ese *exp;
+X   struct bwb_variable *v;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* get the variable name */
+X
+X   exp_getvfname( &( l->buffer[ l->position ] ), tbuf );
+X   l->position += strlen( tbuf );
+X   v = var_find( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): variable name <%s>.", v->name );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* at this point one should find an equals sign ('=') */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   if ( l->buffer[ l->position ] != '=' )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_for(): failed to find equals sign, buf <%s>",
+X         &( l->buffer[ l->position ] ) );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return bwb_zline( l );
+X      }
+X   else
+X      {
+X      ++( l->position );
+X      }
+X
+X   /* Find the TO and STEP statements */
+X
+X   cnd_tostep( l->buffer, l->position, &to, &step );
+X
+X   /* if there is no TO statement, then an error has ocurred */
+X
+X   if ( to < 1 )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "FOR statement without TO" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax  );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* copy initial value to buffer and evaluate it */
+X
+X   tbuf[ 0 ] = '\0';
+X   p = 0;
+X   for ( n = l->position; n < to; ++n )
+X      {
+X      tbuf[ p ] = l->buffer[ n ];
+X      ++p;
+X      ++l->position;
+X      tbuf[ p ] = '\0';
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): initial value string <%s>",
+X      tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   p = 0;
+X   exp = bwb_exp( tbuf, FALSE, &p );
+X   var_setnval( v, exp_getnval( exp ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): initial value <%d> pos <%d>",
+X      exp_getnval( exp ), l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* copy target value to small buffer and evaluate it */
+X
+X   tbuf[ 0 ] = '\0';
+X   p = 0;
+X   l->position = to + 2;
+X   if ( step < 1 )
+X      {
+X      e = strlen( l->buffer );
+X      }
+X   else
+X      {
+X      e = step - 1;
+X      }
+X
+X   loop = TRUE;
+X   n = l->position;
+X   while( loop == TRUE )
+X      {
+X      tbuf[ p ] = l->buffer[ n ];
+X      ++p;
+X      ++l->position;
+X      tbuf[ p ] = '\0';
+X
+X      if ( n >= e )
+X          {
+X          loop = FALSE;
+X          }
+X
+X      ++n;
+X
+X      if ( l->buffer[ n ] == ':' )
+X         {
+X         loop = FALSE;
+X         }
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): target value string <%s>",
+X      tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   p = 0;
+X   exp = bwb_exp( tbuf, FALSE, &p );
+X   for_target = (int) exp_getnval( exp );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): target value <%d> pos <%d>",
+X      exp_getnval( exp ), l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* If there is a STEP statement, copy it to a buffer
+X      and evaluate it */
+X
+X   if ( step > 1 )
+X      {
+X      tbuf[ 0 ] = '\0';
+X      p = 0;
+X      l->position = step + 4;
+X
+X      for ( n = l->position; n < (int) strlen( l->buffer ); ++n )
+X         {
+X         tbuf[ p ] = l->buffer[ n ];
+X         ++p;
+X         ++l->position;
+X         tbuf[ p ] = '\0';
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_for(): step value string <%s>",
+X         tbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      p = 0;
+X      exp = bwb_exp( tbuf, FALSE, &p );
+X      for_step = (int) exp_getnval( exp );
+X
+X      }
+X   else
+X      {
+X      for_step = 1;
+X      }
+X
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): step value <%d>",
+X      for_step );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* set position in current line and increment EXEC counter */
+X
+X   /* bwb_setexec( l, l->position, EXEC_NORM ); */  /* WRONG */
+X   bwb_incexec();
+X
+X   CURTASK excs[ CURTASK exsc ].local_variable  = v;
+X   CURTASK excs[ CURTASK exsc ].for_step   = for_step;
+X   CURTASK excs[ CURTASK exsc ].for_target = for_target;
+X
+X   /* set exit line to be used by EXIT FOR */
+X
+X#if STRUCT_CMDS
+X   CURTASK excs[ CURTASK exsc ].wend_line  = find_next( l );
+X#endif
+X
+X   /* set top line and position to be used in multisegmented FOR-NEXT loop */
+X
+X#if MULTISEG_LINES
+X   CURTASK excs[ CURTASK exsc ].for_line     = l;
+X   CURTASK excs[ CURTASK exsc ].for_position = l->position;
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): setting code to EXEC_FOR",
+X      l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   bwb_setexec( l, l->position, EXEC_FOR );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_for(): ready to exit, position <%d>",
+X      l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* proceed with processing */
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_next()
+X
+X        DESCRIPTION:    This function handles the BASIC NEXT
+X                        statement.
+X
+X	SYNTAX:		NEXT counter
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_next( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_next( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X#if INTENSIVE_DEBUG
+X   struct bwb_variable *v;
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_next(): entered function, cmdnum <%d> exsc level <%d> code <%d>",
+X      l->cmdnum, CURTASK exsc, CURTASK excs[ CURTASK exsc ].code );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Check the integrity of the FOR statement */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].code != EXEC_FOR )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_next(): NEXT without FOR; code is <%d> instead of <%d>",
+X	 CURTASK excs[ CURTASK exsc ].code, EXEC_FOR );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   /* read the argument, if there is one */
+X
+X#if MULTISEG_LINES                   /* not currently needed otherwise */
+X
+X   exp_getvfname( &( l->buffer[ l->position ] ), tbuf );
+X   l->position += strlen( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   v = var_find( tbuf );
+X   sprintf( bwb_ebuf, "in bwb_next(): variable name detected <%s>.", v->name );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X#endif
+X
+X   /* decrement or increment the value */
+X
+X   var_setnval( CURTASK excs[ CURTASK exsc ].local_variable,
+X      var_getnval( CURTASK excs[ CURTASK exsc ].local_variable )
+X      + (bnumber) CURTASK excs[ CURTASK exsc ].for_step );
+X
+X   /* check for completion of the loop */
+X
+X   if ( CURTASK excs[ CURTASK exsc ].for_step > 0 )            /* if step is positive */
+X      {
+X      if ( (int) var_getnval( CURTASK excs[ CURTASK exsc ].local_variable )
+X         > CURTASK excs[ CURTASK exsc ].for_target )
+X         {
+X         bwb_decexec();
+X#if MULTISEG_LINES
+X	 bwb_setexec( l, l->position, CURTASK excs[ CURTASK exsc ].code );
+X#else
+X	 bwb_setexec( l->next, 0, CURTASK excs[ CURTASK exsc ].code );
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_next(): end of loop" );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X
+X#ifdef OLD_WAY
+X	 l->next->position = 0;
+X	 return l->next;
+X#else
+X	 return bwb_zline( l );
+X#endif
+X         }
+X      }
+X   else                                         /* if step is negative */
+X      {
+X      if ( (int) var_getnval( CURTASK excs[ CURTASK exsc ].local_variable )
+X         < CURTASK excs[ CURTASK exsc ].for_target )
+X         {
+X         bwb_decexec();
+X	 bwb_setexec( l->next, 0, CURTASK excs[ CURTASK exsc ].code );
+X
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_next(): end of loop" );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X
+X#ifdef OLD_WAY
+X	 l->next->position = 0;
+X	 return l->next;
+X#else
+X	 return bwb_zline( l );
+X#endif
+X         }
+X      }
+X
+X   /* Target not reached: return to the top of the FOR loop */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_next(): resetting code to EXEC_FOR",
+X      l->position );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X#if MULTISEG_LINES
+X   CURTASK excs[ CURTASK exsc ].for_line->position
+X      = CURTASK excs[ CURTASK exsc ].for_position;
+X   bwb_setexec( CURTASK excs[ CURTASK exsc ].for_line,
+X      CURTASK excs[ CURTASK exsc ].for_position, EXEC_FOR );
+X#else
+X   bwb_setexec( CURTASK excs[ CURTASK exsc - 1 ].line,
+X      CURTASK excs[ CURTASK exsc - 1 ].position, EXEC_FOR );
+X#endif
+X
+X   return CURTASK excs[ CURTASK exsc - 1 ].line;
+X
+X   }
+X
+X#if STRUCT_CMDS
+X
+X/***************************************************************
+X
+X	FUNCTION:       bwb_exitfor()
+X
+X	DESCRIPTION:    This function handles the BASIC EXIT
+X			FOR statement.  This is a structured
+X			programming command compatible with ANSI
+X			BASIC. It is called from the bwb_exit()
+X			subroutine.
+X
+X	SYNTAX:		EXIT FOR
+X			
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_exitfor( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_exitfor( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *next_line;
+X   int found;
+X   register int level;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_exitfor(): entered subroutine" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Check the integrity of the FOR statement */
+X
+X   found = FALSE;
+X   level = CURTASK exsc;
+X   do
+X      {
+X      if ( CURTASK excs[ level ].code == EXEC_FOR )
+X	 {
+X	 next_line = CURTASK excs[ CURTASK level ].wend_line;
+X	 found = TRUE;
+X	 }
+X      else
+X	 {
+X	 --level;
+X	 }
+X      }
+X   while ( ( level >= 0 ) && ( found == FALSE ) );
+X
+X   if ( found != TRUE )
+X      {
+X
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_exitfor(): EXIT FOR without FOR" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X
+X      return bwb_zline( l );
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_exitfor(): level found is <%d>, current <%d>",
+X      level, CURTASK exsc );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* decrement below the level of the NEXT statement */
+X
+X   while( CURTASK exsc >= level )
+X      {
+X      bwb_decexec();
+X      }
+X
+X   /* set the next line in the exec stack */
+X
+X   next_line->position = 0;
+X   bwb_setexec( next_line, 0, EXEC_NORM );
+X
+X   return next_line;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       find_next()
+X
+X	DESCRIPTION:    This function searches for a line containing
+X			a NEXT statement corresponding to a previous
+X			FOR statement.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xfind_next( struct bwb_line *l )
+X#else
+Xstatic struct bwb_line *
+Xfind_next( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *current;
+X   register int w_level;
+X   int position;
+X
+X   w_level = 1;
+X   for ( current = l->next; current != &CURTASK bwb_end; current = current->next )
+X      {
+X      position = 0;
+X      if ( current->marked != TRUE )
+X	 {
+X	 line_start( current->buffer, &position, &( current->lnpos ),
+X	    &( current->lnum ),
+X	    &( current->cmdpos ),
+X	    &( current->cmdnum ),
+X	    &( current->startpos ) );
+X	 }
+X      current->position = current->startpos;
+X
+X      if ( current->cmdnum > -1 )
+X	 {
+X
+X	 if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_for )
+X	    {
+X	    ++w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in find_next(): found FOR at line %d, level %d",
+X	       current->number, w_level );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    }
+X	 else if ( bwb_cmdtable[ current->cmdnum ].vector == bwb_next )
+X	    {
+X	    --w_level;
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in find_next(): found NEXT at line %d, level %d",
+X	       current->number, w_level );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    if ( w_level == 0 )
+X	       {
+X
+X#if INTENSIVE_DEBUG
+X	       sprintf( bwb_ebuf, "in find_next(): found returning line <%d>",
+X		  current->next->number );
+X	       bwb_debug( bwb_ebuf );
+X#endif
+X
+X	       return current->next;
+X	       }
+X	    }
+X	 }
+X      }
+X
+X#if PROG_ERRORS
+X   sprintf( bwb_ebuf, "FOR without NEXT" );
+X   bwb_error( bwb_ebuf );
+X#else
+X   bwb_error( err_syntax  );
+X#endif
+X
+X   return NULL;
+X
+X   }
+X
+X#endif				/* STRUCT_CMDS for EXIT FOR */
+X
+X/***************************************************************
+X
+X	FUNCTION:	cnd_tostep()
+X
+X	DESCRIPTION:	This function searches through the
+X			<buffer> beginning at point <position>
+X			and attempts to find positions of TO
+X			and STEP statements.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xcnd_tostep( char *buffer, int position, int *to, int *step )
+X#else
+Xstatic int
+Xcnd_tostep( buffer, position, to, step )
+X   char *buffer;
+X   int position;
+X   int *to;
+X   int *step;
+X#endif
+X   {
+X   int loop, t_pos, b_pos, p_word;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* set then and els to FALSE initially */
+X
+X   *to = *step = FALSE;
+X
+X   /* loop to find words */
+X
+X   p_word = b_pos = position;
+X   t_pos = 0;
+X   tbuf[ 0 ] = '\0';
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      switch( buffer[ b_pos ] )
+X         {
+X         case '\0':                     /* end of string */
+X         case ':':			/* end of line segment */
+X            return TRUE;
+X         case ' ':                      /* whitespace = end of word */
+X         case '\t':
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in cnd_tostep(): word is <%s>", tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( strncmp( tbuf, CMD_TO, (size_t) strlen( CMD_TO ) ) == 0 )
+X               {
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in cnd_tostep(): TO found at position <%d>.",
+X                  p_word );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               *to = p_word;
+X               }
+X            else if ( strncmp( tbuf, CMD_STEP, (size_t) strlen( CMD_STEP ) ) == 0 )
+X               {
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in cnd_tostep(): STEP found at position <%d>.",
+X                  p_word );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               *step = p_word;
+X               }
+X            ++b_pos;
+X            p_word = b_pos;
+X            t_pos = 0;
+X            tbuf[ 0 ] = '\0';
+X            break;
+X
+X         default:
+X            if ( islower( buffer[ b_pos ] ) != FALSE )
+X               {
+X               tbuf[ t_pos ] = (char) toupper( buffer[ b_pos ] );
+X               }
+X            else
+X               {
+X               tbuf[ t_pos ] = buffer[ b_pos ];
+X               }
+X            ++b_pos;
+X            ++t_pos;
+X            tbuf[ t_pos ] = '\0';
+X            break;
+X         }
+X
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       var_setnval()
+X
+X	DESCRIPTION:    This function sets the value of numerical
+X			variable v to the value of i.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xextern int
+Xvar_setnval( struct bwb_variable *v, bnumber i )
+X#else
+Xint
+Xvar_setnval( v, i )
+X   struct bwb_variable *v;
+X   bnumber i;
+X#endif
+X   {
+X
+X   switch( v->type )
+X      {
+X      case NUMBER:
+X         * var_findnval( v, v->array_pos ) = i;
+X         break;
+X      default:
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in var_setnval(): variable <%s> is not a number",
+X            v->name );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_mismatch );
+X#endif
+X      }
+X
+X   /* successful assignment */
+X
+X   return TRUE;
+X
+X   }
+X
+X
+END_OF_FILE
+  if test 55621 -ne `wc -c <'bwbasic-2.10/bwb_cnd.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_cnd.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_cnd.c'
+fi
+if test -f 'bwbasic-2.10/bwbtest/assign.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/assign.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/assign.bas'\" \(54 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/assign.bas' <<'END_OF_FILE'
+X10 Print "TEST.BAS -- TEST"
+X20 X=7
+X30 print "X is ";X
+END_OF_FILE
+  if test 54 -ne `wc -c <'bwbasic-2.10/bwbtest/assign.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/assign.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/assign.bas'
+fi
+if test -f 'bwbasic-2.10/bwx_tty.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwx_tty.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwx_tty.c'\" \(10751 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwx_tty.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwx_tty.c       Environment-dependent implementation
+X                        for Bywater BASIC Interpreter
+X			using simple TTY-style input/output
+X
+X			This file should be used as a template
+X			for developing more sophisticated
+X			environment-dependent implementations
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X			Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X#if HAVE_LONGJMP
+X#include <setjmp.h>
+X#endif
+X
+Xextern int prn_col;
+X#if HAVE_LONGJMP
+Xextern jmp_buf mark;
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       main()
+X
+X        DESCRIPTION:    As in any C program, main() is the basic
+X                        function from which the rest of the
+X                        program is called. Some environments,
+X			however, provide their own main() functions
+X			(Microsoft Windows (tm) is an example).
+X			In these cases, the following code will
+X			have to be included in the initialization
+X			function that is called by the environment.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xvoid
+Xmain( int argc, char **argv )
+X#else
+Xmain( argc, argv )
+X   int argc;
+X   char **argv;
+X#endif
+X   {
+X
+X   bwb_init( argc, argv );
+X
+X#if HAVE_LONGJMP
+X#if INTERACTIVE
+X   setjmp( mark );
+X#endif
+X#endif
+X
+X   /* main program loop */
+X
+X   while( !feof( stdin ) )		/* condition !feof( stdin ) added in v1.11 */
+X      {
+X      bwb_mainloop();
+X      }
+X
+X      bwx_terminate();			/* allow ^D (Unix) exit with grace */
+X
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_signon()
+X
+X	DESCRIPTION:    This function prints out the sign-on
+X			message for bwBASIC.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwx_signon( void )
+X#else
+Xint
+Xbwx_signon()
+X#endif
+X   {
+X
+X   sprintf( bwb_ebuf, "\r%s %s\n", MES_SIGNON, VERSION );
+X   prn_xprintf( stdout, bwb_ebuf );
+X   sprintf( bwb_ebuf, "\r%s\n", MES_COPYRIGHT );
+X   prn_xprintf( stdout, bwb_ebuf );
+X#if PERMANENT_DEBUG
+X   sprintf( bwb_ebuf, "\r%s\n", "Debugging Mode" );
+X   prn_xprintf( stdout, bwb_ebuf );
+X#else
+X   sprintf( bwb_ebuf, "\r%s\n", MES_LANGUAGE );
+X   prn_xprintf( stdout, bwb_ebuf );
+X#endif
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_message()
+X
+X	DESCRIPTION:    This function outputs a message to the
+X			default output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwx_message( char *m )
+X#else
+Xint
+Xbwx_message( m )
+X   char *m;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   fprintf( stderr, "<MES>" );
+X#endif
+X
+X   prn_xprintf( stdout, m );
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_putc()
+X
+X	DESCRIPTION:    This function outputs a single character
+X			to the default output device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwx_putc( char c )
+X#else
+Xint
+Xbwx_putc( c )
+X   char c;
+X#endif
+X   {
+X
+X   return fputc( c, stdout );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_error()
+X
+X	DESCRIPTION:    This function outputs a message to the
+X			default error-message device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwx_errmes( char *m )
+X#else
+Xint
+Xbwx_errmes( m )
+X   char *m;
+X#endif
+X   {
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];	/* this memory should be
+X						   permanent in case of memory
+X						   overrun errors */
+X
+X   if (( prn_col != 1 ) && ( errfdevice == stderr ))
+X      {
+X      prn_xprintf( errfdevice, "\n" );
+X      }
+X   if ( CURTASK number == 0 )
+X      {
+X      sprintf( tbuf, "\n%s: %s\n", ERRD_HEADER, m );
+X      }
+X   else
+X      {
+X      sprintf( tbuf, "\n%s %d: %s\n", ERROR_HEADER, CURTASK number, m );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   fprintf( stderr, "<ERR>" );
+X#endif
+X
+X   prn_xprintf( errfdevice, tbuf );
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_input()
+X
+X	DESCRIPTION:    This function outputs the string pointed
+X			to by 'prompt', then inputs a character
+X			string.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xbwx_input( char *prompt, char *buffer )
+X#else
+Xint
+Xbwx_input( prompt, buffer )
+X   char *prompt;
+X   char *buffer;
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   fprintf( stderr, "<INP>" );
+X#endif
+X
+X   prn_xprintf( stdout, prompt );
+X
+X   fgets( buffer, MAXREADLINESIZE, stdin );
+X   * prn_getcol( stdout ) = 1;			/* reset column */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwx_terminate()
+X
+X	DESCRIPTION:    This function terminates program execution.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xvoid
+Xbwx_terminate( void )
+X#else
+Xvoid
+Xbwx_terminate()
+X#endif
+X   {
+X   exit( 0 );
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       bwx_shell()
+X
+X	DESCRIPTION:    This function runs a shell program.
+X
+X***************************************************************/
+X
+X#if COMMAND_SHELL
+X
+X#if ANSI_C
+Xextern int
+Xbwx_shell( struct bwb_line *l )
+X#else
+Xextern int
+Xbwx_shell( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   static char *s_buffer;
+X   static int init = FALSE;
+X   static int position;
+X
+X   /* get memory for temporary buffer if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( s_buffer = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X	 {
+X	 bwb_error( err_getmem );
+X	 return FALSE;
+X	 }
+X      }
+X
+X   /* get the first element and check for a line number */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwx_shell(): line buffer is <%s>.", l->buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   position = 0;
+X   adv_element( l->buffer, &position, s_buffer );
+X   if ( is_numconst( s_buffer ) != TRUE )                  /* not a line number */
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwx_shell(): no line number, command <%s>.",
+X	 l->buffer );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( system( l->buffer ) == 0 )
+X	 {
+X	 return TRUE;
+X	 }
+X      else
+X	 {
+X	 return FALSE;
+X	 }
+X      }
+X
+X   else                                         /* advance past line number */
+X      {
+X      adv_ws( l->buffer, &position );           /* advance past whitespace */
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwx_shell(): line number, command <%s>.",
+X	 l->buffer );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( system( &( l->buffer[ position ] ) ) == 0 )
+X	 {
+X	 return TRUE;
+X	 }
+X      else
+X	 {
+X	 return FALSE;
+X	 }
+X      }
+X   }
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       matherr()
+X
+X        DESCRIPTION:    This function is called to handle math
+X                        errors in Bywater BASIC.  It displays
+X                        the error message, then calls the
+X                        break_handler() routine.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xmatherr( struct exception *except )
+X#else
+Xint
+Xmatherr( except )
+X   struct exception *except;
+X#endif
+X   {
+X
+X   perror( MATHERR_HEADER );
+X   break_handler();
+X
+X   return FALSE;
+X   }
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_edit()
+X
+X	DESCRIPTION:    This function implements the BASIC EDIT
+X			program by shelling out to a default editor
+X			specified by the variable BWB.EDITOR$.
+X
+X	SYNTAX:		EDIT
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_edit( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_edit( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   char edname[ MAXSTRINGSIZE + 1 ];
+X   struct bwb_variable *ed;
+X   FILE *loadfile;
+X
+X   ed = var_find( DEFVNAME_EDITOR );
+X   str_btoc( edname, var_getsval( ed ));
+X
+X   sprintf( tbuf, "%s %s", edname, CURTASK progfile );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_edit(): command line <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#else
+X   system( tbuf );
+X#endif
+X
+X   /* clear current contents */
+X
+X   bwb_new( l );
+X
+X   /* open edited file for read */
+X
+X   if ( ( loadfile = fopen( CURTASK progfile, "r" )) == NULL )
+X      {
+X      sprintf( bwb_ebuf, err_openfile, CURTASK progfile );
+X      bwb_error( bwb_ebuf );
+X
+X      return bwb_zline( l );
+X      }
+X
+X   /* and (re)load the file into memory */
+X
+X   bwb_fload( loadfile );
+X
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_files()
+X
+X	DESCRIPTION:    This function implements the BASIC FILES
+X			command, in this case by shelling out to
+X			a directory listing program or command
+X			specified in the variable BWB.FILES$.
+X
+X	SYNTAX:		FILES filespec$
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_files( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_files( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   char tbuf[ MAXVARNAMESIZE + 1 ];
+X   char finame[ MAXVARNAMESIZE + 1 ];
+X   char argument[ MAXVARNAMESIZE + 1 ];
+X   struct bwb_variable *fi;
+X   struct exp_ese *e;
+X
+X   fi = var_find( DEFVNAME_FILES );
+X   str_btoc( finame, var_getsval( fi ));
+X
+X   /* get argument */
+X
+X   adv_ws( l->buffer, &( l->position ));
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\0':
+X      case '\r':
+X      case '\n':
+X         argument[ 0 ] = '\0';
+X         break;
+X      default:
+X         e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X         if ( e->type != STRING )
+X            {
+X            bwb_error( err_mismatch );
+X            return bwb_zline( l );
+X            }
+X         str_btoc( argument, exp_getsval( e ) );
+X         break;
+X      }
+X
+X
+X   sprintf( tbuf, "%s %s", finame, argument );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_files(): command line <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#else
+X   system( tbuf );
+X#endif
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X#endif					/* COMMON_CMDS */
+X
+END_OF_FILE
+  if test 10751 -ne `wc -c <'bwbasic-2.10/bwx_tty.c'`; then
+    echo shar: \"'bwbasic-2.10/bwx_tty.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwx_tty.c'
+fi
+echo shar: End of archive 2 \(of 15\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1492 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i065:  bwbasic - Bywater BASIC interpreter version 2.10, Part14/15
+Message-ID: <1993Oct29.162825.4322@sparky.sterling.com>
+X-Md4-Signature: de848aeadf0f0b70d206017bdc16290d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:28:25 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 65
+Archive-name: bwbasic/part14
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_inp.c
+# Wrapped by kent@sparky on Thu Oct 21 10:47:52 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_inp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_inp.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_inp.c'\" \(34854 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_inp.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_inp.c       Input Routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Commands:       DATA
+X                                        READ
+X                                        RESTORE
+X                                        INPUT
+X                                        LINE INPUT
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/* Declarations of functions visible to this file only */
+X
+X#if ANSI_C
+Xstatic struct bwb_line *bwb_xinp( struct bwb_line *l, FILE *f );
+Xstatic struct bwb_line *inp_str( struct bwb_line *l, char *buffer,
+X   char *var_list, int *position );
+Xstatic int inp_const( char *m_buffer, char *s_buffer, int *position );
+Xstatic int inp_assign( char *b, struct bwb_variable *v );
+Xstatic int inp_advws( FILE *f );
+Xstatic int inp_xgetc( FILE *f, int is_string );
+Xstatic int inp_eatcomma( FILE *f );
+X#else
+Xstatic struct bwb_line *bwb_xinp();
+Xstatic struct bwb_line *inp_str();
+Xstatic int inp_const();
+Xstatic int inp_assign();
+Xstatic int inp_advws();
+Xstatic int inp_xgetc();
+Xstatic int inp_eatcomma();
+X#endif
+X
+Xstatic char_saved = FALSE;
+Xstatic cs;
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_read()
+X
+X        DESCRIPTION:    This function implements the BASIC READ
+X                        statement.
+X
+X        SYNTAX:         READ variable[, variable...]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_read( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_read( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int pos;
+X   register int n;
+X   int main_loop, adv_loop;
+X   struct bwb_variable *v;
+X   int n_params;                         /* number of parameters */
+X   int *pp;                              /* pointer to parameter values */
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_read(): buffer <%s>",
+X      &( l->buffer[ l->position ]));
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Process each variable read from the READ statement */
+X
+X   main_loop = TRUE;
+X   while ( main_loop == TRUE )
+X      {
+X
+X      /* first check position in l->buffer and advance beyond whitespace */
+X
+X      adv_loop = TRUE;
+X      while( adv_loop == TRUE )
+X         {
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_read() adv_loop char <%d> = <%c>",
+X            l->buffer[ l->position ], l->buffer[ l->position ] );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         switch ( l->buffer[ l->position ] )
+X            {
+X            case ',':                   /* comma delimiter */
+X            case ' ':                   /* whitespace */
+X            case '\t':
+X               ++l->position;
+X               break;
+X            case ':':                   /* end of line segment */
+X	    case '\n':                  /* end of line */
+X            case '\r':
+X            case '\0':
+X               adv_loop = FALSE;        /* break out of advance loop */
+X               main_loop = FALSE;       /* break out of main loop */
+X               break;
+X            default:                    /* anything else */
+X               adv_loop = FALSE;        /* break out of advance loop */
+X               break;
+X            }
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_read(): end of adv_loop <%d> main_loop <%d>",
+X         adv_loop, main_loop );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* be sure main_loop id still valid after checking the line */
+X
+X      if ( main_loop == TRUE )
+X         {
+X
+X         /* Read a variable name */
+X
+X         bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X         inp_adv( l->buffer, &( l->position ) );
+X         v = var_find( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_read(): line <%d> variable <%s>",
+X	    l->number, v->name );
+X	 bwb_debug( bwb_ebuf );
+X	 sprintf( bwb_ebuf, "in bwb_read(): remaining line <%s>",
+X	    &( l->buffer[ l->position ] ) );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X
+X         /* advance beyond whitespace or comma in data buffer */
+X
+X         inp_adv( CURTASK data_line->buffer, &CURTASK data_pos );
+X
+X         /* Advance to next line if end of buffer */
+X
+X         switch( CURTASK data_line->buffer[ CURTASK data_pos ] )
+X            {
+X            case '\0':                     /* end of buffer */
+X            case '\n':
+X            case '\r':
+X
+X               CURTASK data_line = CURTASK data_line->next;
+X
+X               /* advance farther to line with DATA statement if necessary */
+X
+X               pos = 0;
+X               line_start( CURTASK data_line->buffer, &pos,
+X                  &( CURTASK data_line->lnpos ),
+X                  &( CURTASK data_line->lnum ),
+X                  &( CURTASK data_line->cmdpos ),
+X                  &( CURTASK data_line->cmdnum ),
+X                  &( CURTASK data_line->startpos ) );
+X               CURTASK data_pos = CURTASK data_line->startpos;
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in bwb_read(): current data line: <%s>",
+X                  CURTASK data_line->buffer );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               break;
+X            }
+X
+X         while ( bwb_cmdtable[ CURTASK data_line->cmdnum ].vector != bwb_data )
+X            {
+X
+X            if ( CURTASK data_line == &CURTASK bwb_end )
+X               {
+X               CURTASK data_line = CURTASK bwb_start.next;
+X               }
+X
+X            else
+X               {
+X               CURTASK data_line = CURTASK data_line->next;
+X               }
+X
+X            pos = 0;
+X            line_start( CURTASK data_line->buffer, &pos,
+X               &( CURTASK data_line->lnpos ),
+X               &( CURTASK data_line->lnum ),
+X               &( CURTASK data_line->cmdpos ),
+X               &( CURTASK data_line->cmdnum ),
+X               &( CURTASK data_line->startpos ) );
+X            CURTASK data_pos = CURTASK data_line->startpos;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_read(): advance to data line: <%s>",
+X               CURTASK data_line->buffer );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }
+X
+X         /* advance beyond whitespace in data buffer */
+X
+X         adv_loop = TRUE;
+X         while ( adv_loop == TRUE )
+X            {
+X            switch( CURTASK data_line->buffer[ CURTASK data_pos ] )
+X               {
+X               case '\0':                       /* end of buffer */
+X               case '\n':
+X               case '\r':
+X                  bwb_error( err_od );
+X                  return bwb_zline( l );
+X               case ' ':                        /* whitespace */
+X               case '\t':
+X                  ++CURTASK data_pos;
+X                  break;
+X               default:
+X                  adv_loop = FALSE;             /* carry on */
+X                  break;
+X               }
+X            }
+X
+X         /* now at last we have a variable in v that needs to be
+X            assigned data from the data_buffer at position CURTASK data_pos.
+X            What remains to be done is to get one single bit of data,
+X            a string constant or numerical constant, into the small
+X            buffer */
+X
+X         inp_const( CURTASK data_line->buffer, tbuf, &CURTASK data_pos );
+X
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in bwb_read(): data constant is <%s>", tbuf );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X
+X         /* get parameters if the variable is dimensioned */
+X
+X	 adv_ws( l->buffer, &( l->position ) );
+X	 if ( l->buffer[ l->position ] == '(' )
+X	    {
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in bwb_read(): variable <%s> is dimensioned",
+X	       v->name );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X            dim_getparams( l->buffer, &( l->position ), &n_params, &pp );
+X            for ( n = 0; n < v->dimensions; ++n )
+X               {
+X               v->array_pos[ n ] = pp[ n ];
+X               }
+X	    }
+X#if INTENSIVE_DEBUG
+X	 else
+X	    {
+X	    sprintf( bwb_ebuf, "in bwb_read(): variable <%s> is NOT dimensioned",
+X	       v->name );
+X	    bwb_debug( bwb_ebuf );
+X	    sprintf( bwb_ebuf, "in bwb_read(): remaining line <%s>",
+X	       &( l->buffer[ l->position ] ) );
+X	    bwb_debug( bwb_ebuf );
+X	    }
+X#endif
+X
+X         /* finally assign the data to the variable */
+X
+X         inp_assign( tbuf, v );
+X
+X         }                              /* end of remainder of main loop */
+X
+X      }                                 /* end of main_loop */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_read(): exiting function, line <%s> ",
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_data()
+X
+X        DESCRIPTION:    This function implements the BASIC DATA
+X                        statement, although at the point at which
+X                        DATA statements are encountered, no
+X                        processing is done.  All actual processing
+X                        of DATA statements is accomplished by READ
+X                        (bwb_read()).
+X
+X        SYNTAX:         DATA constant[, constant]...
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_data( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_data( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X
+X#if MULTISEG_LINES
+X   adv_eos( l->buffer, &( l->position ));
+X#endif
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_restore()
+X
+X        DESCRIPTION:    This function implements the BASIC RESTORE
+X                        statement.
+X
+X        SYNTAX:         RESTORE [line number]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_restore( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_restore( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct bwb_line *r;
+X   struct bwb_line *r_line;
+X   int n;
+X   int pos;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* get the first element beyond the starting position */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X   /* if the line is not a numerical constant, then there is no
+X      argument; set the current line to the first in the program */
+X
+X   if ( is_numconst( tbuf ) != TRUE )
+X      {
+X      CURTASK data_line = &CURTASK bwb_start;
+X      CURTASK data_pos = 0;
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_restore(): RESTORE w/ no argument " );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* find the line */
+X
+X   n = atoi( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_restore(): line for restore is <%d>", n );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   r_line = NULL;
+X   for ( r = CURTASK bwb_start.next; r != &CURTASK bwb_end; r = r->next )
+X      {
+X
+X      if ( r->number == n )
+X         {
+X         r_line = r;
+X         }
+X      }
+X
+X   if ( r_line == NULL )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "at line %d: Can't find line number for RESTORE.",
+X         l->number );
+X      bwb_error( bwb_ebuf );
+X#else
+X      sprintf( bwb_ebuf, err_lnnotfound, n );
+X      bwb_error( bwb_ebuf );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* initialize variables for the line */
+X
+X   pos = 0;
+X   line_start( r_line->buffer, &pos,
+X      &( r_line->lnpos ),
+X      &( r_line->lnum ),
+X      &( r_line->cmdpos ),
+X      &( r_line->cmdnum ),
+X      &( r_line->startpos ) );
+X
+X   /* verify that line is a data statement */
+X
+X   if ( bwb_cmdtable[ r_line->cmdnum ].vector != bwb_data )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "at line %d: Line %d is not a DATA statement.",
+X         l->number, r_line->number );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* reassign CURTASK data_line */
+X
+X   CURTASK data_line = r_line;
+X   CURTASK data_pos = CURTASK data_line->startpos;
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_input()
+X
+X        DESCRIPTION:    This function implements the BASIC INPUT
+X                        statement.
+X
+X        SYNTAX:         INPUT [;][prompt$;]variable[$,variable]...
+X                        INPUT#n variable[$,variable]...
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_input( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_input( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   FILE *fp;
+X   int pos;
+X   int req_devnumber;
+X   struct exp_ese *v;
+X   int is_prompt;
+X   int suppress_qm;
+X   static char tbuf[ MAXSTRINGSIZE + 1 ];
+X   static char pstring[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_input(): enter function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   pstring[ 0 ] = '\0';
+X
+X#if COMMON_CMDS
+X
+X   /* advance beyond whitespace and check for the '#' sign */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   if ( l->buffer[ l->position ] == '#' )
+X      {
+X      ++( l->position );
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      pos = 0;
+X      v = bwb_exp( tbuf, FALSE, &pos );
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         ++( l->position );
+X         }
+X      else
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): no comma after#n" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      req_devnumber = (int) exp_getnval( v );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_input(): requested device number <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* check the requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): Requested device number is out if range." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      if ( ( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED ) ||
+X         ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): Requested device number is not open." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X      if ( dev_table[ req_devnumber ].mode != DEVMODE_INPUT )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_input(): Requested device is not open for INPUT." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X      /* look up the requested device in the device table */
+X
+X      fp = dev_table[ req_devnumber ].cfp;
+X
+X      }
+X   else
+X      {
+X      fp = stdin;
+X      }
+X
+X#else
+X   fp = stdin;
+X#endif				/* COMMON_CMDS */
+X
+X   /* if input is not from stdin, then branch to bwb_xinp() */
+X
+X   if ( fp != stdin )
+X      {
+X      return bwb_xinp( l, fp );
+X      }
+X
+X   /* from this point we presume that input is from stdin */
+X
+X   /* check for a semicolon or a quotation mark, not in
+X      first position: this should indicate a prompt string */
+X
+X   suppress_qm = is_prompt = FALSE;
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   switch( l->buffer[ l->position ] )
+X      {
+X      case '\"':
+X         is_prompt = TRUE;
+X         break;
+X
+X      case ';':
+X
+X         /* AGENDA: add code to suppress newline if a
+X            semicolon is used here; this may not be possible
+X            using ANSI C alone, since it has not functions for
+X            unechoed console input. */
+X
+X         is_prompt = TRUE;
+X         ++l->position;
+X         break;
+X
+X      case ',':
+X
+X         /* QUERY: why is this code here? the question mark should
+X            be suppressed if a comma <follows> the prompt string. */
+X
+X#if INTENSIVE_DEBUG
+X         bwb_debug( "in bwb_input(): found initial comma" );
+X#endif
+X         suppress_qm = TRUE;
+X         ++l->position;
+X         break;
+X      }
+X
+X   /* get prompt string and print it */
+X
+X   if ( is_prompt == TRUE )
+X      {
+X
+X      /* get string element */
+X
+X      inp_const( l->buffer, tbuf, &( l->position ) );
+X
+X      /* advance past semicolon to beginning of variable */
+X
+X      suppress_qm = inp_adv( l->buffer, &( l->position ) );
+X
+X      /* print the prompt string */
+X
+X      strncpy( pstring, tbuf, MAXSTRINGSIZE );
+X      }                                      /* end condition: prompt string */
+X
+X   /* print out the question mark delimiter unless it has been
+X      suppressed */
+X
+X   if ( suppress_qm != TRUE )
+X      {
+X      strncat( pstring, "? ", MAXSTRINGSIZE );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_input(): ready to get input line" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* read a line into the input buffer */
+X
+X   bwx_input( pstring, tbuf );
+X   bwb_stripcr( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_input(): received line <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X   bwb_debug( "Press RETURN: " );
+X   getchar();
+X#endif
+X
+X   /* reset print column to account for LF at end of fgets() */
+X
+X   * prn_getcol( stdout ) = 1;
+X
+X   return inp_str( l, tbuf, l->buffer, &( l->position ) );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_xinp()
+X
+X        DESCRIPTION:    This function does the bulk of processing
+X                        for INPUT#, and so is file independent.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xbwb_xinp( struct bwb_line *l, FILE *f )
+X#else
+Xstatic struct bwb_line *
+Xbwb_xinp( l, f )
+X   struct bwb_line *l;
+X   FILE *f;
+X#endif
+X   {
+X   int loop;
+X   struct bwb_variable *v;
+X   char c;
+X   register int n;
+X   int *pp;
+X   int n_params;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_xinp(): buffer <%s>",
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* loop through elements required */
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X      
+X      /* read a variable from the list */
+X
+X      bwb_getvarname( l->buffer, tbuf, &( l->position ) );
+X      v = var_find( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_xinp(): found variable name <%s>",
+X         v->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* read subscripts */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == '(' )
+X         {
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_xinp(): variable <%s> has dimensions",
+X            v->name );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         dim_getparams( l->buffer, &( l->position ), &n_params, &pp );
+X         for ( n = 0; n < v->dimensions; ++n )
+X            {
+X            v->array_pos[ n ] = pp[ n ];
+X            }
+X         }
+X
+X      inp_advws( f );
+X
+X      /* perform type-specific input */
+X
+X      switch( v->type )
+X         {
+X         case STRING:
+X            if ( inp_xgetc( f, TRUE ) != '\"' )
+X               {
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in bwb_xinp(): expected quotation mark" );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_mismatch );
+X#endif
+X               }
+X            n = 0;
+X            while ( ( c = (char) inp_xgetc( f, TRUE )) != '\"' )
+X               {
+X               tbuf[ n ] = c;
+X               ++n;
+X               tbuf[ n ] = '\0';
+X               }
+X            str_ctob( var_findsval( v, v->array_pos ), tbuf );
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_xinp(): read STRING <%s>",
+X               tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            inp_eatcomma( f );
+X            break;
+X         default:
+X            n = 0;
+X            while ( ( c = (char) inp_xgetc( f, FALSE )) != ',' )
+X               {
+X               tbuf[ n ] = c;
+X               ++n;
+X               tbuf[ n ] = '\0';
+X               }
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_xinp(): read NUMBER <%s>",
+X               tbuf );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            * var_findnval( v, v->array_pos ) = (bnumber) atof( tbuf );
+X            break;
+X         }				/* end of switch for type-specific input */
+X
+X      /* check for comma */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X         ++( l->position );
+X         }
+X      else
+X         {
+X         loop = FALSE;
+X         }
+X
+X      }
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_advws()
+X
+X	DESCRIPTION:    This C function advances past whitespace
+X			inoput from a particular file or device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xinp_advws( FILE *f )
+X#else
+Xstatic int
+Xinp_advws( f )
+X   FILE *f;
+X#endif
+X   {
+X   register int c;
+X   int loop;
+X
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X      c = (char) inp_xgetc( f, TRUE );
+X
+X      switch( c )
+X         {
+X         case '\n':
+X         case '\r':
+X         case ' ':
+X         case '\t':
+X            break;
+X         default:
+X            char_saved = TRUE;
+X            cs = c;
+X            loop = FALSE;
+X            break;
+X         }
+X      }   
+X
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_xgetc()
+X
+X	DESCRIPTION:    This C function reads in a character from
+X			a specified file or device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xinp_xgetc( FILE *f, int is_string )
+X#else
+Xstatic int
+Xinp_xgetc( f, is_string )
+X   FILE *f;
+X   int is_string;
+X#endif
+X   {
+X   register int c;
+X   static int prev_eof = FALSE;
+X
+X   if ( char_saved == TRUE )
+X      {
+X      char_saved = FALSE;
+X      return cs;
+X      }
+X
+X   if ( feof( f ) != 0 )
+X      {
+X      if ( prev_eof == TRUE )
+X         {
+X         bwb_error( err_od );
+X         }
+X      else
+X         {
+X	 prev_eof = TRUE;
+X	 return (int) ',';
+X	 }
+X      }
+X
+X   prev_eof = FALSE;
+X
+X   c = fgetc( f );
+X
+X   if ( is_string == TRUE )
+X      {
+X      return c;
+X      }
+X      
+X   switch( c )
+X      {
+X      case ' ':
+X      case '\n':
+X      case ',':
+X      case '\r':
+X         return ',';
+X      }
+X
+X   return c;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_eatcomma()
+X
+X	DESCRIPTION:    This C function advances beyond a comma
+X			input from a specified file or device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xinp_eatcomma( FILE *f )
+X#else
+Xstatic int
+Xinp_eatcomma( f )
+X   FILE *f;
+X#endif
+X   {
+X   char c;
+X
+X   while ( ( c = (char) inp_xgetc( f, TRUE ) ) == ',' )
+X      {
+X      }
+X      
+X   char_saved = TRUE;
+X   cs = c;
+X      
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_str()
+X
+X        DESCRIPTION:    This function does INPUT processing
+X                        from a determined string of input
+X                        data and a determined variable list
+X                        (both in memory).  This presupposes
+X			that input has been taken from stdin,
+X			not from a disk file or device.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xinp_str( struct bwb_line *l, char *input_buffer, char *var_list, int *vl_position )
+X#else
+Xstatic struct bwb_line *
+Xinp_str( l, input_buffer, var_list, vl_position )
+X   struct bwb_line *l;
+X   char *input_buffer;
+X   char *var_list;
+X   int *vl_position;
+X#endif
+X   {
+X   int i;
+X   register int n;
+X   struct bwb_variable *v;
+X   int loop;
+X   int *pp;
+X   int n_params;
+X   char ttbuf[ MAXSTRINGSIZE + 1 ];		/* build element */
+X   char varname[ MAXSTRINGSIZE + 1 ];		/* build element */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in inp_str(): received line <%s>",
+X      l->buffer );
+X   bwb_debug( bwb_ebuf );
+X   sprintf( bwb_ebuf, "in inp_str(): received variable list <%s>.",
+X      &( var_list[ *vl_position ] ) );
+X   bwb_debug( bwb_ebuf );
+X   sprintf( bwb_ebuf, "in inp_str(): received input buffer  <%s>.",
+X      input_buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* Read elements, and assign them to variables */
+X
+X   i = 0;
+X   loop = TRUE;
+X   while ( loop == TRUE )
+X      {
+X
+X      /* get a variable name from the list */
+X
+X      bwb_getvarname( var_list, varname, vl_position );    /* get name */
+X      v = var_find( varname );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in inp_str(): found variable buffer <%s> name <%s>",
+X         varname, v->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* read subscripts if appropriate */
+X
+X      adv_ws( var_list, vl_position );
+X      if ( var_list[ *vl_position ] == '(' )
+X         {
+X#if INTENSIVE_DEBUG
+X	 sprintf( bwb_ebuf, "in inp_str(): variable <%s> has dimensions",
+X	    v->name );
+X	 bwb_debug( bwb_ebuf );
+X#endif
+X         dim_getparams( var_list, vl_position, &n_params, &pp );
+X         for ( n = 0; n < v->dimensions; ++n )
+X            {
+X            v->array_pos[ n ] = pp[ n ];
+X            }
+X         }
+X
+X      /* build string from input buffer in ttbuf */
+X
+X      n = 0;
+X      ttbuf[ 0 ] = '\0';
+X      while ( ( input_buffer[ i ] != ',' )
+X         &&   ( input_buffer[ i ] != '\0' ))
+X         {
+X         ttbuf[ n ] = input_buffer[ i ];
+X         ++n;
+X         ++i;
+X         ttbuf[ n ] = '\0';
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in inp_str(): string for input <%s>",
+X         ttbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* perform type-specific input */
+X
+X      inp_assign( ttbuf, v );
+X
+X      /* check for commas in variable list and input list and advance */
+X
+X      adv_ws( var_list, vl_position );
+X      switch( var_list[ *vl_position ] )
+X	 {
+X	 case '\n':
+X	 case '\r':
+X	 case '\0':
+X	 case ':':
+X	    loop = FALSE;
+X	    break;
+X	 case ',':
+X	    ++( *vl_position );
+X	    break;
+X         }
+X      adv_ws( var_list, vl_position );
+X
+X      adv_ws( input_buffer, &i );
+X      switch ( input_buffer[ i ] )
+X	 {
+X	 case '\n':
+X	 case '\r':
+X	 case '\0':
+X	 case ':':
+X	    loop = FALSE;
+X	    break;
+X	 case ',':
+X	    ++i;
+X	    break;
+X	 }
+X      adv_ws( input_buffer, &i );
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in inp_str(): exit, line buffer <%s>",
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_assign()
+X
+X        DESCRIPTION:    This function assigns the value of a
+X                        numerical or string constant to a
+X                        variable.
+X
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xinp_assign( char *b, struct bwb_variable *v )
+X#else
+Xstatic int
+Xinp_assign( b, v )
+X   char *b;
+X   struct bwb_variable *v;
+X#endif
+X   {
+X
+X   switch( v->type )
+X      {
+X      case STRING:
+X         str_ctob( var_findsval( v, v->array_pos ), b );
+X         break;
+X
+X      case NUMBER:
+X         if ( strlen( b ) == 0 )
+X            {
+X            *( var_findnval( v, v->array_pos )) = (bnumber) 0.0;
+X            }
+X         else
+X            {
+X            *( var_findnval( v, v->array_pos )) = (bnumber) atof( b );
+X            }
+X         break;
+X
+X      default:
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in inp_assign(): variable <%s> of unknown type",
+X            v->name );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_mismatch );
+X#endif
+X         return FALSE;
+X
+X      }
+X
+X   return FALSE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_adv()
+X
+X        DESCRIPTION:    This function advances the string pointer
+X                        past whitespace and the item delimiter
+X                        (comma).
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xinp_adv( char *b, int *c )
+X#else
+Xint
+Xinp_adv( b, c )
+X   char *b;
+X   int *c;
+X#endif
+X   {
+X   int rval;
+X
+X   rval = FALSE;
+X
+X   while( TRUE )
+X      {
+X      switch( b[ *c ] )
+X         {
+X         case ' ':              /* whitespace */
+X         case '\t':
+X         case ';':              /* semicolon, end of prompt string */
+X            ++*c;
+X            break;
+X         case ',':              /* comma, variable delimiter */
+X            rval = TRUE;
+X            ++*c;
+X            break;
+X         case '\0':		/* end of line */
+X         case ':': 		/* end of line segment */
+X            rval = TRUE;
+X            return rval;
+X         default:
+X            return rval;
+X         }
+X      }
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       inp_const()
+X
+X        DESCRIPTION:    This function reads a numerical or string
+X                        constant from <m_buffer> into <s_buffer>,
+X                        incrementing <position> appropriately.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xinp_const( char *m_buffer, char *s_buffer, int *position )
+X#else
+Xstatic int
+Xinp_const( m_buffer, s_buffer, position )
+X   char *m_buffer;
+X   char *s_buffer;
+X   int *position;
+X#endif
+X   {
+X   int string;
+X   int s_pos;
+X   int loop;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in inp_const(): received argument <%s>.",
+X      &( m_buffer[ *position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   string = FALSE;
+X
+X   /* first detect string constant */
+X
+X   if ( m_buffer[ *position ] == '\"' )
+X      {
+X      string = TRUE;
+X      ++( *position );
+X      }
+X   else
+X      {
+X      string = FALSE;
+X      }
+X
+X   /* build the constant string */
+X
+X   s_buffer[ 0 ] = '\0';
+X   s_pos = 0;
+X   loop = TRUE;
+X
+X   while ( loop == TRUE )
+X      {
+X
+X      switch ( m_buffer[ *position ] )
+X         {
+X         case '\0':                     /* end of string */
+X         case '\n':
+X         case '\r':
+X            return TRUE;
+X         case ' ':                      /* whitespace */
+X         case '\t':
+X         case ',':                      /* or end of argument */
+X            if ( string == FALSE )
+X               {
+X               return TRUE;
+X               }
+X            else
+X               {
+X               s_buffer[ s_pos ] = m_buffer[ *position ];
+X               ++( *position );
+X               ++s_buffer;
+X               s_buffer[ s_pos ] = '\0';
+X               }
+X            break;
+X         case '\"':
+X            if ( string == TRUE )
+X               {
+X               ++( *position );                 /* advance beyond quotation mark */
+X               inp_adv( m_buffer, position );
+X               return TRUE;
+X               }
+X            else
+X               {
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "Unexpected character in numerical constant." );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_syntax );
+X#endif
+X               return FALSE;
+X               }
+X         default:
+X            s_buffer[ s_pos ] = m_buffer[ *position ];
+X            ++( *position );
+X            ++s_buffer;
+X            s_buffer[ s_pos ] = '\0';
+X            break;
+X         }
+X
+X      }
+X
+X   return FALSE;
+X
+X   }
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_line()
+X
+X        DESCRIPTION:    This function implements the BASIC LINE
+X                        INPUT statement.
+X
+X	SYNTAX:         LINE INPUT [[#] device-number,]["prompt string";] string-variable$
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_line( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_line( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int dev_no;
+X   struct bwb_variable *v;
+X   FILE *inp_device;
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X   char pstring[ MAXSTRINGSIZE + 1 ];
+X
+X   /* assign default values */
+X
+X   inp_device = stdin;
+X
+X   pstring[ 0 ] = '\0';
+X
+X   /* advance to first element (INPUT statement) */
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X   bwb_strtoupper( tbuf );
+X   if ( strcmp( tbuf, "INPUT" ) != 0 )
+X      {
+X      bwb_error( err_syntax );
+X      return bwb_zline( l );
+X      }
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   /* check for semicolon in first position */
+X
+X   if ( l->buffer[ l->position ] == ';' )
+X      {
+X      ++l->position;
+X      adv_ws( l->buffer, &( l->position ) );
+X      }
+X
+X   /* else check for# for file number in first position */
+X
+X   else if ( l->buffer[ l->position ] == '#' )
+X      {
+X      ++l->position;
+X      adv_element( l->buffer, &( l->position ), tbuf );
+X      adv_ws( l->buffer, &( l->position ));
+X      dev_no = atoi( tbuf );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_line(): file number requested <%d>", dev_no );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( dev_table[ dev_no ].cfp == NULL )
+X         {
+X         bwb_error( err_dev );
+X         return bwb_zline( l );
+X         }
+X      else
+X         {
+X         inp_device = dev_table[ dev_no ].cfp;
+X         }
+X      }
+X
+X   /* check for comma */
+X
+X   if ( l->buffer[ l->position ] == ',' )
+X      {
+X      ++( l->position );
+X      adv_ws( l->buffer, &( l->position ));
+X      }
+X
+X   /* check for quotation mark indicating prompt */
+X
+X   if ( l->buffer[ l->position ] == '\"' )
+X      {
+X      inp_const( l->buffer, pstring, &( l->position ) );
+X      }
+X
+X   /* read the variable for assignment */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_line(): tbuf <%s>", 
+X      tbuf );
+X   bwb_debug( bwb_ebuf );
+X   sprintf( bwb_ebuf, "in bwb_line(): line buffer <%s>", 
+X      &( l->buffer[ l->position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   adv_element( l->buffer, &( l->position ), tbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_line(): variable buffer <%s>", tbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X   v = var_find( tbuf );
+X   if ( v->type != STRING )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_line(): String variable required" );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_line(): variable for assignment <%s>", v->name );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* read a line of text into the bufffer */
+X
+X   if ( inp_device == stdin )
+X      {
+X      bwx_input( pstring, tbuf );
+X      }
+X   else
+X      {
+X      fgets( tbuf, MAXSTRINGSIZE, inp_device );
+X      }
+X   bwb_stripcr( tbuf );
+X   str_ctob( var_findsval( v, v->array_pos ), tbuf );
+X
+X   /* end: return next line */
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif				/* COMMON_CMDS */
+X
+END_OF_FILE
+  if test 34854 -ne `wc -c <'bwbasic-2.10/bwb_inp.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_inp.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_inp.c'
+fi
+echo shar: End of archive 14 \(of 15\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1532 @@
+Path: uunet!decwrl!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: liebla@informatik.tu-muenchen.de (Armin Liebl)
+Newsgroups: comp.sources.x
+Subject: v18i109: bibview - BibTeX GUI, Part11/20
+Message-ID: <1992Aug27.161609.25703@msi.com>
+Date: 27 Aug 92 16:16:09 GMT
+References: <csx-18i099-bibview@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1519
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Armin Liebl <liebla@informatik.tu-muenchen.de>
+Posting-number: Volume 18, Issue 109
+Archive-name: bibview/part11
+
+#!/bin/sh
+# this is part.11 (part 11 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ctl_serv.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 11; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ctl_serv.c'
+else
+echo 'x - continuing file ctl_serv.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ctl_serv.c' &&
+/*             - Menu function Collate                               */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    26.02.92  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+/* #include <stdlib.h> */
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#include <X11/Xaw/Cardinals.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Dialog.h>
+#include <X11/Xaw/Box.h>
+#include "FileNom.h"
+#include "bibview.h"
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern XtAppContext app_context;
+extern Widget topLevel, mainMenu, desktop;
+extern Pixmap questPixmap;
+X
+X
+/* exported global variables */
+/* ------------------------- */
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static Errcode cseCollateSrc (BibPtr bp);
+static Errcode cseCollateDest (BibPtr bp);
+static void cancelCheck (Widget w, XtPointer clientData, XtPointer callData);
+static Errcode checkBibFile (BibPtr bp);
+static void CancelLoad (Widget w, XtPointer clientData, XtPointer callData);
+static void confirmMacroQuit (BibPtr bp);
+static void macroQuitOkCmd (Widget w, XtPointer clientData, XtPointer callData);
+static void saveMacroQuitCmd (Widget w, XtPointer clientData, XtPointer callData);
+static void LoadCfgFile (Widget w, XtPointer clientData, XtPointer callData);
+X
+X
+/* local global variables */
+/* ---------------------- */
+static BibPtr gbp = NULL;
+static chkOkMsg = True;
+X
+X
+/*********************************************************************/
+/* COLLATE (MERGE) BIBLIOGRAPHY FUNCTIONS                            */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* cseCollateBibCmd:                                                 */
+/*    Callback function for command collate in service menu          */
+/*********************************************************************/
+void
+cseCollateBibCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("collSrcHead", cseCollateSrc)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* cseCollateSrc:                                                    */
+/*    Collate bibs with source bp                                    */
+/*********************************************************************/
+static Errcode
+cseCollateSrc (BibPtr bp)
+{
+Errcode status;
+X
+X   gbp = bp;
+X   if ((status = guwSelectBib("collDestHead", cseCollateDest)) != OK)
+X      guwWarning(status);
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* cseCollateDest:                                                   */
+/*    Collate bibs with dest in bp, src in gbp                       */
+/*********************************************************************/
+static Errcode
+cseCollateDest (BibPtr bp)
+{
+int status;
+X
+X   if ((status = cseCollateBibs(gbp, bp)) != OK)
+X      guwError(status);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* cseCollateBibs:                                                   */
+/*    Collate two bibs, src is inserted to dest                      */
+/*********************************************************************/
+Errcode
+cseCollateBibs (BibPtr sbp, BibPtr dbp)
+{
+CardListNode *clp, *cl = NULL;
+char wcKey[] = ".";
+CardData *wcCard;
+Errcode status;
+X
+X   /* check bibs: can't be equal */
+X   if (sbp->treeIdx == dbp->treeIdx) {
+X      return(ERR_COLL_SAME_BIB);
+X   }
+X
+X   /* make list of all cards in src bib */
+X   if ((status = dbtMakeCard(&wcCard)) != DBT_OK) {
+X      return(status);
+X   }
+X   wcCard->mainkey = glbNewString(".");
+X   if ((status = dbtSearchList(sbp->treeIdx, wcCard, &cl)) != DBT_OK) {
+X      return(status);
+X   }
+X
+X   /* add all cards from list to dest bib */
+X   for (clp = cl; clp != NULL; clp = clp->next) {
+X      if ((status = dbtInsert(dbp->treeIdx, clp->data)) != DBT_OK)
+X	 guwError(status);
+X   }
+X   /* !!! HOLGER: Liste wegschmeissen */
+X
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* CHECK BIBLIOGRAPHY FUNCTIONS                                      */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* cseCheckBibCmd:                                                   */
+/*    Callback function for command check in services menu           */
+/*********************************************************************/
+void
+cseCheckBibCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("checkHead", checkBibFile)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* cseCheckBib:                                                      */
+/*    Checks opened bibliography for inconsistencies                 */
+/*********************************************************************/
+Errcode
+cseCheckBib (BibPtr bp, Boolean sayOkMsg)
+{
+Errcode status;
+X
+X   chkOkMsg = sayOkMsg;
+X   if ((status = checkBibFile(bp)) != OK)
+X      guwWarning(status);
+X   chkOkMsg = True;
+X
+X   return(status);
+}
+X
+X
+/*********************************************************************/
+/* checkBibFile:                                                     */
+/*    Callback function for OK button in file select box             */
+/*********************************************************************/
+static Errcode
+checkBibFile (BibPtr bp)
+{
+CardListNode *cl = NULL;
+Errcode status;
+X
+X   /* search for illegal cards */
+X   if ((status = dbtCheckAllCards(bp->treeIdx, &cl)) != DBT_OK) {
+X      /* HOLGER: Liste wegschmeissen */
+X      return(status);
+X   }
+X
+X   /* check for illegal cards found */
+X   if (cl == NULL) {
+X      if (chkOkMsg) guwNotice(ERR_NO_ILLEGAL_CARDS);
+X      return(OK);
+X   }
+X   else {
+X      guwWarning(ERR_ILLEGAL_CARDS);
+X      if (gulListWinExists(bp)) 
+X	 gulCloseListWin(bp);
+X      if ((status = gulOpenListWin(bp, cl)) != OK) {
+X	 /* HOLGER: Liste wegschmeissen */
+X	 return(status);
+X      }
+X   }
+X
+X   return(OK);
+}
+X
+X
+X
+/*********************************************************************/
+/* EDIT MACRO COMMAND FUNCTIONS                                      */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* cseEditMacrosCmd:                                                 */
+/*    Callback function for command macros in services menu          */
+/*********************************************************************/
+void
+cseEditMacrosCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Errcode status;
+X
+X   if ((status = guwSelectBib("macroHead", cseEditMacros)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* cseMacrosCmd:                                                     */
+/*    Callback function for command macros in bib window             */
+/*********************************************************************/
+void
+cseMacrosCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+Errcode status;
+X
+X   if ((status = cseEditMacros(bp)) != OK)
+X      guwWarning(status);
+}
+X
+X
+/*********************************************************************/
+/* cseEditMacros:                                                    */
+/*    Open shell to edit temp file containing macros                 */
+/*********************************************************************/
+Errcode
+cseEditMacros (BibPtr bp)
+{
+Errcode status;
+int fh;
+X
+X   /* window opened already? */
+X   if (gueMacroWinExists(bp)) {
+X      if (XtIsRealized(bp->mw->macShell)) {
+X	 XRaiseWindow(XtDisplay(bp->mw->macShell),
+X		      XtWindow(bp->mw->macShell));
+X      }
+X      return(OK);
+X   }
+X
+X   /* open new temp file? */
+X   if (bp->macrofile == NULL) {
+X      if ((bp->macrofile = (char *)tempnam(NULL, NULL)) == NULL)
+X	 return(ERR_NOMALLOC);
+X      if ((fh = creat(bp->macrofile, 0700)) == -1)
+X	 return(ERR_NO_OPEN_TMP);
+X      close(fh);
+X   }
+X
+X   /* open macro window, widget takes care of file handling */
+X   if ((status = gueOpenMacroWin(bp)) != OK)
+X      return(status);
+X
+X   return(OK);
+}
+X
+X
+/*********************************************************************/
+/* cseSetMacroChangeFlag:                                            */
+/*    Callback of text widget, sets flags when buffer changes        */
+/*********************************************************************/
+void
+cseSetMacroChangeFlag (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+X
+X   bp->changed = TRUE;
+X   bp->mw->changed = TRUE;
+}
+X
+X
+/*********************************************************************/
+/* cseSaveMacrosCmd:                                                 */
+/*    Callback for save  command in macro window                     */
+/*********************************************************************/
+void
+cseSaveMacrosCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+Errcode status;
+X
+X   if ((status = gueSaveMacrosToFile(bp)) != OK) {
+X      guwError(status);
+X      return;
+X   }
+X   bp->mw->changed = FALSE;
+}
+X
+X
+/*********************************************************************/
+/* cseQuitMacrosCmd:                                                 */
+/*    Callback for close command in macro window                     */
+/*********************************************************************/
+void
+cseQuitMacrosCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+Errcode status;
+X
+X   /* macros changed, confirm close w/o saving */
+X   if (bp->mw->changed) {
+X      confirmMacroQuit(bp);
+X      return;
+X   }
+X
+X   if ((status = gueCloseMacroWin(bp)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/* confirmMacroQuit:                                                 */
+/*    Opens dialogbox for user to confirm closing without saving     */
+/*********************************************************************/
+static void
+confirmMacroQuit (BibPtr bp)
+{
+static Widget conShell, conDialog, conSaveButton, conQuitButton;
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X   conShell = XtVaCreatePopupShell("confirmMacQuitShell",
+X	        transientShellWidgetClass, topLevel, 
+X		XtNx, x, XtNy, y, NULL);
+X   conDialog = XtVaCreateManagedWidget("confirmMacQuitBox",
+X	         dialogWidgetClass, conShell, 
+X		 XtNicon, questPixmap, NULL);
+X   conSaveButton = XtVaCreateManagedWidget("save",
+X	             commandWidgetClass, conDialog, NULL);
+X   conQuitButton = XtVaCreateManagedWidget("quit",
+X	             commandWidgetClass, conDialog, NULL);
+X   XtAddCallback(conSaveButton, XtNcallback, saveMacroQuitCmd, conShell);
+X   XtAddCallback(conQuitButton, XtNcallback, macroQuitOkCmd, conShell);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   gbp = bp;
+X   XtPopup(conShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* saveMacroQuitCmd:                                                 */
+/*    Callback function for SAVE & QUIT butoon in confirm box        */
+/*********************************************************************/
+static void
+saveMacroQuitCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+Errcode status;
+X
+X   /* remove confirm shell */
+X   XtPopdown(shell);
+X
+X   /* save and close macro editing window */
+X   if ((status = gueSaveMacrosToFile(gbp)) != OK)
+X      guwError(status);
+X   if ((status = gueCloseMacroWin(gbp)) != OK)
+X      guwError(status);
+X   gbp = NULL;
+X
+X   /* enable menus */
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+}
+X
+X
+/*********************************************************************/
+/* macroQuitOkCmd:                                                   */
+/*    Callback function for OK button in confirm box                 */
+/*********************************************************************/
+static void
+macroQuitOkCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget shell = (Widget)clientData;
+Errcode status;
+X
+X   /* remove confirm shell */
+X   XtPopdown(shell);
+X
+X   /* close macro editing window */
+X   if ((status = gueCloseMacroWin(gbp)) != OK)
+X      guwError(status);
+X   gbp = NULL;
+X
+X   /* enable menus */
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+}
+X
+X
+X
+/*********************************************************************/
+/* LOAD C0NFIGURATION FUNCTIONS                                      */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* cseLoadConfigCmd:                                                 */
+/*    Callback function for menu load config in services menu        */
+/*********************************************************************/
+void
+cseLoadConfigCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+static Widget fsbShell, fsbBox, fsbLabel, fsbDialog;
+char fname[MAX_FILEPATHLEN];
+Position dx, dy, x, y;
+int status;
+X
+X   XtVaGetValues(desktop,
+X                 XtNx, &dx,
+X                 XtNy, &dy, NULL);
+X   XtTranslateCoords(desktop,
+X                     (Position)dx + SUBWIN_MARGIN,
+X                     (Position)dy + SUBWIN_MARGIN,
+X                     &x, &y);
+X   fsbShell  = XtVaCreatePopupShell("fileSelectBoxShell",
+X	         topLevelShellWidgetClass, desktop, 
+X	 	 XtNx, x, XtNy, y, NULL);
+X   fsbBox    = XtVaCreateManagedWidget("fileSelectBox",
+X                 boxWidgetClass, fsbShell, NULL);
+X   fsbLabel  = XtVaCreateManagedWidget("configLoadHead",
+X                 labelWidgetClass, fsbBox,
+X                 XtNborderWidth, 0, NULL);
+X   fsbDialog = XtVaCreateManagedWidget("loadFileBoxShell",
+X                fileNominatorWidgetClass, fsbBox,
+X                XtNborderWidth, 0, NULL);
+X
+X   XtAddCallback(fsbDialog, XtNcancelCallback, CancelLoad, fsbShell);
+X   XtAddCallback(fsbDialog, XtNselectCallback, LoadCfgFile, fsbDialog);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   XtPopup(fsbShell, XtGrabNonexclusive);
+}
+X
+X
+/*********************************************************************/
+/* CancelLoad:                                                       */
+/*    Callback function for CANCEL button in file select box         */
+/*********************************************************************/
+static void
+CancelLoad (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget dialog = (Widget)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(dialog);
+X
+}
+X
+X
+/*********************************************************************/
+/* LoadConfigFile:                                                   */
+/*    Callback function for OK button in file select box             */
+/*********************************************************************/
+static void
+LoadCfgFile (Widget w, XtPointer clientData, XtPointer callData)
+{
+Widget dialog = (Widget)clientData;
+String filepath;
+int status;
+X
+X   /* get and keep filename */
+X   filepath = (String)FileNominatorGetFullFileName(dialog);
+X
+X   /* remove file select box */
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(XtParent(XtParent(dialog)));
+X
+X   /* read config file */
+X   if ((status = rcfReadCfgFile(filepath)) != OK)
+X      guwError(status);
+X
+}
+X
+X
+X
+SHAR_EOF
+echo 'File ctl_serv.c is complete' &&
+chmod 0644 ctl_serv.c ||
+echo 'restore of ctl_serv.c failed'
+Wc_c="`wc -c < 'ctl_serv.c'`"
+test 17259 -eq "$Wc_c" ||
+	echo 'ctl_serv.c: original size 17259, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ctl_srch.c ==============
+if test -f 'ctl_srch.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ctl_srch.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ctl_srch.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ctl_srch.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  ctl_srch.c                                              */
+/*                                                                   */
+/*             Search commands                                       */
+/*             - Search for specified items                          */
+/*             - Display all items in a list                         */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    12.16.91  PMU  created                                         */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include <X11/StringDefs.h>
+#include <X11/Xaw/Paned.h>
+#include <X11/Xaw/Form.h>
+#include <X11/Xaw/Box.h>
+#include <X11/Xaw/List.h>
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Viewport.h>
+#include <X11/Xaw/MenuButton.h>
+#include <X11/Xaw/SimpleMenu.h>
+#include <X11/Xaw/SmeBSB.h>
+#include <X11/Xaw/SmeLine.h>
+#include "bibview.h"
+#include "ComboBo.h"
+X
+X
+/* imported global variables */
+/* ------------------------- */
+extern Widget topLevel, desktop, mainMenu;
+extern PredefLists predefLst;
+X
+X
+/* macros and definitions */
+/* ---------------------- */
+X
+/* structure for searches */
+typedef struct {
+X   BibPtr bp;                  /* bib to search in */
+X   Widget srchShell,           /* window widgets */
+X	  srchWin,
+X	  cmdBox,
+X	  cancel,
+X	  ok,
+X	  fldVport,
+X	  fields,
+X	  cbAddress,           /* widgets for search fields */
+X	  cbAnnote, 
+X          cbAuthor,
+X	  cbBooktitle,
+X	  cbChapter,
+X	  cbEdition,
+X	  cbEditor,
+X	  cbHowpublished,
+X	  cbInstitution,
+X	  cbJournal,
+X	  cbKey,
+X	  cbMonth,
+X	  cbNote,
+X	  cbNumber,
+X	  cbOrganization,
+X	  cbPages,
+X	  cbPublisher,
+X	  cbSchool,
+X	  cbSeries,
+X	  cbTitle,
+X	  cbType,
+X	  cbVolume,
+X	  cbYear,
+X	  cbCardtype,
+X	  cbCategory,
+X	  cbCrossref,
+X	  cbMainkey;
+} SearchWin, *SearchWinPtr;
+X
+X
+/* local function prototypes */
+/* ------------------------- */
+static void srchOkCmd(Widget widget, XtPointer clientData, XtPointer callData);
+static void srchQuitCmd(Widget widget, XtPointer clientData, XtPointer callData);
+X
+X
+/* exported variables */
+/* ------------------ */
+X
+X
+/* local global variables */
+/* ---------------------- */
+X
+X
+/*********************************************************************/
+/* csrSearchCmd:                                                     */
+/*    Callback function for search menu entry                        */
+/*********************************************************************/
+void 
+csrSearchCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr)clientData;
+SearchWinPtr sw;
+CardListNode *cl;
+Position x, y;
+Errcode status;
+X
+X   if ((sw = (SearchWinPtr) malloc(sizeof(SearchWin))) == NULL) {
+X      guwError(ERR_NOMALLOC);
+X      return;
+X   }
+X
+X   XtTranslateCoords(bp->bw->bibdesk,
+X		     SUBWIN_MARGIN, SUBWIN_MARGIN,
+X		     &x, &y);
+X
+X   sw->bp = bp;
+X   sw->srchShell      = XtVaCreatePopupShell("srchShell", 
+X	                  topLevelShellWidgetClass, topLevel, 
+X	                  XtNx, x, XtNy, y, NULL);
+X   sw->srchWin        = XtVaCreateManagedWidget("srchWin", 
+X	                  panedWidgetClass, sw->srchShell, NULL);
+X   sw->cmdBox         = XtVaCreateManagedWidget("commandBox", 
+X	                  boxWidgetClass, sw->srchWin, NULL);
+X   sw->ok             = XtVaCreateManagedWidget("ok", 
+X	                  commandWidgetClass, sw->cmdBox, NULL);
+X   sw->cancel         = XtVaCreateManagedWidget("cancel", 
+X	                  commandWidgetClass, sw->cmdBox, NULL);
+X   sw->fldVport       = XtVaCreateManagedWidget("srchVport", 
+X	                  viewportWidgetClass, sw->srchWin,
+X		          XtNallowVert, True, NULL);
+X   sw->fields         = XtVaCreateManagedWidget("srchFlds", 
+X	                  boxWidgetClass, sw->fldVport, NULL);
+X
+/* 
+X   sw->cbCardtype     = XtVaCreateManagedWidget("cbCardtype", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.cardtype, NULL); 
+*/
+X   sw->cbTitle        = XtVaCreateManagedWidget("cbTitle",
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.title, NULL); 
+X   sw->cbAuthor       = XtVaCreateManagedWidget("cbAuthor", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.author, NULL); 
+X   sw->cbCategory     = XtVaCreateManagedWidget("cbCategory", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.category, NULL); 
+X   sw->cbMonth        = XtVaCreateManagedWidget("cbMonth", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.month, NULL); 
+X   sw->cbYear         = XtVaCreateManagedWidget("cbYear", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.year, NULL); 
+X   sw->cbNote         = XtVaCreateManagedWidget("cbNote", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.note, NULL); 
+X   sw->cbAnnote       = XtVaCreateManagedWidget("cbAnnote", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.annote, NULL); 
+X   sw->cbJournal      = XtVaCreateManagedWidget("cbJournal", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.journal, NULL); 
+X   sw->cbEditor       = XtVaCreateManagedWidget("cbEditor", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.editor, NULL); 
+X   sw->cbOrganization = XtVaCreateManagedWidget("cbOrganization",
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.organization, NULL); 
+X   sw->cbInstitution  = XtVaCreateManagedWidget("cbInstitution",
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.institution, NULL); 
+X   sw->cbPublisher    = XtVaCreateManagedWidget("cbPublisher",
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.publisher, NULL); 
+X   sw->cbSchool       = XtVaCreateManagedWidget("cbSchool", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.school, NULL); 
+/*
+X   sw->cbAddress      = XtVaCreateManagedWidget("cbAddress", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.address, NULL); 
+*/
+X   sw->cbEdition      = XtVaCreateManagedWidget("cbEdition", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.edition, NULL); 
+X   sw->cbChapter      = XtVaCreateManagedWidget("cbChapter", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.chapter, NULL); 
+X   sw->cbSeries       = XtVaCreateManagedWidget("cbSeries", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.series, NULL); 
+X   sw->cbPages        = XtVaCreateManagedWidget("cbPages", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.pages, NULL); 
+X   sw->cbVolume       = XtVaCreateManagedWidget("cbVolume", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.volume, NULL); 
+X   sw->cbNumber       = XtVaCreateManagedWidget("cbNumber", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.number, NULL); 
+X   sw->cbBooktitle    = XtVaCreateManagedWidget("cbBooktitle", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.booktitle, NULL); 
+/*
+X   sw->cbHowpublished = XtVaCreateManagedWidget("cbHowpublished", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.howpublished, NULL); 
+X   sw->cbType         = XtVaCreateManagedWidget("cbType", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.type, NULL); 
+*/
+X   sw->cbKey          = XtVaCreateManagedWidget("cbKey", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.key, NULL); 
+X   sw->cbMainkey      = XtVaCreateManagedWidget("cbMainkey", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.mainkey, NULL); 
+X   sw->cbCrossref     = XtVaCreateManagedWidget("cbCrossref", 
+X		          comboBoxWidgetClass, sw->fields,
+X		          XtNrcList,  predefLst.crossref, NULL); 
+X
+X   XtAddCallback(sw->ok, XtNcallback, srchOkCmd, (XtPointer)sw);
+X   XtAddCallback(sw->cancel, XtNcallback, srchQuitCmd, (XtPointer)sw);
+X
+X   XtSetSensitive(mainMenu, FALSE);
+X   gubSetSensitive(NULL, FALSE);
+X   XtPopup(sw->srchShell, XtGrabNone);
+}
+X
+X
+/*********************************************************************/
+/* csrListCmd:                                                       */
+/*    Callback function for list menu entry                          */
+/*********************************************************************/
+void 
+csrListCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+BibPtr bp = (BibPtr) clientData;
+CardListNode *cl = NULL;
+int status;
+char wcKey[] = ".";
+CardData *wcCard;
+X
+X   /* build list with wildcard search */
+X   if ((status = (int)dbtMakeCard(&wcCard)) != OK) {
+X      guwError(status);
+X   }
+X   wcCard->mainkey = glbNewString(".");
+X   if ((status = dbtSearchList(bp->treeIdx, wcCard, &cl)) != OK) {
+X      guwError(status); 
+X      return;
+X   }
+X
+X   /* display list */
+X   if (cl == NULL) {
+X      guwNotice(DBT_ENOMATCH);
+X      return;
+X   }
+X   /* display list */
+X   if (gulListWinExists(bp)) {
+X      if ((status = gulReplaceListData(bp, cl)) != OK) {
+X	 guwError(status);
+X      }
+X      if (XtIsRealized(bp->lw->lstShell)) {
+X         XRaiseWindow(XtDisplay(bp->lw->lstShell),
+X		      XtWindow(bp->lw->lstShell));
+X      }
+X   }
+X   else {
+X      if ((status = gulOpenListWin(bp, cl)) != OK) {
+X	 guwError(status);
+X      }
+X   }
+}
+X
+X
+X
+/*********************************************************************/
+/* csrDisplayCardCmd:                                                */
+/*    Callback for list entries                                      */
+/*********************************************************************/
+void
+csrDisplayCardCmd (Widget w, XtPointer clientData, XtPointer callData)
+{
+XXawListReturnStruct *item = (XawListReturnStruct*)callData;
+BibPtr bp = (BibPtr)clientData;
+CardListNode *cn = bp->lw->cardLst;
+CardPtr cp;
+Errcode status;
+int i;
+X
+X   XawListUnhighlight(bp->lw->list);
+X
+X   for (i=0; i < item->list_index; i++)
+X      cn = cn->next;
+X
+X   /* check if card displayed already */
+X   if ((cp = glbFindCard(bp, cn->data)) != NULL) {
+X      if (XtIsRealized(cp->cw->cardShell)) {
+X	 XRaiseWindow(XtDisplay(cp->cw->cardShell),
+X		      XtWindow(cp->cw->cardShell));
+X      }
+X      return;
+X   }
+X
+X
+X   /* create new internal data for a card window */
+X   if ((status = glbNewCardListEl(bp, &cp, cn->data)) != OK) {
+X      guwError(status);
+X      return;
+X   }
+X
+X   /* open the window */
+X   if ((status = gucOpenCardWin(bp, cp, FALSE)) != OK)
+X      guwError(status);
+}
+X
+X
+/*********************************************************************/
+/*  LOCAL FUNCTIONS                                                  */
+/*********************************************************************/
+X
+/*********************************************************************/
+/*  srchOkCmd:                                                       */
+/*    Callback for ok-button in search window                        */
+/*********************************************************************/
+static void
+srchOkCmd (Widget widget, XtPointer clientData, XtPointer callData)
+{
+SearchWinPtr sw = (SearchWinPtr)clientData;
+BibPtr bp = sw->bp;
+CardListNode *cl = NULL;
+CardData *wcCard = NULL;
+String s;
+Errcode status;
+X
+X   /* make new search card */
+X   if ((status = (int)dbtMakeCard(&wcCard)) != OK) {
+X     guwError(status);
+X     return;
+X   }
+X
+X   /* retrieve data from search window */
+/*
+X   if ((s = ComboBoxGetString(sw->cardtype)) != NULL)
+X      wcCard->cardtype = glbNewString(s);
+*/
+X   if ((s = ComboBoxGetString(sw->cbTitle)) != NULL)
+X      wcCard->title = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbAuthor)) != NULL)
+X      wcCard->author = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbCategory)) != NULL)
+X      wcCard->category = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbMonth)) != NULL)
+X      wcCard->month = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbYear)) != NULL)
+X      wcCard->year = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbNote)) != NULL)
+X      wcCard->note = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbAnnote)) != NULL)
+X      wcCard->annote = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbJournal)) != NULL)
+X      wcCard->journal = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbEditor)) != NULL)
+X      wcCard->editor = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbOrganization)) != NULL)
+X      wcCard->organization = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbInstitution)) != NULL)
+X      wcCard->institution = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbPublisher)) != NULL)
+X      wcCard->publisher = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbSchool)) != NULL)
+X      wcCard->school = glbNewString(s);
+/*
+X   if ((s = ComboBoxGetString(sw->cbAddress)) != NULL)
+X      wcCard->address = glbNewString(s);
+*/
+X   if ((s = ComboBoxGetString(sw->cbEdition)) != NULL)
+X      wcCard->edition = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbChapter)) != NULL)
+X      wcCard->chapter = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbSeries)) != NULL)
+X      wcCard->series = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbPages)) != NULL)
+X      wcCard->pages = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbVolume)) != NULL)
+X      wcCard->volume = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbNumber)) != NULL)
+X      wcCard->number = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbBooktitle)) != NULL)
+X      wcCard->booktitle = glbNewString(s);
+/*
+X   if ((s = ComboBoxGetString(sw->cbHowpublished)) != NULL)
+X      wcCard->howpublished = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbType)) != NULL)
+X      wcCard->type = glbNewString(s);
+*/
+X   if ((s = ComboBoxGetString(sw->cbKey)) != NULL)
+X      wcCard->key = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbMainkey)) != NULL)
+X      wcCard->mainkey = glbNewString(s);
+X   if ((s = ComboBoxGetString(sw->cbCrossref)) != NULL)
+X      wcCard->crossref = glbNewString(s);
+X
+X   /* enable menus */
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X   XtPopdown(sw->srchShell);
+X   free(sw);
+X
+X   /* build list with wildcard search */
+X   if ((status = dbtSearchList(bp->treeIdx, wcCard, &cl)) != OK) {
+X      guwError(status); 
+X      return;
+X   }
+X
+X   dbtDeleteCard(&wcCard);  
+X
+X   if (cl == NULL) {
+X      guwNotice(DBT_ENOMATCH);
+X      return;
+X   }
+X
+X   /* display list */
+X   if (gulListWinExists(bp)) {
+X      if ((status = gulReplaceListData(bp, cl)) != OK) {
+X	 guwError(status);
+X      }
+X      if (XtIsRealized(bp->lw->lstShell)) {
+X         XRaiseWindow(XtDisplay(bp->lw->lstShell),
+X		      XtWindow(bp->lw->lstShell));
+X      }
+X   }
+X   else {
+X      if ((status = gulOpenListWin(bp, cl)) != OK) {
+X	 guwError(status);
+X      }
+X   }
+}
+X
+X
+/*********************************************************************/
+/*  srchQuitCmd:                                                     */
+/*    Callback for cancel-button in search window                    */
+/*********************************************************************/
+static void
+srchQuitCmd (Widget widget, XtPointer clientData, XtPointer callData)
+{
+SearchWinPtr sw = (SearchWinPtr)clientData;
+X
+X   XtSetSensitive(mainMenu, TRUE);
+X   gubSetSensitive(NULL, TRUE);
+X
+X   XtPopdown(sw->srchShell);
+X   free(sw);
+}
+X
+X
+SHAR_EOF
+chmod 0644 ctl_srch.c ||
+echo 'restore of ctl_srch.c failed'
+Wc_c="`wc -c < 'ctl_srch.c'`"
+test 16389 -eq "$Wc_c" ||
+	echo 'ctl_srch.c: original size 16389, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= db_tree.c ==============
+if test -f 'db_tree.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping db_tree.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting db_tree.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'db_tree.c' &&
+/*********************************************************************/
+/*  bibView: Administration of bibTex-Databases                      */
+/*           (Verwaltung von bibTeX-Literaturdatenbanken)            */
+/*                                                                   */
+/*  Module:  db_tree.c                                               */
+/*                                                                   */
+/*             - AVL-Baeume                                          */
+/*             - String-Listen                                       */
+/*             - Karten-Listen                                       */
+/*                                                                   */
+/*  Author:  Holger Martin,  martinh@informatik.tu-muenchen.de       */
+/*           Peter M. Urban, urban@informatik.tu-muenchen.de         */
+/*                                                                   */
+/*  History:                                                         */
+/*    22.11.91   HBM  created                                        */
+/*    18.01.92   HBM  UserFld-Funktionen                             */
+/*    05.26.92       Version 1.0 released                            */
+/*                                                                   */
+/*  Copyright 1992 TU MUENCHEN                                       */
+/*    See ./Copyright for complete rights and liability information. */
+/*                                                                   */
+/*********************************************************************/
+X
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h> 
+#define _WCHAR_T
+/*
+X #include <string.h>
+*/
+#include "bibview.h"
+X
+X
+#define INIT        register char *sp = instring;
+#define GETC()      (*sp++)
+#define PEEKC()     (*sp)
+#define UNGETC(c)   (--sp)
+#define RETURN(c)   return(c);
+#define ERROR(c)    
+#include <regexp.h>
+X
+X
+X
+/*********************************************************************/
+/*  Include / Define                                                 */
+/*********************************************************************/
+X
+#define KEY_EQUAL    0
+#define KEY_GREATER  1
+#define KEY_LESS    -1
+X
+#define LEFT_TREE_GREATER  -1
+#define RIGHT_TREE_GREATER  1
+#define TREES_EQUAL         0
+X
+#define TREE_BIGGER  1
+#define TREE_SMALLER -1
+#define TREE_LIKE_BEFORE 0
+X
+#define MAXREGSIZE    5000
+X
+extern PredefLists predefLst;
+X
+/**************************
+X * Struktur fuer AVL-Baum *
+X **************************/
+typedef struct _AvlNode {
+X                         CardData *data;
+X                         int      balance;
+X                         struct _AvlNode *left, 
+X                                         *right;
+} AvlNode;
+X
+X
+X
+X
+/*****************************************
+X * Array mit Pointern auf versch. Baeume *
+X *****************************************/
+AvlNode *TreeRoots[MAXTREEROOTS];
+X
+X
+X
+/*********************
+X * Lokale Funktionen *
+X *********************/
+Errcode Scalloc(String *s1, String s2);
+Errcode CopyCard(CardData **c, CardData *c2);
+int     KeyCompare(char *s1, char *s2);
+Errcode Insert(int treeIdx, AvlNode **tree, CardData *card, int *h);
+Errcode Search(AvlNode *tree, CardData **card, int *calls);
+Errcode BalanceLeft(int treeIdx, AvlNode **tree, int *h);
+Errcode BalanceRight(int treeIdx, AvlNode **tree, int *h);
+Errcode Del(AvlNode **tree, AvlNode **delnode, int *h);
+void    AvlGoDown(AvlNode *baum, ListNode **list);
+Errcode MakeListNode(ListNode **list);
+Errcode ListAppend(ListNode **list, String word);
+Errcode MakeCardListNode(CardListNode **list);
+Errcode CardListAppend(CardListNode **list, CardData *card);
+Errcode SearchList(AvlNode *baum, CardData *reg, CardListNode **list);
+Errcode RegCompCard(CardData *card, CardData *reg);
+Errcode MakeRegCard(CardData *card, CardData *reg);
+Errcode DeleteTree(AvlNode *baum);
+static void StrToLower(char *text);
+static int StringIsEmpty(char *text);
+static int StringPeteIsEmpty(char *text);
+X
+static Errcode checkCards (AvlNode *tree, CardListNode **list);
+X
+/*********************************************************************/
+/*  Errcode Scalloc(String *s1, String s2):                          */
+/*  Platz fuer s1 bereitstellen und s2 nach s1 kopieren              */
+/*********************************************************************/
+X
+Errcode Scalloc(String *s1, String s2)
+{
+X if (s2 != NULL){
+X   *s1 = (String)calloc(1,strlen(s2)+1);
+X   if (*s1 == NULL) return DBT_ECALLOC;
+X   strcpy(*s1, s2);
+X }
+X return DBT_OK;
+}
+X
+X
+/*********************************************************************/
+/*  StrToLower(char *text):                                          */
+/*********************************************************************/
+X
+static void StrToLower(char *text)
+{
+X while (*text != '\0') {
+X   *text++ = tolower(*text);
+X }
+}
+X
+X
+/*********************************************************************/
+/*  StringIsEmpty(char *text):                                       */
+/*********************************************************************/
+X
+static int StringIsEmpty(char *text)
+{
+X int erg;
+X char *hp;
+X
+X hp = text;
+X while (*hp != '\0') {
+X  if (*hp != ' ') return 0;
+X  hp++;
+X }
+X return 1;
+}
+X
+X
+/*********************************************************************/
+/*  StringPeteIsEmpty(char *text):                                   */
+/*********************************************************************/
+X
+static int StringPeteIsEmpty(char *text)
+{
+X if (text == NULL || *text == '\0') return 1;
+X if (StringIsEmpty(text)) return 1;
+X return 0;
+}
+X
+X
+/*********************************************************************/
+/*  Errcode dbtGetFreeTreeIdx(int *treeIdx):                         */
+/*  liefert naechsten freien Listenindex zurueck und markiert diesen */
+/*  mit 1 als besetzt.                                               */
+/*********************************************************************/
+X
+Errcode dbtGetFreeTreeIdx(int *treeIdx)
+{
+X int h;
+X
+X h = 0;
+X while (TreeRoots[h] && h < MAXTREEROOTS) h++;
+X if (h == MAXTREEROOTS) return DBT_ROOTSFULL;
+X *treeIdx = h;
+X TreeRoots[h] = (AvlNode *)1;   /* Markierung */
+X return DBT_OK;
+}
+X
+X
+/**************************************************************************/
+/* Errcode dbtMakeUserFld(UserFld **list):                                */
+/* neuen Knoten fuer Benutzerfeld-Liste erstellen.                        */
+/**************************************************************************/
+X
+Errcode dbtMakeUserFld(UserFld **list)
+{
+X  UserFld *hlist;
+X
+X  hlist = *list;
+X  if ( hlist == NULL) {
+X    hlist = (UserFld *)calloc(1,sizeof(UserFld));
+X    if (hlist == NULL) return DBT_ECALLOC; 
+X    hlist->next = NULL;
+X    *list = hlist;
+X    return DBT_OK; 
+X  }
+X  return DBT_OK; 
+}
+X
+X
+X
+/**************************************************************************/
+/* Errcode dbtDeleteAllUserFld(UserFld **list):                           */
+/* Benutzerfeld-Liste loeschen.                                           */
+/**************************************************************************/
+X
+Errcode dbtDeleteAllUserFld(UserFld **list)
+{
+X UserFld *h;
+X
+X h = *list;
+X if (h) {
+X   if (h->fldName != NULL) free(h->fldName);
+X   if (h->fldData != NULL) free(h->fldData);
+X   if (h->next != NULL) dbtDeleteAllUserFld(&h->next);
+X   free(h);
+X   *list = NULL; 
+X   return DBT_OK;
+X }
+X return DBT_OK; 
+}
+X
+X
+X
+X
+/**************************************************************************/
+/* Errcode dbtAppendUserFld(UserFld **list, UserFld *obj):                */
+/* obj an list anhaengen (kopieren).                                      */
+/**************************************************************************/
+X
+Errcode dbtAppendUserFld(UserFld **list, UserFld *obj)
+{
+X  UserFld *hlist, *anker; 
+X  Errcode erg;
+X
+X  hlist = *list;
+X  anker = hlist;
+X  if (hlist == NULL) {
+X    erg = dbtMakeUserFld(&hlist);
+X    Scalloc(&hlist->fldName, obj->fldName); 
+X    Scalloc(&hlist->fldData, obj->fldData); 
+X    hlist->fldLabel =  obj->fldLabel;
+X    hlist->fldText = obj->fldText;
+X    *list = hlist; 
+X    return erg;
+X  }
+X  else dbtAppendUserFld(&hlist->next, obj);
+}
+X
+X
+X
+/**************************************************************************/
+/* Errcode dbtMakeAndCopyUserFld(UserFld **nlist, UserFld *olist):        */
+/* olist nach nlist kopieren.                                             */
+/**************************************************************************/
+X
+Errcode dbtMakeAndCopyUserFld(UserFld **nlist, UserFld *olist)
+{
+X Errcode erg;
+X UserFld *h, *hnode;
+X
+X erg = DBT_OK;
+X h = olist;
+X hnode = NULL;            /* wegen dbtAppendUserFld */
+X while (h != NULL) {
+X   erg = dbtAppendUserFld(&hnode, h);
+X   h = h->next;
+X }
+X *nlist = hnode;
+X return(erg);
+}
+X
+X
+X
+X
+/*********************************************************************/
+/* Errcode dbtMakeCard(CardData **card):                             */
+/* Anlegen einer neuen Karte                                         */
+/*********************************************************************/
+X
+Errcode dbtMakeCard(CardData **card)
+{
+X  CardData *h;
+X
+X  h = (CardData *)calloc(1,sizeof(CardData));
+X  if (h == NULL) return DBT_ECALLOC;
+X  h->cardtypestr = NULL;
+X  h->mainkey = NULL;   /* NEU */
+X  h->crossref = NULL;   /* NEU */
+X  h->address = NULL;
+X  h->annote = NULL;
+X  h->author = NULL;
+X  h->booktitle = NULL;
+X  h->chapter = NULL;
+X  h->edition = NULL;
+X  h->editor = NULL;
+X  h->howpublished = NULL;
+X  h->institution = NULL;
+X  h->journal = NULL;
+X  h->key = NULL;
+X  h->month = NULL;
+X  h->note = NULL;
+X  h->number = NULL;
+X  h->organization = NULL;
+X  h->pages = NULL;
+X  h->publisher = NULL;
+X  h->school = NULL;
+X  h->series = NULL;
+X  h->title = NULL;
+X  h->type = NULL;
+X  h->volume = NULL;
+X  h->year = NULL;
+X  h->category = NULL;
+X  h->ufield = NULL;
+X  *card = h; 
+X  return DBT_OK;
+} 
+X
+X
+/*********************************************************************/
+/* Errcode dbtDeleteCard(CardData **card):                           */
+/* Speicherplatz fuer eine Karte freigeben                           */
+/*********************************************************************/
+X
+Errcode dbtDeleteCard(CardData **card)
+{
+X   CardData *h;
+X   
+X   h = *card;
+X   if (h) {
+X     if (h->cardtypestr != NULL) free(h->cardtypestr); 
+X     if (h->mainkey != NULL) free(h->mainkey);  /* NEU */
+X     if (h->crossref != NULL) free(h->crossref);  /* NEU */
+X     if (h->address != NULL) free(h->address);
+X     if (h->annote != NULL) free(h->annote);
+X     if (h->author != NULL) free(h->author);
+X     if (h->booktitle != NULL) free(h->booktitle);
+X     if (h->chapter != NULL) free(h->chapter);
+X     if (h->edition != NULL) free(h->edition);
+X     if (h->editor != NULL) free(h->editor);
+X     if (h->howpublished != NULL) free(h->howpublished);
+X     if (h->institution != NULL) free(h->institution);
+X     if (h->journal != NULL) free(h->journal);
+X     if (h->key != NULL) free(h->key);
+X     if (h->month != NULL) free(h->month);
+X     if (h->note != NULL) free(h->note);
+X     if (h->number != NULL) free(h->number);
+X     if (h->organization != NULL) free(h->organization);
+X     if (h->pages != NULL) free(h->pages);
+X     if (h->publisher != NULL) free(h->publisher);
+X     if (h->school != NULL) free(h->school);
+X     if (h->series != NULL) free(h->series);
+X     if (h->title != NULL) free(h->title);
+X     if (h->type != NULL) free(h->type);
+X     if (h->volume != NULL) free(h->volume);
+X     if (h->year != NULL) free(h->year);
+X     if (h->category != NULL) free(h->category);
+X     if (h->ufield != NULL) dbtDeleteAllUserFld(&h->ufield); 
+X     free(h); 
+X     *card = NULL;
+X     return DBT_OK;
+X   }
+X   return DBT_OK;
+}
+X
+X
+X
+X
+/*********************************************************************/
+/* Errcode dbtDeleteTree(int treeIdx):                               */
+/* Speicherplatz von einem Baum freigeben.                           */
+/*********************************************************************/
+Errcode dbtDeleteTree(int treeIdx) 
+{
+X Errcode erg;
+X
+X if (TreeRoots[treeIdx] == (AvlNode *)1) {
+X   TreeRoots[treeIdx] = 0;
+X   return DBT_OK;
+X }
+X erg = DeleteTree(TreeRoots[treeIdx]);
+X if (erg == DBT_OK) TreeRoots[treeIdx] = 0;
+X return erg;
+}
+X                              
+X
+/*********************************************************************/
+/* Errcode DeleteTree(AvlNode *baum):                                */
+/* Speicherplatz von einem Baum freigeben.                           */
+/*********************************************************************/
+Errcode DeleteTree(AvlNode *baum)
+{
+X  Errcode erg, ende;
+X  CardData *tree;
+X
+X  if (baum) {  
+X
+X    tree = baum->data;
+X    if (baum->left) {
+X       if ((erg = DeleteTree(baum->left)) != DBT_OK) return erg; 
+X    }
+X    ende = dbtDeleteCard(&tree); 
+X    if (ende != DBT_OK) { 
+X       return ende;
+X    } 
+X    if (baum->right) {
+X       if ((erg = DeleteTree(baum->right)) != DBT_OK) return erg; 
+X    }
+X    return DBT_OK;
+X  }
+X  return DBT_OK;
+}
+X
+X
+/*********************************************************************/
+/* CHECK FUNCTIONS                                                   */
+/*********************************************************************/
+X
+/*********************************************************************/
+/* Errcode dbtTestCard(CardData *c):                                 */
+/* prueft, ob die zwingenden Felder ausgefuellt sind.                */
+/*********************************************************************/
+Errcode 
+dbtTestCard (CardData *c)
+{
+X if (c == NULL) return DBT_ENOCARD;
+X switch (c->cardtype) {
+X       case article:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->journal)) return DBT_EJOURNAL;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case book:
+X               if (StringPeteIsEmpty(c->author) &&
+X                   StringPeteIsEmpty(c->editor)) return DBT_EAUTHOR_EDITOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->publisher)) return DBT_EPUBLISHER;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case booklet:
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               break;
+X         case conference:
+X               if (StringPeteIsEmpty(c->author)) return DBT_EAUTHOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->booktitle)) return DBT_EBOOKTITLE;
+X               if (StringPeteIsEmpty(c->year)) return DBT_EYEAR;
+X               break;
+X         case inbook:
+X               if (StringPeteIsEmpty(c->author) &&
+X                   StringPeteIsEmpty(c->editor)) return DBT_EAUTHOR_EDITOR;
+X               if (StringPeteIsEmpty(c->title)) return DBT_ETITLE;
+X               if (StringPeteIsEmpty(c->chapter) &&
+X                   StringPeteIsEmpty(c->pages)) return DBT_ECHAPTER_PAGES;
+SHAR_EOF
+true || echo 'restore of db_tree.c failed'
+fi
+echo 'End of  part 11'
+echo 'File db_tree.c is continued in part 12'
+echo 12 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

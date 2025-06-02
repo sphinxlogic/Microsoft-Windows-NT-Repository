@@ -1,0 +1,1419 @@
+From: Lutz Prechelt <prechelt@ira.uka.de>
+Subject: v02i019: crefine - (Ver. 3.0) C language extension, Part06/06
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Lutz Prechelt <prechelt@ira.uka.de>
+Posting-number: Volume 2, Issue 19
+Archive-name: crefine/part06
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  cr_getln.c cr_talk.c erato.c getargs.c
+# Wrapped by prechelt@Sansibar on Fri Jun 12 13:13:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'cr_getln.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cr_getln.c'\"
+else
+echo shar: Extracting \"'cr_getln.c'\" \(21752 characters\)
+sed "s/^X//" >'cr_getln.c' <<'END_OF_FILE'
+X#line 1 "cr_getln.cr"
+X/*************************************************************************
+XProject : C-Refine Precompiler
+XModule  : Line Scanner
+XAuthor  : Lutz Prechelt, Karlsruhe
+XDate    : 08.05.92  Version 17
+XCompiler: C, C-Refine
+X**************************************************************************/
+X/*
+X    Copyright (C) 1988,89,90,91 by Lutz Prechelt, Karlsruhe
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X*/
+X
+X/************************************************************************
+X*********************** C - R e f i n e *********************************
+X*************************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#include "cr_decl.h"  /* globale Funktionen, Typen und Daten */
+X
+X/******************* lokale Funktionen ************************************/
+X
+Xstatic void  push_refinement_name A(());
+Xstatic int   normal_scanner A((LINE_INFO*));
+Xstatic int   comment_scanner A((LINE_INFO*));
+Xstatic int   text_scanner A((LINE_INFO*));
+Xstatic int   char_scanner A((LINE_INFO*));
+Xstatic int   preprocessor_scanner A((LINE_INFO*));
+X
+X/*************************** defines ***************************************/
+X
+X#define push(ch) ((*((s)++)) = (char)(ch))
+X
+X#define leave_sequence    "leave"   /* e.g. "leave" (no leading blank!) */
+X#define leave_sequence_length  5
+X
+X#define normal_end_of_line       1   /* real end of line */
+X#define continueing_end_of_line  2   /* logical end of line */
+X#define refinementsymbol_found   3
+X#define leave_keyword_found      4
+X
+X/*********************** Lokale Daten ************************************/
+X
+X/***** one line buffer *****/
+Xstatic char *act;             /* current position in b */
+X
+X/***** Control *****/
+X#if ansi
+Xstatic int (*scanner) (LINE_INFO*);
+X#else
+Xstatic int (*scanner) ();
+X#endif
+X/***** Status *****/
+Xstatic int  level,                 /* brace-nesting */
+X            just_was, event,       /* event memory */
+X            semicolon_count,
+X            lines_in_denoter,
+X            old_indent;
+X
+X/*********************** init_scanner ************************************/
+X
+Xextern void init_scanner ()
+X{
+X  /* Initializes the state of this module */
+X  level = 0;
+X  just_was = event = normal_end_of_line;
+X  scanner = normal_scanner;
+X}
+X
+X/*********************** get_line ****************************************/
+X
+Xextern void get_line (fp, l, semicolons)
+X  FILE       *fp;
+X  LINE_INFO  *l;
+X  int        *semicolons;  /* is increased only ! */
+X{
+X  /* Reads on line from file fp and sets up l accordingly.
+X     The preprocessed line is copied to *s and s is increased appropriately.
+X     (A null terminator is appended.)
+X     The line is a complete line only, if there is no refinement involved
+X     with that line:
+X     For refinement calls and refinement declaration headers a separate line
+X     is generated.
+X     At end of file stop_processing is set to true. Problems yield a
+X     message and let 'errors' or 'warnings' increase.
+X     This function uses the option indicator variables, and the variables
+X     line_no and commanded_line_no.
+X  */
+X  charp old_s = s;    /* store s to compute length later */
+X  bool stop = false;
+X  bool three_witches;
+X  semicolon_count = 0;
+X  {   /* init_l  (Level 1) */
+X#line 117 "cr_getln.cr"
+X#if debug
+X    printf ("get_line:");
+X#endif
+X    l->level   = level;   /* level is defined as level at start of line! */
+X    l->start   = s;
+X    l->indent  = 0;
+X    l->type    = normal_line;
+X  }
+X#line 106 "cr_getln.cr"
+X  if (just_was == normal_end_of_line) {
+X     {   /* read_line  (Level 1) */
+X#line 126 "cr_getln.cr"
+X     l->line_no = ++line_no;
+X     act = (char*)fgets (b, b_size, fp);  /* get next line*/
+X#if debug
+X     printf ("->%s<-", act == NULL ? "(NULL)" : (char*)act);
+X#endif
+X     if (act == NULL) {                /* check for EOF */
+X        stop_processing = true;
+X        l->type = empty_line;
+X        if (level > 0)
+X           error (Eeof_brace, NULL, line_no);
+X        if (scanner == comment_scanner)
+X           error (Eeof_comment, NULL, line_no);
+X        if (scanner == text_scanner)
+X           error (Eeof_string, NULL, line_no);
+X        if (scanner == char_scanner)
+X           error (Eeof_char, NULL, line_no);
+X        return;
+X     }
+X     }
+X     {   /* get_indent  (Level 1) */
+X     while (!stop)
+X        if (*act == ' ') {
+X           l->indent++;
+X           act++;
+X        }
+X        else if (*act == TAB) {    /* expand Tabs */
+X           l->indent = (l->indent/tabsize + 1) * tabsize;
+X           act++;
+X        }
+X        else
+X           stop = true;
+X     old_indent = l->indent;    /* store for next call */
+X     }
+X#line 109 "cr_getln.cr"
+X  }
+X  else {                       /* continued line */
+X     l->indent = old_indent;
+X     l->line_no = line_no;
+X  }
+X  {   /* handle_line  (Level 1) */
+X#line 160 "cr_getln.cr"
+X  three_witches = l->indent == 0 && level > 0 && scanner == normal_scanner;
+X  if (three_witches && (int)*act == refinementsymbol)
+X       {   /* handle_refinement_declaration  (Level 2) */
+X#line 181 "cr_getln.cr"
+X       act++;                     /* skip refinementsymbol */
+X       push_refinement_name ();
+X       if (*act != ':')
+X          error (Erefdecl_syntax, act, line_no);
+X       else
+X          act++;
+X       if (level > 1)
+X          error (Erefdecl_nested, NULL, line_no);
+X       l->type = refdecl_line;
+X       just_was = (*act == '\n' || *act == 0) ? normal_end_of_line :
+X                                                continueing_end_of_line;
+X       }
+X#line 163 "cr_getln.cr"
+X  else {
+X     {   /* check_column_0  (Level 2) */
+X#line 194 "cr_getln.cr"
+X     if (three_witches && !iscntrl (*act) &&
+X         just_was != continueing_end_of_line &&
+X         *act != '}' && *act != '#' && *act != '*' && *act != '/')
+X        warning (Wcol0, act, line_no, 1);
+X     }
+X#line 165 "cr_getln.cr"
+X     if (just_was != refinementsymbol_found &&
+X         just_was != leave_keyword_found)
+X        event = (*scanner) (l);
+X     {   /* handle_event  (Level 2) */
+X#line 200 "cr_getln.cr"
+X     if (event == refinementsymbol_found || event == leave_keyword_found)
+X        {   /* handle_refinementcall_or_leave  (Level 3) */
+X#line 206 "cr_getln.cr"
+X        if (s - old_s == 0) {        /* line empty */
+X           push_refinement_name ();
+X           l->type = event == leave_keyword_found ? leave_line : refcall_line;
+X           {   /* skip_semicolon_and_blanks  (Level 4) */
+X#line 217 "cr_getln.cr"
+X           if (*act == ';') {        /* skip semikolon if present */
+X              act++;
+X              semicolon_count++;
+X              if (l->type == refcall_line)
+X                 l->type = refcallr_line;   /* note the removed ";" */
+X           }
+X           while (*(act++) == ' ')   /* skip following blanks */
+X                   ;
+X           act--;                    /* recover char after last blank */
+X           }
+X#line 210 "cr_getln.cr"
+X           just_was = (*act == 0 || *act == '\n') ? normal_end_of_line :
+X                                                    continueing_end_of_line;
+X        }
+X        else
+X           just_was = event;
+X        }
+X#line 202 "cr_getln.cr"
+X     else
+X        just_was = normal_end_of_line;
+X     }
+X#line 169 "cr_getln.cr"
+X     if (option_small || event == normal_end_of_line)
+X       {   /* delete_trailing_blanks  (Level 2) */
+X#line 228 "cr_getln.cr"
+X       while (*(s-1) == ' ')      /* remove trailing blanks */
+X         s--;
+X       }
+X#line 171 "cr_getln.cr"
+X  }
+X  l->length = s - old_s;
+X  if (l->length == 0)
+X     l->type = empty_line;
+X  push (0);  /* String Terminator */
+X  {   /* perhaps_warn_for_level_changes  (Level 2) */
+X#line 232 "cr_getln.cr"
+X  int lev = level;
+X  if (lev < 0) {  /* Syntax error!  (or C-Refine does not work...) */
+X     if (option_anyway)
+X        error (Emany_braces, NULL, line_no);
+X     else
+X        fatal_error (Emany_braces, NULL, line_no);
+X  }
+X  else if (lev > 5 && level > l->level)
+X        warning (Wnesting, NULL, line_no, 3);
+X  else if (l->indent > 35 && (
+X#line 245 "cr_getln.cr"
+X  l->type == refcall_line || l->type == refcallr_line)
+X#line 241 "cr_getln.cr"
+X  && !option_small)
+X        warning (Wmuch_indent, NULL, line_no, 3);
+X  }
+X#line 177 "cr_getln.cr"
+X  assert (!(l->type == refdecl_line && semicolon_count != 0));
+X  *semicolons += semicolon_count;
+X  }
+X#line 246 "cr_getln.cr"
+X}
+X
+X/********************** push_refinement_name *******************************/
+X
+Xstatic void push_refinement_name ()
+X{
+X  /* reads input using 'act' and generates output using 's'.
+X     reads all following blanks, letters, digits and underscores (that is,
+X     stops on other characters) and generates from that a C identifier
+X     on the output by suppressing leading and trailing blanks.
+X     With option_ibmchars the Umlaute and Accentcharacters from the
+X     IBM International Charset are also allowed.
+X  */
+X#define is_legal(ch)  (isalnum(ch) || (ch) == ' ' || ch == '_' || \
+X                       (option_ibmchars && \
+X                           (((ch) >= 128 && (ch) <= 167)) || (ch) == 225))
+X  int ch;
+X  charp old_s = s, start = s;
+X  {   /* suppress_leading_blanks  (Level 1) */
+X#line 275 "cr_getln.cr"
+X  while (*act == ' ')               /* suppress leading blanks */
+X    act++;
+X  }
+X  {   /* copy_legal_chars  (Level 1) */
+X  do {                              /* copy legal chars */
+X    ch = *(act++);
+X    push (ch);
+X  }
+X  while (is_legal (ch));
+X  s--; act--;                       /* unpush illegal last char */
+X  }
+X  {   /* suppress_trailing_blanks  (Level 1) */
+X  while (*(s-1) == ' ' && s > old_s) /* suppress trailing blanks */
+X     s--;
+X  }
+X#line 267 "cr_getln.cr"
+X  assert (*(s-1) != ' ');
+X  assert (*old_s != ' ');
+X  assert (s - old_s >= 0);
+X  {   /* change_inner_blanks_to_underlines  (Level 1) */
+X#line 291 "cr_getln.cr"
+X  for (start++; start < s; start++) /* change inner blanks to underlines */
+X    if (*start == ' ')
+X       *start = '_';
+X#undef is_legal
+X  }
+X#line 271 "cr_getln.cr"
+X  if (s - old_s == 0)
+X     error (Erefname_missing, act, line_no);
+X#line 295 "cr_getln.cr"
+X}
+X
+X/***********************  S C A N N I N G  *********************************/
+X
+X#define q    39      /* Quote */
+X#define dq   34      /* Double-Quote */
+X
+X/*********************** normal_scanner ***********************************/
+X
+Xstatic int normal_scanner (l)
+X  LINE_INFO *l;
+X{
+X  /* Changes to reading comments, strings, quoted chars or preprocessor
+X     directives as necessary.
+X     Ends only at the end of a line.
+X     Tries to identify refinement calls and refinement declarations;
+X     in these cases the lines are reduced to only the refinement name.
+X  */
+X  register int ch;
+X  for (;;) {
+X    ch = *(act++);
+X    switch (ch) {
+X      case '\n':
+X      case 0   : return (normal_end_of_line);
+X      case '/' : if (*act == '*')              /* start of comment ? */
+X                    {   /* handle_normal_comment  (Level 1) */
+X#line 347 "cr_getln.cr"
+X                    if (!option_small) {
+X                       push (ch); push ('*');
+X                    }
+X                    act++;
+X                    scanner = comment_scanner;
+X                    return ((*scanner) (l));
+X                    }
+X#line 321 "cr_getln.cr"
+X                 else if (*act == '/' && option_cplusplus)
+X                    {   /* handle_doubleslash_style_comment  (Level 1) */
+X#line 355 "cr_getln.cr"
+X                    if (option_small)
+X                       return (normal_end_of_line);   /* just pgnore
+rest of line */
+X                    push (ch); push (ch);             /*  put  //   */
+X                    act++;
+X                    while (*act != '\n' && *act != 0)   /* put rest of line */
+X                       push (*(act++));
+X                    return (normal_end_of_line);
+X                    }
+X#line 323 "cr_getln.cr"
+X                 else                           /* No --> normal */
+X                    push (ch);
+X                 break;
+X      case dq  : 
+X      {   /* handle_text_denoter  (Level 1) */
+X#line 364 "cr_getln.cr"
+X      push (ch);
+X      scanner = text_scanner;
+X      lines_in_denoter = 0;
+X      return ((*scanner) (l));
+X      }
+X#line 327 "cr_getln.cr"
+X      case q   : 
+X      {   /* handle_char_denoter  (Level 1) */
+X#line 370 "cr_getln.cr"
+X      push (ch);
+X      scanner = char_scanner;
+X      lines_in_denoter = 0;
+X      return ((*scanner) (l));
+X      }
+X#line 328 "cr_getln.cr"
+X      case '#' : 
+X      {   /* handle_preprocessor_directive  (Level 1) */
+X#line 376 "cr_getln.cr"
+X      push (ch);
+X      scanner = preprocessor_scanner;
+X      return ((*scanner) (l));
+X      }
+X#line 329 "cr_getln.cr"
+X      case ';' : semicolon_count++;
+X                 push (';');
+X                 break;
+X      case '{' : level++;
+X                 push (ch);
+X                 break;
+X      case '}' : level--;
+X                 push (ch);
+X                 break;
+X      default  :
+X                 if (ch == refinementsymbol)
+X                   {   /* check_for_leave_or_refinement_call  (Level 1) */
+X#line 381 "cr_getln.cr"
+X                   /* Precondition: Refinement symbol found, 'act' is
+right behind it.
+X                      if a 'leave' surrounded by blanks is found in front of the
+X                      refinement symbol, it and its blanks are stripped and
+X                      leave_keyword_found is returned.
+X                      Otherwise refinementsymbol_found gemeldet is returned
+X                   */
+X                   charp old_s = s--;
+X                   while (*s == ' ')
+X                      s--;
+X                   s++;
+X                   if (!memcmp (s - leave_sequence_length, leave_sequence,
+X                                leave_sequence_length)) {
+X                      s -= leave_sequence_length;     /* Remove
+leave_sequence from Output */
+X                      return (leave_keyword_found);
+X                   }
+X                   else {
+X                      s = old_s;
+X                      return (refinementsymbol_found);
+X                   }
+X                   }
+X#line 341 "cr_getln.cr"
+X                 else
+X                   push (ch);
+X    }
+X  }
+X#line 400 "cr_getln.cr"
+X}
+X
+X/********************* comment_scanner *************************************/
+X
+Xstatic int comment_scanner (l)
+X  LINE_INFO *l;
+X{
+X  /* Precondition: position is right behind a start of a comment
+X     (which is already copied if not option_small is true)
+X     Postcondition: position is right after a comment end.
+X  */
+X  register int ch;
+X  for (;;) {
+X    ch = *(act++);
+X    switch (ch) {
+X      case '\n':
+X      case 0   : return (normal_end_of_line);
+X      case '*' : if (*act == '/')       /* end of comment : */
+X                    {   /* handle_comment_end  (Level 1) */
+X#line 426 "cr_getln.cr"
+X                    if (!option_small) {
+X                       push (ch); push ('/');
+X                    }
+X                    act++;
+X                    scanner = normal_scanner;   /* change to normal scanner */
+X                    return ((*scanner) (l));    /* and continue scanning */
+X                    }
+X#line 419 "cr_getln.cr"
+X                 /* no break ! */
+X      default  : if (!option_small)
+X                    push (ch);
+X    }
+X  }
+X#line 433 "cr_getln.cr"
+X}
+X
+X/********************* text_scanner *************************************/
+X
+Xstatic int text_scanner (l)
+X  LINE_INFO *l;
+X{
+X  /* Precondition: position is right behind the (already copied)
+X                   double quote that starts a string denoter
+X                   (string literal)
+X     Postcondition:position is right behind the closing double
+X                   quote of a string denoter
+X  */
+X  register int ch;
+X  lines_in_denoter++;
+X  for (;;) {
+X    ch = *(act++);
+X    switch (ch) {
+X      case '\n':
+X      case 0   : return (normal_end_of_line);  /* allowed ??? */
+X      case dq  : 
+X      {   /* end_of_stringdenoter  (Level 1) */
+X#line 465 "cr_getln.cr"
+X      push (ch);
+X      if (lines_in_denoter > 1)
+X         warning (Wlong_string, act-1, line_no,
+X                  lines_in_denoter > 5 ? 1 : 2);
+X      scanner = normal_scanner;
+X      return ((*scanner) (l));
+X      }
+X#line 454 "cr_getln.cr"
+X      case '\\': push (ch);
+X                 if (*act == dq || *act == '\\') {
+X                    push (*act);
+X                    act++;
+X                 }
+X                 break;
+X      default  : push (ch);
+X    }
+X }
+X#line 472 "cr_getln.cr"
+X}
+X
+X/********************* char_scanner *************************************/
+X
+Xstatic int char_scanner (l)
+X  LINE_INFO *l;
+X{
+X  /* Is analogous to text scanner, but uses single quote instead of double
+X     quote.
+X  */
+X  int ch;
+X  lines_in_denoter++;
+X  for (;;) {
+X    ch = *(act++);
+X    switch (ch) {
+X      case '\n':
+X      case 0   : return (normal_end_of_line);  /* allowed ??? */
+X      case q   : 
+X      {   /* end_of_chardenoter  (Level 1) */
+X#line 501 "cr_getln.cr"
+X      push (ch);
+X      if (lines_in_denoter > 1)
+X         warning (Wlong_char, act-1, line_no,
+X                  lines_in_denoter > 5 ? 1 : 2);
+X      scanner = normal_scanner;
+X      return ((*scanner) (l));
+X      }
+X#line 490 "cr_getln.cr"
+X      case '\\': push (ch);
+X                 if (*act == q || *act == '\\') {
+X                    push (*act);
+X                    act++;
+X                 }
+X                 break;
+X      default  : push (ch);
+X    }
+X  }
+X#line 508 "cr_getln.cr"
+X}
+X
+X/********************* preprocessor_scanner ******************************/
+X
+Xstatic int preprocessor_scanner (l)
+X  LINE_INFO *l;
+X{
+X  /* Scans a line with a preprocessor directive on it.
+X     If this line contains a #line directive, reads the line number and
+X     file name and sets line_no and name_in accordingly.
+X     This scanner is called immediately after the # has been seen.
+X     The line is copied verbatim.
+X  */
+X  int ch;
+X  ch = *(act++);
+X  {   /* skip_whitespace  (Level 1) */
+X#line 528 "cr_getln.cr"
+X  for (;;) {
+X    switch (ch) {
+X      case ' ' :
+X      case TAB : push (ch);
+X                 break;
+X      case '\n':
+X      case 0   : scanner = normal_scanner;
+X                 return (normal_end_of_line);
+X      default  : 
+X  goto skip_whitespace_1;
+X#line 537 "cr_getln.cr"
+X    }
+X    ch = *(act++);
+X  }
+Xskip_whitespace_1: ;
+X  }
+X  {   /* try_to_read_line_command  (Level 1) */
+X#line 542 "cr_getln.cr"
+X  /* precondition:  ch = <first nonwhitespace character after '#' >
+X     postcondition: ch = <first char not belonging to line command>
+X  */
+X  {   /* read_the_command_token  (Level 2) */
+X#line 552 "cr_getln.cr"
+X  /* ch = <first nonwhitespace character after '#' > */
+X  if (strncmp ("line", act, 4)) {
+X    if (!isdigit (ch))
+X  goto try_to_read_line_command_1;
+X  }
+X  else {
+X    push (*(act++));
+X    push (*(act++));
+X    push (*(act++));
+X    push (*(act++));
+X    ch = *(act++);
+X    if (ch != ' ' && ch != TAB)  /* 'line<something> without whitespace */
+X  goto try_to_read_line_command_1;
+X  }
+X  }
+X  {   /* skip_whitespace  (Level 2) */
+X#line 528 "cr_getln.cr"
+X  for (;;) {
+X    switch (ch) {
+X      case ' ' :
+X      case TAB : push (ch);
+X                 break;
+X      case '\n':
+X      case 0   : scanner = normal_scanner;
+X                 return (normal_end_of_line);
+X      default  : 
+X  goto skip_whitespace_2;
+X#line 537 "cr_getln.cr"
+X    }
+X    ch = *(act++);
+X  }
+Xskip_whitespace_2: ;
+X  }
+X  {   /* read_the_line_number  (Level 2) */
+X#line 568 "cr_getln.cr"
+X  int number = 0;
+X  while (isdigit (ch)) {
+X    push (ch);
+X    number = 10*number + (ch - '0');
+X    ch = *(act++);
+X  }
+X  line_no = commanded_line_no = number - 1;
+X  }
+X  {   /* skip_whitespace  (Level 2) */
+X#line 528 "cr_getln.cr"
+X  for (;;) {
+X    switch (ch) {
+X      case ' ' :
+X      case TAB : push (ch);
+X                 break;
+X      case '\n':
+X      case 0   : scanner = normal_scanner;
+X                 return (normal_end_of_line);
+X      default  : 
+X  goto skip_whitespace_3;
+X#line 537 "cr_getln.cr"
+X    }
+X    ch = *(act++);
+X  }
+Xskip_whitespace_3: ;
+X  }
+X  {   /* read_the_filename  (Level 2) */
+X#line 577 "cr_getln.cr"
+X  bool has_quotes = ch == '\"';
+X  char *current_letter = name_in;
+X  if (has_quotes) {
+X    push (ch);
+X    ch = *(act++);
+X  }
+X  for (;;) {
+X    switch (ch) {
+X      case '\n':
+X      case 0   : 
+X      {   /* terminate_name_in  (Level 3) */
+X#line 600 "cr_getln.cr"
+X      if (current_letter != name_in)  /* if new name present */
+X        *current_letter = 0;  /* terminate name */
+X      copy_with_doubled_backslashes (name_in, modified_name_in);
+X      }
+X#line 587 "cr_getln.cr"
+X                 if (has_quotes)
+X                   warning (Eunterminated, name_in, line_no, warning_level);
+X                 scanner = normal_scanner;
+X                 return (normal_end_of_line);
+X      case dq  : 
+X      {   /* terminate_name_in  (Level 3) */
+X#line 600 "cr_getln.cr"
+X      if (current_letter != name_in)  /* if new name present */
+X        *current_letter = 0;  /* terminate name */
+X      copy_with_doubled_backslashes (name_in, modified_name_in);
+X      }
+X  goto read_the_filename_1;
+X#line 593 "cr_getln.cr"
+X      default  : push (ch);
+X                 *(current_letter++) = ch;
+X    }
+X    ch = *(act++);
+X  }
+Xread_the_filename_1: ;
+X  }
+Xtry_to_read_line_command_1: ;
+X  }
+X  {   /* copy_rest_of_line  (Level 1) */
+X#line 605 "cr_getln.cr"
+X  for (;;) {
+X    switch (ch) {
+X      case '\n':
+X      case 0   : scanner = normal_scanner;
+X                 return (normal_end_of_line);
+X      default  : push (ch);
+X    }
+X    ch = *(act++);
+X  }
+X  }
+X}
+X
+END_OF_FILE
+if test 21752 -ne `wc -c <'cr_getln.c'`; then
+    echo shar: \"'cr_getln.c'\" unpacked with wrong size!
+fi
+# end of 'cr_getln.c'
+fi
+if test -f 'cr_talk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cr_talk.c'\"
+else
+echo shar: Extracting \"'cr_talk.c'\" \(3401 characters\)
+sed "s/^X//" >'cr_talk.c' <<'END_OF_FILE'
+X#line 1 "cr_talk.cr"
+X/*************************************************************************
+XProject : C-Refine Precompiler
+XModule  : Output functions for messages
+XAuthor  : Lutz Prechelt, Karlsruhe
+XDate    : 08.05.92  Version 17
+XCompiler: C, C-Refine
+X**************************************************************************/
+X/*
+X    Copyright (C) 1988,89,90,91 by Lutz Prechelt, Karlsruhe
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X*/
+X
+X/************************************************************************
+X*********************** C - R e f i n e *********************************
+X*************************************************************************/
+X
+X#include <stdio.h>
+X
+X#include "cr_decl.h"   /* global Functions, Types and Data */
+X#include "cr_texts.h"  /* message texts */
+X
+Xstatic void error_message A((charp[], charp[], charp, int));
+X
+X/************************* cout *******************************************/
+X
+Xextern void cout (i)
+X  int i;
+X{
+X  /* Writes number i on stderr (which is assumed to be a screen)
+X     with length five and positions the cursor back to the starting
+X     position with five backspaces.
+X     This is not very fast, but that doesn't matter.
+X  */
+X  fprintf (stderr, "%5d\b\b\b\b\b", i);
+X}
+X
+X/************************ error *******************************************/
+X
+Xstatic void error_message (type, message, object, line)
+X  charp type[], message[];
+X  charp object;
+X  int   line;
+X{
+X  fprintf (stdout, "\"%s\", line %d, %s: %s\n", name_in,
+X           line, type[msg_type], message[msg_type]);
+X  if (object != NULL) {
+X    char *nl = strchr (object, '\n');
+X    if (nl != NULL)     /* remove newline from object */
+X      *nl = 0;
+X   fprintf (stdout, "    %s \"%s\"\n", Tnear[msg_type], object);
+X   if (nl != NULL)
+X     *nl = '\n';
+X  }
+X}
+X
+X
+Xextern void error (message, object, line)
+X  charp message[];
+X  charp object;
+X  int   line;
+X{
+X  error_message (Terror, message, object, line);
+X  if (++errors > maxerrors)
+X     fatal_error (Emany_errors, "(-----ManteldesSchweigens-----)", line);
+X  error_in_this_function = true;
+X}
+X
+X/************************ fatal_error *************************************/
+X
+Xextern void fatal_error (message, object, line)
+X  charp message[];
+X  charp object;
+X  int   line;
+X{
+X  error_message (Tfatal_error, message, object, line);
+X  stop_processing = true;
+X  errors++;
+X}
+X
+X/************************ warning *****************************************/
+X
+Xextern void warning (message, object, line, level)
+X  charp message[];
+X  charp object;
+X  int   line, level;
+X{
+X  if (!error_in_this_function && level <= warning_level) {
+X     /* don't be too verbose */
+X     error_message (Twarning, message, object, line);
+X     if (++warnings > maxwarnings)
+X        fatal_error (Emany_warnings, NULL, line);
+X  }
+X}
+X
+END_OF_FILE
+if test 3401 -ne `wc -c <'cr_talk.c'`; then
+    echo shar: \"'cr_talk.c'\" unpacked with wrong size!
+fi
+# end of 'cr_talk.c'
+fi
+if test -f 'erato.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'erato.c'\"
+else
+echo shar: Extracting \"'erato.c'\" \(2537 characters\)
+sed "s/^X//" >'erato.c' <<'END_OF_FILE'
+X#line 1 "erato.cr"
+X/*************************************************************************
+XModule  : C-Refine example program
+XAuthor  : Lutz Prechelt, Karlsruhe
+XDate    : 23.01.91
+X**************************************************************************
+X/*
+X    Copyright (C) 1988,90 by Lutz Prechelt, Karlsruhe
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X*/
+X
+X#define MAX        10000
+X#define PRIME      0
+X#define NON_PRIME  1
+X
+Xstatic int sieve[MAX+1];
+X
+Xint main ()
+X{
+X  {   /* initialize  (Level 1) */
+X#line 36 "erato.cr"
+X  int current;
+X  for (current = 2; current <= MAX; current++)
+X    sieve[current] = PRIME;
+X  }
+X  {   /* do_sieve  (Level 1) */
+X  int current_prime = 1;
+X  for (;;) {
+X    {   /* find_next_bigger_prime  (Level 2) */
+X#line 48 "erato.cr"
+X    int current_candidate = current_prime + 1;
+X    while (sieve[current_candidate] == NON_PRIME)
+X      if (current_candidate == MAX)
+X    goto do_sieve_1;
+X#line 51 "erato.cr"
+X        /* leave two refinements at once */
+X      else
+X        current_candidate++;
+X    /* now current_candidate is a prime (or we leave `sieve) */
+X    current_prime = current_candidate;
+X    }
+X#line 43 "erato.cr"
+X    /* perhaps STOP here */
+X    {   /* delete_all_multiples_of_current_prime  (Level 2) */
+X#line 58 "erato.cr"
+X    int current = (
+X#line 65 "erato.cr"
+X    2 * current_prime);
+X#line 59 "erato.cr"
+X    while (current <= MAX) {
+X      sieve[current] = NON_PRIME;
+X      current += current_prime;
+X    }
+X    }
+X#line 45 "erato.cr"
+X  }
+Xdo_sieve_1: ;
+X  }
+X  {   /* make_output  (Level 1) */
+X#line 68 "erato.cr"
+X  int current;  /* different from 'current' above */
+X  printf ("The primes between 2 and %d are\n", MAX);
+X  for (current = 2; current <= MAX; current++)
+X    if ((
+X#line 75 "erato.cr"
+X    sieve[current] == PRIME)
+X#line 71 "erato.cr"
+X    )
+X      printf ("%5d ", current);
+X  }
+X#line 33 "erato.cr"
+X  return (0);
+X#line 77 "erato.cr"
+X} /* end of main() */
+END_OF_FILE
+if test 2537 -ne `wc -c <'erato.c'`; then
+    echo shar: \"'erato.c'\" unpacked with wrong size!
+fi
+# end of 'erato.c'
+fi
+if test -f 'getargs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getargs.c'\"
+else
+echo shar: Extracting \"'getargs.c'\" \(14955 characters\)
+sed "s/^X//" >'getargs.c' <<'END_OF_FILE'
+X#line 1 "getargs.cr"
+X/*************************************************************************
+XModule  : getargs -- command line option processor
+XAuthor  : Lutz Prechelt, Karlsruhe
+XDate    : 15.11.91  Version 3
+XCompiler: should be portable (ANSI-C or K&R-C)
+X**************************************************************************/
+X/*
+X    Copyright (C) 1988,91 by Lutz Prechelt, Karlsruhe
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X*/
+X
+X
+X/************************************************************************
+X*********************** g e t a r g s ***********************************
+X*************************************************************************/
+X#if 0
+X
+XVarianten:
+X#define deutsch  1   waehlt deutsche Meldungen statt englische
+X#define __STDC__ 1   waehlt Funktionsdefinitionen mit Parameterliste
+X                     statt ohne
+X#define ms_dos   1   erlaubt "/" als Optionszeichen zusaetzlich zu "-"
+X
+XDies ist ein Utility zum bequemeren Auswerten von Optionen auf der
+XKommandozeile (d.h. mit argc, argv).
+X
+XEs wird dazu vom Benutzer eine Tabelle ("argtab") aufgestellt, in der zu
+Xjeder Option der Optionsbuchstabe, ein Argumententyp
+X(BOOL, CHAR, INT, STRING) und eine Variable angegeben werden,
+Xin der das Resultat abgelegt werden soll.
+XFerner kann man hier noch einen Kommentarstring zu jeder Option angeben.
+X
+XDie Funktion getargs (&argc, argv, argtab, argtabsize) bearbeitet nun den
+Xargv Vektor derart, dass alle Optionen, die in argtab angegeben sind, gemaess
+Xihrem Eintrag behandelt werden und aus argv entfernt (dazu wird argc und argv
+Xmodifiziert, jedoch nur Pointer veraendert, keine argv-Eintraege selbst)
+XEs duerfen beim Aufruf die Optionen beliebig mit den uebrigen Parametern
+Xvermischt und mehrere Optionen hinter einem Optionssymbol angegeben
+Xwerden.
+X
+XEs werden unbekannte Optionen festgestellt und angemeckert (nach stderr)
+XAls Resultat wird die Anzahl angemeckerter Optionen geliefert.
+X
+XDie Funktion print_usage (program_name, usage_text, argtab, argtabsize)
+Xgibt unter Benutzung der Kommentarstrings aus argtab eine Kurzbeschreibung zum
+Xkorrekten Aufruf aller Optionen und des Gesamtprogramms nach stderr aus.
+X
+XBeispiel:
+X#include <getargs.h>
+X  int a = 1, b = 'B', c;
+X  char *d = "";
+X  ARG argtab[] = { {'a', BOOLEAN,  &a,       "use alternate mode" },
+X                   {'b', CHARACTER,&b,       "Character for boldface" },
+X                   {'c', INTEGER,  &c,       "count of pages to print" },
+X                   {'d', STRING  , (int*)&d, "File description" } };
+X  void main (int argc, char **argv) {
+X     if (getargs (&argc, argv, argtab, ARGTABSIZE (argtab)))
+X        print_usage (argv[0], "[options] filetoprint [options]", argtab,
+X                     ARGTABSIZE (argtab));
+X  }
+X
+XEnthalte argtab also die Liste der Optionen fuer das Programm "fileprt", das
+X(wie in print_usage angegeben) noch einen Dateinamen als weiteren Parameter
+Xverlangt.
+X
+XDann waeren korrekte Aufrufe etwa:
+X
+Xfileprt -a file
+Xfileprt -a+ file -bB
+Xfileprt -c14 file -dMyFile
+Xfileprt file -abBc14
+X
+XVerkehrt waere dagegen zum Beispiel:
+X
+Xfileprt -dMy File file       weil <File> ein eigenes Argument ist
+Xfileprt -p file              weil es die Option p nicht gibt
+Xfileprt -bx28 file           weil CHAR immer nur ein Zeichen umfasst
+X
+XDieser letzte Aufruf haette im Beispiel ungefaehr folgenden Output nach
+Xstderr zur Folge:
+X
+XUnknown option : -bx28
+Xusage: fileprt [options] filetoprint
+Xvalid options are:
+X-a<+/-> use alternate mode                       (Wert: TRUE)
+X-b<ch>  Character for boldface                   (Wert: B)
+X-c<num> count of pages to print                  (Wert: 0)
+X-d<str> File description                         (Wert: "")
+X
+XDer genaue Grund fuer die Fehlermeldung ist, dass der Interpreter der Option
+Xb den Wert x zuweist und dann nach der (nicht auffindbaren) Option 2 sucht !
+X
+XDie "Wert"-Angaben beim print_usage entstehen aus den Vorbelegungen der
+XVariablen a, b, c, d;
+X
+X#endif
+X
+X/**************************************************************************/
+X
+X#include "std.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "getargs.h"
+X
+X#if deutsch
+X#define ERRMSG         "Unbekannte oder falsch benutzte Option"
+X#define USAGE          "Aufruf"
+X#define VALID_OPT_ARE  "Erlaubte Optionen sind"
+X#else
+X#define ERRMSG         "unknown or malformed option"
+X#define USAGE          "usage"
+X#define VALID_OPT_ARE  "valid options are"
+X#endif
+X
+X#define is_option(a) (*(a) == '-' && *(a+1) != 0)
+X
+Xstatic int  set_argument A((ARG* entry, char **optiontext, char **next_arg));
+Xstatic ARG* find_argument A((int optionname, ARG *argtab, int argtablength));
+Xstatic int  stoi A((char **linep, int *result));
+X
+X/*---------------------------------------------------------
+X *    getargs
+X *---------------------------------------------------------*/
+X
+Xextern int getargs (argc, argv, tabp, tabsize)
+X  int    *argc;    /* changed */
+X  char ***argv;    /* changed */
+X  ARG    *tabp;
+X  int     tabsize;
+X{
+X  /* Main routine. Evaluates all arguments in argv up to argc:
+X     Options (known from first letter as given by macro is_option)
+X     are followed by other arguments.
+X     -- forces end of options.
+X     options are searched for in tabp and are removed from argv by
+X     shifting the remaining arguments left.
+X     options are handled according to their tabp entry,
+X     illegal options or missing or illegal values are complained.
+X     Otherwise the corresponding variable is set according to the value
+X     given with the option.
+X     Only non-options are still in argv after this procedure, their
+X     number is given back in *argc.
+X     The return value is the number of errors found.
+X  */
+X  char  *p, *argv0 = **argv, *nilarg = "";
+X  int    errors = 0, error;
+X  ARG   *argp;
+X  for ((*argv)++; --(*argc) > 0; (*argv)++)
+X    {   /* handle_this_arg  (Level 1) */
+X#line 166 "getargs.cr"
+X    if ((
+X#line 196 "getargs.cr"
+X    /* the argument "--" forces end of option processing */
+X    (*argv)[0][0] == '-'  &&  (*argv)[0][1] == '-'  &&  (*argv)[0][2] == 0)
+X#line 166 "getargs.cr"
+X    ) {
+X       **argv = argv0;  /* restore program name */
+X       return (errors);
+X    }
+X    else if (!is_option (**argv)) {
+X       (*argv)--; (*argc)++;
+X       **argv = argv0;   /* restore program name */
+X       return (errors);
+X    }
+X    else {
+X       char **next_arg = *argc > 1 ? (*argv)+1 : &nilarg;
+X       p = (**argv) + 1;         /* Option -> handle it */
+X       while (*p) {
+X         error = 0;
+X         /* One Optionsign can have multiple Options following */
+X         if (argp = find_argument ((int)*p, tabp, tabsize)) /* if exists */
+X           {   /* read_option_value  (Level 2) */
+X#line 200 "getargs.cr"
+X           error = !set_argument (argp, &p, next_arg);
+X           }
+X#line 183 "getargs.cr"
+X         if (!argp || error) {   /* if not exists or invalid value */
+X            fprintf (stderr, "%s : %s\n", ERRMSG, **argv);   /* then #$% */
+X            errors++;
+X            break;
+X         }
+X         if (*next_arg == 0) {  /* Next argv element already used up */
+X           (*argv)++;
+X           (*argc)--;
+X         }
+X       }
+X     }
+X    }
+X#line 161 "getargs.cr"
+X  (*argv)--;
+X  **argv = argv0;   /* restore program name */
+X  return (errors);
+X#line 202 "getargs.cr"
+X}
+X
+X/*---------------------------------------------------------
+X *    set_argument
+X *---------------------------------------------------------*/
+X
+Xstatic int set_argument (argp, linep, next_arg)
+X  ARG  *argp;
+X  char **linep, **next_arg;
+X{
+X  /* Gets the argument for the current option into the corresponding
+X     variable as given in argtab.
+X     linep is incremented as much as necessary (as much as data is
+X     used for the value).
+X     If no value can be found in linep, next_arg is searched for it,
+X     and, if found, set to 0.
+X     Returns 1 (or 0 on errors, i.e. illegal or missing values)
+X  */
+X#define p (argp->variable)
+X  char *old_linep, *old_next_arg = *next_arg;
+X  ++(*linep);   /* skip Optionname */
+X  old_linep = *linep;
+X  switch (argp->type) {
+X        case INTEGER:    
+X        {   /* get_integer  (Level 1) */
+X#line 233 "getargs.cr"
+X        stoi (linep, p);
+X        if (old_linep == *linep) {  /* no integer found in linep */
+X          stoi (next_arg, p);
+X          if (old_next_arg != *next_arg)
+X            *next_arg = 0;
+X        }
+X        return (old_linep != *linep || *next_arg == 0);
+X        }
+X#line 226 "getargs.cr"
+X        case BOOLEAN:    
+X        {   /* get_bool  (Level 1) */
+X#line 242 "getargs.cr"
+X        if ((
+X#line 257 "getargs.cr"
+X        **linep == '-' || **linep == '+')
+X#line 242 "getargs.cr"
+X        ) {  /* + or - given right behind */
+X           *p = (**linep == '+');
+X           ++(*linep);
+X        }
+X        else if ((
+X#line 260 "getargs.cr"
+X        **linep != 0)
+X#line 246 "getargs.cr"
+X        )  /* no value given */
+X           *p = 1;   /* assume true */
+X        else if ((
+X#line 263 "getargs.cr"
+X        (**next_arg == '-' || **next_arg == '+') &&
+X        (*next_arg)[1] == 0)
+X#line 248 "getargs.cr"
+X        ) {
+X           *p = **next_arg == '+';
+X           *next_arg = 0;
+X        }
+X        else                        /* else assume TRUE */
+X           *p = 1;
+X        return (1);
+X        }
+X#line 227 "getargs.cr"
+X        case CHARACTER:  
+X        {   /* get_char  (Level 1) */
+X#line 267 "getargs.cr"
+X        *p = (int)**linep;
+X        if (*p != 0) {
+X          ++(*linep);      /* go on one char */
+X          return (1);
+X        }
+X        /* we must get character from next_arg, if possible */
+X        if ((
+X#line 282 "getargs.cr"
+X        (*next_arg)[0] != 0  &&  (*next_arg)[1] == 0)
+X#line 273 "getargs.cr"
+X        ) {
+X          *p = **next_arg;
+X          *next_arg = 0;
+X          return (1);
+X        }
+X        else
+X          return (0);
+X        }
+X#line 228 "getargs.cr"
+X        case STRING:     
+X        {   /* get_string  (Level 1) */
+X#line 285 "getargs.cr"
+X        if (**linep != 0) {
+X          *(char **)p = *linep;
+X          *linep = "";   /* take all the rest */
+X          return (1);
+X        }
+X        /* we must get string from next_arg */
+X        *(char **)p = *next_arg;
+X        *next_arg = 0;
+X        return (1);
+X
+X#undef p
+X        }
+X#line 229 "getargs.cr"
+X  }
+X  return (0);  /* just to keep certain compilers quiet */
+X#line 296 "getargs.cr"
+X}
+X
+X/*---------------------------------------------------------
+X *    find_argument
+X *---------------------------------------------------------*/
+X
+Xstatic ARG* find_argument (optionname, tabp, tabsize)
+X  int  optionname;
+X  ARG *tabp;
+X  int  tabsize;
+X{
+X  for (; --tabsize >= 0; tabp++)
+X      if (tabp->arg == optionname)
+X         return (tabp);
+X  return (0);  /* not found */
+X}
+X
+X/*---------------------------------------------------------
+X *    print_usage
+X *---------------------------------------------------------*/
+X
+Xextern void print_usage (progname, usage, tabp, tabsize)
+X  char *progname, *usage;
+X  ARG  *tabp;
+X  int  tabsize;
+X{
+X  /* Druckt die Optionsbeschreibungen laut tabp incl. momentaner Werte der
+X     zugeh. Variablen sowie zuvor eine "usage:" Zeile mit den Texten
+X     progname und usage.
+X  */
+X  char *p;
+X  int  i;
+X  fprintf (stderr, "\n%s: %s %s\n%s:\n", USAGE, progname,
+X           usage, VALID_OPT_ARE);
+X  for (i = 0; i < tabsize; i++, tabp++) {
+X      fprintf (stderr, "-%c", tabp->arg);
+X      p = tabp->errmsg;
+X      switch (tabp->type) {
+X            case INTEGER:
+X                  fprintf (stderr, "<num> %-45s (%d)\n",
+X                           p, *(tabp->variable));
+X                  break;
+X            case BOOLEAN:
+X                  fprintf (stderr, "<+/-> %-45s (%s)\n",
+X                           p, *(tabp->variable) ? "TRUE" : "FALSE");
+X                  break;
+X            case CHARACTER:
+X                  fprintf (stderr, "<ch>  %-45s (%c)\n",
+X                           p, (char)*(tabp->variable));
+X                  break;
+X            case STRING:
+X                  fprintf (stderr, "<str> %-45s (\"%s\")\n",
+X                           p, *(char **)tabp->variable);
+X                  break;
+X            }
+X      }
+X}
+X
+X
+X/********************* Hilfsfunktionen ************************************/
+X
+X
+X/*---------------------------------------------------------
+X *    stoi
+X *---------------------------------------------------------*/
+X
+Xstatic int stoi (instr, result)
+X  char **instr;
+X  int   *result;
+X{
+X  /* tries to read a decimal, octal or hexadecimal number from *instr
+X     and advances *instr accordingly.
+X     returns whether a number could successfully be read.
+X     the number read is returned in *result.
+X  */
+X  int  error = 1;
+X  int  num = 0;
+X  int  sign = 0;  /* Betrag und neg. Vorzeichen des Resultats */
+X  char *str = *instr;
+X  while (isspace (*str))
+X        str++;
+X  if (*str == '-') {
+X     sign = -1;
+X     str++;
+X  }
+X  if (*str == '0')
+X    {   /* read_octal_or_hex  (Level 1) */
+X#line 392 "getargs.cr"
+X    ++str;
+X    error = 0;
+X    if (toupper (*str) == 'X') {
+X       str++;
+X       while(isxdigit(*str)) {
+X             num *= 16;
+X             num += isdigit (*str) ? *str - '0'
+X                             : toupper (*str) - 'A'+ 10;
+X             str++;
+X       }
+X    }
+X    else {
+X       while ('0' <= *str && *str <= '7') {
+X             num *= 8;
+X             num += *str++ - '0';
+X       }
+X    }
+X    }
+X#line 383 "getargs.cr"
+X  else
+X    {   /* read_decimal  (Level 1) */
+X#line 411 "getargs.cr"
+X    while (isdigit (*str)) {
+X      error = 0;
+X      num *= 10;
+X      num += *str++ - '0';
+X
+X    }
+X    }
+X#line 385 "getargs.cr"
+X  if (error)
+X    return (error);
+X  *instr = str;
+X  *result = sign ? -num : num;
+X  return (0);
+X#line 418 "getargs.cr"
+X}
+X
+X/************* Hauptprogramm zum Testen **********************************/
+X
+X#if 0
+X
+X  int a = 0, b = 'b', c = 3;
+X  char *d = "";
+X  ARG argtab[] = { {'a', BOOLEAN,     &a,  "Option a" },
+X                   {'b', CHARACTER,   &b,  "Option b" },
+X                   {'c', INTEGER,     &c,  "Option c" },
+X                   {'d', STRING, (int*)&d,  "Option d" } };
+X
+Xvoid main (int argc, char **argv)
+X{
+X  int i, n;
+X  printf ("Argumentpointer argv[i]: ");
+X  for (i = 0; i < argc; i++)
+X      printf ("%d ", (int)argv[i]);
+X  printf ("\n");
+X  n = getargs (&argc, argv, argtab, ARGTABSIZE (argtab));
+X  if (n)
+X     print_usage (argv [0], "rabarber", argtab, ARGTABSIZE (argtab));
+X  printf ("\n RESULTATE (%d): a = %d, b = '%c', c = %d, d = \"%s\"\n",
+X          n, a, (char)b, c, d);
+X  printf ("ARGV: ");
+X  for (i = 0; i < argc; i++)
+X      printf ("<%s> ", argv[i]);
+X}
+X
+X#endif
+X
+END_OF_FILE
+if test 14955 -ne `wc -c <'getargs.c'`; then
+    echo shar: \"'getargs.c'\" unpacked with wrong size!
+fi
+# end of 'getargs.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

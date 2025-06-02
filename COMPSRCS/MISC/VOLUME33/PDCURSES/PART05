@@ -1,0 +1,1910 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i085:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part05/11
+Message-ID: <1992Nov19.040314.7297@sparky.imd.sterling.com>
+X-Md4-Signature: bc22152f6816b71345cd5daeb4b830b5
+Date: Thu, 19 Nov 1992 04:03:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 85
+Archive-name: pdcurses/part05
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  demos/firework.c doc/overview.man nonport/resizew.c
+#   nonport/winprint.c portable/initpair.c portable/longname.c
+#   portable/pnoutref.c portable/waddch.c portable/wgetstr.c
+#   private/_chadd.c private/_clrupda.c private/_inswin.c
+#   private/_makenew.c tools/manext.c
+# Wrapped by kent@sparky on Wed Nov 18 21:44:07 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 11)."'
+if test -f 'demos/firework.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demos/firework.c'\"
+else
+  echo shar: Extracting \"'demos/firework.c'\" \(3454 characters\)
+  sed "s/^X//" >'demos/firework.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <signal.h>
+X#include <curses.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <time.h>
+X#define DELAYSIZE 100
+Xmain()
+X{
+X       int start,end,row,diff,flag,direction,seed;
+X       int myrefresh();
+X       void explode();
+X
+X       initscr();
+X       if (has_colors())
+X          start_color();
+X       seed = time((time_t *)0);
+X       srand(seed);
+X       while(typeahead(stdin) == FALSE)
+X               {
+X                do {
+X                       start = rand() % (COLS -3);
+X                       end = rand() % (COLS - 3);
+X                       start = (start < 2) ? 2 : start;
+X                       end = (end < 2) ? 2 : end;
+X                       direction = (start > end) ? -1 : 1;
+X                       diff = abs(start-end);
+X                   } while (diff<2 || diff>=LINES-2);
+X                attrset(A_NORMAL);
+X                for (row=0;row<diff;row++)
+X                       {
+X                        mvprintw(LINES - row,start + (row * direction),
+X                               (direction < 0) ? "\\" : "/");
+X                        if (flag++)
+X                               {
+X                                myrefresh();
+X                                clear();
+X                                flag = 0;
+X                               }
+X                       }
+X               if (flag++)
+X                       {
+X                        myrefresh();
+X                        flag = 0;
+X                       }
+X               seed = time((time_t *)0);
+X               srand(seed);
+X               explode(LINES-row,start+(diff*direction));
+X               clear();
+X               myrefresh();
+X              }
+X       endwin();
+X       exit(0);
+X}
+Xvoid explode(row,col)
+Xint row,col;
+X{
+X       clear();
+X       mvprintw(row,col,"-");
+X       myrefresh();
+X
+X       init_pair(1,get_colour(),COLOR_BLACK);
+X       attrset(COLOR_PAIR(1));
+X       mvprintw(row-1,col-1," - ");
+X       mvprintw(row,col-1,"-+-");
+X       mvprintw(row+1,col-1," - ");
+X       myrefresh();
+X
+X       init_pair(1,get_colour(),COLOR_BLACK);
+X       attrset(COLOR_PAIR(1));
+X       mvprintw(row-2,col-2," --- ");
+X       mvprintw(row-1,col-2,"-+++-");
+X       mvprintw(row,  col-2,"-+#+-");
+X       mvprintw(row+1,col-2,"-+++-");
+X       mvprintw(row+2,col-2," --- ");
+X       myrefresh();
+X
+X       init_pair(1,get_colour(),COLOR_BLACK);
+X       attrset(COLOR_PAIR(1));
+X       mvprintw(row-2,col-2," +++ ");
+X       mvprintw(row-1,col-2,"++#++");
+X       mvprintw(row,  col-2,"+# #+");
+X       mvprintw(row+1,col-2,"++#++");
+X       mvprintw(row+2,col-2," +++ ");
+X       myrefresh();
+X
+X       init_pair(1,get_colour(),COLOR_BLACK);
+X       attrset(COLOR_PAIR(1));
+X       mvprintw(row-2,col-2,"  #  ");
+X       mvprintw(row-1,col-2,"## ##");
+X       mvprintw(row,  col-2,"#   #");
+X       mvprintw(row+1,col-2,"## ##");
+X       mvprintw(row+2,col-2,"  #  ");
+X       myrefresh();
+X
+X       init_pair(1,get_colour(),COLOR_BLACK);
+X       attrset(COLOR_PAIR(1));
+X       mvprintw(row-2,col-2," # # ");
+X       mvprintw(row-1,col-2,"#   #");
+X       mvprintw(row,  col-2,"     ");
+X       mvprintw(row+1,col-2,"#   #");
+X       mvprintw(row+2,col-2," # # ");
+X       myrefresh();
+X       return;
+X}
+Xint myrefresh()
+X{
+X       delay_output(DELAYSIZE);
+X       move(LINES-1,COLS-1);
+X       refresh();
+X}
+X
+Xint get_colour()
+X{
+X int attr;
+X       attr = (rand() % 16)+1;
+X       if (attr == 1 || attr == 9)
+X          attr = COLOR_RED;
+X       if (attr > 8)
+X          attr |= A_BOLD;
+X       return(attr);
+X}
+END_OF_FILE
+  if test 3454 -ne `wc -c <'demos/firework.c'`; then
+    echo shar: \"'demos/firework.c'\" unpacked with wrong size!
+  fi
+  # end of 'demos/firework.c'
+fi
+if test -f 'doc/overview.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/overview.man'\"
+else
+  echo shar: Extracting \"'doc/overview.man'\" \(3058 characters\)
+  sed "s/^X//" >'doc/overview.man' <<'END_OF_FILE'
+X/*man-start*********************************************************************
+X
+X			Curses Overview
+X
+XThe X/Open Curses Interface Definition describes a set of C-Language
+Xfunctions that provide screen-handling and updating, which are
+Xcollectively known as the curses library.
+X
+XThe curses library permits manipulation of data structures called
+Xwindows which may be thought of as two-dimensional arrays of
+Xcharacters representing all or part of a terminal's screen.  The
+Xwindows are manipulated using a procedural interface described
+Xelsewhere.  The curses package maintains a record of what characters
+Xare on the screen.  At the most basic level, manipulation is done with
+Xthe routines move() and addch() which are used to "move" the curses
+Xaround and add characters to the default window, stdscr, which
+Xrepresents the whole screen.
+X
+XAn application may use these routines to add data to the window in any
+Xconvenient order.  Once all data have been added, the routine
+Xrefresh() is called.  The package then determines what changes have
+Xbeen made which affect the screen.  The screen contents are then
+Xchanged to reflect those characters now in the window. using a
+Xsequence of operations optimised for the type of terminal in use. 
+X
+XAt a higher level routines combining the actions of move() and addch()
+Xare defined, as are routines to add whole strings and to perform
+Xformat conversions in the manner of printf(). 
+X
+XInterfaces are alse defined to erase the entire window and to specify
+Xthe attributes of individual characters in the winodw.  Attributes
+Xsuch as inverse video, underline and blink can be used on a
+Xper-character basis. 
+X
+XNew windows can be created by allowing the application to build
+Xseveral images of the screen and display the appropriate one very
+Xquickly.  New windows are created using the routine newwin().  For
+Xeach routine that manipulates the default window, stdscr, there is a
+Xcorresponding routine prefixed with w to manipulate the contents of a
+Xspecified window; for example, move() and wmove().  In fact, move(...)
+Xis functionally equivalent to wmove( stdscr, ...).  This is similar to
+Xthe interface offered by printf(...) and fprintf(stdout, ...). 
+X
+XWindows do not have to correspond to the entire screen.  It is
+Xpossible to create smaller windows, and also to indicate that the
+Xwindow is only partially visible on the screen.  Furthermore, large
+Xwindows or pads, which are bigger than the actual screen size, may be
+Xcreated. 
+X
+XThe routine newterm() may be called to "open" additional terminals by
+Xlarge applications wishing to manipulate several terminals at once.
+XThe set_term() function is used to select the terminal whose screen is
+Xto be updated by the next refresh(). 
+X
+XInterfaces are also defined to allow input character manipulation and
+Xto disable and enable many input attributes: character echo, single
+Xcharacter input with or without signal processing (cbreak or raw
+Xmodes), carriage returns mapping to newlines, screen scrolling, etc. 
+X
+X**man-end**********************************************************************/
+END_OF_FILE
+  if test 3058 -ne `wc -c <'doc/overview.man'`; then
+    echo shar: \"'doc/overview.man'\" unpacked with wrong size!
+  fi
+  # end of 'doc/overview.man'
+fi
+if test -f 'nonport/resizew.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nonport/resizew.c'\"
+else
+  echo shar: Extracting \"'nonport/resizew.c'\" \(3723 characters\)
+  sed "s/^X//" >'nonport/resizew.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	resize_win
+X
+X#ifndef NDEBUG
+Xchar *rcsid_resizew = "$Header: c:/curses/nonport/RCS/resizew.c%v 2.0 1992/11/15 03:18:28 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  resize_win()	-	Resize a window
+X
+X  PDCurses Description:
+X 	Resizes the passed WINDOW* to reflect the maximum size
+X 	represented by the WINDOW* fields _pmaxy and _pmaxx.
+X
+X 	If _maxy < _pmaxy then new lines will be added.
+X 	The same is also true for _maxx and _pmaxx.
+X
+X 	WARNING TO PROGRAMMERS:
+X
+X 	This function assumes that when a window is enlarged
+X 	horizontally, the contents on each existing line will be
+X 	copied to the new, enlarged line and the remainder of the
+X 	enlarged line will be cleared.
+X
+X 	When a window is enlarged vertically, each new line added
+X 	will be blank.
+X
+X 	All borders will be observed and enlarged appropriately.
+X
+X 	When a windows are shrunk, only the WINDOW* fields _pmaxy and
+X 	_pmaxx are affected.
+X
+X  PDCurses Return Value:
+X 	The resize_win() function returns a NULL pointer or a valid
+X 	WINDOW* which may or may not point to the same physical
+X 	window.  Besure to change all pointers to the passed window
+X 	to the address returned by this function (but only if it is
+X 	non-zero).
+X
+X  PDCurses Errors:
+X 	It is an error to pass a NULL WINDOW pointer.
+X
+X  Portability:
+X 	PDCurses	WINDOW*	resize_win( WINDOW* w, int lines, int cols );
+X
+X**man-end**********************************************************************/
+X
+XWINDOW*	resize_win(WINDOW *w, int lines, int cols)
+X{
+Xextern	void*	(*mallc)();	/* ptr to some malloc(size)	*/
+Xextern	void*	(*callc)();	/* ptr to some ecalloc(num,size)*/
+Xextern	void	(*fre)();	/* ptr to some free(ptr)	*/
+X
+X	WINDOW*	new;
+X	int	ncols  = max(cols, w->_pmaxx);
+X	int	nlines = max(lines, w->_pmaxy);
+X	int	i;
+X	int	j;
+X
+X	if (w == (WINDOW *)NULL)
+X		return( (WINDOW *)NULL );
+X
+X	if ((lines > w->_pmaxy) || (cols > w->_pmaxx))
+X	{
+X		if ((new = PDC_makenew(nlines, ncols, w->_begy, w->_begx)) == (WINDOW *)NULL)
+X			return( (WINDOW *)NULL );
+X
+X		new->_curx = w->_curx;
+X		new->_cury = w->_cury;
+X		new->_flags = w->_flags;
+X		new->_attrs = w->_attrs;
+X		new->_tabsize = w->_tabsize;
+X		new->_clear = w->_clear;
+X		new->_leave = w->_leave;
+X		new->_scroll = w->_scroll;
+X		new->_nodelay = w->_nodelay;
+X		new->_use_keypad = w->_use_keypad;
+X		new->_tmarg = w->_tmarg;
+X		new->_bmarg = w->_bmarg;
+X		new->_title = w->_title;
+X		new->_title_ofs = w->_title_ofs;
+X		new->_title_attr = w->_title_attr;
+X		new->_parent = w->_parent;
+X		memcpy(new->_borderchars, w->_borderchars, 8*sizeof(chtype));
+X
+X		for (i = 0; i < nlines; i++)
+X		{
+X			/*
+X			 * make and clear the lines
+X			 */
+X			if ((new->_y[i] = (chtype*)(*callc)(ncols, sizeof(chtype))) == NULL)
+X			{
+X				for (j = 0; j < i; j++)
+X				{
+X					/*
+X					 * if error, free all the data
+X					 */
+X					(*fre)(new->_y[j]);
+X				}
+X				(*fre)(new->_firstch);
+X				(*fre)(new->_lastch);
+X				(*fre)(new->_y);
+X				(*fre)(new);
+X				return( (WINDOW *)NULL );
+X			}
+X		}
+X		if ((w != curscr) && (w != tmpwin))
+X		{
+X			overwrite(w, new);
+X			wmove(new, w->_maxy - 1, 0);
+X			wclrtobot(new);
+X/* JGB box uses defaults if arguments are zero, but we don't want to do
+X   this if the window currently has no box */
+X			if (w->_borderchars[0] || w->_borderchars[2])
+X				box(new, w->_borderchars[0], w->_borderchars[2]);
+X		}
+X		delwin(w);
+X		return( new );
+X	}
+X	else
+X	{
+X		w->_bmarg = lines - 1;
+X		w->_maxy = lines;
+X		w->_maxx = cols;
+X/* JGB box uses defaults if arguments are zero, but we don't want to do
+X   this if the window currently has no box */
+X		if (w->_borderchars[0] || w->_borderchars[2])
+X			box(w, w->_borderchars[0], w->_borderchars[2]);
+X		return( w );
+X	}
+X}
+END_OF_FILE
+  if test 3723 -ne `wc -c <'nonport/resizew.c'`; then
+    echo shar: \"'nonport/resizew.c'\" unpacked with wrong size!
+  fi
+  # end of 'nonport/resizew.c'
+fi
+if test -f 'nonport/winprint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nonport/winprint.c'\"
+else
+  echo shar: Extracting \"'nonport/winprint.c'\" \(3060 characters\)
+  sed "s/^X//" >'nonport/winprint.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#define	CURSES_LIBRARY	1
+X#endif
+X#include <curses.h>
+X#undef	winPDC_print
+X
+X#ifndef NDEBUG
+Xchar *rcsid_winprint = "$Header: c:/curses/nonport/RCS/winprint.c%v 2.0 1992/11/15 03:18:31 MH Rel $";
+X#endif
+X
+X
+X
+X
+X#define PRINT	0
+X#define INIT	1
+X#define READ	2
+X
+X/*man-start*********************************************************************
+X
+X  win_print()	- print contents of window to LPT1
+X
+X  PDCurses Description:
+X 	Prints the contents of the passed window or pad to LPT1:.  All
+X 	attributes are ignored.	 Newlines will be appended to the end
+X 	of all win->_y[]s.  The caller must supply the compiler-
+X 	dependent port number.
+X
+X  PDCurses Return Value:
+X 	Return Status:	bit 0	0x01	Device Time Out
+X 			bit 1	0x02	Bad WINDOW* passed
+X 			bit 2	0x04	Unable to malloc memory
+X 			bit 3	0x08	I/O Error
+X 			bit 4	0x10	Selected
+X 			bit 5	0x20	Out of paper
+X 			bit 6	0x40	Acknowledge
+X 			bit 7	0x80	Not Busy
+X
+X 	A return value of 0 indicates success.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a NULL WINDOW pointer.
+X
+X  Portability:
+X 	PDCurses	int win_print( WINDOW* win, int port );
+X
+X**man-end**********************************************************************/
+X
+Xint	win_print(WINDOW *win, int port)
+X{
+X#if	defined( DOS )
+X	char   *text;
+X	int	i;
+X	int	j;
+X	int	status;
+X	int	retry = 0;
+Xextern	void*	(*mallc)();		/* ptr to some malloc(size)	*/
+Xextern	void*	(*callc)();		/* ptr to some ecalloc(num,size)*/
+Xextern	void	(*fre)();		/* ptr to some free(ptr)	*/
+X
+X	if (win == (WINDOW *)NULL)
+X		return( 0x02 );
+X
+X	status = PDC_print(READ, 0, port);
+X
+X	if (((status & 0x20) != 0) || ((status & 0x08) != 0))
+X		return( status );
+X	/*
+X	 * Print the window title First
+X	 */
+X	text = win->_title;
+X	while (text != (char *)NULL)
+X	{
+X		status = PDC_print(PRINT, (int) *text, port);
+X		while ((status & 0x80) == 0x00)
+X		{
+X			if ((status & 0x01) == 0x01)
+X			{
+X				retry++;
+X				if (retry > 10)
+X					return( status );
+X			}
+X			if (((status & 0x20) == 0x20) ||
+X			    ((status & 0x10) == 0x00) ||
+X			    ((status & 0x08) == 0x08))
+X			{
+X				return( status );
+X			}
+X			status = PDC_print(READ, 0, port);
+X		}
+X	}
+X	PDC_print(PRINT, '\r', port);
+X	PDC_print(PRINT, '\n', port);
+X	PDC_print(PRINT, '\n', port);
+X	text = (*mallc)(win->_maxx);
+X	if (text != (char *)NULL)
+X	{
+X		for (i = 0; i < win->_maxy; i++)
+X		{
+X			for (j = 0; j < win->_maxx; j++)
+X			{
+X				status = PDC_print(PRINT, (int) win->_y[i][j], port);
+X				while ((status & 0x80) == 0x00)
+X				{
+X					if ((status & 0x01) == 0x01)
+X					{
+X						retry++;
+X						if (retry > 10)
+X						{
+X							(*fre)(text);
+X							return( status );
+X						}
+X					}
+X					if (((status & 0x20) == 0x20) ||
+X					    ((status & 0x10) == 0x00) ||
+X					    ((status & 0x08) == 0x08))
+X					{
+X						(*fre)(text);
+X						return( status );
+X					}
+X
+X					status = PDC_print(READ, 0, port);
+X				}
+X				retry = 0;
+X
+X			}
+X			PDC_print(PRINT, '\r', port);
+X			PDC_print(PRINT, '\n', port);
+X		}
+X		PDC_print(PRINT, '\f', port);
+X		(*fre)(text);
+X		return( 0x00 );
+X	}
+X	return( 0x04 );
+X#endif
+X#if	defined( HC ) && defined( FLEXOS )
+X	return( 0x03 );
+X#endif
+X#ifdef OS2
+X	return( 0x03 );
+X#endif
+X}
+END_OF_FILE
+  if test 3060 -ne `wc -c <'nonport/winprint.c'`; then
+    echo shar: \"'nonport/winprint.c'\" unpacked with wrong size!
+  fi
+  # end of 'nonport/winprint.c'
+fi
+if test -f 'portable/initpair.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/initpair.c'\"
+else
+  echo shar: Extracting \"'portable/initpair.c'\" \(3582 characters\)
+  sed "s/^X//" >'portable/initpair.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef init_pair
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_initpair = "$Header: c:/curses/portable/RCS/initpair.c%v 2.0 1992/11/15 03:28:56 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  initpair()	- Change the definition of a color-pair.
+X
+X  PDCurses Description:
+X
+X 	This routine is used to change the definition of a color-pair.
+X 	The routine takes three arguments: the number of the color-pair
+X 	to be redefined, and the new values of the foreground and
+X 	background colors.
+X
+X 	The value of colorpair must be between 1 and COLOR_PAIRS-1.
+X 	The values of foreground and background must be between 0 and
+X 	COLORS-1.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with values outside of the
+X 	ranges specified above.
+X
+X  Portability:
+X 	PDCurses	int init_pair( int colorpair, short foreground, short background);
+X 	SYS V Curses	int init_pair( int colorpair, short foreground, short background);
+X
+X**man-end**********************************************************************/
+X
+X
+Xunsigned char    atrtab[MAX_ATRTAB] = /* COLOR_PAIR to attribute encoding table. */
+X {0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,0x07,0x0F,0x70,0x78,0x87,0x8F,0xF0,0xF8,
+X  0x70,0x00,0x17,0x00,0x00,0x00,0x00,0x00
+X  };
+X
+Xint init_pair(int colorpair,short foreground,short background)
+X{
+X extern int COLOR_PAIRS;
+X unsigned char norm,reverse;
+X
+X if (colorpair >= COLOR_PAIRS || colorpair < 1)
+X    return(ERR);
+X
+X norm = (unsigned char)(foreground & 0x0007) + ((background & 0x0007)<<4);
+X reverse = (unsigned char)(background & 0x0007) + ((foreground & 0x0007)<<4);
+X
+X atrtab[(colorpair*8)+0] = norm;                             /* normal */
+X atrtab[(colorpair*8)+1] = norm + 8;                       /* bold */
+X atrtab[(colorpair*8)+2] = reverse;                     /* reverse */
+X atrtab[(colorpair*8)+3] = reverse + 8;            /* bold-reverse */
+X atrtab[(colorpair*8)+4] = norm + 128;                    /* blink */
+X atrtab[(colorpair*8)+5] = norm + 8 + 128;           /* bold-blink */
+X atrtab[(colorpair*8)+6] = reverse + 128;         /* reverse-blink */
+X atrtab[(colorpair*8)+7] = reverse + 8 + 128;/* reverse-bold-blink */
+X return(OK);
+X}
+END_OF_FILE
+  if test 3582 -ne `wc -c <'portable/initpair.c'`; then
+    echo shar: \"'portable/initpair.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/initpair.c'
+fi
+if test -f 'portable/longname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/longname.c'\"
+else
+  echo shar: Extracting \"'portable/longname.c'\" \(3294 characters\)
+  sed "s/^X//" >'portable/longname.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	longname
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_longname = "$Header: c:/curses/portable/RCS/longname.c%v 2.0 1992/11/15 03:28:59 MH Rel $";
+X#endif
+X
+X
+X
+X
+X#ifdef	FLEXOS
+Xextern	char*	_flexos_gname();
+X#endif
+X
+Xstatic	char	_display[ 128 ];
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  longname()	- return full terminal type name
+X
+X  X/Open Description:
+X 	This function returns a pointer to a static area containing a
+X 	verbose description of the current terminal.  The maximum length
+X 	of the string is 128 characters.  It is defined only after the
+X 	call to initscr() or newterm().  The area is overwritten by each
+X 	call to newterm() and is not restored by set_term().  The value
+X 	should therefore be saved between calls to newterm(), if
+X 	longname() is going to be used with multiple terminals.
+X
+X  PDCurses Description:
+X 	In addition to the above definition, the form of this string is
+X 	the adapter name (or video card name) and the text resolution.
+X 	This may also be followed by the notation that the video card
+X 	may be a clone, which indicates that the card identification
+X 	maps to more than one unique card.
+X
+X 	e.g. The MDS Genius and the Quadram QuadHPG identify themselves
+X 	in the same manner, but are vastly different in maximum resolution.
+X
+X  X/Open Return Value:
+X 	The longname() function returns a pointer to a verbose description
+X 	of the current terminal on success and the null pointer on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	char* longname( void );
+X 	X/Open Dec '88	char* longname( void );
+X 	BSD Curses	char* longname( void );
+X 	SYS V Curses	char* longname( void );
+X
+X**man-end**********************************************************************/
+X
+Xchar*	longname(void)
+X{
+X#ifdef     OS2
+X	switch	(_cursvar.adapter.adapter)
+X	{
+X	case DISPLAY_CGA:	sprintf(_display, "CGA-%dx%d", LINES, COLS);	  break;
+X	case DISPLAY_MONOCHROME:	sprintf(_display, "MDA-%dx%d", LINES, COLS);	  break;
+X	case DISPLAY_EGA:	sprintf(_display, "EGA-%dx%d", LINES, COLS); break;
+X	case DISPLAY_VGA:	sprintf(_display, "VGA-%dx%d", LINES, COLS); break;
+X	case DISPLAY_8514A:     sprintf(_display, "8514-%dx%d", LINES, COLS);  break;
+X	default:	sprintf(_display, "Unknown-%dx%d", LINES, COLS);  break;
+X	}
+X#else
+X	switch	(_cursvar.adapter)
+X	{
+X	case _CGA:	sprintf(_display, "CGA-%dx%d", LINES, COLS);	  break;
+X	case _MDA:	sprintf(_display, "MDA-%dx%d", LINES, COLS);	  break;
+X	case _EGACOLOR:	sprintf(_display, "EGAColor-%dx%d", LINES, COLS); break;
+X	case _EGAMONO:	sprintf(_display, "EGAMono-%dx%d", LINES, COLS);  break;
+X	case _VGACOLOR:	sprintf(_display, "VGAColor-%dx%d", LINES, COLS); break;
+X	case _VGAMONO:	sprintf(_display, "VGAMono-%dx%d", LINES, COLS);  break;
+X	case _MCGACOLOR:sprintf(_display, "MCGAColor-%dx%d", LINES, COLS);break;
+X	case _MCGAMONO:	sprintf(_display, "MCGAMono-%dx%d", LINES, COLS); break;
+X	case _MDS_GENIUS:sprintf(_display, "Genius-%dx%d", LINES, COLS);  break;
+X#ifdef	FLEXOS
+X	case _FLEXOS:	sprintf(_display, "%s", _cursesgname());	  break;
+X#endif
+X	default:	sprintf(_display, "Unknown-%dx%d", LINES, COLS);  break;
+X	}
+X#endif
+X
+X	if (_cursvar.bogus_adapter)
+X		strcat(_display, " (Clone)");
+X	return (_display);
+X}
+END_OF_FILE
+  if test 3294 -ne `wc -c <'portable/longname.c'`; then
+    echo shar: \"'portable/longname.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/longname.c'
+fi
+if test -f 'portable/pnoutref.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/pnoutref.c'\"
+else
+  echo shar: Extracting \"'portable/pnoutref.c'\" \(3448 characters\)
+  sed "s/^X//" >'portable/pnoutref.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	pnoutrefresh
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_pnoutref = "$Header: c:/curses/portable/RCS/pnoutref.c%v 2.0 1992/11/15 03:29:14 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  pnoutrefresh()	- refresh pad without updating physical screen
+X
+X  X/Open Description:
+X 	The prefresh routine copies the specified pad to the physical
+X 	terminal screen.  It takes account of what is already
+X 	displayed on the screen to optimize cursor movement.
+X
+X 	The pnoutrefresh routine copies the named pad to the virtual
+X 	screen. It then compares the virtual screen with the physical
+X 	screen and performs the actual update.
+X
+X 	These routines are analogous to the routines wrefresh and
+X 	wnoutrefresh except that pads, instead of windows, are
+X 	involved.  Additional parameters are also needed to indicate
+X 	what part of the pad and screen are involved. The upper left
+X 	corner of the part of the pad to be displayed is specified by
+X 	py and px.  The coordinates sy1, sx1, sy2, and sx2 specify the
+X 	edges of the screen rectangle that will contain the selected
+X 	part of the pad.
+X
+X 	The lower right corner of the pad rectangle to be displayed is
+X 	calculated from the screen co-ordinates.  This ensures that
+X 	the screen rectangle and the pad rectangle are the same size.
+X
+X 	Both rectangles must be entirely contained within their
+X 	respective structures.
+X
+X  PDCurses Description:
+X 	Contrary to the statements above, the pnoutrefresh() routine
+X 	will not perform an update to the physical screen.  This task
+X 	is performed by doupdate().
+X
+X  X/Open Return Value:
+X 	The prefresh() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a null WINDOW* pointer.
+X
+X  Portability:
+X 	PDCurses	int pnoutrefresh( WINDOW* w, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X 	X/Open Dec '88	int pnoutrefresh( WINDOW* win, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X 	BSD Curses	int pnoutrefresh( WINDOW* w, int pminrow, int pmincol,
+X 						int sminrow, int smincol,
+X 						int smaxrow, int smaxcol );
+X 	SYS V Curses	int pnoutrefresh( WINDOW* win, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X
+X**man-end**********************************************************************/
+X
+Xint	pnoutrefresh(WINDOW* w,int py,int px,int sy1,int sx1,int sy2,int sx2)
+X{
+Xregister chtype*	dstp;
+Xregister chtype*	srcp;
+X	WINDOW*		s = tmpwin;
+X	int		sline = sy1;
+X	int		pline = py;
+X
+X
+X	if (w == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	while (sline <= sy2)
+X	{
+X		if (pline < w->_maxy)
+X		{
+X#if 	defined(DOS) || defined(OS2)
+X#  if	SMALL || MEDIUM
+X			srcp = &(w->_y[pline][px]);
+X			dstp = &(s->_y[sline][sx1]);
+X			movedata(FP_SEG(srcp), FP_OFF(srcp),
+X				 FP_SEG(dstp), FP_OFF(dstp),
+X				 (sx2 - sx1 + 1) * sizeof(chtype));
+X#  else
+X			memcpy(&(s->_y[sline][sx1]),
+X			       &(w->_y[pline][px]),
+X			       (sx2 - sx1 + 1) * sizeof(chtype));
+X#  endif
+X#endif
+X
+X			if ((s->_firstch[sline] == _NO_CHANGE) ||
+X			    (s->_firstch[sline] > sx1))
+X			{
+X				s->_firstch[sline] = sx1;
+X			}
+X
+X			if (sx2 > s->_lastch[sline])
+X				s->_lastch[sline] = sx2;
+X
+X			w->_firstch[pline] = _NO_CHANGE;  /* updated now */
+X			w->_lastch[pline] = _NO_CHANGE;  /* updated now */
+X		}
+X		sline++;
+X		pline++;
+X	}
+X
+X	if (w->_clear)
+X	{
+X		w->_clear = FALSE;
+X		s->_clear = TRUE;
+X	}
+X	return( OK );
+X}
+END_OF_FILE
+  if test 3448 -ne `wc -c <'portable/pnoutref.c'`; then
+    echo shar: \"'portable/pnoutref.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/pnoutref.c'
+fi
+if test -f 'portable/waddch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/waddch.c'\"
+else
+  echo shar: Extracting \"'portable/waddch.c'\" \(3156 characters\)
+  sed "s/^X//" >'portable/waddch.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	waddch
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_waddch = "$Header: c:/curses/portable/RCS/waddch.c%v 2.0 1992/11/15 03:29:20 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  waddch()	- add character to window
+X
+X  X/Open Description:
+X 	The routine addch inserts the character ch into the default
+X 	window at the current cursor position and the window cursor is
+X 	advanced.  The character is of the type chtype as containing
+X 	both data and attributes.
+X
+X 	The routine waddch inserts the character ch into the specified
+X 	window at the current cursor position.  The cursor position is
+X 	advanced.
+X
+X 	The routine mvaddch moves the cursor to the specified (y, x)
+X 	position and inserts the character ch into the default window.
+X 	The cursor position is advanced after the character has been
+X 	inserted.
+X
+X 	The routine mvwaddch moves the cursor to the specified (y, x)
+X 	position and inserts the character ch into the specified
+X 	window.  The cursor position is advanced after the character
+X 	has been inserted.
+X
+X 	All these routines are similar to putchar.  The following
+X 	information applies to all the routines.
+X
+X 	If the cursor moves on to the right margin, an automatic
+X 	newline is performed.  If scrollok is enabled, and a character
+X 	is added to the bottom right corner of the screen, the
+X 	scrolling region will be scrolled up one line.  If scrolling
+X 	is not allowed, ERR will be returned.
+X
+X 	If ch is a tab, newline, or backspace, the cursor will be
+X 	moved appropriately within the window.  If ch is a newline,
+X 	the clrtoeol routine is called before the cursor is moved to
+X 	the beginning of the next line.  If newline mapping is off,
+X 	the cursor will be moved to the next line, but the x
+X 	coordinate will be unchanged.  If ch is a tab the cursor is
+X 	moved to the next tab position within the window.  If ch is
+X 	another control character, it will be drawn in the ^X
+X 	notation.  Calling the inch routine after adding a control
+X 	character returns the representation of the control character,
+X 	not the control character.
+X
+X 	Video attributes can be combined with a character by ORing
+X 	them into the parameter.  This will result in these attributes
+X 	being set.  The intent here is that text, including
+X 	attributes, can be copied from one place to another using inch
+X 	and addch.
+X
+X 	NOTE: addch(), mvaddch(), and mvwaddch() are macros.
+X
+X  PDCurses Description:
+X 	Depending upon the state of the raw character output, 7- or
+X 	8-bit characters will be output.  NOTE: Needs work before release!
+X
+X  X/Open Return Value:
+X 	The waddch() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int waddch( WINDOW* win, chtype c );
+X 	X/Open Dec '88	int waddch( WINDOW* win, chtype c );
+X 	BSD Curses	int waddch( WINDOW* win, chtype c );
+X 	SYS V Curses	int waddch( WINDOW* win, chtype c );
+X
+X**man-end**********************************************************************/
+X
+Xint	waddch(WINDOW *win, chtype c)
+X{
+X	return( PDC_chadd( win, (chtype)c, !(_cursvar.raw_out), TRUE ) );
+X}
+END_OF_FILE
+  if test 3156 -ne `wc -c <'portable/waddch.c'`; then
+    echo shar: \"'portable/waddch.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/waddch.c'
+fi
+if test -f 'portable/wgetstr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wgetstr.c'\"
+else
+  echo shar: Extracting \"'portable/wgetstr.c'\" \(3103 characters\)
+  sed "s/^X//" >'portable/wgetstr.c' <<'END_OF_FILE'
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wgetstr
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wgetstr = "$Header: c:/curses/portable/RCS/wgetstr.c%v 2.0 1992/11/15 03:29:26 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wgetstr()	- read string
+X
+X  X/Open Description:
+X 	A series of characters are read until a newline or carriage
+X 	return is received.  The resulting value is placed in the area
+X 	pointed to by the character pointer str.  The user's erase and
+X 	kill characters are interpreted.
+X
+X 	NOTE: getstr(), mvgetstr(), and mvwgetstr() are macros.
+X
+X  PDCurses Description:
+X 	The largest string returned will be 255 characters long.
+X 	This can be altered in the library be changing the MAXLINE #define.
+X
+X 	WARNING:  This routine does not interpret the user's ERASE and
+X 		  KILL characters as advertised.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wgetstr( WINDOW* win, char* str );
+X 	X/Open Dec '88	int wgetstr( WINDOW* win, char* str );
+X 	BSD Curses	int wgetstr( WINDOW* win, char* str );
+X 	SYS V Curses	int wgetstr( WINDOW* win, char* str );
+X
+X**man-end**********************************************************************/
+X
+X
+X#define MAXLINE 255
+X
+Xint	wgetstr(WINDOW *win, char *str)
+X{
+X	char	tmp[MAXLINE+1];
+X	char	txt[MAXLINE+1];
+X	char	new_char[2] = {0};
+X	int	ch;
+X	int	chars = strlen(str);
+X	int	sy = win->_cury;
+X	int	sx = win->_curx;
+X	WINDOW*	w;
+X	bool	oldecho;
+X	bool	oldcbreak;
+X	bool	oldnodelay;
+X
+X	if (win == (WINDOW *)NULL)
+X		return (ERR);
+X
+X	w		= win;
+X	c_strbeg	= txt;			/* save for backspacing */
+X	oldcbreak	= _cursvar.cbreak;	/* remember states	 */
+X	oldecho		= _cursvar.echo;
+X	oldnodelay	= w->_nodelay;
+X	_cursvar.echo	= FALSE;		/* we do echo ourselves */
+X	w->_nodelay	= FALSE;		/* don't return -1	 */
+X
+X	strcpy(txt, str);
+X	wprintw(w, str);
+X	wrefresh(w);
+X	ch = wgetch(w);
+X	while (ch != '\n')
+X	{
+X
+X		new_char[0] = (ch & CHR_MSK);
+X		strcat(txt, new_char);
+X		chars++;
+X
+X		switch (ch)
+X		{
+X		case 0x1b:	/* Escape */	/* Terminate String */
+X		case '\r':	/* CTRL-M */
+X		case KEY_ENTER:
+X			chars--;
+X			ch = '\n';
+X			continue;
+X
+X		case 0x04:	/* CTRL-D */	/* Delete character */
+X		case 0x08:	/* CTRL-H */
+X			if (chars > 0)
+X				PDC_backchar(w, txt, &chars);
+X			break;
+X
+X		case 0x17:	/* CTRL-W */	/* Delete word */
+X			chars--;
+X			while ((txt[chars] == ' ') && (chars > 0))
+X				PDC_backchar(w, txt, &chars);
+X
+X			while ((txt[chars] != ' ') && (chars > 0))
+X				PDC_backchar(w, txt, &chars);
+X			break;
+X
+X		case 0x15:	/* CTRL-U */	/* Delete line */
+X		case 0x18:	/* CTRL-X */
+X			chars++;
+X			while (chars > 0)
+X				PDC_backchar(w, txt, &chars);
+X			break;
+X
+X		default:
+X			waddch(w, ch);
+X			wrefresh(w);
+X			break;
+X		}
+X		ch = wgetch(w);
+X	}
+X
+X	memset(str, '\0', MAXLINE+1);
+X#ifdef FLEXOS
+X	_split_plane(w, txt, tmp, sy, sx, w->_cury, w->_curx - 1);
+X#endif
+X	if (strlen(txt) > 0);
+X	strcpy(str, txt);
+X
+X	_cursvar.echo = oldecho;
+X	_cursvar.cbreak = oldcbreak;
+X	win->_nodelay = oldnodelay;
+X	return (OK);
+X}
+END_OF_FILE
+  if test 3103 -ne `wc -c <'portable/wgetstr.c'`; then
+    echo shar: \"'portable/wgetstr.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wgetstr.c'
+fi
+if test -f 'private/_chadd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_chadd.c'\"
+else
+  echo shar: Extracting \"'private/_chadd.c'\" \(4147 characters\)
+  sed "s/^X//" >'private/_chadd.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__chadd = "$Header: c:/curses/private/RCS/_chadd.c%v 2.0 1992/11/15 03:24:16 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_chadd()      - Low level; Put a character to a window
+X
+X  PDCurses Description:
+X        This is a private PDCurses function.
+X
+X        This routine will insert the character 'c' at the current cursor
+X        position in the passed window.
+X
+X        If 'xlat' is TRUE, PDC_chadd() will handle things in a cooked
+X        manner (tabs, newlines, carriage returns, etc).  If 'xlat' is
+X        FALSE, the characters are simply output directly.
+X
+X        If 'advance' is TRUE, PDC_chadd() will move the current cusor position
+X        appropriately. The *addch functions call PDC_chadd() with noadvance TRUE,
+X        while the *insch functions call PDC_chadd() with noadvance FALSE.
+X
+X        The normal curses routines (non-raw-output-mode) call PDC_chadd()
+X        with 'xlat' TRUE.
+X
+X  PDCurses Return Value:
+X        This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X        It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X        PDCurses        int PDC_chadd( WINDOW* win, chtype ch, bool xlat, bool noadvance );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_chadd(register WINDOW *win, chtype ch,bool xlat, bool advance)
+X{
+X	int	retval = ERR;
+X	int	x;
+X	int	y;
+X	int	newx;
+X	chtype	attr;
+X	int	ts;
+X
+X	if (win	== (WINDOW *)NULL)
+X		return(	retval );
+X
+X	x	= win->_curx;
+X	y	= win->_cury;
+X	ts	= win->_tabsize;
+X
+X/* if the incoming character doesn't have its own attribute
+X   then	use the	current	attributes for the window.
+X   if the incoming character has attributes but	not a colour
+X   component, or the attributes	to the current attributes
+X   for the window.
+X   if the incoming character has a colour component use	the
+X   attributes solely from the incoming character */
+X
+X	if ((ch	& A_ATTRIBUTES)	== 0)
+X	   attr	= win->_attrs;
+X	else
+X	   if ((ch & A_COLOR) == 0)
+X	      attr = (ch & A_ATTRIBUTES) | win->_attrs;
+X	   else
+X	      attr = (ch & A_ATTRIBUTES);
+X
+X	ch	= (ch &	A_CHARTEXT);
+X
+X	if ((y > win->_maxy) ||
+X	    (x > win->_maxx) ||
+X	    (y < 0) ||
+X	    (x < 0))
+X	{
+X		return(	retval );
+X	}
+X
+X	if (xlat)
+X	{
+X		switch (ch) {
+X		case '\t':
+X			for (newx = ((x	/ ts) +	1) * ts; x < newx; x++)
+X			{
+X				if (waddch(win,	' ') ==	ERR)
+X				{
+X					return(	retval );
+X				}
+X				/*
+X				 * if tab to next line
+X				 */
+X				if (win->_curx == 0)
+X				{
+X					/*
+X					 * exit	the loop
+X					 */
+X					return(	OK );
+X				}
+X			}
+X			return(	OK );
+X
+X		case '\n':
+X			if (_cursvar.autocr && !(_cursvar.raw_out))
+X			{
+X				/*
+X				 * if lf -> crlf
+X				 */
+X				x = 0;
+X			}
+X			wclrtoeol( win );
+X			if ((y = PDC_newline(win, y)) < 0)
+X				return(	retval );
+X			if (advance)
+X			  {
+X			   win->_cury =	y;
+X			   win->_curx =	x;
+X			  }
+X			return(	OK );
+X
+X		case '\r':
+X			if (advance)
+X			   win->_curx =	x = 0;
+X			return(	OK );
+X
+X		case '\b':
+X			if (--x	< 0)
+X			{
+X				/*
+X				 * no back over	left margin
+X				 */
+X				x = 0;
+X			}
+X			if (advance)
+X			   win->_curx =	x;
+X			return(	OK );
+X
+X		case 0x7f:
+X			if (waddch(win,	'^') ==	ERR)
+X			{
+X				return(	retval );
+X			}
+X			retval = waddch(win, '?');
+X			return(	retval );
+X
+X		default:
+X			break;
+X		}		/* switch */
+X
+X		if (ch < ' ')
+X		{
+X			/*
+X			 * handle control chars
+X			 */
+X			if (waddch(win,	'^') ==	ERR)
+X				return(	retval );
+X
+X			retval = (waddch(win, ch + '@'));
+X			return(	retval );
+X		}
+X	}
+X
+X	/*
+X	 *	Add the	attribute back into the	character.
+X	 */
+X	ch	|= attr;
+X	if (win->_y[y][x] !=	ch)
+X	{
+X		/*
+X		 * only	if data	change
+X		 */
+X		if (win->_firstch[y] ==	_NO_CHANGE)
+X		{
+X			win->_firstch[y] = win->_lastch[y] = x;
+X		}
+X		else
+X		{
+X			if (x <	win->_firstch[y])
+X			{
+X				win->_firstch[y] = x;
+X			}
+X			else
+X			{
+X				if (x >	win->_lastch[y])
+X				{
+X					win->_lastch[y] = x;
+X				}
+X			}
+X		}
+X	}
+X	win->_y[y][x++] = ch;
+X	if (x >= win->_maxx)
+X	{
+X		/*
+X		 * wrap	around test
+X		 */
+X		x = 0;
+X		if ((y = PDC_newline(win, y)) < 0)
+X			return(	retval );
+X	}
+X	if (advance)
+X	  {
+X	   win->_curx =	x;
+X	   win->_cury =	y;
+X	  }
+X	return(	OK );
+X}
+END_OF_FILE
+  if test 4147 -ne `wc -c <'private/_chadd.c'`; then
+    echo shar: \"'private/_chadd.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_chadd.c'
+fi
+if test -f 'private/_clrupda.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_clrupda.c'\"
+else
+  echo shar: Extracting \"'private/_clrupda.c'\" \(3916 characters\)
+  sed "s/^X//" >'private/_clrupda.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__clrupda = "$Header: c:/curses/private/RCS/_clrupda.c%v 2.0 1992/11/15 03:24:28 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_clr_update()	- Updates the screen with a full redraw.
+X
+X  PDCurses Description:
+X 	Updates the screen by clearing it and then redraw it in its
+X 	entirety. If _cursvar.refrbrk is TRUE, and there is pending
+X 	input characters, the update will be prematurely terminated.
+X
+X  PDCurses Return Value:
+X 	This routine returns ERR if it is unable to accomplish it's task.
+X 	This return value is ONLY under FLEXOS.
+X
+X 	The return value OK is returned if there were no errors.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_clr_update( WINDOW* s );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_clr_update(WINDOW *s)
+X{
+Xregister int	i;
+Xregister int	j;
+X	WINDOW*	w;
+X	chtype*	ch;
+X	bool rc;
+X#ifdef	FLEXOS
+X	char	line[80];
+X	char	attr[80];
+X	FFRAME	sframe;
+X	RECT	drect,
+X		srect;
+X#endif
+X	extern unsigned	char atrtab[MAX_ATRTAB];
+X	chtype temp_line[256]; /* this should be enough for the maximum width of a screen. MH-920715 */
+X	chtype chr;
+X
+X	w = curscr;
+X	if (w == (WINDOW *)NULL)
+X		return( ERR );
+X	if (_cursvar.full_redraw)
+X		PDC_clr_scrn(s); /* clear physical screen */
+X
+X	s->_clear = FALSE;
+X	for (i = 0; i < LINES; i++)	/* update physical screen */
+X	{
+X		if (s != w)	/* copy s to curscr */
+X#ifdef	DOS
+X#  if	SMALL || MEDIUM
+X			movedata(FP_SEG(s->_y[i]),
+X				FP_OFF(s->_y[i]),
+X				FP_SEG(w->_y[i]),
+X				FP_OFF(w->_y[i]),
+X				COLS * sizeof(chtype));
+X#  else
+X			memcpy(w->_y[i], s->_y[i], COLS * sizeof(chtype));
+X#  endif
+X#endif
+X#ifdef	OS2
+X			memcpy(w->_y[i], s->_y[i], COLS * sizeof(chtype));
+X#endif
+X
+X	ch = temp_line; /* now have ch pointing to area to contain real attributes. MH-920715 */
+X#ifdef 	DOS
+X#  if	SMALL || MEDIUM
+X		movedata(FP_SEG(s->_y[i]), FP_OFF(s->_y[i]),
+X			FP_SEG(ch), FP_OFF(ch),COLS * sizeof(chtype));
+X#  else
+X		memcpy(ch,s->_y[i],COLS*sizeof(chtype)); /* copy current line to temp_line. MH-920715 */
+X#  endif
+X#else
+X		memcpy(ch,s->_y[i],COLS*sizeof(chtype)); /* copy current line to temp_line. MH-920715 */
+X#endif
+X		for (j=0;j<COLS;j++)          /* for each chtype in the line... */
+X		   {
+X		    chr = temp_line[j] & A_CHARTEXT;
+X		    temp_line[j] = chtype_attr(temp_line[j]) | chr;
+X		   }
+X
+X		if (_cursvar.direct_video)
+X		{
+X#ifdef	FLEXOS
+X			PDC_split_plane(w, &line[0], &attr[0], i, 0, i, COLS);
+X/* need to translate attr[] array to real attributes before displaying it. MH-920715 */
+X			drect.r_row = i;
+X			drect.r_col = 0;
+X			drect.r_nrow = 1;
+X			drect.r_ncol = COLS;
+X
+X			sframe.fr_pl[0] = (UBYTE *) line;
+X			sframe.fr_pl[1] = (UBYTE *) attr;
+X			sframe.fr_nrow = 1;
+X			sframe.fr_ncol = COLS;
+X			sframe.fr_use = 0x03;
+X
+X			srect.r_col = 0;
+X			srect.r_row = 0;
+X			srect.r_nrow = 1;
+X			srect.r_ncol = COLS;
+X
+X			s_copy(0x03, 0x01L, 0L, (far unsigned short *) &drect,
+X				(far unsigned short *) &sframe,
+X				(far unsigned short *) &srect);
+X#endif
+X#ifdef	DOS
+X#  if	SMALL || MEDIUM || MSC
+X			movedata(FP_SEG(ch), FP_OFF(ch),
+X				_cursvar.video_seg,
+X				_cursvar.video_ofs + (i*COLS*sizeof(chtype)),
+X			        (COLS * sizeof(chtype)));
+X#  else
+X			memcpy(MK_FP(_cursvar.video_seg,
+X			  _cursvar.video_ofs + (i * COLS * sizeof(chtype))),
+X			       ch, (COLS * sizeof(chtype)));
+X#  endif
+X#endif
+X#ifdef	OS2
+X				VioWrtCellStr ((PCH)ch, (USHORT)(COLS * sizeof(chtype)), (USHORT)i, 0, 0);
+X#endif
+X		}
+X		else
+X		{
+X			for (j = 0; j < COLS; j++)
+X			{
+X				PDC_gotoxy(i, j);
+X				PDC_putc( (*ch & A_CHARTEXT), (*ch & A_ATTRIBUTES) >> 8 );
+X				ch++;
+X			}
+X		}
+X#if defined(MSC) && defined (DOS)
+X		rc = typeahead(stdin);
+X		if (_cursvar.refrbrk && rc)
+X#else
+X		if (_cursvar.refrbrk && typeahead(stdin))
+X#endif
+X			return( OK );
+X	}
+X	return( OK );
+X}
+END_OF_FILE
+  if test 3916 -ne `wc -c <'private/_clrupda.c'`; then
+    echo shar: \"'private/_clrupda.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_clrupda.c'
+fi
+if test -f 'private/_inswin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_inswin.c'\"
+else
+  echo shar: Extracting \"'private/_inswin.c'\" \(1923 characters\)
+  sed "s/^X//" >'private/_inswin.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifdef	REGISTERWINDOWS
+X#ifndef	NDEBUG
+Xchar *rcsid__inswin = "$Header: c:/curses/private/RCS/_inswin.c%v 2.0 1992/11/15 03:24:27 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  _inswin()	- Register Window with PDCurses for auto refresh
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	This routine inserts the passed window pointer after the specified
+X 	window.	 If the specified window is a (void*)0, then the passed
+X 	window pointer is inserted first in the list.
+X
+X 	If the 'before' window is not on the visible list, then 'win'
+X 	will be insed to the end of the list.
+X
+X 	This is the beginnings of full-tiled window support.  It is _very_
+X 	raw at this point.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	bool	_inswin( WINDOW* win, WINDOW* before );
+X
+X**man-end**********************************************************************/
+X
+Xbool	_inswin(WINDOW *win, WINDOW *before)
+X{
+Xextern	void*	(*mallc)( size_t );
+Xextern	void*	(*callc)( size_t, size_t );
+Xextern	void	(*fre)( void* );
+X
+X	WINDS  *root = _cursvar.visible;
+X	WINDS  *wlst = _findwin(before);
+X	WINDS  *new  = (*mallc)(sizeof(WINDS));
+X
+X	if (new == (WINDS *)NULL)
+X		return( FALSE );
+X
+X	_rmwin(win);
+X	memset(new, 0, sizeof(WINDS));
+X	new->w = win;
+X	if (wlst == (WINDS *)NULL)
+X	{
+X		if (root == (WINDS *)NULL)
+X		{
+X			_cursvar.visible = new;
+X		}
+X		else
+X		{
+X			new->next = root;
+X			root->prev = new;
+X			_cursvar.visible = new;
+X		}
+X	}
+X	else
+X	{
+X		if (wlst == root)
+X		{
+X			new->next = root;
+X			root->prev = new;
+X			_cursvar.visible = new;
+X		}
+X		else
+X		{
+X			new->next = wlst;
+X			new->prev = wlst->prev;
+X			wlst->prev->next = new;
+X			wlst->prev = new;
+X		}
+X	}
+X	return( TRUE );
+X}
+X#endif
+END_OF_FILE
+  if test 1923 -ne `wc -c <'private/_inswin.c'`; then
+    echo shar: \"'private/_inswin.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_inswin.c'
+fi
+if test -f 'private/_makenew.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_makenew.c'\"
+else
+  echo shar: Extracting \"'private/_makenew.c'\" \(3179 characters\)
+  sed "s/^X//" >'private/_makenew.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__makenew = "$Header: c:/curses/private/RCS/_makenew.c%v 2.0 1992/11/15 03:24:28 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_makenew()	- Create a WINDOW* (sans line allocation)
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Allocates all data for a new WINDOW* except the actual lines
+X 	themselves.
+X
+X  PDCurses Return Value:
+X 	This function returns a valid WINDOW* on success and NULL on error.
+X
+X  PDCurses Errors:
+X 	If PDC_makenew() is unable to allocate memory for the window
+X 	structure, it will free all allocated memory and return
+X 	a NULL pointer.
+X
+X  Portability:
+X 	PDCurses	WINDOW* makenew( int num_lines, int num_columns,
+X 					 int begy, int begx );
+X
+X**man-end**********************************************************************/
+X
+XWINDOW*	PDC_makenew(int num_lines, int num_columns, int begy, int begx)
+X{
+Xextern	void*	(*mallc)( size_t );
+Xextern	void*	(*callc)( size_t, size_t );
+Xextern	void	(*fre)( void* );
+X
+X	short	i;
+X	WINDOW *win;
+X
+X	/*
+X	*	Use the standard runtime malloc/calloc package or use
+X	*	the user's emalloc/ecalloc package.
+X	*
+X	*	Allocate the window structure itself
+X	*/
+X	if ((win = (*mallc)(sizeof(WINDOW))) == (WINDOW *)NULL)
+X	{
+X		return( win );
+X	}
+X
+X	/*
+X	* allocate the line pointer array
+X	*/
+X	if ((win->_y = (*callc)(num_lines, sizeof(chtype *))) == NULL)
+X	{
+X		(*fre)(win);
+X		return( (WINDOW *)NULL );
+X	}
+X
+X	/*
+X	* allocate the minchng and maxchng arrays
+X	*/
+X	if ((win->_firstch = (*callc)(num_lines, sizeof(int))) == NULL)
+X	{
+X		(*fre)(win->_y);
+X		(*fre)(win);
+X		return( (WINDOW *)NULL );
+X	}
+X	if ((win->_lastch = (*callc)(num_lines, sizeof(int))) == NULL)
+X	{
+X		(*fre)(win->_firstch);
+X		(*fre)(win->_y);
+X		(*fre)(win);
+X		return( (WINDOW *)NULL );
+X	}
+X
+X	/*
+X	* initialize window variables
+X	*/
+X	win->_curx = 0;
+X	win->_cury = 0;
+X	win->_maxy = num_lines;		/* real max screen size */
+X	win->_maxx = num_columns;	/* real max screen size */
+X	win->_pmaxy = num_lines;	/* real max window size */
+X	win->_pmaxx = num_columns;	/* real max window size */
+X	win->_begy = begy;
+X	win->_begx = begx;
+X	win->_flags = 0;
+X	win->_attrs = 0;		/* No attributes */
+X	win->_tabsize = 8;
+X	win->_clear = (bool) ((num_lines == LINES) && (num_columns == COLS));
+X	win->_leave = FALSE;
+X	win->_scroll = FALSE;
+X	win->_nodelay = FALSE;
+X	win->_use_keypad = FALSE;
+X	win->_use_idl = FALSE;
+X	win->_tmarg = 0;
+X	win->_bmarg = num_lines - 1;
+X	win->_title = NULL;
+X	win->_title_ofs = 1;
+X	win->_title_attr = win->_attrs;
+X	win->_blank = ' ';
+X	win->_parent = NULL;
+X
+X	memset(win->_borderchars, '\0', 8*sizeof(chtype));
+X
+X	/*
+X	* init to say window unchanged
+X	*/
+X	for (i = 0; i < num_lines; i++)
+X	{
+X		win->_firstch[i] = 0;
+X		win->_lastch[i] = num_columns - 1;
+X	}
+X
+X	/*
+X	* set flags for window properties
+X	*/
+X	if ((begy + num_lines) == LINES)
+X	{
+X		win->_flags |= _ENDLINE;
+X		if ((begx == 0) &&
+X		    (num_columns == COLS) &&
+X		    (begy == 0))
+X		{
+X			win->_flags |= _FULLWIN;
+X		}
+X	}
+X
+X	if (((begy + num_lines) == LINES) &&
+X	    ((begx + num_columns) == COLS))
+X	{
+X		win->_flags |= _SCROLLWIN;
+X	}
+X	return( win );
+X}
+END_OF_FILE
+  if test 3179 -ne `wc -c <'private/_makenew.c'`; then
+    echo shar: \"'private/_makenew.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_makenew.c'
+fi
+if test -f 'tools/manext.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tools/manext.c'\"
+else
+  echo shar: Extracting \"'tools/manext.c'\" \(3983 characters\)
+  sed "s/^X//" >'tools/manext.c' <<'END_OF_FILE'
+X/***********************************************************************/
+X/* MANEXT - Extract manual pages from C source code.                   */
+X/***********************************************************************/
+X/*
+X * MANEXT - A program to extract manual pages from C source code.
+X * Copyright (C) 1991,1992 Mark Hessling
+X *
+X * This program is free software; you can redistribute it and/or
+X * modify it under the terms of the GNU General Public License as
+X * published by the Free Software Foundation; either version 2 of
+X * the License, or any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+X * General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program; if not, write to:
+X *
+X *    The Free Software Foundation, Inc.
+X *    675 Mass Ave,
+X *    Cambridge, MA 02139 USA.
+X *
+X *
+X * If you make modifications to this software that you feel increases
+X * it usefulness for the rest of the community, please email the
+X * changes, enhancements, bug fixes as well as any and all ideas to me.
+X * This software is going to be maintained and enhanced as deemed
+X * necessary by the community.
+X *
+X * Mark Hessling                     email: M.Hessling@itc.gu.edu.au
+X * 36 David Road                     Phone: +61 7 849 7731
+X * Holland Park                      Fax:   +61 7 875 7877
+X * QLD 4121
+X * Australia
+X */
+X#include <stdio.h>
+X
+Xvoid display_info();
+X
+X#define MAX_LINE 255
+X
+X/***********************************************************************/
+Xint main(argc,argv)
+Xint argc;
+Xchar *argv[];
+X/***********************************************************************/
+X{
+X char    s[MAX_LINE + 1];        /* input line */
+X register int     i = 0;
+X FILE *fp;
+X char c;
+X char append=0;
+X
+X if (strcmp(argv[1],"-h") == 0)
+X   {
+X    display_info();
+X    exit(1);
+X   }
+X for(i=1;i<argc;i++)
+X    {
+X     if ((fp = fopen(argv[i],"r")) == NULL)
+X       {
+X        fprintf(stderr,"\nCould not open %s\n",argv[i]);
+X        continue;
+X       }
+X     while(1)
+X       {
+X        if (fgets(s, (int)sizeof(s), fp) == NULL)
+X          {
+X	   if (ferror(fp) != 0)
+X             {
+X              fprintf(stderr, "*** Error reading %s.  Exiting.\n",argv[i]);
+X              exit(1);
+X             }
+X	   break;
+X          }
+X
+X        /* check for manual entry marker at beginning of line */
+X        if (strncmp(s, "/*man-start*", 12) != 0)
+X            continue;
+X
+X        /* inner loop */
+X        for (;;)
+X           {
+X            /* read next line of manual entry */
+X	    if (fgets(s, (int)sizeof(s), fp) == NULL)
+X              {
+X	       if (ferror(fp) != 0)
+X		 {
+X		  fprintf(stderr, "*** Error reading %s.  Exiting.\n",argv[i]);
+X		  exit(1);
+X		 }
+X		break;
+X	      }
+X	    /* check for end of entry marker */
+X	    if (strncmp(s, "**man-end", 9) == 0)
+X	       break;
+X
+X	    printf("     %s",s);
+X            }
+X	printf("\n\n\n     --------------------------------------------------------------------------\n");
+X
+X        /* check if end of file */
+X        if (feof(fp) != 0)
+X            break;
+X       }
+X     fclose(fp);
+X    }
+X printf("\n\n\n\n\n");
+X return(0);
+X}
+X/***********************************************************************/
+Xvoid display_info()
+X/***********************************************************************/
+X{
+X/*--------------------------- local data ------------------------------*/
+X/*--------------------------- processing ------------------------------*/
+X
+X fprintf(stderr,"\nMANEXT 1.00 Copyright (C) 1991,1992 Mark Hessling\n");
+X fprintf(stderr,"All rights reserved.\n");
+X fprintf(stderr,"MANEXT is distributed under the terms of the GNU\n");
+X fprintf(stderr,"General Public License and comes with NO WARRANTY.\n");
+X fprintf(stderr,"See the file COPYING for details.\n");
+X fprintf(stderr,"\nUsage: MANEXT sourcefile [...]\n\n");
+X fflush(stderr);
+X return;
+X}
+END_OF_FILE
+  if test 3983 -ne `wc -c <'tools/manext.c'`; then
+    echo shar: \"'tools/manext.c'\" unpacked with wrong size!
+  fi
+  # end of 'tools/manext.c'
+fi
+echo shar: End of archive 5 \(of 11\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

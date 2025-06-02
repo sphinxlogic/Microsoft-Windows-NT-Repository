@@ -1,0 +1,2234 @@
+Newsgroups: comp.sources.misc
+From: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Subject:  v29i102:  zsh2.2 - The Z shell, Part06/17
+Message-ID: <1992May13.155947.8965@sparky.imd.sterling.com>
+X-Md4-Signature: 2b7f2af87640d2a32a75f021876c83aa
+Date: Wed, 13 May 1992 15:59:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Posting-number: Volume 29, Issue 102
+Archive-name: zsh2.2/part06
+Environment: BSD
+Supersedes: zsh2.1: Volume 24, Issue 1-19
+
+#!/bin/sh
+# this is aa.06 (part 6 of zsh2.2)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file zsh2.2/src/builtin.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping zsh2.2/src/builtin.c'
+else
+echo 'x - continuing file zsh2.2/src/builtin.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'zsh2.2/src/builtin.c' &&
+X *
+X * builtin.c - builtin commands
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#include "zsh.h"
+X#include <sys/errno.h>
+X
+X#define makecond() allocnode(N_COND)
+X
+X/* builtin flags */
+X
+X#define BINF_PLUSOPTS		1		/* +xyz legal */
+X#define BINF_R					2		/* this is r (fc -e -) */
+X#define BINF_PRINTOPTS		4
+X#define BINF_SETOPTS			8
+X#define BINF_FCOPTS		  16
+X#define BINF_TYPEOPT      32
+X#define BINF_TYPEOPTS	  (BINF_TYPEOPT|BINF_PLUSOPTS)
+X#define BINF_ECHOPTS      64
+X
+X/* builtin funcs */
+X
+X#define BIN_TYPESET 0
+X#define BIN_BG 1
+X#define BIN_FG 2
+X#define BIN_JOBS 3
+X#define BIN_WAIT 4
+X#define BIN_DISOWN 5
+X#define BIN_BREAK 6
+X#define BIN_CONTINUE 7
+X#define BIN_EXIT 8
+X#define BIN_RETURN 9
+X#define BIN_SHIFT 10
+X#define BIN_CD 11
+X#define BIN_POPD 12
+X#define BIN_PUSHD 13
+X#define BIN_PRINT 14
+X#define BIN_EVAL 15
+X#define BIN_SCHED 16
+X#define BIN_FC 17
+X#define BIN_PUSHLINE 18
+X#define BIN_LOGOUT 19
+X#define BIN_BUILTIN 20
+X#define BIN_TEST 21
+X#define BIN_BRACKET 22
+X
+Xstruct bincmd {
+X	char *name;
+X	int (*handlerfunc) DCLPROTO((char *,char **,char *,int));
+X	int minargs;		/* min # of args */
+X	int maxargs;		/* max # of args, or -1 for no limit */
+X	int flags;			/* BINF_flags (see above) */
+X	int funcid;			/* xbins (see above) for overloaded handlerfuncs */
+X	char *optstr;		/* string of legal options */
+X	char *defopts;		/* options set by default for overloaded handlerfuncs */
+X	};
+X
+X/* structure for foo=bar assignments */
+X
+Xstruct asgment {
+X	struct asgment *next;
+X	char *name,*value;
+X	};
+X
+Xstatic char *auxdata;
+Xstatic int auxlen;
+Xstatic int showflag = 0,showflag2 = 0;
+X
+Xstruct bincmd builtins[] = {
+X	"[",bin_test,0,-1,0,BIN_BRACKET,NULL,NULL,
+X	".",bin_dot,1,-1,0,0,NULL,NULL,
+X	":",bin_colon,0,-1,0,0,NULL,NULL,
+X	"alias",bin_alias,0,-1,0,0,"ga",NULL,
+X	"autoload",bin_typeset,0,-1,BINF_TYPEOPTS,0,"tx","fu",
+X	"bg",bin_fg,0,-1,0,BIN_BG,NULL,NULL,
+X	"bindkey",bin_bindkey,0,-1,0,0,"asvemdrl",NULL,
+X	"break",bin_break,0,1,0,BIN_BREAK,NULL,NULL,
+X	"builtin",NULL,0,0,0,BIN_BUILTIN,NULL,NULL,
+X	"bye",bin_break,0,1,0,BIN_EXIT,NULL,NULL,
+X	"cd",bin_cd,0,2,0,BIN_CD,NULL,NULL,
+X	"chdir",bin_cd,0,2,0,BIN_CD,NULL,NULL,
+X	"compctl",bin_compctl,0,-1,0,0,NULL,NULL,
+X	"continue",bin_break,0,1,0,BIN_CONTINUE,NULL,NULL,
+X	"declare",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZfilrtux",NULL,
+X	"dirs",bin_dirs,0,-1,0,0,"v",NULL,
+X	"disable",bin_disable,1,-1,0,0,NULL,NULL,
+X	"disown",bin_fg,1,-1,0,BIN_DISOWN,NULL,NULL,
+X	"echo",bin_print,0,-1,BINF_PRINTOPTS|BINF_ECHOPTS,BIN_PRINT,"n","-",
+X	"echotc",bin_echotc,1,-1,0,0,NULL,NULL,
+X	"enable",bin_enable,1,-1,0,0,NULL,NULL,
+X	"eval",bin_eval,0,-1,0,BIN_EVAL,NULL,NULL,
+X	"exit",bin_break,0,1,0,BIN_EXIT,NULL,NULL,
+X	"export",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZfilrtu","x",
+X	"false",bin_let,0,0,0,0,NULL,NULL,
+X	"fc",bin_fc,0,-1,BINF_FCOPTS,BIN_FC,"nlreRWAdD",NULL,
+X	"fg",bin_fg,0,-1,0,BIN_FG,NULL,NULL,
+X	"functions",bin_typeset,0,-1,BINF_TYPEOPTS,0,"tu","f",
+X	"getln",bin_read,0,-1,0,0,NULL,"zr",
+X	"getopts",bin_getopts,2,-1,0,0,NULL,NULL,
+X	"hash",bin_hash,2,2,0,0,"r",NULL,
+X	"history",bin_fc,0,-1,0,BIN_FC,"nrdD","l",
+X	"integer",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZlrtux","i",
+X	"jobs",bin_fg,0,-1,0,BIN_JOBS,"lpZ",NULL,
+X	"kill",bin_kill,0,-1,0,0,NULL,NULL,
+X	"let",bin_let,1,-1,0,0,NULL,NULL,
+X	"limit",bin_limit,0,-1,0,0,"sh",NULL,
+X	"local",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZfilrtux",NULL,
+X	"log",bin_log,0,0,0,0,NULL,NULL,
+X	"logout",bin_break,0,1,0,BIN_LOGOUT,NULL,NULL,
+X	"popd",bin_cd,0,2,0,BIN_POPD,NULL,NULL,
+X	"print",bin_print,0,-1,BINF_PRINTOPTS,BIN_PRINT,"RDPnrslzNu0123456789p-",NULL,
+X	"pushd",bin_cd,0,2,0,BIN_PUSHD,NULL,NULL,
+X	"pushln",bin_print,0,-1,BINF_PRINTOPTS,BIN_PRINT,NULL,"-nz",
+X	"pwd",bin_pwd,0,0,0,0,NULL,NULL,
+X	"r",bin_fc,0,-1,BINF_R,BIN_FC,"nrl",NULL,
+X	"read",bin_read,0,-1,0,0,"rzu0123456789p",NULL,
+X	"readonly",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZfiltux","r",
+X	"rehash",bin_rehash,0,0,0,0,"f",NULL,
+X	"return",bin_break,0,1,0,BIN_RETURN,NULL,NULL,
+X	"sched",bin_sched,0,-1,0,0,NULL,NULL,
+X	"set",bin_set,0,-1,BINF_SETOPTS|BINF_PLUSOPTS,0,"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZaefghijklnosuvwxy",NULL,
+X	"setopt",bin_setopt,0,-1,BINF_PLUSOPTS,0,"0123456789BCDEFGHIJKLMNOPQRSTUVWXYZaefghijklmnosuvwxy",NULL,
+X	"shift",bin_break,0,1,0,BIN_SHIFT,NULL,NULL,
+X	"source",bin_dot,1,-1,0,0,NULL,NULL,
+X	"suspend",bin_suspend,0,0,0,0,"f",NULL,
+X	"test",bin_test,0,-1,0,BIN_TEST,NULL,NULL,
+X	"ttyctl",bin_ttyctl,0,0,0,0,"fu",NULL,
+X	"times",bin_times,0,0,0,0,NULL,NULL,
+X	"trap",bin_trap,0,-1,0,0,NULL,NULL,
+X	"true",bin_colon,0,0,0,0,NULL,NULL,
+X	"type",bin_whence,0,-1,0,0,"pfa","v",
+X	"typeset",bin_typeset,0,-1,BINF_TYPEOPTS,0,"LRZfilrtux",NULL,
+X	"ulimit",bin_ulimit,0,1,0,0,"HSacdfmnt",NULL,
+X	"umask",bin_umask,0,1,0,0,NULL,NULL,
+X	"unalias",bin_unalias,1,-1,0,0,NULL,NULL,
+X	"unfunction",bin_unhash,1,-1,0,0,NULL,NULL,
+X	"unhash",bin_unhash,1,-1,0,0,NULL,NULL,
+X	"unlimit",bin_unlimit,0,-1,0,0,"h",NULL,
+X	"unset",bin_unset,1,-1,0,0,NULL,NULL,
+X	"unsetopt",bin_setopt,0,-1,BINF_PLUSOPTS,1,"0123456789BCDEFGHIJKLMNOPQRSTUWXYZabefghijklmnosuvwxy",NULL,
+X	"vared",bin_vared,1,1,0,0,NULL,NULL,
+X	"wait",bin_fg,0,-1,0,BIN_WAIT,NULL,NULL,
+X	"whence",bin_whence,0,-1,0,0,"pvcfa",NULL,
+X	"which",bin_whence,0,-1,0,0,"pa","c",
+X	NULL,NULL,0,0,0,0,NULL,NULL
+X	};
+X
+X/* print options */
+X
+Xstatic void prtopt()
+X{
+Xstruct option *opp;
+X
+X	if (isset(KSHOPTIONPRINT)) {
+X		printf("Current option settings\n");
+X		for (opp = optns; opp->name; opp++)
+X			printf("%-20s%s\n", opp->name,
+X				(opts[opp->id] == OPT_SET) ? "on" : "off");
+X	} else
+X		for (opp = optns; opp->name; opp++)
+X			if (opts[opp->id] == OPT_SET)
+X				puts(opp->name);
+X}
+X
+X/* add builtins to the command hash table */
+X
+Xvoid addbuiltins() /**/
+X{
+Xstruct cmdnam *c;
+Xstruct bincmd *b;
+Xint t0;
+X
+X	for (t0 = 0, b = builtins; b->name; b++,t0++)
+X		{
+X		c = (Cmdnam) zcalloc(sizeof *c);
+X		c->type = BUILTIN;
+X		c->u.binnum = t0;
+X		addhperm(b->name,c,cmdnamtab,freecmdnam);
+X		}
+X}
+X
+X/* enable */
+X
+Xint bin_enable(name,argv,ops,whocares) /**/
+Xchar *name;char **argv;char *ops;int whocares;
+X{
+Xstruct cmdnam *c;
+Xstruct bincmd *b;
+Xint t0,ret = 0;
+X
+X	for (; *argv; argv++)
+X		{
+X		for (t0 = 0, b = builtins; b->name; b++,t0++)
+X			if (!strcmp(*argv,b->name))
+X				break;
+X		if (!b->name)
+X			{
+X			zerrnam(name,"no such builtin: %s",*argv,0);
+X			ret = 1;
+X			}
+X		else
+X			{
+X			c = (Cmdnam) zcalloc(sizeof *c);
+X			c->type = BUILTIN;
+X			c->u.binnum = t0;
+X			addhperm(b->name,c,cmdnamtab,freecmdnam);
+X			}
+X		}
+X	return ret;
+X}
+X
+X/* :, true */
+X
+Xint bin_colon(name,argv,ops,whocares) /**/
+Xchar *name;char **argv;char *ops;int whocares;
+X{
+X	return 0;
+X}
+X
+X/* break, bye, continue, exit, logout, return, shift */
+X
+Xint bin_break(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xint num = -1;
+X
+X	if (*argv)
+X		num = matheval(*argv);
+X	if ((func == BIN_BREAK || func == BIN_CONTINUE) && !loops)
+X		{
+X		if (func == BIN_CONTINUE)
+X			zerrnam(name,"not in loop",NULL,0);
+X		return 1;
+X		}
+X	switch (func)
+X		{
+X		case BIN_CONTINUE:
+X			contflag = 1;
+X		case BIN_BREAK:
+X			breaks = (num == -1) ? 1 : num;
+X			if (breaks > loops) breaks = loops;
+X			break;
+X		case BIN_LOGOUT:
+X			if (!islogin)
+X				{
+X				zerrnam(name,"not login shell",NULL,0);
+X				return 1;
+X				}
+X		case BIN_EXIT:
+X			zexit((num == -1) ? lastval : num);
+X			break;
+X		case BIN_RETURN:
+X			retflag = 1;
+X			return lastval = (num == -1) ? lastval : num;
+X		case BIN_SHIFT:
+X			{
+X			char **s;
+X
+X			if (num == -1)
+X				num = 1;
+X			if (num > arrlen(pparams))
+X				num = arrlen(pparams);
+X			permalloc();
+X			s = arrdup(pparams+num);
+X			heapalloc();
+X			freearray(pparams);
+X			pparams = s;
+X			break;
+X			}
+X		}
+X	return 0;
+X}
+X
+X/* bg, disown, fg, jobs, wait */
+X
+Xint bin_fg(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xint job,lng,firstjob = -1,retval = 0;
+X
+X	if (ops['Z']) { if (*argv) strcpy(hackzero,*argv); return 0; }
+X	lng = (ops['l']) ? 1 : (ops['p']) ? 2 : 0;
+X	if ((func == BIN_FG || func == BIN_BG) && !jobbing)
+X		{
+X		zerrnam(name,"no job control in this shell.",NULL,0);
+X		return 1;
+X		}
+X	if (unset(NOTIFY)) scanjobs();
+X	if (!(jobtab[curjob].stat & STAT_INUSE))
+X		{
+X		curjob = prevjob; setprevjob();
+X		if (!(jobtab[curjob].stat & STAT_INUSE))
+X			curjob = prevjob; setprevjob();
+X		}
+X	if (func == BIN_JOBS)
+X		stopmsg = 2;
+X	if (!*argv)
+X		if (func == BIN_FG || func == BIN_BG)
+X			{
+X			if (curjob == -1 || curjob == thisjob)
+X				{
+X				zerrnam(name,"no current job",NULL,0);
+X				return 1;
+X				}
+X			firstjob = curjob;
+X			}
+X		else if (func == BIN_JOBS)
+X			{
+X			for (job = 0; job != MAXJOB; job++)
+X				if (job != thisjob && jobtab[job].stat)
+X					printjob(job+jobtab,lng);
+X			return 0;
+X			}
+X		else
+X			{
+X			for (job = 0; job != MAXJOB; job++)
+X				if (job != thisjob && jobtab[job].stat)
+X					waitjob(job);
+X			return lastval;
+X			}
+X	for (; (firstjob != -1) || *argv; ( void ) (*argv && argv++))
+X		{
+X		int stopped,ocj = thisjob;
+X
+X		if (func == BIN_WAIT && isanum(*argv)) {
+X			waitforpid((long) atoi(*argv));
+X			retval = lastval;
+X			thisjob = ocj;
+X			continue;
+X		}
+X		job = (*argv) ? getjob(*argv,name) : firstjob;
+X		firstjob = -1;
+X		if (job == -1)
+X			break;
+X		if (!(jobtab[job].stat & STAT_INUSE))
+X			{
+X			zerrnam(name,"no such job: %d",0,job);
+X			return 1;
+X			}
+X		switch (func)
+X			{
+X			case BIN_FG:
+X			case BIN_BG:
+X				if (stopped = (jobtab[job].stat & STAT_STOPPED))
+X					makerunning(jobtab+job);
+X				else if (func == BIN_BG)
+X					{
+X					zerrnam(name,"job already in background",NULL,0);
+X					thisjob = ocj;
+X					return 1;
+X					}
+X				if (curjob == job)
+X					{
+X					curjob = prevjob;
+X					prevjob = (func == BIN_BG) ? -1 : job;
+X					}
+X				if (prevjob == job)
+X					prevjob = -1;
+X				if (prevjob == -1)
+X					setprevjob();
+X				if (curjob == -1)
+X					{
+X					curjob = prevjob;
+X					setprevjob();
+X					}
+X				printjob(jobtab+job,(stopped) ? -1 : 0);
+X				if (func == BIN_FG)
+X					{
+X					thisjob = job;
+X					if (strcmp(jobtab[job].pwd,pwd))
+X						{
+X						printf("(pwd : ");
+X						printdir(jobtab[job].pwd);
+X						printf(")\n");
+X						}
+X					fflush(stdout);
+X					attachtty(jobtab[job].gleader);
+X					}
+X				if (stopped)
+X					killpg(jobtab[job].gleader,SIGCONT);
+X				if (func == BIN_FG)
+X					waitjobs();
+X				break;
+X			case BIN_JOBS:
+X				printjob(job+jobtab,lng);
+X				break;
+X			case BIN_WAIT:
+X				waitjob(job);
+X				retval = lastval;
+X				break;
+X			case BIN_DISOWN:
+X				{
+X				static struct job zero;
+X				jobtab[job] = zero;
+X				break;
+X				}
+X			}
+X		thisjob = ocj;
+X		}
+X	return retval;
+X}
+X
+X/* false, let */
+X
+Xint bin_let(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xlong val = 0;
+X
+X	while (*argv)
+X		val = matheval(*argv++);
+X	return !val;
+X}
+X
+X/* print the directory stack */
+X
+Xstatic void pdstack()
+X{
+XLknode node;
+X
+X	printdir(pwd);
+X	for (node = firstnode(dirstack); node; incnode(node))
+X		{
+X		putchar(' ');
+X		printdir(getdata(node));
+X		}
+X	putchar('\n');
+X}
+X
+X/* exit the shell */
+X
+Xint zexit(val) /**/
+Xint val;
+X{
+X	if (isset(MONITOR))
+X		if (!stopmsg) {
+X			checkjobs();
+X			if (stopmsg) {
+X				stopmsg = 2;
+X				return 1;
+X			}
+X		} else killrunjobs();
+X	savehistfile(getsparam("HISTFILE"),0,0);
+X	if (islogin && unset(NORCS))
+X		sourcehome(".zlogout");
+X	if (sigtrapped[SIGEXIT])
+X		dotrap(SIGEXIT);
+X	exit(val); return 0;
+X}
+X
+X/* identify an option name */
+X
+Xint optlookup(s) /**/
+Xchar *s;
+X{
+Xchar *t;
+Xstruct option *o;
+X
+X	t = s = strdup(s);
+X	while (*t)
+X		if (*t == '_')
+X			chuck(t);
+X		else {
+X			*t = tulower(*t);
+X			t++;
+X		}
+X	for (o = optns; o->name; o++)
+X		if (!strcmp(o->name,s))
+X			return o->id;
+X	return -1;
+X}
+X
+X/* setopt, unsetopt */
+X
+Xint bin_setopt(nam,args,ops,isun) /**/
+Xchar *nam;char **args;char *ops;int isun;
+X{
+Xstruct option *opp;
+Xint c;
+X
+X	if (!ops['@'] && !*args) {
+X		if (!isun)
+X			prtopt();
+X		return 0;
+X	}
+X	for (opp = optns; opp->name; opp++)
+X		if (ops[opp->id] == 1+isun)
+X			opts[opp->id] = OPT_SET;
+X		else if (ops[opp->id] == 2-isun)
+X			opts[opp->id] = OPT_UNSET;
+X	while (*args) {
+X		c = optlookup(*args++);
+X		if (c != -1) {
+X			if (c == INTERACTIVE || c == MONITOR)
+X				zerrnam(nam,"can't change that option",NULL,0);
+X			else
+X				opts[c] = (isun) ? OPT_UNSET : OPT_SET;
+X		} else {
+X			zerrnam(nam,"no such option: %s",args[-1],0);
+X			return 1;
+X		}
+X	}
+X	return 0;
+X}
+X
+X/* execute func on each member of the hash table ht */
+X
+Xvoid listhtable(ht,func) /**/
+XHashtab ht;HFunc func;
+X{
+Xint t0;
+Xstruct hashnode *hn;
+X
+X	for (t0 = ht->hsize-1; t0 >= 0; t0--)
+X		for (hn = ht->nodes[t0]; hn; hn = hn->next)
+X			func(hn->nam,(char *) hn);
+X}
+X
+X/* print a shell function (used with listhtable) */
+X
+Xvoid pshfunc(s,cc) /**/
+Xchar *s;Cmdnam cc;
+X{
+Xchar *t;
+X
+X	if (cc->type != SHFUNC)
+X		return;
+X	if (showflag && (cc->flags & showflag2) != showflag2)
+X		return;
+X	if (cc->flags & PMFLAG_u)
+X		printf("undefined ");
+X	if (cc->flags & PMFLAG_t)
+X		printf("traced ");
+X	if (!cc->u.list || !showflag) {
+X		printf("%s ()\n",s);
+X		return;
+X	}
+X	t = getpermtext((vptr) (cc->u.list));
+X	printf("%s () {\n\t%s\n}\n",s,t);
+X	free(t);
+X}
+X
+Xvoid niceprint(s) /**/
+Xchar *s;
+X{
+X	niceprintf(s,stdout);
+X}
+X
+Xvoid niceprintf(s,f) /**/
+Xchar *s;FILE *f;
+X{
+X	for (; *s; s++)
+X		{
+X		if (isprint(*s))
+X			fputc(*s,f);
+X		else if (*s == '\n')
+X			{
+X			putc('\\',f);
+X			putc('n',f);
+X			}
+X		else
+X			{
+X			putc('^',f);
+X			fputc(*s | 0x40,f);
+X			}
+X		}
+X}
+X
+Xint bin_umask(nam,args,ops,func) /**/
+Xchar *nam;char **args;char *ops;int func;
+X{
+Xint um;
+Xchar *s = *args;
+X
+X	um = umask(0);
+X	umask(um);
+X	if (!s)
+X		{
+X		printf("%03o\n",um);
+X		return 0;
+X		}
+X	if (idigit(*s))
+X		{
+X		um = zstrtol(s,&s,8);
+X		if (*s)
+X			{
+X			zerrnam(nam,"bad umask",NULL,0);
+X			return 1;
+X			}
+X		}
+X	else
+X		{
+X		int whomask,op,mask;
+X
+X		for (;;)
+X			{
+X			if (*s == 'u')
+X				s++, whomask = 0100;
+X			else if (*s == 'g')
+X				s++, whomask = 0010;
+X			else if (*s == 'o')
+X				s++, whomask = 0001;
+X			else
+X				whomask = 0111;
+X			op = *s++;
+X			if (!(op == '+' || op == '-' || op == '='))
+X				{
+X				zerrnam(nam,"bad symbolic mode operator: %c",NULL,op);
+X				return 1;
+X				}
+X			mask = whomask;
+X			if (*s == 'r')
+X				mask *= 04;
+X			else if (*s == 'w')
+X				mask *= 02;
+X			else if (*s != 'x')
+X				{
+X				zerrnam(nam,"bad symbolic mode permission: %c",NULL,*s);
+X				return 1;
+X				}
+X			if (op == '+')
+X				um |= mask;
+X			else if (op == '-')
+X				um &= ~mask;
+X			else /* op == '=' */
+X				um = (um & ~(whomask*07)) | mask;
+X			if (*++s == ',')
+X				s++;
+X			else
+X				break;
+X			}
+X		if (*s)
+X			{
+X			zerrnam(nam,"bad character in symbolic mode: %c",NULL,*s);
+X			return 1;
+X			}
+X		}
+X	umask(um);
+X	return 0;
+X}
+X
+X/* type, whence, which */
+X
+Xint bin_whence(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xstruct cmdnam *chn;
+Xstruct alias *a;
+Xint retval = 0;
+Xint csh = ops['c'],all = ops['a'];
+Xint v = ops['v'] || csh;
+Xchar *cnam;
+X
+X	for (; *argv; argv++) {
+X		if (!ops['p'] && (a = (Alias) gethnode(*argv,aliastab))) {
+X			if (a->cmd < 0)
+X				printf((csh) ? "%s: shell reserved word\n" :
+X					(v) ? "%s is a reserved word\n" : "%s\n",*argv);
+X			else if (!v)
+X				puts(a->text);
+X			else if (a->cmd)
+X				printf((csh) ? "%s: aliased to %s\n" :
+X					"%s is an alias for %s\n",*argv,a->text);
+X			else
+X				printf((csh) ? "%s: globally aliased to %s\n" :
+X					"%s is a global alias for %s\n",*argv,a->text);
+X			retval = 0;
+X			if (!all) continue;
+X		}
+X		if (!ops['p'] && (chn = (Cmdnam) gethnode(*argv,cmdnamtab)) &&
+X				(chn->type == SHFUNC || chn->type == BUILTIN)) {
+X			if (chn->type == SHFUNC) {
+X				if (csh || ops['f']) {
+X					showflag = 1; showflag2 = 0;
+X					pshfunc(*argv,chn);
+X				} else {
+X					printf((v) ? "%s is a function\n" : "%s\n",*argv);
+X				}
+X			} else
+X				printf((csh) ? "%s: shell built-in command\n" :
+X					(v) ? "%s is a shell builtin\n" : "%s\n",*argv);
+X			retval = 0;
+X			if (!all) continue;
+X		}
+X		if (all) {
+X			char **pp,buf[MAXPATHLEN],*z;
+X			for (pp = path; *pp; pp++) {
+X				z = buf;
+X				strucpy(&z,*pp);
+X				*z++ = '/';
+X				strcpy(z,*argv);
+X				if (iscom(buf)) {
+X					if (v && !csh) printf("%s is %s\n",*argv,buf);
+X					else puts(buf);
+X					retval = 0;
+X				}
+X			}
+X		} else if (!(cnam = findcmd(*argv))) {
+X			if (v) printf("%s not found\n",*argv);
+X			retval = 1;
+X			break;
+X		} else {
+X			if (v && !csh) printf("%s is %s\n",*argv,cnam);
+X			else puts(cnam);
+X			retval = 0;
+X		}
+X	}
+X	return retval;
+X}
+X
+X/* cd, chdir, pushd, popd */
+X
+Xint bin_cd(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xchar *dest;
+X
+X	if (func == BIN_CD && isset(AUTOPUSHD))
+X		func = BIN_PUSHD;
+X	dest = cd_get_dest(nam,argv,ops,func);
+X	if (!dest) return 1;
+X	dest = cd_do_chdir(nam,dest);
+X	if (!dest) return 1;
+X	cd_new_pwd(func,dest);
+X	return 0;
+X}
+X
+Xchar *cd_get_dest(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xchar *dest;
+X
+X	if (!argv[0])
+X		if (func == BIN_CD || (func == BIN_PUSHD && isset(PUSHDTOHOME)
+X				|| !full(dirstack)))
+X			dest = home;
+X		else
+X			dest = getnode(dirstack);
+X	else if (!argv[1]) {
+X		Lknode n;
+X		int dd;
+X
+X		if (argv[0][1] && argv[0][0] == (isset(PUSHDMINUS) ? '-' : '+')) {
+X			dd = atoi(argv[0]+1)-1;
+X			if (dd < 0) {
+X				zerrnam(nam,"bad directory specification",NULL,0);
+X				return NULL;
+X			}
+X			for (n = firstnode(dirstack); n && dd; dd--, incnode(n));
+X			if (!n) {
+X				zerrnam(nam,"no such entry in dir stack",NULL,0);
+X				return NULL;
+X			}
+X			dest = remnode(dirstack,n);
+X		} else if (argv[0][1] && argv[0][0] == (isset(PUSHDMINUS) ? '+' : '-')) {
+X			dd = atoi(argv[0]+1);
+X			for (n = lastnode(dirstack); n != (Lknode) dirstack && dd;
+X					dd--, n = prevnode(n));
+X			if (n == (Lknode) dirstack) {
+X				zerrnam(nam,"no such entry in dir stack",NULL,0);
+X				return NULL;
+X			}
+X			dest = remnode(dirstack,n);
+X		} else {
+X			if (!strcmp(argv[0],"-")) printdircr(dest = oldpwd);
+X			else dest = argv[0];
+X		}
+X	} else {
+X		char *u;
+X		int len1,len2,len3;
+X
+X		if (!(u = ztrstr(pwd,argv[0]))) {
+X			zerrnam(nam,"string not in pwd: %s",argv[0],0);
+X			return NULL;
+X		}
+X		len1 = strlen(argv[0]);
+X		len2 = strlen(argv[1]);
+X		len3 = u-pwd;
+X		dest = alloc(len3+len2+strlen(u+len1)+1);
+X		strncpy(dest,pwd,len3);
+X		strcpy(dest+len3,argv[1]);
+X		strcat(dest,u+len1);
+X		printdircr(dest);
+X	}
+X	return dest;
+X}
+X
+Xchar *cd_do_chdir(cnam,dest) /**/
+Xchar *cnam; char *dest;
+X{
+Xint hasdot = 0, eno = ENOENT;
+Xchar **pp,*ret;
+X
+X	if (*dest == '/') {
+X		if (ret = cd_try_chdir(NULL,dest)) return ret;
+X		zerrnam(cnam,"%e: %s",dest,errno);
+X		return NULL;
+X	}
+X	for (pp = cdpath; *pp; pp++)
+X		if ((*pp)[0] == '.' && (*pp)[1] == '\0') hasdot = 1;
+X	if (!hasdot) {
+X		if (ret = cd_try_chdir(NULL,dest)) return ret;
+X		if (errno != ENOENT) eno = errno;
+X	}
+X	for (pp = cdpath; *pp; pp++) {
+X		if (ret = cd_try_chdir(*pp,dest)) {
+X			if (strcmp(*pp,".")) {
+X				printdircr(ret);
+X			}
+X			return ret;
+X		}
+X		if (errno != ENOENT) eno = errno;
+X	}
+X	if (isset(CDABLEVARS)) {
+X		char *s = getsparam(dest);
+X		if (s && *s == '/' && chdir(s) != -1) {
+X			printdircr(s);
+X			return s;
+X		}
+X		if (errno != ENOENT) eno = errno;
+X	}
+X	zerrnam(cnam,"%e: %s",dest,eno);
+X	return NULL;
+X}
+X
+Xchar *cd_try_chdir(pfix,dest) /**/
+Xchar *pfix; char *dest;
+X{
+Xstatic char buf[MAXPATHLEN], buf2[MAXPATHLEN];
+Xchar *s;
+Xint dotsct;
+X
+X	if (pfix) sprintf(buf,"%s/%s",(!strcmp("/",pfix)) ? "" : pfix,dest); 
+X	else strcpy(buf,dest);
+X	dotsct = fixdir(buf2,buf);
+X	if (buf2[0] == '/') return (chdir(buf2) == -1) ? NULL : buf2;
+X	if (!dotsct) {
+X		if (chdir((*buf2) ? buf2 : ".") == -1) return NULL;
+X		if (*buf2) sprintf(buf,"%s/%s",(!strcmp("/",pwd)) ? "" : pwd,buf2);
+X		else strcpy(buf,pwd);
+X		return buf;
+X	}
+X	strcpy(buf,pwd);
+X	s = buf+strlen(buf)-1;
+X	while (dotsct--) while (s != buf) if (*--s == '/') break;
+X	if (s == buf || *buf2) s++;
+X	strcpy(s,buf2);
+X	if (chdir(buf) != -1 || chdir(dest) != -1) return buf;
+X	return NULL;
+X}
+X
+Xint fixdir(d,s) /**/
+Xchar *d; char *s;
+X{
+Xint ct = 0;
+Xchar *d0 = d;
+X
+X#ifdef HAS_RFS
+X	if (*s == '/' && s[1] == '.' && s[2] == '.') {
+X		*d++ = '/'; *d++ = '.'; *d++ = '.';
+X		s += 3;
+X	}
+X#endif
+X	for (;;) {
+X		if (*s == '/') {
+X			*d++ = *s++;
+X			while (*s == '/') s++;
+X		}
+X		if (!*s) {
+X			while (d > d0+1 && d[-1] == '/') d--;
+X			*d = '\0';
+X			return ct;
+X		}
+X		if (s[0] == '.' && s[1] == '.' && (s[2] == '\0' || s[2] == '/')) {
+X			if (d > d0+1) {
+X				for (d--; d > d0+1 && d[-1] != '/'; d--);
+X			} else ct++;
+X			s += 2; if (*s) s++;
+X		} else if (s[0] == '.' && (s[1] == '/' || s[1] == '\0')) {
+X			s++; if (*s) s++;
+X		} else {
+X			while (*s != '/' && *s != '\0') *d++ = *s++;
+X		}
+X	}
+X}
+X
+Xvoid cd_new_pwd(func,s) /**/
+Xint func; char *s;
+X{
+XParam pm;
+XList l;
+X
+X	oldpwd = pwd;
+X	if (isset(CHASELINKS))
+X		pwd = findpwd(s);
+X	else
+X		pwd = ztrdup(s);
+X	if ((pm = gethnode("PWD", paramtab)) &&
+X		 (pm->flags & PMFLAG_x) && pm->env)
+X		pm->env = replenv(pm->env,pwd);
+X	if ((pm = gethnode("OLDPWD", paramtab)) &&
+X		 (pm->flags & PMFLAG_x) && pm->env)
+X		pm->env = replenv(pm->env,oldpwd);
+X	if (func == BIN_PUSHD) {
+X		permalloc();
+X		if (isset(PUSHDIGNOREDUPS)) {
+X			Lknode n;
+X			for (n = firstnode(dirstack); n; incnode(n))
+X				if (!strcmp(oldpwd,getdata(n))) {
+X					free(remnode(dirstack,n)); break;
+X				}
+X		}
+X		pushnode(dirstack,oldpwd);
+X		heapalloc();
+X	}
+X	if (unset(PUSHDSILENT) && func != BIN_CD && isset(INTERACTIVE))
+X		pdstack();
+X	if (l = getshfunc("chpwd")) {
+X		fflush(stdout); fflush(stderr);
+X		doshfuncnoval(dupstruct(l),NULL,0);
+X	}
+X	if (dirstacksize != -1 && countnodes(dirstack) >= dirstacksize) {
+X		if (dirstacksize < 2)
+X			dirstacksize = 2;
+X		else
+X			free(remnode(dirstack,lastnode(dirstack)));
+X	}
+X}
+X
+Xvoid convertwd(s,t,off) /**/
+Xchar *s; char *t; int off;
+X{
+Xchar *u,*start;
+X
+X	*t++ = '/';
+X	start = t;
+X	while (off--) *t++ = *s++;
+X	for (;;) {
+X		while (*s == '/') s++;
+X		for (u = s; *u && *u != '/'; u++);
+X		if (!strncmp(s,".",u-s)) {
+X			;
+X		} else if (!strncmp(s,"..",u-s)) {
+X			while (t != start && *--t != '/');
+X		} else {
+X			if (t != start) *t++ = '/';
+X			struncpy(&t,s,u-s);
+X		}
+X		if (!*u) break;
+X		s = u;
+X	}
+X	*t = '\0';
+X}
+X
+Xint bin_rehash(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+X	newcmdnamtab();
+X	if (ops['f']) fullhash();
+X	return 0;
+X}
+X
+Xint bin_hash(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xstruct cmdnam *chn;
+X
+X	chn = (Cmdnam) zcalloc(sizeof *chn);
+X	chn->type = EXCMD;
+X	chn->pcomp = NULL; /* this is probably a bug ! */
+X	chn->u.nam = ztrdup(argv[1]);
+X	addhnode(ztrdup(argv[0]),chn,cmdnamtab,freecmdnam);
+X	return 0;
+X}
+X
+X/* != 0 if s is a prefix of t */
+X
+Xint prefix(s,t) /**/
+Xchar *s;char *t;
+X{
+X	while (*s && *t && *s == *t) s++,t++;
+X	return (!*s);
+X}
+X
+X/* convert %%, %1, %foo, %?bar? to a job number */
+X
+Xint getjob(s,prog) /**/
+Xchar *s;char *prog;
+X{
+Xint t0,retval;
+X
+X	if (*s != '%')
+X		goto jump;
+X	s++;
+X	if (*s == '%' || *s == '+' || !*s)
+X		{
+X		if (curjob == -1)
+X			{
+X			zerrnam(prog,"no current job",NULL,0);
+X			retval = -1; goto done;
+X			}
+X		retval = curjob; goto done;
+X		}
+X	if (*s == '-')
+X		{
+X		if (prevjob == -1)
+X			{
+X			zerrnam(prog,"no previous job",NULL,0);
+X			retval = -1; goto done;
+X			}
+X		retval = prevjob; goto done;
+X		}
+X	if (idigit(*s))
+X		{
+X		t0 = atoi(s);
+X		if (t0 && t0 < MAXJOB && jobtab[t0].stat && t0 != thisjob)
+X			{ retval = t0; goto done; }
+X		zerrnam(prog,"no such job",NULL,0);
+X		retval = -1; goto done;
+X		}
+X	if (*s == '?')
+X		{
+X		struct process *pn;
+X
+X		for (t0 = MAXJOB-1; t0 >= 0; t0--)
+X			if (jobtab[t0].stat && t0 != thisjob)
+X				for (pn = jobtab[t0].procs; pn; pn = pn->next)
+X					if (ztrstr(pn->text,s+1))
+X						{ retval = t0; goto done; }
+X		zerrnam(prog,"job not found: %s",s,0);
+X		retval = -1; goto done;
+X		}
+Xjump:
+X	if ((t0 = findjobnam(s)) != -1)
+X		{ retval = t0; goto done; }
+X	zerrnam(prog,"job not found: %s",s,0);
+X	retval = -1;
+Xdone:
+X	return retval;
+X}
+X
+X/* find a job named s */
+X
+Xint findjobnam(s) /**/
+Xchar *s;
+X{
+Xint t0;
+X
+X	for (t0 = MAXJOB-1; t0 >= 0; t0--)
+X		if (jobtab[t0].stat && jobtab[t0].procs && t0 != thisjob && 
+X				jobtab[t0].procs->text && prefix(s,jobtab[t0].procs->text))
+X			return t0;
+X	return -1;
+X}
+X
+Xint isanum(s) /**/
+Xchar *s;
+X{
+X	while (*s == '-' || idigit(*s)) s++;
+X	return *s == '\0';
+X}
+X
+Xint bin_kill(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xint sig = SIGTERM;
+Xint retval = 0;
+X
+X	if (*argv && **argv == '-') {
+X		if (idigit((*argv)[1]))
+X			sig = atoi(*argv+1);
+X		else {
+X			if ((*argv)[1] == 'l' && (*argv)[2] == '\0') {
+X				printf("%s",sigs[1]);
+X				for (sig = 2; sig != SIGCOUNT; sig++)
+X					printf(" %s",sigs[sig]);
+X				putchar('\n');
+X				return 0;
+X			}
+X			for (sig = 0; sig != SIGCOUNT; sig++)
+X				if (!strcmp(sigs[sig],*argv+1)) break;
+X			if (sig == SIGCOUNT) {
+X				zerrnam(nam,"unknown signal: SIG%s",*argv+1,0);
+X				zerrnam(nam,"type kill -l for a List of signals",NULL,0);
+X				return 1;
+X			}
+X		}
+X		argv++;
+X	}
+X	for (; *argv; argv++) {
+X		if (**argv == '%') {
+X			int p = getjob(*argv,"kill");
+X
+X			if (p == -1) {
+X				retval = 1;
+X				continue;
+X			}
+X			if (killjb(jobtab+p,sig) == -1) {
+X				zerrnam("kill","kill failed: %e",NULL,errno);
+X				retval = 1;
+X				continue;
+X			}
+X			if (jobtab[p].stat & STAT_STOPPED) {
+X				if (sig == SIGCONT)
+X					jobtab[p].stat &= ~STAT_STOPPED;
+X				if (sig != SIGKILL && sig != SIGCONT && sig != SIGTSTP
+X						&& sig != SIGTTOU && sig != SIGTTIN && sig != SIGSTOP)
+X					killjb(jobtab+p,SIGCONT);
+X			}
+X		} else if (!isanum(*argv)) {
+X			zerrnam("kill","illegal pid: %s",*argv,0);
+X		} else if (kill(atoi(*argv),sig) == -1) {
+X				zerrnam("kill","kill failed: %e",NULL,errno);
+X				retval = 1;
+X		}
+X	}
+X	return 0;
+X}
+X
+Xstatic char *recs[] = {
+X	"cputime","filesize","datasize","stacksize","coredumpsize",
+X	"resident","descriptors"
+X	};
+X
+Xint bin_limit(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+X#ifndef RLIM_INFINITY
+X	zerrnam(nam,"not available on this system",NULL,0);
+X	return 1;
+X#else
+Xchar *s;
+Xint hard = ops['h'],t0,lim;
+Xlong val;
+X
+X	if (ops['s'])
+X		{
+X		if (*argv)
+X			zerrnam(nam,"arguments after -s ignored",NULL,0);
+X		for (t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X			if (setrlimit(t0,limits+t0) < 0)
+X				zerrnam(nam,"setrlimit failed: %e",NULL,errno);
+X		return 0;
+X		}
+X	if (!*argv)
+X		{
+X		showlimits(hard,-1);
+X		return 0;
+X		}
+X	while (s = *argv++)
+X		{
+X		for (lim = -1, t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X			if (!strncmp(recs[t0],s,strlen(s)))
+X				{
+X				if (lim != -1)
+X					lim = -2;
+X				else
+X					lim = t0;
+X				}
+X		if (lim < 0)
+X			{
+X			zerrnam("limit",
+X				(lim == -2) ? "ambiguous resource specification: %s"
+X								: "no such resource: %s",s,0);
+X			return 1;
+X			}
+X		if (!(s = *argv++))
+X			{
+X			showlimits(hard,lim);
+X			return 0;
+X			}
+X		if (!lim)
+X			{
+X			val = zstrtol(s,&s,10);
+X			if (*s)
+X				if ((*s == 'h' || *s == 'H') && !s[1])
+X					val *= 3600L;
+X				else if ((*s == 'm' || *s == 'M') && !s[1])
+X					val *= 60L;
+X				else if (*s == ':')
+X					val = val*60+zstrtol(s+1,&s,10);
+X				else
+X					{
+X					zerrnam("limit","unknown scaling factor: %s",s,0);
+X					return 1;
+X					}
+X			}
+X#ifdef RLIMIT_NOFILE
+X		else if (lim == RLIMIT_NOFILE)
+X			val = zstrtol(s,&s,10);
+X#endif
+X		else
+X			{
+X			val = zstrtol(s,&s,10);
+X			if (!*s || ((*s == 'k' || *s == 'K') && !s[1]))
+X				val *= 1024L;
+X			else if ((*s == 'M' || *s == 'm') && !s[1])
+X				val *= 1024L*1024;
+X			else
+X				{
+X				zerrnam("limit","unknown scaling factor: %s",s,0);
+X				return 1;
+X				}
+X			}
+X		if (hard)
+X			if (val > limits[lim].rlim_max && geteuid())
+X				{
+X				zerrnam("limit","can't raise hard limits",NULL,0);
+X				return 1;
+X				}
+X			else
+X				{
+X				limits[lim].rlim_max = val;
+X				if (limits[lim].rlim_max < limits[lim].rlim_cur)
+X					limits[lim].rlim_cur = limits[lim].rlim_max;
+X				}
+X		else
+X			if (val > limits[lim].rlim_max)
+X				{
+X				zerrnam("limit","limit exceeds hard limit",NULL,0);
+X				return 1;
+X				}
+X			else
+X				limits[lim].rlim_cur = val;
+X		}
+X	return 0;
+X#endif
+X}
+X
+Xint bin_unlimit(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+X#ifndef RLIM_INFINITY
+X	zerrnam(nam,"not available on this system",NULL,0);
+X	return 1;
+X#else
+Xint hard = ops['h'],t0,lim;
+X
+X	if (hard && geteuid())
+X		{
+X		zerrnam(nam,"can't remove hard limits",NULL,0);
+X		return 1;
+X		}
+X	if (!*argv)
+X		{
+X		for (t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X			{
+X			if (hard)
+X				limits[t0].rlim_max = RLIM_INFINITY;
+X			else
+X				limits[t0].rlim_cur = limits[t0].rlim_max;
+X			}
+X		return 0;
+X		}
+X	for (; *argv; argv++)
+X		{
+X		for (lim = -1, t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X			if (!strncmp(recs[t0],*argv,strlen(*argv)))
+X				{
+X				if (lim != -1)
+X					lim = -2;
+X				else
+X					lim = t0;
+X				}
+X		if (lim < 0)
+X			{
+X			zerrnam(nam,
+X				(lim == -2) ? "ambiguous resource specification: %s"
+X								: "no such resource: %s",*argv,0);
+X			return 1;
+X			}
+X		if (hard)
+X			limits[lim].rlim_max = RLIM_INFINITY;
+X		else
+X			limits[lim].rlim_cur = limits[lim].rlim_max;
+X		}
+X	return 0;
+X#endif
+X}
+X
+Xvoid showlimits(hard,lim) /**/
+Xint hard;int lim;
+X{
+Xint t0;
+Xlong val;
+X
+X#ifdef RLIM_INFINITY
+X	for (t0 = 0; t0 != RLIM_NLIMITS; t0++)
+X		if (t0 == lim || lim == -1)
+X			{
+X			printf("%-16s",recs[t0]);
+X			val = (hard) ? limits[t0].rlim_max : limits[t0].rlim_cur;
+X			if (val == RLIM_INFINITY)
+X				printf("unlimited\n");
+X			else if (!t0)
+X				printf("%d:%02d:%02d\n",(int) (val/3600),
+X					(int) (val/60) % 60,(int) (val % 60));
+X#ifdef RLIMIT_NOFILE
+X			else if (t0 == RLIMIT_NOFILE)
+X				printf("%d\n",(int) val);
+X#endif
+X			else if (val >= 1024L*1024L)
+X				printf("%ldMb\n",val/(1024L*1024L));
+X			else
+X				printf("%ldKb\n",val/1024L);
+X			}
+X#endif
+X}
+X
+Xint bin_sched(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xchar *s = *argv++;
+Xtime_t t;
+Xlong h,m;
+Xstruct tm *tm;
+Xstruct schedcmd *sch,*sch2,*schl;
+Xint t0;
+X
+X	if (s && *s == '-')
+X		{
+X		t0 = atoi(s+1);
+X
+X		if (!t0)
+X			{
+X			zerrnam("sched","usage for delete: sched -<item#>.",NULL,0);
+X			return 1;
+X			}
+X		for (schl = (struct schedcmd *) &schedcmds, sch = schedcmds, t0--;
+X				sch && t0; sch = (schl = sch)->next, t0--);
+X		if (!sch)
+X			{
+X			zerrnam("sched","not that many entries",NULL,0);
+X			return 1;
+X			}
+X		schl->next = sch->next;
+X		free(sch->cmd);
+X		free(sch);
+X		return 0;
+X		}
+X	if (!s)
+X		{
+X		char tbuf[40];
+X
+X		for (t0 = 1, sch = schedcmds; sch; sch = sch->next,t0++)
+X			{
+X			t = sch->time;
+X			tm = localtime(&t);
+X			ztrftime(tbuf,20,"%a %b %e %k:%M:%S",tm);
+X			printf("%3d %s %s\n",t0,tbuf,sch->cmd);
+X			}
+X		return 0;
+X		}
+X	else if (!*argv)
+X		{
+X		zerrnam("sched","not enough arguments",NULL,0);
+X		return 1;
+X		}
+X	if (*s == '+')
+X		{
+X		h = zstrtol(s+1,&s,10);
+X		if (*s != ':')
+X			{
+X			zerrnam("sched","bad time specifier",NULL,0);
+X			return 1;
+X			}
+X		m = zstrtol(s+1,&s,10);
+X		if (*s)
+X			{
+X			zerrnam("sched","bad time specifier",NULL,0);
+X			return 1;
+X			}
+X		t = time(NULL)+h*3600+m*60;
+X		}
+X	else
+X		{
+X		h = zstrtol(s,&s,10);
+X		if (*s != ':')
+X			{
+X			zerrnam("sched","bad time specifier",NULL,0);
+X			return 1;
+X			}
+X		m = zstrtol(s+1,&s,10);
+X		if (*s && *s != 'a' && *s != 'p')
+X			{
+X			zerrnam("sched","bad time specifier",NULL,0);
+X			return 1;
+X			}
+X		t = time(NULL);
+X		tm = localtime(&t);
+X		t -= tm->tm_sec+tm->tm_min*60+tm->tm_hour*3600;
+X		if (*s == 'p')
+X			h += 12;
+X		t += h*3600+m*60;
+X		if (t < time(NULL))
+X			t += 3600*24;
+X		}
+X	sch = zcalloc(sizeof *sch);
+X	sch->time = t;
+X	sch->cmd = ztrdup(spacejoin(argv));
+X	sch->next = NULL;
+X	for (sch2 = (struct schedcmd *) &schedcmds; sch2->next; sch2 = sch2->next);
+X	sch2->next = sch;
+X	return 0;
+X}
+X
+Xint bin_eval(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xchar *s = ztrdup(spacejoin(argv));
+XList list;
+X
+X	hungets(s);
+X	free(s);
+X	strinbeg();
+X	if (!(list = parse_list()))
+X		{
+X		hflush();
+X		strinend();
+X		return 1;
+X		}
+X	strinend();
+X	runlist(list);
+X	return lastval;
+X}
+X
+X/* get the history event associated with s */
+X
+Xint fcgetcomm(s) /**/
+Xchar *s;
+X{
+Xint cmd;
+X
+X	if (cmd = atoi(s))
+X		{
+X		if (cmd < 0)
+X			cmd = curhist+cmd+1;
+X		return cmd;
+X		}
+X	cmd = hcomsearch(s);
+X	if (cmd == -1)
+X		zerrnam("fc","event not found: %s",s,0);
+X	return cmd;
+X}
+X
+X/* perform old=new substituion */
+X
+Xint fcsubs(sp,sub) /**/
+Xchar **sp;struct asgment *sub;
+X{
+Xchar *s1,*s2,*s3,*s4,*s = *sp,*s5;
+Xint subbed = 0;
+X
+X	while (sub)
+X		{
+X		s1 = sub->name;
+X		s2 = sub->value;
+X		sub = sub->next;
+X		s5 = s;
+X		while (s3 = (char *) ztrstr(s5,s1))
+X			{
+X			s4 = alloc(1+(s3-s)+strlen(s2)+strlen(s3+strlen(s1)));
+X			ztrncpy(s4,s,s3-s);
+X			strcat(s4,s2);
+X			s5 = s4+strlen(s4);
+X			strcat(s4,s3+strlen(s1));
+X			s = s4;
+X			subbed = 1;
+X			}
+X		}
+X	*sp = s;
+X	return subbed;
+X}
+X
+X/* print a series of history events to a file */
+X
+Xint fclist(f,n,r,D,d,first,last,subs) /**/
+XFILE *f;int n;int r;int D;int d;int first;int last;struct asgment *subs;
+X{
+Xint done = 0;
+Xchar *s,*hs;
+XHistent ent;
+X
+X	if (!subs) done = 1;
+X	for (;;) {
+X		hs = quietgetevent(first);
+X		if (!hs) {
+X			zerrnam("fc","no such event: %d",NULL,first);
+X			return 1;
+X		}
+X		s = makehstr(hs);
+X		done |= fcsubs(&s,subs);
+X		if (n) fprintf(f,"%5d  ",first);
+X		ent = NULL;
+X		if (d) {
+X			struct tm *ltm;
+X			
+X			if (!ent) ent = gethistent(first);
+X			ltm = localtime(&ent->stim);
+X			fprintf(f,"%2d:%02d  ",ltm->tm_hour,ltm->tm_min);
+X		}
+X		if (D) {
+X			long diff;
+X
+X			if (!ent) ent = gethistent(first);
+X			diff = (ent->ftim) ? ent->ftim-ent->stim : 0;
+X			fprintf(f,"%d:%02d  ",diff/60,diff%60);
+X		}
+X		if (f == stdout) {
+X			niceprintf(s,f);
+X			putc('\n',f);
+X		} else fprintf(f,"%s\n",s);
+X		if (first == last) break;
+X		(r) ? first-- : first++;
+X	}
+X	if (f != stdout) fclose(f);
+X	if (!done) {
+X		zerrnam("fc","no substitutions performed",NULL,0);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+Xint fcedit(ename,fn) /**/
+Xchar *ename;char *fn;
+X{
+X	if (!strcmp(ename,"-"))
+X		return 1;
+X	return !zyztem(ename,fn);
+X}
+X
+X/* fc, history, r */
+X
+Xint bin_fc(nam,argv,ops,func) /**/
+Xchar *nam;char **argv;char *ops;int func;
+X{
+Xint first = -1,last = -1,retval,minflag = 0;
+Xchar *s;
+Xstruct asgment *asgf = NULL,*asgl = NULL;
+X
+X	if (!interact) {
+X		zerrnam(nam,"not interactive shell",NULL,0);
+X		return 1;
+X	}
+X	if (!(ops['l'] && unset(HISTNOSTORE))) remhist();
+X	if (ops['R']) {
+X		readhistfile(*argv ? *argv : getsparam("HISTFILE"),1);
+X		return 0;
+X	}
+X	if (ops['W']) {
+X		savehistfile(*argv ? *argv : getsparam("HISTFILE"),1,0);
+X		return 0;
+X	}
+X	if (ops['A']) {
+X		savehistfile(*argv ? *argv : getsparam("HISTFILE"),1,1);
+X		return 0;
+X	}
+X	while (*argv && equalsplit(*argv,&s)) {
+X		struct asgment *a = (struct asgment *) alloc(sizeof *a);
+X
+X		if (!asgf) asgf = asgl = a;
+X		else {
+X			asgl->next = a;
+X			asgl = a;
+X		}
+X		a->name = *argv;
+X		a->value = s;
+X		argv++;
+X	}
+X	if (*argv) {
+X		minflag = **argv == '-';
+X		first = fcgetcomm(*argv);
+X		if (first == -1) return 1;
+X		argv++;
+X	}
+X	if (*argv) {
+X		last = fcgetcomm(*argv);
+X		if (last == -1) return 1;
+X		argv++;
+X	}
+X	if (*argv) {
+X		zerrnam("fc","too many arguments",NULL,0);
+X		return 1;
+X	}
+X	if (first == -1) first = (ops['l']) ? curhist-16 : curhist;
+X	if (last == -1) last = (ops['l']) ? curhist : first;
+X	if (first < firsthist()) first = firsthist();
+X	if (last == -1) last = (minflag) ? curhist : first;
+X	if (ops['l'])
+X		retval = fclist(stdout,!ops['n'],ops['r'],ops['D'],ops['d'],
+X			first,last,asgf);
+X	else {
+X		FILE *out;
+X		char *fil = gettemp();
+X
+X		out = fopen(fil,"w");
+X		if (!out)
+X			zerrnam("fc","can't open temp file: %e",NULL,errno);
+X		else {
+X			retval = 1;
+X			if (!fclist(out,0,ops['r'],0,0,first,last,asgf))
+X				if (fcedit(auxdata ? auxdata : fceditparam,fil))
+X					if (stuff(fil))
+X						zerrnam("fc","%e: %s",s,errno);
+X					else
+X						retval = 0;
+X		}
+X		unlink(fil);
+X	}
+X	return retval;
+X}
+X
+Xint bin_suspend(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+X	if (islogin && !ops['f']) {
+X		zerrnam(name,"can't suspend login shell",NULL,0);
+X		return 1;
+X	}
+X	if (jobbing) {
+X		signal(SIGPIPE,SIG_DFL);
+X		signal(SIGTTIN,SIG_DFL);
+X		signal(SIGTSTP,SIG_DFL);
+X		signal(SIGTTOU,SIG_DFL);
+X	}
+X	kill(0,SIGTSTP);
+X	if (jobbing) {
+X		while (gettygrp() != mypgrp) {
+X			sleep(1);
+X			if (gettygrp() != mypgrp) kill(0,SIGTTIN);
+X		}
+X		signal(SIGTTOU,SIG_IGN);
+X		signal(SIGTSTP,SIG_IGN);
+X		signal(SIGTTIN,SIG_IGN);
+X		signal(SIGPIPE,SIG_IGN);
+X	}
+X	return 0;
+X}
+X
+Xint bin_alias(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xstruct alias *an;
+Xstruct asgment *asg;
+Xint incm = !(ops['a'] || ops['g']),ret = 0;
+X
+X	showflag = !incm;
+X	if (!*argv)
+X		listhtable(aliastab,(HFunc) printalias);
+X	else while (asg = getasg(*argv++))
+X		{
+X		if (asg->value)
+X			addhnode(ztrdup(asg->name),mkanode(ztrdup(asg->value),incm),
+X				aliastab,freeanode);
+X		else if (an = (Alias) gethnode(asg->name,aliastab))
+X			printalias(asg->name,an);
+X		else
+X			ret = 1;
+X		}
+X	return ret;
+X}
+X
+X/* print an alias; used with listhtable */
+X
+Xvoid printalias(s,a) /**/
+Xchar *s;struct alias *a;
+X{
+X	if (a->cmd >= 0 && !(showflag && a->cmd))
+X		printf("%s=%s\n",s,a->text);
+X}
+X
+X/* print a param; used with listhtable */
+X
+Xvoid printparam(s,p) /**/
+Xchar *s;Param p;
+X{
+X	if (showflag > 0 && !(p->flags & showflag))
+X		return;
+X	if (!showflag)
+X		{
+X		int fgs = p->flags;
+X
+X		if (fgs & PMFLAG_i) printf("integer ");
+X		if (fgs & PMFLAG_A) printf("array ");
+X		if (fgs & PMFLAG_L) printf("left justified %d ",p->ct);
+X		if (fgs & PMFLAG_R) printf("right justified %d ",p->ct);
+X		if (fgs & PMFLAG_Z) printf("zero filled %d ",p->ct);
+X		if (fgs & PMFLAG_l) printf("lowercase ");
+X		if (fgs & PMFLAG_u) printf("uppercase ");
+X		if (fgs & PMFLAG_r) printf("readonly ");
+X		if (fgs & PMFLAG_t) printf("tagged ");
+X		if (fgs & PMFLAG_x) printf("exported ");
+X		}
+X	if (showflag2)
+X		printf("%s\n",s);
+X	else
+X		{
+X		char *t,**u;
+X
+X		printf("%s=",s);
+X		switch (p->flags & PMTYPE)
+X			{
+X			case PMFLAG_s:
+X				if (p->gets.cfn && (t = p->gets.cfn(p)))
+X					puts(t);
+X				else
+X					putchar('\n');
+X				break;
+X			case PMFLAG_i: printf("%ld\n",p->gets.ifn(p)); break;
+X			case PMFLAG_A:
+X				putchar('(');
+X				u = p->gets.afn(p);
+X				if (!*u)
+X					printf(")\n");
+X				else
+X					{
+X					while (u[1])
+X						printf("%s ",*u++);
+X					printf("%s)\n",*u);
+X					}
+X				break;
+X			}
+X		}
+X}
+X
+X/* autoload, declare, export, functions, integer, local, readonly, typeset */
+X
+Xint bin_typeset(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xint on = 0,off = 0,roff,bit = 1,retcode = 0;
+Xchar *optstr = "LRZilurtx";
+Xstruct param *pm;
+Xstruct asgment *asg;
+X
+X	for (; *optstr; optstr++,bit <<= 1)
+X		if (ops[*optstr] == 1)
+X			on |= bit;
+X		else if (ops[*optstr] == 2)
+X			off |= bit;
+X	roff = off;
+X	if (ops['f']) {
+X		on &= PMFLAG_t|PMFLAG_u;
+X		off &= PMFLAG_t|PMFLAG_u;
+X		showflag = (ops['f'] == 1);
+X		if (ops['@'] && ((off & ~PMFLAG_t) || (on & ~(PMFLAG_u|PMFLAG_t)))) {
+X			zerrnam(name,"invalid option(s)",NULL,0);
+X			return 1;
+X		}
+X		showflag2 = 0;
+X		if (!*argv) {
+X			showflag2 = off|on;
+X			listhtable(cmdnamtab,(HFunc) pshfunc);
+X		} else for (; *argv; argv++) {
+X			Cmdnam cc;
+X
+X			if ((cc = (Cmdnam) gethnode(*argv,cmdnamtab)) && cc->type == SHFUNC)
+X				if (on|off) cc->flags = (cc->flags | on) & (~off);
+X				else pshfunc(*argv,cc);
+X			else if (on & PMFLAG_u) {
+X				cc = (Cmdnam) zcalloc(sizeof *cc);
+X				cc->type = SHFUNC;
+X				cc->flags = on;
+X				addhnode(ztrdup(*argv),cc,cmdnamtab,freecmdnam);
+X			} else
+X				retcode = 1;
+X		}
+X		return retcode;
+X	}
+X	if (on & PMFLAG_L)
+X		off |= PMFLAG_R;
+X	if (on & PMFLAG_R)
+X		off |= PMFLAG_L;
+X	if (on & PMFLAG_u)
+X		off |= PMFLAG_l;
+X	if (on & PMFLAG_l)
+X		off |= PMFLAG_u;
+X	on &= ~off;
+X	showflag = showflag2 = 0;
+X	if (!*argv) {
+X		showflag = on|off;
+X		showflag2 = roff;
+X		listhtable(paramtab,(HFunc) printparam);
+X	} else while (asg = getasg(*argv++)) {
+X		if (asg->value && *asg->value == '~') {
+X			*asg->value = Tilde;
+X			singsub(&asg->value);
+X		}
+X		pm = (Param) gethnode(asg->name,paramtab);
+X		if (pm) {
+X			if (!on && !roff && !asg->value) {
+X				printparam(asg->name,pm);
+X				continue;
+X			}
+X			pm->flags = (pm->flags | on) & ~off;
+X			if ((on & (PMFLAG_L | PMFLAG_R | PMFLAG_Z | PMFLAG_i)) 
+X					&& (pmtype(pm) != PMFLAG_A))
+X				pm->ct = auxlen;
+X			if (pmtype(pm) != PMFLAG_A) {
+X				if (pm->flags & PMFLAG_x) {
+X					if (!pm->env)
+X						pm->env = addenv(asg->name,
+X							(asg->value) ? asg->value : getsparam(asg->name));
+X				} else if (pm->env) {
+X					delenv(pm->env);
+X					free(pm->env);
+X					pm->env = NULL;
+X				}
+X				if (asg->value)
+X					setsparam(asg->name,ztrdup(asg->value));
+X			}
+X		} else {
+X			if (locallist && !(on & PMFLAG_x)) {
+X				permalloc();
+X				addnode(locallist,ztrdup(asg->name));
+X				heapalloc();
+X			}
+X			createparam(ztrdup(asg->name),
+X				ztrdup((asg->value) ? asg->value : ""),on);
+X			pm = (Param) gethnode(asg->name,paramtab);
+X			pm->ct = auxlen;
+X		}
+X	}
+X	return 0;
+X}
+X
+X/* convert s with escape sequences */
+X
+Xchar *escsubst(s,nnl) /**/
+Xchar *s; int *nnl;
+X{
+Xchar *t = alloc(strlen(s)+1),*ret = t;
+X
+X	for (; *s; s++)
+X		if (*s == '\\' && s[1])
+X			switch (*++s) {
+X				case 'b': *t++ = '\b'; break;
+X				case 'c': *nnl |= 1; break;
+X				case 'e': *t++ = '\033'; break;
+X				case 'f': *t++ = '\f'; break;
+X				case 'n': *t++ = '\n'; break;
+X				case 'r': *t++ = '\r'; break;
+X				case 't': *t++ = '\t'; break;
+X				case 'v': *t++ = '\v'; break;
+X				case '\\': *t++ = '\\'; break;
+X				case '0': *t++ = zstrtol(s,&s,8); s--; break;
+X				default: *t++ = '\\'; *t++ = *s; break;
+X			}
+X		else *t++ = *s;
+X	*t = '\0';
+X	return ret;
+X}
+X
+X/* echo, print, pushln */
+X
+Xint bin_print(name,args,ops,func) /**/
+Xchar *name;char **args;char *ops;int func;
+X{
+Xint nnl = 0, fd;
+XHistent ent;
+XFILE *fout = stdout;
+X
+X	if (ops['z']) {
+X		permalloc();
+X		pushnode(bufstack,ztrdup(spacejoin(args)));
+X		heapalloc();
+X		return 0;
+X	}
+X	if (ops['s']) {
+X		permalloc();
+X		ent = gethistent(++curhist);
+X		ent->lex = ztrdup(join(args,HISTSPACE));
+X		ent->lit = ztrdup(join(args,' '));
+X		ent->stim = ent->ftim = time(NULL);
+X		heapalloc();
+X		return 0;
+X	}
+X	if (ops['R'])
+X		ops['r'] = 1;
+X	if (ops['u'] || ops['p']) {
+X		if (ops['u']) {
+X			for (fd = 0; fd < 10; fd++) if (ops[fd+'0']) break;
+X			if (fd == 10) fd = 0;
+X		} else fd = coprocout;
+X		if ((fd = dup(fd)) < 0) {
+X			zerrnam(name,"bad file number",NULL,0);
+X			return 1;
+X		}
+X		if ((fout = fdopen(fd,"w")) == 0) {
+X			zerrnam(name,"bad mode on fd",NULL,0);
+X			return 1;
+X		}
+X	}
+X	for (; *args; args++) {
+X		if (!ops['r']) *args = escsubst(*args,&nnl);
+X		if (ops['D']) fprintdir(*args,fout);
+X		else if (ops['P']) {
+X			int junk;
+X			fputs(putprompt(*args,&junk),fout);
+X		} else fputs(*args,fout);
+X		if (args[1]) fputc(ops['l'] ? '\n' : ops['0'] ? '\0' : ' ',fout);
+X	}
+X	if (!(ops['n'] || nnl)) fputc(ops['N'] ? '\0' : '\n',fout);
+X	if (fout != stdout) fclose(fout);
+X	return 0;
+X}
+X
+Xint bin_dirs(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+XLklist l;
+X
+X	if (ops['v'])
+X		{
+X		Lknode node;
+X		int t0 = 1;
+X
+X		printf("0\t");
+X		printdir(pwd);
+X		for (node = firstnode(dirstack); node; incnode(node))
+X			{
+X			printf("\n%d\t",t0++);
+X			printdir(getdata(node));
+X			}
+X		putchar('\n');
+X		return 0;
+X		}
+X	if (!*argv)
+X		{
+X		pdstack();
+X		return 0;
+X		}
+X	permalloc();
+X	l = newlist();
+X	if (!*argv)
+X		{
+X		heapalloc();
+X		return 0;
+X		}
+X	while (*argv)
+X		addnode(l,ztrdup(*argv++));
+X	freetable(dirstack,freestr);
+X	dirstack = l;
+X	heapalloc();
+X	return 0;
+X}
+X
+Xint bin_unalias(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xint ret = 0;
+Xvptr dat;
+X
+X	while (*argv)
+X		{
+X		if (dat = remhnode(*argv++,aliastab))
+X			freeanode(dat);
+X		else
+X			ret = 1;
+X		}
+X	return ret;
+X}
+X
+Xint bin_disable(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+XCmdnam chn;
+X
+X	while (*argv) {
+X		if (!strncmp(*argv,"TRAP",4))
+X			unsettrap(getsignum(*argv+4));
+X		chn = zalloc(sizeof *chn);
+X		chn->type = DISABLED;
+X		addhnode(ztrdup(*argv++),chn,cmdnamtab,freecmdnam);
+X	}
+X	return 0;
+X}
+X
+Xint bin_unhash(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xvptr dat;
+X
+X	while (*argv) {
+X		if (!strncmp(*argv,"TRAP",4)) unsettrap(getsignum(*argv+4));
+X		if (dat = remhnode(*argv++,cmdnamtab)) freecmdnam(dat);
+X	}
+X	return 0;
+X}
+X
+Xint bin_unset(name,argv,ops,func) /**/
+Xchar *name;char **argv;char *ops;int func;
+X{
+Xint retval = 0;
+Xchar *s;
+X
+X	while (s = *argv++)
+X		if (gethnode(s,paramtab))
+X			unsetparam(s);
+X		else
+X			retval = 1;
+X	return retval;
+X}
+X
+Xstatic char *zbuf;
+Xstatic int readfd;
+X
+Xint zread() /**/
+X{
+Xchar cc;
+X
+X	if (zbuf)
+X		return (*zbuf) ? *zbuf++ : EOF;
+X	if (read(readfd,&cc,1) != 1)
+X		return EOF;
+X	return cc;
+X}
+X
+Xint bin_read(name,args,ops,func) /**/
+Xchar *name;char **args;char *ops;int func;
+X{
+Xchar *reply,*pmpt;
+Xint bsiz,c,gotnl = 0;
+Xchar *buf,*bptr;
+X
+X	reply = (*args) ? *args++ : "REPLY";
+X	if (ops['u'] && !ops['p']) {
+X		for (readfd = 0; readfd < 10; ++readfd) if (ops[readfd+'0']) break;
+X		if (readfd == 10) readfd = 0;
+X	} else if (ops['p']) readfd = coprocin;
+X	else {
+X		attachtty((jobtab[thisjob].gleader) ? jobtab[thisjob].gleader : mypgrp);
+X		readfd = 0;
+X		if (isatty(0)) {
+X			for (pmpt = reply; *pmpt && *pmpt != '?'; pmpt++);
+X			if (*pmpt++) {
+X				write(2,pmpt,strlen(pmpt));
+X				pmpt[-1] = '\0';
+X			}
+X		}
+X#if 0
+X		else if (isset(SHINSTDIN) && unset(INTERACTIVE)) {
+X			if (isatty(1)) readfd = 1;
+X			else if (isatty(2)) readfd = 2;
+X		}
+X#endif
+X	}
+X	zbuf = (!ops['z']) ? NULL :
+X		(full(bufstack)) ? (char *) getnode(bufstack) : NULL;
+X	while (*args) {
+X		buf = bptr = zalloc(bsiz = 64);
+Xredo:
+X		for(;;) {
+X			if (gotnl) break;
+X			c = zread();
+X			if (!ops['r'] && c == '\n' && bptr != buf && bptr[-1] == '\\') {
+X				bptr--;
+X				continue;
+X			}
+X			if (c == EOF || isep(c) || c == '\n') break;
+X			*bptr++ = c;
+X			if (bptr == buf+bsiz) {
+X				buf = realloc(buf,bsiz *= 2);
+X				bptr = buf+(bsiz/2);
+X			}
+X		}
+X		if (c == EOF) {
+X			if (readfd == coprocin) {
+X				close(coprocin);
+X				close(coprocout);
+X				coprocin = coprocout = -1;
+X			}
+X			return 1;
+X		}
+X		if (c == '\n') gotnl = 1;
+X		if (bptr == buf) goto redo;
+X		*bptr = '\0';
+X		setsparam(reply,buf);
+X		reply = *args++;
+X	}
+X	buf = bptr = zalloc(bsiz = 64);
+X	if (!gotnl)
+X		for (;;) {
+X			c = zread();
+X			if (!ops['r'] && c == '\n' && bptr != buf && bptr[-1] == '\\') {
+X				bptr--;
+X				continue;
+X			}
+X			if (c == EOF || (c == '\n' && !zbuf)) break;
+X			*bptr++ = c;
+X			if (bptr == buf+bsiz) {
+X				buf = realloc(buf,bsiz *= 2);
+X				bptr = buf+(bsiz/2);
+X			}
+X		}
+X	*bptr = '\0';
+X	setsparam(reply,buf);
+X	if (c == EOF) {
+X		if (readfd == coprocin) {
+X			close(coprocin);
+X			close(coprocout);
+X			coprocin = coprocout = -1;
+X		}
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+Xint bin_vared(name,args,ops,func) /**/
+Xchar *name;char **args;char *ops;int func;
+X{
+Xchar *s;char *t;
+Xstruct param *pm;
+X
+X	if (!(s = getsparam(args[0]))) {
+X		zerrnam(name,"no such variable: %s",args[0],0);
+X		return 1;
+X	}
+X	permalloc();
+X	pushnode(bufstack,ztrdup(s));
+X	heapalloc();
+X	t = (char *) zleread((unsigned char *)"> ",NULL,2);
+X	if (!t || errflag)
+X		return 1;
+X	if (t[strlen(t)-1] == '\n')
+X		t[strlen(t)-1] = '\0';
+X	pm = gethnode(args[0],paramtab);
+X	if (pmtype(pm) == PMFLAG_A)
+X		setaparam(args[0],spacesplit(t));
+X	else
+X		setsparam(args[0],t);
+X	return 0;
+X}
+X
+X#define fset(X) (flags & X)
+X
+X/* execute a builtin handler function after parsing the arguments */
+X
+Xint execbin(args,cnode) /**/
+XLklist args;Cmdnam cnode;
+X{
+Xstruct bincmd *b;
+Xchar ops[128],*arg,*pp,*name,**argv,**oargv,*optstr;
+Xint t0,flags,sense,argc = 0,op;
+XLknode n;
+X
+X	auxdata = NULL;
+X	auxlen = 0;
+X	for (t0 = 0; t0 != 128; t0++)
+X		ops[t0] = 0;
+X	name = ugetnode(args);
+X	b = builtins+cnode->u.binnum;
+X
+X/* the 'builtin' builtin is handled specially */
+X
+X	if (b->funcid == BIN_BUILTIN)
+X		{
+X		if (!(name = ugetnode(args)))
+X			{
+X			zerrnam("builtin","command name expected",NULL,0);
+X			return 1;
+X			}
+X		for (t0 = 0, b = builtins; b->name; b++,t0++)
+X			if (!strcmp(name,b->name))
+X				break;
+X		if (!b->name)
+X			{
+X			zerrnam("builtin","no such builtin: %s",name,0);
+X			return 1;
+X			}
+X		}
+X	flags = b->flags;
+X	arg = ugetnode(args);
+X	optstr = b->optstr;
+SHAR_EOF
+true || echo 'restore of zsh2.2/src/builtin.c failed'
+fi
+echo 'End of zsh2.2 part 6'
+echo 'File zsh2.2/src/builtin.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,114 @@
+Newsgroups: comp.sources.x
+From: subbarao@concorde.fc.hp.com (Kartik Subbarao)
+Subject: v20i009:  xroute - Route X-Protocol through Internet gateways, Patch01
+Message-ID: <1993Jun1.231310.10874@sparky.imd.sterling.com>
+X-Md4-Signature: c5ae0db39d41a7d8d0d65f8786858903
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 1 Jun 1993 23:13:10 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: subbarao@concorde.fc.hp.com (Kartik Subbarao)
+Posting-number: Volume 20, Issue 9
+Archive-name: xroute/patch01
+Environment: X11
+Patch-To: xroute: Volume 19, Issue 89
+
+Patch 1, 5/28/93: Thanks to Michael Patton <map@bbn.com> for these enhancements.
++ recognizes the DISPLAY environment variable to specify a host
++ properly closes the listen()ed to socket in the child process so that 
+  requests occuring after the maximum number of clients specified exit 
+  properly instead of hanging. 
+
+	-Kartik
+
+This latest version of xroute is also available on 
+export.lcs.mit.edu:/contrib/xroute.5.28.93.tar.Z.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  patch
+# Wrapped by chris@sparky on Tue Jun  1 18:06:38 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'patch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch'\"
+else
+  echo shar: Extracting \"'patch'\" \(1307 characters\)
+  sed "s/^X//" >'patch' <<'END_OF_FILE'
+X*** xroute.c.orig	Fri May 28 18:57:44 1993
+X--- xroute.c	Fri May 28 19:16:49 1993
+X***************
+X*** 31,36 ****
+X--- 31,38 ----
+X  waiter() { union wait st; while (wait3(&st, WNOHANG, NULL) > 0); }
+X  #endif
+X  
+X+ extern char *getenv();
+X+ 
+X  main(argc, argv)
+X  int argc; char *argv[];
+X  {
+X***************
+X*** 47,56 ****
+X  		default: usage();
+X  		}
+X  	
+X! 	if (!argv[optind]) usage();
+X! 	ldisp = (p = strchr(argv[optind], ':')) && p[1] ? atoi(p+1) : 0;
+X! 	if (p) *p = '\0'; lhost = argv[optind];
+X  
+X  	gs = tcpssocket(gdisp);
+X  	signal(SIGCHLD, waiter);
+X  	signal(SIGHUP, SIG_IGN);
+X--- 49,60 ----
+X  		default: usage();
+X  		}
+X  	
+X! 	if (!(lhost = argv[optind]))
+X! 		if (!(lhost = getenv("DISPLAY"))) usage();
+X  
+X+ 	ldisp = (p = strchr(lhost, ':')) && p[1] ? atoi(p+1) : 0;
+X+ 	if (p) *p = '\0';
+X+ 
+X  	gs = tcpssocket(gdisp);
+X  	signal(SIGCHLD, waiter);
+X  	signal(SIGHUP, SIG_IGN);
+X***************
+X*** 62,68 ****
+X  		if (rs == -1) exit(1);
+X  		switch (fork()) {
+X  		case -1: exit(1);
+X! 		case 0: ls = tcpcsocket(lhost, XPORT + ldisp); route(ls, rs); break;
+X  		default: close(rs);
+X  		}
+X  	}
+X--- 66,75 ----
+X  		if (rs == -1) exit(1);
+X  		switch (fork()) {
+X  		case -1: exit(1);
+X! 		case 0: 
+X! 			close(gs); 
+X! 			ls = tcpcsocket(lhost, XPORT + ldisp); route(ls, rs); 
+X! 			break;
+X  		default: close(rs);
+X  		}
+X  	}
+X
+END_OF_FILE
+  if test 1307 -ne `wc -c <'patch'`; then
+    echo shar: \"'patch'\" unpacked with wrong size!
+  fi
+  # end of 'patch'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

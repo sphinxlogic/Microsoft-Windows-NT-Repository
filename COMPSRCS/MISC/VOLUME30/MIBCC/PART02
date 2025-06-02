@@ -1,0 +1,1424 @@
+Newsgroups: comp.sources.misc
+From: wegrzyn@nic.cerf.net (Chuck Wegrzyn)
+Subject:  v30i075:  mibcc - SNMP MIB Compiler, Part02/02
+Message-ID: <1992Jun20.174927.4943@sparky.imd.sterling.com>
+X-Md4-Signature: a4f1c05389578e740b1637052f2a4263
+Date: Sat, 20 Jun 1992 17:49:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wegrzyn@nic.cerf.net (Chuck Wegrzyn)
+Posting-number: Volume 30, Issue 75
+Archive-name: mibcc/part02
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  AssignOBJECT.h AssignOID.c AssignOID.h AssignTRAP.h
+#   AssignTYPE.c Makefile MibCompiler.h debug.c error.c keyword.h
+#   lex.l oid.h support.c symbol.c symbol.h version.c
+# Wrapped by kent@sparky on Sat Jun 20 12:45:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'AssignOBJECT.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignOBJECT.h'\"
+else
+  echo shar: Extracting \"'AssignOBJECT.h'\" \(859 characters\)
+  sed "s/^X//" >'AssignOBJECT.h' <<'END_OF_FILE'
+Xtypedef struct qobject {
+X                        struct qobject *Next;
+X                                  char *Name;
+X                                  TYPE *Syntax;
+X                                   int  Access; 
+X                                   int  Status;
+X                                  char *Description;
+X                                  char *Reference;
+X                                  LIST *Index;
+X                                  LIST *Default;
+X                                  LIST *OID;
+X                                   int  LineNo;
+X                       } QUEUEOBJ;
+X
+X#if defined(__STDC__)
+Xvoid ProcessObject(char *,TYPE *,int,int,char *,char *,LIST *,LIST *,
+X                                                          LIST *,int,int);
+Xvoid FinishObjectProcessing(void);
+X#else
+Xvoid ProcessObject();
+Xvoid FinishObjectProcessing();
+X#endif
+END_OF_FILE
+  if test 859 -ne `wc -c <'AssignOBJECT.h'`; then
+    echo shar: \"'AssignOBJECT.h'\" unpacked with wrong size!
+  fi
+  # end of 'AssignOBJECT.h'
+fi
+if test -f 'AssignOID.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignOID.c'\"
+else
+  echo shar: Extracting \"'AssignOID.c'\" \(9310 characters\)
+  sed "s/^X//" >'AssignOID.c' <<'END_OF_FILE'
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "MibCompiler.h"
+X#include "symbol.h"
+X#include "AssignOID.h"
+X
+X
+Xextern int bResolveOIDsNeeded,nCheckOnly;
+X
+X
+Xvoid AddOIDSymbol(char *pName,LIST *pOID,int nLineNo)
+X {
+X    SYMBOL *pSym;
+X    /*
+X     * Make sure that the symbol isn't already known to us.
+X     */
+X    if( pSym = FindSymbol(pName,OIDTABLE) )
+X             {
+X                /*
+X                 * Yes. See if it is one of the names we added. If so,
+X		 * we don't do anything. Otherwise we complain.
+X                 */
+X                if( pSym->DefinedLineNo )
+X                    RestoreErrorMsg("Line %d : Symbol defintion of \"%s\" is already defined on line %d\n",
+X                                        nLineNo,pName,pSym->DefinedLineNo);
+X             }
+X        else {
+X                /*
+X                 * It isn't known to us, so add it to the system.
+X                 */
+X                pSym = (SYMBOL *) malloc(sizeof(SYMBOL));
+X                if( pSym )
+X                         {
+X                            /*
+X                             * Okay. So fill in the details.
+X                             */
+X                            pSym->DefinedLineNo = nLineNo;
+X                            pSym->SymbolName = strdup(pName);
+X                            pSym->SymbolValue = pOID;
+X
+X                            /*
+X                             * Add the symbol to the system.
+X                             */
+X                            AddToSymbolTable(pSym,OIDTABLE);
+X                         }
+X                    else {
+X                            /*
+X                             * Out of memory!
+X                             */
+X                            RestoreErrorMsg("Out of memory\n");
+X                            exit(1);
+X                         }
+X             }
+X }
+X
+X
+Xstatic LIST *GraftLists(LIST *pS,LIST *pAdd)
+X {
+X    LIST *pNext = (LIST *)pS->Next;
+X    LIST *pFirst = pS;
+X    for( ; pAdd; )
+X        {
+X            /*
+X             * Copy the pAdd element over the pS element.
+X             */
+X            memcpy((char *)pS,(char *)pAdd,sizeof(LIST));
+X
+X            /*
+X             * Advance to the next to add in.
+X             */
+X            pAdd = (LIST *)pAdd->Next;
+X
+X            /*
+X             * If we have another to add, we need to allocate space 
+X             * for it.
+X             */
+X            if( pAdd )
+X                {
+X                    pS->Next = (struct list *) malloc(sizeof(LIST));
+X                    if( pS->Next )
+X                             {
+X                                /*
+X                                 * Ok. 
+X                                 */
+X                                pS = (LIST *)pS->Next;
+X                             }
+X                        else {
+X                                /*
+X                                 * Too bad, we are out of memory.
+X                                 */
+X                                RestoreErrorMsg("Out of memory\n");
+X                                return((LIST *)0);
+X                             }
+X                }
+X        }
+X
+X    /*
+X     * Make the last one point to the rest of the list.
+X     */
+X    pS->Next = (struct list *)pNext;
+X
+X    /*
+X     * Return a pointer to the insertion point.
+X     */
+X    return(pS);
+X }
+X
+X
+X/*
+X * Convert a Name/Number oid list to just numbers, such as 1.3.6.
+X */
+XLIST *ResolveSpecificOID(LIST *pL,char *pName,int bPrintMsg)
+X {
+X    SYMBOL *pSym;
+X    LIST *pT,*pFirst = pL;
+X    /*
+X     * For each element in the list, make sure we have a number for it.
+X     */
+X    for( ; pL; pL = (LIST *)pL->Next )
+X        {
+X            /*
+X             * If this is a name only entry we need to resolve it.  
+X             */
+X            if( pL->Type == NAMEONLY )
+X                {
+X                    /*
+X                     * First, make sure that we have a symbol defined.
+X                     */
+X                    pSym = FindSymbol(pL->Name,OIDTABLE);
+X                    if(pSym)
+X                             {
+X                                /*
+X                                 * Ok. Resolve this specific symbol now.
+X                                 */
+X                                pT = ResolveSpecificOID(pSym->SymbolValue,pL->Name,bPrintMsg);
+X                                if( pT )
+X                                         {
+X                                            /*
+X                                             * Okay, we need to graft the
+X                                             * two lists together.
+X                                             */
+X                                            GraftLists(pL,pT);
+X                                         }
+X                                    else {
+X                                            /*
+X                                             * Too bad, we couldn't resolve
+X                                             * it.
+X                                             */
+X                                            return((LIST *)0);
+X                                         }
+X                             }
+X                        else {
+X                                /*
+X                                 * Too bad!
+X                                 */
+X                                if( bPrintMsg )
+X                                    {
+X                                        if( pName )
+X                                             RestoreErrorMsg("While trying to resolve object id \"%s\", the symbol \"%s\" couldn't be found\n",pName,pL->Name);
+X                                        else RestoreErrorMsg("While trying to resolve an object id, the symbol %s couldn't be found\n",pL->Name);
+X                                    }
+X                                return((LIST *)0);
+X                             }
+X                }
+X        }
+X
+X    /*
+X     * Return the list head.
+X     */
+X    return(pFirst);
+X }
+X
+X
+X/*
+X * See if all the OIDs that where defined are complete -- they can
+X * be resolved into numbers.
+X */
+Xint AllOIDsResolved(void)
+X {
+X    SYMBOL *pSym;
+X    int nRc = 1,nTemp;
+X    /*
+X     * For each symbol in the table, do...
+X     */
+X    for( pSym = 0; pSym = GetNextSymbol(pSym,OIDTABLE); )
+X        {
+X            nTemp = (ResolveSpecificOID(pSym->SymbolValue,pSym->SymbolName,1) != (LIST *)0);
+X            if( nRc ) nRc = nTemp;
+X        }
+X    return( nRc );
+X }
+X
+X
+X/*
+X * Dump everything in the OID symbol table.
+X */
+Xvoid DumpAllOIDs(void)
+X {
+X    SYMBOL *pSym;
+X    /*
+X     * For each symbol in the table, do...
+X     */
+X    for( pSym = 0; pSym = GetNextSymbol(pSym,OIDTABLE); )
+X        {
+X            printf("Symbol: %s\n",pSym->SymbolName);
+X            PrintList(pSym->SymbolValue,0);printf("\n");
+X        }
+X }
+X
+X
+X/*
+X * pName	name of the OID definition.
+X * pOID		pointer to linked list defining the OID (watch out
+X *			the linked list can have both names and
+X *			numbers in it)
+X * nLineNo	definition of OID starts on nLineNo in MIB file.
+X */
+Xvoid ProcessOID(char *pName,LIST *pOID,int nLineNo)
+X {
+X    LIST *pNew;
+X    /*
+X     * See if we can resolve the OID to numbers only at this time.
+X     */
+X    *pNew = ResolveSpecificOID(pOID,pName,0);
+X
+X    /*
+X     * Use the resolved address, if we can. This will save us a lot of
+X     * time in later steps.
+X     */
+X    if( pNew )
+X           pOID = pNew;
+X      else bResolveOIDsNeeded++;
+X
+X    /*
+X     * Add the symbol to the table.
+X     */
+X    AddOIDSymbol(pName,pOID,nLineNo);
+X }
+X
+X
+X
+Xvoid AddStandardOIDS(void)
+X { 
+X        LIST *pList;
+X	/*
+X         * The first "standard" names are iso, ccitt and joint-iso-ccitt.
+X         */
+X        pList = newListElement(NUMBERONLY,(char *)0,0);
+X        AddOIDSymbol("ccitt",pList,0);
+X        pList = newListElement(NUMBERONLY,(char *)0,1);
+X        AddOIDSymbol("iso",pList,0);
+X        pList = newListElement(NUMBERONLY,(char *)0,2);
+X        AddOIDSymbol("joint-iso-ccitt",pList,0);
+X
+X        /*
+X         * Now add the things from RFC-1155.
+X         * Start with internet.
+X         */
+X        pList = newListElement(NAMEONLY,"iso",0);
+X        pList = LinkToList(pList,newListElement(NAMEANDNUMBER,"org",3));
+X        pList = LinkToList(pList,newListElement(NAMEANDNUMBER,"dod",6));
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,1));
+X        ProcessOID("internet",pList,0);
+X
+X        /*
+X         * Add directory.
+X         */
+X        pList = newListElement(NAMEONLY,"internet",0);
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,1));
+X        ProcessOID("directory",pList,0);
+X
+X        /*
+X         * The 'mgmt' thing.
+X         */
+X        pList = newListElement(NAMEONLY,"internet",0);
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,2));
+X        ProcessOID("mgmt",pList,0);
+X
+X        /*
+X         * The 'experimental' thing.
+X         */
+X        pList = newListElement(NAMEONLY,"internet",0);
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,3));
+X        ProcessOID("experimental",pList,0);
+X
+X        /*
+X         * The 'private' thing.
+X         */
+X        pList = newListElement(NAMEONLY,"internet",0);
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,4));
+X        ProcessOID("private",pList,0);
+X
+X        /*
+X         * The 'enterprises' thing.
+X         */
+X        pList = newListElement(NAMEONLY,"private",0);
+X        pList = LinkToList(pList,newListElement(NUMBERONLY,(char *)0,1));
+X        ProcessOID("enterprises",pList,0);
+X }
+END_OF_FILE
+  if test 9310 -ne `wc -c <'AssignOID.c'`; then
+    echo shar: \"'AssignOID.c'\" unpacked with wrong size!
+  fi
+  # end of 'AssignOID.c'
+fi
+if test -f 'AssignOID.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignOID.h'\"
+else
+  echo shar: Extracting \"'AssignOID.h'\" \(325 characters\)
+  sed "s/^X//" >'AssignOID.h' <<'END_OF_FILE'
+X#if defined(__STDC__)
+Xvoid AddOIDSymbol(char *,LIST *,int);
+Xint AllOIDsResolved(void);
+Xvoid AddStandardOIDS(void);
+XLIST *ResolveSpecificOID(LIST *,char *,int);
+Xvoid ProcessOID(char *,LIST *,int);
+X#else
+Xvoid AddOIDSymbol();
+Xint AllOIDsResolved();
+Xvoid AddStandardOIDS();
+XLIST *ResolveSpecificOID();
+Xvoid ProcessOID();
+X#endif
+X
+END_OF_FILE
+  if test 325 -ne `wc -c <'AssignOID.h'`; then
+    echo shar: \"'AssignOID.h'\" unpacked with wrong size!
+  fi
+  # end of 'AssignOID.h'
+fi
+if test -f 'AssignTRAP.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignTRAP.h'\"
+else
+  echo shar: Extracting \"'AssignTRAP.h'\" \(118 characters\)
+  sed "s/^X//" >'AssignTRAP.h' <<'END_OF_FILE'
+X#if defined(__STDC__)
+Xvoid ProcessTrap(char *,LIST *,LIST *,char *,char *,int,int);
+X#else
+Xvoid ProcessTrap();
+X#endif
+X
+END_OF_FILE
+  if test 118 -ne `wc -c <'AssignTRAP.h'`; then
+    echo shar: \"'AssignTRAP.h'\" unpacked with wrong size!
+  fi
+  # end of 'AssignTRAP.h'
+fi
+if test -f 'AssignTYPE.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignTYPE.c'\"
+else
+  echo shar: Extracting \"'AssignTYPE.c'\" \(2326 characters\)
+  sed "s/^X//" >'AssignTYPE.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "MibCompiler.h"
+X#include "AssignTYPE.h"
+X#include "symbol.h"
+X
+X
+Xextern int yyErrorCnt;
+X
+X
+X/*
+X * pName		name of TYPE definition
+X * type			pointer to TYPE structure that details what
+X *				is being named.
+X * nLineNo		where the TYPE is defined in the MIB file.
+X */
+Xvoid ProcessType(char *pName,TYPE *type,int nLineNo)
+X {
+X    SYMBOL *pSym;
+X    /*
+X     * This is simple; we just mark things as an alias. 'pName' is the
+X     * new name for type 'type'.
+X     */
+X    if( pSym = FindSymbol(pName,NEWTYPES) )
+X                 {
+X                    /*
+X                     * Symbol is already known! See if it is one of the 
+X                     * predefined types...
+X                     */
+X                    if( pSym->DefinedLineNo )
+X                        {
+X                            RestoreErrorMsg("Line %d : %s is an already known data type defined at line %d\n",pName,pSym->DefinedLineNo);
+X                            yyErrorCnt++;
+X                        }
+X                 }
+X            else {
+X                    /*
+X                     * We have a new one. So add it for later use.
+X                     */
+X                    pSym = (SYMBOL *) malloc( sizeof(SYMBOL) );
+X                    if( pSym )
+X                             {
+X                                /*
+X                                 * Save it.
+X                                 */
+X                                pSym->DefinedLineNo = nLineNo;
+X                                pSym->SymbolName = strdup(pName);
+X                                pSym->SymbolValue = (LIST *)type;
+X                                AddToSymbolTable(pSym,NEWTYPES);
+X                             }
+X                        else {
+X                                /*
+X                                 * No memory left!
+X                                 */
+X                                RestoreErrorMsg("Out of memory\n");
+X                             }
+X                 }
+X }
+X
+X
+Xvoid AddStandardTypes(void)
+X {
+X    PAIR all0;
+X    /*
+X     * We add in any standard types that are created from basic level
+X     * types.
+X     */
+X    memset((char *)&all0,0,sizeof(all0));
+X    ProcessType("DisplayString",newTypeElement(OCTETTYPE,(char *)&all0),0);
+X    ProcessType("PhysAddress",newTypeElement(OCTETTYPE,(char *)&all0),0);
+X }
+X
+END_OF_FILE
+  if test 2326 -ne `wc -c <'AssignTYPE.c'`; then
+    echo shar: \"'AssignTYPE.c'\" unpacked with wrong size!
+  fi
+  # end of 'AssignTYPE.c'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(611 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# If you can use varargs.h, you should change CFLAGS to be the following:
+X#
+X#CFLAGS = -g -DVARARGS
+X#
+X# If you need to use stdarg.h, use just the included CFLAGS...
+X#
+X# Of course, use -g to include debugging information.
+X#
+XCFLAGS	= -g
+X
+XOBJECTS = y.tab.o lex.yy.o support.o symbol.o debug.o AssignOID.o \
+X		AssignTRAP.o AssignOBJECT.o AssignTYPE.o error.o main.o \
+X                version.o
+X
+X
+XMIBcompiler:	$(OBJECTS)
+X		$(CC) -o $@ $(OBJECTS) -ll -ly -lx
+Xclean:
+X		-rm -f y.tab.* lex.yy.* *.o MIBcompiler yacc.tmp yacc.acts\
+X			 yacc.debug y.output
+X
+Xy.tab.c:	yacc.y
+X		yacc -d yacc.y
+X
+Xlex.yy.c:	lex.l
+X		lex lex.l
+X
+END_OF_FILE
+  if test 611 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'MibCompiler.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MibCompiler.h'\"
+else
+  echo shar: Extracting \"'MibCompiler.h'\" \(2052 characters\)
+  sed "s/^X//" >'MibCompiler.h' <<'END_OF_FILE'
+X#if defined(__STDC__)
+X#if defined(VARARGS)
+Xvoid RestoreErrorMsg(const char *,int);
+Xvoid ErrorMsg(const char *,int);
+X#else
+Xvoid RestoreErrorMsg(const char *,...);
+Xvoid ErrorMsg(const char *,...);
+X#endif
+X#else
+Xvoid ErrorMsg();
+Xvoid RestoreErrorMsg();
+X#endif
+X
+Xtypedef enum {ALLKEYWORDS,NOKEYWORDS} KEYTYPES;
+X
+Xtypedef enum {TRUTH,FALSITY} BOOLEAN;
+X
+Xtypedef enum {NAMEONLY,NUMBERONLY,NAMEANDNUMBER,
+X                           NAMEANDOID,STRINGONLY} ENTRYTYPE;
+Xtypedef struct list {
+X                        struct list *Next;
+X                          ENTRYTYPE  Type;
+X                               char *Name;
+X                                int  Number;
+X                        struct list *OID;
+X                    } LIST;
+X#if defined(__STDC__)
+XLIST *newListElement(ENTRYTYPE,char *,int);
+XLIST *LinkToList(LIST *,LIST *);
+Xchar *OIDListToString(LIST *);
+X#else
+XLIST *newListElement();
+XLIST *LinkToList();
+Xchar *OIDListToString();
+X#endif
+X
+X
+Xtypedef struct {
+X                long int Lower;
+X                long int Upper;
+X               } PAIR;
+X
+Xtypedef enum {NULLTYPE,TICKTYPE,COUNTERTYPE,OBJIDTYPE,
+X                    GAUGETYPE,IPADDRTYPE,NETWORKTYPE,
+X                        INTEGERTYPE,RANGEINTEGER,ENUMINTEGER,
+X                            OCTETTYPE,ITEMTYPE,SEQTYPE,SEQOFTYPE,
+X                                               STRINGTYPE,TYPENAME} TYPEofTYPE;
+Xtypedef struct {
+X                char *ItemName;
+X                void *ItemType;
+X               } NAMEPAIR;
+X
+Xtypedef union {
+X                    PAIR  Range;
+X                    LIST *EnumList;
+X                    char *TypeList;
+X                NAMEPAIR  Names;
+X                    char *SeqName;
+X                    char *TypeName;
+X              } DATAUNION;
+X
+Xtypedef struct type {
+X                        struct type *Next;
+X                         TYPEofTYPE  Type;
+X                          DATAUNION  Data;
+X                    } TYPE;
+X
+X#if defined(__STDC__)
+XTYPE *newTypeElement(TYPEofTYPE,char *);
+XTYPE *LinkToType(TYPE *,TYPE *);
+X#else
+XTYPE *newTypeElement();
+XTYPE *LinkToType();
+X#endif
+END_OF_FILE
+  if test 2052 -ne `wc -c <'MibCompiler.h'`; then
+    echo shar: \"'MibCompiler.h'\" unpacked with wrong size!
+  fi
+  # end of 'MibCompiler.h'
+fi
+if test -f 'debug.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'debug.c'\"
+else
+  echo shar: Extracting \"'debug.c'\" \(3993 characters\)
+  sed "s/^X//" >'debug.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+X#include "MibCompiler.h"
+X
+X
+Xvoid PrintList(LIST *p1,int bNewLine)
+X {
+X    for( ; p1; p1 = p1->Next )
+X        {
+X            switch(p1->Type)
+X                {
+X                    case NAMEONLY   : 
+X                                      printf(bNewLine ? "%s\n":"%s ",p1->Name);
+X                                      break;
+X                    case NUMBERONLY :
+X                                      printf(bNewLine ? "%d\n":"%d ",p1->Number);
+X                                      break;
+X                    case NAMEANDNUMBER :
+X                                      printf(bNewLine ? "%s(%d)\n":"%s(%d) ",p1->Name,p1->Number);
+X                                      break;
+X                }
+X        }
+X }
+X
+X
+Xstatic char *RangeToString(PAIR range)
+X {
+X    char *pStr;
+X    static char buf[32];
+X    if( range.Lower || range.Upper )
+X             {
+X                sprintf(buf,"(%d...%d)",range.Lower,range.Upper);
+X                pStr = buf;
+X             }
+X        else pStr = 0;
+X    return(pStr);
+X }
+X
+Xvoid PrintType(TYPE *p1)
+X {
+X    char *pStr;
+X    for( ; p1; p1 = p1->Next )
+X        {
+X            /*
+X             * Print out the type info...
+X             */
+X            switch(p1->Type)
+X                {
+X                    case TICKTYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "Tick %s\n" : "Tick\n",pStr);
+X                            break;
+X                    case COUNTERTYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "Counter %s\n" : "Counter\n",pStr);
+X                            break;
+X                    case GAUGETYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "Gauge %s\n" : "Gauge\n",pStr);
+X                            break;
+X                    case RANGEINTEGER :
+X                    case INTEGERTYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "Integer %s\n":"Integer\n",pStr);
+X                            break;
+X                    case OCTETTYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "Octet string %s\n" :"Octet string\n",pStr);
+X                            break;
+X                    case STRINGTYPE :
+X                            pStr = RangeToString(p1->Data.Range);
+X                            printf(pStr ? "String %s\n":"String\n",pStr);
+X                            break;
+X                    case OBJIDTYPE :
+X                            printf("ObjectId\n");
+X                            break;
+X                    case IPADDRTYPE :
+X                            printf("IpAddress\n");
+X                            break;
+X                    case NETWORKTYPE :
+X                            printf("NetworkAddress\n");
+X                            break;
+X                    case NULLTYPE :
+X                            printf("Null\n");
+X                            break;
+X                    case ENUMINTEGER :
+X                            printf("Integer\n");
+X                            PrintList(p1->Data.EnumList,1);
+X                            break;
+X                    case ITEMTYPE :
+X                            printf("%s ",p1->Data.Names.ItemName);
+X                            PrintType(p1->Data.Names.ItemType);
+X                            break;
+X                    case SEQTYPE :
+X                            printf("Sequence\n");
+X                            PrintType((TYPE *)(p1->Data.TypeList));
+X                            break;
+X                    case SEQOFTYPE :
+X                            printf("SequenceOf\n");
+X                            PrintType((TYPE *)(p1->Data.TypeList));
+X                            break;
+X                    case TYPENAME :
+X                            printf("%s\n",p1->Data.TypeName);
+X                            break;
+X                }
+X        }
+X }
+X
+END_OF_FILE
+  if test 3993 -ne `wc -c <'debug.c'`; then
+    echo shar: \"'debug.c'\" unpacked with wrong size!
+  fi
+  # end of 'debug.c'
+fi
+if test -f 'error.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'error.c'\"
+else
+  echo shar: Extracting \"'error.c'\" \(1007 characters\)
+  sed "s/^X//" >'error.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#if defined(VARARGS)
+X#include <varargs.h>
+X#else
+X#include <stdarg.h>
+X#endif
+X
+X
+X#include "MibCompiler.h"
+X
+X
+Xint nErrorCount = 0;
+X
+X#if defined(VARARGS)
+Xvoid RestoreErrorMsg(format,va_alist)
+Xconst char *format;
+Xva_dcl
+X#else
+Xvoid RestoreErrorMsg(const char *format,...)
+X#endif
+X {
+X    va_list ap;
+X    /*
+X     * Convert the format string and arguments to something we can use.
+X     */
+X#if defined(VARARGS)
+X    va_start(ap);
+X#else
+X    va_start(ap,char *);
+X#endif
+X    (void) vprintf(format,ap);
+X#if defined(VARARGS)
+X    va_end(ap)
+X#else
+X    va_end(ap);
+X#endif
+X    nErrorCount++;
+X }
+X
+X
+X#if defined(VARARGS)
+Xvoid ErrorMsg(format,va_alist)
+Xconst char *format;
+Xva_dcl
+X#else
+Xvoid ErrorMsg(const char *format,...)
+X#endif
+X {
+X    va_list ap;
+X    /*
+X     * Convert the format string and arguments to something we can use.
+X     */
+X#if defined(VARARGS)
+X    va_start(ap);
+X#else
+X    va_start(ap,char *);
+X#endif
+X    (void) vprintf(format,ap);
+X#if defined(VARARGS)
+X    va_end(ap)
+X#else
+X    va_end(ap);
+X#endif
+X }
+X
+X
+X
+END_OF_FILE
+  if test 1007 -ne `wc -c <'error.c'`; then
+    echo shar: \"'error.c'\" unpacked with wrong size!
+  fi
+  # end of 'error.c'
+fi
+if test -f 'keyword.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'keyword.h'\"
+else
+  echo shar: Extracting \"'keyword.h'\" \(49 characters\)
+  sed "s/^X//" >'keyword.h' <<'END_OF_FILE'
+Xtypedef enum {ALLKEYWORDS,NOKEYWORDS} KEYTYPES;
+X
+END_OF_FILE
+  if test 49 -ne `wc -c <'keyword.h'`; then
+    echo shar: \"'keyword.h'\" unpacked with wrong size!
+  fi
+  # end of 'keyword.h'
+fi
+if test -f 'lex.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lex.l'\"
+else
+  echo shar: Extracting \"'lex.l'\" \(8265 characters\)
+  sed "s/^X//" >'lex.l' <<'END_OF_FILE'
+X%{
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "MibCompiler.h"
+X#include "symbol.h"
+X#include "y.tab.h"
+X
+X
+X#define	myyerror	yyerror
+X#undef	YYLMAX
+X#define	YYLMAX		8192
+X
+XKEYTYPES eNoKeyWords = {ALLKEYWORDS};
+X
+X
+Xstruct table {
+X    char   *t_keyword;
+X    int	    t_value;
+X};
+X
+Xextern struct table reserved[];
+Xextern struct table lowerReserved[];
+X%}
+X
+X%%
+X
+X"--"			{
+X                            int c, d;
+X			    for( d = 0; c = input(); d = c == '-' )
+X				if( (c == '\n') || (d && c == '-') ) break;
+X			}
+X[ \t]*			{
+X			}
+X\n			{
+X			}
+X"::="			{
+X			    return CCE;
+X			}
+X".."                    {
+X                            return DOTDOT;
+X                        }
+X";"			{
+X			    return SEMICOLON;
+X			}
+X","			{
+X			    return COMMA;
+X			}
+X"{"			{
+X			    return LBRACE;
+X			}
+X"}"			{
+X			    return RBRACE;
+X			}
+X"("			{
+X			    return LPAREN;
+X			}
+X")"			{
+X			    return RPAREN;
+X			}
+X[0-9]+			{
+X			    (void) sscanf (yytext, "%d", &yylval.yy_number);
+X			    return LITNUMBER;
+X			}
+X-[0-9]+			{
+X			    (void) sscanf (yytext, "%d", &yylval.yy_number);
+X			    return LITNUMBER;
+X			}
+X'[^'$]*'[BbHh]		{   register char *cp; register int i;
+X
+X			    switch (*(cp = yytext + strlen (yytext) - 1)) {
+X				case 'H':
+X				case 'h':
+X				    *cp = NULL;
+X				    (void) sscanf (yytext + 1, "%x",
+X						&yylval.yy_number);
+X				    break;
+X
+X				case 'B':
+X				case 'b':
+X				    *cp-- = NULL, *cp = NULL;
+X				    for (i = 0, cp = yytext + 1; *cp; ) {
+X					i <<= 1;
+X					i += *cp++ - '0';
+X				    }
+X				    yylval.yy_number = i;
+X				    break; 
+X			    }
+X			    return LITNUMBER;
+X			}
+X\"[^\"$]*\"		{
+X                            char *pF,*pT;
+X                            /*
+X                             * Process the literal string... we start
+X                             * by stripping out multiple WHITESPACE
+X                             * and replacing it with a single space.
+X                             */
+X			    yytext[strlen (yytext) - 1] = NULL;
+X			    yylval.yy_string = strdup(yytext + 1);
+X                            for( pF = pT = yylval.yy_string; *pF; )
+X                                if( isspace(*pF) && *(pF+1) && isspace(*(pF+1)) )
+X                                       {
+X                                            /*
+X                                             * We have multiple WHITESPACE. So
+X                                             * keep one as a BLANK.
+X                                             */
+X                                            *pF++;
+X                                       }
+X                                  else {
+X                                            /*
+X                                             * No. Save it away.
+X                                             */
+X                                            if( isspace(*pF) )
+X                                                     *pT++ = ' ';
+X                                                else *pT++ = *pF;
+X                                            pF++;
+X                                       }
+X                            *pT = '\0';
+X			    return LITSTRING;
+X			}
+X[A-Z][A-Za-z0-9-]*	{
+X                            /*
+X                             * See if we need to look for keywords.
+X                             */
+X                            int n;
+X                            SYMBOL *pSym;
+X                            if( eNoKeyWords == ALLKEYWORDS )
+X                                {
+X                                    /*
+X                                     * First, look for the unchanged keyword.
+X                                     * If we find it, cool. Just return the
+X                                     * type.
+X                                     */
+X                                    n = CompareKeywords(reserved,yytext,0);
+X                                    if( n >= 0 ) return(n);  
+X
+X                                    /*
+X                                     * See if we have a case mismatch. If so
+X                                     * force an error!
+X                                     */
+X                                    n = CompareKeywords(reserved,yytext,1);
+X                                    if( n >= 0 ) return(ERROR);
+X
+X                                    /*
+X                                     * Finally, check out the typedef types
+X                                     * of symbols.
+X                                     */
+X                                    pSym = FindSymbol(yytext,NEWTYPES);
+X                                    if( pSym )
+X					{
+X					 switch(((TYPE *)(pSym->SymbolValue))->Type)
+X						{
+X                                                    case NULLTYPE : return(NULLID);
+X                                                    case TICKTYPE : return(TIMETICKS);
+X                                                    case COUNTERTYPE : return(COUNTER);
+X                                                    case GAUGETYPE : return(GAUGE);
+X                                                    case IPADDRTYPE : return(IPADDRESS);
+X                                                    case NETWORKTYPE : return(NETWORKADDRESS);
+X                                                    case INTEGERTYPE : return(INTEGER);
+X                                                    case OCTETTYPE :   return(OCTSTR);
+X                                                    case STRINGTYPE : return(STRING);
+X						}
+X					}
+X                                }
+X			    yylval.yy_string = strdup(yytext);
+X			    return ID;
+X			}
+X[a-z][A-Za-z0-9-]*	{ 
+X                            int n;
+X                            if( eNoKeyWords ==  ALLKEYWORDS )
+X                                {
+X                                    /*
+X                                     * First, look for the unchanged keyword.
+X                                     */
+X                                    n = CompareKeywords(lowerReserved,yytext,0);
+X                                    if( n >= 0 ) return(n);
+X                                }
+X			    yylval.yy_string = strdup(yytext);
+X			    return NAME;
+X			}
+X.			{   
+X			    myyerror ("unknown token: \"%s\"", yytext);
+X			}
+X
+X%%
+X
+Xstruct table lowerReserved[] = {
+X    "deprecated", DEPRECATEDOBJECT,
+X    "mandatory", MANDATORYOBJECT,
+X    "obsolete", OBSOLETEOBJECT,
+X    "optional", OPTIONALOBJECT,
+X
+X    "not-accessible", NOTACCESSIBLEOBJECT,
+X    "read-only", READONLYOBJECT,
+X    "read-write", READWRITEOBJECT,
+X    "write-only", WRITEONLYOBJECT,
+X
+X    0,0
+X};
+X
+Xstruct table reserved[] = {
+X    "ACCESS", ACCESS,
+X    "BEGIN", BGIN,
+X    "DEFINITIONS", DEFINITIONS,
+X    "DEFVAL", DEFVAL,
+X    "DESCRIPTION", DESCRIPTION,
+X    "END", END,
+X    "ENTERPRISE", ENTERPRISE,
+X    "EXPORTS", EXPORTS,
+X    "FROM", FROM,
+X    "IMPORTS", IMPORTS,
+X    "INDEX", INDEX,
+X    "OBJECT-TYPE", OBJECTTYPE,
+X    "OF", OF,
+X    "REFERENCE", REFERENCE,
+X    "SEQUENCE", SEQUENCE,
+X    "SIZE", SIZE,
+X    "STATUS", STATUS,
+X    "SYNTAX", SYNTAX,
+X    "TRAP-TYPE", TRAPTYPE,
+X    "VARIABLES", VARIABLES,
+X
+X    "Counter", COUNTER,
+X    "Gauge", GAUGE,
+X    "INTEGER", INTEGER,
+X    "IpAddress", IPADDRESS,
+X    "NetworkAddress", NETWORKADDRESS,
+X    "NULL", NULLID,
+X    "OCTET", OCTET,
+X    "STRING", STRING,
+X    "OPAQUE", OPAQUE,
+X    "TimeTicks", TIMETICKS,
+X    "OBJECT", OBJECT,
+X    "IDENTIFIER", IDENTIFIER,
+X
+X    0,0
+X};
+X
+Xstatic int stricmp(char *pS,char *pT)
+X {
+X    for( ; *pS && *pT; pS++,pT++ )
+X        if( toupper(*pS) != toupper(*pT) ) break;
+X    return( *pS - *pT );
+X }
+X
+Xstatic int CompareKeywords(struct table *pT,char *pS,int bNotCaseSensitive)
+X {
+X    /*
+X     * Cycle through the table looking for a match.
+X     */
+X    for( ; pT->t_keyword; pT++ )
+X        {
+X            /*
+X             * See if we need to pay attention to the case or not.
+X             */
+X            if( bNotCaseSensitive & (stricmp(pT->t_keyword,pS) == 0) ||
+X                                             (strcmp(pT->t_keyword,pS) == 0) )
+X                                                     return(pT->t_value);
+X        }
+X    return(-1);
+X }
+X
+X
+Xchar *ShouldBeKeyword(char *pS)
+X {
+X    struct table *pT = reserved;
+X    /*
+X     * Cycle through the table looking for a match.
+X     */
+X    for( ; pT->t_keyword; pT++ )
+X        {
+X            /*
+X             * See if we need to pay attention to the case or not.
+X             */
+X            if( stricmp(pT->t_keyword,pS) == 0 ) return(pT->t_keyword);
+X        }
+X    return(0);
+X }
+X
+END_OF_FILE
+  if test 8265 -ne `wc -c <'lex.l'`; then
+    echo shar: \"'lex.l'\" unpacked with wrong size!
+  fi
+  # end of 'lex.l'
+fi
+if test -f 'oid.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'oid.h'\"
+else
+  echo shar: Extracting \"'oid.h'\" \(1799 characters\)
+  sed "s/^X//" >'oid.h' <<'END_OF_FILE'
+X#define MAXNOELEMS      (50)
+X
+Xtypedef enum {
+X              DISPLAYSTRING,
+X              OBJECTID,
+X              TIMETICKS,
+X              OPAQUE,
+X              NULLOBJ,
+X              GAUGE,
+X              OCTETSTRING,
+X              COUNTER,
+X              IPADDR,
+X              INTEGER,
+X              AGGREGATE,
+X              NOTYPE,
+X              NETADDR
+X             } OIDTYPE;
+X
+Xtypedef enum {
+X              RONLY,
+X              RWRITE,
+X              WRITEONLY,
+X              NOACCESS,
+X              UNKNOWN = -1
+X             } OIDACCESS;
+X
+Xtypedef enum {
+X              MANDATORY,
+X              OPTIONAL,
+X              OBSOLETE,
+X              DEPRECATED
+X             } OIDSTATUS;
+X
+Xtypedef enum {
+X               LEAFTYPE,
+X                ROWTYPE,
+X                COLTYPE,
+X                ARRAYTYPE
+X             } OIDFLAG;
+X
+Xtypedef enum {
+X                RANGESET,NOSUBTYPE,ENUMSET
+X             } OIDSUBTYPE;
+X
+Xtypedef struct {
+X                char *EnumName;
+X                 int  EnumValue;
+X               } ENUMDATA;
+X
+Xtypedef struct {
+X                 int Lower;
+X                 int Upper;
+X               } PAIROFINTS;
+X
+Xtypedef union {
+X                      long  RecPtr;
+X                  ENUMDATA  EnumData;
+X                      char *IndexName;
+X                      char *Comments;
+X                PAIROFINTS Pair;
+X              } OIDEXTRA;
+X
+Xtypedef struct {
+X                        char *OIDname;
+X                        char *OIDoid;
+X                   OIDACCESS  OIDaccess;
+X                     OIDTYPE  OIDtype;
+X                  OIDSUBTYPE  OIDsubtype;
+X                   OIDSTATUS  OIDstatus;
+X                     OIDFLAG  OIDflag;
+X                    OIDEXTRA  OIDcomments;
+X                unsigned int  NoElems;
+X                    OIDEXTRA  extra[MAXNOELEMS];
+X               } OIDINFO;
+END_OF_FILE
+  if test 1799 -ne `wc -c <'oid.h'`; then
+    echo shar: \"'oid.h'\" unpacked with wrong size!
+  fi
+  # end of 'oid.h'
+fi
+if test -f 'support.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'support.c'\"
+else
+  echo shar: Extracting \"'support.c'\" \(2150 characters\)
+  sed "s/^X//" >'support.c' <<'END_OF_FILE'
+X#include <stdlib.h>
+X
+X#include "MibCompiler.h"
+X
+Xextern char yytext[];
+Xextern int yylineno;
+X
+Xint yyErrorCnt = {0};
+X
+X
+Xyyerror(char *pStr)
+X {
+X    RestoreErrorMsg("Line: %d  %s (Last token %s)\n",yylineno,pStr,yytext);
+X    yyErrorCnt++;
+X }
+X
+X
+XTYPE *newTypeElement(TYPEofTYPE type,char *pName)
+X {
+X    TYPE *pRc;
+X    pRc = (TYPE *) malloc(sizeof(TYPE));
+X    if( pRc == (TYPE *)0 )
+X        {
+X            RestoreErrorMsg("Out of memory\n");
+X            return((TYPE *)0);
+X        }
+X    memset(pRc,0,sizeof(TYPE));
+X    pRc->Type = type;
+X    switch(type)
+X        {
+X            case TYPENAME : 
+X                            pRc->Data.TypeName = pName;
+X                            break;
+X            case SEQTYPE :
+X            case SEQOFTYPE:
+X                            pRc->Data.TypeList = pName;
+X                            break;
+X            case ENUMINTEGER :
+X                            pRc->Data.EnumList = (LIST *)pName;
+X                            break;
+X            case STRINGTYPE:
+X            case OCTETTYPE:
+X            case RANGEINTEGER :
+X                            memcpy(&pRc->Data.Range,(PAIR *)pName,sizeof(PAIR));
+X                            break;
+X        }
+X    return(pRc);
+X }
+X
+X
+XLIST *newListElement(ENTRYTYPE type,char *pName,int nValue)
+X {
+X    LIST *pRc;
+X    pRc = (LIST *) malloc(sizeof(LIST));
+X    if( pRc == (LIST *)0 )
+X        {
+X            RestoreErrorMsg("Out of memory\n");
+X            return((LIST *)0);
+X        }
+X    memset(pRc,0,sizeof(LIST));
+X    pRc->Type = type;
+X    pRc->Name = pName;
+X    pRc->Number = nValue;
+X    return(pRc);
+X }
+X
+X
+XLIST *LinkToList(LIST *p1,LIST *p2)
+X {
+X    LIST *pTemp = p1;
+X    while( pTemp->Next ) pTemp = pTemp->Next;
+X    pTemp->Next = p2;
+X    return(p1);
+X }
+X
+X
+XTYPE *LinkToType(TYPE *p1,TYPE *p2)
+X {
+X    TYPE *pTemp = p1;
+X    while( pTemp->Next ) pTemp = pTemp->Next;
+X    pTemp->Next = p2;
+X    return(p1);
+X }
+X
+X
+Xchar *OIDListToString(LIST *pL)
+X {
+X    static char buffer[128];
+X    char *pStr;
+X    for( pStr = buffer; pL; pL = (LIST *)pL->Next )
+X        {
+X            sprintf(pStr,"%d",pL->Number);
+X            pStr += strlen(pStr);
+X            if( pL->Next ) *pStr++ = '.';
+X        }
+X    return(buffer);
+X }
+END_OF_FILE
+  if test 2150 -ne `wc -c <'support.c'`; then
+    echo shar: \"'support.c'\" unpacked with wrong size!
+  fi
+  # end of 'support.c'
+fi
+if test -f 'symbol.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'symbol.c'\"
+else
+  echo shar: Extracting \"'symbol.c'\" \(601 characters\)
+  sed "s/^X//" >'symbol.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "MibCompiler.h"
+X#include "symbol.h"
+X
+X
+Xstatic SYMBOL *(HeadSymbol[MAXSYMBOLTABLES]) = {0,};
+X
+X
+XSYMBOL *GetNextSymbol(SYMBOL *pSym,int nWhich)
+X {
+X    return( pSym ? (SYMBOL *)pSym->Next : HeadSymbol[nWhich] );
+X }
+X
+X
+XSYMBOL *FindSymbol(char *pName,int nWhich)
+X {
+X    SYMBOL *pS;
+X    pS = HeadSymbol[nWhich];
+X    for( ; pS && strcmp(pS->SymbolName,pName); pS = (SYMBOL *)pS->Next ) ;
+X    return(pS);
+X }
+X
+X
+Xvoid AddToSymbolTable(SYMBOL *pS,int nWhich)
+X {
+X    pS->Next = (struct symbol *) HeadSymbol[nWhich];
+X    HeadSymbol[nWhich] = pS;
+X }
+END_OF_FILE
+  if test 601 -ne `wc -c <'symbol.c'`; then
+    echo shar: \"'symbol.c'\" unpacked with wrong size!
+  fi
+  # end of 'symbol.c'
+fi
+if test -f 'symbol.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'symbol.h'\"
+else
+  echo shar: Extracting \"'symbol.h'\" \(633 characters\)
+  sed "s/^X//" >'symbol.h' <<'END_OF_FILE'
+Xtypedef struct symbol {
+X                        struct symbol *Next;
+X                                  int  DefinedLineNo;
+X                                 char *SymbolName;
+X                                 LIST *SymbolValue;
+X                      } SYMBOL;
+X
+X/* List of defined Symbol Tables in the system... */
+X#define OIDTABLE	0
+X#define	ARRAYTABLE	1
+X#define NEWTYPES	2
+X#define ROWTABLE	3
+X
+X#define MAXSYMBOLTABLES	4
+X
+X
+X#if defined(__STDC__)
+XSYMBOL *FindSymbol(char *,int);
+Xvoid AddToSymbolTable(SYMBOL *,int);
+XSYMBOL *GetNextSymbol(SYMBOL *,int);
+X#else
+XSYMBOL *FindSymbol();
+Xvoid AddToSymbolTable();
+XSYMBOL *GetNextSymbol();
+X#endif
+X
+END_OF_FILE
+  if test 633 -ne `wc -c <'symbol.h'`; then
+    echo shar: \"'symbol.h'\" unpacked with wrong size!
+  fi
+  # end of 'symbol.h'
+fi
+if test -f 'version.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.c'\"
+else
+  echo shar: Extracting \"'version.c'\" \(35 characters\)
+  sed "s/^X//" >'version.c' <<'END_OF_FILE'
+Xchar *Version = "Version 1.3a\n";
+X
+END_OF_FILE
+  if test 35 -ne `wc -c <'version.c'`; then
+    echo shar: \"'version.c'\" unpacked with wrong size!
+  fi
+  # end of 'version.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1547 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: vojta%math.Berkeley.EDU@ucbvax.Berkeley.EDU (Paul Vojta)
+Newsgroups: comp.sources.x
+Subject: v17i107: xdvi, Patch15, Part01/01, Patch15, Part01/01
+Message-ID: <1992Jun29.160930.9375@msi.com>
+Date: 29 Jun 92 16:09:30 GMT
+References: <csx-17i107-xdvi@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1534
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: vojta%math.Berkeley.EDU@ucbvax.Berkeley.EDU (Paul Vojta)
+Posting-number: Volume 17, Issue 107
+Archive-name: xdvi/patch15
+Patch-To: xdvi: Volume 17, Issues 23, 24, 25, 40, 41, 27
+Patch-To: xdvi: Volume 17, Issue 53
+Patch-To: xdvi: Volume 17, Issue 106
+
+This patch:
+
+ o  implements the MakeTeXPK script (courtesy of Tom Rokicki, author
+    of dvips) which invokes metafont to create a font when one does not
+    exist in the right size;
+
+ o  changes the call to XtGetApplicationResources, in the hope that it
+    will work on a Convex; and
+
+ o  fixes a(nother) bug with virtual fonts.
+
+--Paul Vojta, vojta@math.berkeley.edu
+
+-- cut here --
+diff -cr xdvi_old/MakeTeXPK xdvi_new/MakeTeXPK
+*** xdvi_old/MakeTeXPK	Fri Jun 19 14:48:57 1992
+--- xdvi_new/MakeTeXPK	Fri Jun 19 13:32:07 1992
+***************
+*** 0 ****
+--- 1,141 ----
++ #!/bin/sh
++ #
++ #   This script file makes a new TeX PK font, because one wasn't
++ #   found.  Parameters are:
++ #
++ #   name dpi bdpi magnification [mode [subdir]]
++ #
++ #   `name' is the name of the font, such as `cmr10'.  `dpi' is
++ #   the resolution the font is needed at.  `bdpi' is the base
++ #   resolution, useful for figuring out the mode to make the font
++ #   in.  `magnification' is a string to pass to MF as the
++ #   magnification.  `mode', if supplied, is the mode to use.
++ #
++ #   Note that this file must execute Metafont, and then gftopk,
++ #   and place the result in the correct location for the PostScript
++ #   driver to find it subsequently.  If this doesn't work, it will
++ #   be evident because MF will be invoked over and over again.
++ #
++ #   Of course, it needs to be set up for your site.
++ #
++ TEXDIR=/usr/lib/tex
++ LOCALDIR=/LocalLibrary/Fonts/TeXFonts
++ DESTDIR=$LOCALDIR/pk
++ #
++ # TEMPDIR needs to be unique for each process because of the possibility
++ # of simultaneous processes running this script.
++ #
++ if test "$TMPDIR" = ""
++ then
++    TEMPDIR=/tmp/mtpk.$$
++ else
++    TEMPDIR=$TMPDIR/mtpk.$$
++ fi
++ NAME=$1
++ DPI=$2
++ BDPI=$3
++ MAG=$4
++ MODE=$5
++ 
++ umask 0
++ 
++ if test "$MODE" = ""
++ then
++    if test $BDPI = 300
++    then
++       MODE=imagen
++    elif test $BDPI = 200
++    then
++       MODE=FAX
++    elif test $BDPI = 360
++    then
++       MODE=nextII
++    elif test $BDPI = 400
++    then
++       MODE=nexthi
++    elif test $BDPI = 100
++    then
++       MODE=nextscreen
++    elif test $BDPI = 635
++    then
++       MODE=linolo
++    elif test $BDPI = 1270
++    then
++       MODE=linohi
++    elif test $BDPI = 2540
++    then
++       MODE=linosuper
++    else
++       echo "I don't know the mode for $BDPI"
++       echo "Have your system admin update MakeTeXPK"
++       exit 1
++    fi
++ fi
++ 
++ #  Something like the following is useful at some sites.
++ # DESTDIR=/usr/local/lib/tex/fonts/pk.$MODE
++ GFNAME=$NAME.$DPI'gf'
++ PKNAME=$NAME.$DPI'pk'
++ 
++ # Clean up on normal or abnormal exit
++ trap "cd /; /bin/rm -rf $TEMPDIR $DESTDIR/pktmp.$$" 0 1 2 15
++ 
++ 
++ if test ! -d $DESTDIR
++ then
++    mkdir $DESTDIR
++ fi
++ 
++ if test "$6" != ""
++ then
++    DESTDIR=$DESTDIR"$6"
++    if test ! -d $DESTDIR
++    then
++       mkdir $DESTDIR
++    fi
++ fi
++ 
++ mkdir $TEMPDIR
++ cd $TEMPDIR
++ 
++ if test -r $DESTDIR/$PKNAME
++ then
++    echo "$DESTDIR/$PKNAME already exists!"
++    exit 0
++ fi
++ 
++ # check also in the standard place
++ 
++ if test "$6" = ""
++ then
++    if test -r $TEXDIR/fonts/pk/$PKNAME
++    then
++       echo $TEXDIR/fonts/pk/$PKNAME already exists!
++       exit 0
++    fi
++ else
++    if test -r $TEXDIR/fonts/pk/$6"$PKNAME"
++    then
++       echo $TEXDIR/fonts/pk/$6"$PKNAME" already exists!
++       exit 0
++    fi
++ fi
++ 
++ echo "mf \"\\mode:=$MODE; mag:=$MAG; scrollmode; input $NAME\" < /dev/null"
++ mf "\mode:=$MODE; mag:=$MAG; scrollmode; input $NAME" < /dev/null
++ if test ! -r $GFNAME
++ then
++    echo "Metafont failed for some reason on $GFNAME"
++    exit 1
++ fi
++ 
++ gftopk -v ./$GFNAME ./$PKNAME
++ 
++ # Install the PK file carefully, since others may be doing the same
++ # as us simultaneously.
++ 
++ mv $PKNAME $DESTDIR/pktmp.$$
++ cd $DESTDIR
++ mv pktmp.$$ $PKNAME
++ 
++ exit 0
+diff -cr xdvi_old/README xdvi_new/README
+*** xdvi_old/README	Mon Jun  1 16:25:55 1992
+--- xdvi_new/README	Fri Jun 19 13:18:24 1992
+***************
+*** 81,86 ****
+--- 81,95 ----
+  			right-to-left languages).
+  	GREY		(everything)  Use greyscale anti-aliasing for
+  			displaying shrunken bitmaps.
++ 	MAKEPK		(font_open.c)  If a font is not found, then try to
++ 			call Metafont to create the font.  When using this
++ 			option, remember to set the paths in MakeTeXPK
++ 			correctly for your site, and be sure that the
++ 			destination directory for MakeTeXPK appears in your
++ 			DEFAULT_FONT_PATH variable.
++ 	MAKEPKCMD=/usr/local/tex/bin/MakeTeXPK (font_open.c)  Same as the
++ 			above, but this variant explicitly declares which
++ 			command to use to create the font.
+  
+  All flags should be set in the appropriate Makefile via the variable ``DEFS''.
+  
+***************
+*** 248,252 ****
+--- 257,263 ----
+     31.  Added support for TeXXeT.
+  --  Patchlevel 14: --
+     32.  Added support for greyscale anti-aliasing.
++ --  Patchlevel 15: --
++    33.  Added support for MakeTeXPK, as in dvips.
+  
+  Paul Vojta, vojta@math.berkeley.edu
+diff -cr xdvi_old/dvi_draw.c xdvi_new/dvi_draw.c
+*** xdvi_old/dvi_draw.c	Mon Jun  1 18:08:40 1992
+--- xdvi_new/dvi_draw.c	Fri Jun 19 12:25:05 1992
+***************
+*** 106,113 ****
+  };
+  #endif	/* BMLONG */
+  
+- extern	char	*xmalloc();
+- 
+  #ifdef	VMS
+  #define	off_t	int
+  #endif
+--- 106,111 ----
+***************
+*** 389,395 ****
+  			       DefaultDepthOfScreen(SCRN)), "character pixmap");
+  	g->image2 = XCreateImage(DISP,DefaultVisualOfScreen(SCRN),
+  				 DefaultDepthOfScreen(SCRN),
+! 				 XYPixmap, 0, g->pixmap2,
+  				 g->bitmap2.w, g->bitmap2.h,
+  				 BITS_PER_BMUNIT, 0);
+  
+--- 387,393 ----
+  			       DefaultDepthOfScreen(SCRN)), "character pixmap");
+  	g->image2 = XCreateImage(DISP,DefaultVisualOfScreen(SCRN),
+  				 DefaultDepthOfScreen(SCRN),
+! 				 ZPixmap, 0, g->pixmap2,
+  				 g->bitmap2.w, g->bitmap2.h,
+  				 BITS_PER_BMUNIT, 0);
+  
+***************
+*** 594,602 ****
+  #else
+  void
+  set_char(cmd, ch)
+! 	ubyte	cmd;
+  #endif
+! 	ubyte	ch;
+  {
+  	register struct glyph *g;
+  #ifdef	TEXXET
+--- 592,600 ----
+  #else
+  void
+  set_char(cmd, ch)
+! 	WIDEARG(ubyte, int)	cmd;
+  #endif
+! 	WIDEARG(ubyte, int)	ch;
+  {
+  	register struct glyph *g;
+  #ifdef	TEXXET
+***************
+*** 666,674 ****
+  #else
+  void
+  set_vf_char(cmd, ch)
+! 	ubyte	cmd;
+  #endif
+! 	ubyte	ch;
+  {
+  	register struct macro *m;
+  	struct drawinf	oldinfo;
+--- 664,672 ----
+  #else
+  void
+  set_vf_char(cmd, ch)
+! 	WIDEARG(ubyte, int)	cmd;
+  #endif
+! 	WIDEARG(ubyte, int)	ch;
+  {
+  	register struct macro *m;
+  	struct drawinf	oldinfo;
+diff -cr xdvi_old/dvi_init.c xdvi_new/dvi_init.c
+*** xdvi_old/dvi_init.c	Mon Jun  1 16:26:40 1992
+--- xdvi_new/dvi_init.c	Wed Jun 10 18:46:09 1992
+***************
+*** 127,134 ****
+  
+  void
+  realloc_font(fontp, newsize)
+! 	struct font *fontp;
+! 	ubyte	newsize;
+  {
+  	struct glyph *glyph;
+  
+--- 127,134 ----
+  
+  void
+  realloc_font(fontp, newsize)
+! 	struct font		*fontp;
+! 	WIDEARG(ubyte, int)	newsize;
+  {
+  	struct glyph *glyph;
+  
+***************
+*** 148,155 ****
+  
+  void
+  realloc_virtual_font(fontp, newsize)
+! 	struct font *fontp;
+! 	ubyte	newsize;
+  {
+  	struct macro *macro;
+  
+--- 148,155 ----
+  
+  void
+  realloc_virtual_font(fontp, newsize)
+! 	struct font		*fontp;
+! 	WIDEARG(ubyte, int)	newsize;
+  {
+  	struct macro *macro;
+  
+diff -cr xdvi_old/font_open.c xdvi_new/font_open.c
+*** xdvi_old/font_open.c	Tue May 19 15:09:48 1992
+--- xdvi_new/font_open.c	Mon Jun 15 12:49:37 1992
+***************
+*** 73,79 ****
+  char	*sprintf();
+  #endif
+  
+! char	*xmalloc(), *getenv();
+  
+  #ifndef	atof
+  double	atof();
+--- 73,79 ----
+  char	*sprintf();
+  #endif
+  
+! char	*getenv();
+  
+  #ifndef	atof
+  double	atof();
+***************
+*** 333,338 ****
+--- 333,339 ----
+  
+  	if ((font_path = getenv("XDVIFONTS")) == NULL
+  #ifndef	XDVIFONTS_ONLY
++ 		&& (font_path = getenv("PKFONTS")) == NULL
+  		&& (font_path = getenv("TEXFONTS")) == NULL
+  #endif
+  		) {
+***************
+*** 365,371 ****
+  	compute_subdir_paths(font_path, default_font_path);
+  #endif
+  
+! 	if ((vf_path = getenv("XDVIVFS")) == NULL) {
+  	    vf_path = default_vf_path;
+  	    default_vf_path = NULL;
+  	}
+--- 366,376 ----
+  	compute_subdir_paths(font_path, default_font_path);
+  #endif
+  
+! 	if ((vf_path = getenv("XDVIVFS")) == NULL
+! #ifndef	XDVIFONTS_ONLY
+! 		&& (vf_path = getenv("VFFONTS")) == NULL
+! #endif
+! 		) {
+  	    vf_path = default_vf_path;
+  	    default_vf_path = NULL;
+  	}
+***************
+*** 563,569 ****
+  		if (*p == '\0') break;
+  	    }
+  	    else {
+! 		if ((f = formatted_open(p, font, "vf", 0, name, 0,
+  			DEFAULT_VF_TAIL)) != NULL)
+  		    return f;
+  		p = index(p, PATH_SEP);
+--- 568,574 ----
+  		if (*p == '\0') break;
+  	    }
+  	    else {
+! 		if ((f = formatted_open(p, font, "vf", 0, name, True,
+  			DEFAULT_VF_TAIL)) != NULL)
+  		    return f;
+  		p = index(p, PATH_SEP);
+diff -cr xdvi_old/mksedscript xdvi_new/mksedscript
+*** xdvi_old/mksedscript	Mon Jun  1 16:26:49 1992
+--- xdvi_new/mksedscript	Fri Jun 19 13:01:57 1992
+***************
+*** 8,13 ****
+--- 8,14 ----
+  	if ($x == -DSEARCH_SUBDIRECTORIES) set subdir
+  	if ($x == -DXDVIFONTS_ONLY) set texfonts
+  	if ($x == -DGREY)	set grey
++ 	if ($x =~ -DMAKEPK*)	set makepk
+  end
+  if ($?x10) then
+  	echo	/^\#ifx11/,/^\#/d
+***************
+*** 20,25 ****
+--- 21,27 ----
+  if (! $?subdir)		echo /^\#ifsubdir/,/^\#/d
+  if ($?texfonts)		echo /^\#iftexfonts/,/^\#/d
+  if (! $?grey)		echo /^\#ifgrey/,/^\#/d
++ if (! $?makepk)		echo /^\#ifmakepk/,/^\#/d
+  echo	/^\#/d
+  if ($?a4) then
+  	echo	's/%%defaultpagesize%%/21 x 29.7 cm (A4 size)/'
+diff -cr xdvi_old/patchlevel.h xdvi_new/patchlevel.h
+*** xdvi_old/patchlevel.h	Tue Apr  7 12:44:34 1992
+--- xdvi_new/patchlevel.h	Tue Jun 16 11:37:36 1992
+***************
+*** 1 ****
+! #define PATCHLEVEL 14
+--- 1 ----
+! #define PATCHLEVEL 15
+diff -cr xdvi_old/tpic.c xdvi_new/tpic.c
+*** xdvi_old/tpic.c	Tue Feb 11 13:32:18 1992
+--- xdvi_new/tpic.c	Thu Jun 11 14:45:50 1992
+***************
+*** 246,253 ****
+   * Draw an arc
+   */
+  static	void
+! arc(cp)
+  	char	*cp;
+  {
+  	int	xc, yc, xrad, yrad, n;
+  	float	start_angle, end_angle, angle, theta, r;
+--- 246,254 ----
+   * Draw an arc
+   */
+  static	void
+! arc(cp, invis)
+  	char	*cp;
++ 	Boolean	invis;
+  {
+  	int	xc, yc, xrad, yrad, n;
+  	float	start_angle, end_angle, angle, theta, r;
+***************
+*** 258,263 ****
+--- 259,267 ----
+  	    Warning("illegal arc specification: %s", cp);
+  	    return;
+  	}
++ 
++ 	if (invis) return;
++ 
+  	/* We have a specialized fast way to draw closed circles/ellipses */
+  	if (start_angle <= 0.0 && end_angle >= 6.282) {
+  	    draw_ellipse(xc, yc, xrad, yrad);
+***************
+*** 416,422 ****
+  	else if (strcmp(command, "da") == 0) flush_dashed(cp, 0);
+  	else if (strcmp(command, "dt") == 0) flush_dashed(cp, 1);
+  	else if (strcmp(command, "pa") == 0) add_path(cp);
+! 	else if (strcmp(command, "ar") == 0) arc(cp);
+  	else if (strcmp(command, "sp") == 0) flush_spline();
+  	else if (strcmp(command, "sh") == 0) shade_last();
+  	else if (strcmp(command, "wh") == 0) whiten_last();
+--- 420,427 ----
+  	else if (strcmp(command, "da") == 0) flush_dashed(cp, 0);
+  	else if (strcmp(command, "dt") == 0) flush_dashed(cp, 1);
+  	else if (strcmp(command, "pa") == 0) add_path(cp);
+! 	else if (strcmp(command, "ar") == 0) arc(cp, False);
+! 	else if (strcmp(command, "ia") == 0) arc(cp, True);
+  	else if (strcmp(command, "sp") == 0) flush_spline();
+  	else if (strcmp(command, "sh") == 0) shade_last();
+  	else if (strcmp(command, "wh") == 0) whiten_last();
+diff -cr xdvi_old/util.c xdvi_new/util.c
+*** xdvi_old/util.c	Mon Jun  1 17:08:35 1992
+--- xdvi_new/util.c	Wed Jun 10 18:47:23 1992
+***************
+*** 185,191 ****
+  unsigned long
+  num(fp, size)
+  	register FILE *fp;
+! 	register ubyte size;
+  {
+  	register long x = 0;
+  
+--- 185,191 ----
+  unsigned long
+  num(fp, size)
+  	register FILE *fp;
+! 	register WIDEARG(ubyte, int) size;
+  {
+  	register long x = 0;
+  
+***************
+*** 196,202 ****
+  long
+  snum(fp, size)
+  	register FILE *fp;
+! 	register ubyte size;
+  {
+  	register long x;
+  
+--- 196,202 ----
+  long
+  snum(fp, size)
+  	register FILE *fp;
+! 	register WIDEARG(ubyte, int) size;
+  {
+  	register long x;
+  
+diff -cr xdvi_old/xdvi.c xdvi_new/xdvi.c
+*** xdvi_old/xdvi.c	Sun Jun  7 11:34:21 1992
+--- xdvi_new/xdvi.c	Tue Jun 16 14:29:07 1992
+***************
+*** 52,57 ****
+--- 52,62 ----
+  
+  #define	EXTERN
+  #define	INIT(x)	=x
++ #ifndef	TOOLKIT
++ #define	NTINIT(x)	=x
++ #else
++ #define	NTINIT(x)
++ #endif
+  #include "xdvi.h"
+  
+  #include "patchlevel.h"
+***************
+*** 95,100 ****
+--- 100,106 ----
+  #include <X11/Xaw/Command.h>
+  #endif
+  #else	/* XtSpecificationRelease < 4 */
++ #define	XtPointer caddr_t
+  #include <X11/Viewport.h>
+  #ifdef	BUTTONS
+  #include <X11/Command.h>
+***************
+*** 184,224 ****
+  /*
+   * Command line flags.
+   */
+! static	_Xconst	char	*paper		= DEFAULT_PAPER;
+! static	char	*sidemargin, *topmargin;
+! static	char	*xoffset, *yoffset;
+! static	Boolean	reverse;
+  static	Dimension	bwidth	= 2;
+- static	int	bak_shrink;
+- static	char	*debug_arg;
+- static	int	mg_size[5] = {200, 350, 600, 900, 1200};
+- static	char	*curr_page;
+  
+! static	int	pageno_correct	= 1;
+! static	Boolean	keep_flag	= False;
+! static	Boolean	version		= False;
+  #ifdef	BUTTONS
+! Boolean	expert		= False;
+  #endif
+  
+- #ifndef X10
+- #ifdef	TOOLKIT
+- 		/* fg and bg colors */
+- static	Arg	fore_args = {XtNforeground,	(XtArgVal) 0};
+- #define	fore_Pixel	fore_args.value
+- static	Arg	back_args = {XtNbackground,	(XtArgVal) 0};
+- #define	back_Pixel	back_args.value
+  #else	/* !TOOLKIT */
+! static	Pixel	fore_Pixel, back_Pixel;
+! #endif	/* TOOLKIT */
+! static	Pixel	brdr_Pixel, hl_Pixel, cr_Pixel;
+  #endif	/* X10 */
+  
+  static	char	*fore_color;
+  static	char	*back_color;
+  static	char	*brdr_color;
+  static	char	*high_color;
+  static	char	*curs_color;
+  static	GC	foreGC, highGC;
+  #ifndef X10
+  static	GC	ruleGC;
+--- 190,271 ----
+  /*
+   * Command line flags.
+   */
+! 
+  static	Dimension	bwidth	= 2;
+  
+! #ifdef	TOOLKIT
+! 
+! #define	RESOURCE(x)	resource.x
+! 
+! static	struct _resource {
+! 	char	*debug_arg;
+! 	int	_shrink_factor;
+! 	int	density;
+! 	int	pixels_per_inch;
+! 	char	*sidemargin;
+! 	char	*topmargin;
+! 	char	*xoffset;
+! 	char	*yoffset;
+! 	_Xconst char	*paper;
+! 	char	*alt_font;
+! 	Boolean	list_fonts;
+! 	Boolean	reverse;
+! 	Boolean	hush_spec;
+! 	Boolean	hush_chars;
+! 	Pixel	fore_Pixel;
+! 	char	*fore_color;
+! 	Pixel	back_Pixel;
+! 	char	*back_color;
+! 	Pixel	brdr_Pixel;
+! 	char	*brdr_color;
+! 	Pixel	hl_Pixel;
+! 	char	*high_color;
+! 	Pixel	cr_Pixel;
+! 	char	*curs_color;
+! 	char	*icon_geometry;
+! 	Boolean	keep_flag;
+! 	char	*copy_arg;
+! 	Boolean	copy;
+! 	Boolean	thorough;
+! 	Boolean	version;
+  #ifdef	BUTTONS
+! 	Boolean	expert;
+  #endif
++ 	int	mg_size[5];
++ #ifdef	GREY
++ 	Boolean	use_grey;
++ #endif
++ } resource;
+  
+  #else	/* !TOOLKIT */
+! 
+! #define	RESOURCE(x)	x
+! static	char	*debug_arg;
+! static	char	*sidemargin, *topmargin;
+! static	char	*xoffset, *yoffset;
+! static	_Xconst	char	*paper		= DEFAULT_PAPER;
+! static	Boolean	reverse;
+! static	Boolean	keep_flag	= False;
+! #ifndef X10
+! static	Pixel	fore_Pixel, back_Pixel, brdr_Pixel, hl_Pixel, cr_Pixel;
+! static	char	*icon_geometry;
+! static	Boolean	copy	= 2;
+! static	Boolean	thorough;
+  #endif	/* X10 */
++ static	Boolean	version		= False;
++ static	int	mg_size[5] = {200, 350, 600, 900, 1200};
+  
++ #endif	/* TOOLKIT */
++ 
++ static	char	*curr_page;
++ 
++ #ifndef	TOOLKIT
+  static	char	*fore_color;
+  static	char	*back_color;
+  static	char	*brdr_color;
+  static	char	*high_color;
+  static	char	*curs_color;
++ #endif
+  static	GC	foreGC, highGC;
+  #ifndef X10
+  static	GC	ruleGC;
+***************
+*** 227,232 ****
+--- 274,282 ----
+  #define	ruleGC	foreGC
+  #endif	/* X10 */
+  
++ static	int	pageno_correct	= 1;
++ static	int	bak_shrink;
++ 
+  #define	clip_w	mane.width
+  #define	clip_h	mane.height
+  static	Dimension	window_w, window_h;
+***************
+*** 615,621 ****
+  void
+  put_rectangle(x, y, w, h, hl)
+  	int x, y, w, h;
+! 	Boolean hl;
+  {
+  	if (x < max_x && x + w >= min_x && y < max_y && y + h >= min_y) {
+  		if (--event_counter == 0) read_events(False);
+--- 665,671 ----
+  void
+  put_rectangle(x, y, w, h, hl)
+  	int x, y, w, h;
+! 	WIDEARG(Boolean, int) hl;
+  {
+  	if (x < max_x && x + w >= min_x && y < max_y && y + h >= min_y) {
+  		if (--event_counter == 0) read_events(False);
+***************
+*** 1162,1170 ****
+  #ifndef X10
+  	XSetWindowAttributes attr;
+  
+! 	alt.width = alt.height = mg_size[event->button - 1];
+  #else
+! 	alt.width = alt.height = mg_size[2 - (event->detail & ValueMask)];
+  #endif
+  	if (alt.win != NULL || mane.shrinkfactor == 1 || alt.width <= 0)
+  	    XBell(DISP, 20);
+--- 1212,1221 ----
+  #ifndef X10
+  	XSetWindowAttributes attr;
+  
+! 	alt.width = alt.height = RESOURCE(mg_size[event->button - 1]);
+  #else
+! 	alt.width = alt.height =
+! 	    RESOURCE(mg_size[2 - (event->detail & ValueMask)]);
+  #endif
+  	if (alt.win != NULL || mane.shrinkfactor == 1 || alt.width <= 0)
+  	    XBell(DISP, 20);
+***************
+*** 1182,1189 ****
+  		alt.height/2;
+  #ifndef X10
+  	    attr.save_under = True;
+! 	    attr.border_pixel = brdr_Pixel;
+! 	    attr.background_pixel = back_Pixel;
+  	    attr.override_redirect = True;
+  	    alt.win = XCreateWindow(DISP, RootWindowOfScreen(SCRN),
+  			x, y, alt.width, alt.height, MAGBORD,
+--- 1233,1240 ----
+  		alt.height/2;
+  #ifndef X10
+  	    attr.save_under = True;
+! 	    attr.border_pixel = RESOURCE(brdr_Pixel);
+! 	    attr.background_pixel = RESOURCE(back_Pixel);
+  	    attr.override_redirect = True;
+  	    alt.win = XCreateWindow(DISP, RootWindowOfScreen(SCRN),
+  			x, y, alt.width, alt.height, MAGBORD,
+***************
+*** 1368,1374 ****
+  		pageno_correct = arg0 * number0 - current_page;
+  		return;
+  	    case 'k':		/* toggle keep-position flag */
+! 		keep_flag = (arg0 ? number0 : !keep_flag);
+  		return;
+  	    case '\f':
+  		/* redisplay current page */
+--- 1419,1425 ----
+  		pageno_correct = arg0 * number0 - current_page;
+  		return;
+  	    case 'k':		/* toggle keep-position flag */
+! 		RESOURCE(keep_flag) = (arg0 ? number0 : !RESOURCE(keep_flag));
+  		return;
+  	    case '\f':
+  		/* redisplay current page */
+***************
+*** 1409,1420 ****
+  		return;
+  #ifdef	BUTTONS
+  	    case 'x':
+! 		if (arg0 && expert == (number0 != 0)) return;
+! 		if (expert) {	/* create buttons */
+  		    XtResizeWidget(vport_widget, window_w -= XTRA_WID, window_h,
+  			0);
+  		    create_buttons((XtArgVal) window_h);
+! 		    expert = False;
+  		}
+  		else {		/* destroy buttons */
+  		    XtResizeWidget(vport_widget, window_w += XTRA_WID, window_h,
+--- 1460,1471 ----
+  		return;
+  #ifdef	BUTTONS
+  	    case 'x':
+! 		if (arg0 && resource.expert == (number0 != 0)) return;
+! 		if (resource.expert) {	/* create buttons */
+  		    XtResizeWidget(vport_widget, window_w -= XTRA_WID, window_h,
+  			0);
+  		    create_buttons((XtArgVal) window_h);
+! 		    resource.expert = False;
+  		}
+  		else {		/* destroy buttons */
+  		    XtResizeWidget(vport_widget, window_w += XTRA_WID, window_h,
+***************
+*** 1421,1427 ****
+  			0);
+  		    XtDestroyWidget(right_widget);
+  		    XtDestroyWidget(line_widget);
+! 		    expert = True;
+  		}
+  		return;
+  #endif	/* BUTTONS */
+--- 1472,1478 ----
+  			0);
+  		    XtDestroyWidget(right_widget);
+  		    XtDestroyWidget(line_widget);
+! 		    resource.expert = True;
+  		}
+  		return;
+  #endif	/* BUTTONS */
+***************
+*** 1521,1527 ****
+  	    if (current_page != next_page) {
+  		current_page = next_page;
+  		hush_spec_now = hush_spec;
+! 		if (!keep_flag) home(False);
+  	    }
+  	    canit = True;
+  	    Flush();
+--- 1572,1578 ----
+  	    if (current_page != next_page) {
+  		current_page = next_page;
+  		hush_spec_now = hush_spec;
+! 		if (!RESOURCE(keep_flag)) home(False);
+  	    }
+  	    canit = True;
+  	    Flush();
+***************
+*** 1951,1957 ****
+  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry> | =<geometry>]\n\
+--- 2002,2008 ----
+  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush] [-version]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry> | =<geometry>]\n\
+***************
+*** 1974,1985 ****
+   **	Main programs start here.
+   **/
+  
+- #ifndef X10
+- static	char	*icon_geometry;
+- static	Boolean	copy	= 2;
+- static	Boolean	thorough;
+- #endif	/* X10 */
+- 
+  #ifdef	TOOLKIT
+  
+  static	XrmOptionDescRec	options[] = {
+--- 2025,2030 ----
+***************
+*** 2037,2120 ****
+  #endif
+  };
+  
+! static	XtResource	resources[] = {
+  {"debugLevel", "DebugLevel", XtRString, sizeof(char *),
+!   (Cardinal) &debug_arg, XtRString, NULL},
+  {"shrinkFactor", "ShrinkFactor", XtRInt, sizeof(int),
+!   (Cardinal) &shrink_factor, XtRInt, (caddr_t) &shrink_factor},
+  {"densityPercent", "DensityPercent", XtRInt, sizeof(int),
+!   (Cardinal) &density, XtRInt, (caddr_t) &density},
+  {"pixelsPerInch", "PixelsPerInch", XtRInt, sizeof(int),
+!   (Cardinal) &pixels_per_inch, XtRInt, (caddr_t) &pixels_per_inch},
+  {"sideMargin", "Margin", XtRString, sizeof(char *),
+!   (Cardinal) &sidemargin, XtRString, NULL},
+  {"topMargin", "Margin", XtRString, sizeof(char *),
+!   (Cardinal) &topmargin, XtRString, NULL},
+  {"xOffset", "Offset", XtRString, sizeof(char *),
+!   (Cardinal) &xoffset, XtRString, NULL},
+  {"yOffset", "Offset", XtRString, sizeof(char *),
+!   (Cardinal) &yoffset, XtRString, NULL},
+  {"paper", "Paper", XtRString, sizeof(char *),
+!   (Cardinal) &paper, XtRString, (caddr_t) DEFAULT_PAPER},
+  {"altFont", "AltFont", XtRString, sizeof(char *),
+!   (Cardinal) &alt_font, XtRString, (caddr_t) ALTFONT},
+  {"listFonts", "ListFonts", XtRBoolean, sizeof(Boolean),
+!   (Cardinal) &list_fonts, XtRBoolean, (caddr_t) &list_fonts},
+  {"reverseVideo", "ReverseVideo", XtRBoolean, sizeof(Boolean),
+!   (Cardinal) &reverse, XtRBoolean, (caddr_t) &reverse},
+  {"hushSpecials", "Hush", XtRBoolean, sizeof(Boolean),
+!   (Cardinal) &hush_spec, XtRBoolean, (caddr_t) &hush_spec},
+  {"hushLostChars", "Hush", XtRBoolean, sizeof(Boolean),
+!   (Cardinal) &hush_chars, XtRBoolean, (caddr_t) &hush_chars},
+  {"foreground", "Foreground", XtRPixel, sizeof(Pixel),
+!   (Cardinal)&fore_Pixel, XtRPixel, (caddr_t) &fore_Pixel},
+  {"foreground", "Foreground", XtRString, sizeof(char *),
+!   (Cardinal)&fore_color, XtRString, NULL},
+  {"background", "Background", XtRPixel, sizeof(Pixel),
+!   (Cardinal)&back_Pixel, XtRPixel, (caddr_t) &back_Pixel},
+  {"background", "Background", XtRString, sizeof(char *),
+!   (Cardinal)&back_color, XtRString, NULL},
+  {"borderColor", "BorderColor", XtRPixel, sizeof(Pixel),
+!   (Cardinal)&brdr_Pixel, XtRPixel, (caddr_t) &brdr_Pixel},
+  {"borderColor", "BorderColor", XtRString, sizeof(char *),
+!   (Cardinal)&brdr_color, XtRString, NULL},
+  {"highlight", "Highlight", XtRPixel, sizeof(Pixel),
+!   (Cardinal)&hl_Pixel, XtRPixel, (caddr_t) &hl_Pixel},
+  {"highlight", "Highlight", XtRString, sizeof(char *),
+!   (Cardinal)&high_color, XtRString, NULL},
+  {"cursorColor", "CursorColor", XtRPixel, sizeof(Pixel),
+!   (Cardinal)&cr_Pixel, XtRPixel, (caddr_t) &cr_Pixel},
+  {"cursorColor", "CursorColor", XtRString, sizeof(char *),
+!   (Cardinal)&curs_color, XtRString, NULL},
+  {"iconGeometry", "IconGeometry", XtRString, sizeof(char *),
+!   (Cardinal)&icon_geometry, XtRString, NULL},
+  {"keepPosition", "KeepPosition", XtRBoolean, sizeof(Boolean),
+!   (Cardinal)&keep_flag, XtRBoolean, (caddr_t) &keep_flag},
+  {"copy", "Copy", XtRBoolean, sizeof(Boolean),
+!   (Cardinal)&copy, XtRBoolean, (caddr_t) &copy},
+  {"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+!   (Cardinal)&thorough, XtRBoolean, (caddr_t) &thorough},
+  {"version", "Version", XtRBoolean, sizeof(Boolean),
+!   (Cardinal)&version, XtRBoolean, (caddr_t) &version},
+  #ifdef	BUTTONS
+  {"expert", "Expert", XtRBoolean, sizeof(Boolean),
+!   (Cardinal)&expert, XtRBoolean, (caddr_t) &expert},
+  #endif
+  {"magnifierSize1", "MagnifierSize", XtRInt, sizeof(int),
+!   (Cardinal) &mg_size[0], XtRInt, (caddr_t) &mg_size[0]},
+  {"magnifierSize2", "MagnifierSize", XtRInt, sizeof(int),
+!   (Cardinal) &mg_size[1], XtRInt, (caddr_t) &mg_size[1]},
+  {"magnifierSize3", "MagnifierSize", XtRInt, sizeof(int),
+!   (Cardinal) &mg_size[2], XtRInt, (caddr_t) &mg_size[2]},
+  {"magnifierSize4", "MagnifierSize", XtRInt, sizeof(int),
+!   (Cardinal) &mg_size[3], XtRInt, (caddr_t) &mg_size[3]},
+  {"magnifierSize5", "MagnifierSize", XtRInt, sizeof(int),
+!   (Cardinal) &mg_size[4], XtRInt, (caddr_t) &mg_size[4]},
+  #ifdef	GREY
+  {"grey", "Grey", XtRBoolean, sizeof (Boolean),
+!  (Cardinal) &use_grey, XtRBoolean, (caddr_t) &use_grey},
+  #endif
+  };
+  
+  static	Arg	temp_args1[] = {
+  	{XtNiconX,	(XtArgVal) 0},
+--- 2082,2170 ----
+  #endif
+  };
+  
+! #define	offset(field)	XtOffsetOf(struct _resource, field)
+! 
+! static	XtResource	application_resources[] = {
+  {"debugLevel", "DebugLevel", XtRString, sizeof(char *),
+!   offset(debug_arg), XtRString, (caddr_t) NULL},
+  {"shrinkFactor", "ShrinkFactor", XtRInt, sizeof(int),
+!   offset(_shrink_factor), XtRString, "3"},
+  {"densityPercent", "DensityPercent", XtRInt, sizeof(int),
+!   offset(density), XtRString, "40"},
+  {"pixelsPerInch", "PixelsPerInch", XtRInt, sizeof(int),
+!   offset(pixels_per_inch), XtRString, "300"},
+  {"sideMargin", "Margin", XtRString, sizeof(char *),
+!   offset(sidemargin), XtRString, (caddr_t) NULL},
+  {"topMargin", "Margin", XtRString, sizeof(char *),
+!   offset(topmargin), XtRString, (caddr_t) NULL},
+  {"xOffset", "Offset", XtRString, sizeof(char *),
+!   offset(xoffset), XtRString, (caddr_t) NULL},
+  {"yOffset", "Offset", XtRString, sizeof(char *),
+!   offset(yoffset), XtRString, (caddr_t) NULL},
+  {"paper", "Paper", XtRString, sizeof(char *),
+!   offset(paper), XtRString, (caddr_t) DEFAULT_PAPER},
+  {"altFont", "AltFont", XtRString, sizeof(char *),
+!   offset(alt_font), XtRString, (caddr_t) ALTFONT},
+  {"listFonts", "ListFonts", XtRBoolean, sizeof(Boolean),
+!   offset(list_fonts), XtRString, "false"},
+  {"reverseVideo", "ReverseVideo", XtRBoolean, sizeof(Boolean),
+!   offset(reverse), XtRString, "false"},
+  {"hushSpecials", "Hush", XtRBoolean, sizeof(Boolean),
+!   offset(hush_spec), XtRString, "false"},
+  {"hushLostChars", "Hush", XtRBoolean, sizeof(Boolean),
+!   offset(hush_chars), XtRString, "false"},
+  {"foreground", "Foreground", XtRPixel, sizeof(Pixel),
+!   offset(fore_Pixel), XtRPixel, (caddr_t) &resource.fore_Pixel},
+  {"foreground", "Foreground", XtRString, sizeof(char *),
+!   offset(fore_color), XtRString, (caddr_t) NULL},
+  {"background", "Background", XtRPixel, sizeof(Pixel),
+!   offset(back_Pixel), XtRPixel, (caddr_t) &resource.back_Pixel},
+  {"background", "Background", XtRString, sizeof(char *),
+!   offset(back_color), XtRString, (caddr_t) NULL},
+  {"borderColor", "BorderColor", XtRPixel, sizeof(Pixel),
+!   offset(brdr_Pixel), XtRPixel, (caddr_t) &resource.brdr_Pixel},
+  {"borderColor", "BorderColor", XtRString, sizeof(char *),
+!   offset(brdr_color), XtRString, (caddr_t) NULL},
+  {"highlight", "Highlight", XtRPixel, sizeof(Pixel),
+!   offset(hl_Pixel), XtRPixel, (caddr_t) &resource.hl_Pixel},
+  {"highlight", "Highlight", XtRString, sizeof(char *),
+!   offset(high_color), XtRString, (caddr_t) NULL},
+  {"cursorColor", "CursorColor", XtRPixel, sizeof(Pixel),
+!   offset(cr_Pixel), XtRPixel, (caddr_t) &resource.cr_Pixel},
+  {"cursorColor", "CursorColor", XtRString, sizeof(char *),
+!   offset(curs_color), XtRString, (caddr_t) NULL},
+  {"iconGeometry", "IconGeometry", XtRString, sizeof(char *),
+!   offset(icon_geometry), XtRString, (caddr_t) NULL},
+  {"keepPosition", "KeepPosition", XtRBoolean, sizeof(Boolean),
+!   offset(keep_flag), XtRString, "false"},
+! {"copy", "Copy", XtRString, sizeof(char *),
+!   offset(copy_arg), XtRString, (caddr_t) NULL},
+  {"copy", "Copy", XtRBoolean, sizeof(Boolean),
+!   offset(copy), XtRString, "false"},
+  {"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+!   offset(thorough), XtRString, "false"},
+  {"version", "Version", XtRBoolean, sizeof(Boolean),
+!   offset(version), XtRString, "false"},
+  #ifdef	BUTTONS
+  {"expert", "Expert", XtRBoolean, sizeof(Boolean),
+!   offset(expert), XtRString, "false"},
+  #endif
+  {"magnifierSize1", "MagnifierSize", XtRInt, sizeof(int),
+!   offset(mg_size[0]), XtRString, "200"},
+  {"magnifierSize2", "MagnifierSize", XtRInt, sizeof(int),
+!   offset(mg_size[1]), XtRString, "350"},
+  {"magnifierSize3", "MagnifierSize", XtRInt, sizeof(int),
+!   offset(mg_size[2]), XtRString, "600"},
+  {"magnifierSize4", "MagnifierSize", XtRInt, sizeof(int),
+!   offset(mg_size[3]), XtRString, "900"},
+  {"magnifierSize5", "MagnifierSize", XtRInt, sizeof(int),
+!   offset(mg_size[4]), XtRString, "1200"},
+  #ifdef	GREY
+  {"grey", "Grey", XtRBoolean, sizeof (Boolean),
+!  offset(use_grey), XtRString, "true"},
+  #endif
+  };
++ #undef	offset
+  
+  static	Arg	temp_args1[] = {
+  	{XtNiconX,	(XtArgVal) 0},
+***************
+*** 2465,2472 ****
+  	_Xconst	char	**p;
+  	char	*q;
+  
+! 	if (strlen(paper) > sizeof(temp) - 1) return False;
+! 	arg = paper;
+  	q = temp;
+  	for (;;) {	/* convert to lower case */
+  	    char c = *arg++;
+--- 2515,2522 ----
+  	_Xconst	char	**p;
+  	char	*q;
+  
+! 	if (strlen(RESOURCE(paper)) > sizeof(temp) - 1) return False;
+! 	arg = RESOURCE(paper);
+  	q = temp;
+  	for (;;) {	/* convert to lower case */
+  	    char c = *arg++;
+***************
+*** 2534,2543 ****
+  		else dvi_name = *argv;
+  	}
+  
+! 	XtGetApplicationResources(top_level, (caddr_t) NULL, resources,
+! 		XtNumber(resources), NULL, 0);
+  	DISP = XtDisplay(top_level);
+  	SCRN = XtScreen(top_level);
+  
+  #else	/* !TOOLKIT */
+  
+--- 2584,2603 ----
+  		else dvi_name = *argv;
+  	}
+  
+! 	XtGetApplicationResources(top_level, (XtPointer) &resource,
+! 	    application_resources, XtNumber(application_resources), NULL, 0);
+  	DISP = XtDisplay(top_level);
+  	SCRN = XtScreen(top_level);
++ 	shrink_factor = resource._shrink_factor;
++ 	density = resource.density;
++ 	pixels_per_inch = resource.pixels_per_inch;
++ 	alt_font = resource.alt_font;
++ 	list_fonts = resource.list_fonts;
++ 	hush_spec = resource.hush_spec;
++ 	hush_chars = resource.hush_chars;
++ #ifdef	GREY
++ 	use_grey = resource.use_grey;
++ #endif
+  
+  #else	/* !TOOLKIT */
+  
+***************
+*** 2556,2568 ****
+  		dvi_name == NULL) usage();
+  	if (shrink_factor != 1) bak_shrink = shrink_factor;
+  	mane.shrinkfactor = shrink_factor;
+! 	if (debug_arg != NULL)
+! 	    debug = isdigit(*debug_arg) ? atoi(debug_arg) : DBG_ALL;
+! 	if (sidemargin) home_x = atopix(sidemargin);
+! 	if (topmargin) home_y = atopix(topmargin);
+! 	offset_x = xoffset ? atopix(xoffset) : pixels_per_inch;
+! 	offset_y = yoffset ? atopix(yoffset) : pixels_per_inch;
+! 	if (!set_paper_type()) oops("Don't recognize paper type %s", paper);
+  
+  	init_font_open();
+  	open_dvi_file();
+--- 2616,2632 ----
+  		dvi_name == NULL) usage();
+  	if (shrink_factor != 1) bak_shrink = shrink_factor;
+  	mane.shrinkfactor = shrink_factor;
+! 	if (RESOURCE(debug_arg) != NULL)
+! 	    debug = isdigit(*RESOURCE(debug_arg)) ? atoi(RESOURCE(debug_arg))
+! 		: DBG_ALL;
+! 	if (RESOURCE(sidemargin)) home_x = atopix(RESOURCE(sidemargin));
+! 	if (RESOURCE(topmargin)) home_y = atopix(RESOURCE(topmargin));
+! 	offset_x = RESOURCE(xoffset) ? atopix(RESOURCE(xoffset))
+! 	    : pixels_per_inch;
+! 	offset_y = RESOURCE(yoffset) ? atopix(RESOURCE(yoffset))
+! 	    : pixels_per_inch;
+! 	if (!set_paper_type()) oops("Don't recognize paper type %s",
+! 	    RESOURCE(paper));
+  
+  	init_font_open();
+  	open_dvi_file();
+***************
+*** 2570,2576 ****
+  		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+  		if (current_page < 0 || current_page >= total_pages) usage();
+  	}
+! 	if (version) puts((_Xconst char *) &header);
+  
+  #ifdef	GREY
+  	if (DefaultDepthOfScreen(SCRN) == 1)
+--- 2634,2640 ----
+  		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+  		if (current_page < 0 || current_page >= total_pages) usage();
+  	}
+! 	if (RESOURCE(version)) puts((_Xconst char *) &header);
+  
+  #ifdef	GREY
+  	if (DefaultDepthOfScreen(SCRN) == 1)
+***************
+*** 2585,2613 ****
+  	 *	X11 colors
+  	 */
+  
+! 	if (reverse) {
+! 	    if (!fore_color) fore_Pixel = WhitePixelOfScreen(SCRN);
+! 	    if (!back_color) back_Pixel = BlackPixelOfScreen(SCRN);
+! 	    fore_color = back_color = (char *) &fore_color;	/* nonzero */
+  	} else {
+! 	    if (!fore_color) fore_Pixel = BlackPixelOfScreen(SCRN);
+! 	    if (!back_color) back_Pixel = WhitePixelOfScreen(SCRN);
+  	}
+! 	if (!brdr_color) brdr_Pixel = fore_Pixel;
+  	{
+  	    XGCValues	values;
+! 	    Pixel	set_bits = (Pixel) (fore_Pixel & ~back_Pixel);
+! 	    Pixel	clr_bits = (Pixel) (back_Pixel & ~fore_Pixel);
+  #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+  		values.background=bg,\
+  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+  			GCFunction|GCForeground|GCBackground, &values))
+  
+! 	    if (copy == 2) copy = (DefaultDepthOfScreen(SCRN) > 1);
+! 	    if (copy || (set_bits && clr_bits))
+! 		ruleGC = MakeGC(GXcopy, fore_Pixel, back_Pixel);
+! 	    if (copy) foreGC = ruleGC;
+! 	    else if (!thorough && ruleGC) {
+  		foreGC = ruleGC;
+  		puts("Note:  overstrike characters may be incorrect.");
+  	    }
+--- 2649,2690 ----
+  	 *	X11 colors
+  	 */
+  
+! 	if (RESOURCE(reverse)) {
+! 	    if (!RESOURCE(fore_color))
+! 		RESOURCE(fore_Pixel) = WhitePixelOfScreen(SCRN);
+! 	    if (!RESOURCE(back_color))
+! 		RESOURCE(back_Pixel) = BlackPixelOfScreen(SCRN);
+! 	    /* Set them nonzero */
+! 	    RESOURCE(fore_color) = RESOURCE(back_color) = (char *) &header;
+  	} else {
+! 	    if (!RESOURCE(fore_color))
+! 		RESOURCE(fore_Pixel) = BlackPixelOfScreen(SCRN);
+! 	    if (!RESOURCE(back_color))
+! 		RESOURCE(back_Pixel) = WhitePixelOfScreen(SCRN);
+  	}
+! 	if (!RESOURCE(brdr_color)) RESOURCE(brdr_Pixel) = RESOURCE(fore_Pixel);
+  	{
+  	    XGCValues	values;
+! 	    Pixel	set_bits = (Pixel)
+! 				(RESOURCE(fore_Pixel) & ~RESOURCE(back_Pixel));
+! 	    Pixel	clr_bits = (Pixel)
+! 				(RESOURCE(back_Pixel) & ~RESOURCE(fore_Pixel));
+  #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+  		values.background=bg,\
+  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+  			GCFunction|GCForeground|GCBackground, &values))
+  
+! #ifdef	TOOLKIT
+! 	    if (resource.copy_arg)
+! #else
+! 	    if (copy == 2)
+! #endif
+! 		RESOURCE(copy) = (DefaultDepthOfScreen(SCRN) > 1);
+! 	    if (RESOURCE(copy) || (set_bits && clr_bits))
+! 		ruleGC = MakeGC(GXcopy,
+! 		    RESOURCE(fore_Pixel), RESOURCE(back_Pixel));
+! 	    if (RESOURCE(copy)) foreGC = ruleGC;
+! 	    else if (!RESOURCE(thorough) && ruleGC) {
+  		foreGC = ruleGC;
+  		puts("Note:  overstrike characters may be incorrect.");
+  	    }
+***************
+*** 2619,2626 ****
+  		if (!ruleGC) ruleGC = foreGC;
+  	    }
+  	    highGC = ruleGC;
+! 	    if (high_color)
+! 		highGC = MakeGC(GXcopy, hl_Pixel, back_Pixel);
+  	}
+  
+  #ifndef	VMS
+--- 2696,2704 ----
+  		if (!ruleGC) ruleGC = foreGC;
+  	    }
+  	    highGC = ruleGC;
+! 	    if (RESOURCE(high_color))
+! 		highGC = MakeGC(GXcopy,
+! 		    RESOURCE(hl_Pixel), RESOURCE(back_Pixel));
+  	}
+  
+  #ifndef	VMS
+***************
+*** 2631,2651 ****
+  	XSetFont(DISP, foreGC, DECWCursorFont);
+  	redraw_cursor = XCreateGlyphCursor(DISP, DECWCursorFont, DECWCursorFont,
+  		decw$c_wait_cursor, decw$c_wait_cursor + 1,
+! 		&fore_color, &back_color);
+  	MagnifyPixmap = XCreateBitmapFromData (DISP, RootWindowOfScreen(SCRN),
+  		mag_glass_bits, mag_glass_width, mag_glass_height);
+  	ready_cursor = XCreatePixmapCursor(DISP, MagnifyPixmap, MagnifyPixmap,
+! 		&back_color, &fore_color, mag_glass_x_hot, mag_glass_y_hot);
+  #endif	/* VMS */
+  
+! 	if (!curs_color)
+! 	    cr_Pixel = high_color ? hl_Pixel : fore_Pixel;
+  	{
+  	    XColor bg_Color, cr_Color;
+  
+! 	    bg_Color.pixel = back_Pixel;
+  	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &bg_Color);
+! 	    cr_Color.pixel = cr_Pixel;
+  	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &cr_Color);
+  	    XRecolorCursor(DISP, ready_cursor, &cr_Color, &bg_Color);
+  	    XRecolorCursor(DISP, redraw_cursor, &cr_Color, &bg_Color);
+--- 2709,2731 ----
+  	XSetFont(DISP, foreGC, DECWCursorFont);
+  	redraw_cursor = XCreateGlyphCursor(DISP, DECWCursorFont, DECWCursorFont,
+  		decw$c_wait_cursor, decw$c_wait_cursor + 1,
+! 		&RESOURCE(fore_color), &RESOURCE(back_color));
+  	MagnifyPixmap = XCreateBitmapFromData (DISP, RootWindowOfScreen(SCRN),
+  		mag_glass_bits, mag_glass_width, mag_glass_height);
+  	ready_cursor = XCreatePixmapCursor(DISP, MagnifyPixmap, MagnifyPixmap,
+! 		&RESOURCE(back_color), &RESOURCE(fore_color),
+! 		mag_glass_x_hot, mag_glass_y_hot);
+  #endif	/* VMS */
+  
+! 	if (!RESOURCE(curs_color))
+! 	    RESOURCE(cr_Pixel) = RESOURCE(high_color) ? RESOURCE(hl_Pixel)
+! 		: RESOURCE(fore_Pixel);
+  	{
+  	    XColor bg_Color, cr_Color;
+  
+! 	    bg_Color.pixel = RESOURCE(back_Pixel);
+  	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &bg_Color);
+! 	    cr_Color.pixel = RESOURCE(cr_Pixel);
+  	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &cr_Color);
+  	    XRecolorCursor(DISP, ready_cursor, &cr_Color, &bg_Color);
+  	    XRecolorCursor(DISP, redraw_cursor, &cr_Color, &bg_Color);
+***************
+*** 2658,2664 ****
+  	 */
+  
+  		/* The following code is lifted from Xterm */
+! 	if (icon_geometry != NULL) {
+  	    int scr, junk;
+  
+  	    for(scr = 0;	/* yyuucchh */
+--- 2738,2744 ----
+  	 */
+  
+  		/* The following code is lifted from Xterm */
+! 	if (resource.icon_geometry != NULL) {
+  	    int scr, junk;
+  
+  	    for(scr = 0;	/* yyuucchh */
+***************
+*** 2665,2671 ****
+  		SCRN != ScreenOfDisplay(DISP, scr);
+  		scr++);
+  
+! 	    XGeometry(DISP, scr, icon_geometry, "", 0, 0, 0, 0, 0,
+  			(int *) &temp_args1[0].value,
+  			(int *) &temp_args1[1].value, &junk, &junk);
+  	    XtSetValues(top_level, temp_args1, XtNumber(temp_args1));
+--- 2745,2751 ----
+  		SCRN != ScreenOfDisplay(DISP, scr);
+  		scr++);
+  
+! 	    XGeometry(DISP, scr, resource.icon_geometry, "", 0, 0, 0, 0, 0,
+  			(int *) &temp_args1[0].value,
+  			(int *) &temp_args1[1].value, &junk, &junk);
+  	    XtSetValues(top_level, temp_args1, XtNumber(temp_args1));
+***************
+*** 2685,2691 ****
+  	form_widget = XtCreateManagedWidget("form", formWidgetClass,
+  		top_level, form_args, XtNumber(form_args));
+  
+! 	line_args[0].value = (XtArgVal) high_color ? hl_Pixel : fore_Pixel;
+  #else	/* !BUTTONS */
+  #define	form_widget	top_level	/* for calls to XtAddEventHandler */
+  #endif	/* BUTTONS */
+--- 2765,2772 ----
+  	form_widget = XtCreateManagedWidget("form", formWidgetClass,
+  		top_level, form_args, XtNumber(form_args));
+  
+! 	line_args[0].value = (XtArgVal) resource.high_color
+! 	    ? resource.hl_Pixel : resource.fore_Pixel;
+  #else	/* !BUTTONS */
+  #define	form_widget	top_level	/* for calls to XtAddEventHandler */
+  #endif	/* BUTTONS */
+***************
+*** 2698,2704 ****
+  		vport_widget, draw_args, XtNumber(draw_args));
+  	{	/* set default window size */
+  #ifdef	BUTTONS
+! 	    int xtra_wid = expert ? 0 : XTRA_WID;
+  #else
+  #define	xtra_wid	0
+  #endif
+--- 2779,2785 ----
+  		vport_widget, draw_args, XtNumber(draw_args));
+  	{	/* set default window size */
+  #ifdef	BUTTONS
+! 	    int xtra_wid = resource.expert ? 0 : XTRA_WID;
+  #else
+  #define	xtra_wid	0
+  #endif
+***************
+*** 2734,2744 ****
+  #ifdef	BUTTONS
+  	    set_wh_args[0].value -= xtra_wid;
+  	    XtSetValues(vport_widget, set_wh_args, XtNumber(set_wh_args));
+! 	    if (!expert) create_buttons(set_wh_args[1].value);
+  #endif	/* BUTTONS */
+  	}
+! 	if (fore_color) XtSetValues(draw_widget, &fore_args, 1);
+! 	if (back_color) {
+  	    XtSetValues(draw_widget, &back_args, 1);
+  	    XtSetValues(clip_widget, &back_args, 1);
+  	}
+--- 2815,2833 ----
+  #ifdef	BUTTONS
+  	    set_wh_args[0].value -= xtra_wid;
+  	    XtSetValues(vport_widget, set_wh_args, XtNumber(set_wh_args));
+! 	    if (!resource.expert) create_buttons(set_wh_args[1].value);
+  #endif	/* BUTTONS */
+  	}
+! 	if (resource.fore_color) {
+! 	    static Arg fore_args = {XtNforeground, (XtArgVal) 0};
+! 
+! 	    fore_args.value = resource.fore_Pixel;
+! 	    XtSetValues(draw_widget, &fore_args, 1);
+! 	}
+! 	if (resource.back_color) {
+! 	    static Arg back_args = {XtNbackground, (XtArgVal) 0};
+! 
+! 	    back_args.value = resource.back_Pixel;
+  	    XtSetValues(draw_widget, &back_args, 1);
+  	    XtSetValues(clip_widget, &back_args, 1);
+  	}
+diff -cr xdvi_old/xdvi.h xdvi_new/xdvi.h
+*** xdvi_old/xdvi.h	Mon Jun  1 16:28:20 1992
+--- xdvi_new/xdvi.h	Tue Jun 16 14:18:59 1992
+***************
+*** 106,111 ****
+--- 106,112 ----
+  #ifndef	EXTERN
+  #define	EXTERN	extern
+  #define	INIT(x)
++ #define	NTINIT(x)
+  #endif
+  
+  typedef	unsigned char ubyte;
+***************
+*** 219,227 ****
+  /*
+   * Mechanism for reducing repeated warning about specials, lost characters, etc.
+   */
+! EXTERN	Boolean	hush_spec	INIT(False);
+  EXTERN	Boolean	hush_spec_now;
+! EXTERN	Boolean	hush_chars	INIT(False);
+  
+  
+  /*
+--- 220,228 ----
+  /*
+   * Mechanism for reducing repeated warning about specials, lost characters, etc.
+   */
+! EXTERN	Boolean	hush_spec	NTINIT(False);
+  EXTERN	Boolean	hush_spec_now;
+! EXTERN	Boolean	hush_chars	NTINIT(False);
+  
+  
+  /*
+***************
+*** 334,351 ****
+  #define	DBG_OPEN	0x20
+  #define	DBG_ALL		(DBG_BITMAP|DBG_DVI|DBG_PK|DBG_EVENT|DBG_OPEN)
+  
+! EXTERN	Boolean	list_fonts	INIT(False);
+  
+! EXTERN	int	pixels_per_inch	INIT(300);
+  EXTERN	int	offset_x, offset_y;
+  EXTERN	int	unshrunk_paper_w, unshrunk_paper_h;
+  EXTERN	int	unshrunk_page_w, unshrunk_page_h;
+! EXTERN	int	density		INIT(40);
+  EXTERN	double	specialConv;
+  
+  EXTERN	char	*dvi_name	INIT(NULL);
+  EXTERN	FILE	*dvi_file;				/* user's file */
+! EXTERN	_Xconst	char	*alt_font	INIT(ALTFONT);
+  EXTERN	char	*prog;
+  
+  struct	WindowRec {
+--- 335,352 ----
+  #define	DBG_OPEN	0x20
+  #define	DBG_ALL		(DBG_BITMAP|DBG_DVI|DBG_PK|DBG_EVENT|DBG_OPEN)
+  
+! EXTERN	Boolean	list_fonts	NTINIT(False);
+  
+! EXTERN	int	pixels_per_inch	NTINIT(300);
+  EXTERN	int	offset_x, offset_y;
+  EXTERN	int	unshrunk_paper_w, unshrunk_paper_h;
+  EXTERN	int	unshrunk_page_w, unshrunk_page_h;
+! EXTERN	int	density		NTINIT(40);
+  EXTERN	double	specialConv;
+  
+  EXTERN	char	*dvi_name	INIT(NULL);
+  EXTERN	FILE	*dvi_file;				/* user's file */
+! EXTERN	_Xconst	char	*alt_font	NTINIT(ALTFONT);
+  EXTERN	char	*prog;
+  
+  struct	WindowRec {
+***************
+*** 370,376 ****
+  EXTERN	long	pixel4[17];
+  EXTERN	long	pixel3[10];
+  EXTERN	long	pixel2[5];
+! EXTERN	Boolean	use_grey	INIT(True);
+  #else	/* Sorry - GREY works only with X11 */
+  #undef	GREY
+  #endif	/* X10 */
+--- 371,377 ----
+  EXTERN	long	pixel4[17];
+  EXTERN	long	pixel3[10];
+  EXTERN	long	pixel2[5];
+! EXTERN	Boolean	use_grey	NTINIT(True);
+  #else	/* Sorry - GREY works only with X11 */
+  #undef	GREY
+  #endif	/* X10 */
+diff -cr xdvi_old/xdvi_man.sed xdvi_new/xdvi_man.sed
+*** xdvi_old/xdvi_man.sed	Sun Jun  7 11:36:01 1992
+--- xdvi_new/xdvi_man.sed	Fri Jun 19 12:51:18 1992
+***************
+*** 170,178 ****
+  Always use the \fIcopy\fR operation when writing characters to the display.
+  This option may be necessary for correct operation on a color display, but
+  overstrike characters will be incorrect.
+  .TP
+  .B \-keep
+! (.keepPosition)
+  Sets a flag to indicate that \fIxdvi\fR should not move to the home position
+  when moving to a new page.  See also the `k' keystroke.
+  #ifbuttons
+--- 170,179 ----
+  Always use the \fIcopy\fR operation when writing characters to the display.
+  This option may be necessary for correct operation on a color display, but
+  overstrike characters will be incorrect.
++ #endif
+  .TP
+  .B \-keep
+! (%%dot%%keepPosition)
+  Sets a flag to indicate that \fIxdvi\fR should not move to the home position
+  when moving to a new page.  See also the `k' keystroke.
+  #ifbuttons
+***************
+*** 419,425 ****
+  /usr/local/tex/fonts/cmr10.300pk, and /usr/local/tex/fonts/cmr10.1500pxl,
+  in that order.  An extra colon anywhere in the ``XDVIFONTS'' variable
+  causes the system default paths to be tried at that point.  If the font is not
+! found in the desired size, then \fIxdvi\fR will try to find the nearest size.
+  If the font cannot be found at all, then \fIxdvi\fR will try to vary the point
+  size of the font (within a certain range), and if this fails, then it will
+  use the font specified as the alternate font (cf. \fB-altfont\fR).
+--- 420,430 ----
+  /usr/local/tex/fonts/cmr10.300pk, and /usr/local/tex/fonts/cmr10.1500pxl,
+  in that order.  An extra colon anywhere in the ``XDVIFONTS'' variable
+  causes the system default paths to be tried at that point.  If the font is not
+! found in the desired size, then \fIxdvi\fR will
+! #ifmakepk
+! invoke Metafont to create the font in the correct size.  Failing that, it will
+! #endif
+! try to find the nearest size.
+  If the font cannot be found at all, then \fIxdvi\fR will try to vary the point
+  size of the font (within a certain range), and if this fails, then it will
+  use the font specified as the alternate font (cf. \fB-altfont\fR).
+***************
+*** 438,443 ****
+--- 443,451 ----
+  explicitly, and therefore this feature is not useful, the XDVIFONTS may
+  be set to an empty string (\fIi.e.,\fR ``setenv XDVIFONTS'') to cause
+  \fIxdvi\fR to ignore TEXFONTS.
++ .PP
++ \fIxdvi\fR also recognizes the PKFONTS variable, which is checked after
++ XDVIFONTS but before TEXFONTS.
+  #endif
+  #ifsubdir
+  .PP
+***************
+*** 465,473 ****
+  Virtual fonts are also supported, although \fIxdvi\fR does not have any
+  built-in fonts to which they can refer.  The search path for .vf files
+  can be specified with the ``XDVIVFS'' environment variable in a similar
+! manner to that for the ``XDVIFONTS'' variable.  Virtual fonts are searched
+! for immediately after looking for the font as a normal font in the exact size
+! specified.
+  .SH FILES
+  .br
+  %%DEFAULT_FONT_PATH%%   Font pixel files.
+--- 473,485 ----
+  Virtual fonts are also supported, although \fIxdvi\fR does not have any
+  built-in fonts to which they can refer.  The search path for .vf files
+  can be specified with the ``XDVIVFS'' environment variable in a similar
+! manner to that for the ``XDVIFONTS'' variable.
+! #iftexfonts
+! \fIxdvi\fR will also check the VFFONTS variable if the XDVIFONTS variable
+! is not set.
+! #endif
+! Virtual fonts are searched for immediately after looking for the font
+! as a normal font in the exact size specified.
+  .SH FILES
+  .br
+  %%DEFAULT_FONT_PATH%%   Font pixel files.
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

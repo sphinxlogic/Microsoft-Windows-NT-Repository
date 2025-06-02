@@ -1,0 +1,1507 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!munnari.oz.au!bruce.cs.monash.edu.au!monu6!vcp1.vcp.monash.edu.au!pb
+From: pb@vcp1.vcp.monash.edu.au (Peter Bury)
+Subject: Minesweeper for VMS v1.01 part1/1
+Message-ID: <1992Jun17.135711.1@vcp1.vcp.monash.edu.au>
+Lines: 1497
+Sender: news@monu6.cc.monash.edu.au (Usenet system)
+Organization: 
+Date: Wed, 17 Jun 1992 03:57:11 GMT
+
+Minesweeper
+
+
+This is a reverse-engineered version of the Minesweeper for Windows program.
+It runs on VT100 compatible terminals under VMS.
+
+Conversion for VAX BASIC by Peter Bury, April 1992
+Reposted, as original never got beyond Monash Clayton campus
+Usual disclaimers apply!
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On 15-JUN-1992 14:53:33.62   By user PB 
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. BUILD.COM;41
+$!       2. GET_CHAR.BAS;9
+$!       3. HELP_MATE.BAS;2
+$!       4. MENU.BAS;25
+$!       5. MINESWEEPER.BAS;22
+$!       6. MINESWEEPER.HLP;3
+$!       7. MSW_SCORE_FILES.BAS;11
+$!       8. VID_ATTRIB.BAS;19
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+X$! procedure to compile minesweeper for private or public use
+X$! procedure assumes you have set your default directory to where the files
+V are.
+X$! logical name pub will point to this, for compiling %includes
+X$ msg = "write sys$output"
+X$ where_is = f$environment("default")
+X$ define pub 'where_is'
+X$!
+X$ savevf = 'f$verify(0)'
+X$ inquire ans "Is this a local, private installation  `5By`5D?"
+X$ if ans .eqs. "N" then goto public
+X$ open/write file scorebase.bas
+X$ write file "scorebase$ = ""''where_is'"""
+X$ close file
+X$ set verify
+X$ bas minesweeper
+X$ bas help_mate
+X$ lin minesweeper,help_mate
+X$ bas msw_score_files
+X$ lin msw_score_files
+X$ run msw_score_files
+X$ set noverify
+X$ del scorebase.bas;*
+X$ msg "Include the lines "
+X$ msg "$ define mine_help ''where_is'`20
+X$ msg "$ minesweeper :== run ''where_is'minesweeper"
+X$ msg "in your login.com"
+X$ msg ""
+X$ inquire ans "Do you want others to be able to play?"
+X$ if ans .nes. "Y" .and. ans .nes. "YES" then goto fini
+X$ inquire ans "Group or World  (G or W)"
+X$ if ans .eqs. "G"
+X$ then
+X$   set prot=g:e pub:minesweeper.exe/log
+X$   set prot=g:r pub:minesweeper.hlp/log
+X$   set prot=g:rw pub:mine*score.da/log
+X$ else
+X$   if ans .eqs. "W"
+X$   then
+X$     set prot=w:e pub:minesweeper.exe/log
+X$     set prot=w:r pub:minesweeper.hlp/log
+X$     set prot=w:rw pub:mine*score.da/log
+X$   else
+X$     goto fini
+X$   endif
+X$ endif
+X$ msg "They will also need the commands"
+X$ msg "$ define mine_help ''where_is'"
+X$ msg "$ minesweeper :== run ''where_is'minesweeper"
+X$ msg ""
+X$ msg "You must also set the protection of this directory and the chain lead
+Ving"
+X$ msg "to it so that others have read access to the directory"
+X$ msg ""
+X$fini:
+X$ if savevf then $ exit  f$verify(1) + 1
+X$ exit 1
+X$!
+X$!
+X$public:
+X$! Notes for system managers
+X$!`20
+X$! The scoring section can be deleted completely, but adds much to
+X$! the fun while involving little overhead. Approximately 45 scores are kept
+V`20
+X$! for each of the three levels. The username is kept as part of the score,
+V so`20
+X$! that each user gets his/her invividual scores highlighted, but the name i
+Vs`20
+X$! never displayed.
+X$! The scoring system needs a directory that has world read access, but not
+X$! world execute. It will create three files  (one for each level) with
+X$! world read and write access. (NB. It is left to the system manager to set
+V`20
+X$! the protection of the directory itself to w:r to prevent wildcard`20
+X$! searching). The protection is only 'security through obscurity.' In `20
+X$! principle, users could write their own routines for updating these files,
+X$! so the file names and directories must not be known. Note that the only
+X$! reference to the directory is deleted later in this procedure.`20
+X$! The scoring files are VAX indexed files, indexed by score. As entries are
+X$! created and deleted, they may benefit from a convert/rebuild occasionally
+V.
+X$! Finally, if you don't want to add yet another logical name to the system,
+X$! then edit the word "mine_help" on line 91 in minesweeper.bas to
+X$! wherever you keep public games and their help files.
+X$ msg ""
+X$ msg "The scoring system needs a directory that has world read access,"
+X$ msg "but not world execute. "
+X$ msg "Please input the location where the scoring files will be kept"
+X$ inquire sys$score
+X$ msg "The following line will abort the procedure if directory does not exi
+Vst"
+X$ dir 'sys$score'*.da
+X$ open/write file scorebase.bas
+X$ write file "scorebase$ = ""''sys$score'"""
+X$ close file
+X$ set ver
+X$ bas minesweeper
+X$ bas msw_score_files
+X$ del scorebase.bas;*
+X$! all reference to the wherabouts of the scoring files has now disappeared.
+X$ bas help_mate
+X$ lin minesweeper,help_mate
+X$ set nover
+X$ msg "The executable and help will now be copied to a publically readable a
+Vrea"
+X$ inquire destn "Please input the public area for minesweeper.exe"
+X$ define where_to 'destn'`20
+X$ copy minesweeper.exe where_to/log
+X$ copy minesweeper.hlp where_to/log
+X$ msg "Their protection will now be set to w:e and w:r respectively"
+X$ set prot=w:e where_to:minesweeper.exe/log
+X$ set prot=w:r where_to:minesweeper.hlp/log
+X$ set ver
+X$ lin msw_score_files
+X$ run msw_score_files
+X$ set nover
+X$ msg "Their protection will now be set to w:rw"
+X$ set prot=w:rw 'sys$score'mine*score.da/log
+X$! let's try to get the message ok for logical names w/o colons
+X$ last_char = f$extract(f$length(destn)-1,1,destn)
+X$ if last_char .eqs. ":" .or. last_char .eqs. "`5D" then goto ok
+X$ destn = "''destn':"
+X$ok:
+X$ msg "Include the lines "
+X$ msg "$ define mine_help ''destn'"
+X$ msg "$ minesweeper :== run ''destn'minesweeper"
+X$ msg "in the sylogin.com for those who should be allowed to play"
+X$ msg ""
+X$ if savevf then $ exit  f$verify(1) + 1
+X$ exit 1
+$ CALL UNPACK BUILD.COM;41 72849256
+$ create 'f'
+X      ! ====================================================================
+V=
+X      !  GET_CHAR             Character input routines - no timeout, no echo
+X      !  gosub DO_GET return a character in INBUF
+X      !  from GET.BAS   MV circa sept 1986
+X      ! Mods                                            PB Oct 1987
+X      ! io$m_nofilter and virgin_got_flag added.
+X      ! no initial call to setup_get required`20
+X      ! control chars passed, except cC cO cQ cS cT cY.  CX changes to cU
+X      !=====================================================================
+V=
+X
+X      goto END_GET
+X      setup_get:
+X      external integer function`09sys$assign,`09&
+X`09`09`09`09sys$trnlog,`09&
+X`09`09`09`09sys$qiow
+X      external integer constant`09io$_readvblk,`09&
+X`09`09`09`09io$m_noecho,`09&
+X`09`09`09`09io$m_nofiltr,`09&
+X`09`09`09`09ss$_normal,`09&
+X`09`09`09`09ss$_notran
+X      common string inbuf  = 1 \ !  needs to be near start of program
+X      map (eqnam) string rsn_buf = 80
+X      map (iosb)  word io_sb(3)
+X      map (mask)  long tmask(1)
+X      tmask(0) = 0 \ tmask(1) = 0
+X      declare long sys_status, word chan, rsn_len, string dev_nam
+X      translate_routine:
+X      sys_status = sys$trnlog("sys$output", rsn_len, rsn_buf,,,,)
+X      select sys_status
+X`09  case ss$_normal
+X`09  case ss$_notran
+X`09  case else
+X`09`09print "error from"
+X`09`09print "sys$trnlog, error is";sys_status
+X     end select
+X      dev_nam = seg$(rsn_buf,1,rsn_len)
+X      assign_routine:
+X      sys_status = sys$assign(dev_nam, chan,,,)
+X      if (sys_status and 1%) <> 1
+X     then
+X       `09  print "error from sys$assign"
+X`09  print "error number is ";sys_status
+X     end if
+X      virgin_got_flag = 1
+X      return
+X      ! =========================================================
+X      !               Execute get command
+X      ! =========================================================
+X      do_get:
+X      if virgin_got_flag <> 1 then gosub setup_get end if
+X      sys_status = sys$qiow(, chan by value,`09`09&
+X`09`09`09      io$_readvblk+io$m_nofiltr+io$m_noecho by value, &
+X`09`09`09      io_sb() by ref,,,`09`09&
+X`09`09`09      inbuf by ref,`09`09&
+X`09`09`09      1% by value,,             &
+X`09`09`09      tmask() by ref,,)
+X      if (sys_status and 1%) = 0%
+X      then
+X`09  print "error from sys$qiow"
+X`09  print "error number is ";sys_status
+X      end if
+X      return
+X      END_GET:
+$ CALL UNPACK GET_CHAR.BAS;9 259875104
+$ create 'f'
+X100  sub helpmate (helpfile$,defselect)
+X      ! This was developed from help in multcomp,              PB july 87
+X      ! General  externally linkable subroutine to provide help screens for
+X      !   any program.
+X      ! Help text is in serial file whose name is passed to the routine.
+X      ! File is divided up into screens  line length max 75,`20
+X      !   of up to 16 lines (+title)each - lines 7 to 22 used for text,`20
+X      !   4,5,6 for title , lines 3 and 23 for boxing and line 24 for prompt
+V.
+X      !   Page number is printed on line 2 from char position 65
+X      ! single hash (#) on line denotes end of screen
+X      ! double hash (##) denotes end of file
+X      ! First line of each screen is used as topic title (max length 66),
+X      !   but if first line after # is blank, screen is regarded as continua
+Vtion
+X      !   of previous. Extra blank line automatically inserted after title.
+X      ! For defselect = 0 (the `60normal' mode) the standard menu program pr
+Vovides
+X      !   selection via menu.
+X      ! For defselect > 1 or if only one topic, get immediate display of the
+V`20
+X      !   topic pointed to by defselect
+X      ! For defselect < 1 default topic in menu is pointed to by -defselect
+X      ! Index of topic/screen provides entry to right place and screens/topi
+Vc
+X      ! NB all variables are local and unsaved
+X
+X      ! cater for  50 screens, 18 lines(16+title+#), 15 topics(16th is exit)
+X      dim h$(50,18), item$(16), length(50), topic (16)
+X      %include "pub:get_char"
+X      %include "pub:vid_attrib.bas"
+X      %include "pub:menu"
+X     `20
+X`09!==============================================================
+X`09!                 Read the help screens from file             !
+X`09!==============================================================
+X`09SETUP_HELP:
+X      !
+X    when error in
+X      open helpfile$ for input as #1, access read
+X       scrn = 0
+X       ntopics = 0
+X       lin = 1
+X      while 1 <> 2
+X        linput #1,a$
+X        a$ = trm$(a$)
+X        if a$ = "##" then       ! this is eof marker to exit loop
+X          h$(scrn,lin) = "#"
+X          length (scrn) = lin-1
+X          items = ntopics + 1
+X          item$(items) = "Exit help"
+X          topic(items) = scrn + 1
+X          goto finish1
+X        end if
+X        if a$ = "#" then
+X          length (scrn) = lin-1
+X          scrn = scrn + 1 \ lin = 1
+X        else
+X          if lin = 1 then`20
+X            if a$ <> "" then
+X              ntopics = ntopics + 1
+X              item$(ntopics) = a$`20
+X              topic(ntopics) = scrn
+X              lin = 2
+X            else
+X              !continuation screen
+X              lin = 2
+X            end if
+X          else
+X            h$(scrn,lin) = a$
+X            ! print ntopics;scrn;lin;h$(scrn,lin)`20
+X            lin = lin + 1
+X          end if
+X        end if
+X      next     `20
+X    use
+X      print "Error in reading in help file"
+X             print "Topic no. ";ntopics
+X            print "Screen no. ";scrn;
+X            print "Line no.";lin `20
+X            print a$
+X            if scrn > 50  then print "Too many screens" end if
+X            if lin > 17 then print "Too many lines on this screen" end if
+X      exit handler
+X    end when
+X
+X    finish1:
+X      close #1
+X
+X`09!==============================================================
+X`09!                  Program Help
+X`09!==============================================================
+X    HELP:
+X      if virgin_flag = 0 then`20
+X         gosub setup_get
+X         virgin_flag = 1
+X      end if
+X      top = 6
+X      if defselect < 0 then selected = -defselect else selected = 1 end if
+X      if defselect > 0 then`20
+X        selected = defselect`20
+X        scrn = topic(selected)
+X        goto menushow
+X      else`20
+X        if items = 2 then      !1 item plus exit
+X          goto menushow
+X        end if
+X      end if
+X  menuask:
+X      print rev;bold; posnt(68,2);"Help Menu   ";normal
+X      print posnt(1,4);cleos;      !should include in menu ?
+X        gosub menu
+X      if selected = items then goto finish end if
+X      scrn = topic(selected)
+X  menushow:
+X      ! Adjust header box
+X      print rev;bold; posnt(73,2);"Page ";
+X      print using "##";scrn+1;
+X      ! Print title line
+X      print posnt(1,5);cleos;normal;"   ";item$(selected);
+X      if scrn > topic(selected) then print "  (contd)"  end if
+X      ! Print the screen
+X      for lyne = 2 to length(scrn)
+X`09print posnt(4,lyne+5); h$(scrn,lyne);
+X      next lyne
+X      ! Pretty enclosure
+X      print rev;box(1,1,80,23);normal
+X      print posnt(25,24); "press `5Breturn`5D to continue";
+X      gosub do_get
+X      gosub CLEAR_PAGE
+X      scrn = scrn + 1
+X      if scrn < topic(selected+1) then`20
+X        go to menushow`20
+X      else`20
+X        if defselect > 0 then
+X          goto finish
+X        else
+X          selected = selected + 1
+X          goto menuask`20
+X        end if
+X      end if     `20
+X
+X`09CLEAR_PAGE:
+X`09`09print posnt(1,4);cleos;
+X`09return
+X
+X      finish:
+X      end sub
+$ CALL UNPACK HELP_MATE.BAS;2 2067421875
+$ create 'f'
+X ! MENU selection routine                                    PB & MV  Aug 19
+V86
+X ! MODS Oct 1987    1. TO ALLOW scrolling if wont fit on one screen
+X !                  2. Label and goto included`20
+X !
+X ! Assumes get_char is included in the main program (before menu)
+X !   also uses pub:vid_attrib`20
+X ! Data required:
+X !   ITEM$      array of text up to 66 characters from which selection is ma
+Vde
+X !   items      the number of items in the array
+X !   top        the line on the screen on which the first item will appear
+X !                minimum 3 if title and box required
+X ! Value returned:
+X !   selected   points to the item that has been selected
+X !
+X ! Options
+X !   if SELECTED <> 0, this will be the default position for selection
+X !   if TITLE$ is non-null string, it will be printed above the selections`2
+V0
+X !                                                      (double width)
+X !   menu_no_box non zero will suppress box draw
+X !   menu_no_instr non zero will suppress instruction line
+X !   menu_no_centre non zero will suppress centering on screen
+X !`20
+X ! Practical limit - more than 99 items cant be selected directly by 2 digit
+Vs
+X !
+X      goto menu_end
+X    menu:
+X      menu_longest = 0
+X      for menu_j = 1 to items
+X            if len(item$(menu_j)) > menu_longest then
+X                  menu_longest = len(item$(menu_j))
+X            end if
+X      next menu_j
+X ! calculate positions for box
+X      menu_longest = menu_longest + 9
+X      if menu_no_centre <> 0 then`20
+X        menu_lft = 3`20
+X        menu_rgt = menu_lft + menu_longest
+X        menu_title_posn = 1
+X      else
+X        menu_lft = int((80-menu_longest)/2)
+X        if menu_lft < 3 then menu_lft = 3 end if
+X        menu_rgt = 80 - menu_lft
+X        menu_title_posn = int(21-len(title$)/2)
+X      end if
+X      if title$ <> "" then`20
+X        print posnt(1,top-2);cleos;posnt(menu_title_posn,top-2); dbw;title$`
+V20
+X      end if
+X
+X      if selected <= 0 then selected = 1 end if
+X      if selected >= items then selected = items end if
+X      menu_no_of_lines = (23-top)
+X      if items > menu_no_of_lines then
+X        menu_bottom = 22
+X        multi_screen = 1
+X      else
+X        menu_bottom = top + items - 1
+X        multi_screen = 0
+X        menu_no_of_lines = items
+X      end if
+X
+X    menu_restart:
+X      gosub menu_screen_draw
+X      menu_2_digit_flag = 0
+X    menu_recurse:
+X      gosub DO_GET
+X      select inbuf
+X        case  "0" to "9"`20
+X          if menu_2_digit_flag = 0 then
+X            menu_2_digit_flag = 1
+X            numsofar = val(inbuf)
+X          else`20
+X            menu_2_digit_flag = 0
+X            numsofar = numsofar*10 + val(inbuf)
+X          end if
+X
+X          if numsofar >= menu_first and numsofar <= menu_last then
+X            print posnt(menu_lft,screen_line);"   ";
+X            selected = numsofar`20
+X            screen_line = top+selected-menu_first
+X            if multi_screen > 1 then screen_line = screen_line + 1 end if
+X            print posnt(menu_lft,screen_line);rev;"-->";normal;
+X          else
+X            if menu_2_digit_flag = 0 then
+X              if numsofar >= 1 then
+X                if numsofar > items then
+X                  print bel;
+X                  numsofar = items
+X                end if
+X                selected = numsofar`20
+X                gosub menu_screen_draw
+X              else
+X                menu_2_digit_flag = 0
+X                print bel;
+X              end if
+X            end if
+X          end if
+X        case ESC`20
+X          menu_2_digit_flag = 0
+X          gosub DO_GET
+X          gosub DO_GET
+X          if inbuf = "A" then                        ! up
+X            if screen_line > top then
+X              print posnt(menu_lft,screen_line);"   ";
+X              screen_line  = screen_line  - 1
+X              selected = selected - 1
+X              print posnt(menu_lft,screen_line );rev;"-->";normal;
+X              if screen_line = top and multi_screen > 1 then`20
+X                gosub menu_screen_draw
+X              end if
+X            else
+X              print chr$(7);
+X            end if
+X          else
+X            if inbuf = "B" then                   !down
+X              if screen_line  < menu_bottom then
+X                print posnt(menu_lft,screen_line);"   ";
+X                selected = selected + 1
+X                screen_line  = screen_line  + 1
+X                print posnt(menu_lft,screen_line );rev;"-->";normal;
+X                if screen_line  = menu_bottom and &
+X                      (multi_screen = 2 or multi_screen = 1) then`20
+X                  gosub menu_screen_draw
+X                end if
+X              else
+X                print chr$(7);
+X              end if
+X            end if
+X          end if
+X        case cr
+X          if menu_2_digit_flag = 1 and selected <> numsofar then
+X            print bel;
+X            selected = numsofar`20
+X            goto menu_restart
+X          else
+X            print posnt(1,menu_bottom+2);cleos;
+X            return
+X          end if
+X        case else
+X          print chr$(7);
+X          menu_2_digit_flag = 0
+X      end select
+X      goto menu_recurse
+X
+X    menu_screen_draw:
+X
+X      if menu_no_box = 0 then
+X     print posnt(1,top-1);cleos;box(menu_lft-2,top-1,menu_rgt+2,menu_bottom+
+V1);
+X      else
+X        print posnt(1,top);cleos;
+X      end if
+X
+X      if multi_screen = 0 then
+X        menu_first = 1
+X        menu_last = items
+X        for menu_j = menu_first to menu_last
+X          print posnt(menu_lft+4,top+menu_j-1);
+X          print using "##",menu_j;
+X          print ".  ";item$(menu_j);
+X        next menu_j
+X      else
+X        select selected
+X          case < menu_no_of_lines`20
+X            multi_screen = 1
+X            menu_first = 1
+X            menu_last = menu_no_of_lines - 1
+X            for menu_j = menu_first to menu_last
+X              print posnt(menu_lft+4,top+menu_j-1);
+X              print using "##",menu_j;
+X              print ".  ";item$(menu_j);
+X            next menu_j
+X            print posnt(menu_lft+4,menu_bottom);
+X            print "     More...";
+X          case > items - menu_no_of_lines + 1
+X            multi_screen = 3
+X            menu_first = items - menu_no_of_lines + 2
+X            menu_last = items
+X            print posnt(menu_lft+4,top);
+X            print "     Back...";
+X            for menu_j = menu_first to menu_last
+X              print posnt(menu_lft+4,top+menu_j+1-menu_first);
+X              print using "##",menu_j;
+X              print ".  ";item$(menu_j);
+X            next menu_j
+X          case else
+X            multi_screen = 2
+X            menu_first = 2
+X            while (selected - menu_first) >= menu_no_of_lines -2
+X              menu_first = menu_first + menu_no_of_lines - 2
+X            next
+X            menu_last = menu_no_of_lines + menu_first - 3
+X            print posnt(menu_lft+4,top);
+X            print "     Back...";
+X            for menu_j = menu_first to menu_last
+X              print posnt(menu_lft+4,top+menu_j+1-menu_first);
+X              print using "##",menu_j;
+X              print ".  ";item$(menu_j);
+X            next menu_j
+X            print posnt(menu_lft+4,menu_bottom);
+X            print "     More...";
+X        end select !
+X      end if
+X      if menu_no_instr = 0  then
+X        print posnt(1,24);"   Use arrow keys or type number to make selectio
+Vn,";
+X        print "  then press return";
+X      end if
+X !
+X      screen_line = top+selected-menu_first
+X      if multi_screen > 1 then screen_line = screen_line + 1 end if
+X      print posnt(menu_lft,screen_line );rev;"-->";normal;
+X      return
+X    menu_end:
+$ CALL UNPACK MENU.BAS;25 68299084
+$ create 'f'
+X! Minesweeper for vt100                        Peter Bury,  April 1992
+X!   Victorian College of Pharmacy (Monash University), Melbourne, Australia
+X! Instructions in Minesweeper.hlp
+X! link the program with pub:helpmate for the help file to be available.
+X! NB The logical pub: points to a public area on our VAX where these files
+X!    normally reside. The BUILD.COM procedure will take care of this.
+X%include "pub:vid_attrib"
+X%include "pub:get_char"
+X%include "scorebase"
+Xmap (user_id) string user_name = 12
+Xmap (score) integer scorehigh, string nm=35, who=12, dated = 9
+Xdim nm$(21), hscore(21), user_name$(21), when$(21)
+Xexternal integer function lib$getjpi
+Xexternal integer constant jpi$_username
+Xexternal integer function lib$get_symbol
+Xyes = 1
+Xno = 0
+Xmaxscores = 45      ! random erasing when reaches this
+X! Find out who this is for scoring system
+Xcall lib$getjpi(jpi$_username,,,,user_name,)
+Xflag$ = " " + bold + "X" + normal
+Xunknown$ = " ."
+Xstar$ = " *"
+Xrandom
+Xlevel = 1
+Xagain:
+Xprint cls
+Xprint cls;rev;box(1,1,80,3); bold;posnt(2,2);`20
+Xprint "VCP VAX                  ** Minesweeper **                       ";
+Xprint "      Mar 92 ";   normal;lf
+Xprint`20
+Xprint
+Xprint "1. Beginner"
+Xprint "2. Intermediate"
+Xprint "3. Expert"
+Xprint "4. Custom"
+Xprint "5. Instructions"
+Xprint "6. High Scores"
+Xprint "7. Quit"
+Xprint
+Xprint "Please select option or desired level  `5B"; str$(level);"`5D";
+Xinput a$
+Xwhen error in
+X  newlevel = val(a$)
+Xuse
+X  if ERR = 50 then continue fmterr else exit handler end if
+Xend when
+Xgoto setupp
+X
+Xfmterr:
+Xprint bel
+Xgoto again
+X
+Xsetupp:
+Xif newlevel > 0 then level = newlevel end if
+Xselect level
+X  case 1
+X    nny = 10
+X    nnx = 10
+X    nmine = 10
+X    scorefile$ = scorebase$ + "mine1score.da"
+X  case 2
+X    nny = 16
+X    nnx = 16
+X    nmine = 40
+X    scorefile$ = scorebase$ + "mine2score.da"
+X  case 3
+X    nny = 16
+X    nnx = 30
+X    nmine = 99
+X    scorefile$ = scorebase$ + "mine3score.da"
+X  case 4
+Ximposs:
+X    input "Height (3 - 18)";nny`20
+X    if nny < 3 or nny > 18 then
+X      print bel; "Out of range, try again"
+X      goto imposs
+X    end if
+X    input "Width  (3 - 36)";nnx
+X    if nnx < 3 or nnx > 36 then
+X      print bel; "Out of range, try again"
+X      goto imposs
+X    end if
+X    input "Number of mines"; nmine`20
+X    if nmine < 0 or nmine > nnx*nny-1 then
+X      print bel; "Out of range, try again"
+X      goto imposs
+X    end if
+X    scorefile$ = ""
+X  case 5
+X    call helpmate("mine_help:minesweeper.hlp",0)
+X    level = 1
+X    goto again
+X  case 6
+X    print " Select Level for score display";lf
+X    print "1. Beginner"
+X    print "2. Intermediate"
+X    print "3. Expert"
+X    print`20
+X    input newlevel
+X    newlevel = int(newlevel)
+X    if newlevel >=1 and newlevel <= 3 then
+X      level = newlevel`20
+X      scorefile$ = scorebase$ + "mine" + str$(level) + "score.da"
+X      gosub score_read
+X    end if
+X    goto again
+X  case 7
+X    goto fini
+X  case else
+X    goto again
+Xend select
+Xnn1 = nnx*nny
+Xdim arr$ (nnx,nny), mine(nnx,nny), cleared(nnx,nny)
+Xdim x1(nn1),y1(nn1)
+X! Positions x & y from bottom left
+X! Array mine(x,y) set to -1 for mine or the digit representing no.`20
+X!  neighbours
+X! Array arr$(x,y) 2 characters wide is what shows on the screen
+X! Array cleared(x,y) keeps a record of what has been cleared to date.
+Xntofind = nn1-nmine
+Xupset = 2            ! distance above bottom of screen
+X
+X!      Lay the minefield
+Xinit:
+Xarr$(x,y) = unknown$            for x = 1 to nnx      for y = 1 to nny
+Xunfound = 0
+Xuntil unfound = nmine
+X  y = int(nny*rnd + 1)
+X  x = int(nnx*rnd + 1)
+X  if y = int((nny+1)/2) and x = int((nnx+1)/2) then
+X    ! keep centre square free to start
+X  else
+X    if mine(x,y) = 0 then
+X      mine(x,y) = -1
+X      unfound = unfound + 1
+X    end if
+X  end if
+Xnext
+X
+X! Count how many are adjacent to each square and store in array mine(x,y)
+Xfor y = 1 to nny
+X  for x = 1 to nnx
+X    if mine(x,y) >= 0 then
+X      n = 0
+X      for j = x-1 to x+1
+X        for k = y-1 to y+1
+X          if j >=1 and j <= nnx and k >=1 and k <= nny then
+X            if mine(j,k) < 0 then
+X              n = n + 1
+X            end if
+X          end if
+X        next k
+X      next j
+X      mine(x,y) = n
+X    end if
+X  next x
+Xnext y`20
+X
+Xy = int((nny+1)/2)
+Xx = int((nnx+1)/2)
+Xgosub redraw
+Xstarted = no
+X
+X!            Returns here after each keystroke is processed
+Xwhile ntofind > 0`20
+Xprint posnb(2*x,y +upset);arr$(x,y);cb;
+Xgosub DO_GET
+Xif started = no then
+X  started = yes
+X  start_time = time(0)
+Xend if
+Xprint posnt(1,2); "Time taken:   ";time(0) - start_time; "      ";
+Xselect inbuf
+X  case "Q","q"
+X    print bel;posnt (1,1);cleol;bold;
+X    input "Are you sure you want to quit  `5BN`5D";an$
+X    print normal;
+X    if edit$(left$(an$,1),32) = "Y" then
+X      level = 7
+X      goto again
+X    else
+X      gosub redraw
+X    end if
+X  case " "
+X    x1 = x
+X    y1 = y
+X    gosub clear_it
+X  case chr$(23),chr$(18)
+X    gosub redraw
+X  case "p", "P"
+X    pstart = time(0)
+X    print cls
+X    print posnb(1,2); "Press P to resume";
+X    inbuf = ""
+X    until inbuf = "P" or inbuf = "p"
+X      gosub do_get
+X    next
+X    start_time = start_time + time(0) - pstart
+X    gosub redraw
+X  case "F","f","M","m","X","x"
+X    if arr$(x,y) = flag$  then
+X      arr$(x,y) = unknown$
+X      cleared(x,y) = no
+X      unfound = unfound + 1
+X    else
+X      if arr$(x,y) = unknown$ then
+X        arr$(x,y) = flag$`20
+X        cleared(x,y) = yes
+X        unfound = unfound - 1
+X      end if
+X    end if
+X    print posnt(1,1); "Mines to find:";unfound;"  "
+X    print posnb (2*x,y+upset); rev; arr$(x,y);normal;
+X  case "C","c"
+X    if arr$(x,y) <> flag$  and arr$(x,y) <> unknown$ then
+X      known = 0                              ! must be a number
+X      for x1 = x-1 to x+1
+X        for y1 = y-1 to y+1
+X          if x1 >=1 and x1 <= nnx and y1 >=1 and y1 <= nny then
+X            if arr$(x1,y1) = flag$ then
+X              known = known + 1
+X            end if
+X          end if
+X        next y1
+X      next x1
+X      if known = mine(x,y) then`20
+X        gosub safe_round
+X      else
+X        gosub warn_round
+X       print bel;
+X    else
+X      ! not a suitable spot
+X    end if
+X  case ESC`20
+X    gosub DO_GET
+X    gosub DO_GET
+X    a$ = inbuf
+X!          if arr$(x,y) = unknown$ then
+X!            print posnb (2*x,y+upset);rev;arr$(x,y);normal
+X!          else
+X      print posnb (2*x,y+upset);arr$(x,y);
+X!          end if
+X    select a$
+X      case "A"                         ! up
+X        if y < nny then
+X          y  = y  + 1
+X        else
+X          print chr$(7);
+X        end if
+X      case "B"                        !down
+X        if y > 1 then
+X          y  = y - 1
+X        else
+X          print chr$(7);
+X        end if
+X      case "C"                         ! right
+X        if x < nnx then
+X          x  = x  + 1
+X        else
+X          print chr$(7);
+X        end if
+X      case "D"                    !left
+X        if x > 1 then
+X          x  = x - 1
+X        else
+X          print chr$(7);
+X        end if
+X!              print posnb(2*x,y +upset);arr$(x,y);cb;
+X      end select
+X  case else
+X!          print posnb (1,22);" -- ";inbuf," ";
+Xend select
+Xnext
+Xprint posnb(1,2)
+XPrint bold;blink;"Congratulations";normal;"  --  all mines cleared in";
+Xtaken = time(0) - start_time
+Xprint bold;blink; taken; normal;"seconds"
+Xif scorefile$ <> "" then
+X  gosub scoring
+X  goto again
+Xelse
+X  input "Play again  `5By`5D";a$
+X  a$ = edit$(left$(a$,1),32)`20
+X  if a$ = "N" then
+X    goto fini
+X  else
+X    goto again
+X  end if
+Xend if
+X
+X
+Xscoring:
+X! from temple - march 92            PB
+X! map (score) integer scorehigh, string nm=35, who=12, dated = 9
+X  print "                                           ";
+X  print "...................................";cu;cr;
+X  input "Please type in your Minesweeping identity"; nm
+X  scorehigh = taken
+X  who = edit$(user_name,4)
+X!  if who = "PB" then scorehigh = 0.8 * taken end if for cheating/testing
+X  dated = date$(0)
+Xlock_loop1:
+X  when error in
+X    open scorefile$ for input as file #1         &
+X`09,organization indexed fixed`09`09&
+X`09,access modify      `09`09`09&
+X`09,primary key scorehigh duplicates`09&
+X`09,map score
+X  use
+X    if err = 138 then
+X      print "High-scores file in use, please wait..."
+X      sleep 3
+X      continue lock_loop1
+X    else
+X      PrinT "Unable to open scoring file, please see system manager"
+X      sleep 3
+X      exit handler
+X    end if
+X  end when
+X  when error in
+X    put #1
+X  use
+X    PrinT "Error";err;"in scoring system, please see system manager"
+X    sleep 3
+X  end when
+X  close #1
+X  input "Do you want to see how this ranks in the high scores ";an$
+X  if EDIT$(LEFT$(an$,1),32) <> "N" then`20
+X    gosub score_read
+X  end if
+X  return
+X
+Xscore_read:
+X!high scores print
+X  cycle = 0
+X  scoremark% = 0
+Xscore_loop:
+X  when error in
+X  open scorefile$ for input as file #1         &
+X    ,organization indexed fixed`09`09&
+X    ,access read      `09`09`09&
+X    ,primary key scorehigh duplicates`09&
+X    ,map score
+X  use
+X    if err = 138 then
+X      print "High-scores file in use, please wait..."
+X      sleep 2
+X      continue score_loop
+X    else
+X      Print "Unable to open scoring file, please see system manager"
+X      sleep 3
+X      exit handler
+X    end if
+X  end when
+X  for j = 1 to 16
+X    when error in
+X      if j = 1 then
+X        get #1, key #0% ge scoremark%
+X      else
+X        get #1
+X      end if
+X    use
+X      if err = 11 or err = 155 then
+X        hscore(j) = 0
+X        j = 17
+X        close #1
+X        continue printit
+X      else
+X        Print "Error ";ert$(err);" in scoring system, please see system mana
+Vger"
+X        sleep 3
+X      end if
+X    end when
+X    nm$(j) = trm$(nm)
+X    hscore(j) = scorehigh`20
+X    user_name$(j) = trm$(who)
+X    when$(j) = dated`20
+X  next j
+X  close #1
+X! Read fast, then get out while we print it and he looks at it
+X  scoremark% = scorehigh
+Xprintit:
+X! map (score) integer scorehigh, string nm=35, who=12, dated = 9
+X  print cls;
+X  print "          VAX high scores:  ";
+X  if level = 1 then print " Beginner level" end if
+X  if level = 2 then print " Intermediate level" end if
+X  if level = 3 then print " Expert level" end if
+X  print "Ranking";tab(14);"Name", tab(50);"Score";tab(65);"Date"
+X  print "-------";tab(14);"----", tab(50);"-----";tab(65);"----"
+X  print
+X  for j = 1 to 16
+X    if hscore(j) = 0 then`20
+X      goto eolist
+X    else
+X      if user_name$(j) = user_name then`20
+X        ! if user name matches then lets make it glow
+X        print bold; else print normal;`20
+X      end if
+X      print j+15*cycle; tab(14);nm$(j); tab(50);
+X      print using "#####"; hscore(j);
+X      print tab(65);when$(j);normal
+X    end if
+X  next j `20
+X  print posnt (1,25);cleol;
+X  input "Press return to continue listing scores, or F to finish";an$
+X  if EDIT$(LEFT$(an$,1),32) = "F" then return end if
+X  cycle = cycle+1
+X  goto score_loop
+X
+Xeolist:
+X  print posnt (1,25);cleol;
+X  if j+15*cycle > maxscores then
+X! delete a few quietly     (the top score should stay)
+X    ndel = j+15*cycle - maxscores
+X    del_int = maxscores/ndel
+X    when error in
+X      open scorefile$ for input as file #1         &
+X`09,organization indexed fixed`09`09&
+X`09,access modify      `09`09`09&
+X`09,primary key scorehigh duplicates`09&
+X`09,map score
+X    use
+X      ! forget it for now
+X      continue lock_loop2
+X    end when
+X    when error in
+X      get #1            ! the top one
+Xtill_err:   `20
+X      for j = 1 to del_int * rnd * 2   !   ( NB only approx the right number
+V)
+X        get #1
+X      next j            ! avoid any done in current month
+X      if mid$(dated,4,6) <> mid$(date$(0),4,6) then`20
+X        delete #1
+X      end if
+X      goto till_err
+X    use
+X      continue lock_loop2
+X    end when
+Xlock_loop2:`20
+X    close #1
+X  end if
+X  input "Press return to continue"; an$
+Xreturn
+X`20
+Xredraw:
+X  print cls
+X  print posnt(30,1);"Spacebar  to clear"
+X  print posnt(30,2);"F or M    to flag"
+X  print posnt(30,3);"Arrows    to move"
+X  print posnt(30,4);"Q         to quit"
+X  print posnt(60,1);"C      clear round"
+X  print posnt(60,2);"ctrl/W  to refresh"
+X  print posnt(60,3);"P       to pause"
+X  for y1 = nny to 1 step -1
+X    l$ = ""
+X    for x1 = 1 to nnx
+X      l$ = l$ + arr$(x1,y1)
+X    next x1
+X    print posnb(2,y1+upset);l$
+X  next y1
+X  print normal; box(1,25-(nny+upset+1),2*nnx+2,25-upset)
+X  print posnt(1,1); "Mines to find:";unfound;"   "
+X  print posnt(1,2); "Time taken:   ";
+X  if started = yes then
+X    print time(0) - start_time;"   "
+X  end if
+X  print posnt(1,3); "Spaces to clear";ntofind; "   "
+Xreturn
+X
+Xclear_round:
+X! no mines adjacent to square, so all can be cleared
+X! additional clear locations found are saved on stack
+X  for j = x1(bstack)-1 to x1(bstack)+1
+X    for k = y1(bstack)-1 to y1(bstack)+1
+X      if j >=1 and j <= nnx and k >=1 and k <= nny then
+X        if arr$(j,k) = unknown$ then
+X          cleared(j,k) = yes
+X          ntofind = ntofind - 1
+X          if mine(j,k) = 0 then
+X            arr$(j,k) = "  "
+X            print posnb(2*j,k +upset);arr$(j,k);
+X            tstack = tstack + 1
+X            x1(tstack) = j
+X            y1(tstack) = k
+X          else
+X            arr$(j,k) = format$(mine(j,k),"##")
+X            print posnb(2*j,k +upset);arr$(j,k);
+X          end if
+X        end if
+X      end if
+X    next k
+X  next j
+Xreturn
+X
+Xclear_it:
+X! called by spacebar press or "C" of adjacent square
+X  if cleared(x1,y1) = no then
+X  if mine(x1,y1) < 0 then
+X! Disaster
+X    for k = nny to 1 step -1
+X      for j = 1 to nnx
+X        if mine(j,k) < 0 then
+X          if arr$(j,k) <> flag$ then
+X            print posnb(2*j,k+upset);" M";
+X          end if
+X        else
+X          if arr$(j,k) = flag$ and mine(j,k) >=0 then
+X            print posnb(2*j,k+upset);blink;" F";normal;
+X          end if
+X        end if
+X      next j
+X    next k
+X    print posnb(2*x1,y1 +upset);blink;" M";normal;
+X    print bel;posnb(80,3)
+X    print "Sorry, you blew it      ";
+X    input "Try again  `5By`5D";a$
+X    a$ = edit$(left$(a$,1),32)`20
+X    if a$ = "N" then
+X      goto fini
+X    else
+X      goto again
+X    end if
+X  else
+X! Safe
+X    if mine(x1,y1) = 0 then
+X      tstack = 1
+X      bstack = 1
+X      x1(1) = x1
+X      y1(1) = y1
+X      while bstack <= tstack
+X        gosub clear_round
+X        bstack = bstack + 1
+X      next
+X      print posnt(1,3); "Spaces to clear";ntofind;"  "
+X    else
+X      if arr$(x1,y1) = unknown$ then
+X        ntofind = ntofind - 1
+X        cleared(x1,y1) = yes
+X        print posnt(1,3); "Spaces to clear";ntofind;"  "
+X        arr$(x1,y1) = format$(mine(x1,y1),"##")
+X        print posnb(2*x1,y1+upset);arr$(x1,y1);
+X      else
+X        print chr$(7);
+X      end if
+X    end if
+X  end if
+X  end if
+Xreturn
+X
+Xsafe_round:
+X  for x1 = x-1 to x+1
+X    for y1 = y-1 to y+1
+X      if x1 >=1 and x1 <= nnx and y1 >=1 and y1 <= nny then
+X        gosub clear_it
+X      end if
+X    next y1
+X  next x1
+Xreturn
+X
+Xwarn_round:
+X  for x1 = x-1 to x+1
+X    for y1 = y-1 to y+1
+X      if x1 >=1 and x1 <= nnx and y1 >=1 and y1 <= nny then
+X        if arr$(x1,y1) = unknown$ then
+X          arr$(x1,y1) = star$
+X          print posnb(2*x1,y1+upset);arr$(x1,y1) ;
+X        end if
+X      end if
+X    next y1
+X  next x1
+X  sleep (1)
+X  for x1 = x-1 to x+1
+X    for y1 = y-1 to y+1
+X      if x1 >=1 and x1 <= nnx and y1 >=1 and y1 <= nny then
+X        if arr$(x1,y1) = star$ then
+X          arr$(x1,y1) = unknown$
+X          print posnb(2*x1,y1+upset);arr$(x1,y1) ;
+X        end if
+X      end if
+X    next y1
+X  next x1
+Xreturn
+X
+Xfini:
+X  print posnb(1,1)
+$ CALL UNPACK MINESWEEPER.BAS;22 941250866
+$ create 'f'
+XMinesweeper
+X
+X
+XThis is a reverse-engineered version of the Minesweeper for Windows program.
+XIt runs on VT100 compatible terminals under VMS.
+X
+XYou are given a grid with a random array of mines.
+XThe aim is to identify the location of the mines and to clear all other`20
+Xcells. When a cell is cleared, you are told the number of adjacent squares`2
+V0
+Xthat contain mines. Adjacency is vertical, horizontal and diagonal.
+XIf you attempt to clear a cell that is occupied by a mine then it will`20
+Xexplode and the game ends. The exploded mine and any falsely flagged mines`2
+V0
+Xare shown flashing.
+X
+XConversion for VAX BASIC by Peter Bury, April 1992
+XPB@vcp.monash.edu.au
+X#
+XKeys
+X
+XYour current position is indicated by the cursor.
+XUse the group of four Arrow keys to move`20
+X
+XF or f or M or m or X or x   to flag the presence of a mine. Will also`20
+Xunflag the mine if you change your mind.
+X                              (equiv to right mouse button in original)
+X
+XSpacebar   to clear a square
+X                              (equiv to left  mouse button in original)
+X
+XC or c     to clear around a number that is fully accounted for. Will`20
+Xbriefly show neighbours if not fully accounted for.
+X                              (equiv to both mouse buttons in original)
+X
+X
+XNB all cells adjacent to a score of zero are automatically cleared
+X#
+XThe board
+X
+XUnknown locations are shown as dots.
+X
+XCleared locations are numbers representing the number of adjacent squares`20
+Xthat contain mines. Adjacency is vertical, horizontal and diagonal.`20
+XSquares not adjacent to any mines are shown clear rather than as zeroes.
+X
+XFlagged squares contain `1B`5B1mX`1B`5B0m in bold
+X
+X
+X#
+XStrategy
+X
+XYou have to guess a couple to try to get a start.
+XThen think!
+X
+XYou will get to recognise some patterns eg in straight-line edges
+X
+X`7C 1 1 x x x x 1 2 1 x x x x 2 1 x x x`20
+X`7C . . . . . . . . . . . . . . . . . .
+X  ? ? `5E     `5E * `5E * `5E     * ? ? `5E
+X
+Xwhere `7C is a wall and x is don't care, the places above the stars must be`
+V20
+Xmines, the hats must be clear. The question marks are undetermined.
+X##
+$ CALL UNPACK MINESWEEPER.HLP;3 1829056626
+$ create 'f'
+X! Create score files for Minesweeper`20
+X!  3 files - one for each level
+Xmap (score) integer scorehigh, string nm=35, who=12, dated = 9
+X      %include "scorebase.bas"
+X      print "Score files in directory  "; scorebase$`20
+X      if mid$(scorebase$,len(scorebase$),1) <> "`5D" and       &
+X         mid$(scorebase$,len(scorebase$),1) <> ":" then`20
+X            print bel; "Warning - check form of directory name"
+X      end if
+X
+X      for j = 1 to 3
+X        scorefile$ = scorebase$ + "mine" + str$(j) + "score.da"
+X        when error in
+X          open scorefile$ for output as file #1      &
+X            ,organization indexed fixed               &
+X            ,primary key scorehigh duplicates         &
+X            ,map score
+X          print scorefile$; " created "`20
+X          close #1
+X        use
+X          print bel; "Can't create "; scorefile$
+X          print "Error ";err, ert$(err)
+X        end when
+X      next j   `20
+$ CALL UNPACK MSW_SCORE_FILES.BAS;11 1208039327
+$ create 'f'
+X  !     BASIC calls to set vt100 video attributes
+X  !  Mod  sept 24 1986   dbl1 & dbl2 AFTER line are top & bottom of 2x heigh
+Vt
+X      Declare string function box(real,real,real,real)      !x1,y1,x2,y2
+X      Declare string function posnt(real,real)      !position from top
+X      Declare string function cleos                 !clear to eos
+X      Declare string function cleol                 !clear to eol
+X      Declare string function posnb(real,real)      !position from bottom
+X      Declare string function cls
+X      Declare string function bold
+X      Declare string function uline
+X      Declare string function blink
+X      Declare string function rev
+X      Declare string function normal
+X      Declare string function nobold
+X      Declare string function norev
+X      Declare string function noblink
+X      Declare string function nouline
+X      Declare string function cu              !Cursor up or reverse index
+X      Declare string function cd              !       down
+X      Declare string function cb              !       back
+X      Declare string function cf              !       forward
+X      Declare string function col80
+X      Declare string function col132
+X      Declare string function ginit           !init ascii to g0 & dec to g1
+X      Declare string function gon
+X      Declare string function goff
+X      Declare string function dbw            !double width
+X      Declare string function dbl1
+X      Declare string function dbl2
+X    !
+X      def box(va_x1,va_y1,va_x2,va_y2)
+X      bx$ = posnt(va_x1,va_y1) + ginit + gon + "l"`20
+X      bx$ = bx$ + "q" for vid_attrib_v1 = va_x1+1 to va_x2-1`20
+X      bx$ = bx$ + "k"
+X      bx$ = bx$ +  posnt(va_x1,vid_attrib_v1) + "x" + posnt(va_x2,vid_attrib
+V_v1) &
+X        + "x" for vid_attrib_v1 = va_y1+1 to va_y2-1
+X      bx$ = bx$ +  posnt(va_x1,va_y2) + gon + "m"
+X      bx$ = bx$ +  "q" for vid_attrib_v1 = va_x1+1 to va_x2-1`20
+X      box = bx$ +  "j" +  goff
+X      end def
+X    !
+X      def dbl1
+X      dbl1 = esc + "#3"
+X      end def
+X    !
+X      def dbl2
+X      dbl2 = esc + "#4"
+X      end def
+X    !
+X      def dbw
+X      dbw = esc + "#6"
+X      end def
+X    !
+X      def bold
+X      bold = esc + "`5B1m"
+X      end def
+X    !
+X      def uline
+X      uline = esc + "`5B4m"
+X      end def
+X    !
+X      def blink
+X      blink = esc + "`5B5m"
+X      end def
+X    !
+X      def rev
+X      rev = esc + "`5B7m"
+X      end def
+X    !
+X      def normal
+X      normal = esc + "`5B0m"
+X      end def
+X    !
+X      def nobold
+X      nobold = esc + "`5B22m"
+X      end def
+X    !
+X      def nouline
+X      nouline = esc + "`5B24m"
+X      end def
+X    !
+X      def noblink
+X      noblink = esc + "`5B25m"
+X      end def
+X    !
+X      def norev
+X      norev = esc + "`5B27m"
+X      end def
+X    !
+X      def cu
+X      cu = esc + "M"
+X      end def
+X    !
+X      def cd
+X      cd = esc + "D"
+X      end def
+X    !
+X      def cf
+X      cf = esc + "`5B1C"
+X      end def
+X    !
+X      def cb
+X      cb = esc + "`5B1D"
+X      end def
+X    !
+X      def col80
+X      col80 = esc + "`5B?3l"
+X      end def
+X    !
+X      def col132
+X      col132 = esc + "`5B?3h"
+X      end def
+X    !
+X      def gon
+X      gon = chr$(14)
+X      end def
+X    !
+X      def goff
+X      goff = chr$(15)
+X      end def
+X    !
+X    ! 'ginit' loads normal ASCII char set to G0, DEC special graphics to G1
+X    ! This is normal terminal setup, and 'gon' may be used to select graphic
+Vs
+X    !  mode, and 'goff' to turn it off again
+X    !
+X      def ginit                       `20
+X      ginit = esc + ")0" + esc + "(B"
+X      end def
+X    !
+X      def cls                              ! clear screen and home
+X      vid_attrib_h1=0 \ vid_attrib_v1=0`20
+X      cls=posnt(vid_attrib_h1,vid_attrib_v1) + cleos
+X      end def
+X    !
+X      def cleos
+X      cleos = esc + "`5B0J"                  ! clear to EOS
+X      end def
+X    !
+X      def cleol
+X      cleol = esc + "`5B0K"                ! clear to EOL
+X      end def
+X    !
+X    ! Position cursor from top left (x,y)
+X      def posnt(vid_attrib_h1,vid_attrib_v1)
+X      posnt = chr$(27)+"`5B"+str$(vid_attrib_v1)+";"+str$(vid_attrib_h1)+"H"
+X      end def                                        `20
+X    !
+X    ! Position cursor from bottom left (x,y)
+X      def posnb(vid_attrib_h1,vid_attrib_v1)
+X      posnb = chr$(27)+"`5B"+str$(25-vid_attrib_v1)+";"+str$(vid_attrib_h1)+
+V"H"`20
+X      end def
+X    !
+X      print ginit;goff;
+$ CALL UNPACK VID_ATTRIB.BAS;19 1379062756
+$ v=f$verify(v)
+$ EXIT

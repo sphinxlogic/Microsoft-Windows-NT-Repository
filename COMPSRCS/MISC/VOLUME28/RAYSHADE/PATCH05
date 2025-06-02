@@ -1,0 +1,866 @@
+Newsgroups: comp.sources.misc
+From: Craig Kolb <rayshade-request@cs.princeton.edu>
+Subject:  v28i031:  rayshade - A raytracing package for UNIX, Patch05
+Message-ID: <1992Feb10.162120.5958@sparky.imd.sterling.com>
+X-Md4-Signature: 195b08002a13ee79874b4c3ce3a9fed5
+Date: Mon, 10 Feb 1992 16:21:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Craig Kolb <rayshade-request@cs.princeton.edu>
+Posting-number: Volume 28, Issue 31
+Archive-name: rayshade/patch05
+Environment: UNIX
+Patch-To: rayshade: Volume 21, Issue 3-22
+
+System: rayshade version 4.0
+Patch #: 5
+Priority: HIGH
+Subject: patch #3, continued
+Date: Mon Feb  3 13:24:56 EST 1992
+From: Rayshade Construction Co. <rayshade-request@cs.princeton.edu>
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your rayshade source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -d
+		make depend
+		make
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained through
+	anonymous ftp from weedeater.math.yale.edu (130.132.23.17) in
+	pub/rayshade.4.0/patches.
+
+Index: patchlevel.h
+Prereq: 4
+1c1
+< #define PATCHLEVEL 4
+---
+> #define PATCHLEVEL 5
+Index: libshade/picture.c
+Prereq: 4.0
+*** old/libshade/picture.c	Mon Feb  3 12:42:55 1992
+--- new/libshade/picture.c	Fri Jan 17 10:30:09 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: picture.c,v 4.0 91/07/17 14:47:00 kolb Exp Locker: kolb $
+   *
+   * $Log:	picture.c,v $
+   * Revision 4.0  91/07/17  14:47:00  kolb
+   * Initial version.
+   * 
+--- 13,26 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: picture.c,v 4.0.1.1 92/01/10 16:28:28 cek Exp Locker: cek $
+   *
+   * $Log:	picture.c,v $
++  * Revision 4.0.1.1  92/01/10  16:28:28  cek
++  * patch3: Added check for nonexistent patial image file.
++  * patch3: Fixed declaration of nrow in count_rle_rows().
++  * patch3: Changed level of several error messages.
++  * 
+   * Revision 4.0  91/07/17  14:47:00  kolb
+   * Initial version.
+   * 
+***************
+*** 85,91 ****
+  		if (Options.imgname) {
+  			Options.pictfile = fopen(Options.imgname, "w");
+  			if (Options.pictfile == (FILE *)NULL)
+! 				RLerror(RL_PANIC,"Cannot open %s for writing.",
+  					Options.imgname);
+  		} else
+  			Options.pictfile = stdout;
+--- 90,96 ----
+  		if (Options.imgname) {
+  			Options.pictfile = fopen(Options.imgname, "w");
+  			if (Options.pictfile == (FILE *)NULL)
+! 				RLerror(RL_ABORT,"Cannot open %s for writing.",
+  					Options.imgname);
+  		} else
+  			Options.pictfile = stdout;
+***************
+*** 137,143 ****
+  PictureSetWindow()
+  {
+  	if (Options.imgname == (char *)NULL)
+! 		RLerror(RL_PANIC,
+  			"No partially-completed image file specified.\n");
+  
+  	/*
+--- 142,148 ----
+  PictureSetWindow()
+  {
+  	if (Options.imgname == (char *)NULL)
+! 		RLerror(RL_ABORT,
+  			"No partially-completed image file specified.\n");
+  
+  	/*
+***************
+*** 144,149 ****
+--- 149,158 ----
+  	 * Open image and read RLE header.
+  	 */
+  	Options.pictfile = fopen(Options.imgname, "r");
++ 	if (Options.pictfile == (FILE *)NULL) {
++ 		RLerror(RL_ABORT, "Cannot open image file %s.\n",
++ 					Options.imgname);
++ 	}
+  	rle_dflt_hdr.rle_file = Options.pictfile;
+  	rle_get_setup_ok(&rle_dflt_hdr, "rayshade", Options.imgname);
+  
+***************
+*** 196,202 ****
+  rle_hdr *hdr;
+  {
+  	rle_op **raw;
+! 	int **nraw, y, ynext;
+  
+  	if (rle_raw_alloc( hdr, &raw, &nraw ) < 0)  {
+  		RLerror(RL_PANIC,
+--- 205,211 ----
+  rle_hdr *hdr;
+  {
+  	rle_op **raw;
+! 	int *nraw, y, ynext;
+  
+  	if (rle_raw_alloc( hdr, &raw, &nraw ) < 0)  {
+  		RLerror(RL_PANIC,
+***************
+*** 284,290 ****
+  	if (Options.imgname) {
+  		Options.pictfile = fopen(Options.imgname, "w");
+  		if (Options.pictfile == (FILE *)NULL)
+! 			RLerror(RL_PANIC, "Cannot open %s for writing.",
+  				Options.imgname);
+  	} else
+  		Options.pictfile = stdout;
+--- 293,299 ----
+  	if (Options.imgname) {
+  		Options.pictfile = fopen(Options.imgname, "w");
+  		if (Options.pictfile == (FILE *)NULL)
+! 			RLerror(RL_ERROR, "Cannot open %s for writing.",
+  				Options.imgname);
+  	} else
+  		Options.pictfile = stdout;
+
+Index: Doc/Guide/lights.tex
+*** old/Doc/Guide/lights.tex	Mon Feb  3 12:42:56 1992
+--- new/Doc/Guide/lights.tex	Fri Jan 17 10:29:14 1992
+***************
+*** 13,23 ****
+  In this chapter, an {\em Intensity\/} is either a red-green-blue triple
+  indicating the color of the light source, or a single value that is
+  interpreted as the intensity of a ``white'' light.
+! In the current version of {\em rayshade}, the intensity of a light does
+  not decrease as
+  one moves farther from it.
+  
+! If you do not define a light source, \rayshade will create a directional
+  light source of intensity 1.0 defined by the vector (1., -1., 1.).
+  This default light source is designed to work well when default
+  viewing parameters and surface values are being used.
+--- 13,23 ----
+  In this chapter, an {\em Intensity\/} is either a red-green-blue triple
+  indicating the color of the light source, or a single value that is
+  interpreted as the intensity of a ``white'' light.
+! In the current version of {\rayshade}, the intensity of a light does
+  not decrease as
+  one moves farther from it.
+  
+! If you do not define a light source, {\rayshade} will create a directional
+  light source of intensity 1.0 defined by the vector (1., -1., 1.).
+  This default light source is designed to work well when default
+  viewing parameters and surface values are being used.
+***************
+*** 163,173 ****
+  the shadow ray until it either reaches the light source or until
+  the light is completely attenuated.
+  
+! By default, \rayshade computes shadow attenuation by assuming
+  that the index of refraction of the transparent object is the
+  same as that of the medium through which the ray is traveling.
+  To disable
+! partial shadowing due to transparent objects, the {\em shadowtransp}
+  keyword should be given somewhere in the input file.
+  
+  \begin{defkey}{shadowtransp}{}
+--- 163,173 ----
+  the shadow ray until it either reaches the light source or until
+  the light is completely attenuated.
+  
+! By default, {\rayshade} computes shadow attenuation by assuming
+  that the index of refraction of the transparent object is the
+  same as that of the medium through which the ray is traveling.
+  To disable
+! partial shadowing due to transparent objects, the {\tt shadowtransp}
+  keyword should be given somewhere in the input file.
+  
+  \begin{defkey}{shadowtransp}{}
+
+Index: libray/libcommon/vecmath.c
+Prereq: 4.0.1.1
+*** old/libray/libcommon/vecmath.c	Mon Feb  3 12:50:01 1992
+--- new/libray/libcommon/vecmath.c	Fri Jan 17 10:29:27 1992
+***************
+*** 13,24 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: vecmath.c,v 4.0.1.1 91/09/29 15:38:41 cek Exp Locker: cek $
+   *
+   * $Log:	vecmath.c,v $
+   * Revision 4.0.1.1  91/09/29  15:38:41  cek
+   * patch1: Fixed floating-point compare in normalization code.
+!  * 
+   * Revision 4.0  91/07/17  14:33:02  kolb
+   * Initial version.
+   * 
+--- 13,27 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: vecmath.c,v 4.0.1.2 91/11/26 21:36:15 cek Exp Locker: cek $
+   *
+   * $Log:	vecmath.c,v $
++  * Revision 4.0.1.2  91/11/26  21:36:15  cek
++  * patch3: Potential roundoff problems.
++  * 
+   * Revision 4.0.1.1  91/09/29  15:38:41  cek
+   * patch1: Fixed floating-point compare in normalization code.
+!  *
+   * Revision 4.0  91/07/17  14:33:02  kolb
+   * Initial version.
+   * 
+***************
+*** 92,98 ****
+  Float from_index, to_index, cos1;
+  Vector *dir, *I, *N;
+  {
+! 	Float kn, cos2, k;
+  	Vector nrm;
+  
+  	if (cos1 < 0.) {
+--- 95,101 ----
+  Float from_index, to_index, cos1;
+  Vector *dir, *I, *N;
+  {
+! 	double kn, cos2, k;
+  	Vector nrm;
+  
+  	if (cos1 < 0.) {
+***************
+*** 110,116 ****
+  	cos2 = 1. - kn*kn*(1. - cos1*cos1);
+  	if (cos2 < 0.)
+  		return TRUE;		/* Total internal reflection. */
+! 	k = kn * cos1 - sqrt(cos2);
+  	VecComb(kn, *I, k, nrm, dir);
+  	return FALSE;
+  }
+--- 113,119 ----
+  	cos2 = 1. - kn*kn*(1. - cos1*cos1);
+  	if (cos2 < 0.)
+  		return TRUE;		/* Total internal reflection. */
+! 	k = kn * cos1 - sqrt((double)cos2);
+  	VecComb(kn, *I, k, nrm, dir);
+  	return FALSE;
+  }
+
+Index: libshade/options.c
+Prereq: 4.0.1.1
+*** old/libshade/options.c	Mon Feb  3 12:49:52 1992
+--- new/libshade/options.c	Fri Jan 17 10:30:11 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: options.c,v 4.0.1.1 91/10/05 18:23:15 cek Exp Locker: cek $
+   *
+   * $Log:	options.c,v $
+   * Revision 4.0.1.1  91/10/05  18:23:15  cek
+   * patch1: Changes for new window/crop options.
+   * patch1: Corrected help message.
+--- 13,27 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: options.c,v 4.0.1.3 92/01/14 18:29:59 cek Exp Locker: cek $
+   *
+   * $Log:	options.c,v $
++  * Revision 4.0.1.3  92/01/14  18:29:59  cek
++  * patch3: Added "-u" (cpp) option.
++  * 
++  * Revision 4.0.1.2  91/12/13  12:09:53  cek
++  * patch3: Fixed "-W" option typo.
++  * 
+   * Revision 4.0.1.1  91/10/05  18:23:15  cek
+   * patch1: Changes for new window/crop options.
+   * patch1: Corrected help message.
+***************
+*** 197,202 ****
+--- 203,211 ----
+  				argv += 3;
+  				argc -= 3;
+  				break;
++ 			case 'u':
++ 				Options.cpp = !Options.cpp;
++ 				break;
+  			case 'v':
+  				Options.verbose = TRUE;
+  				break;
+***************
+*** 216,222 ****
+  				break;
+  			case 'W':
+  				Options.window[LOW][X] = atoi(argv[1]);
+! 				Options.window[HIGH][X] = atoi(argv[3]);
+  				Options.window[LOW][Y] = atoi(argv[3]);
+  				Options.window[HIGH][Y] = atoi(argv[4]);
+  				Options.window_set = TRUE;
+--- 225,231 ----
+  				break;
+  			case 'W':
+  				Options.window[LOW][X] = atoi(argv[1]);
+! 				Options.window[HIGH][X] = atoi(argv[2]);
+  				Options.window[LOW][Y] = atoi(argv[3]);
+  				Options.window[HIGH][Y] = atoi(argv[4]);
+  				Options.window_set = TRUE;
+
+Index: libshade/misc.c
+Prereq: 4.0
+*** old/libshade/misc.c	Mon Feb  3 12:42:46 1992
+--- new/libshade/misc.c	Fri Jan 17 10:30:07 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: misc.c,v 4.0 91/07/17 14:46:31 kolb Exp Locker: kolb $
+   *
+   * $Log:	misc.c,v $
+   * Revision 4.0  91/07/17  14:46:31  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: misc.c,v 4.0.1.1 92/01/14 18:29:05 cek Exp Locker: cek $
+   *
+   * $Log:	misc.c,v $
++  * Revision 4.0.1.1  92/01/14  18:29:05  cek
++  * patch3: Added support for switching cpp on/off.
++  * 
+   * Revision 4.0  91/07/17  14:46:31  kolb
+   * Initial version.
+   * 
+***************
+*** 61,70 ****
+  		(void)strcpy(yyfilename, Options.inputname);
+  		(void)strcat(cmd, Options.inputname);
+  	}
+! 	yyin = popen(cmd, "r");
+! 	if (yyin == (FILE *)NULL)
+! 		RLerror(RL_PANIC, "popen of \"%s\" failed!\n", cmd);
+! #else
+  	if (Options.inputname == (char *)NULL) {
+  		yyin = stdin;
+  		(void)strcpy(yyfilename, "stdin");
+--- 64,76 ----
+  		(void)strcpy(yyfilename, Options.inputname);
+  		(void)strcat(cmd, Options.inputname);
+  	}
+! 
+! 	if (Options.cpp) {
+! 		yyin = popen(cmd, "r");
+! 		if (yyin == (FILE *)NULL)
+! 			RLerror(RL_PANIC, "popen of \"%s\" failed!\n", cmd);
+! 	} else {
+! #endif
+  	if (Options.inputname == (char *)NULL) {
+  		yyin = stdin;
+  		(void)strcpy(yyfilename, "stdin");
+***************
+*** 74,79 ****
+--- 80,87 ----
+  		if (yyin == (FILE *)NULL)
+  			RLerror(RL_PANIC,
+  				"Cannot open %s.\n",Options.inputname);
++ 	}
++ #if defined(CPPSTDIN) && defined(POPEN)
+  	}
+  #endif
+  	/*
+
+Index: libshade/options.h
+Prereq: 4.0.1.1
+*** old/libshade/options.h	Mon Feb  3 12:49:55 1992
+--- new/libshade/options.h	Fri Jan 17 10:30:07 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: options.h,v 4.0.1.1 91/09/29 15:51:17 cek Exp Locker: cek $
+   *
+   * $Log:	options.h,v $
+   * Revision 4.0.1.1  91/09/29  15:51:17  cek
+   * patch1: Added window and crop options.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: options.h,v 4.0.1.2 92/01/14 18:29:14 cek Exp Locker: cek $
+   *
+   * $Log:	options.h,v $
++  * Revision 4.0.1.2  92/01/14  18:29:14  cek
++  * patch3: Added "cpp" option.
++  * 
+   * Revision 4.0.1.1  91/09/29  15:51:17  cek
+   * patch1: Added window and crop options.
+   * 
+***************
+*** 65,71 ****
+  		startframe,		/* Starting frame number. */
+  		endframe,		/* ending frame number */
+  		totalframes,		/* total # of frames */
+! 		totalframes_set;	/* set on command line? */
+  #ifdef URT
+  	int	alpha;			/* Write alpha channel? */
+  	int	exp_output;		/* Write exponential RLE file? */
+--- 68,75 ----
+  		startframe,		/* Starting frame number. */
+  		endframe,		/* ending frame number */
+  		totalframes,		/* total # of frames */
+! 		totalframes_set,	/* set on command line? */
+! 		cpp;			/* run CPP? */
+  #ifdef URT
+  	int	alpha;			/* Write alpha channel? */
+  	int	exp_output;		/* Write exponential RLE file? */
+
+Index: libray/libcommon/common.h
+Prereq: 4.0
+*** old/libray/libcommon/common.h	Mon Feb  3 12:42:25 1992
+--- new/libray/libcommon/common.h	Fri Jan 17 10:29:27 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: common.h,v 4.0 91/07/17 14:30:18 kolb Exp Locker: kolb $
+   *
+   * $Log:	common.h,v $
+   * Revision 4.0  91/07/17  14:30:18  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: common.h,v 4.0.1.1 91/11/26 21:34:27 cek Exp Locker: cek $
+   *
+   * $Log:	common.h,v $
++  * Revision 4.0.1.1  91/11/26  21:34:27  cek
++  * patch3: Added EPSILON definition, redefine equal() macro.
++  * 
+   * Revision 4.0  91/07/17  14:30:18  kolb
+   * Initial version.
+   * 
+***************
+*** 56,61 ****
+--- 59,71 ----
+  /*
+   * Various useful constants and macros.
+   */
++ 
++ /*
++  * Minimum vector length & fp value.
++  * Modify depending upon Float typedef.
++  */
++ #define EPSILON		(Float)0.00001
++ 
+  #ifndef PI
+  #define	PI		3.14159265358979323846
+  #endif
+***************
+*** 94,100 ****
+  /*
+   * Close enough for us.
+   */
+! #define equal(a, b)		(fabs((a) - (b)) < 0.000001)
+  /*
+   * Maximum/Minimum functions
+   */
+--- 104,110 ----
+  /*
+   * Close enough for us.
+   */
+! #define equal(a, b)		(fabs((a) - (b)) < EPSILON)
+  /*
+   * Maximum/Minimum functions
+   */
+
+Index: rayshade/raytrace.c
+Prereq: 4.0
+*** old/rayshade/raytrace.c	Mon Feb  3 12:43:01 1992
+--- new/rayshade/raytrace.c	Fri Jan 17 10:30:25 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: raytrace.c,v 4.0 91/07/17 14:50:49 kolb Exp Locker: kolb $
+   *
+   * $Log:	raytrace.c,v $
+   * Revision 4.0  91/07/17  14:50:49  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: raytrace.c,v 4.0.1.1 92/01/10 17:13:02 cek Exp Locker: cek $
+   *
+   * $Log:	raytrace.c,v $
++  * Revision 4.0.1.1  92/01/10  17:13:02  cek
++  * patch3: Made status report print actual scanline number.
++  * 
+   * Revision 4.0  91/07/17  14:50:49  kolb
+   * Initial version.
+   * 
+***************
+*** 153,161 ****
+  		scan2.pix = tmppix;
+  		scan2.samp = tmpsamp;
+  
+! 		if ((y-1) % Options.report_freq == 0) {
+! 			fprintf(Stats.fstats,"Finished line %d (%lu rays",y-1,
+! 							Stats.EyeRays);
+  			if (Options.verbose) {
+  				/*
+  				 * Report total CPU and split times.
+--- 156,165 ----
+  		scan2.pix = tmppix;
+  		scan2.samp = tmpsamp;
+  
+! 		if ((y+Screen.miny-1) % Options.report_freq == 0) {
+! 			fprintf(Stats.fstats,"Finished line %d (%lu rays",
+! 						y+Screen.miny-1,
+! 						Stats.EyeRays);
+  			if (Options.verbose) {
+  				/*
+  				 * Report total CPU and split times.
+
+Index: Doc/Guide/guide.tex
+*** old/Doc/Guide/guide.tex	Mon Feb  3 12:41:54 1992
+--- new/Doc/Guide/guide.tex	Fri Jan 17 10:29:11 1992
+***************
+*** 1,7 ****
+  %
+  % Rayshde User's Guide
+  %
+! % $Id: guide.tex,v 4.0 91/07/17 14:24:11 kolb Exp Locker: kolb $
+  %
+  % Keyword definition
+  \newenvironment{defkey}[2]{\begin{description} \item[] {\tt #1\/} #2 \\}{\end{description}}
+--- 1,7 ----
+  %
+  % Rayshde User's Guide
+  %
+! % $Id: guide.tex,v 4.0.1.1 92/01/10 17:04:24 cek Exp Locker: cek $
+  %
+  % Keyword definition
+  \newenvironment{defkey}[2]{\begin{description} \item[] {\tt #1\/} #2 \\}{\end{description}}
+***************
+*** 14,26 ****
+  
+  \documentstyle[11pt]{report}
+  
+! \newcommand{\Rayshade}{\mbox{{\em Rayshade}\/} }
+! \newcommand{\rayshade}{\mbox{{\em rayshade}\/} }
+  
+  \title{Rayshade User's Guide and Reference Manual}
+  \author{Craig E. Kolb}
+! \date{Draft 0.2 \\
+! July 12, 1991}
+  \begin{document}
+  \maketitle
+  \pagenumbering{roman}
+--- 14,26 ----
+  
+  \documentstyle[11pt]{report}
+  
+! \newcommand{\Rayshade}{\mbox{{\em Rayshade}\/}}
+! \newcommand{\rayshade}{\mbox{{\em rayshade}\/}}
+  
+  \title{Rayshade User's Guide and Reference Manual}
+  \author{Craig E. Kolb}
+! \date{Draft 0.4 \\
+! January 10, 1992}
+  \begin{document}
+  \maketitle
+  \pagenumbering{roman}
+
+Index: libshade/setup.c
+Prereq: 4.0.1.1
+*** old/libshade/setup.c	Mon Feb  3 12:49:58 1992
+--- new/libshade/setup.c	Fri Jan 17 10:30:09 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: setup.c,v 4.0.1.1 91/09/29 15:52:20 cek Exp Locker: cek $
+   *
+   * $Log:	setup.c,v $
+   * Revision 4.0.1.1  91/09/29  15:52:20  cek
+   * patch1: Added crop window initialization.
+   * patch1: Moved RSViewing call to appropriate location.
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: setup.c,v 4.0.1.2 92/01/14 18:29:35 cek Exp Locker: cek $
+   *
+   * $Log:	setup.c,v $
++  * Revision 4.0.1.2  92/01/14  18:29:35  cek
++  * patch3: Added initialization of cpp option.
++  * 
+   * Revision 4.0.1.1  91/09/29  15:52:20  cek
+   * patch1: Added crop window initialization.
+   * patch1: Moved RSViewing call to appropriate location.
+***************
+*** 84,89 ****
+--- 87,93 ----
+  
+  	Screen.xres = Screen.yres = UNSET;
+  
++ 	Options.cpp = TRUE;
+  	Options.maxdepth = MAXDEPTH;
+  	Options.report_freq = REPORTFREQ;
+  	Options.jitter = TRUE;
+
+Index: libray/libobj/poly.c
+Prereq: 4.0
+*** old/libray/libobj/poly.c	Mon Feb  3 12:42:54 1992
+--- new/libray/libobj/poly.c	Fri Jan 17 10:29:39 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: poly.c,v 4.0 91/07/17 14:39:00 kolb Exp Locker: kolb $
+   *
+   * $Log:	poly.c,v $
+   * Revision 4.0  91/07/17  14:39:00  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: poly.c,v 4.0.1.1 91/11/26 21:25:34 cek Exp Locker: cek $
+   *
+   * $Log:	poly.c,v $
++  * Revision 4.0.1.1  91/11/26  21:25:34  cek
++  * patch3: Additional check for degenerate polygon.
++  * 
+   * Revision 4.0  91/07/17  14:39:00  kolb
+   * Initial version.
+   * 
+***************
+*** 43,48 ****
+--- 46,56 ----
+  	PointList *curp, *pltmp;
+  	int i;
+  
++ 	if (npoints < 3) {
++ 		RLerror(RL_WARN, "Degenerate polygon.\n");
++ 		return (Polygon *)NULL;
++ 	}
++ 	
+  	poly = (Polygon *)share_malloc(sizeof(Polygon));
+  	/*
+  	 * Allocate space for the vertices.
+
+Index: Doc/quickref.txt
+*** old/Doc/quickref.txt	Mon Feb  3 12:49:53 1992
+--- new/Doc/quickref.txt	Fri Jan 17 10:29:17 1992
+***************
+*** 39,46 ****
+  -q             Run quietly            -R xres yres   Resolution
+  -r             Right eye view         -S samples     Use Samples^2 samples
+  -s             Toggle shadow caching  -T r g b       Contrast threshold
+! -V filename    Verbose file output    -v             Verbose output
+! -W lx hx ly hy Render subwindow       -X l r b t     Crop window
+  -------------------------------------------------------------------------------
+  
+  File: /* Input file consists of...*/
+--- 39,47 ----
+  -q             Run quietly            -R xres yres   Resolution
+  -r             Right eye view         -S samples     Use Samples^2 samples
+  -s             Toggle shadow caching  -T r g b       Contrast threshold
+! -u             Toggle use of cpp      -V filename    Verbose file output
+! -v             Verbose output         -W lx hx ly hy Render subwindow
+! -X l r b t     Crop window
+  -------------------------------------------------------------------------------
+  
+  File: /* Input file consists of...*/
+
+Index: libray/libcommon/vector.h
+Prereq: 4.0
+*** old/libray/libcommon/vector.h	Mon Feb  3 12:42:26 1992
+--- new/libray/libcommon/vector.h	Fri Jan 17 10:29:27 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: vector.h,v 4.0 91/07/17 14:33:11 kolb Exp Locker: kolb $
+   *
+   * $Log:	vector.h,v $
+   * Revision 4.0  91/07/17  14:33:11  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: vector.h,v 4.0.1.1 91/11/26 21:34:41 cek Exp Locker: cek $
+   *
+   * $Log:	vector.h,v $
++  * Revision 4.0.1.1  91/11/26  21:34:41  cek
++  * patch3: Moved EPSILON definition.
++  * 
+   * Revision 4.0  91/07/17  14:33:11  kolb
+   * Initial version.
+   * 
+***************
+*** 29,38 ****
+  #define YNORMAL		(char)1
+  #define ZNORMAL		(char)2
+  
+- /*
+-  * Minimum vector length
+-  */
+- #define EPSILON		(Float)0.00001
+  /*
+   * Maximum length
+   */
+--- 32,37 ----
+
+Index: Doc/Guide/transform.tex
+*** old/Doc/Guide/transform.tex	Mon Feb  3 12:42:06 1992
+--- new/Doc/Guide/transform.tex	Fri Jan 17 10:29:11 1992
+***************
+*** 1,6 ****
+  \chapter {Transformations}
+  
+! Rayshade supports the application of linear transformations to objects
+  and textures.  If more than one transformation is specified, the
+  total resulting transformation is computed and applied.
+  
+--- 1,6 ----
+  \chapter {Transformations}
+  
+! {\Rayshade} supports the application of linear transformations to objects
+  and textures.  If more than one transformation is specified, the
+  total resulting transformation is computed and applied.
+  
+***************
+*** 45,49 ****
+  \end{verbatim}
+  
+  Note that transformation parameters may be specified using
+! of animated expressions, causing the transformations themselves
+  to be animated.  See Appendix B for further details.
+--- 45,49 ----
+  \end{verbatim}
+  
+  Note that transformation parameters may be specified using
+! animated expressions, causing the transformations themselves
+  to be animated.  See Appendix B for further details.
+
+Index: etc/rsconvert/main.c
+Prereq: 4.0
+*** old/etc/rsconvert/main.c	Mon Feb  3 12:42:15 1992
+--- new/etc/rsconvert/main.c	Fri Jan 17 10:29:21 1992
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: main.c,v 4.0 91/07/17 14:29:30 kolb Exp Locker: kolb $
+   *
+   * $Log:	main.c,v $
+   * Revision 4.0  91/07/17  14:29:30  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: main.c,v 4.0.1.1 91/11/26 21:11:33 cek Exp Locker: cek $
+   *
+   * $Log:	main.c,v $
++  * Revision 4.0.1.1  91/11/26  21:11:33  cek
++  * patch3: Define ENDCAPS for cylinder-capping.
++  * 
+   * Revision 4.0  91/07/17  14:29:30  kolb
+   * Initial version.
+   * 
+***************
+*** 48,53 ****
+--- 51,57 ----
+  	} else
+  		yyin = stdin;
+  	printf("/* Converted by rsconvert */\n");
++ 	printf("#define ENDCAPS\n");
+  	yyparse();
+  }	
+  
+
+Index: Doc/TODO
+*** old/Doc/TODO	Mon Feb  3 12:42:07 1992
+--- new/Doc/TODO	Fri Jan 17 10:29:17 1992
+***************
+*** 2,9 ****
+  TODO List
+  ---------
+  
+- Non-URT images upside-down.
+- 
+  If World object has only one subobject, and the World
+  is neither textured nor transformed (can't do this anyway),
+  then make that object the World object.  In theory we could
+--- 2,7 ----
+
+Index: Doc/BUGS
+*** old/Doc/BUGS	Mon Feb  3 12:41:45 1992
+--- new/Doc/BUGS	Fri Jan 17 10:29:11 1992
+***************
+*** 1 ****
+! Non-URT images are rendered upside-down.
+--- 1,2 ----
+! Planar mappings don't skew correctly.
+! Defining Float == float doesn't breaks refraction.
+
+
+*** End of Patch 5 ***
+
+exit 0 # Just in case...

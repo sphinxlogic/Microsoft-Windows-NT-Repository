@@ -1,0 +1,2104 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v38i076:  lout - Lout document formatting system, v2.05, Part08/35
+Message-ID: <1993Aug8.180806.11563@sparky.sterling.com>
+X-Md4-Signature: 1517c2c830fbf70467a6af08f4be3af2
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 8 Aug 1993 18:08:06 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 38, Issue 76
+Archive-name: lout/part08
+Environment: UNIX
+Supersedes: lout: Volume 37, Issue 99-128
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  doc/tr.impl/s2.5 z06.c z08.c
+# Wrapped by kent@sparky on Sun Aug  8 12:29:23 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 35)."'
+if test -f 'doc/tr.impl/s2.5' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/tr.impl/s2.5'\"
+else
+  echo shar: Extracting \"'doc/tr.impl/s2.5'\" \(4418 characters\)
+  sed "s/^X//" >'doc/tr.impl/s2.5' <<'END_OF_FILE'
+X@SubSection
+X    @Tag { style }
+X    @Title { Context-sensitive attributes of objects }
+X@Begin
+X@PP
+XAlthough we are free to place any object in any context, the context
+Xmust influence the appearance of the object, since otherwise
+X@ID @Code "A short paragraph of text."
+Xcould not appear in a variety of fonts, column widths, etc.  This
+Xinfluence cannot take the purely static form that block-structured
+Xlanguages use to associate values with identifiers, for then an operator
+Xcould not influence the appearance of its parameters; and a state
+Xvariable solution is not compatible with the overall functional design.
+X@PP
+XThe information needed from the context seems quite limited, comprising
+Xthe font family, face, and size to use, the style of paragraph breaking
+Xrequired, how much space to substitute between the words of paragraphs,
+Xand how much horizontal and vertical space is available to receive the
+Xobject.  These four items constitute the so-called `style information'
+Xof Lout.  As graphics rendering hardware improves, the style information
+Xwill probably grow to include colour and texture information.
+X@PP
+XThe way to deal with fonts at least is very clear:
+X@ID @Code "{ Times Slope 12p } @Font { Hello, world }"
+Xshould have result
+X@ID { { Times Slope 12p } @Font { Hello, world } }
+XLout also provides @Code "@Break" and @Code "@Space" symbols for
+Xcontrolling the paragraph breaking and space styles mentioned
+Xabove.  These work in the same way, returning their right
+Xparameters in the style of their left.  The implementation is very
+Xsimple:  one merely broadcasts the style information down into the parse
+Xtree of the right parameter.  A font, for example, is converted to an
+X8-bit internal name and stored in each leaf, while a breaking style is
+Xstored in the root node of each paragraph.
+X@PP
+XThe same language design can be used for available width and height,
+Xonly here the implementation is much more demanding:
+X@ID @Code {
+X"2i @Wide {"
+X"(1)  |0.1i  An example"
+X"containing a small"
+X"paragraph of filled text."
+X"}"
+X}
+Xis guaranteed to be two inches wide:
+X@ID {
+X2i @Wide {
+X(1)  |0.1i  An example
+Xcontaining a small
+Xparagraph of filled text.
+X}
+X}
+XOne must calculate that 1.9 inches minus the width of @Code "(1)" is
+Xavailable
+Xto the paragraph, and break it accordingly; Basser Lout does this in two
+Xstages.  In the first, upward-moving stage, widths are calculated using the
+Xformulae of Section {@NumberOf objects}, which assume that available
+Xspace is infinite.  If the upward movement reaches a @Eq { WIDE }
+Xnode, corresponding to a @Code "@Wide" operator, and
+Xthe calculated width exceeds that allowed, a second, downward-moving stage
+Xis initiated which attempts to reduce the width by finding and breaking
+Xparagraphs.  This second stage is quite routine except at @Code "|" nodes,
+Xwhose children are the columns of a table.  It is necessary to apportion
+Xthe available width (minus inter-column gaps) among the columns.  Basser
+XLout leaves narrow columns unbroken and breaks the remaining columns to
+Xequal width, using up all of the available space.
+X@PP
+XThe size of an object is not clearly determined when the upward-moving
+Xsize is less than the downward-moving available space, and the object
+Xcontains constructs that depend on available space (e.g. right
+Xjustification).  For example, in
+X@ID @Code "2i @Wide { Heading // a |1rt b }"
+Xit seems natural to assign a width of two inches to the subobject
+X@Code "a |1rt b" because of the right justification, but it would be
+Xequally plausible if the width of @Code Heading was assigned to the
+Xsubobject instead.  The author is conscious of having failed to resolve
+Xthis matter properly; an extra operator for controlling available space
+Xis probably necessary.
+X@PP
+XThe actual paragraph breaking is just a simple transformation on the
+Xparse tree; the real issue is how to describe the various styles:  ragged
+Xright, adjusted, outdented, and so on.  Their diversity suggests that
+Xthey should somehow be defined using more basic features; but then there
+Xare algorithms for high-quality paragraph breaking, which presumably
+Xmust be built-in.  This dilemma was not clearly grasped by the author in
+X1985, and he included a built-in paragraph breaker, with the @Code
+X"@Break" operator selecting from a fixed set of styles.  A much better
+Xsolution based on galleys will be given in Section {@NumberOf horizontal},
+Xbut, regrettably, it is not implemented.
+X@End @SubSection
+END_OF_FILE
+  if test 4418 -ne `wc -c <'doc/tr.impl/s2.5'`; then
+    echo shar: \"'doc/tr.impl/s2.5'\" unpacked with wrong size!
+  fi
+  # end of 'doc/tr.impl/s2.5'
+fi
+if test -f 'z06.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'z06.c'\"
+else
+  echo shar: Extracting \"'z06.c'\" \(28492 characters\)
+  sed "s/^X//" >'z06.c' <<'END_OF_FILE'
+X/*@z06.c:Parser:PushObj(), PushToken(), etc.@*********************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.05)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z06.c                                                      */
+X/*  MODULE:       Parser                                                     */
+X/*  EXTERNS:      InitParser(), Parse()                                      */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#define	LEFT_ASSOC	0
+X#define	RIGHT_ASSOC	1
+Xstatic	OBJECT		cross_name;	/* name of the cr database   */
+X
+X
+X#define	MAX_STACK	50			/* size of parser stacks     */
+Xstatic	OBJECT		obj_stack[MAX_STACK];	/* stack of objects          */
+Xstatic	int		otop = -1;		/* top of obj_stack          */
+Xstatic	OBJECT		tok_stack[MAX_STACK];	/* stack of tokens           */
+Xstatic	int		ttop = -1;		/* top of tok_stack          */
+Xstatic	BOOLEAN		obj_prev;		/* TRUE when object is prev  */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  PushObj(x)                                                               */
+X/*  PushToken(t)                                                             */
+X/*  OBJECT PopObj()                                                          */
+X/*  OBJECT PopToken()                                                        */
+X/*  OBJECT TokenTop                                                          */
+X/*  OBJECT ObjTop                                                            */
+X/*                                                                           */
+X/*  Push and pop from the object and token stacks; examine top item.         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define PushObj(x)							\
+X{ zz_hold = x;								\
+X  if( ++otop < MAX_STACK ) obj_stack[otop] = zz_hold;			\
+X  else Error(FATAL, &fpos(obj_stack[otop-1]),				\
+X	"object stack overflow: need to simplify expression");		\
+X}
+X
+X#define PushToken(t)							\
+X{ if( ++ttop < MAX_STACK ) tok_stack[ttop] = t;				\
+X  else Error(FATAL, &fpos(tok_stack[ttop-1]),				\
+X	"operator stack overflow: need to simplify expression");	\
+X}
+X
+X#define PopObj()	obj_stack[otop--]
+X#define PopToken()	tok_stack[ttop--]
+X#define	TokenTop	tok_stack[ttop]
+X#define	ObjTop		obj_stack[otop]
+X
+X
+X/*@::DebugStacks(), InsertSpace(), Shift(), ShiftObj()@***********************/
+X/*                                                                           */
+X/*  DebugStacks()                                                            */
+X/*                                                                           */
+X/*  Print debug output of the stacks state                                   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#if DEBUG_ON
+Xstatic DebugStacks(initial_ttop)
+Xint initial_ttop;
+X{ int i;
+X  fprintf(stderr, "obj_prev: %s; otop: %d; ttop: %d\n",
+X    bool(obj_prev), otop, ttop);
+X  for( i = 0;  i <= otop; i++ )
+X    fprintf(stderr, "obj[%d] = %s\n", i, EchoObject(obj_stack[i]));
+X  for( i = 0;  i <= ttop;  i++ )
+X  { if( i == initial_ttop+1 ) fprintf(stderr, "$\n");
+X    fprintf(stderr, "tok[%d] = %s.%d\n", i, type(tok_stack[i]) == CLOSURE ?
+X	SymName(actual(tok_stack[i])) : Image(type(tok_stack[i])),
+X	precedence(tok_stack[i]));
+X  }
+X}
+X#endif
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  InsertSpace(t)                                                           */
+X/*                                                                           */
+X/*  Add any missing catenation operator in front of token t.                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define InsertSpace(t)							\
+Xif( obj_prev )								\
+X{ int typ, prec;							\
+X  if( hspace(t) + vspace(t) > 0 )  typ = TSPACE, prec = ACAT_PREC;	\
+X  else typ = TJUXTA, prec = JUXTA_PREC;					\
+X  while( obj_prev && precedence(TokenTop) >= prec )  Reduce();		\
+X  if( obj_prev )							\
+X  { tmp = New(typ);  precedence(tmp) = prec;				\
+X    vspace(tmp) = vspace(t);  hspace(tmp) = hspace(t);			\
+X    mark(gap(tmp)) = FALSE;  join(gap(tmp)) = TRUE;			\
+X    FposCopy(fpos(tmp), fpos(t));					\
+X    PushToken(tmp);							\
+X  }									\
+X} /* end InsertSpace */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static Shift(t, prec, rassoc, leftpar, rightpar)                         */
+X/*  static ShiftObj(t)                                                       */
+X/*                                                                           */
+X/*  Shift token or object t onto the stacks; it has the attributes shown.    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define Shift(t, prec, rassoc, leftpar, rightpar)			\
+X{ if( leftpar )								\
+X  { for(;;)								\
+X    { if( !obj_prev )							\
+X      {	PushObj( MakeWord(WORD, STR_EMPTY, &fpos(t)) );			\
+X	obj_prev = TRUE;						\
+X      }									\
+X      else if( precedence(TokenTop) >= prec + rassoc ) 	Reduce();	\
+X      else break;							\
+X    }									\
+X  }									\
+X  else InsertSpace(t);							\
+X  PushToken(t);								\
+X  if( rightpar )  obj_prev = FALSE;					\
+X  else { obj_prev = TRUE;  Reduce(); } 					\
+X} /* end Shift */
+X
+X#define ShiftObj(t) { InsertSpace(t); PushObj(t);  obj_prev = TRUE; }
+X
+X/*@::Reduce()@****************************************************************/
+X/*                                                                           */
+X/*  static Reduce()                                                          */
+X/*                                                                           */
+X/*  Perform a single reduction of the stacks.                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic Reduce()
+X{ OBJECT p1, p2, p3, s1, s2, tmp;
+X  OBJECT op;
+X  assert( obj_prev, "Reduce: obj_prev!" );
+X
+X  op = PopToken();
+X  obj_prev = TRUE;
+X  switch( type(op) )
+X  {
+X
+X    case GSTUB_INT:
+X    case GSTUB_EXT:
+X    
+X	TransferEnd( PopObj() );
+X	obj_prev = TRUE;
+X	PushObj(New(NULL_CLOS));
+X	Dispose(op);
+X	break;
+X
+X
+X    case GSTUB_NONE:
+X
+X	PushObj(New(NULL_CLOS));
+X	Dispose(op);
+X	break;
+X
+X
+X    case NULL_CLOS:
+X    case CROSS:
+X    case ONE_ROW:
+X    case ONE_COL:
+X    case WIDE:
+X    case HIGH:
+X    case HSCALE:
+X    case VSCALE:
+X    case SCALE:
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case ROTATE:
+X    case CASE:
+X    case YIELD:
+X    case XCHAR:
+X    case FONT:
+X    case SPACE:
+X    case BREAK:
+X    case NEXT:
+X    case TAGGED:
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X    case GRAPHIC:
+X    case OPEN:
+X
+X	if( has_rpar(actual(op)) )
+X	{ s2 = PopObj();
+X	  Link(op, s2);
+X	}
+X	if( has_lpar(actual(op)) )
+X	{ s1 = PopObj();
+X	  Link(Down(op), s1);
+X	  if( type(op)==CROSS && type(s1)!=CLOSURE ) Error(WARN, &fpos(s1),
+X	    "left parameter of %s is not a symbol (or not visible)", KW_CROSS);
+X	}
+X	PushObj(op);
+X	break;
+X
+X
+X    case CLOSURE:
+X    
+X	if( has_rpar(actual(op)) )
+X	{ s2 = New(PAR);
+X	  tmp = PopObj();
+X	  Link(s2, tmp);
+X	  FposCopy(fpos(s2), fpos(tmp));
+X	  actual(s2) = ChildSym(actual(op), RPAR);
+X	  Link(op, s2);
+X	}
+X	if( has_lpar(actual(op)) )
+X	{ s1 = New(PAR);
+X	  tmp = PopObj();
+X	  Link(s1, tmp);
+X	  FposCopy(fpos(s1), fpos(tmp));
+X	  actual(s1) = ChildSym(actual(op), LPAR);
+X	  Link(Down(op), s1);
+X	}
+X	PushObj(op);
+X	break;
+X
+X
+X    case LBR:
+X    
+X	Error(WARN, &fpos(op), "unmatched %s - inserted %s", KW_LBR, KW_RBR);
+X	Dispose(op);
+X	break;
+X
+X
+X    case BEGIN:
+X    
+X	Error(INTERN,&fpos(op), "Reduce: unmatched %s", KW_BEGIN);
+X	break;
+X
+X
+X    case RBR:
+X    
+X	if( type(TokenTop) == LBR )
+X	{ /* *** FposCopy(fpos(ObjTop), fpos(TokenTop)); *** */
+X	  Dispose( PopToken() );
+X	}
+X	else if( type(TokenTop) == BEGIN )
+X	  Error(WARN, &fpos(op), "unmatched %s; inserted %s at%s (after %s)",
+X	    KW_RBR, KW_LBR, EchoFilePos(&fpos(TokenTop)), KW_BEGIN);
+X	else Error(INTERN, &fpos(op), "Reduce: unmatched %s", KW_RBR);
+X	Dispose(op);
+X	break;
+X
+X
+X    case END:
+X    
+X	if( type(TokenTop) != BEGIN )
+X	  Error(INTERN, &fpos(op), "Reduce: unmatched %s", KW_END);
+X	else
+X	{ if( actual(op) != actual(TokenTop) )
+X	    if( actual(op) == StartSym )
+X	      Error(WARN, &fpos(op),
+X		"%s %s appended at end of file to match %s at%s",
+X		KW_END, SymName(actual(TokenTop)),
+X		KW_BEGIN, EchoFilePos(&fpos(TokenTop)) );
+X	    else if( actual(op) == nil )
+X	      Error(WARN, &fpos(op),
+X		"%s replaced by %s %s to match %s at%s", KW_END, KW_END,
+X		SymName(actual(TokenTop)),
+X		KW_BEGIN, EchoFilePos(&fpos(TokenTop)) );
+X	    else
+X	      Error(WARN, &fpos(op),
+X		"%s %s replaced by %s %s to match %s at%s",
+X		KW_END, SymName(actual(op)), KW_END, SymName(actual(TokenTop)),
+X		KW_BEGIN, EchoFilePos(&fpos(TokenTop)) );
+X	  Dispose( PopToken() );
+X	}
+X	Dispose(op);
+X	break;
+X
+X
+X    case GAP_OBJ:
+X
+X	p1 = PopObj();
+X	Link(op, p1);
+X	PushObj(op);
+X	obj_prev = FALSE;
+X	break;
+X
+X
+X    case VCAT:
+X    case HCAT:
+X    case ACAT:
+X    
+X	p3 = PopObj();  p2 = PopObj();  p1 = PopObj();
+X	if( type(p1) == type(op) )  Dispose(op);
+X	else
+X	{ Link(op, p1);
+X	  p1 = op;
+X	}
+X	Link(p1, p2);
+X	Link(p1, p3);
+X	PushObj(p1);
+X	break;
+X
+X
+X    case TSPACE:
+X    case TJUXTA:
+X
+X	p2 = PopObj();  p1 = PopObj();
+X	if( type(p1) != ACAT )
+X	{ tmp = New(ACAT);
+X	  Link(tmp, p1);
+X	  FposCopy(fpos(tmp), fpos(p1));
+X	  p1 = tmp;
+X	}
+X	type(op) = GAP_OBJ;
+X	Link(p1, op);
+X	Link(p1, p2);
+X	PushObj(p1);
+X	break;
+X
+X
+X    default:
+X    
+X	Error(INTERN, &fpos(op), "Reduce: %s", Image(type(op)) );
+X	break;
+X
+X  } /* end switch */
+X  debug0(DOP, DD, "Reduce returning; ");
+X  ifdebug(DOP, DD, DebugStacks(0) );
+X} /* end Reduce */
+X
+X
+X/*@::SetScope(), InitParser()@************************************************/
+X/*                                                                           */
+X/*  static SetScope(env, count)                                              */
+X/*                                                                           */
+X/*  Push scopes required to parse object whose environment is env.           */
+X/*  Add to *count the number of scope pushes made.                           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic SetScope(env, count)
+XOBJECT env;  int *count;
+X{ OBJECT link, y, yenv;
+X  debug2(DOP, D, "SetScope( %s, %d )", EchoObject(env), *count);
+X  assert( env != nil && type(env) == ENV, "SetScope: type(env) != ENV!" );
+X  if( Down(env) != env )
+X  { Child(y, Down(env));
+X    assert( LastDown(y) != y, "SetScope: LastDown(y)!" );
+X    link = LastDown(env) != Down(env) ? LastDown(env) : LastDown(y);
+X    Child(yenv, link);
+X    assert( type(yenv) == ENV, "SetScope: type(yenv) != ENV!" );
+X    SetScope(yenv, count);
+X    PushScope(actual(y), FALSE, FALSE);  (*count)++;
+X  }
+X  debug1(DOP, D, "SetScope returning, count = %d", *count);
+X} /* end SetScope */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  InitParser()                                                             */
+X/*                                                                           */
+X/*  Initialise the parser to contain just GstubExt.                          */
+X/*  Remember cross_db, the name of the cross reference database, for Parse.  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XInitParser(cross_db)
+XFULL_CHAR *cross_db;
+X{ if( StringLength(cross_db) >= MAX_LINE )  Error(FATAL, no_fpos,
+X    "cross reference database file name %s is too long", cross_db);
+X  cross_name = MakeWord(WORD, cross_db, no_fpos);
+X  PushToken( NewToken(GSTUB_EXT, no_fpos, 0, 0, DEFAULT_PREC, StartSym) );
+X} /* end InitParser */
+X
+X
+X/*@::ParseEnvClosure()@*******************************************************/
+X/*                                                                           */
+X/*  static OBJECT ParseEnvClosure(t, encl)                                   */
+X/*                                                                           */
+X/*  Parse an object which is a closure with environment.  Consume the        */
+X/*  concluding @Clos.                                                        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic OBJECT ParseEnvClosure(t, encl)
+XOBJECT t, encl;
+X{ OBJECT env, res, y;  int count, i;
+X  debug0(DOP, DD, "ParseEnvClosure(t, encl)");
+X  assert( type(t) == ENV, "ParseEnvClosure: type(t) != ENV!" );
+X  env = t;  t = LexGetToken();
+X  while( type(t) != CLOS )  switch( type(t) )
+X  {
+X    case LBR:	count = 0;
+X		SetScope(env, &count);
+X		y = Parse(&t, encl, FALSE, FALSE);
+X		if( type(y) != CLOSURE )  Error(FATAL, &fpos(y),
+X			"syntax error in cross reference database");
+X		for( i = 1;  i <= count;  i++ )  PopScope();
+X		AttachEnv(env, y);
+X		debug0(DCR, DD, "  calling SetEnv from ParseEnvClosure (a)");
+X		env = SetEnv(y, nil);
+X		t = LexGetToken();
+X		break;
+X
+X    case ENV:	y = ParseEnvClosure(t, encl);
+X		debug0(DCR, DD, "  calling SetEnv from ParseEnvClosure (b)");
+X		env = SetEnv(y, env);
+X		t = LexGetToken();
+X		break;
+X
+X    default:	Error(FATAL, &fpos(t), "error in cross reference database");
+X		break;
+X  }
+X  Dispose(t);
+X  if( Down(env) == env || Down(env) != LastDown(env) )
+X	Error(FATAL, &fpos(env), "error in cross reference database");
+X  Child(res, Down(env));
+X  DeleteNode(env);
+X  debug1(DOP, DD, "ParseEnvClosure returning %s", EchoObject(res));
+X  assert( type(res) == CLOSURE, "ParseEnvClosure: type(res) != CLOSURE!" );
+X  return res;
+X} /* end ParseEnvClosure */
+X
+X
+X/*@::Parse()@*****************************************************************/
+X/*                                                                           */
+X/*  OBJECT Parse(token, encl, defs_allowed, transfer_allowed)                */
+X/*                                                                           */
+X/*  Parse input tokens, beginning with *token, looking for an object of the  */
+X/*  form { ... } or @Begin ... @End <sym>, and return the object.            */
+X/*  The parent definition is encl, and scope has been set appropriately.     */
+X/*  Parse reads up to and including the last token of the object             */
+X/*  (the right brace or <sym>), and returns nil in *token.                   */
+X/*                                                                           */
+X/*  If defs_allowed == TRUE, there may be local definitions in the object.   */
+X/*  In this case, encl is guaranteed to be the enclosing definition.         */
+X/*                                                                           */
+X/*  If transfer_allowed == TRUE, the parser may transfer components to the   */
+X/*  galley handler as they are read.                                         */
+X/*                                                                           */
+X/*  Note: the lexical analyser returns "@End \Input" at end of input, so the */
+X/*  parser does not have to handle end of input separately.                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT Parse(token, encl, defs_allowed, transfer_allowed)
+XOBJECT *token, encl;  BOOLEAN defs_allowed, transfer_allowed;
+X{ OBJECT t, x, tmp, xsym, env, y, res;
+X  int i, initial_ttop = ttop;
+X
+X  debug4(DOP, D, "[ Parse(%s, %s, %s, %s)", EchoToken(*token),
+X    SymName(encl), bool(defs_allowed), bool(transfer_allowed));
+X  assert( type(*token) == LBR || type(*token) == BEGIN, "Parse: *token!" );
+X
+X  obj_prev = FALSE;
+X  Shift(*token, precedence(*token), 0, FALSE, TRUE);
+X  t = LexGetToken();
+X  if( defs_allowed )
+X  { ReadDefinitions(&t, encl, LOCAL);
+X    if( encl == StartSym ) /* transition point from defs to content */
+X    {
+X      /* if error in definitions, stop now */
+X      if( ErrorSeen() )  Error(FATAL, &fpos(t), "Exiting now");
+X
+X      /* load cross-references from previous run, open new cross refs */
+X      if( AllowCrossDb )
+X      {	NewCrossDb = DbCreate(MakeWord(WORD, string(cross_name), no_fpos));
+X	OldCrossDb = DbLoad(cross_name, SOURCE_PATH, FALSE, nil);
+X      }
+X      else OldCrossDb = NewCrossDb = nil;
+X
+X      /* tidy up and possibly print symbol table */
+X      FlattenUses();
+X      ifdebug(DST, D, DebugObject(StartSym));
+X
+X      /* read @Use, @Database, and @Prepend commands and construct env */
+X      env = New(ENV);
+X      for(;;)
+X      {	if( type(t) == USE )
+X	{
+X	  OBJECT crs, res_env;  STYLE style;
+X	  Dispose(t);  t = LexGetToken();
+X	  if( type(t) != LBR )
+X	    Error(FATAL, &fpos(t), "%s expected after %s", KW_LBR, KW_USE);
+X	  y = Parse(&t, encl, FALSE, FALSE);
+X	  if( type(y) == CROSS )
+X	  { y = CrossExpand(y, env, &style, FALSE, &crs, &res_env);
+X	    AttachEnv(res_env, y);
+X	    debug0(DCR, DD, "  calling SetEnv from Parse (a)");
+X	    env = SetEnv(y, env);
+X	  }
+X	  else if( type(y) == CLOSURE )
+X	  { AttachEnv(env, y);
+X	    debug0(DCR, DD, "  calling SetEnv from Parse (b)");
+X	    env = SetEnv(y, nil);
+X	  }
+X	  else Error(FATAL, &fpos(y), "invalid parameter of %s", KW_USE);
+X	  PushScope(actual(y), FALSE, TRUE);
+X	  t = LexGetToken();
+X        }
+X	else if( type(t) == PREPEND || type(t) == SYS_PREPEND )
+X	{ ReadPrependDef(type(t), encl);
+X	  Dispose(t);
+X	  t = LexGetToken();
+X	}
+X	else if( type(t) == DATABASE || type(t) == SYS_DATABASE )
+X	{ ReadDatabaseDef(type(t), encl);
+X	  Dispose(t);
+X	  t = LexGetToken();
+X	}
+X	else break;
+X      }
+X      TransferInit(env);
+X    }
+X  }
+X
+X  for(;;)
+X  { 
+X    ifdebug(DOP, DD, DebugStacks(initial_ttop) );
+X    debug2(DOP, DD, ">> %s.%d", EchoToken(t), precedence(t) );
+X
+X    switch( type(t) )
+X    {
+X
+X      case WORD:
+X      
+X	if( string(t)[0] == CH_SYMSTART )
+X	  Error(WARN, &fpos(t), "symbol %s unknown or misspelt", string(t));
+X	ShiftObj(t);
+X	t = LexGetToken();
+X	break;
+X
+X
+X      case QWORD:
+X      
+X	ShiftObj(t);
+X	t = LexGetToken();
+X	break;
+X
+X
+X      case VCAT:
+X      case HCAT:
+X      case ACAT:
+X      
+X	/* clean up left context */
+X	Shift(t, precedence(t), LEFT_ASSOC, TRUE, TRUE);
+X
+X	/* invoke transfer subroutines if appropriate */
+X	if( type(t) == VCAT && !has_join(actual(t))
+X		&& type(tok_stack[ttop-2]) == GSTUB_EXT )
+X	{ TransferComponent( PopObj() );
+X	  obj_prev = FALSE;
+X	  tmp = New(NULL_CLOS);
+X	  FposCopy( fpos(tmp), fpos(t) );
+X	  PushObj(tmp);
+X	}
+X
+X	/* push GAP_OBJ token, to cope with 3 parameters */
+X	x = New(GAP_OBJ);
+X	mark(gap(x)) = has_mark(actual(t));
+X	join(gap(x)) = has_join(actual(t));
+X	precedence(x) = GAP_PREC;
+X	FposCopy( fpos(x), fpos(t) );
+X	Shift(x, GAP_PREC, LEFT_ASSOC, FALSE, TRUE);
+X
+X	/* if op is followed by space, insert {} */
+X	t = LexGetToken();
+X	if( hspace(t) + vspace(t) > 0 )
+X	{ ShiftObj(MakeWord(WORD, STR_EMPTY, &fpos(x)));
+X	}
+X	break;
+X
+X
+X      case CROSS:
+X      case NULL_CLOS:
+X      case ONE_COL:
+X      case ONE_ROW:
+X      case WIDE:
+X      case HIGH:
+X      case HSCALE:
+X      case VSCALE:
+X      case SCALE:
+X      case HCONTRACT:
+X      case VCONTRACT:
+X      case HEXPAND:
+X      case VEXPAND:
+X      case PADJUST:
+X      case HADJUST:
+X      case VADJUST:
+X      case ROTATE:
+X      case CASE:
+X      case YIELD:
+X      case XCHAR:
+X      case FONT:
+X      case SPACE:
+X      case BREAK:
+X      case NEXT:
+X      case TAGGED:
+X      case INCGRAPHIC:
+X      case SINCGRAPHIC:
+X      case GRAPHIC:
+X
+X	/* clean up left context of t (these ops are all right associative) */
+X	Shift(t, precedence(t), RIGHT_ASSOC,
+X		has_lpar(actual(t)), has_rpar(actual(t)));
+X	t = LexGetToken();
+X	break;
+X
+X
+X      case BEGIN:
+X      
+X	if( actual(t) == nil )
+X	{ Error(WARN, &fpos(t), "%s replaced by %s", KW_BEGIN, KW_LBR);
+X	  type(t) = LBR;
+X	}
+X	/* NB NO BREAK! */
+X
+X
+X      case LBR:
+X      
+X	Shift(t, LBR_PREC, 0, FALSE, TRUE);
+X	t = LexGetToken();
+X	break;
+X
+X
+X      case END:
+X      
+X	x = LexGetToken();
+X	if( type(x) == CLOSURE )
+X	{ actual(t) = actual(x);
+X	  Dispose(x);
+X	  x = nil;
+X	}
+X	else if( type(x) == WORD && string(x)[0] == CH_SYMSTART )
+X	{ Error(WARN,&fpos(x),"unknown or misspelt symbol %s after %s deleted",
+X		string(x), KW_END);
+X	  actual(t) = nil;
+X	  Dispose(x);
+X	  x = nil;
+X	}
+X	else
+X	{ Error(WARN, &fpos(x), "symbol expected after %s", KW_END);
+X	  actual(t) = nil;
+X	}
+X	Shift(t, precedence(t), 0, TRUE, FALSE);
+X	if( ttop == initial_ttop )
+X	{ ifdebug(DOP, DD, DebugStacks(initial_ttop));
+X	  *token = x;
+X	  debug0(DOP, D, "] Parse returning");
+X	  ifdebug(DOP, D, DebugObject(ObjTop));
+X	  obj_prev = FALSE;
+X	  return PopObj();
+X	}
+X	t = (x != nil) ? x : LexGetToken();
+X	break;
+X
+X
+X      case RBR:
+X      
+X	Shift(t, precedence(t), 0, TRUE, FALSE);
+X	if( ttop == initial_ttop )
+X	{ ifdebug(DOP, DD, DebugStacks(initial_ttop));
+X	  *token = nil;
+X	  debug0(DOP, D, "] Parse returning");
+X	  ifdebug(DOP, D, DebugObject(ObjTop));
+X	  obj_prev = FALSE;
+X	  return PopObj();
+X	}
+X	t = LexGetToken();
+X	break;
+X				
+X
+X      case USE:
+X      case PREPEND:
+X      case SYS_PREPEND:
+X      case DATABASE:
+X      case SYS_DATABASE:
+X      
+X	Error(FATAL, &fpos(t), "%s symbol out of place", SymName(actual(t)));
+X	break;
+X
+X
+X      case ENV:
+X      
+X	/* only occurs in cross reference databases */
+X	res = ParseEnvClosure(t, encl);
+X	ShiftObj(res);
+X	t = LexGetToken();
+X	break;
+X
+X
+X      case LVIS:
+X      
+X	/* only occurs in cross-reference databases */
+X	SuppressVisible();
+X	Dispose(t);  t = LexGetToken();
+X	UnSuppressVisible();
+X	if( type(t) != CLOSURE )
+X	  Error(FATAL, &fpos(t), "symbol expected following %s", KW_LVIS);
+X	/* NB NO BREAK! */
+X
+X
+X      case CLOSURE:
+X      
+X	x = t;  xsym = actual(x);
+X
+X	/* look ahead one token, which could be an NPAR */
+X	PushScope(xsym, TRUE, FALSE);
+X	t = LexGetToken();
+X	PopScope();
+X
+X	/* if x starts a cross-reference, make it a CLOSURE */
+X	if( type(t) == CROSS )
+X	{ ShiftObj(x);
+X	  break;
+X	}
+X
+X	/* clean up left context of x */
+X	Shift(x, precedence(x),right_assoc(xsym),has_lpar(xsym),has_rpar(xsym));
+X
+X	/* update uses relation if required */
+X	if( encl != StartSym )
+X	{ if( !has_target(xsym) )  InsertUses(encl, xsym);
+X	  else uses_galley(encl) = TRUE;
+X	}
+X
+X	/* read named parameters */
+X	while( type(t) == CLOSURE && enclosing(actual(t)) == xsym
+X				       && type(actual(t)) == NPAR )
+X	{	
+X	  /* check syntax and attach the named parameter to x */
+X	  OBJECT new_par = t;
+X	  t = LexGetToken();
+X	  if( type(t) != LBR )
+X	  { Error(WARN, &fpos(new_par), "%s must follow named parameter %s",
+X	      KW_LBR, SymName(actual(new_par)));
+X	    Dispose(new_par);
+X	    break;
+X	  }
+X
+X	  /* read the body of the named parameter */
+X	  PushScope(actual(new_par), FALSE, FALSE);
+X	  tmp = Parse(&t, encl, FALSE, FALSE);
+X	  type(new_par) = PAR;
+X	  Link(x, new_par);
+X	  Link(new_par, tmp);
+X	  PopScope();
+X
+X	  /* get next token, possibly another NPAR */
+X	  PushScope(xsym, TRUE, FALSE);	 /* allow NPARs only */
+X	  if( t == nil )  t = LexGetToken();
+X	  PopScope();
+X
+X	} /* end while */
+X	obj_prev = !has_rpar(xsym);
+X
+X	/* record symbol name in BEGIN following, if any */
+X	if( type(t) == BEGIN )
+X	{ if( !has_rpar(xsym) )
+X	    Error(WARN, &fpos(x), "%s takes no right parameter", SymName(xsym));
+X	  else actual(t) = xsym;
+X	}
+X
+X	/* if x can be transferred, do so */
+X	if( transfer_allowed && has_target(xsym) && !has_key(xsym) )
+X	{   
+X	  if( !has_rpar(xsym) || uses_count(ChildSym(xsym, RPAR)) <= 1 )
+X	  {
+X	    debug1(DGT, DD, "examining transfer of %s", SymName(xsym));
+X	    ifdebug(DGT, DD, DebugStacks(initial_ttop));
+X	    i = has_rpar(xsym) ? ttop -1 : ttop;
+X	    while( is_cat_op(type(tok_stack[i])) )   i--;
+X	    if( (type(tok_stack[i])==LBR || type(tok_stack[i])==BEGIN)
+X		  && type(tok_stack[i-1]) == GSTUB_EXT )
+X	    {
+X	      /* at this point it is likely that x is transferable */
+X	      if( has_rpar(xsym) )
+X	      { tmp = New(CLOSURE);
+X		actual(tmp) = InputSym;
+X		FposCopy( fpos(tmp), fpos(t) );
+X		PushObj(tmp);  obj_prev = TRUE;
+X		Reduce();
+X	      }
+X	      x = PopObj();
+X	      x = TransferBegin(x);
+X	      if( type(x) == CLOSURE )	/* failure: unReduce */
+X	      {	if( has_rpar(xsym) )
+X		{ Child(tmp, LastDown(x));
+X		  assert(type(tmp)==PAR && type(actual(tmp))==RPAR,
+X				"Parse: cannot undo rpar" );
+X		  DisposeChild(LastDown(x));
+X		  if( has_lpar(xsym) )
+X		  { Child(tmp, Down(x));
+X		    assert(type(tmp)==PAR && type(actual(tmp))==LPAR,
+X				"Parse: cannot undo lpar" );
+X		    Child(tmp, Down(tmp));
+X		    PushObj(tmp);
+X		    DeleteLink(Up(tmp));
+X		    DisposeChild(Down(x));
+X		  }
+X		  PushToken(x);  obj_prev = FALSE;
+X		}
+X		else
+X		{ PushObj(x);
+X		  obj_prev = TRUE;
+X		}
+X	      }
+X	      else /* success */
+X	      { obj_prev = FALSE;
+X	        Shift(x, NO_PREC, 0, FALSE, has_rpar(xsym));
+X	      }
+X	    }
+X	  }
+X	} /* end if has_target */
+X
+X	if( has_body(xsym) )
+X	{ if( type(t) == BEGIN || type(t) == LBR )
+X	  { PushScope(xsym, FALSE, TRUE);
+X	    PushScope(ChildSym(xsym, RPAR), FALSE, FALSE);
+X	    PushObj( Parse(&t, encl, FALSE, TRUE) );
+X	    obj_prev = TRUE;
+X	    Reduce();
+X	    PopScope();
+X	    PopScope();
+X	    if( t == nil )  t = LexGetToken();
+X	  }
+X	  else
+X	  { Error(WARN, &fpos(t),
+X	      "%s parameter of %s must be enclosed in %s .. %s",
+X	      KW_BODY, SymName(xsym), KW_LBR, KW_RBR);
+X	  }
+X	}
+X	break;
+X
+X
+X      case OPEN:
+X
+X	x = t;  xsym = nil;
+X	Shift(t, precedence(t), RIGHT_ASSOC, TRUE, TRUE);
+X	if( type(ObjTop) == CLOSURE )  xsym = actual(ObjTop);
+X	else if( type(ObjTop) == CROSS && Down(ObjTop) != ObjTop )
+X	{ Child(tmp, Down(ObjTop));
+X	  if( type(tmp) == CLOSURE )  xsym = actual(tmp);
+X	}
+X	t = LexGetToken();
+X
+X	if( xsym == nil )  Error(WARN, &fpos(x),
+X	  "invalid left parameter of %s", KW_OPEN);
+X	else if( type(t) != BEGIN && type(t) != LBR )
+X	  Error(WARN, &fpos(t), "%s parameter of %s not enclosed in %s .. %s",
+X	    KW_RIGHT, KW_OPEN, KW_LBR, KW_RBR);
+X	else
+X	{ PushScope(xsym, FALSE, TRUE);
+X	  tmp = Parse(&t, encl, FALSE, FALSE);
+X	  ShiftObj(tmp);
+X	  PopScope();
+X	  if( t == nil )  t = LexGetToken();
+X	  Reduce();
+X	}
+X	break;
+X
+X
+X      default:
+X      
+X	Error(INTERN, &fpos(t), "Parse: type %s", Image(type(t)) );
+X	break;
+X
+X    } /* end switch */
+X  } /* end for */
+X
+X} /* end Parse */
+END_OF_FILE
+  if test 28492 -ne `wc -c <'z06.c'`; then
+    echo shar: \"'z06.c'\" unpacked with wrong size!
+  fi
+  # end of 'z06.c'
+fi
+if test -f 'z08.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'z08.c'\"
+else
+  echo shar: Extracting \"'z08.c'\" \(36924 characters\)
+  sed "s/^X//" >'z08.c' <<'END_OF_FILE'
+X/*@z08.c:Object Manifest:ReplaceWithSplit()@**********************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.05)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z08.c                                                      */
+X/*  MODULE:       Object Manifest                                            */
+X/*  EXTERNS:      Manifest()                                                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X#define errorcase()							\
+X									\
+X    y = MakeWord(WORD, STR_EMPTY, &fpos(x));				\
+X    ReplaceNode(y, x);  DisposeObject(x);				\
+X    x = Manifest(y, env, style, bthr, fthr, target, crs, ok, FALSE);	\
+X    break;
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static ReplaceWithSplit(x, bthr, fthr)                                   */
+X/*                                                                           */
+X/*  Replace object x with a SPLIT object, if threads for this object are     */
+X/*  requested by bthr and/or fthr.                                           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define ReplaceWithSplit(x, bthr, fthr)					\
+X   if( bthr[ROW] || bthr[COL] || fthr[ROW] || fthr[COL] )		\
+X	x = insert_split(x, bthr, fthr)
+X
+Xstatic OBJECT insert_split(x, bthr, fthr)
+XOBJECT x;  OBJECT bthr[2], fthr[2];
+X{ OBJECT res, new_op;  int dim;
+X  debug1(DOM, DD, "ReplaceWithSplit(%s, -)", EchoObject(x));
+X  assert( type(x) != SPLIT, "ReplaceWithSplit: type(x) already SPLIT!" );
+X  res = New(SPLIT);
+X  FposCopy(fpos(res), fpos(x));
+X  ReplaceNode(res, x);
+X  for( dim = COL;  dim <= ROW;  dim++ )
+X  { if( bthr[dim] || fthr[dim] )
+X    { new_op = New(dim == COL ? COL_THR : ROW_THR);
+X      thr_state(new_op) = NOTSIZED;
+X      fwd(new_op, 1-dim) = 0;	/* will hold max frame_size */
+X      back(new_op, 1-dim) = 0;	/* will hold max frame_origin */
+X      FposCopy(fpos(new_op), fpos(x));
+X      Link(res, new_op);  Link(new_op, x);
+X      if( bthr[dim] )  Link(bthr[dim], new_op);
+X      if( fthr[dim] )  Link(fthr[dim], new_op);
+X    }
+X    else Link(res, x);
+X  }
+X
+X  debug1(DOM, DD, "ReplaceWithSplit returning %s", EchoObject(res));
+X  return res;
+X} /* end insert_split */
+X
+X/*@::ReplaceWithTidy()@*******************************************************/
+X/*                                                                           */
+X/*  OBJECT ReplaceWithTidy(x)                                                */
+X/*                                                                           */
+X/*  Replace object x with a tidier version in which juxtapositions are       */
+X/*  folded.  If this is not possible, return the original object.            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT ReplaceWithTidy(x)
+XOBJECT x;
+X{ static FULL_CHAR	buff[MAX_LINE];		/* the growing current word */
+X  static int		buff_len;		/* length of current word   */
+X  static FILE_POS	buff_pos;		/* filepos of current word  */
+X  static unsigned	buff_typ;		/* WORD or QWORD of current */
+X  OBJECT                link, y, tmp, res;	/* temporaries              */
+X  debug1(DOM, DD, "ReplaceWithTidy( %s )", EchoObject(x));
+X  switch( type(x) )
+X  {
+X    case ACAT:
+X    
+X      for( link = Down(x);  link != x;  link = NextDown(link) )
+X      {	Child(y, link);
+X	if( type(y) == ACAT )
+X	{ tmp = Down(y);  TransferLinks(tmp, y, link);
+X	  DisposeChild(link);  link = PrevDown(tmp);
+X	}
+X      }
+X      res = nil;  buff_len = 0;  buff_typ = WORD;  FposCopy(buff_pos, fpos(x));
+X      for( link = Down(x); link != x; link = NextDown(link) )
+X      {	Child(y, link);
+X	if( is_word(type(y)) )
+X	{ if( buff_len + StringLength(string(y)) >= MAX_LINE )
+X	    Error(WARN, &fpos(y), "word is too long");
+X	  else
+X	  { if( buff_len == 0 )  FposCopy(buff_pos, fpos(y));
+X	    StringCopy(&buff[buff_len], string(y));
+X	    buff_len += StringLength(string(y));
+X	    if( type(y) == QWORD )  buff_typ = QWORD;
+X	  }
+X	}
+X	else if( type(y) == GAP_OBJ )
+X	{ if( Down(y) != y || hspace(y) + vspace(y) > 0 )
+X	  { tmp = MakeWord(buff_typ, buff, &buff_pos);
+X	    buff_len = 0;  buff_typ = WORD;
+X	    if( res == nil ) { res = New(ACAT); FposCopy(fpos(res), fpos(x)); }
+X	    Link(res, tmp);  Link(res, y);
+X	  }
+X	}
+X	else /* error */
+X	{ if( res != nil )  DisposeObject(res);
+X	  debug0(DOM, DD, "ReplaceWithTidy returning unchanged");
+X	  return x;
+X	}
+X      }
+X      tmp = MakeWord(buff_typ, buff, &buff_pos);
+X      if( res == nil )  res = tmp;
+X      else Link(res, tmp);
+X      ReplaceNode(res, x);  DisposeObject(x);
+X      debug1(DOM, DD, "ReplaceWithTidy returning %s", EchoObject(res));
+X      return res;
+X
+X
+X    case WORD:
+X    case QWORD:
+X
+X      debug1(DOM, DD, "ReplaceWithTidy returning %s", EchoObject(x));
+X      return x;
+X
+X
+X    default:
+X
+X      debug0(DOM, DD, "ReplaceWithTidy returning unchanged");
+X      return x;
+X  }
+X} /* end ReplaceWithTidy */
+X
+X
+X/*@::GetScaleFactor()@********************************************************/
+X/*                                                                           */
+X/*  static float GetScaleFactor(x, str)                                      */
+X/*                                                                           */
+X/*  Find a scale factor in object x and return it as a float, after checks.  */
+X/*  Incorporate str in any error messages generated.                         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic float GetScaleFactor(x, str)
+XOBJECT x;  char *str;
+X{ float scale_factor;
+X  if( !is_word(type(x)) )
+X  { Error(WARN, &fpos(x), "replacing invalid %s by 1.0", str);
+X    scale_factor = 1.0;
+X  }
+X  else if( sscanf( (char *) string(x), "%f", &scale_factor) != 1 )
+X  { Error(WARN, &fpos(x), "replacing invalid %s %s by 1.0", str, string(x));
+X    scale_factor = 1.0;
+X  }
+X  else if( scale_factor < 0.01 )
+X  { Error(WARN, &fpos(x), "replacing undersized %s %s by 1.0", str, string(x));
+X    scale_factor = 1.0;
+X  }
+X  else if( scale_factor > 100 )
+X  { Error(WARN, &fpos(x), "replacing oversized %s %s by 1.0", str, string(x));
+X    scale_factor = 1.0;
+X  }
+X  return scale_factor;
+X} /* GetScaleFactor */
+X
+X
+Xstatic OBJECT nbt[2] = { nil, nil };		/* constant nil threads      */
+Xstatic OBJECT nft[2] = { nil, nil };		/* constant nil threads      */
+Xstatic OBJECT ntarget = nil;			/* constant nil target       */
+X
+X/*@::Manifest()@**************************************************************/
+X/*                                                                           */
+X/*  OBJECT Manifest(x, env, style, bthr, fthr, target, crs, ok, need_expand) */
+X/*                                                                           */
+X/*  Manifest object x, interpreted in environment env and style style.       */
+X/*  The result replaces x, and is returned also.                             */
+X/*  The manifesting operation converts x from a pure parse tree object       */
+X/*  containing closures and no threads, to an object ready for sizing,       */
+X/*  with fonts propagated to the words, fill styles propagated to the        */
+X/*  ACATs, and line spacings propagated to all interested parties.           */
+X/*  All non-recursive, non-indefinite closures are expanded.                 */
+X/*  Threads joining objects on a mark are constructed, and SPLIT objects     */
+X/*  inserted, so that sizing becomes a trivial operation.                    */
+X/*                                                                           */
+X/*  Manifest will construct threads and pass them up as children of bthr[]   */
+X/*  and fthr[] whenever non-nil values of these variables are passed in:     */
+X/*                                                                           */
+X/*      bthr[COL]            protrudes upwards from x                        */
+X/*      fthr[COL]            protrudes downwards from x                      */
+X/*      bthr[ROW]            protrudes leftwards from x                      */
+X/*      fthr[ROW]            protrudes rightwards from x                     */
+X/*                                                                           */
+X/*  If *target != nil, Manifest will expand indefinite closures leading to   */
+X/*  the first @Galley lying within an object of type *target.                */
+X/*                                                                           */
+X/*  Some objects x are not "real" in the sense that they do not give rise    */
+X/*  to rectangles in the final printed document.  The left parameter of      */
+X/*  @Wide and similar operators, and the gap following a concatenation       */
+X/*  operator, are examples of such non-real objects.  The ok flag is true    */
+X/*  when x is part of a real object.  This is needed because some things,    */
+X/*  such as the insinuation of cross references and the breaking of          */
+X/*  lines @Break ACAT objects, only apply to real objects.                   */
+X/*                                                                           */
+X/*  If *crs != nil, it points to a list of indexes to cross-references       */
+X/*  which are to be insinuated into the manifested form of x if x is real.   */
+X/*                                                                           */
+X/*  If need_expand is TRUE it forces closure x to expand.                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT Manifest(x, env, style, bthr, fthr, target, crs, ok, need_expand)
+XOBJECT x, env;  STYLE *style;
+XOBJECT bthr[2], fthr[2]; OBJECT *target, *crs;
+XBOOLEAN ok, need_expand;
+X{ OBJECT bt[2], ft[2], y, link, sym, tag, gaplink, g, ylink, yield, ytag, zlink;
+X  OBJECT res, res_env, res_env2, hold_env, hold_env2, first_bt, last_ft, z;
+X  OBJECT firsttag, firstres, prev;  float scale_factor;
+X  int par, perp;  GAP res_gap;  unsigned res_inc;  STYLE new_style;
+X  BOOLEAN still_backing, done, multiline, symbol_free;  FULL_CHAR ch;
+X
+X  debug2(DOM, D,   "[Manifest(%s %s )", Image(type(x)), EchoObject(x));
+X  debug1(DOM, DD,  "  environment: %s", EchoObject(env));
+X  debug6(DOM, DD,  "  style: %s;  target: %s;  threads: %s%s%s%s",
+X	EchoStyle(style), SymName(*target),
+X	bthr[COL] ? " up"    : "",  fthr[COL] ? " down"  : "",
+X	bthr[ROW] ? " left"  : "",  fthr[ROW] ? " right" : "");
+X
+X  if( type(x) <= ACAT ) switch( type(x) )	/* breaks up oversize switch */
+X  {
+X
+X    case CLOSURE:
+X    
+X      sym = actual(x);
+X      StyleCopy(save_style(x), *style);
+X      debug1(DOM, DD,  "  closure; sym = %s", SymName(sym));
+X
+X      /* expand parameters where possible, and find if they are all free */
+X      symbol_free = TRUE;
+X      for( link = Down(x);  link != x;  link = NextDown(link) )
+X      { Child(y, link);
+X	assert( type(y) == PAR, "Manifest/CLOSURE: type(y) != PAR!" );
+X	Child(z, Down(y));
+X	if( !is_word(type(z)) && !has_par(actual(y)) )
+X	{ if( is_tag(actual(y)) || is_key(actual(y)) || type(z) == NEXT )
+X	  { z = Manifest(z, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X	    z = ReplaceWithTidy(z);
+X	  }
+X	}
+X	if( !is_word(type(z)) )  symbol_free = FALSE;
+X      }
+X
+X      /* if all parameters are free of symbols, optimize environment */
+X      if( symbol_free && imports(sym) == nil && enclosing(sym) != StartSym )
+X      {	y = SearchEnv(env, enclosing(sym));
+X	if( y != nil && type(y) == CLOSURE )
+X	{ 
+X	  debug0(DCR, DD, "calling SetEnv from Manifest (a)");
+X	  env = SetEnv(y, nil);
+X	  hold_env2 = New(ACAT);  Link(hold_env2, env);
+X	}
+X	else
+X	{ Error(WARN, &fpos(x), "symbol %s used outside %s",
+X	    SymName(sym), SymName(enclosing(sym)));
+X	  hold_env2 = nil;
+X	}
+X      }
+X      else hold_env2 = nil;
+X
+X      if( has_target(sym) && !need_expand )
+X      {
+X	/* convert symbols with targets to unsized galleys */
+X	OBJECT hd = New(HEAD);
+X	FposCopy(fpos(hd), fpos(x));
+X	actual(hd) = sym;
+X	backward(hd) = TargetSymbol(x, &whereto(hd));
+X	ready_galls(hd) = nil;
+X	must_expand(hd) = TRUE;
+X	sized(hd) = FALSE;
+X	ReplaceNode(hd, x);
+X	Link(hd, x);
+X	AttachEnv(env, x);
+X	x = hd;
+X      	threaded(x) = bthr[COL] != nil || fthr[COL] != nil;
+X	ReplaceWithSplit(x, bthr, fthr);
+X      }
+X      else if(
+X		*target == sym			    ? (*target = nil, TRUE) :
+X		need_expand			    ? TRUE  :
+X		uses_galley(sym) && !recursive(sym) ? TRUE  :
+X		!indefinite(sym) && !recursive(sym) ? TRUE  :
+X		indefinite(sym)  && *target != nil  ? SearchUses(sym, *target)
+X						    : FALSE
+X	     )
+X      {
+X	/* expand the closure and manifest the result */
+X	debug1(DOM, DD, "expanding; style: %s", EchoStyle(style));
+X	x = ClosureExpand(x, env, TRUE, crs, &res_env);
+X	hold_env = New(ACAT);  Link(hold_env, res_env);
+X	debug1(DOM, DD, "recursive call; style: %s", EchoStyle(style));
+X	x = Manifest(x, res_env, style, bthr, fthr, target, crs, ok, FALSE);
+X	DisposeObject(hold_env);
+X      }
+X      else
+X      {
+X	/* indefinite symbol, leave unexpanded */
+X	AttachEnv(env, x);
+X	threaded(x) = bthr[COL] != nil || fthr[COL] != nil;
+X	debug0(DOM, DD,  "  closure; calling ReplaceWithSplit");
+X	ReplaceWithSplit(x, bthr, fthr);
+X      }
+X      if( hold_env2 != nil )  DisposeObject(hold_env2);
+X      break;
+X
+X
+X    case NULL_CLOS:
+X
+X      StyleCopy(save_style(x), *style);
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    case CROSS:
+X    
+X      assert( Down(x) != x && LastDown(x) != Down(x), "Manifest: CROSS child!");
+X      debug0(DCR, DD, "  calling CrossExpand from Manifest/CROSS");
+X      x = CrossExpand(x, env, style, TRUE, crs, &res_env);
+X      assert( type(x) == CLOSURE, "Manifest/CROSS: type(x)!" );
+X      hold_env = New(ACAT);  Link(hold_env, res_env);
+X      /* expand here (calling Manifest immediately makes unwanted cr) */
+X      x = ClosureExpand(x, res_env, FALSE, crs, &res_env2);
+X      hold_env2 = New(ACAT);  Link(hold_env2, res_env2);
+X      x = Manifest(x, res_env2, style, bthr, fthr, target, crs, ok, TRUE);
+X      DisposeObject(hold_env);
+X      DisposeObject(hold_env2);
+X      break;
+X
+X
+X    case WORD:
+X    case QWORD:
+X    
+X      if( !ok || *crs == nil )
+X      {	word_font(x) = font(*style);
+X	ReplaceWithSplit(x, bthr, fthr);
+X	break;
+X      }
+X      y = New(ACAT);
+X      FposCopy(fpos(y), fpos(x));
+X      ReplaceNode(y, x);
+X      Link(y, x);  x = y;
+X      /* NB NO BREAK! */
+X
+X
+X    case ACAT:
+X    
+X      StyleCopy(save_style(x), *style);
+X      assert(Down(x) != x, "Manifest: ACAT!" );
+X      link = Down(x);  Child(y, link);
+X      assert( type(y) != GAP_OBJ, "Manifest ACAT: GAP_OBJ is first!" );
+X      multiline = FALSE;
+X
+X      /* manifest first child and insert any cross references */
+X      if( is_word(type(y)) )  word_font(y) = font(*style);
+X      else y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X      if( ok && *crs != nil )
+X      {	
+X	debug1(DCR, D, "  insinuating %s", EchoObject(*crs));
+X	TransferLinks(Down(*crs), *crs, link);
+X	DisposeObject(*crs);
+X	*crs = nil;
+X      }
+X      prev = y;
+X
+X      for( gaplink = Down(link);  gaplink != x;  gaplink = NextDown(link) )
+X      {
+X	Child(g, gaplink);
+X	assert( type(g) == GAP_OBJ, "Manifest ACAT: no GAP_OBJ!" );
+X	link = NextDown(gaplink);
+X	assert( link != x, "Manifest ACAT: GAP_OBJ is last!" );
+X	Child(y, link);
+X	assert( type(y) != GAP_OBJ, "Manifest ACAT: double GAP_OBJ!" );
+X
+X	/* manifest the next child */
+X        debug1(DOM, DD, "  in ACAT (3), style = %s", EchoStyle(style));
+X	if( is_word(type(y)) ) word_font(y) = font(*style);
+X	else y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X
+X	/* manifest the gap object */
+X	if( Down(g) != g )
+X	{
+X	  /* explicit & operator whose value is the child of g */
+X	  Child(z, Down(g));
+X	  z = Manifest(z, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X	  z = ReplaceWithTidy(z);
+X	  GetGap(z, style, &gap(g), &res_inc);
+X	  vspace(g) = hspace(g) = 0;
+X	}
+X	else
+X	{
+X	  /* implicit & operator */
+X	  GapCopy(gap(g), space_gap(*style));
+X	  width(gap(g)) = width(gap(g)) * (vspace(g) + hspace(g));
+X	  if( vspace(g) > 0 && is_definite(type(y)) )  multiline = TRUE;
+X	}
+X        debug1(DOM, DD, "  in ACAT, gap = %s", EchoLength(width(gap(g))));
+X
+X	/* compress adjacent juxtaposed words of equal font */
+X	if( is_word(type(y)) && width(gap(g)) == 0 && vspace(g)+hspace(g) == 0 )
+X	{ if( units(gap(g)) == FIXED_UNIT && mode(gap(g)) == EDGE_MODE )
+X	  { if( prev != nil && is_word(type(prev)) )
+X	    { if( !mark(gap(g)) && word_font(prev)==word_font(y) )
+X	      {	unsigned typ;
+X		if( StringLength(string(prev)) + StringLength(string(y))
+X		      >= MAX_LINE )
+X		  Error(FATAL, &fpos(prev), "word %s%s is too long",
+X			string(prev), string(y));
+X		z = y;
+X		typ = type(prev) == QWORD || type(y) == QWORD ? QWORD : WORD;
+X		y = MakeWordTwo(typ, string(prev), string(y), &fpos(prev));
+X		word_font(y) = word_font(prev);
+X		MoveLink(link, y, CHILD);
+X		DisposeObject(z);
+X		DisposeChild(Up(prev));
+X		DisposeChild(gaplink);
+X	      }
+X	    }
+X	  }
+X	}
+X	prev = y;
+X
+X	/* insinuate any cross-references */
+X	if( ok && *crs != nil )
+X	{
+X	  debug1(DCR, D, "  insinuating %s", EchoObject(*crs));
+X	  TransferLinks(Down(*crs), *crs, link);
+X	  DisposeObject(*crs);
+X	  *crs = nil;
+X	}
+X
+X      }
+X
+X      /* implement FILL_OFF break option if required */
+X      if( ok && multiline && fill_style(*style) == FILL_UNDEF )
+X	Error(FATAL, &fpos(x), "missing %s operator or option", KW_BREAK);
+X      if( ok && multiline && fill_style(*style) == FILL_OFF )
+X      {	OBJECT last_acat = x, new_acat;
+X	x = New(VCAT);
+X	ReplaceNode(x, last_acat);
+X	Link(x, last_acat);
+X	for( link = Down(last_acat); link != last_acat; link = NextDown(link) )
+X	{ Child(g, link);
+X	  if( type(g) == GAP_OBJ && mode(gap(g)) != NO_MODE && vspace(g) > 0 )
+X	  { link = PrevDown(link);
+X	    MoveLink(NextDown(link), x, PARENT);
+X	    GapCopy(gap(g), line_gap(*style));
+X	    width(gap(g)) *= vspace(g);
+X	    new_acat = New(ACAT);
+X	    if( hspace(g) > 0 )
+X	    { z = MakeWord(WORD, STR_EMPTY, &fpos(g));
+X	      Link(new_acat, z);
+X	      z = New(GAP_OBJ);
+X	      hspace(z) = hspace(g);
+X	      vspace(z) = 0;
+X	      GapCopy(gap(z), space_gap(*style));
+X	      width(gap(z)) *= hspace(z);
+X	      Link(new_acat, z);
+X	    }
+X	    TransferLinks(NextDown(link), last_acat, new_acat);
+X	    StyleCopy(save_style(new_acat), *style);
+X	    Link(x, new_acat);
+X	    last_acat = new_acat;
+X	    link = last_acat;
+X	  }
+X	}
+X      }
+X
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    default:
+X
+X      Error(INTERN, &fpos(x), "Manifest: no case for type %s", Image(type(x)));
+X      break;
+X
+X  } /* end <= ACAT */
+X  else if( type(x) <= VCAT )  switch( type(x) )
+X  {
+X
+X    case HCAT:
+X    case VCAT:
+X    
+X      par = type(x) == HCAT ? ROW : COL;
+X      perp = 1 - par;
+X      link = Down(x);
+X      gaplink = NextDown(link);
+X      assert( link!=x && gaplink!=x, "Manifest/VCAT: less than two children!" );
+X      Child(y, link);  Child(g, gaplink);
+X
+X      /* set bt and ft threads for y */
+X      bt[perp] = bthr[perp];
+X      ft[perp] = fthr[perp];
+X      first_bt = bt[par] = bthr[par] ? New(THREAD) : nil;
+X      ft[par] = join(gap(g)) ? New(THREAD) : nil;
+X      still_backing = first_bt != nil;
+X
+X      /* manifest y and insinuate any cross-references */
+X      y = Manifest(y, env, style, bt, ft, target, crs, ok, FALSE);
+X      if( type(x) == VCAT && ok && *crs != nil )
+X      {
+X	debug1(DCR, D, "  insinuating %s", EchoObject(*crs));
+X	TransferLinks(Down(*crs), *crs, link);
+X	DisposeObject(*crs);
+X	*crs = nil;
+X      }
+X
+X      /* manifest the remaining children */
+X      while( g != nil )
+X      {	
+X	/* manifest the gap object, store it in gap(g), add perp threads */
+X	assert( type(g) == GAP_OBJ, "Manifest/VCAT: type(g) != GAP_OBJECT!" );
+X	assert( Down(g) != g, "Manifest/VCAT: GAP_OBJ has no child!" );
+X	Child(z, Down(g));
+X	debug1(DOM, DD, "manifesting gap, style = %s", EchoStyle(style));
+X	z = Manifest(z, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X	debug1(DOM, DD, "replacing with tidy, style = %s", EchoStyle(style));
+X	z = ReplaceWithTidy(z);
+X	debug1(DOM, DD, "calling GetGap, style = %s", EchoStyle(style));
+X	GetGap(z, style, &gap(g), &res_inc);
+X	if( bt[perp] )  Link(bt[perp], g);
+X	if( ft[perp] )  Link(ft[perp], g);
+X
+X	/* find the next child y, and following gap if any */
+X	link = NextDown(gaplink);
+X	assert( link != x, "Manifest/VCAT: GAP_OBJ is last child!" );
+X	Child(y, link);
+X	gaplink = NextDown(link);
+X	if( gaplink == x )  g = nil;
+X	else Child(g, gaplink);
+X
+X	/* set bt and ft threads for y */
+X	last_ft = ft[par];
+X	bt[par] = ft[par] ? New(THREAD) : nil;
+X	ft[par] = g != nil ? join(gap(g)) ? New(THREAD) : nil
+X			   : fthr[par]    ? New(THREAD) : nil;
+X
+X	/* manifest y and insinuate any cross references */
+X	y = Manifest(y, env, style, bt, ft, target, crs, ok, FALSE);
+X	if( type(x) == VCAT && ok && *crs != nil )
+X        {
+X	  debug1(DCR, D, "  insinuating %s", EchoObject(*crs));
+X	  TransferLinks(Down(*crs), *crs, link);
+X	  DisposeObject(*crs);
+X	  *crs = nil;
+X        }
+X
+X	if( bt[par] )	/* then thread lists last_ft and bt[par] must merge */
+X	{ OBJECT llink, rlink, lthread, rthread;  BOOLEAN goes_through;
+X	  assert( Down(bt[par]) != bt[par], "Manifest: bt[par] no children!" );
+X	  assert( last_ft!=nil && Down(last_ft)!=last_ft, "Manifest:last_ft!" );
+X
+X	  /* check whether marks run right through y in par direction */
+X	  goes_through = FALSE;
+X	  if( ft[par] )
+X	  { assert( Down(ft[par]) != ft[par], "Manifest: ft[par] child!" );
+X	    Child(lthread, LastDown(bt[par]));
+X	    Child(rthread, LastDown(ft[par]));
+X	    goes_through = lthread == rthread;
+X	  }
+X
+X	  /* merge the thread lists */
+X	  llink = Down(last_ft);  rlink = Down(bt[par]);
+X	  while( llink != last_ft && rlink != bt[par] )
+X	  { Child(lthread, llink);
+X	    Child(rthread, rlink);
+X	    assert( lthread != rthread, "Manifest: lthread == rthread!" );
+X	    MergeNode(lthread, rthread);
+X	    llink = NextDown(llink);
+X	    rlink = NextDown(rlink);
+X	  }
+X
+X	  /* attach leftover back threads to first_bt if required */
+X	  if( rlink != bt[par] )
+X	  { 
+X	    if( still_backing )  TransferLinks(rlink, bt[par], first_bt);
+X	  }
+X	  DisposeObject(bt[par]);
+X
+X	  /* attach leftover forward threads to ft[par] if required */
+X	  if( llink != last_ft )
+X	  {
+X	    if( goes_through )  TransferLinks(llink, last_ft, ft[par]);
+X	  }
+X	  DisposeObject(last_ft);
+X
+X	  if( !goes_through )  still_backing = FALSE;
+X
+X	}
+X	else still_backing = FALSE;
+X
+X      } /* end while */
+X
+X      /* export par threads */
+X      if( fthr[par] )  MergeNode(fthr[par], ft[par]);
+X      if( bthr[par] )  MergeNode(bthr[par], first_bt);
+X      break;
+X
+X
+X    default:
+X
+X      Error(INTERN, &fpos(x), "Manifest: no case for type %s", Image(type(x)));
+X      break;
+X
+X  }
+X  else switch( type(x) )
+X  {
+X
+X    case WIDE:
+X    case HIGH:
+X    
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      GetGap(y, style, &res_gap, &res_inc);
+X      if( res_inc != GAP_ABS || mode(res_gap) != EDGE_MODE ||
+X	units(res_gap) != FIXED_UNIT )
+X      {	Error(WARN, &fpos(y), "replacing invalid left parameter of %s by 2i",
+X		    Image(type(x)) );
+X	units(res_gap) = FIXED_UNIT;
+X	width(res_gap) = 2*IN;
+X      }
+X      SetConstraint(constraint(x), MAX_LEN, width(res_gap), MAX_LEN);
+X      DisposeChild(Down(x));
+X      /* NB NO BREAK! */
+X
+X
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case ONE_COL:
+X    case ONE_ROW:
+X    
+X      par = (type(x)==ONE_COL || type(x)==HEXPAND || type(x) == HCONTRACT ||
+X	     type(x)==PADJUST || type(x)==HADJUST || type(x)==WIDE) ? COL : ROW;
+X      Child(y, Down(x));
+X
+X      /* manifest the child, propagating perp threads and suppressing pars */
+X      bt[par] = ft[par] = nil;
+X      bt[1-par] = bthr[1-par];  ft[1-par] = fthr[1-par];
+X      y = Manifest(y, env, style, bt, ft, target, crs, ok, FALSE);
+X
+X      /* replace with split object if par threads needed */
+X      bt[par] = bthr[par];  ft[par] = fthr[par];
+X      bt[1-par] = ft[1-par] = nil;
+X      ReplaceWithSplit(x, bt, ft);
+X      break;
+X
+X
+X    case ROTATE:
+X
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      GetGap(y, style, &res_gap, &res_inc);
+X      if( res_inc != GAP_ABS || mode(res_gap) != EDGE_MODE ||
+X		units(res_gap) != DEG_UNIT )
+X      {	Error(WARN, &fpos(y), "replacing invalid left parameter of %s by 0d",
+X		    Image(type(x)) );
+X	units(res_gap) = DEG_UNIT;
+X	width(res_gap) = 0;
+X      }
+X      sparec(constraint(x)) = width(res_gap);
+X      DisposeChild(Down(x));
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    case HSCALE:
+X    case VSCALE:
+X
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    case SCALE:
+X
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      if( type(y) != ACAT )
+X      { scale_factor = GetScaleFactor(y, "scale factor");
+X        bc(constraint(x)) = fc(constraint(x)) = scale_factor * SF;
+X      }
+X      else
+X      {
+X	/* get horizontal scale factor */
+X	Child(z, Down(y));
+X	scale_factor = GetScaleFactor(z, "horizontal scale factor");
+X        bc(constraint(x)) = scale_factor * SF;
+X
+X	/* get vertical scale factor */
+X	Child(z, LastDown(y));
+X	scale_factor = GetScaleFactor(z, "vertical scale factor");
+X        fc(constraint(x)) = scale_factor * SF;
+X      }
+X      DisposeChild(Down(x));
+X      Child(y, LastDown(x));
+X      y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    case YIELD:
+X
+X      Error(FATAL, &fpos(x), "%s outside of %s", KW_YIELD, KW_CASE);
+X      break;
+X
+X
+X    case CASE:
+X
+X      /* make sure left parameter (the tag) is in order */
+X      debug0(DOM, DD, "  manifesting CASE now");
+X      Child(tag, Down(x));
+X      debug1(DOM, DD, "  manifesting CASE tag %s now", EchoObject(tag));
+X      tag = Manifest(tag, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      tag = ReplaceWithTidy(tag);
+X
+X      /* make sure the right parameter is an ACAT */
+X      Child(y, LastDown(x));
+X      if( type(y) == YIELD )
+X      {	z = New(ACAT);
+X	MoveLink(Up(y), z, PARENT);
+X	Link(x, z);
+X	y = z;
+X      }
+X      if( type(y) != ACAT )
+X      {	Error(WARN, &fpos(y), "%s deleted: right parameter is malformed",
+X	  KW_CASE);
+X	errorcase();
+X      }
+X
+X      /* hunt through right parameter for res, the selected case */
+X      res = nil;  firsttag = nil;
+X      for( ylink = Down(y); ylink != y && res == nil; ylink = NextDown(ylink) )
+X      {	Child(yield, ylink);
+X	if( type(yield) == GAP_OBJ )  continue;
+X	if( type(yield) != YIELD )
+X	{ Error(WARN, &fpos(yield), "%s contains non-%s", KW_CASE, KW_YIELD);
+X	  break;
+X	}
+X	Child(ytag, Down(yield));
+X	ytag = Manifest(ytag, env, style, nbt, nft, &ntarget, crs, FALSE,FALSE);
+X	ytag = ReplaceWithTidy(ytag);
+X	if( is_word(type(ytag)) )
+X	{ if( firsttag == nil )
+X	  { firsttag = ytag;
+X	    Child(firstres, LastDown(yield));
+X	  }
+X	  if( (is_word(type(tag)) && StringEqual(string(ytag), string(tag))) ||
+X	      StringEqual(string(ytag), STR_ELSE)  )
+X	  { Child(res, LastDown(yield));
+X	    break;
+X	  }
+X	}
+X	else if( type(ytag) == ACAT )
+X	{ z = ytag;
+X	  for( zlink = Down(z);  zlink != z;  zlink = NextDown(zlink) )
+X	  { Child(ytag, zlink);
+X	    if( type(ytag) == GAP_OBJ )  continue;
+X	    if( !is_word(type(ytag)) )
+X	    { Error(WARN, &fpos(ytag), "error in left parameter of %s",
+X		KW_YIELD);
+X	      break;
+X	    }
+X	    if( firsttag == nil )
+X	    { firsttag = ytag;
+X	      Child(firstres, LastDown(yield));
+X	    }
+X	    if( (is_word(type(tag)) && StringEqual(string(ytag), string(tag)))
+X	        || StringEqual(string(ytag), STR_ELSE) )
+X	    { Child(res, LastDown(yield));
+X	      break;
+X	    }
+X	  }
+X	}
+X	else Error(WARN,&fpos(ytag), "error in left parameter of %s", KW_YIELD);
+X      }
+X      if( res == nil )
+X      { if( firsttag != nil )
+X	{ Error(WARN, &fpos(tag), "replacing unkown %s option %s by %s",
+X	    KW_CASE, string(tag), string(firsttag));
+X	  res = firstres;
+X	}
+X	else
+X	{ Error(WARN, &fpos(tag), "%s deleted: selection %s unknown",
+X	    KW_CASE, string(tag));
+X	  errorcase();
+X	}
+X      }
+X
+X      /* now manifest the result and replace x with it */
+X      DeleteLink(Up(res));
+X      ReplaceNode(res, x);
+X      DisposeObject(x);
+X      x = Manifest(res, env, style, bthr, fthr, target, crs, ok, FALSE);
+X      break;
+X
+X
+X    case XCHAR:
+X
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      if( !is_word(type(y)) )
+X      {	Error(WARN, &fpos(x), "%s dropped: parameter is not a simple word",
+X	  KW_XCHAR);
+X	res = MakeWord(WORD, STR_EMPTY, &fpos(x));
+X      }
+X      else if( word_font(y) == 0 )
+X      {	Error(WARN, &fpos(x), "%s dropped: no current font at this point",
+X	  KW_XCHAR);
+X	res = MakeWord(WORD, STR_EMPTY, &fpos(x));
+X      }
+X      else if( (ch=EvRetrieve(string(y), FontEncoding(word_font(y)))) == '\0' )
+X      {	type(y) = QWORD;
+X	Error(WARN, &fpos(x), "%s dropped: character %s unknown in font %s",
+X	  KW_XCHAR, StringQuotedWord(y),
+X	  FontFamilyAndFace(word_font(y)));
+X	res = MakeWord(WORD, STR_EMPTY, &fpos(x));
+X      }
+X      else
+X      {	res = MakeWord(QWORD, STR_SPACE, &fpos(x));
+X	string(res)[0] = ch;
+X      }
+X      ReplaceNode(res, x);
+X      DisposeObject(x);
+X      x = Manifest(res, env, style, bthr, fthr, target, crs, ok, FALSE);
+X      break;
+X
+X
+X    case FONT:
+X    case SPACE:
+X    case BREAK:
+X    
+X      assert( Down(x) != x && NextDown(Down(x)) != x, "Manifest: FONT!" );
+X      StyleCopy(new_style, *style);
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      if( type(x) == FONT )       FontChange(&new_style, y);
+X      else if( type(x) == SPACE ) SpaceChange(&new_style, y);
+X      else			  BreakChange(&new_style, y);
+X      DisposeChild(Down(x));
+X      Child(y, Down(x));
+X      y = Manifest(y, env, &new_style, bthr, fthr, target, crs, ok, FALSE);
+X      DeleteLink(Down(x));
+X      MergeNode(y, x);  x = y;
+X      break;
+X
+X
+X    case NEXT:
+X
+X      assert( Down(x) != x, "Manifest/NEXT: Down(x) == x!" );
+X      Child(y, Down(x));
+X      debug1(DCS, D, "  Manifesting Next( %s, 1 )", EchoObject(y));
+X      y = Manifest(y, env, style, bthr, fthr, target, crs, FALSE, FALSE);
+X      debug1(DCS, D, "  calling Next( %s, 1 )", EchoObject(y));
+X      done = FALSE;
+X      y = Next(y, 1, &done);
+X      debug2(DCS, D, "  Next(done = %s) returning %s",
+X			bool(done), EchoObject(y));
+X      DeleteLink(Down(x));
+X      MergeNode(y, x);  x = y;
+X      break;
+X
+X
+X    case OPEN:
+X
+X      Child(y, Down(x));
+X      Child(res, LastDown(x));
+X      if( type(y) == CLOSURE )
+X      { AttachEnv(env, y);
+X	StyleCopy(save_style(y), *style);
+X	debug0(DCR, DD, "calling SetEnv from Manifest (b)");
+X	res_env = SetEnv(y, nil);
+X	hold_env = New(ACAT);  Link(hold_env, res_env);
+X	res = Manifest(res, res_env, style, bthr, fthr, target, crs, ok, FALSE);
+X	DisposeObject(hold_env);
+X      }
+X      else if( type(y) == CROSS )
+X      {	debug0(DCR, DD, "  calling CrossExpand from Manifest/OPEN");
+X	y = CrossExpand(y, env, style, TRUE, crs, &res_env);
+X	AttachEnv(res_env, y);
+X	debug0(DCR, DD, "calling SetEnv from Manifest (c)");
+X	res_env = SetEnv(y, env);
+X	hold_env = New(ACAT);  Link(hold_env, res_env);
+X	res = Manifest(res, res_env, style, bthr, fthr, target, crs, ok, FALSE);
+X	DisposeObject(hold_env);
+X      }
+X      else
+X      {	Error(WARN, &fpos(y), "invalid left parameter of %s", KW_OPEN);
+X	res = Manifest(res, env, style, bthr, fthr, target, crs, ok, FALSE);
+X      }
+X      ReplaceNode(res, x);
+X      DisposeObject(x);
+X      x = res;
+X      break;
+X
+X
+X    case TAGGED:
+X
+X      /* make sure first argument is a cross-reference */
+X      assert( Down(x) != x && NextDown(Down(x)) != x &&
+X	NextDown(NextDown(Down(x))) == x, "Manifest TAGGED: children!" );
+X      Child(y, Down(x));
+X      if( type(y) != CROSS )
+X      {	Error(WARN, &fpos(y), "left parameter of %s is not a cross-reference",
+X	  KW_TAGGED);
+X	errorcase();
+X      }
+X
+X      /* make sure the arguments of the cross-reference are OK */
+X      Child(z, Down(y));
+X      if( type(z) != CLOSURE )
+X      {	Error(WARN,&fpos(y),"left parameter of %s must be a symbol", KW_TAGGED);
+X	errorcase();
+X      }
+X      if( !has_tag(actual(z)) )
+X      {	Error(WARN, &fpos(z), "symbol %s illegal with %s since it has no %s",
+X	  SymName(actual(z)), KW_TAGGED, KW_TAG);
+X	errorcase();
+X      }
+X      Child(z, NextDown(Down(y)));
+X      z = Manifest(z, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      z = ReplaceWithTidy(z);
+X      if( is_word(type(z)) && StringEqual(string(z), KW_PRECEDING) )
+X	cross_type(y) = CROSS_PREC;
+X      else if( is_word(type(z)) && StringEqual(string(z), KW_FOLLOWING) )
+X	cross_type(y) = CROSS_FOLL;
+X      else
+X      {	Error(WARN, &fpos(z), "%s of left parameter of %s must be %s or %s",
+X	  KW_TAG, KW_TAGGED, KW_PRECEDING, KW_FOLLOWING);
+X	errorcase();
+X      }
+X
+X      /* make sure second argument (the new key) is ok */
+X      Child(tag, LastDown(x));
+X      tag = Manifest(tag, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      tag = ReplaceWithTidy(tag);
+X      if( !is_word(type(tag)) )
+X      {	Error(WARN, &fpos(tag), "right parameter of %s must be a simple word",
+X	  KW_TAGGED);
+X	ifdebug(DOM, D, DebugObject(tag));
+X	errorcase();
+X      }
+X
+X      /* assemble insinuated cross reference which replaces x */
+X      ReplaceNode(tag, z);
+X      DisposeObject(z);
+X      ReplaceNode(y, x);
+X      DisposeObject(x);
+X      x = y;
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X
+X
+X    case GRAPHIC:
+X
+X      debug1(DRS, DD, "  graphic style in Manifest = %s", EchoStyle(style));
+X      Child(y, LastDown(x));
+X      y = Manifest(y, env, style, nbt, nft, target, crs, ok, FALSE);
+X      StyleCopy(save_style(x), *style);
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X	
+X
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X
+X      Child(y, Down(x));
+X      y = Manifest(y, env, style, nbt, nft, &ntarget, crs, FALSE, FALSE);
+X      y = ReplaceWithTidy(y);
+X      if( !is_word(type(y)) )
+X      { Error(WARN, &fpos(y), "%s deleted: invalid right parameter",
+X	  type(x) == INCGRAPHIC ? KW_INCGRAPHIC : KW_SINCGRAPHIC);
+X	errorcase();
+X      }
+X      ReplaceWithSplit(x, bthr, fthr);
+X      break;
+X	
+X
+X    default:
+X
+X      Error(INTERN, &fpos(x), "Manifest: no case for type %s", Image(type(x)));
+X      break;
+X
+X  } /* end switch */
+X
+X  debug2(DOM, D, "]Manifest returning %s %s", Image(type(x)), EchoObject(x));
+X  debug1(DOM, DD, "  at exit, style = %s", EchoStyle(style));
+X  debug1(DOM, DDD, "up:    ", EchoObject(bthr[COL]));
+X  debug1(DOM, DDD, "down:  ", EchoObject(fthr[COL]));
+X  debug1(DOM, DDD, "left:  ", EchoObject(bthr[ROW]));
+X  debug1(DOM, DDD, "right: ", EchoObject(fthr[ROW]));
+X  return x;
+X} /* end Manifest */
+END_OF_FILE
+  if test 36924 -ne `wc -c <'z08.c'`; then
+    echo shar: \"'z08.c'\" unpacked with wrong size!
+  fi
+  # end of 'z08.c'
+fi
+echo shar: End of archive 8 \(of 35\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 35 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1540 @@
+Newsgroups: comp.sources.misc
+From: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Subject:  v28i025:  screen-3.2 - multiple windows on an ASCII terminal, v3.2, Part08/11
+Message-ID: <1992Feb9.223811.6987@sparky.imd.sterling.com>
+X-Md4-Signature: 4ffbb05717f9e1fc6ba4a51637c990db
+Date: Sun, 9 Feb 1992 22:38:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Posting-number: Volume 28, Issue 25
+Archive-name: screen-3.2/part08
+Environment: UNIX
+
+#!/bin/sh
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file screen3.2/socket.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping screen3.2/socket.c'
+else
+echo 'x - continuing file screen3.2/socket.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'screen3.2/socket.c' &&
+X    }
+X  close(ns);
+#endif				/* NAMEDPIPE */
+X
+X  if (len == -1)
+X    Msg(errno, "read");
+X  if (left > 0)
+X    return;
+X  debug1("RecMsg: type %d !, ", m.type);
+X  switch (m.type)
+X    {
+X    case MSG_WINCH:
+X      /* Already processed in screen.c */
+#ifdef notdef
+X      CheckScreenSize(1); /* Change fore */
+#endif
+X      break;
+X    case MSG_CREATE:
+X      if (!Detached)
+X	ExecCreate(&m);
+X      break;
+X    case MSG_CONT:
+X      debug3("RecMsg: apid=%d,was %d, Detached=%d\n", m.m.attach.apid,
+X             AttacherPid, Detached);
+X
+#ifdef SECURE_MSG_CONT
+X      if (m.m.attach.apid != AttacherPid || !Detached)
+X	/*
+X	 * now we realize, that there is something strange happening.
+X	 * First, there was some idiot who said "CONT" and thought
+X	 * "ATTACH". This is, when we have (AttacherPid == 0). Harmless.
+X	 * Let him in. Second, we are waiting for a certain AttacherPid,
+X	 * and not for "any" attacher. This is when (AttacherPid != 0).
+X	 * But Darwin's rule says "survival of the fittest", thus: Look
+X	 * weather "our" AttacherPid is still alive and well, and let the
+X	 * new one only in, if the old Attacher has been killed. jw.
+X	 */
+X	if (AttacherPid != 0 && kill(AttacherPid, 0) == 0)
+X	  break;		/* Intruder Alert */
+X	else
+#endif				/* SECURE_MSG_CONT */
+X	  AttacherPid = 0;	/* we dont want to kill ourselves
+X				 * later. jw. */
+X      /* FALLTHROUGH */
+X    case MSG_ATTACH:
+X      if (CheckPid(m.m.attach.apid))
+X	{
+X	  debug1("Attach attempt with bad pid(%d)\n", m.m.attach.apid);
+X	  Msg(0, "Attach attempt with bad pid(%d) !", m.m.attach.apid);
+X          break;
+X	}
+#ifdef PASSWORD
+X      if (!CheckPasswd(m.m.attach.password, m.m.attach.apid, m.m.attach.tty))
+X	{
+X	  debug3("RcvMsg:Checkpass(%s,%d,%s) failed\n",
+X		 m.m.attach.password, m.m.attach.apid, m.m.attach.tty);
+X	  break;
+X	}
+#endif				/* PASSWORD */
+X      if (!Detached)
+X	{
+X	  debug("RecMsg: hey, why you disturb, we are not detached. hangup!\n");
+X	  Kill(m.m.attach.apid, SIG_BYE);
+X	  Msg(0, "Attach msg ignored: We are not detached.");
+X	  break;
+X	}
+X      if ((i = secopen(m.m.attach.tty, O_RDWR | O_NDELAY, 0)) < 0)
+X	{
+X	  debug1("ALERT: Cannot open %s!\n", m.m.attach.tty);
+#ifdef NETHACK
+X          if (nethackflag)
+X	    Msg(errno, 
+X	        "You can't open (%s). Perhaps there's a Monster behind it.",
+X	        m.m.attach.tty);
+X          else
+#endif
+X	  Msg(errno, "Attach: Could not open %s", m.m.attach.tty);
+X	  Kill(m.m.attach.apid, SIG_BYE);
+X	  break;
+X	}
+X      errno = 0;
+X      if (i)
+X	{
+X	  debug("PANIC: open did not return fd 0!\n");
+X	  close(0);
+X	  dup(i);
+X	  close(i);
+X	  close(1);
+X	  close(2);
+X	}
+X      debug2("RecMsg: apid %d is o.k. and we just opened '%s'\n", m.m.attach.apid, m.m.attach.tty);
+X
+#ifdef hpux_and_it_still_does_not_work
+X      {
+X	int pgrp, zero = 0;
+X
+X	if (ioctl(0, TIOCGPGRP, &pgrp) == -1)
+X	  debug1("tcgetpgrp: %d\n", errno);	/* save old pgrp from tty */
+X
+X	if (ioctl(0, TIOCSPGRP, &zero) == -1)
+X	  debug1("tcsetpgrp: %d\n", errno);	/* detach tty from proc grp */
+#ifdef hpux
+X	setpgrp();
+#else
+X	if (setpgrp(0, getpid()) == -1)
+X	  debug1("setpgrp: %d\n", errno);	/* make me proc group leader */
+#endif
+X
+X	close(0);	/* reopen tty, now we should get it as our tty */
+X	(void)secopen(m.m.attach.tty, O_RDWR | O_NDELAY, 0);	/* */
+X
+#ifdef hpux
+X	setpgrp2(0, pgrp);
+#else
+X	setpgrp(0, pgrp);
+#endif
+X	ioctl(0, TIOCSPGRP, &pgrp);
+X      }
+#endif  /* hpux_and_it_still_does_not_work */
+X
+X      (void) dup(0);
+X      (void) dup(0);
+X      GetTTY(0, &OldMode);
+#if defined(BSDJOBS) && !(defined(POSIX) || defined(SYSV))
+X      if ((DevTty = open("/dev/tty", O_RDWR | O_NDELAY)) == -1)
+X	{
+X	  debug1("DevTty not opened: %d.\n", errno);
+X	  Msg(errno, "/dev/tty");
+X	}
+#endif
+X      signal(SIGHUP, SigHup);
+#ifdef BSDJOBS
+X      if (Suspended && m.type == MSG_ATTACH)
+X	if (kill(AttacherPid, SIG_BYE) == 0)
+X	  kill(AttacherPid, SIGCONT);
+#endif
+X
+X      AttacherPid = m.m.attach.apid;
+X      strcpy(display_tty, m.m.attach.tty);
+#ifdef UTMPOK
+X      /*
+X       * we set the Utmp slots again, if we were detached normally
+X       * and if we were detached by ^Z.
+X       */
+X      ReInitUtmp();
+X      for (i = WinList; i != -1; i = wtab[i]->WinLink)
+X	if (wtab[i]->slot != (slot_t) -1)
+X	  SetUtmp(wtab[i], i);
+#endif
+X      (void) chmod(SockPath, /* S_IFSOCK | */ 0700);
+X      Detached = 0;
+#ifdef BSDJOBS
+X      Suspended = 0;
+#endif
+X      /*
+X       * we like to have always the valid termcap, even if we are
+X       * reattached from a different tty type. thus attacher had to
+X       * tell us, what TERM we have. The attacher has correct env
+X       * setting. we (the backend may be wrong).
+X       */
+X      if (*m.m.attach.envterm)
+X	{
+#if defined(pyr) || defined(xelos) || defined(sequent)
+X	  /*
+X	   * Kludge for systems with braindamaged termcap routines,
+X	   * which evaluate $TERMCAP, regardless weather it describes
+X	   * the correct terminal type or not.
+X	   */
+X	  if (strcmp(getenv("TERM"), m.m.attach.envterm + 5))
+X	    {
+X	      debug("a different terminal, so unsetenv(TERMCAP)");
+X	      unsetenv("TERMCAP");
+X	    }
+#endif
+X	
+#if !defined(sequent) && !defined(MIPS)
+X	  putenv(m.m.attach.envterm);
+#else
+X	  setenv("TERM", m.m.attach.envterm + 5, 1);
+#endif
+X	}
+#if !defined(sequent) && !defined(MIPS)
+X      sprintf(lbuf, "LINES=%d", m.m.attach.lines);
+X      if (m.m.attach.lines > 0 || getenv("LINES"))
+X        putenv(lbuf);
+X      sprintf(cbuf, "COLUMNS=%d", m.m.attach.columns);
+X      if (m.m.attach.columns > 0 || getenv("COLUMNS"))
+X        putenv(cbuf);
+#else
+X      sprintf(lbuf, "%d", m.m.attach.lines);
+X      if (m.m.attach.lines > 0 || getenv("LINES"))
+X        setenv("LINES", lbuf, 1);
+X      sprintf(cbuf, "%d", m.m.attach.columns);
+X      if (m.m.attach.columns > 0 || getenv("COLUMNS"))
+X        setenv("COLUMNS", cbuf, 1);
+#endif
+X      
+X      /*
+X       * We reboot our Terminal Emulator. Forget all we knew about
+X       * the old terminal, reread the termcap entries in .screenrc
+X       * (and nothing more from .screenrc is read. Mainly because
+X       * I did not check, weather a full reinit is save. jw) 
+X       * and /etc/screenrc, and initialise anew.
+X       */
+X      if (extra_outcap)
+X	Free(extra_outcap);
+X      if (extra_incap)
+X	Free(extra_incap);
+#ifdef ETCSCREENRC
+X      if ((p = getenv("SYSSCREENRC")) == NULL)
+X	StartRc(ETCSCREENRC);
+X      else
+X	StartRc(p);
+#endif
+X      StartRc(RcFileName);
+X      InitTermcap();
+X      InitTerm(m.m.attach.adaptflag);
+X      SetMode(&OldMode, &NewMode);
+X      SetTTY(0, &NewMode);
+X      fore->active = 1;
+X      Activate(0);
+X      debug("activated...\n");
+X      break;
+X    case MSG_ERROR:
+X      Msg(0, "%s", m.m.message);
+X      break;
+X    case MSG_HANGUP:
+#ifdef REMOTE_DETACH
+X    case MSG_DETACH:
+# ifdef POW_DETACH
+X    case MSG_POW_DETACH:
+# endif				/* POW_DETACH */
+#endif
+#ifdef REMOTE_DETACH
+# ifdef POW_DETACH
+X      if (m.type == MSG_POW_DETACH)
+X	Detach(D_REMOTE_POWER);
+X      else
+# endif				/* POW_DETACH */
+X      if (m.type == MSG_DETACH)
+X	Detach(D_REMOTE);
+X      else
+#endif
+X      SigHup(SIGARG);
+X      break;
+X    default:
+X      Msg(0, "Invalid message (type %d).", m.type);
+X    }
+}
+X
+#if defined(_SEQUENT_) && !defined(NAMEDPIPE)
+#undef connect
+X
+sconnect(s, sapp, len)
+int s, len;
+struct sockaddr *sapp;
+{
+X  register struct sockaddr_un *sap;
+X  struct stat st;
+X  int x;
+X
+X  sap = (struct sockaddr_un *)sapp;
+X  if (stat(sap->sun_path,&st))
+X    return -1;
+X  chmod(sap->sun_path, 0);
+X  x = connect(s, (struct sockaddr *) sap, len);
+X  chmod(sap->sun_path, st.st_mode);
+X  return x;
+}
+#endif
+SHAR_EOF
+echo 'File screen3.2/socket.c is complete' &&
+chmod 0444 screen3.2/socket.c ||
+echo 'restore of screen3.2/socket.c failed'
+Wc_c="`wc -c < 'screen3.2/socket.c'`"
+test 27101 -eq "$Wc_c" ||
+	echo 'screen3.2/socket.c: original size 27101, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/window.c ==============
+if test -f 'screen3.2/window.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/window.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/window.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/window.c' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+#ifndef lint
+X  static char rcs_id[] = "$Id: window.c,v 1.2 92/02/03 02:28:20 jnweiger Exp $ FAU";
+#endif
+X
+#include <stdio.h>
+#include <sys/types.h>
+#include <signal.h>
+#ifndef sun
+#include <sys/ioctl.h>
+#endif
+#ifdef BSDI
+# include <string.h>
+#endif /* BSDI */
+X
+#ifdef ISC
+# include <sys/tty.h>
+# include <sys/sioctl.h>
+# include <sys/pty.h>
+#endif
+X
+#ifdef MIPS
+extern int errno;
+#endif
+X
+#include "config.h"
+#include "screen.h"
+#include "extern.h"
+X
+static void FreeScrollback __P((struct win *));
+X
+static int ResizeHistArray __P((struct win *, char ***, int, int, int));
+static int ResizeScreenArray __P((struct win *, char ***, int, int, int));
+static void FreeArray __P((char ***, int));
+X
+extern TermcapCOLS, TermcapROWS;
+extern int maxwidth;
+extern int default_width, default_height, screenwidth, screenheight;
+extern char *blank, *null, *OldImage, *OldAttr;
+extern char *OldFont, *LastMsg;
+extern struct win *wtab[], *fore;
+extern int WinList, ForeNum;
+extern char *Z0, *Z1, *WS;
+extern int Z0width, Z1width;
+X
+extern int Detached;
+X
+#if defined(TIOCGWINSZ) || defined(TIOCSWINSZ)
+X  struct winsize glwz;
+#endif
+X
+/*
+X * ChangeFlag:   0: try to modify no window
+X *               1: modify fore (and try to modify no other)
+X *               2: modify all windows
+X *
+X * Note: Activate() is only called if change_flag == 1
+X *       i.e. on a WINCH event
+X */
+X
+void
+CheckScreenSize(change_flag)
+int change_flag;
+{
+X  int width, height, n;
+X  struct win *p;
+X
+X  if (Detached)
+X    {
+X      debug("CheckScreenSize: Detached -> No check.\n");
+X      return;
+X    }
+#ifdef TIOCGWINSZ
+X  if (ioctl(0, TIOCGWINSZ, &glwz) != 0)
+X    {
+X      debug1("CheckScreenSize: ioctl(0, TIOCGWINSZ) errno %d\n", errno);
+X      width = TermcapCOLS;
+X      height = TermcapROWS;
+X    }
+X  else
+X    {
+X      width = glwz.ws_col;
+X      height = glwz.ws_row;
+X      if (width == 0)
+X        width = TermcapCOLS;
+X      if (height == 0)
+X        height = TermcapROWS;
+X    }
+#else
+X  width = TermcapCOLS;
+X  height = TermcapROWS;
+#endif
+X  
+X  debug2("CheckScreenSize: screen is (%d,%d)\n", width, height);
+X
+X  if (change_flag == 2)
+X    {
+X      for (n = WinList; n != -1; n = p->WinLink)
+X        {
+X          p = wtab[n];
+X          ChangeWindowSize(p, width, height);
+X	}
+X    }
+X  if (screenwidth == width && screenheight == height)
+X    {
+X      debug("CheckScreenSize: No change -> return.\n");
+X      return;
+X    }
+X  ChangeScreenSize(width, height, change_flag);
+X  if (change_flag == 1 && WinList != -1)	/* was HasWindow */
+X    Activate(fore->norefresh);
+}
+X
+void
+ChangeScreenSize(width, height, change_fore)
+int width, height;
+int change_fore;
+{
+X  struct win *p;
+X  int n, wwi;
+X
+X  if (screenwidth == width && screenheight == height)
+X    {
+X      debug("ChangeScreenSize: no change\n");
+X      return;
+X    }
+X  debug3("ChangeScreenSize to (%d,%d) (change_fore: %d)\n",width, height, change_fore);
+X  screenwidth = width;
+X  screenheight = height;
+X
+X  if (WS)
+X    {
+X      default_width = TermcapCOLS;
+X      default_height = TermcapROWS;
+X    }
+X  else
+X    {
+X      if (Z0 && (width == Z0width || width == Z1width) &&
+X          (TermcapCOLS == Z0width || TermcapCOLS == Z1width))
+X        default_width = TermcapCOLS;
+X      else
+X        default_width = width;
+X      default_height = height;
+X    }
+X  debug2("Default size: (%d,%d)\n",default_width, default_height);
+X  if (change_fore)
+X    {
+X      if (WinList != -1 && change_fore) /* was HasWindow */
+X        {
+X          debug("Trying to change fore.\n");
+X          ChangeWindowSize(fore, width, height);
+X        }
+X    }
+X  if (WS == NULL)
+X    {
+X      /* We have to adapt all windows */
+X      for (n = WinList; n != -1; n = p->WinLink)
+X        {
+X          p = wtab[n];
+X          debug1("Trying to change window %d.\n",n);
+X          wwi = width;
+X          if (Z0 && (width==Z0width || width==Z1width))
+X	    {
+X	      if (p->width > (Z0width + Z1width) / 2)
+X		wwi = Z0width;
+X	      else
+X		wwi = Z1width;
+X	    }
+X          ChangeWindowSize(p, wwi, height);
+X        }
+X    }
+}
+X
+int
+ChangeScrollback(p, histheight, histwidth)
+struct win *p;
+int histheight, histwidth;
+{
+X  if (histheight > MAXHISTHEIGHT)
+X    histheight = MAXHISTHEIGHT;
+X  debug2("ChangeScrollback(..., %d, %d)\n", histheight, histwidth);
+X  debug2("  was %d, %d\n", p->histheight, p->width);
+X
+X  if (histheight == 0)
+X    {
+X      FreeScrollback(p);
+X      return 0;
+X    }
+X
+X  if (ResizeHistArray(p, &p->ihist, histwidth, histheight, 1)
+X      || ResizeHistArray(p, &p->ahist, histwidth, histheight, 0)
+X      || ResizeHistArray(p, &p->fhist, histwidth, histheight, 0))
+X    {
+X      debug("   failed, removing all histbuf\n");
+X      FreeScrollback(p);
+X      Msg_nomem;
+X      return (-1);
+X    }
+X  if (p->histheight != histheight)
+X    p->histidx = 0;
+X  p->histheight = histheight;
+X
+X  return(0);
+}
+X
+static void FreeScrollback(p)
+struct win *p;
+{
+X  FreeArray(&p->ihist, p->histheight);
+X  FreeArray(&p->ahist, p->histheight);
+X  FreeArray(&p->fhist, p->histheight);
+X  p->histheight = 0;
+}
+X
+static int
+ResizeHistArray(p, arr, wi, hi, fillblank)
+struct win *p;
+char ***arr;
+int wi, hi, fillblank;
+{
+X  char **narr, **np, **onp, **onpe;
+X  int t, x, first;
+X
+X  if (p->width == wi && p->histheight == hi)
+X    return(0);
+X  if (p->histheight != hi)
+X    {
+X      if ((narr = (char **)calloc(sizeof(char *), hi)) == NULL)
+X	{
+X	  FreeArray(arr, p->histheight);
+X	  return(-1);
+X	}
+X      np = narr;
+X      onp = (*arr) + p->histidx;
+X      onpe = (*arr) + p->histheight;
+X      first = p->histheight - hi;
+X      if (first<0)
+X	 np-=first;
+X      for(t=0; t<p->histheight; t++)
+X	{
+X          if (t-first >=0 && t-first < hi)
+X	    *np++ = *onp;
+X	  else
+X	    Free(*onp);
+X	  if (++onp == onpe)
+X	    onp = *arr;
+X	}
+X      if (*arr)
+X	Free(*arr);
+X    }
+X  else
+X    narr = *arr;
+X 
+X  for (t=0, np=narr; t<hi; t++, np++)
+X    {
+X      x = p->width;
+X      if (*np == 0)
+X	{
+X	  *np = (char *)malloc(wi);
+X          x = 0;
+X	}
+X      else if (p->width != wi)
+X	{
+X	  *np = (char *)xrealloc(*np, wi);
+X	}
+X      if (*np == 0)
+X	{
+X	  FreeArray(&narr, hi);
+X	  return(-1);
+X	}
+X      if (x<wi)
+X	{
+X	  if (fillblank)
+X	    bclear(*np+x, wi-x);
+X	  else
+X	    bzero(*np+x, wi-x);
+X	}
+X    }
+X  *arr = narr;
+X  return(0);
+}
+X      
+X
+static int
+ResizeScreenArray(p, arr, wi, hi, fillblank)
+struct win *p;
+char ***arr;
+int wi, hi, fillblank;
+{
+X  int minr;
+X  char **cp;
+X
+X  if (p->width == wi && p->height == hi)
+X    return(0);
+X
+X  if (hi > p->height)
+X    minr = p->height;
+X  else
+X    minr = hi;
+X
+X  if (p->height > hi)
+X    {
+X      for (cp = *arr; cp < *arr + (p->height - hi); cp++)
+X	Free(*cp);
+X      bcopy((char *)(*arr + (p->height - hi)), (char *)(*arr),
+X	    hi * sizeof(char *));
+X    }
+X  if (*arr && p->width != wi)
+X    for (cp = *arr; cp < *arr + minr; cp++)
+X      {
+X	if ((*cp = (char *)xrealloc(*cp, (unsigned) wi)) == 0)
+X	  {
+X	    FreeArray(arr, p->height);
+X	    return(-1);
+X	  }
+X	if (wi > p->width)
+X	  {
+X	    if (fillblank)
+X	      bclear(*cp + p->width, wi - p->width);
+X	    else
+X	      bzero(*cp + p->width, wi - p->width);
+X	  }
+X      }
+X  if (*arr)
+X    *arr = (char **) xrealloc((char *) *arr, (unsigned) hi * sizeof(char *));
+X  else
+X    *arr = (char **) malloc((unsigned) hi * sizeof(char *));
+X  if (*arr == 0)
+X    return(-1);
+X  for (cp = *arr + p->height; cp < *arr + hi; cp++)
+X    {
+X      if ((*cp = malloc((unsigned) wi)) == 0)
+X	{
+X	  while (--cp >= *arr)
+X	    Free(*cp);
+X	  Free(*arr);
+X          return(-1);
+X	}
+X      if (fillblank)
+X	bclear(*cp, wi);
+X      else
+X	bzero(*cp, wi);
+X    }
+X  return(0);
+}
+X
+static void
+FreeArray(arr, hi)
+char ***arr;
+int hi;
+{
+X  register char **p;
+X  register int t;
+X
+X  if (*arr == 0)
+X    return;
+X  for (t = hi, p = *arr; t--; p++)
+X    if (*p)
+X      Free(*p);
+X  Free(*arr);
+}
+X
+X
+int
+ChangeWindowSize(p, width, height)
+struct win *p;
+int width, height;
+{
+X  int t, scr;
+X  
+X  if (width > maxwidth)
+X    {
+X      maxwidth = width;
+X      debug1("New maxwidth: %d\n", maxwidth);
+X      if (blank == 0)
+X        blank = malloc((unsigned) maxwidth);
+X      else
+X        blank = xrealloc(blank, (unsigned) maxwidth);
+X      if (null == 0)
+X        null = malloc((unsigned) maxwidth);
+X      else
+X        null = xrealloc(null, (unsigned) maxwidth);
+X      if (OldImage == 0)
+X        OldImage = malloc((unsigned) maxwidth);
+X      else
+X        OldImage = xrealloc(OldImage, (unsigned) maxwidth);
+X      if (OldAttr == 0)
+X        OldAttr = malloc((unsigned) maxwidth);
+X      else
+X        OldAttr = xrealloc(OldAttr, (unsigned) maxwidth);
+X      if (OldFont == 0)
+X        OldFont = malloc((unsigned) maxwidth);
+X      else
+X        OldFont = xrealloc(OldFont, (unsigned) maxwidth);
+X      if (LastMsg == 0)
+X        {
+X          LastMsg = malloc((unsigned) maxwidth + 1);
+X          *LastMsg = 0;
+X        }
+X      else
+X        LastMsg = xrealloc(LastMsg, (unsigned) maxwidth + 1);
+X      LastMsg[maxwidth]=0;
+X      if (!(blank && null && OldImage && OldAttr && OldFont && LastMsg))
+X	{
+nomem:	  for (t = WinList; t != -1 && wtab[t] != p; t = p->WinLink) 
+X	    ;
+X	  if (t >= 0)
+X	    KillWindow(t);
+X	  Msg(0, "Out of memory -> Window destroyed !!");
+X	  return(-1);
+X	}
+X      MakeBlankLine(blank, maxwidth);
+X      bzero(null, maxwidth);
+X    }
+X  
+X  if (width == p->width && height == p->height)
+X    {
+X      debug("ChangeWindowSize: No change.\n");
+X      return(0);
+X    }
+X
+X  debug2("ChangeWindowSize from (%d,%d) to ", p->width, p->height);
+X  debug2("(%d,%d)\n", width, height);
+X
+X  if (width == 0 && height == 0)
+X    {
+X      FreeArray(&p->image, p->height);
+X      FreeArray(&p->attr, p->height);
+X      FreeArray(&p->font, p->height);
+X      if (p->tabs)
+X	Free(p->tabs);
+X      p->width = 0;
+X      p->height = 0;
+X      FreeScrollback(p);
+X      return(0);
+X    }
+X
+X  /* when window gets smaller, scr is the no. of lines we scroll up */
+X  scr = p->height - height;
+X  if (scr < 0)
+X    scr = 0;
+X  for (t = 0; t < scr; t++)
+X    AddLineToHist(p, p->image+t, p->attr+t, p->font+t); 
+X  if (ResizeScreenArray(p, &p->image, width, height, 1)
+X      || ResizeScreenArray(p, &p->attr, width, height, 0)
+X      || ResizeScreenArray(p, &p->font, width, height, 0))
+X    {
+X      goto nomem;
+X    }
+X  /* this won't change the height of the scrollback history buffer, but
+X   * it will check the width of the lines.
+X   */
+X  ChangeScrollback(p, p->histheight, width);
+X
+X  if (p->tabs == 0)
+X    {
+X      /* tabs get width+1 because 0 <= x <= width */
+X      if ((p->tabs = malloc((unsigned) width + 1)) == 0)
+X        goto nomem;
+X      t = 8;
+X    }
+X  else
+X    {
+X      if ((p->tabs = xrealloc(p->tabs, (unsigned) width + 1)) == 0)
+X        goto nomem;
+X      t = p->width;
+X    }
+X  for (t = (t + 7) & 8; t < width; t += 8)
+X    p->tabs[t] = 1; 
+X  p->height = height;
+X  p->width = width;
+X  if (p->x >= width)
+X    p->x = width - 1;
+X  if ((p->y -= scr) < 0)
+X    p->y = 0;
+X  if (p->Saved_x >= width)
+X    p->Saved_x = width - 1;
+X  if ((p->Saved_y -= scr) < 0)
+X    p->Saved_y = 0;
+X  if (p->autoaka > 0) 
+X    if ((p->autoaka -= scr) < 1)
+X      p->autoaka = 1;
+X  p->top = 0;
+X  p->bot = height - 1;
+#ifdef TIOCSWINSZ
+X  if (p->ptyfd && p->wpid)
+X    {
+X      glwz.ws_col = width;
+X      glwz.ws_row = height;
+X      debug("Setting pty winsize.\n");
+X      if (ioctl(p->ptyfd, TIOCSWINSZ, &glwz))
+X	debug2("SetPtySize: errno %d (fd:%d)\n", errno, p->ptyfd);
+# if defined(STUPIDTIOCSWINSZ) && defined(SIGWINCH)
+#  ifdef POSIX
+X      pgrp = tcgetpgrp(p->ptyfd);
+#  else
+X      if (ioctl(p->ptyfd, TIOCGPGRP, &pgrp))
+X	pgrp = 0;
+#  endif
+X      if (pgrp)
+X	{
+X	  debug1("Sending SIGWINCH to pgrp %d.\n", pgrp);
+X	  if (killpg(pgrp, SIGWINCH))
+X	    debug1("killpg: errno %d\n", errno);
+X	}
+X      else
+X	debug1("Could not get pgrp: errno %d\n", errno);
+# endif /* STUPIDTIOCSWINSZ */
+X    }
+#endif
+X  return(0);
+}
+X
+X
+void
+ResizeScreen(wi)
+struct win *wi;
+{
+X  int width, height;
+X
+X  if (wi)
+X    {
+X      width = wi->width;
+X      height = wi->height;
+X    }
+X  else
+X    {
+X      width = default_width;
+X      height = default_height;
+X    }
+X  if (screenwidth == width && screenheight == height)
+X    {
+X      debug("ResizeScreen: No change\n");
+X      return;
+X    }
+X  debug2("ResizeScreen: to (%d,%d).\n", width, height);
+X  if (WS)
+X    {
+X      debug("ResizeScreen: using WS\n");
+X      WSresize(width, height);
+X      ChangeScreenSize(width, height, 0);
+X    }
+X  else if (Z0 && (width == Z0width || width == Z1width))
+X    {
+X      debug("ResizeScreen: using Z0/Z1\n");
+X      PutStr(width == Z0width ? Z0 : Z1);
+X      ChangeScreenSize(width, screenheight, 0);
+X    }
+X  if (screenwidth != width || screenheight != height)
+X    {
+X      debug2("BUG: Cannot resize from (%d,%d)",screenwidth, screenheight);
+X      debug2(" to (%d,%d) !!\n", width, height);
+X      if (wi)
+X	ChangeWindowSize(wi, screenwidth, screenheight);
+X    }
+}
+X
+char *
+xrealloc(mem, len)
+char *mem;
+int len;
+{
+X  register char *nmem;
+X
+X  if (nmem = realloc(mem, len))
+X    return(nmem);
+X  free(mem);
+X  return((char *)0);
+}
+SHAR_EOF
+chmod 0444 screen3.2/window.c ||
+echo 'restore of screen3.2/window.c failed'
+Wc_c="`wc -c < 'screen3.2/window.c'`"
+test 14071 -eq "$Wc_c" ||
+	echo 'screen3.2/window.c: original size 14071, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/s/screen-w ==============
+if test ! -d 'screen3.2/terminfo'; then
+    echo 'x - creating directory screen3.2/terminfo'
+    mkdir 'screen3.2/terminfo'
+fi
+if test ! -d 'screen3.2/terminfo/s'; then
+    echo 'x - creating directory screen3.2/terminfo/s'
+    mkdir 'screen3.2/terminfo/s'
+fi
+if test -f 'screen3.2/terminfo/s/screen-w' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/s/screen-w (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/s/screen-w (Binary)'
+sed 's/^X//' << 'SHAR_EOF' > _shar_tmp_.tmp &&
+begin 600 screen3.2/terminfo/s/screen-w
+M&@$L`!4`"`"3`/\`<V-R965N+7=\5E0@,3`P+T%.4TD@6#,N-C0@=FER='5A
+M;"!T97)M:6YA;`````````````````````$```````$`A``(`!@`________
+M_____P``!``&``@`&0`>`"4`*0#_____+0`^`$``__]$`/____]&`$H`4`#_
+M____4P#_______]7`%P`________________80!F`&L`_____W``________
+M=`!Z`/__________@`#_______^$`/__B`#_____________B@#_________
+M_XX`__^2`)8`F@#_____________G@#_____H0#_______^E`/_______ZD`
+MK0"P`/__________________________________LP#_____M@"_`/_____(
+M`-$`V@#__^,`_____________________^P`_____^\`___R`/4`]P#___H`
+M___]`/_______________________________QM;6@`'``T`&ULE:25P,25D
+M.R5P,B5D<@`;6S-G`!M;2!M;2@`;6TL`&UM*`!M;)6DE<#$E9#LE<#(E9$@`
+M"@`;6T@`"``;6T,`&ULR-$@`&TT`&UM-`!M;-6T`&ULQ;0`;6S=M`!M;,VT`
+M&ULT;0`;6VT`&ULR,VT`&ULR-&T`&RDP`!M;3``(`!M/0@`;3U``&T]1`!M/
+M4@`;3U,`&S\`&T]$`!M/0P`;3T$`&SX`&ST`&T4`&ULE<#$E9$T`&ULE<#$E
+M9$(`&ULE<#$E9$P`&ULE<#$E9$0`&ULE<#$E9$,`&ULE<#$E9$$`&V,`&S@`
+-&S<`"@`;30`;2``)`%LE
+`
+end
+SHAR_EOF
+echo 'uudecoding file screen3.2/terminfo/s/screen-w' &&
+uudecode < _shar_tmp_.tmp && rm -f _shar_tmp_.tmp &&
+chmod 0644 screen3.2/terminfo/s/screen-w ||
+echo 'restore of screen3.2/terminfo/s/screen-w failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/s/screen-w'`"
+test 643 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/s/screen-w: original size 643, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/s/screen ==============
+if test -f 'screen3.2/terminfo/s/screen' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/s/screen (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/s/screen (Binary)'
+sed 's/^X//' << 'SHAR_EOF' > _shar_tmp_.tmp &&
+begin 600 screen3.2/terminfo/s/screen
+M&@$J`!L`#0`I`2D!<V-R965N?%94(#$P,"]!3E-)(%@S+C8T('9I<G1U86P@
+M=&5R;6EN86P````````````````````!```````!`````````%``"``8`/__
+M________________________-@`J`$$`0P`D`3H`I0"A`/____]W`&@`J0#_
+M_UT`_____W,`Z@"1`/____^=`/_______RP`,0#________________V`!H!
+M'P'_____$P'_______\!`0<!___________!`/_______[L`___%`/______
+M_______+`/__________UP#__]L`WP#C`/_____________G`/_____'`/__
+M_____\\`________TP#^`!<!___________________________________P
+M`/____^4`%\`_____[(`5`!J`/__B`#_____________________#0'_____
+M\P#__Q`!OP#[`/__KP#__ZT`____________________________________
+M____________________________________________________________
+M____________________________________________________________
+M____________________________________________________________
+M____________________________________________________________
+M____________________________________________________________
+M____________________________________________________________
+M____________________________________<V-R965N?%94(#$P,"]!3E-)
+M(%@S+C8T('9I<G1U86P@=&5R;6EN86P`!P`;6S5M`!M;,6T`&UM:`!M;2!M;
+M2@`-`!M;)6DE<#$E9#LE<#(E9'(`&ULE<#$E9$0`"``;6R5P,25D0@`*`!M;
+M)7`Q)61#`!M;0P`;6R5I)7`Q)60[)7`R)61(`!M;)7`Q)61!`!M-`!M;)7`Q
+M)61-`!M;30`;6TH`&UM+`!M;2``)`!M(`!M;)7`Q)61,`!M;3``*`!LI,``(
+M`!M/1``;3T(`&T]#`!M/00`;3U``&T]1`!M/4@`;3U,`&S\`&ULR-$@`&T4`
+M&S@`&ULW;0`;30`;/@`;6S(S;0`;6S(T;0`;8P`;-P`;6VT`&ST`&ULS;0`;
+)6S1M`!M;,V<`
+`
+end
+SHAR_EOF
+echo 'uudecoding file screen3.2/terminfo/s/screen' &&
+uudecode < _shar_tmp_.tmp && rm -f _shar_tmp_.tmp &&
+chmod 0644 screen3.2/terminfo/s/screen ||
+echo 'restore of screen3.2/terminfo/s/screen failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/s/screen'`"
+test 999 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/s/screen: original size 999, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/screeninfo.src ==============
+if test -f 'screen3.2/terminfo/screeninfo.src' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/screeninfo.src (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/screeninfo.src (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/terminfo/screeninfo.src' &&
+screen|VT 100/ANSI X3.64 virtual terminal,
+X	msgr, xon,
+X	cols#80, it#8, lines#24,
+X	bel=^G, blink=\E[5m, bold=\E[1m, cbt=\E[Z,
+X	clear=\E[H\E[J, cr=\r, csr=\E[%i%p1%d;%p2%dr,
+X	cub=\E[%p1%dD, cub1=\b, cud=\E[%p1%dB, cud1=\n,
+X	cuf=\E[%p1%dC, cuf1=\E[C, cup=\E[%i%p1%d;%p2%dH,
+X	cuu=\E[%p1%dA, cuu1=\EM, dl=\E[%p1%dM, dl1=\E[M,
+X	ed=\E[J, el=\E[K, home=\E[H, ht=\t, hts=\EH,
+X	il=\E[%p1%dL, il1=\E[L, ind=\n, is2=\E)0, kbs=\b,
+X	kcub1=\EOD, kcud1=\EOB, kcuf1=\EOC, kcuu1=\EOA,
+X	kf1=\EOP, kf2=\EOQ, kf3=\EOR, kf4=\EOS, khome=\E?,
+X	nel=\EE, rc=\E8, rev=\E[7m, ri=\EM,
+X	rmkx=\E>, rmso=\E[23m, rmul=\E[24m, rs2=\Ec, sc=\E7,
+X	sgr0=\E[m, smkx=\E=, smso=\E[3m, smul=\E[4m,
+X	tbc=\E[3g,
+SHAR_EOF
+chmod 0644 screen3.2/terminfo/screeninfo.src ||
+echo 'restore of screen3.2/terminfo/screeninfo.src failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/screeninfo.src'`"
+test 668 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/screeninfo.src: original size 668, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/screencap ==============
+if test -f 'screen3.2/terminfo/screencap' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/screencap (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/screencap (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/terminfo/screencap' &&
+SC|screen|VT 100/ANSI X3.64 virtual terminal|\
+X	:DO=\E[%dB:LE=\E[%dD:RI=\E[%dC:UP=\E[%dA:bs:bt=\E[Z:\
+X	:cd=\E[J:ce=\E[K:cl=\E[H\E[J:cm=\E[%i%d;%dH:ct=\E[3g:\
+X	:do=^J:nd=\E[C:pt:rc=\E8:rs=\Ec:sc=\E7:st=\EH:up=\EM:\
+X	:le=^H:bl=^G:cr=^M:it#8:ho=\E[H:nw=\EE:ta=^I:is=\E)0:xv:\
+X	:li#43:co#80:LP:us=\E[4m:ue=\E[24m:so=\E[3m:se=\E[23m:\
+X	:mb=\E[5m:md=\E[1m:mr=\E[7m:me=\E[m:ms:sr=\EM:al=\E[L:\
+X	:AL=\E[%dL:dl=\E[M:DL=\E[%dM:cs=\E[%i%d;%dr:dc=\E[P:\
+X	:DC=\E[%dP:im=\E[4h:ei=\E[4l:mi:ic=\E[@:IC=\E[%d@:\
+X	:ks=\E=:ke=\E>:G0:
+SHAR_EOF
+chmod 0644 screen3.2/terminfo/screencap ||
+echo 'restore of screen3.2/terminfo/screencap failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/screencap'`"
+test 515 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/screencap: original size 515, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/screenwinfo.src ==============
+if test -f 'screen3.2/terminfo/screenwinfo.src' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/screenwinfo.src (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/screenwinfo.src (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/terminfo/screenwinfo.src' &&
+screen-w|VT 100/ANSI X3.64 virtual terminal,
+X	msgr, xon,
+X	cols#132, it#8, lines#24,
+X	bel=^G, blink=\E[5m, bold=\E[1m, cbt=\E[Z,
+X	clear=\E[H\E[J, cr=\r, csr=\E[%i%p1%d;%p2%dr,
+X	cub=\E[%p1%dD, cub1=\b, cud=\E[%p1%dB, cud1=\n,
+X	cuf=\E[%p1%dC, cuf1=\E[C, cup=\E[%i%p1%d;%p2%dH,
+X	cuu=\E[%p1%dA, cuu1=\EM, dl=\E[%p1%dM, dl1=\E[M,
+X	ed=\E[J, el=\E[K, home=\E[H, ht=\t, hts=\EH,
+X	il=\E[%p1%dL, il1=\E[L, ind=\n, is2=\E)0, kbs=\b,
+X	kcub1=\EOD, kcud1=\EOB, kcuf1=\EOC, kcuu1=\EOA,
+X	kf1=\EOP, kf2=\EOQ, kf3=\EOR, kf4=\EOS, khome=\E?,
+X	nel=\EE, rc=\E8, rev=\E[7m, ri=\EM,
+X	rmkx=\E>, rmso=\E[23m, rmul=\E[24m, rs2=\Ec, sc=\E7,
+X	sgr0=\E[m, smkx=\E=, smso=\E[3m, smul=\E[4m,
+X	tbc=\E[3g,
+SHAR_EOF
+chmod 0644 screen3.2/terminfo/screenwinfo.src ||
+echo 'restore of screen3.2/terminfo/screenwinfo.src failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/screenwinfo.src'`"
+test 671 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/screenwinfo.src: original size 671, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/getwinsize.c ==============
+if test -f 'screen3.2/terminfo/getwinsize.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/getwinsize.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/getwinsize.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/terminfo/getwinsize.c' &&
+main()
+{
+X  char *term, *s;
+X  int li, co;
+X  char tbuf[1024];
+X
+X  term = (char *)getenv("TERM");
+X  printf("under iScreen getenv(\"TERM\") should return \"screen\": %s\n", term);
+X  printf("getenv(\"LINES\") returns ");
+X  if (s = (char *)getenv("LINES"))
+X    {
+X      li = atoi(s);
+X      printf("%d\n", li);
+X    }
+X  else
+X    printf("nothing valuable\n");
+X  printf("getenv(\"COLUMNS\") returns ");
+X  if (s = (char *)getenv("COLUMNS"))
+X    {
+X      co = atoi(s);
+X      printf("%d\n", co);
+X    }
+X  else
+X    printf("nothing valuable\n");
+X  if (tgetent(tbuf, term) != 1)
+X    {
+X      printf("Oh, no termcap/info entry for %s!\n", term);
+X    }
+X  li = tgetnum("li");
+X  printf("tgetnum(\"li\") returns %d\n", li);
+X  co = tgetnum("co");
+X  printf("tgetnum(\"co\") returns %d\n", co);
+}
+SHAR_EOF
+chmod 0644 screen3.2/terminfo/getwinsize.c ||
+echo 'restore of screen3.2/terminfo/getwinsize.c failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/getwinsize.c'`"
+test 768 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/getwinsize.c: original size 768, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/screen-sco.src ==============
+if test -f 'screen3.2/terminfo/screen-sco.src' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/screen-sco.src (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/screen-sco.src (Binary)'
+sed 's/^X//' << 'SHAR_EOF' > _shar_tmp_.tmp &&
+begin 600 screen3.2/terminfo/screen-sco.src
+M1G)O;2!R;V]T)6UJ8G1N+E550U!`=75N970N554N3D54(%1U92!/8W0@,C(@
+M,#,Z,#DZ,30@,3DY,0I296-E:79E9#H@9G)O;2!R96QA>3(N554N3D54(&)Y
+M(&EM;60T+FEN9F]R;6%T:6LN=6YI+65R;&%N9V5N+F1E("!W:71H(%--5%`@
+M*#4N-C0K+S<N,V$M1D%5*0H):60@04$Q,#`Q.#L@5'5E+"`R,B!/8W0@.3$@
+M,#,Z,#DZ,#0@*S`Q,#`*4F5C96EV960Z(&9R;VT@=75N970N=74N;F5T("AV
+M:6$@3$]#04Q(3U-4+E55+DY%5"D@8GD@<F5L87DR+E55+DY%5"!W:71H(%--
+M5%`@"@DH-2XV,2]554Y%5"UI;G1E<FYE="UP<FEM87)Y*2!I9"!!03`Y-C0P
+M.R!-;VXL(#(Q($]C="`Y,2`R,CHP.3HP-R`M,#0P,`I296-E:79E9#H@9G)O
+M;2!M:F)T;BY554-0(&)Y('5U;F5T+G5U+FYE="!W:71H(%550U`O4DU!24P*
+M"2AQ=65U96EN9RUR;6%I;"D@:60@,C(P.#,P+C$W,C`S.R!-;VXL(#(Q($]C
+M="`Q.3DQ(#(R.C`X.C,P($5$5`I296-E:79E9#H@8GD@;6IB=&XN:F]B<V]F
+M="YC;VT@*"]</3TO7"!3;6%I;#,N,2XR,2XQ*3L@36]N+"`R,2!/8W0@.3$@
+M,C`Z-#D@0T14"DUE<W-A9V4M260Z(#QM,&M:0D9D+3`P,#=82$-`;6IB=&XN
+M:F]B<V]F="YC;VT^"D9R;VTZ(')O;W1`;6IB=&XN:F]B<V]F="YC;VT@*$UA
+M<FL@2BX@0F%I;&5Y(%M!1$U)3ETI"E-U8FIE8W0Z(%)E.B!O:"!Y97,*5&\Z
+M(&IN=V5I9V5R)6EM;60T+FEN9F]R;6%T:6LN=6YI+65R;&%N9V5N+F1E)75U
+M;F5T+E550U!`=75N970N554N3D54("A*=65R9V5N(%=E:6=E<G0I"D1A=&4Z
+M($UO;BP@,C$@3V-T(#DQ(#(P.C0Y.C0Y($-$5`I);BU297!L>2U4;SH@/#DQ
+M,3`R,3(Q-#@N04$P,3<S-T!F875I-#,N:6YF;W)M871I:RYU;FDM97)L86YG
+M96XN9&4^.R!F<F]M(")*=65R9V5N(%=E:6=E<G0B(&%T($]C="`R,2P@.3$@
+M,3`Z-#@@<&T*6"U-86EL97(Z($5,32!;=F5R<VEO;B`R+C,@4$PQ,5T*4W1A
+M='5S.B!/4@H*2&DL"@I796QL+"!M;W)E('!L87EI;F<@86YD(&9I;F%L;'D@
+M<V]M92!P<F]G<F5S<R$@(#HM*0H*5&AI<R!I<R!M>2`N<V-R965N<F,Z"@IT
+M97)M:6YF;R!A;G-I($<P.FAS0#IA;3I,4$`Z3U`*"DYO=RP@22!A;2!N;W0@
+M=V]R<FEE9"!A8F]U="!I=',@=&]T86P@86-C=7)R86-Y+"!B=70@22!J=7-T
+M('=A;G1E9"!T;R!S:&]W"GEO=2!W:&%T($D@=')I960N("!)(&%L<V\@9FEX
+M960@82!S8W)E96XM,C4@=&5R;6EN9F\@96YT<GDZ"@IS8W)E96XM,C5\5E0@
+M,3`P+T%.4TD@6#,N-C0@=FER='5A;"!T97)M:6YA;"P*"6%M+"!M<V=R+"!X
+M;VXL"@EC;VQS(S@P+"!I=",X+"!L:6YE<R,R-2P*"6)E;#U>1RP@8FQI;FL]
+M7$5;-6TL(&)O;&0]7$5;,6TL(&-B=#U<15M:+`H)8VQE87(]7$5;2%Q%6THL
+M(&-R/5QR+"!C<W(]7$5;)6DE<#$E9#LE<#(E9'(L"@EC=6(]7$5;)7`Q)61$
+M+"!C=6(Q/5QB+"!C=60]7$5;)7`Q)61"+"!C=60Q/5QN+`H)8W5F/5Q%6R5P
+M,25D0RP@8W5F,3U<15M#+"!C=7`]7$5;)6DE<#$E9#LE<#(E9$@L"@EC=74]
+M7$5;)7`Q)61!+"!C=74Q/5Q%32P@9&P]7$5;)7`Q)61-+"!D;#$]7$5;32P*
+M"65D/5Q%6THL(&5L/5Q%6TLL(&AO;64]7$5;2"P@:'0]7'0L(&AT<SU<14@L
+M"@EI;#U<15LE<#$E9$PL(&EL,3U<15M,+"!I;F0]7&XL(&ES,CU<12DP+"!K
+M8G,]7&(L"@EK8W5B,3U<14]$+"!K8W5D,3U<14]"+"!K8W5F,3U<14]#+"!K
+M8W5U,3U<14]!+`H):V8Q/5Q%3U`L(&MF,CU<14]1+"!K9C,]7$5/4BP@:V8T
+M/5Q%3U,L(&MH;VUE/5Q%/RP*"6QL/5Q%6S(U2"P@;F5L/5Q%12P@<F,]7$4X
+M+"!R978]7$5;-VTL(')I/5Q%32P*"7)M:W@]7$4^+"!R;7-O/5Q%6S(S;2P@
+M<FUU;#U<15LR-&TL(')S,CU<16,L('-C/5Q%-RP*"7-G<C`]7$5;;2P@<VUK
+M>#U<13TL('-M<V\]7$5;,VTL('-M=6P]7$5;-&TL"@ET8F,]7$5;,V<L"@I!
+M;F0@;F]T:6-E(&9O<B!30T\@56YI>"!T:&%T($D@861D960@)V%M)R!T;R!T
+M:&4@96YT<GD@9F]R('-C<F5E;BTR-2X@($5V96X*=&AO=6=H('1H92!E>'1E
+M<FYA;"`H;&]G:6X@<VAE;&PI('1Y<&4@)V%N<VDG('=A<R!M;V1I9FEE9"!W
+M:71H('1H92`N<V-R965N<F,L"G=H96X@22!A9&1E9"`G86TG('1O('1H92!S
+M8W)E96X@=VEN9&]W('1E<FT@<V-R965N+3(U+"!I="!F=6YC=&EO;F5D(&9L
+M87=L97-S;'D*86YD($D@86T@;F]T('-U<F4@=VAY+B`@06YY=V%Y+"!V:2!A
+M;F0@86QL('1H92!O=&AE<G,@<V5E;2!T;R!W;W)K(&=R96%T(`IN;W<N("!.
+M97AT+"!)(&YE960@=&\@=V]R:R!O;B!T:&4@1S`@+3X@0S`@9W)A<&AI8W,@
+M8VAA<F%C=&5R(&UA<'!I;F=S+B`@22`*9&]N)W0@9G5L;'D@=6YD97)S=&%N
+M9"!T:&%T('EE="X@($%N>7=A>2P@=&AI<R!S:&]U;&0@8F4@;V8@:&5L<"!T
+M;R!O=&AE<G,*=6YD97(@4T-/+B`@0E17+"!T:&%T(&-O<'D@;V8@=&AE(&UE
+M<W-A9V4@>6]U(&=O="!F<F]M(&UE('1H870@22!S96YT('1O"E)O;F%L9"!+
+M:&]O("TM($D@87!P;&EE9"!30T\@4TQ3('!A=&-H('AN>#$T,2`H9F]R('AE
+M;FEX*2!T;R!F:7@@=&AE(&)U9R`*:6X@<V5L96-T*"D@=VAE;B!D96%L:6YG
+M('=I=&@@<&EP97,L(&%N9"!I="!S;VQV960@;7D@<')O8FQE;7,@;VX@>&5N
+M:7@N"@I-87)K+@H*+2T@"DUA<FL@2BX@0F%I;&5Y+"!.-%A(6"`@("`@("`@
+M("`@("`@("`@("`@("`@("`@("`@(%]?7U]?7U\O/3T]/5@Q,3T]/3U<7U]?
+M7U]?7PI54TU!24PZ(#4Q,2!-96UO<FEA;"!";'9D+BP@375R9G)E97-B;W)O
+M+"!43B`S-S$R.2!\("`@("`@("`@2F]B4V]F="`@("`@("`@('P*5D])0T4Z
+M("`K,2`V,34@.#DS(#`P.3@@("`@("`@("`@("`@("`@("`@("`@("`@("`@
+M?"!$97-I9VX@)B!$979E;&]P;65N="!#;RY\"E550U`Z("`@+BXN(75U;F5T
+M(6UJ8G1N(6UJ8BP@+BXN(7)A:61E<B%M:F)T;B%M:F(@('P@($UU<F9R965S
+M8F]R;RP@5$X@(%5302`@?`I$3TU!24XZ(&UJ8D!M:F)T;BY*3T)33T94+D-/
+M32`@("`@($-)4SH@-S8S,30L,38P("`M+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+M+2TM+2T*/$M!.5$M54Y)6"U54T524R!-86EL:6YG($QI<W0M4W5B<V-R:6)E
+I.B!K83EQ+75N:7@M<F5Q=65S='-`;6IB=&XN:F]B<V]F="YC;VT^"@IR
+`
+end
+SHAR_EOF
+echo 'uudecoding file screen3.2/terminfo/screen-sco.src' &&
+uudecode < _shar_tmp_.tmp && rm -f _shar_tmp_.tmp &&
+chmod 0600 screen3.2/terminfo/screen-sco.src ||
+echo 'restore of screen3.2/terminfo/screen-sco.src failed'
+Wc_c="`wc -c < 'screen3.2/terminfo/screen-sco.src'`"
+test 3056 -eq "$Wc_c" ||
+	echo 'screen3.2/terminfo/screen-sco.src: original size 3056, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/terminfo/test.txt ==============
+if test -f 'screen3.2/terminfo/test.txt' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/terminfo/test.txt (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/terminfo/test.txt (Binary)'
+sed 's/^X//' << 'SHAR_EOF' > _shar_tmp_.tmp &&
+begin 600 screen3.2/terminfo/test.txt
+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
+M2!M;,6TO&UMM+QM;-SLV.$@@+QM;-CLV.4@;6S%M+QM;;0H;6S$S.S8X2!M;
+M,6TO&UMM(!M;,3([-CA((!M;,6TO&UMM&ULQ,#LV.$@O+QM;.3LV.$@O&ULX
+M.S8X2"`;6S<[-CA(&ULQ;2\;6VT@&ULV.S8Y2"\*&ULQ,SLV.$@@+QM;,3$[
+M-CA(&ULT;2\;6VT;6SD[-CA((!M;.#LV.$@O(!M;-SLV.$@O+QM;-CLV.4@@
+M"AM;,3,[-CA(+QM;,3([-CA(&ULQ;2\;6VT;6S$P.S8X2"`;6SD[-CA(&ULQ
+M;2\;6VT@(!M;.#LV.$@O&ULQ;2\;6VT;6S<[-CA((!M;-CLV.4@;6S%M+QM;
+M;0H;6S$S.S8X2!M;,6TO&UMM&ULQ,CLV.$@O&ULQ,3LV.$AS&ULQ,#LV.$@;
+M6S%M+QM;;2`;6SD[-CA(+R\;6S@[-CE((!M;-CLV.4@@"AM;,30[-3-(<W-S
+M<W-S<W-S<W,*&ULQ,SLV.$@O&ULQ,CLV.$@@&ULQ,3LV.$@;6S$[-&TO(!M;
+M;1M;,3`[-CA(+R\;6SD[-CE((!M;.#LV.$@@&ULQ;2\;6VT;6S<[-CA(+R`;
+M6S8[-CE(&ULQ;2\;6VT*&ULQ-#LU,DAS&ULQ-#LV-$AS"AM;,3,[-CA((!M;
+M,3([-CA(+R`;6S$Q.S8X2!M;-&TO&ULQ;2\;6VT;6S$P.S8Y2"`;6SD[-CA(
+M("\;6S@[-CA(+R`;6S<[-CA((!M;,6TO&UMM&ULV.S8Y2"\*&ULQ-#LU,TAR
+M<G)R<G)R<G)R<@H;6S$S.S8X2!M;,6TO&UMM(!M;,3([-CE(+QM;,3$[-CE(
+M<QM;,3`[-CA((!M;,6TO&UMM&ULY.S8X2!M;,6TO&UMM(!M;.#LV.$@@+QM;
+M-SLV.4@O"AM;,30[-31(<7%Q<7%Q<7%Q"AM;,3,[-CA(+QM;,6TO&UMM&ULQ
+M,CLV.4@@&ULQ,3LV.$@;6S1M("\;6VT;6S$P.S8X2"\@&ULY.S8X2"`O&ULW
+M.S8X2!M;,6TO&UMM"AM;,30[-3)(<W)Q<7%Q<7%Q<7%R<PH;6S$S.S8Y2"`;
+M6S$R.S8X2"`;6S%M+QM;;1M;,3$[-CA(&ULT;2\@&UMM&ULQ,#LV.$@@&ULQ
+M;2\;6VT;6S@[-CA(&ULQ;2\;6VT;6S<[-CA(+PH;6S$T.S4Q2'-R&ULQ-#LV
+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
+M(&8*&ULQ,CLT-T@/;R`@("`@;R`@("`@("`@("`@;QM;,3,[-#=(("`N("`@
+M("`@("`@;R!O#B`@("`@(&8;6S$T.S4R2&8@("`N9B`@("`*&ULQ,CLT-T@@
+M("`@("`@+B`@("`/;R!O("`@("`@;PX;6S$S.S0Y2&8@(`]O("`@(&\.("`@
+M("`N("`@("`;6S$T.S4R2"`@("YF("`@("`@("X*&ULQ,CLT-4@N("`@#V\@
+M(&\.(&8@(`]O#B`@("`@("`@+B`@("X;6S$S.S0Y2"`N("`@("`/;PX@("`@
+M("!F&ULQ-#LU-4AF("`@("`@("!F"AM;,3([-#5(9B`@("`@("`@("`/;R`@
+M("`@(&\.("!F("X@9AM;,3,[-3!(9B`@("X/;R`@("`@("X@;PX;6S$T.S4U
+M2"`@("`@("`@("`*(`H;6S$R.S0U2"`@+B`@#V\@("`@;R`@("`N("`@;PX@
+M("!F("`;6S$S.S4P2"`@("!F("`@("`@(&8@(!M;,30[-3%(+B`@("`N("`@
+M("`@+@H;6S$R.S0W2&8@+B`@("`/;PX@("X@(&8@#V\.("`@("!F&ULQ,SLU
+M,TAF(!M;,3,[-C)(("`@+AM;,30[-3%(9B`@("!F("`N("`@9@H;6S$R.S0W
+M2"`@9B`@("`@("!F("!F("`@("`@("`;6S$S.S0W2"X@("`/;PX@9B`@#V\@
+M("`@("!O#B!F&ULQ-#LU,4@@("`@("`@(&8@+B`@"AM;,3([-#E(("`/;R`@
+M("!O("`@("`@;PX;6S$S.S0W2&8@("`@(`]O("`@("`@("`@("!O#B`@+AM;
+M,30[-3)(+B`@("`N(`]O#B!F"AM;,3([-#=(#V\@("`@(&\@("`@("`@("`@
+M(&\;6S$S.S0W2"`@+B`@("`@("`@(&\@;PX@("`@("!F&ULQ-#LU,DAF("`@
+M+F8@("`@"AM;,3([-#=(("`@("`@("X@("`@#V\@;R`@("`@(&\.&ULQ,SLT
+M.4AF("`/;R`@("!O#B`@("`@+B`@("`@&ULQ-#LU,D@@("`N9B`@("`@("`N
+M"AM;,3([-#5(+B`@(`]O("!O#B!F("`/;PX@("`@("`@("X@("`N&ULQ,SLT
+M.4@@+B`@("`@#V\.("`@("`@9AM;,30[-35(9B`@("`@("`@9@H;6S$R.S0U
+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
+M("`@("!O&ULQ,SLT-T@@("X@("`@("`@("!O(&\.("`@("`@9AM;,30[-3)(
+M9B`@("YF("`@(`H;6S$P.S%(("`@("`@>"`@*!M;-&US3W,;6VTI("`@*!M;
+M-&US3W,;6VTI("!X"AM;,3([-#=(("`@("`@("X@("`@#V\@;R`@("`@(&\.
+M&ULQ,SLT.4AF("`/;R`@("!O#B`@("`@+B`@("`@&ULQ-#LU,D@@("`N9B`@
+M("`@("`N"AM;,3`[,4@@("`@("!X("`@("`@("!@("`@("`@("!X"AM;,3([
+M-#5(+B`@(`]O("!O#B!F("`/;PX@("`@("`@("X@("`N&ULQ,SLT.4@@+B`@
+M("`@#V\.("`@("`@9AM;,30[-35(9B`@("`@("`@9@H;6S$P.S%(("`@("`@
+M(%P@(%QS<W-S<W-S<W,O("`O"AM;,3([-#5(9B`@("`@("`@("`/;R`@("`@
+M(&\.("!F("X@9AM;,3,[-3!(9B`@("X/;R`@("`@("X@;PX;6S$T.S4U2"`@
+M("`@("`@("`*&ULQ,#LQ2"`@("`@("`@7"`@("`@("`@("`@("`O"AM;,3([
+M-#5(("`N("`/;R`@("!O("`@("X@("!O#B`@(&8@(!M;,3,[-3!(("`@(&8@
+M("`@("`@9B`@&ULQ-#LU,4@N("`@("X@("`@("`N"AM;,3`[,4@@("`@("`@
+M("!<<W-S<W-S<W-S<W,O"AM;,3([-#=(9B`N("`@(`]O#B`@+B`@9B`/;PX@
+M("`@(&8;6S$S.S4S2&8@&ULQ,SLV,D@@("`N&ULQ-#LU,4AF("`@(&8@("X@
+M("!F"AM;,3`[,4@@("`@("`@("`@;V]P<'%Q<G)S<W,*&ULQ,CLT-T@@(&8@
+M("`@("`@9B`@9B`@("`@("`@&ULQ,SLT-T@N("`@#V\.(&8@(`]O("`@("`@
+M;PX@9AM;,30[-3%(("`@("`@("!F("X@(`H;6S$P.S%(("`@("`@("`@(&]O
+M<'!Q<7)R<W-S"AM;,3([-#E(("`/;R`@("!O("`@("`@;PX;6S$S.S0W2&8@
+M("`@(`]O("`@("`@("`@("!O#B`@+AM;,30[-3)(+B`@("`N(`]O#B!F"AM;
+M,3`[,4@@("`@("`@("`@;V]P<'%Q<G)S<W,*&ULQ,CLT-T@/;R`@("`@;R`@
+M("`@("`@("`@;QM;,3,[-#=(("`N("`@("`@("`@;R!O#B`@("`@(&8;6S$T
+M.S4R2&8@("`N9B`@("`*&ULQ,#LQ2"`@("`@("`@("!O;W!P<7%R<G-S<PH;
+M6S$R.S0W2"`@("`@("`N("`@(`]O(&\@("`@("!O#AM;,3,[-#E(9B`@#V\@
+M("`@;PX@("`@("X@("`@(!M;,30[-3)(("`@+F8@("`@("`@+@H;6S$P.S%(
+M("`@("`@("`@(&]O<'!Q<7)R<W-S"AM;,3([-#5(+B`@(`]O("!O#B!F("`/
+M;PX@("`@("`@("X@("`N&ULQ,SLT.4@@+B`@("`@#V\.("`@("`@9AM;,30[
+M-35(9B`@("`@("`@9@H;6S$P.S%(("`@("`@("`@(&]O<'!Q<7)R<W-S"AM;
+M,3([-#5(9B`@("`@("`@("`/;R`@("`@(&\.("!F("X@9AM;,3,[-3!(9B`@
+M("X/;R`@("`@("X@;PX;6S$T.S4U2"`@("`@("`@("`*&ULQ,#LQ2"`@("`@
+M("`@("!O;W!P<7%R<G-S<QM;,3([-#5(("`N("`/;R`@("!O("`@("X@("!O
+M#B`@(&8@(!M;,3,[-3!(("`@(&8@("`@("`@9B`@&ULQ-#LU,4@N("`@("X@
+M("`@("`N"AM;2!M-("`@("`@>"`@("`@("`@8"`@("`@("`@>`H;6S$R.S0W
+M2&8@+B`@("`/;PX@("X@(&8@#V\.("`@("!F&ULQ,SLU,TAF(!M;,3,[-C)(
+M("`@+AM;,30[-3%(9B`@("!F("`N("`@9@H;6T@;32`@("`@('@@("@;6S1M
+M<T]S&UMM*2`@("@;6S1M<T]S&UMM*2`@>`H;6S$R.S0W2"`@9B`@("`@("!F
+M("!F("`@("`@("`;6S$S.S0W2"X@("`/;PX@9B`@#V\@("`@("!O#B!F&ULQ
+M-#LU,4@@("`@("`@(&8@+B`@"AM;2!M-("`@("`@+R`@('-S<R`@("`@<W-S
+SHAR_EOF
+true || echo 'restore of screen3.2/terminfo/test.txt failed'
+fi
+echo 'End of  part 8'
+echo 'File screen3.2/terminfo/test.txt is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

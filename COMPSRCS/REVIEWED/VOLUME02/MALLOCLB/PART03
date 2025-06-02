@@ -1,0 +1,2586 @@
+From: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Subject: v02i004: malloclib - Malloc Debugging Library, Part03/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Conor P. Cahill <cpcahil%virtech@uunet.UU.NET>
+Posting-number: Volume 2, Issue 4
+Archive-name: malloclib/part03
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 5)."
+# Contents:  malloc.c malloc_chk.c malloc_chn.c mallocint.h mallopt.c
+#   testerr.c tostring.c
+# Wrapped by cpcahil@virtech on Tue Jan 28 16:46:34 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'malloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'malloc.c'\"
+else
+echo shar: Extracting \"'malloc.c'\" \(27329 characters\)
+sed "s/^X//" >'malloc.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X#include <sys/wait.h>
+X
+X#include "mallocint.h"
+X#include "tostring.h"
+X
+X#ifndef lint
+Xstatic char rcs_header[] = "$Id: malloc.c,v 1.19 1992/01/28 16:35:37 cpcahil Exp $";
+X#endif
+X
+Xint		  in_malloc_code;
+Xint		  malloc_checking;
+XDATATYPE	* malloc_data_start;
+XDATATYPE	* malloc_data_end;
+Xstruct mlist 	* malloc_end;
+Xint		  malloc_errfd = 2;
+Xint		  malloc_errno;
+Xint		  malloc_fatal_level = M_HANDLE_ABORT;
+Xint		  malloc_fill_area = 1;
+Xstruct mlist	* malloc_freelist;
+Xlong		  malloc_hist_id = 0;
+Xint		  malloc_lowfrag = 0;
+Xstruct mlist	  malloc_start;
+Xint		  malloc_warn_level;
+X
+X/*
+X * perform string copy, but make sure that we don't go beyond the end of the
+X * buffer (leaving room for trailing info (5 bytes) like the return and a null
+X */
+X#define COPY(s,t,buf,len)	while( (*(s) = *((t)++) ) \
+X				       && ( (s) < ((buf)+(len)-5) ) ) { (s)++; }
+X
+X#define DUMP_PTR	0
+X#define DUMP_NEXT	1
+X#define DUMP_PREV	2
+X
+X#define ERRBUFSIZE	1024
+X
+X/*
+X * Function:	malloc()
+X *
+X * Purpose:	low-level interface to the debug malloc lib.  This should only
+X * 		be called from code that is not recompilable.  The recompilable
+X *		code should include malloc.h and therefore its calls to malloc
+X *		will be #defined to be calls to debug_malloc with the
+X *		appropriate arguments.
+X *
+X * Arguments:	size	- size of data area needed
+X *
+X * Returns:	whatever debug_malloc returns.
+X *
+X * Narrative:
+X *
+X */
+XDATATYPE *
+Xmalloc(size)
+X	SIZETYPE	  size;
+X{
+X	return( debug_malloc(NULL,-1,size) );
+X}
+X
+X/*
+X * Function:	debug_malloc()
+X *
+X * Purpose:	the real memory allocator
+X *
+X * Arguments:	size	- size of data area needed
+X *
+X * Returns:	pointer to allocated area, or NULL if unable
+X *		to allocate addtional data.
+X *
+X * Narrative:
+X *
+X */
+XDATATYPE *
+Xdebug_malloc(file,line,size)
+X	const char	* file;
+X	int		  line;
+X	SIZETYPE	  size;
+X{
+X	static long		  call_counter = 0;
+X	SIZETYPE		  fit;
+X	const char		* func = "malloc";
+X	char			* getenv();
+X	SIZETYPE		  lastfit;
+X	struct mlist		* lastptr;
+X	SIZETYPE		  need;
+X	register struct mlist	* oldptr;
+X	register struct mlist	* ptr;
+X	SIZETYPE		  r_size;
+X	DATATYPE		* sbrk();
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * increment the counter for the number of calls to this func.
+X	 */
+X	call_counter++;
+X
+X	/*
+X	 * If malloc chain checking is on, go do it.
+X	 */
+X	if( malloc_checking )
+X	{
+X		if( DBFmalloc_chain_check(func,file,line,1) != 0 )
+X		{
+X			return(NULL);
+X		}
+X	}
+X
+X	/*
+X	 * save the original requested size;
+X	 */
+X	r_size = size;
+X
+X	/*
+X	 * always make sure there is at least on extra byte in the malloc
+X	 * area so that we can verify that the user does not overrun the
+X	 * data area.
+X	 */
+X	size++;
+X
+X	/*
+X	 * Now look for a free area of memory of size bytes...
+X	 */
+X	oldptr = NULL;
+X	ptr = malloc_freelist;
+X
+X	/*
+X	 * if low fragmentation has been turned on, look for a best fit
+X	 * segment (otherwise, for performance reasons, we will look for
+X	 * a first fit)
+X	 */
+X	if( malloc_lowfrag )
+X	{  
+X		lastfit = 0;
+X		lastptr = NULL;
+X		/*
+X		 * until we run out of segments, or find an exact match
+X		 */
+X		for(; (ptr != NULL) && (ptr->s.size != size); ptr=ptr->freenext)
+X		{
+X			/*
+X			 * quick check to make sure our free-list hasn't been
+X			 * broken.
+X			 */
+X			if((oldptr != NULL) && (ptr->freeprev != oldptr) )
+X			{
+X				malloc_errno = M_CODE_CHAIN_BROKE;
+X				malloc_fatal(func,file,line,oldptr);
+X				return(NULL);
+X			}
+X			/*
+X			 * if this segment is big enough for our needs
+X			 */
+X			if( ptr->s.size > size )
+X			{
+X				/*
+X			 	 * calculate how close we fit.  Note that this
+X				 * will never be zero because if it was, we 
+X			 	 * would have broken out of the loop.
+X				 */
+X				fit = ptr->s.size - size;
+X				/*
+X			 	 * if this is the first one we fit int, or
+X				 * if this a closer fit
+X			 	 */
+X				if( (lastfit == 0) || (fit < lastfit) )
+X				{
+X					lastptr = ptr;
+X					lastfit = fit;
+X				}
+X			}
+X	
+X			oldptr = ptr;
+X
+X		} /* for(... */
+X
+X		/*
+X		 * if we ran out of entries, but we did find one that fit
+X		 * our needs, us the one we found.
+X		 */
+X		if( (ptr == NULL) && (lastptr != NULL) )
+X		{
+X			ptr = lastptr;
+X		}
+X	}
+X	else
+X	{
+X		/*
+X		 * until we run out of free entries, or find an entry that has
+X		 * enough room
+X		 */
+X		for( ; (ptr != NULL) && (ptr->s.size < size); ptr=ptr->freenext)
+X		{
+X			if((oldptr != NULL) && (ptr->freeprev != oldptr) )
+X			{
+X				malloc_errno = M_CODE_CHAIN_BROKE;
+X				malloc_fatal(func,file,line,oldptr);
+X				return(NULL);
+X			}
+X
+X			oldptr = ptr;
+X
+X		} /* for(... */
+X	}
+X
+X	/*
+X	 * If ptr is null, we have run out of memory and must sbrk more
+X	 */
+X	if( ptr == NULL )
+X	{
+X		/*
+X		 * calculate how much space we need.  If they ask for more
+X		 * than 100k, get exactly what they want.  Otherwise get
+X		 * twice what they ask for so that we are ready for the
+X		 * next allocation they ask for
+X	 	 */
+X		need = size + M_SIZE;
+X		if( size < 100*1024 )
+X		{
+X			need <<= 1;
+X		}
+X
+X		/*
+X		 * if the need is less than the minimum block size,
+X		 *     get the minimum block size
+X	 	 */
+X		if( need < M_BLOCKSIZE )
+X		{
+X			need = M_BLOCKSIZE;
+X		}
+X		/*
+X		 * else if the need is not an even multiple of the block size,
+X		 *     round it up to an even multiple
+X		 */
+X		else if( need & (M_BLOCKSIZE-1) )
+X		{
+X			need &= ~(M_BLOCKSIZE-1);
+X			need += M_BLOCKSIZE;
+X		}
+X
+X		/*
+X		 * get the space from the os
+X	 	 */
+X		ptr = (struct mlist *) sbrk((int)need);
+X
+X		/*
+X		 * if we failed to get the space, tell the user about it
+X		 */
+X		if( ptr == (struct mlist *) -1 )
+X		{
+X			malloc_errno = M_CODE_NOMORE_MEM;
+X			malloc_fatal(func,file,line, (struct mlist *)NULL);
+X			return(NULL);
+X		}
+X
+X		/*
+X		 * mark our end point
+X		 */
+X		malloc_data_end = sbrk((int)0);
+X
+X		/*
+X		 * hook the new segment into the malloc chain
+X		 */
+X		ptr->prev     = malloc_end;
+X		ptr->next     = (struct mlist *) 0;
+X		ptr->freenext = (struct mlist *) 0;
+X		ptr->s.size   = need - M_SIZE;
+X		ptr->flag     = M_MAGIC;
+X
+X		malloc_end->next = ptr;
+X		malloc_end = ptr;
+X
+X	} /* if( ptr ==... */
+X	/*
+X	 * else we found a free slot that has enough room,
+X	 *    so take it off the free list
+X	 */
+X	else
+X	{
+X		/*
+X		 * if this module is already in use
+X		 */
+X		if( (ptr->flag & M_INUSE) != 0 )
+X		{
+X			malloc_errno = M_CODE_FREELIST_BAD;
+X			malloc_fatal(func,file,line,ptr);
+X			return(NULL);
+X		}
+X		
+X		/*
+X		 * remove the segment from the free list
+X		 */
+X		malloc_freeseg(M_FREE_REMOVE,ptr);
+X	}
+X		
+X
+X	/*
+X	 * Now ptr points to a memory location that can store
+X	 * this data, so lets go to work.
+X	 */
+X
+X	ptr->r_size = size;		/* save requested size	*/
+X	ptr->flag |= M_INUSE;
+X
+X	/*
+X	 * split off unneeded data area in this block, if possible...
+X	 */
+X	malloc_split(ptr);
+X
+X	/*
+X	 * save the real requested size
+X	 */
+X	ptr->r_size = r_size;
+X
+X	/*
+X	 * just to make sure that noone is misusing malloced
+X	 * memory without initializing it, lets set it to
+X	 * all '\01's.  We call local_memset() because memset()
+X	 * may be checking for malloc'd ptrs and this isn't
+X	 * a malloc'd ptr yet.
+X	 */
+X	if( malloc_fill_area )
+X	{
+X		malloc_aligned_memset(ptr->data,M_FILL,(int)ptr->s.size);
+X	}
+X
+X	/*
+X	 * store the identification information
+X	 */
+X	ptr->file    = file;
+X	ptr->line    = line;
+X	ptr->id      = call_counter;
+X	ptr->hist_id = malloc_hist_id++;
+X
+X	SETTYPE(ptr,M_T_MALLOC);
+X
+X	/*
+X	 * return the pointer to the data area for the user.
+X	 */
+X	return( ptr->data );
+X
+X
+X} /* malloc(... */
+X
+X/*
+X * Function:	malloc_split()
+X *
+X * Purpose:	to split a malloc segment if there is enough room at the
+X *		end of the segment that isn't being used
+X *
+X * Arguments:	ptr	- pointer to segment to split
+X *
+X * Returns:	nothing of any use.
+X *
+X * Narrative:
+X *		get the needed size of the module
+X * 		round the size up to appropriat boundry
+X *		calculate amount of left over space
+X *		if there is enough left over space
+X *		    create new malloc block out of remainder
+X *		    if next block is free 
+X *			join the two blocks together
+X *		    fill new empty block with free space filler
+X * 		    re-adjust pointers and size of current malloc block
+X *		
+X *		
+X *
+X * Mod History:	
+X *   90/01/27	cpcahil		Initial revision.
+X */
+XVOIDTYPE
+Xmalloc_split(ptr)
+X	struct mlist		* ptr;
+X{
+X	SIZETYPE		  rest;
+X	SIZETYPE		  size;
+X	struct mlist		* tptr;
+X
+X	size = ptr->r_size;
+X
+X	/*
+X	 * roundup size to the appropriate boundry
+X	 */
+X	M_ROUNDUP(size);
+X
+X	/*
+X	 * figure out how much room is left in the array.
+X	 * if there is enough room, create a new mlist 
+X	 *     structure there.
+X	 */
+X	if( ptr->s.size > size )
+X	{
+X		rest = ptr->s.size - size;
+X	}
+X	else
+X	{
+X		rest = 0;
+X	}
+X
+X	/*
+X	 * if there is at least enough room to create another malloc block
+X	 */
+X	if( rest > (M_SIZE+M_RND) )
+X	{
+X		tptr = (struct mlist *) (ptr->data+size);
+X		tptr->file = NULL;
+X		SETTYPE(tptr,M_T_SPLIT);
+X		tptr->id   = 0;
+X		tptr->prev = ptr;
+X		tptr->next = ptr->next;
+X		tptr->flag = M_MAGIC;
+X		tptr->s.size = rest - M_SIZE;
+X
+X		/*
+X		 * If possible, join this segment with the next one
+X		 */
+X		malloc_join(tptr, tptr->next,0,0);
+X
+X		if( tptr->next )
+X		{
+X			tptr->next->prev = tptr;
+X		}
+X
+X		/*
+X		 * if we are filling in areas
+X		 */
+X		if( malloc_fill_area )
+X		{
+X			malloc_aligned_memset(tptr->data,M_FREE_FILL,
+X					      (int)tptr->s.size);
+X		}
+X
+X		ptr->next = tptr;
+X		ptr->s.size = size;
+X
+X		if( malloc_end == ptr )
+X		{
+X			malloc_end = tptr;
+X		}
+X
+X		/*
+X		 * add the new segment to the free list
+X		 */
+X		malloc_freeseg(M_FREE_ADD,tptr);
+X	}
+X
+X} /* malloc_split(... */
+X
+X/*
+X * Function:	malloc_join()
+X *
+X * Purpose:	to join two malloc segments together (if possible)
+X *
+X * Arguments:	ptr	- pointer to segment to join to.
+X * 		nextptr	- pointer to next segment to join to ptr.
+X *
+X * Returns:	nothing of any values.
+X *
+X * Narrative:
+X *
+X * Mod History:	
+X *   90/01/27	cpcahil		Initial revision.
+X */
+XVOIDTYPE
+Xmalloc_join(ptr,nextptr, inuse_override, fill_flag)
+X	struct mlist	* ptr;
+X	struct mlist	* nextptr;
+X	int		  inuse_override;
+X	int		  fill_flag;
+X{
+X	SIZETYPE	  newsize;
+X
+X	/*
+X	 * if      the current segment exists
+X	 *    AND  it is not inuse (or if we don't are that it is inuse)
+X 	 *    AND  the next segment exits
+X	 *    AND  it is not in use
+X	 *    AND  it is adjacent to this segment
+X	 *    THEN we can join the two together
+X	 */
+X	if( 	ptr     && ! (inuse_override || (ptr->flag & M_INUSE)) && 
+X		nextptr && ! (nextptr->flag & M_INUSE) &&
+X		((ptr->data+ptr->s.size) == (char *) nextptr) )
+X	{
+X		/*
+X		 * remove nextptr from the freelist
+X		 */
+X		malloc_freeseg(M_FREE_REMOVE,nextptr);
+X
+X		/*
+X		 * if the segment was the end pointer
+X		 */
+X		if( malloc_end == nextptr )
+X		{
+X			malloc_end = ptr;
+X		}
+X		ptr->next = nextptr->next;
+X		newsize = nextptr->s.size + M_SIZE;
+X
+X		/*
+X		 * if we are to fill and this segment is in use,
+X		 *   fill in with M_FILL newly added space...
+X	 	 */
+X		if(fill_flag && (ptr->flag & M_INUSE) && malloc_fill_area )
+X		{
+X			malloc_aligned_memset(ptr->data+ptr->s.size,
+X				      M_FILL, (int)(nextptr->s.size + M_SIZE));
+X		}
+X
+X		ptr->s.size += newsize;
+X		if( ptr->next )
+X		{
+X			ptr->next->prev = ptr;
+X		}
+X	}
+X
+X} /* malloc_join(... */
+X
+X
+X/*
+X * The following mess is just to ensure that the versions of these functions in
+X * the current library are included (to make sure that we don't accidentaly get 
+X * the libc versions. (This is the lazy man's -u ld directive)
+X */
+X
+XVOIDTYPE	(*malloc_void_funcs[])() =
+X{
+X	free,
+X};
+X
+Xint		(*malloc_int_funcs[])() =
+X{
+X	strcmp,
+X	memcmp,
+X};
+X
+XDATATYPE	* (*malloc_char_star_funcs[])() =
+X{
+X	debug_realloc,
+X	debug_calloc,
+X};
+X
+X/*
+X * This is malloc's own memset which is used without checking the parameters.
+X *
+X * NOTE: in order to increase performance this function takes advantage of
+X *	 the fact that it is always called with an aligned pointer AND the
+X *	 length is always a multiple of sizeof(long)
+X */
+XVOIDTYPE
+Xmalloc_aligned_memset(ptr,byte,len)
+X	DATATYPE	* ptr;
+X	char		  byte;
+X	register int	  len;
+X{
+X	register long	  fill_int;
+X	int		  i;
+X	register long	* myptr;
+X
+X	/*
+X	 * fill in the fill integer
+X	 */
+X	fill_int = 0;
+X	for(i=0; i < sizeof(long); i++)
+X	{
+X		fill_int |= (byte << (i << 3));
+X	}
+X
+X	/*
+X	 * get pointer to begining of data
+X	 */	
+X	myptr = (long *) ptr;
+X
+X	/*
+X	 * adjust byte lengt to longword length
+X	 */
+X	len /= sizeof(long);
+X
+X	/*
+X	 * now fill in the data
+X	 */
+X	while(len-- > 0)
+X	{
+X		*myptr++ = fill_int;
+X	}
+X
+X} /* malloc_aligned_memset(... */
+X
+X/*
+X * malloc_safe_memset() - works on any alignment, but is much slower than
+X *			  malloc_aligned_memset();
+X */
+XVOIDTYPE
+Xmalloc_safe_memset(ptr,byte,len)
+X	DATATYPE	* ptr;
+X	char		  byte;
+X	register int	  len;
+X{
+X	register char	* myptr;
+X
+X	myptr = (char *) ptr;
+X
+X	while( len-- > 0 )
+X	{
+X		*myptr++ = byte;
+X	}
+X}
+X
+X/*
+X * Function:	malloc_fatal()
+X *
+X * Purpose:	to display fatal error message and take approrpriate action
+X *
+X * Arguments:	funcname - name of function calling this routine
+X *		mptr	 - pointer to malloc block associated with error
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:
+X *
+X * Notes:	This routine does not make use of any libc functions to build
+X *		and/or disply the error message.  This is due to the fact that
+X *		we are probably at a point where malloc is having a real problem
+X *		and we don't want to call any function that may use malloc.
+X */
+XVOIDTYPE
+Xmalloc_fatal(funcname,file,line,mptr)
+X	const char		* funcname;
+X	const char		* file;
+X	int			  line;
+X	const struct mlist	* mptr;
+X{
+X	char		  errbuf[ERRBUFSIZE];
+X	VOIDTYPE	  exit();
+X	VOIDTYPE	  malloc_err_handler();
+X	char		* s;
+X	char		* t;
+X
+X	s = errbuf;
+X	t = "MALLOC Fatal error from ";
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	t = (char *) funcname;
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	t = "()";
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	/*
+X	 * if we have a file and line number, show it
+X 	 */
+X	if( file != NULL )
+X	{
+X		t = " (called from ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X		
+X		t = (char *) file;
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = " line ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		s += tostring(s,(long)line,0,10,' ');
+X
+X		*s++ = ')';
+X
+X	}
+X
+X	*s++ = ':';
+X	*s++ = '\n';
+X
+X	t = malloc_err_strings[malloc_errno];
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	*(s++) = '\n';
+X
+X	if( write(malloc_errfd,errbuf,(unsigned)(s-errbuf)) != (s-errbuf))
+X	{
+X		VOIDCAST write(2,"I/O error to error file\n",(unsigned)24);
+X		exit(110);
+X	}
+X
+X	/*
+X	 * if this error was associated with an identified malloc block,
+X	 * dump the malloc info for the block.
+X	 */
+X	if( mptr )
+X	{
+X		malloc_dump_info_block(mptr,DUMP_PTR);
+X	}
+X
+X	malloc_err_handler(malloc_fatal_level);
+X
+X} /* malloc_fatal(... */
+X
+X/*
+X * Function:	malloc_warning()
+X *
+X * Purpose:	to display warning error message and take approrpriate action
+X *
+X * Arguments:	funcname - name of function calling this routine
+X *		mptr	 - pointer to malloc block associated with error
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:
+X *
+X * Notes:	This routine does not make use of any libc functions to build
+X *		and/or disply the error message.  This is due to the fact that
+X *		we are probably at a point where malloc is having a real problem
+X *		and we don't want to call any function that may use malloc.
+X */
+XVOIDTYPE
+Xmalloc_warning(funcname,file,line,mptr)
+X	const char		* funcname;
+X	const char		* file;
+X	int			  line;
+X	const struct mlist	* mptr;
+X{
+X	char		  errbuf[ERRBUFSIZE];
+X	VOIDTYPE	  exit();
+X	char		* s;
+X	char		* t;
+X
+X	s = errbuf;
+X	t = "MALLOC Warning from ";
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	t = (char *) funcname;
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	t = "()";
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	/*
+X	 * if we have a file and line number, show it
+X 	 */
+X	if( file != NULL )
+X	{
+X		t = " (called from ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X		
+X		t = (char *) file;
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = " line ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		s += tostring(s,(long)line,0,10,' ');
+X
+X		*s++ = ')';
+X
+X	}
+X
+X	*s++ = ':';
+X	*s++ = '\n';
+X
+X	t = malloc_err_strings[malloc_errno];
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	*(s++) = '\n';
+X
+X	if( write(malloc_errfd,errbuf,(unsigned)(s-errbuf)) != (s-errbuf))
+X	{
+X		VOIDCAST write(2,"I/O error to error file\n",(unsigned)24);
+X		exit(110);
+X	}
+X
+X	/*
+X	 * if this error was associated with an identified malloc block,
+X	 * dump the malloc info for the block.
+X	 */
+X	if( mptr )
+X	{
+X		malloc_dump_info_block(mptr,DUMP_PTR);
+X	}
+X
+X		
+X	malloc_err_handler(malloc_warn_level);
+X
+X} /* malloc_warning(... */
+X
+X/*
+X * Function:	malloc_dump_info_block()
+X *
+X * Purpose:	to display identifying information on an offending malloc
+X *		block to help point the user in the right direction
+X *
+X * Arguments:	mptr - pointer to malloc block
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:
+X *
+X * Notes:	This routine does not make use of any libc functions to build
+X *		and/or disply the error message.  This is due to the fact that
+X *		we are probably at a point where malloc is having a real problem
+X *		and we don't want to call any function that may use malloc.
+X */
+XVOIDTYPE
+Xmalloc_dump_info_block(mptr,id)
+X	const struct mlist	* mptr;
+X	int			  id;
+X{
+X	char		  errbuf[ERRBUFSIZE];
+X	VOIDTYPE	  exit();
+X	char		* getenv();
+X	char		* funcname;
+X	char		* s;
+X	static int	  show_links = -1;
+X	char		* t;
+X
+X	/*
+X	 * if the mlist struct does not have a valid magic number, skip it
+X	 * because we probably have gotten clobbered.
+X	 */
+X	if( (mptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X	{
+X		return;
+X	}
+X
+X	s = errbuf;
+X
+X	if( id == DUMP_PTR )
+X	{
+X		t = "This error is *probably* associated with the following";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = " allocation:\n\n\tA call to ";
+X	}
+X	else if( id == DUMP_PREV )
+X	{
+X		if( mptr == NULL || (mptr == &malloc_start) )
+X		{
+X			t = "\tThere is no malloc chain element prior to the";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X			t = " suspect\n\t element identified above";
+X		}
+X		else
+X		{
+X			t = "\tThe malloc chain element prior to the suspect";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X			t = " allocation is from:\n\n\tA call to ";
+X		}
+X	}
+X	else
+X	{
+X		if( (mptr == NULL) ||
+X		    ((mptr == malloc_end) && (GETTYPE(mptr) == M_T_SPLIT)) )
+X		{
+X			t = "\tThere is no malloc chain element after the";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X			t = " suspect\n\t element identified above";
+X		}
+X		else
+X		{
+X			t ="\tThe malloc chain element following the suspect";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X		
+X			t = " allocation is from:\n\n\tA call to ";
+X		}
+X	}
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X	/*
+X	 * if this is a real-live malloc block (the starting block and
+X	 * the last block (if it was generated by a malloc split) don't
+X	 * count as real blocks since the user never allocated them.
+X	 */
+X	if( (mptr != NULL) && (mptr != &malloc_start)  &&
+X	    ((mptr != malloc_end) || (GETTYPE(mptr) != M_T_SPLIT)) )
+X	{
+X
+X		/*
+X		 * get the function name 
+X	 	 */
+X		switch(GETTYPE(mptr))
+X		{
+X			case M_T_MALLOC:
+X				t = "malloc";
+X				break;
+X			case M_T_REALLOC:
+X				t = "realloc";
+X				break;
+X			case M_T_CALLOC:
+X				t = "calloc";
+X				break;
+X			case M_T_SPLIT:
+X				t = "internal malloc func";
+X				break;
+X			default:
+X				t = "Unknown";
+X				break;
+X		}
+X		funcname = t;
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = " for ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		s += tostring(s,(long)mptr->r_size,0,10,' ');
+X
+X		t = " bytes in ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		/*
+X		 * if we don't have file info
+X	 	 */
+X		if( (mptr->file == NULL) || (mptr->file[0] == EOS) )
+X		{
+X			t = "an unknown file";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X		}
+X		else
+X		{
+X			t = (char *) mptr->file;
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X			t = " on line ";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X			
+X			s += tostring(s,(long)mptr->line,0,10,' ');
+X		}
+X
+X		t = ".\n\tThis was the ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		s += tostring(s,(long)mptr->id,0,10,' ');
+X
+X		t = malloc_int_suffix(mptr->id);
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = " call to ";
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		t = funcname;
+X		COPY(s,t,errbuf,ERRBUFSIZE);
+X
+X		/*
+X		 * if the block is not currently in use
+X		 */
+X		if(  (mptr->flag & M_INUSE) == 0 )
+X		{
+X			t = ". This block has been freed";
+X			COPY(s,t,errbuf,ERRBUFSIZE);
+X		}
+X		
+X	}
+X
+X	t = ".\n\n";
+X	COPY(s,t,errbuf,ERRBUFSIZE);
+X		
+X	if( write(malloc_errfd,errbuf,(unsigned)(s-errbuf)) != (s-errbuf))
+X	{
+X		VOIDCAST write(2,"I/O error to error file\n",(unsigned)24);
+X		exit(110);
+X	}
+X
+X	/*
+X	 * if we haven't set show_links yet,
+X	 */
+X	if( show_links == -1 )
+X	{
+X		/*
+X		 *  see if the environment variable is specified 
+X		 */
+X		t = getenv("MALLOC_SHOW_LINKS");
+X		if( t == NULL )
+X		{
+X			show_links = 0;
+X		}
+X		else
+X		{
+X			show_links = 1;
+X		}
+X	}
+X
+X	/*
+X	 * if this is the primary suspect and we are showing links
+X	 */
+X	if( (show_links != 0 ) && (id == DUMP_PTR ) )
+X	{
+X		/*
+X		 * show the previous and next malloc regions.
+X		 */
+X		malloc_dump_info_block(mptr->prev,DUMP_PREV);
+X		malloc_dump_info_block(mptr->next,DUMP_NEXT);
+X	}
+X		
+X} /* malloc_dump_info_block(... */
+X
+X/*
+X * Function:	malloc_err_handler()
+X *
+X * Purpose:	to take the appropriate action for warning and/or fatal 
+X *		error conditions.
+X *
+X * Arguments:	level - error handling level 
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:
+X *
+X * Notes:	This routine does not make use of any libc functions to build
+X *		and/or disply the error message.  This is due to the fact that
+X *		we are probably at a point where malloc is having a real problem
+X *		and we don't want to call any function that may use malloc.
+X */
+XVOIDTYPE
+Xmalloc_err_handler(level)
+X	int		  level;
+X{
+X	VOIDTYPE	  exit();
+X
+X	if( level & M_HANDLE_DUMP )
+X	{
+X		malloc_dump(malloc_errfd);
+X	}
+X
+X	switch( level & ~M_HANDLE_DUMP )
+X	{
+X		/*
+X		 * If we are to drop a core file and exit
+X		 */
+X		case M_HANDLE_ABORT:
+X			VOIDCAST abort();
+X			break;
+X
+X		/*
+X		 * If we are to exit..
+X		 */
+X		case M_HANDLE_EXIT:
+X			exit(200);
+X			break;
+X
+X		/*
+X		 * If we are to dump a core, but keep going on our merry way
+X		 */
+X		case M_HANDLE_CORE:
+X			{
+X				int	  pid;
+X
+X				/*
+X				 * fork so child can abort (and dump core)
+X				 */
+X				if( (pid = fork()) == 0 )
+X				{
+X					VOIDCAST write(2,"Child dumping core\n",
+X							(unsigned)19);
+X					VOIDCAST signal(SIGIOT, SIG_DFL);
+X					VOIDCAST abort();
+X				}
+X
+X				/*
+X 				 * wait for child to finish dumping core
+X				 */
+X				while( wait((int *)0) != pid)
+X				{
+X				}
+X
+X				/*
+X				 * Move core file to core.pid.cnt so 
+X				 * multiple cores don't overwrite each
+X				 * other.
+X				 */
+X				if( access("core",0) == 0 )
+X				{
+X					static int	  corecnt;
+X					char	  	  filenam[32];
+X					filenam[0] = 'c';
+X					filenam[1] = 'o';
+X					filenam[2] = 'r';
+X					filenam[3] = 'e';
+X					filenam[4] = '.';
+X					VOIDCAST tostring(filenam+5,
+X						(long)getpid(),
+X						5, B_DEC, '0');
+X					filenam[10] = '.';
+X					VOIDCAST tostring(filenam+11,
+X						(long)corecnt++,
+X						3, B_DEC, '0');
+X					filenam[14] = '\0';
+X					VOIDCAST unlink(filenam);
+X					if( link("core",filenam) == 0)
+X					{
+X						VOIDCAST unlink("core");
+X					}
+X				}
+X			}
+X
+X
+X		/* 
+X		 * If we are to just ignore the error and keep on processing
+X		 */
+X		case M_HANDLE_IGNORE:
+X			break;
+X
+X	} /* switch(... */
+X
+X} /* malloc_err_handler(... */
+X
+X/*
+X * Function:	malloc_int_suffix()
+X *
+X * Purpose:	determine the correct suffix for the integer passed 
+X *		(i.e. the st on 1st, nd on 2nd).
+X *
+X * Arguments:	i - the integer whose suffix is desired.
+X *
+X * Returns:	pointer to the suffix
+X *
+X * Narrative:
+X *
+X */
+Xchar *
+Xmalloc_int_suffix(i)
+X	long	  i;
+X{
+X	int	  j;
+X	char	* rtn;
+X	/*
+X	 * since the suffixes repeat for the same number within a
+X	 * given 100 block (i.e. 111 and 211 use the same suffix), get the 
+X	 * integer moded by 100.
+X	 */
+X	i = i % 100;
+X	j = i % 10;
+X
+X	/*
+X	 * if the number is 11, or 12, or 13 or its singles digit is
+X	 * not a 1, 2, or 3, the suffix must be th.
+X	 */
+X	if( (i == 11) || (i == 12) || (i == 13) ||
+X		( (j != 1) && (j != 2) && (j != 3) ) )
+X	{
+X		rtn = "th";
+X	}
+X	else 
+X	{
+X		switch(j)
+X		{
+X			case 1:
+X				rtn = "st";
+X				break;
+X			case 2:
+X				rtn = "nd";
+X				break;
+X			case 3:
+X				rtn = "rd";
+X				break;
+X			default:
+X				rtn = "th";
+X				break;
+X		}
+X	}
+X
+X	return(rtn);
+X	
+X} /* malloc_int_suffix(... */
+X
+X/*
+X * Function:	malloc_freeseg()
+X *
+X * Purpose:	to add or remove a segment from the list of free segments
+X *
+X * Arguments:	op  - operation (M_FREE_REMOVE or M_FREE_ADD)
+X *		ptr - ptr to segment to be added/removed
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:
+X *
+X */
+XVOIDTYPE
+Xmalloc_freeseg(op,ptr)
+X	int		  op;
+X	struct mlist	* ptr;
+X{
+X
+X	/*
+X	 * if we are to remove it from the list
+X	 */
+X	if( op == M_FREE_REMOVE )
+X	{
+X		/*
+X		 * if this is the head of the list, get a new head pointer
+X		 */
+X		if( ptr == malloc_freelist )
+X		{
+X			malloc_freelist = malloc_freelist->freenext;
+X		}
+X
+X		/*
+X		 * if there is an item after this one in the free list,
+X		 *    link it to our prev item (which may be null)
+X		 */
+X		if( ptr->freenext != (struct mlist *) NULL)
+X		{
+X			ptr->freenext->freeprev = ptr->freeprev;
+X		}
+X
+X		/*
+X		 * if there is an item before this one in the free list,
+X		 *    link it to the next item (which may also be NULL)
+X	 	 */
+X		if( ptr->freeprev != (struct mlist *) NULL)
+X		{
+X			ptr->freeprev->freenext = ptr->freenext;
+X		}
+X
+X		/*
+X		 * disable the free list pointers on the segment that was
+X		 * removed from the list.
+X		 */
+X		ptr->freenext = ptr->freeprev = (struct mlist *) NULL;
+X
+X	}
+X	else /* it is an add */
+X	{
+X		/*
+X		 * setup the new links for the new head pointer (new items are
+X	 	 * always placed at the begining of the list.  However, they may
+X		 * be removed from anywhere in the list (hence the double
+X		 * linking))
+X		 */
+X		ptr->freeprev = (struct mlist *) NULL;
+X		ptr->freenext = malloc_freelist;
+X		
+X
+X		/*
+X	 	 * if there was already a valid head pointer
+X		 */
+X		if( malloc_freelist != (struct mlist *) NULL )
+X		{
+X			/*
+X			 * link it back to the new head pointer
+X			 */
+X			malloc_freelist->freeprev = ptr;
+X		}
+X		/*
+X		 * store the new head pointer
+X		 */
+X		malloc_freelist = ptr;
+X
+X	}
+X
+X} /* malloc_freeseg(... */
+X
+X/*
+X * $Log: malloc.c,v $
+X * Revision 1.19  1992/01/28  16:35:37  cpcahil
+X * increased size of error string buffers and added overflow checks
+X *
+X * Revision 1.18  1992/01/10  17:51:03  cpcahil
+X * more void stuff that slipped by
+X *
+X * Revision 1.17  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.16  1992/01/08  19:40:07  cpcahil
+X * fixed write() count to display entire message.
+X *
+X * Revision 1.15  1991/12/31  21:31:26  cpcahil
+X * changes for patch 6.  See CHANGES file for more info
+X *
+X * Revision 1.14  1991/12/06  08:50:48  cpcahil
+X * fixed bug in malloc_safe_memset introduced in last change.
+X *
+X * Revision 1.13  91/12/04  18:01:21  cpcahil
+X * cleand up some aditional warnings from gcc -Wall
+X * 
+X * Revision 1.12  91/12/04  09:23:39  cpcahil
+X * several performance enhancements including addition of free list
+X * 
+X * Revision 1.11  91/12/02  19:10:10  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.10  91/11/25  14:41:59  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.9  91/11/24  16:56:41  cpcahil
+X * porting changes for patch level 4
+X * 
+X * Revision 1.8  91/11/24  00:49:27  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.7  91/11/20  11:54:09  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.6  90/05/11  00:13:09  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.5  90/02/25  11:01:18  cpcahil
+X * added support for malloc chain checking.
+X * 
+X * Revision 1.4  90/02/24  21:50:21  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.3  90/02/24  14:51:18  cpcahil
+X * 1. changed malloc_fatal and malloc_warn to use malloc_errno and be passed
+X *    the function name as a parameter.
+X * 2. Added several function headers.
+X * 3. Changed uses of malloc_fatal/warning to conform to new usage.
+X * 
+X * Revision 1.2  90/02/23  18:05:23  cpcahil
+X * fixed open of error log to use append mode.
+X * 
+X * Revision 1.1  90/02/22  23:17:43  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 27329 -ne `wc -c <'malloc.c'`; then
+    echo shar: \"'malloc.c'\" unpacked with wrong size!
+fi
+# end of 'malloc.c'
+fi
+if test -f 'malloc_chk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'malloc_chk.c'\"
+else
+echo shar: Extracting \"'malloc_chk.c'\" \(7689 characters\)
+sed "s/^X//" >'malloc_chk.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X
+X#include <stdio.h>
+X#include "mallocint.h"
+X#include "debug.h"
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: malloc_chk.c,v 1.12 1992/01/10 17:51:03 cpcahil Exp $";
+X#endif
+X
+X
+X/*
+X * Function:	malloc_in_arena()
+X *
+X * Purpose:	to verify address is within malloc arena.
+X *
+X * Arguments:	ptr	- pointer to verify
+X *
+X * Returns:	TRUE	- if pointer is within malloc area
+X *		FALSE	- otherwise
+X *
+X * Narrative:
+X *   IF pointer is >= malloc area start AND <= malloc area end
+X *      return TRUE
+X *   ELSE
+X *      return FALSE
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X */
+Xint
+Xmalloc_in_arena(ptr)
+X	const DATATYPE	* ptr;
+X{
+X	int		  rtn = 0;
+X
+X	if( ptr >= malloc_data_start && ptr <= malloc_data_end )
+X	{
+X		rtn = 1;
+X	}
+X	
+X	return(rtn);
+X}
+X
+X/*
+X * Function:	malloc_check_str()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		str	- pointer to area to check
+X *
+X * Purpose:	to verify that if str is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      determin length of string
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X */
+XVOIDTYPE
+Xmalloc_check_str(func,file,line,str)
+X	const char		* func;
+X	const char		* file;
+X	int			  line;
+X	const char		* str;
+X{
+X	static int		  layers;
+X	register const char	* s;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code )
+X	{
+X		return;
+X	}
+X
+X	if( (layers++ == 0) &&  malloc_in_arena((DATATYPE *)str) )
+X	{
+X		for( s=str; *s; s++)
+X		{
+X		}
+X		
+X		malloc_verify(func,file,line,str,s-str+1);
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_check_strn()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		str	- pointer to area to check
+X * 		len     - max length of string
+X *
+X * Purpose:	to verify that if str is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      determin length of string
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X *   90/08/29	cpcahil		added length (for strn* functions)
+X */
+XVOIDTYPE
+Xmalloc_check_strn(func,file,line,str,len)
+X	const char	* func;
+X	const char 	* file;
+X	int		  line;
+X	const char	* str;
+X	int		  len;
+X{
+X	register int		  i;
+X	static int		  layers;
+X	register const char	* s;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code )
+X	{
+X		return;
+X	}
+X
+X	if( (layers++ == 0) &&  malloc_in_arena(str) )
+X	{
+X		for( s=str,i=0; (i < len) && *(char *)s; i++,s++)
+X		{
+X		}
+X
+X		/*
+X		 * if we found a null byte before len, add one to s so
+X		 * that we ensure that the null is counted in the bytes to
+X		 * check.
+X		 */
+X		if( i < len )
+X		{
+X			s++;
+X		}
+X		malloc_verify(func,file,line,str,s-str);
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_check_data()
+X *
+X * Arguments:	func	- name of function calling this routine
+X *		ptr	- pointer to area to check
+X *		len 	- length to verify
+X *
+X * Purpose:	to verify that if ptr is within the malloc arena, the data 
+X *		it points to does not extend beyond the applicable region.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *   IF pointer is within malloc arena
+X *      call malloc_verify() to verify data is withing applicable region
+X *   return 
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X *   90/01/29	cpcahil		Added code to ignore recursive calls.
+X */
+XVOIDTYPE
+Xmalloc_check_data(func,file,line,ptr,len)
+X	const char	* func;
+X	const char	* file;
+X	int		  line;
+X	const DATATYPE	* ptr;
+X	SIZETYPE	  len;
+X{
+X	static int	  layers;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * if we are already in the malloc library somewhere, don't check
+X	 * things again.
+X	 */
+X	if( in_malloc_code )
+X	{
+X		return;
+X	}
+X
+X	if( layers++ == 0 )
+X	{
+X		DEBUG3(40,"malloc_check_data(%s,0x%x,%d) called...",
+X			func,ptr,len);
+X		if( malloc_in_arena(ptr) )
+X		{
+X			DEBUG0(10,"pointer in malloc arena, verifying...");
+X			malloc_verify(func,file,line,ptr,len);
+X		}
+X	}
+X
+X	layers--;
+X}
+X
+X/*
+X * Function:	malloc_verify()
+X *
+X * Arguments:	func	- name of function calling the malloc check routines
+X *		ptr	- pointer to area to check
+X *		len 	- length to verify
+X *
+X * Purpose:	to verify that the data ptr points to does not extend beyond
+X *		the applicable malloc region.  This function is only called 
+X *		if it has been determined that ptr points into the malloc arena.
+X *
+X * Returns:	Nothing of any use (function is void).
+X *
+X * Narrative:
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X */
+XVOIDTYPE
+Xmalloc_verify(func,file,line,ptr,len)
+X	const char	* func;
+X	const char	* file;
+X	int		  line;
+X	const DATATYPE	* ptr;
+X	int		  len;
+X{
+X	struct mlist		* mptr;
+X	
+X	DEBUG5(40,"malloc_verify(%s, %s, %s, 0x%x,%d) called...",
+X		func, file, line, ptr, len);
+X	/*
+X	 * Find the malloc block that includes this pointer
+X	 */
+X	mptr = &malloc_start;
+X	while( mptr
+X		&& ! ((((DATATYPE *)mptr) < ptr)
+X		&&   (((DATATYPE *)(mptr->data+mptr->s.size)) > ptr) ) )
+X	{
+X		mptr = mptr->next;
+X	}
+X
+X	/*
+X	 * if ptr was not in a malloc block, it must be part of
+X	 *    some direct sbrk() stuff, so just return.
+X	 */
+X	if( ! mptr )
+X	{
+X		DEBUG1(10,"ptr (0x%x) not found in malloc search", ptr);
+X		return;
+X	}
+X	
+X	/*
+X 	 * Now we have a valid malloc block that contains the indicated
+X	 * pointer.  We must verify that it is withing the requested block
+X	 * size (as opposed to the real block size which is rounded up to
+X	 * allow for correct alignment).
+X	 */
+X
+X	DEBUG4(60,"Checking  0x%x-0x%x, 0x%x-0x%x",
+X			ptr, ptr+len, mptr->data, mptr->data+mptr->r_size);
+X	
+X	if(    (ptr < (DATATYPE *)mptr->data)
+X  	    || ((((char *)ptr)+len) > (char *)(mptr->data+mptr->r_size)) )
+X	{
+X		DEBUG4(0,"pointer not within region 0x%x-0x%x, 0x%x-0x%x",
+X			ptr, ptr+len, mptr->data, mptr->data+mptr->r_size);
+X
+X		malloc_errno = M_CODE_OUTOF_BOUNDS;
+X		malloc_warning(func,file,line,mptr);
+X	}
+X
+X	return;
+X}
+X
+X/*
+X * $Log: malloc_chk.c,v $
+X * Revision 1.12  1992/01/10  17:51:03  cpcahil
+X * more void stuff that slipped by
+X *
+X * Revision 1.11  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.10  1991/12/31  02:23:29  cpcahil
+X * fixed verify bug of strncpy when len was exactly same as strlen
+X *
+X * Revision 1.9  91/12/02  19:10:12  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.8  91/11/25  14:42:01  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.7  91/11/24  00:49:29  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.6  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.5  90/08/29  22:23:48  cpcahil
+X * added new function to check on strings up to a specified length 
+X * and used it within several strn* functions.
+X * 
+X * Revision 1.4  90/05/11  00:13:09  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:22  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:38  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/24  14:57:03  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 7689 -ne `wc -c <'malloc_chk.c'`; then
+    echo shar: \"'malloc_chk.c'\" unpacked with wrong size!
+fi
+# end of 'malloc_chk.c'
+fi
+if test -f 'malloc_chn.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'malloc_chn.c'\"
+else
+echo shar: Extracting \"'malloc_chn.c'\" \(5933 characters\)
+sed "s/^X//" >'malloc_chn.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include "mallocint.h"
+X
+X/*
+X * Function:	malloc_chain_check()
+X *
+X * Purpose:	to verify malloc chain is intact
+X *
+X * Arguments:	todo	- 0 - just check and return status
+X *			  1 - call malloc_warn if error detected
+X *
+X * Returns:	0	- malloc chain intact & no overflows
+X *		other	- problems detected in malloc chain
+X *
+X * Narrative:
+X *
+X * Notes:	If todo is non-zero the malloc_warn function, when called
+X *		may not return (i.e. it may exit)
+X *
+X */
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: malloc_chn.c,v 1.9 1991/12/04 09:23:41 cpcahil Exp $";
+X#endif
+X
+X
+Xint
+Xmalloc_chain_check(todo)
+X	int		  todo;
+X{
+X	return( DBmalloc_chain_check( (char *)NULL, 0, todo) );
+X}
+X
+Xint
+XDBmalloc_chain_check(file,line,todo)
+X	const char	* file;
+X	int		  line;
+X	int		  todo;
+X{
+X	return( DBFmalloc_chain_check("malloc_chain_check",file,line,todo) );
+X}
+X
+Xint
+XDBFmalloc_chain_check(func,file,line,todo)
+X	const char	* func;
+X	const char	* file;
+X	int		  line;
+X	int		  todo;
+X{
+X	int			  i;
+X	register struct mlist	* oldptr;
+X	register struct mlist	* ptr;
+X	int			  rtn = 0;
+X
+X	MALLOC_INIT();
+X
+X	/*
+X	 * first check the full malloc chain
+X	 */
+X	oldptr = &malloc_start;
+X	for(ptr = malloc_start.next; ; oldptr = ptr, ptr = ptr->next)
+X	{
+X		/*
+X		 * Since the malloc chain is a forward only chain, any
+X		 * pointer that we get should always be positioned in 
+X		 * memory following the previous pointer.  If this is not
+X		 * so, we must have a corrupted chain.
+X		 */
+X		if( ptr )
+X		{
+X			if(ptr < oldptr )
+X			{
+X				malloc_errno = M_CODE_CHAIN_BROKE;
+X				if( todo )
+X				{
+X					malloc_fatal(func,file,line,oldptr);
+X				}
+X				rtn++;
+X				break;
+X			}
+X		}
+X		else
+X		{
+X			if( malloc_end && (oldptr != malloc_end) )
+X			{
+X				/*
+X				 * This should never happen.  If it does, then
+X				 * we got a real problem.
+X				 */
+X				malloc_errno = M_CODE_NO_END;
+X				if( todo )
+X				{
+X					malloc_fatal(func,file,line,oldptr);
+X				}
+X				rtn++;
+X			}
+X			break;
+X		}
+X		
+X		/*
+X		 * verify that ptr is within the malloc region...
+X		 * since we started within the malloc chain this should never
+X		 * happen.
+X		 */
+X		if( ((DATATYPE *)ptr < malloc_data_start) ||
+X		    ((DATATYPE *)ptr > malloc_data_end) )
+X		{
+X			malloc_errno = M_CODE_BAD_PTR;
+X			if( todo )
+X			{
+X				malloc_fatal(func,file,line,oldptr);
+X			}
+X			rtn++;
+X			break;
+X		}
+X
+X		/* 
+X		 * verify magic flag is set
+X		 */
+X		
+X		if( (ptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X		{
+X			malloc_errno = M_CODE_BAD_MAGIC;
+X			if( todo )
+X			{
+X				malloc_warning(func,file,line,
+X						(struct mlist *)NULL);
+X			}
+X			rtn++;
+X			continue;
+X		}
+X
+X		/* 
+X		 * verify segments are correctly linked together
+X		 */
+X		if( (ptr->prev && (ptr->prev->next != ptr) ) ||
+X		    (ptr->next && (ptr->next->prev != ptr) ) ||
+X		    ((ptr->next == NULL) && (ptr->prev == NULL)) )
+X		{
+X			malloc_errno = M_CODE_BAD_CONNECT;
+X			if( todo )
+X			{
+X				malloc_warning(func,file,line,ptr);
+X			}
+X			rtn++;
+X			continue;
+X		}
+X
+X		/*
+X		 * If this segment is allocated
+X		 */
+X		if( (ptr->flag & M_INUSE) != 0 )
+X		{
+X			/*
+X			 * verify no overflow of data area
+X			 */
+X
+X			for(i=ptr->r_size; i < ptr->s.size; i++)
+X			{
+X				if( ptr->data[i] != M_FILL )
+X				{
+X					malloc_errno = M_CODE_OVERRUN;
+X					if( todo )
+X					{
+X						malloc_warning(func,file,
+X								line,ptr);
+X					}
+X					rtn++;
+X					break;
+X				}
+X			}
+X		}
+X		else /* it's not allocated so */
+X		{
+X			/*
+X			 * verify no reuse of freed data blocks
+X			 */
+X
+X			for(i=0; i < ptr->s.size; i++)
+X			{
+X				if( ptr->data[i] != M_FREE_FILL )
+X				{
+X					malloc_errno = M_CODE_REUSE;
+X					if( todo )
+X					{
+X						malloc_warning(func,file,
+X								line,ptr);
+X					}
+X					rtn++;
+X					break;
+X				}
+X			}
+X		}
+X
+X	} /* for(... */
+X
+X	/*
+X	 * and now check the free list
+X	 */
+X	oldptr = NULL;
+X	for(ptr = malloc_freelist; (rtn == 0) && (ptr != NULL); ptr = ptr->freenext)
+X	{
+X		/*
+X		 * Since the malloc chain is a forward only chain, any
+X		 * pointer that we get should always be positioned in 
+X		 * memory following the previous pointer.  If this is not
+X		 * so, we must have a corrupted chain.
+X		 */
+X		if( (oldptr != NULL) && (ptr < oldptr) )
+X		{
+X			malloc_errno = M_CODE_CHAIN_BROKE;
+X			if( todo )
+X			{
+X				malloc_fatal(func,file,line,oldptr);
+X			}
+X			rtn++;
+X		}
+X		/*
+X		 * verify that ptr is within the malloc region...
+X		 * since we started within the malloc chain this should never
+X		 * happen.
+X		 */
+X		else if( ((DATATYPE *)ptr < malloc_data_start) ||
+X		    ((DATATYPE *)ptr > malloc_data_end) )
+X		{
+X			malloc_errno = M_CODE_BAD_PTR;
+X			if( todo )
+X			{
+X				malloc_fatal(func,file,line,oldptr);
+X			}
+X			rtn++;
+X		}
+X		/* 
+X		 * verify magic flag is set
+X		 */
+X		else if( (ptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X		{
+X			malloc_errno = M_CODE_BAD_MAGIC;
+X			if( todo )
+X			{
+X				malloc_warning(func,file,line,
+X						(struct mlist *)NULL);
+X			}
+X			rtn++;
+X		}
+X		/* 
+X		 * verify segments are correctly linked together
+X		 */
+X		else if(   (ptr->freeprev && (ptr->freeprev->freenext != ptr) )
+X			|| (ptr->freenext && (ptr->freenext->freeprev != ptr) ) )
+X		{
+X			malloc_errno = M_CODE_BAD_CONNECT;
+X			if( todo )
+X			{
+X				malloc_warning(func,file,line,ptr);
+X			}
+X			rtn++;
+X		}
+X		/*
+X		 * else if this segment is in use
+X		 */
+X		else if( (ptr->flag & M_INUSE) != 0 )
+X		{
+X			malloc_errno = M_CODE_FREELIST_BAD;
+X			if( todo )
+X			{
+X				malloc_warning(func,file, line,ptr);
+X			}
+X			rtn++;
+X		}
+X		/*
+X		 * else if we are filling in areas, check to make sure
+X		 * that the free fill bytes are still set
+X		 */
+X		else if( malloc_fill_area )
+X		{
+X			/*
+X			 * verify no reuse of freed data blocks
+X			 */
+X			for(i=0; i < ptr->s.size; i++)
+X			{
+X				if( ptr->data[i] != M_FREE_FILL )
+X				{
+X					malloc_errno = M_CODE_REUSE;
+X					if( todo )
+X					{
+X						malloc_warning(func,file,
+X								line,ptr);
+X					}
+X					rtn++;
+X					break;
+X				}
+X			}
+X		}
+X
+X	} /* for(... */
+X	return(rtn);
+X
+X} /* malloc_chain_check(... */
+END_OF_FILE
+if test 5933 -ne `wc -c <'malloc_chn.c'`; then
+    echo shar: \"'malloc_chn.c'\" unpacked with wrong size!
+fi
+# end of 'malloc_chn.c'
+fi
+if test -f 'mallocint.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mallocint.h'\"
+else
+echo shar: Extracting \"'mallocint.h'\" \(3686 characters\)
+sed "s/^X//" >'mallocint.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X/*
+X * $Id: mallocint.h,v 1.7 1991/12/31 21:31:26 cpcahil Exp $
+X */
+X
+X/*
+X * this file contains macros that are internal to the malloc library
+X * and therefore, are not needed in malloc.h.
+X */
+X#include <string.h>
+X#include <memory.h>
+X
+X#if __STDC__
+X#include <unistd.h>
+X#include <stdlib.h>
+X#endif
+X
+X#define IN_MALLOC_CODE	1
+X#include "malloc.h"
+X
+X#define IDTYPE unsigned long
+X
+X#if ! __STDC__
+X#define const
+X#endif
+X
+X/*
+X * minimum round up to get to a doubleword boundry, assuming it is the
+X * strictest alignment requirement on the system.  If not, the union s
+X * in struct mlist will also have to be changed.
+X */
+X#define M_RND		0x08
+X
+Xstruct mlist
+X{
+X	struct mlist	* next;			/* next entry in chain	*/
+X	struct mlist	* prev;			/* prev entry in chain	*/
+X	struct mlist	* freenext;		/* next ent in free chn */
+X	struct mlist	* freeprev;		/* prev ent in free chn */
+X	int	 	  flag;			/* inuse flag		*/
+X	const char	* file;			/* file where called fm	*/
+X	int		  line;			/* line where called fm	*/
+X	IDTYPE		  hist_id;		/* historical id	*/
+X	IDTYPE		  id;			/* malloc call number	*/
+X	SIZETYPE	  r_size;		/* requested size	*/
+X	union
+X	{
+X		SIZETYPE	  size;		/* actual size		*/
+X		double		  unused_just_for_alignment;
+X	} s;
+X	char		  data[M_RND];
+X};
+X
+X/*
+X * kludge to get offsetof the data element for the mlist structure
+X */
+X#define M_SIZE		((int)(char *)((struct mlist *)0)->data)
+X
+X#define M_INUSE 	0x01
+X#define M_MAGIC 	0x03156100
+X#define M_MAGIC_BITS	0xffffff00
+X
+X#define M_BLOCKSIZE	(1024*8)
+X
+X#define EOS		'\0'
+X#define M_FILL		'\01'
+X#define M_FREE_FILL	'\02'
+X
+X#define MALLOC_INIT()	if( malloc_data_start == (DATATYPE *)0 ) malloc_init()
+X
+X/*
+X * malloc_freeseg() operation arguments
+X */
+X#define M_FREE_REMOVE	1
+X#define M_FREE_ADD	2
+X/*
+X * Malloc types
+X */
+X#define M_T_MALLOC	0x10
+X#define M_T_REALLOC	0x20
+X#define M_T_CALLOC	0x30
+X#define M_T_SPLIT	0x40
+X#define M_T_BITS	0x70
+X
+X#define GETTYPE(_ptr)		(_ptr->flag & M_T_BITS)
+X#define SETTYPE(_ptr,_type) 	(_ptr->flag = ((_ptr->flag & ~M_T_BITS)|_type))
+X
+X#define M_ROUNDUP(size)	{\
+X				if( size & (M_RND-1) ) \
+X				{ \
+X					size += (M_RND-1); \
+X					size &= ~(M_RND-1); \
+X				} \
+X			}
+X
+Xvoid		  exit __stdcargs((int));
+Xchar		* getenv __stdcargs((const char *));
+XDATATYPE	* sbrk __stdcargs((SIZETYPE));
+X
+X#undef __stdcargs
+X#include "prototypes.h"
+X
+X/*
+X * global variables
+X */
+Xextern int		  in_malloc_code;
+Xextern int		  malloc_checking;
+Xextern DATATYPE		* malloc_data_start;
+Xextern DATATYPE		* malloc_data_end;
+Xextern struct mlist 	* malloc_end;
+Xextern int		  malloc_errfd;
+Xextern int		  malloc_errno;
+Xextern char		* malloc_err_strings[];
+Xextern int		  malloc_fatal_level;
+Xextern int		  malloc_fill_area;
+Xextern struct mlist	* malloc_freelist;
+Xextern long		  malloc_hist_id;
+Xextern int		  malloc_lowfrag;
+Xextern struct mlist	  malloc_start;
+Xextern int		  malloc_warn_level;
+X
+X/*
+X * $Log: mallocint.h,v $
+X * Revision 1.7  1991/12/31  21:31:26  cpcahil
+X * changes for patch 6.  See CHANGES file for more info
+X *
+X * Revision 1.6  1991/12/06  08:54:18  cpcahil
+X * cleanup of __STDC__ usage and addition of CHANGES file
+X *
+X * Revision 1.5  91/12/04  18:01:22  cpcahil
+X * cleand up some aditional warnings from gcc -Wall
+X * 
+X * Revision 1.4  91/12/04  09:23:42  cpcahil
+X * several performance enhancements including addition of free list
+X * 
+X * Revision 1.3  91/12/02  19:10:12  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.2  91/11/25  14:42:02  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.1  91/11/24  00:49:30  cpcahil
+X * first cut at patch 4
+X * 
+X */
+END_OF_FILE
+if test 3686 -ne `wc -c <'mallocint.h'`; then
+    echo shar: \"'mallocint.h'\" unpacked with wrong size!
+fi
+# end of 'mallocint.h'
+fi
+if test -f 'mallopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mallopt.c'\"
+else
+echo shar: Extracting \"'mallopt.c'\" \(2654 characters\)
+sed "s/^X//" >'mallopt.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include "mallocint.h"
+X
+X/*
+X * Function:	mallopt()
+X *
+X * Purpose:	to set options for the malloc debugging library
+X *
+X * Arguments:	none
+X *
+X * Returns:	nothing of any value
+X *
+X * Narrative:	
+X *
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: mallopt.c,v 1.11 1992/01/10 17:28:03 cpcahil Exp $";
+X#endif
+X
+Xint
+Xmallopt(cmd,value)
+X	int			  cmd;
+X	union malloptarg	  value;
+X{
+X	int			  i;
+X	register char		* s;
+X
+X	MALLOC_INIT();
+X
+X	switch(cmd)
+X	{
+X		case MALLOC_WARN:
+X			malloc_warn_level = value.i;
+X			break;
+X
+X		case MALLOC_FATAL:
+X			malloc_fatal_level = value.i;
+X			break;
+X
+X		case MALLOC_CKCHAIN:
+X			malloc_checking = value.i;
+X			break;
+X
+X		case MALLOC_LOWFRAG:
+X			malloc_lowfrag = value.i;
+X			break;
+X
+X		case MALLOC_FILLAREA:
+X			malloc_fill_area = value.i;
+X			break;
+X
+X		case MALLOC_ERRFILE:
+X			
+X			i = open(value.str,O_CREAT|O_APPEND|O_WRONLY,0666);
+X			if( i == -1 )
+X			{
+X				VOIDCAST write(2,
+X					  "Unable to open malloc error file: ",
+X					  (unsigned) 34);
+X				for(s=value.str; *s; s++)
+X				{
+X					/* do nothing */;
+X				}
+X				VOIDCAST write(2,value.str,
+X					     (unsigned)(s-value.str));
+X				VOIDCAST write(2,"\n",(unsigned)1);
+X			}
+X			else
+X			{
+X				if( malloc_errfd != 2 )
+X				{
+X					VOIDCAST close(malloc_errfd);
+X				}
+X				malloc_errfd = i;
+X			}
+X			
+X			break;
+X
+X		default:
+X			return(1);
+X	}
+X
+X	return(0);
+X}
+X
+X/*
+X * $Log: mallopt.c,v $
+X * Revision 1.11  1992/01/10  17:28:03  cpcahil
+X * Added support for overriding void datatype
+X *
+X * Revision 1.10  1991/12/31  21:31:26  cpcahil
+X * changes for patch 6.  See CHANGES file for more info
+X *
+X * Revision 1.9  1991/12/04  09:23:42  cpcahil
+X * several performance enhancements including addition of free list
+X *
+X * Revision 1.8  91/11/25  14:42:03  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.7  91/11/24  00:49:30  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.6  90/08/29  22:23:36  cpcahil
+X * fixed mallopt to use a union as an argument.
+X * 
+X * Revision 1.5  90/08/29  21:22:51  cpcahil
+X * miscellaneous lint fixes
+X * 
+X * Revision 1.4  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/25  11:03:26  cpcahil
+X * changed to return int so that it agrees with l libmalloc.a's mallopt()
+X * 
+X * Revision 1.2  90/02/25  11:01:21  cpcahil
+X * added support for malloc chain checking.
+X * 
+X * Revision 1.1  90/02/24  21:50:24  cpcahil
+X * Initial revision
+X * 
+X * Revision 1.1  90/02/24  17:10:53  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 2654 -ne `wc -c <'mallopt.c'`; then
+    echo shar: \"'mallopt.c'\" unpacked with wrong size!
+fi
+# end of 'mallopt.c'
+fi
+if test -f 'testerr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testerr.c'\"
+else
+echo shar: Extracting \"'testerr.c'\" \(1529 characters\)
+sed "s/^X//" >'testerr.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#if __STDC__
+X#include <stdlib.h>
+X#endif
+X#include "malloc.h"
+X
+Xint
+Xmain(argc,argv)
+X	int			  argc;
+X	char			**argv[];
+X{
+X
+X	char			* s;
+X	char			* t;
+X	union malloptarg	  m;
+X
+X	m.i = 1;
+X	mallopt(MALLOC_CKCHAIN,m);
+X
+X
+X	t = malloc(20);
+X
+X	s = malloc(10);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from strcpy() - out of bounds\n");
+X	strncpy(s,t,11);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from memset() - out of bounds\n");
+X	memset(t,' ',21);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - overrun\n");
+X	free(t);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"NO error from bzero\n");
+X	bzero(s,10);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from bzero() - out of bounds\n");
+X	bzero(s,11);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - overrun\n");
+X	free(s);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - invalid magic\n");
+X	free(s);
+X
+X	s = malloc(10);
+X	t = malloc(500); 	/* do this to make sure memset doesnt core */
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from memset() - out of bounds\n");
+X	memset(s,'1',100);
+X	
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from malloc() - chain broken\n");
+X	t = malloc(10);
+X	
+X	return(0);
+X}
+X
+END_OF_FILE
+if test 1529 -ne `wc -c <'testerr.c'`; then
+    echo shar: \"'testerr.c'\" unpacked with wrong size!
+fi
+# end of 'testerr.c'
+fi
+if test -f 'tostring.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tostring.c'\"
+else
+echo shar: Extracting \"'tostring.c'\" \(2892 characters\)
+sed "s/^X//" >'tostring.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991 Conor P. Cahill (uunet!virtech!cpcahil).  
+X * You may copy, distribute, and use this software as long as this
+X * copyright statement is not removed.
+X */
+X#include "tostring.h"
+X
+X/*
+X * Function:	tostring()
+X *
+X * Purpose:	to convert an integer to an ascii display string
+X *
+X * Arguments:	buf	- place to put the 
+X *		val	- integer to convert
+X *		len	- length of output field (0 if just enough to hold data)
+X *		base	- base for number conversion (only works for base <= 16)
+X *		fill	- fill char when len > # digits
+X *
+X * Returns:	length of string
+X *
+X * Narrative:	IF fill character is non-blank
+X *		    Determine base
+X *		        If base is HEX
+X *		            add "0x" to begining of string
+X *		        IF base is OCTAL
+X *		            add "0" to begining of string
+X *
+X *		While value is greater than zero
+X *		    use val % base as index into xlation str to get cur char
+X *		    divide val by base
+X *
+X *		Determine fill-in length
+X *
+X *		Fill in fill chars
+X *
+X *		Copy in number
+X *		
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: tostring.c,v 1.5 1991/11/25 14:42:06 cpcahil Exp $";
+X#endif
+X
+X#define T_LEN 15
+X
+Xint
+Xtostring(buf,val,len,base,fill)
+X	int	  base;
+X	char	* buf;
+X	char	  fill;
+X	int	  len;
+X	long	  val;
+X	
+X{
+X	char	* bufstart = buf;
+X	int	  i = T_LEN;
+X	char	* xbuf = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+X	char	  tbuf[T_LEN];
+X
+X	/*
+X	 * if we are filling with non-blanks, make sure the
+X	 * proper start string is added
+X	 */
+X	if( fill != ' ' )
+X	{
+X		switch(base)
+X		{
+X			case B_HEX:
+X				if( (len == 0) ||  (len > 2) )
+X				{
+X					*(buf++) = '0';
+X					*(buf++) = 'x';
+X					if( len )
+X					{
+X						len -= 2;
+X					}
+X				}
+X				break;
+X			case B_OCTAL:
+X				*(buf++) = fill;
+X				if( len )
+X				{
+X					len--;
+X				}
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X
+X	while( val > 0 )
+X	{
+X		tbuf[--i] = xbuf[val % (long)base];
+X		val = val / (long)base;
+X	}
+X
+X	if( len )
+X	{
+X		len -= (T_LEN - i);
+X
+X		if( len > 0 )
+X		{
+X			while(len-- > 0)
+X			{
+X				*(buf++) = fill;
+X			}
+X		}
+X		else
+X		{
+X			/* 
+X			 * string is too long so we must truncate
+X			 * off some characters.  We do this the easiest
+X			 * way by just incrementing i.  This means the
+X			 * most significant digits are lost.
+X			 */
+X			while( len++ < 0 )
+X			{
+X				i++;
+X			}
+X		}
+X	}
+X
+X	while( i < T_LEN )
+X	{
+X		*(buf++) = tbuf[i++];
+X	}
+X
+X	return( (int) (buf - bufstart) );
+X
+X} /* tostring(... */
+X
+X/*
+X * $Log: tostring.c,v $
+X * Revision 1.5  1991/11/25  14:42:06  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.4  90/05/11  00:13:11  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:33  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:42  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/22  23:17:44  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 2892 -ne `wc -c <'tostring.c'`; then
+    echo shar: \"'tostring.c'\" unpacked with wrong size!
+fi
+# end of 'tostring.c'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

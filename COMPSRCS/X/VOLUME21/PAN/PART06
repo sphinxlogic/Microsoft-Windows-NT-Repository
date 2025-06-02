@@ -1,0 +1,1585 @@
+Newsgroups: comp.sources.x
+From: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Subject: v21i042:  pan - A post a note program, Part06/06
+Message-ID: <1993Nov9.000800.11051@sparky.sterling.com>
+X-Md4-Signature: 9d380255a7f9dca06aaed88c15f06dfe
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 00:08:00 GMT
+Approved: chris@sterling.com
+
+Submitted-by: jeff@tasslehoff.interlan.com (Jeff Bailey)
+Posting-number: Volume 21, Issue 42
+Archive-name: pan/part06
+Environment: X11, OpenLook, XView
+Supersedes: pan: Volume 16, Issue 137-142
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 06 of a multipart archive
+# ============= pan3.0/work.c ==============
+if test ! -d 'pan3.0'; then
+    echo 'x - creating directory pan3.0'
+    mkdir 'pan3.0'
+fi
+if test -f 'pan3.0/work.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/work.c (File already exists)'
+else
+echo 'x - extracting pan3.0/work.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/work.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xextern char *re_comp();
+X
+Xextern FILE *errfp;
+X
+X/*
+X    Build a list of notes with subjects matching the provided RE.
+X    If notvisible is set, only finds hidden or veiled matches.
+X
+X    Return number of matches.
+X    Return -1 for bad RE.
+X    Return -2 for memory alloc failure.
+X*/
+Xw_matchingnotes(root, re, notvisible)
+X    struct LLM_root *root;
+X    char *re;
+X    int  notvisible;
+X    {
+X    int  count = 0;
+X    struct SubDir *sp;
+X    struct Note *np;
+X    struct Note **npp;
+X    char tbuf [MAXSEARCHLEN + 1];
+X
+X    LLM_init(root, sizeof(struct Note *));
+X    if(re_comp(re) != NULL)
+X        {
+X        return(-1);
+X        }
+X    sp = (struct SubDir *) LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        np = (struct Note *) LLM_first(&sp->note_rt);
+X        while(np != NULL)
+X            {
+X            strcpy(tbuf, np->ntitle);
+X            if(strlen(tbuf) == 0) strcpy(tbuf, NOTITLE);
+X            if(re_exec(tbuf) == 1)
+X                {
+X                if((!notvisible) ||
+X                   (notvisible && np->state != Visible))
+X                    {
+X                    npp = (struct Note **) LLM_add(root);
+X                    if(npp == NULL)
+X                        {
+X                        return(-2);
+X                        }
+X                    count++;
+X                    *npp = np;
+X                    }
+X                }
+X            np = (struct Note *) LLM_next(&sp->note_rt);
+X            }
+X        sp = (struct SubDir *) LLM_next(&subdir_rt);
+X        }
+X    return(count);
+X    }
+X
+Xw_exposenote(np, display)
+X    struct Note *np;
+X    int  display;
+X    {
+X    buildnote(np, display, FALSE);
+X    xv_set(np->title, PANEL_VALUE, np->ntitle, NULL);
+X    set_frame_title(np, np->ntitle);
+X    reseticon(np);
+X    np->state = Visible;
+X    update(np);
+X    updateinfo(np, FORCE);
+X    }
+X
+Xw_hidenote(np)
+X    struct Note *np;
+X    {
+X    np->state = Hidden;
+X    update(np);
+X    updateinfo(np, FORCE);
+X    textsw_reset(np->textsw, 0, 0);
+X    put_win(np);
+X    np->mapped = 0;
+X    }
+X
+Xw_veilnote(np)
+X    struct Note *np;
+X    {
+X    np->state = Veiled;
+X    update(np);
+X    updateinfo(np, NOFORCE);
+X    textsw_reset(np->textsw, 0, 0);
+X    put_win(np);
+X    np->mapped = 0;
+X    }
+X
+Xw_popupxy(x, y, width, height, spacing)
+X    int *x, *y;
+X    int  width, height, spacing;
+X    {
+X    Display *dpy;
+X    Xv_Screen screen;
+X    int  screen_num;
+X    int  screen_height;
+X    int  screen_width;
+X    Rect rect;
+X
+X    dpy = (Display *) xv_get(main_frame, XV_DISPLAY);
+X    screen = (Xv_Screen) xv_get(main_frame, XV_SCREEN);
+X    screen_num = xv_get(screen, SCREEN_NUMBER);
+X    screen_height = DisplayHeight(dpy, screen_num);
+X    screen_width = DisplayWidth(dpy, screen_num);
+X    frame_get_rect(main_frame, &rect);
+X    rect.r_left += spacing;
+X    if((rect.r_left + width) > (screen_width - spacing))
+X        rect.r_left = screen_width - width - spacing;
+X    if((rect.r_top + rect.r_height + 2 * spacing + height) <
+X       screen_height)
+X        rect.r_top += (rect.r_height + spacing);
+X    else
+X        rect.r_top -= (height + 2 * spacing);
+X    *x = rect.r_left;
+X    *y = rect.r_top;
+X    }
+X
+X/*
+X    Creates a new folder, with error reporting to display OR logfile.
+X    Calls routines to check name validity and to make the directory.
+X*/
+Xw_newfolder(name, display)
+X    char *name;
+X    int  display;
+X    {
+X    struct SubDir *sp;
+X    Menu_item mi;
+X    int  result;
+X
+X    if(w_validfolder(name, display) < 0) return;
+X
+X    if((result = w_makefolder(name)) != 0)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Cannot create the new folder",
+X                    name,
+X                    sys_errlist[result],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Cannot create new folder {%s}:  %s\n",
+X                   myname, name, sys_errlist[result]);
+X            }
+X        return;
+X        }
+X    sp = (struct SubDir *) LLM_add(&subdir_rt);
+X    if(sp == NULL)
+X        {
+X        int  t_errno;
+X
+X        t_errno = errno;
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Cannot create the new folder",
+X                    name,
+X                    sys_errlist[t_errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp,
+X                "%s:  Cannot create new folder {%s}, memory problem %s\n",
+X                myname, name, sys_errlist[t_errno]);
+X            }
+X        return;
+X        }
+X    memset((char *)sp, 0, sizeof(struct SubDir));
+X    strcpy(sp->subdir, name);
+X    LLM_init(&sp->note_rt, sizeof(struct Note));
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_NOTIFY_PROC, newnote,
+X        NULL);
+X    xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_GEN_PULLRIGHT, gen_exposemenu,
+X        NULL);
+X    xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_GEN_PULLRIGHT, gen_prtmenu,
+X        NULL);
+X    xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X
+X    refresh_popups();
+X    }
+X
+X/*
+X    Determine if a folder name is valid.
+X    Returns  0 - ok
+X            -1 - failed
+X*/
+Xw_validfolder(name, display)
+X    char *name;
+X    int  display;
+X    {
+X    char *cp;
+X    int  result;
+X
+X    result = 0;
+X    trim(name);
+X    if(*name == 0) result = -1;
+X    cp = name;
+X    if(*cp == '.') result = -2;
+X    while(*cp)
+X        {
+X        if(*cp == '/') result = -3;
+X        if(*cp == ' ' || *cp == '\t') result = -4;
+X        cp++;
+X        }
+X
+X    switch(result)
+X        {
+X        case 0 : /* ok */
+X            break;
+X        case -1 : /* no name */
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "No folder name entered",
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp, "%s:  No folder name supplied\n", myname);
+X                }
+X            return(-1);
+X            break;
+X        case -2 : /* begins with a . */
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Folder name cannot begin with a '.'",
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp, "%s:  Folder name cannot begin with a '.'\n",
+X                        myname);
+X                }
+X            return(-1);
+X            break;
+X        case -3 : /* contains a / */
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Folder name cannot contain a '/'",
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp, "%s:  Folder name cannot contain a '/'\n",
+X                        myname);
+X                }
+X            return(-1);
+X            break;
+X        case -4 : /* contains whitespace */
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Folder name cannot contain spaces or tabs",
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp,
+X                        "%s:  Folder name cannot contain spaces or tabs\n",
+X                        myname);
+X                }
+X            return(-1);
+X            break;
+X        }
+X    return(0);
+X    }
+X
+X/*
+X    Makes a new folder (sub-directory).
+X    Returns  0 - ok
+X             x = errno
+X*/
+Xw_makefolder(name)
+X    char *name;
+X    {
+X    if(mkdir(name, 0700) < 0)
+X        return(errno);
+X    else
+X        return(0);
+X    }
+X
+X/*
+X    Moves a note from one folder to another
+X    Returns  0 - ok
+X            -1 = error
+X*/
+Xw_movenote(src_sp, dst_sp, np, display)
+X    struct SubDir *src_sp, *dst_sp;
+X    struct Note *np;
+X    int  display;
+X    {
+X    struct Note *tn;
+X    char src[MAXSUBDIR + 1];
+X    char dst[MAXSUBDIR + 1];
+X    char buf[MAXBUFLEN];
+X    char buf2[MAXBUFLEN];
+X
+X    strcpy(src, src_sp->subdir);
+X    strcpy(dst, dst_sp->subdir);
+X    trim(src);
+X    trim(dst);
+X    if(strcmp(src, dst) == 0)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Source and destination folders cannot be the same",
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Move note failed:  Source and destination folders cannot be the same: %s\n",
+X                    myname, src);
+X            }
+X        return(-1);
+X        }
+X
+X    sprintf(buf, "%s/%s", src, np->basename);
+X    sprintf(buf2, "%s/%s", dst, np->basename);
+X    if(rename(buf, buf2) < 0)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Note move failed",
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Note move failed: {%s:%s} to %s\n", myname,
+X                    src, np->title, dst);
+X            }
+X        return(-1);
+X        }
+X    sprintf(buf, "%s/%s.info", src, np->basename);
+X    sprintf(buf2, "%s/%s.info", dst, np->basename);
+X    if(rename(buf, buf2) < 0)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Note move failed",
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Note move failed: {%s:%s} to %s\n", myname,
+X                    src, np->title, dst);
+X            }
+X        return(-1);
+X        }
+X    tn = (struct Note *) add_sorted(&dst_sp->note_rt, np->ntitle);
+X    if(tn == NULL)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Note move failed - Memory allocation failure",
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp, "%s:  Note move failed (memory allocation failure %s): {%s:%s} to %s\n",
+X                    myname, sys_errlist[errno], src, np->title, dst);
+X            }
+X        /* Best attempt to fix things */
+X        (void) rename(buf2, buf);
+X        sprintf(buf, "%s/%s", src, np->basename);
+X        sprintf(buf2, "%s/%s", dst, np->basename);
+X        (void) rename(buf2, buf);
+X        return(-1);
+X        }
+X    memcpy((char *)tn, (char *)np, sizeof(struct Note));
+X    LLM_delete(&(np->sp->note_rt), (char *)np);
+X    tn->sp = dst_sp;
+X    if(tn->mapped)
+X        {
+X        xv_set(tn->title, PANEL_CLIENT_DATA, tn, NULL);
+X        xv_set(tn->hide, PANEL_CLIENT_DATA, tn, NULL);
+X        xv_set(tn->actionmenu, MENU_CLIENT_DATA, tn, NULL);
+X        }
+X    return(0);
+X    }
+X
+X/*
+X    Best attempt to create a new note.
+X        sp       - SubDir for new note
+X        state    - Visible, Hidden, or Veiled
+X        rect     - Location & size (optional, may be NULL)
+X        title    - Note title (optional, may be NULL)
+X        textfile - Path of file for initial contents (optional, may be NULL)
+X        display  - ERRONDISPLAY or ERRINLOG
+X*/
+Xw_newnote(sp, state, rect, title, textfile, display)
+X    struct SubDir *sp;
+X    NoteState state;
+X    Rect *rect;
+X    char *title;
+X    char *textfile;
+X    int  display;
+X    {
+X    int  adjust;
+X    int  x, y, w, h;
+X    struct Note *np;
+X    FILE *fp;
+X    char fname[MAXBUFLEN];
+X 
+X    /* get good pos for new note */
+X    if(rect == NULL)
+X        {
+X        if(notewidth == -1 || noteheight == -1)
+X            {
+X            w_popupxy(&x, &y, DEFWIDTH, DEFHEIGHT, DEFSPACING);
+X            adjust = TRUE; /* width will be adjusted */
+X            h = DEFHEIGHT;
+X            w = DEFWIDTH; /* set for safety's sake */
+X            }
+X        else
+X            {
+X            adjust = FALSE; /* width will NOT be adjusted */
+X            h = noteheight;
+X            w = notewidth;
+X            w_popupxy(&x, &y, w, h, DEFSPACING);
+X            }
+X        }
+X    else
+X        {
+X        adjust = FALSE;
+X        x = rect->r_left;
+X        y = rect->r_top;
+X        w = rect->r_width;
+X        h = rect->r_height;
+X        }
+X 
+X    np = (struct Note *)add_sorted(&sp->note_rt,
+X        title == NULL ? NOTITLE : title);
+X    if(np == NULL)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Internal failure - memory allocation failure",
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp,
+X                "%s:  Internal failure - memory allocation failure\n", myname);
+X            }
+X        return;
+X        }
+X 
+X    memset((char *)np, 0, sizeof(struct Note));
+X 
+X    sprintf(np->basename, NOTENAM, time(NULL), notecount++);
+X    np->sp = sp;
+X    np->crttime = time(NULL);
+X    np->state = state;
+X    np->rect.r_top = y;
+X    np->rect.r_left = x;
+X    np->rect.r_width = w;
+X    np->rect.r_height = h;
+X    if(title == NULL)
+X        strcpy(np->ntitle, NOTITLE);
+X    else
+X        strcpy(np->ntitle, title);
+X 
+X    /* Make the file with 0 length */
+X    makename(fname, np);
+X    fp = fopen(fname, "w");
+X    if(fp != NULL) fclose(fp);
+X 
+X    if(state == Visible)
+X        {
+X        if(!buildnote(np, display, adjust)) return;
+X        xv_set(np->title, PANEL_VALUE, np->ntitle, NULL);
+X        set_frame_title(np, np->ntitle);
+X        reseticon(np);
+X        }
+X 
+X    if(textfile != NULL)
+X        {
+X        Textsw_status status;
+X
+X        xv_set(np->textsw,
+X            TEXTSW_STATUS, &status,
+X            TEXTSW_INSERT_FROM_FILE, textfile,
+X            TEXTSW_FIRST, 0,
+X            NULL);
+X        if(status != TEXTSW_STATUS_OKAY)
+X            {
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Text subwindow insert from file failed",
+X                        textfile,
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp,
+X                    "%s:  Text subwindow insert from file %s failed\n",
+X                    myname, textfile);
+X                }
+X            }
+X        }
+X
+X    update(np);
+X    updateinfo(np, FORCE);
+X    refresh_popups();
+X    }
+X
+Xw_printnote(np, display)
+X    struct Note *np;
+X    int  display;
+X    {
+X    int  pid;
+X    struct stat st;
+X    char *cp;
+X    char fname[MAXBUFLEN];
+X    char envtitle[MAXBUFLEN];
+X    char envfname[MAXBUFLEN];
+X
+X    makename(fname, np);
+X    if(stat(fname, &st) < 0)
+X        {
+X        if(display)
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "The selected note is not accessible (no contents)",
+X                    fname,
+X                    sys_errlist[errno],
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            }
+X        else
+X            {
+X            fprintf(errfp,
+X              "%s:  The selected note is not accessible (no contents)\n\t%s\n",
+X              myname, sys_errlist[errno]);
+X            }
+X        return;
+X        }
+X    switch(pid = fork())
+X        {
+X        case -1 :
+X            if(display)
+X                {
+X                notice_prompt(main_frame, NULL,
+X                    NOTICE_MESSAGE_STRINGS,
+X                        "Couldn't fork a new process (internal error)",
+X                        sys_errlist[errno],
+X                        NULL,
+X                    NOTICE_BUTTON_YES, "Acknowledge",
+X                    NOTICE_NO_BEEPING, noticenobeep,
+X                    NULL);
+X                }
+X            else
+X                {
+X                fprintf(errfp,
+X                  "%s:  Couldn't fork a new process (internal error): %s\n",
+X                  myname, sys_errlist[errno]);
+X                }
+X            return;
+X            break;
+X        case  0 :
+X            cp = defaults_get_string(resources[RES_PCOMMAND].a,
+X                 resources[RES_PCOMMAND].b, RESDEF_PCOMMAND);
+X            sprintf(envtitle, "NOTETITLE=%s", np->ntitle);
+X            sprintf(envfname, "FILE=%s", fname);
+X            putenv(envtitle);
+X            putenv(envfname);
+X            execl("/bin/sh", "sh", "-c", cp, NULL);
+X            _exit(0);
+X            break;
+X        default :
+X            (void) notify_set_wait3_func(main_frame, 
+X                child_death, pid);
+X            break;
+X        }
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/work.c ||
+echo 'restore of pan3.0/work.c failed'
+Wc_c="`wc -c < 'pan3.0/work.c'`"
+test 19226 -eq "$Wc_c" ||
+	echo 'pan3.0/work.c: original size 19226, current size' "$Wc_c"
+fi
+# ============= pan3.0/folder.c ==============
+if test -f 'pan3.0/folder.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/folder.c (File already exists)'
+else
+echo 'x - extracting pan3.0/folder.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/folder.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+X#include <X11/X.h>
+X#include <X11/Xutil.h>
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xint cf_resize_proc();
+X
+Xstatic Panel_item appbutton;
+X
+Xcreatefolder(menu, mitem)
+X    Menu menu;
+X    Menu_item mitem;
+X    {
+X    Rect rect, *prect;
+X    Panel_item pitem;
+X    int  x, y;
+X    Panel folder_panel;
+X    static XClassHint chint;
+X
+X    w_popupxy(&x, &y, FLDRWIDTH, FLDRHEIGHT, FLDRSPACING);
+X    folder_mitem = mitem;
+X    folder_frame = xv_create(main_frame, FRAME_CMD,
+X                           XV_LABEL, "Create Folder",
+X                           XV_X, x,
+X                           XV_Y, y,
+X                           FRAME_NO_CONFIRM, TRUE,
+X                           FRAME_DONE_PROC, folderdone,
+X                           WIN_EVENT_PROC, cf_resize_proc,
+X                           WIN_CONSUME_EVENTS,
+X                               WIN_RESIZE,
+X                               NULL,
+X                           NULL);
+X    if(folder_frame == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Unable to create sub-frame (internal error)",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    /* Set up the X class since xview doesn't */
+X    chint.res_name = "pan";
+X    chint.res_class = "Pan";
+X    XSetClassHint((Display *)xv_get(folder_frame, XV_DISPLAY),
+X        xv_get(folder_frame, XV_XID), &chint);
+X
+X    folder_panel = (Panel) xv_get(folder_frame, FRAME_CMD_PANEL);
+X    xv_set(folder_panel, WIN_RETAINED, FALSE, NULL);
+X
+X    folder_item =  xv_create(folder_panel, PANEL_TEXT,
+X                 PANEL_LABEL_STRING, "New Folder:",
+X                 PANEL_VALUE, "",
+X                 PANEL_VALUE_DISPLAY_LENGTH, MAXSUBDIR,
+X                 PANEL_VALUE_STORED_LENGTH, MAXSUBDIR,
+X                 PANEL_NOTIFY_PROC, newfolder,
+X                 XV_Y, xv_row(folder_panel, 0),
+X                 NULL);
+X    pitem = xv_create(folder_panel, PANEL_BUTTON,
+X                     PANEL_LABEL_STRING, "Apply",
+X                     PANEL_NOTIFY_PROC, newfolder,
+X                     XV_Y, xv_row(folder_panel, 1),
+X                     NULL);
+X    appbutton = pitem;
+X
+X    window_fit(folder_panel);
+X    window_fit(folder_frame);
+X
+X    xv_set(folder_frame, XV_SHOW, TRUE, NULL);
+X
+X    frame_get_rect(folder_frame, &rect);
+X    prect = (Rect *) xv_get(pitem, PANEL_ITEM_RECT);
+X    xv_set(pitem, XV_X, ((rect.r_width / 2) - (prect->r_width / 2)), NULL);
+X
+X
+X    (void) xv_set(folder_mitem, MENU_INACTIVE, TRUE, NULL);
+X    }
+X
+X/*
+X    Called when the user wants to create a new folder.
+X    Note: item and event args are not used.
+X*/
+Xnewfolder(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    char new_dir[MAXBUFLEN];
+X
+X    strcpy(new_dir, (char *) xv_get(folder_item, PANEL_VALUE));
+X
+X    if(xv_get(folder_frame, FRAME_CMD_PUSHPIN_IN) == FALSE)
+X        {
+X        xv_destroy_safe(folder_frame);
+X        (void) xv_set(folder_mitem, MENU_INACTIVE, FALSE, NULL);
+X        }
+X
+X    xv_set(folder_frame, FRAME_BUSY, TRUE, NULL);
+X
+X    w_newfolder(new_dir, ERRONDISPLAY); /* Does all the real work */
+X
+X    xv_set(folder_frame, FRAME_BUSY, FALSE, NULL);
+X    }
+X
+X/*
+X    Called when the user dismisses the change folder window without applying
+X    a change.
+X*/
+Xfolderdone()
+X    {
+X    xv_destroy_safe(folder_frame);
+X    (void) xv_set(folder_mitem, MENU_INACTIVE, FALSE, NULL);
+X    }
+X
+X/*
+X    Center the button here even though we don't allow a resize because of
+X    the intermittent failure of frame_get_rect() immediately after frame
+X    creation.
+X*/
+Xcf_resize_proc(frame, event, arg)
+X    Frame frame;
+X    Event *event;
+X    Notify_arg arg;
+X    {
+X    Rect rect, *prect;
+X 
+X    if(event_id(event) != WIN_RESIZE) return;
+X    frame_get_rect(frame, &rect);
+X    rect.r_height -= (topmargin + bottommargin); /* correct for wm title bar */
+X
+X    prect = (Rect *) xv_get(appbutton, PANEL_ITEM_RECT);
+X    xv_set(appbutton, XV_X, rect.r_width / 2 - prect->r_width / 2, NULL);
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/folder.c ||
+echo 'restore of pan3.0/folder.c failed'
+Wc_c="`wc -c < 'pan3.0/folder.c'`"
+test 4846 -eq "$Wc_c" ||
+	echo 'pan3.0/folder.c: original size 4846, current size' "$Wc_c"
+fi
+# ============= pan3.0/patchlevel.h ==============
+if test -f 'pan3.0/patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/patchlevel.h (File already exists)'
+else
+echo 'x - extracting pan3.0/patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/patchlevel.h' &&
+X#define PAN_VERSION "Post A Note V3.0"
+SHAR_EOF
+chmod 0644 pan3.0/patchlevel.h ||
+echo 'restore of pan3.0/patchlevel.h failed'
+Wc_c="`wc -c < 'pan3.0/patchlevel.h'`"
+test 39 -eq "$Wc_c" ||
+	echo 'pan3.0/patchlevel.h: original size 39, current size' "$Wc_c"
+fi
+# ============= pan3.0/noteaction.c ==============
+if test -f 'pan3.0/noteaction.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/noteaction.c (File already exists)'
+else
+echo 'x - extracting pan3.0/noteaction.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/noteaction.c' &&
+X/*
+XPost A Note V3.0
+XCopyright (c) 1993, Jeffrey W. Bailey
+XAll rights reserved.
+X
+XPermission is granted to distribute this program in exact, complete
+Xsource form, which includes this copyright notice, as long as no fee
+Xother than media and distribution cost is charged.
+X
+XThis program may not be used in whole, or in part, in any other manner
+Xwithout prior written permission from the author.
+X
+XThis program may not be distributed in modified form without prior
+Xwritten permission from the author.  In other words, patches may be
+Xdistributed, but modified source may not be distributed.
+X
+XIf there are any questions, comments or suggestions, the author may be
+Xcontacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+X*/
+X
+X#include "pan.h"
+X
+X#include <xview/font.h>
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+X/*
+X    Routine called when the action button on a note is selected.
+X*/
+Xnoteaction(menu, mitem)
+X    Menu menu;
+X    Menu_item mitem;
+X    {
+X    Font font;
+X    Rect rect;
+X    int  cw, tw;
+X    struct Note *np;
+X    int  mod;
+X    char fname[MAXBUFLEN];
+X    char item[MAXBUFLEN];
+X
+X    np = (struct Note *) xv_get(menu, MENU_CLIENT_DATA);
+X    strcpy(item, (char *)xv_get(mitem, MENU_STRING));
+X    if(strcmp(item, "Print") == 0)
+X        {
+X        w_printnote(np, ERRONDISPLAY);
+X        }
+X    if(strcmp(item, widthtext) == 0)
+X        {
+X        font = xv_get(np->textsw, TEXTSW_FONT);
+X
+X        cw = xv_get(font, FONT_DEFAULT_CHAR_WIDTH);
+X
+X        tw = cw * setwidth;
+X
+X        frame_get_rect(np->frame, &rect);
+X        rect.r_width = tw + leftmargin + rightmargin + SCROLLWIDTH;
+X        frame_set_rect(np->frame, &rect);
+X        }
+X    if(strcmp(item, "Destroy") == 0)
+X        {
+X        if(confirmdestroy)
+X            {
+X            if(notice_prompt(np->frame, NULL,
+X                         NOTICE_MESSAGE_STRINGS, "Really destroy this note?", NULL,
+X                         NOTICE_BUTTON_YES, "Yes",
+X                         NOTICE_BUTTON_NO, "No",
+X                         NOTICE_NO_BEEPING, noticenobeep,
+X                         NULL) == NOTICE_NO)
+X                {
+X                return;
+X                }
+X            }
+X        mod = xv_get(np->textsw, TEXTSW_MODIFIED);
+X        if(mod)
+X            {
+X            textsw_reset(np->textsw, 0, 0);
+X            }
+X        makename(fname, np);
+X        (void) unlink(fname);
+X        strcat(fname, "%"); /* Attempt to remove the textsw files */
+X        (void) unlink(fname);
+X        makeinfoname(fname, np);
+X        (void) unlink(fname);
+X        put_win(np);
+X        LLM_delete(&np->sp->note_rt, (char *)np);
+X        refresh_popups();
+X        }
+X    }
+SHAR_EOF
+chmod 0644 pan3.0/noteaction.c ||
+echo 'restore of pan3.0/noteaction.c failed'
+Wc_c="`wc -c < 'pan3.0/noteaction.c'`"
+test 2705 -eq "$Wc_c" ||
+	echo 'pan3.0/noteaction.c: original size 2705, current size' "$Wc_c"
+fi
+# ============= pan3.0/Makefile.std ==============
+if test -f 'pan3.0/Makefile.std' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/Makefile.std (File already exists)'
+else
+echo 'x - extracting pan3.0/Makefile.std (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/Makefile.std' &&
+XCC=cc
+XINCLUDES=-I$(OPENWINHOME)/include
+X#
+X# Use -DPAN_DND if you have XView 3.0 or greater (includes drag and drop)
+X# Use -DHAS_STDLIB if you have stdlib.h (declares malloc() & getenv())
+X# Use -DSUNOS4 for XView 3.2 on SunOS 4.x (as opposed to Solaris 2.x)
+X# Use -DBSD if compiling on BSD UNIX
+X#
+XCFLAGS=$(INCLUDES) -g -DPAN_DND -DHAS_STDLIB
+X
+XSRCS=pan.c control.c event.c folder.c hidexp.c llm.c menu.c misc.c move.c \
+X	note.c parser.c rmfolder.c noteaction.c search.c update.c win.c work.c\
+X	dnd.c
+XOBJS=pan.o control.o event.o folder.o hidexp.o llm.o menu.o misc.o move.o \
+X	note.o parser.o rmfolder.o noteaction.o search.o update.o win.o work.o\
+X	dnd.o
+XLIBS=-L$(OPENWINHOME)/lib -lxview -lolgx -lX11
+XTARGET=pan
+X
+X$(TARGET) : $(OBJS)
+X	$(CC) -o $(TARGET) $(OBJS) $(LIBS)
+X
+Xpan.o : pan.c pan.icon panmain.icon
+X
+X$(OBJS) : pan.h
+X
+Xclean:
+X	rm -f core lint.out tags $(TARGET) $(OBJS)
+X
+Xtags : $(SRCS) pan.h
+X	ctags -t *.[ch]
+X
+Xlint:
+X	lint $(INCLUDES) $(SRCS) > lint.out
+SHAR_EOF
+chmod 0644 pan3.0/Makefile.std ||
+echo 'restore of pan3.0/Makefile.std failed'
+Wc_c="`wc -c < 'pan3.0/Makefile.std'`"
+test 958 -eq "$Wc_c" ||
+	echo 'pan3.0/Makefile.std: original size 958, current size' "$Wc_c"
+fi
+# ============= pan3.0/pancmd ==============
+if test -f 'pan3.0/pancmd' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/pancmd (File already exists)'
+else
+echo 'x - extracting pan3.0/pancmd (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/pancmd' &&
+X#!/bin/sh
+X
+XMYNAME=`basename $0`
+XUSAGE="Usage:
+X
+X$MYNAME [-user <username>] [-dir <pan directory>] [-now] <pan command> <arguments> ...
+X
+X	Command Language Syntax:
+X
+X	expose    title <title RE> [windowmax <max # to expose>]
+X	hide      title <title RE>
+X	move      source <folder> title <title RE> destination <folder>
+X	newfolder folder <name>
+X	newnote   [folder <folder>] [title <title>] [size <width> <height>]
+X		  [location <x> <y>] [hidden|visible|veiled] [file <name>]
+X	print     folder <folder> title <title RE>
+X	quit
+X	veil      title <title RE>
+X
+X"
+X
+Xerrexit() {
+X    echo $MYNAME:  "$@"
+X    exit 1
+X}
+X
+X#
+X# Lock the control file
+X#
+Xlockctrl() {
+X    retries=0
+X    while [ -f $PANCTRLLOCK -a $retries -lt 10 ]
+X        do
+X        sleep 1
+X        retries=`expr $retries + 1`
+X        done
+X    if [ -f $PANCTRLLOCK ]; then
+X        errexit "Could not lock $PANCTRL"
+X    fi
+X    touch $PANCTRLLOCK 
+X    if [ $? -ne 0 ]; then
+X        errexit "Could not lock $PANCTRL"
+X    fi
+X}
+X
+X#
+X# Unlock the control file
+X#
+Xunlockctrl() {
+X    rm $PANCTRLLOCK
+X    if [ $? -ne 0 ]; then
+X        errexit "Problem unlocking $PANCTRL"
+X    fi
+X}
+X
+X#
+X# Send pan a signal to check the control file immediately
+X#
+Xstartpan() {
+X    if [ -s $PANPID ]; then
+X        kill -USR1 `cat $PANPID`
+X    fi
+X}
+X
+X#
+X# Start of script
+X#
+X
+Xif [ -z "$1" ]; then
+X    echo "$MYNAME:  Missing arguments"
+X    echo "$USAGE"
+X    exit 1
+Xfi
+X
+Xuser=$USER
+Xdir=""
+Xnow=0
+X
+Xwhile expr match "$1" "-.*" >/dev/null
+X    do
+X    if [ "$1" = "-user" ]; then
+X        shift
+X        if [ -z "$1" ]; then
+X            echo "Missing name for -user option."
+X            errexit "$USAGE"
+X        fi
+X        user="$1"
+X    fi
+X
+X    if [ -z "$user" ]; then
+X        errexit "Environment variable USER not set."
+X    fi
+X
+X    if [ "$1" = "-dir" ]; then
+X        shift
+X        if [ -z "$1" ]; then
+X            echo "Missing directory for -dir option."
+X            errexit "$USAGE"
+X        fi
+X        dir="$1"
+X    fi
+X    if [ "$1" = "-now" ]; then
+X        now=1
+X    fi
+X    shift
+Xdone
+X
+X#
+X# Get user's home directory if -dir not used.
+X#
+Xif [ -z "$dir" ]; then
+X    ypmatch $user passwd > /dev/null 2>&1
+X    if [ $? -ne 0 ]; then
+X        dir=`awk -F: '$1 == "'$user'" { print $6 }' < /etc/passwd`
+X    else
+X        dir=`ypmatch $user passwd | awk -F: '$1 == "'$user'" { print $6 }'`
+X    fi
+X    dir="$dir/.pan"
+Xfi
+X
+Xif [ ! -d $dir ]; then
+X    errexit "$dir:  No such file or directory."
+Xfi
+X
+XPANCTRL=$dir/PanCtrl
+XPANCTRLLOCK=$PANCTRL.lock
+XPANPID=$dir/PID
+X
+Xif [ -z "$1" ]; then
+X    if [ $now -eq 1 ]; then
+X        startpan
+X        exit 0
+X    else
+X        echo "$MYNAME:  Missing arguments"
+X        echo "$USAGE"
+X        exit 1
+X    fi
+Xfi
+X
+Xlockctrl
+X
+Xset -- "$@"
+Xwhile [ -n "$1" ]
+X    do
+X    echo $1
+X    shift
+X    done | awk '
+X    {
+X    if(index($0, " ") || index($0, "    "))
+X        {
+X        if(index($0, "\""))
+X            printf "'\'%s\'' ", $0
+X        else
+X            printf "\"%s\" ", $0;
+X        }
+X    else
+X        {
+X        printf "%s ", $0
+X        }
+X    }
+X 
+XEND {
+X    printf "\n"
+X    }' >> $PANCTRL
+X
+Xif [ $? -ne 0 ]; then
+X    unlockctrl
+X    errexit "Problem writing $PANCTRL"
+Xfi
+X
+Xunlockctrl
+X
+Xif [ $now -eq 1 ]; then
+X    startpan
+Xfi
+X
+Xexit 0
+SHAR_EOF
+chmod 0755 pan3.0/pancmd ||
+echo 'restore of pan3.0/pancmd failed'
+Wc_c="`wc -c < 'pan3.0/pancmd'`"
+test 3137 -eq "$Wc_c" ||
+	echo 'pan3.0/pancmd: original size 3137, current size' "$Wc_c"
+fi
+# ============= pan3.0/panlog ==============
+if test -f 'pan3.0/panlog' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/panlog (File already exists)'
+else
+echo 'x - extracting pan3.0/panlog (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/panlog' &&
+X#!/bin/sh
+X
+XMYNAME=`basename $0`
+XUSAGE="Usage:
+X
+X$MYNAME [-user <username>] [-dir <pan directory>] [-remove] [-quiet]
+X
+X	Displays the pan log from control file execution.
+X
+X"
+X
+Xerrexit() {
+X    echo $MYNAME:  "$@"
+X    exit 1
+X}
+X
+X#
+X# Start of script
+X#
+X
+Xuser=$USER
+Xdir=""
+Xremove=0
+Xquiet=0
+X
+Xwhile expr match "$1" "-.*" >/dev/null
+X    do
+X    if [ "$1" = "-user" ]; then
+X        shift
+X        if [ -z "$1" ]; then
+X            echo "Missing name for -user option."
+X            errexit "$USAGE"
+X        fi
+X        user="$1"
+X    fi
+X
+X    if [ -z "$user" ]; then
+X        errexit "Environment variable USER not set."
+X    fi
+X
+X    if [ "$1" = "-dir" ]; then
+X        shift
+X        if [ -z "$1" ]; then
+X            echo "Missing directory for -dir option."
+X            errexit "$USAGE"
+X        fi
+X        dir="$1"
+X    fi
+X    if [ "$1" = "-remove" ]; then
+X        remove=1
+X    fi
+X    if [ "$1" = "-quiet" ]; then
+X        quiet=1
+X    fi
+X    shift
+Xdone
+X
+X#
+X# Get user's home directory if -dir not used.
+X#
+Xif [ -z "$dir" ]; then
+X    ypmatch $user passwd > /dev/null 2>&1
+X    if [ $? -ne 0 ]; then
+X        dir=`awk -F: '$1 == "'$user'" { print $6 }' < /etc/passwd`
+X    else
+X        dir=`ypmatch $user passwd | awk -F: '$1 == "'$user'" { print $6 }'`
+X    fi
+X    dir="$dir/.pan"
+Xfi
+X
+Xif [ ! -d $dir ]; then
+X    errexit "$dir:  No such file or directory."
+Xfi
+X
+XPANCTRL=$dir/PanCtrl
+XPANCTRLLOG=$PANCTRL.log
+XPANCTRLLOCK=$PANCTRL.lock
+X
+Xif [ $quiet -eq 0 ]; then
+X    if [ ! -f $PANCTRLLOG ]; then
+X        echo "No log file found"
+X    else
+X        cat $PANCTRLLOG
+X    fi
+Xfi
+X
+Xif [ $remove -ne 0 ]; then
+X    if [ -f $PANCTRLLOCK ]; then
+X        errexit "Can't remove $PANCTRLLOG - file is locked"
+X    fi
+X    rm $PANCTRLLOG > /dev/null 2>&1
+X    if [ $? -ne 0 ]; then
+X        errexit "Problem removing $PANCTRLLOG"
+X    fi
+Xfi
+X
+Xexit 0
+SHAR_EOF
+chmod 0755 pan3.0/panlog ||
+echo 'restore of pan3.0/panlog failed'
+Wc_c="`wc -c < 'pan3.0/panlog'`"
+test 1791 -eq "$Wc_c" ||
+	echo 'pan3.0/panlog: original size 1791, current size' "$Wc_c"
+fi
+# ============= pan3.0/Imakefile ==============
+if test -f 'pan3.0/Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/Imakefile (File already exists)'
+else
+echo 'x - extracting pan3.0/Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/Imakefile' &&
+XEXTRA_INCLUDES  = -I$(OPENWINHOME)/include
+X#
+X# Use -DPAN_DND if you have XView 3.0 or greater (includes drag and drop)
+X# Use -DHAS_STDLIB if you have stdlib.h (declares malloc() & getenv())
+X# Use -DSUNOS4 for XView 3.2 on SunOS 4.x (as opposed to Solaris 2.x)
+X# Use -DBSD if compiling on BSD UNIX
+X#
+XDEFINES         = -DPAN_DND -DHAS_STDLIB -DSUNOS4
+XLOCAL_LIBRARIES = -lxview -lolgx $(XLIB)
+XLDOPTIONS       = -L$(OPENWINHOME)/lib
+X
+XSRCS =  pan.c control.c event.c folder.c hidexp.c llm.c menu.c misc.c move.c \
+X	note.c parser.c rmfolder.c noteaction.c search.c update.c win.c work.c\
+X	dnd.c
+XOBJS =  pan.o control.o event.o folder.o hidexp.o llm.o menu.o misc.o move.o \
+X	note.o parser.o rmfolder.o noteaction.o search.o update.o win.o work.o\
+X	dnd.o
+X
+XComplexProgramTarget(pan)
+X
+X$(OBJS) : pan.h
+SHAR_EOF
+chmod 0644 pan3.0/Imakefile ||
+echo 'restore of pan3.0/Imakefile failed'
+Wc_c="`wc -c < 'pan3.0/Imakefile'`"
+test 792 -eq "$Wc_c" ||
+	echo 'pan3.0/Imakefile: original size 792, current size' "$Wc_c"
+fi
+# ============= pan3.0/panmain.mask.icon ==============
+if test -f 'pan3.0/panmain.mask.icon' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/panmain.mask.icon (File already exists)'
+else
+echo 'x - extracting pan3.0/panmain.mask.icon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/panmain.mask.icon' &&
+X/* Format_version=1, Width=64, Height=64, Depth=1, Valid_bits_per_item=16
+X */
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0xFFFF,	0xFFFF,	0xFFFF,	0xFFFF,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+SHAR_EOF
+chmod 0644 pan3.0/panmain.mask.icon ||
+echo 'restore of pan3.0/panmain.mask.icon failed'
+Wc_c="`wc -c < 'pan3.0/panmain.mask.icon'`"
+test 2190 -eq "$Wc_c" ||
+	echo 'pan3.0/panmain.mask.icon: original size 2190, current size' "$Wc_c"
+fi
+# ============= pan3.0/pan.mask.icon ==============
+if test -f 'pan3.0/pan.mask.icon' -a X"$1" != X"-c"; then
+	echo 'x - skipping pan3.0/pan.mask.icon (File already exists)'
+else
+echo 'x - extracting pan3.0/pan.mask.icon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pan3.0/pan.mask.icon' &&
+X/* Format_version=1, Width=64, Height=64, Depth=1, Valid_bits_per_item=16
+X */
+X	0x0000,	0x0000,	0x0000,	0x0800,
+X	0x0000,	0x0000,	0x0000,	0x1E00,
+X	0x0000,	0x0000,	0x0000,	0x1F00,
+X	0x0000,	0x0000,	0x0000,	0x3E00,
+X	0x0000,	0x0000,	0x0000,	0x7E00,
+X	0x0000,	0x0000,	0x0000,	0x7C00,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x07FF,	0xFFFF,	0xFFFF,	0xFFE0,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+X	0x0000,	0x0000,	0x0000,	0x0000,
+SHAR_EOF
+chmod 0644 pan3.0/pan.mask.icon ||
+echo 'restore of pan3.0/pan.mask.icon failed'
+Wc_c="`wc -c < 'pan3.0/pan.mask.icon'`"
+test 2190 -eq "$Wc_c" ||
+	echo 'pan3.0/pan.mask.icon: original size 2190, current size' "$Wc_c"
+fi
+exit 0
+
+--
+Jeffrey Bailey
+Racal-Datacom, Inc.
+Mail Stop E-110
+1601 N. Harrison Parkway                  INET : jeff@rd1.interlan.com
+Sunrise, FL 33323-2899                    UUCP : ...uflorida!novavax!rd1!jeff
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

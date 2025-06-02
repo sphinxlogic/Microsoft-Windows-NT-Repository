@@ -1,0 +1,1740 @@
+Newsgroups: comp.sources.misc
+From: ross@teserv.den.mmc.com (Perry R. Ross)
+Subject: v36i100:  ldb - Play backgammon by e-mail, v1.3, Part03/12
+Message-ID: <1993Apr11.232938.17939@sparky.imd.sterling.com>
+X-Md4-Signature: 017ff1967eb19dbceb9b35798d5ea2d6
+Date: Sun, 11 Apr 1993 23:29:38 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ross@teserv.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 36, Issue 100
+Archive-name: ldb/part03
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Supersedes: ldb: Volume 28, Issue 93-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 12)."
+# Contents:  check.c flist_unix.c rcvop.c readmail.c
+# Wrapped by ross@teserv.den.mmc.com on Tue Apr  6 14:52:18 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'check.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'check.c'\"
+else
+echo shar: Extracting \"'check.c'\" \(11760 characters\)
+sed "s/^X//" >'check.c' <<'END_OF_FILE'
+X/*	check.c		10/29/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file contains the functions that check for unused moves.
+X *======================================================================
+X */
+X
+X
+XPRIVATE int maxused, hiused, nlegal;
+X
+Xstruct legal *rmlegal();
+X
+X/*----------------------------------------------------------------------
+X *	legalmoves -- calculate all legal moves for a game
+X *
+X * This function is called after the dice have been rolled to search
+X * all possible combinations of moves to see which ones are legal.
+X * While this function is working, it keeps a list of legal moves,
+X * but this list is deleted before returning.  For the purposes
+X * of checking a move, it suffices to only keep the number of usable
+X * dice and the highest numbered usable dice.  Any move that uses as
+X * many dice as can be used, and uses the highest usable dice, is
+X * legal.  These values are stored in the maxused and hiused fields
+X * of the game structure.
+X *
+X * legalmoves performs an exhaustive search of all possible move
+X * combinations, storing the combinations that are not rejected
+X * by apply() in an instance of struct legal, which is linked into
+X * the doubly-linked list headed by lhead.  Note that, at this point,
+X * this list may contain many combinations that are not legal because
+X * they do not use all possible dice, or they use a smaller dice when
+X * a larger one is usable.  These illegal combinations are trimmed from
+X * the list by trimunused() and trimlowused().  Finally, duplicate combinations
+X * are removed from the list by trimequal().  Duplicate moves are those that
+X * use the same rolls to move from the same points, but possibly in a
+X * different order, for example (3/8 1/6) and (1/6 3/8).  This allows
+X * detection of the case where there is only one legal move, in which
+X * case this move is automatically applied (if rc.automove is set).
+X * If the list is empty, there are no legal moves.  Otherwise, the
+X * highest roll used in the list is stored in g->hiused, and the largest
+X * number of rolls used in the list is stored in g->maxused.  This information
+X * is used by check().
+X *----------------------------------------------------------------------
+X */
+X
+Xlegalmoves(g)
+Xstruct game *g;
+X{
+Xstruct game tmp;
+Xint i;
+Xstruct legal *l;
+X
+Xtmp = *g;			/* we don't want to change actual game */
+Xfor (i = 0; i < 4; tmp.mvs[i++].pt = -1);	/* mark all unused */
+Xmaxused = -1;			/* init to not all used */
+Xhiused = 0;			/* init to 0 */
+Xnlegal = 0;			/* init to no legal moves*/
+Xlhead = NULL;
+Xltail = NULL;
+Xif (tmp.mvs[0].roll == tmp.mvs[1].roll)
+X	scanmvs(&tmp,0,3);	/* there is only one ordering */
+Xelse {
+X	scanmvs(&tmp,0,1);		/* scan for one ordering */
+X	i = tmp.mvs[0].roll;	/* reverse rolls */
+X	tmp.mvs[0].roll = tmp.mvs[1].roll;
+X	tmp.mvs[1].roll = i;
+X	for (i = 0; i < 4; tmp.mvs[i++].pt = -1);	/* mark all unused */
+X	scanmvs(&tmp,0,1);		/* scan for other ordering */
+X	}
+Xtrimunused();		/* zap combinations that leave usable rolls unused */
+Xtrimlowused();		/* zap combinations that use the wrong die */
+Xtrimequal();		/* zap duplicates */
+Xg->maxused = maxused;	/* store maxused and hiused into the game structure */
+Xg->hiused = hiused;
+Xif (nlegal == 0) {	/* check for no legal moves */
+X	if (g->dispmsg != NULL)
+X		free(g->dispmsg);
+X	g->dispmsg = save("You don't have any legal moves.");
+X	}
+Xelse if (nlegal == 1) {	/* check for only one legal move */
+X	if (g->dispmsg != NULL)
+X		free(g->dispmsg);
+X	g->dispmsg = save("You only have one legal move.");
+X	if (*rc.automove == 'y') {	/* you want the move applied? */
+X		if ( (lhead->nmove==0) && (lhead->mvs[0].roll!=g->mvs[0].roll))
+X			g->mvs[1] = g->mvs[0];
+X		for (i = 0; i <= lhead->nmove; i++) {
+X			g->mvs[i] = lhead->mvs[i];
+X			apply(g,WHO_ME,i,0,NULL);
+X			}
+X		}
+X	}
+X
+X	/* we have no use for the legal moves list, so free it */
+X	/* maybe in the future we will have a use for it */
+X
+Xfor (l = lhead; l != NULL; l = l->next)
+X	free(l);
+Xlhead = NULL;
+Xltail = NULL;
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	scanmvs -- search for all possible combinations of a move
+X *
+X * This function takes a single die and tries to use it on every point
+X * of the board.  For every point it is successful, it adds the
+X * combination to the legal moves list and performs a recursive descent
+X * searching for all legal combinations of the remaining dice.
+X *----------------------------------------------------------------------
+X */
+Xscanmvs(g,mn,max)
+Xstruct game *g;
+Xint mn, max;
+X{
+Xint i;
+Xboard sv;
+X
+Xcopyboard(g->board,sv);		/* save the board */
+Xfor (i = 0; i <= 24; i++) {
+X	if (i == 0)
+X		g->mvs[mn].pt = BARPT(g->mydir);	/* use correct barpt */
+X	else
+X		g->mvs[mn].pt = i;
+X	if (apply(g,WHO_ME,mn,0,NULL) < 0)	/* can't move from this pt */
+X		continue;
+X	addlegal(mn,g->mvs[mn].roll,g->mvs[mn].pt);	/* add to list */
+X	if (mn < max)
+X		scanmvs(g,mn+1,max);		/* try all remaining comb's */
+X	copyboard(sv,g->board);			/* restore board */
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	addlegal -- add a move combination to the list
+X *
+X * This function adds an instance of struct legal to the legal moves list.
+X * The arguments to addlegal only specify the usage of one particular
+X * die, by specifying its "move number".  For example, for a roll of
+X * 5 2, the 5 is move number 0 and the 2 is move number 1.  The usage
+X * of all lower numbered rolls is copied from the previous entry in the
+X * moves list (since that entry was added by the higher level scanmvs
+X * before the current scanmvs was called), and all higher-numbered rolls
+X * are marked unused.
+X *----------------------------------------------------------------------
+X */
+X
+Xaddlegal(mn,r,pt)
+Xint mn, r, pt;
+X{
+Xint i;
+Xstruct legal *n;
+X
+Xif ( (n = (struct legal *) calloc(sizeof(struct legal),1)) == NULL)
+X	fatal("Out of memory!");
+Xclearmvs(n->mvs);
+Xif (ltail != NULL)
+X	for (i = 0; i < mn; i++)		/* copy prefix from prev move */
+X		n->mvs[i] = ltail->mvs[i];
+Xn->mvs[mn].roll = r;		/* copy in this move */
+Xn->mvs[mn].pt = pt;
+Xn->next = NULL;			/* this is end of list */
+Xif (lhead == NULL) {		/* link into list */
+X	n->prev = NULL;
+X	lhead = n;
+X	ltail = n;
+X	}
+Xelse {
+X	n->prev = ltail;
+X	ltail->next = n;
+X	ltail = n;
+X	}
+Xn->himove = 0;
+Xfor (i = 0; i <= mn; i++)	/* search for highest used move */
+X	if (n->mvs[i].roll > n->himove)
+X		n->himove = n->mvs[i].roll;
+Xif (mn > maxused)		/* keep track of whether it is possible */
+X	maxused = mn;	/* to use all of the rolls */
+Xnlegal++;
+Xn->nmove = mn;		/* store number of moves used by this entry */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	trimunused -- remove moves that do not use all possible rolls
+X *
+X * This function scans the move list and deletes combinations that
+X * leave usable rolls unused.
+X *----------------------------------------------------------------------
+X */
+X
+Xtrimunused()
+X{
+Xstruct legal *l;
+X
+Xl = lhead;
+Xwhile (l != NULL) {
+X	if (l->nmove < maxused)
+X		l = rmlegal(l);
+X	else
+X		l = l->next;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	trimlowused -- remove moves that do not use the largest possible roll
+X *
+X * This function scans the move list and deletes combinations that
+X * do not use the highest usable roll.
+X *----------------------------------------------------------------------
+X */
+X
+Xtrimlowused()
+X{
+Xstruct legal *l;
+X
+Xl = lhead;
+Xwhile (l != NULL) {
+X	if (l->himove < hiused)
+X		l = rmlegal(l);
+X	else
+X		l = l->next;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	trimequal -- remove duplicate moves
+X *
+X * This function scans the move list and deletes combinations that
+X * are duplicates.
+X *----------------------------------------------------------------------
+X */
+X
+Xtrimequal()
+X{
+Xstruct legal *l, *p;
+Xstruct mv m1[4], m2[4];
+Xint i, n;
+X
+Xfor (l = lhead; l != NULL; l = l->next) {
+X	extractmvs(l,m1);
+X	n = l->nmove;
+X	p = l->next;
+X	while (p != NULL) {
+X		if (p->nmove != n) {
+X			p = p->next;
+X			continue;
+X			}
+X		extractmvs(p,m2);
+X		for (i = 0; i <= n; i++)
+X			if ((m1[i].roll != m2[i].roll)||(m1[i].pt != m2[i].pt))
+X				break;
+X		if (i <= n)
+X			p = p->next;
+X		else
+X			p = rmlegal(p);
+X		}
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	rmlegal -- remove a struct legal from the move list
+X *
+X * This function unlinks an entry from the move list and free's it.
+X *----------------------------------------------------------------------
+X */
+X
+Xstruct legal *rmlegal(l)
+Xstruct legal *l;
+X{
+Xstruct legal *t;
+X
+Xt = l;
+Xif (l == lhead) {
+X	lhead = l->next;
+X	l = lhead;
+X	}
+Xelse {
+X	if ( (l->prev->next = l->next) != NULL)
+X		l->next->prev = l->prev;
+X	l = l->next;
+X	}
+Xfree(t);
+Xnlegal--;
+Xreturn(l);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	extractmvs -- extract a struct legal into a struct mv
+X *
+X * This function copies the information from a move list entry into
+X * an instance of struct mv, and then sorts the rolls in the struct mv
+X * by increasing dice value (and by increasing point number for equal
+X * rolls).  Sorting the rolls makes it easier for trimequal to check
+X * for duplicate entries, it has no value as far as the game is concerned.
+X *----------------------------------------------------------------------
+X */
+X
+Xextractmvs(l,m)
+Xstruct legal *l;
+Xstruct mv *m;
+X{
+Xint i, n, s;
+Xstruct mv tmp;
+X
+Xclearmvs(m);
+Xfor (i = 0; i <= l->nmove; i++)		/* extract the moves */
+X	m[i] = l->mvs[i];
+Xn = l->nmove;
+Xdo {			/* sort by increasing roll then increasing point */
+X	s = 0;
+X	for (i = 0; i < n; i++) {		/* long live bubblesort */
+X		if (m[i].roll < m[i+1].roll)
+X			continue;
+X		else if ( (m[i].roll == m[i+1].roll) && (m[i].pt < m[i+1].pt) )
+X			continue;
+X		tmp = m[i];
+X		m[i] = m[i+1];
+X		m[i+1] = tmp;
+X		s = 1;
+X		}
+X	n--;
+X	} while (s);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	checkused -- check that a move uses the correct rolls
+X *
+X * This function is called just before a move is sent to the
+X * opponent.  It uses the values stored in g->maxused and g->hiused
+X * to make sure that the move uses all usable rolls, and that it
+X * uses the highest usable roll.  As a special case, it considers
+X * to be legal any move where all pieces are borne off.  This
+X * takes care of the special case where there is one piece
+X * left to bear off, and two rolls, one of which is too small
+X * to bear off.  Normally, ldb would insist that the smaller
+X * roll be used, then the larger one, so that both rolls
+X * would be used.  If one roll is large enough to bear the last
+X * man off, though, there is no need to force the other roll to be used.
+X *----------------------------------------------------------------------
+X */
+X
+Xcheckused(g)
+Xstruct game *g;
+X{
+Xint h, i;
+X
+Xif (g->board[OFFPT(g->mydir)].qty == 15)	/* special case, if all pcs */
+X	return(0);		/* are off, then all rolls have been used */
+Xh = 0;
+Xfor (i = 0; i <= g->maxused; i++) {
+X	if (g->mvs[i].pt < 0) {
+X		FeMessage("You left a roll unused.");
+X		return(1);
+X		}
+X	if (h < g->mvs[i].roll)
+X		h = g->mvs[i].roll;
+X	}
+Xif (g->hiused > h) {
+X	FeMessage("You can use the higher roll.");
+X	return(1);
+X	}
+Xreturn(0);
+X}
+END_OF_FILE
+if test 11760 -ne `wc -c <'check.c'`; then
+    echo shar: \"'check.c'\" unpacked with wrong size!
+fi
+# end of 'check.c'
+fi
+if test -f 'flist_unix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flist_unix.c'\"
+else
+echo shar: Extracting \"'flist_unix.c'\" \(13758 characters\)
+sed "s/^X//" >'flist_unix.c' <<'END_OF_FILE'
+X/*	flist_unix.c		4/24/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X/* This file uses the "regex-glob" routines, written by John Kercheval, and
+X * posted to comp.sources.misc.  The code appears at the end of this
+X * file with all original comments.
+X */
+X
+X#include "ldb.h"
+X
+X
+X/*----------------------------------------------------------------------
+X *	filelist -- generate a list of all matching files.
+X *
+X * This function generates a list of all files that match a pattern.
+X * Each file is stored in an instance of struct flist, which just
+X * links the names in a linked list.  A pointer to the beginning of
+X * the list is returned.  It is the callers responsibility to free
+X * the list when it is no longer needed.
+X *
+X * This function will only recognize wildcards in file names, NOT
+X * the directories leading up to them.  For example, nuts/ldb*.txt is
+X * fine, but *ts/ldb*.txt is not.
+X *
+X * This function uses the "new" directory routines (i.e. opendir,
+X * readdir, et. al).  If these are not on your system, you should
+X * have defined NEED_READDIR in your Makefile.
+X *----------------------------------------------------------------------
+X */
+X
+Xstruct flist *filelist(ptn)
+Xchar *ptn;
+X{
+Xstruct flist *head, *tail, *cur;
+XDIR *dp;
+Xchar *s;
+Xchar *dn, *pn;
+Xstruct direct *p;
+X
+Xhead = NULL;
+Xif (is_pattern(ptn) == 0) {	/* no wildcards, just a file name */
+X	if ( (cur = (struct flist *) calloc(sizeof(struct flist),1)) == NULL)
+X		fatal("Out of memory!");
+X	head = cur;
+X	tail = cur;
+X	cur->name = save(ptn);
+X	return(cur);
+X	}
+Xif ( (s = strrchr(ptn,'/')) != NULL) {	/* strip off directory name */
+X	*s = '\0';
+X	dn = save(ptn);		/* dir = everything before last /  */
+X	pn = save(s+1);		/* pattern = everything after last /  */
+X	*s = '/';
+X	}
+Xelse {
+X	dn = save(".");
+X	pn = save(ptn);
+X	}
+Xif ( (dp = opendir(dn)) == NULL) {
+X	free(dn);
+X	free(pn);
+X	return(NULL);
+X	}
+Xwhile ( (p = readdir(dp)) != NULL) {
+X	if ( (strcmp(p->d_name,".") == 0) || (strcmp(p->d_name,"..") == 0) )
+X		continue;
+X	if (match(pn,p->d_name) == 0)
+X		continue;
+X	if ( (cur = (struct flist *) calloc(sizeof(struct flist),1)) == NULL)
+X		fatal("Out of memory!");
+X	if (head == NULL) {
+X		head = cur;
+X		tail = cur;
+X		}
+X	else {
+X		tail->next = cur;
+X		tail = cur;
+X		}
+X	if (strcmp(dn,".") == 0)	/* file in current dir */
+X		cur->name = save(p->d_name);	/* just save name */
+X	else {				/* include directory name */
+X		cur->name = (char *) malloc(strlen(dn)+strlen(p->d_name)+2);
+X		if (cur->name == NULL)
+X			fatal("Out of memory!");
+X		sprintf(cur->name,"%s/%s",dn,p->d_name);
+X		}
+X	}
+Xclosedir(dp);
+Xfree(dn);
+Xfree(pn);
+Xreturn(head);
+X}
+X
+X
+X/* regex-glob code follows: (de-ansified by P. Ross -- sorry) */
+X
+X/*
+X EPSHeader
+X
+X   File: match.c
+X   Author: J. Kercheval
+X   Created: Sat, 01/05/1991  22:21:49
+X*/
+X/*
+X EPSRevision History
+X
+X   J. Kercheval  Wed, 02/20/1991  22:29:01  Released to Public Domain
+X*/
+X
+X/*
+X   Wildcard Pattern Matching
+X*/
+X
+X
+X/* #include "match.h" -- match.h included here for simplicity  P. Ross */
+X
+X/*
+X EPSHeader
+X
+X   File: match.h
+X   Author: J. Kercheval
+X   Created: Sat, 01/05/1991  22:27:18
+X*/
+X/*
+X EPSRevision History
+X
+X   J. Kercheval  Wed, 02/20/1991  22:28:37  Released to Public Domain
+X*/
+X
+X/*
+X   Wildcard Pattern Matching
+X*/
+X
+X#ifndef BOOLEAN
+X# define BOOLEAN int
+X#undef TRUE
+X#undef FALSE
+X# define TRUE 1
+X# define FALSE 0
+X#endif
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*  return TRUE if it matches, FALSE otherwise.
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*
+X*  Note: the standard regex character '+' (one or more) should by
+X*        simulated by using "?*" which is equivelant here.
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).
+X*  [0-9a-zA-Z_] is the set of characters allowed in C identifiers.
+X*  Any other character in the pattern must be matched exactly.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  and match the character exactly, precede it with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN match ( /* char *pattern, char *text */ );
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_pattern ( /* char *pattern */ );
+X
+X/* -- end of match.h  P. Ross -- */
+X
+X#define ABORT 2     /* end of search indicator */
+X
+XBOOLEAN regex_match_after_star ( /* char *pattern, char *text */ );
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_pattern (p)
+Xchar *p;
+X{
+X    while ( *p ) {
+X        switch ( *p++ ) {
+X            case '?':
+X            case '*':
+X            case '[':
+X                return TRUE;
+X            case '\\':
+X                if ( !*p++ ) return FALSE;
+X        }
+X    }
+X    return FALSE;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*  return TRUE if it matches, FALSE otherwise.
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*
+X*  Note: the standard regex character '+' (one or more) should by
+X*        simulated by using "?*" which is equivelant here.
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).
+X*  [0-9a-zA-Z_] is the set of characters allowed in C identifiers.
+X*  Any other character in the pattern must be matched exactly.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  and match the character exactly, precede it with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN regex_match (p, t)
+Xregister char *p;
+Xregister char *t;
+X{
+X    register char range_start, range_end;  /* start and end in range */
+X
+X    BOOLEAN invert;             /* is this [..] or [!..] */
+X    BOOLEAN member_match;       /* have I matched the [..] construct? */
+X    BOOLEAN loop;               /* should I terminate? */
+X
+X    for ( ; *p; p++, t++ ) {
+X
+X        /* if this is the end of the text then this is the end of the match */
+X        if (!*t) {
+X            return ( *p == '*' && *++p == '\0' ) ? TRUE : ABORT;
+X        }
+X
+X        /* determine and react to pattern type */
+X        switch ( *p ) {
+X
+X            /* single any character match */
+X            case '?':
+X                break;
+X
+X            /* multiple any character match */
+X            case '*':
+X                return regex_match_after_star (p, t);
+X
+X            /* [..] construct, single member/exclusion character match */
+X            case '[': {
+X
+X                /* move to beginning of range */
+X                p++;
+X
+X                /* check if this is a member match or exclusion match */
+X                invert = FALSE;
+X                if ( *p == '!' || *p == '^') {
+X                    invert = TRUE;
+X                    p++;
+X                }
+X
+X                /* if closing bracket here or at range start then we have a
+X                   malformed pattern */
+X                if ( *p == ']' ) {
+X                    return ABORT;
+X                }
+X
+X                member_match = FALSE;
+X                loop = TRUE;
+X
+X                while ( loop ) {
+X
+X                    /* if end of construct then loop is done */
+X                    if (*p == ']') {
+X                        loop = FALSE;
+X                        continue;
+X                    }
+X
+X                    /* matching a '!', '^', '-', '\' or a ']' */
+X                    if ( *p == '\\' ) {
+X                        range_start = range_end = *++p;
+X                    }
+X                    else {
+X                        range_start = range_end = *p;
+X                    }
+X
+X                    /* if end of pattern then bad pattern (Missing ']') */
+X                    if (!range_start)
+X                        return ABORT;
+X
+X                    /* move to next pattern char */
+X                    p++;
+X
+X                    /* check for range bar */
+X                    if (*p == '-') {
+X
+X                        /* get the range end */
+X                        range_end = *++p;
+X
+X                        /* special character range end */
+X                        if (range_end == '\\')
+X                            range_end = *++p;
+X
+X                        /* if end of pattern or construct then bad pattern */
+X                        if (range_end == '\0' || range_end == ']')
+X                            return ABORT;
+X                    }
+X
+X                    /* if the text character is in range then match found.
+X                       make sure the range letters have the proper
+X                       relationship to one another before comparison */
+X                    if ( range_start < range_end  ) {
+X                        if (*t >= range_start && *t <= range_end) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    }
+X                    else {
+X                        if (*t >= range_end && *t <= range_start) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    }
+X                }
+X
+X                /* if there was a match in an exclusion set then no match */
+X                /* if there was no match in a member set then no match */
+X                if ((invert && member_match) ||
+X                   !(invert || member_match))
+X                    return FALSE;
+X
+X                /* if this is not an exclusion then skip the rest of the [...]
+X                    construct that already matched. */
+X                if (member_match) {
+X                    while (*p != ']') {
+X
+X                        /* bad pattern (Missing ']') */
+X                        if (!*p)
+X                            return ABORT;
+X
+X                        /* skip exact match */
+X                        if (*p == '\\') {
+X                            p++;
+X                        }
+X
+X                        /* move to next pattern char */
+X                        p++;
+X                    }
+X                }
+X
+X                break;
+X            }
+X
+X            /* next character is quoted and must match exactly */
+X            case '\\':
+X
+X                /* move pattern pointer to quoted char and fall through */
+X                p++;
+X
+X            /* must match this character exactly */
+X            default:
+X                if (*p != *t)
+X                    return FALSE;
+X        }
+X    }
+X
+X    /* if end of text not reached then the pattern fails */
+X    return !*t;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X* recursively call regex_match with final segment of PATTERN and of TEXT.
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN regex_match_after_star (p, t)
+Xregister char *p;
+Xregister char *t;
+X{
+X    register BOOLEAN match;
+X    register nextp;
+X
+X    /* pass over existing ? and * in pattern */
+X    while ( *p == '?' || *p == '*' ) {
+X
+X        /* take one char for each ? */
+X        if ( *p == '?' ) {
+X
+X            /* if end of text then no match */
+X            if ( !*t++ ) {
+X                return ABORT;
+X            }
+X        }
+X
+X        /* move to next char in pattern */
+X        p++;
+X    }
+X
+X    /* if end of pattern we have matched regardless of text left */
+X    if ( !*p ) {
+X        return TRUE;
+X    }
+X
+X    /* get the next character to match which must be a literal or '[' */
+X    nextp = *p;
+X    if ( nextp == '\\' )
+X        nextp = p[1];
+X
+X    /* Continue until we run out of text or definite result seen */
+X    match = FALSE;
+X    while ( match == FALSE ) {
+X
+X        /* a precondition for matching is that the next character
+X           in the pattern match the next character in the text or that
+X           the next pattern is the beginning of a range.  Increment text
+X           pointer as we go here */
+X        if ( *p == *t || nextp == '[' ) {
+X            match = regex_match(p, t);
+X        }
+X
+X        /* if the end of text is reached then no match */
+X        if ( !*t++ ) match = ABORT;
+X    }
+X
+X    /* return result */
+X    return match;
+X}
+X
+X/*----------------------------------------------------------------------------
+X*
+X* This is a shell to regex_match to return only a true BOOLEAN value
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN match(p, t)
+Xchar *p;
+Xchar *t;
+X{
+X    return ( regex_match(p,t) == TRUE ) ? TRUE : FALSE;
+X}
+END_OF_FILE
+if test 13758 -ne `wc -c <'flist_unix.c'`; then
+    echo shar: \"'flist_unix.c'\" unpacked with wrong size!
+fi
+# end of 'flist_unix.c'
+fi
+if test -f 'rcvop.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rcvop.c'\"
+else
+echo shar: Extracting \"'rcvop.c'\" \(15063 characters\)
+sed "s/^X//" >'rcvop.c' <<'END_OF_FILE'
+X/*	rcvop.c		8/6/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*===========================================================================
+X * This file contains the functions which make up the receive state
+X * machine.  These are called through the func[][] matrix, which takes
+X * the current state and a received operation and calls the appropriate
+X * handler function.  These functions will typically change the game
+X * state into one requiring user input at this host (ST_MY*), and return.
+X *===========================================================================
+X */
+X
+X
+X/*---------------------------------------------------------------------------
+X *	start -- initiate a game
+X *
+X * This function is called when a remote user starts a game with us.
+X * We store his personal information (opaddr & opname), roll 1 die,
+X * and compare it to the one he sent.  If we won the roll, the roll
+X * is stored in mvs[] and state is set to MYMOVE.  If we lost the roll,
+X * both dice are sent back in a USTART line.  If the roll was a tie,
+X * a TIE packet is sent back .  The originator will re-roll and send
+X * us a RESTART packet, which will repeat the opening roll.
+X *---------------------------------------------------------------------------
+X */
+X
+Xstart(g)
+Xstruct game *g;
+X{
+Xint mydie;
+Xchar c1, c2;
+X
+Xg->opaddr = P.addr;	/* save mail address of opponent */
+Xg->gameid = P.gameid;		/* copy game id */
+Xg->opver = P.version;		/* save opponent's ldb version */
+Xg->mycolor = P.colors[1];	/* copy out colors */
+Xg->opcolor = P.colors[0];
+Xif (isupper(*P.dir))
+X	*P.dir = tolower(*P.dir);
+Xg->mydir = (*P.dir == 'u') ? 1 : -1;	/* copy out directions */
+Xg->opdir = REV(g->mydir);
+Xg->gameval = 1;			/* no doubles yet */
+Xg->flags = 0;
+Xg->seq = 2;			/* we rcvd 1 pkt already, init to 2 */
+Xif ( (g->ppl = findppl(g->opaddr,P_ADDR)) == NULL) { /* know this guy? */
+X	g->myaddr = save(rc.myaddr);	/* nope, create a new ppl record */
+X	newppl(g);
+X	}
+Xelse
+X	g->myaddr = save(g->ppl->myaddr);
+Xg->ppl->opver = P.version;	/* save opponent's ldb version in ppl file */
+Xg->starttime = P.timestamp;	/* store timestamp from start packet */
+Xg->lastacc = P.timestamp;	/* set last access time to start time */
+Xif (P.autodbl == NULL)		/* set admax to MIN(my count, op's count) */
+X	g->admax = 0;
+Xelse
+X	g->admax = atoi(P.autodbl);
+Xif (rc.autodouble < g->admax)
+X	g->admax = rc.autodouble;
+Xg->adcnt = 0;			/* no autodoubles yet */
+Xclearmvs(g->mvs);
+Xclearmvs(g->opmvs);
+Xif (g->mydir > 0) {
+X	c1 = g->mycolor;	/* upbound color is mine */
+X	c2 = g->opcolor;	/* downbound color is opponent's */
+X	}
+Xelse {
+X	c1 = g->opcolor;	/* upbound color is opponent's */
+X	c2 = g->mycolor;	/* downbound color is mine */
+X	}
+Xnewboard(g->opbd,c1,c2);		/* set up boards for new game */
+Xnewboard(g->mybd,c1,c2);
+Xnewboard(g->board,c1,c2);
+Xif (P.jacoby != NULL)
+X	g->flags |= F_JACOBY;
+Xif (P.crawford != NULL)
+X	g->flags |= F_CRAWFORD;
+Xif (P.european != NULL)
+X	g->flags |= F_EUROPE;
+Xif (P.perm != NULL)
+X	g->flags |= F_PERM;
+Xif (P.match != NULL)
+X	g->mtotal = atoi(P.match);
+Xg->curbd = boardnums[*rc.initboard - 'a'];	/* display initial board */
+Xmydie = Rolldie();
+Xif (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+X	if (g->adcnt < g->admax)	/* do an autodouble */
+X		g->gameval = 1 << ++(g->adcnt);
+X	sendpkt(g,TIE);
+X	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+X	return;			/* opponent will send RESTART */
+X	}
+Xif (mydie > (int) P.mvs[0].roll) {		/* we won the initial roll */
+X	g->mvs[0].roll = P.mvs[0].roll;	/* copy initial roll */
+X	g->mvs[1].roll = mydie;
+X	g->mvs[0].pt = -1;	/* mark both rolls unused */
+X	g->mvs[1].pt = -1;
+X	g->state = ST_MYMOVE;	/* set state so we make a move */
+X	legalmoves(g);		/* calculate legal moves for these rolls */
+X	g->rolls[g->mvs[0].roll - 1]++;	/* count the rolls we got */
+X	g->rolls[g->mvs[1].roll - 1]++;
+X	}
+Xelse {				/* we lost, tell the opponent to start */
+X	g->mvs[0].roll = P.mvs[0].roll;	/* copy initial roll */
+X	g->mvs[1].roll = mydie;	/* store so sendpkt can find it */
+X	g->state = ST_OPTURN;
+X	sendpkt(g,USTART);
+X	message("Started game with %s (%s).\n",g->opname,g->opaddr);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	istart -- I won the opening toss
+X *
+X * This function is called when a USTART packet is received.  Both rolls
+X * are copied into the game structure and the state is set to MYMOVE,
+X * allowing us to use the roll but not to double.
+X *---------------------------------------------------------------------------
+X */
+X
+Xistart(g)
+Xstruct game *g;
+X{
+X
+Xg->mvs[0].roll = P.mvs[0].roll;	/* copy rolls from packet */
+Xg->mvs[1].roll = P.mvs[1].roll;
+Xg->mvs[0].pt = -1;	/* mark both rolls unused */
+Xg->mvs[1].pt = -1;
+Xg->state = ST_MYMOVE;	/* set state so we make a move */
+Xlegalmoves(g);		/* calculate legal moves */
+Xg->rolls[g->mvs[0].roll - 1]++;	/* count the rolls we got */
+Xg->rolls[g->mvs[1].roll - 1]++;
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	tie -- The opening toss was a tie, try again
+X *
+X * This function is called when we receive a TIE packet.  We reroll
+X * one die and send a RESTART packet.  If the autodbl field in
+X * the received packet is > 0, the game value is set to 2 ** autodbl.
+X *---------------------------------------------------------------------------
+X */
+X
+Xtie(g)
+Xstruct game *g;
+X{
+X
+Xclearmvs(g->mvs);
+Xg->mvs[0].roll = Rolldie();
+Xif (P.autodbl != NULL)
+X	g->gameval = 1 << (g->adcnt = atoi(P.autodbl));
+Xsendpkt(g,RESTART);
+Xmessage("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	restart -- restart after opening tie
+X *
+X * This function is called when we receive a RESTART packet.  It is
+X * mostly the same as start().
+X *---------------------------------------------------------------------------
+X */
+X
+Xrestart(g)
+Xstruct game *g;
+X{
+Xint mydie;
+X
+Xclearmvs(g->mvs);
+Xclearmvs(g->opmvs);
+Xmydie = Rolldie();
+Xif (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+X	if (g->adcnt < g->admax)	/* do an autodouble */
+X		g->gameval = 1 << ++(g->adcnt);
+X	sendpkt(g,TIE);
+X	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+X	return;			/* opponent will send RESTART */
+X	}
+Xg->mvs[0].roll = P.mvs[0].roll;	/* copy initial roll */
+Xg->mvs[1].roll = mydie;	/* store so sendpkt can find it */
+Xif (mydie > (int) P.mvs[0].roll) {		/* we won the initial roll */
+X	g->state = ST_MYMOVE;	/* set state so we make a move */
+X	legalmoves(g);		/* calculate legal moves for these rolls */
+X	g->rolls[g->mvs[0].roll - 1]++;	/* count the rolls we got */
+X	g->rolls[g->mvs[1].roll - 1]++;
+X	}
+Xelse {				/* we lost, tell the opponent to start */
+X	g->state = ST_OPTURN;
+X	sendpkt(g,USTART);
+X	message("Started game with %s (%s).\n",g->opname,g->opaddr);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	mstart -- start next game of match
+X *
+X * This function is called when we receive an MSTART packet.  It is
+X * similar to restart, except that it also reinitializes the game
+X * structure for the next game of the match.  All games of a match
+X * use the same gameid and game structure.  Mstart also checks to
+X * see if this is a Crawford rule game, and if so, sets F_CRGAME in g->flags.
+X *---------------------------------------------------------------------------
+X */
+X
+Xmstart(g)
+Xstruct game *g;
+X{
+Xint mydie;
+Xint i;
+Xchar c1, c2;
+X
+Xg->state = ST_OPSTART;
+Xg->gameval = 1;		/* reset for next game */
+Xg->adcnt = 0;
+Xg->flags &= ~F_IDOUBLED;
+Xg->term = 0;
+Xif (g->mydir > 0) {
+X	c1 = g->mycolor;	/* upbound color is mine */
+X	c2 = g->opcolor;	/* downbound color is opponent's */
+X	}
+Xelse {
+X	c1 = g->opcolor;	/* upbound color is opponent's */
+X	c2 = g->mycolor;	/* downbound color is mine */
+X	}
+Xnewboard(g->opbd,c1,c2);
+Xnewboard(g->mybd,c1,c2);
+Xnewboard(g->board,c1,c2);
+Xfor (i = 0; i < 6; i++) {
+X	g->rolls[i] = 0;
+X	g->doubles[i] = 0;
+X	g->oprolls[i] = 0;
+X	g->opdoubles[i] = 0;
+X	}
+Xclearmvs(g->mvs);
+Xclearmvs(g->opmvs);
+Xcrawford_check(g);			/* is this the Crawford rule game? */
+Xmydie = Rolldie();
+Xif (P.mvs[0].roll == mydie) {		/* a !#$%&@ tie */
+X	if (g->adcnt < g->admax)	/* do an autodouble */
+X		g->gameval = 1 << ++(g->adcnt);
+X	sendpkt(g,TIE);
+X	message("Tie on initial roll with %s (%s).\n",g->opname,g->opaddr);
+X	return;			/* opponent will send RESTART */
+X	}
+Xg->mvs[0].roll = P.mvs[0].roll;	/* copy initial roll */
+Xg->mvs[1].roll = mydie;	/* store so sendpkt can find it */
+Xif (mydie > (int) P.mvs[0].roll) {		/* we won the initial roll */
+X	g->state = ST_MYMOVE;	/* set state so we make a move */
+X	legalmoves(g);		/* calculate legal moves for these rolls */
+X	g->rolls[g->mvs[0].roll - 1]++;	/* count the rolls we got */
+X	g->rolls[g->mvs[1].roll - 1]++;
+X	}
+Xelse {				/* we lost, tell the opponent to start */
+X	g->state = ST_OPTURN;
+X	sendpkt(g,USTART);
+X	message("Started game with %s (%s).\n",g->opname,g->opaddr);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	opmove -- opponent moved
+X *
+X * This function is called when we receive a MOVE packet.  The move is
+X * copied into the opmvs field of the game structure and applied to the
+X * board.  A copy of the board before the moves are applied is stored
+X * in the opbd field, and a copy of the board after the moves are applied
+X * is stored in the mybd field.  These two boards, along with the
+X * current board in the board field, make up the three boards that can
+X * be displayed with the "Board" command in the user menus in process.c
+X *---------------------------------------------------------------------------
+X */
+X
+Xopmove(g)
+Xstruct game *g;
+X{
+Xint i, n, r;
+Xstatic char buf[] = "Opponent move dated DDD MMM NN HH:MM:SS YYYY";
+Xstruct game *pg;
+X
+Xcopyboard(g->board,g->opbd);	/* save board before opponent moved */
+Xg->curbd = boardnums[*rc.initboard - 'a'];	/* display initial board */
+Xclearmvs(g->opmvs);		/* clear old moves */
+Xg->opmvs[0] = P.mvs[0];	/* extract opponent's moves */
+Xg->opmvs[1] = P.mvs[1];
+Xg->oprolls[g->opmvs[0].roll - 1]++;		/* count rolls opponent got */
+Xg->oprolls[g->opmvs[1].roll - 1]++;
+Xif (g->opmvs[0].roll == g->opmvs[1].roll) {
+X	g->opmvs[2] = P.mvs[2];	/* he got doubles */
+X	g->opmvs[3] = P.mvs[3];	/* extract 2 more moves */
+X	g->opdoubles[g->opmvs[0].roll - 1]++;
+X	n = 4;
+X	}
+Xelse
+X	n = 2;
+Xfor (i = 0; i < 4; i++)
+X	g->blot[i] = 0;		/* clear all blot locations */
+Xfor (i = 0; i < n; i++) {
+X	if ( (r = apply(g,WHO_OPP,i,0,NULL)) < 0) {	/* err w/ op move */
+X		copyboard(g->opbd,g->board);	/* restore board */
+X		message("ERROR: Opponent move rejected, id=%s\n",
+X			P.gameid);
+X		message("       %s\n",rejmsg[-r]);
+X		return;
+X		}
+X	else		/* if opponent hit our blot */
+X		g->blot[i] = r;		/* save location */
+X	}
+Xcopyboard(g->board,g->mybd);		/* save board after op move */
+Xif (g->board[OFFPT(g->opdir)].qty == 15)	/* opponent won */
+X	ilose(g,T_ILOSE,1);
+Xelse
+X	g->state = ST_MYTURN;		/* opponent has moved, it's our turn */
+Xclearmvs(g->mvs);		/* erase our previous move */
+Xif (P.timestamp > 0) {		/* if we got a timestamp */
+X	strncpy(&buf[20],ctime(&P.timestamp),24);	/* gen message */
+X	g->dispmsg = save(buf);		/* save copy in game */
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	opofr -- opponent offered to double
+X *
+X * This function is called when we receive an OFRDBL packet, indicating
+X * the opponent wishes to double.  The game moves to state MYACCEPT,
+X * where the user will decide to accept or decline the double.
+X *---------------------------------------------------------------------------
+X */
+X
+Xopofr(g)
+Xstruct game *g;
+X{
+X
+Xif (g->flags & F_CRGAME) {
+X	message("ERROR: Opponent move rejected, id=%s\n",P.gameid);
+X	message("       Invalid double (Crawford rule)\n");
+X	return;
+X	}
+Xg->state = ST_MYACCEPT;			/* send us to an accept screen */
+Xg->flags &= ~F_IDOUBLED;		/* I didn't double last */
+Xcopyboard(g->board,g->opbd);
+Xcopyboard(g->board,g->mybd);
+Xg->curbd = BD_CUR;		/* display current board */
+Xclearmvs(g->opmvs);		/* clear old moves */
+Xclearmvs(g->mvs);		/* erase our previous move */
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	opconc -- opponent conceded
+X *
+X * This function is called when we receive a CONCEDE packet, indicating
+X * the opponent has given up.
+X *---------------------------------------------------------------------------
+X */
+X
+Xopconc(g)
+Xstruct game *g;
+X{
+Xint gv;
+X
+Xiwin(g,T_OPCONCEDE,1);			/* wimp */
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	opacpt -- opponent accepted double
+X *
+X * This function is called when we receive an ACPTDBL packet, indicating
+X * the opponent has accepted our double.  The IDOUBLED flag is set to
+X * prevent us from doubling again until the opponent doubles.  Since it
+X * is now our turn, we go ahead and roll the dice and proceed to the
+X * MYMOVE state.
+X *---------------------------------------------------------------------------
+X */
+X
+Xopacpt(g)
+Xstruct game *g;
+X{
+X
+Xg->gameval *= 2;		/* double game value */
+Xg->flags |= F_IDOUBLED;		/* I doubled last */
+Xg->state = ST_MYMOVE;		/* It is my move */
+Xcopyboard(g->board,g->opbd);
+Xcopyboard(g->board,g->mybd);
+Xg->curbd = BD_CUR;		/* display current board */
+Xclearmvs(g->opmvs);		/* clear old moves */
+Xclearmvs(g->mvs);		/* erase our previous move */
+Xrolldice(g);			/* go ahead and roll, I can't double */
+Xg->dispmsg = save("Opponent has accepted your double.");/* notify user */
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	opdec -- opponent declined double
+X *
+X * This function is called when a DECDBL packet is received.  This
+X * indicates that the opponent has declined our double, and the game is over.
+X *---------------------------------------------------------------------------
+X */
+X
+Xopdec(g)
+Xstruct game *g;
+X{
+Xint gv;
+X
+Xiwin(g,T_OPDECLINE,1);
+Xcopyboard(g->board,g->opbd);
+Xcopyboard(g->board,g->mybd);
+Xg->curbd = BD_CUR;		/* display current board */
+Xclearmvs(g->opmvs);		/* clear old moves */
+Xclearmvs(g->mvs);		/* erase our previous move */
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	smerr -- an illegal operation was received for this state
+X *
+X * This function is called when a packet is received that is invalid
+X * for the game state.  An example of this would be receiving an
+X * ACPTDBL packet when we did not send an OFRDBL.
+X *---------------------------------------------------------------------------
+X */
+X
+Xsmerr(g)
+Xstruct game *g;
+X{
+X
+Xmessage("ERROR: invalid operation (%d) for state (%d), id=%s\n",
+X	P.opcode, g->state, g->gameid);
+X}
+END_OF_FILE
+if test 15063 -ne `wc -c <'rcvop.c'`; then
+    echo shar: \"'rcvop.c'\" unpacked with wrong size!
+fi
+# end of 'rcvop.c'
+fi
+if test -f 'readmail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readmail.c'\"
+else
+echo shar: Extracting \"'readmail.c'\" \(12210 characters\)
+sed "s/^X//" >'readmail.c' <<'END_OF_FILE'
+X/*	readmail.c		8/7/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	readmail -- read the incoming mail and process it
+X *
+X * This function extracts each packet from the mail file and applies it
+X * to the appropriate game structure.  Most packets are processed by
+X * calling the handler found in the func array, which is a 2-dimensional
+X * array indexed by the current game state and the received opcode.
+X * The handlers are responsible for transforming the game state as
+X * necessary.  The START and RSTART opcodes receive special processing,
+X * since they apply to games that do not exist and thus have no state.
+X * START packets result in the creation of a game, whose state is set
+X * such that the correct handler will be called.  The RSTART opcode
+X * is processed in the same way as the -start command line argument;
+X * the packet is then discarded.
+X *
+X * Note that the file argument can be actually be a pattern, causing
+X * all matching files to be scanned.  On UNIX systems, patterns are
+X * interpreted in the same manner as the shell.  On VMS, they
+X * are interpreted in the same manner as DCL.
+X *----------------------------------------------------------------------
+X */
+X
+Xreadmail(file)
+Xchar *file;
+X{
+Xstruct flist *fl, *t;
+X
+Xfl = filelist(file);		/* generate a list of all matching files */
+Xwhile (fl != NULL) {		/* for each matching file found */
+X	readfile(fl->name);	/* scan it */
+X	free(fl->name);		/* free the string */
+X	t = fl;			/* keep a pointer to the struct */
+X	fl = fl->next;		/* advance fl pointer */
+X	free(t);		/* free the previous struct */
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	readfile -- scan a file looking for incoming messages
+X *
+X * This function is called by readmail to scan a file that matches
+X * the pattern.
+X *----------------------------------------------------------------------
+X */
+X
+Xreadfile(name)
+Xchar *name;
+X{
+XFILE *fp;
+Xint d, c1, c2;
+Xint flags = 0, match = 0;
+Xstruct people *p;
+Xstruct game *g;
+X
+Xif ( (fp = fopen(name,"r")) == NULL)
+X	return;
+Xif (rc.debug & DB_READFILE)
+X	message("DB-readfile: scanning %s\n",name);
+Xwhile (getpkt(fp) > 0) {	/* as long as we found a valid packet */
+X	if (P.gameptr == NULL) {
+X		if (rc.debug & DB_READFILE)
+X			message("DB-readfile: found packet for <unknown>\n");
+X		if (P.opcode == START) {
+X			if ( ((p = findppl(P.addr,P_ADDR)) != NULL) &&
+X			     (p->fence >= P.timestamp) )
+X				continue;	/* ignore old start packets */
+X			P.gameptr = addgame(); /* init later in start() */
+X			P.gameptr->ppl = p;
+X			P.gameptr->gameid = P.gameid;
+X			P.gameptr->state = ST_OPSTART;
+X			}
+X		else if (P.opcode == RSTART) {	/* remote start packet */
+X			if (rc.debug & DB_RSTART)
+X				message("DB-readfile: remstart to %s\n",P.addr);
+X			if ( (p = findppl(P.addr,P_ADDR)) != NULL)
+X				P.addr = p->addr;	/* use real addr */
+X			for (g = ghead; g != NULL; g = g->next)
+X				if ( (P.timestamp == g->starttime) &&
+X				     (strcmp(P.addr,g->opaddr) == 0) )
+X					break;	/* already seen this packet */
+X			if (g != NULL)
+X				continue;
+X			if ( (p != NULL) && (p->fence >= P.timestamp) )
+X				continue;	/* this game already played */
+X			if (rc.debug & DB_RSTART)
+X				message("DB-readfile: address is %s\n",P.addr);
+X			if (P.dir == NULL)	/* if no direction was given */
+X				d = cr_mydir;	/* use my default */
+X			else			/* dir was given, grab it */
+X				d = (*P.dir == 'u') ? 1 : -1;
+X			if (P.colors == NULL) {	/* if no colors were given */
+X				c1 = cr_mycolor;	/* use my defaults */
+X				c2 = cr_opcolor;
+X				}
+X			else {				/* colors were given */
+X				c1 = *P.colors;		/* use them */
+X				c2 = P.colors[1];
+X				}
+X			if (P.jacoby != NULL)
+X				flags |= F_JACOBY;
+X			if (P.crawford != NULL)
+X				flags |= F_CRAWFORD;
+X			if (P.european != NULL)
+X				flags |= F_EUROPE;
+X			if (P.perm != NULL)
+X				flags |= F_PERM;
+X			if (P.match != NULL)
+X				match = atoi(P.match);
+X			notify = P.notify;	/* store notify address */
+X			startgame(P.addr,d,c1,c2,flags,match,P.timestamp);
+X			continue;	/* game started, discard this packet */
+X			}
+X		else {
+X			message("ERROR: no such gameid: %s (ignored)\n",
+X				P.gameid);
+X			continue;
+X			}
+X		}
+X	if (rc.debug & DB_READFILE)
+X		message("DB-readfile: found packet for %s\n",
+X			P.gameptr->gameid);
+X	if (P.gameptr->state >= OPSTATES) {	/* hey, it's still my turn */
+X		message("ERROR: move out of turn: %s (ignored)\n",P.gameid);
+X		continue;
+X		}
+X	if (P.name != NULL) {		/* snarf opponent's name */
+X		P.gameptr->opname = P.name;
+X		if (P.gameptr->ppl != NULL) {
+X			if (P.gameptr->ppl->name != NULL)
+X				free(P.gameptr->ppl->name);
+X			P.gameptr->ppl->name = save(P.name);
+X			}
+X		}
+X	if (P.notify != NULL)
+X		P.gameptr->notify = P.notify;
+X	(*func[P.gameptr->state][P.opcode])(P.gameptr);	/* call handler */
+X	}
+Xfclose(fp);
+Xif ( ((*rc.delmail == 'y') || (*rc.delmail == 'Y'))
+X#ifndef VMS
+X		&& (*name != '/')	/* absolute paths not deleted */
+X#endif
+X	) {
+X	if (rc.debug & DB_READFILE)
+X		message("DB-readfile: deleting mail file %s\n",name);
+X	unlink(name);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	getpkt -- read one packet from a file
+X *
+X * This function reads the next packet from the specified file.
+X * Getpkt() is passed a open file pointer to the file it is to scan.
+X * Lines are read and discarded until a line is found that contains only:
+X *		<<<===LDB===>>>
+X * Subsequent lines should contain name/value pairs as specified
+X * in nv_packet.  The packet ends with end of file or a line beginning
+X * with "end=".  Getpkt reads from the input file until one
+X * packet has been found and processed, then returns.  Subsequent calls
+X * to getpkt with the same file pointer will process additional packets.
+X * Getpkt returns 1 if a valid packet was read, 0 if EOF was encountered.
+X * Getpkt ignores incoming packets with the incorrect sequence number.
+X *
+X * As a compatibility hook with old versions, getpkt checks that the
+X * version field on the incoming packet is high enough to support
+X * the following features if they are enabled in the game:
+X *	feature		need at least version
+X *	-------------------------------------
+X *	match play		1.1
+X *	jacoby rule		1.1
+X *	crawford rule		1.1
+X *	european rule		1.1
+X *	permanent games		1.1
+X * If the incoming packet indicates a feature is not supported by the
+X * remote ldb, it is disabled and the game continues as if it had
+X * never been set.  The Crawford rule contained a bug in pre-1.3 games,
+X * so 1.3 will print a warning if an older version tries to start
+X * a game with the crawford rule enabled.
+X *
+X * Getpkt handles RESEND packets itself, performing a resend and
+X * discarding the packet.
+X *---------------------------------------------------------------------------
+X */
+X
+Xgetpkt(fp)
+XFILE *fp;
+X{
+Xstatic char buf[128];
+Xchar *oldaddr;
+Xstruct game *g;
+Xstruct people *p;
+Xint i;
+X
+Xwhile (fgets(buf,sizeof(buf),fp) != NULL) {
+X	if (strcmp(buf,"<<<===LDB===>>>\n"))/* skip all other lines */
+X		continue;
+X	P.gameid = NULL;	/* init P structure */
+X	P.version = 100;	/* default to oldest version */
+X	P.timestamp = 0L;
+X	P.opcode = -1;
+X	P.name = NULL;
+X	P.addr = NULL;
+X	P.comment = NULL;
+X	P.comment2 = NULL;
+X	P.seq = -1;
+X	P.autodbl = NULL;
+X	P.jacoby = NULL;	/* jacoby is off by default */
+X	P.crawford = NULL;	/* so is crawford */
+X	P.perm = NULL;		/* so is permanent option */
+X	P.european = NULL;	/* so is european rule */
+X	P.match = NULL;		/* so is match play */
+X	clearmvs(P.mvs);
+X	P.gameptr = NULL;
+X	P.notify = NULL;
+X	nvscan(fp,nv_packet,&P);	/* scan the packet into P */
+X	if (P.gameid == NULL) {		/* didn't get a gameid */
+X		message("ERROR: missing gameid in packet -- ignored\n");
+X		continue;
+X		}
+X	if (P.version > 100) {		/* versions after 1.0 rot13 comments */
+X		if (P.comment != NULL)
+X			rotate(P.comment);
+X		if (P.comment2 != NULL)
+X			rotate(P.comment2);
+X		}
+X	if ( (P.gameptr = findgame(P.gameid)) == NULL) {/* doesn't exist */
+X		if ( (P.opcode != START) && (P.opcode != RSTART) )
+X			continue;	/* ignore pkts for dead games */
+X		i = 1;			/* initial seq == 1 */
+X		}
+X	else {
+X		if (P.opcode == RESEND) {	/* resend request */
+X			if ((P.seq + 1) != P.gameptr->seq)
+X				continue;	/* old resend request, ignore */
+X			if (P.timestamp < P.gameptr->lastacc)
+X				continue;	/* old resend request, ignore */
+X			message(
+X				"Resend requested for game %s -- sending...\n",
+X				P.gameid);
+X			resendpkt(P.gameptr);	/* resend */
+X			P.gameptr->lastacc = time( (long *) 0);	/*set lastacc*/
+X			if (P.timestamp > P.gameptr->lastacc)
+X				P.gameptr->lastacc = P.timestamp;
+X			continue;		/* and ignore packet */
+X			}
+X		i = P.gameptr->seq+1;	/* get current seq */
+X		}
+X	if (P.seq != i) {		/* sequence number is wrong */
+X		if (P.seq > i)		/* rec'd seq # is too big */
+X			message(		/* shouldn't happen */
+X			"WARNING: game %s, seq no. is %d, s/b %d -- ignored.\n"
+X			,P.gameid,P.seq,i);
+X		continue;		/* ignore pkts with bad sequence #s */
+X		}
+X	if ( (P.opcode < 0) || (P.opcode >= NOP) ) {	/* bad opcode */
+X		message("ERROR: bad opcode for game %s: %d -- ignored.\n",
+X			P.gameid,P.opcode);
+X		continue;
+X		}
+X
+X	if (P.gameptr == NULL)		/* everything after here needs ptr */
+X		return(1);		/* to game structure */
+X
+X	P.gameptr->seq += 2;	/* bump sequence number */
+X	P.gameptr->lastacc = time( (long *) 0);	/*set lastacc*/
+X	if (P.timestamp > P.gameptr->lastacc)
+X		P.gameptr->lastacc = P.timestamp;
+X	if (P.gameptr->opcmt != NULL)
+X		free(P.gameptr->opcmt);	/* discard old comment */
+X	P.gameptr->opcmt = P.comment;	/* copy new comment */
+X	if (P.gameptr->opcmt2 != NULL)
+X		free(P.gameptr->opcmt2);/* discard old comment */
+X	P.gameptr->opcmt2 = P.comment2;	/* copy new comment */
+X	P.gameptr->opver = P.version;	/*in case he changed versions*/
+X	P.gameptr->ppl->opver = P.version;
+X
+X	if (P.addr != NULL) {	/* opponent's address changed */
+X		oldaddr = P.gameptr->ppl->addr;
+X		for (g = ghead; g != NULL; g = g->next)	/* all games with */
+X			if (strcmp(g->ppl->addr,oldaddr) == 0) {/* this opp */
+X				free(g->opaddr);	/* free old addr */
+X				g->opaddr = save(P.addr);	/* copy new */
+X				}
+X		for (p = phead; p != NULL; p = p->next)	/* look for dangling */
+X			if (p->equiv != NULL)		/* equiv records */
+X				if (strcmp(oldaddr,p->equiv) == 0) {
+X					free(p->equiv);
+X					p->equiv = save(P.addr);
+X					}
+X		free(P.gameptr->ppl->addr);
+X		P.gameptr->ppl->addr = save(P.addr);
+X		message("Address change for %s: %s\n",
+X			P.gameptr->opname,P.gameptr->opaddr);
+X		}
+X	
+X	if (P.gameptr->ppl->newaddr == NA_SENT) {/* newaddr pending this op */
+X		P.gameptr->ppl->newaddr = NA_NONE;	/* cancel it */
+X		message("newaddr: %s notified.\n",P.gameptr->ppl->addr);
+X		}
+X
+X			/* any 1.1 features used with 1.0? */
+X	if ( (P.version < 110) && ( (P.gameptr->mtotal > 0) ||
+X	     (P.gameptr->flags & (F_JACOBY|F_CRAWFORD|F_PERM|F_EUROPE))) ) {
+X		message("Warning: in game %s:\n",P.gameid);
+X		message(
+X"The following features are not supported by your opponent's version of ldb:\n"
+X		);
+X		if (P.gameptr->flags & F_JACOBY)
+X			message("\tJacoby rule.\n");
+X		if (P.gameptr->flags & F_CRAWFORD)
+X			message("\tCrawford rule.\n");
+X		if (P.gameptr->flags & F_EUROPE)
+X			message("\tEuropean rule.\n");
+X		if (P.gameptr->flags & F_PERM)
+X			message("\tPermanent games.\n");
+X		if (P.gameptr->mtotal > 0)
+X			message("\tMatch play.\n");
+X		P.gameptr->flags &=
+X			~(F_CRAWFORD|F_JACOBY|F_PERM|F_EUROPE);
+X		P.gameptr->mtotal = 0;
+X		message(
+X"This game will continue as if those features had not been used.\n");
+X		}
+X	if ( (P.version < 130) && (P.gameptr->flags & F_CRAWFORD) )
+X		message(
+X"Warning: opponent using pre-1.3 ldb -- using Crawford rule not recommended!\n"
+X		);
+X	return(1);			/* return success */
+X	}
+Xreturn(0);		/* return this to mean end of file */
+X}
+END_OF_FILE
+if test 12210 -ne `wc -c <'readmail.c'`; then
+    echo shar: \"'readmail.c'\" unpacked with wrong size!
+fi
+# end of 'readmail.c'
+fi
+echo shar: End of archive 3 \(of 12\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

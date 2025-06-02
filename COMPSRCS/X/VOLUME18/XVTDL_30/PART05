@@ -1,0 +1,1829 @@
+Newsgroups: comp.sources.x
+Path: uunet!uunet!darwin.sura.net!mips!msi!dcmartin
+From: jipping@cs.hope.edu (Mike Jipping)
+Subject: v18i066: XVTDL 3.0, Part05/06
+Message-ID: <1992Jul29.175125.15067@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i062-xvtdl-3.0@uunet.UU.NET>
+Date: Wed, 29 Jul 1992 17:51:25 GMT
+Approved: dcmartin@msi.com
+Lines: 1816
+
+Submitted-by: jipping@cs.hope.edu (Mike Jipping)
+Posting-number: Volume 18, Issue 66
+Archive-name: xvtdl-3.0/part05
+
+#!/bin/sh
+# this is part.05 (part 5 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file control.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 5; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping control.c'
+else
+echo 'x - continuing file control.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'control.c' &&
+X							  0);
+X			xv_set(item, PANEL_VALUE, 0, 0);
+X         return;
+X		}
+X		xv_set(entry_category, PANEL_INACTIVE, TRUE, 0);
+X		xv_set(recurring, PANEL_INACTIVE, TRUE, 0);
+X		xv_set(entry_editor->entry_priority, PANEL_INACTIVE, TRUE, 0);
+X	}
+}
+X
+/*
+X * **********************************************************************
+X * Call back routine to list all categories.  Does a little house keeping
+X *  -- like make the categories item in print window inactive -- but 
+X * really nothing terribly special.
+X */
+void list_all_categories(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	xv_set(print_print_base->categories, PANEL_INACTIVE, TRUE, 0);
+X	display_all(curr_month, curr_day, curr_year);
+}
+X
+/*
+X * **********************************************************************
+X * This routine is called when it's midnight.  It performs propagation
+X * of list items and refreshes the data file.
+X */
+Notify_value midnight()
+{
+X   struct timeval tv;
+X	struct category_rec *cr;
+X
+X   gettimeofday(&tv, 0);
+X   tm = localtime(&tv.tv_sec);
+X   today = *tm;
+X   curr_month = today.tm_mon+1;
+X   curr_day = today.tm_mday;
+X   curr_year = today.tm_year+1900;
+X
+X	propagate();
+X
+X	cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X	entry_head = cr->entry_head;
+X	entry_tail = cr->entry_tail;
+X	rl_head = cr->rl_head;
+X	rl_tail = cr->rl_tail;
+X	go_today();
+X
+X	return NOTIFY_DONE;
+}
+X
+X
+/*
+X * **********************************************************************
+X * This routine is called hourly.  It wakes up, refreshes the data base,
+X * and called the midght routine if necessary.
+X */	
+Notify_value hourly()
+{
+X   struct timeval tv;
+X
+X   gettimeofday(&tv, 0);
+X   tm = localtime(&tv.tv_sec);
+X	if (tm->tm_hour == 0) midnight();
+X
+X	return NOTIFY_DONE;
+X	
+}
+X
+/*
+X * **********************************************************************
+X * This routine is called for events on the base window.  It is mostly
+X * used for resizing the window and the inner panels to match.
+X */
+void tdl_events(window, event)
+XXv_Window       window;
+Event *event;
+{
+X	int height, width;
+X	int y;
+X	int rows, rowsize;
+X	
+X	switch(event_id(event)) {
+X	   case WIN_RESIZE:
+X		   height = xv_get(tdl_list, XV_HEIGHT);
+X			width = xv_get(tdl_list, XV_WIDTH);
+X			y = xv_get(todo, PANEL_ITEM_Y);
+X			rowsize = xv_get(todo, PANEL_LIST_ROW_HEIGHT);
+X			rows = (height - y - 20) / rowsize;
+X			if (rows <= 0)
+X				rows = 1;
+X			xv_set(todo, 
+X					 PANEL_LIST_DISPLAY_ROWS, rows,
+X					 PANEL_LIST_WIDTH, width - 30, 
+X					 NULL);
+X			break;
+X		default:
+X			break;
+X	}
+}
+X
+/*
+X * **********************************************************************
+X * This routine is called as a trap for the window destroy events...so we
+X * can write the database before we really quit.
+X */
+Notify_value my_destroy_func(client, status)
+Notify_client   client;
+Destroy_status  status;
+{
+X	if (status == DESTROY_SAVE_YOURSELF) {
+X		/* save state. Not a death */
+X		return NOTIFY_DONE;
+X	}
+X
+X	if (changed) refresh_db(log_level == LOG_AT_QUIT);
+X   xv_destroy_safe(tdlist);
+X
+X	switch(status) {
+X	   case DESTROY_CHECKING:
+X		   break;
+X	   case DESTROY_CLEANUP:
+X		   return notify_next_destroy_func(client, status);
+X		   break;
+X	   case DESTROY_PROCESS_DEATH:
+X		   exit(1);
+X		   break;
+X	}
+X	return NOTIFY_DONE;
+}
+X
+/*
+X * **********************************************************************
+X * Close the todo list to an iconic state.  Refresh the db if need be.
+X */
+void close_tdlist(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	if (changed) refresh_db(FALSE);
+X	xv_set(tdlist, FRAME_CLOSED, TRUE, 0);
+}
+X
+/*
+X * **********************************************************************
+X * Terminate the program.
+X */
+void quit(item, event)
+Panel_item item; 
+Event      *event;
+{
+X	my_destroy_func((Notify_client)NULL, DESTROY_PROCESS_DEATH);
+X	notify_stop();
+}
+SHAR_EOF
+echo 'File control.c is complete' &&
+chmod 0644 control.c ||
+echo 'restore of control.c failed'
+Wc_c="`wc -c < 'control.c'`"
+test 20185 -eq "$Wc_c" ||
+	echo 'control.c: original size 20185, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= create_windows.c ==============
+if test -f 'create_windows.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping create_windows.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting create_windows.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'create_windows.c' &&
+/*
+X *  Create_windows.c ==> Routines to setup the windows in the XVTDL
+X *                       environment.
+X *
+X *  This includes calls to create cursors.
+X *
+X * ----------------------------------------------------------------------
+X * Copyright (c) 1992 by Mike Jipping and Hope College
+X *
+X * Permission is granted to copy and distribute this file in modified or
+X * unmodified form, for noncommercial use, provided (a) this copyright notice
+X * is preserved, (b) no attempt is made to restrict redistribution of this
+X * file, and (c) this file is not distributed as part of any collection whose
+X * redistribution is restricted by a compilation copyright.
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X *
+X * $Log: create_windows.c,v $
+X * Revision 3.1  1992/07/28  12:05:51  jipping
+X * Adjusted title on "List All" button.
+X *
+X * Revision 3.0  1992/07/27  18:34:40  jipping
+X * Release 3.0 includes:
+X * * rearranged items on the control panel
+X * * added "List All..." and "Done" buttons
+X * * added distinguishing macros for Xview versions 2 and 3
+X * * added initializations for the properties and log editors
+X *
+X * Revision 2.3  1992/07/13  18:58:35  jipping
+X * Altered window fitting calls to accomodate OW version 2.
+X *
+X * Revision 2.2  1992/07/13  15:53:32  jipping
+X * Changed several panels' size to WIN_EXTEND_TO_EDGE to accomodate
+X * correct resizing.
+X *
+X * Revision 2.1  1992/07/13  13:53:52  jipping
+X * Placed all bitmaps for checks and buttons in a subdirectory.
+X *
+X * Revision 2.0  1992/07/10  17:17:53  jipping
+X * Initial Release.
+X *
+X * Revision 2.0  1992/07/10  16:21:58  jipping
+X * Initial Release
+X *
+X */
+X
+#include "globaldefs.h"
+X
+/*
+X *  Window system declarations...callback routines and XView variables
+X */
+X
+void tdl_events();
+void repaint_proc(), calendar_event_proc();
+void create(), close_list(), close_create();
+void go_forward(), go_today(), go_backward(), quit();
+void tdl_notify_proc();
+void create_it(), edit(), start_print();
+void create_recurring(), cancel_recurring(), choose_recurring(), close_recurring();
+void choose_new_category(), change_entry_type();
+void pg(), copy(), cut(), paste();
+void open_properties(), list_all_categories(), close_tdlist();
+X
+Icon  tdl_icon;
+Panel tdl_title, tdl_control, tdl_list;
+Panel_item date_message, backward, goto_today, forward, categories, recurring;
+Panel_item properties;
+Panel_item todo, create_entry, edit_entry, print_tdl, close_tdl, quit_tdl;
+Menu edit_menu;
+X
+Frame entry_frame;
+Panel entry_panel;
+Panel_item entry_text, entry_done, entry_type, entry_category;
+X
+Frame recurring_frame;
+Panel recurring_panel;
+Panel_item freq, day_of_week, day_of_week2, weeks, week_of_month;
+X
+/*
+X
+X *  Image declarations -- bitmaps for glyphs and icons.
+X */
+X
+static short notepad_bits[] = {
+#include "bitmaps/tdl.pr"
+};
+Server_image notepad;
+X
+static short notepad_mask_bits[] = {
+#include "bitmaps/tdl_mask.pr"
+};
+Server_image notepad_mask;
+X
+static short backward_bits[] = {
+#include "bitmaps/backward.pr"
+};
+Server_image backward_image;
+X
+static short forward_bits[] = {
+#include "bitmaps/forward.pr"
+};
+Server_image forward_image;
+X
+static short props_bits[] = {
+#include "bitmaps/props.pr"
+};
+Server_image props_image;
+X
+static short checked_off_bits[] = {
+#include "bitmaps/checked_off.pr"
+};
+Server_image checked_off;
+X
+static short checked_on_bits[] = {
+#include "bitmaps/checked_on.pr"
+};
+Server_image checked_on;
+X
+Server_image checks[10];
+static short zero_bits[] = {
+#include "bitmaps/0.pr"
+};
+static short one_bits[] = {
+#include "bitmaps/1.pr"
+};
+static short two_bits[] = {
+#include "bitmaps/2.pr"
+};
+static short three_bits[] = {
+#include "bitmaps/3.pr"
+};
+static short four_bits[] = {
+#include "bitmaps/4.pr"
+};
+static short five_bits[] = {
+#include "bitmaps/5.pr"
+};
+static short six_bits[] = {
+#include "bitmaps/6.pr"
+};
+static short seven_bits[] = {
+#include "bitmaps/7.pr"
+};
+static short eight_bits[] = {
+#include "bitmaps/8.pr"
+};
+static short nine_bits[] = {
+#include "bitmaps/9.pr"
+};
+X
+/*
+X * **********************************************************************
+X * This creates all the window stuff.  Note that it calls initialize
+X * routines from GUIDE-developed code.
+X */
+create_windows()
+X
+{
+X	char day_title[50];
+X
+X	/*
+X	 *  First off...cursors and glyphs...
+X    */
+X	create_cursors();
+X	
+X	checked_off = xv_create(NULL, SERVER_IMAGE,
+X							  XV_WIDTH,           16,
+X							  XV_HEIGHT,          16,
+X							  SERVER_IMAGE_DEPTH, 1,
+X							  SERVER_IMAGE_BITS,  checked_off_bits,
+X							  NULL);
+X	
+X	checked_on = xv_create(NULL, SERVER_IMAGE,
+X							  XV_WIDTH,           16,
+X							  XV_HEIGHT,          16,
+X							  SERVER_IMAGE_DEPTH, 1,
+X							  SERVER_IMAGE_BITS,  checked_on_bits,
+X							  NULL);
+X
+X	checks[0] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  zero_bits,
+X								 NULL);
+X	checks[1] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  one_bits,
+X								 NULL);
+X	checks[2] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  two_bits,
+X								 NULL);
+X	checks[3] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  three_bits,
+X								 NULL);
+X	checks[4] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  four_bits,
+X								 NULL);
+X	checks[5] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  five_bits,
+X								 NULL);
+X	checks[6] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  six_bits,
+X								 NULL);
+X	checks[7] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  seven_bits,
+X								 NULL);
+X	checks[8] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  eight_bits,
+X								 NULL);
+X	checks[9] = xv_create(NULL, SERVER_IMAGE,
+X								 XV_WIDTH,           16,
+X								 XV_HEIGHT,          16,
+X								 SERVER_IMAGE_DEPTH, 1,
+X								 SERVER_IMAGE_BITS,  nine_bits,
+X								 NULL);
+X
+X	/*
+X    *  Now, create the main todo list window. 
+X    *
+X    *  Start with the "title panel".
+X    */
+X
+X	tdl_title = xv_create(tdlist, PANEL,
+X								 OPENWIN_SHOW_BORDERS,  TRUE,
+X								 XV_WIDTH,  WIN_EXTEND_TO_EDGE,
+X								 0);
+X
+X	notepad = xv_create(NULL, SERVER_IMAGE,
+X							  XV_WIDTH,           64,
+X							  XV_HEIGHT,          64,
+X							  SERVER_IMAGE_DEPTH, 1,
+X							  SERVER_IMAGE_BITS,  notepad_bits,
+X							  NULL);
+X
+X	notepad_mask = xv_create(NULL, SERVER_IMAGE,
+X									 XV_WIDTH,           64,
+X									 XV_HEIGHT,          64,
+X									 SERVER_IMAGE_DEPTH, 1,
+X									 SERVER_IMAGE_BITS,  notepad_mask_bits,
+X									 NULL);
+X
+X	tdl_icon = xv_create(XV_NULL, ICON,
+X								ICON_IMAGE,  notepad,
+X								ICON_MASK_IMAGE, notepad_mask,
+X								ICON_TRANSPARENT, TRUE,
+X								0);
+X
+X	xv_set(tdlist, FRAME_ICON, tdl_icon, 0);
+X
+X	(void) xv_create(tdl_title, PANEL_MESSAGE,
+X						  PANEL_LABEL_IMAGE,  notepad,
+X						  XV_X, 280,
+X						  XV_Y, 10,
+X						  0);
+X
+X	strftime(day_title, 50, "%A, %B %e, %Y", today);
+X	date_message = xv_create(tdl_title, PANEL_MESSAGE,
+X									 PANEL_LABEL_STRING, day_title,
+X									 PANEL_LABEL_BOLD,   TRUE,
+X									 XV_X,  200,
+X									 XV_Y,  85,
+X									 0);
+X
+X	window_fit_height(tdl_title);
+X
+X   /*
+X    *  Now the control panel 
+X    */
+X
+X	tdl_control = xv_create(tdlist, PANEL,
+X									WIN_BELOW, tdl_title,
+X									XV_WIDTH,  WIN_EXTEND_TO_EDGE,
+X									XV_X, 0,
+X									0);
+X
+X	backward_image = xv_create(NULL, SERVER_IMAGE,
+X							  XV_WIDTH,           32,
+X							  XV_HEIGHT,          22,
+X							  SERVER_IMAGE_DEPTH, 1,
+X							  SERVER_IMAGE_BITS,  backward_bits,
+X							  NULL);
+X
+X	categories = (Panel_item) xv_create(tdl_control, PANEL_CHOICE_STACK,
+X													PANEL_LABEL_STRING, "Category:",
+X													XV_X,  120,
+X													XV_Y,  7,
+X													PANEL_NOTIFY_PROC, choose_new_category,
+X													0);
+X
+X	forward_image = xv_create(NULL, SERVER_IMAGE,
+X							  XV_WIDTH,           32,
+X							  XV_HEIGHT,          22,
+X							  SERVER_IMAGE_DEPTH, 1,
+X							  SERVER_IMAGE_BITS,  forward_bits,
+X							  NULL);
+X
+X	create_entry = xv_create(tdl_control, PANEL_BUTTON,
+X									 PANEL_LABEL_STRING, "Create...",
+X									 XV_X, 0,
+X									 XV_Y, 40,
+X									 PANEL_NOTIFY_PROC,  create,
+X									 0);
+X
+X	edit_menu = xv_create(XV_NULL, MENU_COMMAND_MENU,
+X								 MENU_ITEM,
+X								    MENU_STRING, "Modify",
+X								    MENU_GEN_PROC, edit,
+X								    NULL,
+X								 MENU_ITEM,
+X								    MENU_STRING, "Copy",
+X								    MENU_GEN_PROC, copy,
+X								    NULL,
+X								 MENU_ITEM,
+X								    MENU_STRING, "Cut",
+X								    MENU_GEN_PROC, cut,
+X								    NULL,
+X								 MENU_ITEM,
+X								    MENU_STRING, "Paste",
+X								    MENU_GEN_PROC, paste,
+X								    NULL,
+X								 MENU_ITEM,
+X								    MENU_STRING, "",
+X								    NULL,
+X								 MENU_ITEM,
+X								    MENU_STRING, "Properties...",
+X								    MENU_NOTIFY_PROC, open_properties,
+X								    NULL,
+X								 MENU_GEN_PIN_WINDOW, tdlist, "Edit",
+X								 NULL);	
+X
+X	edit_entry = xv_create(tdl_control, PANEL_BUTTON,
+X								  PANEL_LABEL_STRING, "Edit",
+X								  XV_X, 90,
+X								  XV_Y, 40,
+X								  PANEL_ITEM_MENU, edit_menu,
+X								  0);
+X
+X	xv_create(tdl_control, PANEL_BUTTON,
+X				 PANEL_LABEL_STRING, "List All",
+#ifdef XVIEW3
+X				 PANEL_LABEL_WIDTH,  50,
+#endif
+X				 XV_X, 260,
+X				 XV_Y, 40,
+X				 PANEL_NOTIFY_PROC, list_all_categories,
+X				 0);
+X
+X	print_tdl = xv_create(tdl_control, PANEL_BUTTON,
+X								 PANEL_LABEL_STRING, "Print...",
+#ifdef XVIEW3
+X								 PANEL_LABEL_WIDTH,  50,
+#endif
+X								 XV_X, 350,
+X								 XV_Y, 40,
+X								 PANEL_NOTIFY_PROC,  start_print,
+X								 0);
+X
+X	backward = xv_create(tdl_control, PANEL_BUTTON,
+X								XV_X,  0,
+X								XV_Y,  0,
+X								PANEL_LABEL_IMAGE, backward_image,
+X								PANEL_NOTIFY_PROC, go_backward,
+X								0);
+X
+X	forward = xv_create(tdl_control, PANEL_BUTTON,
+X							  PANEL_LABEL_IMAGE, forward_image,
+X							  XV_X,  373,
+X							  XV_Y,  0,
+X							  PANEL_NOTIFY_PROC, go_forward,
+X							  0);
+X
+X	close_tdl = xv_create(tdl_control, PANEL_BUTTON, 
+X								 PANEL_LABEL_STRING, "Done",
+#ifdef XVIEW3
+X								 PANEL_LABEL_WIDTH,  50,
+#endif
+X								 XV_X, 0,
+X								 XV_Y, 65,
+X								 PANEL_NOTIFY_PROC, close_tdlist,
+X								 0);
+X	
+X	goto_today = (Panel_item) xv_create(tdl_control, PANEL_BUTTON,
+X													PANEL_LABEL_STRING, "Today",
+#ifdef XVIEW3
+X													PANEL_LABEL_WIDTH,  50,
+#endif
+X													XV_X,  170,
+X													XV_Y,  40,
+X													PANEL_NOTIFY_PROC, go_today,
+X													0);
+X
+X	quit_tdl = xv_create(tdl_control, PANEL_BUTTON,
+X								PANEL_LABEL_STRING, "Quit",
+#ifdef XVIEW3
+X								PANEL_LABEL_WIDTH,  50,
+#endif
+X								XV_X, 350,
+X								XV_Y, 65,
+X								PANEL_NOTIFY_PROC, quit,
+X								0);
+X
+X	window_fit_height(tdl_control);
+X
+X	/*
+X    *  Now the TDL list...
+X    */
+X
+X	tdl_list = xv_create(tdlist, PANEL,
+X								WIN_BELOW, tdl_control,
+X								XV_WIDTH,  WIN_EXTEND_TO_EDGE,
+X								XV_HEIGHT, WIN_EXTEND_TO_EDGE,
+X								XV_X, 0,
+X								0);
+X
+X	todo = xv_create(tdl_list, PANEL_LIST,
+X						  PANEL_LIST_WIDTH, 400,
+X						  PANEL_LIST_DISPLAY_ROWS, 10,
+X						  PANEL_CHOOSE_NONE, TRUE,
+X						  PANEL_NOTIFY_PROC, tdl_notify_proc,
+X						  PANEL_READ_ONLY, TRUE,
+X						  PANEL_ITEM_MENU, edit_menu,
+X						  0);
+X
+X	/*
+X	 *  FInally, the calendar.  Notice that the calendar is a canvas...
+X    *  but is treated like an X11 graphics surface.
+X    */
+X
+X	calendar = xv_create(tdlist, CANVAS,
+X								XV_X,           0,
+X								XV_Y,           0,
+X								XV_WIDTH,       175,
+X								XV_HEIGHT,      100,
+X								CANVAS_X_PAINT_WINDOW,  TRUE,
+X								CANVAS_REPAINT_PROC,    repaint_proc,
+X								0);
+X
+X    /* Set input mask */
+X	xv_set(canvas_paint_window(calendar),
+X			 WIN_EVENT_PROC,         calendar_event_proc,
+X			 WIN_IGNORE_EVENTS,
+X			    LOC_WINENTER, LOC_WINEXIT,
+X			    0,
+X			 WIN_CONSUME_EVENTS,
+X			    /*KBD_DONE, KBD_USE, LOC_DRAG, LOC_MOVE, LOC_WINENTER,*/
+X			    /*LOC_WINEXIT, WIN_ASCII_EVENTS,*/ WIN_MOUSE_BUTTONS,
+X			    0,
+X			 0);
+X
+X	/** Tack an event proc onto the window **/
+X	xv_set(tdlist, WIN_EVENT_PROC, tdl_events, 0);
+X
+X	/******  Entry Editor Window  *****/
+X
+X	entry_editor = entry_entry_frame_objects_initialize(XV_NULL, tdlist);
+X
+X	entry_frame = entry_editor->entry_frame;
+X	entry_type = entry_editor->entry_type;
+X	entry_category = entry_editor->entry_category;
+X	recurring = entry_editor->recurring;
+X	entry_done = entry_editor->entry_done;
+X	entry_text = entry_editor->entry_text;
+X
+X	/******  The recurrence editor *****/
+X
+X	recurring_frame = xv_create(entry_frame, FRAME_CMD,
+X										 FRAME_LABEL, "Recurrence Editor",
+X										 FRAME_CMD_PUSHPIN_IN, FALSE,
+X										 XV_WIDTH, 630,
+X										 XV_HEIGHT, 170,
+X										 0);
+X
+X	recurring_panel = xv_create(recurring_frame, PANEL,
+X										 XV_X, 0,
+X										 XV_Y, 0,
+X										 XV_WIDTH, 630,
+X										 XV_HEIGHT, 160,
+X										 0);
+X	
+X	freq = xv_create(recurring_panel, PANEL_CHOICE,
+X				 PANEL_LABEL_STRING,   "Freq:",
+X				 PANEL_CHOICE_STRINGS, "None",
+X						                 "Daily",
+X				                       "Weekly",
+X				                       "BiWeekly",
+X				                       "Monthly",
+X				                       "Yearly",
+X				                       0,
+X				 PANEL_DISPLAY_LEVEL,  PANEL_ALL,
+X				 PANEL_VALUE_X,        130,
+X				 PANEL_VALUE_Y,        10,
+X				 PANEL_NOTIFY_PROC,    choose_recurring,
+X			    PANEL_VALUE,          0,
+X				 0);
+X
+X	day_of_week = xv_create(recurring_panel, PANEL_CHOICE,
+X									PANEL_LABEL_STRING,   "Day of Week:",
+X									PANEL_CHOICE_STRINGS,
+X									        "Sunday",
+X									        "Monday",
+X				                       "Tuesday",
+X				                       "Wednesday",
+X				                       "Thursday",
+X									        "Friday",
+X				                       "Saturday",
+X				                       "Mon/Wed/Fri",
+X									        "Tues/Thurs",
+X				                       0,
+X									PANEL_CHOICE_YS, 
+X									   35, 35, 35, 35, 35, 35, 35, 60, 60,
+X									   0,
+X									PANEL_CHOICE_X, 7, 130,
+X									PANEL_CHOICE_X, 8, 225,
+X									PANEL_DISPLAY_LEVEL,  PANEL_ALL,
+X									PANEL_VALUE_X,        130,
+X									PANEL_VALUE_Y,        35,
+X									PANEL_VALUE,  0,
+X									PANEL_INACTIVE,  TRUE,
+X									0);
+X	
+X	weeks = xv_create(recurring_panel, PANEL_NUMERIC_TEXT,
+X							PANEL_VALUE_X,        130,
+X							PANEL_VALUE_Y,        85,
+X							PANEL_LABEL_STRING,   "# of weeks:",
+X							PANEL_INACTIVE,  TRUE,
+X							PANEL_VALUE_DISPLAY_LENGTH, 3,
+X							0);
+X
+X	week_of_month = xv_create(recurring_panel, PANEL_NUMERIC_TEXT,
+X									  PANEL_VALUE_X,        130,
+X									  PANEL_VALUE_Y,        120,
+X									  PANEL_LABEL_STRING,   "Week of month:",
+X									  PANEL_INACTIVE,  TRUE,
+X									  PANEL_VALUE_DISPLAY_LENGTH, 3,
+X									  0);
+X
+X	xv_create(recurring_panel, PANEL_BUTTON, 
+X				 PANEL_LABEL_STRING, "Cancel",
+X				 PANEL_NOTIFY_PROC,  cancel_recurring,
+X				 PANEL_VALUE_X,      550,
+X				 PANEL_VALUE_Y,      140,
+X				 0);
+X
+X	xv_create(recurring_panel, PANEL_BUTTON, 
+X				 PANEL_LABEL_STRING, "Done",
+X				 PANEL_VALUE_X,      600,
+X				 PANEL_VALUE_Y,      140,
+X				 PANEL_NOTIFY_PROC,  close_recurring, 
+X				 0);
+X
+X	/*
+X    *  Initialize the rest by calling their routines
+X    */
+X	initialize_print();
+X	initialize_props();
+X	initialize_log_editor();
+X
+}
+X
+/*
+X * repaint_proc()
+X *      Called to repaint the canvas in response to damage events
+X *      and the initial painting of the canvas window.
+X */
+void
+repaint_proc(canvas, paint_window, dpy, xwin, xrects)
+Canvas        canvas;           /* Ignored */
+XXv_Window     paint_window;     /* Ignored */
+Display      *dpy;
+Window        xwin;
+XXv_xrectlist *xrects;           /* Ignored */
+{
+X    GC gc = DefaultGC(dpy, DefaultScreen(dpy));
+X
+X    XClearWindow(dpy, xwin);
+X	 print_calendar(curr_month, curr_year);
+}
+X
+void reset_date_message()
+{
+X	char day_title[50];
+X	struct tm *now;
+X   struct timeval tv;
+X
+X   now = localtime(&tv.tv_sec);
+X	now->tm_mon = curr_month - 1;
+X	now->tm_mday = curr_day;
+X	now->tm_year = curr_year-1900;
+X	now->tm_wday = zeller(curr_month, curr_day, curr_year);
+X	
+X	strftime(day_title, 50, "%A, %B %e, %Y", now);
+X	xv_set(date_message, PANEL_LABEL_STRING, day_title, 0);
+}
+SHAR_EOF
+chmod 0644 create_windows.c ||
+echo 'restore of create_windows.c failed'
+Wc_c="`wc -c < 'create_windows.c'`"
+test 16778 -eq "$Wc_c" ||
+	echo 'create_windows.c: original size 16778, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= list.c ==============
+if test -f 'list.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping list.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting list.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'list.c' &&
+/*
+X * $Id: list.c,v 3.0 1992/07/27 18:36:51 jipping Exp $
+X * **********************************************************************
+X *
+X * List.c ==> List manipulation routines.
+X *            If it changes the current todo list widget somehow, it's 
+X *            here!
+X *
+X * ----------------------------------------------------------------------
+X * Copyright (c) 1992 by Mike Jipping and Hope College
+X *
+X * Permission is granted to copy and distribute this file in modified or
+X * unmodified form, for noncommercial use, provided (a) this copyright notice
+X * is preserved, (b) no attempt is made to restrict redistribution of this
+X * file, and (c) this file is not distributed as part of any collection whose
+X * redistribution is restricted by a compilation copyright.
+X * ----------------------------------------------------------------------
+X *
+X * Revision History:
+X *
+X * $Log: list.c,v $
+X * Revision 3.0  1992/07/27  18:36:51  jipping
+X * Release 3.0 includes:
+X * * added "display_all" to display all list items
+X * * corrected cut buffer manipulation
+X * * fixed several list management bugs
+X * * added file backup to "refresh_db"
+X * * added logging capability
+X *
+X * Revision 2.4  1992/07/14  16:42:37  jipping
+X * Fixed incorrect list management in cut_selection (->next not being
+X * taken care of).
+X *
+X * Revision 2.3  1992/07/14  13:01:36  jipping
+X * Eliminated placing a callback on the text field in edit window.
+X *
+X * Revision 2.2  1992/07/13  14:25:22  jipping
+X * Cleaned up warnings in compilation.
+X *
+X * Revision 2.1  1992/07/10  19:47:09  jipping
+X * *** empty log message ***
+X *
+X * Revision 2.0  1992/07/10  15:58:04  jipping
+X * Initial release.
+X *
+X *
+X */
+#include "globaldefs.h"
+X
+extern FILE *yyin;
+extern void edit_it();
+X
+struct category_rec *new_category();
+void refresh_db();
+X
+struct entry_list *entry_head, *entry_tail;
+struct category_rec *category_head;
+struct day_entry *cut_buffer=NULL;
+int selected_item;
+X
+/*
+X * **********************************************************************
+X * entry_search is a utility routine that searches for the list of
+X * entries for a particular datecode in the current category.
+X *
+X * If "create" is TRUE, the entry list structure is created under 
+X * the specified category if it is not found to exist.
+X */
+struct entry_list *entry_search(code, create, category)
+int code, create;
+struct category_rec *category;
+{
+X	struct entry_list *el, *tmpel;
+X	struct category_rec *cr;
+X
+X	el = entry_head;
+X	for (el = entry_head; el != NULL; el = el->next) {
+X		if (el->day_code == code) {return el;}
+X	}
+X
+X	if (! create) return NULL;
+X	
+X   /*** If is does not exist, create it! ***/
+X
+X	tmpel = NEW(struct entry_list);
+X	tmpel->day_code = code;
+X	tmpel->first = tmpel->last = NULL;
+X	tmpel->next = NULL;
+X	tmpel->rl_first = tmpel->rl_last = NULL;
+X	if (category == NULL) {
+X		cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X	} else {
+X		cr = category;
+X	}
+X	if (cr == NULL) {
+X		cr = new_category("Every Day");
+X	}
+X	if (entry_head == NULL) {
+X		cr->entry_head = entry_head = tmpel;
+X	} else {
+X		cr->entry_tail->next = tmpel;
+X		entry_tail->next = tmpel;
+X	}
+X	cr->entry_tail = entry_tail = tmpel;
+X	return tmpel;
+}
+X
+/*
+X * **********************************************************************
+X * A utility routine that returns the day entry in the entry list
+X * parameter that matches the text in the recurrence entry.
+X */
+struct day_entry *entry_rl_search(el, rl)
+struct entry_list *el;
+struct recurrence_list *rl;
+{
+X	struct day_entry *trl;
+X	
+X	for (trl = el->rl_first; trl != NULL; trl = trl->next) {
+X		if (EQUAL(trl->text, rl->text)) return trl;
+X	}
+X	return NULL;
+}
+X
+/*
+X * **********************************************************************
+X * Given the name of a category, this routine creates a new category -- 
+X * menu item, data structure, and all.
+X */
+struct category_rec *new_category(name)
+char *name;
+{
+X	struct category_rec *cr, *tmpcr;
+X	int num_cats;
+X
+X	tmpcr = NEW(struct category_rec);
+X	if (category_head == NULL) {
+X		category_head = tmpcr;
+X		xv_set(categories, PANEL_CHOICE_STRING, 0, name, 0);
+X	} else {
+X		for (cr = category_head; cr->next != NULL; cr = cr->next) ;
+X		cr->next = tmpcr;
+X		xv_set(categories,
+X				 PANEL_CHOICE_STRING,
+X				    xv_get(xv_get(categories, PANEL_ITEM_MENU), MENU_NITEMS), name,
+X				 0);
+X	}
+X	strcpy(tmpcr->name, name);
+X	tmpcr->entry_head = tmpcr->entry_tail = (struct entry_list *) NULL;
+X	tmpcr->rl_head = tmpcr->rl_tail = (struct recurrence_list *) NULL;
+X	tmpcr->next = (struct category_rec *) NULL;
+X
+X	xv_set(categories,
+X			 PANEL_CLIENT_DATA, tmpcr,
+X			 0);
+X
+X	return(tmpcr);
+}
+X
+/*
+X * **********************************************************************
+X * This routine adds a todo list item ("text") with the specified
+X * priority to the given category with the specified month, day, and
+X * year. 
+X */
+add_to (category, month, day, year, text, priority)
+struct category_rec *category;
+int month, day, year, text, priority;
+{
+X	int datecode;
+X	struct day_entry *de, *tmpde;
+X	struct entry_list *el;
+X
+X	datecode = (year-1990)*10000 + month*100 + day;
+X	el = entry_search(datecode, TRUE, category);
+X	de = el->last;
+X
+X	tmpde = NEW(struct day_entry);
+X	tmpde->next = NULL;
+X	strcpy(tmpde->text, text);
+X	tmpde->priority = priority;
+X	tmpde->checked = FALSE;
+X	if (de == NULL) {
+X		el->first = el->last = tmpde;
+X		tmpde->prev = NULL;
+X	} else {
+X		de->next = el->last = tmpde;
+X		tmpde->prev = de;
+X	}
+}
+X
+/*
+X * **********************************************************************
+X * Given a month, day, and year spec, this routine displays the todo
+X * list.  This includes recurring and non-recurring entries.  The list is
+X * sorted by priority.
+X */
+display_list (month, day, year)
+int month, day, year;
+{
+X	int today_datecode, datecode, count, nrows;
+X	int position[10], pos, prop;
+X	struct entry_list *el;
+X	struct day_entry *de;
+X	struct recurrence_list *rl;
+X	struct day_entry *tmprl, *rl2;
+X	Server_image check;
+X	char txt[80];
+X
+X   /*
+X    *  Clear the position tally for sorting the display, and the 
+X    *  display itself.
+X    */
+X	for (count=0; count<10; count++) position[count] = -1;
+X
+X	nrows = xv_get(todo, PANEL_LIST_NROWS);
+X	for (count = nrows-1; count >= 0; count --)
+X		xv_set(todo,
+X				 PANEL_LIST_DELETE, count,
+X				 0);
+X
+X   /*
+X    *  compute the correct datecode and find the entry list for that
+X    *  date.
+X    */
+X	datecode = (year-1990)*10000 + month*100 + day;
+X	today_datecode =
+X		(today.tm_year-90)*10000 + (today.tm_mon+1)*100 + today.tm_mday;
+X	el = entry_search(datecode, FALSE, NULL);
+X
+X   /*
+X    * If we have one, display its entries....
+X    */
+X	if (el != NULL) {
+X		for (de = el->first; de != NULL; de = de->next) {
+X			pos = prop = position[de->priority]+1;
+X			for (count=de->priority; count>=0; count--) {
+X				if (position[count] < prop) {
+X					position[count] = prop;
+X				} else {
+X					prop = position[count]+1;
+X					position[count] = prop;
+X				}
+X			}
+X			xv_set(todo, PANEL_LIST_INSERT, pos, 0);
+X			xv_set(todo,
+X					 PANEL_LIST_STRING, pos, de->text,
+X					 PANEL_LIST_GLYPH, pos, de->checked?checked_on:checks[de->priority],
+X					 PANEL_LIST_CLIENT_DATA, pos, de, 
+X					 0);
+X		}
+X	}
+X
+X	/*
+X	 *  Search the recurrence list for possible candidates to display.
+X	 *  Note a few things:
+X	 *     (1)  A dummy list is created if none exists to speed searching.
+X	 *     (2)  When an entry is found that matches, a day entry is
+X	 *          created for that item.
+X	 *
+X	 */
+X	el = entry_search(datecode, TRUE, NULL);
+X	for (rl = rl_head; rl != NULL; rl = rl->next) {
+X		if (datecode_matches(datecode, rl)) {
+X			if (! entry_rl_search(el, rl)) {
+X				rl2 = el->rl_last;
+X				tmprl = NEW(struct day_entry);
+X				tmprl->next = NULL;
+X				strcpy(tmprl->text, rl->text);
+X				tmprl->priority = rl->priority;
+X				tmprl->checked = FALSE;
+X				if (rl2 == NULL) {
+X					tmprl->prev = NULL;
+X					el->rl_first = el->rl_last = tmprl;
+X				} else {
+X					tmprl->prev = rl2;
+X					rl2->next = el->rl_last = tmprl;
+X				}
+X				check = checks[tmprl->priority];
+X			} else {
+X				tmprl = entry_rl_search(el, rl);
+X				check = tmprl->checked?checked_on:checks[tmprl->priority];
+X			} 
+X			tmprl->recurring_entry = TRUE;
+X
+X			pos = prop = position[tmprl->priority]+1;
+X			for (count=tmprl->priority; count>=0; count--) {
+X				if (position[count] < prop) {
+X					position[count] = prop;
+X				} else {
+X					prop = position[count]+1;
+X					position[count] = prop;
+X				}
+X			}
+X			xv_set(todo, PANEL_LIST_INSERT, pos, 0);
+X			xv_set(todo,
+X					 PANEL_LIST_STRING,  pos, tmprl->text,
+X					 PANEL_LIST_GLYPH, pos, check,
+X					 PANEL_LIST_CLIENT_DATA, pos, tmprl, 
+X					 0);
+X		}
+X	}
+}
+X
+/*
+X * **********************************************************************
+X * Given a month, day, and year spec, this routine displays the todo
+X * list.  This includes recurring and non-recurring entries.  The list is
+X * sorted by priority.
+X */
+display_all (month, day, year)
+int month, day, year;
+{
+X	int today_datecode, datecode, count, nrows;
+X	int position[10], pos, prop;
+X	struct entry_list *el;
+X	struct day_entry *de;
+X	struct recurrence_list *rl;
+X	struct day_entry *tmprl, *rl2;
+X	struct category_rec *cr;
+X	Server_image check;
+X	char txt[80];
+X
+X   /*
+X    *  Clear the position tally for sorting the display, and the 
+X    *  display itself.
+X    */
+X	for (count=0; count<10; count++) position[count] = -1;
+X
+X	nrows = xv_get(todo, PANEL_LIST_NROWS);
+X	for (count = nrows-1; count >= 0; count --)
+X		xv_set(todo,
+X				 PANEL_LIST_DELETE, count,
+X				 0);
+X
+X   /*
+X    *  compute the correct datecode and find the entry list for that
+X    *  date.
+X    */
+X	datecode = (year-1990)*10000 + month*100 + day;
+X	today_datecode =
+X		(today.tm_year-90)*10000 + (today.tm_mon+1)*100 + today.tm_mday;
+X
+X	cr = category_head;
+X	while (cr != NULL) {
+X		entry_head = cr->entry_head;
+X		entry_tail = cr->entry_tail;
+X
+X		el = entry_search(datecode, FALSE, NULL);
+X
+X		/*
+X		 * If we have one, display its entries....
+X		 */
+X		if (el != NULL) {
+X			for (de = el->first; de != NULL; de = de->next) {
+X				pos = prop = position[de->priority]+1;
+X				for (count=de->priority; count>=0; count--) {
+X					if (position[count] < prop) {
+X						position[count] = prop;
+X					} else {
+X						prop = position[count]+1;
+X						position[count] = prop;
+X					}
+X				}
+X				xv_set(todo, PANEL_LIST_INSERT, pos, 0);
+X				xv_set(todo,
+X						 PANEL_LIST_STRING, pos, de->text,
+X						 PANEL_LIST_GLYPH, pos, de->checked?checked_on:checks[de->priority],
+X						 PANEL_LIST_CLIENT_DATA, pos, de, 
+X						 0);
+X			}
+X		}
+X		
+X		/*
+X		 *  Search the recurrence list for possible candidates to display.
+X		 *  Note a few things:
+X		 *     (1)  A dummy list is created if none exists to speed searching.
+X		 *     (2)  When an entry is found that matches, a day entry is
+X		 *          created for that item.
+X		 *
+X		 */
+X		el = entry_search(datecode, TRUE, NULL);
+X		for (rl = rl_head; rl != NULL; rl = rl->next) {
+X			if (datecode_matches(datecode, rl)) {
+X				if (! entry_rl_search(el, rl)) {
+X					rl2 = el->rl_last;
+X					tmprl = NEW(struct day_entry);
+X					tmprl->next = NULL;
+X					strcpy(tmprl->text, rl->text);
+X					tmprl->priority = rl->priority;
+X					tmprl->checked = FALSE;
+X					if (rl2 == NULL) {
+X						tmprl->prev = NULL;
+X						el->rl_first = el->rl_last = tmprl;
+X					} else {
+X						tmprl->prev = rl2;
+X						rl2->next = el->rl_last = tmprl;
+X					}
+X					check = checks[tmprl->priority];
+X				} else {
+X					tmprl = entry_rl_search(el, rl);
+X					check = tmprl->checked?checked_on:checks[tmprl->priority];
+X				} 
+X				tmprl->recurring_entry = TRUE;
+X				
+X				pos = prop = position[tmprl->priority]+1;
+X				for (count=tmprl->priority; count>=0; count--) {
+X					if (position[count] < prop) {
+X						position[count] = prop;
+X					} else {
+X						prop = position[count]+1;
+X						position[count] = prop;
+X					}
+X				}
+X				xv_set(todo, PANEL_LIST_INSERT, pos, 0);
+X				xv_set(todo,
+X						 PANEL_LIST_STRING,  pos, tmprl->text,
+X						 PANEL_LIST_GLYPH, pos, check,
+X						 PANEL_LIST_CLIENT_DATA, pos, tmprl, 
+X						 0);
+X			}
+X		}
+X		cr = cr->next;
+X	}
+X
+X	cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X	entry_head = cr->entry_head;
+X	entry_tail = cr->entry_tail;
+X	rl_head = cr->rl_head;
+X	rl_tail = cr->rl_tail;
+}
+X
+/*
+X * **********************************************************************
+X * When a list item is chosen for editing, this routine is called with 
+X * the day_entry structure of the list item.  This sets up the edit
+X * window and (possibly) the recurrence editor window.
+X */
+void edit_selection(de)
+struct day_entry *de;
+{
+X	char selection_text[LINESIZ];
+X	int datecode;
+X	struct entry_list *el;
+X	struct recurrence_list *rl;
+X	struct day_entry *tmprl, *rl2;
+X	int choice, choices;
+X	struct category_rec *cr;
+X
+X   /** Setup the category in the edit window. ***/
+X	xv_set(entry_category, PANEL_CHOICE_STRINGS, "", 0, 0);
+X
+X	for (choice=0,cr=category_head; cr!=NULL; choice++,cr=cr->next) {
+X		xv_set(entry_category, PANEL_CHOICE_STRING, choice, cr->name, 0);
+X	}
+X	xv_set(entry_category, PANEL_VALUE, xv_get(categories, PANEL_VALUE), 0);
+X
+X   /*** Now set up the rest of the window. ***/
+X	strcpy(selection_text, xv_get(todo, PANEL_LIST_STRING, selected_item));
+X	xv_set(entry_text, PANEL_VALUE, selection_text, 0);
+X	xv_set(entry_type, PANEL_VALUE, 0, 0);
+X	xv_set(entry_category, PANEL_INACTIVE, TRUE, 0);
+X	xv_set(recurring, PANEL_INACTIVE, FALSE, 0);
+X	xv_set(entry_editor->entry_priority, PANEL_INACTIVE, FALSE, 0);
+X	xv_set(entry_editor->entry_priority, PANEL_VALUE, de->priority, 0);
+X	xv_set(entry_done,
+X			 PANEL_NOTIFY_PROC, edit_it,
+X			 PANEL_CLIENT_DATA, selected_item,
+X			 0);
+X
+X   /* 
+X    * If the entry is recurring, set up the recurrence window
+X    */	
+X	if (de->recurring_entry) {
+X		xv_set(freq, PANEL_CLIENT_DATA, TRUE, 0);
+X		datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X		for (rl = rl_head; rl != NULL; rl = rl->next) {
+X			if (datecode_matches(datecode, rl)) {
+X				if (EQUAL(de->text, rl->text)) {
+X					if (rl->daily) {
+X						xv_set(freq, PANEL_VALUE, 1, 0);
+X					} else if ( (rl->weekly) | (rl->biweekly) ) {
+X						if (rl->weekly) {
+X							xv_set(freq, PANEL_VALUE, 2, 0);
+X						} else {
+X							xv_set(freq, PANEL_VALUE, 3, 0);
+X						}
+X						xv_set(weeks,
+X								 PANEL_INACTIVE, FALSE,
+X								 PANEL_VALUE, rl->number_of_weeks,
+X								 0);
+X						if (rl->mwf) {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    7,
+X									 0);
+X						} else if (rl->tt) {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    8,
+X									 0);
+X						} else {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    rl->dow,
+X									 0);
+X						}
+X					} else if ( rl->monthly) {
+X						xv_set(freq, PANEL_VALUE, 4, 0);
+X						xv_set(week_of_month,
+X								 PANEL_INACTIVE, FALSE,
+X								 PANEL_VALUE, rl->week_number,
+X								 0);
+X						if (rl->mwf) {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    7,
+X									 0);
+X						} else if (rl->tt) {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    8,
+X									 0);
+X						} else {
+X							xv_set(day_of_week, 
+X									 PANEL_INACTIVE, FALSE,
+X									 PANEL_VALUE,    rl->dow,
+X									 0);
+X						}
+X					} else if ( rl->yearly ) {
+X						xv_set(freq, PANEL_VALUE, 5, 0);
+X					}
+X					break;
+X				}
+X			}
+X		}
+X	} else {
+X      /***  Entry is not recurring...  ***/
+X		xv_set(freq, PANEL_CLIENT_DATA, FALSE, 0);
+X		xv_set(freq, PANEL_VALUE, 0, 0);
+X		xv_set(day_of_week, PANEL_INACTIVE, TRUE, 0);
+X		xv_set(weeks, PANEL_INACTIVE, TRUE, 0);
+X		xv_set(week_of_month, PANEL_INACTIVE, TRUE, 0);
+X	}
+X	set_cursor(basic_cursor);
+X			
+X	xv_set(entry_frame,
+X			 XV_SHOW, TRUE,
+X			 0);
+}
+X
+/*
+X * **********************************************************************
+X * Copying the selection is easy...copy it to a cut buffer variable.
+X */
+void copy_selection (de)
+struct day_entry *de;
+{
+X	cut_buffer = de;
+X	copying = FALSE;
+X	set_cursor(basic_cursor);
+}
+X
+/*
+X * **********************************************************************
+X * This routine cuts the selected entry from the todo list.  This is
+X * done by locating the day_entry in a list...and freeing it up.
+X */
+void cut_selection (de)
+struct day_entry *de;
+{
+X	struct entry_list *el;
+X	struct recurrence_list *rl, *rlp;
+X	struct category_rec *cr;
+X	int datecode;
+X
+X	/* 
+X    * First, copy into the cut buffer 
+X    */
+X	if (cut_buffer == NULL)
+X		cut_buffer = NEW(struct day_entry);
+X	strcpy(cut_buffer->text, de->text);
+X	cut_buffer->checked = de->checked;
+X	cut_buffer->recurring_entry = de->recurring_entry;
+X	cut_buffer->priority = de->priority;
+X
+X	datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X	el = entry_search(datecode, FALSE, NULL);
+X	if (de->prev != NULL) {  /* in the middle of the list */
+X		if (de->next != NULL) de->next->prev = de->prev;
+X		de->prev->next = de->next;
+X	} else {   /* at the head of the list. */
+X		if (de->next != NULL) de->next->prev = NULL;
+X		if (de->recurring_entry) {
+X			el->rl_first = de->next;
+X		} else {
+X			el->first = de->next;
+X		}
+X	}
+X	if (de->recurring_entry) {
+X		if (el->rl_last == de) el->rl_last = de->prev;
+X	} else {
+X		if (el->last == de) el->last = de->prev;
+X	}
+X
+X	/*** We also need to remove it from a recurring list ***/
+X	if (de->recurring_entry) {
+X		datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X		rlp = NULL;
+X		for (rl = rl_head; rl != NULL; rlp = rl, rl = rl->next) {
+X			if (datecode_matches(datecode, rl)) {
+X				if (EQUAL(de->text, rl->text)) {
+X					if (rlp == NULL) {
+X						rl_head = rl->next;
+X						cr = (struct category_rec *)xv_get(categories, PANEL_CLIENT_DATA);
+X						cr->rl_head = rl_head;
+X					} else {
+X						rlp->next = rl->next;
+X					}
+X					free(rl);
+X				}
+X			}
+X		}
+X	}
+X
+X	free(de);
+X
+X	display_list(curr_month, curr_day, curr_year);
+X	refresh_db(FALSE);
+X	cutting = FALSE;
+X	set_cursor(basic_cursor);
+}
+X
+/*
+X * **********************************************************************
+X * This routine is called to paste the cut buffer into the current list.
+X */
+void paste_selection ()
+{
+X	int datecode, value;
+X	struct category_rec *cr;
+X	struct day_entry *de, *tmpde;
+X	struct entry_list *el;
+X
+X   /*
+X    *  If there is nothing to paste...
+X    */
+X	if (cut_buffer == NULL) {
+X		notice_prompt(tdlist, NULL,
+X						  NOTICE_MESSAGE_STRINGS,
+X						     "There is nothing in the cut buffer.",
+X						  0,
+X						  NOTICE_BUTTON, "Ok", 1,
+X						  0);
+X		return;
+X	}
+X
+X   /*
+X    *  Go through the hassle of a list addition
+X    */
+X	value = xv_get(entry_category, PANEL_VALUE);
+X	for (cr=category_head; cr!=NULL; cr=cr->next) {
+X		if (EQUAL(xv_get(entry_category, PANEL_CHOICE_STRING, value), cr->name)) break;
+X	}
+X	datecode = (curr_year-1990)*10000 + curr_month*100 + curr_day;
+X	el = entry_search(datecode, TRUE, cr);
+X	de = el->last;
+X
+X	tmpde = NEW(struct day_entry);
+X	tmpde->next = NULL;
+X	strcpy(tmpde->text, cut_buffer->text);
+X	tmpde->priority = cut_buffer->priority;
+X	tmpde->checked = cut_buffer->checked;
+X	if (de == NULL) {
+X		el->first = el->last = tmpde;
+X		tmpde->prev = NULL;
+X	} else {
+X		de->next = el->last = tmpde;
+X		tmpde->prev = de;
+X	}
+X
+X	display_list(curr_month, curr_day, curr_year);
+X	refresh_db(FALSE);
+X	set_cursor(basic_cursor);
+}
+X
+/*
+X * **********************************************************************
+X * This routine is called for every selection on the todo list itself.
+X * Based on the settings of the "editing", "copying", or "cutting"
+X * variables, we do various things.
+X */
+void tdl_notify_proc(item, string, de, op, event)
+Panel_item       item;
+char             *string;
+struct day_entry *de;
+Panel_list_op    op;
+Event            *event;
+{
+X	int selected, nrows;
+X
+X	nrows = xv_get(todo, PANEL_LIST_NROWS);
+X	for (selected = 0; selected < nrows; selected ++) 
+X		if (xv_get(todo, PANEL_LIST_SELECTED, selected)) break;
+X	selected_item = selected;
+X	
+X	if (op == PANEL_LIST_OP_SELECT) {
+X		nrows = xv_get(todo, PANEL_LIST_NROWS);
+X		for (selected = 0; selected < nrows; selected ++) 
+X			if (xv_get(todo, PANEL_LIST_SELECTED, selected)) break;
+X		selected_item = selected;
+X		if (editing) {
+X			edit_selection(de);
+X		} else if (copying) {
+X			copy_selection(de);
+X		} else if (cutting) {
+X			cut_selection(de);
+X		} else {
+X			de->checked = ! de->checked;
+X			if (de->checked) {
+X				xv_set(todo, PANEL_LIST_GLYPH, selected_item, checked_on, 0);
+X			} else {
+X				xv_set(todo, PANEL_LIST_GLYPH, selected_item, checks[de->priority], 0);
+X			}
+X			if (log_level == LOG_AT_CHECKED) log_entry(de);
+X		}
+X		changed = TRUE;
+X	}
+X	xv_set(todo, PANEL_LIST_SELECT, selected_item, FALSE, 0);
+}
+X
+/*
+X * **********************************************************************
+X * This is the routine that propagates list items.  Basically, if an 
+X * item exists on a previous day -- either recurring or non-recurring --
+X * and it is not checked off, it is moved to the list for the current
+X * day.  This is done for all categories.
+X */
+void propagate ()
+{
+X	int datecode;
+X	struct entry_list *el, *todayel;
+X	struct category_rec *cr, *actualcr;
+X	struct day_entry *de, *todayde, *tmpde;
+X
+X	datecode = (today.tm_year-90)*10000 + (today.tm_mon+1)*100 + today.tm_mday;
+X	
+X	cr = category_head;
+X	while (cr != NULL) {
+X		entry_head = cr->entry_head;
+X		entry_tail = cr->entry_tail;
+X		todayel = entry_search(datecode, TRUE, cr);
+X
+X      /*** First, for the non-recurring entries ***/
+X		el = cr->entry_head;
+X		for (el = cr->entry_head; el != NULL; el = el->next) {
+X			if (el->day_code < datecode) {
+X				for (de = el->first; de != NULL; de = de->next) {
+X					if (! de->checked ) {
+X						tmpde = NEW(struct day_entry);
+X						tmpde->next = NULL;
+X						strcpy(tmpde->text, de->text);
+X						tmpde->priority = de->priority;
+X						tmpde->checked = FALSE;
+X						todayde = todayel->last;
+X						if (todayde == NULL) {
+X							todayel->first = todayel->last = tmpde;
+X							tmpde->prev = NULL;
+X						} else {
+X							todayde->next = todayel->last = tmpde;
+X							tmpde->prev = todayde;
+X						}
+X					} else {
+X						if (log_level == LOG_AT_QUIT) log_entry(de);
+X					}
+X				}
+X				el->first = el->last = NULL;
+X				
+X				/*** Now, for the recurring entries. ***/
+X				for (de = el->rl_first; de != NULL; de = de->next) {
+X					if (! de->checked ) {
+X						todayde = todayel->last;
+X						if (todayde == NULL) {
+X							todayel->first = todayel->last = de;
+X							tmpde->prev = NULL;
+X						} else {
+X							todayde->next = todayel->last = de;
+X							tmpde->prev = todayde;
+X						}
+X					} else {
+X						if (log_level == LOG_AT_QUIT) log_entry(de);
+X					}
+X				}
+X				el->rl_first = el->rl_last = NULL;
+X			}
+X		}
+X		cr = cr->next;
+X	}
+X	changed = TRUE;
+}
+X
+/*
+X * **********************************************************************
+X * This routine writes the structures -- non-recurring and recurring, for
+X * all categories -- to the database file.  Note that this effectively 
+X * wipes out the old contents.
+X */
+void refresh_db (fromquit)
+int fromquit;
+{
+X	int datecode, month, day, year;
+X	struct entry_list *el, *todayel;
+X	struct day_entry *de, *todayde, *tmpde;
+X	struct recurrence_list *rl;
+X	struct category_rec *cr;
+X	FILE *outfd;
+X	char backup[LINESIZ], rlstr[20], tmpstr[20];
+X
+X	/*** Make sure the file is closed...then we can reopen */
+X	fclose(yyin);
+X	sprintf(backup, "%s.BAK", fname);
+X	rename(fname, backup);
+X	outfd = fopen(fname, "w");
+X
+X	cr = category_head;
+X	while (cr != NULL) {
+X		fprintf(outfd, "category: \"%s\"\n", cr->name);
+X
+X		/*** Non-recurring entries ***/
+X		el = cr->entry_head;
+X		for (el = cr->entry_head; el != NULL; el = el->next) {
+X			for (de = el->first; de != NULL; de = de->next) {
+X				if (! de->checked ) {
+X					year = (int)(el->day_code / 10000);
+X					month = (int)((el->day_code - year*10000) / 100);
+X					day = el->day_code % 100;
+X					
+X					fprintf(outfd, "%2d/%2d/%2d:%d:\"%s\"\n", month, day, year+90,
+X							  de->priority, de->text);
+X				} else {
+X					if (fromquit) log_entry(de);
+X				}
+X			}
+X		}
+X
+X		/*** Recurring Entries ***/
+X		for (rl = cr->rl_head; rl != NULL; rl = rl->next) {
+X			year = (int)(rl->starting_day_code / 10000);
+X			month = (int)((rl->starting_day_code - year*10000) / 100);
+X			day = rl->starting_day_code % 100;
+X			
+X			rlstr[0] = '\0';
+X			if (rl->daily) strcat(rlstr, "d");
+X			if (rl->weekly) strcat(rlstr, "w");
+X			if (rl->biweekly) strcat(rlstr, "b");
+X			if (rl->monthly) strcat(rlstr, "m");
+X			if (rl->yearly) strcat(rlstr, "y");
+X			if (rl->mwf) strcat(rlstr, "M");
+X			if (rl->tt) strcat(rlstr, "T");
+X			if (rl->dow != -1) {
+X				sprintf(tmpstr, "D%1d", rl->dow);
+X				strcat(rlstr, tmpstr);
+X			}
+X			if (rl->week_number != 0) {
+X				sprintf(tmpstr, "N%1d", rl->week_number);
+X				strcat(rlstr, tmpstr);
+X			}
+X			if (rl-> number_of_weeks != 0) {
+X				sprintf(tmpstr, "W%1d", rl->number_of_weeks);
+X				strcat(rlstr, tmpstr);
+X			}
+X			
+X			fprintf(outfd, "%2d/%2d/%2d|%s:%d:\"%s\"\n", month, day, year+90,
+X					  rlstr, rl->priority, rl->text);
+X		}
+X		cr = cr->next;
+X	}
+X	fclose(outfd);
+}
+SHAR_EOF
+chmod 0644 list.c ||
+echo 'restore of list.c failed'
+Wc_c="`wc -c < 'list.c'`"
+test 24576 -eq "$Wc_c" ||
+	echo 'list.c: original size 24576, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= prolog1.ps ==============
+if test -f 'prolog1.ps' -a X"$1" != X"-c"; then
+	echo 'x - skipping prolog1.ps (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting prolog1.ps (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'prolog1.ps' &&
+%!
+%%BoundingBox: (atend)
+%%Pages: (atend)
+%%DocumentFonts: (atend)
+%%EndComments
+%
+% FrameMaker PostScript Prolog 2.0, for use with FrameMaker 2.0
+% Copyright (c) 1986,87,89 by Frame Technology, Inc.  All rights reserved.
+%
+% Known Problems:
+%	Due to bugs in Transcript, the 'PS-Adobe-' is omitted from line 1
+/FMversion (2.0) def 
+% Set up Color vs. Black-and-White
+X	/FMPrintInColor systemdict /colorimage known def
+% Uncomment this line to force b&w on color printer
+%   /FMPrintInColor false def
+/FrameDict 190 dict def 
+systemdict /errordict known not {/errordict 10 dict def
+X		errordict /rangecheck {stop} put} if
+% The readline in 23.0 doesn't recognize cr's as nl's on AppleTalk
+FrameDict /tmprangecheck errordict /rangecheck get put 
+errordict /rangecheck {FrameDict /bug true put} put 
+FrameDict /bug false put 
+mark 
+% Some PS machines read past the CR, so keep the following 3 lines together!
+currentfile 5 string readline
+00
+0000000000
+cleartomark 
+errordict /rangecheck FrameDict /tmprangecheck get put 
+FrameDict /bug get { 
+X	/readline {
+X		/gstring exch def
+X		/gfile exch def
+X		/gindex 0 def
+X		{
+X			gfile read pop 
+X			dup 10 eq {exit} if 
+X			dup 13 eq {exit} if 
+X			gstring exch gindex exch put 
+X			/gindex gindex 1 add def 
+X		} loop
+X		pop 
+X		gstring 0 gindex getinterval true 
+X		} def
+X	} if
+/FMVERSION {
+X	FMversion ne {
+X		/Times-Roman findfont 18 scalefont setfont
+X		100 100 moveto
+X		(FrameMaker version does not match postscript_prolog!)
+X		dup =
+X		show showpage
+X		} if
+X	} def 
+/FMLOCAL {
+X	FrameDict begin
+X	0 def 
+X	end 
+X	} def 
+X	/gstring FMLOCAL
+X	/gfile FMLOCAL
+X	/gindex FMLOCAL
+X	/orgxfer FMLOCAL
+X	/orgproc FMLOCAL
+X	/organgle FMLOCAL
+X	/orgfreq FMLOCAL
+X	/yscale FMLOCAL
+X	/xscale FMLOCAL
+X	/manualfeed FMLOCAL
+X	/paperheight FMLOCAL
+X	/paperwidth FMLOCAL
+/FMDOCUMENT { 
+X	array /FMfonts exch def 
+X	/#copies exch def
+X	FrameDict begin
+SHAR_EOF
+true || echo 'restore of prolog1.ps failed'
+fi
+echo 'End of  part 5'
+echo 'File prolog1.ps is continued in part 6'
+echo 6 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

@@ -1,0 +1,2072 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i052:  cmdline - C++ Library for parsing command-line arguments, Part05/07
+Message-ID: <1992Jul27.020821.29747@sparky.imd.sterling.com>
+X-Md4-Signature: 1a604c4b595c1ea79014837919db452c
+Date: Mon, 27 Jul 1992 02:08:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 52
+Archive-name: cmdline/part05
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 7)."
+# Contents:  doc/cmdparse.man1 src/lib/cmdargs.c src/lib/private.c
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:31 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'doc/cmdparse.man1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/cmdparse.man1'\"
+else
+echo shar: Extracting \"'doc/cmdparse.man1'\" \(21692 characters\)
+sed "s/^X//" >'doc/cmdparse.man1' <<'END_OF_FILE'
+X.\"========== TO PRINT, USE: {n,t}roff -man file ==========
+X.if n .po 1
+X.if n .ll 78
+X.nh
+X.ds NM \f4cmdparse\fP
+X.ds | \f4|\fP
+X.so macros.man
+X.\"===================================
+X.TH cmdparse 1
+X.\"===================================
+X.SH NAME
+Xcmdparse \- parse command-line arguments for shell-scripts
+X.\"===================================
+X.SH SYNOPSIS
+X.na
+X.TP 12
+X\fBcmdparse\fP
+X[\fB\-anywhere\fP]
+X[\fB\-ignore-case\fP]
+X[\fB\-noabort\fP]
+X[\fB\-noguessing\fP]
+X[\fB\-prompt\fP]
+X.if t .br
+X[\fB\-options-only\fP]
+X[\fB\-keywords-only\fP]
+X[\fB\-quiet\fP]
+X[\fB\-arrays\fP]
+X[\fB\-usage\fP]
+X[\fB\-version\fP]
+X.if t .br
+X[\fB\-true\fP\ \fIstring\fP]
+X[\fB\-false\fP\ \fIstring\fP]
+X[\fB\-suffix\fP\ \fIstring\fP]
+X.if n .br
+X[\fB\-shell\fP\ \fIshellname\fP]
+X.if t .br
+X[\fB\-file\fP\ \fIfilename\fP]
+X[\fB\-env\fP\ \fIvarname\fP]
+X[\fB\-decls\fP\ \fIstring\fP]
+X.if t .br
+X\*(--\ \ 
+X\fIprogram-name\fP\ \ 
+X\fIarguments\fP\ .\^.\^.
+X.ad
+X.\"===================================
+X.SH DESCRIPTION
+X\*(NM will parse the user's command-line arguments using the
+X\f4CmdLine\fP(3\*(C+) library (taking into account any user-specified
+Xpreferences) and will print on standard output, a host of variable
+Xsettings using the syntax of the specified shell.  The user must then
+X"evaluate" the output of \*(NM in order to set the corresponding
+Xvariables for his (or her) shell-script.
+X
+XIf none of \fB\-file\fP, \fB\-env\fP, or \fB\-decls\fP is given then
+Xthe argument declarations will be read from standard input (unless
+Xstandard input is associated with a terminal, in which case an error
+Xwill result).
+X
+XIf more than one of \fB\-file\fP, \fB\-env\fP, or \fB\-decls\fP is given
+Xthen argument declarations are read from all the places specified but
+Xin the following order:
+X
+X.RS
+XFirst, argument declarations are read from the string supplied with the
+X\fB\-decls\fP option.
+X
+XSecond, any argument declarations contained in the environment variable
+Xspecified by the \fB\-env\fP option are appended to the current set of
+Xargument declarations.
+X
+XLastly, any argument declarations contained in the file specified
+Xby the \fB\-file\fP option are appended to the current set of
+Xargument declarations.
+X.RE
+X
+XThe order in which the set of argument declarations are processed is important
+Xbecause any positional parameters that were specified are expected to occur
+Xin the same order as the order in which the corresponding argument declarations
+Xwere processed.
+X
+XDepending upon which shell you are using, you may want to evaluate the output
+Xof \*(NM directly (as in "\f4eval $cmdparse_output\fP") or you may wish to
+Xfirst redirect output to a file and then evaluate it (as in "\f4.\ cmdparse_output\fP").  Some shells may not preserve all the special
+Xcharacters (such as a newline) correctly when the former approach is used.
+XOther shells may not permit you to change the value of "local" variables
+Xin "sourced" files when the latter approach is used.  You will have to
+Xdecide which approach to use based upon your needs, and the shell you are
+Xusing.
+X
+X.\"===================================
+X.SH EXAMPLE
+X.nf
+X.ft 4
+X#!/bin/sh
+X#
+X# Here is a Bourne Shell script named "cmdname".
+X#
+X# The short-option syntax is:
+X#     cmdname [\-c number] [\-x] [\-s char]
+X#             input-file [output-file \*(..]
+X#
+X# The long-option syntax is:
+X#     cmdname [\*(--count number] [\*(--xmode] [\*(--separator char]
+X#             input-file [output-file \*(..]
+X#             
+XNAME="`basename $0`"
+X
+X## Declare the arguments.
+XARGS='
+X   ArgInt   count  "[c|count number]"    "number of copies to print."
+X   ArgBool  xflag  "[x|xmode]"           "turn on x-mode."
+X   ArgChar  fdsep  "[s|separator char]"  "field-separator to use."
+X   ArgStr   input  "input-file"          "input file to read."
+X   ArgStr   output "[output-file \*(..]"   "where to print output."
+X\&'
+X
+X## Parse the arguments
+Xif  cmdparse \-shell=sh \-decls="$ARGS" \*(-- $NAME "$@" > tmp$$
+Xthen
+X   ## Success \- evaluate the result.
+X   \&.  tmp$$
+X   rm \-f tmp$$
+Xelse
+X   ## Either usage was printed or we found a syntax error.
+X   EXITVAL=$?
+X   rm \-f tmp$$
+X   exit $EXITVAL
+Xfi
+X
+X## Print the arguments
+Xecho "xflag=" $xflag
+Xecho "count=" $count
+Xecho "fdsep=" $fdsep
+Xecho "input=" $input
+Xif [ "$output" ] ; then
+X   echo "output=" $output
+Xfi
+X.ft R
+X.fi
+X.\"===================================
+X.SH OPTIONS
+XOnly a unique prefix of each option-name needs to be given (and the
+Xoptions are matched case-insensitive).
+XThe possible options are as follows:
+X
+X.TP
+X\fB\-anywhere\fP
+XAllow options (and keywords) to follow positional parameters.
+XUnless this option is specified, anything that follows a positional
+Xparameter that resembles an option (begins with a `\-') will be
+Xtreated as yet another positional parameter.
+X.TP
+X\fB\-ignore-case\fP
+XIgnore character case on single-character options.
+X.TP
+X\fB\-noabort\fP
+XDon't exit if improper command-line syntax was used. Just ignore the
+Xerrors and continue parsing.
+X.TP
+X\fB\-noguessing\fP
+XBy default, if an unknown single-character option appears on the command-line,
+X\*(NM will "guess" by seeing if the option corresponds to a keyword.
+XSimilarly, if an unknown keyword (long-option) is encountered, \*(NM
+Xwill see if it matches a single-character option.  Specifying this option
+Xdisables this behavior.
+X.TP
+X\fB\-prompt\fP
+XPrompt the user interactively for any missing required arguments.
+X.TP
+X\fB\-options-only\fP
+XDon't match keywords (long-options).  Look only for single-character options.
+X.TP
+X\fB\-keywords-only\fP
+XDon't match options.  Look only for keywords (long-options). Using this
+Xoption also allows the single-character option prefix (`\-') to be used
+Xfor long-options.
+X.TP
+X\fB\-quiet\fP
+XDon't print command-line syntax error messages.
+X.TP
+X\fB\-arrays\fP
+XUse alternative syntax for arrays. See the appropriate subsection of
+Xthe section \s-1\fBSHELLS\fP\s+1 to see how (and if) this option will affect
+Xthe output of \*(NM.
+X.TP
+X\fB\-usage\fP
+XPrint command-line usage and exit.  Don't parse anything!
+X.TP
+X\fB\-version\fP
+XPrint version information and exit.  Don't parse anything!
+X.TP
+X\fB\-true\fP\ \fIstring\fP
+XThe string to use for boolean arguments that are turned \fIon\fP.
+XThe default string is \f4"TRUE"\fP (unless the \fIperl\fP or \fItcl\fP shells
+Xare used, in which case the default is \f4"1"\fP).
+X.TP
+X\fB\-false\fP\ \fIstring\fP
+XThe string to use for boolean arguments that are turned \fIoff\fP.
+XThe default string is \f4""\fP (unless the \fIperl\fP or \fItcl\fP shells
+Xare used, in which case the default is \f4"0"\fP).
+X.TP
+X\fB\-suffix\fP\ \fIstring\fP
+XWhen no value is supplied for an option that takes an optional value,
+Xthe variable \fInamesuffix\fP, is set to \s-1TRUE\s+1 (where \fIname\fP
+Xis the name of the corresponding variable and \fIsuffix\fP is the string
+Xargument given to this option).  If this option is not specified then
+Xthe suffix "\f4_FLAG\fP" will be used.
+X.TP
+X\fB\-shell\fP\ \fIshellname\fP
+XSet program arguments using the syntax of the given shell
+X(default=\fIsh\fP).
+X.TP
+X\fB\-file\fP\ \fIfilename\fP
+XThe file from which program argument declarations are read.
+XIf \fIfilename\fP is ``\-'' then standard input is read.
+X.TP
+X\fB\-env\fP\ \fIvarname\fP
+XThe name of the environment variable containing the program argument
+Xdeclarations.
+X.TP
+X\fB\-decls\fP\ \fIstring\fP
+XThe string that contains the program argument declarations.
+X.TP
+X\*(--
+XIndicates the end of options/keywords.
+X.TP
+X\fIprogram-name\fP
+XThe name of the program whose arguments are to be parsed.
+XIf desired, the \fIprogram-name\fP may be specified as a keyword
+X(instead of positionally) using the syntax \fB\-name\fP=\fIprogram-name\fR.
+X.TP
+X\fIarguments\fP\ .\^.\^.
+XThe program-arguments to be parsed
+X
+X.\"===================================
+X.SH EXIT STATUS
+X\*(NM will exit with one of the following status codes:
+X
+X.IP 0
+XArguments were successfully parsed. No syntax errors were found and the
+Xshell-script variable settings have been printed on standard output.
+X
+X.IP 1
+XEither usage or version information was explicitly requested. The desired
+Xinformation was printed on standard diagnostic output. No arguments were
+Xparsed.
+X
+X.IP 2
+XSome type of command-line syntax error occurred. Any syntax error messages
+Xhave been printed on standard diagnostic output.
+X
+X.IP 3
+XAn invalid or unknown shell (command-interpreter) was specified on the
+Xcommand-line to \*(NM.  See the section entitled \s-1\fBSHELLS\fP\s+1
+Xfor a list of the known shells.
+X
+X.IP 4
+XA syntax error of some type occurred in one or more command-line argument
+Xdeclarations.  Any syntax error messages
+Xhave been printed on standard diagnostic output.
+X.\"===================================
+X.so parsing.man
+X.\"===================================
+X.SH ARGUMENT DECLARATIONS
+XThe syntax for a single argument for \*(NM looks like the following:
+X
+X.RS
+X<\fIarg-type\fP>  <\fIarg-name\fP>  <\fIsyntax\fP>  <\fIdescription\fP>
+X.RE
+X
+XWhere <\fIarg-type\fP> is one of the following (case-insensitive):
+X
+X.RS
+X.IP \f4ArgInt\fP  15
+XAn integer value (or list of values).
+X.IP \f4ArgFloat\fP  15
+XA floating-point value (or list of values).
+X.IP \f4ArgChar\fP  15
+XA character value (or list of values).
+X.IP \f4ArgStr\fP  15
+XA string value (or list of values).
+X.IP \f4ArgBool\fP  15
+XA boolean flag that is initially \s-1FALSE\s+1 and is turned \fIon\fP
+Xwhenever it is matched.
+X.IP \f4ArgClear\fP  15
+XA boolean flag that is initially \s-1TRUE\s+1 and is turned \fIoff\fP
+Xwhenever it is matched.
+X.IP \f4ArgToggle\fP  15
+XA boolean flag that is initially \s-1FALSE\s+1 and is \fItoggled\fP
+Xwhenever it is matched.
+X.IP \f4ArgUsage\fP  15
+XPrint usage and exit.
+X.IP \f4ArgDummy\fP  15
+XA dummy argument.
+X.RE
+X
+XIf desired, the leading "\f4Arg\fP" portion of the type-name may be omitted.
+X
+XThe field <\fIarg-name\fP> is simply the name of the variable in your script
+Xthat you wish to contain the resultant value from the command-line.
+XAny default value must be assigned to the variable \fIbefore\fP invoking
+X\*(NM.
+X
+XThe fields <\fIsyntax\fP> and <\fIdescription\fP> \s-1MUST\s+1 be enclosed
+Xin either single or double quotes! If you want the character you are using
+Xto quote the field to also appear within the field, then precede the quote
+Xcharacter (inside the quotes) with a backslash (`\\').
+X
+XThe <\fIdescription\fP> is simply a textual description of the argument.
+X 
+XThe <\fIsyntax\fP> is a little trickier, there are three basic forms of syntax:
+X
+X.RS
+X.TP
+X\f4"c|keyword"\fP
+XAn option that may be matched by \fB\-c\fP or by \fB\*(--keyword\fP
+Xand takes no value.
+X.TP
+X\f4"c|keyword\ \ value"\fP
+XAn option that may be matched by \fB\-c\fP or by \fB\*(--keyword\fP
+Xand requires a value.
+X.TP
+X\f4"value"\fP
+XA positional parameter.
+X.RE
+X
+XNote that the option-character \s-1MUST\s+1 precede the keyword-name and that
+Xthere must be \s-1NO\s+1 spaces surrounding the `\*|' in
+X``\f4c|keyword\fP'' (unless either the option-character or the keyword-name
+Xis intended to be empty).  If you wish a keyword to have no corresponding
+Xshort-option (or vice versa) than put a blank in the option-character
+X(or keyword) portion of the syntax declaration.
+X
+XAny optional parts of the argument should appear inside square-brackets
+X(`[' and `]') and a list of values is denoted by an ellipsis (`` .\^.\^.'').
+XMost options will be inside of square brackets to reflect the fact that
+Xthey are "optional".
+X
+XSome example <\fIsyntax\fP> strings follow:
+X
+X.RS
+X.TP
+X\f4"c|keyword"\fP
+XA required option.
+X.TP
+X\f4"[c|keyword]"\fP
+XAn option with no value.
+X.TP
+X\f4"[c|keyword\ \ value]"\fP
+XAn option that takes a value.
+X.TP
+X\f4"[c|keyword\ \ [value]]"\fP
+XAn option that takes an optional value.
+X.TP
+X\f4"[c|keyword\ \ value\ .\^.\^.]"\fP
+XAn option that takes \fIone or more\fP values.
+X.TP
+X\f4"[c|keyword\ \ [value \*(..]]"\fP
+XAn option that takes \fIzero or more\fP values.
+X.TP
+X\f4"value"\fP
+XA required positional parameter.
+X.TP
+X\f4"[value]"\fP
+XAn optional positional-parameter.
+X.TP
+X\f4"[\ \ |keyword]"\fP
+XAn option that may be matched by keyword but has no corresponding
+Xsingle character option.
+X.TP
+X\f4"[c|\ \ value]"\fP
+XAn option that takes a value but has no corresponding keyword name. 
+X.TP
+X\f4"[c|keyword]\ \ value"\fP
+XA required argument that may be matched either positionally or by keyword.
+X.RE
+X
+X.SS SYNTAX FLAGS
+X.RS
+XNormally, the value to an option may be supplied either in the same
+Xcommand-line token (as in "\fB\-c\fIvalue\fR"), or in a separate token
+X(as in "\fB\-c\ \ \fIvalue\fR").
+XIf desired, the <\fIsyntax\fP> field may optionally be followed by a colon
+X(`:') and one of "\s-1\f4SEPARATE\fP\s+1" or "\s-1\f4STICKY\fP\s+1".
+XThe former specifies that the argument value may only occur in a separate
+Xcommand-line token, the latter specifies that the argument value may only
+Xoccur in the same command-line token.
+X.RE
+X.\"===================================
+X.SH SHELLS
+XAt present, \*(NM knows about the following shells:
+X.RS
+X.IP \fIsh\fP  6
+XThe Bourne Shell. This shell is the standard unix shell
+X(designed and written by Stephen R. Bourne).
+X.IP \fIcsh\fP  6
+XThe C Shell. Bill Joy's answer to \fIsh\fP using C-like syntax.
+X.IP \fIksh\fP  6
+XThe Korn shell. David G. Korn's shell combining all the "best" features
+Xof \fIsh\fP and \fIcsh\fP in a "clean" fashion.
+X.IP \fIbash\fP  6
+XThe Bourne Again Shell.  The Free Software Foundation's answer to \fIksh\fP.
+X.IP \fIzsh\fP  6
+XThe Z Shell.  Paul Falstad's creation combining all the "best" features
+Xof \fIksh\fP and \fIcsh\fP plus some stuff of his own.
+X.IP \fIrc\fP  6
+XThe Plan 9 Unix shell designed by Tom Duff.  A public domain implementation
+X(with some enhancements) has been released by Byron Rakitzis.
+X.IP \fIperl\fP  6
+XLarry Wall's practical extraction and report-generation language. \fIPerl\fP is 
+Xnot a "shell" in the same sense as the others but it is a (powerful) language
+Xin which Unix scripts may be written.
+X.IP \fItcl\fP 6
+XJohn K. Ousterhout's Tool Command Language.  Karl Lehenbauer and friends have
+Xdeveloped a \fItcl\fP shell based on Ousterhout's command language.
+X.RE
+X
+XIn addition, \fIash\fP is considered by \*(NM to be equivalent to
+X\fIsh\fP; and \fItcsh\fP and \fIitcsh\fP are considered to be equivalent to
+X\fIcsh\fP.
+X
+XFor each supported shell, \*(NM will output a combination of
+Xshell-variable and/or shell-array settings that correspond to the
+Xarguments that were supplied on the command-line.  In addition, if
+Xan argument that takes an optional value was given on the command-line
+Xbut \s-1NO\s+1 value was supplied, then the shell-variable named
+X\fIname\f4_FLAG\fR is assigned the value \s-1TRUE\s+1 (where \fIname\fP
+Xwas the name specified in the <\fIarg-name\fP> field of the corresponding
+Xargument declaration). If desired, a suffix other than \f4_FLAG\fP may be
+Xused by specifying the \fB\-suffix\fP option.
+X
+XAny desired initial values for variables from the argument declaration
+Xstring should be assigned \s-1BEFORE\s+1 invoking \*(NM.
+X\*(NM will \s-1NOT\s+1 output variable settings for any arguments
+Xthat were \s-1NOT\s+1 supplied on the command-line. The only exception to
+Xthis is when a positional argument that corresponds to the positional
+Xparameters of the shell-script is \s-1NOT\s+1 supplied on the command-line;
+XIn this particular case, the positional parameters of the shell-script are
+Xunset (set to an empty list).
+X
+XThe exact syntax used to set variables and arrays for the corresponding
+Xshells is the subject of the next several subsections.
+X
+X.\"-----------------------------------
+X.SS BOURNE SHELL
+X.RS
+XFor the Bourne shell, shell variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+Xname='value';
+X.ft R
+X.RE
+X
+XShell arrays are assigned using the following syntax:
+X
+X.XS
+Xname='value1 value2 \*(..';
+X.XE
+X
+XIf the \fB\-arrays\fP option was specified then the following syntax is
+Xused to set arrays:
+X
+X.XS
+Xname_count=3;
+Xname1='value1';
+Xname2='value2';
+Xname3='value3';
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is one of "\-", "\*(--",
+X"*", or "@" then the argument corresponds to the positional parameters
+Xof the shell-script and the following syntax is used to set its value(s):
+X
+X.XS
+Xset \*(-- 'value1' 'value2' \*(.. ;
+X.XE
+X
+X.RE
+X.\"-----------------------------------
+X.SS KORN SHELL
+X.RS
+XFor the Korn shell, shell variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+Xname='value';
+X.ft R
+X.RE
+X
+XShell arrays are assigned using the following syntax:
+X
+X.XS
+Xset \-A name 'value1' 'value2' \*(.. ;
+X.XE
+X
+XIf the \fB\-arrays\fP option was specified then the following syntax is
+Xused to set arrays:
+X
+X.XS
+Xset +A name 'value1' 'value2' \*(.. ;
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is one of "\-", "\*(--",
+X"*", or "@" then the argument corresponds to the positional parameters
+Xof the shell-script and the following syntax is used to set its value(s):
+X
+X.XS
+Xset \*(-- 'value1' 'value2' \*(.. ;
+X.XE
+X
+X.RE
+X.\"-----------------------------------
+X.SS C SHELL
+X.RS
+XFor the C shell, shell variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+Xset name='value';
+X.ft R
+X.RE
+X
+XShell arrays are assigned using the following syntax:
+X
+X.XS
+Xset name=('value1' 'value2' \*(..) ;
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is "\f4argv\fP"
+Xthen the argument corresponds to the positional parameters
+Xof the script and may be unset.
+X
+X.RE
+X.\"-----------------------------------
+X.SS BOURNE AGAIN SHELL
+X.RS
+XAt present, the Bourne Again shell is treated exactly the same as the
+XBourne Shell.
+X.RE
+X.\"-----------------------------------
+X.SS Z SHELL
+X.RS
+XFor the Z shell, shell variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+Xname='value';
+X.ft R
+X.RE
+X
+XShell arrays are assigned using the following syntax:
+X
+X.XS
+Xname=('value1' 'value2' \*(..) ;
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is one of "\-", "\*(--",
+X"*", "@", or "\f4argv\fP" then the argument corresponds to the positional
+Xparameters of the shell-script and the following syntax is used to set its
+Xvalue(s):
+X
+X.XS
+Xargv=('value1' 'value2' \*(..) ;
+X.XE
+X.RE
+X.\"-----------------------------------
+X.SS PLAN 9 SHELL
+X.RS
+XFor \fIrc\fP (the Plan 9 Shell), shell variables are assigned using the
+Xfollowing syntax:
+X
+X.RS
+X.ft 4
+Xname='value';
+X.ft R
+X.RE
+X
+XShell arrays are assigned using the following syntax:
+X
+X.XS
+Xname=('value1' 'value2' \*(..) ;
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is "\f4*\fP"
+Xthen the argument corresponds to the positional parameters
+Xof the script and may be unset.
+X
+X.RE
+X.\"-----------------------------------
+X.SS PERL
+X.RS
+XFor Perl, variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+X$name = 'value';
+X.ft R
+X.RE
+X
+Xarrays are assigned using the following syntax:
+X
+X.XS
+X@name = ('value1', 'value2', \*(..) ;
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is "\f4ARGV\fP"
+Xthen the argument corresponds to the positional parameters
+Xof the script and may be unset.
+X
+XA \fIperl\fP interface to \*(NM should have been installed in your
+Xstandard perl library when \*(NM was installed.  It may be used
+Xby saying:
+X
+X.XS
+Xrequire "cmdparse.pl" ;
+X.XE
+X
+Xsomewhere in your perl-script. This will give you access to a perl function
+Xnamed "\*(NM" which may be used as follows:
+X
+X.XS
+Xeval &cmdparse("\-decls=$ARGDECLS", $0, @ARGV);
+X.XE
+X
+XWhere \f4$ARGDECLS\fP is a variable containing a string of command-line
+Xargument declarations for \*(NM(1). The arguments to the perl function
+Xshould be a vector of arguments to pass to \*(NM(1) on the command-line.
+XThe file \f4cmdparse.pl\fP in your \fIperl\fP library directory contains
+Xthe implementation and documentation for the \fIperl\fP interface to \*(NM.
+X
+XIf a syntax error occurred on the command-line and \fB\-noabort\fP was
+Xnot specified then the \*(NM function will terminate the execution of the
+X\fIperl\fP script and will \s-1NOT\s+1 return to the caller.
+X
+X.RE
+X.\"-----------------------------------
+X.SS TCL
+X.RS
+XFor Tcl, variables are assigned using the following syntax:
+X
+X.RS
+X.ft 4
+Xset name "value";
+X.ft R
+X.RE
+X
+Xarrays are assigned using the following syntax:
+X
+X.XS
+Xset name [ list "value1" "value2" \*(.. ];
+X.XE
+X
+XIf the <\fIarg-name\fP> field of an argument is "\f4argv\fP" or
+X"\f4args\fP" then the argument corresponds to the positional
+Xparameters of the script and may be unset.
+X
+XA \fItcl\fP interface to \*(NM should have been installed in your
+Xstandard \fItcl\fP library when \*(NM was installed.  It may be used
+Xby saying:
+X
+X.XS
+Xload "cmdparse.tcl" ;
+X.XE
+X
+Xsomewhere in your \fItcl\fP script. This will give you access to a \fItcl\fP
+Xprocedure named "\*(NM" which may be used as follows:
+X
+X.XS
+Xeval [ cmdparse \-decls=$argDecls $scriptName $argv ];
+X.XE
+X
+XWhere \f4$argDecls\fP is a variable containing a string of command-line
+Xargument declarations for \*(NM(1).
+X
+XThe arguments to the \fItcl\fP \*(NM procedure are exactly the same as for
+X\*(NM(1).
+XThe file \f4cmdparse.tcl\fP in your \fItcl\fP library directory contains
+Xthe implementation and documentation for the \fItcl\fP interface to \*(NM.
+X
+XIf a syntax error occurred on the command-line and \fB\-noabort\fP
+Xwas not specified then the \*(NM procedure will terminate the execution of the
+X\fItcl\fP script and will \s-1NOT\s+1 return to the caller.
+X
+X
+X.IP "\fBNote:\fP" 3
+XThe \fItcl\fP \*(NM procedure will only work with \fItcl\fP scripts that use
+Xa version of the \fItcl\fP shell that contains the \f4execl\fP command!
+X
+X.RE
+X.\"===================================
+X.so environ.man
+X.\"===================================
+X.SH FILES
+X.IP \f4\*b/cmdparse\fP
+XThe executable file for \*(NM(1).
+X.IP \f4\*p/cmdparse.pl\fP
+XThe \fIperl\fP interface (including documentation) to \*(NM(1).
+X.IP \f4\*t/cmdparse.tcl\fP
+XThe \fItcl\fP interface (including documentation) to \*(NM(1).
+X.\"===================================
+X.SH SEE ALSO
+X\f4CmdLine\fP(3\*(C+), \f4cmdargs\fP(3\*(C+)
+X.\"===================================
+X.so caveats.man
+X.\"===================================
+X.so bugs.man
+X.\"===================================
+X.SH AUTHOR
+XBrad Appleton, Harris Computer Systems, <\f4brad@ssd.csd.harris.com\fP>.
+END_OF_FILE
+if test 21692 -ne `wc -c <'doc/cmdparse.man1'`; then
+    echo shar: \"'doc/cmdparse.man1'\" unpacked with wrong size!
+fi
+# end of 'doc/cmdparse.man1'
+fi
+if test -f 'src/lib/cmdargs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdargs.c'\"
+else
+echo shar: Extracting \"'src/lib/cmdargs.c'\" \(16718 characters\)
+sed "s/^X//" >'src/lib/cmdargs.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdargs.c - implement the various predefined CmdArg subclasses
+X//
+X// ^DESCRIPTION:
+X//    This file implements the CmdArg derived classes that are declared
+X//    in <cmdargs.h>
+X//
+X// ^HISTORY:
+X//    03/25/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "cmdargs.h"
+X#include "exits.h"
+X#include "fifolist.h"
+X
+X   // return values for operator()
+Xenum { SUCCESS = 0, FAILURE = -1 } ;
+X
+X
+X//-----------------------------------------------------------------------------
+X// ^FUNCTION: compile, operator() - handle an argument from the command-line
+X//
+X// ^SYNOPSIS:
+X//    int  operator()(arg, cmd);
+X//    int  compile(arg, cmd, value);
+X//    int  compile(arg, cmd, value, default_value);
+X//
+X// ^PARAMETERS:
+X//    const char * & arg;
+X//    -- the prospective value for this command argument.
+X//       upon returning this value should be updated to point to the first
+X//       character of "arg" that was NOT used as part of the value for this
+X//       argument (set "arg" to NULL if all of it was used).
+X//
+X//    CmdLine & cmd;
+X//    -- the command that matched this argument on its command-line
+X//
+X//    <Type> & value;
+X//    -- The internal value (of some appropriate type) that is "managed"
+X//       by this command argument.
+X//
+X//    unsigned  default_value;
+X//    -- What to assign to "value" if "arg" is NOT a value for this command
+X//       argument.
+X//
+X// ^DESCRIPTION:
+X//    These member functions are responsible for taking whatever action
+X//    is appropriate when its corresponding command argument is matched
+X//    on the command-line.  For argument-types that simply "compile"
+X//    their argument into some kind of internal value, "compile()" does
+X//    all the work and operator() merely calls compile() with the proper
+X//    value as a reference parameter.
+X//
+X// ^REQUIREMENTS:
+X//    The "arg_flags" data member of this command-argument must have been
+X//    set appropriately (by "cmd") to indicate to us exactly how "arg" was
+X//    specified on the command-line for this (and only this) occurrence of
+X//    "arg".
+X//
+X// ^SIDE-EFFECTS:
+X//    - If (cmd.flags() & QUIET) is NOT TRUE and FAILURE is to be returned,
+X//      then error messages should be printed using cmd.error().
+X//
+X//    - arg is modified to be NULL of to point to the unused portion of itself.
+X//      
+X//    - If (cmd.flags() & TEMP) is TRUE and we need the value of "arg"
+X//      to stick around, then storage is allocated in order to make
+X//      a copy of "arg" (and the command-argument is responsible for
+X//      de-allocating this storage).
+X//
+X// ^RETURN-VALUE:
+X//    FAILURE (non-zero)  If something went wrong when performing the
+X//                        desired actions for this command-argument.
+X//                        A common problem would be that "arg" is
+X//                        syntactically incorrect.
+X//
+X//    SUCCESS (zero)  If "arg" is NULL and/or we were able to succesfully
+X//                    perform all desired actions for this command argument.
+X//-^^--------------------------------------------------------------------------
+X
+X
+X//-------------------------------------------------------------- Dummy Argument
+X
+XCmdArgDummy::~CmdArgDummy(void)  {}
+X
+Xint
+XCmdArgDummy::is_dummy(void)  { return  1; }
+X
+X   // For a CmdArgDummy - operator() is a No-OP and should NEVER
+X   // be called.
+X   //
+Xint
+XCmdArgDummy::operator()(const char * & , CmdLine & )
+X{
+X   return  SUCCESS;
+X}
+X
+X//-------------------------------------------------------------- Usage Argument
+X
+XCmdArgUsage::~CmdArgUsage(void)  {}
+X
+X   // Just need to call cmd.usage and exit.
+X   //
+Xint
+XCmdArgUsage::operator()(const char * & , CmdLine & cmd)
+X{
+X   cmd.usage(cmd.error(CmdLine::NOPRINT), CmdLine::VERBOSE_USAGE);
+X   ::exit(e_USAGE);
+X   return  SUCCESS;  // get the compiler to shut up about NO return value!
+X}
+X
+X//----------------------------------------------------------- Integer Arguments
+X
+XCmdArgIntCompiler::~CmdArgIntCompiler(void)  {}
+X
+X   // Compile a string into an integer value.
+Xint
+XCmdArgIntCompiler::compile(const char * & arg, CmdLine & cmd, int & value)
+X{
+X   const char * ptr = NULL ;
+X   long  result = 0 ;
+X
+X   if (arg == NULL) {
+X      return  SUCCESS ;  // no value given - nothing to do
+X   } else if (! *arg) {
+X      if (! (cmd.flags() & CmdLine::QUIET)) {
+X         cmd.error() << "empty integer value specified." << endl ;
+X      }
+X      return  FAILURE ;
+X   }
+X
+X   // compile the string into an integer
+X   result = ::strtol(arg, (char **) &ptr, 0);  // watch out for -c0xa vs -axc0!
+X   if (ptr == arg) {
+X      // do we have a valid integer?
+X      if (! (cmd.flags() & CmdLine::QUIET)) {
+X         cmd.error() << "invalid integer value \"" << arg << "\"." << endl ;
+X      }
+X      return  FAILURE ;
+X   }
+X   value = (int) result;
+X   arg = ptr;
+X
+X   return  SUCCESS ;
+X}
+X
+X
+XCmdArgInt::~CmdArgInt(void)  {}
+X
+Xint
+XCmdArgInt::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   return  compile(arg, cmd, val);
+X}
+X
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgInt & int_arg)
+X{
+X   return  (os << (int) int_arg) ;
+X}
+X
+X//---------------------------------------------------- Floating-point Arguments
+X
+XCmdArgFloatCompiler::~CmdArgFloatCompiler(void)  {}
+X
+X   // Compile a string into a floating-point value.
+Xint
+XCmdArgFloatCompiler::compile(const char * & arg, CmdLine & cmd, float & value)
+X{
+X   const char * ptr = NULL ;
+X   double  result = 0 ;
+X
+X   if (arg == NULL) {
+X      return  SUCCESS ;  // no value given -- nothing to do
+X   } else if (! *arg) {
+X      if (! (cmd.flags() & CmdLine::QUIET)) {
+X         cmd.error() << "empty floating-point value specified." << endl ;
+X      }
+X      return  FAILURE ;
+X   }
+X
+X   result = ::strtod(arg, (char **) &ptr);  // compile the string into a float
+X   if (ptr == arg) {
+X      // do we have a valid float?
+X      if (! (cmd.flags() & CmdLine::QUIET)) {
+X         cmd.error() << "invalid floating-point value \"" << arg << "\"."
+X                     << endl ;
+X      }
+X      return  FAILURE ;
+X   }
+X   value = (float) result;
+X   arg = ptr;
+X
+X   return  SUCCESS ;
+X}
+X
+X
+XCmdArgFloat::~CmdArgFloat(void)  {}
+X
+Xint
+XCmdArgFloat::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   return  compile(arg, cmd, val);
+X}
+X
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgFloat & float_arg)
+X{
+X   return  (os << (float) float_arg) ;
+X}
+X
+X//--------------------------------------------------------- Character Argumrnts
+X
+XCmdArgCharCompiler::~CmdArgCharCompiler(void)  {}
+X
+Xint
+XCmdArgCharCompiler::compile(const char * & arg, CmdLine & cmd, char & value)
+X{
+X   if (arg == NULL) {
+X      return  SUCCESS ;  // no value given - nothing to do
+X   }
+X
+X   // If "arg" contains more than 1 character, then the other characters
+X   // are either extraneous, or they are options (bundled together).
+X   //
+X   if (*arg  &&  *(arg+1)  &&
+X        ((! (flags() & CmdArg::OPTION)) || (flags() & CmdArg::VALSEP)))
+X   {
+X      if (! (cmd.flags() & CmdLine::QUIET)) {
+X         cmd.error() << "invalid character value \"" << arg << "\"." << endl ;
+X      }
+X      return  FAILURE ;
+X   }
+X
+X   value = *arg;
+X   if (*arg) {
+X      ++arg;
+X   } else {
+X      arg = NULL;
+X   }
+X
+X   return  SUCCESS ;
+X}
+X
+X
+XCmdArgChar::~CmdArgChar(void)  {}
+X
+Xint
+XCmdArgChar::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   return  compile(arg, cmd, val);
+X}
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgChar & char_arg)
+X{
+X   return  (os << (char) char_arg) ;
+X}
+X
+X//------------------------------------------------------------ String Arguments
+X
+Xtypedef  CmdArgStrCompiler::string  CmdArgString ;
+X
+XCmdArgString::~string(void)
+X{
+X   if (is_alloc)  delete [] (char *)str;
+X}
+X
+X   // Copy a string (allocating storage if necessary)
+Xvoid
+XCmdArgString::copy(unsigned  is_temporary, const char * s)
+X{
+X   if (is_alloc)  delete  (char *)str;
+X   is_alloc = (is_temporary) ? 1 : 0;
+X   str = s;
+X   if (is_alloc && s) {
+X      char * new_s = new char[::strlen(s) + 1] ;
+X      (void) ::strcpy(new_s, s);
+X      str = new_s;
+X   }
+X}
+X
+X
+XCmdArgStrCompiler::~CmdArgStrCompiler(void)  {}
+X
+Xint
+XCmdArgStrCompiler::compile(const char  * & arg,
+X                           CmdLine       & cmd,
+X                           CmdArgString  & value)
+X{
+X   if (arg == NULL) {
+X      return  SUCCESS;  // no value given -- nothing to do
+X   }
+X
+X   value.copy((cmd.flags() & CmdLine::TEMP), arg);
+X   arg = NULL;
+X
+X   return  SUCCESS;
+X}
+X
+X
+XCmdArgStr::~CmdArgStr(void)  {}
+X
+Xint
+XCmdArgStr::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   return  compile(arg, cmd, val);
+X}
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgStrCompiler::string & str)
+X{
+X   return  (os << str.str) ;
+X}
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgStr & str_arg)
+X{
+X   return  (os << (const char *) str_arg) ;
+X}
+X
+X//-------------------------------------------------------------- List Arguments
+X
+X          //------------------- Integer List -------------------
+X
+XDECLARE_FIFO_LIST(IntList, int);
+X
+Xstruct CmdArgIntListPrivate {
+X   IntList       list;
+X   IntListArray  array;
+X
+X   CmdArgIntListPrivate(void);
+X} ;
+X
+X
+XCmdArgIntListPrivate::CmdArgIntListPrivate(void)
+X   : array(list)
+X{
+X   list.self_cleaning(1);
+X}
+X
+X   // Compile the argument into an integer and append it to the list
+Xint
+XCmdArgIntList::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   int  value;
+X   const char * save_arg = arg;
+X   int  rc = compile(arg, cmd, value);
+X   if (save_arg && (rc == SUCCESS)) {
+X      if (val == NULL)  val = new CmdArgIntListPrivate;
+X      int * new_value = new int;
+X      *new_value = value;
+X      val->list.add(new_value);
+X   }
+X   return  rc;
+X}
+X
+Xunsigned
+XCmdArgIntList::count(void) const
+X{
+X   return  (val) ? val->list.count() : 0 ;
+X}
+X
+Xint &
+XCmdArgIntList::operator[](unsigned  index)
+X{
+X   return  val->array[index];
+X}
+X
+XCmdArgIntList::~CmdArgIntList(void) {}
+X
+X
+X          //------------------- Float List -------------------
+X
+X
+XDECLARE_FIFO_LIST(FloatList, float);
+X
+Xstruct CmdArgFloatListPrivate {
+X   FloatList       list;
+X   FloatListArray  array;
+X
+X   CmdArgFloatListPrivate(void);
+X} ;
+X
+XCmdArgFloatListPrivate::CmdArgFloatListPrivate(void)
+X   : array(list)
+X{
+X   list.self_cleaning(1);
+X}
+X
+X
+X   // Compile the argument into a float and append it to the list
+Xint
+XCmdArgFloatList::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   float  value;
+X   const char * save_arg = arg;
+X   int  rc = compile(arg, cmd, value);
+X   if (save_arg && (rc == SUCCESS)) {
+X      if (val == NULL)  val = new CmdArgFloatListPrivate;
+X      float * new_value = new float;
+X      *new_value = value;
+X      val->list.add(new_value);
+X   }
+X   return  rc;
+X}
+X
+Xunsigned
+XCmdArgFloatList::count(void) const
+X{
+X   return  (val) ? val->list.count() : 0 ;
+X}
+X
+Xfloat &
+XCmdArgFloatList::operator[](unsigned  index)
+X{
+X   return  val->array[index];
+X}
+X
+XCmdArgFloatList::~CmdArgFloatList(void) {}
+X
+X          //------------------- String List -------------------
+X
+XDECLARE_FIFO_LIST(StringList, CmdArgString);
+X
+Xstruct CmdArgStrListPrivate {
+X   StringList       list;
+X   StringListArray  array;
+X
+X   CmdArgStrListPrivate(void);
+X} ;
+X
+XCmdArgStrListPrivate::CmdArgStrListPrivate(void)
+X   : array(list)
+X{
+X   list.self_cleaning(1);
+X}
+X
+Xint
+XCmdArgStrList::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   CmdArgString * value = new CmdArgString ;
+X   const char * save_arg = arg;
+X   int  rc = compile(arg, cmd, *value);
+X   if (save_arg && (rc == SUCCESS)) {
+X      if (val == NULL)  val = new CmdArgStrListPrivate;
+X      val->list.add(value);
+X   } else {
+X      delete  value;
+X   }
+X   return  rc;
+X}
+X
+Xunsigned
+XCmdArgStrList::count(void) const
+X{
+X   return  (val) ? val->list.count() : 0 ;
+X}
+X
+XCmdArgString &
+XCmdArgStrList::operator[](unsigned  index)
+X{
+X   return  val->array[index];
+X}
+X
+XCmdArgStrList::~CmdArgStrList(void) {}
+X
+X//----------------------------------------------------------- Boolean Arguments
+X
+XCmdArgBoolCompiler::~CmdArgBoolCompiler(void)  {}
+X
+Xint
+XCmdArgBoolCompiler::compile(const char  * & arg,
+X                            CmdLine       & cmd,
+X                            unsigned      & value,
+X                            unsigned        default_value)
+X{
+X   if (arg == NULL) {
+X         // if no argument was given use the default
+X      value = default_value ;
+X   } else {
+X      char ch = *arg;
+X      const char * kwd = arg++;
+X
+X         // Map the argument to the corresponding value. We will accept
+X         // the following (case insensitive):
+X         //
+X         //     "+", "1", "ON", or "YES"  means set the value
+X         //     "-", "0", "OFF", or "NO"  means clear the value
+X         //     "~", "^", or "!" means toggle the value
+X         //
+X         // Anything else is considered to be an argument that is NOT
+X         // meant for us but for some other argument so we just use the
+X         // default value that was supplied and return SUCCESS.
+X         //
+X      if (isupper(ch))  ch = tolower(ch);
+X      switch(ch) {
+X         case '1' :
+X         case '+' : value = 1 ; break;
+X
+X         case '0' :
+X         case '-' : value = 0 ; break;
+X
+X         case '~' :
+X         case '^' :
+X         case '!' : value = (! value) ; break;
+X
+X         default:
+X            if (flags() & CmdArg::KEYWORD) {
+X               char ch2 = *arg;
+X               arg = NULL;
+X               if (cmd.strmatch(kwd, "yes") != CmdLine::str_NONE) {
+X                  value = 1 ;
+X                  return  SUCCESS ;
+X               } else if (cmd.strmatch(kwd, "no") != CmdLine::str_NONE) {
+X                  value = 0 ;
+X                  return  SUCCESS ;
+X               } else if (cmd.strmatch(kwd, "true") != CmdLine::str_NONE) {
+X                  value = 1 ;
+X                  return  SUCCESS ;
+X               } else if (cmd.strmatch(kwd, "false") != CmdLine::str_NONE) {
+X                  value = 0 ;
+X                  return  SUCCESS ;
+X               } else if ((ch == 'o') && (! ch2)) {
+X                  // ambiguous - could be "ON" or "OFF"
+X                  if (! (cmd.flags() & CmdLine::QUIET)) {
+X                     cmd.error() << "ambiguous boolean value \"" << kwd
+X                                 << "\"." << endl ;
+X                  }
+X                  return  FAILURE ;
+X               } else if (cmd.strmatch(kwd, "on") != CmdLine::str_NONE) {
+X                  value = 1 ;
+X                  return  SUCCESS ;
+X               } else if (cmd.strmatch(kwd, "off") != CmdLine::str_NONE) {
+X                  value = 0 ;
+X                  return  SUCCESS ;
+X               } else {
+X                  // unknown
+X                  if (! (cmd.flags() & CmdLine::QUIET)) {
+X                     cmd.error() << "unknown boolean value \"" << kwd
+X                                 << "\"." << endl ;
+X                  }
+X                  return  FAILURE ;
+X               }
+X            } //if keyword
+X            arg = kwd;  // no characters used!
+X            value = default_value ;
+X            break;
+X      } //switch
+X   } //else
+X
+X   return  SUCCESS ;
+X}
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgBool & bool_arg)
+X{
+X   return  (os << ((int)bool_arg)) ;
+X}
+X
+X//------------------------------------------------------------------ CmdArgBool
+X
+XCmdArgBool::~CmdArgBool(void)  {}
+X
+Xint
+XCmdArgBool::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  value = val;
+X   int  rc = compile(arg, cmd, value, 1);
+X   val = value;
+X   return  rc;
+X}
+X
+X//----------------------------------------------------------------- CmdArgClear
+X
+XCmdArgClear::~CmdArgClear(void)  {}
+X
+Xint
+XCmdArgClear::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  value = val;
+X   int  rc = compile(arg, cmd, value, 0);
+X   val = value;
+X   return  rc;
+X}
+X
+X//---------------------------------------------------------------- CmdArgToggle
+X
+XCmdArgToggle::~CmdArgToggle(void)  {}
+X
+Xint
+XCmdArgToggle::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  value = val;
+X   int  rc = compile(arg, cmd, value, (! value));
+X   val = value;
+X   return  rc;
+X}
+X
+X//--------------------------------------------------------------- CmdArgBoolRef
+X
+XCmdArgBoolRef::~CmdArgBoolRef(void)  {}
+X
+Xint
+XCmdArgBoolRef::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  val = ref;
+X   int rc = ref.compile(arg, cmd, val, 1);
+X   ref = val;
+X   return  rc;
+X}
+X
+X//-------------------------------------------------------------- CmdArgClearRef
+X
+XCmdArgClearRef::~CmdArgClearRef(void)  {}
+X
+Xint
+XCmdArgClearRef::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  val = ref;
+X   int rc = ref.compile(arg, cmd, val, 0);
+X   ref = val;
+X   return  rc;
+X}
+X
+X//------------------------------------------------------------- CmdArgToggleRef
+X
+XCmdArgToggleRef::~CmdArgToggleRef(void)  {}
+X
+Xint
+XCmdArgToggleRef::operator()(const char * & arg, CmdLine & cmd)
+X{
+X   unsigned  val = ref;
+X   int rc = ref.compile(arg, cmd, val, (! val));
+X   ref = val;
+X   return  rc;
+X}
+X
+END_OF_FILE
+if test 16718 -ne `wc -c <'src/lib/cmdargs.c'`; then
+    echo shar: \"'src/lib/cmdargs.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdargs.c'
+fi
+if test -f 'src/lib/private.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/private.c'\"
+else
+echo shar: Extracting \"'src/lib/private.c'\" \(19806 characters\)
+sed "s/^X//" >'src/lib/private.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: private.c - private/protected functions used by the CmdLine library
+X//
+X// ^DESCRIPTION:
+X//  This file implements functions that are for the exclusive use of
+X//  the CmdLine library.  The following functions are implemented:
+X//
+X//      ck_need_val()  --  see if we left an argument without a value
+X//      handle_arg()   --  compile the string value of an argument
+X//      syntax()       --  find out the desired syntax for usage messages
+X//      missing_args() --  check for missing required arguments
+X//      opt_match()    --  match an option
+X//      kwd_match()    --  match a keyword
+X//      pos_match()    --  match a positional parameter
+X//
+X// ^HISTORY:
+X//    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <iostream.h>
+X#include <strstream.h>
+X#include <fstream.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+Xextern "C" {
+X  int  isatty(int fd);
+X
+X#ifdef GNU_READLINE
+X# include <readline.h>
+X#endif
+X
+X}
+X
+X#ifndef GNU_READLINE
+X# ifdef unix
+X#  include <malloc.h>
+X# else
+X   extern "C" void * malloc(size_t);
+X   extern "C" void   free(void *);
+X# endif
+X#endif
+X
+X
+X#include "cmdline.h"
+X#include "states.h"
+X#include "arglist.h"
+X
+X
+X// Need a portable version of tolower
+X//
+X//   NOTE:: I would make this inline except that cfront refuses
+X//          to inline it because it is used twice in expressions
+X//
+X#define TO_LOWER(c)  ((isupper(c)) ? tolower(c) : c)
+X
+X#ifdef vms
+X#  define  getenv  getsym
+X   extern  const char * getsym(const char *);
+X#endif
+X
+X//-------
+X// ^FUNCTION: CmdLine::handle_arg - compile the string value of an argument
+X//
+X// ^SYNOPSIS:
+X//    extern int CmdLine::handle_arg(cmdarg, arg);
+X//
+X// ^PARAMETERS:
+X//    CmdArg * cmdarg;
+X//    -- the matched argument whose value is to be "handled"
+X//
+X//    const char * & arg;
+X//    -- the string value for the argument (from the command-line).
+X//       upon exit, this will be NULL (if all of "arg" was used) or will
+X//       point to the first character or "arg" that was not used by the
+X//       argument's "compile" function.
+X//
+X// ^DESCRIPTION:
+X//    After we have matched an argument on the command-line to an argument
+X//    in the "cmd" object, we need to "handle" the value supplied for that
+X//    argument. This entails updating the state of the argument and calling
+X//    its "compile" function as well as updating the state of the command.
+X//
+X// ^REQUIREMENTS:
+X//    None that weren't covered in the PARAMETERS section.
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies the value pointed to by "arg"
+X//    - prints a message on stderr if "arg" is invalid and QUIET is NOT set.
+X//    - modifies the state of "cmd".
+X//    - modifies the "value" and "flags" of "cmdarg".
+X//
+X// ^RETURN-VALUE:
+X//    The value returned by calling the "compile" function associated
+X//    with the argument "cmdarg".
+X//
+X// ^ALGORITHM:
+X//    - if this is a cmdargUsage argument then print usage and call exit(3C)
+X//    - call the operator() of "cmdarg" and save the result.
+X//    - if the above call returned SUCCESS then set the GIVEN and VALGIVEN
+X//      flags of the argument.
+X//    - update the parse_state of "cmd" if we were waiting for this value.
+X//    - if "cmdarg" corresponds to a LIST then set things up so that succeeding
+X//      arguments will be values for this "cmdarg"'s list.
+X//-^^----
+Xint
+XCmdLine::handle_arg(CmdArg * cmdarg, const char * & arg)
+X{
+X   int  bad_val ;
+X
+X   // call the argument compiler
+X   const char * save_arg = arg ;  // just in case someone forgets to set it
+X   bad_val = (*cmdarg)(arg, *this);
+X   if (! bad_val) {
+X      cmdarg->set(CmdArg::GIVEN) ;
+X      if (arg != save_arg) {
+X         cmdarg->set(CmdArg::VALGIVEN) ;
+X      }
+X   }
+X
+X   // if we were waiting for a value - we just got it
+X   if (arg != save_arg) {
+X      if (cmdarg == cmd_matched_arg)  cmd_parse_state = cmd_START_STATE ;
+X   }
+X
+X   // if this is a list - optional values may follow the one given
+X   if ((cmdarg->syntax() & CmdArg::isLIST) && (arg != save_arg)) {
+X      cmd_matched_arg = cmdarg ;
+X      cmd_parse_state = cmd_WANT_VAL ;
+X   }
+X
+X   return  bad_val ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::ck_need_val - See if an argument needs a value
+X//
+X// ^SYNOPSIS:
+X//    extern void CmdLine::ck_needval(void)
+X//
+X// ^PARAMETERS:
+X//    NONE.
+X//
+X// ^DESCRIPTION:
+X//    We parse command-lines using something akin to a deterministic
+X//    finite state machine. Each argv[] element on the command-line is
+X//    considered a single input to the machine and we keep track of an
+X//    associated machine-state that tells us what to do next for a given
+X//    input.
+X//
+X//    In this function, we are merely trying to query the "state" of the
+X//    machine by asking it if it is expecting to see a value for an
+X//    argument that was matched in a previous argv[] element.
+X//
+X//    It is assumed that this function is called only after it has already
+X//    been determined that the current argv[] element is NOT an argument
+X//    value.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    - updates the "state" of the command.
+X//    - updates the "status" of the command.
+X//    - modifies the last matched argument if it takes an optional value.
+X//    - prints a message on stderr if cmd_QUIET is NOT set and we were
+X//      expecting a required value.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    If we were expecting an optional value then
+X//    - set the GIVEN flag of the last arg we matched (DO NOT set VALGIVEN).
+X//    - call the compiler-function of the last-matched arg using NULL
+X//      as the argument (unless the arg is a LIST and VALGIVEN is set).
+X//    - reset the command-state
+X//    Else if we were expecting a required value then
+X//    - print a an error message if cmd_QUIET is not set
+X//    - set the command-status to VAL_MISSING
+X//    - reset the command-state
+X//    Endif
+X//-^^----
+Xvoid
+XCmdLine::ck_need_val(void)
+X{
+X   const char * null_str = NULL;
+X   if (cmd_parse_state == cmd_WANT_VAL) {
+X      // argument was given but optional value was not
+X      cmd_matched_arg->set(CmdArg::GIVEN) ;
+X      if ((! (cmd_matched_arg->syntax() & CmdArg::isLIST)) ||
+X          (! (cmd_matched_arg->flags()  & CmdArg::VALGIVEN))) {
+X         (void) handle_arg(cmd_matched_arg, null_str) ;
+X      }
+X      cmd_parse_state = cmd_START_STATE ;
+X   } else if (cmd_parse_state == cmd_NEED_VAL) {
+X      // argument was given but required value was not
+X      if (! (cmd_flags & QUIET)) {
+X         arg_error("value required for", cmd_matched_arg) << "." << endl ;
+X      }
+X      cmd_status |= VAL_MISSING ;
+X      cmd_parse_state = cmd_START_STATE ;
+X   }
+X}
+X
+X
+X#ifndef GNU_READLINE
+X//
+X// readline() -- indigent person's version of the GNU readline() function
+X//
+X
+X#define PROMPT_BUFSIZE 256
+X
+Xstatic char *
+Xreadline(const char * prompt)
+X{
+X   char * buf = (char *) ::malloc(PROMPT_BUFSIZE);
+X   if (buf == NULL)  return  NULL ;
+X   *buf = '\0';
+X
+X   // prompt the user and collect input
+X   cerr << prompt << flush ;
+X   cin.getline(buf, PROMPT_BUFSIZE);
+X
+X   return  buf ;
+X}
+X#endif // ! GNU_READLINE
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::prompt_user - prompt the user for a missing argument
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::prompt_user(cmdarg);
+X//
+X// ^PARAMETERS:
+X//    CmdArg * cmdarg;
+X//    -- the argument that we need to prompt for
+X//
+X// ^DESCRIPTION:
+X//    If cin is connected to a terminal, then we will prompt the user
+X//    for an argument corresponding to "cmdarg" and attempt to "compile" it
+X//    into the desired internal format. The user only has one chance
+X//    to get the "argument" right; we do not continue prompting if the
+X//    value that was entered is invalid.
+X//
+X// ^REQUIREMENTS:
+X//    "cmdarg" should be a REQUIRED argument that has already been determined
+X//    to be missing from the command-line.
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies the status of the command.
+X//    - modifies "cmdarg".
+X//    - prints a prompt on cerr and reads from cin
+X//
+X// ^RETURN-VALUE:
+X//    0 if the argument was succesfully entered by the user,
+X//    ARG_MISSING otherwise.
+X//
+X// ^ALGORITHM:
+X//    - if cin is not a terminal return ARG_MISSING.
+X//    - if "cmdarg" is a LIST, make sure we prompt the use once for each
+X//      possible value in the list.
+X//    - prompt the user for an argument and read the result.
+X//    - if the user just typed <RETURN> return ARG_MISSING.
+X//    - "handle" the value that was entered.
+X//    - continue prompting if we are a LIST and a valid, non-empty,
+X//      value was given
+X//    - if an invalid value was given return ARG_MISSING
+X//    - else return 0
+X//-^^----
+Xunsigned
+XCmdLine::prompt_user(CmdArg * cmdarg)
+X{
+X   // dont prompt if cin or cerr is not interactive
+X   int fd = ((filebuf *)(cin.rdbuf()))->fd();
+X   if (! ::isatty(fd))  return  ARG_MISSING ;
+X
+X   fd = ((filebuf *)(cerr.rdbuf()))->fd();
+X   if (! ::isatty(fd))  return  ARG_MISSING ;
+X
+X   // if we have a list, need to prompt repeatedly
+X   if (cmdarg->syntax() & CmdArg::isLIST) {
+X      cerr << "Enter one " << cmdarg->value_name() << " per line "
+X           << "(enter a blank-line to stop)." << endl ;
+X   }
+X   char prompt[256], * buf = NULL;
+X   ostrstream  oss(prompt, sizeof(prompt));
+X   oss << "\rEnter " << cmdarg->value_name() << ": " << ends ;
+X   int  errs = 0, first = 1;
+X   do {  // need repeated prompting for a LIST
+X      if (buf)  ::free(buf);
+X      buf = ::readline(prompt) ;
+X      if (buf == NULL)  return  ARG_MISSING ;
+X
+X      // make sure we read something!
+X      if (! *buf) {
+X         if (first) {
+X            error() << "error - no " << cmdarg->value_name()
+X                    << " given!" << endl ;
+X            ++errs;
+X         }
+X         continue;
+X      }
+X
+X#ifdef GNU_READLINE
+X      // add this line to the history list
+X      ::add_history(buf);
+X#endif
+X
+X      // try to handle the value we read (remember - buf is temporary)
+X      if (! errs) {
+X         const char * arg = buf;
+X         unsigned  save_cmd_flags = cmd_flags;
+X         cmd_flags |= TEMP;
+X         errs = handle_arg(cmdarg, arg);
+X         if (errs) {
+X            arg_error("bad value for", cmdarg) << "." << endl ;
+X         }
+X         cmd_flags = save_cmd_flags;
+X      }
+X
+X      first = 0;
+X   } while (!errs && (cmdarg->syntax() & CmdArg::isLIST) &&  *buf);
+X
+X   if (! errs)  cmdarg->set(CmdArg::VALSEP);
+X
+X   if (buf)  ::free(buf);
+X   return  (errs) ? ARG_MISSING : NO_ERROR ;
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::syntax - determine usage message syntax
+X//
+X// ^SYNOPSIS:
+X//    CmdLine::CmdLineSyntax CmdLine::syntax(void);
+X//
+X// ^PARAMETERS:
+X//
+X// ^DESCRIPTION:
+X//    One of the things we keep track of in the CmdLine object is whether
+X//    options and/or keywords (long-options) were used on the command-line.
+X//    If a command-line syntax error occurs and only options (keywords)
+X//    were used then the usage message will only contain option (keyword)
+X//    syntax. If BOTH were used or if usage was specifically requested via
+X//    a cmdargUsage option (which we also keep track of) then we want the
+X//    the usage message to contain the syntac for both options and keywords.
+X//
+X//    If neither options nor keywords were given (meaning only positional
+X//    parameters were used) then we only use option-syntax (for brevity).
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    The desired usage message syntax to use.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----
+XCmdLine::CmdLineSyntax
+XCmdLine::syntax(void) const
+X{
+X   if (cmd_flags & KWDS_ONLY) {
+X      return  cmd_KWDS_ONLY;
+X   } else if (cmd_flags & OPTS_ONLY) {
+X      return  cmd_OPTS_ONLY;
+X   } else if ((cmd_state & cmd_OPTIONS_USED) &&
+X              (cmd_state & cmd_KEYWORDS_USED)) {
+X      return  cmd_BOTH ;
+X   } else if (cmd_state & cmd_KEYWORDS_USED) {
+X      return  cmd_KWDS_ONLY ;
+X   } else {
+X      return  cmd_OPTS_ONLY ;
+X   }
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::missing_args - check for missing required arguments
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::missing_args(void);
+X//
+X// ^PARAMETERS:
+X//
+X// ^DESCRIPTION:
+X//    This function checks to see if there is a required argument in the
+X//    CmdLine object that was NOT specified on the command. If this is
+X//    the case and PROMPT_USER is set (or $PROMPT_USER exists and is
+X//    non-empty) then we attempt to prompt the user for the missing argument.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies the status of "cmd".
+X//    - terminates execution by calling exit(3C) if cmd_NOABORT is NOT
+X//      set and a required argument (that was not properly supplied by
+X//      the user) is not given.
+X//    - prints on stderr if an argument is missing and cmd_QUIET is NOT set.
+X//    - also has the side-effects of prompt_user() if we need to prompt
+X//      the user for input.
+X//
+X// ^RETURN-VALUE:
+X//    The current value of the (possibly modified) command status. This is a
+X//    combination of bitmasks of type cmdline_flags_t defined in <cmdline.h>
+X//
+X// ^ALGORITHM:
+X//    Foreach argument in cmd
+X//       if argument is required and was not given
+X//          if required, prompt for the missing argument
+X//             if prompting was unsuccesful add ARG_MISSING to cmd-status
+X//             endif
+X//          else add ARG_MISSING to cmd-status
+X//          endif
+X//       endif
+X//    endfor
+X//    return the current cmd-status
+X//-^^----
+Xunsigned
+XCmdLine::missing_args(void)
+X{
+X   char buf[256];
+X
+X   CmdArgListListIter  list_iter(cmd_args);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter  iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         if (cmdarg->is_dummy())  continue;
+X         if ((cmdarg->syntax() & CmdArg::isREQ) &&
+X             (! (cmdarg->flags() & CmdArg::GIVEN)))
+X         {
+X            if (! (cmd_flags & QUIET)) {
+X               fmt_arg(cmdarg,  buf, sizeof(buf), syntax(), TERSE_USAGE);
+X               error() << buf << " required." << endl ;
+X            }
+X            if (cmd_status & ARG_MISSING) {
+X               // user didnt supply the missing argument
+X               return  cmd_status ;
+X            } else if ((! (cmd_flags & NO_ABORT)) && cmd_status) {
+X               // other problems
+X               return  cmd_status ;
+X            } else if (cmd_flags & PROMPT_USER) {
+X               cmd_status |= prompt_user(cmdarg);
+X            } else {
+X               char * env = ::getenv("PROMPT_USER");
+X               if (env && *env) {
+X                  cmd_status |= prompt_user(cmdarg);
+X               } else {
+X                  cmd_status |= ARG_MISSING ;
+X               }
+X            }
+X         } //if
+X      } //for iter
+X   } //for list_iter
+X
+X   return  cmd_status ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::opt_match - attempt to match on option
+X//
+X// ^SYNOPSIS:
+X//    CmdArg * CmdLine::opt_match(optchar);
+X//
+X// ^PARAMETERS:
+X//    char optchar;
+X//    -- a possible option for "cmd"
+X//
+X// ^DESCRIPTION:
+X//    If "cmd" has an argument that has "optchar" as a single-character
+X//    option then this function will find and return that argument.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    If we find a match, then we return a pointer to its argdesc,
+X//    otherwise we return NULL.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----
+XCmdArg *
+XCmdLine::opt_match(char optchar) const
+X{
+X   CmdArgListListIter  list_iter(cmd_args);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter  iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         if (cmdarg->is_dummy())  continue;
+X         if (optchar == cmdarg->char_name()) {
+X            // exact match
+X            return  cmdarg ;
+X         } else if (cmd_flags & ANY_CASE_OPTS) {
+X            // case-insensitive match
+X            if (TO_LOWER(optchar) == TO_LOWER(cmdarg->char_name())) {
+X               return  cmdarg ;
+X            }
+X         }
+X      } //for iter
+X   } //for list_iter
+X   return  NULL ;
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::kwd_match - purpose
+X//
+X// ^SYNOPSIS:
+X//    extern CmdArg * CmdLine::kwd_match(kwd, len, is_ambiguous, match_value);
+X//
+X// ^PARAMETERS:
+X//    const char * kwd;
+X//    -- a possible kewyord of "cmd"
+X//
+X//    int len;
+X//    -- the number of character of "kwd" to consider (< 0 if all characters
+X//       of "kwd" should be used).
+X//
+X//    int & is_ambiguous;
+X//    -- upon return, the value pointed to is set to 1 if the keyword
+X//       matches more than 1 keyword in "cmd"; Otherwise it is set to 0.
+X//
+X//    int match_value;
+X//    -- if this is non-zero, then if a keyword_name is NULL use the 
+X//       value_name instead.
+X//
+X// ^DESCRIPTION:
+X//    If "cmd" has an argument that matches "kwd" as a kewyord
+X//    then this function will find and return that argument.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    If we find a match, then we return a pointer to its argdesc,
+X//    otherwise we return NULL.
+X//
+X// ^ALGORITHM:
+X//    Set is_ambigous to 0.
+X//    For each argument in cmd
+X//       if argument's keyword-name matches kwd then
+X//          if this was an exact match then return this argument
+X//          else if we had a previous partial match of this argument then
+X//             if argument is a default argument return the previous match
+X//             else set is_ambiguous to 1 and return NULL
+X//          else remember we had a partial match here and keep trying
+X//          endif
+X//       endif
+X//    end for
+X//    if we has a partial match and we get to here then it is NOT ambiguous do
+X//       go ahead and return the argument we matched.
+X//-^^----
+XCmdArg *
+XCmdLine::kwd_match(const char * kwd,
+X                   int          len,
+X                   int &        is_ambiguous,
+X                   int          match_value) const
+X{
+X   CmdArg * matched = NULL;
+X
+X   is_ambiguous = 0 ;
+X
+X   CmdArgListListIter  list_iter(cmd_args);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter  iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         if (cmdarg->is_dummy())  continue;
+X
+X         // attempt to match this keyword
+X         strmatch_t  result ;
+X         const char * source = cmdarg->keyword_name();
+X         if (source && *source) {
+X            result = strmatch(source, kwd, len) ;
+X         } else if (match_value) {
+X            result = strmatch(cmdarg->value_name(), kwd, len) ;
+X         }
+X
+X         if (result == str_EXACT) {
+X            return  cmdarg ;
+X         } else if (result == str_PARTIAL) {
+X            if (matched) {
+X               is_ambiguous = 1 ;
+X               return  NULL ;  // ambiguous keyword
+X            }
+X            matched = cmdarg ;  // we matched this one
+X         }
+X      } //for iter
+X      if (matched) break;
+X   } //for list_iter
+X   return  matched ;
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::pos_match - match a positional argument
+X//
+X// ^SYNOPSIS:
+X//    CmdArg * CmdLine::pos_match(void)
+X//
+X// ^PARAMETERS:
+X//
+X// ^DESCRIPTION:
+X//    If "cmd" has an positional argument that has not yet been given
+X//    then this function will find and return the first such argument.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    None.
+X//
+X// ^RETURN-VALUE:
+X//    If we find a match, then we return a pointer to its argument,
+X//    otherwise we return NULL.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----
+XCmdArg *
+XCmdLine::pos_match(void) const
+X{
+X   CmdArgListListIter  list_iter(cmd_args);
+X   for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X      CmdArgListIter  iter(alist);
+X      for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X         if (cmdarg->is_dummy())  continue;
+X         if ((cmdarg->syntax() & CmdArg::isPOS) &&
+X             (! (cmdarg->flags() & CmdArg::GIVEN)))
+X         {
+X            return  cmdarg ;
+X         }
+X      } //for iter
+X   } //for list_iter
+X   return  NULL ;
+X}
+END_OF_FILE
+if test 19806 -ne `wc -c <'src/lib/private.c'`; then
+    echo shar: \"'src/lib/private.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/private.c'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

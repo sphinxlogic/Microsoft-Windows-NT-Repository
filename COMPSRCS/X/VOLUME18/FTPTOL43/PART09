@@ -1,0 +1,2315 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!swrinde!mips!msi!dcmartin
+From: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Newsgroups: comp.sources.x
+Subject: v18i091: Ftptool 4.3 (XVIEW), Part09/12
+Message-ID: <1992Aug18.153737.29024@msi.com>
+Date: 18 Aug 92 15:37:37 GMT
+References: <csx-18i083-ftptool-4.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2302
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Posting-number: Volume 18, Issue 91
+Archive-name: ftptool-4.3/part09
+
+#!/bin/sh
+# this is part.09 (part 9 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ftp.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ftp.c'
+else
+echo 'x - continuing file ftp.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ftp.c' &&
+X			dig++;
+X			if (c == EOF) {
+X				if (expecteof) {
+X					code = 221;
+X					notify_no_dispatch();
+X					return (0);
+X				}
+X				lostpeer();
+X				if (verbose) {
+X					sprintf(scratch, "421 Service not available, remote server has closed connection\n");
+X					log_message(scratch);
+X				}
+X				code = 421;
+X				notify_no_dispatch();
+X				return(4);
+X			}
+X			if (c != '\r' && (verbose > 0 ||
+X			    (verbose > -1 && n == '5' && dig > 4))) {
+X				/*
+X				(void) putchar(c);
+X				 */
+X				log_char(c);
+X			}
+X			if (dig < 4 && isdigit(c))
+X				code = code * 10 + (c - '0');
+X			if (!pflag && code == 227)
+X				pflag = 1;
+X			if (dig > 4 && pflag == 1 && isdigit(c))
+X				pflag = 2;
+/*
+X			if (pflag == 2) {
+X				if (c != '\r' && c != ')')
+X					*pt++ = c;
+X				else {
+X					*pt = '\0';
+X					pflag = 3;
+X				}
+X			}
+*/
+X			if (dig == 4 && c == '-') {
+X				if (continuation)
+X					code = 0;
+X				continuation++;
+X			}
+X			if (n == 0)
+X				n = c;
+X			if (cp < &response_line[sizeof(response_line) - 1])
+X				*cp++ = c;
+X		}
+X		if (verbose > 0 || verbose > -1 && n == '5') {
+X			/*
+X			(void) putchar(c);
+X			 */
+X			log_char(c);
+X			(void) fflush (stdout);
+X		}
+X		if (continuation && code != originalcode) {
+X			if (originalcode == 0)
+X				originalcode = code;
+X			continue;
+X		}
+X		*cp = '\0';
+X		if (n != '1')
+X			cpend = 0;
+X		if (code == 421 || originalcode == 421)
+X			lostpeer();
+X		notify_no_dispatch();
+X		return (n - '0');
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+int empty(fd_set *mask, int sec)
+#else
+int empty(mask, sec)
+fd_set *mask;
+int sec;
+#endif
+{
+X	struct timeval t;
+X
+X	t.tv_sec = (long) sec;
+X	t.tv_usec = 0;
+X	return select(32, mask, (fd_set *)NULL, (fd_set *)NULL, &t);
+}
+X
+jmp_buf	sendabort;
+X
+#define HASHBYTES 1024
+X
+#ifdef USE_PROTOTYPES
+int sendrequest(char *cmd, char *local, char *remote, size_t size)
+#else
+int sendrequest(cmd, local, remote, size)
+char	*cmd, *local, *remote;
+size_t	size;
+#endif
+{
+X	struct stat st;
+X	struct timeval start, stop;
+X	register int c, d;
+X	FILE *fin = NULL, *dout = 0, *popen();
+X	int (*closefunc)(), pclose(), fclose();
+X	long bytes = 0;
+X	char *lmode, buf[BUFSIZ], *bufp;
+X	char	*ftperr;
+X	int		errormsg=0;
+X
+X	closefunc = NULL;
+X	lmode = "w";
+X	update_status_label("Sending", remote, size);
+X	if (setjmp(sendabort)) {
+X		while (cpend) {
+X			(void) getreply(0);
+X		}
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		code = -1;
+X		return 0;
+X	}
+X	fin = fopen(local, "r");
+X	if (fin == NULL) {
+X		local_footer_message("Open: %s: %s.", local, strerror(errno),
+X			(char *)NULL);
+X		/*
+X		fprintf(stderr, "local: %s: %s\n", local,
+X			strerror(errno));
+X		 */
+X		code = -1;
+X		return 0;
+X	}
+X	closefunc = fclose;
+X	if (fstat(fileno(fin), &st) < 0 ||
+X		(st.st_mode&S_IFMT) != S_IFREG) {
+X		local_footer_message("%s: not a plain file.", local, (char *)NULL);
+X		fclose(fin);
+X		fin = NULL;
+X		code = -1;
+X		return 1;
+X	}
+X	if (initconn()) {
+X		code = -1;
+X		if (closefunc != NULL)
+X			(*closefunc)(fin);
+X		return 0;
+X	}
+X	if (setjmp(sendabort))
+X		goto abort;
+X
+X	if (restart_point &&
+X	    (strcmp(cmd, "STOR") == 0 || strcmp(cmd, "APPE") == 0)) {
+X		if (fseek(fin, (long) restart_point, 0) < 0) {
+X			local_footer_message("Seek: %s: %s.", local, strerror(errno),
+X				(char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X			restart_point = 0;
+X			if (closefunc != NULL)
+X				(*closefunc)(fin);
+X			return 0;
+X		}
+X		if (command("REST %ld", (long) restart_point)
+X			!= CONTINUE) {
+X			restart_point = 0;
+X			if (closefunc != NULL)
+X				(*closefunc)(fin);
+X			return 0;
+X		}
+X		restart_point = 0;
+X		lmode = "r+w";
+X	}
+X	if (remote) {
+X		if (command_dataconn(&dout, lmode, "%s %s", cmd, remote) != PRELIM) {
+#ifdef notdef
+X		if (command("%s %s", cmd, remote) != PRELIM) {
+#endif
+X			if (closefunc != NULL)
+X				(*closefunc)(fin);
+X			/*
+X			fprintf(stderr, "remote-command != PRELIM\n");
+X			 */
+X			/* Permission denied */
+X
+X			sprintf(scratch, "Put %s failed.", remote);
+X			ftperr = ftp_error(' ', scratch);
+X			local_footer_message(ftperr, (char *)NULL);
+X
+X			return 1;
+X		}
+X	} else
+X		if (command_dataconn(&dout, lmode, "%s", cmd) != PRELIM) {
+#ifdef notdef
+X		if (command("%s", cmd) != PRELIM) {
+#endif
+X			if (closefunc != NULL)
+X				(*closefunc)(fin);
+X			fprintf(stderr, "command != PRELIM\n");
+X			return 1;
+X		}
+#ifdef notdef
+X	dout = dataconn(lmode);
+#endif
+X	if (dout == NULL)
+X		goto abort;
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	switch (curtype) {
+X
+X	case TYPE_I:
+X	case TYPE_L:
+X		errno = d = 0;
+X		notify_do_dispatch();
+X		while ((c = read(fileno(fin), buf, sizeof (buf))) > 0) {
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			bytes += c;
+X			for (bufp = buf; c > 0; c -= d, bufp += d)
+X				if ((d = write(fileno(dout), bufp, c)) <= 0) {
+X					break;
+X				} else {
+X					/* change image */
+X					update_status_gauge(d);
+X				}
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X		}
+X		notify_no_dispatch();
+X		if (c < 0) {
+X			footer_message("Read %s: %s.", local, strerror(errno), (char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X			errormsg = 1;
+X		}
+X		if (d < 0) {
+X			local_footer_message("Write failed (remote file system full?).", 
+X				(char *)NULL);
+X			errormsg = 1;
+X			goto abort;
+X		}
+X		break;
+X
+X	case TYPE_A:
+X		notify_do_dispatch();
+X		while ((c = getc(fin)) != EOF) {
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			if (c == '\n') {
+X				if (ferror(dout))
+X					break;
+X				(void) putc('\r', dout);
+X				/* change image */
+X				update_status_gauge(1);
+X				bytes++;
+X			}
+X			(void) putc(c, dout);
+X			/* change image */
+X			update_status_gauge(1);
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			bytes++;
+X	/*		if (c == '\r') {			  	*/
+X	/*		(void)	putc('\0', dout);*/ /*this violates rfc */
+X	/*			bytes++;				*/
+X	/*		}                          			*/	
+X		}
+X		notify_no_dispatch();
+X		if (ferror(fin)) {
+X			errormsg = 1;
+X			local_footer_message("%s: %s.", local, strerror(errno), 
+X				(char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X		}
+X		if (ferror(dout)) {
+X			if (errno != EPIPE)
+X				perror("netout");
+X			bytes = -1;
+X		}
+X		break;
+X	}
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (closefunc != NULL)
+X		(*closefunc)(fin);
+X	(void) fclose(dout);
+X	dout = NULL;
+X	(void) getreply(0);
+X	if (!errormsg)
+X		local_footer_message("Send of %s complete.", remote, (char *)NULL);
+X	return 0;
+abort:
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (!cpend) {
+X		code = -1;
+X		return 0;
+X	}
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	if (dout) {
+X		(void) fclose(dout);
+X		dout = NULL;
+X	}
+X	(void) getreply(0);
+X	code = -1;
+X	if (closefunc != NULL && fin != NULL)
+X		(*closefunc)(fin);
+X	if (!errormsg)
+X		local_footer_message("Send of %s aborted.", remote, (char *)NULL);
+X	return 2;
+}
+X
+jmp_buf	recvabort;
+X
+#ifdef USE_PROTOTYPES
+int recvrequest(char *cmd, char *local, char *remote, 
+X	char *lmode, size_t size)
+#else
+int recvrequest(cmd, local, remote, lmode, size)
+char	*cmd, *local, *remote, *lmode;
+size_t	size;
+#endif
+{
+X	FILE *fout = NULL, *din = 0, *popen();
+X	int (*closefunc)(), pclose(), fclose();
+X	int is_retr, tcrflag, bare_lfs = 0;
+X	char *gunique();
+X	static int bufsize;
+X	static char *buf;
+X	long bytes = 0;
+X	register int c, d;
+X	struct timeval start, stop;
+X	struct stat st;
+X	off_t lseek();
+X	char	*ftperr;
+X	int		errormsg=0;
+X
+X	update_status_label("Receiving", remote, size);
+X	is_retr = strcmp(cmd, "RETR") == 0;
+X	closefunc = NULL;
+X	tcrflag = !crflag && is_retr;
+X	if (setjmp(recvabort)) {
+X		while (cpend) {
+X			(void) getreply(0);
+X		}
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		code = -1;
+X		return 0;
+X	}
+X	if (strcmp(local, "-") && *local != '|') {
+X		if (access(local, 2) < 0) {
+X			char *dir = rindex(local, '/');
+X
+X			if (errno != ENOENT && errno != EACCES) {
+X				footer_message("Access: %s: %s.", local, strerror(errno),
+X					(char *)NULL);
+X				/*
+X				fprintf(stderr, "local: %s: %s\n", local,
+X					strerror(errno));
+X				 */
+X				code = -1;
+X				return 0;
+X			}
+X			if (dir != NULL)
+X				*dir = 0;
+X			d = access(dir ? local : ".", 2);
+X			if (dir != NULL)
+X				*dir = '/';
+X			if (d < 0) {
+X				footer_message("Access: %s: %s.", local, strerror(errno),
+X					(char *)NULL);
+X				/*
+X				fprintf(stderr, "local: %s: %s\n", local,
+X					strerror(errno));
+X				 */
+X				code = -1;
+X				return 0;
+X			}
+X			if (!unique_local_names && errno == EACCES &&
+X			    chmod(local, 0600) < 0) {
+X				footer_message("Chmod: %s: %s.", local, strerror(errno),
+X					(char *)NULL);
+X				/*
+X				fprintf(stderr, "local: %s: %s\n", local,
+X					strerror(errno));
+X				 */
+X				code = -1;
+X				return 1;
+X			}
+X			if (unique_local_names && errno == EACCES &&
+X			   (local = gunique(local)) == NULL) {
+X				code = -1;
+X				return 1;
+X			}
+X		}
+X		else if (unique_local_names && (local = gunique(local)) == NULL) {
+X			code = -1;
+X			return 1;
+X		}
+X	}
+X	if (initconn()) {
+X		code = -1;
+X		return 0;
+X	}
+X	if (setjmp(recvabort))
+X		goto abort;
+X	if (is_retr && restart_point &&
+X	    command("REST %ld", (long) restart_point) != CONTINUE)
+X		return 0;
+X	if (remote) {
+X		if (command_dataconn(&din, "r", "%s %s", cmd, remote) != PRELIM) {
+#ifdef notdef
+X		if (command("%s %s", cmd, remote) != PRELIM) {
+#endif
+X			/*Not a plain file/Permission denied/No such file or directory*/
+X
+X			sprintf(scratch, "Get %s failed.", remote);
+X			ftperr = ftp_error(' ', scratch);
+X			footer_message(ftperr, (char *)NULL);
+X			return 1;
+X		}
+X	} else {
+X		if (command_dataconn(&din, "r", "%s", cmd) != PRELIM) {
+#ifdef notdef
+X		if (command("%s", cmd) != PRELIM) {
+#endif
+X			footer_message("command != PRELIM", (char *)NULL);
+X			/*
+X			fprintf(stderr, "command != PRELIM\n");
+X			 */
+X			return 1;
+X		}
+X	}
+#ifdef notdef
+X	din = dataconn("r");
+#endif
+X	if (din == NULL)
+X		goto abort;
+X	if (strcmp(local, "-") == 0)
+X		fout = stdout;
+X	else if (*local == '|') {
+X		fout = popen(local + 1, "w");
+X		if (fout == NULL) {
+X			perror(local+1);
+X			goto abort;
+X		}
+X		closefunc = pclose;
+X	} else {
+X		fout = fopen(local, lmode);
+X		if (fout == NULL) {
+X			footer_message("Open: %s: %s.", local, strerror(errno),
+X				(char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X			errormsg = 1;
+X			goto abort;
+X		}
+X		closefunc = fclose;
+X	}
+X	if (fstat(fileno(fout), &st) < 0 || st.st_blksize == 0)
+X		st.st_blksize = BUFSIZ;
+X	if (st.st_blksize > bufsize) {
+X		if (buf)
+X			(void) free(buf);
+X		buf = malloc((unsigned)st.st_blksize);
+X		if (buf == NULL) {
+X			perror("malloc");
+X			bufsize = 0;
+X			goto abort;
+X		}
+X		bufsize = st.st_blksize;
+X	}
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	switch (curtype) {
+X
+X	case TYPE_I:
+X	case TYPE_L:
+X		if (restart_point &&
+X		    lseek(fileno(fout), (long) restart_point, SEEK_SET) < 0) {
+X			footer_message("Seek: %s: %s.", local, strerror(errno),
+X				(char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X			if (closefunc != NULL)
+X				(*closefunc)(fout);
+X			return 0;
+X		}
+X		errno = d = 0;
+X		notify_do_dispatch();
+X		while ((c = read(fileno(din), buf, bufsize)) > 0) {
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			if ((d = write(fileno(fout), buf, c)) <= 0)
+X				break;
+X			/* change image */
+X			update_status_gauge(d);
+X			if (d != c)
+X				break;
+X			/*
+X			if ((d = write(fileno(fout), buf, c)) != c)
+X				break;
+X			 */
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			bytes += c;
+X		}
+X		notify_no_dispatch();
+X		if (c < 0) {
+X			if (errno != EPIPE)
+X				perror("netin");
+X			bytes = -1;
+X		}
+X		if (d < c) {
+X			errormsg = 1;
+X			if (d < 0) {
+X				/*
+X				fprintf(stderr, "local: %s: %s\n", local,
+X					strerror(errno));
+X				 */
+X				footer_message("Write failed: %s",strerror(errno),(char *)NULL);
+X				goto abort;
+X			} else {
+X			  /*
+X				fprintf(stderr, "%s: short write\n", local);
+X			   */
+X				footer_message("Short write: %s",strerror(errno),(char *)NULL);
+X			}
+X		}
+X		break;
+X
+X	case TYPE_A:
+X		if (restart_point) {
+X			register int i, n, ch;
+X
+X			if (fseek(fout, 0L, SEEK_SET) < 0)
+X				goto done;
+X			n = restart_point;
+X			for (i = 0; i++ < n;) {
+X				if ((ch = getc(fout)) == EOF)
+X					goto done;
+X				if (ch == '\n')
+X					i++;
+X			}
+X			if (fseek(fout, 0L, SEEK_CUR) < 0) {
+done:
+X				footer_message("Seek: %s: %s.", local, strerror(errno),
+X					(char *)NULL);
+X				/*
+X				fprintf(stderr, "local: %s: %s\n", local,
+X					strerror(errno));
+X				 */
+X				if (closefunc != NULL)
+X					(*closefunc)(fout);
+X				return 0;
+X			}
+X		}
+X		notify_do_dispatch();
+X		while ((c = getc(din)) != EOF) {
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			if (c == '\n')
+X				bare_lfs++;
+X			while (c == '\r') {
+X				bytes++;
+X				if ((c = getc(din)) != '\n' || tcrflag) {
+X					if (ferror(fout))
+X						goto break2;
+X					(void) putc('\r', fout);
+X					/* change image */
+X					update_status_gauge(1);
+X					if (c == '\0') {
+X						bytes++;
+X						goto contin2;
+X					}
+X					if (c == EOF)
+X						goto contin2;
+X				}
+X			}
+X			(void) putc(c, fout);
+X			/* change image */
+X			update_status_gauge(1);
+X			if (abort_transfer) {
+X				notify_no_dispatch();
+X				goto abort;
+X			}
+X			bytes++;
+X	contin2:	;
+X		}
+break2:
+X		notify_no_dispatch();
+X		if (bare_lfs) {
+X			fprintf(stderr,"WARNING! %d bare linefeeds received in ASCII mode\n",
+X				bare_lfs);
+X			fprintf(stderr,"File may not have transferred correctly.\n");
+X		}
+X		if (ferror(din)) {
+X			if (errno != EPIPE)
+X				perror("netin");
+X			bytes = -1;
+X		}
+X		if (ferror(fout)) {
+X			errormsg = 1;
+X			footer_message("%s: %s.", local, strerror(errno),
+X				(char *)NULL);
+X			/*
+X			fprintf(stderr, "local: %s: %s\n", local,
+X				strerror(errno));
+X			 */
+X		}
+X		break;
+X	}
+X	if (closefunc != NULL)
+X		(*closefunc)(fout);
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	(void) fclose(din);
+X	din = NULL;
+X	(void) getreply(0);
+X	if (!errormsg)
+X		footer_message("Receive of %s complete.", remote, (char *)NULL);
+X	return 0;
+abort:
+X
+/* abort using RFC959 recommended IP,SYNC sequence  */
+X
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (!cpend) {
+X		code = -1;
+X		return 0;
+X	}
+X
+X	abort_remote(din);
+X	code = -1;
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	if (closefunc != NULL && fout != NULL)
+X		(*closefunc)(fout);
+X	if (din) {
+X		(void) fclose(din);
+X		din = NULL;
+X	}
+X	if (!errormsg)
+X		footer_message("Receive of %s aborted.", remote, (char *)NULL);
+X	return 2;
+}
+X
+/*
+X * Need to start a listen on the data channel before we send the command,
+X * otherwise the server's connect may fail.
+X */
+#ifdef USE_PROTOTYPES
+int initconn(void)
+#else
+int initconn()
+#endif
+{
+X	register char *p, *a;
+X	int result, len, tmpno = 0;
+X	int on = 1;
+#ifdef SYSV386
+X	ushort	data_port;
+#endif
+X
+noport:
+X	data_addr = myctladdr;
+X	if (sendport)
+X		data_addr.sin_port = 0;	/* let system pick one */ 
+X	if (data != -1) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	data = socket(AF_INET, SOCK_STREAM, 0);
+X	if (data < 0) {
+X		perror("ftptool: socket");
+X		if (tmpno)
+X			sendport = 1;
+X		return (1);
+X	}
+X	if (!sendport)
+X		if (setsockopt(data, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof (on)) < 0) {
+X			perror("ftptool: setsockopt (reuse address)");
+X			goto bad;
+X		}
+X	if (bind(data, (struct sockaddr *)&data_addr, sizeof (data_addr)) < 0) {
+X		perror("ftptool: bind");
+X		goto bad;
+X	}
+/*
+X	if (options & SO_DEBUG &&
+X	    setsockopt(data, SOL_SOCKET, SO_DEBUG, (char *)&on, sizeof (on)) < 0)
+X		perror("ftptool: setsockopt (ignored)");
+*/
+X	len = sizeof (data_addr);
+X	if (getsockname(data, (struct sockaddr *)&data_addr, &len) < 0) {
+X		perror("ftptool: getsockname");
+X		goto bad;
+X	}
+X	if (listen(data, 5) < 0)
+X		perror("ftptool: listen");
+X	if (sendport) {
+X		a = (char *)&data_addr.sin_addr;
+#ifdef SYSV386
+X	data_port = htons(data_addr.sin_port);
+X	p = (char *)&data_port;
+X	p[0] += p[1];		/* Switches variables, without a temp var */
+X	p[1] = p[0] - p[1];
+X	p[0] -= p[1];
+#else
+X		p = (char *)&data_addr.sin_port;
+#endif
+#define	UC(b)	(((int)b)&0xff)
+X		result =
+X		    command("PORT %d,%d,%d,%d,%d,%d",
+X		      UC(a[0]), UC(a[1]), UC(a[2]), UC(a[3]),
+X		      UC(p[0]), UC(p[1]));
+X		if (result == ERROR && sendport == -1) {
+X			sendport = 0;
+X			tmpno = 1;
+X			goto noport;
+X		}
+X		return (result != COMPLETE);
+X	}
+X	if (tmpno)
+X		sendport = 1;
+X	return (0);
+bad:
+X	(void) close(data), data = -1;
+X	if (tmpno)
+X		sendport = 1;
+X	return (1);
+}
+X
+#ifdef USE_PROTOTYPES
+FILE *dataconn(char *lmode)
+#else
+FILE *dataconn(lmode)
+char *lmode;
+#endif
+{
+X	struct sockaddr_in from;
+X	int s, fromlen = sizeof (from);
+X
+restart:
+X	s = accept(data, (struct sockaddr *) &from, &fromlen);
+X	if (s < 0) {
+X		if (errno == EINTR)
+X			goto restart;
+X		perror("ftptool: accept");
+X		(void) close(data);
+X		data = -1;
+X		return (NULL);
+X	}
+X	(void) close(data);
+X	data = s;
+X	return (fdopen(data, lmode));
+}
+X
+#ifdef USE_PROTOTYPES
+char *gunique(char *local)
+#else
+char *gunique(local)
+char	*local;
+#endif
+{
+X	static char new[MAXPATHLEN + 1];
+X	static char first[MAXPATHLEN + 1], last[MAXNAMLEN + 1];
+X	char *slash;
+X	int d, count=0;
+X	extern char *newname; /* from view_remote_file */
+X
+X	if ((strlen(local) + 3) > (size_t)MAXPATHLEN) {
+X		sprintf(scratch, "Unique name for %s too long.", local);
+X		footer_message(scratch, (char *)NULL);
+X		log_message(scratch);
+X		log_char('\n');
+X		return NULL;
+X	}
+X	slash = rindex(local, '/');
+X	if (slash) {
+X		*slash = '\0';
+X		strcpy(first, local);
+X		strcpy(last, slash + 1);
+X		*slash = '/';
+X	} else {
+X		*first = '\0';
+X		strcpy(last, local);
+X	}
+X	d = 0;
+X	while (!d) {
+X		if (++count == 100) {
+X			sprintf(scratch, "Cannot find unique name for %s.", local);
+X			footer_message(scratch, (char *)NULL);
+X			log_message(scratch);
+X			log_char('\n');
+X			return NULL;
+X		}
+X		if (slash)
+X			sprintf(new, "%s/%02d.%s", first, count, last);
+X		else
+X			sprintf(new, "%02d.%s", count, last);
+X		if ((d = access(new, 0)) < 0)
+X			break;
+X	}
+X		
+X	newname = new;
+X	footer_message("Unique name %s generated.", new, (char *)NULL);
+X	return new ;
+}
+X
+#ifdef USE_PROTOTYPES
+void abort_remote(FILE *din)
+#else
+void abort_remote(din)
+FILE *din;
+#endif
+{
+X	char buf[BUFSIZ];
+X	int nfnd;
+X	fd_set mask;
+X	int	rval;
+X
+X	/*
+X	 * send IAC in urgent mode instead of DM because 4.3BSD places oob mark
+X	 * after urgent byte rather than before as is protocol now
+X	 */
+X	sprintf(buf, "%c%c%c", IAC, IP, IAC);
+restart:
+X	rval = send(fileno(commandfp), buf, 3, MSG_OOB);
+X	if (rval == -1 && errno == EINTR)
+X		goto restart;
+X	if (rval != 3)
+X		perror("abort_remote1");
+X	fprintf(commandfp,"%cABOR\r\n", DM);
+X	(void) fflush(commandfp);
+X	FD_ZERO(&mask);
+X	FD_SET(fileno(responsefp), &mask);
+X	if (din) { 
+X		FD_SET(fileno(din), &mask);
+X	}
+X	if ((nfnd = empty(&mask, 10)) <= 0) {
+X		if (nfnd < 0) {
+X			perror("abort_remote2");
+X		}
+X		/*
+X		if (ptabflg)
+X			code = -1;
+X		*/
+X		lostpeer();
+X	}
+X	if (din && FD_ISSET(fileno(din), &mask)) {
+X		while (read(fileno(din), buf, BUFSIZ) > 0)
+X			/* LOOP */;
+X	}
+X	if (getreply(0) == ERROR && code == 552) {
+X		/* 552 needed for nic style abort */
+X		(void) getreply(0);
+X	}
+X	(void) getreply(0);
+}
+X
+#ifdef USE_PROTOTYPES
+void lostpeer(void)
+#else
+void lostpeer()
+#endif
+{
+X 
+X    if (connected) {
+X        if (commandfp != NULL) {
+X            (void) shutdown(fileno(commandfp), 1+1);
+X            (void) fclose(commandfp);
+X            commandfp = NULL;
+X        }
+X        if (data >= 0) {
+X            (void) shutdown(data, 1+1);
+X            (void) close(data);
+X            data = -1;
+X        }
+X        connected = 0;
+X    }
+}
+X
+#ifdef USE_PROTOTYPES
+FILE *open_remote_ls(int nlst)
+#else
+FILE *open_remote_ls(nlst)
+int	nlst;
+#endif
+{
+X	char	*ftperr;
+X	char	*cmd;
+X	FILE *din = 0;
+X	char *gunique();
+X	off_t lseek();
+X
+X	if (nlst)
+X		cmd = "NLST"; /* dir */
+X	else
+X		cmd = "LIST"; /* ls */
+X
+X	settype(ASCII);
+X	if (initconn()) {
+X		code = -1;
+X		return NULL;
+X	}
+X	if (command_dataconn(&din, "r", "%s", cmd) != PRELIM) {
+#ifdef notdef
+X	if (command("%s", cmd) != PRELIM) {
+#endif
+X		if (code == 530) {
+X			/* 530 You must define working directory with CWD */
+X			ftperr = ftp_error(' ', "cd somewhere first or invalid directory");
+X		} else if (code == 550) {
+X			/* 550 No files found. */
+X			ftperr = ftp_error(' ', "No files found.");
+X		} else
+X			ftperr = "Unknown error.";
+X		footer_message(ftperr, (char *)NULL);
+X		return NULL;
+X	}
+#ifdef notdef
+X	din = dataconn("r");
+#endif
+X	if (din == NULL)
+X		return NULL;
+X	return din;
+}
+X
+#ifdef USE_PROTOTYPES
+char *next_remote_line(FILE *din)
+#else
+char *next_remote_line(din)
+FILE	*din;
+#endif
+{
+X	char	*str = response_line;
+X	char	*cptr = str;
+X	int		c;
+X
+X	notify_do_dispatch();
+X	while ((c = getc(din)) != '\n' && c != EOF && c != '\0') {
+X		if (c == '\r')
+X			continue;
+X		*cptr++ = (char)c;
+X	}
+X	*cptr = '\0';
+X	notify_no_dispatch();
+X	if (c == EOF)
+X		return NULL;
+X	return str;
+}
+X
+#ifdef USE_PROTOTYPES
+void close_remote_ls(FILE *din)
+#else
+void close_remote_ls(din)
+FILE	*din;
+#endif
+{
+X	if (ferror(din))
+X		perror("netin");
+X	(void) fclose(din);
+X	(void) getreply(0);
+X	return;
+}
+X
+struct	types {
+X	char	*t_name;
+X	char	*t_mode;
+X	int	t_type;
+X	char	*t_arg;
+} types[] = {
+X	{ "binary",	"I",	TYPE_I,	0 },
+X	{ "ascii",	"A",	TYPE_A,	0 },
+X	{ "tenex",	"L",	TYPE_L,	"8" },
+/*
+X	{ "image",	"I",	TYPE_I,	0 },
+X	{ "ebcdic",	"E",	TYPE_E,	0 },
+*/
+};
+X
+/*
+X * Set transfer type.
+X */
+#ifdef USE_PROTOTYPES
+void settype(int type)
+#else
+void settype(type)
+int	type;
+#endif
+{
+X	register struct types *p;
+X	int comret;
+X
+X	if (type > (sizeof(types)/sizeof(types[0]))) {
+X		printf("%d: unknown mode\n", type);
+X		code = -1;
+X		return;
+X	}
+X	/* make sure values in window match table! */
+X	p = &types[type];
+X
+X	if ((p->t_arg != NULL) && (*(p->t_arg) != '\0'))
+X		comret = command ("TYPE %s %s", p->t_mode, p->t_arg);
+X	else
+X		comret = command("TYPE %s", p->t_mode);
+X	if (comret == COMPLETE) {
+X		curtype = p->t_type;
+X	}
+}
+SHAR_EOF
+echo 'File ftp.c is complete' &&
+chmod 0644 ftp.c ||
+echo 'restore of ftp.c failed'
+Wc_c="`wc -c < 'ftp.c'`"
+test 30712 -eq "$Wc_c" ||
+	echo 'ftp.c: original size 30712, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= host_list.c ==============
+if test -f 'host_list.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping host_list.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting host_list.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'host_list.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+void host_list_clean_proc(Panel_item item, Event *event)
+#else
+void host_list_clean_proc(item, event)
+Panel_item	item;
+Event	*event;
+#endif
+{
+X	xv_set(host_window.advanced.alias, 
+X		PANEL_VALUE, "", 
+X		NULL);
+X	xv_set(host_window.advanced.last_visited, 
+X		PANEL_LABEL_STRING, "Never", 
+X		NULL);
+X	xv_set(host_window.basic.host, 
+X		PANEL_VALUE, "", 
+X		NULL);
+X	if (!strcmp((char *)xv_get(item, PANEL_LABEL_STRING), "New")) {
+X		xv_set(host_window.basic.login, 
+X			PANEL_VALUE, "", 
+X			NULL);
+X		xv_set(host_window.basic.password, 
+X			PANEL_VALUE, "", 
+X			NULL);
+X	} else {
+X		xv_set(host_window.basic.login, 
+X			PANEL_VALUE, "anonymous", 
+X			NULL);
+X		xv_set(host_window.basic.password, 
+X			PANEL_VALUE, anonftp_password, 
+X			NULL);
+X		xv_set(host_window.basic.panel,
+X			PANEL_CARET_ITEM, host_window.basic.host,
+X			NULL);
+X	}
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_VALUE, DEFAULT_PROXY, 
+X		NULL);
+X	xv_set(host_window.advanced.transfer_mode, 
+X		PANEL_VALUE, BINARY, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_VALUE, ".", 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_VALUE, ".", 
+X		NULL);
+X	xv_set(host_window.advanced.dir_parse, 
+X		PANEL_VALUE, DEFAULT_PARSE, 
+X		NULL);
+X	xv_set(host_window.advanced.comment, 
+X		PANEL_VALUE, "", 
+X		NULL);
+X
+X	if (try_proxy) {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, TRUE, 
+X			NULL);
+X	} else {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, FALSE, 
+X			NULL);
+X	}
+X	xv_set(item, 
+X		PANEL_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void host_list_item_proc(Menu menu, Menu_item menu_item)
+#else
+void host_list_item_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	char	*alias = (char *)xv_get(menu_item, MENU_STRING);
+X	struct	hostlist *tmp;
+X
+X	tmp = gethostlist(hostlist_head, alias);
+X	if (tmp == NULL) {
+X		fprintf(stderr, "Entry %s in menu not found in list.\n", alias);
+X		exit(1);
+X	}
+X	xv_set(host_window.advanced.alias, 
+X		PANEL_VALUE, tmp->aliasname, 
+X		NULL);
+X	xv_set(host_window.advanced.last_visited, 
+X		PANEL_LABEL_STRING, tmp->last_visited, 
+X		NULL);
+X	xv_set(host_window.basic.host, 
+X		PANEL_VALUE, tmp->host, 
+X		NULL);
+X	xv_set(host_window.basic.login, 
+X		PANEL_VALUE, tmp->login, 
+X		NULL);
+X	xv_set(host_window.basic.password, 
+X		PANEL_VALUE, tmp->password, 
+X		NULL);
+X	xv_set(host_window.advanced.proxy, 
+X		PANEL_VALUE, tmp->proxy, 
+X		NULL);
+X	xv_set(host_window.advanced.transfer_mode, 
+X		PANEL_VALUE, tmp->transfer_mode, 
+X		NULL);
+X	xv_set(host_window.advanced.remote_auto_cd, 
+X		PANEL_VALUE, tmp->remote_directory, 
+X		NULL);
+X	xv_set(host_window.advanced.local_auto_cd, 
+X		PANEL_VALUE, tmp->local_directory, 
+X		NULL);
+X	xv_set(host_window.advanced.dir_parse, 
+X		PANEL_VALUE, tmp->dir_parse, 
+X		NULL);
+X	xv_set(host_window.advanced.comment, 
+X		PANEL_VALUE, tmp->comment, 
+X		NULL);
+X
+X	if (try_proxy) {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, TRUE, 
+X			NULL);
+X	} else {
+X		xv_set(host_window.advanced.proxy, 
+X			XV_SHOW, FALSE, 
+X			NULL);
+X	}
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+X	if (!connected && auto_connect == TRUE) {
+X		dowhat = DOCONNECT;
+X		notify_stop();
+X	}
+}
+X
+X
+#ifdef USE_PROTOTYPES
+void host_list_add_proc(Menu menu, Menu_item menu_item)
+#else
+void host_list_add_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	enter_host_info(1);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void host_list_change_proc(Menu menu, Menu_item menu_item)
+#else
+void host_list_change_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	enter_host_info(0);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void	host_save_proc(Menu menu, Menu_item menu_item)
+#else
+void	host_save_proc(menu, menu_item)
+Menu	menu;
+Menu_item	menu_item;
+#endif
+{
+X	write_ftptoolrc();
+X	list_changed = 0;
+X	timestamped = 0;
+X	reload_host_list_menu(hostlist_head);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void	host_load_proc(Menu menu, Menu_item menu_item)
+#else
+void	host_load_proc(menu, menu_item)
+Menu	menu;
+Menu_item	menu_item;
+#endif
+{
+X	int answer;
+#ifdef XVIEW3
+X	Xv_notice	notice;
+#endif
+X
+X	if (timestamped || list_changed) {
+#ifdef XVIEW3
+X		notice = xv_create(host_window.panel, NOTICE,
+X			NOTICE_MESSAGE_STRINGS,
+X				"Your host list has changed since the last save.",
+X				"Really load original?",
+X				NULL,
+X			NOTICE_BUTTON_YES, "Yes",
+X			NOTICE_BUTTON_NO, "No",
+X			NOTICE_STATUS, &answer,
+X			XV_SHOW, TRUE,
+X			NULL);
+X		xv_destroy_safe(notice);
+#else
+X		answer = notice_prompt(host_window.panel, NULL,
+X			NOTICE_MESSAGE_STRINGS,
+X				"Your host list has changed since the last save.",
+X				"Really load original?",
+X				NULL,
+X			NOTICE_BUTTON_YES, "Yes",
+X			NOTICE_BUTTON_NO, "No",
+X			NULL);
+#endif
+X		if (answer != NOTICE_YES)
+X			return;
+X	}
+X	free_hostlist(hostlist_head);
+X	hostlist_head = new_hostlist();
+X	read_ftptoolrc();
+X	list_changed = 0;
+X	timestamped = 0;
+X	reload_host_list_menu(hostlist_head);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void update_timestamp(void)
+#else
+void update_timestamp()
+#endif
+{
+X	time_t	t;
+X	time_t	time();
+X	char	*ctime();
+X	char	*s, *nl;
+X	char	*aliasname;
+X	struct hostlist *tmp;
+X
+X	t = time((time_t *)NULL);
+X	s = ctime(&t);
+X	if (nl = index(s, '\n'))
+X		*nl = '\0';
+X	xv_set(host_window.advanced.last_visited,
+X		PANEL_LABEL_STRING, s,
+X		NULL);
+X	aliasname = (char *)xv_get(host_window.advanced.alias, PANEL_VALUE);
+X	tmp = gethostlist(hostlist_head, aliasname);
+X	if (tmp == NULL) {
+X		return;
+X	}
+X	free(tmp->last_visited);
+X	tmp->last_visited = strdup(s);
+X	if (tmp->last_visited == NULL) {
+X		fprintf(stderr, "Out of memory.\n");
+X		goto out;
+X	}
+X
+X	timestamped++;
+out:
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void enter_host_info(int warnchange)
+#else
+void enter_host_info(warnchange)
+int		warnchange;
+#endif
+{
+X	char	*aliasname;
+X	char	*last_visited="Never";
+X	char 	*proxy;
+X	char 	*host;
+X	char	*login;
+X	char	*password;
+X	char	*comment;
+X	int		transfer_mode;
+X	char	*remote_directory;
+X	char	*local_directory;
+X	char	*dir_parse;
+X	int		answer;
+#ifdef XVIEW3
+X	Xv_notice notice;
+#endif
+X
+X	aliasname = (char *)xv_get(host_window.advanced.alias, PANEL_VALUE);
+X	if (aliasname[0] == '\0') {
+X		xv_set(host_window.frame, 
+X			FRAME_SHOW_FOOTER, TRUE, 
+X			FRAME_LEFT_FOOTER, "Please specify an alias name.",
+X			NULL);
+X		goto out;
+X	}
+X	proxy = (char *)xv_get(host_window.advanced.proxy, PANEL_VALUE);
+X	host = (char *)xv_get(host_window.basic.host, PANEL_VALUE);
+X	login = (char *)xv_get(host_window.basic.login, PANEL_VALUE);
+X	password = (char *)xv_get(host_window.basic.password, PANEL_VALUE);
+X	transfer_mode = xv_get(host_window.advanced.transfer_mode, PANEL_VALUE);
+X	remote_directory = (char *)xv_get(host_window.advanced.remote_auto_cd, 
+X		PANEL_VALUE);
+X	local_directory = (char *)xv_get(host_window.advanced.local_auto_cd, 
+X		PANEL_VALUE);
+X	dir_parse = (char *)xv_get(host_window.advanced.dir_parse, PANEL_VALUE);
+X	comment = (char *)xv_get(host_window.advanced.comment, PANEL_VALUE);
+X
+X	if (gethostlist(hostlist_head, aliasname)) {
+X		if (warnchange) {
+#ifdef XVIEW3
+X			notice = xv_create(host_window.panel, NOTICE,
+X				NOTICE_MESSAGE_STRINGS,
+X					"That alias exists. Do you really want to change it?",
+X					NULL,
+X				NOTICE_BUTTON_YES, "Yes",
+X				NOTICE_BUTTON_NO, "No",
+X				NOTICE_STATUS, &answer,
+X				XV_SHOW, TRUE,
+X				NULL);
+X			xv_destroy_safe(notice);
+#else
+X			answer = notice_prompt(host_window.panel, NULL,
+X				NOTICE_MESSAGE_STRINGS,
+X					"That alias exists. Do you really want to change it?",
+X					NULL,
+X				NOTICE_BUTTON_YES, "Yes",
+X				NOTICE_BUTTON_NO, "No",
+X				NULL);
+#endif
+X			if (answer != NOTICE_YES)
+X				goto out;
+X		}
+X		last_visited = (char *)xv_get(host_window.advanced.last_visited, 
+X			PANEL_LABEL_STRING);
+X		delete_hostlist(hostlist_head, aliasname);
+X	}
+X	if ((hostlist_head = add_hostalias(hostlist_head, aliasname, 
+X		last_visited, proxy, host, login, password, transfer_mode,
+X		remote_directory, local_directory, dir_parse, comment)) == NULL) {
+X		xv_set(host_window.frame, 
+X			FRAME_SHOW_FOOTER, TRUE, 
+X			FRAME_LEFT_FOOTER, "Add failed.",
+X			NULL);
+X		goto out;
+X	}
+X	list_changed++;
+X	reload_host_list_menu(hostlist_head);
+out:
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void host_list_delete_proc(Menu menu, Menu_item menu_item)
+#else
+void host_list_delete_proc(menu, menu_item)
+Menu	menu;
+Menu_item menu_item;
+#endif
+{
+X	char	*aliasname;
+X
+X	aliasname = (char *)xv_get(host_window.advanced.alias, PANEL_VALUE);
+X
+X	if (gethostlist(hostlist_head, aliasname) == NULL) {
+X		xv_set(host_window.frame, 
+X			FRAME_SHOW_FOOTER, TRUE, 
+X			FRAME_LEFT_FOOTER, "No such alias",
+X			NULL);
+X		return;
+X	}
+X	delete_hostlist(hostlist_head, aliasname);
+X	list_changed++;
+X	reload_host_list_menu(hostlist_head);
+X	xv_set(menu, 
+X		MENU_NOTIFY_STATUS, XV_ERROR, 
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+int host_list_use_proc(Panel_item item, char *string, 
+X	Xv_opaque client_data, Panel_list_op op, Event *event)
+#else
+int host_list_use_proc(item,string,client_data,op,event)
+Panel_item		item;
+char			*string;
+XXv_opaque		client_data;
+Panel_list_op   op;
+Event			*event;
+#endif
+{
+X	struct hostlist *tmp;
+X
+X	switch(op) {
+X	case PANEL_LIST_OP_SELECT:
+X		tmp = gethostlist(hostlist_head, string);
+X		if (tmp == NULL) {
+X			fprintf(stderr, "gethostlist failed in select\n");
+X			return XV_ERROR;
+X		}
+X		xv_set(host_window.advanced.alias, 
+X			PANEL_VALUE, tmp->aliasname, 
+X			NULL);
+X		xv_set(host_window.advanced.last_visited, 
+X			PANEL_LABEL_STRING, tmp->last_visited, 
+X			NULL);
+X		if (try_proxy) {
+X			xv_set(host_window.advanced.proxy, 
+X				XV_SHOW, TRUE, 
+X				NULL);
+X		} else {
+X			xv_set(host_window.advanced.proxy, 
+X				XV_SHOW, FALSE, 
+X				NULL);
+X		}
+X		xv_set(host_window.basic.host, 
+X			PANEL_VALUE, tmp->host, 
+X			NULL);
+X		xv_set(host_window.basic.login, 
+X			PANEL_VALUE, tmp->login, 
+X			NULL);
+X		xv_set(host_window.basic.password, 
+X			PANEL_VALUE, tmp->password, 
+X			NULL);
+X		xv_set(host_window.advanced.transfer_mode, 
+X			PANEL_VALUE, tmp->transfer_mode, 
+X			NULL);
+X		xv_set(host_window.advanced.remote_auto_cd, 
+X			PANEL_VALUE, tmp->remote_directory, 
+X			NULL);
+X		xv_set(host_window.advanced.local_auto_cd, 
+X			PANEL_VALUE, tmp->local_directory, 
+X			NULL);
+X		xv_set(host_window.advanced.dir_parse, 
+X			PANEL_VALUE, tmp->dir_parse, 
+X			NULL);
+X		xv_set(host_window.advanced.comment, 
+X			PANEL_VALUE, tmp->comment, 
+X			NULL);
+X		break;
+X	case PANEL_LIST_OP_DESELECT:
+X		break;
+X	default:
+X		break;
+X	}
+X
+X	return XV_OK;
+}
+X
+#ifdef USE_PROTOTYPES
+struct hostlist *new_hostlist(void)
+#else
+struct hostlist *new_hostlist()
+#endif
+{
+X	struct hostlist *tmp;
+X
+X	tmp = (struct hostlist *)malloc(sizeof(struct hostlist));
+X	if (tmp == NULL)
+X		return NULL;
+X	bzero((char *)tmp, sizeof(struct hostlist));
+X	tmp->next = NULL;
+X	tmp->aliasname = NULL;
+X	tmp->last_visited = NULL;
+X	tmp->proxy = NULL;
+X	tmp->host = NULL;
+X	tmp->login = NULL;
+X	tmp->password = NULL;
+X	tmp->remote_directory = NULL;
+X	tmp->local_directory = NULL;
+X	tmp->dir_parse = NULL;
+X	tmp->comment = NULL;
+X	return tmp;
+}
+X
+#ifdef USE_PROTOTYPES
+struct hostlist *add_hostalias(struct hostlist *head, char *aliasname, 
+X	char *last_visited, char *proxy, char *host, char *login, 
+X	char *password, int transfer_mode, char *remote_directory, 
+X	char *local_directory, char *dir_parse, char *comment)
+#else
+struct hostlist *add_hostalias(head, aliasname, last_visited, proxy, 
+X	host, login, password, transfer_mode, remote_directory, 
+X	local_directory, dir_parse, comment)
+struct hostlist *head;
+char	*aliasname;
+char	*last_visited;
+char	*proxy;
+char	*host;
+char	*login;
+char	*password;
+int		transfer_mode;
+char	*remote_directory;
+char	*local_directory;
+char	*dir_parse;
+char	*comment;
+#endif
+{
+X	struct hostlist *tmp;
+X	struct hostlist *oldnext;
+X	int		rval = 0;
+X
+X	/* add in sorted order */
+X	for (tmp = head; tmp->next != NULL; tmp = tmp->next)  {
+X		if (ignore_case)
+X			rval = strcasecmp(aliasname, tmp->next->aliasname);
+X		else
+X			rval = strcmp(aliasname, tmp->next->aliasname);
+X		if (rval < 0)
+X			break;
+X	}
+X	oldnext = tmp->next;
+X	tmp->next = new_hostlist();
+X	if (tmp->next == NULL) {
+X		tmp->next = oldnext;
+X		return NULL;
+X	}
+X
+X	tmp->next->aliasname = strdup(aliasname);
+X	if (tmp->next->aliasname == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->last_visited = strdup(last_visited);
+X	if (tmp->next->last_visited == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->proxy = strdup(proxy);
+X	if (tmp->next->proxy == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->host = strdup(host);
+X	if (tmp->next->host == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->login = strdup(login);
+X	if (tmp->next->login == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->password = strdup(password);
+X	if (tmp->next->password == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->transfer_mode = transfer_mode;
+X
+X	tmp->next->remote_directory = strdup(remote_directory);
+X	if (tmp->next->remote_directory == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->local_directory = strdup(local_directory);
+X	if (tmp->next->local_directory == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->dir_parse = strdup(dir_parse);
+X	if (tmp->next->dir_parse == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->comment = strdup(comment);
+X	if (tmp->next->comment == NULL) {
+X		goto out;
+X	}
+X
+X	tmp->next->next = oldnext;
+X	return head;
+out:
+X	tmp->next->next = NULL;
+X	free_hostlist(tmp->next);
+X	tmp->next = oldnext;
+X	return NULL;
+}
+X
+#ifdef USE_PROTOTYPES
+void free_hostlist(struct hostlist *head)
+#else
+void free_hostlist(head)
+struct hostlist *head;
+#endif
+{
+X	struct hostlist *tmp;
+X
+X	while (head) {
+X		tmp = head->next;
+X		if (head->aliasname)
+X			free(head->aliasname);
+X		if (head->last_visited)
+X			free(head->last_visited);
+X		if (head->proxy)
+X			free(head->proxy);
+X		if (head->host)
+X			free(head->host);
+X		if (head->login)
+X			free(head->login);
+X		if (head->password)
+X			free(head->password);
+X		if (head->remote_directory)
+X			free(head->remote_directory);
+X		if (head->local_directory)
+X			free(head->local_directory);
+X		if (head->dir_parse)
+X			free(head->dir_parse);
+X		if (head->comment)
+X			free(head->comment);
+X		free((char *)head);
+X		head = tmp;
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+struct hostlist *gethostlist(struct hostlist *head, char *aliasname)
+#else
+struct hostlist *gethostlist(head, aliasname)
+struct hostlist *head;
+char	*aliasname;
+#endif
+{
+X	struct hostlist *tmp;
+X
+X	for (tmp = head->next; tmp != NULL; tmp = tmp->next)
+X		if (!strcmp(aliasname, tmp->aliasname)) 
+X			return tmp;
+X	return NULL;
+}
+X
+#ifdef USE_PROTOTYPES
+int delete_hostlist(struct hostlist *head, char *aliasname)
+#else
+int delete_hostlist(head, aliasname)
+struct hostlist *head;
+char	*aliasname;
+#endif
+{
+X	struct hostlist *tmp;
+X	struct hostlist *tmp2;
+X
+X	for (tmp = head; tmp->next != NULL; tmp = tmp->next) {
+X		if (!strcmp(aliasname, tmp->next->aliasname)) {
+X			/* delete existing entry */
+X			tmp2 = tmp->next->next;
+X			tmp->next->next = NULL;
+X			free_hostlist(tmp->next);
+X			tmp->next = tmp2;
+X			return 1;
+X		}
+X	}
+X	return 0;
+}
+X
+#ifdef USE_PROTOTYPES
+void read_ftptoolrc(void)
+#else
+void read_ftptoolrc()
+#endif
+{
+X	int	fd;
+X	static char	aliasname[MAXCOMMENTLEN + 1];
+X	static char	host[MAXHOSTNAMELEN + 1];
+X	static char	login[MAXLOGINLEN + 1];
+X	static char	password[MAXHOSTNAMELEN + 1];
+X	static char	comment[MAXCOMMENTLEN + 1];
+X	FILE	*fp;
+X	int ch;
+X
+X	fd = ftptoolrc_fd(O_RDONLY, 0600);
+X	if (fd == -1) {
+X		if (netrc_filename)
+X			host_append_netrc_proc();
+X		return;
+X	}
+X	/* ftptoolrc file format */
+X	/*
+X	 Alias
+X	 direct (ignored)
+X	 host
+X	 login
+X	 password
+X	 Comment
+X	 */
+X	fp = fdopen(fd, "r");
+X	if (fp == NULL) {
+X		close(fd);
+X		return;
+X	}
+X	/* see if it's a 'new' format */
+X	ch = getc(fp);
+X	if (ch == '#') {
+X		fclose(fp);
+X		read_newftptoolrc();
+X		return;
+X	}
+X	ungetc(ch, fp);
+X	while (read_entry(0, fp,aliasname,(char *)NULL, (char *)NULL,
+X		host,login, password,(int *)NULL, (char *)NULL, (char *)NULL, 
+X		DEFAULT_PARSE, comment))
+X			if (add_hostalias(hostlist_head, aliasname, "Never", 
+X				DEFAULT_PROXY, host, login, password, BINARY,
+X				".", ".", DEFAULT_PARSE, comment) == NULL)
+X					break;
+X	fclose(fp);
+}
+X
+#ifdef USE_PROTOTYPES
+int read_entry(int version, FILE *fp, char *aliasname, char *last_visited, 
+X	char *proxy, char *host, char *login, char *password, int *transfer_mode, 
+X	char *rdir, char *ldir, char *dir_parse, char *comment)
+#else
+int read_entry(version, fp, aliasname, last_visited, proxy, host, 
+X	login, password, transfer_mode, rdir, ldir, dir_parse, comment)
+int		version;
+FILE	*fp;
+char	*aliasname;
+char	*last_visited;
+char	*proxy;
+char	*host;
+char	*login;
+char	*password;
+int		*transfer_mode;
+char	*rdir;
+char	*ldir;
+char	*dir_parse;
+char	*comment;
+#endif
+{
+X	char	*nl;
+X	char	*dpasswd;
+X
+X	if (fgets(aliasname, MAXCOMMENTLEN+1,fp) == NULL) 
+X		if (feof(fp))
+X			return 0;
+X		else
+X			goto out;
+X	if (nl = index(aliasname, '\n'))
+X		*nl = '\0';
+X	if (version > 2) {
+X		if (fgets(last_visited, MAXPATHLEN+1,fp) == NULL) 
+X			goto out;
+X		if (nl = index(last_visited, '\n'))
+X			*nl = '\0';
+X	}
+X	if (fgets(scratch, MAXHOSTNAMELEN+1,fp) == NULL) 
+X		goto out;
+X	if (version > 0) {
+X		if (fgets(proxy, MAXHOSTNAMELEN+1,fp) == NULL) 
+X			goto out;
+X		if (nl = index(proxy, '\n'))
+X			*nl = '\0';
+X	}
+X	if (fgets(host, MAXHOSTNAMELEN+1,fp) == NULL) 
+X		goto out;
+X	if (nl = index(host, '\n'))
+X		*nl = '\0';
+X	if (fgets(login, MAXLOGINLEN+1,fp) == NULL) 
+X		goto out;
+X	if (nl = index(login, '\n'))
+X		*nl = '\0';
+X	if (fgets(password, MAXPASSWORDLEN+1,fp) == NULL) 
+X		goto out;
+X	if (nl = index(password, '\n'))
+X		*nl = '\0';
+X	if (version > 2) {
+X		/* decrypt it */
+X		if (version > 3)
+X			dpasswd = ftptool_decrypt(password, login_name);
+X		else
+X			dpasswd = old_ftptool_decrypt(password, login_name);
+X		if (dpasswd != NULL) {
+X			strcpy(password, dpasswd);
+X			free(dpasswd);
+X		}
+X	} 
+X	if (version > 4) {
+X		if (fgets(scratch, MAXHOSTNAMELEN+1,fp) == NULL) 
+X			goto out;
+X		*transfer_mode = atoi(scratch);
+X	}
+X	if (version > 0) {
+X		if (fgets(rdir, MAXPATHLEN+1,fp) == NULL) 
+X			goto out;
+X		if (nl = index(rdir, '\n'))
+X			*nl = '\0';
+X	}
+X	if (version > 1) {
+X		if (fgets(ldir, MAXPATHLEN+1,fp) == NULL) 
+X			goto out;
+X		if (nl = index(ldir, '\n'))
+X			*nl = '\0';
+X	}
+X	if (version > 2) {
+X		if (fgets(dir_parse, MAXPATHLEN+1,fp) == NULL) 
+X			goto out;
+X		if (nl = index(dir_parse, '\n'))
+X			*nl = '\0';
+X	}
+X	if (fgets(comment, MAXCOMMENTLEN+1,fp) == NULL) 
+X		goto out;
+X	if (nl = index(comment, '\n'))
+X		*nl = '\0';
+X	return 1;
+out:
+X	fprintf(stderr, "bad entry for %s in .netrc\n", aliasname);
+X	return 0;
+}
+X
+#ifdef USE_PROTOTYPES
+void read_newftptoolrc(void)
+#else
+void read_newftptoolrc()
+#endif
+{
+X	int	fd;
+X	static char	aliasname[MAXALIASLEN + 1];
+X	static char	last_visited[41];
+X	static int		transfer_mode;
+X	static char	proxy[MAXHOSTNAMELEN + 1];
+X	static char	host[MAXHOSTNAMELEN + 1];
+X	static char	login[MAXLOGINLEN + 1];
+X	static char	password[MAXPASSWORDLEN + 1];
+X	static char	remote_directory[MAXPATHLEN + 1];
+X	static char	local_directory[MAXPATHLEN + 1];
+X	static char	dir_parse[MAXPATHLEN + 1];
+X	static char	comment[MAXCOMMENTLEN + 1];
+X	FILE	*fp;
+X	int	version, patch;
+X	int	list_version;
+X
+X	fd = ftptoolrc_fd(O_RDONLY, 0600);
+X	if (fd == -1) {
+X		if (netrc_filename)
+X			host_append_netrc_proc();
+X		return;
+X	}
+X	/* new ftptoolrc file format */
+X	/* first line */
+X	/* # Host List : Ftptool Version 3.3 */
+X	/*
+X	 Alias
+X	 direct (ignored)
+X	 proxy
+X	 host
+X	 login
+X	 password
+X	 remote directory
+X	 local directory
+X	 dir parse line
+X	 Comment
+X	 */
+X	fp = fdopen(fd, "r");
+X	if (fp == NULL) {
+X		close(fd);
+X		return;
+X	}
+X	/* first line is a comment line */
+X	fgets(comment, MAXCOMMENTLEN + 1, fp);
+X	sscanf(comment, "# Host List : Ftptool Version %d.%d\n", &version, &patch);
+X	if (version >= 4 && patch >= 1)
+X		list_version = 5;
+X	else if (version == 4 && patch == 0)
+X		list_version = 4;
+X	else if (version == 3 && patch == 3)
+X		list_version = 3;
+X	else if (version == 3 && patch == 2)
+X		list_version = 2;
+X	else
+X		list_version = 1;
+X
+X	while (read_entry(list_version, fp, 
+X		aliasname, last_visited, proxy, host, login, password, 
+X		&transfer_mode, remote_directory, local_directory, dir_parse, 
+X		comment)) {
+X			if (add_hostalias(hostlist_head, aliasname, 
+X				list_version >= 3 ? last_visited : "Never", 
+X				proxy, host, login, password, 
+X				list_version >= 5 ? transfer_mode : BINARY,
+X				remote_directory, 
+X				list_version >= 2 ? local_directory : ".", 
+X				list_version >= 3 ? dir_parse : DEFAULT_PARSE,
+X				comment) == NULL)
+X					break;
+X	}
+X	fclose(fp);
+}
+X
+#ifdef USE_PROTOTYPES
+void write_ftptoolrc(void)
+#else
+void write_ftptoolrc()
+#endif
+{
+X	int	fd;
+X	struct hostlist *tmp;
+X	FILE	*fp;
+X	char	*epasswd;
+X
+X	fd = ftptoolrc_fd(O_WRONLY | O_TRUNC | O_CREAT, 0600);
+X	if (fd == -1) {
+X		perror("writing host list");
+X		return;
+X	}
+X	/* ftptoolrc file format */
+X	/*
+X	 Alias
+X	 Last Visited
+X	 direct (ignored) XXX
+X	 proxy
+X	 host
+X	 login
+X	 password
+X	 transfer_mode
+X	 remote directory
+X	 local directory
+X	 dir parse
+X	 Comment
+X	 */
+X	fp = fdopen(fd, "w"); 
+X	if (fp == NULL) {
+X		close(fd);
+X		return;
+X	}
+X	fprintf(fp, "# Host List : %s\n", header_name);
+X	for (tmp = hostlist_head->next; tmp != NULL; tmp = tmp->next) {
+X		epasswd = ftptool_encrypt(tmp->password, login_name);
+X		if (epasswd == NULL) {
+X			fprintf(stderr, "Out of memory.\n");
+X			exit(1);
+X		}
+X		fprintf(fp, "%s\n", tmp->aliasname);
+X		fprintf(fp, "%s\n", tmp->last_visited);
+X		fprintf(fp, "%d\n", 1);
+X		fprintf(fp, "%s\n", tmp->proxy);
+X		fprintf(fp, "%s\n", tmp->host);
+X		fprintf(fp, "%s\n", tmp->login);
+X		fprintf(fp, "%s\n", epasswd);
+X		fprintf(fp, "%d\n", tmp->transfer_mode);
+X		fprintf(fp, "%s\n", tmp->remote_directory);
+X		fprintf(fp, "%s\n", tmp->local_directory);
+X		fprintf(fp, "%s\n", tmp->dir_parse);
+X		fprintf(fp, "%s\n", tmp->comment);
+X		free(epasswd);
+X	}
+X
+X	fclose(fp);
+}
+X
+#ifdef USE_PROTOTYPES
+int ftptoolrc_fd(int flags, int mode)
+#else
+int ftptoolrc_fd(flags, mode)
+int		flags;
+int		mode;
+#endif
+{
+X	char	*filename=NULL;
+X	int		fd;
+X
+X	filename = find_dotfile(FTPTOOL_RC);
+X	if (filename == NULL) {
+X		if (flags == O_RDONLY) {
+X			/* try global one */
+X			filename = strdup(GLOBAL_FTPTOOLRC);
+X			if (filename == NULL) {
+X				return -1;
+X			}
+X		} else {
+X			if ((filename = create_dotfile(FTPTOOL_RC, 0600)) == NULL)
+X				return -1;
+X		}
+X	}
+X
+X	/* try current directory */
+X	if ((fd = open(filename, flags, mode)) != -1) {
+X		free(filename);
+X		return fd;
+X	}
+X	free(filename);
+X	return -1;
+}
+X
+#ifdef USE_PROTOTYPES
+void reload_host_list_menu(struct hostlist *head)
+#else
+void reload_host_list_menu(head)
+struct hostlist *head;
+#endif
+{
+X	Menu	menu = xv_get(host_window.hosts, PANEL_ITEM_MENU);
+X	int	nitems = xv_get(menu, MENU_NITEMS);
+X	int	row;
+X	struct hostlist *tmp;
+X	Menu_item	mi;
+X	Frame	frame;
+X	int		isshown;
+X	int		maxwidth=0;
+X	int		width=0;
+X	double	cols;
+X
+X	frame = (Panel)xv_get(menu, MENU_PIN_WINDOW);
+X	isshown = FALSE;
+X	if (frame) 
+X		isshown = xv_get(frame, XV_SHOW);
+X
+X	if (isshown) {
+X		xv_set(frame, 
+#ifdef XVIEW3
+X			FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_OUT,
+#else
+X			FRAME_CMD_PUSHPIN_IN, FALSE,
+#endif
+X			XV_SHOW, FALSE,
+X			NULL);
+X	}
+X	/* 2 items minimum, 1 for title */
+X	for (row = nitems; row > 1; row--)
+X		xv_set(menu,
+X			MENU_REMOVE, row,
+X			NULL);
+X
+X	nhostlist_items = 0;
+X	for (tmp=head->next; tmp != NULL; tmp=tmp->next) {
+X		width = strlen(tmp->aliasname);
+X		maxwidth = MAX(maxwidth, width);
+X		mi = (Menu_item)xv_create(XV_NULL, MENUITEM,
+X			MENU_STRING, tmp->aliasname,
+X			MENU_NOTIFY_PROC, host_list_item_proc,
+X			MENU_RELEASE,
+X			NULL);
+X		if (mi == XV_NULL) {
+X			fprintf(stderr, "Out of memory for menu item.\n");
+X			exit(1);
+X		}
+X		xv_set(menu,
+X			MENU_APPEND_ITEM, mi,
+X			PANEL_PAINT, PANEL_NONE,
+X			NULL);
+X		nhostlist_items++;
+X	}
+X	if (nhostlist_items == 0) {
+X		mi = (Menu_item)xv_create(XV_NULL, MENUITEM,
+X			MENU_STRING, "No Hosts!",
+X			MENU_RELEASE,
+X			NULL);
+X		if (mi == XV_NULL) {
+X			fprintf(stderr, "Out of memory for menu item.\n");
+X			exit(1);
+X		}
+X		xv_set(menu,
+X			MENU_APPEND_ITEM, mi,
+X			NULL);
+X	}
+X
+X	if (maxwidth == 0)
+X		maxwidth = 1;
+X	
+X	cols = 2.0 * nhostlist_items;
+X	cols /= maxwidth;
+X	cols = ceil(sqrt(cols));
+X	xv_set(menu,
+X		MENU_NCOLS,(int)cols,
+X		NULL);
+X	if (isshown) {
+X		xv_set(frame, 
+#ifdef XVIEW3
+X			FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_IN,
+#else
+X			FRAME_CMD_PUSHPIN_IN, TRUE,
+#endif
+X			XV_SHOW, TRUE,
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+char *create_dotfile(char *dotfile, int mode)
+#else
+char *create_dotfile(dotfile, mode)
+char	*dotfile;
+int		mode;
+#endif
+{
+X	char	*home;
+X	char	*filename=NULL;
+X	int		fd;
+X
+X	home = getenv("HOME");
+X	if (home != NULL && home[0] != '\0') {
+X		/* try $HOME/dotfile */
+X		filename = malloc((unsigned int)(strlen(home)+1+strlen(dotfile)+1));
+X		if (filename == NULL)
+X			return NULL;
+X		sprintf(filename, "%s/%s", home, dotfile);
+X		if ((fd = creat(filename, mode)) == -1) {
+X			free(filename);
+X			return NULL;
+X		}
+X		close(fd);
+X		/* found it */
+X		return filename;
+X	}
+X	filename = strdup(dotfile);
+X	if (filename == NULL)
+X		return NULL;
+X	if ((fd = creat(filename, mode)) == -1) {
+X		free(filename);
+X		return NULL;
+X	}
+X	close(fd);
+X
+X	return filename;
+}
+X
+#ifdef USE_PROTOTYPES
+char *find_dotfile(char *dotfile)
+#else
+char *find_dotfile(dotfile)
+char	*dotfile;
+#endif
+{
+X	char	*home;
+X	char	*filename=NULL;
+X
+X	home = getenv("HOME");
+X	if (home != NULL && home[0] != '\0') {
+X		/* try $HOME/dotfile */
+X		filename = malloc((unsigned int)(strlen(home)+1+strlen(dotfile)+1));
+X		if (filename == NULL)
+X			return NULL;
+X		sprintf(filename, "%s/%s", home, dotfile);
+X		if (access(filename, F_OK) == -1) {
+X			free(filename);
+X			return NULL;
+X		}
+X		/* found it */
+X		return filename;
+X	}
+X	filename = strdup(dotfile);
+X	if (filename == NULL)
+X		return NULL;
+X	if (access(filename, F_OK) == -1) {
+X		free(filename);
+X		return NULL;
+X	}
+X
+X	return filename;
+}
+X
+#define MACHINE		1
+#define LOGIN		2
+#define PASSWORD	3
+#define ACCOUNT		4
+#define MACDEF		5
+X
+#ifdef USE_PROTOTYPES
+int netrc_token(FILE *fp)
+#else
+int netrc_token(fp)
+FILE	*fp;
+#endif
+{
+X	char	keyword[MAXPATHLEN + 1];
+X	int		ch, lastchar;
+X
+X	for (;;) {
+X		if (fscanf(fp,"%s", keyword) == EOF)
+X			return EOF;
+X		if (!strcmp(keyword, "machine"))
+X			return MACHINE;
+X		if (!strcmp(keyword, "login"))
+X			return LOGIN;
+X		if (!strcmp(keyword, "password"))
+X			return PASSWORD;
+X		if (!strcmp(keyword, "macdef")) {
+X			lastchar = 'e';
+X			ch = 'f';
+X			do {
+X				lastchar = ch;
+X				ch = getc(fp);
+X			} while (ch != EOF && (ch != '\n' && lastchar != '\n'));
+X		}
+X	}
+}
+X
+X
+#ifdef USE_PROTOTYPES
+void	host_append_netrc_proc(void)
+#else
+void	host_append_netrc_proc()
+#endif
+{
+X	FILE 	*fp;
+X	char	machine[MAXHOSTNAMELEN + 1];
+X	char	login[MAXHOSTNAMELEN + 1];
+X	char	password[MAXPASSWORDLEN+ 1];
+X	int		foundmachine=0;
+X
+X	if ((fp = fopen(netrc_filename, "r")) == NULL) {
+X		footer_message("%s exists but can not be read.", 
+SHAR_EOF
+true || echo 'restore of host_list.c failed'
+fi
+echo 'End of  part 9'
+echo 'File host_list.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

@@ -1,0 +1,1397 @@
+Newsgroups: comp.sources.misc
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Subject:  v28i087:  ephem - an interactive astronomical ephemeris, v4.28, Part04/09
+Message-ID: <1992Mar10.215757.16043@sparky.imd.sterling.com>
+X-Md4-Signature: fedf03e7ba646e71661b58489c5812a3
+Date: Tue, 10 Mar 1992 21:57:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood C. Downey)
+Posting-number: Volume 28, Issue 87
+Archive-name: ephem/part04
+Environment: UNIX, VMS, DOS, MAC
+Supersedes: ephem-4.21: Volume 14, Issue 76-81
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Manifest constel.c sel_fld.c
+# Wrapped by kent@sparky on Tue Mar 10 14:34:06 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 9)."'
+if test -f 'Manifest' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Manifest'\"
+else
+  echo shar: Extracting \"'Manifest'\" \(2566 characters\)
+  sed "s/^X//" >'Manifest' <<'END_OF_FILE'
+XFiles shipped as the ephem package:
+X
+XMakefile	just say "make"
+XMan.txt		manual, ready for a very generic printer.
+XManifest	this file.
+XReadme		check here for hints before building.
+Xephem.cfg	sample configuration file. you'll want to edit this for your
+X		particular location and interests after reading the manual.
+Xephem.db	sample database file. ditto.
+X
+XThe source files:
+Xaa_hadec.c	convert between alt/az and hour angle/dec.
+Xaltj.c		manage and compute jupiter info menu.
+Xaltmenus.c	draws the three alternate lower screens.
+Xanomaly.c	compute anomaly.
+Xastro.h		unit conversion macros and planet defines.
+Xcal_mjd.c	converters to and from modified julian date.
+Xcircum.c	main "astronomy" entry point that finds where anything is.
+Xcircum.h	defines Now and Sky structures.
+Xcomet.c		compute comet position from elements.
+Xcompiler.c	compile and execute general expressions with screen fields.
+Xconstel.c	handles determing and printing constellation info.
+Xeq_ecl.c	convert between equitorial and eclipitic coords.
+Xflog.c		logs and retrieves screen locations for logging purposes.
+Xformats.c	basic date, time, prompts, etc formats.
+Xio.c		basic cursor and screen io control.
+Xlisting.c	set fields for and manage listings.
+Xmain.c		main loop.
+Xmainmenu.c	draws the top screen.
+Xmoon.c		compute moon position.
+Xmoonnf.c	compute new and full moon dates.
+Xnutation.c	compute nutation correction.
+Xobjx.c		set and make use of all the object-x info.
+Xobliq.c		compute obliquity.
+Xparallax.c	functions to compute earth rim parallax correction.
+Xpelement.c	basic planet position polynomial coefficients.
+Xplans.c		use polynomials to find planet location at any certain time.
+Xplot.c		set fields for and manage plots.
+Xpopup.c		handle the one-liner "popup" menus at the top of the screen.
+Xprecess.c	compute precession correction.
+Xreduce.c	convert elliptical elements from one epoch to another.
+Xrefract.c	atmospheric refraction model.
+Xriset.c		find basic rise/set sideral times of a fixed object.
+Xriset_c.c	iteratively solve for local rise/set times of moving objects.
+Xscreen.h	define all field locations and codes, extra planet codes.
+Xsel_fld.c	handle cursor movement commands in the various screens.
+Xsex_dec.c	convert between sexagesimal and decimal notation.
+Xsrch.c		set and manage the various search functions.
+Xsun.c		compute location of sun at any time.
+Xtime.c		manage setting and getting the time from the os.
+Xutc_gst.c	convert between UT1 and Greenwich sidereal time.
+Xversion.c	current version notice, and revision history comments.
+Xwatch.c		manage the screen during sky and solar system displays.
+END_OF_FILE
+  if test 2566 -ne `wc -c <'Manifest'`; then
+    echo shar: \"'Manifest'\" unpacked with wrong size!
+  fi
+  # end of 'Manifest'
+fi
+if test -f 'constel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'constel.c'\"
+else
+  echo shar: Extracting \"'constel.c'\" \(20370 characters\)
+  sed "s/^X//" >'constel.c' <<'END_OF_FILE'
+X#include <math.h>
+X#include "astro.h"
+X#include "screen.h"
+X#include "circum.h"
+X
+X/* print the constellation object p is in now as a prompt message.
+X */
+Xconstellation_msg (p, np)
+Xint p;
+XNow *np;
+X{
+X	char buf[NC];
+X	char *name;
+X	Sky s;
+X
+X	(void) body_cir (p, 0.0, np, &s);
+X	confnd (s.s_ra, s.s_dec, epoch == EOD ? mjd : epoch, &name);
+X	sprintf (buf, "In %s", name);
+X	f_msg (buf);
+X}
+X
+X/*
+X  METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+XC version by Craig Counterman and Elwood Downey,
+Xadapted from fortran version:
+Xexerpt from accompanying doc file:
+X
+X        Recently, Mr. Barry N. Rappaport of New  Mexico State University
+X  transcribed  the constellation  boundaries as  fixed  by the IAU  into
+X  machine-readable form.  These have  been  transcribed  by Dr. Nancy G.
+X  Roman to make it possible  to determine by  computer the constellation
+X  in which a position is located.
+X
+XNSSDC catalog description:
+X 6042   AN     Catalog of Constellation Boundary Data (Delporte, E. 1930, 
+X               Cambridge Univ. Press)
+X               Comment(s): includes constellation identification software 
+X               (ADC 1987; see Roman, N.G. 1987, Publ. Astron. Soc. Pacific 
+X               99, 695); 23 description, 118 software, 358 data records. 
+X               3 files: 23x80, 118x80, 358x29 
+X
+Xfull documentation file:
+X
+X   METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+X     Recently, Mr. Barry N. Rappaport of New Mexico State University trans-
+Xcribed the constellation boundaries as fixed by the IAU into machine-readable
+Xform.  These have been transcribed by Dr. Nancy G. Roman to make it possible to
+Xdetermine by computer the constellation in which a position is located.
+X     Two files follow.  The first is a program, in FORTRAN77, for determining
+Xthe constellation using the data in the succeeding file.  Comments describe
+Xthe format in which the positions must be entered.  The main program is
+Xfollowed by a precession subroutine.
+X     The final file is a list of constellation boundaries in the form Lower
+XRight Ascension (F8.4), Upper Right Ascension (F8.4), Lower Declination (F9.4),
+Xthree letter abbreviation for the Constellation (1X,A3).  The file contains
+X358, 29-byte records.
+X    The following is an example of the output of the program:
+X RA =  9.0000 DEC =  65.0000  IS IN CONSTELLATION UMa
+X RA = 23.5000 DEC = -20.0000  IS IN CONSTELLATION Aqr
+X RA =  5.1200 DEC =   9.1200  IS IN CONSTELLATION Ori
+X RA =  9.4555 DEC = -19.9000  IS IN CONSTELLATION Hya
+X RA = 12.8888 DEC =  22.0000  IS IN CONSTELLATION Com
+X RA = 15.6687 DEC = -12.1234  IS IN CONSTELLATION Lib
+X RA = 19.0000 DEC = -40.0000  IS IN CONSTELLATION CrA
+X RA =  6.2222 DEC = -81.1234  IS IN CONSTELLATION Men
+X END OF INPUT POSITIONS AFTER: RA =   6.2222   DEC = -81.1234
+X THE EQUINOX FOR THESE POSITIONS IS 1950.0
+X*/
+X
+Xstatic char And[] = "And: Andromeda";
+Xstatic char Ant[] = "Ant: Antlia";
+Xstatic char Aps[] = "Aps: Apus";
+Xstatic char Aql[] = "Aql: Aquila";
+Xstatic char Aqr[] = "Aqr: Aquarius";
+Xstatic char Ara[] = "Ara: Ara";
+Xstatic char Ari[] = "Ari: Aries";
+Xstatic char Aur[] = "Aur: Auriga";
+Xstatic char Boo[] = "Boo: Bootes";
+Xstatic char CMa[] = "CMa: Canis Major";
+Xstatic char CMi[] = "CMi: Canis Minor";
+Xstatic char CVn[] = "CVn: Canes Venatici";
+Xstatic char Cae[] = "Cae: Caelum";
+Xstatic char Cam[] = "Cam: Camelopardalis";
+Xstatic char Cap[] = "Cap: Capricornus";
+Xstatic char Car[] = "Car: Carina";
+Xstatic char Cas[] = "Cas: Cassiopeia";
+Xstatic char Cen[] = "Cen: Centaurus";
+Xstatic char Cep[] = "Cep: Cepheus";
+Xstatic char Cet[] = "Cet: Cetus";
+Xstatic char Cha[] = "Cha: Chamaeleon";
+Xstatic char Cir[] = "Cir: Circinus";
+Xstatic char Cnc[] = "Cnc: Cancer";
+Xstatic char Col[] = "Col: Columba";
+Xstatic char Com[] = "Com: Coma Berenices";
+Xstatic char CrA[] = "CrA: Corona Australis";
+Xstatic char CrB[] = "CrB: Corona Borealis";
+Xstatic char Crt[] = "Crt: Crater";
+Xstatic char Cru[] = "Cru: Crux";
+Xstatic char Crv[] = "Crv: Corvus";
+Xstatic char Cyg[] = "Cyg: Cygnus";
+Xstatic char Del[] = "Del: Delphinus";
+Xstatic char Dor[] = "Dor: Dorado";
+Xstatic char Dra[] = "Dra: Draco";
+Xstatic char Equ[] = "Equ: Equuleus";
+Xstatic char Eri[] = "Eri: Eridanus";
+Xstatic char For[] = "For: Fornax";
+Xstatic char Gem[] = "Gem: Gemini";
+Xstatic char Gru[] = "Gru: Grus";
+Xstatic char Her[] = "Her: Hercules";
+Xstatic char Hor[] = "Hor: Horologium";
+Xstatic char Hya[] = "Hya: Hydra";
+Xstatic char Hyi[] = "Hyi: Hydrus";
+Xstatic char Ind[] = "Ind: Indus";
+Xstatic char LMi[] = "LMi: Leo Minor";
+Xstatic char Lac[] = "Lac: Lacerta";
+Xstatic char Leo[] = "Leo: Leo";
+Xstatic char Lep[] = "Lep: Lepus";
+Xstatic char Lib[] = "Lib: Libra";
+Xstatic char Lup[] = "Lup: Lupus";
+Xstatic char Lyn[] = "Lyn: Lynx";
+Xstatic char Lyr[] = "Lyr: Lyra";
+Xstatic char Men[] = "Men: Mensa";
+Xstatic char Mic[] = "Mic: Microscopium";
+Xstatic char Mon[] = "Mon: Monoceros";
+Xstatic char Mus[] = "Mus: Musca";
+Xstatic char Nor[] = "Nor: Norma";
+Xstatic char Oct[] = "Oct: Octans";
+Xstatic char Oph[] = "Oph: Ophiuchus";
+Xstatic char Ori[] = "Ori: Orion";
+Xstatic char Pav[] = "Pav: Pavo";
+Xstatic char Peg[] = "Peg: Pegasus";
+Xstatic char Per[] = "Per: Perseus";
+Xstatic char Phe[] = "Phe: Phoenix";
+Xstatic char Pic[] = "Pic: Pictor";
+Xstatic char PsA[] = "PsA: Piscis Austrinus";
+Xstatic char Psc[] = "Psc: Pisces";
+Xstatic char Pup[] = "Pup: Puppis";
+Xstatic char Pyx[] = "Pyx: Pyxis";
+Xstatic char Ret[] = "Ret: Reticulum";
+Xstatic char Scl[] = "Scl: Sculptor";
+Xstatic char Sco[] = "Sco: Scorpius";
+Xstatic char Sct[] = "Sct: Scutum";
+Xstatic char Ser[] = "Ser: Serpens";
+Xstatic char Sex[] = "Sex: Sextans";
+Xstatic char Sge[] = "Sge: Sagitta";
+Xstatic char Sgr[] = "Sgr: Sagittarius";
+Xstatic char Tau[] = "Tau: Taurus";
+Xstatic char Tel[] = "Tel: Telescopium";
+Xstatic char TrA[] = "TrA: Triangulum Australe";
+Xstatic char Tri[] = "Tri: Triangulum";
+Xstatic char Tuc[] = "Tuc: Tucana";
+Xstatic char UMa[] = "UMa: Ursa Major";
+Xstatic char UMi[] = "UMi: Ursa Minor";
+Xstatic char Vel[] = "Vel: Vela";
+Xstatic char Vir[] = "Vir: Virgo";
+Xstatic char Vol[] = "Vol: Volans";
+Xstatic char Vul[] = "Vul: Vulpecula";
+X
+Xstruct cdata {
+X    double l_ra, u_ra, l_dec;
+X    char *cons;
+X} con_data[] = {
+X    {0.0000, 24.0000, 88.0000, UMi},
+X    {8.0000, 14.5000, 86.5000, UMi},
+X    {21.0000, 23.0000, 86.1667, UMi},
+X    {18.0000, 21.0000, 86.0000, UMi},
+X    {0.0000, 8.0000, 85.0000, Cep},
+X    {9.1667, 10.6667, 82.0000, Cam},
+X    {0.0000, 5.0000, 80.0000, Cep},
+X    {10.6667, 14.5000, 80.0000, Cam},
+X    {17.5000, 18.0000, 80.0000, UMi},
+X    {20.1667, 21.0000, 80.0000, Dra},
+X    {0.0000, 3.5083, 77.0000, Cep},
+X    {11.5000, 13.5833, 77.0000, Cam},
+X    {16.5333, 17.5000, 75.0000, UMi},
+X    {20.1667, 20.6667, 75.0000, Cep},
+X    {7.9667, 9.1667, 73.5000, Cam},
+X    {9.1667, 11.3333, 73.5000, Dra},
+X    {13.0000, 16.5333, 70.0000, UMi},
+X    {3.1000, 3.4167, 68.0000, Cas},
+X    {20.4167, 20.6667, 67.0000, Dra},
+X    {11.3333, 12.0000, 66.5000, Dra},
+X    {0.0000, 0.3333, 66.0000, Cep},
+X    {14.0000, 15.6667, 66.0000, UMi},
+X    {23.5833, 24.0000, 66.0000, Cep},
+X    {12.0000, 13.5000, 64.0000, Dra},
+X    {13.5000, 14.4167, 63.0000, Dra},
+X    {23.1667, 23.5833, 63.0000, Cep},
+X    {6.1000, 7.0000, 62.0000, Cam},
+X    {20.0000, 20.4167, 61.5000, Dra},
+X    {20.5367, 20.6000, 60.9167, Cep},
+X    {7.0000, 7.9667, 60.0000, Cam},
+X    {7.9667, 8.4167, 60.0000, UMa},
+X    {19.7667, 20.0000, 59.5000, Dra},
+X    {20.0000, 20.5367, 59.5000, Cep},
+X    {22.8667, 23.1667, 59.0833, Cep},
+X    {0.0000, 2.4333, 58.5000, Cas},
+X    {19.4167, 19.7667, 58.0000, Dra},
+X    {1.7000, 1.9083, 57.5000, Cas},
+X    {2.4333, 3.1000, 57.0000, Cas},
+X    {3.1000, 3.1667, 57.0000, Cam},
+X    {22.3167, 22.8667, 56.2500, Cep},
+X    {5.0000, 6.1000, 56.0000, Cam},
+X    {14.0333, 14.4167, 55.5000, UMa},
+X    {14.4167, 19.4167, 55.5000, Dra},
+X    {3.1667, 3.3333, 55.0000, Cam},
+X    {22.1333, 22.3167, 55.0000, Cep},
+X    {20.6000, 21.9667, 54.8333, Cep},
+X    {0.0000, 1.7000, 54.0000, Cas},
+X    {6.1000, 6.5000, 54.0000, Lyn},
+X    {12.0833, 13.5000, 53.0000, UMa},
+X    {15.2500, 15.7500, 53.0000, Dra},
+X    {21.9667, 22.1333, 52.7500, Cep},
+X    {3.3333, 5.0000, 52.5000, Cam},
+X    {22.8667, 23.3333, 52.5000, Cas},
+X    {15.7500, 17.0000, 51.5000, Dra},
+X    {2.0417, 2.5167, 50.5000, Per},
+X    {17.0000, 18.2333, 50.5000, Dra},
+X    {0.0000, 1.3667, 50.0000, Cas},
+X    {1.3667, 1.6667, 50.0000, Per},
+X    {6.5000, 6.8000, 50.0000, Lyn},
+X    {23.3333, 24.0000, 50.0000, Cas},
+X    {13.5000, 14.0333, 48.5000, UMa},
+X    {0.0000, 1.1167, 48.0000, Cas},
+X    {23.5833, 24.0000, 48.0000, Cas},
+X    {18.1750, 18.2333, 47.5000, Her},
+X    {18.2333, 19.0833, 47.5000, Dra},
+X    {19.0833, 19.1667, 47.5000, Cyg},
+X    {1.6667, 2.0417, 47.0000, Per},
+X    {8.4167, 9.1667, 47.0000, UMa},
+X    {0.1667, 0.8667, 46.0000, Cas},
+X    {12.0000, 12.0833, 45.0000, UMa},
+X    {6.8000, 7.3667, 44.5000, Lyn},
+X    {21.9083, 21.9667, 44.0000, Cyg},
+X    {21.8750, 21.9083, 43.7500, Cyg},
+X    {19.1667, 19.4000, 43.5000, Cyg},
+X    {9.1667, 10.1667, 42.0000, UMa},
+X    {10.1667, 10.7833, 40.0000, UMa},
+X    {15.4333, 15.7500, 40.0000, Boo},
+X    {15.7500, 16.3333, 40.0000, Her},
+X    {9.2500, 9.5833, 39.7500, Lyn},
+X    {0.0000, 2.5167, 36.7500, And},
+X    {2.5167, 2.5667, 36.7500, Per},
+X    {19.3583, 19.4000, 36.5000, Lyr},
+X    {4.5000, 4.6917, 36.0000, Per},
+X    {21.7333, 21.8750, 36.0000, Cyg},
+X    {21.8750, 22.0000, 36.0000, Lac},
+X    {6.5333, 7.3667, 35.5000, Aur},
+X    {7.3667, 7.7500, 35.5000, Lyn},
+X    {0.0000, 2.0000, 35.0000, And},
+X    {22.0000, 22.8167, 35.0000, Lac},
+X    {22.8167, 22.8667, 34.5000, Lac},
+X    {22.8667, 23.5000, 34.5000, And},
+X    {2.5667, 2.7167, 34.0000, Per},
+X    {10.7833, 11.0000, 34.0000, UMa},
+X    {12.0000, 12.3333, 34.0000, CVn},
+X    {7.7500, 9.2500, 33.5000, Lyn},
+X    {9.2500, 9.8833, 33.5000, LMi},
+X    {0.7167, 1.4083, 33.0000, And},
+X    {15.1833, 15.4333, 33.0000, Boo},
+X    {23.5000, 23.7500, 32.0833, And},
+X    {12.3333, 13.2500, 32.0000, CVn},
+X    {23.7500, 24.0000, 31.3333, And},
+X    {13.9583, 14.0333, 30.7500, CVn},
+X    {2.4167, 2.7167, 30.6667, Tri},
+X    {2.7167, 4.5000, 30.6667, Per},
+X    {4.5000, 4.7500, 30.0000, Aur},
+X    {18.1750, 19.3583, 30.0000, Lyr},
+X    {11.0000, 12.0000, 29.0000, UMa},
+X    {19.6667, 20.9167, 29.0000, Cyg},
+X    {4.7500, 5.8833, 28.5000, Aur},
+X    {9.8833, 10.5000, 28.5000, LMi},
+X    {13.2500, 13.9583, 28.5000, CVn},
+X    {0.0000, 0.0667, 28.0000, And},
+X    {1.4083, 1.6667, 28.0000, Tri},
+X    {5.8833, 6.5333, 28.0000, Aur},
+X    {7.8833, 8.0000, 28.0000, Gem},
+X    {20.9167, 21.7333, 28.0000, Cyg},
+X    {19.2583, 19.6667, 27.5000, Cyg},
+X    {1.9167, 2.4167, 27.2500, Tri},
+X    {16.1667, 16.3333, 27.0000, CrB},
+X    {15.0833, 15.1833, 26.0000, Boo},
+X    {15.1833, 16.1667, 26.0000, CrB},
+X    {18.3667, 18.8667, 26.0000, Lyr},
+X    {10.7500, 11.0000, 25.5000, LMi},
+X    {18.8667, 19.2583, 25.5000, Lyr},
+X    {1.6667, 1.9167, 25.0000, Tri},
+X    {0.7167, 0.8500, 23.7500, Psc},
+X    {10.5000, 10.7500, 23.5000, LMi},
+X    {21.2500, 21.4167, 23.5000, Vul},
+X    {5.7000, 5.8833, 22.8333, Tau},
+X    {0.0667, 0.1417, 22.0000, And},
+X    {15.9167, 16.0333, 22.0000, Ser},
+X    {5.8833, 6.2167, 21.5000, Gem},
+X    {19.8333, 20.2500, 21.2500, Vul},
+X    {18.8667, 19.2500, 21.0833, Vul},
+X    {0.1417, 0.8500, 21.0000, And},
+X    {20.2500, 20.5667, 20.5000, Vul},
+X    {7.8083, 7.8833, 20.0000, Gem},
+X    {20.5667, 21.2500, 19.5000, Vul},
+X    {19.2500, 19.8333, 19.1667, Vul},
+X    {3.2833, 3.3667, 19.0000, Ari},
+X    {18.8667, 19.0000, 18.5000, Sge},
+X    {5.7000, 5.7667, 18.0000, Ori},
+X    {6.2167, 6.3083, 17.5000, Gem},
+X    {19.0000, 19.8333, 16.1667, Sge},
+X    {4.9667, 5.3333, 16.0000, Tau},
+X    {15.9167, 16.0833, 16.0000, Her},
+X    {19.8333, 20.2500, 15.7500, Sge},
+X    {4.6167, 4.9667, 15.5000, Tau},
+X    {5.3333, 5.6000, 15.5000, Tau},
+X    {12.8333, 13.5000, 15.0000, Com},
+X    {17.2500, 18.2500, 14.3333, Her},
+X    {11.8667, 12.8333, 14.0000, Com},
+X    {7.5000, 7.8083, 13.5000, Gem},
+X    {16.7500, 17.2500, 12.8333, Her},
+X    {0.0000, 0.1417, 12.5000, Peg},
+X    {5.6000, 5.7667, 12.5000, Tau},
+X    {7.0000, 7.5000, 12.5000, Gem},
+X    {21.1167, 21.3333, 12.5000, Peg},
+X    {6.3083, 6.9333, 12.0000, Gem},
+X    {18.2500, 18.8667, 12.0000, Her},
+X    {20.8750, 21.0500, 11.8333, Del},
+X    {21.0500, 21.1167, 11.8333, Peg},
+X    {11.5167, 11.8667, 11.0000, Leo},
+X    {6.2417, 6.3083, 10.0000, Ori},
+X    {6.9333, 7.0000, 10.0000, Gem},
+X    {7.8083, 7.9250, 10.0000, Cnc},
+X    {23.8333, 24.0000, 10.0000, Peg},
+X    {1.6667, 3.2833,  9.9167, Ari},
+X    {20.1417, 20.3000,  8.5000, Del},
+X    {13.5000, 15.0833,  8.0000, Boo},
+X    {22.7500, 23.8333,  7.5000, Peg},
+X    {7.9250, 9.2500,  7.0000, Cnc},
+X    {9.2500, 10.7500,  7.0000, Leo},
+X    {18.2500, 18.6622,  6.2500, Oph},
+X    {18.6622, 18.8667,  6.2500, Aql},
+X    {20.8333, 20.8750,  6.0000, Del},
+X    {7.0000, 7.0167,  5.5000, CMi},
+X    {18.2500, 18.4250,  4.5000, Ser},
+X    {16.0833, 16.7500,  4.0000, Her},
+X    {18.2500, 18.4250,  3.0000, Oph},
+X    {21.4667, 21.6667,  2.7500, Peg},
+X    {0.0000, 2.0000,  2.0000, Psc},
+X    {18.5833, 18.8667,  2.0000, Ser},
+X    {20.3000, 20.8333,  2.0000, Del},
+X    {20.8333, 21.3333,  2.0000, Equ},
+X    {21.3333, 21.4667,  2.0000, Peg},
+X    {22.0000, 22.7500,  2.0000, Peg},
+X    {21.6667, 22.0000,  1.7500, Peg},
+X    {7.0167, 7.2000,  1.5000, CMi},
+X    {3.5833, 4.6167,  0.0000, Tau},
+X    {4.6167, 4.6667,  0.0000, Ori},
+X    {7.2000, 8.0833,  0.0000, CMi},
+X    {14.6667, 15.0833,  0.0000, Vir},
+X    {17.8333, 18.2500,  0.0000, Oph},
+X    {2.6500, 3.2833, -1.7500, Cet},
+X    {3.2833, 3.5833, -1.7500, Tau},
+X    {15.0833, 16.2667, -3.2500, Ser},
+X    {4.6667, 5.0833, -4.0000, Ori},
+X    {5.8333, 6.2417, -4.0000, Ori},
+X    {17.8333, 17.9667, -4.0000, Ser},
+X    {18.2500, 18.5833, -4.0000, Ser},
+X    {18.5833, 18.8667, -4.0000, Aql},
+X    {22.7500, 23.8333, -4.0000, Psc},
+X    {10.7500, 11.5167, -6.0000, Leo},
+X    {11.5167, 11.8333, -6.0000, Vir},
+X    {0.0000, 0.3333, -7.0000, Psc},
+X    {23.8333, 24.0000, -7.0000, Psc},
+X    {14.2500, 14.6667, -8.0000, Vir},
+X    {15.9167, 16.2667, -8.0000, Oph},
+X    {20.0000, 20.5333, -9.0000, Aql},
+X    {21.3333, 21.8667, -9.0000, Aqr},
+X    {17.1667, 17.9667, -10.0000, Oph},
+X    {5.8333, 8.0833, -11.0000, Mon},
+X    {4.9167, 5.0833, -11.0000, Eri},
+X    {5.0833, 5.8333, -11.0000, Ori},
+X    {8.0833, 8.3667, -11.0000, Hya},
+X    {9.5833, 10.7500, -11.0000, Sex},
+X    {11.8333, 12.8333, -11.0000, Vir},
+X    {17.5833, 17.6667, -11.6667, Oph},
+X    {18.8667, 20.0000, -12.0333, Aql},
+X    {4.8333, 4.9167, -14.5000, Eri},
+X    {20.5333, 21.3333, -15.0000, Aqr},
+X    {17.1667, 18.2500, -16.0000, Ser},
+X    {18.2500, 18.8667, -16.0000, Sct},
+X    {8.3667, 8.5833, -17.0000, Hya},
+X    {16.2667, 16.3750, -18.2500, Oph},
+X    {8.5833, 9.0833, -19.0000, Hya},
+X    {10.7500, 10.8333, -19.0000, Crt},
+X    {16.2667, 16.3750, -19.2500, Oph},
+X    {15.6667, 15.9167, -20.0000, Lib},
+X    {12.5833, 12.8333, -22.0000, Crv},
+X    {12.8333, 14.2500, -22.0000, Vir},
+X    {9.0833, 9.7500, -24.0000, Hya},
+X    {1.6667, 2.6500, -24.3833, Cet},
+X    {2.6500, 3.7500, -24.3833, Eri},
+X    {10.8333, 11.8333, -24.5000, Crt},
+X    {11.8333, 12.5833, -24.5000, Crv},
+X    {14.2500, 14.9167, -24.5000, Lib},
+X    {16.2667, 16.7500, -24.5833, Oph},
+X    {0.0000, 1.6667, -25.5000, Cet},
+X    {21.3333, 21.8667, -25.5000, Cap},
+X    {21.8667, 23.8333, -25.5000, Aqr},
+X    {23.8333, 24.0000, -25.5000, Cet},
+X    {9.7500, 10.2500, -26.5000, Hya},
+X    {4.7000, 4.8333, -27.2500, Eri},
+X    {4.8333, 6.1167, -27.2500, Lep},
+X    {20.0000, 21.3333, -28.0000, Cap},
+X    {10.2500, 10.5833, -29.1667, Hya},
+X    {12.5833, 14.9167, -29.5000, Hya},
+X    {14.9167, 15.6667, -29.5000, Lib},
+X    {15.6667, 16.0000, -29.5000, Sco},
+X    {4.5833, 4.7000, -30.0000, Eri},
+X    {16.7500, 17.6000, -30.0000, Oph},
+X    {17.6000, 17.8333, -30.0000, Sgr},
+X    {10.5833, 10.8333, -31.1667, Hya},
+X    {6.1167, 7.3667, -33.0000, CMa},
+X    {12.2500, 12.5833, -33.0000, Hya},
+X    {10.8333, 12.2500, -35.0000, Hya},
+X    {3.5000, 3.7500, -36.0000, For},
+X    {8.3667, 9.3667, -36.7500, Pyx},
+X    {4.2667, 4.5833, -37.0000, Eri},
+X    {17.8333, 19.1667, -37.0000, Sgr},
+X    {21.3333, 23.0000, -37.0000, PsA},
+X    {23.0000, 23.3333, -37.0000, Scl},
+X    {3.0000, 3.5000, -39.5833, For},
+X    {9.3667, 11.0000, -39.7500, Ant},
+X    {0.0000, 1.6667, -40.0000, Scl},
+X    {1.6667, 3.0000, -40.0000, For},
+X    {3.8667, 4.2667, -40.0000, Eri},
+X    {23.3333, 24.0000, -40.0000, Scl},
+X    {14.1667, 14.9167, -42.0000, Cen},
+X    {15.6667, 16.0000, -42.0000, Lup},
+X    {16.0000, 16.4208, -42.0000, Sco},
+X    {4.8333, 5.0000, -43.0000, Cae},
+X    {5.0000, 6.5833, -43.0000, Col},
+X    {8.0000, 8.3667, -43.0000, Pup},
+X    {3.4167, 3.8667, -44.0000, Eri},
+X    {16.4208, 17.8333, -45.5000, Sco},
+X    {17.8333, 19.1667, -45.5000, CrA},
+X    {19.1667, 20.3333, -45.5000, Sgr},
+X    {20.3333, 21.3333, -45.5000, Mic},
+X    {3.0000, 3.4167, -46.0000, Eri},
+X    {4.5000, 4.8333, -46.5000, Cae},
+X    {15.3333, 15.6667, -48.0000, Lup},
+X    {0.0000, 2.3333, -48.1667, Phe},
+X    {2.6667, 3.0000, -49.0000, Eri},
+X    {4.0833, 4.2667, -49.0000, Hor},
+X    {4.2667, 4.5000, -49.0000, Cae},
+X    {21.3333, 22.0000, -50.0000, Gru},
+X    {6.0000, 8.0000, -50.7500, Pup},
+X    {8.0000, 8.1667, -50.7500, Vel},
+X    {2.4167, 2.6667, -51.0000, Eri},
+X    {3.8333, 4.0833, -51.0000, Hor},
+X    {0.0000, 1.8333, -51.5000, Phe},
+X    {6.0000, 6.1667, -52.5000, Car},
+X    {8.1667, 8.4500, -53.0000, Vel},
+X    {3.5000, 3.8333, -53.1667, Hor},
+X    {3.8333, 4.0000, -53.1667, Dor},
+X    {0.0000, 1.5833, -53.5000, Phe},
+X    {2.1667, 2.4167, -54.0000, Eri},
+X    {4.5000, 5.0000, -54.0000, Pic},
+X    {15.0500, 15.3333, -54.0000, Lup},
+X    {8.4500, 8.8333, -54.5000, Vel},
+X    {6.1667, 6.5000, -55.0000, Car},
+X    {11.8333, 12.8333, -55.0000, Cen},
+X    {14.1667, 15.0500, -55.0000, Lup},
+X    {15.0500, 15.3333, -55.0000, Nor},
+X    {4.0000, 4.3333, -56.5000, Dor},
+X    {8.8333, 11.0000, -56.5000, Vel},
+X    {11.0000, 11.2500, -56.5000, Cen},
+X    {17.5000, 18.0000, -57.0000, Ara},
+X    {18.0000, 20.3333, -57.0000, Tel},
+X    {22.0000, 23.3333, -57.0000, Gru},
+X    {3.2000, 3.5000, -57.5000, Hor},
+X    {5.0000, 5.5000, -57.5000, Pic},
+X    {6.5000, 6.8333, -58.0000, Car},
+X    {0.0000, 1.3333, -58.5000, Phe},
+X    {1.3333, 2.1667, -58.5000, Eri},
+X    {23.3333, 24.0000, -58.5000, Phe},
+X    {4.3333, 4.5833, -59.0000, Dor},
+X    {15.3333, 16.4208, -60.0000, Nor},
+X    {20.3333, 21.3333, -60.0000, Ind},
+X    {5.5000, 6.0000, -61.0000, Pic},
+X    {15.1667, 15.3333, -61.0000, Cir},
+X    {16.4208, 16.5833, -61.0000, Ara},
+X    {14.9167, 15.1667, -63.5833, Cir},
+X    {16.5833, 16.7500, -63.5833, Ara},
+X    {6.0000, 6.8333, -64.0000, Pic},
+X    {6.8333, 9.0333, -64.0000, Car},
+X    {11.2500, 11.8333, -64.0000, Cen},
+X    {11.8333, 12.8333, -64.0000, Cru},
+X    {12.8333, 14.5333, -64.0000, Cen},
+X    {13.5000, 13.6667, -65.0000, Cir},
+X    {16.7500, 16.8333, -65.0000, Ara},
+X    {2.1667, 3.2000, -67.5000, Hor},
+X    {3.2000, 4.5833, -67.5000, Ret},
+X    {14.7500, 14.9167, -67.5000, Cir},
+X    {16.8333, 17.5000, -67.5000, Ara},
+X    {17.5000, 18.0000, -67.5000, Pav},
+X    {22.0000, 23.3333, -67.5000, Tuc},
+X    {4.5833, 6.5833, -70.0000, Dor},
+X    {13.6667, 14.7500, -70.0000, Cir},
+X    {14.7500, 17.0000, -70.0000, TrA},
+X    {0.0000, 1.3333, -75.0000, Tuc},
+X    {3.5000, 4.5833, -75.0000, Hyi},
+X    {6.5833, 9.0333, -75.0000, Vol},
+X    {9.0333, 11.2500, -75.0000, Car},
+X    {11.2500, 13.6667, -75.0000, Mus},
+X    {18.0000, 21.3333, -75.0000, Pav},
+X    {21.3333, 23.3333, -75.0000, Ind},
+X    {23.3333, 24.0000, -75.0000, Tuc},
+X    {0.7500, 1.3333, -76.0000, Tuc},
+X    {0.0000, 3.5000, -82.5000, Hyi},
+X    {7.6667, 13.6667, -82.5000, Cha},
+X    {13.6667, 18.0000, -82.5000, Aps},
+X    {3.5000, 7.6667, -85.0000, Men},
+X    {0.0000, 24.0000, -90.0000, Oct},
+X    {0.0000, 24.0000, -90.0000, ""}
+X};
+X
+X/* given ra and dec (in rads) precessed to epoch e (an mjd)
+X * point *name to a string naming the constellation at that location.
+X */
+Xstatic
+Xconfnd(r, d, e, name)
+Xdouble r, d, e;
+Xchar **name;
+X{
+X	double ra1875, de1875, mjd1875;
+X	int i;
+X
+X	cal_mjd (1, 1.0, 1875, &mjd1875);
+X	precess (e, mjd1875, &r, &d);
+X	    
+X	/* find constellation such that the declination entered is higher than
+X	 * the lower boundary of the constellation when the upper and lower
+X	 * right ascensions for the constellation bound the entered right
+X	 * ascension
+X	 */
+X	i = 0;
+X	ra1875 = radhr (r);
+X	de1875 = raddeg (d);
+X	while ((con_data[i].l_dec > de1875 || con_data[i].u_ra <= ra1875
+X		     || con_data[i].l_ra > ra1875) && con_data[i].cons[0])
+X	     i++;
+X
+X	*name = con_data[i].cons[0] ? con_data[i].cons : "<No constellation?!>";
+X}
+END_OF_FILE
+  if test 20370 -ne `wc -c <'constel.c'`; then
+    echo shar: \"'constel.c'\" unpacked with wrong size!
+  fi
+  # end of 'constel.c'
+fi
+if test -f 'sel_fld.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sel_fld.c'\"
+else
+  echo shar: Extracting \"'sel_fld.c'\" \(27884 characters\)
+  sed "s/^X//" >'sel_fld.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include "screen.h"
+X
+X/* define BANG if and only if your system supports the system() function.
+X */
+X#define	BANG
+X
+X/* table of the fields, with flags indicating which menu(s) they are on and
+X * whether pickable for changing or plotting.
+X * N.B. type must be long enough to hold 16 bits.
+X */
+Xtypedef unsigned short F_t;
+Xstatic F_t fields[] = {
+X    rcfpack (R_ALTM,	C_ALTM,		F_MMNU|F_CHG),
+X    rcfpack (R_CALLISTO,C_JMX,		F_MNUJ|F_PLT),
+X    rcfpack (R_CALLISTO,C_JMY,		F_MNUJ|F_PLT),
+X    rcfpack (R_CALLISTO,C_JMZ,		F_MNUJ|F_PLT),
+X    rcfpack (R_DAWN,	C_DAWN,		F_MMNU|F_CHG),
+X    rcfpack (R_DAWN,	C_DAWNV,	F_MMNU|F_PLT),
+X    rcfpack (R_DUSK,	C_DUSK,		F_MMNU|F_CHG),
+X    rcfpack (R_DUSK,	C_DUSKV,	F_MMNU|F_PLT),
+X    rcfpack (R_EPOCH,	C_EPOCHV,	F_MMNU|F_CHG),
+X    rcfpack (R_EUROPA,	C_JMX,		F_MNUJ|F_PLT),
+X    rcfpack (R_EUROPA,	C_JMY,		F_MNUJ|F_PLT),
+X    rcfpack (R_EUROPA,	C_JMZ,		F_MNUJ|F_PLT),
+X    rcfpack (R_GANYMEDE,C_JMX,		F_MNUJ|F_PLT),
+X    rcfpack (R_GANYMEDE,C_JMY,		F_MNUJ|F_PLT),
+X    rcfpack (R_GANYMEDE,C_JMZ,		F_MNUJ|F_PLT),
+X    rcfpack (R_HEIGHT,	C_HEIGHTV,	F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_IO,	C_JMX,		F_MNUJ|F_PLT),
+X    rcfpack (R_IO,	C_JMY,		F_MNUJ|F_PLT),
+X    rcfpack (R_IO,	C_JMZ,		F_MNUJ|F_PLT),
+X    rcfpack (R_JCML,	C_JCMLSI,	F_MNUJ|F_PLT),
+X    rcfpack (R_JCML,	C_JCMLSII,	F_MNUJ|F_PLT),
+X    rcfpack (R_JD,	C_JDV,		F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_JUPITER,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_JUPITER,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_JUPITER,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_JUPITER,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_JUPITER,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_JUPITER,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_JUPITER,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_JUPITER,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_JUPITER,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_JUPITER,	C_XTRA,		F_MNU1|F_CHG),
+X    rcfpack (R_JUPITER,	C_XTRA,		F_MNU2|F_CHG),
+X    rcfpack (R_JUPITER,	C_XTRA,		F_MNU3|F_CHG),
+X    rcfpack (R_LAT,	C_LATV,		F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_LD,	C_LD,		F_MMNU|F_PLT|F_CHG),
+X    rcfpack (R_LISTING,	C_LISTING,	F_MMNU|F_CHG),
+X    rcfpack (R_LON,	C_LON,		F_MMNU|F_CHG),
+X    rcfpack (R_LON,	C_LONV,		F_MMNU|F_PLT),
+X    rcfpack (R_LONG,	C_LONGV,	F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_LST,	C_LSTV,		F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_LT,	C_LT,		F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_MARS,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_MARS,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_MARS,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_MARS,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_MARS,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_MARS,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_MARS,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_MARS,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_MARS,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_MARS,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_MERCURY,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_MERCURY,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_MERCURY,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_MERCURY,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_MERCURY,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_MERCURY,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_MERCURY,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_MERCURY,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_MERCURY,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_MOON,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_MOON,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_MOON,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_MOON,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_MOON,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_MOON,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_MOON,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_MOON,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_MOON,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_NEPTUNE,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_NEPTUNE,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_NSTEP,	C_NSTEPV,	F_MMNU|F_CHG),
+X    rcfpack (R_OBJX,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_OBJX,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_OBJX,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_OBJX,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_OBJX,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_OBJX,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_OBJX,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJX,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_OBJX,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJX,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_OBJY,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_OBJY,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_OBJY,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_OBJY,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_OBJY,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_OBJY,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_OBJY,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_OBJY,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_OBJY,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_PAUSE,	C_PAUSEV,	F_MMNU|F_CHG),
+X    rcfpack (R_PLOT,	C_PLOT,		F_MMNU|F_CHG),
+X    rcfpack (R_PLUTO,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_PLUTO,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_PLUTO,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_PLUTO,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_PLUTO,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_PLUTO,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_PLUTO,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_PLUTO,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_PLUTO,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_PLUTO,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_PRES,	C_PRESV,	F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_SATURN,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_SATURN,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_SATURN,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_SATURN,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_SATURN,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_SATURN,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_SATURN,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_SATURN,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_SATURN,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_SATURN,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_SRCH,	C_SRCH,		F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_STPSZ,	C_STPSZV,	F_MMNU|F_CHG),
+X    rcfpack (R_SUN,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_SUN,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_SUN,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_SUN,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_SUN,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_SUN,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_SUN,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_SUN,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_SUN,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_SUN,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_TEMP,	C_TEMPV,	F_MMNU|F_CHG|F_PLT),
+X    rcfpack (R_TZN,	C_TZN,		F_MMNU|F_CHG),
+X    rcfpack (R_TZONE,	C_TZONEV,	F_MMNU|F_CHG),
+X    rcfpack (R_UD,	C_UD,		F_MMNU|F_PLT|F_CHG),
+X    rcfpack (R_URANUS,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_URANUS,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_URANUS,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_URANUS,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_URANUS,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_URANUS,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_URANUS,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_URANUS,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_URANUS,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_URANUS,	C_VENUS,	F_MNU3|F_PLT),
+X    rcfpack (R_UT,	C_UTV,		F_MMNU|F_PLT|F_CHG),
+X    rcfpack (R_VENUS,	C_ALT,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_AZ,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_CONSTEL,	F_MNU1|F_CHG),
+X    rcfpack (R_VENUS,	C_CONSTEL,	F_MNU2|F_CHG),
+X    rcfpack (R_VENUS,	C_CONSTEL,	F_MNU3|F_CHG),
+X    rcfpack (R_VENUS,	C_DEC,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_EDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_ELONG,	F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_HLAT,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_HLONG,	F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_JUPITER,	F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_MAG,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_MARS,		F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_MERCURY,	F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_MOON,		F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_NEPTUNE,	F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_OBJ,		F_MNU1|F_CHG),
+X    rcfpack (R_VENUS,	C_OBJ,		F_MNU2|F_CHG),
+X    rcfpack (R_VENUS,	C_OBJ,		F_MNU3|F_CHG),
+X    rcfpack (R_VENUS,	C_OBJX,		F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_OBJY,		F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_PHASE,	F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_PLUTO,	F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_RA,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_RISEAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_RISETM,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_SATURN,	F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_SDIST,	F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_SETAZ,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_SETTM,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_SIZE,		F_MNU1|F_PLT),
+X    rcfpack (R_VENUS,	C_SUN,		F_MNU3|F_PLT),
+X    rcfpack (R_VENUS,	C_TRANSALT,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_TRANSTM,	F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_TUP,		F_MNU2|F_PLT),
+X    rcfpack (R_VENUS,	C_URANUS,	F_MNU3|F_PLT),
+X    rcfpack (R_WATCH,	C_WATCH,	F_MMNU|F_CHG),
+X};
+X#define	NFIELDS (sizeof(fields)/sizeof(fields[0]))
+X
+X/* let op select a field by moving around and hitting RETURN or SPACE, or
+X *   until see END. also allow moving directly to frequently used fields 
+X *   with some hot-keys.
+X * only allow fields with the given flag mask.
+X * return the rcfpack()'d field, or 0 if typed END.
+X * N.B. we might also exit() entirely by calling bye() if op types QUIT.
+X */
+Xsel_fld (f, flag, prmpt, help)
+Xint f;		/* inital row, col */
+Xint flag;
+Xchar *prmpt, *help;
+X{
+X	extern void bye();
+X	int r = unpackr(f), c = unpackc(f);
+X	char *lastp;
+X	int ch;
+X
+X	lastp = 0;
+X	while (1) {
+X	    if (lastp != prmpt) {
+X		lastp = prmpt;
+X		f_prompt (lastp);
+X	    }
+X	    c_pos (r, c);
+X	    switch (ch = read_char()) {
+X	    case REDRAW:
+X		redraw_screen(2);	/* redraw all from scratch */
+X		lastp = 0;
+X		break;
+X	    case VERSION:
+X		version();
+X		lastp = 0;
+X		break;
+X	    case HELP:
+X		f_msg (help);
+X		lastp = 0;
+X		break;
+X	    case QUIT:
+X		f_prompt ("Exit ephem? (y) ");
+X		if (read_char() == 'y')
+X		    bye();	/* never returns */
+X		lastp = 0;
+X		break;
+X#ifdef BANG
+X	    case '!': {
+X		char buf[NC];
+X		f_prompt ("!");
+X		if (read_line (buf, sizeof(buf)-2) > 0) {
+X		    c_erase();
+X		    byetty();
+X		    (void) system (buf);
+X		    printf ("\nHit any key to resume ephem...");
+X		    (void) read_char();
+X		    redraw_screen(2);	/* redraw all from scratch */
+X		}
+X		lastp = 0;
+X		}
+X		break;
+X#endif
+X	    case END:
+X		return (0);
+X	    case '\r': case ' ':
+X		return (rcfpack (r, c, 0));
+X	    default:
+X		move_cur (ch, flag, &r, &c);
+X		break;
+X	    }
+X	}
+X}
+X
+X/* move cursor to next field in given direction: hjkl, or directly to a
+X * field, and set *rp and *cp.
+X * limit eligible fields to those with given flag mask.
+X */
+Xstatic
+Xmove_cur (dirchar, flag, rp, cp)
+Xchar dirchar;
+Xint flag;
+Xint *rp, *cp;
+X{
+X	int curr = *rp, curc = *cp;
+X	F_t f, newf, *fp;
+X	int d, newd;
+X
+X    wrapped:
+X	newf = 0;
+X	newd = 1000;
+X
+X	switch (dirchar) {
+X	case 'h': /* left */
+X	    /* go to next field to the left, or wrap.  */
+X	    for (fp = fields+NFIELDS; --fp >= fields; ) {
+X		f = *fp;
+X		if (tstpackf(f,flag) && unpackr(f) == curr) {
+X		    d = curc - unpackc(f);
+X		    if (d > 0 && d < newd) {
+X			newf = f;
+X			newd = d;
+X		    }
+X		}
+X	    }
+X	    if (!newf) {
+X		curc = NC;
+X		goto wrapped;
+X	    }
+X	    break;
+X
+X	case 'j': /* down */
+X	    /* go to closest field on next row down with anything on it,
+X	     * or wrap.
+X	     */
+X	    for (fp = fields+NFIELDS; --fp >= fields; ) {
+X		f = *fp;
+X		if (tstpackf(f,flag)) {
+X		    d = unpackr(f) - curr;
+X		    if (d > 0 && d < newd) {
+X			newf = f;
+X			newd = d;
+X		    }
+X		}
+X	    }
+X	    if (newf) {
+X		/* now find the field closest to current col on that row */
+X		newf = nearestfld (unpackr(newf), curc, flag);
+X	    } else {
+X		curr = 0;
+X		goto wrapped;
+X	    }
+X	    break;
+X
+X	case 'k': /* up */
+X	    /* go to closest field on next row up with anything on it, 
+X	     * or wrap.
+X	     */
+X	    for (fp = fields+NFIELDS; --fp >= fields; ) {
+X		f = *fp;
+X		if (tstpackf(f,flag)) {
+X		    d = curr - unpackr(f);
+X		    if (d > 0 && d < newd) {
+X			newf = f;
+X			newd = d;
+X		    }
+X		}
+X	    }
+X	    if (newf) {
+X		/* now find the field closest to current col on that row */
+X		newf = nearestfld (unpackr(newf), curc, flag);
+X	    } else {
+X		curr = NR+1;
+X		goto wrapped;
+X	    }
+X	    break;
+X
+X	case 'l': /* right */
+X	    /* go to next field to the right, or wrap.  */
+X	    for (fp = fields+NFIELDS; --fp >= fields; ) {
+X		f = *fp;
+X		if (tstpackf(f,flag) && unpackr(f) == curr) {
+X		    d = unpackc(f) - curc;
+X		    if (d > 0 && d < newd) {
+X			newf = f;
+X			newd = d;
+X		    }
+X		}
+X	    }
+X	    if (!newf) {
+X		curc = 0;
+X		goto wrapped;
+X	    }
+X	    break;
+X
+X	/* handy shorthands directly to a given spot.
+X	 * calling nearestfld() automatically allows for which menu
+X	 *   is up now and what is pickable. you can use rcfpack()
+X	 *   directly for top half fields that are always up.
+X	 * N.B. using nearestfld() can be too aggressive. it will try
+X	 *   other fields entirely if one you intend is not eligible.
+X	 */
+X	case 'S': newf = nearestfld (R_SUN, C_OBJ, flag); break;
+X	case 'M': newf = nearestfld (R_MOON, C_OBJ, flag); break;
+X	case 'e': newf = nearestfld (R_MERCURY, C_OBJ, flag); break;
+X	case 'v': newf = nearestfld (R_VENUS, C_OBJ, flag); break;
+X	case 'm': newf = nearestfld (R_MARS, C_OBJ, flag); break;
+X	case 'J': newf = nearestfld (R_JUPITER, C_OBJ, flag); break;
+X	case 's': newf = nearestfld (R_SATURN, C_OBJ, flag); break;
+X	case 'u': newf = nearestfld (R_URANUS, C_OBJ, flag); break;
+X	case 'n': newf = nearestfld (R_NEPTUNE, C_OBJ, flag); break;
+X	case 'p': newf = nearestfld (R_PLUTO, C_OBJ, flag); break;
+X	case 'x': newf = nearestfld (R_OBJX, C_OBJ, flag); break;
+X	case 'y': newf = nearestfld (R_OBJY, C_OBJ, flag); break;
+X	case 'c': newf = nearestfld (R_ALTM, C_ALTM, flag); break;
+X	case 'd': newf = nearestfld (R_UD, C_UD, flag); break;
+X	case 'o': newf = nearestfld (R_EPOCH, C_EPOCHV, flag); break;
+X	case 'z': newf = nearestfld (R_STPSZ, C_STPSZV, flag); break;
+X	case 'w': newf = nearestfld (R_WATCH, C_WATCH, flag); break;
+X	case 'L': newf = nearestfld (R_LISTING, C_LISTING, flag); break;
+X	}
+X
+X	if (newf) {
+X	    *rp = unpackr(newf);
+X	    *cp = unpackc(newf);
+X	}
+X}
+X
+X/* return the nearest field with given flag mask, either way, on this row,
+X * else 0 if none.
+X */
+Xstatic int
+Xnearestfld (r, c, flag)
+Xint r, c, flag;
+X{
+X	F_t nf, f, *fp;
+X	int d, d0;
+X
+X	nf = 0;
+X	d0 = 1000;
+X
+X	for (fp = fields+NFIELDS; --fp >= fields; ) {
+X	    f = *fp;
+X	    if (tstpackf(f,flag) && unpackr(f) == r) {
+X		d = abs(c - unpackc(f));
+X		if (d < d0) {
+X		    nf = f;
+X		    d0 = d;
+X		}
+X	    }
+X	}
+X	return (nf);
+X}
+END_OF_FILE
+  if test 27884 -ne `wc -c <'sel_fld.c'`; then
+    echo shar: \"'sel_fld.c'\" unpacked with wrong size!
+  fi
+  # end of 'sel_fld.c'
+fi
+echo shar: End of archive 4 \(of 9\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

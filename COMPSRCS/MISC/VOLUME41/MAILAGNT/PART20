@@ -1,0 +1,1612 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i020:  mailagent - Flexible mail filtering and processing package, v3.0, Part20/26
+Message-ID: <1993Dec3.213440.22851@sparky.sterling.com>
+X-Md4-Signature: d8128968ad9b751a305fb0f11d1eb027
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Fri, 3 Dec 1993 21:34:40 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 20
+Archive-name: mailagent/part20
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Changes agent/files/chkagent.sh agent/man/package.SH
+#   agent/pl/acs_rqst.pl agent/pl/context.pl agent/pl/distribs.pl
+#   agent/pl/dynload.pl agent/pl/history.pl agent/pl/mbox.pl
+#   agent/pl/pqueue.pl agent/pl/secure.pl agent/test/README
+#   agent/test/basic/config.t agent/test/filter/hook.t
+#   agent/test/misc/usrmac.t
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:57 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 20 (of 26)."'
+if test -f 'Changes' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Changes'\"
+else
+  echo shar: Extracting \"'Changes'\" \(2765 characters\)
+  sed "s/^X//" >'Changes' <<'END_OF_FILE'
+XThis file shortly documents the new features appearing in mailagent 3.0
+Xcompared to mailagent 2.9 PL19. For more details, please refer to the manual
+Xpage [yes, it's getting bigger and bigger, sorry].
+X
+X. Mailhook disappears. Folder hooks are now handled without the need for an
+X  extra process.
+X
+X. NOTIFY now takes its FIRST argument to indicate the message file,
+X  instead of its LAST as in the 2.9 release. This change in order to make
+X  it compatible with MESSAGE.
+X
+X. Mailagent secure configuration checks. Impossible to use mailagent if the
+X  ~/.mailagent file or the rule file are not correctly protected.
+X
+X. Dynamic loading interface (dynload.pl) available for perl commands.
+X
+X. Added a generic command server. Mailagent provides the server engine and
+X  users write their own commands, with special provision for perl scripts
+X  which can be directly loaded and executed within mailagent itself.
+X
+X. User-defined macro support %-(x) and perl interface.
+X
+X. New APPLY, REQUIRE, SERVER, MACRO commands.
+X
+X. Support for rule caching. This avoids recompiling large rule files at every
+X  mailagent run, but speed has never never been a main concern in this program
+X  anyway.
+X
+X. Negated mode support <!MODE>. Rule is not executed if in the specified
+X  negated mode. This supersedes normal modes, i.e. <MODE, !MODE> is never
+X  executed.
+X
+X. Can now configure sendmail process and inews, with options, from ~/.mailagent.
+X  If your sendmail behaves strangely or want to have interactive delivery
+X  instead of queuing, this is the place to look at.
+X
+X. New usr_log facility, enabling user-defined logfiles. Available for your
+X  own commands and used internally by mailagent.
+X
+X. Saving operations now check on the size of the produced folder for NFS.
+X
+X. Can now access ~/.mailagent config params via %=var
+X
+X. Fixed bug in agent queue parsing. This happened mainly on SUN systems, and
+X  was apparently a perl fileglob bug (or is it a /bin/csh bug?). Anyway, I
+X  now use readdir() to access the queue, which suppresses forking of an extra
+X  process.
+X
+X. Improved RFC822 address parsing. Now understands group names as login names.
+X
+X. Output for mailagent -d formatted differently.
+X
+X. Selector range Body <1,4>: available. This example selects body lines 1 to
+X  4 (inclusive) for matching.
+X
+X. Can now deliver to MH folders (without the need for an extra process). Use
+X  'SAVE +foo' to deliver to the MH folder foo. Unseen sequences specified in
+X  your ~/.mh_profile are correctly updated.
+X
+X. Minimal support for directory hooks (only behaves like MH folders currently).
+X
+X. New @SH package command for dist-3.0 MailAuthor.U support. That metaconfig
+X  units sends a mail in specific format to record users of some package, and
+X  the package command is there to automate the process.
+END_OF_FILE
+  if test 2765 -ne `wc -c <'Changes'`; then
+    echo shar: \"'Changes'\" unpacked with wrong size!
+  fi
+  # end of 'Changes'
+fi
+if test -f 'agent/files/chkagent.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/chkagent.sh'\"
+else
+  echo shar: Extracting \"'agent/files/chkagent.sh'\" \(2504 characters\)
+  sed "s/^X//" >'agent/files/chkagent.sh' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X# $Id: chkagent.sh,v 3.0 1993/11/29 13:47:49 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: chkagent.sh,v $
+X# Revision 3.0  1993/11/29  13:47:49  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+X# Make sure the mailagent is working well
+Xlookat='ERROR|FAILED|WARNING|FATAL|DUMPED'
+X
+Xtrap "rm -f $report $output $todaylog $msg" 1 2 3 15
+X
+X# Interpret the ~/.mailagent configuration file
+Xset X `<$HOME/.mailagent sed -n \
+X	-e '/^[ 	]*#/d' \
+X	-e 's/[ 	]*#/#/' \
+X	-e 's/^[ 	]*\([^ 	:\/]*\)[ 	]*:[ 	]*\([^#]*\).*/\1="\2";/p'`
+Xshift
+X
+X# Deal with possible white spaces in variables and ~ substitution
+Xcmd=''
+Xfor line in $*; do
+X	cmd="$cmd$line"
+Xdone
+Xcmd=`echo $cmd | sed -e "s|~|$HOME|g"`
+Xeval $cmd
+X
+X# Compute location of report file and log file
+Xreport="/tmp/cAg$$"
+Xoutput="/tmp/cAo$$"
+Xlogfile="$logdir/$log"
+Xtodaylog="/tmp/tAg$$"
+X
+X# Current date format to look for in logfile
+Xtoday=`date "+%y/%m/%d"`
+X
+Xif test -f "$logfile"; then
+X	grep "$today" $logfile > $todaylog
+X	egrep ": ($lookat)" $todaylog > $output
+X	if test -s "$output"; then
+X		echo "*** Errors from logfile ($logfile):" > $report
+X		echo " " >> $report
+X		cat $output >> $report
+X	fi
+X	rm -f $todaylog $output
+Xelse
+X	echo "Cannot find $logfile" > $report
+Xfi
+X
+X# ~/.bak is the output from .forward
+Xif test -s "$HOME/.bak"; then
+X	echo " " >> $report
+X	echo "*** Errors from ~/.bak:" >> $report
+X	echo " " >> $report
+X	cat $HOME/.bak >> $report
+X	cp /dev/null $HOME/.bak
+Xfi
+X
+X# Look for mails in the emergency directory
+Xls -C $emergdir > $output
+Xif test -s "$output"; then
+X	echo " " >> $report
+X	echo "*** Mails held in lost+mail ($emergdir):" >> $report
+X	echo " " >> $report
+X	cat $output >> $report
+Xfi
+Xrm -f $output
+X
+X# Spot any unprocessed mails in the queue
+Xcd $queue
+Xls -C qm* fm* > $output 2>/dev/null
+Xif test -s "$output"; then
+X	echo " " >> $report
+X	echo "*** Unprocessed mails in queue ($queue):" >> $report
+X	echo " " >> $report
+X	cat $output >> $report
+Xfi
+Xrm -f $output
+X
+Xif test -s "$report"; then
+X	msg="/tmp/mAg$$"
+X	cat >$msg <<EOM
+XTo: $user
+XSubject: Errors from mailagent system
+X
+XEOM
+X	cat $report >>$msg
+X	rm -f $report
+X	/usr/lib/sendmail -odi -t <$msg
+X	rm -f $msg
+Xelse
+X	rm -f $report
+Xfi
+X
+Xexit 0
+END_OF_FILE
+  if test 2504 -ne `wc -c <'agent/files/chkagent.sh'`; then
+    echo shar: \"'agent/files/chkagent.sh'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/files/chkagent.sh'
+  # end of 'agent/files/chkagent.sh'
+fi
+if test -f 'agent/man/package.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/man/package.SH'\"
+else
+  echo shar: Extracting \"'agent/man/package.SH'\" \(3534 characters\)
+  sed "s/^X//" >'agent/man/package.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/man/package.$manext (with variable substitutions)"
+X$rm -f package.$manext
+X$spitshell >package.$manext <<!GROK!THIS!
+X.TH PACKAGE $manext
+X''' @(#) Manual page for mailagent's package command
+X'''
+X''' $Id: package.SH,v 3.0 1993/11/29 13:48:31 ram Exp ram $
+X'''
+X'''  Copyright (c) 1990-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic License,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic License; a copy of which may be found at the root
+X'''  of the source tree for mailagent 3.0.
+X'''
+X'''  Original Author: Graham Stoney, 1993
+X'''
+X''' $Log: package.SH,v $
+X''' Revision 3.0  1993/11/29  13:48:31  ram
+X''' Baseline for mailagent 3.0 netwide release.
+X'''
+X''' 
+X.SH NAME
+Xpackage \- register package user via mailagent
+X.SH SYNOPSIS
+Xpackage\fR \fIaddress\fR \fIsystem\fR \fIversion\fR \fIpatchlevel\fR
+X[ mailpatches | notifypatches ]
+X.SH DESCRIPTION
+XThis command is not intended to be run directly by a user, but may
+Xappear in any mail whose subject is set to \fICommand\fR. Such mail
+Xwill be processed by the \fImailagent\fR(1), which will extract all lines
+Xbeginning with \fI@SH\fR, which may specify this command. The
+Xmailagent first sets environment variables that will be used by the
+Xcommand.
+X.PP
+X.I Package
+Xis used to notify the author of a package about its users.
+XIt is normally generated automatically by the MailAuthor.U unit when the user
+Xruns
+X.IR Configure .
+X.PP
+XIf the
+X.I patchlevel
+Xspecified is not the latest for that
+X.I system
+Xand
+X.IR version ,
+Xmail is immediately sent suggesting that they upgrade and remindng them how to
+Xrequest the latest patches.
+X.PP
+XThe final parameter, if included may be set to
+X.I mailpatches
+Xto specify that the user would like to have future patches mailed to them, or
+X.I notifypatches
+Xto specify that a mail notification of future patches should be sent, rather
+Xthan the entire patch.
+X.PP
+XThe user's
+X.I address
+Xand notification request are saved in the file
+X.I users
+Xin the package's directory.
+X.SH FILES
+X.PD 0
+X.TP 20
+X~/.mailagent
+Xconfiguration file for mailagent.
+X.TP
+XSystem/users
+Xlist of users of that system.
+X.IP
+XThis file consists of single line records, one for each registered user.
+XEach record consists of three tab-separated fields.
+X.sp
+XThe first field indicates
+Xthe level of updates requested by the user by a single letter as follows:
+X.RS
+X.TP
+X.B M
+XMail future patches directly to the user when they are issued.
+X.TP
+X.B N
+XNotify the user of future patches.
+X.TP
+X.B U
+XThe users chose to let the author know that they have tried the program, but
+Xdoes not wish to know about future updates.
+X.TP
+X.B L
+XThe user is no longer interested in the program and wants to be left alone.
+X.RE
+X.sp
+X.IP
+XThe second field is their last notified patch level, or a dash
+X.RB ( - )
+Xif it is not known.
+X.sp
+X.IP
+XThe third field is the user's Email address.
+X.TP
+XLog/agentlog
+Xmailagent's log file
+X.PD
+X.SH AUTHOR
+XGraham Stoney <greyham@research.canon.oz.au>
+X.SH "SEE ALSO"
+Xmailagent($manext), metaconfig($manext).
+X!GROK!THIS!
+Xchmod 444 package.$manext
+END_OF_FILE
+  if test 3534 -ne `wc -c <'agent/man/package.SH'`; then
+    echo shar: \"'agent/man/package.SH'\" unpacked with wrong size!
+  fi
+  # end of 'agent/man/package.SH'
+fi
+if test -f 'agent/pl/acs_rqst.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/acs_rqst.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/acs_rqst.pl'\" \(3325 characters\)
+  sed "s/^X//" >'agent/pl/acs_rqst.pl' <<'END_OF_FILE'
+X;# $Id: acs_rqst.pl,v 3.0 1993/11/29 13:48:32 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: acs_rqst.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:32  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# The basic file locking scheme implemented here by acs_rqst is not completely
+X;# suitable with NFS if multiple mailagent can run, since they could have the
+X;# same PID on different machine and both think they got a lock. To make this
+X;# work with NFS, the ~/.mailagent config file must have the 'nfslock' variable
+X;# set to 'YES', which will cause the mailagent to include hostname informations
+X;# in the lock file.
+X;#
+X;# The traditional NFS scheme of having a `hostname`.pid file linked to .lock
+X;# (since the linking operation remains atomic even with NFS) does not seem
+X;# suitable here, since I want to be able to recover from crashes, and detect
+X;# out-of-date locks. Therefore, I must be able to know what is the name of the
+X;# lock file. The link/unlink trick could leave some temporary files around.
+X;# Since write on disks are atomic anyway, only one process can conceivably
+X;# obtain a lock with my scheme.
+X;#
+X;# The NFS-secure lock is made optional because, in order to get the hostname,
+X;# perl must fork to exec an appropriate program. This added overhead might not
+X;# be necessary in all the situations.
+X;#
+X# Asks for the exclusive access of a file. The config variable 'nfslock'
+X# determines whether the locking scheme has to be NFS-secure or not.
+X# The given parameter (let's say F) is the absolute path of the file we want
+X# to access. The routine checks for the presence of F.lock. If it exists, it
+X# sleeps 2 seconds and tries again. After 10 trys, it reports failure by
+X# returning -1. Otherwise, file F.lock is created and the pid of the current
+X# process is written. It is checked afterwards.
+Xsub acs_rqst {
+X	local($file) = @_;	# file to be locked
+X	local($max) = 30;	# max number of attempts
+X	local($delay) = 2;	# seconds to wait between attempts
+X	local($mask);		# to save old umask
+X	local($stamp);		# string written in lock file
+X	&checklock($file);	# avoid long-lasting locks
+X	if ($cf'nfslock =~ /on/i) {			# NFS-secure lock wanted
+X		$stamp = "$$" . &hostname;		# use PID and hostname
+X	} else {
+X		$stamp = "$$";					# use PID only (may spare a fork)
+X	}
+X	local($lockfile) = $file . $lockext;
+X	while ($max) {
+X		$max--;
+X		if (-f $lockfile) {
+X			sleep($delay);				# busy: wait
+X			next;
+X		}
+X		# Attempt to create lock
+X		$mask = umask(0333);			# no write permission
+X		if (open(FILE, ">$lockfile")) {
+X			print FILE "$stamp\n";		# write locking stamp
+X			close FILE;
+X			umask($mask);				# restore old umask
+X			# Check lock
+X			open(FILE, $lockfile);
+X			chop($_ = <FILE>);			# read contents
+X			close FILE;
+X			last if $_ eq $stamp;		# lock is ok
+X		} else {
+X			umask($mask);				# restore old umask
+X			sleep($delay);				# busy: wait
+X		}
+X	}
+X	if ($max) {
+X		$result = 0;	# ok
+X	} else {
+X		$result = -1;	# could not lock
+X	}
+X	$result;			# return status
+X}
+X
+END_OF_FILE
+  if test 3325 -ne `wc -c <'agent/pl/acs_rqst.pl'`; then
+    echo shar: \"'agent/pl/acs_rqst.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/acs_rqst.pl'
+fi
+if test -f 'agent/pl/context.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/context.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/context.pl'\" \(3590 characters\)
+  sed "s/^X//" >'agent/pl/context.pl' <<'END_OF_FILE'
+X;# $Id: context.pl,v 3.0 1993/11/29 13:48:38 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: context.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:38  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# Keep track of the mailagent's context, in particular all the actions which
+X;# may be performed in a batched way and need to save some contextual data.
+X;#
+Xpackage context;
+X
+X#
+X# General handling
+X#
+X
+X# Initialize context from context file
+Xsub init {
+X	&default;						# Load a default context
+X	return unless -f $cf'context;	# Finished if no saved context
+X	&load;							# Load context, overwriting default context
+X	&clean;							# Remove uneeded entries from context
+X}
+X
+X# Provide a default context
+Xsub default {
+X	%Context = (
+X		'last-clean', '0',			# Last cleaning of hash files
+X	);
+X}
+X
+X# Load the context entries
+Xsub load {
+X	unless(open(CONTEXT, "$cf'context")) {
+X		&'add_log("WARNING unable to open context file: $!") if $'loglvl > 5;
+X		return;
+X	}
+X	&'add_log("loading mailagent context") if $'loglvl > 15;
+X	local($_, $.);
+X	while (<CONTEXT>) {
+X		next if /^\s*#/;
+X		if (/^([\w\-]+)\s*:\s*(\S+)/) {
+X			$Context{$1} = $2;
+X			next;
+X		}
+X		&'add_log("WARNING context file corrupted, line $.") if $'loglvl > 5;
+X		last;
+X	}
+X	close CONTEXT;
+X}
+X
+X# Clean context, removing useless entries
+Xsub clean {
+X	delete $Context{'last-clean'} unless $cf'autoclean =~ /^on/i;
+X}
+X
+X# Save a new context file
+Xsub save {
+X	require 'ctime.pl';
+X	local($existed) = -f $cf'context;
+X	&'acs_rqst($cf'context) if $existed;	# Lock existing file
+X	unless (open(CONTEXT, ">$cf'context")) {
+X		&'add_log("ERROR cannot overwrite context file: $!") if $'loglvl > 1;
+X		return;
+X	}
+X	&'add_log("saving context file $cf'context") if $'loglvl > 17;
+X	local($key, $value, $item);
+X	print CONTEXT "# Mailagent context, last updated " . &'ctime(time);
+X	while (($key, $value) = each %Context) {
+X		next unless $value;
+X		$item++;
+X		print CONTEXT $key, ': ', $value, "\n";
+X	}
+X	close CONTEXT;
+X	unlink "$cf'context" unless $item;		# Do not leave empty context
+X	&'add_log("deleted empty context") if $'loglvl > 17 && !$item;
+X	&'free_file($cf'context) if $existed;
+X}
+X
+X#
+X# Context-dependant actions
+X#
+X
+X# Remove entries in dbr hash files which are old enough. For this operation
+X# to be performed, the autoclean variable must be set to ON in ~/.mailagent,
+X# the cleanlaps indicates the period for those automatic cleanings, and agemax
+X# specifies the maximum allowed time within the database.
+Xsub autoclean {
+X	return unless $cf'autoclean =~ /^on/i;
+X	local($period) = &'seconds_in_period($cf'cleanlaps);
+X	return if ($Context{'last-clean'} + $period) > time;
+X	# Retry time reached -- start auto cleaning
+X	&'add_log("autocleaning of dbr files") if $'loglvl > 8;
+X	$period = &'seconds_in_period($cf'agemax);
+X	&dbr'clean($period);
+X	$Context{'last-clean'} = time;			# Update last cleaning time
+X}
+X
+X#
+X# Perform all contextual actions
+X#
+X
+X# Run all the contextual actions, each action returning if not needed or if
+X# the retry time was not reached. This routine is the main entry point in
+X# the package, and is the only one called from the outside world.
+Xsub main'contextual_operations {
+X	&init;					# Initialize context
+X	&autoclean;				# Clean dbr hash files
+X	&save;					# Save new context
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 3590 -ne `wc -c <'agent/pl/context.pl'`; then
+    echo shar: \"'agent/pl/context.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/context.pl'
+fi
+if test -f 'agent/pl/distribs.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/distribs.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/distribs.pl'\" \(3366 characters\)
+  sed "s/^X//" >'agent/pl/distribs.pl' <<'END_OF_FILE'
+X;# $Id: distribs.pl,v 3.0 1993/11/29 13:48:40 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: distribs.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:40  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# This file relies on the following external conditions:
+X;#    - operation &fatal() available for fatal errors
+X;#    - the configuration variables are properly set
+X;#    - logging is done via &add_log()
+X;#
+X# Read a distribution file and fill in data structures for
+X# the query functions. All the data are stored in associative
+X# arrays, indexed by the system's name and version number.
+X# Associative arrays are:
+X#
+X# name          indexed by       information
+X#
+X# %Program      name + version   have we seen that line ?
+X# %System       name             is name a valid system ?
+X# %Version      name             latest version for system
+X# %Location		name + version   location of the distribution
+X# %Archived     name + version   is distribution archived ?
+X# %Compressed   name + version   is archive compressed ?
+X# %Patch_only   name + version   true if only patches delivered
+X# %Maintained   name + version   true if distribution is maintained
+X# %Patches      name + version   true if official patches available
+X#
+X# For systems with a version of '---' in the file, the version
+X# for accessing the data has to be a "0" string.
+X#
+X# Expected format for the distribution file:
+X#     system version location archive compress patches
+X#
+X# The `archive', `compress' and `patches' fields can take one
+X# of the following states: "yes" and "no". An additional state
+X# for `patches' is "old", which means that only patches are
+X# available for the version, and not the distribution. Another is
+X# "patch" which means that official patches are available.
+X# All these states can be abbreviated with the first letter.
+X#
+Xsub read_dist {
+X	local($fullname);
+X	open(DIST, "$cf'distlist") ||
+X		&fatal("cannot open distribution file");
+X	while (<DIST>) {
+X		next if /^\s*#/;	# skip comments
+X		next if /^\s*$/;	# skip empty lines
+X		next unless s/^\s*(\w+)\s+([.\-0-9]+)//;
+X		$fullname = $1 . "|" . ($2 eq '---'? "0" : $2);
+X		if (defined $Program{$fullname}) {
+X			&add_log("WARNING duplicate distlist entry $1 $2 ignored")
+X				if $loglvl > 5;
+X			next;
+X		}
+X		$Program{$fullname}++;
+X		$Version{$1} = ($2 eq '---' ? "0" : $2) unless
+X			defined($System{$1}) && $Version{$1} > ($2 eq '---' ? "0":$2);
+X		$System{$1}++;
+X		unless (/^\s*(\S+)\s+(\w+)\s+(\w+)\s+(\w+)/) {
+X			&add_log("WARNING bad system description line $.")
+X				if $loglvl > 5;
+X			next;	# Ignore, but it may corrupt further processing
+X		}
+X		local($location) = $1;
+X		local($archive) = $2;
+X		local($compress) = $3;
+X		local($patch) = $4;
+X		$location =~ s/~\//$cf'home\//;		# ~ expansion
+X		$Location{$fullname} = $location;
+X		$Archived{$fullname}++ if $archive =~ /^y/;
+X		$Compressed{$fullname}++ if $compress =~ /^y/;
+X		$Patch_only{$fullname}++ if $patch =~ /^o/;
+X		$Maintained{$fullname}++ if $patch =~ /^y|o/;
+X		$Patches{$fullname}++ if $patch =~ /^p/;
+X	}
+X	close DIST;
+X}
+X
+END_OF_FILE
+  if test 3366 -ne `wc -c <'agent/pl/distribs.pl'`; then
+    echo shar: \"'agent/pl/distribs.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/distribs.pl'
+fi
+if test -f 'agent/pl/dynload.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/dynload.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/dynload.pl'\" \(3176 characters\)
+  sed "s/^X//" >'agent/pl/dynload.pl' <<'END_OF_FILE'
+X;# $Id: dynload.pl,v 3.0 1993/11/29 13:48:40 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: dynload.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:40  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# Dynamic loading of a file into a given package, with a few extra features,
+X;# like having the private mailagent lib prepended automatically to the @INC
+X;# array. The %Loaded array records the files which have already been loaded
+X;# so that we do not load the same file twice. The key records the package
+X;# name and then the file, separated by a ':'.
+X#
+X# Load function into package
+X#
+X
+Xpackage dynload;
+X
+X# Load function within a package and returns undef if the package cannot be
+X# loaded, 0 if the file was loaded but contained some syntax error and 1 if
+X# loading was successful. If the function parameter is also specified, then
+X# the file is supposed to define that function, so we make sure it is so.
+Xsub load {
+X	local($package, $file, $function) = @_;
+X	local($key) = "$package:$file";
+X	unless ($Loaded{$key}) {					# No reading attempt made yet
+X		local($res) = &parse($package, $file);	# Load and parse file
+X		$Loaded{$key} = 0;						# Mark loading attempt
+X		unless (defined($res) && $res) {		# Error
+X			return defined($res) ? $res : undef;
+X		}
+X	}
+X
+X	if (defined $function) {	# File supposed to have defined a function
+X		# Make sure the function is defined by eval'ing a small script in the
+X		# context of the package where the file was loaded. Indeed, the package
+X		# name is implicit and defaults to that loading package.
+X		local($defined);
+X		eval("package $package; \$dynload'defined = 1 if defined &$function");
+X		unless ($defined) {
+X			&'add_log("ERROR script $file did not provide &$function")
+X				if $'loglvl;
+X			return 0;			# Definition failed
+X		}
+X	}
+X
+X	$Loaded{$key} = 1;			# Mark and propagate success
+X}
+X
+X# Load file into memory and parse it. Returns undef if file cannot be loaded,
+X# 0 on parsing error and 1 if ok.
+Xsub parse {
+X	local($package, $file) = @_;
+X	unless (open(PERL, $file)) {
+X		&'add_log("SYSERR open: $!") if $'loglvl;
+X		&'add_log("ERROR cannot load $file into $package") if $'loglvl;
+X		return undef;		# Cannot load file
+X	}
+X	local($body) = ' ' x (-s PERL);		# Pre-extend variable
+X	{
+X		local($/) = undef;				# Slurp the whole thing
+X		$body = <PERL>;					# Load into memory
+X	}
+X	close PERL;
+X	local(@saved) = @INC;				# Save perl INC path (might change)
+X	unshift(@INC, $'privlib);			# Required files first searched there
+X	eval "package $package;" . $body;	# Eval code into memory
+X	@INC = @saved;						# Restore original require search path
+X	$Loaded{$key} = 0;					# Be conservative and assume error...
+X
+X	if (chop($@)) {				# Script has an error
+X		&'add_log("ERROR in $file: $@") if $'loglvl;
+X		$@ = '';				# Clear error
+X		return 0;				# Eval failed
+X	}
+X	1;		# Ok so far
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 3176 -ne `wc -c <'agent/pl/dynload.pl'`; then
+    echo shar: \"'agent/pl/dynload.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/dynload.pl'
+fi
+if test -f 'agent/pl/history.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/history.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/history.pl'\" \(2514 characters\)
+  sed "s/^X//" >'agent/pl/history.pl' <<'END_OF_FILE'
+X;# $Id: history.pl,v 3.0 1993/11/29 13:48:50 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: history.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:50  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# Handle the message history mechanism, which is used to reject duplicates.
+X;# Each message-id tag is stored in a file, along with a time-stamp (to enable
+X;# its removal after a given period.
+X;#
+X# Record the message ID of the current message and return 0 if the
+X# message was recorded for the first time or if there is no valid message ID.
+X# Return 1 if the message was already recorded, and hence was already seen.
+Xsub history_record {
+X	local($msg_id) = $Header{'Message-Id'};		# Message-ID header
+X
+X	# If there is no message ID, use the concatenation of date + from fields.
+X	if ($msg_id) {
+X		# Keep only the ID stored within <> brackets
+X		($msg_id) = $msg_id =~ m|^<(.*)>\s*$|;
+X	} else {
+X		# Use date + from iff there is a date. We cannot use the from field
+X		# alone, obviously!! We also have to ensure there is an '@' in the
+X		# message id, which is the case unless the address is in uucp form.
+X		$msg_id = $Header{'Date'};
+X		local($from, $comment) = &parse_address($Header{'From'});
+X		$from =~ s/^([\w-.]+)!([\w-.]+)/@$1:$2/;	# host!user -> @host:user
+X		$msg_id .= '.' . $from if $msg_id;
+X	}
+X	$msg_id =~ s/\s+/./g;			# Suppress all spaces
+X	$msg_id =~ s/\(a\)/@/;			# X-400 gateways sometimes use (a) for @
+X	return 0 unless $msg_id;		# Cannot record message without an ID
+X
+X	# Hashing of the message ID is done based on the two first letters of
+X	# the host name (assuming message ID has the form whatever@host).
+X	local($stamp, $host) = $msg_id =~ m|^(.*)@([.\w]+)|;
+X	unless ($stamp) {
+X		&add_log("WARNING incorrect message ID <$msg_id>") if $loglvl > 5;
+X		return 0;					# Cannot record message if invalid ID
+X	}
+X
+X	local($time, $line) = &dbr'info($host, 'HISTORY', $stamp);
+X	return 0 if $time == -1;				# An error occurred
+X	if ($time > 0) {						# Message already recorded
+X		&add_log("history duplicate <$msg_id>") if $loglvl > 6;
+X		return 1;
+X	}
+X	&dbr'update($host, 'HISTORY', 0, $stamp);	# Record message (appending)
+X	0;			# First time ever seen
+X}
+X
+END_OF_FILE
+  if test 2514 -ne `wc -c <'agent/pl/history.pl'`; then
+    echo shar: \"'agent/pl/history.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/history.pl'
+fi
+if test -f 'agent/pl/mbox.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/mbox.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/mbox.pl'\" \(2971 characters\)
+  sed "s/^X//" >'agent/pl/mbox.pl' <<'END_OF_FILE'
+X;# $Id: mbox.pl,v 3.0 1993/11/29 13:49:01 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: mbox.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:01  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# This package enables the mailagent to incorporate mail from a UNIX-style
+X;# mailbox (i.e. those produced by standard mail utilities with a leading From
+X;# line stating sender and date) into the mailagent's queue. This will be
+X;# especially useful on those sites where users are not allowed to have a
+X;# .forward file. By using the -f option on the mailbox in /usr/spool/mail,
+X;# mail will be queued and filtered as if it had come from filter via .forward.
+Xpackage mbox;
+X
+X# Get mail from UNIX mailbox and queue each item
+Xsub main'mbox_mail {
+X	local($mbox) = @_;			# Where mail is stored
+X	unless (open(MBOX, "$mbox")) {
+X		&'add_log("ERROR cannot open $mbox: $!") if $'loglvl > 1;
+X		return -1;				# Failed
+X	}
+X	local(@buffer);				# Buffer used for look-ahead
+X	local(@blanks);				# Trailing blank lines are ignored
+X	local(@mail);				# Where mail is stored
+X	while (<MBOX>) {
+X		chop;
+X		if (/^\s*$/ && 0 == @buffer) {
+X			push(@blanks, $_);
+X			next;				# Remove empty lines before end of mail
+X		}
+X		if (/^From\s/) {
+X			push(@buffer, $_);
+X			next;
+X		}
+X		if (@buffer > 0) {
+X			if (/^$/) {
+X				&flush(1);		# End of header
+X				push(@mail, $_);
+X				next;
+X			}
+X			if (/^[\w\-]+:/) {
+X				$last_was_header = 1;
+X				push(@buffer, $_);
+X				next;
+X			}
+X			if (/^\s/ && $last_was_header) {
+X				push(@buffer, $_);
+X				next;
+X			}
+X			&flush(0);			# Not a header
+X			push(@mail, $_);
+X			next;
+X		}
+X		&flush_blanks;
+X		push(@mail, $_);
+X	}
+X	close MBOX;
+X	&flush(1);			# Flush mail buffer at end of file
+X	&flush_buffer;		# Maybe header was incomplete?
+X	&'add_log("WARNING incomplete last mail discarded")
+X		if $'loglvl > 5 && @mail > 0;
+X	0;					# Ok (but there might have been some queue problems)
+X}
+X
+X# Flush blanks into @mail
+Xsub flush_blanks {
+X	return unless @blanks;
+X	foreach $blank (@blanks) {
+X		push(@mail, $blank);
+X	}
+X	@blanks = ();
+X}
+X
+X# Flush look-ahead buffer into @mail
+Xsub flush_buffer {
+X	return unless @buffer;
+X	foreach $buffer (@buffer) {
+X		push(@mail, $buffer);
+X	}
+X	@buffer = ();
+X}
+X
+X# Flush mail buffer onto queue
+Xsub flush {
+X	local($was_header) = @_;	# Did we reach a new header
+X	# NB: we don't have to worry if the very first mail does not have a From
+X	# line, as qmail will add a faked one if necessary.
+X	if ($was_header && @mail > 0) {
+X		&main'qmail(*mail);
+X		@mail = ();				# Reset mail buffer
+X	}
+X	&flush_buffer;				# Fill @mail with what we got so far in @buffer
+X	@blanks = ();				# Discard trailing blanks
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 2971 -ne `wc -c <'agent/pl/mbox.pl'`; then
+    echo shar: \"'agent/pl/mbox.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/mbox.pl'
+fi
+if test -f 'agent/pl/pqueue.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/pqueue.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/pqueue.pl'\" \(3364 characters\)
+  sed "s/^X//" >'agent/pl/pqueue.pl' <<'END_OF_FILE'
+X;# $Id: pqueue.pl,v 3.0 1993/11/29 13:49:09 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: pqueue.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:09  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X# Process the queue
+Xsub pqueue {
+X	local($length);						# Length of message, in bytes
+X	undef %waiting;						# Reset waiting array
+X	local(*DIR);						# File descriptor to list the queue
+X	unless (opendir(DIR, $cf'queue)) {
+X		&add_log("ERROR unable to open $cf'queue: $!") if $loglvl;
+X		return 0;						# No file processed
+X	}
+X	local(@dir) = readdir DIR;			# Slurp the all directory contents
+X	closedir DIR;
+X
+X	# The qm files are put there by the filter and left in case of error
+X	# Only files older than 30 minutes are re-parsed (because otherwise it
+X	# might have just been queued by the filter). The fm files are normal
+X	# queued file which may be processed immediately.
+X
+X	# Prefix each file name with the queue directory path
+X	local(@files) = grep(s|^fm|$cf'queue/fm|, @dir);
+X	local(@filter_files) = grep(s|^qm|$cf'queue/qm|, @dir);
+X	undef @dir;							# Directory listing not need any longer
+X
+X	foreach $file (@filter_files) {
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X			$atime,$mtime,$ctime,$blksize,$blocks) = stat($file);
+X		if ((time - $mtime) > 1800) {
+X			# More than 30 minutes -- there must have been a failure
+X			push(@files, $file);		# Add file to the to-be-parsed list
+X		}
+X	}
+X
+X	# In $agent_wait are stored the names of the mails outside the queue
+X	# directory, waiting to be processed.
+X	if (-f "$cf'queue/$agent_wait") {
+X		if (open(WAITING, "$cf'queue/$agent_wait")) {
+X			while (<WAITING>) {
+X				chop;
+X				push(@files, $_);		# Process this file too
+X				$waiting{$_} = 1;		# Record it comes from waiting file
+X			}
+X			close WAITING;
+X		} else {
+X			&add_log("ERROR cannot open $cf'queue/$agent_wait: $!") if $loglvl;
+X		}
+X	}
+X	return 0 unless $#files >= 0;
+X
+X	&add_log("processing the whole queue") if $loglvl > 11;
+X	$processed = 0;
+X	foreach $file (@files) {
+X		&add_log("dealing with $file") if $loglvl > 19;
+X		$file_name = $file;
+X		if ($waiting{$file} && ! -f "$file") {
+X			# We may have already processed this file without having resynced
+X			# agent_wait or the file has been removed.
+X			&add_log ("WARNING could not find $file") if $loglvl > 4;
+X			$waiting{$file} = 0;	# Mark it as processed
+X			next;					# And skip it
+X		}
+X		if (0 == &analyze_mail($file_name)) {
+X			unlink $file;
+X			++$processed;
+X			$waiting{$file} = 0 if $waiting{$file};
+X			$file =~ s|.*/(.*)|$1|;	# Keep only basename
+X			$length = $Header{'Length'};
+X			&add_log("FILTERED [$file] $length bytes") if $loglvl > 4;
+X		} else {
+X			$file =~ s|.*/(.*)|$1|;	# Keep only basename
+X			&add_log("ERROR leaving [$file] in queue") if $loglvl > 0;
+X			unlink $lockfile;
+X			&resync;				# Resynchronize waiting file
+X			exit 0;					# Do not continue now
+X		}
+X	}
+X	if ($processed == 0) {
+X		&add_log("was unable to process queue") if $loglvl > 5;
+X	}
+X	&resync;			# Resynchronize waiting file
+X	$processed;			# Return the number of files processed
+X}
+X
+END_OF_FILE
+  if test 3364 -ne `wc -c <'agent/pl/pqueue.pl'`; then
+    echo shar: \"'agent/pl/pqueue.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/pqueue.pl'
+fi
+if test -f 'agent/pl/secure.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/secure.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/secure.pl'\" \(2890 characters\)
+  sed "s/^X//" >'agent/pl/secure.pl' <<'END_OF_FILE'
+X;# $Id: secure.pl,v 3.0 1993/11/29 13:49:16 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: secure.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:16  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X# A file "secure" if it is owned by the user and not world writable. Some key
+X# file within the mailagent have to be kept secure or they might compromise the
+X# security of the user account. Additionally, for 'root' users or if the
+X# 'secure' parameter in the config file is set to ON, checks are made for
+X# group writable files and suspicious directory as well.
+X# Return true if the file is secure or missing, false otherwise.
+Xsub file_secure {
+X	local($file, $type) = @_;	# File to be checked
+X	return 1 unless -e $file;	# Missing file considered secure
+X	if (-l $file) {				# File is a symbolic link
+X		&add_log("WARNING sensitive $type file $file is a symbolic link")
+X			if $loglvl > 5;
+X		return 0;		# Unsecure file
+X	}
+X	local($ST_MODE) = 2 + $[;	# Field st_mode from inode structure
+X	local($S_IWOTH) = 02;		# Writable by world (no .ph files here)
+X	unless (-O _) {				# Reuse stat info from -e
+X		&add_log("WARNING you do not own $type file $file") if $loglvl > 5;
+X		return 0;		# Unsecure file
+X	}
+X	local($st_mode) = (stat(_))[$ST_MODE];
+X	if ($st_mode & $S_IWOTH) {
+X		&add_log("WARNING $type file is world writable!") if $loglvl > 5;
+X		return 0;		# Unsecure file
+X	}
+X	return 1 unless $cf'secure =~ /on/i || $< == 0;
+X
+X	# Extra checks for secure mode (or if root user). We make sure the
+X	# file is not writable by group and then we conduct the same secure tests
+X	# on the directory itself
+X	local($S_IWGRP) = 020;		# Writable by group
+X	if ($st_mode & $S_IWGRP) {
+X		&add_log("WARNING $type file is group writable!") if $loglvl > 5;
+X		return 0;		# Unsecure file
+X	}
+X	local($dir);		# directory where file is located
+X	$dir = '.' unless ($dir) = ($file =~ m|(.*)/.*|);
+X	unless (-O $dir) {
+X		&add_log("WARNING you do not own directory of $type file")
+X			if $loglvl > 5;
+X		return 0;		# Unsecure directory, therefore unsecure file
+X	}
+X	$st_mode = (stat(_))[$ST_MODE];
+X	if ($st_mode & $S_IWOTH) {
+X		&add_log("WARNING directory of $type file is world writable!")
+X			if $loglvl > 5;
+X		return 0;		# Unsecure directory
+X	}
+X	if ($st_mode & $S_IWGRP) {
+X		&add_log("WARNING directory of $type file is group writable!")
+X			if $loglvl > 5;
+X		return 0;		# Unsecure directory
+X	}
+X	if (-l $dir) {
+X		&add_log("WARNING directory of $type file $file is a symbolic link")
+X			if $loglvl > 5;
+X		return 0;		# Unsecure directory
+X	}
+X
+X	1;		# At last! File is secure...
+X}
+X
+END_OF_FILE
+  if test 2890 -ne `wc -c <'agent/pl/secure.pl'`; then
+    echo shar: \"'agent/pl/secure.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/secure.pl'
+fi
+if test -f 'agent/test/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/README'\"
+else
+  echo shar: Extracting \"'agent/test/README'\" \(3573 characters\)
+  sed "s/^X//" >'agent/test/README' <<'END_OF_FILE'
+XThis is the root directory for the regression test suite.
+X
+XA regression test suite is not meant to be a validation suite. Rather, it is
+Xused by developpers to make sure nothing breaks between two snapshots or
+Xreleases. Thoroughness is not a requirement, since it only affects the
+Xaccuracy of the test.
+X
+XThe single TEST executable will run the test suite and report any failure.
+XAlthough not every feature of the mailagent is tested, having it pass
+Xthe whole test suite is a Good Thing. Some commands like PROCESS or POST
+Xare not easy to test automatically, but if you can design good tests
+Xfor them, I will be glad to include them.
+X
+XThis set of programs were written quickly, as effeciency or maintainability
+Xwas not the main issue, obviously. I believe they are reasonably well
+Xwritten, making it possible for someone to be able to understand and modify
+Xthem.
+X
+XRunning the whole test suite takes a long time. On my machine with 40 Mb of
+Xmain memory, it requires 12 minutes to complete. It may take a lot longer
+Xif you do not have at least 16 Mb of RAM.
+X
+XThe option -i turns the incremental mode on. This proved really nice to
+Xme when I was writing this suite, as I was able to skip all the successful
+Xtests and focus only on those which failed or the new ones. The -s option will
+Xcause the test suite to stop at the first error. Normally, only failed basic
+Xtests abort the process. The -o option will not restart the tests from scratch,
+Xeven if the mailagent or filter is newer than the current OK file. Option -n
+Xwill test the non-dataloaded version of the mailagent (because of some bugs
+Xwith eval() which cause the dataloaded version to dump core via a segmentation
+Xviolation).
+X
+XI don't know why I spent some time documenting all this, as I don't expect
+Xanybody to have any chance working on this suite. Anyway, it might be nice
+Xknowing that all the successful tests are recorded in an OK file, along
+Xwith the time stamp of the test, so we may re-run those which were updated
+Xsince last run. In the event the mailagent or the filter are modified, the
+Xtests are re-run throughoutfully.
+X
+XThe file 'level' is optional. If present, it gives the default logging level
+Xto be applied when most of the tests are run (i.e. for those who do not require
+Xany special logging level). If absent, no logging will be done (except for
+Xthose tests who do require... etc...). All the tests are performed in the
+X'out' subdirectory, with the user name set to 'nobody'. That may help a lot
+Xwhen testing commands like RUN, as they have the nasty habbit to mail you, the
+Xuser, their output when they fail for whatever reason.
+X
+XThe generic mail used by the test is an automatic answer I got from the
+Xcomp.compilers newsgroup moderator the day I posted my first article to that
+Xgroup. It has no special value, appart from having some constants relative
+Xto it hardwired within the tests themselves. Don't touch it, even to remove
+Xa white space or some tests may fail (particularily GIVE and PIPE, which have
+Xthe output of 'wc' hardwired). On my machine, here is the output of 'wc mail':
+X
+X     34     227    1620  mail
+X
+XIn the event some of the tests do not pass, there is no reason to panic, and
+Xit doesn't necesseratily mean the mailagent has a bug. It is more likely a
+Xcombinaison of perl + dataloading + bugs + memory + moon's position. Try
+Xto run the test suite again, and then one more time. It sometimes helps.
+XAlso try changing the logging level via 'level' to see if it doesn't make
+Xany difference. This is not really rational, but empirical law :-).
+X
+XI think that's all there is to say.
+END_OF_FILE
+  if test 3573 -ne `wc -c <'agent/test/README'`; then
+    echo shar: \"'agent/test/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/README'
+fi
+if test -f 'agent/test/basic/config.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/basic/config.t'\"
+else
+  echo shar: Extracting \"'agent/test/basic/config.t'\" \(2697 characters\)
+  sed "s/^X//" >'agent/test/basic/config.t' <<'END_OF_FILE'
+X# This MUST be the first test ever run
+X
+X# $Id: config.t,v 3.0 1993/11/29 13:49:23 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: config.t,v $
+X# Revision 3.0  1993/11/29  13:49:23  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+Xchdir '../out' || exit 0;
+Xchop($pwd = `pwd`);
+X$path = $ENV{'PATH'};
+X$host = $ENV{'HOST'};
+X$host =~ s/-/_/g;		# Filter translates '-' into '_' in hostnames
+X$user = $ENV{'USER'};
+Xopen(CONFIG, ">.mailagent") || print "1\n";
+Xprint CONFIG <<EOF;
+Xhome     : $pwd
+Xlevel    : 21			# Undocumented of course
+Xtmpdir   : /tmp
+Xemergdir : $pwd/emerg
+Xtrack    : OFF
+Xpath     : .
+Xp_$host  : .
+Xuser     : $user
+Xname     : Mailagent Test Suite
+Xvacation : OFF
+Xvacfile  : ~/.vacation
+Xvacperiod: 1d
+Xspool    : ~
+Xqueue    : ~/queue		# This is a good test for comments
+Xlogdir   : ~
+Xcontext  : \$spool/context
+Xlog      : agentlog
+Xseq      : .seq
+Xtimezone : PST8PDT
+Xstatfile : \$spool/mailagent.st
+Xrules    : ~/.rules
+Xrulecache: ~/.cache
+Xmaildrop : $pwd			# Do not LEAVE messages in /usr/spool/mail
+Xmailbox  : \$user		# Use config variable, not current perl $user
+Xhash     : dbr
+Xcleanlaps: 1M
+Xautoclean: OFF
+Xagemax   : 1y
+Xcomfile  : \$spool/commands
+Xdistlist : \$spool/distribs
+Xproglist : \$spool/proglist
+Xmaxsize  : 150000
+Xplsave   : \$spool/plsave
+Xauthfile : \$spool/auth
+Xsecure   : ON
+Xsendmail : msend
+Xsendnews : nsend
+XEOF
+Xclose CONFIG;
+X`rm -rf queue emerg`;
+X`mkdir emerg`;
+X$? == 0 || print "2\n";
+X# Use the special undocumented -t option from filter to get HOME directory
+X# via environment instead of /etc/passwd.
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "3\n";
+Xprint FILTER <<EOF;
+XDummy mail
+XEOF
+Xclose FILTER;
+X$? != 0 || print "4\n";			# No valid queue directory
+X$file = <emerg/*>;
+Xif (-f "$file") {
+X	open(FILE, $file) || print "5\n";
+X	@file = <FILE>;
+X	close FILE;
+X	$file[0] eq "Dummy mail\n" || print "6\n";
+X	unlink "$file";
+X} else {
+X	print "5\n";				# No emergency dump
+X}
+X-s 'agentlog' || print "6\n";	# No logfile or empty
+X&get_log(7);
+X&check_log('FATAL', 8);				# There must be a FATAL
+X&check_log('MTA', 9);				# Filter must think mail is in MTA's queue
+X&check_log('updating PATH', 10);	# Make sure hostname is computed
+X&check_log('unable to queue', 11);	# Filter did not queue mail
+Xunlink 'agentlog';
+X`mkdir queue`;
+X$? == 0 || print "12\n";		# Cannot make queue
+Xprint "0\n";
+END_OF_FILE
+  if test 2697 -ne `wc -c <'agent/test/basic/config.t'`; then
+    echo shar: \"'agent/test/basic/config.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/basic/config.t'
+fi
+if test -f 'agent/test/filter/hook.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/filter/hook.t'\"
+else
+  echo shar: Extracting \"'agent/test/filter/hook.t'\" \(2625 characters\)
+  sed "s/^X//" >'agent/test/filter/hook.t' <<'END_OF_FILE'
+X# Test hooking facilities
+X
+X# $Id: hook.t,v 3.0 1993/11/29 13:50:00 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: hook.t,v $
+X# Revision 3.0  1993/11/29  13:50:00  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/filter.pl';
+Xdo '../pl/logfile.pl';
+Xunlink 'never', 'always', 'always.2', 'always.3';
+Xunlink 'hook.1', 'hook.2', 'hook.3', 'hook.4';
+X
+Xopen(HOOK, '>hook.1') || print "1\n";
+Xprint HOOK <<'EOH';
+X#! /bin/sh
+Xcat > always
+Xexit 0
+XEOH
+Xclose HOOK;
+X
+Xopen(HOOK, '>hook.2') || print "2\n";
+Xprint HOOK <<'EOH';
+X#: deliver
+Xopen(OUT, '>always.2') || exit 1;
+Xprint OUT "$login\n";
+Xclose OUT;
+Xprint "SAVE ~/always; RUN /bin/echo hi! > always.3";
+XEOH
+Xclose HOOK;
+X
+Xopen(HOOK, '>hook.3') || print "3\n";
+Xprint HOOK <<'EOH';
+X#: rules
+X!To: ram { SAVE never };
+X{ SAVE ~/always; RUN /bin/echo hi! > always.3 };
+XEOH
+Xclose HOOK;
+X
+Xopen(HOOK, '>hook.4') || print "29\n";
+Xprint HOOK <<'EOH';
+X#: perl
+X&save("~/always");
+X&run("/bin/echo hi! > always.3");
+XEOH
+Xclose HOOK;
+Xchmod 0544, 'hook.1', 'hook.2', 'hook.3', 'hook.4';
+X
+X&add_header('X-Tag: hook #1');
+X`$cmd`;
+X$? == 0 || print "4\n";
+X-f 'never' && print "5\n";
+X&get_log(6, 'always');
+X&check_log('^To: ram', 7) == 1 || print "8\n";
+X&get_log(9, 'hook.1');
+X&not_log('^To: ram', 10);
+Xunlink 'never', 'always', 'always.2', 'always.3';
+X
+X&replace_header('X-Tag: hook #2');
+X`$cmd`;
+X$? == 0 || print "11\n";
+X-f 'never' && print "12\n";
+X&get_log(13, 'always');
+X&check_log('^To: ram', 14) == 1 || print "15\n";
+X&get_log(16, 'always.3');
+X&check_log('^hi!', 17) == 1 || print "18\n";
+X&get_log(19, 'always.2');
+X&check_log('^compilers-request$', 20);
+Xunlink 'never', 'always', 'always.2', 'always.3';
+X
+X&replace_header('X-Tag: hook #3');
+X`$cmd`;
+X$? == 0 || print "21\n";
+X-f 'never' && print "22\n";
+X&get_log(23, 'always');
+X&check_log('^To: ram', 24) == 1 || print "25\n";
+X&get_log(26, 'always.3');
+X&check_log('^hi!', 27) == 1 || print "28\n";
+Xunlink 'never', 'always', 'always.2', 'always.3';
+X
+X&replace_header('X-Tag: hook #4');
+X`$cmd`;
+X$? == 0 || print "30\n";
+X-f 'never' && print "31\n";
+X&get_log(32, 'always');
+X&check_log('^To: ram', 33) == 1 || print "34\n";
+X&get_log(35, 'always.3');
+X&check_log('^hi!', 36) == 1 || print "37\n";
+X
+Xunlink 'hook.1', 'hook.2', 'hook.3', 'hook.4';
+Xunlink 'never', 'always', 'always.2', 'always.3';
+Xprint "0\n";
+END_OF_FILE
+  if test 2625 -ne `wc -c <'agent/test/filter/hook.t'`; then
+    echo shar: \"'agent/test/filter/hook.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/filter/hook.t'
+fi
+if test -f 'agent/test/misc/usrmac.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/misc/usrmac.t'\"
+else
+  echo shar: Extracting \"'agent/test/misc/usrmac.t'\" \(2693 characters\)
+  sed "s/^X//" >'agent/test/misc/usrmac.t' <<'END_OF_FILE'
+X# Test user-defined macros at the perl level
+X# NOTE: this test relies on a working PERL command
+X
+X# $Id: usrmac.t,v 3.0 1993/11/29 13:50:11 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: usrmac.t,v $
+X# Revision 3.0  1993/11/29  13:50:11  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/cmd.pl';
+Xunlink "$user";
+X
+Xopen(SCRIPT, '>script') || print "1\n";
+Xprint SCRIPT <<'EOC';
+Xsub macfunc {				# Used for function macro substitution
+X	"macfunc $_[0] string";
+X}
+X$macval = 'macval string';	# Used for perl expression macro substitution
+X
+X&usrmac'new('m', 'orig-macro-m', 'SCALAR');
+X&usrmac'push('m', 'this-is-macro-m', 'SCALAR');
+X&usrmac'new('mac1', "\$mailhook'macval", 'CONST');
+X&usrmac'new('mac2', "mailhook'macfunc", 'FN');
+X&substitute(1);
+X
+X&usrmac'new('m', 'this-is-macro-mbis', 'SCALAR');
+X&usrmac'push('mac1', "\$mailhook'macval", 'EXPR');
+X&usrmac'push('mac2', '/bin/sh -c "echo macro %%-[%n]"', 'PROG');
+X$macval = 'macval bis';
+X&substitute(2);
+X
+X&usrmac'pop('mac1');
+X&usrmac'pop('mac2');
+X&usrmac'pop('m');
+X&substitute(3);
+X
+Xsub substitute {
+X	local($num) = @_;
+X	open(TEXT, 'text');
+X	open(OUT, ">subst.$num");
+X	local($_);
+X	while (<TEXT>) {
+X		print OUT &'macros_subst(*_);
+X	}
+X	close OUT;
+X	close TEXT;
+X}
+XEOC
+Xclose SCRIPT;
+X
+Xopen(TEXT, '>text') || print "2\n";
+Xprint TEXT <<'EOT';
+X%%%A%%
+X%N
+X%-m
+X%=vacation
+X%-(mac1)
+X%-(mac2)
+XThis %-m is %-(mac1) and %-(mac2).
+XEOT
+Xclose TEXT;
+X
+X$result1 = <<'EOR';
+X%cambridge.ma.us%
+Xcompilers-request
+Xthis-is-macro-m
+XOFF
+Xmacval string
+Xmacfunc mac2 string
+XThis this-is-macro-m is macval string and macfunc mac2 string.
+XEOR
+X
+X$result2 = <<'EOR';
+X%cambridge.ma.us%
+Xcompilers-request
+Xthis-is-macro-mbis
+XOFF
+Xmacval bis
+Xmacro %-[mac2]
+XThis this-is-macro-mbis is macval bis and macro %-[mac2].
+XEOR
+X
+X$result3 = <<'EOR';
+X%cambridge.ma.us%
+Xcompilers-request
+Xorig-macro-m
+XOFF
+Xmacval string
+Xmacfunc mac2 string
+XThis orig-macro-m is macval string and macfunc mac2 string.
+XEOR
+X
+Xsub verify {
+X	local($file, $result, $error) = @_;
+X	local($var);
+X	$var = `cat $file 2>&1`;
+X	$var eq $result || print "$error\n";
+X}
+X
+X&add_header('X-Tag: usrmac');
+X`$cmd`;
+X$? == 0 || print "3\n";
+X-f "$user" && print "4\n";	# Created only if perl script fails
+X&verify('subst.1', $result1, 5);
+X&verify('subst.2', $result2, 6);
+X&verify('subst.3', $result3, 7);
+Xunlink "$user", 'mail', 'script', 'text', 'subst.1', 'subst.2', 'subst.3';
+Xprint "0\n";
+X
+END_OF_FILE
+  if test 2693 -ne `wc -c <'agent/test/misc/usrmac.t'`; then
+    echo shar: \"'agent/test/misc/usrmac.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/misc/usrmac.t'
+fi
+echo shar: End of archive 20 \(of 26\).
+cp /dev/null ark20isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

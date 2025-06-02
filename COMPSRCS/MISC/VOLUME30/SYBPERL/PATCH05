@@ -1,0 +1,1045 @@
+Newsgroups: comp.sources.misc
+From: mpeppler@itf0.itf.ch (Michael Peppler)
+Subject:  v30i092:  sybperl - Sybase DB-library extensions to Perl, Patch05
+Message-ID: <1992Jun29.191350.15676@sparky.imd.sterling.com>
+X-Md4-Signature: 62f0fcc21bb10fc68d45cc3c9f490f57
+Date: Mon, 29 Jun 1992 19:13:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mpeppler@itf0.itf.ch (Michael Peppler)
+Posting-number: Volume 30, Issue 92
+Archive-name: sybperl/patch05
+Environment: UNIX, Perl, Sybase
+Patch-To: sybperl: Volume 28, Issue 33
+
+This is patch 5 to Sybperl, a set of Sybase DB-Library extensions to Perl.
+Note that Sybperl was posted at patchlevel 4.
+
+>From the CHANGES file:
+ 	1.005   Sybperl would core dump if you used a uninitialized
+ 	        DBPROCESS.
+ 		A solution to the sometime pathological	memory usage
+ 		observed when using a release of Perl lower than 4.035
+ 		is also described in BUGS.
+ 		&dblogin now returns -1 if the dblogin() or dbopen()
+ 		calls fail.
+ 		Added the possibility to login to a specific server
+ 		without setting the DSQUERY environment variable.
+ 		Added a script to extract the information regarding
+ 		the database from the databases' system tables. See
+ 		eg/dbschema.pl.
+
+Apply the patch with 
+	patch -p1 -N <patch
+ -- 
+Michael Peppler	             mpeppler@itf.ch {uunet,mcsun}!chsun!itf1!mpeppler
+ITF Management SA            BIX:   mpeppler                         
+13 Rue de la Fontaine        Phone: (+4122) 312 1311  
+CH-1204 Geneva, Switzerland  Fax:   (+4122) 312 1322  
+
+-----------------  snip       snip  --------------------------
+
+diff -c -r ./BUGS /usr/local/src/perl/sybase/dist-1.5/BUGS
+*** ./BUGS	Wed Jun 24 13:37:32 1992
+--- /usr/local/src/perl/sybase/dist-1.5/BUGS	Thu Jun 25 13:18:07 1992
+***************
+*** 41,44 ****
+      Thanks to Teemu Torma for providing the initial input on this problem.    
+  
+  
+!     Michael
+--- 41,105 ----
+      Thanks to Teemu Torma for providing the initial input on this problem.    
+  
+  
+! 
+!     Sybperl Memory Usage
+!     --------------------
+! 
+!     The general format of a Sybperl script usually looks somewhat like
+!     this:
+! 
+!     #!/usr/local/bin/sybperl
+! 
+!     &dbcmd( query text );
+!     &dbsqlexec;
+!     &dbresults;
+! 
+!     while(@data = &dbnextrow)
+!     {
+!        process data
+!     }
+! 
+! 
+!     If you are using a version of Perl prior to release 4, patchlevel
+!     35, then this method will result in a rather important memory
+!     leak. There are two ways around this problem:
+! 
+!     1) Upgrade to Perl 4, patchlevel 35 :-)
+! 
+!     2) Write a subroutine that calls &dbnextrow and stores the returned
+!        array to a local variable, and which in turn returns that array to
+!        the main while() loop, like so:
+! 
+!     sub getRow
+!     {
+!         local(@data);
+! 
+! 	@data = &dbnextrow;
+! 
+! 	@data;
+!     }
+! 
+!     while(@data = &getRow)
+!     {
+!        etc.
+!     }
+! 
+! 
+!     This technique should keep the memory usage of Sybperl to a
+!     manageable level.
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+! 
+!     Please let me know if you find any other problems with Sybperl so
+!     that I can look into it.
+! 
+!     Thank you.
+! 
+!     Michael Peppler    <mpeppler@itf.ch>
+! 
+!     
+diff -c -r ./CHANGES /usr/local/src/perl/sybase/dist-1.5/CHANGES
+*** ./CHANGES	Wed Jun 24 13:37:32 1992
+--- /usr/local/src/perl/sybase/dist-1.5/CHANGES	Thu Jun 25 13:18:08 1992
+***************
+*** 1,6 ****
+  	Sybperl CHANGES:
+  
+! 	
+  	1.004	Added support for Perl based error and message
+  		handlers (as made possible by Perl 4.018). Many Thanks
+  		to Teemu Torma for this code.
+--- 1,18 ----
+  	Sybperl CHANGES:
+  
+! 
+! 	1.005   Sybperl would core dump if you used a uninitialized
+! 	        DBPROCESS.
+! 		A solution to the sometime pathological	memory usage
+! 		observed when using a release of Perl lower than 4.035
+! 		is also described in BUGS.
+! 		&dblogin now returns -1 if the dblogin() or dbopen()
+! 		calls fail.
+! 		Added the possibility to login to a specific server
+! 		without setting the DSQUERY environment variable.
+! 		Added a script to extract the information regarding
+! 		the database from the databases' system tables. See
+! 		eg/dbschema.pl.
+  	1.004	Added support for Perl based error and message
+  		handlers (as made possible by Perl 4.018). Many Thanks
+  		to Teemu Torma for this code.
+***************
+*** 13,15 ****
+--- 25,28 ----
+  		Added a couple of example scripts in eg/*.pl, courtesy
+  		of Gijs Mos (Thank You!).
+  	1.003	Base version.
++ 
+diff -c -r ./Makefile /usr/local/src/perl/sybase/dist-1.5/Makefile
+*** ./Makefile	Wed Jun 24 13:37:32 1992
+--- /usr/local/src/perl/sybase/dist-1.5/Makefile	Thu Jun 25 13:18:09 1992
+***************
+*** 1,7 ****
+! #	@(#)Makefile	1.6	11/25/91
+  #
+  	
+! CC = cc
+  PERLSRC = ..				# where to find uperl.o
+  SYBINCS = /usr/local/sybase/include	# where to find the sybase .h files
+  LOCINCS =				# other includes ?
+--- 1,7 ----
+! #	@(#)Makefile	1.10	6/25/92
+  #
+  	
+! CC = gcc
+  PERLSRC = ..				# where to find uperl.o
+  SYBINCS = /usr/local/sybase/include	# where to find the sybase .h files
+  LOCINCS =				# other includes ?
+***************
+*** 44,50 ****
+  					# not possible without this, however.
+  OLD_SYBPERL= -DOLD_SYBPERL		# some backward compatibility stuff.					
+  
+! CFLAGS = -O	 			# 
+  CPPFLAGS = -I$(PERLSRC) -I$(LOCINCS) -I$(SYBINCS) $(PERL_VERSION) \
+  		$(SAVESTR) $(HAS_CALLBACK) $(OLD_SYBPERL)
+  BINDIR = /usr/local/bin			# where does the executable go
+--- 44,50 ----
+  					# not possible without this, however.
+  OLD_SYBPERL= -DOLD_SYBPERL		# some backward compatibility stuff.					
+  
+! CFLAGS = -O2 -funroll-loops	 			# 
+  CPPFLAGS = -I$(PERLSRC) -I$(LOCINCS) -I$(SYBINCS) $(PERL_VERSION) \
+  		$(SAVESTR) $(HAS_CALLBACK) $(OLD_SYBPERL)
+  BINDIR = /usr/local/bin			# where does the executable go
+***************
+*** 65,70 ****
+--- 65,72 ----
+  $(UPERL): $(PERLSRC)/uperl.o
+  	cp $(PERLSRC)/uperl.o $(UPERL)
+  	perl -p -i.bak -e 's/savestr/psvestr/g;' $(UPERL)
++ 	rm -f $(UPERL).bak
++ 	
+  
+  clean:
+  	rm -f sybperl *.o *~ core
+***************
+*** 78,84 ****
+  	rm -f sybperl.shar
+  	shar.pl README PACKING.LST BUGS CHANGES Makefile sybperl.c \
+  	sybperl.1 patchlevel.h lib/sybperl.pl lib/sybdb.ph t/sbex.pl \
+! 	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl >sybperl.shar
+  
+  
+  
+--- 80,97 ----
+  	rm -f sybperl.shar
+  	shar.pl README PACKING.LST BUGS CHANGES Makefile sybperl.c \
+  	sybperl.1 patchlevel.h lib/sybperl.pl lib/sybdb.ph t/sbex.pl \
+! 	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl \
+! 	eg/dbschema.pl eg/README >sybperl.shar
+! 
+! 
+! tar:
+! 	rm -f sybperl.tar
+! 	tar cvfB sybperl.tar README PACKING.LST BUGS CHANGES Makefile sybperl.c \
+! 	sybperl.1 patchlevel.h lib/sybperl.pl lib/sybdb.ph t/sbex.pl \
+! 	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl \
+! 	eg/dbschema.pl eg/README
+! 
+! 
+  
+  
+  
+diff -c -r ./PACKING.LST /usr/local/src/perl/sybase/dist-1.5/PACKING.LST
+*** ./PACKING.LST	Wed Jun 24 13:37:33 1992
+--- /usr/local/src/perl/sybase/dist-1.5/PACKING.LST	Thu Jun 25 13:18:06 1992
+***************
+*** 20,23 ****
+--- 20,30 ----
+  	    eg/capture.pl   Create a table extracted from /etc/passwd
+  	    eg/report.pl    Report from table created by capture.pl
+  	    eg/sql.pl	    Utility routines used by the above example programs.
++ 
++ 	    eg/dbschema.pl  Create an Isql script that will to
++ 	                    recreate your database(s) structure (data
++ 			    types, tables, indexes, rules, defaults,
++ 			    views, triggers and stored procedures),
++ 			    extracting the information from the
++ 			    database's system tables.
+  	    
+diff -c -r ./README /usr/local/src/perl/sybase/dist-1.5/README
+*** ./README	Wed Jun 24 13:37:31 1992
+--- /usr/local/src/perl/sybase/dist-1.5/README	Thu Jun 25 13:18:06 1992
+***************
+*** 45,51 ****
+     Pyramid MIServer 2/2, OSx V5.1a, Sybase 4.0, Perl 4.010
+     
+     I use sybperl daily in a production environment on a Sun 4/65 under
+!    SunOS 4.1.1, with Sybase version 4.0.1 and Perl 4.019
+  
+     BUGS:
+  
+--- 45,51 ----
+     Pyramid MIServer 2/2, OSx V5.1a, Sybase 4.0, Perl 4.010
+     
+     I use sybperl daily in a production environment on a Sun 4/65 under
+!    SunOS 4.1.1, with Sybase version 4.0.1 and Perl 4.035
+  
+     BUGS:
+  
+***************
+*** 52,57 ****
+--- 52,60 ----
+     There seems to be a major incompatibility between Perl and
+     DB-Library, but I've been able to code around it. See the BUGS file
+     for details.
++ 
++    Memory usage can also be a problem in certain cases. Again see the
++    BUGS file for details.
+  
+  
+  
+Common subdirectories: ./eg and /usr/local/src/perl/sybase/dist-1.5/eg
+Common subdirectories: ./lib and /usr/local/src/perl/sybase/dist-1.5/lib
+diff -c -r ./patchlevel.h /usr/local/src/perl/sybase/dist-1.5/patchlevel.h
+*** ./patchlevel.h	Wed Jun 24 13:37:36 1992
+--- /usr/local/src/perl/sybase/dist-1.5/patchlevel.h	Thu Jun 25 13:18:11 1992
+***************
+*** 1,4 ****
+  #define VERSION 1
+! #define PATCHLEVEL 4
+  
+  
+--- 1,4 ----
+  #define VERSION 1
+! #define PATCHLEVEL 5
+  
+  
+diff -c -r ./sybperl.1 /usr/local/src/perl/sybase/dist-1.5/sybperl.1
+*** ./sybperl.1	Wed Jun 24 13:37:37 1992
+--- /usr/local/src/perl/sybase/dist-1.5/sybperl.1	Thu Jun 25 13:18:11 1992
+***************
+*** 1,5 ****
+  .\".po 4
+! .TH SYBPERL 1 "3 September 1991"
+  .ad
+  .nh
+  .SH NAME
+--- 1,5 ----
+  .\".po 4
+! .TH SYBPERL 1 "24 June 1992"
+  .ad
+  .nh
+  .SH NAME
+***************
+*** 6,13 ****
+  sybperl \- Perl access to Sybase databases
+  .SH SYNOPSIS
+  .nf
+! $dbproc  = &dblogin([$user[, $pwd]])
+! $dbproc1 = &dbopen()
+  	   &dbclose($dbproc)
+  $ret     = &dbcmd($dbproc, $sql_cmd)
+  $ret     = &dbsqlexec($dbproc)
+--- 6,13 ----
+  sybperl \- Perl access to Sybase databases
+  .SH SYNOPSIS
+  .nf
+! $dbproc  = &dblogin([$user[, $pwd[, $server]]])
+! $dbproc1 = &dbopen([$server])
+  	   &dbclose($dbproc)
+  $ret     = &dbcmd($dbproc, $sql_cmd)
+  $ret     = &dbsqlexec($dbproc)
+***************
+*** 40,47 ****
+  The following functions are provided:
+  
+  .nf
+! \fB$dbproc  = &dblogin([$user[, $pwd]])\fP
+! \fB&dbproc1 = &dbopen()\fP
+  \fB	      &dbclose($dbproc)\fP
+  \fB$status  = &dbcmd($dbproc, $sql_cmd)\fP
+  \fB$status  = &dbsqlexec($dbproc)\fP
+--- 40,47 ----
+  The following functions are provided:
+  
+  .nf
+! \fB$dbproc  = &dblogin([$user[, $pwd[, $server]]])\fP
+! \fB&dbproc1 = &dbopen([$server])\fP
+  \fB	      &dbclose($dbproc)\fP
+  \fB$status  = &dbcmd($dbproc, $sql_cmd)\fP
+  \fB$status  = &dbsqlexec($dbproc)\fP
+***************
+*** 58,70 ****
+  
+  Differences with DB-Library:
+  
+! \fB&dblogin\fP takes 2 optional arguements (the userid and the
+! password). These default to the Unix userid, and the null password.
+  
+  \fB&dblogin\fP returns a \fBDBPROCESS\fP, not a \fBLOGINREC\fP. This
+  simplifies the call to open a connection to a Sybase dataserver
+! somewhat. Further \fBDBPROCESSes\fP can be opened using
+! \fB&dbopen()\fP (No arguments). The number of simultaneous DBPROCESSes
+  is limited to 25 (This can be changed by altering a #define in sybperl.c).
+  
+  The \fB$dbproc\fP parameter is optional, and defaults to the DBPROCESS returned
+--- 58,73 ----
+  
+  Differences with DB-Library:
+  
+! \fB&dblogin\fP takes 3 optional arguements (the userid, the
+! password and the server to connect to). These default to the Unix
+! userid, the null password and the default server (from the DSQUERY
+! environment variable).
+  
+  \fB&dblogin\fP returns a \fBDBPROCESS\fP, not a \fBLOGINREC\fP. This
+  simplifies the call to open a connection to a Sybase dataserver
+! somewhat. If the login fails for any reason \fB&dblogin\fP returns -1.
+! Further \fBDBPROCESSes\fP can be opened using
+! \fB&dbopen([$server])\fP (with an optional server name to connect to). The number of simultaneous DBPROCESSes
+  is limited to 25 (This can be changed by altering a #define in sybperl.c).
+  
+  The \fB$dbproc\fP parameter is optional, and defaults to the DBPROCESS returned
+***************
+*** 85,98 ****
+  \fB&dbfcmd\fP is not implemented, but can be emulated by using
+  \fIsprintf\fP as in \fI&dbcmd($dbproc, sprintf("%d", $num_val))\;\fP
+  
+- One cannot log in to a specific server (ie \fIdbopen()\fP is always
+- called with a \fINULL\fP second parameter. However, setting the
+- \fBDSQUERY\fP environment variable (as in \fI$ENV{'DSQUERY'} =
+- $server\fP) will work.
+  
+  .SH OPTIONS
+  
+  See the \fIPerl(1)\fP manual page.
+  
+  .SH FILES
+  
+--- 88,103 ----
+  \fB&dbfcmd\fP is not implemented, but can be emulated by using
+  \fIsprintf\fP as in \fI&dbcmd($dbproc, sprintf("%d", $num_val))\;\fP
+  
+  
+  .SH OPTIONS
+  
+  See the \fIPerl(1)\fP manual page.
++ 
++ .SH BUGS
++ 
++ Memory usage can become very large in certain conditions when
++ using a version of Perl prior to 4.035. This
++ can be circumvented - see the BUGS file in the Sybperl distribution.
+  
+  .SH FILES
+  
+diff -c -r ./sybperl.c /usr/local/src/perl/sybase/dist-1.5/sybperl.c
+*** ./sybperl.c	Wed Jun 24 13:37:37 1992
+--- /usr/local/src/perl/sybase/dist-1.5/sybperl.c	Thu Jun 25 13:18:10 1992
+***************
+*** 1,6 ****
+! static char SccsId[] = "@(#)sybperl.c	1.9	12/20/91";
+  /************************************************************************/
+! /*	Copyright 1991 by Michael Peppler and ITF Management SA 	*/
+  /*									*/
+  /*	Full ownership of this software, and all rights pertaining to 	*/
+  /*	the for-profit distribution of this software, are retained by 	*/
+--- 1,6 ----
+! static char SccsId[] = "@(#)sybperl.c	1.11	6/24/92";
+  /************************************************************************/
+! /*	Copyright 1991, 1992 by Michael Peppler and ITF Management SA 	*/
+  /*									*/
+  /*	Full ownership of this software, and all rights pertaining to 	*/
+  /*	the for-profit distribution of this software, are retained by 	*/
+***************
+*** 193,199 ****
+  {
+      STR **st = stack->ary_array + sp;
+      ARRAY *ary = stack;    
+-     register int i;
+      register STR *Str;		/* used in str_get and str_gnum macros */
+      int inx = -1;		/* Index into dbproc[] array. Passed as first parameter to nearly all &dbxxx() calls */
+  
+--- 193,198 ----
+***************
+*** 223,260 ****
+      switch (ix)
+      {
+        case US_dblogin:
+! 	if (items > 2)
+! 	    fatal("Usage: &dblogin([user[,pwd]])");
+  	if (login)
+  	    fatal("&dblogin() called twice.");
+  	else
+  	{
+! 	    int retval;
+  
+  	    login = dblogin();
+! 	    if(items)
+  	    {
+! 		DBSETLUSER(login, (char *)str_get(STACK(sp)[1]));
+! 		if(items > 1)
+! 		    DBSETLPWD(login, (char *)str_get(STACK(sp)[2]));
+  	    }
+  
+! 	    dbproc[0] = dbopen(login, NULL);
+! 	    str_numset(STACK(sp)[0], (double) 0);
+  	}
+  	break;
+        case US_dbopen:
+! 	if (items != 0)
+! 	    fatal("Usage: $dbproc = &dbopen;");
+  	else
+  	{
+  	    int j;
+  	    for(j = 0; j < MAX_DBPROCS; ++j)
+  		if(dbproc[j] == NULL)
+  		    break;
+  	    if(j == MAX_DBPROCS)
+  		fatal("&dbopen: No more dbprocs available.");
+! 	    dbproc[j] = dbopen(login, NULL);
+  	    str_numset(STACK(sp)[0], (double) j);
+  	}
+  	break;
+--- 222,275 ----
+      switch (ix)
+      {
+        case US_dblogin:
+! 	if (items > 3)
+! 	    fatal("Usage: &dblogin([user[,pwd[,server]]])");
+  	if (login)
+  	    fatal("&dblogin() called twice.");
+  	else
+  	{
+! 	    int retval = 0;
+! 	    char *server = NULL, *user = NULL, *pwd = NULL;
+  
+  	    login = dblogin();
+! 	    switch(items)
+  	    {
+! 	      case 3:
+! 		server = (char *)str_get(STACK(sp)[3]);
+! 	      case 2:
+! 		pwd = (char *)str_get(STACK(sp)[2]);
+! 		if(pwd && strlen(pwd))
+! 		    DBSETLPWD(login, pwd);
+! 	      case 1:
+! 		user = (char *)str_get(STACK(sp)[1]);
+! 		if(user && strlen(user))
+! 		    DBSETLUSER(login, user);
+  	    }
++ 		
++ 	    
++ 	    if((dbproc[0] = dbopen(login, server)) == NULL)
++ 		retval = -1;
+  
+! 	    str_numset(STACK(sp)[0], (double) retval);
+  	}
+  	break;
+        case US_dbopen:
+! 	if (items > 1)
+! 	    fatal("Usage: $dbproc = &dbopen([server]);");
+  	else
+  	{
+  	    int j;
++ 	    char *server = NULL;
++ 	    
+  	    for(j = 0; j < MAX_DBPROCS; ++j)
+  		if(dbproc[j] == NULL)
+  		    break;
+  	    if(j == MAX_DBPROCS)
+  		fatal("&dbopen: No more dbprocs available.");
+! 	    if(items == 1)
+! 		server = (char *)str_get(STACK(sp)[1]);
+! 	    
+! 	    dbproc[j] = dbopen(login, server);
+  	    str_numset(STACK(sp)[0], (double) j);
+  	}
+  	break;
+***************
+*** 951,956 ****
+--- 966,973 ----
+  
+      if(ix < 0 || ix >= MAX_DBPROCS)
+  	fatal("$dbproc parameter is out of range.");
++     if(dbproc[ix] == NULL || DBDEAD(dbproc[ix]))
++ 	fatal("$dbproc parameter is NULL or the connection to the server has been closed.");
+      return ix;
+  }
+  
+Common subdirectories: ./t and /usr/local/src/perl/sybase/dist-1.5/t
+diff -c -r ./eg/README /usr/local/src/perl/sybase/dist-1.5/eg/README
+*** ./eg/README	Thu Jun 25 13:16:19 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/README	Thu Jun 25 13:18:20 1992
+***************
+*** 0 ****
+--- 1,48 ----
++ 	@(#)README	1.3	6/25/92
++ 
++ 
++     This directory contains a number of example scripts for Sybperl.
++ 
++ 
++     
++     space.pl		Report the space used by your database.
++     capture.pl		Create a table with information from
++ 			/etc/passwd.
++     report.pl		Report information from the above table.
++     sql.pl		Utility used by the above three scripts.
++     dbschema.pl		Extract an Isql script to re-create a database
++ 
++ 
++     
++     Dbschema.pl Documentation:
++     --------------------------
++     
++     This is a Sybperl script that extracts a Sybase database definition
++     and creates an Isql script to rebuild the database.
++ 
++     dbschema.pl is NOT a production script, in the sense that it does
++     not do ALL the necessary work. The script tries to do the right
++     thing, but in certain cases (mainly where the owner of an object
++     is not the DBO) it creates an invalid or incorrect Isql command. I
++     have tried to detect these cases, and log them both to stdout and to a
++     file, so that the script can be corrected.
++     Please note also that dbschema.pl logs in to Sybase with the
++     default (Unix) user id, and a NULL password. This behaviour is
++     maybe not OK for your site.
++ 
++     Usage:
++ 
++     	itf1% dbschema.pl -d excalibur -o excalibur.isql -v
++ 
++     Run dbschema on database 'excalibur', place the resulting script
++     in 'excalibur.isql' (and the error log in 'excalibur.isql.log')
++     and turn on verbose output on the console. The default database is
++     'master', the default output file is 'script.isql'.
++ 
++ 
++     I hope this will prove of some use, and I would be more than happy
++     to hear of any improvements :-)
++ 
++ 
++     Michael Peppler		mpeppler@itf.ch
++ 
+diff -c -r ./eg/capture.pl /usr/local/src/perl/sybase/dist-1.5/eg/capture.pl
+*** ./eg/capture.pl	Wed Jun 24 13:37:33 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/capture.pl	Thu Jun 25 13:18:17 1992
+***************
+*** 1,5 ****
+--- 1,9 ----
+  #! /usr/local/bin/sybperl
+  
++ #
++ #	@(#)capture.pl	1.1	6/24/92
++ #
++ 
+  require "sybperl.pl";
+  require "sql.pl";
+  
+diff -c -r ./eg/dbschema.pl /usr/local/src/perl/sybase/dist-1.5/eg/dbschema.pl
+*** ./eg/dbschema.pl	Wed Jun 24 13:38:17 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/dbschema.pl	Thu Jun 25 13:18:19 1992
+***************
+*** 0 ****
+--- 1,377 ----
++ #! /usr/local/bin/sybperl
++ #
++ #	@(#)dbschema.pl	1.3	6/24/92
++ #
++ #
++ #	dbschema.pl	A script to extract a database structure from
++ #			a Sybase database
++ #
++ #	Written by:	Michael Peppler (mpeppler@itf.ch)
++ #	Last Modified:  24 June 1992
++ #
++ #	Usage:		dbschema.pl -d database -o script.name -t pattern -v
++ #			    where   database is self-explanatory (default: master)
++ #                                   script.name is the output file (default: script.isql)
++ #                                   pattern is the pattern of object names (in sysobjects)
++ #                                           that we will look at (default: %)
++ #
++ #			    -v turns on a verbose switch.
++ #
++ 
++ 
++ require 'sybperl.pl';
++ require 'getopts.pl';
++ require 'ctime.pl';
++ 
++ @nul = ('not null','null');
++ 
++ select(STDOUT); $| = 1;		# make unbuffered
++ 
++ do Getopts('d:t:o:v');
++ 
++ $opt_d = 'master' unless $opt_d;
++ $opt_o = 'script.isql' unless $opt_o;
++ $opt_t = '%' unless $opt_t;
++ 
++ open(SCRIPT, "> $opt_o") || die "Can't open $opt_o: $!\n";
++ open(LOG, "> $opt_o.log") || die "Can't open $opt_o.log: $!\n";
++ 
++ #
++ # NOTE: We login to Sybase with the default (Unix) user id.
++ #       We should probably login as 'SA', and get the passwd
++ #       from the user at run time.
++ #
++ $dbproc = &dblogin;
++ &dbuse($dproc, $opt_d);
++ 
++ chop($date = &ctime(time));
++ 
++ 
++ print "dbschema.pl on Database $opt_d\n";
++ 
++ print LOG "Error log from dbschema.pl on Database $opt_d on $date\n\n";
++ print LOG "The following objects cannot be reliably created from the script in $opt_o.
++ Please correct the script to remove any inconsistencies.\n\n";
++ 
++ print SCRIPT
++     "/* This Isql script was generated by dbschema.pl on $date.
++ ** The indexes need to be checked: column names & index names
++ ** might be truncated!
++ */\n";
++ 
++ print SCRIPT "\nuse $opt_d\ngo\n"; # Change to the appropriate database
++ 
++ 
++ # first, Add the appropriate user data types:
++ #
++ 
++ print "Add user-defined data types...";
++ print SCRIPT
++     "/* Add user-defined data types: */\n\n";
++ 
++ &dbcmd($dbproc, "select s.length, s.name, st.name,\n");
++ &dbcmd($dbproc, "       object_name(s.tdefault),\n");
++ &dbcmd($dbproc, "       object_name(s.domain)\n");
++ &dbcmd($dbproc, "from   $opt_d.dbo.systypes s, $opt_d.dbo.systypes st\n");
++ &dbcmd($dbproc, "where  st.type = s.type\n");
++ &dbcmd($dbproc, "and s.usertype > 100 and st.usertype < 100 and st.usertype != 18\n");
++ &dbsqlexec($dbproc);
++ &dbresults($dbproc);
++ 
++ 
++ while((@dat = &dbnextrow($dbproc)))
++ {
++     print SCRIPT "sp_addtype $dat[1],";
++     if ($dat[2] =~ /char|binary/)
++     {
++         print SCRIPT "'$dat[2]($dat[0])'";
++     }
++     else
++     {
++         print SCRIPT "$dat[2]";
++     }
++     print SCRIPT "\ngo\n";
++ 				# Now remeber the default & rule for later.
++     $urule{$dat[1]} = $dat[4] if $dat[4] !~ /NULL/;
++     $udflt{$dat[1]} = $dat[3] if $dat[3] !~ /NULL/;
++ }
++ 
++ print "Done\n";
++ 
++ print "Create rules...";
++ print SCRIPT
++     "\n/* Now we add the rules... */\n\n";
++ 
++ &getObj('Rule', 'R');
++ print "Done\n";
++ 
++ print "Create defaults...";
++ print SCRIPT
++     "\n/* Now we add the defaults... */\n\n";
++ 
++ &getObj('Default', 'D');
++ print "Done\n";
++ 
++ print "Bind rules & defaults to user data types...";
++ print SCRIPT "/* Bind rules & defaults to user data types... */\n\n";
++ 
++ while(($dat, $dflt)=each(%udflt))
++ {
++     print SCRIPT "sp_bindefault $dflt, $dat\ngo\n";
++ }
++ while(($dat, $rule) = each(%urule))
++ {
++     print SCRIPT "sp_bindrule $rule, $dat\ngo\n";
++ }
++ print "Done\n";
++ 
++ print "Create Tables & Indices...";
++ print "\n" if $opt_v;
++ 
++ &dbcmd($dbproc, "select o.name,u.name, o.id\n");
++ &dbcmd($dbproc, "from $opt_d.dbo.sysobjects o, $opt_d.dbo.sysusers u\n");
++ &dbcmd($dbproc, "where o.type = 'U' and o.name like '$opt_t' and u.uid = o.uid\n");
++ &dbcmd($dbproc, "order by o.name\n");
++ 
++ &dbsqlexec($dbproc);
++ &dbresults($dbproc);
++ 
++ while((@dat = &dbnextrow($dbproc)))
++ {
++     $_ = join('@', @dat);	# join the data together on a line
++     push(@tables,$_);		# and save it in a list
++ }
++ 
++ 
++ foreach (@tables)		# For each line in the list
++ {
++     @tab = split(/@/, $_);
++ 
++     print "Creating table $tab[0], owner $tab[1]\n" if $opt_v;
++ 
++     print SCRIPT "/* Start of description of table $tab[1].$tab[0] */\n\n";
++ 
++     &dbcmd($dbproc, "select Column_name = c.name, \n");
++     &dbcmd($dbproc, "       Type = t.name, \n");
++     &dbcmd($dbproc, "       Length = c.length, \n");
++     &dbcmd($dbproc, "       Nulls = convert(bit, (c.status & 8)),\n");
++     &dbcmd($dbproc, "       Default_name = object_name(c.cdefault),\n");
++     &dbcmd($dbproc, "       Rule_name = object_name(c.domain)\n");
++     &dbcmd($dbproc, "from   $opt_d.dbo.syscolumns c, $opt_d.dbo.systypes t\n");
++     &dbcmd($dbproc, "where  c.id = $tab[2]\n");
++     &dbcmd($dbproc, "and    c.usertype *= t.usertype\n");
++ 
++     &dbsqlexec($dbproc);
++     &dbresults($dbproc);
++ 
++     undef(%rule);
++     undef(%dflt);
++ 
++     print SCRIPT "\n\nCREATE TABLE $opt_d.$tab[1].$tab[0]\n ("; 
++     $first = 1;
++     while((@field = &dbnextrow($dbproc)))
++     {
++         print SCRIPT ",\n" if !$first;		# add a , and a \n if not first field in table
++         
++         print SCRIPT "\t$field[0] \t$field[1]";
++         print SCRIPT "($field[2])" if $field[1] =~ /char|bin/;
++         print SCRIPT " $nul[$field[3]]";
++ 	
++ 	$rule{"$tab[0].$field[0]"} = $field[5] if ($field[5] !~ /NULL/ && $urule{$field[1]} ne $field[5]);
++ 	$dflt{"$tab[0].$field[0]"} = $field[4] if ($field[4] !~ /NULL/ && $udflt{$field[1]} ne $field[4]);;
++         $first = 0 if $first;
++         
++     }
++     print SCRIPT " )\n";
++ 
++ # now get the indexes...
++ #
++ 
++     print "Indexes for table $tab[1].$tab[0]\n" if $opt_v;
++     
++     &dbcmd($dbproc, "sp_helpindex '$tab[1].$tab[0]'\n");
++ 
++     &dbsqlexec($dbproc);
++     &dbresults($dbproc);
++ 
++     while((@field = &dbnextrow($dbproc)))
++     {
++         print SCRIPT "\nCREATE ";
++         print SCRIPT "unique " if $field[1] =~ /unique/;
++         print SCRIPT "clustered " if $field[1] =~ /^clust/;
++         print SCRIPT "index $field[0]\n";
++         @col = split(/,/,$field[2]);
++         print SCRIPT "on $opt_d.$tab[1].$tab[0] (";
++         $first = 1;
++         foreach (@col)
++         {
++             print SCRIPT ", " if !$first;
++             $first = 0;
++             print SCRIPT "$_";
++         }
++         print SCRIPT ")\n";
++     }
++ 
++     &getPerms("$tab[1].$tab[0]");
++ 
++     print SCRIPT "go\n";
++ 
++     print "Bind rules & defaults to columns...\n" if $opt_v;
++     print SCRIPT "/* Bind rules & defaults to columns... */\n\n";
++ 
++     if($tab[1] ne 'dbo' && (keys(%dflt) || keys(%rules)))
++     {
++ 	print SCRIPT "/* The owner of the table is $tab[1].
++ ** I can't bind the rules/defaults to a table of which I am not the owner.
++ ** The procedures below will have to be run manualy by user $tab[1].
++ */";
++ 	print LOG "Defaults/Rules for $tab[1].$tab[0] could not be bound\n";
++     }
++ 
++     while(($dat, $dflt)=each(%dflt))
++     {
++ 	print SCRIPT "/* " if $tab[1] ne 'dbo';
++ 	print SCRIPT "sp_bindefault $dflt, '$dat'";
++ 	if($tab[1] ne 'dbo')
++ 	{
++ 	    print SCRIPT " */\n";
++ 	}
++ 	else
++ 	{
++ 	    print SCRIPT "\ngo\n";
++ 	}
++     }
++     while(($dat, $rule) = each(%rule))
++     {
++ 	print SCRIPT "/* " if $tab[1] ne 'dbo';
++ 	print SCRIPT "sp_bindrule $rule, '$dat'";
++ 	if($tab[1] ne 'dbo')
++ 	{
++ 	    print SCRIPT " */\n";
++ 	}
++ 	else
++ 	{
++ 	    print SCRIPT "\ngo\n";
++ 	}
++     }
++     print SCRIPT "\n/* End of description of table $tab[1].$tab[0] */\n";
++ 
++ }
++ 
++ print "Done\n";
++ 
++ 
++ #
++ # Now create any views that might exist
++ #
++ 
++ print "Create views...";
++ print SCRIPT
++     "\n/* Now we add the views... */\n\n";
++ 
++ &getObj('View', 'V');
++ 
++ print "Done\n";
++ 
++ #
++ # Now create any stored procs that might exist
++ #
++ 
++ print "Create stored procs...";
++ print SCRIPT
++     "\n/* Now we add the stored procedures... */\n\n";
++ &getObj('Stored Proc', 'P');
++ 
++ print "Done\n";
++ 
++ #
++ # Now create the triggers
++ #
++ 
++ print "Create triggers...";
++ print SCRIPT
++     "\n/* Now we add the triggers... */\n\n";
++ 
++ &getObj('Trigger', 'TR');
++ 
++ 
++ print "Done\n";
++ 
++ print "\nLooks like I'm all done!\n";
++ close(SCRIPT);
++ close(LOG);
++ 
++ &dbexit;
++ 
++ 
++ sub getPerms
++ {
++     local($obj) = $_[0];
++     local($ret, @dat, $act, $cnt);
++ 
++     &dbcmd($dbproc, "sp_helprotect '$obj'\n");
++     &dbsqlexec;
++ 
++     $cnt = 0;
++     while(($ret = &dbresults) != $NO_MORE_RESULTS && $ret != $FAIL)
++     {
++ 	while(@dat = &dbnextrow)
++ 	{
++ 	    $act = 'to';
++ 	    $act = 'from' if $dat[0] =~ /Revoke/;
++ 	    print SCRIPT "$dat[0] $dat[1] on $obj $act $dat[2]\n";
++ 	    ++$cnt;
++ 	}
++     }
++     $cnt;
++ }
++ 
++ sub getObj
++ {
++     local($objname, $obj) = @_;
++     local(@dat, @items, @vi, $found);
++     
++     &dbcmd($dbproc, "select o.name, u.name, o.id\n");
++     &dbcmd($dbproc, "from $opt_d.dbo.sysobjects o, $opt_d.dbo.sysusers u\n");
++     &dbcmd($dbproc, "where o.type = '$obj' and o.name like '$opt_t' and u.uid = o.uid\n");
++     &dbcmd($dbproc, "order by o.name\n");
++ 
++     &dbsqlexec($dbproc);
++     &dbresults($dbproc);
++ 
++     while((@dat = &dbnextrow($dbproc)))
++     {				# 
++ 	$_ = join('@', @dat);	# join the data together on a line
++ 	push(@items, $_);	# and save it in a list
++     }
++ 
++     foreach (@items)
++     {
++ 	@vi = split(/@/, $_);
++ 	$found = 0;
++ 
++ 	&dbcmd($dbproc, "select text from syscomments where id = $vi[2]");
++ 	&dbsqlexec;
++ 	&dbresults;
++ 	
++ 	print SCRIPT
++ 	    "/* $objname $vi[0], owner $vi[1] */\n";
++ 
++ 	while(($text) = &dbnextrow)
++ 	{
++ 	    if(!$found && $vi[1] ne 'dbo')
++ 	    {
++ 		++$found if($text =~ /$vi[1]/);
++ 	    }
++ 	    print SCRIPT $text;
++ 	}
++ 	print SCRIPT "\ngo\n";
++ 	if(!$found && $vi[1] ne 'dbo')
++ 	{
++ 	    print "**Warning**\n$objname $vi[0] has owner $vi[1]\nbut this is not mentioned in the CREATE PROC statement!!\n";
++ 	    print LOG "$objname $vi[0] (owner $vi[1])\n";
++ 	}
++     }
++ }
++ 
++ 
+diff -c -r ./eg/report.pl /usr/local/src/perl/sybase/dist-1.5/eg/report.pl
+*** ./eg/report.pl	Wed Jun 24 13:37:34 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/report.pl	Thu Jun 25 13:18:18 1992
+***************
+*** 1,5 ****
+--- 1,9 ----
+  #! /usr/local/bin/sybperl
+  
++ #
++ #	@(#)report.pl	1.1	6/24/92
++ #
++ 
+  require "sybperl.pl";
+  require "sql.pl";
+  
+diff -c -r ./eg/space.pl /usr/local/src/perl/sybase/dist-1.5/eg/space.pl
+*** ./eg/space.pl	Wed Jun 24 13:37:34 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/space.pl	Thu Jun 25 13:18:16 1992
+***************
+*** 1,5 ****
+--- 1,9 ----
+  #! /usr/local/bin/sybperl
+  
++ #
++ #	@(#)space.pl	1.1	6/24/92
++ #
++ 
+  require "sybperl.pl";
+  require "sql.pl";
+  
+diff -c -r ./eg/sql.pl /usr/local/src/perl/sybase/dist-1.5/eg/sql.pl
+*** ./eg/sql.pl	Wed Jun 24 13:37:35 1992
+--- /usr/local/src/perl/sybase/dist-1.5/eg/sql.pl	Thu Jun 25 13:18:16 1992
+***************
+*** 1,3 ****
+--- 1,7 ----
++ #
++ #	@(#)sql.pl	1.1	6/24/92
++ #
++ 
+  sub sql {
+      local($db,$sql,$sep)=@_;			# local copy parameters
+  
+
+exit 0 # Just in case...

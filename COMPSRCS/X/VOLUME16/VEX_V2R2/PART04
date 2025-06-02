@@ -1,0 +1,2249 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i055: Video Extension for X (v2r2), Part04/29
+Message-ID: <1992Feb6.145408.29786@msi.com>
+Date: 6 Feb 92 14:54:08 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2236
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 55
+Archive-name: vex.v2r2/part04
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 4 (of 29)."
+# Contents:  extensions/xv/server/ddx/allrop/xvrop.c
+#   server/ddx/cfb32/cfbgetsp.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/server/ddx/allrop/xvrop.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/allrop/xvrop.c'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/allrop/xvrop.c'\" \(47157 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/allrop/xvrop.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvrop.c --- Xv RasterOps device dependent module.
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   26.11.91 Carver
+X**     - optimized PutStill to not redraw enable plane between like stills.
+X**     - fixed multi-screen support
+X**     - added new call to pip_installed()
+X**
+X**   18.09.91 Carver
+X**     - changed interface to libpip.c; now uses pip_src_area and pip_dst_area
+X**       instead of pip_source_area, pip_origin, and pip_size.
+X**     - fixed constrain procedure to clip video destination to screen bounds
+X**
+X**   10.09.91 Carver
+X**     - fixed calls to fill_video_enable some were overrunning bounds
+X**       of screen.
+X**
+X**   29.08.91 Carver
+X**     - change: unrealizing windows no longer preempts video
+X**     - added support for duty cycle (video priority) management
+X**     - added support for video in StaticGray windows
+X**     - added include of cfb.h; needed to access 8 plane gc priv structure
+X**     - changed interfaces to rop.c and libpip.c to use RopPtr uniformly
+X**     - changed ultrix conditional compile so this file works for both
+X**       sun and dec boards
+X**
+X**   26.06.91 Carver
+X**     - fixed GC wrapping logic in a big way
+X**     - fixed XvropValidateGC; it had the wrong argument definition
+X**       can't believe that it ever worked.
+X**     - fixed XvropStopVideo to check to see if the GC still exists
+X**       before it references a pointer to it.
+X**
+X**   11.06.91 Carver
+X**     - changed SetPortControl to SetPortAttribute
+X**     - changed GetPortControl to GetPortAttribute
+X**     - changed QueryBestSize
+X**
+X**   04.06.91 Carver
+X**     - completed implementing port controls
+X**     - used code from R. Ulichney to to contrast and brightness calc's
+X**     - changed interface to libpip.c, use new libpip.h header file
+X**
+X**   31.05.91 Carver
+X**     - made big fixes to occlusion stuff
+X**     - fixed video image offset and size
+X**
+X**   23.05.91 Carver
+X**     - check for pip existance before initializing the adaptor
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   24.04.91 Carver
+X**     - updated to use 24 plane support.
+X**
+X**   19.03.91 Carver
+X**     - origional version coded to v1r4.
+X**
+X*/
+X
+X#include <stdio.h>
+X
+X#include <sys/types.h>
+X
+X#include "X.h"
+X#include "Xproto.h"
+X#include "misc.h"
+X#include "scrnintstr.h"
+X#include "validate.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "gcstruct.h"
+X#include "dixstruct.h"
+X#include "cfb.h"                    /* 8 PLANE DDX HEADER */
+X
+X#ifdef DECWINDOWS
+X#include "tfb.h"                    /* 24 PLANE DDX HEADER */
+X#else
+X#define tfbPrivGCPtr cfbPrivGCPtr
+X#define tfbGCPrivateIndex cfbGCPrivateIndex
+X#endif
+X
+X#include "Xv.h"
+X#include "Xvproto.h"
+X#include "xvdix.h"
+X
+X#define GLOBAL
+X#include "xvrop.h"
+X#undef GLOBAL
+X
+X/* INTERNAL */
+X
+Xstatic Bool XvropCloseScreen();
+Xstatic int XvropQueryAdaptors();
+Xstatic int XvropInitAdaptor();
+Xstatic int XvropAllocatePort();
+Xstatic int XvropFreePort();
+Xstatic int XvropPutVideo();
+Xstatic int XvropPutStill();
+Xstatic int XvropGetVideo();
+Xstatic int XvropGetStill();
+Xstatic int XvropStopVideo();
+Xstatic int XvropSetPortAttribute();
+Xstatic int XvropGetPortAttribute();
+Xstatic int XvropQueryBestSize();
+X
+Xstatic pointer XvropPipInit();
+X
+Xstatic void XvropClipNotify();
+Xstatic void XvropCopyWindow();
+Xstatic Bool XvropUnrealizeWindow();
+Xstatic void XvropWindowExposures();
+X
+Xstatic void XvropDestroyGC();
+Xstatic void XvropValidateGC();
+X
+X/* NOTE THAT WE ONLY NEED TO WRAP ONE GC AT A TIME; FOR THIS REASON WE DON'T
+X   USE A GC PRIVATE STRUCTURE TO SAVE THE WRAP FUNCS; WHEN WE ARE FINISHED
+X   USING A GC FOR VIDEO WE WANT TO UNWRAP IT, BUT WE NEED TO BE IN A FUNC IN 
+X   ORDER TO UNWRAP IT, SO WE USE ChangeGC WITH A NULL MASK TO DO THE
+X   UNWRAPPING; ITS A HACK BUT SAVES UNNECESSARY ALLOCATIONS */
+X
+Xstatic void XvropValidateGC (),  XvropCopyGC (),      XvropDestroyGC();
+Xstatic void XvropChangeGC();
+Xstatic void XvropChangeClip(),   XvropDestroyClip(),  XvropCopyClip();
+X
+Xstatic GCFuncs  XvropGCFuncs = 
+X{
+X  XvropValidateGC,
+X  XvropChangeGC,
+X  XvropCopyGC,
+X  XvropDestroyGC,
+X  XvropChangeClip,
+X  XvropDestroyClip,
+X  XvropCopyClip
+X};
+X
+Xstatic XvPortPtr XvropPorts[MAXSCREENS];
+X
+Xint
+XXvropScreenInit(pScreen)
+X
+XScreenPtr pScreen;
+X
+X{
+X  XvropScreenPtr props;
+X  XvScreenPtr pxvs;
+X  int status;
+X
+X  if (!pip_installed(pScreen->myNum))
+X    return Success;
+X
+X  /* ALL XV DD SCREEN INIT PROCS NEED TO CALL THE DI SCREEN INIT PROC FIRST */
+X
+X  XvScreenInit(pScreen);
+X
+X  pxvs = (XvScreenPtr)pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  if ((status = XvropInitAdaptor(pScreen)) != Success)
+X    return status;
+X
+X  /* XXX --- THESE SHOULD BE CHAINED FOR MULTIPLE ADAPTOR SUPPORT */
+X
+X  pxvs->ddCloseScreen = XvropCloseScreen;
+X  pxvs->ddQueryAdaptors = XvropQueryAdaptors;
+X
+X  if (!(props = (XvropScreenPtr)xalloc(sizeof(XvropPortRec))))
+X    {
+X      return BadAlloc;
+X    }
+X  pxvs->devPriv.ptr = (pointer)props;
+X
+X  props->WindowExposures = pScreen->WindowExposures;
+X  pScreen->WindowExposures = XvropWindowExposures;
+X
+X  props->UnrealizeWindow = pScreen->UnrealizeWindow;
+X  pScreen->UnrealizeWindow = XvropUnrealizeWindow;
+X
+X  props->CopyWindow = pScreen->CopyWindow;
+X  pScreen->CopyWindow = XvropCopyWindow;
+X
+X  props->ClipNotify = pScreen->ClipNotify;
+X  pScreen->ClipNotify = XvropClipNotify;
+X
+X  return Success;
+X}
+X
+Xstatic int
+XXvropInitAdaptor(pScreen)
+X
+XScreenPtr pScreen;
+X
+X{
+X  int id,status,count,np,ne,nd,nv,nf,tf,na,nvis;
+X  XvScreenPtr pxvs;
+X  XvAdaptorPtr pa,pas;
+X  XvPortPtr pp,pps;
+X  XvropPortPtr ppp;
+X  XvEncodingPtr pe,pes;
+X  XvFormatPtr pf,pfs;
+X  unsigned long *pv;
+X  VisualPtr pvis;
+X  DepthPtr pd;
+X  pointer prop;
+X
+X  if (!(prop = XvropPipInit(pScreen)))
+X    return Success;
+X
+X  pxvs = (XvScreenPtr) pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  pas = (XvAdaptorPtr)xalloc(sizeof(XvAdaptorRec));
+X  if (!pas)
+X    {
+X      FatalError("XvropInitAdaptors: coudn't alloc Adaptor struct\n");
+X    }
+X  pa = pas;
+X
+X  for (na = 0; na<XVROP_NUM_ADAPTORS; na++)
+X    {
+X
+X      pes = (XvEncodingPtr)xalloc(sizeof(XvEncodingRec)*XvropNumEncodings[na]);
+X      if (!pes)
+X	{
+X	  FatalError("XvropInitAdaptors: coudn't alloc Encoding struct\n");
+X	}
+X
+X      pe = pes;
+X
+X      for (ne = 0; ne<XvropNumEncodings[na]; ne++)
+X	{
+X	  *pe = XvropEncodings[na][ne];
+X	  pe->pScreen = pScreen;
+X	  
+X	  pe++;
+X	}
+X
+X      pps = (XvPortPtr)xalloc(sizeof(XvPortRec)*XvropNumPorts[na]);
+X      if (!pps)
+X	{
+X	  FatalError("XvropInitAdaptors: coudn't alloc Port struct\n");
+X	}
+X      pp = pps;
+X
+X      for (np = 0; np<XvropNumPorts[na]; np++)
+X	{
+X	  id = FakeClientID(0);
+X	  
+X	  if (!AddResource(id, XvRTPort, pp))
+X	    {
+X	      FatalError("XvddInitScreen: couldn't add Port resource\n");
+X	    }
+X	  
+X	  /* MANUALLY FILL IN PORT STRUCTURE */
+X	  
+X	  pp->id = id;
+X	  pp->pAdaptor = pa;
+X	  pp->pDraw = (DrawablePtr)NULL;
+X	  pp->grab.client = (ClientPtr)NULL;
+X	  pp->time = currentTime;
+X	  pp->pNotify = (XvPortNotifyPtr)NULL;
+X	  ppp = (XvropPortPtr)xalloc(sizeof(XvropPortRec));
+X	  pp->devPriv.ptr = (pointer)ppp;
+X
+X	  ppp->pGC = (GCPtr)NULL;
+X	  ppp->pEncoding = pes; /* XXX---SHOULD BE A COMMAND LINE ARG */
+X	  ppp->hue = 0;
+X	  ppp->saturation = 0;
+X	  ppp->brightness = 0;
+X	  ppp->contrast = 0;
+X	  ppp->serialNumber = 0;
+X	  ppp->pDrawStill = (DrawablePtr)NULL;
+X
+X	  /* SAVE HANDLE TO DEVICE DRIVER */
+X
+X	  ppp->prop = prop; 
+X
+X	  /* SET DEFAULT ENCODING; NOT GRAY */
+X
+X	  ppp->gray = FALSE;
+X
+X	  pip_source_type(ppp->prop, ppp->pEncoding->id);
+X
+X	  pp++;
+X	  
+X	}
+X
+X      nf = 0;
+X      tf = XvropNumFormats[na];
+X      pfs = (XvFormatPtr)xalloc(sizeof(XvFormatRec)*tf);
+X      if (!pfs)
+X	{
+X	  FatalError("XvropInitAdaptors: couldn't alloc Format struct\n");
+X	}
+X      pf = pfs;
+X
+X      pd = pScreen->allowedDepths;
+X      for (nd=0; nd<pScreen->numDepths; nd++)
+X	{
+X	  if (pd->depth == 24)
+X	    {
+X	      pv = pd->vids;
+X	      for (nv=0; nv<pd->numVids; nv++)
+X		{
+X		  if (nf >= tf) 
+X		    {
+X		      tf *= 2;
+X		      pfs = (XvFormatPtr)xrealloc(pfs, sizeof(XvFormatRec)*tf);
+X		      pf = &pfs[nf];
+X		    }
+X		  
+X		  pf->depth = pd->depth;
+X		  pf->visual = *pv;
+X		  pf++;
+X		  nf++;
+X		  pv++;
+X		}
+X	    }
+X	  pd++;
+X	}
+X
+X      /* FIND STATIC GRAY VISUAL */
+X
+X      pvis = pScreen->visuals;
+X      for (nvis=0; nvis<pScreen->numVisuals; nvis++)
+X	{
+X	  if (pvis->class == StaticGray) break;
+X	  pvis++;
+X	}
+X
+X      /* IF WE FOUND ONE THEN FIND MATCHING DEPTH VISUALID */
+X
+X      if (nvis < pScreen->numVisuals)
+X	{
+X	  pd = pScreen->allowedDepths;
+X	  for (nd=0; nd<pScreen->numDepths; nd++)
+X	    {
+X	      if (pd->depth == 8)
+X		{
+X		  pv = pd->vids;
+X		  for (nv=0; nv<pd->numVids; nv++)
+X		    {
+X		      if (pvis->vid == *pv)
+X			{
+X			  if (nf >= tf) 
+X			    {
+X			      tf *= 2;
+X			      pfs = (XvFormatPtr)
+X				xrealloc(pfs, sizeof(XvFormatRec)*tf);
+X			      pf = &pfs[nf];
+X			    }
+X			  pf->depth = pd->depth;
+X			  pf->visual = *pv;
+X			  pf++;
+X			  nf++;
+X			  break;
+X			}
+X		      pv++;
+X		    }
+X		}
+X	      pd++;
+X	    }
+X	}
+X      XvropNumFormats[na] = nf;
+X
+X      pp = pps+na;
+X      pa->base_id = pp->id;
+X      pa->type = XvInputMask;
+X      pa->name = "RasterOps";
+X      pa->nEncodings = ne;
+X      pa->pEncodings = pes;
+X      pa->nPorts = np;
+X      pa->pPorts = pps;
+X      pa->nFormats = nf;
+X      pa->pFormats = pfs;
+X      pa->pScreen = pScreen;
+X      pa->ddAllocatePort = XvropAllocatePort;
+X      pa->ddFreePort = XvropFreePort;
+X      pa->ddPutVideo = XvropPutVideo;
+X      pa->ddPutStill = XvropPutStill;
+X      pa->ddGetVideo = XvropGetVideo;
+X      pa->ddGetStill = XvropGetStill;
+X      pa->ddStopVideo = XvropStopVideo;
+X      pa->ddSetPortAttribute = XvropSetPortAttribute;
+X      pa->ddGetPortAttribute = XvropGetPortAttribute;
+X      pa->ddQueryBestSize = XvropQueryBestSize;
+X
+X      /* ALLOWS QUICK ACCESS TO PORTS BY ROP DD MODULE; THIS
+X         ASSUMES NO MORE THAN ONE ROP ADAPTOR PER SCREEN */
+X
+X      XvropPorts[pScreen->myNum] = pps;
+X    }
+X
+X  pxvs->nAdaptors = na;
+X  pxvs->pAdaptors = pas;
+X
+X  /* ALLOCATE ATOMS FOR PORT ATTRIBUTES --- MORE LATER */
+X
+X  XvropEncoding = MakeAtom("XV_ENCODING", strlen("XV_ENCODING"), xTrue);
+X  XvropHue = MakeAtom("XV_HUE", strlen("XV_HUE"), xTrue);
+X  XvropSaturation = MakeAtom("XV_SATURATION", strlen("XV_SATURATION"), xTrue);
+X  XvropBrightness = MakeAtom("XV_BRIGHTNESS", strlen("XV_BRIGHTNESS"), xTrue);
+X  XvropContrast = MakeAtom("XV_CONTRAST", strlen("XV_CONTRAST"), xTrue);
+X
+X  return Success;
+X
+X}
+X
+Xstatic pointer
+XXvropPipInit(pScreen)
+XScreenPtr pScreen;
+X
+X{
+X  pointer prop;
+X
+X  /* XXX---INIT TO USE NTSC; THIS SHOULD BE SERVER OPTION */
+X
+X  if (!(prop = (pointer)pip_init(pScreen->myNum, PIP_NTSC | PIP_COMPOSITE)))
+X    return prop;
+X
+X  fill_video_enable(prop, 0, 0, pScreen->width, pScreen->height, 00);
+X
+X  return prop;
+X
+X}
+X
+Xstatic Bool
+XXvropCloseScreen(ii, pScreen)
+Xint ii;
+XScreenPtr pScreen;
+X
+X{
+X  int np,na;
+X  XvAdaptorPtr pa;
+X  XvPortPtr pp;
+X  XvScreenPtr pxvs;
+X  XvropScreenPtr props;
+X
+X  pxvs = (XvScreenPtr) pScreen->devPrivates[XvScreenIndex].ptr;
+X  props = (XvropScreenPtr)pxvs->devPriv.ptr;
+X
+X  if (!pxvs) return TRUE;
+X
+X  pScreen->WindowExposures = props->WindowExposures;
+X  pScreen->UnrealizeWindow = props->UnrealizeWindow;
+X
+X  pScreen->CopyWindow = props->CopyWindow;
+X  pScreen->ClipNotify = props->ClipNotify;
+X
+X  pa = pxvs->pAdaptors;
+X
+X  for (na=0; na<pxvs->nAdaptors; na++, pa++)
+X    {
+X      if (pa->pFormats) xfree(pa->pFormats);
+X      if (pa->pEncodings) xfree(pa->pEncodings);
+X      pp = pa->pPorts;
+X      for (np=0; np<pa->nPorts; np++, pp++)
+X	{
+X	  if (pp->devPriv.ptr) pip_close(ii);
+X	}
+X      if (pa->pPorts) xfree(pa->pPorts);
+X    }
+X
+X  xfree(pxvs->pAdaptors);
+X  pxvs->pAdaptors = (XvAdaptorPtr)NULL;
+X
+X  return TRUE;
+X}
+X
+Xstatic int
+XXvropAllocatePort(port, pPort, ppPort)
+X
+Xunsigned long port;
+XXvPortPtr pPort;
+XXvPortPtr *ppPort;
+X
+X{
+X  *ppPort = pPort;
+X  return Success;
+X}
+X
+Xstatic int
+XXvropFreePort(pPort)
+X
+XXvPortPtr pPort;
+X
+X{
+X  return Success;
+X}
+X
+Xstatic int
+XXvropQueryAdaptors(pScreen, p_nAdaptors, p_pAdaptors)
+X
+XScreenPtr pScreen;
+XXvAdaptorPtr *p_pAdaptors;
+Xint *p_nAdaptors;
+X
+X{
+X
+X  XvScreenPtr pxvs;
+X
+X  pxvs = (XvScreenPtr) pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  *p_nAdaptors = pxvs->nAdaptors;
+X  *p_pAdaptors = pxvs->pAdaptors;
+X
+X  return (Success);
+X
+X}
+X
+Xstatic void
+XXvropConstrainVideo(pWin, pe,
+X		    vid_x, vid_y, vid_w, vid_h,
+X		    drw_x, drw_y, drw_w, drw_h,
+X		    p_vid_x, p_vid_y, p_vid_w, p_vid_h,
+X		    p_drw_x, p_drw_y, p_drw_w, p_drw_h)
+X
+XWindowPtr pWin;
+XXvEncodingPtr pe;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XINT16 vid_w, vid_h, drw_w, drw_h;
+XINT16 *p_vid_x, *p_vid_y, *p_drw_x, *p_drw_y;
+XINT16 *p_vid_w, *p_vid_h, *p_drw_w, *p_drw_h;
+X
+X{
+X  ScreenPtr pScreen;
+X  int u,v;
+X
+X  /* NOTE WE ARE USING SIGNED VALUES FOR EXTENTS; THE CALCULATIONS BELOW COULD
+X     PRODUCE NEGATIVE VALUES WHICH SHOULD BE INTERPRETED AS A NULL VIDEO
+X     REGION */
+X
+X  /* INITIALIZE RESULTS TO ZERO IN CASE WE ENCOUNTER A ZERO EXTENT SOMEWHERE
+X     ALONG THE WAY */
+X
+X  /* USE A LOOP TO HANDLE SIZE ERROR */
+X
+X  for (;;)
+X    {
+X      
+X      /* FIRST SEE IF VID X,Y ARE OUT OF BOUNDS; NULL REGION RESULTS */
+X      
+X      if (vid_x >= pe->width || vid_y >= pe->height || 
+X	  vid_w <= 0 || vid_h <= 0) break;
+X      
+X      /* CLIP LOWER BOUNDS OF SOURCE REGION */
+X      
+X      if (vid_x < 0)
+X	{
+X	  u = (drw_w*(vid_w + vid_x))/vid_w;
+X	  drw_x += drw_w - u;
+X	  drw_w = u;
+X	  vid_w += vid_x;
+X	  vid_x = 0;
+X	  if (drw_w <= 0 || vid_w <= 0) break;
+X	}
+X      
+X      if (vid_y < 0)
+X	{
+X	  u = (drw_h*(vid_h + vid_y))/vid_h;
+X	  drw_y += drw_h - u;
+X	  drw_h = u;
+X	  vid_h += vid_y;
+X	  vid_y = 0;
+X	  if (drw_h <= 0 || vid_h <= 0) break;
+X	}
+X      
+X      /* CLIP UPPER BOUNDS OF SOURCE REGION */
+X      
+X      if (vid_x + vid_w > pe->width)
+X	{
+X	  drw_w = (drw_w*(pe->width - vid_x))/vid_w;
+X	  vid_w = pe->width - vid_x;
+X	  if (drw_w <= 0 || vid_w <= 0) break;
+X	}
+X      
+X      if (vid_y + vid_h > pe->height)
+X	{
+X	  drw_h = (drw_h*(pe->height - vid_y))/vid_h;
+X	  vid_h = pe->height - vid_y;
+X	  if (drw_h <= 0 || vid_h <= 0) break;
+X	}
+X      
+X      /* CLIP THE DST AREA TO THE LOWER BOUNDS OF SCREEN */
+X      
+X      if (pWin->drawable.x + drw_x < 0)
+X	{
+X	  u = drw_w + (pWin->drawable.x + drw_x);
+X	  v = (vid_w*u)/drw_w;
+X	  vid_x += vid_w - v;
+X	  vid_w = v;
+X	  drw_x = -pWin->drawable.x;
+X	  drw_w = u;
+X	  if (drw_w <= 0 || vid_w <= 0) break;
+X	}
+X      
+X      if (pWin->drawable.y + drw_y < 0)
+X	{
+X	  if (drw_h <= 0) break;
+X	  u = drw_h + (pWin->drawable.y + drw_y);
+X	  v = (vid_h*u)/drw_h;
+X	  vid_y += vid_h - v;
+X	  vid_h = v;
+X	  drw_y = -pWin->drawable.y;
+X	  drw_h = u;
+X	  if (drw_h <= 0 || vid_h <= 0) break;
+X	}
+X      
+X      /* CLIP THE DST AREA TO THE UPPER BOUNDS OF SCREEN */
+X      
+X      pScreen = pWin->drawable.pScreen;
+X      
+X      if (pWin->drawable.x + drw_x + drw_w > pScreen->width)
+X	{
+X	  u = pScreen->width - pWin->drawable.x - drw_x;
+X	  vid_w = (vid_w*u)/drw_w;
+X	  drw_w = u;
+X	  if (drw_w <= 0 || vid_w <= 0) break;
+X	}
+X      
+X      if (pWin->drawable.y + drw_y + drw_h > pScreen->height)
+X	{
+X	  u = pScreen->height - pWin->drawable.y - drw_y;
+X	  vid_h = (vid_h*u)/drw_h;
+X	  drw_h = u;
+X	  if (drw_h <= 0 || vid_h <= 0) break;
+X	}
+X      
+X      /* CHECK DESTINATION SIZE AGAINST SOURCE VIDEO SIZE */
+X      
+X      if (drw_w > vid_w)
+X	{
+X	  drw_h = (drw_h * vid_w)/drw_w;
+X	  drw_w = vid_w;
+X	  if (drw_w <= 0 || vid_w <= 0) break;
+X	}
+X      
+X      if (drw_h > vid_h)
+X	{
+X	  drw_w = (drw_w * vid_h)/drw_h;
+X	  drw_h = vid_h;
+X	  if (drw_h <= 0 || vid_h <= 0) break;
+X	}
+X      
+X      *p_vid_x = vid_x;
+X      *p_vid_y = vid_y;
+X      *p_vid_w = vid_w;
+X      *p_vid_h = vid_h;
+X      *p_drw_x = drw_x;
+X      *p_drw_y = drw_y;
+X      *p_drw_w = drw_w;
+X      *p_drw_h = drw_h;
+X
+X      return;
+X
+X    }
+X
+X  *p_vid_x = 0;
+X  *p_vid_y = 0;
+X  *p_vid_w = 0;
+X  *p_vid_h = 0;
+X  *p_drw_x = 0;
+X  *p_drw_y = 0;
+X  *p_drw_w = 0;
+X  *p_drw_h = 0;
+X
+X}
+X
+Xstatic int
+XXvropPutVideo(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	       drw_x, drw_y, drw_w, drw_h)
+X
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  XvropPortPtr ppp;
+X  tfbPrivGCPtr pTFBGC;
+X  cfbPrivGCPtr pCFBGC;
+X  GCPtr pGCTemp;
+X  int vis,nBox,x1,x2,y1,y2;
+X  BoxPtr pBox;
+X  RegionPtr pClip;
+X  Bool src_area_changed = FALSE;
+X  Bool dst_area_changed = FALSE;
+X
+X  if (pDraw->type != DRAWABLE_WINDOW)
+X    {
+X      pPort->pDraw = (DrawablePtr)NULL;
+X      return BadAlloc;
+X    }
+X
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  ppp->vx = vid_x;
+X  ppp->vy = vid_y;
+X  ppp->vw = vid_w;
+X  ppp->vh = vid_h;
+X  ppp->dx = drw_x;
+X  ppp->dy = drw_y;
+X  ppp->dw = drw_w;
+X  ppp->dh = drw_h;
+X
+X  /* CONSTRAIN THE REGIONS TO THOSE THAT ARE SUPPORTED; MAINTAIN ASPECT
+X     RATIO WHEN POSSIBLE */
+X
+X  XvropConstrainVideo(pDraw, ppp->pEncoding, 
+X		      vid_x, vid_y, vid_w, vid_h,
+X		      drw_x, drw_y, drw_w, drw_h,
+X		      &vid_x, &vid_y, &vid_w, &vid_h,
+X		      &drw_x, &drw_y, &drw_w, &drw_h);
+X
+X  /* COMPARE AND SAVE CONSTRAINED PARAMETERS */
+X
+X  if ((vid_x != ppp->cvx) || (vid_y != ppp->cvy) || 
+X      (vid_w != ppp->cvw) || (vid_h != ppp->cvh))
+X    src_area_changed = TRUE;
+X  
+X  if ((pDraw != pPort->pDraw) ||
+X      (drw_x != ppp->cdx) || (drw_y != ppp->cdy) || 
+X      (drw_w != ppp->cdw) || (drw_h != ppp->cdh) ||
+X      (pDraw->x != ppp->Dx) || (pDraw->y != ppp->Dy))
+X    dst_area_changed = TRUE;
+X
+X  ppp->Dx = pDraw->x;
+X  ppp->Dy = pDraw->y;
+X
+X  ppp->cvx = vid_x;
+X  ppp->cvy = vid_y;
+X  ppp->cvw = vid_w;
+X  ppp->cvh = vid_h;
+X  ppp->cdx = drw_x;
+X  ppp->cdy = drw_y;
+X  ppp->cdw = drw_w;
+X  ppp->cdh = drw_h;
+X
+X  /* UNWRAP THE OLD GC PROCEDURES IF NECESSARY */
+X
+X  if ((ppp->pGC) && (pGC != ppp->pGC))
+X    {
+X      pGCTemp = ppp->pGC;
+X      ppp->pGC = (GCPtr)NULL;
+X      ChangeGC(pGCTemp, 0, 0); /* USE CHANGE GC TO UNWRAP GC */
+X    }
+X
+X  /* TURN PIP OFF SO WE CAN CHANGE PARAMETERS */
+X
+X  if (dst_area_changed) pip_off_with_timeout(ppp->prop, 1);
+X
+X  /* IF THE DRAWABLE DEPTH IS 8 WE KNOW IT MUST BE A StaticGray WINDOW */
+X
+X  if (pDraw->depth == 8)
+X    {
+X      if (!ppp->gray)
+X	{
+X	  pip_source_type(ppp->prop, ppp->pEncoding->id | PIP_GRAY);
+X	  ppp->gray = TRUE;
+X	}
+X
+X      /* GET COMPOSITE CLIP LIST */
+X
+X      pCFBGC = (cfbPrivGCPtr)pGC->devPrivates[cfbGCPrivateIndex].ptr; 
+X      pClip = pCFBGC->pCompositeClip;
+X
+X    }
+X  else
+X    {
+X      if (ppp->gray)
+X	{
+X	  pip_source_type(ppp->prop, ppp->pEncoding->id);
+X	  ppp->gray = FALSE;
+X	}
+X
+X      /* GET COMPOSITE CLIP LIST */
+X
+X      pTFBGC = (tfbPrivGCPtr)pGC->devPrivates[tfbGCPrivateIndex].ptr; 
+X      pClip = pTFBGC->pCompositeClip;
+X
+X    }
+X
+X  /* THIS IS A LITTLE UNCLEAR; BUT WE WANT TO UPDATE THE VIDEO MASK
+X     IF EITHER THE DRAWABLE OR GC HAS CHANGED; WE TRAP GC VALIDATES
+X     AND CHANGE THE PORT SERIAL NUMBER SO THAT WE KNOW IF THE GC
+X     HAS CHANGED */
+X
+X  if ((pGC != ppp->pGC) || (pDraw->serialNumber != ppp->serialNumber))
+X    {
+X
+X      ppp->serialNumber = pDraw->serialNumber;
+X
+X      if ((pPort->pDraw) || (ppp->pDrawStill))
+X	{
+X
+X	  /* CLEAR THE OLD VIDEO ENABLED REGION */
+X
+X	  fill_video_enable(ppp->prop, 
+X			    ppp->enabled_box.x1, 
+X			    ppp->enabled_box.y1, 
+X			    ppp->enabled_box.x2 - ppp->enabled_box.x1,
+X			    ppp->enabled_box.y2 - ppp->enabled_box.y1, 00);
+X	}
+X
+X      for (nBox=0, pBox=REGION_RECTS(pClip);
+X	   nBox<(int)REGION_NUM_RECTS(pClip); 
+X	   nBox++, pBox++)
+X	{
+X	  
+X	  x1 = pBox->x1;
+X	  y1 = pBox->y1;
+X	  x2 = pBox->x2;
+X	  y2 = pBox->y2;
+X	  
+X	  fill_video_enable(ppp->prop, x1, y1, x2 - x1, y2 - y1, 0xff);
+X	  
+X	}
+X
+X      /* SAVE THE BOUNDING BOX OF THE ENABLED VIDEO REGION */
+X
+X      ppp->enabled_box = pClip->extents;
+X
+X    }
+X
+X  ppp->pDrawStill = (DrawablePtr)NULL;
+X
+X  vis = ((WindowPtr)pDraw)->visibility;
+X
+X  if (ppp->vis != vis) 
+X    {
+X      ppp->vis = vis;
+X      if (vis == VisibilityUnobscured)
+X	pip_priority(ppp->prop, 0);
+X      else 
+X	pip_priority(ppp->prop, 256);
+X    }
+X
+X  if (src_area_changed)
+X    pip_src_area(ppp->prop, vid_x, vid_y, vid_w, vid_h);
+X
+X  if (dst_area_changed)
+X    pip_dst_area(ppp->prop, pDraw->x+drw_x, pDraw->y+drw_y, drw_w, drw_h);
+X
+X  /* TURN PIP ON IF IT WASN'T LEFT ON */
+X
+X  if (!pip_on_with_timeout(ppp->prop, 1))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvHardError);
+X      
+X      ppp->pGC = (GCPtr)NULL;
+X      pPort->pDraw = (DrawablePtr)NULL;
+X      
+X      return Success;
+X    }
+X
+X  /* WRAP THE NEW GC PROCEDURES IF NECESSARY */
+X
+X  if (pGC != ppp->pGC)
+X    {
+X      ppp->pGC = pGC;
+X      ppp->wrapFuncs = pGC->funcs;
+X      pGC->funcs = &XvropGCFuncs;
+X    }
+X
+X  pPort->pDraw = pDraw;
+X
+X  return Success;
+X}
+X
+Xstatic int
+XXvropPutStill(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	       drw_x, drw_y, drw_w, drw_h)
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  XvropPortPtr ppp;
+X  XvEncodingPtr pe;
+X  tfbPrivGCPtr pTFBGC;
+X  cfbPrivGCPtr pCFBGC;
+X  int vis,nBox,x1,x2,y1,y2;
+X  BoxPtr pBox;
+X  RegionPtr pClip;
+X  GCPtr pGCTemp;
+X  Bool src_area_changed = FALSE;
+X  Bool dst_area_changed = FALSE;
+X
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  if (pDraw->type != DRAWABLE_WINDOW)
+X    {
+X      return BadAlloc;
+X    }
+X
+X  /* OPTIMIZE FOR REPEATED STILLS */
+X
+X  if (!pPort->pDraw)
+X    {
+X      /* SAVE PARAMETERS */
+X      
+X      ppp->pDrawStill = pDraw;
+X
+X      ppp->vx = vid_x;
+X      ppp->vy = vid_y;
+X      ppp->vw = vid_w;
+X      ppp->vh = vid_h;
+X      ppp->dx = drw_x;
+X      ppp->dy = drw_y;
+X      ppp->dw = drw_w;
+X      ppp->dh = drw_h;
+X
+X      /* IF NEW GC THEN UNWRAP OLD */
+X
+X      if ((ppp->pGC) && (pGC != ppp->pGC))
+X	{
+X	  pGCTemp = ppp->pGC;
+X	  ppp->pGC = (GCPtr)NULL;
+X	  ChangeGC(pGCTemp, 0, 0); /* USE CHANGE GC TO UNWRAP GC */
+X	}
+X    }
+X
+X  /* CONSTRAIN THE REGIONS TO THOSE THAT ARE SUPPORTED */
+X
+X  pe = ppp->pEncoding;
+X
+X  XvropConstrainVideo(pDraw, pe, 
+X		      vid_x, vid_y, vid_w, vid_h,
+X		      drw_x, drw_y, drw_w, drw_h,
+X		      &vid_x, &vid_y, &vid_w, &vid_h,
+X		      &drw_x, &drw_y, &drw_w, &drw_h);
+X
+X  /* COMPARE AND SAVE CONSTRAINED PARAMETERS */
+X
+X  if ((vid_x != ppp->cvx) || (vid_y != ppp->cvy) || 
+X      (vid_w != ppp->cvw) || (vid_h != ppp->cvh))
+X    src_area_changed = TRUE;
+X  
+X  if ((pDraw != pPort->pDraw) ||
+X      (drw_x != ppp->cdx) || (drw_y != ppp->cdy) || 
+X      (drw_w != ppp->cdw) || (drw_h != ppp->cdh) ||
+X      (pDraw->x != ppp->Dx) || (pDraw->y != ppp->Dy))
+X    dst_area_changed = TRUE;
+X
+X  if (!pPort->pDraw)
+X    {
+X      /* SAVE CONSTRAINED PARAMETERS */
+X
+X      ppp->Dx = pDraw->x;
+X      ppp->Dy = pDraw->y;
+X      
+X      ppp->cvx = vid_x;
+X      ppp->cvy = vid_y;
+X      ppp->cvw = vid_w;
+X      ppp->cvh = vid_h;
+X      ppp->cdx = drw_x;
+X      ppp->cdy = drw_y;
+X      ppp->cdw = drw_w;
+X      ppp->cdh = drw_h;
+X    }
+X
+X  /* GET COMPOSITE CLIP LIST */
+X
+X  pTFBGC = (tfbPrivGCPtr)pGC->devPrivates[tfbGCPrivateIndex].ptr;
+X
+X  /* TURN PIP OFF SO WE CAN CHANGE PIP PARAMETERS AND GET A CLEAN PICTURE */
+X
+X  if (dst_area_changed) pip_off_with_timeout(ppp->prop, 1);
+X
+X  /* IF THE DRAWABLE DEPTH IS 8 WE KNOW IT MUST BE A StaticGray WINDOW */
+X
+X  if (pDraw->depth == 8)
+X    {
+X      if (!ppp->gray)
+X	{
+X	  pip_source_type(ppp->prop, ppp->pEncoding->id | PIP_GRAY);
+X	  ppp->gray = TRUE;
+X	}
+X
+X      /* GET COMPOSITE CLIP LIST */
+X
+X      pCFBGC = (cfbPrivGCPtr)pGC->devPrivates[cfbGCPrivateIndex].ptr; 
+X      pClip = pCFBGC->pCompositeClip;
+X
+X    }
+X  else
+X    {
+X      if (ppp->gray)
+X	{
+X	  pip_source_type(ppp->prop, ppp->pEncoding->id);
+X	  ppp->gray = FALSE;
+X	}
+X
+X      /* GET COMPOSITE CLIP LIST */
+X
+X      pTFBGC = (tfbPrivGCPtr)pGC->devPrivates[tfbGCPrivateIndex].ptr; 
+X      pClip = pTFBGC->pCompositeClip;
+X    } 
+X
+X  /* THIS IS A LITTLE UNCLEAR; BUT WE WANT TO UPDATE THE VIDEO MASK
+X     IF EITHER THE DRAWABLE OR GC HAS CHANGED; WE TRAP GC VALIDATES
+X     AND CHANGE THE PORT SERIAL NUMBER SO THAT WE KNOW IF THE GC
+X     HAS CHANGED */
+X
+X  if ((pGC != ppp->pGC) || (pDraw->serialNumber != ppp->serialNumber))
+X    {
+X
+X      ppp->serialNumber = pDraw->serialNumber;
+X
+X      if ((pPort->pDraw) || (ppp->pDrawStill))
+X	{
+X	  /* CLEAR THE OLD VIDEO ENABLED REGION */
+X
+X	  fill_video_enable(ppp->prop, 
+X			    ppp->enabled_box.x1, 
+X			    ppp->enabled_box.y1, 
+X			    ppp->enabled_box.x2 - ppp->enabled_box.x1,
+X			    ppp->enabled_box.y2 - ppp->enabled_box.y1, 00);
+X
+X	}
+X
+X      for (nBox=0, pBox=REGION_RECTS(pClip);
+X	   nBox<(int)REGION_NUM_RECTS(pClip); 
+X	   nBox++, pBox++)
+X	{
+X	  
+X	  x1 = pBox->x1;
+X	  y1 = pBox->y1;
+X	  x2 = pBox->x2;
+X	  y2 = pBox->y2;
+X	  
+X	  fill_video_enable(ppp->prop, x1, y1, x2 - x1, y2 - y1, 0xff);
+X	  
+X	}
+X
+X      /* SAVE THE BOUNDING BOX OF THE ENABLED VIDEO REGION, IF WE ARE 
+X	 DRAWING INTO THE VIDEO DRAWABLE OR IF THERE IS NO VIDEO DRAWABLE */
+X
+X      if ((!pPort->pDraw) || (pDraw == pPort->pDraw))
+X	ppp->enabled_box = pClip->extents;
+X
+X    }
+X
+X  vis = ((WindowPtr)pDraw)->visibility;
+X
+X  if (ppp->vis != vis) 
+X    {
+X      ppp->vis = vis;
+X      if (vis == VisibilityUnobscured)
+X	pip_priority(ppp->prop, 0);
+X      else 
+X	pip_priority(ppp->prop, 256);
+X    }
+X
+X  /* SET THE POSITION OF THE VIDEO */
+X
+X  if (src_area_changed)
+X    pip_src_area(ppp->prop, vid_x, vid_y, vid_w, vid_h);
+X
+X  if (dst_area_changed)
+X    pip_dst_area(ppp->prop, pDraw->x+drw_x, pDraw->y+drw_y, drw_w, drw_h);
+X
+X  /* IF NO VIDEO IS ACTIVE THEN SAVE PARAMETERS */
+X
+X  if (!pip_on_with_timeout(ppp->prop, 1))
+X    {
+X      XvdiSendVideoNotify(pPort, pDraw, XvHardError);
+X    }
+X
+X  /* WAIT FOR THE ONE SHOT TO COMPLETE */
+X
+X  pip_off_with_timeout(ppp->prop, 1);
+X
+X  /* CLEAR THE ENABLE PLANE IF WE ARE GOING BACK TO ANOTHER DRAWABLE */
+X
+X  if ((pPort->pDraw) && (pDraw != pPort->pDraw))
+X    {
+X      pBox = &((WindowPtr)pDraw)->winSize.extents;
+X      fill_video_enable(ppp->prop, pBox->x1, pBox->y1, 
+X			pBox->x2-pBox->x1, pBox->y2-pBox->y1, 00);
+X    }
+X
+X  if (pGC != ppp->pGC)
+X    {
+X      ppp->serialNumber = NEXT_SERIAL_NUMBER;
+X    }
+X
+X  /* RESTART VIDEO SINCE WE STOPPED IT */
+X
+X  if (pPort->pDraw)
+X    {
+X
+X      /* IF THE GC HAS BEEN DESTROYED THEN JUST PREEMPT THE VIDEO */
+X
+X      if (!ppp->pGC)
+X	{
+X	  XvdiSendVideoNotify(pPort, pDraw, XvPreempted);
+X	  return Success;
+X	}
+X
+X      if (ppp->pGC->serialNumber != pPort->pDraw->serialNumber)
+X	ValidateGC(pPort->pDraw, ppp->pGC);
+X
+X      /* FAKEOUT THE PUTVIDEO SO IT WILL RESET SRC AND DST AREAS */
+X
+X      ppp->cvx++;
+X      ppp->cdx++;
+X
+X      XvropPutVideo((ClientPtr)NULL, pPort->pDraw, pPort, ppp->pGC, 
+X		    ppp->vx, ppp->vy, ppp->vw, ppp->vh,
+X		    ppp->dx, ppp->dy, ppp->dw, ppp->dh);
+X
+X    }
+X  else
+X    {
+X
+X      ppp->pDrawStill = pDraw;
+X
+X      /* WRAP THE NEW GC PROCEDURES IF NECESSARY */
+X      
+X      if (pGC != ppp->pGC)
+X	{
+X	  ppp->pGC = pGC;
+X	  ppp->wrapFuncs = pGC->funcs;
+X	  pGC->funcs = &XvropGCFuncs;
+X	}
+X    }
+X
+X  return Success;
+X
+X}
+X
+Xstatic int
+XXvropGetVideo(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	      drw_x, drw_y, drw_w, drw_h)
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  return BadMatch;
+X}
+X
+Xstatic int
+XXvropGetStill(client, pDraw, pPort, pGC, vid_x, vid_y, vid_w, vid_h,
+X	      drw_x, drw_y, drw_w, drw_h)
+XClientPtr client;
+XDrawablePtr pDraw;
+XXvPortPtr pPort;
+XGCPtr pGC;
+XINT16 vid_x, vid_y, drw_x, drw_y;
+XCARD16 vid_w, vid_h, drw_w, drw_h;
+X
+X{
+X  return BadMatch;
+X}
+X
+X
+Xstatic int
+XXvropStopVideo(client, pPort, pDraw)
+XClientPtr client;
+XXvPortPtr pPort;
+XDrawablePtr pDraw;
+X
+X{
+X  XvropPortPtr ppp;
+X  GCPtr pGCTemp;
+X
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  /* CLEAR THE VIDEO ENABLE PLANE */
+X
+X  pip_off_with_timeout(ppp->prop, 1);
+X
+X  /* CLEAR THE VIDEO ENABLE PLANE */
+X
+X  fill_video_enable(ppp->prop, 
+X		    ppp->enabled_box.x1, 
+X		    ppp->enabled_box.y1, 
+X		    ppp->enabled_box.x2 - ppp->enabled_box.x1,
+X		    ppp->enabled_box.y2 - ppp->enabled_box.y1, 00);
+X
+X  /* UNWRAP GC DESTROY PROCEDURE IF NECESSARY */
+X
+X  if (ppp->pGC)
+X    {
+X      pGCTemp = ppp->pGC;
+X      ppp->pGC = (GCPtr)NULL;
+X      ChangeGC(pGCTemp, 0, 0); /* USE CHANGE GC TO UNWRAP GC */
+X    }
+X
+X  return Success;
+X}
+X
+X
+Xstatic int
+XXvropSetPortAttribute(client, pPort, attribute, value)
+XClientPtr client;
+XXvPortPtr pPort;
+XAtom attribute;
+XINT32 value;
+X
+X{
+X  int ii;
+X  unsigned char lut[256];
+X  XvAdaptorPtr pa;
+X  XvEncodingPtr pe;
+X  XvropPortPtr ppp;
+X  float contrast, brightness;
+X  int on_off;
+X  int rop_value;
+X
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  on_off = pip_off(ppp->prop,1);
+X
+X  /* FIND THE ATTRIBUTE AND SET IT; XXX --- MORE LATER */
+X
+X  if (attribute == XvropEncoding)
+X    {
+X      pa = pPort->pAdaptor;
+X      pe = pa->pEncodings;
+X      for (ii=0; ii<pa->nEncodings; ii++)
+X	{
+X	  if (pe->id == (XvEncodingID)value)
+X	    {
+X
+X	      /* SAVE NEW ENCODING ID */
+X
+X	      ppp->pEncoding = pe;
+X
+X	      if (ppp->gray)
+X		pip_source_type(ppp->prop, pe->id | PIP_GRAY);
+X	      else
+X		pip_source_type(ppp->prop, pe->id);
+X
+X	      break;
+X	    }
+X	  pe++;
+X	}
+X      if (ii>=pa->nEncodings) return _XvBadEncoding;
+X    }
+X  else if (attribute == XvropHue)
+X    {
+X
+X      if (value < -1000) value = -1000;
+X      if (value > 1000) value = 1000;
+X
+X      /* HUE IS THE LOCATION AROUND THE COLOR CIRCLE */
+X      /* MAP 0..1000 INTO 0..127 AND -1..-1000 INTO 255..128 */
+X
+X      if (value >= 0) rop_value = (127*value)/1000;
+X      else rop_value = (127*(1000+value))/999 + 128;
+X
+X      pip_hue(ppp->prop,rop_value); 
+X      ppp->hue = value;
+X    }
+X  else if (attribute == XvropSaturation)
+X    {
+X      if (value < -1000) value = -1000;
+X      if (value > 1000) value = 1000;
+X
+X      /* MAP -1000..1000 into 0..255 */
+X
+X      pip_saturation(ppp->prop,(255*(value+1000))/2000); 
+X      ppp->saturation = value;
+X    }
+X  else if (attribute == XvropBrightness)
+X    {
+X      if (value < -1000) value = -1000;
+X      if (value > 1000) value = 1000;
+X      ppp->brightness = value;
+X#ifdef sun
+X      pip_brightness(ppp->prop, value);
+X#endif
+X#ifdef ultrix
+X      contrast = ppp->contrast;
+X      brightness = value;
+X      GetAdjustLUT(lut,contrast,brightness,0.0,FALSE,FALSE);
+X      pip_load_dcsc(ppp->prop,lut);
+X#endif
+X    }
+X  else if (attribute == XvropContrast)
+X    {
+X      if (value < -1000) value = -1000;
+X      if (value > 1000) value = 1000;
+X      ppp->contrast = value;
+X#ifdef sun
+X      pip_contrast(ppp->prop, value);
+X#endif
+X#ifdef ultrix
+X      contrast = value + 120.0; /* ADJUST FOR RASTEROPS VIDEO PIXEL RANGE */
+X      brightness = ppp->brightness;
+X      GetAdjustLUT(lut,contrast,brightness,0.0,FALSE,FALSE);
+X      pip_load_dcsc(ppp->prop,lut);
+X#endif
+X    }
+X  else
+X      return BadMatch;
+X
+X  if (on_off) pip_on(ppp->prop);
+X
+X  XvdiSendPortNotify(pPort, attribute, value);
+X
+X  return Success;
+X}
+X
+Xstatic int
+XXvropGetPortAttribute(client, pPort, attribute, p_value)
+XClientPtr client;
+XXvPortPtr pPort;
+XAtom attribute;
+XINT32 *p_value;
+X
+X{
+X
+X  XvropPortPtr ppp;
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  /* FIND THE ATTRIBUTE AND RETURN ITS VALUE; XXX --- MORE LATER */
+X
+X  if (attribute == XvropEncoding)
+X    {
+X      *p_value = ppp->pEncoding->id;
+X    }
+X  else if (attribute == XvropHue)
+X    {
+X      *p_value = ppp->hue;
+X    }
+X  else if (attribute == XvropSaturation)
+X    {
+X      *p_value = ppp->saturation;
+X    }
+X  else if (attribute == XvropBrightness)
+X    {
+X      *p_value = ppp->brightness;
+X    }
+X  else if (attribute == XvropContrast)
+X    {
+X      *p_value = ppp->contrast;
+X    }
+X  else 
+X      return BadMatch;
+X
+X  return Success;
+X
+X}
+X
+Xstatic int
+XXvropQueryBestSize(client, pPort, motion, vid_w, vid_h, drw_w, drw_h, p_w, p_h)
+XClientPtr client;
+XXvPortPtr pPort;
+XCARD8 motion;
+XCARD16 vid_w,vid_h;
+XCARD16 drw_w,drw_h;
+XCARD16 *p_w, *p_h;
+X
+X{
+X  XvropPortPtr ppp;
+X  XvEncodingPtr pe;
+X  int vid_x,vid_y,drw_x,drw_y;
+X  extern WindowPtr *WindowTable;
+X
+X  vid_x = vid_y = drw_x = drw_y = 0;
+X
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X  pe = ppp->pEncoding;
+X
+X  /* USE THE SAME GEOMETRY CONSTRAINT PROC THAT WE USE FOR GET AND PUT */
+X
+X  XvropConstrainVideo(WindowTable[pPort->pAdaptor->pScreen->myNum], pe, 
+X		      vid_x, vid_y, vid_w, vid_h,
+X		      drw_x, drw_y, drw_w, drw_h,
+X		      &vid_x, &vid_y, &vid_w, &vid_h,
+X		      &drw_x, &drw_y, p_w, p_h);
+X
+X  return Success;
+X
+X}
+X
+Xstatic void
+XXvropDestroyGC(pGC)
+X
+XGCPtr pGC;
+X
+X{
+X
+X  Bool status;
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvropScreenPtr props;
+X  XvropPortPtr ppp;
+X  
+X  ppp = (XvropPortPtr)XvropPorts[pGC->pScreen->myNum]->devPriv.ptr;
+X
+X  /* JUST CHECKING */
+X
+X  if (ppp->pGC == pGC)
+X    {
+X      ppp->pGC = (GCPtr)NULL;
+X    }
+X
+X  pGC->funcs = ppp->wrapFuncs;
+X  (* pGC->funcs->DestroyGC)(pGC);
+X
+X  /* DON'T REWRAP THE FUNCS */
+X
+X}
+X
+Xstatic void
+XXvropValidateGC(pGC, changes, pDraw)
+X
+XGCPtr pGC;
+XMask changes;
+XDrawablePtr pDraw;
+X
+X{
+X
+X  Bool status;
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvropScreenPtr props;
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pGC->pScreen->myNum]->devPriv.ptr;
+X
+X  pGC->funcs = ppp->wrapFuncs;
+X
+X  (* pGC->funcs->ValidateGC)(pGC, changes, pDraw);
+X
+X  /* save funcs as ValidateGC may have changed them (edg 30oct91) */
+X
+X  ppp->wrapFuncs = pGC->funcs;
+X
+X  /* IF THIS GC IS BEING USED FOR VIDEO THEN UPDATE THE VIDEO SERIAL NUMBER */
+X
+X  if (ppp->pGC == pGC)
+X    {
+X      ppp->serialNumber = NEXT_SERIAL_NUMBER;
+X    }
+X
+X  pGC->funcs = &XvropGCFuncs;
+X
+X}
+X
+Xstatic void
+XXvropChangeGC (pGC, mask)
+X    GCPtr   pGC;
+X    unsigned long   mask;
+X{
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pGC->pScreen->myNum]->devPriv.ptr;
+X
+X  pGC->funcs = ppp->wrapFuncs;
+X
+X  (*pGC->funcs->ChangeGC) (pGC, mask);
+X
+X  /* CHECK TO SEE IF GC IS STILL BEING USED FOR VIDEO; IF NOT THEN
+X     LEAVE IT UNWRAPPED */
+X
+X  if (ppp->pGC == pGC)
+X    {
+X      pGC->funcs = &XvropGCFuncs;
+X    }
+X
+X}
+X
+Xstatic void
+XXvropCopyGC (pGCSrc, mask, pGCDst)
+X    GCPtr   pGCSrc, pGCDst;
+X    unsigned long   mask;
+X{
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pGCSrc->pScreen->myNum]->devPriv.ptr;
+X
+X  pGCDst->funcs = ppp->wrapFuncs;
+X
+X  (*pGCDst->funcs->CopyGC) (pGCSrc, mask, pGCDst);
+X
+X  pGCDst->funcs = &XvropGCFuncs;
+X}
+X
+Xstatic void
+XXvropChangeClip(pGC, type, pvalue, nrects)
+X    GCPtr       pGC;
+X    int         type;
+X    pointer     pvalue;
+X    int         nrects;
+X{
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pGC->pScreen->myNum]->devPriv.ptr;
+X
+X  pGC->funcs = ppp->wrapFuncs;
+X
+X  (* pGC->funcs->ChangeClip)(pGC, type, pvalue, nrects);
+X
+X  pGC->funcs = &XvropGCFuncs;
+X}
+X
+Xstatic void
+XXvropCopyClip(pgcDst, pgcSrc)
+X    GCPtr pgcDst, pgcSrc;
+X{
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pgcDst->pScreen->myNum]->devPriv.ptr;
+X
+X  pgcDst->funcs = ppp->wrapFuncs;
+X
+X  (* pgcDst->funcs->CopyClip)(pgcDst, pgcSrc);
+X
+X  pgcDst->funcs = &XvropGCFuncs;
+X}
+X
+Xstatic void
+XXvropDestroyClip(pGC)
+X    GCPtr       pGC;
+X{
+X  XvropPortPtr ppp;
+X
+X  ppp = (XvropPortPtr)XvropPorts[pGC->pScreen->myNum]->devPriv.ptr;
+X
+X  pGC->funcs = ppp->wrapFuncs;
+X
+X  (* pGC->funcs->DestroyClip)(pGC);
+X
+X  pGC->funcs = &XvropGCFuncs;
+X}
+X
+X
+Xstatic void
+XXvropClipNotify(pWin, dx, dy)
+X
+XWindowPtr pWin;
+Xint dx,dy;
+X
+X{
+X
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvPortPtr pp;
+X  XvropScreenPtr props;
+X  Bool noExposures;
+X
+X  pScreen = pWin->drawable.pScreen;
+X
+X  pxvs = (XvScreenPtr)pWin->drawable.pScreen->devPrivates[XvScreenIndex].ptr;
+X
+X  /* XXX---NEXT STATEMENT IS ONLY NECESSARY IF WE ARE USING miClipNotify */
+X
+X  if (!pxvs) return;
+X
+X  props = (XvropScreenPtr)pxvs->devPriv.ptr;
+X
+X  pScreen->ClipNotify = props->ClipNotify;
+X
+X  /* STOP VIDEO IN WINDOW IF NECESSARY */
+X
+X  pp = XvropPorts[pWin->drawable.pScreen->myNum];
+X
+X  if (pp->pDraw == (DrawablePtr)pWin)
+X    {
+X
+X      XvropHaltVideo(pp);
+X
+X    }
+X
+X  if (pScreen->ClipNotify) (* pScreen->ClipNotify)(pWin, dx, dy);
+X
+X  pScreen->ClipNotify = XvropClipNotify;
+X
+X}
+X
+Xstatic void
+XXvropCopyWindow(pWin, lastposition, pRegionSrc)
+XWindowPtr pWin;
+XDDXPointRec lastposition;
+XRegionPtr pRegionSrc;
+X
+X{
+X
+X  ScreenPtr pScreen;
+X  WindowPtr pChild;
+X  XvScreenPtr pxvs;
+X  XvPortPtr pp;
+X  XvropScreenPtr props;
+X
+X  pp = XvropPorts[pWin->drawable.pScreen->myNum];
+X
+X  pScreen = pWin->drawable.pScreen;
+X
+X  pxvs = (XvScreenPtr)pWin->drawable.pScreen->devPrivates[XvScreenIndex].ptr;
+X  props = (XvropScreenPtr)pxvs->devPriv.ptr;
+X
+X  pScreen->CopyWindow = props->CopyWindow;
+X
+X  pChild = pWin;
+X  while (1)
+X    {
+X      if (pChild->viewable)
+X	{
+X	  if (pp->pDraw == (DrawablePtr)pChild)
+X	    XvropHaltVideo(pp);
+X
+X	  if (pChild->firstChild)
+X	    {
+X	      pChild = pChild->firstChild;
+X	      continue;
+X	    }
+X	}
+X      while (!pChild->nextSib && (pChild != pWin))
+X	pChild = pChild->parent;
+X      if (pChild == pWin)
+X	break;
+X      pChild = pChild->nextSib;
+X    }
+X
+X  (* pScreen->CopyWindow)(pWin, lastposition, pRegionSrc);
+X
+X  pScreen->CopyWindow = XvropCopyWindow;
+X
+X}
+X
+Xstatic void
+XXvropWindowExposures(pWin, pReg, pOtherReg)
+XWindowPtr pWin;
+XRegionPtr pReg;
+XRegionPtr pOtherReg;
+X
+X{
+X
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvropScreenPtr props;
+X  XvPortPtr pp;
+X  XvropPortPtr ppp;
+X  
+X  pScreen = pWin->drawable.pScreen;
+X
+X  pxvs = (XvScreenPtr)pWin->drawable.pScreen->devPrivates[XvScreenIndex].ptr;
+X  props = (XvropScreenPtr)pxvs->devPriv.ptr;
+X
+X  pScreen->WindowExposures = props->WindowExposures;
+X
+X  pp = XvropPorts[pWin->drawable.pScreen->myNum];
+X
+X  if ((pp->pDraw) && (((WindowPtr)pp->pDraw)->realized))
+X    {
+X      ppp = (XvropPortPtr)pp->devPriv.ptr;
+X      if (pp->pDraw->serialNumber != ppp->serialNumber)
+X	XvropRestartVideo(pp);
+X    }
+X
+X  (* pScreen->WindowExposures)(pWin, pReg, pOtherReg);
+X
+X  pScreen->WindowExposures = XvropWindowExposures;
+X
+X}
+X
+Xstatic Bool
+XXvropUnrealizeWindow(pWin)
+XWindowPtr pWin;
+X
+X{
+X
+X  ScreenPtr pScreen;
+X  XvScreenPtr pxvs;
+X  XvropScreenPtr props;
+X  XvPortPtr pp;
+X  int status;
+X
+X  pScreen = pWin->drawable.pScreen;
+X
+X  pxvs = (XvScreenPtr)pWin->drawable.pScreen->devPrivates[XvScreenIndex].ptr;
+X  props = (XvropScreenPtr)pxvs->devPriv.ptr;
+X
+X  pScreen->UnrealizeWindow = props->UnrealizeWindow;
+X
+X  pp = XvropPorts[pWin->drawable.pScreen->myNum];
+X
+X  if (pp->pDraw == (DrawablePtr)pWin)
+X    {
+X      XvropHaltVideo(pp);
+X    }
+X
+X  status = (* pScreen->UnrealizeWindow)(pWin);
+X
+X  pScreen->UnrealizeWindow = XvropUnrealizeWindow;
+X
+X  return status;
+X
+X}
+X
+XXvropHaltVideo(pPort)
+X
+XXvPortPtr pPort;
+X
+X{
+X
+X  XvropPortPtr ppp;
+X  
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  pip_off_with_timeout(ppp->prop, 1);
+X  
+X  /* CLEAR THE VIDEO ENABLE PLANE */
+X
+X  fill_video_enable(ppp->prop, 
+X		    ppp->enabled_box.x1, 
+X		    ppp->enabled_box.y1, 
+X		    ppp->enabled_box.x2 - ppp->enabled_box.x1,
+X		    ppp->enabled_box.y2 - ppp->enabled_box.y1, 00);
+X
+X}
+X
+XXvropRestartVideo(pPort)
+X
+XXvPortPtr pPort;
+X
+X{
+X  XvropPortPtr ppp;
+X  
+X  ppp = (XvropPortPtr)pPort->devPriv.ptr;
+X
+X  if (ppp->pGC)
+X    {
+X
+X      if (ppp->pGC->serialNumber != pPort->pDraw->serialNumber)
+X	ValidateGC(pPort->pDraw, ppp->pGC);
+X
+X      XvropPutVideo((ClientPtr)NULL, 
+X		    pPort->pDraw, pPort, ppp->pGC, 
+X		    ppp->vx, ppp->vy, ppp->vw, ppp->vh,
+X		    ppp->dx, ppp->dy, ppp->dw, ppp->dh);
+X    }
+X  else
+X    {
+X      XvdiSendVideoNotify(pPort, pPort->pDraw, XvPreempted);
+X    }
+X
+X}
+X
+X
+X/*
+X** CARVER --- 04.06.91
+X**
+X**   I wanted to note that the following code, given to us by Robert
+X**   Ulichney, is used to control RasterOps contrast and brightness only.
+X**   Hue and saturation are not table driven in the RasterOps.
+X**
+X*/
+X
+X
+X/*
+X**++
+X**  FACILITY:
+X**
+X**	GetAdjustLUT, 
+X**	A fast routine to generate a general color component adjust LUT.
+X**
+X**  ABSTRACT:
+X**
+X**	This routine very quickly and efficiently generates a look-up
+X**	table of 256 input values to 256 output values to be used for
+X**	adjusting a color component of pixels in an image. It can be
+X**	used to adjust chromanance, as well as luminance values.
+X**
+X**	It is convenient to picture the mapping as a curve on a graph
+X**	where input values are along the "x" axis, and output values are
+X**	along the "y" axis. The identity or "no-change" function would
+X**	be a line of unity slope passing through the origin.
+X**
+X**	The arguments of the routine are described in detail in the code
+X**	comments. Inputs are contrast ("slope" in the case of luminace,
+X**	"saturation" or "chroma" in the case of chrominance), brightness
+X**	(y-offset), an x-offset to be used on chrominace components for
+X**	the purpose of changing the white point in combination with the
+X**	y-offset, and controls for negating the input and/or the output.
+X**
+X**
+X**
+X**
+X**  AUTHOR:
+X**
+X**	Robert Ulichney
+X**		Internet: ulichney@gauss.enet.dec.com
+X**		Phone:	  503-493-2503
+X**
+X**  CREATION DATE:	15-May-1991
+X**
+X**  MODIFICATION HISTORY:
+X**
+X**--
+X*/
+X
+X
+X
+X/*
+X**  INCLUDE FILES: (none)
+X*/
+X
+X/* 
+X**  MACRO DEFINITIONS: (none)
+X*/
+X
+X/*
+X**  OTHER DEFINITIONS: 
+X*/
+X
+Xtypedef int	boolean;	/* 0=false, 1=true */
+X
+X/*	GetAdjustLUT	*/
+X
+XGetAdjustLUT(AdjustLUT,contrast,brightness,Xoffset,negIn,negOut)
+Xunsigned char	AdjustLUT[256];
+Xfloat		contrast;	/* "Slope" of the transfer function.
+X				** 0 => no change, +1000 => vertical slope, 
+X				** -1000 => zero slope (flat).  While the 
+X				** the variable name is clear for use as a 
+X				** luminance adjustment, it takes on the 
+X				** meaning of "saturation" of "chroma" control
+X				** when used as an adjustment to a chrominance
+X				** value. The maximum allowable contrast
+X				** magnitude is 1000. 
+X				*/
+Xfloat		brightness;	/* "Y" offset of the transfer function.
+X				** 0 => no change, +100 => increase all inputs 
+X				** by half the range, -100 => decreass all 
+X				** inputs by half the range. This can also
+X				** be used for chrominance adjustment in 
+X				** combination with Xoffset to change the 
+X				** white point. 
+X				** The maximum allowable brightness magnitude 
+X				** is 1000. Because most all adjustments will
+X				** involve magnitudes between 0 and 100, 
+X				** user interfaces, such as sliders, should
+X				** give as much vernier in this range as
+X				** for magnitudes between 100 and 1000. 
+X				** When this parameter is used to adjust white
+X				** point, the user interface should only provide
+X				** means to input magnitudes between 0 and 100.
+X				*/
+Xfloat		Xoffset;	/* The same as brightness, but effecting a
+X				** translation of the transfer function in the 
+X				** "X" direction.  This is intended for use
+X				** with chrominance adjustment in combination
+X				** with brightness to change the white point. 
+X				*/
+Xboolean		negIn;		/* A flag to indicate whether the input data is
+X				** to be negated BEFORE adjustment occurs. 
+X				** This would be necessary if the input data
+X				** intends 0 to represent white. 
+X				*/
+Xboolean		negOut;		/* A flag to indicate whether the output data 
+X				** to be negated AFTER adjustment occurs.  This 
+X				** would be needed when the output device 
+X				** interprets 0 as white. 
+X				*/
+X				/* NOTE: If negation is to occur, it is 
+X				** important to correctly choose negIn or 
+X				** negOut, as they are not interchangeable.
+X				** A wronge choice will lead to adjustments
+X				** producing unexpected results. */
+X{	
+X	float		m;	/* slope */
+X	float		b;	/* y-intercept */
+X	int		x;	/* input value to AdjustLUT */
+X	float		y;	/* pre-truncated value y=m*x+b */
+X	int		maxV;	/* upper-bound for table-loading loop */
+X	int		lo;	/* x value at cross of y=m*x+b with y=0 */
+X	int		hi;	/* x value at cross of y=m*x+b with y=255 */
+X
+X/* The strategy is to first form the equation of a line, y=m*x+b, and 
+X** establish the appropriate m and b. */
+X
+X/* Range checks */
+X	/* Check for the special case of a vertical slope */
+X	if(contrast>999) contrast = 999; 
+X		/* slope = 1000 is effectively infinite */
+X	
+X	/* Correct for under-range contrast values */
+X	if(contrast<(-1000)) contrast = (-1000);  /* zero slope */
+X
+X/* Find the slope, m */
+X	if(contrast>0)  m = 1000 / (1000-contrast);
+X	else		m = (1000+contrast)/1000;
+X
+X/* Find the y-intercept */
+X/* The y-intercept, b, is influenced by three factors.
+X** First, contrast effectively rotates the line about a pivot at (127.5,127.5).
+X** In general, a line pivited at point (a,a) with slope m, has a y-intercept
+X** b=a*(1-m).  So, we start with b=127.5*(1-m).
+X** 
+X** Secondly, the effect of brightness adds (127.5/100)*brightness to b.
+X** The effect of brightness on a line y=m*x+b is:
+X** 		y = m*x + (b + (127.5/100)*brightness)
+X** 
+X** Thirdly, the effect of Xoffset on a line y=m*x+b is:
+X** 		y = m*(x-(127.5/100)*Xoffset) + b
+X**		  = m*x + (b - m*(127.5/100)*Xoffset)
+X** 
+X** Together, these three factors yield a y-intercept 
+X**	b = 127.5*(1-m) + (127.5/100)*brightness - m*(127.5/100)*Xoffset
+X** or, more simply:
+X*/
+X	b = (1.275)*(100 + brightness - m*(100+Xoffset));
+X
+X/* Check if input data is to be negated.  If so, reflect the function about 
+X** the line x=127.5.  
+X** Note: In general, reflecting y=mx+b about the line x=a results in the line
+X** y=(-m)*x + (2*a*m+b).
+X*/
+X	if(negIn) {
+X		b = 255*m + b;
+X		m = (-m);
+X	}
+X
+X/* Check if output data is to be negated.  If so, reflect the function about
+X** the line y=127.5.
+X** Note: In general, reflecting y=mx+b about the line y=c results in the line 
+X** y=(-m)*x + (2*c-b).
+X*/
+X	if(negOut) {
+X		b = 255 - b;
+X		m = (-m);
+X	}
+X
+X/* Find the value of x at the intersection of the function y=mx+b with the
+X** lines at y=0 and y=255. These values of "lo" and "hi" will be used to more
+X** quickly generate the AdjustLUT with out needing to check for out-of-bounds
+X** at each value. */
+X	if(m != 0) {
+X		hi = (255-b)/m;		/* intersection with y=255 */
+X		lo = (-b/m);		/* intersection with y=0 */
+X	/* Note that both of these values are truncated to the integer x value 
+X	** just below the point of intersection.
+X	*/
+X	}
+X	else hi=1000, lo=(-1000);	/* For the case of zero slope,
+X					** force outside the range of (0,256).
+X					*/
+X
+X/******************** Now load the table (finally!) *********************/
+X/* Treat the cases of positive and negative slope separately. */
+X
+X/* Non-negative slope case */
+X	if(m>=0) {	
+X		if(lo>255) lo=255;	/* The entire table is clipped to 0. */
+X
+X		/* Fill the LUT in order, from x=0 through x=255 */
+X		for(x=0; x<=lo; x++) AdjustLUT[x]=0; 	/* clip low values */
+X
+X		maxV = (hi>255)? 255:hi; /* Fill the table with values of 
+X					** y=m*x+b only up to the point where
+X					** the function crosses the line y=255,
+X					** or, if it never reaches y=255, stop
+X					** at x=255. */
+X		for(y=m*x+b+.5; x<=maxV; x++,y+=m) AdjustLUT[x]=y;
+X		
+X		while(x<=255) AdjustLUT[x++]=255;	/* clip high values */
+X	}
+X
+X/* Negative slope case */
+X	else {
+X		if(hi>255) hi=255;	/* The entire table is clipped to 255.*/
+X
+X		/* Fill the LUT in order, from x=0 through x=255 */
+X		for(x=0; x<=hi; x++) AdjustLUT[x]=255; 	/* clip high values */
+X
+X		maxV = (lo>255)? 255:lo; /* Fill the table with values of 
+X					** y=m*x+b only up to the point where
+X					** the function crosses the line y=0,
+X					** or, if it never reaches y=0, stop
+X					** at x=255. */
+X		for(y=m*x+b+.5; x<=maxV; x++,y+=m) AdjustLUT[x]=y;
+X		
+X		while(x<=255) AdjustLUT[x++]=0;	/* clip low values */
+X	}
+X		
+X}  /* End of GetAdjustLUT */
+END_OF_FILE
+if test 47157 -ne `wc -c <'extensions/xv/server/ddx/allrop/xvrop.c'`; then
+    echo shar: \"'extensions/xv/server/ddx/allrop/xvrop.c'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/allrop/xvrop.c'
+fi
+if test -f 'server/ddx/cfb32/cfbgetsp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbgetsp.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbgetsp.c'\" \(4602 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbgetsp.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "servermd.h"
+X
+X#include "misc.h"
+X#include "region.h"
+X#include "gc.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X
+X/* GetSpans -- for each span, gets bits from drawable starting at ppt[i]
+X * and continuing for pwidth[i] bits
+X * Each scanline returned will be server scanline padded, i.e., it will come
+X * out to an integral number of words.
+X */
+Xvoid
+XcfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart)
+X    DrawablePtr		pDrawable;	/* drawable from which to get bits */
+X    int			wMax;		/* largest value of all *pwidths */
+X    register DDXPointPtr ppt;		/* points to start copying from */
+X    int			*pwidth;	/* list of number of bits to copy */
+X    int			nspans;		/* number of scanlines to copy */
+X    unsigned long	*pdstStart;	/* where to put the bits */
+X{
+X    register unsigned long	*pdst;		/* where to put the bits */
+X    register unsigned long	*psrc;		/* where to get the bits */
+X    register unsigned long	tmpSrc;		/* scratch buffer for bits */
+X    unsigned long		*psrcBase;	/* start of src bitmap */
+X    int			widthSrc;	/* width of pixmap in bytes */
+X    register DDXPointPtr pptLast;	/* one past last point to get */
+X    int         	xEnd;		/* last pixel to copy from */
+X    register int	nstart; 
+X    int	 		nend; 
+X    int	 		srcStartOver; 
+X    unsigned long	startmask, endmask;
+X    int			nlMiddle, nl, srcBit;
+X    int			w;
+X    unsigned long	*pdstNext;
+X
+X    switch (pDrawable->bitsPerPixel) {
+X	case 1:
+X	    mfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X	    return;
+X	case PSZ:
+X	    break;
+X	default:
+X	    FatalError("cfbGetSpans: invalid depth\n");
+X    }
+X
+X    
+X    cfbGetLongWidthAndPointer (pDrawable, widthSrc, psrcBase)
+X
+X#if PPW == 4
+X    if ((nspans == 1) && (*pwidth == 1))
+X    {
+X	tmpSrc = *((unsigned char *)(psrcBase + (ppt->y * (widthSrc >> 2)))
+X		   + ppt->x);
+X#if BITMAP_BIT_ORDER == MSBFirst
+X	tmpSrc <<= 24;
+X#endif
+X	*pdstStart = tmpSrc;
+X	return;
+X    }
+X#endif
+X    pdst = pdstStart;
+X    pptLast = ppt + nspans;
+X    while(ppt < pptLast)
+X    {
+X	xEnd = min(ppt->x + *pwidth, widthSrc << (PWSH-2) );
+X	psrc = psrcBase + (ppt->y * (widthSrc >> 2)) + (ppt->x >> PWSH); 
+X	w = xEnd - ppt->x;
+X	srcBit = ppt->x & PIM;
+X	/* This shouldn't be needed */
+X	pdstNext = pdst + PixmapWidthInPadUnits(w, PSZ);
+X
+X	if (srcBit + w <= PPW) 
+X	{ 
+X	    getbits(psrc, srcBit, w, tmpSrc);
+X/*XXX*/	    putbits(tmpSrc, 0, w, pdst, ~((unsigned long)0)); 
+X	    pdst++;
+X	} 
+X	else 
+X	{ 
+X
+X	    maskbits(ppt->x, w, startmask, endmask, nlMiddle);
+X	    if (startmask) 
+X		nstart = PPW - srcBit; 
+X	    else 
+X		nstart = 0; 
+X	    if (endmask) 
+X		nend = xEnd & PIM; 
+X	    srcStartOver = srcBit + nstart > PLST;
+X	    if (startmask) 
+X	    { 
+X		getbits(psrc, srcBit, nstart, tmpSrc);
+X/*XXX*/		putbits(tmpSrc, 0, nstart, pdst, ~((unsigned long)0));
+X		if(srcStartOver)
+X		    psrc++;
+X	    } 
+X	    nl = nlMiddle; 
+X	    while (nl--) 
+X	    { 
+X		tmpSrc = *psrc;
+X/*XXX*/		putbits(tmpSrc, nstart, PPW, pdst, ~((unsigned long)0));
+X		psrc++;
+X		pdst++;
+X	    } 
+X	    if (endmask) 
+X	    { 
+X		getbits(psrc, 0, nend, tmpSrc);
+X/*XXX*/		putbits(tmpSrc, nstart, nend, pdst, ~((unsigned long)0));
+X		if(nstart + nend >= PPW)
+X		    pdst++;
+X	    } 
+X#ifdef	notdef
+X	    pdst++; 
+X	    while(pdst < pdstNext)
+X	    {
+X		*pdst++ = 0;
+X	    }
+X#else
+X	    pdst = pdstNext;
+X#endif
+X	} 
+X        ppt++;
+X	pwidth++;
+X    }
+X}
+END_OF_FILE
+if test 4602 -ne `wc -c <'server/ddx/cfb32/cfbgetsp.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbgetsp.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbgetsp.c'
+fi
+echo shar: End of archive 4 \(of 29\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

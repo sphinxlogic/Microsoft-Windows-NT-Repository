@@ -1,0 +1,1564 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i064:  jpeg - JPEG image compression, Part10/18
+Message-ID: <1992Dec17.164603.5793@sparky.imd.sterling.com>
+X-Md4-Signature: 15eae02627a3b8ada679cfe1b960f79a
+Date: Thu, 17 Dec 1992 16:46:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 64
+Archive-name: jpeg/part10
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jdsample.c jrdjfif.c testimg.gif.U
+# Wrapped by kent@sparky on Wed Dec 16 20:52:28 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 18)."'
+if test -f 'jdsample.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdsample.c'\"
+else
+  echo shar: Extracting \"'jdsample.c'\" \(9665 characters\)
+  sed "s/^X//" >'jdsample.c' <<'END_OF_FILE'
+X/*
+X * jdsample.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains upsampling routines.
+X * These routines are invoked via the upsample and
+X * upsample_init/term methods.
+X *
+X * An excellent reference for image resampling is
+X *   Digital Image Warping, George Wolberg, 1990.
+X *   Pub. by IEEE Computer Society Press, Los Alamitos, CA. ISBN 0-8186-8944-7.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/*
+X * Initialize for upsampling a scan.
+X */
+X
+XMETHODDEF void
+Xupsample_init (decompress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X/*
+X * Upsample pixel values of a single component.
+X * This version handles any integral sampling ratios.
+X *
+X * This is not used for typical JPEG files, so it need not be fast.
+X * Nor, for that matter, is it particularly accurate: the algorithm is
+X * simple replication of the input pixel onto the corresponding output
+X * pixels.  The hi-falutin sampling literature refers to this as a
+X * "box filter".  A box filter tends to introduce visible artifacts,
+X * so if you are actually going to use 3:1 or 4:1 sampling ratios
+X * you would be well advised to improve this code.
+X */
+X
+XMETHODDEF void
+Xint_upsample (decompress_info_ptr cinfo, int which_component,
+X	      long input_cols, int input_rows,
+X	      long output_cols, int output_rows,
+X	      JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X	      JSAMPARRAY output_data)
+X{
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  register JSAMPROW inptr, outptr;
+X  register JSAMPLE invalue;
+X  register short h_expand, h;
+X  short v_expand, v;
+X  int inrow, outrow;
+X  register long incol;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  if (input_rows != compptr->v_samp_factor ||
+X      output_rows != cinfo->max_v_samp_factor ||
+X      (input_cols % compptr->h_samp_factor) != 0 ||
+X      (output_cols % cinfo->max_h_samp_factor) != 0 ||
+X      output_cols*compptr->h_samp_factor != input_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus upsample parameters");
+X#endif
+X
+X  h_expand = cinfo->max_h_samp_factor / compptr->h_samp_factor;
+X  v_expand = cinfo->max_v_samp_factor / compptr->v_samp_factor;
+X
+X  outrow = 0;
+X  for (inrow = 0; inrow < input_rows; inrow++) {
+X    for (v = 0; v < v_expand; v++) {
+X      inptr = input_data[inrow];
+X      outptr = output_data[outrow++];
+X      for (incol = 0; incol < input_cols; incol++) {
+X	invalue = GETJSAMPLE(*inptr++);
+X	for (h = 0; h < h_expand; h++) {
+X	  *outptr++ = invalue;
+X	}
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Upsample pixel values of a single component.
+X * This version handles the common case of 2:1 horizontal and 1:1 vertical.
+X *
+X * The upsampling algorithm is linear interpolation between pixel centers,
+X * also known as a "triangle filter".  This is a good compromise between
+X * speed and visual quality.  The centers of the output pixels are 1/4 and 3/4
+X * of the way between input pixel centers.
+X */
+X
+XMETHODDEF void
+Xh2v1_upsample (decompress_info_ptr cinfo, int which_component,
+X	       long input_cols, int input_rows,
+X	       long output_cols, int output_rows,
+X	       JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X	       JSAMPARRAY output_data)
+X{
+X  register JSAMPROW inptr, outptr;
+X  register int invalue;
+X  int inrow;
+X  register long colctr;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  if (input_rows != compptr->v_samp_factor ||
+X      output_rows != cinfo->max_v_samp_factor ||
+X      (input_cols % compptr->h_samp_factor) != 0 ||
+X      (output_cols % cinfo->max_h_samp_factor) != 0 ||
+X      output_cols*compptr->h_samp_factor != input_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus upsample parameters");
+X#endif
+X
+X  for (inrow = 0; inrow < input_rows; inrow++) {
+X    inptr = input_data[inrow];
+X    outptr = output_data[inrow];
+X    /* Special case for first column */
+X    invalue = GETJSAMPLE(*inptr++);
+X    *outptr++ = (JSAMPLE) invalue;
+X    *outptr++ = (JSAMPLE) ((invalue * 3 + GETJSAMPLE(*inptr) + 2) >> 2);
+X
+X    for (colctr = input_cols - 2; colctr > 0; colctr--) {
+X      /* General case: 3/4 * nearer pixel + 1/4 * further pixel */
+X      invalue = GETJSAMPLE(*inptr++) * 3;
+X      *outptr++ = (JSAMPLE) ((invalue + GETJSAMPLE(inptr[-2]) + 2) >> 2);
+X      *outptr++ = (JSAMPLE) ((invalue + GETJSAMPLE(*inptr) + 2) >> 2);
+X    }
+X
+X    /* Special case for last column */
+X    invalue = GETJSAMPLE(*inptr);
+X    *outptr++ = (JSAMPLE) ((invalue * 3 + GETJSAMPLE(inptr[-1]) + 2) >> 2);
+X    *outptr++ = (JSAMPLE) invalue;
+X  }
+X}
+X
+X
+X/*
+X * Upsample pixel values of a single component.
+X * This version handles the common case of 2:1 horizontal and 2:1 vertical.
+X *
+X * The upsampling algorithm is linear interpolation between pixel centers,
+X * also known as a "triangle filter".  This is a good compromise between
+X * speed and visual quality.  The centers of the output pixels are 1/4 and 3/4
+X * of the way between input pixel centers.
+X */
+X
+XMETHODDEF void
+Xh2v2_upsample (decompress_info_ptr cinfo, int which_component,
+X	       long input_cols, int input_rows,
+X	       long output_cols, int output_rows,
+X	       JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X	       JSAMPARRAY output_data)
+X{
+X  register JSAMPROW inptr0, inptr1, outptr;
+X#ifdef EIGHT_BIT_SAMPLES
+X  register int thiscolsum, lastcolsum, nextcolsum;
+X#else
+X  register INT32 thiscolsum, lastcolsum, nextcolsum;
+X#endif
+X  int inrow, outrow, v;
+X  register long colctr;
+X
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  jpeg_component_info * compptr = cinfo->cur_comp_info[which_component];
+X  if (input_rows != compptr->v_samp_factor ||
+X      output_rows != cinfo->max_v_samp_factor ||
+X      (input_cols % compptr->h_samp_factor) != 0 ||
+X      (output_cols % cinfo->max_h_samp_factor) != 0 ||
+X      output_cols*compptr->h_samp_factor != input_cols*cinfo->max_h_samp_factor)
+X    ERREXIT(cinfo->emethods, "Bogus upsample parameters");
+X#endif
+X
+X  outrow = 0;
+X  for (inrow = 0; inrow < input_rows; inrow++) {
+X    for (v = 0; v < 2; v++) {
+X      /* inptr0 points to nearest input row, inptr1 points to next nearest */
+X      inptr0 = input_data[inrow];
+X      if (v == 0) {		/* next nearest is row above */
+X	if (inrow == 0)
+X	  inptr1 = above[input_rows-1];
+X	else
+X	  inptr1 = input_data[inrow-1];
+X      } else {			/* next nearest is row below */
+X	if (inrow == input_rows-1)
+X	  inptr1 = below[0];
+X	else
+X	  inptr1 = input_data[inrow+1];
+X      }
+X      outptr = output_data[outrow++];
+X
+X      /* Special case for first column */
+X      thiscolsum = GETJSAMPLE(*inptr0++) * 3 + GETJSAMPLE(*inptr1++);
+X      nextcolsum = GETJSAMPLE(*inptr0++) * 3 + GETJSAMPLE(*inptr1++);
+X      *outptr++ = (JSAMPLE) ((thiscolsum * 4 + 8) >> 4);
+X      *outptr++ = (JSAMPLE) ((thiscolsum * 3 + nextcolsum + 8) >> 4);
+X      lastcolsum = thiscolsum; thiscolsum = nextcolsum;
+X
+X      for (colctr = input_cols - 2; colctr > 0; colctr--) {
+X	/* General case: 3/4 * nearer pixel + 1/4 * further pixel in each */
+X	/* dimension, thus 9/16, 3/16, 3/16, 1/16 overall */
+X	nextcolsum = GETJSAMPLE(*inptr0++) * 3 + GETJSAMPLE(*inptr1++);
+X	*outptr++ = (JSAMPLE) ((thiscolsum * 3 + lastcolsum + 8) >> 4);
+X	*outptr++ = (JSAMPLE) ((thiscolsum * 3 + nextcolsum + 8) >> 4);
+X	lastcolsum = thiscolsum; thiscolsum = nextcolsum;
+X      }
+X
+X      /* Special case for last column */
+X      *outptr++ = (JSAMPLE) ((thiscolsum * 3 + lastcolsum + 8) >> 4);
+X      *outptr++ = (JSAMPLE) ((thiscolsum * 4 + 8) >> 4);
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Upsample pixel values of a single component.
+X * This version handles the special case of a full-size component.
+X */
+X
+XMETHODDEF void
+Xfullsize_upsample (decompress_info_ptr cinfo, int which_component,
+X		   long input_cols, int input_rows,
+X		   long output_cols, int output_rows,
+X		   JSAMPARRAY above, JSAMPARRAY input_data, JSAMPARRAY below,
+X		   JSAMPARRAY output_data)
+X{
+X#ifdef DEBUG			/* for debugging pipeline controller */
+X  if (input_cols != output_cols || input_rows != output_rows)
+X    ERREXIT(cinfo->emethods, "Pipeline controller messed up");
+X#endif
+X
+X  jcopy_sample_rows(input_data, 0, output_data, 0, output_rows, output_cols);
+X}
+X
+X
+X
+X/*
+X * Clean up after a scan.
+X */
+X
+XMETHODDEF void
+Xupsample_term (decompress_info_ptr cinfo)
+X{
+X  /* no work for now */
+X}
+X
+X
+X
+X/*
+X * The method selection routine for upsampling.
+X * Note that we must select a routine for each component.
+X */
+X
+XGLOBAL void
+Xjselupsample (decompress_info_ptr cinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X
+X  if (cinfo->CCIR601_sampling)
+X    ERREXIT(cinfo->emethods, "CCIR601 upsampling not implemented yet");
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    if (compptr->h_samp_factor == cinfo->max_h_samp_factor &&
+X	compptr->v_samp_factor == cinfo->max_v_samp_factor)
+X      cinfo->methods->upsample[ci] = fullsize_upsample;
+X    else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
+X	     compptr->v_samp_factor == cinfo->max_v_samp_factor)
+X      cinfo->methods->upsample[ci] = h2v1_upsample;
+X    else if (compptr->h_samp_factor * 2 == cinfo->max_h_samp_factor &&
+X	     compptr->v_samp_factor * 2 == cinfo->max_v_samp_factor)
+X      cinfo->methods->upsample[ci] = h2v2_upsample;
+X    else if ((cinfo->max_h_samp_factor % compptr->h_samp_factor) == 0 &&
+X	     (cinfo->max_v_samp_factor % compptr->v_samp_factor) == 0)
+X      cinfo->methods->upsample[ci] = int_upsample;
+X    else
+X      ERREXIT(cinfo->emethods, "Fractional upsampling not implemented yet");
+X  }
+X
+X  cinfo->methods->upsample_init = upsample_init;
+X  cinfo->methods->upsample_term = upsample_term;
+X}
+END_OF_FILE
+  if test 9665 -ne `wc -c <'jdsample.c'`; then
+    echo shar: \"'jdsample.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdsample.c'
+fi
+if test -f 'jrdjfif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdjfif.c'\"
+else
+  echo shar: Extracting \"'jrdjfif.c'\" \(23313 characters\)
+  sed "s/^X//" >'jrdjfif.c' <<'END_OF_FILE'
+X/*
+X * jrdjfif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to decode standard JPEG file headers/markers.
+X * This code will handle "raw JPEG" and JFIF-convention JPEG files.
+X *
+X * You can also use this module to decode a raw-JPEG or JFIF-standard data
+X * stream that is embedded within a larger file.  To do that, you must
+X * position the file to the JPEG SOI marker (0xFF/0xD8) that begins the
+X * data sequence to be decoded.  If nothing better is possible, you can scan
+X * the file until you see the SOI marker, then use JUNGETC to push it back.
+X *
+X * This module relies on the JGETC macro and the read_jpeg_data method (which
+X * is provided by the user interface) to read from the JPEG data stream.
+X * Therefore, this module is not dependent on any particular assumption about
+X * the data source; it need not be a stdio stream at all.  (This fact does
+X * NOT carry over to more complex JPEG file formats such as JPEG-in-TIFF;
+X * those format control modules may well need to assume stdio input.)
+X *
+X * These routines are invoked via the methods read_file_header,
+X * read_scan_header, read_jpeg_data, read_scan_trailer, and read_file_trailer.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef JFIF_SUPPORTED
+X
+X
+Xtypedef enum {			/* JPEG marker codes */
+X  M_SOF0  = 0xc0,
+X  M_SOF1  = 0xc1,
+X  M_SOF2  = 0xc2,
+X  M_SOF3  = 0xc3,
+X  
+X  M_SOF5  = 0xc5,
+X  M_SOF6  = 0xc6,
+X  M_SOF7  = 0xc7,
+X  
+X  M_JPG   = 0xc8,
+X  M_SOF9  = 0xc9,
+X  M_SOF10 = 0xca,
+X  M_SOF11 = 0xcb,
+X  
+X  M_SOF13 = 0xcd,
+X  M_SOF14 = 0xce,
+X  M_SOF15 = 0xcf,
+X  
+X  M_DHT   = 0xc4,
+X  
+X  M_DAC   = 0xcc,
+X  
+X  M_RST0  = 0xd0,
+X  M_RST1  = 0xd1,
+X  M_RST2  = 0xd2,
+X  M_RST3  = 0xd3,
+X  M_RST4  = 0xd4,
+X  M_RST5  = 0xd5,
+X  M_RST6  = 0xd6,
+X  M_RST7  = 0xd7,
+X  
+X  M_SOI   = 0xd8,
+X  M_EOI   = 0xd9,
+X  M_SOS   = 0xda,
+X  M_DQT   = 0xdb,
+X  M_DNL   = 0xdc,
+X  M_DRI   = 0xdd,
+X  M_DHP   = 0xde,
+X  M_EXP   = 0xdf,
+X  
+X  M_APP0  = 0xe0,
+X  M_APP15 = 0xef,
+X  
+X  M_JPG0  = 0xf0,
+X  M_JPG13 = 0xfd,
+X  M_COM   = 0xfe,
+X  
+X  M_TEM   = 0x01,
+X  
+X  M_ERROR = 0x100
+X} JPEG_MARKER;
+X
+X
+X/*
+X * Reload the input buffer after it's been emptied, and return the next byte.
+X * This is exported for direct use by the entropy decoder.
+X * See the JGETC macro for calling conditions.  Note in particular that
+X * read_jpeg_data may NOT return EOF.  If no more data is available, it must
+X * exit via ERREXIT, or perhaps synthesize fake data (such as an RST marker).
+X * For error recovery purposes, synthesizing an EOI marker is probably best.
+X *
+X * For this header control module, read_jpeg_data is supplied by the
+X * user interface.  However, header formats that require random access
+X * to the input file would need to supply their own code.  This code is
+X * left here to indicate what is required.
+X */
+X
+X#if 0				/* not needed in this module */
+X
+XMETHODDEF int
+Xread_jpeg_data (decompress_info_ptr cinfo)
+X{
+X  cinfo->next_input_byte = cinfo->input_buffer + MIN_UNGET;
+X
+X  cinfo->bytes_in_buffer = (int) JFREAD(cinfo->input_file,
+X					cinfo->next_input_byte,
+X					JPEG_BUF_SIZE);
+X  
+X  if (cinfo->bytes_in_buffer <= 0) {
+X    WARNMS(cinfo->emethods, "Premature EOF in JPEG file");
+X    cinfo->next_input_byte[0] = (char) 0xFF;
+X    cinfo->next_input_byte[1] = (char) M_EOI;
+X    cinfo->bytes_in_buffer = 2;
+X  }
+X
+X  return JGETC(cinfo);
+X}
+X
+X#endif
+X
+X
+X/*
+X * Routines to parse JPEG markers & save away the useful info.
+X */
+X
+X
+XLOCAL INT32
+Xget_2bytes (decompress_info_ptr cinfo)
+X/* Get a 2-byte unsigned integer (e.g., a marker parameter length field) */
+X{
+X  INT32 a;
+X  
+X  a = JGETC(cinfo);
+X  return (a << 8) + JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xskip_variable (decompress_info_ptr cinfo, int code)
+X/* Skip over an unknown or uninteresting variable-length marker */
+X{
+X  INT32 length;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  TRACEMS2(cinfo->emethods, 1,
+X	   "Skipping marker 0x%02x, length %u", code, (int) length);
+X  
+X  for (length -= 2; length > 0; length--)
+X    (void) JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xget_dht (decompress_info_ptr cinfo)
+X/* Process a DHT marker */
+X{
+X  INT32 length;
+X  UINT8 bits[17];
+X  UINT8 huffval[256];
+X  int i, index, count;
+X  HUFF_TBL **htblptr;
+X  
+X  length = get_2bytes(cinfo)-2;
+X  
+X  while (length > 0) {
+X    index = JGETC(cinfo);
+X
+X    TRACEMS1(cinfo->emethods, 1, "Define Huffman Table 0x%02x", index);
+X      
+X    bits[0] = 0;
+X    count = 0;
+X    for (i = 1; i <= 16; i++) {
+X      bits[i] = (UINT8) JGETC(cinfo);
+X      count += bits[i];
+X    }
+X
+X    TRACEMS8(cinfo->emethods, 2, "        %3d %3d %3d %3d %3d %3d %3d %3d",
+X	     bits[1], bits[2], bits[3], bits[4],
+X	     bits[5], bits[6], bits[7], bits[8]);
+X    TRACEMS8(cinfo->emethods, 2, "        %3d %3d %3d %3d %3d %3d %3d %3d",
+X	     bits[9], bits[10], bits[11], bits[12],
+X	     bits[13], bits[14], bits[15], bits[16]);
+X
+X    if (count > 256)
+X      ERREXIT(cinfo->emethods, "Bogus DHT counts");
+X
+X    for (i = 0; i < count; i++)
+X      huffval[i] = (UINT8) JGETC(cinfo);
+X
+X    length -= 1 + 16 + count;
+X
+X    if (index & 0x10) {		/* AC table definition */
+X      index -= 0x10;
+X      htblptr = &cinfo->ac_huff_tbl_ptrs[index];
+X    } else {			/* DC table definition */
+X      htblptr = &cinfo->dc_huff_tbl_ptrs[index];
+X    }
+X
+X    if (index < 0 || index >= NUM_HUFF_TBLS)
+X      ERREXIT1(cinfo->emethods, "Bogus DHT index %d", index);
+X
+X    if (*htblptr == NULL)
+X      *htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X  
+X    MEMCOPY((*htblptr)->bits, bits, SIZEOF((*htblptr)->bits));
+X    MEMCOPY((*htblptr)->huffval, huffval, SIZEOF((*htblptr)->huffval));
+X    }
+X}
+X
+X
+XLOCAL void
+Xget_dac (decompress_info_ptr cinfo)
+X/* Process a DAC marker */
+X{
+X  INT32 length;
+X  int index, val;
+X
+X  length = get_2bytes(cinfo)-2;
+X  
+X  while (length > 0) {
+X    index = JGETC(cinfo);
+X    val = JGETC(cinfo);
+X
+X    TRACEMS2(cinfo->emethods, 1,
+X	     "Define Arithmetic Table 0x%02x: 0x%02x", index, val);
+X
+X    if (index < 0 || index >= (2*NUM_ARITH_TBLS))
+X      ERREXIT1(cinfo->emethods, "Bogus DAC index %d", index);
+X
+X    if (index >= NUM_ARITH_TBLS) { /* define AC table */
+X      cinfo->arith_ac_K[index-NUM_ARITH_TBLS] = (UINT8) val;
+X    } else {			/* define DC table */
+X      cinfo->arith_dc_L[index] = (UINT8) (val & 0x0F);
+X      cinfo->arith_dc_U[index] = (UINT8) (val >> 4);
+X      if (cinfo->arith_dc_L[index] > cinfo->arith_dc_U[index])
+X	ERREXIT1(cinfo->emethods, "Bogus DAC value 0x%x", val);
+X    }
+X
+X    length -= 2;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_dqt (decompress_info_ptr cinfo)
+X/* Process a DQT marker */
+X{
+X  INT32 length;
+X  int n, i, prec;
+X  UINT16 tmp;
+X  QUANT_TBL_PTR quant_ptr;
+X  
+X  length = get_2bytes(cinfo) - 2;
+X  
+X  while (length > 0) {
+X    n = JGETC(cinfo);
+X    prec = n >> 4;
+X    n &= 0x0F;
+X
+X    TRACEMS2(cinfo->emethods, 1,
+X	     "Define Quantization Table %d  precision %d", n, prec);
+X
+X    if (n >= NUM_QUANT_TBLS)
+X      ERREXIT1(cinfo->emethods, "Bogus table number %d", n);
+X      
+X    if (cinfo->quant_tbl_ptrs[n] == NULL)
+X      cinfo->quant_tbl_ptrs[n] = (QUANT_TBL_PTR)
+X	(*cinfo->emethods->alloc_small) (SIZEOF(QUANT_TBL));
+X    quant_ptr = cinfo->quant_tbl_ptrs[n];
+X
+X    for (i = 0; i < DCTSIZE2; i++) {
+X      tmp = JGETC(cinfo);
+X      if (prec)
+X	tmp = (tmp<<8) + JGETC(cinfo);
+X      quant_ptr[i] = tmp;
+X    }
+X
+X    for (i = 0; i < DCTSIZE2; i += 8) {
+X      TRACEMS8(cinfo->emethods, 2, "        %4u %4u %4u %4u %4u %4u %4u %4u",
+X	       quant_ptr[i  ], quant_ptr[i+1], quant_ptr[i+2], quant_ptr[i+3],
+X	       quant_ptr[i+4], quant_ptr[i+5], quant_ptr[i+6], quant_ptr[i+7]);
+X    }
+X
+X    length -= DCTSIZE2+1;
+X    if (prec) length -= DCTSIZE2;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_dri (decompress_info_ptr cinfo)
+X/* Process a DRI marker */
+X{
+X  if (get_2bytes(cinfo) != 4)
+X    ERREXIT(cinfo->emethods, "Bogus length in DRI");
+X
+X  cinfo->restart_interval = (UINT16) get_2bytes(cinfo);
+X
+X  TRACEMS1(cinfo->emethods, 1,
+X	   "Define Restart Interval %u", cinfo->restart_interval);
+X}
+X
+X
+XLOCAL void
+Xget_app0 (decompress_info_ptr cinfo)
+X/* Process an APP0 marker */
+X{
+X#define JFIF_LEN 14
+X  INT32 length;
+X  UINT8 b[JFIF_LEN];
+X  int buffp;
+X
+X  length = get_2bytes(cinfo) - 2;
+X
+X  /* See if a JFIF APP0 marker is present */
+X
+X  if (length >= JFIF_LEN) {
+X    for (buffp = 0; buffp < JFIF_LEN; buffp++)
+X      b[buffp] = (UINT8) JGETC(cinfo);
+X    length -= JFIF_LEN;
+X
+X    if (b[0]==0x4A && b[1]==0x46 && b[2]==0x49 && b[3]==0x46 && b[4]==0) {
+X      /* Found JFIF APP0 marker: check version */
+X      /* Major version must be 1 */
+X      if (b[5] != 1)
+X	ERREXIT2(cinfo->emethods, "Unsupported JFIF revision number %d.%02d",
+X		 b[5], b[6]);
+X      /* Minor version should be 0..2, but try to process anyway if newer */
+X      if (b[6] > 2)
+X	TRACEMS2(cinfo->emethods, 1, "Warning: unknown JFIF revision number %d.%02d",
+X		 b[5], b[6]);
+X      /* Save info */
+X      cinfo->density_unit = b[7];
+X      cinfo->X_density = (b[8] << 8) + b[9];
+X      cinfo->Y_density = (b[10] << 8) + b[11];
+X      /* Assume colorspace is YCbCr, unless UI has overridden me */
+X      if (cinfo->jpeg_color_space == CS_UNKNOWN)
+X	cinfo->jpeg_color_space = CS_YCbCr;
+X      TRACEMS3(cinfo->emethods, 1, "JFIF APP0 marker, density %dx%d  %d",
+X	       cinfo->X_density, cinfo->Y_density, cinfo->density_unit);
+X      if (b[12] | b[13])
+X	TRACEMS2(cinfo->emethods, 1, "    with %d x %d thumbnail image",
+X		 b[12], b[13]);
+X      if (length != ((INT32) b[12] * (INT32) b[13] * (INT32) 3))
+X	TRACEMS1(cinfo->emethods, 1,
+X		 "Warning: thumbnail image size does not match data length %u",
+X		 (int) length);
+X    } else {
+X      TRACEMS1(cinfo->emethods, 1, "Unknown APP0 marker (not JFIF), length %u",
+X	       (int) length + JFIF_LEN);
+X    }
+X  } else {
+X    TRACEMS1(cinfo->emethods, 1, "Short APP0 marker, length %u", (int) length);
+X  }
+X
+X  while (length-- > 0)		/* skip any remaining data */
+X    (void) JGETC(cinfo);
+X}
+X
+X
+XLOCAL void
+Xget_sof (decompress_info_ptr cinfo, int code)
+X/* Process a SOFn marker */
+X{
+X  INT32 length;
+X  short ci;
+X  int c;
+X  jpeg_component_info * compptr;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  cinfo->data_precision = JGETC(cinfo);
+X  cinfo->image_height   = get_2bytes(cinfo);
+X  cinfo->image_width    = get_2bytes(cinfo);
+X  cinfo->num_components = JGETC(cinfo);
+X
+X  TRACEMS4(cinfo->emethods, 1,
+X	   "Start Of Frame 0x%02x: width=%u, height=%u, components=%d",
+X	   code, (int) cinfo->image_width, (int) cinfo->image_height,
+X	   cinfo->num_components);
+X
+X  /* We don't support files in which the image height is initially specified */
+X  /* as 0 and is later redefined by DNL.  As long as we have to check that,  */
+X  /* might as well have a general sanity check. */
+X  if (cinfo->image_height <= 0 || cinfo->image_width <= 0
+X      || cinfo->num_components <= 0)
+X    ERREXIT(cinfo->emethods, "Empty JPEG image (DNL not supported)");
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X  if (cinfo->data_precision != 8)
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X#ifdef TWELVE_BIT_SAMPLES
+X  if (cinfo->data_precision != 12) /* this needs more thought?? */
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  if (cinfo->data_precision != 16) /* this needs more thought?? */
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG data precision");
+X#endif
+X
+X  if (length != (cinfo->num_components * 3 + 8))
+X    ERREXIT(cinfo->emethods, "Bogus SOF length");
+X
+X  cinfo->comp_info = (jpeg_component_info *) (*cinfo->emethods->alloc_small)
+X			(cinfo->num_components * SIZEOF(jpeg_component_info));
+X  
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    compptr = &cinfo->comp_info[ci];
+X    compptr->component_index = ci;
+X    compptr->component_id = JGETC(cinfo);
+X    c = JGETC(cinfo);
+X    compptr->h_samp_factor = (c >> 4) & 15;
+X    compptr->v_samp_factor = (c     ) & 15;
+X    compptr->quant_tbl_no  = JGETC(cinfo);
+X      
+X    TRACEMS4(cinfo->emethods, 1, "    Component %d: %dhx%dv q=%d",
+X	     compptr->component_id, compptr->h_samp_factor,
+X	     compptr->v_samp_factor, compptr->quant_tbl_no);
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_sos (decompress_info_ptr cinfo)
+X/* Process a SOS marker */
+X{
+X  INT32 length;
+X  int i, ci, n, c, cc;
+X  jpeg_component_info * compptr;
+X  
+X  length = get_2bytes(cinfo);
+X  
+X  n = JGETC(cinfo);  /* Number of components */
+X  cinfo->comps_in_scan = n;
+X  length -= 3;
+X  
+X  if (length != (n * 2 + 3) || n < 1 || n > MAX_COMPS_IN_SCAN)
+X    ERREXIT(cinfo->emethods, "Bogus SOS length");
+X
+X  TRACEMS1(cinfo->emethods, 1, "Start Of Scan: %d components", n);
+X  
+X  for (i = 0; i < n; i++) {
+X    cc = JGETC(cinfo);
+X    c = JGETC(cinfo);
+X    length -= 2;
+X    
+X    for (ci = 0; ci < cinfo->num_components; ci++)
+X      if (cc == cinfo->comp_info[ci].component_id)
+X	break;
+X    
+X    if (ci >= cinfo->num_components)
+X      ERREXIT(cinfo->emethods, "Invalid component number in SOS");
+X    
+X    compptr = &cinfo->comp_info[ci];
+X    cinfo->cur_comp_info[i] = compptr;
+X    compptr->dc_tbl_no = (c >> 4) & 15;
+X    compptr->ac_tbl_no = (c     ) & 15;
+X    
+X    TRACEMS3(cinfo->emethods, 1, "    c%d: [dc=%d ac=%d]", cc,
+X	     compptr->dc_tbl_no, compptr->ac_tbl_no);
+X  }
+X  
+X  while (length > 0) {
+X    (void) JGETC(cinfo);
+X    length--;
+X  }
+X}
+X
+X
+XLOCAL void
+Xget_soi (decompress_info_ptr cinfo)
+X/* Process an SOI marker */
+X{
+X  int i;
+X  
+X  TRACEMS(cinfo->emethods, 1, "Start of Image");
+X
+X  /* Reset all parameters that are defined to be reset by SOI */
+X
+X  for (i = 0; i < NUM_ARITH_TBLS; i++) {
+X    cinfo->arith_dc_L[i] = 0;
+X    cinfo->arith_dc_U[i] = 1;
+X    cinfo->arith_ac_K[i] = 5;
+X  }
+X  cinfo->restart_interval = 0;
+X
+X  cinfo->density_unit = 0;	/* set default JFIF APP0 values */
+X  cinfo->X_density = 1;
+X  cinfo->Y_density = 1;
+X
+X  cinfo->CCIR601_sampling = FALSE; /* Assume non-CCIR sampling */
+X}
+X
+X
+XLOCAL int
+Xnext_marker (decompress_info_ptr cinfo)
+X/* Find the next JPEG marker */
+X/* Note that the output might not be a valid marker code, */
+X/* but it will never be 0 or FF */
+X{
+X  int c, nbytes;
+X
+X  nbytes = 0;
+X  do {
+X    do {			/* skip any non-FF bytes */
+X      nbytes++;
+X      c = JGETC(cinfo);
+X    } while (c != 0xFF);
+X    do {			/* skip any duplicate FFs */
+X      /* we don't increment nbytes here since extra FFs are legal */
+X      c = JGETC(cinfo);
+X    } while (c == 0xFF);
+X  } while (c == 0);		/* repeat if it was a stuffed FF/00 */
+X
+X  if (nbytes != 1)
+X    WARNMS2(cinfo->emethods,
+X	    "Corrupt JPEG data: %d extraneous bytes before marker 0x%02x",
+X	    nbytes-1, c);
+X
+X  return c;
+X}
+X
+X
+XLOCAL JPEG_MARKER
+Xprocess_tables (decompress_info_ptr cinfo)
+X/* Scan and process JPEG markers that can appear in any order */
+X/* Return when an SOI, EOI, SOFn, or SOS is found */
+X{
+X  int c;
+X
+X  while (TRUE) {
+X    c = next_marker(cinfo);
+X      
+X    switch (c) {
+X    case M_SOF0:
+X    case M_SOF1:
+X    case M_SOF2:
+X    case M_SOF3:
+X    case M_SOF5:
+X    case M_SOF6:
+X    case M_SOF7:
+X    case M_JPG:
+X    case M_SOF9:
+X    case M_SOF10:
+X    case M_SOF11:
+X    case M_SOF13:
+X    case M_SOF14:
+X    case M_SOF15:
+X    case M_SOI:
+X    case M_EOI:
+X    case M_SOS:
+X      return ((JPEG_MARKER) c);
+X      
+X    case M_DHT:
+X      get_dht(cinfo);
+X      break;
+X      
+X    case M_DAC:
+X      get_dac(cinfo);
+X      break;
+X      
+X    case M_DQT:
+X      get_dqt(cinfo);
+X      break;
+X      
+X    case M_DRI:
+X      get_dri(cinfo);
+X      break;
+X      
+X    case M_APP0:
+X      get_app0(cinfo);
+X      break;
+X
+X    case M_RST0:		/* these are all parameterless */
+X    case M_RST1:
+X    case M_RST2:
+X    case M_RST3:
+X    case M_RST4:
+X    case M_RST5:
+X    case M_RST6:
+X    case M_RST7:
+X    case M_TEM:
+X      TRACEMS1(cinfo->emethods, 1, "Unexpected marker 0x%02x", c);
+X      break;
+X
+X    default:	/* must be DNL, DHP, EXP, APPn, JPGn, COM, or RESn */
+X      skip_variable(cinfo, c);
+X      break;
+X    }
+X  }
+X}
+X
+X
+X
+X/*
+X * Initialize and read the file header (everything through the SOF marker).
+X */
+X
+XMETHODDEF void
+Xread_file_header (decompress_info_ptr cinfo)
+X{
+X  int c;
+X
+X  /* Demand an SOI marker at the start of the file --- otherwise it's
+X   * probably not a JPEG file at all.  If the user interface wants to support
+X   * nonstandard headers in front of the SOI, it must skip over them itself
+X   * before calling jpeg_decompress().
+X   */
+X  if (JGETC(cinfo) != 0xFF  ||  JGETC(cinfo) != M_SOI)
+X    ERREXIT(cinfo->emethods, "Not a JPEG file");
+X
+X  get_soi(cinfo);		/* OK, process SOI */
+X
+X  /* Process markers until SOF */
+X  c = process_tables(cinfo);
+X
+X  switch (c) {
+X  case M_SOF0:
+X  case M_SOF1:
+X    get_sof(cinfo, c);
+X    cinfo->arith_code = FALSE;
+X    break;
+X      
+X  case M_SOF9:
+X    get_sof(cinfo, c);
+X    cinfo->arith_code = TRUE;
+X    break;
+X
+X  default:
+X    ERREXIT1(cinfo->emethods, "Unsupported SOF marker type 0x%02x", c);
+X    break;
+X  }
+X
+X  /* Figure out what colorspace we have */
+X  /* (too bad the JPEG committee didn't provide a real way to specify this) */
+X
+X  switch (cinfo->num_components) {
+X  case 1:
+X    cinfo->jpeg_color_space = CS_GRAYSCALE;
+X    break;
+X
+X  case 3:
+X    /* if we saw a JFIF marker, leave it set to YCbCr; */
+X    /* also leave it alone if UI has provided a value */
+X    if (cinfo->jpeg_color_space == CS_UNKNOWN) {
+X      short cid0 = cinfo->comp_info[0].component_id;
+X      short cid1 = cinfo->comp_info[1].component_id;
+X      short cid2 = cinfo->comp_info[2].component_id;
+X
+X      if (cid0 == 1 && cid1 == 2 && cid2 == 3)
+X	cinfo->jpeg_color_space = CS_YCbCr; /* assume it's JFIF w/out marker */
+X      else if (cid0 == 1 && cid1 == 4 && cid2 == 5)
+X	cinfo->jpeg_color_space = CS_YIQ; /* prototype's YIQ matrix */
+X      else {
+X	TRACEMS3(cinfo->emethods, 1,
+X		 "Unrecognized component IDs %d %d %d, assuming YCbCr",
+X		 cid0, cid1, cid2);
+X	cinfo->jpeg_color_space = CS_YCbCr;
+X      }
+X    }
+X    break;
+X
+X  case 4:
+X    cinfo->jpeg_color_space = CS_CMYK;
+X    break;
+X
+X  default:
+X    cinfo->jpeg_color_space = CS_UNKNOWN;
+X    break;
+X  }
+X}
+X
+X
+X/*
+X * Read the start of a scan (everything through the SOS marker).
+X * Return TRUE if find SOS, FALSE if find EOI.
+X */
+X
+XMETHODDEF boolean
+Xread_scan_header (decompress_info_ptr cinfo)
+X{
+X  int c;
+X  
+X  /* Process markers until SOS or EOI */
+X  c = process_tables(cinfo);
+X  
+X  switch (c) {
+X  case M_SOS:
+X    get_sos(cinfo);
+X    return TRUE;
+X    
+X  case M_EOI:
+X    TRACEMS(cinfo->emethods, 1, "End Of Image");
+X    return FALSE;
+X
+X  default:
+X    ERREXIT1(cinfo->emethods, "Unexpected marker 0x%02x", c);
+X    break;
+X  }
+X  return FALSE;			/* keeps lint happy */
+X}
+X
+X
+X/*
+X * The entropy decoder calls this routine if it finds a marker other than
+X * the restart marker it was expecting.  (This code is *not* used unless
+X * a nonzero restart interval has been declared.)  The passed parameter is
+X * the marker code actually found (might be anything, except 0 or FF).
+X * The desired restart marker is that indicated by cinfo->next_restart_num.
+X * This routine is supposed to apply whatever error recovery strategy seems
+X * appropriate in order to position the input stream to the next data segment.
+X * For some file formats (eg, TIFF) extra information such as tile boundary
+X * pointers may be available to help in this decision.
+X *
+X * This implementation is substantially constrained by wanting to treat the
+X * input as a data stream; this means we can't back up.  (For instance, we
+X * generally can't fseek() if the input is a Unix pipe.)  Therefore, we have
+X * only the following actions to work with:
+X *   1. Do nothing, let the entropy decoder resume at next byte of file.
+X *   2. Read forward until we find another marker, discarding intervening
+X *      data.  (In theory we could look ahead within the current bufferload,
+X *      without having to discard data if we don't find the desired marker.
+X *      This idea is not implemented here, in part because it makes behavior
+X *      dependent on buffer size and chance buffer-boundary positions.)
+X *   3. Push back the passed marker (with JUNGETC).  This will cause the
+X *      entropy decoder to process an empty data segment, inserting dummy
+X *      zeroes, and then re-read the marker we pushed back.
+X * #2 is appropriate if we think the desired marker lies ahead, while #3 is
+X * appropriate if the found marker is a future restart marker (indicating
+X * that we have missed the desired restart marker, probably because it got
+X * corrupted).
+X
+X * We apply #2 or #3 if the found marker is a restart marker no more than
+X * two counts behind or ahead of the expected one.  We also apply #2 if the
+X * found marker is not a legal JPEG marker code (it's certainly bogus data).
+X * If the found marker is a restart marker more than 2 counts away, we do #1
+X * (too much risk that the marker is erroneous; with luck we will be able to
+X * resync at some future point).
+X * For any valid non-restart JPEG marker, we apply #3.  This keeps us from
+X * overrunning the end of a scan.  An implementation limited to single-scan
+X * files might find it better to apply #2 for markers other than EOI, since
+X * any other marker would have to be bogus data in that case.
+X */
+X
+XMETHODDEF void
+Xresync_to_restart (decompress_info_ptr cinfo, int marker)
+X{
+X  int desired = cinfo->next_restart_num;
+X  int action = 1;
+X
+X  /* Always put up a warning. */
+X  WARNMS2(cinfo->emethods,
+X	  "Corrupt JPEG data: found 0x%02x marker instead of RST%d",
+X	  marker, desired);
+X  /* Outer loop handles repeated decision after scanning forward. */
+X  for (;;) {
+X    if (marker < M_SOF0)
+X      action = 2;		/* invalid marker */
+X    else if (marker < M_RST0 || marker > M_RST7)
+X      action = 3;		/* valid non-restart marker */
+X    else {
+X      if (marker == (M_RST0 + ((desired+1) & 7)) ||
+X	  marker == (M_RST0 + ((desired+2) & 7)))
+X	action = 3;		/* one of the next two expected restarts */
+X      else if (marker == (M_RST0 + ((desired-1) & 7)) ||
+X	       marker == (M_RST0 + ((desired-2) & 7)))
+X	action = 2;		/* a prior restart, so advance */
+X      else
+X	action = 1;		/* desired restart or too far away */
+X    }
+X    TRACEMS2(cinfo->emethods, 4,
+X	     "At marker 0x%02x, recovery action %d", marker, action);
+X    switch (action) {
+X    case 1:
+X      /* Let entropy decoder resume processing. */
+X      return;
+X    case 2:
+X      /* Scan to the next marker, and repeat the decision loop. */
+X      marker = next_marker(cinfo);
+X      break;
+X    case 3:
+X      /* Put back this marker & return. */
+X      /* Entropy decoder will be forced to process an empty segment. */
+X      JUNGETC(marker, cinfo);
+X      JUNGETC(0xFF, cinfo);
+X      return;
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up after a compressed scan (series of read_jpeg_data calls);
+X * prepare for another read_scan_header call.
+X */
+X
+XMETHODDEF void
+Xread_scan_trailer (decompress_info_ptr cinfo)
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xread_file_trailer (decompress_info_ptr cinfo)
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * The method selection routine for standard JPEG header reading.
+X * Note that this must be called by the user interface before calling
+X * jpeg_decompress.  When a non-JFIF file is to be decompressed (TIFF,
+X * perhaps), the user interface must discover the file type and call
+X * the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrjfif (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->read_file_header = read_file_header;
+X  cinfo->methods->read_scan_header = read_scan_header;
+X  /* For JFIF/raw-JPEG format, the user interface supplies read_jpeg_data. */
+X#if 0
+X  cinfo->methods->read_jpeg_data = read_jpeg_data;
+X#endif
+X  cinfo->methods->resync_to_restart = resync_to_restart;
+X  cinfo->methods->read_scan_trailer = read_scan_trailer;
+X  cinfo->methods->read_file_trailer = read_file_trailer;
+X}
+X
+X#endif /* JFIF_SUPPORTED */
+END_OF_FILE
+  if test 23313 -ne `wc -c <'jrdjfif.c'`; then
+    echo shar: \"'jrdjfif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdjfif.c'
+fi
+if test -f 'testimg.gif.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testimg.gif.U'\"
+else
+  echo shar: Extracting \"'testimg.gif.U'\" \(21700 characters\)
+  sed "s/^X//" >'testimg.gif.U' <<'END_OF_FILE'
+Xbegin 666 testimg.gif
+XM1TE&.#=A?0!] /<  #8 %K%H:FTR2M>JH,**A(I-8U$5,,%X>*9?8'Y!6>W(
+XMO-R7AV(D0.._H*)FF:X_3&XM7K^#K<]:8\%/6-]\?5$20*$T0+5WG?:;F9 D
+XM,H9+?,^4N[AQ<H08)D8()IE:B'H^<=VHL]-P=.B1AF(A4G8\1&@),/FQJ_G4
+XMRI%6:]2/?T8%-MVVJN>)@9$]3M*>FN.^M/W$N=EE:Z5M?UPC+Z]TB78@-JI7
+XM?KY)4UP;2G<X:-MX>;Z&@I%4AH(L0*UD9%8%)XHT2,M67YA#4M2DGYU)6*QQ
+XMHJ527\N4D\>.L*P[2,9SF)PO/8PX;6DJ6NZPG,"+EMU\EJ%CB^?%NGPF//ZF
+XMI<YQBO_)PK9E?;YMA$<!'\I<>N6NNNJ0F$T./NNCG6 2,[5^BJ1=;K]1;_!U
+XM?M.?OX5%>.1J;G03->2'D(X[8-^5F]%C@5P>/+A(9WXK4(4T6)E(;*%0=->-
+XMD^#;QO+#JWLJ7N!675\.0KJ!IV\>4F<62ED+++YD;*Y 7M5+4J,S4H<8.?_.
+XMRYHL2O^YLY(C1-F(K$( ,=FEC[N(PO^2L,>4SOFMP*-NN?"6GM1WD+B&D*IC
+XM=,16=*DY6,^(?;)88(5+7?+(SVHM1O"ZI<4[0F,N><Y_H[8L,ZQYL_^/HI9%
+XM>=^0M,=N<YX4&TT1+)5>F>J>L_"9CW@\6?^DLO_;TE0#-_"WM?^VON9<8V@<
+XM+W$@1*]=A,M!2(,R9IY-@;QKGZXD*^NNK/^:N/^'FOI^D?_/W.MQ=<F!?+A>
+XM9MI05Y-"9N6;H;XT.\EZGI% ='4D6,^#EIADGO:^NG<F2O_'U/2HNUD(/,-W
+XMBK)5;N66NF<8//?/R8P>/.6?C_^+GLE]D+A;=#< (;1M;G$V3=RMHL:/A(M3
+XM9U88-,1]?']'6?'-O-V=BV8H1N?"IZ=JFK5"4'$R8L.(J]-?9<=26^. @585
+XM1*4X1K=[I?J?GY4H-(M.@-":O;QU=$H,*)U?AW]"=-=T=^R5BV4F5G9!3&P.
+XM+_VUL/_7SY9:;=65@TD*.BP     ?0!]   (_P#+]:$@0H8H@_;0'4DG2H0(
+XM>Q3L.;2WPYY%%2/LR5/7A<(<=7-:K)FSQE_).?XH4+JW0(6_!7-Z45HS$LD:
+XM1&O"+4"$Z M.DL&"D5Q#9,VV;0L:W!J B(@V%ID4*(#!"@:+JUAA:-W*]=(4
+XM& I8(/&&Y$L7$?+F3+NE0)1%47U$->S31T@?AP\?VCL@0M0!>RHJ]A+1*\U(
+XM=90H=0GWD5)A?RI<MEBP@Y(_E',H+<@9+!P2%4@6O)RVY@7).4A01T;$@N> 
+XM =HRP8@Q178#K+BW?OVJ=?<E!2\(E%W3BT,:?T0R@8MX4!0ZYT>>BZKHL&%?
+XMN?9Z49 G0F5EE92B4/^:0[Y7YCG![K50T:N7/$KA1LP)]R7Q_#4+7N1/;9-\
+XMZFH\$/#"4SPA\E0#XTPQSBTL6-6@5E=Q!0-O4W@U187:("$@<?:@1,D7,6A3
+XMD%QG].&++Q-8M\,.>,$5ES<4J".*/)5%,4<:WEAAF#$4&--+,Y08<]Z-WK1 
+XMR0B.J# >3&NH,-)X2R*1F&D^(H%$. ,\H8V!5S70  Q/X":F;A?N5F:%E\! 
+XMP#9/RA13+[>@@ U=!L&53B5]2/00BW+1:8\Z.WC3$"6(I3%'%-[<:,RBU62!
+XM11;8B(% +VO,E,9X(!DYWWCDC;0H><900D OVQ!Q@C8O( +;EU\RR)0V3T7_
+XM*.&$9<) 1YFW#@!%9HD5AX \2""S"R9]2.>+$$*@<\8.<E7G'%TB[$ !7"(<
+XMH,X:CSB*!1;6;-N,,<U@44,6,Q0Q1!;DI1LJ2910L$8UY TSQS!K+"IE&+V\
+XM\(4V X1#1%:W7?54K T6# ,77)7)PJTP7$('##:!F\4/1Q2!  ^W"#+ /!+(
+XM=6<Z''!G3W.B" &7# \=()=;!U!031_.5.*,&$?$<<0-6,P@AC%(<%*#&)$T
+XMTPPGG-#4C#S>-$- O?-B(04PPT0P1Z-D/9$)(OZ\P )O!8N)U9>ZT7KAA ]?
+XM.!41!,PA2B5'N%!"$3P@$H,R_7C@2UP3("!$BPW)_] 'GG>Q""UBZEAQQ!!!
+XM.QJ+&'( HP8P<N3!R0N&_"Q'/['T@$4$AD!1#11'-#/#,'E($0LJL&#!21@'
+XM$*$E4MJ,4T=O 7O]X)ED3JB[K=&(18 O103!A M%<.!/)LJP0L,\,OB" PX!
+XM3-27WR9V+)T]<8D2D;986.&H'%C($0<P"0@ RCFA).%S%E+,X$ _/210P <U
+XMU- /-]_ @HH3]< #1#[-F$,(;D$)%? D*U@91^U8<)O=48A6MMH-'2[!BB_,
+XMH0]'"$(0E%"$;R# 'RR(1@R^08IN(.!Y :A3<^@B 5]T["!]0$BTC/&W[EDA
+XM%G&X 2W@, LXZ,$)H&C'$O\VL(0(2$$*M.B!!NIACA[40P!.$( YS)$#$E1@
+XM'3F81S*,P8@Y\  )+_"2E[9BL( UT"I6J=6%Z'"5*4R0%42@! <J,00+L,,"
+XM+A@" BCQE%V$87E>P,$1*F$=N#Q+ G0AF<FFHQ%K. ,+CUA"+,0G!S400PZT
+XMF$4]Z"$%(Y##$[3X !P@ ($*@. 8&J@ _RJ0@QS\8QWKJ, _8#&#$&AH)UX:
+XMQS@0V+6LD%%W6Z,5'6YERP,@H&T68 ([7$"\'Z@@')D0!"M0T8UN@*$2E>B8
+XM/0SBMV/%Q6\P?$ZTLM"'(EC#"DNP!B:S,,E:U"(6LP !,>H!"GK0 A[F@  ^
+XM\-'_ WC@ P0@T $$<K .+WC! *I,01A* ZQ=QL!+#/0:#!;X(*[<[F%B"4 _
+XM7! $%RC!!>PH CL0$(!>:(,5(>!""CS0!@.LP"Z%E(L0[A9#N:##%^CH2U\D
+XM\,A'.>,&.*O%#4!Q@R;HX(=.@  (/M!/'=3##$X$*#[648]-3/4?W? "*2Q1
+XM!B+40$ O>$(=('H;BN8&C;P1IAM#  DQ%" ?0Q#> XHP5XNY9 '[.$$-LD$*
+XM4K2A&WAPH5N<<RQ?X*E.?4"D#/2$36?(( M9 &HLAMJ$611C#WK 1S'PT<0>
+XM&,$,&C #/39Q#'B08!,Y>.H_7,G2&>0!"0&0QPLR<94!_W0IHF'BY5D+=JLT
+XMA>  !2B!"RPPA.$IX0A'\(4H-/.$&+"" Y@  BE@08H]".";??F;"XLE%T3>
+XM):=^<T,EMI6%+=P@#DVH;'KUL =\Z"$'F[CG,<Q0#Q+TKQ26V(0&0+ .$&SB
+XM$ 7%Q <&@ 1L(&  =<A2 [C$@MPRQ78/*MA76%"&%T"A!@@HP%P?8 $.'B%Z
+XM!9Q&.$X0 V\P  @,,$ ;@+ .6#3';RU$)")%X5UT3$L$6)" .;-@!2S$ 0[)
+XM2,8LF@"')F 6#ZVD12E*808=L'(3_H2'!B"PB0ILPASK.$0W+H"V7[6F 1ER
+XMR@!NHXTP:2FWN>F:[H@ !4OT _\;V*C8 UQ0#N7N0!U.6D"9G\"#()#" &#H
+XMQA[$H8<V<+,NE;!+C4^4I[Y!=A!+R (MFF 'S-("%!# 0RFK6($F.( 64MC$
+XM'K (#S,X88DY.,0*>J"#?Z B#$CH!38( )4P\>LUL,HU"V!EVS%-:&%E8,$B
+XM\F&)%/0C#/+@P*]$0*C)+& $"UC %_8!!2IXH!NOZ 8TVE#H/13$L#C(YB$-
+XM>S="HB,+.WB$',X[BQ\VH1XZ(&@.&,#**GX@B4:N0&<W =!-_(.59K##-Y:P
+XMAC#\8!M/2/BN!T $V.2:7[#2TH&P8ELB3 @2W\A' O*1 F[,X  %Q/,(6C "
+XM:+<@'$__$ 04?#"/>01ZVWI@P!YR(((^3. ($[#+%CIF<U_XK1(AW4*/XZ"&
+XM=MO!'#JP PD0Z@170F,=LW" '4 PZDV8X1@] $$J6TE0#?3C',;( @>V$1LP
+XMOT95L&$!4YC2<(+A9ARV2@(W\L& ;-0@!<8^]DI:0/*20WL:F6C%'(+@@7F\
+XMXN4D@ 4)H)&#%B::+CMWQA8D :V:H\,%?CB",^1@!VC8H1ZS< ()UD$".S@!
+XM#%[(@1[J00O5>T$/&BBU!GK@;X#^ P)AB  4Q/ #)+!"2YFX]6M@,_RSMQTK
+XM3X&[-J [#VY80@ UF$$*Z!&)+'A#!2+WNUA/L !,D((/-'A%_QNVO0<&O!<:
+XM"[D;.K;@BS%((AU8.'<61)&%X!']#7"P0SQGP5DG5  "!4!0\Z '(- $YH!D
+XM[T5?.D![7J !Q[ )*W ,+Q &*< !8=5@#<9KN#9\1$ $+]"!MA4K3_![2# #
+XM)6  -- /*8 *!7 !]$!]D< #!30"IQ!M5N,.V. #-  $0$ #8  &.0 &Y:<'
+XMC#=(.&4BDE )DF -6Y %;" )8V -?I ,:  +R4 ,;V '.A!OK01[9O />. %
+XML  *((!D>'!4J+4)I5!0GJ !KE8#4A )LE45:*:!PX<(8-04JD(P:?<$V_ #
+XM0U ")2  EB '&O !,S #]%  [=$"_O] @T] "/=0!*] "J_ !]4%!A4 #3&G
+XM![ 0A(_7!SFV!5L@>5N !:7H#$<@/NBE!T=7#S^T#O^P CHP W;P#T!8# &'
+XM9'NP"<60 U8&#UZP"8T 4,?0#Y90 T_Q!!"B=OS2<,/W F $C6GW%*_R!,% 
+XM"25@ 47 3-Q0#_5 #C7P 2D@#S+QB G7 D70#8;G<M!@?@: !P*P!XH'#6! 
+XM%^<F VR BF. !?MXBK'@!\! :6I0#$.F 02U JT4CCF @$XP"W: ![W(#%QG
+XM!B#@!:=4"HEP#-\P V07,+'2<"#X&AZ(! VG=AN8:[>P#T_0 J+ #D%0!)A$
+XM"]SP 1<0AP'_0 #J8#5/8 \E  : 9@#,\%Y@D'A[L >,MVUX$!=9P%/.( 1,
+XM6(IN$ M8, EV8)#J56KF0 *MM (D  \]0%!Z@ J\Z%Z5909FL E9IU^EH &>
+XMD(A0H#415UL?2)(B^0(O4'S#]S69\'ON( )M,PAJ\((Z  (S4 LU@ 4'\ 7A
+XMH(X=8 #Z4$)XL(F8!0V+9W[0L <_B$A)Z SP=XJGF 5CH 9V  MV<)KQ9 8&
+XMR'7_YU1Z0 +X8 >JEP-'F0-VL E(5E_ZI0$:D(AA\($%PH%XV8%X^8%(,  ?
+XMV(%BT@"LD DG< M5D 82X >   =J  ^6H /?4 LS4 />X!@_\ X&_V  UH1%
+XM1SF$G*AXL  &ZW"//#4!DH<.6" ),LD&L4 ,^6<'>N"*.F!4^L1U.A";X @+
+XM!16&,R>1S/ />Z!/&K )^N59D& E:W=VTHB<)NF!B/"!TIB7MP4#M\"<F? $
+XM58 !(N &+O &:* #\Y0,4@!9/. -'' $WJ</Y2F1W 8+]-@&L  -/ H&>."9
+XM?; %!U%>63 )<8!#19<,EX5D6F@.3J #F\"5LY #$' #/>!_M$F;>* '%8 '
+XM8.!J/9 " &4$G@ %8+1V_)*A5N*!(IF'Q:D-#3!A'EH5F>"<)^ .]B )?O &
+XMF9D-<2  P# NU0 )RD8%^L 'F(@'Z\")G/_( +#PJ#WZ@^50"<_Q6.A@#6/@
+XM FH !["@!_DW<PU) CH0>O'$I>:P!TY "\<  LP02WC0!E[Z@Q4 "W$P ZC0
+XM Q\ !9! G&I76WBX#1NJ*B]P%'AH(&!#%:QP"[15I\Z) >HPG8.PHVW0!*B0
+XM#.2R!.!B"38PGC_8!D>YHX\*"^( "^.GB6"0<VR #NDZGQFTGF#P!J%7 3-'
+XMD?$$ >;0!$ZP#DJW!W8@!?3 E4&X#GA "JN@!<F !?T0!Y8 "6'@";M:82&X
+XM)<-Z%";)%,/Z3/LR@GW9ER? "LTI.\[I#FF #I,0!#X E+"@!@SP*$LP!TL0
+XM!#2@#X<7C]NV;>+_:H4[:H\_*)\ME [6( 2/Y *'.I;XX $2V9 YP%FAIP._
+XM. LD@&0@8 125@_%8 "'  1\  LW8 @VTP[Q4())P (AT&O\,K$2:K'^<"5$
+XM\ 5/\)S*.ANLL ^L, 5U4+>$,*(R4 2 \ 8_" 8N@ EQ, R<$ JUX -M  :'
+XM&VA""*ZP0 7B8 /6](/0@ X2D XXYPS.X =%P+=@H -J@ ]>P)Y[X*UM4 SY
+XM! &;-0NBE@/F8 14!(S,P =:  NQ(#I%, =$@ 100 ]0T%7Q$ (H*8W;8"4%
+XM<A3A, W3\ 6WT+$;Z[&L@ QU  YV^P3NL ,3, DV8 (_B EP\ :"6SGN_VJ/
+XM/#I^[_BHCZNSDHL.8S !?N #F@H+/ 0+>&" > "&WDH"FI@#L* #) ";35 ,
+XMHK8)Y% /7G -.4 *6@ &1P %6' $<\ *<P %1# #9BK!:N>!+Y UB+ 32N(2
+XM(Q ,3\"VRMJ<S9D)M:$ ,1 #=1 #F5 %+5!.A8 &)L ,8# + G #23 'G/ &
+XMW6 #?U5HA08-XIH,XWJX-<L ,L"^@. #:O &L'!91TD+Q2"OYB<.3\=MK;19
+XM>P "]4 ,^% !]/5O\[ "!L -S3 QO4 $^_$"%)R<M05&^A%M[:(.)'<*7U %
+XMRGL"S3L[)ERW*1P#K? $(R *13 (@6 "J]!B$/^@!G.0!,-0 J_  -#0#3AZ
+XMHPR0#)@ "Y)L3=H&#6P@ ZH(#)R*6<P@D3VP!_.0 \5 :%EZH .U#E#%:B0 
+XM @Y 4-?0#<!0#<W0!XOY!4B AUX5ER?) KD;&B^@)!2@ I-Q#\F;<&U+PG5 
+XMM\@P!3& PG^<"1A@#\Y@R/JP"A()!P)@"(;0#-]@ Y)LF9PXKN:'R3VJ;>,W
+XM>6Y0!'# >(K7JG@ "K3IK?A H):IST^; [30Q?X% HD  8>@!=\@-)5P $$1
+XM#MK@@=H !3R0!'EI%;F[#?ZP#91@#Y1 <O<0#O=PQ\L[PID O:Q0MPH0O3%P
+XM!3% "%_0"Y4 "(&@#Y/_B0?9D P1L 9Y4 3BD&W0( ZC>[.P@ G) *O:%M2;
+XM]P9.# WQ5-.K  *SH /=,)LS-W,DH$^KE9:WN0<DX  Z< W9D 4'4 G8D 9?
+XM@!Q/, !C"PDU8))7$0(9#!F)T=$+\-$?_05?< )6$Z+-:=(HK #@  XI7 =/
+XMH Y], DQC >K0(\'6P;&P-.'IZ.)YZB.NL_;!H29V08W  B02@*6  *K0)NK
+XM  &SD UX@ _)L'A/JZ]Z@)N]N,5[L )>4 _<( Y8T P(T <C$ [PD=970020
+XM, -:PP490@G;H *9(7)U7=?-G'#.6<+(D EU&[W1*]@QP'T<4 Z&O >K(&BH
+XM_] /H3 'W& #D\R)W!9S-SM^KXJ4M.E#GE<!%5!?Z_!>DZEX)  'IUH!>@!+
+XM4RJ;60H/.; "2"8'8M ,<Z(.I] "WN#0O<9F,_ O(5 I[4(H!;3,\4$?>)UP
+XM>MR\?0F]@"V]TEL']R "E3 (A; '>( 'W0 'P+ !:Y "L$ #-EM^YONHWBIH
+XMC*>9^JD'.K "_X!/_8L'))#(^, -9O &7L ,HX<'_$4"F46;I: 'A\ ,*Q"H
+XM 7 $ZC -*N$/ O+;:K>K1:$H(&$H(G$/P7 *X6#'7X !&J['';L/=5H'*5W=
+XM*UP'TR "Z0 (A: /%0 $>( *<& ,97 $ O *-LMMXO^ "6^0VHB+!^C<D/S:
+XM R1P"#G09%\\:L60#1HP"Z?J!0>*#TWP>J4P:D>U#J7\!I%P.)0P#8_8P5R2
+XM!##@@<CY$>J0!FG0!7PW![OM"%]P"B+FZ\[LYE9STB>=TB"NPNY  96@!$&P
+XM!ZW*!\F "LT0#%@@#D&@HQ#0J4-LQ4+HK9](D?T+#U?D!3U@!K)$FTCW#3H 
+XM"X EL+3I;WM0#ZT$ OC0D&!0"P>0#P?P!!2P &A^%%J#%2] W'V  *)@!1#1
+XM K8^ EW0!8Y@QQB  7B=X6T[@E:S#].MTBM-")F@#I40P_H0NGB "3Y0"V60
+XM!0+P!CJ:R8FGZ%:L;9*<>%O_JH4$W$JE<)&*BJK]2V^OJJB9I0?,L G$T(M3
+XMB@>O4 35@  (H W3\$PB9MRL(? $@  =501V$4/V<.M=< H1[PCA@ '(:\?.
+XMO;Q6H\<E/-T)=PKV@ ,9@ 9XP S,0,F8$ FF4 WEW 9OX.273-3DRMZ9+8\@
+XM0'O_@)$.@*4"*PXYT TDX%>CQM6W"75FH*\$Y0$N\-A%X!/^@')/X \R,0!6
+XM<0NWL 8(8 $+<00X4 1*, 1%P! [T 48X [W< ^G@.;3P.8)=PM/H*P7GPF$
+XM4 >$< 6"C.<NT %H  ;,0 IXX*AR$ +&P V:G RPX 1/3-2;S*-!&(1VT 3B
+XM[@4D_^" YO!*0OZ?.C!^[HZJ3<#CFX4/\T *;] ,OG $!( U:1VBV] +(!1\
+XM7T !V" 7@F.Y2L $ )'!!SL_?:)T<71*X;UPTYY4>?+DUI>(3U@1(E3%70L9
+XM$\H->1<HT!YF>, P@&7)%"<Q-MHDPZ0'4[)D#/9 Z[;G);0V>Q(TV50AAYE-
+XM/32LJ+ .@@!\;<RATF, C!=F.6;5,^.EB8%_8&;L.$+IRS9$VE@T>$% A396
+XM$^WYDF!/W0X1ZBB($%+$PKL,&9B4D]'BWN#!IRA*/!SQUA-_!](-8<+DP9$'
+XM@-1 6P=F'31,09Y!$8,)FC@[L)P4$P<-YVI8;53' ;$G!_\(#3DVT:N QVJ.
+XM'!7$68)5@5D%+[IG:<"CXY\!2\WZB)@6[L4 1 T&;". Z-8M) <J23@C2D:?
+XM2A32[.B3[H@?0(/>!<$1N,7\!0XA2JSX)=P.7^5<3"@"AQ\D6 \0/?; PP!H
+XM!'CC!4ZP0.65-N#(X0U,8,D!#)Y4<ZV--U*P8Y.B-EFG@@](6"<''0SP8AU\
+XM>L@&#U+6V:/$?V;!9QX@7KD "P0P"&<!1 :  09M7D#B%E;\06 (',K! 8<^
+XMRNE@"%'&**((-ZR9P(\)'I!R!PK4&:&%$1R*B)6(OEBCEP".0  '!)1@IXC*
+XM!H%##SW:,"F;-T*! HL$P,#C&SS_,"D-)YUTX@D65&(A 01S2G'BGW5TJ(<4
+XM/$#(P0LO5.PAAW]Z6V<=+[H! PP^Q&CF"'\6" >1)QH8AX47B&#AEFJ&",(%
+XM)HKP 8UW; ##!Q>@00,-%\9@5HAT*D%'!C'54:>%)Q#)) :*3IAFCAVPB,2&
+XM(&QXY94.J$A&FC?>@ 8/(-99]P5#CN#&I3?T*(T!:,#(, <2H%&PB"SPJ0<$
+XM>O!I48=B>..FQ7\J(.$&,_:H8-12@2!%BR"RP**/)[Z8!A%$6!FGUA>TV28(
+XM8VV@XA4;B'T%#3Z@X0,,?=!(QH\HT$%'@CYDL(<,,LR4M8&(]JFB"C%<>./E
+XM;O31QV58_P*!)1E8, -BCVR2,60-,>J%Y@T2WK@:##YY0_&D(YHQQPP-CD%X
+XM'50J,">'#[P@P5,O=("G!QT\7:<-'<'((@ML@@D&U@$::( %%C+1QIXA7+9!
+XM'YO!,.$5#<49(@$&P !"BT+<D(%G\<[@A1<RO\B$A2>0(62-(UPH5S4J,"'W
+XM9C3T&&E?/*"IB9-0(BE" %BR@46/JW_/ 9KFNV$F&5:Q@N<#4B'P I4]>B"!
+XMMXK7F>6#)IS( 0\O5M"B"$B*>.26!?Q!A(5Q&L]5G2&H\*&#'5U&(U4P,"E 
+XM$I @!A_H P@90 //^A M$:".#",(1R;J4 =!? $!^J""AMZ BO\;8(%V?$ #
+XM+&!Q$\WPBVP16$,D+.$#!L !%OA0#:KZM0<#M"$(6#!&#^IAE%)5 !^DT$,%
+XMFL I4V4&'SFXU-_X0 I8M", /[A%%[XP),<U  :9F$,1,A"2S+TB"-"@ A7X
+XM0 -4Y*,,,"@#!X+0 2988 +I$$*T9'"&,^Q@!,'(UA4(P8$.O,* KT@&%FZP
+XM!BR\(54A[-_OP+"'"U4C%!Y$13+@@(^R+:HG?$I& 9K1BV. H!3U$(I0\%"!
+XM"J#B1.9K0P6@\8]#Z($$5=E#/[)PA&"<@!(OB!\+IE"K+QQ!"8/(0 >B1H4X
+XM,.T-/GB# ++!!1BP@@MJ!$0ZH)0.7T3_BXZ\N ?KP!&#!13/!CZP0=B (8<-
+XM+*$(Q((:&C:$!P_!8AA$R$(^F): 9.A!-1IJ7F8FQ*IF.  $QS!#*'.02CS@
+XMXP9.$ H8/) #!N#A'RM(T!OHP0T$#$ %:L'5%';Y FPH00CE& 0[.F "'Q1A
+XM#&KPP3=*D(T97 (&EV#$'([ C@G( @=PE, <ST"&+CRA%2BH@SQ<@  ?6&((
+XM<'#A$N:PA",0*U7M(A08]"  :"S!%+4(0@&RH08]P# G;< 0JMH C"PT0QZ=
+XM](0&("84?&3&"V; !QY09  23,6A".J'&(KP DI0(GXPJ!4,$'$ =O1!"!+8
+XMP@36: ,WN*$(_^.B0B3*< DN*(,141!%.=*!@S^D X[H0%T:<D&(& CB"3\X
+XM C;$$ 0UM%8.IEC#$H: SOZE*D/X(%L-3%&#$L3A#0FXVDV@L2?,:(@;9>6 
+XM!CP9JB.NH*&;R8%.2- &/K2!!'Q@!C28D8 E%( '1-A&.!;G.%9\H3\<^$X6
+XM1, &(4R""7X8 QNPX(QF$($5R& $#(+1"QG(0 BN2,<$XH@.5^S4$:P0!#^T
+XM\8,@!  +6#A"'+(0"E.$(@NT0X,?5?.[L%TH%FM80Q 2H(9)1J6XT*@K&)*Q
+XM-FR(XA@Y6$0I0% !"""Q C-R7G2[ =8* ,$+0(#%!8Z A5ND11O:*/\2*\)1
+XMB2/((!T_$X4(UIL.-_@!!UNP0A8>$8HU<($+RS#%>=B+CE^D0P(]FZ,Z3G&"
+XM*PB"!=YX4P":48LL&.(94<C"8UF6C! ";(0"* 8LQ+"!.7Q##9:X5[MP@@=]
+XM08,!09A!,[+  4]L(A'*K8<Y*M -\^DF)TADZ"KX  0P2'@(29I#.!HW#@6\
+XMH!)*2 >:12$*>UA!!#)@[Q@F, $W]$$4'.. -](@VC3PX@Y"&+ $"DP&1^SC
+XM"N!X A(HX8U'6.'7\O4#.X*0 7$- I%XV ,#[)",-@QR7G  A@#VI!-VM@8:
+XMV9!#%@[  0X<XQA& $$/CK$.2_6+3Z7J25?_2 &$-\PR$L% PI"T,0X8$ $!
+XM;I3 +\X@Y0.(P!Z/H*,Z_#N!(P@!"Z+XP0^:08DHJ(,,3KY#3B5PARW4L0L(
+XMY@<K7C"'7HB@#\YPAC7&H.T,!($)@'!!LE+5!CV\(1FO^( A7K!:X*P;590T
+XM6Q#$4+@^R,,,I6A$*3R!"B^T8:#LYA._<B!J(/ A$@<X @_6H();E$4!P3@"
+XM$VYZA_Z>P1YWWX$]Z!@%&62AO[06A17D8@P*4. 1,OA%3F4@@97+@!==.$$T
+XM8LY7>\A#/ O$ @XLP(X'*&$(WH:%/GX'"W.0^PAK",4,X/"-$3I/,[# A(9<
+XM,(,LR(,#!\AW#SP!_P\(. $?N>$TIWDCUW_\ PA!> 0"L+&&!>"2!2C0!@+8
+XM0=-?$+B..Q#3F*)  7M8G"XB>(28C)&&.:ACV&208^G.+(.#:",&*(C! (+1
+XM!;M883P2F$"4/%*90$ACZ'K8&FB0@R0(AAH( A=R'FA0)4JJ+H$QG&#K 7C(
+XM-W/0 /(Q -T  U62C11Q%UB(! XH GL &6U ! 4 AQ_(@"@I!YZ1@-0A@S%I
+XM@330!3)I@6HIO#3H@BY(@S70P9+KKP(K'9Y!!UY( RY !A2X!&WX@C2@@+SK
+XM+QD0!2&HA,V:J4#@,SRPI]+HACB8@V=HA@2P$"R\P [A ^F1-PX0A5XHA?]-
+XM  $0\(1Z6 $DZHD*T(R>R)MUX(,XH  XF09M"(<Z0 88.  !V+Q8B[4SD($7
+XM) -=F(\8'(%J&0$=S(4<W,$NX$%CD($&NK7283E[2(-;  ?X"X$O6(!J.8_^
+XM6CEGR3\_$(E]@04&J"<PX(8YV"T7$(<W8#0,W ,P,  ?B(3"P09YH(12@(=C
+XM\ 1ZR 8#$ <]X)<:F8<4Z0T\@ 4K^($B:($%> (D0P8DL($2Z 19@*/$TZG"
+XMFX](%(Q@N(<N:(%PL,01X,$12(.YD+(G1 >Z P\*&("?<JD!<(1'S+M-K$?/
+XMF@ EH(+*&2Y8L(-]40-#"(8Y@(-LX,5BX)-[4A;_+#@ V^L%2N"&1O"$%,B&
+XM D@!8- >54*B;H!&,) #4? %!)@BLS 2 ;"!=W@ 64 VQINC'>"%H=&%,HG$
+XM4[B'-?C):?C)>S@%=3R/[K.''[R#E!,%"OB"*1"$:."" 0@2)M0[&7 %GD&V
+XM='@ ;M,0$6(7/E #*# %8T"T5-&#=> P$["!([@]#I"'7E"!4LB&-C  ';B 
+XM&D@ .-@#3<F!;NB-I( &YS@"$;B6*6 %&$@!#W@%"R@' ?N%..HO7K '<FR!
+XM7"!*1Q#*-9B&4UB#4YB&+DA'N\B[[L-*5]@"NJ. 8$ &00 '& B!-9@/PT-$
+XM&;@#5V \7W@ <$*#/8"%_V)X P;@@R PAC5@"1O@-#[I!GLB*6<0!7F0AP.0
+XM2PWP@FMH@V^H 2R0@VS8%QL#3%(P@'CSA2,(&6U0 !C@ %(HEP"9@&.3S&O:
+XM@:%)@Q$8#$? @,[\ D=HB(10QQ8HO'\\ S9PA3N(EAU@S6C8A89['R:D $3,
+XMRGITEB&0!E@  Q&2))H1 $Y8 TC(@L\AA7:YB9H)@CXX@.?TAK[2@11I@WR8
+XM 7!Q 9O@$R](BGF A6;@  3HA1/0AEN @1?HAGEXA8&XJ<2KOKK#27(<@5P(
+XMAU/ @%,(AOM<B#)) S+ OKNCHP&E.VE9@WT0!!28@@&0S7AL4$14-@F00G9X
+XM&?\-V8,+Y0,J*,YF: 98J)D4N1H^, $7$(5Y.U%*4($4]0!22 ##F8$B@ 4@
+XM6 4#*)%Y (,B: ;4B@@DTX9OF(=N0(-!L( A/;,LI:/X')/Y'(PO4 A0#8=T
+XM+!.[:% KQ<HMX!DM13!!4  P50$FC )>P,IH00=G<0$;Z!\*+8;+( 4;B( Y
+XMR (H\ $#X ,\$ <20H,C>,XT5(%GM0.[?(4B0  $P+-\X(-Y8 89!3(L"  $
+XMD(<3X%$NJ(%YH $:L(%" (2;6CG%FR-[X 4Q&1HS(4J%4(@1P-?Y>$&[T\0S
+XM6$H"!9I/C %5N(0!\(<8;$(Z>D()\ 4<" )8V%45@P/_T'F%:IB#,. $->!%
+XM:70-:/ !9Z@\#J $?_ '%5"D:9T=6L(".&@#(/  +S  %_ &!#B";'PI(J !
+XM4N@&B"V$21A2(2#0K)RCU&E"1A0,>SV%<,#7>Y@/=8C7VD3$GB%0=/#$+RBM
+XM5UT ,24#C#N#:,&_Q[(<:*!020(=&EB"-6@&)#@"5$'67;0!%\ ">T!#2EB 
+XM!: $U8"%ML0&;/"!?C"&)3#)=;@&6)"'2D  #C@!5F"!2TA&4G@)?5#7<@#'
+XM,R.PNHO7%ZP6>O7)>\#7?/5/,JC-_JK'Q*.[NG"'UHP&;9B#&N0^A5T\AO6#
+XM9 C;$=H@BL4"86V&&H &(,B)_\^!AL*$S@/@TV=5 S2@ JFCA#G(52PX!UC0
+XM$5)0@Q_H P10 5:(@2D( QJ8AWGP$'T8A$%XS'0@4+ISA7?-29-K 4:D3\[-
+XMUU)UVM EL%LM4AE0AR\@!'Z(!AA0@?+#O@8270EX# H=/5AX XTEM4B8 TBH
+XMABR AGE@%#"@ F<H47G8 ;E\5D,*@B$+AF586[AM62UH@R.0!VP(@->)!B@P
+XM %+P@'EH(30HA$&P*=(]L_*%3S) WT;L7)Z<C]2!W\5SS_)5AY>[ B\MOR;<
+XM@=I4H-E! PX3(:0"G6XX@CDP!F.8@4+MB52Y(1&0!Q&P8!6@A%=X V<0 S&8
+XM@V68@?]7@ 944"@M\($:"( 'H(3[XH)\((5Y\( *@ 4U"(1"<,PW2KF@U2G4
+XM49VAH99R]-P:Y(7:'-_%<Y8BI8 NN 7)BP%_H(3_A%\)* =VP0-VLAI4F%A2
+XM*P)C0((%?@.I !AH*((\U6(O]F)*N"$L4)D;B(0XX$4]T)%NX(9>0(  J -"
+XMT(9^\("<78YD (9 > ?'E(4_:-?RM5R<M&%3I8!&E&8>7KSJXYF4*S.ZVX$T
+XML%I50($U(,T&O;5HJ8390@,: 0.R@0-#F@<^^(;D78(:4 -.,U98. +UVN)G
+XM[2M*8-0+$P"F<=[?\0 ;L 2:I=XO "\:N(8[UI1D* (JR #_"YC)=$@\GG$%
+XM&J:C.K)A7BB\S&U$NU!8BB:PB^Z9(B7"6QA8%/ '(XX")$8'Q>H?'3.Z; @"
+XM51G.9KC89I #@ $" [BA ZBXC&QE2H#;+)B!SDF&\F$&116#BZ36 _ &))B!
+XM<[WC"C !6' #B/X+SFI7\@UDG"1::BGD&GS!1#X#"9"%(JW- :U'>V@!#  '
+XM50"'-> ^[*M-QCN" MKD##&Z=5$5,* !>9#B:O@ &^BQ;B K+>Z%'1AJ2F@#
+XM*BB &_@<XUOJ0D$")-B&;8C.Z2@  _" ;J##Z#F"=_ !N0/'7_ACVPQDU*$ 
+XMCA;KL79:>#T#(<"!_\KHJ$VY,ZC?_QB(AAA0@9K#OB T4S^P@6.-+C#(!BHP
+XMNE>HF5? @C6  F.(!.$$@M\%Z@/8@7W>9SXP@ +0 %1PE^P" @"  B1X 2%Y
+XM 2YX@2-@ %*H8^A)Y\>*Z)DDW?$MWP+3.[!N[=86ZQI\W[.FR3GZA3^X35=0
+XM9J#I M*Z!>Q+V :2  A[ Q/ @Q*Y"5B  QM@EU3IADA @CF0AT+B@YI9&V^H
+XM8.WNJXBY@!RX!B]@1BW0 DQ $FWXF&6 @A1@ )?5607D@S<H A=X!W;0!,[Z
+XM!=0&Y&L2Y-9.G=>FEL+3.W1(A]*1A7<8!5L0!DU0YIQ*@RJXA6"@!'O(NXGS
+XM+TF( UC  __A RM8 *<W6&)5Z8=M0 )YF($W6 67B81>D,XST&=*R&X(, (C
+XM^!P%T0*,*0#S?H(!N 4NB 0: ()VYL4,P0,>=Z\'D-P_$((A7\J+SN@C)5H*
+XM>&;_MHM$]B^L3 =AZ 1AD 7)Q8$)\ 6G),46H(ND["\L& ,XD/ *6!0T;YID
+XM@(8]V ,@L 1*0 (.R (UX(.WQ>[H-/&^ZH<;@ 4O2&I,8 !Q2(#4FH/+9H$P
+XM0 4/  (&<(F9\0(P@(,C@ PPZ:SZON\"NZ;44?<Q41VQMN2.F-J<$H(_ !-?
+XMD $5P  V40&]@W49V (_H- ,68?IND4?0)?>7*4@@((7N#U@  /_&RB"C(S+
+XM[.ZK[.X%HP #+=B@%.@'Y4, P^6 (Q$' \ 8&T">W$@5.+B!!P@")9"%"?B#
+XM(6\\\J6C_#[R9^[OU*$$.LK4I50_"1 !P?B"6PB'>"Q-T85ET=,#)$*)//8!
+XM.*""WL0#/L $M<.&,  &-+ !!*A@+NZK5LYN:(" =>:& IB!,'B!/,.!(T""
+XM2^ &\)2*,]^7;X<#9R@")E "SHKY2J_'VYPC=#?K)%<=RZ0 %>!HU(E:=!"!
+XMP@OZ)]B'5'B"M:OKI$2'/G"#_G&>5,J!"T&I(%#S7?2"5Z@!CFJ&7!U1;_"&
+XM7L!S$^\%1I*##X@$!("$ 2" V:D$*U@&_R3H!L!L-&B@)$>O^R,( BCIK$I'
+XM[6C!Z)H_<EYH >9G_FCFZ$J^;;F ($I8 \=7$\G_<B@<@R_"#-X 3*N)@^.E
+XM@N3910/ @F _ #CP@2&HN-3/R'VF>&B @S X^^E A )@!SPUA1?(!I,$B#8Y
+XM8.E)1A#6.C!OG!6Q4 ['A%]W)-Q!=^?.&5=G9)SIV)$7+W6\5/!JH:X%A9(I
+XM>9VQ9X_"@BHG%GRY=2+3ES5S*.P0(4.&"&>PP$#+44$@ P&PXE )8@.603P&
+XM(E$*<R"("P04#HB@M$,%I;!A>\%9D@0*%"+:#@QQH83#,E3SNK59MP<:-%AO
+XM8.&!!@:6F"(/'O_@^"/DEY"+=US)T+AQH^,S(%>"I 1R!Z^7/"EAN(D(T:T8
+XMMYX@ZK5#1A1[6["XT(>'1(5U.=K @JK&A@\;TM#@P0.D *1>5X_X$M%+AM@=
+XM897W @8E#"1MXY <*7+$A:D"-+IURS%[S]]D>O 295A$"43$ORPJ[ACYHV20
+XMO"R3W&%_QQD*/%M\(41(6SC:Q'""-FM08H\5]LB0Q01O@"&0;-UAHI<:/@1!
+XM16U[X#&/);U4(T\0" 1P1B_R*"?66+T4T4P-4,"@#39!%%'$-F&0,@]1)+1Q
+XM%U%O. @>--65PPY$Z4AT$3JN:,111TPRB1]F\F$VI7X4^-/?%:3=0@C_3FNH
+XM(P(%;+ A2FM@K$.";.NTD4PR<*A!108V8-C;*M]40PD60_@BP0$[R+/<6)3T
+XMT@L",_#  @LU%#&$$C^\0 ,I8.CQQAYMX*6/7F^0!X8<0QSAD"SI_&&1#'<T
+XMIE%D/S'ID4=0GH$9!>J<Y,X^A(QVPCZI/+'&#EGLL(4(U@Q500XD>*>F#VU>
+XMZ ,53X'A&RK5;/-#$0'(8P^4*/8B:"\\$, "*][,6(2CJ) 2*1Q-^(47-&CX
+XM ,=08.A3A M'!(%>1!:YHN^2K/[$*GXRX,<J+U6>=,\I[J12Q0AKG)*&*!*,
+XM^4@1)D 3&YK>0?,&%7# 40@3[W20#)V8-#,'_P)']"'P&0> %>BVO<  0PQK
+XMC%O$"S.0THT'"C4!A@%XH6'#&\F"<;0<01S!1">:3#!J14B:BBJK&[&W:M7N
+XMJ?IJ"SNL; \Z.,B A3U8^,!'&\1F/%"R<%@8A \=4,H,$+#4@+(0V!Q XADH
+XM"LHM'3 ,X,L0#QPA3Q(TM!&I:X#L80 8K]B VQM!F,"'/G'X4$003#P0ZGK[
+XM+I;D8TUVA(XLA/WQQWJM2Y!..A/(;I@$$H0MS 3IX'#$@B(4@0;0.:19+ -O
+XMV "O#TQ0H8\/L#!3 321H"P/!_8-ZG>W@X+#P@$NX& =%]\88,".^JQB1[S0
+XMO()&,AT#<?01F[_#A/\P$*'#'OZ-;<22/6<((4PG.F&+3@A#$S@PH"R$H<!.
+XM**$<$Q#"ZY2@!-GA0 *HR0(5B/(/[Q@E!_C02R ^%H02+ \.Q<##@\2@ @24
+XMJ&\=>=G?!M4+9-SB"/;Z@2EJP!VZ=*,OM>D&46KS%#B\XFB:<X$+F("O/QA)
+XM:HOY%TN:A(X?W $'!Y2%+'Z!&-CY0@CI@.!/*" #(8C")R*HAA6&H(\'"<0[
+XM7L@!)@P""Q?XP <6L,$K?."@'!B@"'.H'G+Z!BBQ;(L2A/C!$88P@S4@00"*
+XM:T,;>@@-/:2O-K4)@OK ,(1DN&"$[#"@J+0H$5*IBA?V:=(=U"/*BS"F8+K_
+XM2$,N%"%+15! %"X1 8+$X*#@"6\=LC$(&@*AAD+XP 4V0,,;X- -:!C $BK@
+XM "5,%$V_P<P>14   KZP 1= $I(Y\ L8]I ^O-1F+T5TP1R#,+\'( !T/]!B
+XMU!BSJH')X&JIE(@K>$$&7>0B%X[X!"Y20<N?V$<460@"T,PD$ .H*2]X\<$F
+XM!Q$$6#Q%#70! S#FT"=[4$*0V/O;$$04C#7T@WS>9  8O$ 4!H"'-@R BO'P
+XM$H1D!"$(&7B'$C2!@-6M;I7WX\C Z!FU(SWQ#&0X*E+30 8VH$-@8CP"+/@ 
+XMAF4RP"C=J0T8W 4,*G12&CZ !C# TXUO_$V0'J4F_R5^\(,%[*,?5(BD=_3 
+XMTJ.QRU*6%$>RU%<T5%SH'>SXW--X.JKU5.1)'C%5U!+;5,F0@1=6R @;SI @
+XM"IR!-7[!0P[V0(+N0&.90WG%&X8@#1<4[0UHB$,DH9& 0'64FH4LI#JN< !,
+XMM*&JWB$!/A@ #=I82IRP$$=M,*$I:.@1;G#R'&&PR-/U-%6>J_H7_B9RI"TH
+XMB0U*VH)D];D#">  #=#  Q %@H>J/@@6KX %5M[@@D$P"Q9J&$H;X$ )L)S(
+XMHX7\VWQOL08JT&"W^" !"?0@5W(6!18OM20L?-"&5R0C&W!P2@;L.!@<M'.G
+XMK"/E8E^EM?NA@R)>/(P0QO_P"TFD0P:-M<(C9. ''X A!V"H &8%,N"\@,$&
+XMG:PI' 9!436(8[?Y, 8E*##?$Z$U+-/X0@E>03X[5& /Q2+!'I;9!J),\J56
+XM'JX-: J'R<U/"0_0!)B5^X>HJ>JY6ZM(4SM<NZ9RA!>ZL (Z'H$.I^ %QN+%
+XM1#%TRX BPF((ZGU;18?"@"#,URMA.2LU6U$ ,-#@%=WAH![PL5MH]'@@=C4P
+XM5*B@6UA0H6B!:(I?BZ )=LKBG>B0R+\X4F95+38S.Z  &6!=I=,D: BX@<8Z
+XM\$"L'#" !)B8=!%?T99B#B(9TDCF&VB#B0,L8%N(_AL/*!%M;/C   RP%)J<
+XM'.G_*$-#MWO0[4" ^]O:M.$IR3!M!DKPCA)\N9VRZ"FIV*SJTO5$! 4[B4G4
+XMD09UQ&H'5MB!V<! A3WX\BA.AH6D89')5\2!M$BD0AWAH"D:V* 7"RCTG] :
+XM;4I@HALTV$X;H"R;#TZ9-LNL%#3N @O:V,!2T'C*5Q,,IW<,01BD-G5C4MV2
+XMEI@&5K$:P0CNT8*AHR0-(MA!-8J@#SYT?!TP)IX>>OQ2O]C 7EAAKX_0N7),
+XM]"(<\Q6D"F"XK6CS0!P?[ZR3=T0"A'>6TG@0R'>#=N >O_REFG(7%3J0;@M8
+XM0!CM'!5CY,V17GQ$!?E6!]"[ /2A\[L9ZF@&0J&1#%_*_V8V)&" 7&OSBKS(
+XMH9-#@!LQX7!NBO?"'_.5QWW#0G9I]P(5^)@-["$Y[I+#HAMWF3+T\C)U&BC<
+XM!L E&G]?T8%W6$ )-F\GA^6MX;#@F^A=:$$:@#Z"KNW &)&P@0&285OOA)SM
+XME&878#P?A-##BX@,H(3I58"<0F]K&SQXO[1UD+'76XK7R>BQ ?: B;=_T\4/
+XMTKW"U<:!P0(FY(8^O (-W)0%?,X["<%/N<+>G!(%#-WT+4 +K$$+*-X]C$ :
+XMV$,U4$ 1$,7D<9^Q,  ^)(-=L4LRR($E!,'G64@A;!D<4!PE7)P*E(C&O1\/
+XM&(MW2-IL=%L<E5PQ[$@;Z$$;O/_=74P= ]B E6E?@OG *^C# 0Z?!1A0[CC@
+XMUA >ML1*"RS "'3!\T'?]'W)#C2#"QP-/C@9@.D("8A#,GS3RN7%&W2>"\+-
+XM(#R8>T$##:!?V/V)#$F;#L)?L7!0#E#5N6%"E.V! !1%@;F8RZV<)9V704 #
+XM*D"A\'4 #>@=WRF!+!0&%?T F^$21YU$&H#A\Z6!2?2$/62!&O@%+.#6?UU>
+XM&]H!2UW:''Y#'193$+P),)Q7H463/ 1CB>A@M_" -U1 ;'#0CFR,<.5?&[Q!
+XM_T$#"7S7E'G62[EA@M7&N3%+%': -]I !H1C"=@<A>6-#,@#+KT:):#B3NB;
+XM.O2$/#3_0P"XP&[!'H#U8-09H:4LF-(T'!+55"=5C@T$037X UC(@%K]0# &
+XMH[0=P/MQ$#YLT!Y\VRS8P1N@$#0(@(M%XSK@6C@-X+@]A5[ 03CJ'1.X@ 6P
+XM@V 0!C8]4   Q1;&BCK,@:P$V8$<0!]P@!A4FP&(@SFL(6X50QJ* R3MV:#%
+XM01'D0UL Y(7 05.$A0K8@UJE@UIA S;(PU4&XP$X@ X@8UWD'RS,PAL( !]T
+XM!PIV9/^%TVZ%DQO^G@T(33)8B(5X"H7Y@B]P@ SLS4_T@@CTY4M0@JRH0Q>D
+XMP1J 81K,P05^P1S,P#<(  -TPST*CW= 8S>]'!P4 3 @T1!8_P@2U1'$S<%\
+XM<0 "4!@V)6158@,'Q(,GF,,U0$ /L90 P$L%_(4 5(IMVE[]D=/<*5R[Z 56
+XMH$<E]$$?H,/*J$I? D5?OAJ_&8R^#5TX.,(3W()TO@ !T$,^P)4XZ$BQ"(2E
+XM,( X! $P%$$"#($E<";<%$T0!,.V_( L8!,"Z%1IEF8 G,,BA,$FD$(%5%58
+XMPD&/@0$F*%,T?M,R$F%>B(/OO65>% (2'4$EU(Z#"B<Z8,-/_00N\<1]B( W
+XM[$"&JL ('-D7/ $K((,": ,2',,WF!TDM>%LT 54@"?G_&,QJ4$05(X+J&<O
+XM_  "J)5[[JA[)L(,>$(2U,6.B ,<)/_ 4'1#@Q&AFMPF(^X65$Q=;X:6]S1H
+XM'SCHA/:E",@#1V"+2[C$?;Q:"X0#!CQ!)MP$"\# %*3I -3 -RQ.-^ #A'0#
+XM+,3F$'!#$"2 "Y2 +L(-' S!- S*::8#C[KG$6R !GS#.7R .) "YL7FE/FG
+XM'7 66L:A@-X%<!DENQ23X0A!%SFH!%2IX/5E1_0/EF+HB8Q .$P#F69")L# 
+XM.$P!"]#!% Q &%@" Q@ =Q@ ]+2)&A3!@]$15KA-T13!&GC#0IXC5OX 51+J
+XM$21!*8! /D0 *N1G&T  '"24@Z%E-ZA)- (1I?T6$]9&NU1.$>! %PD!!%FI
+XMX%&H")R!*)S_ 99B2PO<PS2HZA,\00,TP#CLZ[XVP!3 0 C,0#88@!?,PUS 
+XMPH/)027F ]S45(*]P1&8WD):93!B@T+J*#9%0#Z 0#9H0 U<7O%D WC,PU@6
+XMQ1':7J_M%LJ%V_TI6!#=RQ'(#KK^@J>N:[O"ZT;X)6"JP *<PKW>:P/@ZSCH
+XM*[\B0PPP A=P P-XP,X\8Z]6CE,&@=NXC0U@05AP@#W(PP$<0 MA980&@%H9
+XM@2> @ ' @Q'TPVS@PR(: !^@PAMPJY"&F\K:%0-0 9$.Q24-@14]$+I6A.TH
+XM'Y/X!,ZZ!!=VJ+T";;X2[;[& #A< L#. ";@JG"] 3?X0"4VQ8PF_XL-9(&@
+XM:.V?;.U"!B,'6&4?6$(CI, F,( E)(( M"$LN)@!S,(B?L<1=A_)[19MM \J
+XM\"9Z>4HE/!!BK-G?R@"V. E!O<I7<.@"I"II_&SBYFL=9$(=,.XE\ ,,M,,W
+XMT( !0$4<;*, 2*T>3<[)'  T"0<E;.T!A"Y>8L,FT, ,'$,%.($4.$!N;9:9
+XM2)PL<N>W88(XU&*W$2 G[04:H)?WR*P$2,2:;0U^' !'R,-&8 9)&)[A-J\V
+XM."^^2J_TUH$"3 $*T $26,)V),,WZ 6S5 ZS0 ,5-$,+,.0!G&\+@R[H!B,(
+XM_ ,\0((.Z  $) $FZ,C;@8$.)(..&&$A\E1:,0 7)&4>Q*D!O.0%'+A )?RN
+XM ]9..E@04.2L1ZC*WE@&!?I#JJHJ(OPLXK*J&"M '=!!-%P"$B1 -S! *]H 
+X6)E .Q]08D+&P^6KMUI9(^G) 0   ._PL
+X 
+Xend
+END_OF_FILE
+  if test 21700 -ne `wc -c <'testimg.gif.U'`; then
+    echo shar: \"'testimg.gif.U'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'testimg.gif'\" \(15727 characters\)
+    cat testimg.gif.U | uudecode
+    if test 15727 -ne `wc -c <'testimg.gif'`; then
+      echo shar: \"'testimg.gif'\" uudecoded with wrong size!
+    else
+      rm testimg.gif.U
+    fi
+  fi
+  # end of 'testimg.gif.U'
+fi
+echo shar: End of archive 10 \(of 18\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

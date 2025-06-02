@@ -1,0 +1,1701 @@
+Newsgroups: comp.sources.misc
+From: brendan@cygnus.com (Brendan Kehoe)
+Subject:  v33i055:  archie - A client to query the Archie FTP databases, v1.4.1, Part06/07
+Message-ID: <1992Nov5.210730.26049@sparky.imd.sterling.com>
+X-Md4-Signature: 54eaccb2c68cfb0eb79f99a793f44604
+Date: Thu, 5 Nov 1992 21:07:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cygnus.com (Brendan Kehoe)
+Posting-number: Volume 33, Issue 55
+Archive-name: archie/part06
+Environment: UNIX, VMS, DOS
+Supersedes: archie: Volume 27, Issue 79-84
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile archie.hlp copyright.h getopt.h getopt1.c
+#   msdos/cutcp.h msdos/hostform.h perrno.h pmachine.h procquery.c
+#   vms/network.h
+# Wrapped by kent@sparky on Thu Nov  5 12:53:10 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 7)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(5628 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for the minimal build for an archie Prospero client.
+X#
+X# Your C compiler:
+X#CC=cc
+X
+X# For most systems, these OPTIONS will suffice.  Exceptions:
+X#
+X#	* If you're on a Stardent, add  -43
+X#	* If you're running EP/IX, you may need to add  -systype bsd43
+X#	  but try it without it first.
+XOPTIONS= -O -I. -I/usr/netinclude -I/usr/ucbinclude
+X
+X# For this, DEFINES is usually ok as-is.  Try it without any of these
+X# first; if some stuff fails or shows up undefined, then come back and
+X# add 'em.  Also please drop me a line if you had to add anything...ideally
+X# things will reach a point where this whole section will be unnecessary.
+X#
+X#     * if you want to include the debugging code (so you
+X#       can help with problem-solving if any crop up), add    -DDEBUG
+X#     * if you're running Interactive Unix, add		      -DISC
+X#     * if you're running System V, add			      -DSYSV
+X#     * if you're running a USG (System V.2) system, add      -DUSG
+X#     * if you're running UTS, add			      -DUTS
+X#     * if your system doesn't have the functions index(),
+X#       rindex(), bcopy(), or bzero(), add                    -DFUNCS
+X#     * if your system is missing the getenv(3) routine, add  -DGETENV
+X#     * if your system doesn't have the re_comp/regcmp or re_exec/regex
+X#       routines (no regex(3)/regcmp(3X) library), then add   -DNOREGEX
+X#     * if your system is lacking strspn(), add               -DSTRSPN
+X#     * if you're using the unbundled SparcCompiler on a
+X#	Solaris 2 system, add				      -DSOLARIS2
+XDEFINES= -DDEBUG
+X
+X# The default Archie server; choose one of:
+X#    archie.ans.net		(USA [NY])
+X#    archie.rutgers.edu		(USA [NJ])
+X#    archie.sura.net		(USA [MD])
+X#    archie.unl.edu		(USA [NE])
+X#    archie.mcgill.ca		(Canada)
+X#    archie.funet.fi		(Finland/Mainland Europe)
+X#    archie.au			(Australia)
+X#    archie.doc.ic.ac.uk	(Great Britain/Ireland)
+X#    archie.wide.ad.jp		(Japan)
+X#    archie.ncu.edu.tw		(Taiwan)
+X#
+X# Note this only applies to the command-line client; to change the
+X# default for the Emacs lisp version, set the archie-server variable.
+XARCHIE= archie.sura.net
+X
+X#	Usually LDFLAGS is empty; if, after you build this, archie
+X#	 complains that it can't resolve ARCHIE.ANS.NET (or whatever
+X#	 you defined ARCHIE_HOST as), you need to add `-lresolv'.
+X#
+X#	* If you need the PW library (e.g. A/UX), add -lPW
+XLDFLAGS=
+X# If you're using ISC, use:
+X#LDFLAGS= -linet
+X# If you're using Wallongong TCP/IP on an AT&T box, use:
+X#LDFLAGS= -lnet -lnsl_s
+X# If you're using UTS, use:
+X#LDFLAGS= -lsocket
+X# If you're using System V Release 4, use:
+X#LDFLAGS= -L/usr/ucblib -lucb -lsockdns -lnsl
+X# If you're using Solaris 2.x (don't use /usr/ucb/cc!), use:
+X#LDFLAGS= -lnsl -lsocket
+X# If you're using Consensus SVR4, use:
+X#LDFLAGS= -lnsl_i -lsocket -lucb
+X# If you're using Dynix/PTX, use:
+X#LDFLAGS= -lsocket -linet -lnsl -lPW
+X
+X# =========================
+X# Yer' done....make archie.
+X# =========================
+X#
+XCFLAGS=$(OPTIONS) $(DEFINES) -DARCHIE_HOST=\"$(ARCHIE)\"
+X
+XVERSION=1.4.1
+XVMS_VERSION=`echo $(VERSION) | sed -e 's,\\.,_,g'`
+X
+XOBJS=	aquery.o archie.o atalloc.o dirsend.o get_pauth.o get_vdir.o \
+X	getopt.o getopt1.o \
+X	perrmesg.o procquery.o ptalloc.o regex.o stcopy.o support.o \
+X	vlalloc.o vl_comp.o
+X
+Xall: archie
+X
+Xarchie: $(OBJS)
+X	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
+X
+X$(OBJS): archie.h pmachine.h pcompat.h Makefile
+X
+Xprocquery.o: copyright.h
+X
+Xclean:
+X	-rm -f *.o archie archie.doc
+X
+Xgclean: clean
+X	-rm -f *~ archie.0* archie$(VMS_VERSION).com archie.tar* gmon.out archie.doc
+X
+Xunx-deadly:
+X	unifdef -UXARCHIE xprocquery.c > procquery.c
+X
+XFILES=	INSTALL Makefile Prospero README README.ALEX README.dos archie.c \
+X	archie.h archie.el archie.lnk archie.doc archie.man archie.hlp \
+X	aquery.c atalloc.c dirsend.c get_pauth.c get_vdir.c \
+X	getopt.c getopt.h getopt1.c \
+X	make.com makefile.cut makefile.dos makefile.os2 makefile.nfs \
+X	msdos/cutcp.h msdos/hostform.h msdos/netevent.h pc-archie.nfs \
+X	perrmesg.c patchlevel.h pauthent.h pcompat.h perrno.h pfs.h pmachine.h \
+X	pprot.h procquery.c ptalloc.c rdgram.h regex.c regex.h stcopy.c \
+X	support.c copyright.h vl_comp.c vlalloc.c vms.h vms_support.c \
+X	vms/fd.h vms/in.h vms/pseudos.h vms/signal.h vms/socket.h vms/time.h \
+X	vms/types.h vms/network.h vms/multi.opt vms/ucx.opt vms/woll.opt
+X
+XBFILES= $(FILES) xprocquery.c
+X
+Xdist: tar shar dcl
+X
+Xshar: archie.doc
+X	makekit -narchie-$(VERSION). archie-$(VERSION) `echo $(FILES) | \
+X		tr ' ' '\012' | sed -e "s/^/archie-$(VERSION)\//g"` \
+X		vms msdos > Manifest
+X
+Xarchie.doc: archie.man
+X	nroff -man archie.man | tr '\010' _ | sed -e s/__//g > archie.doc
+X
+Xdcl: archie.doc
+X	if [ ! -d archie$(VMS_VERSION)/ ]; then ln -s . archie$(VMS_VERSION); fi
+X	echo '$$ write sys$$output "Unpacking..."' > archie$(VMS_VERSION).com
+X	echo '$$ if f$$search("archie.dir") .eqs. "" then create/dir [.ARCHIE]' >> archie$(VMS_VERSION).com
+X	echo '$$ if f$$search("[.archie]vms.dir") .eqs. "" then create/dir [.ARCHIE.VMS]' >> archie$(VMS_VERSION).com
+X	echo '$$ if f$$search("[.archie]msdos.dir") .eqs. "" then create/dir [.ARCHIE.MSDOS]' >> archie$(VMS_VERSION).com
+X	echo '$$ set noverify' >> archie$(VMS_VERSION).com
+X	-rm -f archie
+X	ln -s . archie
+X	dclshar `echo "$(FILES)" | tr ' ' '\012' | \
+X		sed -e "s/^/archie\//g"` >> archie$(VMS_VERSION).com
+X	-rm -f archie
+X	ver=$(VMS_VERSION); echo '$$ write sys$$output "Ok, now enter the $$ver directory, look at MAKE.COM, then type @MAKE ."' >> archie$(VMS_VERSION).com
+X
+Xtar: archie.doc
+X	if [ ! -d archie-$(VERSION)/ ]; then ln -s . archie-$(VERSION); fi
+X	tar cvf archie-$(VERSION).tar `echo $(FILES) |\
+X	 tr ' ' '\012' | sed -e "s/^/archie-$(VERSION)\//g"`
+X	compress -f archie-$(VERSION).tar
+END_OF_FILE
+  if test 5628 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'archie.hlp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.hlp'\"
+else
+  echo shar: Extracting \"'archie.hlp'\" \(6495 characters\)
+  sed "s/^X//" >'archie.hlp' <<'END_OF_FILE'
+X1 ARCHIE   
+XARCHIE is a utility to query the Archie anonymous FTP databases using
+XProspero.  It will check the databases for entries about the files that 
+Xare available via anonymous FTP from sites around the world.
+X
+XFormat:             $ ARCHIE [-option] <string>
+X
+XThis will query an ARCHIE server and ask it to look for all known sites 
+Xthat have a file named `string' in their FTP area.  ARCHIE will wait and 
+Xthen print out any matches.
+X
+X2 Options
+XARCHIE is originally a Unix utility so its options make use of 
+Xthe Unix `-option' and not the VMS `/qualifier' syntax.
+X
+XWith the `-L' and `-N#' options you must enclose the option in
+Xdouble quotes (ie "-L" and "-N#") to prevent the server from
+Xtranslating them into lowercase options.
+X
+X3 -ecsr
+XThese are search-modifying options:
+X
+X     -e   Exact string match.  (This is the default.)
+X     -c   Search substrings paying attention to upper and lower case.
+X     -s   Search substrings ignoring the case of the letters.
+X     -r   Search using a regular expression.
+X 
+X`-c', `-s' and `-r' are mutually exclusive;  only the last one counts.  
+X
+XIf you specify `-e' with any of them the server will first check for an 
+Xexact match, then fall back to the case-sensitive, case-insensitive, or  
+Xregular expression search.  This is so if there are matches that are 
+Xparticularly obvious, it will use a minimal amount of search time.
+X
+X3 -h <hostname>
+XInstruct ARCHIE to query another ARCHIE server with the name 
+X`hostname', instead of its default server.
+X
+XARCHIE is compiled with a specific default server host.  
+XThis default can be changed by defining the symbol ARCHIE_HOST 
+Xas one of the other available hosts.  The `-h' option will 
+Xoverride these defaults. 
+X
+X(Use option -L to get the list of available hosts.)
+X
+X3 -o <filename>
+XTo redirect the output of ARCHIE to a file (rather than use the
+Xstandard output), give the `filename' it should store the results in.
+X
+X3 -l          
+XOutput results in a form suitable for parsing by programs.
+X
+X3 -m#
+XSpecifies the maximum number of hits (matches) to return. 
+XThe default is 95 hits.
+X
+X3 -t
+XSort the results in reverse date order.
+X
+X3 -L
+XLists the Archie servers known to the program when it was
+Xcompiled, as well as the name of the default Archie server.  
+X
+X      (Note: You MUST put quotes around this argument 
+X              or it will be converted to lowercase.)         
+X
+X3 -N[#]
+XSets the `niceness' of a query.  The default niceness is 0.
+XUsing `-N' without an argument sets it to 35765 (the maximum).
+XIf you use `-N' with an argument between 0 and 35765, it will 
+Xadjust itself accordingly.  
+X
+X      (Note: You MUST put quotes around this argument 
+X              or it will be converted to lowercase.)         
+X
+X(See also the subtopic `Niceness')
+X
+X3 -V
+XProvide some reassuring messages when a search is taking a long time.
+X
+X3 -v
+XPrint the version of the client.
+X
+X2 String
+XThis can be either the name of a file or a substring of a filename.
+X
+XIf you use a substring, then you must use one of the search-modifying
+Xoptions `-c', `-r' or `-s'.  Otherwise ARCHIE will only respond with
+Xonly those files that match exactly the substring!
+X
+XIf the search string starts with a `-' you must precede it with 
+Xanother `-'.  For example
+X
+X     $ archie  -s  - -old
+X
+Xwill search for all filenames that contain the string `-old'.
+X
+X2 Examples
+X1.          $ archie emacs
+X
+X     This will find all anonymous FTP sites in the ARCHIE database
+X     that have files named `emacs' somewhere in their FTP area.
+X     (This particular query would probably return a lot of direc-
+X     tories.)  
+X
+X2.          $ archie -c emacs
+X
+X     This will produce a list of every file that contains the
+X     string `emacs' anywhere in the filename.
+X
+X3.   Regular expressions may also be used for searches:
+X
+X            $ archie -r '[xX][lL]isp'
+X
+X     If a string is enclosed in brackets [] ARCHIE will attempt to 
+X     match any single character from the string.  In the above example
+X     it will try and match either `x' or `X' plus either `l' or `L' 
+X     followed by `isp'.  It is recommended that you enclose the whole
+X     expression in single quotes to prevent the server misinterpreting it.
+X
+X2 Niceness
+XNiceness is the (Unix) concept of `being nice' to other users by 
+Xlowering the priority of non-urgent jobs.
+X
+XYou should use the `-N' option whenever you do not demand immediacy,  
+Xor when you are requesting things that could generate large responses.  
+X
+XHere is a list of what would be considered as `nice' values that
+Xaccurately reflect the priority of a request to the server.
+X
+X          Normal              0
+X          Nice                500
+X          Nicer               1000
+X          Very Nice           5000
+X          Extremely Nice      10000
+X          Nicest              32765
+X
+XThe last priority, Nicest, would be used when a job should wait until  
+Xthe queue is essentially empty before running. You should pick one of
+Xthese values to use, possibly modifying it slightly depending on where 
+Xyou think your priority should land.  For example, 32760 would mean wait  
+Xuntil the queue is empty, but jump ahead of other jobs that are `Nicest'.
+X
+X2 Bugs
+XThere are none; only a few unexpected features.
+X
+X2 VMS Notes
+XPlease note that there are some options (e.g., -a) that aren't very
+Xuseful under VMS, so are not documented in this help file.
+X
+XTo use the ARCHIE program, define it as a symbol to point to the
+XARCHIE.EXE image, or the arguments won't get processed properly:
+X
+X	$ ARCHIE :== $THE$DISK:[SOME.DIR]ARCHIE
+X
+XAny further enhancements for VMS for this client are welcome and
+Xencouraged.
+X
+X2 Background
+XARCHIE runs as a client and queries an Archie anonymous FTP database 
+Xlooking for the specified search string, using the Prospero protocol.  
+XThis client is based on Prospero version Beta.4.2 and is provided to 
+Xencourage non-interactive use of the Archie servers (and subsequently 
+Xbetter performance on both sides).  
+X
+XThe ARCHIE service was conceived and implemented by Alan Emtage
+X(bajan@cs.mcgill.ca), Peter Deutsch (peterd@cs.mcgill.ca), and 
+XBill Heelan (wheelan@cs.mcgill.ca).  The entire Internet is in 
+Xtheir debt.
+X
+XThe Prospero system was created by Clifford Neuman (bcn@isi.edu); 
+Xwrite to info-prospero@isi.edu for more information on the protocol 
+Xand its use.
+X
+XThis stripped client was put together by Brendan Kehoe 
+X(brendan@cygnus.com), with modifications by Clifford Neuman 
+Xand George Ferguson (ferguson@cs.rochester.edu).
+X
+XThis help file was written by John Armstrong (armstrong@leva.leeds.ac.uk).
+END_OF_FILE
+  if test 6495 -ne `wc -c <'archie.hlp'`; then
+    echo shar: \"'archie.hlp'\" unpacked with wrong size!
+  fi
+  # end of 'archie.hlp'
+fi
+if test -f 'copyright.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copyright.h'\"
+else
+  echo shar: Extracting \"'copyright.h'\" \(2519 characters\)
+  sed "s/^X//" >'copyright.h' <<'END_OF_FILE'
+X/* These are the uw-copyright.h and usc-copyright.h files that appear in
+X   the Prospero distribution.  */
+X
+X/* 
+X  Copyright (c) 1989, 1990, 1991 by the University of Washington
+X
+X  Permission to use, copy, modify, and distribute this software and its
+X  documentation for non-commercial purposes and without fee is hereby
+X  granted, provided that the above copyright notice appear in all copies
+X  and that both the copyright notice and this permission notice appear in
+X  supporting documentation, and that the name of the University of
+X  Washington not be used in advertising or publicity pertaining to
+X  distribution of the software without specific, written prior
+X  permission.  The University of Washington makes no representations
+X  about the suitability of this software for any purpose.  It is
+X  provided "as is" without express or implied warranty.
+X
+X  Prospero was written by Clifford Neuman (bcn@isi.edu).
+X
+X  Questions concerning this software should be directed to 
+X  info-prospero@isi.edu.
+X
+X  */
+X
+X/* 
+X  Copyright (c) 1991, 1992 by the University of Southern California
+X  All rights reserved.
+X
+X  Permission to use, copy, modify, and distribute this software and its
+X  documentation in source and binary forms for non-commercial purposes
+X  and without fee is hereby granted, provided that the above copyright
+X  notice appear in all copies and that both the copyright notice and
+X  this permission notice appear in supporting documentation. and that
+X  any documentation, advertising materials, and other materials related
+X  to such distribution and use acknowledge that the software was
+X  developed by the University of Southern California, Information
+X  Sciences Institute.  The name of the University may not be used to
+X  endorse or promote products derived from this software without
+X  specific prior written permission.
+X
+X  THE UNIVERSITY OF SOUTHERN CALIFORNIA makes no representations about
+X  the suitability of this software for any purpose.  THIS SOFTWARE IS
+X  PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES,
+X  INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+X  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X
+X  Other copyrights might apply to parts of the Prospero distribution
+X  and are so noted when applicable.
+X
+X  Prospero was originally written by Clifford Neuman (bcn@isi.edu).
+X  Contributors include Benjamin Britt (britt@isi.edu)
+X  and others identified in individual modules.
+X
+X  Questions concerning this software should be directed to 
+X  info-prospero@isi.edu.
+X
+X  */
+END_OF_FILE
+  if test 2519 -ne `wc -c <'copyright.h'`; then
+    echo shar: \"'copyright.h'\" unpacked with wrong size!
+  fi
+  # end of 'copyright.h'
+fi
+if test -f 'getopt.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.h'\"
+else
+  echo shar: Extracting \"'getopt.h'\" \(4035 characters\)
+  sed "s/^X//" >'getopt.h' <<'END_OF_FILE'
+X/* Declarations for getopt.
+X   Copyright (C) 1989, 1990, 1991, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify it
+X   under the terms of the GNU Library General Public License as published
+X   by the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU Library General Public
+X   License along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X#ifndef _GETOPT_H
+X#define _GETOPT_H 1
+X
+X#ifdef	__cplusplus
+Xextern "C" {
+X#endif
+X
+X/* For communication from `getopt' to the caller.
+X   When `getopt' finds an option that takes an argument,
+X   the argument value is returned here.
+X   Also, when `ordering' is RETURN_IN_ORDER,
+X   each non-option ARGV-element is returned here.  */
+X
+Xextern char *optarg;
+X
+X/* Index in ARGV of the next element to be scanned.
+X   This is used for communication to and from the caller
+X   and for communication between successive calls to `getopt'.
+X
+X   On entry to `getopt', zero means this is the first call; initialize.
+X
+X   When `getopt' returns EOF, this is the index of the first of the
+X   non-option elements that the caller should itself scan.
+X
+X   Otherwise, `optind' communicates from one call to the next
+X   how much of ARGV has been scanned so far.  */
+X
+Xextern int optind;
+X
+X/* Callers store zero here to inhibit the error message `getopt' prints
+X   for unrecognized options.  */
+X
+Xextern int opterr;
+X
+X/* Describe the long-named options requested by the application.
+X   The LONG_OPTIONS argument to getopt_long or getopt_long_only is a vector
+X   of `struct option' terminated by an element containing a name which is
+X   zero.
+X
+X   The field `has_arg' is:
+X   no_argument		(or 0) if the option does not take an argument,
+X   required_argument	(or 1) if the option requires an argument,
+X   optional_argument 	(or 2) if the option takes an optional argument.
+X
+X   If the field `flag' is not NULL, it points to a variable that is set
+X   to the value given in the field `val' when the option is found, but
+X   left unchanged if the option is not found.
+X
+X   To have a long-named option do something other than set an `int' to
+X   a compiled-in constant, such as set a value from `optarg', set the
+X   option's `flag' field to zero and its `val' field to a nonzero
+X   value (the equivalent single-letter option character, if there is
+X   one).  For long options that have a zero `flag' field, `getopt'
+X   returns the contents of the `val' field.  */
+X
+Xstruct option
+X{
+X#if	__STDC__
+X  const char *name;
+X#else
+X  char *name;
+X#endif
+X  /* has_arg can't be an enum because some compilers complain about
+X     type mismatches in all the code that assumes it is an int.  */
+X  int has_arg;
+X  int *flag;
+X  int val;
+X};
+X
+X/* Names for the values of the `has_arg' field of `struct option'.  */
+X
+Xenum _argtype
+X{
+X  no_argument,
+X  required_argument,
+X  optional_argument
+X};
+X
+X#if __STDC__
+Xextern int getopt (int argc, char *const *argv, const char *shortopts);
+Xextern int getopt_long (int argc, char *const *argv, const char *shortopts,
+X		        const struct option *longopts, int *longind);
+Xextern int getopt_long_only (int argc, char *const *argv,
+X			     const char *shortopts,
+X		             const struct option *longopts, int *longind);
+X
+X/* Internal only.  Users should not call this directly.  */
+Xextern int _getopt_internal (int argc, char *const *argv,
+X			     const char *shortopts,
+X		             const struct option *longopts, int *longind,
+X			     int long_only);
+X#else /* not __STDC__ */
+Xextern int getopt ();
+Xextern int getopt_long ();
+Xextern int getopt_long_only ();
+X
+Xextern int _getopt_internal ();
+X#endif /* not __STDC__ */
+X
+X#ifdef	__cplusplus
+X}
+X#endif
+X
+X#endif /* _GETOPT_H */
+END_OF_FILE
+  if test 4035 -ne `wc -c <'getopt.h'`; then
+    echo shar: \"'getopt.h'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.h'
+fi
+if test -f 'getopt1.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt1.c'\"
+else
+  echo shar: Extracting \"'getopt1.c'\" \(3546 characters\)
+  sed "s/^X//" >'getopt1.c' <<'END_OF_FILE'
+X/* Getopt for GNU.
+X   Copyright (C) 1987, 88, 89, 90, 91, 1992 Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify it
+X   under the terms of the GNU Library General Public License as published
+X   by the Free Software Foundation; either version 2, or (at your option)
+X   any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU Library General Public
+X   License along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X#ifdef	LIBC
+X/* For when compiled as part of the GNU C library.  */
+X#include <ansidecl.h>
+X#endif
+X
+X#include "getopt.h"
+X
+X#ifndef __STDC__
+X#define const
+X#endif
+X
+X#if defined(STDC_HEADERS) || defined(__GNU_LIBRARY__) || defined (LIBC)
+X#include <stdlib.h>
+X#else /* STDC_HEADERS or __GNU_LIBRARY__ */
+Xchar *getenv ();
+X#endif /* STDC_HEADERS or __GNU_LIBRARY__ */
+X
+X#if !defined (NULL)
+X#define NULL 0
+X#endif
+X
+Xint
+Xgetopt_long (argc, argv, options, long_options, opt_index)
+X     int argc;
+X     char *const *argv;
+X     const char *options;
+X     const struct option *long_options;
+X     int *opt_index;
+X{
+X  return _getopt_internal (argc, argv, options, long_options, opt_index, 0);
+X}
+X
+X/* Like getopt_long, but '-' as well as '--' can indicate a long option.
+X   If an option that starts with '-' (not '--') doesn't match a long option,
+X   but does match a short option, it is parsed as a short option
+X   instead. */
+X
+Xint 
+Xgetopt_long_only (argc, argv, options, long_options, opt_index)
+X     int argc;
+X     char *const *argv;
+X     const char *options;
+X     const struct option *long_options;
+X     int *opt_index;
+X{
+X  return _getopt_internal (argc, argv, options, long_options, opt_index, 1);
+X}
+X
+X#ifdef TEST
+X
+X#include <stdio.h>
+X
+Xint
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  int c;
+X  int digit_optind = 0;
+X
+X  while (1)
+X    {
+X      int this_option_optind = optind ? optind : 1;
+X      int option_index = 0;
+X      static struct option long_options[] =
+X      {
+X	{"add", 1, 0, 0},
+X	{"append", 0, 0, 0},
+X	{"delete", 1, 0, 0},
+X	{"verbose", 0, 0, 0},
+X	{"create", 0, 0, 0},
+X	{"file", 1, 0, 0},
+X	{0, 0, 0, 0}
+X      };
+X
+X      c = getopt_long (argc, argv, "abc:d:0123456789",
+X		       long_options, &option_index);
+X      if (c == EOF)
+X	break;
+X
+X      switch (c)
+X	{
+X	case 0:
+X	  printf ("option %s", long_options[option_index].name);
+X	  if (optarg)
+X	    printf (" with arg %s", optarg);
+X	  printf ("\n");
+X	  break;
+X
+X	case '0':
+X	case '1':
+X	case '2':
+X	case '3':
+X	case '4':
+X	case '5':
+X	case '6':
+X	case '7':
+X	case '8':
+X	case '9':
+X	  if (digit_optind != 0 && digit_optind != this_option_optind)
+X	    printf ("digits occur in two different argv-elements.\n");
+X	  digit_optind = this_option_optind;
+X	  printf ("option %c\n", c);
+X	  break;
+X
+X	case 'a':
+X	  printf ("option a\n");
+X	  break;
+X
+X	case 'b':
+X	  printf ("option b\n");
+X	  break;
+X
+X	case 'c':
+X	  printf ("option c with value `%s'\n", optarg);
+X	  break;
+X
+X	case 'd':
+X	  printf ("option d with value `%s'\n", optarg);
+X	  break;
+X
+X	case '?':
+X	  break;
+X
+X	default:
+X	  printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X  if (optind < argc)
+X    {
+X      printf ("non-option ARGV-elements: ");
+X      while (optind < argc)
+X	printf ("%s ", argv[optind++]);
+X      printf ("\n");
+X    }
+X
+X  exit (0);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 3546 -ne `wc -c <'getopt1.c'`; then
+    echo shar: \"'getopt1.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt1.c'
+fi
+if test -f 'msdos/cutcp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/cutcp.h'\"
+else
+  echo shar: Extracting \"'msdos/cutcp.h'\" \(1146 characters\)
+  sed "s/^X//" >'msdos/cutcp.h' <<'END_OF_FILE'
+X/* cutcp.h -- defs for cutcp code */
+X
+X
+Xint 		netlisten(unsigned int port);
+Xstruct machinfo *Shostlook(char *name);
+Xint 		Sdomain(char *name);
+Xstruct machinfo *Sgethost(char *name);
+Xstruct machinfo *Slookip(unsigned long *address);
+Xvoid		netgetftp(unsigned int array[], unsigned int port);
+Xint 		netopen(unsigned long *address, unsigned int port);
+Xint 		Snetopen(struct machinfo *m, unsigned int port);
+Xint		netqlen(int handle);
+Xint		netroom(int handle);
+Xint		netread(int pnum, unsigned char *buffer, unsigned int n);
+Xint		netwrite(int pnum, unsigned char *buffer, unsigned int n);
+Xint		netest(int pnum);
+Xint		netpush(int pnum);
+Xvoid		netulisten(unsigned int portnum);
+Xint		netusend(unsigned long *address, unsigned destport, 
+X			unsigned sourceport, unsigned char *buffer, int count);
+Xint		neturead(unsigned char	*buffer);
+Xstruct machinfo *Slooknum(int pnum);
+Xint		Snetinit();
+Xint		Shostfile(char *name);
+Xint		netshut();
+Xint		Sgetevent(int classes, int *clss, int *data);
+Xint		netclose(int pnum);
+Xunsigned int	intswap(unsigned int val);
+Xunsigned long	n_clicks(void *p);
+Xvoid		Stask();
+X
+X#define	ntohs(a)	(intswap(a))
+X#define	htons(a)	(intswap(a))
+END_OF_FILE
+  if test 1146 -ne `wc -c <'msdos/cutcp.h'`; then
+    echo shar: \"'msdos/cutcp.h'\" unpacked with wrong size!
+  fi
+  # end of 'msdos/cutcp.h'
+fi
+if test -f 'msdos/hostform.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/hostform.h'\"
+else
+  echo shar: Extracting \"'msdos/hostform.h'\" \(5756 characters\)
+  sed "s/^X//" >'msdos/hostform.h' <<'END_OF_FILE'
+X/* hfile.inc - placed into all .h files to set up for PVCS 
+X   $Header: /tmp_mnt/com/projects/archie/msdos/RCS/hostform.h,v 1.2 1991/12/13 20:08:52 brendan Exp $
+X   Revision History ----------------------------------------------------
+X   $Log: hostform.h,v $
+X * Revision 1.2  1991/12/13  20:08:52  brendan
+X * entered into RCS
+X *
+X * 
+X *    Rev 1.0   15 Jan 1990 19:30:22   bkc
+X*/
+X
+X
+X/*
+X*  Host and local machine configuration information.
+X*
+X****************************************************************************
+X*                                                                          *
+X*      NCSA Telnet for the PC                                              *
+X*      by Tim Krauskopf, VT100 by Gaige Paulsen, Tek by Aaron Contorer     *
+X*                                                                          *
+X*      National Center for Supercomputing Applications                     *
+X*      152 Computing Applications Building                                 *
+X*      605 E. Springfield Ave.                                             *
+X*      Champaign, IL  61820                                                *
+X*                                                                          *
+X*      This program is in the public domain.                               *
+X*                                                                          *
+X****************************************************************************
+X*/
+X
+X/*
+X*  Linked list of structures which describe other machines.
+X*  Arranged one per session with unique session names.
+X*/
+X
+Xstruct machinfo {
+X	unsigned char 
+X		*sname,					/* pointer to name of session */
+X		*hname,                 /* pointer to name of that machine */
+X		*font,					/* font name, if we can do it */
+X		*keymap,				/* pointer to keymap file name */
+X		hostip[4],				/* IP number of this machine */
+X		gateway,				/* gateway preference, start with 1 */
+X		nameserv,				/* nameserver preference, start with 1 */
+X		bksp,					/* backspace value */
+X		halfdup,				/* half duplex required */
+X		crmap,					/* Strange Berkeley 4.3 CR mode needed */
+X		vtwrap,					/* flag on when need wrap mode */
+X		vtmargin;				/* col to ring bell at */
+X	int
+X		clearsave,				/* whether to save cleared lines */
+X		fsize,					/* font size in points */
+X		nfcolor[3],				/* normal foreground */
+X		nbcolor[3],				/* normal background */
+X		bfcolor[3],				/* blink             */
+X		bbcolor[3],
+X		ufcolor[3],             /* underline */
+X		ubcolor[3],
+X		mno,					/* machine number for reference */
+X		mstat,					/* status of this machine entry */
+X		bkscroll,				/* how many lines to save */
+X		retrans,				/* initial retrans timeout */
+X		conto,					/* time out in seconds to wait for connect */
+X		window,					/* window, will be checked against buffers */
+X		maxseg,					/* maximum receivable segment size */
+X		mtu,					/* maximum transfer unit MTU (out) */
+X                domainsremaining,                       /* how many domain search list entries remain */
+X                destport,                               /* yepper, you can telnet to a different port than 23 */
+X		flags;					/* general flags holder */		
+X#define	MFLAGS_SCRIPT	0x80
+X	struct machinfo *next;		/* surprise, its a linked list! */
+X};
+X
+Xstruct machinfo *Sgethost(),*Shostlook(),*Slooknum(),*Slookip(),*Smadd();
+X
+X/*
+X*  status fields for mstat, what do we know about that machine?
+X*/
+X#define NOIP 1					/* we don't have IP number */
+X#define UDPDOM 3				/* there is a UDP request pending on it */
+X/*  The next 20 numbers are reserved for UDPDOM */
+X#define HAVEIP 50				/* at least we have the # */
+X#define HFILE 70				/* we have IP number from host file */
+X#define DOM 71					/* we have an IP number from DOMAIN */
+X#define FROMKIP 72				/* have IP# from KIP server */
+X
+X
+X
+X/*
+X*   Configuration information which 
+X*   the calling program may want to obtain from the hosts file.
+X*   The calling program should include hostform.h and call
+X*   Sgetconfig(cp)
+X*     struct config *cp;
+X*   which will copy the information to the user's data structure.
+X*/
+Xstruct config {
+X	unsigned char
+X		netmask[4],				/* subnetting mask being used */
+X		havemask,				/* do we have a netmask? */
+X		irqnum,					/* which hardware interrupt */
+X		myipnum[4],				/* what is my IP #? */
+X		me[32],					/* my name description (first 30 chars) */
+X		color[3],				/* default colors to use */
+X		hw[10],					/* hardware type for network */
+X		video[10],				/* video graphics hardware available */
+X		bios,					/* flag, do we want to use BIOS for screen access */
+X		tek,					/* flag, enable tektronix graphics */
+X		ftp,					/* flag, enable ftp server */
+X		rcp,					/* flag, enable rcp server */
+X		comkeys,				/* flag, commandkeys=yes */
+X		*termtype,				/* terminal type specification */
+X		*zone,					/* AppleTalk zone for KIP NBP */
+X		*defdom,				/* default domain */
+X		*capture,				/* pointer to where the capture file name is */
+X		*pass,					/* pointer to where the password file name is */
+X		*hpfile,				/* HP file name */
+X		*psfile,				/* PS file name */
+X		*tekfile;				/* tek file name */
+Xint
+X		nstype,					/* nameserver = 1-domain 2-IEN116  */
+X		domto,					/* time out for UDP domain request */
+X		ndom,					/* number of retries for domain requests */
+X		timesl,					/* time slice */
+X		address,				/* segment address */
+X		ioaddr;					/* I/O address */
+Xchar            *domainpath;                               /* domain name search path */
+Xchar            *map3270;                               /* path to 3270 map */
+Xchar            tnmode;                                 /* how we decide to connect to 3270 streams */
+Xlong		sys_flags;
+X#define	SYS_FLAGS_VISUAL_BELL	0x1		/* use visual bell */
+X
+X};
+X
+X
+X#define TNMODE_FLAGGED  0
+X#define TNMODE_AUTO     1
+X#define TNMODE_NOTFLAGGED 2
+X#define TNMODE_OFF      3
+END_OF_FILE
+  if test 5756 -ne `wc -c <'msdos/hostform.h'`; then
+    echo shar: \"'msdos/hostform.h'\" unpacked with wrong size!
+  fi
+  # end of 'msdos/hostform.h'
+fi
+if test -f 'perrno.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'perrno.h'\"
+else
+  echo shar: Extracting \"'perrno.h'\" \(4624 characters\)
+  sed "s/^X//" >'perrno.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <copyright.h>
+X
+X/* This file and perrmesg.c should be updated simultaneously.  */
+X
+X/*
+X * perrno.h - definitions for perrno
+X *
+X * This file contains the declarations and defintions of of the external
+X * error values in which errors are returned by the pfs and psrv
+X * libraries.
+X */
+X
+X#define		P_ERR_STRING_SZ 100	 /* Size of error string	    */
+X
+Xextern int	perrno;
+Xextern char	p_err_string[];
+Xextern char	*p_err_text[];
+X
+Xextern int	pwarn;
+Xextern char	p_warn_string[];
+Xextern char	*p_warn_text[];
+X
+X/* Error codes returned or found in verrno */
+X
+X#ifndef PSUCCESS
+X#define	PSUCCESS		0
+X#endif
+X
+X/* dirsend (perrno) */
+X#define DIRSEND_PORT_UNKN	1	/* DIRSRV UDP port unknown      */
+X#define DIRSEND_UDP_CANT	2	/* Can't open local UDP port    */
+X#define DIRSEND_BAD_HOSTNAME	3	/* Can't resolve hostname       */
+X#define DIRSEND_NOT_ALL_SENT	4	/* Didn't send entire message   */
+X#define DIRSEND_SELECT_FAILED	5	/* Select failed	        */
+X#define DIRSEND_BAD_RECV	6	/* Recvfrom failed 	        */
+X
+X/* reply */
+X#define REPLY_NOTSENT		11	/* Reply: sendto failed	        */
+X
+X/* vl_insert */
+X#define VL_INSERT_ALREADY_THERE	21	/* Link already exists	        */
+X#define VL_INSERT_CONFLICT	22	/* Link exists with same name   */
+X
+X/* ul_insert */
+X#define UL_INSERT_ALREADY_THERE 25	/* Link already exists		*/
+X#define UL_INSERT_SUPERSEDING   26	/* Replacing existing link	*/
+X#define UL_INSERT_POS_NOTFOUND  27	/* Prv entry not in dir->ulinks */
+X
+X/* rd_vdir */
+X#define RVD_DIR_NOT_THERE	41	/* Temporary NOT_FOUND		    */
+X#define RVD_NO_CLOSED_NS	42	/* Namespace not closed w/ object:: */
+X#define RVD_NO_NS_ALIAS		43	/* No alias for namespace NS#:      */
+X#define RVD_NS_NOT_FOUND	44	/* Specified namespace not found    */
+X
+X/* pfs_access */
+X#define PFSA_AM_NOT_SUPPORTED   51      /* Access method not supported  */
+X
+X/* pmap_cache */
+X#define PMC_DELETE_ON_CLOSE     55	/* Delete cached copy on close   */
+X#define PMC_RETRIEVE_FAILED     56      /* Unable to retrieve file       */
+X
+X/* mk_vdir */
+X/* #define MKVD_ALREADY_EXISTS     61	/* Directory already exists      */
+X/* #define MKVD_NAME_CONFLICT	62	/* Link with name already exists */
+X
+X/* vfsetenv */
+X#define VFSN_NOT_A_VS		65	/* Not a virtual system          */
+X#define VFSN_CANT_FIND_DIR	66	/* Not a virtual system          */
+X
+X/* add_vlink */
+X/* #define ADDVL_ALREADY_EXISTS    71	/* Directory already exists      */
+X/* #define ADDVL_NAME_CONFLICT	72	/* Link with name already exists */
+X
+X/* Local error codes on server */
+X
+X/* dsrdir */
+X#define DSRDIR_NOT_A_DIRECTORY 111	/* Not a directory name		*/
+X/* dsrfinfo */
+X#define DSRFINFO_NOT_A_FILE    121      /* Object not found             */
+X#define DSRFINFO_FORWARDED     122      /* Object has moved             */
+X
+X/* Error codes that may be returned by various procedures               */
+X#define PFS_FILE_NOT_FOUND     230      /* File not found               */
+X#define PFS_DIR_NOT_FOUND      231      /* Directory in path not found  */
+X#define PFS_SYMLINK_DEPTH      232	/* Max sym-link depth exceeded  */
+X#define PFS_ENV_NOT_INITIALIZED	233	/* Can't read environment	*/
+X#define PFS_EXT_USED_AS_DIR    234	/* Can't use externals as dirs  */
+X#define PFS_MAX_FWD_DEPTH      235	/* Exceeded max forward depth   */
+X
+X/* Error codes returned by directory server                    */
+X/* some of these duplicate errors from individual routines     */
+X/* some of those error codes should be eliminated              */
+X#define DIRSRV_AUTHENT_REQ     242      /* Authentication required       */
+X#define DIRSRV_NOT_AUTHORIZED  243      /* Not authorized                */
+X#define DIRSRV_NOT_FOUND       244      /* Not found                     */
+X#define DIRSRV_BAD_VERS        245
+X#define DIRSRV_NOT_DIRECTORY   246
+X#define DIRSRV_ALREADY_EXISTS  247	/* Identical link already exists */
+X#define DIRSRV_NAME_CONFLICT   248	/* Link with name already exists */
+X
+X#define DIRSRV_UNIMPLEMENTED   251      /* Unimplemented command         */
+X#define DIRSRV_BAD_FORMAT      252
+X#define DIRSRV_ERROR           253
+X#define DIRSRV_SERVER_FAILED   254      /* Unspecified server failure    */
+X
+X#ifndef PFAILURE
+X#define	PFAILURE 	       255
+X#endif
+X
+X/* Warning codes */
+X
+X#define PNOWARN			 0	/* No warning indicated		 */
+X#define PWARN_OUT_OF_DATE	 1	/* Software is out of date       */
+X#define PWARN_MSG_FROM_SERVER	 2      /* Warning in p_warn_string      */
+X#define PWARN_UNRECOGNIZED_RESP  3	/* Unrecognized line in response */
+X#define PWARNING	       255	/* Warning in p_warn_string      */
+END_OF_FILE
+  if test 4624 -ne `wc -c <'perrno.h'`; then
+    echo shar: \"'perrno.h'\" unpacked with wrong size!
+  fi
+  # end of 'perrno.h'
+fi
+if test -f 'pmachine.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pmachine.h'\"
+else
+  echo shar: Extracting \"'pmachine.h'\" \(2958 characters\)
+  sed "s/^X//" >'pmachine.h' <<'END_OF_FILE'
+X/*
+X * This is where we drop in the various dependencies for different systems.
+X * Someday this might be remotely complete.
+X *
+X * I kept the name pmachine.h because it was already in all of the files...this
+X * barely resembles the pmachine.h that comes with the real Prospero, though.
+X *
+X * $Revision: 1.12 $
+X */
+X
+X#ifdef u3b2
+X# define USG
+X# define NOREGEX
+X# define MAXPATHLEN 1024       /* There's no maxpathlen in any 3b2 .h file.  */
+X#endif
+X
+X#ifdef m88k
+X#define MAXPATHLEN 1024
+X#endif
+X
+X#ifdef hpux
+X# ifndef bcopy
+X#  define FUNCS			/* HP/UX 8.0 has the fns.  */
+X# endif
+X# define NOREGEX
+X# define NEED_STRING_H
+X#endif
+X
+X/* These are required for a Sequent running Dynix/PTX, their SysV variant.
+X   Archie builds fine untouched on a system running their BSD-based OS.  */
+X#ifdef _SEQUENT_
+X# define NOREGEX
+X# define USG
+X#endif
+X
+X#if defined(USG) || defined(SYSV)
+X# define FUNCS
+X#endif
+X
+X#ifdef SOLARIS2
+X#define FUNCS
+X#define NOREGEX
+X#define NEED_STRING_H
+X#endif
+X
+X#ifdef ISC
+X# define FUNCS
+X# define STRSPN
+X# define NOREGEX
+X#endif
+X
+X#ifdef PCNFS
+X# define FUNCS
+X# define NEED_STRING_H
+X#ifndef MSDOS
+X# define MSDOS
+X#endif
+X#endif
+X
+X#ifdef CUTCP
+X# define FUNCS
+X# define NOREGEX
+X# define NEED_STRING_H
+X# define SELECTARG int
+X# ifndef MSDOS
+X#  define MSDOS
+X# endif
+X#endif
+X
+X#ifdef _AUX_SOURCE
+X# define AUX
+X# define NOREGEX
+X# define NBBY 8	/* Number of bits in a byte.  */
+Xtypedef long Fd_mask;
+X# define NFDBITS (sizeof(Fd_mask) * NBBY)	/* bits per mask */
+X#endif
+X
+X#ifdef OS2
+X# define NOREGEX
+X# include <pctcp.h>
+X#endif
+X#ifdef MSDOS
+X# define USG
+X# define NOREGEX
+X# include <string.h>
+X# include <stdlib.h>
+X#endif
+X
+X#ifdef _AIX
+X# ifdef u370
+X#  define FUNCS
+X# endif /* AIX/370 */
+X# define _NONSTD_TYPES
+X# define _BSD_INCLUDES
+X# define NEED_STRING_H
+X# define NEED_SELECT_H
+X# define NEED_TIME_H
+X#endif
+X
+X/* General problems.  */
+X
+X#ifdef FUNCS
+X# define index		strchr
+X/* According to mycroft@gnu.ai.mit.edu. */
+X# ifdef _IBMR2
+Xchar *strchr();
+X# endif
+X# define rindex		strrchr
+X# ifndef _AUX_SOURCE
+X#  define bcopy(a,b,n)	memcpy(b,a,n)
+X#  define bzero(a,n)	memset(a,0,n)
+X# ifdef _IBMR2
+Xchar *memset();
+X# endif
+X# endif
+X#endif
+X
+X#if defined(_IBMR2) || defined(_BULL_SOURCE)
+X# define NEED_SELECT_H
+X#endif
+X#if defined(USG) || defined(UTS)
+X# define NEED_STRING_H
+X#endif
+X#if defined(USG) || defined(UTS) || defined(_AUX_SOURCE)
+X# define NEED_TIME_H
+X# ifdef UTS
+X#  define WANT_BOTH_TIME
+X# endif
+X#endif
+X
+X#ifdef VMS
+X/* Get the system status stuff.  */
+X# include <ssdef.h>
+X#endif /* VMS */
+X
+X/*
+X * FD_SET: lib/pfs/dirsend.c, user/vget/ftp.c
+X */
+X#ifndef CUTCP
+X
+X#define SELECTARG fd_set
+X#if !defined(FD_SET) && !defined(VMS) && !defined(NEED_SELECT_H)
+X#define	FD_SETSIZE	32
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#undef FD_ZERO
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+X#endif /* not CUTCP */
+END_OF_FILE
+  if test 2958 -ne `wc -c <'pmachine.h'`; then
+    echo shar: \"'pmachine.h'\" unpacked with wrong size!
+  fi
+  # end of 'pmachine.h'
+fi
+if test -f 'procquery.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procquery.c'\"
+else
+  echo shar: Extracting \"'procquery.c'\" \(6645 characters\)
+  sed "s/^X//" >'procquery.c' <<'END_OF_FILE'
+X/*
+X * procquery.c : Routines for processing results from Archie
+X *
+X * Originally part of the Prospero Archie client by Cliff Neuman (bcn@isi.edu).
+X * Modified by Brendan Kehoe (brendan@cygnus.com).
+X * Re-modified by George Ferguson (ferguson@cs.rochester.edu).
+X *
+X * Copyright (c) 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X *
+X */
+X
+X#include <stdio.h>
+X#include <pfs.h>
+X#include <perrno.h>
+X#include <pmachine.h>
+X#include <archie.h>
+X
+X#ifdef NEED_TIME_H
+X# include <time.h>
+X# ifdef WANT_BOTH_TIME
+X#  include <sys/time.h>
+X# endif
+X#else
+X# ifndef VMS
+X#  include <sys/time.h>
+X# endif
+X#endif
+X
+X/* Defined in dirsend.c.  */
+Xextern int client_dirsrv_timeout, client_dirsrv_retry;
+X/* In archie.c.  */
+Xextern char *program_name;
+Xextern FILE *archie_out;
+X
+X/*
+X * Functions defined here
+X */
+Xstatic void display_link (), alex_name ();
+Xvoid procquery ();
+X
+X/*
+X * Data defined here
+X */
+Xextern int pwarn, perrno;
+Xextern int listflag, sortflag, alex;
+X
+Xint pfs_debug;
+X
+Xstatic struct tm *presenttime;
+Xstatic char lastpath[MAX_VPATH] = "\001";
+Xstatic char lasthost[MAX_VPATH] = "\001";
+X
+X/* Print the contents of the given virtual link.  */
+Xstatic void
+Xdisplay_link (l)
+X     VLINK l;
+X{
+X    PATTRIB 	ap;
+X    char	linkpath[MAX_VPATH];
+X    int		dirflag = 0;
+X#ifdef MSDOS
+X    unsigned long size = 0L;
+X#else
+X    int		size = 0;
+X#endif
+X    char	*modes = "";
+X    char	archie_date[20];
+X    char	*gt_date = "";
+X    int		gt_year = 0;
+X    int		gt_mon = 0;
+X    int		gt_day = 0;
+X    int		gt_hour = 0;
+X    int		gt_min = 0;
+X    int		special = listflag || alex;
+X
+X    /* Initialize local buffers */
+X    *archie_date = '\0';
+X
+X    /* Remember if we're looking at a directory */
+X    if (sindex(l->type,"DIRECTORY"))
+X	dirflag = 1;
+X    else
+X	dirflag = 0;
+X    
+X    /* Extract the linkpath from the filename */
+X    strcpy(linkpath,l->filename);
+X    *(linkpath + (strlen(linkpath) - strlen(l->name) - 1)) = '\0';
+X    
+X    /* Is this a new host? */
+X    if (strcmp(l->host,lasthost) != 0) {
+X	if (!special)
+X	    fprintf (archie_out, "\nHost %s\n\n",l->host);
+X	strcpy(lasthost,l->host);
+X	*lastpath = '\001';
+X    }
+X    
+X    /* Is this a new linkpath (location)? */
+X    if(strcmp(linkpath,lastpath) != 0) {
+X	if (!special)
+X	    fprintf (archie_out,
+X		     "    Location: %s\n",(*linkpath ? linkpath : "/"));
+X	strcpy(lastpath,linkpath);
+X    }
+X    
+X    /* Parse the attibutes of this link */
+X    for (ap = l->lattrib; ap; ap = ap->next) {
+X	if (strcmp(ap->aname,"SIZE") == 0) {
+X#ifdef MSDOS
+X	    sscanf(ap->value.ascii,"%lu",&size);
+X#else
+X	    sscanf(ap->value.ascii,"%d",&size);
+X#endif
+X	} else if(strcmp(ap->aname,"UNIX-MODES") == 0) {
+X	    modes = ap->value.ascii;
+X	} else if(strcmp(ap->aname,"LAST-MODIFIED") == 0) {
+X	    gt_date = ap->value.ascii;
+X	    sscanf(gt_date,"%4d%2d%2d%2d%2d",&gt_year,
+X		   &gt_mon, &gt_day, &gt_hour, &gt_min);
+X	    if ((12 * (presenttime->tm_year + 1900 - gt_year) + 
+X					presenttime->tm_mon - gt_mon) > 6) 
+X		sprintf(archie_date,"%s %2d %4d",month_sname(gt_mon),
+X			gt_day, gt_year);
+X	    else
+X		sprintf(archie_date,"%s %2d %02d:%02d",month_sname(gt_mon),
+X			 gt_day, gt_hour, gt_min);
+X	}
+X    }
+X    
+X    /* Print this link's information */
+X    if (listflag)
+X#if defined(MSDOS)
+X      fprintf (archie_out,
+X	       "%s %6lu %s %s%s\n",gt_date,size,l->host,l->filename,
+X	       (dirflag ? "/" : ""));
+X#else
+X    fprintf (archie_out,
+X	     "%s %6d %s %s%s\n",gt_date,size,l->host,l->filename,
+X	     (dirflag ? "/" : ""));
+X#endif
+X    else if (alex)
+X      alex_name (l->host, l->filename, dirflag);
+X    else
+X#ifdef MSDOS
+X	fprintf (archie_out,
+X		 "      %9s %s %10lu  %s  %s\n",(dirflag ? "DIRECTORY" : "FILE"),
+X		 modes,size,archie_date,l->name);
+X#else
+X	fprintf (archie_out,
+X		 "      %9s %s %10d  %s  %s\n",(dirflag ? "DIRECTORY" : "FILE"),
+X		 modes,size,archie_date,l->name);
+X#endif /* MSDOS */
+X
+X
+X    /* Free the attibutes */
+X    atlfree(l->lattrib);
+X    l->lattrib = NULL;
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * procquery : Process the given query and display the results. If
+X *	sortflag is non-zero, then the results are sorted by increasing
+X *	date, else by host/filename. If listflag is non-zero then each
+X *	entry is printed on a separate, complete line. Note that listflag
+X *	is ignored by xarchie.
+X */
+Xvoid
+Xprocquery(host,str,max_hits,offset,query)
+Xchar *host,*str;
+Xint max_hits,offset;
+XQuery query;
+X{
+X    VLINK l;
+X    long now;
+X
+X    /* initialize data structures for this query */
+X    (void)time(&now);
+X    presenttime = localtime(&now);
+X
+X    /* Do the query */
+X    if (sortflag == 1)
+X	l = archie_query(host,str,max_hits,offset,query,AQ_INVDATECMP,0);
+X    else
+X	l = archie_query(host,str,max_hits,offset,query,NULL,0);
+X
+X    /* Error? */
+X    if (perrno != PSUCCESS) {
+X	if (p_err_text[perrno]) {
+X	    if (*p_err_string)
+X		fprintf(stderr, "%s: failed: %s - %s\n",
+X			program_name, p_err_text[perrno], p_err_string);
+X	    else
+X	        fprintf(stderr, "%s failed: %s\n",
+X			program_name, p_err_text[perrno]);
+X	} else
+X	    fprintf(stderr, "%s failed: Undefined error %d (prospero)",
+X		    program_name, perrno);
+X    }
+X
+X    /* Warning? */
+X    if (pwarn != PNOWARN) {
+X	if (*p_warn_string)
+X	    fprintf(stderr, "%s: Warning! %s - %s\n", program_name,
+X		p_warn_text[pwarn], p_warn_string);
+X	else
+X	    fprintf(stderr, "%s: Warning! %s\n", program_name, p_warn_text[pwarn]);
+X    }
+X
+X
+X    /* Display the results */
+X
+X    if (l == (VLINK)NULL && pwarn == PNOWARN && perrno == PSUCCESS) {
+X	if (! listflag) puts ("No matches.");
+X#ifdef CUTCP
+X	netshut();
+X#endif
+X	exit (1);
+X    }
+X
+X    *lasthost = '\001';
+X    *lastpath = '\001';
+X    while (l != NULL) {
+X	display_link (l);
+X	l = l->next;
+X    }
+X}
+X
+X/* Given a dotted hostname, return its Alex root.  */
+Xstatic char *
+Xalex_reverse (string, len)
+X     char *string;
+X     int len;
+X{
+X  register char *p, *q;
+X  register int i = 0;
+X  char *buf = (char *) malloc (len);
+X
+X  p = buf;
+X  q = (char *) (string + len - 1);
+X  while (q > string)
+X    {
+X      for (i = 0; q > string; q--, i++)
+X	if (*q == '.')
+X	  {
+X	    q++;
+X	    break;
+X	  }
+X      if (q == string)
+X	i++;
+X      strncpy (p, q, i);
+X      p += i;
+X      *p++ = '/';
+X      i = 0;
+X      q -= 2;
+X    }
+X  *--p = '\0';
+X  return buf;
+X}
+X
+X/* Emit a string that's the Alex filename for the given host and file.  */
+Xstatic void
+Xalex_name (host, file, dirp)
+X     char *host, *file;
+X     int dirp;
+X{
+X  int hostlen = strlen (host);
+X  int len = 6 + hostlen + strlen (file) + dirp +  1;
+X  char *buf = (char *) malloc (len);
+X
+X  if (! buf)
+X    exit (99);
+X
+X  sprintf (buf, "/alex/%s%s", alex_reverse (host, hostlen), file);
+X  if (dirp)
+X    {
+X      len -= dirp;
+X      buf[len - 1] = '/';
+X      buf[len] = '\0';
+X    }
+X
+X  fputs (buf, archie_out);
+X}
+END_OF_FILE
+  if test 6645 -ne `wc -c <'procquery.c'`; then
+    echo shar: \"'procquery.c'\" unpacked with wrong size!
+  fi
+  # end of 'procquery.c'
+fi
+if test -f 'vms/network.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/network.h'\"
+else
+  echo shar: Extracting \"'vms/network.h'\" \(4939 characters\)
+  sed "s/^X//" >'vms/network.h' <<'END_OF_FILE'
+X/* Miscellaneous things for the networking library.  */
+X
+X/* Actually an itemlist_3, but can be used for itemlist_2's.  */
+Xstruct itemlist
+X{
+X  short length;
+X  short code;
+X  char *dataptr;
+X  short *retlenptr;
+X};
+X
+Xunion socket_addr
+X{
+X  struct sockaddr_in in;
+X};
+X
+X#define   TCP$SEND        (IO$_WRITEVBLK)
+X#define   TCP$RECEIVE     (IO$_READVBLK)
+X#define   TCP$OPEN        (IO$_CREATE)
+X#define   TCP$CLOSE       (IO$_DELETE)
+X#define   TCP$ABORT       (IO$_DEACCESS)
+X#define   TCP$STATUS      (IO$_ACPCONTROL)
+X#define   TCP$INFO        (IO$_MODIFY)
+X#define   GTHST           (IO$_SKIPFILE)
+X
+X#define   IO$_SEND        (IO$_WRITEVBLK)
+X#define   IO$_RECEIVE     (IO$_READVBLK)
+X#ifndef IO$S_FCODE
+X#define IO$S_FCODE 0x0006
+X#endif
+X#define   IO$_SOCKET      (IO$_ACCESS | (0 << IO$S_FCODE))
+X#define   IO$_BIND        (IO$_ACCESS | (1 << IO$S_FCODE))
+X#define   IO$_LISTEN      (IO$_ACCESS | (2 << IO$S_FCODE))
+X#define   IO$_ACCEPT      (IO$_ACCESS | (3 << IO$S_FCODE))
+X#define   IO$_CONNECT     (IO$_ACCESS | (4 << IO$S_FCODE))
+X#define   IO$_SETSOCKOPT  (IO$_ACCESS | (5 << IO$S_FCODE))
+X#define   IO$_GETSOCKOPT  (IO$_ACCESS | (6 << IO$S_FCODE))
+X#define   IO$_IOCTL       (IO$_ACCESS | (8 << IO$S_FCODE))
+X#define   IO$_ACCEPT_WAIT (IO$_ACCESS | (10 << IO$S_FCODE))
+X#define   IO$_NETWORK_PTY (IO$_ACCESS | (11 << IO$S_FCODE))
+X#define   IO$_SHUTDOWN    (IO$_ACCESS | (12 << IO$S_FCODE))
+X#define   IO$_GETSOCKNAME (IO$_ACCESS | (13 << IO$S_FCODE))
+X#define	  SETCHAR_HANDOFF (1<<2)
+X
+X#define   NFB$C_DECLNAME   0x15
+X
+X#define TIMER_EFN 1
+X#define TERM_EFN  2
+X#define BUF_SIZE 2000
+X
+X#define INITIALISED 0
+X#define ACTIVE_CONNECTION 1
+X#define PASSIVE_CONNECTION 2
+X#define LISTENING 3
+X#define HANDED_OFF 4
+X
+Xstatic struct fd_entry
+X{
+X  unsigned short int channel;	/* vms channel assigned to this socket */
+X  unsigned short int iosb[4];	/* returned status block */
+X  int fd_buff_size;		/* number of chrs in buffer still to be read */
+X  int accept_pending;		/* a call is waiting to be accepted */
+X  int connect_pending;		/* a connect is outstanding*/
+X  int connected;		/* this descriptor is connected */
+X  unsigned char *fd_buff;	/* pointer to buffer dyn assigned */
+X  unsigned char *fd_leftover;	/* pointer to any chrs still to be read */
+X  FILE *fptr;			/* we need to assgn a file ptr for stream io */
+X  int s;			/* socket number - needed in the ast's */
+X  int namelen;			/* our socket address name */
+X  union socket_addr name;
+X  short int fromdummy;		/* wg - accept wants an int - recvfrom wants a short!!*/
+X  short int fromlen;		/* the from socket address name */
+X  union socket_addr from;
+X  int tolen;			/* wg - sendto wants an int*/
+X  union socket_addr to;		/* the to socket address name */
+X  int passive;			/* still needed because of x25 close ambig */
+X  int backlog;			/* backlog - not handled well! */
+X  int domain;			/* domain of socket AF_INET or AF_X25 */
+X  int type;			/* type of socket stream or datagram */
+X  int protocol;			/* protocol of socket - ignored */
+X  int mbx_channel;		/* mailbox channel - needed for x25 */
+X  unsigned char mbx_buff[255];	/* mailbox buffer */
+X  unsigned short int miosb[4];	/* mailbox status block */
+X  int ncb_size;			/* x25 connection information */
+X  unsigned char ncb[128];
+X  unsigned char masklen;	/* x25 user data mask */
+X  unsigned char mask[16];
+X  int need_header;		/* x25 header field gives data status if req*/
+X  int send_type;		/* x25 data packet type eg more bit set etc */
+X  int status;			/* status of socket */
+X  int closed_by_remote;		/* flag for remote dropouts */
+X  int read_outstanding;		/* flag so we don't hang two reads */
+X  int cmu_open;			/* flag to say whether a cmu open was hung */
+X  int x25_listener;		/* flag to say we are an x25 listener */
+X  int oob_type;			/* handles interrupt messages */
+X  int mother;			/* mother socket for X25 accepts */
+X  int child;			/* child socket for X25 accepts */
+X  int no_more_accepts;		/* don't accept anymore calls */
+X  char int_data;		/* interrupt data - only 1 char supported */
+X  int non_blocking;		/* don't block on a read if no data */
+X  int sig_req;			/* generate SIGIO on data ready */
+X  struct itemlist rhost;	/* descriptor pointing to "p[].from" info for UCX */
+X  unsigned short ucx_accept_chan;	/* Channel returned by a UCX accept via hang_an_accept */
+X} p[32];
+X
+X/* So we can handle select on terminal input.  */
+Xstatic struct term_entry
+X{
+X  int chan;
+X  short int iosb[4];
+X  short int char_available;
+X  short int read_outstanding;
+X  char c[1];
+X} terminal =
+X
+X{
+X  -1, 0, 0, 0, 0, 0, 0
+X};
+X
+X#define CMU 1
+X#define WG  2
+X#define NONE 3
+X#define TGV 4
+X#define UCX 5
+Xstatic int tcp_make = 0;
+X
+Xstruct descriptor
+X{
+X  int size;
+X  char *ptr;
+X};
+X
+X/* Initialize certain things 1st time thru.  */
+Xstatic int p_initialised = 0;
+X
+X/* A routine to point SIGALRM and SIGURG at.  */
+Xstatic int 
+Xsi_dummy ()
+X{
+X}
+Xstatic int (*alarm_function) () = si_dummy;
+Xstatic int (*sigurg_function) () = si_dummy;
+X
+XFILE *fdopen ();
+Xstatic set_tcp_make ();
+Xstatic char *getdevicename ();
+END_OF_FILE
+  if test 4939 -ne `wc -c <'vms/network.h'`; then
+    echo shar: \"'vms/network.h'\" unpacked with wrong size!
+  fi
+  # end of 'vms/network.h'
+fi
+echo shar: End of archive 6 \(of 7\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

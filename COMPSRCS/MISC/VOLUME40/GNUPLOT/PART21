@@ -1,0 +1,3008 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i033:  gnuplot - interactive function plotting utility, Part21/33
+Message-ID: <1993Oct22.163758.24512@sparky.sterling.com>
+X-Md4-Signature: b4859a3bdea5805ff394ac5b3cae1a93
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 22 Oct 1993 16:37:58 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 33
+Archive-name: gnuplot/part21
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/corgraph.asm gnuplot/docs/doc2ipf.c
+#   gnuplot/os2/dialogs.c gnuplot/term/epson.trm gnuplot/term/hpgl.trm
+#   gnuplot/term/unixpc.trm
+# Wrapped by kent@sparky on Wed Oct 20 17:14:54 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 21 (of 33)."'
+if test -f 'gnuplot/corgraph.asm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/corgraph.asm'\"
+else
+  echo shar: Extracting \"'gnuplot/corgraph.asm'\" \(2272 characters\)
+  sed "s/^X//" >'gnuplot/corgraph.asm' <<'END_OF_FILE'
+XTITLE	Corona graphics module
+X;	Colin Kelley
+X;	January 1987
+X
+Xinclude header.mac
+X
+Xif1
+Xinclude lineproc.mac
+Xendif
+X
+X
+X_text	segment
+X
+Xpublic	_GrInit,_GrReset,_GrOnly,_TxOnly,_GrandTx,_Cor_line,_Cor_mask
+X
+Xcorpixel proc near
+X	ror word ptr linemask,1
+X	jc cont
+X	ret
+Xcont:	push bp
+X	mov bp,sp
+X	push ax
+X	push bx
+X	push cx
+X	mov es,ScSeg
+X	shl bx,1			; y
+X	mov bx,word ptr LookUp[bx] ; bx has y mem address
+X	mov cl,al			; x
+X	and cl,7
+X	shr ax,1
+X	shr ax,1
+X	shr ax,1			; ax /= 8
+X	add bx,ax
+X	mov al,1
+X	shl al,cl			; al contains bit mask
+X	or byte ptr es:[bx],al
+X	pop cx
+X	pop bx
+X	pop ax
+X	pop bp
+X	ret
+X
+Xlineproc _Cor_line, corpixel
+X
+Xbeginproc _GrInit
+X	push bp
+X	mov bp,sp
+X	push di
+X	mov ax, [bp+X]			; screen number (0 - 7)
+X	mov cl,11
+X	shl ax,cl			; multiply by 2048 to get segment
+X	mov ScSeg,ax			; save segment for later
+X	push ax
+X	mov es, ax
+X	xor ax,ax
+X	mov di,ax
+X	mov cx, 4000h
+X	cld
+X	rep stosw
+X	pop cx
+X	call near ptr GrAddr
+X	mov ax,es
+X	pop di
+X	pop bp
+X	ret
+X_GrInit	endp
+X
+Xbeginproc _GrReset
+X	mov cx, 0
+X	call near ptr GrAddr
+X	ret
+X_GrReset endp
+X
+XGrAddr	proc near
+X	mov dx,3b4h			; address of 6845
+X	mov al,0ch			; register 12
+X	out dx,al
+X	inc dx
+X	mov al,ch			; Graphics Segment High
+X	out dx,al
+X	dec dx
+X	mov al,0dh			; register 13
+X	out dx,al
+X	mov al,cl			; Graphics Segment Low
+X	inc dx
+X	out dx,al
+X	ret
+XGrAddr	endp
+X
+Xbeginproc _GrOnly
+X	mov dx,3b8h
+X	mov al,0a0h
+X	out dx,al
+X	ret
+X_GrOnly	endp
+X
+Xbeginproc _TxOnly
+X	mov dx,3b8h
+X	mov al,28h
+X	out dx,al
+X	ret
+X_TxOnly	endp
+X
+Xbeginproc _GrandTx
+X	mov dx,3b8h
+X	mov al,0a8h
+X	out dx,al
+X	ret
+X_GrandTx endp
+X
+Xbeginproc _Cor_mask
+X	push bp
+X	mov bp,sp
+X	mov ax,[bp+x]			; mask
+X	mov linemask,ax
+X	pop bp
+X	ret
+X_Cor_mask endp
+X
+Xcorpixel endp
+X
+X_text	ends
+X 
+X
+X_data	segment
+Xlinemask dw -1
+XScSeg	dw 0
+X_data	ends
+X
+Xconst	segment
+X
+XK	equ 1024
+X
+Xmem_mac	MACRO x
+X	dw x,2*K+x,4*K+x,6*K+x,8*K+x,10*K+x,12*K+x,14*K+x,16*K+x
+X	dw 18*K+x,20*K+x,22*K+x,24*K+x
+X	ENDM
+XLookUp	equ $
+X	mem_mac 0
+X	mem_mac 80
+X	mem_mac (80*2)
+X	mem_mac (80*3)
+X	mem_mac (80*4)
+X	mem_mac (80*5)
+X	mem_mac (80*6)
+X	mem_mac (80*7)
+X	mem_mac (80*8)
+X	mem_mac (80*9)
+X	mem_mac (80*10)
+X	mem_mac (80*11)
+X	mem_mac (80*12)
+X	mem_mac (80*13)
+X	mem_mac (80*14)
+X	mem_mac (80*15)
+X	mem_mac (80*16)
+X	mem_mac (80*17)
+X	mem_mac (80*18)
+X	mem_mac (80*19)
+X	mem_mac (80*20)
+X	mem_mac (80*21)
+X	mem_mac (80*22)
+X	mem_mac (80*23)
+X	mem_mac (80*24)
+X
+Xconst	ends
+X
+X	end
+END_OF_FILE
+  if test 2272 -ne `wc -c <'gnuplot/corgraph.asm'`; then
+    echo shar: \"'gnuplot/corgraph.asm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/corgraph.asm'
+fi
+if test -f 'gnuplot/docs/doc2ipf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/docs/doc2ipf.c'\"
+else
+  echo shar: Extracting \"'gnuplot/docs/doc2ipf.c'\" \(15131 characters\)
+  sed "s/^X//" >'gnuplot/docs/doc2ipf.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: doc2ipf.c%v 3.50 1993/07/09 05:35:24 woo Exp $";
+X#endif
+X
+X/*
+X * doc2ipf.c  -- program to convert Gnuplot .DOC format to OS/2
+X * ipfc  (.inf/.hlp) format.
+X *
+X * Modified by Roger Fearick from doc2rtf by M Castro 
+X *
+X * usage:  doc2ipf gnuplot.doc gnuplot.itl
+X *
+X */
+X
+X/* note that tables must begin in at least the second column to */
+X/* be formatted correctly and tabs are forbidden */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#include <malloc.h>
+X
+X#define MAX_LINE_LEN	1024
+X#define TRUE 1
+X#define FALSE 0
+X
+Xstruct LIST
+X{
+X	int level;
+X	int line;
+X	char *string;
+X	struct LIST *next;
+X	};
+X
+Xstruct LIST *list = NULL;
+Xstruct LIST *head = NULL;
+X
+Xstruct LIST *keylist = NULL;
+Xstruct LIST *keyhead = NULL;
+X
+Xstruct TABENTRY { /* may have 3 column tables */
+X        struct TABENTRY *next ;
+X        char col[3][256] ;
+X        } ;
+X
+Xstruct TABENTRY table = {NULL} ;
+Xstruct TABENTRY *tableins = &table ;
+Xint tablecols = 0 ;
+Xint tablewidth[3] = {0,0,0} ;        
+Xint tablelines = 0 ;
+X
+Xint debug = FALSE;
+X
+Xvoid parse();
+Xvoid refs();
+Xvoid convert();
+Xvoid process_line();
+Xint lookup();
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+XFILE * infile;
+XFILE * outfile;
+X    if (argc==4 && argv[3][0]=='-' && argv[3][1]=='d')
+X        debug = TRUE;
+X
+X    if (argc != 3 && !debug) {
+X        fprintf(stderr,"Usage: %s infile outfile\n", argv[0]);
+X        return(1);
+X    }
+X    if ( (infile = fopen(argv[1],"r")) == (FILE *)NULL) {
+X        fprintf(stderr,"%s: Can't open %s for reading\n",
+X            argv[0], argv[1]);
+X        return(1);
+X    }
+X    if ( (outfile = fopen(argv[2],"w")) == (FILE *)NULL) {
+X        fprintf(stderr,"%s: Can't open %s for writing\n",
+X            argv[0], argv[2]);
+X    }
+X    parse(infile);
+X    convert(infile,outfile);
+X    return(0);
+X}
+X
+X/* scan the file and build a list of line numbers where particular levels are */
+Xvoid parse(a)
+XFILE *a;
+X{
+X    static char line[MAX_LINE_LEN];
+X    char *c;
+X    int lineno=0;
+X    int lastline=0;
+X
+X    while (fgets(line,MAX_LINE_LEN,a)) 
+X    {
+X    lineno++;
+X    if (isdigit(line[0]))
+X    {
+X        if (list == NULL)    
+X            head = (list = (struct LIST *) malloc(sizeof(struct LIST)));
+X        else
+X            list = (list->next = (struct LIST *) malloc(sizeof(struct LIST)));
+X        list->line = lastline = lineno;
+X        list->level = line[0] - '0';
+X        list->string = (char *) malloc (strlen(line)+1);
+X        c = strtok(&(line[1]),"\n");
+X        strcpy(list->string, c);
+X        list->next = NULL;
+X    }
+X    if (line[0]=='?')
+X    {
+X        if (keylist == NULL)    
+X            keyhead = (keylist = (struct LIST *) malloc(sizeof(struct LIST)));
+X        else
+X            keylist = (keylist->next = (struct LIST *) malloc(sizeof(struct LIST)));
+X        keylist->line = lastline;
+X        keylist->level = line[0] - '0';
+X        c = strtok(&(line[1]),"\n");
+X        if( c == NULL || *c == '\0' ) c = list->string ;
+X        keylist->string = (char *) malloc (strlen(c)+1);
+X        strcpy(keylist->string, c);
+X        keylist->next = NULL;
+X    }
+X    }
+X    rewind(a);
+X    }
+X
+X/* look up an in text reference */
+Xint
+Xlookup(s)
+Xchar *s;
+X{
+X    char *c;
+X    char tokstr[MAX_LINE_LEN];
+X    char *match; 
+X    int l;
+X
+X    strcpy(tokstr, s);
+X
+X    /* first try the ? keyword entries */
+X    keylist = keyhead;
+X    while (keylist != NULL)
+X    {
+X        c = keylist->string;
+X        while (isspace(*c)) c++;
+X        if (!strcmp(s, c)) return(keylist->line);
+X        keylist = keylist->next;
+X        }
+X
+X    /* then try titles */
+X    match = strtok(tokstr, " \n\t");
+X    l = 0; /* level */
+X    
+X    list = head;
+X    while (list != NULL)
+X    {
+X        c = list->string;
+X        while (isspace(*c)) c++;
+X        if (!strcmp(match, c)) 
+X        {
+X            l = list->level;
+X            match = strtok(NULL, "\n\t ");
+X            if (match == NULL)
+X            {
+X                return(list->line);
+X                }
+X            }
+X        if (l > list->level)
+X            break;
+X        list = list->next;
+X        }
+X    return(-1);
+X    }
+X
+X/* search through the list to find any references */
+Xvoid
+Xrefs(l, f)
+Xint l;
+XFILE *f;
+X{
+X    int curlevel;
+X    char str[MAX_LINE_LEN];
+X    char *c;
+X
+X    /* find current line */
+X    list = head;
+X    while (list->line != l)
+X        list = list->next;
+X    curlevel = list->level;
+X    list = list->next;        /* look at next element before going on */
+X    while (list != NULL)
+X    {
+X        /* we are onto the next topic so stop */
+X        if (list->level == curlevel)
+X            break;
+X        /* these are the next topics down the list */
+X        if (list->level == curlevel+1)
+X        {
+X            c = list->string;
+X            }
+X        list = list->next;
+X        }
+X    }
+X
+Xvoid
+Xconvert(a,b)
+X    FILE *a,*b;
+X{
+X    static char line[MAX_LINE_LEN];
+X    
+X    /* generate rtf header */
+X    fprintf(b,":userdoc.\n:prolog.\n");
+X    fprintf(b,":title.GNUPLOT\n");
+X    fprintf(b,":docprof toc=1234.\n:eprolog.\n");
+X
+X    /* process each line of the file */
+X        while (fgets(line,MAX_LINE_LEN,a)) {
+X       process_line(line, b);
+X       }
+X
+X    /* close final page and generate trailer */
+X    fprintf(b,"\n:euserdoc.\n");
+X}
+X
+Xvoid
+Xprocess_line(line, b)
+X    char *line;
+X    FILE *b;
+X{
+X    static int line_count = 0;
+X    static char line2[MAX_LINE_LEN];
+X    static int last_line;
+X    char hyplink1[64] ;
+X    char *pt, *tablerow ;
+X    int i;
+X    int j;
+X    static int startpage = 1;
+X    char str[MAX_LINE_LEN];
+X    char topic[MAX_LINE_LEN];
+X    int k, l;
+X    static int tabl=0;
+X    static int para=0;
+X    static int inquote = FALSE;
+X    static int inref = FALSE;
+X    static int intable = FALSE ; 
+X    static int intablebut = FALSE ;
+X    static FILE *bo= NULL, *bt = NULL ;
+X
+X    line_count++;
+X
+X    if( bo == NULL ) bo = b ;
+X    i = 0;
+X    j = 0;
+X    while (line[i] != NULL)
+X    {
+X        switch(line[i])
+X        {
+X            case '$':
+X                if( intable && line[0] == '%' ) {                                    
+X                   ++i ;
+X                   if( line[i+1]=='$'|| line[i]=='x' || line[i]=='|'){
+X                      while ( line[i] != '$' ) line2[j++]=line[i++] ;
+X                      --j;
+X                      }
+X                   else {
+X                       while( line[i] != '$' ) i++ ;
+X                       if( line[i+1]==',' ) i++ ;
+X                       if( line[i+1]==' ' ) i++ ;
+X                       line2[j]=line[++i] ;
+X                       }
+X                   }
+X                break ;
+X            case ':':
+X                strcpy( &line2[j], "&colon." ) ;
+X                j += strlen( "&colon." ) - 1 ;
+X                break ;
+X
+X            case '&':
+X                strcpy( &line2[j], "&amp." ) ;
+X                j += strlen( "&amp." ) - 1 ;
+X                break ;
+X                                
+X            case '\r':
+X            case '\n':
+X                break;
+X            case '`':    /* backquotes mean boldface or link */
+X                if ((!inref) && (!inquote))
+X                {
+X                    k=i+1;    /* index into current string */
+X                    l=0;    /* index into topic string */
+X                    while ((line[k] != '`') && (line[k] != NULL))
+X                    {
+X                        topic[l] = line[k];
+X                        k++;
+X                        l++;
+X                        }
+X                    topic[l] = NULL;
+X                    k = lookup(topic);
+X                    if (k > 0)
+X                    {
+X                        sprintf( hyplink1, ":link reftype=hd res=%d.", k ) ;
+X                        strcpy( line2+j, hyplink1 ) ;
+X                        j += strlen( hyplink1 )-1 ;
+X                        
+X                        inref = k;
+X                        }
+X                    else
+X                    {
+X                        if (debug)
+X                            fprintf(stderr,"Can't make link for \042%s\042 on line %d\n",topic,line_count);
+X                        line2[j++] = ':';
+X                        line2[j++] = 'h';
+X                        line2[j++] = 'p';
+X                        line2[j++] = '2';
+X                        line2[j] = '.';
+X                        inquote = TRUE;
+X                        }
+X                    }
+X                else
+X                {
+X                    if (inquote && inref)
+X                        fprintf(stderr, "Warning: Reference Quote conflict line %d\n", line_count);
+X                    if (inquote)
+X                    {
+X                        line2[j++] = ':';
+X                        line2[j++] = 'e';
+X                        line2[j++] = 'h';
+X                        line2[j++] = 'p';
+X                        line2[j++] = '2';
+X                        line2[j] = '.';
+X                        inquote = FALSE;
+X                        }
+X                    if (inref)
+X                    {
+X                        /* must be inref */
+X                        line2[j++] = ':';
+X                        line2[j++] = 'e';
+X                        line2[j++] = 'l';
+X                        line2[j++] = 'i';
+X                        line2[j++] = 'n';
+X                        line2[j++] = 'k';
+X                        line2[j] = '.';
+X                        inref = 0;
+X                        }
+X                }
+X                break;
+X            default:
+X                line2[j] = line[i];
+X            }
+X        i++;
+X        j++;
+X        line2[j] = NULL;
+X        }
+X
+X    i = 1;
+X
+X    switch(line[0]) {        /* control character */
+X       case '?': {            /* interactive help entry */
+X                if( intable ) intablebut = TRUE ;
+X               break;
+X       }
+X       case '@': {            /* start/end table */
+X                  intable = !intable ;  
+X                  if( intable ) {
+X                    tablelines = 0;
+X                    tablecols = 0 ;
+X                    tableins = &table ;
+X                    for(j=0;j<3;j++)tablewidth[j]=0 ;
+X                    }
+X                  else { /* dump table */
+X                    intablebut = FALSE ;
+X                    tableins = table.next ;
+X                    fprintf(b,":table cols=\'") ;
+X                    for( j=0;j<3;j++)
+X                        if(tablewidth[j]>0) fprintf(b," %d",tablewidth[j]);
+X                    fprintf(b,"\'.\n") ;
+X                    tableins=tableins->next ;     
+X                    while( tableins != NULL ) {
+X                        if( tableins->col[0][0] != '_' ) {
+X                            fprintf(b,":row.\n" ) ;
+X                            for( j=0;j<tablecols;j++) 
+X                                fprintf(b,":c.%s\n", tableins->col[j] ) ;
+X                            }
+X                        tableins = tableins->next ;
+X                        }
+X                    fprintf(b,":etable.\n") ;
+X                    if( bt != NULL ) {
+X                        rewind( bt ) ;
+X                        while( fgets(str, MAX_LINE_LEN, bt) )
+X                            fputs( str, b ) ; 
+X                        fclose( bt ) ;
+X                        remove( "doc2ipf.tmp" ) ;
+X                        bt = NULL ;
+X                        bo = b ;
+X                        }
+X                    }
+X          break;            /* ignore */
+X       }
+X       case '#': {            /* latex table entry */
+X          break;            /* ignore */
+X       }
+X       case '%': {            /* troff table entry */
+X              if( intable ) {
+X                    tablerow = line2 ;
+X                    tableins->next = malloc( sizeof( struct TABENTRY ) ) ;
+X                    tableins = tableins->next ;
+X                    tableins->next = NULL ;
+X                    j=0 ;
+X                while((pt=strtok( tablerow, "%@\n" ))!=NULL) {
+X                    if( *pt != '\0' ) { /* ignore null columns */
+X                        strcpy( tableins->col[j], pt ) ;
+X                        k=strlen( pt ) ;
+X                        if( k > tablewidth[j] ) tablewidth[j]=k ;
+X                        ++j ;
+X                        tablerow = NULL ;
+X                        if( j > tablecols ) tablecols = j ;
+X                        }
+X                    }
+X                for( j; j<3; j++ ) tableins->col[j][0]='\0' ;        
+X                }
+X          break;            /* ignore */
+X       }
+X       case '\n':            /* empty text line */
+X            para = 0;
+X            tabl = 0;
+X            fprintf(bo,":p.");
+X            break;
+X       case ' ': {            /* normal text line */
+X                  if( intable && ! intablebut ) break ;
+X                  if( intablebut ) { /* indexed items in  table, copy
+X                                      to file after table by saving in
+X                                      a temp file meantime */
+X                                if( bt == NULL ) {
+X                                    fflush(bo) ;
+X                                    bt = fopen( "doc2ipf.tmp", "w+" ) ;
+X                                    if( bt==NULL ) fprintf(stderr, "cant open temp\n" ) ;
+X                                    else bo = bt ; 
+X                                    }
+X                        }
+X                  if( intablebut && (bt==NULL )) break ;
+X          if ((line2[1] == NULL) || (line2[1] == '\n'))
+X          {
+X                fprintf(bo,":p."); 
+X                para = 0;
+X                }
+X          if (line2[1] == ' ') 
+X          {
+X                if (!tabl)
+X                {
+X                    fprintf(bo,":p."); 
+X                    }
+X                  fprintf(bo,"%s",&line2[1]); 
+X                fprintf(bo,"\n.br\n");
+X                tabl = 1;
+X                para = 0;
+X                }
+X          else
+X          {
+X                if (!para)
+X                {
+X                    para = 1;        /* not in para so start one */
+X                    tabl = 0;
+X                    }
+X                  fprintf(bo,"%s \n",&line2[1]); 
+X                }
+X                  fflush(bo) ;
+X          break;
+X       }
+X       default: {
+X          if (isdigit(line[0])) { /* start of section */
+X                  if( intable ) {
+X                      intablebut = TRUE ;
+X                                if( bt == NULL ) {
+X                                    fflush(bo) ;
+X                                    bt = fopen( "doc2ipf.tmp", "w+" ) ;
+X                                    if( bt==NULL ) fprintf(stderr, "cant open temp\n" ) ;
+X                                    else bo = bt ; 
+X                                    }
+X                                }
+X            if (!startpage)
+X            {
+X                refs(last_line,bo);
+X                }
+X            para = 0;                    /* not in a paragraph */
+X            tabl = 0;
+X            last_line = line_count;
+X            startpage = 0;
+Xfprintf( stderr, "%d: %s\n", line_count, &line2[1] ) ;
+X            k=lookup(&line2[2]) ;
+X/*            if( k<0 ) fprintf(bo,":h%c.", line[0]=='1'?line[0]:line[0]-1);
+X            else*/ fprintf(bo,":h%c res=%d.", line[0]=='1'?line[0]:line[0]-1,line_count);
+X            fprintf(bo,&(line2[1])); /* title */
+X            fprintf(bo,"\n:p." ) ;
+X          } else
+X            fprintf(stderr, "unknown control code '%c' in column 1, line %d\n",
+X                line[0], line_count);
+X          break;
+X       }
+X    }
+X}
+X
+END_OF_FILE
+  if test 15131 -ne `wc -c <'gnuplot/docs/doc2ipf.c'`; then
+    echo shar: \"'gnuplot/docs/doc2ipf.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/docs/doc2ipf.c'
+fi
+if test -f 'gnuplot/os2/dialogs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/os2/dialogs.c'\"
+else
+  echo shar: Extracting \"'gnuplot/os2/dialogs.c'\" \(13594 characters\)
+  sed "s/^X//" >'gnuplot/os2/dialogs.c' <<'END_OF_FILE'
+X#ifdef INCRCSDATA
+Xstatic char RCSid[]="$Id: dialogs.c%v 3.50 1993/07/09 05:35:24 woo Exp $" ;
+X#endif
+X
+X/****************************************************************************
+X
+X    PROGRAM: gnupmdrv
+X    
+X        Outboard PM driver for GNUPLOT 3.3
+X
+X    MODULE:  dialogs.c  Dialog procedures for gnupmdrv 
+X        
+X****************************************************************************/
+X
+X/*
+X * PM driver for GNUPLOT
+X * Copyright (C) 1992   Roger Fearick
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHOR
+X * 
+X *   Gnuplot driver for OS/2:  Roger Fearick
+X * 
+X * Send your comments or suggestions to 
+X *  info-gnuplot@dartmouth.edu.
+X * This is a mailing list; to join it send a note to 
+X *  info-gnuplot-request@dartmouth.edu.  
+X * Send bug reports to
+X *  bug-gnuplot@dartmouth.edu.
+X**/
+X
+X#define INCL_PM
+X#define INCL_WIN
+X#define INCL_DEV
+X#define INCL_SPL
+X#define INCL_SPLDOSPRINT
+X#define INCL_WINDIALOGS
+X#define INCL_WINBUTTONS
+X#define INCL_WINSYS
+X#define INCL_WINFRAMEMGR
+X#define INCL_WINPOINTERS
+X#define INCL_WINTRACKRECT
+X#define INCL_WINENTRYFIELDS
+X#define INCL_WINWINDOWMGR
+X#include <os2.h>
+X#include <math.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include "gnupmdrv.h"
+X
+X/* struct for printer capabilities */
+X
+Xstatic struct { 
+X    long    lTech ;     // printer technology
+X    long    lVer ;      // driver version
+X    long    lWidth ;    // page width in pels
+X    long    lHeight ;   // page height in pels
+X    long    lWChars ;   // page width in chars    
+X    long    lHChars ;   // page height in chars    
+X    long    lHorRes ;   // horizontal resolution pels / metre
+X    long    lVertRes ;  // vertical resolution pels / metre
+X    } prCaps ;
+X
+XMRESULT EXPENTRY QPrintDlgProc ( HWND hwnd, ULONG usMsg, MPARAM mp1, MPARAM mp2 )
+X/*
+X**  Query print area and printer setup
+X*/
+X    {
+X    static PQPRINT pqp = NULL ;
+X    static SWP     swp ;    
+X    TRACKINFO   ti ;
+X    RECTL       rectlBox ;
+X    HDC         hdc ;
+X    ULONG       ulStyle ;
+X    char        *psz ;
+X
+X    switch ( usMsg ) {
+X
+X        case WM_INITDLG :
+X                                   
+X            pqp = (PQPRINT) PVOIDFROMMP( mp2 ) ;
+X            if( pqp->caps & QP_CAPS_FILE ) {
+X                ulStyle = WinQueryWindowULong( WinWindowFromID( hwnd, IDD_PRINTQNAME ),
+X                                               QWL_STYLE ) ;
+X                WinSetWindowULong( WinWindowFromID( hwnd, IDD_PRINTQNAME ),
+X                                   QWL_STYLE, ulStyle ^ DT_HALFTONE  ) ;
+X                }
+X            else {
+X                WinSendMsg( WinWindowFromID( hwnd, IDD_QPRNAME ),
+X                            EM_SETREADONLY, (MPARAM)TRUE, 0L ) ;
+X                }
+X             
+X        case WM_USER_SET_DATA :
+X
+X            psz = *pqp->piPrinter->pszComment ? pqp->piPrinter->pszComment :
+X                                        pqp->piPrinter->pszName ;
+X            WinSetDlgItemText( hwnd, IDD_PRINTNAME, psz ) ;
+X            WinSetDlgItemFloatF( hwnd, IDD_QPRXSIZE, 1, pqp->xsize ) ;
+X            WinSetDlgItemFloatF( hwnd, IDD_QPRYSIZE, 1, pqp->ysize ) ;
+X            WinSetDlgItemFloat( hwnd, IDD_QPRXFRAC, pqp->xfrac ) ;
+X            WinSetDlgItemFloat( hwnd, IDD_QPRYFRAC, pqp->yfrac ) ;
+X            WinQueryWindowRect( WinWindowFromID( hwnd, IDD_QPRBOX ),
+X                                &rectlBox ) ;
+X            WinQueryWindowPos( WinWindowFromID( hwnd, IDD_QPRBOX ),
+X                               &swp ) ;
+X            rectlBox.xRight = rectlBox.yTop * pqp->xsize/pqp->ysize ;
+X            WinSetWindowPos( WinWindowFromID( hwnd, IDD_QPRBOX ),
+X                             NULLHANDLE, 0, 0, (short) rectlBox.xRight, (short)rectlBox.yTop, SWP_SIZE ) ;
+X            rectlBox.xRight *= pqp->xfrac ;
+X            rectlBox.yTop *= pqp->yfrac ;
+X            WinSetWindowPos( WinWindowFromID( hwnd, IDD_QPRFRAME ),
+X                             NULLHANDLE, 
+X                             swp.x, swp.y, //+(short)(swp.cy*(1.0-pqp->yfrac)),
+X                             (short)rectlBox.xRight, (short)rectlBox.yTop, SWP_SIZE|SWP_MOVE ) ;
+X            break ;
+X            
+X        case WM_COMMAND :
+X
+X            switch ( SHORT1FROMMP(mp1) ) {
+X
+X                case DID_OK:
+X                    WinQueryDlgItemFloat( hwnd, IDD_QPRXFRAC, &pqp->xfrac ) ;
+X                    WinQueryDlgItemFloat( hwnd, IDD_QPRYFRAC, &pqp->yfrac ) ;
+X
+X                    if( pqp->caps & QP_CAPS_FILE ) {
+X                        WinQueryDlgItemText( hwnd, IDD_QPRNAME, 32, pqp->szFilename ) ;
+X                        }
+X                    break ;
+X
+X                case IDD_QPRSETPR:   /* printer setup */
+X                    if( SetPrinterMode( hwnd, pqp->piPrinter ) == 1 ) {
+X                        if( (hdc = OpenPrinterDC( WinQueryAnchorBlock( hwnd ), 
+X                                                  pqp->piPrinter, 
+X                                                  OD_INFO, 
+X                                                  NULL )) != DEV_ERROR ) {
+X                            DevQueryCaps( hdc, CAPS_TECHNOLOGY, (long)sizeof(prCaps)/sizeof(long), (PLONG)&prCaps ) ;
+X                            DevCloseDC( hdc ) ;
+X                            pqp->xsize = (float)100.0* (float) prCaps.lWidth / (float) prCaps.lHorRes ; // in cm
+X                            pqp->ysize = (float)100.0* (float) prCaps.lHeight / (float) prCaps.lVertRes ; // in cm
+X                            WinSendMsg( hwnd, WM_USER_SET_DATA, 0L, 0L ) ;
+X                            }
+X                        }
+X                    return 0L ;
+X
+X                case IDD_QPRTRACK :     /* track plot area */
+X                    WinQueryWindowRect( WinWindowFromID( hwnd, IDD_QPRBOX ),
+X                                        &rectlBox ) ;
+X                    ti.cxBorder = ti.cyBorder = 2 ;
+X                    ti.cxGrid = ti.cyGrid = 0 ;
+X                    ti.cxKeyboard = ti.cyKeyboard = 2 ;
+X                    ti.ptlMinTrackSize.x = ti.ptlMinTrackSize.y = 2 ;
+X                    ti.rclBoundary = rectlBox ;
+X                    ti.ptlMaxTrackSize.x = rectlBox.xRight ;
+X                    ti.ptlMaxTrackSize.y = rectlBox.yTop ;
+X                    ti.rclTrack.xRight = pqp->xfrac * rectlBox.xRight ;
+X                    ti.rclTrack.yTop = pqp->yfrac*rectlBox.yTop ;
+X                    ti.rclTrack.xLeft = 0 ;
+X                    ti.rclTrack.yBottom = 0 ;//(1.0-pqp->yfrac) * rectlBox.yTop ;
+X                    ti.fs = TF_RIGHT|TF_TOP|TF_STANDARD|TF_SETPOINTERPOS|TF_ALLINBOUNDARY ;
+X                    WinSetPointer( HWND_DESKTOP, 
+X                                   WinQuerySysPointer( HWND_DESKTOP, SPTR_SIZENWSE, FALSE ) ) ;
+X                    WinTrackRect( WinWindowFromID( hwnd, IDD_QPRBOX ),
+X                                  NULL, 
+X                                  &ti ) ;
+X                    pqp->xfrac = (float)ti.rclTrack.xRight / (float)rectlBox.xRight ;
+X                    pqp->yfrac = ((float)(ti.rclTrack.yTop-ti.rclTrack.yBottom) / (float)rectlBox.yTop) ;
+X                    rectlBox.yTop = ti.rclTrack.yTop - ti.rclTrack.yBottom ;
+X                    rectlBox.xRight = ti.rclTrack.xRight ;
+X                    WinSetWindowPos( WinWindowFromID( hwnd, IDD_QPRFRAME ),
+X                                     NULLHANDLE, 
+X                                     swp.x, swp.y,//+(short)(swp.cy*(1.0-pqp->yfrac)),
+X                                     (short)rectlBox.xRight, (short)rectlBox.yTop, SWP_SIZE|SWP_MOVE ) ;
+X                    WinSetDlgItemFloat( hwnd, IDD_QPRXFRAC, pqp->xfrac ) ;
+X                    WinSetDlgItemFloat( hwnd, IDD_QPRYFRAC, pqp->yfrac ) ;
+X                    return 0L ;
+X                    
+X                default:
+X                    break ;
+X                }
+X                
+X         default:
+X            break ;
+X            }
+X        /* fall through to the default control processing */
+X
+X    return WinDefDlgProc ( hwnd , usMsg , mp1 , mp2 ) ;
+X    }
+X
+XMRESULT EXPENTRY QPrintersDlgProc ( HWND hwnd, ULONG usMsg, MPARAM mp1, MPARAM mp2 )
+X/*
+X**  Query printers and allow selection
+X*/
+X    {
+X    static HWND hwndLB ;
+X    static PPRQINFO3 pprq ;
+X    static int cPrinters ;
+X    static USHORT usItem ;
+X    static char *szPrinterName ;
+X    int i, iSelect ;
+X    char *psz ;
+X
+X    switch ( usMsg ) {
+X
+X        case WM_INITDLG :
+X
+X            szPrinterName = (char*) PVOIDFROMMP( mp2 ) ;
+X            iSelect = 0 ;
+X            GetPrinters( &pprq, &cPrinters ) ;
+X            hwndLB = WinWindowFromID( hwnd, IDD_QPRSLIST ) ;
+X            for( i=0; i<cPrinters;i++ ) {
+X                psz = *pprq[i].pszComment ? pprq[i].pszComment :
+X                                            pprq[i].pszName ;
+X                WinSendMsg( hwndLB,
+X                            LM_INSERTITEM,
+X                            (MPARAM)LIT_END,
+X                            MPFROMP(psz) ) ;
+X                if( strcmp( pprq[i].pszName, szPrinterName ) == 0 )
+X                    iSelect = i ;
+X                } 
+X                
+X            WinSendMsg( hwndLB,
+X                        LM_SELECTITEM,
+X                        MPFROMSHORT( iSelect ),
+X                        (MPARAM)TRUE ) ;
+X       
+X            break ;
+X
+X        case WM_COMMAND :
+X
+X            switch ( SHORT1FROMMP(mp1) ) {
+X
+X                case DID_OK:
+X                    strcpy( szPrinterName, pprq[usItem].pszName ) ;
+X                case DID_CANCEL:
+X                    free( pprq ) ;
+X                    break ;
+X                }
+X            break ;
+X
+X        case WM_CONTROL:
+X        
+X            if( SHORT1FROMMP( mp1 ) == IDD_QPRSLIST ) {
+X                if( SHORT2FROMMP( mp1 ) == LN_SELECT  ) {
+X                    usItem = (ULONG)WinSendMsg( hwndLB,
+X                                LM_QUERYSELECTION,
+X                                0L,
+X                                0L ) ;
+X                    }
+X                }
+X
+X        default:
+X            break ;
+X        }
+X        /* fall through to the default control processing */
+X    return WinDefDlgProc ( hwnd , usMsg , mp1 , mp2 ) ;
+X    }
+X    
+Xint GetPrinters( PPRQINFO3 *pprq, int *pcTot  )
+X/*
+X** get a list of printers
+X*/
+X    {
+X    ULONG rc ;
+X    ULONG cQueues, cbData ;
+X    
+X    rc = SplEnumQueue( NULL, 3, NULL, 0, &cQueues, pcTot, &cbData, NULL ) ;
+X   
+X    if( *pcTot == 0 ) { /* no printers */
+X        *pprq == NULL ;
+X        return 0 ;
+X        }
+X    *pprq = malloc( cbData ) ;
+X    rc = SplEnumQueue( NULL,
+X                       3,
+X                       *pprq,
+X                       cbData,
+X                       &cQueues,
+X                       pcTot,
+X                       &cbData,
+X                       NULL ) ;
+X    return *pcTot ;
+X    }
+X
+XMRESULT EXPENTRY PauseMsgDlgProc ( HWND hwnd, ULONG usMsg, MPARAM mp1, MPARAM mp2 )
+X/*
+X**  Pause message dialog box proc
+X*/
+X    {
+X    static PSWP pswp = NULL ;
+X    switch ( usMsg ) {
+X
+X        case WM_INITDLG :
+X                /* set the position so user can move out the way, and
+X                   have it come back there next time */
+X            if( pswp != NULL ) 
+X                WinSetWindowPos( hwnd, HWND_TOP, pswp->x, pswp->y,
+X                                 0, 0, SWP_MOVE ) ; 
+X            WinSetDlgItemText( hwnd, IDD_PAUSETEXT, (char*) PVOIDFROMMP( mp2 ) ) ;
+X            break ;
+X
+X        case WM_COMMAND :
+X            switch ( SHORT1FROMMP(mp1) ) {
+X                case DID_OK:
+X                case DID_CANCEL:
+X                    WinPostMsg( WinQueryWindow( hwnd, QW_OWNER ),
+X                                WM_PAUSEEND, 
+X                                SHORT1FROMMP(mp1)==DID_OK?(MPARAM)1L:0L, 
+X                                0L ) ;
+X                    if( pswp == NULL ) pswp = (PSWP)malloc( sizeof(SWP) ) ;
+X                    WinQueryWindowPos( hwnd, pswp ) ;
+X                    WinDismissDlg( hwnd, 0 ) ; 
+X                    break ;
+X                default:
+X                    break ;
+X                }
+X        default:
+X            break ;
+X        }
+X        /* fall through to the default control processing */
+X    return WinDefDlgProc ( hwnd , usMsg , mp1 , mp2 ) ;
+X    }
+X    
+Xvoid WinSetDlgItemFloatF( HWND hwnd, USHORT usID, int nDec, float flValue )
+X/*
+X** A function microsoft forgot ( in v1.1) , see WinSet...Short
+X*/
+X    {
+X    char achBuffer [ 34 ], *szCvt ; // default string field size ...
+X    int  iDec ;
+X    int  iSign ;
+X    char fmt[32] ;
+X    sprintf( fmt, "%%12.%df", nDec ) ;
+X    sprintf( achBuffer, fmt, flValue ) ;
+X    WinSetDlgItemText( hwnd, usID, achBuffer ) ;
+X    }
+X
+Xvoid WinSetDlgItemFloat( HWND hwnd, USHORT usID, float flValue )
+X/*
+X** A function microsoft forgot ( in v1.1) , see WinSet...Short
+X*/
+X    {
+X    char achBuffer [ 34 ] ; // default string field size ...
+X    char fmt[10] ;
+X    sprintf( fmt, "%%12.%df", 4 ) ;
+X    sprintf( achBuffer, fmt, flValue ) ;
+X    WinSetDlgItemText( hwnd, usID, achBuffer ) ;
+X    WinSetDlgItemText( hwnd, usID, achBuffer ) ;
+X    }
+X
+Xvoid WinQueryDlgItemFloat( HWND hwnd, USHORT usID, float *pflValue )
+X/*
+X** A function microsoft forgot ( in v1.1) , see WinQ...Short
+X*/
+X    {
+X    char achBuffer [ 34 ] ; // default string field size ...
+X    ULONG ulTemp ;
+X    
+X    WinQueryDlgItemText( hwnd, usID, 34, achBuffer ) ;
+X    *pflValue = (float) atof( achBuffer ) ;
+X    }
+X
+END_OF_FILE
+  if test 13594 -ne `wc -c <'gnuplot/os2/dialogs.c'`; then
+    echo shar: \"'gnuplot/os2/dialogs.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/os2/dialogs.c'
+fi
+if test -f 'gnuplot/term/epson.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/epson.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/epson.trm'\" \(15575 characters\)
+  sed "s/^X//" >'gnuplot/term/epson.trm' <<'END_OF_FILE'
+X/*
+X * $Id: epson.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - epson.trm */
+X/*
+X * Copyright (C) 1990 - 1993   
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *  epson_lx800, nec_cp6, starc,
+X *  epson_60dpi, tandy_60dpi
+X *  epson_180dpi
+X *
+X * AUTHORS
+X *  Russell Lang
+X *  William Wilson
+X *
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X
+X/* The following epson lx800 driver uses generic bit mapped graphics
+X   routines to build up a bit map in memory. */
+X/* by Russell Lang, rjl@monu1.cc.monash.edu.au */
+X/* On PC, print using 'copy file /b lpt1:', do NOT use 'print' */
+X/* EPSON_init changes outfile to binary mode on PC's */
+X
+X#ifdef EPSONP
+X
+X#define EPSONXMAX	512 
+X#define EPSONYMAX	384
+X
+X#define EPSONXLAST (EPSONXMAX - 1)
+X#define EPSONYLAST (EPSONYMAX - 1)
+X
+X#define EPSONVCHAR		FNT5X9_VCHAR  	
+X#define EPSONHCHAR		FNT5X9_HCHAR		
+X#define EPSONVTIC		6
+X#define EPSONHTIC		6
+X
+XEPSONinit()
+X{
+X#ifdef REOPEN_BINARY
+X	reopen_binary();
+X#endif
+X}
+X
+X
+XEPSONgraphics()
+X{
+X	b_charsize(FNT5X9);
+X	b_makebitmap((unsigned int)(EPSONXMAX*xsize),
+X	             (unsigned int)(EPSONYMAX*ysize),1);
+X}
+X
+X
+XEPSONtext()
+X{
+X	epson_dump();
+X	b_freebitmap();
+X}
+X
+X
+X#define EPSONlinetype b_setlinetype
+X#define EPSONmove b_move
+X#define EPSONvector b_vector
+X#define EPSONput_text b_put_text
+X#define EPSON_text_angle b_text_angle
+X
+XEPSONreset()
+X{
+X#ifdef vms
+X	fflush_binary();
+X#endif
+X}
+X
+X
+X/* output file must be binary mode for epson_dump */
+Xepson_dump()
+X{
+X  register unsigned int x;
+X  int j;
+X	for (j=(b_ysize/8)-1; j>=0; j--) {
+X		/* select plotter graphics mode (square pixels) */
+X		fprintf(outfile,"\033J\030");	/* line feed 8/72" = 8 dots */
+X		fprintf(outfile,"\r\033*\005");
+X		(void) fputc((char)(b_xsize%256),outfile);
+X		(void) fputc((char)(b_xsize/256),outfile);
+X		for (x=0; x<b_xsize; x++) {
+X			(void) fputc( (char)(*((*b_p)[j]+x)), outfile );
+X		}
+X	}
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* EPSONP */
+X
+X
+X/* The following NEC CP6 Pinwriter driver uses generic bit mapped graphics
+X   routines to build up a bit map in memory. */
+X/* by Russell Lang, rjl@monu1.cc.monash.edu.au */
+X/* On PC, print using 'copy file /b lpt1:', do NOT use 'print' */
+X/* NECinit changes outfile to binary mode for PC's */
+X
+X/* Add a Monochrome NEC printer (for faster speed and line types) jdc */
+X
+X#ifdef NEC
+X
+X#define NECXMAX	400 
+X#define NECYMAX	320
+X
+X#define NECXLAST (NECXMAX - 1)
+X#define NECYLAST (NECYMAX - 1)
+X
+X#define NECVCHAR		FNT5X9_VCHAR  	
+X#define NECHCHAR		FNT5X9_HCHAR		
+X#define NECVTIC		6
+X#define NECHTIC		6
+X
+X/* plane 0=black, 1=cyan(blue), 2=magenta(red), 3=yellow */
+Xstatic unsigned int neccolor[] = {1,8,4,2,10,12,6,14};
+Xstatic unsigned int necpcolor[]= {0,2,1,4};
+X
+Xstatic int NECmode;
+X
+XNECoptions()
+X{
+X	if( END_OF_COMMAND ) {
+X		strcpy(term_options,"monochrome");
+X		NECmode='m';
+X	} else
+X	if( almost_equals(c_token,"m$onochrome") ) {
+X		c_token++;
+X		strcpy(term_options,"monochrome");
+X		NECmode='m';
+X	} else
+X	if( almost_equals(c_token,"c$olor") ) {
+X		c_token++;
+X		strcpy(term_options,"color");
+X		NECmode='c';
+X	} else
+X	if( almost_equals(c_token,"d$raft") ) {
+X		c_token++;
+X		strcpy(term_options,"draft");
+X		NECmode='d';
+X	} else {
+X	/* error, but since the terminal is already set, default to mono */
+X		strcpy(term_options,"monochrome");
+X		NECmode='m';
+X		int_error("modes: color, monochrome, draft",c_token);
+X	}
+X}
+X
+XNECinit()
+X{
+X#ifdef REOPEN_BINARY
+X	reopen_binary();
+X#endif
+X}
+X
+XNECgraphics()
+X{
+X	b_charsize(FNT5X9);
+X	b_makebitmap((unsigned int)(NECXMAX*xsize),
+X		     (unsigned int)(NECYMAX*ysize),(NECmode=='c' ? 4 : 1));
+X}
+X
+XNECtext()
+X{
+X	if( NECmode=='d' ) {
+X		nec_draft_dump();
+X	} else {
+X	nec_dump();
+X	}
+X	b_freebitmap();
+X}
+X
+XNEClinetype(linetype)
+Xint linetype;
+X{
+X	if( NECmode=='c' ) {
+X	if (linetype>=6)
+X		linetype %= 6;
+X	b_setvalue(neccolor[linetype+2]);
+X	} else {
+X		b_setlinetype(linetype);
+X	}
+X}
+X
+X#define NECmove b_move
+X#define NECvector b_vector
+X#define NECput_text b_put_text
+X#define NEC_text_angle b_text_angle
+X
+X	
+XNECreset()
+X{
+X#ifdef vms
+X	fflush_binary();
+X#endif
+X}
+X
+X
+X/* output file must be binary mode for nec_dump */
+Xnec_dump()
+X{
+Xunsigned int x;
+Xunsigned int plane,offset;
+Xint j;
+Xunsigned int column8;
+Xunsigned long column24;
+Xchar column3, column2, column1;
+X	fprintf(outfile,"\033P\033l\005");  /* 10cpi, left margin 5 char */
+X	for (j=(b_ysize/8)-1;j>=0;j--) {
+X			fprintf(outfile,"\033J\030");  /* 24/180" line feed */
+X			for (plane=0; plane<b_planes; plane++) {
+X				offset=plane*b_psize;
+X				if (b_planes>1) {
+X				    /* select colour for plane */
+X				    fprintf(outfile,"\033r");
+X				    (void) fputc((char)necpcolor[plane],outfile);
+X				}
+X				/* select plotter graphics mode (square pixels) */
+X				fprintf(outfile,"\r\033*\047");
+X				(void) fputc((char)((b_xsize*3)%256),outfile);
+X				(void) fputc((char)((b_xsize*3)/256),outfile);
+X				for (x=0; x<b_xsize; x++) {
+X					column8= (unsigned int)(*((*b_p)[j+offset]+x));
+X					column24=0;
+X					if (column8&0x01) column24|=(long)0x000007;
+X					if (column8&0x02) column24|=(long)0x000038;
+X					if (column8&0x04) column24|=(long)0x0001c0;
+X					if (column8&0x08) column24|=(long)0x000e00;
+X					if (column8&0x10) column24|=(long)0x007000;
+X					if (column8&0x20) column24|=(long)0x038000;
+X					if (column8&0x40) column24|=(long)0x1c0000;
+X					if (column8&0x80) column24|=(long)0xe00000;
+X					column1 = (char) ( column24      & (long)0xff);
+X					column2 = (char) ((column24>>8)  & (long)0xff);
+X					column3 = (char) ((column24>>16) & (long)0xff);
+X					(void) fputc(column3,outfile);
+X					(void) fputc(column2,outfile);
+X					(void) fputc(column1,outfile);
+X					(void) fputc(column3,outfile);
+X					(void) fputc(column2,outfile);
+X					(void) fputc(column1,outfile);
+X					(void) fputc(column3,outfile);
+X					(void) fputc(column2,outfile);
+X					(void) fputc(column1,outfile);
+X				}
+X			}
+X	}
+X	fprintf(outfile,"\r\033l");
+X	(void) fputc('\0',outfile);				/* set left margin to 0 */
+X	if (b_planes > 1) {
+X		fprintf(outfile,"\033r");
+X		(void) fputc('\0',outfile);				/* set color to black */
+X	}
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X#ifdef vms
+X	fflush_binary();
+X#endif
+X}
+X
+X/* output file must be binary mode for nec_dump */
+Xnec_draft_dump()
+X{
+Xunsigned int x;
+Xunsigned int plane,offset;
+Xint j;
+X	fprintf(outfile,"\033P\033l\005\r");  /* 10cpi, left margin 5 char */
+X	for (j=(b_ysize/8)-1;j>=0;j--) {
+X			fprintf(outfile,"\033J\030");  /* 24/180" line feed */
+X			for (plane=0; plane<b_planes; plane++) {
+X				offset=plane*b_psize;
+X				if (b_planes>1) {
+X				    /* select colour for plane */
+X				    fprintf(outfile,"\033r");
+X				    (void) fputc((char)necpcolor[plane],outfile);
+X				}
+X				/* select plotter graphics mode (square pixels) */
+X				fprintf(outfile,"\r\033*");
+X				(void) fputc('\0',outfile);
+X				(void) fputc((char)(b_xsize%256),outfile);
+X				(void) fputc((char)(b_xsize/256),outfile);
+X				for (x=0; x<b_xsize; x++) {
+X					(void) fputc( (char)(*((*b_p)[j+offset]+x)), outfile );
+X				}
+X			}
+X	}
+X	fprintf(outfile,"\r\033l");
+X	(void) fputc('\0',outfile);				/* set left margin to 0 */
+X	if (b_planes > 1) {
+X		fprintf(outfile,"\033r");
+X		(void) fputc('\0',outfile);				/* set color to black */
+X	}
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* NEC */
+X
+X#ifdef STARC
+X/* The following Star color driver uses generic bit mapped graphics
+X   routines to build up a bit map in memory. */
+X/* Star Color changes made by William Wilson, wew@naucse.cse.nau.edu */
+X/* On PC, print using 'copy file /b lpt1:', do NOT use 'print' */
+X/* STARC_init changes outfile to binary mode on PC's */
+X
+X#define STARCXMAX	512 
+X#define STARCYMAX	384
+X
+X#define STARCXLAST (STARCXMAX - 1)
+X#define STARCYLAST (STARCYMAX - 1)
+X
+X#define STARCVCHAR		FNT5X9_VCHAR  	
+X#define STARCHCHAR		FNT5X9_HCHAR		
+X#define STARCVTIC		6
+X#define STARCHTIC		6
+X
+X/* plane 0=black, 1=cyan(blue), 2=magenta(red), 3=yellow */
+Xstatic unsigned int STARCcolor[] = {1,8,4,2,10,12,6,14};
+Xstatic unsigned int STARCpcolor[]= {0,2,1,4};
+X
+XSTARCinit()
+X{
+X#ifdef REOPEN_BINARY
+X	reopen_binary();
+X#endif
+X}
+X
+X
+XSTARCgraphics()
+X{
+X	b_charsize(FNT5X9);
+X	b_makebitmap((unsigned int)(STARCXMAX*xsize),
+X	             (unsigned int)(STARCYMAX*ysize),4);
+X}
+X
+X
+XSTARCtext()
+X{
+X	STARC_dump();
+X	b_freebitmap();
+X}
+X
+XSTARClinetype(linetype)
+Xint linetype;
+X{
+X	if (linetype>=6)
+X		linetype %= 6;
+X	b_setvalue(STARCcolor[linetype+2]);
+X}
+X
+X
+X#define STARCmove b_move
+X#define STARCvector b_vector
+X#define STARCput_text b_put_text
+X#define STARC_text_angle b_text_angle
+X
+XSTARCreset()
+X{
+X#ifdef vms
+X	fflush_binary();
+X#endif
+X}
+X
+X
+X/* output file must be binary mode for STARC_dump */
+XSTARC_dump()
+X{
+Xunsigned int x;
+Xunsigned int plane,offset;
+Xint j;
+X	for (j=(b_ysize/8)-1;j>=0;j--) {
+X		fprintf(outfile,"\033J\030");	/* line feed 8/72" = 8 dots */
+X		for (plane=0; plane<b_planes; plane++) {
+X			offset=plane*b_psize;
+X			if (b_planes>1) {
+X				/* select colour for plane */
+X				fprintf(outfile,"\033r");
+X				(void) fputc((char)STARCpcolor[plane],outfile);
+X			}
+X			/* select plotter graphics mode (square pixels) */
+X			fprintf(outfile,"\r\033*\005");
+X			(void) fputc((char)(b_xsize%256),outfile);
+X			(void) fputc((char)(b_xsize/256),outfile);
+X			for (x=0; x<b_xsize; x++) {
+X				(void) fputc( (char)(*((*b_p)[j+offset]+x)), outfile );
+X			}
+X		}
+X	}
+X	if (b_planes > 1) {
+X		fprintf(outfile,"\033r");
+X		(void) fputc('\0',outfile);				/* set color to black */
+X	}
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* STARC */
+X
+X
+X#ifdef EPS180
+X
+X#define EPSON180VCHAR		FNT13X25_VCHAR
+X#define EPSON180HCHAR		FNT13X25_HCHAR
+X#define EPSON180VTIC		18
+X#define EPSON180HTIC		18
+X
+X/* make the total dimensions 8 inches by 6 inches */
+X#define EPS180XMAX	1260
+X#define EPS180YMAX	1080
+X
+X#define EPS180XLAST (EPS180XMAX - 1)
+X#define EPS180YLAST (EPS180YMAX - 1)
+X
+XEPS180graphics()
+X{
+X	b_charsize(FNT13X25);
+X	b_makebitmap((unsigned int)(EPS180XMAX*xsize),
+X	             (unsigned int)(EPS180YMAX*ysize),1);
+X}
+X
+X
+XEPS180text()
+X{
+X	eps180_dump();
+X	b_freebitmap();
+X}
+X
+X
+X
+X/* output file must be binary mode for eps180_dump */
+Xeps180_dump()
+X{
+X  register unsigned int x;
+X  int j;
+X	fprintf(outfile,"\033@\033+\060\033l\005"); /* reset, set line spacing
+X						       to 24/180", and
+X						       move left margin */
+X	for (j=(b_ysize/8)-1; j>=0; ) {
+X		/* select printer graphics mode '39' */
+X		fprintf(outfile,"\r\n\033*'");
+X		(void) fputc((char)(b_xsize%256),outfile);
+X		(void) fputc((char)(b_xsize/256),outfile);
+X		for (x=0; x<b_xsize; x++) {
+X		           (void) fputc( (char)(*((*b_p)[j]+x)), outfile );
+X  			   (void) fputc( (char)(*((*b_p)[j-1]+x)), outfile );
+X			   (void) fputc( (char)(*((*b_p)[j-2]+x)), outfile );
+X		}
+X	j -= 3;
+X	}
+X	fprintf(outfile,"\r\n\033@\r\n"); 	/* reset printer */
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* EPS180 */
+X
+X#ifdef EPS60
+X
+X/* make the total dimensions 8 inches by 5 inches */
+X#define EPS60XMAX	480
+X#define EPS60YMAX	360
+X
+X#define EPS60XLAST (EPS60XMAX - 1)
+X#define EPS60YLAST (EPS60YMAX - 1)
+X
+XEPS60graphics()
+X{
+X	b_charsize(FNT5X9);
+X	b_makebitmap((unsigned int)(EPS60XMAX*xsize),
+X	             (unsigned int)(EPS60YMAX*ysize),1);
+X}
+X
+X
+XEPS60text()
+X{
+X	eps60_dump();
+X	b_freebitmap();
+X}
+X
+X
+X
+X/* output file must be binary mode for eps60_dump */
+Xeps60_dump()
+X{
+X  register unsigned int x;
+X  int j;
+X	fprintf(outfile,"\033%c\030",'3'); /* set line spacing 24/216" = 8 dots */
+X	for (j=(b_ysize/8)-1; j>=0; j--) {
+X		/* select printer graphics mode 'K' */
+X		fprintf(outfile,"\r\n\033K");
+X		(void) fputc((char)(b_xsize%256),outfile);
+X		(void) fputc((char)(b_xsize/256),outfile);
+X		for (x=0; x<b_xsize; x++) {
+X			(void) fputc( (char)(*((*b_p)[j]+x)), outfile );
+X		}
+X	}
+X	fprintf(outfile,"\033%c\044\r\n",'3'); /* set line spacing 36/216" = 1/6" */
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* EPS60 */
+X
+X#ifdef TANDY60
+X
+X/* The only difference between TANDY60 and EPS60 is the inclusion
+X   of codes to swap the Tandy printer into IBM mode and back
+X   into Tandy mode.  For a Tandy already in IBM mode, use EPS60. */
+X
+X
+XTANDY60text()
+X{
+X#ifdef PC
+X	fprintf(stderr, "Inserting Tandy/IBM mode conversion codes\n");
+X#endif
+X	/* Switch to IBM mode, and leave 3 inches above the plot so as
+X	   to get rough vertical centring on the page.  Perform the
+X	   centring by setting 1" line feeds and issuing 3 of them. */
+X	fprintf(outfile, "\033!\033%c%c\n\n\n", '3',216);
+X	eps60_dump();
+X	b_freebitmap();
+X	/* A form feed must be sent before switching back to Tandy mode,
+X	   or else the form setting will be messed up. */
+X	fprintf(outfile, "\f\033!");
+X}
+X
+X
+X#endif  /* TANDY60 */
+X
+X#ifdef OKIDATA
+X
+XOKIDATAtext()
+X{
+X	okidata_dump();
+X	b_freebitmap();
+X}
+X
+Xint bitrev_tbl[] = {
+X0x00, 0x80, 0x40, 0xc0, 0x20, 0xa0, 0x60, 0xe0, 
+X0x10, 0x90, 0x50, 0xd0, 0x30, 0xb0, 0x70, 0xf0, 
+X0x08, 0x88, 0x48, 0xc8, 0x28, 0xa8, 0x68, 0xe8, 
+X0x18, 0x98, 0x58, 0xd8, 0x38, 0xb8, 0x78, 0xf8, 
+X0x04, 0x84, 0x44, 0xc4, 0x24, 0xa4, 0x64, 0xe4, 
+X0x14, 0x94, 0x54, 0xd4, 0x34, 0xb4, 0x74, 0xf4, 
+X0x0c, 0x8c, 0x4c, 0xcc, 0x2c, 0xac, 0x6c, 0xec, 
+X0x1c, 0x9c, 0x5c, 0xdc, 0x3c, 0xbc, 0x7c, 0xfc, 
+X0x02, 0x82, 0x42, 0xc2, 0x22, 0xa2, 0x62, 0xe2, 
+X0x12, 0x92, 0x52, 0xd2, 0x32, 0xb2, 0x72, 0xf2, 
+X0x0a, 0x8a, 0x4a, 0xca, 0x2a, 0xaa, 0x6a, 0xea, 
+X0x1a, 0x9a, 0x5a, 0xda, 0x3a, 0xba, 0x7a, 0xfa, 
+X0x06, 0x86, 0x46, 0xc6, 0x26, 0xa6, 0x66, 0xe6, 
+X0x16, 0x96, 0x56, 0xd6, 0x36, 0xb6, 0x76, 0xf6, 
+X0x0e, 0x8e, 0x4e, 0xce, 0x2e, 0xae, 0x6e, 0xee, 
+X0x1e, 0x9e, 0x5e, 0xde, 0x3e, 0xbe, 0x7e, 0xfe, 
+X0x01, 0x81, 0x41, 0xc1, 0x21, 0xa1, 0x61, 0xe1, 
+X0x11, 0x91, 0x51, 0xd1, 0x31, 0xb1, 0x71, 0xf1, 
+X0x09, 0x89, 0x49, 0xc9, 0x29, 0xa9, 0x69, 0xe9, 
+X0x19, 0x99, 0x59, 0xd9, 0x39, 0xb9, 0x79, 0xf9, 
+X0x05, 0x85, 0x45, 0xc5, 0x25, 0xa5, 0x65, 0xe5, 
+X0x15, 0x95, 0x55, 0xd5, 0x35, 0xb5, 0x75, 0xf5, 
+X0x0d, 0x8d, 0x4d, 0xcd, 0x2d, 0xad, 0x6d, 0xed, 
+X0x1d, 0x9d, 0x5d, 0xdd, 0x3d, 0xbd, 0x7d, 0xfd, 
+X0x03, 0x83, 0x43, 0xc3, 0x23, 0xa3, 0x63, 0xe3, 
+X0x13, 0x93, 0x53, 0xd3, 0x33, 0xb3, 0x73, 0xf3, 
+X0x0b, 0x8b, 0x4b, 0xcb, 0x2b, 0xab, 0x6b, 0xeb, 
+X0x1b, 0x9b, 0x5b, 0xdb, 0x3b, 0xbb, 0x7b, 0xfb, 
+X0x07, 0x87, 0x47, 0xc7, 0x27, 0xa7, 0x67, 0xe7, 
+X0x17, 0x97, 0x57, 0xd7, 0x37, 0xb7, 0x77, 0xf7, 
+X0x0f, 0x8f, 0x4f, 0xcf, 0x2f, 0xaf, 0x6f, 0xef, 
+X0x1f, 0x9f, 0x5f, 0xdf, 0x3f, 0xbf, 0x7f, 0xff
+X};
+X
+X/* output file must be binary mode for okidata_dump */
+Xokidata_dump()
+X{
+X  register unsigned int x;
+X  int j;
+X  char cur_char;
+X  int  prev_char;
+X
+X  prev_char = 0;
+X	fprintf(outfile,"\033%c%c\020\033*eP:\003",'%','9'); /* set line spacing 16/144" = 8 dots :Turned on single density graphics mode*/
+X	for (j=(b_ysize/8)-1; j>=0; j--) {
+X		fprintf(outfile,"\003\016");
+X/*		(void) fputc((char)(b_xsize%256),outfile); */
+X/*		(void) fputc((char)(b_xsize/256),outfile); */
+X		for (x=0; x<b_xsize; x++) {
+X		  if ( (cur_char = (char) 
+X			(bitrev_tbl[ (int) (*((*b_p)[j]+x))])) == '\003') {
+X		    fprintf( outfile, "\003\003");
+X		  }
+X		  else {
+X		      (void) fputc( (char) cur_char , outfile);
+X		    }
+X		}
+X	      }
+X	fprintf(outfile,"\003\002\033%c%c\030\r\n",'%','9'); /* Turned off graphics mode: set line spacing 24/144" = 1/6"*/
+X#ifdef PC
+X	fprintf(stderr,"Print using: COPY /B\n");
+X#endif
+X}
+X
+X#endif /* OKIDATA */
+X
+END_OF_FILE
+  if test 15575 -ne `wc -c <'gnuplot/term/epson.trm'`; then
+    echo shar: \"'gnuplot/term/epson.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/epson.trm'
+fi
+if test -f 'gnuplot/term/hpgl.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/hpgl.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/hpgl.trm'\" \(14106 characters\)
+  sed "s/^X//" >'gnuplot/term/hpgl.trm' <<'END_OF_FILE'
+X/*
+X * $Id: hpgl.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X */
+X
+X/* GNUPLOT - hpgl.trm */
+X/*
+X * Copyright (C) 1990   
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *  hpgl, hp7580b, HP Laserjet III
+X *
+X * AUTHORS
+X *  Colin Kelley, Thomas Williams, Russell Lang
+X * 
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X
+X/*
+X *
+X * MODIFIED for expanded HPGL/2 and PCL utilites
+X *  Tom Swiler (tom@silica.mse.ufl.edu)
+X * 
+X */
+X
+X/*
+X * The maximum plot size, in plotter units:
+X */
+X
+X#define HPGL_PUPI	1016	/* Plotter units per inch */
+X  
+X#define HPGL_XMAX_A	10000
+X#define HPGL_YMAX_A	7500
+X  
+X#define HPGL_XMAX_B	15200
+X#define HPGL_YMAX_B	10000
+X
+X#define HPGL_XMAX	HPGL_XMAX_A
+X#define HPGL_YMAX	HPGL_YMAX_A
+X  
+X#define PCL_XMAX	HPGL_XMAX_A
+X#define PCL_YMAX	HPGL_YMAX_A-60
+X
+X/*
+X * Tic sizes
+X */
+X
+X#define HPGL_VTIC	(HPGL_YMAX/70)
+X#define HPGL_HTIC	(HPGL_YMAX/70)
+X
+X#define PCL_VTIC	(PCL_YMAX/70)
+X#define PCL_HTIC	(PCL_YMAX/70)
+X
+X/*
+X * Font size for HPGL
+X */
+X
+X#define HPGL_VCHAR	(HPGL_YMAX/100*32/10) /* 3.2% */
+X#define HPGL_HCHAR	(HPGL_XMAX/100*12/10) /* 1.2% */
+X
+X/*
+X * Font size for HPGL/2
+X */
+X
+X#define HPGL2_DEF_POINT	14	/* Height of font */
+X
+X#define HPGL2_DEF_PITCH	(3 * 72 / (HPGL2_DEF_POINT * 2))
+X#define HPGL2_VCHAR	((int) HPGL_PUPI * HPGL2_DEF_POINT / 72)
+X#define HPGL2_HCHAR	(HPGL2_VCHAR * 2 / 3)
+X
+X/*
+X * Control constants
+X */
+X
+X#define DOWN		0	/* Pen is down */
+X#define UP 		1	/* Pen is up */
+X#define UNKNOWN		-10	/* Unknown status for lots of things */
+X
+X/*
+X * For Polyline Encoded, either use base 64 or base 32.
+X * Save space with base 64, but get 8-bit characters.
+X */
+X
+X#define HPGL2_BASE64 TRUE
+X
+X#if HPGL2_BASE64
+X#define HPGL2_BITS 6
+X#define HPGL2_LOW_OFFS 63
+X#define HPGL2_HIGH_OFFS 191
+X#define HPGL2_MASK 63
+X#else
+X#define HPGL2_BITS 5
+X#define HPGL2_LOW_OFFS 63
+X#define HPGL2_HIGH_OFFS 95
+X#define HPGL2_MASK 31
+X#endif
+X
+X/*
+X * Data structures for options
+X */
+X
+Xstruct HPGL2_font_str {
+X    char           *compare,
+X                   *name;
+X    int             symbol_set,
+X                    spacing;
+X    double          pitch,
+X                    height;
+X    int             posture,
+X                    stroke_weight,
+X                    typeface;
+X};
+X
+Xstruct PCL_mode_str {
+X    char           *compare,
+X                   *name,
+X                   *command;
+X    int             xmax,
+X                    ymax;
+X};
+X
+X/*
+X * The default font goes first.  Although it is the ugliest,  the
+X * stick font is probably supported by the most devices, so it
+X * becomes the default.
+X */
+X
+Xstatic struct HPGL2_font_str GPFAR HPGL2_font_table[] = {
+X	    {"u$nivers", "univers", 277, 1, 0.0, HPGL2_DEF_POINT, 0, 0, 4148},
+X		 {"s$tick", "stick", 277, 0, HPGL2_DEF_PITCH, 0.0, 0, 0, 48},
+X	   {"c$g_times", "cg_times", 277, 1, 0.0, HPGL2_DEF_POINT, 0, 0, 4101}
+X};
+X
+X#define HPGL2_FONTS (sizeof(HPGL2_font_table) / sizeof (struct HPGL2_font_str))
+Xstatic struct HPGL2_font_str *HPGL2_font = &HPGL2_font_table[0];
+X
+X/*
+X * The default mode goes first.  Landscape style plots are probably the
+X * most compatable with other HPGL devices.
+X */
+X
+Xstatic struct PCL_mode_str GPFAR PCL_mode_table[] = {
+X	      {"l$andscape", "landscape", "\033&l1O", PCL_XMAX, PCL_YMAX},
+X		 {"p$ortrait", "portrait", "\033&l0O", PCL_YMAX, PCL_XMAX}
+X};
+X
+X#define PCL_MODES (sizeof(PCL_mode_table) / sizeof (struct PCL_mode_str))
+Xstatic struct PCL_mode_str *PCL_mode = &PCL_mode_table[0];
+X
+X/*
+X * Various line types and widths to distinguish data sets
+X */
+X
+Xstatic char    *HPGL2_lt[] = {"", "4,2", "5,2", "6,2", "7,2", "8,2"},
+X               *HPGL2_pw[] = {".15", ".12", ".08"};
+X
+X#define HPGL2_LINETYPES (sizeof(HPGL2_lt) / sizeof(char *))
+X#define HPGL2_PENWIDTHS (sizeof(HPGL2_pw) / sizeof(char *))
+X
+X/*
+X * Static variables to keep track of where we are, etc.
+X */
+X
+Xstatic int      HPGL_ang = 0,
+X                HPGL_x = UNKNOWN,
+X                HPGL_y = UNKNOWN,
+X                HPGL_penstate = UNKNOWN,
+X                HPGL_pentype = UNKNOWN,
+X                HPGL2_in_pe,
+X                HPGL2_lost;
+X
+X/*
+X * The subroutines, grouped by function for different versions.
+X */
+X
+XHPGL2_options ()
+X{
+X	extern double real();
+X    struct termentry *t = &term_tbl[term];
+X    int             i;
+X    double          point_size;
+X    char	   tmp_options[MAX_ID_LEN];
+X    if (!END_OF_COMMAND) {
+X	for (i = 0; i < HPGL2_FONTS &&
+X	     !almost_equals (c_token, HPGL2_font_table[i].compare); i++);
+X	if (i < HPGL2_FONTS) {
+X	    HPGL2_font = &HPGL2_font_table[i];
+X	} else
+X	    int_error ("expecting font: stick, cg_times, or univers", c_token);
+X	c_token++;
+X	if (!END_OF_COMMAND) {
+X	    if ((point_size = real(&token[c_token].l_val)) > 0.0) {
+X		t->v_char = (int) HPGL_PUPI *point_size / 72;
+X		t->h_char = t->v_char * 2 / 3;
+X		if (HPGL2_font->spacing)
+X		    HPGL2_font->height = point_size;
+X		else
+X		    HPGL2_font->pitch = 72 * 3 / (point_size * 2);
+X	    } else
+X		int_error ("expecting font point size: real number",c_token);
+X	    c_token++;
+X	}
+X    }
+X    sprintf (tmp_options, " %s", HPGL2_font->name);
+X    strcat(term_options,tmp_options);
+X    if (HPGL2_font->spacing){
+X	sprintf (tmp_options, " %lf",
+X		  HPGL2_font->height);
+X	strcat(term_options,tmp_options);
+X    }else{
+X	sprintf (tmp_options, " %lf",
+X		  HPGL2_font->pitch);
+X        strcat(term_options,tmp_options);
+X    }
+X}
+X
+XPCL_options ()
+X{
+X    int             i;
+X    if (!END_OF_COMMAND) {
+X	for (i = 0; i < PCL_MODES &&
+X	     !almost_equals (c_token, PCL_mode_table[i].compare); i++);
+X	if (i < PCL_MODES)
+X	    PCL_mode = &PCL_mode_table[i];
+X	else
+X	    int_error ("expecting mode: portrait or landscape", c_token);
+X	c_token++;
+X    }
+X    sprintf (term_options, " %s", PCL_mode->name);
+X    HPGL2_options ();
+X}
+X
+XHPGL_init ()
+X{
+X}
+X
+XHPGL2_init ()
+X{
+X}
+X
+XPCL_init ()
+X{
+X    struct termentry *t = &term_tbl[term];
+X/*
+X * Reset printer, set to one copy, orientation of user's choice.
+X * Make the change to the new orientation all at once.
+X */
+X    fprintf (outfile, "\033E\033&l1X%s\n", PCL_mode->command);
+X    t->xmax = PCL_mode->xmax;
+X    t->ymax = PCL_mode->ymax;
+X}
+X
+XHPGL_graphics()
+X{
+X	fputs("\033.Y\n\033.I81;;17:\033.N;19:\033.M500:\n",outfile);
+X/*	       1
+X	1. enable eavesdropping
+X*/
+X	fprintf(outfile,
+X	"IN;\nSC0,%d,0,%d;\nSR%f,%f;\n",
+X		HPGL_XMAX,HPGL_YMAX,
+X		((double)(HPGL_HCHAR)*200/3/HPGL_XMAX),
+X		((double)(HPGL_VCHAR)*100/2/HPGL_YMAX) );
+X/*	 1    2             3 
+X	1. reset to power-up defaults
+X	2. set SCaling
+X	3. set character size
+X*/
+X	HPGL_ang = 0;
+X}
+X
+XHPGL2_graphics ()
+X{
+X/*
+X * IN - Initialize
+X * SP - Select pen
+X * SD - Set default font
+X */
+X    fprintf (outfile, "INSP1SD1,%d,2,%d,",
+X	     HPGL2_font->symbol_set, HPGL2_font->spacing);
+X    if (HPGL2_font->spacing)
+X	fprintf (outfile, "4,%lf,", HPGL2_font->height);
+X    else
+X	fprintf (outfile, "3,%lf,", HPGL2_font->pitch);
+X    fprintf (outfile, "5,%d,6,%d,7,%d\n", HPGL2_font->posture,
+X	     HPGL2_font->stroke_weight, HPGL2_font->typeface);
+X/*
+X * Control variables
+X */
+X    HPGL_ang = 0;		/* Horizontal */
+X    HPGL2_in_pe = FALSE;	/* Not in PE command */
+X    HPGL2_lost = TRUE;		/* Pen position is unknown */
+X    HPGL_penstate = UP;		/* Pen is up */
+X}
+X
+XPCL_graphics ()
+X{
+X/*
+X * Enter HPGL/2 graphics mode
+X */
+X    fputs ("\033%0B", outfile);
+X    HPGL2_graphics ();
+X}
+X
+XHPGL_text ()
+X{
+X    fputs ("PUSP0;\033.Z\n\0", outfile);
+X/*	       1 2   3
+X	1. pen up
+X	2. park pen
+X	3. disable eavesdropping
+X*/
+X    HPGL_penstate = UP;
+X}
+X
+XHPGL2_text ()
+X{
+X/*
+X * If in Polyline Encoded command, leave Polyline Encoded command
+X */
+X    if (HPGL2_in_pe) {
+X	fputs (";\n", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X/*
+X * Pen up, park pen
+X */
+X    fputs ("PUSP0;", outfile);
+X}
+X
+XPCL_text ()
+X{
+X    if (HPGL2_in_pe) {
+X	fputs (";\n", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X/*
+X * Go into PCL mode and eject the page
+X */
+X    fputs ("\033%1A\033&l0H\n\0", outfile);
+X}
+X
+XHPGL_linetype (linetype)
+X    int             linetype;
+X{
+X/* allow for 6 pens */
+X    linetype = (linetype + 2) % 6 + 1;
+X/* only select pen if necessary */
+X    if (HPGL_pentype != linetype) {
+X	fprintf (outfile, "PU;\nSP%d;\n", linetype);
+X	HPGL_pentype = linetype;
+X	HPGL_penstate = UP;
+X    }
+X}
+X
+XHP75_linetype (linetype)
+X    int             linetype;
+X{
+X/* allow for 4 pens */
+X    linetype = (linetype + 2) % 4 + 1;
+X/* only select pen if necessary */
+X    if (HPGL_pentype != linetype) {
+X	fprintf (outfile, "PU;\nSP%d;\n", linetype);
+X	HPGL_pentype = linetype;
+X	HPGL_penstate = UP;
+X    }
+X}
+X
+XHPGL2_linetype (linetype)
+X    int             linetype;
+X{
+X/*
+X * If in Polyline Encoded command, leave Polyline Encoded command
+X */
+X    if (HPGL2_in_pe) {
+X	fputs (";\n", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X/*
+X * Allow for lots of linetypes
+X */
+X    if (linetype >= 0)
+X	linetype = linetype % (HPGL2_LINETYPES * HPGL2_PENWIDTHS);
+X    if (linetype != HPGL_pentype) {
+X	if (linetype >= 0) {
+X	    fprintf (outfile, "PW%sLT%s",
+X		     HPGL2_pw[linetype / HPGL2_LINETYPES],
+X		     HPGL2_lt[linetype % HPGL2_LINETYPES]);
+X	} else if (linetype == -2)
+X/*
+X * Borders and tics
+X */
+X	    fprintf (outfile, "PW.2LT");
+X	else if (linetype == -1)
+X/*
+X * Axes and grids
+X */
+X	    fprintf (outfile, "PW.1LT1,.25");
+X	HPGL_pentype = linetype;
+X    }
+X}
+X
+XHPGL_put_text (x, y, str)
+X    int             x,
+X                    y;
+X    char           *str;
+X{
+X    if (HPGL_ang == 1)
+X	HPGL_move (x + HPGL_VCHAR / 4, y);
+X    else
+X	HPGL_move (x, y - HPGL_VCHAR / 4);
+X    fprintf (outfile, "LB%s\003\n", str);
+X}
+X
+XHPGL2_put_text (x, y, str)
+X    int             x,
+X                    y;
+X    char           *str;
+X{
+X    struct termentry *t = &term_tbl[term];
+X/*
+X * Position the pen
+X */
+X    if (HPGL_ang == 1)
+X	HPGL2_move (x + t->v_char / 4, y);
+X    else
+X	HPGL2_move (x, y - t->v_char / 4);
+X/*
+X * If in Polyline Encoded command, leave Polyline Encoded command
+X */
+X    if (HPGL2_in_pe) {
+X	fputs (";\n", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X/*
+X * Print the text string
+X */
+X    fprintf (outfile, "LB%s\003\n", str);
+X    HPGL2_lost = 1;
+X}
+X/*
+X * Some early HPGL plotters (e.g. HP7220C) require the
+X * Pen Up/Down and Pen (move) Absolute commands to be separate.
+X */
+X
+XHPGL_move (x, y)
+X    int             x,
+X                    y;
+X{
+X    if (HPGL_x != x || HPGL_y != y) {		/* only move if necessary */
+X	fprintf (outfile, "PU;PA%d,%d;\n", x, y);
+X	HPGL_penstate = UP;
+X	HPGL_x = x;
+X	HPGL_y = y;
+X    }
+X}
+X
+XHPGL_vector (x, y)
+X    int             x,
+X                    y;
+X{
+X    if (HPGL_penstate != DOWN) {
+X	fprintf (outfile, "PD;PA%d,%d;\n", x, y);
+X	HPGL_penstate = DOWN;
+X    } else
+X	fprintf (outfile, "PA%d,%d;\n", x, y);
+X    HPGL_x = x;
+X    HPGL_y = y;
+X}
+X
+XHPGL2_move (x, y)
+X    int             x,
+X                    y;
+X{
+X    register int    dx,
+X                    dy;
+X    if (HPGL2_in_pe) {
+X	dx = x - HPGL_x;
+X	dy = y - HPGL_y;
+X	fputs ("<", outfile);
+X    } else {
+X#if HPGL2_BASE64
+X	fputs ("PE<", outfile);
+X#else
+X	fputs ("PE7<", outfile);
+X#endif
+X	if (HPGL2_lost) {
+X	    dx = x;
+X	    dy = y;
+X	    HPGL2_lost = 0;
+X	    fputs ("=", outfile);
+X	} else {
+X	    dx = x - HPGL_x;
+X	    dy = y - HPGL_y;
+X	}
+X	HPGL2_in_pe = 1;
+X    }
+X#if HPGL2_EXPLICIT_PD
+X    if (HPGL_penstate == DOWN)
+X	HPGL_penstate = UP;
+X#endif
+X    HPGL2_encode (dx);
+X    HPGL2_encode (dy);
+X    fputs("\n",outfile);
+X    HPGL_x = x;
+X    HPGL_y = y;
+X}
+X
+XHPGL2_vector (x, y)
+X    int             x,
+X                    y;
+X{
+X    register int    dx,
+X                    dy;
+X    if (HPGL2_in_pe) {
+X	dx = x - HPGL_x;
+X	dy = y - HPGL_y;
+X    } else {
+X#if HPGL2_BASE64
+X	fputs ("PE", outfile);
+X#else
+X	fputs ("PE7", outfile);
+X#endif
+X	if (HPGL2_lost) {
+X	    dx = x;
+X	    dy = y;
+X	    HPGL2_lost = 0;
+X	    fputs ("=", outfile);
+X	} else {
+X	    dx = x - HPGL_x;
+X	    dy = y - HPGL_y;
+X	}
+X	HPGL2_in_pe = 1;
+X    }
+X#if HPGL2_EXPLICIT_PD
+X/*
+X * Put the pen down in the current position,
+X * relative vector of 0,0.
+X */
+X    if (HPGL_penstate == UP) {
+X	fputc ((char) HPGL2_HIGH_OFFS, outfile);
+X	fputc ((char) HPGL2_HIGH_OFFS, outfile);
+X	HPGL_penstate = DOWN;
+X    }
+X#endif
+X    HPGL2_encode (dx);
+X    HPGL2_encode (dy);
+X    fputs("\n",outfile);
+X    HPGL_x = x;
+X    HPGL_y = y;
+X}
+X
+X/*
+X * Routine to encode position in base 32 or base 64 characters
+X */
+X
+XHPGL2_encode (d)
+X    register int    d;
+X{
+X    register int    c;
+X    if ((d <<= 1) < 0)
+X	d = 1 - d;
+X    do {
+X	c = d & HPGL2_MASK;
+X	d >>= HPGL2_BITS;
+X	if (d > 0)
+X	    fputc ((char) (c + HPGL2_LOW_OFFS), outfile);
+X	else
+X	    fputc ((char) (c + HPGL2_HIGH_OFFS), outfile);
+X    } while (d > 0);
+X}
+X
+Xint
+XHPGL_text_angle (ang)
+X    int             ang;
+X{
+X    HPGL_ang = ang;
+X    if (ang == 1)
+X/*
+X *  Vertical
+X */
+X	fprintf (outfile, "DI0,1;\n");
+X    else
+X/*
+X * Horizontal
+X */
+X	fprintf (outfile, "DI1,0;\n");
+X    return TRUE;
+X}
+X
+Xint
+XHPGL2_text_angle (ang)
+X    int             ang;
+X{
+X/*
+X * If in Polyline Encoded command, leave Polyline Encoded command
+X */
+X    if (HPGL2_in_pe) {
+X	fputs (";", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X    if (ang == 1)
+X/*
+X *  Vertical
+X */
+X	fprintf (outfile, "DI0,1");
+X    else
+X/*
+X * Horizontal
+X */
+X	fprintf (outfile, "DI1,0");
+X    HPGL_ang = ang;
+X    return TRUE;
+X}
+X
+XHPGL_reset ()
+X{
+X/*
+X * I am not sure that "PG" is a command in HPGL.
+X    fputs ("PG;", outfile);
+X */
+X}
+X
+XHPGL2_reset ()
+X{
+X/*
+X * Park the pen
+X * Advance a page
+X * End with ";"
+X */
+X    fputs ("SP0PG;\n", outfile);
+X}
+X
+XPCL_reset ()
+X{
+X/*
+X * Return to PCL mode
+X * Printer reset (conditional eject)
+X */
+X    fputs ("\033%0A\033E\n", outfile);
+X}
+X
+XHPGL2_justify_text (just)
+X    int             just;
+X{
+X/*
+X * If in Polyline Encoded command, leave Polyline Encoded command
+X */
+X    if (HPGL2_in_pe) {
+X	fputs (";\n", outfile);
+X	HPGL2_in_pe = 0;
+X    }
+X    switch (just) {
+X    case LEFT:
+X	fputs ("LO1", outfile);
+X	break;
+X    case CENTRE:
+X	fputs ("LO4", outfile);
+X	break;
+X    case RIGHT:
+X	fputs ("LO7", outfile);
+X	break;
+X    default:
+X	return 0;
+X    }
+X    return 1;
+X}
+X
+END_OF_FILE
+  if test 14106 -ne `wc -c <'gnuplot/term/hpgl.trm'`; then
+    echo shar: \"'gnuplot/term/hpgl.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/hpgl.trm'
+fi
+if test -f 'gnuplot/term/unixpc.trm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/term/unixpc.trm'\"
+else
+  echo shar: Extracting \"'gnuplot/term/unixpc.trm'\" \(14316 characters\)
+  sed "s/^X//" >'gnuplot/term/unixpc.trm' <<'END_OF_FILE'
+X/*
+X * $Id: unixpc.trm%v 3.50 1993/07/09 05:35:24 woo Exp $
+X *
+X */
+X
+X/* GNUPLOT - unixpc.trm */
+X/*
+X * Copyright (C) 1990 - 1993   
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software  is provided "as is" without express or implied warranty.
+X * 
+X * This file is included by ../term.c.
+X *
+X * This terminal driver supports:
+X *  Unix PC's (ATT 3b1)
+X *
+X * AUTHORS
+X *    John Campbell
+X * 
+X * send your comments or suggestions to (info-gnuplot@dartmouth.edu).
+X * 
+X */
+X
+X/*
+X>From: John Campbell (...!arizona!naucse!jdc)
+X
+XI originally ported gnuplot to the ATT 3b1 (ATT7300) on 12/4/88, and then
+Xadded the minimal code needed to bring it up to 2.0 level on 1/28/90.  The 
+X3b1, as I view it, is a 720x300 bitmapped, monochrome display (often people 
+Xdon't use the top 12 scan lines and thus the effective size is 720x288).  I 
+Xtried to maximize the size of the graph area, by using these top 12 lines 
+X(normally reserved) and set up a signal handler to restore them upon exit, 
+Xabort, etc.
+X
+XLine styles were "fudged" (they do not know the aspect ratio).  The same
+Xline style may look different depending upon the slope of the curve.  Due to
+Xthis only 4 line styles were implemented.  While more line types are possible,
+Xthe current styles were chosen as distinguishable.
+X
+XThe 3b1 has 4 "special" rows at the bottom that I could not use in graphics
+Xmode.  It has been suggested that we use these lines for command prompting.
+XOthers have requested that we have a graphics window and a command window.
+XMy experience with gnuplot only includes relatively dumb graphics devices--
+Xhence gnuplot "looks and feels" normal to me the way I implemented it.
+XI welcome either of these changes from someone else, however.
+X*/
+X
+X#include <sys/window.h>   /* Started with tam.h--too much trouble. */
+X#include <sys/signal.h>
+X#include <errno.h>
+X
+X#define uPC_HIGH_BIT    (0x8000)
+X
+Xtypedef unsigned short Scr_type;
+Xtypedef unsigned char Scr_kluge;
+X
+X#define uPC_XMAX 720
+X#define uPC_YMAX 300
+X
+X#define uPC_XSIZE       45 /* Short ints. */
+X#define uPC_YSIZE uPC_YMAX
+X
+XScr_type uPC_display[uPC_YSIZE][uPC_XSIZE];
+Xint uPC_width = 2*uPC_XSIZE;
+Xint uPC_sx=0, uPC_sy=0;
+Xint uPC_cur_linetype=0;
+Xint uPC_angle = 0;
+Xunsigned short uPC_raster_count=0;
+Xstatic Scr_type lookup[] = {
+X      0x0001, 0x0002, 0x0004, 0x0008,
+X      0x0010, 0x0020, 0x0040, 0x0080,
+X      0x0100, 0x0200, 0x0400, 0x0800,
+X      0x1000, 0x2000, 0x4000, 0x8000,
+X   };
+X
+X#define uPC_XLAST (uPC_XMAX - 1)
+X#define uPC_YLAST (uPC_YMAX - 1)
+X
+X#define uPC_VCHAR FNT5X9_VCHAR
+X#define uPC_HCHAR FNT5X9_HCHAR
+X#define uPC_VTIC  uPC_VCHAR/2  /* Was 8  */
+X#define uPC_HTIC  uPC_HCHAR    /* Was 12 */
+X
+Xextern errno, sys_nerr;
+Xextern char *sys_errlist[];
+X
+Xstatic struct urdata uPC_ur = {(unsigned short *)uPC_display, 2*uPC_XSIZE, 0, 0,
+X                           0, 0, 0, 0, uPC_XMAX, uPC_YMAX, SRCSRC, DSTOR, 0};
+X
+X#define IfErrOut(e1,e2,s1,s2) if (e1 e2) {\
+Xfprintf(stderr, "%s:: %s %s\n", sys_errlist[errno], s1, s2);\
+XuPC_fixwind(0);\
+Xexit(-1);}
+X
+XuPC_init()
+X{
+X/* This routine will ioctl to change 0 size */
+X   int i;
+X   struct uwdata uw;
+X   int uPC_fixwind();
+X   short gw;
+X
+X/* Check that we are on the bitmapped window. */
+X   if (iswind() != 0) {
+X      fprintf (stderr, "Sorry--must run from the bitmapped terminal\n");
+X      exit(-1);
+X   }
+X   for (i=1; i<=16; i++) {
+X      if (i != SIGINT && i != SIGFPE)  /* Two are caught in plot.c */
+X         signal (i, uPC_fixwind);
+X   }
+X
+X/* Increase the screen size */
+X   uw.uw_x = 0;
+X   uw.uw_y = 0;   /* Leave room for top status line. */
+X   uw.uw_width = uPC_XMAX;      /* 720 */
+X   uw.uw_height = uPC_YMAX;     /* 288 normal--we clobber 12 (top row)*/
+X   uw.uw_uflags = 1;         /* Creates with no border */
+X
+X   IfErrOut (ioctl(1, WIOCSETD, &uw), <0, "ioctl failed on", "WIOCSETD");
+X}
+X
+X
+XuPC_graphics()
+X{
+X/* This routine will clear the uPC_display buffer and window. */
+X   register Scr_type *j;
+X   register int i;
+X
+X   j = (Scr_type *)uPC_display;
+X   i = uPC_YSIZE*uPC_XSIZE + 1;
+X
+X   while (--i)
+X      *j++ = 0;
+X/*
+X   Position the cursor to the bottom of the screen so when we come back to
+X   text mode we are just below the graph.
+X*/
+X   printf ("\033[25;1H");
+X
+X   uPC_ur.ur_dstop = DSTSRC;   /* replace (clear screen). */
+X   IfErrOut (ioctl(1, WIOCRASTOP, &uPC_ur), <0,
+X      "ioctl failed", "WIOCRASTOP");
+X   uPC_ur.ur_dstop = DSTOR;   /* Or in (show text) */
+X}
+X
+X
+XuPC_text()
+X{
+X/* This routine will flush the display. */
+X
+X   IfErrOut (ioctl(1, WIOCRASTOP, &uPC_ur), <0,
+X      "ioctl failed", "WIOCRASTOP");
+X}
+X
+X
+XuPC_linetype(linetype)
+Xint linetype;
+X{
+X/* This routine records the current linetype. */
+X   if (uPC_cur_linetype != linetype) {
+X      uPC_raster_count = 0;
+X      uPC_cur_linetype = linetype;
+X   }
+X}
+X
+X
+XuPC_move(x,y)
+Xunsigned int x,y;
+X{
+X/* This routine just records x and y in uPC_sx, uPC_sy */
+X   uPC_sx = x;
+X   uPC_sy = y;
+X}
+X
+X
+X/* Was just (*(a)|=(b)) */
+X#define uPC_PLOT(a,b)   (uPC_cur_linetype != 0 ? uPC_plot_word (a,b) :\
+X                                (*(a)|=(b)))
+X
+XuPC_plot_word(a,b)
+XScr_type *a, b;
+X/*
+X   Weak attempt to make line styles.  The real problem is the aspect
+X   ratio.  This routine is called only when a bit is to be turned on in
+X   a horizontal word.  A better line style routine would know something
+X   about the slope of the line around the current point (in order to
+X   change weighting).
+X
+X   This yields 3 working linetypes plus a usable axis line type.
+X*/
+X{
+X/* Various line types */
+X   switch (uPC_cur_linetype) {
+X   case -1:
+X   /* Distinguish between horizontal and vertical axis. */
+X      if (uPC_sx > uPC_XMAX/8 && uPC_sx < 7*uPC_XMAX/8) {
+X      /* Fuzzy tolerance because we don't know exactly where the y axis is */
+X         if (++uPC_raster_count % 2 == 0) *(a) |= b;
+X      }
+X      else {
+X      /* Due to aspect ratio, take every other y pixel and every third x. */
+X         *(a) |= (b & 0x9999);
+X      }
+X   break;
+X   case 1:
+X   case 5:
+X   /* Make a |    |----|    |----| type of line. */
+X      if ((1<<uPC_raster_count) & 0xF0F0) *(a) |= b;
+X      if (++uPC_raster_count > 15) uPC_raster_count = 0;
+X   break;
+X   case 2:
+X   case 6:
+X   /* Make a |----|----|----|--- |    | type of line. */
+X      if ((1<<uPC_raster_count) & 0x0EFFF) *(a) |= b;
+X      if (++uPC_raster_count > 19) uPC_raster_count = 0;
+X   break;
+X   case 3:
+X   case 7:
+X   /* Make a | -  | -  | -  | -  | type of line. */
+X      if ((1<<uPC_raster_count) & 0x4444) *(a) |= b;
+X      if (++uPC_raster_count > 15) uPC_raster_count = 0;
+X   break;
+X   case 4:
+X   case 8:
+X   default:
+X      *(a) |= b;
+X   break;
+X   }
+X}
+X
+XuPC_vector(x,y)
+Xunsigned int x,y;
+X{
+X/* This routine calls line with x,y */
+X   int x1 = uPC_sx, y1=uPC_sy, x2 = x, y2 = y;
+X   register int  c, e, dx, dy, width;
+X   register Scr_type mask, *a;
+X
+X/* Record new sx, sy for next call to the vector routine. */
+X   uPC_sx = x2;
+X   uPC_sy = y2;
+X
+X   a = &uPC_display[(uPC_YSIZE - 1) - y1][x1 >> 4];
+X   mask = lookup[x1 & 0x0f];
+X   width = uPC_width;
+X
+X   if ((dx = x2 - x1) > 0) {
+X      if ((dy = y2 - y1) > 0) {
+X         if (dx > dy) {         /* dx > 0, dy > 0, dx > dy */
+X            dy <<= 1;
+X            e = dy - dx;
+X            c = dx + 2;
+X            dx <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  (Scr_kluge *)a -= width;
+X                  e -= dx;
+X               }
+X               if (mask & uPC_HIGH_BIT) {
+X                  mask = 1;
+X                  a++;
+X               } else
+X                  mask <<= 1;
+X               e += dy;
+X            }
+X         } else {            /* dx > 0, dy > 0, dx <= dy */
+X            dx <<= 1;
+X            e = dx - dy;
+X            c = dy + 2;
+X            dy <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  if (mask & uPC_HIGH_BIT) {
+X                     mask = 1;
+X                     a++;
+X                  } else
+X                     mask <<= 1;
+X                  e -= dy;
+X               }
+X               (Scr_kluge *)a -= width;
+X               e += dx;
+X            }
+X         }
+X      } else {
+X         dy = -dy;
+X         if (dx > dy) {         /* dx > 0, dy <= 0, dx > dy */
+X            dy <<= 1;
+X            e = dy - dx;
+X            c = dx + 2;
+X            dx <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  (Scr_kluge *)a += width;
+X                  e -= dx;
+X               }
+X               if (mask & uPC_HIGH_BIT) {
+X                  mask = 1;
+X                  a++;
+X               } else
+X                  mask <<= 1;
+X               e += dy;
+X            }
+X         } else {            /* dx > 0, dy <= 0, dx <= dy */
+X            dx <<= 1;
+X            e = dx - dy;
+X            c = dy + 2;
+X            dy <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  if (mask & uPC_HIGH_BIT) {
+X                     mask = 1;
+X                     a++;
+X                  } else
+X                     mask <<= 1;
+X                  e -= dy;
+X               }
+X               (Scr_kluge *)a += width;
+X               e += dx;
+X            }
+X         }
+X      }
+X   } else {
+X      dx = -dx;
+X      if ((dy = y2 - y1) > 0) {
+X         if (dx > dy) {         /* dx <= 0, dy > 0, dx > dy */
+X            dy <<= 1;
+X            e = dy - dx;
+X            c = dx + 2;
+X            dx <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  (Scr_kluge *)a -= width;
+X                  e -= dx;
+X               }
+X               if (mask & 1) {
+X                  mask = uPC_HIGH_BIT;
+X                  a--;
+X               } else
+X                  mask >>= 1;
+X               e += dy;
+X            }
+X         } else {            /* dx <= 0, dy > 0, dx <= dy */
+X            dx <<= 1;
+X            e = dx - dy;
+X            c = dy + 2;
+X            dy <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  if (mask & 1) {
+X                     mask = uPC_HIGH_BIT;
+X                     a--;
+X                  } else
+X                     mask >>= 1;
+X                  e -= dy;
+X               }
+X               (Scr_kluge *)a -= width;
+X               e += dx;
+X            }
+X         }
+X      } else {
+X         dy = -dy;
+X         if (dx > dy) {         /* dx <= 0, dy <= 0, dx > dy */
+X            dy <<= 1;
+X            e = dy - dx;
+X            c = dx + 2;
+X            dx <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  (Scr_kluge *)a += width;
+X                  e -= dx;
+X               }
+X               if (mask & 1) {
+X                  mask = uPC_HIGH_BIT;
+X                  a--;
+X               } else
+X                  mask >>= 1;
+X               e += dy;
+X            }
+X         } else {            /* dx <= 0, dy <= 0, dx <= dy */
+X            dx <<= 1;
+X            e = dx - dy;
+X            c = dy + 2;
+X            dy <<= 1;
+X
+X            while (--c) {
+X               uPC_PLOT(a, mask);
+X               if (e >= 0) {
+X                  if (mask & 1) {
+X                     mask = uPC_HIGH_BIT;
+X                     a--;
+X                  } else
+X                     mask >>= 1;
+X                  e -= dy;
+X               }
+X               (Scr_kluge *)a += width;
+X               e += dx;
+X            }
+X         }
+X      }
+X   }
+X}
+X
+X
+X#ifdef uPC_NOT_USED
+X/* Added by Russell Lang, eln272v@monu1.cc.monash.oz
+X   This placement to the nearest character cell worked, and I'm leaving
+X   it here so the calculations involved won't be lost!  (jdc)
+X*/
+XuPC_put_text(x,y,str)
+Xunsigned int x,y;
+Xchar str[];
+X{
+X/* This routine puts the text at the cursor location nearest
+X   to (x,y).  Obviously the exact postion would look better */
+X
+X/* Just use the ANSI escape sequence CUP (iswind said that was ok!) */
+X   printf ("\033[%d;%dH%s\033[25;1H", (int)(24-(y-uPC_VCHAR/2)*25/uPC_YMAX), 
+X				(int)(x*80/uPC_XMAX), str); 
+X   fflush (stdout);
+X}
+X#endif
+X
+X
+XuPC_put_text(x,y,str)
+Xunsigned int x,y;
+Xchar str[];
+X{
+X   if (uPC_angle == 1)
+X      x += uPC_VCHAR/2;
+X   else
+X      y -= uPC_VCHAR/2;
+X
+X   switch (uPC_angle) {
+X      case 0:
+X         for (; *str; ++str, x += uPC_HCHAR)
+X            uPC_putc (x, y, *str, uPC_angle);
+X      break;
+X      case 1:
+X         for (; *str; ++str, y += uPC_HCHAR)
+X            uPC_putc (x, y, *str, uPC_angle);
+X      break;
+X   }
+X}
+X
+X
+XuPC_putc (x, y, c, angle)
+Xunsigned int x, y;
+Xint c, angle;
+X/*
+X   Put a character at an x,y location in the bit map (using the fnt5x9
+X   array.  This is mostly just copied from the bitmap.c driver.
+X*/
+X{
+X   int i, j, k;
+X   register Scr_type mask, *a;
+X   char_row fc;
+X   unsigned int pixelon;
+X
+X   i = c - ' ';
+X   for (j=0; j<FNT5X9_VBITS; j++) {
+X      fc = fnt5x9[i][j];
+X      for (k=0; k<FNT5X9_HBITS; k++) {
+X         pixelon = ((unsigned int)(fc))>>k & 1;
+X         if (pixelon) {
+X            switch (angle) {
+X            case 0:
+X               mask = lookup[x+k+1 & 0x0f];
+X               a = &uPC_display[(uPC_YSIZE - 1) - (y+j)][(x+k+1) >> 4];
+X            break;
+X            case 1:
+X               mask = lookup[x-j & 0x0f];
+X               a = &uPC_display[(uPC_YSIZE - 1) - (y+k+1)][(x-j) >> 4];
+X            break;
+X            }
+X            *(a) |= (mask);  /* see uPC_PLOT macro */
+X         }
+X      }
+X   }
+X}
+X
+X
+XuPC_text_angle (ang)
+Xint ang;
+X{
+X   uPC_angle = ang;
+X   return TRUE;
+X}
+X
+X
+XuPC_reset()
+X{
+X/* Reset window to normal size. */
+X   uPC_fixwind (0);
+X}
+X
+X
+X
+XuPC_fixwind(signo)
+Xint signo;
+X{
+X   static struct uwdata wreset = { 0, 12, 720, 288, 0x1};
+X   struct utdata ut;
+X
+X/* Reset the window to the right size. */
+X   ioctl(1, WIOCSETD, &wreset);   /* 0, not wncur here! */
+X
+X/* Scroll the screen once. (avoids typing over the same line) */
+X   fprintf (stderr, "\n");
+X
+X   if (signo) {
+X      if (signo == SIGILL || signo == SIGTRAP || signo == SIGPWR)
+X         signal (signo, SIG_DFL);
+X      kill (0,signo);  /* Redo the signal (as if we never trapped it). */
+X   }
+X}
+END_OF_FILE
+  if test 14316 -ne `wc -c <'gnuplot/term/unixpc.trm'`; then
+    echo shar: \"'gnuplot/term/unixpc.trm'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/term/unixpc.trm'
+fi
+echo shar: End of archive 21 \(of 33\).
+cp /dev/null ark21isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

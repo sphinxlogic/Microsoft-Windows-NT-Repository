@@ -1,0 +1,706 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v35i086:  prpp - Prototype Pre-processor, Part01/01
+Message-ID: <1993Feb22.043032.15909@sparky.imd.sterling.com>
+X-Md4-Signature: a6bc91cf051e2e7826928e5e6b1d2b42
+Date: Mon, 22 Feb 1993 04:30:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 35, Issue 86
+Archive-name: prpp/part01
+Environment: UNIX
+
+prpp - Prototype Pre-preprocessor
+
+"Well-written" C source code uses function prototypes, so the header that
+declares the prototype should be #included.  On my system at least, the manual
+pages often do not tell you what header to include, so I whipped up this program
+to help work around this problem.  Prpp reads C headers and only spits out the
+function prototypes from the header.  Then you can run the program on all your
+headers, and have all the prototypes from all the headers in a single file,
+so you can grep through them.  The program only works on header (.h) files --
+don't run it on source (.c) files.
+
+After using the enclosed script to generate the file, you can use the other
+enclosed script "prlook" to find prototypes.  For example, here's what I get
+when I "prlook perror":
+
+<X11/Xlibos.h> 165:  void perror();
+<errno.h> 47:  void perror(const char *);
+<stdio.h> 176:  void perror(const char *);
+<rpc/clnt.h> 310:  void clnt_perror(CLIENT *, const char *);
+<rpc/clnt.h> 311:  char *clnt_sperror(CLIENT *, const char *);
+
+Comments welcome,
+Mike Gleason
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  prpp.c prpp.readme Makefile prlook makeprlist
+# Wrapped by mgleason@cse on Mon Feb  8 17:09:04 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'prpp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prpp.c'\"
+else
+echo shar: Extracting \"'prpp.c'\" \(8937 characters\)
+sed "s/^X//" >'prpp.c' <<'END_OF_FILE'
+X/*
+X * Prototype Pre-Processor, by Mike Gleason, NCEMRSoft.
+X * Version 1.0 / February 8, 1993.
+X */
+X
+X#define VERSION "1.0"
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <stdlib.h>
+X
+X/* Definitions. */
+X#define CPP_LINE				'#'
+X#define SEMICOLON				';'
+X#define LEFTBRACKET				'{'
+X#define RIGHTBRACKET			'}'
+X#define LEFTPAREN				'('
+X#define RIGHTPAREN				')'
+X#define SLASH					'/'
+X#define BACKSLASH				'\\'
+X#define ASTERISK				'*'
+X#define COMMA					','
+X#define CIDENTCHAR(c)			(isalnum(c) || ((c) == '_'))
+X#define CIDENTCHAR1(c)			(isalpha(c) || ((c) == '_'))
+X#define NEXTC					(cbp->chr)
+X#define SKIPCHAR				cbp->chr = getc(fp); cbp = (cbp->next)
+X#define EQ(a,b)					(strcmp((a), (b)) == 0)
+X#define Strncpy(a,b)			strncpy((a), (b), sizeof(a) - 1)
+X#define Strncat(a,b)			strncat((a), (b), sizeof(a) - 1)
+X#define wt_unknown				0
+X#define wt_extern				1
+X#define wt_static				2
+X#define wt_volatile				3
+X#define wt_const				4
+X#define wt_unsigned				5
+X#define wt_signed				6
+X#define wt_enum					7
+X#define wt_union				8
+X#define wt_struct				9
+X#define wt_typedef				10
+X#ifndef HEADERDIR
+X#	define HEADERDIR			"/usr/include"
+X#endif
+X
+X/* Types. */
+Xstruct ch {
+X	int chr;
+X	struct ch *next;
+X};
+X
+X/* Globals. */
+XFILE						*fp;
+Xchar						word[128];
+X
+X/* For now, pgrepoutput isn't very helpful.  I was going to support this
+X * weird format which prints the function name first so you could alphabetize
+X * the list (for fast searches), but fgrep is plenty fast for me.
+X */
+X
+Xint							pgrepoutput = 0;
+Xint							is_sue;
+Xint							is_ptr;
+Xint							is_volatile;
+Xint							is_signed;
+Xint							curline;
+Xint							curchar;
+Xint							startline;
+Xchar						typename[64];
+Xchar						funcname[64];
+Xchar						funcargs[256];
+Xchar						filename[256];
+X
+X/* Keep a 4-byte look ahead buffer. */
+Xstruct ch cbuf[4] = {
+X	{ EOF, &cbuf[1] },
+X	{ EOF, &cbuf[2] },
+X	{ EOF, &cbuf[3] },
+X	{ EOF, &cbuf[0] }
+X}, *cbp;
+X
+X
+X
+X
+Xstatic void InitGetc(void)
+X{
+X	int i;
+X	
+X	cbp = cbuf;
+X	curline = 1;
+X	curchar = 0;
+X	for (i=0; i<4; i++)
+X		cbuf[i].chr = getc(fp);
+X}	/* InitGetc */
+X
+X
+X
+X
+Xstatic int Getc(void)
+X{
+X	int c;
+X	c = cbp->chr;
+X	if (c == '\n') {
+X		curchar = 0;
+X		curline++;
+X	} else
+X		curchar++;
+X	SKIPCHAR;
+X	return c;
+X}	/* Getc */
+X
+X
+X
+X
+Xstatic int Skipline(void)
+X{
+X	int c;
+X
+X	while(1) {
+X		c = Getc();
+X		if (c == EOF) return (EOF);
+X		if (c == BACKSLASH)
+X			(void) Getc();
+X		if (c == '\n') return ('\n');
+X	}
+X}	/* Skipline */
+X
+X
+X
+X
+Xstatic int Wordcmp(void)
+X{
+X	char *cp = word;
+X	int wt = wt_unknown;
+X
+X	switch(*cp++) {
+X		case 'e':	/* extern? */
+X			if (EQ(cp, "xtern"))
+X				wt = wt_extern;
+X			else if (EQ(cp, "num"))
+X				wt = wt_enum;
+X			break;
+X		case 't':
+X			if (EQ(cp, "ypedef"))
+X				wt = wt_typedef;
+X			break;
+X		case 'v':
+X			if (EQ(cp, "olatile"))
+X				wt = wt_volatile;
+X			break;
+X		case 'u':
+X			if (EQ(cp, "nsigned"))
+X				wt = wt_unsigned;
+X			else if (EQ(cp, "nion"))
+X				wt = wt_union;
+X			break;
+X		case 's':
+X			if (*cp++ == 't') {
+X				if (EQ(cp, "ruct"))
+X					wt = wt_struct;
+X				else if (EQ(cp, "atic"))
+X					wt = wt_static;
+X			} else if (EQ(cp, "igned"))
+X				wt = wt_signed;
+X			break;
+X	}
+X	return wt;
+X}	/* Wordcmp */
+X
+X
+X
+X
+Xstatic int SkipUntilSemi(void)
+X{
+X	int brackets = 0, c;
+X
+X	while (1) {
+X		c = Getc();
+X		if (c == EOF)
+X			break;
+X		else if (c == SEMICOLON && brackets <= 0)
+X			break;
+X		else if (c == LEFTBRACKET)
+X			brackets++;
+X		else if (c == RIGHTBRACKET)
+X			--brackets;
+X	}
+X	return c;
+X}	/* SkipUntilSemi */
+X
+X
+X
+Xstatic int SkipBrackets(void)
+X{
+X	int brackets = 1, c;
+X
+X	while (brackets > 0) {
+X		c = Getc();
+X		if (c == EOF)
+X			break;
+X		else if (c == LEFTBRACKET)
+X			brackets++;
+X		else if (c == RIGHTBRACKET)
+X			--brackets;
+X	}
+X	return c;
+X}	/* SkipUntilSemi */
+X
+X
+X
+X
+Xstatic void PutProto(void)
+X{
+X	char *sue_str, *vol_str, *signed_str;
+X	char *ptr_str = "***********";
+X
+X	if (is_sue == wt_struct)
+X		sue_str = "struct ";
+X	else if (is_sue == wt_union)
+X		sue_str = "union ";
+X	else if (is_sue == wt_enum)
+X		sue_str = "enum ";
+X	else sue_str = "";
+X
+X	if (is_volatile)
+X		vol_str = "volatile ";
+X	else vol_str = "";
+X
+X	if (is_ptr > 0)
+X		ptr_str[is_ptr] = 0;
+X	else ptr_str = "";
+X
+X	if (is_signed == wt_unsigned)
+X		signed_str = "unsigned ";
+X	else if (is_signed == wt_signed)
+X		signed_str = "signed ";
+X	else signed_str = "";
+X	
+X	if (pgrepoutput > 0) {
+X		(void) printf("%s [%s%s%s%s %s]%s;%s %d\n",
+X			funcname,
+X			vol_str,
+X			signed_str,
+X			sue_str,
+X			typename,
+X			ptr_str,
+X			funcargs,
+X			filename,
+X			startline
+X		);
+X	} else {
+X		if (!EQ("-", filename))
+X			(void) printf("%s %d:  ",
+X				filename,
+X				startline
+X			);
+X		(void) printf("%s%s%s%s %s%s%s;\n",
+X			vol_str,
+X			signed_str,
+X			sue_str,
+X			typename,
+X			ptr_str,
+X			funcname,
+X			funcargs
+X		);
+X	}
+X
+X	if (is_ptr > 0)
+X		ptr_str[is_ptr] = ASTERISK;
+X}	/* PutProto */
+X
+X
+X
+X
+Xstatic void NewType(void)
+X{
+X	is_sue = 0;
+X	is_volatile = 0;
+X	is_signed = 0;
+X	is_ptr = 0;
+X	typename[0] = funcname[0] = funcargs[0] = 0;
+X	startline = -1;
+X}	/* NewType */
+X
+X
+X
+X
+Xstatic int ParenCollect(char *dst, size_t siz)
+X{
+X	char *wordp = dst;
+X	int parens = 1, c;
+X	size_t len;
+X
+X	siz -= 2;		/* leave room for last ) and null. */
+X	*wordp++ = LEFTPAREN;
+X	len = 1;
+X
+X	while (1) {
+X		c = Getc();
+X		if (c == EOF)
+X			break;
+X		if (c == LEFTPAREN)
+X			parens++;
+X		else if (c == RIGHTPAREN) {
+X			if (--parens == 0) {
+X				*wordp++ = c;
+X				break;
+X			}
+X		}
+X		if (isspace(c)) {
+X			/* Don't bother with consecutive whitespace. */
+X			if (!isspace(wordp[-1]) && len < siz) {
+X				*wordp++ = ' ';
+X				++len;
+X			}
+X		} else if (len < siz) {
+X			*wordp++ = c;
+X			++len;
+X		}
+X	}
+X	*wordp = 0;
+X	return c;
+X}	/* ParenCollect */
+X
+X
+X
+X
+Xstatic void Parse(void)
+X{
+X	int				c = '\n', c2;
+X	int				inword = 0;
+X	char			*wordp;
+X	int				wt;
+X
+X	InitGetc();
+X	NewType();
+X
+X	while(1) {
+X		if (inword) {
+X			if (CIDENTCHAR(c)) {
+X				*wordp++ = c;
+X			} else {
+X				/* End token. */
+X				*wordp = 0;
+X				inword = 0;
+X				switch (wt = Wordcmp()) {
+X					case wt_typedef:
+X						(void) SkipUntilSemi();
+X						break;
+X					case wt_struct:
+X					case wt_enum:
+X					case wt_union:
+X						is_sue = wt;
+X						break;
+X					case wt_volatile:
+X						is_volatile = wt_volatile;
+X						break;
+X					case wt_unsigned:
+X					case wt_signed:
+X						is_signed = wt;
+X						break;
+X					case wt_static:
+X					case wt_extern:
+X						break;
+X					case wt_unknown:
+X						if (typename[0] == 0) {
+X							(void) Strncpy(typename, word);
+X						} else {
+X							if (startline == -1)
+X								startline = curline;
+X							(void) Strncpy(funcname, word);
+X						}
+X				}
+X			}
+X		} else {
+X			if (CIDENTCHAR1(c)) {
+X				wordp = word;
+X				inword = 1;
+X				*wordp++ = c;
+X			}
+X		}
+X
+X		if (c == '\n') {
+X			while (NEXTC == CPP_LINE) {
+X				 if (Skipline() == EOF)
+X					goto done;
+X			}
+X		} else if (c == SLASH) {
+X			/* C++ style comment. */
+X			if (((c2 = NEXTC) == SLASH)) {
+X				if (Skipline() == EOF)
+X					goto done;
+X			} else if (c2 == ASTERISK) {
+X				/* C comment block. */
+X				SKIPCHAR;
+X				while (1) {
+X					if ((c = Getc()) == EOF) goto done;
+X					if (c == ASTERISK && NEXTC == SLASH) {
+X						/* End of comment. */
+X						SKIPCHAR;
+X						break;
+X					}
+X				}	/* end getting comment block. */
+X			}		/* end if the char was '*' */
+X		} else if (c == SEMICOLON) {
+X			if (funcargs[0])
+X				PutProto();
+X			NewType();
+X		} else if (c == COMMA) {
+X			if (funcargs[0])
+X				PutProto();
+X			funcname[0] = funcargs[0] = 0;
+X			is_ptr = 0;
+X			startline = -1;
+X		} else if (c == LEFTBRACKET) {
+X			if (is_sue && (SkipBrackets() == EOF))
+X				goto done;
+X			else if (EQ(typename, "C"))		/* No 'extern "C" {' lines, please. */
+X				typename[0] = 0;
+X		} else if (c == LEFTPAREN) {
+X			if (is_signed && typename[0] && funcname[0] == 0) {
+X				(void) Strncpy(funcname, typename);
+X				(void) Strncpy(typename, "int");
+X				startline = curline;
+X			}
+X			if (funcname[0]) {
+X				/* We have an argument list. */
+X				if (ParenCollect(funcargs, sizeof(funcargs)) == EOF)
+X					goto done;
+X			} else {
+X				/* Typename, could be something like: (void (*)(int)) */
+X				if (ParenCollect(typename, sizeof(typename)) == EOF)
+X					goto done;
+X			}
+X		} else if (c == ASTERISK) {
+X			if (typename[0])
+X				is_ptr++;
+X		}
+X
+X		c = Getc();
+X		if (c == EOF) break;
+X	}
+Xdone:
+X	return;
+X}	/* parse */
+X
+X
+X
+Xvoid main(int argc, char **argv)
+X{
+X	int i, c, files;
+X
+X	for (i=1, files=0; i<argc; i++) {
+X		if (argv[i][0] == '-') {
+X			c = argv[i][1];
+X			if (c == 'g')
+X				pgrepoutput++;
+X			else if (c == 'c')
+X				--pgrepoutput;
+X			else {
+X				(void) fprintf(stderr, "\
+X%s version %s by Mike Gleason, NCEMRSoft.\n\
+XFunction: Parses C header files and prints the function prototypes from them.\n\
+XUsage: %s [-g | -c] headers...\n", argv[0], VERSION, argv[0]);
+X				exit(1);
+X			}
+X		} else {
+X			if ((fp = fopen(argv[i], "r")) == NULL)
+X				perror(argv[i]);
+X			else {
+X				files++;
+X				if (strncmp(argv[i], HEADERDIR, sizeof(HEADERDIR) - 1) == 0) {
+X					filename[0] = '<';
+X					(void) strncpy(filename + 1, argv[i] + sizeof(HEADERDIR), sizeof(filename) - 2);
+X					(void) Strncat(filename, ">");
+X				} else
+X					(void) Strncpy(filename, argv[i]);
+X				Parse();
+X				(void) fclose(fp);
+X			}
+X		}
+X	}
+X	if (files == 0) {
+X		fp = stdin;
+X		(void) Strncpy(filename, "-");
+X		Parse();
+X	}
+X}	/* main */
+X
+X/* prpp.c */
+END_OF_FILE
+if test 8937 -ne `wc -c <'prpp.c'`; then
+    echo shar: \"'prpp.c'\" unpacked with wrong size!
+fi
+# end of 'prpp.c'
+fi
+if test -f 'prpp.readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prpp.readme'\"
+else
+echo shar: Extracting \"'prpp.readme'\" \(1073 characters\)
+sed "s/^X//" >'prpp.readme' <<'END_OF_FILE'
+Xprpp - Prototype Pre-preprocessor
+X
+X"Well-written" C source code uses function prototypes, so the header that
+Xdeclares the prototype should be #included.  On my system at least, the manual
+Xpages often do not tell you what header to include, so I whipped up this program
+Xto help work around this problem.  Prpp reads C headers and only spits out the
+Xfunction prototypes from the header.  Then you can run the program on all your
+Xheaders, and have all the prototypes from all the headers in a single file,
+Xso you can grep through them.  The program only works on header (.h) files --
+Xdon't run it on source (.c) files.
+X
+XAfter using the enclosed script to generate the file, you can use the other
+Xenclosed script "prlook" to find prototypes.  For example, here's what I get
+Xwhen I "prlook perror":
+X
+X<X11/Xlibos.h> 165:  void perror();
+X<errno.h> 47:  void perror(const char *);
+X<stdio.h> 176:  void perror(const char *);
+X<rpc/clnt.h> 310:  void clnt_perror(CLIENT *, const char *);
+X<rpc/clnt.h> 311:  char *clnt_sperror(CLIENT *, const char *);
+X
+XComments welcome,
+XMike Gleason
+X
+END_OF_FILE
+if test 1073 -ne `wc -c <'prpp.readme'`; then
+    echo shar: \"'prpp.readme'\" unpacked with wrong size!
+fi
+# end of 'prpp.readme'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(974 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# PrPP Makefile
+X
+XPROG=prpp
+X
+X# Your favorite C Compiler, and flags.
+XCC=cc
+XCFLAGS=-O
+XLFLAGS=-s
+X#CFLAGS=-g
+X#LFLAGS=
+X
+X# Any -D definitions:
+XDEFS=
+X
+X# File permissions for chmod:
+XMODE=755
+X
+XREADME=$(PROG).readme
+XPACKAGE=$(PROG).c $(README) Makefile prlook makeprlist
+X
+Xall: it
+X	chmod $(MODE) $(PROG)
+X	@ls -l $(PROG)
+X	@echo 'Done.'
+X
+Xit: $(PROG).c
+X	$(CC) $(CFLAGS) $(PROG).c -o $(PROG) $(LFLAGS)
+X
+Xshar:
+X	shar $(PACKAGE) | cat $(README) - > $(PROG).shar
+X
+Xtar:
+X	tar cvf - $(PACKAGE) | compress -f > $(PROG).tar.Z
+X
+Xclean:
+X	rm -f core *.u
+X
+Xclobber: clean
+X	rm -i $(PACKAGE)
+X
+X# I use these during development:
+Xlint:
+X	lint $(PROG).c > $(PROG).lint
+X
+Xuntab:
+X	mv $(PROG).c $(PROG).bak
+X	newform -i-4 < $(PROG).bak > $(PROG)
+X
+Xdebug:
+X	$(CC) -g $(DEFS) $(PROG).c -o $(PROG)
+X	chmod $(MODE) $(PROG)
+X	@ls -l $(PROG)
+X
+Xmips:
+X	cc $(MIPS_OPT) -s $(DEFS) $(PROG).c -o $(PROG)
+X	@rm -f *.[ou]
+X	chmod $(MODE) $(PROG)
+X	@ls -l $(PROG)
+X	cp $(PROG) ~/bin
+X	rehash
+X
+Xrz:
+X	rm -f $(PROG).c $(PROG)
+X	rz -e
+X	make
+X
+X# eof
+END_OF_FILE
+if test 974 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'prlook' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prlook'\"
+else
+echo shar: Extracting \"'prlook'\" \(69 characters\)
+sed "s/^X//" >'prlook' <<'END_OF_FILE'
+X#!/bin/sh
+Xzcat /user/students/ugrad/mgleason/src/protos.Z | fgrep $@
+END_OF_FILE
+if test 69 -ne `wc -c <'prlook'`; then
+    echo shar: \"'prlook'\" unpacked with wrong size!
+fi
+chmod +x 'prlook'
+# end of 'prlook'
+fi
+if test -f 'makeprlist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makeprlist'\"
+else
+echo shar: Extracting \"'makeprlist'\" \(157 characters\)
+sed "s/^X//" >'makeprlist' <<'END_OF_FILE'
+X#!/bin/sh
+X
+XHDIR=/usr/include
+XPRFILE="./protos"
+X
+Xif [ $# = 1 ] 
+Xthen
+X	PRFILE=$1
+Xfi
+X
+Xfind $HDIR -exec prpp {} > $PRFILE \;
+Xcompress -v $PRFILE
+Xls -l $PRFILE.Z
+END_OF_FILE
+if test 157 -ne `wc -c <'makeprlist'`; then
+    echo shar: \"'makeprlist'\" unpacked with wrong size!
+fi
+chmod +x 'makeprlist'
+# end of 'makeprlist'
+fi
+echo shar: End of shell archive.
+exit 0
+--
+--mg                                                      mgleason@cse.unl.edu
+
+exit 0 # Just in case...

@@ -1,0 +1,1659 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v33i107:  mailagent - Rule Based Mail Filtering, Part15/17
+Message-ID: <1992Nov20.231151.27892@sparky.imd.sterling.com>
+X-Md4-Signature: eb42251cefa5883e149313e85289360d
+Date: Fri, 20 Nov 1992 23:11:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 33, Issue 107
+Archive-name: mailagent/part15
+Environment: Perl, Sendmail, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  agent/Jmakefile agent/examples/README agent/files/README
+#   agent/filter/README agent/filter/hash.h agent/filter/msg.c
+#   agent/filter/portable.h agent/filter/user.c agent/mailhelp.SH
+#   agent/pl/acs_rqst.pl agent/pl/history.pl agent/pl/mailhook.pl
+#   agent/pl/once.pl agent/pl/period.pl agent/pl/rfc822.pl
+#   agent/pl/unpack.pl agent/test/basic/config.t
+#   agent/test/basic/mailagent.t agent/test/cmd/assign.t
+#   agent/test/cmd/once.t agent/test/cmd/record.t
+#   agent/test/cmd/unique.t agent/test/cmd/write.t agent/test/mail
+#   agent/test/option/s.t
+# Wrapped by kent@sparky on Wed Nov 18 22:42:32 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 17)."'
+if test -f 'agent/Jmakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/Jmakefile'\"
+else
+  echo shar: Extracting \"'agent/Jmakefile'\" \(1541 characters\)
+  sed "s/^X//" >'agent/Jmakefile' <<'END_OF_FILE'
+X/*
+X * Jmakefile for mailagent
+X */
+X
+X;# $Id: Jmakefile,v 2.9.1.2 92/08/26 12:33:22 ram Exp $
+X;#
+X;#  Copyright (c) 1991, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	Jmakefile,v $
+X;# Revision 2.9.1.2  92/08/26  12:33:22  ram
+X;# patch8: new mailhook target, installed in private library directory
+X;# 
+X;# Revision 2.9.1.1  92/08/12  21:27:08  ram
+X;# patch6: mailagent is now built with offset table (perload -o)
+X;# 
+X;# Revision 2.9  92/07/14  16:47:06  ram
+X;# 3.0 beta baseline.
+X;# 
+X
+XBIN = mailpatch mailhelp maillist maildist
+X
+XNoManPages()
+XShellScriptTarget($(BIN))
+XSimpleShellScriptTarget(magent)
+XSimpleShellScriptTarget(mhook)
+X
+X/* The mailagent itself is derived from 'magent' through perload, hence
+X * making the program more efficient (the whole script need not be compiled
+X * by perl). Idem for mailhook.
+X */
+X
+XAllTarget(mailagent)
+Xmailagent: magent
+X	$(TOP)/bin/perload -o magent > $@
+X	chmod +rx $@
+X
+XAllTarget(mailhook)
+Xmailhook: mhook
+X	$(TOP)/bin/perload -o mhook > $@
+X	chmod +rx $@
+X
+X/* The mailagent carries some machine-dependant parts (for file locking)
+X * so it is a binary, not a script (viz it may not be shared accross
+X * different architectures).
+X */
+X
+X>BINDIR
+XInstallScript(mailagent,$(BINDIR))
+X
+XSetSubdirs(files filter man test)
+XDependDirs(filter)
+X
+X>PRIVLIB	/* Force metaconfig to ask for privlib location */
+X
+XMakeInstallDirectories($(PRIVLIB))
+XInstallMultipleDestFlags(install,mailhook,$(PRIVLIB),-m 555)
+END_OF_FILE
+  if test 1541 -ne `wc -c <'agent/Jmakefile'`; then
+    echo shar: \"'agent/Jmakefile'\" unpacked with wrong size!
+  fi
+  # end of 'agent/Jmakefile'
+fi
+if test -f 'agent/examples/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/examples/README'\"
+else
+  echo shar: Extracting \"'agent/examples/README'\" \(1409 characters\)
+  sed "s/^X//" >'agent/examples/README' <<'END_OF_FILE'
+XThis directory contains examples of rule files for the mailagent and
+Xother aspects from my own environment.
+X
+Xdaemon:
+X	A small rule file which basically simulates the behaviour of the
+X	vacation program (except that vacation messages are sent every day,
+X	not once).
+X
+Xmailfolders:
+X	This file is a copy of my ~/.mailfolders. It lists all the folders or
+X	directories where the filter drops its incoming mail (appart from my
+X	system mailbox, which is implicetely included). This file is used by
+X	my ~/.profile to compute a suitable MAILPATH value (a colon separated
+X	list of files ksh should monitor for new mail). It is also used by the
+X	mchk script.
+X
+Xmchk:
+X	Check all the folders for new mail.
+X
+Xmhinc:
+X	This script incorporates the filtered mails or news into the
+X	corresponding MH folder.
+X	
+Xnocmds:
+X	A copy of my ~/tmp/nocmds file, which will be mailed back to anybody
+X	who sends me a Command mail, except when sent by myself.
+X
+Xprofile:
+X	An excerpt from my ~/.profile file where the mail related variables
+X	are set. I am using ksh, but some plain sh also handle those variables,
+X	which is why it is not in a ~/.kshrc.
+X
+Xrules:
+X	The rule file I am currently using as of today, June 30th 1992. It is
+X	a good example of what can be done, although it is far from using all
+X	the available features. Heavily commented.
+X
+Xvacation:
+X	A generic vacation message held in ~/.vacation. It shows typical macro
+X	substitutions.
+X
+END_OF_FILE
+  if test 1409 -ne `wc -c <'agent/examples/README'`; then
+    echo shar: \"'agent/examples/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/examples/README'
+fi
+if test -f 'agent/files/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/README'\"
+else
+  echo shar: Extracting \"'agent/files/README'\" \(1362 characters\)
+  sed "s/^X//" >'agent/files/README' <<'END_OF_FILE'
+XThis directory holds the shell version of the filter, and some other
+Xsample files which will be installed in the public mailagent directory.
+X
+Xagenthelp:
+X	The generic help message used by the @SH mailhelp command. You may
+X	of course rewrite this completely to fit your taste.
+X
+Xchkagent.sh:
+X	A small script I am using to monitor the whole mailagent installation.
+X	This is run by cron every night, and mails me problems logged in the
+X	log file, or unusual messages from my ~/.bak, etc...
+X	(The name chkagent.sh was chosen to leave room for the RCS ,v extension
+X	on some old systems with 14 characters limit in the file names.)
+X	Here is my crontab entry:
+X
+X		# Check the mailagent log file for the current day
+X		55 23 * * *		$HOME/etc/checkagent
+X
+Xcommands:
+X	This file holds the allowed commands for @SH hooks.
+X
+Xdistribs:
+X	A description table which states where each program is located,
+X	whether it is archived or not, or has patches, etc... This is
+X	used by the @SH commands.
+X
+Xfilter.sh:
+X	The shell version of the filter program. Note that this script is
+X	not tested by the automatic regression tests and needs some tailoring
+X	before it can be used. It is provided only as a guideline for people
+X	who cannot use the C version.
+X
+Xmailagent.cf:
+X	A template for your ~/.mailagent.
+X
+Xproglist:
+X	A list of program description which will be used by the 'maillist'
+X	command.
+X
+END_OF_FILE
+  if test 1362 -ne `wc -c <'agent/files/README'`; then
+    echo shar: \"'agent/files/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/files/README'
+fi
+if test -f 'agent/filter/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/README'\"
+else
+  echo shar: Extracting \"'agent/filter/README'\" \(2156 characters\)
+  sed "s/^X//" >'agent/filter/README' <<'END_OF_FILE'
+XThis is the root directory for the C filter.
+X
+XUsing the C version of the filter instead of the shell version is up to you.
+XThis is not really a filter in the common sense, because it does not actually
+Xfilter anything based on the contents of your mails. It only distills your
+Xincoming mail into the mailagent's queue, avoiding the spawning of multiple
+Xperl processes which are resource consuming.
+X
+XI had to write a C version for the filter because I was loosing some mail on
+Xmy machine when I used the shell script. This occurred seldom, but still...
+XThe reason was due to the delivery mode at our site. We get our mail from a
+Xuucp feed. Once in a while, 20 or more mails were delivered at the same time,
+Xand the shell script was not fast enough, and sendmail + filter were eating
+Xall my system's resources.
+X
+XThis program was written in two days, in self defense, when I decided I could
+Xnot afford seeing my precious mail sweeping into /dev/null any longer. It
+Xmight not be as portable as I wanted it too.
+X
+XIf you have an internet connection and receive only a small amount of mail
+Xat a time, or if you have NFS mounted mailboxes, then the shell script filter
+Xmay well be the winner.
+X
+XIn case you are lucky enough to have a uucp connection *and* NFS mounted
+Xmailboxes where you may receive mail on multiple machines :-), then you may
+Xrun into difficulties while setting up your .forward. The best thing to do is
+Xto have the filter executable installed at the same location on all the
+Xmachines, say in /usr/local/bin/filter.
+X
+XIf your sendmail does not always set the uid correctly before invoking the
+Xmailer specified in the .forward, then you will have to use the C filter and
+Xmake a local copy with the setuid bit set. This is yet another reason for me
+Xto use this program on my MIPS workstation, grrr...
+X
+XThe C filter pays attention to more variables in the ~/.mailagent than the
+Xshell script one, mainly to ensure a proper PATH variable. Also note that
+Xthe algorithms used by the two programs are completely different. Despite the
+Xfact it was written in a hurry, I believe it is a little safer than its shell
+Xcounterpart. At least it is *much* faster.
+X
+END_OF_FILE
+  if test 2156 -ne `wc -c <'agent/filter/README'`; then
+    echo shar: \"'agent/filter/README'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/README'
+fi
+if test -f 'agent/filter/hash.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/hash.h'\"
+else
+  echo shar: Extracting \"'agent/filter/hash.h'\" \(1733 characters\)
+  sed "s/^X//" >'agent/filter/hash.h' <<'END_OF_FILE'
+X/*
+X
+X #    #    ##     ####   #    #          #    #
+X #    #   #  #   #       #    #          #    #
+X ######  #    #   ####   ######          ######
+X #    #  ######       #  #    #   ###    #    #
+X #    #  #    #  #    #  #    #   ###    #    #
+X #    #  #    #   ####   #    #   ###    #    #
+X
+X	Declarations for hash table.
+X*/
+X
+X/*
+X * $Id: hash.h,v 2.9 92/07/14 16:48:11 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	hash.h,v $
+X * Revision 2.9  92/07/14  16:48:11  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#ifndef _hash_h
+X#define _hash_h
+X
+X/* Structure which describes the hash table: array of keys and array of
+X * values, along with the table's size and the number of recorded elements.
+X */
+Xstruct htable {
+X	int32 h_size;		/* Size of table (prime number) */
+X	int32 h_items;		/* Number of items recorded in table */
+X	char **h_keys;		/* Array of keys (strings) */
+X	int h_pos;			/* Last position in table (iterations) */
+X	char **h_values;	/* Array of values (strings) */
+X};
+X
+X/* Function declaration */
+Xextern int ht_create();				/* Create H table */
+Xextern char *ht_value();			/* Get value given some key */
+Xextern char *ht_put();				/* Insert value in H table */
+Xextern char *ht_force();			/* Like ht_put, but replace old value */
+Xextern int ht_xtend();				/* Extend size of full H table */
+Xextern int ht_start();				/* Start iteration over H table */
+Xextern int ht_next();				/* Go to next item in H table */
+Xextern char *ht_ckey();				/* Fetch current key */
+Xextern char *ht_cvalue();			/* Fetch current value */
+Xextern int ht_count();				/* Number of items in H table */
+X
+X#endif
+END_OF_FILE
+  if test 1733 -ne `wc -c <'agent/filter/hash.h'`; then
+    echo shar: \"'agent/filter/hash.h'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/hash.h'
+fi
+if test -f 'agent/filter/msg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/msg.c'\"
+else
+  echo shar: Extracting \"'agent/filter/msg.c'\" \(1707 characters\)
+  sed "s/^X//" >'agent/filter/msg.c' <<'END_OF_FILE'
+X/*
+X
+X #    #   ####    ####            ####
+X ##  ##  #       #    #          #    #
+X # ## #   ####   #               #
+X #    #       #  #  ###   ###    #
+X #    #  #    #  #    #   ###    #    #
+X #    #   ####    ####    ###     ####
+X
+X	Fatal messages.
+X*/
+X
+X/*
+X * $Id: msg.c,v 2.9 92/07/14 16:48:32 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	msg.c,v $
+X * Revision 2.9  92/07/14  16:48:32  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include "sysexits.h"
+X#include "logfile.h"
+X#include "lock.h"
+X#include "io.h"
+X
+X#define MAX_STRING	1024		/* Maximum length for error string */
+X
+X/* VARARGS2 */
+Xpublic void fatal(reason, arg1, arg2, arg3, arg4, arg5)
+Xchar *reason;
+Xint arg1, arg2, arg3, arg4, arg5;
+X{
+X	/* Fatal error -- die with a meaningful error status for sendmail. If the
+X	 * logfile has been opened, the reason will also be logged there.
+X	 */
+X	char buffer[MAX_STRING];
+X	int status;						/* Status from emergency_save() */
+X	
+X	status = emergency_save();		/* Attempt emergency saving */
+X
+X	fprintf(stderr, "%s: ", progname);
+X	fprintf(stderr, reason, arg1, arg2, arg3, arg4, arg5);
+X	fputc('\n', stderr);
+X	sprintf(buffer, "FATAL %s", reason);
+X	add_log(1, buffer, arg1, arg2, arg3, arg4, arg5);
+X	release_lock();
+X
+X	if (!was_queued()) {
+X		add_log(6, "NOTICE leaving mail in MTA's queue");
+X		exit(EX_TEMPFAIL);
+X	} else if (status == -1) {
+X		add_log(5, "WARNING no saving was ever done");
+X		add_log(6, "NOTICE leaving mail in MTA's queue");
+X		exit(EX_TEMPFAIL);
+X	}
+X
+X	exit(EX_OK);
+X}
+X
+END_OF_FILE
+  if test 1707 -ne `wc -c <'agent/filter/msg.c'`; then
+    echo shar: \"'agent/filter/msg.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/msg.c'
+fi
+if test -f 'agent/filter/portable.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/portable.h'\"
+else
+  echo shar: Extracting \"'agent/filter/portable.h'\" \(1377 characters\)
+  sed "s/^X//" >'agent/filter/portable.h' <<'END_OF_FILE'
+X/*
+X
+X #####    ####   #####    #####    ##    #####   #       ######          #    #
+X #    #  #    #  #    #     #     #  #   #    #  #       #               #    #
+X #    #  #    #  #    #     #    #    #  #####   #       #####           ######
+X #####   #    #  #####      #    ######  #    #  #       #        ###    #    #
+X #       #    #  #   #      #    #    #  #    #  #       #        ###    #    #
+X #        ####   #    #     #    #    #  #####   ######  ######   ###    #    #
+X
+X	Some portable declarations.
+X*/
+X
+X/*
+X * $Id: portable.h,v 2.9 92/07/14 16:48:41 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	portable.h,v $
+X * Revision 2.9  92/07/14  16:48:41  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#ifndef _portable_h_
+X#define _portable_h_
+X
+X/*
+X * Standard types
+X */
+X#if INTSIZE < 4
+Xtypedef int int16;
+Xtypedef long int32;
+Xtypedef unsigned int uint16;
+Xtypedef unsigned long uint32;
+X#else
+Xtypedef short int16;
+Xtypedef int int32;
+Xtypedef unsigned short uint16;
+Xtypedef unsigned int uint32;
+X#endif
+X
+X/*
+X * Scope control pseudo-keywords
+X */
+X#define public				/* default C scope */
+X#define private static		/* static outside a block means private */
+X#define shared				/* data shared between modules, but not public */
+X
+X#endif
+END_OF_FILE
+  if test 1377 -ne `wc -c <'agent/filter/portable.h'`; then
+    echo shar: \"'agent/filter/portable.h'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/portable.h'
+fi
+if test -f 'agent/filter/user.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/filter/user.c'\"
+else
+  echo shar: Extracting \"'agent/filter/user.c'\" \(1665 characters\)
+  sed "s/^X//" >'agent/filter/user.c' <<'END_OF_FILE'
+X/*
+X
+X #    #   ####   ######  #####            ####
+X #    #  #       #       #    #          #    #
+X #    #   ####   #####   #    #          #
+X #    #       #  #       #####    ###    #
+X #    #  #    #  #       #   #    ###    #    #
+X  ####    ####   ######  #    #   ###     ####
+X
+X	Compute user login name.
+X*/
+X
+X/*
+X * $Id: user.c,v 2.9 92/07/14 16:48:46 ram Exp $
+X *
+X *  Copyright (c) 1992, Raphael Manfredi
+X *
+X *  You may redistribute only under the terms of the GNU General Public
+X *  Licence as specified in the README file that comes with dist.
+X *
+X * $Log:	user.c,v $
+X * Revision 2.9  92/07/14  16:48:46  ram
+X * 3.0 beta baseline.
+X * 
+X */
+X
+X#include "config.h"
+X#include "portable.h"
+X#include <sys/types.h>					/* For uid_t */
+X#include <pwd.h>
+X
+X#ifdef I_STRING
+X#include <string.h>
+X#else
+X#include <strings.h>
+X#endif
+X
+X#define LOGIN_LEN	8					/* Maximum login name length */
+X
+Xextern struct passwd *getpwuid();		/* Get password entry for UID */
+Xextern Uid_t geteuid();					/* Effective user UID */
+X
+Xpublic char *logname()
+X{
+X	/* Return pointer to static data holding the user login name. Note that we
+X	 * look-up in /etc/passwd. Hence, if the user has duplicate entries in the
+X	 * file, the first one will be reported. This may or may not bother you.
+X	 * NB: we use the *effective* user ID, not the real one.
+X	 */
+X	
+X	static char login[LOGIN_LEN + 1];	/* Where login name is stored */
+X	struct passwd *pw;					/* Pointer to password entry */
+X
+X	pw = getpwuid(geteuid());			/* Get first entry matching UID */
+X	if (pw == (struct passwd *) 0)
+X		return (char *) 0;				/* User not found */
+X
+X	strncpy(login, pw->pw_name, LOGIN_LEN);
+X	login[LOGIN_LEN] = '\0';
+X
+X	return login;
+X}
+X
+END_OF_FILE
+  if test 1665 -ne `wc -c <'agent/filter/user.c'`; then
+    echo shar: \"'agent/filter/user.c'\" unpacked with wrong size!
+  fi
+  # end of 'agent/filter/user.c'
+fi
+if test -f 'agent/mailhelp.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/mailhelp.SH'\"
+else
+  echo shar: Extracting \"'agent/mailhelp.SH'\" \(2102 characters\)
+  sed "s/^X//" >'agent/mailhelp.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test ! -f config.sh; then
+X		ln ../config.sh . || \
+X		ln ../../config.sh . || \
+X		ln ../../../config.sh . || \
+X		(echo "Can't find config.sh."; exit 1)
+X	fi 2>/dev/null
+X	. config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/mailhelp (with variable substitutions)"
+X$spitshell >mailhelp <<!GROK!THIS!
+X# feed this into perl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: mailhelp.SH,v 2.9 92/07/14 16:48:54 ram Exp $
+X#
+X#  Copyright (c) 1991, 1992, Raphael Manfredi
+X#
+X#  You may redistribute only under the terms of the GNU General Public
+X#  Licence as specified in the README file that comes with dist.
+X#
+X# $Log:	mailhelp.SH,v $
+X# Revision 2.9  92/07/14  16:48:54  ram
+X# 3.0 beta baseline.
+X# 
+X
+X\$mversion = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X
+X$spitshell >>mailhelp <<'!NO!SUBS!'
+X
+X$prog_name = $0;				# Who I am
+X$prog_name =~ s|^.*/(.*)|$1|;	# Keep only base name
+X
+Xdo read_config();	# First, read configuration file (in ~/.mailagent)
+X
+X# take job number and command from environment
+X# (passed by mailagent)
+X$jobnum = $ENV{'jobnum'};
+X$fullcmd = $ENV{'fullcmd'};
+X
+X$dest=shift;							# Who should the help be sent to
+X$dest = $ENV{'path'} if $dest eq '';	# If dest was ommitted
+X
+X# A single '-' as first argument stands for return path
+X$dest = $ENV{'path'} if $dest eq '-';
+X
+Xopen(HELP, "$cf'spool/agenthelp") || do fatal("no help file!\n");
+Xopen(MAILER, "|/usr/lib/sendmail -odq -t");
+Xprint MAILER
+X"To: $dest
+XSubject: How to use my mail agent
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+X";
+Xwhile (<HELP>) {
+X	# Replace some tokens by parameters
+X	s/=DEST=/$dest/g;
+X	s/=MAXSIZE=/$cf'maxsize/g;
+X	print MAILER;
+X}
+Xprint MAILER
+X"
+X-- $prog_name speaking for $cf'user
+X";
+Xclose MAILER;
+Xif ($?) {
+X	do add_log("ERROR couldn't send help to $dest") if $loglvl > 0;
+X} else {
+X	do add_log("SENT help to $dest") if $loglvl > 2;
+X}
+Xclose HELP;
+X
+X!NO!SUBS!
+X$grep -v '^;#' pl/fatal.pl >>mailhelp
+X$grep -v '^;#' pl/add_log.pl >>mailhelp
+X$grep -v '^;#' pl/read_conf.pl >>mailhelp
+Xchmod 755 mailhelp
+X$eunicefix mailhelp
+END_OF_FILE
+  if test 2102 -ne `wc -c <'agent/mailhelp.SH'`; then
+    echo shar: \"'agent/mailhelp.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/mailhelp.SH'
+  # end of 'agent/mailhelp.SH'
+fi
+if test -f 'agent/pl/acs_rqst.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/acs_rqst.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/acs_rqst.pl'\" \(1490 characters\)
+  sed "s/^X//" >'agent/pl/acs_rqst.pl' <<'END_OF_FILE'
+X;# $Id: acs_rqst.pl,v 2.9 92/07/14 16:49:28 ram Exp $
+X;#
+X;#  Copyright (c) 1991, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	acs_rqst.pl,v $
+X;# Revision 2.9  92/07/14  16:49:28  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X# Asks for the exclusive access of a file
+X# The given parameter (let's say F) is the absolute path
+X# of the file we want to access. The routine checks for the
+X# presence of F.lock. If it exists, it sleeps 1 second and tries
+X# again. After 10 trys, it reports failure by returning -1.
+X# Otherwise, file F.lock is created and the pid of the current
+X# process is written. It is checked afterwards.
+Xsub acs_rqst {
+X	local($file) = @_;	# file to be locked
+X	local($max) = 10;	# max number of attempts
+X	local($mask);		# to save old umask
+X	while ($max) {
+X		$max--;
+X		if (-f "$file.lock") {
+X			sleep(2);	# busy: wait
+X			next;
+X		}
+X		# Attempt to create lock
+X		$mask = umask(0333);			# no write permission
+X		if (open(FILE, ">$file.lock")) {
+X			print FILE "$$\n";			# write pid
+X			close FILE;
+X			umask($mask);				# restore old umask
+X			# Check lock
+X			open(FILE, "$file.lock");
+X			$_ = <FILE>;				# read contents
+X			close FILE;
+X			last if int($_) == $$;		# lock is ok
+X		} else {
+X			umask($mask);				# restore old umask
+X			sleep(2);					# busy: wait
+X		}
+X	}
+X	if ($max) {
+X		$result = 0;	# ok
+X	} else {
+X		$result = -1;	# could not lock
+X	}
+X	$result;			# return status
+X}
+X
+END_OF_FILE
+  if test 1490 -ne `wc -c <'agent/pl/acs_rqst.pl'`; then
+    echo shar: \"'agent/pl/acs_rqst.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/acs_rqst.pl'
+fi
+if test -f 'agent/pl/history.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/history.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/history.pl'\" \(2538 characters\)
+  sed "s/^X//" >'agent/pl/history.pl' <<'END_OF_FILE'
+X;# $Id: history.pl,v 2.9.1.2 92/11/01 15:50:23 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	history.pl,v $
+X;# Revision 2.9.1.2  92/11/01  15:50:23  ram
+X;# patch11: now recognizes '(a)' for '@' in a message ID (X-400 gateways)
+X;# 
+X;# Revision 2.9.1.1  92/08/26  13:13:35  ram
+X;# patch8: rewrote computation of message ID when absent from mail
+X;# 
+X;# Revision 2.9  92/07/14  16:50:08  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+X;# Handle the message history mechanism, which is used to reject duplicates.
+X;# Each message-id tag is stored in a file, along with a time-stamp (to enable
+X;# its removal after a given period.
+X;#
+X# Record message whose message ID is given as argument and return 0 if the
+X# message was recorded for the first time or if there is no valid message ID.
+X# Return 1 if the message was already recorded, and hence was already seen.
+Xsub history_record {
+X	local($msg_id) = $Header{'Message-Id'};		# Message-ID header
+X
+X	# If there is no message ID, use the concatenation of date + from fields.
+X	if ($msg_id) {
+X		# Keep only the ID stored within <> brackets
+X		($msg_id) = $msg_id =~ m|^<(.*)>\s*$|;
+X	} else {
+X		# Use date + from iff there is a date. We cannot use the from field
+X		# alone, obviously!! We also have to ensure there is an '@' in the
+X		# message id, which is the case unless the address is in uucp form.
+X		$msg_id = $Header{'Date'};
+X		local($from, $comment) = &parse_address($Header{'From'});
+X		$from =~ s/^([\w-.]+)!([\w-.]+)/@$1:$2/;	# host!user -> @host:user
+X		$msg_id .= '.' . $from if $msg_id;
+X	}
+X	$msg_id =~ s/\s+/./g;			# Suppress all spaces
+X	$msg_id =~ s/\(a\)/@/;			# X-400 gateways sometimes use (a) for @
+X	return 0 unless $msg_id;		# Cannot record message without an ID
+X
+X	# Hashing of the message ID is done based on the two first letters of
+X	# the host name (assuming message ID has the form whatever@host).
+X	local($stamp, $host) = $msg_id =~ m|^(.*)@([.\w]+)|;
+X	unless ($stamp) {
+X		&add_log("WARNING incorrect message ID <$msg_id>") if $loglvl > 5;
+X		return 0;					# Cannot record message if invalid ID
+X	}
+X
+X	local($time, $line) = &dbr'info($host, 'HISTORY', $stamp);
+X	return 0 if $time == -1;				# An error occurred
+X	if ($time > 0) {						# Message already recorded
+X		&add_log("history duplicate <$msg_id>") if $loglvl > 6;
+X		return 1;
+X	}
+X	&dbr'update($host, 'HISTORY', 0, $stamp);	# Record message (appending)
+X	0;			# First time ever seen
+X}
+X
+END_OF_FILE
+  if test 2538 -ne `wc -c <'agent/pl/history.pl'`; then
+    echo shar: \"'agent/pl/history.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/history.pl'
+fi
+if test -f 'agent/pl/mailhook.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/mailhook.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/mailhook.pl'\" \(1687 characters\)
+  sed "s/^X//" >'agent/pl/mailhook.pl' <<'END_OF_FILE'
+X;# $Id: mailhook.pl,v 2.9.1.1 92/08/26 13:16:58 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	mailhook.pl,v $
+X;# Revision 2.9.1.1  92/08/26  13:16:58  ram
+X;# patch8: created
+X;# 
+X;# 
+X#
+X# Various hook utilities
+X# (name in package hook, compiled in package mailhook)
+X#
+X
+Xpackage mailhook;
+X
+X# Parse mail and initialize special variables. The perl script used as hook
+X# does not have (usually) to do any parsing on the mail. Headers of the mail
+X# are available via the %header array and some special variables are set as
+X# conveniences.
+Xsub hook'initialize {
+X	*header = *main'Header;		# User may fetch headers via %header
+X	$sender = $header{'Sender'};
+X	$subject = $header{'Subject'};
+X	$precedence = $header{'Precedence'};
+X	$from = $header{'From'};
+X	$to = $header{'To'};
+X	$cc = $header{'Cc'};
+X	($address, $friendly) = &'parse_address($from);
+X	$login = &'login_name($from);
+X	@to = split(/,/, $to);
+X	@cc = split(/,/, $to);
+X	# Leave only the address part in @to and @cc
+X	grep(($_ = (&'parse_address($_))[0], 0), @to);
+X	grep(($_ = (&'parse_address($_))[0], 0), @cc);
+X}
+X
+X# Load hook script and run it
+Xsub hook'run {
+X	local($hook) = @_;
+X	open(HOOK, $hook) || &'fatal("cannot open $hook: $!");
+X	local($/) = undef;
+X	local($body) = <HOOK>;		# Slurp whole file
+X	close(HOOK);
+X	unshift(@INC, $'privlib);	# Files first searched for in mailagent's lib
+X	eval $body;					# Load, compile and execute within mailhook
+X	if (chop($@)) {
+X		$@ =~ s/ in file \(eval\)//;
+X		&'add_log("ERROR $@") if $'loglvl;
+X		&'fatal("$hook aborted");
+X	}
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 1687 -ne `wc -c <'agent/pl/mailhook.pl'`; then
+    echo shar: \"'agent/pl/mailhook.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/mailhook.pl'
+fi
+if test -f 'agent/pl/once.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/once.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/once.pl'\" \(1644 characters\)
+  sed "s/^X//" >'agent/pl/once.pl' <<'END_OF_FILE'
+X;# $Id: once.pl,v 2.9 92/07/14 16:50:24 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	once.pl,v $
+X;# Revision 2.9  92/07/14  16:50:24  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+X;# Handling of the "once" directory for ONCE commands. A once command is
+X;# tagged with a tuple (name,ruletag). The name is used for hashing, and
+X;# the ruletag sepecifies the entry to be used by the command for timestamp
+X;# recording. The dbr package is used to maintain the database
+X;#
+X# Given a tuple (name, tag) and a period, make sure the command may be
+X# executed. If it can, update the timestamp and return true. false otherwise.
+Xsub once_check {
+X	local($hname, $tag, $period) = @_;
+X	$hname =~ s/\s//g;					# There cannot be spaces in the name
+X	local($ok) = 1;						# Is once ok ?
+X	local($timestamp) = 0;				# Time stamp attached to entry
+X	local($linenum) = 0;				# Line where entry was found
+X	if (-f $file) {
+X		($timestamp, $linenum) = &dbr'info($hname, 'ONCE', $tag);
+X		return 0 if $timestamp == -1;	# An error occurred
+X	}
+X	local($now) = time;					# Number of seconds since The Epoch
+X	if (($timestamp + $period) > $now) {
+X		&'add_log("we have to wait for ($hname, $tag)") if $'loglvl > 18;
+X		return 0;
+X	}
+X	# Now we know we can execute the command. So update the database entry.
+X	# If the timestamp is 0, then an append has to be done, otherwise it's
+X	# a single replacement.
+X	if ($timestamp > 0) {
+X		&dbr'update($hname, 'ONCE', $linenum, $tag);
+X	} else {
+X		&dbr'update($hname, 'ONCE', 0, $tag);
+X	}
+X	1;
+X}
+X
+END_OF_FILE
+  if test 1644 -ne `wc -c <'agent/pl/once.pl'`; then
+    echo shar: \"'agent/pl/once.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/once.pl'
+fi
+if test -f 'agent/pl/period.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/period.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/period.pl'\" \(1384 characters\)
+  sed "s/^X//" >'agent/pl/period.pl' <<'END_OF_FILE'
+X;# $Id: period.pl,v 2.9 92/07/14 16:50:26 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	period.pl,v $
+X;# Revision 2.9  92/07/14  16:50:26  ram
+X;# 3.0 beta baseline.
+X;# 
+X;# 
+X# Compute the number of seconds in the period. An atomic period is a digit
+X# possibly followed by a modifier. The default modifier is 'd'.
+X# Here are the available modifiers (case is significant):
+X#  m  minute
+X#  h  hour
+X#  d  day
+X#  w  week
+X#  M  month (30 days of 24 hours)
+X#  y  year
+Xsub seconds_in_period {
+X	local($_) = @_;				# The string to parse
+X	s|^(\d+)||;
+X	local ($number) = int($1);	# Number of elementary periods
+X	$_ = 'd' unless /^\s*\w$/;	# Period modifier (defaults to day)
+X	local($sec);				# Number of seconds in an atomic period
+X	if ($_ eq 'm') {
+X		$sec = 60;				# One minute = 60 seconds
+X	} elsif ($_ eq 'h') {
+X		$sec = 3600;			# One hour = 3600 seconds
+X	} elsif ($_ eq 'd') {
+X		$sec = 86400;			# One day = 24 hours
+X	} elsif ($_ eq 'w') {
+X		$sec = 604800;			# One week = 7 days
+X	} elsif ($_ eq 'M') {
+X		$sec = 2592000;			# One month = 30 days
+X	} elsif ($_ eq 'y') {
+X		$sec = 31536000;		# One year = 365 days
+X	} else {
+X		$sec = 86400;			# Unrecognized: defaults to one day
+X	}
+X	$number * $sec;				# Number of seconds in the period
+X}
+X
+END_OF_FILE
+  if test 1384 -ne `wc -c <'agent/pl/period.pl'`; then
+    echo shar: \"'agent/pl/period.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/period.pl'
+fi
+if test -f 'agent/pl/rfc822.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/rfc822.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/rfc822.pl'\" \(2208 characters\)
+  sed "s/^X//" >'agent/pl/rfc822.pl' <<'END_OF_FILE'
+X;# $Id: rfc822.pl,v 2.9.1.1 92/11/01 15:51:46 ram Exp $
+X;#
+X;#  Copyright (c) 1992, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	rfc822.pl,v $
+X;# Revision 2.9.1.1  92/11/01  15:51:46  ram
+X;# patch11: allows _ as separator in names (as in First_Last)
+X;# 
+X;# Revision 2.9  92/07/14  16:50:42  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X;# The following routines do some parsing on RFC822 headers (such as the
+X;# ones provided by sendmail).
+X;#
+X# Parse an address and returns (internet, comment)
+X# Examples:
+X#    ram@eiffel.com (Raphael Manfredi)  -> (ram@eiffel.com, Raphael Manfredi)
+X#    Raphael Manfredi <ram@eiffel.com>  -> (ram@eiffel.com, Raphael Manfredi)
+Xsub parse_address {
+X	local($_) = shift(@_);		# The address to be parsed
+X	local($comment);
+X	local($internet);
+X	if (/^\s*(\S+)\s+\((.*)\)/) {		# address (comment) 
+X		($1, $2);
+X	} elsif (/^\s*(.*)\s+<(\S+)>/) {	# comment <address>
+X		$comment = $1;
+X		$internet = $2;
+X		$comment =~ s/^"(.*)"/$1/;		# "comment" -> comment
+X		($internet, $comment);
+X	} elsif (/^\s*<(\S+)>/) {			# <address>
+X		($1, "");
+X	} else {							# address
+X		s/^\s+//;
+X		($_, "");
+X	}
+X}
+X
+X# Parses an internet address and returns the login name of the sender
+Xsub login_name {
+X	local($_) = shift(@_);				# The internet address
+X	if (s/^"(\S+)"@\S+/$1/) {			# "user@domain"@other
+X		do login_name($_);				# parse user@domain
+X	} elsif (s/^(\S+)@\S+/$1/) {		# user@domain.name
+X		do login_name($_);				# parse user
+X	} elsif (s/^(\S+)%\S+/$1/) {		# user%domain.name
+X		do login_name($_);				# parse user
+X	} elsif (s/^\S+!(\S+)/$1/) {		# ...!backbone!user
+X		do last_name($_);				# user can only be a simple name
+X	} else {							# everything else must be a single name
+X		do last_name($_);				# keep only last name
+X	}
+X}
+X
+X# Extract last name from a login name like First_name.Last_name and put it
+X# in lowercase. Hence, Raphael.Manfredi will become manfredi.
+Xsub last_name {
+X	local($_) = shift(@_);			# The sender's login name
+X	s/.*\.(\w+)/$1/;				# Keep only the last name (. separation)
+X	s/.*_(\w+)/$1/;					# Same as above (_ separation)
+X	tr/A-Z/a-z/;					# And lowercase it
+X	$_;
+X}
+X
+END_OF_FILE
+  if test 2208 -ne `wc -c <'agent/pl/rfc822.pl'`; then
+    echo shar: \"'agent/pl/rfc822.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/rfc822.pl'
+fi
+if test -f 'agent/pl/unpack.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/unpack.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/unpack.pl'\" \(1883 characters\)
+  sed "s/^X//" >'agent/pl/unpack.pl' <<'END_OF_FILE'
+X;# $Id: unpack.pl,v 2.9 92/07/14 16:50:55 ram Exp $
+X;#
+X;#  Copyright (c) 1991, Raphael Manfredi
+X;#
+X;#  You may redistribute only under the terms of the GNU General Public
+X;#  Licence as specified in the README file that comes with dist.
+X;#
+X;# $Log:	unpack.pl,v $
+X;# Revision 2.9  92/07/14  16:50:55  ram
+X;# 3.0 beta baseline.
+X;# 
+X;#
+X# Expands an archive's name
+Xsub expand {
+X	local($path) = shift;		# The archive
+X	# Look for extension of base path (eg: .cpio.Z)
+X	local(@fullpath) = <${path}.*>;
+X	if (-1 == $#fullpath) {
+X		do clean_tmp();
+X		do fatal("no archive file");
+X	}
+X	$path = $fullpath[0];		# Name with archive extension
+X}
+X
+X# Unpack(path,dir,flag) restores archive `path' into `dir'
+X# and returns the location of the main directory.
+Xsub unpack {
+X	local($path) = shift;		# The archive
+X	local($dir) = shift;		# Storage place
+X	local($compflag) = shift;	# Flag for compression (useful for short names)
+X	local($unpack) = "";		# Will hold the restore command
+X	$path = do expand($path);	# Name with archive extension
+X	do add_log("archive is $path") if $loglvl > 19;
+X	# First determine wether it is compressed
+X	if ($compflag) {
+X		$unpack = "zcat | ";
+X	}
+X	# Cpio or tar ?
+X	if ($path =~ /\.tar/) {
+X		$unpack .= "tar xof -";
+X	} else {
+X		$unpack .= "cpio -icmd";
+X	}
+X	system "< $path (cd $dir; $unpack)";
+X	$path =~ s|.*/(\w+)|$1|;	# Keep only basename
+X	local ($stat) = $?;			# Return status
+X	if ($stat) {
+X		do clean_tmp();
+X		do fatal("unable to unpack $path");
+X	}
+X	do add_log("unpacked $path with \"$unpack\"") if $loglvl > 12;
+X
+X	# The top level directory is the only file in $dir
+X	local(@top) = <${dir}/*>;
+X	if ($#top < 0) {
+X		do clean_tmp();
+X		do fatal("$prog_name: no top-level dir for $path");
+X	}
+X	if ($#top > 0) {
+X		do add_log("WARNING more than one file in $dir") if $loglvl > 4;
+X	}
+X	do add_log("top-level dir for $path is $top[0]") if $loglvl > 19;
+X	$top[0];		# Top-level directory
+X}
+X
+END_OF_FILE
+  if test 1883 -ne `wc -c <'agent/pl/unpack.pl'`; then
+    echo shar: \"'agent/pl/unpack.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/unpack.pl'
+fi
+if test -f 'agent/test/basic/config.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/basic/config.t'\"
+else
+  echo shar: Extracting \"'agent/test/basic/config.t'\" \(2021 characters\)
+  sed "s/^X//" >'agent/test/basic/config.t' <<'END_OF_FILE'
+X# This MUST be the first test ever run
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+Xchdir '../out' || exit 0;
+Xchop($pwd = `pwd`);
+X$path = $ENV{'PATH'};
+X$host = $ENV{'HOST'};
+X$user = $ENV{'USER'};
+Xopen(CONFIG, ">.mailagent") || print "1\n";
+Xprint CONFIG <<EOF;
+Xhome     : $pwd
+Xlevel    : 21			# Undocumented of course
+Xtmpdir   : /tmp
+Xemergdir : $pwd/emerg
+Xtrack    : OFF
+Xpath     : .
+Xp_$host  : .
+Xuser     : $user
+Xname     : Mailagent Test Suite
+Xvacation : OFF
+Xvacfile  : ~/.vacation
+Xvacperiod: 1d
+Xspool    : ~
+Xqueue    : ~/queue		# This is a good test for comments
+Xlogdir   : ~
+Xcontext  : \$spool/context
+Xlog      : agentlog
+Xseq      : .seq
+Xtimezone : PST8PDT
+Xstatfile : \$spool/mailagent.st
+Xrules    : ~/.rules
+Xmaildrop : $pwd			# Do not LEAVE messages in /usr/spool/mail
+Xmailbox  : \$user		# Use config variable, not current perl $user
+Xhash     : dbr
+Xcleanlaps: 1M
+Xautoclean: OFF
+Xagemax   : 1y
+Xcomfile  : \$spool/commands
+Xdistlist : \$spool/distribs
+Xproglist : \$spool/proglist
+Xmaxsize  : 150000
+Xplsave   : \$spool/plsave
+Xauthfile : \$spool/auth
+XEOF
+Xclose CONFIG;
+X`rm -rf queue emerg`;
+X`mkdir emerg`;
+X$? == 0 || print "2\n";
+X# Use the special undocumented -t option from filter to get HOME directory
+X# via environment instead of /etc/passwd.
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "3\n";
+Xprint FILTER <<EOF;
+XDummy mail
+XEOF
+Xclose FILTER;
+X$? != 0 || print "4\n";			# No valid queue directory
+X$file = <emerg/*>;
+Xif (-f "$file") {
+X	open(FILE, $file) || print "5\n";
+X	@file = <FILE>;
+X	close FILE;
+X	$file[0] eq "Dummy mail\n" || print "6\n";
+X	unlink "$file";
+X} else {
+X	print "5\n";				# No emergency dump
+X}
+X-s 'agentlog' || print "6\n";	# No logfile or empty
+X&get_log(7);
+X&check_log('FATAL', 8);				# There must be a FATAL
+X&check_log('MTA', 9);				# Filter must think mail is in MTA's queue
+X&check_log('updating PATH', 10);	# Make sure hostname is computed
+X&check_log('unable to queue', 11);	# Filter did not queue mail
+Xunlink 'agentlog';
+X`mkdir queue`;
+X$? == 0 || print "12\n";		# Cannot make queue
+Xprint "0\n";
+END_OF_FILE
+  if test 2021 -ne `wc -c <'agent/test/basic/config.t'`; then
+    echo shar: \"'agent/test/basic/config.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/basic/config.t'
+fi
+if test -f 'agent/test/basic/mailagent.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/basic/mailagent.t'\"
+else
+  echo shar: Extracting \"'agent/test/basic/mailagent.t'\" \(2013 characters\)
+  sed "s/^X//" >'agent/test/basic/mailagent.t' <<'END_OF_FILE'
+X# Basic mailagent test: ensure it is correctly invoked by filter.
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+X$user = $ENV{'USER'};
+Xchdir '../out' || exit 0;
+X# Make sure we'll find the mailagent
+Xsystem 'perl', '-i', '-p', '-e', "s|^path.*|path     :.:$up|", '.mailagent';
+X$? == 0 || print "1\n";
+Xopen(RULES, ">.rules") || print "2\n";
+Xprint RULES "{ DELETE };\n";
+Xclose RULES;
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "3\n";
+Xprint FILTER <<EOF;
+XFrom: test
+X
+XDummy body
+XEOF
+Xclose FILTER;
+X$? == 0 || print "4\n";
+X&get_log(5);
+X&check_log('WARNING.*assuming', 6);		# No To: field
+X&check_log('FILTERED', 7);				# Mail filtered
+X&check_log('DELETED', 8);				# Mail deleted by only rule
+X@files = <queue/qm*>;
+X@files == 0 || print "9\n";				# Queued mail deleted when filtered
+Xunlink 'agentlog', '.rules';
+Xsleep 1 while -f 'perl.lock';			# Let background mailagent die
+X# Check empty rules...
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "10\n";
+Xprint FILTER <<EOF;
+XFrom: test
+X
+XDummy body
+XEOF
+Xclose FILTER;
+X$? == 0 || print "11\n";
+X&get_log(12);
+X&check_log('FILTERED', 13);				# Mail filtered
+X&check_log('LEFT', 14);					# Mail left in mbox
+X&check_log('building default', 15);		# Used default rules
+X-s "$user" || print "16\n";				# Maildrop is here, so is mbox
+X@files = <queue/qm*>;
+X@files == 0 || print "17\n";			# Queued mail deleted when filtered
+X-f 'context' && print "18\n";			# Empty context must be deleted
+Xunlink 'agentlog', "$user";
+Xsleep 1 while -f 'perl.lock';			# Let background mailagent die
+X# Make sure file is correctly queued when another mailagent is running
+X`cp /dev/null perl.lock`;
+X$? == 0 || print "19\n";
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "20\n";
+Xprint FILTER <<EOF;
+XDummy mail
+XEOF
+Xclose FILTER;
+X$? == 0 || print "21\n";	# Must terminate correctly (queued)
+X&get_log(22);
+X&check_log('QUEUED', 23);	# Mail was queued
+X$file = <queue/fm*>;
+X-f "$file" || print "24\n";	# Must have been left in queue as a 'fm' file
+Xunlink "$file", 'agentlog', 'perl.lock';
+Xprint "0\n";
+END_OF_FILE
+  if test 2013 -ne `wc -c <'agent/test/basic/mailagent.t'`; then
+    echo shar: \"'agent/test/basic/mailagent.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/basic/mailagent.t'
+fi
+if test -f 'agent/test/cmd/assign.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/assign.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/assign.t'\" \(544 characters\)
+  sed "s/^X//" >'agent/test/cmd/assign.t' <<'END_OF_FILE'
+X# Test ASSIGN command
+Xdo '../pl/cmd.pl';
+Xunlink 'output';
+X
+X&add_header('X-Tag: assign #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f 'output' || print "2\n";		# Result of various assign commands
+Xchop($output = `cat output 2>/dev/null`);
+X$output eq 'ram,try,try.2' || print "3\n";
+Xunlink 'output';
+X
+X&replace_header('X-Tag: assign #2');
+X`$cmd`;
+X$? == 0 || print "4\n";
+X-f 'output' || print "5\n";		# Result of various assign commands
+Xchop($output = `cat output 2>/dev/null`);
+X$output eq '7,1+2,7' || print "6\n";
+X
+Xunlink 'output', 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 544 -ne `wc -c <'agent/test/cmd/assign.t'`; then
+    echo shar: \"'agent/test/cmd/assign.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/assign.t'
+fi
+if test -f 'agent/test/cmd/once.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/once.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/once.t'\" \(1298 characters\)
+  sed "s/^X//" >'agent/test/cmd/once.t' <<'END_OF_FILE'
+X# The ONCE command and autocleaning feature
+Xdo '../pl/cmd.pl';
+Xunlink 'one', 'two', 'three', 'four', "$user";
+X
+X&add_header('X-Tag: once');
+X`rm -rf dbr` if -d 'dbr';
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user" && print "2\n";
+X-f 'one' || print "3\n";
+X-f 'two' && print "4\n";
+X-f 'three' || print "5\n";
+X-f 'four' || print "6\n";
+X-d 'dbr' || print "7\n";
+X@files = <dbr/*/*>;
+X@files == 3 || print "8\n";
+X
+X# Make sure ONCE dbr database not disturbed by autocleaning, and, along
+X# the way, check that auto cleaning is correctly run.
+X
+X$level = $ENV{'LEVEL'};
+X`$mailagent -L $level -q -o 'autoclean: ON' 2>/dev/null`;
+X$? == 0 || print "9\n";
+X@new_files = <dbr/*/*>;
+X@new_files == @files || print "10\n";
+Xunlink 'one', 'two', 'three', 'four', "$user";
+X-f 'context' || print "11\n";
+X
+X`$cmd`;
+X$? == 0 || print "12\n";
+X-f "$user" && print "13\n";
+X-f 'one' && print "14\n";
+X-f 'two' && print "15\n";
+X-f 'three' && print "16\n";
+X-f 'four' || print "17\n";
+X-d 'dbr' || print "18\n";
+X
+X# Make sure autocleaning leaves things in a coherent state
+X
+X`$mailagent -q -L $level -o 'autoclean: ON' -o 'agemax: 0m' 2>/dev/null`;
+X-d 'dbr' && print "19\n";
+X-f 'context' || print "20\n";
+X
+X`$mailagent -q -L $level 2>/dev/null`;
+X-f 'context' && print "21\n";
+X
+Xunlink 'one', 'two', 'three', 'four', "$user", 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 1298 -ne `wc -c <'agent/test/cmd/once.t'`; then
+    echo shar: \"'agent/test/cmd/once.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/once.t'
+fi
+if test -f 'agent/test/cmd/record.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/record.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/record.t'\" \(1302 characters\)
+  sed "s/^X//" >'agent/test/cmd/record.t' <<'END_OF_FILE'
+X# The RECORD command
+Xdo '../pl/cmd.pl';
+Xunlink "$user.1", "$user.2", "$user.3";
+X
+X&add_header('X-Tag: record #1');
+X`rm -rf dbr` if -d 'dbr';
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user.1" || print "2\n";	# Was saved, first time.
+Xunlink "$user.1";
+X
+X-d 'dbr' || print "3\n";		# Make sure history recording works
+X-f 'dbr/i/e' || print "4\n";	# Hashing done on domain name
+X
+X`$cmd`;
+X$? == 0 || print "5\n";
+X-f "$user.1" && print "6\n";	# We rejected this time, in SEEN mode
+X-f "$user.2" || print "7\n";	# And saved it here
+Xunlink "$user.2";
+X
+X&replace_header('X-Tag: record #2');
+X`$cmd`;
+X$? == 0 || print "8\n";
+X-f "$user.1" && print "9\n";	# We restarted this time
+X-f "$user.3" || print "10\n";	# And caught that rule in RECORD mode
+X-f "$user" && print "11\n";		# Nothing here
+Xunlink "$user.3";
+X
+X&replace_header('X-Tag: record #3');
+X`$cmd`;
+X$? == 0 || print "12\n";
+X-f "$user.1" && print "13\n";	# We aborted
+X-f "$user" || print "14\n";		# Must be there (aborted, no match)
+Xunlink "$user.1", "$user";
+X
+X&replace_header('X-Tag: record #4');
+X`$cmd`;
+X$? == 0 || print "15\n";
+X-f "$user.1" && print "16\n";	# We rejected
+X-f "$user.2" || print "17\n";	# Must be there (saved in mode RECORD)
+X-f "$user" && print "18\n";
+X
+X`rm -rf dbr` if -d 'dbr';
+Xunlink "$user", "$user.1", "$user.2", "$user.3", 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 1302 -ne `wc -c <'agent/test/cmd/record.t'`; then
+    echo shar: \"'agent/test/cmd/record.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/record.t'
+fi
+if test -f 'agent/test/cmd/unique.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/unique.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/unique.t'\" \(1293 characters\)
+  sed "s/^X//" >'agent/test/cmd/unique.t' <<'END_OF_FILE'
+X# The UNIQUE command
+Xdo '../pl/cmd.pl';
+Xunlink "$user.1", "$user.2", "$user.3";
+X
+X&add_header('X-Tag: unique #1');
+X`rm -rf dbr` if -d 'dbr';
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$user.1" || print "2\n";	# Was saved, first time.
+Xunlink "$user.1";
+X
+X-d 'dbr' || print "3\n";		# Make sure history recording works
+X-f 'dbr/i/e' || print "4\n";	# Hashing done on domain name
+X
+X`$cmd`;
+X$? == 0 || print "5\n";
+X-f "$user.1" && print "6\n";	# We rejected this time, NOT in SEEN mode
+X-f "$user.2" || print "7\n";	# And saved it here
+Xunlink "$user.2";
+X
+X&replace_header('X-Tag: unique #2');
+X`$cmd`;
+X$? == 0 || print "8\n";
+X-f "$user.1" && print "9\n";	# We restarted this time
+X-f "$user.3" || print "10\n";	# And caught that rule
+X-f "$user" && print "11\n";		# Nothing here
+Xunlink "$user.3";
+X
+X&replace_header('X-Tag: unique #3');
+X`$cmd`;
+X$? == 0 || print "12\n";
+X-f "$user.1" && print "13\n";	# We aborted
+X-f "$user" && print "14\n";		# Must not be there (tagged as saved)
+Xunlink "$user.1", "$user";
+X
+X&replace_header('X-Tag: unique #4');
+X`$cmd`;
+X$? == 0 || print "15\n";
+X-f "$user.1" && print "16\n";	# We rejected
+X-f "$user.2" || print "17\n";	# Must be there (saved in mode UNIQUE)
+X-f "$user" && print "18\n";
+X
+X`rm -rf dbr` if -d 'dbr';
+Xunlink "$user", "$user.1", "$user.2", "$user.3", 'mail';
+Xprint "0\n";
+END_OF_FILE
+  if test 1293 -ne `wc -c <'agent/test/cmd/unique.t'`; then
+    echo shar: \"'agent/test/cmd/unique.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/unique.t'
+fi
+if test -f 'agent/test/cmd/write.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/cmd/write.t'\"
+else
+  echo shar: Extracting \"'agent/test/cmd/write.t'\" \(1299 characters\)
+  sed "s/^X//" >'agent/test/cmd/write.t' <<'END_OF_FILE'
+X# The WRITE command
+Xdo '../pl/cmd.pl';
+X$mbox = 'mbox';
+X
+X&add_header('X-Tag: write #1');
+X`$cmd`;
+X$? == 0 || print "1\n";
+X-f "$mbox" || print "2\n";		# Mail saved here
+X-f "$user" && print "3\n";		# Must not exist (yet)
+X
+X# When mailbox protected against writing...
+Xunlink <emerg/*>;
+X$size = -s "$mbox";
+Xchmod 0444, "$mbox";
+X`$cmd`;
+X$? == 0 || print "4\n";
+X-f "$mbox" || print "5\n";				# Must still be there
+X$size == -s "$mbox" || print "6\n";		# And not altered
+X@emerg = <emerg/*>;
+X@emerg == 1 || print "7\n";				# Emeregency as SAVE failed
+X-f "$user" || print "8\n";				# Not saved -> leave in mbox
+X-s "$user" == -s "$mbox" || print "9\n";
+X
+X# There is no X-Filter mail in the emergency saving
+X`grep -v X-Filter: $mbox > ok`;
+X$? == 0 || print "10\n";
+X-s $emerg[0] eq -s 'ok' || print "11\n";	# Full mail saved, of course
+X
+X# Now verify WRITE actually overwrites the contentes
+Xunlink "$user";
+Xchmod 0644, "$mbox";
+X`$cmd`;
+X$? == 0 || print "12\n";
+X$size == -s "$mbox" || print "13\n";
+X-f "$user" && print "14\n";
+X
+X# Make sure WRITE creates full path when needed
+X&replace_header('X-Tag: write #2');
+X`rm -rf path` if -d 'path';
+X`$cmd`;
+X$? == 0 || print "15\n";
+X-f 'path/another/third/mbox' || print "16\n";
+X`rm -rf path` if -d 'path';
+X
+Xunlink <emerg/*>;
+Xunlink "$mbox", "$user", 'mail', 'ok';
+Xprint "0\n";
+END_OF_FILE
+  if test 1299 -ne `wc -c <'agent/test/cmd/write.t'`; then
+    echo shar: \"'agent/test/cmd/write.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/cmd/write.t'
+fi
+if test -f 'agent/test/mail' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/mail'\"
+else
+  echo shar: Extracting \"'agent/test/mail'\" \(1620 characters\)
+  sed "s/^X//" >'agent/test/mail' <<'END_OF_FILE'
+XFrom compilers-request@iecc.cambridge.ma.us Sun Jul 12 14:45:54 PDT 1992
+XReceived: from eiffel.eiffel.com by lyon.eiffel.com (5.61/1.34)
+X	id AA13012; Thu, 2 Jul 92 22:34:10 -0700
+XReceived: from uunet.UUCP by eiffel.eiffel.com (4.0/SMI-4.0)
+X	id AA09695; Thu, 2 Jul 92 22:31:36 PDT
+XReceived: from ursa-major.spdcc.com by relay2.UU.NET with SMTP 
+X	(5.61/UUNET-internet-primary) id AA21794; Fri, 3 Jul 92 01:17:38 -0400
+XReceived: by ursa-major.spdcc.com with sendmail-5.65/4.7 
+X	id <AA13205@ursa-major.spdcc.com>; Fri, 3 Jul 92 01:17:34 -0400
+XReceived: by iecc.cambridge.ma.us (smail2.5+)
+X	id AA04311; 3 Jul 92 00:43:22 EDT (Fri)
+XTo: ram@eiffel.com
+XFrom: compilers-request@iecc.cambridge.ma.us
+XSubject: Re: melting ice technology?
+XDate: 3 Jul 92 00:43:22 EDT (Fri)
+XMessage-Id: <9207030043.AA04311@iecc.cambridge.ma.us>
+X
+XYour message to the moderated usenet group comp.compilers has been
+Xreceived.  Within a few days, it should either be posted to usenet or, if
+Xfor some reason it's not suitable for posting, returned to you.
+X
+XWhen you send a message to comp.compilers, I understand that to mean that
+Xyou want me to post it to usenet, which means it will be sent to tens of
+Xthousands of potential readers at thousands of computers all around the
+Xworld.  It may also appear in a printed comp.compilers annual and other
+Xbooks, in the ACM SIGPLAN Notices and other magazines, in on-line and
+Xoff-line archives, CD-ROMs, and anywhere else that some reader decides to
+Xuse it.
+X
+XIf you don't want me to post something, please send it instead to
+Xcompilers-request@iecc.cambridge.ma.us.
+X
+XRegards,
+XJohn Levine, comp.compilers moderator
+END_OF_FILE
+  if test 1620 -ne `wc -c <'agent/test/mail'`; then
+    echo shar: \"'agent/test/mail'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/mail'
+fi
+if test -f 'agent/test/option/s.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/option/s.t'\"
+else
+  echo shar: Extracting \"'agent/test/option/s.t'\" \(1803 characters\)
+  sed "s/^X//" >'agent/test/option/s.t' <<'END_OF_FILE'
+X# -s: report gathered statistics (special)
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+Xchdir '../out';
+Xunlink 'mailagent.st';
+X$out = `$mailagent -summary 2>/dev/null`;
+X$? == 0 || print "1\n";
+X`cp /dev/null mailagent.st`;
+X$mail_test = <<'EOM';
+XFrom ram Sat Jul 11 18:51:16 PDT 1992
+XFrom: ram
+XTo: ram
+XSubject: test
+X
+XThis is a test.
+XEOM
+X# First time creates new statistics, second time updates them.
+Xfor ($i = 0; $i < 2; $i++) {
+X	open(MAILAGENT, "|$mailagent -e 'STRIP Nothing; LEAVE' 2>/dev/null") ||
+X	print "2x$i\n";
+X	print MAILAGENT $mail_test;
+X	close MAILAGENT;
+X	$? == 0 || print "3x$i\n";
+X	sleep 1 while -f 'perl.lock';	# Wait for background process to finish
+X}
+X$user = $ENV{'USER'};
+X-s "$user" || print "4\n";
+X$out = `$mailagent -s 2>/dev/null`;
+X$out ne '' || print "5\n";
+X@out = split(/\n/, $out);
+X@leave = grep(/LEAVE/, @out);
+X@strip = grep(/STRIP/, @out);
+X@leave == @strip || print "6\n";
+X@leave == 1 || print "7\n";
+X$out = `$mailagent -sm 2>/dev/null`;
+X@out = split(/\n/, $out);
+X@leave = grep(/LEAVE/, @out);
+X@strip = grep(/STRIP/, @out);
+X@leave == @strip || print "8\n";
+X@leave == 2 || print "9\n";
+X$out = `$mailagent -sr 2>/dev/null`;
+X@out = split(/\n/, $out);
+Xgrep(/STRIP.*LEAVE/, @out) || print "10\n";
+X&get_log(11, 'mailagent.st');
+X&check_log('^---', 12) == 1 || print "13\n";	# Rules did not changed
+X&check_log('^\+\+\+', 14) == 1 || print "15\n";
+X
+X# Now change rules slightly
+Xopen(MAILAGENT, "|$mailagent -e 'STRIP Other; LEAVE' 2>/dev/null") ||
+Xprint "16\n";
+Xprint MAILAGENT $mail_test;
+Xclose MAILAGENT;
+X$? == 0 || print "17\n";
+Xsleep 1 while -f 'perl.lock';		# Wait for background process to finish
+X&get_log(18, 'mailagent.st');
+X&check_log('^---', 19) == 2 || print "20\n";	# Rules did changed
+X&check_log('^\+\+\+', 21) == 2 || print "22\n";
+X
+Xunlink 'mailagent.st', "$user";
+Xprint "0\n";
+END_OF_FILE
+  if test 1803 -ne `wc -c <'agent/test/option/s.t'`; then
+    echo shar: \"'agent/test/option/s.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/option/s.t'
+fi
+echo shar: End of archive 15 \(of 17\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 17 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

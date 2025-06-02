@@ -1,0 +1,2172 @@
+Newsgroups: comp.sources.misc
+From: robertd@kauri.vuw.ac.nz (Robert Davies)
+Subject: v34i111:  newmat07 - A matrix package in C++, Part05/08
+Message-ID: <1993Jan11.153215.2460@sparky.imd.sterling.com>
+X-Md4-Signature: 95c3bfe3e634dc03ab1b546ccee8137a
+Date: Mon, 11 Jan 1993 15:32:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: robertd@kauri.vuw.ac.nz (Robert Davies)
+Posting-number: Volume 34, Issue 111
+Archive-name: newmat07/part05
+Environment: C++
+Supersedes: newmat06: Volume 34, Issue 7-13
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 8)."
+# Contents:  newmat5.cxx newmat6.cxx newmat7.cxx newmat8.cxx
+#   newmat9.cxx newmatrm.cxx
+# Wrapped by robert@kea on Sun Jan 10 23:58:07 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'newmat5.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmat5.cxx'\"
+else
+echo shar: Extracting \"'newmat5.cxx'\" \(11567 characters\)
+sed "s/^X//" >'newmat5.cxx' <<'END_OF_FILE'
+X//$$ newmat5.cxx         Transpose, evaluate etc
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,5); ExeCount++; }
+X
+X#define REPORT {}
+X
+X
+X/************************ carry out operations ******************************/
+X
+X
+XGeneralMatrix* GeneralMatrix::Transpose(TransposedMatrix* tm, MatrixType mt)
+X{
+X   GeneralMatrix* gm1;
+X
+X   if (Compare(Type().t(),mt))
+X   {
+X      REPORT
+X      gm1 = mt.New(ncols,nrows,tm);
+X      for (int i=0; i<ncols; i++)
+X      {
+X	 MatrixRow mr(gm1, StoreOnExit+DirectPart, i);
+X         MatrixCol mc(this, mr.Store(), LoadOnEntry, i);
+X      }
+X   }
+X   else
+X   {
+X      REPORT
+X      gm1 = mt.New(ncols,nrows,tm);
+X      MatrixRow mr(this, LoadOnEntry);
+X      MatrixCol mc(gm1, StoreOnExit+DirectPart);
+X      int i = nrows;
+X      while (i--) { mc.Copy(mr); mr.Next(); mc.Next(); }
+X   }
+X   tDelete(); gm1->ReleaseAndDelete(); return gm1;
+X}
+X
+XGeneralMatrix* SymmetricMatrix::Transpose(TransposedMatrix*, MatrixType mt)
+X{ REPORT  return Evaluate(mt); }
+X
+X
+XGeneralMatrix* DiagonalMatrix::Transpose(TransposedMatrix*, MatrixType mt)
+X{ REPORT return Evaluate(mt); }
+X
+XBoolean GeneralMatrix::IsZero() const
+X{
+X   REPORT
+X   Real* s=store; int i=storage;
+X   while (i--) { if (*s++) return FALSE; }
+X   return TRUE;
+X}
+X
+XGeneralMatrix* ColumnVector::Transpose(TransposedMatrix*, MatrixType mt)
+X{
+X   REPORT
+X   GeneralMatrix* gmx = new RowVector; MatrixErrorNoSpace(gmx);
+X   gmx->nrows = 1; gmx->ncols = gmx->storage = storage;
+X   return BorrowStore(gmx,mt);
+X}
+X
+XGeneralMatrix* RowVector::Transpose(TransposedMatrix*, MatrixType mt)
+X{
+X   REPORT
+X   GeneralMatrix* gmx = new ColumnVector; MatrixErrorNoSpace(gmx);
+X   gmx->ncols = 1; gmx->nrows = gmx->storage = storage;
+X   return BorrowStore(gmx,mt);
+X}
+X
+XGeneralMatrix* GeneralMatrix::Evaluate(MatrixType mt)
+X{
+X   if (Compare(this->Type(),mt)) { REPORT return this; }
+X   REPORT
+X   GeneralMatrix* gmx = mt.New(nrows,ncols,this);
+X   MatrixRow mr(this, LoadOnEntry);
+X   MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X   int i=nrows;
+X   while (i--) { mrx.Copy(mr); mrx.Next(); mr.Next(); }
+X   tDelete(); gmx->ReleaseAndDelete(); return gmx;
+X}
+X
+XGeneralMatrix* ConstMatrix::Evaluate(MatrixType mt)
+X{
+X   if (Compare(cgm->Type(),mt))
+X   {
+X      REPORT
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      GeneralMatrix* gmx = (GeneralMatrix*)cgm; delete this; return gmx;
+X#else
+X      return (GeneralMatrix*)cgm;
+X#endif
+X   }
+X   REPORT
+X   GeneralMatrix* gmx = cgm->Type().New(cgm->Nrows(),cgm->Ncols(),this);
+X   MatrixRow mr((GeneralMatrix*)cgm, LoadOnEntry);//assume won't change this
+X   MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X   int i=cgm->Nrows();
+X   while (i--) { mrx.Copy(mr); mrx.Next(); mr.Next(); }
+X   gmx->ReleaseAndDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X   return gmx; // no tDelete
+X}
+X
+XGeneralMatrix* ShiftedMatrix::Evaluate(MatrixType mt)
+X{
+X   gm=((BaseMatrix*&)bm)->Evaluate();
+X   int nr=gm->Nrows(); int nc=gm->Ncols();
+X   Compare(gm->Type().AddEqualEl(),mt);
+X   if (!(mt==gm->Type()))
+X   {
+X      REPORT
+X      GeneralMatrix* gmx = mt.New(nr,nc,this);
+X      MatrixRow mr(gm, LoadOnEntry); 
+X      MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X      while (nr--) { mrx.Add(mr,f); mrx.Next(); mr.Next(); }
+X      gmx->ReleaseAndDelete(); gm->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      return gmx;
+X   }
+X   else if (gm->reuse())
+X   {
+X      REPORT gm->Add(f);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      GeneralMatrix* gmx = gm; delete this; return gmx;
+X#else
+X      return gm;
+X#endif
+X   }
+X   else
+X   {
+X      REPORT GeneralMatrix* gmy = gm->Type().New(nr,nc,this);
+X      gmy->ReleaseAndDelete(); gmy->Add(gm,f);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      return gmy;
+X   }
+X}
+X
+XGeneralMatrix* ScaledMatrix::Evaluate(MatrixType mt)
+X{
+X   gm=((BaseMatrix*&)bm)->Evaluate();
+X   int nr=gm->Nrows(); int nc=gm->Ncols();
+X   if (Compare(gm->Type(),mt))
+X   {
+X      if (gm->reuse())
+X      {
+X         REPORT gm->Multiply(f);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X         GeneralMatrix* gmx = gm; delete this; return gmx;
+X#else
+X         return gm;
+X#endif
+X      }
+X      else
+X      {
+X         REPORT GeneralMatrix* gmx = gm->Type().New(nr,nc,this);
+X         gmx->ReleaseAndDelete(); gmx->Multiply(gm,f);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X         delete this;
+X#endif
+X         return gmx;
+X      }
+X   }
+X   else
+X   {
+X      REPORT
+X      GeneralMatrix* gmx = mt.New(nr,nc,this);
+X      MatrixRow mr(gm, LoadOnEntry); 
+X      MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X      while (nr--) { mrx.Multiply(mr,f); mrx.Next(); mr.Next(); }
+X      gmx->ReleaseAndDelete(); gm->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      return gmx;
+X   }
+X}
+X
+XGeneralMatrix* NegatedMatrix::Evaluate(MatrixType mt)
+X{
+X   gm=((BaseMatrix*&)bm)->Evaluate();
+X   int nr=gm->Nrows(); int nc=gm->Ncols();
+X   if (Compare(gm->Type(),mt))
+X   {
+X      if (gm->reuse())
+X      {
+X         REPORT gm->Negate();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X         GeneralMatrix* gmx = gm; delete this; return gmx;
+X#else
+X         return gm;
+X#endif
+X      }
+X      else
+X      {
+X         REPORT
+X         GeneralMatrix* gmx = gm->Type().New(nr,nc,this);
+X         gmx->ReleaseAndDelete(); gmx->Negate(gm);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X         delete this;
+X#endif
+X         return gmx;
+X      }
+X   }
+X   else
+X   {
+X      REPORT
+X      GeneralMatrix* gmx = mt.New(nr,nc,this);
+X      MatrixRow mr(gm, LoadOnEntry); 
+X      MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X      while (nr--) { mrx.Negate(mr); mrx.Next(); mr.Next(); }
+X      gmx->ReleaseAndDelete(); gm->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      return gmx;
+X   }
+X}   
+X
+XGeneralMatrix* TransposedMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   gm=((BaseMatrix*&)bm)->Evaluate();
+X   Compare(gm->Type().t(),mt);
+X   GeneralMatrix* gmx=gm->Transpose(this, mt);
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X   return gmx;
+X}
+X   
+XGeneralMatrix* RowedMatrix::Evaluate(MatrixType mt)
+X{
+X   gm = ((BaseMatrix*&)bm)->Evaluate();
+X   GeneralMatrix* gmx = new RowVector; MatrixErrorNoSpace(gmx);
+X   gmx->nrows = 1; gmx->ncols = gmx->storage = gm->storage;
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmy = gm; delete this; return gmy->BorrowStore(gmx,mt);
+X#else
+X   return gm->BorrowStore(gmx,mt);
+X#endif
+X}
+X
+XGeneralMatrix* ColedMatrix::Evaluate(MatrixType mt)
+X{
+X   gm = ((BaseMatrix*&)bm)->Evaluate();
+X   GeneralMatrix* gmx = new ColumnVector; MatrixErrorNoSpace(gmx);
+X   gmx->ncols = 1; gmx->nrows = gmx->storage = gm->storage;
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmy = gm; delete this; return gmy->BorrowStore(gmx,mt);
+X#else
+X   return gm->BorrowStore(gmx,mt);
+X#endif
+X}
+X
+XGeneralMatrix* DiagedMatrix::Evaluate(MatrixType mt)
+X{
+X   gm = ((BaseMatrix*&)bm)->Evaluate();
+X   GeneralMatrix* gmx = new DiagonalMatrix; MatrixErrorNoSpace(gmx);
+X   gmx->nrows = gmx->ncols = gmx->storage = gm->storage;
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmy = gm; delete this; return gmy->BorrowStore(gmx,mt);
+X#else
+X   return gm->BorrowStore(gmx,mt);
+X#endif
+X}
+X
+XGeneralMatrix* MatedMatrix::Evaluate(MatrixType mt)
+X{
+X   Tracer tr("MatedMatrix::Evaluate");
+X   gm = ((BaseMatrix*&)bm)->Evaluate();
+X   GeneralMatrix* gmx = new Matrix; MatrixErrorNoSpace(gmx);
+X   gmx->nrows = nr; gmx->ncols = nc; gmx->storage = gm->storage;
+X   if (nr*nc != gmx->storage)
+X      Throw(IncompatibleDimensionsException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmy = gm; delete this; return gmy->BorrowStore(gmx,mt);
+X#else
+X   return gm->BorrowStore(gmx,mt);
+X#endif
+X}
+X
+XGeneralMatrix* GetSubMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(evaluate)");
+X   gm = ((BaseMatrix*&)bm)->Evaluate();
+X   if (row_number < 0) row_number = gm->Nrows();
+X   if (col_number < 0) col_number = gm->Ncols();
+X   if (row_skip+row_number > gm->Nrows() || col_skip+col_number > gm->Ncols())
+X      Throw(SubMatrixDimensionException());
+X   if (IsSym) Compare(gm->Type().ssub(), mt); 
+X   else Compare(gm->Type().sub(), mt);
+X   GeneralMatrix* gmx = mt.New(row_number, col_number, this);
+X   int i = row_number;
+X   MatrixRow mr(gm, LoadOnEntry, row_skip); 
+X   MatrixRow mrx(gmx, StoreOnExit+DirectPart);
+X   MatrixRowCol sub;
+X   while (i--)
+X   {
+X      mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X      mrx.Copy(sub); mrx.Next(); mr.Next();
+X   }
+X   gmx->ReleaseAndDelete(); gm->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X   return gmx;
+X}   
+X
+X
+XGeneralMatrix* ReturnMatrixX::Evaluate(MatrixType mt)
+X{
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx = gm; delete this; return gmx->Evaluate(mt);
+X#else
+X   return gm->Evaluate(mt);
+X#endif
+X}
+X
+X
+Xvoid GeneralMatrix::Add(GeneralMatrix* gm1, Real f)
+X{
+X   REPORT
+X   Real* s1=gm1->store; Real* s=store; int i=(storage >> 2);
+X   while (i--)
+X   { *s++ = *s1++ + f; *s++ = *s1++ + f; *s++ = *s1++ + f; *s++ = *s1++ + f; }
+X   i = storage & 3; while (i--) *s++ = *s1++ + f;
+X}
+X   
+Xvoid GeneralMatrix::Add(Real f)
+X{
+X   REPORT
+X   Real* s=store; int i=(storage >> 2);
+X   while (i--) { *s++ += f; *s++ += f; *s++ += f; *s++ += f; }
+X   i = storage & 3; while (i--) *s++ += f;
+X}
+X   
+Xvoid GeneralMatrix::Negate(GeneralMatrix* gm1)
+X{
+X   // change sign of elements
+X   REPORT
+X   Real* s1=gm1->store; Real* s=store; int i=(storage >> 2);
+X   while (i--)
+X   { *s++ = -(*s1++); *s++ = -(*s1++); *s++ = -(*s1++); *s++ = -(*s1++); }
+X   i = storage & 3; while(i--) *s++ = -(*s1++);
+X}
+X   
+Xvoid GeneralMatrix::Negate()
+X{
+X   REPORT
+X   Real* s=store; int i=(storage >> 2);
+X   while (i--)
+X   { *s = -(*s); s++; *s = -(*s); s++; *s = -(*s); s++; *s = -(*s); s++; }
+X   i = storage & 3; while(i--) { *s = -(*s); s++; }
+X}
+X   
+Xvoid GeneralMatrix::Multiply(GeneralMatrix* gm1, Real f)
+X{
+X   REPORT
+X   Real* s1=gm1->store; Real* s=store;  int i=(storage >> 2);
+X   while (i--)
+X   { *s++ = *s1++ * f; *s++ = *s1++ * f; *s++ = *s1++ * f; *s++ = *s1++ * f; }
+X   i = storage & 3; while (i--) *s++ = *s1++ * f;
+X}
+X   
+Xvoid GeneralMatrix::Multiply(Real f)
+X{
+X   REPORT
+X   Real* s=store; int i=(storage >> 2);
+X   while (i--) { *s++ *= f; *s++ *= f; *s++ *= f; *s++ *= f; }
+X   i = storage & 3; while (i--) *s++ *= f;
+X}
+X   
+X
+X/************************ MatrixInput routines ****************************/
+X
+Xint MatrixInput::n = 0;       // number values still to be read
+XReal* MatrixInput::r;         // pointer to last thing read
+Xint MatrixInput::depth = 0;   // number of objects of this class in existence
+X
+XMatrixInput MatrixInput::operator<<(Real f)
+X{
+X   if (!(n--))
+X   { depth=0;  n=0; Throw(ProgramException("List of values too long")); }
+X   *(++r) = f;
+X   return MatrixInput();
+X}
+X
+X
+XMatrixInput BandMatrix::operator<<(Real)
+X{
+X   Throw(ProgramException("Cannot use list read with a BandMatrix"));
+X   return MatrixInput(); 
+X}
+X
+Xvoid BandMatrix::operator<<(const Real*)
+X{ Throw(ProgramException("Cannot use array read with a BandMatrix")); }
+X
+XMatrixInput GeneralMatrix::operator<<(Real f)
+X{
+X   if (MatrixInput::n)
+X   {
+X      MatrixInput::depth=0;            // so we can recover
+X      MatrixInput::n=0;                // so we can recover
+X      Throw(ProgramException("A list of values was too short"));
+X   }
+X   MatrixInput::n = Storage();
+X   if (MatrixInput::n<=0)
+X      Throw(ProgramException("Loading data to zero dimension matrix"));
+X   MatrixInput::r = Store(); *(MatrixInput::r) = f; MatrixInput::n--;
+X   return MatrixInput(); 
+X}
+X
+XMatrixInput::~MatrixInput()
+X{
+X   if (depth && --depth == 0 && n != 0)
+X   {
+X      depth = 0; n = 0;                // so we can recover
+X      Throw(ProgramException("A list of values was too short"));
+X   }
+X}
+X
+END_OF_FILE
+if test 11567 -ne `wc -c <'newmat5.cxx'`; then
+    echo shar: \"'newmat5.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmat5.cxx'
+fi
+if test -f 'newmat6.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmat6.cxx'\"
+else
+echo shar: Extracting \"'newmat6.cxx'\" \(13261 characters\)
+sed "s/^X//" >'newmat6.cxx' <<'END_OF_FILE'
+X//$$ newmat6.cxx            Operators, element access, submatrices
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,6); ExeCount++; }
+X
+X#define REPORT {}
+X
+X/*************************** general utilities *************************/
+X
+Xstatic int tristore(int n)                      // els in triangular matrix
+X{ return (n*(n+1))/2; }
+X
+X
+X/****************************** operators *******************************/
+X
+XReal& Matrix::operator()(int m, int n)
+X{
+X   if (m<=0 || m>nrows || n<=0 || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[(m-1)*ncols+n-1];
+X}
+X
+XReal& SymmetricMatrix::operator()(int m, int n)
+X{
+X   if (m<=0 || n<=0 || m>nrows || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   if (m>=n) return store[tristore(m-1)+n-1];
+X   else return store[tristore(n-1)+m-1];
+X}
+X
+XReal& UpperTriangularMatrix::operator()(int m, int n)
+X{
+X   if (m<=0 || n<m || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[(m-1)*ncols+n-1-tristore(m-1)];
+X}
+X
+XReal& LowerTriangularMatrix::operator()(int m, int n)
+X{
+X   if (n<=0 || m<n || m>nrows)
+X      Throw(IndexException(m,n,*this));
+X   return store[tristore(m-1)+n-1];
+X}
+X
+XReal& DiagonalMatrix::operator()(int m, int n)
+X{
+X   if (n<=0 || m!=n || m>nrows || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[n-1];
+X}
+X
+XReal& DiagonalMatrix::operator()(int m)
+X{
+X   if (m<=0 || m>nrows) Throw(IndexException(m,*this));
+X   return store[m-1];
+X}
+X
+XReal& ColumnVector::operator()(int m)
+X{
+X   if (m<=0 || m> nrows) Throw(IndexException(m,*this));
+X   return store[m-1];
+X}
+X
+XReal& RowVector::operator()(int n)
+X{
+X   if (n<=0 || n> ncols) Throw(IndexException(n,*this));
+X   return store[n-1];
+X}
+X
+XReal& BandMatrix::operator()(int m, int n)
+X{
+X   int w = upper+lower+1; int i = lower+n-m;
+X   if (m<=0 || m>nrows || n<=0 || n>ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this));
+X   return store[w*(m-1)+i];
+X}
+X
+XReal& UpperBandMatrix::operator()(int m, int n)
+X{
+X   int w = upper+1; int i = n-m;
+X   if (m<=0 || m>nrows || n<=0 || n>ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this));
+X   return store[w*(m-1)+i];
+X}
+X
+XReal& LowerBandMatrix::operator()(int m, int n)
+X{
+X   int w = lower+1; int i = lower+n-m;
+X   if (m<=0 || m>nrows || n<=0 || n>ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this));
+X   return store[w*(m-1)+i];
+X}
+X
+XReal& SymmetricBandMatrix::operator()(int m, int n)
+X{
+X   int w = lower+1;
+X   if (m>=n)
+X   {
+X      int i = lower+n-m;
+X      if ( m>nrows || n<=0 || i<0 )
+X         Throw(IndexException(m,n,*this));
+X      return store[w*(m-1)+i];
+X   }
+X   else
+X   {
+X      int i = lower+m-n;
+X      if ( n>nrows || m<=0 || i<0 )
+X         Throw(IndexException(m,n,*this));
+X      return store[w*(n-1)+i];
+X   }
+X}
+X
+X#ifndef __ZTC__
+X
+XReal Matrix::operator()(int m, int n) const
+X{
+X   if (m<=0 || m>nrows || n<=0 || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[(m-1)*ncols+n-1];
+X}
+X
+XReal SymmetricMatrix::operator()(int m, int n) const
+X{
+X   if (m<=0 || n<=0 || m>nrows || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   if (m>=n) return store[tristore(m-1)+n-1];
+X   else return store[tristore(n-1)+m-1];
+X}
+X
+XReal UpperTriangularMatrix::operator()(int m, int n) const
+X{
+X   if (m<=0 || n<m || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[(m-1)*ncols+n-1-tristore(m-1)];
+X}
+X
+XReal LowerTriangularMatrix::operator()(int m, int n) const
+X{
+X   if (n<=0 || m<n || m>nrows)
+X      Throw(IndexException(m,n,*this));
+X   return store[tristore(m-1)+n-1];
+X}
+X
+XReal DiagonalMatrix::operator()(int m, int n) const
+X{
+X   if (n<=0 || m!=n || m>nrows || n>ncols)
+X      Throw(IndexException(m,n,*this));
+X   return store[n-1];
+X}
+X
+XReal DiagonalMatrix::operator()(int m) const
+X{
+X   if (m<=0 || m>nrows) Throw(IndexException(m,*this));
+X   return store[m-1];
+X}
+X
+XReal ColumnVector::operator()(int m) const
+X{
+X   if (m<=0 || m> nrows) Throw(IndexException(m,*this));
+X   return store[m-1];
+X}
+X
+XReal RowVector::operator()(int n) const
+X{
+X   if (n<=0 || n> ncols) Throw(IndexException(n,*this));
+X   return store[n-1];
+X}
+X
+XReal BandMatrix::operator()(int m, int n) const
+X{
+X   int w = upper+lower+1; int i = lower+n-m;
+X   if (m<=0 || m>nrows || n<=0 || n>ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this));
+X   return store[w*(m-1)+i];
+X}
+X
+XReal SymmetricBandMatrix::operator()(int m, int n) const
+X{
+X   int w = lower+1;
+X   if (m>=n)
+X   {
+X      int i = lower+n-m;
+X      if ( m>nrows || n<=0 || i<0 )
+X         Throw(IndexException(m,n,*this));
+X      return store[w*(m-1)+i];
+X   }
+X   else
+X   {
+X      int i = lower+m-n;
+X      if ( n>nrows || m<=0 || i<0 )
+X         Throw(IndexException(m,n,*this));
+X      return store[w*(n-1)+i];
+X   }
+X}
+X
+X#endif
+X
+XReal BaseMatrix::AsScalar() const
+X{
+X   REPORT
+X   GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   if (gm->nrows!=1 || gm->ncols!=1)
+X   {
+X      Try
+X      {
+X         Tracer tr("AsScalar");
+X	 Throw(ProgramException("Cannot convert to scalar", *gm));
+X      }
+X      CatchAll { gm->tDelete(); Throw(); }
+X   }
+X   Real x = *(gm->store); gm->tDelete(); return x;
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X
+XAddedMatrix& BaseMatrix::operator+(const BaseMatrix& bm) const
+X{
+X   REPORT
+X   AddedMatrix* x = new AddedMatrix(this, &bm);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XMultipliedMatrix& BaseMatrix::operator*(const BaseMatrix& bm) const
+X{
+X   REPORT
+X   MultipliedMatrix* x = new MultipliedMatrix(this, &bm);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+X//SolvedMatrix& InvertedMatrix::operator*(const BaseMatrix& bmx) const
+XSolvedMatrix& InvertedMatrix::operator*(const BaseMatrix& bmx)
+X{
+X   REPORT
+X   SolvedMatrix* x;
+X   Try { x = new SolvedMatrix(bm, &bmx); MatrixErrorNoSpace(x); }
+X   CatchAll { delete this; Throw(); }
+X   delete this;                // since we are using bm rather than this
+X   return *x;
+X}
+X
+XSubtractedMatrix& BaseMatrix::operator-(const BaseMatrix& bm) const
+X{
+X   REPORT
+X   SubtractedMatrix* x = new SubtractedMatrix(this, &bm);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XShiftedMatrix& BaseMatrix::operator+(Real f) const
+X{
+X   REPORT
+X   ShiftedMatrix* x = new ShiftedMatrix(this, f);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XScaledMatrix& BaseMatrix::operator*(Real f) const
+X{
+X   REPORT
+X   ScaledMatrix* x = new ScaledMatrix(this, f);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XScaledMatrix& BaseMatrix::operator/(Real f) const
+X{
+X   REPORT
+X   ScaledMatrix* x = new ScaledMatrix(this, 1.0/f);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XShiftedMatrix& BaseMatrix::operator-(Real f) const
+X{
+X   REPORT
+X   ShiftedMatrix* x = new ShiftedMatrix(this, -f);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XTransposedMatrix& BaseMatrix::t() const
+X{
+X   REPORT
+X   TransposedMatrix* x = new TransposedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XNegatedMatrix& BaseMatrix::operator-() const
+X{
+X   REPORT
+X   NegatedMatrix* x = new NegatedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XInvertedMatrix& BaseMatrix::i() const
+X{
+X   REPORT
+X   InvertedMatrix* x = new InvertedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XConstMatrix& GeneralMatrix::c() const
+X{
+X   if (tag != -1)
+X      Throw(ProgramException(".c() applied to temporary matrix"));
+X   REPORT
+X   ConstMatrix* x = new ConstMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XRowedMatrix& BaseMatrix::AsRow() const
+X{
+X   REPORT
+X   RowedMatrix* x = new RowedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XColedMatrix& BaseMatrix::AsColumn() const
+X{
+X   REPORT
+X   ColedMatrix* x = new ColedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XDiagedMatrix& BaseMatrix::AsDiagonal() const
+X{
+X   REPORT
+X   DiagedMatrix* x = new DiagedMatrix(this);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+XMatedMatrix& BaseMatrix::AsMatrix(int nrx, int ncx) const
+X{
+X   REPORT
+X   MatedMatrix* x = new MatedMatrix(this,nrx,ncx);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X}
+X
+X#else
+X
+XAddedMatrix BaseMatrix::operator+(const BaseMatrix& bm) const
+X{ REPORT return AddedMatrix(this, &bm); }
+X
+XMultipliedMatrix BaseMatrix::operator*(const BaseMatrix& bm) const
+X{ REPORT return MultipliedMatrix(this, &bm); }
+X
+XSolvedMatrix InvertedMatrix::operator*(const BaseMatrix& bmx) const
+X{ REPORT return SolvedMatrix(bm, &bmx); }
+X
+XSubtractedMatrix BaseMatrix::operator-(const BaseMatrix& bm) const
+X{ REPORT return SubtractedMatrix(this, &bm); }
+X
+XShiftedMatrix BaseMatrix::operator+(Real f) const
+X{ REPORT return ShiftedMatrix(this, f); }
+X
+XScaledMatrix BaseMatrix::operator*(Real f) const
+X{ REPORT return ScaledMatrix(this, f); }
+X
+XScaledMatrix BaseMatrix::operator/(Real f) const
+X{ REPORT return ScaledMatrix(this, 1.0/f); }
+X
+XShiftedMatrix BaseMatrix::operator-(Real f) const
+X{ REPORT return ShiftedMatrix(this, -f); }
+X
+XTransposedMatrix BaseMatrix::t() const
+X{ REPORT return TransposedMatrix(this); }
+X
+XNegatedMatrix BaseMatrix::operator-() const
+X{ REPORT return NegatedMatrix(this); }
+X
+XInvertedMatrix BaseMatrix::i() const
+X{ REPORT return InvertedMatrix(this); }
+X
+XConstMatrix GeneralMatrix::c() const
+X{
+X   if (tag != -1)
+X      Throw(ProgramException(".c() applied to temporary matrix"));
+X   REPORT return ConstMatrix(this);
+X}
+X
+XRowedMatrix BaseMatrix::AsRow() const
+X{ REPORT return RowedMatrix(this); }
+X
+XColedMatrix BaseMatrix::AsColumn() const
+X{ REPORT return ColedMatrix(this); }
+X
+XDiagedMatrix BaseMatrix::AsDiagonal() const
+X{ REPORT return DiagedMatrix(this); }
+X
+XMatedMatrix BaseMatrix::AsMatrix(int nrx, int ncx) const
+X{ REPORT return MatedMatrix(this,nrx,ncx); }
+X
+X#endif
+X
+Xvoid GeneralMatrix::operator=(Real f)
+X{ REPORT int i=storage; Real* s=store; while (i--) { *s++ = f; } }
+X
+Xvoid Matrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT //CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::Rt);
+X} 
+X
+Xvoid RowVector::operator=(const BaseMatrix& X)
+X{
+X   REPORT  // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::RV);
+X   if (nrows!=1)
+X   {
+X      Tracer tr("RowVector(=)");
+X      Throw(VectorException(*this));
+X   }
+X}
+X
+Xvoid ColumnVector::operator=(const BaseMatrix& X)
+X{
+X   REPORT //CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::CV);
+X   if (ncols!=1)
+X   {
+X      Tracer tr("ColumnVector(=)");
+X      Throw(VectorException(*this));
+X   }
+X}
+X
+Xvoid SymmetricMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::Sm);
+X}
+X 
+Xvoid UpperTriangularMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT //CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::UT);
+X}
+X
+Xvoid LowerTriangularMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT //CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::LT);
+X}
+X
+Xvoid DiagonalMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::Dg);
+X}
+X
+Xvoid GeneralMatrix::operator<<(const Real* r)
+X{
+X   REPORT
+X   int i = storage; Real* s=store;
+X   while(i--) *s++ = *r++;
+X}
+X
+X
+X/************************* element access *********************************/
+X
+XReal& Matrix::element(int m, int n)
+X{
+X   if (m<0 || m>= nrows || n<0 || n>= ncols)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[m*ncols+n];
+X}
+X
+XReal& SymmetricMatrix::element(int m, int n)
+X{
+X   if (m<0 || n<0 || m >= nrows || n>=ncols)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   if (m>=n) return store[tristore(m)+n];
+X   else return store[tristore(n)+m];
+X}
+X
+XReal& UpperTriangularMatrix::element(int m, int n)
+X{
+X   if (m<0 || n<m || n>=ncols)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[m*ncols+n-tristore(m)];
+X}
+X
+XReal& LowerTriangularMatrix::element(int m, int n)
+X{
+X   if (n<0 || m<n || m>=nrows)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[tristore(m)+n];
+X}
+X
+XReal& DiagonalMatrix::element(int m, int n)
+X{
+X   if (n<0 || m!=n || m>=nrows || n>=ncols)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[n];
+X}
+X
+XReal& DiagonalMatrix::element(int m)
+X{
+X   if (m<0 || m>=nrows) Throw(IndexException(m,*this,TRUE));
+X   return store[m];
+X}
+X
+XReal& ColumnVector::element(int m)
+X{
+X   if (m<0 || m>= nrows) Throw(IndexException(m,*this,TRUE));
+X   return store[m];
+X}
+X
+XReal& RowVector::element(int n)
+X{
+X   if (n<0 || n>= ncols)  Throw(IndexException(n,*this,TRUE));
+X   return store[n];
+X}
+X
+XReal& BandMatrix::element(int m, int n)
+X{
+X   int w = upper+lower+1; int i = lower+n-m;
+X   if (m<0 || m>= nrows || n<0 || n>= ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[w*m+i];
+X}
+X
+XReal& UpperBandMatrix::element(int m, int n)
+X{
+X   int w = upper+1; int i = n-m;
+X   if (m<0 || m>= nrows || n<0 || n>= ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[w*m+i];
+X}
+X
+XReal& LowerBandMatrix::element(int m, int n)
+X{
+X   int w = lower+1; int i = lower+n-m;
+X   if (m<0 || m>= nrows || n<0 || n>= ncols || i<0 || i>=w)
+X      Throw(IndexException(m,n,*this,TRUE));
+X   return store[w*m+i];
+X}
+X
+XReal& SymmetricBandMatrix::element(int m, int n)
+X{
+X   int w = lower+1;
+X   if (m>=n)
+X   {
+X      int i = lower+n-m;
+X      if ( m>=nrows || n<0 || i<0 )
+X         Throw(IndexException(m,n,*this,TRUE));
+X      return store[w*m+i];
+X   }
+X   else
+X   {
+X      int i = lower+m-n;
+X      if ( n>=nrows || m<0 || i<0 )
+X         Throw(IndexException(m,n,*this,TRUE));
+X      return store[w*n+i];
+X   }
+X}
+X
+END_OF_FILE
+if test 13261 -ne `wc -c <'newmat6.cxx'`; then
+    echo shar: \"'newmat6.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmat6.cxx'
+fi
+if test -f 'newmat7.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmat7.cxx'\"
+else
+echo shar: Extracting \"'newmat7.cxx'\" \(16089 characters\)
+sed "s/^X//" >'newmat7.cxx' <<'END_OF_FILE'
+X//$$ newmat7.cxx     Invert, solve, binary operations
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,7); ExeCount++; }
+X
+X#define REPORT {}
+X
+X
+X/***************************** solve routines ******************************/
+X
+XGeneralMatrix* GeneralMatrix::MakeSolver()
+X{
+X   REPORT
+X   GeneralMatrix* gm = new CroutMatrix(*this);
+X   MatrixErrorNoSpace(gm); gm->ReleaseAndDelete(); return gm;
+X}
+X
+XGeneralMatrix* Matrix::MakeSolver()
+X{
+X   REPORT
+X   GeneralMatrix* gm = new CroutMatrix(*this);
+X   MatrixErrorNoSpace(gm); gm->ReleaseAndDelete(); return gm;
+X}
+X
+Xvoid CroutMatrix::Solver(MatrixRowCol& mcout, const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* el = mcin.store; int i = mcin.skip;
+X   while (i--) *el++ = 0.0;
+X   el += mcin.storage; i = nrows - mcin.skip - mcin.storage;
+X   while (i--) *el++ = 0.0;
+X   lubksb(mcin.store, mcout.skip);
+X}
+X
+X
+X// Do we need check for entirely zero output?
+X
+Xvoid UpperTriangularMatrix::Solver(MatrixRowCol& mcout,
+X   const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* elx = mcin.store+mcout.skip; int i = mcin.skip-mcout.skip;
+X   while (i-- > 0) *elx++ = 0.0;
+X   int nr = mcin.skip+mcin.storage; elx = mcin.store+nr; Real* el = elx;
+X   int j = mcout.skip+mcout.storage-nr; int nc = ncols-nr; i = nr-mcout.skip;
+X   while (j-- > 0) *elx++ = 0.0;
+X   Real* Ael = store + (nr*(2*ncols-nr+1))/2; j = 0;
+X   while (i-- > 0)
+X   {
+X      elx = el; Real sum = 0.0; int jx = j++; Ael -= nc;
+X      while (jx--) sum += *(--Ael) * *(--elx);
+X      elx--; *elx = (*elx - sum) / *(--Ael);
+X   }
+X}
+X
+Xvoid LowerTriangularMatrix::Solver(MatrixRowCol& mcout,
+X   const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* elx = mcin.store+mcout.skip; int i = mcin.skip-mcout.skip;
+X   while (i-- > 0) *elx++ = 0.0;
+X   int nc = mcin.skip; i = nc+mcin.storage; elx = mcin.store+i;
+X   int nr = mcout.skip+mcout.storage; int j = nr-i; i = nr-nc;
+X   while (j-- > 0) *elx++ = 0.0;
+X   Real* el = mcin.store+nc; Real* Ael = store + (nc*(nc+1))/2; j = 0;
+X   while (i-- > 0)
+X   {
+X      elx = el; Real sum = 0.0; int jx = j++; Ael += nc;
+X      while (jx--) sum += *Ael++ * *elx++;
+X      *elx = (*elx - sum) / *Ael++;
+X   }
+X}
+X
+X/******************* carry out binary operations *************************/
+X
+Xstatic GeneralMatrix*
+X   GeneralAdd(GeneralMatrix*,GeneralMatrix*,AddedMatrix*,MatrixType);
+Xstatic GeneralMatrix*
+X   GeneralSub(GeneralMatrix*,GeneralMatrix*,SubtractedMatrix*,MatrixType);
+Xstatic GeneralMatrix*
+X   GeneralMult(GeneralMatrix*,GeneralMatrix*,MultipliedMatrix*,MatrixType);
+Xstatic GeneralMatrix*
+X   GeneralSolv(GeneralMatrix*,GeneralMatrix*,BaseMatrix*,MatrixType);
+X
+XGeneralMatrix* AddedMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   gm1=((BaseMatrix*&)bm1)->Evaluate();
+X   gm2=((BaseMatrix*&)bm2)->Evaluate();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx;
+X   Try { gmx = GeneralAdd(gm1,gm2,this,mt); }
+X   CatchAll { delete this; Throw(); }
+X   delete this; return gmx;
+X#else
+X   return GeneralAdd(gm1,gm2,this,mt);
+X#endif   
+X}
+X
+XGeneralMatrix* SubtractedMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   gm1=((BaseMatrix*&)bm1)->Evaluate();
+X   gm2=((BaseMatrix*&)bm2)->Evaluate();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx;
+X   Try { gmx = GeneralSub(gm1,gm2,this,mt); }
+X   CatchAll { delete this; Throw(); }
+X   delete this; return gmx;
+X#else
+X   return GeneralSub(gm1,gm2,this,mt);
+X#endif   
+X}
+X
+XGeneralMatrix* MultipliedMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   gm2 = ((BaseMatrix*&)bm2)->Evaluate();
+X   gm2 = gm2->Evaluate(gm2->Type().MultRHS());     // no symmetric on RHS
+X   gm1=((BaseMatrix*&)bm1)->Evaluate();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx;
+X   Try { gmx = GeneralMult(gm1, gm2, this, mt); }
+X   CatchAll { delete this; Throw(); }
+X   delete this; return gmx;
+X#else
+X   return GeneralMult(gm1, gm2, this, mt);
+X#endif   
+X}
+X
+XGeneralMatrix* SolvedMatrix::Evaluate(MatrixType mt)
+X{
+X   REPORT
+X   gm1=((BaseMatrix*&)bm1)->Evaluate();
+X   gm2=((BaseMatrix*&)bm2)->Evaluate();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx;
+X   Try { gmx = GeneralSolv(gm1,gm2,this,mt); }
+X   CatchAll { delete this; Throw(); }
+X   delete this; return gmx;
+X#else
+X   return GeneralSolv(gm1,gm2,this,mt);
+X#endif   
+X}
+X
+X// routines for adding or subtracting matrices of identical storage structure
+X
+Xstatic void Add(GeneralMatrix* gm, GeneralMatrix* gm1, GeneralMatrix* gm2)
+X{
+X   REPORT
+X   Real* s1=gm1->Store(); Real* s2=gm2->Store();
+X   Real* s=gm->Store(); int i=gm->Storage() >> 2;
+X   while (i--)
+X   {
+X       *s++ = *s1++ + *s2++; *s++ = *s1++ + *s2++;
+X       *s++ = *s1++ + *s2++; *s++ = *s1++ + *s2++;
+X   }
+X   i=gm->Storage() & 3; while (i--) *s++ = *s1++ + *s2++;
+X}
+X   
+Xstatic void Add(GeneralMatrix* gm, GeneralMatrix* gm2)
+X{
+X   REPORT
+X   Real* s2=gm2->Store(); Real* s=gm->Store(); int i=gm->Storage() >> 2;
+X   while (i--)
+X   { *s++ += *s2++; *s++ += *s2++; *s++ += *s2++; *s++ += *s2++; }
+X   i=gm->Storage() & 3; while (i--) *s++ += *s2++;
+X}
+X
+Xstatic void Subtract(GeneralMatrix* gm, GeneralMatrix* gm1, GeneralMatrix* gm2)
+X{
+X   REPORT
+X   Real* s1=gm1->Store(); Real* s2=gm2->Store();
+X   Real* s=gm->Store(); int i=gm->Storage() >> 2;
+X   while (i--)
+X   {
+X       *s++ = *s1++ - *s2++; *s++ = *s1++ - *s2++;
+X       *s++ = *s1++ - *s2++; *s++ = *s1++ - *s2++;
+X   }
+X   i=gm->Storage() & 3; while (i--) *s++ = *s1++ - *s2++;
+X}
+X
+Xstatic void Subtract(GeneralMatrix* gm, GeneralMatrix* gm2)
+X{
+X   REPORT
+X   Real* s2=gm2->Store(); Real* s=gm->Store(); int i=gm->Storage() >> 2;
+X   while (i--)
+X   { *s++ -= *s2++; *s++ -= *s2++; *s++ -= *s2++; *s++ -= *s2++; }
+X   i=gm->Storage() & 3; while (i--) *s++ -= *s2++;
+X}
+X
+Xstatic void ReverseSubtract(GeneralMatrix* gm, GeneralMatrix* gm2)
+X{
+X   REPORT
+X   Real* s2=gm2->Store(); Real* s=gm->Store(); int i=gm->Storage() >> 2;
+X   while (i--)
+X   {
+X      *s = *s2++ - *s; s++; *s = *s2++ - *s; s++;
+X      *s = *s2++ - *s; s++; *s = *s2++ - *s; s++;
+X   }
+X   i=gm->Storage() & 3; while (i--) { *s = *s2++ - *s; s++; }
+X}
+X
+X// routines for adding or subtracting matrices of different storage structure
+X
+Xstatic void AddDS(GeneralMatrix* gm, GeneralMatrix* gm1, GeneralMatrix* gm2)
+X{
+X   int nr = gm->Nrows();
+X   MatrixRow mr1(gm1, LoadOnEntry); MatrixRow mr2(gm2, LoadOnEntry);
+X   MatrixRow mr(gm, StoreOnExit+DirectPart);
+X   while (nr--) { mr.Add(mr1,mr2); mr1.Next(); mr2.Next(); mr.Next(); }
+X}
+X   
+Xstatic void AddDS(GeneralMatrix* gm, GeneralMatrix* gm2)
+X// Add into first argument
+X{
+X   int nr = gm->Nrows();
+X   MatrixRow mr(gm, StoreOnExit+LoadOnEntry+DirectPart);
+X   MatrixRow mr2(gm2, LoadOnEntry);
+X   while (nr--) { mr.Add(mr2); mr.Next(); mr2.Next(); }
+X}
+X
+Xstatic void SubtractDS
+X   (GeneralMatrix* gm, GeneralMatrix* gm1, GeneralMatrix* gm2)
+X{
+X   int nr = gm->Nrows();
+X   MatrixRow mr1(gm1, LoadOnEntry); MatrixRow mr2(gm2, LoadOnEntry);
+X   MatrixRow mr(gm, StoreOnExit+DirectPart);
+X   while (nr--) { mr.Sub(mr1,mr2); mr1.Next(); mr2.Next(); mr.Next(); }
+X}
+X
+Xstatic void SubtractDS(GeneralMatrix* gm, GeneralMatrix* gm2)
+X{
+X   int nr = gm->Nrows();
+X   MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart);
+X   MatrixRow mr2(gm2, LoadOnEntry);
+X   while (nr--) { mr.Sub(mr2); mr.Next(); mr2.Next(); }
+X}
+X
+Xstatic void ReverseSubtractDS(GeneralMatrix* gm, GeneralMatrix* gm2)
+X{
+X   int nr = gm->Nrows();
+X   MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart);
+X   MatrixRow mr2(gm2, LoadOnEntry);
+X   while (nr--) { mr.RevSub(mr2); mr2.Next(); mr.Next(); }
+X}
+X
+X#ifdef __GNUG__
+Xvoid AddedMatrix::SelectVersion
+X   (MatrixType mtx, int& c1, int& c2) const
+X#else
+Xvoid AddedMatrix::SelectVersion
+X   (MatrixType mtx, Boolean& c1, Boolean& c2) const
+X#endif
+X// for determining version of add and subtract routines
+X// will need to modify if further matrix structures are introduced
+X{
+X   MatrixBandWidth bm1 = gm1->BandWidth();
+X   MatrixBandWidth bm2 = gm2->BandWidth();
+X   MatrixBandWidth bmx = bm1 + bm2;
+X   c1 = (mtx == gm1->Type()) && (bmx == bm1);
+X   c2 = (mtx == gm2->Type()) && (bmx == bm2);
+X}
+X
+Xstatic GeneralMatrix* GeneralAdd(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   AddedMatrix* am, MatrixType mtx)
+X{
+X   Tracer tr("GeneralAdd");
+X   int nr=gm1->Nrows(); int nc=gm1->Ncols();
+X   if (nr!=gm2->Nrows() || nc!=gm2->Ncols()) 
+X      Throw(IncompatibleDimensionsException());
+X   Compare(gm1->Type() + gm2->Type(),mtx);
+X#ifdef __GNUG__
+X   int c1,c2; am->SelectVersion(mtx,c1,c2);
+X#else
+X   Boolean c1,c2; am->SelectVersion(mtx,c1,c2); // causes problems for g++
+X#endif
+X   if (c1 && c2)
+X   {
+X      if (gm1->reuse()) { REPORT Add(gm1,gm2); gm2->tDelete(); return gm1; }
+X      else if (gm2->reuse()) { REPORT Add(gm2,gm1); return gm2; }
+X      else
+X      {
+X         REPORT GeneralMatrix* gmx = gm1->Type().New(nr,nc,am);
+X         gmx->ReleaseAndDelete(); Add(gmx,gm1,gm2); return gmx;
+X      }
+X   }
+X   else
+X   {
+X      if (c1 && gm1->reuse() )               // must have type test first
+X      { REPORT AddDS(gm1,gm2); gm2->tDelete(); return gm1; }
+X      else if (c2 && gm2->reuse() )
+X      { REPORT AddDS(gm2,gm1); if (!c1) gm1->tDelete(); return gm2; }
+X      else
+X      {
+X         REPORT
+X	 GeneralMatrix* gmx = mtx.New(nr,nc,am); AddDS(gmx,gm1,gm2);
+X	 if (!c1) gm1->tDelete(); if (!c2) gm2->tDelete();
+X         gmx->ReleaseAndDelete(); return gmx;
+X      }
+X   }
+X}
+X
+X
+Xstatic GeneralMatrix* GeneralSub(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   SubtractedMatrix* sm, MatrixType mtx)
+X{
+X   Tracer tr("GeneralSub");
+X   Compare(gm1->Type() + gm2->Type(),mtx);
+X   int nr=gm1->Nrows(); int nc=gm1->Ncols();
+X   if (nr!=gm2->Nrows() || nc!=gm2->Ncols())
+X      Throw(IncompatibleDimensionsException());
+X#ifdef __GNUG__
+X   int c1,c2; sm->SelectVersion(mtx,c1,c2);
+X#else
+X   Boolean c1,c2; sm->SelectVersion(mtx,c1,c2); // causes problems for g++
+X#endif
+X   if (c1 && c2)
+X   {
+X      if (gm1->reuse())
+X      { REPORT Subtract(gm1,gm2); gm2->tDelete(); return gm1; }
+X      else if (gm2->reuse()) { REPORT ReverseSubtract(gm2,gm1); return gm2; }
+X      else
+X      {
+X         REPORT
+X	 GeneralMatrix* gmx = gm1->Type().New(nr,nc,sm);
+X         gmx->ReleaseAndDelete(); Subtract(gmx,gm1,gm2); return gmx;
+X      }
+X   }
+X   else
+X   {
+X      if ( c1 && gm1->reuse() )
+X      { REPORT  SubtractDS(gm1,gm2); gm2->tDelete(); return gm1; }
+X      else if ( c2 && gm2->reuse() )
+X      {
+X         REPORT
+X         ReverseSubtractDS(gm2,gm1); if (!c1) gm1->tDelete(); return gm2;
+X      }
+X      else
+X      {
+X         REPORT
+X	 GeneralMatrix* gmx = mtx.New(nr,nc,sm); SubtractDS(gmx,gm1,gm2);
+X	 if (!c1) gm1->tDelete(); if (!c2) gm2->tDelete();
+X	 gmx->ReleaseAndDelete(); return gmx;
+X      }
+X   }
+X}
+X
+Xstatic GeneralMatrix* GeneralMult1(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   MultipliedMatrix* mm, MatrixType mtx)
+X{
+X   REPORT
+X   Tracer tr("GeneralMult1");
+X   int nr=gm1->Nrows(); int nc=gm2->Ncols();
+X   if (gm1->Ncols() !=gm2->Nrows())
+X      Throw(IncompatibleDimensionsException());
+X   GeneralMatrix* gmx = mtx.New(nr,nc,mm);
+X
+X   MatrixCol mcx(gmx, StoreOnExit+DirectPart);
+X   MatrixCol mc2(gm2, LoadOnEntry);
+X   while (nc--)
+X   {
+X      MatrixRow mr1(gm1, LoadOnEntry, mcx.Skip());
+X      Real* el = mcx();                              // pointer to an element
+X      int n = mcx.Storage();
+X      while (n--) { *(el++) = DotProd(mr1,mc2); mr1.Next(); }
+X      mc2.Next(); mcx.Next();
+X   }
+X   gmx->ReleaseAndDelete(); gm1->tDelete(); gm2->tDelete(); return gmx;
+X}
+X
+Xstatic GeneralMatrix* GeneralMult2(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   MultipliedMatrix* mm, MatrixType mtx)
+X{
+X   // version that accesses by row only - not good for thin matrices
+X   // or column vectors in right hand term. Needs fixing
+X   REPORT
+X   Tracer tr("GeneralMult2");
+X   int nr=gm1->Nrows(); int nc=gm2->Ncols();
+X   if (gm1->Ncols() !=gm2->Nrows())
+X      Throw(IncompatibleDimensionsException());
+X   GeneralMatrix* gmx = mtx.New(nr,nc,mm);
+X
+X   Real* el = gmx->Store(); int n = gmx->Storage();
+X   while (n--) *el++ = 0.0;
+X   MatrixRow mrx(gmx, LoadOnEntry+StoreOnExit+DirectPart);
+X   MatrixRow mr1(gm1, LoadOnEntry);
+X   while (nr--)
+X   {
+X      MatrixRow mr2(gm2, LoadOnEntry, mr1.Skip());
+X      el = mr1();                              // pointer to an element
+X      n = mr1.Storage();
+X      while (n--) { mrx.AddScaled(mr2, *el++); mr2.Next(); }
+X      mr1.Next(); mrx.Next();
+X   }
+X   gmx->ReleaseAndDelete(); gm1->tDelete(); gm2->tDelete(); return gmx;
+X}
+X
+Xstatic GeneralMatrix* mmMult(GeneralMatrix* gm1, GeneralMatrix* gm2)
+X{
+X   // matrix multiplication for type Matrix only
+X   REPORT
+X   Tracer tr("MatrixMult");
+X
+X   int nr=gm1->Nrows(); int ncr=gm1->Ncols(); int nc=gm2->Ncols();
+X   if (ncr != gm2->Nrows()) Throw(IncompatibleDimensionsException());
+X
+X   Matrix* gm = new Matrix(nr,nc); MatrixErrorNoSpace(gm);
+X
+X   Real* s1=gm1->Store(); Real* s2=gm2->Store(); Real* s=gm->Store();
+X   
+X   if (ncr)
+X   {
+X      while (nr--)
+X      {
+X         Real* s2x = s2; int j = ncr;
+X         Real* sx = s; Real f = *s1++; int k = nc;
+X         while (k--) *sx++ = f * *s2x++;
+X         while (--j)
+X            { sx = s; f = *s1++; k = nc; while (k--) *sx++ += f * *s2x++; }
+X         s = sx;
+X      }
+X   }
+X   else *gm = 0.0;
+X
+X   gm->ReleaseAndDelete(); gm1->tDelete(); gm2->tDelete(); return gm;
+X}
+X
+Xstatic GeneralMatrix* GeneralMult(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   MultipliedMatrix* mm, MatrixType mtx)
+X{
+X   if ( Rectangular(gm1->Type(), gm2->Type(), mtx)) return mmMult(gm1, gm2);
+X   else
+X   {
+X      Compare(gm1->Type() * gm2->Type(),mtx);
+X      int nr = gm2->Nrows(); int nc = gm2->Ncols();
+X      if (nc <= 5 && nr > nc) return GeneralMult1(gm1, gm2, mm, mtx);
+X      else return GeneralMult2(gm1, gm2, mm, mtx);
+X   }
+X}
+X
+Xstatic GeneralMatrix* GeneralSolv(GeneralMatrix* gm1, GeneralMatrix* gm2,
+X   BaseMatrix* sm, MatrixType mtx)
+X{
+X   REPORT
+X   Tracer tr("GeneralSolv");
+X   Compare(gm1->Type().i() * gm2->Type(),mtx);
+X   int nr=gm1->Nrows(); int nc=gm2->Ncols();
+X   if (gm1->Ncols() !=gm2->Nrows())
+X      Throw(IncompatibleDimensionsException());
+X   GeneralMatrix* gmx = mtx.New(nr,nc,sm);
+X
+X   Real* r = new Real [nr]; MatrixErrorNoSpace(r);
+X#ifndef ATandT
+X   MONITOR_REAL_NEW("Make   (GenSolv)",nr,r)
+X                           // deleted for ATandT, to balance deletion below
+X#endif
+X   MatrixCol mcx(gmx, r, StoreOnExit+DirectPart);   // copy to and from r
+X   MatrixCol mc2(gm2, r, LoadOnEntry);
+X   GeneralMatrix* gms = gm1->MakeSolver();
+X   Try
+X   {
+X      while (nc--) { gms->Solver(mcx, mc2); mcx.Next(); mc2.Next(); }
+X   }
+X   CatchAll
+X   {
+X      gms->tDelete(); delete gmx; gm2->tDelete();
+X#ifndef ATandT
+X      MONITOR_REAL_DELETE("Delete (GenSolv)",nr,r)
+X                          // ATandT version 2.1 gives an internal error
+X#endif
+X#ifdef Version21
+X      delete [] r;
+X#else
+X      delete [nr] r;
+X#endif
+X      Throw();
+X   }
+X   gms->tDelete(); gmx->ReleaseAndDelete(); gm2->tDelete();
+X#ifndef ATandT
+X   MONITOR_REAL_DELETE("Delete (GenSolv)",nr,r)
+X                          // ATandT version 2.1 gives an internal error
+X#endif
+X#ifdef Version21
+X   delete [] r;
+X#else
+X   delete [nr] r;
+X#endif
+X   return gmx;
+X}
+X
+XGeneralMatrix* InvertedMatrix::Evaluate(MatrixType mtx)
+X{
+X   // Matrix Inversion - use solve routines
+X   REPORT
+X   gm=((BaseMatrix*&)bm)->Evaluate();
+X   int n = gm->Nrows(); DiagonalMatrix I(n); I=1.0;
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GeneralMatrix* gmx;
+X   Try { gmx = GeneralSolv(gm,&I,this,mtx); }
+X   CatchAll { delete this; Throw(); }
+X   delete this; return gmx;
+X#else
+X   return GeneralSolv(gm,&I,this,mtx);
+X#endif   
+X}
+X
+X
+X/*************************** norm functions ****************************/
+X
+XReal BaseMatrix::Norm1() const
+X{
+X   // maximum of sum of absolute values of a column
+X   REPORT
+X   GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   int nc = gm->Ncols(); Real value = 0.0;
+X   MatrixCol mc(gm, LoadOnEntry);
+X   while (nc--)
+X      { Real v = mc.SumAbsoluteValue(); if (value < v) value = v; mc.Next(); }
+X   gm->tDelete(); return value;
+X}
+X
+XReal BaseMatrix::NormInfinity() const
+X{
+X   // maximum of sum of absolute values of a row
+X   REPORT
+X   GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   int nr = gm->Nrows(); Real value = 0.0;
+X   MatrixRow mr(gm, LoadOnEntry);
+X   while (nr--)
+X      { Real v = mr.SumAbsoluteValue(); if (value < v) value = v; mr.Next(); }
+X   gm->tDelete(); return value;
+X}
+END_OF_FILE
+if test 16089 -ne `wc -c <'newmat7.cxx'`; then
+    echo shar: \"'newmat7.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmat7.cxx'
+fi
+if test -f 'newmat8.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmat8.cxx'\"
+else
+echo shar: Extracting \"'newmat8.cxx'\" \(8288 characters\)
+sed "s/^X//" >'newmat8.cxx' <<'END_OF_FILE'
+X//$$ newmat8.cxx         Advanced LU transform, scalar functions
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X
+X#include "newmatap.h"
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,8); ExeCount++; }
+X
+X#define REPORT {}
+X
+X
+X/************************** LU transformation ****************************/
+X
+Xvoid CroutMatrix::ludcmp()
+X// LU decomposition - from numerical recipes in C
+X{
+X   REPORT
+X   Tracer trace("Crout(ludcmp)");
+X   int i,j;
+X
+X   Real* vv=new Real [nrows]; MatrixErrorNoSpace(vv);
+X   MONITOR_REAL_NEW("Make  (CroutMat)",nrows,vv)
+X   Real* a;
+X
+X   a=store;
+X   for (i=0;i<nrows;i++)
+X   {
+X      Real big=0.0;
+X      j=nrows; while (j--) { Real temp=fabs(*a++); if (temp > big) big=temp; }
+X      if (big == 0.0)
+X      {
+X         MONITOR_REAL_DELETE("Delete (CroutMt)",nrows,vv)
+X#ifdef Version21
+X         sing = TRUE; delete [] vv; return;
+X#else
+X         sing = TRUE; delete [nrows] vv; return;
+X#endif
+X      }
+X      vv[i]=1.0/big;
+X   }
+X
+X   Real* aj=store;
+X   for (j=0;j<nrows;j++)
+X   {
+X      Real* ai=store;
+X      for (i=0;i<j;i++)
+X      {
+X         Real sum=*(ai+j); Real* aix=ai; Real* ajx=aj;
+X         int k=i; while (k--) { sum -= *aix++ * *ajx; ajx += nrows; }
+X         *ajx = sum; ai += nrows;
+X      }
+X
+X      Real big=0.0; int imax;
+X      for (i=j;i<nrows;i++)
+X      {
+X         Real sum=*(ai+j); Real* aix=ai; Real* ajx=aj;
+X         int k=j; while (k--) { sum -= *aix++ * *ajx; ajx += nrows; }
+X         *aix = sum; ai += nrows;
+X         Real dum=vv[i]*fabs(sum); if (dum >= big) { big=dum; imax=i; }
+X      }
+X
+X      if (j != imax)
+X      {
+X         Real* amax=store+imax*nrows; Real* ajx=store+j*nrows;
+X         int k=nrows; while(k--) { Real dum=*amax; *amax++=*ajx; *ajx++=dum; }
+X         d=!d; vv[imax]=vv[j];
+X      }
+X
+X      indx[j]=imax; ai=aj+j*nrows;
+X      if (*ai == 0.0)
+X      {
+X         MONITOR_REAL_DELETE("Delete (CroutMt)",nrows,vv)
+X#ifdef Version21
+X         sing = TRUE; delete [] vv; return;
+X#else
+X         sing = TRUE; delete [nrows] vv; return;
+X#endif
+X      }
+X      Real dum=1.0/(*ai);
+X      i=nrows-j; while (--i) { ai += nrows; *ai *= dum; }
+X
+X      aj++;
+X   }
+X   MONITOR_REAL_DELETE("Delete (CroutMt)",nrows,vv)
+X#ifdef Version21
+X   delete [] vv;
+X#else
+X   delete [nrows] vv;
+X#endif
+X}
+X
+Xvoid CroutMatrix::lubksb(Real* B, int mini)
+X{
+X   REPORT
+X   Tracer trace("Crout(lubksb)");
+X   if (sing) Throw(SingularException(*this));   
+X   int i,j; int ii=-1; Real* ai=store;
+X
+X   for (i=0;i<nrows;i++)
+X   {
+X      int ip=indx[i]; Real sum=B[ip]; B[ip]=B[i];
+X      if (ii>=0)
+X      {
+X         Real* aij=ai+ii; Real* bj=B+ii; j=i-ii;
+X         while (j--) { sum -= *aij++ * *bj; bj++; }
+X      }
+X      else if (sum) ii=i;
+X      B[i]=sum; ai += nrows;
+X   }
+X
+X   for (i=nrows-1;i>=mini;i--)
+X   {
+X      Real* bj=B+i; ai -= nrows; Real* ajx=ai+i; Real sum=*bj; bj++;
+X      j=nrows-i; while(--j) { sum -= *(++ajx) * *bj; bj++; }
+X      B[i]=sum/(*(ai+i));
+X   }
+X}
+X
+X
+X/****************************** scalar functions ****************************/
+X
+Xinline Real square(Real x) { return x*x; }
+X
+XReal GeneralMatrix::SumSquare() const
+X{
+X   REPORT
+X   Real sum = 0.0; int i = storage; Real* s = store;
+X   while (i--) sum += square(*s++);
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal GeneralMatrix::SumAbsoluteValue() const
+X{
+X   REPORT
+X   Real sum = 0.0; int i = storage; Real* s = store;
+X   while (i--) sum += fabs(*s++);
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal GeneralMatrix::MaximumAbsoluteValue() const
+X{
+X   REPORT
+X   Real maxval = 0.0; int i = storage; Real* s = store;
+X   while (i--) { Real a = fabs(*s++); if (maxval < a) maxval = a; }
+X   ((GeneralMatrix&)*this).tDelete(); return maxval;
+X}
+X
+XReal SymmetricMatrix::SumSquare() const
+X{
+X   REPORT
+X   Real sum1 = 0.0; Real sum2 = 0.0; Real* s = store; int nr = nrows;
+X   for (int i = 0; i<nr; i++)
+X   {
+X      int j = i;
+X      while (j--) sum2 += square(*s++);
+X      sum1 += square(*s++);
+X   }
+X   ((GeneralMatrix&)*this).tDelete(); return sum1 + 2.0 * sum2;
+X}
+X
+XReal SymmetricMatrix::SumAbsoluteValue() const
+X{
+X   REPORT
+X   Real sum1 = 0.0; Real sum2 = 0.0; Real* s = store; int nr = nrows;
+X   for (int i = 0; i<nr; i++)
+X   {
+X      int j = i;
+X      while (j--) sum2 += fabs(*s++);
+X      sum1 += fabs(*s++);
+X   }
+X   ((GeneralMatrix&)*this).tDelete(); return sum1 + 2.0 * sum2;
+X}
+X
+XReal BaseMatrix::SumSquare() const
+X{
+X   REPORT GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   Real s = gm->SumSquare(); return s;
+X}
+X
+XReal BaseMatrix::SumAbsoluteValue() const
+X{
+X   REPORT GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   Real s = gm->SumAbsoluteValue(); return s;
+X}
+X
+XReal BaseMatrix::MaximumAbsoluteValue() const
+X{
+X   REPORT GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   Real s = gm->MaximumAbsoluteValue(); return s;
+X}
+X
+XReal Matrix::Trace() const
+X{
+X   REPORT
+X   Tracer trace("Trace");
+X   int i = nrows; int d = i+1;
+X   if (i != ncols) Throw(NotSquareException(*this));
+X   Real sum = 0.0; Real* s = store;
+X   while (i--) { sum += *s; s += d; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal DiagonalMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; Real sum = 0.0; Real* s = store;
+X   while (i--) sum += *s++;
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal SymmetricMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; Real sum = 0.0; Real* s = store; int j = 2;
+X   while (i--) { sum += *s; s += j++; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal LowerTriangularMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; Real sum = 0.0; Real* s = store; int j = 2;
+X   while (i--) { sum += *s; s += j++; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal UpperTriangularMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; Real sum = 0.0; Real* s = store;
+X   while (i) { sum += *s; s += i--; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal BandMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; int w = lower+upper+1;
+X   Real sum = 0.0; Real* s = store+lower;
+X   while (i--) { sum += *s; s += w; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal SymmetricBandMatrix::Trace() const
+X{
+X   REPORT
+X   int i = nrows; int w = lower+1;
+X   Real sum = 0.0; Real* s = store+lower;
+X   while (i--) { sum += *s; s += w; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XReal BaseMatrix::Trace() const
+X{
+X   REPORT
+X   GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate(MatrixType::Dg);
+X   Real sum = gm->Trace(); return sum;
+X}
+X
+Xvoid LogAndSign::operator*=(Real x)
+X{
+X   if (x > 0.0) { log_value += log(x); }
+X   else if (x < 0.0) { log_value += log(-x); sign = -sign; }
+X   else sign = 0;
+X}
+X
+XReal LogAndSign::Value() const { return sign * exp(log_value); }
+X
+XLogAndSign::LogAndSign(Real f)
+X{
+X   if (f == 0.0) { log_value = 0.0; sign = 0; return; }
+X   else if (f < 0.0) { sign = -1; f = -f; }
+X   else sign = 1;
+X   log_value = log(f);
+X}
+X
+XLogAndSign DiagonalMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   int i = nrows; LogAndSign sum; Real* s = store;
+X   while (i--) sum *= *s++;
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XLogAndSign LowerTriangularMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   int i = nrows; LogAndSign sum; Real* s = store; int j = 2;
+X   while (i--) { sum *= *s; s += j++; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XLogAndSign UpperTriangularMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   int i = nrows; LogAndSign sum; Real* s = store;
+X   while (i) { sum *= *s; s += i--; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XLogAndSign BaseMatrix::LogDeterminant() const
+X{
+X   REPORT GeneralMatrix* gm = ((BaseMatrix&)*this).Evaluate();
+X   LogAndSign sum = gm->LogDeterminant(); return sum;
+X}
+X
+XLogAndSign GeneralMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   Tracer tr("Determinant");
+X   if (nrows != ncols) Throw(NotSquareException(*this));
+X   CroutMatrix C(*this); return C.LogDeterminant();
+X}
+X
+XLogAndSign CroutMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   if (sing) return 0.0;
+X   int i = nrows; int dd = i+1; LogAndSign sum; Real* s = store;
+X   while (i--) { sum *= *s; s += dd; }
+X   if (!d) sum.ChangeSign(); return sum;
+X
+X}
+X
+XLinearEquationSolver::LinearEquationSolver(const BaseMatrix& bm)
+X: gm( ( ((BaseMatrix&)bm).Evaluate() )->MakeSolver() )
+X{
+X   if (gm==&bm) { REPORT  gm = gm->Image(); } 
+X   // want a copy if  *gm is actually bm
+X   else { REPORT  gm->Protect(); }
+X}
+X
+END_OF_FILE
+if test 8288 -ne `wc -c <'newmat8.cxx'`; then
+    echo shar: \"'newmat8.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmat8.cxx'
+fi
+if test -f 'newmat9.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmat9.cxx'\"
+else
+echo shar: Extracting \"'newmat9.cxx'\" \(954 characters\)
+sed "s/^X//" >'newmat9.cxx' <<'END_OF_FILE'
+X//$$ newmat9.cxx         Input and output
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X
+X#define WANT_STREAM
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X#include "newmatio.h"
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,9); ExeCount++; }
+X
+X#define REPORT {}
+X
+Xostream& operator<<(ostream& s, const BaseMatrix& X)
+X{
+X   GeneralMatrix* gm = ((BaseMatrix&)X).Evaluate(); operator<<(s, *gm);
+X   gm->tDelete(); return s;
+X}
+X
+X
+Xostream& operator<<(ostream& s, const GeneralMatrix& X)
+X{
+X   MatrixRow mr((GeneralMatrix*)&X, LoadOnEntry);
+X   int w = s.width();  int nr = X.Nrows();  long f = s.flags();
+X   s.setf(ios::fixed, ios::floatfield);
+X   for (int i=1; i<=nr; i++)
+X   {
+X      int skip = mr.skip;  int storage = mr.storage;
+X      Real* store = mr.store+skip;  skip *= w+1;
+X      while (skip--) s << " ";
+X      while (storage--) s << setw(w) << *store++ << " ";
+X      mr.Next();  s << "\n";
+X   }
+X   s << flush;  s.flags(f); return s;
+X}
+X
+END_OF_FILE
+if test 954 -ne `wc -c <'newmat9.cxx'`; then
+    echo shar: \"'newmat9.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmat9.cxx'
+fi
+if test -f 'newmatrm.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'newmatrm.cxx'\"
+else
+echo shar: Extracting \"'newmatrm.cxx'\" \(3388 characters\)
+sed "s/^X//" >'newmatrm.cxx' <<'END_OF_FILE'
+X//$$newmatrm.cxx                         rectangular matrix operations
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrm.h"
+X
+X
+X// operations on rectangular matrices
+X
+X
+Xvoid RectMatrixRow::Reset (const Matrix& M, int row, int skip, int length)
+X{
+X   RectMatrixRowCol::Reset
+X      ( M.Store()+row*M.Ncols()+skip, length, 1, M.Ncols() );
+X}
+X
+Xvoid RectMatrixRow::Reset (const Matrix& M, int row)
+X{
+X   RectMatrixRowCol::Reset( M.Store()+row*M.Ncols(), M.Ncols(), 1, M.Ncols() );
+X}
+X
+Xvoid RectMatrixCol::Reset (const Matrix& M, int skip, int col, int length)
+X{
+X   RectMatrixRowCol::Reset
+X      ( M.Store()+col+skip*M.Ncols(), length, M.Ncols(), 1 );
+X}
+X
+Xvoid RectMatrixCol::Reset (const Matrix& M, int col)
+X   { RectMatrixRowCol::Reset( M.Store()+col, M.Nrows(), M.Ncols(), 1 ); }
+X
+X
+XReal RectMatrixRowCol::SumSquare() const
+X{
+X   long_Real sum = 0.0; int i = n; Real* s = store; int d = spacing;
+X   while (i--) { sum += (long_Real)*s * *s; s += d; }
+X   return (Real)sum;
+X}
+X
+XReal RectMatrixRowCol::operator*(const RectMatrixRowCol& rmrc) const
+X{
+X   long_Real sum = 0.0; int i = n;
+X   Real* s = store; int d = spacing;
+X   Real* s1 = rmrc.store; int d1 = rmrc.spacing;
+X   if (i!=rmrc.n)
+X   {
+X      Tracer tr("newmatrm");
+X      Throw(InternalException("Dimensions differ in *"));
+X   }
+X   while (i--) { sum += (long_Real)*s * *s1; s += d; s1 += d1; }
+X   return (Real)sum;
+X}
+X
+Xvoid RectMatrixRowCol::AddScaled(const RectMatrixRowCol& rmrc, Real r)
+X{
+X   int i = n; Real* s = store; int d = spacing;
+X   Real* s1 = rmrc.store; int d1 = rmrc.spacing;
+X   if (i!=rmrc.n)
+X   {
+X      Tracer tr("newmatrm");
+X      Throw(InternalException("Dimensions differ in AddScaled"));
+X   }
+X   while (i--) { *s += *s1 * r; s += d; s1 += d1; }
+X}
+X
+Xvoid RectMatrixRowCol::Divide(const RectMatrixRowCol& rmrc, Real r)
+X{
+X   int i = n; Real* s = store; int d = spacing;
+X   Real* s1 = rmrc.store; int d1 = rmrc.spacing;
+X   if (i!=rmrc.n)
+X   {
+X      Tracer tr("newmatrm");
+X      Throw(InternalException("Dimensions differ in Divide"));
+X   }
+X   while (i--) { *s = *s1 / r; s += d; s1 += d1; }
+X}
+X
+Xvoid RectMatrixRowCol::Divide(Real r)
+X{
+X   int i = n; Real* s = store; int d = spacing;
+X   while (i--) { *s /= r; s += d; }
+X}
+X
+Xvoid RectMatrixRowCol::Negate()
+X{
+X   int i = n; Real* s = store; int d = spacing;
+X   while (i--) { *s = - *s; s += d; }
+X}
+X
+Xvoid RectMatrixRowCol::Zero()
+X{
+X   int i = n; Real* s = store; int d = spacing;
+X   while (i--) { *s = 0.0; s += d; }
+X}
+X
+Xvoid ComplexScale(RectMatrixCol& U, RectMatrixCol& V, Real x, Real y)
+X{
+X   int n = U.n;
+X   if (n != V.n)
+X   {
+X      Tracer tr("newmatrm");
+X      Throw(InternalException("Dimensions differ in ComplexScale"));
+X   }
+X   Real* u = U.store; Real* v = V.store; 
+X   int su = U.spacing; int sv = V.spacing;
+X   while (n--)
+X   {
+X      Real z = *u * x - *v * y;  *v =  *u * y + *v * x;  *u = z;
+X      u += su;  v += sv;
+X   }
+X}
+X
+Xvoid Rotate(RectMatrixCol& U, RectMatrixCol& V, Real tau, Real s)
+X{
+X   //  (U, V) = (U, V) * (c, s)  where  tau = s/(1+c), c^2 + s^2 = 1
+X   int n = U.n;
+X   if (n != V.n)
+X   {
+X      Tracer tr("newmatrm");
+X      Throw(InternalException("Dimensions differ in Rotate"));
+X   }
+X   Real* u = U.store; Real* v = V.store; 
+X   int su = U.spacing; int sv = V.spacing;
+X   while (n--)
+X   {
+X      Real zu = *u; Real zv = *v;
+X      *u -= s * (zv + zu * tau); *v += s * (zu - zv * tau);
+X      u += su;  v += sv;
+X   }
+X}
+X
+X
+END_OF_FILE
+if test 3388 -ne `wc -c <'newmatrm.cxx'`; then
+    echo shar: \"'newmatrm.cxx'\" unpacked with wrong size!
+fi
+# end of 'newmatrm.cxx'
+fi
+echo shar: End of archive 5 \(of 8\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

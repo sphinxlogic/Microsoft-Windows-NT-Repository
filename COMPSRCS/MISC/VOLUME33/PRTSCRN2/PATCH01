@@ -1,0 +1,272 @@
+Newsgroups: comp.sources.misc
+From: Chip Rosenthal <chip@chinacat.unicom.com>
+Subject:  v33i029:  prtscrn2 - screen dump utility for SCO UNIX/XENIX, Patch01
+Message-ID: <1992Nov1.225933.26965@sparky.imd.sterling.com>
+X-Md4-Signature: b6100260447f85806d1714fc50d54ded
+Date: Sun, 1 Nov 1992 22:59:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Chip Rosenthal <chip@chinacat.unicom.com>
+Posting-number: Volume 33, Issue 29
+Archive-name: prtscrn2/patch01
+Environment: SCO
+Patch-To: prtscrn2: Volume 30, Issue 76
+
+`Prtscrn' grabs the contents of an SCO Unix or Xenix console screen
+and sends them to stdout -- for saving to a file, printing, etc.
+
+This patch is of interest primarly to SCO Xenix 2.3.3 users.  This
+patch does not add new functionality or bug fixes.  It merely addresses
+a porting issue and cleans up the documentation a bit.  Please see
+the README file for additional details.
+
+Index: patchlevel
+*** /dev/null	Fri Oct 23 19:50:30 1992
+--- patchlevel	Fri Oct 23 19:57:46 1992
+***************
+*** 0 ****
+--- 1,9 ----
++ 
++ Patchlevel 1	Add CONS_GETINFO declarations for XENIX 2.3.3.  Cleanup
++ 		descriptive text.  Update README with information on
++ 		compatibility with various XENIX releases.
++ 
++ Patchlevel 0	Initial release.  (comp.sources.misc vol 30, issue 76)
++ 
++ @(#) patchlevel 1.2 92/10/23 19:57:37
++ 
+Index: README
+*** Distrib/README	Fri Oct 23 19:43:01 1992
+--- README	Fri Oct 23 19:44:01 1992
+***************
+*** 1,16 ****
+! @(#) README 1.3 92/06/16 21:17:03
+  
+! `prtscrn' grabs the contents of a console MultiScreen(tm) on SCO
+! UNIX and XENIX systems.
+  
+! To dump the contents of /dev/tty01 to a file, you'd run:
+  
+  	prtscrn -1 >filename
+  
+! To dump the contents of the current screen, simply run:
+  
+  	prtscrn >filename
+  
+  An earlier version of the `prtscrn' program was published in
+  comp.sources.misc volume 22.  This version has many improvements.
+  
+--- 1,22 ----
+! @(#) README 1.5 92/10/23 19:42:43
+  
+! `prtscrn' grabs the contents of a console MultiScreen(tm) on SCO Unix
+! and Xenix systems.  This program has been tested on SCO Unix release
+! 3.2v2.0 and SCO Xenix release 2.3.4.  This program will NOT work with
+! SCO Xenix/286 or old releases of SCO Xenix -- see below for more info.
+  
+! To dump the contents of /dev/tty01 to a file, you'd run
+  
+  	prtscrn -1 >filename
+  
+! To dump the contents of the current screen, simply run
+  
+  	prtscrn >filename
+  
++ To print the current screen, say
++ 
++ 	prtscrn | lp
++ 
+  An earlier version of the `prtscrn' program was published in
+  comp.sources.misc volume 22.  This version has many improvements.
+  
+***************
+*** 18,24 ****
+        the kernel or system memory, and thus no longer needs to be
+        installed with privileges.
+  
+!     - This version is portable between SCO XENIX and SCO UNIX.  Not
+        only are there no longer special ifdef's, but also a binary
+        compiled on one of these will work on the other.
+  
+--- 24,30 ----
+        the kernel or system memory, and thus no longer needs to be
+        installed with privileges.
+  
+!     - This version is portable between SCO Xenix and SCO Unix.  Not
+        only are there no longer special ifdef's, but also a binary
+        compiled on one of these will work on the other.
+  
+***************
+*** 33,38 ****
+--- 39,68 ----
+  
+      - I've coded this version to hopefully support systems with multiple
+        display adapters, but I haven't tested it.
++ 
++ 
++ NOTE TO SCO XENIX USERS:
++ 
++     This utility uses a operation called CONS_GETINFO to obtain required
++     information on the console.  As far as I know, no releases of SCO
++     Xenix/286 support this function.  This operation is fully supported
++     under Xenix/386 2.3.4, and is not supported at all under Xenix/386
++     2.3.2 and earlier.  It is supported under *some* releases of 2.3.3.
++ 
++     There were several different releases of SCO Xenix which called
++     themselves 2.3.3.  The later ones include the required console
++     driver updates.  If you are running 2.3.3 by way of update UFN
++     (SLS xnx296) then this utility will work.  If you are running
++     2.3.3 by way of update UFJ (included with older versions of VP/ix)
++     then this utility will *not* run.  I do not know offhand whether
++     2.3.3 by way of update UFM (SLS xnx155B) has the new console driver
++     or not.
++ 
++     If you are stuck with a version of Xenix which will not support
++     this utility, there is an earlier version of `prtscrn' in the
++     comp.sources.misc archives (volume 22, issue 27) you may use.
++     That older release isn't as good as this one, but it is functional.
++ 
+  
+  Chip Rosenthal
+  <chip@chinacat.Unicom.COM>
+Index: prtscrn.c
+*** Distrib/prtscrn.c	Fri Oct 23 19:43:01 1992
+--- prtscrn.c	Fri Oct 23 19:43:50 1992
+***************
+*** 1,38 ****
+  #ifndef lint
+! static char SCCSID[] = "@(#) prtscrn.c 1.6 92/06/17 01:09:54";
+  #endif
+  
+  /*
+   * prtscrn - SCO UNIX/XENIX console screen dump utility.
+   *
+!  * This works by attaching to the display adapter memory and extracting
+!  * the out the characters and dumping them to stdout.  In order to
+!  * do this we need to make the selected screen active so that it's
+!  * contents are loaded into display memory.  What gets tricky is that
+!  * we need to figure out what screen is on the adapter when we begin
+!  * so we can put that screen back when we are done.
+   *
+!  * One way to find out what screen is active is to open up the
+!  * display adapter (e.g. "/dev/vga") and do a CONS_GETINFO ioctl()
+!  * upon it.  However, we first need to know what kind of display
+!  * adapter is being used.  If we are dumping a specific screen
+!  * (i.e. a screen number was given on the command line) then we
+!  * will open up that tty, and do a CONS_CURRENT ioctl() upon it
+!  * to get the adapter type.  If we are dumping the current screen
+!  * (i.e.  no screen number given on the command line) then we
+!  * will do the CONS_CURRENT ioctl() upon "/dev/tty".  Note that
+!  * a side effect of this is that we should be able to make a dump
+!  * of a screen from any terminal on the system (permissions
+!  * willing), and further this should work on a system with multiple
+!  * display adapters.
+   *
+-  * Security is enforced by permissions on the console tty.  That is,
+-  * if you try to dump screen 2, then you need to have read/write
+-  * permissions to /dev/tty02.  This utility assumes that the user
+-  * has read permissions on the adapter device, e.g. /dev/vga.  The
+-  * default is to grant world read/write for these devices.  I'm not
+-  * sure that is wise, but we assume that's the way things are.
+-  *
+   * Edit at tabstops=4.
+   *
+   * Chip Rosenthal
+--- 1,30 ----
+  #ifndef lint
+! static char SCCSID[] = "@(#) prtscrn.c 1.8 92/10/23 19:42:44";
+  #endif
+  
+  /*
+   * prtscrn - SCO UNIX/XENIX console screen dump utility.
+   *
+!  * This utility works by attaching to the display adaptor memory,
+!  * extracting the characters from memory, and dumping them to
+!  * stdout.  This means that we need to activate the selected
+!  * screen so that its contents are loaded into display memory.
+!  * We also need to figure out which screen was active on the
+!  * display at startup so that we can put that screen back on the
+!  * display when done.
+   *
+!  * There are some gyrations we need to go through in order to
+!  * support various adapter types -- and even systems with multiple
+!  * display adapters.  First, we need to open the screen we want
+!  * to dump (e.g.  "/dev/tty02") and do a CONS_CURRENT ioctl()
+!  * upon it.  This will tell us the sort of adapter this screen
+!  * is upon.  Then we can open up the adapter device (e.g.
+!  * "/dev/vga") and manipulate the screen selection and access
+!  * the display memory.  This utility needs read/write access to
+!  * the screen device and read access to the display adapter.
+!  * This can be used to prevent unauthorized people from dumping
+!  * another person's display.
+   *
+   * Edit at tabstops=4.
+   *
+   * Chip Rosenthal
+***************
+*** 53,58 ****
+--- 45,71 ----
+  #include <sys/vtkd.h>
+  
+  #define USAGE	"usage: %s [-screen_num]\n"
++ 
++ /*
++  * Although the CONS_GETINFO operation was added in XENIX 2.3.3, the
++  * header files were not updated until 2.3.4.  We need to provide the
++  * required declarations for 2.3.3 systems.
++  */
++ #ifndef CONS_GETINFO /*{*/
++ #	define CONS_GETINFO	(CONSIOC|73)
++ 	struct vid_info
++ 	{
++ 		short	size;				/* must be first field			*/
++ 		short	m_num;				/* multiscreen number, 0 based	*/
++ 		ushort	mv_row, mv_col;		/* cursor position				*/
++ 		ushort	mv_rsz, mv_csz;		/* text screen size				*/
++ 		struct colors	mv_norm,	/* normal attributes			*/
++ 				mv_rev,				/* reverse video attributes		*/
++ 				mv_grfc;			/* graphic character attributes	*/
++ 		uchar_t mv_ovscan;			/* border color					*/
++ 		uchar_t mk_keylock;			/* caps/num/scroll lock			*/
++ 	};
++ #endif /*}!CONS_GETINFO*/
+  
+  char *Progname;
+  
+Index: prtscrn.1
+*** Distrib/prtscrn.1	Fri Oct 23 19:43:01 1992
+--- prtscrn.1	Fri Oct 23 19:44:01 1992
+***************
+*** 1,4 ****
+! .\" @(#) prtscrn.1 1.5 92/06/16 21:17:04
+  .TH PRTSCRN 1L
+  .SH NAME
+  prtscrn \- Print contents of a console multiscreen.
+--- 1,4 ----
+! .\" @(#) prtscrn.1 1.6 92/10/23 19:42:44
+  .TH PRTSCRN 1L
+  .SH NAME
+  prtscrn \- Print contents of a console multiscreen.
+***************
+*** 20,25 ****
+--- 20,29 ----
+  Never tested with multiple display adapters.
+  Only supports text mode operation.
+  Although it will handle eight-bit characters, it won't do attributes.
++ .P
++ This utility is supported on SCO Unix, SCO Xenix 2.3.4, and SCO Xenix
++ 2.3.3 by way of update UFN (SLS xnx296).  It is not supported on
++ Xenix/286 or older releases of Xenix/386.
+  .SH AUTHOR
+  Chip Rosenthal
+  .br
+
+<end of patch1 to prtscrn2>
+
+-- 
+Chip Rosenthal  512-482-8260 | I got the blues so bad one time
+Unicom Systems Development   | it put my face in a permanent frown.
+<chip@chinacat.Unicom.COM>   |   - Taj Mahal
+
+
+exit 0 # Just in case...

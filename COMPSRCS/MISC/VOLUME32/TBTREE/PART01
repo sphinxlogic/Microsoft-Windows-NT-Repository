@@ -1,0 +1,427 @@
+Newsgroups: comp.sources.misc
+From: tombaker@world.std.com (Tom A Baker)
+Subject:  v32i097:  tbtree - Display directory tree, Part01/01
+Message-ID: <1992Oct7.212222.5517@sparky.imd.sterling.com>
+X-Md4-Signature: 3fb2c3c4399f1cdb7828649394fee486
+Date: Wed, 7 Oct 1992 21:22:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tombaker@world.std.com (Tom A Baker)
+Posting-number: Volume 32, Issue 97
+Archive-name: tbtree/part01
+Environment: SunOS
+
+This is tbtree, a "tree" program for Unix. This program allows the
+user to get a visual idea of where things are on their system.
+                                   
+This runs on Sun machines.  As I comment within, try it on your
+Unix; you have nothing to lose, and it looks pretty portable.
+
+Please see the README for more information.
+
+If you improve it, please send me a copy.
+tombaker@world.std.com || tabaker@aol.com || BIX as tombaker
+
+--------- cut here -----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README tbtree.c
+# Wrapped by kent@sparky on Wed Oct  7 16:12:59 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(2350 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XAN ORIGINAL POSTING was in response to a recent request in this group
+Xfor a "tree" program for Unix; a system manager wanted to get
+Xa visual idea of where things were on his/her new system.
+X                                   
+X[last minute note: Thanks for sending me your updates!  When I get a chance,
+X I'll try to integrate them and repost them. - tb]
+X
+X
+XCHANGES IN THIS POSTING:
+X
+X    1) In the case of a symbolic link that points to a file that
+X       does not exist (e.g., you create a linkfile "foo" that points
+X       to a file named "foobar", but then delete "foobar", leaving
+X       "foo"):
+X
+X       ORIGINAL VERSION:
+X            "Error on stat." would appear on standard error.
+X
+X       THIS VERSION:
+X            Nothing happens; tbtree recognizes the "Not There" error.
+X
+X    2) In the case of tbtree being invoked on, or descending into,
+X       a directory for which you have no "search" (or "execute")
+X       permissions.
+X
+X       ORIGINAL VERSION:
+X            "Error on stat." would appear on standard error.
+X            The directory is skipped.
+X
+X       THIS VERSION:
+X            "Error running stat() on xyzzy: No permission" (or an
+X            equivalent) would appear on standard error, as the
+X            system's "Print Error" ("perror()") function is used.
+X            (And where "xyzzy" is the directory's path.)
+X
+X            The directory is skipped.
+X
+X    3) As a result, errors in general for the stat() and lstat()
+X       calls are better reported.
+X
+X    4) EXTRA FEATURE:  If there is(are) a directory name which usually
+X       you can't stand descending into (say you have a whole extra hard
+X       disk mounted as a subdirectory in more than one place), you
+X       can "uncomment" a small block herein where I show how to hard-
+X       code a "prune".  Yes, it should be a command line option; but
+X       think about it ... if there is such a name on your system (there
+X       are three on mine) then you will know about it when you install
+X       this.
+X
+X       Do like I did: compile once as "tbtree", then install the prune
+X       and call it "tbtree_prune".  Or make it whatever way you like.
+X
+XThis has run on Sun machines.  As I comment within, try it on your
+XUnix; you have nothing to lose, and it looks pretty portable.
+X
+XIf you improve it, please send me a copy.
+Xtombaker@world.std.com || tabaker@aol.com || BIX as tombaker
+END_OF_FILE
+  if test 2350 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'tbtree.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tbtree.c'\"
+else
+  echo shar: Extracting \"'tbtree.c'\" \(9796 characters\)
+  sed "s/^X//" >'tbtree.c' <<'END_OF_FILE'
+X/*- tbtree - Graphical directory display. */
+X/*
+X *  Usage: tbtree [directory]
+X *
+X *  That command will give a "tree" drawing of the Unix sub-directories
+X *  below.  If no directory is specified, the current directory, ".",
+X *  is used.
+X */
+X/*
+X * This software is released to the public domain.  Please don't
+X * sell it for a million dollars profit without giving me some.
+X * Please leave my name and this credit in the code, or everyone
+X * on the planet will forget I exist, even before I die.  Besides,
+X * I know where you live.
+X *
+X * If you improve this program, please send me a copy.
+X * tombaker@world.std.com || tabaker@aol.com || BIX as tombaker  Oct 2, 1992
+X */
+X/*
+X * Install: Cut where it says.
+X *          Compile as
+X *                     % cc -o tbtree tbtree.c
+X */
+X/*
+X * 14-JUL-89 Original.
+X * 10-FEB-90 Changed the 'bugs' comment to a 'features' comment.
+X * 26-JUN-90 Fixed bug in which link names are not terminated correctly.
+X * 08-NOV-90 Prune of XYZZY hardwired into alternate version.
+X * 02-OCT-92 Cleaned up and posted in response to call for help over
+X *           the Net.
+X * 05-OCT-92 stat() and lstat() now properly report errors ("You have no
+X *           permission", "file no longer exists") verbosely,
+X *           AND stat() ignores symbolic links which point at nonexistent
+X *           files.
+X *           (Get it? I fix a bug, which I probably have known about since
+X *           the 1980's, three days AFTER I broadcast the source code to
+X *           the world.)
+X *
+X * Features:
+X *       Follows links.
+X *           It indicates links with a "->".
+X *           It DOES distinguish between a link to a file and one
+X *               to a subdirectory; only the latter get displayed.
+X *           It seems to follow circular links.  Eg., "xxx -> ./"
+X *       System errors in stat() and lstat() result in calls to
+X *            perror(), so a useful error message is provided.
+X *
+X * Bugs:
+X *       The opendir() call still has trouble with files which
+X *       are not directories; the "*UNREADABLE*" pruning results.
+X *
+X * Suggestions:
+X *       Some pruning is indicated:
+X *           Go only a specified number of levels down.
+X *       It is easy to lose track of what the lines point back UP to.
+X *       An interactive version would be appreciated.
+X *
+X *       The quick-and-dirty use of big, big arrays, instead of using
+X *       dynamic allocations or the system defines, was okay because
+X *       the swapper/pager can handle it and this is not that big a
+X *       deal of a program.  Guess I was tired that day, but it works.
+X *       (pleasenoflames: you don't like it, fix it)
+X *
+X * Notes:
+X *    STAT - In the case of a symbolic link that points to a file that
+X *        does not exist (e.g., you create a linkfile "foo" that points
+X *        to a file named "foobar", but then delete "foobar", leaving
+X *        "foo"), stat() returns an error flag, and sets the "errno" global
+X *        to ENOENT.  This is normal, so we ignore this as a special case.
+X *
+X *        Other system errors will thwart tbtree, and are reported.
+X *
+X *    This works on Sun workstations.  Try it on your version of Unix.
+X *    (If I could guarantee it would work, I'd charge you.)
+X *
+X *    The call to readlink() returns -1, and error = EINVAL if the
+X *    file being tested is not a link.  It returns the contents of
+X *    symlink in nonterminated string, and the return value is the
+X *    number of characters of the link name.
+X *
+X *    If a link is a hard link, that means there is no symbolic link.
+X *    This program just skips down the hard links like they aren't
+X *    there.
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X#include <string.h>
+X#include <dirent.h>
+X
+X#define FALSE        (0)
+X#define TRUE         (1)
+X
+X#define MAX_SUBS     (1000)
+X#define MAX_COMPS    (100)
+X#define MAX_COMP_LEN (100)
+X#define MAX_PATH     (MAX_COMPS*(MAX_COMP_LEN+1))
+X
+X/*-   DATA. */
+Xint   debug = FALSE;
+Xint   last_line_had_no_file = FALSE;
+X
+X/*-   MAIN() - Process args and start top directory. */
+Xmain(argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X    switch( argc )
+X    {
+X    case 1:
+X        show( ".",     " " );
+X        break;
+X    case 2:
+X        show( argv[1], " " );
+X        break; 
+X    default:
+X        fprintf(stderr,"Usage: %s [directory].\n", argv[0]);
+X        break;
+X    }
+X}
+X
+X/*-   SHOW() - Display a directory and its subdirectories.  RECURSIVE. */
+Xshow( path,  prefix )
+Xchar *path, *prefix;
+X{
+X    char           *lastp;
+X    DIR            *dirp;
+X    struct dirent  *dp;
+X    struct stat     buf;
+X    char            newpath[MAX_PATH+1];
+X    char            newprefix[MAX_COMPS*4+1];
+X    int             num_subs = 0;
+X    char            darray[MAX_SUBS][MAX_COMP_LEN+1];
+X    int             i;
+X    int             symsize;
+X    char            sympath[MAX_PATH+1];
+X
+X    /*- Get the last component of directory name. */
+X    lastp=strrchr( path, '/' );
+X    if( lastp == NULL )
+X        lastp = path;
+X    else
+X        lastp++;
+X
+X    /*- Show last component of directory name. */
+X    printf("%s", lastp);
+X    last_line_had_no_file = FALSE;
+X
+X    /*- Prune dirs ONE TWO and THREE.
+X     * if(  (!strcmp(lastp,"ONE"))
+X     *   || (!strcmp(lastp,"TWO"))
+X     *   || (!strcmp(lastp,"THREE"))
+X     *   )
+X     * {
+X     *     if( strcmp(lastp, "THREE"))
+X     *         printf("  ");
+X     *     printf("\t*PRUNED*\n");
+X     *     last_line_had_no_file = FALSE;
+X     *     return;
+X     * }
+X     */
+X
+X    /*- Open directory. */
+X    if ((dirp = opendir(path)) == NULL)
+X    {
+X        /*- If can't (even after the above testing), yell and abort. */
+X        /*
+X         * The block below puts the message below the name.
+X         *            printf("\n");
+X         *            printf("%s|\n",prefix);
+X         *            printf("%s*UNREADABLE*\n", prefix );
+X         *            printf("%s\n", prefix );
+X         *            last_line_had_no_file = TRUE;
+X         * The block in use shoves it to the right, giving one line
+X         *     per unreadable directory, just like directories with no
+X         *     subdirectories.
+X         */
+X        printf("\t*UNREADABLE*\n");
+X        last_line_had_no_file = FALSE;
+X        return;
+X    }
+X    printf("\n");
+X
+X    /*- Read all entries. */
+X    for (dp = readdir(dirp); dp != NULL; dp = readdir(dirp))
+X    {
+X        /*- Skip directory entries '.' and '..' . */
+X        if (!strcmp(dp->d_name, "."))
+X            continue;
+X        if (!strcmp(dp->d_name, ".."))
+X            continue;
+X
+X        /*- If entry is a directory, */
+X        strcpy( newpath, path );
+X        strcat( newpath, "/"  );
+X        strcat( newpath, dp->d_name  );
+X                                     /* See note on "STAT" in file header. */
+X        if( stat(newpath,&buf) && errno!=ENOENT )
+X        {
+X            fprintf(stderr,"Error running stat() on \"%s\")",newpath);
+X            perror("");
+X        }
+X        if( (buf.st_mode&S_IFDIR) == S_IFDIR )
+X        {
+X            /*- Add it to array. */
+X            strcpy( darray[num_subs], dp->d_name );
+X            num_subs++;
+X        }
+X    }
+X
+X    /*- Close directory. */
+X    closedir(dirp);
+X
+X    /*- Call sub to sort the array, in place. */
+X    sort( num_subs, darray );
+X
+X    /*- Line above sub-directory. */
+X    if( num_subs )
+X        if( !last_line_had_no_file )
+X        {
+X            printf("%s|\n",prefix);
+X            last_line_had_no_file = TRUE;
+X        }
+X
+X    /*- For each sub-directory ... */
+X    for( i=0; i<num_subs; i++ )
+X    {
+X        /*- Prepare sub-directory's path. */
+X        strcpy( newpath, path );
+X        strcat( newpath, "/"  );
+X        strcat( newpath, darray[i] );
+X
+X        /*- Sub-direcory's prefix string depends on ... */
+X        if( (i+1) == num_subs )
+X        {
+X            /*- ... if sub-directory is last one ... */
+X            strcpy( newprefix, prefix );
+X            strcat( newprefix, "    "   );
+X        }
+X        else
+X        {
+X            /*- ... or not. */
+X            strcpy( newprefix, prefix );
+X            strcat( newprefix, "|   "   );
+X        }
+X
+X        /*- If sub-directory is a symbolic link, */
+X                                     /* See note on "STAT" in file header. */
+X        if( lstat(newpath,&buf) && errno!=ENOENT )
+X        {
+X            fprintf(stderr,"Error running lstat() on \"%s\")",newpath);
+X            perror("");
+X        }
+X        if( (buf.st_mode&S_IFLNK) == S_IFLNK )
+X        {
+X            /*- Get symbolic name as well. */
+X            if( (symsize=readlink(newpath,sympath,MAX_PATH)) < 0 )
+X            {
+X                fprintf(stderr,"Error on readlink.\n");
+X            }
+X
+X            if( (lastp=strchr(sympath, (int) ' ')) != NULL )
+X                *lastp = '\0';
+X
+X            sympath[symsize] = '\0';
+X            printf("%s+- %s -> %s\n",prefix,darray[i],sympath);
+X        }
+X        /*- Else, */
+X        else
+X        {
+X            /*- Recurse to show sub-directory. */
+X            printf("%s+- ",prefix);
+X            show( newpath, newprefix );
+X        }
+X    }
+X
+X    /*- Space below each directory. */
+X    if( num_subs )
+X        if( !last_line_had_no_file )
+X        {
+X            printf("%s\n",prefix);
+X            last_line_had_no_file = TRUE;
+X        }
+X
+X    /*- Done. */
+X}
+X
+X/*-   SORT() - Sort array in place. */
+Xsort( n, darray )
+Xint   n;
+Xchar     darray[MAX_SUBS][MAX_COMP_LEN+1];
+X{
+X    register int i, j;
+X    char         scratch[MAX_COMP_LEN+1];
+X
+X    /*- For each of the n-1 passes. */
+X    for( i=0; i<(n-1); i++ )
+X
+X        /*- For each of the lowest (n-1-pass) pairs. */
+X        for( j=0; j<(n-1-i); j++ )
+X
+X            /*- If the two are out of order. */
+X            if( strcmp( darray[j], darray[j+1] ) > 0 )
+X            {
+X                /*- Swap them. */
+X                strcpy( scratch,     darray[j]   );
+X                strcpy( darray[j],   darray[j+1] );
+X                strcpy( darray[j+1], scratch     );
+X            }
+X}
+END_OF_FILE
+  if test 9796 -ne `wc -c <'tbtree.c'`; then
+    echo shar: \"'tbtree.c'\" unpacked with wrong size!
+  fi
+  # end of 'tbtree.c'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

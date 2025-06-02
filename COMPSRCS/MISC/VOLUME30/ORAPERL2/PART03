@@ -1,0 +1,2365 @@
+Newsgroups: comp.sources.misc
+From: Kevin Stock <kstock@encore.com>
+Subject:  v30i089:  oraperl-v2 - Extensions to Perl to access Oracle database, Part03/05
+Message-ID: <1992Jun29.184044.11179@sparky.imd.sterling.com>
+X-Md4-Signature: cdc3db6062738e83f5ecdaf21dd15e4d
+Date: Mon, 29 Jun 1992 18:40:44 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Kevin Stock <kstock@encore.com>
+Posting-number: Volume 30, Issue 89
+Archive-name: oraperl-v2/part03
+Environment: Perl, Oracle with OCI, optionally Curses
+Supersedes: oraperl: Volume 18, Issue 10
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  dbug/dbug.h doc/oraperl.1 examples/tabinfo.pl getcursor.c
+#   orafns.c
+# Wrapped by kent@sparky on Mon Jun 29 13:23:37 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'dbug/dbug.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbug/dbug.h'\"
+else
+  echo shar: Extracting \"'dbug/dbug.h'\" \(6259 characters\)
+  sed "s/^X//" >'dbug/dbug.h' <<'END_OF_FILE'
+X/******************************************************************************
+X *									      *
+X *	                           N O T I C E				      *
+X *									      *
+X *	              Copyright Abandoned, 1987, Fred Fish		      *
+X *									      *
+X *									      *
+X *	This previously copyrighted work has been placed into the  public     *
+X *	domain  by  the  author  and  may be freely used for any purpose,     *
+X *	private or commercial.						      *
+X *									      *
+X *	Because of the number of inquiries I was receiving about the  use     *
+X *	of this product in commercially developed works I have decided to     *
+X *	simply make it public domain to further its unrestricted use.   I     *
+X *	specifically  would  be  most happy to see this material become a     *
+X *	part of the standard Unix distributions by AT&T and the  Berkeley     *
+X *	Computer  Science  Research Group, and a standard part of the GNU     *
+X *	system from the Free Software Foundation.			      *
+X *									      *
+X *	I would appreciate it, as a courtesy, if this notice is  left  in     *
+X *	all copies and derivative works.  Thank you.			      *
+X *									      *
+X *	The author makes no warranty of any kind  with  respect  to  this     *
+X *	product  and  explicitly disclaims any implied warranties of mer-     *
+X *	chantability or fitness for any particular purpose.		      *
+X *									      *
+X ******************************************************************************
+X */
+X
+X
+X/*
+X *  FILE
+X *
+X *	dbug.h    user include file for programs using the dbug package
+X *
+X *  SYNOPSIS
+X *
+X *	#include <local/dbug.h>
+X *
+X *  SCCS ID
+X *
+X *	@(#)dbug.h	1.11 9/5/87
+X *
+X *  DESCRIPTION
+X *
+X *	Programs which use the dbug package must include this file.
+X *	It contains the appropriate macros to call support routines
+X *	in the dbug runtime library.
+X *
+X *	To disable compilation of the macro expansions define the
+X *	preprocessor symbol "DBUG_OFF".  This will result in null
+X *	macros expansions so that the resulting code will be smaller
+X *	and faster.  (The difference may be smaller than you think
+X *	so this step is recommended only when absolutely necessary).
+X *	In general, tradeoffs between space and efficiency are
+X *	decided in favor of efficiency since space is seldom a
+X *	problem on the new machines).
+X *
+X *	All externally visible symbol names follow the pattern
+X *	"_db_xxx..xx_" to minimize the possibility of a dbug package
+X *	symbol colliding with a user defined symbol.
+X *	
+X *	The DBUG_<N> style macros are obsolete and should not be used
+X *	in new code.  Macros to map them to instances of DBUG_PRINT
+X *	are provided for compatibility with older code.  They may go
+X *	away completely in subsequent releases.
+X *
+X *  AUTHOR
+X *
+X *	Fred Fish
+X *	(Currently employed by Motorola Computer Division, Tempe, Az.)
+X *	hao!noao!mcdsun!fnf
+X *	(602) 438-3614
+X *
+X */
+X
+X
+X/*
+X *	Internally used dbug variables which must be global.
+X */
+X
+X#ifndef DBUG_OFF
+X    extern int _db_on_;			/* TRUE if debug currently enabled */
+X    extern FILE *_db_fp_;		/* Current debug output stream */
+X    extern char *_db_process_;		/* Name of current process */
+X    extern int _db_keyword_ ();		/* Accept/reject keyword */
+X    extern void _db_push_ ();		/* Push state, set up new state */
+X    extern void _db_pop_ ();		/* Pop previous debug state */
+X    extern void _db_enter_ ();		/* New user function entered */
+X    extern void _db_return_ ();		/* User function return */
+X    extern void _db_pargs_ ();		/* Remember args for line */
+X    extern void _db_doprnt_ ();		/* Print debug output */
+X    extern void _db_setjmp_ ();		/* Save debugger environment */
+X    extern void _db_longjmp_ ();	/* Restore debugger environment */
+X# endif
+X
+X
+X/*
+X *	These macros provide a user interface into functions in the
+X *	dbug runtime support library.  They isolate users from changes
+X *	in the MACROS and/or runtime support.
+X *
+X *	The symbols "__LINE__" and "__FILE__" are expanded by the
+X *	preprocessor to the current source file line number and file
+X *	name respectively.
+X *
+X *	WARNING ---  Because the DBUG_ENTER macro allocates space on
+X *	the user function's stack, it must precede any executable
+X *	statements in the user function.
+X *
+X */
+X
+X# ifdef DBUG_OFF
+X#    define DBUG_ENTER(a1)
+X#    define DBUG_MALLOC(a1)
+X#    define DBUG_RETURN(a1) return(a1)
+X#    define DBUG_VOID_RETURN return
+X#    define DBUG_EXECUTE(keyword,a1)
+X#    define DBUG_PRINT(keyword,arglist)
+X#    define DBUG_2(keyword,format)		/* Obsolete */
+X#    define DBUG_3(keyword,format,a1)		/* Obsolete */
+X#    define DBUG_4(keyword,format,a1,a2)	/* Obsolete */
+X#    define DBUG_5(keyword,format,a1,a2,a3)	/* Obsolete */
+X#    define DBUG_PUSH(a1)
+X#    define DBUG_POP()
+X#    define DBUG_PROCESS(a1)
+X#    define DBUG_FILE (stderr)
+X#    define DBUG_SETJMP setjmp
+X#    define DBUG_LONGJMP longjmp
+X# else
+X#    define DBUG_ENTER(a) \
+X	auto char *_db_func_, *_db_file_; \
+X	int _db_level_; \
+X	_db_enter_ (a,__FILE__,__LINE__,&_db_func_,&_db_file_,&_db_level_)
+X#    define DBUG_MALLOC(a) \
+X	auto char *_db_func_, *_db_file_; \
+X	int _db_level_; \
+X	malloc_init();\
+X	_db_enter_ (a,__FILE__,__LINE__,&_db_func_,&_db_file_,&_db_level_)
+X#    define DBUG_LEAVE \
+X	(_db_return_ (__LINE__, &_db_func_, &_db_file_, &_db_level_))
+X/*   define DBUG_RETURN(a1) return (DBUG_LEAVE, (a1))  Alternate form */
+X#    define DBUG_RETURN(a1) {DBUG_LEAVE; return(a1);}
+X#    define DBUG_VOID_RETURN DBUG_LEAVE; return
+X#    define DBUG_EXECUTE(keyword,a1) \
+X	{if (_db_on_) {if (_db_keyword_ (keyword)) { a1 }}}
+X#    define DBUG_PRINT(keyword,arglist) \
+X	{if (_db_on_) {_db_pargs_(__LINE__,keyword); _db_doprnt_ arglist;}}
+X#    define DBUG_2(keyword,format) \
+X	DBUG_PRINT(keyword,(format))		/* Obsolete */
+X#    define DBUG_3(keyword,format,a1) \
+X	DBUG_PRINT(keyword,(format,a1))		/* Obsolete */
+X#    define DBUG_4(keyword,format,a1,a2) \
+X	DBUG_PRINT(keyword,(format,a1,a2))	/* Obsolete */
+X#    define DBUG_5(keyword,format,a1,a2,a3) \
+X	DBUG_PRINT(keyword,(format,a1,a2,a3))	/* Obsolete */
+X#    define DBUG_PUSH(a1) _db_push_ (a1)
+X#    define DBUG_POP() _db_pop_ ()
+X#    define DBUG_PROCESS(a1) (_db_process_ = a1)
+X#    define DBUG_FILE (_db_fp_)
+X#    define DBUG_SETJMP(a1) (_db_setjmp_ (), setjmp (a1))
+X#    define DBUG_LONGJMP(a1,a2) (_db_longjmp_ (), longjmp (a1, a2))
+X# endif
+X
+END_OF_FILE
+  if test 6259 -ne `wc -c <'dbug/dbug.h'`; then
+    echo shar: \"'dbug/dbug.h'\" unpacked with wrong size!
+  fi
+  # end of 'dbug/dbug.h'
+fi
+if test -f 'doc/oraperl.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/oraperl.1'\"
+else
+  echo shar: Extracting \"'doc/oraperl.1'\" \(21664 characters\)
+  sed "s/^X//" >'doc/oraperl.1' <<'END_OF_FILE'
+X.po 8
+X.TH ORAPERL 1 Oracle/Perl
+X.ad
+X.nh
+X.SH NAME
+Xoraperl \- Perl access to Oracle databases
+X.br
+Xcoraperl \- Oraperl with Curses functions
+X.SH SYNOPSIS
+X.nf
+X.ft B
+X$lda = &ora_login($system_id, $name, $password)
+X$csr = &ora_open($lda, $stmt [, $cache])
+X&ora_bind($csr, $var, ...)
+X&ora_fetch($csr [, $trunc])
+X&ora_close($csr)
+X&ora_logoff($lda)
+X
+X&ora_do($lda, $stmt)
+X
+X&ora_titles($csr)
+X&ora_lengths($csr)
+X&ora_types($csr)
+X&ora_commit($lda)
+X&ora_rollback($lda)
+X&ora_autocommit($lda, $on_off)
+X&ora_version
+X
+X$ora_cache
+X$ora_long
+X$ora_trunc
+X$ora_errno
+X$ora_errstr
+X$ora_verno
+X
+X$ora_debug
+X.ft R
+X.fi
+X.SH DESCRIPTION
+X\fBOraperl\fP is a version of \fIPerl\fP
+Xwhich has been extended (through the \fIusersubs\fP feature)
+Xto allow access to \fIOracle\fP databases.
+X\fBCoraperl\fP additionally includes the \fIcurses\fP routines
+Xfrom the \fIusub\fP example included with the \fIPerl\fP source.
+X
+XThe functions which make up this extension
+Xare described in the following sections.
+XAll functions return a false or undefined (in the \fIPerl\fP sense) value
+Xto indicate failure.
+XYou do not need to understand the references to \fBOCI\fP
+Xin these descriptions.
+XThey are here to help those who wish to extend the routines
+Xor to port them to new machines.
+X.\"
+X.SH Principal Functions
+X.\"
+XThe main functions for database access are
+X.IR &ora_login() ,
+X.IR &ora_open() ,
+X.IR &ora_bind() ,
+X.IR &ora_fetch() ,
+X.IR &ora_close() ,
+X.I &ora_do()
+Xand
+X.IR &ora_logoff() .
+X.\"
+X.SH "$lda = &ora_login($system_id, $username, $password)"
+X.\"
+XIn order to access information held within an \fIOracle\fP database,
+Xa program must first log in to it by calling the \fI&ora_login()\fP function.
+XThis function is called with three parameters, 
+Xthe system ID (see below) of the \fIOracle\fP database to be used,
+Xand the \fIOracle\fP username and password.
+XThe value returned is a login identifier
+X(actually an \fIOracle\fP Login Data Area) referred to below as \fI$lda\fP.
+X
+XMultiple logins may be active simultaneously.
+XThis allows a simple mechanism for
+Xcorrelating or transferring data between databases.
+X
+XMost \fIOracle\fP programs (for example, \fISQL*Plus\fP or \fISQL*Forms\fP)
+Xexamine the environment variable \fBORACLE_SID\fP
+Xto determine which database to connect to.
+XIn an environment which uses several different databases,
+Xit is easy to make a mistake, and attempt to run a program on the wrong one.
+XAlso, it is cumbersome to create a program
+Xwhich works with more than one database simultaneously.
+XTherefore, \fIOraperl\fP requires the system ID to be passed as a parameter.
+XHowever, if the system ID parameter is an empty string
+Xthen \fIOraperl\fP will use the existing value of \fBORACLE_SID\fP.
+X
+X.ne 4
+XExample:
+X
+X.if t .ft CW
+X.ti +.5i
+X$lda = &ora_login('personnel', 'scott', 'tiger')
+X.ti +1i
+X\&|| die $ora_errstr;
+X.if t .ft P
+X
+XThis function is equivalent to the \fIOCI olon\fP and \fIorlon\fP functions.
+XReally, it should have been called \fI&ora_logon()\fP,
+Xbut I made the mistake a long time ago
+Xand fixing it would break too many existing programs.
+X.\"
+X.SH "$csr = &ora_open($lda, $statement [, $cache])"
+X.\"
+XTo specify an \fISQL\fP statement to be executed,
+Xthe program must call the \fI&ora_open()\fP function.
+XThis function takes at least two parameters:
+Xa login identifier (obtained from \fI&ora_login()\fP)
+Xand the \fISQL\fP statement to be executed.
+XAn optional third parameter
+Xspecifies the size of the row cache to be used for a \fISELECT\fP statement.
+XThe value returned from \fI&ora_open()\fP is a statement identifier
+X(actually an \fIORACLE\fP Cursor) referred to below as \fI$csr\fP.
+X
+XIf the row cache size is not specified, a default size is used.
+XAs distributed, the default is five rows,
+Xbut this may have been changed at your installation
+X(see the \fI&ora_version()\fP function and \fI$ora_cache\fP variable below).
+X
+X.ne 6
+XExamples:
+X
+X.if t .ft CW
+X.ti +.5i
+X$csr = &ora_open($lda,
+X.ti +1i
+X\&'select ename, sal from emp order by ename', 10);
+X.ti +.5i
+X$csr = &ora_open($lda,
+X.ti +1i
+X\&'insert into dept values(:1, :2, :3)');
+X.if t .ft P
+X
+XThis function is equivalent to the \fIOCI oopen\fP and \fIosql3\fP functions.
+XFor statements which do not contain substitution variables
+X(see the section \fBSubstitution Variables\fP below),
+Xit also uses of the \fIoexec\fP function.
+XFor \fBSELECT\fP statements,
+Xit also makes use of the \fIodsc\fP and \fIodefin\fP functions
+Xto allocate memory for the values to be returned from the database.
+X.\"
+X.SH "&ora_bind($csr, $var, ...)"
+X.\"
+XIf an SQL statement contains substitution variables
+X(see the section \fBSubstitution Variables\fP below),
+X\fI&ora_bind()\fP is used to assign actual values to them.
+XThis function takes a statement identifier (obtained from \fI&ora_open()\fP)
+Xas its first parameter,
+Xfollowed by as many parameters as are required by the statement.
+X
+X.ne 3
+XExample:
+X
+X.ti +.5i
+X.if t .ft CW
+X&ora_bind($csr, 50, 'management', 'Paris');
+X.if t .ft P
+X
+XThis function is equivalent to the \fIOCI obndrn\fP and \fIoexec\fP statements.
+X
+XThe \fIOCI obndrn\fP function does not allow empty strings to be bound.
+XAs distributed, \fI$ora_bind\fP therefore replaces empty strings
+Xwith a single space.
+XHowever, a compilation option allows this substitution to be suppressed,
+Xcausing \fI&ora_bind()\fP to fail.
+XThe output from the \fI&ora_version()\fP function
+Xspecifies which is the case at your installation.
+X.\"
+X.SH "$nfields = &ora_fetch($csr)"
+X.SH "@data = &ora_fetch($csr [, $trunc])"
+X.\"
+XThe \fI&ora_fetch()\fP function is used
+Xin conjunction with a \fBSQL SELECT\fP statement
+Xto retrieve information from a database.
+XThis function takes one mandatory parameter,
+Xa statement identifier (obtained from \fI&ora_open()\fP).
+X
+XUsed in a scalar context,
+Xthe function returns the number of fields returned by the query
+Xbut no data is actually fetched.
+XThis may be useful in a program
+Xwhich allows a user to enter a statement interactively.
+X
+X.ne 3
+XExample:
+X
+X.ti +.5i
+X.if t .ft CW
+X$nfields = &ora_fetch($csr);
+X.if t .ft P
+X
+XUsed in an array context,
+Xthe value returned is an array containing the data, one element per field.
+X
+XAn optional second parameter may be supplied
+Xto indicate whether the truncation of a \fBLONG\fP or \fBLONGRAW\fP field
+Xis to be permitted (non\-zero)
+Xor considered an error (zero).
+XIf this parameter is not specified,
+Xthe value of the global variable \fI$ora_trunc\fP is used instead.
+XTruncation of other datatypes is always considered a error.
+X
+XIf truncation occurs, \fI$ora_errno\fP will be set to \fB1406\fP.
+X\fI&ora_fetch()\fP will complete successfully if truncation is permitted,
+Xotherwise it will fail.
+X
+X\fI&ora_fetch()\fP will fail at the end of the data or if an error occurs.
+XIt is possible to distinguish between these cases by testing the value
+Xof the variable \fI$ora_errno\fP.
+XThis will be zero for end of data, non\-zero if an error has occurred.
+X
+X.ne 9
+XExample:
+X
+X.in +.5i
+X.nf
+X.if t .ft CW
+Xwhile (($deptno, $dname, $loc) = &ora_fetch($csr, 1))
+X{
+X.in +.5i
+Xwarn "Truncated!!!" if $ora_errstr == 1406;
+X# do something with the data
+X.in -.5i
+X}
+Xwarn $ora_errstr if $ora_errno;
+X.if t .ft P
+X.fi
+X.in -.5i
+X
+XThis function is equivalent to the \fIOCI ofetch\fP and \fIofen\fP functions.
+X.\"
+X.SH "&ora_close($csr)"
+X.\"
+XIf an \fBSQL\fP statement is no longer required
+X(for example, all the data selected has been processed,
+Xor no more rows are to be inserted)
+Xthen the statement identifier should be released.
+XThis is done by calling the \fI&ora_close()\fP function
+Xwith the statement identifier as its only parameter.
+X
+XThis function is equivalent to the \fIOCI oclose\fP function.
+X.\"
+X.SH "&ora_do($lda, $statement)"
+X.\"
+XNot all \fBSQL\fP statements return data or contain substitution variables.
+XIn these cases the \fI&ora_do()\fP function may be used
+Xas an alternative to \fI&ora_open()\fP and \fI&ora_close()\fP.
+XThis function takes two parameters,
+Xa login identifier and the statement to be executed.
+X
+X.ne 3
+XExample:
+X
+X.ti +.5i
+X.if t .ft CW
+X&ora_do($lda, 'drop table employee');
+X.if t .ft P
+X
+XThis function is roughly equivalent to
+X.if t .ft CW
+X&ora_close(&ora_open($lda,\ $statement))\c
+X.if t .ft P
+X\&.
+X.\"
+X.SH "&ora_logoff($lda)"
+X.\"
+XWhen the program no longer needs to access a given database,
+Xthe login identifier should be released using the \fI&ora_logoff()\fP function.
+X
+XThis function is equivalent to the \fIOCI ologoff\fP function.
+X.\"
+X.SH Ancillary Functions
+X.\"
+XAdditional functions available are:
+X.IR &ora_titles() ,
+X.IR &ora_lengths() ,
+X.IR &ora_types() ,
+X.IR &ora_autocommit() ,
+X.IR &ora_commit() ,
+X.I &ora_rollback()
+Xand
+X.IR &ora_version() .
+X
+XThe first three are of most use within a program
+Xwhich allows statements to be entered interactively.
+XSee, for example, the sample program \fBsql\fP
+Xwhich is supplied with \fIOraperl\fP and may have been installed at your site.
+X.\"
+X.SH "@titles = &ora_titles($csr)"
+X.\"
+XA program may determine the field titles of an executed query
+Xby calling \fI&ora_titles()\fP.
+XThis function takes a single parameter,
+Xa statement identifier (obtained from \fI&ora_open()\fP)
+Xindicating the query for which the titles are required.
+XThe titles are returned as an array of strings, one for each column.
+X
+XTitles are truncated to the length of the field,
+Xas reported by the \fI&ora_lengths()\fP function.
+X
+XThis function is equivalent to the \fIOCI oname\fP function.
+X.\"
+X.SH "@lengths = &ora_lengths($csr)"
+X.\"
+XA program may determine the length of each of the fields returned by a query
+Xby calling the \fI&ora_lengths()\fP function.
+XThis function takes a single parameter,
+Xa statement identifier (obtained from \fI&ora_open()\fP)
+Xindicating the query for which the lengths are required.
+XThe lengths are returned as an array of integers, one for each column.
+X
+XThis function returns data stored in the cursor by \fI&ora_open()\fP,
+Xobtained from the \fIOCI odsc\fP function.
+X.\"
+X.SH "@types = &ora_types($csr)"
+X.\"
+XA program may determine the type of each of the fields returned by a query
+Xby calling the \fI&ora_types()\fP function.
+XThis function takes a single parameter,
+Xa statement identifier (obtained from \fI&ora_open()\fP)
+Xindicating the query for which the lengths are required.
+XThe types are returned as an array of integers, one for each field.
+X
+XThese types are defined in your OCI documentation.
+XThe correct interpretation for Oracle v6 is given in the file \fBoraperl.ph\fP.
+X
+XThis function returns data stored in the cursor by \fI&ora_open()\fP,
+Xobtained from the \fIOCI odsc\fP function.
+X.\"
+X.SH "&ora_autocommit($lda, $on_or_off)"
+X.\"
+XAutocommit mode (in which each transaction is committed immediately,
+Xwithout waiting for an explicit commit)
+Xmay be enabled or disabled using \fI&ora_autocommit()\fP.
+XThis function takes two parameters,
+Xa login identifier (obtained from \fI&ora_login()\fP)
+Xand a true/false value
+Xindicating whether autocommit is to be enabled (non\-zero) or disabled (zero).
+XBy default, autocommit is off.
+X
+XNote that autocommit can only be set per login, not per statement.
+XIf you need to control autocommit by statement
+X(for example, to allow deletions to be rolled back,
+Xbut insertions to be committed immediately)
+Xyou should make multiple calls to \fI&ora_login()\fP
+Xand use a separate login identifier for each statement.
+X
+XThis function is equivalent to the \fIOCI ocon\fP and \fIocof\fP functions.
+X.\"
+X.SH "&ora_commit($lda)"
+X.SH "&ora_rollback($lda)"
+X.\"
+XModifications to a database may be committed or rolled back
+Xusing the \fI&ora_commit()\fP and \fI&ora_rollback()\fP functions.
+XThese functions take a single parameter,
+Xa login identifier obtained from \fI&ora_login()\fP.
+X
+XTransactions which have been committed
+X(either explicitly by a call to \fI&ora_commit()\fP
+Xor implicitly through the use of \fI&ora_autocommit()\fP)
+Xcannot be subsequently rolled back.
+X
+XNote that commit and rollback can only be used per login, not per statement.
+XIf you need to commit or rollback by statement
+Xyou should make multiple calls to \fI&ora_login()\fP
+Xand use a separate login identifier for each statement.
+X
+XThese functions are equivalent to the \fIOCI ocom\fP and \fIorol\fP functions.
+X.\"
+X.SH "&ora_version()"
+X.\"
+XThe \fI&ora_version()\fP function
+Xprints the version number and copyright information concerning Oraperl.
+XIt also prints the values of various compilation time options.
+XIt does not return any value, and should not normally be used in a program.
+X
+X.ne 14
+XExample:
+X
+X.nf
+X.in +.5i
+X.if t .ft CW
+X$ oraperl \-e '&ora_version'
+X
+XThis is Oraperl, version 2, patch level 0.
+X
+XDebugging is available, including the \-D flag.
+XDefault fetch row cache size is 5.
+XEmpty bind values are replaced by a space.
+X
+XPerl is copyright by Larry Wall; type oraperl \-v for details.
+XAdditions for oraperl: Copyright 1991, 1992, Kevin Stock.
+X
+XOraperl may be distributed under the same conditions as Perl.
+X.if t .ft P
+X.in -.5i
+X.fi
+X
+XThis function is the equivalent of \fIPerl\fP's \fB\-v\fP flag.
+X.\"
+X.SH VARIABLES
+X.\"
+XSix special variables are provided,
+X\fI$ora_cache\fP,
+X\fI$ora_long\fP,
+X\fI$ora_trunc\fP,
+X\fI$ora_errno\fP,
+X\fI$ora_errstr\fP and
+X\fI$ora_verno\fP.
+X.\"
+X.SH "Customisation Variables"
+X.\"
+XThese variables are used to dictate the behaviour of \fIOraperl\fP
+Xunder certain conditions.
+X.\"
+X.SH "$ora_cache"
+X.\"
+XThe \fI$ora_cache\fP variable
+Xdetermines the default cache size used by the \fI&ora_open()\fP function
+Xfor \fBSELECT\fP statements
+Xif an explicit cache size is not given.
+X
+XIt is initialised to the default value reported by \fI&ora_version()\fP
+Xbut may be set within a program
+Xto apply to all subsequent calls to \fI&ora_open()\fP.
+XCursors which are already open are not affected.
+XAs distributed, the default value is five,
+Xbut may have been altered at your installation.
+X
+XAs a special case, assigning zero to \fI$ora_cache\fP
+Xresets it to the default value.
+XAttempting to set \fI$ora_cache\fP to a negative value
+Xresults in a warning.
+X.\"
+X.SH "$ora_long"
+X.\"
+XNormally, \fIOraperl\fP interrogates the database
+Xto determine the length of each field
+Xand allocates buffer space accordingly.
+XThis is not possible for fields of type \fBLONG\fP or \fBLONGRAW\fP.
+XTo allocate space according to the maximum possible length (65535 bytes)
+Xwould obviously be extremely wasteful of memory.
+X
+XTherefore, when \fI&ora_open()\fP determines that a field is a \fBLONG\fP type,
+Xit allocates the amount of space indicated by the \fI$ora_long\fP variable.
+XThis is initially set to \fB80\fP
+X(for compatibility with \fIOracle\fP products)
+Xbut may be set within a program to whatever size is required.
+X.\"
+X.SH "$ora_trunc"
+X.\"
+XSince \fIOraperl\fP cannot determine exactly
+Xthe maximum length of a \fBLONG\fP field,
+Xit is possible that the length indicated by \fI$ora_long\fP
+Xis not sufficient to store the data fetched.
+XIn such a case, the optional second parameter to \fI&ora_fetch()\fP
+Xindicates whether the truncation should be allowed
+Xor should provoke an error.
+X
+XIf this second parameter is not specified,
+Xthe value of \fI$ora_trunc\fP is used as a default.
+XThis only applies to \fBLONG\fP and \fBLONGRAW\fP data types.
+XTruncation of a field of any other type is always considered an error
+X(principally because it indicates a bug in \fIOraperl\fP).
+X.\"
+X.SH "Status Variables"
+X.\"
+XThese variables report information about error conditions
+Xor about \fIOraperl\fP itself.
+XThey may only be read;
+Xa fatal error occurs if a program attempts to change them.
+X.\"
+X.SH "$ora_errno"
+X.\"
+X\fI$ora_errno\fP contains the \fIOracle\fP error code
+Xprovoked by the last function call.
+X
+XThere are two cases of particular interest concerning \fI&ora_fetch()\fP.
+XIf a \fBLONG\fP or \fBLONGRAW\fP field is truncated (and truncation is allowed)
+Xthen \fI&ora_fetch()\fP will complete successfully
+Xbut \fI$ora_errno\fP will be set to \fB1406\fP to indicate the truncation.
+XWhen \fI&ora_fetch()\fP fails,
+X\fI$ora_errstr\fP will be set to zero if this was due to the end of data
+Xor an error code if it was due to an actual error.
+X.\"
+X.SH "$ora_errstr"
+X.\"
+XThe \fI$ora_errstr\fP variable contains the \fIOracle\fP error message
+Xcorresponding to the current value of \fI$ora_errno\fP.
+X
+XThis is equivalent to the \fIOCI oerrmsg\fP function.
+X.\"
+X.SH "$ora_verno"
+X.\"
+XThe \fI$ora_verno\fP variable contains the version number of \fIOraperl\fP
+Xin the form\ \fIv\fB.\fIppp\fR
+Xwhere \fIv\fP is the major version number
+Xand \fIppp\fP is the patchlevel.
+XFor example, in \fIOraperl\fP version 3, patch level 142,
+X\fI$ora_verno\fP would contain the value \fB3.142\fP
+X(more or less, allowing for floating point error).
+X
+X.ne 4
+XExample:
+X
+X.if t .ft CW
+X.ti +.5i
+X$ora_debug = ($ora_verno >= 2)
+X.ti +1i
+X? 'd,entry,exit,info:t:N' : 8;
+X.if t .ft P
+X
+XThis is equivalent to \fIPerl's\fP \fB$]\fP variable in a numeric context.
+X.\"
+X.SH SUBSTITUTION VARIABLES
+X.\"
+X\fIOraperl\fP allows an SQL statement to contain substitution variables.
+XThese consist of a colon followed by a number.
+XFor example, a program which added records to a telephone list
+Xmight use the following call to \fI&ora_open()\fP:
+X
+X.if t .ft CW
+X.ti +.5i
+X.nf
+X$csr = &ora_open($csr, "insert into telno values(:1, :2)");
+X.fi
+X.if t .ft P
+X
+XThe two names \fB:1\fP and \fB:2\fP are called substitution variables.
+XThe function \fI&ora_bind()\fP is used to assign values to these variables.
+XFor example, the following statements would add two new people to the list:
+X
+X.ne 2
+X.if t .ft CW
+X.nf
+X.ti +.5i
+X&ora_bind($csr, "Annette", "472\-8836");
+X.ti +.5i
+X&ora_bind($csr, "Brian", "937\-1823");
+X.fi
+X.if t .ft P
+X
+XNote that the substitution variables must be assigned consecutively
+Xbeginning from \fB1\fP for each SQL statement,
+Xas \fI&ora_bind()\fP assigns its parameters in this order.
+XNamed substitution variables
+X(for example, \fB:NAME\fP, \fB:TELNO\fP)
+Xare not permitted.
+X.\"
+X.SH DEBUGGING
+X.\"
+XIf debugging has been compiled into \fIOraperl\fP,
+Xan additional variable, \fI$ora_debug\fP is available.
+XSetting this variable sets the level of debugging required.
+XIf debugging is not available,
+Xand \fIOraperl\fP is invoked with the \fB\-w\fP flag,
+Xa warning will be issued on an attempt to set or use \fI$ora_debug\fP.
+X
+XDebugging is based on Fred Fish' public\-domain \fBDBUG\fP package.
+XThis is a very flexible internal debugging system
+Xwhich allows fine tuning of the debugging trace.
+XFor example, the trace may be limited to selected functions only.
+XDebugging is enabled by assigning a control string to \fI$ora_debug\fP.
+XFull details are contained in the files \fBDebugging\fP and \fBdbug/dbug.p\fP
+Xin the \fIOraperl\fP source distribution.
+X
+XThe debugging library automatically ignores a leading \fB\-#\fP
+Xat the start of a control string,
+Xso any script can allow debugging strings to be specified on the command line
+Xby including the statement:
+X
+X.ti +.5i
+X.if t .ft CW
+X$ora_debug = shift if $ARGV[0] =~ /^\-#/;
+X.if t .ft P
+X
+Xat the start of the program
+Xbefore any options recognition packages are run.
+XThis is highly recommended.
+X
+XFor compatibility with earlier versions,
+Xand to support \fIPerl\fP's \fB\-D\fP\ flag,
+Xa number may be assigned to \fI$ora_debug\fP instead.
+XThe number is treated as a bitfield,
+Xeach bit representing a category of function to be traced.
+XOnly flags \fB8\fP (program execution),
+X\fB32\fP (string/numeric conversion)
+Xand \fB128\fP (use of malloc and free)
+Xare supported.
+X
+X\fI$ora_debug\fP may be read to determine the current state of debugging.
+XRegardless of the manner in which it was set,
+Xthe return value will always be a control string, not a number.
+XThis string will be empty if debugging is disabled.
+X
+XAssigning an empty string (or the value zero) to \fI$ora_debug\fP
+Xwill disable debugging.
+X
+X.ne 6
+XTo determine whether debugging is available,
+Xyou could use something like this:
+X
+X.in +3
+X.if t .ft CW
+X.nf
+Xdefined($ora_debug) && print "debugging available\en";
+Xdefined($ora_debug) || print "debugging not available\en";
+X.fi
+X.if t .ft P
+X.in -3
+X.\"
+X.ne 27
+X.SH EXAMPLE
+X.\"
+X.if t .ft CW
+X.ta 4 8 12 16 20 24 28 32 36 40
+X.nf
+X.cc ^		.\" because the example has lines beginning with a .
+X^eo		.\" so that \n doesn't get messed up
+Xformat STDOUT_TOP =
+X       Name                           Phone
+X       ====                           =====
+X.
+X
+Xformat STDOUT =
+X       @<<<<<<<<<<              @>>>>>>>>>>
+X       $name,                   $phone
+X.
+X
+Xdie "You should use oraperl, not perl\n" unless defined &ora_login;
+X$ora_debug = shift if $ARGV[0] =~ /^\-#/;
+X
+X$lda = &ora_login('t', 'kstock', 'kstock') || die $ora_errstr;
+X$csr = &ora_open($lda, 'select * from telno order by name')
+X	|| die $ora_errstr;
+X
+X$nfields = &ora_fetch($csr);
+Xprint "Query will return $nfields fields\n\n";
+X
+Xwhile (($name, $phone) = &ora_fetch($csr)) { write; }
+Xwarn $ora_errstr if $ora_errno;
+X
+Xdie "fetch error: $ora_errstr" if $ora_errno;
+X
+Xdo ora_close($csr) || die "can't close cursor";
+Xdo ora_logoff($lda) || die "can't log off Oracle";
+X^cc
+X.ec
+X.fi
+X.if t .ft P
+X.\"
+X.SH NOTES
+X.\"
+XIn keeping with the philosophy of \fIPerl\fP,
+Xthere is no pre\-defined limit to the number of simultaneous logins
+Xor SQL statements which may be active,
+Xnor to the number of data fields which may be returned by a query.
+XThe only limits are those imposed by the amount of memory available,
+Xor by \fIOracle\fP.
+X
+XDebugging option \fB32\fP only reports internal string/numeric translations,
+Xnot those performed on the data retrieved from the database.
+X.SH SEE ALSO
+X.nf
+XOracle Documentation:
+X.in +.5i
+X\fISQL Language Reference Manual\fP
+X\fIProgrammer's Guide to the Oracle Call Interfaces\fP
+X
+X.ti -.5i
+X\fIPerl\fP documentation:
+X\fIProgramming Perl\fP by Larry Wall and Randal Schwartz
+X\fIperl(1)\fP
+X.in -.5i
+X.fi
+X.SH AUTHORS
+X\fIORACLE\fP by Oracle Corporation, California.
+X.br
+X\fIPerl\fP and \fICurseperl\fP by Larry Wall, Netlabs
+X.if t .ft C
+X<lwall@netlabs.com>.
+X.if t .ft P
+X.br
+X\fIOraperl\fP and \fICoraperl\fP by Kevin Stock, Encore Computer SA, France
+X.if t .ft C
+X<kstock@encore.com>.
+X.if t .ft P
+END_OF_FILE
+  if test 21664 -ne `wc -c <'doc/oraperl.1'`; then
+    echo shar: \"'doc/oraperl.1'\" unpacked with wrong size!
+  fi
+  # end of 'doc/oraperl.1'
+fi
+if test -f 'examples/tabinfo.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'examples/tabinfo.pl'\"
+else
+  echo shar: Extracting \"'examples/tabinfo.pl'\" \(1332 characters\)
+  sed "s/^X//" >'examples/tabinfo.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/oraperl
+X#
+X# tabinfo
+X#
+X# 	Usage:	tabinfo base user password table
+X#
+X# Displays the structure of the specified table.
+X# Note that the field names are restricted to the length of the field.
+X# This is mainly to show the use of &ora_lengths, &ora_titles and &ora_types.
+X#
+X
+X# set debugging, if requested
+X#
+X$ora_debug = shift if $ARGV[0] =~ /-#/;
+X
+X# read the compulsory arguments
+X#
+X(($base = shift)	&&
+X ($user = shift)	&&
+X ($pass = shift)	&&
+X ($table = shift))	|| die "Usage: $0 base user password table\n";
+X
+X# we need this for the table of datatypes
+X#
+Xrequire 'oraperl.ph';
+X
+Xformat STDOUT_TOP =
+XStructure of @<<<<<<<<<<<<<<<<<<<<<<<
+X$table
+X
+XField name          | Length | Type | Type description
+X--------------------+--------+------+-------------------------------------------
+X.
+X
+Xformat STDOUT =
+X@<<<<<<<<<<<<<<<<<<<| @>>>>> | @>>> | @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name[$i], $length[$i], $type[$i], $ora_types{$type[$i]}
+X.
+X
+X$lda = &ora_login($base, $user, $pass) || die $ora_errstr . "\n";
+X$csr = &ora_open($lda, "select * from $table") || die $ora_errstr . "\n";
+X
+X(@name = &ora_titles($csr)) || die $ora_errstr . "\n";
+X(@length = &ora_lengths($csr)) || die $ora_errstr . "\n";
+X(@type = &ora_types($csr)) || die $ora_errstr . "\n";
+X
+Xforeach $i (0 .. $#name)
+X{
+X	write;
+X}
+X
+X&ora_close($csr);
+X&ora_logoff($lda);
+END_OF_FILE
+  if test 1332 -ne `wc -c <'examples/tabinfo.pl'`; then
+    echo shar: \"'examples/tabinfo.pl'\" unpacked with wrong size!
+  fi
+  # end of 'examples/tabinfo.pl'
+fi
+if test -f 'getcursor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getcursor.c'\"
+else
+  echo shar: Extracting \"'getcursor.c'\" \(6677 characters\)
+  sed "s/^X//" >'getcursor.c' <<'END_OF_FILE'
+X/* getcursor.c
+X *
+X * Functions to deal with allocating and freeing cursors for Oracle
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X#include	"EXTERN.h"
+X#include	<stdio.h>
+X#include	<ctype.h>
+X#include	"orafns.h"
+X
+X
+X/* head of the cursor list */
+Xstruct cursor csr_list =
+X	{ NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL };
+X
+X
+X/* ora_free_data(csr)
+X *
+X * Frees memory attached to csr->data
+X */
+X
+Xvoid ora_free_data(csr)
+Xstruct cursor *csr;
+X{
+X	int i;
+X
+X	DBUG_ENTER("ora_free_data");
+X	DBUG_PRINT("entry", ("ora_free_data(%#lx)", (long) csr));
+X
+X	if (csr->data == NULL)
+X	{
+X		DBUG_PRINT("exit", ("nothing to do"));
+X		DBUG_VOID_RETURN;
+X	}
+X
+X	for (i = 0 ; (i < csr->nfields) && (csr->data[i] != NULL) ; i++)
+X	{
+X		DBUG_PRINT("free", ("freeing field %d at address %#lx",
+X		     i, (long) csr->data[i]));
+X		free(csr->data[i]);
+X	}
+X
+X	DBUG_PRINT("free", ("freeing cursor data at address %#lx",
+X	    (long) csr->data));
+X	free(csr->data);
+X	csr->data = (char **) NULL;
+X
+X	DBUG_VOID_RETURN;
+X}
+X
+X
+X/* ora_free_rcode(csr)
+X *
+X * Frees memory attached to csr->rcode
+X */
+X
+Xvoid ora_free_rcode(csr)
+Xstruct cursor *csr;
+X{
+X	int i;
+X
+X	DBUG_ENTER("ora_free_rcode");
+X	DBUG_PRINT("entry", ("ora_free_rcode(%#lx)", (long) csr));
+X
+X	if (csr->rcode == NULL)
+X	{
+X		DBUG_PRINT("exit", ("nothing to do"));
+X		DBUG_VOID_RETURN;
+X	}
+X
+X	for (i = 0 ; (i < csr->nfields) && (csr->rcode[i] != NULL) ; i++)
+X	{
+X		DBUG_PRINT("free", ("freeing rcode %d at address %#lx",
+X		     i, (long) csr->rcode[i]));
+X		free(csr->rcode[i]);
+X	}
+X
+X	DBUG_PRINT("free", ("freeing cursor rcode at address %#lx",
+X	    (long) csr->rcode));
+X	free(csr->rcode);
+X	csr->rcode = (short **) NULL;
+X
+X	DBUG_VOID_RETURN;
+X}
+X
+X
+X/* ora_getcursor()
+X *
+X * Allocates memory for a new cursor and returns its address.
+X * Inserts the cursor at the front of the list.
+X * Returns NULL if it can't get enough memory.
+X */
+X
+Xstruct cursor *ora_getcursor()
+X{
+X	struct cursor *tmp;
+X
+X	DBUG_ENTER("ora_getcursor");
+X	DBUG_PRINT("entry", ("ora_getcursor(void)"));
+X
+X	if ((tmp = (struct cursor *) malloc(sizeof(struct cursor))) == NULL)
+X	{
+X		DBUG_PRINT("malloc", ("insufficient memory for a cursor"));
+X		DBUG_PRINT("exit", ("returning NULL"));
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_RETURN(NULL);
+X	}
+X	DBUG_PRINT("malloc", ("got a cursor at %#lx", (long) tmp));
+X
+X	if ((tmp->csr = (struct csrdef *)malloc(sizeof(struct csrdef))) == NULL)
+X	{
+X		free(tmp);
+X		DBUG_PRINT("malloc", ("insufficient memory for a csrdef"));
+X		DBUG_PRINT("exit", ("returning NULL"));
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_RETURN(NULL);
+X	}
+X	DBUG_PRINT("malloc", ("got a csr at %#lx", (long) tmp->csr));
+X
+X	tmp->hda = NULL;
+X	tmp->data = NULL;
+X	tmp->rcode = NULL;
+X	tmp->len = NULL;
+X	tmp->type = NULL;
+X	tmp->cache_size = 0;
+X	tmp->end_of_data = 0;
+X	tmp->in_cache = 0;
+X	tmp->next_entry = 0;
+X	tmp->nfields = 0;
+X	tmp->varfields = 0;
+X
+X	tmp->next = csr_list.next;
+X	csr_list.next = tmp;
+X
+X	ora_errno = 0;
+X	DBUG_PRINT("exit", ("returning %#lx", (long) tmp));
+X	DBUG_RETURN(tmp);
+X}
+X
+X
+X/* ora_getlda()
+X *
+X * Gets a new login data area.
+X * Uses ora_getcursor and then allocates the host data area.
+X */
+X
+Xstruct cursor *ora_getlda()
+X{
+X	struct cursor *tmp;
+X
+X	DBUG_ENTER("ora_getlda");
+X	DBUG_PRINT("entry", ("ora_getlda(void)"));
+X
+X	if ((tmp = ora_getcursor()) == NULL)
+X	{
+X		DBUG_PRINT("exit", ("returning NULL"));
+X		DBUG_RETURN(NULL);
+X	}
+X
+X	if ((tmp->hda = malloc(256)) == NULL)
+X	{
+X		DBUG_PRINT("malloc", ("insufficient memory for an hda"));
+X		ora_dropcursor(tmp);
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_PRINT("exit", ("returning NULL"));
+X		DBUG_RETURN(NULL);
+X	}
+X	DBUG_PRINT("malloc", ("got hda at %#lx", tmp->hda));
+X	DBUG_PRINT("exit", ("returning %#lx", tmp));
+X	DBUG_RETURN(tmp);
+X}
+X
+X
+X/* ora_dropcursor(csr)
+X *
+X * Frees the space occupied by a given cursor, removing it from the list.
+X */
+X
+Xint ora_dropcursor(csr)
+Xstruct cursor *csr;
+X{
+X	struct cursor *tmp, *t;
+X
+X	DBUG_ENTER("ora_dropcursor");
+X	DBUG_PRINT("entry", ("ora_dropcursor(%#lx)", (long) csr));
+X
+X	tmp = &csr_list;
+X
+X	while ((tmp->next != NULL) && (tmp->next != csr))
+X	{
+X		tmp = tmp->next;
+X	}
+X
+X	if (tmp->next == NULL)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a cursor"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	t = tmp->next;
+X
+X	if (t->csr != NULL)
+X	{
+X		DBUG_PRINT("free", ("freeing csr at %#lx", (long) t->csr));
+X		free(t->csr);
+X	}
+X	if (t->hda != NULL)
+X	{
+X		DBUG_PRINT("free", ("freeing hda at %#lx", (long) t->hda));
+X		free(t->hda);
+X	}
+X	if (t->data != NULL)
+X	{
+X		ora_free_data(t);
+X	}
+X	if (t->rcode != NULL)
+X	{
+X		ora_free_rcode(t);
+X	}
+X	if (t->len != NULL)
+X	{
+X		DBUG_PRINT("free", ("freeing len array at %#lx", (long)t->len));
+X		free(t->len);
+X	}
+X	if (t->type != NULL)
+X	{
+X		DBUG_PRINT("free",("freeing type array at %#lx",(long)t->type));
+X		free(t->type);
+X	}
+X
+X	t = t->next;
+X	DBUG_PRINT("free", ("freeing cursor at %#lx", (long) tmp->next));
+X	free(tmp->next);
+X	tmp->next = t;
+X
+X	DBUG_PRINT("exit", ("completed"));
+X	DBUG_RETURN(1);
+X}
+X
+X
+X/* ora_droplda()
+X *
+X * This is just here for completeness' sake.
+X * (I suppose we could check the value of hda in dropcursor and droplda
+X * but I don't think it's worth it)
+X */
+X
+Xint ora_droplda(lda)
+Xstruct cursor *lda;
+X{
+X	int ret;
+X
+X	DBUG_ENTER("ora_droplda");
+X	DBUG_PRINT("entry", ("ora_droplda(%#lx)", (long) lda));
+X
+X	ret = ora_dropcursor(lda);
+X
+X	DBUG_PRINT("exit", ("returning %d", ret));
+X	DBUG_RETURN(ret);
+X}
+X
+X
+X/* ora_findcursor()
+X *
+X * Checks whether the specified csr is present in the list
+X */
+X
+Xint ora_findcursor(csr)
+Xstruct cursor *csr;
+X{
+X	struct cursor *tmp = &csr_list;
+X
+X	DBUG_ENTER("ora_findcursor");
+X	DBUG_PRINT("entry", ("ora_findcursor(%#lx)", (long) csr));
+X
+X	while ((tmp->next != NULL) && (tmp->next != csr))
+X	{
+X		tmp = tmp->next;
+X	}
+X
+X	if (tmp->next == NULL)
+X	{
+X		DBUG_PRINT("exit", ("not a cursor"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	DBUG_PRINT("exit", ("is a cursor"));
+X	DBUG_RETURN(1);
+X}
+X
+X
+X/* check_lda()
+X *
+X * Checks whether the given address corresponds to a valid lda
+X */
+X
+X int check_lda(lda)
+X struct cursor *lda;
+X {
+X	DBUG_ENTER("check_lda");
+X	DBUG_PRINT("entry", ("check_lda(%#lx)", (long) lda));
+X
+X	if (ora_findcursor(lda) && (lda->hda != NULL) && (lda->data == NULL))
+X	{
+X		DBUG_PRINT("exit", ("is an lda"));
+X		DBUG_RETURN(1);
+X	}
+X	else
+X	{
+X		DBUG_PRINT("exit", ("not an lda"));
+X		DBUG_RETURN(0);
+X	}
+X};
+X
+X
+X/* check_csr()
+X *
+X * Checks whether the given address corresponds to a valid csr
+X */
+X
+X int check_csr(csr)
+X struct cursor *csr;
+X {
+X	DBUG_ENTER("check_csr");
+X	DBUG_PRINT("entry", ("check_csr(%#lx)", (long) csr));
+X
+X	if (ora_findcursor(csr) && (csr->hda == NULL))
+X	{
+X		DBUG_PRINT("exit", ("is a csr"));
+X		DBUG_RETURN(1);
+X	}
+X	else
+X	{
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X};
+END_OF_FILE
+  if test 6677 -ne `wc -c <'getcursor.c'`; then
+    echo shar: \"'getcursor.c'\" unpacked with wrong size!
+  fi
+  # end of 'getcursor.c'
+fi
+if test -f 'orafns.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'orafns.c'\"
+else
+  echo shar: Extracting \"'orafns.c'\" \(23614 characters\)
+  sed "s/^X//" >'orafns.c' <<'END_OF_FILE'
+X/* orafns.c
+X *
+X * Simple C interface to Oracle, intended to be linked to Perl.
+X */
+X/* Copyright 1991, 1992 Kevin Stock.
+X *
+X * You may copy this under the terms of the GNU General Public License,
+X * or the Artistic License, copies of which should have accompanied your
+X * Perl kit.
+X */
+X
+X#include	"INTERN.h"
+X#include	<stdio.h>
+X#include	<ctype.h>
+X#include	"orafns.h"
+X#include	"patchlevel.h"
+X
+X
+X/* address[] is used to return cursor addresses to the perl program
+X * it is used so that we can get the addresses exactly right, without
+X * worrying about rounding errors or playing with oracle.mus
+X */
+X
+Xchar	address[20];
+X
+X
+X#ifdef	DEBUGGING
+X	/* table of known ORACLE datatypes */
+X
+X	char	*types[] =
+X	{
+X	/* 00 */	NULL,
+X	/* 01 */	"character array",
+X	/* 02 */	"number",
+X	/* 03 */	"signed integer",
+X	/* 04 */	"float",
+X	/* 05 */	"null terminated string",
+X	/* 06 */	NULL,
+X	/* 07 */	"packed decimal",
+X	/* 08 */	"long string",
+X	/* 09 */	"varchar",
+X	/* 10 */	NULL,
+X	/* 11 */	"rowid",
+X	/* 12 */	"date",
+X	/* 13 */	NULL,
+X	/* 14 */	NULL,
+X	/* 15 */	"varraw",
+X	/* 16 */	NULL,
+X	/* 17 */	NULL,
+X	/* 18 */	NULL,
+X	/* 19 */	NULL,
+X	/* 20 */	NULL,
+X	/* 21 */	NULL,
+X	/* 22 */	NULL,
+X	/* 23 */	"raw",
+X	/* 24 */	"long raw",
+X	};
+X#endif	/* DEBUGGING */
+X
+X/* oracle_sid is just used so that we don't keep repeating the string */
+X
+Xstatic char *oracle_sid		= "ORACLE_SID";
+X
+X
+X/* set_sid() uses my_setenv() to set ORACLE_SID to the required database.
+X * It preserves the old value of ORACLE_SID so that it can be restored
+X * (by calling set_sid() with NULL as its parameter.
+X */
+X
+Xvoid set_sid(db)
+Xchar *db;
+X{
+X	char *h;
+X	static char *oldsid		= NULL;
+X
+X	DBUG_ENTER("set_sid");
+X	DBUG_PRINT("entry", ("set_sid(%s)", db ? db : "<NULL>"));
+X
+X	ora_errno = 0;
+X
+X	if (db == NULL)
+X	{
+X		if (oldsid != NULL)
+X		{
+X			DBUG_PRINT("info", ("setting oracle_sid to %s",oldsid));
+X			my_setenv(oracle_sid, oldsid);
+X		}
+X		/* no old value to restore if oldsid == NULL */
+X	}
+X	else
+X	{
+X		if (oldsid != NULL)
+X		{
+X			/* already have a saved value - dispose of it */
+X			DBUG_PRINT("free", ("freeing oldsid %lx",(long)oldsid));
+X			free(oldsid);
+X		}
+X
+X		if ((h = getenv(oracle_sid)) == NULL)
+X		{
+X			/* no previous value to save */
+X			oldsid = NULL;
+X		}
+X		else
+X		{
+X			if ((oldsid = malloc(strlen(h) + 1)) == NULL)
+X			{
+X				DBUG_PRINT("malloc",
+X				    ("insufficient memory for oldsid"));
+X				ora_errno = ORAP_NOMEM;
+X			}
+X			else
+X			{
+X				DBUG_PRINT("malloc",
+X				    ("got oldsid %d bytes at %#lx",
+X				     strlen(h) + 1, (long) oldsid));
+X				strcpy(oldsid, h);
+X			}
+X		}
+X
+X		DBUG_PRINT("info", ("setting oracle_sid to %s", db));
+X		my_setenv(oracle_sid, db);
+X	}
+X
+X	DBUG_VOID_RETURN;
+X}
+X
+X
+X/* ora_login(database, name, password)
+X *
+X * logs into the current database under the given name and password.
+X */
+X
+Xchar *ora_login(database, name, password)
+Xchar *database, *name, *password;
+X{
+X	int logged;
+X	char *tmp;
+X	struct cursor *lda;
+X
+X	DBUG_ENTER("ora_login");
+X	DBUG_PRINT("entry",
+X	    ("ora_login(\"%s\", \"%s\", \"%s\")", database, name, password));
+X
+X	if ((lda = ora_getlda()) == NULL)
+X	{
+X		DBUG_PRINT("exit", ("couldn't get an lda, returning NULL"));
+X		DBUG_RETURN(NULL);
+X	}
+X
+X	if (*database != '\0')
+X	{
+X		set_sid(database);
+X		if (((tmp = getenv(oracle_sid)) == NULL)	||
+X		     (strcmp(database, tmp) != 0))
+X		{
+X			(void) ora_dropcursor(lda);
+X			ora_errno = ORAP_NOSID;
+X			DBUG_PRINT("exit",
+X			    ("%s misset to %s, returning NULL",
+X			    oracle_sid, tmp ? tmp : "<NULL>"));
+X			DBUG_RETURN(NULL);
+X		}
+X	}
+X	/* if no database was specified, use $ORACLE_SID by default */
+X
+X	logged = orlon(lda->csr, lda->hda, name, -1, password, -1, 0);
+X
+X	if (*database != '\0')
+X	{
+X		set_sid(NULL);	/* reset ORACLE_SID to what it was before
+X				 * don't really care if this fails
+X				 */
+X	}
+X
+X	if (logged == 0)
+X	{
+X		sprintf(address, "%#lx", (long) lda);
+X		DBUG_PRINT("conv", ("lda %#lx converted to string \"%s\"",
+X		    (long) lda, address));
+X		ora_errno = 0;
+X		DBUG_PRINT("exit", ("returning lda %s", address));
+X		DBUG_RETURN(address);
+X	}
+X	else
+X	{
+X		ora_errno = lda->csr->csrrc;
+X		(void) ora_droplda(lda);
+X		DBUG_PRINT("exit", ("orlon failed (error %d)", ora_errno));
+X		DBUG_RETURN((char *) NULL);
+X	}
+X}
+X
+X
+X/* ora_open(lda, stmt, cache)
+X *
+X * sets and executes the specified sql statement
+X */
+X
+Xchar *ora_open(lda_s, stmt, cache)
+Xchar *lda_s;
+Xchar *stmt;
+Xint cache;
+X{
+X	int i;
+X	struct cursor *csr;
+X	struct cursor *lda = (struct cursor *)strtoul(lda_s, (char **) NULL, 0);
+X	short dsize;
+X
+X	DBUG_ENTER("ora_open");
+X	DBUG_PRINT("entry", ("ora_open(%s, \"%s\", %d)", lda_s, stmt, cache));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to lda %#lx", lda_s, lda));
+X
+X	if (check_lda(lda) == 0)
+X	{
+X		ora_errno = ORAP_INVLDA;
+X		DBUG_PRINT("exit", ("invalid lda, returning NULL"));
+X		DBUG_RETURN((char *) NULL);
+X	}
+X
+X	if ((csr = ora_getcursor()) == NULL)
+X	{
+X		DBUG_PRINT("exit", ("can't get a cursor, returning NULL"));
+X		DBUG_RETURN((char *) NULL);
+X	}
+X
+X	/* Check whether there are any substitution variables in the statement
+X	 * If there are, we don't execute the statement yet.
+X	 */
+X	if ((csr->varfields = count_colons(stmt)) < 0)
+X	{
+X		ora_errno = ORAP_BADVAR;
+X		DBUG_PRINT("exit", ("invalid variable sequence"));
+X		DBUG_RETURN((char *) NULL);
+X	}
+X	DBUG_PRINT("info", ("statement contains %d colons", csr->varfields));
+X
+X	/* maybe we should separate these statements so that a debugging
+X	 * trace can show exactly where any failure occurred
+X	 */
+X	if ((oopen(csr->csr, lda->csr, (char *)-1, -1, -1, (char *)-1, -1) != 0)
+X	    || (osql3(csr->csr, stmt, -1) != 0)
+X	    || ((csr->varfields == 0) && (oexec(csr->csr) != 0)))
+X	{
+X		ora_errno = csr->csr->csrrc;
+X		oclose(csr->csr);
+X		(void) ora_dropcursor(csr);
+X		DBUG_PRINT("exit",
+X		    ("couldn't run SQL statement (error %d)", ora_errno));
+X		DBUG_RETURN((char *) NULL);
+X	}
+X
+X	/* count the number of fields which will be returned */
+X
+X	i = 0;
+X	do
+X	{
+X		odsc(csr->csr, ++i, (short *) 0, (short *) 0, (short *) 0,
+X			(short *) 0, (char *) 0, (short *) 0, (short *) 0);
+X	} while (csr->csr->csrrc == 0);
+X	--i;
+X	ora_errno = 0;
+X
+X	/* set up csr->data  to receive the information when we do a fetch
+X	 *	  csr->rcode to receive the column return codes
+X	 *	  csr->len   with the data lengths (principally for ora_titles)
+X	 */
+X
+X	if (cache < 1)
+X	{
+X		DBUG_PRINT("info", ("cache size %d too small - set to %d",
+X		    cache, ora_cache));
+X		cache = ora_cache;
+X	}
+X
+X	if (i > 0)
+X	{
+X		DBUG_PRINT("info", ("statement returns %d fields", i));
+X
+X		if ((csr->data = (char **) malloc(i * sizeof(char *))) == NULL)
+X		{
+X			DBUG_PRINT("malloc", ("insufficient memory for data"));
+X			oclose(csr->csr);
+X			(void) ora_dropcursor(csr);
+X			ora_errno = ORAP_NOMEM;
+X			DBUG_PRINT("exit", ("returning NULL"));
+X			DBUG_RETURN((char *) NULL);
+X		}
+X		DBUG_PRINT("malloc",
+X		    ("got data array %d items %d bytes at %#lx",
+X		     i, i * sizeof(char *), (long) csr->data));
+X		*csr->data = (char *) NULL;
+X
+X		if ((csr->len = (short *) malloc(i * sizeof(short))) == NULL)
+X		{
+X			DBUG_PRINT("malloc", ("insufficient memory for len"));
+X			oclose(csr->csr);
+X			(void) ora_dropcursor(csr);
+X			ora_errno = ORAP_NOMEM;
+X			DBUG_PRINT("exit", ("returning NULL"));
+X			DBUG_RETURN((char *) NULL);
+X		}
+X		DBUG_PRINT("malloc", ("got len array %d items %d bytes at %#lx",
+X		     i, i * sizeof(short), (long) csr->len));
+X
+X		if ((csr->rcode = (short **) malloc(i*sizeof(short *))) == NULL)
+X		{
+X			DBUG_PRINT("malloc", ("insufficient memory for rcode"));
+X			oclose(csr->csr);
+X			(void) ora_dropcursor(csr);
+X			ora_errno = ORAP_NOMEM;
+X			DBUG_PRINT("exit", ("returning NULL"));
+X			DBUG_RETURN((char *) NULL);
+X		}
+X		DBUG_PRINT("malloc",
+X		    ("got rcode array %d items %d bytes at %#lx",
+X		     i, i * sizeof(short *), (long) csr->rcode));
+X
+X		if ((csr->type = (short *) malloc(i * sizeof(short))) == NULL)
+X		{
+X			DBUG_PRINT("malloc", ("insufficient memory for type"));
+X			oclose(csr->csr);
+X			(void) ora_dropcursor(csr);
+X			ora_errno = ORAP_NOMEM;
+X			DBUG_PRINT("exit", ("returning NULL"));
+X			DBUG_RETURN((char *) NULL);
+X		}
+X		DBUG_PRINT("malloc",("got type array %d items %d bytes at %#lx",
+X		     i, i * sizeof(short), (long) csr->type));
+X
+X		csr->nfields = i;
+X
+X		for (i = 0 ; i < csr->nfields ; i++)
+X		{
+X			odsc(csr->csr, i + 1, (short *) 0, (short *) 0,
+X			    (short *) 0, &csr->type[i], (char *) 0,
+X			    (short *) 0, &dsize);
+X
+X			if ((csr->type[i] == 8) || (csr->type[i] == 24))
+X			{
+X				/* either LONG or LONGRAW */
+X				if (dsize < ora_long)
+X				{
+X					dsize = ora_long;
+X				}
+X			}
+X
+X			if ((csr->data[i] =
+X			    (char *) malloc((dsize + 1) * cache)) == NULL)
+X			{
+X				DBUG_PRINT("malloc",
+X				    ("insufficient memory for data[%d]", i));
+X				oclose(csr->csr);
+X				(void) ora_dropcursor(csr);
+X				ora_errno = ORAP_NOMEM;
+X				DBUG_PRINT("exit", ("returning NULL"));
+X				DBUG_RETURN((char *) NULL);
+X			}
+X			DBUG_PRINT("malloc", ("got field %d, %d bytes at %#lx",
+X			     i, (dsize + 1) * cache, csr->data[i]));
+X
+X			if ((csr->rcode[i] =
+X			    (short *) malloc(sizeof(short) * cache)) == NULL)
+X			{
+X				DBUG_PRINT("malloc",
+X				    ("insufficient memory for rcode[%d]", i));
+X				oclose(csr->csr);
+X				(void) ora_dropcursor(csr);
+X				ora_errno = ORAP_NOMEM;
+X				DBUG_PRINT("exit", ("returning NULL"));
+X				DBUG_RETURN((char *) NULL);
+X			}
+X			DBUG_PRINT("malloc", ("got rcode %d, %d bytes at %#lx",
+X			     i, sizeof(short) * cache, csr->rcode[i]));
+X
+X			odefin(csr->csr, i + 1, csr->data[i], dsize + 1, 5, 0,
+X				(short *) 0, (char *) 0, 0, 0, (short *) 0,
+X				csr->rcode[i]);
+X			csr->len[i] = dsize;
+X
+X			DBUG_PRINT("info", ("Field %d, length %d, type %d (%s)",
+X			    i, dsize, csr->type[i], types[csr->type[i]]));
+X		}
+X
+X		if (csr->nfields > ora_nfields)
+X		{
+X			if (ora_result != NULL)
+X			{
+X				DBUG_PRINT("free", ("freeing ora_result %lx",
+X				    (long) ora_result));
+X				free(ora_result);
+X			}
+X
+X			if ((ora_result =
+X			    (char **) malloc(csr->nfields * (sizeof(char *))))
+X				== NULL)
+X			{
+X				ora_nfields = 0;
+X				DBUG_PRINT("malloc",
+X				    ("insufficient memory for ora_result"));
+X				oclose(csr->csr);
+X				(void) ora_dropcursor(csr);
+X				ora_errno = ORAP_NOMEM;
+X				DBUG_PRINT("exit", ("returning NULL"));
+X				DBUG_RETURN((char *) NULL);
+X			}
+X			DBUG_PRINT("malloc", ("got ora_result %d bytes at %#lx",
+X			    csr->nfields * sizeof(char *), ora_result));
+X			ora_nfields = csr->nfields;
+X		}
+X	}
+X	else
+X	{
+X		DBUG_PRINT("info", ("statement returns no data"));
+X		csr->data = NULL;
+X	}
+X
+X	csr->cache_size = cache;
+X	csr->in_cache = 0;
+X	csr->end_of_data = 0;
+X
+X	sprintf(address, "%#lx", (long) csr);
+X	DBUG_PRINT("conv", ("csr %#lx converted to string \"%s\"",csr,address));
+X	DBUG_PRINT("exit", ("returning csr \"%s\"", address));
+X	DBUG_RETURN(address);
+X}
+X
+X
+X/* ora_titles(csr)
+X *
+X * returns the column headers for the query referenced by csr
+X *
+X * overwrites the first position in each data array,
+X * but this is acceptable since these values have always been returned.
+X */
+X
+Xint ora_titles(csr_s)
+Xchar *csr_s;
+X{
+X	int i;
+X	short len;
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_titles");
+X	DBUG_PRINT("entry", ("ora_titles(%s)", csr_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X	else if (csr->nfields == 0)
+X	{
+X		ora_errno = ORAP_NODATA;
+X		DBUG_PRINT("exit", ("nothing to return"));
+X		DBUG_RETURN(0);
+X	}
+X	else if ((ora_result == NULL) || (ora_nfields < csr->nfields))
+X	{
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_PRINT("exit", ("ora_result is not assigned correctly"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	for (i = 0 ; i < csr->nfields ; i++)
+X	{
+X		len = csr->len[i];
+X		oname(csr->csr, i + 1, (char *) -1, (short *) -1,
+X		      csr->data[i], &len);
+X		ora_result[i] = csr->data[i];
+X		DBUG_PRINT("info", ("field %4d (%lx) title \"%s\"",
+X		    i, (long) csr->data[i], csr->data[i]));
+X	}
+X
+X	ora_errno = 0;
+X	DBUG_PRINT("exit", ("returning %d items", csr->nfields));
+X	DBUG_RETURN(csr->nfields);
+X}
+X
+X/* ora_lengths(csr)
+X *
+X * returns the return field lengths for the query referenced by csr
+X *
+X * overwrites the first position in each data array,
+X * but this is acceptable since these values have always been returned.
+X */
+X
+Xint ora_lengths(csr_s)
+Xchar *csr_s;
+X{
+X	int i;
+X	short len;
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_lengths");
+X	DBUG_PRINT("entry", ("ora_lengths(%s)", csr_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X	else if (csr->nfields == 0)
+X	{
+X		ora_errno = ORAP_NODATA;
+X		DBUG_PRINT("exit", ("nothing to return"));
+X		DBUG_RETURN(0);
+X	}
+X	else if ((ora_result == NULL) || (ora_nfields < csr->nfields))
+X	{
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_PRINT("exit", ("ora_result is not assigned correctly"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	for (i = 0 ; i < csr->nfields ; i++)
+X	{
+X		/* write the data length into the first entry in the cache */
+X		sprintf(csr->data[i], "%d", csr->len[i]);
+X		ora_result[i] = csr->data[i];
+X		DBUG_PRINT("info", ("field %4d (%lx) length %s",
+X		    i, (long) csr->data[i], csr->data[i]));
+X	}
+X
+X	ora_errno = 0;
+X	DBUG_PRINT("exit", ("returning %d items", csr->nfields));
+X	DBUG_RETURN(csr->nfields);
+X}
+X
+X
+X/* ora_types(csr)
+X *
+X * returns the return field types for the query referenced by csr
+X * see the OCI manuals to work out what the return values mean
+X *
+X * overwrites the first position in each data array,
+X * but this is acceptable since these values have always been returned.
+X */
+X
+Xint ora_types(csr_s)
+Xchar *csr_s;
+X{
+X	int i;
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_types");
+X	DBUG_PRINT("entry", ("ora_types(%s)", csr_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X	else if (csr->nfields == 0)
+X	{
+X		ora_errno = ORAP_NODATA;
+X		DBUG_PRINT("exit", ("nothing to return"));
+X		DBUG_RETURN(0);
+X	}
+X	else if ((ora_result == NULL) || (ora_nfields < csr->nfields))
+X	{
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_PRINT("exit", ("ora_result is not assigned correctly"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	for (i = 0 ; i < csr->nfields ; i++)
+X	{
+X		/* write the type into the first cache entry */
+X		sprintf(csr->data[i], "%d", csr->type[i]);
+X		ora_result[i] = csr->data[i];
+X		DBUG_PRINT("info", ("field %4d (%lx) type %s (%s)",
+X		    i, (long) csr->data[i], csr->data[i],
+X		    types[csr->type[i]] ? types[csr->type[i]] : "unknown"));
+X	}
+X
+X	ora_errno = 0;
+X	DBUG_PRINT("exit", ("returning %d items", csr->nfields));
+X	DBUG_RETURN(csr->nfields);
+X}
+X
+X
+X/* ora_fetch(csr)
+X *
+X * returns the next set of data from the cursor
+X *
+X * at exit, the first entry must be returned or have already been returned,
+X * otherwise it may be overwritten by ora_titles().
+X */
+X
+Xint ora_fetch(csr_s, trunc)
+Xchar *csr_s;
+Xint trunc;
+X{
+X	int i;
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_fetch");
+X	DBUG_PRINT("entry", ("ora_fetch(%s, %d)", csr_s, trunc));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X	else if (csr->nfields == 0)
+X	{
+X		ora_errno = ORAP_NODATA;
+X		DBUG_PRINT("exit", ("no data to return"));
+X		DBUG_RETURN(0);
+X	}
+X	else if ((ora_result == NULL) || (ora_nfields < csr->nfields))
+X	{
+X		ora_errno = ORAP_NOMEM;
+X		DBUG_PRINT("exit", ("ora_result is not assigned"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	if (csr->in_cache == 0)
+X	{
+X		unsigned long rowcount = csr->csr->csrrpc;
+X
+X		if (csr->end_of_data)
+X		{
+X			ora_errno = 0;
+X			DBUG_PRINT("exit", ("end of data"));
+X			DBUG_RETURN(0);
+X		}
+X
+X		if (i = ofen(csr->csr, csr->cache_size) == 4)
+X		{
+X			DBUG_PRINT("info", ("setting end_of_data"));
+X			csr->end_of_data = 1;
+X		}
+X
+X		csr->in_cache = csr->csr->csrrpc - rowcount;
+X		csr->next_entry = 0;
+X
+X		DBUG_PRINT("info", ("fetched %d rows", csr->in_cache));
+X
+X		if (csr->in_cache == 0)
+X		{
+X			if ((i == 1) && (csr->csr->csrrc == 4))
+X			{
+X				ora_errno = 0;
+X				DBUG_PRINT("exit", ("end of data"));
+X				DBUG_RETURN(0);
+X			}
+X			else
+X			{
+X				ora_errno = csr->csr->csrrc;
+X				DBUG_PRINT("exit",
+X				    ("ofen error (%d)", ora_errno));
+X				DBUG_RETURN(0);
+X			}
+X		}
+X	}
+X
+X	DBUG_PRINT("info", ("returning row %d from cache:", csr->next_entry));
+X
+X	for (i = 0 ; i < csr->nfields ; i++)
+X	{
+X		ora_result[i] =
+X			&csr->data[i][csr->next_entry * (csr->len[i] + 1)];
+X
+X		switch (csr->rcode[i][csr->next_entry])
+X		{
+X		case 0:		/* no problem */
+X			break;
+X
+X		case 1405:
+X			DBUG_PRINT("info", ("field %d was NULL", i));
+X			*ora_result[i] = '\0';
+X			break;
+X
+X		case 1406:
+X			ora_errno = 1406;
+X
+X			if (trunc	&&
+X			    ((csr->type[i] == 8) || (csr->type[i] == 24)))
+X			{
+X			    /* truncation is allowed
+X			     * IF  the truncation flag is set
+X			     * AND the field type is LONG or LONGRAW
+X			     */
+X			    DBUG_PRINT("info", ("LONG%s field %d was truncated",
+X				((csr->type[i] == 8) ? "" : "RAW"), i));
+X			}
+X			else	/* truncation is an error */
+X			{
+X			    DBUG_PRINT("exit", ("field %d truncation error",i));
+X			    DBUG_RETURN(0);
+X			}
+X			break;
+X
+X		default:	/* others should not happen */
+X			DBUG_PRINT("info", ("ofetch error %d, field %d",
+X			    csr->rcode[i][csr->next_entry], i));
+X			ora_errno = csr->csr->csrrc;
+X			DBUG_PRINT("exit", ("returning 0"));
+X			DBUG_RETURN(0);
+X		}
+X
+X		DBUG_PRINT("info", ("field %4d (%lx) data \"%s\"",
+X		    i, (long) ora_result[i], ora_result[i]));
+X	}
+X
+X	++csr->next_entry;
+X	--csr->in_cache;
+X
+X	ora_errno = 0;
+X	DBUG_PRINT("exit", ("returning %d items", csr->nfields));
+X	DBUG_RETURN(csr->nfields);
+X}
+X
+X/* ora_bind(csr_s, vars, nitems)
+X *
+X * binds actual values to the SQL statement associated with csr
+X */
+X
+Xint ora_bind(csr_s, vars, nitems)
+Xchar *csr_s, **vars;
+Xint nitems;
+X{
+X	int i;
+X#ifndef	NO_BIND_PADDING
+X	static char small_buf[2] = " ";
+X#endif
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_bind");
+X	DBUG_PRINT("entry", ("ora_bind(%s, %#lx, %d)",
+X	    csr_s, (long) vars, nitems));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(0);
+X	}
+X	else if (csr->varfields != nitems)
+X	{
+X		ora_errno = ORAP_NUMVARS;
+X		DBUG_PRINT("exit", ("expected %d items, got %d",
+X		    csr->varfields, nitems));
+X		DBUG_RETURN(0);
+X	}
+X
+X	for (i = 0 ; i < nitems ; i++)
+X	{
+X#ifndef	NO_BIND_PADDING
+X		if (vars[i][0] == '\0')
+X		{
+X			DBUG_PRINT("info", ("field %d is empty - padding", i));
+X			vars[i] = small_buf;
+X		}
+X#endif
+X		if ((obndrn(csr->csr, i+1, vars[i], strlen(vars[i])+1,
+X			5, -1, (short *) -1, (char *) -1, 0, 0)) != 0)
+X		{
+X			ora_errno = csr->csr->csrrc;
+X			DBUG_PRINT("exit", ("obndrn failed on field %d, \"%s\"",
+X			    i + 1, vars[i]));
+X			DBUG_RETURN(0);
+X		}
+X
+X		DBUG_PRINT("info", ("obndrn %d, \"%s\" OK", (i + 1), vars[i]));
+X	}
+X
+X	if (oexec(csr->csr) != 0)
+X	{
+X		ora_errno = csr->csr->csrrc;
+X		DBUG_PRINT("exit", ("oexec failed"));
+X		DBUG_RETURN(0);
+X	}
+X
+X	/* any cached data is now out of date, as is the end_of data flag */
+X	csr->in_cache = 0;
+X	csr->end_of_data = 0;
+X
+X	DBUG_PRINT("exit", ("returning OK"));
+X	DBUG_RETURN(1);
+X}
+X
+X
+Xchar	*OK	= "OK";		/* valid return from ora_close/do/logoff */
+X
+X
+X/* ora_do(lda, stmt)
+X *
+X * sets and executes the specified sql statement, without leaving a cursor open
+X */
+X
+Xchar *ora_do(lda_s, stmt)
+Xchar *lda_s;
+Xchar *stmt;
+X{
+X	char *csr_s;
+X
+X	DBUG_ENTER("ora_do");
+X	DBUG_PRINT("entry", ("ora_do(%s, \"%s\")", lda_s, stmt));
+X
+X	if ((csr_s = ora_open(lda_s, stmt)) == NULL)
+X	{
+X		DBUG_PRINT("exit", ("ora_open failed"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else if (ora_close(csr_s) == NULL)
+X	{
+X		DBUG_PRINT("exit", ("ora_close failed"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		DBUG_PRINT("exit", ("command successful"));
+X		DBUG_RETURN(OK);
+X	}
+X
+X	/* NOTREACHED */
+X}
+X
+X
+X/* ora_close(csr)
+X *
+X * Closes an oracle statement, releasing resources
+X */
+X
+Xchar *ora_close(csr_s)
+Xchar *csr_s;
+X{
+X	struct cursor *csr = (struct cursor *)strtoul(csr_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_close");
+X	DBUG_PRINT("entry", ("ora_close(%s)", csr_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to csr %#lx", csr_s, csr));
+X
+X	if (check_csr(csr) == 0)
+X	{
+X		ora_errno = ORAP_INVCSR;
+X		DBUG_PRINT("exit", ("not a csr"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else if (oclose(csr->csr) != 0)
+X	{
+X		ora_errno = csr->csr->csrrc;
+X		DBUG_PRINT("exit", ("oclose failed"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		(void) ora_dropcursor(csr);
+X		DBUG_PRINT("exit", ("returning OK"));
+X		DBUG_RETURN(OK);
+X	}
+X}
+X
+X
+X/* ora_logoff(lda)
+X *
+X * Logs the user off of Oracle, releasing all resources
+X */
+X
+Xchar *ora_logoff(lda_s)
+Xchar *lda_s;
+X{
+X	struct cursor *lda = (struct cursor *)strtoul(lda_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_logoff");
+X	DBUG_PRINT("entry", ("ora_logoff(%s)", lda_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to lda %#lx", lda_s, lda));
+X
+X	if (check_lda(lda) == 0)
+X	{
+X		ora_errno = ORAP_INVLDA;
+X		DBUG_PRINT("exit", ("not an lda"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else if (ologof(lda->csr) != 0)
+X	{
+X		ora_errno = lda->csr->csrrc;
+X		DBUG_PRINT("exit", ("ologof failed, error code %d", ora_errno));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		(void) ora_droplda(lda);
+X		DBUG_PRINT("exit", ("returning OK"));
+X		DBUG_RETURN(OK);
+X	}
+X}
+X
+X
+X/* ora_commit(lda)
+X *
+X * Commits all pending transactions on the specified lda.
+X */
+X
+Xchar *ora_commit(lda_s)
+Xchar *lda_s;
+X{
+X	struct cursor *lda = (struct cursor *)strtoul(lda_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_commit");
+X	DBUG_PRINT("entry", ("ora_commit(%s)", lda_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to lda %#lx", lda_s, lda));
+X
+X	if (check_lda(lda) == 0)
+X	{
+X		ora_errno = ORAP_INVLDA;
+X		DBUG_PRINT("exit", ("not an lda"));
+X		DBUG_RETURN(NULL);
+X	}
+X	else if (ocom(lda->csr) != 0)
+X	{
+X		ora_errno = lda->csr->csrrc;
+X		DBUG_PRINT("exit", ("ocom failed, error code %d", ora_errno));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		DBUG_PRINT("exit", ("returning OK"));
+X		DBUG_RETURN(OK);
+X	}
+X}
+X
+X
+X/* ora_rollback(lda)
+X *
+X * rollbacks all pending transactions on the specified lda.
+X */
+X
+Xchar *ora_rollback(lda_s)
+Xchar *lda_s;
+X{
+X	struct cursor *lda = (struct cursor *)strtoul(lda_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_rollback");
+X	DBUG_PRINT("entry", ("ora_rollback(%s)", lda_s));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to lda %#lx", lda_s, lda));
+X
+X	if (check_lda(lda) == 0)
+X	{
+X		ora_errno = ORAP_INVLDA;
+X		DBUG_PRINT("exit", ("not an lda", stderr));
+X		DBUG_RETURN(NULL);
+X	}
+X	else if (orol(lda->csr) != 0)
+X	{
+X		ora_errno = lda->csr->csrrc;
+X		DBUG_PRINT("exit", ("orol failed, error code %d", ora_errno));
+X		DBUG_RETURN(NULL);
+X	}
+X	else
+X	{
+X		DBUG_PRINT("exit", ("returning OK"));
+X		DBUG_RETURN(OK);
+X	}
+X}
+X
+X
+X/* ora_autocommit(lda, on_off)
+X *
+X * Turns autocommit for the specified lda on or off.
+X */
+X
+Xchar *ora_autocommit(lda_s, on_off)
+Xchar *lda_s;
+Xint on_off;
+X{
+X	struct cursor *lda = (struct cursor *)strtoul(lda_s, (char **) NULL, 0);
+X
+X	DBUG_ENTER("ora_autocommit");
+X	DBUG_PRINT("entry", ("ora_autocommit(%s, %d)", lda_s, on_off));
+X	DBUG_PRINT("conv", ("string \"%s\" converted to lda %#lx", lda_s, lda));
+X
+X	if (check_lda(lda) == 0)
+X	{
+X		ora_errno = ORAP_INVLDA;
+X		DBUG_PRINT("exit", ("not an lda", stderr));
+X		DBUG_RETURN(NULL);
+X	}
+X
+X	if (on_off)	/* turn autocommit on */
+X	{
+X		if (ocon(lda->csr) != 0)
+X		{
+X			ora_errno = lda->csr->csrrc;
+X			DBUG_PRINT("exit",
+X				("ocon failed, error code %d", ora_errno));
+X			DBUG_RETURN(NULL);
+X		}
+X	}
+X	else		/* turn autocommit off */
+X	{
+X		if (ocof(lda->csr) != 0)
+X		{
+X			ora_errno = lda->csr->csrrc;
+X			DBUG_PRINT("exit",
+X				("ocof failed, error code %d", ora_errno));
+X			DBUG_RETURN(NULL);
+X		}
+X	}
+X
+X	DBUG_PRINT("exit", ("returning OK"));
+X	DBUG_RETURN(OK);
+X}
+END_OF_FILE
+  if test 23614 -ne `wc -c <'orafns.c'`; then
+    echo shar: \"'orafns.c'\" unpacked with wrong size!
+  fi
+  # end of 'orafns.c'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

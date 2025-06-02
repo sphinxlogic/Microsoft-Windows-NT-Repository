@@ -1,0 +1,2221 @@
+Newsgroups: comp.sources.misc
+From: erich@eye.com (Eric Haines)
+Subject: v38i056:  phonewrd - phone number phrase generator, Part01/01
+Message-ID: <1993Jul14.143750.25435@sparky.sterling.com>
+X-Md4-Signature: c6f43784aa974c49f3a45f0975d6a273
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 14:37:50 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: erich@eye.com (Eric Haines)
+Posting-number: Volume 38, Issue 56
+Archive-name: phonewrd/part01
+Environment: UNIX, DOS
+
+This is the phonewrd program, which figures out phrases that fit your phone
+number (you know, 443-2788 spells "I heart U", 477-2338 spells "I spade U").
+In the time-honored tradition of UNIX, it has a gob of command line options, a
+few of which are even useful.  It normally uses /usr/dict/words, but if you
+don't have a plaintext dictionary around it can generate tables for easy
+searching or, better yet, you can get GNU's free ispell dictionaries (see the
+man page for details) and use these.
+
+This beastie should work under UNIX and DOS (and whatever else) under all the
+flavors of C.  Now that I've said that I've doomed myself to some weird
+portability problem.  You'll want to define USE_STRINGS_H in the makefile if
+you use <strings.h> on your system.  Also, you'll almost definitely want to
+change DICT_PATH in the code to wherever your dictionary resides.
+
+Bugs, etc to:
+Eric Haines, erich@eye.com
+
+#---------------------------------- cut here ----------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README makefile patchlevel.h phonewrd.1 phonewrd.c
+#   phonewrd.txt
+# Wrapped by kent@sparky on Fri Jul  9 16:48:54 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1230 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is the phonewrd program, which figures out phrases that fit your phone
+Xnumber (you know, 443-2788 spells "I heart U", 477-2338 spells "I spade U").
+XIn the time-honored tradition of UNIX, it has a gob of command line options, a
+Xfew of which are even useful.  It normally uses /usr/dict/words, but if you
+Xdon't have a plaintext dictionary around it can generate tables for easy
+Xsearching or, better yet, you can get GNU's free ispell dictionaries (see the
+Xman page for details) and use these.
+X
+XThis beastie should work under UNIX and DOS (and whatever else) under all the
+Xflavors of C.  Now that I've said that I've doomed myself to some weird
+Xportability problem.  You'll want to define USE_STRINGS_H in the makefile if
+Xyou use <strings.h> on your system.  Also, you'll almost definitely want to
+Xchange DICT_PATH in the code to wherever your dictionary resides.
+X
+XFiles included in this distribution:
+X	README - what the heck could be in here?
+X	makefile - unix makefile (can you say trivial? edit it yourself)
+X	phonewrd.c - the code (which became spaghetti-like over time...)
+X	phonewrd.1 - the man page
+X	phonewrd.txt - the man page in plaintext
+X	patchlevel.h - version and patch values
+X
+XBugs, etc to:
+XEric Haines, erich@eye.com
+END_OF_FILE
+  if test 1230 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+  echo shar: Extracting \"'makefile'\" \(322 characters\)
+  sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X# trivial makefile - you edit it...
+X
+XCC_OPTS=-O
+X# define USE_STRINGS_H if you have <strings.h> instead of <string.h>
+X# CC_OPTS=-O -DUSE_STRINGS_H
+X
+Xphonewrd:	phonewrd.c patchlevel.h
+X		cc -o phonewrd phonewrd.c $(CC_OPTS)
+X
+Xinstall:	phonewrd
+X		cp phonewrd /usr/contrib/bin
+X		cp phonewrd.1 /usr/man/man1
+X
+Xclean:
+X		rm phonewrd
+END_OF_FILE
+  if test 322 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+  fi
+  # end of 'makefile'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(52 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define VERSION		"version 2.0"
+X#define PATCHLEVEL	0
+END_OF_FILE
+  if test 52 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'phonewrd.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'phonewrd.1'\"
+else
+  echo shar: Extracting \"'phonewrd.1'\" \(9688 characters\)
+  sed "s/^X//" >'phonewrd.1' <<'END_OF_FILE'
+X.\" -*-Text-*-
+X.\";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+X.\"
+X.\" File:         phonewrd.1
+X.\" Description:  phonewrd man page
+X.\" Author:       Eric Haines, erich@eye.com
+X.\" Modified:     4/21/93
+X.\" Package:      phonewrd
+X.\"
+X.\" (c) Copyright 1993, Eric Haines, all rights reserved.
+X.\"
+X.\";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+X.TH PHONEWRD 1 "" ""
+X.ad l
+X.SH NAME
+Xphonewrd \- find words or phrases for phone numbers
+X
+X.SH SYNOPSIS
+X
+X.BR phonewrd
+X[\fB-n \fInumerals allowed\fR]
+X[\fB-s \fIsingle letter words\fR]
+X[\fB-q \fIq mapping\fR]
+X[\fB-z \fIz mapping\fR]
+X[\fB-d \fIdictionary path\fR]
+X[\fB-l \fIword length\fR]
+X[\fB-m \fInumeral map\fR]
+X[\fB-v\fR]
+X[\fB-r\fR]
+X[\fB-c\fR]
+X[\fB-C\fR]
+X\fBphone_number1[*...]\fR [\fBphone_number2[*...] ...\fR]
+X
+X.SH DESCRIPTION
+X
+X.B phonewrd
+Xfinds words or phrases which match the input phone numbers.
+XIt uses the dictionary word list
+X.I /usr/dict/words
+Xby default, ignoring one letter words (see \fB-s\fR).
+XThere are a wide variety of options available to allow various sorts of
+Xpattern matching.
+XWords with apostrophes or other punctuation are acceptable.
+XIf more than one phone number is given, each number and its combinations are
+Xoutput.
+X
+XIf the input phone number ends with one or more \fI*\fR, e.g. \fI555-1212**\fR,
+Xthen the output phrases can be up to that many characters longer that the input
+Xnumber.
+XThis usually yields a few extra phrases, and
+Xdialing those extra digits at the end normally doesn't cause problems.
+X
+XThe input phone number can have letters in it, in which case that digit is
+Xforced to be that letter in any phrase.
+XThis can help pare down a long output list for a number.
+X
+XIf the number is entirely letters, it is converted to numbers and output.
+X
+XIf you don't have a dictionary on your system, a free set of dictionary files
+Xare available via FTP from prep.ai.mit.edu in /pub/gnu/ispell*.tar.z (you'll
+Xalso need "gzip" in this same directory to uncompress this archive).
+X.B phonewrd
+Xunderstands the "affix" format used for the
+Xdictionaries in ispell and expands words accordingly.
+X
+XIf you can't get your hands on any dictionary files,
+Xlook at the \fB-r\fR, \fB-c\fR, and (for the totally insane) \fB-C\fR options.
+XThese options do not need a dictionary (and so will do either very little or
+Xtoo much).
+X
+X.SH Options
+X.ifn .TP 5
+X.ift .TP 15
+X.B -n \fInumerals allowed\fP
+XThis option allows phone digits to be replaced by numerals, up to the limit
+Xset.
+XFor example
+X.B -n 2
+Xmeans that any two digits of the phone number can be left as digits and not
+Xmade a part of any word.
+XThis can help find phrases for phone numbers with poor letter combinations.
+XNote that numerals that have no corresponding letters
+X(i.e. 0 and 1 by default) do not count against this total, nor do one letter
+Xwords set using \fB-s\fR.
+XDefault setting is 0.
+X
+X.TP
+X.B -s \fIsingle letter words\fP
+XThis option gives all allowed single letter words (including numeral "words",
+Xe.g. "I love U 2").
+XNormally dictionaries have all letters of the alphabet as being legal words,
+Xwhich gives a ton of useless phrases.
+XBy default the only allowed single letter words are "a", "i", and "o".
+XAs an example of how to change this,
+X.B -s abcdgimoptuxy248
+Xmeans that any of these single letters are now considered words.
+XThis can help find phrases for phone numbers with awful
+Xletter combinations and in general open up more possibilities.
+XTo have no single letter words at all, use \fB-s =\fR.
+X
+X.TP
+X.B -q \fImapping\fP
+XThis option maps the letter
+X.I q
+Xto the given numeral.
+XFor example,
+X.B -q 0
+Xmeans that phone numbers with 0's in them can have \fIq\fR's
+Xsubstituted for the 0's.
+XThis usually doesn't help much anyway, and it's up to you to remember that
+X.I q
+X== 0, but there you go.
+XBy default
+X.I q
+Xis not mapped.
+X
+X.TP
+X.B -z \fImapping\fP
+XAmazingly similar to \fB-q\fR.
+XThis option maps the letter
+X.I z
+Xto the given numeral.
+XFor example,
+X.B -z 0
+Xmeans that phone numbers with 0's in them can have \fIz\fR's
+Xsubstituted for the 0's.
+XThis usually doesn't help much anyway, and it's up to you to remember that
+X.I z
+X== 0, but there it is.
+XBy default
+X.I z
+Xis not mapped.
+X
+X.TP
+X.B -d \fIdictionary path\fP
+XThis option allows alternate dictionaries to be used.
+XFor example,
+X.in +0.5i
+X.B -d /users/fred/dict/star_trek_words
+X.in -0.5i
+Xwill use (only) Fred's geek-speak dictionary.
+XDefault is \fI/usr/dict/words\fR (or whatever it is on your system),
+Xwhich is not used if any dictionary path is specified.
+X
+XMultiple dictionaries can be used by specifying multiple paths.  For example,
+Xto use the geek speak dictionary along with the regular system dictionary, do:
+X.in +0.5i
+X.B -d /users/fred/dict/star_trek_words -d /usr/dict/words
+X.in -0.5i
+XA path of "." means use the default dictionary, so quicker yet is:
+X.in +0.5i
+X.B -d . -d /users/fred/dict/star_trek_words
+X.in -0.5i
+XIn this way additional
+Xdictionaries can either replace or be added to the default.
+X
+XNote that
+X.B phonewrd
+Xunderstands the "affix" format used for the dictionaries of GNU's ispell and
+Xexpands words accordingly, so these can be used to add more words to the
+Xsearch.
+X
+X.TP
+X.B -l \fIword length\fP
+XThis option allows a minimum word length to be set.
+XFor example,
+X.B -l 3
+Xmeans no words shorter than 3 letters are used for building phrases.
+XUser defined single letter words (see \fB-s\fR) are not affected by this
+Xoption.
+XSingle letter words from the dictionary are ignored no matter
+Xwhat the setting (since most dictionaries include exciting words like "h",
+X"w" and so on).
+XDefault is 1.
+X
+X.TP
+X.B -m \fInumeral map\fP
+XFor those of you from a different planet, this will remap the letters to
+Xdifferent numerals.
+XFor example,
+X.in +0.5i
+X.B -m 2223334445556667.77888999.
+X.in -0.5i
+Xis the default setting, a normal telephone.
+XThe "\fB.\fR" (or any other non-numeric value) means don't map the letter to
+Xany key.
+XYou get a banana for using \fB-v\fR with this command.
+X
+X.TP
+X.B -v
+XVerbose option:  words fitting into the various number slots are output
+Xand other warnings and whatnot are all output to stderr.
+XThis can help you "roll your own" if the program does not find anything to
+Xyour liking.
+X
+X.TP
+X.B -r
+XThis option is for those without a dictionary.
+XIt simply outputs the letters
+Xpossible for each digit in a column so that you can search for combinations
+Xmore easily.
+XNo dictionary search is done, so none is needed.
+X
+X.TP
+X.B -c
+XThis option is also for those without a dictionary.
+XIt generates all
+Xpermutations of letters and numerals valid for the input phone number and
+Xoutputs these one per line.
+XIf you do:
+X
+X	phonewrd -c 234-5678 > junk1
+X.br
+X	spell junk1 > junk2
+X.br
+X	diff junk1 junk2 | grep "<"
+X
+Xyou'll get any 7 letter words formed which pass the spell checker.
+XIt's a long shot, but you never know...
+X
+X.TP
+X.B -C
+XThis option is also for those without a dictionary and too much disk space and
+XCPU time.
+XIt generates all
+Xpermutations of letters and numerals valid for the input phone number and
+Xoutputs these one per line, plus it makes all permutations of spacing for
+Xeach of these permutations.
+X3^7 * 2^6 = 139968 phrases for a phone number without 0's and 1's.
+XThen send each one through your spell checker and if any errors are found,
+Xdiscard it and go to the next.
+XIt will take awhile, but this is the price you pay for not having any
+Xdictionary available.
+X
+X.SH EXAMPLES
+X.ne 4
+X.B phonewrd 542-5968
+Xgives the words:
+X.br
+X    kick you
+X.br
+X    lick you
+X
+X.ne 7
+X.B phonewrd 542-5968 -n 1
+X.br
+Xallows more slack, letting one character be a numeral:
+X.br
+X    kick you
+X.br
+X    lick you
+X.br
+X    5 gal you
+X.br
+X    5 Hal you
+X.br
+Xwhich gives a little wider range of possibilities.
+X
+X.ne 5
+X.B phonewrd 5683968 -l 3
+X.br
+Xgives words 3 characters or longer:
+X.br
+X    Jove you
+X.br
+X    loud you
+X.br
+X    love you
+X
+X.B phonewrd 486-9364 -s aio248
+X.br
+Xgives many combinations, but the
+X.B -s aio248
+Xallows the extra combination
+X.br
+X    I 8 my dog
+X.br
+X
+X.B phonewrd 787-3648*
+X.br
+Xallows the extra combination
+X.br
+X    strength
+X.br
+Xas one \fI*\fR at the end means up to 1 additional character can be output
+Xat the end of the phrase.
+X
+X.B phonewrd 861-2076
+X.br
+Xdoesn't yield much of anything, so setting \fI0\fR to \fIo\fR and
+X\fI1\fR to \fIi\fR:
+X.br
+X.B phonewrd 86i-2o76
+X.br
+Xwe get
+X.br
+X    unicorn
+X.br
+Xso \fIun1c0rn\fR fits the original phone number.
+XPutting a letter in a phone number
+Xforces the use of that letter in that position.
+X
+X.B phonewrd -r 266-7883
+X.br
+Xyields
+X.ne 3
+X.br
+X      a  m  m  p  t  t  d
+X.br
+X      b  n  n  r  u  u  e
+X.br
+X      c  o  o  s  v  v  f
+X.br
+XThe letters for each numeral are output in columns and so can be more easily
+Xsearched by hand for interesting phrases.
+XYes, I know you found \fIbon stud\fR
+Xin there, but what seven letter word can be found?
+XIf you find it, pat
+Xyourself on the cranium for having a brain and being able to quickly cull
+Xthrough the 2187 possibilities.
+X
+X.B phonewrd -c 2667883
+X.br
+Xwill list all the possible combinations, e.g.
+X.br
+X    ammpttd
+X.br
+X    ammptte
+X.br
+X    ammpttf
+X.br
+X    ammptud
+X.br
+X    ammptue
+X.br
+X    ...
+X.br
+Xwhich can then be run through a spell checker and so searched for seven
+Xletter words (see the \fB-c\fR option for how to do this).
+X
+X.B phonewrd 234-5678 -v
+X.br
+Xwill output all words which fit into the various places in the phone number.
+XFor example, one output entry is:
+X.ne 2
+X.br
+X    Digit 5, length 3:
+X.br
+X     opt
+X.br
+Xwhich means that for the fifth digit of the number, all words of length three
+Xwhich fit (i.e. translate into "678" in this case) are displayed.
+X
+X.SH TO BE DONE
+XIt would be cute to be able to map numerals to strings, e.g. 460-2253 with
+X"0" mapped to "OPER" gives "inOPERable", or 434-4637 with "4" mapped to "for"
+Xgives "FOReigner".
+X
+X.SH AUTHOR
+XEric Haines, erich@eye.com
+END_OF_FILE
+  if test 9688 -ne `wc -c <'phonewrd.1'`; then
+    echo shar: \"'phonewrd.1'\" unpacked with wrong size!
+  fi
+  # end of 'phonewrd.1'
+fi
+if test -f 'phonewrd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'phonewrd.c'\"
+else
+  echo shar: Extracting \"'phonewrd.c'\" \(35263 characters\)
+  sed "s/^X//" >'phonewrd.c' <<'END_OF_FILE'
+X/*
+X   Phonewrd - given a phone number, find all words or phrases in a dictionary
+X	which fit it.  See the man page for details, type "phonewrd -?" for
+X	options.
+X
+X   version 2.0 - 6/23/93
+X
+X   (c) copyright 1993, Eric Haines, all rights reserved (erich@eye.com)
+X
+X
+X   History:
+X
+X   2.0 - release for comp.sources.misc
+X */
+X
+X#include <stdlib.h>	/* if you don't have stdlib, use malloc.h instead */
+X#include <stdio.h>
+X
+X/* define USE_STRINGS_H if you use <strings.h> instead of <string.h> */
+X#ifdef USE_STRINGS_H
+X    /* BSD string routines. */
+X#   include <strings.h>
+X/* Really, should not define USE_STRINGS_H if __STDC__, but be safe. */
+X#ifndef __STDC__
+X#   define strchr index
+X#   define strrchr rindex
+X#endif /* not __STDC__ */
+X#else
+X    /* SYS V string routines. */
+X#   include <string.h>
+X#endif /* USE_STRINGS_H */
+X
+X#include "patchlevel.h"
+X
+X/*============= default related =========================================== */
+X
+X/* path to dictionary */
+X#define	DICT_PATH	"/usr/dict/words"
+X
+X/* number of digits in phone number */
+X#define	NUM_DIGITS	7
+X
+X/* how many numerals are allowed in our phrase? */
+X#define	NUMERALS_ALLOWED	0
+X
+X/* minimum length of words: note that 1 always gets bumped to 2, because of
+X * OneLetter below.
+X */
+X#define	MIN_LENGTH	1
+X
+X/* one letter words that are acceptable */
+X#define	ONE_LETTER	"aio"
+X/* If you like things like "CDB" (see the bee) or "IM4U, use or modify the
+X * array below.  Yes, "j" and "k" are potential names, "m" is only in "I am",
+X * "q" is queue, etc - you decide...  This option tends to generate lots of
+X * useless goop, but it's good if you're desperate.
+X */
+X/* #define ONE_LETTER	"abcdgimoptuxy248" */
+X
+X#define	NO_NUMBER	-2
+X
+X/* to make Q and Z not be anything, set them to NO_NUMBER, else set them
+X * to the digit you want (e.g. 0 or 1)
+X */
+X#define	Q	NO_NUMBER
+X#define	Z	NO_NUMBER
+X
+X/* translation table for letters to numbers */
+Xint	Letter2Numeral[] =
+X	/* a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z */
+X	 { 2,2,2,3,3,3,4,4,4,5,5,5,6,6,6,7,Q,7,7,8,8,8,9,9,9,Z } ;
+X
+X/* true if a character is a vowel */
+X#define	Vowel(c)	strchr( "aeiou", (c) )
+X
+X/*============= storage space related ===================================== */
+X
+X#define MAX_DIGITS	14
+X#define	MAX_INDICES	(((MAX_DIGITS+1)*MAX_DIGITS)/2)
+X
+X/* increment for word list memory space */
+X#define	WORD_LIST_SIZE	50
+X
+X/*============= internal use constants ==================================== */
+X
+X#define	FIXED_LETTER	-1
+X
+X#define	BUFSIZE		256
+X#ifndef	TRUE
+X#define	TRUE	1
+X#define	FALSE	0
+X#endif
+X
+X/*============= structures ================================================ */
+X
+X/* array of words, indexed by digit location and length of word.  This list is
+X * built up in the first part of the program, as each dictionary word is
+X * categorized and put in its list.  Then this structure is traversed to make
+X * up the combinations.
+X */
+Xtypedef	struct {
+X	char	**p_word ;	/* list of pointers to words */
+X	int	count ;		/* current count */
+X	int	size ;		/* allocated size */
+X} wordlist, *p_wordlist ;
+X
+X/*============= data and macros =========================================== */
+X
+X#define	IndexWL( digit_loc, length )	( WLoffset[digit_loc] + length - 1 )
+X
+Xwordlist WL[MAX_INDICES] ;
+Xint	WLoffset[MAX_DIGITS] ;
+Xint	PhoneNum[MAX_DIGITS+1] ;	/* phone number translation */
+Xchar	PhoneStr[MAX_DIGITS+1] ;	/* phone number letter, if specified */
+Xint	NumeralMapped[10] ;		/* if TRUE, then index # is mapped */
+Xchar	OneLetter[BUFSIZE] ;
+Xchar	*DictPath[100] ;
+Xint	DictTot ;
+Xchar	*ProgName ;
+X
+Xint	NumDigits ;
+Xint	NumIndices ;
+Xint	NumNumerals ;
+Xint	MinLength ;
+Xint	RollOwn ;
+Xint	Concat ;
+Xint	Verbose ;
+Xint	MatchTot ;
+Xint	Wildcard ;
+Xint	TotBrk ;
+X
+Xint	HoldSize ;
+Xint	HoldCount ;
+Xchar	**HoldWord ;
+X
+Xchar	OutputGrid[MAX_DIGITS][27] ;
+X
+X/*============= procedure declarations ==================================== */
+X
+Xint phone_check() ;
+Xvoid roll_own() ;
+Xvoid concat_it() ;
+Xvoid concat_letter_out() ;
+Xvoid concat_letter_breaks_out() ;
+Xvoid init_wl() ;
+Xint fit_word() ;
+Xint permute_word() ;
+Xvoid search_for_match() ;
+Xvoid hold_word() ;
+Xint store_word() ;
+Xvoid free_wl() ;
+Xint scan_options() ;
+Xchar *str_duplicate() ;
+X
+X/*============= procedures ================================================ */
+X
+Xmain(argc,argv)
+Xint argc;  char *argv[];
+X{
+Xint	nargc ;
+Xchar	*nargv[BUFSIZE], *targv ;
+Xint	i, hdr_out, cont_flag ;
+X
+X    ProgName = argv[0] ;
+X
+X    HoldSize = HoldCount = 0 ;
+X
+X    NumNumerals = NUMERALS_ALLOWED ;
+X    MinLength = MIN_LENGTH ;
+X    RollOwn = FALSE ;
+X    Concat = 0 ;
+X    Verbose = FALSE ;
+X
+X    strcpy( OneLetter, ONE_LETTER ) ;
+X    *DictPath = str_duplicate( DICT_PATH ) ;
+X    if ( !(*DictPath) ) {
+X	fprintf( stderr, "Ugh, we're out of memory!\n" ) ;
+X	exit(1) ;
+X    }
+X    DictTot = 1 ;
+X
+X    /* translate phone number */
+X    if ( argc < 2 ) {
+X	fprintf( stderr, "Not enough arguments.\n" ) ;
+X	usage() ;
+X	return( 1 ) ;
+X    }
+X
+X    cont_flag = scan_options( argc, argv, &nargc, nargv ) ;
+X    if ( Verbose ) {
+X	/* always print out the version, etc, even if errors occur */
+X	fprintf( stdout, "%s %s, patch level %d\n",
+X		argv[0], VERSION, PATCHLEVEL ) ;
+X    }
+X
+X    if ( !cont_flag ) {
+X	/* bad scan option, so quit */
+X	return( 1 ) ;
+X    }
+X
+X    if ( nargc < 1 ) {
+X	fprintf( stderr, "No phone number found.\n" ) ;
+X	usage() ;
+X	return( 1 ) ;
+X    }
+X
+X    /* loop through phone number(s), output headers if more than one */
+X    hdr_out = ( nargc > 1 ) ;
+X    for ( i = 0 ; i < nargc ; i++ ) {
+X	if ( i ) {
+X	    /* output carriage returns before 2nd, 3rd, etc */
+X	    fprintf( stdout, "\n" ) ;
+X	}
+X	targv = nargv[i] ;
+X	if ( hdr_out ) {
+X	    fprintf( stdout, "# %s\n", targv ) ;
+X	}
+X	if ( phone_check( targv ) ) {
+X	    /* something very bad happened, so quit */
+X	    return( 1 ) ;
+X	}
+X    }
+X
+X    return( 0 ) ;
+X}
+X
+Xusage()
+X{
+X    fprintf(stderr, "usage: %s [options] phone#[*...]\n", ProgName);
+X    fprintf(stderr, " [*...] - extra *'s at the end mean optional wildcard letters\n");
+X    fprintf(stderr, "  -l # - minimum length of words (cur. == %d)\n", MinLength);
+X    fprintf(stderr, "  -n # - number of numerals allowed in phrase (cur. == %d)\n", NumNumerals);
+X    if ( Letter2Numeral['q'-'a'] == NO_NUMBER ) {
+X	fprintf(stderr, "  -q # - mapping of q (none currently)\n" ) ;
+X    } else {
+X	fprintf(stderr, "  -q # - mapping of q (cur. == %d)\n",
+X    		Letter2Numeral['q'-'a'] ) ;
+X    }
+X    if ( Letter2Numeral['z'-'a'] == NO_NUMBER ) {
+X	fprintf(stderr, "  -z # - mapping of z (none currently)\n" ) ;
+X    } else {
+X	fprintf(stderr, "  -z # - mapping of z (cur. == %d)\n",
+X    		Letter2Numeral['z'-'a'] ) ;
+X    }
+X    fprintf(stderr, "  -d string - dictionary path (cur. == %s)\n", *DictPath);
+X    fprintf(stderr, "  -s string - allowed single letter words (cur. == \"%s\")\n", OneLetter);
+X    fprintf(stderr, "  -m char[26] - mapping of entire alphabet\n");
+X    fprintf(stderr, "  -r - output the corresponding letters in an array (no dictionary)\n");
+X    fprintf(stderr, "  -c - output all combinations (no dictionary)\n");
+X    fprintf(stderr, "  -C - output all combinations and spacings (no dictionary)\n");
+X    fprintf(stderr, "  -v - verbose output (show words that do fit)\n");
+X}
+X
+X
+Xint
+Xphone_check( numeral_string )
+Xchar	*numeral_string ;
+X{
+Xint	i, tot, word_count, length, min_length, found_digit, val, nn ;
+Xchar	tchr, *tstr, **dp ;
+Xchar	dict_word[BUFSIZE] ;
+Xchar	out_string[BUFSIZE] ;
+Xp_wordlist	p_wl ;
+XFILE	*infile ;
+X
+X    NumDigits = 0 ;
+X    TotBrk = -1 ;
+X
+X    tstr = numeral_string ;
+X    tchr = *tstr++ ;
+X    found_digit = FALSE ;
+X    while ( tchr != '\0' && tchr != '*' && (NumDigits <= MAX_DIGITS ) ) {
+X	if ( ( tchr >= '0' ) && ( tchr <= '9' ) ) {
+X	    /* convert to digit */
+X	    PhoneNum[NumDigits] = (int)(tchr - '0') ;
+X	    PhoneStr[NumDigits++] = tchr ;
+X	    found_digit = TRUE ;
+X	} else if ( ( (tchr >= 'A') && (tchr <= 'Z') ) ||
+X		    ( (tchr >= 'a') && (tchr <= 'z') ) ) {
+X	    PhoneNum[NumDigits] = FIXED_LETTER ;
+X	    PhoneStr[NumDigits++] = tolower( tchr ) ;
+X	}
+X	tchr = *tstr++ ;
+X    }
+X    PhoneStr[NumDigits]='\0' ;
+X
+X    if ( NumDigits <= 0 ) {
+X	fprintf( stderr, "Sorry, no digits input in `%s'\n", numeral_string ) ;
+X	fprintf( stderr, "Recompile with a higher MAX_DIGITS setting.\n" ) ;
+X	usage() ;
+X	return(0) ;
+X    }
+X
+X    /* check if we're in roll own mode */
+X    if ( RollOwn ) {
+X	roll_own() ;
+X	return(0) ;
+X    }
+X
+X    /* check if we're in concat output mode */
+X    if ( Concat ) {
+X	concat_it() ;
+X	return(0) ;
+X    }
+X
+X    /* check if any numbers were input */
+X    if ( !found_digit ) {
+X	/* entirely alphabetic input, so translate to number */
+X	for ( i = 0 ; i < NumDigits ; i++ ) {
+X	    val = Letter2Numeral[PhoneStr[i]-'a'] ;
+X	    if ( val != NO_NUMBER ) {
+X		fprintf( stdout, "%d", val ) ;
+X	    } else {
+X		fprintf( stdout, "*" ) ;
+X	    }
+X	}
+X	fprintf( stdout, "\n" ) ;
+X	return(0) ;
+X    }
+X
+X    if ( tchr == '*' ) {
+X	/* the phone number ends in a wild card - phrases can be longer */
+X	Wildcard = 1 ;
+X	while ( *tstr++ == '*' ) {
+X	    Wildcard++ ;
+X	}
+X    } else {
+X	Wildcard = 0 ;
+X    }
+X
+X    if ( NumDigits > MAX_DIGITS ) {
+X	fprintf(stderr, "Sorry, too many digits input in `%s'; ",
+X		numeral_string);
+X	fprintf(stderr, "only %d allowed.\n", MAX_DIGITS);
+X	usage() ;
+X	return(0) ;
+X    }
+X
+X    /* set up offset array for indexing WL */
+X    tot = 0 ;
+X    for ( i = 0 ; i < NumDigits ; i++ ) {
+X	WLoffset[i] = tot ;
+X	tot += (NumDigits-i) ;
+X    }
+X    NumIndices = ((NumDigits+1)*NumDigits)/2 ;
+X
+X    /* build WL */
+X    word_count = 0 ;
+X    init_wl() ;
+X    dp = DictPath ;
+X    i = DictTot ;
+X    while ( i-- ) {
+X	infile = fopen( *dp, "r") ;
+X	min_length = MinLength > 1 ? MinLength : 2 ;
+X	if ( infile != NULL ) {
+X	    while ( fgets( dict_word, BUFSIZE, infile ) ) {
+X		word_count += fit_word( dict_word, min_length ) ;
+X	    }
+X	} else {
+X	    fprintf( stderr, "Sorry, couldn't find dictionary at `%s'.\n",
+X		    *dp ) ;
+X	    return(1) ;
+X	}
+X	fclose( infile ) ;
+X	dp++ ;
+X    }
+X
+X    if ( Verbose ) {
+X	for ( i = 0 ; i < NumDigits ; i++ ) {
+X	    for ( length = 1 ; length <= NumDigits-i ; length++ ) {
+X		p_wl = &WL[IndexWL( i, length )] ;
+X		if ( p_wl->count ) {
+X		    fprintf( stdout, "\nDigit %d, length %d:\n", i+1, length ) ;
+X		    for ( tot = 0 ; tot < p_wl->count ; tot++ ) {
+X			fprintf( stdout, " %s\n", p_wl->p_word[tot] ) ;
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X    MatchTot = 0 ;	/* number of words matched */
+X
+X    /* save NumNumerals around in case it gets incremented */
+X    nn = NumNumerals ;
+X
+X    /* search through WL for paths */
+X    if ( word_count ) {
+X	/* good, there's something to work with: search away! */
+X	*out_string = '\0' ;
+X	while ( !MatchTot && ( NumNumerals <= NumDigits ) ) {
+X	    search_for_match( 0, out_string, out_string, 0 ) ;
+X	    if ( !MatchTot ) {
+X		fprintf( stderr, "No matches with -n %d", NumNumerals ) ;
+X		if ( NumNumerals < NumDigits ) {
+X		    NumNumerals++ ;
+X		    fprintf( stderr,
+X			    ", trying again with -n %d\n", NumNumerals ) ;
+X		} else {
+X		    fprintf( stderr, "\n" ) ;
+X		}
+X	    }
+X	}
+X	if ( !MatchTot ) {
+X	    fprintf( stderr,
+X	"Bad luck: dictionary words fit, but there's too much numeral goop.\n");
+X	    fprintf( stderr,
+X"Maybe try again with the option `-s abcdgimoptuxy248' or try wildcarding.\n"
+X		    ) ;
+X	}
+X    } else {
+X	fprintf( stderr,
+X		"Worst luck: no dictionary words fit anywhere in %s.\n",
+X		PhoneStr ) ;
+X	fprintf( stderr,
+X"Maybe try again with the option `-s abcdgimoptuxy248' or try wildcarding.\n"
+X		    ) ;
+X    }
+X
+X    /* restore NumNumerals (yeah, this is sloppy - sue me) */
+X    NumNumerals = nn ;
+X
+X    free_wl() ;
+X
+X    return(0) ;
+X}
+X
+Xvoid
+Xroll_own()
+X{
+Xint	digit_letter[MAX_DIGITS], found_one, search, i, j, k ;
+X
+X    for ( i = 0 ; i < NumDigits ; i++ ) {
+X	if ( PhoneNum[i] == FIXED_LETTER ) {
+X	    digit_letter[i] = -2 ;
+X	} else {
+X	    digit_letter[i] = -1 ;
+X	}
+X    }
+X    found_one = TRUE ;
+X    for ( i = 0 ; i < 26 && found_one ; i++ ) {
+X	found_one = FALSE ;
+X	for ( j = 0 ; j < NumDigits ; j++ ) {
+X	    if ( digit_letter[j] >= 26 ) {
+X		/* done with this one */
+X		fprintf( stdout, "   " ) ;
+X	    } else {
+X		if ( digit_letter[j] == -2 ) {
+X		    found_one = TRUE ;
+X		    digit_letter[j] = 26 ;
+X		    fprintf( stdout, "  %c", PhoneStr[j] ) ;
+X		} else {
+X		    for ( k = digit_letter[j] + 1, search = TRUE
+X			; k < 26 && search
+X			; k++ ) {
+X
+X			if ( Letter2Numeral[k] == PhoneNum[j] ) {
+X			    search = FALSE ;
+X			    found_one = TRUE ;
+X			    fprintf( stdout, "  %c", (char)(k+'a') ) ;
+X			    digit_letter[j] = k ;
+X			}
+X		    }
+X		    if ( search ) {
+X			/* no further match found */
+X			if ( digit_letter[j] < 0 ) {
+X			    /* numeral is not mapped, so output it directly */
+X			    fprintf( stdout, "  %c", PhoneStr[j] ) ;
+X			}
+X			digit_letter[j] = 26 ;
+X		    }
+X		}
+X	    }
+X	}
+X	fprintf( stdout, "\n" ) ;
+X    }
+X}
+X
+Xvoid
+Xconcat_it()
+X{
+Xint	i, j, tot ;
+Xchar	full_string[MAX_DIGITS+1] ;
+X
+X    for ( i = 0 ; i < NumDigits ; i++ ) {
+X	if ( PhoneNum[i] == FIXED_LETTER ) {
+X	    OutputGrid[i][0] = PhoneStr[i] ;
+X	    OutputGrid[i][1] = '\0' ;
+X	} else {
+X	    tot = 0 ;
+X	    for ( j = 0 ; j < 26 ; j++ ) {
+X		if ( Letter2Numeral[j] == PhoneNum[i] ) {
+X		    OutputGrid[i][tot++] = (char)(j+'a') ;
+X		}
+X	    }
+X	    if ( !tot ) {
+X		/* no match found */
+X		OutputGrid[i][tot++] = PhoneStr[i] ;
+X	    }
+X	    OutputGrid[i][tot] = '\0' ;
+X	}
+X    }
+X
+X    if ( Concat == 1 ) {
+X	concat_letter_out( 0, full_string ) ;
+X    } else {
+X	concat_letter_breaks_out( 0, full_string ) ;
+X    }
+X}
+X
+Xvoid
+Xconcat_letter_out( digit, full_string )
+Xint	digit ;
+Xchar	*full_string ;
+X{
+Xint	i, length ;
+Xchar	*cstr ;
+X
+X    if ( digit >= NumDigits ) {
+X	full_string[digit] = '\0' ;
+X	fprintf( stdout, "%s\n", full_string ) ;
+X    } else {
+X	length = strlen( cstr = OutputGrid[digit] ) ;
+X	for ( i = 0 ; i < length ; i++ ) {
+X	    full_string[digit] = *cstr++ ;
+X	    concat_letter_out( digit+1, full_string ) ;
+X	}
+X    }
+X}
+X
+Xvoid
+Xconcat_letter_breaks_out( digit, full_string )
+Xint	digit ;
+Xchar	*full_string ;
+X{
+Xchar	brk_string[MAX_DIGITS*2] ;
+Xint	i, j, bny, index, length ;
+Xchar	*cstr ;
+X
+X    if ( digit >= NumDigits ) {
+X	if ( TotBrk == -1 ) {
+X	    TotBrk = 1 ;
+X	    for ( i = 1 ; i < NumDigits ; i++ ) {
+X		TotBrk *= 2 ;
+X	    }
+X	}
+X	for ( i = 0 ; i < TotBrk ; i++ ) {
+X	    bny = i ;
+X	    index = 0 ;
+X	    for ( j = 0 ; j < NumDigits ; j++ ) {
+X		brk_string[index++] = full_string[j] ;
+X		if ( bny & 0x1 ) {
+X		    brk_string[index++] = ' ' ;
+X		}
+X		bny = bny >> 1 ;
+X	    }
+X	    brk_string[index] = '\0' ;
+X	    fprintf( stdout, "%s\n", brk_string ) ;
+X	}
+X    } else {
+X	length = strlen( cstr = OutputGrid[digit] ) ;
+X	for ( i = 0 ; i < length ; i++ ) {
+X	    full_string[digit] = *cstr++ ;
+X	    concat_letter_breaks_out( digit+1, full_string ) ;
+X	}
+X    }
+X}
+X
+X/* create structures needed for the word list, etc */
+Xvoid
+Xinit_wl()
+X{
+Xp_wordlist p_wl ;
+Xint	i, j, length, search ;
+Xchar	tstr[2] ;
+X
+X    for ( i = 0, p_wl = WL ; i < NumIndices ; i++, p_wl++ ) {
+X	p_wl->p_word = NULL ;
+X	p_wl->count = 0 ;
+X	p_wl->size = 0 ;
+X    }
+X
+X    /* figure out which numerals don't have any letter translations */
+X    for ( i = 0 ; i < 10 ; i++ ) {
+X	for ( j = 0, search = TRUE ; j < 26 && search ; j++ ) {
+X	    if ( i == Letter2Numeral[j] ) {
+X		search = FALSE ;
+X	    }
+X	}
+X	/* set to TRUE if numeral is mapped by something */
+X	NumeralMapped[i] = !search ;
+X    }
+X
+X    tstr[1] = '\0' ;
+X    /* add one number values as possible */
+X    /* we rely on the fact that the first word in the single letter word
+X     * lists is actually a numeral, so change the following at your own
+X     * peril.
+X     */
+X    for ( i = 0 ; i < 10 ; i++ ) {
+X	tstr[0] = (char)i + '0' ;
+X	(void)fit_word( tstr, 1 ) ;
+X    }
+X
+X    /* add one letter words as possible */
+X    length = strlen( OneLetter ) ;
+X    for ( i = 0 ; i < length ; i++ ) {
+X	tstr[0] = OneLetter[i] ;
+X	(void)fit_word( tstr, 1 ) ;
+X    }
+X}
+X
+X/* see if the word fits in the database anywhere */
+Xint
+Xfit_word( dict_word, min_length )
+Xchar	*dict_word ;
+Xint	min_length ;
+X{
+Xint	length, compare_length, true_length, index_length, nl ;
+Xint	i, j, num_match ;
+Xint	word_val[MAX_DIGITS], hit[MAX_DIGITS], *wv, check_length, match, tot ;
+Xchar	lc_dict_word[MAX_DIGITS], *wc, *lc, tchr, *cc ;
+Xchar	clean_dict_word[BUFSIZE], new_word[BUFSIZE] ;
+X
+X    /* set new_word to empty string to initialize permute_word */
+X    tot = 0 ;
+X    *new_word = '\0' ;
+X    while( permute_word( dict_word, new_word ) ) {
+X	/* convert word to numbers */
+X	length = strlen( new_word ) ;
+X	compare_length = true_length = 0 ;
+X	for ( i = 0, wv = word_val, wc = new_word, lc = lc_dict_word,
+X	      cc = clean_dict_word
+X	    ; ( i < length ) && ( compare_length < NumDigits )
+X	    ; i++, wc++ ) {
+X
+X	    /* remove apostrophes, hyphens, etc for matching */
+X	    tchr = tolower(*wc) ;
+X	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+X		*wv++ = Letter2Numeral[(*lc++ = tchr) -'a'] ;
+X		compare_length++ ;
+X	    } else if ( ( tchr >= '0' ) && ( tchr <= '9' ) ) {
+X		*wv++ = (*lc++ = tchr) -'0' ;
+X		compare_length++ ;
+X	    }
+X	    *cc++ = *wc ;
+X	}
+X	true_length = compare_length ;
+X
+X	while ( *wc ) {
+X	    tchr = tolower( *wc++ ) ;
+X	    /* get true length of word in valid characters */
+X	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+X		true_length++ ;
+X	    } else if ( ( tchr >= '0' ) && ( tchr <= '9' ) ) {
+X		true_length++ ;
+X	    }
+X	    /* copy the rest of the word */
+X	    *cc++ = tchr ;
+X	}
+X	/* end the cleaned word */
+X	*cc = '\0' ;
+X
+X	/* is the word too long? */
+X	if ( true_length > NumDigits + Wildcard ) {
+X	    /* the word was too long: for ispell words we know that the
+X	     * first word is going to be as short as it gets, so we bail
+X	     * out of successive word generation here now.
+X	     */
+X	    goto LastWord ;
+X	}
+X
+X	/* is the word too short? */
+X	if ( true_length < min_length ) {
+X	    /* the word was too short */
+X	    goto NextWord ;
+X	}
+X
+X	/* now look for matches */
+X	if ( Wildcard ) {
+X	    check_length = NumDigits - true_length + Wildcard ;
+X	    if ( check_length >= NumDigits ) {
+X		/* cannot index into array at higher than NumDigits-1,
+X		 * so reduce length.
+X		 */
+X		check_length = NumDigits - 1 ;
+X	    }
+X	} else {
+X	    check_length = NumDigits - true_length ;
+X	}
+X
+X	for ( i = 0, num_match = 0 ; i <= check_length ; i++ ) {
+X	    index_length = compare_length+i ;
+X	    if ( Wildcard ) {
+X		if ( index_length > NumDigits ) {
+X		    /* cut comparisons down to numerals available */
+X		    index_length = NumDigits ;
+X		}
+X	    }
+X	    for ( j = i, wv = word_val, match = TRUE
+X		; match && (j < index_length)
+X		; j++, wv++ ) {
+X
+X		/* numerical match? */
+X		if ( PhoneNum[j] != *wv ) {
+X		    /* no; exact letter match? */
+X		    if ( ( PhoneNum[j] != FIXED_LETTER ) ||
+X			 ( PhoneStr[j] != lc_dict_word[j-i] ) ) {
+X			/* no match, stop testing */
+X			match = FALSE ;
+X		    }
+X		}
+X	    }
+X	    if ( match ) {
+X		/* word fits, store index */
+X		hit[num_match++] = i ;
+X	    }
+X	}
+X	/* were there any matches? */
+X	if ( num_match ) {
+X	    /* make one copy of the word */
+X	    wc = str_duplicate( clean_dict_word ) ;
+X	    if ( !wc ) {
+X		fprintf( stderr, "Ugh, we're out of memory!\n" ) ;
+X		exit(1) ;
+X	    }
+X	    hold_word( wc ) ;
+X	    for ( i = 0 ; i < num_match ; i++ ) {
+X		if ( Wildcard ) {
+X		    if ( hit[i] + true_length <= NumDigits ) {
+X			nl = true_length ;
+X		    } else {
+X			nl = NumDigits - hit[i] ;
+X		    }
+X		    if ( !store_word( wc, hit[i], nl ) ) {
+X			/* duplicate word, so free it and go to next word */
+X			free( wc ) ;
+X			goto NextWord ;
+X		    }
+X		} else {
+X		    if ( !store_word( wc, hit[i], true_length ) ) {
+X			/* duplicate word, so free it and go to next word */
+X			free( wc ) ;
+X			goto NextWord ;
+X		    }
+X		}
+X	    }
+X	    /* got here, so the word must have been stored */
+X	    tot++ ;
+X	}
+X	NextWord: ;
+X    }
+X    LastWord: ;
+X    return( tot ) ;
+X}
+X
+X/* take permutations of word if "/" GNU ispell format detected, else just
+X * strip out invalid characters and return new word
+X */
+Xint
+Xpermute_word( dict_word, new_word )
+Xchar	*dict_word ;
+Xchar	*new_word ;
+X{
+Xint	search_word ;
+Xchar	*ppc, *psc, *dc, *wc, tchr, ttchr ;
+Xstatic char perm_word[BUFSIZE], perm_pre_word[BUFSIZE] ;
+Xstatic char perm_pre_cmd[BUFSIZE], perm_suf_cmd[BUFSIZE] ;
+Xstatic int  perm_pre_count, perm_suf_count ;
+Xstatic int  perm_cur_pre_count, perm_cur_suf_count, pre_length ;
+X
+X    if ( *new_word ) {
+X	/* on successive call of this routine by calling procedure, so get
+X	 * a permutation (if available) and return it.
+X	 */
+X
+X	/* subtract previous output permutation from count and see if done */
+X	search_word = 0 ;
+X	do {
+X	    if ( perm_cur_suf_count <= 0 ) {
+X		if ( perm_cur_pre_count <= 0 ) {
+X		    /* no more permutations */
+X		    return( 0 ) ;
+X		}
+X		perm_cur_suf_count = perm_suf_count ;
+X		switch( perm_pre_cmd[--perm_cur_pre_count] ) {
+X		    case 'A':	/* enter -> reenter */
+X			strcpy( perm_pre_word, "re" ) ;
+X			strcat( perm_pre_word, perm_word ) ;
+X			break ;
+X		    case 'I':	/* disposed -> indisposed */
+X			strcpy( perm_pre_word, "re" ) ;
+X			strcat( perm_pre_word, perm_word ) ;
+X			break ;
+X		    case 'U':	/* natural -> unnatural */
+X			strcpy( perm_pre_word, "un" ) ;
+X			strcat( perm_pre_word, perm_word ) ;
+X			break ;
+X		    default:
+X			fprintf( stderr,
+X			"warning:  unrecognized word flag `%c' for word `%s'\n",
+X			    tchr, perm_word ) ;
+X			return( 0 ) ;
+X		}
+X		pre_length = strlen( perm_pre_word ) ;
+X		/* for the first prefix addition just return rest of word
+X		 * without any suffix
+X		 */
+X		strcpy( new_word, perm_pre_word ) ;
+X	    } else {
+X		strcpy( new_word, perm_pre_word ) ;
+X		switch( perm_suf_cmd[--perm_cur_suf_count] ) {
+X		    case 'V':	/* create -> creative */
+X			/* use only when there is no prefix */
+X			if ( perm_cur_pre_count == perm_pre_count ) {
+X			    tchr = tolower(new_word[pre_length-1]) ;
+X			    if ( tchr == 'e' ) {
+X				new_word[pre_length-1] = '\0' ;
+X			    }
+X			    strcat( new_word, "ive" ) ;
+X			} else {
+X			    /* invalid combination, so continue */
+X			    search_word = 1 ;
+X			}
+X			break ;
+X		    case 'N':	/* create -> creation */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			    strcat( new_word, "ion" ) ;
+X			} else if ( tchr == 'y' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			    strcat( new_word, "ication" ) ;
+X			} else {
+X			    strcat( new_word, "en" ) ;
+X			}
+X			break ;
+X		    case 'X':	/* create -> creations */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			    strcat( new_word, "ions" ) ;
+X			} else if ( tchr == 'y' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			    strcat( new_word, "ications" ) ;
+X			} else {
+X			    strcat( new_word, "ens" ) ;
+X			}
+X			break ;
+X		    case 'H':	/* twenty -> twentieth */
+X			/* use only when there is no prefix */
+X			if ( perm_cur_pre_count == perm_pre_count ) {
+X			    tchr = tolower(new_word[pre_length-1]) ;
+X			    if ( tchr == 'y' ) {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "ieth" ) ;
+X			    } else {
+X				strcat( new_word, "th" ) ;
+X			    }
+X			} else {
+X			    /* invalid combination, so continue */
+X			    search_word = 1 ;
+X			}
+X			break ;
+X		    case 'Y':	/* quick -> quickly */
+X			strcat( new_word, "ly" ) ;
+X			break ;
+X		    case 'G':	/* file -> filing */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			}
+X			strcat( new_word, "ing" ) ;
+X			break ;
+X		    case 'J':	/* file -> filings */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    new_word[pre_length-1] = '\0' ;
+X			}
+X			strcat( new_word, "ings" ) ;
+X			break ;
+X		    case 'D':	/* create -> created */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    strcat( new_word, "d" ) ;
+X			} else if ( tchr == 'y' ) {
+X			    ttchr = tolower(new_word[pre_length-2]) ;
+X			    if ( Vowel(ttchr) ) {
+X				strcat( new_word, "ed" ) ;
+X			    } else {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "ied" ) ;
+X			    }
+X			} else {
+X			    strcat( new_word, "ed" ) ;
+X			}
+X			break ;
+X		    case 'T':	/* late -> latest */
+X			/* use only when there is no prefix */
+X			if ( perm_cur_pre_count == perm_pre_count ) {
+X			    tchr = tolower(new_word[pre_length-1]) ;
+X			    if ( tchr == 'e' ) {
+X				strcat( new_word, "st" ) ;
+X			    } else if ( tchr == 'y' ) {
+X				ttchr = tolower(new_word[pre_length-2]) ;
+X				if ( Vowel(ttchr) ) {
+X				    strcat( new_word, "est" ) ;
+X				} else {
+X				    new_word[pre_length-1] = '\0' ;
+X				    strcat( new_word, "iest" ) ;
+X				}
+X			    } else {
+X				strcat( new_word, "est" ) ;
+X			    }
+X			} else {
+X			    /* invalid combination, so continue */
+X			    search_word = 1 ;
+X			}
+X			break ;
+X		    case 'R':	/* late -> later */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    strcat( new_word, "r" ) ;
+X			} else if ( tchr == 'y' ) {
+X			    ttchr = tolower(new_word[pre_length-2]) ;
+X			    if ( Vowel(ttchr) ) {
+X				strcat( new_word, "er" ) ;
+X			    } else {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "ier" ) ;
+X			    }
+X			} else {
+X			    strcat( new_word, "er" ) ;
+X			}
+X			break ;
+X		    case 'Z':	/* skate ->skaters */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'e' ) {
+X			    strcat( new_word, "rs" ) ;
+X			} else if ( tchr == 'y' ) {
+X			    ttchr = tolower(new_word[pre_length-2]) ;
+X			    if ( Vowel(ttchr) ) {
+X				strcat( new_word, "ers" ) ;
+X			    } else {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "iers" ) ;
+X			    }
+X			} else {
+X			    strcat( new_word, "ers" ) ;
+X			}
+X			break ;
+X		    case 'S':	/* imply -> implies */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'y' ) {
+X			    ttchr = tolower(new_word[pre_length-2]) ;
+X			    if ( Vowel(ttchr) ) {
+X				strcat( new_word, "s" ) ;
+X			    } else {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "ies" ) ;
+X			    }
+X			} else {
+X			    if ( strchr( "sxzh", tchr ) ) {
+X				strcat( new_word, "es" ) ;
+X			    } else {
+X				strcat( new_word, "s" ) ;
+X			    }
+X			}
+X			break ;
+X		    case 'P':	/* cloudy -> cloudiness */
+X			tchr = tolower(new_word[pre_length-1]) ;
+X			if ( tchr == 'y' ) {
+X			    ttchr = tolower(new_word[pre_length-2]) ;
+X			    if ( Vowel(ttchr) ) {
+X				strcat( new_word, "ness" ) ;
+X			    } else {
+X				new_word[pre_length-1] = '\0' ;
+X				strcat( new_word, "iness" ) ;
+X			    }
+X			} else {
+X			    strcat( new_word, "ness" ) ;
+X			}
+X			break ;
+X		    case 'M':	/* dog -> dog's */
+X			strcat( new_word, "'s" ) ;
+X			break ;
+X		    default:
+X			fprintf( stderr,
+X			"warning:  unrecognized word flag `%c' for word `%s'\n",
+X			    tchr, perm_word ) ;
+X			return( 0 ) ;
+X		}
+X	    }
+X	} while ( search_word ) ;
+X    } else {
+X	/* first call, so check if we need to permute */
+X	if ( wc = strchr( dict_word, '/' ) ) {
+X	    /* GNU ispell format detected, so save word and permutations */
+X	    strncpy( perm_word, dict_word, wc-dict_word ) ;
+X	    perm_word[wc-dict_word] = '\0' ;
+X
+X	    wc++ ;
+X	    ppc = perm_pre_cmd ;
+X	    psc = perm_suf_cmd ;
+X	    perm_pre_count = 0 ;
+X	    perm_suf_count = 0 ;
+X	    while ( tchr = toupper( *wc++ ) ) {
+X		/* save only permutation characters */
+X		if ( ( tchr >= 'A' ) && ( tchr <= 'Z' ) ) {
+X		    if ( (tchr == 'A') || (tchr == 'I') || (tchr == 'U') ) {
+X			*ppc++ = tchr ;
+X			perm_pre_count++ ;
+X		    } else {
+X			*psc++ = tchr ;
+X			perm_suf_count++ ;
+X		    }
+X		}
+X	    }
+X	    *ppc = '\0' ;
+X	    *psc = '\0' ;
+X	    perm_cur_pre_count = perm_pre_count ;
+X	    perm_cur_suf_count = perm_suf_count ;
+X	    strcpy( perm_pre_word, perm_word ) ;
+X	    pre_length = strlen( perm_pre_word ) ;
+X
+X	    /* and finally, copy the basic word for use */
+X	    strcpy( new_word, perm_word ) ;
+X	} else {
+X	    /* no permutation, so set permutation list to empty */
+X	    perm_cur_pre_count = 0 ;
+X	    perm_cur_suf_count = 0 ;
+X
+X	    /* cull out line feeds, etc */
+X	    wc = dict_word ;
+X	    dc = new_word ;
+X	    while ( tchr = *wc++ ) {
+X		if ( tchr > 13 ) {
+X		    *dc++ = tchr ;
+X		}
+X	    }
+X	    *dc = '\0' ;
+X	}
+X    }
+X    return( 1 ) ;
+X}
+X
+X/* yeah, I could combine this with store_word - call me lazy... */
+Xvoid
+Xhold_word( word )
+Xchar	*word ;
+X{
+X    if ( HoldSize <= HoldCount ) {
+X	if ( HoldSize ) {
+X	    HoldSize += WORD_LIST_SIZE * NumDigits ;
+X	    HoldWord = (char **)realloc( (void *)HoldWord,
+X		    HoldSize * sizeof(char *)) ;
+X	} else {
+X	    HoldSize = WORD_LIST_SIZE * NumDigits ;
+X	    HoldWord =
+X		    (char **)malloc( HoldSize * sizeof(char *)) ;
+X	}
+X	if ( HoldWord == NULL ) {
+X	    fprintf( stderr, "Ugh, we're out of memory!\n" ) ;
+X	    exit(1) ;
+X	}
+X    }
+X    HoldWord[HoldCount++] = word ;
+X}
+X
+X/* store word in the given location, return 1 if word not a duplicate */
+Xint
+Xstore_word( word, digit, length )
+Xchar	*word ;
+Xint	digit ;
+Xint	length ;
+X{
+Xp_wordlist	p_wl ;
+Xint	i ;
+X
+X    p_wl = &WL[IndexWL( digit, length )] ;
+X    /* check if word is already on list */
+X    for ( i = 0 ; i < p_wl->count ; i++ ) {
+X	if ( !strcmp( word, p_wl->p_word[i] ) ) {
+X	    /* duplicate word - don't store it */
+X	    return( 0 ) ;
+X	}
+X    }
+X
+X    /* check storage space */
+X    if ( p_wl->size <= p_wl->count ) {
+X	if ( p_wl->size ) {
+X	    p_wl->size += WORD_LIST_SIZE ;
+X	    p_wl->p_word = (char **)realloc( (void *)p_wl->p_word,
+X		    p_wl->size * sizeof(char *)) ;
+X	} else {
+X	    p_wl->size = WORD_LIST_SIZE ;
+X	    p_wl->p_word =
+X		    (char **)malloc( p_wl->size * sizeof(char *)) ;
+X	}
+X	if ( p_wl->p_word == NULL ) {
+X	    fprintf( stderr, "Ugh, we're out of memory!\n" ) ;
+X	    exit(1) ;
+X	}
+X    }
+X    /* store word in structure */
+X    p_wl->p_word[p_wl->count++] = word ;
+X
+X    return( 1 ) ;
+X}
+X
+X/* search through the stored words for matches */
+Xvoid
+Xsearch_for_match( digit, full_string, suffix_loc, numeral_count )
+Xint	digit ;
+Xchar	*full_string ;
+Xchar	*suffix_loc ;
+Xint	numeral_count ;
+X{
+Xint	length, tot_len, tot_word, wn, add_num, val ;
+Xp_wordlist	p_wl ;
+Xchar	**p_word ;
+X
+X    tot_len = NumDigits - digit ;
+X    /* loop through all possible word lengths from this point */
+X    /* count down so that the longer strings are output first */
+X    for ( length = tot_len ; length > 0 ; length-- ) {
+X	p_wl = &WL[IndexWL( digit, length )] ;
+X	tot_word = p_wl->count ;
+X	/* now go through all words on the list */
+X	if ( ( length == 1 ) && tot_word ) {
+X	    val = **(p_wl->p_word) - '0' ;
+X	    /* is the first word a numeral, and is it mapped? */
+X	    if ( ( val >= 0 ) && ( val <= 9 ) && NumeralMapped[val] ) {
+X		/* don't include first word (a mapped numeral) if we've used
+X		 * up our quota.
+X		 */
+X		wn = (numeral_count >= NumNumerals ) ;
+X		add_num = 1 ;
+X	    } else {
+X		/* an unmapped numeral, so definitely do it */
+X		wn = 0 ;
+X		add_num = 0 ;
+X	    }
+X	} else {
+X	    /* not on the one letter word list, so do all words */
+X	    wn = 0 ;
+X	    add_num = 0 ;
+X	}
+X	for ( p_word = p_wl->p_word + wn
+X	    ; wn < tot_word
+X	    ; wn++, p_word++ ) {
+X
+X	    strcpy( suffix_loc, *p_word ) ;
+X	    if ( length == tot_len ) {
+X		/* finished - output it! */
+X		fprintf( stdout, "%s\n", full_string ) ;
+X		MatchTot++ ;
+X	    } else {
+X		strcat( suffix_loc, " " ) ;
+X		/* Add one to numeral_count only if numeral is used */
+X		search_for_match( digit+length, full_string,
+X			suffix_loc + strlen( suffix_loc ),
+X			numeral_count + add_num ) ;
+X	    }
+X	}
+X    }
+X}
+X
+Xvoid
+Xfree_wl()
+X{
+Xint i ;
+Xp_wordlist p_wl ;
+X
+X    for ( i = 0, p_wl = WL ; i < NumIndices ; i++, p_wl++ ) {
+X	if ( p_wl->size ) {
+X	    p_wl->size = 0 ;
+X	    p_wl->count = 0 ;
+X	    free( p_wl->p_word ) ;
+X	}
+X    }
+X
+X    /* the only function of HoldWord is to be able to free the word memory */
+X    if ( HoldSize ) {
+X	for ( i = 0 ; i < HoldCount ; i++ ) {
+X	    free( HoldWord[i] ) ;
+X	}
+X	free( HoldWord ) ;
+X    }
+X    HoldCount = HoldSize = 0 ;
+X}
+X
+X/* strip out all valid "-" arguments and their values */
+Xint
+Xscan_options( argc, argv, nargc, nargv )
+Xint	argc ;
+Xchar	*argv[] ;
+Xint	*nargc ;
+Xchar	*nargv[] ;
+X{
+Xint	num_arg ;
+Xint	i, first_dict ;
+Xchar	str[BUFSIZE] ;
+X
+X    *nargc = num_arg = 0 ;
+X    first_dict = 1 ;	/* haven't received a dictionary path yet */
+X
+X    while ( ++num_arg < argc ) {
+X	if ( *argv[num_arg] == '-' ) {
+X	    switch( argv[num_arg][1] ) {
+X		case 'l':	/* minimum length of words */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%d", &i ) ;
+X			if ( i < 1 ) {
+X			    fprintf( stderr,
+X				    "Minimum word length too low!\n" ) ;
+X			    usage() ;
+X			    return( FALSE ) ;
+X			}
+X			MinLength = i ;
+X		    } else {
+X			fprintf( stderr, "No minimum length given for -l.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'n':	/* number of numerals allowed */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%d", &i ) ;
+X			if ( i < 0 ) {
+X			    fprintf( stderr, "Number of numerals too low!\n" ) ;
+X			    usage() ;
+X			    return( FALSE ) ;
+X			}
+X			NumNumerals = i ;
+X		    } else {
+X			fprintf( stderr,
+X				"No number of numerals given for -n.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'q':	/* mapping of q */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%d", &i ) ;
+X			if ( (i >= 0) && (i <= 9) ) {
+X			    Letter2Numeral['q'-'a'] = i ;
+X			}
+X		    } else {
+X			fprintf( stderr, "No mapped number given for -q.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'z':	/* mapping of z */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%d", &i ) ;
+X			if ( (i >= 0) && (i <= 9) ) {
+X			    Letter2Numeral['z'-'a'] = i ;
+X			}
+X		    } else {
+X			fprintf( stderr, "No mapped number given for -z.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'd':	/* dictionary path */
+X		    if ( ++num_arg < argc ) {
+X			if ( first_dict ) {
+X			    first_dict = 0 ;
+X			    /* erase first dictionary, since we're
+X			     * overriding by giving a path.
+X			     */
+X			    DictTot = 0 ;
+X			    free( *DictPath ) ;
+X			}
+X			sscanf( argv[num_arg], "%s", str ) ;
+X			if ( (str[0] == '.') && ( str[1] == NULL ) ) {
+X			    /* for '.' use the default dictionary */
+X			    strcpy( str, DICT_PATH ) ;
+X			}
+X			DictPath[DictTot] = str_duplicate( str ) ;
+X			if ( !DictPath[DictTot++] ) {
+X			    fprintf( stderr, "Ugh, we're out of memory!\n" ) ;
+X			    exit(1) ;
+X			}
+X		    } else {
+X			fprintf( stderr,
+X				"No dictionary path given for -d.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 's':	/* allowed single letter words */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%s", OneLetter ) ;
+X		    } else {
+X			fprintf( stderr,
+X				"No single letter words given for -s.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'm':	/* mapping of entire alphabet */
+X		    if ( ++num_arg < argc ) {
+X			sscanf( argv[num_arg], "%s", str ) ;
+X			if ( strlen(str) != 26 ) {
+X			    fprintf( stderr, "Must input all 26 digits\n" ) ;
+X			    usage() ;
+X			    return( FALSE ) ;
+X			}
+X			for ( i = 0 ; i < 26 ; i++ ) {
+X			    if ( (str[i] >= '0') && (str[i] <= '9') ) {
+X				Letter2Numeral[i] = str[i] - '0' ;
+X			    } else {
+X				Letter2Numeral[i] = NO_NUMBER ;
+X			    }
+X			}
+X			if ( Verbose ) {
+X			    fprintf( stderr, "here's your banana: )\n" ) ;
+X			}
+X		    } else {
+X			fprintf( stderr, "No digit map given for -m.\n" ) ;
+X			usage() ;
+X			return( FALSE ) ;
+X		    }
+X		    break ;
+X		case 'r':	/* output concatenation */
+X		    RollOwn = TRUE ;
+X		    break ;
+X		case 'c':	/* output concatenation */
+X		    Concat = 1 ;
+X		    break ;
+X		case 'C':	/* output spacing & concatenation */
+X		    Concat = 2 ;
+X		    break ;
+X		case 'v':	/* verbose output */
+X		    Verbose = TRUE ;
+X		    break ;
+X		default:
+X		    fprintf( stderr, "No such option `-%c'.\n",
+X			    argv[num_arg][1] ) ;
+X		    usage() ;
+X		    return( FALSE ) ;
+X	    }
+X	} else {
+X	    /* not an argument, so pass it on */
+X	    nargv[(*nargc)++] = argv[num_arg] ;
+X	}
+X    }
+X    return( TRUE ) ;
+X}
+X
+X/* strdup for the masses, since strdup is not standard */
+Xchar *str_duplicate( s )
+Xchar    *s ;
+X{
+Xchar *ps ;
+X
+X    if ( ps = malloc( strlen( s ) + 1 ) ) {
+X	strcpy( ps, s ) ;
+X    }
+X    return( ps ) ;
+X}
+END_OF_FILE
+  if test 35263 -ne `wc -c <'phonewrd.c'`; then
+    echo shar: \"'phonewrd.c'\" unpacked with wrong size!
+  fi
+  # end of 'phonewrd.c'
+fi
+if test -f 'phonewrd.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'phonewrd.txt'\"
+else
+  echo shar: Extracting \"'phonewrd.txt'\" \(9737 characters\)
+  sed "s/^X//" >'phonewrd.txt' <<'END_OF_FILE'
+X
+X
+X
+X PHONEWRD(1)							 PHONEWRD(1)
+X
+X
+X
+X
+X NAME
+X      phonewrd - find words or phrases for phone numbers
+X
+X
+X SYNOPSIS
+X      phonewrd [-n numerals allowed] [-s single letter words] [-q q mapping]
+X      [-z z mapping] [-d dictionary path] [-l word length] [-m numeral map]
+X      [-v] [-r] [-c] [-C] phone_number1[*...] [phone_number2[*...] ...]
+X
+X
+X DESCRIPTION
+X      phonewrd finds words or phrases which match the input phone numbers.
+X      It uses the dictionary word list /usr/dict/words by default, ignoring
+X      one letter words (see -s).  There are a wide variety of options
+X      available to allow various sorts of pattern matching.  Words with
+X      apostrophes or other punctuation are acceptable.	If more than one
+X      phone number is given, each number and its combinations are output.
+X
+X      If the input phone number ends with one or more *, e.g. 555-1212**,
+X      then the output phrases can be up to that many characters longer that
+X      the input number.  This usually yields a few extra phrases, and
+X      dialing those extra digits at the end normally doesn't cause problems.
+X
+X      The input phone number can have letters in it, in which case that
+X      digit is forced to be that letter in any phrase.	This can help pare
+X      down a long output list for a number.
+X
+X      If the number is entirely letters, it is converted to numbers and
+X      output.
+X
+X      If you don't have a dictionary on your system, a free set of
+X      dictionary files are available via FTP from prep.ai.mit.edu in
+X      /pub/gnu/ispell*.tar.z (you'll also need "gzip" in this same directory
+X      to uncompress this archive).  phonewrd understands the "affix" format
+X      used for the dictionaries in ispell and expands words accordingly.
+X
+X      If you can't get your hands on any dictionary files, look at the -r,
+X      -c, and (for the totally insane) -C options.  These options do not
+X      need a dictionary (and so will do either very little or too much).
+X
+X
+X Options
+X      -n numerals allowed
+X	   This option allows phone digits to be replaced by numerals, up to
+X	   the limit set.  For example -n 2 means that any two digits of the
+X	   phone number can be left as digits and not made a part of any
+X	   word.  This can help find phrases for phone numbers with poor
+X	   letter combinations.  Note that numerals that have no
+X	   corresponding letters (i.e. 0 and 1 by default) do not count
+X	   against this total, nor do one letter words set using -s.
+X	   Default setting is 0.
+X
+X
+X
+X				    - 1 -	   Formatted:  June 23, 1993
+X
+X
+X
+X
+X
+X
+X PHONEWRD(1)							 PHONEWRD(1)
+X
+X
+X
+X
+X      -s single letter words
+X	   This option gives all allowed single letter words (including
+X	   numeral "words", e.g. "I love U 2").  Normally dictionaries have
+X	   all letters of the alphabet as being legal words, which gives a
+X	   ton of useless phrases.  By default the only allowed single
+X	   letter words are "a", "i", and "o".	As an example of how to
+X	   change this, -s abcdgimoptuxy248 means that any of these single
+X	   letters are now considered words.  This can help find phrases for
+X	   phone numbers with awful letter combinations and in general open
+X	   up more possibilities.  To have no single letter words at all,
+X	   use -s =.
+X
+X
+X      -q mapping
+X	   This option maps the letter q to the given numeral.	For example,
+X	   -q 0 means that phone numbers with 0's in them can have q's
+X	   substituted for the 0's.  This usually doesn't help much anyway,
+X	   and it's up to you to remember that q == 0, but there you go.  By
+X	   default q is not mapped.
+X
+X
+X      -z mapping
+X	   Amazingly similar to -q.  This option maps the letter z to the
+X	   given numeral.  For example, -z 0 means that phone numbers with
+X	   0's in them can have z's substituted for the 0's.  This usually
+X	   doesn't help much anyway, and it's up to you to remember that z
+X	   == 0, but there it is.  By default z is not mapped.
+X
+X
+X      -d dictionary path
+X	   This option allows alternate dictionaries to be used.  For
+X	   example,
+X		-d /users/fred/dict/star_trek_words
+X	   will use (only) Fred's geek-speak dictionary.  Default is
+X	   /usr/dict/words (or whatever it is on your system), which is not
+X	   used if any dictionary path is specified.
+X
+X	   Multiple dictionaries can be used by specifying multiple paths.
+X	   For example, to use the geek speak dictionary along with the
+X	   regular system dictionary, do:
+X		-d /users/fred/dict/star_trek_words -d /usr/dict/words
+X	   A path of "." means use the default dictionary, so quicker yet
+X	   is:
+X		-d . -d /users/fred/dict/star_trek_words
+X	   In this way additional dictionaries can either replace or be
+X	   added to the default.
+X
+X	   Note that phonewrd understands the "affix" format used for the
+X	   dictionaries of GNU's ispell and expands words accordingly, so
+X	   these can be used to add more words to the search.
+X
+X
+X
+X
+X				    - 2 -	   Formatted:  June 23, 1993
+X
+X
+X
+X
+X
+X
+X PHONEWRD(1)							 PHONEWRD(1)
+X
+X
+X
+X
+X      -l word length
+X	   This option allows a minimum word length to be set.	For example,
+X	   -l 3 means no words shorter than 3 letters are used for building
+X	   phrases.  User defined single letter words (see -s) are not
+X	   affected by this option.  Single letter words from the dictionary
+X	   are ignored no matter what the setting (since most dictionaries
+X	   include exciting words like "h", "w" and so on).  Default is 1.
+X
+X
+X      -m numeral map
+X	   For those of you from a different planet, this will remap the
+X	   letters to different numerals.  For example,
+X		-m 2223334445556667.77888999.
+X	   is the default setting, a normal telephone.	The "." (or any
+X	   other non-numeric value) means don't map the letter to any key.
+X	   You get a banana for using -v with this command.
+X
+X
+X      -v   Verbose option:  words fitting into the various number slots are
+X	   output and other warnings and whatnot are all output to stderr.
+X	   This can help you "roll your own" if the program does not find
+X	   anything to your liking.
+X
+X
+X      -r   This option is for those without a dictionary.  It simply outputs
+X	   the letters possible for each digit in a column so that you can
+X	   search for combinations more easily.  No dictionary search is
+X	   done, so none is needed.
+X
+X
+X      -c   This option is also for those without a dictionary.	It generates
+X	   all permutations of letters and numerals valid for the input
+X	   phone number and outputs these one per line.  If you do:
+X
+X		phonewrd -c 234-5678 > junk1
+X		spell junk1 > junk2
+X		diff junk1 junk2 | grep "<"
+X
+X	   you'll get any 7 letter words formed which pass the spell
+X	   checker.  It's a long shot, but you never know...
+X
+X
+X      -C   This option is also for those without a dictionary and too much
+X	   disk space and CPU time.  It generates all permutations of
+X	   letters and numerals valid for the input phone number and outputs
+X	   these one per line, plus it makes all permutations of spacing for
+X	   each of these permutations.	3^7 * 2^6 = 139968 phrases for a
+X	   phone number without 0's and 1's.  Then send each one through
+X	   your spell checker and if any errors are found, discard it and go
+X	   to the next.  It will take awhile, but this is the price you pay
+X	   for not having any dictionary available.
+X
+X
+X
+X				    - 3 -	   Formatted:  June 23, 1993
+X
+X
+X
+X
+X
+X
+X PHONEWRD(1)							 PHONEWRD(1)
+X
+X
+X
+X
+X EXAMPLES
+X      phonewrd 542-5968 gives the words:
+X	  kick you
+X	  lick you
+X
+X      phonewrd 542-5968 -n 1
+X      allows more slack, letting one character be a numeral:
+X	  kick you
+X	  lick you
+X	  5 gal you
+X	  5 Hal you
+X      which gives a little wider range of possibilities.
+X
+X      phonewrd 5683968 -l 3
+X      gives words 3 characters or longer:
+X	  Jove you
+X	  loud you
+X	  love you
+X
+X      phonewrd 486-9364 -s aio248
+X      gives many combinations, but the -s aio248 allows the extra
+X      combination
+X	  I 8 my dog
+X
+X      phonewrd 787-3648*
+X      allows the extra combination
+X	  strength
+X      as one * at the end means up to 1 additional character can be output
+X      at the end of the phrase.
+X
+X      phonewrd 861-2076
+X      doesn't yield much of anything, so setting 0 to o and 1 to i:
+X      phonewrd 86i-2o76
+X      we get
+X	  unicorn
+X      so un1c0rn fits the original phone number.  Putting a letter in a
+X      phone number forces the use of that letter in that position.
+X
+X      phonewrd -r 266-7883
+X      yields
+X	    a  m  m  p	t  t  d
+X	    b  n  n  r	u  u  e
+X	    c  o  o  s	v  v  f
+X      The letters for each numeral are output in columns and so can be more
+X      easily searched by hand for interesting phrases.	Yes, I know you
+X      found bon stud in there, but what seven letter word can be found?  If
+X      you find it, pat yourself on the cranium for having a brain and being
+X      able to quickly cull through the 2187 possibilities.
+X
+X      phonewrd -c 2667883
+X      will list all the possible combinations, e.g.
+X
+X
+X
+X				    - 4 -	   Formatted:  June 23, 1993
+X
+X
+X
+X
+X
+X
+X PHONEWRD(1)							 PHONEWRD(1)
+X
+X
+X
+X
+X	  ammpttd
+X	  ammptte
+X	  ammpttf
+X	  ammptud
+X	  ammptue
+X	  ...
+X      which can then be run through a spell checker and so searched for
+X      seven letter words (see the -c option for how to do this).
+X
+X      phonewrd 234-5678 -v
+X      will output all words which fit into the various places in the phone
+X      number.  For example, one output entry is:
+X	  Digit 5, length 3:
+X	   opt
+X      which means that for the fifth digit of the number, all words of
+X      length three which fit (i.e. translate into "678" in this case) are
+X      displayed.
+X
+X
+X TO BE DONE
+X      It would be cute to be able to map numerals to strings, e.g. 460-2253
+X      with "0" mapped to "OPER" gives "inOPERable", or 434-4637 with "4"
+X      mapped to "for" gives "FOReigner".
+X
+X
+X AUTHOR
+X      Eric Haines, erich@eye.com
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X				    - 5 -	   Formatted:  June 23, 1993
+X
+X
+X
+END_OF_FILE
+  if test 9737 -ne `wc -c <'phonewrd.txt'`; then
+    echo shar: \"'phonewrd.txt'\" unpacked with wrong size!
+  fi
+  # end of 'phonewrd.txt'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

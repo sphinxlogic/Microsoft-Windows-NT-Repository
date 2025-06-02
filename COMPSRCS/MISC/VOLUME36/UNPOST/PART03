@@ -1,0 +1,1962 @@
+Newsgroups: comp.sources.misc,alt.binaries.pictures.utilities
+From: jstevens@teal.csn.org (John W.M. Stevens)
+Subject: v36i116:  unpost - Smart multi-part uudecoder v2.1.2, Part03/07
+Message-ID: <1993Apr19.052348.28903@sparky.imd.sterling.com>
+X-Md4-Signature: a92ad560a37ea7c21d4d55c32bccd7f0
+Date: Mon, 19 Apr 1993 05:23:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jstevens@teal.csn.org (John W.M. Stevens)
+Posting-number: Volume 36, Issue 116
+Archive-name: unpost/part03
+Environment: UNIX, MS-DOS, OS/2, Windows, MacIntosh, Amiga, Vax/VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nntp/client.cfg parse.c recomp.c
+# Wrapped by kent@sparky on Sun Apr 18 23:10:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 7)."'
+if test -f 'nntp/client.cfg' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nntp/client.cfg'\"
+else
+  echo shar: Extracting \"'nntp/client.cfg'\" \(44 characters\)
+  sed "s/^X//" >'nntp/client.cfg' <<'END_OF_FILE'
+Xgroup alt.binaries.pictures.misc abpm.uue 0
+END_OF_FILE
+  if test 44 -ne `wc -c <'nntp/client.cfg'`; then
+    echo shar: \"'nntp/client.cfg'\" unpacked with wrong size!
+  fi
+  # end of 'nntp/client.cfg'
+fi
+if test -f 'parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parse.c'\"
+else
+  echo shar: Extracting \"'parse.c'\" \(34667 characters\)
+  sed "s/^X//" >'parse.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Parse --- Search for a particular line.
+X*
+X* Author    :   John W. M. Stevens
+X******************************************************************************/
+X
+X#include    "compiler.h"
+X
+X#include    "unpost.h"
+X#include    "regexp.h"
+X#include    "uudec.h"
+X#include    "modflnm.h"
+X#include    "ident.h"
+X#include    "parse.h"
+X#include    "config.h"
+X#include    "utils.h"
+X
+X/*  These are the elements we have to parse out of either the header or
+X*   the body of the message BEFORE we find the first UUencoded line.
+X*/
+Xtypedef enum    {
+X    ID_STRING,
+X    SEGMENT_NO,
+X    NO_SEGMENTS
+X} PARSE_ELS;
+X
+X/*
+X*   Regular expression source strings.
+X*
+X*   To configure the program for different systems, these are the
+X*   strings to change.
+X*/
+Xstatic  PART_RE Parts1[] =
+X{
+X    {   "^Subject:(.*)[[({]Part[_ \t]*([0-9]+)[^0-9]+([0-9]+)[)\\]}](.*)",
+X        1,  2,  3,  4,  IGN_CASE,   NULL
+X    },
+X    {   "^Subject:(.*)Part[_ \t]*[[({]([0-9]+)[^0-9]+([0-9]+)[)\\]}](.*)",
+X        1,  2,  3,  4,  IGN_CASE,   NULL
+X    },
+X    {   "^Subject:(.*)Part[_ \t]+([0-9]+)[^0-9]+([0-9]+)(.*)",
+X        1,  2,  3,  4,  IGN_CASE,   NULL
+X    },
+X    {   "^Subject:(.*)[([{]([0-9]+)[^0-9]+([0-9]+)[)\\]}](.*)",
+X        1,  2,  3,  4,  IGN_CASE,   NULL
+X    },
+X    {   "^Subject:(.*)([0-9]+)([/|]|[ \t]+of[ \t]+)([0-9]+)(.*)",
+X        1,  2,  4,  5,  IGN_CASE,   NULL
+X    },
+X    {   "^Subject:(.*)",
+X        1,  0,  0,  0,  IGN_CASE,   NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts3[] =
+X{
+X    {   "^X-File-Name:[ \t]+(.*)",
+X        1,  0,  0,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts4[] =
+X{
+X    {   "^X-Part:[ \t]+([0-9]+)",
+X        0,  1,  0,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts5[] =
+X{
+X    {   "^X-Part-Total:[ \t]+([0-9]+)",
+X        0,  0,  1,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts6[] =
+X{
+X    {   "^Uusplit-part:[ \t]+([0-9]+)",
+X        0,  1,  0,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts7[] =
+X{
+X    {   "^Uusplit-parts:[ \t]+([0-9]+)",
+X        0,  0,  1,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts8[] =
+X{
+X    {   "^section ([0-9]+) of uuencode [0-9]+\\.[0-9]+ of file ([^ \t]+)[ \t]+by R.E.M.",
+X        2,  1,  0,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  PART_RE Parts9[] =
+X{
+X    {   "^([^ \t]+)[ \t]+section[ \t]+([0-9]+)/([0-9]+)[ \t]+UUXFER ver ",
+X        1,  2,  3,  0,  CASE_SENSITIVE,     NULL
+X    },
+X    {   NULL,
+X        0,  0,  0,  0,  IGN_CASE,   NULL
+X    }
+X};
+X
+Xstatic  IDENT   Hdr1[] =
+X{
+X    {   "^Subject:",                            Parts1,     NULL            },
+X    {   "^X-File-Name:",                        Parts3,     NULL            },
+X    {   "^X-Part:",                             Parts4,     NULL            },
+X    {   "^X-Part-Total:",                       Parts5,     NULL            },
+X    {   "^Uusplit-part:",                       Parts6,     NULL            },
+X    {   "^Uusplit-parts:",                      Parts7,     NULL            },
+X    {   NULL,                                   NULL,       NULL            }
+X};
+X
+Xstatic  IDENT   Body1[] =
+X{
+X    {   "^Subject:",                            Parts1,     NULL            },
+X    {   "^section [0-9]+ of uuencode [0-9]+\\.[0-9]+ of file [^ \t]+    by R.E.M.",
+X                                                Parts8,     NULL            },
+X    {   "^[^ \t]+[ \t]+section[ \t]+[0-9]+/[0-9]+[ \t]+UUXFER ver ",
+X                                                Parts9,     NULL            },
+X    {   NULL,                                   NULL,       NULL            }
+X};
+X
+X/*=============================================================================
+X||  SEGMENT begin line regular expressions are defined below.
+X||
+X||  These can be set by command line switch.
+X=============================================================================*/
+X
+Xstatic  SEGMENT RnSegs[] =
+X{
+X    {   "^(Article[:]?|X-NEWS:) ",  Hdr1,   Body1,  NULL    },
+X    {   NULL,                       NULL,   NULL,   NULL    }
+X};
+X
+Xstatic  SEGMENT NnSegs[] =
+X{
+X    {   "^From[:]? ",               Hdr1,   Body1,  NULL    },
+X    {   NULL,                       NULL,   NULL,   NULL    }
+X};
+X
+Xstatic  SEGMENT EmailSegs[] =
+X{
+X    {   "^From ",                   Hdr1,   Body1,  NULL    },
+X    {   NULL,                       NULL,   NULL,   NULL    }
+X};
+X
+Xstatic  SEGMENT GroupsSegs[] =
+X{
+X    {   "^Newsgroups: ",            Hdr1,   Body1,  NULL    },
+X    {   NULL,                       NULL,   NULL,   NULL    }
+X};
+X
+Xstatic  SEGMENT         *Segments = RnSegs;
+Xstatic  REG_EXP_NODE    *Begin = NULL;
+Xstatic  REG_EXP_NODE    *End = NULL;
+Xstatic  char            *BeginStr = "^begin[ \t]+([0-7]+)[ \t]+([^ \t]+)";
+Xstatic  char            *EndStr   = "^end[ \t]*$";
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   GetBinFlNm() --- Get the binary file name.
+X|
+X| Inputs    :   InFlPtr - Pointer to source file.
+X| Outputs   :   FlName  - Pointer to file name buffer.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    GetBinFlNm(FILE     *InFlPtr,
+X                   char     **RetStrs,
+X                   char     *FlName)
+X{
+X    auto        long        LnOfs;
+X    auto        char        *tp;
+X    auto        char        *sp;
+X    auto        int         OutLen;
+X    auto        char        Exten[5];
+X    auto        char        BeginName[FL_NM_SZ];
+X
+X    /*  Externals used by this function.    */
+X    extern      BYTE        OutBfr[];
+X    extern      char        SegLine[];
+X    extern      char        InBfr[];
+X    extern      char        UULine[];
+X    extern      FILE        *ErrFile;
+X    extern      int         MsDosFileNms;
+X
+X    /*  Extract the file name.    */
+X    for (tp = BeginName, sp = RetStrs[2];
+X         *sp && *sp != '\n' && *sp != ' ' && *sp != '\t';
+X        )
+X        *tp++ = *sp++;
+X    *tp = '\0';
+X
+X    /*  Munge file name?    */
+X    if ( MsDosFileNms )
+X    {
+X        /*  Get the current file offset.    */
+X        LnOfs = ftell( InFlPtr );
+X
+X        /*  Get next line and identify file type.   */
+X        *Exten = '\0';
+X        if (ReadLine(InFlPtr, InBfr, BFR_SIZE) == EOF)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Warning - Unexpected end of file in segment:\n",
+X                    __FILE__,
+X                    __LINE__);
+X            fprintf(ErrFile,
+X                    "\tSegment: '%s'\n",
+X                    SegLine);
+X        }
+X        else if (DecUULine(InBfr, &OutLen, OutBfr) == NOT_UU_LINE)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Warning - No UU line after begin.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            fprintf(ErrFile,
+X                    "\tSegment: '%s'\n",
+X                    SegLine);
+X        }
+X        else
+X        {
+X            /*  Attempt to ID the file. */
+X            IdUUFile(OutBfr, OutLen, Exten);
+X
+X            /*  Modify the file name to be MS-DOS compatible?   */
+X            ModifyFlNm(BeginName, Exten, FlName);
+X        }
+X
+X        /*  Position file pointer to start of line. */
+X        if (fseek(InFlPtr, LnOfs, SEEK_SET) != 0)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - %s\n",
+X                    __FILE__,
+X                    __LINE__,
+X                    sys_errlist[errno]);
+X            exit( 1 );
+X        }
+X    }
+X    else
+X        strcpy(FlName, BeginName);
+X
+X#if defined(UNPOST_DEBUG)
+Xprintf("\tBinary File Name: '%s'\n", FlName);
+X#endif
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   MatchEnd() --- Match a uuencode end line.
+X|
+X| Inputs    :   Line        - The line to attempt to match against.
+X-----------------------------------------------------------------------------*/
+X
+Xint     MatchEnd(char   *Line)
+X{
+X    auto    char    **RetStrs;
+X
+X    /*  Attempt to match the line.  */
+X    return( ReMatch(Line, CASE_SENSITIVE, End, &RetStrs) );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   MatchBegin() --- Match a uuencode begin line.
+X|
+X| Inputs    :   Line        - The line to attempt to match against.
+X| Outputs   :   RetStrs     - Returned sub-strings.
+X-----------------------------------------------------------------------------*/
+X
+Xint     MatchBegin(char     *Line,
+X                   char     ***RetStrs)
+X{
+X    /*  Attempt to match the line.  */
+X    return( ReMatch(Line, CASE_SENSITIVE, Begin, RetStrs) );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   MatchSegment() --- Match a SEGMENT begin line.
+X|
+X| Inputs    :   Line    - The line to attempt to match against.
+X| Outputs   :   Hdr     - Pointer to header ID line RE's.
+X|               Body    - Pointer to body ID line RE's.
+X-----------------------------------------------------------------------------*/
+X
+Xint     MatchSegment(char       *Line,
+X                     IDENT      **Hdr,
+X                     IDENT      **Body)
+X{
+X    register    int     i;
+X    auto        char    **RetStrs;
+X
+X    /*  Attempt to match the line.  */
+X    for (i = 0; Segments[i].ReExprStr; i++)
+X    {
+X        /*  Attempt to match one of the segment begin lines.    */
+X        if (ReMatch(Line,
+X                    CASE_SENSITIVE,
+X                    Segments[i].ReExpr,
+X                    &RetStrs) != 0)
+X        {
+X            *Hdr = Segments[i].Header;
+X            *Body = Segments[i].Body;
+X            return( 1 );
+X        }
+X    }
+X
+X    /*  Return not matched. */
+X    Hdr = NULL;
+X    Body = NULL;
+X    return( 0 );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   GetBinID() --- Get binary ID string.
+X|
+X| Inputs    :   SubStr  - Pointer to possible ID sub-string.
+X| Outputs   :   IDStr   - Pointer to ID string buffer.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    GetBinID(char   *SubStr,
+X                 char   *IDStr)
+X{
+X    register    int     i;
+X    auto        int     ExtSep;
+X    auto        int     MaxLen;
+X    auto        char    *WordPtr;
+X    auto        char    *DestPtr;
+X    auto        char    *MaxPtr;
+X    auto        char    *tp;
+X
+X    extern      int     MsDosFileNms;
+X
+X    /*  Filter string.  */
+X    FlNmFilter( SubStr );
+X
+X    /*  Attempt to guess at a file name.    */
+X    for (tp = SubStr; *tp; )
+X    {
+X        /*  Skip white space.   */
+X        while (*tp == ' ' || *tp == '\t')
+X            tp++;
+X
+X        /*  Get word. */
+X        for (DestPtr = IDStr, ExtSep = 0;
+X             *tp && *tp != ' ' && *tp != '\t';
+X             tp++)
+X        {
+X            /*  Check to see if this is and extension separator
+X            *   character, and if so, count how many.
+X            */
+X            if (*tp == EXT_SEP_CHAR)
+X                ExtSep++;
+X
+X            /*  Copy character. */
+X            *DestPtr++ = *tp;
+X        }
+X        *DestPtr = '\0';
+X
+X        /*  Does this look like a file name?    */
+X        if ( ExtSep )
+X        {
+X#if defined(UNPOST_DEBUG)
+Xprintf("\tBinary ID: '%s'\n", IDStr);
+X#endif
+X            return;
+X        }
+X    }
+X
+X    /*  OK, we didn't find anything that looks like it could possibly
+X    *   be a file name, so get the longest word and use it.
+X    */
+X    MaxLen = 0;
+X    MaxPtr = NULL;
+X    for (tp = SubStr; *tp; )
+X    {
+X        /*  Skip white space.   */
+X        while (*tp == ' ' || *tp == '\t')
+X            tp++;
+X
+X        /*  Copy string.    */
+X        for (i = 0, WordPtr = tp;
+X             *tp && *tp != ' ' && *tp != '\t';
+X             i++)
+X            IDStr[i] = *tp++;
+X        IDStr[i] = '\0';
+X
+X        /*  Is this the longest so far? */
+X        if (i > MaxLen)
+X        {
+X            MaxPtr = WordPtr;
+X            MaxLen = i;
+X        }
+X    }
+X
+X    /*  OK, check for no non-white space characters in sub
+X    *   string.
+X    */
+X    if (MaxPtr == NULL || MaxLen == 0)
+X    {
+X        *IDStr = '\0';
+X        return;
+X    }
+X
+X    /*  Get word. */
+X    for (DestPtr = IDStr, tp = MaxPtr;
+X         *tp && *tp != ' ' && *tp != '\t';
+X         tp++)
+X        *DestPtr++ = *tp;
+X    *DestPtr = '\0';
+X
+X#if defined(UNPOST_DEBUG)
+Xprintf("\tBinary ID: '%s'\n", IDStr);
+X#endif
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ParseIDLine() --- Extract the ID string, part number and
+X|               total number of parts from the ID line.
+X|
+X| Inputs    :   IDLine      - Pointer to ID line.
+X|               PartREs     - Array of part number parsing RE's.
+X| Outputs   :   Elements    - Aqquisition flags for the three items to
+X|                             parse out, ID string, Segment number and
+X|                             total number of segments.
+X|               SegInfo     - Pointer to segment information buffer.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    ParseIDLine(char        *IDLine,
+X                    PART_RE     *PartREs,
+X                    int         *Elements,
+X                    SEG_INFO    *SegInfo)
+X{
+X    register    int     i;
+X    auto        char    **RetStrs;
+X    auto        PART_RE *PartRec;
+X    auto        char    IDBfr[FL_NM_SZ];
+X
+X    /*  Externals used in this function.    */
+X    extern      FILE    *ErrFile;
+X
+X    /*  Seach for a matching part number parsing regular expression.    */
+X    for (PartRec = NULL, i = 0;
+X         PartREs[i].ReExpStr;
+X         i++)
+X    {
+X        /*  Does this RE match the ID line? */
+X        if (ReMatch(IDLine,
+X                    PartREs[i].Case,
+X                    PartREs[i].ReExpr,
+X                    &RetStrs) != 0)
+X        {
+X#if defined(UNPOST_DEBUG)
+Xprintf("\tExtract RE: /%s/\n", PartREs[i].ReExpStr);
+X#endif
+X            PartRec = PartREs + i;
+X            break;
+X        }
+X    }
+X
+X    /*  If no match found, return.  */
+X    if (PartRec == NULL)
+X        return;
+X
+X    /*  Get what elements we do not yet have.    */
+X    for (i = ID_STRING; i <= NO_SEGMENTS; i++)
+X    {
+X        /*  Get this element, if it is available.   */
+X        switch ( i )
+X        {
+X        case 0:     /*  Get ID string.  */
+X            /*  Check for no ID string.    */
+X            if (PartRec->IDStr == 0)
+X                break;
+X
+X            /*  Extract ID string from sub string.  */
+X            GetBinID(RetStrs[ PartRec->IDStr ], IDBfr);
+X
+X            /*  Check to see if there was an ID string or not.  */
+X            if (*IDBfr == '\0')
+X            {
+X                /*  Is there an alternate regular expression for
+X                *   extracting the binary ID string?
+X                */
+X                if (PartRec->AltIDStr > 0)
+X                {
+X                    /*  OK, try other side. */
+X                    GetBinID(RetStrs[ PartRec->AltIDStr ], IDBfr);
+X                    if (*IDBfr == '\0')
+X                        break;
+X                }
+X                else
+X                    break;
+X            }
+X
+X            /*  Duplicate the ID string.    */
+X            if (SegInfo->IDString != NULL)
+X                free( SegInfo->IDString );
+X            SegInfo->IDString = StrDup( IDBfr );
+X            Elements[i] = 1;
+X            break;
+X        case 1:     /*  Get the segment number. */
+X            /*  Check for no segment number.    */
+X            if (PartRec->SegNo == 0)
+X                break;
+X
+X            /*  Get the segment number.    */
+X            if ((SegInfo->SegNo = atoi( RetStrs[ PartRec->SegNo ] )) < 0)
+X                break;
+X            Elements[i] = 1;
+X            break;
+X        case 2:     /*  Get total number of segments.   */
+X            /*  Check for no total number of segments.  */
+X            if (PartRec->NoSegs == 0)
+X                break;
+X
+X            /*  Get the total number of segments.  */
+X            if ((SegInfo->NoSegs = atoi( RetStrs[ PartRec->NoSegs ] )) <= 0)
+X                break;
+X            Elements[i] = 1;
+X            break;
+X        }
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   IdSearch() --- Search for an ID line.
+X|
+X| Inputs    :   InFlPtr     - Input file pointer.
+X|               IdPtr       - Pointer to ID RE hierarchy for this SEGMENT.
+X| Outputs   :   Elements    - Check list for data elements.
+X|               IDLine      - Contains ID line.
+X|               UULnType    - Type of UU encoded line found.
+X|               RetStrs     - Returned sub strings from RE match.
+X|               SegInfo     - Pointer to segment information buffer.
+X|
+X| Returns   :   Returns one of:
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xlong    IdSearch(FILE       *InFlPtr,
+X                 IDENT      *IdPtr,
+X                 int        *Elements,
+X                 char       *IDLine,
+X                 CHK_UU_ENC *UULnType,
+X                 char       ***RetStrs,
+X                 SEG_INFO   *SegInfo)
+X{
+X    register    int         i;
+X    auto        long        LnOfs;
+X    auto        int         EncLen;
+X    auto        IDENT       *Hdr;
+X    auto        IDENT       *Body;
+X    extern      FILE        *ErrFile;
+X
+X    /*  Search forwards through the file for the first ID line. */
+X    for ( ; ; )
+X    {
+X        /*  Get the current file offset.    */
+X        LnOfs = ftell( InFlPtr );
+X
+X        /*  Get a line from the file.   */
+X        if (ReadLine(InFlPtr, IDLine, BFR_SIZE) == EOF)
+X        {
+X            LnOfs = PRS_NO_UU_LN;
+X            break;
+X        }
+X
+X        /*  Is this a SEGMENT begin line?    */
+X        if ( MatchSegment(IDLine, &Hdr, &Body) )
+X        {
+X            /*  Position file pointer to start of line. */
+X            if (fseek(InFlPtr, LnOfs, SEEK_SET) != 0)
+X            {
+X                fprintf(ErrFile,
+X                        "%s %d : Error - %s\n",
+X                        __FILE__,
+X                        __LINE__,
+X                        sys_errlist[errno]);
+X                exit( 1 );
+X            }
+X
+X            /*  Return that no UU encoded line was found.   */
+X            LnOfs = PRS_NO_UU_LN;
+X            break;
+X        }
+X
+X        /*  Is this a UUencoded line?   */
+X        *UULnType = ChkUULine(IDLine, RetStrs, &EncLen);
+X        if (*UULnType == IS_UU_LINE ||
+X            *UULnType == UU_BEGIN   ||
+X            *UULnType == UU_END)
+X        {
+X            /*  Did we miss getting a piece of data we would like to
+X            *   have?
+X            */
+X            if (Elements[SEGMENT_NO] == 0 && Elements[NO_SEGMENTS])
+X            {
+X                /*  Error message.  */
+X                fprintf(ErrFile,
+X                        "%s %d : Error - Got number of segments but not ",
+X                        __FILE__,
+X                        __LINE__);
+X                fprintf(ErrFile,
+X                        "segment number.\n");
+X
+X                /*  Check for totally idiotic mess. */
+X                if (SegInfo->NoSegs == 1)
+X                {
+X                    /*  Attempt assumption. */
+X                    fprintf(ErrFile,
+X                            "\tNumber of Segments: %d\n",
+X                            SegInfo->NoSegs);
+X                    fprintf(ErrFile,
+X                            "\tAssuming Part 1 of 1\n");
+X                    SegInfo->SegNo = SegInfo->NoSegs = 1;
+X                }
+X                else
+X                    LnOfs = PRS_NO_SEG_NUM;
+X            }
+X            else if (Elements[SEGMENT_NO] && Elements[NO_SEGMENTS] == 0)
+X            {
+X                /*  Error message.  */
+X                fprintf(ErrFile,
+X                        "%s %d : Error - Got segment number but not number ",
+X                        __FILE__,
+X                        __LINE__);
+X                fprintf(ErrFile,
+X                        "of segments.\n");
+X
+X                /*  Check segment number.   */
+X                if (SegInfo->SegNo == 1)
+X                {
+X                    /*  Attempt assumption. */
+X                    fprintf(ErrFile,
+X                            "Segment Number: %d\n\tAssuming Part 1 of 1\n",
+X                            SegInfo->SegNo);
+X                    SegInfo->SegNo = SegInfo->NoSegs = 1;
+X                }
+X                else
+X                    LnOfs = PRS_NO_NUM_SEGS;
+X            }
+X            else if (Elements[SEGMENT_NO] == 0 && Elements[NO_SEGMENTS] == 0)
+X                SegInfo->SegNo = SegInfo->NoSegs = 1;
+X            break;
+X        }
+X
+X        /*  Is this an ID line? */
+X        for (i = 0; IdPtr[i].ReExprStr; i++)
+X        {
+X            /*  Does this line match?   */
+X            if (ReMatch(IDLine,
+X                        CASE_SENSITIVE,
+X                        IdPtr[i].ReExpr,
+X                        RetStrs) != 0)
+X            {
+X#if defined(UNPOST_DEBUG)
+Xprintf("\n\tID Line: '%s'\n", IDLine);
+Xprintf("\tBody RE: /%s/\n", IdPtr[i].ReExprStr);
+X#endif
+X                /*  Attempt to parse out one or more elements.  */
+X                ParseIDLine(IDLine, IdPtr[i].IdParts, Elements, SegInfo);
+X                break;
+X            }
+X        }
+X    }
+X
+X    /*  Return status.  */
+X    return( LnOfs );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Header() --- Search for legal header ID lines.
+X|
+X| Inputs    :   InFlPtr     - Input file pointer.
+X|               IdPtr       - Pointer to ID RE hierarchy for this SEGMENT.
+X| Outputs   :   Elements    - Checklist for needed pieces of information.
+X|               IDLine      - Contains ID line.
+X|               SegInfo     - Pointer to segment information buffer.
+X|
+X| Returns   :   Returns one of:
+X|                   PRS_NO_UU_LN    - For no uuencoded line found in segment.
+X|                   1L              - OK.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xlong    Header(FILE         *InFlPtr,
+X               IDENT        *IdPtr,
+X               int          *Elements,
+X               char         *IDLine,
+X               SEG_INFO     *SegInfo)
+X{
+X    register    int         i;
+X    auto        char        **RetStrs;
+X    auto        char        *tp;
+X    extern      FILE        *ErrFile;
+X
+X    /*  Search forwards through the file for the first ID line. */
+X    for ( ; ; )
+X    {
+X        /*  Is this an ID line? */
+X        for (i = 0; IdPtr[i].ReExprStr; i++)
+X        {
+X            /*  Does this line match?   */
+X            if (ReMatch(IDLine,
+X                        CASE_SENSITIVE,
+X                        IdPtr[i].ReExpr,
+X                        &RetStrs) != 0)
+X            {
+X#if defined(UNPOST_DEBUG)
+Xprintf("\n\tID Line: '%s'\n", IDLine);
+Xprintf("\tHeader RE: /%s/\n", IdPtr[i].ReExprStr);
+X#endif
+X                /*  Attempt to parse out one or more elements.  */
+X                ParseIDLine(IDLine, IdPtr[i].IdParts, Elements, SegInfo);
+X                break;
+X            }
+X        }
+X
+X        /*  Get a line from the file.   */
+X        if (ReadLine(InFlPtr, IDLine, BFR_SIZE) == EOF)
+X            return( PRS_NO_UU_LN );
+X
+X        /*  Check for a blank line, which is the header delimiter.  */
+X        for (tp = IDLine; *tp == ' ' || *tp == '\t'; tp++)
+X            ;
+X        if (*tp == '\0' || *tp == '\n')
+X            break;
+X    }
+X
+X    /*  Return that no errors occured.  */
+X    return( 1L );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Parse() --- Parse out a SEGMENT and ID line.
+X|
+X| Inputs    :   InFlPtr     - Input file pointer.
+X| Outputs   :   SegLine     - Contains the segment line.
+X|               IDLine      - Contains ID line.
+X|               UULine      - Contains the first UU encoded line.
+X|               SegInfo     - Pointer to segment information buffer.
+X|
+X| Returns   :   Returns one of:
+X|                   PRS_NO_SEGMENT  - End of file found.
+X|                   PRS_NO_UU_LN    - No uuencoded line found in article.
+X|                   PRS_NO_ID_STR   - No ID string found at all.
+X|                   PRS_NO_BEGIN    - No uuencode begin line found in first
+X|                                     segment.
+X-----------------------------------------------------------------------------*/
+X
+Xlong    Parse(FILE      *InFlPtr,
+X              char      *SegLine,
+X              char      *IDLine,
+X              SEG_INFO  *SegInfo)
+X{
+X    register    int         i;
+X    auto        long        LnOfs;
+X    auto        char        **RetStrs;
+X    auto        IDENT       *Hdr;
+X    auto        IDENT       *Body;
+X    auto        CHK_UU_ENC  UULnType;
+X    auto        int         Elements[NO_SEGMENTS + 1];
+X    auto        char        FlName[FL_NM_SZ];
+X
+X    /*  Externals used by this function.    */
+X    extern      FILE        *ErrFile;
+X    extern      int         MsDosFileNms;
+X
+X    /*  Initialize the elements array to show that we have none of the
+X    *   elements.
+X    */
+X    for (i = ID_STRING; i <= NO_SEGMENTS; i++)
+X        Elements[i] = 0;
+X
+X    /*  Search forwards through the file for the first SEGMENT
+X    *   begin line.
+X    */
+X    for ( ; ; )
+X    {
+X        /*  Get the current file offset.    */
+X        LnOfs = ftell( InFlPtr );
+X
+X        /*  Get a line from the file.   */
+X        if (ReadLine(InFlPtr, SegLine, BFR_SIZE) == EOF)
+X            return( PRS_NO_SEGMENT );
+X
+X        /*  Is this a SEGMENT begin line?    */
+X        if ( MatchSegment(SegLine, &Hdr, &Body) )
+X        {
+X#if defined(UNPOST_DEBUG)
+Xprintf("Segment Begin: '%s'\n", SegLine);
+X#endif
+X            strcpy(IDLine, SegLine);
+X            break;
+X        }
+X    }
+X
+X    /*  Initialize new segment. */
+X    SegInfo->SegOfs = LnOfs;
+X
+X    /*  Process header block.   */
+X    LnOfs = Header(InFlPtr,
+X                   Hdr,
+X                   Elements,
+X                   IDLine,
+X                   SegInfo);
+X    if (LnOfs < 0L)
+X        return( LnOfs );
+X
+X    /*  Process body to end of segment or first UU line.    */
+X    LnOfs = IdSearch(InFlPtr,
+X                     Body,
+X                     Elements,
+X                     IDLine,
+X                     &UULnType,
+X                     &RetStrs,
+X                     SegInfo);
+X    if (LnOfs < 0L)
+X        return( LnOfs );
+X
+X    /*  Is this the begin line? */
+X    SegInfo->UUOfs = LnOfs;
+X    if (UULnType != UU_BEGIN)
+X    {
+X        /*  If this is segment number 1 and we did not find a begin line,
+X        *   that is BIG trouble, so report an error.
+X        */
+X        if (SegInfo->SegNo == 1)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - No begin line in first segment:\n",
+X                    __FILE__,
+X                    __LINE__);
+X            fprintf(ErrFile,
+X                    "\tSegment: '%s'\n",
+X                    SegLine);
+X            return( PRS_NO_BEGIN );
+X        }
+X        return( 0L );
+X    }
+X
+X    /*  Get file name from begin line.  */
+X    GetBinFlNm(InFlPtr, RetStrs, FlName);
+X#if defined(UNPOST_DEBUG)
+Xprintf("\tFile Name: '%s'\n", FlName);
+X#endif
+X
+X    /*  Return no errors occurred.  */
+X    if ( *FlName )
+X        SegInfo->FlName = StrDup( FlName );
+X    return( 0L );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   FreeCfg() --- Free a configuration that was created by
+X|               reading a configuration file.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    FreeCfg(void)
+X{
+X    register    int         i;
+X    register    int         j;
+X    register    int         k;
+X
+X    /*  If the default configuration is in place, do nothing, else
+X    *   free the old configuration.
+X    */
+X    if (Segments != NnSegs     && Segments != RnSegs &&
+X        Segments != GroupsSegs && Segments != EmailSegs)
+X    {
+X        /*  Free all ID prefix lists in SEGMENT list.   */
+X        for (i = 0; Segments[i].ReExprStr; i++)
+X        {
+X            /*  Free all ID part lists in ID prefix list.   */
+X            for (j = 0;
+X                 Segments[i].Header[j].ReExprStr;
+X                 j++)
+X            {
+X                /*  Free all part extraction RE's, etc. */
+X                for (k = 0;
+X                     Segments[i].Header[j].IdParts[k].ReExpStr;
+X                     k++)
+X                {
+X                     free( Segments[i].Header[j].IdParts[k].ReExpStr );
+X                     FreeReExpr( Segments[i].Header[j].IdParts[k].ReExpr );
+X                }
+X
+X                /*  Free list memory and regular expression.    */
+X                free( Segments[i].Header[j].IdParts );
+X                free( Segments[i].Header[j].ReExprStr );
+X                (void) FreeReExpr( Segments[i].Header[j].ReExpr );
+X            }
+X            free( Segments[i].Header );
+X
+X            /*  Free all ID part lists in ID prefix list.   */
+X            for (j = 0;
+X                 Segments[i].Body[j].ReExprStr;
+X                 j++)
+X            {
+X                /*  Free all part extraction RE's, etc. */
+X                for (k = 0;
+X                     Segments[i].Body[j].IdParts[k].ReExpStr;
+X                     k++)
+X                {
+X                     free( Segments[i].Body[j].IdParts[k].ReExpStr );
+X                     FreeReExpr( Segments[i].Body[j].IdParts[k].ReExpr );
+X                }
+X
+X                /*  Free list memory and regular expression.    */
+X                free( Segments[i].Body[j].IdParts );
+X                free( Segments[i].Body[j].ReExprStr );
+X                (void) FreeReExpr( Segments[i].Body[j].ReExpr );
+X            }
+X            free( Segments[i].Body );
+X
+X            /*  Free the regular expression graph for the segment.  */
+X            free( Segments[i].ReExprStr );
+X            (void) FreeReExpr( Segments[i].ReExpr );
+X        }
+X
+X        /*  Free SEGMENT list.  */
+X        free( Segments );
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   SetSegBegin() --- Set the segment begin line regular
+X|               expression.
+X|
+X| Inputs    :   SegType - Either 'e', 'g', 'n', 'm', 'r'.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    SetSegBegin(char    *SegType)
+X{
+X        register        int             i;
+X
+X    /*  Free any previously allocated configurations (configurations
+X    *   read in from a config file only.
+X    */
+X    FreeCfg();
+X
+X    /*  Determine which type, based on input string.    */
+X    switch ( tolower( *SegType ) )
+X    {
+X    case 'e':
+X        Segments = EmailSegs;
+X        break;
+X    case 'g':
+X        Segments = GroupsSegs;
+X        break;
+X    case 'n':
+X        Segments = NnSegs;
+X        break;
+X    case 'r':
+X    default:
+X        Segments = RnSegs;
+X        break;
+X    }
+X
+X        /*      Compile SEGMENT begin RE's.     */
+X        for (i = 0; Segments[i].ReExprStr; i++)
+X                if (Segments[i].ReExpr == NULL)
+X                        Segments[i].ReExpr = ReCompile( Segments[i].ReExprStr );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   CompCfg() --- Compile a configuration.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    CompCfg(void)
+X{
+X    register    int         i;
+X    register    int         j;
+X    register    int         k;
+X    auto        PART_RE     *PartPtr;
+X    auto        IDENT       *IdPtr;
+X    auto        SEGMENT     *SegPtr;
+X
+X        /*  Compile the regular expressions.    */
+X        for (i = 0; Segments[i].ReExprStr; i++)
+X        {
+X                /*  Compile the unique SEGMENT line prefix. */
+X                SegPtr = Segments + i;
+X                if (SegPtr->ReExpr == NULL)
+X                        SegPtr->ReExpr = ReCompile( SegPtr->ReExprStr );
+X
+X                /*  Compile all Header ID line information.    */
+X                for (j = 0; SegPtr->Header[j].ReExprStr; j++)
+X                {
+X                        /*  Compile the unique ID line prefix.  */
+X                        IdPtr = SegPtr->Header + j;
+X                        IdPtr->ReExpr = ReCompile( IdPtr->ReExprStr );
+X
+X                        /*  Compile the part number parsing RE's.   */
+X                        for (k = 0; IdPtr->IdParts[k].ReExpStr; k++)
+X                        {
+X                                PartPtr = IdPtr->IdParts + k;
+X                                PartPtr->ReExpr = ReCompile( PartPtr->ReExpStr );
+X                        }
+X                }
+X
+X                /*  Compile all Body ID line information.    */
+X                for (j = 0; SegPtr->Body[j].ReExprStr; j++)
+X                {
+X                        /*  Compile the unique Body ID line prefix.  */
+X                        IdPtr = SegPtr->Body + j;
+X                        IdPtr->ReExpr = ReCompile( IdPtr->ReExprStr );
+X
+X                        /*  Compile the part number parsing RE's.   */
+X                        for (k = 0; IdPtr->IdParts[k].ReExpStr; k++)
+X                        {
+X                                PartPtr = IdPtr->IdParts + k;
+X                                PartPtr->ReExpr = ReCompile( PartPtr->ReExpStr );
+X                        }
+X                }
+X        }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   LoadCfg() --- Load a configuration file.
+X|
+X| Inputs    :   CfgFlNm - Configuration file name.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    LoadCfg(char   *CfgFlNm)
+X{
+X        extern          FILE            *ErrFile;
+X
+X    /*  Check for reading a configuration file. */
+X    if (CfgFlNm == NULL || *CfgFlNm == '\0')
+X        {
+X                fprintf(ErrFile,
+X                                "%s %d : Error - Missing configuraiton file name.\n",
+X                                __FILE__,
+X                                __LINE__);
+X                return;
+X        }
+X
+X        /*  Free any previously allocated configuration trees.  */
+X        FreeCfg();
+X
+X        /*  Parse configuration file.   */
+X        Segments = ReadConfig( CfgFlNm );
+X
+X        /*      Compile the configuration.      */
+X        CompCfg();
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ParseInit() --- Compile regular expressions here that will
+X|                               not change during run time, and compile the default
+X|                               configuration.
+X-----------------------------------------------------------------------------*/
+X
+Xvoid    ParseInit(void)
+X{
+X        /*      Compile the RN default configuration.   */
+X        CompCfg();
+X
+X    /*  Compile the UU encoding RE's.   */
+X        Begin = ReCompile( BeginStr );
+X        End = ReCompile( EndStr );
+X}
+END_OF_FILE
+  if test 34667 -ne `wc -c <'parse.c'`; then
+    echo shar: \"'parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'parse.c'
+fi
+if test -f 'recomp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'recomp.c'\"
+else
+  echo shar: Extracting \"'recomp.c'\" \(22231 characters\)
+  sed "s/^X//" >'recomp.c' <<'END_OF_FILE'
+X/******************************************************************************
+X* Module    :   Regular Expression Compiling.
+X*
+X* Author    :   John W. M. Stevens.
+X*
+X* Notes     :   Use UNIX style regular expressions.  Grammar is:
+X*
+X*   REG_EXPR    ::= ANCHOR
+X*                   | ANCHOR '|' REG_EXPR
+X*
+X*   ANCHOR      ::= CATENATION
+X*                   | '^' CATENATION
+X*                   | CATENATION '$'
+X*                   | '^' CATENATION '$'
+X*
+X*   CATENATION  ::= PHRASE
+X*                   | PHRASE CATENATION
+X*
+X*   PHRASE      ::= UNARY
+X*                   | UNARY ENUM_OP
+X*
+X*   ENUM_OP     ::= '*'
+X*                   | '+'
+X*                   | '?'
+X*                   | '{' SPAN_RNG '}'
+X*
+X*   SPAN_RNG    ::= NUMBER
+X*                   | NUMBER ',' NUMBER
+X*
+X*   UNARY       ::= '(' REG_EXPR ')'
+X*                   | CHAR_STR
+X*                   | '[' SET ']'
+X*                   | '[' '^' SET ']'
+X*                   | '.'
+X*
+X*   SET         ::= CHAR_STR
+X*                   | CHAR_STR SET
+X*                   | CHAR '-' CHAR
+X*                   | CHAR '-' CHAR SET
+X*
+X*   CHAR_STR    ::= CHARACTER
+X*                   | CHARACTER CHARACTER_STR
+X*
+X*   CHARACTER   ::= ' ' - '~' except for []()|{}+*? which are special without
+X*                   being escaped.
+X******************************************************************************/
+X
+X#include    "compiler.h"
+X
+X#include    "unpost.h"
+X#include    "sets.h"
+X#include    "regexp.h"
+X#include    "utils.h"
+X
+X/*  Character Sets. */
+Xstatic  int     ReInitFlag = 0;
+Xstatic  char    *SpecStr = "[().|$";
+Xstatic  SET     SpecSet;
+Xstatic  char    *PostFixStr = "{*?+";
+Xstatic  SET     PostSet;
+Xstatic  char    *DecStr = "0-9";
+Xstatic  SET     DecSet;
+X
+Xstatic  UINT    SubExprNo;
+X
+Xstatic  REG_EXP_NODE    *Alternation(char **);
+X
+X#if defined( RE_TEST )
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   PrtReExpr() --- Print a regular expression for debugging
+X|               purposes.  (This may be used in the configuration helper
+X|               in a later release, so make it pretty).
+X|
+X| Inputs    :   Node    - Pointer to current level regular expression node.
+X|               Level   - Current level in tree.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    PrtReExpr(REG_EXP_NODE  *Node,
+X                  int           Level)
+X{
+X    register    int     i;
+X    register    int     j;
+X
+X    /*  Traverse right to left so that the tree can be printed
+X    *   on a screen or page rotated 90 degrees to the left.
+X    *
+X    *   (Right to left == top to bottom of screen or page)
+X    */
+X    if ( Node->Right )
+X        PrtReExpr(Node->Right, Level + 1);
+X
+X    /*  Print indentation.  */
+X    for (i = 0; i < Level; i++)
+X        printf("    ");
+X
+X    /*  Print node type and information.    */
+X    switch ( Node->NodeType )
+X    {
+X    case OP_L_PAREN:
+X        printf("(\n");
+X        break;
+X    case DATA_LEFT_ANCHOR:
+X        printf("^\n");
+X        break;
+X    case DATA_RIGHT_ANCHOR:
+X        printf("$\n");
+X        break;
+X    case OP_ENUM:
+X        printf("Enum {%d, %u}\n",
+X                Node->MinSpan,
+X                Node->MaxSpan);
+X        break;
+X    case OP_OR:
+X        printf("|\n");
+X        break;
+X    case OP_AND:
+X        printf("&\n");
+X        break;
+X    case DATA_ANY:
+X        printf(".\n");
+X        break;
+X    case DATA_SPAN:
+X        printf("Span {%d, %u}\n",
+X                Node->MinSpan,
+X                Node->MaxSpan);
+X        break;
+X    case DATA_STRING:
+X        printf("'%s'\n",
+X                Node->data.MatchStr,
+X                Node->SubExprNo);
+X        break;
+X    case DATA_SET:
+X        printf("[");
+X        for (j = 0; j < 128; j++)
+X            if ( InSet(Node->data.CSet, (char) j) )
+X            {
+X                if (j < 32 || j > 127)
+X                    printf("\\x%02x");
+X                else
+X                    putchar( (char) j );
+X            }
+X        printf("]  %d\n", Node->SubExprNo);
+X        break;
+X    case NODE_TYPE_NOT_SET:
+X    default:
+X        printf(">>>> ERROR !, no node type set.\n");
+X        break;
+X    }
+X
+X    /*  Now print left child.   */
+X    if ( Node->Left )
+X        PrtReExpr(Node->Left, Level + 1);
+X}
+X
+X#endif
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   AllocRegExpNode() --- Allocate a regular expression node.
+X|
+X| Returns   :   Returns a pointer to the newly allocated regular expression
+X|               node.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *AllocRegExpNode(void)
+X{
+X    auto        REG_EXP_NODE    *New;
+X    extern      FILE            *ErrFile;
+X
+X    /*  Allocate the node.  */
+X    if ((New = (REG_EXP_NODE *) calloc(1, sizeof( REG_EXP_NODE ))) == NULL)
+X    {
+X        fprintf(ErrFile,
+X                "%s %d : Out of memory.\n",
+X                __FILE__,
+X                __LINE__);
+X        exit( 1 );
+X    }
+X    return( New );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   GetInt() --- Get an integer number for the case of
+X|               regular expression enumeration.
+X|
+X| Inputs    :   Str     - Pointer to string to get number from.
+X| Outputs   :   Str     - Pointer to first character in string after number.
+X|
+X| Returns   :   Returns the integer read from the string.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xint     GetInt(char **Str)
+X{
+X    auto        int     i;
+X
+X    /*  Strip white space.  */
+X    while (**Str == ' ' || **Str == '\t' || **Str == '\n')
+X        (*Str)++;
+X
+X    /*  Get number. */
+X    i = 0;
+X    while ( InSet(DecSet, **Str) )
+X        i = i * 10 + (*(*Str)++ - '0');
+X
+X    /*  Strip trailing white space. */
+X    while (**Str == ' ' || **Str == '\t' || **Str == '\n')
+X        (*Str)++;
+X
+X    /*  Return number.  */
+X    return( i );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   EnumOp() --- Get the enumeration modifer.
+X|               node.
+X|
+X| Inputs    :   Str     - Pointer to enumeration operator.
+X|               Root    - Pointer to regular expression node.
+X| Outputs   :   Str     - Pointer after enumeration operator.
+X|
+X| Note      :   A value of zero for maximum span value indicates ANY
+X|               number.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+Xvoid    EnumOp(char         **Str,
+X               REG_EXP_NODE *Root)
+X{
+X    extern      FILE    *ErrFile;
+X
+X    /*  Set up the operator and enumerator values.  */
+X    switch ( *(*Str)++ )
+X    {
+X    case '+':
+X        Root->MinSpan = 1;
+X        Root->MaxSpan = ~0;
+X        break;
+X    case '*':
+X        Root->MinSpan = 0;
+X        Root->MaxSpan = ~0;
+X        break;
+X    case '?':
+X        Root->MinSpan = 0;
+X        Root->MaxSpan = 1;
+X        break;
+X    case '{':
+X        /*  Get specifically enumerated span.   */
+X        Root->MinSpan = GetInt( Str );
+X        Root->MaxSpan = Root->MinSpan;
+X
+X        /*  Is there a maximum number of characters?    */
+X        if (**Str == ',')
+X        {
+X            /*  Get maximum span.   */
+X            (*Str)++;
+X
+X            /*  Strip white space.  */
+X            while (**Str == ' ' || **Str == '\t' || **Str == '\n')
+X                (*Str)++;
+X
+X            /*  Set to maximum, or get maximum. */
+X            if (**Str == '}')
+X                Root->MaxSpan = ~0;
+X            else if ( InSet(DecSet, **Str) )
+X                Root->MaxSpan = GetInt( Str );
+X        }
+X
+X        /*  Check for end brace.    */
+X        if (**Str != '}')
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - missing '}' in regular expression.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X        (*Str)++;
+X        break;
+X    }
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Unary() --- Unary Operations.
+X|
+X| Inputs    :   Str - Pointer to current character in source RE string.
+X|
+X| Returns   :   Pointer to regular expression node.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *Unary(char **Str)
+X{
+X    auto        REG_EXP_NODE    *Node;
+X    auto        char            Buffer[256];
+X    auto        char            *Tmp;
+X    extern      FILE            *ErrFile;
+X
+X    /*  Get the regular expression atoms.   */
+X    switch ( **Str )
+X    {
+X    case '.':
+X        /*  Allocate a regular expression node. */
+X        (*Str)++;
+X        Node = AllocRegExpNode();
+X        Node->NodeType = DATA_ANY;
+X        break;
+X    case '[':
+X        /*  Allocate a regular expression node. */
+X        Node = AllocRegExpNode();
+X
+X        /*  Allocate a set. */
+X        if ((Node->data.CSet = (SET_TYPE *) calloc(1, SET_SIZE *
+X        sizeof( SET_TYPE ))) == NULL)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Out of memory.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X
+X        /*  Create the set. */
+X        (*Str)++;
+X        CrtSet(Str, Node->data.CSet);
+X        Node->NodeType = DATA_SET;
+X        break;
+X    case '(':
+X        /*  Skip parentheses. */
+X        (*Str)++;
+X
+X        /*  Allocate a regular expression node. */
+X        Node = AllocRegExpNode();
+X        Node->NodeType = OP_L_PAREN;
+X
+X        /*  Save the sub expression number. */
+X        if (SubExprNo > MAX_SUB_EXPRS)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - To many sub-expressions.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X        Node->SubExprNo = SubExprNo++;
+X
+X        /*  Get sub expression. */
+X        Node->Right = Alternation( Str );
+X
+X        /*  Check for end parentheses.  */
+X        if (**Str != ')')
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - missing ')' in regular expression.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X        (*Str)++;
+X        break;
+X    default:
+X        /*  Check for badly formed regular expression.  */
+X        if (InSet(SpecSet, **Str) || InSet(PostSet, **Str))
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error - badly formed regular expression.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            fprintf(ErrFile,
+X                    "\tUnexpected character '%c'\n",
+X                    **Str);
+X            exit( 1 );
+X        }
+X
+X        /*  Allocate a regular expression node. */
+X        Node = AllocRegExpNode();
+X
+X        /*  Get characters while they are not in the set of special
+X        *   characters.
+X        */
+X        for (Tmp = Buffer; **Str; )
+X            if (**Str == '\\' && (*Str)[1])
+X            {
+X                *Tmp++ = *++*Str;
+X                ++*Str;
+X            }
+X            else if (InSet(SpecSet, **Str) || InSet(PostSet, **Str))
+X                break;
+X            else
+X                *Tmp++ = *(*Str)++;
+X        *Tmp = '\0';
+X        Node->NodeType = DATA_STRING;
+X
+X        /*  Duplicate the string and add to the node.   */
+X        if ((Node->data.MatchStr = StrDup( Buffer )) == NULL)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Out of memory.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X        break;
+X    }
+X
+X    /*  Return a pointer to the new node.   */
+X    return( Node );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Enumerate() --- Enumerate a regular expression.
+X|
+X| Inputs    :   Str - Pointer to current character in source RE string.
+X|
+X| Returns   :   Pointer to regular expression node.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *Enumerate(char **Str)
+X{
+X    auto    REG_EXP_NODE    *Node;
+X    auto    REG_EXP_NODE    *New;
+X    extern  FILE            *ErrFile;
+X
+X    /*  Get the regular expression. */
+X    Node = Unary( Str );
+X
+X    /*  Test for enumeration.   */
+X    if ( InSet(PostSet, **Str) )
+X    {
+X        /*  Check for the special case of enumerating a '.' */
+X        if (Node->NodeType == DATA_ANY)
+X        {
+X            /*  Modify it to be a DATA_SPAN type.   */
+X            Node->NodeType = DATA_SPAN;
+X        }
+X        else if (Node->NodeType == OP_L_PAREN)
+X        {
+X            fprintf(ErrFile,
+X                    "%s %d : Error, can not enumerate a sub expression.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X        else
+X        {
+X            /*  Allocate an enumeration node.   */
+X            New = AllocRegExpNode();
+X            New->Right = Node;
+X            New->NodeType = OP_ENUM;
+X            Node = New;
+X        }
+X
+X        /*  Determine enumeration value.    */
+X        EnumOp(Str, Node);
+X    }
+X    return( Node );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Catenation() --- Concatenate regular expressions.
+X|
+X| Inputs    :   Str - Pointer to current character in source RE string.
+X|
+X| Returns   :   Pointer to regular expression node.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *Catenation(char    **Str)
+X{
+X    auto        REG_EXP_NODE    *Root;
+X    auto        REG_EXP_NODE    *SubExpr;
+X    auto        REG_EXP_NODE    *Prev;
+X    auto        REG_EXP_NODE    *Next;
+X
+X    /*  Loop, getting concatenations (and operation) of regular
+X    *   expressions seperated by OR's.
+X    */
+X    Prev = Root = NULL;
+X    for ( ; ; )
+X    {
+X        /*  Get next sub expression.    */
+X        SubExpr = Enumerate( Str );
+X
+X        /*  Determine type of action to take.   */
+X        if (**Str && **Str != '|' && **Str != ')' && **Str != '$')
+X        {
+X            /*  Create new node.    */
+X            Next = AllocRegExpNode();
+X            Next->Left = SubExpr;
+X            Next->NodeType = OP_AND;
+X
+X            /*  Link to old node.   */
+X            if ( Prev )
+X                Prev->Right = Next;
+X            else
+X                Root = Next;
+X            Prev = Next;
+X        }
+X        else
+X        {
+X            /*  Determine final link type.  */
+X            if ( Prev )
+X                Prev->Right = SubExpr;
+X            else
+X                Root = SubExpr;
+X
+X            /*  End loop.   */
+X            break;
+X        }
+X    }
+X
+X    /*  Return a pointer to the root node.  */
+X    return( Root );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Anchor() --- Parse the two anchoring unary operators.
+X|
+X| Inputs    :   Str     - Regular expression source string.
+X|
+X| Returns   :   Returns a pointer to the compiled regular expression.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *Anchor(char    **Str)
+X{
+X    auto        REG_EXP_NODE    *Root;
+X    auto        REG_EXP_NODE    *Node;
+X
+X    /*  Check for begining of line anchor.  */
+X    if (**Str == '^')
+X    {
+X        /*  Next character. */
+X        (*Str)++;
+X
+X        /*  Allocate a node.    */
+X        Root = AllocRegExpNode();
+X        Root->NodeType = DATA_LEFT_ANCHOR;
+X
+X        /*  Get expression. */
+X        Root->Right = Catenation( Str );
+X    }
+X    else
+X        Root = Catenation( Str );
+X
+X    /*  Check for end of line anchor.   */
+X    if (**Str == '$')
+X    {
+X        /*  Next character. */
+X        (*Str)++;
+X
+X        /*  Allocate a node.    */
+X        Node = AllocRegExpNode();
+X        Node->NodeType = DATA_RIGHT_ANCHOR;
+X        Node->Right = Root;
+X        Root = Node;
+X    }
+X
+X    /*  Return regular expression.  */
+X    return( Root );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   Alternation() --- Parse an alternation expression.
+X|
+X| Inputs    :   Str - Pointer to current character in source RE string.
+X|
+X| Returns   :   Pointer to regular expression node.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *Alternation(char   **Str)
+X{
+X    auto        REG_EXP_NODE    *Root;
+X    auto        REG_EXP_NODE    *New;
+X
+X    /*  Get a concatenation of regular expressions. */
+X    Root = Anchor( Str );
+X
+X    /*  Loop, getting concatenations (and operation) of regular
+X    *   expressions seperated by OR's.
+X    */
+X    while (**Str == '|')
+X    {
+X        /*  Next character. */
+X        (*Str)++;
+X
+X        /*  Allocate a node.    */
+X        New = AllocRegExpNode();
+X        New->Left = Root;
+X        New->NodeType = OP_OR;
+X
+X        /*  Get right hand of expression.   */
+X        New->Right = Anchor( Str );
+X        Root = New;
+X    }
+X
+X    /*  Return root of regular expression tree. */
+X    return( Root );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ReGraph() --- Convert a regular expression tree into a graph.
+X|
+X| Inputs    :   Node    - Regular expression tree node.
+X|
+X| Returns   :   Returns a pointer to the compiled regular expression.
+X-----------------------------------------------------------------------------*/
+X
+Xstatic
+XREG_EXP_NODE    *ReGraph(REG_EXP_NODE   *Node,
+X                         REG_EXP_NODE   *Link)
+X{
+X    auto        REG_EXP_NODE    *RetLink;
+X    auto        REG_EXP_NODE    *New;
+X
+X    /*  Determine operation type.   */
+X    switch ( Node->NodeType )
+X    {
+X    case OP_L_PAREN:
+X        /*  Allocate an end of parentheses node.    */
+X        New = AllocRegExpNode();
+X        New->NodeType = OP_R_PAREN;
+X        New->SubExprNo = Node->SubExprNo;
+X        New->Right = Link;
+X
+X        /*  Continue link.  */
+X        Node->Right = ReGraph(Node->Right, New);
+X        RetLink = Node;
+X        break;
+X    case OP_ENUM:
+X        /*  Continue link.  */
+X        Node->Left = Node->Right;
+X        Node->Right = Link;
+X        RetLink = Node;
+X        break;
+X    case OP_AND:
+X        /*  Traverse right, returning a pointer that can be used to
+X        *   link the tree into a graph.
+X        */
+X        RetLink = ReGraph(Node->Right, Link);
+X
+X        /*  Go down left and link together. */
+X        RetLink = ReGraph(Node->Left, RetLink);
+X
+X        /*  Free AND node and return the link.  */
+X        free( Node );
+X        break;
+X    case OP_OR:
+X        /*  Allocate an end of or node. */
+X        New = AllocRegExpNode();
+X        New->NodeType = END_OR;
+X        New->Right = Link;
+X
+X        /*  Process both.   */
+X        Node->Right = ReGraph(Node->Right, New);
+X        Node->Left = ReGraph(Node->Left, New);
+X
+X        /*  Return pointer to OR.   */
+X        RetLink = Node;
+X        break;
+X    case DATA_LEFT_ANCHOR:
+X        Node->Right = ReGraph(Node->Right, Link);
+X        RetLink = Node;
+X        break;
+X    case DATA_RIGHT_ANCHOR:
+X        /*  Allocate an end of parentheses node.    */
+X        New = Node->Right;
+X        Node->Right = Link;
+X        RetLink = ReGraph(New, Node);
+X        break;
+X    case DATA_ANY:
+X    case DATA_SPAN:
+X    case DATA_STRING:
+X    case DATA_SET:
+X        Node->Right = Link;
+X        RetLink = Node;
+X    }
+X
+X    /*  Return a pointer to the tail end of the graph so far.   */
+X    return( RetLink );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   ReCompile() --- Compile a regular expression.
+X|
+X| Inputs    :   Str     - Regular expression source string.
+X|
+X| Returns   :   Returns a pointer to the compiled regular expression.
+X-----------------------------------------------------------------------------*/
+X
+XREG_EXP_NODE    *ReCompile(char *Str)
+X{
+X    auto        REG_EXP_NODE    *Root;
+X
+X    /*  Construct sets, if not already constructed. */
+X    if (ReInitFlag == 0)
+X    {
+X        auto    char    **Str;
+X
+X        /*  Create the sets.    */
+X        Str = &SpecStr;
+X        CrtSet(Str, SpecSet);
+X        Str = &PostFixStr;
+X        CrtSet(Str, PostSet);
+X        Str = &DecStr;
+X        CrtSet(Str, DecSet);
+X
+X        /*  We have initialized, so set flag saying so. */
+X        ReInitFlag = 1;
+X    }
+X
+X    /*  Check for leading anchor.   */
+X    SubExprNo = 1;
+X    Root = Alternation( &Str );
+X
+X     /*  Print the regular expression tree.  */
+X#if defined( RE_TEST )
+X    PrtReExpr(Root, 0);
+X#endif
+X
+X    /*  Convert to a graph. */
+X    Root = ReGraph(Root, NULL);
+X
+X    /*  Return pointer to regular expression.   */
+X    return( Root );
+X}
+X
+X/*-----------------------------------------------------------------------------
+X| Routine   :   FreeReExpr() --- Free the memory of a regular expression
+X|               graph memory.
+X|
+X| Inputs    :   ReExpr  - Regular expression digraph root.
+X-----------------------------------------------------------------------------*/
+X
+XREG_EXP_NODE    *FreeReExpr(REG_EXP_NODE    *ReExpr)
+X{
+X    auto    REG_EXP_NODE    *Node;
+X    auto    REG_EXP_NODE    *EndOr;
+X    extern  FILE            *ErrFile;
+X
+X    /*  Free the different node types.  */
+X    while (ReExpr && ReExpr->NodeType != END_OR)
+X    {
+X        /*  Get pointer to next node.   */
+X        Node = ReExpr->Right;
+X
+X        /*  Select operation on node type.  */
+X        switch ( ReExpr->NodeType )
+X        {
+X        case OP_ENUM:
+X            (void) FreeReExpr( ReExpr->Left );
+X            break;
+X        case OP_OR:
+X            /*  Free to end of OR branch.   */
+X            (void) FreeReExpr( ReExpr->Right );
+X
+X            /*  Free to end of OR branch, and get pointer to next
+X            *   node.
+X            */
+X            EndOr = FreeReExpr( ReExpr->Left );
+X            Node = EndOr->Right;
+X            free( EndOr );
+X            break;
+X        case DATA_STRING:
+X            free( ReExpr->data.MatchStr );
+X            break;
+X        case DATA_SET:
+X            free( ReExpr->data.CSet );
+X            break;
+X        case OP_AND:
+X        case OP_L_PAREN:
+X        case OP_R_PAREN:
+X        case DATA_LEFT_ANCHOR:
+X        case DATA_RIGHT_ANCHOR:
+X        case DATA_ANY:
+X        case DATA_SPAN:
+X            break;
+X        default:
+X            fprintf(ErrFile,
+X                    "%s %d : Error - illegal regular expression node type.\n",
+X                    __FILE__,
+X                    __LINE__);
+X            exit( 1 );
+X        }
+X
+X        /*  Move along. */
+X        free( ReExpr );
+X        ReExpr = Node;
+X    }
+X
+X    /*  Return pointer to end of chain. */
+X    return( ReExpr );
+X}
+END_OF_FILE
+  if test 22231 -ne `wc -c <'recomp.c'`; then
+    echo shar: \"'recomp.c'\" unpacked with wrong size!
+  fi
+  # end of 'recomp.c'
+fi
+echo shar: End of archive 3 \(of 7\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

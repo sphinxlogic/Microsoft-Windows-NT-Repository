@@ -1,0 +1,1182 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i006:  jpeg - JPEG image compression, Part06/18
+Message-ID: <1992Mar24.144415.18233@sparky.imd.sterling.com>
+X-Md4-Signature: d57aff5041171c6dd059b5585e870ef2
+Date: Tue, 24 Mar 1992 14:44:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 6
+Archive-name: jpeg/part06
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  arch.b ckconfig.c jerror.c
+# Wrapped by kent@sparky on Mon Mar 23 16:02:43 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 18)."'
+if test -f 'arch.b' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'arch.b'\"
+else
+  echo shar: Extracting \"'arch.b'\" \(36460 characters\)
+  sed "s/^X//" >'arch.b' <<'END_OF_FILE'
+X2. Gamma and color space conversion.  This provides three methods:
+X	colorin_init: initialization.
+X	get_sample_rows: read, convert, and return a specified number of pixel
+X			 rows (not more than remain in the picture).
+X	colorin_term: finish up at the end.
+X   The most efficient approach seems to be for this object to call
+X   get_input_row directly, rather than being passed the input data; that way,
+X   any intermediate storage required can be local to this object.
+X   (get_sample_rows might tell get_input_row to read directly into its own
+X   output area and then convert in place; or it may do something different.
+X   For example, conversion in place wouldn't work if it is changing the number
+X   of color components.)  The output of this step is in the standardized
+X   sample array format shown previously.
+X   (Hides all knowledge of color space semantics and conversion.  Remaining
+X   modules only need to know the number of JPEG components.)
+X
+X3. Edge expansion: needs only a single method.
+X	edge_expand: Given an NxM sample array, expand to a desired size (a
+X		     multiple of the MCU dimensions) by duplicating the last
+X		     row or column.  Repeat for each component.
+X   Expansion will occur in place, so the caller must have pre-allocated enough
+X   storage.  (I'm assuming that it is easier and faster to do this expansion
+X   than it is to worry about boundary conditions in the next two steps.
+X   Notice that vertical expansion will occur only once, at the bottom of the
+X   picture, so only horizontal expansion by a few pixels is speed-critical.)
+X   (This doesn't really hide any information, so maybe it could be a simple
+X   subroutine instead of a method.  Depends on whether we want to be able to
+X   use alternative, optimized methods.)
+X
+X4. Subsampling: this will be applied to one component at a time.
+X	subsample_init: initialize (precalculate convolution factors, for
+X			example).  This will be called once per scan.
+X	subsample: Given a sample array, reduce it to a smaller number of
+X		   samples using specified sampling factors.
+X	subsample_term: clean up at the end of a scan.
+X   If the current component has vertical sampling factor Vk and the largest
+X   sampling factor is Vmax, then the input is always Vmax sample rows (whose
+X   width is a multiple of Hmax) and the output is always Vk sample rows.
+X   Vmax additional rows above and below the nominal input rows are also passed
+X   for use by partial-pixel-averaging sampling methods.  (Is this necessary?)
+X   At the top and bottom of the image, these extra rows are copies of the
+X   first or last actual input row.
+X   (This hides whether and how cross-pixel averaging occurs.)
+X
+X5. MCU extraction (creation of a single sequence of 8x8 sample blocks).
+X	extract_init: initialize as needed.  This will be called once per scan.
+X	extract_MCUs: convert a sample array to a sequence of MCUs.
+X	extract_term: clean up at the end of a scan.
+X   Given one or more MCU rows worth of image data, extract sample blocks in the
+X   appropriate order; pass these off to subsequent steps one MCU at a time.
+X   The input must be a multiple of the MCU dimensions.  It will probably be
+X   most convenient for the DCT transform, frequency quantization, and zigzag
+X   reordering of each block to be done as simple subroutines of this step.
+X   Once a transformed MCU has been completed, it'll be passed off to a
+X   method call, which will be passed as a parameter to extract_MCUs.
+X   That routine might either encode and output the MCU immediately, or buffer
+X   it up for later output if we want to do global optimization of the entropy
+X   encoding coefficients.  Note: when outputting a noninterleaved file this
+X   object will be called separately for each component.  Direct output could
+X   be done for the first component, but the others would have to be buffered.
+X   (Again, an object mainly on the grounds that multiple instantiations might
+X   be useful.)
+X
+X6. DCT transformation of each 8x8 block.  This probably doesn't have to be a
+X   full-fledged method, but just a plain subroutine that will be called by MCU
+X   extraction.  One 8x8 block will be processed per call.
+X
+X7. Quantization scaling and zigzag reordering of the elements in each 8x8
+X   block.  (This can probably be a plain subroutine called once per block by
+X   MCU extraction; hard to see a need for multiple instantiations here.)
+X
+X8. Entropy encoding (Huffman or arithmetic).
+X	entropy_encoder_init: prepare for one scan.
+X	entropy_encode: accepts an MCU's worth of quantized coefficients,
+X			encodes and outputs them.
+X	entropy_encoder_term: finish up at end of a scan (dump any buffered
+X			      bytes, for example).
+X   The data output by this module will be sent to the entropy_output method
+X   provided by the pipeline controller.  (It will probably be worth using
+X   buffering to pass multiple bytes per call of the output method.)  The
+X   output method could be just write_jpeg_data, but might also be a dummy
+X   routine that counts output bytes (for use during cut-and-try coefficient
+X   optimization).
+X   (This hides which entropy encoding method is in use.)
+X
+X9. JPEG file header construction.  This will provide these methods:
+X	write_file_header: output the initial header.
+X	write_scan_header: output scan header (called once per component
+X			   if noninterleaved mode).
+X	write_jpeg_data: the actual data output method for the preceding step.
+X	write_scan_trailer: finish up after one scan.
+X	write_file_trailer: finish up at end of file.
+X   Note that compressed data is passed to the write_jpeg_data method, in case
+X   a simple fwrite isn't appropriate for some reason.
+X   (This hides which variant JPEG file format is being written.  Also, the
+X   actual mechanism for writing the file is private to this object and the
+X   user interface.)
+X
+X10. Pipeline control.  This object will provide the "main loop" that invokes
+X    all the pipeline objects.  Note that we will need several different main
+X    loops depending on the situation (interleaved output or not, global
+X    optimization of encoding parameters or not, etc).  This object will do
+X    most of the memory allocation, since it will provide the working buffers
+X    that are the inputs and outputs of the pipeline steps.
+X    (An object mostly to support multiple instantiations; however, overall
+X    memory management and sequencing of operations are known only here.)
+X
+X11. Overall control.  This module will provide at least two routines:
+X	jpeg_compress: the main entry point to the compressor.
+X	per_scan_method_selection: called by pipeline controllers for
+X				   secondary method selection passes.
+X    jpeg_compress is invoked from the user interface after the UI has selected
+X    the input and output files and obtained values for all compression
+X    parameters that aren't dynamically determined.  jpeg_compress performs
+X    basic initialization (e.g., calculating the size of MCUs), does the
+X    "global" method selection pass, and finally calls the selected pipeline
+X    control object.  (Per-scan method selections will be invoked by the
+X    pipeline controller.)
+X    Note that jpeg_compress can't be a method since it is invoked prior to
+X    method selection.
+X
+X12. User interface; this is the architecture's term for "the rest of the
+X    application program", i.e., that which invokes the JPEG compressor.  In a
+X    standalone JPEG compression program the UI need be little more than a C
+X    main() routine and argument parsing code; but we can expect that the JPEG
+X    compressor may be incorporated into complex graphics applications, wherein
+X    the UI is much more complex.  Much of the UI will need to be written
+X    afresh for each non-Unix-like platform the compressor is ported to.
+X    The UI is expected to supply input and output files and values for all
+X    non-automatically-chosen compression parameters.  (Hence defaults are
+X    determined by the UI; we should provide helpful routines to fill in
+X    the recommended defaults.)  The UI must also supply error handling
+X    routines and some mechanism for trace messages.
+X    (This module hides the user interface provided --- command line,
+X    interactive, etc.  Except for error/message handling, the UI calls the
+X    portable JPEG code, not the other way around.)
+X
+X13. (Optional) Compression parameter selection control.
+X	entropy_optimize: given an array of MCUs ready to be fed to entropy
+X			  encoding, find optimal encoding parameters.
+X    The actual optimization algorithm ought to be separated out as an object,
+X    even though a special pipeline control method will be needed.  (The
+X    pipeline controller only has to understand that the output of extract_MCUs
+X    must be built up as a virtual array rather than fed directly to entropy
+X    encoding and output.  This pipeline behavior may also be useful for future
+X    implementation of hierarchical modes, etc.)
+X    To minimize the amount of control logic in the optimization module, the
+X    pipeline control doesn't actually hand over big-array pointers, but rather
+X    an "iterator": a function which knows how to scan the stored image.
+X    (This hides the details of the parameter optimization algorithm.)
+X
+X    The present design doesn't allow for multiple passes at earlier points
+X    in the pipeline, but allowing that would only require providing some
+X    new pipeline control methods; nothing else need change.
+X
+X14. A memory management object.  This will provide methods to allocate "small"
+X    things and "big" things.  Small things have to fit in memory and you get
+X    back direct pointers (this could be handled by direct calls to malloc, but
+X    it's cleaner not to assume malloc is the right routine).  "Big" things
+X    mean buffered images for multiple passes, noninterleaved output, etc.
+X    In this case the memory management object will give you room for a few MCU
+X    rows and you have to ask for access to the next few; dumping and reloading
+X    in a temporary file will go on behind the scenes.  (All big objects are
+X    image arrays containing either samples or coefficients, and will be
+X    scanned top-to-bottom some number of times, so we can apply this access
+X    model easily.)  On a platform with virtual memory, the memory manager can
+X    treat small and big things alike: just malloc up enough virtual memory for
+X    the whole image, and let the operating system worry about swapping the
+X    image to disk.
+X
+X    Most of the actual calls on the memory manager will be made from pipeline
+X    control objects; changing any data item from "small" to "big" status would
+X    require a new pipeline control object, since it will contain the logic to
+X    ask for a new chunk of a big thing.  Thus, one way in which pipeline
+X    controllers will vary is in which structures they treat as big.
+X
+X    The memory manager will need to be told roughly how much space is going to
+X    be requested overall, so that it can figure out how big a buffer is safe
+X    to allocate for a "big" object.  (If it happens that you are dealing with
+X    a small image, you'd like to decide to keep it all in memory!)  The most
+X    flexible way of doing this is to divide allocation of "big" objects into
+X    two steps.  First, there will be one or more "request" calls that indicate
+X    the desired object sizes; then an "instantiate" call causes the memory
+X    manager to actually construct the objects.  The instantiation must occur
+X    before the contents of any big object can be accessed.
+X
+X    For 80x86 CPUs, we would like the code to be compilable under small or
+X    medium model, meaning that pointers are 16 bits unless explicitly declared
+X    FAR.  Hence space allocated by the "small" allocator must fit into the
+X    64Kb default data segment, along with stack space and global/static data.
+X    For normal JPEG operations we seem to need only about 32Kb of such space,
+X    so we are within the target (and have a reasonable slop for the needs of
+X    a surrounding application program).  However, some color quantization
+X    algorithms need 64Kb or more of all-in-memory space in order to create
+X    color histograms.  For this purpose, we will also support "medium" size
+X    things.  These are semantically the same as "small" things but are
+X    referenced through FAR pointers.
+X
+X    The following methods will be needed:
+X	alloc_small:	allocate an object of given size; use for any random
+X			data that's not an image array.
+X	free_small:	release same.
+X	alloc_medium:	like alloc_small, but returns a FAR pointer.  Use for
+X			any object bigger than a couple kilobytes.
+X	free_medium:	release same.
+X	alloc_small_sarray: construct an all-in-memory image sample array.
+X	free_small_sarray:  release same.
+X	alloc_small_barray,
+X	free_small_barray:  ditto for block (coefficient) arrays.
+X	request_big_sarray:  request a virtual image sample array.  The size
+X			     of the in-memory buffer will be determined by the
+X			     memory manager, but it will always be a multiple
+X			     of the passed-in MCU height.
+X	request_big_barray:  ditto for block (coefficient) arrays.
+X	alloc_big_arrays:  instantiate all the big arrays previously requested.
+X			   This call will also pass some info about future
+X			   memory demands, so that the memory manager can
+X			   figure out how much space to leave unallocated.
+X	access_big_sarray: obtain access to a specified portion of a virtual
+X			   image sample array.
+X	free_big_sarray:   release a virtual sample array.
+X	access_big_barray,
+X	free_big_barray:   ditto for block (coefficient) arrays.
+X	free_all:	   release any remaining storage.  This is called
+X			   before normal or error termination; the main reason
+X			   why it must exist is to ensure that any temporary
+X			   files will be deleted upon error termination.
+X
+X    alloc_big_arrays will be called by the pipeline controller, which does
+X    most of the memory allocation anyway.  The only reason for having separate
+X    request calls is to allow some of the other modules to get big arrays.
+X    The pipeline controller is required to give an upper bound on total future
+X    small-array requests, so that this space can be discounted.  (A fairly
+X    conservative estimate will be adequate.)  Future small-object requests
+X    aren't counted; the memory manager has to use a slop factor for those.
+X    10K or so seems to be sufficient.  (In an 80x86, small objects aren't an
+X    issue anyway, since they don't compete for far-heap space.  "Medium"-size
+X    objects will have to be counted separately.)
+X
+X    The distinction between sample and coefficient array routines is annoying,
+X    but it has to be maintained for machines in which "char *" is represented
+X    differently from "int *".  On byte-addressable machines some of these
+X    methods could perhaps point to the same code.
+X
+X    The array routines will operate on only 2-D arrays (one component at a
+X    time), since different components may require different-size arrays.
+X
+X    (This object hides the knowledge of whether virtual memory is available,
+X    as well as the actual interface to OS and library support routines.)
+X
+XNote that any given implementation will presumably contain only one
+Xinstantiation of input file header reading, overall control, user interface,
+Xand memory management.  Thus these could be called as simple subroutines,
+Xwithout bothering with an object indirection.  This is essential for overall
+Xcontrol (which has to initialize the object structure); for consistency we
+Xwill impose objectness on the other three.
+X
+X
+X*** Decompression object structure ***
+X
+XI propose the following set of objects for decompression.  The general
+Xcomments at the top of the compression object section also apply here.
+X
+X1. JPEG file scanning.  This will provide these methods:
+X	read_file_header: read the file header, determine which variant
+X			  JPEG format is in use, read everything through SOF.
+X	read_scan_header: read scan header (up through SOS).  This is called
+X			  after read_file_header and again after each scan;
+X			  it returns TRUE if it finds SOS, FALSE if EOI.
+X	read_jpeg_data: fetch data for entropy decoder.
+X	read_scan_trailer: finish up after one scan, prepare for another call
+X			   of read_scan_header (may be a no-op).
+X	read_file_trailer: finish up at end of file (probably a no-op).
+X   The entropy decoder must deal with restart markers, but all other JPEG
+X   marker types will be handled in this object; useful data from the markers
+X   will be extracted into data structures available to subsequent routines.
+X   Note that on exit from read_file_header, only the SOF-marker data should be
+X   assumed valid (image size, component IDs, sampling factors); other data
+X   such as Huffman tables may not appear until after the SOF.  The overall
+X   image size and colorspace can be determined after read_file_header, but not
+X   whether or how the data is interleaved.  (This hides which variant JPEG
+X   file format is being read.  In particular, for JPEG-in-TIFF the read_header
+X   routines might not be scanning standard JPEG markers at all; they could
+X   extract the data from TIFF tags.  The user interface will already have
+X   opened the input file and possibly read part of the header before
+X   read_file_header is called.)
+X
+X   NOTE: for JFIF/raw-JPEG file format, the read_jpeg_data routine is actually
+X   supplied by the user interface; the jrdjfif module uses read_jpeg_data
+X   internally to scan the input stream.  This makes it possible for the user
+X   interface module to single-handedly implement special applications like
+X   reading from a non-stdio source.  For JPEG-in-TIFF format, the need for
+X   random access will make it impossible for this to work; hence the TIFF
+X   header module will override the UI-supplied read_jpeg_data routine.
+X   Non-stdio input from a TIFF file will require extensive surgery to the TIFF
+X   header module, if indeed it is practical at all.
+X
+X2. Entropy (Huffman or arithmetic) decoding of the coefficient sequence.
+X	entropy_decoder_init: prepare for one scan.
+X	entropy_decode: decodes and returns an MCU's worth of quantized
+X			coefficients per call.
+X	entropy_decoder_term: finish up after a scan (may be a no-op).
+X   This will read raw data by calling the read_jpeg_data method (I don't see
+X   any reason to provide a further level of indirection).
+X   (This hides which entropy encoding method is in use.)
+X
+X3. Quantization descaling and zigzag reordering of the elements in each 8x8
+X   block.  (This can probably be a plain subroutine called once per block;
+X   hard to see a need for multiple instantiations here.)
+X
+X4. MCU disassembly (conversion of a possibly interleaved sequence of 8x8
+X   blocks back to separate components in pixel map order).
+X	disassemble_init: initialize.  This will be called once per scan.
+X	disassemble_MCU:  Given an MCU's worth of dequantized blocks,
+X			  distribute them into the proper locations in a
+X			  coefficient image array.
+X	disassemble_term: clean up at the end of a scan.
+X   Probably this should be called once per MCU row and should call the
+X   preceding two objects repeatedly to obtain the row's data.  The output is
+X   always a multiple of an MCU's dimensions.
+X   (An object on the grounds that multiple instantiations might be useful.)
+X
+X5. Cross-block smoothing per JPEG section K.8 or a similar algorithm.
+X	smooth_coefficients: Given three block rows' worth of a single
+X			     component, emit a smoothed equivalent of the
+X			     middle row.  The "above" and "below" pointers
+X			     may be NULL if at top/bottom of image.
+X   The pipeline controller will do the necessary buffering to provide the
+X   above/below context.  Smoothing will be optional since a good deal of
+X   extra memory is needed to buffer the additional block rows.
+X   (This object hides the details of the smoothing algorithm.)
+X
+X6. Inverse DCT transformation of each 8x8 block.
+X	reverse_DCT: given an MCU row's worth of blocks, perform inverse
+X		     DCT on each block and output the results into an array
+X		     of samples.
+X   We put this method into the jdmcu module for symmetry with the division of
+X   labor in compression.  Note that the actual IDCT code is a separate source
+X   file.
+X
+X7. De-subsampling and smoothing: this will be applied to one component at a
+X   time.  Note that cross-pixel smoothing, which was a separate step in the
+X   prototype code, will now be performed simultaneously with expansion.
+X	unsubsample_init: initialize (precalculate convolution factors, for
+X			  example).  This will be called once per scan.
+X	unsubsample: Given a sample array, enlarge it by specified sampling
+X		     factors.
+X	unsubsample_term: clean up at the end of a scan.
+X   If the current component has vertical sampling factor Vk and the largest
+X   sampling factor is Vmax, then the input is always Vk sample rows (whose
+X   width is a multiple of Hk) and the output is always Vmax sample rows.
+X   Vk additional rows above and below the nominal input rows are also passed
+X   for use in cross-pixel smoothing.  At the top and bottom of the image,
+X   these extra rows are copies of the first or last actual input row.
+X   (This hides whether and how cross-pixel smoothing occurs.)
+X
+X8. Cropping to the original pixel dimensions (throwing away duplicated
+X   pixels at the edges).  This won't be a separate object, just an
+X   adjustment of the nominal image size in the pipeline controller.
+X
+X9. Color space reconversion and gamma adjustment.
+X	colorout_init: initialization.  This will be passed the component
+X		       data from read_file_header, and will determine the
+X		       number of output components.
+X	color_convert: convert a specified number of pixel rows.  Input and
+X		       output are image arrays of same size but possibly
+X		       different numbers of components.
+X	colorout_term: cleanup (probably a no-op except for memory dealloc).
+X   In practice will usually be given an MCU row's worth of pixel rows, except
+X   at the bottom where a smaller number of rows may be left over.  Note that
+X   this object works on all the components at once.
+X   When quantizing colors, color_convert may be applied to the colormap
+X   instead of actual pixel data.  color_convert is called by the color
+X   quantizer in this case; the pipeline controller calls color_convert
+X   directly only when not quantizing.
+X   (Hides all knowledge of color space semantics and conversion.  Remaining
+X   modules only need to know the number of JPEG and output components.)
+X
+X10. Color quantization (used only if a colormapped output format is requested).
+X    We use two different strategies depending on whether one-pass (on-the-fly)
+X    or two-pass quantization is requested.  Note that the two-pass interface
+X    is actually designed to let the quantizer make any number of passes.
+X	color_quant_init: initialization, allocate working memory.  In 1-pass
+X			  quantization, should call put_color_map.
+X	color_quantize: convert a specified number of pixel rows.  Input
+X			and output are image arrays of same size, but input
+X			is N coefficients and output is only one.  (Used only
+X			in 1-pass quantization.)
+X	color_quant_prescan: prescan a specified number of pixel rows in
+X			     2-pass quantization.
+X	color_quant_doit: perform multi-pass color quantization.  Input is a
+X			  "big" sample image, output is via put_color_map and
+X			  put_pixel_rows.  (Used only in 2-pass quantization.)
+X	color_quant_term: cleanup (probably a no-op except for memory dealloc).
+X    The input to the color quantizer is always in the unconverted colorspace;
+X    its output colormap must be in the converted colorspace.  The quantizer
+X    has the choice of which space to work in internally.  It must call
+X    color_convert either on its input data or on the colormap it sends to the
+X    output module.
+X    For one-pass quantization the image is simply processed by color_quantize,
+X    a few rows at a time.  For two-pass quantization, the pipeline controller
+X    accumulates the output of steps 1-8 into a "big" sample image.  The
+X    color_quant_prescan method is invoked during this process so that the
+X    quantizer can accumulate statistics.  (If the input file has multiple
+X    scans, the prescan may be done during the final scan or as a separate
+X    pass.)  At the end of the image, color_quant_doit is called; it must
+X    create and output a colormap, then rescan the "big" image and pass mapped
+X    data to the output module.  Additional scans of the image could be made
+X    before the output pass is done (in fact, prescan could be a no-op).
+X    As with entropy parameter optimization, the pipeline controller actually
+X    passes an iterator function rather than direct access to the big image.
+X    (Hides color quantization algorithm.)
+X
+X11. Writing of the desired image format.
+X	output_init: produce the file header given data from read_file_header.
+X	put_color_map: output colormap, if any (called by color quantizer).
+X		       If used, must be called before any pixel data is output.
+X	put_pixel_rows: output image data in desired format.
+X	output_term: finish up at the end.
+X    The actual timing of I/O may differ from that suggested by the routine
+X    names; for instance, writing of the file header may be delayed until
+X    put_color_map time if the actual number of colors is needed in the header.
+X    Also, the colormap is available to put_pixel_rows and output_term as well
+X    as put_color_map.
+X    Note that whether colormapping is needed will be determined by the user
+X    interface object prior to method selection.  In implementations that
+X    support multiple output formats, the actual output format will also be
+X    determined by the user interface.
+X    (Hides format of output image and mechanism used to write it.  Note that
+X    several other objects know the color model used by the output format.
+X    The actual mechanism for writing the file is private to this object and
+X    the user interface.)
+X
+X12. Pipeline control.  This object will provide the "main loop" that invokes
+X    all the pipeline objects.  Note that we will need several different main
+X    loops depending on the situation (interleaved input or not, whether to
+X    apply cross-block smoothing or not, etc).  We may want to divvy up the
+X    pipeline controllers into two levels, one that retains control over the
+X    whole file and one that is invoked per scan.
+X    This object will do most of the memory allocation, since it will provide
+X    the working buffers that are the inputs and outputs of the pipeline steps.
+X    (An object mostly to support multiple instantiations; however, overall
+X    memory management and sequencing of operations are known only here.)
+X
+X13. Overall control.  This module will provide at least two routines:
+X	jpeg_decompress: the main entry point to the decompressor.
+X	per_scan_method_selection: called by pipeline controllers for
+X				   secondary method selection passes.
+X    jpeg_decompress is invoked from the user interface after the UI has
+X    selected the input and output files and obtained values for all
+X    user-specified options (e.g., output file format, whether to do block
+X    smoothing).  jpeg_decompress calls read_file_header, performs basic
+X    initialization (e.g., calculating the size of MCUs), does the "global"
+X    method selection pass, and finally calls the selected pipeline control
+X    object.  (Per-scan method selections will be invoked by the pipeline
+X    controller.)
+X    Note that jpeg_decompress can't be a method since it is invoked prior to
+X    method selection.
+X
+X14. User interface; this is the architecture's term for "the rest of the
+X    application program", i.e., that which invokes the JPEG decompressor.
+X    The UI is expected to supply input and output files and values for all
+X    operational parameters.  The UI must also supply error handling routines.
+X    (This module hides the user interface provided --- command line,
+X    interactive, etc.  Except for error handling, the UI calls the portable
+X    JPEG code, not the other way around.)
+X
+X15. A memory management object.  This will be identical to the memory
+X    management for compression (and will be the same code, in combined
+X    programs).  See above for details.
+X
+X
+X*** Initial method selection ***
+X
+XThe main ugliness in this design is the portion of startup that will select
+Xwhich of several instantiations should be used for each of the objects.  (For
+Xexample, Huffman or arithmetic for entropy encoding; one of several pipeline
+Xcontrollers depending on interleaving, the size of the image, etc.)  It's not
+Xreally desirable to have a single chunk of code that knows the names of all
+Xthe possible instantiations and the conditions under which to select each one.
+X
+XThe best approach seems to be to provide a selector function for each object
+X(group of related method calls).  This function knows about each possible
+Xinstantiation of its object and how to choose the right one; but it doesn't
+Xknow about any other objects.
+X
+XNote that there will be several rounds of method selection: at initial startup,
+Xafter overall compression parameters are determined (after the file header is
+Xread, if decompressing), and one in preparation for each scan (this occurs
+Xmore than once if the file is noninterleaved).  Each object method will need
+Xto be clearly identified as to which round sets it up.
+X
+X
+X*** Implications of DNL marker ***
+X
+XSome JPEG files may use a DNL marker to postpone definition of the image
+Xheight (this would be useful for a fax-like scanner's output, for instance).
+XIn these files the SOF marker claims the image height is 0, and you only
+Xfind out the true image height at the end of the first scan.
+X
+XWe could handle these files as follows:
+X1. Upon seeing zero image height, replace it by 65535 (the maximum allowed).
+X2. When the DNL is found, update the image height in the global image
+X   descriptor.
+XThis implies that pipeline control objects must avoid making copies of the
+Ximage height, and must re-test for termination after each MCU row.  This is
+Xno big deal.
+X
+XIn situations where image-size data structures are allocated, this approach
+Xwill result in very inefficient use of virtual memory or
+Xmuch-larger-than-necessary temporary files.  This seems acceptable for
+Xsomething that probably won't be a mainstream usage.  People might have to
+Xforgo use of memory-hogging options (such as two-pass color quantization or
+Xnoninterleaved JPEG files) if they want efficient conversion of such files.
+X(One could improve efficiency by demanding a user-supplied upper bound for the
+Xheight, less than 65536; in most cases it could be much less.)
+X
+XAlternately, we could insist that DNL-using files be preprocessed by a
+Xseparate program that reads ahead to the DNL, then goes back and fixes the SOF
+Xmarker.  This is a much simpler solution and is probably far more efficient.
+XEven if one wants piped input, buffering the first scan of the JPEG file
+Xneeds a lot smaller temp file than is implied by the maximum-height method.
+XFor this approach we'd simply treat DNL as a no-op in the decompressor (at
+Xmost, check that it matches the SOF image height).
+X
+XWe will not worry about making the compressor capable of outputting DNL.
+XSomething similar to the first scheme above could be applied if anyone ever
+Xwants to make that work.
+X
+X
+X*** Memory manager internal structure ***
+X
+XThe memory manager contains the most potential for system dependencies.
+XTo isolate system dependencies as much as possible, we have broken the
+Xmemory manager into two parts.  There is a reasonably system-independent
+X"front end" (jmemmgr.c) and a "back end" that contains only the code
+Xlikely to change across systems.  All of the memory management methods
+Xoutlined above are implemented by the front end.  The back end provides
+Xthe following routines for use by the front end (none of these routines
+Xare known to the rest of the JPEG code):
+X
+Xjmem_init, jmem_term	system-dependent initialization/shutdown
+X
+Xjget_small, jfree_small	interface to malloc and free library routines
+X
+Xjget_large, jfree_large	interface to FAR malloc/free in MS-DOS machines;
+X			otherwise same as jget_small/jfree_small
+X
+Xjmem_available		estimate available memory
+X
+Xjopen_backing_store	create a backing-store object
+X
+Xread_backing_store,	manipulate a backing store object
+Xwrite_backing_store,
+Xclose_backing_store
+X
+XOn some systems there will be more than one type of backing-store object
+X(specifically, in MS-DOS a backing store file might be an area of extended
+Xmemory as well as a disk file).  jopen_backing_store is responsible for
+Xchoosing how to implement a given object.  The read/write/close routines
+Xare method pointers in the structure that describes a given object; this
+Xlets them be different for different object types.
+X
+XIt may be necessary to ensure that backing store objects are explicitly
+Xreleased upon abnormal program termination.  (For example, MS-DOS won't free
+Xextended memory by itself.)  To support this, we will expect the main program
+Xor surrounding application to arrange to call the free_all method upon
+Xabnormal termination; this may require a SIGINT signal handler, for instance.
+X(We don't want to have the system-dependent module install its own signal
+Xhandler, because that would pre-empt the surrounding application's ability
+Xto control signal handling.)
+X
+X
+X*** Notes for MS-DOS implementors ***
+X
+XThe standalone cjpeg and djpeg applications can be compiled in "small" memory
+Xmodel, at least at the moment; as the code grows we may be forced to switch to
+X"medium" model.  (Small = both code and data pointers are near by default;
+Xmedium = far code pointers, near data pointers.)  Medium model will slow down
+Xcalls through method pointers, but I don't think this will amount to any
+Xsignificant speed penalty.
+X
+XWhen integrating the JPEG code into a larger application, it's a good idea to
+Xstay with a small-data-space model if possible.  An 8K stack is much more than
+Xsufficient for the JPEG code, and its static data requirements are less than
+X1K.  When executed, it will typically malloc about 10K-20K worth of near heap
+Xspace (and lots of far heap, but that doesn't count in this calculation).
+XThis figure will vary depending on image size and other factors, but figuring
+X30K should be more than sufficient.  Thus you have about 25K available for
+Xother modules' static data and near heap requirements before you need to go to
+Xa larger memory model.  The C library's static data will account for several K
+Xof this, but that still leaves a good deal for your needs.  (If you are tight
+Xon space, you could reduce JPEG_BUF_SIZE from 4K to 1K to save 3K of near heap
+Xspace.)
+X
+XAs the code is improved, we will endeavor to hold the near data requirements
+Xto the range given above.  This does imply that certain data structures will
+Xbe allocated as FAR although they would fit in near space if we assumed the
+XJPEG code is stand-alone.  (The LZW tables in jrdgif/jwrgif are examples.)
+XTo make an optimal implementation, you might want to move these structures
+Xback to near heap if you know there is sufficient space.
+X
+XFAR data space may also be a tight resource when you are dealing with large
+Ximages.  The most memory-intensive case is decompression with two-pass color
+Xquantization.  This requires a 128Kb color histogram plus strip buffers
+Xamounting to about 150 bytes per column for typical sampling ratios (eg, about
+X96000 bytes for a 640-pixel-wide image).  You may not be able to process wide
+Ximages if you have large data structures of your own.
+X
+X
+X*** Potential optimizations ***
+X
+XFor colormapped input formats it might be worthwhile to merge the input file
+Xreading and the colorspace conversion steps; in other words, do the colorspace
+Xconversion by hacking up the colormap before inputting the image body, rather
+Xthan doing the conversion on each pixel independently.  Not clear if this is
+Xworth the uglification involved.  In the above design for the compressor, only
+Xthe colorspace conversion step ever sees the output of get_input_row, so this
+Xsort of thing could be done via private agreement between those two modules.
+X
+XLevel shift from 0..255 to -128..127 may be done either during colorspace
+Xconversion, or at the moment of converting an 8x8 sample block into the format
+Xused by the DCT step (which will be signed short or long int).  This could be
+Xselectable by a compile-time flag, so that the intermediate steps can work on
+Xeither signed or unsigned chars as samples, whichever is most easily handled
+Xby the platform.  However, making sure that rounding is done right will be a
+Xlot easier if we can assume positive values.  At the moment I think that
+Xbenefit is worth the overhead of "& 0xFF" when reading out sample values on
+Xsigned-char-only machines.
+END_OF_FILE
+  if test 36460 -ne `wc -c <'arch.b'`; then
+    echo shar: \"'arch.b'\" unpacked with wrong size!
+  elif [ -f arch.a ]; then
+    echo shar: Combining  \"'arch.a'\" and \"'arch.b'\" into \"'architecture'\"
+    cat arch.a arch.b > architecture
+    echo shar: Removing   \"'arch.a'\" and \"'arch.b'\"
+    rm arch.a arch.b
+  # end of 'arch.b'
+  fi
+fi
+if test -f 'ckconfig.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ckconfig.c'\"
+else
+  echo shar: Extracting \"'ckconfig.c'\" \(12938 characters\)
+  sed "s/^X//" >'ckconfig.c' <<'END_OF_FILE'
+X/*
+X * ckconfig.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X */
+X
+X/*
+X * This program is intended to help you determine how to configure the JPEG
+X * software for installation on a particular system.  The idea is to try to
+X * compile and execute this program.  If your compiler fails to compile the
+X * program, make changes as indicated in the comments below.  Once you can
+X * compile the program, run it, and it will tell you how to set the various
+X * switches in jconfig.h and in your Makefile.
+X *
+X * This could all be done automatically if we could assume we were on a Unix
+X * system, but we don't want to assume that, so you'll have to edit and
+X * recompile this program until it works.
+X *
+X * As a general rule, each time you try to compile this program,
+X * pay attention only to the *first* error message you get from the compiler.
+X * Many C compilers will issue lots of spurious error messages once they
+X * have gotten confused.  Go to the line indicated in the first error message,
+X * and read the comments preceding that line to see what to change.
+X *
+X * Almost all of the edits you may need to make to this program consist of
+X * changing a line that reads "#define SOME_SYMBOL" to "#undef SOME_SYMBOL",
+X * or vice versa.  This is called defining or undefining that symbol.
+X */
+X
+X
+X/* First we must see if your system has the include files we need.
+X * We start out with the assumption that your system follows the ANSI
+X * conventions for include files.  If you get any error in the next dozen
+X * lines, undefine INCLUDES_ARE_ANSI.
+X */
+X
+X#define INCLUDES_ARE_ANSI	/* replace 'define' by 'undef' if error here */
+X
+X#ifdef INCLUDES_ARE_ANSI	/* this will be skipped if you undef... */
+X#include <stdio.h>		/* If you ain't got this, you ain't got C. */
+X#ifdef __SASC			/* Amiga SAS C provides size_t in stddef.h. */
+X#include <stddef.h>		/* (They are wrong...) */
+X#endif
+X#include <string.h>		/* size_t might be here too. */
+Xtypedef size_t my_size_t;	/* The payoff: do we have size_t now? */
+X#include <stdlib.h>		/* Check other ANSI includes we use. */
+X#endif
+X
+X
+X/* If your system doesn't follow the ANSI conventions, we have to figure out
+X * what it does follow.  If you didn't get an error before this line, you can
+X * ignore everything down to "#define HAVE_ANSI_DEFINITIONS".
+X */
+X
+X#ifndef INCLUDES_ARE_ANSI	/* skip these tests if INCLUDES_ARE_ANSI */
+X
+X#include <stdio.h>		/* If you ain't got this, you ain't got C. */
+X
+X/* jinclude.h will try to include <sys/types.h> if you don't set
+X * INCLUDES_ARE_ANSI.  We need to test whether that include file is provided.
+X * If you get an error here, undefine HAVE_TYPES_H.
+X */
+X
+X#define HAVE_TYPES_H
+X
+X#ifdef HAVE_TYPES_H
+X#include <sys/types.h>
+X#endif
+X
+X/* We have to see if your string functions are defined by
+X * strings.h (BSD convention) or string.h (everybody else).
+X * We try the non-BSD convention first; define BSD if the compiler
+X * says it can't find string.h.
+X */
+X
+X#undef BSD
+X
+X#ifdef BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X/* Usually size_t is defined in stdio.h, sys/types.h, and/or string.h.
+X * If not, you'll get an error on the "typedef size_t my_size_t;" line below.
+X * In that case, you'll have to search through your system library to
+X * figure out which include file defines "size_t".  Look for a line that
+X * says "typedef something-or-other size_t;" (stddef.h and stdlib.h are
+X * good places to look first).  Then, change the line below that says
+X * "#include <someincludefile.h>" to instead include the file
+X * you found size_t in, and define NEED_SPECIAL_INCLUDE.
+X */
+X
+X#undef NEED_SPECIAL_INCLUDE	/* assume we DON'T need it, for starters */
+X
+X#ifdef NEED_SPECIAL_INCLUDE
+X#include <someincludefile.h>
+X#endif
+X
+Xtypedef size_t my_size_t;	/* The payoff: do we have size_t now? */
+X
+X
+X#endif /* INCLUDES_ARE_ANSI */
+X
+X
+X
+X/* The next question is whether your compiler supports ANSI-style function
+X * definitions.  You need to know this in order to choose between using
+X * makefile.ansi and using makefile.unix.
+X * The #define line below is set to assume you have ANSI function definitions.
+X * If you get an error in this group of lines, undefine HAVE_ANSI_DEFINITIONS.
+X */
+X
+X#define HAVE_ANSI_DEFINITIONS
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+Xint testfunction (int arg1, int * arg2); /* check prototypes */
+X
+Xstruct methods_struct {		/* check method-pointer declarations */
+X  int (*error_exit) (char *msgtext);
+X  int (*trace_message) (char *msgtext);
+X  int (*another_method) (void);
+X};
+X
+Xint testfunction (int arg1, int * arg2) /* check definitions */
+X{
+X  return arg2[arg1];
+X}
+X
+Xint testfunction1 (void)	/* check void arg list */
+X{
+X  return 0;
+X}
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "unsigned char" means.
+X * If you get an error on the "unsigned char un_char;" line,
+X * then undefine HAVE_UNSIGNED_CHAR.
+X */
+X
+X#define HAVE_UNSIGNED_CHAR
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xunsigned char un_char;
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "unsigned short" means.
+X * If you get an error on the "unsigned short un_short;" line,
+X * then undefine HAVE_UNSIGNED_SHORT.
+X */
+X
+X#define HAVE_UNSIGNED_SHORT
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+Xunsigned short un_short;
+X#endif
+X
+X
+X/* Now we want to find out if your compiler understands type "void".
+X * If you get an error anywhere in here, undefine HAVE_VOID.
+X */
+X
+X#define HAVE_VOID
+X
+X#ifdef HAVE_VOID
+Xtypedef void * void_ptr;	/* check void * */
+Xtypedef void (*void_func) ();	/* check ptr to function returning void */
+X
+Xvoid testfunction2 (arg1, arg2)	/* check void function result */
+X     void_ptr arg1;
+X     void_func arg2;
+X{
+X  char * locptr = (char *) arg1; /* check casting to and from void * */
+X  arg1 = (void *) locptr;
+X  (*arg2) (1, 2);		/* check call of fcn returning void */
+X}
+X#endif
+X
+X
+X/* Now we want to find out if your compiler knows what "const" means.
+X * If you get an error here, undefine HAVE_CONST.
+X */
+X
+X#define HAVE_CONST
+X
+X#ifdef HAVE_CONST
+Xstatic const int carray[3] = {1, 2, 3};
+X
+Xint testfunction3 (arg1)
+X     const int arg1;
+X{
+X  return carray[arg1];
+X}
+X#endif
+X
+X
+X
+X/************************************************************************
+X *  OK, that's it.  You should not have to change anything beyond this
+X *  point in order to compile and execute this program.  (You might get
+X *  some warnings, but you can ignore them.)
+X *  When you run the program, it will make a couple more tests that it
+X *  can do automatically, and then it will print out a summary of the changes
+X *  that you need to make to the makefile and jconfig.h.
+X ************************************************************************
+X */
+X
+X
+Xstatic int any_changes = 0;
+X
+Xint new_change ()
+X{
+X  if (! any_changes) {
+X    printf("\nMost of the changes recommended by this program can be made either\n");
+X    printf("by editing jconfig.h, or by adding -Dsymbol switches to the CFLAGS\n");
+X    printf("line in your Makefile.  (Some PC compilers expect /Dsymbol instead.)\n");
+X    printf("The CFLAGS method is simpler, but if your system doesn't use makefiles,\n");
+X    printf("or if your compiler doesn't support -D, then you must change jconfig.h.\n");
+X    any_changes = 1;
+X  }
+X  printf("\n");			/* blank line before each problem report */
+X  return 0;
+X}
+X
+X
+Xint test_char_sign (arg)
+X     int arg;
+X{
+X  if (arg == 189) {		/* expected result for unsigned char */
+X    new_change();
+X    printf("You should add -DCHAR_IS_UNSIGNED to CFLAGS,\n");
+X    printf("or else remove the /* */ comment marks from the line\n");
+X    printf("/* #define CHAR_IS_UNSIGNED */  in jconfig.h.\n");
+X    printf("(Be sure to delete the space before the # character too.)\n");
+X  }
+X  else if (arg != -67) {	/* expected result for signed char */
+X    new_change();
+X    printf("Hmm, it seems 'char' is less than eight bits wide on your machine.\n");
+X    printf("I fear the JPEG software will not work at all.\n");
+X  }
+X  return 0;
+X}
+X
+X
+Xint test_shifting (arg)
+X     long arg;
+X/* See whether right-shift on a long is signed or not. */
+X{
+X  long res = arg >> 4;
+X
+X  if (res == 0x80817F4L) {	/* expected result for unsigned */
+X    new_change();
+X    printf("You must add -DRIGHT_SHIFT_IS_UNSIGNED to CFLAGS,\n");
+X    printf("or else remove the /* */ comment marks from the line\n");
+X    printf("/* #define RIGHT_SHIFT_IS_UNSIGNED */  in jconfig.h.\n");
+X  }
+X  else if (res != -0x7F7E80CL) { /* expected result for signed */
+X    new_change();
+X    printf("Right shift isn't acting as I expect it to.\n");
+X    printf("I fear the JPEG software will not work at all.\n");
+X  }
+X  return 0;
+X}
+X
+X
+Xint main (argc, argv)
+X     int argc;
+X     char ** argv;
+X{
+X  char signed_char_check = (char) (-67);
+X
+X  printf("Results of configuration check for Independent JPEG Group's software:\n");
+X  printf("\nIf there's not a specific makefile provided for your compiler,\n");
+X#ifdef HAVE_ANSI_DEFINITIONS
+X  printf("you should use makefile.ansi as the starting point for your Makefile.\n");
+X#else
+X  printf("you should use makefile.unix as the starting point for your Makefile.\n");
+X#endif
+X
+X  /* Check whether we have all the ANSI features, */
+X  /* and whether this agrees with __STDC__ being predefined. */
+X#ifdef __STDC__
+X#define HAVE_STDC	/* ANSI compilers won't allow redefining __STDC__ */
+X#endif
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+X#ifdef HAVE_UNSIGNED_CHAR
+X#ifdef HAVE_UNSIGNED_SHORT
+X#ifdef HAVE_CONST
+X#define HAVE_ALL_ANSI_FEATURES
+X#endif
+X#endif
+X#endif
+X#endif
+X
+X#ifdef HAVE_ALL_ANSI_FEATURES
+X#ifndef HAVE_STDC
+X  new_change();
+X  printf("Your compiler doesn't claim to be ANSI-compliant, but it is close enough\n");
+X  printf("for me.  Either add -DHAVE_STDC to CFLAGS, or add #define HAVE_STDC at the\n");
+X  printf("beginning of jconfig.h.\n");
+X#define HAVE_STDC
+X#endif
+X#else /* !HAVE_ALL_ANSI_FEATURES */
+X#ifdef HAVE_STDC
+X  new_change();
+X  printf("Your compiler claims to be ANSI-compliant, but it is lying!\n");
+X  printf("Delete the line  #define HAVE_STDC  near the beginning of jconfig.h.\n");
+X#undef HAVE_STDC
+X#endif
+X#endif /* HAVE_ALL_ANSI_FEATURES */
+X
+X#ifndef HAVE_STDC
+X
+X#ifdef HAVE_ANSI_DEFINITIONS
+X  new_change();
+X  printf("You should add -DPROTO to CFLAGS, or else take out the several\n");
+X  printf("#ifdef/#else/#endif lines surrounding #define PROTO in jconfig.h.\n");
+X  printf("(Leave only one #define PROTO line.)\n");
+X#endif
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+X#ifdef HAVE_UNSIGNED_SHORT
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_CHAR and -DHAVE_UNSIGNED_SHORT\n");
+X  printf("to CFLAGS, or else take out the #ifdef HAVE_STDC/#endif lines\n");
+X  printf("surrounding #define HAVE_UNSIGNED_CHAR and #define HAVE_UNSIGNED_SHORT\n");
+X  printf("in jconfig.h.\n");
+X#else /* only unsigned char */
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_CHAR to CFLAGS,\n");
+X  printf("or else move #define HAVE_UNSIGNED_CHAR outside the\n");
+X  printf("#ifdef HAVE_STDC/#endif lines surrounding it in jconfig.h.\n");
+X#endif
+X#else /* !HAVE_UNSIGNED_CHAR */
+X#ifdef HAVE_UNSIGNED_SHORT
+X  new_change();
+X  printf("You should add -DHAVE_UNSIGNED_SHORT to CFLAGS,\n");
+X  printf("or else move #define HAVE_UNSIGNED_SHORT outside the\n");
+X  printf("#ifdef HAVE_STDC/#endif lines surrounding it in jconfig.h.\n");
+X#endif
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X#ifdef HAVE_CONST
+X  new_change();
+X  printf("You should delete the  #define const  line from jconfig.h.\n");
+X#endif
+X
+X#endif /* HAVE_STDC */
+X
+X  test_char_sign((int) signed_char_check);
+X
+X  test_shifting(-0x7F7E80B1L);
+X
+X#ifndef HAVE_VOID
+X  new_change();
+X  printf("You should add -Dvoid=char to CFLAGS,\n");
+X  printf("or else remove the /* */ comment marks from the line\n");
+X  printf("/* #define void char */  in jconfig.h.\n");
+X  printf("(Be sure to delete the space before the # character too.)\n");
+X#endif
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#ifndef __STDC__
+X  new_change();
+X  printf("You should add -DINCLUDES_ARE_ANSI to CFLAGS, or else add\n");
+X  printf("#define INCLUDES_ARE_ANSI at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#else /* !INCLUDES_ARE_ANSI */
+X#ifdef __STDC__
+X  new_change();
+X  printf("You should add -DNONANSI_INCLUDES to CFLAGS, or else add\n");
+X  printf("#define NONANSI_INCLUDES at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#ifdef NEED_SPECIAL_INCLUDE
+X  new_change();
+X  printf("In jinclude.h, change the line reading #include <sys/types.h>\n");
+X  printf("to instead include the file you found size_t in.\n");
+X#else /* !NEED_SPECIAL_INCLUDE */
+X#ifndef HAVE_TYPES_H
+X  new_change();
+X  printf("In jinclude.h, delete the line reading #include <sys/types.h>.\n");
+X#endif
+X#endif /* NEED_SPECIAL_INCLUDE */
+X#ifdef BSD
+X  new_change();
+X  printf("You should add -DBSD to CFLAGS, or else add\n");
+X  printf("#define BSD at the beginning of jinclude.h (NOT jconfig.h).\n");
+X#endif
+X#endif /* INCLUDES_ARE_ANSI */
+X
+X  if (any_changes) {
+X    printf("\nI think that's everything...\n");
+X  } else {
+X    printf("\nI think jconfig.h is OK as distributed.\n");
+X  }
+X
+X  return any_changes;
+X}
+END_OF_FILE
+  if test 12938 -ne `wc -c <'ckconfig.c'`; then
+    echo shar: \"'ckconfig.c'\" unpacked with wrong size!
+  fi
+  # end of 'ckconfig.c'
+fi
+if test -f 'jerror.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jerror.c'\"
+else
+  echo shar: Extracting \"'jerror.c'\" \(2205 characters\)
+  sed "s/^X//" >'jerror.c' <<'END_OF_FILE'
+X/*
+X * jerror.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains simple error-reporting and trace-message routines.
+X * These are suitable for Unix-like systems and others where writing to
+X * stderr is the right thing to do.  If the JPEG software is integrated
+X * into a larger application, you may well need to replace these.
+X *
+X * The error_exit() routine should not return to its caller.  Within a
+X * larger application, you might want to have it do a longjmp() to return
+X * control to the outer user interface routine.  This should work since
+X * the portable JPEG code doesn't use setjmp/longjmp.  You should make sure
+X * that free_all is called either within error_exit or after the return to
+X * the outer-level routine.
+X *
+X * These routines are used by both the compression and decompression code.
+X */
+X
+X#include "jinclude.h"
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare exit() */
+X#endif
+X
+X#ifndef EXIT_FAILURE		/* define exit() codes if not provided */
+X#define EXIT_FAILURE  1
+X#endif
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to message_parm, free_all */
+X
+X
+XMETHODDEF void
+Xtrace_message (const char *msgtext)
+X{
+X  fprintf(stderr, msgtext,
+X	  methods->message_parm[0], methods->message_parm[1],
+X	  methods->message_parm[2], methods->message_parm[3],
+X	  methods->message_parm[4], methods->message_parm[5],
+X	  methods->message_parm[6], methods->message_parm[7]);
+X  fprintf(stderr, "\n");
+X}
+X
+X
+XMETHODDEF void
+Xerror_exit (const char *msgtext)
+X{
+X  trace_message(msgtext);
+X  (*methods->free_all) ();	/* clean up memory allocation */
+X  exit(EXIT_FAILURE);
+X}
+X
+X
+X/*
+X * The method selection routine for simple error handling.
+X * The system-dependent setup routine should call this routine
+X * to install the necessary method pointers in the supplied struct.
+X */
+X
+XGLOBAL void
+Xjselerror (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for later access */
+X
+X  emethods->error_exit = error_exit;
+X  emethods->trace_message = trace_message;
+X
+X  emethods->trace_level = 0;	/* default = no tracing */
+X}
+END_OF_FILE
+  if test 2205 -ne `wc -c <'jerror.c'`; then
+    echo shar: \"'jerror.c'\" unpacked with wrong size!
+  fi
+  # end of 'jerror.c'
+fi
+echo shar: End of archive 6 \(of 18\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

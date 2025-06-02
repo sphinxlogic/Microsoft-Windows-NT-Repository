@@ -1,0 +1,211 @@
+Newsgroups: comp.sources.misc
+From: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Subject: v37i054:  ftpmail - Automatic Email to FTP Gateway, Patch01
+Message-ID: <1993May12.142823.26813@sparky.imd.sterling.com>
+X-Md4-Signature: d7161c57b9e3960ede4bfb5e79415c49
+Date: Wed, 12 May 1993 14:28:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Posting-number: Volume 37, Issue 54
+Archive-name: ftpmail/patch01
+Environment: UNIX, Perl, Sun, Dec, INET
+Patch-To: ftpmail: Volume 37, Issue 51-52
+
+Below is a small patch for ftpmail.  This brings ftpmail to version 1.15.
+
+The original sources required for patching are available in any of the
+comp.sources.misc archives.  ftpmail is archived at:
+
+        src.doc.ic.ac.uk:packages/ftpmail/
+        grasp1.univ-lyon1.fr:pub/unix/mail/tools/ftpmail/
+        ftp.sterling.com:mail/ftpmail/
+
+Ftpmail is an email->ftp gateway.  It is all writen in perl and sends 
+responses using either mail or by directly calling sendmail.  When using 
+sendmail MIME support is available.
+
+------------------------------------------
+diff -cr ../ftpmail-1.13/README ./README
+*** ../ftpmail-1.13/README	Wed May 12 09:10:07 1993
+--- ./README	Wed May 12 09:09:26 1993
+***************
+*** 51,57 ****
+  to cause any mail delivered to that ftpmail to invoke q.pl. But
+  anything that causes q.pl to be run on the input request will do.
+  Under sendmail create ~ftpmail/.forward containing:
+! "|/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+  (Or similar.)
+  
+  The file crontab contains a suggested cron entry that should be run as
+--- 51,57 ----
+  to cause any mail delivered to that ftpmail to invoke q.pl. But
+  anything that causes q.pl to be run on the input request will do.
+  Under sendmail create ~ftpmail/.forward containing:
+! |"/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+  (Or similar.)
+  
+  The file crontab contains a suggested cron entry that should be run as
+diff -cr ../ftpmail-1.13/config.pl ./config.pl
+*** ../ftpmail-1.13/config.pl	Wed May 12 09:10:11 1993
+--- ./config.pl	Wed May 12 09:09:34 1993
+***************
+*** 1,7 ****
+  # Local configuration details for ftpmail.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/config.pl,v 1.10 1993/04/25 20:27:48 lmjm Exp lmjm $
+  # $Log: config.pl,v $
+  # Revision 1.10  1993/04/25  20:27:48  lmjm
+  # Added mail_overhead.
+  #
+--- 1,10 ----
+  # Local configuration details for ftpmail.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/config.pl,v 1.11 1993/05/11 20:07:56 lmjm Exp lmjm $
+  # $Log: config.pl,v $
++ # Revision 1.11  1993/05/11  20:07:56  lmjm
++ # Optionally ban connecting to a.b.c.d
++ #
+  # Revision 1.10  1993/04/25  20:27:48  lmjm
+  # Added mail_overhead.
+  #
+***************
+*** 92,97 ****
+--- 95,104 ----
+  
+  # If set to 1 limit to just login=anonymous, passwd=-ftpmail/$replyto
+  $restricted = 0;
++ 
++ # If set to 1, only FQDNs are allowed in the open command instead
++ # of also IP numbers.
++ $fqdn_only = 0;
+  
+  # TODO:
+  # If set is the name of a file containing restrictions on when to
+diff -cr ../ftpmail-1.13/dq.pl ./dq.pl
+*** ../ftpmail-1.13/dq.pl	Wed May 12 09:10:12 1993
+--- ./dq.pl	Wed May 12 09:09:31 1993
+***************
+*** 7,14 ****
+  #  organisation can be held liable for any problems caused by the use or
+  #  storage of this package.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/dq.pl,v 1.16 1993/04/28 18:19:19 lmjm Exp lmjm $
+  # $Log: dq.pl,v $
+  # Revision 1.16  1993/04/28  18:19:19  lmjm
+  # From chris, corrected filename in mime message.
+  #
+--- 7,17 ----
+  #  organisation can be held liable for any problems caused by the use or
+  #  storage of this package.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/dq.pl,v 1.17 1993/05/11 20:07:56 lmjm Exp lmjm $
+  # $Log: dq.pl,v $
++ # Revision 1.17  1993/05/11  20:07:56  lmjm
++ # Init right variable for btoa!
++ #
+  # Revision 1.16  1993/04/28  18:19:19  lmjm
+  # From chris, corrected filename in mime message.
+  #
+***************
+*** 193,199 ****
+  	$compress_it = 0;
+  	$gzip_it = 0;
+  	$uuencode_it = 0;
+! 	$atob_it = 0;
+  	$mime_it = 0;
+  
+  	# Set the max file size from the local config file.
+--- 196,202 ----
+  	$compress_it = 0;
+  	$gzip_it = 0;
+  	$uuencode_it = 0;
+! 	$btoa_it = 0;
+  	$mime_it = 0;
+  
+  	# Set the max file size from the local config file.
+diff -cr ../ftpmail-1.13/q.pl ./q.pl
+*** ../ftpmail-1.13/q.pl	Wed May 12 09:10:09 1993
+--- ./q.pl	Wed May 12 09:09:35 1993
+***************
+*** 7,14 ****
+  #  organisation can be held liable for any problems caused by the use or
+  #  storage of this package.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/q.pl,v 1.13 1993/05/07 19:05:52 lmjm Exp lmjm $
+  # $Log: q.pl,v $
+  # Revision 1.13  1993/05/07  19:05:52  lmjm
+  # Added Chris's fixed not_ok code.
+  #
+--- 7,20 ----
+  #  organisation can be held liable for any problems caused by the use or
+  #  storage of this package.
+  #
+! # $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpmail/RCS/q.pl,v 1.15 1993/05/12 11:14:50 lmjm Exp lmjm $
+  # $Log: q.pl,v $
++ # Revision 1.15  1993/05/12  11:14:50  lmjm
++ # Upgraded support.pl
++ #
++ # Revision 1.14  1993/05/11  20:07:57  lmjm
++ # Optionally ban connection to a.b.c.d type addresses
++ #
+  # Revision 1.13  1993/05/07  19:05:52  lmjm
+  # Added Chris's fixed not_ok code.
+  #
+***************
+*** 66,72 ****
+  
+  $ftpmail = 'ftpmail';
+  
+! $Revision = '$Revision: 1.13 $';
+  
+  if( $test ){
+  	$ftpmail_dir = '/tmp/ftpmail-test';
+--- 72,78 ----
+  
+  $ftpmail = 'ftpmail';
+  
+! $Revision = '$Revision: 1.15 $';
+  
+  if( $test ){
+  	$ftpmail_dir = '/tmp/ftpmail-test';
+***************
+*** 236,241 ****
+--- 242,250 ----
+  		($site, $user, $pass ) = ($3, $5, $7);
+  		if( $site eq ''){
+  			$site = $default_site;
++ 		}
++ 		if( $fqdn_only && $site =~ /^\d+\.\d+\.\d+\.\d+$/ ){
++ 			&mail_back( "Cannot ftp you may only use the NAME for the host to connect to" );
+  		}
+  		if( $ftp_permitted && $site !~ /$ftp_permitted/ ){
+  			&mail_back( "Cannot ftp to that site only sites matching $ftp_permitted are allowed" );
+diff -cr ../ftpmail-1.13/sendmail_forward ./sendmail_forward
+*** ../ftpmail-1.13/sendmail_forward	Wed May 12 09:10:14 1993
+--- ./sendmail_forward	Wed May 12 09:09:36 1993
+***************
+*** 1 ****
+! "|/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+--- 1 ----
+! |"/src.doc.ic.ac.uk/public/ic.doc/ftpmail/q.pl"
+diff -cr ../ftpmail-1.13/support.pl ./support.pl
+*** ../ftpmail-1.13/support.pl	Wed May 12 09:10:14 1993
+--- ./support.pl	Wed May 12 09:09:35 1993
+***************
+*** 94,99 ****
+--- 94,106 ----
+  	}
+  }
+  
++ sub fail
++ {
++ 	local( $fatal_error ) = @_;
++ 
++ 	die( "Fatal error $fatal_error, probably due to config problems" );
++ }
++ 
+  sub fatal
+  {
+  	local( $fatal_error ) = @_;
+exit 0 # Just in case...

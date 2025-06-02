@@ -1,0 +1,2296 @@
+From: Michael Brennan <brennan@atc.boeing.com>
+
+#!/bin/sh
+# this is xxx.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file patch3 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping patch3'
+else
+echo 'x - continuing file patch3'
+sed 's/^X//' << 'SHAR_EOF' >> 'patch3' &&
+--- 151,161 ----
+X    
+X  /*---------- types and defs for doing printf and sprintf----*/
+! #define  PF_C		0   /* %c */
+! #define  PF_S		1   /* %s */
+X  #define  PF_D		2   /* int conversion */
+! #define  PF_F		3   /* float conversion */
+X  
+X  /* for switch on number of '*' and type */
+! #define  AST(num,type)  ((PF_F+1)*(num)+(type))
+X  
+X  /* some picky ANSI compilers go berserk without this */
+***************
+*** 166,171 ****
+X    int ast_cnt ;
+X    int ast[2] ;
+!   long lval ;
+!   int ival ;  /* caters to MSDOS */
+X    int num_conversion = 0 ; /* for error messages */
+X    char *who ; /*ditto*/
+--- 194,198 ----
+X    int ast_cnt ;
+X    int ast[2] ;
+!   long lval ;  /* hold integer values */
+X    int num_conversion = 0 ; /* for error messages */
+X    char *who ; /*ditto*/
+***************
+*** 173,176 ****
+--- 200,207 ----
+X    PRINTER printer ; /* pts at fprintf() or sprintf() */
+X  
++ #ifdef   SHORT_INTS
++   char xbuff[256] ; /* splice in l qualifier here */
++ #endif
++ 
+X    if ( fp == (FILE *) 0 ) /* doing sprintf */
+X    {
+***************
+*** 220,223 ****
+--- 251,255 ----
+X         
+X  
++     /* *q == '%' */
+X      num_conversion++ ;
+X    
+***************
+*** 241,245 ****
+X      { 
+X        if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+!       ast[ast_cnt++] = (int) cp++ ->dval ;
+X        argcnt-- ; q++ ;
+X      }
+--- 273,277 ----
+X      { 
+X        if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+!       ast[ast_cnt++] = d_to_i(cp++ ->dval) ;
+X        argcnt-- ; q++ ;
+X      }
+***************
+*** 253,257 ****
+X        {
+X  	if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+!         ast[ast_cnt++] = (int) cp++ ->dval ;
+X          argcnt-- ; q++ ;
+X        }
+--- 285,289 ----
+X        {
+X  	if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+!         ast[ast_cnt++] = d_to_i(cp++ ->dval) ;
+X          argcnt-- ; q++ ;
+X        }
+***************
+*** 286,290 ****
+X  	    {
+X  	      case C_NOINIT :
+! 		    ival = 0 ;
+X  		    break ;
+X  
+--- 318,322 ----
+X  	    {
+X  	      case C_NOINIT :
+! 		    lval = 0 ;
+X  		    break ;
+X  
+***************
+*** 291,299 ****
+X  	      case C_STRNUM :
+X  	      case C_DOUBLE :
+! 		    ival = (int) cp->dval ;
+X  		    break ;
+X  
+X  	      case  C_STRING :
+! 		    ival = string(cp)->str[0] ;
+X  		    break ;
+X  
+--- 323,331 ----
+X  	      case C_STRNUM :
+X  	      case C_DOUBLE :
+! 		    lval = (long) d_to_i(cp->dval) ;
+X  		    break ;
+X  
+X  	      case  C_STRING :
+! 		    lval = string(cp)->str[0] ;
+X  		    break ;
+X  
+***************
+*** 300,305 ****
+X  	      case  C_MBSTRN :
+X  		    check_strnum(cp) ;
+! 		    ival = cp->type == C_STRING ?
+! 			string(cp)->str[0] : (int) cp->dval ;
+X  		    break ;
+X  	      
+--- 332,337 ----
+X  	      case  C_MBSTRN :
+X  		    check_strnum(cp) ;
+! 		    lval = cp->type == C_STRING ?
+! 			string(cp)->str[0] : (long) d_to_i(cp->dval) ;
+X  		    break ;
+X  	      
+***************
+*** 318,325 ****
+X        case 'u' :
+X              if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+!             lval = (long) cp->dval ;
+! 	    if ( h_flag ) lval &= 0xffff ;
+X  
+!             pf_type = l_flag ? PF_LD : PF_D ;
+X              break ;
+X      
+--- 350,359 ----
+X        case 'u' :
+X              if ( cp->type != C_DOUBLE ) cast1_to_d(cp) ;
+! 	    if ( cp->dval > MAX__LONG ) lval = MAX__LONG ;
+! 	    else
+! 	    if ( cp->dval > -MAX__LONG ) lval = (long) cp->dval ;
+! 	    else lval = -MAX__LONG ;
+X  
+!             pf_type = PF_D ;
+X              break ;
+X      
+***************
+*** 341,344 ****
+--- 375,407 ----
+X      *q = 0 ;
+X  
++ #ifdef  SHORT_INTS
++     if ( pf_type == PF_D )
++     {
++       /* need to splice in long modifier */
++       strcpy(xbuff, p) ;
++ 
++       if ( l_flag ) /* do nothing */ ;
++       else
++       {
++ 	int k = q - p ;
++ 
++ 	if ( h_flag )
++ 	{
++ 	  lval = (short) lval ;
++ 	  /* replace the 'h' with 'l' (really!) */
++ 	  xbuff[k-2] = 'l' ;
++ 	  if ( xbuff[k-1] != 'd' && xbuff[k-1] != 'i' ) lval &= 0xffff ;
++ 	}
++ 	else
++ 	{
++ 	  /* the usual case */
++ 	  xbuff[k] = xbuff[k-1] ;
++ 	  xbuff[k-1] = 'l' ;
++ 	  xbuff[k+1] = 0 ;
++ 	}
++       }
++     }
++ #endif
++ 
+X      /* ready to call printf() */
+X      switch( AST(ast_cnt, pf_type ) )
+***************
+*** 345,357 ****
+X      {
+X        case AST(0, PF_C )  :
+!             (*printer)((PTR) target, p, ival) ;
+X              break ;
+X  
+X        case AST(1, PF_C ) :
+!             (*printer)((PTR) target, p, ast[0], ival) ;
+X              break ;
+X  
+X        case AST(2, PF_C ) :
+!             (*printer)((PTR) target, p, ast[0], ast[1], ival) ;
+X              break ;
+X  
+--- 408,420 ----
+X      {
+X        case AST(0, PF_C )  :
+!             (*printer)((PTR) target, p, (int) lval) ;
+X              break ;
+X  
+X        case AST(1, PF_C ) :
+!             (*printer)((PTR) target, p, ast[0], (int) lval) ;
+X              break ;
+X  
+X        case AST(2, PF_C ) :
+!             (*printer)((PTR) target, p, ast[0], ast[1], (int)lval) ;
+X              break ;
+X  
+***************
+*** 365,394 ****
+X  
+X        case AST(2, PF_S) :
+!             (*printer)((PTR) target, p, ast[0], ast[1], string(cp)->str) ;
+X              break ;
+X  
+X        case AST(0, PF_D) :
+!             (*printer)((PTR) target, p, (int) lval) ;
+X              break ;
+X  
+X        case AST(1, PF_D) :
+!             (*printer)((PTR) target, p, ast[0], (int) lval) ;
+X              break ;
+X  
+X        case AST(2, PF_D) :
+!             (*printer)((PTR) target, p, ast[0], ast[1], (int) lval) ;
+!             break ;
+! 
+!       case AST(0, PF_LD) :
+!             (*printer)((PTR) target, p,  lval) ;
+X              break ;
+X  
+!       case AST(1, PF_LD) :
+!             (*printer)((PTR) target, p, ast[0],  lval) ;
+!             break ;
+X  
+-       case AST(2, PF_LD) :
+-             (*printer)((PTR) target, p, ast[0], ast[1],  lval) ;
+-             break ;
+X  
+X        case AST(0, PF_F) :
+--- 428,453 ----
+X  
+X        case AST(2, PF_S) :
+!             (*printer)((PTR) target,p,ast[0],ast[1],string(cp)->str) ;
+X              break ;
+X  
++ #ifdef  SHORT_INTS
++ #define	FMT	xbuff     /* format in xbuff */
++ #else
++ #define FMT     p         /* p -> format */
++ #endif
+X        case AST(0, PF_D) :
+!             (*printer)((PTR) target, FMT, lval) ;
+X              break ;
+X  
+X        case AST(1, PF_D) :
+!             (*printer)((PTR) target, FMT, ast[0], lval) ;
+X              break ;
+X  
+X        case AST(2, PF_D) :
+!             (*printer)((PTR) target, FMT, ast[0], ast[1], lval) ;
+X              break ;
+X  
+! #undef  FMT
+X  
+X  
+X        case AST(0, PF_F) :
+***************
+*** 415,432 ****
+X    FILE *fp ;
+X  
+!   if ( (k = sp->type) < 0 )
+!   { if ( (--sp)->type < C_STRING ) cast1_to_s(sp) ;
+X      fp = (FILE *) file_find( string(sp), k ) ;
+X      free_STRING(string(sp)) ;
+X      k = (--sp)->type ;
+X    }
+X    else  fp = stdout ;
+X  
+!   sp -= k-- ; /* sp points at the format string */
+X    if ( sp->type < C_STRING )  cast1_to_s(sp) ;
+X    do_printf(fp, string(sp)->str, k, sp+1) ;
+- 
+X    free_STRING(string(sp)) ;
+!   for ( p = sp+1 ; k-- ; p++ )  cell_destroy(p) ;
+X    return --sp ;
+X  }
+--- 474,498 ----
+X    FILE *fp ;
+X  
+!   k = sp->type ;
+!   if ( k  < 0 )
+!   { 
+!     /* k has redirection */
+!     if ( (--sp)->type < C_STRING ) cast1_to_s(sp) ;
+X      fp = (FILE *) file_find( string(sp), k ) ;
+X      free_STRING(string(sp)) ;
+X      k = (--sp)->type ;
++     /* k is now number of args including format */
+X    }
+X    else  fp = stdout ;
+X  
+!   sp -= k ; /* sp points at the format string */
+!   k-- ;
+! 
+X    if ( sp->type < C_STRING )  cast1_to_s(sp) ;
+X    do_printf(fp, string(sp)->str, k, sp+1) ;
+X    free_STRING(string(sp)) ;
+! 
+!   /* cleanup arguments on eval stack */
+!   for ( p = sp+1 ; k ; k--, p++ )  cell_destroy(p) ;
+X    return --sp ;
+X  }
+***************
+*** 438,444 ****
+X    STRING *sval ;
+X  
+!   sp -= argcnt-- ; /* sp points at the format string */
+!   if ( sp->type != C_STRING )  cast1_to_s(sp) ;
+X  
+X    sval = do_printf((FILE *)0, string(sp)->str, argcnt, sp+1) ;
+X    free_STRING(string(sp)) ;
+--- 504,511 ----
+X    STRING *sval ;
+X  
+!   sp -= argcnt ; /* sp points at the format string */
+!   argcnt-- ;
+X  
++   if ( sp->type != C_STRING )  cast1_to_s(sp) ;
+X    sval = do_printf((FILE *)0, string(sp)->str, argcnt, sp+1) ;
+X    free_STRING(string(sp)) ;
+***************
+*** 445,449 ****
+X    sp->ptr = (PTR) sval ;
+X  
+!   for ( p = sp+1 ; argcnt-- ; p++ )  cell_destroy(p) ;
+X  
+X    return sp ;
+--- 512,517 ----
+X    sp->ptr = (PTR) sval ;
+X  
+!   /* cleanup */
+!   for (p = sp+1 ; argcnt ; argcnt--, p++ )  cell_destroy(p) ;
+X  
+X    return sp ;
+Index: packing.list
+*** 1.27	1992/08/27 04:06:08
+--- 1.32	1993/02/06 02:12:51
+***************
+*** 1,5 ****
+X  
+X  ################################################
+! # These files form the mawk distribution 1.1.2
+X  #
+X  # Mawk is an implementation of the AWK Programming Language as
+--- 1,7 ----
+X  
++ #$Id: packing.list,v 1.32 1993/02/06 02:12:51 mike Exp $
++ 
+X  ################################################
+! # These files form the mawk distribution 1.1.2d
+X  #
+X  # Mawk is an implementation of the AWK Programming Language as
+***************
+*** 69,72 ****
+--- 71,75 ----
+X  symtype.h
+X  types.h
++ vargs.h
+X  version.c
+X  zmalloc.c
+***************
+*** 74,78 ****
+X  ########################
+X  # directory:  man
+! man/mawk.1		troff input for unix style man pages
+X  man/mawk.doc		ascii man pages
+X  ########################
+--- 77,81 ----
+X  ########################
+X  # directory:  man
+! man/mawk.1		troff source for unix style man pages
+X  man/mawk.doc		ascii man pages
+X  ########################
+***************
+*** 114,117 ****
+--- 117,124 ----
+X  config/convex.h
+X  config/aix.h
++ config/coherent.h
++ config/linux.h
++ config/386bsd.h
++ config/ztc_dos.h
+X  #######################
+X  # directory:  test      testing and benchmarking directory
+***************
+*** 154,162 ****
+X  msdos/xdosexec.see		hex dump of xdosexec.obj
+X  msdos/see2obj.c			recovers xdosexec.obj 
+! msdos/reargv.c			example (works with PolyShell)
+! msdos/Makefile.tcc		for TCC and Borland make
+X  msdos/Makefile.MSC		nmake and MSC 6.0A
+X  msdos/mawkmsc.lnk
+X  msdos/bmawkmsc.lnk
+X  #####################
+X  # directory macintosh
+--- 161,182 ----
+X  msdos/xdosexec.see		hex dump of xdosexec.obj
+X  msdos/see2obj.c			recovers xdosexec.obj 
+! msdos/argvpoly.c		for polyshell
+! msdos/argvmks.c			for MKS Korn Shell
+! msdos/Makefile.tcc		for [TB]CC and Borland make
+X  msdos/Makefile.MSC		nmake and MSC 6.0A
++ msdos/makefile.ztc	        
+X  msdos/mawkmsc.lnk
+X  msdos/bmawkmsc.lnk
++ #####################
++ # directory msdos/examples	awk programs for msdos
++ msdos/examples/add_cr.awk
++ msdos/examples/doslist.awk
++ msdos/examples/objstat.awk
++ msdos/examples/shell.awk
++ msdos/examples/srcstat.awk
++ msdos/examples/srcstat2.awk
++ msdos/examples/texttest.awk
++ msdos/examples/winexe.awk
++ msdos/examples/winobj.awk
+X  #####################
+X  # directory macintosh
+Index: scan.c
+*** 5.3	1992/07/08 15:43:41
+--- 5.4.1.1	1993/01/15 03:33:50
+***************
+*** 13,16 ****
+--- 13,23 ----
+X  
+X  /* $Log: scan.c,v $
++  * Revision 5.4.1.1  1993/01/15  03:33:50  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.4  1992/11/29  18:57:50  mike
++  * field expressions convert to long so 16 bit and 32 bit
++  * systems behave the same
++  *
+X   * Revision 5.3  1992/07/08  15:43:41  brennan
+X   * patch2: length returns.  I am a wimp
+***************
+*** 471,482 ****
+X                  else  yylval.cp = &field[0] ;
+X              else
+!             { int k = (int) d ;
+! 
+!               if ( k > MAX_FIELD )
+X                { compile_error(
+X                     "$%g exceeds maximum field(%d)" , d, MAX_FIELD) ;
+!                 k = MAX_FIELD ;
+X                }
+!               yylval.cp = field_ptr(k) ;
+X              }
+X  
+--- 478,488 ----
+X                  else  yylval.cp = &field[0] ;
+X              else
+!             { 
+!               if ( d > MAX_FIELD )
+X                { compile_error(
+X                     "$%g exceeds maximum field(%d)" , d, MAX_FIELD) ;
+!                 d = MAX_FIELD ;
+X                }
+!               yylval.cp = field_ptr((int)d) ;
+X              }
+X  
+Index: config/tcc_dos.h
+*** 4.2	1991/10/29 09:37:54
+--- 4.3	1992/12/17 02:48:01
+***************
+*** 14,17 ****
+--- 14,20 ----
+X  
+X  /* $Log: tcc_dos.h,v $
++  * Revision 4.3  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 4.2  1991/10/29  09:37:54  brennan
+X   * changes for 1.09
+***************
+*** 36,39 ****
+--- 39,43 ----
+X  #define   HAVE_STDARG_H         1
+X  #define   HAVE_STDLIB_H		1
++ #define   HAVE_TIME_H		1
+X  
+X  
+Index: execute.c
+*** 5.5	1992/08/11 15:24:55
+--- 5.7.1.1	1993/01/15 03:33:39
+***************
+*** 12,15 ****
+--- 12,25 ----
+X  
+X  /* $Log: execute.c,v $
++  * Revision 5.7.1.1  1993/01/15  03:33:39  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.7  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
++  * Revision 5.6  1992/11/29  18:57:50  mike
++  * field expressions convert to long so 16 bit and 32 bit
++  * systems behave the same
++  *
+X   * Revision 5.5  1992/08/11  15:24:55  brennan
+X   * patch2: F_PUSHA and FE_PUSHA
+***************
+*** 48,56 ****
+X  #include <math.h>
+X  
+- /* static functions */
+X  static int PROTO( compare, (CELL *) ) ;
+! static void PROTO( eval_overflow, (void) ) ;
+X  
+- 
+X  #if   NOINFO_SIGFPE
+X  static char dz_msg[] = "division by zero" ;
+--- 58,64 ----
+X  #include <math.h>
+X  
+X  static int PROTO( compare, (CELL *) ) ;
+! static int PROTO( d_to_index, (double)) ;
+X  
+X  #if   NOINFO_SIGFPE
+X  static char dz_msg[] = "division by zero" ;
+***************
+*** 58,61 ****
+--- 66,71 ----
+X  
+X  #ifdef   DEBUG
++ static void PROTO( eval_overflow, (void) ) ;
++ 
+X  #define  inc_sp()   if( ++sp == eval_stack+EVAL_STACK_SIZE )\
+X                           eval_overflow()
+***************
+*** 235,241 ****
+X  
+X          case  FE_PUSHA :
+X              if ( sp->type != C_DOUBLE )  cast1_to_d(sp) ;
+!             if ( (t = (int) sp->dval) < 0 )
+!                 rt_error( "negative field index $%d", t) ;
+X              if ( t && nf < 0 )  split_field0() ;
+X              sp->ptr = (PTR) field_ptr(t) ;
+--- 245,252 ----
+X  
+X          case  FE_PUSHA :
++ 
+X              if ( sp->type != C_DOUBLE )  cast1_to_d(sp) ;
+! 
+! 	    t = d_to_index(sp->dval) ;
+X              if ( t && nf < 0 )  split_field0() ;
+X              sp->ptr = (PTR) field_ptr(t) ;
+***************
+*** 252,259 ****
+X  
+X          case  FE_PUSHI :
+X              if ( sp->type != C_DOUBLE )  cast1_to_d(sp) ;
+X  
+!             if ( (t = (int) sp->dval) < 0 )
+!                   rt_error( "negative field index $%d", t) ;
+X  
+X              if ( nf < 0)  split_field0() ;
+--- 263,270 ----
+X  
+X          case  FE_PUSHI :
++ 
+X              if ( sp->type != C_DOUBLE )  cast1_to_d(sp) ;
+X  
+! 	    t = d_to_index(sp->dval) ;
+X  
+X              if ( nf < 0)  split_field0() ;
+***************
+*** 915,919 ****
+X          case  _EXIT  :
+X              if ( sp->type != C_DOUBLE ) cast1_to_d(sp) ;
+!             exit_code = (int) sp-- -> dval ;
+X              /* fall thru */
+X  
+--- 926,931 ----
+X          case  _EXIT  :
+X              if ( sp->type != C_DOUBLE ) cast1_to_d(sp) ;
+!             exit_code = d_to_i(sp->dval) ;
+! 	    sp-- ;
+X              /* fall thru */
+X  
+***************
+*** 1112,1115 ****
+--- 1124,1128 ----
+X        bozo("bad cell type in call to test") ;
+X    }
++   return 0 ; /*can't get here: shutup */
+X  }
+X  
+***************
+*** 1163,1166 ****
+--- 1176,1180 ----
+X              bozo("bad cell type passed to compare") ;
+X    }
++   return 0 ; /* shut up */
+X  }
+X  
+***************
+*** 1230,1231 ****
+--- 1244,1263 ----
+X  
+X  #endif
++ 
++ 
++ 
++ /* convert a double d to a field index  $d -> $i */
++ static int
++ d_to_index( d ) 
++   double d ;
++ {
++ 
++   if ( d > MAX_FIELD ) 
++ 		rt_overflow("maximum number of fields", MAX_FIELD) ;
++   
++   if ( d >= 0.0 )  return (int) d ;
++   
++   /* might include nan */
++   rt_error("negative field index $%.6g", d) ;
++   return 0 ; /* shutup */
++ }
+Index: msdos/NOTES
+*** 1.5	1992/07/10 16:32:02
+--- 1.6	1992/12/17 02:48:01
+***************
+*** 1,3 ****
+--- 1,29 ----
++ Notes for 1.1.2d
+X  
++   Three changes specific to DOS.
++ 
++   (1) Internal conversions from doubles to strings that are integers
++   use internal conversion to long so DOS and unix now give the same
++   output.  E.g.
++ 
++ 	  '{ print 2^30 }'
++ 
++            1073741824  (instead of  ).
++ 
++   (2) Large model uses 8K as opposed to 4K I/O buffers.
++ 
++   (3) MAWKSHELL is no longer required.  If not set in the 
++   environment, MAWKSHELL defaults to %COMSPEC% /c, e.g., if
++   comspec is
++ 
++ 	   c:\system\command.com
++ 
++   then this has the effect of setting MAWKSHELL to
++ 
++ 	   c:\system\command.com /c
++ 
++   Comspec should give a full drive-path specification.
++ 
++ 
+X  Notes for MsDOS (mawk 1.1)
+X  ---------------
+***************
+*** 38,41 ****
+--- 64,68 ----
+X  The trailing backslash is required.  You have to set MAWKSHELL,
+X  MAWKTMPDIR is optional -- defaulting to the current directory.
++ 
+X  
+X  For compatibility with Unix, CR are silently stripped from input and LF 
+Index: fin.c
+*** 5.5	1992/07/28 15:11:30
+--- 5.6	1992/12/17 02:48:01
+***************
+*** 12,15 ****
+--- 12,18 ----
+X  
+X  /*$Log: fin.c,v $
++  * Revision 5.6  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.5  1992/07/28  15:11:30  brennan
+X   * minor change in finding eol, needed for MsDOS
+***************
+*** 284,287 ****
+--- 287,300 ----
+X    unsigned r ;
+X    unsigned oldsize = fin->nbuffs*BUFFSZ+1 ;
++ 
++ #if  LM_DOS
++   /* I'm not sure this can really happen:
++      avoid "16bit wrap" */
++   if ( fin->nbuffs == MAX_BUFFS )
++   {
++     errmsg(0, "out of input buffer space") ;
++     mawk_exit(1) ;
++   }
++ #endif
+X  
+X    fin->buffp = 
+Index: cast.c
+*** 5.2	1992/08/17 14:19:45
+--- 5.3.1.4	1993/01/22 15:05:19
+***************
+*** 13,16 ****
+--- 13,33 ----
+X  
+X  /*   $Log: cast.c,v $
++  * Revision 5.3.1.4  1993/01/22  15:05:19  mike
++  * pow2->mpow2 for linux
++  *
++  * Revision 5.3.1.3  1993/01/22  14:18:33  mike
++  * const for strtod and ansi picky compilers
++  *
++  * Revision 5.3.1.2  1993/01/20  12:53:06  mike
++  * d_to_l()
++  *
++  * Revision 5.3.1.1  1993/01/15  03:33:37  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.3  1992/11/28  23:48:42  mike
++  * For internal conversion numeric->string, when testing
++  * if integer, use longs instead of ints so 16 and 32 bit
++  * systems behave the same
++  *
+X   * Revision 5.2  1992/08/17  14:19:45  brennan
+X   * patch2: After parsing, only bi_sprintf() uses string_buff.
+***************
+*** 30,34 ****
+X  #include "repl.h"
+X  
+! int pow2[NUM_CELL_TYPES] = {1,2,4,8,16,32,64,128,256,512} ;
+X  
+X  void cast1_to_d( cp )
+--- 47,51 ----
+X  #include "repl.h"
+X  
+! int mpow2[NUM_CELL_TYPES] = {1,2,4,8,16,32,64,128,256,512} ;
+X  
+X  void cast1_to_d( cp )
+***************
+*** 133,137 ****
+X    register CELL *cp ;
+X  { 
+!   register int ival ;
+X    char xbuff[260] ;
+X  
+--- 150,154 ----
+X    register CELL *cp ;
+X  { 
+!   register long lval ;
+X    char xbuff[260] ;
+X  
+***************
+*** 144,149 ****
+X      case C_DOUBLE  :
+X  	
+! 	if ( (double) (ival = (int) cp->dval) == cp->dval )
+! 	    (void) sprintf(xbuff, "%d", ival) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+--- 161,167 ----
+X      case C_DOUBLE  :
+X  	
+! 	lval = d_to_l(cp->dval) ;
+! 	if ( lval == cp->dval )
+! 	    (void) sprintf(xbuff, INT_FMT, lval) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+***************
+*** 165,169 ****
+X    register CELL *cp ;
+X  { 
+!   register int ival ;
+X    char xbuff[260] ;
+X  
+--- 183,187 ----
+X    register CELL *cp ;
+X  { 
+!   register long lval ;
+X    char xbuff[260] ;
+X  
+***************
+*** 175,180 ****
+X  
+X      case C_DOUBLE  :
+! 	if ( (double) (ival = (int) cp->dval) == cp->dval )
+! 	    (void) sprintf(xbuff, "%d", ival) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+--- 193,200 ----
+X  
+X      case C_DOUBLE  :
+! 
+! 	lval = d_to_l(cp->dval) ;
+! 	if ( lval == cp->dval )
+! 	    (void) sprintf(xbuff, INT_FMT, lval) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+***************
+*** 202,207 ****
+X  
+X      case C_DOUBLE  :
+! 	if ( (double) (ival = (int) cp->dval) == cp->dval )
+! 	    (void) sprintf(xbuff, "%d", ival) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+--- 222,229 ----
+X  
+X      case C_DOUBLE  :
+! 
+! 	lval = d_to_l(cp->dval) ;
+! 	if ( lval == cp->dval )
+! 	    (void) sprintf(xbuff, INT_FMT, lval) ;
+X  	else
+X              (void) sprintf(xbuff , string(CONVFMT)->str, cp->dval) ;
+***************
+*** 324,327 ****
+--- 346,364 ----
+X  
+X  
++ /* convert a double to long (this is not as simple as a
++    cast because the results are undefined if it won't fit).
++    Truncate large values to +MAX__LONG or -MAX__LONG
++    Send nans to -MAX__LONG
++ */
++ 
++ long
++ d_to_l(d)
++   double d ;
++ {
++   if ( d >= MAX__LONG )  return MAX__LONG ;
++   if ( d >  -MAX__LONG ) return (int) d ;
++   return -MAX__LONG ;
++ }
++ 
+X  #if   HAVE_STRTOD==0
+X  
+***************
+*** 331,336 ****
+X  */
+X  
+X  double strtod(s, endptr)
+!   char *s , **endptr ;
+X  {
+X    register unsigned char *p ; 
+--- 368,378 ----
+X  */
+X  
++ #if __STDC__ == 0
++ #define const
++ #endif
++ 
+X  double strtod(s, endptr)
+!   const char *s ;
+!   char  **endptr ;
+X  {
+X    register unsigned char *p ; 
+Index: ACKNOWLEDGMENT
+*** 1.6	1992/08/27 03:47:37
+--- 1.9	1993/02/05 02:09:25
+***************
+*** 11,26 ****
+X  
+X  Ports to new systems:
+- 	Layne Lommen		ApolloSR10.3
+X  	Ed Ferguson		MIPS M2000 C2.20 OS4.52
+X  	Jwahar R. Bammi		Atari ST
+X  	Berry Kercheval		SGI IRIX 4.0.1
+! 	Andy Mason		Next 2.1
+X  	Mike Carlton		Next 2.1
+X  	Elliot Jaffe		AIX 3.1
+X  	Jeremy Martin		Convex 9.1
+X  
+X  The DOS version is a lot better thanks to suggestions and testing
+X  from Ed Ferguson, Jack Fitts, Nadav Horesh, Michael Golan and
+! Conny Ohstrom.
+X  
+X  Arnold Robbins kept me current on POSIX standards for AWK, and
+--- 11,30 ----
+X  
+X  Ports to new systems:
+X  	Ed Ferguson		MIPS M2000 C2.20 OS4.52
+X  	Jwahar R. Bammi		Atari ST
+X  	Berry Kercheval		SGI IRIX 4.0.1
+! 	Andy Newman		Next 2.1
+X  	Mike Carlton		Next 2.1
+X  	Elliot Jaffe		AIX 3.1
+X  	Jeremy Martin		Convex 9.1
++ 	Scott Hunziker		Coherent 4.0
++ 	Ken Poulton		Hpux
++ 	Onno van der Linden	386bsd 0.1
++ 	Bob Hutchinson		Linux 0.98p14
+X  
+X  The DOS version is a lot better thanks to suggestions and testing
+X  from Ed Ferguson, Jack Fitts, Nadav Horesh, Michael Golan and
+! Conny Ohstrom. The DOS additions for 1.1.2d are all ideas of
+! Ben Myers; much of the code is his too.
+X  
+X  Arnold Robbins kept me current on POSIX standards for AWK, and
+Index: config/think_c.h
+*** 4.1	1991/09/25 11:42:00
+--- 4.2	1992/12/17 02:48:01
+***************
+*** 20,23 ****
+--- 20,25 ----
+X  #define   HAVE_STDARG_H         1
+X  #define   HAVE_STDLIB_H		1
++ #define   HAVE_TIME_H		1
++ #define   HAVE_STRERROR		1
+X  
+X  #define   HAVE_MATHERR		0
+***************
+*** 26,29 ****
+--- 28,33 ----
+X  
+X  #define   SIZE_T(x)		(size_t)(x)
++ 
++ #define   SET_PROGNAME()  progname = "MacMAWK"
+X  
+X  #include ":config:Idefault.h"
+Index: error.c
+*** 5.1	1991/12/05 07:55:48
+--- 5.3	1993/01/22 14:55:46
+***************
+*** 2,6 ****
+X  /********************************************
+X  error.c
+! copyright 1991, Michael D. Brennan
+X  
+X  This is a source file for mawk, an implementation of
+--- 2,6 ----
+X  /********************************************
+X  error.c
+! copyright 1991, 1992 Michael D. Brennan
+X  
+X  This is a source file for mawk, an implementation of
+***************
+*** 13,16 ****
+--- 13,22 ----
+X  
+X  /* $Log: error.c,v $
++  * Revision 5.3  1993/01/22  14:55:46  mike
++  * trivial change for unexpected_char()
++  *
++  * Revision 5.2  1992/10/02  23:26:04  mike
++  * using vargs.h
++  *
+X   * Revision 5.1  1991/12/05  07:55:48  brennan
+X   * 1.1 pre-release
+***************
+*** 22,26 ****
+--- 28,34 ----
+X  #include  "scan.h"
+X  #include  "bi_vars.h"
++ #include  "vargs.h"
+X  
++ 
+X  #ifndef  EOF
+X  #define  EOF  (-1)
+***************
+*** 27,31 ****
+X  #endif
+X  
+- /* statics */
+X  static void  PROTO( rt_where, (void) ) ;
+X  static void  PROTO( unexpected_char, (void) ) ;
+--- 35,38 ----
+***************
+*** 33,36 ****
+--- 40,55 ----
+X  static char *PROTO( type_to_str, (int) ) ;
+X  
++ #if HAVE_STRERROR == 0
++ #define strerror(n) ((n)>0&&(n)<sys_nerr?sys_errlist[n]:(char*)0)
++ extern int sys_nerr ;
++ extern char *sys_errlist[];
++ #endif
++ 
++ 
++ #ifdef  USE_SIMPLE_VFPRINTF
++ #define  vfprintf  simple_vfprintf
++ #endif
++ 
++ 
+X  extern int NR_flag ; /* on if tracking NR */
+X  
+***************
+*** 176,189 ****
+X  }
+X  
+- /* system provided errnos and messages */
+- #ifndef MSDOS_MSC       /* don't need the declarations */
+- #ifndef THINK_C         /* don't WANT the declarations */
+- extern int sys_nerr ;
+- extern char *sys_errlist[] ;
+- #endif
+- #endif
+- 
+- #if  HAVE_STDARG_H
+- #include <stdarg.h>
+X  
+X  /* generic error message with a hook into the system error 
+--- 195,198 ----
+***************
+*** 190,212 ****
+X     messages if errnum > 0 */
+X  
+! void  errmsg(int errnum, char *format, ...)
+! { va_list args ;
+X  
+X    fprintf(stderr, "%s: " , progname) ;
+!   va_start(args, format) ;
+X    (void) vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+! #ifdef THINK_C
+!   if ( errnum > 0 )
+!     fprintf(stderr, " (%s)" , strerror(errnum) ) ;
+! #else
+!   if ( errnum > 0 && errnum < sys_nerr )
+!     fprintf(stderr, " (%s)" , sys_errlist[errnum]) ;
+! #endif
+X    fprintf( stderr, "\n") ;
+X  }
+X  
+! void  compile_error(char *format, ...)
+! { va_list args ;
+X    char *s0, *s1 ;
+X  
+--- 199,218 ----
+X     messages if errnum > 0 */
+X  
+! void  errmsg VA_ALIST2(int , errnum, char *, format)
+!   va_list args ;
+X  
+X    fprintf(stderr, "%s: " , progname) ;
+! 
+!   VA_START2(args, int, errnum, char *, format) ;
+X    (void) vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+! 
+!   if ( errnum > 0 ) fprintf(stderr, " (%s)" , strerror(errnum) ) ;
+! 
+X    fprintf( stderr, "\n") ;
+X  }
+X  
+! void  compile_error  VA_ALIST(char *, format)
+!   va_list args ;
+X    char *s0, *s1 ;
+X  
+***************
+*** 219,281 ****
+X  
+X    fprintf(stderr, "%s: %s%sline %u: " , progname, s0, s1,token_lineno) ;
+!   va_start(args, format) ;
+!   vfprintf(stderr, format, args) ;
+!   va_end(args) ;
+!   fprintf(stderr, "\n") ;
+!   if ( ++compile_error_count == MAX_COMPILE_ERRORS ) mawk_exit(1) ;
+! }
+! 
+! void  rt_error( char *format, ...)
+! { va_list args ;
+! 
+!   fprintf(stderr, "%s: run time error: " , progname ) ;
+!   va_start(args, format) ;
+!   vfprintf(stderr, format, args) ;
+!   va_end(args) ;
+!   putc('\n',stderr) ;
+!   rt_where() ;
+!   mawk_exit(1) ;
+! }
+! 
+! #else
+! 
+! #include <varargs.h>
+! 
+! /*  void errmsg(errnum, format, ...) */
+! 
+! void  errmsg( va_alist)
+!   va_dcl
+! { va_list ap ;
+!   int errnum ;
+!   char *format ;
+! 
+!   fprintf(stderr, "%s: " , progname) ;
+!   va_start(ap) ;
+!   errnum = va_arg(ap, int) ;
+!   format = va_arg(ap, char *) ;
+!   (void) vfprintf(stderr, format, ap) ;
+! #ifdef THINK_C
+!   if ( errnum > 0 )
+!     fprintf(stderr, " (%s)" , strerror(errnum) ) ;
+! #else
+!   if ( errnum > 0 && errnum < sys_nerr )
+!     fprintf(stderr, " (%s)" , sys_errlist[errnum]) ;
+! #endif
+!   fprintf( stderr, "\n") ;
+! }
+! 
+! void compile_error( va_alist )
+!   va_dcl
+! { va_list args ;
+!   char *format ;
+!   char *s0, *s1 ;
+! 
+!   if ( pfile_name ) /* print program filename too */
+!   { s0 = pfile_name ; s1 = ": " ; }
+!   else s0 = s1 = "" ;
+! 
+!   fprintf(stderr, "%s: %s%sline %u: " , progname, s0, s1,token_lineno) ;
+!   va_start(args) ;
+!   format = va_arg(args, char *) ;
+X    vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+--- 225,229 ----
+X  
+X    fprintf(stderr, "%s: %s%sline %u: " , progname, s0, s1,token_lineno) ;
+!   VA_START(args, char *, format) ;
+X    vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+***************
+*** 284,295 ****
+X  }
+X  
+! void  rt_error( va_alist )
+!   va_dcl
+! { va_list args ;
+!   char *format ;
+X  
+X    fprintf(stderr, "%s: run time error: " , progname ) ;
+!   va_start(args) ;
+!   format = va_arg(args, char *) ;
+X    vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+--- 232,240 ----
+X  }
+X  
+! void  rt_error VA_ALIST( char *, format)
+!   va_list args ;
+X  
+X    fprintf(stderr, "%s: run time error: " , progname ) ;
+!   VA_START(args, char *, format) ;
+X    vfprintf(stderr, format, args) ;
+X    va_end(args) ;
+***************
+*** 299,312 ****
+X  }
+X  
+- #endif
+X  
+X  void bozo(s)
+X    char *s ;
+! { errmsg(0, "bozo: %s" , s) ; mawk_exit(1) ; }
+X  
+X  void overflow(s, size)
+X    char *s ; unsigned size ;
+! { errmsg(0 , "program limit exceeded: %s size=%u", s, size) ;
+!   mawk_exit(1) ; }
+X  
+X  
+--- 244,261 ----
+X  }
+X  
+X  
+X  void bozo(s)
+X    char *s ;
+! { 
+!   errmsg(0, "bozo: %s" , s) ; 
+!   mawk_exit(1) ;
+! }
+X  
+X  void overflow(s, size)
+X    char *s ; unsigned size ;
+! { 
+!   errmsg(0 , "program limit exceeded: %s size=%u", s, size) ;
+!   mawk_exit(1) ; 
+! }
+X  
+X  
+***************
+*** 338,342 ****
+X  
+X    fprintf(stderr, "%s: %u: ", progname, token_lineno) ;
+!   if ( c > ' ')
+X        fprintf(stderr, "unexpected character '%c'\n" , c) ;
+X    else
+--- 287,291 ----
+X  
+X    fprintf(stderr, "%s: %u: ", progname, token_lineno) ;
+!   if ( c > ' ' && c < 127 )
+X        fprintf(stderr, "unexpected character '%c'\n" , c) ;
+X    else
+***************
+*** 366,369 ****
+--- 315,390 ----
+X      type_to_str(p->type) , p->name) ;
+X  }
++ 
++ 
++ 
++ 
++ #ifdef  USE_SIMPLE_VFPRINTF
++ 
++ /* a minimal vfprintf  */
++ int simple_vfprintf( fp, format, argp)
++   FILE *fp ;
++   char *format ; 
++   va_list  argp ;
++ { 
++   char *q , *p, *t ;
++   int l_flag ;
++   char xbuff[64] ;
++ 
++   q = format ;
++   xbuff[0] = '%' ;
++ 
++   while ( *q != 0 )
++   { 
++     if ( *q != '%' )
++     {
++       putc(*q, fp) ; q++ ; continue ;
++     }
++ 
++     /* mark the start with p */
++     p = ++q ;  t = xbuff + 1 ;
++ 
++     if ( *q == '-' )  *t++ = *q++ ;
++     while ( scan_code[*(unsigned char*)q] == SC_DIGIT ) *t++ = *q++ ;
++     if ( *q == '.' )
++     { *t++ = *q++ ;
++       while ( scan_code[*(unsigned char*)q] == SC_DIGIT ) *t++ = *q++ ;
++     }
++ 
++     if ( *q == 'l' )  { l_flag = 1 ; *t++ = *q++ ; }
++     else l_flag = 0 ;
++ 
++     
++     *t = *q++ ; t[1] = 0 ;
++ 
++     switch( *t )
++     {
++       case 'c' :  
++       case 'd' :
++       case 'o' :
++       case 'x' :
++       case 'u' :
++            if ( l_flag )  fprintf(fp, xbuff, va_arg(argp,long) ) ;
++            else  fprintf(fp, xbuff, va_arg(argp, int)) ;
++            break ;
++ 
++       case  's' :
++            fprintf(fp, xbuff, va_arg(argp, char*)) ;
++            break ;
++ 
++       case  'g' :
++       case  'f' :
++            fprintf(fp, xbuff, va_arg(argp, double)) ;
++            break ;
++ 
++       default:
++            putc('%', fp) ; 
++            q = p ;
++            break ;
++     }
++   }
++   return 0 ; /* shut up */
++ }
++ 
++ #endif  /* USE_SIMPLE_VFPRINTF */
+X  
+X  
+Index: files.c
+*** 5.4	1992/07/10 16:10:30
+--- 5.5	1992/12/17 02:48:01
+***************
+*** 12,15 ****
+--- 12,18 ----
+X  
+X  /*$Log: files.c,v $
++  * Revision 5.5  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.4  1992/07/10  16:10:30  brennan
+X   * patch2
+***************
+*** 77,98 ****
+X  static FILE_NODE *file_list ;
+X  
+- void set_stderr()
+- {
+-   file_list = ZMALLOC(FILE_NODE) ;
+-   file_list->link = (FILE_NODE*) 0 ;
+-   file_list->type = F_TRUNC ;
+-   file_list->name = new_STRING("/dev/stderr") ;
+-   file_list->ptr = (PTR) stderr ;
+- }
+- 
+- /* fopen() but no buffering to ttys */
+- static FILE *tfopen(name, mode)
+-   char *name, *mode ;
+- {
+-   FILE *retval = fopen(name,mode) ;
+- 
+-   if ( retval && isatty(fileno(retval)) )  setbuf(retval, (char*)0) ;
+-   return retval ;
+- }
+X  
+X  /* find a file on file_list */
+--- 80,83 ----
+***************
+*** 238,243 ****
+X  #endif
+X  #if  HAVE_FAKE_PIPES
+!                 (void) unlink(tmp_file_name(p->pid)) ;
+X  		retval = p->inpipe_exit ;
+X  #endif
+X                  break ;
+--- 223,231 ----
+X  #endif
+X  #if  HAVE_FAKE_PIPES
+! 	      { 
+! 		char xbuff[100] ;
+!                 (void) unlink(tmp_file_name(p->pid,xbuff)) ;
+X  		retval = p->inpipe_exit ;
++ 	      }
+X  #endif
+X                  break ;
+***************
+*** 276,279 ****
+--- 264,268 ----
+X  void  close_fake_pipes()
+X  { register FILE_NODE *p = file_list ;
++   char xbuff[100] ;
+X  
+X    /* close input pipes first to free descriptors for children */
+***************
+*** 282,286 ****
+X      if ( p->type == PIPE_IN )
+X      { FINclose((FIN *) p->ptr) ;
+!       (void) unlink(tmp_file_name(p->pid)) ; 
+X      }
+X      p = p->link ;
+--- 271,275 ----
+X      if ( p->type == PIPE_IN )
+X      { FINclose((FIN *) p->ptr) ;
+!       (void) unlink(tmp_file_name(p->pid,xbuff)) ; 
+X      }
+X      p = p->link ;
+***************
+*** 298,303 ****
+X    }
+X  }
+! #endif
+! #endif
+X  
+X  /* hardwire to /bin/sh for portability of programs */
+--- 287,292 ----
+X    }
+X  }
+! #endif /* HAVE_FAKE_PIPES */
+! #endif /* ! HAVE_REAL_PIPES */
+X  
+X  /* hardwire to /bin/sh for portability of programs */
+***************
+*** 428,429 ****
+--- 417,468 ----
+X          
+X  #endif  /* HAVE_REAL_PIPES */
++ void set_stderr()
++ {
++   file_list = ZMALLOC(FILE_NODE) ;
++   file_list->link = (FILE_NODE*) 0 ;
++   file_list->type = F_TRUNC ;
++   file_list->name = new_STRING("/dev/stderr") ;
++   file_list->ptr = (PTR) stderr ;
++ }
++ 
++ /* fopen() but no buffering to ttys */
++ static FILE *tfopen(name, mode)
++   char *name, *mode ;
++ {
++   FILE *retval = fopen(name,mode) ;
++ 
++   if ( retval )
++   {
++     if ( isatty(fileno(retval)) )  setbuf(retval, (char*)0) ;
++     else
++     {
++ #if  LM_DOS
++        enlarge_output_buffer(retval) ;
++ #endif
++     }
++   }
++   return retval ;
++ }
++ 
++ #if  LM_DOS
++ void enlarge_output_buffer( fp )
++   FILE *fp ;
++ {
++   if ( setvbuf(fp, (char*) 0, _IOFBF, BUFFSZ) < 0 )
++   {
++     errmsg(errno, "setvbuf failed on fileno %d", fileno(fp)) ;
++     mawk_exit(1) ;
++   }
++ }
++ #endif
++ 
++ #if  MSDOS
++ void
++ stdout_init()
++ {
++ #if  LM_DOS
++    if ( ! isatty(1) )  enlarge_output_buffer(stdout) ;
++ #endif
++    if ( binmode() & 2 ) { setmode(1,O_BINARY) ; setmode(2,O_BINARY) ; }
++ }
++ #endif /* MSDOS */
+Index: build_mawk
+*** 1.13	1992/07/08 16:41:06
+--- 1.16	1993/02/05 01:56:33
+***************
+*** 11,14 ****
+--- 11,15 ----
+X  #
+X  
++ #$Id: build_mawk,v 1.16 1993/02/05 01:56:33 mike Exp $
+X  
+X  progname=`basename $0`
+***************
+*** 59,62 ****
+--- 60,66 ----
+X  	config=bsd43_vax.h ;;
+X  
++ 386bsd)
++ 	config=386bsd.h ;;
++ 
+X  ultrix41_mips)
+X  	config=generic.h  ;;
+***************
+*** 94,99 ****
+X  	ranlib=: ;;
+X  
+! apolloSR10.3)
+! 	config=apollo.h  ;;
+X  
+X  dynix)
+--- 98,103 ----
+X  	ranlib=: ;;
+X  
+! #apolloSR10.3)  #does not work anymore
+! #	config=apollo.h  ;;
+X  
+X  dynix)
+***************
+*** 125,128 ****
+--- 129,145 ----
+X  	cflags='-O2 -std' ;;
+X  
++ hpux)
++ 	config=generic.h ;;
++ 
++ coherent)
++ 	echo Coherent will not pass fpe_test
++ 	echo overflow cannot be detected
++ 	echo
++         config=coherent.h
++         cflags='-O -f' ;;
++ 
++ linux)
++ 	config=linux.h
++ 	CC=gcc ;;
+X  
+X  MF)  ;;
+***************
+*** 165,169 ****
+X     echo touching parse.c  ; touch parse.c
+X  fi
+- rm -f  config.h
+X  
+X  
+--- 182,185 ----
+***************
+*** 171,174 ****
+--- 187,195 ----
+X  
+X  
++ if [ -f config.h ]
++   then
++      echo moving config.h to config.h.old
++      mv  config.h  config.h.old
++ fi
+X  echo linking config/$config to config.h
+X  ln   config/$config  config.h
+Index: zmalloc.c
+*** 5.1	1991/12/05 07:56:35
+--- 5.1.1.1	1993/02/06 11:12:19
+***************
+*** 12,15 ****
+--- 12,19 ----
+X  
+X  /*$Log: zmalloc.c,v $
++  * Revision 5.1.1.1  1993/02/06  11:12:19  mike
++  * fix bug in reuse of parser table memory
++  * for most users ifdef the mess out
++  *
+X   * Revision 5.1  1991/12/05  07:56:35  brennan
+X   * 1.1 pre-release
+***************
+*** 84,101 ****
+X  
+X    if ( blocks > amt_avail )
+!   { if ( amt_avail ) /* free avail */
+!     { avail->link = pool[--amt_avail] ; pool[amt_avail] = avail ; }
+X  
+X      /* use parser tables first */
+!     if ( yacc_memp->zblocks >= blocks )
+!     { avail = (ZBLOCK *) yacc_memp->mem ;
+X        amt_avail = yacc_memp++ -> zblocks ;
+X        /* make sure its -- aligned */
+!       if ( (int) avail & 7 )
+!       { avail = (ZBLOCK*)((char *)avail + 8 - ((int)avail&7)) ;
+! 	amt_avail-- ;
+X        }
+X      }
+X      else
+X      if ( !(avail = (ZBLOCK *) malloc(SIZE_T(CHUNK*ZBLOCKSZ))) )
+X      { /* if we get here, almost out of memory */
+--- 88,121 ----
+X  
+X    if ( blocks > amt_avail )
+!   { 
+!     if ( amt_avail != 0 ) /* free avail */
+!     { 
+!       avail->link = pool[--amt_avail] ;
+!       pool[amt_avail] = avail ;
+!     }
+X  
++ #if MSDOS || HAVE_SMALL_MEMORY
++ /* this hack is dangerous (I've blown it twice), not portable,
++    and counts on byacc not changing, but it is a big win on
++    DOS.  On paged vmem systems it is a nop so ifdef it out.
++ */
+X      /* use parser tables first */
+!     if ( yacc_memp->zblocks > blocks )
+!     { 
+!       avail = (ZBLOCK *) yacc_memp->mem ;
+X        amt_avail = yacc_memp++ -> zblocks ;
+X        /* make sure its -- aligned */
+!       {
+! 	int k = (int) avail & 7 ;
+!         if ( k )
+!         { 
+! 	  avail = (ZBLOCK*)((char *)avail + (8-k)) ;
+! 	  amt_avail-- ;
+! 	}
+X        }
+X      }
+X      else
++ #endif
++ 
+X      if ( !(avail = (ZBLOCK *) malloc(SIZE_T(CHUNK*ZBLOCKSZ))) )
+X      { /* if we get here, almost out of memory */
+Index: main.c
+*** 5.1	1991/12/05 07:56:14
+--- 5.2.1.1	1993/01/15 03:33:44
+***************
+*** 12,15 ****
+--- 12,21 ----
+X  
+X  /* $Log: main.c,v $
++  * Revision 5.2.1.1  1993/01/15  03:33:44  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.2  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.1  1991/12/05  07:56:14  brennan
+X   * 1.1 pre-release
+***************
+*** 30,69 ****
+X  #include <stdio.h>
+X  
+- #if  MSDOS 
+- void  reargv(int *, char ***) ;
+- #endif
+- 
+- #if LM_DOS && __TURBOC__
+- extern unsigned  _stklen = 16 * 1024U ;
+-    /*  4K of stack is enough for a user function call 
+-        nesting depth of 75 so this is enough for 300 */
+- #endif
+- 
+X  
+- 
+- extern int program_fd ;
+- char *progname ;
+X  short mawk_state ; /* 0 is compiling */
+X  int  exit_code ;
+X  
+! 
+X  main(argc , argv )
+X    int argc ; char **argv ;
+X  { 
+- 
+- #if   MSDOS
+-   progname = "mawk" ;
+- #if      HAVE_REARGV
+-   reargv(&argc, &argv) ;
+- #endif
+- #else	/* MSDOS */
+- #ifdef THINK_C
+-   progname = "MacMAWK";
+- #else	/* THINK_C */
+-   { char *strrchr() ;
+-     char *p = strrchr(argv[0], '/') ;
+-     progname = p ? p+1 : argv[0] ; }
+- #endif
+- #endif
+X  
+X    initialize(argc, argv) ;
+--- 36,47 ----
+X  #include <stdio.h>
+X  
+X  
+X  short mawk_state ; /* 0 is compiling */
+X  int  exit_code ;
+X  
+! int
+X  main(argc , argv )
+X    int argc ; char **argv ;
+X  { 
+X  
+X    initialize(argc, argv) ;
+Index: msdos/Makefile.tcc
+*** 1.2	1991/11/12 09:59:26
+--- 1.4	1993/01/14 13:07:48
+***************
+*** 3,12 ****
+X  #  with Borland make
+X  #
+! #   make    --  mawk.exe   DOS command line
+! #   make  -DLARGE   -- bmawk.exe   DOS  command line
+! #   make  -DREARGV  --  mawk.exe   unix command line
+! #   make  -DLARGE -DREARGV  -- bmawk.exe   unix  command line
+X  
+X  #$Log: Makefile.tcc,v $
+X  #Revision 1.2  1991/11/12  09:59:26  brennan
+X  #changed tcc to $(CC) and .o to .obj
+--- 3,22 ----
+X  #  with Borland make
+X  #
+! #   make    --  mawk.exe
+! #   make  -DLARGE   -- bmawk.exe
+X  
++ #  for a unix style command line add
++ #  -DREARV=your_reargv_file without the extension
++ #
++ #  e.g. -DREARGV=argvmks
++ 
+X  #$Log: Makefile.tcc,v $
++ #Revision 1.4  1993/01/14  13:07:48  mike
++ #RM macro
++ #
++ #Revision 1.3  1992/12/27  01:44:11  mike
++ #have to use -G- to fit small model
++ #a bunch of small changes
++ #
+X  #Revision 1.2  1991/11/12  09:59:26  brennan
+X  #changed tcc to $(CC) and .o to .obj
+***************
+*** 19,26 ****
+X  
+X  # user settable
+X  CC=tcc   # bcc or ? 
+! TCCLIB =c:\lib
+! FLOATLIB=emu   #  or  fp87
+! WILDCARD=c:\lib\wildargs.obj
+X  
+X  # compiler flags
+--- 29,49 ----
+X  
+X  # user settable
++ # change here or override from command line e.g. -DCC=bcc
++ 
++ !if ! $d(CC)
+X  CC=tcc   # bcc or ? 
+! !endif
+! 
+! !if ! $d(LIBDIR)
+! LIBDIR =c:\lib    # where are your Borland C libraries ?
+! !endif  
+! 
+! !if !  $d(FLOATLIB)
+! FLOATLIB=emu   #  or  fp87 if you have fp87 hardware
+! !endif
+! 
+! !if ! $d(WILDCARD)
+! WILDCARD=$(LIBDIR)\wildargs.obj
+! !endif
+X  
+X  # compiler flags
+***************
+*** 29,35 ****
+X  # -v- symbolic debugging off
+X  # -O  optimize
+! CFLAGS = -c -d -v- -O -G
+X  LFLAGS = /c  #case sensitive linking
+X  
+X  ##############################
+X  # end of user settable
+--- 52,76 ----
+X  # -v- symbolic debugging off
+X  # -O  optimize
+! CFLAGS = -c -d -v- -O 
+! 
+! !if $d(LARGE)
+! OPT = -G
+! !else
+! OPT = -G-  # opt for size (getting too big)
+! !endif
+! 
+! 
+X  LFLAGS = /c  #case sensitive linking
+X  
++ # how to delete a file
++ !if ! $d(RM)
++ RM = del    # rm
++ !endif
++ 
++ # how to rename a file
++ !if ! $d(RENAME)
++ RENAME = rename  # mv
++ !endif
++ 
+X  ##############################
+X  # end of user settable
+***************
+*** 45,49 ****
+X  !endif
+X  
+! CFLAGS=-m$(MODEL) $(CFLAGS)
+X  
+X  
+--- 86,90 ----
+X  !endif
+X  
+! CFLAGS=-m$(MODEL) $(OPT) $(CFLAGS)
+X  
+X  
+***************
+*** 82,86 ****
+X  
+X  !if  $d(REARGV)  
+! OBS = $(OBS) reargv.obj
+X  !endif
+X  
+--- 123,127 ----
+X  
+X  !if  $d(REARGV)  
+! OBS = $(OBS) $(REARGV).obj
+X  !endif
+X  
+***************
+*** 95,104 ****
+X  rexp3.obj
+X  
+! LIBS = $(TCCLIB)\$(FLOATLIB) \
+! $(TCCLIB)\math$(MODEL) $(TCCLIB)\c$(MODEL)
+X  
+X  $(TARGET).exe : $(OBS)  $(REXP_OBS)
+X  	tlink $(LFLAGS) @&&!
+! 	$(TCCLIB)\c0$(MODEL) $(WILDCARD) $(OBS) $(REXP_OBS)
+X  	$(TARGET),$(TARGET)
+X  	$(LIBS)
+--- 136,145 ----
+X  rexp3.obj
+X  
+! LIBS = $(LIBDIR)\$(FLOATLIB) \
+! $(LIBDIR)\math$(MODEL) $(LIBDIR)\c$(MODEL)
+X  
+X  $(TARGET).exe : $(OBS)  $(REXP_OBS)
+X  	tlink $(LFLAGS) @&&!
+! 	$(LIBDIR)\c0$(MODEL) $(WILDCARD) $(OBS) $(REXP_OBS)
+X  	$(TARGET),$(TARGET)
+X  	$(LIBS)
+***************
+*** 112,117 ****
+X  	$(CC) makescan.c
+X  	makescan.exe > scancode.c
+! 	del makescan.obj  
+! 	del makescan.exe
+X  
+X  xdosexec.obj  :  msdos\xdosexec.see
+--- 153,158 ----
+X  	$(CC) makescan.c
+X  	makescan.exe > scancode.c
+! 	$(RM) makescan.obj  
+! 	$(RM) makescan.exe
+X  
+X  xdosexec.obj  :  msdos\xdosexec.see
+***************
+*** 118,122 ****
+X  	$(CC) msdos\see2obj.c
+X  	see2obj < msdos\xdosexec.see > xdosexec.obj
+! 	del see2obj.exe
+X  
+X  #xdosexec.obj  :  xdosexec.asm
+--- 159,163 ----
+X  	$(CC) msdos\see2obj.c
+X  	see2obj < msdos\xdosexec.see > xdosexec.obj
+! 	$(RM) see2obj.exe
+X  
+X  #xdosexec.obj  :  xdosexec.asm
+***************
+*** 132,137 ****
+X  #	bison -dy parse.y
+X  #	bmawk -f modbison.awk y_tab.c parse2.xc > parse.c
+! #	rename y_tab.h parse.h
+! #	del y_tab.c
+X  ########################################
+X  
+--- 173,178 ----
+X  #	bison -dy parse.y
+X  #	bmawk -f modbison.awk y_tab.c parse2.xc > parse.c
+! #	$(RENAME) y_tab.h parse.h
+! #	$(RM) y_tab.c
+X  ########################################
+X  
+***************
+*** 138,142 ****
+X  
+X  clean  :
+! 	del  *.obj
+X  
+X  
+--- 179,183 ----
+X  
+X  clean  :
+! 	$(RM)  *.obj
+X  
+X  
+Index: symtype.h
+*** 5.2	1992/07/08 15:44:44
+--- 5.3	1992/12/17 02:48:01
+***************
+*** 12,15 ****
+--- 12,18 ----
+X  
+X  /*$Log: symtype.h,v $
++  * Revision 5.3  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.2  1992/07/08  15:44:44  brennan
+X   * patch2: length returns.  I am a wimp
+***************
+*** 44,48 ****
+X  struct anode *link , *ilink ;
+X  STRING *sval ;
+! int     ival ;
+X  CELL   *cp ;
+X  }  ANODE ;
+--- 47,51 ----
+X  struct anode *link , *ilink ;
+X  STRING *sval ;
+! long     ival ;
+X  CELL   *cp ;
+X  }  ANODE ;
+Index: files.h
+*** 5.1	1991/12/05 07:59:18
+--- 5.2	1992/12/17 02:48:01
+***************
+*** 12,15 ****
+--- 12,18 ----
+X  
+X  /*$Log: files.h,v $
++  * Revision 5.2  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.1  1991/12/05  07:59:18  brennan
+X   * 1.1 pre-release
+***************
+*** 38,42 ****
+X  void PROTO(close_fake_pipes, (void)) ;
+X  int  PROTO(close_fake_outpipe, (char *,int)) ;
+! char *PROTO(tmp_file_name, (int)) ;
+X  #endif
+X  
+--- 41,45 ----
+X  void PROTO(close_fake_pipes, (void)) ;
+X  int  PROTO(close_fake_outpipe, (char *,int)) ;
+! char *PROTO(tmp_file_name, (int, char*)) ;
+X  #endif
+X  
+***************
+*** 45,48 ****
+--- 48,52 ----
+X  int  PROTO(binmode, (void)) ;
+X  void PROTO(set_binmode, (int)) ;
++ void PROTO(enlarge_output_buffer, (FILE*)) ;
+X  #endif
+X  
+Index: config/msc_dos.h
+*** 4.3	1992/01/09 08:54:09
+--- 4.4	1992/12/17 02:48:01
+***************
+*** 14,17 ****
+--- 14,20 ----
+X  
+X  /*$Log: msc_dos.h,v $
++  * Revision 4.4  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 4.3  1992/01/09  08:54:09  brennan
+X   * changed SAMESEG macro
+***************
+*** 31,34 ****
+--- 34,39 ----
+X  #define   HAVE_STDARG_H         1
+X  #define   HAVE_STDLIB_H		1
++ #define   HAVE_TIME_H		1
++ #define   HAVE_STRERROR		1
+X  
+X  #define   FPE_TRAPS_ON		1
+Index: array.c
+*** 5.2	1992/04/07 17:17:31
+--- 5.3.1.1	1993/01/20 12:24:25
+***************
+*** 12,15 ****
+--- 12,23 ----
+X  
+X  /* $Log: array.c,v $
++  * Revision 5.3.1.1  1993/01/20  12:24:25  mike
++  * patch3: safer double to int conversions
++  *
++  * Revision 5.3  1992/11/28  23:48:42  mike
++  * For internal conversion numeric->string, when testing
++  * if integer, use longs instead of ints so 16 and 32 bit
++  * systems behave the same
++  *
+X   * Revision 5.2  1992/04/07  17:17:31  brennan
+X   * patch 2
+***************
+*** 34,38 ****
+X  
+X  static ANODE *PROTO(find_by_sval, (ARRAY, STRING *, int) ) ;
+! static ANODE *PROTO(find_by_index, (ARRAY, int,int,int) ) ;
+X  static ANODE *PROTO(find_by_dval, (ARRAY, double, int)) ;
+X  static void PROTO(load_array_ov, (ARRAY) ) ;
+--- 42,46 ----
+X  
+X  static ANODE *PROTO(find_by_sval, (ARRAY, STRING *, int) ) ;
+! static ANODE *PROTO(find_by_index, (ARRAY, int,long,int) ) ;
+X  static ANODE *PROTO(find_by_dval, (ARRAY, double, int)) ;
+X  static void PROTO(load_array_ov, (ARRAY) ) ;
+***************
+*** 98,104 ****
+X  
+X  
+X  static ANODE  *find_by_index(A, index, ival, flag)
+X    ARRAY  A ;
+!   int index, ival, flag ;
+X  {
+X    register ANODE *p = A[index].ilink ;
+--- 106,119 ----
+X  
+X  
++ /* find an array by (long) integer ival.
++    Caller has already computed the hash value index.
++    (This allows fast insertion for split())
++ */
++ 
+X  static ANODE  *find_by_index(A, index, ival, flag)
+X    ARRAY  A ;
+!   int index; 
+!   long ival; 
+!   int flag ;
+X  {
+X    register ANODE *p = A[index].ilink ;
+***************
+*** 116,123 ****
+X     /* not there, still need to look by sval */
+X     
+!    { char xbuff[16] ;
+X       STRING *sval ;
+X       char *s = xbuff+14 ;
+!      int x = ival ;
+X  
+X       xbuff[15] = 0 ;
+--- 131,139 ----
+X     /* not there, still need to look by sval */
+X     
+!    { /* convert to string */
+!      char xbuff[16] ;
+X       STRING *sval ;
+X       char *s = xbuff+14 ;
+!      long x = ival ;
+X  
+X       xbuff[15] = 0 ;
+***************
+*** 143,148 ****
+X    ARRAY A ;
+X    double d ;
+X  {
+!   int ival ;
+X    ANODE *p ;
+X    char xbuff[260] ;
+--- 159,165 ----
+X    ARRAY A ;
+X    double d ;
++   int flag ;
+X  {
+!   long lval ;
+X    ANODE *p ;
+X    char xbuff[260] ;
+***************
+*** 150,159 ****
+X    
+X  
+!   if ( (double)(ival = (int)d) == d ) /* integer valued */
+X    {
+!     if ( ival >= 0 )  
+!             return  find_by_index(A, ival%A_HASH_PRIME, ival, flag) ;
+!     
+!     (void) sprintf(xbuff, "%d", ival) ;
+X    } 
+X    else (void) sprintf(xbuff, string(CONVFMT)->str, d) ;
+--- 167,180 ----
+X    
+X  
+!   lval = d_to_l(d) ;
+!   if ( (double)lval == d ) /* integer valued */
+X    {
+!     if ( lval >= 0 )  
+!     {
+!             return 
+! 	    find_by_index(A, (int)(lval%A_HASH_PRIME), lval, flag) ;
+!     }
+!     else
+!     (void) sprintf(xbuff, INT_FMT, lval) ;
+X    } 
+X    else (void) sprintf(xbuff, string(CONVFMT)->str, d) ;
+***************
+*** 202,207 ****
+X      case C_DOUBLE :
+X          ap = find_by_dval(A, cp->dval, NO_CREATE) ;
+X          if ( ap && ap->ival >= 0 ) /* must be at front */
+!                 A[ap->ival%A_HASH_PRIME].ilink = ap->ilink ;
+X          break ;
+X  
+--- 223,229 ----
+X      case C_DOUBLE :
+X          ap = find_by_dval(A, cp->dval, NO_CREATE) ;
++ 	/* cut the ilink */
+X          if ( ap && ap->ival >= 0 ) /* must be at front */
+!                 A[(int)(ap->ival%A_HASH_PRIME)].ilink = ap->ilink ;
+X          break ;
+X  
+***************
+*** 216,219 ****
+--- 238,244 ----
+X    }
+X  
++   
++   /* delete -- leave the empty ANODE so for(i in A)
++      works */
+X    if ( ap )
+X    { free_STRING(ap->sval) ; ap->sval = (STRING *) 0 ;
+***************
+*** 242,246 ****
+X    while( 1 )
+X    {
+!     cp = find_by_index(A, index, cnt, NO_MOVE) ->cp ;
+X      cell_destroy(cp) ;
+X      cp->type = C_MBSTRN ;
+--- 267,271 ----
+X    while( 1 )
+X    {
+!     cp = find_by_index(A, index, (long)cnt, NO_MOVE) ->cp ;
+X      cell_destroy(cp) ;
+X      cp->type = C_MBSTRN ;
+***************
+*** 316,320 ****
+X    while ( cnt )
+X    {
+!     cp = find_by_index(A, index, cnt, NO_MOVE) ->cp  ;
+X      cell_destroy(cp) ;
+X      cp->type = C_MBSTRN ;
+--- 341,345 ----
+X    while ( cnt )
+X    {
+!     cp = find_by_index(A, index, (long) cnt, NO_MOVE) ->cp  ;
+X      cell_destroy(cp) ;
+X      cp->type = C_MBSTRN ;
+***************
+*** 441,443 ****
+X    }
+X  }
+- 
+--- 466,467 ----
+Index: version.c
+*** 5.4	1992/08/27 11:50:38
+--- 5.6.1.2	1993/01/20 12:53:13
+***************
+*** 12,15 ****
+--- 12,27 ----
+X  
+X  /*$Log: version.c,v $
++  * Revision 5.6.1.2  1993/01/20  12:53:13  mike
++  * d_to_l()
++  *
++  * Revision 5.6.1.1  1993/01/15  03:33:54  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.6  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
++  * Revision 5.5  1992/12/02  03:18:12  mike
++  * coherent patch
++  *
+X   * Revision 5.4  1992/08/27  11:50:38  mike
+X   * patch2
+***************
+*** 29,34 ****
+X  #include "patchlev.h"
+X  
+X  #define  VERSION_STRING  \
+!   "mawk 1.1%s%s Aug 1992, Copyright (C) Michael D. Brennan\n\n"
+X  
+X  #define  DOS_STRING     ""
+--- 41,49 ----
+X  #include "patchlev.h"
+X  
++ static char rcsid[] =
++ "@(#) $Id: version.c,v 5.6.1.2 1993/01/20 12:53:13 mike Exp $" ;
++ 
+X  #define  VERSION_STRING  \
+!   "mawk 1.1%s%s %s, Copyright (C) Michael D. Brennan\n\n"
+X  
+X  #define  DOS_STRING     ""
+***************
+*** 64,76 ****
+X  #endif
+X  
+X  /* print VERSION and exit */
+X  void print_version()
+! { static char fmt[] = "%-14s%10u\n" ;
+X  
+!   printf(VERSION_STRING, PATCH_STRING, DOS_STRING) ;
+X    fflush(stdout) ;
+X    fprintf(stderr, "compiled limits:\n") ;
+!   fprintf(stderr, fmt,  "largest field", MAX_FIELD) ;
+!   fprintf(stderr, fmt,  "sprintf buffer",SPRINTF_SZ) ;
+X    exit(0) ;
+X  }
+--- 79,178 ----
+X  #endif
+X  
++ static char fmt[] = "%-14s%10lu\n" ;
++ 
+X  /* print VERSION and exit */
+X  void print_version()
+! { 
+X  
+!   printf(VERSION_STRING, PATCH_STRING, DOS_STRING, DATE_STRING) ;
+X    fflush(stdout) ;
++ 
++   print_compiler_id() ;
+X    fprintf(stderr, "compiled limits:\n") ;
+!   fprintf(stderr, fmt,  "largest field", (long)MAX_FIELD) ;
+!   fprintf(stderr, fmt,  "sprintf buffer", (long)SPRINTF_SZ) ;
+!   print_aux_limits() ;
+X    exit(0) ;
++ }
++ 
++ 
++ /*
++   Extra info for MSDOS.  This code contributed by
++   Ben Myers 
++ */
++ 
++ #ifdef __TURBOC__
++ #include <alloc.h>   /* coreleft() */
++ #define  BORL
++ #endif
++ 
++ #ifdef __BORLANDC__
++ #include <alloc.h>   /* coreleft() */
++ #define  BORL
++ #endif
++ 
++ #ifdef  BORL 
++ #if     LM_DOS
++ extern unsigned  _stklen = 16 * 1024U ; 
++    /*  4K of stack is enough for a user function call 
++        nesting depth of 75 so this is enough for 300 */
++ #endif
++ #endif
++ 
++ #ifdef _MSC_VER
++ #include <malloc.h>
++ #endif
++ 
++ #ifdef __ZTC__
++ #include <dos.h>              /* _chkstack */
++ #endif
++ 
++ 
++ int print_compiler_id()
++ {
++ 
++ #ifdef  __TURBOC__
++   fprintf(stderr, "MsDOS Turbo C++ %d.%d\n",
++                 __TURBOC__>>8, __TURBOC__&0xff) ;
++ #endif
++   
++ #ifdef __BORLANDC__
++   fprintf (stderr, "MS-DOS Borland C++ __BORLANDC__ %x\n",
++         __BORLANDC__ );
++ #endif
++ 
++ #ifdef _MSC_VER
++   fprintf (stderr, "MS-DOS Microsoft C/C++ _MSC_VER %u\n", _MSC_VER );
++ #endif
++ 
++ #ifdef __ZTC__
++   fprintf (stderr, "MS-DOS Zortech C++ __ZTC__ %x\n", __ZTC__ );
++ #endif
++ 
++   return 0 ; /*shut up */
++ }
++ 
++ 
++ int  print_aux_limits()
++ {
++ #ifdef BORL
++   extern unsigned _stklen ;
++   fprintf(stderr, fmt,  "stack size", (unsigned long)_stklen) ;
++   fprintf(stderr, fmt,  "heap size",  (unsigned long) coreleft()) ;
++ #endif
++ 
++ #ifdef _MSC_VER
++   fprintf(stderr, fmt,  "stack size", (unsigned long)_stackavail()) ;
++ #if   SM_DOS
++   fprintf(stderr, fmt,  "heap size", (unsigned long) _memavl()) ;
++ #endif
++ #endif
++ 
++ #ifdef __ZTC__
++ /* large memory model only with ztc */
++   fprintf(stderr, fmt,  "stack size??", (unsigned long)_chkstack()) ;
++   fprintf(stderr, fmt,  "heap size", farcoreleft()) ;
++ #endif
++ 
++   return 0 ;
+X  }
+DIFFGEN_EOF
+SHAR_EOF
+echo 'File patch3 is complete' &&
+chmod 0640 patch3 ||
+echo 'restore of patch3 failed'
+Wc_c="`wc -c < 'patch3'`"
+test 111555 -eq "$Wc_c" ||
+	echo 'patch3: original size 111555, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0

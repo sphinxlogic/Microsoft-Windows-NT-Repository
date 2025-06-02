@@ -1,0 +1,1968 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i113:  u386mon - SVR3 performance/status monitor v2.60, Part04/09
+Message-ID: <1992Nov22.020121.24168@sparky.imd.sterling.com>
+X-Md4-Signature: 41e9458d764139b74abe99137bf25e6d
+Date: Sun, 22 Nov 1992 02:01:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 113
+Archive-name: u386mon/part04
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 04 of u386mon.2.60
+# ============= detail.c ==============
+if test -f 'detail.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping detail.c (File already exists)'
+else
+echo 'x - extracting detail.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'detail.c' &&
+X/* CHK=0xBC2B */
+X/*+-------------------------------------------------------------------------
+X	detail.c - UNIX 386 system monitor detail window
+X
+X  Defined functions:
+X	detail_init()
+X	detail_panel_cmd(cmd)
+X	detail_panel_update()
+X	detpanel_destroy()
+X	detpanel_extra_init()
+X	detpanel_extra_update()
+X	detpanel_ps_init(full43)
+X	detpanel_ps_update()
+X	detpanel_sio_init()
+X	detpanel_sio_update()
+X	detpanel_streams_init()
+X	detpanel_streams_update()
+X	detpanel_table_init()
+X	detpanel_table_update()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-14-1991-13:04-wht@n4hgf-STREAMS and table works for ISC 2.2 */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:05-15-1991-17:22-wht@n4hgf-2.3 patches for SVR31 from nba@sysware.dk */
+X/*:04-16-1991-16:51-martin@hppcmart-Fix display problems */
+X/*:04-16-1991-02:24-martin@hppcmart-additions for SCO 3.2.2 */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-10-1990-14:53-root@n4hgf-clear msg line on detail cmd - fix 24-line bug */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-17:34-wht@n4hgf-add detail extra for 25 line tubes */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:06-15-1990-18:32-wht@n4hgf-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef timeout /* conflict in curses.h and bootinfo.h per trb@ima.ima.isc.com */
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <signal.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <nlist.h>
+X#include <errno.h>
+X#include <time.h>
+X#include <pwd.h>
+X#include <sys/types.h>
+X#include <utmp.h>
+X#include <sys/utsname.h>
+X#include <sys/stat.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/tuneable.h>
+X#include <sys/sysinfo.h>
+X#include <sys/sysmacros.h>
+X#include <sys/immu.h>
+X#include <sys/region.h>
+X#if defined(mips)
+X#include <sys/sbd.h>
+X#endif
+X#include <sys/proc.h>
+X#include <sys/var.h>
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+XPANEL *mkpanel();
+X
+Xextern PANEL *pscr;
+Xextern WINDOW *wscr;
+X
+XPANEL *pdet;
+XWINDOW *wdet = (WINDOW *)0;
+Xu_char detpanel_type = DPT_NONE;
+Xint detpanel_length;
+Xint detpanel_cols;
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_ps_init(full43)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetpanel_ps_init(full43)
+Xint full43;
+X{
+X/*
+X#define DETAIL_PS_COLS ((LINES >= 43) ? EXTRA4_TLX - 1 : PER_SEC4_TLX)
+Xdetpanel_cols = DETAIL_PS_COLS;
+X*/
+X
+X#define DETAIL_PS_TLY ((LINES >= 43) ? ((full43)?PER_SEC_TLY:PER_SEC_TLY+14)\
+X                                     : PER_SEC_TLY)
+X
+X#define DETAIL_PS_LENGTH		(MSG_TLY - DETAIL_PS_TLY)
+X
+X	detpanel_length = DETAIL_PS_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,DETAIL_PS_TLY,0,"ps")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	display_proc_stats(wdet,1);
+X
+X}	/* end of detpanel_ps_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_ps_update()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetpanel_ps_update()
+X{
+X	display_proc_stats(wdet,0);
+X}	/* end of detpanel_ps_update */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_extra_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetpanel_extra_init()
+X{
+X#define DETAIL_EXTRA_TLY		PER_SEC_TLY
+X#define DETAIL_EXTRA_LENGTH		(CMD_TLY - DETAIL_EXTRA_TLY)
+X
+X	detpanel_length = DETAIL_EXTRA_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,DETAIL_EXTRA_TLY,0,"ex")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	display_var(wdet,0,EXTRA1_TLX);
+X#if defined(HAS_BOOTINFO)
+X	display_bootinfo(wdet,0,EXTRA2_TLX);
+X#endif
+X	display_tune(wdet,0,EXTRA3_TLX);
+X	display_proc(wdet,0,EXTRA4_TLX);
+X
+X}	/* end of detpanel_extra_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_extra_update()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetpanel_extra_update()
+X{
+X	display_proc(wdet,0,EXTRA4_TLX);
+X}	/* end of detpanel_extra_update */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_streams_init() - streams stats
+X--------------------------------------------------------------------------*/
+X#if defined(DPT_STREAMS)
+Xvoid
+Xdetpanel_streams_init()
+X{
+X#define DETAIL_STREAMS_TLY ((LINES >= 43) ? (PER_SEC_TLY+14) : PER_SEC_TLY)
+X#define DETAIL_STREAMS_LENGTH		(CMD_TLY - DETAIL_STREAMS_TLY)
+X
+X	detpanel_length = DETAIL_STREAMS_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,
+X		DETAIL_STREAMS_TLY,0,"str")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	draw_streamscale_literals(wdet, 0, 0);
+X	update_streamscale(wdet, 1, 21, 79-39);
+X}	/* end of detpanel_streams_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_streams_update()
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xdetpanel_streams_update()
+X{
+X	update_streamscale(wdet, 1, 21, 79-39);
+X}	/* end of detpanel_streams_update */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_wd_init()
+X	SCO 3.2.2 only WD Disk stats
+X--------------------------------------------------------------------------*/
+X#if defined(DPT_WD)
+Xvoid
+Xdetpanel_wd_init()
+X{
+X#define DETAIL_WD_TLY ((LINES >= 43) ? (PER_SEC_TLY + 14) : PER_SEC_TLY)
+X#define DETAIL_WD_LENGTH		(CMD_TLY - DETAIL_WD_TLY)
+X
+X	detpanel_length = DETAIL_WD_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,DETAIL_WD_TLY,0,"str")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	draw_wd_literals(wdet, 0, 0);
+X	update_wd(wdet, 1, 9, 79-28);
+X}	/* end of detpanel_wd_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_wd_update()
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xdetpanel_wd_update()
+X{
+X	update_wd(wdet, 1, 9, 79-28);
+X}	/* end of detpanel_wd_update */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_table_init()
+X	SCO only table stats
+X--------------------------------------------------------------------------*/
+X#if defined(DPT_TABLE)
+Xvoid
+Xdetpanel_table_init()
+X{
+X#define DETAIL_TABLE_TLY ((LINES >= 43) ? (PER_SEC_TLY+14) : PER_SEC_TLY)
+X#define DETAIL_TABLE_LENGTH		(CMD_TLY - DETAIL_TABLE_TLY)
+X
+X	detpanel_length = DETAIL_TABLE_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,DETAIL_TABLE_TLY,0,"tab")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	draw_table_literals(wdet, 0, 0);
+X	update_table(wdet, 1, 0);
+X}	/* end of detpanel_table_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_table_update()
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xdetpanel_table_update()
+X{
+X	update_table(wdet, 1, 0);
+X}	/* end of detpanel_table_update */
+X#endif
+X
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_sio_init() - SCO only serial I/O display
+X--------------------------------------------------------------------------*/
+X#if defined(DPT_SIO)
+Xvoid
+Xdetpanel_sio_init()
+X{
+X#define DETAIL_SIO_TLY ((LINES >= 43) ? (PER_SEC_TLY+14) : PER_SEC_TLY)
+X#define DETAIL_SIO_LENGTH		(CMD_TLY - DETAIL_SIO_TLY)
+X
+X	detpanel_length = DETAIL_SIO_LENGTH;
+X	detpanel_cols = COLS;
+X	if(!(pdet = mkpanel(detpanel_length,detpanel_cols,DETAIL_SIO_TLY,0,"sio")))
+X	{
+X		leave_text("cannot make detail panel",1);
+X	}
+X	show_panel(pdet);
+X	top_panel(pdet);
+X	wdet = panel_window(pdet);
+X	display_sio_summary(wdet,1);
+X}	/* end of detpanel_sio_init */
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_sio_update()
+X--------------------------------------------------------------------------*/
+X
+Xvoid
+Xdetpanel_sio_update()
+X{
+X	display_sio_summary(wdet,0);
+X}	/* end of detpanel_sio_update */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	detpanel_destroy()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetpanel_destroy()
+X{
+X	hide_panel(pdet);
+X	delwin(wdet);
+X	wdet = (WINDOW *)0;
+X	del_panel(pdet);
+X	top_panel(pscr);
+X	disp_msg(cpINFO,"");
+X	detpanel_type = DPT_NONE;
+X}	/* end of detpanel_destroy */
+X
+X/*+-------------------------------------------------------------------------
+X	detail_panel_cmd(cmd)
+X
+X  command: m main screen
+X           p proc status
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetail_panel_cmd(cmd)
+Xchtype cmd;
+X{
+X	disp_msg(cpINFO,"");
+X	switch(cmd)
+X	{
+X		case 'm':
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			break;
+X
+X		case 'P':
+X			if(detpanel_type == DPT_PS_LONG)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_ps_init(1);
+X			detpanel_type = DPT_PS_LONG;
+X			break;
+X
+X		case 'p':
+X			if(detpanel_type == DPT_PS)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_ps_init(0);
+X			detpanel_type = DPT_PS;
+X			break;
+X
+X		case 'e':
+X			if(LINES >= 43)
+X				break;
+X			if(detpanel_type == DPT_EXTRA)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_extra_init();
+X			detpanel_type = DPT_EXTRA;
+X			break;
+X
+X#if defined(DPT_STREAMS)
+X		case 'n':
+X			if(detpanel_type == DPT_STREAMS)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_streams_init();
+X			detpanel_type = DPT_STREAMS;
+X			break;
+X#endif
+X#if defined(DPT_TABLE)
+X		case 't':
+X			if(detpanel_type == DPT_TABLE)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_table_init();
+X			detpanel_type = DPT_TABLE;
+X			break;
+X#endif
+X#if defined(DPT_SIO)
+X		case 's':
+X			if(detpanel_type == DPT_SIO)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_sio_init();
+X			detpanel_type = DPT_SIO;
+X			break;
+X#endif
+X#if defined(DPT_WD)
+X		case 'w':
+X			if(detpanel_type == DPT_WD)
+X				break;
+X			if(detpanel_type != DPT_NONE)
+X				detpanel_destroy();
+X			detpanel_wd_init();
+X			detpanel_type = DPT_WD;
+X			break;
+X#endif
+X
+X	}
+X}	/* end of detail_panel_cmd */
+X
+X/*+-------------------------------------------------------------------------
+X	detail_panel_update()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetail_panel_update()
+X{
+X	switch(detpanel_type)
+X	{
+X		case DPT_PS:
+X		case DPT_PS_LONG:
+X			detpanel_ps_update();
+X			break;
+X		case DPT_EXTRA:
+X			detpanel_extra_update();
+X			break;
+X#if defined(DPT_SIO)
+X		case DPT_SIO:
+X			detpanel_sio_update();
+X			break;
+X#endif
+X#if defined(DPT_STREAMS)
+X		case DPT_STREAMS:
+X			detpanel_streams_update();
+X			break;
+X#endif
+X#if defined(DPT_TABLE)
+X		case DPT_TABLE:
+X			detpanel_table_update();
+X			break;
+X#endif
+X#if defined(DPT_WD)
+X		case DPT_WD:
+X			detpanel_wd_update();
+X			break;
+X#endif
+X	}
+X}	/* end of detail_panel_update */
+X
+X/*+-------------------------------------------------------------------------
+X	detail_init()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetail_init()
+X{
+X	det_proc_init();	/* see det_proc.c */
+X#if defined(DPT_STREAMS)
+X	init_stream();
+X#endif
+X#if defined(DPT_TABLE)
+X	init_table();
+X#endif
+X#if defined(DPT_WD)
+X	init_wd();
+X#endif
+X}	/* end of detail_init */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of detail.c */
+SHAR_EOF
+chmod 0644 detail.c ||
+echo 'restore of detail.c failed'
+Wc_c="`wc -c < 'detail.c'`"
+test 12316 -eq "$Wc_c" ||
+	echo 'detail.c: original size 12316, current size' "$Wc_c"
+fi
+# ============= det_proc.c ==============
+if test -f 'det_proc.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping det_proc.c (File already exists)'
+else
+echo 'x - extracting det_proc.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'det_proc.c' &&
+X/* CHK=0xF6D2 */
+X/*+-------------------------------------------------------------------------
+X	det_proc.c - UNIX V/386 system monitor proc status detail
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	det_proc_init()
+X	display_proc_stat(win,iproc,initial)
+X	display_proc_stats(win,initial)
+X	find_utmp_for_pgrp(pgrp)
+X	get_cpu_time_str(ticks)
+X	get_user(tproc,tuser)
+X	getpwent_and_enter(uid)
+X	init_uid_name_hash()
+X	pgrp_to_ttyname(pgrp)
+X	ppproc_pid_compare(ppp1,ppp2)
+X	read_and_sort_procs(initial)
+X	read_utmp()
+X	uid_name_enter(uid,name)
+X	uid_to_name(uid)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-29-1992-18:37-root@n4hgf-omit u386mon from display */
+X/*:03-09-1992-11:54-wht@n4hgf-p_sid addition */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-11-1991-13:58-root@n4hgf-keep bogus numbers from polluting display */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:02-14-1991-11:26-martin@hppcmart-Whittle procs with no cpu time*/
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:08-01-1990-12:26-wht@n4hgf-2.11-try to support ISC 1.x.x */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:07-11-1990-03:45-root@n4hgf-faster proc table manipulation */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-25-1990-04:14-wht@n4hgf-1.02-better error handling */
+X/*:06-24-1990-20:53-wht@n4hgf-v1.01-add ISC support thanks to peter@radig.de */
+X/*:06-21-1990-14:26-r@n4hgf-version x0.12 seems bug free */
+X/*:01-05-1989-13:27-wht-creation */
+X
+X#include "config.h"
+X
+X#include <curses.h>
+X#undef timeout /* conflict in curses.h and bootinfo.h per trb@ima.ima.isc.com */
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <signal.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <nlist.h>
+X#include <errno.h>
+X#include <time.h>
+X#include <pwd.h>
+X#include <sys/types.h>
+X#include <utmp.h>
+X#include <sys/stat.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/tuneable.h>
+X#include <sys/sysinfo.h>
+X#include <sys/sysmacros.h>
+X#include <sys/immu.h>
+X#include <sys/region.h>
+X#if defined(mips)
+X#define pg_pres pg_sv /* alias: MIPS pg_sv==page valid */
+X#include <sys/sbd.h>
+X#include <sys/pcb.h>
+X#endif
+X#include <sys/proc.h>
+X#include <sys/fs/s5dir.h>
+X#include <sys/user.h>
+X#include <sys/var.h>
+X#if defined(M_UNIX) && (defined(i386) || defined(i486)) && SYSI86_RDUBLK_WANTED
+X/* maybe someday, but not now */
+X# include <sys/sysi86.h>
+X#endif
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern int errno;
+X
+Xextern int nprocs;
+Xextern struct var v;
+Xextern struct proc *procs;
+Xextern struct proc *oldprocs;
+Xextern struct proc **pprocs;
+Xextern struct proc **poldprocs;
+X
+Xint mypid;
+Xint noldprocs = 0;
+Xint nprocs = 0;
+Xint max_procs_to_display;
+X
+Xstruct user user;
+X
+X#define min(a,b) (((a) > (b)) ? (b) : (a))
+X
+X#define MAX_UTMP 64
+Xint nutmps = 0;
+Xstruct utmp utmps[MAX_UTMP];
+X
+X/*+-------------------------------------------------------------------------
+X	ppproc_pid_compare(ppp1,ppp2)
+X--------------------------------------------------------------------------*/
+Xppproc_pid_compare(ppp1,ppp2)
+Xregister struct proc **ppp1;
+Xregister struct proc **ppp2;
+X{
+X	return((*ppp1)->p_pid - (*ppp2)->p_pid);
+X}	/* end of ppproc_pid_compare */
+X
+X/*+-------------------------------------------------------------------------
+X	read_and_sort_procs(initial)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xread_and_sort_procs(initial)
+Xint initial;
+X{
+X	int iproc;
+X	register char *cptr;
+X	register struct proc *tproc;
+X	int omitted_one;
+X	char omitted[80];
+X
+X	omitted[0] = 0;
+X	disp_msg(cpINFO,"");
+X	if(!initial)
+X	{
+X		(void)memcpy((char *)oldprocs,(char *)procs,
+X			v.v_proc * sizeof(struct proc));
+X		noldprocs = nprocs;
+X		(void)memcpy((char *)poldprocs,(char *)pprocs,
+X			noldprocs * sizeof(struct proc *));
+X	}
+X
+X/* read current procs */
+X	grok_proc();
+X
+X/* if slot not in use, force to end when sorting */
+X	nprocs = 0;
+X	for(iproc = 0; iproc < v.v_proc; iproc++)
+X	{
+X		tproc = pprocs[iproc];
+X		if(	(tproc->p_stat == 0) ||		/* if slot not in use, ... */
+X			(tproc->p_pid == 1)  ||		/* ... or proc is init, ... */
+X			(tproc->p_pid == mypid) ||	/* ... or proc is init, ... */
+X			(tproc->p_flag & SSYS))		/* ... or proc is system process */
+X		{							/* eliminate from consideration */
+X			tproc->p_pid = 32767;	/* force below selected procs in qsort */
+X			continue;
+X		}
+X		nprocs++;
+X	}
+X
+X/* if too many procs, whittle zombies */
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = 0;
+X		omitted_one = 0;
+X		for(iproc = 0; iproc < v.v_proc; iproc++)
+X		{
+X			tproc = pprocs[iproc];
+X			if(tproc->p_pid == 32767)	/* previously eliminated? */
+X				continue;
+X			else if(tproc->p_stat == SZOMB)
+X			{
+X				tproc->p_pid = 32767;
+X				omitted_one = 1;
+X				continue;
+X			}
+X			nprocs++;
+X		}
+X		if(omitted_one)
+X		{
+X			if(omitted[0])
+X				strcat(omitted,"/");
+X			strcat(omitted,"zombie");
+X		}
+X	}
+X
+X/* if still too many procs, whittle shells and gettys */
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = 0;
+X		omitted_one = 0;
+X		for(iproc = 0; iproc < v.v_proc; iproc++)
+X		{
+X			tproc = pprocs[iproc];
+X			if(tproc->p_pid == 32767)	/* previously eliminated? */
+X				continue;
+X			else if(get_user(tproc,&user))
+X			{
+X				if( !strcmp(cptr = user.u_comm,"csh") ||
+X					!strcmp(cptr,"sh")		||
+X					!strcmp(cptr,"ksh")		||
+X					!strcmp(cptr,"bash")	||
+X					!strcmp(cptr,"cron")	||
+X					!strcmp(cptr,"errdemon")||
+X					!strcmp(cptr,"lpsched") ||
+X					!strcmp(cptr,"logger")	||
+X					!strcmp(cptr,"getty")	||
+X					!strcmp(cptr,"uugetty")		)
+X				{
+X					tproc->p_pid = 32767;
+X					omitted_one = 1;
+X					continue;
+X				}
+X			}
+X			nprocs++;
+X		}
+X		if(omitted_one)
+X		{
+X			if(omitted[0])
+X				strcat(omitted,"/");
+X			strcat(omitted,"shell/getty");
+X		}
+X	}
+X
+X/* if still too many procs, whittle swapped */
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = 0;
+X		omitted_one = 0;
+X		for(iproc = 0; iproc < v.v_proc; iproc++)
+X		{
+X			tproc = pprocs[iproc];
+X			if(tproc->p_pid == 32767)	/* previously eliminated? */
+X				continue;
+X			else if(!(tproc->p_flag & SLOAD) && (tproc->p_stat != SRUN))
+X			{	/* not in core or not ready to run */
+X				tproc->p_pid = 32767;
+X				omitted_one = 1;
+X				continue;
+X			}
+X			nprocs++;
+X		}
+X		if(omitted_one)
+X		{
+X			if(omitted[0])
+X				strcat(omitted,"/");
+X			strcat(omitted,"swapped");
+X		}
+X	}
+X
+X/* If still too many procs, get rid of processes not using the CPU
+X   This hilites the processes that are actually doing something
+X   if you have a lot */
+X
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = 0;
+X		omitted_one = 0;
+X		for(iproc = 0; iproc < v.v_proc; iproc++)
+X		{
+X			tproc = pprocs[iproc];
+X			if(tproc->p_pid == 32767)	/* previously eliminated? */
+X				continue;
+X			else if(!tproc->p_cpu)
+X			{
+X				tproc->p_pid = 32767;
+X				omitted_one = 1;
+X				continue;
+X			}
+X			nprocs++;
+X		}
+X		if(omitted_one)
+X		{
+X			if(omitted[0])
+X				strcat(omitted,"/");
+X			strcat(omitted,"no cpu");
+X		}
+X	}
+X
+X
+X/* if still too many procs, whittle hard */
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = 0;
+X		omitted_one = 0;
+X		for(iproc = 0; iproc < v.v_proc; iproc++)
+X		{
+X			tproc = pprocs[iproc];
+X			if(tproc->p_pid == 32767)	/* previously eliminated? */
+X				continue;
+X			else if(tproc->p_stat == SSLEEP)
+X			{
+X				tproc->p_pid = 32767;
+X				omitted_one = 1;
+X				continue;
+X			}
+X			nprocs++;
+X		}
+X		if(omitted_one)
+X		{
+X			if(omitted[0])
+X				strcat(omitted,"/");
+X			strcat(omitted,"sleeping");
+X		}
+X	}
+X
+X/* if still too many procs, truncate */
+X	if(nprocs > max_procs_to_display)
+X	{
+X		nprocs = max_procs_to_display;
+X		disp_msg(cpMED,"display size too small for all processes");
+X		omitted[0] = 0;
+X	}
+X	if(omitted[0])
+X	{
+X		strcat(omitted," procs omitted");
+X		disp_msg(cpLIT,omitted);
+X	}
+X
+X/* sort new procs array */
+X	(void)qsort((char *)pprocs,(unsigned)v.v_proc,
+X		sizeof(struct proc *),ppproc_pid_compare);
+X
+X	if(initial)
+X	{
+X		(void)memcpy((char *)oldprocs,(char *)procs,
+X			v.v_proc * sizeof(struct proc));
+X		noldprocs = nprocs;
+X		(void)memcpy((char *)poldprocs,(char *)pprocs,
+X			noldprocs * sizeof(struct proc *));
+X	}
+X
+X}	/* end of read_and_sort_procs */
+X
+X/*+-------------------------------------------------------------------------
+X	read_utmp()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xread_utmp()
+X{
+Xint utmpfd;
+Xregister struct utmp *tutmp = utmps;
+X
+X	nutmps = 0;
+X	if((utmpfd = open("/etc/utmp",O_RDONLY,755)) < 0)
+X		leave_text("/etc/utmp open error",255);
+X
+X	while(read(utmpfd,(char *)(tutmp++),sizeof(struct utmp)) > 0)
+X	{
+X		/* ensure null termination
+X		 * (clobbers 1st byte of ut_line, but we don't use it)
+X		 */
+X		tutmp->ut_id[sizeof(tutmp->ut_id)] = 0;
+X		if(++nutmps == MAX_UTMP)
+X			leave_text("too many utmp entries for me to handle",1);
+X	}
+X	(void)close(utmpfd);
+X}	/* end of read_utmp */
+X
+X/*+-------------------------------------------------------------------------
+X	find_utmp_for_pgrp(pgrp)
+X--------------------------------------------------------------------------*/
+Xstruct utmp *
+Xfind_utmp_for_pgrp(pgrp)
+Xint pgrp;
+X{
+Xstruct utmp *tutmp = utmps;
+Xregister int count = nutmps;
+X
+X	while(count--)
+X	{
+X		if(tutmp->ut_pid == pgrp)
+X			return(tutmp);
+X		tutmp++;
+X	}
+X	return((struct utmp *)0);
+X}	/* end of find_utmp_for_pgrp */
+X
+X/*+-------------------------------------------------------------------------
+X	pgrp_to_ttyname(pgrp)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xpgrp_to_ttyname(pgrp)
+Xint pgrp;
+X{
+Xregister itmp;
+Xstruct utmp *tutmp;
+X
+X	if(!(tutmp = find_utmp_for_pgrp(pgrp)))
+X	{
+X		read_utmp();
+X		tutmp = find_utmp_for_pgrp(pgrp);
+X	}
+X	if(!tutmp)
+X		return("??");
+X	else
+X	{
+X		itmp = strlen(tutmp->ut_id);
+X		return(&tutmp->ut_id[(itmp >= 2) ? (itmp - 2) : 0]);
+X	}
+X}	/* end of pgrp_to_ttyname */
+X
+X/*+-------------------------------------------------------------------------
+X	get_user(tproc,tuser) - read user struct for pid
+Xreturn 1 if successful, else 0 if not available
+X--------------------------------------------------------------------------*/
+Xint
+Xget_user(tproc,tuser)
+Xstruct proc *tproc;
+Xstruct user *tuser;
+X{
+X#if defined(RDUBLK)	/* see sysi86.h #include above */
+X	/* this system call is not returning 0 on success ?!? */
+X	return(!!sysi86(RDUBLK,tproc->p_pid,(char *)tuser,sizeof(*tuser)));
+X#else /* RDUBLK */
+X	register caddr_t uptr = (caddr_t)tuser;
+X	register int ubrdcount = sizeof(struct user);
+X	int ipde;
+X	paddr_t mptr;
+X
+X#if !defined(ISC_1) && !defined(mips)
+X	if(tproc->p_flag & SULOAD)
+X	{
+X		for(ipde = 0;
+X#if defined(SVR31)
+X			ipde < USIZE;
+X#else
+X			ipde < tproc->p_usize;
+X#endif
+X			ipde++)
+X		{
+X			if(!tproc->p_ubptbl[ipde].pgm.pg_pres)	/* if not resident */
+X				return(0);
+X			mptr = tproc->p_ubptbl[ipde].pgm.pg_pfn * NBPP;
+X			mread(uptr,(daddr_t)mptr,min(ubrdcount,NBPP));
+X			uptr += NBPP;
+X			if((ubrdcount -= NBPP) <= 0)
+X				break;
+X		}
+X	}
+X	else
+X	{
+X#if defined(SVR31)
+X		mptr = tproc->p_ubdbd [0].dbd_blkno * NBPSCTR;
+X#else
+X		mptr = tproc->p_ubdbd.dbd_blkno * NBPSCTR;
+X#endif
+X		sread(uptr,mptr,ubrdcount);
+X	}
+X#else /* ISC_1: a compromise first-attempt */
+X	for(ipde = 0; ipde < USIZE; ipde++)
+X	{
+X		if(!tproc->p_ubptbl[ipde].pgm.pg_pres)	/* if not resident */
+X			return(0);
+X		mptr = tproc->p_ubptbl[ipde].pgm.pg_pfn * NBPP;
+X		mread(uptr,(daddr_t)mptr,min(ubrdcount,NBPP));
+X		uptr += NBPP;
+X		if((ubrdcount -= NBPP) <= 0)
+X			break;
+X	}
+X#endif /* ISC_1 */
+X
+X	/*
+X	 * we can get crap from swap if things change after we get
+X	 * an address to read from, so validate user as best we can
+X	 */
+X	return( (tuser->u_ruid == tproc->p_uid) ||
+X			(tuser->u_ruid == tproc->p_suid));
+X
+X#endif /* RDUBLK */
+X}	/* end of get_user */
+X
+X/*+-------------------------------------------------------------------------
+Xuid to username conversion; thanks for the idea to William LeFebvre
+X--------------------------------------------------------------------------*/
+X#define UID_NAME_HASH_SIZE	127	/* prime */
+X#define HASH_EMPTY			32767
+X#define HASHIT(i)			((i) % UID_NAME_HASH_SIZE)
+X
+Xstruct uid_name_hash_entry {
+X	ushort uid;
+X	char name[10];
+X};
+X
+Xstruct uid_name_hash_entry uid_name_table[UID_NAME_HASH_SIZE];
+Xint uid_count = 0;
+X
+X/*+-------------------------------------------------------------------------
+X	init_uid_name_hash()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xinit_uid_name_hash()
+X{
+Xregister int ihash = 0;
+Xregister struct uid_name_hash_entry *hashent = uid_name_table;
+X
+X	while(ihash++ < UID_NAME_HASH_SIZE)
+X	{
+X		hashent->uid = HASH_EMPTY;
+X		hashent++;
+X	}
+X}	/* end of init_uid_name_hash */
+X
+X/*+-------------------------------------------------------------------------
+X	uid_name_enter(uid,name)
+X--------------------------------------------------------------------------*/
+Xint
+Xuid_name_enter(uid,name)
+Xregister ushort uid;
+Xregister char *name;
+X{
+Xregister ushort table_uid;
+Xregister int hashval;
+X
+X	if(++uid_count >= UID_NAME_HASH_SIZE - 1)
+X		leave_text("too many user names for me to handle",1);
+X
+X	hashval = HASHIT(uid);
+X	while((table_uid = uid_name_table[hashval].uid) != HASH_EMPTY)
+X	{
+X		if(table_uid == uid)
+X			return(hashval);
+X		hashval = (hashval + 1) % UID_NAME_HASH_SIZE;
+X	}
+X
+X	uid_name_table[hashval].uid = uid;
+X	(void)strncpy(uid_name_table[hashval].name,name,
+X		sizeof(uid_name_table[0].name));
+X	uid_name_table[hashval].name[sizeof(uid_name_table[0].name) - 1] = 0;
+X
+X	return(hashval);
+X
+X}	/* end of uid_name_enter */
+X
+X/*+-------------------------------------------------------------------------
+X	getpwent_and_enter(uid)
+X--------------------------------------------------------------------------*/
+Xgetpwent_and_enter(uid)
+Xregister ushort uid;
+X{
+Xregister int hashval;
+Xregister struct passwd *pwd;
+Xchar errant[10];
+Xstruct passwd *getpwuid();
+X
+X	pwd = getpwuid(uid);
+X	endpwent();
+X	if(pwd)
+X	{
+X		hashval = uid_name_enter((ushort)pwd->pw_uid,pwd->pw_name);
+X		return(hashval);
+X	}
+X	(void)sprintf(errant,"%u",uid);
+X	return(uid_name_enter(uid,errant));
+X}	/* end of getpwent_and_enter */
+X
+X/*+-------------------------------------------------------------------------
+X	uid_to_name(uid)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xuid_to_name(uid)
+Xregister ushort uid;
+X{
+Xregister int uid_hash;
+Xregister ushort table_uid;
+X
+X	uid_hash = HASHIT(uid);
+X	while((table_uid = uid_name_table[uid_hash].uid) != uid)
+X	{
+X		if(table_uid == HASH_EMPTY)
+X		{
+X			/* not in hash table */
+X			uid_hash = getpwent_and_enter(uid);
+X			break;		/* out of while */
+X		}
+X		uid_hash = (uid_hash + 1) % UID_NAME_HASH_SIZE;
+X	}
+X	return(uid_name_table[uid_hash].name);
+X}	/* end of uid_to_name */
+X
+X/*+-----------------------------------------------------------------------
+X	char *get_cpu_time_str(ticks)
+X  6-char static string address is returned
+X------------------------------------------------------------------------*/
+Xchar *
+Xget_cpu_time_str(ticks)
+Xtime_t ticks;
+X{
+Xstatic char timestr[10];
+Xtime_t mm,ss;
+Xextern int hz;
+X
+X	if(ticks < 0)		/* keep bogus numbers from polluting display */
+X		return("------");
+X
+X	ticks /= hz;
+X	mm = ticks / 60L;
+X	ticks -= mm * 60L;
+X	ss = ticks;
+X
+X	if(mm > 9999)
+X		(void)strcpy(timestr,">9999m");
+X	else if(mm > 999)
+X		(void)sprintf(timestr,"%5ldm",mm);
+X	else
+X		(void)sprintf(timestr,"%3lu:%02lu",mm,ss);
+X
+X	return(timestr);
+X
+X}	/* end of get_cpu_time_str */
+X
+X#define PROC_Y		1
+X#define PROC_X		0
+X#define UID_X		2
+X#define PID_X		12
+X#define CPU_X		18
+X#define PRI_X		22
+X#define NICE_X		26
+X#define UTIME_X		29
+X#define STIME_X		36
+X#define SIZE_X		43
+X#define TTY_X		48
+X#define CMD_X		52
+X
+X/*+-------------------------------------------------------------------------
+X	display_proc_stat(win,iproc,initial)
+X00000000001111111111222222222233333333334444444444555555555566666666667777777777
+X01234567890123456789012345678901234567890123456789012345678901234567890123456789
+XS     USER   PID  CPU PRI NI  UCPU   SCPU  SIZE TTY CMD
+X#!########X ##### ### ### ## ###### ###### #### ### ########
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_proc_stat(win,iproc,initial)
+XWINDOW *win;
+Xregister int iproc;
+Xregister int initial;
+X{
+X	register int positioned = 0;
+X	register struct proc *tproc = pprocs[iproc];
+X	struct proc          *oproc = poldprocs[iproc];
+X	int got_user;
+X	static char *p_stat_str = " sRzdipx"; /* depends on values of SSLEEP etc */
+X	char buf[20];
+X
+X	use_cp(win,cpINFO);
+X	/* ready to run swapped */
+X	if((tproc->p_stat == SRUN) && !(tproc->p_flag & SLOAD))
+X		use_cp(win,cpHIGH);
+X	else if(tproc->p_stat == SRUN)	/* ready to run */
+X		use_cp(win,cpMED);
+X
+X	if(tproc->p_pid != oproc->p_pid)
+X		initial = 1;
+X
+X	wmove(win,PROC_Y + iproc,PROC_X);
+X	waddch(win,(chtype)p_stat_str[tproc->p_stat]);
+X	waddch(win,(tproc->p_flag & SLOAD) ? ((chtype)' ') : ((chtype)'S'));
+X	positioned = 1;
+X
+X	if(initial)
+X	{
+X		if(!positioned)
+X			wmove(win,PROC_Y + iproc,PROC_X + UID_X);
+X		(void)sprintf(buf,"%8s",uid_to_name(tproc->p_uid));
+X		waddstr(win,buf);
+X		waddch(win,(tproc->p_uid != tproc->p_suid) ? '#' : ' ');
+X		waddch(win,' ');
+X		positioned = 1;
+X	}
+X	else
+X		positioned = 0;
+X
+X	if(initial)
+X	{
+X		if(!positioned)
+X			wmove(win,PROC_Y + iproc,PROC_X + PID_X);
+X		(void)sprintf(buf,"%5d ",tproc->p_pid);
+X		waddstr(win,buf);
+X		positioned = 1;
+X	}
+X	else
+X		positioned = 0;
+X
+X	if(initial || (tproc->p_cpu != oproc->p_cpu))
+X	{
+X		if(!positioned)
+X			wmove(win,PROC_Y + iproc,PROC_X + CPU_X);
+X		(void)sprintf(buf,"%3u ",tproc->p_cpu);
+X		waddstr(win,buf);
+X		positioned = 1;
+X	}
+X	else
+X		positioned = 0;
+X
+X	if(initial || (tproc->p_pri != oproc->p_pri))
+X	{
+X		if(!positioned)
+X			wmove(win,PROC_Y + iproc,PROC_X + PRI_X);
+X		(void)sprintf(buf,"%3u ",tproc->p_pri);
+X		waddstr(win,buf);
+X		positioned = 1;
+X	}
+X	else
+X		positioned = 0;
+X
+X	if(initial || (tproc->p_nice != oproc->p_nice))
+X	{
+X		if(!positioned)
+X			wmove(win,PROC_Y + iproc,PROC_X + NICE_X);
+X		(void)sprintf(buf,"%2d ",tproc->p_nice);
+X		waddstr(win,buf);
+X		positioned = 1;
+X	}
+X	else
+X		positioned = 0;
+X
+X/* since not saving user area, always update fields from it */
+X	if(!positioned)
+X		wmove(win,PROC_Y + iproc,PROC_X + UTIME_X);
+X	if(got_user = get_user(tproc,&user))
+X	{
+X		waddstr(win,get_cpu_time_str(user.u_utime));
+X		waddch(win,' ');
+X		waddstr(win,get_cpu_time_str(user.u_stime));
+X		waddch(win,' ');
+X/*
+X * process size:
+X *
+X * There are ways that seem right to a man, but the end of them is death.
+X * u_tsize and friends are not clicks, but in bytes.
+X * I thought this would have been:
+X *		(ctob((u_long)user.u_tsize + user.u_dsize + user.u_ssize)) / 1024);
+X * At least this makes numbers agree with /bin/ps, although I cannot
+X * figure out why there is one extra page charged by ps (user is 2 pages).
+X *
+X *
+X * This was evidentally wrong in SCO UNIX 3.2.0 and fixed in 3.2.1.
+X * If you get lots of processes who size is reported as 4, define
+X * USIZE_FIXED
+X */
+X		(void)sprintf(buf,"%4lu ",
+X#if !defined(M_UNIX) /* !SCO */
+X	/*
+X    ** For ISC:
+X	** Reports exactly the same value as ps.  The values in the user
+X	** area seem totally bogus (u_tsize is always 0, from observation)
+X	** so this size, the program swap size, seems the best measure.
+X	** Without USIZE_FIXED, on ISC2.02/Dell UNIX 1.1 I get zeroes.
+X	** With USIZE_FIXED I get values, but they're way out (e.g. vpix
+X	** and cron shown as the same size....).
+X	*/
+X			(u_long)tproc->p_size
+X#else /* SCO */
+X#if defined(USIZE_FIXED)	/* SCO UNIX 3.2.1 (and later?) */
+X			(ctob((u_long)user.u_tsize + user.u_dsize + user.u_ssize)) / 1024
+X#else				/* SCO UNIX 3.2.0 */
+X			(((u_long)user.u_tsize + 511) / 1024) +
+X			(((u_long)user.u_dsize + 511) / 1024) +
+X			(((u_long)user.u_ssize + 511) / 1024) +
+X			(((u_long)((user.u_tsize)?1:0) * NBPP) / 1024)
+X#endif
+X#endif /* SCO */
+X		);
+X		waddstr(win,buf);
+X	}
+X	else
+X		waddstr(win,"------ ------ ---- ");
+X
+X/*
+X	positioned = 1;
+X	if(!positioned)
+X		wmove(win,PROC_Y + iproc,PROC_X + TTY_X);
+X*/
+X
+X/* job control wants sid ... thanks rw@namu01.gwdg.de (Rainer Wittmann STAT) */
+X	(void)sprintf(buf,"%3.3s ",pgrp_to_ttyname(
+X#ifdef HAVE_P_SID
+X		tproc->p_sid
+X#else
+X		tproc->p_pgrp
+X#endif
+X			));
+X	waddstr(win,buf);
+X	positioned = 1;
+X
+X/*
+X	if(!positioned)
+X		wmove(win,PROC_Y + iproc,PROC_X + CMD_X);
+X*/
+X	if(got_user)
+X	{
+X	register char *cptr = user.u_psargs;
+X	int y,x,maxx = getmaxx(win);
+X		getyx(win,y,x);
+X		while(*cptr && (x < maxx))
+X		{
+X			*cptr &= 0x7F;
+X			if(*cptr < 0x20)
+X				*cptr = 0x20;
+X			waddch(win,*cptr);
+X			cptr++,x++;
+X		}
+X	}
+X	else
+X	{
+X		switch(tproc->p_stat)
+X		{
+X			case SZOMB:
+X				waddstr(win,"<zombie>");
+X				break;
+X			case SXBRK:
+X				waddstr(win,"<xbreak>");
+X				break;
+X			case SIDL:
+X				waddstr(win,"<in creation>");
+X				break;
+X			default:
+X				waddstr(win,"<swapping>");
+X		}
+X	}
+X
+X	wclrtoeol(win);
+X	use_cp(win,cpINFO);
+X
+X}	/* end of display_proc_stat */
+X
+X/*+-------------------------------------------------------------------------
+X	display_proc_stats(win,initial)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_proc_stats(win,initial)
+XWINDOW *win;
+Xint initial;
+X{
+Xregister int iproc;
+Xint y,x;
+X
+X	touchwin (win);
+X	if(initial)
+X	{
+X		use_cp(win,cpBANNER);
+X		wmove(win,0,0);
+X		waddstr(win,
+X			"S     USER   PID  CPU PRI NI  UCPU   SCPU  SIZE TTY CMD");
+X		getyx(win,y,x);
+X		while(x < getmaxx(win))
+X			waddch(win,(chtype)' '),x++;
+X	}
+X	mypid = getpid();
+X	max_procs_to_display = getmaxy(win) - PROC_Y;
+X	read_and_sort_procs(initial);
+X	max_procs_to_display = min(nprocs,max_procs_to_display);
+X	for(iproc = 0; iproc < max_procs_to_display; iproc++)
+X		display_proc_stat(win,iproc,1);
+X	wclrtobot(win);
+X}	/* end of display_proc_stats */
+X
+X/*+-------------------------------------------------------------------------
+X	det_proc_init()
+X--------------------------------------------------------------------------*/
+Xdet_proc_init()
+X{
+X	init_uid_name_hash();	/* see det_proc.c */
+X}	/* end of det_proc_init */
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of det_proc.c */
+SHAR_EOF
+chmod 0644 det_proc.c ||
+echo 'restore of det_proc.c failed'
+Wc_c="`wc -c < 'det_proc.c'`"
+test 21829 -eq "$Wc_c" ||
+	echo 'det_proc.c: original size 21829, current size' "$Wc_c"
+fi
+# ============= det_sio.c ==============
+if test -f 'det_sio.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping det_sio.c (File already exists)'
+else
+echo 'x - extracting det_sio.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'det_sio.c' &&
+X/* CHK=0x7314 */
+X/*+-------------------------------------------------------------------------
+X	det_sio.c - UNIX V/386 system monitor serial I/O detail
+X	...!{gatech,emory}!n4hgf!wht
+X
+X  Defined functions:
+X	B_to_baud_rate(code)
+X	cflag_to_baud_d_p_s(cflag)
+X	display_sio_summary(win,initial)
+X	display_siofull_init(win,tly,tlx,show_flag)
+X	display_siofull_update(win,tly,tlx,tsio)
+X	display_siosum_update(win,y,tsio)
+X	grok_sio_tty()
+X	slot_to_ttynm(slot)
+X	tty_slot_compare(sio1,sio2)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:31-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:08-20-1991-12:44-root@n4hgf-nba@sysware.dk S5R31 and config reorg */
+X/*:08-01-1991-23:34-wht@n4hgf-release 2.40 source control point */
+X/*:05-09-1991-03:35-wht@n4hgf-gcc gives good warning */
+X/*:08-10-1990-14:12-jmd@p1so/wht@n4hgf-2.20-add Tandem Integrity S2 */
+X/*:08-07-1990-14:24-wht@n4hgf-nba@sysware.dk SVR31 updates */
+X/*:08-02-1990-15:36-wht@n4hgf-2.12-old curses hacks+minor 3.2 formalizations */
+X/*:07-28-1990-18:06-wht@n4hgf-2.10 release */
+X/*:06-27-1990-17:33-wht@n4hgf-fix bug during 24-line display */
+X/*:06-27-1990-01:57-wht@n4hgf-1.10-incorporate suggestions from alpha testers */
+X/*:06-26-1990-03:17-wht@n4hgf-creation */
+X
+X#include "config.h"
+X
+X#if defined(DPT_SIO)
+X#include <curses.h>
+X#undef reg     /* per nba@sysware.dk */
+X#include "libpanel.h"
+X#include <string.h>
+X#include <nlist.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/ascii.h>
+X#undef NGROUPS_MAX
+X#undef NULL
+X#include <sys/param.h>
+X#include <sys/tty.h>
+X
+X#include "nlsym.h"
+X#include "libkmem.h"
+X#include "libmem.h"
+X#include "libswap.h"
+X#include "libnlsym.h"
+X#include "u386mon.h"
+X
+Xextern int errno;
+Xextern int sys_nerr;
+Xextern char *sys_errlist[];
+X
+X#define DEFINE_TTYNM
+X#include "ttynm.h"
+Xstruct tty sio[SIO_NTTY];
+X
+X#define t_slot	t_delct
+X
+Xint nsio;	/* number of sios open */
+X
+Xtypedef struct slabel {
+X	int y,x;
+X	char *label;
+X} SLABEL;
+X
+XSLABEL tty_slabels[] = {
+X	{  0,  0, "iflag:" },
+X	{  2,  0, "oflag:" },
+X	{  3,  0, "cflag:" },
+X	{  4,  0, "lflag:" },
+X	{  5,  7, "INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH" },
+X	{  6,  0, "cc:" },
+X	{  7,  0, "state:" },
+X	{  -1,-1, (char *)0}
+X};
+X
+X
+Xtypedef struct bitfld {
+X	int y,x;
+X	char *label;
+X	int flag_num;
+X	int mask;
+X} BITFLD;
+X
+X#define IFLAG 1
+X#define OFLAG 2
+X#define LFLAG 3
+X#define CFLAG 4
+X#define STATE 5
+X
+XBITFLD ttybitflds[] = {
+X	{  0,  7, "IGNBRK", IFLAG, IGNBRK },
+X	{  0, 15, "BRKINT", IFLAG, BRKINT },
+X	{  0, 23, "IGNPAR", IFLAG, IGNPAR },
+X	{  0, 31, "PARMRK", IFLAG, PARMRK },
+X	{  0, 39, "INPCK",  IFLAG, INPCK },
+X	{  0, 46, "ISTRIP", IFLAG, ISTRIP },
+X	{  0, 53, "INLCR",  IFLAG, INLCR },
+X	{  0, 60, "IGNCR",  IFLAG, IGNCR },
+X	{  0, 68, "ICRNL",  IFLAG, ICRNL },
+X	{  1,  7, "IUCLC",  IFLAG, IUCLC },
+X	{  1, 15, "IXON",   IFLAG, IXON },
+X	{  1, 23, "IXOFF",  IFLAG, IXOFF },
+X	{  1, 31, "IXANY",  IFLAG, IXANY },
+X	{  2,  7, "OPOST",  OFLAG, OPOST },
+X	{  2, 15, "OLCUC",  OFLAG, OLCUC },
+X	{  2, 23, "ONLCR",  OFLAG, ONLCR },
+X	{  2, 31, "OCRNL",  OFLAG, OCRNL },
+X	{  2, 39, "ONOCR",  OFLAG, ONOCR },
+X	{  2, 46, "ONLRET", OFLAG, ONLRET },
+X	{  2, 53, "OFDEL",  OFLAG, OFDEL },
+X	{  3, 23, "CREAD",  CFLAG, CREAD },
+X	{  3, 31, "HUPCL",  CFLAG, HUPCL },
+X	{  3, 39, "CLOCAL", CFLAG, CLOCAL },
+X#ifdef RTSFLOW
+X	{  3, 46, "RTSFLO", CFLAG, RTSFLOW },
+X#endif
+X#ifdef CTSFLOW
+X	{  3, 53, "CTSFLO", CFLAG, CTSFLOW },
+X#endif
+X	{  4,  7, "ISIG",   LFLAG, ISIG },
+X	{  4, 15, "ICANON", LFLAG, ICANON },
+X	{  4, 23, "XCASE",  LFLAG, XCASE },
+X	{  4, 31, "ECHO",   LFLAG, ECHO },
+X	{  4, 39, "ECHOE",  LFLAG, ECHOE },
+X	{  4, 46, "ECHOK",  LFLAG, ECHOK },
+X	{  4, 53, "ECHONL", LFLAG, ECHONL },
+X	{  4, 60, "NOFLSH", LFLAG, NOFLSH },
+X	{  4, 68, "XCLUDE", LFLAG, XCLUDE },
+X	{  7,  7, "TO",     STATE, TIMEOUT },
+X	{  7, 10, "WO",     STATE, WOPEN },
+X	{  7, 13, "O",      STATE, ISOPEN },
+X	{  7, 15, "TB",     STATE, TBLOCK },
+X	{  7, 18, "CD",     STATE, CARR_ON },
+X	{  7, 21, "BY",     STATE, BUSY },
+X	{  7, 24, "OSLP",   STATE, OASLP },
+X	{  7, 29, "ISLP",   STATE, IASLP },
+X	{  7, 34, "STOP",   STATE, TTSTOP },
+X	{  7, 39, "EXT",    STATE, EXTPROC },
+X	{  7, 43, "TACT",   STATE, TACT },
+X	{  7, 48, "ESC",    STATE, CLESC },
+X	{  7, 52, "RTO",    STATE, RTO },
+X	{  7, 56, "IOW",    STATE, TTIOW },
+X	{  7, 60, "XON",    STATE, TTXON },
+X	{  7, 64, "XOFF",   STATE, TTXOFF },
+X	{  -1,-1, (char *)0,    -1,    -1 }
+X};
+X
+X
+Xtypedef struct valyx {
+X	int y,x;
+X} VALYX;
+X
+XVALYX ttyvalyx[] = {
+X#define Fc_intr       0
+X	{  
+X		6,  8 },
+X#define Fcc_quit      1
+X		{  6, 13 },
+X#define Fcc_erase     2
+X		{  6, 18 },
+X#define Fcc_kill      3
+X		{  6, 24 },
+X#define Fcc_eof       4
+X		{  6, 30 },
+X#define Fcc_eol       5
+X		{  6, 40 },
+X#define Fcc_eol2      6
+X		{  6, 49 },
+X#define Fcc_swtch     7
+X		{  6, 54 },
+X#define Fbaud_b_p_s   8
+X		{  3,  7 	}
+X};
+X
+Xtypedef struct b_to_br {
+X	char *baud_rate;
+X	int B_code;
+X} B_TO_BR;
+X
+XB_TO_BR speeds[] = {	/* ordered to put less common rates later in table */
+X	/* the vagaries of baud rates above 9600 "handled" */
+X	" 2400",	B2400,
+X	" 1200",	B1200,
+X	" 9600",	B9600,
+X#if defined(B19200)
+X	"19200",	B19200,
+X#endif
+X#if defined(B38400)
+X	"38400",	B38400,
+X#endif
+X	" 4800",	B4800,
+X	"  300",	B300,
+X	"  110",	B110,
+X	"  600",	B600,
+X	"   75",	B75,
+X	"   50",	B50,
+X	"  HUP",	B0,
+X	" EXTA",	EXTA,
+X	" EXTB",	EXTB,
+X
+X	(char *)0,0
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	slot_to_ttynm(slot)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xslot_to_ttynm(slot)
+Xint slot;
+X{
+X	if(slot > SIO_NTTY)
+X		return((char *)0);
+X	return(ttynm[slot]);
+X
+X}	/* end of slot_to_ttynm */
+X
+X/*+-------------------------------------------------------------------------
+X	tty_slot_compare(sio1,sio2)
+X--------------------------------------------------------------------------*/
+Xint
+Xtty_slot_compare(sio1,sio2)
+Xstruct tty *sio1;
+Xstruct tty *sio2;
+X{
+X	return(sio1->t_slot - sio2->t_slot);
+X}	/* end of tty_slot_compare */
+X
+X/*+-------------------------------------------------------------------------
+X	grok_sio_tty()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xgrok_sio_tty()
+X{
+X	register isio;
+X	register struct tty *tsio;
+X
+X	nsio = 0;
+X	kread((caddr_t)sio,sio_ttyaddr,sizeof(struct tty) * SIO_NTTY);
+X	for(isio = 0; isio < SIO_NTTY; isio++)
+X	{
+X		tsio = &sio[isio];
+X		if(tsio->t_state & (WOPEN | ISOPEN))
+X		{
+X			tsio->t_slot = (ushort)isio;
+X			nsio++;
+X			continue;
+X		}
+X		tsio->t_slot = 127;
+X	}
+X	(void)qsort((char *)sio,(unsigned)SIO_NTTY,
+X	    sizeof(struct tty),tty_slot_compare);
+X
+X}	/* end of grok_sio_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	B_to_baud_rate(code) - convert CBAUD B_ code to baud rate string
+X--------------------------------------------------------------------------*/
+Xchar *
+XB_to_baud_rate(code)
+X{
+X	register int n;
+X
+X	for(n=0; speeds[n].baud_rate; n++)
+X		if(speeds[n].B_code == code)
+X			return(speeds[n].baud_rate);
+X	return("-----");
+X}	/* end of B_to_baud_rate */
+X
+X/*+-------------------------------------------------------------------------
+X	cflag_to_baud_d_p_s(cflag)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xcflag_to_baud_d_p_s(cflag)
+Xint cflag;
+X{
+X	register char *cptr;
+X	static char rtnstr[16];
+X
+X	strcpy(rtnstr,B_to_baud_rate(cflag & CBAUD));
+X	cptr = rtnstr + strlen(rtnstr);
+X	*cptr++ = '-';
+X	switch(cflag & CSIZE)
+X	{
+X		case CS5: 
+X			*cptr++ = '5'; 
+X			break;
+X		case CS6: 
+X			*cptr++ = '6'; 
+X			break;
+X		case CS7: 
+X			*cptr++ = '7'; 
+X			break;
+X		case CS8: 
+X			*cptr++ = '8'; 
+X			break;
+X	}
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & PARENB) ? ((cflag & PARODD) ? 'O' : 'E') : 
+X	'N';
+X	*cptr++ = '-';
+X	*cptr++ = (cflag & CSTOPB) ? '2' : '1';
+X	*cptr = 0;
+X	return(rtnstr);
+X
+X}	/* end of cflag_to_baud_d_p_s */
+X
+X/*+-----------------------------------------------------------------------
+X	display_siofull_update(win,tly,tlx,tsio)
+X
+X000000000011111111112222222222333333333344444444445555555555666666666677777
+X012345678901234567890123456789012345678901234567890123456789012345678901234
+Xiflag: IGNBRK  BRKINT  IGNPAR  PARMRK  INPCK  ISTRIP INLCR  IGNCR   ICRNL
+X       IUCLC   IXON    IXOFF   IXANY
+Xoflag: OPOST   OLCUC   ONLCR   OCRNL   ONOCR  ONLRET OFDEL
+Xcflag: 09600-8-N-1     CREAD   HUPCL   CLOCAL
+Xlflag: ISIG    ICANON  XCASE   ECHO    ECHOE  ECHOK  ECHONL NOFLSH  XCLUDE
+X       INTR QUIT ERASE KILL EOF/VMIN  EOL/VTIME EOL2 SWTCH 
+Xcc:     03   1c   08    15    01        00       00   00   
+X
+X------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_siofull_update(win,tly,tlx,tsio)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+Xstruct tty *tsio;
+X{
+X	register flag;
+X	register i_cc;
+X	BITFLD *bfptr = ttybitflds;
+X	VALYX *vptr = ttyvalyx;
+X
+X	use_cp(win,cpLOW);
+X	while(bfptr->y >= 0)
+X	{
+X		switch(bfptr->flag_num)
+X		{
+X			case IFLAG: 
+X				flag = tsio->t_iflag; 
+X				break;
+X			case OFLAG: 
+X				flag = tsio->t_oflag; 
+X				break;
+X			case LFLAG: 
+X				flag = tsio->t_lflag; 
+X				break;
+X			case CFLAG: 
+X				flag = tsio->t_cflag; 
+X				break;
+X			case STATE: 
+X				flag = tsio->t_state; 
+X				break;
+X		}
+X		flag &= bfptr->mask;
+X		wmove(win,bfptr->y + tly,bfptr->x + tlx);
+X		if(flag)
+X			use_cp(win,cpREVERSE);
+X		waddstr(win,bfptr->label);
+X		if(flag)
+X			use_cp(win,cpLOW);
+X		bfptr++;
+X	}
+X	for(i_cc = 0; i_cc < NCC; i_cc++)
+X	{
+X		wmove(win,vptr->y + tly,vptr->x + tlx);
+X		wprintw(win,"%02x",tsio->t_cc[i_cc]);
+X		vptr++;
+X	}
+X
+X	vptr = &ttyvalyx[Fbaud_b_p_s];
+X	clear_area(win,vptr->y + tly,vptr->x + tlx,12);
+X	waddstr(win,cflag_to_baud_d_p_s(tsio->t_cflag));
+X
+X}	/* end of display_siofull_update */
+X
+X/*+-------------------------------------------------------------------------
+X	display_siofull_init(win,tly,tlx,show_flag)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_siofull_init(win,tly,tlx,show_flag)
+XWINDOW *win;
+Xint tly;
+Xint tlx;
+Xint show_flag;
+X{
+X	register y;
+X	SLABEL *sptr = tty_slabels;
+X
+X	use_cp(win,cpLIT);
+X	for(y = 0; y < 7; y++)
+X		clear_area(win,y,0,getmaxy(win));
+X	if(show_flag)
+X	{
+X		while(sptr->y >= 0)
+X		{
+X			wmove(win,sptr->y + tly,sptr->x + tlx);
+X			waddstr(win,sptr->label);
+X			sptr++;
+X		}
+X	}
+X
+X}	/* end of display_siofull_init */
+X
+X/*+-------------------------------------------------------------------------
+X	display_siosum_update(win,y,tsio)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_siosum_update(win,y,tsio)
+Xregister WINDOW *win;
+Xint y;
+Xregister struct tty *tsio;
+X{
+X	register unsigned int itmp;
+X	register opened = tsio->t_state & (ISOPEN | WOPEN);
+X	char s8[8];
+X	char *ttynm;
+X
+X#define TX 1
+X#define RX 6
+X#define CX 11
+X#define OX 16
+X#define SX 23
+X#define FX 30
+X
+X	wmove(win,y,TX);
+X	if(ttynm = slot_to_ttynm(tsio->t_slot))
+X		wprintw(win,"%.2s",ttynm);
+X	else
+X		wprintw(win,"%02d",tsio->t_slot);
+X
+X	if(!opened)
+X	{
+X		use_cp(win,cpINFO);
+X		clear_area(win,y,TX,COLS - TX);
+X		waddstr(win,"closed");
+X		return;
+X	}
+X
+X	wmove(win,y,RX);
+X	if((itmp = (unsigned)tsio->t_rawq.c_cc) > 999)
+X		itmp = 999;
+X	if(itmp > 10)
+X		use_cp(win,cpHIGH);
+X	else if(itmp > 3)
+X		use_cp(win,cpMED);
+X	else
+X		use_cp(win,cpLOW);
+X	wprintw(win,"%3d",itmp);
+X
+X	if((itmp = (unsigned)tsio->t_canq.c_cc) > 999)
+X		itmp = 999;
+X	if(itmp > 20)
+X		use_cp(win,cpHIGH);
+X	else if(itmp > 10)
+X		use_cp(win,cpMED);
+X	else
+X		use_cp(win,cpLOW);
+X	wmove(win,y,CX);
+X	wprintw(win,"%3d",itmp);
+X
+X	if((itmp = (unsigned)tsio->t_outq.c_cc + tsio->t_tbuf.c_count) > 99999)
+X		itmp = 99999;
+X	if(itmp > 75)
+X		use_cp(win,cpHIGH);
+X	else if(itmp > 20)
+X		use_cp(win,cpMED);
+X	else
+X		use_cp(win,cpLOW);
+X	wmove(win,y,OX);
+X	wprintw(win,"%5d",itmp);
+X
+X	use_cp(win,cpINFO);
+X	wmove(win,y,SX);
+X	waddstr(win,B_to_baud_rate(tsio->t_cflag & CBAUD));
+X
+X	strcpy(s8,".....");
+X	if(tsio->t_state & WOPEN)
+X		s8[0] = 'W';
+X	else if(tsio->t_state & ISOPEN)
+X		s8[0] = 'O';
+X	if(tsio->t_state & CARR_ON)
+X		s8[1] = 'C';
+X	if(tsio->t_state & BUSY)
+X		s8[2] = 'B';
+X	if(tsio->t_state & TTSTOP)
+X		s8[3] = 'S';
+X	if(tsio->t_state & TIMEOUT)
+X		s8[4] = 'D';
+X	wmove(win,y,FX);
+X	waddstr(win,s8);
+X
+X	wprintw(win,"%7o",tsio->t_iflag);
+X	wprintw(win,"%7o",tsio->t_oflag);
+X	wprintw(win,"%7o",tsio->t_cflag);
+X	wprintw(win,"%7o",tsio->t_lflag);
+X	if(tsio->t_pgrp)
+X		wprintw(win,"%6d",tsio->t_pgrp);
+X	else
+X		waddstr(win,"      ");
+X
+X}	/* end of display_siosum_update */
+X
+X/*+-------------------------------------------------------------------------
+X	display_sio_summary(win,initial)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_sio_summary(win,initial)
+Xregister WINDOW *win;
+Xint initial;
+X{
+X	register int isio;
+X	int max_displayable_sios = getmaxy(win) - 2;
+X	static char *header  = 
+X	" tty  raw  can    out  speed  state  iflag  oflag  cflag  lflag  pgrp";
+X	static char *legend =
+X	"W=wait for open  O=open C=carrier on  B=output busy  S=stopped  T=timeout";
+X	static int couldnt_display_all = 0;
+X
+X	if(initial)
+X	{
+X		use_cp(win,cpBANNER);
+X		clear_area(win,0,0,getmaxx(win));
+X		waddstr(win,header);
+X		if(!sio_ttyaddr)
+X		{
+X			use_cp(win,cpMED);
+X			clear_area(win,getmaxy(win)-1,0,getmaxx(win));
+X			waddstr(win,"sio not configured in this kernel");
+X			return;
+X		}
+X		use_cp(win,cpLIT);
+X		clear_area(win,getmaxy(win)-1,0,getmaxx(win));
+X		waddstr(win,legend);
+X		couldnt_display_all = 1;
+X	}
+X
+X	if(!sio_ttyaddr)
+X		return;
+X
+X	grok_sio_tty();
+X	for(isio = 0; (isio < nsio); isio++)
+X	{
+X		if(isio > max_displayable_sios)
+X		{
+X			wmove(win,getmaxy(win)-2,0);
+X			use_cp(win,cpMED);
+X			waddstr(win,"cannot display all active serial ports");
+X			couldnt_display_all = 1;
+X			return;
+X		}
+X		display_siosum_update(win,isio + 1,&sio[isio]);
+X	}
+X
+X	for(; isio < getmaxy(win)-2; isio++);
+X	clear_area(win,isio + 1,0,getmaxx(win));
+X
+X	if(couldnt_display_all)
+X	{
+X		use_cp(win,cpINFO);
+X		clear_area(win,getmaxy(win)-2,0,getmaxx(win));
+X		couldnt_display_all = 0;
+X	}
+X
+X}	/* end of display_sio_summary */
+X
+X#endif /* DPT_SIO */
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of det_sio.c */
+SHAR_EOF
+chmod 0644 det_sio.c ||
+echo 'restore of det_sio.c failed'
+Wc_c="`wc -c < 'det_sio.c'`"
+test 13767 -eq "$Wc_c" ||
+	echo 'det_sio.c: original size 13767, current size' "$Wc_c"
+fi
+true || echo 'restore of det_stream.c failed'
+echo End of part 4, continue with part 5
+exit 0
+
+exit 0 # Just in case...

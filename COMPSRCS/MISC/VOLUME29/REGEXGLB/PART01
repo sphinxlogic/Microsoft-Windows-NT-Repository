@@ -1,0 +1,540 @@
+Newsgroups: comp.sources.misc
+From: johnk@wrq.com (John Kercheval)
+Subject:  v29i057:  regex-glob - A *IX sh style REGEX Globber, Part01/01
+Message-ID: <1992Apr5.031310.29499@sparky.imd.sterling.com>
+X-Md4-Signature: eca5160d31c8c1ca5323232fa55bc5e5
+Date: Sun, 5 Apr 1992 03:13:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: johnk@wrq.com (John Kercheval)
+Posting-number: Volume 29, Issue 57
+Archive-name: regex-glob/part01
+Environment: C
+
+Here is a *IX wildcard globber I butchered, hacked and cajoled together
+after seeing and hearing about and becoming disgusted with several similar
+routines which had one or more of the following attributes:  slow, buggy,
+required large levels of recursion on matches, required grotesque levels
+of recursion on failing matches using '*', full of caveats about usability
+or copyrights.
+
+I submit this without copyright and with the clear understanding that
+this code may be used by anyone, for any reason, with any modifications
+and without any guarantees, warrantee or statements of usability of any
+sort.
+
+Having gotten those cow chips out of the way, these routines are fairly
+well tested and reasonably fast.  This parser has been submitted to profilers 
+at various stages of development and has come through quite well.  
+
+Here is my own reinvention of the wheel.  Please enjoy it's use and I 
+hope it is of some help to those with need ....
+
+                  jbk
+----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Makefile README match.c match.h
+# Wrapped by vixie@cognition.pa.dec.com on Tue Mar 10 22:38:16 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(446 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile by vixie@decwrl, 9-mar-92
+X
+DESTROOT =
+DESTSYS = ${DESTROOT}/usr/localsys
+DESTSHR = ${DESTROOT}/usr/localshr
+DESTINC = ${DESTSHR}/include
+DESTLIB = ${DESTSYS}/lib
+X
+all: match.h libmatch.a
+X
+clean:
+X	rm -f *.CKP *.BAK *~ *.o
+X	rm -f libmatch.a
+X
+install: all
+X	install -c match.h ${DESTINC}/match.h
+X	install -c libmatch.a ${DESTLIB}/libmatch.a
+X
+libmatch.a: match.h match.c
+X	${CC} -c ${CFLAGS} match.c
+X	rm -f libmatch.a
+X	mv match.o libmatch.a
+END_OF_FILE
+if test 446 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2247 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X02-20-91 Seattle, WA
+X
+X
+Here is a *IX wildcard globber I butchered, hacked and cajoled together
+after seeing and hearing about and becoming disgusted with several similar
+routines which had one or more of the following attributes:  slow, buggy,
+required large levels of recursion on matches, required grotesque levels
+of recursion on failing matches using '*', full of caveats about usability
+or copyrights.
+X
+I submit this without copyright and with the clear understanding that
+this code may be used by anyone, for any reason, with any modifications
+and without any guarantees, warrantee or statements of usability of any
+sort.
+X
+Having gotten those cow chips out of the way, these routines are fairly
+well tested and reasonably fast.  I have made an effort to fail on all
+bad patterns and to quickly determine failing '*' patterns.  This parser
+will also do quite a bit of the '*' matching via quick linear loops versus
+the standard blind recursive descent.
+X
+This parser has been submitted to profilers at various stages of development
+and has come through quite well.  If the last millisecond is important to
+you then some time can be shaved by using stack allocated variables in
+place of many of the pointer follows (which may be done fairly often) found
+in regex_match and regex_match_after_star (ie *p, *t).
+X
+No attempt is made to provide general [pat,pat] comparisons.  The specific
+subcases supplied by these routines is [pat,text] which is sufficient
+for the large majority of cases (should you care).
+X
+Since regex_match may return one of three different values depending upon
+the pattern and text I have made a simple shell for convenience (match()).
+Also included is an is_pattern routine to quickly check a potential pattern
+for regex special characters.  I even placed this all in a header file for
+you lazy folks!
+X
+Having said all that, here is my own reinvention of the wheel.  Please
+enjoy it's use and I hope it is of some help to those with need ....
+X
+X
+X                                jbk
+X
+XFrom: johnk@wrq.com
+Date: 22 Feb 91 01:15:43 GMT
+Organization: Walker Richer & Quinn, Inc., Seattle, WA
+X
+John Kercheval -- 127 NW Bowdion Pl #105 -- Seattle, WA  98107-4960
+Home(Voice): (206) 547-4676  --------  Work (Voice): (206) 324-0350
+END_OF_FILE
+if test 2247 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'match.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'match.c'\"
+else
+echo shar: Extracting \"'match.c'\" \(9354 characters\)
+sed "s/^X//" >'match.c' <<'END_OF_FILE'
+X/*
+X EPSHeader
+X
+X   File: match.c
+X   Author: J. Kercheval
+X   Created: Sat, 01/05/1991  22:21:49
+X*/
+X/*
+X EPSRevision History
+X
+X   J. Kercheval  Wed, 02/20/1991  22:29:01  Released to Public Domain
+X*/
+X
+X/*
+X   Wildcard Pattern Matching
+X*/
+X
+X
+X#include "match.h"
+X
+X#define ABORT 2     /* end of search indicator */
+X
+BOOLEAN regex_match_after_star (char *pattern, char *text);
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN is_pattern (char *p)
+X{
+X    while ( *p ) {
+X        switch ( *p++ ) {
+X            case '?':
+X            case '*':
+X            case '[':
+X                return TRUE;
+X            case '\\':
+X                if ( !*p++ ) return FALSE;
+X        }
+X    }
+X    return FALSE;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*  return TRUE if it matches, FALSE otherwise.
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*
+X*  Note: the standard regex character '+' (one or more) should by
+X*        simulated by using "?*" which is equivelant here.
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).
+X*  [0-9a-zA-Z_] is the set of characters allowed in C identifiers.
+X*  Any other character in the pattern must be matched exactly.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  and match the character exactly, precede it with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN regex_match ( register char *p, register char *t )
+X{
+X    register char range_start, range_end;  /* start and end in range */
+X
+X    BOOLEAN invert;             /* is this [..] or [!..] */
+X    BOOLEAN member_match;       /* have I matched the [..] construct? */
+X    BOOLEAN loop;               /* should I terminate? */
+X
+X    for ( ; *p; p++, t++ ) {
+X
+X        /* if this is the end of the text then this is the end of the match */
+X        if (!*t) {
+X            return ( *p == '*' && *++p == '\0' ) ? TRUE : ABORT;
+X        }
+X
+X        /* determine and react to pattern type */
+X        switch ( *p ) {
+X
+X            /* single any character match */
+X            case '?':
+X                break;
+X
+X            /* multiple any character match */
+X            case '*':
+X                return regex_match_after_star (p, t);
+X
+X            /* [..] construct, single member/exclusion character match */
+X            case '[': {
+X
+X                /* move to beginning of range */
+X                p++;
+X
+X                /* check if this is a member match or exclusion match */
+X                invert = FALSE;
+X                if ( *p == '!' || *p == '^') {
+X                    invert = TRUE;
+X                    p++;
+X                }
+X
+X                /* if closing bracket here or at range start then we have a
+X                   malformed pattern */
+X                if ( *p == ']' ) {
+X                    return ABORT;
+X                }
+X
+X                member_match = FALSE;
+X                loop = TRUE;
+X
+X                while ( loop ) {
+X
+X                    /* if end of construct then loop is done */
+X                    if (*p == ']') {
+X                        loop = FALSE;
+X                        continue;
+X                    }
+X
+X                    /* matching a '!', '^', '-', '\' or a ']' */
+X                    if ( *p == '\\' ) {
+X                        range_start = range_end = *++p;
+X                    }
+X                    else {
+X                        range_start = range_end = *p;
+X                    }
+X
+X                    /* if end of pattern then bad pattern (Missing ']') */
+X                    if (!range_start)
+X                        return ABORT;
+X
+X                    /* move to next pattern char */
+X                    p++;
+X
+X                    /* check for range bar */
+X                    if (*p == '-') {
+X
+X                        /* get the range end */
+X                        range_end = *++p;
+X
+X                        /* special character range end */
+X                        if (range_end == '\\')
+X                            range_end = *++p;
+X
+X                        /* if end of pattern or construct then bad pattern */
+X                        if (range_end == '\0' || range_end == ']')
+X                            return ABORT;
+X                    }
+X
+X                    /* if the text character is in range then match found.
+X                       make sure the range letters have the proper
+X                       relationship to one another before comparison */
+X                    if ( range_start < range_end  ) {
+X                        if (*t >= range_start && *t <= range_end) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    }
+X                    else {
+X                        if (*t >= range_end && *t <= range_start) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    }
+X                }
+X
+X                /* if there was a match in an exclusion set then no match */
+X                /* if there was no match in a member set then no match */
+X                if ((invert && member_match) ||
+X                   !(invert || member_match))
+X                    return FALSE;
+X
+X                /* if this is not an exclusion then skip the rest of the [...]
+X                    construct that already matched. */
+X                if (member_match) {
+X                    while (*p != ']') {
+X
+X                        /* bad pattern (Missing ']') */
+X                        if (!*p)
+X                            return ABORT;
+X
+X                        /* skip exact match */
+X                        if (*p == '\\') {
+X                            p++;
+X                        }
+X
+X                        /* move to next pattern char */
+X                        p++;
+X                    }
+X                }
+X
+X                break;
+X            }
+X
+X            /* next character is quoted and must match exactly */
+X            case '\\':
+X
+X                /* move pattern pointer to quoted char and fall through */
+X                p++;
+X
+X            /* must match this character exactly */
+X            default:
+X                if (*p != *t)
+X                    return FALSE;
+X        }
+X    }
+X
+X    /* if end of text not reached then the pattern fails */
+X    return !*t;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X* recursively call regex_match with final segment of PATTERN and of TEXT.
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN regex_match_after_star (register char *p, register char *t)
+X{
+X    register BOOLEAN match;
+X    register nextp;
+X
+X    /* pass over existing ? and * in pattern */
+X    while ( *p == '?' || *p == '*' ) {
+X
+X        /* take one char for each ? */
+X        if ( *p == '?' ) {
+X
+X            /* if end of text then no match */
+X            if ( !*t++ ) {
+X                return ABORT;
+X            }
+X        }
+X
+X        /* move to next char in pattern */
+X        p++;
+X    }
+X
+X    /* if end of pattern we have matched regardless of text left */
+X    if ( !*p ) {
+X        return TRUE;
+X    }
+X
+X    /* get the next character to match which must be a literal or '[' */
+X    nextp = *p;
+X    if ( nextp == '\\' )
+X        nextp = p[1];
+X
+X    /* Continue until we run out of text or definite result seen */
+X    match = FALSE;
+X    while ( match == FALSE ) {
+X
+X        /* a precondition for matching is that the next character
+X           in the pattern match the next character in the text or that
+X           the next pattern is the beginning of a range.  Increment text
+X           pointer as we go here */
+X        if ( *p == *t || nextp == '[' ) {
+X            match = regex_match(p, t);
+X        }
+X
+X        /* if the end of text is reached then no match */
+X        if ( !*t++ ) match = ABORT;
+X    }
+X
+X    /* return result */
+X    return match;
+X}
+X
+X/*----------------------------------------------------------------------------
+X*
+X* This is a shell to regex_match to return only a true BOOLEAN value
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN match( char *p, char *t)
+X{
+X    return ( regex_match(p,t) == TRUE ) ? TRUE : FALSE;
+X}
+X
+X
+X#ifdef TEST
+X
+X    /*
+X    * This test main expects as first arg the pattern and as second arg
+X    * the match string.  Output is yaeh or nay on match.
+X    */
+X
+X#include <stdio.h>
+X
+X    int main(int argc, char *argv[])
+X    {
+X        if (argc == 3) {
+X            if (is_pattern(argv[1])) {
+X                if (match(argv[1],argv[2])) {
+X                    printf("    Match Successful\n");
+X                }
+X                else {
+X                    printf("    Match Fails\n");
+X                }
+X            }
+X            else {
+X                printf("    Bad Pattern\n");
+X            }
+X        }
+X        else printf("    Bad Breath\n");
+X        return(0);
+X    }
+X
+X#endif
+END_OF_FILE
+if test 9354 -ne `wc -c <'match.c'`; then
+    echo shar: \"'match.c'\" unpacked with wrong size!
+fi
+# end of 'match.c'
+fi
+if test -f 'match.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'match.h'\"
+else
+echo shar: Extracting \"'match.h'\" \(1691 characters\)
+sed "s/^X//" >'match.h' <<'END_OF_FILE'
+X/*
+X EPSHeader
+X
+X   File: match.h
+X   Author: J. Kercheval
+X   Created: Sat, 01/05/1991  22:27:18
+X*/
+X/*
+X EPSRevision History
+X
+X   J. Kercheval  Wed, 02/20/1991  22:28:37  Released to Public Domain
+X*/
+X
+X/*
+X   Wildcard Pattern Matching
+X*/
+X
+X#ifndef BOOLEAN
+X# define BOOLEAN int
+X# define TRUE 1
+X# define FALSE 0
+X#endif
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*  return TRUE if it matches, FALSE otherwise.
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*
+X*  Note: the standard regex character '+' (one or more) should by
+X*        simulated by using "?*" which is equivelant here.
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).
+X*  [0-9a-zA-Z_] is the set of characters allowed in C identifiers.
+X*  Any other character in the pattern must be matched exactly.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  and match the character exactly, precede it with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN match (char *pattern, char *text);
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+BOOLEAN is_pattern (char *pattern);
+END_OF_FILE
+if test 1691 -ne `wc -c <'match.h'`; then
+    echo shar: \"'match.h'\" unpacked with wrong size!
+fi
+# end of 'match.h'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2517 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F Haugh II)
+Subject:  v32i099:  shadow - Shadow Login/Password Suite, Patch06b/3
+Message-ID: <1992Oct12.152327.11902@sparky.imd.sterling.com>
+X-Md4-Signature: 4b2a40adc1d28b0497b221fd7a0a6b72
+Date: Mon, 12 Oct 1992 15:23:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F Haugh II)
+Posting-number: Volume 32, Issue 99
+Archive-name: shadow/patch06b
+Environment: UNIX
+Patch-To: shadow: Volume 26, Issue 54-64
+
+This is the second part of a three part patch.
+--
+Index: passwd.c
+*** passwd.c.old	Sat Oct 10 11:17:03 1992
+--- passwd.c	Sat Oct 10 11:17:02 1992
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include "config.h"
+***************
+*** 17,23 ****
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)passwd.c	3.8	20:37:37	3/7/92";
+  #endif
+  
+  /*
+--- 20,26 ----
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)passwd.c	3.9	13:03:56	7/27/92";
+  #endif
+  
+  /*
+***************
+*** 51,57 ****
+--- 54,63 ----
+  
+  #include "pwd.h"
+  #include "lastlog.h"
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
++ #include "pwauth.h"
+  
+  #ifdef	USE_SYSLOG
+  #include <syslog.h>
+***************
+*** 60,66 ****
+  #define	LOG_WARN	LOG_WARNING
+  #endif
+  #endif
+! #ifdef	USE_RLIMIT
+  #include <sys/resource.h>
+  
+  struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINIT };
+--- 66,72 ----
+  #define	LOG_WARN	LOG_WARNING
+  #endif
+  #endif
+! #ifdef	HAVE_RLIMIT
+  #include <sys/resource.h>
+  
+  struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINIT };
+***************
+*** 99,105 ****
+--- 105,113 ----
+  
+  extern	char	*getpass();
+  extern	char	*pw_encrypt();
++ extern	int	pw_auth();
+  extern	char	*getlogin();
++ extern	char	l64a();
+  extern	int	optind;		/* Index into argv[] for current option */
+  extern	char	*optarg;	/* Pointer to current option value */
+  #ifdef	NDBM
+***************
+*** 138,143 ****
+--- 146,152 ----
+  #define	NOPERM		"You may not change the password for %s.\n"
+  #define	NOPERM2		"can't change pwd for `%s'\n"
+  #define	UNCHANGED	"The password for %s is unchanged.\n"
++ #ifdef	SHADOWPWD
+  #define	SPWDBUSY	"Cannot lock the password file; try again later.\n"
+  #define	SPWDBUSY2	"can't lock /etc/shadow\n"
+  #define	OPNERROR	"Cannot open the password file.\n"
+***************
+*** 146,159 ****
+  #define	UPDERROR2	"error updating shadow entry\n"
+  #define	DBMERROR	"Error updating the DBM password entry.\n"
+  #define	DBMERROR2	"error updating DBM shadow entry.\n"
+- #define	NOTROOT		"Cannot change ID to root.\n"
+- #define	NOTROOT2	"can't setuid(0).\n"
+  #define	CLSERROR	"Cannot commit shadow file changes.\n"
+  #define	CLSERROR2	"can't rewrite /etc/shadow.\n"
+  #define	UNLKERROR	"Cannot unlock the shadow file.\n"
+  #define	UNLKERROR2	"can't unlock /etc/shadow.\n"
+  #define	TRYAGAIN	"Try again.\n"
+  #define	CHGPASSWD	"changed password for `%s'\n"
+  
+  /*
+   * usage - print command usage and exit
+--- 155,183 ----
+  #define	UPDERROR2	"error updating shadow entry\n"
+  #define	DBMERROR	"Error updating the DBM password entry.\n"
+  #define	DBMERROR2	"error updating DBM shadow entry.\n"
+  #define	CLSERROR	"Cannot commit shadow file changes.\n"
+  #define	CLSERROR2	"can't rewrite /etc/shadow.\n"
+  #define	UNLKERROR	"Cannot unlock the shadow file.\n"
+  #define	UNLKERROR2	"can't unlock /etc/shadow.\n"
++ #else
++ #define	PWDBUSY		"Cannot lock the password file; try again later.\n"
++ #define	PWDBUSY2	"can't lock /etc/passwd\n"
++ #define	OPNERROR	"Cannot open the password file.\n"
++ #define	OPNERROR2	"can't open /etc/passwd\n"
++ #define	UPDERROR	"Error updating the password entry.\n"
++ #define	UPDERROR2	"error updating password entry\n"
++ #define	DBMERROR	"Error updating the DBM password entry.\n"
++ #define	DBMERROR2	"error updating DBM password entry.\n"
++ #define	CLSERROR	"Cannot commit password file changes.\n"
++ #define	CLSERROR2	"can't rewrite /etc/passwd.\n"
++ #define	UNLKERROR	"Cannot unlock the password file.\n"
++ #define	UNLKERROR2	"can't unlock /etc/passwd.\n"
++ #endif
++ #define	NOTROOT		"Cannot change ID to root.\n"
++ #define	NOTROOT2	"can't setuid(0).\n"
+  #define	TRYAGAIN	"Try again.\n"
+  #define	CHGPASSWD	"changed password for `%s'\n"
++ #define	NOCHGPASSWD	"did not change password for `%s'\n"
+  
+  /*
+   * usage - print command usage and exit
+***************
+*** 170,175 ****
+--- 194,228 ----
+  	exit (1);
+  }
+  
++ void
++ #ifdef	SHADOWPWD
++ update_age (sp)
++ struct	spwd	*sp;
++ {
++ 	sp->sp_lstchg = time ((time_t *) 0) / SCALE;
++ }
++ #else
++ update_age (pw)
++ struct	passwd	*pw;
++ {
++ #ifdef	ATT_AGE
++ 	long	week;		/* at the office ... */
++ 	static	char	age[5];	/* Password age string */
++ 
++ 	week = time ((time_t *) 0) / WEEK;
++ 	if (pw->pw_age[0]) {
++ 		cp = l64a (week);
++ 		age[0] = pw->pw_age[0];
++ 		age[1] = pw->pw_age[1];
++ 		age[2] = cp[0];
++ 		age[3] = cp[1];
++ 		age[4] = '\0';
++ 		pw->pw_age = age;
++ 	}
++ #endif	/* ATT_AGE */
++ }
++ #endif
++ 
+  /*
+   * new_password - validate old password and replace with new
+   */
+***************
+*** 176,191 ****
+--- 229,251 ----
+  
+  /*ARGSUSED*/
+  int
++ #ifdef	SHADOWPWD
+  new_password (pw, sp)
+  struct	passwd	*pw;
+  struct	spwd	*sp;
++ #else
++ new_password (pw)
++ struct	passwd	*pw;
++ #endif
+  {
+  	char	*clear;		/* Pointer to clear text */
+  	char	*cipher;	/* Pointer to cipher text */
+  	char	*cp;		/* Pointer to getpass() response */
++ 	char	*old;		/* Pointer to old cipher text */
+  	char	orig[BUFSIZ];	/* Original password */
+  	char	pass[BUFSIZ];	/* New password */
+  	int	i;		/* Counter for retries */
++ 	long	week;		/* This week in history ... */
+  
+  	/*
+  	 * Authenticate the user.  The user will be prompted for their
+***************
+*** 192,209 ****
+  	 * own password.
+  	 */
+  
+! 	if (! amroot && sp->sp_pwdp[0]) {
+  		bzero (orig, sizeof orig);
+  
+  		if (! (clear = getpass (OLDPASS)))
+  			return -1;
+  
+! 		cipher = pw_encrypt (clear, sp->sp_pwdp);
+! 		if (strcmp (cipher, sp->sp_pwdp) != 0) {
+  			sleep (1);
+! 			fprintf (stderr, WRONGPWD, sp->sp_namp);
+  #ifdef	USE_SYSLOG
+! 			syslog (LOG_WARN, WRONGPWD2, sp->sp_namp);
+  #endif
+  			return -1;
+  		}
+--- 252,274 ----
+  	 * own password.
+  	 */
+  
+! #ifdef	SHADOWPWD
+! 	old = sp->sp_pwdp;
+! #else
+! 	old = pw->pw_passwd;
+! #endif
+! 	if (! amroot && old[0]) {
+  		bzero (orig, sizeof orig);
+  
+  		if (! (clear = getpass (OLDPASS)))
+  			return -1;
+  
+! 		cipher = pw_encrypt (clear, old);
+! 		if (strcmp (cipher, old) != 0) {
+  			sleep (1);
+! 			fprintf (stderr, WRONGPWD, pw->pw_name);
+  #ifdef	USE_SYSLOG
+! 			syslog (LOG_WARN, WRONGPWD2, pw->pw_name);
+  #endif
+  			return -1;
+  		}
+***************
+*** 254,261 ****
+  	 * the shadow password structure updated to reflect the change.
+  	 */
+  
+  	sp->sp_pwdp = pw_encrypt (pass, (char *) 0);
+! 	sp->sp_lstchg = time ((time_t *) 0) / SCALE;
+  	bzero (pass, sizeof pass);
+  
+  	return 0;
+--- 319,331 ----
+  	 * the shadow password structure updated to reflect the change.
+  	 */
+  
++ #ifdef	SHADOWPWD
+  	sp->sp_pwdp = pw_encrypt (pass, (char *) 0);
+! 	update_age (sp);
+! #else
+! 	pw->pw_passwd = pw_encrypt (pass, (char *) 0);
+! 	update_age (pw);
+! #endif	/* SHADOWPWD */
+  	bzero (pass, sizeof pass);
+  
+  	return 0;
+***************
+*** 270,280 ****
+--- 340,359 ----
+  
+  /*ARGSUSED*/
+  void
++ #ifdef	SHADOWPWD
+  check_password (pw, sp)
+  struct	passwd	*pw;
+  struct	spwd	*sp;
++ #else
++ check_password (pw)
++ struct	passwd	*pw;
++ #endif
+  {
+  	time_t	now = time ((time_t *) 0) / SCALE;
++ #ifndef	SHADOWPWD
++ 	time_t	last;
++ 	time_t	ok;
++ #endif
+  
+  	/*
+  	 * Root can change any password any time.
+***************
+*** 290,295 ****
+--- 369,375 ----
+  	 * been inactive too long cannot be changed.
+  	 */
+  
++ #ifdef	SHADOWPWD
+  	if ((sp->sp_expire > 0 && now >= sp->sp_expire) ||
+  	    (sp->sp_inact >= 0 && sp->sp_max >= 0 &&
+  		now >= (sp->sp_lstchg + sp->sp_inact + sp->sp_max)) ||
+***************
+*** 302,312 ****
+--- 382,394 ----
+  #endif
+  		exit (1);
+  	}
++ #endif
+  
+  	/*
+  	 * Passwords may only be changed after sp_min time is up.
+  	 */
+  
++ #ifdef	SHADOWPWD
+  	if (sp->sp_min >= 0 && now < (sp->sp_lstchg + sp->sp_min)) {
+  		fprintf (stderr, TOOSOON, sp->sp_namp);
+  #ifdef	USE_SYSLOG
+***************
+*** 315,322 ****
+--- 397,426 ----
+  #endif
+  		exit (1);
+  	}
++ #else	/* !SHADOWPWD */
++ 	/*
++ 	 * Can always be changed if there is no age info
++ 	 */
++ 
++ 	if (! pw->pw_age[0])
++ 		return;
++ 
++ 	last = a64l (pw->pw_age + 2) * WEEK;
++ 	ok = last + c64i (pw->pw_age[1]) * WEEK;
++ 
++ 	if (now < ok) {
++ 		fprintf (stderr, TOOSOON, pw->pw_name);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_WARN, TOOSOON2, pw->pw_name);
++ 		closelog ();
++ #endif
++ 		exit (1);
++ 	}
++ #endif	/* SHADOWPWD */
+  }
+  
++ #ifdef	SHADOWPWD
++ 
+  /*
+   * pwd_to_spwd - create entries for new spwd structure
+   *
+***************
+*** 389,394 ****
+--- 493,500 ----
+  	sp->sp_flag = -1;
+  }
+  
++ #endif	/* SHADOWPWD */
++ 
+  /*
+   * print_status - print current password status
+   */
+***************
+*** 395,407 ****
+--- 501,519 ----
+  
+  /*ARGSUSED*/
+  void
++ #ifdef	SHADOWPWD
+  print_status (pw, sp)
+  struct	passwd	*pw;
+  struct	spwd	*sp;
++ #else
++ print_status (pw)
++ struct	passwd	*pw;
++ #endif
+  {
+  	struct	tm	*tm;
+  	time_t	last_time;
+  
++ #ifdef	SHADOWPWD
+  	last_time = sp->sp_lstchg * SCALE;
+  	tm = gmtime (&last_time);
+  
+***************
+*** 413,418 ****
+--- 525,546 ----
+  	printf ("%d %d %d %d\n",
+  		(sp->sp_min * SCALE) / DAY, (sp->sp_max * SCALE) / DAY,
+  		(sp->sp_warn * SCALE) / DAY, (sp->sp_inact * SCALE) / DAY);
++ #else
++ 	if (pw->pw_age[0])
++ 		last_time = a64l (pw->pw_age + 2);
++ 	else
++ 		last_time = 0L;
++ 
++ 	tm = gmtime (&last_time);
++ 	printf ("%s ", pw->pw_name);
++ 	printf ("%s ",
++ 		pw->pw_passwd[0] ? (pw->pw_passwd[0] == '!' ? "L":"P"):"NP");
++ 	printf ("%02.2d/%02.2d/%02.2d ",
++ 		tm->tm_mon + 1, tm->tm_mday, tm->tm_year % 100);
++ 	printf ("%d %d\n",
++ 		pw->pw_age[0] ? c64i (pw->pw_age[1]) * 7:10000,
++ 		pw->pw_age[0] ? c64i (pw->pw_age[0]) * 7:0);
++ #endif	/* SHADOWPWD */
+  }
+  
+  /*
+***************
+*** 464,471 ****
+--- 592,603 ----
+  	int	iflg = 0;		/* -i - set inactive days             */
+  	int	Sflg = 0;		/* -S - show password status          */
+  	struct	passwd	*pw;		/* Password file entry for user       */
++ #ifdef	SHADOWPWD
+  	struct	spwd	*sp;		/* Shadow file entry for user         */
+  	struct	spwd	tspwd;		/* New shadow file entry if none      */
++ #else
++ 	char	age[5];			/* New password age entry             */
++ #endif
+  
+  	/*
+  	 * The program behaves differently when executed by root
+***************
+*** 474,480 ****
+--- 606,614 ----
+  
+  	amroot = getuid () == 0;
+  #ifdef	NDBM
++ #ifdef	SHADOWPWD
+  	sp_dbm_mode = O_RDWR;
++ #endif
+  	pw_dbm_mode = O_RDWR;
+  #endif
+  
+***************
+*** 535,544 ****
+  	 * which are restricted to root only.
+  	 */
+  
+! 	while ((flag = getopt (argc, argv, "ludx:n:w:i:S")) != EOF) {
+  		switch (flag) {
+  			case 'x':
+  				max = strtol (optarg, &cp, 10);
+  				if (*cp || getuid ())
+  					usage ();
+  
+--- 669,686 ----
+  	 * which are restricted to root only.
+  	 */
+  
+! #ifdef	SHADOWPWD
+! 	while ((flag = getopt (argc, argv, "ludx:n:w:i:S")) != EOF)
+! #else
+! 	while ((flag = getopt (argc, argv, "ludx:n:S")) != EOF)
+! #endif
+! 	{
+  		switch (flag) {
+  			case 'x':
+  				max = strtol (optarg, &cp, 10);
++ #ifndef	SHADOWPWD
++ 				max /= 7;
++ #endif
+  				if (*cp || getuid ())
+  					usage ();
+  
+***************
+*** 546,556 ****
+--- 688,702 ----
+  				break;
+  			case 'n':
+  				min = strtol (optarg, &cp, 10);
++ #ifndef	SHADOWPWD
++ 				min /= 7;
++ #endif
+  				if (*cp || getuid ())
+  					usage ();
+  
+  				nflg++;
+  				break;
++ #ifdef	SHADOWPWD
+  			case 'w':
+  				warn = strtol (optarg, &cp, 10);
+  				if (*cp || getuid ())
+***************
+*** 565,570 ****
+--- 711,717 ----
+  
+  				iflg++;
+  				break;
++ #endif	/* SHADOWPWD */
+  			case 'S':
+  				if (getuid ())
+  					usage ();
+***************
+*** 598,608 ****
+--- 745,763 ----
+  	 * -i may appear with each other.  -d, -l and -S must appear alone.
+  	 */
+  
++ #ifdef	SHADOWPWD
+  	if ((dflg || lflg || xflg || nflg ||
+  				wflg || iflg || Sflg) && optind >= argc)
++ #else
++ 	if ((dflg || lflg || xflg || nflg || Sflg) && optind >= argc)
++ #endif
+  		usage ();
+  
++ #ifdef	SHADOWPWD
+  	if ((dflg + lflg + uflg + (xflg || nflg || wflg || iflg) + Sflg) > 1)
++ #else
++ 	if ((dflg + lflg + uflg + (xflg || nflg) + Sflg) > 1)
++ #endif
+  		usage ();
+  
+  	/*
+***************
+*** 655,660 ****
+--- 810,816 ----
+  	if (! Sflg)
+  		printf (CHANGING, name);
+  
++ #ifdef	SHADOWPWD
+  	/*
+  	 * The user name is valid, so let's get the shadow file
+  	 * entry.
+***************
+*** 674,682 ****
+--- 830,843 ----
+  	}
+  	tspwd.sp_namp = strdup (sp->sp_namp);
+  	tspwd.sp_pwdp = strdup (sp->sp_pwdp);
++ #endif	/* SHADOWPWD */
+  
+  	if (Sflg) {
++ #ifdef	SHADOWPWD
+  		print_status (pw, sp);
++ #else
++ 		print_status (pw);
++ #endif
+  #ifdef	USE_SYSLOG
+  		closelog ();
+  #endif
+***************
+*** 687,693 ****
+  	 * If there are no other flags, just change the password.
+  	 */
+  
+! 	if (! (dflg || lflg || uflg || xflg || nflg || wflg || iflg)) {
+  
+  		/*
+  		 * See if the user is permitted to change the password.
+--- 848,886 ----
+  	 * If there are no other flags, just change the password.
+  	 */
+  
+! #ifdef	SHADOWPWD
+! 	if (! (dflg || lflg || uflg || xflg || nflg || wflg || iflg))
+! #else
+! 	if (! (dflg || lflg || uflg || xflg || nflg))
+! #endif
+! 	{
+! #ifdef	SHADOWPWD
+! 		if (sp->sp_pwdp[0] == '@') {
+! 			if (pw_auth (sp->sp_pwdp + 1, name, PW_CHANGE)) {
+! #ifdef	USE_SYSLOG
+! 				syslog (LOG_INFO, NOCHGPASSWD, name);
+! 				closelog ();
+! #endif
+! 				exit (1);
+! 			} else {
+! 				update_age (sp);
+! 				goto done;
+! 			}
+! 		}
+! #else	/* !SHADOWPWD */
+! 		if (pw->pw_passwd[0] == '@') {
+! 			if (pw_auth (pw->pw_passwd + 1, name, PW_CHANGE)) {
+! #ifdef	USE_SYSLOG
+! 				syslog (LOG_INFO, CHGPASSWD, name);
+! 				closelog ();
+! #endif
+! 				exit (0);
+! 			} else {
+! 				update_age (pw);
+! 				goto done;
+! 			}
+! 		}
+! #endif	/* SHADOWPWD */
+  
+  		/*
+  		 * See if the user is permitted to change the password.
+***************
+*** 694,702 ****
+  		 * Otherwise, go ahead and set a new password.
+  		 */
+  
+  		check_password (pw, sp);
+! 
+! 		if (new_password (pw, sp)) {
+  			fprintf (stderr, UNCHANGED, name);
+  #ifdef	USE_SYSLOG
+  			closelog ();
+--- 887,900 ----
+  		 * Otherwise, go ahead and set a new password.
+  		 */
+  
++ #ifdef	SHADOWPWD
+  		check_password (pw, sp);
+! 		if (new_password (pw, sp))
+! #else
+! 		check_password (pw);
+! 		if (new_password (pw))
+! #endif
+! 		{
+  			fprintf (stderr, UNCHANGED, name);
+  #ifdef	USE_SYSLOG
+  			closelog ();
+***************
+*** 711,743 ****
+  	 */
+  
+  	if (dflg)			/* Set password to blank */
+  		sp->sp_pwdp = "";
+! 
+  	if (lflg) {			/* Set password to "locked" value */
+  		if (sp->sp_pwdp && sp->sp_pwdp[0] != '!') {
+  			strcpy (new_passwd, "!");
+  			strcat (new_passwd, sp->sp_pwdp);
+  			sp->sp_pwdp = new_passwd;
+  		}
+  	}
+  	if (uflg) {			/* Undo password "locked" value */
+  		if (sp->sp_pwdp && sp->sp_pwdp[0] == '!') {
+  			strcpy (new_passwd, sp->sp_pwdp + 1);
+  			sp->sp_pwdp = new_passwd;
+  		}
+! 	}
+! 	if (xflg)
+  		sp->sp_max = (max * DAY) / SCALE;
+! 
+! 	if (nflg)
+  		sp->sp_min = (min * DAY) / SCALE;
+  
+  	if (wflg)
+  		sp->sp_warn = (warn * DAY) / SCALE;
+  
+  	if (iflg)
+  		sp->sp_inact = (inact * DAY) / SCALE;
+  
+  	/*
+  	 * Before going any further, raise the ulimit to prevent
+  	 * colliding into a lowered ulimit, and set the real UID
+--- 909,980 ----
+  	 */
+  
+  	if (dflg)			/* Set password to blank */
++ #ifdef	SHADOWPWD
+  		sp->sp_pwdp = "";
+! #else
+! 		pw->pw_passwd = "";
+! #endif
+  	if (lflg) {			/* Set password to "locked" value */
++ #ifdef	SHADOWPWD
+  		if (sp->sp_pwdp && sp->sp_pwdp[0] != '!') {
+  			strcpy (new_passwd, "!");
+  			strcat (new_passwd, sp->sp_pwdp);
+  			sp->sp_pwdp = new_passwd;
+  		}
++ #else
++ 		if (pw->pw_passwd & pw->pw_passwd[0] != '!') {
++ 			strcpy (new_passwd, "!");
++ 			strcat (new_passwd, pw->pw_passwd);
++ 			pw->pw_passwd = new_passwd;
++ 		}
++ #endif
+  	}
+  	if (uflg) {			/* Undo password "locked" value */
++ #ifdef	SHADOWPWD
+  		if (sp->sp_pwdp && sp->sp_pwdp[0] == '!') {
+  			strcpy (new_passwd, sp->sp_pwdp + 1);
+  			sp->sp_pwdp = new_passwd;
+  		}
+! #else
+! 		if (pw->pw_passwd && pw->pw_passwd[0] == '!') {
+! 			strcpy (new_passwd, pw->pw_passwd + 1);
+! 			pw->pw_passwd = new_passwd;
+! 		}
+! #endif
+! 	}
+! #if !defined(SHADOWPWD) && defined(ATT_AGE)
+! 	bzero (age, sizeof age);
+! 	strcpy (age, pw->pw_age);
+! #endif
+! 	if (xflg) {
+! #ifdef	SHADOWPWD
+  		sp->sp_max = (max * DAY) / SCALE;
+! #else
+! 		age[0] = i64c (max);
+! #endif
+! 	}
+! 	if (nflg) {
+! #ifdef	SHADOWPWD
+  		sp->sp_min = (min * DAY) / SCALE;
++ #else
++ 		if (age[0] == '\0')
++ 			age[0] = '/';
+  
++ 		age[1] = i64c (min);
++ #endif
++ 	}
++ #ifdef	SHADOWPWD
+  	if (wflg)
+  		sp->sp_warn = (warn * DAY) / SCALE;
+  
+  	if (iflg)
+  		sp->sp_inact = (inact * DAY) / SCALE;
++ #endif
++ #if !defined(SHADOWPWD) && defined(ATT_AGE)
++ 	pw->pw_age = age;
++ #endif
+  
++ done:
+  	/*
+  	 * Before going any further, raise the ulimit to prevent
+  	 * colliding into a lowered ulimit, and set the real UID
+***************
+*** 772,795 ****
+  	 */
+  
+  	for (i = 0;i < 30;i++)
+  		if (spw_lock ())
+  			break;
+  
+  	if (i == 30) {
+  		fprintf (stderr, SPWDBUSY);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_WARN, SPWDBUSY2);
+  		closelog ();
+  #endif
+  		exit (1);
+  	}
+! 	if (! spw_open (O_RDWR)) {
+  		fprintf (stderr, OPNERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, OPNERROR2);
+  		closelog ();
+  #endif
+  		(void) spw_unlock ();
+  		exit (1);
+  	}
+  
+--- 1009,1053 ----
+  	 */
+  
+  	for (i = 0;i < 30;i++)
++ #ifdef	SHADOWPWD
+  		if (spw_lock ())
++ #else
++ 		if (pw_lock ())
++ #endif
+  			break;
+  
+  	if (i == 30) {
++ #ifdef	SHADOWPWD
+  		fprintf (stderr, SPWDBUSY);
++ #else
++ 		fprintf (stderr, PWDBUSY);
++ #endif
+  #ifdef	USE_SYSLOG
++ #ifdef	SHADOWPWD
+  		syslog (LOG_WARN, SPWDBUSY2);
++ #else
++ 		syslog (LOG_WARN, PWDBUSY2);
++ #endif
+  		closelog ();
+  #endif
+  		exit (1);
+  	}
+! #ifdef	SHADOWPWD
+! 	if (! spw_open (O_RDWR))
+! #else
+! 	if (! pw_open (O_RDWR))
+! #endif
+! 	{
+  		fprintf (stderr, OPNERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, OPNERROR2);
+  		closelog ();
+  #endif
++ #ifdef	SHADOWPWD
+  		(void) spw_unlock ();
++ #else
++ 		(void) pw_unlock ();
++ #endif
+  		exit (1);
+  	}
+  
+***************
+*** 798,824 ****
+  	 * update that entry as well.
+  	 */
+  
+! 	if (! spw_update (sp)) {
+  		fprintf (stderr, UPDERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, UPDERROR2);
+  		closelog ();
+  #endif
+  		(void) spw_unlock ();
+  		exit (1);
+  	}
+  #ifdef	NDBM
+! 	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_update (sp)) {
+  		fprintf (stderr, DBMERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, DBMERROR2);
+  		closelog ();
+  #endif
+  		(void) spw_unlock ();
+  		exit (1);
+  	}
+  	endspent ();
+  #endif
+  
+  	/*
+  	 * Changes have all been made, so commit them and unlock the
+--- 1056,1103 ----
+  	 * update that entry as well.
+  	 */
+  
+! #ifdef	SHADOWPWD
+! 	if (! spw_update (sp))
+! #else
+! 	if (! pw_update (pw))
+! #endif
+! 	{
+  		fprintf (stderr, UPDERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, UPDERROR2);
+  		closelog ();
+  #endif
++ #ifdef	SHADOWPWD
+  		(void) spw_unlock ();
++ #else
++ 		(void) pw_unlock ();
++ #endif
+  		exit (1);
+  	}
+  #ifdef	NDBM
+! #ifdef	SHADOWPWD
+! 	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_update (sp))
+! #else
+! 	if (access ("/etc/passwd.pag", 0) == 0 && ! pw_dbm_update (pw))
+! #endif
+! 	{
+  		fprintf (stderr, DBMERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, DBMERROR2);
+  		closelog ();
+  #endif
++ #ifdef	SHADOWPWD
+  		(void) spw_unlock ();
++ #else
++ 		(void) pw_unlock ();
++ #endif
+  		exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	endspent ();
+  #endif
++ 	endpwent ();
++ #endif	/* NDBM */
+  
+  	/*
+  	 * Changes have all been made, so commit them and unlock the
+***************
+*** 825,840 ****
+  	 * file.
+  	 */
+  
+! 	if (! spw_close ()) {
+  		fprintf (stderr, CLSERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, CLSERROR2);
+  		closelog ();
+  #endif
+  		(void) spw_unlock ();
+  		exit (1);
+  	}
+! 	if (! spw_unlock ()) {
+  		fprintf (stderr, UNLKERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, UNLKERROR2);
+--- 1104,1133 ----
+  	 * file.
+  	 */
+  
+! #ifdef	SHADOWPWD
+! 	if (! spw_close ())
+! #else
+! 	if (! pw_close ())
+! #endif
+! 	{
+  		fprintf (stderr, CLSERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, CLSERROR2);
+  		closelog ();
+  #endif
++ #ifdef	SHADOWPWD
+  		(void) spw_unlock ();
++ #else
++ 		(void) pw_unlock ();
++ #endif
+  		exit (1);
+  	}
+! #ifdef	SHADOWPWD
+! 	if (! spw_unlock ())
+! #else
+! 	if (! pw_unlock ())
+! #endif
+! 	{
+  		fprintf (stderr, UNLKERROR);
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_ERR, UNLKERROR2);
+Index: pwd.h.m4
+*** pwd.h.m4.old	Sat Oct 10 11:17:23 1992
+--- pwd.h.m4	Sat Oct 10 11:17:22 1992
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  /*
+***************
+*** 17,23 ****
+   * is simply replaced by the standard system supplied /usr/include/pwd.h
+   * file.
+   *
+!  *	@(#)pwd.h.m4	3.4	13:22:36	3/9/92
+   */
+  
+  #ifndef	PWD_H
+--- 20,26 ----
+   * is simply replaced by the standard system supplied /usr/include/pwd.h
+   * file.
+   *
+!  *	@(#)pwd.h.m4	3.4.1.1	13:02:40	7/27/92
+   */
+  
+  #ifndef	PWD_H
+***************
+*** 34,42 ****
+  
+  #ifdef	SVR4
+  #include <sys/types.h>
+  #include <limits.h>
+  #define NGROUPS NGROUPS_MAX
+! #endif
+  
+  ifdef(`SUN4', `#define	ATT_AGE')
+  ifdef(`SUN4', `#define  ATT_COMMENT')
+--- 37,50 ----
+  
+  #ifdef	SVR4
+  #include <sys/types.h>
++ #ifndef	_POSIX_SOURCE
++ #define	_POSIX_SOURCE
++ #include <limits.h>
++ #else
+  #include <limits.h>
++ #endif	/* _POSIX_SOURCE */
+  #define NGROUPS NGROUPS_MAX
+! #endif	/* SVR4 */
+  
+  ifdef(`SUN4', `#define	ATT_AGE')
+  ifdef(`SUN4', `#define  ATT_COMMENT')
+Index: pwent.c
+*** pwent.c.old	Sat Oct 10 11:17:40 1992
+--- pwent.c	Sat Oct 10 11:17:39 1992
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include "config.h"
+***************
+*** 60,66 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)pwent.c	3.8	20:37:54	3/7/92";
+  #endif
+  
+  #define	SBUFSIZ	64
+--- 63,69 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)pwent.c	3.9	13:02:42	7/27/92";
+  #endif
+  
+  #define	SBUFSIZ	64
+***************
+*** 272,278 ****
+  
+  struct passwd *
+  getpwuid (uid)
+! int	uid;
+  {
+  	struct	passwd	*pwd;
+  #if defined(DBM) || defined(NDBM)
+--- 275,281 ----
+  
+  struct passwd *
+  getpwuid (uid)
+! uid_t	uid;
+  {
+  	struct	passwd	*pwd;
+  #if defined(DBM) || defined(NDBM)
+Index: setup.c
+*** setup.c.old	Sat Oct 10 11:17:58 1992
+--- setup.c	Sat Oct 10 11:17:57 1992
+***************
+*** 7,17 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #include <sys/types.h>
+- #include <stdio.h>
+  #include <utmp.h>
+  #include <grp.h>
+  
+  #ifdef	BSD
+--- 7,25 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
++ #ifdef	SVR4
++ #include <utmpx.h>
++ #else
+  #include <sys/types.h>
+  #include <utmp.h>
++ #endif	/* SVR4 */
++ 
++ #include <stdio.h>
+  #include <grp.h>
+  
+  #ifdef	BSD
+***************
+*** 34,45 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)setup.c	3.11	12:21:39	3/8/92";
+  #endif
+  
+  #ifndef	SU
+  extern	struct	utmp	utent;
+! #endif
+  
+  long	strtol ();
+  #ifdef	HAVE_ULIMIT
+--- 42,57 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)setup.c	3.12	13:02:46	7/27/92";
+  #endif
+  
+  #ifndef	SU
++ #ifdef	SVR4
++ extern	struct	utmpx	utent;
++ #else
+  extern	struct	utmp	utent;
+! #endif	/* SVR4 */
+! #endif	/* !SU */
+  
+  long	strtol ();
+  #ifdef	HAVE_ULIMIT
+***************
+*** 83,89 ****
+  	long	l;
+  
+  #ifndef	SU
+! 	(void) strcat (strcpy (tty, "/dev/"), utent.ut_line);
+  
+  	if (! (group = getdef_str ("TTYGROUP")))
+  		i = info->pw_gid;
+--- 95,104 ----
+  	long	l;
+  
+  #ifndef	SU
+! 	if (utent.ut_line[0] != '/')
+! 		(void) strcat (strcpy (tty, "/dev/"), utent.ut_line);
+! 	else
+! 		(void) strcpy (tty, utent.ut_line);
+  
+  	if (! (group = getdef_str ("TTYGROUP")))
+  		i = info->pw_gid;
+Index: smain.c
+*** smain.c.old	Sat Oct 10 11:18:16 1992
+--- smain.c	Sat Oct 10 11:18:15 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+***************
+*** 13,19 ****
+  #include <stdio.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)smain.c	3.12	15:26:53	4/28/92";
+  #endif
+  
+  /*
+--- 16,22 ----
+  #include <stdio.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)smain.c	3.13	13:04:04	7/27/92";
+  #endif
+  
+  /*
+***************
+*** 37,43 ****
+--- 40,49 ----
+  #include <signal.h>
+  #include "lastlog.h"
+  #include "pwd.h"
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
++ #include "pwauth.h"
+  
+  #ifdef	USE_SYSLOG
+  #include <syslog.h>
+***************
+*** 108,113 ****
+--- 114,120 ----
+  extern	char	*getpass ();
+  extern	char	*tz ();
+  extern	char	*pw_encrypt();
++ extern	int	pw_auth();
+  extern	struct	passwd	*getpwuid ();
+  extern	struct	passwd	*getpwnam ();
+  extern	struct	spwd	*getspnam ();
+***************
+*** 177,183 ****
+--- 184,192 ----
+  	int	fakelogin = 0;
+  	int	amroot = 0;
+  	struct	passwd	*pw = 0;
++ #ifdef	SHADOWPWD
+  	struct	spwd	*spwd = 0;
++ #endif
+  
+  	/*
+  	 * Get the program name.  The program name is used as a
+***************
+*** 289,295 ****
+  	 * or if the user is to be logged into a subsystem root.
+  	 *
+  	 * The password file entries for the user is gotten and the
+! 	 * accont validated.
+  	 */
+  
+  	if (pw = getpwnam (name)) {
+--- 298,304 ----
+  	 * or if the user is to be logged into a subsystem root.
+  	 *
+  	 * The password file entries for the user is gotten and the
+! 	 * account validated.
+  	 */
+  
+  	if (pw = getpwnam (name)) {
+***************
+*** 316,322 ****
+  	 * Set the default shell.
+  	 */
+  
+! 	if (pwent.pw_shell == 0 || pwent.pw_shell[0] == '\0')
+  		pwent.pw_shell = "/bin/sh";
+  
+  	/*
+--- 325,331 ----
+  	 * Set the default shell.
+  	 */
+  
+! 	if (pwent.pw_shell[0] == '\0')
+  		pwent.pw_shell = "/bin/sh";
+  
+  	/*
+***************
+*** 330,336 ****
+  	 * Get the password from the invoker
+  	 */
+  
+! 	if (! amroot && pwent.pw_passwd[0]) {
+  		if (! (cp = getpass ("Password:"))) {
+  #ifdef	USE_SYSLOG
+  			syslog (pwent.pw_uid ? LOG_WARN:LOG_CRIT,
+--- 339,345 ----
+  	 * Get the password from the invoker
+  	 */
+  
+! 	if (! amroot && pwent.pw_passwd[0] && pwent.pw_passwd[0] != '@') {
+  		if (! (cp = getpass ("Password:"))) {
+  #ifdef	USE_SYSLOG
+  			syslog (pwent.pw_uid ? LOG_WARN:LOG_CRIT,
+***************
+*** 337,364 ****
+  				"Unable to get password for %s\n", name);
+  #endif
+  			goto failure;
+! 		} else
+  			(void) strncpy (pass, cp, sizeof pass);
+  	} else
+  		bzero (pass, sizeof pass);
+  
+  	/*
+! 	 * check encrypted passwords ...
+  	 */
+  
+! 	if (! amroot && ((pass[0] != '\0' || pwent.pw_passwd[0] != '\0') &&
+  			strcmp (pwent.pw_passwd,
+  				pw_encrypt (pass, pwent.pw_passwd)) != 0)) {
+  #ifdef	USE_SYSLOG
+  		syslog (pwent.pw_uid ? LOG_WARN:LOG_CRIT,
+  			"Invalid password for %s\n", name);
+  #endif
+! failure:	sulog (0);		/* log failed attempt */
+  		puts ("Sorry.");
+  #ifdef	USE_SYSLOG
+  		if ( getdef_bool("SYSLOG_SU_ENAB") )
+  			syslog (pwent.pw_uid ? LOG_INFO:LOG_CRIT,
+! 				"- %s %s-%s\n", tty ? tty:"???",
+  				oldname[0] ? oldname:"???",
+  				name[0] ? name:"???");
+  		closelog ();
+--- 346,390 ----
+  				"Unable to get password for %s\n", name);
+  #endif
+  			goto failure;
+! 		} else {
+  			(void) strncpy (pass, cp, sizeof pass);
++ 			bzero (cp, strlen (pass));
++ 		}
+  	} else
+  		bzero (pass, sizeof pass);
+  
+  	/*
+! 	 * See if the system defined authentication method is being used.
+! 	 * The first character of an administrator defined method is an
+! 	 * '@' character.
+  	 */
+  
+! 	if (pwent.pw_passwd[0] == '@') {
+! 		if (pw_auth (pwent.pw_passwd + 1, name, PW_SU)) {
+! #ifdef	USE_SYSLOG
+! 			syslog (pwent.pw_uid ? LOG_WARN:LOG_CRIT,
+! 				"Authentication failed for %s\n", name);
+! #endif
+! 			goto failure;
+! 		}
+! 	} else if (! amroot && ((pass[0] || pwent.pw_passwd[0]) &&
+  			strcmp (pwent.pw_passwd,
+  				pw_encrypt (pass, pwent.pw_passwd)) != 0)) {
++ 
++ 		/*
++ 		 * check encrypted passwords like before ...
++ 		 */
++ 
+  #ifdef	USE_SYSLOG
+  		syslog (pwent.pw_uid ? LOG_WARN:LOG_CRIT,
+  			"Invalid password for %s\n", name);
+  #endif
+! failure:	sulog (tty, 0);		/* log failed attempt */
+  		puts ("Sorry.");
+  #ifdef	USE_SYSLOG
+  		if ( getdef_bool("SYSLOG_SU_ENAB") )
+  			syslog (pwent.pw_uid ? LOG_INFO:LOG_CRIT,
+! 				"- %s %s-%s\n", tty,
+  				oldname[0] ? oldname:"???",
+  				name[0] ? name:"???");
+  		closelog ();
+***************
+*** 410,421 ****
+  		goto top;
+  	}
+  
+! 	sulog (1);			/* save SU information */
+  	endpwent ();
+  	endspent ();
+  #ifdef	USE_SYSLOG
+  	if ( getdef_bool("SYSLOG_SU_ENAB") )
+! 		syslog (LOG_INFO, "+ %s %s-%s\n", tty ? tty:"???",
+  			oldname[0] ? oldname:"???", name[0] ? name:"???");
+  #endif
+  	if (fakelogin)
+--- 436,447 ----
+  		goto top;
+  	}
+  
+! 	sulog (tty, 1);			/* save SU information */
+  	endpwent ();
+  	endspent ();
+  #ifdef	USE_SYSLOG
+  	if ( getdef_bool("SYSLOG_SU_ENAB") )
+! 		syslog (LOG_INFO, "+ %s %s-%s\n", tty,
+  			oldname[0] ? oldname:"???", name[0] ? name:"???");
+  #endif
+  	if (fakelogin)
+Index: sulog.c
+*** sulog.c.old	Sat Oct 10 11:18:36 1992
+--- sulog.c	Sat Oct 10 11:18:36 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+***************
+*** 23,29 ****
+  #include "config.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulog.c	3.2	07:43:31	9/17/91";
+  #endif
+  
+  extern	char	name[];
+--- 26,32 ----
+  #include "config.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulog.c	3.3	13:02:53	7/27/92";
+  #endif
+  
+  extern	char	name[];
+***************
+*** 32,44 ****
+  time_t	time ();
+  extern	char	*getdef_str();
+  
+! void	sulog (success)
+! int	success;
+  {
+  	char	*sulog;
+- 	char	*tty;
+  	char	*cp;
+- 	char	*ttyname ();
+  	time_t	clock;
+  	struct	tm	*tm;
+  	struct	tm	*localtime ();
+--- 35,51 ----
+  time_t	time ();
+  extern	char	*getdef_str();
+  
+! /*
+!  * sulog - log a SU command execution result
+!  */
+! 
+! void
+! sulog (tty, success)
+! char	*tty;		/* Name of terminal SU was executed from */
+! int	success;	/* Success (1) or failure (0) of command */
+  {
+  	char	*sulog;
+  	char	*cp;
+  	time_t	clock;
+  	struct	tm	*tm;
+  	struct	tm	*localtime ();
+***************
+*** 52,65 ****
+  
+  	(void) time (&clock);
+  	tm = localtime (&clock);
+- 
+- 	if (isatty (0) && (cp = ttyname (0))) {
+- 		if (tty = strrchr (cp, '/'))
+- 			tty++;
+- 		else
+- 			tty = cp;
+- 	} else
+- 		tty = "???";
+  
+  	(void) fprintf (fp, "SU %.02d/%0.2d %.02d:%.02d %c %.6s %s-%s\n",
+  		tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
+--- 59,64 ----
+Index: sulogin.c
+*** sulogin.c.old	Sat Oct 10 11:19:00 1992
+--- sulogin.c	Sat Oct 10 11:18:59 1992
+***************
+*** 7,19 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #include <sys/types.h>
+  #include <signal.h>
+  #include <stdio.h>
+  #include "pwd.h"
+- #include <utmp.h>
+  #include <fcntl.h>
+  #ifdef	BSD
+  #include <strings.h>
+--- 7,26 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
++ #ifdef SVR4
++ #include <utmpx.h>
++ #else
+  #include <sys/types.h>
++ #include <utmp.h>
++ #endif
+  #include <signal.h>
+  #include <stdio.h>
+  #include "pwd.h"
+  #include <fcntl.h>
+  #ifdef	BSD
+  #include <strings.h>
+***************
+*** 24,29 ****
+--- 31,37 ----
+  #include <memory.h>
+  #endif
+  #include "config.h"
++ #include "pwauth.h"
+  
+  #if defined(BSD) || defined(SUN)
+  #include <sgtty.h>
+***************
+*** 48,54 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.11	14:49:03	4/28/92";
+  #endif
+  
+  char	name[BUFSIZ];
+--- 56,62 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.12	13:04:09	7/27/92";
+  #endif
+  
+  char	name[BUFSIZ];
+***************
+*** 58,64 ****
+--- 66,76 ----
+  char	mail[BUFSIZ];
+  
+  struct	passwd	pwent;
++ #ifdef SVR4
++ struct	utmpx	utent;
++ #else
+  struct	utmp	utent;
++ #endif
+  
+  #ifdef	USE_SGTTY
+  struct	sgttyb	termio;
+***************
+*** 144,149 ****
+--- 156,162 ----
+  		} else {
+  #ifdef	USE_SYSLOG
+  			syslog (LOG_WARN, "cannot open %s\n", argv[1]);
++ 			closelog ();
+  #endif
+  			exit (1);
+  		}
+***************
+*** 152,157 ****
+--- 165,171 ----
+  		printf ("No password file\n");
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_WARN, "No password file\n");
++ 		closelog ();
+  #endif
+  		exit (1);
+  	}
+***************
+*** 159,171 ****
+  	if (getppid () != 1) {		/* parent must be INIT */
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_WARN, "Pid == %d, not 1\n", getppid ());
+  #endif
+  		exit (1);
+  	}
+  #endif
+! 	if (! isatty (0) || ! isatty (1) || ! isatty (2))
+  		exit (1);		/* must be a terminal */
+! 
+  	while (*envp)			/* add inherited environment, */
+  		addenv (*envp++);	/* some variables change later */
+  
+--- 173,189 ----
+  	if (getppid () != 1) {		/* parent must be INIT */
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_WARN, "Pid == %d, not 1\n", getppid ());
++ 		closelog ();
+  #endif
+  		exit (1);
+  	}
+  #endif
+! 	if (! isatty (0) || ! isatty (1) || ! isatty (2)) {
+! #ifdef	USE_SYSLOG
+! 		closelog ();
+! #endif
+  		exit (1);		/* must be a terminal */
+! 	}
+  	while (*envp)			/* add inherited environment, */
+  		addenv (*envp++);	/* some variables change later */
+  
+***************
+*** 181,189 ****
+--- 199,213 ----
+  	while (1) {		/* repeatedly get login/password pairs */
+  		entry (name, &pwent);	/* get entry from password file */
+  		if (pwent.pw_name == (char *) 0) {
++ 
++ 			/*
++ 			 * Fail secure
++ 			 */
++ 
+  			printf ("No password entry for 'root'\n");
+  #ifdef	USE_SYSLOG
+  			syslog (LOG_WARN, "No password entry for 'root'\n");
++ 			closelog ();
+  #endif
+  			exit (1);
+  		}
+***************
+*** 198,203 ****
+--- 222,228 ----
+  (or give root password for system maintenance):"))) {
+  #ifdef	USE_SYSLOG
+  			syslog (LOG_INFO, "Normal startup\n");
++ 			closelog ();
+  #endif
+  #ifdef	TELINIT
+  			execl ("/etc/telinit", "telinit", RUNLEVEL, (char *) 0);
+***************
+*** 206,211 ****
+--- 231,246 ----
+  		} else
+  			strcpy (pass, cp);
+  
++ 		if (pwent.pw_name && pwent.pw_passwd[0] == '@') {
++ 			if (pw_auth (pwent.pw_passwd + 1, name, PW_LOGIN)) {
++ #ifdef	USE_SYSLOG
++ 				syslog (LOG_WARN,
++ 					"Incorrect root authentication");
++ #endif
++ 				continue;
++ 			}
++ 			goto auth_done;
++ 		}
+  		if (valid (pass, &pwent)) /* check encrypted passwords ... */
+  			break;		/* ... encrypted passwords matched */
+  
+***************
+*** 214,219 ****
+--- 249,255 ----
+  		syslog (LOG_WARN, "Incorrect root password\n");
+  #endif
+  	}
++ auth_done:
+  	alarm (0);
+  	signal (SIGALRM, SIG_DFL);
+  	environ = newenvp;		/* make new environment active */
+***************
+*** 242,247 ****
+--- 278,286 ----
+  
+  	setup (&pwent);			/* set UID, GID, HOME, etc ... */
+  
++ #ifdef	USE_SYSLOG
++ 	closelog ();
++ #endif
+  	shell (pwent.pw_shell, (char *) 0); /* exec the shell finally. */
+  	/*NOTREACHED*/
+  }
+Index: useradd.1
+*** useradd.1.old	Sat Oct 10 11:19:19 1992
+--- useradd.1	Sat Oct 10 11:19:18 1992
+***************
+*** 7,19 ****
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)useradd.1	3.2	20:38:24	3/7/92
+  .\"
+  .TH USERADD 1M
+  .SH NAME
+  useradd \- Create a new user or update default new user information
+  .SH SYNOPSIS
+  .B useradd
+  [ \fB-c\fI comment\fR ]
+  [ \fB-d\fI home_dir\fR ]
+  [ \fB-e\fI expire_date\fR ]
+--- 7,23 ----
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\" This software is provided on an AS-IS basis and the author makes
+! .\" no warrantee of any kind.
+  .\"
++ .\"	@(#)useradd.1	3.3	13:04:12	7/27/92
++ .\"
+  .TH USERADD 1M
+  .SH NAME
+  useradd \- Create a new user or update default new user information
+  .SH SYNOPSIS
+  .B useradd
++ [ \fB-A\fI method|DEFAULT ]
+  [ \fB-c\fI comment\fR ]
+  [ \fB-d\fI home_dir\fR ]
+  [ \fB-e\fI expire_date\fR ]
+***************
+*** 40,45 ****
+--- 44,55 ----
+  the home directory will be created, and initial files copied, depending
+  on the command line options.
+  The options which apply to the \fIuseradd\fR command are
++ .IP "\fB-A \fImethod\fR|\fBDEFAULT\fR"
++ The value of the user's authentication method.
++ The authentication method is the name of a program which is responsible
++ for validating the user's identity.
++ The string \fBDEFAULT\fR may be used to change the user's authentication
++ method to the standard system password method.
+  .IP "\fB-d \fIhome_dir\fR"
+  The new user will be created using \fIhome_dir\fR as the value for
+  the user's login directory.
+Index: useradd.c
+*** useradd.c.old	Sat Oct 10 11:19:42 1992
+--- useradd.c	Sat Oct 10 11:19:40 1992
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)useradd.c	3.9	09:41:30	3/19/92";
+  #endif
+  
+  #include "config.h"
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)useradd.c	3.12	10:52:16	10/10/92";
+  #endif
+  
+  #include "config.h"
+***************
+*** 30,36 ****
+--- 33,42 ----
+  #include <string.h>
+  #endif
+  
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
++ #include "pwauth.h"
+  
+  #ifdef	USE_SYSLOG
+  #include <syslog.h>
+***************
+*** 44,50 ****
+--- 50,58 ----
+  char	def_home[BUFSIZ];
+  char	def_shell[BUFSIZ];
+  char	def_template[BUFSIZ] = "/etc/skel";
++ #ifdef	SHADOWPWD
+  long	def_inactive;
++ #endif
+  long	def_expire;
+  char	def_file[] = "/etc/default/useradd";
+  
+***************
+*** 68,76 ****
+--- 76,87 ----
+  char	user_comment[BUFSIZ];
+  char	user_home[BUFSIZ];
+  char	user_shell[BUFSIZ];
++ #ifdef	SHADOWPWD
+  long	user_expire;
++ #endif
+  int	user_ngroups;
+  gid_t	user_groups[NGROUPS_MAX];
++ char	user_auth[BUFSIZ];
+  
+  char	*Prog;
+  
+***************
+*** 87,101 ****
+--- 98,128 ----
+  int	fflg;	/* days until account with expired password is locked         */
+  int	eflg;	/* days after password changed before it becomes expired      */
+  int	Dflg;	/* set/show new user default values                           */
++ int	Aflg;	/* specify authentication method for user                     */
+  
+  #ifdef NDBM
+  extern	int	pw_dbm_mode;
++ #ifdef	SHADOWPWD
+  extern	int	sp_dbm_mode;
++ #endif
+  extern	int	gr_dbm_mode;
+  #ifdef	SHADOWGRP
+  extern	int	sg_dbm_mode;
+  #endif
+  #endif
++ 
++ int	home_added;
++ int	pw_dbm_added;
++ #ifdef	NDBM
++ int	gr_dbm_added;
++ #ifdef	SHADOWPWD
++ int	sp_dbm_added;
++ #endif
++ #ifdef	SHADOWGRP
++ int	sg_dbm_added;
++ #endif
++ #endif	/* NDBM */
++ 
+  extern	FILE	*fopen();
+  extern	int	fclose();
+  extern	char	*malloc();
+***************
+*** 125,133 ****
+--- 152,162 ----
+  extern	int	pw_rewind();
+  extern	int	pw_open();
+  
++ #ifdef	SHADOWPWD
+  extern	int	spw_lock();
+  extern	int	spw_unlock();
+  extern	int	spw_open();
++ #endif
+  
+  #define	DAY	(24L*3600L)
+  #define	WEEK	(7*DAY)
+***************
+*** 364,370 ****
+--- 393,401 ----
+  
+  		def_group = 1;
+  		strcpy (def_home, "/home");
++ #ifdef	SHADOWPWD
+  		def_inactive = 0;
++ #endif
+  		def_expire = 0;
+  		return;
+  	}
+***************
+*** 409,414 ****
+--- 440,446 ----
+  			strncpy (def_shell, buf + 6, BUFSIZ);
+  		}
+  
++ #ifdef	SHADOWPWD
+  		/*
+  		 * Default Password Inactive value
+  		 */
+***************
+*** 416,421 ****
+--- 448,454 ----
+  		else if (strncmp ("INACTIVE=", buf, 9) == 0) {
+  			def_inactive = atoi (buf + 9);
+  		}
++ #endif
+  		
+  		/*
+  		 * Default Password Expiration value
+***************
+*** 439,445 ****
+--- 472,480 ----
+  {
+  	printf ("GROUP=%d\n", def_group);
+  	printf ("HOME=%s\n", def_home);
++ #ifdef	SHADOWPWD
+  	printf ("INACTIVE=%d\n", def_inactive);
++ #endif
+  	printf ("EXPIRE=%d\n", def_expire);
+  }
+  
+***************
+*** 495,500 ****
+--- 530,536 ----
+  					fprintf (ofp, "HOME=%s\n", def_home);
+  
+  				out_home++;
++ #ifdef	SHADOWPWD
+  			} else if (strncmp ("INACTIVE=", buf, 9) == 0) {
+  				if (! out_inactive)
+  					fprintf (ofp, "INACTIVE=%d\n",
+***************
+*** 501,506 ****
+--- 537,543 ----
+  						def_inactive);
+  
+  				out_inactive++;
++ #endif
+  			} else if (strncmp ("EXPIRE=", buf, 7) == 0) {
+  				if (! out_expire)
+  					fprintf (ofp, "EXPIRE=%d\n",
+***************
+*** 524,533 ****
+  
+  	if (! out_home)
+  		fprintf (ofp, "HOME=%s\n", def_home);
+! 
+  	if (! out_inactive)
+  		fprintf (ofp, "INACTIVE=%d\n", def_inactive);
+! 
+  	if (! out_expire)
+  		fprintf (ofp, "EXPIRE=%d\n", def_expire);
+  
+--- 561,570 ----
+  
+  	if (! out_home)
+  		fprintf (ofp, "HOME=%s\n", def_home);
+! #ifdef	SHADOWPWD
+  	if (! out_inactive)
+  		fprintf (ofp, "INACTIVE=%d\n", def_inactive);
+! #endif
+  	if (! out_expire)
+  		fprintf (ofp, "EXPIRE=%d\n", def_expire);
+  
+***************
+*** 564,572 ****
+--- 601,615 ----
+  		return -1;
+  	}
+  #ifdef	USE_SYSLOG
++ #ifdef	SHADOWPWD
+  	syslog (LOG_INFO,
+  		"defaults: group=%d, home=%s, inactive=%d, expire=%d\n",
+  		def_group, def_home, def_inactive, def_expire);
++ #else
++ 	syslog (LOG_INFO,
++ 		"defaults: group=%d, home=%s, expire=%d\n",
++ 		def_group, def_home, def_expire);
++ #endif
+  #endif
+  	return 0;
+  }
+***************
+*** 662,679 ****
+  		"\t\t[-d home] [-s shell] [-c comment] [-m [-k template]]\n");
+  #ifdef	MDY_DATE
+  	fprintf (stderr,
+! 		"\t\t[-f inactive ] [-e expire mm/dd/yy ] name\n");
+  #endif
+  #ifdef	DMY_DATE
+  	fprintf (stderr,
+! 		"\t\t[-f inactive ] [-e expire dd/mm/yy ] name\n");
+  #endif
+  #ifdef	YMD_DATE
+  	fprintf (stderr,
+! 		"\t\t[-f inactive ] [-e expire yy/mm/dd ] name\n");
+  #endif
+  	fprintf (stderr,
+  		"\t%s -D [-g group] [-b base] [-f inactive] [-e expire]\n",
+  			Prog);
+  
+  	exit (1);
+--- 705,741 ----
+  		"\t\t[-d home] [-s shell] [-c comment] [-m [-k template]]\n");
+  #ifdef	MDY_DATE
+  	fprintf (stderr,
+! #ifdef	SHADOWPWD
+! 		"\t\t[-f inactive ] [-e expire mm/dd/yy ] [ -A program ] name\n"
+! #else
+! 		"\t\t[ -A program ] name\n"
+  #endif
++ 		);
++ #endif
+  #ifdef	DMY_DATE
+  	fprintf (stderr,
+! #ifdef	SHADOWPWD
+! 		"\t\t[-f inactive ] [-e expire dd/mm/yy ] [ -A program ] name\n"
+! #else
+! 		"\t\t[ -A program ] name\n"
+! #endif
+! 		);
+  #endif
+  #ifdef	YMD_DATE
+  	fprintf (stderr,
+! #ifdef	SHADOWPWD
+! 		"\t\t[-f inactive ] [-e expire yy/mm/dd ] [ -A program ] name\n"
+! #else
+! 		"\t\t[ -A program ] name\n"
+! #endif
+! 		);
+  #endif
+  	fprintf (stderr,
++ #ifdef	SHADOWPWD
+  		"\t%s -D [-g group] [-b base] [-f inactive] [-e expire]\n",
++ #else
++ 		"\t%s -D [-g group] [-b base] [-e expire]\n",
++ #endif
+  			Prog);
+  
+  	exit (1);
+***************
+*** 690,699 ****
+--- 752,777 ----
+  new_pwent (pwent)
+  struct	passwd	*pwent;
+  {
++ #ifndef	SHADOWPWD
++ 	static	char	age[3];
++ #endif
++ 
+  	memset (pwent, 0, sizeof *pwent);
+  	pwent->pw_name = user_name;
++ #ifdef	SHADOWPWD
+  	pwent->pw_passwd = "*";
+  	pwent->pw_age = "";
++ #else
++ 	if (Aflg)
++ 		pwent->pw_passwd = user_auth;
++ 	else
++ 		pwent->pw_passwd = "!";
++ 
++ 	pwent->pw_age = age;
++ 	age[0] = i64c (def_expire + 6 / 7);
++ 	age[1] = i64c (0);
++ 	age[2] = '\0';
++ #endif
+  	pwent->pw_uid = user_id;
+  	pwent->pw_gid = user_gid;
+  	pwent->pw_gecos = user_comment;
+***************
+*** 702,707 ****
+--- 780,786 ----
+  	pwent->pw_shell = user_shell;
+  }
+  
++ #ifdef	SHADOWPWD
+  /*
+   * new_spent - initialize the values in a shadow password file entry
+   *
+***************
+*** 715,721 ****
+  {
+  	memset (spent, 0, sizeof *spent);
+  	spent->sp_namp = user_name;
+! 	spent->sp_pwdp = "!";
+  	spent->sp_lstchg = 0;
+  	spent->sp_min = 0;
+  	spent->sp_max = def_expire;
+--- 794,805 ----
+  {
+  	memset (spent, 0, sizeof *spent);
+  	spent->sp_namp = user_name;
+! 
+! 	if (Aflg)
+! 		spent->sp_pwdp = user_auth;
+! 	else
+! 		spent->sp_pwdp = "!";
+! 
+  	spent->sp_lstchg = 0;
+  	spent->sp_min = 0;
+  	spent->sp_max = def_expire;
+***************
+*** 723,728 ****
+--- 807,813 ----
+  	spent->sp_inact = def_inactive;
+  	spent->sp_expire = user_expire;
+  }
++ #endif
+  
+  /*
+   * grp_update - add user to secondary group set
+***************
+*** 792,798 ****
+  		if (! gr_update (grp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
+! 			exit (1);
+  		}
+  #ifdef	NDBM
+  		/*
+--- 877,883 ----
+  		if (! gr_update (grp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
+! 			fail (1);
+  		}
+  #ifdef	NDBM
+  		/*
+***************
+*** 802,809 ****
+  		if (! gr_dbm_update (grp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+! 			exit (1);
+! 		}
+  #endif
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "add `%s' to group `%s'\n",
+--- 887,895 ----
+  		if (! gr_dbm_update (grp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+! 			fail (1);
+! 		} else
+! 			gr_dbm_added++;
+  #endif
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "add `%s' to group `%s'\n",
+***************
+*** 847,853 ****
+  		if (! sgr_update (sgrp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
+! 			exit (1);
+  		}
+  #ifdef	NDBM
+  		/*
+--- 933,939 ----
+  		if (! sgr_update (sgrp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
+! 			fail (1);
+  		}
+  #ifdef	NDBM
+  		/*
+***************
+*** 854,874 ****
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sgr_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+! 			exit (1);
+! 		}
+! #endif
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "add `%s' to shadow group `%s'\n",
+  			user_name, sgrp->sg_name);
+! #endif
+  	}
+  #ifdef NDBM
+  	endsgent ();
+! #endif
+! #endif
+  }
+  
+  /*
+--- 940,961 ----
+  		 * Update the DBM group file with the new entry as well.
+  		 */
+  
+! 		if (! sg_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+! 			fail (1);
+! 		} else
+! 			sg_dbm_added++;
+! #endif	/* NDBM */
+  #ifdef	USE_SYSLOG
+  		syslog (LOG_INFO, "add `%s' to shadow group `%s'\n",
+  			user_name, sgrp->sg_name);
+! #endif	/* USE_SYSLOG */
+  	}
+  #ifdef NDBM
+  	endsgent ();
+! #endif	/* NDBM */
+! #endif	/* SHADOWGRP */
+  }
+  
+  /*
+***************
+*** 933,940 ****
+  	int	anyflag = 0;
+  	int	arg;
+  
+! 	while ((arg = getopt (argc, argv, "Du:og:G:d:s:c:mk:f:e:b:")) != EOF) {
+  		switch (arg) {
+  			case 'b':
+  				if (! VALID (optarg)) {
+  					fprintf (stderr,
+--- 1020,1048 ----
+  	int	anyflag = 0;
+  	int	arg;
+  
+! 	while ((arg = getopt (argc, argv,
+! #ifdef	SHADOWPWD
+! 		"A:Du:og:G:d:s:c:mk:f:e:b:"
+! #else
+! 		"A:Du:og:G:d:s:c:mk:e:b:"
+! #endif
+! 					)) != EOF) {
+  		switch (arg) {
++ 			case 'A':
++ 				if (! VALID (optarg) || (optarg[0] != '/' &&
++ 					strcmp (optarg, "DEFAULT") != 0) ||
++ 						strlen (optarg) > 256) {
++ 					fprintf (stderr,
++ 						"%s: invalid field `%s'\n",
++ 						Prog, optarg);
++ 					exit (3);
++ 				}
++ 				if (strcmp (optarg, "DEFAULT") != 0) {
++ 					strcpy (user_auth, "@");
++ 					strcat (user_auth, optarg);
++ 					Aflg++;
++ 				}
++ 				break;
+  			case 'b':
+  				if (! VALID (optarg)) {
+  					fprintf (stderr,
+***************
+*** 979,994 ****
+--- 1087,1108 ----
+  				if (Dflg)
+  					def_expire = atoi (optarg);
+  				else {
++ #ifdef	SHADOWPWD
+  					user_expire = strtoday (optarg);
+  #ifdef	ITI_AGING
+  					user_expire *= DAY;
+  #endif
++ #else
++ 					usage ();
++ #endif
+  				}
+  				break;
++ #ifdef	SHADOWPWD
+  			case 'f':
+  				fflg++;
+  				def_inactive = atoi (optarg);
+  				break;
++ #endif
+  			case 'g':
+  				gflg++;
+  				if (isdigit (optarg[0]))
+***************
+*** 1081,1098 ****
+  {
+  	if (! pw_close ()) {
+  		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+! 		exit (1);
+  	}
+  	if (! spw_close ()) {
+  		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+  			Prog);
+! 		exit (1);
+  	}
+  	if (user_ngroups > 0) {
+  		if (! gr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite group file\n",
+  				Prog);
+! 			exit (1);
+  		}
+  		(void) gr_unlock ();
+  #ifdef	SHADOWGRP
+--- 1195,1214 ----
+  {
+  	if (! pw_close ()) {
+  		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+! 		fail (1);
+  	}
++ #ifdef	SHADOWPWD
+  	if (! spw_close ()) {
+  		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+  			Prog);
+! 		fail (1);
+  	}
++ #endif
+  	if (user_ngroups > 0) {
+  		if (! gr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite group file\n",
+  				Prog);
+! 			fail (1);
+  		}
+  		(void) gr_unlock ();
+  #ifdef	SHADOWGRP
+***************
+*** 1099,1110 ****
+  		if (! sgr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+  				Prog);
+! 			exit (1);
+  		}
+  		(void) sgr_unlock ();
+  #endif
+  	}
+  	(void) spw_unlock ();
+  	(void) pw_unlock ();
+  }
+  
+--- 1215,1228 ----
+  		if (! sgr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+  				Prog);
+! 			fail (1);
+  		}
+  		(void) sgr_unlock ();
+  #endif
+  	}
++ #ifdef	SHADOWPWD
+  	(void) spw_unlock ();
++ #endif
+  	(void) pw_unlock ();
+  }
+  
+***************
+*** 1124,1129 ****
+--- 1242,1248 ----
+  		fprintf (stderr, "%s: unable to open password file\n", Prog);
+  		exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	if (! spw_lock ()) {
+  		fprintf (stderr, "%s: cannot lock shadow password file\n", Prog);
+  		exit (1);
+***************
+*** 1132,1137 ****
+--- 1251,1257 ----
+  		fprintf (stderr, "%s: cannot open shadow password file\n", Prog);
+  		exit (1);
+  	}
++ #endif
+  }
+  
+  /*
+***************
+*** 1144,1150 ****
+--- 1264,1272 ----
+  usr_update ()
+  {
+  	struct	passwd	pwent;
++ #ifdef	SHADOWPWD
+  	struct	spwd	spent;
++ #endif
+  
+  	if (! oflg)
+  		find_new_uid ();
+***************
+*** 1154,1159 ****
+--- 1276,1282 ----
+  		fprintf (stderr, "%s: error adding new password entry\n", Prog);
+  		exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	new_spent (&spent);
+  	if (! spw_update (&spent)) {
+  		fprintf (stderr, "%s: error adding new shadow password entry\n",
+***************
+*** 1160,1186 ****
+  			Prog);
+  		exit (1);
+  	}
+  #if defined(DBM) || defined(NDBM)
+! 	if (access ("/etc/passwd.pag", 0) == 0 && ! pw_dbm_update (&pwent)) {
+! 		fprintf (stderr, "%s: error updating password dbm entry\n",
+! 			Prog);
+! 		exit (1);
+  	}
+  	endpwent ();
+  #endif
+! #ifdef	NDBM
+! 	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_update (&spent)) {
+! 		fprintf (stderr, "%s: error updating shadow passwd dbm entry\n",
+! 			Prog);
+! 		exit (1);
+  	}
+  	endspent ();
+  #endif
+  #ifdef	USE_SYSLOG
+  	syslog (LOG_INFO,
+! 		"new user: name=%s, uid=%d, gid=%d, home=%s, shell=%s\n",
+! 		user_name, user_id, user_gid, user_home, user_shell);
+  #endif
+  	if (user_ngroups > 0)
+  		grp_update ();
+  }
+--- 1283,1324 ----
+  			Prog);
+  		exit (1);
+  	}
++ #endif
+  #if defined(DBM) || defined(NDBM)
+! 	if (access ("/etc/passwd.pag", 0) == 0) {
+! 		if (! pw_dbm_update (&pwent)) {
+! 			fprintf (stderr,
+! 				"%s: error updating password dbm entry\n",
+! 				Prog);
+! 			exit (1);
+! 		} else
+! 			pw_dbm_added = 1;
+  	}
+  	endpwent ();
+  #endif
+! #if defined(SHADOWPWD) && defined(NDBM)
+! 	if (access ("/etc/shadow.pag", 0) == 0) {
+! 		if (! sp_dbm_update (&spent)) {
+! 			fprintf (stderr,
+! 				"%s: error updating shadow passwd dbm entry\n",
+! 				Prog);
+! 			fail (1);
+! 		} else
+! 			sp_dbm_added++;
+  	}
+  	endspent ();
+  #endif
+  #ifdef	USE_SYSLOG
+  	syslog (LOG_INFO,
+! 		"new user: name=%s, uid=%d, gid=%d, home=%s, shell=%s, auth=%s\n",
+! 		user_name, user_id, user_gid, user_home, user_shell,
+! 			Aflg ? user_auth + 1:"password");
+  #endif
++ 	if (Aflg && pw_auth (user_auth + 1, pwent.pw_name, PW_ADD)) {
++ 		fprintf (stderr, "%s: error adding authentication method\n",
++ 			Prog);
++ 		fail (1);
++ 	}
+  	if (user_ngroups > 0)
+  		grp_update ();
+  }
+***************
+*** 1196,1209 ****
+  create_home ()
+  {
+  	if (access (user_home, 0)) {
+! 		if (mkdir (user_home, 0755)) {
+  			fprintf (stderr, "%s: cannot create directory %s\n",
+  				Prog, user_home);
+! 			exit (1);
+  		}
+  		chown (user_home, user_id, user_gid);
+  		chmod (user_home, 0755);
+  	}
+  }
+  
+  /*
+--- 1334,1386 ----
+  create_home ()
+  {
+  	if (access (user_home, 0)) {
+! 		if (mkdir (user_home, 0)) {
+  			fprintf (stderr, "%s: cannot create directory %s\n",
+  				Prog, user_home);
+! 			fail (1);
+  		}
+  		chown (user_home, user_id, user_gid);
+  		chmod (user_home, 0755);
++ 		home_added++;
++ 	}
++ }
++ 
++ /*
++  * fail - undo as much as possible
++  */
++ 
++ fail (code)
++ int	code;
++ {
++ 	struct	passwd	pwent;
++ 
++ #if defined(DBM) || defined(NDBM)
++ 	if (pw_dbm_added) {
++ 		pwent.pw_name = user_name;
++ 		pwent.pw_uid = user_id;
++ 		(void) pw_dbm_remove (&pwent);
+  	}
++ #endif
++ #ifdef	NDBM
++ 	if (gr_dbm_added)
++ 		fprintf (stderr, "%s: rebuild the group database\n", Prog);
++ #ifdef	SHADOWPWD
++ 	if (sp_dbm_added)
++ 		(void) sp_dbm_remove (user_name);
++ #endif
++ #ifdef	SHADOWGRP
++ 	if (sg_dbm_added)
++ 		fprintf (stderr, "%s: rebuild the shadow group database\n",
++ 			Prog);
++ #endif
++ #endif	/* NDBM */
++ 	if (home_added)
++ 		rmdir (user_home);
++ 
++ #ifdef	USE_SYSLOG
++ 	syslog (LOG_INFO, "failed adding user `%s', data deleted\n", user_name);
++ #endif
++ 	exit (code);
+  }
+  
+  /*
+***************
+*** 1234,1240 ****
+--- 1411,1419 ----
+  
+  #ifdef	NDBM
+  	pw_dbm_mode = O_RDWR;
++ #ifdef	SHADOWPWD
+  	sp_dbm_mode = O_RDWR;
++ #endif
+  	gr_dbm_mode = O_RDWR;
+  #ifdef	SHADOWGRP
+  	sg_dbm_mode = O_RDWR;
+***************
+*** 1277,1283 ****
+  
+  	if (mflg) {
+  		create_home ();
+! 		copy_tree (def_template, user_home, user_id, user_gid);
+  	}
+  	close_files ();
+  	exit (0);
+--- 1456,1464 ----
+  
+  	if (mflg) {
+  		create_home ();
+! #if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
+! 		copy_tree (def_template, user_home, user_id, user_gid, -1, -1);
+! #endif
+  	}
+  	close_files ();
+  	exit (0);
+-- 
+John F. Haugh II                  [  TSAKC  ] !'s: ...!cs.utexas.edu!rpp386!jfh
+Ma Bell: (512) 251-2151           [ DoF #17 ]        @'s: jfh@rpp386.cactus.org
+
+exit 0 # Just in case...

@@ -1,0 +1,1272 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: chuck@trantor.harris-atd.com (Chuck Musciano)
+Subject: v16i087: Contool 3.2, Part02/05
+Message-ID: <1992Mar5.185110.2231@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i086-contool-3.2@uunet.UU.NET>
+Date: Thu, 5 Mar 1992 18:51:10 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: chuck@trantor.harris-atd.com (Chuck Musciano)
+Posting-number: Volume 16, Issue 87
+Archive-name: contool-3.2/part02
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 2 (of 5)."
+# Contents:  contool.c contool.info
+# Wrapped by dcmartin@fascet on Sat Feb 22 10:11:09 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'contool.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'contool.c'\"
+else
+echo shar: Extracting \"'contool.c'\" \(23861 characters\)
+sed "s/^X//" >'contool.c' <<'END_OF_FILE'
+X/************************************************************************/
+X/*	Copyright 1987-1991 by Chuck Musciano and Harris Corporation 	*/
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Chuck Musciano and Harris Corporation.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	Harris Corporation. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from Harris Corporation. 		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+X/*									*/
+X/*	contool.c	main contool driver				*/
+X/*									*/
+X/************************************************************************/
+X
+X#include	<stdio.h>
+X#include	<fcntl.h>
+X#include	<strings.h>
+X#include	<sys/ioctl.h>
+X#include	<sys/file.h>
+X#include	<sys/types.h>
+X#include	<sys/stat.h>
+X#include	<sys/param.h>
+X
+X#include	<X11/Xlib.h>
+X#include	<X11/Xutil.h>
+X
+X#include	<xview/xview.h>
+X#include	<xview/icon.h>
+X#include	<xview/panel.h>
+X#include	<xview/textsw.h>
+X#include	<xview/notify.h>
+X
+X#include	"manifest.h"
+X#include	"contool.h"
+X#include	"contool_ui.h"
+X
+X#define		update_value(old, new)		((old) = ((new) > (old))? (new) : (old))
+X
+X#define		INPUT_BUFFER_SIZE		4096
+X
+XEXPORT	Attr_attribute	INSTANCE;
+X
+XEXPORT	contool_base_objects	*contool_base;
+XEXPORT	char			*filter_file;
+X
+XPUBLIC	Server_image		load_icon();
+X
+XPRIVATE	Notify_value		blink_proc();
+X
+XPRIVATE	short	good_bits[]  = {
+X#include	"icons/default_good.icon"
+X			       };
+XPRIVATE	short	bad_bits[]   = {
+X#include	"icons/default_bad.icon"
+X			       };
+XPRIVATE	short	flash_bits[] = {
+X#include	"icons/default_flash.icon"
+X			       };
+XPRIVATE	short	mask_bits[] = {
+X#include	"icons/mask.icon"
+X			       };
+X
+XPRIVATE	char			*ct_usage = "usage: contool [-c <file>] [-f] [-i <file>] [-l] [-L <file>] [-n]\n";
+X
+XPRIVATE	Server_image		default_good_icon, good = NULL;
+XPRIVATE	Server_image		default_bad_icon, bad = NULL;
+XPRIVATE	Server_image		default_flash_icon, flash = NULL;
+XPRIVATE	Server_image		icon_mask;
+X
+XPRIVATE	int			bad_is_up;
+XPRIVATE	int			beep_count;
+XPRIVATE	int			blinking = FALSE;
+XPRIVATE	FILE			*command = NULL;
+XPRIVATE	Filter			*curr_filter = NULL;
+XPRIVATE	int			event_in_progress = FALSE;
+XPRIVATE	int			explicit_filters = FALSE;
+XPRIVATE	int			fork_into_background = FALSE;
+XPRIVATE	int			masking_works;
+XPRIVATE	FILE			*master = NULL;
+XPRIVATE	int			no_console = FALSE;
+XPRIVATE	int			old_time = 0;
+XPRIVATE	char			*program;
+XPRIVATE	FILE			*slave = NULL;
+XPRIVATE	int			filter_timeout = 0;
+X
+XPRIVATE	struct	itimerval	timer = {{0, 500000}, {0, 500000}};
+X
+X/************************************************************************/
+X/*	Manage piping console output to a command 			*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	start_command(cmd)
+X
+Xchar	*cmd;
+X
+X{
+X	if (command)
+X	   pclose(command);
+X	if ((command = popen(cmd, "w")) == NULL)
+X	   internal_error("could not execute \"%s\"", cmd);
+X}
+X
+X/************************************************************************/
+XPRIVATE	continue_command(buf)
+X
+Xchar	*buf;
+X
+X{
+X	if (command)
+X	   fprintf(command, buf);
+X}
+X
+X/************************************************************************/
+XPRIVATE	end_command()
+X
+X{
+X	if (command)
+X	   pclose(command);
+X}
+X
+X/************************************************************************/
+X/*	Some basic console utility routines	 			*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	stop_blinking()
+X
+X{
+X	if (filter_timeout <= 0)
+X	   notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, NULL, NULL);
+X	change_icon(good, good == default_good_icon);
+X	blinking = FALSE;
+X}
+X
+X/************************************************************************/
+XEXPORT	acquire_console()
+X
+X{
+X	if (slave)
+X	   if (ioctl(fileno(slave), TIOCCONS, NULL) == -1)
+X	      abend("%s: could not attach to /dev/console", program);
+X}
+X
+X/************************************************************************/
+XEXPORT	filters_changed()
+X
+X{
+X	curr_filter = NULL;
+X	xv_set(contool_base->base, FRAME_LEFT_FOOTER, "", NULL);
+X	end_command();
+X	filter_timeout = 0;
+X	if (!blinking && beep_count == 0)
+X	   notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, NULL, NULL);
+X}
+X
+X/************************************************************************/
+XEXPORT	adjust_window_limit()
+X
+X{	int	sw_len;
+X	char	*temp;
+X
+X	sw_len = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	temp = (char *) malloc((unsigned) sw_len);
+X	xv_get(contool_base->display, TEXTSW_CONTENTS, 0, temp, sw_len);
+X	xv_set(contool_base->display, TEXTSW_MEMORY_MAXIMUM, defaults.max_size + defaults.max_size / 10, NULL);
+X	textsw_reset(contool_base->display, 0, 0);
+X	if (sw_len > defaults.max_size)
+X	   textsw_insert(contool_base->display, temp + sw_len - defaults.max_size, defaults.max_size);
+X	else
+X	   textsw_insert(contool_base->display, temp, sw_len);
+X	free(temp);
+X	reset_archive_size();
+X}
+X
+X/************************************************************************/
+X/*	Various small features						*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XEXPORT	Menu_item	print_messages(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{	int	size;
+X	char	*buf;
+X	FILE	*cmd;
+X
+X	if (op == MENU_NOTIFY) {
+X	   if (is_empty(defaults.print_filter))
+X	      error("You must specify a printer command in the Properties dialog");
+X	   else if ((cmd = popen(defaults.print_filter, "w")) == NULL)
+X	      error("Could not execute %s", defaults.print_filter);
+X	   else {
+X	      lets_get_busy(contool_base->base, TRUE, NULL);
+X	      size = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	      buf = (char *) malloc(size);
+X	      xv_get(contool_base->display, TEXTSW_CONTENTS, 0, buf, size);
+X	      if (fwrite(buf, 1, size, cmd) != size)
+X	         error("Could not write console contents to printer");
+X	      pclose(cmd);
+X	      free(buf);
+X	      lets_get_busy(contool_base->base, FALSE, NULL);
+X	      }
+X	   }
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	become_console(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{
+X	if (op == MENU_NOTIFY)
+X	   acquire_console();
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	clear_messages(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{
+X	if (op == MENU_NOTIFY) {
+X	   textsw_reset(contool_base->display, 0, 0);
+X	   old_time = 0;
+X	   }
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	reset_filter(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{
+X	if (op == MENU_NOTIFY)
+X	   filters_changed();
+X	return item;
+X}
+X
+X/************************************************************************/
+XEXPORT	Menu_item	save_to_archive(item, op)
+X
+XMenu_item	item;
+XMenu_generate	op;
+X
+X{
+X	if (op == MENU_NOTIFY)
+X	   archive_messages();
+X	return(item);
+X}
+X
+X/************************************************************************/
+XPRIVATE	change_icon(image, use_mask)
+X
+XServer_image	image;
+Xint		use_mask;
+X
+X{	Icon	icon;
+X
+X	icon = (Icon) xv_get(contool_base->base, FRAME_ICON);
+X	xv_set(icon,
+X		  ICON_IMAGE, image,
+X		  ICON_MASK_IMAGE, NULL,
+X		  XV_WIDTH, (int) xv_get(image, XV_WIDTH),
+X		  XV_HEIGHT, (int) xv_get(image, XV_HEIGHT),
+X	       NULL);
+X	if (masking_works && use_mask)
+X	   xv_set(icon, ICON_MASK_IMAGE, icon_mask, NULL);
+X	xv_set(contool_base->base, FRAME_ICON, icon, NULL);
+X}
+X
+X/************************************************************************/
+XEXPORT	update_icons()
+X
+X{	char	msg[1024];
+X
+X	if (good && good != default_good_icon)
+X	   xv_destroy(good);
+X	if (bad && bad != default_bad_icon)
+X	   xv_destroy(bad);
+X	if (flash && flash != default_flash_icon)
+X	   xv_destroy(flash);
+X
+X	good = (defaults.good_icon == NULL)? default_good_icon : load_icon(defaults.good_icon, msg);
+X	if (good == NULL) {
+X	   internal_error("Cannot load default \"All is well\" icon %s: %s", defaults.good_icon, msg);
+X	   good = default_good_icon;
+X	   }
+X	bad = (defaults.bad_icon == NULL)? default_bad_icon : load_icon(defaults.bad_icon, msg);
+X	if (bad == NULL) {
+X	   internal_error("Cannot load default \"Check console\" icon %s: %s", defaults.bad_icon, msg);
+X	   bad = default_bad_icon;
+X	   }
+X	flash = (defaults.flash_icon == NULL)? default_flash_icon : load_icon(defaults.flash_icon, msg);
+X	if (flash == NULL) {
+X	   internal_error("Cannot load default \"Flash\" icon %s: %s", defaults.flash_icon, msg);
+X	   flash = default_flash_icon;
+X	   }
+X
+X	if (!blinking)
+X	   change_icon(good, good == default_good_icon);
+X}
+X
+X/************************************************************************/
+X/*	Now, filter handlers						*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	internal_message(a, b, c, d, e, f)
+X
+Xint	a, b, c, d, e, f;
+X
+X{	char	buf[1024];
+X
+X	sprintf(buf, a, b, c, d, e, f);
+X	time_stamp();
+X	write_log(buf);
+X	do_insertion(buf, strlen(buf));
+X}
+X
+X/************************************************************************/
+XPRIVATE	internal_error(a, b, c, d, e, f)
+X
+Xint	a, b, c, d, e, f;
+X
+X{	char	buf[1024];
+X
+X	sprintf(buf, a, b, c, d, e, f);
+X	time_stamp();
+X	fprintf(stderr, "*** %s: %s\n", program, buf);
+X}
+X
+X/************************************************************************/
+XPRIVATE	load_filters()
+X
+X{	struct	stat	sb;
+X	static	int	load_time = 0;
+X
+X	if (access(filter_file, R_OK) == -1) {
+X	   if (explicit_filters && load_time == 0) {
+X	      internal_error("filter file %s cannot be accessed", filter_file);
+X	      load_time = 1;
+X	      }
+X	   }
+X	else if (stat(filter_file, &sb) == 0 && sb.st_mtime > load_time)
+X	   if (lex_init(filter_file)) {
+X	      yyparse();
+X	      if (!parse_errors_occured) {
+X	         free_list(filters);
+X	         free(parsed_defaults);
+X	         filters = parsed_filters;
+X	         internal_message("*** filters loaded from %s\n", filter_file);
+X	         load_time = sb.st_mtime;
+X	         }
+X	      }
+X	   else {
+X	      internal_error("error accessing configuration file %s", filter_file);
+X	      load_time = 1;
+X	      }
+X}
+X
+X/************************************************************************/
+X/*	Various event handlers for the console frame			*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	Notify_value	blink_proc(me, which)
+X
+Xint	*me;
+Xint	which;
+X
+X{
+X	if (event_in_progress)
+X	   return(NOTIFY_DONE);
+X	if (beep_count > 0) {
+X	   window_bell(contool_base->base);
+X	   beep_count--;
+X	   }
+X	if (blinking) {
+X	   if (bad_is_up)
+X	      change_icon(flash, flash == default_flash_icon);
+X	   else
+X	      change_icon(bad, bad == default_bad_icon);
+X	   bad_is_up = !bad_is_up;
+X	   }
+X	if (filter_timeout > 0)
+X	   if (--filter_timeout <= 0)
+X	      filters_changed();
+X	if (beep_count == 0 && !blinking && filter_timeout <= 0)
+X	   notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, NULL, NULL);
+X	return(NOTIFY_DONE);
+X}
+X
+X/************************************************************************/
+XPRIVATE	Notify_value	close_proc(frame, event, arg, type)
+X
+XFrame	frame;
+XEvent	*event;
+XNotify_arg	arg;
+XNotify_event_type	type;
+X
+X{
+X	event_in_progress = TRUE;
+X	if (event_action(event) == ACTION_OPEN) {
+X	   if (blinking)
+X	      stop_blinking();
+X	   create_archive();
+X	   }
+X	if (event_action(event) == ACTION_CLOSE && defaults.archive_style == ARCHIVE_ON_CLOSE)
+X	   archive_messages();
+X	event_in_progress = FALSE;
+X	return(notify_next_event_func(frame, event, arg, type));
+X}
+X
+X/************************************************************************/
+XPRIVATE	Notify_value	destroy_proc(frame, status)
+X
+XFrame	frame;
+XDestroy_status	status;
+X
+X{
+X	if (status == DESTROY_CHECKING) {
+X	   textsw_reset(contool_base->display, 0, 0);
+X	   return(NOTIFY_DONE);
+X	   }
+X	else
+X	   return(notify_next_destroy_func(frame, status));
+X}
+X
+X/************************************************************************/
+XPRIVATE	Notify_value	signal_proc(frame, sig, when)
+X
+XFrame	frame;
+Xint	sig;
+XNotify_signal_mode	when;
+X
+X{
+X	if (sig == SIGUSR1)
+X	   stop_blinking();
+X	else if (sig == SIGHUP)
+X	   update_logging();
+X	return(NOTIFY_DONE);
+X}
+X
+X/************************************************************************/
+X/*	Routines which handle capturing and displaying messages		*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	do_insertion(buf, len)
+X
+Xchar	*buf;
+Xint	len;
+X
+X{	int	sw_len;
+X	Textsw_index	first, last;
+X	char	*temp;
+X
+X	while ((int) xv_get(contool_base->display, TEXTSW_LENGTH) + len > defaults.max_size) {
+X	   sw_len = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	   first = 1;
+X	   last = TEXTSW_INFINITY;
+X	   if (textsw_find_bytes(contool_base->display, &first, &last, "\n<<<", 4, 0) == -1 || first == 0)
+X	      if (textsw_find_bytes(contool_base->display, &first, &last, "\n", 1, 0) == -1 || first == 0)
+X	         first = (defaults.delete_amount < sw_len)? defaults.delete_amount : sw_len;
+X	   temp = (char *) malloc((unsigned) sw_len);
+X	   xv_get(contool_base->display, TEXTSW_CONTENTS, 0, temp, sw_len);
+X	   textsw_reset(contool_base->display, 0, 0);
+X	   textsw_insert(contool_base->display, temp + first, sw_len - first);
+X	   free(temp);
+X	   }
+X	xv_set(contool_base->display, TEXTSW_INSERTION_POINT, TEXTSW_INFINITY, 0);
+X	textsw_insert(contool_base->display, buf, len);
+X}
+X
+X/************************************************************************/
+XPRIVATE	time_stamp()
+X
+X{	int	t, pos;
+X	char	buf[5];
+X
+X	   t = time(0);
+X	   if (t - old_time >= defaults.stamp_resolution) {
+X	      xv_set(contool_base->display, TEXTSW_INSERTION_POINT, TEXTSW_INFINITY, 0);
+X	      pos = (int) xv_get(contool_base->display, TEXTSW_LENGTH);
+X	      if (pos != 0) {
+X	         xv_get(contool_base->display, TEXTSW_CONTENTS, pos - 1, buf, 1);
+X	         if (buf[0] != '\n')
+X	            do_insertion("\n", 1);
+X	         }
+X	      do_insertion("\n<<< ", 5);
+X	      do_insertion(ctime(&t), 24);
+X	      do_insertion(" >>>\n", 5);
+X	      old_time = t;
+X	      }
+X}
+X
+X/************************************************************************/
+XPRIVATE	Notify_value	input_func(me, fd)
+X
+Xint	*me;
+Xint	fd;
+X
+X{	char	old_c, *s, *t, buf[1024];
+X	Filter	*f;
+X	int	count, do_blink = FALSE, do_open = FALSE;
+X	static	char	in_buf[INPUT_BUFFER_SIZE + 2];
+X	static	int	leftover = 0;
+X
+X	while ((count = read(fileno(master), in_buf + leftover, INPUT_BUFFER_SIZE - leftover)) >= 0) {
+X	   if (count == 0 && slave == NULL)
+X	      abend("%s: input source has reached EOF, exiting", program);
+X	   in_buf[count + leftover] = '\0';
+X	   leftover = 0;
+X	   while (s = index(in_buf, '\015'))
+X	      strcpy(s, s + 1);
+X	   for (t = in_buf; *t; *s = old_c, t = s) {
+X	      if (s = index(t, '\n')) {
+X	         old_c = *++s;
+X	         *s = '\0';
+X	         }
+X	      else {
+X	         leftover = strlen(t);
+X	         strcpy(in_buf, t);
+X	         break;
+X	         }
+X	      if (!defaults.log_after)
+X	         write_log(t);
+X	      if (curr_filter == NULL) {
+X	         load_filters();
+X	         for (f = filters; f; f = f->next)
+X	            if (f->start_re && match_exp(f->start_re, f->start_circf, t)) {
+X	               if (f->save) {
+X	                  update_value(do_blink, f->flash);
+X	                  update_value(beep_count, f->beep);
+X	                  update_value(do_open, f->open);
+X	                  if (f->stamp)
+X	                     time_stamp();
+X	                  do_insertion(t, strlen(t));
+X	                  if (f->command) {
+X	                     start_command(f->command);
+X	                     continue_command(t);
+X	                     if (f->stop == NULL)
+X	                        end_command();
+X	                     }
+X	                  if (defaults.log_after && f->log)
+X			     write_log(t);
+X	                  }
+X	               if (f->stop) {
+X	                  curr_filter = f;
+X	                  filter_timeout = f->timeout * 2;
+X	                  sprintf(buf, "Filtering \"%s\"...", f->start);
+X	                  xv_set(contool_base->base, FRAME_LEFT_FOOTER, buf, NULL);
+X	                  }
+X	               break;
+X	               }
+X	         if (f == NULL) {
+X	            if (defaults.stamp)
+X	               time_stamp();
+X	            if (defaults.command) {
+X	               start_command(defaults.command);
+X	               continue_command(t);
+X	               end_command();
+X	               }
+X		    if (defaults.log_after && defaults.log)
+X	               write_log(t);
+X	            do_insertion(t, strlen(t));
+X	            update_value(do_blink, defaults.flash);
+X	            update_value(do_open, defaults.open);
+X	            update_value(beep_count, defaults.beep);
+X	            }
+X	         }
+X	      else {
+X	         if (curr_filter->save) {
+X	            if (curr_filter->stamp)
+X	               time_stamp();
+X		    if (defaults.log_after && curr_filter->log)
+X	               write_log(t);
+X		    do_insertion(t, strlen(t));
+X		    if (curr_filter->command)
+X		       continue_command(t);
+X	            }
+X	         if (match_exp(curr_filter->stop_re, curr_filter->stop_circf, t)) {
+X	            xv_set(contool_base->base, FRAME_LEFT_FOOTER, "", NULL);
+X	            if (curr_filter->command)
+X	               end_command();
+X	            curr_filter = NULL;
+X	            }
+X	         }
+X	      }
+X	   }
+X	xv_set(contool_base->display, TEXTSW_UPDATE_SCROLLBAR, 0);
+X	if (do_open)
+X	   xv_set(contool_base->base, FRAME_CLOSED, FALSE, 0);
+X	if (do_blink)
+X	   if (xv_get(contool_base->base, FRAME_CLOSED) && !blinking) {
+X	      change_icon(bad, bad == default_bad_icon);
+X	      xv_set(contool_base->base, WIN_SHOW, TRUE, 0);
+X	      blinking = TRUE;
+X	      bad_is_up = TRUE;
+X	      notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, &timer, NULL);
+X	      }
+X	if (beep_count > 0 || blinking || filter_timeout > 0)
+X	   notify_set_itimer_func(contool_base->base, blink_proc, ITIMER_REAL, &timer, NULL);
+X	return(NOTIFY_DONE);
+X}
+X
+X/************************************************************************/
+X/*	Routines which parse options, create windows, and main()	*/
+X/************************************************************************/
+X
+X/************************************************************************/
+XPRIVATE	parse_options(argc, argv)
+X
+Xint	*argc;
+Xchar	**argv;
+X
+X{	char	*s, c, path[1024], *log_file = NULL, *p;
+X	int	log = FALSE, fd;
+X	static	char	cmdline[MAXPATHLEN + 10];
+X	struct	stat	sb;
+X
+X	sprintf(path, "%s/.contool", getenv("HOME"));
+X	filter_file = strsave(path);
+X
+X	cmdline[0] = NULL;
+X
+X	while ((c = getopt(argc, argv, "c:fi:lL:n?", &s)) != EOF)
+X	   switch (c) {
+X	      case 'c' : filter_file = expand_tilde(s);
+X	      		 explicit_filters = TRUE;
+X		         strcat(cmdline, " -c ");
+X			 strcat(cmdline, s);
+X	      		 break;
+X	      case 'f' : fork_into_background = TRUE;
+X	      		 strcat(cmdline, " -f");
+X	      		 break;
+X	      case 'i' : fclose(master);
+X	      		 fclose(slave);
+X	      		 slave = NULL;
+X	      		 if (strcmp(s, "-") == 0)
+X	      		    master = stdin;
+X	      		 else {
+X	      		    p = expand_tilde(s);
+X	      		    if (stat(p, &sb) != 0)
+X	      		       abend("%s: cannot stat %s: %s", program, s, sys_errlist[errno]);
+X	      		    else if ((sb.st_mode & S_IFMT) != S_IFCHR && (sb.st_mode & S_IFMT) != S_IFIFO)
+X	      		       abend("%s: %s is not a FIFO or character special device", program, s);
+X	      		    else if ((fd = open(p, O_RDONLY | O_NDELAY)) < 0)
+X	      		       abend("%s: cannot open %s for reading: %s", program, s, sys_errlist[errno]);
+X	      		    else if ((master = fdopen(fd, "r")) == NULL)
+X	      		       abend("%s: cannot convert descriptor for %s to stream: %s", program, s, sys_errlist[errno]);
+X	      		    }
+X	      		 strcat(cmdline, " -i ");
+X	      		 strcat(cmdline, s);
+X	      		 break;
+X	      case 'l' : log = TRUE;
+X		         strcat(cmdline, " -l");
+X	      		 break;
+X	      case 'L' : log_file = expand_tilde(s);
+X		         strcat(cmdline, " -L ");
+X			 strcat(cmdline, s);
+X	      		 break;
+X	      case 'n' : no_console = TRUE;
+X		         strcat(cmdline, " -n");
+X	      		 break;
+X	      case '?' : fprintf(stderr, ct_usage);
+X	      		 exit(0);
+X	      		 break;
+X	      default  : fprintf(stderr, ct_usage);
+X	                 exit(1);
+X	      }
+X
+X	if (strlen(cmdline) > 0)
+X	    xv_set(contool_base->base, WIN_CMD_LINE, cmdline, NULL);
+X
+X	if (lex_init(filter_file)) {
+X	   yyparse();
+X	   if (parsed_defaults)
+X	      defaults = *parsed_defaults;
+X	   if (log_file)
+X	      defaults.log_file = log_file;
+X	   if (log)
+X	      enable_logging();
+X	   adjust_window_limit();
+X	   }
+X	else if (explicit_filters)
+X	   error("Could not read configuration file %s", filter_file);
+X}
+X
+X/************************************************************************/
+Xmain(argc, argv)
+X
+Xint	argc;
+Xchar	**argv;
+X
+X{	char	buf[1024], *p, *path, *open_psuedo_tty();
+X	int	i;
+X	XWindowAttributes	attr;
+X	XClassHint	hints;
+X
+X	program = strsave(argv[0]);
+X
+X	path = open_psuedo_tty(&master, "r", &slave, "w");
+X	if (master == NULL)
+X	   abend("%s: couldn't open any psuedo-tty", program);
+X	if (slave == NULL)
+X	   abend("%s: couldn't open slave side of %s", program, path);
+X
+X	xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, 0);
+X	INSTANCE = xv_unique_key();
+X
+X	contool_base = contool_base_objects_initialize(NULL, NULL);
+X	default_good_icon  = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, good_bits,
+X						      NULL);
+X	default_bad_icon   = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, bad_bits,
+X						      NULL);
+X	default_flash_icon = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, flash_bits,
+X						      NULL);
+X	icon_mask          = (Server_image) xv_create(NULL, SERVER_IMAGE,
+X							 XV_WIDTH, 64,
+X							 XV_HEIGHT, 64,
+X							 SERVER_IMAGE_BITS, mask_bits,
+X						      NULL);
+X	disable_logging(contool_base);
+X
+X	XGetWindowAttributes(xv_get(contool_base->base, XV_DISPLAY), xv_get(xv_get(contool_base->base, XV_ROOT), XV_XID), &attr);
+X	masking_works = (attr.depth > 1);
+X
+X	hints.res_class = "Contool";
+X	hints.res_name = (p = rindex(program, '/'))? p + 1 : program;
+X	XSetClassHint(xv_get(contool_base->base, XV_DISPLAY), xv_get(contool_base->base, XV_XID), &hints);
+X
+X	parse_options(&argc, argv);
+X
+X	i = fcntl(fileno(master), F_GETFL, 0);
+X	i |= FNDELAY;
+X	if (fcntl(fileno(master), F_SETFL, i) == -1)
+X	   abend("%s: could not force %s to non-blocking i/o", program);
+X
+X	load_filters();
+X	update_icons();
+X	if (!no_console)
+X	   acquire_console();
+X	if (fork_into_background)
+X	   if (fork() != 0)
+X	      exit(0);
+X
+X	notify_set_input_func(contool_base->base, input_func, fileno(master));
+X	notify_interpose_destroy_func(contool_base->base, destroy_proc);
+X	notify_interpose_event_func(contool_base->base, close_proc, NOTIFY_SAFE);
+X	notify_set_signal_func(contool_base->base, signal_proc, SIGUSR1, NOTIFY_SYNC);
+X	notify_set_signal_func(contool_base->base, signal_proc, SIGHUP, NOTIFY_SYNC);
+X
+X	xv_main_loop(contool_base->base);
+X	exit(0);
+X}
+END_OF_FILE
+if test 23861 -ne `wc -c <'contool.c'`; then
+    echo shar: \"'contool.c'\" unpacked with wrong size!
+fi
+# end of 'contool.c'
+fi
+if test -f 'contool.info' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'contool.info'\"
+else
+echo shar: Extracting \"'contool.info'\" \(28621 characters\)
+sed "s/^X//" >'contool.info' <<'END_OF_FILE'
+X# 
+X# contool.info - User interface object help text.
+X# This file was generated by `gxv' from `contool.G'.
+X# DO NOT EDIT BY HAND.
+X# 
+X:contool_controls
+XThe contool control panel has buttons which let you load and store configuration data, adjust contool's configuration, and create and modify message filters.  Point at the desired button and press the Help key for more information about that set of functions.
+X# 
+X:file
+XThe File button provides various file-related services to contool users.  The associated menu has five entries.
+X
+X"Load Configuration" brings up the Load Configuration dialog.
+X
+X"Store Configuration" brings up the Store Configuration dialog.
+X
+X"Start Logging" starts logging messages to the log file specified in the Properties dialog.  If logging is already in effect, this menu item is disabled.
+X
+X"Stop Logging" stops logging.  If logging is not in effect, this menu item is disabled.
+X
+X"Print" prints the contents of the console use the print filter specified in the Properties dialog. 
+X
+X"About Contool" displays a brief history of contool, and allows users to send e-mail to contool's developer.
+X
+XThe default action is "Load Configuration".
+X# 
+X:view
+XThe View button provides three contool support functions:
+X
+X"Become Console" ensures that contool has the system console attribute.  Only one process under SunOS can own the console.  If some other process acquires this attribute, messages will no longer be routed to contool.  This selection will give the console attribute back to contool.
+X
+X"Clear Messages" clears the current console messages from the scrolling display.
+X
+X"Reset Filter" causes contool to stop processing a multi-line filter.  If the user has incorrectly specified the end pattern of a multi-line filter, contool may never stop processing that filter, preventing subsequent messages from being displayed.  This sleection cancels any multi-line fiter in effect.  If a multi-line filter is being processed, its starting pattern will be displayed in the left footer of the contool window.
+X
+XThe default selection is "Become Console".
+X# 
+X:edit
+XThe Edit button lets the user edit either the contool properties or the current filter set.
+X
+XThe "Filters" selection brings up the Filters dialog.
+X
+XThe "Properties" selection brings up the Properties dialog.
+X
+XThe default selection is "Filters".
+X# 
+X:display
+XThe contool console display contains the text of those messages which contool has been configured to display.  Some messages may be timestamped.  Which messages make it into the console is controlled by the Filters dialog; how many messages are retained is determined by the Properties dialog.
+X# 
+X:prop_controls
+XThe Properties dialog box lets you modify various default attributes of contool.  These attributes include how to handle messages which do not match any filter, message logging and printing, and icon images.
+X# 
+X:default_action
+XThe Default action setting determines what action contool will take when a message arrives that does not match any filter.
+X
+XIf "Beep" is selected, the machine bell will be rung the indicated number of times.
+X
+XIf "Command" is selected, the indicated command will be executed.  The contents of the message are written to the command's standard input.
+X
+XIf "Flash icon" is selected, contool's icon will flash, alternating between the "Check console" and "Flash" images specified in the contool Properties dialog box.
+X
+XIf "Log message" is selected, contool will write the message to the log file, provided that logging is enabled and occurs after filtering.
+X
+XIf "Open window" is selected, contool will open to a window (if iconic) and move in front of any obscuring windows.
+X
+XIf "Timestamp" is selected, a timestamp will be written to the console before the message text.  Timestamping is further controlled by the timestamp resolution defined in the contool Properties dialog box.
+X
+X# 
+X:default_beep_count
+XThis numeric text field determines the number of times the terminal bell will be rung when a message arrives that does not match any filter.
+X
+XThis item is only enabled if "Beep" is enabled in the "Default action" setting.
+X# 
+X:default_beep_times
+XThis numeric text field determines the number of times the terminal bell will be rung when a message arrives that does not match any filter.
+X
+XThis item is only enabled if "Beep" is enabled in the "Default action" setting.
+X# 
+X:default_command
+XThis text field determines the command that will be exedcuted when a message arrives that does not match any filter.  The contents of the message are written to standard input of the executing command.
+X
+XThis item is only enabled if "Command" is enabled in the "Default action" setting.
+X# 
+X:log_file
+XThe Log file text field contains the path of the file to which messages are written if logging is enabled.
+X
+XMessages are always appended to the file, preserving any previous contents.
+X
+XTyping a space in this field will cause file name completion to occur, expanding the current pathname to match, as much as possible, any existing files with the same name.
+X# 
+X:log_style
+XThe Log messages setting determines whether messages will be written to the log before or after filtering.
+X
+XIf "Before filtering" is selected, everything received by contool is written to the log.
+X
+XIf "After filtering" is selected, only those messages that do not match any filter, or that match a filter whose match action is to save the message, are written to the log.
+X# 
+X:archive_style
+XThe Archive messages setting determines when messages will be moved from the main contool display window into the message archive.
+X
+XIf "Manually" is selected, messages will only be moved to the archive when the user explicitly selects "Archive Messages" from the View menu in the main contool window.
+X
+XIf "When closing contool" is selected, messages will be moved to the archive whenever the user closes the main contool window.  This makes it easier to determine which messages in the main contool window are current, since all previously viewed messages were copied to the archive the last time contool was closed.
+X
+XEven if you select "When closing contool" for this setting, you can always explicitly move the messages to the archive by selecting "Archive Messages" from the View menu in the main contool window.
+X
+XArchived messages can be viewed by selecting "Archive..." from the View menu in the main contool window.
+X# 
+X:print_filter
+XThe Print filter text field specifies the command which will be used to print the console when "Print" is selected from the contool "File" menu.
+X
+XThis command should route its standard input to a printer.
+X# 
+X:good_icon
+XThe "All is well" icon text field should contain the path of a file containing the image to be used by contool when it is not flashing its icon.  The image should have been produced using iconedit(1).
+X
+XIf this field is blank, the default icon is used.
+X# 
+X:bad_icon
+XThe "Check console" icon text field should contain the path of a file containing the image to be used by contool when it is flashing its icon.  The image should have been produced using iconedit(1).  The image will be alternated with the "Flash" image to produce a blinking effect.
+X
+XIf this field is blank, the default icon is used.
+X# 
+X:flash_icon
+XThe "Flash" icon text field should contain the path of a file containing the image to be used by contool when it is flashing its icon.  The image should have been produced using iconedit(1).  The image will be alternated with the "Check console" image to produce a blinking effect.
+X
+XIf this field is blank, the default icon is used.
+X# 
+X:stamp_resolution
+XThe Timestamp resolution numeric text item specifies the number of seconds that must elapse before contool will write a new timestamp to the console.  Even if a filter requires that a timestamp be written, the stamp will only be inserted if the specified time has transpired.  This keeps the console from becoming clogged with a large number of similar timestamps.
+X# 
+X:message2
+XThe Timestamp resolution numeric text item specifies the number of seconds that must elapse before contool will write a new timestamp to the console.  Even if a filter requires that a timestamp be written, the stamp will only be inserted if the specified time has transpired.  This keeps the console from becoming clogged with a large number of similar timestamps.
+X# 
+X:max_message
+XThe Maximum message text numeric field determines the maximum number of characters contool will keep in the console display.  If inserting a new message would exceed this amount, contool will remove text from the beginning fo the display to make room.  The amount of text removed is determined by the "Overflow deletion amount" value.
+X# 
+X:message3
+XThe Maximum message text numeric field determines the maximum number of characters contool will keep in the console display.  If inserting a new message would exceed this amount, contool will remove text from the beginning fo the display to make room.  The amount of text removed is determined by the "Overflow deletion amount" value.
+X# 
+X:delete_amount
+XThe Overflow deletion amount numeric field determines how much text will be removed from the start of the console to make room for a new message whose insertion would cause the console the exceed the "Maximum message text" size.
+X
+XContool will attempt to remove whole messages from the console in order to retain an orderly appearance.
+X# 
+X:message4
+XThe Overflow deletion amount numeric field determines how much text will be removed from the start of the console to make room for a new message whose insertion would cause the console the exceed the "Maximum message text" size.
+X
+XContool will attempt to remove whole messages from the console in order to retain an orderly appearance.
+X# 
+X:props_apply
+XThe Apply button causes the values displayed in the Properties dialog to become the current contool properties.  Before Apply is pressed, changes made in this dialog do not affect contool.
+X
+XEven after pressing Apply, the changes are not written to the contool configuration file.  If you wish your changes to remaina cross invocations of contool, use the "Save Configuration" dialog to write the properties to the configuration file.
+X# 
+X:props_reset
+XThe Reset button restores the values in the Properties dialog to match the current values in use by contool.  Any changes made to these values and not applied to contool are discarded.
+X# 
+X:filter_controls
+XThis is the contool filter editing dialog.  You use this dialog to add, delete, and modify console message filters.
+X# 
+X:filter_list
+XThis scrolling list displays the current contool filter set.  Each line corresponds to one filter.
+X
+XThe starting pattern for each filter is shown in the list, preceded by a small glyph which indicates whether the filter is a single-line or multi-line filter.
+X
+XTo see the other attributes of a single filter, select that filter with the mouse.  The attributes will be displayed in the Filter dialog box.
+X
+XIf you select more than one filter, the remainder of the dialog box will be grayed out.  The dialog box is also disabled if no filter is selected.
+X# 
+X:filter_insert
+XThe Insert button inserts a new, blank filter into the filter list.  The menu associated with the button allows you to specify where the new filter will be inserted.
+X
+XThe insert positions are at the top of the list, the bottom of the list, and before or after the current selection.  These last choices are only enabled if exactly one filter in the list is selected.  The default position is at the bottom of the list.
+X
+XAfter inserting the new filter, any other selected filters are deselected, and the new filter is selected.  You can then define the attributes of this new filter, and update the filter using the Update button.
+X# 
+X:filter_edit
+XThe Edit button lets you modify the current filter list.  The menu associated with this button provides Cut, Copy, Paste, and Delete operations.
+X
+XThe Cut operation removes the selected filters from the list and places them on the clipboard.  You can place these filters back into the list using the Paste operation.
+X
+XThe Copy operation places a copy of the selected filters onto the clipboard.  The Paste operation will paste the copied filters into the list.
+X
+XThe Paste operation pastes filters on the clipboard into the filter list.  The Paste submenu provides four posting positions: at the top of the list, the bottom of the list, and before or after the current selection.  The last two choices are only enabled if exactly one filter in the list is selected.  The default position is at the bottom of the list.
+X
+XThe Delete operation removes the selected filters from the list.  The filters are not placed on the clipboard.  Once deleted, filters cannot be recovered with the Paste operation.
+X
+XThe Cut, Copy, and Delete operations are only enabled when one or more filters in the list are selected.  The Paste operation is only enabled after a Cut or Copy operation has placed filters on the clipboard.
+X
+XThe default edit operation is Cut.
+X# 
+X:filter_update
+XThe Update button applies the current filter attributes displayed in the Filters dialog box to the currently selected filter.  The only way to modify a filter is to select it, change its attributes, and click the Update button.
+X
+XThe Update button is only enabled when exactly one filter in the list is selected.
+X
+XYou must use Update to make changes to a filter take effect.  Clciking the Apply button does not perform an Update function on the current filter.
+X# 
+X:filter_type
+XThe Type setting determines whether the currently selected filter will match one or several lines of text written to the console.
+X
+XIf "Single line filter" is selected, the "Pattern" text field is enabled, and must contain a regular expression describing the line of text to be matched by this filter.
+X
+XIf "Multi-line filter" is selected, both "Pattern" and "End pattern" are enabled.  The "Pattern" field should contain a pattern which will match the first line of a multi-line filter.  The "End pattern" must match the last line of the multi-line filter.  All text between the first and last lines is considered part of the filtered text.
+X# 
+X:start
+XThe Pattern text field contains a regular expression (see ed(1), for more on regular expressions) which will match the first line of a message written to the console.  For single line filters, this is the only line matched by the filter.  For multi-line filters, lines of text beginning with the first line and continuing until a line matches the "End pattern" are considered part of the filtered text.
+X# 
+X:stop
+XThe End pattern text field contains a regular expression (see ed(1) for more on regular expressions) which will match the last line of a multi-line filter.
+X# 
+X:filter_timeout
+XThis numeric text field determines how long contool will process a multi-line filter.  If contool does not receive a message matching the specified end pattern before the timeout value, the filter is disabled.  This prevents a filter with an erroneous end pattern from absorbing all subsequent console messages.
+X
+XA timeout value of zero indicates that no timeout will be in effect.
+X
+XThis item is only enabled if "Type" is set to "Multi-line filter".
+X# 
+X:filter_timeout_units
+XThis numeric text field determines how long contool will process a multi-line filter.  If contool does not receive a message matching the specified end pattern before the timeout value, the filter is disabled.  This prevents a filter with an erroneous end pattern from absorbing all subsequent console messages.
+X
+XA timeout value of zero indicates that no timeout will be in effect.
+X
+XThis item is only enabled if "Type" is set to "Multi-line filter".
+X# 
+X:comment
+XThe Comment text field should contain a short description of what the current filter does.  Since some filters can be quite arcane, this description can be helpful to new users.
+X
+XThis field is optional, and can be left empty.  Let your conscience be your guide...
+X# 
+X:ignore
+XThe When matched selection determines what contool does with a message once it has matched a filter.
+X
+XIf "Save message" is selected, the actions selected in the "When saved" setting are performed, and the message text is written to the  console.
+X
+XIf "Ignore message" is selected, "When saved" is disabled and the message text is discarded.
+X# 
+X:action
+XThe When saved setting determines what action contool will take when a particular filter matches a console message.
+X
+XIf "Beep" is selected, the machine bell will be rung the indicated number of times.
+X
+XIf "Command" is selected, the indicated command will be executed.  The contents of the message are written to the command's standard input.
+X
+XIf "Flash icon" is selected, contool's icon will flash, alternating between the "Check console" and "Flash" images specified in the contool Properties dialog box.
+X
+XIf "Log message" is selected, contool will write the message to the log file, provided that logging is enabled and occurs after filtering.
+X
+XIf "Open window" is selected, contool will open to a window (if iconic) and move in front of any obscuring windows.
+X
+XIf "Timestamp" is selected, a timestamp will be written to the console before the message text.  Timestamping is further controlled by the timestamp resolution defined in the contool Properties dialog box.
+X
+XWhen a new filter is created, the save actions are set to match the default message actions defined in the Properties dialog box.
+X# 
+X:filter_beep_count
+XThis numeric text field determines the number of times the terminal bell will be rung when a message arrives matching the current filter.
+X
+XThis item is only enabled if "When matched" is set to "Save message" and "Beep" is enabled in the "When saved" setting.
+X# 
+X:filter_beep_times
+XThis numeric text field determines the number of times the terminal bell will be rung when a message arrives matching the current filter.
+X
+XThis item is only enabled if "When matched" is set to "Save message" and "Beep" is enabled in the "When saved" setting.
+X# 
+X:filter_command
+XThis text field determines the command that will be exedcuted when a message arrives matching the current filter.  The contents of the message are written to standard input of the executing command.
+X
+XThis item is only enabled if "When matched" is set to "Save message" and "Command" is enabled in the "When saved" setting.
+X# 
+X:filters_apply
+XThe Apply button takes the set of filters displayed in the filter list and makes them the current contool filter set.  Before Apply is pressed, any additions, deletions, or changes made to the filters remain local to the Filters dialog box.
+X
+XEven after pressing Apply, the filter changes are not written to the configuration file.  In order to make your changes take effect for subsequent invocations of contool, use the Save Configuration dialog box to write them to your configuration file.
+X# 
+X:filters_apply_and_save
+XThe Apply and Save button takes the set of filters displayed in the filter list and makes them the current contool filter set.  The filters are then saved to the current configuration file, along with the current tool properties.  If you wish to save just the filters or just the tool properties, or wish to save to a different file, you should press the Apply button instead and use the more general purpose Save Configuration dialog box.
+X
+XBefore this button is pressed, any additions, deletions, or changes made to the filters remain local to the Filters dialog box.
+X
+X# 
+X:filters_reset
+XThe Reset button discards any changes you have made to the displayed filter set, restoring the filters to match the set currently in use by contool.
+X
+XChanges made to the filters are local to the Filters dialog box.  You can discard your work and start fresh with the existing filter set by pressing the Reset button.
+X# 
+X:load_controls
+XThe Load Configuration dialog lets the user load tool properties and/or filter definitions from a configuration file.
+X# 
+X:load_type
+XThe Load selection lets the user choose which items are to be loaded from the configuration file.
+X
+XIf "Tool properties" is selected, contool properties will be loaded from the file.
+X
+XIf "Filter definitions" is selected, new filters will be loaded from the file, replacing any existing filters.
+X# 
+X:load_file
+XThe Configuration file text field must contain the name of the desired configuration file.
+X
+XTyping a space in this field will cause file name completion to occur, expanding the current pathname to match, as much as possible, any existing files with the same name.
+X# 
+X:accept_load
+XThe Load button causes the selected items to be read from the configuration file.  Existing properties and/or filters are replaced by those read from the file.
+X# 
+X:store_controls
+XThe Store Configuration dialog lets the user store tool properties and/or filter definitions in a configuration file.
+X# 
+X:store_type
+XThe Store selection lets the user choose which items are to be stored in the configuration file.
+X
+XIf "Tool properties" is selected, contool properties will be written to the file.
+X
+XIf "Filter definitions" is selected, new filters will be written to the file.
+X# 
+X:store_file
+XThe Configuration file text field must contain the name of the desired configuration file.
+X
+XTyping a space in this field will cause file name completion to occur, expanding the current pathname to match, as much as possible, any existing files with the same name.
+X# 
+X:accept_store
+XThe Store button writes the desired items to the configuration file.  The entire file is overwritten with the data.  Thus, a file containing properties and filters will be completely rewritten, even if you only write the filters to it.
+X# 
+X:about_controls
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message1
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message5
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message6
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message7
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message8
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message9
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message10
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message11
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message12
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message13
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message14
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message16
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message17
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message18
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message19
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:message20
+XThis window gives you some details about the development of contool, encourages you to correspond with the developer to improve future versions of contool, and delineates the restrictions placed on the contool source code.
+X# 
+X:send_mail
+XClicking this button will open another window in which you can compose and send mail to the developer of contool.
+X# 
+X:mail_controls
+XThis window allows you to send mail concerning contool to its developer.  You are encouraged to send comments and suggestions in order to make contool a better tool.
+X# 
+X:message21
+XThis window allows you to send mail concerning contool to its developer.  You are encouraged to send comments and suggestions in order to make contool a better tool.
+X# 
+X:message22
+XThis window allows you to send mail concerning contool to its developer.  You are encouraged to send comments and suggestions in order to make contool a better tool.
+X# 
+X:address
+XThis menu lets you select the address to which your message will be sent.  You should use the first selection for Internet-style mail, the second selection for Usenet-style mail, and the third selection for unusual addressing.
+X
+XIf you select the third item, a text field will appear, allowing you to enter an appropriate e-mail address.
+X# 
+X:fixed_address
+XThis menu lets you select the address to which your message will be sent.  You should use the first selection for Internet-style mail, the second selection for Usenet-style mail, and the third selection for unusual addressing.
+X
+XIf you select the third item, a text field will appear, allowing you to enter an appropriate e-mail address.
+X# 
+X:other_address
+XThis text field is used to enter an e-mail address to which your mail will be sent.  It should only be used if the two default addresses do not work from your site.
+X# 
+X:message
+XUse this window to type text that will be mailed to the contool developer.
+X# 
+X:mail_controls1
+XThis window allows you to send mail concerning contool to its developer.  You are encouraged to send comments and suggestions in order to make contool a better tool.
+X# 
+X:accept_send
+XClicking this button will send your mail message to contool's developer.
+X# 
+X:archive_controls
+XThe archive control panel has buttons which let you clear and print the messagea archive.  Messages are moved from the main contool window to the archive either at the user's discretion by selecting "Archive Messages" from the View menu in the main contool window, or automatically whenever the contool window is closed.  The "Archive messages" setting in the contool properties dialog controls message archiving.
+X# 
+X:clear
+XThe Clear button removes any messages stored in the archive.  Once removed, the messages cannot be recovered.
+X# 
+X:print
+XThe Print button prints the messages in the archive, using the print filter specified in the contool properties dialog.
+X# 
+X:archive
+XThe archive display contains all the messages that have been moved from the main contool window to the message archive.  Messages are moved from the main contool window to the archive either at the user's discretion by selecting "Archive Messages" from the View menu in the main contool window, or automatically whenever the contool window is closed.  The "Archive messages" setting in the contool properties dialog controls message archiving.
+END_OF_FILE
+if test 28621 -ne `wc -c <'contool.info'`; then
+    echo shar: \"'contool.info'\" unpacked with wrong size!
+fi
+# end of 'contool.info'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

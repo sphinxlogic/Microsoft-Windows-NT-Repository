@@ -1,0 +1,2194 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i007:  dbmalloc - Debug Malloc Library PL14, Part02/10
+Message-ID: <1992Sep4.151803.12409@sparky.imd.sterling.com>
+X-Md4-Signature: cda2b8042dd9b1480821f4d65e3b2fd6
+Date: Fri, 4 Sep 1992 15:18:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 7
+Archive-name: dbmalloc/part02
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 10)."
+# Contents:  PROBLEMS Buildpatch Configure Runtests teststack.c
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:18 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'PROBLEMS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PROBLEMS'\"
+else
+echo shar: Extracting \"'PROBLEMS'\" \(13221 characters\)
+sed "s/^X//" >'PROBLEMS' <<'END_OF_FILE'
+X
+XThis file documents the problems that have been found when the library
+Xis ported to different machines.  Where possible, a generic solution
+Xhas been added to the library so that the problem does not re-occur.
+X
+XNOTES specific to a particular implementation are included at the end
+Xof this file.  Search for ^SYSTEM if you want to jump to them:
+X
+X0. Configure script has a problem
+X	
+X	One note about problems with configure is that they are frequently
+X	caused by someone who has installed an ansi compiler like gcc and
+X	hasn't changed the system include files accordingly.
+X
+X	Configure will attempt to guess at the correct settings even if it
+X	is not able to determine if they are correct.  Theses guessed at 
+X	settings will be flaged by a '/* *GUESS* */' to the right of the
+X	definition and should be reviewed to make sure they are right.
+X
+X	If this happens, you should determine if the problem is a problem
+X	with the script itself, or with the script being able to determine
+X	the correct settings for your compiler/os combination.  
+X
+X	If you find that it is a bug in the script, please report it to 
+X	the author so that the fix can be incorporated into future releases.
+X	This is most likely the cause of a problem.  You should pay 
+X	particular attention to the fact that Configure *guesses* that it
+X	found the correct settings by compiling a test module and verifying
+X	that there were no warning messages generated.  It is possible that
+X	you have a strict ANSI compiler that is warning about something in
+X	the test file cctest.c which really has nothing to do with the 
+X	Configuration.
+X	
+X	If, however, the script appears to be processing the data correctly,
+X	but is still unable to determine the correct settings for your system
+X	you will have to configure the file by hand.  This involves the
+X	following steps:
+X
+X	A) create .configure file that contains the following lines
+X
+X		#define VOIDTYPE 	<voidtype>
+X		#define CONST		<const>
+X		#define DATATYPE	<malloc_datatype>
+X		#define SIZETYPE	<malloc_sizetype>
+X		#define MEMDATA		<mem_datatype>
+X		#define MEMSIZE		<mem_sizetype>
+X		#define MEMCMPTYPE	<mem_comptype>
+X		#define STRSIZE		<str_sizetype>
+X		#define STRCMPTYPE	<str_comptype>
+X
+X	where
+X
+X	    voidtype		is void if your compiler understands
+X				void data types, int otherwise
+X	    const		is const if your compiler understands
+X				constant variables
+X	    malloc_datatype	is the base type of the pointer returned by
+X				malloc (usually char or void)
+X	    malloc_sizetype	is the type of the size argument used by
+X				malloc and its associates (usually size_t,
+X				int, or unsigned int)
+X	    mem_datatype	is the base type of the pointer returned by
+X				the mem* functions (like memcpy()). This is
+X				usually char or void.
+X	    mem_sizetype	is the type of the len argument used by
+X				the mem* functions (usually size_t,
+X				int, or unsigned int).
+X	    mem_comptype	type to be used for comparisons of the differing
+X				characters in the memory comparison functions.
+X				This will usually be char or unsigned char. ANSI
+X				C says it will be unsigned char.
+X	    str_sizetype	is the type of the len argument used by
+X				the str* functions (like strncpy()).  This is
+X				usually size_t, int, or unsigned int.
+X	    str_comptype	type to be used for comparisons of the differing
+X				characters in the string comparison functions.
+X				This will usually be char or unsigned char. ANSI
+X				C says it will be unsigned char.
+X
+X	B) create .configure.s file that contains the following lines:
+X
+X		#define ABORT_SIGNAL	<abortsignum>
+X		#define WRTSIZE		<write_sizetype>
+X
+X	where
+X	
+X	    abortsignum		is the signal number used to abort a program.
+X				This is usually SIGABRT or SIGIOT.
+X	    write_sizetype	is the type of the size (or length) parameter
+X				to the write system call.  This will usually
+X				be size_t, unsigned int, or int
+X
+X	In addition
+X
+X		if your compiler/libraries do not support the putenv() 
+X		call, but instead support setenv(), add the following line:
+X
+X			#define USE_SETENV 1
+X
+X		If your system has an Intrinsic.h file in /usr/include/X11,
+X		add the following line:
+X
+X			#define FOUND_X_INTRINSIC 1
+X
+X		If wait.h is available for wait() system call parameter 
+X		definitions, add the following line:
+X	
+X			#define NEED_WAIT 1
+X	
+X		If you are running X11R4 or before and you intend to use the
+X		library to link with X programs, add the following line:
+X
+X			#define DONT_FORCE_HEAPSTUFF 1
+X
+X	C) If you want to preclude the use of the system memset and memcpy
+X	modules (which if they can be used will usually result in a 
+X	significant performance gain), create a .configure.O (capital letter o)
+X	file with something in it (i.e. date > .configure.O).
+X
+X	D) run Configure to generate the appropriate .h files (and if you
+X	didn't create the .configure.O file in step C, the converted system
+X	memset and memcpy routines, if they are compatible and useful)
+X
+X	NOTE: Configure attempts to grab the memset.o and memmove(or memcpy)
+X	routines from libc.a, if it can find them, and convert them for
+X	use by the library since these modules are usually modified by the
+X	vendor so that they take advantage of assembly language features
+X	to improve performance. 
+X
+X	If libc.a cannot be found, or if the system modules are not compatible
+X	with the malloclib versions (this frequently happens with memcpy since
+X	the malloclib version correctly handles moving data around in
+X	overlapped regions), then Configure will not include them and the
+X	library will include its own version (which has been optimized in a
+X	portable fashion).
+X
+X	If the files datamc.O and datams.O do not get created, then this was
+X	the case.  You can improve the performance of the library significantly
+X	by coding compatible libraries in assembly language if your cpu
+X	has specialized data movement instructions.  See the datamc.c routine
+X	for a sample of such a mechanism used to optimize memcpy() operations
+X	on a 386.
+X
+X	If you do this, and it passes all of the tests (including the 1,000,000
+X	allocation test for testmalloc), please send it in and I will include
+X	it in the next release.
+X
+X
+X1. Compilation problems with the library itself.
+X
+X	This is a fairly common problem and is most often associated with
+X	the settings for the .configure #defines.  If you get any compilation
+X	errors for modules within this library, the first thing you should
+X	do is verify that you are using the correct settings for these
+X	typedefs.  Review the description on what they should be set to and 
+X	review the original settings.
+X
+X	Another common problem is attempting to compile the library and/or
+X	test with a strict ANSI-C compiler.  Since ANSI reserves symbols
+X	like malloc, memcpy, strcpy, etc you can expect to have a lot of
+X	problems.  This is especially so if the ANSI is very strict 
+X	because the library does make use of UNIX functionality like fork,
+X	wait, open, write, etc.
+X
+X	If you have access to an standard K&R compiler (or a more relaxed 
+X	ANSI compiler, especially one that uses the system K&R style header
+X	files (i.e. gcc without -pedantic on a system with a non-ANSI cc)
+X	you should use it to compile the library.  Once the library is
+X	compiled, you should be able to use it with code compiled under
+X	other compilers (assuming, of course, that they are compatible).
+X	
+X
+X2. Conflicts with system provided string.h/memory.h includes
+X
+X	The library provides its own versions of these functions, but includes
+X	the system header files so that if it compiles with no errors, you
+X	will know that the two agree exactly.   The Configure script should
+X	have ensured that they agreed, but is it possible that it got them
+X	wrong.  Check the .configure file to determine if the #defines are
+X	set correctly (as described in step 0)
+X
+X3. Duplicate symbols from libc.a (or its equivalent shared library)
+X
+X	This is most often caused by one of the system library functions
+X	including an additional function/variable definition in one of the
+X	memory/string library modules. (i.e. some systems have a cfree()
+X	call that is in the calloc.o library module).
+X
+X	There are several ways to get around this problem.  The best way
+X	would be to duplicate the functionality of the extra reference 
+X	where ever it is appropriate in the malloc library (similarly to
+X	the addition of cfree in the calloc.c module).   If you do this,
+X	please send me the new function and a description of the system and/or
+X	compiler so that I can determine if it should go into the standard
+X	distribution.
+X
+X	Another mechanism that has been reportedly used in some architectures
+X	is to ignore the duplicate symbol errors and just chmod the executable
+X	so that it is executable (i.e. chmod +x).  I don't know if this is 
+X	all that safe, or if it will work on your system, but it has been 
+X	reported to successfully work in this fashion.
+X	
+X	Another, less desirable way would be to disable the offending function
+X	in this library.  This option is less desirable because the disabled
+X	function would no longer provide any error checking (which is 
+X	supposed to be the purpose of this library).
+X
+X	With shared libraries, there are some formats (perhaps all) that
+X	have explicit references to functions in the shared library that
+X	are duplicated in the debug library.  On these systems, the
+X	only way around the problem is to not use the shared library 
+X	when linking the test version of the software.
+X
+X4. Compilation errors in string.c and/or memory.c
+X
+X	There are several compilers that provide in-line expansion of
+X	routines like strcpy.  This can cause real problems when we 
+X	try to compile our own version.  If you can disable the in-line
+X	expansion, that is the best way to go.  This should only be
+X	needed for the malloc library itself.  The source you are debugging
+X	should include the malloc.h file and therefore won't be calling
+X	strcpy, but instead will be calling DBstrcpy (because of a macro
+X	in malloc.h).
+X
+X	Disabling the in-lining of functions is usually accomplished by
+X	setting a compiler flag, or sometimes by predefining some #def
+X	that is used by system include files.
+X
+X	If you can't disable the in-line expansion, you will have to 
+X	disable the debug versions of the offending functions in the
+X	malloc library by adding a #ifdef around the code.  Be sure to
+X	just disable the functions that are giving you problems (i.e. don't
+X	disable all of string.c and don't disable the DB functions, because
+X	any code that includes malloc.h will attempt to use them).
+X
+X5. Conflicts/problems with prototypes.h
+X
+X	Prototypes.h is a generated file that has zillions of function
+X	prototypes for the malloc library.  You should not need to remake
+X	this module.  If, however, you have made changes to the calling
+X	arguments for some of the functions due to conflicts with system
+X	headers, you may have to modify or rebuild this file.
+X
+X	To rebuild the file using the makefile targets you must have the
+X	cproto prototype generator (available in comp.sources.misc, vols 17
+X	and 18).
+X
+X6. Argument mis-matches and syntax errors when including malloc.h
+X
+X	This is usually the result of including malloc.h before string.h
+X	and/or memory.h which causes lots of problems.  malloc.h attempts
+X	to avoid this problem by #defining a bunch of typical symbols used
+X	to preclude multiple inclusions of these files, but some systems do
+X	not have this multiple inclusion protection, or use a slightly 
+X	different symbol for the protection.
+X
+X	To get around this problem you could do one of the following:
+X
+X		1. change the code so that it includes malloc.h last.
+X		2. add multiple inclusion protection to the system include
+X		   files.
+X		3. remove the #defines from malloc.h (which decreases the
+X		   ability for the debug library to identify the source of
+X		   the problems).
+X
+X	Another problem with including malloc.h will occur if you have local
+X	definitions of things like:
+X
+X			char * strcpy();
+X	
+X	which will result in a preprocessor or compiler error because of the
+X	#defines in malloc.h.  The recommended solution to this problem is
+X	to remove the local definitions and include the system header files
+X	that have the definitions (string.h in this case).  If you can't or
+X	don't want to do this, you can add #ifndef _DEBUG_MALLOC_INC and 
+X	#endif around the local definitions so that they are not included if
+X	the debugging version of malloc.h is included.
+X
+X	Yet another similar problem is the use of standard symbols for variable
+X	and/or structure element names.  This happens most often with the
+X	variable index. 
+X
+X	To fix this, you can change the name of the variable, #undef index
+X	after including the malloc library, or remove the #define index
+X	line from malloc.h
+X
+X**************************************************************************
+XSYSTEM SPECIFIC PROBLEMS
+X
+X
+XSun Sparc w/ SunOS 4.x and GCC 2.1
+X
+X	The header files provided by sun do not contain ansi standard 
+X	definitions for many of the modules used by the library and cause
+X	problems when included by code compiled by GCC.  This includes
+X	things like <memory.h> which has a prototype for memcpy which
+X	is something like void * memcpy(); and doesn't agree with the
+X	builtin definition in gcc (void * memcpy(void *, const void*, int)).
+X
+X	The solution to this problem would be to define the correct
+X	prototypes for memory.h in the system include file or in the
+X	gcc version of the include file. 
+X
+END_OF_FILE
+if test 13221 -ne `wc -c <'PROBLEMS'`; then
+    echo shar: \"'PROBLEMS'\" unpacked with wrong size!
+fi
+# end of 'PROBLEMS'
+fi
+if test -f 'Buildpatch' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Buildpatch'\"
+else
+echo shar: Extracting \"'Buildpatch'\" \(4439 characters\)
+sed "s/^X//" >'Buildpatch' <<'END_OF_FILE'
+X#
+X# Buildpatch - shell script for automatically building patch files
+X#
+X# $Id: Buildpatch,v 1.12 1992/04/29 18:24:06 cpcahil Exp $
+X#
+Xif [ $# = 0 ]; then
+X	echo "usage: Buildpatch srcfiles..."
+X	exit 1
+Xfi
+X
+X#
+X# see if any files are still locked.  If so, we cannot proceed (they must be
+X# unlocked before a patch file can be built
+X#
+Xif rlog -l $* 2>rlog.err | grep "locked by:" >/dev/null; then
+X	echo "all files must be checked in before a patch file can be built"
+X	exit 1
+Xfi
+X
+Xif [ -s rlog.err ]; then
+X	echo "all files must be checked in before a patch file can be built"
+X	exit 1
+Xfi
+X
+Xrm -f rlog.err
+X
+X#
+X# determine the old and new patch levels and name the patchfile
+X#
+Xrm -f patchlevel	2> /dev/null
+Xco -q patchlevel 	2> /dev/null
+X
+Xread title oldlevel < patchlevel
+X
+Xif [ "$oldlevel" -lt 10 ]; then
+X	OPATCH=patch.0$oldlevel
+X	ODIR=patches/p.0$oldlevel
+Xelse
+X	OPATCH=patch.$oldlevel
+X	ODIR=patches/p.$oldlevel
+Xfi
+X
+X#
+X# if the old patch is still lying around, move it the the save directory
+X#
+Xif [ -s "OPATCH" ]; then
+X
+X	if [ ! -d "$ODIR" ]; then
+X		mkdir $ODIR
+X	fi
+X
+X	mv ${OPATCH}* ${ODIR}
+X
+X	echo "Saved ${OPATCH} to ${ODIR}"
+Xfi
+X
+Xlevel=`expr "$oldlevel" + 1`
+X
+Xif [ "$level" -lt 10 ]; then
+X	PATCH=patch.0$level
+Xelse
+X	PATCH=patch.$level
+Xfi
+X	
+X
+X#
+X# check out current version of all files
+X#
+Xco -q -u $*
+X
+X#
+X# create the new patchlevel file
+X#
+Xecho "Buillding patch number $level..."
+Xco -q -l patchlevel
+Xecho "$title $level" > patchlevel 
+Xci -u -q -m"patch number $level" -t/dev/null patchlevel
+X
+X#
+X# create a new, empty patch file and empty directory for old versions of files
+X# Note that if the patch file already exists, we assume it is special directions
+X# for the patch and don't remove them.
+X#
+Xif [ -s $PATCH.inst ]; then
+X	cp $PATCH.inst $PATCH
+X	chmod 644 $PATCH
+Xelse
+X	cp /dev/null $PATCH
+X	chmod 644 $PATCH
+Xfi
+X
+Xif [ -d old ]; then
+X	rm -rf old
+Xfi
+Xmkdir old
+X
+X#
+X# Unpack the old shar files into the old directory
+X#
+X(
+X	echo "Building old directory for diff base"
+X
+X	cd old
+X	if [ "$oldlevel" -lt 10 ]; then
+X		oldlevel=0$oldlevel
+X	fi
+X
+X	#
+X	# if there isn't an oldshar directory, move them from the source
+X	# directory to the oldshar directory
+X	#
+X	if [ !  -d ../oldshars/$oldlevel ]; then
+X		mkdir ../oldshars/$oldlevel
+X		mv ../mallocshar.* ../oldshars/$oldlevel
+X	fi
+X
+X	#
+X	# unshar them into the current directory	
+X	#
+X	unshar -h /dev/null ../oldshars/$oldlevel/* > /dev/null 2>&1
+X
+X	#
+X	# if there are any commands to run before the patch is applied
+X	# run them now so that they are used when the patch is generated
+X	#
+X	grep "^CMD:" ../$PATCH | sed -e "s/^CMD://" > commands
+X
+X	if [ -s commands ]; then
+X		sh -x commands
+X	fi
+X)
+X
+X#
+X# process each source file
+X#
+Xecho "Generating diffs"
+Xfor i in $*
+Xdo
+X	#
+X	# if the file exists (then it has been changed and must be part of
+X	# the patch file
+X	#
+X	if [ -s $i ]; then
+X
+X		#
+X		# if the file hasn't changed, skip it
+X		#
+X		if cmp -s $i old/$i ; then
+X			continue;
+X		fi
+X
+X		#
+X		# name the file
+X		#
+X		echo "\nIndex: $i" >> $PATCH
+X
+X		#
+X		# if there is an old version, add the prerequisite
+X		#
+X		if [ -s old/$i ]; then
+X			
+X			#
+X			# get old rcs id
+X			#
+X			PREREQ="`rlog -rpatchlevel_$oldlevel $i |
+X				 grep '^revision' | cut -f2 -d' ' 2>/dev/null`"
+X
+X			#
+X			# if the id is in the file, add the prereq line
+X			#
+X			if fgrep "$PREREQ" old/$i > /dev/null 2>&1; then
+X
+X				echo "Prereq: $PREREQ" >> $PATCH
+X
+X			elif [ "$i" = "patchlevel" ]; then
+X
+X				echo "Prereq: $oldlevel" >> $PATCH
+X
+X			fi
+X		else
+X			> old/$i
+X		fi
+X
+X		# 
+X		# diff the file to generate the patch stuff
+X		#
+X		diff -c old/$i $i >> $PATCH
+X
+X	fi
+X
+Xdone
+X
+X#
+X# and now to check to verify that the patchfile correctly updates the
+X# old code to the current version.  First apply the patch to the old
+X# code and then see if there are any differences between the files.
+X#
+Xecho "Verifying patch..."
+X(
+X	cd old
+X
+X	patch < ../$PATCH > /dev/null 2>&1
+X)
+X
+XFILES="`
+Xfor i in $*
+Xdo
+X	if cmp -s $i old/$i; then
+X		continue;
+X	fi
+X
+X	echo file $i did not patch correctly > /dev/tty
+X	echo $i
+Xdone `"
+X
+Xif [ ! -z "$FILES" ]; then
+X
+X	echo "patch file did not build correctly($FILES)."
+X	exit 1
+X
+Xfi
+X
+Xrm -rf old
+X
+Xecho "Verification complete"
+X
+X#
+X# and now freeze all the files at this patchlevel, and checkout the current
+X# versions of the files
+X#
+X
+Xecho "freezing source at patch level $level"
+Xecho "." | rcsfreeze patchlevel_$level  > /dev/null 2>&1 
+X
+Xecho "checking out current version (unlocked)"
+Xco -q -u -rpatchlevel_$level $*
+X
+X#
+X# build patch shar files from patch file
+X#
+Xshar3 -F -c -o$PATCH -L60 $PATCH
+X
+Xexit 0
+END_OF_FILE
+if test 4439 -ne `wc -c <'Buildpatch'`; then
+    echo shar: \"'Buildpatch'\" unpacked with wrong size!
+fi
+# end of 'Buildpatch'
+fi
+if test -f 'Configure' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Configure'\"
+else
+echo shar: Extracting \"'Configure'\" \(29712 characters\)
+sed "s/^X//" >'Configure' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X#
+X# (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X#
+X# This software may be distributed freely as long as the following conditions
+X# are met:
+X# 		* the distribution, or any derivative thereof, may not be
+X#		  included as part of a commercial product
+X#		* full source code is provided including this copyright
+X#		* there is no charge for the software itself (there may be
+X#		  a minimal charge for the copying or distribution effort)
+X#		* this copyright notice is not modified or removed from any
+X#		  source file
+X#
+X# $Id: Configure,v 1.22 1992/08/22 16:27:13 cpcahil Exp $
+X#
+X# This shell script attempts to automatically determine the correct settings
+X# for the malloc library include file and compile pre-defines.  This script has
+X# been tested by the author in the following environments:
+X#
+X#	Intel 486	ISC UNIX 3.0	cc & gcc 2.1
+X#	Intel 486	DELL SVR4 	cc & gcc 1.40
+X#	HP9000		HP/UX 8.0	cc & cc -Aa -D_POSIX_SOURCE
+X#	AT&T 3B2-600	SVR4.1ES	cc (relaxed ansi - no cc flags)
+X#	IBM RS6000	AIX 3.1		cc 
+X#	Sun Sparc 2	SunOS 4.1.1	cc
+X#
+X# It has also been reported to work in the following environments:
+X#
+X#	DG AViiON	DG/UX		gcc 2.1 & cc (which is gcc -traditional)
+X#	Sun Sparc 2	SunOS 4.1.1	cc (apparently in the sys5 environment)
+X#	Hp 9000/400	HP-UX 7.0x	cc
+X#	Hp 9000/700	HP-UX 8.05	cc
+X#	Sun Sparc 	SunOs 4.1.1	cc (in bsd environment)
+X#	Motorola 88K	SysV 3.2
+X#	DecStation 5100	Ultrix 4.2	
+X#	IBM rs/6000	AIX 3.1.1	
+X#	IBM rs/6000	AIX 3.2	
+X#	Intel 486	ESIX SysV 4.0
+X#
+X# If you run this script in a different environment it may not work correctly or
+X# it may make an incorrect determination, so be more cautious about the results.
+X#
+XSP="           "
+XCCFILE=CF$$c
+XCCLIST="gcc2 gcc como CC g++ c89 cc pcc"
+XCONFFILE=.configure
+XDIRLIST="`echo $PATH | tr ':' ' '`"
+XINCDIR=/usr/include
+XLIBDIRS="/lib /usr/lib /usr/ucb/lib"
+XTMPDIR=/tmp
+XTMPBREAK=${TMPDIR}/CF$$break
+XTMPCC=${TMPDIR}/CF$$cc
+XTMPCCFILE=${TMPDIR}/${CCFILE}.c
+XTMPCOMP=${TMPDIR}/CF$$cmp
+XTMPDEF=${TMPDIR}/CF$$def
+XTMPEND=${TMPDIR}/CF$$end
+XTMPFATAL=${TMPDIR}/CF$$fatal
+XTMPFIRST=${TMPDIR}/CF$$first
+XTMPFOUND=${TMPDIR}/CF$$fnd
+XTMPPREDEF=${TMPDIR}/CF$$pred
+XTMPSET=${TMPDIR}/CF$$set
+XTMPSKIPPED=${TMPDIR}/CF$$skip
+XWARN_REGEXP="[Ww]arning|^w "\"".*"\"",L[0-9]*/C[0-9]*:"
+X
+Xif [ $# != 0 ]; then
+X	debug=$1
+X
+X	if [ $debug -gt 10 ]; then
+X		set -x
+X	fi
+Xelse
+X	debug=0
+Xfi
+X
+X#
+X# if we already have a configuration 
+X#
+Xif [ $# = 0 -a -s "${CONFFILE}" -a -s "${CONFFILE}.s" ]; then
+X
+X	echo "Using existing configuration.  If this is not correct, you"
+X	echo "need to remove the ${CONFFILE} file and re-run the make"
+X
+Xelse
+X
+X	echo "Determining the correct configuration for malloc.h on this" \
+X			"system."
+X	echo "This may take a while, please be patient"
+X
+X	
+X	#
+X	# Determine default sizetype (for use when we are guessing at 
+X	# parameter settings).
+X	#
+X	grep size_t ${INCDIR}/sys/types.h >/dev/null 2>&1
+X	if [ $? = 0 ]; then
+X		dfltsize=size_t
+X	else
+X		dfltsize="unsigned int"
+X	fi
+X
+X	#
+X	# determine the compiler(s) that are available on this system
+X	#
+X
+X	echo "    Looking for compilers..."
+X	rm -f ${TMPCOMP}
+X	touch ${TMPCOMP}
+X
+X	#
+X	# if in debug mode and the compiler is specified as an argument
+X	#
+X	if [ $# -gt 1 ]; then
+X		echo $2 > ${TMPCOMP}
+X	else
+X
+X		#
+X		# look for the listed compilers.  Note that cc is last.  This
+X		# is as it should be because cc is probably the only compiler
+X		# listed that doesn't have one of the pre-defined symbols that
+X		# we look for and therefore must be last because the
+X		# configuration check loop requires that all compilers other
+X		# than the last compiler have one of the pre-defined symbols.
+X		#
+X		for compiler in ${CCLIST}
+X		do
+X			for dir in ${DIRLIST}
+X			do
+X				if [ -s $dir/$compiler ]; then
+X					echo "        found $compiler in $dir"
+X					echo $dir/$compiler >> ${TMPCOMP}
+X					#
+X					# if this is gcc, also add a second 
+X					#   entry with the -traditional flag
+X					#
+X					if [ $compiler = "gcc" ]; then
+X						echo $dir/$compiler \
+X						  -traditional >> ${TMPCOMP}
+X					fi
+X					
+X					break
+X				fi
+X			done
+X		done
+X
+X		#
+X		# if we didn't find any compilers
+X		#
+X		if [ ! -s ${TMPCOMP} ]; then
+X			echo "I can't find your compiler"
+X			echo 1 > ${TMPFATAL}
+X			exit 1
+X		fi
+X
+X	fi
+X
+X	rm -f ${TMPSET} ${TMPEND} ${TMPSET}.s ${TMPEND}.s ${TMPFIRST} ${TMPSKIPPED}
+X
+X	cp /dev/null ${TMPSET}
+X	cp /dev/null ${TMPSET}.s
+X	cp /dev/null ${TMPEND}
+X	cp /dev/null ${TMPEND}.s
+X	first=1
+X	ending=
+X	#
+X	# for each compiler. 
+X	#
+X	echo "    checking compiler configuration(s)..."
+X	while read cc
+X	do
+X		(
+X		echo "        checking $cc..."
+X
+X		#
+X		# if we should be using any special flags for this compile
+X		#
+X		if [ -s Config.flags ]; then
+X			newcc="`basename $cc`"
+X			newcc="`eval grep \"\^$newcc\" Config.flags`"
+X			if [ ! -z "$newcc" ]; then
+X				cc="$newcc"
+X			fi
+X		fi
+X
+X		if [ -s ${TMPFIRST} ]; then
+X			#
+X			# See if the current set of defines meets the conditions
+X			# for this compiler.  If so, there is no need to verify
+X			# the parameters further.
+X			#
+X			rm -f ${TMPCCFILE}
+X			cat ${TMPSET} ${TMPEND} cctest.c > ${TMPCCFILE}
+X			$cc -DMALLOC_COMPILETEST -DMEM_COMPILETEST \
+X			   -DSTR_COMPILETEST -DFREE_COMPILETEST -DEXITTEST\
+X			   -c ${TMPCCFILE} >${TMPCC} 2>&1
+X			ccresult=$?
+X
+X			rm -f ${TMPCCFILE}
+X
+X			if [ $ccresult = 0 ]; then
+X				if egrep "${WARN_REGEXP}" ${TMPCC}>/dev/null; then
+X					rm ${TMPCC};
+X				else
+X					continue
+X				fi
+X			fi
+X
+X			#
+X			# otherwise if the last compiler didn't have a
+X			# pre-defined symbol we can't add another set
+X			# because it would conflict with the previous 
+X			# set of definitions.
+X			#
+X			if [ ! -s ${TMPPREDEF} ]; then
+X			
+X				echo "${SP}More than one compiler and no way to tell the" \
+X					 "difference between them"
+X				echo "${SP}So, hopefully the one set of defs will suffice"
+X				echo "break" > ${TMPBREAK}
+X				exit
+X			fi
+X
+X			PREDEF=`cat ${TMPPREDEF}`
+X
+X			if [ ! -s ${TMPSKIPPED} ]; then
+X				echo >> ${TMPSET}
+X				echo "#else  /* $PREDEF */" >> ${TMPSET}
+X				echo >> ${TMPSET}
+X	
+X				echo >> ${TMPSET}.s
+X				echo "#else  /* $PREDEF */" >> ${TMPSET}.s
+X				echo >> ${TMPSET}.s
+X			fi
+X
+X		fi
+X
+X		#
+X		# add the appropriate #ifdef to the settings file for this 
+X		# compiler (if it has any)
+X		#
+X		$cc -DPRE_DEFINES -o cctest cctest.c > /dev/null 2>&1
+X
+X		./cctest > ${TMPPREDEF}1
+X
+X		if [ ! -s ${TMPPREDEF}1 ]; then
+X			echo "skipped" >> ${TMPSKIPPED}
+X			echo "${SP}Failed to determine pre-definitions for this compiler"
+X			echo "${SP}    skipping this set of pre-defs.  NOTE: this problem"
+X			echo "${SP}    is usually caused by a compiler installed without"
+X			echo "${SP}    its libraries (like g++)"
+X			exit 0
+X			
+X		else
+X
+X			rm -f ${TMPSKIPPED}
+X
+X			PREDEF=`cat ${TMPPREDEF}1`
+X
+X			if [ "x${PREDEF}" = "xnone" ]; then
+X				cp /dev/null ${TMPPREDEF}
+X				PREDEF=""
+X			else
+X
+X				mv ${TMPPREDEF}1 ${TMPPREDEF}
+X
+X				echo >> ${TMPSET}
+X				echo "#if       $PREDEF" >> ${TMPSET}
+X				echo >> ${TMPSET}
+X
+X				if [ -s ${TMPEND}.o ]; then
+X					rm -f ${TMPEND}.o
+X				fi
+X				if [ -s ${TMPEND} ]; then
+X					mv ${TMPEND} ${TMPEND}.o
+X				fi
+X				echo > ${TMPEND}
+X				echo "#endif /* $PREDEF */" >> ${TMPEND}
+X				echo >> ${TMPEND}
+X
+X				if [ -s ${TMPEND}.o ]; then
+X					cat ${TMPEND}.o >> ${TMPEND}
+X					rm -f ${TMPEND}.o
+X				fi
+X
+X				echo >> ${TMPSET}.s
+X				echo "#if       $PREDEF" >> ${TMPSET}.s
+X				echo >> ${TMPSET}.s
+X
+X				if [ -s ${TMPEND}.s.o ]; then
+X					rm -f ${TMPEND}.s.o
+X				fi
+X				if [ -s ${TMPEND}.s ]; then
+X					mv ${TMPEND}.s ${TMPEND}.s.o
+X				fi
+X				echo > ${TMPEND}.s
+X				echo "#endif /* $PREDEF */" >> ${TMPEND}.s
+X				echo >> ${TMPEND}.s
+X
+X				if [ -s ${TMPEND}.s.o ]; then
+X					cat ${TMPEND}.s.o >> ${TMPEND}.s
+X					rm -f ${TMPEND}.s.o
+X				fi
+X			fi
+X		fi
+X
+X		#
+X		# flag that this is not the first time
+X		#
+X		echo "second" > ${TMPFIRST}
+X
+X		#
+X		# First step is to determine the correct settings for the
+X		# DATATYPE, SIZETYPE and VOIDTYPE pre-defines for this compiler.
+X		#
+X		# Check void
+X		#
+X		$cc -DVOIDTEST -c cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X		grep_result=$?
+X
+X		if [ $cc_result = 0 -a $grep_result != 0 ] ; then
+X			voidtype=void
+X		else
+X			voidtype=int
+X		fi
+X
+X		echo "#define VOIDTYPE $voidtype" >> ${TMPSET}
+X
+X		#
+X		# Check const
+X		#
+X		$cc -DCONSTTEST -c cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X		grep_result=$?
+X
+X		if [ $cc_result = 0 -a $grep_result != 0 ] ; then
+X			const=const
+X		else
+X			const=
+X		fi
+X
+X		echo "#define CONST $const" >> ${TMPSET}
+X
+X		#
+X		# Check ABORT_SIGNAL.  Note that this goes into the settings.s
+X		# file which eventually goes into sysdefs.h
+X		#
+X		$cc -DSIGABRTTEST -c cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X		grep_result=$?
+X		if [ $cc_result = 0 -a $grep_result != 0 ] ; then
+X			abortsig=SIGABRT
+X		else
+X			$cc -DSIGIOTTEST -c cctest.c > ${TMPCC} 2>&1
+X			cc_result=$?
+X			egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X			grep_result=$?
+X			if [ $cc_result = 0 -a $grep_result != 0 ] ; then
+X				abortsig=SIGIOT
+X			else
+X				abortsig=6
+X			fi
+X		fi
+X
+X		echo "/*" >> ${TMPSET}.s
+X		echo " * Signal to use to abort program " >> ${TMPSET}.s
+X		echo " */" >> ${TMPSET}.s
+X		echo "#define ABORT_SIGNAL $abortsig" >> ${TMPSET}.s
+X		echo "" >> ${TMPSET}.s
+X
+X		#
+X		# Check SETENV stuff.  Note that this goes into the settings.s
+X		# file which eventually goes into sysdefs.h
+X		#
+X		$cc -DSETENVTEST cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X		gres=$?
+X		grep "setenv" ${TMPCC} > /dev/null 2>&1
+X		gres2=$?
+X		if [ $cc_result = 0 -a $gres != 0 -a $gres2 != 0 ]; then
+X			echo "/*" >> ${TMPSET}.s
+X			echo " * Use setenv() for env mods" >> ${TMPSET}.s
+X			echo " */" >> ${TMPSET}.s
+X			echo "#define USE_SETENV 1" >> ${TMPSET}.s
+X			echo "" >> ${TMPSET}.s
+X		fi
+X
+X		#
+X		# Check to see if POSIX header files (in particular,
+X		# <unistd.h>) are available
+X		#
+X		$cc -DPOSIXHEADERTEST cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "$WARN_REGEXP" ${TMPCC} > /dev/null 2>&1
+X		gres=$?
+X		if [ $cc_result = 0 -a $gres != 0 ]; then
+X			echo "/*" >> ${TMPSET}.s
+X			echo " * POSIX header files are available" >> ${TMPSET}.s
+X			echo " */" >> ${TMPSET}.s
+X			echo "#define POSIX_HEADERS 1" >> ${TMPSET}.s
+X			echo "" >> ${TMPSET}.s
+X			USE_UNISTD=-DUSE_UNISTD
+X		else
+X			USE_UNISTD=
+X		fi
+X
+X		#
+X		# Check to see if ANSI header files (in particular,
+X		# <stdlib.h>) are available
+X		#
+X		$cc -DANSIHEADERTEST cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "$WARN_REGEXP" ${TMPCC} > /dev/null 2>&1
+X		gres=$?
+X		if [ $cc_result = 0 -a $gres != 0 ]; then
+X			echo "/*" >> ${TMPSET}.s
+X			echo " * ANSI header files are available" >> ${TMPSET}.s
+X			echo " */" >> ${TMPSET}.s
+X			echo "#define ANSI_HEADERS 1" >> ${TMPSET}.s
+X			echo "" >> ${TMPSET}.s
+X			USE_STDLIB=-DUSE_STDLIB
+X		else
+X			USE_STDLIB=
+X		fi
+X
+X		#
+X		# Check the type of exit
+X		#
+X		
+X		for type in ${voidtype} int
+X		do
+X			$cc -DEXITTEST ${USE_UNISTD} ${USE_STDLIB} \
+X				-DEXITTYPE=${type} -c cctest.c > ${TMPCC} 2>&1
+X			cc_result=$?
+X			egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X			grep_result=$?
+X
+X			if [ $cc_result = 0 -a $grep_result != 0 ] ; then
+X				exittype=${type}
+X				break
+X			else
+X				exittype=
+X			fi
+X		done
+X		
+X		if [ "x${exittype}" != "x" ]; then
+X			echo "#define EXITTYPE $exittype" >> ${TMPSET}
+X		else
+X			echo "${SP}couldn't determine the correct setting for"
+X			echo "${SP}  the return type of exit, guessing"
+X			echo "${SP}  VOIDTYPE"
+X			echo "#define EXITTYPE VOIDTYPE  /* *GUESS* */" \
+X				>> ${TMPSET}
+X		fi
+X
+X		#
+X		# Check to see if <malloc.h> is available -- if it
+X		# isn't, we don't have to try using it later in the
+X		# script and things will go faster
+X		# 
+X		$cc -DMALLOCHTEST cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		egrep "$WARN_REGEXP" ${TMPCC} > /dev/null 2>&1
+X		gres=$?
+X		if [ $cc_result = 0 -a $gres != 0 ]; then
+X			USE_MALLOC=-DUSE_MALLOC
+X		else
+X			USE_MALLOC=
+X		fi
+X
+X		#
+X		# check ASM stuff for i386 systems (need for underscore and/or repe
+X		# instruction
+X		#
+X		echo "/*" >> ${TMPSET}.s
+X		echo " * ASM settings that only apply to 80x86 systems ">> ${TMPSET}.s
+X		echo " */" >> ${TMPSET}.s
+X		echo "" >> ${TMPSET}.s
+X
+X		$cc -DASM_UNDTEST cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		if [ -s a.out ]; then
+X			res=`./a.out 2>&1`
+X		else
+X			res=""
+X		fi
+X
+X		echo "/*" >> ${TMPSET}.s
+X		echo " * Use Underscores for ASM global symbols" >> ${TMPSET}.s
+X		echo " */" >> ${TMPSET}.s
+X		if [ $cc_result = 0 -a "$res" = "OK" ]; then
+X			cflag="-DUSE_UNDERSCORE"
+X			echo "#define USE_UNDERSCORE 1" >> ${TMPSET}.s
+X		else
+X			cflag=""
+X			echo "/* #define USE_UNDERSCORE 1 */" >> ${TMPSET}.s
+X		fi
+X		echo "" >> ${TMPSET}.s
+X
+X		$cc -DASM_REPTEST $cflag cctest.c > ${TMPCC} 2>&1
+X		cc_result=$?
+X		if [ -s a.out ]; then
+X			res=`./a.out 2>&1`
+X		else
+X			res=""
+X		fi
+X
+X		echo "/*" >> ${TMPSET}.s
+X		echo " * Use REPE instruction for ASM repeat op" >> ${TMPSET}.s
+X		echo " */" >> ${TMPSET}.s
+X
+X		if [ $cc_result = 0 -a "$res" = "OK" ]; then
+X			echo "#define USE_REPE 1" >> ${TMPSET}.s
+X		else
+X			echo "/*#define USE_REPE 1*/" >> ${TMPSET}.s
+X		fi
+X		echo "" >> ${TMPSET}.s
+X
+X		#
+X		# the only way to test the malloc and size datatypes is to
+X		# define them and install them into the test malloc.h to
+X		# see if they are valid
+X		#
+X		# NOTE: this will fail if a prior version of the debug
+X		# malloc.h is in the include path for the compiler before
+X		# the system malloc.h file.
+X		#
+X
+X		#
+X		# check settings for malloc
+X		#
+X		if [ "$debug" -gt 0 ]; then
+X			DSP="${SP}    "
+X	        echo "${DSP}Checking malloc"
+X			DSP="${DSP}    "
+X		fi
+X
+X		rm -f ${TMPDEF}
+X		for fileinc in ${USE_STDLIB} ${USE_MALLOC} "${USE_STDLIB} ${USE_MALLOC}"
+X		do
+X				for datatype in void char
+X				do
+X					for sizetype in size_t int "unsigned int" \
+X						long "unsigned long"
+X					do
+X						if [ $debug != 0 ]; then
+X							echo "${DSP}data:$datatype size:$sizetype"
+X						fi
+X
+X						#
+X						# compile the test module
+X						#
+X						$cc -DDATATYPE="$datatype" -DSIZETYPE="$sizetype"   \
+X							$fileinc -DCONST="$const" -DMALLOC_COMPILETEST  \
+X							-c cctest.c >${TMPCC} 2>&1
+X						result=$?
+X
+X						if [ $debug -gt 5 ]; then
+X							cat ${TMPCC}
+X						fi
+X						if [ $result = 0 ]; then
+X							egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X							if [ $? != 0 ]; then
+X								echo "#define DATATYPE $datatype" > ${TMPDEF}
+X								echo "#define SIZETYPE $sizetype" >> ${TMPDEF}
+X								break
+X							fi
+X						fi
+X
+X					done
+X
+X					if [ -s ${TMPDEF} ]; then
+X						break
+X					fi
+X
+X				done
+X
+X				if [ -s ${TMPDEF} ]; then
+X					break
+X				fi
+X
+X		done
+X
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# guess at what the correct settings should be.  If the compiler
+X			# supports the void data type, guess that the pointer returned
+X			# by malloc is a void * and the size is size_t, otherwise use
+X			# char * and unsigned int
+X			#
+X			if [ "$voidtype" = void ]; then
+X				datatype=void
+X				sizetype=size_t
+X			else
+X				datatype=char
+X				sizetype="unsigned int"
+X			fi
+X
+X			echo "${SP}couldn't determine the correct settings for the datatype"
+X			echo "${SP}  and sizetype parameters for malloc, guessing that the"
+X			echo "${SP}  datatype is $datatype and sizetype is $sizetype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define DATATYPE $datatype  /* *GUESS* */" >  ${TMPDEF}
+X			echo "#define SIZETYPE $sizetype  /* *GUESS* */" >> ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X
+X		rm -f ${TMPDEF}
+X		for fileinc in ${USE_STDLIB} ${USE_MALLOC} "${USE_STDLIB} ${USE_MALLOC}"
+X		do
+X			for freetype in ${voidtype} int
+X			do
+X				if [ $debug != 0 ]; then
+X					echo "${DSP}freetype:$freetype"
+X				fi
+X
+X				#
+X				# compile the test module
+X				#
+X				$cc -DFREETYPE="$freetype" -DDATATYPE="$datatype" \
+X					$fileinc -DCONST="$const" -DFREE_COMPILETEST  \
+X					-c cctest.c >${TMPCC} 2>&1
+X				result=$?
+X
+X				if [ $debug -gt 5 ]; then
+X					cat ${TMPCC}
+X				fi
+X				if [ $result = 0 ]; then
+X					egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X					if [ $? != 0 ]; then
+X						echo "#define FREETYPE $freetype" > ${TMPDEF}
+X						break
+X					fi
+X				fi
+X			done
+X
+X			if [ -s ${TMPDEF} ]; then
+X				break;
+X			fi
+X		done
+X
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# guess at what the correct settings should be.
+X			#
+X
+X			echo "${SP}couldn't determine the correct settings for the return"
+X			echo "${SP}  value of free, guessing VOIDTYPE"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define FREETYPE VOIDTYPE  /* *GUESS* */" >  ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X
+X		#
+X		# check settings for memory functions
+X		#
+X		if [ "$debug" -gt 0 ]; then
+X			DSP="${SP}    "
+X			echo "${DSP}Checking memory functions"
+X			DSP="${DSP}    "
+X		fi
+X		rm -f ${TMPDEF}
+X
+X		#
+X		# see if we should try to use string.h if memory.h fails.
+X		#
+X		if grep "memcpy" ${INCDIR}/string.h > /dev/null 2>&1; then
+X			extra="-DUSE_STRING_H"
+X		else
+X			extra=""
+X		fi
+X
+X		# 
+X		# for each include file we are checking
+X		#
+X		for fileinc in -DUSE_MEMORY_H  $extra
+X		do
+X			if [ $debug -ge 1 ]; then
+X				echo "${DSP}checking inc: $fileinc"
+X				ODSP="${DSP}"
+X				DSP="${DSP}    "
+X			fi
+X			for datatype in void char
+X			do
+X				for sizetype in size_t int "unsigned int" long "unsigned long"
+X				do
+X					if [ $debug -ge 3 ]; then
+X						echo "${DSP}data:$datatype size:$sizetype"
+X					fi
+X
+X					#
+X					# compile the test module
+X					#
+X					$cc -DMEMDATA="$datatype" -DMEMSIZE="$sizetype" \
+X						-DCONST="$const" -DMEM_COMPILETEST  \
+X						$fileinc -c cctest.c >${TMPCC} 2>&1
+X					result=$?
+X					if [ $debug -gt 10 ]; then
+X						cat ${TMPCC}
+X					fi
+X					if [ $result = 0 ]; then
+X						egrep "${WARN_REGEXP}" ${TMPCC} > /dev/null 2>&1
+X						if [ $? != 0 ]; then
+X							echo "#define MEMDATA $datatype" > ${TMPDEF}
+X							echo "#define MEMSIZE $sizetype" >> ${TMPDEF}
+X							break
+X						fi
+X					fi
+X
+X				done
+X
+X				if [ -s ${TMPDEF} ]; then
+X					break
+X				fi
+X			done
+X
+X			if [ $debug -ge 1 ]; then
+X				DSP="${ODSP}"
+X			fi
+X
+X			if [ -s ${TMPDEF} ]; then
+X				break;
+X			fi
+X
+X		done
+X
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# guess at what the correct settings should be.  If the compiler
+X			# supports the void data type, guess that the pointer used by
+X			# memcpy is a void * and the size is size_t, otherwise use
+X			# char * and unsigned int
+X			#
+X			if [ "$voidtype" = void ]; then
+X				datatype=void
+X				sizetype=size_t
+X			else
+X				datatype=char
+X				sizetype="unsigned int"
+X			fi
+X
+X			echo "${SP}Couldn't determine the correct settings for the datatype"
+X			echo "${SP}  and sizetype parameters for mem* functions, I will"
+X			echo "${SP}  guess that the datatype is $datatype and sizetype"
+X			echo "${SP}  is $sizetype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define MEMDATA $datatype  /* *GUESS* */" >  ${TMPDEF}
+X			echo "#define MEMSIZE $sizetype  /* *GUESS* */" >> ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X
+X		#
+X		# check memory comparison setting
+X		#
+X		if [ "$debug" -gt 0 ]; then
+X			DSP="${SP}    "
+X			echo "${DSP}Checking memory func comparision type"
+X			DSP="${DSP}    "
+X		fi
+X		rm -f ${TMPDEF}
+X		for comptype in "char" "unsigned char" "signed char"
+X		do
+X			if [ "x$comptype" = "xchar" ]; then
+X				testtype=TESTCHAR
+X			else
+X				testtype=TESTUCHAR
+X			fi
+X
+X			#
+X			# compile the test module
+X			#
+X			rm -f cctest
+X			$cc -D$testtype -DCOMPARETEST=memcmp \
+X				cctest.c -o cctest >${TMPCC} 2>&1
+X	
+X			if [ -s ./cctest ]; then
+X				./cctest
+X				if [ $? = 0 ]; then
+X					echo "#define MEMCMPTYPE $comptype" \
+X							> ${TMPDEF}
+X					break
+X				fi
+X			fi
+X			rm -f ${TMPCC};
+X		done
+X
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# if we don't know, then guess the natural character type
+X			# (which may be signed or unsigned)
+X			#
+X			comptype=char
+X
+X			echo "${SP}Couldn't determine the correct settings for the"
+X			echo "${SP}  comparison type for the memory funcs, I will guess"
+X			echo "${SP}  that the comparison type is $comptype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define MEMCMPTYPE $comptype  /* *GUESS* */" >  ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X
+X		#
+X		# check settings for string functions
+X		#
+X		rm -f ${TMPDEF}
+X		for sizetype in size_t int "unsigned int" long "unsigned long"
+X		do
+X			#
+X			# compile the test module
+X			#
+X			$cc -DSTRSIZE="$sizetype"   -DCONST="$const" \
+X			    -DSTR_COMPILETEST  -c cctest.c >${TMPCC} 2>&1
+X			
+X			if [ $? = 0 ]; then
+X				if egrep "${WARN_REGEXP}" ${TMPCC}>/dev/null; then
+X					rm ${TMPCC};
+X				else
+X					echo "#define STRSIZE $sizetype" > ${TMPDEF}
+X					break
+X				fi
+X			fi
+X
+X		done
+X		
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# guess at what the correct setting should be.  If size_t is in
+X			# /usr/include/string.h, use it, otherwise use the default size 
+X			# type
+X			#
+X			if grep size_t ${INCDIR}/string.h >/dev/null 2>&1; then
+X				sizetype=size_t
+X			else
+X				sizetype="$dfltsize"
+X			fi
+X
+X			echo "${SP}Couldn't determine the correct settings for the sizetype"
+X			echo "${SP}  parameter for the string functions.  I will guess "
+X			echo "${SP}  that the correct setting is $sizetype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define STRSIZE $sizetype  /* *GUESS* */" >> ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X
+X		#
+X		# check string comparison setting
+X		#
+X		rm -f ${TMPDEF}
+X		for comptype in "char" "unsigned char" "signed char"
+X		do
+X			if [ "x$comptype" = "xchar" ]; then
+X				testtype=TESTCHAR
+X			else
+X				testtype=TESTUCHAR
+X			fi
+X
+X			#
+X			# compile the test module
+X			#
+X			rm -f cctest
+X			$cc -D$testtype -DCOMPARETEST=strncmp \
+X				cctest.c -o cctest >${TMPCC} 2>&1
+X	
+X			if [ -s ./cctest ]; then
+X				./cctest
+X				if [ $? = 0 ]; then
+X					echo "#define STRCMPTYPE $comptype" \
+X							> ${TMPDEF}
+X					break
+X				fi
+X			fi
+X			rm -f ${TMPCC};
+X		done
+X
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# if we don't know, then guess the natural character type
+X			# (which may be signed or unsigned)
+X			#
+X			comptype=char
+X
+X			echo "${SP}Couldn't determine the correct settings for the"
+X			echo "${SP}  comparison type for the string funcs, I will guess"
+X			echo "${SP}  that the comparison type is $comptype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define STRCMPTYPE $comptype  /* *GUESS* */" >  ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}
+X		
+X		#
+X		# check settings for write size
+X		#
+X		rm -f ${TMPDEF}
+X		for fileinc in -DUSE_SYSENT -DUSE_NONE
+X		do
+X			for sizetype in size_t "unsigned int" int long "unsigned long"
+X			do
+X				#
+X				# compile the test module
+X				#
+X				$cc -DWRTSIZE="$sizetype"   $fileinc -DCONST="$const" \
+X					${USE_UNISTD} ${USE_STDLIB} \
+X				    -DWRT_COMPILETEST  -c cctest.c >${TMPCC} 2>&1
+X				
+X				if [ $? = 0 ]; then
+X					if egrep "${WARN_REGEXP}" ${TMPCC} >/dev/null; then
+X						rm ${TMPCC};
+X					else
+X						echo "#define WRTSIZE $sizetype" > ${TMPDEF}
+X						break
+X					fi
+X				fi
+X
+X			done
+X		done
+X		
+X		if [ ! -s ${TMPDEF} ]; then
+X			#
+X			# if we don't know, then guess the natural character type
+X			# (which may be signed or unsigned)
+X			#
+X			sizetype="$dfltsize"
+X
+X			echo "${SP}Couldn't determine the correct settings for the"
+X			echo "${SP}  sizetype parameter for the write func, I will guess"
+X			echo "${SP}  that the sizetype is $sizetype"
+X
+X			#
+X			# put the guesses into the tmpdef file and flag them as a guess
+X			#
+X			echo "#define WRTSIZE $siztype  /* *GUESS* */" >  ${TMPDEF}
+X		fi
+X
+X		cat < ${TMPDEF} >> ${TMPSET}.s
+X
+X		#
+X		# now that we have the settings determined, lets see if we have
+X		# any routines that are built in by the compiler.  These will
+X		# typically be string functions like strcpy and/or memory funcs
+X		#
+X		# -- not implemented yet
+X		#
+X		
+X		) < /dev/null
+X
+X		if [ -s ${TMPBREAK} ]; then
+X			break;
+X		fi
+X
+X	done < ${TMPCOMP}
+X
+X	if [ -s ${TMPFATAL} ]; then
+X		exit `cat ${TMPFATAL}`
+X	fi
+X
+X	cat ${TMPEND} >> ${TMPSET}
+X
+X	cp ${TMPSET} ${CONFFILE}
+X
+X	#
+X	# now make the correct determinations for building the library (see
+X	# what #defs are needed for the compilation).
+X	#
+X
+X	rm -f ${CONFFILE}.s
+X	(
+X	echo "/*"
+X	echo " * This file is mechanically generated by the Configure script."
+X	echo " * If there is something wrong here, modify the configure script"
+X	echo " * so that it is no longer generated wrong and please send email"
+X	echo " * to the author so that the fix is included with the next patch"
+X	echo " * release."
+X	echo " */"
+X	echo ""
+X	echo "#ifndef _SYSDEF_H     /* double inclusion guard */"
+X	echo "#define _SYSDEF_H 1"
+X	echo ""
+X	) > ${CONFFILE}.s
+X
+X	#
+X	# put in the compiler settings
+X	#
+X	cat ${TMPSET}.s >> ${CONFFILE}.s
+X
+X	if [ -s ${TMPEND}.s ]; then
+X		cat ${TMPEND}.s >> ${CONFFILE}.s
+X	fi
+X
+X	rm -f ${TMPFOUND}
+X
+X	#
+X	# if we have the Intrinsic.h file, then set the flag to indicate so
+X	#
+X	if [ -s /usr/include/X11/Intrinsic.h ]; then
+X		(	
+X		echo "/*" 
+X		echo " * Found X intrinsic file in /usr/include/X11"
+X		echo " */"
+X		echo "#define FOUND_X_INTRINSIC 1"
+X		echo ""
+X		) >> ${CONFFILE}.s
+X	else
+X		(	
+X		echo "/*" 
+X		echo " * Didn't find X intrinsic file in /usr/include/X11"
+X		echo " */"
+X		echo "/* #define FOUND_X_INTRINSIC 1 */" 
+X		echo ""
+X		) >> ${CONFFILE}.s
+X	fi
+X	
+X
+X	#
+X	# if wait.h is present in /usr/include/sys/wait.h
+X	#
+X	if [ -s /usr/include/sys/wait.h ]; then
+X		(	
+X		echo "/*" 
+X		echo " * Found wait.h in /usr/include/sys"
+X		echo " */"
+X		echo "#define NEED_WAIT 1"
+X		echo ""
+X		) >> ${CONFFILE}.s
+X	else
+X		(	
+X		echo "/*" 
+X		echo " * Didn't find wait.h in /usr/include/sys"
+X		echo " */"
+X		echo "/* #define NEED_WAIT 1 */" 
+X		echo ""
+X		) >> ${CONFFILE}.s
+X	fi
+X	
+X	#
+X	# check to see if the XtAlloc module includes definitions for the Heap
+X	# management.  Note that this is generic for all compilers, so it
+X	# will come after the per-compiler stuff in ${CONFFILE}.s
+X	#
+X	for i in $LIBDIRS
+X	do
+X		if [ -s $i/libXt.a ]; then
+X			ar xv $i/libXt.a Alloc.o > /dev/null 2>&1
+X			heap=`( nm Alloc.o | grep XtHeapInit ) 2>/dev/null`
+X			rm -f Alloc.o
+X			echo found >> ${TMPFOUND}
+X
+X			if [ -z "$heap" ]; then
+X			
+X				(
+X				echo "/*" 
+X				echo " * don't force inclusion of XtHeap"
+X				echo " */"
+X				echo "#define DONT_FORCE_HEAPSTUFF 1"
+X				echo ""
+X				) >> ${CONFFILE}.s
+X		
+X				break
+X			fi
+X
+X		fi
+X	done
+X
+X	if [ ! -s ${TMPFOUND} ]; then
+X		(
+X		echo "/*" 
+X		echo " * don't force inclusion of XtHeap"
+X		echo " */"
+X		echo "#define DONT_FORCE_HEAPSTUFF 1"
+X		echo ""
+X		) >> ${CONFFILE}.s
+X	fi
+X
+X	(
+X	echo ""
+X	echo "#endif  /* _SYSDEF_H */"
+X	echo ""
+X	) >> ${CONFFILE}.s
+X
+Xfi
+X
+X#
+X# if we guessed at any of the settings, tell the user about it
+X#
+Xif grep "\*GUESS\*" ${CONFFILE} ${CONFFILE}.s > /dev/null 2>&1; then
+X	echo ""
+X	echo "    Warning: There were some settings that I could not determine"
+X	echo "             the correct values for and so I have guessed at the"
+X	echo "             correct settings.  You should review the .configure"
+X	echo "             and .configure.s files and review the settings to"
+X	echo "             make sure they are correct.  The settings that were"
+X	echo "             guessed at will be marked with '/* *GUESS* */'"
+X	echo ""
+X	echo "             See the PROBLEMS file for a description of what the"
+X	echo "             settings are supposed to be"
+X	echo ""
+X	echo "             Most of the time you can ignore this warning and"
+X	echo "             just continue with the compilation of the library"
+X	echo "             and have no problems."
+X	echo ""
+X	echo "             Once you determine that the settings are correct, you"
+X	echo "             can remove the GUESS flags and you will no longer get"
+X	echo "             this warning when building the library"
+X	echo ""
+Xfi
+X
+X#
+X# Create malloc.h with the new settings
+X#
+Xed malloc.h.org <<ended > /dev/null 2>&1
+X/^DATATYPES_MARKER/
+Xd
+X. r ${CONFFILE}
+Xw malloc.h
+Xq
+Xended
+X
+X#
+X# and now add in the system definitions
+X#
+Xcp ${CONFFILE}.s sysdefs.h
+X
+X#
+X# and now handle the memset and memcpy routines (if it hasn't been done
+X# already)
+X#
+Xif [ ! -s ${CONFFILE}.O ]; then
+X
+X	#
+X	# find compiler for testing modified modules Note that we only use cc
+X	# or gcc for this step because we think that these are the only usefull
+X	# compilers to perform this step
+X	#
+X	rm -f ${TMPCC}
+X	for compiler in cc gcc
+X	do
+X		for dir in ${DIRLIST}
+X		do
+X			if [ -s ${dir}/${compiler} ]; then
+X				echo "${dir}/${compiler}" > ${TMPCC}
+X				break
+X			fi
+X		done
+X		if [ -s ${TMPCC} ]; then
+X			break;
+X		fi
+X	done
+X
+X	cc=`cat ${TMPCC} < /dev/null`
+X
+X	#
+X	# find libc.a
+X	#
+X	for i in $LIBDIRS
+X	do
+X		if [ -s $i/libc.a ]; then
+X		
+X			LIBC=$i/libc.a
+X			break
+X		
+X		fi
+X	done
+X
+X	ar xv ${LIBC} memcpy.o memset.o memmove.o > /dev/null 2>&1
+X
+X	#
+X	# If at least one of the modules were found, build the changestr module
+X	#
+X	if [ -s memset.o -o -s memcpy.o  -o -s memmove.o ]; then
+X
+X		${cc} -DCHANGESTR cctest.c -o changestr > /dev/null 2>&1
+X
+X	fi
+X
+X	if [ -s memmove.o ]; then
+X		TESTPGMS="memset memmove"
+X	else
+X		TESTPGMS="memset memcpy"
+X	fi
+X
+X	#
+X	# if we found memset.o
+X	#
+X	for i in ${TESTPGMS}
+X	do
+X		#
+X		# get the name of the target
+X		#
+X		case $i in
+X			memmove|memcpy)
+X				tgtstr=DataMC
+X				tgtfile=datamc
+X				def=TESTDATAMC
+X				;;
+X			memset)
+X				tgtstr=DataMS
+X				tgtfile=datams
+X				def=TESTDATAMS
+X				;;
+X		esac
+X
+X		rm -f ${tgtfile}.O
+X
+X		if [ -s ${i}.o ]; then
+X
+X			#
+X			# change the file
+X			#
+X			chmod +w ${i}.o
+X			./changestr ${i}.o ${i} ${tgtstr}
+X
+X			if [ $? = 0 ]; then
+X		
+X				#
+X				# test new memset module
+X				# 
+X				rm -f cctest
+X				${cc} -D${def} cctest.c -o cctest ${i}.o  \
+X					> /dev/null 2>&1
+X
+X				if [ -s cctest ];  then
+X					output=`./cctest`
+X				else
+X					output=0
+X				fi
+X			else
+X				output=0
+X			fi
+X
+X			#
+X			# if the output from the command is correct then
+X			# save the .o file in DataMS.O so that the
+X			# makefile knows to use it
+X			#
+X			if [ "x${output}" = "xx   yyy" ]; then
+X			
+X				#
+X				# move the object module so the makefile
+X				# knows to use it
+X				#
+X				rm -f ${tgtfile}.O
+X				mv ${i}.o ${tgtfile}.O
+X				rm -f ${i}.o
+X		
+X			fi
+X
+X			#
+X			# clean up after ourselves
+X			#
+X			rm -f ${i}.o
+X
+X		fi
+X
+X	done
+X
+X	echo "Configured .O files at `date`" >> ${CONFFILE}.O
+X
+Xfi
+X
+Xrm -f changestr
+X
+X#
+X# clean up after ourselves
+X#
+Xrm  -f ${TMPDIR}/CF$$* cctest cctest.o ${CCFILE}.[co] a.out
+END_OF_FILE
+if test 29712 -ne `wc -c <'Configure'`; then
+    echo shar: \"'Configure'\" unpacked with wrong size!
+fi
+chmod +x 'Configure'
+# end of 'Configure'
+fi
+if test -f 'Runtests' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Runtests'\"
+else
+echo shar: Extracting \"'Runtests'\" \(3975 characters\)
+sed "s/^X//" >'Runtests' <<'END_OF_FILE'
+X#!/bin/sh
+X#
+X#
+X# (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X#
+X# This software may be distributed freely as long as the following conditions
+X# are met:
+X# 		* the distribution, or any derivative thereof, may not be
+X#		  included as part of a commercial product
+X#		* full source code is provided including this copyright
+X#		* there is no charge for the software itself (there may be
+X#		  a minimal charge for the copying or distribution effort)
+X#		* this copyright notice is not modified or removed from any
+X#		  source file
+X#
+X# $Id: Runtests,v 1.13 1992/08/22 16:27:13 cpcahil Exp $
+X#
+X# This shell attempts to run all of the tests distributed with the
+X# malloc library and detmine if they pass.
+X#
+X# The following tests are processed
+X#
+X#	testmem		- test str* and mem* functions
+X#	teststack	- test stack mechanism
+X#	testmalloc	- test malloc routines
+X#	testerr		- test error conditions
+X#
+X
+X#
+X# before we run any tests, lets make sure we have the programs that
+X# we intend to test
+X#
+X
+Xif [ ! -r testmem -o ! -r teststack -o ! -r testmalloc -o ! -r testerr ]; then
+X
+X	echo "All of the test programs are not available.  Pleas run"
+X	echo "make tests before you run this shell"
+X	exit 1
+X
+Xfi
+X
+X#
+X# these tests have to run with the default malloc environment variables,
+X# so make sure they are not overridden (otherwise the validation of the
+X# results may be incorrect)
+X#
+XMALLOC_CKCHAIN=0
+XMALLOC_DETAIL=0
+XMALLOC_WARN=0
+XMALLOC_FATAL=1
+XMALLOC_CKDATA=1
+XMALLOC_LOWFRAG=0
+XMALLOC_REUSE=1
+XMALLOC_ERRFILE="-"
+XMALLOC_FILLAREA=3
+XMALLOC_SHOW_LINKS=0
+X
+Xexport MALLOC_CKCHAIN MALLOC_DETAIL MALLOC_WARN MALLOC_FATAL MALLOC_CKDATA
+Xexport MALLOC_LOWFRAG MALLOC_REUSE MALLOC_ERRFILE MALLOC_FILLAREA
+Xexport MALLOC_SHOW_LINKS
+X
+X
+X
+XOUT=Runtests.out
+XTMPOUT=/tmp/err.$$
+XTMPFILE=/tmp/ttt.$$
+Xfailed=0
+X
+Xrm -f $OUT
+Xcat <<endcat > $OUT
+X
+XThis file contains the outputs from the tests run by the Runtests script.
+XFor more info on a particular test, check the README file
+X
+Xendcat
+X
+X#
+X# run testmem and verify that it had no output and returned a zero exit code
+X#
+Xecho "************ Running testmem test..." >> $OUT
+X
+Xrm -f ${TMPOUT}
+X./testmem > ${TMPOUT} 2>&1
+Xif [ $? != 0 -o -s ${TMPOUT} ]; then
+X	echo "FAILED testmem test"
+X	echo "FAILED testmem test" >> $OUT
+X	failed=`expr $failed + 1`
+Xfi
+X
+Xcat ${TMPOUT} >> $OUT
+X
+X#
+X# run stack tests and verify the output is correct
+X#
+Xecho "************ Running stack test" >> $OUT
+X./teststack > ${TMPOUT} 2>&1
+Xresult=$?
+Xlines=`grep "\->" ${TMPOUT} | wc -l | sed -e "s/ //g"`
+Xif [ $result != 0 -o "x$lines" != "x53" ]; then
+X	echo "FAILED teststack test"
+X	echo "FAILED teststack test" >> $OUT
+X	failed=`expr $failed + 1`
+Xfi
+X
+Xcat ${TMPOUT} >> $OUT
+X
+X#
+X# run the malloc tests.  Note that we only run 5,000 iterations of the test and
+X# a real test should be well over 1,000,000 tests.  However, since I don't want
+X# the user thinking the system has locked up, I will just run the short test
+X# here.  (this can be overridden by passing an arugment to Runtests (any
+X# arugment will do))
+X#
+Xecho "************ Running malloc test" >> $OUT
+X./testmalloc 5000 > ${TMPOUT} 2>&1
+Xresult=$?
+Xline="`grep 'Did 5000 iterations' ${TMPOUT}`"
+Xline2="`grep Warning ${TMPOUT}`"
+Xif [ $result != 0 -o -z "$line" -o ! -z "$line2" ]; then
+X	echo "FAILED malloc test"
+X	echo "FAILED malloc test" >> $OUT
+X	failed=`expr $failed + 1`
+Xfi
+X
+Xcat ${TMPOUT} >> $OUT
+X
+X#
+X# run the malloc error test.  Note that this test *should* abort therefore we
+X# have to run it in a sub-shell in order to ensure that the user doesn't see
+X# an error message
+X#
+Xecho "************ Running error test" >> $OUT
+Xsh -c "./testerr" > ${TMPOUT} 2>&1 
+Xsed -e "111,\$ d" -e "/ was /d" < ${TMPOUT} > ${TMPFILE}
+Xcmp ${TMPFILE} testerr.base
+Xif [ $? != 0 ]; then
+X	echo "FAILED error test"
+X	echo "FAILED error test" >> $OUT
+X	failed=`expr $failed + 1`
+Xfi
+X
+Xcat ${TMPOUT} >> $OUT
+X
+Xrm -f ${TMPOUT} ${TMPFILE}
+X
+Xif [ $failed = 0 ]; then
+X
+X	echo "All tests seem to have passed.  Review $OUT to make sure"
+X
+Xfi
+X
+Xrm -f core a.out
+X
+Xexit $failed
+X
+END_OF_FILE
+if test 3975 -ne `wc -c <'Runtests'`; then
+    echo shar: \"'Runtests'\" unpacked with wrong size!
+fi
+chmod +x 'Runtests'
+# end of 'Runtests'
+fi
+if test -f 'teststack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'teststack.c'\"
+else
+echo shar: Extracting \"'teststack.c'\" \(1337 characters\)
+sed "s/^X//" >'teststack.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X#include "sysdefs.h"
+X#include <stdio.h>
+X#if ANSI_HEADERS
+X#include <stdlib.h>
+X#endif
+X#include <sys/types.h>
+X#include "malloc.h"
+X
+XVOIDTYPE	sub1();
+XVOIDTYPE	sub2();
+XVOIDTYPE	sub3();
+X
+X/*ARGSUSED*/
+Xint
+Xmain(argc,argv)
+X	int			  argc;
+X	char			**argv[];
+X{
+X
+X	char			* s;
+X
+X	malloc_enter("main");
+X
+X	s = malloc(10);
+X
+X	sub1();
+X	sub2();
+X	sub3();
+X	
+X	malloc_leave("main");
+X	
+X	malloc_dump(1);
+X
+X	return(0);
+X}
+X
+XVOIDTYPE
+Xsub1()
+X{
+X	char 	* s;
+X	malloc_enter("sub1");
+X
+X	s = malloc(0);	
+X
+X	sub2();
+X
+X	sub3();
+X	
+X	sub2();
+X
+X	s = malloc(10);
+X
+X	malloc_leave("sub1");
+X}
+X
+XVOIDTYPE
+Xsub2()
+X{
+X	char 	* s;
+X	malloc_enter("sub2");
+X
+X	s = malloc(0);	
+X
+X	sub3();
+X	
+X	s = malloc(10);
+X
+X	malloc_leave("sub2");
+X}
+X
+XVOIDTYPE
+Xsub3()
+X{
+X	char 	* s;
+X	malloc_enter("sub3");
+X
+X	s = malloc(1);	
+X
+X	strcpy(s,"1");
+X
+X	malloc_leave("sub3");
+X}
+X
+END_OF_FILE
+if test 1337 -ne `wc -c <'teststack.c'`; then
+    echo shar: \"'teststack.c'\" unpacked with wrong size!
+fi
+# end of 'teststack.c'
+fi
+echo shar: End of archive 2 \(of 10\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

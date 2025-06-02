@@ -1,0 +1,1709 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i069:  imagemagic - X11 image processing and display, Part13/38
+Message-ID: <1993Jul14.175607.1448@sparky.sterling.com>
+X-Md4-Signature: 7f2ecd5556ec38034145ac51621b734d
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:56:07 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 69
+Archive-name: imagemagic/part13
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.13 (part 13 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/shear.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 13; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/shear.c'
+else
+echo 'x - continuing file ImageMagick/shear.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/shear.c' &&
+X    corners[i].y+=(image->rows-3)/2.0;
+X  }
+X  x_min=corners[0].x;
+X  y_min=corners[0].y;
+X  x_max=corners[0].x;
+X  y_max=corners[0].y;
+X  for (i=1; i < 4; i++)
+X  {
+X    if (x_min > corners[i].x)
+X      x_min=corners[i].x;
+X    if (y_min > corners[i].y)
+X      y_min=corners[i].y;
+X    if (x_max < corners[i].x)
+X      x_max=corners[i].x;
+X    if (y_max < corners[i].y)
+X      y_max=corners[i].y;
+X  }
+X  x_min=floor((double) x_min);
+X  x_max=ceil((double) x_max);
+X  y_min=floor((double) y_min);
+X  y_max=ceil((double) y_max);
+X  if (!clip)
+X    {
+X      /*
+X        Do not clip sheared image.
+X      */
+X      clip_info.width=(unsigned int) (x_max-x_min);
+X      clip_info.height=(unsigned int) (y_max-y_min);
+X    }
+X  clip_info.x=(int) x_min+((int) (x_max-x_min)-clip_info.width)/2;
+X  clip_info.y=(int) y_min+((int) (y_max-y_min)-clip_info.height)/2;
+X  /*
+X    Clip image and return.
+X  */
+X  clipped_image=ClipImage(image,&clip_info);
+X  return(clipped_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   I n t e g r a l R o t a t e I m a g e                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function IntegralRotateImage rotates the image an integral of 90 degrees.
+%  It allocates the memory necessary for the new Image structure and returns
+%  a pointer to the rotated image.
+%
+%  The format of the IntegralRotateImage routine is:
+%
+%      rotated_image=IntegralRotateImage(image,rotations)
+%
+%  A description of each parameter follows.
+%
+%    o rotated_image: Function IntegralRotateImage returns a pointer to the
+%      rotated image.  A null image is returned if there is a a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o rotations: Specifies the number of 90 degree rotations.
+%
+%
+*/
+static Image *IntegralRotateImage(image,rotations)
+Image
+X  *image;
+X
+unsigned int
+X  rotations;
+{
+X  Image
+X    *rotated_image;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register int
+X    x,
+X    y;
+X
+X  /*
+X    Initialize rotated image attributes.
+X  */
+X  rotations%=4;
+X  if ((rotations == 1) || (rotations == 3))
+X    rotated_image=CopyImage(image,image->rows,image->columns,False);
+X  else
+X    rotated_image=CopyImage(image,image->columns,image->rows,False);
+X  if (rotated_image == (Image *) NULL)
+X    {
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Expand runlength packets into a rectangular array of pixels.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  switch (rotations)
+X  {
+X    case 0:
+X    {
+X      /*
+X        Rotate 0 degrees.
+X      */
+X      q=rotated_image->pixels;
+X      for (y=0; y < image->rows; y++)
+X      {
+X        for (x=0; x < image->columns; x++)
+X        {
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          *q=(*p);
+X          q->length=0;
+X          q++;
+X        }
+X      }
+X      break;
+X    }
+X    case 1:
+X    {
+X      /*
+X        Rotate 90 degrees.
+X      */
+X      for (x=0; x < rotated_image->columns; x++)
+X      {
+X        q=rotated_image->pixels+(rotated_image->columns-x)-1;
+X        for (y=0; y < rotated_image->rows; y++)
+X        {
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          *q=(*p);
+X          q->length=0;
+X          q+=rotated_image->columns;
+X        }
+X      }
+X      break;
+X    }
+X    case 2:
+X    {
+X      /*
+X        Rotate 180 degrees.
+X      */
+X      q=rotated_image->pixels+(rotated_image->columns*rotated_image->rows)-1;
+X      for (y=image->rows-1; y >= 0; y--)
+X      {
+X        for (x=0; x < image->columns; x++)
+X        {
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          *q=(*p);
+X          q->length=0;
+X          q--;
+X        }
+X      }
+X      break;
+X    }
+X    case 3:
+X    {
+X      /*
+X        Rotate 270 degrees.
+X      */
+X      for (x=rotated_image->columns-1; x >= 0; x--)
+X      {
+X        q=rotated_image->pixels+(rotated_image->columns*rotated_image->rows)-
+X          x-1;
+X        for (y=0; y < rotated_image->rows; y++)
+X        {
+X          if (image->runlength != 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          *q=(*p);
+X          q->length=0;
+X          q-=rotated_image->columns;
+X        }
+X      }
+X      break;
+X    }
+X  }
+X  return(rotated_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X S h e a r I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure XShearImage shears the image in the X direction with a shear angle
+%  of 'degrees'.  Positive angles shear counter-clockwise (right-hand rule),
+%  and negative angles shear clockwise.  Angles are measured relative to a
+%  vertical Y-axis.  X shears will widen an image creating 'empty' triangles
+%  on the left and right sides of the source image.
+%
+%  The format of the XShearImage routine is:
+%
+%      XShearImage(image,degrees,width,height,x_offset,y_offset,background,
+%        range_limit)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o degrees: A double representing the shearing angle along the X axis.
+%
+%    o width, height, x_offset, y_offset: Defines a region of the image
+%      to shear.
+%
+%    o background: Specifies a ColorPacket used to fill empty triangles
+%      left over from shearing.
+%
+%
+*/
+static void XShearImage(image,degrees,width,height,x_offset,y_offset,background,
+X  range_limit)
+Image
+X  *image;
+X
+double
+X  degrees;
+X
+unsigned int
+X  width,
+X  height;
+X
+int
+X  x_offset,
+X  y_offset;
+X
+ColorPacket
+X  background;
+X
+register unsigned char
+X  *range_limit;
+{
+X  double
+X    displacement;
+X
+X  enum {LEFT,RIGHT}
+X    direction;
+X
+X  int
+X    step,
+X    y;
+X
+X  long
+X    fractional_step;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register int
+X    blue,
+X    green,
+X    i,
+X    red;
+X
+X  RunlengthPacket
+X    last_pixel;
+X
+X  y_offset--;
+X  for (y=0; y < height; y++)
+X  {
+X    y_offset++;
+X    displacement=degrees*(((double) y)-(height-1)/2.0);
+X    if (displacement == 0.0)
+X      continue;
+X    if (displacement > 0.0)
+X      direction=RIGHT;
+X    else
+X      {
+X        displacement*=(-1.0);
+X        direction=LEFT;
+X      }
+X    step=(int) floor(displacement);
+X    fractional_step=UpShifted(displacement-(double) step);
+X    if (fractional_step == 0)
+X      {
+X        /*
+X          No fractional displacement-- just copy.
+X        */
+X        switch (direction)
+X        {
+X          case LEFT:
+X          {
+X            /*
+X              Transfer pixels left-to-right.
+X            */
+X            p=image->pixels+image->columns*y_offset+x_offset;
+X            q=p-step;
+X            for (i=0; i < width; i++)
+X            {
+X              *q=(*p);
+X              q++;
+X              p++;
+X            }
+X            /*
+X              Set old row to background color.
+X            */
+X            for (i=0; i < step; i++)
+X            {
+X              q->red=background.red;
+X              q->green=background.green;
+X              q->blue=background.blue;
+X              q++;
+X            }
+X            break;
+X          }
+X          case RIGHT:
+X          {
+X            /*
+X              Transfer pixels right-to-left.
+X            */
+X            p=image->pixels+image->columns*y_offset+x_offset+width;
+X            q=p+step;
+X            for (i=0; i < width; i++)
+X            {
+X              p--;
+X              q--;
+X              *q=(*p);
+X            }
+X            /*
+X              Set old row to background color.
+X            */
+X            for (i=0; i < step; i++)
+X            {
+X              q--;
+X              q->red=background.red;
+X              q->green=background.green;
+X              q->blue=background.blue;
+X            }
+X            break;
+X          }
+X        }
+X        continue;
+X      }
+X    /*
+X      Fractional displacement.
+X    */
+X    step++;
+X    last_pixel.red=background.red;
+X    last_pixel.green=background.green;
+X    last_pixel.blue=background.blue;
+X    switch (direction)
+X    {
+X      case LEFT:
+X      {
+X        /*
+X          Transfer pixels left-to-right.
+X        */
+X        p=image->pixels+image->columns*y_offset+x_offset;
+X        q=p-step;
+X        for (i=0; i < width; i++)
+X        {
+X          red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X            fractional_step);
+X          green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X            p->green*fractional_step);
+X          blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X            fractional_step);
+X          last_pixel=(*p);
+X          p++;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X          q++;
+X        }
+X        /*
+X          Set old row to background color.
+X        */
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X          background.red*fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X          background.green*fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X          background.blue*fractional_step);
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        q++;
+X        for (i=0; i < step-1; i++)
+X        {
+X          q->red=background.red;
+X          q->green=background.green;
+X          q->blue=background.blue;
+X          q++;
+X        }
+X        break;
+X      }
+X      case RIGHT:
+X      {
+X        /*
+X          Transfer pixels right-to-left.
+X        */
+X        p=image->pixels+image->columns*y_offset+x_offset+width;
+X        q=p+step;
+X        for (i=0; i < width; i++)
+X        {
+X          p--;
+X          red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X            fractional_step);
+X          green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X            p->green*fractional_step);
+X          blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X            fractional_step);
+X          last_pixel=(*p);
+X          q--;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X        }
+X        /*
+X          Set old row to background color.
+X        */
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X          background.red*fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X          background.green*fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X          background.blue*fractional_step);
+X        q--;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        for (i=0; i < step-1; i++)
+X        {
+X          q--;
+X          q->red=background.red;
+X          q->green=background.green;
+X          q->blue=background.blue;
+X        }
+X        break;
+X      }
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Y S h e a r I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure YShearImage shears the image in the Y direction with a shear
+%  angle of 'degrees'.  Positive angles shear counter-clockwise (right-hand
+%  rule), and negative angles shear clockwise.  Angles are measured relative
+%  to a horizontal X-axis.  Y shears will increase the height of an image
+%  creating 'empty' triangles on the top and bottom of the source image.
+%
+%  The format of the YShearImage routine is:
+%
+%      YShearImage(image,degrees,width,height,x_offset,y_offset,background,
+%        range_limit)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o degrees: A double representing the shearing angle along the Y axis.
+%
+%    o width, height, x_offset, y_offset: Defines a region of the image
+%      to shear.
+%
+%    o background: Specifies a ColorPacket used to fill empty triangles
+%      left over from shearing.
+%
+%
+*/
+static void YShearImage(image,degrees,width,height,x_offset,y_offset,background,
+X  range_limit)
+Image
+X  *image;
+X
+double
+X  degrees;
+X
+unsigned int
+X  width,
+X  height;
+X
+int
+X  x_offset,
+X  y_offset;
+X
+ColorPacket
+X  background;
+X
+register unsigned char
+X  *range_limit;
+{
+X  double
+X    displacement;
+X
+X  enum {UP,DOWN}
+X    direction;
+X
+X  int
+X    step,
+X    y;
+X
+X  long
+X    fractional_step;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register int
+X    blue,
+X    green,
+X    i,
+X    red;
+X
+X  RunlengthPacket
+X    last_pixel;
+X
+X  x_offset--;
+X  for (y=0; y < width; y++)
+X  {
+X    x_offset++;
+X    displacement=degrees*(((double) y)-(width-1)/2.0);
+X    if (displacement == 0.0)
+X      continue;
+X    if (displacement > 0.0)
+X      direction=DOWN;
+X    else
+X      {
+X        displacement*=(-1.0);
+X        direction=UP;
+X      }
+X    step=(int) floor(displacement);
+X    fractional_step=UpShifted(displacement-(double) step);
+X    if (fractional_step == 0)
+X      {
+X        /*
+X          No fractional displacement-- just copy the pixels.
+X        */
+X        switch (direction)
+X        {
+X          case UP:
+X          {
+X            /*
+X              Transfer pixels top-to-bottom.
+X            */
+X            p=image->pixels+image->columns*y_offset+x_offset;
+X            q=p-step*image->columns;
+X            for (i=0; i < height; i++)
+X            {
+X              *q=(*p);
+X              q+=image->columns;
+X              p+=image->columns;
+X            }
+X            /*
+X              Set old column to background color.
+X            */
+X            for (i=0; i < step; i++)
+X            {
+X              q->red=background.red;
+X              q->green=background.green;
+X              q->blue=background.blue;
+X              q+=image->columns;
+X            }
+X            break;
+X          }
+X          case DOWN:
+X          {
+X            /*
+X              Transfer pixels bottom-to-top.
+X            */
+X            p=image->pixels+image->columns*(y_offset+height)+x_offset;
+X            q=p+step*image->columns;
+X            for (i=0; i < height; i++)
+X            {
+X              q-=image->columns;
+X              p-=image->columns;
+X              *q=(*p);
+X            }
+X            /*
+X              Set old column to background color.
+X            */
+X            for (i=0; i < step; i++)
+X            {
+X              q-=image->columns;
+X              q->red=background.red;
+X              q->green=background.green;
+X              q->blue=background.blue;
+X            }
+X            break;
+X          }
+X        }
+X        continue;
+X      }
+X    /*
+X      Fractional displacment.
+X    */
+X    step++;
+X    last_pixel.red=background.red;
+X    last_pixel.green=background.green;
+X    last_pixel.blue=background.blue;
+X    switch (direction)
+X    {
+X      case UP:
+X      {
+X        /*
+X          Transfer pixels top-to-bottom.
+X        */
+X        p=image->pixels+image->columns*y_offset+x_offset;
+X        q=p-step*image->columns;
+X        for (i=0; i < height; i++)
+X        {
+X          red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X            fractional_step);
+X          green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X            p->green*fractional_step);
+X          blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X            fractional_step);
+X          last_pixel=(*p);
+X          p+=image->columns;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X          q+=image->columns;
+X        }
+X        /*
+X          Set old column to background color.
+X        */
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X          background.red*fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X          background.green*fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X          background.blue*fractional_step);
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        q+=image->columns;
+X        for (i=0; i < step-1; i++)
+X        {
+X          q->red=background.red;
+X          q->green=background.green;
+X          q->blue=background.blue;
+X          q+=image->columns;
+X        }
+X        break;
+X      }
+X      case DOWN:
+X      {
+X        /*
+X          Transfer pixels bottom-to-top.
+X        */
+X        p=image->pixels+image->columns*(y_offset+height)+x_offset;
+X        q=p+step*image->columns;
+X        for (i=0; i < height; i++)
+X        {
+X          p-=image->columns;
+X          red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X            fractional_step);
+X          green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X            p->green*fractional_step);
+X          blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X            fractional_step);
+X          last_pixel=(*p);
+X          q-=image->columns;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X        }
+X        /*
+X          Set old column to background color.
+X        */
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X          background.red*fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X          background.green*fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X          background.blue*fractional_step);
+X        q-=image->columns;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        for (i=0; i < step-1; i++)
+X        {
+X          q-=image->columns;
+X          q->red=background.red;
+X          q->green=background.green;
+X          q->blue=background.blue;
+X        }
+X        break;
+X      }
+X    }
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R o t a t e I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RotateImage creates a new image that is a rotated copy of an
+%  existing one.  Positive angles rotate counter-clockwise (right-hand rule),
+%  while negative angles rotate clockwise.  Rotated images are usually larger
+%  than the originals and have 'empty' triangular corners.  X axis.  Empty
+%  triangles left over from shearing the image are filled with the color
+%  defined by the pixel at location (0,0).  RotateImage allocates the memory
+%  necessary for the new Image structure and returns a pointer to the new
+%  image.
+%
+%  Function RotateImage is based on the paper "A Fast Algorithm for General
+%  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+%  routine based on the Paeth paper written by Michael Halle of the Spatial
+%  Imaging Group, MIT Media Lab.
+%
+%  The format of the RotateImage routine is:
+%
+%      RotateImage(image,degrees,clip)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function RotateImage returns a pointer to the image after
+%      rotating.  A null image is returned if there is a memory shortage.
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o degrees: Specifies the number of degrees to rotate the image.
+%
+%    o clip: A value other than zero clips the corners of the rotated
+%      image and retains the original image size.
+%
+%
+*/
+Image *RotateImage(image,degrees,clip)
+Image
+X  *image;
+X
+double
+X  degrees;
+X
+unsigned int
+X  clip;
+{
+X  ColorPacket
+X    background;
+X
+X  double
+X    x_shear,
+X    y_shear;
+X
+X  Image
+X    *clipped_image,
+X    *integral_image,
+X    *rotated_image;
+X
+X  int
+X    x_offset,
+X    y_offset;
+X
+X  RectangleInfo
+X    border_info;
+X
+X  register int
+X    i;
+X
+X  unsigned char
+X    *range_limit,
+X    *range_table;
+X
+X  unsigned int
+X    height,
+X    rotations,
+X    width,
+X    y_width;
+X
+X  /*
+X    Adjust rotation angle.
+X  */
+X  while (degrees < -45.0)
+X    degrees+=360.0;
+X  rotations=0;
+X  while (degrees > 45.0)
+X  {
+X    degrees-=90.0;
+X    rotations++;
+X  }
+X  rotations%=4;
+X  /*
+X    Calculate shear equations.
+X  */
+X  x_shear=(-tan(DegreesToRadians(degrees)/2.0));
+X  y_shear=sin(DegreesToRadians(degrees));
+X  integral_image=IntegralRotateImage(image,rotations);
+X  if ((x_shear == 0.0) || (y_shear == 0.0))
+X    return(integral_image);
+X  /*
+X    Initialize range table.
+X  */
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  if (range_table == (unsigned char *) NULL)
+X    {
+X      DestroyImage(integral_image);
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  /*
+X    Compute image size.
+X  */
+X  width=image->columns;
+X  height=image->rows;
+X  if ((rotations == 1) || (rotations == 3))
+X    {
+X      width=image->rows;
+X      height=image->columns;
+X    }
+X  y_width=width+(int) ceil(fabs(x_shear)*(double) (height-1));
+X  x_offset=(width+2*(int) ceil(fabs(x_shear)*(double) (height-1))-width)/2;
+X  y_offset=(height+(int) ceil(fabs(y_shear)*(double) (y_width-1))-height)/2;
+X  /*
+X    Surround image with border of background color.
+X  */
+X  background.red=image->pixels[0].red;
+X  background.green=image->pixels[0].green;
+X  background.blue=image->pixels[0].blue;
+X  border_info.width=integral_image->columns+2*x_offset;
+X  border_info.height=integral_image->rows+2*(y_offset+1);
+X  border_info.x=x_offset;
+X  border_info.y=y_offset+1;
+X  rotated_image=BorderImage(integral_image,&border_info,&background,
+X    &background);
+X  DestroyImage(integral_image);
+X  if (rotated_image == (Image *) NULL)
+X    {
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  rotated_image->class=DirectClass;
+X  /*
+X    Perform a fractional rotation.  First, shear the image rows.
+X  */
+X  XShearImage(rotated_image,x_shear,width,height,x_offset,
+X    (int) (rotated_image->rows-height-2)/2+1,background,range_limit);
+X  /*
+X    Shear the image columns.
+X  */
+X  YShearImage(rotated_image,y_shear,y_width,height,
+X    (int) (rotated_image->columns-y_width)/2,y_offset+1,background,range_limit);
+X  /*
+X    Shear the image rows again.
+X  */
+X  XShearImage(rotated_image,x_shear,y_width,rotated_image->rows-2,
+X    (int) (rotated_image->columns-y_width)/2,1,background,range_limit);
+X  (void) free((char *) range_table);
+X  clipped_image=ClipShearImage(rotated_image,x_shear,y_shear,width,height,clip);
+X  DestroyImage(rotated_image);
+X  return(clipped_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   S h e a r I m a g e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ShearImage creates a new image that is a sheared copy of an
+%  existing one.  Shearing slides one edge of an image along the X or Y
+%  axis, creating a parallelogram.  An X direction shear slides an edge
+%  along the X axis, while a Y direction shear slides an edge along the Y
+%  axis.  The amount of the shear is controlled by a shear angle.  For X
+%  direction shears, x_shear is measured relative to the Y axis, and
+%  similarly, for Y direction shears y_shear is measured relative to the
+%  X axis.  Empty triangles left over from shearing the image are filled
+%  with the color defined by the pixel at location (0,0).  ShearImage
+%  allocates the memory necessary for the new Image structure and returns
+%  a pointer to the new image.
+%
+%  Function ShearImage is based on the paper "A Fast Algorithm for General
+%  Raster Rotatation" by Alan W. Paeth.  
+%
+%  The format of the ShearImage routine is:
+%
+%      ShearImage(image,x_shear,y_shear,clip)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function ShearImage returns a pointer to the image after
+%      rotating.  A null image is returned if there is a memory shortage.
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o x_shear, y_shear: Specifies the number of degrees to shear the image.
+%
+%    o clip: A value other than zero clips the corners of the rotated
+%      image and retains the original image size.
+%
+%
+*/
+Image *ShearImage(image,x_shear,y_shear,clip)
+Image
+X  *image;
+X
+double
+X  x_shear,
+X  y_shear;
+X
+unsigned int
+X  clip;
+{
+X  ColorPacket
+X    background;
+X
+X  Image
+X    *clipped_image,
+X    *sheared_image;
+X
+X  int
+X    x_offset,
+X    y_offset;
+X
+X  RectangleInfo
+X    border_info;
+X
+X  register int
+X    i;
+X
+X  unsigned char
+X    *range_limit,
+X    *range_table;
+X
+X  unsigned int
+X    y_width;
+X
+X  /*
+X    Adjust rotation angle.
+X  */
+X  while (x_shear < -45.0)
+X    x_shear+=360.0;
+X  while (x_shear > 45.0)
+X    x_shear-=90.0;
+X  while (y_shear < -45.0)
+X    y_shear+=360.0;
+X  while (y_shear > 45.0)
+X    y_shear-=90.0;
+X  x_shear=tan(DegreesToRadians(x_shear)/2.0);
+X  y_shear=(-sin(DegreesToRadians(y_shear)));
+X  /*
+X    Initialize range table.
+X  */
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  if (range_table == (unsigned char *) NULL)
+X    {
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  /*
+X    Compute image size.
+X  */
+X  y_width=image->columns+(int) ceil(fabs(x_shear)*(double) (image->rows-1));
+X  x_offset=(image->columns+2*
+X    (int) ceil(fabs(x_shear)*(double) (image->rows-1))-image->columns)/2;
+X  y_offset=(image->rows+
+X    (int) ceil(fabs(y_shear)*(double) (y_width-1))-image->rows)/2;
+X  /*
+X    Surround image with border of background color.
+X  */
+X  background.red=image->pixels[0].red;
+X  background.green=image->pixels[0].green;
+X  background.blue=image->pixels[0].blue;
+X  border_info.width=image->columns+2*x_offset;
+X  border_info.height=image->columns+2*(y_offset+1);
+X  border_info.x=x_offset;
+X  border_info.y=y_offset+1;
+X  sheared_image=BorderImage(image,&border_info,&background,&background);
+X  if (sheared_image == (Image *) NULL)
+X    {
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  sheared_image->class=DirectClass;
+X  /*
+X    Shear the image rows.
+X  */
+X  if (x_shear != 0.0)
+X    XShearImage(sheared_image,x_shear,image->columns,image->rows,x_offset,
+X      (int) (sheared_image->rows-image->rows)/2+1,background,range_limit);
+X  /*
+X    Shear the image columns.
+X  */
+X  if (y_shear != 0.0)
+X    YShearImage(sheared_image,y_shear,y_width,image->rows,(int)
+X      (sheared_image->columns-y_width)/2,y_offset+1,background,range_limit);
+X  (void) free((char *) range_table);
+X  clipped_image=ClipShearImage(sheared_image,x_shear,y_shear,image->columns,
+X    image->rows,clip);
+X  DestroyImage(sheared_image);
+X  return(clipped_image);
+}
+SHAR_EOF
+echo 'File ImageMagick/shear.c is complete' &&
+chmod 0644 ImageMagick/shear.c ||
+echo 'restore of ImageMagick/shear.c failed'
+Wc_c="`wc -c < 'ImageMagick/shear.c'`"
+test 35828 -eq "$Wc_c" ||
+	echo 'ImageMagick/shear.c: original size 35828, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/decode.c ==============
+if test -f 'ImageMagick/decode.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/decode.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/decode.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/decode.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                   DDDD   EEEEE   CCCC   OOO   DDDD   EEEEE                  %
+%                   D   D  E      C      O   O  D   D  E                      %
+%                   D   D  EEE    C      O   O  D   D  EEE                    %
+%                   D   D  E      C      O   O  D   D  E                      %
+%                   DDDD   EEEEE   CCCC   OOO   DDDD   EEEEE                  %
+%                                                                             %
+%                                                                             %
+%                    Utility Routines to Read Image Formats                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                             Software Design                                 %
+%                               John Cristy                                   %
+%                              January 1992                                   %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Functions in this library convert to and from `alien' image formats to the
+%  MIFF image format.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+#include "compress.h"
+#include "utility.h"
+#include "X.h"
+#include "XWDFile.h"
+X
+/*
+X  Forward declarations.
+*/
+static Image
+X  *ReadMIFFImage _Declare((ImageInfo *));
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *client_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d A L P H A I m a g e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadALPHAImage reads an image of raw alpha bytes and returns it.
+%  It allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the ReadALPHAImage routine is:
+%
+%      image=ReadALPHAImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadALPHAImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadALPHAImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    index,
+X    *p;
+X
+X  unsigned char
+X    *alpha_pixels;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("ALPHA");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  image->alpha=True;
+X  width=512;
+X  height=512;
+X  if (image_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(image_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  alpha_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*sizeof(unsigned char));
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if ((alpha_pixels == (unsigned char *) NULL) ||
+X      (image->pixels == (RunlengthPacket *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert raster image to runlength-encoded packets.
+X  */
+X  (void) ReadData((char *) alpha_pixels,1,(int) (image->columns*image->rows),
+X    image->file);
+X  p=alpha_pixels;
+X  q=image->pixels;
+X  for (i=0; i < (image->columns*image->rows); i++)
+X  {
+X    index=(*p++);
+X    q->red=0;
+X    q->green=0;
+X    q->blue=0;
+X    q->index=(unsigned short) index;
+X    q->length=0;
+X    q++;
+X  }
+X  (void) free((char *) alpha_pixels);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d A V S I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadAVSImage reads a AVS X image file and returns it.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the ReadAVSImage routine is:
+%
+%      image=ReadAVSImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadAVSImage returns a pointer to the image after
+%      reading. A null image is returned if there is a a memory shortage or if
+%      the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadAVSImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  typedef struct _AVSHeader
+X  {
+X    int
+X      width,
+X      height;
+X  } AVSHeader;
+X
+X  AVSHeader
+X    avs_header;
+X
+X  Image
+X    *image;
+X
+X  register int
+X    i;
+X
+X  register unsigned char
+X    *p;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  unsigned char
+X    *avs_pixels;
+X
+X  unsigned int
+X    status;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("AVS");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read AVS image.
+X  */
+X  status=ReadData((char *) &avs_header,1,sizeof(AVSHeader),image->file);
+X  if (status == False)
+X    {
+X      Warning("not a AVS image file",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    avs_pixels=(unsigned char *)
+X      malloc(4*avs_header.width*avs_header.height*sizeof(unsigned char));
+X    if (avs_pixels == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) ReadData((char *) avs_pixels,1,avs_header.width*avs_header.height*4,
+X      image->file);
+X    /*
+X      Create image.
+X    */
+X    image->alpha=True;
+X    image->columns=avs_header.width;
+X    image->rows=avs_header.height;
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) sprintf(image->comments,"\n  Imported from AVS raster image:  %s\n",
+X      image->filename);
+X    /*
+X      Convert AVS raster image to runlength-encoded packets.
+X    */
+X    p=avs_pixels;
+X    q=image->pixels;
+X    for (i=0; i < (image->columns*image->rows); i++)
+X    {
+X      q->index=(unsigned char) (*p++);
+X      q->red=(*p++);
+X      q->green=(*p++);
+X      q->blue=(*p++);
+X      q->length=0;
+X      q++;
+X    }
+X    (void) free((char *) avs_pixels);
+X    status=ReadData((char *) &avs_header,1,sizeof(AVSHeader),image->file);
+X    if (status == True)
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("AVS");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u",image_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->previous=image;
+X        image=image->next;
+X      }
+X  } while (status == True);
+X  while (image->previous != (Image *) NULL)
+X    image=image->previous;
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d B M P I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadBMPImage reads a Microsoft Windows bitmap image file and
+%  returns it.  It allocates the memory necessary for the new Image structure
+%  and returns a pointer to the new image.
+%
+%  The format of the ReadBMPImage routine is:
+%
+%      image=ReadBMPImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadBMPImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadBMPImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  typedef struct _BMPHeader
+X  {
+X    unsigned long
+X      file_size;
+X
+X    unsigned short
+X      reserved[2];
+X
+X    unsigned long
+X      offset_bits,
+X      size,
+X      width,
+X      height;
+X
+X    unsigned short
+X      planes,
+X      bit_count;
+X
+X    unsigned long
+X      compression,
+X      image_size,
+X      x_pixels,
+X      y_pixels,
+X      number_colors,
+X      colors_important;
+X  } BMPHeader;
+X
+X  BMPHeader
+X    bmp_header;
+X
+X  Image
+X    *image;
+X
+X  register int
+X    bit,
+X    i,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *bmp_data,
+X    *bmp_pixels,
+X    magick[12];
+X
+X  unsigned int
+X    bytes_per_line,
+X    status;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("BMP");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Determine if this is a BMP file.
+X  */
+X  status=ReadData((char *) magick,1,2,image->file);
+X  do
+X  {
+X    /*
+X      Verify BMP identifier.
+X    */
+X    if ((status == False) || (strncmp((char *) magick,"BM",2) != 0))
+X      {
+X        Warning("not a BMP image file",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    bmp_header.file_size=LSBFirstReadLong(image->file);
+X    bmp_header.reserved[0]=LSBFirstReadShort(image->file);
+X    bmp_header.reserved[1]=LSBFirstReadShort(image->file);
+X    bmp_header.offset_bits=LSBFirstReadLong(image->file);
+X    bmp_header.size=LSBFirstReadLong(image->file);
+X    bmp_header.width=LSBFirstReadLong(image->file);
+X    bmp_header.height=LSBFirstReadLong(image->file);
+X    bmp_header.planes=LSBFirstReadShort(image->file);
+X    bmp_header.bit_count=LSBFirstReadShort(image->file);
+X    bmp_header.compression=LSBFirstReadLong(image->file);
+X    bmp_header.image_size=LSBFirstReadLong(image->file);
+X    bmp_header.x_pixels=LSBFirstReadLong(image->file);
+X    bmp_header.y_pixels=LSBFirstReadLong(image->file);
+X    bmp_header.number_colors=LSBFirstReadLong(image->file);
+X    bmp_header.colors_important=LSBFirstReadLong(image->file);
+X    for (i=0; i < ((int) bmp_header.size-40); i++)
+X      (void) fgetc(image->file);
+X    if (bmp_header.bit_count < 24)
+X      {
+X        unsigned char
+X          *bmp_colormap;
+X
+X        /*
+X          Read BMP raster colormap.
+X        */
+X        image->class=PseudoClass;
+X        image->colors=bmp_header.number_colors;
+X        if (image->colors == 0)
+X          image->colors=1 << bmp_header.bit_count;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        bmp_colormap=(unsigned char *)
+X          malloc(4*image->colors*sizeof(unsigned char));
+X        if ((image->colormap == (ColorPacket *) NULL) ||
+X            (bmp_colormap == (unsigned char *) NULL))
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        (void) ReadData((char *) bmp_colormap,4,(int) image->colors,
+X          image->file);
+X        p=bmp_colormap;
+X        for (i=0; i < image->colors; i++)
+X        {
+X          image->colormap[i].blue=(*p++);
+X          image->colormap[i].green=(*p++);
+X          image->colormap[i].red=(*p++);
+X          p++;
+X        }
+X        (void) free((char *) bmp_colormap);
+X      }
+X    /*
+X      Read image data.
+X    */
+X    if (bmp_header.image_size == 0)
+X      bmp_header.image_size=
+X        ((bmp_header.width*bmp_header.bit_count+31)/32)*4*bmp_header.height;
+X    bmp_data=(unsigned char *)
+X      malloc(bmp_header.image_size*sizeof(unsigned char));
+X    if (bmp_data == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    status=ReadData((char *) bmp_data,1,(int) bmp_header.image_size,
+X      image->file);
+X    if (status == False)
+X      {
+X        Warning("unable to read image data",image_info->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    bmp_pixels=bmp_data;
+X    if (bmp_header.compression != 0)
+X      {
+X        /*
+X          Convert run-length encoded raster pixels.
+X        */
+X        bmp_pixels=(unsigned char *)
+X          malloc(bmp_header.image_size*sizeof(unsigned char));
+X        if (bmp_pixels == (unsigned char *) NULL)
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        (void) BMPDecodeImage(bmp_data,bmp_pixels,
+X          (unsigned int) bmp_header.width,(unsigned int) bmp_header.height);
+X        (void) free((char *) bmp_data);
+X      }
+X    /*
+X      Create image.
+X    */
+X    image->columns=bmp_header.width;
+X    image->rows=bmp_header.height;
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    (void) sprintf(image->comments,
+X      "\n  Imported from BMP raster image:  %s\n",image->filename);
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    /*
+X      Convert BMP raster image to runlength-encoded packets.
+SHAR_EOF
+true || echo 'restore of ImageMagick/decode.c failed'
+fi
+echo 'End of ImageMagick part 13'
+echo 'File ImageMagick/decode.c is continued in part 14'
+echo 14 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

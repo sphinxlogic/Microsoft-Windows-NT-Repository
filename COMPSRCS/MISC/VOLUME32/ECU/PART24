@@ -1,0 +1,2498 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i059:  ecu - ECU Asynchronous Communications v3.20, Part24/40
+Message-ID: <1992Sep14.144547.21857@sparky.imd.sterling.com>
+X-Md4-Signature: e7d67ace6a79887f7136fbfc90e24ad3
+Date: Mon, 14 Sep 1992 14:45:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 59
+Archive-name: ecu/part24
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.24 (part 24 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file z/ecurz.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 24; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping z/ecurz.c'
+else
+echo 'x - continuing file z/ecurz.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'z/ecurz.c' &&
+X			report_str(s128,0);
+X			return(ERROR);
+X		case ZNAK:
+X		case TIMEOUT:
+X			if( --n < 0)
+X			{
+X				sprintf(s128,got_garbage_txt,c);
+X				report_str(s128,0);
+X				return(ERROR);
+X			}
+X		case ZFILE:
+X			zrdata(secbuf,1024);
+X			continue;
+X		case ZEOF:
+X			if(rclhdr(Rxhdr) != rxfilepos)
+X			{
+X				/*
+X				 * Ignore eof if it's at wrong place - force
+X				 *  a timeout because the eof might have gone
+X				 *  out before we sent our zrpos.
+X				 */
+X				errors = 0;
+X				goto nxthdr;
+X			}
+X			if(can_on_eof)
+X			{
+X				send_cancel(0);
+X				send_cancel(0);
+X				close_and_report();
+X				report_uninit(0);
+X				exit(0);
+X			}
+X			if(close_and_report())
+X			{
+X				tryzhdrtype = ZFERR;
+X				return(ERROR);
+X			}
+X			report_str("End of file",0);
+X			return(c);
+X		case ERROR:	/* Too much garbage in header search error */
+X			if( --n < 0)
+X			{
+X				sprintf(s128,got_garbage_txt,c);
+X				report_str(s128,0);
+X				return(ERROR);
+X			}
+X			zmputs(Attn);
+X			continue;
+X		case ZSKIP:
+X			close_and_report();
+X			sprintf(s128,"Sender SKIPPED file");
+X			report_str(s128,-1);
+X			return(c);
+X		case ZDATA:
+X			if(rclhdr(Rxhdr) != rxfilepos)
+X			{
+X				if( --n < 0)
+X				{
+X					return(ERROR);
+X				}
+X				zmputs(Attn);
+X				continue;
+X			}
+Xmoredata:
+X			report_receive_progress(rxfilepos);
+X			switch(c = zrdata(secbuf,1024))
+X			{
+X			case ZCAN:
+X				sprintf(s128,got_garbage_txt,c);
+X				report_str(s128,0);
+X				return(ERROR);
+X			case ERROR:	/* CRC error */
+X				if( --n < 0)
+X				{
+X					sprintf(s128,got_garbage_txt,c);
+X					report_str(s128,0);
+X					return(ERROR);
+X				}
+X				zmputs(Attn);
+X				continue;
+X			case TIMEOUT:
+X				if( --n < 0)
+X				{
+X					sprintf(s128,got_garbage_txt,c);
+X					report_str(s128,0);
+X					return(ERROR);
+X				}
+X				continue;
+X			case GOTCRCW:
+X				n = 20;
+X				write_sec_to_disk(secbuf,Rxcount);
+X				rxfilepos += Rxcount;
+X				stohdr(rxfilepos);
+X				zshhdr(ZACK,Txhdr);
+X				sendline(XON);
+X				report_str("",-1);
+X				goto nxthdr;
+X			case GOTCRCQ:
+X				n = 20;
+X				write_sec_to_disk(secbuf,Rxcount);
+X				rxfilepos += Rxcount;
+X				stohdr(rxfilepos);
+X				zshhdr(ZACK,Txhdr);
+X				report_str("",-1);
+X				goto moredata;
+X			case GOTCRCG:
+X				n = 20;
+X				write_sec_to_disk(secbuf,Rxcount);
+X				rxfilepos += Rxcount;
+X				goto moredata;
+X			case GOTCRCE:
+X				n = 20;
+X				write_sec_to_disk(secbuf,Rxcount);
+X				rxfilepos += Rxcount;
+X				goto nxthdr;
+X			}
+X		}
+X	}
+X	/*NOTREACHED*/
+X
+X}	/* end of rzfile */
+X
+X/*+-------------------------------------------------------------------------
+X	rzfiles() - receive file(s) with ZMODEM protocol
+X--------------------------------------------------------------------------*/
+Xint
+Xrzfiles()
+X{
+X	register c;
+X
+X	for(;;)
+X	{
+X		switch(c = rzfile())
+X		{
+X		case ZEOF:
+X		case ZSKIP:
+X			switch(tryz())
+X			{
+X				case ZCOMPL:
+X					return(OK);
+X				default:
+X					return(ERROR);
+X				case ZFILE:
+X					break;
+X			}
+X			continue;
+X		default:
+X			return(c);
+X		case ERROR:
+X			return(ERROR);
+X		}
+X	}
+X	/*NOTREACHED*/
+X}	/* end of rzfiles */
+X
+X/*+-------------------------------------------------------------------------
+X	close_and_report() - close the received file, set mod time and chmod
+X(specifically exclude set uid and gid from chmod)
+X--------------------------------------------------------------------------*/
+Xint
+Xclose_and_report()
+X{
+X	fflush(fout);
+X	fstat(fileno(fout),&fout_stat);
+X	report_file_byte_io((long)fout_stat.st_size - initial_filepos);
+X
+X	report_file_close(0);
+X	if(fclose(fout)==ERROR)
+X	{
+X		if(errno > sys_nerr)
+X			sprintf(s128,"finish close errno %d",errno);
+X		else
+X			sprintf(s128,"finish close error: %s",sys_errlist[errno]);
+X		ecu_log_event(getppid(),s128);
+X		fout = (FILE *)0;
+X		return(ERROR);
+X	}
+X
+X#if defined(LOG_XFER)
+X	sprintf(s128,"RECEIVE success: %s (%ld bytes)",Pathname,fout_stat.st_size);
+X	ecu_log_event(getppid(),s128);
+X#endif
+X
+X
+X	if(Modtime)
+X	{
+X		timep[0] = time(NULL);
+X		timep[1] = Modtime;
+X		utime(Pathname,timep);
+X	}
+X
+X	if((Filemode & S_IFMT) == S_IFREG)
+X	{
+X    	Filemode &= ~(S_ISUID | S_ISGID);
+X		chmod(Pathname,(unsigned short)(07777 & Filemode));
+X	}
+X
+X	return(OK);
+X
+X}	/* end of close_and_report */
+X
+X/*+-------------------------------------------------------------------------
+X	sys2(shellcmd) - execute shell command
+X
+X Strip leading ! if present
+X--------------------------------------------------------------------------*/
+Xint
+Xsys2(shellcmd)
+Xregister char *shellcmd;
+X{
+X	if(*shellcmd == '!')
+X		++shellcmd;
+X	return(system(shellcmd));
+X} /* end of sys2 */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+X	register char *cp;
+X	char **patts = (char **)0;
+X	char *getenv();
+X	int exitcode = 0;
+X
+X	gargv = argv;
+X	gargc = argc;
+X
+X	signal(SIGINT,bye_bye);
+X	signal(SIGTERM,bye_bye);
+X#if	defined(SIGSTOP)
+X	/*
+X	 * call Roto-Rooter on POSIX plots
+X	 */
+X	signal(SIGSTOP,SIG_IGN);
+X	signal(SIGTSTP,SIG_IGN);
+X	signal(SIGCONT,SIG_IGN);
+X	signal(SIGTTIN,SIG_IGN);
+X	signal(SIGTTOU,SIG_IGN);
+X#endif
+X
+X	get_curr_dir(curr_dir,sizeof(curr_dir));
+X
+X	Rxtimeout = 100;
+X
+X	npats = 0;
+X	while(--argc)
+X	{
+X		cp = *++argv;
+X		if(*cp == '-')
+X		{
+X			while( *++cp)
+X			{
+X				switch(*cp)
+X				{
+X				case 'X':
+X					required_type = 1;
+X					Batch = 0;
+X					break;
+X				case 'Y':
+X					required_type = 1;
+X					Nozmodem = 1;
+X					Batch = 1;
+X					break;
+X				case 'Z':
+X					required_type = 1;
+X					Nozmodem = 0;
+X					Batch = 1;
+X					break;
+X				case '+':
+X					Lzmanag = ZMAPND;
+X					break;
+X				case 'a':
+X					Rxascii=1;
+X					break;
+X				case 'b':
+X					Rxbinary=1;
+X					break;
+X				case 'c':
+X					Crcflg=1;
+X					break;
+X				case 'e':
+X					Zctlesc = 1;
+X					break;
+X				case 'p':
+X					Lzmanag = ZMPROT;
+X					break;
+X				case '@':
+X					force_dumbtty = 1;
+X					break;
+X				case ',':
+X					log_packets = 1;
+X					break;
+X				case ':':
+X					can_on_eof = 1;
+X					break;
+X				case '.':
+X					if(--argc < 1)
+X					{
+X						usage("no iofd after -.");
+X					}
+X					iofd = atoi(*++argv);
+X					break;
+X				case 't':
+X					if(--argc < 1)
+X					{
+X						usage("no rcvr timeout after -t");
+X					}
+X					Rxtimeout = atoi(*++argv);
+X					if(Rxtimeout<10 || Rxtimeout>1000)
+X						usage("illegal timeout: must be 10 <= t <= 1000");
+X					break;
+X				case 'w':
+X					if(--argc < 1)
+X					{
+X						usage("no Zrwindow after -w");
+X					}
+X					Zrwindow = atoi(*++argv);
+X					break;
+X				case 'C':
+X					if(--argc < 1)
+X						usage("no label after -C");
+X					bottom_label = *++argv;
+X					break;
+X				case 'u':
+X					MakeLCPathname=0;
+X					break;
+X				case 'y':
+X					Rxclob=1;
+X					break;
+X				default:
+X					sprintf(s128,"Unknown switch -%c",*cp);
+X					usage(s128);
+X				}
+X			}
+X		}
+X		else if( !npats && argc>0)
+X		{
+X			if(argv[0][0])
+X			{
+X				npats=argc;
+X				patts=argv;
+X			}
+X		}
+X	}
+X
+X	if(determine_output_mode())
+X	{
+X		setbuf(stdout,NULL);
+X		setbuf(stderr,NULL);
+X	}
+X
+X	if(!required_type || !iofd)
+X	{
+X		printf("can only be run by ecu\n");
+X		exit(255);
+X	}
+X
+X	if(log_packets)
+X	{
+X		char log_packets_name[64];
+X		int iargv;
+X		sprintf(log_packets_name,"/tmp/rz%05d.plog",getpid());
+X		unlink(log_packets_name);
+X		log_packets = open(log_packets_name,O_CREAT|O_WRONLY,0644);
+X		if(log_packets < 0)
+X			log_packets = 0;
+X		else
+X		{
+X			write(log_packets,"exec: ",6);
+X			for(iargv = 0; iargv < gargc; iargv++)
+X			{
+X				write(log_packets,gargv[iargv],strlen(gargv[iargv]));
+X				write(log_packets," ",1);
+X			}
+X			write(log_packets,"\n",1);
+X		}
+X	}
+X
+X	/*
+X	 * learn tick rate for various timers
+X	 */
+X	init_Nap();
+X
+X	if(Batch && npats)
+X		usage("Cannot specify batch receive and filename");
+X	if(npats > 1)
+X		usage("only one filename allowed");
+X	sprintf(s128,"%s",numeric_revision + 4);
+X	report_init(s128);
+X	mode(1);
+X	signal(SIGINT,cancel_transaction);
+X	signal(SIGTERM,cancel_transaction);
+X	signal(SIGQUIT,cancel_transaction);
+X	if(wcreceive(npats,patts)==ERROR)
+X	{
+X		exitcode=0200;
+X		send_cancel(1);
+X	}
+X	mode(0);
+X	if(exitcode && !Zmodem)	/* bellow again with all thy might. */
+X		send_cancel(1);
+X	report_uninit(0);
+X	exit(exitcode);
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecurz.c */
+SHAR_EOF
+echo 'File z/ecurz.c is complete' &&
+chmod 0644 z/ecurz.c ||
+echo 'restore of z/ecurz.c failed'
+Wc_c="`wc -c < 'z/ecurz.c'`"
+test 46240 -eq "$Wc_c" ||
+	echo 'z/ecurz.c: original size 46240, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= z/ecusz.c ==============
+if test -f 'z/ecusz.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping z/ecusz.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting z/ecusz.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'z/ecusz.c' &&
+Xchar *numeric_revision = "@(#)ecusz 3.20";
+X#define BUFFERED_WRITE
+X/*+-------------------------------------------------------------------------
+X	ecusz.c - X/Y/ZMODEM send program
+X  Derived from public domain source by Chuck Forsberg, Omen Technologies
+X  Adaptation for ecu 1989 wht@n4hgf.Mt-Park.GA.US
+X
+X	Usage:	ecusz [-X -Y -Z] [-12+abdefkLlNnquvwy] [-] file ...
+X		(Y) = Option applies to YMODEM only
+X		(Z) = Option applies to ZMODEM only
+X		a (ASCII) change NL to CR/LF
+X		b Binary file transfer override
+X		f send Full pathname (Y/Z)
+X		k Send 1024 byte packets (Y)
+X		L N Limit subpacket length to N bytes (Z)
+X		l N Limit frame length to N bytes (l>=L) (Z)
+X		n send file if source newer (Z)
+X		N send file if source newer or longer (Z)
+X		o Use 16 bit CRC instead of 32 bit CRC (Z)
+X		p Protect existing destination file (Z)
+X		r Resume/Recover interrupted file transfer (Z)
+X		q Quiet (no progress reports)
+X		u Unlink file after transmission
+X		w N Window is N bytes (Z)
+X		y Yes,overwrite existing file (Z)
+X		@file reads a list of filenames from 'file'
+X
+X  Defined functions:
+X	SIGALRM_handler(sig)
+X	bye_bye(sig)
+X	cancel_transaction(sig)
+X	determine_transaction_time()
+X	flushline()
+X	get_file_list_name(namep)
+X	getinsync(flag)
+X	getnak()
+X	getzrxinit()
+X	log_packet_buffer(buf,len)
+X	main(argc,argv)
+X	onintr()
+X	purgeline()
+X	readline(n)
+X	readock(timeout,count)
+X	report_rcvr_cancelled(place_happened)
+X	report_rcvr_skipped()
+X	report_send_progress(filepos)
+X	report_send_transaction()
+X	rewind_file_list()
+X	saybibi()
+X	send_cancel(error)
+X	sendline(ch)
+X	sendzsinit()
+X	set_file_list(pathc,pathv)
+X	substr(str,str2)
+X	usage()
+X	wcputsec(buf,sectnum,cseclen)
+X	wcs(oname)
+X	wcsend()
+X	wctx(flen)
+X	wctxpn(name)
+X	xbuf_build(buf,count)
+X	xsendline(ch)
+X	zbuf_build(buf,count)
+X	zsendfdata()
+X	zsendfile(buf,blen)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:09-05-1992-14:26-wht@n4hgf-zrpos_seen was not set 1 on first ZRPOS */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-03:08-wht@n4hgf-head off another POSIX plot */
+X/*:08-10-1992-04:01-wht@n4hgf-use init_Nap */
+X/*:07-20-1992-13:39-wht@n4hgf-need hzmsec for nap.c */
+X/*:09-01-1991-14:18-wht@n4hgf2-improve sun flushline */
+X/*:08-29-1991-02:17-wht@n4hgf2-flush "rz" to line before nap */
+X/*:08-28-1991-14:08-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:02-03-1991-17:27-wht@n4hgf-version number change - see zcurses.c */
+X/*:12-18-1990-21:26-wht@n4hgf-better output control */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X/*
+X  Error return conditions
+X	255:     usage
+X	254:     protocol failed (bad line conditions,brain dead remote)
+X	253:     curses problem
+X	253:     could not open any files
+X	128-192: process terminated with signal==code-128 (64 signals allowed for)
+X             signal 0 == program logic error (see cancel_transaction)
+X	127:     127 or more files not transmitted (see ~/.ecu/log)
+X	1-126:   count of files not transmitted (see ~/.ecu/log)
+X	0:       file transfer completely successful
+X*/
+X
+Xchar *substr();
+Xchar *getenv();
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include "zmodem.h"
+X#include <sys/param.h>
+X
+Xextern char *sys_errlist[];
+Xextern unsigned short crctab[];	/* wht */
+Xextern unsigned long total_data_bytes_xfered; /* zcurses.c */
+Xextern int errno;
+Xextern int show_window;
+Xextern int Rxtimeout;	/* Tenths of seconds to wait for something */
+Xextern char Rxhdr[4];	/* Received header */
+Xextern char Txhdr[4];	/* Transmitted header */
+Xextern int Txfcs32;		/* TURE means send binary frames with 32 bit FCS */
+Xextern long Rxpos;	/* Received file position */
+Xextern long Txpos;	/* Transmitted file position */
+Xextern char *frametypes[];
+Xextern char Attn[];		/* Attention string rx sends to tx on err */
+Xextern char s128[128];
+X
+X#define RETRYMAX 10		/* non-zmodem retry count on block send */
+X#define VMIN_COUNT 2	/* must not exceed 255 */
+Xunsigned char vmin_count = VMIN_COUNT;
+Xint iofd = 0;		/* line io fd */
+X#ifdef BUFFERED_WRITE
+XFILE *iofp;
+X#endif
+X
+X
+X/*
+X * Attention string to be executed by receiver to interrupt streaming data
+X *  when an error is detected.  A pause (0336) may be needed before the
+X *  ^C (03) or after it.
+X */
+X#if defined(READCHECK)
+Xchar Myattn[] = { 0 };
+X#else
+Xchar Myattn[] = { 03,0336,0 };
+X#endif
+X
+XFILE *in;
+X
+Xchar *Cmdstr;		/* Pointer to the command string */
+Xchar *bottom_label = (char *)0;
+Xchar Crcflg;
+Xchar Lastrx;
+Xchar Lzconv;		/* Local ZMODEM file conversion request */
+Xchar Lzmanag;		/* Local ZMODEM file management request */
+Xchar Lztrans;
+Xchar Pathname[PATHLEN];
+Xchar curr_dir[256];
+Xchar txbuf[1024];
+Xchar zconv;				/* ZMODEM file conversion request */
+Xchar zmanag;			/* ZMODEM file management request */
+Xchar ztrans;			/* ZMODEM file transport request */
+Xint Ascii;			/* Add CR's for brain damaged programs */
+Xint Cmdack1;			/* Rx ACKs command,then do it */
+Xint Cmdtries = 11;
+Xint Command;		/* Send a command,then exit. */
+Xint Dontread;			/* Don't read the buffer,it's still there */
+Xint Dottoslash;		/* Change foo.bar.baz to foo/bar/baz */
+Xint Exitcode;
+Xint Filcnt;			/* count of number of files opened */
+Xint FilesTotal;
+Xint Filesleft;
+Xint Fullname;			/* transmit full pathname */
+Xint Lastn;				/* Count of last buffer read or -1 */
+Xint Lfseen;
+Xint Noeofseen;
+Xint Nozmodem;
+Xint Optiong;			/* no wait for block ACK's */
+Xint Quiet;			/* overrides logic that would otherwise set verbose */
+Xint Rxflags;
+Xint SameZrposAgain;	/* How many times we've been ZRPOS'd same place (wht) */
+Xint Tframlen;		/* Override for tx frame length */
+Xint Totsecs;			/* total number of blocks this file */
+Xint Twostop;		/* use two stop bits */
+Xint Unlinkafter;		/* Unlink file after it is sent */
+Xint Wantfcs32 = TRUE;	/* want to send 32 bit FCS */
+Xint Xmodem;			/* XMODEM Protocol - don't send pathnames */
+Xint Zctlesc;			/* Encode control characters */
+Xint Zmodem;			/* ZMODEM protocol requested by receiver */
+Xint Zrwindow = 1400;	/* RX window size (controls garbage count) */
+Xint blklen=128;			/* length of transmitted records */
+Xint blklen_original;
+Xint blkopt;			/* Override value for zmodem blklen */
+Xint ecusz_flag = 1;
+Xint force_dumbtty;
+Xint got_xfer_type;
+Xint seen_zrpos;
+Xint skip_count;		/* skipped files */
+Xint errors;
+Xint firstsec;
+Xint log_packets;
+Xint no_files;
+Xint npats;
+Xlong Lastread;		/* Beginning offset of last buffer read */
+Xlong Lastsync;		/* Last offset to which we got a ZRPOS */
+Xlong Lrxpos;			/* Receiver's last reported offset */
+Xlong TotalLeft;
+Xlong TotalToSend;
+Xlong bytcnt;
+Xlong rx_char_count;
+Xlong this_file_length;
+Xlong tx_char_count;
+Xlong initial_filepos;		/* initial file position */
+Xunsigned Baudrate;
+Xunsigned Rxbuflen = 16384;	/* Receiver's max buffer length */
+Xunsigned Txwcnt;		/* Counter used to space ack requests */
+Xunsigned Txwindow;		/* Control the size of the transmitted window */
+Xunsigned Txwspac;		/* Spacing between zcrcq requests */
+Xunsigned int bad_condx_blklen;	/* if <>0,blklen has been reduced (wht) */
+Xunsigned int bad_condx_frame_count;	/* frame # last SameZrposAgain (wht) */
+Xunsigned int this_file_frame_count;	/* count of frames sent this file (wht) */
+X
+X#define MAX_PATHS 512
+Xchar *paths[MAX_PATHS];
+X
+Xjmp_buf tohere;		/* For the interrupt on RX timeout */
+Xjmp_buf intrjmp;	/* For the interrupt on RX CAN */
+X
+Xint file_list_pathc;
+Xint file_list_path_current;
+Xchar **file_list_pathv;
+XFILE *fpflst = (FILE *)0;
+X
+Xvoid send_cancel();
+Xvoid purgeline();
+Xvoid usage();
+Xvoid saybibi();
+Xvoid determine_transaction_time();
+Xvoid sendline();
+Xvoid xsendline();
+X
+X/*+-------------------------------------------------------------------------
+X	log_packet_buffer(buf,len)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlog_packet_buffer(buf,len)
+Xregister unsigned char *buf;
+Xregister int len;
+X{
+X	char xbuf[32];
+X
+X	while(len--)
+X	{
+X		sprintf(xbuf,"%02x ",*buf++);
+X		write(log_packets,xbuf,strlen(xbuf));
+X	}
+X	write(log_packets,"\n",1);
+X
+X}	/* end of log_packet_buffer */
+X
+X/*+-------------------------------------------------------------------------
+X	rewind_file_list()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xrewind_file_list()
+X{
+X	file_list_path_current = 0;
+X	if(fpflst)
+X	{
+X		fclose(fpflst);
+X		fpflst = (FILE *)0;
+X	}
+X}	/* end of rewind_file_list */
+X
+X/*+-------------------------------------------------------------------------
+X	set_file_list(pathc,pathv)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xset_file_list(pathc,pathv)
+Xint pathc;
+Xchar **pathv;
+X{
+X	file_list_pathc = pathc;
+X	file_list_pathv = pathv;
+X	rewind_file_list();
+X
+X}	/* end of set_file_list */
+X
+X/*+-------------------------------------------------------------------------
+X	get_file_list_name(namep)
+Xreturn 1 if @lst found else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xget_file_list_name(namep)
+Xchar **namep;
+X{
+X	register char *cptr;
+X	static char name[256];
+X
+Xtry_fpflst:
+X	if(fpflst)
+X	{
+X		if(fgets(name,sizeof(name),fpflst) != NULL)
+X		{
+X			name[strlen(name) - 1] = 0;
+X			*namep = name;
+X			return(1);
+X		}
+X		fclose(fpflst);
+X		fpflst = (FILE *)0;
+X	}
+X
+Xnext_arg:
+X	if(file_list_path_current == file_list_pathc)
+X		return(0);
+X	cptr = file_list_pathv[file_list_path_current++];
+X	if(*cptr != '@')
+X	{
+X		*namep = cptr;
+X		return(1);
+X	}
+X	cptr++;
+X	if((fpflst = fopen(cptr,"r")) == NULL)
+X		goto next_arg;
+X	goto try_fpflst;
+X
+X}	/* end of get_file_list_name */
+X
+X/*+-------------------------------------------------------------------------
+X	bye_bye(sig)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbye_bye(sig)
+Xint sig;
+X{
+X	exit(sig+128);
+X}	/* end of bye_bye */
+X
+X/*+-------------------------------------------------------------------------
+X	cancel_transaction(sig)
+Xcalled by signal interrupt or terminate to clean things up
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcancel_transaction(sig)
+Xint sig;
+X{
+X	if(Zmodem)
+X		zmputs(Attn);
+X	send_cancel(1);
+X	mode(0);
+X	if(sig >= 0)
+X	{
+X		sprintf(s128,"ecusz aborted (signal %d)",sig);
+X		report_str(s128,0);
+X	}
+X	report_tx_ind(0);
+X	report_rx_ind(0);
+X	report_uninit(0);
+X	bye_bye(sig);
+X}	/* end of cancel_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	onintr() - Called when ZMODEM gets an interrupt (^X)
+X--------------------------------------------------------------------------*/
+Xonintr()
+X{
+X	signal(SIGINT,SIG_IGN);
+X	report_rx_ind(0);
+X	report_tx_ind(0);
+X	longjmp(intrjmp,-1);
+X}	/* end of onintr */
+X
+X
+X
+X/*+-------------------------------------------------------------------------
+X	report_send_transaction()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_send_transaction()
+X{
+X	if(Xmodem)
+X	{
+X		long blocks = (TotalToSend >> 7) + ((TotalToSend % 128) != 0);
+X		long secs = 7		/* slightly worse than average first nak delay */
+X			+ (blocks / 5L)				/* assume .2 sec ack time */
+X			+ ((blocks * (128L + 16L)) / (Baudrate / 10));
+X		if(!secs)
+X			secs = 10L;
+X		sprintf(s128,"Sending %ld blocks time ~= %ld:%02ld",
+X		    blocks,secs/60,secs % 60);
+X	}
+X	else
+X	{
+X		long min_100 =
+X			(FilesTotal * 2L) + (((TotalToSend * 11L)) * 10L) / (Baudrate * 6L);
+X		if(!min_100)
+X			min_100 = 4L;
+X#if defined(M_I286)	/* slower */
+X		else if(Baudrate > 4800)
+X		{
+X			min_100 *= 13;
+X			min_100 /= 9;	/* yech ... empirical */
+X		}
+X#endif
+X		sprintf(s128,
+X			"Total transaction %ld bytes (xfer time ~= %2lu:%02lu)",
+X		    TotalToSend,min_100 / 100,((min_100 % 100) * 60L) / 100L);
+X	}
+X	report_transaction(s128);
+X
+X}	/* end of report_send_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	report_send_progress(filepos)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_send_progress(filepos)
+Xlong filepos;
+X{
+X
+X	if(Xmodem)
+X	{
+X		sprintf(s128,"File %d%% complete",
+X		    (this_file_length == 0) ? (int)100 :
+X		    (int)((filepos * 100L) / this_file_length));
+X	}
+X	else
+X	{
+X		sprintf(s128,"This file %d%%, transaction %d%% complete",
+X		    (this_file_length == 0) ? (int)100 :
+X				    (int)((filepos * 100L)/this_file_length),
+X		    (TotalToSend == 0) ? (int)100 :
+X		    		(int)(((total_data_bytes_xfered + filepos) * 100L)
+X						/ TotalToSend));
+X	}
+X	report_str(s128,0);
+X	report_txpos(filepos);
+X
+X}	/* end of report_send_progress */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rcvr_cancelled(place_happened)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rcvr_cancelled(place_happened)
+Xchar *place_happened;
+X{
+X	strcpy(s128,"SEND CANCELLED");
+X	report_str(s128 + 5,1);
+X#if defined(LOG_XFER)
+X	strcat(s128," (");
+X	strcat(s128,place_happened);
+X	strcat(s128,")");
+X	ecu_log_event(getppid(),s128);
+X#endif
+X	skip_count++;
+X	report_error_count();
+X}	/* end of report_rcvr_cancelled */
+X
+X/*+-------------------------------------------------------------------------
+X	report_rcvr_skipped()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_rcvr_skipped()
+X{
+X	sprintf(s128,"SEND skipped: %s",Pathname);
+X	report_str(s128 + 5,-1);
+X#if defined(LOG_SKIP)
+X	ecu_log_event(getppid(),s128);
+X#endif
+X	skip_count++;
+X	report_error_count();
+X	TotalToSend -= this_file_length;
+X	report_send_transaction();
+X}	/* end of report_rcvr_skipped */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	xsendline(ch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxsendline(ch)
+Xchar ch;
+X{
+X#ifdef BUFFERED_WRITE
+X	fputc(ch,iofp);
+X#else
+X	write(iofd,&ch,1);
+X#endif
+X	++tx_char_count;
+X}	/* end of xsendline */
+X
+X/*+-------------------------------------------------------------------------
+X	sendline(ch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsendline(ch)
+Xchar ch;
+X{
+X	xsendline(ch);
+X}	/* end of sendline */
+X
+X/*+-------------------------------------------------------------------------
+X	flushline() - ensure all queued data to line is on the wire
+X--------------------------------------------------------------------------*/
+Xvoid
+Xflushline()
+X{
+X#if defined(sun)
+Xint retries = 50;
+Xint outq_count;
+Xint old_outq_count = 0;
+X#else
+Xstruct termio tio;
+X#endif
+X
+X#ifdef BUFFERED_WRITE
+X	fflush(iofp);
+X#endif
+X
+X#if defined(sun)
+X	do {
+X		ioctl(iofd,TIOCOUTQ,&outq_count);
+X		if(!outq_count)
+X			break;
+X		if(old_outq_count == outq_count) /* don't hang if flow control lock */
+X			retries--;
+X		old_outq_count = outq_count;
+X		Nap(50);
+X	} while(outq_count && retries);
+X#else
+X	ioctl(iofd,TCGETA,(char *)&tio);
+X	ioctl(iofd,TCSETAW,(char *)&tio);
+X#endif
+X}	/* end of flushline */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xregister char *cp;
+Xchar **patts = paths;
+Xchar **gargv = argv;
+Xint gargc = argc;
+X
+X	signal(SIGINT,bye_bye);
+X	signal(SIGTERM,bye_bye);
+X#if	defined(SIGSTOP)
+X	/*
+X	 * call Roto-Rooter on POSIX plots
+X	 */
+X	signal(SIGSTOP,SIG_IGN);
+X	signal(SIGTSTP,SIG_IGN);
+X	signal(SIGCONT,SIG_IGN);
+X	signal(SIGTTIN,SIG_IGN);
+X	signal(SIGTTOU,SIG_IGN);
+X#endif
+X
+X	get_curr_dir(curr_dir,sizeof(curr_dir));
+X
+X	Rxtimeout = 600;
+X	npats=0;
+X	if(argc<2)
+X		usage();
+X	while(--argc)
+X	{
+X		cp = *++argv;
+X		if(*cp == '-')
+X		{
+X			cp++;
+X			switch(*cp++)
+X			{
+X			case 'X':
+X				got_xfer_type = 1;
+X				Xmodem = TRUE;
+X				break;
+X			case 'Y':
+X				got_xfer_type = 1;
+X				Nozmodem = TRUE;
+X				blklen=1024;
+X				break;
+X			case 'Z':
+X				show_window = 1;
+X				got_xfer_type = 1;
+X				break;
+X
+X			case '+':
+X				Lzmanag = ZMAPND;
+X				break;
+X			case 'a':
+X				Lzconv = ZCNL;
+X				Ascii = TRUE;
+X				break;
+X			case 'b':
+X				Lzconv = ZCBIN;
+X				break;
+X			case 'd':
+X				++Dottoslash;
+X				/* **** FALL THROUGH TO **** */
+X			case 'f':
+X				Fullname=TRUE;
+X				break;
+X			case ',':
+X				log_packets = 1;
+X				break;
+X			case '@':
+X				force_dumbtty = 1;
+X				break;
+X			case '/':
+X				if(--argc < 1)
+X					usage();
+X				strcpy(curr_dir,*++argv);
+X				break;
+X			case '.':
+X				if(--argc < 1)
+X					usage();
+X				iofd = atoi(*++argv);
+X				break;
+X			case 'C':
+X				if(--argc < 1)
+X					usage("no label after -C");
+X				bottom_label = *++argv;
+X				break;
+X			case 'e':
+X				Zctlesc = 1;
+X				break;
+X			case 'k':
+X				blklen=1024;
+X				break;
+X			case 'L':
+X				if(--argc < 1)
+X				{
+X					usage();
+X				}
+X				blkopt = atoi(*++argv);
+X				if(blkopt<24 || blkopt>1024)
+X						usage();
+X				break;
+X			case 'l':
+X				if(--argc < 1)
+X				{
+X					usage();
+X				}
+X				Tframlen = atoi(*++argv);
+X				if(Tframlen<32 || Tframlen>1024)
+X					usage();
+X				break;
+X			case 'N':
+X				Lzmanag = ZMNEWL;
+X				break;
+X			case 'n':
+X				Lzmanag = ZMNEW;
+X				break;
+X			case 'o':
+X				Wantfcs32 = FALSE;
+X				break;
+X			case 'p':
+X				Lzmanag = ZMPROT;
+X				break;
+X			case 'r':
+X				Lzconv = ZCRESUM;
+X				break;
+X			case 't':
+X				if(--argc < 1)
+X				{
+X					usage();
+X				}
+X				Rxtimeout = atoi(*++argv);
+X				if(Rxtimeout<10 || Rxtimeout>1000)
+X					usage();
+X				break;
+X			case 'u':
+X				++Unlinkafter;
+X				break;
+X			case 'w':
+X				if(--argc < 1)
+X				{
+X					usage();
+X				}
+X				Txwindow = atoi(*++argv);
+X				if(Txwindow < 256)
+X					Txwindow = 256;
+X				Txwindow = (Txwindow/64) * 64;
+X				Txwspac = Txwindow/4;
+X				if(blkopt > Txwspac || (!blkopt && Txwspac < 1024))
+X					blkopt = Txwspac;
+X				break;
+X			case 'y':
+X				Lzmanag = ZMCLOB;
+X				break;
+X			default:
+X				usage();
+X			}
+X		}
+X		else if(argc > 0)
+X		{
+X			if(npats < MAX_PATHS)
+X			{
+X				npats++;
+X				*patts++ = cp;
+X			}
+X			else
+X			{
+X				printf("too many filenames to send\n");
+X				exit(255);
+X			}
+X		}
+X	}
+X	if(!got_xfer_type || !iofd)
+X	{
+X		printf("can only be run by ecu\n");
+X		exit(255);
+X	}
+X
+X	if(determine_output_mode())
+X	{
+X		setbuf(stdout,NULL);
+X		setbuf(stderr,NULL);
+X	}
+X
+X	if(npats < 1 && !Command)
+X		usage();
+X
+X	set_file_list(npats,paths);
+X	sprintf(s128,"%s",numeric_revision + 4);
+X
+X	if(log_packets)
+X	{
+X	char log_packets_name[64];
+X	FILE *ftmp;
+X	int iargv;
+X		sprintf(log_packets_name,"/tmp/sz%05d.plog",getpid());
+X		unlink(log_packets_name);
+X		ftmp = fopen(log_packets_name,"w");
+X		fclose(ftmp);
+X		log_packets = open(log_packets_name,O_WRONLY,0644);
+X		if(log_packets < 0)
+X			log_packets = 0;
+X		else
+X		{
+X			write(log_packets,"exec: ",6);
+X			for(iargv = 0; iargv < gargc; iargv++)
+X			{
+X				write(log_packets,gargv[iargv],strlen(gargv[iargv]));
+X				write(log_packets," ",1);
+X			}
+X			write(log_packets,"\n",1);
+X		}
+X	}
+X
+X	/*
+X	 * learn tick rate for various timers
+X	 */
+X	init_Nap();
+X
+X	report_init(s128);
+X	mode(1);
+X
+X	if(signal(SIGINT,cancel_transaction) == SIG_IGN)
+X		signal(SIGINT,SIG_IGN);
+X	else
+X		signal(SIGINT,cancel_transaction);
+X	signal(SIGTERM,cancel_transaction);
+X
+X	report_str("calculating transaction time",-1);
+X	determine_transaction_time();
+X#ifdef BUFFERED_WRITE
+X	iofp = fdopen(iofd,"w");
+X#endif
+X	if(!Xmodem)
+X	{
+X		TotalToSend = TotalLeft;
+X		report_send_transaction();
+X		report_str("starting remote receiver",-1);
+X		report_last_txhdr("begin transfer",0);
+X		if(!Nozmodem)
+X			write(iofd,"rz\r",3);
+X		else	/* wht -- why not? */
+X			write(iofd,"rb\r",3);		/* wht */
+X		flushline();
+X		Nap(750L);
+X		report_str("",-1);
+X		if(!Nozmodem)
+X		{
+X			stohdr(0L);
+X			zshhdr(ZRQINIT,Txhdr);
+X		}
+X	}
+X	else
+X	{
+X		report_str("",-1);
+X		report_last_txhdr("begin transfer",0);
+X	}
+X
+X	if(wcsend()==ERROR)
+X	{
+X		Exitcode=254;		/*wht was 0200 */
+X		send_cancel(1);
+X	}
+X	mode(0);
+X	report_uninit(0);
+X	if(no_files)
+X		Exitcode = 253;
+X	exit(Exitcode ? Exitcode : (skip_count > 127) ? 127 : skip_count);
+X	/*NOTREACHED*/
+X}	/* end of main */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	wcsend(argc,argp) -- send group of files
+X--------------------------------------------------------------------------*/
+Xint
+Xwcsend()
+X{
+X	char *name;
+X
+X	Crcflg=FALSE;
+X	firstsec=TRUE;
+X	bytcnt = -1;
+X	rewind_file_list();
+X	while(get_file_list_name(&name))
+X	{
+X		Totsecs = 0;
+X		if(wcs(name)==ERROR)
+X			return(ERROR);
+X	}
+X	Totsecs = 0;
+X	if(Filcnt==0)
+X	{	/* bitch if we couldn't open ANY files */
+X		send_cancel(1);
+X		strcpy(s128,"SEND cannot open any requested files");
+X		report_str(s128 + 5,1);
+X#if defined(LOG_XFER)
+X		ecu_log_event(getppid(),s128);
+X#endif
+X		sleep(2);		/* allow time for other rz to get ready */
+X		no_files = 1;
+X		return(ERROR);	/* ... then cancel */
+X	}
+X	if(Zmodem)
+X		saybibi();
+X	else if(!Xmodem)
+X		wctxpn("");
+X	return(OK);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	wcs(oname) -- send a file
+X--------------------------------------------------------------------------*/
+Xint
+Xwcs(oname)
+Xchar *oname;
+X{
+Xregister c;
+Xstruct stat f;
+X
+X	strcpy(Pathname,oname);	/* global copy of name */
+X
+X	if((in=fopen(oname,"r"))==NULL)
+X	{
+X		sprintf(s128,"SEND %s: %s",sys_errlist[errno],oname);
+X#if defined(LOG_XFER)
+X		ecu_log_event(getppid(),s128);
+X#endif
+X		report_str(s128 + 5,1);
+X		skip_count++;
+X		report_error_count();
+X		return(OK);	/* pass over it,there may be others */
+X	}
+X	seen_zrpos = 0;
+X	++Noeofseen;
+X	Lastread = 0;
+X	Lastn = -1;
+X	Dontread = FALSE;
+X	/* Check for directory or block special files */
+X	fstat(fileno(in),&f);
+X	c = f.st_mode & S_IFMT;
+X	if(c == S_IFDIR || c == S_IFBLK)
+X	{
+X		sprintf(s128,"SEND %s: %s",
+X		    (c == S_IFDIR) ? "directory" : "block device",oname);
+X		report_str(s128 + 5,1);
+X#if defined(LOG_SKIP)
+X		ecu_log_event(getppid(),s128);
+X#endif
+X		skip_count++;
+X		report_error_count();
+X		fclose(in);
+X		return(OK);
+X	}
+X    f.st_mode &= ~(S_ISUID | S_ISGID);
+X	Filcnt++;
+X	report_file_send_open(oname,&f);
+X	this_file_length = f.st_size;
+X	report_send_progress(0L);
+X	switch(wctxpn(Pathname))
+X	{
+X	case ERROR:
+X		sprintf(s128,"SEND protocol failure: %s",oname);
+X		report_str(s128 + 5,1);
+X#if defined(LOG_XFER)
+X		ecu_log_event(getppid(),s128);
+X#endif
+X		skip_count++;
+X		report_error_count();
+X		report_file_close(2);
+X		fclose(in);
+X		return(ERROR);
+X	case ZSKIP:
+X		report_rcvr_skipped();
+X		return(OK);
+X	}
+X	if(!Zmodem && wctx(f.st_size)==ERROR)
+X		return(ERROR);
+X	if(Unlinkafter)
+X		unlink(oname);
+X	return(0);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	wctxpn(name)
+X
+Xgenerate and transmit pathname block consisting of pathname (null
+Xterminated), file length,mode time and file mode in octal as
+Xprovided by the Unix fstat call.  N.B.: modifies the passed
+Xname,may extend it!
+X--------------------------------------------------------------------------*/
+Xint
+Xwctxpn(name)
+Xchar *name;
+X{
+X	register char *p,*q;
+X	char name2[PATHLEN];
+X	struct stat f;
+X
+X	if(Xmodem)
+X	{
+X		if((in!=stdin) && *name && fstat(fileno(in),&f)!= -1)
+X		{
+X			TotalToSend = f.st_size;
+X			report_protocol_type("XMODEM");
+X			report_send_transaction();
+X			report_xfer_mode((Ascii) ? "ASCII" : "BINARY");
+X			report_last_txhdr("Waiting on NAK",0);
+X		}
+X		return(OK);
+X	}
+X	if(!Zmodem)
+X	{
+X		report_last_txhdr("START PENDING",0);
+X		if(getnak())
+X		{
+X			report_str("Timeout on pathname nak",1);
+X			return(ERROR);
+X		}
+X	}
+X
+X	q = (char *) 0;
+X	if(Dottoslash)
+X	{		/* change . to . */
+X		for(p=name; *p; ++p)
+X		{
+X			if(*p == '/')
+X				q = p;
+X			else if(*p == '.')
+X				*(q=p) = '/';
+X		}
+X		if(q && strlen(++q) > (unsigned)8)
+X		{	/* If name>8 chars */
+X			q += 8;			/*   make it .ext */
+X			strcpy(name2,q);	/* save excess of name */
+X			*q = '.';
+X			strcpy(++q,name2);	/* add it back */
+X		}
+X	}
+X
+X	for(p=name,q=txbuf ; *p; )
+X		if((*q++ = *p++) == '/' && !Fullname)
+X			q = txbuf;
+X	*q++ = 0;
+X	p=q;
+X	while(q < (txbuf + 1024))
+X		*q++ = 0;
+X	if(!Ascii && (in != stdin) && *name && !fstat(fileno(in),&f))
+X		sprintf(p,"%lu %lo %o 0 %d %ld",f.st_size,f.st_mtime,
+X		    f.st_mode &= ~(S_ISUID | S_ISGID),
+X			Filesleft,TotalLeft);
+X	report_xfer_mode((Lzconv == ZCNL) ? "ASCII" : "BINARY");
+X	TotalLeft -= f.st_size;
+X	if(--Filesleft <= 0)
+X		TotalLeft = 0;
+X	if(TotalLeft < 0)
+X		TotalLeft = 0;
+X
+X	/* force 1k blocks if name won't fit in 128 byte block */
+X	if(txbuf[125])
+X		blklen=1024;
+X	else
+X	{		/* A little goodie for IMP/KMD */
+X		txbuf[127] = (f.st_size + 127) >>7;
+X		txbuf[126] = (f.st_size + 127) >>15;
+X	}
+X	if(Zmodem)
+X		return(zsendfile(txbuf,1+strlen(p)+(p-txbuf)));
+X	report_protocol_type("YMODEM");
+X	if(wcputsec(txbuf,0,128)==ERROR)
+X		return(ERROR);
+X	return(OK);
+X}	/* end of wctxpn */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	getnak()
+X--------------------------------------------------------------------------*/
+Xint
+Xgetnak()
+X{
+X	register firstch;
+X
+X	Lastrx = 0;
+X	for(;;)
+X	{
+X		switch(firstch = readock(50,1))
+X		{
+X		case ZPAD:
+X			if(getzrxinit())
+X				return(ERROR);
+X			Ascii = 0;	/* Receiver does the conversion */
+X			return(FALSE);
+X		case TIMEOUT:
+X			report_str("Timeout",1);
+X			return(TRUE);
+X		case WANTG:
+X#if defined(MODE2OK)
+X			mode(2);	/* Set cbreak,XON/XOFF,etc. */
+X#endif
+X			Optiong = TRUE;
+X			blklen=1024;
+X		case WANTCRC:
+X			Crcflg = TRUE;
+X		case NAK:
+X			return(FALSE);
+X		case CAN:
+X			if((firstch = readock(20,1)) == CAN && Lastrx == CAN)
+X				return(TRUE);
+X		default:
+X			break;
+X		}
+X		Lastrx = firstch;
+X	}
+X	/*NOTREACHED*/
+X}	/* end of getnak */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	wctx(flen)
+X--------------------------------------------------------------------------*/
+Xwctx(flen)
+Xlong flen;
+X{
+X	register int thisblklen;
+X	register int firstch;
+X	register int sectnum;
+X	register int attempts;
+X	long charssent;
+X
+X	charssent = 0;
+X	firstsec=TRUE;
+X	thisblklen = blklen;
+X	report_txblklen(blklen);
+X
+X	attempts = 8;
+X	while(((firstch = readock(Rxtimeout,2)) != NAK) &&
+X		(firstch  !=  WANTCRC) && (firstch  !=  WANTG) &&
+X		(firstch != TIMEOUT) && (firstch != CAN))
+X	{
+X		if(!--attempts)
+X		{
+X			report_str("bad start stimulus",1);
+X			send_cancel(1);
+X			return(ERROR);
+X		}
+X	}
+X
+X	if(firstch==CAN)
+X	{
+X		report_str("receiver CAN",1);
+X		return(ERROR);
+X	}
+X
+X	if((firstch==WANTCRC) || (firstch==WANTG))
+X		Crcflg=TRUE;
+X
+X	report_protocol_crc_type((Crcflg)
+X			? ((firstch== WANTG) ? "/CRC-g" : "/CRC")
+X			: "/CHK");
+X
+X	sectnum=0;
+X	for(;;)
+X	{
+X		if(flen <= (charssent + 896L))
+X		{
+X			thisblklen = 128;
+X			report_txblklen(thisblklen);
+X		}
+X		if(!xbuf_build(txbuf,thisblklen))
+X			break;
+X		if(wcputsec(txbuf,++sectnum,thisblklen)==ERROR)
+X			return(ERROR);
+X		charssent += thisblklen;
+X	}
+X
+X	/* file transfer completed */
+X	report_file_byte_io(this_file_length - initial_filepos);
+X	report_file_close(0);
+X	fclose(in);
+X
+X#if defined(LOG_XFER)
+X	sprintf(s128,"SEND success: %s",Pathname);
+X	ecu_log_event(getppid(),s128);
+X#endif
+X
+X	attempts=0;
+X	do
+X	{
+X		purgeline();
+X		sendline(EOT);
+X		flushline();
+X		report_last_txhdr("EOT",0);
+X		++attempts;
+X	}	while((firstch=(readock(Rxtimeout,1)) != ACK) && attempts < RETRYMAX);
+X	if(attempts == RETRYMAX)
+X	{
+X		report_str("No ACK on EOT",1);
+X		return(ERROR);
+X	}
+X	else
+X		return(OK);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	wcputsec(buf,sectnum,cseclen)
+X--------------------------------------------------------------------------*/
+Xint
+Xwcputsec(buf,sectnum,cseclen)
+Xunsigned char *buf;
+Xint sectnum;
+Xint cseclen;	/* data length of this block to send */
+X{
+X	register int checksum;
+X	register int wcj;
+X	register unsigned char *cp;
+X	unsigned short oldcrc;
+X	int firstch;
+X	int attempts;
+X
+X	firstch=0;	/* part of logic to detect CAN CAN */
+X
+X	sprintf(s128,"Sending block %d",sectnum);
+X	report_last_txhdr(s128,0);
+X	if(log_packets)
+X	{
+X		log_packet_buffer(buf,cseclen);
+X	}
+X
+X	for(attempts=0; attempts <= RETRYMAX; attempts++)
+X	{
+X		Lastrx= firstch;
+X		sendline(cseclen == 1024 ? STX : SOH);
+X		sendline(sectnum);
+X		sendline(-sectnum - 1);
+X		oldcrc=checksum=0;
+X
+X		for(wcj = cseclen,cp = buf; --wcj >= 0; )
+X		{
+X			sendline(*cp);
+X			oldcrc=updcrc(*cp,oldcrc);
+X			checksum += *cp++;
+X		}
+X		if(Crcflg)
+X		{
+X			oldcrc=updcrc(0,updcrc(0,oldcrc));
+X			sendline((int)(oldcrc >> 8));
+X			sendline((int)(oldcrc & 0xFF));
+X		}
+X		else
+X			sendline(checksum);
+X		flushline();
+X
+X		if(Optiong)
+X		{
+X			firstsec = FALSE;
+X			return(OK);
+X		}
+X		firstch = readock(Rxtimeout,(Noeofseen&&sectnum) ? 2:1);
+Xgotnak:
+X		switch(firstch)
+X		{
+X		case CAN:
+X			if(Lastrx == CAN)
+X			{
+Xcancan:
+X				report_last_rxhdr("CAN",1);
+X				return(ERROR);
+X			}
+X			break;
+X		case TIMEOUT:
+X			report_last_rxhdr("Timeout",1);
+X			continue;
+X		case WANTCRC:
+X			if(firstsec)
+X				Crcflg = TRUE;
+X		case NAK:
+X			report_last_rxhdr("NAK",1);
+X			continue;
+X		case ACK:
+X			report_last_rxhdr("ACK",0);
+X			firstsec=FALSE;
+X			Totsecs += (cseclen>>7);
+X			return(OK);
+X		case ERROR:
+X			report_last_rxhdr("Noise",0);
+X			break;
+X		default:
+X			sprintf(s128,"0x%02x ???",firstch);
+X			report_last_rxhdr(s128,1);
+X			break;
+X		}
+X		for(;;)
+X		{
+X			Lastrx = firstch;
+X			if((firstch = readock(Rxtimeout,2)) == TIMEOUT)
+X				break;
+X			if(firstch == NAK || firstch == WANTCRC)
+X				goto gotnak;
+X			if(firstch == CAN && Lastrx == CAN)
+X				goto cancan;
+X		}
+X	}
+X	report_str("retry count exceeded",1);
+X	return(ERROR);
+X}	/* end of wcputsec */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	xbuf_build(buf,count)
+X  fill buf with count chars padding with ^Z for CPM and DOS
+X--------------------------------------------------------------------------*/
+Xxbuf_build(buf,count)
+Xregister char *buf;
+Xint count;
+X{
+X	register c,m;
+X	long lseek();
+X	long X_txpos = lseek(fileno(in),0L,1);
+X	char diag_str[64];
+X
+X	report_send_progress(X_txpos);
+X	if( !Ascii)
+X	{
+X		m = read(fileno(in),buf,count);
+X		if(log_packets)
+X		{
+X			sprintf(diag_str,"read rtnd %d of %d",m,count);
+X			report_str(diag_str,1);
+X		}
+X		if(m <= 0)
+X			return(0);
+X		while(m < count)
+X			buf[m++] = 032;
+X		return(count);
+X	}
+X	m=count;
+X	if(Lfseen)
+X	{
+X		*buf++ = 012;
+X		--m;
+X		Lfseen = 0;
+X	}
+X	while((c=fgetc(in))!=EOF)
+X	{
+X		if(c == 012)
+X		{
+X			*buf++ = 015;
+X			if(--m == 0)
+X			{
+X				Lfseen = TRUE;
+X				break;
+X			}
+X		}
+X		*buf++ =c;
+X		if(--m == 0)
+X			break;
+X	}
+X	if(m==count)
+X		return(0);
+X	else
+X		while(--m>=0)
+X			*buf++ = CPMEOF;
+X	return(count);
+X}	/* end of xbuf_build */
+X
+X/*+-------------------------------------------------------------------------
+X	zbuf_build(buf,count) - fill buf with count chars 
+X--------------------------------------------------------------------------*/
+Xint
+Xzbuf_build(buf,count)
+Xregister char *buf;
+Xint count;
+X{
+X	register c,m;
+X
+X	m=count;
+X	while((c=fgetc(in))!=EOF)
+X	{
+X		*buf++ =c;
+X		if(--m == 0)
+X			break;
+X	}
+X	return(count - m);
+X}	/* end of zbuf_build */
+X
+X/*+-------------------------------------------------------------------------
+X	SIGALRM_handler(sig)
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+XSIGALRM_handler(sig)
+Xint sig;
+X{
+X	report_rx_ind(0);
+X	report_tx_ind(0);
+X	longjmp(tohere,-1);
+X}	/* end of SIGALRM_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	readock(timeout,count)
+Xtimeout is in tenths of seconds reads character(s) from file
+Xdescriptor 'fd' read 'count' characters, (1 <= count <= 3) if more than
+Xone received, return ERROR unless all are CAN normal response is NAK,
+XACK, CAN, G or C
+X--------------------------------------------------------------------------*/
+Xint
+Xreadock(timeout,count)
+Xint timeout;
+Xint count;
+X{
+X	VOLATILE int c;
+X	static char byt[5];
+X
+X	if(setjmp(tohere))
+X	{
+X		report_str("TIMEOUT",1);
+X		return(TIMEOUT);
+X	}
+X	c = timeout / 10;
+X	if(c < 2)
+X		c = 2;
+X	signal(SIGALRM,SIGALRM_handler);
+X	alarm(c);
+X	c = read(iofd,byt,count);
+X	alarm(0);
+X	if(c < 1)
+X		return(TIMEOUT);
+X	rx_char_count += c;
+X	if(c == 1)
+X		return(byt[0] & 0xFF);
+X	while(c)
+X	{
+X		if(byt[--c] != CAN)
+X			return(ERROR);
+X	}
+X
+X	return(CAN);
+X}	/* end of readock */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	readline(n)
+X--------------------------------------------------------------------------*/
+Xint
+Xreadline(n)
+Xint n;
+X{
+X	return(readock(n,1));
+X}	/* end of readline */
+X
+X/*+-------------------------------------------------------------------------
+X	purgeline()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpurgeline()
+X{
+X	ioctl(iofd,TCFLSH,0);
+X}	/* end of purgeline */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	send_cancel(error) - send cancel to remote
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsend_cancel(error)
+Xint error;
+X{
+X	static char canistr[] = {
+X		24,24,24,24,24,24,24,24,24,24,8,8,8,8,8,8,8,8,8,8,0
+X	};
+X	register char *cptr = canistr;
+X
+X	report_last_txhdr("^X CAN",!!error);
+X	while(*cptr)
+X		sendline(*cptr++);
+X	flushline();
+X}	/* end of send_cancel */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	substr(str,str2) - searches for str2 in string str
+X--------------------------------------------------------------------------*/
+Xchar *
+Xsubstr(str,str2)
+Xregister char *str;
+Xregister char *str2;
+X{
+X	register char *sptr;
+X	register char *ssptr;
+X
+X	for(sptr = str; *str; str++)
+X	{
+X		if(*str == *str2)
+X		{
+X			sptr = str;
+X			ssptr = str2;
+X			while(1)
+X			{
+X				if(*ssptr == 0)
+X					return(str);
+X				if(*sptr++ != *ssptr++)
+X					break;
+X			}
+X		}
+X	}
+X	return(NULL);
+X}	/* end of substr */
+X
+X/*+-------------------------------------------------------------------------
+X	usage()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xusage()
+X{
+X	exit(255);
+X}	/* end of usage */
+X
+X/*+-------------------------------------------------------------------------
+X	getzrxinit() - Get the receiver's init parameters
+X--------------------------------------------------------------------------*/
+Xint
+Xgetzrxinit()
+X{
+X	register n;
+X	struct stat f;
+X
+X	for(n=10; --n>=0; )
+X	{
+X		switch(zgethdr(Rxhdr,1))
+X		{
+X		case ZCHALLENGE:	/* Echo receiver's challenge numbr */
+X			stohdr(Rxpos);
+X			zshhdr(ZACK,Txhdr);
+X			continue;
+X		case ZCOMMAND:		/* They didn't see out ZRQINIT */
+X			stohdr(0L);
+X			zshhdr(ZRQINIT,Txhdr);
+X			continue;
+X		case ZRINIT:
+X			Rxflags = 0377 & Rxhdr[ZF0];
+X			Txfcs32 = (Wantfcs32 && (Rxflags & CANFC32));
+X			report_protocol_type("ZMODEM");
+X			report_protocol_crc_type((Txfcs32) ? "/CRC32" : "/CRC16");
+X			Zctlesc |= Rxflags & TESCCTL;
+X			Rxbuflen = (0377 & Rxhdr[ZP0])+((0377 & Rxhdr[ZP1])<<8);
+X			if( !(Rxflags & CANFDX))
+X				Txwindow = 0;
+X#if defined(MODE2OK)
+X			mode(2);	/* Set cbreak,XON/XOFF,etc. */
+X#endif
+X#if !defined(READCHECK)
+X			/* Use 1024 byte frames if no sample/interrupt */
+X			if(Rxbuflen < 32 || Rxbuflen > 1024)
+X			{
+X				Rxbuflen = 1024;
+X			}
+X#endif
+X			/* Override to force shorter frame length */
+X			if(Rxbuflen && (Rxbuflen>Tframlen) && (Tframlen>=32))
+X				Rxbuflen = Tframlen;
+X			if( !Rxbuflen && (Tframlen>=32) && (Tframlen<=1024))
+X				Rxbuflen = Tframlen;
+X
+X			/* If using a pipe for testing set lower buf len */
+X			fstat(iofd,&f);
+X			if((f.st_mode & S_IFMT) != S_IFCHR
+X			    && (Rxbuflen == 0 || Rxbuflen > 4096))
+X				Rxbuflen = 4096;
+X			sprintf(s128,"Remote: CRC32 %c  duplex %c",
+X			    (Rxflags & CANFC32) ? 'y' : 'n',
+X			    (Rxflags & CANFDX)  ? 'y' : 'n');
+X			if(Rxbuflen)
+X				sprintf(&s128[strlen(s128)],"  buflen %u",Rxbuflen);
+X			else
+X				strcat(s128,"  continuous stream y");
+X			report_str(s128,2);
+X			/*
+X			 * If input is not a regular file,force ACK's each 1024
+X			 *  (A smarter strategey could be used here ...)
+X			 */
+X			if( !Command)
+X			{
+X				fstat(fileno(in),&f);
+X				if(((f.st_mode & S_IFMT) != S_IFREG)
+X				    && (Rxbuflen == 0 || Rxbuflen > 1024))
+X					Rxbuflen = 1024;
+X			}
+X
+X			if(Baudrate > 300)	/* Set initial subpacket len */
+X				blklen = 256;
+X			if(Baudrate > 1200)
+X				blklen = 512;
+X			if(Baudrate >= 2400)	/* original code had > 2400 here ****/
+X				blklen = 1024;
+X			if(Rxbuflen && blklen>Rxbuflen)
+X				blklen = Rxbuflen;
+X			if(blkopt && blklen > blkopt)
+X				blklen = blkopt;
+X			blklen_original = blklen;
+X			report_txblklen(blklen);
+X			return(sendzsinit());
+X		case ZCAN:
+X		case TIMEOUT:
+X			return(ERROR);
+X		case ZRQINIT:
+X			if(Rxhdr[ZF0] == ZCOMMAND)
+X				continue;
+X		default:
+X			zshhdr(ZNAK,Txhdr);
+X			continue;
+X		}
+X	}
+X	return(ERROR);
+X}	/* end of getzrxinit */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	sendzsinit() - send send-init information
+X--------------------------------------------------------------------------*/
+Xsendzsinit()
+X{
+X	register c;
+X
+X	if(Myattn[0] == '\0' && (!Zctlesc || (Rxflags & TESCCTL)))
+X		return(OK);
+X	errors = 0;
+X	for(;;)
+X	{
+X		stohdr(0L);
+X		if(Zctlesc)
+X		{
+X			Txhdr[ZF0] |= TESCCTL;
+X			zshhdr(ZSINIT,Txhdr);
+X		}
+X		else
+X			zsbhdr(ZSINIT,Txhdr);
+X		zsdata(Myattn,1+strlen(Myattn),ZCRCW);
+X		c = zgethdr(Rxhdr,1);
+X		switch(c)
+X		{
+X		case ZCAN:
+X			return(ERROR);
+X		case ZACK:
+X			return(OK);
+X		default:
+X			if(++errors > 19)
+X				return(ERROR);
+X			continue;
+X		}
+X	}
+X}	/* end of sendzsinit */
+X
+X/*+-------------------------------------------------------------------------
+X	zsendfile(buf,blen) - send file name & info
+X--------------------------------------------------------------------------*/
+Xzsendfile(buf,blen)
+Xchar *buf;
+Xint blen;
+X{
+X	register c;
+X
+X	for(;;)
+X	{
+X		blklen = blklen_original;
+X		report_txblklen(blklen);
+X		Txhdr[ZF0] = Lzconv;	/* file conversion request */
+X		Txhdr[ZF1] = Lzmanag;	/* file management request */
+X		Txhdr[ZF2] = Lztrans;	/* file transport request */
+X		Txhdr[ZF3] = 0;
+X		zsbhdr(ZFILE,Txhdr);
+X		zsdata(buf,blen,ZCRCW);
+Xagain:
+X		c = zgethdr(Rxhdr,1);
+X		switch(c)
+X		{
+X		case ZRINIT:
+X			while((c = readline(50)) > 0)
+X				if(c == ZPAD)
+X				{
+X					goto again;
+X				}
+X			/* **** FALL THRU TO **** */
+X		default:
+X			continue;
+X		case ZCAN:
+X		case TIMEOUT:
+X		case ZABORT:
+X		case ZFIN:
+X			return(ERROR);
+X		case ZSKIP:
+X			report_file_close(3);
+X			fclose(in);
+X			return(c);
+X		case ZRPOS:
+X			if(!seen_zrpos)
+X				initial_filepos = Rxpos;
+X			seen_zrpos = 1;
+X			/*
+X			 * Suppress zcrcw request otherwise triggered by
+X			 * lastyunc==bytcnt
+X			 */
+X			Lastsync = (bytcnt = Txpos = Rxpos) -1;
+X			fseek(in,Rxpos,0);
+X			Dontread = FALSE;
+X			report_send_progress(Txpos);
+X			return(zsendfdata());
+X		}
+X	}
+X}	/* end of zsendfile */
+X
+X/*+-------------------------------------------------------------------------
+X	zsendfdata() - send data in the file
+X--------------------------------------------------------------------------*/
+Xzsendfdata()
+X{
+X	VOLATILE int c = 0,e,n;
+X	VOLATILE int newcnt;
+X	VOLATILE int long tcount = 0;
+X	VOLATILE int junkcount;		/* Counts garbage chars received by TX */
+X	VOLATILE int err;
+X
+X	Lrxpos = 0;
+X	junkcount = 0;
+X	SameZrposAgain = FALSE;		/* variable was named Beenhereb4 (wht) */
+X	this_file_frame_count = 0;	/* we've sent no frames (wht) */
+Xsomemore:
+X	if(setjmp(intrjmp))
+X	{
+Xwaitack:
+X		junkcount = 0;
+X		c = getinsync(0);
+Xgotack:
+X		switch(c)
+X		{
+X		default:
+X		case ZCAN:
+X			report_rcvr_cancelled("zfdata-1");
+X			report_file_close(4);
+X			fclose(in);
+X			return(ERROR);
+X		case ZSKIP:
+X			report_file_close(5);
+X			fclose(in);
+X			return(c);
+X		case ZACK:
+X		case ZRPOS:
+X			if(!seen_zrpos)
+X				initial_filepos = Rxpos;
+X			seen_zrpos = 1;
+X			break;
+X		case ZRINIT:
+X			return(OK);
+X		}
+X#if defined(READCHECK)
+X		/*
+X		 * If the reverse channel can be tested for data,
+X		 *  this logic may be used to detect error packets
+X		 *  sent by the receiver, in place of setjmp/longjmp
+X		 *  rdchk(fdes) returns non 0 if a character is available
+X		 */
+X		while(rdchk(iofd))
+X		{
+X			switch(readline(1))
+X			{
+X			case CAN:
+X			case ZPAD:
+X				c = getinsync(1);
+X				goto gotack;
+X			case XOFF:		/* Wait a while for an XON */
+X			case XOFF|0200:
+X				readline(100);
+X			}
+X		}
+X#endif
+X	}
+X
+X	newcnt = Rxbuflen;
+X	Txwcnt = 0;
+X	stohdr(Txpos);
+X	zsbhdr(ZDATA,Txhdr);
+X
+X	do
+X	{
+X		if(Dontread)
+X		{
+X			n = Lastn;
+X		} else
+X		{
+X			n = zbuf_build(txbuf,blklen);
+X			Lastread = Txpos;
+X			Lastn = n;
+X		}
+X		Dontread = FALSE;
+X		if(n < blklen)
+X			e = ZCRCE;
+X		else if(junkcount > 3)
+X			e = ZCRCW;
+X		else if(bytcnt == Lastsync)
+X			e = ZCRCW;
+X		else if(Rxbuflen && (newcnt -= n) <= 0)
+X			e = ZCRCW;
+X		else if(Txwindow && (Txwcnt += n) >= Txwspac)
+X		{
+X			Txwcnt = 0;
+X			e = ZCRCQ;
+X		}
+X		else
+X			e = ZCRCG;
+X		zsdata(txbuf,n,e);
+X		this_file_frame_count++;		/* wht */
+X		if(bad_condx_blklen)			/* wht */
+X		{
+X			/* if we have sent four frames since last ZRPOS to same pos (wht)*/
+X			if((this_file_frame_count - bad_condx_frame_count) > 4) /*wht*/
+X			{
+X				if(blklen == bad_condx_blklen)
+X					bad_condx_blklen = 0;
+X				else
+X				{
+X					blklen *= 2;
+X					report_txblklen(blklen);
+X				}
+X				SameZrposAgain = 0;
+X			}
+X		}
+X		bytcnt = Txpos += n;
+X		report_send_progress(Txpos);
+X		if(e == ZCRCW)
+X			goto waitack;
+X#if defined(READCHECK)
+X		/*
+X		 * If the reverse channel can be tested for data,
+X		 *  this logic may be used to detect error packets
+X		 *  sent by the receiver,in place of setjmp/longjmp
+X		 *  rdchk(fdes) returns non 0 if a character is available
+X		 */
+X		while(rdchk(iofd))
+X		{
+X			switch(readline(1))
+X			{
+X			case CAN:
+X			case ZPAD:
+X				c = getinsync(1);
+X				if(c == ZACK)
+X					break;
+X#if defined(TCFLSH)
+X				ioctl(iofd,TCFLSH,1);
+X#endif
+X				/* zcrce - dinna wanna starta ping-pong game */
+X				zsdata(txbuf,0,ZCRCE);
+X				goto gotack;
+X
+X			case XOFF:		/* Wait a while for an XON */
+X			case XOFF|0200:
+X				readline(100);
+X
+X			default:
+X				++junkcount;
+X			}
+X		}
+X#endif	/* READCHECK */
+X		if(Txwindow)
+X		{
+X			while((tcount = Txpos - Lrxpos) >= Txwindow)
+X			{
+X				if(e != ZCRCQ)
+X					zsdata(txbuf,0,e = ZCRCQ);
+X				c = getinsync(1);
+X				if(c != ZACK)
+X				{
+X#if defined(TCFLSH)
+X					ioctl(iofd,TCFLSH,1);
+X#endif
+X					zsdata(txbuf,0,ZCRCE);
+X					goto gotack;
+X				}
+X			}
+X		}
+X	} while(n == blklen);
+X
+X	for(;;)
+X	{
+X		stohdr(Txpos);
+X		zsbhdr(ZEOF,Txhdr);
+X		switch(err = getinsync(0))
+X		{
+X		case ZACK:
+X			continue;
+X		case ZRPOS:
+X			if(!seen_zrpos)
+X				initial_filepos = Rxpos;
+X			seen_zrpos = 1;
+X			goto somemore;
+X		case ZRINIT:
+X			return(OK);
+X		case ZSKIP:
+X			report_file_close(6);
+X			fclose(in);
+X			return(c);
+X		default:
+X			sprintf(s128,"SEND protocol sync error 0x%04x: %s",err,Pathname);
+X			ecu_log_event(getppid(),s128);	/* always log this */
+X			report_str(s128 + 5,1);
+X			skip_count++;
+X			report_error_count();
+X			report_file_byte_io(this_file_length - initial_filepos);
+X			report_file_close(7);
+X			fclose(in);
+X			return(ERROR);
+X		}
+X	}
+X}	/* end of zsendfdata */
+X
+X/*+-------------------------------------------------------------------------
+X	getinsync(flag) - get back in sync with receiver
+X--------------------------------------------------------------------------*/
+Xint
+Xgetinsync(flag)
+Xint flag;
+X{
+X	register c;
+X
+X	for(;;)
+X	{
+X		switch(c = zgethdr(Rxhdr,0))
+X		{
+X		case ZCAN:
+X		case ZABORT:
+X		case ZFIN:
+X		case TIMEOUT:
+X			sprintf(s128,"Receiver %s",frametypes[c+FTOFFSET]);
+X			report_str(s128,1);
+X			return(ERROR);
+X		case ZRPOS:
+X			report_str("Receiver ZRPOS",1);
+X			if(!seen_zrpos)
+X				initial_filepos = Rxpos;
+X			seen_zrpos = 1;
+X			/* ************************************* */
+X			/*  If sending to a modem buffer,you     */
+X			/*   might send a break at this point to */
+X			/*   dump the modem's buffer.            */
+X			/* ************************************* */
+X			if(Lastn >= 0 && Lastread == Rxpos)
+X			{
+X				Dontread = TRUE;
+X			} else
+X			{
+X				clearerr(in);	/* In case file EOF seen */
+X				fseek(in,Rxpos,0);
+X			}
+X			bytcnt = Lrxpos = Txpos = Rxpos;
+X			if(Lastsync == Rxpos)					/* wht - original code */
+X			{										/* wht - original code */
+X				/* save frame count at time of each occurrence (wht) */
+X				bad_condx_frame_count = this_file_frame_count;	/* wht */
+X				/* save block length at time of error (wht) */
+X				if(++SameZrposAgain > 4)			/* wht - original code */
+X				{									/* wht */
+X					if(bad_condx_blklen == 0)		/* wht */
+X						bad_condx_blklen = blklen;	/* wht */
+X					if(blklen > 256)				/* wht - 32->256 */
+X					{
+X						blklen /= 2;				/* wht - original code */
+X						report_txblklen(blklen);
+X					}
+X				}									/* wht */
+X			}										/* wht - original code */
+X			Lastsync = Rxpos;
+X			report_send_progress(Txpos);
+X			return(c);
+X		case ZACK:
+X			report_str("",-1);
+X			Lrxpos = Rxpos;
+X			if(flag || Txpos == Rxpos)
+X				return(ZACK);
+X			continue;
+X
+X		case ZRINIT:
+X			report_str("",-1);
+X#if defined(LOG_XFER)
+X			sprintf(s128,"SEND success: %s",Pathname);
+X			ecu_log_event(getppid(),s128);
+X#endif
+X		case ZSKIP:
+X			report_file_byte_io(this_file_length);
+X			report_file_close(0);
+X			fclose(in);
+X			return(c);
+X		case ERROR:
+X		default:
+X			report_str("Sending ZNAK",0);
+X			zsbhdr(ZNAK,Txhdr);
+X			continue;
+X		}
+X	}
+X}	/* end of getinsync */
+X
+X/*+-------------------------------------------------------------------------
+X	saybibi() - Say "bibi" to the receiver, try to do it cleanly
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsaybibi()
+X{
+X	for(;;)
+X	{
+X		stohdr(0L);		/* CAF Was zsbhdr - minor change */
+X		zshhdr(ZFIN,Txhdr);	/*  to make debugging easier */
+X		switch(zgethdr(Rxhdr,0))
+X		{
+X		case ZFIN:
+X			sendline('O');
+X			sendline('O');
+X			flushline();
+X		case ZCAN:
+X		case TIMEOUT:
+X			return;
+X		}
+X	}
+X}	/* end of saybibi */
+X
+X/*+-------------------------------------------------------------------------
+X	determine_transaction_time()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetermine_transaction_time()
+X{
+Xregister c;
+Xstruct stat f;
+Xchar *name;
+X
+X	rewind_file_list();
+X	TotalLeft = 0;
+X	Filesleft = 0;
+X	while(get_file_list_name(&name))
+X	{
+X		f.st_size = -1;
+X		if((access(name,04) >= 0) && (stat(name,&f) >= 0))
+X		{
+X			c = f.st_mode & S_IFMT;
+X			if(c != S_IFDIR && c != S_IFBLK)
+X			{
+X				++Filesleft;
+X				TotalLeft += f.st_size;
+X			}
+X		}
+X	}
+X	FilesTotal = Filesleft;
+X	rewind_file_list();
+X}	/* end of determine_transaction_time */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecusz.c */
+SHAR_EOF
+chmod 0644 z/ecusz.c ||
+echo 'restore of z/ecusz.c failed'
+Wc_c="`wc -c < 'z/ecusz.c'`"
+test 45023 -eq "$Wc_c" ||
+	echo 'z/ecusz.c: original size 45023, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= z/zcommon.c ==============
+if test -f 'z/zcommon.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping z/zcommon.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting z/zcommon.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'z/zcommon.c' &&
+X/*+-------------------------------------------------------------------------
+X	zcommon.c -  ecurz/ecusz common code
+X	derived from public domain code by Chuck Forsberg
+X	ecu adaptation wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	Nap(msec)
+X	get_curr_dir(currdir,currdir_max)
+X	get_home_dir(home_dir)
+X	getspeed(code)
+X	mode(new_mode)
+X	rdchk(f)
+X	sendbrk()
+X	zmputs(str)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-17-1992-18:28-wht@n4hgf-remove Nap() and use common ../nap.o */
+SHAR_EOF
+true || echo 'restore of z/zcommon.c failed'
+fi
+echo 'End of ecu320 part 24'
+echo 'File z/zcommon.c is continued in part 25'
+echo 25 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

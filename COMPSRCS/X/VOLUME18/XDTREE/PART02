@@ -1,0 +1,1596 @@
+Newsgroups: comp.sources.x
+Path: uunet!darwin.sura.net!mips!msi!dcmartin
+From: Konstantinos Konstantinides <kk@hpkronos.hpl.hp.com>
+Subject: v18i032: xdtree (Motif), Part02/03
+Message-ID: <1992Jul20.154252.2148@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i031-xdtree@uunet.UU.NET>
+Date: Mon, 20 Jul 1992 15:42:52 GMT
+Approved: dcmartin@msi.com
+Lines: 1583
+
+Submitted-by: Konstantinos Konstantinides <kk@hpkronos.hpl.hp.com>
+Posting-number: Volume 18, Issue 32
+Archive-name: xdtree/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xdtree.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xdtree.c'
+else
+echo 'x - continuing file xdtree.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xdtree.c' &&
+X	char *button_name = NULL;
+X	char *lpdest=NULL, *editor = NULL;
+X	char  *EDITOR="EDITOR\0";
+X	int pid, pathl,namel;
+X	Arg  wargs[3];
+X
+X	
+X	
+X	/* find which button called us */
+X
+X	branch = file_pointer;
+X	XtSetArg(wargs[0], XmNlabelString, &name_string);
+X	XtGetValues(w,wargs,1);
+X	XmStringGetLtoR(name_string,XmSTRING_DEFAULT_CHARSET,&button_name);
+X
+X
+X	/* find first the correct path - append the file name 
+X	    except for the "root" directory */
+X
+X	strncpy(filename,branch->path_name,MAXPATHLEN);
+X	if(branch->next != 1) {
+X		strcat(filename,"/");
+X		strcat(filename,branch->e_name);
+X	}
+X	/* fork a new process */
+X	pid = fork();
+X
+X	if(pid > 0) {
+X		/* wait((int *)0); */
+X		return;
+X	}
+X
+X	if(pid == 0) {
+X	/* 	for(fd = 0; fd < _NFILE; fd++) close(fd); */
+X		if(strcmp(button_name,"print") == 0) {
+X			
+X			lpdest = XGetDefault(XtDisplay(w),"xdtree","lpdest");
+X			if (lpdest != NULL){
+X		     execl("/usr/bin/lp","lp","-d",lpdest,filename,(char *)0);
+X			}
+X			else
+X			execl("/usr/bin/lp","lp",filename,(char *)0);
+X		}
+X		else if(strcmp(button_name,"edit") == 0) {
+X
+X			editor = XGetDefault(XtDisplay(w),"xdtree","editor");
+X
+X			if (editor == NULL) { 
+X				 editor = getenv(EDITOR);
+X				 if(editor == NULL) 
+X				 	editor="/usr/bin/vi";
+X		     	 	 execl("/usr/bin/X11/hpterm",
+X							"hpterm","-e",editor,
+X				                  filename,(char *)0);
+X				 } else 
+X			execlp(editor,editor, filename,(char *)0);
+X		}
+X		else if(strcmp(button_name,"list files") == 0) {
+X		 	 execlp("xdtree", "xdtree", 
+X				   "-a", "-l","1",filename, (char *)0);
+X		}
+X		else if(strcmp(button_name,"list ../") == 0) {
+X
+X			/* find the parent directory */
+X			pathl = strlen(filename);
+X			namel = strlen(branch->e_name);
+X			strncpy(topdir,branch->path_name,pathl-namel);
+X
+X		 	execlp("xdtree", "xdtree", "-l","1",topdir, (char *)0);
+X		}
+X			
+X		else
+X		 execlp("xdtree", "xdtree", 
+X				  "-a",filename, (char *)0);
+X
+X	fprintf(stderr,"%s command failed\n",button_name);
+X	}
+X	fprintf(stderr,"fork for %s command failed\n",button_name);
+}
+X
+/* Function that updates the pop-up menu labels and permissions
+X   when someone clicks on a node.
+*/
+void clickB( w,branch,call_data)
+X	Widget w;
+X	struct entry *branch;
+X	caddr_t call_data;
+{
+X	Arg wargs[3];
+X	XrmValue bgcolor;
+X	if(branch->dir == 1) {
+X		XtSetSensitive(submenu_file ,FALSE);
+X		XtSetSensitive(submenu_dir ,True);
+X	}
+X	else {
+X		XtSetSensitive(submenu_dir ,False);
+#ifdef STATS
+X		/* Don't do anything with symb. links */
+X		if(strncmp(" l",getmode(branch->e_mode),2) == 0)
+X			 XtSetSensitive(submenu_file ,False);
+X		else
+#endif /* STATS */
+X		XtSetSensitive(submenu_file ,True);
+X	}
+X	w_print(options, branch->e_name);
+X
+X	 /* Get the background color of the activated button 
+X	    Need to get the foreground color too
+X         */
+X	 _XmSelectColorDefault (w, NULL, &bgcolor);
+X	XtSetArg(wargs[0], XmNbackground, *((Pixel *) bgcolor.addr));
+X	XtSetValues(options, wargs, 1);
+X	file_pointer = branch;
+X	button_print(branch);
+}
+X
+/* Print a string on a widget */
+X
+void w_print(w, string)
+X	Widget w;
+X	char *string;
+{
+X	XmString xmstr;
+X	Arg wargs[2];
+X
+X	xmstr = XmStringLtoRCreate(string, XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg(wargs[0], XmNlabelString, xmstr);
+X	XtSetValues(w,wargs, 1);
+}
+X
+/* print the labels on the menu */
+void button_print(branch)
+X	struct entry *branch;
+{
+X	char tmp[40];
+X	char tmp2[40];
+X	/* w_print(boxes[0], branch->e_name); */
+#ifdef STATS
+X	strncpy(tmp,"Mode :",40);
+X	strcat(tmp,getmode(branch->e_mode));
+X	w_print(boxes[1],tmp);
+X	strncpy(tmp,"User :",40);
+X	strcat(tmp,guid(branch->e_uid));
+X	w_print(boxes[2], tmp);
+X	strncpy(tmp,"Group:",40);
+X	strcat(tmp, ggid(branch->e_gid));
+X	w_print(boxes[3], tmp);
+X	sprintf(tmp2,"%7ld",(branch->e_size+511L/512L));
+X	strncpy(tmp,"Size :",40);
+X	strcat(tmp, tmp2);
+X	w_print(boxes[11], tmp);
+#endif /* STATS */
+}
+X
+/* 
+X * Copied from D. Young's book  with some changes
+X * Define three callbacks. Make them static - no need 
+X * to make them known outside this file.
+X */
+static void arm_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+{
+X *flag = FALSE;
+}
+static void activate_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+{
+X  *flag = TRUE;
+}
+static void disarm_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+{
+X  if(*flag){
+X    XtCloseDisplay(XtDisplay(w));
+X    exit(0);
+X  }
+}
+X
+/* print options toggle callback routine */
+X
+void stoggle(widget, client_data, call_data)
+Widget widget;
+caddr_t client_data;
+XXmToggleButtonCallbackStruct *call_data;
+X
+{
+X
+X	S_flag = !S_flag;
+}
+X
+void gtoggle(widget, client_data, call_data)
+Widget widget;
+caddr_t client_data;
+XXmToggleButtonCallbackStruct *call_data;
+X
+{
+X
+X	g_flag = !g_flag;
+}
+X
+void htoggle(widget, client_data, call_data)
+Widget widget;
+caddr_t client_data;
+XXmToggleButtonCallbackStruct *call_data;
+X
+{
+X
+X	H_flag = !H_flag;
+}
+void print_tree(w, call_mydata, call_data)
+X          Widget w;
+X	  caddr_t call_data, call_mydata;
+X
+{
+X	struct entry *branch;
+X	char *filename[MAXPATHLEN+1];
+X	int pid;
+X	char opt_flags[MAXPATHLEN+40];
+X	extern int newlevel;
+X	char temp[20];
+X	char *lpdest=NULL;
+X
+X	branch = &List[0];
+X	strncpy(filename,branch->path_name,MAXPATHLEN);
+X
+X
+X	strncpy(opt_flags,"xdtree -l ",MAXPATHLEN+40);
+X	sprintf(temp,"%d",newlevel);
+X	strcat(opt_flags,temp);
+X	strcat(opt_flags," -t");
+X	if (All == 1) strcat(opt_flags,"a");
+X	if (File_dir == 2) strcat(opt_flags,"f");
+X	if (Xdev == 0) strcat(opt_flags,"x");
+X	if (Point == 0) strcat(opt_flags,"p");
+X	if (Sort == 0) strcat(opt_flags,"N");
+X	if (S_flag) strcat(opt_flags,"S");
+X	if (g_flag) strcat(opt_flags,"g");
+X	if (H_flag) strcat(opt_flags,"H");
+X	strcat(opt_flags," ");
+X	strcat(opt_flags,filename);
+X
+X	strcat(opt_flags," | lp");
+X
+X        lpdest = XGetDefault(XtDisplay(w),"xdtree","lpdest");
+X        if (lpdest != NULL) {
+X		strcat(opt_flags," -d");
+X		strcat(opt_flags,lpdest);
+X        }
+X	if(system(opt_flags) !=0) 
+X	fprintf(stderr,"Print-tree Command %s failed\n",opt_flags);
+X
+}
+SHAR_EOF
+echo 'File xdtree.c is complete' &&
+chmod 0644 xdtree.c ||
+echo 'restore of xdtree.c failed'
+Wc_c="`wc -c < 'xdtree.c'`"
+test 47318 -eq "$Wc_c" ||
+	echo 'xdtree.c: original size 47318, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and </tmp/IIf.a17100>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit sun.cf to change
+X
+# platform:  $XConsortium: sun.cf,v 1.68 91/07/30 11:34:39 rws Exp $
+X
+# operating system:  SunOS 4.1.1
+X
+# $XConsortium: sunLib.rules,v 1.6 91/03/24 17:55:58 rws Exp $
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X
+X               RM = rm -f
+X            TROFF = psroff
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X      PROJECTROOT = /usr/X11/R5
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -pipe
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS) -L$(USRLIBDIR)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+# -------------------------------------------------------------------------
+# X Window System make variables; this need to be coordinated with rules
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/X11/R5/lib
+X           BINDIR = /usr/X11/R5/bin
+X          INCROOT = /usr/X11/R5/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/X11/R5/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+X         XILIBSRC = $(EXTENSIONSRC)/lib/xinput
+X      PHIGSLIBSRC = $(EXTENSIONSRC)/lib/PEX
+X
+# $XConsortium: sunLib.tmpl,v 1.11 91/07/31 11:32:08 rws Exp $
+X
+SHLIBLDFLAGS = -assert pure-text
+PICFLAGS = -pic
+X
+X  DEPEXTENSIONLIB =
+X     EXTENSIONLIB = -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X        DEPXMULIB = $(USRLIBDIR)/libXmu.sa.$(SOXMUREV)
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB = $(USRLIBDIR)/libXt.sa.$(SOXTREV)
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB = $(USRLIBDIR)/libXaw.sa.$(SOXAWREV)
+X           XAWLIB = -lXaw
+X
+X        DEPXILIB =
+X           XILIB = -lXi
+X
+X        SOXLIBREV = 4.10
+X          SOXTREV = 4.10
+X         SOXAWREV = 5.0
+X        SOOLDXREV = 4.10
+X         SOXMUREV = 4.10
+X        SOXEXTREV = 4.10
+X      SOXINPUTREV = 4.10
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X      DEPXDMCPLIB = $(USRLIBDIR)/libXdmcp.a
+X         XDMCPLIB =  -lXdmcp
+X
+X        DEPPHIGSLIB = $(USRLIBDIR)/libphigs.a
+X           PHIGSLIB =  -lphigs
+X
+X       DEPXBSDLIB = $(USRLIBDIR)/libXbsd.a
+X          XBSDLIB =  -lXbsd
+X
+X LINTEXTENSIONLIB = $(LINTLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(LINTLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(LINTLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(LINTLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(LINTLIBDIR)/llib-lXaw.ln
+X           LINTXI = $(LINTLIBDIR)/llib-lXi.ln
+X        LINTPHIGS = $(LINTLIBDIR)/llib-lphigs.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+# -------------------------------------------------------------------------
+# Imake rules for building libraries, programs, scripts, and data files
+# rules:  $XConsortium: Imake.rules,v 1.123 91/09/16 20:12:16 rws Exp $
+X
+# -------------------------------------------------------------------------
+# start of Imakefile
+X
+#Imakefile to create dtree using the "tree" widget.
+X
+X        DEFINES = -DSTATS -DNEWDIR -DSYSV
+LOCAL_LIBRARIES =
+X  SYS_LIBRARIES = -lmalloc -lXm -lXt -lX11 -lm
+X           SRCS = xdtree.c Tree.c
+X           OBJS = xdtree.o Tree.o
+X
+X PROGRAM = xdtree
+X
+all:: xdtree
+X
+xdtree: $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+saber_xdtree:: $(SRCS)
+X	# load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+osaber_xdtree:: $(OBJS)
+X	# load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+install:: xdtree
+X	@if [ -d $(DESTDIR)$(BINDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(BINDIR)); fi
+X	$(INSTALL) -c $(INSTPGMFLAGS)  xdtree $(DESTDIR)$(BINDIR)
+X
+install.man:: xdtree.man
+X	@if [ -d $(DESTDIR)$(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) xdtree.man $(DESTDIR)$(MANDIR)/xdtree.$(MANSUFFIX)
+X
+depend::
+X	$(DEPEND) $(DEPENDFLAGS) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+lint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+lint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+clean::
+X	$(RM) $(PROGRAM)
+X
+# -------------------------------------------------------------------------
+# common rules for all Makefiles - do not edit
+X
+emptyrule::
+X
+clean::
+X	$(RM_CMD) "#"*
+X
+Makefile::
+X	-@if [ -f Makefile ]; then set -x; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+tags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+saber:
+X	# load $(ALLDEFINES) $(SRCS)
+X
+osaber:
+X	# load $(ALLDEFINES) $(OBJS)
+X
+# -------------------------------------------------------------------------
+# empty rules for directories that do not have SUBDIRS - do not edit
+X
+install::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+install.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+Makefiles::
+X
+includes::
+X
+# -------------------------------------------------------------------------
+# dependencies generated by makedepend
+X
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 10452 -eq "$Wc_c" ||
+	echo 'Makefile: original size 10452, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= XDtree ==============
+if test -f 'XDtree' -a X"$1" != X"-c"; then
+	echo 'x - skipping XDtree (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting XDtree (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'XDtree' &&
+#
+# app-defaults file for xdtree
+#
+xdtree*geometry:                     585x600
+xdtree*dir.background:               Red
+xdtree*file.background:              Gray
+xdtree*sym_link.background:          Brown
+xdtree*quit.background:              DarkSlateBlue
+xdtree*options.background:           Red
+xdtree*XmGraph*childSpacing:         50              #distance between levels
+!Mwm*XDtree*iconImage:                /usr/local/include/X11/bitmaps/xdtree-i.h
+Vuewm*XDtree*iconImage:                /usr/local/include/X11/bitmaps/xdtree-i.h
+!Hpwm*XDtree*iconImage:               /usr/local/include/X11/bitmaps/xdtree-i.h
+!xdtree*lpdest:  		    rljet           #Printer destination
+!xdtree*editor:                      emacsclient     #window-clever editor
+!xdtree*sym_link.foreground:    
+SHAR_EOF
+chmod 0644 XDtree ||
+echo 'restore of XDtree failed'
+Wc_c="`wc -c < 'XDtree'`"
+test 785 -eq "$Wc_c" ||
+	echo 'XDtree: original size 785, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xdtree-i.h ==============
+if test -f 'xdtree-i.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xdtree-i.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xdtree-i.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xdtree-i.h' &&
+#define load_i_width 50
+#define load_i_height 50
+static char load_i_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0xe0, 0xff, 0xff, 0xff, 0xff, 0x1f, 0x00, 0x20,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x10,
+X   0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00,
+X   0x00, 0x10, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00,
+X   0x00, 0xf8, 0x0f, 0x10, 0x00, 0x20, 0x00, 0x00, 0x08, 0x08, 0x00, 0x00,
+X   0x20, 0x00, 0x00, 0x08, 0x08, 0x10, 0x00, 0x20, 0x00, 0x00, 0x0f, 0x08,
+X   0x00, 0x00, 0x20, 0x00, 0x00, 0x09, 0x08, 0x10, 0x00, 0x20, 0x00, 0x80,
+X   0x08, 0x08, 0x00, 0x00, 0x20, 0x00, 0x80, 0xf8, 0x0f, 0x10, 0x00, 0x20,
+X   0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x40, 0x00, 0x00, 0x10,
+X   0x00, 0x20, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x20, 0x00,
+X   0x00, 0x10, 0x00, 0x20, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x20, 0xfe,
+X   0x13, 0xfe, 0xe3, 0x17, 0x00, 0x20, 0x02, 0x0a, 0x02, 0x22, 0x04, 0x00,
+X   0x20, 0xaa, 0x0a, 0x56, 0x23, 0x14, 0x00, 0x20, 0x02, 0xfe, 0x03, 0x3e,
+X   0x04, 0x00, 0x20, 0xaa, 0x0a, 0xaa, 0x22, 0x14, 0x00, 0x20, 0x02, 0x0a,
+X   0x02, 0x22, 0x04, 0x00, 0x20, 0xfe, 0x13, 0xfe, 0xe3, 0x17, 0x00, 0x20,
+X   0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x20, 0x00, 0x00, 0x10,
+X   0x00, 0x20, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x40, 0xf8,
+X   0x0f, 0x10, 0x00, 0x20, 0x00, 0x40, 0x08, 0x08, 0x00, 0x00, 0x20, 0x00,
+X   0x80, 0x08, 0x08, 0x10, 0x00, 0x20, 0x00, 0x80, 0x08, 0x08, 0x00, 0x00,
+X   0x20, 0x00, 0x00, 0x0f, 0x08, 0x10, 0x00, 0x20, 0x00, 0x00, 0x08, 0x08,
+X   0x00, 0x00, 0x20, 0x00, 0x00, 0xf8, 0x0f, 0x10, 0x00, 0x20, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x20,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x10,
+X   0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x55, 0x55, 0x55,
+X   0x55, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00};
+SHAR_EOF
+chmod 0644 xdtree-i.h ||
+echo 'restore of xdtree-i.h failed'
+Wc_c="`wc -c < 'xdtree-i.h'`"
+test 2270 -eq "$Wc_c" ||
+	echo 'xdtree-i.h: original size 2270, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Imakefile ==============
+if test -f 'Imakefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Imakefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Imakefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Imakefile' &&
+#Imakefile to create dtree using the "tree" widget.
+X
+X        DEFINES = -DSTATS -DNEWDIR -DSYSV
+LOCAL_LIBRARIES = 
+X  SYS_LIBRARIES = -lmalloc -lXm -lXt -lX11 -lm
+X           SRCS = xdtree.c Tree.c
+X           OBJS = xdtree.o Tree.o
+X
+ComplexProgramTarget(xdtree)
+X
+X
+SHAR_EOF
+chmod 0644 Imakefile ||
+echo 'restore of Imakefile failed'
+Wc_c="`wc -c < 'Imakefile'`"
+test 261 -eq "$Wc_c" ||
+	echo 'Imakefile: original size 261, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= README ==============
+if test -f 'README' -a X"$1" != X"-c"; then
+	echo 'x - skipping README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README' &&
+xdtree is an extension of dtree,  the program originally
+written by Dave Borman. It is very similar to my old "dtree" I posted
+in comp.sources.x in 1990, but it has a new user interface, and I
+changed the name to xdtree to avoid any confusion with the original program.
+It displays on a terminal or under X11
+(using Motif widgets) the tree structure of a Unix directory tree.
+On a color terminal, different colors can be used for files, directories,
+and symbolic links. On a monochrome terminal, one may try to use
+different button bitmaps for files and directories using the PushButton
+resources.
+One can select nodes of the tree, and edit them,
+view them, or print them. One can also traverse nodes not fully
+shown on the original tree.
+X
+The program uses the "tree" widget described in D. Young's book on
+XX window programming (code included here).
+X
+Potential problem: because xdtree creates a PushButton widget for every file
+or directory shown, you may run out of memory. It is recommended that you
+start with a moderate size tree, and create new ones as needed.
+Experience will show how much you can push it!!
+If you have a monochrome monitor, you may want to substitute those
+widgets with gadgets.
+X
+For example: xdtree -l 2
+will show the tree of your current directory up to depth 2.
+X	     xdtree -al 2
+will show both files and directories up to depth 2.
+X
+4/29/92
+K. Konstantinides
+HP Labs
+kk@hpkronos.hpl.hp.com
+SHAR_EOF
+chmod 0644 README ||
+echo 'restore of README failed'
+Wc_c="`wc -c < 'README'`"
+test 1418 -eq "$Wc_c" ||
+	echo 'README: original size 1418, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Tree.c ==============
+if test -f 'Tree.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping Tree.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Tree.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Tree.c' &&
+/**********************************************************************************
+X  * Tree.c: The Tree Widget Source File
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages: 397-419
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X
+X
+#include	  <X11/Intrinsic.h>
+#include	  <X11/IntrinsicP.h>
+#include	  <X11/StringDefs.h>
+#include	  <X11/CoreP.h>
+#include  	<X11/CompositeP.h>
+#include	  <X11/ConstrainP.h>
+#include	  "Tree.h"
+#include	  "TreeP.h"
+#define   MAX(a,b) ((a) > (b) ? (a) : (b))
+X
+static void             Initialize();
+static void             ConstraintInitialize();
+static void             ConstraintDestroy();
+static Boolean          ConstraintSetValues();
+static Boolean          SetValues();
+static XtGeometryResult GeometryManager();
+static void             ChangeManaged();
+static void             insert_new_node();
+static void             delete_node();
+static void             new_layout();
+static void             Redisplay();
+static TreeOffsetPtr    create_offset();
+static int              compute_positions();
+static void             shift_subtree();
+static void             set_positions();
+static void             reset();
+static Position         current_position();
+static void             set_current_position();
+static Position         sum_of_positions();
+X
+static XtResource resources[] = {
+X {XtNhorizontalSpace,XtCSpace,XtRDimension,sizeof(Dimension),
+X   XtOffset(XsTreeWidget, tree.h_min_space), XtRString,"15" },
+X {XtNverticalSpace,XtCSpace, XtRDimension,sizeof (Dimension),
+X   XtOffset(XsTreeWidget, tree.v_min_space), XtRString,"5"  },
+X {XtNforeground, XtCForeground, XtRPixel, sizeof (Pixel),
+X  XtOffset(XsTreeWidget, tree.foreground), XtRString,"Black"},
+};
+X
+static XtResource treeConstraintResources[] = {
+X {XtNsuperNode, XtCSuperNode, XtRPointer, sizeof(Widget),
+X   XtOffset(TreeConstraints, tree.super_node),
+X   XtRPointer, NULL},
+};
+X
+XXsTreeClassRec XstreeClassRec = {
+X  {
+X    /* core_class fields  */
+X    (WidgetClass) &constraintClassRec,/* superclass         */
+X    "Tree",                           /* class_name         */
+X    sizeof(XsTreeRec),                /* widget_size        */
+X    NULL,                             /* class_init         */
+X    NULL,                             /* class_part_init    */
+X    FALSE,                            /* class_inited       */	
+X    Initialize,                       /* initialize         */
+X    NULL,                             /* initialize_hook    */	
+X    XtInheritRealize,                 /* realize            */
+X    NULL,                             /* actions            */
+X    0,                                /* num_actions        */	
+X    resources,                        /* resources          */
+X    XtNumber(resources),              /* num_resources      */
+X    NULLQUARK,                        /* xrm_class          */
+X    TRUE,                             /* compress_motion    */	
+X    TRUE,                             /* compress_exposure  */	
+X    TRUE,                             /* compress_enterleave*/	
+X    TRUE,                             /* visible_interest   */
+X    NULL,                             /* destroy            */
+X    NULL,                             /* resize             */
+X    Redisplay,                        /* expose             */
+X    SetValues,                        /* set_values         */
+X    NULL,                             /* set_values_hook    */	
+X    XtInheritSetValuesAlmost,         /* set_values_almost  */
+X    NULL,                             /* get_values_hook    */	
+X    NULL,                             /* accept_focus       */
+X    XtVersion,                        /* version            */	
+X    NULL,                             /* callback_private   */
+X    NULL,                             /* tm_table           */
+X    NULL,                             /* query_geometry     */	
+X    NULL,                             /* display_accelerator*/
+X    NULL,                             /* extension          */
+X  },
+X  {
+X    /* composite_class fields */
+X    GeometryManager,                 /* geometry_manager    */
+X    ChangeManaged,                   /* change_managed      */
+X    XtInheritInsertChild,            /* insert_child        */	
+X    XtInheritDeleteChild,            /* delete_child        */	
+X    NULL,                            /* extension           */
+X  },
+X  { 
+X    /* constraint_class fields */
+X   treeConstraintResources,          /* subresources        */
+X   XtNumber(treeConstraintResources),/* subresource_count   */
+X   sizeof(TreeConstraintsRec),       /* constraint_size     */
+X   ConstraintInitialize,             /* initialize          */
+X   ConstraintDestroy,                /* destroy             */
+X   ConstraintSetValues,              /* set_values          */
+X   NULL,                             /* extension           */
+X   },
+X  {
+X    /* Tree class fields */
+X    0,                               /* ignore              */	
+X  }
+};
+X
+WidgetClass XstreeWidgetClass = (WidgetClass) &XstreeClassRec;
+X
+static void Initialize(request, new)
+X    XsTreeWidget request, new;
+{
+X  Arg       wargs[2];
+X  XGCValues values;
+X  XtGCMask  valueMask;
+X  /*
+X   * Make sure the widget's width and height are 
+X   * greater than zero.
+X   */
+X  if (request->core.width <= 0)
+X    new->core.width = 5;
+X  if (request->core.height <= 0)
+X    new->core.height = 5;
+X  /*
+X   * Create a graphics context for the connecting lines.
+X   */
+X  valueMask = GCForeground | GCBackground;
+X  values.foreground = new->tree.foreground;
+X  values.background = new->core.background_pixel;
+X  new->tree.gc = XtGetGC (new, valueMask, &values);  
+X  /*
+X   * Create the hidden root widget.
+X   */
+X  new->tree.tree_root = (Widget) NULL;
+X  XtSetArg(wargs[0], XtNwidth, 1);
+X  XtSetArg(wargs[1], XtNheight, 1);
+X  new->tree.tree_root = 
+X          XtCreateWidget("root", widgetClass, new, wargs, 2);
+X  /*
+X   * Allocate the tables used by the layout
+X   * algorithm.
+X   */
+X  new->tree.horizontal = create_offset(10);
+X  new->tree.vertical   = create_offset(10);
+} 
+X
+static void ConstraintInitialize(request, new)
+X     Widget request, new;
+{
+X  TreeConstraints tree_const = TREE_CONSTRAINT(new);
+X  XsTreeWidget tw = (XsTreeWidget) new->core.parent;
+X  /*
+X   * Initialize the widget to have no sub-nodes.
+X   */
+X  tree_const->tree.n_sub_nodes = 0;
+X  tree_const->tree.max_sub_nodes = 0;
+X  tree_const->tree.sub_nodes = (WidgetList) NULL;
+X  tree_const->tree.x = tree_const->tree.y = 0; 
+X  /*
+X   * If this widget has a super-node, add it to that 
+X   * widget' sub-nodes list. Otherwise make it a sub-node of 
+X   * the tree_root widget.
+X   */
+X  if(tree_const->tree.super_node)
+X    insert_new_node(tree_const->tree.super_node, new);
+X  else
+X    if(tw->tree.tree_root)
+X      insert_new_node(tw->tree.tree_root, new);
+} 
+X
+static Boolean SetValues(current, request, new)
+X    XsTreeWidget current, request, new;
+{
+X int       redraw = FALSE;
+X XGCValues values;
+X XtGCMask  valueMask;
+X /*
+X  * If the foreground color has changed, redo the GC's
+X  * and indicate a redraw.
+X  */
+X if (new->tree.foreground != current->tree.foreground ||
+X     new->core.background_pixel !=
+X                           current->core.background_pixel){
+X   valueMask         = GCForeground | GCBackground;
+X   values.foreground = new->tree.foreground;
+X   values.background = new->core.background_pixel;
+X   XtReleaseGC(new, new->tree.gc);
+X   new->tree.gc    = XtGetGC (new, valueMask, &values);   
+X   redraw = TRUE;     
+X }
+X /*
+X  * If the minimum spacing has changed, recalculate the
+X  * tree layout. new_layout() does a redraw, so we don't
+X  * need SetValues to do another one.
+X  */
+X if (new->tree.v_min_space != current->tree.v_min_space ||
+X     new->tree.h_min_space != current->tree.h_min_space){ 
+X   new_layout(new);
+X   redraw = FALSE;
+X }
+X return (redraw);
+}
+X
+static Boolean ConstraintSetValues(current, request, new)
+X    Widget current, request, new;
+{
+X TreeConstraints newconst = TREE_CONSTRAINT(new);
+X TreeConstraints current_const = TREE_CONSTRAINT(current);
+X XsTreeWidget tw = (XsTreeWidget) new->core.parent;
+X /*
+X  * If the super_node field has changed, remove the widget
+X  * from the old widget's sub_nodes list and add it to the
+X  * new one.
+X  */
+X if(current_const->tree.super_node !=
+X                                  newconst->tree.super_node){
+X   if(current_const->tree.super_node)
+X     delete_node(current_const->tree.super_node, new);
+X   if(newconst->tree.super_node)
+X     insert_new_node(newconst->tree.super_node, new);
+X   /*
+X    * If the Tree widget has been realized, 
+X    * compute new layout.
+X    */
+X   if(XtIsRealized(tw))
+X     new_layout(tw);
+X  }               
+X  return (False);
+}
+X
+static void insert_new_node(super_node, node)
+X     Widget super_node, node;
+{
+X  TreeConstraints super_const = TREE_CONSTRAINT(super_node);
+X  TreeConstraints node_const = TREE_CONSTRAINT(node);
+X  int index = super_const->tree.n_sub_nodes;
+X  
+X  node_const->tree.super_node = super_node;
+X  /*
+X   * If there is no more room in the sub_nodes array, 
+X   * allocate additional space.
+X   */  
+X  if(super_const->tree.n_sub_nodes ==
+X                             super_const->tree.max_sub_nodes){
+X    super_const->tree.max_sub_nodes += 
+X                    (super_const->tree.max_sub_nodes / 2) + 2;
+X    super_const->tree.sub_nodes = 
+X     (WidgetList) XtRealloc(super_const->tree.sub_nodes, 
+X                           (super_const->tree.max_sub_nodes) *
+X                            sizeof(Widget));
+X  } 
+X  /*
+X   * Add the sub_node in the next available slot and 
+X   * increment the counter.
+X   */
+X  super_const->tree.sub_nodes[index] = node;
+X  super_const->tree.n_sub_nodes++;
+}
+X
+static void delete_node(super_node, node)
+X    Widget  super_node, node;
+{
+X  TreeConstraints node_const = TREE_CONSTRAINT(node);
+X  TreeConstraints super_const;
+X  int             pos, i;
+X  /*
+X   * Make sure the super_node exists.
+X   */
+X  if(!super_node) return;  
+X  
+X  super_const = TREE_CONSTRAINT(super_node);
+X  /*
+X   * Find the sub_node on its super_node's list.
+X   */
+X  for (pos = 0; pos < super_const->tree.n_sub_nodes; pos++)
+X    if (super_const->tree.sub_nodes[pos] == node)
+X      break;
+X  if (pos == super_const->tree.n_sub_nodes) return;
+X  /*
+X   * Decrement the number of sub_nodes
+X   */  
+X  super_const->tree.n_sub_nodes--;
+X  /*
+X   * Fill in the gap left by the sub_node.
+X   * Zero the last slot for good luck.
+X   */
+X  for (i = pos; i < super_const->tree.n_sub_nodes; i++) 
+X    super_const->tree.sub_nodes[i] = 
+X                            super_const->tree.sub_nodes[i+1];
+X super_const->tree.sub_nodes[super_const->tree.n_sub_nodes]=0;
+}
+X
+static void ConstraintDestroy(w) 
+#ifdef JUST_LIKE_BOOK  /* Unimportant but perhaps confusing */
+X     XsTreeWidget w;
+#else
+X     Widget w;
+#endif
+{ 
+X  TreeConstraints tree_const = TREE_CONSTRAINT(w);
+X  int i;
+X /* 
+X  * Remove the widget from its parent's sub-nodes list and
+X  * make all this widget's sub-nodes sub-nodes of the parent.
+X  */
+X  if(tree_const->tree.super_node) { 
+X    delete_node(tree_const->tree.super_node, w);
+X    for(i=0;i< tree_const->tree.n_sub_nodes; i++)
+X      insert_new_node(tree_const->tree.super_node, 
+X                      tree_const->tree.sub_nodes[i]);
+X  }
+X  new_layout(w->core.parent);
+}
+X
+static XtGeometryResult GeometryManager(w, request, reply)
+X    Widget               w;
+X    XtWidgetGeometry    *request;
+X    XtWidgetGeometry    *reply;
+{
+X
+X XsTreeWidget tw = (XsTreeWidget) w->core.parent;
+X /*
+X  * No position changes allowed!.
+X  */
+X if ((request->request_mode & CWX && request->x!=w->core.x)
+X     ||(request->request_mode & CWY && request->y!=w->core.y))
+X  return (XtGeometryNo);
+X /*
+X  * Allow all resize requests.
+X  */
+X if (request->request_mode & CWWidth)
+X   w->core.width = request->width;
+X if (request->request_mode & CWHeight)
+X   w->core.height = request->height;
+X if (request->request_mode & CWBorderWidth)
+X   w->core.border_width = request->border_width;
+X /*
+X  *  Compute the new layout based on the new widget sizes;
+X  */
+X new_layout(tw);
+X return (XtGeometryYes);
+}
+X
+static void ChangeManaged(tw)
+X    XsTreeWidget tw;
+{
+X  new_layout(tw);
+}
+X
+X
+static void Redisplay (w, event, region)
+X     XsTreeWidget   w;
+X     XEvent        *event;
+X     Region         region;
+{
+X  int              i, j;
+X  TreeConstraints tree_const;
+X  Widget          child;
+X  /*
+X   * If the Tree widget is visible, visit each managed child.
+X   */
+X  if(w->core.visible)
+X   for (i = 0; i < w -> composite.num_children; i++){
+X     child = w -> composite.children[i];
+X     tree_const = TREE_CONSTRAINT(child);
+X     /*
+X      * Draw a line between the right edge of each widget
+X      * and the left edge of each of its sub_nodes. Don't
+X      * draw lines from the fake tree_root.
+X      */
+X     if(child != w->tree.tree_root && 
+X        tree_const->tree.n_sub_nodes)
+X       for (j = 0; j < tree_const->tree.n_sub_nodes; j++)
+X         XDrawLine(XtDisplay(w), XtWindow(w), 
+X                   w->tree.gc,
+X                   child->core.x + child->core.width, 
+X                   child->core.y + child->core.height / 2,
+X                   tree_const->tree.sub_nodes[j]->core.x,
+X                   tree_const->tree.sub_nodes[j]->core.y + 
+X                tree_const->tree.sub_nodes[j]->core.height/2);
+X    }
+}
+X
+static void new_layout(tw)
+X     XsTreeWidget   tw;
+{
+X  /*
+X   *  Reset the auxiliary tables.
+X   */
+X  reset(tw->tree.vertical);
+X  reset(tw->tree.horizontal);
+X  /*
+X   * Compute each widget's x,y position
+X   */
+X  compute_positions(tw, tw->tree.tree_root, 0);
+X  /*
+X   * Move each widget into place.
+X   */
+X  set_positions(tw, tw->tree.tree_root, 0, 0);
+X  /*
+X   * Trigger a redisplay of the lines connecting nodes.
+X   */
+X  if(XtIsRealized(tw))
+X    XClearArea(XtDisplay(tw), XtWindow(tw), 0, 0, 0, 0, TRUE);
+}
+X
+X static int compute_positions(tw, w, level)
+X     XsTreeWidget tw;
+X     Widget       w;
+X     long         level;
+{
+X Position       current_hpos, current_vpos;
+X int             i, depth = 0;
+X TreeConstraints tree_const = TREE_CONSTRAINT(w);
+X /*
+X  * Get the current positions for this level.
+X  */
+X current_hpos = current_position(tw->tree.horizontal, level);
+X current_vpos = current_position(tw->tree.vertical, level);
+X /*
+X  * Set the current horizontal width to the max widths of all
+X  * widgets at this level.
+X  */
+X set_current_position(tw->tree.horizontal, level, 
+X                      MAX(current_hpos, w->core.width));
+X /*
+X  * If the node has no sub_nodes, just set the vertical 
+X  * position to the next available space.
+X  */
+X if(tree_const->tree.n_sub_nodes == 0){
+X   tree_const->tree.y = current_vpos;
+X }
+X else {
+X   Widget          first_kid, last_kid;
+X   TreeConstraints const1, const2;
+X   Position        top, bottom;
+X  /*
+X   * If the node has sub_nodes, recursively figure the 
+X   * positions of each sub_node.
+X   */
+X   for(i = 0; i < tree_const->tree.n_sub_nodes; i++)
+X    depth = compute_positions(tw, 
+X                              tree_const->tree.sub_nodes[i],
+X                              level + 1);
+X  /*
+X   * Now that the vertical positions of all children are 
+X   * known, find the vertical extent of all sub_nodes.
+X   */
+X  first_kid= tree_const->tree.sub_nodes[0];
+X  last_kid = 
+X   tree_const->tree.sub_nodes[tree_const->tree.n_sub_nodes-1];
+X  const1   = TREE_CONSTRAINT(first_kid);
+X  const2   = TREE_CONSTRAINT(last_kid);
+X  top      = const1->tree.y + first_kid->core.height / 2; 
+X  bottom   = const2->tree.y + last_kid->core.height / 2;
+X  /*
+X   * Set the node's position to the center of its sub_nodes.
+X   */
+X  tree_const->tree.y = (top + bottom)/2 - (w->core.height/ 2);
+X  /*
+X   * If this position is less than the next available 
+X   * position, correct it to be the next available
+X   * position, calculate the amount by which all sub_nodes
+X   * must be shifted, and shift the entire sub-tree.
+X   */
+X   if(tree_const->tree.y < current_vpos){
+X     Dimension offset = current_vpos - tree_const->tree.y;
+X     for(i = 0; i < tree_const->tree.n_sub_nodes; i++)
+X       shift_subtree(tree_const->tree.sub_nodes[i], offset);
+X    /*
+X     * Adjust the next available space at all levels below
+X     * the current level.
+X     */
+X     for(i = level + 1; i <= depth; i++){
+X       Position pos = current_position(tw->tree.vertical, i);
+X       set_current_position(tw->tree.vertical, i, pos+offset);
+X     }
+X     tree_const->tree.y = current_vpos;
+X     }
+X   }
+X /*
+X  * Record the current vertical position at this level.
+X  */
+X  set_current_position(tw->tree.vertical, level,
+X                       tw->tree.v_min_space + 
+X                       tree_const->tree.y + w->core.height);
+X  return (MAX(depth, level));
+}
+X
+static void shift_subtree(w, offset)
+X     Widget     w;
+X     Dimension  offset;
+{
+X  int             i;
+X  TreeConstraints tree_const = TREE_CONSTRAINT(w);
+X  /*
+X   * Shift the node by the offset.
+X   */
+X  tree_const->tree.y += offset; 
+X  /*
+X   * Shift each sub-node into place.
+X   */
+X  for(i=0; i< tree_const->tree.n_sub_nodes; i++)
+X    shift_subtree(tree_const->tree.sub_nodes[i], offset);
+}
+X
+static void set_positions(tw, w, level)
+X     XsTreeWidget tw;
+X     Widget       w;
+X     int          level;
+{
+X int               i;
+X Dimension         replyWidth = 0, replyHeight = 0;
+X XtGeometryResult  result;
+X  
+X if(w){
+X  TreeConstraints tree_const = TREE_CONSTRAINT(w);
+X /*
+X  * Add up the sum of the width's of all nodes to this 
+X  * depth, and use it as the x position.
+X  */
+X  tree_const->tree.x = (level * tw->tree.h_min_space) + 
+X                sum_of_positions(tw->tree.horizontal, level);
+X /*
+X  * Move the widget into position.
+X  */
+X  XtMoveWidget (w, tree_const->tree.x, tree_const->tree.y);
+X /*
+X  * If the widget position plus its width or height doesn't
+X  * fit in the tree, ask if the tree can be resized.
+X  */
+X  if(tw->core.width < tree_const->tree.x + w->core.width ||
+X     tw->core.height < tree_const->tree.y + w->core.height){
+X    result = 
+X      XtMakeResizeRequest(tw, MAX(tw->core.width, 
+X                                  tree_const->tree.x + 
+X                                  w->core.width),
+X                              MAX(tw->core.height, 
+X                                  tree_const->tree.y + 
+X                                  w->core.height),
+X                          &replyWidth, &replyHeight);
+X    /*
+X     * Accept any compromise.
+X     */
+X     if (result == XtGeometryAlmost)
+X       XtMakeResizeRequest (tw, replyWidth, replyHeight, 
+X                             NULL, NULL);
+X  }
+X /*
+X  * Set the positions of all sub_nodes.
+X  */
+X  for(i=0; i< tree_const->tree.n_sub_nodes;i++)
+X    set_positions(tw, tree_const->tree.sub_nodes[i], level+1);
+X  }
+}
+X
+static TreeOffsetPtr create_offset(size)
+X   long size;
+{
+X TreeOffsetPtr  offset = 
+X                 (TreeOffsetPtr) XtMalloc(sizeof(TreeOffset));
+X offset->size = size;
+X offset->array = 
+X             (Dimension *) XtMalloc(size * sizeof(Dimension));
+X return (offset);
+}
+X
+static void reset(offset)
+X   TreeOffsetPtr offset;
+{
+X  long i;
+X  for(i=0; i< offset->size; i++)
+X    offset->array[i] = 0;
+}
+X
+static Position current_position(offset, position)
+X   TreeOffsetPtr  offset;
+X   long          position;
+{
+X  if(position >= offset->size)
+X    return (0);
+X  return (offset->array[position]);
+X }
+X
+static void set_current_position(offset, index, value)
+X   TreeOffsetPtr offset;
+X   int           index;
+X   Dimension     value;
+{
+X if(index >= offset->size){
+X   offset->size = index + index / 2;
+X   offset->array =
+X    (Dimension *) XtRealloc(offset->array, 
+X                            offset->size * sizeof(Dimension));
+X }
+X offset->array[index] = value;
+}
+X
+static Position sum_of_positions(offset, index)
+X   TreeOffsetPtr  offset;
+X   long           index;
+{
+X  int    i;
+X  Position  sum  = 0;
+X  long      stop = index;
+X  if(index > offset->size) 
+X    stop = offset->size;
+X  for (i=0;i < stop; i++)
+X    sum += offset->array[i];
+X  return (sum);
+}
+X
+SHAR_EOF
+chmod 0644 Tree.c ||
+echo 'restore of Tree.c failed'
+Wc_c="`wc -c < 'Tree.c'`"
+test 21424 -eq "$Wc_c" ||
+	echo 'Tree.c: original size 21424, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Tree.h ==============
+if test -f 'Tree.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Tree.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Tree.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Tree.h' &&
+/**********************************************************************************
+X * Tree.h: Public header file for the Tree widget
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages: 397-419
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X
+X
+X
+#ifndef TREE_H
+#define TREE_H
+X
+extern WidgetClass  XstreeWidgetClass;
+X
+typedef struct _XsTreeClassRec *XsTreeWidgetClass;
+typedef struct _XsTreeRec      *XsTreeWidget;
+X
+#define XtNhorizontalSpace    "horizontalSpace"
+#define XtNverticalSpace      "verticalSpace"
+#define XtCPad                "Pad"
+#define XtNsuperNode          "superNode"
+#define XtCSuperNode          "SuperNode"
+X
+#endif TREE_H
+SHAR_EOF
+chmod 0644 Tree.h ||
+echo 'restore of Tree.h failed'
+Wc_c="`wc -c < 'Tree.h'`"
+test 2420 -eq "$Wc_c" ||
+	echo 'Tree.h: original size 2420, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= TreeP.h ==============
+if test -f 'TreeP.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping TreeP.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting TreeP.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'TreeP.h' &&
+/**********************************************************************************
+SHAR_EOF
+true || echo 'restore of TreeP.h failed'
+fi
+echo 'End of  part 2'
+echo 'File TreeP.h is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

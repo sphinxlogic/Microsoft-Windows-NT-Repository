@@ -1,0 +1,2454 @@
+From brennan@atc.boeing.com Mon Feb  8 14:18:21 1993
+
+patch3 for mawk1.1 posted to volume1 follows in 2 parts (this+1)
+--------------------------------------------------------------
+
+A script to patch mawk1.1.2 to mawk1.1.3 follows.
+Changes are:
+
+1) New configurations:
+   hpux coherent 386bsd linux
+
+2) Changed some ints to longs so that Unix and Dos versions
+   give same output.  E.g.,
+
+   printf "%d" and printf "%ld" are now the same on Dos.
+
+   msdos/examples directory with scripts by Ben Myers
+
+   Infinity+1 large model pointer bug caused by modulo 2^16
+   arithmetic fixed.
+
+3) Grossly surprised to discover  (int) d causes a floating
+   point exception on hpux when d is a large double.
+   Integer casts are now done more carefully.  Thanks to
+   Ken Poulton for finding this bug.
+
+4) Removed ApolloSR10.3 from working configurations. Mawk will
+   not work if compiled with CC6.8.
+
+5) A few minor fixes and tweaks.  ($Logs$ contain more detail).
+
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.50)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 02/08/1993 19:09 UTC by brennan@blacksmith
+# Source directory /a/bronte/users4/brennan/tmp/M
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+# 111555 -rw-r----- patch3
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= patch3 ==============
+if test -f 'patch3' -a X"$1" != X"-c"; then
+	echo 'x - skipping patch3 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patch3 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patch3' &&
+#!/bin/sh
+X
+# Execute this script to convert mawk1.1.2 to mawk1.1.3
+X
+X	rm -f msdos/reargv.c
+X	mkdir msdos/examples
+X
+X
+X	patch -s <<'DIFFGEN_EOF'
+X
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/winobj.awk	Sat Dec  5 13:57:16 1992
+***************
+*** 0 ****
+--- 1,81 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Sum up sizes of Windows OBJ files in current directory
++ # requires DOS 5.0 and Borland TDUMP
++ # A clumsy script to count Windows OBJs and sum up the CODE sizes
++ # run with
++ #       awk -fwinobj.awk work1
++ # where work1 is a work file
++ # You must have at least one filename as an arg, else awk will want to read
++ # from con:, hence the requirement for work1
++ BEGIN {
++ # redirection done by shelled command
++ ocount = 0  # obj module counter
++ otsize = 0  # text size accumulator
++ odsize = 0  # data size accumulator
++ system("del workfile.$%$") # Will probably cause a File Not Found message
++ # Generate a list of OBJs
++ system("dir *.obj /b >" ARGV[1])
++ while (getline < ARGV[1] > 0) {
++ # TDUMP selects only the SEGDEFs to speed things up a lot
++ # and keeps on piping to the workfile
++ system("tdump " $1 " -oiSEGDEF >>workfile.$%$")
++ ocount++
++ }
++ # Now read workfile back, processing lines that are module ids and SEGDEF info
++ # Print one line for each SEGDEF processed
++ j = 1
++ while (getline < "workfile.$%$" > 0) {
++ # module name
++ if($1 == "Display" && $2 == "of" && $3 == "File") { module_name = $4 }
++ # SEGDEF CODE
++ if($2 == "SEGDEF" && $9 =="'CODE'") {
++ decval = hexdec($11)
++ otsize += decval
++ printf ("%12s CODE %4s %7i\n", module_name, $11, decval)
++ j++ }
++ # SEGDEF DATA
++ if($2 == "SEGDEF" && $9 =="'DATA'") {
++ decval = hexdec($11)
++ odsize += decval
++ printf ("%12s DATA %4s %7i\n", module_name, $11, decval)
++ j++ }
++ } # while
++ } # end of BEGIN section
++ # no main loop at all!
++ END {
++ # print summary and delete work files
++ printf ("%i OBJ files\n", ocount)
++ printf ("Total CODE size   %04x %7li bytes\n", otsize, otsize)
++ printf ("Total DATA size   %04x %7li bytes\n", odsize, odsize)
++ system("del "ARGV[1])
++ system("del workfile.$%$")
++ }  # end of END section
++ 
++ # No scanf in awk, so convert hex string x to decimal the hard way
++ function hexdec (x) {
++ result = 0
++ for (i=1; i<=length(x); i++) {
++ thechar = substr(x,i,1)
++ # digits 0-9 and lower case hex produced by TDUMP
++ # use brute force
++ if (thechar == "0") {result = result*16}
++ if (thechar == "1") {result = result*16 + 1}
++ if (thechar == "2") {result = result*16 + 2}
++ if (thechar == "3") {result = result*16 + 3}
++ if (thechar == "4") {result = result*16 + 4}
++ if (thechar == "5") {result = result*16 + 5}
++ if (thechar == "6") {result = result*16 + 6}
++ if (thechar == "7") {result = result*16 + 7}
++ if (thechar == "8") {result = result*16 + 8}
++ if (thechar == "9") {result = result*16 + 9}
++ if (thechar == "a") {result = result*16 + 10}
++ if (thechar == "b") {result = result*16 + 11}
++ if (thechar == "c") {result = result*16 + 12}
++ if (thechar == "d") {result = result*16 + 13}
++ if (thechar == "e") {result = result*16 + 14}
++ if (thechar == "f") {result = result*16 + 15}
++ } # for (i=1;i<length(x);i++)
++ return result
++ } # function hexdec (x)
++ 
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/argvmks.c	Wed Dec 16 18:48:01 1992
+***************
+*** 0 ****
+--- 1,106 ----
++ 
++ /*  argvmks.c
++ 
++     for MKS Korn Shell
++ 
++     If you use this file, add -DHAVE_REARGV=1 to your
++     CFLAGS
++ 
++     Contributed by Jack Fitts (fittsj%wmv009@bcsaic.boeing.com)
++ 
++ */
++ 
++ /*
++ $Log: argvmks.c,v $
++  * Revision 1.2  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
++  * Revision 1.1  1992/12/05  22:38:41  mike
++  * Initial revision
++  *
++ */
++ 
++ 
++ /***********************************************************/
++ /*                                                         */
++ /* prototypes for reargv                                   */
++ /*                                                         */
++ /***********************************************************/
++ 
++ void *malloc(unsigned) ;
++ char * basename ( char * );
++ char *strcpy(char* , char*) ;
++ 
++ 
++ /***********************************************************/
++ /*                                                         */
++ /* reargv reset argc/argv from environment for MKS shell   */
++ /*                                                         */
++ /***********************************************************/
++ 
++ 
++ void reargv ( int *argcp, char *** argvp ) {
++ 
++     int i = 0;
++     int cnt ;
++     char ** v;
++     extern char **environ ;
++     register char **pe = environ;
++ 
++ /* MKS Command line args are in the first n lines of the environment */
++ /* each arg is preceded with a tilde (~)*/
++ 
++     while ( **(pe++) == '~' )
++         i++;
++ 
++ /* if no tilde found then not running under MKS */
++ 
++     if ( ! i )  return ;
++ 
++ /* malloc space for array of char pointers */
++ 
++     if ( ! ( v = ( char ** ) malloc (( i + 1 ) * sizeof ( char* ))) )
++         return 1;
++ 
++ /* set argc to number of args in environ */
++ 
++     *argcp = cnt = i;
++ 
++ /* set char pointers to each command line arg */
++ /* jump over the tilde which is the first char in each string */
++ 
++     for ( i = 0; i < cnt ; i++ )
++         v[i] = environ[i]+1;
++ 
++     /*set last arg to null*/
++ 
++     v[cnt] = (char *) 0 ;
++     
++     /*strip leading directory stuff from argv[0] */
++ 
++     v[0] = basename(v[0]);
++ 
++     *argvp = v;
++ }
++ 
++ 
++ /***********************************************************/
++ /*                                                         */
++ /* basename                                                */
++ /*                                                         */
++ /***********************************************************/
++ 
++ static char * basename ( char * s ) {
++ 
++     register char * p ;
++     char *last ;
++     
++     /* find the last occurrence of ':' '\\' or '/' */
++     p = s ;  last = (char *) 0 ;
++     while ( *p ) {
++ 	if ( *p == ':' || *p == '\\' || *p == '/' ) last = p ;
++ 	p++ ;
++     }
++ 
++     return last ? last+1 : s ;
++ }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- vargs.h	Fri Oct  2 16:23:41 1992
+***************
+*** 0 ****
+--- 1,56 ----
++ 
++ /********************************************
++ vargs.h
++ copyright 1992 Michael D. Brennan
++ 
++ This is a source file for mawk, an implementation of
++ the AWK programming language.
++ 
++ Mawk is distributed without warranty under the terms of
++ the GNU General Public License, version 2, 1991.
++ ********************************************/
++ 
++ /*
++ $Log: vargs.h,v $
++  * Revision 1.1  1992/10/02  23:23:41  mike
++  * Initial revision
++  *
++ */
++ 
++ /* provides common interface to <stdarg.h> or <varargs.h> 
++    only used for error messages
++ */
++ 
++ 
++ #if   HAVE_STDARG_H == 0
++ #include <varargs.h>
++ 
++ #ifndef  VA_ALIST
++ 
++ #define  VA_ALIST(type, arg)  (va_alist) va_dcl { type arg ;
++ #define  VA_ALIST2(t1,a1,t2,a2) (va_alist) va_dcl { t1 a1 ; t2 a2 ;
++ 
++ #endif
++ 
++ #define  VA_START(p,type, last)  va_start(p) ;\
++                                  last = va_arg(p,type)
++ 
++ 
++ #define  VA_START2(p,t1,a1,t2,a2)  va_start(p) ;\
++                                   a1 = va_arg(p,t1);\
++                                   a2 = va_arg(p,t2)
++ 
++ #else  /* HAVE_STDARG_H  */
++ #include <stdarg.h>
++ 
++ #ifndef  VA_ALIST
++ #define  VA_ALIST(type, arg)  (type arg, ...) {
++ #define  VA_ALIST2(t1,a1,t2,a2)  (t1 a1,t2 a2,...) {
++ #endif
++ 
++ #define  VA_START(p,type,last)   va_start(p,last)
++ 
++ #define  VA_START2(p,t1,a1,t2,a2)  va_start(p,a2)
++ 
++ #endif
++ 
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/srcstat2.awk	Sat Dec  5 13:57:14 1992
+***************
+*** 0 ****
+--- 1,28 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Sum up number, line count, and sizes of SOURCE files in current directory
++ # run with 
++ #       bmawk -fsrcsize.awk workfile
++ # or similar command syntax with your awk program
++ # where workfile is a work file
++ BEGIN {
++ # redirection done by shelled command
++ system("dir *.* >workfile")
++ ssize = 0   # size accumulator
++ slines = 0  # line counter
++ scount = 0  # obj counter
++ exit
++ }
++ END {
++ # Now read workfile back in
++     while (getline < "workfile" > 0) {
++     if ($2 == "C" || $2 == "H" || $2 == "CPP" || $2 == "HPP")  {
++ 	filename = sprintf("%s.%s", $1, $2)
++ 	ssize += $3
++ 	while (getline < filename > 0) {slines++}
++ 	scount++
++ 	}
++     }
++ print scount " files, " slines " lines, total size " ssize " bytes"
++ system("del workfile")
++ }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/argvpoly.c	Thu Dec 17 20:09:43 1992
+***************
+*** 0 ****
+--- 1,80 ----
++ 
++ /*  argvpoly.c
++     --  set arguments via POLYSHELL (now Thompson Shell??)
++     --  no errors, don't change anything if
++     --  it seems shell is not activated   */
++ 
++ /* POLYSHELL puts the shell expanded command line
++    in the environment variable CMDLINE.  Ascii 0 is
++    replaced by \xff.
++ */
++ 
++ char *strchr(char *, int), *getenv(char *) ;
++ char *basename(char *) ;
++ void *malloc(unsigned) ;
++ int  strcmp(char *, char *) ;
++ 
++ static  char *basename(char *s)
++ /* strip path and extension , upcase the rest */
++ { 
++   register char *p ;
++ 
++   for ( p = strchr(s,0) ; p > s ; p-- )
++     switch( p[-1] )
++      { case '\\' :
++        case ':'  :
++        case '/'  :  return p ;
++        case '.'  :  p[-1] = 0 ;  break ;
++        default   :
++ 	    if ( p[-1] >= 'a' && p[-1] <= 'z' )   p[-1] -= 32 ;
++ 	    break ;
++      }
++ 
++   return  p ;
++ }
++ 
++ /*---------------------
++   reargv  --  recompute  argc and argv for PolyShell
++     if not under shell do nothing
++  *-------------------------------  */
++ 
++ extern  char *progname ;
++ extern  unsigned char _osmajor ;
++ 
++ void  reargv(int *argcp , char ***argvp)
++ { register char *p ;
++   char **v , *q, *cmdline, **vx ;
++   int cnt, cntx ;
++ 
++   if ( _osmajor == 2 )  /* ugh */
++      (*argvp)[0] = progname ;
++   else  (*argvp)[0] = basename( (*argvp)[0] ) ;
++ 
++   if ( ! (cmdline = getenv("CMDLINE")) )  return ;
++ 
++   if ( *(q = strchr(cmdline,0) - 1) != 0xff )
++       return ;  /*  shexpand set wrong */
++ 
++   for ( *q = 0, cnt = 1 , p = cmdline ; p < q ; p++ )
++      if ( *p == 0xff ) { cnt++ ; *p = 0 ; }
++ 
++   if ( ! (v = (char **) malloc((cnt+1)*sizeof(char*))) )
++        return ;  /* shouldn't happen */
++ 
++   p = cmdline ;
++   vx = v ; cntx = cnt ;
++   while ( cnt )
++    { *v++ = p ;
++      cnt-- ;
++      while ( *p )  p++ ;
++      p++ ;
++    }
++   *v = (char *) 0 ;
++   v = vx ;
++ 
++   v[0] = basename( v[0] ) ;
++   if ( strcmp(v[0], (*argvp)[0]) )  return  ;/* running under command
++ 	and sh earlier  */
++   /* running under PolyShell  */
++   *argcp = cntx ;  *argvp = v ;
++ }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- config/ztc_dos.h	Sat Dec 26 17:42:50 1992
+***************
+*** 0 ****
+--- 1,58 ----
++ 
++ /********************************************
++ ztc_dos.h
++ copyright 1992, Michael D. Brennan
++ 
++ This is a source file for mawk, an implementation of
++ the AWK programming language.
++ 
++ Mawk is distributed without warranty under the terms of
++ the GNU General Public License, version 2, 1991.
++ ********************************************/
++ 
++ /* Zortech C++ under MSDOS */
++ 
++ /* $Log: ztc_dos.h,v $
++  * Revision 1.1  1992/12/27  01:42:50  mike
++  * Initial revision
++  *
++  * Revision 4.2.1  92/06/01  00:00:00  bmyers
++  * create Zortech C++ version from Borland C++ version
++  * ZTC has matherr function and no info for floating point exceptions.
++  *
++ */
++ 
++ #ifndef   CONFIG_H
++ #define   CONFIG_H      1
++ 
++ #define   MSDOS                 1
++ 
++ #define   HAVE_PROTOS           1
++ #define   HAVE_STDARG_H         1
++ #define   HAVE_STDLIB_H		1
++ #define   HAVE_TIME_H		1
++ #define   HAVE_STRERROR		1
++ 
++ #define   HAVE_MATHERR          0
++ 
++ 
++ 
++ 
++ #define  FPE_TRAPS_ON		1
++ #define  NOINFO_SIGFPE          1
++ 
++ 
++ #ifndef   HAVE_SMALL_MEMORY   /* allow large model override */
++ #define   HAVE_SMALL_MEMORY     1
++ #endif
++ 
++ #if  HAVE_SMALL_MEMORY==0
++ /* how to test far pointers have the same segment */
++ #include <dos.h>
++ #define  SAMESEG(p,q)	(FP_SEG(p)==FP_SEG(q))
++ #endif
++ 
++ #include "config/Idefault.h"
++ 
++ 
++ #endif  /* CONFIG_H  */
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/objstat.awk	Sat Dec  5 13:57:12 1992
+***************
+*** 0 ****
+--- 1,20 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Sum up sizes of OBJ files in current directory
++ # A clumsy script to count OBJs and sum up their sizes
++ # run with 
++ #       bmawk -fobjsize.awk workfile
++ # or similar command syntax with your awk program
++ # where workfile is a work file
++ BEGIN {
++ # redirection done by shelled command
++ system("dir *.obj >" ARGV[1])
++ osize = 0   # size accumulator
++ ocount = 0  # obj counter
++ }
++ # Now read workfile back, skipping lines that are not files
++ $2 == "OBJ" { osize += $3 ; ocount++ }
++ END {
++ print ocount " OBJs, total size " osize " bytes"
++ system("del "ARGV[1])
++ }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/add_cr.awk	Sat Dec  5 13:57:11 1992
+***************
+*** 0 ****
+--- 1,93 ----
++ 
++ # add_cr.awk
++ # converts from Unix (LF only) text files to
++ # DOS (CRLF) text files
++ #
++ # works on both unix and dos 
++ # if used on unix change COPY and DEL in BEGIN section
++ #
++ # mawk -f add_cr.awk  [files]
++ 
++ # with no files reads stdin writes stdout
++ # otherwise the original is overwritten
++ #
++ # If a file of the form `@file', then arguments are read from
++ # `file', one per line
++ 
++ #
++ # To add cr's to the whole distribution
++ #
++ # mawk -f doslist.awk packing.lis | mawk "{print $2}" > list
++ # mawk -f add_cr.awk  @list
++ #
++ 
++ 
++ # read arguments for @file into ARGV[]
++ function reset_argv(T, i, j, flag, file) #all args local
++ {
++   for( i = 1 ; i < ARGC ; i++ ) 
++   {
++     T[i] = ARGV[i]
++     if ( T[i] ~ /^@/ ) flag = 1
++   }
++ 
++   if ( ! flag )  return
++ 
++   # need to read from a @file into ARGV
++   j = 1
++   for( i = 1 ; i < ARGC ; i++ )
++   {
++     if ( T[i] !~ /^@/ ) ARGV[j++] = T[i]
++     else
++     {
++       T[i] = substr(T[i],2)
++       # read arguments from T[i]
++       while ( (getline file < T[i]) > 0 ) ARGV[j++] = file
++     }
++   }
++   ARGC = j
++ }
++    
++   
++ BEGIN {
++   COPY = "copy"    # unix: "cp"
++   DEL = "del"      # unix: "rm"
++ 
++   tmpfile = ENVIRON["MAWKTMPDIR"] "MAWK.TMP"
++ 
++   reset_argv()
++ }
++ 
++ 
++ FILENAME == "-" {
++    # just write to stdout
++    printf "%s\r\n" , $0
++    next
++ }
++ 
++ FILENAME != filename {
++    
++    if ( filename )
++    {
++      close(tmpfile)
++      syscmd = sprintf( "%s %s %s", COPY, tmpfile, filename )
++      system(syscmd)
++    }
++ 
++    filename = FILENAME
++ }
++ 
++ { printf "%s\r\n" , $0 > tmpfile }
++ 
++ 
++ END {
++   if ( filename )  
++   {
++     close(tmpfile)
++     syscmd = sprintf( "%s %s %s", COPY, tmpfile, filename )
++     system(syscmd)
++     system(DEL " " tmpfile)
++   }
++ }
++ 
++    
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/texttest.awk	Sat Dec  5 13:57:15 1992
+***************
+*** 0 ****
+--- 1,11 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ /^#include/ {
++ # got #include, see if it has at least one quote. We don't want #include <>        
++         z = gsub(/"/, "", $2)
++         while ((z > 0) && (getline x <$2 > 0)) 
++ #        while (getline x <$2 > 0) 
++                 print x
++         next
++ }
++ { print }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/makefile.ztc	Sat Dec 26 17:44:54 1992
+***************
+*** 0 ****
+--- 1,28 ----
++ # Makefile for Zortech C
++ 
++ OBJ1=parse.obj scan.obj memory.obj main.obj hash.obj execute.obj code.obj\
++   da.obj error.obj init.obj bi_vars.obj cast.obj print.obj bi_funct.obj\
++   kw.obj jmp.obj array.obj field.obj  split.obj re_cmpl.obj zmalloc.obj\
++   fin.obj files.obj  scancode.obj matherr.obj fcall.obj version.obj\
++   dosexec.obj
++ 
++ #OBJ2=rexp\rexp.obj rexp\rexp0.obj rexp\rexp1.obj rexp\rexp2.obj\
++ #  rexp\rexp3.obj  rexp\rexpdb.obj
++ 
++ OBJ2=rexp.obj rexp0.obj rexp1.obj rexp2.obj\
++   rexp3.obj rexpdb.obj
++ 
++ CFLAGS=-ml -bx -o -A- -DLARGE -DMAWK -DHAVE_SMALL_MEMORY=0
++ 
++ LFLAGS = -L/ST:32768
++ 
++ .c.obj:
++ 	ztc -c $(CFLAGS) $<
++ 
++ bmawkztc.exe:	$(OBJ1) $(OBJ2)
++ 	ztc $(LFLAGS) -obmawkztc $(OBJ1) $(OBJ2)
++ 
++ $(OBJ1): BI_FUNCT.H BI_VARS.H CODE.H FIELD.H FILES.H INIT.H JMP.H MEMORY.H\
++   PARSE.H PATCHLEV.H REGEXP.H REPL.H SCAN.H SIZES.H SYMTYPE.H TYPES.H\
++   ZMALLOC.H CONFIG.H FIN.H MAWK.H
++ $(OBJ2):	rexp.h
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/doslist.awk	Sat Dec  5 13:57:11 1992
+***************
+*** 0 ****
+--- 1,34 ----
++ 
++ # print truncated DOS file names
++ # from packing.list (packing.lis)
++ #
++ #  mawk -f doslist.awk packing.lis
++ 
++ 
++ # discard blanks and comments
++ /^#/ || /^[ \t]*$/ {next}
++ 
++ 
++ function dos_name(s,	n, front, X)
++ {
++   #lowercase, split on extension and truncate pieces
++   s = tolower(s)
++   n = split(s, X, ".")
++ 
++   front = substr(X[1],1,8)
++ 
++   if ( n == 1 )  return front
++   else return front "." substr(X[2], 1, 3)
++ }
++ 
++ {
++   n = split($1, X, "/")
++   new = dos_name(X[1])
++ 
++   for( i = 2 ; i <= n ; i++ )
++ 	new = new "\\" dos_name(X[i])
++ 
++   printf "%-30s%s\n", $1, new
++ }
++ 
++ 
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- config/linux.h	Wed Jan 27 19:52:22 1993
+***************
+*** 0 ****
+--- 1,24 ----
++ /*
++ 
++ linux.h
++ Sorta tested with Linux 0.98pl4 & gcc 2.2d7
++ Slapped together by Bob Hutchinson
++ Standard disclaimer: "Well, it worked for me..."
++ 
++ */
++ 
++ 
++ #ifndef   CONFIG_H
++ #define   CONFIG_H      	1
++ 
++ #define HAVE_MATHERR		0
++ #define HAVE_STDLIB_H		1
++ 
++ #define  DONT_PROTO_OPEN
++ 
++ #define FPE_TRAPS_ON		1
++ #define NOINFO_SIGFPE		1
++ 
++ #include "config/Idefault.h"
++ 
++ #endif  /* CONFIG_H  */
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- config/coherent.h	Sun Nov 22 10:35:43 1992
+***************
+*** 0 ****
+--- 1,58 ----
++ 
++ /********************************************
++ coherent.h
++ copyright 1992.  Michael D. Brennan
++ 
++ This is a source file for mawk, an implementation of
++ the AWK programming language.
++ 
++ Mawk is distributed without warranty under the terms of
++ the GNU General Public License, version 2, 1991.
++ ********************************************/
++ 
++ /* This is for COHERENT 4.0 */
++ 
++ /*
++ $Log: coherent.h,v $
++  * Revision 1.1  1992/11/22  18:35:43  mike
++  * Initial revision
++  *
++ */
++ 
++ #ifndef  CONFIG_H
++ #define  CONFIG_H       1
++ 
++ #define HAVE_VOID_PTR   0
++ #define HAVE_MATHERR    0
++ #define HAVE_FMOD       0
++ #define HAVE_STDLIB_H   1
++ #define HAVE_STRERROR	1
++ 
++ #define USE_SIMPLE_VFPRINTF  /* no vfprintf() */
++ 
++ #define HAVE_STDARG_H   1
++ 
++    /* but it not standard ! 
++       so add  */
++ 
++ #define  VA_ALIST(type, arg) (arg) type arg; {
++ #define  VA_ALIST2(t1,a1,t2,a2)  (a1,a2) t1 a1; t2 a2; {
++ 
++ 
++ /* Until MWC improves floating point (December 1992, they tell me),
++    or fixes the math library (log(-8) gives 0, for example), we'll
++    have to put up with inconsistent handling. 
++    
++    Coherent 4.0 cannot be set up to pass fpe_test
++ */
++ 
++ #define FPE_TRAPS_ON    1
++ #define NOINFO_SIGFPE   1
++ 
++ 
++ int printf();
++ int sprintf();
++ 
++ #include "config/Idefault.h"
++ 
++ #endif
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/shell.awk	Sat Dec  5 13:57:13 1992
+***************
+*** 0 ****
+--- 1,16 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Test pipes under DOS. comment/uncomment print statements below
++ BEGIN {
++ # redirection done by shelled command
++ system("dir *.* /b >pippo.")
++ lcount = 0
++ }
++ {
++ # print
++ # Below is redirection done by mawk
++ # print >"pippo2."
++ print $0 | "sort"
++ lcount++
++ }
++ END { print "mawk NR line count=" NR " our line count=" lcount " lines in pippo"}
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- config/386bsd.h	Thu Feb  4 18:20:10 1993
+***************
+*** 0 ****
+--- 1,36 ----
++ 
++ /********************************************
++ 386bsd.h
++ copyright 1993, Michael D. Brennan
++ 
++ This is a source file for mawk, an implementation of
++ the AWK programming language.
++ 
++ Mawk is distributed without warranty under the terms of
++ the GNU General Public License, version 2, 1991.
++ ********************************************/
++ 
++ 
++ /*
++ $Log: 386bsd.h,v $
++  * Revision 1.1  1993/02/05  02:20:10  mike
++  * Initial revision
++  *
++ */
++ 
++ #ifndef   CONFIG_H
++ #define   CONFIG_H    1
++ 
++ #define   FPE_TRAPS_ON                1
++ #define   FPE_ZERODIVIDE   FPE_FLTDIV_TRAP
++ #define   FPE_OVERFLOW     FPE_FLTOVF_TRAP
++ 
++ #define   HAVE_STRTOD         0
++ 
++ #define   HAVE_MATHERR                0
++ 
++ #define   DONT_PROTO_OPEN
++ 
++ #include "config/Idefault.h"
++ 
++ #endif  /* CONFIG_H  */
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/winexe.awk	Sat Dec  5 13:57:15 1992
+***************
+*** 0 ****
+--- 1,106 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Sum up segment sizes of all Windows EXEs in current directory
++ # requires DOS 5.0 and Borland TDUMP
++ # run with
++ #       awk -fwinexe.awk work1
++ # where work1 is a work file
++ # You must have at least one filename as an arg, else awk will want to read
++ # from con:, hence the requirement for work1
++ BEGIN {
++ # redirection done by shelled command
++ system("del workfile.$%$") # Will probably cause a File Not Found message
++ # Generate a list of EXEs
++ system("dir *.exe /b > workfile.$%$")
++ while (getline < "workfile.$%$" > 0) {
++ # TDUMP keeps on piping to the workfile
++ system("tdump " $1 ">> " ARGV[1])
++ }
++ module_name = "" # initialize
++ # Now read workfile back, processing lines that:
++ # 1. contain EXE file name
++ # 2. contain segment type
++ # Print EXE name and stats for each segment type processed
++ # When there is a new EXE name, print summary for EXE just processed
++ j = 1
++ while (getline < ARGV[1] > 0) {
++ # module name
++ if($1 == "Display" && $2 == "of" && $3 == "File") {
++ # Print program summary for all but last program
++ if(module_name != "") { Print_Summary() }
++ otcount = 0 # text segment counter
++ odcount = 0 # data segment counter
++ otsize = 0  # text size accumulator
++ odsize = 0  # data size accumulator
++ module_name = $4 }
++ # File Size
++ if($1 == "DOS" && $2 == "File" && $3 == "Size") {
++ # 6+ digit file size with leading left paren
++ DOS_Size = substr($5,2,7)
++ # file size < 6 digits
++ if(DOS_Size == 0 || DOS_Size == "") { DOS_Size = $6 }
++ }
++ # CODE segment
++ if($1 == "Segment" && $2 == "Type:" && $3 =="CODE") {
++ decval = hexdec(substr($7,1,4))
++ otsize += decval
++ # printf ("%12s CODE %4s %7u\n", module_name, $7, decval)
++ otcount++ }
++ # DATA segment
++ if($1 == "Segment" && $2 == "Type:" && $3 =="DATA") {
++ decval = hexdec(substr($7,1,4))
++ odsize += decval
++ # printf ("%12s DATA %4s %7u\n", module_name, $7, decval)
++ odcount++ }
++ } # while
++ } # end of BEGIN section
++ # no main loop at all!
++ END {
++ # print record for last program
++ Print_Summary()
++ # delete work files
++ system("del "ARGV[1])
++ system("del workfile.$%$")
++ }  # end of END section
++ 
++ # No scanf in awk, so convert hex string x to decimal the hard way
++ function hexdec (x) {
++ result = 0
++ for (i=1; i<=length(x); i++) {
++ thechar = substr(x,i,1)
++ # digits 0-9 and lower case hex produced by TDUMP
++ # use brute force
++ if (thechar == "0") {result = result*16}
++ if (thechar == "1") {result = result*16 + 1}
++ if (thechar == "2") {result = result*16 + 2}
++ if (thechar == "3") {result = result*16 + 3}
++ if (thechar == "4") {result = result*16 + 4}
++ if (thechar == "5") {result = result*16 + 5}
++ if (thechar == "6") {result = result*16 + 6}
++ if (thechar == "7") {result = result*16 + 7}
++ if (thechar == "8") {result = result*16 + 8}
++ if (thechar == "9") {result = result*16 + 9}
++ if (thechar == "a") {result = result*16 + 10}
++ if (thechar == "b") {result = result*16 + 11}
++ if (thechar == "c") {result = result*16 + 12}
++ if (thechar == "d") {result = result*16 + 13}
++ if (thechar == "e") {result = result*16 + 14}
++ if (thechar == "f") {result = result*16 + 15}
++ if (thechar == "A") {result = result*16 + 10}
++ if (thechar == "B") {result = result*16 + 11}
++ if (thechar == "C") {result = result*16 + 12}
++ if (thechar == "D") {result = result*16 + 13}
++ if (thechar == "E") {result = result*16 + 14}
++ if (thechar == "F") {result = result*16 + 15}
++ } # for (i=1;i<length(x);i++)
++ return result
++ } # function hexdec (x)
++ 
++ function Print_Summary () {
++ # zero segment counts mean non-Windows EXE, so don't print
++ if (otcount+otcount != 0) {
++ printf ("%12s - %10.0f bytes\n", module_name, DOS_Size)
++ printf ("%5.0f TEXT segments with %10.0f bytes\n", otcount, otsize)
++ printf ("%5.0f DATA segments with %10.0f bytes\n", odcount, odsize)
++ }
++ }
+*** /dev/null	Sat Feb  6 02:07:00 1993
+--- msdos/examples/srcstat.awk	Sat Dec  5 13:57:14 1992
+***************
+*** 0 ****
+--- 1,26 ----
++ # Ben Myers <0003571400@mcimail.com>
++ 
++ # Sum up number, line count, and sizes of SOURCE files in current directory
++ # run with 
++ #       bmawk -fsrcsize.awk workfile
++ # or similar command syntax with your awk program
++ # where workfile is a work file
++ BEGIN {
++ # redirection done by shelled command
++ # system("dir *.* >workfile")
++ system("dir *.* >" ARGV[1])
++ ssize = 0   # size accumulator
++ slines = 0  # line counter
++ scount = 0  # obj counter
++ }
++ # Now read workfile back in
++ $2 == "C" || $2 == "H" || $2 == "CPP" || $2 == "HPP" {
++ 	filename = sprintf("%s.%s", $1, $2)
++ 	ssize += $3
++ 	while (getline < filename > 0) {slines++}
++ 	scount++
++ 	}
++ END {
++ print scount " files, " slines " lines, total size " ssize " bytes"
++ system("del " ARGV[1])
++ }
+Index: rexp/rexp2.c
+*** 3.7	1992/01/21 17:33:15
+--- 3.8	1992/12/24 00:36:44
+***************
+*** 12,18 ****
+X  
+X  /*$Log: rexp2.c,v $
+!  * Revision 3.7  1992/01/21  17:33:15  brennan
+!  * added some casts so that character classes work with signed chars
+X   *
+X   * Revision 3.6  91/10/29  10:54:03  brennan
+X   * SIZE_T
+--- 12,23 ----
+X  
+X  /*$Log: rexp2.c,v $
+!  * Revision 3.8  1992/12/24  00:36:44  mike
+!  * fixed major bozo for LMDOS when growing stack
+!  * fixed potential LMDOS bozo with M_STR+U_ON+END_ON
+!  * fixed minor bug in M_CLASS+U_ON+END_ON
+X   *
++  * Revision 3.7  92/01/21  17:33:15  brennan
++  * added some casts so that character classes work with signed chars
++  * 
+X   * Revision 3.6  91/10/29  10:54:03  brennan
+X   * SIZE_T
+***************
+*** 52,58 ****
+X  #define  STACKGROWTH    16
+X  
+! /* statics */
+X  static RT_STATE *PROTO(slow_push,(RT_STATE *,STATE*,char*,int)); 
+! 
+X  
+X  
+--- 57,63 ----
+X  #define  STACKGROWTH    16
+X  
+! #ifdef  DEBUG
+X  static RT_STATE *PROTO(slow_push,(RT_STATE *,STATE*,char*,int)); 
+! #endif
+X  
+X  
+***************
+*** 64,72 ****
+X  RT_STATE *RE_run_stack_empty ;
+X  
+- /* for statistics and debug */
+- static RT_STATE *stack_max ; 
+- 
+X  void RE_run_stack_init()
+! { if ( !RE_run_stack_base )
+X    {
+X      RE_run_stack_base = (RT_STATE *)
+--- 69,75 ----
+X  RT_STATE *RE_run_stack_empty ;
+X  
+X  void RE_run_stack_init()
+! { 
+!   if ( !RE_run_stack_base )
+X    {
+X      RE_run_stack_base = (RT_STATE *)
+***************
+*** 73,77 ****
+X                   RE_malloc(sizeof(RT_STATE) * STACKGROWTH ) ;
+X      RE_run_stack_limit = RE_run_stack_base + STACKGROWTH ;
+!     RE_run_stack_empty = stack_max = RE_run_stack_base-1 ;
+X    }
+X  }
+--- 76,80 ----
+X                   RE_malloc(sizeof(RT_STATE) * STACKGROWTH ) ;
+X      RE_run_stack_limit = RE_run_stack_base + STACKGROWTH ;
+!     RE_run_stack_empty = RE_run_stack_base-1 ;
+X    }
+X  }
+***************
+*** 84,88 ****
+X  
+X  RT_STATE  *RE_new_run_stack()
+! { int newsize = (RE_run_stack_limit - RE_run_stack_base) + STACKGROWTH ;
+X  
+X  #ifdef  LMDOS   /* large model DOS */
+--- 87,93 ----
+X  
+X  RT_STATE  *RE_new_run_stack()
+! { 
+!   int oldsize = RE_run_stack_limit - RE_run_stack_base ;
+!   int newsize = oldsize + STACKGROWTH ;
+X  
+X  #ifdef  LMDOS   /* large model DOS */
+***************
+*** 92,107 ****
+X  #endif
+X  
+- #ifdef  __TURBOC__  
+- /* turbo C's realloc() screws up when running out of mem  */
+-   { RT_STATE *temp = (RT_STATE*)malloc(SIZE_T(newsize*sizeof(RT_STATE))) ;
+-     if ( temp ) (void)memcpy(temp,RE_run_stack_base,
+- 	    SIZE_T((newsize-STACKGROWTH)*sizeof(RT_STATE))) ;
+-     free(RE_run_stack_base) ;
+-     RE_run_stack_base = temp ;
+-   }
+- #else  /* normal case */
+X    RE_run_stack_base = (RT_STATE *) realloc( RE_run_stack_base ,
+X            SIZE_T(newsize * sizeof(RT_STATE)) ) ;
+- #endif
+X  
+X    if ( ! RE_run_stack_base )
+--- 97,102 ----
+***************
+*** 115,121 ****
+X    RE_run_stack_limit = RE_run_stack_base + newsize ;
+X    RE_run_stack_empty = RE_run_stack_base - 1 ;
+!   return  stack_max = RE_run_stack_base + newsize - STACKGROWTH ;
+X  }
+X  
+X  static RT_STATE *slow_push(sp, m, s, u)
+X    RT_STATE *sp ;
+--- 110,119 ----
+X    RE_run_stack_limit = RE_run_stack_base + newsize ;
+X    RE_run_stack_empty = RE_run_stack_base - 1 ;
+! 
+!   /* return the new stackp */
+!   return  RE_run_stack_base + oldsize ;
+X  }
+X  
++ #ifdef  DEBUG
+X  static RT_STATE *slow_push(sp, m, s, u)
+X    RT_STATE *sp ;
+***************
+*** 124,139 ****
+X    int   u ;
+X  { 
+!   if ( sp > stack_max )
+!      if ( (stack_max = sp) == RE_run_stack_limit )
+!              sp = RE_new_run_stack() ;
+! 
+X    sp->m = m ; sp->s = s ; sp->u = u ;
+X    return sp ;
+X  }
+- 
+- #ifdef   DEBUG
+- void  print_max_stack(f)
+-   FILE *f ;
+- { fprintf(f, "stack_max = %d\n", stack_max-RE_run_stack_base+1) ; }
+X  #endif
+X  
+--- 122,129 ----
+X    int   u ;
+X  { 
+!   if ( sp == RE_run_stack_limit ) sp = RE_new_run_stack() ;
+X    sp->m = m ; sp->s = s ; sp->u = u ;
+X    return sp ;
+X  }
+X  #endif
+X  
+***************
+*** 142,148 ****
+X  #else
+X  #define  push(mx,sx,ux)   if (++stackp == RE_run_stack_limit)\
+!                                 stackp = slow_push(stackp,mx,sx,ux) ;\
+!                           else\
+!                           { stackp->m=mx;stackp->s=sx;stackp->u=ux;}
+X  #endif
+X  
+--- 132,137 ----
+X  #else
+X  #define  push(mx,sx,ux)   if (++stackp == RE_run_stack_limit)\
+!                                 stackp = RE_new_run_stack() ;\
+!                           stackp->m=(mx);stackp->s=(sx);stackp->u=(ux)
+X  #endif
+X  
+***************
+*** 161,165 ****
+X    int u_flag ;
+X    char *str_end ;
+!   char *ts ; /*convenient temps */
+X    STATE *tm ;
+X  
+--- 150,154 ----
+X    int u_flag ;
+X    char *str_end ;
+!   int t ; /*convenient temps */
+X    STATE *tm ;
+X  
+***************
+*** 166,170 ****
+X    /* handle the easy case quickly */
+X    if ( (m+1)->type == M_ACCEPT && m->type == M_STR )
+!         return  (int ) str_str(s, m->data.str, m->len) ;
+X    else
+X    { u_flag = U_ON ; str_end = (char *) 0 ;
+--- 155,159 ----
+X    /* handle the easy case quickly */
+X    if ( (m+1)->type == M_ACCEPT && m->type == M_STR )
+!         return  str_str(s, m->data.str, m->len) != (char *) 0 ;
+X    else
+X    { u_flag = U_ON ; str_end = (char *) 0 ;
+***************
+*** 202,207 ****
+X      case M_STR + U_ON + END_ON :
+X              if ( !str_end )  str_end = s + strlen(s) ;
+!             ts = str_end - m->len ;
+!             if (ts < s || memcmp(ts,m->data.str,SIZE_T(m->len+1))) goto refill ;
+X              s = str_end ; m++ ; u_flag = U_OFF ;
+X              goto reswitch ;
+--- 191,197 ----
+X      case M_STR + U_ON + END_ON :
+X              if ( !str_end )  str_end = s + strlen(s) ;
+! 	    t = (str_end - s) - m->len ;
+!             if (t < 0 || memcmp(s+t,m->data.str,SIZE_T(m->len)))
+! 			goto refill ;
+X              s = str_end ; m++ ; u_flag = U_OFF ;
+X              goto reswitch ;
+***************
+*** 216,220 ****
+X              s++ ; m++ ;
+X              goto reswitch ;
+- 
+X      case M_CLASS + U_ON + END_OFF :
+X              while ( !ison(*m->data.bvp,s[0]) )
+--- 206,209 ----
+***************
+*** 228,232 ****
+X      case M_CLASS + U_ON + END_ON :
+X              if ( ! str_end )  str_end = s + strlen(s) ;
+!             if ( ! ison(*m->data.bvp, str_end[-1]) ) goto refill ;
+X              s = str_end ; m++ ; u_flag = U_OFF ;
+X              goto reswitch ;
+--- 217,222 ----
+X      case M_CLASS + U_ON + END_ON :
+X              if ( ! str_end )  str_end = s + strlen(s) ;
+!             if ( s[0] == 0 || ! ison(*m->data.bvp, str_end[-1]) )
+! 				goto refill ;
+X              s = str_end ; m++ ; u_flag = U_OFF ;
+X              goto reswitch ;
+Index: sizes.h
+*** 5.2	1992/08/27 03:20:08
+--- 5.3	1992/12/17 02:48:01
+***************
+*** 12,15 ****
+--- 12,18 ----
+X  
+X  /* $Log: sizes.h,v $
++  * Revision 5.3  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.2  1992/08/27  03:20:08  mike
+X   * patch2: increase A_HASH_PRIME
+***************
+*** 51,54 ****
+--- 54,65 ----
+X    /* starting buffer size for input files, grows if 
+X       necessary */
++ 
++ #if      LM_DOS
++ /* trade some space for IO speed */
++ #undef  BUFFSZ
++ #define BUFFSZ		8192
++ /* maximum input buffers that will fit in 64K */
++ #define  MAX_BUFFS	((int)(0x10000L/BUFFSZ) - 1)
++ #endif
+X  
+X  #define  HASH_PRIME  53
+Index: rexp/rexp3.c
+*** 3.5	1992/01/21 17:33:20
+--- 3.6	1992/12/24 00:44:53
+***************
+*** 12,15 ****
+--- 12,19 ----
+X  
+X  /*$Log: rexp3.c,v $
++  * Revision 3.6  1992/12/24  00:44:53  mike
++  * fixed potential LMDOS bozo with M_STR+U_ON+END_ON
++  * fixed minor bug in M_CLASS+U_ON+END_ON
++  *
+X   * Revision 3.5  1992/01/21  17:33:20  brennan
+X   * added some casts so that character classes work with signed chars
+***************
+*** 47,51 ****
+X  #define  push(mx,sx,ssx,ux)   if (++stackp == RE_run_stack_limit)\
+X                                  stackp = RE_new_run_stack() ;\
+!                stackp->m=mx;stackp->s=sx;stackp->ss=ssx;stackp->u=ux;
+X  
+X  
+--- 51,56 ----
+X  #define  push(mx,sx,ssx,ux)   if (++stackp == RE_run_stack_limit)\
+X                                  stackp = RE_new_run_stack() ;\
+!                stackp->m=(mx);stackp->s=(sx);stackp->ss=(ssx);\
+! 	       stackp->u=(ux)
+X  
+X  
+***************
+*** 63,67 ****
+X    char *ss ;
+X    register RT_STATE *stackp ;
+!   int u_flag ;
+X    char *str_end, *ts ;
+X  
+--- 68,72 ----
+X    char *ss ;
+X    register RT_STATE *stackp ;
+!   int u_flag, t ;
+X    char *str_end, *ts ;
+X  
+***************
+*** 130,135 ****
+X      case M_STR + U_ON + END_ON :
+X              if ( !str_end )  str_end = s + strlen(s) ;
+!             ts = str_end - m->len ;
+!             if (ts < s || memcmp(ts,m->data.str,SIZE_T(m->len+1))) goto refill ;
+X  	    if ( !ss )  
+X  		if ( cb_ss && ts > cb_ss )  goto refill ;
+--- 135,141 ----
+X      case M_STR + U_ON + END_ON :
+X              if ( !str_end )  str_end = s + strlen(s) ;
+!             t  = (str_end - s) - m->len ;
+!             if (t < 0 || memcmp(ts=s+t,m->data.str,SIZE_T(m->len)))
+! 					goto refill ;
+X  	    if ( !ss )  
+X  		if ( cb_ss && ts > cb_ss )  goto refill ;
+***************
+*** 169,173 ****
+X      case M_CLASS + U_ON + END_ON :
+X              if ( ! str_end )  str_end = s + strlen(s) ;
+!             if ( ! ison(*m->data.bvp, str_end[-1]) ) goto refill ;
+X  	    if ( !ss )
+X  		if ( cb_ss && str_end-1 > cb_ss )  goto refill ;
+--- 175,180 ----
+X      case M_CLASS + U_ON + END_ON :
+X              if ( ! str_end )  str_end = s + strlen(s) ;
+!             if ( s[0] == 0 || ! ison(*m->data.bvp, str_end[-1]) )
+! 					goto refill ;
+X  	    if ( !ss )
+X  		if ( cb_ss && str_end-1 > cb_ss )  goto refill ;
+Index: bi_funct.c
+*** 5.2	1992/07/08 15:43:41
+--- 5.3.1.2	1993/01/27 01:04:06
+***************
+*** 12,15 ****
+--- 12,24 ----
+X  
+X  /* $Log: bi_funct.c,v $
++  * Revision 5.3.1.2  1993/01/27  01:04:06  mike
++  * minor tuning to str_str()
++  *
++  * Revision 5.3.1.1  1993/01/15  03:33:35  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.3  1992/12/17  02:48:01  mike
++  * 1.1.2d changes for DOS
++  *
+X   * Revision 5.2  1992/07/08  15:43:41  brennan
+X   * patch2: length returns.  I am a wimp
+***************
+*** 109,129 ****
+X  
+X  char *str_str(target, key , key_len)
+!   register char *target, *key ;
+X    unsigned key_len ;
+X  { 
+X    switch( key_len )
+!   { case 0 :  return (char *) 0 ;
+!     case 1 :  return strchr( target, *key) ;
+X      case 2 :
+!         while ( target = strchr(target, *key) )
+!           if ( target[1] == key[1] )  return  target ;
+!           else target++ ;
+!         /*failed*/
+!         return (char *) 0 ;
+X    }
+X    key_len-- ;
+!   while ( target = strchr(target, *key) )
+!         if ( memcmp(target+1, key+1, SIZE_T(key_len)) == 0 ) return target ;
+X          else target++ ;
+X    /*failed*/
+X    return (char *) 0 ;
+--- 118,148 ----
+X  
+X  char *str_str(target, key , key_len)
+!   register char *target;
+!   char *key ;
+X    unsigned key_len ;
+X  { 
++   register int k = key[0] ;
++ 
+X    switch( key_len )
+!   {
+!     case 0 :  return (char *) 0 ;
+!     case 1 :  return strchr( target, k) ;
+X      case 2 :
+! 	{ int k1 = key[1] ;
+! 		while ( target = strchr(target, k) )
+! 		  if ( target[1] == k1 )  return  target ;
+! 		  else target++ ;
+! 		/*failed*/
+! 		return (char *) 0 ;
+! 	}
+X    }
++ 
+X    key_len-- ;
+!   while ( target = strchr(target, k) )
+!   {
+!         if ( memcmp(target+1, key+1, SIZE_T(key_len)) == 0 )
+! 		 return target ;
+X          else target++ ;
++   }
+X    /*failed*/
+X    return (char *) 0 ;
+***************
+*** 185,191 ****
+X    else
+X    { if ( TEST2(sp+1) != TWO_DOUBLES ) cast2_to_d(sp+1) ;
+!     n = (int) sp[2].dval ;
+X    }
+!   i = (int) sp[1].dval - 1 ; /* i now indexes into string */
+X  
+X    if ( i < 0 ) { n += i ; i = 0 ; }
+--- 204,210 ----
+X    else
+X    { if ( TEST2(sp+1) != TWO_DOUBLES ) cast2_to_d(sp+1) ;
+!     n = d_to_i(sp[2].dval) ;
+X    }
+!   i = d_to_i(sp[1].dval) - 1 ; /* i now indexes into string */
+X  
+X    if ( i < 0 ) { n += i ; i = 0 ; }
+***************
+*** 423,431 ****
+X  }
+X  
+! #ifdef  __TURBOC__
+! long  biostime(int, long) ;
+! #define  time(x)  biostime(0,0L)
+! #else
+! #ifdef THINK_C
+X  #include <time.h>
+X  #else
+--- 442,446 ----
+X  }
+X  
+! #ifdef  HAVE_TIME_H
+X  #include <time.h>
+X  #else
+***************
+*** 432,436 ****
+X  #include <sys/types.h>
+X  #endif
+- #endif
+X  
+X  
+--- 447,450 ----
+***************
+*** 467,471 ****
+X    if ( c.type == C_NOINIT )  cast1_to_d(&c) ;
+X  
+!   seed =  c.type == C_DOUBLE ? ((int)c.dval & M) % M + 1 :
+X                          hash(string(&c)->str) % M + 1 ;
+X  
+--- 481,485 ----
+X    if ( c.type == C_NOINIT )  cast1_to_d(&c) ;
+X  
+!   seed =  c.type == C_DOUBLE ? (d_to_i(c.dval) & M) % M + 1 :
+X                          hash(string(&c)->str) % M + 1 ;
+X  
+Index: test/fpe_test.bat
+*** 1.1	1991/11/16 15:32:43
+--- 1.2	1992/12/30 22:03:04
+***************
+*** 127,129 ****
+--- 127,139 ----
+X  
+X  :done
++ set ret1=
++ set ret2=
++ set ret3=
++ set same=
++ if %exception% == 1 goto :done1
++ set exception=
++ exit 0
++ :done1
++ set exception=
++ exit 1
+X  exit %exception%
+Index: UCONFIG
+*** 1.7	1992/08/27 11:45:48
+--- 1.9	1993/02/05 01:40:59
+***************
+*** 28,32 ****
+X  stardentVr3
+X  
+- apolloSR10.3
+X  dynix
+X  mips
+--- 28,31 ----
+***************
+*** 35,39 ****
+--- 34,42 ----
+X  aix
+X  convex
++ coherent
+X  
++ 386bsd
++ linux
++ 
+X  atarist				cross compile with gcc
+X  
+***************
+*** 47,50 ****
+--- 50,58 ----
+X  V7:  This port is the work of Carl Mascott.  You'll need to read
+X  his notes and use the .v7 Makefiles
++ 
++ 
++ Apollo SR10.3: This used to work, but they changed compilers and
++ mawk will no longer compile because  p++->f does not compile
++ correctly.  The offending compiler is CC6.8.
+X  
+X  
+Index: field.c
+*** 5.3	1992/08/17 14:21:10
+--- 5.4.1.2	1993/01/20 12:53:08
+***************
+*** 12,15 ****
+--- 12,26 ----
+X  
+X  /* $Log: field.c,v $
++  * Revision 5.4.1.2  1993/01/20  12:53:08  mike
++  * d_to_l()
++  *
++  * Revision 5.4.1.1  1993/01/15  03:33:42  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.4  1992/11/29  22:52:11  mike
++  * double->string conversions uses long ints for 16/32 bit
++  * compatibility.
++  * Fixed small LM_DOS bozo.
++  *
+X   * Revision 5.3  1992/08/17  14:21:10  brennan
+X   * patch2: After parsing, only bi_sprintf() uses string_buff.
+***************
+*** 258,262 ****
+X  
+X  #if  LM_DOS
+!   if ( !SAMESEG(fp,field) )  goto lm_dos_label ;
+X  #endif
+X  
+--- 269,277 ----
+X  
+X  #if  LM_DOS
+!   if ( !SAMESEG(fp,field) )
+!   { 
+!     i = -1 ;
+!     goto lm_dos_label ;
+!   }
+X  #endif
+X  
+***************
+*** 270,274 ****
+X          if ( c.type != C_DOUBLE )  cast1_to_d(&c) ;
+X  
+!         if ( (j = (int) c.dval) < 0 )
+X              rt_error("negative value assigned to NF") ;
+X  
+--- 285,289 ----
+X          if ( c.type != C_DOUBLE )  cast1_to_d(&c) ;
+X  
+!         if ( (j = d_to_i(c.dval)) < 0 )
+X              rt_error("negative value assigned to NF") ;
+X  
+***************
+*** 408,420 ****
+X        { /* use the string field temporarily */
+X          if ( cp->type == C_NOINIT )
+! 	{ cp->ptr = (PTR) &null_str ;
+X  	  null_str.ref_cnt++ ;
+X          }
+X  	else /* its a double */
+! 	{ int ival ;
+X  	  char xbuff[260] ;
+X  
+! 	  if ( (double)(ival = (int)cp->dval) == cp->dval )
+! 	    (void) sprintf(xbuff, "%d", ival) ;
+X  	  else
+X  	    (void) sprintf(xbuff, string(CONVFMT)->str, cp->dval) ;
+--- 423,438 ----
+X        { /* use the string field temporarily */
+X          if ( cp->type == C_NOINIT )
+! 	{ 
+! 	  cp->ptr = (PTR) &null_str ;
+X  	  null_str.ref_cnt++ ;
+X          }
+X  	else /* its a double */
+! 	{ 
+! 	  long ival ;
+X  	  char xbuff[260] ;
+X  
+! 	  ival = d_to_l(cp->dval) ;
+! 	  if ( ival == cp->dval )
+! 	    (void) sprintf(xbuff, INT_FMT, ival) ;
+X  	  else
+X  	    (void) sprintf(xbuff, string(CONVFMT)->str, cp->dval) ;
+***************
+*** 583,587 ****
+X    
+X    cast1_to_d(cellcpy(&c, BINMODE)) ;
+!   return  (int) c.dval ;
+X  }
+X  
+--- 601,605 ----
+X    
+X    cast1_to_d(cellcpy(&c, BINMODE)) ;
+!   return  d_to_i(c.dval) ;
+X  }
+X  
+Index: config/generic.h
+*** 4.4	1992/03/03 16:40:54
+--- 4.5	1992/11/22 18:30:29
+***************
+*** 13,16 ****
+--- 13,19 ----
+X  
+X  /* $Log: generic.h,v $
++  * Revision 4.5  1992/11/22  18:30:29  mike
++  * strerror()
++  *
+X   * Revision 4.4  1992/03/03  16:40:54  brennan
+X   * remove HAVE_PRINTF_HD
+***************
+*** 54,57 ****
+--- 57,61 ----
+X     have strtod()
+X     have fmod()
++    do not have strerror()
+X  
+X  
+***************
+*** 70,82 ****
+X  /*
+X  
+- /* tested and works on:
+- 
+- SunOS4.1  (sun 4.0.3 has a bug in strtod(), use sun_os40.h)
+- 
+- Ultrix4.1  on a MIPS
+- Ultrix4.2  on a MIPS
+- SysV3.02beta on a Stardent 3000
+- 
+- */
+X  
+X  #ifndef  CONFIG_H
+--- 74,77 ----
+Index: PATCHES
+*** 1.5	1992/08/27 04:06:44
+--- 1.6	1993/02/05 01:43:06
+***************
+*** 1,2 ****
+--- 1,25 ----
++ patch3:  mawk1.1.2 -> mawk1.1.3   Jan 93
++ 
++ 1) New configurations:
++    hpux coherent 386bsd linux
++ 
++ 2) Changed some ints to longs so that Unix and Dos versions
++    give same output.  E.g.,
++ 
++    printf "%d" and printf "%ld" are now the same on Dos.
++ 
++    msdos/examples directory with scripts by Ben Myers
++ 
++    Infinity+1 large model pointer bug caused by modulo 2^16
++    arithmetic fixed.
++ 
++ 3) Grossly surprised to discover  (int) d causes a floating
++    point exception on hpux when d is a large double.
++    Integer casts are now done more carefully.  Thanks to
++    Ken Poulton for finding this bug.
++ 
++ 4) Removed ApolloSR10.3 from working configurations. Mawk will
++    not work if compiled with CC6.8.
++ 
+X  
+X  patch2:  mawk1.1.1 -> mawk1.1.2   26 Aug 92
+Index: patchlev.h
+*** 1.7	1992/08/27 11:50:38
+--- 1.13	1993/02/03 09:25:40
+***************
+*** 1,3 ****
+X  /* mawk 1.1 */
+! #define  PATCHLEVEL	2
+! #define  PATCH_STRING	".2"
+--- 1,4 ----
+X  /* mawk 1.1 */
+! #define  PATCHLEVEL	3
+! #define  PATCH_STRING	".3"  
+! #define  DATE_STRING    "Jan 1993"
+Index: init.c
+*** 5.3	1992/07/10 16:17:10
+--- 5.4	1992/12/24 01:58:19
+***************
+*** 13,16 ****
+--- 13,19 ----
+X  
+X  /* $Log: init.c,v $
++  * Revision 5.4  1992/12/24  01:58:19  mike
++  * 1.1.2d changes for MsDOS
++  *
+X   * Revision 5.3  1992/07/10  16:17:10  brennan
+X   * MsDOS: remove NO_BINMODE macro
+***************
+*** 38,41 ****
+--- 41,47 ----
+X  #endif
+X  
++ #if MSDOS
++ #include <fcntl.h>
++ #endif
+X  
+X  static void PROTO( process_cmdline , (int, char **) ) ;
+***************
+*** 46,56 ****
+X  extern  int  PROTO( is_cmdline_assign, (char*)) ;
+X  
+! #if 0
+! #if  MSDOS  &&  ! HAVE_REARGV
+! #include <fcntl.h>
+! static  void  PROTO(emit_prompt, (void) ) ;
+X  #endif
+X  #endif
+X  
+X  
+X  void initialize(argc, argv)
+--- 52,63 ----
+X  extern  int  PROTO( is_cmdline_assign, (char*)) ;
+X  
+! #if  MSDOS
+! void PROTO(stdout_init,(void)) ;
+! #if  HAVE_REARGV
+! void PROTO(reargv, (int*,char***)) ;
+X  #endif
+X  #endif
+X  
++ char *progname ;
+X  
+X  void initialize(argc, argv)
+***************
+*** 57,60 ****
+--- 64,69 ----
+X    int argc ; char **argv ;
+X  {
++   SET_PROGNAME() ;
++ 
+X    bi_vars_init() ; /* load the builtin variables */
+X    bi_funct_init() ; /* load the builtin functions */
+***************
+*** 81,84 ****
+--- 90,97 ----
+X    fpe_init() ;
+X    set_stderr() ;
++ 
++ #if  MSDOS
++   stdout_init() ;
++ #endif
+X  }
+X  
+Index: mawk.h
+*** 5.5	1992/07/06 20:15:49
+--- 5.5.1.3	1993/01/22 15:04:50
+***************
+*** 13,16 ****
+--- 13,25 ----
+X  
+X  /*   $Log: mawk.h,v $
++  * Revision 5.5.1.3  1993/01/22  15:04:50  mike
++  * pow2->mpow2 for linux
++  *
++  * Revision 5.5.1.2  1993/01/20  12:53:10  mike
++  * d_to_l()
++  *
++  * Revision 5.5.1.1  1993/01/15  03:33:46  mike
++  * patch3: safer double to int conversion
++  *
+X   * Revision 5.5  1992/07/06  20:15:49  brennan
+X   * DONT_PROTO_OPEN macro
+***************
+*** 63,66 ****
+--- 72,77 ----
+X  
+X  
++ 
++ 
+X  /*----------------
+X   *  GLOBAL VARIABLES
+***************
+*** 89,93 ****
+X  
+X  /* help with casts */
+! extern int pow2[] ;
+X  
+X  
+--- 100,104 ----
+X  
+X  /* help with casts */
+! extern int mpow2[] ;
+X  
+X  
+***************
+*** 112,116 ****
+X  
+X  /* macro to test the type of two adjacent cells */
+! #define TEST2(cp)  (pow2[(cp)->type]+pow2[((cp)+1)->type])
+X  
+X  /* macro to get at the string part of a CELL */
+--- 123,127 ----
+X  
+X  /* macro to test the type of two adjacent cells */
+! #define TEST2(cp)  (mpow2[(cp)->type]+mpow2[((cp)+1)->type])
+X  
+X  /* macro to get at the string part of a CELL */
+***************
+*** 136,139 ****
+--- 147,153 ----
+X  void  PROTO( check_strnum, (CELL *) ) ;
+X  void  PROTO( cast_to_REPL, (CELL *) ) ;
++ long  PROTO( d_to_l, (double)) ;
++ 
++ #define d_to_i(d)	((int)d_to_l(d))
+X  
+X  int   PROTO( test, (CELL *) ) ; /* test for null non-null */
+***************
+*** 183,190 ****
+X  char *PROTO( find_kw_str, (int) ) ;
+X  
+- #if ! HAVE_STDLIB_H
+X  double strtod() ;
+- #endif
+- 
+X  double fmod() ;
+X  
+--- 197,201 ----
+Index: config/Idefault.h
+*** 3.15	1992/07/08 16:16:08
+--- 3.18.1.1	1993/01/15 03:33:52
+***************
+*** 13,68 ****
+X  
+X  /* $Log: Idefault.h,v $
+!  * Revision 3.15  1992/07/08  16:16:08  brennan
+!  * don't attempt any #def or #undef with __STDC__
+X   *
+!  * Revision 3.14  1992/03/31  13:39:00  brennan
+!  * TURN_ON_FPE_TRAPS() macro
+X   *
+!  * Revision 3.13  92/03/03  16:40:56  brennan
+!  * remove HAVE_PRINTF_HD
+!  * 
+!  * Revision 3.12  91/11/16  15:37:29  brennan
+!  * add NO_BINMODE
+!  * 
+!  * Revision 3.11  91/10/29  10:48:40  brennan
+!  * version 1.09
+!  * 
+!  * Revision 3.10  91/10/23  10:46:34  brennan
+!  * MSDOS LM and SM
+!  * 
+!  * Revision 3.9  91/10/14  09:52:48  brennan
+!  * added HAVE_PRINTF_HD
+!  * 
+!  * Revision 3.8  91/09/30  08:11:22  brennan
+!  * added MAX__INT
+!  * 
+!  * Revision 3.7  91/08/16  08:49:51  brennan
+!  * Carl's addition of SW_FP_CHECK for XNX23A
+!  * 
+!  * Revision 3.6  91/08/13  09:04:05  brennan
+!  * VERSION .9994
+!  * 
+!  * Revision 3.5  91/08/03  06:10:46  brennan
+!  * changed CHECK_DIVZERO macro
+!  * 
+!  * Revision 3.4  91/08/03  05:35:59  brennan
+!  * changed name to Idefault.h 
+!  * 
+!  * Revision 3.3  91/06/28  04:36:28  brennan
+!  * adjustments with __STDC__
+!  * 
+!  * Revision 3.3  91/06/19  10:21:37  brennan
+!  * changes for xenix_r2.h and gcc
+!  * 
+!  * Revision 3.2  91/06/15  09:24:34  brennan
+!  * Carl's diffs for V7
+!  * 
+!  * 06/11/91  C. Mascott		add default D2BOOL
+X   *
+-  * Revision 3.1  91/06/07  10:38:46  brennan
+-  * VERSION 0.995
+-  * 
+X  */
+X  
+X  /* The most common configuration is defined here:
+X   
+--- 13,92 ----
+X  
+X  /* $Log: Idefault.h,v $
+!  * Revision 3.18.1.1  1993/01/15  03:33:52  mike
+!  * patch3: safer double to int conversion
+!  *
+!  * Revision 3.18  1992/12/17  02:48:01  mike
+!  * 1.1.2d changes for DOS
+!  *
+!  * Revision 3.17  1992/11/26  15:35:52  mike
+!  * don't assume __STDC__ implies HAVE_STRERROR
+X   *
+!  * Revision 3.16  1992/11/22  19:00:43  mike
+!  * allow STDC assumptions to be overridden
+X   *
+!  * Revision 3.15  1992/07/08  16:16:08  brennan
+!  * don't attempt any #def or #undef with __STDC__
+X   *
+X  */
+X  
++ 
++ #ifdef __STDC__
++ #if   __STDC__  
++ 
++ #undef  HAVE_PROTOS
++ #define HAVE_PROTOS		1
++ #undef  HAVE_VOID_PTR
++ #define HAVE_VOID_PTR		1
++ 
++ /* these can be overidden */
++ 
++ #ifndef  HAVE_STDARG_H
++ #define HAVE_STDARG_H		1
++ #endif
++ 
++ #ifndef  HAVE_STRING_H
++ #define HAVE_STRING_H		1
++ #endif
++ 
++ #ifndef  HAVE_STDLIB_H
++ #define HAVE_STDLIB_H		1
++ #endif
++ 
++ #endif  
++ #endif
++ 
++ #ifdef	MSDOS
++ 
++ #ifndef  HAVE_REARGV
++ #define  HAVE_REARGV	0
++ #endif
++ 
++ #if HAVE_REARGV
++ #define  SET_PROGNAME()  reargv(&argc,&argv) ; progname = argv[0]
++ #else
++ #define  SET_PROGNAME()  progname = "mawk"
++ #endif
++ 
++ #define  MAX__INT	0x7fff
++ 
++ #if  HAVE_SMALL_MEMORY==0
++ #define  LM_DOS		1
++ #else
++ #define  LM_DOS		0
++ #endif
++ 
++ #define   SM_DOS	(!LM_DOS)
++ 
++ #define HAVE_REAL_PIPES		0
++ #define HAVE_FAKE_PIPES		1
++ 
++ #else /* not defined MSDOS */
++ #define   MSDOS		0
++ #define   LM_DOS	0
++ #define   SM_DOS	0
++ 
++ #endif /* MSDOS */
++ 
++ 
+X  /* The most common configuration is defined here:
+X   
+***************
+*** 121,124 ****
+--- 145,152 ----
+X  #endif
+X  
++ #ifndef  HAVE_STRERROR
++ #define  HAVE_STRERROR		0
++ #endif
++ 
+X  /* uses <varargs.h> instead of <stdarg.h> */
+X  #ifndef  HAVE_STDARG_H	
+***************
+*** 152,155 ****
+--- 180,196 ----
+X  #endif
+X  
++ /* don't have strerror() */
++ #ifndef  HAVE_STRERROR
++ #define  HAVE_STRERROR		0
++ #endif
++ 
++ #ifndef  SET_PROGNAME
++ #define  SET_PROGNAME()		{ char *strrchr() , *p ;\
++                                   p = strrchr(argv[0],'/') ;\
++ 				  progname = p ? p+1 : argv[0] ; }
++ #endif
++ 				  
++ 				  
++ 
+X  /*------------- machine ------------------------*/
+X  
+***************
+*** 157,162 ****
+--- 198,214 ----
+X  #ifndef  MAX__INT     
+X  #define  MAX__INT	0x7fffffff
++ #define  INT_FMT	"%d"
++ #endif
++ 
++ #ifndef  MAX__LONG
++ #define  MAX__LONG	0x7fffffff
+X  #endif
+X  
++ #if  MAX__INT <= 0x7fff
++ #define  SHORT_INTS
++ #define  INT_FMT	"%ld"
++ #endif
++ 
++ 
+X  /* default is IEEE754 and data space is not scarce */
+X  
+***************
+*** 204,224 ****
+X  
+X  
+- #ifdef __STDC__
+- #if   __STDC__  
+- #undef  HAVE_PROTOS
+- #define HAVE_PROTOS		1
+- #undef  HAVE_VOID_PTR
+- #define HAVE_VOID_PTR		1
+- #undef  HAVE_STDARG_H
+- #define HAVE_STDARG_H		1
+- #undef  HAVE_STRING_H
+- #define HAVE_STRING_H		1
+- #undef  HAVE_STDLIB_H
+- #define HAVE_STDLIB_H		1
+- #endif  
+- #endif
+X  
+X  
+- 
+X  /* the painfull case: we need to catch fpe's and look at errno
+X     after lib calls */
+--- 256,261 ----
+***************
+*** 226,272 ****
+X  #define  STDC_MATHERR	((SW_FP_CHECK || FPE_TRAPS_ON) && HAVE_MATHERR==0)
+X  
+- /*-------------------MSDOS---------------------------------*/
+- 
+- #ifdef	MSDOS
+- 
+- #ifndef  HAVE_REARGV
+- #define  HAVE_REARGV	0
+- #endif
+- 
+- #undef   MAX__INT
+- #define  MAX__INT	0x7fff
+- 
+- #if  HAVE_SMALL_MEMORY==0
+- #define  LM_DOS		1
+- #else
+- #define  LM_DOS		0
+- #endif
+- 
+- #define   SM_DOS	(!LM_DOS)
+- 
+- #undef  HAVE_REAL_PIPES
+- #define HAVE_REAL_PIPES		0
+- #undef  HAVE_FAKE_PIPES
+- #define HAVE_FAKE_PIPES		1
+- 
+- #if  SM_DOS 
+- #ifdef  NO_BINMODE
+- #undef  NO_BINMODE
+- #define NO_BINMODE	1   /* hopefully no one needs this */
+- #else
+- #define NO_BINMODE	0
+- #endif
+- #else 
+- #define NO_BINMODE	0
+- #endif /* SM_DOS */
+- 
+- #else /* not defined MSDOS */
+- #define   MSDOS		0
+- #define   LM_DOS	0
+- #define   SM_DOS	0
+- 
+- #endif /* MSDOS */
+- 
+- /*----------------------------------------------------------*/
+X  
+X  
+--- 263,266 ----
+Index: msdos/dosexec.c
+*** 1.3	1992/07/10 16:21:57
+--- 1.4	1992/12/05 22:29:43
+***************
+*** 12,15 ****
+--- 12,20 ----
+X  
+X  /*$Log: dosexec.c,v $
++  * Revision 1.4  1992/12/05  22:29:43  mike
++  * dos patch 112d:
++  * don't use string_buff
++  * check COMSPEC
++  *
+X   * Revision 1.3  1992/07/10  16:21:57  brennan
+X   * store exit code of input pipes
+***************
+*** 43,56 ****
+X    int len ;
+X  
+!   if ( !(s = getenv("MAWKSHELL")) )
+X    {
+!     errmsg(0, "MAWKSHELL not set in environment") ; exit(1) ;
+X    }
+-   p = s ;
+-   while ( *p != ' ' && *p != '\t' ) p++ ;
+-   len = p - s ;
+-   shell = (char *) zmalloc( len + 1 ) ;
+-   (void) memcpy(shell, s, len) ;  shell[len] = 0 ;
+-   command_opt = p ;
+X  }
+X  
+--- 48,74 ----
+X    int len ;
+X  
+!   if ( s = getenv("MAWKSHELL") )
+!   {
+!     /* break into shell part and option part */
+!     p = s ;
+!     while ( *p != ' ' && *p != '\t' ) p++ ;
+!     len = p - s ;
+!     shell = (char *) zmalloc(len+1) ;
+!     memcpy(shell, s, len) ; shell[len] = 0 ;
+!     command_opt = p ;
+!   }
+!   else
+!   if ( s = getenv("COMSPEC") )
+!   {
+!     shell = s ;
+!     command_opt = " /c" ;
+! 	/* leading space needed because of bug in command.com */
+!   }
+!   else
+X    {
+!     errmsg(0,
+!     "cannot exec(), must set MAWKSHELL or COMSPEC in environment" ) ;
+!     exit(1) ;
+X    }
+X  }
+X  
+***************
+*** 104,117 ****
+X  static int next_tmp ;  /* index for naming temp files */
+X  static char *tmpdir ;  /* directory to hold temp files */
+X  
+X  
+! /* put the name of a temp file in string buff */
+! char *tmp_file_name( id )
+X    int id ;
+X  {
+!   (void) sprintf(string_buff, "%sMAWK%04X.TMP", tmpdir, id) ;
+!   return string_buff ;
+X  }
+X  
+X  PTR  get_pipe( command, type, tmp_idp)
+X    char *command ;
+--- 122,156 ----
+X  static int next_tmp ;  /* index for naming temp files */
+X  static char *tmpdir ;  /* directory to hold temp files */
++ static unsigned mawkid ; /* unique to this mawk process */
+X  
+X  
+! /* compute the unique temp file name associated with id */
+! char *tmp_file_name(id, buffer )
+X    int id ;
++   char *buffer ;
+X  {
+!   if ( mawkid == 0 )
+!   {
+!     /* first time */
+!     union {
+!     void far *ptr ;
+!     unsigned w[2] ;
+!     } xptr ;
+! 
+!     xptr.ptr = (void far*)&mawkid ;
+!     mawkid = xptr.w[1] ;
+! 
+!     tmpdir = getenv("MAWKTMPDIR") ;
+!     if ( ! tmpdir || strlen(tmpdir) > 80 ) tmpdir = "" ;
+!   }
+! 
+!   (void) sprintf(buffer, "%sMAWK%04X.%03X",tmpdir, mawkid, id) ;
+!   return buffer ;
+X  }
+X  
++ /* open a pipe, returning a temp file identifier by
++    reference
++ */
++ 
+X  PTR  get_pipe( command, type, tmp_idp)
+X    char *command ;
+***************
+*** 119,141 ****
+X  {
+X    PTR  retval ;
+!   char *tmpfile ;
+X  
+-   if ( ! tmpdir )
+-   {
+-     tmpdir = getenv("MAWKTMPDIR") ;
+-     if ( ! tmpdir )  tmpdir = "" ;
+-   }
+X  
+X    *tmp_idp = next_tmp ;
+!   tmpfile = tmp_file_name(next_tmp) ;
+X  
+X    if ( type == PIPE_OUT )  
+!       retval = (PTR) fopen(tmpfile, (binmode()&2)? "wb":"w") ;
+X    else
+!   { char xbuff[256] ;
+!     
+!     sprintf(xbuff, "%s > %s" , command, tmpfile) ;
+X      tmp_idp[1] = DOSexec(xbuff) ;
+!     retval = (PTR) FINopen(tmpfile, 0) ;
+X    }
+X  
+--- 158,177 ----
+X  {
+X    PTR  retval ;
+!   char xbuff[256] ;
+!   char *tmpname ;
+X  
+X  
+X    *tmp_idp = next_tmp ;
+!   tmpname = tmp_file_name(next_tmp, xbuff+163) ;
+X  
+X    if ( type == PIPE_OUT )  
+!   {
+!     retval = (PTR) fopen(tmpname, (binmode()&2)? "wb":"w") ;
+!   }
+X    else
+!   { 
+!     sprintf(xbuff, "%s > %s" , command, tmpname) ;
+X      tmp_idp[1] = DOSexec(xbuff) ;
+!     retval = (PTR) FINopen(tmpname, 0) ;
+X    }
+X  
+***************
+*** 152,157 ****
+X    int tid ; /* identifies the temp file */
+X  {
+-   char *tmpname = tmp_file_name(tid) ;
+X    char xbuff[256] ;
+X    int retval ;
+X  
+--- 188,193 ----
+X    int tid ; /* identifies the temp file */
+X  {
+X    char xbuff[256] ;
++   char *tmpname = tmp_file_name(tid, xbuff+163) ;
+X    int retval ;
+X  
+Index: print.c
+*** 5.3	1992/08/17 14:23:21
+--- 5.4.1.2	1993/01/20 12:53:11
+***************
+*** 12,15 ****
+--- 12,25 ----
+X  
+X  /* $Log: print.c,v $
++  * Revision 5.4.1.2  1993/01/20  12:53:11  mike
++  * d_to_l()
++  *
++  * Revision 5.4.1.1  1993/01/15  03:33:47  mike
++  * patch3: safer double to int conversion
++  *
++  * Revision 5.4  1992/11/29  18:03:11  mike
++  * when printing integers, convert doubles to
++  * longs so output is the same on 16bit systems as 32bit systems
++  *
+X   * Revision 5.3  1992/08/17  14:23:21  brennan
+X   * patch2: After parsing, only bi_sprintf() uses string_buff.
+***************
+*** 48,52 ****
+X    register CELL *p ;
+X    register FILE *fp ;
+! { register int len ;
+X    
+X    switch( p->type )
+--- 58,63 ----
+X    register CELL *p ;
+X    register FILE *fp ;
+! { 
+!   int len ;
+X    
+X    switch( p->type )
+***************
+*** 69,76 ****
+X  
+X      case C_DOUBLE :
+! 	if ( (double)(len = (int) p->dval) == p->dval )
+! 	    fprintf(fp, "%d", len) ;
+! 	else
+!         fprintf(fp, string(OFMT)->str, p->dval) ;
+X          break ;
+X  
+--- 80,92 ----
+X  
+X      case C_DOUBLE :
+! 	{
+! 	  long ival = d_to_l(p->dval) ;
+! 
+! 	  /* integers print as "%[l]d" */ 
+! 	  if ( (double) ival == p->dval )
+! 	        fprintf(fp, INT_FMT, ival) ;
+! 	  else
+!           fprintf(fp, string(OFMT)->str, p->dval) ;
+! 	}
+X          break ;
+X  
+***************
+*** 92,104 ****
+X  CELL *bi_print(sp)
+X    CELL *sp ; /* stack ptr passed in */
+! { register CELL *p ;
+X    register int k ;
+X    FILE *fp ;
+X  
+!   if ( (k = sp->type) < 0 )
+!   { if ( (--sp)->type < C_STRING ) cast1_to_s(sp) ;
+X      fp = (FILE *) file_find( string(sp), k ) ;
+X      free_STRING(string(sp)) ;
+X      k = (--sp)->type ;
+X    }
+X    else  fp = stdout ;
+--- 108,125 ----
+X  CELL *bi_print(sp)
+X    CELL *sp ; /* stack ptr passed in */
+! { 
+!   register CELL *p ;
+X    register int k ;
+X    FILE *fp ;
+X  
+!   k = sp->type ;
+!   if ( k < 0 )
+!   { 
+!     /* k holds redirection */
+!     if ( (--sp)->type < C_STRING ) cast1_to_s(sp) ;
+X      fp = (FILE *) file_find( string(sp), k ) ;
+X      free_STRING(string(sp)) ;
+X      k = (--sp)->type ;
++     /* k now has number of arguments */
+X    }
+X    else  fp = stdout ;
+***************
+*** 105,113 ****
+X  
+X    if ( k )  
+!   { p = sp - k ; /* clear k variables off the stack */
+X      sp = p - 1 ;
+!     while ( k-- > 1 ) 
+!     { print_cell(p,fp) ; print_cell(OFS,fp) ;
+!       cell_destroy(p) ; p++ ; }
+X      
+X      print_cell(p, fp) ;  cell_destroy(p) ;
+--- 126,140 ----
+X  
+X    if ( k )  
+!   { 
+!     p = sp - k ; /* clear k variables off the stack */
+X      sp = p - 1 ;
+!     k-- ;
+! 
+!     while ( k > 0 ) 
+!     { 
+!       print_cell(p,fp) ; print_cell(OFS,fp) ;
+!       cell_destroy(p) ; 
+!       p++ ; k-- ;
+!     }
+X      
+X      print_cell(p, fp) ;  cell_destroy(p) ;
+***************
+*** 114,119 ****
+X    }
+X    else  
+!   { sp-- ;
+!     print_cell( &field[0], fp )  ; }
+X  
+X    print_cell(ORS , fp) ;
+--- 141,148 ----
+X    }
+X    else  
+!   { /* print $0 */
+!     sp-- ;
+!     print_cell( &field[0], fp )  ;
+!   }
+X  
+X    print_cell(ORS , fp) ;
+***************
+*** 122,133 ****
+X    
+X  /*---------- types and defs for doing printf and sprintf----*/
+! #define  PF_C		0
+! #define  PF_S		1
+X  #define  PF_D		2   /* int conversion */
+! #define  PF_LD		3   /* long int */
+! #define  PF_F		4   /* float conversion */
+X  
+X  /* for switch on number of '*' and type */
+! #define  AST(num,type)  (5*(num)+(type))
+X  
+X  /* some picky ANSI compilers go berserk without this */
+SHAR_EOF
+true || echo 'restore of patch3 failed'
+fi
+echo 'End of  part 1'
+echo 'File patch3 is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+

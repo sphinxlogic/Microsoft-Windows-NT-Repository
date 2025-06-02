@@ -1,0 +1,2109 @@
+Newsgroups: comp.sources.misc
+From: byron@archone.tamu.edu (Byron Rakitzis)
+Subject:  v30i024:  rc - A Plan 9 shell reimplementation, v1.4, Part01/07
+Message-ID: <csm-v30i024=rc.221510@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 0d082dcbc4b44b76c6cd8f0e6bd87559
+Date: Sat, 30 May 1992 03:15:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: byron@archone.tamu.edu (Byron Rakitzis)
+Posting-number: Volume 30, Issue 24
+Archive-name: rc/part01
+Environment: UNIX
+Supersedes: rc: Volume 23, Issue 61-66
+
+This is version 1.4 of the rc shell.  rc is a command interpreter 
+and programming language similar to  sh(1).   It is  based on the 
+AT&T  plan 9 shell of the same  name.  The shell offers a  C-like 
+syntax (much more so than the C shell), and a  powerful mechanism 
+for manipulating variables. It is reasonably small and reasonably
+fast, especially when compared to contemporary shells. Its use is
+intended to be interactive, but the  language  lends  itself well 
+to scripts.  Please see the README and CHANGES files for more
+information on the changes made in this version.
+
+Byron Rakitzis
+--------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README builtins.c history plan9.ps.b
+# Wrapped by kent@sparky on Fri May 29 20:55:22 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 7)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(4327 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is release 1.4 of rc.
+X
+XRead COPYRIGHT for copying information. All files are
+X
+XCopyright 1991, Byron Rakitzis.
+X
+XCOMPILING
+X
+Xrc was written in portable ANSI C. If you don't have an ANSI compiler
+Xlike gcc or something close (e.g., sgi's cc) read further down on
+Xhow to convert rc's source to old C.
+X
+XPlease read the Makefile, and copy config.h-dist to config.h and
+Xexamine the parameters in there; they let you customize rc to your
+XUnix. For example, some Unices support /dev/fd, or some have FIFOs.
+XIf you do not perform this step then the Makefile will automatically
+Xcopy config.h-dist to config.h and proceed assuming that everything
+Xis ok. Note that config.h-dist supplies default parameter configurations
+Xfor SunOS, NeXT-OS, Irix, Ultrix and some others. Finally, if you're
+Xhaving trouble you may want to look at proto.h and see if everything
+Xin there jibes with your system.
+X
+XAfter you've built rc, you may wish to run it through a test script
+Xto see that everything is ok. Type "make trip" for this. This will
+Xproduce some output, and end with "trip is complete". If the trip
+Xends with "trip took a wrong turn..." then drop me a line.
+X
+XTo compile the history program, go into the history subdirectory
+Xand type "make". This will create a binary called "history". However,
+Xin order for it to work as advertised it must be installed into
+Xyour bin as four files named -, --, -p and --p. (these can be soft
+Xor hard links to the same file)
+X
+Xrc may also be linked with either GNU readline (10,000+ lines of
+Xcode!) or a supplied readline-like system by Simmule Turner (1,000+
+Xlines of code). See the Makefile on how to do this.
+X
+XBUGS
+X
+XSend bug reports to byron@archone.tamu.edu. If a core dump is
+Xgenerated, sending me a backtrace will help me out a great deal. You
+Xcan get a backtrace like this:
+X
+X	; gdb rc core
+X	(gdb) where
+X	<<<BACKTRACE INFO>>>
+X	(gdb)
+X
+XAlso, always report the machine, compiler and OS used to make rc.  It's
+Xpossible I may have access to a machine of that type, in which case it
+Xbecomes much easier for me to track the bug down.
+X
+XIf you are using gcc, please make sure that you have a recent version of
+Xthe compiler (1.39 and up) before you send me a note; I have found that
+Xolder versions of gcc choke over rc and generate bad code on several
+Xarchitectures. (this is especially relevant for the the MIPS architecture)
+X
+XFEEPING CREATURISM
+X
+XSee the end of the man page, under "INCOMPATABILITIES" for (known?)
+Xdifferences from the "real" rc. Most of these changes were necessary
+Xto get rc to work in a reasonable fashion on a real (i.e., commercial,
+Xnon-Labs) UNIX system; a few were changes motivated by concern
+Xabout some inadequacies in the original design.
+X
+XOLD C
+X
+XIf you need to convert rc's source into K&R C, you need to run the
+Xsource through a filter called "unproto", posted in comp.sources.misc.
+XA sample "cpp" shell script that I used to run unproto under SunOS
+Xis supplied with rc.
+X
+XCREDITS
+X
+XThis shell was written by me, Byron Rakitzis, but kudos go to Paul
+XHaahr for letting me know what a shell should do and for contributing
+Xcertain bits and pieces to rc (notably the limits code, print.c,
+Xmost of which.c and the backquote redirection code), and to Hugh
+XRedelmeier for running rc through his fussy ANSI compiler and
+Xthereby provoking interesting discussions about portability, and
+Xalso for providing many valuable suggestions for improving rc's
+Xcode in general. Finally, many thanks go to David Sanderson, for
+Xreworking the man page to format well with troff, and for providing
+Xmany suggestions both for rc and its man page.
+X
+XThanks to Boyd Roberts for the original history.c, and to Hugh
+Xagain for re-working parts of that code.
+X
+XOf course, without Tom Duff's design of the original rc, I could
+Xnot have written this shell (though I probably would have written
+X*a* shell). Almost of all of the features, with minor exceptions,
+Xhave been implemented as described in the Unix v10 manuals. Hats
+Xoff to td for designing a C-like, minimal but very useful shell.
+X
+XTom Duff has kindly given permission for the paper he wrote for
+XUKUUG to be distributed with this version of rc (called "plan9.ps"
+Xin the same ftp directory as the shell). Please read this paper
+Xbearing in mind that it describes a program that was written at
+XAT&T and that the version of rc presented here differs in some
+Xrespects.
+END_OF_FILE
+  if test 4327 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'builtins.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'builtins.c'\"
+else
+  echo shar: Extracting \"'builtins.c'\" \(11075 characters\)
+  sed "s/^X//" >'builtins.c' <<'END_OF_FILE'
+X/* builtins.c: the collection of rc's builtin commands */
+X
+X/*
+X	NOTE: rc's builtins do not call "rc_error" because they are
+X	commands, and rc errors usually arise from syntax errors. e.g.,
+X	you probably don't want interpretation of a shell script to stop
+X	because of a bad umask.
+X*/
+X
+X#include <sys/ioctl.h>
+X#include <setjmp.h>
+X#include <errno.h>
+X#include "rc.h"
+X#include "jbwrap.h"
+X#ifndef NOLIMITS
+X#include <sys/time.h>
+X#include <sys/resource.h>
+X#endif
+X#include "addon.h"
+X
+Xextern int umask(int);
+X
+Xstatic void b_break(char **), b_cd(char **), b_eval(char **), b_exit(char **),
+X	b_newpgrp(char **), b_return(char **), b_shift(char **), b_umask(char **),
+X	b_wait(char **), b_whatis(char **);
+X
+X#ifndef NOLIMITS
+Xstatic void b_limit(char **);
+X#endif
+X#ifndef NOECHO
+Xstatic void b_echo(char **);
+X#endif
+X
+Xstatic struct {
+X	builtin_t *p;
+X	char *name;
+X} builtins[] = {
+X	{ b_break,	"break" },
+X	{ b_builtin,	"builtin" },
+X	{ b_cd,		"cd" },
+X#ifndef NOECHO
+X	{ b_echo,	"echo" },
+X#endif
+X	{ b_eval,	"eval" },
+X	{ b_exec,	"exec" },
+X	{ b_exit,	"exit" },
+X#ifndef NOLIMITS
+X	{ b_limit,	"limit" },
+X#endif
+X	{ b_newpgrp,	"newpgrp" },
+X	{ b_return,	"return" },
+X	{ b_shift,	"shift" },
+X	{ b_umask,	"umask" },
+X	{ b_wait,	"wait" },
+X	{ b_whatis,	"whatis" },
+X	{ b_dot,	"." },
+X	ADDONS
+X};
+X
+Xextern builtin_t *isbuiltin(char *s) {
+X	int i;
+X	for (i = 0; i < arraysize(builtins); i++)
+X		if (streq(builtins[i].name, s))
+X			return builtins[i].p;
+X	return NULL;
+X}
+X
+X/* funcall() is the wrapper used to invoke shell functions. pushes $*, and "return" returns here. */
+X
+Xextern void funcall(char **av) {
+X	Jbwrap j;
+X	Estack e1, e2;
+X	Edata jreturn, star;
+X	if (setjmp(j.j))
+X		return;
+X	starassign(*av, av+1, TRUE);
+X	jreturn.jb = &j;
+X	star.name = "*";
+X	except(eReturn, jreturn, &e1);
+X	except(eVarstack, star, &e2);
+X	walk(treecpy(fnlookup(*av), nalloc), TRUE);
+X	varrm("*", TRUE);
+X	unexcept(); /* eVarstack */
+X	unexcept(); /* eReturn */
+X}
+X
+Xstatic void arg_count(char *name) {
+X	fprint(2, "too many arguments to %s\n", name);
+X	set(FALSE);
+X}
+X
+Xstatic void badnum(char *num) {
+X	fprint(2, "%s is a bad number\n", num);
+X	set(FALSE);
+X}
+X
+X/* a dummy command. (exec() performs "exec" simply by not forking) */
+X
+Xextern void b_exec(char **av) {
+X}
+X
+X#ifndef NOECHO
+X/* echo -n omits a newline. echo -- -n echos '-n' */
+X
+Xstatic void b_echo(char **av) {
+X	char *format = "%A\n";
+X	if (*++av != NULL) {
+X		if (streq(*av, "-n"))
+X                	format = "%A", av++;
+X		else if (streq(*av, "--"))
+X			av++;
+X	}
+X	fprint(1, format, av);
+X	set(TRUE);
+X}
+X#endif
+X
+X/* cd. traverse $cdpath if the directory given is not an absolute pathname */
+X
+Xstatic void b_cd(char **av) {
+X	List *s, nil;
+X	char *path = NULL;
+X	SIZE_T t, pathlen = 0;
+X	if (*++av == NULL) {
+X		s = varlookup("home");
+X		*av = (s == NULL) ? "/" : s->w;
+X	} else if (av[1] != NULL) {
+X		arg_count("cd");
+X		return;
+X	}
+X	if (isabsolute(*av) || streq(*av, ".") || streq(*av, "..")) { /* absolute pathname? */
+X		if (chdir(*av) < 0) {
+X			set(FALSE);
+X			uerror(*av);
+X		} else
+X			set(TRUE);
+X	} else {
+X		s = varlookup("cdpath");
+X		if (s == NULL) {
+X			s = &nil;
+X			nil.w = "";
+X			nil.n = NULL;
+X		}
+X		do {
+X			if (s != &nil && *s->w != '\0') {
+X				t = strlen(*av) + strlen(s->w) + 2;
+X				if (t > pathlen)
+X					path = nalloc(pathlen = t);
+X				strcpy(path, s->w);
+X				if (!streq(s->w, "/")) /* "//" is special to POSIX */
+X					strcat(path, "/");
+X				strcat(path, *av);
+X			} else {
+X				pathlen = 0;
+X				path = *av;
+X			}
+X			if (chdir(path) >= 0) {
+X				set(TRUE);
+X				if (interactive && *s->w != '\0' && !streq(s->w, "."))
+X					fprint(1, "%s\n", path);
+X				return;
+X			}
+X			s = s->n;
+X		} while (s != NULL);
+X		fprint(2, "couldn't cd to %s\n", *av);
+X		set(FALSE);
+X	}
+X}
+X
+Xstatic void b_umask(char **av) {
+X	int i;
+X	if (*++av == NULL) {
+X		set(TRUE);
+X		i = umask(0);
+X		umask(i);
+X		fprint(1, "0%o\n", i);
+X	} else if (av[1] == NULL) {
+X		i = o2u(*av);
+X		if ((unsigned int) i > 0777) {
+X			fprint(2, "bad umask\n");
+X			set(FALSE);
+X		} else {
+X			umask(i);
+X			set(TRUE);
+X		}
+X	} else {
+X		arg_count("umask");
+X		return;
+X	}
+X}
+X
+Xstatic void b_exit(char **av) {
+X	if (*++av != NULL)
+X		ssetstatus(av);
+X	rc_exit(getstatus());
+X}
+X
+X/* raise a "return" exception, i.e., return from a function. if an integer argument is present, set $status to it */
+X
+Xstatic void b_return(char **av) {
+X	if (*++av != NULL)
+X		ssetstatus(av);
+X	rc_raise(eReturn);
+X}
+X
+X/* raise a "break" exception for breaking out of for and while loops */
+X
+Xstatic void b_break(char **av) {
+X	if (av[1] != NULL) {
+X		arg_count("break");
+X		return;
+X	}
+X	rc_raise(eBreak);
+X}
+X
+X/* shift $* n places (default 1) */
+X
+Xstatic void b_shift(char **av) {
+X	int shift = (av[1] == NULL ? 1 : a2u(av[1]));
+X	List *s, *dollarzero;
+X	if (av[1] != NULL && av[2] != NULL) {
+X		arg_count("shift");
+X		return;
+X	}
+X	if (shift < 0) {
+X		badnum(av[1]);
+X		return;
+X	}
+X	s = varlookup("*")->n;
+X	dollarzero = varlookup("0");
+X	while (s != NULL && shift != 0) {
+X		s = s->n;
+X		--shift;
+X	}
+X	if (s == NULL && shift != 0) {
+X		fprint(2, "cannot shift\n");
+X		set(FALSE);
+X	} else {
+X		varassign("*", append(dollarzero, s), FALSE);
+X		set(TRUE);
+X	}
+X}
+X
+X/* dud function */
+X
+Xextern void b_builtin(char **av) {
+X}
+X
+X/* wait for a given process, or all outstanding processes */
+X
+Xstatic void b_wait(char **av) {
+X	int stat, pid;
+X	if (av[1] == NULL) {
+X		waitforall();
+X		return;
+X	}
+X	if (av[2] != NULL) {
+X		arg_count("wait");
+X		return;
+X	}
+X	if ((pid = a2u(av[1])) < 0) {
+X		badnum(av[1]);
+X		return;
+X	}
+X	if (rc_wait4(pid, &stat, FALSE) > 0)
+X		setstatus(pid, stat);
+X	else
+X		set(FALSE);
+X	SIGCHK;
+X}
+X
+X/*
+X   whatis without arguments prints all variables and functions. Otherwise, check to see if a name
+X   is defined as a variable, function or pathname.
+X*/
+X
+Xstatic void b_whatis(char **av) {
+X	bool f, found;
+X	bool ess = FALSE;
+X	int i, ac, c;
+X	List *s;
+X	Node *n;
+X	char *e;
+X	for (rc_optind = ac = 0; av[ac] != NULL; ac++)
+X		; /* count the arguments for getopt */
+X	while ((c = rc_getopt(ac, av, "s")) == 's')
+X		ess = TRUE;
+X	if (c != -1) {
+X		set(FALSE);
+X		return;
+X	}
+X	av += rc_optind;
+X	if (*av == NULL && !ess) {
+X		whatare_all_vars();
+X		set(TRUE);
+X		return;
+X	}
+X	if (ess)
+X		whatare_all_signals();
+X	found = TRUE;
+X	for (i = 0; av[i] != NULL; i++) {
+X		f = FALSE;
+X		errno = ENOENT;
+X		if ((s = varlookup(av[i])) != NULL) {
+X			f = TRUE;
+X			prettyprint_var(1, av[i], s);
+X		}
+X		if ((n = fnlookup(av[i])) != NULL) {
+X			f = TRUE;
+X			prettyprint_fn(1, av[i], n);
+X		} else if (isbuiltin(av[i]) != NULL) {
+X			f = TRUE;
+X			fprint(1, "builtin %s\n", av[i]);
+X		} else if ((e = which(av[i], FALSE)) != NULL) {
+X			f = TRUE;
+X			fprint(1, "%s\n", e);
+X		}
+X		if (!f) {
+X			found = FALSE;
+X			if (errno != ENOENT)
+X				uerror(av[i]);
+X			else
+X				fprint(2, "%s not found\n", av[i]);
+X		}
+X	}
+X	set(found);
+X}
+X
+X/* push a string to be eval'ed onto the input stack. evaluate it */
+X
+Xstatic void b_eval(char **av) {
+X	bool i = interactive;
+X	if (av[1] == NULL)
+X		return;
+X	interactive = FALSE;
+X	pushstring(av + 1, i); /* don't reset line numbers on noninteractive eval */
+X	doit(TRUE);
+X	interactive = i;
+X}
+X
+X/*
+X   push a file to be interpreted onto the input stack. with "-i" treat this as an interactive
+X   input source.
+X*/
+X
+Xextern void b_dot(char **av) {
+X	int fd;
+X	bool old_i = interactive, i = FALSE;
+X	Estack e;
+X	Edata star;
+X	av++;
+X	if (*av == NULL)
+X		return;
+X	if (streq(*av, "-i")) {
+X		av++;
+X		i = TRUE;
+X	}
+X	if (dasheye) { /* rc -i file has to do the right thing. reset the dasheye state to FALSE, though. */
+X		dasheye = FALSE;
+X		i = TRUE;
+X	}
+X	if (*av == NULL)
+X		return;
+X	fd = rc_open(*av, rFrom);
+X	if (fd < 0) {
+X		if (rcrc) /* on rc -l, don't flag nonexistence of .rcrc */
+X			rcrc = FALSE;
+X		else {
+X			uerror(*av);
+X			set(FALSE);
+X		}
+X		return;
+X	}
+X	rcrc = FALSE;
+X	starassign(*av, av+1, TRUE);
+X	pushfd(fd);
+X	interactive = i;
+X	star.name = "*";
+X	except(eVarstack, star, &e);
+X	doit(TRUE);
+X	varrm("*", TRUE);
+X	unexcept(); /* eVarstack */
+X	interactive = old_i;
+X}
+X
+X/* put rc into a new pgrp. Used on the NeXT where the Terminal program is broken (sigh) */
+X
+Xstatic void b_newpgrp(char **av) {
+X	if (av[1] != NULL) {
+X		arg_count("newpgrp");
+X		return;
+X	}
+X	setpgrp(rc_pid, rc_pid);
+X#ifdef TIOCSPGRP
+X	ioctl(2, TIOCSPGRP, &rc_pid);
+X#endif
+X}
+X
+X/* Berkeley limit support was cleaned up by Paul Haahr. */
+X
+X#ifndef NOLIMITS
+Xtypedef struct Suffix Suffix;
+Xstruct Suffix {
+X	const Suffix *next;
+X	long amount;
+X	char *name;
+X};
+X
+Xstatic const Suffix
+X	kbsuf = { NULL, 1024, "k" },
+X	mbsuf = { &kbsuf, 1024*1024, "m" },
+X	gbsuf = { &mbsuf, 1024*1024*1024, "g" },
+X	stsuf = { NULL, 1, "s" },
+X	mtsuf = { &stsuf, 60, "m" },
+X	htsuf = { &mtsuf, 60*60, "h" };
+X#define	SIZESUF &gbsuf
+X#define	TIMESUF &htsuf
+X#define	NOSUF ((Suffix *) NULL)  /* for RLIMIT_NOFILE on SunOS 4.1 */
+X
+Xtypedef struct {
+X	char *name;
+X	int flag;
+X	const Suffix *suffix;
+X} Limit;
+Xstatic const Limit limits[] = {
+X	{ "cputime",		RLIMIT_CPU,	TIMESUF },
+X	{ "filesize",		RLIMIT_FSIZE,	SIZESUF },
+X	{ "datasize",		RLIMIT_DATA,	SIZESUF },
+X	{ "stacksize",		RLIMIT_STACK,	SIZESUF },
+X	{ "coredumpsize",	RLIMIT_CORE,	SIZESUF },
+X#ifdef RLIMIT_RSS /* SysVr4 does not have this */
+X	{ "memoryuse",		RLIMIT_RSS,	SIZESUF },
+X#endif
+X#ifdef RLIMIT_VMEM /* instead, they have this! */
+X	{ "vmemory",		RLIMIT_VMEM,	SIZESUF },
+X#endif
+X#ifdef RLIMIT_NOFILE  /* SunOS 4.1 adds a limit on file descriptors */
+X	{ "descriptors",	RLIMIT_NOFILE,	NOSUF },
+X#endif
+X	{ NULL, 0, NULL }
+X};
+X
+Xextern int getrlimit(int, struct rlimit *);
+Xextern int setrlimit(int, struct rlimit *);
+X
+Xstatic void printlimit(const Limit *limit, bool hard) {
+X	struct rlimit rlim;
+X	long lim;
+X	getrlimit(limit->flag, &rlim);
+X	if (hard)
+X		lim = rlim.rlim_max;
+X	else
+X		lim = rlim.rlim_cur;
+X	if (lim == RLIM_INFINITY)
+X		fprint(1, "%s \tunlimited\n", limit->name);
+X	else {
+X		const Suffix *suf;
+X		for (suf = limit->suffix; suf != NULL; suf = suf->next)
+X			if (lim % suf->amount == 0 && (lim != 0 || suf->amount > 1)) {
+X				lim /= suf->amount;
+X				break;
+X			}
+X		fprint(1, "%s \t%d%s\n", limit->name, lim, (suf == NULL || lim == 0) ? "" : suf->name);
+X	}
+X}
+X
+Xstatic long parselimit(const Limit *limit, char *s) {
+X	char *t;
+X	int len = strlen(s);
+X	long lim = 1;
+X	const Suffix *suf = limit->suffix;
+X	if (streq(s, "unlimited"))
+X		return RLIM_INFINITY;
+X	if (suf == TIMESUF && (t = strchr(s, ':')) != NULL) {
+X		*t++ = '\0';
+X		lim = 60 * a2u(s) + a2u(t);
+X	} else {
+X		for (; suf != NULL; suf = suf->next)
+X			if (streq(suf->name, s + len - strlen(suf->name))) {
+X				s[len - strlen(suf->name)] = '\0';
+X				lim *= suf->amount;
+X				break;
+X			}
+X		lim *= a2u(s);
+X	}
+X	return lim;
+X}
+X
+Xstatic void b_limit(char **av) {
+X	const Limit *lp = limits;
+X	bool hard = FALSE;
+X	if (*++av != NULL && streq(*av, "-h")) {
+X		av++;
+X		hard = TRUE;
+X	}
+X	if (*av == NULL) {
+X		for (; lp->name != NULL; lp++)
+X			printlimit(lp, hard);
+X		return;
+X	}
+X	for (;; lp++) {
+X		if (lp->name == NULL) {
+X			fprint(2, "no such limit\n");
+X			set(FALSE);
+X			return;
+X		}
+X		if (streq(*av, lp->name))
+X			break;
+X	}
+X	if (*++av == NULL)
+X		printlimit(lp, hard);
+X	else {
+X		struct rlimit rlim;
+X		long pl;
+X		getrlimit(lp->flag, &rlim);
+X		if ((pl = parselimit(lp, *av)) < 0) {
+X			fprint(2, "bad limit\n");
+X			set(FALSE);
+X			return;
+X		}
+X		if (hard)
+X			rlim.rlim_max = pl;
+X		else
+X			rlim.rlim_cur = pl;
+X		if (setrlimit(lp->flag, &rlim) == -1) {
+X			uerror("setrlimit");
+X			set(FALSE);
+X		} else
+X			set(TRUE);
+X	}
+X}
+X#endif
+END_OF_FILE
+  if test 11075 -ne `wc -c <'builtins.c'`; then
+    echo shar: \"'builtins.c'\" unpacked with wrong size!
+  fi
+  # end of 'builtins.c'
+fi
+if test ! -d 'history' ; then
+    echo shar: Creating directory \"'history'\"
+    mkdir 'history'
+fi
+if test -f 'plan9.ps.b' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plan9.ps.b'\"
+else
+  echo shar: Extracting \"'plan9.ps.b'\" \(40176 characters\)
+  sed "s/^X//" >'plan9.ps.b' <<'END_OF_FILE'
+X(})1008 1976 w
+X10 R f
+X(defines)720 2156 w
+X10 CW f
+X(g)1033 2156 w
+X10 I f
+X(pattern)1118 2156 w
+X10 R f
+X(to look for occurrences of)4 1030 1 1432 2156 t
+X10 I f
+X(pattern)2487 2156 w
+X10 R f
+X(in all program source files in the current directory.)8 2015 1 2801 2156 t
+X(Function definitions are deleted by writing)5 1707 1 720 2312 t
+X9 CW f
+X(fn)1008 2482 w
+X9 I f
+X(name)1170 2482 w
+X10 R f
+X(with no function body.)3 911 1 720 2662 t
+X10 B f
+X( execution)1 430(17. Command)1 625 2 720 2902 t
+X10 R f
+X( very little about what)4 897(Up to now we've said)4 892 2 720 3058 t
+X10 I f
+X(rc)2539 3058 w
+X10 R f
+X( the command name)3 822( If)1 121(does to execute a simple command.)5 1445 3 2652 3058 t
+X(is the name of a function defined using)7 1570 1 720 3178 t
+X10 CW f
+X(fn)2317 3178 w
+X10 R f
+X( if it is the name of a built-)8 1082( Otherwise,)1 487(, the function is executed.)4 1034 3 2437 3178 t
+X(in command, the built-in is executed directly by)7 1964 1 720 3298 t
+X10 I f
+X(rc)2716 3298 w
+X10 R f
+X( if the name contains a)5 936(. Otherwise,)1 517 2 2799 3298 t
+X10 CW f
+X(/)4284 3298 w
+X10 R f
+X(, it is taken to be)5 696 1 4344 3298 t
+X(the name of a binary program and is executed using)9 2155 1 720 3418 t
+X10 I f
+X(exec)2910 3418 w
+X10 R f
+X( the name contains no)4 907(\(2\). If)1 267 2 3086 3418 t
+X10 CW f
+X(/)4294 3418 w
+X10 R f
+X(, then directories)2 686 1 4354 3418 t
+X(mentioned in the variable)3 1018 1 720 3538 t
+X10 CW f
+X($path)1763 3538 w
+X10 R f
+X(are searched until an executable file is found.)7 1806 1 2088 3538 t
+X10 B f
+X( commands)1 486(18. Built-in)1 504 2 720 3778 t
+X10 R f
+X( executed internally by)3 924(Several commands are)2 909 2 720 3934 t
+X10 I f
+X(rc)2582 3934 w
+X10 R f
+X(because they are difficult or impossible to implement oth-)8 2346 1 2694 3934 t
+X(erwise.)720 4054 w
+X10 CW f
+X(. [-i])1 360 1 720 4210 t
+X10 I f
+X(file ...)1 228 1 1140 4210 t
+X10 R f
+X(Execute commands from)2 1008 1 970 4330 t
+X10 I f
+X(file)2008 4330 w
+X10 R f
+X(.)2136 4330 w
+X10 CW f
+X($*)2216 4330 w
+X10 R f
+X( reminder of the argument list follow-)6 1545(is set for the duration to the)6 1129 2 2366 4330 t
+X(ing)970 4450 w
+X10 I f
+X(file)1125 4450 w
+X10 R f
+X(.)1253 4450 w
+X10 CW f
+X($path)1330 4450 w
+X10 R f
+X(is used to search for)4 806 1 1657 4450 t
+X10 I f
+X(file)2490 4450 w
+X10 R f
+X(. Option)1 354 1 2618 4450 t
+X10 CW f
+X(-i)2998 4450 w
+X10 R f
+X(indicates interactive input)2 1034 1 3144 4450 t
+X10 S f
+X(-)4204 4450 w
+X10 R f
+X(a prompt \(found in)3 755 1 4285 4450 t
+X10 CW f
+X($prompt)970 4570 w
+X10 R f
+X(\) is printed before each command is read.)7 1651 1 1390 4570 t
+X10 CW f
+X(builtin)720 4726 w
+X10 I f
+X(command ...)1 488 1 1200 4726 t
+X10 R f
+X(Execute)970 4846 w
+X10 I f
+X(command)1316 4846 w
+X10 R f
+X(as usual except that any function named)6 1597 1 1729 4846 t
+X10 I f
+X(command)3351 4846 w
+X10 R f
+X( example,)1 388( For)1 189(is ignored.)1 422 3 3764 4846 t
+X9 CW f
+X(fn cd{)1 324 1 1258 5016 t
+X(builtin cd $* && pwd)4 1080 1 1474 5126 t
+X(})1258 5236 w
+X10 R f
+X(defines a replacement for the)4 1177 1 970 5416 t
+X10 CW f
+X(cd)2177 5416 w
+X10 R f
+X(built-in \(see below\) that announces the full name of the new direc-)11 2713 1 2327 5416 t
+X(tory.)970 5536 w
+X10 CW f
+X(cd [)1 240 1 720 5692 t
+X10 I f
+X(dir)960 5692 w
+X10 CW f
+X(])1077 5692 w
+X10 R f
+X(Change the current directory to)4 1255 1 970 5812 t
+X10 I f
+X(dir)2252 5812 w
+X10 R f
+X( default argument is)3 802(. The)1 232 2 2369 5812 t
+X10 CW f
+X($home)3430 5812 w
+X10 R f
+X(.)3730 5812 w
+X10 CW f
+X($cdpath)3808 5812 w
+X10 R f
+X(is a list of places in)5 784 1 4256 5812 t
+X(which to search for)3 767 1 970 5932 t
+X10 I f
+X(dir)1762 5932 w
+X10 R f
+X(.)1879 5932 w
+X10 CW f
+X(eval [)1 360 1 720 6088 t
+X10 I f
+X(arg ...)1 239 1 1080 6088 t
+X10 CW f
+X(])1319 6088 w
+X10 R f
+X(The arguments are catenated separated by spaces into a string, read as input to)13 3159 1 970 6208 t
+X10 I f
+X(rc)4158 6208 w
+X10 R f
+X( For)1 193(, and executed.)2 606 2 4241 6208 t
+X(example,)970 6328 w
+X9 CW f
+X(x='$y')1258 6498 w
+X(y=Doody)1258 6608 w
+X(eval echo Howdy, $x)3 1026 1 1258 6718 t
+X10 R f
+X(would echo)1 463 1 970 6898 t
+X9 CW f
+X(Howdy, Doody)1 648 1 1258 7068 t
+X10 R f
+X(since the arguments of)3 901 1 970 7248 t
+X10 CW f
+X(eval)1896 7248 w
+X10 R f
+X(would be)1 369 1 2161 7248 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 6 6
+X%%Page: 7 7
+X/saveobj save def
+Xmark
+X7 pagesetup
+X10 R f
+X(- 7 -)2 166 1 2797 480 t
+X9 CW f
+X(echo Howdy, $y)2 756 1 1258 830 t
+X10 R f
+X(after substituting for)2 816 1 970 1010 t
+X10 CW f
+X($x)1811 1010 w
+X10 R f
+X(.)1931 1010 w
+X10 CW f
+X(shift [)1 420 1 720 1166 t
+X10 I f
+X(n)1140 1166 w
+X10 CW f
+X(])1190 1166 w
+X10 R f
+X(Delete the first)2 593 1 970 1286 t
+X10 I f
+X(n)1588 1286 w
+X10 R f
+X(\(default 1\) elements of)3 906 1 1663 1286 t
+X10 CW f
+X($*)2594 1286 w
+X10 R f
+X(.)2714 1286 w
+X10 CW f
+X(wait [)1 360 1 720 1442 t
+X10 I f
+X(pid)1080 1442 w
+X10 CW f
+X(])1208 1442 w
+X10 R f
+X( given)1 263(Wait for the process with the)5 1231 2 970 1562 t
+X10 I f
+X(pid)2505 1562 w
+X10 R f
+X( no)1 141( If)1 132(to exit.)1 294 3 2674 1562 t
+X10 I f
+X(pid)3282 1562 w
+X10 R f
+X(is given, all outstanding processes are)5 1589 1 3451 1562 t
+X(waited for.)1 432 1 970 1682 t
+X10 CW f
+X(whatis)720 1838 w
+X10 I f
+X(name ...)1 316 1 1140 1838 t
+X10 R f
+X( each)1 209(Print the value of)3 694 2 970 1958 t
+X10 I f
+X(name)1900 1958 w
+X10 R f
+X(in a form suitable for input to)6 1189 1 2143 1958 t
+X10 I f
+X(rc)3359 1958 w
+X10 R f
+X( output is an assignment to a vari-)7 1366(. The)1 232 2 3442 1958 t
+X(able, the definition of a function, a call to)8 1709 1 970 2078 t
+X10 CW f
+X(builtin)2711 2078 w
+X10 R f
+X( the path name of a)5 792(for a built-in command, or)4 1085 2 3163 2078 t
+X( example,)1 388( For)1 189(binary program.)1 643 3 970 2198 t
+X9 CW f
+X(whatis path g cd who)4 1080 1 1258 2368 t
+X10 R f
+X(might print)1 448 1 970 2548 t
+X9 CW f
+X(path=\(. /bin /usr/bin\))2 1188 1 1258 2718 t
+X(fn g {gre -e $1 *.[hycl]})5 1350 1 1258 2828 t
+X(builtin cd)1 540 1 1258 2938 t
+X(/bin/who)1258 3048 w
+X10 CW f
+X(\304)720 3264 w
+X10 I f
+X(subject pattern ...)2 697 1 840 3264 t
+X10 R f
+X(The)970 3384 w
+X10 I f
+X(subject)1150 3384 w
+X10 R f
+X(is matched against each)3 945 1 1458 3384 t
+X10 I f
+X(pattern)2428 3384 w
+X10 R f
+X( a match,)2 365( On)1 172(in turn.)1 289 3 2742 3384 t
+X10 CW f
+X($status)3594 3384 w
+X10 R f
+X( Otherwise,)1 486(is set to true.)3 514 2 4040 3384 t
+X(it is set to)3 396 1 970 3504 t
+X10 CW f
+X('no match')1 602 1 1393 3504 t
+X10 R f
+X( The)1 207( are the same as for filename matching.)7 1582(. Patterns)1 399 3 1995 3504 t
+X10 I f
+X(patterns)4210 3504 w
+X10 R f
+X(are not sub-)2 475 1 4565 3504 t
+X(jected to filename replacement before the)5 1698 1 970 3624 t
+X10 CW f
+X(\304)2702 3624 w
+X10 R f
+X(command is executed, so they need not be enclosed in)9 2244 1 2796 3624 t
+X(quotation marks, unless of course, a literal match for)8 2102 1 970 3744 t
+X10 CW f
+X(* [)1 145 1 3097 3744 t
+X10 R f
+X(or)3267 3744 w
+X10 CW f
+X(?)3375 3744 w
+X10 R f
+X( example)1 363( For)1 189(is required.)1 449 3 3485 3744 t
+X9 CW f
+X(\304 $1 ?)2 324 1 1258 3914 t
+X10 R f
+X(matches any single character, whereas)4 1525 1 970 4094 t
+X9 CW f
+X(\304 $1 '?')2 432 1 1258 4264 t
+X10 R f
+X(only matches a literal question mark.)5 1476 1 970 4444 t
+X10 B f
+X( I/O Redirection)2 694(19. Advanced)1 603 2 720 4684 t
+X10 I f
+X(Rc)720 4840 w
+X10 R f
+X( of file descriptors other than 0 and 1 \(standard input and output\) by specifying the file)16 3472(allows redirection)1 718 2 850 4840 t
+X(descriptor in square brackets)3 1144 1 720 4960 t
+X10 CW f
+X([ ])1 180 1 1889 4960 t
+X10 R f
+X(after the)1 329 1 2094 4960 t
+X10 CW f
+X(<)2448 4960 w
+X10 R f
+X(or)2533 4960 w
+X10 CW f
+X(>)2641 4960 w
+X10 R f
+X( example,)1 388(. For)1 214 2 2701 4960 t
+X9 CW f
+X(cc junk.c >[2]junk.diag)2 1242 1 1008 5130 t
+X10 R f
+X(saves the compiler's diagnostics in)4 1393 1 720 5310 t
+X10 CW f
+X(junk.diag)2138 5310 w
+X10 R f
+X(.)2678 5310 w
+X( replaced by a copy, in the sense of)8 1471(File descriptors may be)3 959 2 720 5466 t
+X10 I f
+X(dup)3184 5466 w
+X10 R f
+X(\(2\), of an already-open file by typing, for)7 1706 1 3334 5466 t
+X(example)720 5586 w
+X9 CW f
+X(cc junk.c >[2=1])2 864 1 1008 5756 t
+X10 R f
+X( in conjunction with other)4 1061( is more useful)3 609( It)1 117(This replaces file descriptor 2 with a copy of file descriptor 1.)11 2533 4 720 5936 t
+X(redirections, like this)2 841 1 720 6056 t
+X9 CW f
+X(cc junk.c >junk.out >[2=1])3 1404 1 1008 6226 t
+X10 R f
+X( descriptor 1 to)3 629(Redirections are evaluated from left to right, so this redirects file)10 2667 2 720 6406 t
+X10 CW f
+X(junk.out)4050 6406 w
+X10 R f
+X(, then points)2 510 1 4530 6406 t
+X( contrast,)1 366( By)1 167(file descriptor 2 at the same file.)6 1289 3 720 6526 t
+X9 CW f
+X(cc junk.c >[2=1] >junk.out)3 1404 1 1008 6696 t
+X10 R f
+X( \(presumably the terminal\), and then directs file)7 2000(Redirects file descriptor 2 to a copy of file descriptor 1)10 2320 2 720 6876 t
+X( the first case, standard and diagnostic output will be intermixed in)11 2686( In)1 135( at a file.)3 355(descriptor 1)1 477 4 720 6996 t
+X10 CW f
+X(junk.out)4400 6996 w
+X10 R f
+X(. In)1 160 1 4880 6996 t
+X(the second, diagnostic output will appear on the terminal, and standard output will be sent to the file.)17 4024 1 720 7116 t
+X( For)1 211( using the duplication notation with an empty right-hand side.)9 2664(File descriptors may be closed by)5 1445 3 720 7272 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 7 7
+X%%Page: 8 8
+X/saveobj save def
+Xmark
+X8 pagesetup
+X10 R f
+X(- 8 -)2 166 1 2797 480 t
+X(example,)720 840 w
+X9 CW f
+X(cc junk.c >[2=])2 810 1 1008 1010 t
+X10 R f
+X(will discard diagnostics from the compilation.)5 1838 1 720 1190 t
+X(Arbitrary file descriptors may be sent through a pipe by typing, for example)12 3031 1 720 1346 t
+X9 CW f
+X(cc junk.c |[2] grep -v '\303$')5 1458 1 1008 1516 t
+X10 R f
+X( that the output of)4 779( Note)1 261( the C compiler's output.)4 1065(This deletes those ever-so-annoying blank lines from)6 2215 4 720 1696 t
+X10 CW f
+X(grep)720 1816 w
+X10 R f
+X(still appears on file descriptor 1.)5 1287 1 985 1816 t
+X( a pipe to some file descriptor other than zero.)9 1871(Very occasionally you may wish to connect the input side of)10 2449 2 720 1972 t
+X(The notation)1 508 1 720 2092 t
+X9 CW f
+X(cmd1 |[5=19] cmd2)2 918 1 1008 2262 t
+X10 R f
+X(creates a pipeline with)3 895 1 720 2442 t
+X10 CW f
+X(cmd1)1640 2442 w
+X10 R f
+X('s file descriptor 5 connected through a pipe to)8 1863 1 1880 2442 t
+X10 CW f
+X(cmd2)3768 2442 w
+X10 R f
+X('s file descriptor 19.)3 804 1 4008 2442 t
+X10 B f
+X( documents)1 486(20. Here)1 385 2 720 2682 t
+X10 I f
+X(Rc)720 2838 w
+X10 R f
+X( to commands, as in this)5 982(procedures may include data, called ``here documents'', to be provided as input)11 3206 2 852 2838 t
+X(version of the)2 549 1 720 2958 t
+X10 I f
+X(tel)1294 2958 w
+X10 R f
+X(command)1419 2958 w
+X9 CW f
+X(for\(i\) grep $i <<!)3 972 1 1008 3128 t
+X(...)1008 3238 w
+X(nls 2T-402 2912)2 810 1 1008 3348 t
+X(norman 2C-514 2842)2 972 1 1008 3458 t
+X(pjw 2T-502 7214)2 810 1 1008 3568 t
+X(...)1008 3678 w
+X(!)1008 3788 w
+X10 R f
+X(A here document is introduced by the redirection symbol)8 2288 1 720 3968 t
+X10 CW f
+X(<<)3034 3968 w
+X10 R f
+X( by an arbitrary eof marker \()6 1141(, followed)1 406 2 3154 3968 t
+X10 CW f
+X(!)4701 3968 w
+X10 R f
+X(in the)1 227 1 4813 3968 t
+X( to a line containing only the eof marker are saved in a tempo-)13 2507( following the command, up)4 1142(example\). Lines)1 671 3 720 4088 t
+X(rary file that it connected to the command's standard input when it is run.)13 2935 1 720 4208 t
+X10 I f
+X(Rc)720 4364 w
+X10 R f
+X( following)1 414( The)1 205(does variable substitution in here documents.)5 1804 3 850 4364 t
+X10 I f
+X(subst)3298 4364 w
+X10 R f
+X(command:)3529 4364 w
+X9 CW f
+X(ed $3 <<EOF)2 594 1 1008 4534 t
+X(g/$1/s//$2/g)1008 4644 w
+X(w)1008 4754 w
+X(EOF)1008 4864 w
+X10 R f
+X( of)1 113(changes all occurrences)2 954 2 720 5044 t
+X10 CW f
+X($1)1817 5044 w
+X10 R f
+X(to)1967 5044 w
+X10 CW f
+X($2)2075 5044 w
+X10 R f
+X(in file)1 241 1 2225 5044 t
+X10 CW f
+X($3)2496 5044 w
+X10 R f
+X( include a literal)3 661(. To)1 191 2 2616 5044 t
+X10 CW f
+X($)3498 5044 w
+X10 R f
+X(in a here document, type)4 1004 1 3588 5044 t
+X10 CW f
+X($$)4622 5044 w
+X10 R f
+X( the)1 152(. If)1 146 2 4742 5044 t
+X(name of a variable is followed immediately by)7 1861 1 720 5164 t
+X10 CW f
+X(\303)2606 5164 w
+X10 R f
+X(, the caret is deleted.)4 820 1 2666 5164 t
+X( by enclosing the eof marker following)6 1643(Variable substitution can be entirely suppressed)5 1981 2 720 5320 t
+X10 CW f
+X(<<)4384 5320 w
+X10 R f
+X(in quotation)1 496 1 4544 5320 t
+X(marks.)720 5440 w
+X(Here documents may be provided on file descriptors other than 0 by typing, for example)14 3530 1 720 5596 t
+X9 CW f
+X(cmd <<[4]End)1 648 1 1008 5766 t
+X(...)1008 5876 w
+X(End)1008 5986 w
+X10 B f
+X(21. Signals)1 482 1 720 6286 t
+X10 I f
+X(Rc)720 6442 w
+X10 R f
+X( function with the name of)5 1067( A)1 124( an interrupt is received from the terminal.)7 1705(scripts normally terminate when)3 1293 4 851 6442 t
+X( the usual way, but called when)6 1268(a signal, in lower case, is defined in)7 1449 2 720 6562 t
+X10 I f
+X(rc)3464 6562 w
+X10 R f
+X( of inter-)2 353( Signals)1 347(receives the signal.)2 766 3 3574 6562 t
+X(est are:)1 285 1 720 6682 t
+X10 CW f
+X(sighup)720 6838 w
+X10 R f
+X( controlling teletype has disconnected from)5 1728(Hangup. The)1 546 2 970 6958 t
+X10 I f
+X(rc)3269 6958 w
+X10 R f
+X(.)3352 6958 w
+X10 CW f
+X(sigint)720 7114 w
+X10 R f
+X(The interrupt character \(usually ASCII del\) was typed on the controlling terminal.)11 3272 1 970 7234 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 8 8
+X%%Page: 9 9
+X/saveobj save def
+Xmark
+X9 pagesetup
+X10 R f
+X(- 9 -)2 166 1 2797 480 t
+X10 CW f
+X(sigquit)720 840 w
+X10 R f
+X(The quit character \(usually ASCII fs, ctrl-\\\) was typed on the controlling terminal.)12 3278 1 970 960 t
+X10 CW f
+X(sigterm)720 1116 w
+X10 R f
+X(This signal is normally sent by)5 1231 1 970 1236 t
+X10 I f
+X(kill)2226 1236 w
+X10 R f
+X(\(1\).)2354 1236 w
+X10 CW f
+X(sigexit)720 1392 w
+X10 R f
+X(An artificial signal sent when)4 1176 1 970 1512 t
+X10 I f
+X(rc)2171 1512 w
+X10 R f
+X(is about to exit.)3 617 1 2279 1512 t
+X(As an example,)2 618 1 720 1668 t
+X9 CW f
+X(fn sigint{)1 540 1 1008 1838 t
+X(rm /tmp/junk)1 648 1 1224 1948 t
+X(exit)1224 2058 w
+X(})1008 2168 w
+X10 R f
+X(sets a trap for the keyboard interrupt that removes a temporary file before exiting.)13 3259 1 720 2348 t
+X( routine is set to)4 651(Signals will be ignored if the signal)6 1434 2 720 2504 t
+X10 CW f
+X({})2833 2504 w
+X10 R f
+X( revert to their default behavior when their)7 1714(. Signals)1 373 2 2953 2504 t
+X(handlers' definitions are deleted.)3 1308 1 720 2624 t
+X10 B f
+X(22. Environment)1 742 1 720 2864 t
+X10 R f
+X( Plan 9, the environ-)4 817( On)1 173( is a list of name-value pairs made available to executing binaries.)11 2645(The environment)1 685 4 720 3020 t
+X( in a file system named)5 929(ment is stored)2 565 2 720 3140 t
+X10 CW f
+X(#e)2240 3140 w
+X10 R f
+X(, normally mounted on)3 914 1 2360 3140 t
+X10 CW f
+X(/env)3300 3140 w
+X10 R f
+X( value of each variable is stored)6 1269(. The)1 231 2 3540 3140 t
+X( is not quite as horrendous as it sounds,)8 1577( \(This)1 262(in a separate file, with components terminated by ASCII nuls.)9 2481 3 720 3260 t
+X( contents of)2 482( The)1 213( access is involved.\))3 828(the file system is maintained entirely in core, so no disk or network)12 2797 4 720 3380 t
+X10 CW f
+X(/env)720 3500 w
+X10 R f
+X(are shared on a per-process group basis)6 1579 1 987 3500 t
+X10 S f
+X(-)2593 3500 w
+X10 R f
+X( process group is created it effectively attaches)7 1885(when a new)2 480 2 2675 3500 t
+X10 CW f
+X(/env)720 3620 w
+X10 R f
+X( consequence of this organization is that)6 1603( A)1 122(to a new file system initialized with a copy of the old one.)12 2329 3 986 3620 t
+X(commands can change environment entries and see the changes reflected in)10 3014 1 720 3740 t
+X10 I f
+X(rc)3759 3740 w
+X10 R f
+X(.)3842 3740 w
+X( in the environment, although this could easily)7 1939(There is not currently a way on Plan 9 to place functions)11 2381 2 720 3896 t
+X(done by mounting another instance of)5 1537 1 720 4016 t
+X10 CW f
+X(#e)2287 4016 w
+X10 R f
+X( can be)2 290( problem is that currently there)5 1259( The)1 210(on another directory.)2 844 4 2437 4016 t
+X(only one instance of)3 807 1 720 4136 t
+X10 CW f
+X(#e)1552 4136 w
+X10 R f
+X(per process group.)2 734 1 1697 4136 t
+X10 B f
+X( Variables)1 436(23. Local)1 414 2 720 4376 t
+X10 R f
+X( assignment followed by a com-)5 1289( An)1 174( the duration of a single command.)6 1402(It is often useful to set a variable for)8 1455 4 720 4532 t
+X( example)1 363( For)1 189(mand has this effect.)3 826 3 720 4652 t
+X9 CW f
+X(a=global)1008 4822 w
+X(a=local echo $a)2 810 1 1008 4932 t
+X(echo $a)1 378 1 1008 5042 t
+X10 R f
+X(will print)1 370 1 720 5222 t
+X9 CW f
+X(local)1008 5392 w
+X(global)1008 5502 w
+X10 R f
+X(This works even for compound commands, like)6 1906 1 720 5682 t
+X9 CW f
+X(f=/fairly/long/file/name {)1 1404 1 1008 5852 t
+X({ wc $f; spell $f; diff $f.old $f } |)9 1998 1 1224 5962 t
+X(pr -h 'Facts about '$f | lp -ddp)7 1728 1 1332 6072 t
+X(})1008 6182 w
+X10 B f
+X( \320)1 125(24. Examples)1 592 2 720 6482 t
+X10 I f
+X(cd, pwd)1 311 1 1462 6482 t
+X10 R f
+X(Here is a pair of functions that provide enhanced versions of the standard)12 2933 1 720 6638 t
+X10 CW f
+X(cd)3679 6638 w
+X10 R f
+X(and)3825 6638 w
+X10 CW f
+X(pwd)3996 6638 w
+X10 R f
+X(commands. \(Thanks)1 837 1 4203 6638 t
+X(to Rob Pike for these.\))4 902 1 720 6758 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 9 9
+X%%Page: 10 10
+X/saveobj save def
+Xmark
+X10 pagesetup
+X10 R f
+X(- 10 -)2 216 1 2772 480 t
+X9 CW f
+X( default prompt)2 810( #)1 486(ps1='% ')1 432 3 1008 830 t
+X( a tab character)3 864( #)1 432(tab=' ')1 486 3 1008 940 t
+X(fn pbd{)1 378 1 1008 1050 t
+X(/bin/pwd|sed 's;.*/;;')1 1188 1 1116 1160 t
+X(})1008 1270 w
+X(fn cd{)1 324 1 1008 1380 t
+X(builtin cd $1 &&)3 864 1 1116 1490 t
+X(switch\($#*\){)1116 1600 w
+X(case 0)1 324 1 1116 1710 t
+X(dir=$home)1224 1820 w
+X(prompt=\($ps1 $tab\))1 972 1 1224 1930 t
+X(case *)1 324 1 1116 2040 t
+X(switch\($1\))1224 2150 w
+X(case /*)1 378 1 1224 2260 t
+X(dir=$1)1332 2370 w
+X(prompt=\(`{pbd}\303$ps1 $tab\))1 1350 1 1332 2480 t
+X(case */* ..*)2 648 1 1224 2590 t
+X(dir=\(\))1332 2700 w
+X(prompt=\(`{pbd}\303$ps1 $tab\))1 1350 1 1332 2810 t
+X(case *)1 324 1 1224 2920 t
+X(dir=\(\))1332 3030 w
+X(prompt=\($1\303$ps1 $tab\))1 1134 1 1332 3140 t
+X(})1224 3250 w
+X(})1116 3360 w
+X(})1008 3470 w
+X(fn pwd{)1 378 1 1008 3580 t
+X(if\(\304 $#dir 0\))2 702 1 1116 3690 t
+X(dir=`{/bin/pwd})1224 3800 w
+X(echo $dir)1 486 1 1116 3910 t
+X(})1008 4020 w
+X10 R f
+X(Function)720 4200 w
+X10 CW f
+X(pwd)1104 4200 w
+X10 R f
+X(is a version of the standard)5 1088 1 1312 4200 t
+X10 CW f
+X(pwd)2428 4200 w
+X10 R f
+X(that caches its value in variable)5 1270 1 2636 4200 t
+X10 CW f
+X($dir)3935 4200 w
+X10 R f
+X(, because the genuine)3 865 1 4175 4200 t
+X10 CW f
+X(pwd)720 4320 w
+X10 R f
+X(can be quite slow to execute.)5 1153 1 925 4320 t
+X(Function)720 4476 w
+X10 CW f
+X(pbd)1114 4476 w
+X10 R f
+X( Function)1 419(is a helper that prints the last component of a directory name.)11 2589 2 1332 4476 t
+X10 CW f
+X(cd)4378 4476 w
+X10 R f
+X(calls the)1 344 1 4537 4476 t
+X10 CW f
+X(cd)4920 4476 w
+X10 R f
+X( so, it sets)3 404( If)1 119( was successful.)2 646(built-in, and checks that it)4 1057 4 720 4596 t
+X10 CW f
+X($dir)2974 4596 w
+X10 R f
+X(and)3242 4596 w
+X10 CW f
+X($prompt)3414 4596 w
+X10 R f
+X( prompt will include the)4 973(. The)1 233 2 3834 4596 t
+X(last component of the current directory \(except in the home directory, where it will be null\), and)16 3869 1 720 4716 t
+X10 CW f
+X($dir)4616 4716 w
+X10 R f
+X(will)4884 4716 w
+X(be reset either to the correct value or to)8 1562 1 720 4836 t
+X10 CW f
+X(\(\))2307 4836 w
+X10 R f
+X(, so that the)3 461 1 2427 4836 t
+X10 CW f
+X(pwd)2913 4836 w
+X10 R f
+X(function will work correctly.)3 1148 1 3118 4836 t
+X10 B f
+X( \320)1 125(25. Examples)1 592 2 720 5076 t
+X10 I f
+X(man)1462 5076 w
+X10 R f
+X(The)720 5232 w
+X10 I f
+X(man)900 5232 w
+X10 R f
+X( is called, for example, as)5 1017( It)1 111(command prints pages from of the Programmer's Manual.)7 2324 3 1097 5232 t
+X9 CW f
+X(man 3 isatty)2 648 1 1008 5402 t
+X(man rc)1 324 1 1008 5512 t
+X(man -t cat)2 540 1 1008 5622 t
+X10 R f
+X(In the first case, the page for)6 1192 1 720 5802 t
+X10 I f
+X(isatty)1946 5802 w
+X10 R f
+X( second case, the manual page for)6 1403( the)1 156( In)1 142(in section 3 is printed.)4 922 4 2197 5802 t
+X10 I f
+X(rc)4855 5802 w
+X10 R f
+X(is)4973 5802 w
+X( specified, all sections are searched for the page, and it is found in sec-)14 2871( no manual section is)4 864(printed. Since)1 585 3 720 5922 t
+X( the third case, the page for)6 1083( In)1 133(tion 1.)1 256 3 720 6042 t
+X10 I f
+X(cat)2217 6042 w
+X10 R f
+X(is typeset \(the)2 555 1 2364 6042 t
+X10 CW f
+X(-t)2944 6042 w
+X10 R f
+X(option\).)3089 6042 w
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 10 10
+X%%Page: 11 11
+X/saveobj save def
+Xmark
+X11 pagesetup
+X10 R f
+X(- 11 -)2 216 1 2772 480 t
+X9 CW f
+X(cd /n/bowell/usr/man || {)3 1350 1 1008 830 t
+X(echo $0: Manual not on line! >[1=2])6 1890 1 1116 940 t
+X(exit 1)1 324 1 1116 1050 t
+X(})1008 1160 w
+X( default nroff)2 756(NT=n #)1 378 2 1008 1270 t
+X(s='*' # section, default try all)5 1728 1 1008 1380 t
+X(for\(i\) switch\($i\){)1 972 1 1008 1490 t
+X(case -t)1 378 1 1008 1600 t
+X(NT=t)1116 1710 w
+X(case -n)1 378 1 1008 1820 t
+X(NT=n)1116 1930 w
+X(case -*)1 378 1 1008 2040 t
+X(echo Usage: $0 '[-nt] [section] page ...' >[1=2])7 2592 1 1116 2150 t
+X(exit 1)1 324 1 1116 2260 t
+X(case [1-9] 10)2 702 1 1008 2370 t
+X(s=$i)1116 2480 w
+X(case *)1 324 1 1008 2590 t
+X(eval 'pages=man'$s/$i'.*')1 1350 1 1116 2700 t
+X(for\(page in $pages\){)2 1080 1 1116 2810 t
+X(if\(test -f $page\))2 918 1 1224 2920 t
+X($NT\303roff -man $page)2 1026 1 1332 3030 t
+X(if not)1 324 1 1224 3140 t
+X(echo $0: $i not found >[1=2])5 1512 1 1332 3250 t
+X(})1116 3360 w
+X(})1008 3470 w
+X10 R f
+X(Note the use of)3 619 1 720 3650 t
+X10 CW f
+X(eval)1368 3650 w
+X10 R f
+X( Without)1 382(to make a list of candidate manual pages.)7 1675 2 1637 3650 t
+X10 CW f
+X(eval)3723 3650 w
+X10 R f
+X(, the)1 176 1 3963 3650 t
+X10 CW f
+X(*)4168 3650 w
+X10 R f
+X(stored in)1 352 1 4258 3650 t
+X10 CW f
+X($s)4640 3650 w
+X10 R f
+X(would)4790 3650 w
+X( if it weren't, it would be)6 1098(not trigger filename matching \320 it's enclosed in quotation marks, and even)11 3222 2 720 3770 t
+X(expanded when assigned to)3 1098 1 720 3890 t
+X10 CW f
+X($s)1844 3890 w
+X10 R f
+X( causes its arguments to be re-processed by)7 1728(. Eval)1 259 2 1964 3890 t
+X10 I f
+X(rc)3977 3890 w
+X10 R f
+X('s parser and interpreter,)3 980 1 4060 3890 t
+X(effectively delaying evaluation of the)4 1491 1 720 4010 t
+X10 CW f
+X(*)2236 4010 w
+X10 R f
+X(until the assignment to)3 909 1 2321 4010 t
+X10 CW f
+X($pages)3255 4010 w
+X10 R f
+X(.)3615 4010 w
+X10 B f
+X( \320)1 125(26. Examples)1 592 2 720 4250 t
+X10 I f
+X(holmdel)1462 4250 w
+X10 R f
+X(The following)1 575 1 720 4406 t
+X10 I f
+X(rc)1327 4406 w
+X10 R f
+X(script plays the deceptively simple game)5 1658 1 1442 4406 t
+X10 I f
+X(holmdel)3132 4406 w
+X10 R f
+X(, in which the players alternately name)6 1586 1 3454 4406 t
+X(Bell Labs locations, the winner being the first to mention Holmdel.)10 2682 1 720 4526 t
+X(This script is worth describing in detail \(rather, it would be if it weren't so silly.\))15 3222 1 720 4682 t
+X(Variable)720 4838 w
+X10 CW f
+X($t)1097 4838 w
+X10 R f
+X( Including)1 443(is an abbreviation for the name of a temporary file.)9 2115 2 1251 4838 t
+X10 CW f
+X($pid)3844 4838 w
+X10 R f
+X(, initialized by)2 595 1 4084 4838 t
+X10 I f
+X(rc)4714 4838 w
+X10 R f
+X(to its)1 208 1 4832 4838 t
+X( one)1 178(process-id, in the names of temporary files insures that their names won't collide, in case more than)16 4142 2 720 4958 t
+X(instance of the script is running at a time.)8 1651 1 720 5078 t
+X(Function)720 5234 w
+X10 CW f
+X(read)1102 5234 w
+X10 R f
+X( is the name of a variable into which a line gathered from standard input is read.)16 3223('s argument)1 475 2 1342 5234 t
+X10 CW f
+X($ifs)720 5354 w
+X10 R f
+X( Thus)1 252(is set to just a newline.)5 921 2 987 5354 t
+X10 CW f
+X(read)2187 5354 w
+X10 R f
+X( at spaces, but the terminating newline is)7 1633('s input is not split apart)5 980 2 2427 5354 t
+X(deleted.)720 5474 w
+X(A handler is set to catch)5 1012 1 720 5630 t
+X10 CW f
+X(sigint)1767 5630 w
+X10 R f
+X(,)2127 5630 w
+X10 CW f
+X(sigquit)2188 5630 w
+X10 R f
+X(, and)1 205 1 2608 5630 t
+X10 CW f
+X(sighup,)2849 5630 w
+X10 R f
+X(and the artificial)2 676 1 3305 5630 t
+X10 CW f
+X(sigexit)4017 5630 w
+X10 R f
+X( just)1 181(signal. It)1 386 2 4473 5630 t
+X(removes the temporary file and exits.)5 1486 1 720 5750 t
+X( file is initialized from a here document containing a list of Bell Labs locations, and the main)17 3730(The temporary)1 590 2 720 5906 t
+X(loop starts.)1 439 1 720 6026 t
+X( \(in)1 144(First, the program guesses a location)5 1500 2 720 6182 t
+X10 CW f
+X($lab)2397 6182 w
+X10 R f
+X(\) using the)2 438 1 2637 6182 t
+X10 CW f
+X(fortune)3108 6182 w
+X10 R f
+X(program to pick a random line from)6 1479 1 3561 6182 t
+X( prints the location, and if it guessed Holmdel, prints a message and exits.)13 2942( It)1 111(the location list.)2 642 3 720 6302 t
+X( the)1 149(Then it uses)2 485 2 720 6458 t
+X10 CW f
+X(read)1381 6458 w
+X10 R f
+X(function to get lines from standard input and validity-check them until it gets a legal)14 3392 1 1648 6458 t
+X( that the condition part of a)6 1118(name. Note)1 491 2 720 6578 t
+X10 CW f
+X(while)2360 6578 w
+X10 R f
+X( the exit status of the)5 855( Only)1 255( compound command.)2 901(can be a)2 338 4 2691 6578 t
+X(last command in the sequence is checked.)6 1666 1 720 6698 t
+X( it goes back to the top of the loop.)9 1388( Otherwise)1 460(Again, if the result is Holmdel, it prints a message and exits.)11 2415 3 720 6854 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 11 11
+X%%Page: 12 12
+X/saveobj save def
+Xmark
+X12 pagesetup
+X10 R f
+X(- 12 -)2 216 1 2772 480 t
+X9 CW f
+X(t=/tmp/holmdel$pid)1008 890 w
+X(fn read{)1 432 1 1008 1000 t
+X($1=`{awk '{print;exit}'})1 1296 1 1440 1110 t
+X(})1008 1220 w
+X(ifs=')1008 1330 w
+X( just a newline)3 810(' #)1 486 2 1008 1440 t
+X(fn sigexit sigint sigquit sighup{)4 1782 1 1008 1550 t
+X(rm -f $t)2 432 1 1440 1660 t
+X(exit)1440 1770 w
+X(})1008 1880 w
+X(cat <<'!' >$t)2 702 1 1008 1990 t
+X(Allentown)1008 2100 w
+X(Atlanta)1008 2210 w
+X(Cedar Crest)1 594 1 1008 2320 t
+X(Chester)1008 2430 w
+X(Columbus)1008 2540 w
+X(Elmhurst)1008 2650 w
+X(Fullerton)1008 2760 w
+X(Holmdel)1008 2870 w
+X(Indian Hill)1 594 1 1008 2980 t
+X(Merrimack Valley)1 864 1 1008 3090 t
+X(Morristown)1008 3200 w
+X(Piscataway)1008 3310 w
+X(Reading)1008 3420 w
+X(Short Hills)1 594 1 1008 3530 t
+X(South Plainfield)1 864 1 1008 3640 t
+X(Summit)1008 3750 w
+X(Whippany)1008 3860 w
+X(West Long Branch)2 864 1 1008 3970 t
+X(!)1008 4080 w
+X(while\(true\){)1008 4190 w
+X(lab=`{/usr/games/fortune $t})1 1512 1 1170 4300 t
+X(echo $lab)1 486 1 1170 4410 t
+X(if\(\304 $lab Holmdel\){)2 1026 1 1170 4520 t
+X(echo You lose.)2 756 1 1332 4630 t
+X(exit)1332 4740 w
+X(})1170 4850 w
+X(while\(read lab; ! grep -i -s $lab $t\) echo No such location.)11 3240 1 1170 4960 t
+X(if\(\304 $lab [hH]olmdel\){)2 1188 1 1170 5070 t
+X(echo You win.)2 702 1 1332 5180 t
+X(exit)1332 5290 w
+X(})1170 5400 w
+X(})1008 5510 w
+X10 B f
+X(27. Discussion)1 626 1 720 5690 t
+X10 R f
+X(Steve Bourne's)1 622 1 720 5846 t
+X10 CW f
+X(/bin/sh)1376 5846 w
+X10 R f
+X( I)1 93( comparison.)1 526(is extremely well-designed; any successor is bound to suffer in)9 2591 3 1830 5846 t
+X( things wherever possible, usually by)5 1512(have tried to fix its best-acknowledged shortcomings and to simplify)9 2808 2 720 5966 t
+X( I)1 67( Obviously)1 475( when irresistibly tempted have I introduced novel ideas.)8 2330( Only)1 258(omitting unessential features.)2 1190 5 720 6086 t
+X(have tinkered extensively with Bourne's syntax, that being where his work was most open to criticism.)15 4109 1 720 6206 t
+X(The most important principle in)4 1284 1 720 6362 t
+X10 I f
+X(rc)2032 6362 w
+X10 R f
+X( is never scanned more)4 930( Input)1 265('s design is that it's not a macro processor.)8 1730 3 2115 6362 t
+X( by the lexical and syntactic analysis code \(except, of course, by the)12 2885(than once)1 401 2 720 6482 t
+X10 CW f
+X(eval)4046 6482 w
+X10 R f
+X(command, whose)1 714 1 4326 6482 t
+X10 I f
+X(raison d'etre)1 519 1 720 6602 t
+X10 R f
+X(is to break the rule\).)4 801 1 1264 6602 t
+X( These)1 298( arguments containing spaces.)3 1228(Bourne shell scripts can often be made to run wild by passing them)12 2794 3 720 6758 t
+X(will be split into multiple arguments using)6 1780 1 720 6878 t
+X10 CW f
+X(IFS)2539 6878 w
+X10 R f
+X( In)1 146( inopportune times.)2 801(, often as)2 391 3 2719 6878 t
+X10 I f
+X(rc)4095 6878 w
+X10 R f
+X(, values of variables,)3 862 1 4178 6878 t
+X( have)1 227( Arguments)1 508( when substituted into a command.)5 1464(including command line arguments, are not re-read)6 2121 4 720 6998 t
+X(presumably been scanned in the parent process, and ought not to be re-read.)12 3026 1 720 7118 t
+X( store lists of)3 571( needs to be able to)5 858( He)1 184(Why does Bourne re-scan commands after variable substitution?)7 2707 4 720 7274 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 12 12
+X%%Page: 13 13
+X/saveobj save def
+Xmark
+X13 pagesetup
+X10 R f
+X(- 13 -)2 216 1 2772 480 t
+X( we eliminate re-scanning, we must change the)7 1875( If)1 117( character strings.)2 708(arguments in variables whose values are)5 1620 4 720 840 t
+X(type of variables, so that they can explicitly carry lists of strings.)11 2583 1 720 960 t
+X( are two dif-)3 505( There)1 287( for lists of words.)4 750( need a notation)3 647( We)1 192(This introduces some conceptual complications.)4 1939 6 720 1116 t
+X(ferent kinds of concatenation, for strings \320)6 1798 1 720 1236 t
+X10 CW f
+X($a\303$b)2552 1236 w
+X10 R f
+X(, and lists \320)3 533 1 2852 1236 t
+X10 CW f
+X(\($a $b\))1 429 1 3419 1236 t
+X10 R f
+X( difference between)2 801(. The)1 238 2 3848 1236 t
+X10 CW f
+X(\(\))4920 1236 w
+X10 R f
+X(and)720 1356 w
+X10 CW f
+X('')895 1356 w
+X10 R f
+X( not the)2 314(is confusing to novices, although the distinction is arguably sensible \320 a null argument is)14 3680 2 1046 1356 t
+X(same as no argument.)3 865 1 720 1476 t
+X( the text enclosed in back-)5 1100( is because)2 452( This)1 238(Bourne also rescans input when doing command substitution.)7 2530 4 720 1632 t
+X( it ought to be parsed when the enclosing com-)9 1939( Properly,)1 427(quotes is not properly a string, but a command.)8 1954 3 720 1752 t
+X(mand is, but this makes it difficult to handle nested command substitutions, like this:)13 3393 1 720 1872 t
+X9 CW f
+X(size=`wc -l \\`ls -t|sed 1q\\``)4 1566 1 1008 2042 t
+X10 R f
+X( can get much worse)4 832( This)1 231( escaped to avoid terminating the outer command.)7 2018(The inner back-quotes must be)4 1239 4 720 2222 t
+X(than the above example; the number of)6 1612 1 720 2342 t
+X10 CW f
+X(\\)2366 2342 w
+X10 R f
+X('s required is exponential in the nesting depth.)7 1911 1 2426 2342 t
+X10 I f
+X(Rc)4396 2342 w
+X10 R f
+X(fixes this by)2 505 1 4535 2342 t
+X(making the backquote a unary operator whose argument is a command, like this:)12 3220 1 720 2462 t
+X9 CW f
+X(size=`{wc -l `{ls -t|sed 1q}})4 1566 1 1008 2632 t
+X10 R f
+X(No escapes are ever required, and the whole thing is parsed in one pass.)13 2862 1 720 2812 t
+X(For similar reasons)2 772 1 720 2968 t
+X10 I f
+X(rc)1520 2968 w
+X10 R f
+X( associating a string)3 803(defines signal handlers as though they were functions, instead of)9 2606 2 1631 2968 t
+X(with each signal, as Bourne does, with the attendant possibility of getting a syntax error message in)16 4320 1 720 3088 t
+X( Since)1 285(response to typing the interrupt character.)5 1723 2 720 3208 t
+X10 I f
+X(rc)2766 3208 w
+X10 R f
+X(parses input when typed, it reports errors when you)8 2153 1 2887 3208 t
+X(make them.)1 466 1 720 3328 t
+X( need for the distinction)4 1029( is no)2 255( There)1 301(For all this trouble, we gain substantial semantic simplifications.)8 2735 4 720 3484 t
+X(between)720 3604 w
+X10 CW f
+X($*)1080 3604 w
+X10 R f
+X(and)1228 3604 w
+X10 CW f
+X($@)1400 3604 w
+X10 R f
+X( rules that)2 398( is no need for four types of quotation, nor the extremely complicated)12 2812(. There)1 310 3 1520 3604 t
+X( In)1 133(govern them.)1 527 2 720 3724 t
+X10 I f
+X(rc)1405 3724 w
+X10 R f
+X( to appear in an argu-)5 855(you use quotation marks exactly when you want a syntax character)10 2672 2 1513 3724 t
+X(ment.)720 3844 w
+X10 CW f
+X(IFS)999 3844 w
+X10 R f
+X(is no longer used, except in the one case where it was indispensable: converting command out-)15 3833 1 1207 3844 t
+X(put into argument lists during command substitution.)6 2121 1 720 3964 t
+X( security hole [Ree88].)3 933(This also avoids an important)4 1211 2 720 4120 t
+X10 I f
+X(System)2922 4120 w
+X10 R f
+X(\(3\) and)1 293 1 3199 4120 t
+X10 I f
+X(popen)3525 4120 w
+X10 R f
+X(\(3\) call)1 293 1 3769 4120 t
+X10 CW f
+X(/bin/sh)4095 4120 w
+X10 R f
+X(to execute a)2 492 1 4548 4120 t
+X( to use either of these routines with any assurance that the specified command)13 3212( is impossible)2 569(command. It)1 539 3 720 4240 t
+X(will be executed, even if the caller of)7 1479 1 720 4360 t
+X10 I f
+X(system)2224 4360 w
+X10 R f
+X(or)2515 4360 w
+X10 I f
+X(popen)2623 4360 w
+X10 R f
+X( can)1 164( This)1 229( for the command.)3 735(specifies a full path name)4 1020 4 2892 4360 t
+X( problem is that)3 643( The)1 211( a set-userid program.)3 888(be devastating if it occurs in)5 1164 4 720 4480 t
+X10 CW f
+X(IFS)3657 4480 w
+X10 R f
+X(is used to split the command)5 1172 1 3868 4480 t
+X(into words, so an attacker can just set)7 1534 1 720 4600 t
+X10 CW f
+X(IFS=/)2285 4600 w
+X10 R f
+X( Trojan horse named)3 844(in his environment and leave a)5 1253 2 2616 4600 t
+X10 CW f
+X(usr)4745 4600 w
+X10 R f
+X(or)4957 4600 w
+X10 CW f
+X(bin)720 4720 w
+X10 R f
+X(in the current working directory before running the privileged program.)9 2891 1 929 4720 t
+X10 I f
+X(Rc)3874 4720 w
+X10 R f
+X(fixes this by not ever res-)5 1032 1 4008 4720 t
+X(canning input for any reason.)4 1167 1 720 4840 t
+X(Most of the other differences between)5 1565 1 720 4996 t
+X10 I f
+X(rc)2320 4996 w
+X10 R f
+X( eliminated Bourne's)2 860( I)1 94(and the Bourne shell are not so serious.)7 1647 3 2439 4996 t
+X(peculiar forms of variable substitution, like)5 1726 1 720 5116 t
+X9 CW f
+X(echo ${a=b} ${c-d} ${e?error})3 1566 1 1008 5286 t
+X10 R f
+X( deleted the builtins)3 822( I)1 95(because they are little used, redundant and easily expressed in less abstruse terms.)12 3403 3 720 5466 t
+X10 CW f
+X(export)720 5586 w
+X10 R f
+X(,)1080 5586 w
+X10 CW f
+X(readonly)1131 5586 w
+X10 R f
+X(,)1611 5586 w
+X10 CW f
+X(break)1662 5586 w
+X10 R f
+X(,)1962 5586 w
+X10 CW f
+X(continue)2013 5586 w
+X10 R f
+X(,)2493 5586 w
+X10 CW f
+X(read)2544 5586 w
+X10 R f
+X(,)2784 5586 w
+X10 CW f
+X(return)2835 5586 w
+X10 R f
+X(,)3195 5586 w
+X10 CW f
+X(set)3246 5586 w
+X10 R f
+X(,)3426 5586 w
+X10 CW f
+X(times)3477 5586 w
+X10 R f
+X(and)3803 5586 w
+X10 CW f
+X(unset)3973 5586 w
+X10 R f
+X(because they seem)2 742 1 4298 5586 t
+X(redundant or only marginally useful.)4 1462 1 720 5706 t
+X(Where Bourne's syntax draws from Algol 68,)6 1917 1 720 5862 t
+X10 I f
+X(rc)2677 5862 w
+X10 R f
+X( I)1 99( is harder to defend.)4 859( This)1 244( C or Awk.)3 492('s is based on)3 586 5 2760 5862 t
+X(believe that, for example)3 992 1 720 5982 t
+X9 CW f
+X(if\(test -f junk\) rm junk)4 1296 1 1008 6152 t
+X10 R f
+X(is better syntax than)3 802 1 720 6332 t
+X9 CW f
+X(if test -f junk; then rm junk; fi)7 1782 1 1008 6502 t
+X10 R f
+X( is less cluttered with keywords, it avoids the semicolons that Bourne requires in odd places, and)16 3921(because it)1 399 2 720 6682 t
+X(the syntax characters better set off the active parts of the command.)11 2693 1 720 6802 t
+X(The one bit of large-scale syntax that Bourne unquestionably does better than)11 3169 1 720 6958 t
+X10 I f
+X(rc)3922 6958 w
+X10 R f
+X(is the)1 222 1 4038 6958 t
+X10 CW f
+X(if)4293 6958 w
+X10 R f
+X(statement with)1 594 1 4446 6958 t
+X10 CW f
+X(else)720 7078 w
+X10 R f
+X(clause.)986 7078 w
+X10 I f
+X(Rc)1310 7078 w
+X10 R f
+X('s)1415 7078 w
+X10 CW f
+X(if)1512 7078 w
+X10 R f
+X(has no terminating)2 744 1 1657 7078 t
+X10 CW f
+X(fi)2426 7078 w
+X10 R f
+X( a result, the parser cannot tell whether or not)9 1807( As)1 161(-like bracket.)1 526 3 2546 7078 t
+X(to expect an)2 482 1 720 7198 t
+X10 CW f
+X(else)1227 7198 w
+X10 R f
+X( problem is that after reading, for example)7 1685( The)1 205(clause without looking ahead in its input.)6 1647 3 1492 7198 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 13 13
+X%%Page: 14 14
+X/saveobj save def
+Xmark
+X14 pagesetup
+X10 R f
+X(- 14 -)2 216 1 2772 480 t
+X9 CW f
+X(if\(test -f junk\) echo junk found)5 1728 1 1008 830 t
+X10 R f
+X(in interactive mode,)2 824 1 720 1010 t
+X10 I f
+X(rc)1583 1010 w
+X10 R f
+X(cannot decide whether to execute it immediately and print)8 2430 1 1705 1010 t
+X10 CW f
+X($prompt\(1\))4174 1010 w
+X10 R f
+X(, or to)2 266 1 4774 1010 t
+X(print)720 1130 w
+X10 CW f
+X($prompt\(2\))937 1130 w
+X10 R f
+X(and wait for the)3 638 1 1565 1130 t
+X10 CW f
+X(else)2231 1130 w
+X10 R f
+X( the Bourne shell, this is not a problem, because)9 1930( In)1 136(to be typed.)2 475 3 2499 1130 t
+X(the)720 1250 w
+X10 CW f
+X(if)867 1250 w
+X10 R f
+X(command must end with)3 986 1 1012 1250 t
+X10 CW f
+X(fi)2023 1250 w
+X10 R f
+X(, regardless of whether it contains an)6 1466 1 2143 1250 t
+X10 CW f
+X(else)3634 1250 w
+X10 R f
+X(or not.)1 261 1 3899 1250 t
+X10 I f
+X(Rc)720 1406 w
+X10 R f
+X( is to declare that the)5 839('s admittedly feeble solution)3 1144 2 825 1406 t
+X10 CW f
+X(else)2835 1406 w
+X10 R f
+X(clause is a separate statement, with the semantic)7 1938 1 3102 1406 t
+X(proviso that it must immediately follow an)6 1724 1 720 1526 t
+X10 CW f
+X(if)2472 1526 w
+X10 R f
+X(, and to call it)4 559 1 2592 1526 t
+X10 CW f
+X(if not)1 363 1 3179 1526 t
+X10 R f
+X(rather than)1 432 1 3570 1526 t
+X10 CW f
+X(else)4030 1526 w
+X10 R f
+X(, as a reminder that)4 770 1 4270 1526 t
+X( the braces are required in the)6 1227( only noticeable consequence of this is that)7 1766( The)1 212(something odd is going on.)4 1115 4 720 1646 t
+X(construction)720 1766 w
+X9 CW f
+X(for\(i\){)1008 1936 w
+X(if\(test -f $i\) echo $i found)5 1512 1 1224 2046 t
+X(if not echo $i not found)5 1296 1 1224 2156 t
+X(})1008 2266 w
+X10 R f
+X(and that)1 319 1 720 2446 t
+X10 I f
+X(rc)1064 2446 w
+X10 R f
+X(resolves the ``dangling else'' ambiguity in opposition to most people's expectations.)10 3378 1 1172 2446 t
+X( the UNIX system programmer's manual the Bourne)7 2120(It is remarkable that in the four most recent editions of)10 2200 2 720 2602 t
+X( not admit the command)4 976(shell grammar described in the manual page does)7 1985 2 720 2722 t
+X10 CW f
+X(who|wc)3707 2722 w
+X10 R f
+X( is surely an over-)4 719(. This)1 254 2 4067 2722 t
+X( Even)1 266( something darker: nobody really knows what the Bourne shell's grammar is.)11 3206(sight, but it suggests)3 848 3 720 2842 t
+X( the rou-)2 346( parser is implemented by recursive descent, but)7 1959( The)1 210(examination of the source code is little help.)7 1805 4 720 2962 t
+X( categories all have a flag argument that subtly changes their operation)11 2885(tines corresponding to the syntactic)4 1435 2 720 3082 t
+X(depending on the context.)3 1041 1 720 3202 t
+X10 I f
+X(Rc)1814 3202 w
+X10 R f
+X('s parser is implemented using)4 1233 1 1919 3202 t
+X10 I f
+X(yacc)3180 3202 w
+X10 R f
+X(, so I can say precisely what the grammar)8 1678 1 3362 3202 t
+X(is.)720 3322 w
+X( is a)2 165( There)1 284( it considerably except for two things.)6 1524( would simplify)2 636( I)1 84(Its lexical structure is harder to describe.)6 1627 6 720 3478 t
+X( distinguish between parentheses that immediately follow a word with no intervening)11 3614(lexical kludge to)2 706 2 720 3598 t
+X( use for)2 319(spaces and those that don't that I would eliminate if there were a reasonable pair of characters to)17 4001 2 720 3718 t
+X( could also eliminate the insertion of free carets if users were not adamant about it.)15 3299( I)1 83(subscript brackets.)1 743 3 720 3838 t
+X10 B f
+X(28. Acknowledgements)1 1002 1 720 4078 t
+X10 R f
+X( Plan 9 users have been insistent, incessant sources of good ideas and)12 2825(Rob Pike, Howard Trickey and other)5 1495 2 720 4234 t
+X( examples in this document are plagiarized from [Bou78], as are most of)12 2892(criticism. Some)1 653 2 720 4354 t
+X10 I f
+X(rc)4290 4354 w
+X10 R f
+X('s good features.)2 662 1 4373 4354 t
+X10 B f
+X(29. References)1 639 1 720 4594 t
+X10 R f
+X( R. Bourne, ``U)3 678(Bou78. S.)1 423 2 720 4822 t
+X8 R f
+X(NIX)1821 4822 w
+X10 R f
+X(Time-Sharing System: The U)3 1234 1 2006 4822 t
+X8 R f
+X(NIX)3240 4822 w
+X10 R f
+X(Shell,'')3425 4822 w
+X10 I f
+X(Bell System Technical Journal)3 1275 1 3765 4822 t
+X10 B f
+X(57)970 4942 w
+X10 R f
+X(\(6\), pp. 1971-1990 \(July-August 1978\).)4 1579 1 1070 4942 t
+X( Reeds, ``)2 409(Ree88. J.)1 394 2 720 5098 t
+X10 CW f
+X(/bin/sh)1523 5098 w
+X10 R f
+X( Bell)1 205( AT&T)1 334(: the biggest UNIX security loophole,'' 11217-840302-04TM,)6 2558 3 1943 5098 t
+X(Laboratories \(1988\).)1 820 1 970 5218 t
+Xcleartomark
+Xshowpage
+Xsaveobj restore
+X%%EndPage: 14 14
+X%%Trailer
+Xdone
+X%%Pages: 14
+X%%DocumentFonts: Courier Times-Bold Times-Italic Times-Roman Symbol
+END_OF_FILE
+  if test 40176 -ne `wc -c <'plan9.ps.b'`; then
+    echo shar: \"'plan9.ps.b'\" unpacked with wrong size!
+  elif test -f plan9.ps.a; then
+    echo shar: Creating \"'plan9.ps'\" \(67056 characters\)
+    cat plan9.ps.a plan9.ps.b > plan9.ps
+    if test -f plan9.ps ; then
+      rm plan9.ps.a plan9.ps.b
+    fi
+  fi
+  # end of 'plan9.ps.b'
+fi
+echo shar: End of archive 1 \(of 7\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

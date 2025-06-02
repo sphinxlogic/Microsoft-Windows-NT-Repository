@@ -1,0 +1,811 @@
+Newsgroups: comp.sources.misc
+From: brad@amber.ssd.csd.harris.com (Brad Appleton)
+Subject: v40i158:  cmdline - C++ Library for parsing command-line arguments, Patch03
+Message-ID: <1993Nov24.165756.3495@sparky.sterling.com>
+X-Md4-Signature: 5ab46a8b87dc003b9ba80b0a73c981fe
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: brad@travis.csd.harris.com
+Organization: Harris Computer Systems
+Date: Wed, 24 Nov 1993 16:57:56 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: brad@amber.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 40, Issue 158
+Archive-name: cmdline/patch03
+Environment: C++
+Patch-To: cmdline: Volume 31, Issue 47-54
+
+This is patch-level 3 of "CmdLine":  a C++ library for parsing
+command arguments and assigning the corresponding values to program
+variables. "CmdLine" includes "cmdparse", a program to provide an
+interface to CmdLine for shell-scripts.
+
+ To apply this patch:
+ --------------------
+   0) save this article to a file in your "CmdLine" source directory
+
+   1) "cd" to your CmdLine source directory
+
+   2) Remove all lines in the sharfile (the file you saved in #0)
+      that precede the line that starts with "#! /bin/sh".
+
+   3) Run the command "sh sharfile" (or whatever you named your sharfile).
+      This will create a file named "PATCH03" in your current directory,
+      and will also create the files "TO-DO" and "Suggestions" (the latter
+      two files are new additions to the current release of CmdLine).
+
+   4) Run "patch -p0 < PATCH03"
+
+For those of you who are unfamiliar with "CmdLine" and "cmdparse",
+an overview is included later on in this article. You can send
+e-mail to me at brad@ssd.csd.harris.com if you want the complete
+C++ source.
+
+ Changes in this release:
+ ------------------------
+ - documented "secret" arguments in cmdparse(1)
+
+ - fixed a very rarely encountered bug with matching and recognizing
+     a positional list that has been interrupted and then continued.
+
+ CmdLine is now part of the test-suite for the FSF's g++. The following are
+ the changes they made to CmdLine for g++ 2.5:
+
+ - The preprocessor defines __GNUG__, so the user doesn't need to
+   define __gplusplus
+
+ - src/lib/cmdline.h, src/lib/states.h: the enums work properly now
+
+ - src/lib/fifolist.c: NULL wasn't defined on my system, so I put it
+   in if it's not already been defined
+
+ These changes were e-mailed to me by Brendan Kehoe <brendan@lisa.cygnus.com>
+ Unfortunately, Brendan also tells me that he cant get CmdLine to compile
+ under g++ with -DTEMPLATES #defined because it involves some non-trivial
+ fixes to the compiler. 
+
+ -----------------------------------------------------------------------------
+ 
+
+                    An overview of CmdLine and cmdparse
+                    ===================================
+
+                 by Brad Appleton <brad@ssd.csd.harris.com>
+
+
+
+ Introduction
+ ------------
+ CmdLine is a C++ Library for parsing command-line arguments. It is 
+ approximately 2000 lines of C++ code (excluding comments).
+
+ Cmdparse is a command-line interface to CmdLine for Unix shell-scripts.
+ It is approximately 1200 lines of C++ code (excluding comments).
+
+
+ CmdLine(3C++)
+ -------------
+ CmdLine is a set of classes to parse command-line arguments.  Unlike
+ getopt() and its variants, CmdLine does more than just split up the
+ command-line into some canonical form.  CmdLine will actually parse
+ the command-line, assigning the appropriate command-line values to
+ the corresponding variables, and will verify the command-line syntax
+ (and print a usage message if necessary) all in one member function
+ call.  Furthermore, many features of CmdLine's parsing behavior are
+ configurable at run-time.  These features include the following:
+
+     o  Prompting the user for missing arguments.
+     o  Allowing keywords (-count=4) and/or options (-c4).
+     o  Ignoring bad syntax instead of terminating.
+     o  Ignoring upper/lower case on the command-line.
+     o  Suppressing the printing of syntax error messages.
+     o  Controlling the verboseness of usage messages.
+     o  Controlling whether or not options may be processed
+          after positional parameters have been seen.
+
+ CmdLine also allows for options that take an optional argument, options
+ that take a (possibly optional) list of one or more arguments, sticky
+ options (options whose argument must reside in the same token as the
+ option itself), and options whose argument must reside in a separate
+ token from the option itself.
+
+ CmdLine consists of a set of C++ classes to parse arguments from an
+ input source called a CmdLineArgIter (which is a base class for iterating
+ over arguments from an arbitrary input source).  Argument iterators are
+ defined for an argv[] array (with or without a corresponding argc), for
+ a string of tokens that are separated by a given set of delimiters, and
+ for an input-stream.  Users can easily extend CmdLine to parse arguments
+ from other input sources simply by creating their own argument iterator
+ classes derived from the CmdLineArgIter class defined in <cmdline.h>.
+
+ Command-line arguments are themselves objects that contain a specific
+ command-line interface, and a function that performs the desired actions
+ when its corresponding argument is seen on the command line.  Predefined
+ command-line argument types (derived from the abstract class CmdArg in
+ <cmdline.h>) exist for boolean, integer, floating-point, character, and
+ string arguments, and for lists of integers, floats, and strings.  These
+ predefined subclasses of CmdArg may be found in <cmdargs.h>.  Users can
+ also create their own command-argument types on the fly by defining and
+ implementing an appropriate subclass of the CmdArg class.
+
+ Using CmdLine is relatively easy - you need to construct your arguments,
+ your command-line, and your argument iterator.  Then all that is left to
+ do is call the "parse" member function of your CmdLine object.  The
+ following is a simple example:
+
+    #include <stdlib.h>
+    #include <iostream.h>
+    #include <cmdargs.h>
+
+    int  main(int argc, char * argv[])
+    {
+          // Declare arguments
+       CmdArgInt  count('c', "count", "number", "number of copies to print.");
+       CmdArgBool xflag('x', "xmode", "turn on 'x'-mode.");
+       CmdArgChar fdsep('s', "separator", "char", "field-separator to use.");
+       CmdArgStr  input("input-file",  "input file to read.");
+       CmdArgStrList  output("[output-file ...]",  "where to print output.");
+
+          // Declare command object and its argument-iterator
+       CmdLine  cmd(*argv, &count, &xflag, &fdsep, &input, &output, NULL);
+       CmdArgvIter  arg_iter(--argc, ++argv);
+
+          // Initialize arguments to appropriate default values.
+       count = 1;
+       xflag = 0;
+       fdsep = ',';
+
+          // Parse arguments
+       cmd.parse(arg_iter);
+
+          // Print arguments
+       cout << "count=" << count << endl ;
+       cout << "xflag=" << (xflag ? "ON" : "OFF") << endl ;
+       cout << "fdsep='" << (char) fdsep << "'" << endl ;
+       cout << "input=\"" << input << "\"" << endl ;
+       
+       for (int i = 0 ; i < output.count() ; i++) {
+          cout << "output[" << i << "]=" << output[i] << endl ;
+       }
+
+       return  0;
+    }
+
+
+ The Unix command-line syntax for the above program would be as follows:
+
+    Usage: progname [-c number] [-x] [-s char] input-file [output-file ...]
+
+    Options/Arguments:
+            -c number        number of copies to print.
+            -x               turn on 'x'-mode.
+            -s char          field-separator to use.
+            input-file       input file to read.
+            output-file ...  where to print output.
+
+
+ The Unix command-line syntax using long-options (keywords) for the above
+ program would be as follows:
+
+    Usage: progname [--count number] [--xmode] [--separator char]
+                    input-file [output-file ...]
+
+    Options/Arguments:
+            --count number    number of copies to print.
+            --xmode           turn on 'x'-mode.
+            --separator char  field-separator to use.
+            input-file        input file to read.
+            output-file ...   where to print output.
+
+ If desired, one can set a configuration flag at run-time to allow "+"
+ to also be recognized (in addition to "--") as a long-option prefix.
+
+ By default, CmdLine allows both options and long-options to appear on the
+ command-line. You can instruct CmdLine to disallow one or the other however.
+ As an "extra", when options are disallowed, the "-" prefix is assumed to
+ denote a long-option instead of an option (hence either "-" or "--" denotes
+ a keyword in this case).  Using this feature, CmdLine can be used to supply
+ the type of long-option syntax that is now becoming quite popular in the
+ Unix world. Using this "new" syntax, the command-line syntax for the above
+ command would be the following:
+
+    Usage: progname [-count number] [-xmode] [-separator char]
+                    input-file [output-file ...]
+
+    Options/Arguments:
+            -count number    number of copies to print.
+            -xmode           turn on 'x'-mode.
+            -separator char  field-separator to use.
+            input-file       input file to read.
+            output-file ...  where to print output.
+
+
+ It should be mentioned that, when long-options are used, only a unique
+ prefix of the keyword needs to be given (and character-case is ignored).
+ Hence, in the above example, "-x", "-X", and "-xm" will match "-xmode".
+
+
+ cmdparse(1)
+ -----------
+ Using "cmdparse" is even easier than using CmdLine. You declare your
+ arguments in a string and then you invoke cmdparse with the command
+ line of your shell-script and cmdparse will output a script of variable
+ settings for you to evaluate.  The following is an example (using the
+ same arguments as in our sample program):
+
+    #!/bin/sh
+    NAME="`/bin/basename $0`"
+
+    ARGS='
+       ArgInt   count  "[c|count number]"    "number of copies to print."
+       ArgBool  xflag  "[x|xmode]"           "turn on x-mode."
+       ArgChar  fdsep  "[s|separator char]"  "field-separator to use."
+       ArgStr   input  "input-file"          "input file to read."
+       ArgStr   output "[output-file ...]"   "where to print output."
+    '
+
+    if  cmdparse -shell=sh -decls="$ARGS" -- $NAME "$@" > tmp$$
+    then
+       . tmp$$
+       /bin/rm -f tmp$$
+    else
+       EXITVAL=$?
+       /bin/rm -f tmp$$
+       exit $EXITVAL
+    fi
+
+    echo "xflag=" $xflag
+    echo "count=" $count
+    echo "fdsep=" $fdsep
+    echo "input=" $input
+    if [ "$output" ] ; then
+       echo "output=" $output
+    fi
+
+
+ Note that you declare the syntax of an argument differently for cmdparse
+ than for CmdLine. The syntax for a single argument for cmdparse looks like
+ the following:
+
+    <arg-type>  <arg-name>  <syntax>  <description>
+
+ Where <arg-type> is one of the following:
+
+    ArgInt     --  an integer value (or list of values)
+    ArgFloat   --  a floating-point value (or list of values)
+    ArgChar    --  a character value (or list of values)
+    ArgStr     --  a string value (or list of values)
+    ArgBool    --  a boolean flag that is turned ON
+    ArgClear   --  a boolean flag that is turned OFF
+    ArgToggle  --  a boolean flag that is toggled
+    ArgUsage   --  print usage and exit
+    ArgDummy   --  a dummy argument
+
+ If desired, the leading "Arg" portion may be omitted from the type-name.
+
+ <arg-name> is simply the name of the variable in your script that you wish
+ to contain the resultant value from the command-line.  Any default value
+ must be assigned to the variable before invoking cmdparse.
+
+ <syntax> and <description> *MUST* be enclosed in either single or double
+ quotes! <description> is simply that, the description of the argument.
+ 
+ <syntax> is a little trickier, there are three basic forms of syntax:
+
+   1)  "c|keyword"        -- an option the takes no value
+   2)  "c|keyword value"  -- an option that takes a value
+   3)  "value"            -- a positional parameter
+
+ Note that the option-character MUST precede the keyword-name and that
+ there must be NO spaces surrounding the '|' in "c|keyword"!
+
+ Any "optional" parts of the argument should appear inside square-brackets
+ ('[' and ']') and a list of values is denoted by an ellipsis (" ...").
+ Most options will be inside of square brackets to reflect the fact that
+ they are "optional".
+
+ Some example <syntax> strings follow:
+
+    "c|keyword"                -- a required option
+    "[c|keyword]"              -- an option with no value
+    "[c|keyword value]"        -- an option that takes a value
+    "[c|keyword [value]]"      -- an option that takes an optional value
+    "[c|keyword value ...]"    -- an option that takes 1 or more values
+    "[c|keyword [value ...]]"  -- an option that takes 0 or more values
+    "value"                    -- a required positional parameter
+    "[value]"                  -- an optional positional-parameter
+    "[c|keyword] value"        -- a required argument that may be matched
+                                  either positionally or by keyword!
+
+
+ Further Information
+ -------------------
+ This is just a brief overview of what the CmdLine package can do. Please
+ read the documentation for a more thorough explanation of this products'
+ capabilities and limitations!
+
+
+ ______________________ "And miles to go before I sleep." ______________________
+  Brad Appleton, Senior Software Engineer    Harris Computer Systems Division
+    E-mail: brad@ssd.csd.harris.com          2101 W. Cypress Creek Rd., M/S 161 
+    Phone : (305) 973-5190                   Fort Lauderdale, FL  USA  33309
+ ~~~~~~~~~~~~~~~~~~~ Disclaimer: I said it, not my employer! ~~~~~~~~~~~~~~~~~~~
+--------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  PATCH03 Suggestions TO-DO
+# Wrapped by brad@amber on Fri Nov  5 15:21:30 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'PATCH03' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'PATCH03'\"
+else
+echo shar: Extracting \"'PATCH03'\" \(13063 characters\)
+sed "s/^X//" >'PATCH03' <<'END_OF_FILE'
+X*** MANIFEST.OLD	Fri Nov 05 15:19:07 1993
+X--- MANIFEST	Fri Nov 05 15:18:21 1993
+X***************
+X*** 5,10 ****
+X--- 5,12 ----
+X   Makefile                   1	Makefile for the product
+X   Overview                   4	A brief overview of the product
+X   README                     1	Read this file first
+X+  Suggestions                1	List of Suggestions for CmdLine/cmdparse
+X+  TO-DO                      1	Things still to do for CmdLine/cmdparse
+X   doc                        1	Documentation directory
+X   doc/Makefile               1	Makefile for the documentation
+X   doc/bugs.man               1	documents known bugs
+X***************
+X*** 25,31 ****
+X   src/cmd/argtypes.c         2	implementation of shell-script arguments
+X   src/cmd/argtypes.h         2	definition of shell-script arguments
+X   src/cmd/cmdparse.c         6	the guts of the cmdparse program
+X!  src/cmd/cmdparse.h         1	the specification of the cmdparse program
+X   src/cmd/cmdparse.pl        2	cmdparse for Perl programmers
+X   src/cmd/cmdparse.tcl       2	cmdparse for Tcl programmers
+X   src/cmd/fsm.c              2	finite-state-machine for parsing arg-syntax
+X--- 27,33 ----
+X   src/cmd/argtypes.c         2	implementation of shell-script arguments
+X   src/cmd/argtypes.h         2	definition of shell-script arguments
+X   src/cmd/cmdparse.c         6	the guts of the cmdparse program
+X!  src/cmd/cmdparse.h         2	the specification of the cmdparse program
+X   src/cmd/cmdparse.pl        2	cmdparse for Perl programmers
+X   src/cmd/cmdparse.tcl       2	cmdparse for Tcl programmers
+X   src/cmd/fsm.c              2	finite-state-machine for parsing arg-syntax
+X*** README.OLD	Fri Nov 05 15:19:11 1993
+X--- README	Wed Oct 27 10:30:11 1993
+X***************
+X*** 62,69 ****
+X   msdos           Needed for MS-DOS systems.
+X   os2             Needed for OS/2 Systems.
+X  
+X-  __gplusplus     Needed if you are using g++ as your C++ compiler.
+X- 
+X   unix_style      (This is the default) Use this to have CmdLine parse
+X                   command-lines using traditional Unix command-line syntax.
+X  
+X--- 62,67 ----
+X***************
+X*** 191,193 ****
+X--- 189,228 ----
+X   -----------------------------------------------------------------------------
+X   - Fixed a problem that some machines/compilers had with the contructor
+X     ignoring the first CmdArg.
+X+ 
+X+  10/08/93		Brad Appleton		<brad@ssd.csd.harris.com>
+X+  -----------------------------------------------------------------------------
+X+  CmdLine is now part of the test-suite for the FSF's g++. The following are
+X+  the changes they made to CmdLine for g++ 2.5:
+X+ 
+X+  - The preprocessor defines __GNUG__, so the user doesn't need to
+X+    define __gplusplus
+X+ 
+X+  - src/lib/cmdline.h, src/lib/states.h: the enums work properly now
+X+ 
+X+  - src/lib/fifolist.c: NULL wasn't defined on my system, so I put it
+X+    in if it's not already been defined
+X+ 
+X+  These changes were e-mailed to me by Brendan Kehoe <brendan@lisa.cygnus.com>
+X+  Unfortunately, Brendan also tells me that he cant get CmdLine to compile
+X+  under g++ with -DTEMPLATES #defined because it involves some non-trivial
+X+  fixes to the compiler. 
+X+ 
+X+  10/26/93		Brad Appleton		<brad@ssd.csd.harris.com>
+X+  -----------------------------------------------------------------------------
+X+  - documented "secret" arguments in cmdparse(1)
+X+  - fixed the following bug:
+X+      CmdLine did not properly handle an "interrupted" positional-list.
+X+      For example, If I have a program whose syntax is:
+X+ 
+X+ 	     prog [-x] arg ...
+X+ 
+X+      And I have OPTS_FIRST disabled so that options may occur after
+X+      positional parameters, then the following should be equivalent:
+X+ 
+X+ 	     prog -x arg1 arg2 prog arg1 -x arg2
+X+ 
+X+      CmdLine was not correctly recognizing that "arg2" was part of
+X+      the the previously specified positional list. This has been
+X+      fixed!
+X+ 
+X*** doc/cmdparse.man1.OLD	Fri Nov 05 15:19:16 1993
+X--- doc/cmdparse.man1	Wed Oct 27 10:27:16 1993
+X***************
+X*** 311,319 ****
+X  to quote the field to also appear within the field, then precede the quote
+X  character (inside the quotes) with a backslash (`\\').
+X  
+X! The <\fIdescription\fP> is simply a textual description of the argument.
+X!  
+X! The <\fIsyntax\fP> is a little trickier, there are three basic forms of syntax:
+X  
+X  .RS
+X  .TP
+X--- 311,323 ----
+X  to quote the field to also appear within the field, then precede the quote
+X  character (inside the quotes) with a backslash (`\\').
+X  
+X! The <\fIdescription\fP> is simply a textual description of the
+X! argument.  If the first non-white character of the argument
+X! description is a semicolon (`;'), then the argument is considered
+X! to be "secret" and is NOT printed in usage messages.
+X! 
+X! The <\fIsyntax\fP> is a little trickier, there are three basic
+X! forms of syntax:
+X  
+X  .RS
+X  .TP
+X*** src/cmd/Makefile.OLD	Fri Nov 05 15:19:23 1993
+X--- src/cmd/Makefile	Fri Oct 08 09:45:02 1993
+X***************
+X*** 74,80 ****
+X  	( $(CHDIR) $(PROGLIBDIR) ; $(BUILD) $@ ; )
+X  
+X  $(PROGRAM): $(OBJS)
+X! 	$(CC) $(EXE)$@ $(OBJS) $(PROGLIB)
+X  
+X  ###
+X  # maintenance dependencies
+X--- 74,80 ----
+X  	( $(CHDIR) $(PROGLIBDIR) ; $(BUILD) $@ ; )
+X  
+X  $(PROGRAM): $(OBJS)
+X! 	$(CC) $(EXE) $@ $(OBJS) $(PROGLIB)
+X  
+X  ###
+X  # maintenance dependencies
+X*** src/lib/Makefile.OLD	Fri Nov 05 15:19:32 1993
+X--- src/lib/Makefile	Fri Oct 08 09:44:27 1993
+X***************
+X*** 70,76 ****
+X  test: cmdtest$(EXECEXT)
+X  
+X  cmdtest$(EXECEXT): cmdtest$(OBJEXT) $(OBJS)
+X! 	$(CC) $(EXE)$@ cmdtest$(OBJEXT) $(LIBRARY)
+X  
+X  $(LIBRARY): $(OBJS)
+X  	$(AR) $@ $(OBJS)
+X--- 70,76 ----
+X  test: cmdtest$(EXECEXT)
+X  
+X  cmdtest$(EXECEXT): cmdtest$(OBJEXT) $(OBJS)
+X! 	$(CC) $(EXE) $@ cmdtest$(OBJEXT) $(LIBRARY)
+X  
+X  $(LIBRARY): $(OBJS)
+X  	$(AR) $@ $(OBJS)
+X*** src/lib/cmdargs.c.OLD	Fri Nov 05 15:19:38 1993
+X--- src/lib/cmdargs.c	Fri Oct 08 09:36:29 1993
+X***************
+X*** 271,277 ****
+X  
+X  typedef  CmdArgStrCompiler::casc_string  CmdArgString ;
+X  
+X! #ifndef __gplusplus
+X  CmdArgString::~casc_string(void)
+X  {
+X     if (is_alloc)  delete [] (char *)str;
+X--- 271,277 ----
+X  
+X  typedef  CmdArgStrCompiler::casc_string  CmdArgString ;
+X  
+X! #ifndef __GNUG__
+X  CmdArgString::~casc_string(void)
+X  {
+X     if (is_alloc)  delete [] (char *)str;
+X*** src/lib/cmdargs.h.OLD	Fri Nov 05 15:19:44 1993
+X--- src/lib/cmdargs.h	Fri Oct 08 09:37:06 1993
+X***************
+X*** 462,468 ****
+X        operator const char*(void)  const { return  str; }
+X  
+X        virtual ~casc_string(void)
+X! #ifdef __gplusplus
+X           { if (is_alloc)   delete [] (char *) str; }
+X  #endif
+X        ;
+X--- 462,468 ----
+X        operator const char*(void)  const { return  str; }
+X  
+X        virtual ~casc_string(void)
+X! #ifdef __GNUG__
+X           { if (is_alloc)   delete [] (char *) str; }
+X  #endif
+X        ;
+X*** src/lib/cmdline.h.OLD	Fri Nov 05 15:19:49 1993
+X--- src/lib/cmdline.h	Fri Oct 08 09:38:01 1993
+X***************
+X*** 75,93 ****
+X        isLIST      = 0x20,  // argument is a list
+X        isPOS       = 0x40,  // argument is positional
+X        isHIDDEN    = 0x80,  // argument is not to be printed in usage
+X- #ifndef __gplusplus
+X        isVALTAKEN  = (isVALREQ | isVALOPT),    // argument takes a value
+X        isOPTVALOPT = (isOPT | isVALOPT),
+X        isOPTVALREQ = (isOPT | isVALREQ),
+X        isPOSVALOPT = (isPOS | isVALOPT),
+X        isPOSVALREQ = (isPOS | isVALREQ),
+X- #else
+X-       isVALTAKEN  = 0x06,     // g++ doesnt seem to recognize enums that
+X-       isOPTVALOPT = 0x02,     // are defined in terms of previous values
+X-       isOPTVALREQ = 0x04,     // so I have to hard code the values instead.
+X-       isPOSVALOPT = 0x42,     //
+X-       isPOSVALREQ = 0x44,     // If this ever changes -- remove this stuff!
+X- #endif
+X     } ;
+X  
+X       // Flags that say how the argument was specied on the command-line
+X--- 75,85 ----
+X*** src/lib/fifolist.c.OLD	Fri Nov 05 15:19:56 1993
+X--- src/lib/fifolist.c	Fri Oct 08 09:38:53 1993
+X***************
+X*** 12,17 ****
+X--- 12,21 ----
+X  #include "cmdline.h"
+X  #include "fifolist.h"
+X  
+X+ #ifndef NULL
+X+ # define NULL 0L
+X+ #endif
+X+ 
+X  //------------------------------------------------------------- GenericFifoList
+X  
+X     // Destructor
+X*** src/lib/patchlevel.c.OLD	Fri Nov 05 15:20:00 1993
+X--- src/lib/patchlevel.c	Fri Oct 08 09:28:19 1993
+X***************
+X*** 12,22 ****
+X  //
+X  //    03/03/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X  //    - Modified for patch 1
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include "cmdline.h"
+X  
+X!    // Record the version-identifier for this project.
+X     //
+X     // My source-code management system lets me use a symbolic-name
+X     // to identify a given configuration of the project. From this
+X--- 12,28 ----
+X  //
+X  //    03/03/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X  //    - Modified for patch 1
+X+ //
+X+ //    08/19/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Modified for patch 2
+X+ //
+X+ //    10/08/93	Brad Appleton	<brad@ssd.csd.harris.com>
+X+ //    - Modified for patch 3
+X  //-^^---------------------------------------------------------------------
+X  
+X  #include "cmdline.h"
+X  
+X!    // Record the version-identifier for this configuration of the project.
+X     //
+X     // My source-code management system lets me use a symbolic-name
+X     // to identify a given configuration of the project. From this
+X***************
+X*** 24,36 ****
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.02" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  2
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.02"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+X--- 30,42 ----
+X     // file that makes up this version of the project.
+X     //
+X  static const char ident[] =
+X!    "@(#)SMS  task: cmdline-1.03" ;
+X  
+X  
+X     // Release and patchlevel information
+X  #define  CMDLINE_RELEASE     1
+X! #define  CMDLINE_PATCHLEVEL  3
+X! #define  CMDLINE_IDENT       "@(#)CmdLine	1.03"
+X  
+X  unsigned
+X  CmdLine::release(void)  { return  CMDLINE_RELEASE; }
+X*** src/lib/private.c.OLD	Fri Nov 05 15:20:03 1993
+X--- src/lib/private.c	Tue Oct 26 11:53:23 1993
+X***************
+X*** 612,619 ****
+X  // ^PARAMETERS:
+X  //
+X  // ^DESCRIPTION:
+X! //    If "cmd" has an positional argument that has not yet been given
+X! //    then this function will find and return the first such argument.
+X  //
+X  // ^REQUIREMENTS:
+X  //
+X--- 612,620 ----
+X  // ^PARAMETERS:
+X  //
+X  // ^DESCRIPTION:
+X! //    If "cmd" has an positional argument that has not yet been given,
+X! //    or that corresponds to a list, then this function will find and
+X! //    return the first such argument.
+X  //
+X  // ^REQUIREMENTS:
+X  //
+X***************
+X*** 625,646 ****
+X  //    otherwise we return NULL.
+X  //
+X  // ^ALGORITHM:
+X! //    Trivial.
+X  //-^^----
+X  CmdArg *
+X  CmdLine::pos_match(void) const
+X  {
+X     CmdArgListListIter  list_iter(cmd_args);
+X     for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X        CmdArgListIter  iter(alist);
+X        for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X           if (cmdarg->is_dummy())  continue;
+X!          if ((cmdarg->syntax() & CmdArg::isPOS) &&
+X!              (! (cmdarg->flags() & CmdArg::GIVEN)))
+X!          {
+X!             return  cmdarg ;
+X           }
+X        } //for iter
+X     } //for list_iter
+X!    return  NULL ;
+X  }
+X--- 626,651 ----
+X  //    otherwise we return NULL.
+X  //
+X  // ^ALGORITHM:
+X! //    First look for the first unmatched positional argument!!
+X! //    If there aren't any, then look for the LAST positional list!
+X  //-^^----
+X  CmdArg *
+X  CmdLine::pos_match(void) const
+X  {
+X+    CmdArg * last_pos_list = NULL;
+X     CmdArgListListIter  list_iter(cmd_args);
+X     for (CmdArgList * alist = list_iter() ; alist ; alist = list_iter()) {
+X        CmdArgListIter  iter(alist);
+X        for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X           if (cmdarg->is_dummy())  continue;
+X!          if (cmdarg->syntax() & CmdArg::isPOS) {
+X!             if (! (cmdarg->flags() & CmdArg::GIVEN)) {
+X!                return  cmdarg ;
+X!             } else if (cmdarg->flags() & CmdArg::isLIST) {
+X!                last_pos_list = cmdarg;
+X!             }
+X           }
+X        } //for iter
+X     } //for list_iter
+X!    return  last_pos_list ;
+X  }
+X*** src/lib/states.h.OLD	Fri Nov 05 15:20:09 1993
+X--- src/lib/states.h	Fri Oct 08 09:39:23 1993
+X***************
+X*** 56,81 ****
+X     cmd_TOK_REQUIRED = 0x01,  // is the "wanted" token required?
+X  
+X     cmd_WANT_VAL     = 0x02,  // are we expecting a value?
+X- #ifndef __gplusplus
+X     cmd_NEED_VAL     = (cmd_WANT_VAL | cmd_TOK_REQUIRED),
+X- #else
+X-    cmd_NEED_VAL     = 0x03,
+X- #endif
+X  
+X  #ifdef vms_style
+X     cmd_WANT_VALSEP  = 0x04,  // are we expecting ':' or '='
+X- # ifndef __gplusplus
+X     cmd_NEED_VALSEP  = (cmd_WANT_VALSEP | cmd_TOK_REQUIRED),
+X- # else
+X-    cmd_NEED_VALSEP  = 0x05,
+X- # endif
+X  
+X     cmd_WANT_LISTSEP = 0x08,  // are we expecting ',' or '+'
+X- # ifndef __gplusplus
+X     cmd_NEED_LISTSEP = (cmd_WANT_LISTSEP | cmd_TOK_REQUIRED),
+X- # else
+X-    cmd_NEED_LISTSEP = 0x09,
+X- # endif
+X  #endif
+X  } ;
+X  
+X--- 56,69 ----
+END_OF_FILE
+if test 13063 -ne `wc -c <'PATCH03'`; then
+    echo shar: \"'PATCH03'\" unpacked with wrong size!
+fi
+# end of 'PATCH03'
+fi
+if test -f 'Suggestions' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Suggestions'\"
+else
+echo shar: Extracting \"'Suggestions'\" \(1128 characters\)
+sed "s/^X//" >'Suggestions' <<'END_OF_FILE'
+XList of suggestions and ideas for CmdLine/cmdparse:
+X-------------------------------------------------------------------------------
+X
+X- What about letting the user define an "ArgCatcher" handler of sorts to
+X  "handle" bad/unknown arguments (we have to tell them the bad argument
+X  and the reason it was bad - in addition to the usual stuff). What would
+X  this function return?
+X
+X- Perhaps each CmdArg<Type> that is a not abstract should have 2 versions
+X  of each constructor: one that takes an initial value and one that doesnt.
+X
+X- Perhaps a CmdLine should have facilities to get/set the long & short
+X  option prefixes (and the end-options string too).
+X
+X- Maybe I need a more abstract class that is a parent of CmdLine. Perhaps
+X  some of the stuff in CmdLine could be transferred to this class. I would
+X  need to make some private stuff protected though - do I really want that?
+X
+X- What about a CmdArgAlias class that mereley adds another interface on top
+X  of an existing CmdArg? Only problem is, would you want them to share
+X  flags (not syntax flags but the specification flags)??? Dont know how
+X  I would do this if you did!
+X
+END_OF_FILE
+if test 1128 -ne `wc -c <'Suggestions'`; then
+    echo shar: \"'Suggestions'\" unpacked with wrong size!
+fi
+# end of 'Suggestions'
+fi
+if test -f 'TO-DO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'TO-DO'\"
+else
+echo shar: Extracting \"'TO-DO'\" \(679 characters\)
+sed "s/^X//" >'TO-DO' <<'END_OF_FILE'
+XList of things still to do for CmdLine/cmdparse:
+X-------------------------------------------------------------------------------
+X
+X- Get cmdparse(1) to work with the 'es' shell.
+X
+X- Implement vms_style parsing
+X  For this - I will need to add a "last_list_matched" to the cmdline-object
+X  to handle stuff like "(a,b/c,d)".  Also, what am I going to do about
+X  looking at the original command-line (with lib$get_foreign)? I dont 
+X  think it is reasonable to always compare the argv[] of a CmdArgvIter
+X  to the command-line. Perhaps VMS should have a parse(void) member function
+X  of a CmdLine that does nothing for Unix (or perhaps uses <execargs.h>).
+X
+X- Implement ibm_style parsing
+END_OF_FILE
+if test 679 -ne `wc -c <'TO-DO'`; then
+    echo shar: \"'TO-DO'\" unpacked with wrong size!
+fi
+# end of 'TO-DO'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

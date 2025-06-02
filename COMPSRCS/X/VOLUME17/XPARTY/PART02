@@ -1,0 +1,1760 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: peebles@mips.com (Andrew Peebles)
+Subject: v17i045: Xparty - multi-person conference call (MOTIF), Part02/04
+Message-ID: <1992Apr1.135324.383@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i044-xparty@uunet.UU.NET>
+Date: Wed, 1 Apr 1992 13:53:24 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: peebles@mips.com (Andrew Peebles)
+Posting-number: Volume 17, Issue 45
+Archive-name: xparty/part02
+
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Table.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Table.c'
+else
+echo 'x - continuing file Table.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Table.c' &&
+X * the routine will resize the widget to fit its allocated
+X * space.  Then it will place the widget paying attention
+X * to the justification.
+X */
+{
+X    Cardinal i;
+X    Position ax, ay;
+X    Dimension aw, ah;
+X    Dimension nw, nh;
+X
+X    for (i = 0;  i < managed->n_layout;  i++) {
+X	ax = SumVec(0, managed->locs[i].loc.ax, cvec, hp, cs, 0);
+X	ay = SumVec(0, managed->locs[i].loc.ay, rvec, vp, rs, 0);
+X	aw = SumVec(managed->locs[i].loc.ax,
+X		    (Position) managed->locs[i].loc.h_span, cvec, 0, cs, -cs);
+X	ah = SumVec(managed->locs[i].loc.ay,
+X		    (Position) managed->locs[i].loc.v_span, rvec, 0, rs, -rs);
+X	nw = aw - 2*managed->locs[i].w->core.border_width;
+X	nh = ah - 2*managed->locs[i].w->core.border_width;
+X	if (managed->locs[i].loc.options & TBL_LK_WIDTH) {
+X	    nw = managed->locs[i].w->core.width;
+X	}
+X	if (managed->locs[i].loc.options & TBL_LK_HEIGHT) {
+X	    nh = managed->locs[i].w->core.height;
+X	}
+X	if (((nw != managed->locs[i].w->core.width) ||
+X	     (nh != managed->locs[i].w->core.height)) &&
+X	    (nw > 0) && (nh > 0)) {
+X	    /* Resize widget */
+#ifdef sizing
+X	    Widget w = managed->locs[i].w;
+X	    printf("Resizing %s(%X) -> %d, %d, %d\n", 
+X                   XrmQuarkToString(w->core.xrm_name),
+X		   w, nw, nh,
+X		   w->core.border_width);
+#endif
+X	    _XmResizeObject((RectObj) managed->locs[i].w, nw, nh,
+X			    managed->locs[i].w->core.border_width);
+X	}
+X    
+X	/* Now place */
+X	nw = managed->locs[i].w->core.width +
+X	  2*managed->locs[i].w->core.border_width;;
+X	nh = managed->locs[i].w->core.height +
+X	  2*managed->locs[i].w->core.border_width;;
+X	PlaceWidget(managed->locs[i].w, ax, ay, aw, ah, nw, nh,
+X		    managed->locs[i].loc.options);
+X    }
+}
+X
+X
+X
+/*ARGSUSED*/
+static void TblPlacement(tw)
+TableWidget tw;			/* Table widget */
+/*
+X * Places the children of the table widget.  There are several steps:
+X *   1.  Distribute any extra space into local copies of spacing vectors.
+X *   2.  If the option is set,  any extra space is offered to each widget.
+X *   3.  The final placement is done according to the actual size of
+X *       each widget and the space allocated for it.
+X */
+{
+X    Cardinal i;
+X    TableVecPtr lrows, lcols;
+X    TableLocTblPtr managed;
+X    Dimension real_width, real_height, tmp;
+X    float	offset;
+X
+X    if (tw->table.num_rows && tw->table.num_cols) {
+X	/* Make local copies of vectors */
+X	lrows = (TableVecPtr)
+X	  XtCalloc(tw->table.num_rows, sizeof(struct _TableVector));
+X	for (i = 0;  i < tw->table.num_rows;  i++) {
+X	    lrows[i] = tw->table.rows[i];
+X	}
+X	lcols = (TableVecPtr)
+X	  XtCalloc(tw->table.num_cols, sizeof(struct _TableVector));
+X	for (i = 0;  i < tw->table.num_cols;  i++) {
+X	    lcols[i] = tw->table.cols[i];
+X	}
+X
+X	/* Add extra space to vector */
+X	real_width = tw->core.width - 2*tw->table.int_width -
+X	  (tw->table.num_cols-1)*tw->table.col_spacing;
+X	real_height = tw->core.height - 2*tw->table.int_height -
+X	  (tw->table.num_rows-1)*tw->table.row_spacing;
+X
+#ifdef sizing
+X	/* Worry about the case where we couldn't grow enough */
+X	/* This is a real hack.  If there is one item which seems to be the
+X         * trouble maker, then we shrink it, otherwise we shrink everyone
+X	 * proportionately.  We can still truncate here, but only when things
+X	 * start getting around 10 pixels.
+X         */
+X	if (real_width < tw->table.vec_width) {
+X	    printf("Too wide! (%d < %d)\n", real_width, tw->table.vec_width);
+X	    for (i = 0; i < tw->table.num_rows; ++i) {
+X		if (lrows[i].value > real_width) {
+X		    printf("shrunk item %d from %d", i, lrows[i].value);
+X		    tmp = lrows[i].value;
+X		    lrows[i].value = real_width - (tw->table.vec_width - tmp);
+X		    if (lrows[i].value < 10) lrows[i].value = 10;
+X		    tw->table.vec_width -= (tmp - lrows[i].value);
+X		    printf(" to %d\n", lrows[i].value);
+X		}
+X	    }
+X	    if (real_width < tw->table.vec_width) {
+X		offset = tw->table.vec_width - real_width;
+X		offset /= tw->table.vec_width;
+X		for (i = 0; i < tw->table.num_rows; ++i) {
+X		    if (lrows[i].value > 10) {
+X			lrows[i].value *= offset;
+X			if (lrows[i].value < 10) lrows[i].value = 10;
+X		    } else printf("won't shrink %d\n", i);
+X		}
+X		printf("shrunk by %f\n", offset);
+X	    }
+X	}
+X	if (real_height < tw->table.vec_height) {
+X	    printf("Too tall! (%d < %d)\n", real_height, tw->table.vec_height);
+X	    for (i = 0; i < tw->table.num_cols; ++i) {
+X		if (lcols[i].value > real_height) {
+X		    printf("shrunk item %d from %d", i, lcols[i].value);
+X		    tmp = lcols[i].value;
+X		    lcols[i].value = real_height - (tw->table.vec_height - tmp);
+X		    if (lcols[i].value < 10) lcols[i].value = 10;
+X		    tw->table.vec_height -= (tmp - lcols[i].value);
+X		    printf(" to %d\n", lcols[i].value);
+X		}
+X	    }
+X	    if (real_height < tw->table.vec_height) {
+X		offset = tw->table.vec_height - real_height;
+X		offset /= tw->table.vec_height;
+X		for (i = 0; i < tw->table.num_cols; ++i) {
+X		    if (lcols[i].value > 10) {
+X			lcols[i].value *= offset;
+X			if (lcols[i].value < 10) lcols[i].value = 10;
+X		    } else printf("won't shrink %d\n", i);
+X		}
+X		printf("shrunk by %f\n", offset);
+X	    }
+X	}
+#endif
+X	      
+X	ExtraSpace(tw->table.num_cols, lcols, real_width);
+X	ExtraSpace(tw->table.num_rows, lrows, real_height);
+X
+X	/* Get list of managed widgets with locations */
+X	managed = GetManaged(tw->composite.num_children, tw->composite.children);
+X	DoPlace(managed, lcols, lrows, tw->table.int_height, tw->table.int_width,
+X		tw->table.row_spacing, tw->table.col_spacing);
+X
+X	/* Free up resources */
+X	XtFree((char *) lcols);
+X	XtFree((char *) lrows);
+X	TblFreeLocTbl(managed);
+X    }
+}
+X
+X
+X
+X
+static void TblResize(w)
+Widget w;			/* Table widget */
+/*
+X * This routine is called when the table widget itself is
+X * resized.  If needed,  the vectors are recomputed and
+X * placement is done.
+X */
+{
+X    TableWidget tw = (TableWidget) w;
+X
+X    if (tw->table.vec_state == INVALID) {
+X	TblRecompVectors(tw);
+X	tw->table.vec_state = MINIMUM;
+X    }
+X    TblPlacement(tw);
+}
+X
+X
+X
+static XtGeometryResult ExamineRequest(request)
+XXtWidgetGeometry *request;
+/*
+X * Examines the bits set in `request' and returns an appropriate
+X * geometry manager result.  Pure size changes are accepted
+X * (XtGeometryYes),  pure position changes are rejected
+X * (XtGeometryNo),  and combinations are conditionally
+X * accepted (XtGeometryAlmost).
+X */
+{
+X    if (request->request_mode & (CWWidth|CWHeight|CWBorderWidth)) {
+X	if (request->request_mode & (CWX|CWY|CWSibling|CWStackMode)) {
+X	    return XtGeometryAlmost;
+X	} else {
+X	    return XtGeometryYes;
+X	}
+X    } else {
+X	return XtGeometryNo;
+X    }
+}
+X
+X
+X
+static XtGeometryResult TblGeometryManager(w, request, reply)
+Widget w;			/* Widget                    */
+XXtWidgetGeometry *request;	/* Requested geometry change */
+XXtWidgetGeometry *reply;	/* Actual reply to request   */
+/*
+X * This routine handles geometry requests from children.  Width
+X * and height changes are always accepted.  Position changes
+X * are always rejected.  Combinations result in XtGeometryAlmost
+X * with the requested widths filled in.  Accepted changes cause
+X * an immediate XtResizeWidget followed by a new placement.
+X */
+{
+X    Widget parent;
+X    TableWidget tw = (TableWidget) w->core.parent;
+X    XtGeometryResult result;
+X    Dimension width, height, bdr;
+X    Dimension owidth, oheight, obdr;
+X    Dimension ow, oh;
+X
+X    parent = w->core.parent;
+X    if (parent &&
+X	(strcmp(parent->core.widget_class->core_class.class_name,
+X		TBL_CLASS_NAME) == 0)) {
+X
+X	tw = (TableWidget) parent;
+X	result = ExamineRequest(request);
+X	switch (result) {
+X	  case XtGeometryYes:
+X	  case XtGeometryAlmost:
+X	    if (request->request_mode & CWWidth) width = request->width;
+X	    else width = w->core.width;
+X	    if (request->request_mode & CWHeight) height = request->height;
+X	    else height = w->core.height;
+X	    if (request->request_mode & CWBorderWidth) bdr = request->height;
+X	    else bdr = w->core.border_width;
+X
+X	    oheight = w->core.height;
+X	    owidth = w->core.width;
+X	    obdr = w->core.border_width;
+X	    w->core.width = width;
+X	    w->core.height = height;
+X	    w->core.border_width = bdr;
+X
+X	    ow = tw->table.vec_width;
+X	    oh = tw->table.vec_height;
+X	    TblRecompVectors(tw);
+X	    w->core.width = owidth;
+X	    w->core.height = oheight;
+X	    w->core.border_width = obdr;
+X	    
+X	    if ((ow != tw->table.vec_width) || (oh != tw->table.vec_height)) {
+X		tw->table.vec_state = MINIMUM;
+X		TblRequestResize(tw);
+X	    }
+X
+X	  {
+X	      Position		x, y;
+X	      Dimension		h, v;
+X	      XtTblMask 	options;
+X	      Position 		ax, ay;
+X	      Dimension 	aw, ah;
+X	      Dimension 	nw, nh;
+X	      TableVecPtr	lcols, lrows;
+X	      Cardinal		i;
+X	      XtGeometryResult	gres;
+X	      char		*name;
+X	      Dimension		real_width, real_height;
+X    
+X	      name = XrmQuarkToString(w->core.xrm_name);
+X	      
+#ifdef sizing
+X	      printf("Positioning %s (%X)\n", name, w);
+#endif
+X	      
+X	      if (!TblFindChild(w, &x, &y, &h, &v, &options)) return XtGeometryNo;
+X
+X	      lrows = (TableVecPtr)  XtCalloc(tw->table.num_rows, sizeof(struct _TableVector));
+X	      for (i = 0;  i < tw->table.num_rows;  i++) lrows[i] = tw->table.rows[i];
+X	      lcols = (TableVecPtr) XtCalloc(tw->table.num_cols, sizeof(struct _TableVector));
+X	      for (i = 0;  i < tw->table.num_cols;  i++) lcols[i] = tw->table.cols[i];
+X
+X	      real_width = tw->core.width - 2*tw->table.int_width -
+X		(tw->table.num_cols-1)*tw->table.col_spacing;
+X	      real_height = tw->core.height - 2*tw->table.int_height -
+X		(tw->table.num_rows-1)*tw->table.row_spacing;
+X	      ExtraSpace(tw->table.num_cols, lcols, real_width);
+X	      ExtraSpace(tw->table.num_rows, lrows, real_height);
+X
+X	      ax = SumVec(0, x, lcols, tw->table.int_width, tw->table.col_spacing, 0);
+X	      ay = SumVec(0, y, lrows, tw->table.int_height, tw->table.row_spacing, 0);
+X	      aw = SumVec(x, (Position) h, lcols, 0, tw->table.col_spacing, -tw->table.col_spacing);
+X	      ah = SumVec(y, (Position) v, lrows, 0, tw->table.row_spacing, -tw->table.row_spacing);
+X	      nw = aw - 2*w->core.border_width;
+X	      nh = ah - 2*w->core.border_width;
+X	      if (options & TBL_LK_WIDTH) nw = w->core.width;
+X	      if (options & TBL_LK_HEIGHT) nh = w->core.height;
+X	      XtFree(lcols);
+X	      XtFree(lrows);
+X
+X	      /* Worry about the case where we couldn't grow enough */
+X	      /* Note, we may need a border here or something! */
+X	      if (real_width < tw->table.vec_width) {
+#ifdef sizing
+X		  printf("%s: Too wide! (%d < %d)\n", name, real_width, tw->table.vec_width);
+#endif
+X		  nw -= (tw->table.vec_width - real_width);
+X		  if (nw <= 0) {
+#ifdef sizing
+X		      printf("%s: Give up!\n", name);
+#endif
+X		      return XtGeometryNo;
+X		  }
+X	      }
+X	      if (real_height < tw->table.vec_height) {
+#ifdef sizing
+X		  printf("%s: Too tall! (%d < %d)\n", name, real_height, tw->table.vec_height);
+#endif
+X		  nh -= (tw->table.vec_height - real_height);
+X		  if (nh <= 0) {
+#ifdef sizing
+X		      printf("%s: Give up!\n", name);
+#endif
+X		      return XtGeometryNo;
+X		  }
+X	      }
+X	      
+X
+X	      *reply = *request;
+X	      reply->request_mode &= (CWWidth|CWHeight|CWBorderWidth);
+X	      reply->width = nw;
+X	      reply->height = nh;
+X
+#ifdef sizing
+X	      printf("%s: w=o%d,r%d,a%d,t%d h=o%d,r%d,a%d,t%d\n", name,
+X		     owidth, width, w->core.width, nw, oheight, height, w->core.height, nh);
+#endif
+X
+X	      /* Return No if there is no change */
+X	      if (w->core.width == nw && w->core.height == nh) {
+X		  if (request->request_mode & CWBorderWidth) {
+X		      if (w->core.border_width == request->border_width) {
+#ifdef sizing
+X			  printf("%s: No change\n", name);
+#endif
+X			  return XtGeometryNo;
+X		      }
+#ifdef sizing
+X		      printf("%s: Almost border\n", name);
+#endif
+X		      reply->request_mode = CWBorderWidth;
+X		      return XtGeometryAlmost;
+X		  }
+X	      }
+X		      
+X	      gres = XtGeometryDone;
+X	      if (((request->request_mode & CWWidth) && nw != width) ||
+X		  ((request->request_mode & CWHeight) && nh != height)) {
+X		  gres = XtGeometryAlmost;
+X	      }
+X
+X	      if (request->request_mode & (~CWWidth&~CWHeight&~CWBorderWidth&~XtCWQueryOnly))
+X		gres = XtGeometryAlmost;
+X
+X	      if (request->request_mode & XtCWQueryOnly) {
+X		  if (gres == XtGeometryDone) return XtGeometryYes;
+#ifdef sizing
+X		  printf("%s: It was a query (%d)\n", name, gres);
+#endif
+X		  return gres;
+X	      }
+X
+X	      if (gres == XtGeometryAlmost) {
+#ifdef sizing
+X		  printf("%s: Almost fits (Request=%d Reply=%d)\n", name,
+X			 request->request_mode, reply->request_mode);
+#endif
+X		  return gres;
+X	      }
+X
+X	      w->core.border_width = bdr;
+X	      TblPlacement(tw);
+X
+#ifdef sizing
+X	      printf("%s: w=o%d,r%d,a%d,t%d h=o%d,r%d,a%d,t%d (%X)\n", name,
+X		     owidth, width, w->core.width, nw, oheight, height, w->core.height, nh, w);
+#endif
+X	  }
+X
+X	    return XtGeometryDone;
+X	    /*NOTREACHED*/
+X	case XtGeometryNo:
+X	    return result;
+#ifdef never
+X	    /* This isn't right, since if you return almost you must promise
+X	     * to honor the same request next time, and we haven't really checked
+X	     * here.
+X             */
+X	case XtGeometryAlmost:
+X	    *reply = *request;
+X	    /* Turn off all but the size changes */
+X	    reply->request_mode &= (CWWidth|CWHeight|CWBorderWidth);
+X	    return XtGeometryAlmost;
+#endif
+X	}
+X	/*NOTREACHED*/
+X    } else {
+X	XtErrorMsg("TblGeometryManager", "badParent", "XtToolkitError",
+X		   "Parent of widget is not a tableClassWidget",
+X		   (String *) NULL, (Cardinal *) NULL);
+X    }
+X    /*NOTREACHED*/
+}
+X
+X
+X
+/*ARGSUSED*/
+static Boolean TblSetValues(current, request, new)
+Widget current;			/* Before call to XtSetValues */
+Widget request;			/* After call to XtSetValues  */
+Widget new;			/* Final version of widget    */
+/*
+X * Checks for changes to `init_table'.  If so,  a recomputation
+X * and replacement occurs.  Always returns false.
+X */
+{
+X    TableWidget old = (TableWidget) current;
+X    TableWidget req = (TableWidget) request;
+X    TableWidget tw  = (TableWidget) new;
+X    Boolean recomp  = False;
+X
+X    if ( old->table.init_layout != tw->table.init_layout ) {
+X         XtFree(old->table.init_layout);
+X         tw->table.init_layout = CopyDefLoc(req->table.init_layout);
+X         recomp = True;
+X    }
+X
+X    if ((tw->table.init_layout) ||
+X	(old->table.int_width != tw->table.int_width) ||
+X	(old->table.int_height != tw->table.int_height) ||
+X	(old->table.row_spacing != tw->table.row_spacing) ||
+X	(old->table.col_spacing != tw->table.col_spacing)) {
+X	recomp = True;
+X    }
+X    if (recomp) {
+X	/* Causes complete recomputation and placement */
+X	TblRecompVectors(tw);
+X	tw->table.vec_state = MINIMUM;
+X	TblRequestResize(tw);
+X	TblPlacement(tw);
+X    }
+X    return FALSE;
+}
+X
+X
+X
+X
+static void TblChangeManaged(w)
+Widget w;			/* Table widget */
+/*
+X * This routine is called when a change to the managed set of
+X * children occurs.  The current implementation simply refigures
+X * the widget and repositions all widgets.  Better implementations
+X * may be able to examine the change and react accordingly.
+X */
+{
+X    TableWidget tw = (TableWidget) w;
+X    XtWidgetGeometry	g;
+X
+/*    if (_XmMakeGeometryRequest(tw, &g) == XtGeometryYes && XtIsRealized(tw)) 
+X    {
+*/
+X	TblRecompVectors(tw);
+X	tw->table.vec_state = MINIMUM;
+X	TblRequestResize(tw);
+X	TblPlacement(tw);
+/*    }*/
+}
+X
+X
+X
+static XtGeometryResult TblQueryGeometry(w, request, geo_return)
+Widget w;			/* Table widget         */
+XXtWidgetGeometry *request;	/* Parent intended size */
+XXtWidgetGeometry *geo_return;   /* This widget's size   */
+/*
+X * This routine is called by a parent that wants a preferred
+X * size for the widget.  The `request' is the size (and/or position) 
+X * the parent intends to make the widget.  The `geo_return' is the
+X * preferred size of the widget.  The preferred size of the
+X * table widget is its vector size.
+X */
+{
+X    TableWidget tw = (TableWidget) w;
+X
+X    if (tw->table.vec_state == INVALID) {
+X	TblRecompVectors(tw);
+X	tw->table.vec_state = MINIMUM;
+X    }
+X    geo_return->request_mode = CWWidth|CWHeight;
+X    geo_return->width = tw->table.vec_width + 2*tw->table.int_width +
+X      (tw->table.num_cols-1)*tw->table.col_spacing;
+X    geo_return->height = tw->table.vec_height + 2*tw->table.int_height +
+X      (tw->table.num_rows-1)*tw->table.row_spacing;
+X
+X    /* Now determine return code */
+X    if (((geo_return->request_mode & request->request_mode) !=
+X	 geo_return->request_mode) ||
+X	(request->width < geo_return->width) ||
+X	(request->height < geo_return->height)) {
+X	return XtGeometryAlmost;
+X    } else if ((request->width == geo_return->width) &&
+X	       (request->height == geo_return->height)) {
+X	return XtGeometryNo;
+X    } else {
+X	return XtGeometryYes;
+X    }
+X    /*NOTREACHED*/
+}
+X
+X
+X
+static void TblPositionChild(w, c, r, hspan, vspan, options)
+Widget w;			/* Subwidget to place              */
+Position c, r;			/* Position in array (column, row) */
+Dimension hspan, vspan;		/* Horizontal and vertical span    */
+XXtTblMask options;		/* Widget placement options        */
+/*
+X * This routine registers the position of Widget w.  The widget
+X * must be a sub-widget of a Table class widget.  The row and
+X * column must be non-negative.  The horizontal and vertical
+X * span must be positive.  The options are as follows:
+X *   TBL_LEFT		Horizontally left justified.
+X *   TBL_RIGHT		Horizontally right justified.
+X *   TBL_TOP		Vertically top justified.
+X *   TBL_BOTTOM 	Vertically bottom justified.
+X *   TBL_SM_WIDTH	Force the width to be as small as possible.
+X *   TBL_SM_HEIGHT	Force the height to be as small as possible.
+X *   TBL_LK_WIDTH	Don't try to expand the widget horizontally.
+X *   TBL_LK_HEIGHT	Don't try to expand the widget vertically.
+X * If `options' is equal to TBL_DEF_OPT,  it is filled with 
+X * the default value for the table widget. The routine adds the 
+X * information into a table and recomputes position information.
+X */
+{
+X    Widget parent;
+X    TableWidget tw;
+X    TableLoc loc;
+X
+X    if ((c < 0) || (r < 0) || (hspan == 0) || (vspan == 0)) {
+X	/* Bad arguments */
+X	XtErrorMsg("TblPositionChild", "wrongParameters", "XtToolkitError",
+X		   "Bad value for row, column, hspan, or vspan",
+X		   (String *) NULL, (Cardinal *) NULL);
+X    }
+X    parent = w->core.parent;
+X    if (parent &&
+X	(strcmp(parent->core.widget_class->core_class.class_name,
+X		TBL_CLASS_NAME)==0)){
+X	/* The parent exists and is a TableWidget */
+X	tw = (TableWidget) parent;
+X	loc.ax = c;
+X	loc.ay = r;
+X	loc.h_span = hspan;
+X	loc.v_span = vspan;
+X	if (options == TBL_DEF_OPT) {
+X	    loc.options = tw->table.def_options;
+X	} else {
+X	    loc.options = options;
+X	}
+X	TblInsertLoc(tw->table.real_layout, w, &loc);
+X	tw->table.vec_state = INVALID;
+X	/* Full recomputation if realized */
+X	if (XtIsRealized(parent)) TblResize(parent);
+X    } else {
+X	XtErrorMsg("TblPositionChild", "badParent", "XtToolkitError",
+X		   "Parent of widget is not a tableClassWidget",
+X		   (String *) NULL, (Cardinal *) NULL);
+X    }
+}
+X
+X
+X
+static Boolean TblFindChild(w, c_r, r_r, hspan_r, vspan_r, opt_r)
+Widget w;			/* Widget to locate  */
+Position *c_r, *r_r;		/* Returned position */
+Dimension *hspan_r, *vspan_r;	/* Returned span     */
+XXtTblMask *opt_r;		/* Returned options  */
+/*
+X * This routine looks up a child widget's location and span.  The
+X * parent must be a table widget.  Only non-zero fields are filled
+X * in.  If the widget cannot be found,  the routine returns False
+X * and does not modify any of the passed in pointers.  The routine
+X * first looks in a table of widget positions defined by the
+X * `position_child' class procedure.  If not found there,  it
+X * searches the default table using the widget name.  These
+X * defaults are set by resources or XtSetValues().
+X */
+{
+X    Widget parent;
+X    TableWidget tw;
+X    TableLocPtr locp;
+X    TableDefLocPtr temp;
+X    char	*name;
+X
+X    parent = w->core.parent;
+X    if (parent &&
+X	(strcmp(parent->core.widget_class->core_class.class_name,
+X		TBL_CLASS_NAME)==0)) {
+X	tw = (TableWidget) parent;
+X	if (locp = TblLocLookup(tw->table.real_layout, w)) {
+X	    if (c_r) *c_r = locp->ax;
+X	    if (r_r) *r_r = locp->ay;
+X	    if (hspan_r) *hspan_r = locp->h_span;
+X	    if (vspan_r) *vspan_r = locp->v_span;
+X	    if (opt_r) *opt_r = locp->options;
+X	    return True;
+X	} else {
+X	    if (tw->table.init_layout) {
+X		temp = MergeDefLoc(tw->table.layout_db, tw->table.init_layout);
+X		XtFree((char *) (tw->table.init_layout));
+X		tw->table.init_layout = (TableDefLocPtr) 0;
+X		XtFree((char *) (tw->table.layout_db));
+X		tw->table.layout_db = temp;
+X	    }
+X	    /* Attempt to look it up */
+X	    name = XrmQuarkToString(w->core.xrm_name);
+X	    if (temp = FindDefLoc(tw->table.layout_db, name)) {
+X		if (c_r) *c_r = temp->loc.ax;
+X		if (r_r) *r_r = temp->loc.ay;
+X		if (hspan_r) *hspan_r = temp->loc.h_span;
+X		if (vspan_r) *vspan_r = temp->loc.v_span;
+X		if (opt_r) *opt_r = temp->loc.options;
+X		return True;
+X	    } else {
+X		return False;
+X	    }
+X	}
+X    } else {
+X	XtErrorMsg("TblFindChild", "badParent", "XtToolkitError",
+X		   "Parent of widget is not a tableClassWidget",
+X		   (String *) NULL, (Cardinal *) NULL);
+X    }
+X    /*NOTREACHED*/
+}
+X
+X
+X
+static void TblDestroy(w)
+Widget w;			/* Widget to destroy */
+/*
+X * Called to free resources consumed by the widget.
+X */
+{
+X    TableWidget tw = (TableWidget) w;
+X
+X    XtFree((char *) (tw->table.init_layout));
+X    XtFree((char *) (tw->table.layout_db));
+X    TblFreeLocTbl(tw->table.real_layout);
+X    if (tw->table.rows) XtFree((char *) (tw->table.rows));
+X    if (tw->table.cols) XtFree((char *) (tw->table.cols));
+}
+X
+X
+static Cardinal DefSpecLen(layout)
+String layout;			/* Full layout specification string */
+/*
+X * Examines `layout' and determines how many statements there are.
+X * Basically counts semi-colons and adds one.
+X */
+{
+X    extern String strchr();
+X    String idx = layout;
+X    Cardinal result = 0;
+X
+X    while (idx && *idx) {
+X	idx = (char *)strchr(idx, ';');
+X	if (idx) {
+X	    result++;
+X	    idx++;
+X	}
+X    }
+X    return result+1;
+}
+X
+#define MAX_FIELD	128
+#define NUM_FIELDS	6
+#define MAX_CHARS	255
+X
+static XtTblMask ParseOpts(spec)
+String spec;			/* Option letters */
+/*
+X * Parses the null-terminated string of option characters in `spec'.
+X * Returns a mask that is the `or' of all options selected.
+X */
+{
+X    static Boolean init = 0;
+X    static XtTblMask all_chars[MAX_CHARS];
+X    XtTblMask result = 0;
+X    String idx;
+X
+X    if (!init) {
+X	Cardinal i;
+X
+X	for (i = 0;  i < MAX_CHARS;  i++) all_chars[i] = 0;
+X	all_chars['l'] = TBL_LEFT;
+X	all_chars['r'] = TBL_RIGHT;
+X	all_chars['t'] = TBL_TOP;
+X	all_chars['b'] = TBL_BOTTOM;
+X	all_chars['w'] = TBL_LK_WIDTH;
+X	all_chars['h'] = TBL_LK_HEIGHT;
+X	all_chars['W'] = TBL_SM_WIDTH;
+X	all_chars['H'] = TBL_SM_HEIGHT;
+X    }
+X    for (idx = spec;  *idx;  idx++) {
+X	result |= all_chars[*idx];
+X    }
+X    return result;
+}
+X
+static void DefParse(spec, loc_spec)
+String spec;			/* One specification statement */
+TableDefLocPtr loc_spec;	/* Result location spec        */
+/*
+X * Parses a text specification statement into an internal
+X * form given  by `loc_spec'.
+X *
+X ******************* NOTE ********************
+X * Assumes only called from cvtStrToDefLoc() *
+X *********************************************
+X */
+{
+#ifndef MAX_TABLE_CHILD_WIDGET_NAME_LEN
+#define MAX_TABLE_CHILD_WIDGET_NAME_LEN 128
+#endif
+X    static char buf[MAX_TABLE_CHILD_WIDGET_NAME_LEN];
+X    int         i  = 0;
+X    char*       cp = spec;
+X
+X    /* initial values, NOT the defaults */
+X    loc_spec->loc.ax = loc_spec->loc.ay = 0;
+X    loc_spec->loc.h_span = loc_spec->loc.v_span = 0;
+X
+X    /* Now attempt to parse the string */
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    while (' ' < *cp && i < MAX_TABLE_CHILD_WIDGET_NAME_LEN)
+X	buf[i++] = *cp++;
+X    buf[i] = '\0';
+X    if ( i )
+X	loc_spec->w_name = XtNewString(buf);	/* widget name */
+X    else
+X	loc_spec->w_name = "No Name";		/* default name */
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    while ('0' <= *cp && *cp <= '9')
+X	loc_spec->loc.ax = loc_spec->loc.ax * 10 + *cp++ - '0';
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    while ('0' <= *cp && *cp <= '9')
+X	loc_spec->loc.ay = loc_spec->loc.ay * 10 + *cp++ - '0';
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    while ('0' <= *cp && *cp <= '9')
+X	loc_spec->loc.h_span = loc_spec->loc.h_span * 10 + *cp++ - '0';
+X    if (loc_spec->loc.h_span == 0)
+X	loc_spec->loc.h_span = 1;		/* default span */
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    while ('0' <= *cp && *cp <= '9')
+X	loc_spec->loc.v_span = loc_spec->loc.v_span * 10 + *cp++ - '0';
+X    if (loc_spec->loc.v_span == 0)
+X	loc_spec->loc.v_span = 1;		/* default span */
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    i = 0;
+X    while (*cp && i < MAX_TABLE_CHILD_WIDGET_NAME_LEN &&
+X	*cp == 'l' || *cp == 'r' || *cp == 't' || *cp == 'b' ||
+X	*cp == 'w' || *cp == 'h' || *cp == 'W' || *cp == 'H' )
+X	buf[i++] = *cp++;
+X    buf[i] = '\0';
+X    if ( i )
+X	loc_spec->loc.options = ParseOpts(buf);
+X    else
+X	loc_spec->loc.options = 0;		/* default */
+X
+X    while (*cp && *cp <= ' ') cp++;		/* eat whitespace */
+X
+X    if (*cp )
+X	XtStringConversionWarning( spec, 
+X	    "layout component: name [col] [row] [h_span] [v_span] [lrtbwhWH]");
+}
+X
+static String GetSpec(spec_ptr)
+String *spec_ptr;		/* Specification pointer */
+/*
+X * This routine gets the next specification from the string
+X * `spec_ptr' and updates the pointer appropriately.
+X */
+{
+X    extern String strchr();
+X    String result;
+X    String semi;
+X
+X    if (*spec_ptr && **spec_ptr) {
+X	semi = (char *)strchr(*spec_ptr, ';');
+X	if (semi) {
+X	    *semi = '\0';
+X	    result = *spec_ptr;
+X	    *spec_ptr = semi+1;
+X	    return result;
+X	} else {
+X	    result = *spec_ptr;
+X	    *spec_ptr += strlen(*spec_ptr);
+X	    return result;
+X	}
+X    } else {
+X	return (String) 0;
+X    }
+}
+X
+X
+X
+/**********************************************************************
+X *
+X * Public routines
+X *
+X **********************************************************************/
+X
+X
+/*ARGSUSED*/
+caddr_t XtTblParseLayout(layout)
+String layout;			/* String layout specification */
+/*
+X * Parses a string layout specification into an internal form
+X * suitable for use in a call to XtSetValues().  The form is
+X * a list of statements separated by semicolons.  Each statement
+X * has the form:
+X *   widget_name column row horizontal_span vertical_span opt_list
+X * where the meaning of each field is:
+X *   widget_name	Name of the widget as given to XtCreateWidget().
+X *   column		Integer >= 0 descibing column in array
+X *   row		Row >= 0 describing row in array
+X *   horizontal_span	Integer >= 1 describing horizontal widget span
+X *   vertical_span	Integer >= 1 describing vertical widget span
+X *   opt_list		Series of characters each representing an option:
+X *	l:  TBL_LEFT
+X *	r:  TBL_RIGHT
+X *      t:  TBL_TOP
+X *      b:  TBL_BOTTOM
+X *      w:  TBL_LK_WIDTH
+X *      h:  TBL_LK_HEIGHT
+X *      W:  TBL_SM_WIDTH
+X *      H:  TBL_SM_HEIGHT
+X * The options are as described in TblPostionChild().  The horizontal_span,
+X * vertical_span, and opt_list are optional and will default to reasonable
+X * values.
+X */
+{
+X    TableDefLocPtr result, idx;
+X    Cardinal len;
+X    String spec;
+X    String orig;
+X
+X    /* Make a copy for safety */
+X    if (layout && ((len = DefSpecLen(layout)) > 0)) {
+X	orig = layout = XtNewString(layout);
+X	result = (TableDefLocPtr) XtCalloc(len+1, sizeof(struct _TableDefLoc));
+X	idx = result;
+X	while (spec = GetSpec(&layout)) {
+X	    DefParse(spec, idx);
+X	    idx++;
+X	}
+X	/* null terminate */
+X	idx->w_name = (String) 0;
+X	XtFree(orig);
+X	return (caddr_t) result;
+X    } else {
+X	return (caddr_t) 0;
+X    }
+X    /*NOTREACHED*/
+}
+X
+void XtTblPosition(w, col, row)
+Widget w;			/* Widget to position */
+Position col, row;		/* Position in array  */
+/*
+X * This routine positions a widget that has been created
+X * under a widget of class tableWidgetClass.  The widget
+X * will be placed at column `col' and row `row'.  If
+X * the widget has never been placed before,  it will
+X * span only one space in each direction and its
+X * options will be the defaults for the table widget.
+X */
+{
+X    Position old_row, old_col;
+X    Dimension old_hspan, old_vspan;
+X    XtTblMask old_opts;
+X
+X    if (TblFindChild(w, &old_col, &old_row, &old_hspan, &old_vspan, &old_opts)) {
+X	TblPositionChild(w, col, row, old_hspan, old_vspan, old_opts);
+X    } else {
+X	TblPositionChild(w, col, row, 1, 1, TBL_DEF_OPT);
+X    }
+}
+X
+void XtTblResize(w, h_span, v_span)
+Widget w;			/* Widget to resize            */
+Dimension h_span, v_span;	/* New widget span             */
+/*
+X * This routine changes the span of widget `w' to (`h_span', `v_span').
+X * If the widget has never been placed before,  it will be located
+X * at (0,0) and its options will be the defaults for its
+X * parent table widget.
+X */
+{
+X    Position old_row, old_col;
+X    Dimension old_hspan, old_vspan;
+X    XtTblMask old_opts;
+X
+X    if (TblFindChild(w, &old_col, &old_row, &old_hspan, &old_vspan, &old_opts)) {
+X	TblPositionChild(w, old_col, old_row, h_span, v_span, old_opts);
+X    } else {
+X	TblPositionChild(w, 0, 0, h_span, v_span, TBL_DEF_OPT);
+X    }
+}
+X
+void XtTblOptions(w, opt)
+Widget w;			/* Widget to change */
+XXtTblMask opt;			/* New option mask  */
+/*
+X * This routine changes the options of widget `w' to `opt'.  If
+X * the widget has never been placed before,  it will be located
+X * and (0,0) with a span of (1,1) and its options will be the
+X * default options for its parent table widget.  The option
+X * mask is as described for TblPositionChild.
+X */
+{
+X    Position old_row, old_col;
+X    Dimension old_hspan, old_vspan;
+X    XtTblMask old_opts;
+X
+X    if (TblFindChild(w, &old_col, &old_row, &old_hspan, &old_vspan, &old_opts)) {
+X	TblPositionChild(w, old_col, old_row, old_hspan, old_vspan, opt);
+X    } else {
+X	TblPositionChild(w, 0, 0, 1, 1, opt);
+X    }
+}
+X
+void XtTblConfig(w, col, row, h_span, v_span, opt)
+Widget w;			/* Widget to position          */
+Position col, row;		/* Position in array           */
+Dimension h_span, v_span;	/* Horizonal and vertical span */
+XXtTblMask opt;			/* Widget placement options    */
+/*
+X * This routine positions a widget that has been created
+X * under a widget of class tableWidgetClass.  The widget
+X * will be placed at column `col' and row `row'.  The
+X * widget will span the distances given by `h_span' and `v_span'.
+X * The options argument is as described for TblPositionChild.
+X */
+{
+X    TblPositionChild(w, col, row, h_span, v_span, opt);
+}
+X
+Widget XtCreateTable(parent, name, arglist, argcount)
+Widget parent;
+char * name;
+ArgList arglist;
+Cardinal argcount;
+X
+{
+X   return(XtCreateWidget(name, tableWidgetClass, parent, arglist, argcount));
+}
+X
+X
+SHAR_EOF
+echo 'File Table.c is complete' &&
+chmod 0644 Table.c ||
+echo 'restore of Table.c failed'
+Wc_c="`wc -c < 'Table.c'`"
+test 58120 -eq "$Wc_c" ||
+	echo 'Table.c: original size 58120, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Table.h ==============
+if test -f 'Table.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping Table.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Table.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Table.h' &&
+/*
+X * Table - Forms-based composite widget/geometry manager for the X Toolkit
+X *
+X * David Harrison
+X * University of California, Berkeley
+X * 1989
+X *
+X * This file contains the Table public declarations.
+X */
+X
+/*  -- The following defines external storage class for data DEFINITION and
+X    -- REFERENCE. The VAX LINKER strictly demands clear distinction between
+X    -- data definition for external reference, and reference to external data. 
+*/
+#ifdef VAX
+#define EXTERNDEF globaldef
+#define EXTERNREF globalref
+#else
+#define EXTERNDEF
+#define EXTERNREF extern
+#endif
+X
+X 
+#ifndef _Table_h
+#define _Table_h
+X
+#include <Xm/Xm.h>
+/*
+X * Table Widget Parameters
+X *
+X * Name			Class		RepType		Default Value
+X *
+X * background		Background	Pixel		XtDefaultBackground
+X * border		BorderColor	Pixel		XtDefaultForeground
+X * borderWidth		BorderWidth	Dimension	0
+X * x			Position	Position	0
+X * y			Position	Position	0
+X * width		Width		Dimension	(computed)
+X * height		Height		Dimension	(computed)
+X * mappedWhenManaged	MappedWhenManaged Boolean	True
+X * sensitive		Sensitive	Boolean		True
+X * layout		Layout		String		NULL
+X * internalHeight	Height		Dimension	0
+X * internalWidth	Width		Dimension	0
+X * columnSpacing	Spacing		Dimension	0
+X * rowSpacing		Spacing		Dimension	0
+X */
+X
+#define XtNlayout		"layout"
+#define XtNcolumnSpacing        "columnSpacing"
+#define XtNrowSpacing           "rowSpacing"
+#define XtNdefaultOptions	"defaultOptions"
+X
+#define XtCLayout		"Layout"
+#ifndef XtCSpacing
+#define XtCSpacing		"Spacing"
+#endif
+#define XtCOptions		"Options"
+X
+#define XtROptions		"Options"
+X
+/*
+X * Option masks
+X */
+#define TBL_LEFT	(1<<0)
+#define TBL_RIGHT	(1<<1)
+#define TBL_TOP		(1<<2)
+#define TBL_BOTTOM	(1<<3)
+#define TBL_SM_WIDTH	(1<<4)
+#define TBL_SM_HEIGHT	(1<<5)	
+#define TBL_LK_WIDTH	(1<<6)
+#define TBL_LK_HEIGHT	(1<<7)
+X
+#define TBL_DEF_OPT	-1
+X
+typedef int XtTblMask;
+X
+/*
+X * Opaque class and instance records
+X */
+X
+typedef struct _TableClassRec	*TableWidgetClass;
+typedef struct _TableRec	*TableWidget;
+X
+#ifndef _Table_c
+EXTERNREF WidgetClass tableWidgetClass;
+#endif
+X
+/*
+X * Public access routines
+X */
+X
+extern caddr_t XtTblParseLayout();
+X  /* String layout; */
+X
+extern void XtTblPosition();
+X  /* 
+X   * Widget w;
+X   * Position col, row;
+X   */
+X
+extern void XtTblResize();
+X  /*
+X   * Widget w;
+X   * Dimension h_span, v_span;
+X   */
+X
+extern void XtTblOptions();
+X  /*
+X   * Widget w;
+X   * XtTblMask opt;
+X   */
+X
+extern void XtTblConfig();
+X  /* 
+X   * Widget w;
+X   * Position col, row;
+X   * Dimension h_span, v_span;
+X   * XtTblMask opt;
+X   */
+X
+extern Widget XtCreateTable();
+/*
+Widget parent;
+char * name;
+ArgList arglist;
+Cardinal argcount;
+*/
+X 
+#endif /* _Table_h */
+X
+SHAR_EOF
+chmod 0644 Table.h ||
+echo 'restore of Table.h failed'
+Wc_c="`wc -c < 'Table.h'`"
+test 2633 -eq "$Wc_c" ||
+	echo 'Table.h: original size 2633, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= TableP.h ==============
+if test -f 'TableP.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping TableP.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting TableP.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'TableP.h' &&
+/*
+X * Table - Forms-based composite widget/geometry manager for the X Toolkit
+X *
+X * David Harrison
+X * University of California, Berkeley
+X * 1989
+X *
+X * This file contains the Table private declarations.
+X */
+X
+#ifndef _TableP_h
+#define _TableP_h
+X
+#include "Table.h"
+#include <Xm/XmP.h>
+#include <Xm/BulletinBP.h>
+X
+/*
+X * Local definitions
+X */
+X
+typedef void (*XtTblRProc)();
+X  /*
+X   * Widget table;
+X   * Widget subwidget;
+X   * Position r, c;
+X   * Dimension hspan, vspan;
+X   * XtTblMask options;
+X   */
+X
+typedef Boolean (*XtTblLProc)();
+X   /*
+X    * Widget w;
+X    * Position *r, *c;
+X    * Dimension *hspan, *vspan;
+X    * XtTblMask *options;
+X    */
+X
+typedef struct _TableLocTbl *TableLocTblPtr;
+X   /*
+X    * Opaque reference to actual widget location table
+X    * defined in Table.c
+X    */
+X
+typedef struct _TableDefLoc *TableDefLocPtr;
+X   /*
+X    * Opaque reference to default widget location table defined
+X    * in Table.c.
+X    */    
+X
+typedef struct _TableVector *TableVecPtr;
+X   /*
+X    * Opaque reference to vectors used for giving size of
+X    * each row and column.
+X    */
+X
+typedef enum _TableVecState { INVALID, MINIMUM } TableVecState;
+X
+/*
+X * Information kept in class record
+X */
+X
+typedef struct {
+X    XtTblRProc position_child;	/* Register location of some child widget  */
+X    XtTblLProc find_child;	/* Return information about a child widget */
+} TableClassPart;
+X
+/*
+X * Class hierarchy
+X */
+X
+typedef struct _TableClassRec {
+X    CoreClassPart	core_class;
+X    CompositeClassPart	composite_class;
+X    ConstraintClassPart	constraint_class;
+X    XmManagerClassPart	manager_class;
+X    XmBulletinBoardClassPart bulletin_class;
+X    TableClassPart	table_class;
+} TableClassRec;
+X
+#ifndef _Table_c
+EXTERNREF TableClassRec tableClassRec;
+#endif
+X
+/*
+X * Information in instance record
+X */
+X
+typedef struct _TablePart {
+X    Dimension		int_width;   /* Inner horizontal padding          */
+X    Dimension		int_height;  /* Inner vertical padding            */
+X    Dimension		row_spacing; /* Space between rows                */
+X    Dimension		col_spacing; /* Space between columns             */
+X    XtTblMask		def_options; /* Default layout options            */
+X    TableDefLocPtr	init_layout; /* Initial layout spec from resource */
+X    TableDefLocPtr	layout_db;   /* Merged table                      */
+X    TableLocTblPtr	real_layout; /* Actual current layout information */
+X    TableVecState	vec_state;   /* Current state of vectors          */
+X    Cardinal		num_rows;    /* Number of rows                    */
+X    TableVecPtr		rows;	     /* Heights of each row               */
+X    Cardinal		num_cols;    /* Number of columns                 */
+X    TableVecPtr		cols;	     /* Widths of each column             */
+X    Cardinal		vec_height;  /* Sum of current rows               */
+X    Cardinal		vec_width;   /* Sum of current columns            */
+} TablePart;
+X
+/*
+X * Instance hierarchy
+X */
+X
+typedef struct _TableRec {
+X    CorePart		core;
+X    CompositePart	composite;
+X    ConstraintPart		constraint;
+X    XmManagerPart		manager;
+X    XmBulletinBoardPart	bulletin_board;
+X    TablePart		table;
+} TableRec;
+X
+#endif /* _TableP_h */
+SHAR_EOF
+chmod 0644 TableP.h ||
+echo 'restore of TableP.h failed'
+Wc_c="`wc -c < 'TableP.h'`"
+test 3108 -eq "$Wc_c" ||
+	echo 'TableP.h: original size 3108, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Warning.c ==============
+if test -f 'Warning.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping Warning.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Warning.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Warning.c' &&
+#include <stdio.h>
+#include <Xm/MessageB.h>
+X
+Warning (reference, message)
+Widget	reference;
+char	*message;
+/*
+X * post an error message
+X */
+{
+X  Widget        mbox;
+X  Widget        button;
+X  Arg           args[10];
+X  int           n;
+X  XmString      msg_string;
+X
+X  msg_string = XmStringLtoRCreate (message, XmSTRING_DEFAULT_CHARSET);
+X
+X  n=0;
+X  XtSetArg (args[n], XmNmessageString, msg_string); n++;
+X  XtSetArg (args[n], XmNdefaultPosition, True); n++;
+X  XtSetArg (args[n], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); n++;
+X  XtSetArg (args[n], XmNtitle, XmStringCreateLtoR ("WARNING!",XmSTRING_DEFAULT_CHARSET)); n++;
+X  mbox = XmCreateWarningDialog (reference,
+X                              "WarningDialog",
+X                              args,n);
+X  button = XmMessageBoxGetChild (mbox, XmDIALOG_CANCEL_BUTTON);
+X  XtUnmanageChild (button);
+X  button = XmMessageBoxGetChild (mbox, XmDIALOG_HELP_BUTTON);
+X  XtUnmanageChild (button);
+X
+X  /*
+X   * bring it up
+X   */
+X  XtManageChild (mbox);
+}
+X
+SHAR_EOF
+chmod 0644 Warning.c ||
+echo 'restore of Warning.c failed'
+Wc_c="`wc -c < 'Warning.c'`"
+test 983 -eq "$Wc_c" ||
+	echo 'Warning.c: original size 983, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= WidgetNames.c ==============
+if test -f 'WidgetNames.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping WidgetNames.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting WidgetNames.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'WidgetNames.c' &&
+/***************************************************************************
+X *
+X * FILE NAME		: WidgetNames.c
+X *
+X * AUTHOR		: Andrew Peebles
+X *
+X * DESCRIPTION		: Given a widget, list the resource name hierarcy
+X *
+X * VERSIONS		: %W%
+X *
+X ***************************************************************************/
+X
+/*
+X * standard includes
+X */
+#include <stdio.h>
+#include <X11/Xlib.h
+#include <X11/StringDefs.h>
+#include <X11/Intrinsic.h>
+#include <X11/IntrinsicP.h>
+#include <X11/Core.h>
+#include <X11/CoreP.h>
+#include <X11/Composite.h>
+#include <X11/CompositeP.h>
+X
+static  int	widget_index = 0;
+X
+#include <Xm/Xm.h>
+X
+ListWidgetNames (top)
+Widget  top;
+{
+X  WidgetClassRec *ws;
+X  int i;
+X  CompositeWidget cw = (CompositeWidget) top;
+X  char	*name, *class;
+X  XmGadget gd;
+X
+X  gd = (XmGadget) top;
+X
+X  for (i=0; i<widget_index; i++) printf ("   ");
+X  ws = top->core.widget_class;
+X
+X  name = XrmNameToString(top->core.xrm_name);
+X
+X  if (!ws->core_class.class_name)
+X    class = "nil";
+X  else
+X    class = ws->core_class.class_name;
+X
+X  printf ("%s: \t%s\n",name, class);
+X
+X  if (XtIsSubclass(top, xmGadgetClass)) 
+X    return (0); 
+X
+X  if (top->core.num_popups > 0) {
+X    ++widget_index;
+X    for (i=0; i<top->core.num_popups; i++)
+X      ListWidgetNames(top->core.popup_list[i]);
+X    --widget_index;
+X  }
+X
+X  if (XtIsComposite(top)) {
+X    if (cw->composite.num_children > 0) {
+X      ++widget_index;
+X      for (i=0; i<cw->composite.num_children; i++)
+X	ListWidgetNames(cw->composite.children[i]);
+X      --widget_index;
+X    }
+X  }
+X
+}
+X
+X
+SHAR_EOF
+chmod 0644 WidgetNames.c ||
+echo 'restore of WidgetNames.c failed'
+Wc_c="`wc -c < 'WidgetNames.c'`"
+test 1513 -eq "$Wc_c" ||
+	echo 'WidgetNames.c: original size 1513, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= XParty ==============
+if test -f 'XParty' -a X"$1" != X"-c"; then
+	echo 'x - skipping XParty (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting XParty (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'XParty' &&
+!
+! X resources for xparty
+! Author: Andrew Peebles
+!
+X
+xparty.tokenKey:		<Key>F3: PassToken()
+X
+xparty*vpane.spacing:		20
+X
+xparty*rc.orientation:       	VERTICAL
+xparty*rc.numColumns:        	3
+xparty*rc.packing:           	PACK_COLUMN
+X
+xparty*horizontalSpacing:    	5
+xparty*verticalSpacing:      	5
+X
+xparty*rows:			15
+xparty*columns:			40
+X
+!!
+!! Canned responses to one-way messages.
+!! These are YOUR responses when people send YOU one-way messages.
+!! Other people might define thier own responses and you'll get
+!! one of those when they reply to your messages.
+!!
+X
+xparty.response:	yes\n\
+you bet\n\
+otay\n\
+cool\n\
+Jambo dude!\n\
+?????????\n\
+What?\n\
+no\n\
+no way dude!\n\
+get back to ya ...\n\
+you kidding?\n\
+later\n\
+you and what army?\n\
+Excellent!\n\
+Bogus dude\n\
+yo momma\n\
+/dev/null\n\
+that's tight.\n\
+you're blowin it man.\n\
+Be right over ...\n\
+Come on over!
+X
+!!
+!! Colors and Fonts
+!!
+X
+xparty*fontList:		9x15
+X
+xparty*Recipients.fontList:  	-adobe-helvetica-bold-r-normal--25-*
+xparty*Message.fontList:     	-adobe-helvetica-bold-r-normal--25-*
+X
+xparty*WarningDialog*background:              #9c2361
+xparty*WarningDialog*foreground:              White
+X
+xparty*status.fontList:		-adobe-helvetica-bold-r-normal--25-*
+xparty*speaking.fontList:	-adobe-helvetica-bold-r-normal--25-*
+xparty*message_form*fontList:	-adobe-helvetica-bold-r-normal--25-*
+X
+xparty*vpane*sash.background:   Gold
+X
+xparty*background:		LightSteelBlue
+xparty*foreground:		black
+X
+xparty*status.foreground:	#9c2361
+xparty*speaking.foreground:	#9c2361
+X
+xparty*message_form*message_label*foreground:	#9c2361
+xparty*message_form*operator_label*foreground:	#9c2361
+X
+xparty*Quit.foreground:			Red
+SHAR_EOF
+chmod 0644 XParty ||
+echo 'restore of XParty failed'
+Wc_c="`wc -c < 'XParty'`"
+test 1677 -eq "$Wc_c" ||
+	echo 'XParty: original size 1677, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= image.h ==============
+if test -f 'image.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping image.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting image.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'image.h' &&
+#define errorWidth  20
+#define errorHeight 20
+static char errorBits[] = {
+X   0x00, 0x00, 0x00, 0xc0, 0x0f, 0x00, 0xf0, 0x3a, 0x00, 0x58, 0x55, 0x00,
+X   0x2c, 0xa0, 0x00, 0x56, 0x40, 0x01, 0xaa, 0x80, 0x02, 0x46, 0x81, 0x01,
+X   0x8a, 0x82, 0x02, 0x06, 0x85, 0x01, 0x0a, 0x8a, 0x02, 0x06, 0x94, 0x01,
+X   0x0a, 0xe8, 0x02, 0x14, 0x50, 0x01, 0x28, 0xb0, 0x00, 0xd0, 0x5f, 0x00,
+X   0xa0, 0x2a, 0x00, 0x40, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#define infoWidth  11 
+#define infoHeight 24
+static char infoBits[] = {
+X   0x00, 0x00, 0x78, 0x00, 0x54, 0x00, 0x2c, 0x00, 0x54, 0x00, 0x28, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x7e, 0x00, 0x2a, 0x00, 0x5c, 0x00, 0x28, 0x00,
+X   0x58, 0x00, 0x28, 0x00, 0x58, 0x00, 0x28, 0x00, 0x58, 0x00, 0x28, 0x00,
+X   0x58, 0x00, 0xae, 0x01, 0x56, 0x01, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#define questionWidth  13
+#define questionHeight 22
+static char questionBits[] = {
+X   0x00, 0x00, 0xf8, 0x01, 0xac, 0x02, 0x56, 0x05, 0x0a, 0x03, 0x06, 0x05,
+X   0x0a, 0x03, 0x80, 0x05, 0xc0, 0x02, 0x60, 0x01, 0xb0, 0x00, 0x50, 0x00,
+X   0xb0, 0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x00, 0x50, 0x00,
+X   0xb0, 0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#define warningWidth  9 
+#define warningHeight 22
+static char warningBits[] = {
+X   0x00, 0x00, 0x18, 0x00, 0x2c, 0x00, 0x56, 0x00, 0x2a, 0x00, 0x56, 0x00,
+X   0x2a, 0x00, 0x56, 0x00, 0x2c, 0x00, 0x14, 0x00, 0x2c, 0x00, 0x14, 0x00,
+X   0x2c, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x14, 0x00,
+X   0x2c, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#define workingWidth  21
+#define workingHeight 23
+static char workingBits[] = {
+X   0x00, 0x00, 0x00, 0xfe, 0xff, 0x0f, 0xaa, 0xaa, 0x0a, 0x44, 0x55, 0x06,
+X   0xcc, 0x2a, 0x02, 0x44, 0x55, 0x06, 0xcc, 0x2a, 0x02, 0x84, 0x15, 0x06,
+X   0x8c, 0x2a, 0x02, 0x04, 0x15, 0x06, 0x0c, 0x0a, 0x02, 0x04, 0x06, 0x06,
+X   0x0c, 0x0b, 0x02, 0x84, 0x15, 0x06, 0xcc, 0x2a, 0x02, 0x44, 0x55, 0x06,
+X   0xcc, 0x2a, 0x02, 0x44, 0x55, 0x06, 0xcc, 0x2a, 0x02, 0x44, 0x55, 0x06,
+X   0xfe, 0xff, 0x0f, 0x56, 0x55, 0x05, 0x00, 0x00, 0x00};
+X
+SHAR_EOF
+chmod 0644 image.h ||
+echo 'restore of image.h failed'
+Wc_c="`wc -c < 'image.h'`"
+test 2058 -eq "$Wc_c" ||
+	echo 'image.h: original size 2058, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= list.bg ==============
+if test -f 'list.bg' -a X"$1" != X"-c"; then
+	echo 'x - skipping list.bg (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting list.bg (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'list.bg' &&
+#define list_width 16
+#define list_height 16
+static char list_bits[] = {
+X   0x11, 0x11, 0xb8, 0xb8, 0x7c, 0x7c, 0x3a, 0x3a, 0x11, 0x11, 0xa3, 0xa3,
+X   0xc7, 0xc7, 0x8b, 0x8b, 0x11, 0x11, 0xb8, 0xb8, 0x7c, 0x7c, 0x3a, 0x3a,
+X   0x11, 0x11, 0xa3, 0xa3, 0xc7, 0xc7, 0x8b, 0x8b};
+SHAR_EOF
+chmod 0644 list.bg ||
+echo 'restore of list.bg failed'
+Wc_c="`wc -c < 'list.bg'`"
+test 275 -eq "$Wc_c" ||
+	echo 'list.bg: original size 275, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= message.c ==============
+if test -f 'message.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping message.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting message.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'message.c' &&
+/***************************************************************************
+X *
+X * FILE NAME		: message.c
+X *
+X * AUTHOR		: Andrew Peebles
+X *
+X * DESCRIPTION		: The routines for displaying a static message
+X *			  on a remote display.  
+X *			  
+X *
+X * VERSIONS		: %W%
+X *
+X ***************************************************************************/
+X
+/*
+X * standard includes
+X */
+#include <stdio.h>
+X
+#include <Xm/Form.h>
+#include <Xm/Label.h>
+#include <Xm/PushB.h>
+#include <Xm/Text.h>
+#include <X11/Shell.h>
+#include <Xm/PushBG.h>
+#include <Xm/CascadeBG.h>
+#include <Xm/RowColumn.h>
+X
+#include "xphone.h"
+X
+#define xmstr(str)    XmStringCreateLtoR(str,XmSTRING_DEFAULT_CHARSET)
+X
+#define YES 	0
+#define NO	1
+#define OTHER	2
+X
+typedef struct _msg_info {
+X  Widget	shell, context;
+X  char		*name;
+X  Display	*display;
+X  char		*responce;
+} msg_info;
+X
+typedef struct _res {
+X  Boolean	iconic;
+X  char		*response;
+} res, *resPtr;
+extern res defaults;
+static XtResource resource_struct[] = {
+X  {"iconic", "Iconic",
+X     XmRBoolean, sizeof(Boolean),
+X     XtOffset (resPtr,iconic),
+X     XmRString, "False"},
+X  {"response", "Response",
+X     XmRString, sizeof(char *),
+X     XtOffset (resPtr,response),
+X     XmRString, "yes\nno\nget back to you ..."}
+};
+X
+PostMessage (display_name, user_name, message)
+char	*display_name, *user_name, *message;
+{
+X  Arg	args[20];
+X  int	n;
+X  Widget	form, label, ok, top, toplevel, text, yes, no, label2;
+X  Display	*display;
+X  int		ac = 1;
+X  char		*av[1];
+X  Widget	CreateResponseOptions();
+X  XSizeHints	wm_hints;
+X  int		shell_x, shell_y, shell_width, shell_height;
+X  char		title[80];
+X  int		screen;
+X
+X  void		message_popdown();
+X  msg_info	*minfo;
+X
+X  av[0] = "xparty";
+X
+X  display = XtOpenDisplay (xphone,
+X			   display_name,
+X			   "xparty",
+X			   "XParty",
+X			   NULL, 0,
+X			   &ac, av);
+X  if (!display) {
+X    XpWarning (display_name, "Couldn't open display");
+X    return (False);
+X  }
+X
+X  screen = DefaultScreen (display);
+X
+X  toplevel = XtAppCreateShell ("xparty", "XParty",
+X			       applicationShellWidgetClass,
+X			       display, NULL, 0);
+X
+X  XtGetApplicationResources (toplevel,
+X                             &defaults,
+X                             resource_struct,
+X                             XtNumber(resource_struct),
+X                             NULL,0);
+X
+X  n = 0;
+X  top = XtCreatePopupShell ("xparty",
+X                            topLevelShellWidgetClass,
+X                            toplevel, args, n);
+X
+X  n = 0;
+X  form = XmCreateForm (top,
+X		       "message_form",
+SHAR_EOF
+true || echo 'restore of message.c failed'
+fi
+echo 'End of  part 2'
+echo 'File message.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

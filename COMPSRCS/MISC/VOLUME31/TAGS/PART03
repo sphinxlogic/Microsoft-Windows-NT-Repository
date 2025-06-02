@@ -1,0 +1,2461 @@
+Newsgroups: comp.sources.misc
+From: kendall@centerline.com (Sam Kendall)
+Subject:  v31i126:  tags++ - etags/ctags for C and C++, version 1.1, Part03/03
+Message-ID: <1992Aug26.144953.3334@sparky.imd.sterling.com>
+X-Md4-Signature: 4c558c7738cb58c873c2b49f8889da9f
+Date: Wed, 26 Aug 1992 14:49:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kendall@centerline.com (Sam Kendall)
+Posting-number: Volume 31, Issue 126
+Archive-name: tags++/part03
+Environment: UNIX, GNU Emacs, vi
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 3)."
+# Contents:  etags.c
+# Wrapped by kendall@pen on Tue Aug 25 13:34:20 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'etags.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'etags.c'\"
+else
+echo shar: Extracting \"'etags.c'\" \(54188 characters\)
+sed "s/^X//" >'etags.c' <<'END_OF_FILE'
+X/* $Id: etags.c,v 1.25 1992/06/04 21:00:52 kendall Exp $ */
+X/* Tags file maker to go with GNUmacs
+X   Copyright (C) 1984, 1987, 1988 Free Software Foundation, Inc. and Ken Arnold
+X
+X   This program is free software; you can redistribute it and/or modify
+X   it under the terms of the GNU General Public License as published by
+X   the Free Software Foundation; either version 2 of the License, or
+X   (at your option) any later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X   Or contact Sam Kendall, CenterLine Software Inc., 10 Fawcett Street,
+X   Cambridge, MA 02138  USA.  Email is kendall@CenterLine.COM or
+X   uunet!saber!kendall.
+X*/
+X
+X/*
+X * Authors:
+X *	Ctags originally by Ken Arnold.
+X *	FORTRAN added by Jim Kleckner.
+X *	Bill Joy added Pascal and -x.
+X *	Ed Pelegri-Llopart added C typedefs.
+X *	Gnu Emacs TAGS format and modifications by RMS?
+X *	Sam Kendall added C++.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X
+Xextern char *malloc (), *realloc ();
+Xextern char *getenv ();
+Xextern char *strchr (), *strrchr ();
+Xextern char *strcpy (), *strncpy ();
+Xextern int   strcmp ();
+X
+X/* Define the symbol ETAGS to make the program "etags",
+X which makes emacs-style tag tables by default.
+X Define CTAGS to make the program "ctags" compatible with the usual one.
+X Define neither one to get behavior that depends
+X on the name with which the program is invoked; this is the default. */
+X
+X#if !defined(ETAGS) && !defined(CTAGS)
+X/* If neither is defined, program can be run as either. */
+X#define ETAGS
+X#define CTAGS
+X#endif
+X
+X/* On VMS, CTAGS is not useful, so always do ETAGS.  */
+X#ifdef VMS
+X#ifndef ETAGS
+X#define ETAGS
+X#endif
+X#endif
+X
+X/* Exit codes for success and failure.  */
+X#ifdef VMS
+X#define	GOOD	(1)
+X#define BAD	(0)
+X#else
+X#define	GOOD	(0)
+X#define	BAD	(1)
+X#endif
+X
+X/*
+X * The FILEPOS abstract type, which represents a position in a file,
+X * plus the following accessor functions:
+X *
+X *	long GET_CHARNO (pos)
+X *				returns absolute char number.
+X *	long GET_COOKIE (pos)
+X *				returns ftell () cookie.
+X *	void SET_FILEPOS (pos, fp, charno)
+X *	    FILE *fp; long charno;
+X *				sets `pos' from the current file
+X *				position of `fp' and from `charno',
+X *				which must be the absolute character
+X *				number corresponding to the current
+X *				position of `fp'.
+X *
+X * The `pos' parameter is an lvalue expression of type FILEPOS.
+X * Parameters to the accessor functions are evaluated 0 or more times,
+X * and so must have no side effects.
+X *
+X * FILEPOS objects can also be assigned and passed to and from
+X * functions in the normal C manner.
+X *
+X * Implementation notes: the `+ 0' is to enforce rvalue-ness.
+X */
+X#ifdef VMS
+Xtypedef struct { long cookie; long charno; } FILEPOS;
+X# define GET_CHARNO(pos)	((pos).charno + 0)
+X# define GET_COOKIE(pos)	((pos).cookie + 0)
+X# define SET_FILEPOS(pos, fp, cno) \
+X    ((void) ((pos).cookie = ftell (fp), (pos).charno = (cno)))
+X#else
+X# ifndef DEBUG
+X	/* UNIX real implementation */
+Xtypedef long FILEPOS;
+X#  define GET_CHARNO(pos)	((pos) + 0)
+X#  define GET_COOKIE(pos)	GET_CHARNO (pos)
+X#  define SET_FILEPOS(pos, fp, cno)	((void) ((pos) = (cno)))
+X# else
+X	/* UNIX debugging implementation */
+Xtypedef struct { long charno; } FILEPOS;
+X#  define GET_CHARNO(pos)	((pos).charno + 0)
+X#  define GET_COOKIE(pos)	GET_CHARNO (pos)
+X#  define SET_FILEPOS(pos, fp, cno)					\
+X    ((void) ((pos).charno = (cno),					\
+X	     (cno) != ftell (fp) ? (error ("SET_FILEPOS inconsistency"), 0) \
+X	     			 : 0))
+X# endif
+X#endif
+X
+X#define streq(s, t)	(strcmp (s, t) == 0)
+X#define strneq(s, t, n)	(strncmp (s, t, n) == 0)
+X#define	reg	register
+X#define	logical	char
+X
+X#define	TRUE	1
+X#define	FALSE	0
+X
+X#define	iswhite(arg)	(_wht[arg])	/* T if char is white		*/
+X#define	begtoken(arg)	(_btk[arg])	/* T if char can start token	*/
+X#define	intoken(arg)	(_itk[arg])	/* T if char can be in token	*/
+X#define	endtoken(arg)	(_etk[arg])	/* T if char ends tokens	*/
+X#define	isgood(arg)	(_gd[arg])	/* T if char can be after ')'	*/
+X
+X#define	max(I1,I2)	((I1) > (I2) ? (I1) : (I2))
+X
+Xstruct	nd_st {			/* sorting structure			*/
+X	char	*name;			/* function or type name	*/
+X	char	*file;			/* file name			*/
+X	logical is_func;		/* use pattern or line no	*/
+X	logical rewritten;		/* list name separately		*/
+X	logical	been_warned;		/* set if noticed dup		*/
+X	int	lno;			/* line number tag is on	*/
+X	long    cno;			/* character number line starts on */
+X	char	*pat;			/* search pattern		*/
+X	struct	nd_st	*left,*right;	/* left and right sons		*/
+X};
+X
+Xlong	ftell ();
+Xtypedef	struct	nd_st	NODE;
+X
+Xlogical gotone,				/* found a func already on line	*/
+X					/* boolean "func" (see init)	*/
+X	_wht[0177],_etk[0177],_itk[0177],_btk[0177],_gd[0177];
+X
+X
+Xvoid	init ();
+Xvoid	find_entries ();
+Xvoid	pfnote ();
+Xvoid	free_tree ();
+Xvoid	add_node ();
+Xvoid	put_entries ();
+Xint	total_size_of_entries ();
+Xvoid	C_entries ();
+Xlogical	consider_token ();
+Xvoid	getline ();
+Xint	PF_funcs ();
+Xlogical	tail ();
+Xvoid	takeprec ();
+Xvoid	getit ();
+Xvoid	L_funcs ();
+Xvoid	L_getit ();
+Xvoid	Scheme_funcs ();
+Xvoid	TEX_funcs ();
+Xvoid	initbuffer ();
+Xlong	readline ();
+Xchar	*savestr ();
+Xchar	*savenstr ();
+Xvoid	fatal ();
+Xvoid	error ();
+Xchar	*concat	();
+Xvoid	initbuffer ();
+Xchar	*xmalloc ();
+Xchar	*xrealloc ();
+X
+X/*
+X * MACRO
+X *	xnew -- allocate storage
+X *
+X * SYNOPSIS
+X *	Type *xnew (int n, Type);
+X */
+X#define xnew(n, Type)	((Type *) xmalloc ((n) * sizeof (Type)))
+X
+X
+X
+X/*
+X *	Symbol table stuff.
+X *
+X * Should probably be implemented with hash table; linked list for now.
+X */
+X
+Xenum sym_type { st_none, st_C_struct, st_C_enum, st_C_define, st_C_typedef };
+X
+Xstruct stab_entry {
+X	char *		sym;
+X	int		symlen;
+X	enum sym_type	type;
+X	struct stab_entry * next;
+X};
+X
+Xtypedef struct stab_entry	Stab_entry;
+Xtypedef Stab_entry *		Stab;
+X
+X/*
+X * NAME
+X *	Stab, Stab_entry, stab_create, stab_search, stab_find -- symbol table
+X *
+X * SYNOPSIS
+X *	Types: Stab, Stab_entry, enum sym_type
+X *
+X *	Stab * stab_create ()
+X *
+X *	Stab_entry * stab_find (stab, sym)
+X *	Stab *stab;
+X *	char *sym;
+X *
+X *	Stab_entry * stab_search (stab, sym)
+X *	Stab *stab;
+X *	char *sym;
+X *
+X * DESCRIPTION
+X *	stab_create creates a Stab, a symbol table object, and returns a
+X *	pointer to it.  stab_find finds a symbol in a Stab; it returns a
+X *	pointer to the Stab_entry if found, otherwise NULL.  stab_search
+X *	is like stab_find, except that it creates a new Stab_entry,
+X *	initialized with type = st_none, if one did not exist already
+X *	(it never returns NULL).
+X *
+X *	A Stab_entry is a structure that contains at least the following
+X *	members:
+X *
+X *		char *name;		// must not be modified
+X *		enum sym_type type;	// should be set
+X *
+X *	The type field is initially set to st_none; it should be set to
+X *	something else by the caller of stab_search.  Other possible values
+X *	of an enum sym_type can be added.
+X */
+X
+XStab *
+Xstab_create ()
+X{
+X  Stab *sp;
+X  sp = xnew (1, Stab);
+X  *sp = NULL;	/* a Stab starts out as a null Stab_entry* */
+X  return sp;
+X}
+X
+XStab_entry *
+Xstab_find (stab, sym, symlen)
+X     Stab *stab;
+X     register char *sym;
+X     register int symlen;
+X{
+X  register Stab_entry *se;
+X  for ( se = *stab; se != NULL; se = se->next ) {
+X    if (se->symlen == symlen && strneq (se->sym, sym, symlen))
+X      return se;
+X  }
+X
+X  return NULL;
+X}
+X
+XStab_entry *
+Xstab_search (stab, sym, symlen)
+X     register Stab *stab;
+X     char *sym;
+X     int symlen;
+X{
+X  register Stab_entry *se;
+X  se = stab_find (stab, sym, symlen);
+X
+X  if (se == NULL) {
+X    /* make a new one */
+X    se = xnew (1, Stab_entry);
+X    se->sym = savenstr (sym, symlen);
+X    se->symlen = symlen;
+X    se->type = st_none;
+X    se->next = *stab;
+X    *stab = se;
+X  }
+X
+X  return se;
+X}
+X
+X/*
+X * NAME
+X *	stab_type -- type of a symbol table entry
+X *
+X * SYNOPSIS
+X *	enum sym_type stab_type (Stab_entry *se);
+X *
+X * WARNING
+X *	May evaluate its argument more than once.
+X */
+X
+X#define stab_type(se)	((se)==NULL ? st_none : (se)->type)
+X    
+X
+X
+Xtypedef int LINENO;
+X
+Xtypedef struct {
+X     char *p;
+X     int len;
+X     FILEPOS linestart;
+X     LINENO lineno;
+X     logical rewritten;
+X} TOKEN;
+X
+X
+X	/* typedefs are recognized using a simple finite automaton.
+X	 * tydef is its state variable.
+X	 */
+Xtypedef enum {none, begin, middle, end } TYST;
+X
+XTYST tydef = none;
+X
+X
+X	/* struct tags for C++ are recognized using another simple
+X	 * finite automaton.  `structdef' is its state variable.
+X	 * This machinery is only invoked for C++; otherwise structdef
+X	 * should remain snone.  However, this machinery can easily be
+X	 * adapted to find structure tags in normal C code.
+X	 */
+Xtypedef enum {
+X     snone,		/* nothing seen yet */
+X     skeyseen,		/* struct-like keyword seen */
+X     stagseen,		/* struct-like tag seen */
+X     scolonseen,	/* colon seen after struct-like tag */
+X     sinbody		/* in a class body: recognize member func defs */
+X     } STRUCTST;
+XSTRUCTST structdef = snone;
+X/*
+X * When structdef is stagseen, scolonseen, or sinbody, structtag is the
+X * struct tag, and structkey is the preceding struct-like keyword.
+X */
+Xchar structtag[512];
+XStab_entry *structkey;
+X
+X/*
+X * Yet another little state machine to deal with preprocessor lines.
+X */
+Xtypedef enum {
+X  dnone,		/* nothing seen */
+X  dsharpseen,		/* '#' seen as first char on line */
+X  ddefineseen,		/* '#' and 'define' seen */
+X  dignorerest		/* ignore rest of line */
+X  } DEFINEST;
+XDEFINEST definedef;
+X
+X/*
+X * LEVEL_OK_FOR_FUNCDEF allows C++ function definition within class body.
+X * Currently tydef and structdef stuff (typedefs and struct definitions) are
+X * only noticed when level==0, but that may change.
+X *
+X * Note that this macro may only be evaluated inside C_entries().  It is
+X * for self-documentation only.
+X */
+X#define LEVEL_OK_FOR_FUNCDEF()					\
+X	(level==0 || c_ext && level==1 && structdef==sinbody)
+X
+X/* C extensions.  Currently all listed extensions are C++ dialects, so
+X * `c_ext' is used as an abbreviation for `c_ext&C_PLPL'.  If a non-C++
+X * dialect is added, this must change.
+X */
+X#define C_PLPL	0x1	/* C++ */
+X#define C_STAR	0x3	/* C* */
+X
+Xchar	searchar = '/';			/* use /.../ searches 		*/
+X
+XLINENO	lineno;			/* line number of current line */
+Xlong	charno;			/* current character number */
+XFILEPOS	linepos;		/* start of line (C only) */
+XFILEPOS	prev_linepos;		/* start of previous line (C only) */
+X
+Xlong	linecharno;		/* charno of start of line; not used by C, but
+X				 * by every other language.
+X				 */
+X
+Xchar    *curfile,		/* current input file name		*/
+X	*outfile,		/* output file				*/
+X	*white	= " \f\t\n",	/* white chars				*/
+X	*endtk	= " \t\n\"'#()[]{}=-+%*/&|^~!<>;,.:?",
+X				/* token ending chars			*/
+X	*begtk	= "ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz$",
+X				/* token starting chars			*/
+X	*intk	= "ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz$0123456789",
+X				/* valid in-token chars			*/
+X	*notgd	= ",;";		/* non-valid after-function chars	*/
+X
+Xint	file_num;		/* current file number			*/
+Xint	aflag;			/* -a: append to tags */
+Xint	eflag;			/* emacs style output (no -e option any more) */
+X/* The following three default to 1 for etags, but to 0 for ctags.  */
+Xint	tflag;			/* -t: create tags for typedefs */
+Xint	strflag;		/* -T: create tags for typedefs, level */
+X				/* 0 struct/enum/union decls, and C++ */
+X				/* member functions */
+Xint	constantflag;		/* -d: create tags for C #define and enum */
+X				/* constants. Default under etags.  Enum */
+X				/* constants not implemented. */
+X				/* -D: opposite of -d.  Default under ctags. */
+Xint	uflag;			/* -u: update tags */
+Xint	vflag;			/* -v: create vgrind style index output */
+Xint	wflag;			/* -w: suppress warnings */
+Xint	xflag;			/* -x: create cxref style output */
+Xint	Cflag = TRUE;		/* .[hc] means C++, not C (default) */
+Xint	noindentflag;		/* -S: ignore indentation in C */
+Xint	iflag;			/* -i: treat all spec'd files as
+X				   included sub-tag-tables.  */
+X
+X/* Name this program was invoked with.  */
+Xchar *progname;
+X
+XFILE	*inf,			/* ioptr for current input file		*/
+X	*outf;			/* ioptr for tags file			*/
+X
+XNODE	*head;			/* the head of the binary tree of tags	*/
+X
+X/* A `struct linebuffer' is a structure which holds a line of text.
+X `readline' reads a line from a stream into a linebuffer
+X and works regardless of the length of the line.  */
+X
+Xstruct linebuffer
+X  {
+X    long size;
+X    char *buffer;
+X  };
+X
+Xstruct linebuffer lb;	/* the current line */
+Xstruct linebuffer lb1;	/* sometimes, a previous line in which a token lies */
+Xstruct linebuffer filename_lb;	/* used to read in filenames */
+X
+X#if 0  /* VMS now provides the `system' function.  */
+X#ifdef VMS
+X
+X#include descrip
+X
+Xsystem (buf)
+X     char *buf;
+X{
+X  struct dsc$descriptor_s command =
+X    {
+X      strlen (buf), DSC$K_DTYPE_T, DSC$K_CLASS_S, buf
+X    };
+X
+X  LIB$SPAWN (&command);
+X}
+X#endif /* VMS */
+X#endif /* 0 */
+X
+X
+Xmain (argc,argv)
+X     int	argc;
+X     char	*argv[];
+X{
+X  char cmd[100];
+X  int i;
+X  int outfflag = 0;
+X  char *this_file;
+X#ifdef VMS
+X  char got_err;
+X
+X  extern char *gfnames ();
+X  extern char *massage_name ();
+X#endif
+X
+X  progname = argv[0];
+X
+X#ifndef CTAGS
+X  eflag = 1;
+X#else
+X#ifndef ETAGS
+X  eflag = 0;
+X#else
+X  /* Be ctags only if we are run as "ctags" or close to it. */
+X  {
+X    char *subname = strrchr (argv[0], '/');
+X    subname = subname ? subname + 1 : argv[0];
+X    /* allow, for example, "ctags", "ctags-new", or "nctags" */
+X    eflag = !(strneq (subname, "ctags", 5) || strneq (subname+1, "ctags", 5));
+X  }
+X#endif
+X#endif
+X
+X  /*
+X   * If etags, always find typedefs and structure tags.  Why not?
+X   * Also default is to find macro constants.
+X   */
+X  if (eflag)
+X    tflag = strflag = constantflag = 1;
+X
+X  for ( ; argc > 1 && argv[1][0] == '-' && argv[1][1] != '\0'; argc--, argv++)
+X    {
+X      for (i=1; argv[1][i]; i++)
+X	{
+X	  switch (argv[1][i])
+X	    {
+X	      /* Common options. */
+X	    case 'a':
+X	      aflag++;
+X	      break;
+X	    case 'd':
+X	      constantflag = 1;
+X	      break;
+X	    case 'D':
+X	      constantflag = 0;
+X	      break;
+X	    case 'o':
+X	      if (outfflag)
+X		{
+X		  fprintf (stderr,
+X			   "%s: -o flag may only be given once\n", progname);
+X		  goto usage;
+X		}
+X	      outfflag++, argc--; argv++;
+X	      if (argc <= 1 || argv[1][0] == '\0')
+X		{
+X		  fprintf (stderr,
+X			   "%s: -o flag must be followed by a filename\n",
+X			   progname);
+X		  goto usage;
+X		}
+X	      outfile = argv[1];
+X	      goto next_arg;
+X	    case 'S':
+X	      noindentflag++;
+X	      break;
+X	    case 't':
+X	      tflag++;
+X	      break;
+X	    case 'T':
+X	      tflag++;
+X	      strflag++;
+X	      break;
+X
+X	      /* Etags options */
+X	    case 'i':
+X	      iflag++;
+X	      if (!eflag) goto usage;
+X	      break;
+X
+X	      /* Ctags options. */
+X	    case 'B':
+X	      searchar='?';
+X	      if (eflag) goto usage;
+X	      break;
+X	    case 'F':
+X	      searchar='/';
+X	      if (eflag) goto usage;
+X	      break;
+X	    case 'u':
+X	      uflag++;
+X	      if (eflag) goto usage;
+X	      break;
+X	    case 'v':
+X	      vflag++;
+X	      /*FALLTHRU*/
+X	    case 'x':
+X	      xflag++;
+X	      if (eflag) goto usage;
+X	      break;
+X	    case 'w':
+X	      wflag++;
+X	      if (eflag) goto usage;
+X	      break;
+X
+X	    default:
+X	      goto usage;
+X	    }
+X	}
+X    next_arg: ;
+X    }
+X
+X  if (argc <= 1)
+X    {
+X    usage:
+X      fprintf (stderr, "Usage:\n");
+X#if defined(ETAGS) || (!defined(ETAGS) && !defined(CTAGS))
+X      if (eflag)
+X	  fprintf (stderr, "\tetags [-a] [-o tagsfile] file ...\n");
+X#endif
+X#if defined(CTAGS) || (!defined(ETAGS) && !defined(CTAGS))
+X      if (!eflag)
+X	  fprintf (stderr, "\tctags [-aBdFtTuwvx] [-o tagsfile] file ...\n");
+X#endif
+X      exit (BAD);
+X    }
+X
+X  if (outfile == 0)
+X    {
+X      outfile = eflag ? "TAGS" : "tags";
+X    }
+X
+X  init ();			/* set up boolean "functions"		*/
+X
+X  initbuffer (&lb);
+X  initbuffer (&lb1);
+X  initbuffer (&filename_lb);
+X  /*
+X   * loop through files finding functions
+X   */
+X  if (eflag)
+X    {
+X      if (streq (outfile, "-"))
+X	outf = stdout;
+X      else
+X	outf = fopen (outfile, aflag ? "a" : "w");
+X      if (!outf)
+X	{
+X	  perror (outfile);
+X	  exit (1);
+X	}
+X    }
+X
+X  file_num = 1;
+X#ifdef VMS
+X  for (argc--, argv++;
+X       (this_file = gfnames (&argc, &argv, &got_err)) != NULL; file_num++)
+X    {
+X      if (got_err)
+X	{
+X	  error ("Can't find file %s\n", this_file);
+X	  argc--, argv++;
+X	}
+X      else
+X	{
+X	  this_file = massage_name (this_file);
+X# if 0
+X    }}  /* solely to balance out the ifdef'd parens above */
+X# endif
+X#else     
+X  for (; file_num < argc; file_num++)
+X    {
+X      this_file = argv[file_num];
+X      if (1)
+X	{
+X#endif
+X	  /* Input file named "-" means read file names from stdin
+X	     and use them.  */
+X	  if (streq (this_file, "-"))
+X	    {
+X	      while (! feof (stdin))
+X		{
+X		    (void) readline (&filename_lb, stdin);
+X		    if (strlen(filename_lb.buffer) > 0)
+X		      process_file (filename_lb.buffer);
+X		}
+X	    }
+X	  else
+X	    process_file (this_file);
+X	}
+X    }
+X
+X  if (eflag)
+X    {
+X      (void) fclose (outf);
+X      exit (0);
+X    }
+X
+X  if (xflag)
+X    {
+X      put_entries (head);
+X      exit (GOOD);
+X    }
+X  if (uflag)	/* uflag cannot be set under VMS */
+X    {
+X      for (i=1; i<argc; i++)
+X	{
+X	  sprintf (cmd,
+X		   "mv %s OTAGS;fgrep -v '\t%s\t' OTAGS >%s;rm OTAGS",
+X		   outfile, argv[i], outfile);
+X	  (void) system (cmd);
+X	}
+X      aflag++;
+X    }
+X  outf = fopen (outfile, aflag ? "a" : "w");
+X  if (outf == NULL)
+X    {
+X      perror (outfile);
+X      exit (GOOD);
+X    }
+X  put_entries (head);
+X  (void) fclose (outf);
+X  if (uflag)
+X    {
+X      sprintf (cmd, "sort %s -o %s", outfile, outfile);
+X      (void) system (cmd);
+X    }
+X  exit (GOOD);
+X}
+X
+X
+X/*
+X * This routine is called on each file argument.
+X */
+Xprocess_file (file)
+X     char *file;
+X{
+X  if (streq (file, outfile) && ! streq (outfile, "-"))
+X    {
+X      fprintf (stderr, "Skipping inclusion of %s in self.\n", file);
+X      return;
+X    }
+X  if (iflag)
+X    {
+X      fprintf (outf, "\f\n%s,include\n", file);
+X      return;
+X    }
+X  if (eflag)
+X    {
+X      char *cp = strrchr (file, '/');
+X      if (cp)  ++cp;  else  cp = file;
+X      if (streq (cp, outfile)) /*file == "TAGS"*/
+X	{
+X	  fprintf (outf, "\f\n%s,include\n", file);
+X	  return;
+X	}
+X    }
+X  find_entries (file);
+X  if (eflag)
+X    {
+X      fprintf (outf, "\f\n%s,%d\n",
+X	       file, total_size_of_entries (head));
+X      put_entries (head);
+X      free_tree (head);
+X      head = NULL;
+X    }
+X}
+X
+X/*
+X * This routine sets up the boolean psuedo-functions which work
+X * by seting boolean flags dependent upon the corresponding character
+X * Every char which is NOT in that string is not a white char.  Therefore,
+X * all of the array "_wht" is set to FALSE, and then the elements
+X * subscripted by the chars in "white" are set to TRUE.  Thus "_wht"
+X * of a char is TRUE if it is the string "white", else FALSE.
+X */
+Xvoid
+Xinit ()
+X{
+X  reg char *sp;
+X  reg int i;
+X
+X  for (i = 0; i < 0177; i++)
+X    {
+X      _wht[i] = _etk[i] = _itk[i] = _btk[i] = FALSE;
+X      _gd[i] = TRUE;
+X    }
+X  for (sp = white; *sp; sp++)
+X    _wht[*sp] = TRUE;
+X  for (sp = endtk; *sp; sp++)
+X    _etk[*sp] = TRUE;
+X  for (sp = intk; *sp; sp++)
+X    _itk[*sp] = TRUE;
+X  for (sp = begtk; *sp; sp++)
+X    _btk[*sp] = TRUE;
+X  for (sp = notgd; *sp; sp++)
+X    _gd[*sp] = FALSE;
+X  _wht[0] = _wht['\n'];
+X  _etk[0] = _etk['\n'];
+X  _btk[0] = _btk['\n'];
+X  _itk[0] = _itk['\n'];
+X  _gd[0] = _gd['\n'];
+X}
+X
+X/*
+X * This routine opens the specified file and calls the function
+X * which finds the function and type definitions.
+X */
+Xvoid
+Xfind_entries (file)
+X     char *file;
+X{
+X  char *cp;
+X
+X  inf = fopen (file, "r");
+X  if (inf == NULL)
+X    {
+X      perror (file);
+X      return;
+X    }
+X  curfile = savestr (file);
+X  cp = strrchr (file, '.');
+X  /* .tex, .aux or .bbl implies LaTeX source code */
+X  if (cp && (streq (cp + 1, "tex") || streq (cp + 1, "aux")
+X	     || streq (cp + 1, "bbl")))
+X    {
+X      TEX_funcs (inf);
+X      goto close_and_return;
+X    }
+X  /* .l or .el or .lisp (or .cl or .clisp or ...) implies lisp source code */
+X  if (cp && (streq (cp + 1, "l") ||
+X	     streq (cp + 1, "el") ||
+X	     streq (cp + 1, "lsp") ||
+X	     streq (cp + 1, "lisp") ||
+X	     streq (cp + 1, "cl") ||
+X	     streq (cp + 1, "clisp")))
+X    {
+X      L_funcs (inf);
+X      goto close_and_return;
+X    }
+X  /* .scm or .sm or .scheme or ... implies scheme source code */
+X  if (cp && (streq (cp + 1, "sm") ||
+X	     streq (cp + 1, "scm") ||
+X	     streq (cp + 1, "scheme") ||
+X	     streq (cp + 1, "t") ||
+X	     streq (cp + 1, "sch") ||
+X	     streq (cp + 1, "SM") ||
+X	     streq (cp + 1, "SCM") ||
+X             /* The `SCM' or `scm' prefix with a version number */
+X             (cp[-1] == 'm' && cp[-2] == 'c' && cp[-3] == 's') ||
+X             (cp[-1] == 'M' && cp[-2] == 'C' && cp[-3] == 'S')))
+X    {
+X      Scheme_funcs (inf);
+X      fclose (inf);
+X      return;
+X    }
+X  /* Assume that ".s" or ".a" is assembly code. -wolfgang.  */
+X  if (cp && (cp[1] == 's' || cp[1] == 'a') && cp[2] == '\0')
+X    {
+X      Asm_funcs (inf);
+X      fclose (inf);
+X      return;
+X    }
+X  /* .[HC]  .[hci]xx  .[hc]c  .[hc]pp: a C++ file */
+X  if (cp && (streq (cp + 1, "H") ||
+X	     streq (cp + 1, "C") ||
+X	     streq (cp + 1, "hxx") ||
+X	     streq (cp + 1, "cxx") ||
+X	     streq (cp + 1, "ixx") ||
+X	     streq (cp + 1, "hc") ||
+X	     streq (cp + 1, "cc") ||
+X	     streq (cp + 1, "hpp") ||
+X	     streq (cp + 1, "cpp")))
+X    {
+X      C_entries (C_PLPL);	/* C++ */
+X      goto close_and_return;
+X    }
+X  /* .cs or .hs: a C* file */
+X  if (cp && (cp[1] == 'c' || cp[1] == 'h') && cp[2] == 's' && cp[3] == '\0')
+X    {
+X      C_entries (C_STAR);
+X      goto close_and_return;
+X    }
+X  /* if not a .c or .h or .y file, try fortran */
+X  else if (cp && (cp[1] != 'c' && cp[1] != 'h' && cp[1] != 'y')
+X      && cp[2] == '\0')
+X    {
+X      if (PF_funcs (inf) != 0)
+X	goto close_and_return;
+X      rewind (inf);	/* no fortran tags found, try C */
+X    }
+X  C_entries (Cflag ? C_PLPL : 0);
+X
+X  close_and_return:
+X  (void) fclose (inf);
+X}
+X
+X/* Record a tag. */
+X/* Should take a TOKEN* instead!! */
+X
+Xvoid
+Xpfnote (name, is_func, rewritten, linestart, linelen, lno, cno)
+X     char *name;	/* tag name */
+X     logical is_func;	/* function or type name? */
+X     logical rewritten; /* tag different from text of definition? */
+X     char *linestart;
+X     int linelen;
+X     int lno;
+X     long cno;
+X{
+X  register char *fp;
+X  register NODE *np;
+X  char tem[51];
+X  char c;
+X
+X  np = (NODE *) malloc (sizeof (NODE));
+X  if (np == NULL)
+X    {
+X      if (!eflag)
+X	{
+X	  /* It's okay to output early in etags -- it only disrupts the
+X	   * character count of the tag entries, which is no longer used
+X	   * by tags.el anyway.
+X	   */
+X	  error ("too many entries to sort");
+X	}
+X      put_entries (head);
+X      free_tree (head);
+X      head = NULL;
+X      np = xnew (1, NODE);
+X    }
+X  /* If ctags mode, change name "main" to M<thisfilename>. */
+X  if (!eflag && !xflag && streq (name, "main"))
+X    {
+X      fp = strrchr (curfile, '/');
+X      name = concat ("M", fp==0 ? curfile : fp+1, "");
+X      fp = strrchr (name, '.');
+X      if (fp && fp[1] != '\0' && fp[2] == '\0')
+X	*fp = 0;
+X      rewritten = TRUE;
+X    }
+X  np->name = savestr (name);
+X  np->file = curfile;
+X  np->is_func = is_func;
+X  np->rewritten = rewritten;
+X  np->lno = lno;
+X  /* UNCOMMENT THE +1 HERE: */
+X  np->cno = cno /* + 1 */;	/* our char numbers are 0-base; emacs's are 1-base */
+X  np->left = np->right = 0;
+X  if (eflag)
+X    {
+X      c = linestart[linelen];
+X      linestart[linelen] = 0;
+X    }
+X  else if (xflag == 0)
+X    {
+X      sprintf (tem, strlen (linestart) < 50 ? "%s$" : "%.50s", linestart);
+X      linestart = tem;
+X    }
+X  np->pat = savestr (linestart);
+X  if (eflag)
+X    {
+X      linestart[linelen] = c;
+X    }
+X
+X  add_node (np, &head);
+X}
+X
+X/*
+X * free_tree ()
+X *	recurse on left children, iterate on right children.
+X */
+Xvoid
+Xfree_tree (node)
+X     register NODE *node;
+X{
+X  while (node)
+X    {
+X      register NODE *node_right = node->right;
+X      free_tree (node->left);
+X      free (node->name);
+X      free (node->pat);
+X      free ((char *) node);
+X      node = node_right;
+X    }
+X}
+X
+X/*
+X * add_node ()
+X *	Adds a node to the tree of nodes.  In etags mode, we don't keep
+X *	it sorted; we just keep a linear list.  In ctags mode, maintain
+X *	an ordered tree, with no attempt at balancing.
+X *
+X *	add_node is the only function allowed to add nodes, so it can
+X *	maintain state.
+X */
+Xvoid
+Xadd_node (node, cur_node_p)
+X     NODE *node, **cur_node_p;
+X{
+X  register int dif;
+X  register NODE *cur_node = *cur_node_p;
+X  static NODE *last_node = NULL;	/* careful */
+X
+X  if (cur_node == NULL)
+X    {
+X      *cur_node_p = node;
+X      last_node = node;
+X      return;
+X    }
+X
+X  if (eflag)
+X    {
+X      /* Etags Mode */
+X      if (!last_node)
+X	  fatal ("internal error in add_node");
+X      last_node->right = node;
+X      last_node = node;
+X    }
+X  else
+X    {
+X      /* Ctags Mode */
+X      dif = strcmp (node->name, cur_node->name);
+X
+X      /*
+X       * If this tag name matches an existing one, then
+X       * do not add the node, but maybe print a warning.
+X       */
+X      if (!dif)
+X	{
+X	  if (node->file == cur_node->file)
+X	    {
+X	      if (!wflag)
+X		{
+X		  fprintf (stderr,"Duplicate entry in file %s, line %d: %s\n",
+X			   node->file,lineno,node->name);
+X		  fprintf (stderr,"Second entry ignored\n");
+X		}
+X	      return;
+X	    }
+X	  if (!cur_node->been_warned && !wflag)
+X	    {
+X	      fprintf (stderr,
+X		       "Duplicate entry in files %s and %s: %s (Warning only)\n",
+X		       node->file, cur_node->file, node->name);
+X	    }
+X	  cur_node->been_warned = TRUE;
+X	  return;
+X	} 
+X
+X      /* Actually add the node */
+X      add_node (node, dif < 0 ? &cur_node->left : &cur_node->right);
+X    }
+X}
+X
+Xvoid
+Xput_entries (node)
+X     reg NODE *node;
+X{
+X  reg char *sp;
+X
+X  if (node == NULL)
+X    return;
+X
+X  /* Output subentries that precede this one */
+X  put_entries (node->left);
+X
+X  /* Output this entry */
+X
+X  if (eflag)
+X    {
+X      if (node->rewritten)
+X	{
+X	  fprintf (outf, "%s\177%d,%d,\001%s\n",
+X		   node->pat, node->lno, node->cno, node->name);
+X	}
+X      else
+X	{
+X	  fprintf (outf, "%s\177%d,%d\n",
+X		   node->pat, node->lno, node->cno);
+X	}
+X    }
+X  else if (!xflag)
+X    {
+X      fprintf (outf, "%s\t%s\t",
+X	       node->name, node->file);
+X
+X      if (node->is_func)
+X	{		/* a function */
+X	  putc (searchar, outf);
+X	  putc ('^', outf);
+X
+X	  for (sp = node->pat; *sp; sp++)
+X	    {
+X	      if (*sp == '\\' || *sp == searchar)
+X		putc ('\\', outf);
+X	      putc (*sp, outf);
+X	    }
+X	  putc (searchar, outf);
+X	}
+X      else
+X	{		/* a typedef; text pattern inadequate */
+X	  fprintf (outf, "%d", node->lno);
+X	}
+X      putc ('\n', outf);
+X    }
+X  else if (vflag)
+X    fprintf (stdout, "%s %s %d\n",
+X	     node->name, node->file, (node->lno+63)/64);
+X  else
+X    fprintf (stdout, "%-16s%4d %-16s %s\n",
+X	     node->name, node->lno, node->file, node->pat);
+X
+X  /* Output subentries that follow this one */
+X  put_entries (node->right);
+X}
+X
+X/* Length of a number's decimal representation. */
+Xint
+Xnumber_len (num)
+X     long num;
+X{
+X  int len = 0;
+X  if (!num)
+X    return 1;
+X  for (; num; num /= 10)
+X    ++len;
+X  return len;
+X}
+X  
+X/*
+X * Return total number of characters that put_entries will output for
+X * the nodes in the subtree of the specified node.  Works only if eflag
+X * is set, but called only in that case.  This count is irrelevant with
+X * the new tags.el, but is still supplied for backward compatibility.
+X */
+Xint
+Xtotal_size_of_entries (node)
+X     reg NODE *node;
+X{
+X  reg int total;
+X
+X  if (node == NULL)
+X    return 0;
+X
+X  total = 0;
+X  for ( ; node; node = node->right)
+X    {
+X      /* Count left subentries. */
+X      total += total_size_of_entries (node->left);
+X
+X      /* Count this entry */
+X      total += strlen (node->pat) + 1;
+X      total += number_len ((long) node->lno) + 1 + number_len (node->cno) + 1;
+X      if (node->rewritten)
+X	total += 2 + strlen (node->name); /* ,\001name */
+X    }
+X
+X  return total;
+X}
+X
+X/*
+X * The C symbol tables.
+X */
+X
+XStab *C_stab, *C_PLPL_stab, *C_STAR_stab;
+X
+X/*
+X * SYNOPSIS
+X *	Stab *get_C_stab (int c_ext);
+X */
+X#define get_C_stab(c_ext) ((c_ext&C_STAR) ? C_STAR_stab :		\
+X			   c_ext ? C_PLPL_stab :			\
+X			   C_stab)
+X
+Xvoid
+Xadd_keyword (stab, sym, type)
+X     Stab *stab;
+X     char *sym;
+X     enum sym_type type;
+X{
+X  stab_search (stab, sym, strlen (sym))->type = type;
+X}
+X
+XStab *
+XC_create_stab (c_ext)
+X     int c_ext;
+X{
+X  Stab *stab;
+X  
+X  stab = stab_create ();
+X
+X  /* C, C++ and C* */
+X  if (c_ext&C_PLPL)
+X    add_keyword (stab, "class", st_C_struct);
+X  if (c_ext&C_STAR)
+X    add_keyword (stab, "domain", st_C_struct);
+X  add_keyword (stab, "union", st_C_struct);
+X  add_keyword (stab, "struct", st_C_struct);
+X  add_keyword (stab, "enum", st_C_enum);
+X  add_keyword (stab, "typedef", st_C_typedef);
+X  add_keyword (stab, "define", st_C_define);
+X
+X  return stab;
+X}
+X
+Xvoid
+XC_create_stabs ()
+X{
+X  C_stab = C_create_stab (0);
+X  C_PLPL_stab = C_create_stab (C_PLPL);
+X  C_STAR_stab = C_create_stab (C_STAR|C_PLPL);
+X}
+X
+X/*
+X * C_entries ()
+X *	This routine finds functions and typedefs in C syntax and adds them
+X *	to the list.
+X */
+X
+X#define CNL_SAVE_DEFINEDEF						\
+X{									\
+X  prev_linepos = linepos;						\
+X  SET_FILEPOS (linepos, inf, charno);					\
+X  lineno++;								\
+X  charno += readline (&lb, inf);					\
+X  lp = lb.buffer;							\
+X}
+X
+X#define CNL								\
+X{									\
+X  CNL_SAVE_DEFINEDEF;							\
+X  definedef = dnone;							\
+X}
+X
+Xvoid
+XC_entries (c_ext)
+X     int c_ext;		/* extension of C? */
+X{
+X  register int c;	/* latest char read; '\0' for end of line */
+X  register int tokoff;	/* offset in line of beginning of latest token */
+X  register int toklen;	/* length of latest token */
+X  register char *lp;	/* pointer one beyond the character `c' */
+X  logical incomm, inquote, inchar, midtoken;
+X  int level;		/* current curly brace level */
+X  char tokb[BUFSIZ];
+X
+X  lineno = 0;
+X  charno = 0;
+X  lp = lb.buffer;
+X  *lp = 0;
+X
+X  definedef = dnone;
+X  gotone = midtoken = inquote = inchar = incomm = FALSE;
+X  level = 0;
+X
+X  C_create_stabs ();
+X
+X  while (! feof (inf))
+X    {
+X      c = *lp++;
+X      if (c == 0)
+X	{
+X	  CNL;
+X	  gotone = FALSE;
+X	}
+X      if (c == '\\')
+X	{
+X	  c = *lp++;
+X	  if (c == 0)
+X	    {
+X	      CNL_SAVE_DEFINEDEF;
+X	    }
+X	  c = ' ';
+X	} 
+X      else if (incomm)
+X	{
+X	  if (c == '*')
+X	    {
+X	      while ((c = *lp++) == '*')
+X		continue;
+X	      if (c == 0)
+X		{
+X		  CNL;
+X		}
+X	      if (c == '/')
+X		incomm = FALSE;
+X	    }
+X	}
+X      else if (inquote)
+X	{
+X	  /*
+X	  * Too dumb to know about \" not being magic, but
+X	  * they usually occur in pairs anyway.
+X	  */
+X	  if (c == '"')
+X	    inquote = FALSE;
+X	  continue;
+X	}
+X      else if (inchar)
+X	{
+X	  if (c == '\'')
+X	    inchar = FALSE;
+X	  continue;
+X	}
+X      else switch (c)
+X	{
+X	case '"':
+X	  inquote = TRUE;
+X	  continue;
+X	case '\'':
+X	  inchar = TRUE;
+X	  continue;
+X	case '/':
+X	  if (*lp == '*')
+X	    {
+X	      lp++;
+X	      incomm = TRUE;
+X	    }
+X	  else if (c_ext && *lp == '/')
+X	    {
+X	      CNL;	/* C++ comment: skip rest of line */
+X	    }
+X	  continue;
+X	case '#':
+X	  if (lp == lb.buffer + 1 && definedef == dnone)
+X	    definedef = dsharpseen;
+X	  continue;
+X
+X	/*
+X	 * The next two are to help the strucdef state machine.
+X	 * They break when they are finished, so they don't interfere
+X	 * with anything else that is going on.
+X	 */
+X        case ':':
+X	  if (structdef==stagseen)
+X	    structdef = scolonseen;
+X	  break;
+X	/* Not a struct definition when semicolon seen in non-sinbody context. */
+X	case ';':
+X	  if (structdef != snone && structdef != sinbody)
+X	    {
+X	      structdef = snone;
+X	      (void) strcpy (structtag, "<error 1>");
+X	    }
+X	  break;
+X
+X	case '{':
+X	  if (tydef == begin)
+X	    {
+X	      tydef = middle;
+X	    }
+X	  switch (structdef)
+X	    {
+X	    case skeyseen:		/* unnamed struct */
+X	      structtag[0] = '\0';
+X	      /* FALLTHRU */
+X	    case stagseen:
+X	    case scolonseen:		/* named struct */
+X	      structdef = sinbody;
+X	      break;
+X	    }
+X	  level++;
+X	  continue;
+X	case '}':
+X	  if (!noindentflag && lp == lb.buffer + 1)
+X	    level = 0;	/* reset level if first column */
+X	  else if (level > 0)
+X	    level--;
+X	  if (level==0 && tydef==middle)
+X	    {
+X	      tydef=end;
+X	    }
+X	  if (level==0)
+X	    {
+X	      structdef = snone;
+X	      (void) strcpy (structtag, "<error 2>");
+X	    }
+X	  continue;
+X	}
+X      if (LEVEL_OK_FOR_FUNCDEF () && !inquote && !incomm && gotone == FALSE)
+X	{
+X	  if (midtoken)
+X	    {
+X	      if (endtoken (c))
+X		{
+X		  if (c_ext && c==':' && *lp==':' && intoken (*(lp+1)))
+X		    {
+X		      /*
+X		       * This handles :: in the middle, but not at beginning
+X		       * of an identifier.
+X		       */
+X		      lp += 2;
+X		      toklen += 3;
+X		    }
+X		  else
+X		    {
+X		      /*
+X		       * We've just finished lexing an identifier.
+X		       * Note that if `c' is '\0', `lb' is the NEXT
+X		       * line, `lp' points to the beginning of it, and
+X		       * old pointers into `lb.buffer' may no longer be
+X		       * valid, since `lb.buffer' may have been
+X		       * reallocated.  In this case (which corresponds
+X		       * to an identifier followed immediately by a
+X		       * newline), we re-read the line into lb1.
+X		       *
+X		       * This would be faster if the previous line's
+X		       * buffer were always saved.
+X		       */
+X		      logical is_func;
+X		      char *tok_linebuf;
+X		      TOKEN tok;
+X		      logical bingo, tok_at_end_of_line;
+X		      char *lp_tmp;	/* addressable */
+X
+X		      if (c == '\0')
+X			{
+X			  getline (GET_COOKIE (prev_linepos));
+X			  tok_linebuf = lb1.buffer;
+X			  tok_at_end_of_line = TRUE;
+X			  tok.linestart = prev_linepos;
+X			  tok.lineno = lineno - 1;
+X			}
+X		      else
+X			{
+X			  tok_linebuf = lb.buffer;
+X			  tok_at_end_of_line = FALSE;
+X			  tok.linestart = linepos;
+X			  tok.lineno = lineno;
+X			}
+X		      tok.p = tok_linebuf + tokoff;
+X		      tok.len = toklen;
+X		      tok.rewritten = FALSE;
+X		      lp_tmp = lp;
+X		      bingo = consider_token (c, &lp_tmp, &tok,
+X					      &is_func, c_ext, level);
+X		      lp = lp_tmp;
+X		      if (bingo)
+X			{
+X			  if (GET_CHARNO (tok.linestart) != GET_CHARNO (linepos)
+X			      && !tok_at_end_of_line)
+X			    {
+X			      /*
+X			       * Resynchronize tok.p to point into the right
+X			       * linebuffer.
+X			       */
+X			      getline (GET_COOKIE (tok.linestart));
+X			      if (!tok.rewritten)
+X				tok.p = lb1.buffer + (tok.p - tok_linebuf);
+X			      tok_linebuf = lb1.buffer;
+X			    }
+X			  if (structdef==sinbody && definedef==dnone && is_func)
+X			    { 	/* function defined in C++ class body */
+X			      sprintf (tokb, "%s::%.*s",
+X				       structtag[0]=='\0' ? "_anonymous_"
+X				       			  : structtag,
+X				       tok.len, tok.p);
+X			      tok.rewritten = TRUE;
+X			    }
+X			  else
+X			    {
+X			      sprintf (tokb, "%.*s", tok.len, tok.p);
+X			    }
+X			  pfnote (tokb, is_func, tok.rewritten, tok_linebuf,
+X				  tokoff + toklen + (tok_at_end_of_line?0:1),
+X				  tok.lineno, GET_CHARNO (tok.linestart));
+X			  gotone = is_func;	/* function */
+X			}
+X		      midtoken = FALSE;
+X		    }
+X	        }
+X	      else if (intoken (c))
+X		toklen++;
+X	    }
+X	  else if (begtoken (c))
+X	    {
+X	      tokoff = lp - 1 - lb.buffer;
+X	      toklen = 1;
+X	      midtoken = TRUE;
+X	    }
+X	}
+X      if (c == ';'  &&  tydef==end)	/* clean with typedefs */
+X	tydef=none;
+X    }
+X}
+X
+X/*
+X * consider_token ()
+X *	checks to see if the current token is at the start of a
+X *	function, or corresponds to a typedef.  It updates the input
+X *	line pointer *LPP so that the '(' will be in it when it returns.
+X *
+X *	*IS_FUNC gets TRUE iff the token is a function.
+X *	C_EXT is which language we are looking at.
+X *
+X *	In the future we will need some way to adjust where the end of
+X *	the token is; for instance, implementing the C++ keyword
+X *	`operator' properly will adjust the end of the token to be after
+X *	whatever follows `operator'.
+X *
+X * Globals
+X *	structdef	IN OUT
+X *	definedef	IN OUT
+X *	tydef		IN OUT
+X */
+X
+Xlogical
+Xconsider_token (c, lpp, tokp, is_func, c_ext, level)
+X     reg char c;	/* IN: first char after the token */
+X     char **lpp;	/* IN OUT: *lpp points to 2nd char after the token */
+X     reg TOKEN *tokp;	/* IN */
+X     logical *is_func;	/* OUT */
+X     int c_ext;		/* IN */
+X     int level;		/* IN */
+X{
+X  reg char *lp = *lpp;
+X  /*
+X   * next_token_is_func
+X   *	set this to TRUE, and the next token considered is called a function.
+X   */
+X  static logical next_token_is_func;
+X  logical firsttok;	/* TRUE if have seen first token in ()'s */
+X  Stab_entry *tokse = stab_find (get_C_stab (c_ext), tokp->p, tokp->len);
+X  enum sym_type toktype = stab_type (tokse);
+X 
+X  *is_func = TRUE;			/* a function */
+X
+X  /*
+X   * Advance the definedef state machine.  We set `gotone' for good measure;
+X   * it's redundant.
+X   */
+X  switch (definedef)
+X    {
+X    case dnone:
+X      /* We're not on a preprocessor line. */
+X      break;
+X    case dsharpseen:
+X      if (toktype == st_C_define)
+X	{
+X	  definedef = ddefineseen;
+X	  gotone = FALSE;
+X	}
+X      else
+X	{
+X	  definedef = dignorerest;
+X	  gotone = TRUE;
+X	}
+X      goto badone;
+X    case ddefineseen:
+X      /*
+X       * Make a tag for any macro.
+X       * This will flub up if there is a newline immediately following
+X       * the macro name.
+X       */
+X      *is_func = (c == '(');
+X      definedef = dignorerest;
+X      gotone = TRUE;
+X      if (!*is_func && !constantflag)
+X	goto badone;
+X      goto goodone;
+X    case dignorerest:
+X      goto badone;
+X    default:
+X      error ("internal error: definedef value");
+X    }
+X
+X  /*
+X   * Skip whitespace and comments after the token.  This loop should
+X   * also skip C++ comments.
+X   */
+X  while (1)
+X    {
+X      /* At whitespace => skip it.  */
+X      if (iswhite (c))
+X	{
+X	  c = *lp++;
+X	}
+X      /* At a comment => skip to end of comment.  */
+X      else if (c == '/' && *lp == '*')
+X	{
+X	  /* If we find a comment, skip it.  */
+X	  while (!(c == '*' && *lp == '/'))
+X	    {
+X	      c = *lp++;
+X	      if (c == 0)
+X		{
+X		  if (feof (inf))
+X		    break;
+X		  CNL;
+X		}
+X	    }
+X	  if (c == '*' && *lp == '/')
+X	    {
+X	      lp++;		/* lp now points past the '/' */
+X	      c = *lp++;	/* c is now the --whatever-- after the '/' */
+X	    }
+X	}
+X      else
+X	break;
+X
+X      /* If we arrived at eof or eol, decide which one it is.
+X	 If it's eol, advance to the next line.  */
+X
+X      if (c == 0)
+X	{
+X	  if (feof (inf))
+X	    break;
+X	  CNL;
+X	}
+X    }
+X
+X  /*
+X   * If you have custom token types, or when configuration files can
+X   * define custom token types, this switch will be larger.
+X   */
+X  switch (toktype)
+X    {
+X    case st_C_typedef:
+X      if (tflag)
+X	{
+X	  tydef = begin;
+X	  goto badone;
+X	}
+X      break;
+X    }
+X  
+X  /*
+X   * This structdef business is currently only invoked when level==0.
+X   * It should be recursively invoked whatever the level, and a stack of
+X   * states kept, to allow for definitions of structs within structs.
+X   *
+X   * This structdef business is NOT invoked when we are ctags and the
+X   * file is plain C.  This is because a struct tag may have the same
+X   * name as another tag, and this loses with ctags.
+X   *
+X   * This if statement deals with the tydef state machine as follows: if
+X   * tydef==begin and token is struct/union/class/enum, goto badone.
+X   * All the other code here is for the structdef state machine.
+X   */
+X  switch (toktype)
+X    {
+X    case st_C_struct:
+X    case st_C_enum:
+X      if (tydef==begin || (strflag && level==0 && structdef==snone))
+X	{
+X	  structdef = skeyseen;
+X	  structkey = tokse;
+X	}
+X      goto badone;
+X    }
+X
+X  if (structdef==skeyseen)
+X    {
+X      /* If next char is '{' or (for C++) ':', found a structure tag. */
+X      if (c == '{' || c_ext && c == ':')
+X	{
+X	  /*
+X	   * We should do this slightly differently for straight C:
+X	   * instead of defining `tag', as we now do, we should define
+X	   * `struct tag'.  (Do this only if the find-tag defaulting is
+X	   * done on a sophisticated per-mode basis, so that if the user
+X	   * says meta-. anywhere in `struct foo', the default comes out
+X	   * `struct foo', not `struct' or `foo'.)  This will require
+X	   * remembering which keyword (struct/union/class/enum) we saw, as a
+X	   * Stab_entry* -- this will also make it possible to merge the
+X	   * skeyseen and senumseen states, if we want.
+X	   */
+X	  if (stab_type (structkey) == st_C_struct)
+X	    {
+X	      (void) strncpy (structtag, tokp->p, tokp->len);
+X	      structtag[tokp->len] = '\0';	/* for struct/union/class */
+X	      structdef = stagseen;
+X	    }
+X	  else
+X	    {
+X	      structtag[0] = '\0';		/* for enum */
+X	    }
+X	  *is_func = FALSE;	/* not a function */
+X	  goto goodone;
+X	}
+X      else
+X	{
+X	  /* Not a definition: reset structdef */
+X	  structdef = snone;
+X	  (void) strcpy (structtag, "<error 3>");
+X	}
+X      /* Now what?  And how does/should this stuff interact with tydef?? */
+X      /* Also maybe reset lp to *lpp for benefit of the function finding code. */
+X    }
+X  if (tydef==begin)
+X    {
+X      tydef=end;
+X      goto badone;
+X    }
+X  if (tydef==end)
+X    {
+X      *is_func = 0;
+X      goto goodone;
+X    }
+X  /* Detect GNUmacs's function-defining macros. */
+X  if (definedef == dnone && strneq (tokp->p, "DEF", 3))
+X    {
+X      next_token_is_func = TRUE;
+X      goto badone;
+X    }
+X  if (next_token_is_func)
+X    {
+X      next_token_is_func = FALSE;
+X      goto goodone;
+X    }
+X  if (c != '(')
+X    goto badone;
+X  firsttok = FALSE;
+X  while ((c = *lp++) != ')')
+X    {
+X      if (c == 0)
+X	{
+X	  if (feof (inf))
+X	    break;
+X	  CNL;
+X	}
+X      /*
+X	* This line used to confuse ctags:
+X	*	int	(*oldhup)();
+X	* This fixes it. A nonwhite char before the first
+X	* token, other than a / (in case of a comment in there)
+X	* makes this not a declaration.
+X	*/
+X      if (begtoken (c) || c=='/') firsttok++;
+X      else if (! iswhite (c) && !firsttok) goto badone;
+X    }
+X  while (iswhite (c = *lp++))
+X    {
+X      if (c == 0)
+X	{
+X	  if (feof (inf))
+X	    break;
+X	  CNL;
+X	}
+X    }
+X  if (! isgood (c))
+X    goto badone;
+X
+X goodone:
+X  *lpp = lp - 1;
+X  return TRUE;
+X
+X badone:
+X  *lpp = lp - 1;
+X  return FALSE;
+X}
+X
+Xvoid
+Xgetline (atcookie)
+X     long atcookie;
+X{
+X  long saveftell = ftell (inf);
+X
+X  (void) fseek (inf, atcookie, 0);
+X  (void) readline (&lb1, inf);
+X  (void) fseek (inf, saveftell, 0);
+X}
+X
+X/* Fortran parsing */
+X
+Xchar	*dbp;
+Xint	pfcnt;
+X
+Xint
+XPF_funcs (fi)
+X     FILE *fi;
+X{
+X  lineno = 0;
+X  charno = 0;
+X  pfcnt = 0;
+X
+X  while (! feof (fi))
+X    {
+X      lineno++;
+X      linecharno = charno;
+X      charno += readline (&lb, fi);
+X      dbp = lb.buffer;
+X      if (*dbp == '%') dbp++ ;	/* Ratfor escape to fortran */
+X      while (isspace (*dbp))
+X	dbp++;
+X      if (*dbp == 0)
+X	continue;
+X      switch (*dbp |' ')
+X	{
+X	case 'i':
+X	  if (tail ("integer"))
+X	    takeprec ();
+X	  break;
+X	case 'r':
+X	  if (tail ("real"))
+X	    takeprec ();
+X	  break;
+X	case 'l':
+X	  if (tail ("logical"))
+X	    takeprec ();
+X	  break;
+X	case 'c':
+X	  if (tail ("complex") || tail ("character"))
+X	    takeprec ();
+X	  break;
+X	case 'd':
+X	  if (tail ("double"))
+X	    {
+X	      while (isspace (*dbp))
+X		dbp++;
+X	      if (*dbp == 0)
+X		continue;
+X	      if (tail ("precision"))
+X		break;
+X	      continue;
+X	    }
+X	  break;
+X	}
+X      while (isspace (*dbp))
+X	dbp++;
+X      if (*dbp == 0)
+X	continue;
+X      switch (*dbp|' ')
+X	{
+X	case 'f':
+X	  if (tail ("function"))
+X	    getit ();
+X	  continue;
+X	case 's':
+X	  if (tail ("subroutine"))
+X	    getit ();
+X	  continue;
+X	case 'p':
+X	  if (tail ("program"))
+X	    {
+X	      getit ();
+X	      continue;
+X	    }
+X	  if (tail ("procedure"))
+X	    getit ();
+X	  continue;
+X	}
+X    }
+X  return (pfcnt);
+X}
+X
+Xlogical
+Xtail (cp)
+X     char *cp;
+X{
+X  register int len = 0;
+X
+X  while (*cp && (*cp&~' ') == ((*(dbp+len))&~' '))
+X    cp++, len++;
+X  if (*cp == 0)
+X    {
+X      dbp += len;
+X      return (1);
+X    }
+X  return (0);
+X}
+X
+Xvoid
+Xtakeprec ()
+X{
+X  while (isspace (*dbp))
+X    dbp++;
+X  if (*dbp != '*')
+X    return;
+X  dbp++;
+X  while (isspace (*dbp))
+X    dbp++;
+X  if (! isdigit (*dbp))
+X    {
+X      --dbp;		/* force failure */
+X      return;
+X    }
+X  do
+X    dbp++;
+X  while (isdigit (*dbp));
+X}
+X
+Xvoid
+Xgetit ()
+X{
+X  register char *cp;
+X  char c;
+X  char nambuf[BUFSIZ];
+X
+X  while (isspace (*dbp))
+X    dbp++;
+X  if (*dbp == 0 || (!isalpha(*dbp)) && (*dbp != '_'))
+X    return;
+X  for (cp = dbp+1; *cp && (isalpha(*cp) || isdigit(*cp) || (*cp == '_')); cp++)
+X    continue;
+X  c = cp[0];
+X  cp[0] = 0;
+X  (void) strcpy (nambuf, dbp);
+X  cp[0] = c;
+X  pfnote (nambuf, TRUE, FALSE, lb.buffer, cp - lb.buffer + 1, lineno, linecharno);
+X  pfcnt++;
+X}
+X
+X/* Handle a file of assembler code.  */
+X
+XAsm_funcs (fi)
+X     FILE *fi;
+X{
+X  int i;
+X  register char c;
+X
+X  lineno = 0;
+X  charno = 0;
+X  pfcnt = 0;
+X
+X  while (! feof (fi))
+X    {
+X      lineno++;
+X      linecharno = charno;
+X      charno += readline (&lb, fi);
+X      dbp = lb.buffer;
+X
+X      for (i = 0; ((c = dbp[i]) && !isspace(c)) && (c != ':') ; i++)
+X	;
+X
+X      if ((i > 0) && (c == ':'))
+X	getit();
+X    }
+X}
+X
+X/*
+X * lisp tag functions
+X * just look for (def or (DEF
+X */
+X
+Xvoid
+XL_funcs (fi)
+X     FILE *fi;
+X{
+X  lineno = 0;
+X  charno = 0;
+X  pfcnt = 0;
+X
+X  while (! feof (fi))
+X    {
+X      lineno++;
+X      linecharno = charno;
+X      charno += readline (&lb, fi);
+X      dbp = lb.buffer;
+X      if (dbp[0] == '(' && 
+X	  (dbp[1] == 'D' || dbp[1] == 'd') &&
+X	    (dbp[2] == 'E' || dbp[2] == 'e') &&
+X	      (dbp[3] == 'F' || dbp[3] == 'f'))
+X	{
+X	  while (! isspace (*dbp)) dbp++;
+X	  while (isspace (*dbp)) dbp++;
+X	  L_getit ();
+X	}
+X    }
+X}
+X
+Xvoid
+XL_getit ()
+X{
+X  register char *cp;
+X  char c;
+X  char nambuf[BUFSIZ];
+X
+X  if (*dbp == 0) return;
+X  for (cp = dbp+1; *cp && *cp != '(' && *cp != ' '; cp++)
+X    continue;
+X  c = cp[0];
+X  cp[0] = 0;
+X  (void) strcpy (nambuf, dbp);
+X  cp[0] = c;
+X  pfnote (nambuf, TRUE, FALSE, lb.buffer, cp - lb.buffer + 1, lineno, linecharno);
+X  pfcnt++;
+X}
+X
+X/*
+X * Scheme tag functions
+X * look for (def... xyzzy
+X * look for (def... (xyzzy
+X * look for (def ... ((...(xyzzy ....
+X * look for (set! xyzzy
+X */
+X
+Xstatic void get_scheme ();
+X
+Xvoid
+XScheme_funcs (fi)
+X     FILE *fi;
+X{
+X  lineno = 0;
+X  charno = 0;
+X  pfcnt = 0;
+X
+X  while (! feof (fi))
+X    {
+X      lineno++;
+X      linecharno = charno;
+X      charno += readline (&lb, fi);
+X      dbp = lb.buffer;
+X      if (dbp[0] == '(' && 
+X	  (dbp[1] == 'D' || dbp[1] == 'd') &&
+X	    (dbp[2] == 'E' || dbp[2] == 'e') &&
+X	      (dbp[3] == 'F' || dbp[3] == 'f'))
+X	{
+X	  while (! isspace (*dbp)) dbp++;
+X          /* Skip over open parens and white space */
+X          while (*dbp && (isspace (*dbp) || *dbp == '(')) dbp++;
+X	  get_scheme ();
+X	}
+X      if (dbp[0] == '(' && 
+X	  (dbp[1] == 'S' || dbp[1] == 's') &&
+X	    (dbp[2] == 'E' || dbp[2] == 'e') &&
+X	      (dbp[3] == 'T' || dbp[3] == 't') &&
+X                (dbp[4] == '!' || dbp[4] == '!') &&
+X                  (isspace (dbp[5])))
+X	{
+X	  while (! isspace (*dbp)) dbp++;
+X          /* Skip over white space */
+X          while (isspace (*dbp)) dbp++;
+X	  get_scheme ();
+X	}
+X    }
+X}
+X
+Xstatic void
+Xget_scheme ()
+X{
+X  register char *cp;
+X  char c;
+X  char nambuf[BUFSIZ];
+X
+X  if (*dbp == 0) return;
+X  /* Go till you get to white space or a syntactic break */
+X  for (cp = dbp+1; *cp && *cp != '(' && *cp != ')' && ! isspace (*cp); cp++)
+X    continue;
+X  /* Null terminate the string there. */
+X  c = cp[0];
+X  cp[0] = 0;
+X  /* Copy the string */
+X  strcpy (nambuf, dbp);
+X  /* Unterminate the string */
+X  cp[0] = c;
+X  /* Announce the change */
+X  pfnote (nambuf, TRUE, FALSE, lb.buffer, cp - lb.buffer + 1, lineno, linecharno);
+X  pfcnt++;
+X}
+X
+X/* Find tags in TeX and LaTeX input files.  */
+X
+X/* TEX_toktab is a table of TeX control sequences that define tags.
+X   Each TEX_tabent records one such control sequence.
+X   CONVERT THIS TO USE THE Stab TYPE!! */
+X
+Xstruct TEX_tabent
+X{
+X  char *name;
+X  int len;
+X};
+X
+Xstruct TEX_tabent *TEX_toktab = NULL; /* Table with tag tokens */
+X
+X/* Default set of control sequences to put into TEX_toktab.
+X   The value of environment var TEXTAGS is prepended to this.  */
+X
+Xstatic char *TEX_defenv =
+X  ":chapter:section:subsection:subsubsection:eqno:label:ref:cite:bibitem:typeout";
+X
+Xvoid TEX_mode ();
+Xstruct TEX_tabent *TEX_decode_env (); 
+Xvoid TEX_getit ();
+Xint TEX_Token ();
+X
+Xstatic char TEX_esc = '\\';
+Xstatic char TEX_opgrp = '{';
+Xstatic char TEX_clgrp = '}';
+X
+X/*
+X * TeX/LaTeX scanning loop.
+X */
+X
+Xvoid
+XTEX_funcs (fi)
+X    FILE *fi;
+X{
+X  char *lasthit;
+X
+X  lineno = 0;
+X  charno = 0;
+X  pfcnt = 0;
+X
+X  /* Select either \ or ! as escape character.  */
+X  TEX_mode (fi);
+X
+X  /* Initialize token table once from environment. */
+X  if (!TEX_toktab)
+X    TEX_toktab = TEX_decode_env ("TEXTAGS", TEX_defenv);
+X
+X  while (! feof (fi))
+X    {
+X      lineno++;
+X      linecharno = charno;
+X      charno += readline (&lb, fi);
+X      dbp = lb.buffer;
+X      lasthit = dbp;
+X
+X      while (! feof (fi))
+X	{	/* Scan each line in file */
+X	  lineno++;
+X	  linecharno = charno;
+X	  charno += readline (&lb, fi);
+X	  dbp = lb.buffer;
+X	  lasthit = dbp;
+X	  while (dbp = strchr (dbp, TEX_esc)) /* Look at each escape in line */
+X	    {
+X	      register int i;
+X
+X	      if (! *(++dbp))
+X		break;
+X	      linecharno += dbp - lasthit;
+X	      lasthit = dbp;
+X	      i = TEX_Token (lasthit);
+X	      if (0 <= i)
+X		{
+X		  TEX_getit (lasthit, TEX_toktab[i].len);
+X		  break;		/* We only save a line once */
+X		}
+X	    }
+X	}
+X    }
+X}
+X
+X#define TEX_LESC '\\'
+X#define TEX_SESC '!'
+X
+X/* Figure out whether TeX's escapechar is '\\' or '!' and set grouping */
+X/* chars accordingly. */
+X
+Xvoid
+XTEX_mode (f)
+X     FILE *f;
+X{
+X  int c;
+X
+X  while ((c = getc (f)) != EOF)
+X    if (c == TEX_LESC || c == TEX_SESC)
+X      break;
+X
+X  if (c == TEX_LESC)
+X    {
+X      TEX_esc = TEX_LESC;
+X      TEX_opgrp = '{';
+X      TEX_clgrp = '}';
+X    } 
+X  else
+X    {
+X      TEX_esc = TEX_SESC;
+X      TEX_opgrp = '<';
+X      TEX_clgrp = '>';
+X    }
+X  rewind (f);
+X}
+X
+X/* Read environment and prepend it to the default string. */
+X/* Build token table. */
+X
+Xstruct TEX_tabent *
+XTEX_decode_env (evarname, defenv)
+X     char *evarname;
+X     char *defenv;
+X{
+X  register char *env, *p;
+X  extern char *savenstr (), *strchr ();
+X
+X  struct TEX_tabent *tab;
+X  int size, i;
+X
+X  /* Append default string to environment. */
+X  env = getenv (evarname);
+X  if (!env)
+X    env = defenv;
+X  else
+X    env = concat (env, defenv, "");
+X
+X  /* Allocate a token table */
+X  for (size = 1, p=env; p;)
+X    if ((p = strchr (p, ':')) && *(++p))
+X      size++;
+X  tab = xnew (size, struct TEX_tabent);
+X
+X  /* Unpack environment string into token table. Be careful about */
+X  /* zero-length strings (leading ':', "::" and trailing ':') */
+X  for (i = 0; *env;)
+X    {
+X      p = strchr (env, ':');
+X      if (!p)			/* End of environment string. */
+X	p = env + strlen (env);
+X      if (p - env > 0)
+X	{	/* Only non-zero strings. */
+X	  tab[i].name = savenstr (env, p - env);
+X	  tab[i].len = strlen (tab[i].name);
+X	  i++;
+X	}
+X      if (*p)
+X	env = p + 1;
+X      else
+X	{
+X	  tab[i].name = NULL;	/* Mark end of table. */
+X	  tab[i].len = 0;
+X	  break;
+X	}
+X    }
+X  return tab;
+X}
+X
+X/* Record a tag defined by a TeX command of length LEN and starting at NAME.
+X   The name being defined actually starts at (NAME + LEN + 1).
+X   But we seem to include the TeX command in the tag name.  */
+X
+Xvoid
+XTEX_getit (name, len)
+X    char *name;
+X    int len;
+X{
+X  char *p = name + len;
+X  char nambuf[BUFSIZ];
+X
+X  if (*name == 0) return;
+X
+X  /* Let tag name extend to next group close (or end of line) */
+X  while (*p && *p != TEX_clgrp)
+X    p++;
+X  (void) strncpy (nambuf, name, p - name);
+X  nambuf[p - name] = 0;
+X
+X  pfnote (nambuf, TRUE, FALSE, lb.buffer, strlen (lb.buffer), lineno, linecharno);
+X  pfcnt++;
+X}
+X
+X/* If the text at CP matches one of the tag-defining TeX command names,
+X   return the index of that command in TEX_toktab.
+X   Otherwise return -1.  */
+X
+X/* Keep the capital `T' in `Token' for dumb truncating compilers
+X   (this distinguishes it from `TEX_toktab' */
+Xint
+XTEX_Token (cp)
+X    char *cp;
+X{
+X  int i;
+X
+X  for (i = 0; TEX_toktab[i].len > 0; i++)
+X    if (strncmp (TEX_toktab[i].name, cp, TEX_toktab[i].len) == 0)
+X      return i;
+X  return -1;
+X}
+X
+X/* Initialize a linebuffer for use */
+X
+Xvoid
+Xinitbuffer (linebuffer)
+X     struct linebuffer *linebuffer;
+X{
+X  linebuffer->size = 200;
+X  linebuffer->buffer = xnew (200, char);
+X}
+X
+X/*
+X * Read a line of text from `stream' into `linebuffer'.
+X * Return the number of characters read from `stream', which is the length of the
+X * line including the newline, if any.
+X */
+Xlong
+Xreadline (linebuffer, stream)
+X     struct linebuffer *linebuffer;
+X     register FILE *stream;
+X{
+X  char *buffer = linebuffer->buffer;
+X  register char *p = linebuffer->buffer;
+X  register char *pend = p + linebuffer->size;
+X  int newline;	/* 1 if ended with newline, 0 if ended with EOF */
+X
+X  while (1)
+X    {
+X      register int c = getc (stream);
+X      if (p == pend)
+X	{
+X	  linebuffer->size *= 2;
+X	  buffer = (char *) xrealloc (buffer, linebuffer->size);
+X	  p += buffer - linebuffer->buffer;
+X	  pend = buffer + linebuffer->size;
+X	  linebuffer->buffer = buffer;
+X	}
+X      if (c < 0 || c == '\n')
+X	{
+X	  *p = 0;
+X	  newline = (c == '\n' ? 1 : 0);
+X	  break;
+X	}
+X      *p++ = c;
+X    }
+X
+X  return p - buffer + newline;
+X}
+X
+Xchar *
+Xsavestr (cp)
+X     char *cp;
+X{
+X  return savenstr (cp, strlen (cp));
+X}
+X
+Xchar *
+Xsavenstr (cp, len)
+X    char *cp;
+X    int len;
+X{
+X  register char *dp;
+X
+X  dp = xnew (len + 1, char);
+X  (void) strncpy (dp, cp, len);
+X  dp[len] = '\0';
+X  return dp;
+X}
+X
+X#if 0
+X/*
+X * Return the ptr in sp at which the character c last
+X * appears; NULL if not found
+X *
+X * Identical to ANSI C strrchr, included in case it's needed.
+X */
+X
+Xchar *
+Xstrrchr (sp, c)
+X     register char *sp, c;
+X{
+X  register char *r;
+X
+X  r = NULL;
+X  do
+X    {
+X      if (*sp == c)
+X	r = sp;
+X    } while (*sp++);
+X  return (r);
+X}
+X
+X/*
+X * Return the ptr in sp at which the character c first
+X * appears; NULL if not found
+X *
+X * Identical to ANSI C strchr, included for portability.
+X */
+X
+Xchar *
+Xstrchr (sp, c)
+X     register char *sp, c;
+X{
+X  do
+X    {
+X      if (*sp == c)
+X	return (sp);
+X    } while (*sp++);
+X  return (NULL);
+X}
+X
+X#endif /* 0 */
+X
+X/* Print error message and exit.  */
+X
+X/* VARARGS1 */
+Xvoid
+Xfatal (s1, s2)
+X     char *s1, *s2;
+X{
+X  error (s1, s2);
+X  exit (1);
+X}
+X
+X/* Print error message.  `s1' is printf control string, `s2' is arg for it. */
+X
+X/* VARARGS1 */
+Xvoid
+Xerror (s1, s2)
+X     char *s1, *s2;
+X{
+X  fprintf (stderr, "%s: ", progname);
+X  fprintf (stderr, s1, s2);
+X  fprintf (stderr, "\n");
+X}
+X
+X/* Return a newly-allocated string whose contents concatenate those of s1, s2, s3.  */
+X
+Xchar *
+Xconcat (s1, s2, s3)
+X     char *s1, *s2, *s3;
+X{
+X  int len1 = strlen (s1), len2 = strlen (s2), len3 = strlen (s3);
+X  char *result = xnew (len1 + len2 + len3 + 1, char);
+X
+X  (void) strcpy (result, s1);
+X  (void) strcpy (result + len1, s2);
+X  (void) strcpy (result + len1 + len2, s3);
+X  *(result + len1 + len2 + len3) = 0;
+X
+X  return result;
+X}
+X
+X/* Like malloc but get fatal error if memory is exhausted.  */
+X
+Xchar *
+Xxmalloc (size)
+X     int size;
+X{
+X  char *result = malloc (size);
+X  if (!result)
+X    fatal ("virtual memory exhausted", 0);
+X  return result;
+X}
+X
+Xchar *
+Xxrealloc (ptr, size)
+X     char *ptr;
+X     int size;
+X{
+X  char *result = realloc (ptr, size);
+X  if (!result)
+X    fatal ("virtual memory exhausted");
+X  return result;
+X}
+END_OF_FILE
+if test 54188 -ne `wc -c <'etags.c'`; then
+    echo shar: \"'etags.c'\" unpacked with wrong size!
+fi
+# end of 'etags.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

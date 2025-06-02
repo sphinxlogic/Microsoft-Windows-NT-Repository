@@ -1,0 +1,1716 @@
+Newsgroups: comp.sources.x
+Path: uunet!usc!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Subject: v17i025: xdvi, dvi previewer, Part03/05
+Message-ID: <1992Mar23.173114.15281@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i023-xdvi@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 17:31:14 GMT
+Approved: dcmartin@msi.com
+Lines: 1703
+
+Submitted-by: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 25
+Archive-name: xdvi/part03
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  font_open.c fontfmts.c gf.c pk.c pxl.c vf.c
+# Wrapped by vojta@powdermilk.berkeley.edu on Tue Mar 17 17:49:02 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'font_open.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'font_open.c'\"
+else
+echo shar: Extracting \"'font_open.c'\" \(16991 characters\)
+sed "s/^X//" >'font_open.c' <<'END_OF_FILE'
+X/*
+X *	font_open.c(font, font_ret, mag, mag_ret, name)
+X *	Find and open gf, pk, or pxl files in the given path, having the given
+X *	name and magnification.  It tries gf files first, followed by pk and pxl
+X *	files.  The path variable should be of the form path1:path2:...:pathn,
+X *	and each of the paths will be tried successively.  Strings in pathi of
+X *	the form %f, %p, and %d will be replaced by the font name, "gf" or "pk"
+X *	or "pxl", and the magnification, respectively.  If no %f appears in a
+X *	path specifier, then the string "/%f.%d%p" is added on the end.  This
+X *	procedure is repeated for each of the possible magnifications allowed,
+X *	and if it fails then the procedure will try changing the point size
+X *	as well.  If all of the above fails, then alt_font will be tried.
+X *
+X *	If the variable SEARCH_SUBDIRECTORIES is set, then the environment
+X *	variable TEXFONTS_SUBDIR and the #define variable DEFAULT_SUBDIR_PATH
+X *	will be enabled, as well as ``*'' and ``**'' specifiers.  The
+X *	SUBDIR_PATH things will be appended to the end of the usual path, with
+X *	a `*' at the end of each component.  The `*' means that subdirectories
+X *	will be searched up to one level; `**' means that subdirectories
+X *	will be recursively searched to any level.  Neither specifier may be
+X *	preceded by a `%' specifier (after the most recent colon).
+X *
+X *	If the file is found, then a file pointer is returned, and the following
+X *	values are set:
+X *		*font_ret  a pointer to a string containing the font name (if
+X *			different from the font requested).
+X *		*mag_ret  the actual magnification found.
+X *		*name	a pointer to a string containing the file name
+X *
+X *	If the file is not found, then the return value is NULL.
+X *
+X *	Often there are so many fonts that we need to manage the number of
+X *	simultaneously open files.  For that reason, these routines call
+X *	xfopen() instead of fopen(), which should manage the number of open
+X *	font files.
+X *
+X */
+X
+X#include "xdvi.h"
+X#include <errno.h>
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#endif
+X
+X/*
+X *	If you think you have to change DEFAULT_TAIL, then you haven't read the
+X *	documentation closely enough.
+X */
+X#ifndef	VMS
+X#define	PATH_SEP	':'
+X#define	DEFAULT_TAIL	"/%f.%d%p"
+X#define	DEFAULT_VF_TAIL	"/%f.vf"
+X#else	/* VMS */
+X#define	PATH_SEP	'/'
+X#define	DEFAULT_TAIL	":%f.%d%p"
+X#define	DEFAULT_VF_TAIL	":%f.vf"
+X#endif	/* VMS */
+X
+Xstatic	_Xconst char	*font_path;
+Xstatic	_Xconst char	*default_font_path	= DEFAULT_FONT_PATH;
+Xstatic	_Xconst char	*vf_path;
+Xstatic	_Xconst char	*default_vf_path	= DEFAULT_VF_PATH;
+X#ifdef	SEARCH_SUBDIRECTORIES
+Xstatic	char	default_subdir_path[]	= DEFAULT_SUBDIR_PATH;
+X#endif
+Xstatic	int	*sizes, *sizend;
+Xstatic	char	default_size_list[]	= DEFAULT_FONT_SIZES;
+X
+X#define	FILENAMESIZE 512
+X
+X#ifdef	sun
+Xchar	*sprintf();
+X#endif
+X
+Xchar	*xmalloc(), *getenv();
+Xdouble	atof();
+Xvolatile void	exit();
+X
+X#ifdef	SEARCH_SUBDIRECTORIES
+X/* We will need some system include files to deal with directories.  */
+X/* <sys/types.h> was included by xdvi.h.  */
+X
+X#include <sys/stat.h>
+X
+Xstatic	int	is_dir ();
+X
+X#if	defined(SYSV) || defined(_POSIX_SOURCE)
+X#include <dirent.h>
+Xtypedef	struct dirent	*directory_entry_type;
+X#else
+X#include <sys/dir.h>
+Xtypedef	struct direct	*directory_entry_type;
+X#endif
+X
+X/* Declare the routine to get the current working directory.  */
+X
+X#ifdef	HAVE_GETWD
+Xextern	char	*getwd ();
+X#define	getcwd(b, len)	((b) ? getwd (b) : getwd (xmalloc (len, "getwd")))
+X#else
+X#ifdef	ANSI
+Xextern	char	*getcwd (char *, int);
+X#else
+Xextern	char	*getcwd ();
+X#endif	/* not ANSI */
+X#endif	/* not HAVE_GETWD */
+X
+Xstatic	char	*cwd;
+X
+X/* The following is a data structure containing the precomputed names of
+X   subdirectories to be recursively searched. */
+X
+Xstatic	struct subdir_entry {
+X	char	*name;		/* partial string */
+X	_Xconst char	*index;	/* reference point in {,default_}font_path */
+X	struct subdir_entry *next;	/* link in list */
+X}
+X	*subdir_head	= NULL,
+X	*next_subdir;
+X
+X#ifndef	S_ISDIR
+X#define	S_ISDIR(m)	((m & S_IFMT) == S_IFDIR)
+X#endif
+X
+X/* Return true if FN is a directory or a symlink to a directory,
+X   false if not. */
+X
+Xstatic	int
+Xis_dir (fn)
+X	char	*fn;
+X{
+X	struct stat	stats;
+X
+X	return stat (fn, &stats) == 0 && S_ISDIR (stats.st_mode);
+X}
+X
+X/*
+X *	Compute extra length of subdirectory entries, including a star for each.
+X */
+X
+Xstatic	int
+Xextra_len(str1, str2)
+X	char	*str1, *str2;
+X{
+X	int	bias	= 0;
+X	char	*p	= str1;
+X	char	*q;
+X
+X	do {
+X	    q = index(p, PATH_SEP);
+X	    if (q == NULL) q = p + strlen(p);
+X	    if (q == p) {
+X		if (str2 != NULL) {
+X		    bias += extra_len(str2, (char *) NULL);
+X		    str2 = NULL;
+X		}
+X	    }
+X	    else ++bias;	/* don't forget the star */
+X	    p = q + 1;
+X	}
+X	while (p[-1] != '\0');
+X	return bias + p - str1;
+X}
+X
+X/*
+X *	Add the specifiers (and double stars) for the given strings (user
+X *	string, plus default string) to the destination string.
+X */
+X
+Xstatic	void
+Xadd_subdir_paths(dst, dst_first, src, src_default)
+X	char	*dst, *dst_first, *src, *src_default;
+X{
+X	char	*q;
+X
+X	do {
+X	    q = index(src, PATH_SEP);
+X	    if (q == NULL) q = src + strlen(src);
+X	    if (q == src) {
+X		if (src_default != NULL) {
+X		    add_subdir_paths(dst, dst_first, src_default, (char *)NULL);
+X		    dst += strlen(dst);
+X		    src_default = NULL;
+X		}
+X	    }
+X	    else {
+X		if (dst != dst_first) *dst++ = PATH_SEP;
+X		bcopy(src, dst, q - src);
+X		dst += q - src;
+X		*dst++ = '*';
+X	    }
+X	    src = q + 1;
+X	}
+X	while (src[-1] != '\0');
+X	*dst = '\0';
+X}
+X
+X/*
+X *	Make a subdirectory entry.
+X */
+X
+Xstatic	struct subdir_entry *
+Xmake_subdir_entry(index, name)
+X	char	*index, *name;
+X{
+X	struct subdir_entry		*new_entry;
+X	static	struct subdir_entry	**subdir_tail = &subdir_head;
+X
+X	*subdir_tail = new_entry = (struct subdir_entry *)
+X	    xmalloc(sizeof(struct subdir_entry), "subdirectory list entry");
+X	subdir_tail = &(new_entry->next);
+X	new_entry->name = strcpy(xmalloc(strlen(name) + 1,
+X	    "subdirectory entry string"), name);
+X	new_entry->index = index;
+X	new_entry->next = NULL;
+X	return new_entry;
+X}
+X
+X/*
+X *	Create the subdirectory linked list for the given initial string
+X */
+X
+Xstatic	void
+Xadd_subdirs(str, len, recurs)
+X	char	*str;
+X	int	len;
+X	Boolean	recurs;
+X{
+X	int	len1 = len;
+X	char	temp[FILENAMESIZE];
+X	struct subdir_entry *next_subdir;
+X	DIR	*dir;
+X	directory_entry_type	e;
+X
+X	bcopy(str, temp, len);
+X	if (len > 0 && temp[len - 1] != '/') temp[len1++] = '/';
+X	temp[len1] = '\0';
+X	next_subdir = make_subdir_entry(str, temp + len);
+X	do {
+X	    /* By changing directories, we save a bunch of string
+X	       concatenations (and make the pathnames the kernel looks up
+X	       shorter).  */
+X	    Strcpy(temp + len, next_subdir->name);
+X	    if (chdir (temp) != 0) continue;
+X
+X	    dir = opendir (".");
+X	    if (dir == NULL) continue;
+X
+X	    len1 = strlen(temp);
+X	    if (len1 == 0 || temp[len1 - 1] != '/') temp[len1++] = '/';
+X	    while ((e = readdir (dir)) != NULL) {
+X		if (is_dir (e->d_name) && strcmp (e->d_name, ".") != 0
+X			&& strcmp (e->d_name, "..") != 0) {
+X		    Strcpy(temp + len1, e->d_name);
+X		    (void) make_subdir_entry(str, temp + len);
+X		}
+X	    }
+X	    (void) closedir (dir);
+X
+X
+X	    /* Change back to the current directory, in case the path
+X	       contains relative directory names.  */
+X	    if (chdir (cwd) != 0) {
+X		perror (cwd);
+X		exit (errno);
+X	    }
+X	}
+X	while (recurs && (next_subdir = next_subdir->next) != NULL);
+X}
+X
+X/*
+X *	Recursively figure out the subdirectory tree and precompute the
+X *	list of subdirectories to search.
+X */
+X
+Xstatic	void
+Xcompute_subdir_paths(fp, fp_default)
+X	char	*fp, *fp_default;
+X{
+X	char	*star_loc = NULL;
+X	char	*endp;
+X
+X	do {
+X	    if (star_loc == NULL) {
+X		star_loc = index(fp, '*');
+X		if (star_loc == NULL) star_loc = fp + strlen(fp);
+X	    }
+X	    endp = index(fp, PATH_SEP);
+X	    if (endp == NULL) endp = fp + strlen(fp);
+X	    if (endp == fp) {
+X		if (fp_default != NULL) {
+X		    compute_subdir_paths(fp_default, (char *) NULL);
+X		    fp_default = NULL;
+X		}
+X	    }
+X	    else if (star_loc < endp) {
+X		add_subdirs(fp, star_loc - fp, star_loc[1] == '*');
+X		star_loc = NULL;
+X	    }
+X	    fp = endp + 1;
+X	}
+X	while (fp[-1] != '\0');
+X}
+X#endif	/* SEARCH_SUBDIRECTORIES */
+X
+Xstatic	void
+Xget_sizes(size_list, spp)
+X	char	*size_list;
+X	int	**spp;
+X{
+X	if (*size_list == PATH_SEP) ++size_list;
+X	for (;;) {
+X	    *(*spp)++ = atof(size_list) * 5 + 0.5;
+X	    size_list = index(size_list, PATH_SEP);
+X	    if (size_list == NULL) return;
+X	    ++size_list;
+X	}
+X}
+X
+Xvoid
+Xinit_font_open()
+X{
+X	char	*size_list;
+X	int	*sp, *sp1, *sp2;
+X	unsigned int n;
+X	char	*p;
+X#ifdef	SEARCH_SUBDIRECTORIES
+X	char	*q;
+X#endif
+X
+X	if ((font_path = getenv("XDVIFONTS")) == NULL
+X#ifndef	XDVIFONTS_ONLY
+X		&& (font_path = getenv("TEXFONTS")) == NULL
+X#endif
+X		) {
+X	    font_path = default_font_path;
+X	    default_font_path = NULL;
+X	}
+X
+X#ifdef	SEARCH_SUBDIRECTORIES
+X	p = getenv ("TEXFONTS_SUBDIR");
+X	if (p == NULL) p = "";
+X	q = xmalloc((unsigned) strlen(font_path)
+X	    + extra_len(p, default_subdir_path) + 1,
+X	    "initializing font searching");
+X	Strcpy(q, font_path);
+X	add_subdir_paths(q + strlen(q), q, p, default_subdir_path);
+X	font_path = q;
+X
+X	/* Unfortunately, we can't look in the environment for the current
+X	   directory, because if we are running under a program (let's say
+X	   Emacs), the PWD variable might have been set by Emacs' parent
+X	   to the current directory at the time Emacs was invoked.  This
+X	   is not necessarily the same directory the user expects to be
+X	   in.  So, we must always call getcwd(3) or getwd(3), even though
+X	   they are slow and prone to hang in networked installations.  */
+X	cwd = getcwd ((char *) NULL, FILENAMESIZE + 2);
+X	if (cwd == NULL) {
+X	    perror ("getcwd");
+X	    exit (errno);
+X	}
+X	compute_subdir_paths(font_path, default_font_path);
+X#endif
+X
+X	if ((vf_path = getenv("XDVIVFS")) == NULL) {
+X	    vf_path = default_vf_path;
+X	    default_vf_path = NULL;
+X	}
+X
+X	size_list = getenv("XDVISIZES");
+X	n = 1;	/* count number of sizes */
+X	if (size_list == NULL || *size_list == PATH_SEP)
+X	    for (p = default_size_list; (p = index(p, PATH_SEP)) != NULL; ++p)
+X		++n;
+X	if (size_list != NULL)
+X	    for (p = size_list; (p = index(p, PATH_SEP)) != NULL; ++p) ++n;
+X	sizes = (int *) xmalloc(n * sizeof(int), "size list");
+X	sizend = sizes + n;
+X	sp = sizes;	/* get the actual sizes */
+X	if (size_list == NULL || *size_list == PATH_SEP)
+X	    get_sizes(default_size_list, &sp);
+X	if (size_list != NULL) get_sizes(size_list, &sp);
+X
+X	/* bubble sort the sizes */
+X	sp1 = sizend - 1;	/* extent of this pass */
+X	do {
+X	    sp2 = NULL;
+X	    for (sp = sizes; sp < sp1; ++sp)
+X		if (*sp > sp[1]) {
+X		    int i = *sp;
+X		    *sp = sp[1];
+X		    sp[1] = i;
+X		    sp2 = sp;
+X		}
+X	}
+X	while ((sp1 = sp2) != NULL);
+X}
+X
+Xstatic	FILE *
+Xformatted_open(path, font, gforpk, mag, name, count, tail)
+X	_Xconst char	*path;
+X	_Xconst char	*font;
+X	_Xconst char	*gforpk;
+X	int	mag;
+X	char	**name;
+X	int	count;
+X	_Xconst	char	*tail;
+X{
+X	_Xconst char	*p = path;
+X	char	nm[FILENAMESIZE];
+X	char	*n = nm;
+X	char	c;
+X	Boolean	f_used = False;
+X	Boolean	p_used = False;
+X	FILE	*f;
+X
+X#ifdef	SEARCH_SUBDIRECTORIES
+X	if (next_subdir != NULL && next_subdir->index == p) {
+X	    int len = index(p, '*') - p;
+X
+X	    bcopy(p, n, len);
+X	    p += len;
+X	    n += len;
+X	    Strcpy(n, next_subdir->name);
+X	    n += strlen(n);
+X	    ++p;
+X	    if (*p == '*') ++p;
+X	    if (*p != '/') *n++ = '/';
+X	}
+X#endif
+X	for (;;) {
+X	    c = *p++;
+X	    if (c==PATH_SEP || c=='\0') {
+X		if (f_used) break;
+X		p = tail;
+X		continue;
+X	    }
+X	    if (c=='%') {
+X		c = *p++;
+X		switch (c) {
+X		    case 'f':
+X			f_used = True;
+X			Strcpy(n, font);
+X			break;
+X		    case 'p':
+X			p_used = True;
+X			Strcpy(n, gforpk);
+X			break;
+X		    case 'd':
+X			Sprintf(n, "%d", mag);
+X			break;
+X		    default:
+X			*n++ = c;
+X			*n = '\0';
+X		}
+X		n += strlen(n);
+X	    }
+X	    else *n++ = c;
+X	}
+X	if (!p_used && count > 0) return NULL;
+X	*n = '\0';
+X	if (debug & DBG_OPEN) Printf("Trying font file %s\n", nm);
+X	f = xfopen(nm);
+X	if (f != NULL) {
+X	    *name = xmalloc((unsigned) (n - nm + 1), "font file name");
+X	    Strcpy(*name, nm);
+X	}
+X	return f;
+X}
+X
+X/*
+X *	Try a given size
+X */
+X
+Xstatic	FILE *
+Xtry_size(font, pxlmag, name, x_font_path, x_default_font_path)
+X	_Xconst char	*font;
+X	int	pxlmag;
+X	char	**name;
+X	_Xconst char	*x_font_path;
+X	_Xconst char	*x_default_font_path;
+X{
+X	_Xconst char	*p	= x_font_path;
+X	FILE	*f;
+X	int	pkmag	= (pxlmag + 2) / 5;
+X
+X	/*
+X	 * loop over paths
+X	 */
+X#ifdef	SEARCH_SUBDIRECTORIES
+X	next_subdir = subdir_head;
+X#endif
+X	for (;;) {
+X	    int count = 0;
+X
+X	    if (*p == PATH_SEP || *p == '\0') {
+X		if (x_default_font_path != NULL &&
+X			(f = try_size(font, pxlmag, name, x_default_font_path,
+X			(_Xconst char *) NULL)) != NULL)
+X		    return f;
+X		if (*p == '\0') break;
+X	    }
+X	    else {
+X#ifdef	USE_PK
+X		if ((f = formatted_open(p, font, "pk", pkmag, name, count++,
+X			DEFAULT_TAIL)) != NULL)
+X		    return f;
+X#endif
+X#ifdef	USE_GF
+X		if ((f = formatted_open(p, font, "gf", pkmag, name, count++,
+X			DEFAULT_TAIL)) != NULL)
+X		    return f;
+X#endif
+X#ifdef	USE_PXL
+X		if ((f = formatted_open(p, font, "pxl", pxlmag, name, count++,
+X			DEFAULT_TAIL)) != NULL)
+X		    return f;
+X#endif
+X#ifdef	SEARCH_SUBDIRECTORIES
+X		if (next_subdir != NULL && next_subdir->index == p) {
+X		    next_subdir = next_subdir->next;
+X		    if (next_subdir != NULL && next_subdir->index == p)
+X			continue;
+X		}
+X#endif
+X		p = index(p, PATH_SEP);
+X		if (p == NULL) break;
+X	    }
+X	    ++p;
+X	}
+X	return NULL;
+X}
+X
+X/*
+X *	Try a virtual font
+X */
+X
+Xstatic	FILE *
+Xtry_vf(font, name, x_vf_path, x_default_vf_path)
+X	_Xconst char	*font;
+X	char	**name;
+X	_Xconst char	*x_vf_path;
+X	_Xconst char	*x_default_vf_path;
+X{
+X	_Xconst char	*p	= x_vf_path;
+X	FILE	*f;
+X
+X	/*
+X	 * loop over paths
+X	 */
+X	for (;;) {
+X	    if (*p == PATH_SEP || *p == '\0') {
+X		if (x_default_vf_path != NULL &&
+X			(f = try_vf(font, name, x_default_vf_path,
+X			(_Xconst char *) NULL)) != NULL)
+X		    return f;
+X		if (*p == '\0') break;
+X	    }
+X	    else {
+X		if ((f = formatted_open(p, font, "vf", 0, name, 0,
+X			DEFAULT_VF_TAIL)) != NULL)
+X		    return f;
+X		p = index(p, PATH_SEP);
+X		if (p == NULL) break;
+X	    }
+X	    ++p;
+X	}
+X	return NULL;
+X}
+X
+X/*
+X *	Try a given font name
+X */
+X
+Xstatic	FILE *
+Xpre_font_open(font, mag, mag_ret, name)
+X	_Xconst char	*font;
+X	float	mag;
+X	int	*mag_ret;
+X	char	**name;
+X{
+X	FILE	*f;
+X	int	*p1, *p2;
+X	int	imag	= mag + 0.5;
+X	int	pxlmag	= 5 * mag + 0.5;
+X#ifndef	VMS
+X	_Xconst char	*path_to_use;
+X	_Xconst char	*vf_path_to_use;
+X#endif
+X
+X	/*
+X	 * Loop over sizes.  Try actual size first, then closest sizes.
+X	   If the pathname is absolutely or explicitly relative, don't
+X	   use the usual paths to search for it; just look for it in the
+X	   directory specified.
+X	 */
+X
+X#ifndef	VMS
+X	path_to_use = (_Xconst char *) NULL;
+X	if (*font == '/') path_to_use = "/";
+X	else if (*font == '.' && (*(font + 1) == '/'
+X		|| (*(font + 1) == '.' && *(font + 2) == '/')))
+X	    path_to_use = ".";
+X	vf_path_to_use = path_to_use;
+X	if (path_to_use == NULL) {
+X	    path_to_use = font_path;
+X	    vf_path_to_use = vf_path;
+X	}
+X#else	/* VMS */
+X#define	path_to_use	font_path
+X#define	vf_path_to_use	vf_path
+X#endif	/* VMS */
+X
+X	if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+X		default_font_path)) != NULL)
+X	    return f;
+X
+X	/* Try at one away from the size we just tried, to account
+X	   for rounding error.  */
+X	if (pxlmag < 5 * mag) ++pxlmag; else --pxlmag;
+X	if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+X		default_font_path)) != NULL)
+X	    return f;
+X
+X	/* Try a virtual font. */
+X	if ((f = try_vf(font, name, vf_path_to_use, default_vf_path)) != NULL)
+X	    return f;
+X
+X	/* Now try at all the sizes. */
+X	for (p2 = sizes; p2 < sizend; ++p2) if (*p2 >= imag) break;
+X	p1 = p2;
+X	for (;;) {
+X		/* find another magnification */
+X	    if (p1 <= sizes)
+X		if (p2 >= sizend) return NULL;
+X		else pxlmag = *p2++;
+X	    else if (p2 >= sizend || imag * imag <= p1[-1] * *p2)
+X		    pxlmag = *--p1;
+X		else pxlmag = *p2++;
+X	    if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+X		    default_font_path)) != NULL)
+X		return f;
+X	}
+X}
+X
+XFILE *
+Xfont_open(font, font_ret, mag, mag_ret, name)
+X	_Xconst char	*font;
+X	char	**font_ret;
+X	WIDEARG(float,double) mag;
+X	int	*mag_ret;
+X	char	**name;
+X{
+X	FILE	*f;
+X	int	actual_pt, low_pt, high_pt, trial_pt;
+X	char	fn[50], *fnend;
+X
+X	f = pre_font_open(font, mag, mag_ret, name);
+X	if (f != NULL) {
+X	    *font_ret = NULL;
+X	    return f;
+X	}
+X	Strcpy(fn, font);
+X	fnend = fn + strlen(fn);
+X	while (fnend > fn && fnend[-1] >= '0' && fnend[-1] <= '9') --fnend;
+X	actual_pt = low_pt = high_pt = atoi(fnend);
+X	if (actual_pt) {
+X	    low_pt = actual_pt - 1;
+X	    high_pt = actual_pt + 1;
+X	    for (;;) {
+X		if (2 * low_pt >= actual_pt &&
+X		    (low_pt * high_pt > actual_pt * actual_pt ||
+X		    high_pt > actual_pt + 5))
+X			trial_pt = low_pt--;
+X		else if (high_pt > actual_pt + 5) break;
+X		else trial_pt = high_pt++;
+X		Sprintf(fnend, "%d", trial_pt);
+X		f = pre_font_open(fn, mag * actual_pt / trial_pt, mag_ret,
+X		    name);
+X		if (f != NULL) {
+X		    *font_ret = strcpy(xmalloc((unsigned) strlen(fn) + 1,
+X			"name of font used"), fn);
+X		    return f;
+X		}
+X	    }
+X	}
+X	if (alt_font != NULL) {
+X	    f = pre_font_open(alt_font, mag, mag_ret, name);
+X	    if (f != NULL)
+X		*font_ret = strcpy(xmalloc((unsigned) strlen(alt_font) + 1,
+X		    "name of font used"), alt_font);
+X	}
+X	return f;
+X}
+END_OF_FILE
+if test 16991 -ne `wc -c <'font_open.c'`; then
+    echo shar: \"'font_open.c'\" unpacked with wrong size!
+fi
+# end of 'font_open.c'
+fi
+if test -f 'fontfmts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fontfmts.c'\"
+else
+echo shar: Extracting \"'fontfmts.c'\" \(249 characters\)
+sed "s/^X//" >'fontfmts.c' <<'END_OF_FILE'
+X#include "xdvi.h"
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#endif
+X
+X/***
+X ***	Font reading routines are read into this file.
+X ***/
+X
+X#ifdef	USE_PK
+X#include "pk.c"
+X#endif
+X
+X#ifdef	USE_GF
+X#include "gf.c"
+X#endif
+X
+X#ifdef	USE_PXL
+X#include "pxl.c"
+X#endif
+END_OF_FILE
+if test 249 -ne `wc -c <'fontfmts.c'`; then
+    echo shar: \"'fontfmts.c'\" unpacked with wrong size!
+fi
+# end of 'fontfmts.c'
+fi
+if test -f 'gf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gf.c'\"
+else
+echo shar: Extracting \"'gf.c'\" \(6757 characters\)
+sed "s/^X//" >'gf.c' <<'END_OF_FILE'
+X/***
+X ***	GF font reading routines.
+X ***	Public routines are read_GF_index and read_GF_char.
+X ***/
+X
+X#define	PAINT_0		0
+X#define	PAINT1		64
+X#define	PAINT2		65
+X#define	PAINT3		66
+X#define	BOC		67
+X#define	BOC1		68
+X#define	EOC		69
+X#define	SKIP0		70
+X#define	SKIP1		71
+X#define	SKIP2		72
+X#define	SKIP3		73
+X#define	NEW_ROW_0	74
+X#define	NEW_ROW_MAX	238
+X#define	XXX1		239
+X#define	XXX2		240
+X#define	XXX3		241
+X#define	XXX4		242
+X#define	YYY		243
+X#define	NO_OP		244
+X#define	CHAR_LOC	245
+X#define	CHAR_LOC0	246
+X#define	PRE		247
+X#define	POST		248
+X#define	POST_POST	249
+X
+X#define	GF_ID_BYTE	131
+X#define	TRAILER		223		/* Trailing bytes at end of file */
+X
+Xstatic	FILE	*GF_file;
+X
+Xstatic	void
+Xexpect(ch)
+X	ubyte ch;
+X{
+X	ubyte ch1 = one(GF_file);
+X
+X	if (ch1 != ch)
+X		oops("Bad GF file:  %d expected, %d received.", ch, ch1);
+X}
+X
+Xstatic	void
+Xtoo_many_bits(ch)
+X	ubyte ch;
+X{
+X	oops("Too many bits found when loading character %d", ch);
+X}
+X
+X/*
+X *	Public routines
+X */
+X
+X
+Xstatic	void
+Xread_GF_char(fontp, ch)
+X	register struct font *fontp;
+X	ubyte ch;
+X{
+X	register struct glyph *g;
+X	ubyte	cmnd;
+X	int	min_m, max_m, min_n, max_n;
+X	BMUNIT	*cp, *basep, *maxp;
+X	int	bytes_wide;
+X	Boolean	paint_switch;
+X#define	White	False
+X#define	Black	True
+X	Boolean	new_row;
+X	int	count;
+X	int	word_weight;
+X
+X	g = &fontp->glyph[ch];
+X	GF_file = fontp->file;
+X
+X	if(debug & DBG_PK)
+X	    Printf("Loading gf char %d", ch);
+X
+X	for (;;) {
+X	    switch (cmnd = one(GF_file)) {
+X		case XXX1:
+X		case XXX2:
+X		case XXX3:
+X		case XXX4:
+X		    Fseek(GF_file, (long) num(GF_file, cmnd - XXX1 + 1), 1);
+X		    continue;
+X		case YYY:
+X		    (void) four(GF_file);
+X		    continue;
+X		case BOC:
+X		    (void) four(GF_file);	/* skip character code */
+X		    (void) four(GF_file);	/* skip pointer to prev char */
+X		    min_m = sfour(GF_file);
+X		    max_m = sfour(GF_file);
+X		    g->x = -min_m;
+X		    min_n = sfour(GF_file);
+X		    g->y = max_n = sfour(GF_file);
+X		    g->bitmap.w = max_m - min_m + 1;
+X		    g->bitmap.h = max_n - min_n + 1;
+X		    break;
+X		case BOC1:
+X		    (void) one(GF_file);	/* skip character code */
+X		    g->bitmap.w = one(GF_file);	/* max_m - min_m */
+X		    g->x = g->bitmap.w - one(GF_file);	/* ditto - max_m */
+X		    ++g->bitmap.w;
+X		    g->bitmap.h = one(GF_file) + 1;
+X		    g->y = one(GF_file);
+X		    break;
+X		default:
+X		    oops("Bad BOC code:  %d", cmnd);
+X	    }
+X	    break;
+X	}
+X	paint_switch = White;
+X
+X	if (debug & DBG_PK)
+X	    Printf(", size=%dx%d, dvi_adv=%d\n", g->bitmap.w, g->bitmap.h,
+X		g->dvi_adv);
+X
+X	alloc_bitmap(&g->bitmap);
+X	cp = basep = (BMUNIT *) g->bitmap.bits;
+X/*
+X *	Read character data into *basep
+X */
+X	bytes_wide = ROUNDUP(g->bitmap.w, BITS_PER_BMUNIT) * BYTES_PER_BMUNIT;
+X	maxp = ADD(basep, g->bitmap.h * bytes_wide);
+X	bzero(g->bitmap.bits, g->bitmap.h * bytes_wide);
+X	new_row = False;
+X	word_weight = BITS_PER_BMUNIT;
+X	for (;;) {
+X	    count = -1;
+X	    cmnd = one(GF_file);
+X	    if (cmnd < 64) count = cmnd;
+X	    else if (cmnd >= NEW_ROW_0 && cmnd <= NEW_ROW_MAX) {
+X		count = cmnd - NEW_ROW_0;
+X		paint_switch = White;	/* it'll be complemented later */
+X		new_row = True;
+X	    }
+X	    else switch (cmnd) {
+X		case PAINT1:
+X		case PAINT2:
+X		case PAINT3:
+X		    count = num(GF_file, cmnd - PAINT1 + 1);
+X		    break;
+X		case EOC:
+X		    if (cp >= ADD(basep, bytes_wide)) too_many_bits(ch);
+X		    return;
+X		case SKIP1:
+X		case SKIP2:
+X		case SKIP3:
+X		    *((char **) &basep) +=
+X			num(GF_file, cmnd - SKIP0) * bytes_wide;
+X		case SKIP0:
+X		    new_row = True;
+X		    paint_switch = White;
+X		    break;
+X		case XXX1:
+X		case XXX2:
+X		case XXX3:
+X		case XXX4:
+X		    Fseek(GF_file, (long) num(GF_file, cmnd - XXX1 + 1), 1);
+X		    break;
+X		case YYY:
+X		    (void) four(GF_file);
+X		    break;
+X		case NO_OP:
+X		    break;
+X		default:
+X		    oops("Bad command in GF file:  %d", cmnd);
+X	    } /* end switch */
+X	    if (new_row) {
+X		*((char **) &basep) += bytes_wide;
+X		if (basep >= maxp || cp >= basep) too_many_bits(ch);
+X		cp = basep;
+X		word_weight = BITS_PER_BMUNIT;
+X		new_row = False;
+X	    }
+X	    if (count >= 0) {
+X		while (count)
+X		    if (count <= word_weight) {
+X#ifndef	MSBITFIRST
+X			if (paint_switch)
+X			    *cp |= bit_masks[count] <<
+X				(BITS_PER_BMUNIT - word_weight);
+X#endif
+X			word_weight -= count;
+X#ifdef	MSBITFIRST
+X			if (paint_switch)
+X			    *cp |= bit_masks[count] << word_weight;
+X#endif
+X			break;
+X		    }
+X		    else {
+X			if (paint_switch)
+X#ifndef	MSBITFIRST
+X			    *cp |= bit_masks[word_weight] <<
+X				(BITS_PER_BMUNIT - word_weight);
+X#else
+X			    *cp |= bit_masks[word_weight];
+X#endif
+X			cp++;
+X			count -= word_weight;
+X			word_weight = BITS_PER_BMUNIT;
+X		    }
+X		paint_switch = 1 - paint_switch;
+X	    }
+X	} /* end for */
+X}
+X
+X
+Xvoid
+Xread_GF_index(fontp)
+X	register struct font *fontp;
+X{
+X	int	hppp, vppp;
+X	ubyte	ch, cmnd;
+X	register struct glyph *g;
+X
+X	fontp->read_char = read_GF_char;
+X	GF_file = fontp->file;
+X	if (debug & DBG_PK)
+X	    Printf("Reading GF pixel file %s\n", fontp->filename);
+X/*
+X *	Find postamble.
+X */
+X	Fseek(GF_file, (long) -4, 2);
+X	while (four(GF_file) !=
+X		((long) TRAILER << 24 | TRAILER << 16 | TRAILER << 8 | TRAILER))
+X	    Fseek(GF_file, (long) -5, 1);
+X	Fseek(GF_file, (long) -5, 1);
+X	for (;;) {
+X	    ch = one(GF_file);
+X	    if (ch != TRAILER) break;
+X	    Fseek(GF_file, (long) -2, 1);
+X	}
+X	if (ch != GF_ID_BYTE) oops("Bad end of font file %s", fontp->fontname);
+X	Fseek(GF_file, (long) -6, 1);
+X	expect(POST_POST);
+X	Fseek(GF_file, sfour(GF_file), 0);	/* move to postamble */
+X/*
+X *	Read postamble.
+X */
+X	expect(POST);
+X	(void) four(GF_file);		/* pointer to last eoc + 1 */
+X	(void) four(GF_file);		/* skip design size */
+X	(void) four(GF_file);		/* skip checksum */
+X	hppp = sfour(GF_file);
+X	vppp = sfour(GF_file);
+X	if (hppp != vppp && (debug & DBG_PK))
+X	    Printf("Font has non-square aspect ratio %d:%d\n", vppp, hppp);
+X	(void) four(GF_file);		/* skip min_m */
+X	(void) four(GF_file);		/* skip max_m */
+X	(void) four(GF_file);		/* skip min_n */
+X	(void) four(GF_file);		/* skip max_n */
+X/*
+X *	Prepare glyph array.
+X */
+X	fontp->glyph = (struct glyph *) xmalloc(256 * sizeof(struct glyph),
+X	    "glyph array");
+X	bzero((char *) fontp->glyph, 256 * sizeof(struct glyph));
+X/*
+X *	Read glyph directory.
+X */
+X	while ((cmnd = one(GF_file)) != POST_POST) {
+X	    int addr;
+X
+X	    ch = one(GF_file);			/* character code */
+X	    g = &fontp->glyph[ch];
+X	    switch (cmnd) {
+X		case CHAR_LOC:
+X		    /* g->pxl_adv = sfour(GF_file); */
+X		    (void) four(GF_file);
+X		    (void) four(GF_file);	/* skip dy */
+X		    break;
+X		case CHAR_LOC0:
+X		    /* g->pxl_adv = one(GF_file) << 16; */
+X		    (void) one(GF_file);
+X		    break;
+X		default:
+X		    oops("Non-char_loc command found in GF preamble:  %d",
+X			cmnd);
+X	    }
+X	    g->dvi_adv = fontp->dimconv * sfour(GF_file);
+X	    addr = four(GF_file);
+X	    if (addr != -1) g->addr = addr;
+X	    if (debug & DBG_PK)
+X		Printf("Read GF glyph for character %d; dy = %d, addr = %d\n",
+X			ch, g->dvi_adv, addr);
+X	}
+X}
+END_OF_FILE
+if test 6757 -ne `wc -c <'gf.c'`; then
+    echo shar: \"'gf.c'\" unpacked with wrong size!
+fi
+# end of 'gf.c'
+fi
+if test -f 'pk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pk.c'\"
+else
+echo shar: Extracting \"'pk.c'\" \(7379 characters\)
+sed "s/^X//" >'pk.c' <<'END_OF_FILE'
+X/***
+X ***	PK font reading routines.
+X ***	Public routines are read_PK_index and read_PK_char.
+X ***/
+X
+X#define PK_ID      89
+X#define PK_CMD_START 240
+X#define PK_X1     240
+X#define PK_X2     241
+X#define PK_X3     242
+X#define PK_X4     243
+X#define PK_Y      244
+X#define PK_POST   245
+X#define PK_NOOP   246
+X#define PK_PRE    247
+X
+Xstatic	int	PK_flag_byte;
+Xstatic	unsigned PK_input_byte;
+Xstatic	int	PK_bitpos;
+Xstatic	int	PK_dyn_f;
+Xstatic	int	PK_repeat_count;
+X
+Xstatic	int
+XPK_get_nyb(fp)
+X	register FILE *fp;
+X{
+X	unsigned temp;
+X	if (PK_bitpos < 0) {
+X	    PK_input_byte = one(fp);
+X	    PK_bitpos = 4;
+X	}
+X	temp = PK_input_byte >> PK_bitpos;
+X	PK_bitpos -= 4;
+X	return (temp & 0xf);
+X}
+X
+X
+Xstatic	int
+XPK_packed_num(fp)
+X	register FILE *fp;
+X{
+X	int	i,j;
+X
+X	if ((i = PK_get_nyb(fp)) == 0) {
+X	    do {
+X		j = PK_get_nyb(fp);
+X		++i;
+X	    }
+X	    while (j == 0);
+X	    while (i > 0) {
+X		j = (j << 4) | PK_get_nyb(fp);
+X		--i;
+X	    }
+X	    return (j - 15 + ((13 - PK_dyn_f) << 4) + PK_dyn_f);
+X	}
+X	else {
+X	    if (i <= PK_dyn_f) return i;
+X	    if (i < 14)
+X		return (((i - PK_dyn_f - 1) << 4) + PK_get_nyb(fp)
+X		    + PK_dyn_f + 1);
+X	    if (i == 14) PK_repeat_count = PK_packed_num(fp);
+X	    else PK_repeat_count = 1;
+X	    return PK_packed_num(fp);
+X	}
+X}
+X
+X
+Xstatic	void
+XPK_skip_specials(fontp)
+X	register struct font *fontp;
+X{
+X	int i,j;
+X	register FILE *fp = fontp->file;
+X
+X	do {
+X	    PK_flag_byte = one(fp);
+X	    if (PK_flag_byte >= PK_CMD_START) {
+X		switch (PK_flag_byte) {
+X		    case PK_X1 :
+X		    case PK_X2 :
+X		    case PK_X3 :
+X		    case PK_X4 :
+X			i = 0;
+X			for (j = PK_CMD_START; j <= PK_flag_byte; ++j)
+X			    i = (i << 8) | one(fp);
+X			while (i--) (void) one(fp);
+X			break;
+X		    case PK_Y :
+X			(void) four(fp);
+X		    case PK_POST :
+X		    case PK_NOOP :
+X			break;
+X		    default :
+X			oops("Unexpected %d in PK file %s", PK_flag_byte,
+X			    fontp->filename);
+X			break;
+X		}
+X	    }
+X	}
+X	while (PK_flag_byte != PK_POST && PK_flag_byte >= PK_CMD_START);
+X}
+X
+X/*
+X *	Public routines
+X */
+X
+Xstatic	void
+Xread_PK_char(fontp, ch)
+X	register struct font *fontp;
+X	ubyte	ch;
+X{
+X	int	i, j;
+X	ubyte	n;
+X	int	row_bit_pos;
+X	Boolean	paint_switch;
+X	BMUNIT	*cp;
+X	register struct glyph *g;
+X	register FILE *fp = fontp->file;
+X	long	fpwidth;
+X	BMUNIT	word;
+X	int	word_weight, bytes_wide;
+X	int	rows_left, h_bit, count;
+X
+X	g = &fontp->glyph[ch];
+X	PK_flag_byte = g->x2;
+X	PK_dyn_f = PK_flag_byte >> 4;
+X	paint_switch = ((PK_flag_byte & 8) != 0);
+X	PK_flag_byte &= 0x7;
+X	if (PK_flag_byte == 7) n = 4;
+X	else if (PK_flag_byte > 3) n = 2;
+X	else n = 1;
+X
+X	if (debug & DBG_PK) Printf("loading pk char %d, char type %d ", ch, n);
+X
+X	/*
+X	 * now read rest of character preamble
+X	 */
+X	if (n != 4) fpwidth = snum(fp, 3);
+X	else {
+X	    fpwidth = sfour(fp);
+X	    (void) four(fp);	/* horizontal escapement */
+X	}
+X	(void) num(fp, n);	/* vertical escapement */
+X	{
+X	    unsigned long w, h;
+X
+X	    w = num(fp, n);
+X	    h = num(fp, n);
+X	    if (w > 0x7fff || h > 0x7fff)
+X		oops("Character %d too large in file %s", ch, fontp->fontname);
+X	    g->bitmap.w = w;
+X	    g->bitmap.h = h;
+X	}
+X	g->x = snum(fp, n);
+X	g->y = snum(fp, n);
+X
+X	g->dvi_adv = fontp->dimconv * fpwidth;
+X
+X	if (debug & DBG_PK) {
+X	    if (g->bitmap.w != 0)
+X		Printf(", size=%dx%d, dvi_adv=%d", g->bitmap.w, g->bitmap.h,
+X		    g->dvi_adv);
+X	    Putchar('\n');
+X	}
+X
+X	alloc_bitmap(&g->bitmap);
+X	cp = (BMUNIT *) g->bitmap.bits;
+X
+X	/*
+X	 * read character data into *cp
+X	 */
+X	bytes_wide = ROUNDUP(g->bitmap.w, BITS_PER_BMUNIT) * BYTES_PER_BMUNIT;
+X	PK_bitpos = -1;
+X	if (PK_dyn_f == 14) {	/* get raster by bits */
+X	    bzero(g->bitmap.bits, g->bitmap.h * bytes_wide);
+X	    for (i = 0; i < g->bitmap.h; i++) {	/* get all rows */
+X		cp = ADD(g->bitmap.bits, i * bytes_wide);
+X#ifndef	MSBITFIRST
+X		row_bit_pos = -1;
+X#else
+X		row_bit_pos = BITS_PER_BMUNIT;
+X#endif
+X		for (j = 0; j < g->bitmap.w; j++) {	/* get one row */
+X		    if (--PK_bitpos < 0) {
+X			word = one(fp);
+X			PK_bitpos = 7;
+X		    }
+X#ifndef	MSBITFIRST
+X		    if (++row_bit_pos >= BITS_PER_BMUNIT) {
+X			cp++;
+X			row_bit_pos = 0;
+X		    }
+X#else
+X		    if (--row_bit_pos < 0) {
+X			cp++;
+X			row_bit_pos = BITS_PER_BMUNIT - 1;
+X		    }
+X#endif
+X		    if (word & (1 << PK_bitpos)) *cp |= 1 << row_bit_pos;
+X		}
+X	    }
+X	}
+X	else {		/* get packed raster */
+X	    rows_left = g->bitmap.h;
+X	    h_bit = g->bitmap.w;
+X	    PK_repeat_count = 0;
+X	    word_weight = BITS_PER_BMUNIT;
+X	    word = 0;
+X	    while (rows_left > 0) {
+X		count = PK_packed_num(fp);
+X		while (count > 0) {
+X		    if (count < word_weight && count < h_bit) {
+X#ifndef	MSBITFIRST
+X			if (paint_switch)
+X			    word |= bit_masks[count] <<
+X				(BITS_PER_BMUNIT - word_weight);
+X#endif
+X			h_bit -= count;
+X			word_weight -= count;
+X#ifdef	MSBITFIRST
+X			if (paint_switch)
+X			    word |= bit_masks[count] << word_weight;
+X#endif
+X			count = 0;
+X		    }
+X		    else if (count >= h_bit && h_bit <= word_weight) {
+X			if (paint_switch)
+X			    word |= bit_masks[h_bit] <<
+X#ifndef	MSBITFIRST
+X				(BITS_PER_BMUNIT - word_weight);
+X#else
+X				(word_weight - h_bit);
+X#endif
+X			*cp++ = word;
+X			/* "output" row(s) */
+X			for (i = PK_repeat_count * bytes_wide /
+X				BYTES_PER_BMUNIT; i > 0; --i) {
+X			    *cp = *SUB(cp, bytes_wide);
+X			    ++cp;
+X			}
+X			rows_left -= PK_repeat_count + 1;
+X			PK_repeat_count = 0;
+X			word = 0;
+X			word_weight = BITS_PER_BMUNIT;
+X			count -= h_bit;
+X			h_bit = g->bitmap.w;
+X		    }
+X		    else {
+X			if (paint_switch)
+X#ifndef	MSBITFIRST
+X			    word |= bit_masks[word_weight] <<
+X				(BITS_PER_BMUNIT - word_weight);
+X#else
+X			    word |= bit_masks[word_weight];
+X#endif
+X			*cp++ = word;
+X			word = 0;
+X			count -= word_weight;
+X			h_bit -= word_weight;
+X			word_weight = BITS_PER_BMUNIT;
+X		    }
+X		}
+X		paint_switch = 1 - paint_switch;
+X	    }
+X	    if (cp != ((BMUNIT *) (g->bitmap.bits + bytes_wide * g->bitmap.h)))
+X		oops("Wrong number of bits stored:  char. %d, font %s", ch,
+X		    fontp->fontname);
+X	    if (rows_left != 0 || h_bit != g->bitmap.w)
+X		oops("Bad pk file (%s), too many bits", fontp->fontname);
+X	}
+X}
+X
+Xvoid
+Xread_PK_index(fontp)
+X	register struct font *fontp;
+X{
+X	int	hppp, vppp;
+X
+X	fontp->read_char = read_PK_char;
+X	if (debug & DBG_PK)
+X	    Printf("Reading PK pixel file %s\n", fontp->filename);
+X
+X	Fseek(fontp->file, (long) one(fontp->file), 1);	/* skip comment */
+X
+X	(void) four(fontp->file);		/* skip design size */
+X	(void) four(fontp->file);		/* skip checksum */
+X	hppp = sfour(fontp->file);
+X	vppp = sfour(fontp->file);
+X	if (hppp != vppp && (debug & DBG_PK))
+X	    Printf("Font has non-square aspect ratio %d:%d\n", vppp, hppp);
+X	/*
+X	 * Prepare glyph array.
+X	 */
+X	fontp->glyph = (struct glyph *) xmalloc(256 * sizeof(struct glyph),
+X	    "glyph array");
+X	bzero((char *) fontp->glyph, 256 * sizeof(struct glyph));
+X	/*
+X	 * Read glyph directory (really a whole pass over the file).
+X	 */
+X	for (;;) {
+X	    int bytes_left, flag_low_bits;
+X	    unsigned int ch;
+X
+X	    PK_skip_specials(fontp);
+X	    if (PK_flag_byte == PK_POST) break;
+X	    flag_low_bits = PK_flag_byte & 0x7;
+X	    if (flag_low_bits == 7) {
+X		bytes_left = four(fontp->file);
+X		ch = four(fontp->file);
+X	    } else if (flag_low_bits > 3) {
+X		bytes_left = ((flag_low_bits - 4) << 16) + two(fontp->file);
+X		ch = one(fontp->file);
+X	    } else {
+X		bytes_left = (flag_low_bits << 8) + one(fontp->file);
+X		ch = one(fontp->file);
+X	    }
+X	    fontp->glyph[ch].addr = ftell(fontp->file);
+X	    fontp->glyph[ch].x2 = PK_flag_byte;
+X	    Fseek(fontp->file, (long) bytes_left, 1);
+X	    if (debug & DBG_PK)
+X		Printf("Scanning pk char %d, at %d.\n", ch,
+X		    fontp->glyph[ch].addr);
+X	}
+X}
+END_OF_FILE
+if test 7379 -ne `wc -c <'pk.c'`; then
+    echo shar: \"'pk.c'\" unpacked with wrong size!
+fi
+# end of 'pk.c'
+fi
+if test -f 'pxl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pxl.c'\"
+else
+echo shar: Extracting \"'pxl.c'\" \(4849 characters\)
+sed "s/^X//" >'pxl.c' <<'END_OF_FILE'
+X/***
+X ***	PXL font reading routines.
+X ***	Public routines are read_PXL_index and read_PXL_char.
+X ***/
+X
+X#ifndef	MSBITFIRST
+Xstatic	unsigned char	_reverse_byte[0x100] = {
+X	0x00, 0x80, 0x40, 0xc0, 0x20, 0xa0, 0x60, 0xe0,
+X	0x10, 0x90, 0x50, 0xd0, 0x30, 0xb0, 0x70, 0xf0,
+X	0x08, 0x88, 0x48, 0xc8, 0x28, 0xa8, 0x68, 0xe8,
+X	0x18, 0x98, 0x58, 0xd8, 0x38, 0xb8, 0x78, 0xf8,
+X	0x04, 0x84, 0x44, 0xc4, 0x24, 0xa4, 0x64, 0xe4,
+X	0x14, 0x94, 0x54, 0xd4, 0x34, 0xb4, 0x74, 0xf4,
+X	0x0c, 0x8c, 0x4c, 0xcc, 0x2c, 0xac, 0x6c, 0xec,
+X	0x1c, 0x9c, 0x5c, 0xdc, 0x3c, 0xbc, 0x7c, 0xfc,
+X	0x02, 0x82, 0x42, 0xc2, 0x22, 0xa2, 0x62, 0xe2,
+X	0x12, 0x92, 0x52, 0xd2, 0x32, 0xb2, 0x72, 0xf2,
+X	0x0a, 0x8a, 0x4a, 0xca, 0x2a, 0xaa, 0x6a, 0xea,
+X	0x1a, 0x9a, 0x5a, 0xda, 0x3a, 0xba, 0x7a, 0xfa,
+X	0x06, 0x86, 0x46, 0xc6, 0x26, 0xa6, 0x66, 0xe6,
+X	0x16, 0x96, 0x56, 0xd6, 0x36, 0xb6, 0x76, 0xf6,
+X	0x0e, 0x8e, 0x4e, 0xce, 0x2e, 0xae, 0x6e, 0xee,
+X	0x1e, 0x9e, 0x5e, 0xde, 0x3e, 0xbe, 0x7e, 0xfe,
+X	0x01, 0x81, 0x41, 0xc1, 0x21, 0xa1, 0x61, 0xe1,
+X	0x11, 0x91, 0x51, 0xd1, 0x31, 0xb1, 0x71, 0xf1,
+X	0x09, 0x89, 0x49, 0xc9, 0x29, 0xa9, 0x69, 0xe9,
+X	0x19, 0x99, 0x59, 0xd9, 0x39, 0xb9, 0x79, 0xf9,
+X	0x05, 0x85, 0x45, 0xc5, 0x25, 0xa5, 0x65, 0xe5,
+X	0x15, 0x95, 0x55, 0xd5, 0x35, 0xb5, 0x75, 0xf5,
+X	0x0d, 0x8d, 0x4d, 0xcd, 0x2d, 0xad, 0x6d, 0xed,
+X	0x1d, 0x9d, 0x5d, 0xdd, 0x3d, 0xbd, 0x7d, 0xfd,
+X	0x03, 0x83, 0x43, 0xc3, 0x23, 0xa3, 0x63, 0xe3,
+X	0x13, 0x93, 0x53, 0xd3, 0x33, 0xb3, 0x73, 0xf3,
+X	0x0b, 0x8b, 0x4b, 0xcb, 0x2b, 0xab, 0x6b, 0xeb,
+X	0x1b, 0x9b, 0x5b, 0xdb, 0x3b, 0xbb, 0x7b, 0xfb,
+X	0x07, 0x87, 0x47, 0xc7, 0x27, 0xa7, 0x67, 0xe7,
+X	0x17, 0x97, 0x57, 0xd7, 0x37, 0xb7, 0x77, 0xf7,
+X	0x0f, 0x8f, 0x4f, 0xcf, 0x2f, 0xaf, 0x6f, 0xef,
+X	0x1f, 0x9f, 0x5f, 0xdf, 0x3f, 0xbf, 0x7f, 0xff
+X};
+X#endif	/* MSBITFIRST */
+X
+Xstatic	void
+Xread_PXL_char(fontp, ch)
+X	register struct font *fontp;
+X	ubyte	ch;
+X{
+X	register struct bitmap *bitmap;
+X	register BMUNIT *ptr;
+X	register FILE *fp = fontp->file;
+X	register int i, j;
+X#ifndef	BMLONG
+X	register int padding_length;
+X#endif
+X
+X	bitmap = &fontp->glyph[ch].bitmap;
+X		/* in file, bitmap rows are multiples of 32 bits wide */
+X	alloc_bitmap(bitmap);
+X	ptr = (BMUNIT *) bitmap->bits;
+X#ifndef	BMLONG
+X	padding_length = 3 - (bitmap->bytes_wide + 3) % 4;
+X#endif
+X	for (i = bitmap->h; i > 0; --i) {
+X	    for (j = bitmap->bytes_wide; j > 0; j -= BYTES_PER_BMUNIT) {
+X#ifndef	MSBITFIRST
+X		*ptr = _reverse_byte[one(fp)];
+X#if	BYTES_PER_BMUNIT > 1
+X		*ptr |= _reverse_byte[one(fp)] << 8;
+X#endif
+X#ifdef	BMLONG
+X		*ptr |= _reverse_byte[one(fp)] << 16;
+X		*ptr |= _reverse_byte[one(fp)] << 24;
+X#endif
+X#else	/* MSBITFIRST */
+X		*ptr = 0;
+X#ifdef	BMLONG
+X		*ptr |= one(fp) << 24;
+X		*ptr |= one(fp) << 16;
+X#endif
+X#if	BYTES_PER_BMUNIT > 1
+X		*ptr |= one(fp) << 8;
+X#endif
+X		*ptr |= one(fp);
+X#endif	/* MSBITFIRST */
+X		++ptr;
+X	    }
+X#ifndef	BMLONG
+X	    for (j = padding_length; j > 0; --j) (void) one(fp);
+X#endif
+X	}
+X}
+X
+Xvoid
+Xread_PXL_index(fontp)
+X	register struct font *fontp;
+X{
+X	register FILE *fp	= fontp->file;
+X	register struct glyph *g;
+X	long font_dir_ptr;
+X
+X	if (debug & DBG_PK)
+X	    Printf("Reading PXL file %s\n", fontp->filename);
+X	fontp->read_char = read_PXL_char;
+X	/* seek to trailer info */
+X	Fseek(fp, (long) -4, 2);
+X	while (four(fp) != 1001)
+X	    Fseek(fp, (long) -5, 1);
+X	Fseek(fp, (long) -5 * 4, 1);
+X	(void) four(fp);	/* checksum */
+X	(void) four(fp);	/* magnify */
+X	(void) four(fp);	/* design size */
+X	font_dir_ptr = sfour(fp) * 4;
+X	(void) four(fp);	/* pxl id word */
+X	/* seek to font directory */
+X	Fseek(fp, font_dir_ptr, 0);
+X	maxchar = 127;
+X	fontp->glyph = (struct glyph *) xmalloc(128 * sizeof(struct glyph),
+X	    "glyph array");
+X	for (g = fontp->glyph; g < fontp->glyph + 128; ++g) {
+X	    g->bitmap.bits = NULL;
+X	    g->bitmap2.bits = NULL;
+X	    g->bitmap.w = two(fp);
+X	    g->bitmap.h = two(fp);
+X	    g->x = stwo(fp);
+X	    g->y = stwo(fp);
+X	    g->addr = four(fp) * 4;
+X		/*
+X		**  The TFM-width word is kind of funny in the units
+X		**  it is expressed in.  It works this way:
+X		**
+X		**  If a glyph has width 'w' in a font with design-size
+X		**  'd' (both in same units), the TFM-width word is
+X		**
+X		**                t = (w/d) * 2^20
+X		**
+X		**  Therefore, in order to find the glyph width in
+X		**  DVI units (1 / 2^16 points), we take the design-size
+X		**  'd' (in DVI's), the magnification 'm' of the PXL file
+X		**  and the TFM-width word 't' to the width (in DVI's)
+X		**  as follows:
+X		**
+X		**                     dmt
+X		**                w = -----
+X		**                    2^20
+X		**
+X		**  But the magnification of the PXL file is just the
+X		**  scaled size 's' over the design size, so the final
+X		**  expression for the width is
+X		**
+X		**                     st
+X		**                w = ----
+X		**                    2^20
+X		**
+X		*/
+X
+X	    g->dvi_adv = fontp->dimconv * four(fp);
+X	    if (debug & DBG_PK)
+X		Printf("size=%dx%d, dvi_adv=%d\n", g->bitmap.w, g->bitmap.h,
+X		    g->dvi_adv);
+X	}
+X}
+END_OF_FILE
+if test 4849 -ne `wc -c <'pxl.c'`; then
+    echo shar: \"'pxl.c'\" unpacked with wrong size!
+fi
+# end of 'pxl.c'
+fi
+if test -f 'vf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vf.c'\"
+else
+echo shar: Extracting \"'vf.c'\" \(2944 characters\)
+sed "s/^X//" >'vf.c' <<'END_OF_FILE'
+X#include "xdvi.h"
+X#include "dvi.h"
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#endif
+X
+X/***
+X ***	VF font reading routines.
+X ***	Public routine is read_index---because virtual characters are presumed
+X ***	to be short, we read the whole virtual font in at once, instead of
+X ***	faulting in characters as needed.
+X ***/
+X
+X#define	LONG_CHAR	242
+X
+X/*
+X *	These are parameters which determine whether macros are combined for
+X *	storage allocation purposes.  Small macros ( <= VF_PARM_1 bytes) are
+X *	combined into chunks of size VF_PARM_2.
+X */
+X
+X#ifndef	VF_PARM_1
+X#define	VF_PARM_1	20
+X#endif
+X#ifndef	VF_PARM_2
+X#define	VF_PARM_2	256
+X#endif
+X
+X/*
+X *	The main routine
+X */
+X
+Xvoid
+Xread_VF_index(fontp)
+X	register struct font *fontp;
+X{
+X	FILE	*VF_file = fontp->file;
+X	ubyte	cmnd;
+X	ubyte	*avail, *availend;	/* available space for macros */
+X
+X	fontp->read_char = NULL;
+X	fontp->flags |= FONT_VIRTUAL;
+X	fontp->set_char_p = set_vf_char;
+X	VF_file = fontp->file;
+X	if (debug & DBG_PK)
+X	    Printf("Reading VF pixel file %s\n", fontp->filename);
+X/*
+X *	Read preamble.
+X */
+X	Fseek(VF_file, (long) one(VF_file), 1);	/* skip comment */
+X	(void) four(VF_file);		/* skip checksum */
+X	(void) four(VF_file);		/* skip design size */
+X/*
+X *	Read the fonts.
+X */
+X	fontp->first_font = NULL;
+X	while ((cmnd = one(VF_file)) >= FNTDEF1 && cmnd <= FNTDEF4) {
+X	    define_font(VF_file, cmnd, fontp, &fontp->vf_chain);
+X	    if (fontp->first_font == NULL)
+X		fontp->first_font = fontp->vf_chain->fontp;
+X	}
+X/*
+X *	Prepare macro array.
+X */
+X	fontp->macro = (struct macro *) xmalloc(256 * sizeof(struct macro),
+X	    "macro array");
+X	bzero((char *) fontp->macro, 256 * sizeof(struct macro));
+X/*
+X *	Read macros.
+X */
+X	avail = availend = NULL;
+X	for (; cmnd <= LONG_CHAR; cmnd = one(VF_file)) {
+X	    register struct macro *m;
+X	    int len;
+X	    unsigned long cc;
+X	    long width;
+X
+X	    if (cmnd == LONG_CHAR) {	/* long form packet */
+X		len = four(VF_file);
+X		cc = four(VF_file);
+X		width = four(VF_file);
+X		if (cc >= 256) {
+X		    Fprintf(stderr,
+X			"Virtual character %d in font %s ignored.\n",
+X			cc, fontp->fontname);
+X		    Fseek(VF_file, (long) len, 1);
+X		    continue;
+X		}
+X	    }
+X	    else {	/* short form packet */
+X		len = cmnd;
+X		cc = one(VF_file);
+X		width = num(VF_file, 3);
+X	    }
+X	    m = &fontp->macro[cc];
+X	    m->dvi_adv = width * fontp->dimconv;
+X	    if (len > 0) {
+X		if (len <= availend - avail) {
+X		    m->pos = avail;
+X		    avail += len;
+X		}
+X		else {
+X		    m->free_me = True;
+X		    if (len <= VF_PARM_1) {
+X			m->pos = avail = (ubyte *) xmalloc(VF_PARM_2,
+X			    "macro array");
+X			availend = avail + VF_PARM_2;
+X			avail += len;
+X		    }
+X		    else m->pos = (ubyte *) xmalloc((unsigned) len,
+X			"macro array");
+X		}
+X		Fread((char *) m->pos, 1, len, VF_file);
+X		m->end = m->pos + len;
+X	    }
+X	    if (debug & DBG_PK)
+X		Printf("Read VF macro for character %d; dy = %d, length = %d\n",
+X			cc, m->dvi_adv, len);
+X	}
+X	if (cmnd != POST)
+X	    oops("Wrong command byte found in VF macro list:  %d", cmnd);
+X}
+END_OF_FILE
+if test 2944 -ne `wc -c <'vf.c'`; then
+    echo shar: \"'vf.c'\" unpacked with wrong size!
+fi
+# end of 'vf.c'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,401 @@
+Newsgroups: comp.sources.x
+From: rfs@se28.wg2.waii.com (Robert Starr)
+Subject: v19i021:  Xod - Octal dump for Xwindows, Part04/04
+Message-ID: <1993Mar9.211240.22017@sparky.imd.sterling.com>
+X-Md4-Signature: f8d51d4eb1796c6bf477c37a579f9b8d
+Date: Tue, 9 Mar 1993 21:12:40 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: rfs@se28.wg2.waii.com (Robert Starr)
+Posting-number: Volume 19, Issue 21
+Archive-name: Xod/part04
+Environment: X11R4 X11R5 gcc
+
+---- Cut Here and unpack ----
+#!/bin/sh
+# this is part 4 of a multipart archive
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xod.pt continued
+#
+CurArch=4
+if test ! -r s2_seq_.tmp
+then echo "Please unpack part 1 first!"
+     exit 1; fi
+( read Scheck
+  if test "$Scheck" != $CurArch
+  then echo "Please unpack part $Scheck next!"
+       exit 1;
+  else exit 0; fi
+) < s2_seq_.tmp || exit 1
+echo "x - Continuing file xod.pt"
+sed 's/^X//' << 'SHAR_EOF' >> xod.pt
+Xvoid DisplayLine _P_XOD((unsigned char *data, int length, int line));
+Xvoid DisplayFullPage _P_XOD((int line, int moff));
+Xvoid RedisplayPage _P_XOD((void));
+X
+X/* utils.c */
+Xint CursorAt _P_XOD((int x, int y));
+Xint ClearScreen _P_XOD((void));
+Xlong AddressConvert _P_XOD((char *caddr));
+X
+X/* fileio.c */
+Xvoid DataLocation _P_XOD((int *line, int *moff));
+Xlong GetDataOffset _P_XOD((void));
+Xchar *GetFileName _P_XOD((void));
+XBoolean IsAtEOF _P_XOD((void));
+Xint DoSearch _P_XOD((unsigned char *pattern, int len));
+Xunsigned char *ReadBlock _P_XOD((int startline, int width, int height, int moff));
+Xint ReadNbytes _P_XOD((long begin, int n, unsigned char *where));
+Xunsigned char ByteAtPosition _P_XOD((int line, int chpos));
+XBoolean AddressOnScreen _P_XOD((long addr));
+XBoolean FileOpen _P_XOD((char *filename));
+X
+X/* cmdline.c */
+Xvoid ParseCommandLine _P_XOD((int argc, char **argv));
+X
+X/* mkwidgets.c */
+Xvoid PopupGotoByte _P_XOD((void));
+Xvoid MakeWidgets _P_XOD((int *argc, char **argv));
+X
+X/* getres.c */
+Xchar *RevVideo _P_XOD((void));
+Xvoid FigureRevVidSeq _P_XOD((void));
+Xvoid XodGetResources _P_XOD((Widget top));
+X
+X#undef _P_XOD
+SHAR_EOF
+echo "File xod.pt is complete"
+chmod 0644 xod.pt || echo "restore of xod.pt fails"
+set `wc -c xod.pt`;Sum=$1
+if test "$Sum" != "5051"
+then echo original size 5051, current size $Sum;fi
+echo "x - extracting xutils.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > xutils.c &&
+Xstatic char *RcsID = "$Id: xutils.c,v 1.8 1993/03/02 00:49:03 rfs Exp $";
+X/*
+X * $Log: xutils.c,v $
+X * Revision 1.8  1993/03/02  00:49:03  rfs
+X * Fixed up.
+X *
+X * Revision 1.7  1993/02/26  21:39:16  rfs
+X * Handle decoding of bytes
+X *
+X * Revision 1.6  1993/02/14  01:17:06  rfs
+X * New handling of status line.
+X *
+X * Revision 1.5  1993/02/13  23:27:17  rfs
+X * Added widget association routines.
+X *
+X * Revision 1.4  1993/02/13  18:00:12  rfs
+X * Added routines to set and get mouse coordinates.
+X *
+X * Revision 1.3  1993/02/13  13:39:54  rfs
+X * added function ResetMouseCoord
+X *
+X * Revision 1.2  1993/02/13  13:21:27  rfs
+X * byte offset now reflects where the cursor is.
+X *
+X * Revision 1.1  1993/02/13  12:02:17  rfs
+X * Initial revision
+X *
+X *
+X*/
+X
+X
+X#include <xod.h>
+X#include <xod.pt>
+X#include <buttonndx.h>
+X
+X/* widget association list */
+Xstatic WidgetList wassoc =  NULL;
+Xstatic int wassoccnt = 0;
+X
+Xstatic int fwidth, fheight;
+X/* mouse coord's in row/column xy's */
+Xstatic int mousex = 1;
+Xstatic int mousey = 1;
+X
+X/* revert mouse coordinates to the root */
+XResetMouseCoord(void) {
+X	mousex = mousey = 1;
+X}
+X
+Xvoid
+XGetMouseCoord(int *x, int *y) {
+X	*x = mousex;
+X	*y = mousey;
+X}
+X
+Xvoid
+XSetMouseCoord(int x, int y) {
+X	mousex = x;
+X	mousey = y;
+X}
+X
+X/*
+X * Considering each data byte as displayed consumes a single
+X * coordinate, find where cursor is.
+X*/
+Xvoid
+XGetCursorOnData(int *x, int *y) {
+X	int width, mx, my;
+X
+X	GetFormat(&width);
+X	width++;
+X	GetMouseCoord(&mx, &my);
+X	*y = my;
+X	*x = ((mx-1)/width)+1;
+X}
+X
+X/* also pretends the x & y are based on displayed bytes */
+Xvoid
+XSetCursorOnData(int x, int y) {
+X	int  mx, my, width;
+X
+X	GetFormat(&width);
+X	width++;
+X	MouseUnhighlight(mousex, mousey);
+X	mousex = (x-1)*width + 1;
+X	if (y < 1) y = 1;
+X	mousey = y;
+X	MouseHighlight(mousex, mousey);
+X	UpdateByteOffset();
+X}
+X
+X/* compute absolute byte the cursor resides on */
+Xint
+XAbsByteOffset(void) {
+X	int  offset, width;
+X
+X	GetFormat(&width);
+X	width++;
+X	offset = (mousey-1)*BytesHoriz;
+X	offset += (mousex-1)/width;
+X	return offset;
+X}
+X
+XCursorToAbsByte(long addr) {
+X	long upperleft, filesize;
+X	int  x, y, line, moff;
+X
+X	DataLocation(&line, &moff);
+X	filesize = CurrentFileSize();
+X	if (addr > filesize) addr = filesize;
+X	if (addr < 0) addr = 0;
+X	if (!AddressOnScreen(addr)) {
+X		line = (addr-moff)/BytesHoriz;
+X		if (line < 0) line = 0;
+X		DisplayFullPage(line, moff);
+X	}
+X	upperleft = GetDataOffset();
+X	y = ((addr-upperleft)/BytesHoriz)+1;
+X	x = ((addr-upperleft) % BytesHoriz)+1;
+X	SetCursorOnData(x, y);
+X}
+X
+X/* update the byte offset label */
+Xvoid
+XUpdateByteOffset(void) {
+X	long addr;
+X	int  line, moff;
+X
+X	DataLocation(&line, &moff);
+X	addr = (line*BytesHoriz) + moff;
+X	addr += AbsByteOffset();
+X	XtVaSetValues(ByteOffsetWidget, XtNlabel, FmtOffset(addr), NULL);
+X}
+X
+X
+X/* decode the data the mouse is on in a variety of formats */
+Xvoid
+XDoDecode(int mode) {
+X	char buffer[MAXLEN];
+X	unsigned short us;
+X	unsigned long ul;
+X	float f;
+X	double d;
+X	int  line, moff;
+X	long addr;
+X
+X	DataLocation(&line, &moff);
+X	addr = (line*BytesHoriz) + moff;
+X	addr += AbsByteOffset();
+X
+X	switch (mode) {
+X		case Short:
+X		case uShort:
+X			ReadNbytes(addr, sizeof(unsigned short), (unsigned char *)&us);
+X			sprintf(buffer, (mode==Short) ? "%d" : "%u", us);
+X			XtVaSetValues(DecodeWidget, XtNlabel, buffer, NULL);
+X			break;
+X		case Long:
+X		case uLong:
+X			ReadNbytes(addr, sizeof(unsigned long), (unsigned char *)&ul);
+X			sprintf(buffer, (mode==Long) ? "%d" : "%u", ul);
+X			XtVaSetValues(DecodeWidget, XtNlabel, buffer, NULL);
+X			break;
+X		case Float:
+X			ReadNbytes(addr, sizeof(float), (unsigned char *)&f);
+X			sprintf(buffer, "%f", f);
+X			XtVaSetValues(DecodeWidget, XtNlabel, buffer, NULL);
+X			break;
+X		case Double:
+X			ReadNbytes(addr, sizeof(double), (unsigned char *)&d);
+X			sprintf(buffer, "%f", d);
+X			XtVaSetValues(DecodeWidget, XtNlabel, buffer, NULL);
+X			break;
+X	}
+X}
+X
+Xstatic char *
+XWhatMode(int mode) {
+X	char *amode = "?";
+X	switch (mode) {
+X		case HEX:
+X			amode = "hex"; break;
+X		case OCTAL:
+X			amode = "octal"; break;
+X		case DECIMAL:
+X			amode = "decimal"; break;
+X		case ASCII:
+X			amode = "ascii"; break;
+X	}
+X	return amode;
+X}
+X
+Xvoid
+XUpdateAll(int mode, long addr) {
+X	SetAddressMode(mode);
+X	ShowByteAddress(addr);
+X	UpdateStatus();
+X}
+X
+X/* update the status line */
+Xvoid
+XUpdateStatus(void) {
+X	char buffer[MAXLEN];
+X	long addr;
+X	int  line, moff;
+X
+X	UpdateByteOffset();
+X	DataLocation(&line, &moff);
+X	addr = (line*BytesHoriz) + moff;
+X	ShowByteAddress(addr);
+X	sprintf(buffer, "< %s, offset %s, data %s >", GetFileName(),
+X		WhatMode(OffsetMode), WhatMode(DataMode));
+X	XtVaSetValues(StatusWidget, XtNlabel, buffer, NULL);
+X}
+X
+X/* set a widget's label field */
+Xvoid
+XSetWidgetLabel(Widget w, char *value) {
+X	XtVaSetValues(w, XtNlabel, value, NULL);
+X}
+X
+X/* Send a string to the CTW widget */
+XSendString(char *string) {
+X	ctw_add_string((CtwWidget)ctwWidget, string, strlen(string));
+X	if (*(string+strlen(string)-1) == '\n')
+X		ctw_add_string((CtwWidget)ctwWidget, "\r", 1);
+X}
+X
+Xvoid
+Xget_font_size(CtwWidget w, int *fwidth, int *fheight) {
+X	char **attr_names;
+X	int	len;
+X	int	*flags;
+X
+X	len = ctw_get_attributes((CtwWidget)ctwWidget, &flags, &attr_names);
+X	*fwidth = flags[CTW_FONT_SIZE] >> 16;
+X	*fheight = flags[CTW_FONT_SIZE] & 0xffff;
+X}
+X
+Xstatic
+XFontSizes(void) {
+X	if (fwidth) return;
+X	get_font_size((CtwWidget)ctwWidget, &fwidth, &fheight);
+X}
+X
+Xstatic
+XFindCharUnderMouse(int x, int y) {
+X	int  row, column;
+X	int  width;
+X
+X	FontSizes();
+X	GetFormat(&width);
+X	width++;
+X	/* xlate an absolute mouse xy to a char xy (root 1,1) */
+X	column = x/fwidth+1;
+X	row = y/fheight+1;
+X	if (column < 1) column = 1;
+X	if (row < 1) row = 1;
+X	/* make clicking in packed area look like clicking over data */
+X	if (column >= PackedColumn()) {
+X		column = ((column-PackedColumn()) * width)+1;
+X	}
+X	if (column > (BytesHoriz*width))
+X		return;
+X	MouseUnhighlight(mousex, mousey);
+X	CursorAt(row, column);
+X	mousex = column;
+X	mousey = row;
+X	MouseHighlight(column, row);
+X	UpdateByteOffset();
+X}
+X
+XXtCallbackProc
+XMouseCB(Widget widget, char *name, ctw_callback_t *reason) {
+X	Window root, child;
+X	int  rx, ry, wx, wy;
+X	unsigned int mask;
+X
+X	XQueryPointer(XtDisplay(widget), XtWindow(widget), &root, &child, &rx, &ry,
+X		&wx, &wy, &mask);
+X	FindCharUnderMouse(wx, wy);
+X	return;
+X}
+X
+X/* build & manage table associating one widget with another */
+Xvoid
+XAddWidgetAssoc(Widget a, Widget b) {
+X	int  ndx, realndx;
+X
+X	wassoccnt++;
+X	wassoc = (WidgetList)XtRealloc((char *)wassoc, 
+X		wassoccnt*(2*sizeof(Widget)));
+X	ndx = wassoccnt-1;
+X	realndx = 2*ndx;
+X
+X	wassoc[realndx] = a;
+X	wassoc[realndx+1] = b;
+X}
+X
+XWidget
+XGetWidgetAssoc(Widget w) {
+X	Widget assoc = NULL;
+X	int  i, ndx;
+X
+X	for (i=0; i < wassoccnt; i++) {
+X		ndx = i*2;
+X		if (wassoc[ndx] == w) {
+X			assoc = wassoc[ndx+1];
+X			break;
+X		}
+X	}
+X	return assoc;
+X}
+SHAR_EOF
+chmod 0644 xutils.c || echo "restore of xutils.c fails"
+set `wc -c xutils.c`;Sum=$1
+if test "$Sum" != "6641"
+then echo original size 6641, current size $Sum;fi
+rm -f s2_seq_.tmp
+echo "You have unpacked the last part"
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

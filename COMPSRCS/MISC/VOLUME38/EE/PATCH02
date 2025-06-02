@@ -1,0 +1,1913 @@
+Newsgroups: comp.sources.misc
+From: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Subject: v38i054:  ee - Easy Editor, a simple editor for UNIX, Patch02
+Message-ID: <1993Jul14.143508.25254@sparky.sterling.com>
+Summary: a simple editor
+X-Md4-Signature: 7482f5333d0594eb2f37f60957095851
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: h_mahon@fc.hp.com
+Organization: HP Colorado Networks Division
+Date: Wed, 14 Jul 1993 14:35:08 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Posting-number: Volume 38, Issue 54
+Archive-name: ee/patch02
+Environment: SYSV, BSD, Curses
+Patch-To: ee: Volume 35, Issue 80-84
+
+Several people have asked for ee to work on BSD-based systems.  Some 
+changes have been made to new_curse to better support BSD and termcap.
+
+Since many shells use emacs style key bindings, it was suggested that 
+emacs style bindings be made available in ee, so here they are.
+
+Changes to ee:
+
+	1. added support for window resizing
+	2. added emacs key bindings
+	3. changed so not writing into statically allocated memory for 
+	   settings menu
+	4. changed name of abort() to edit_abort() to avoid namespace collision
+	5. fixed another NULL pointer de-reference
+	6. changed curses operation on shell operation to try to fix problems 
+	   reported using 'spell'
+
+Changes to new_curse:
+
+	1. added support for resizing
+	2. fixed defects in termcap operations
+	3. changed operation on BSD systems for getting function keys
+	4. improved terminfo file checking
+
+Changes to ee.1:
+
+	1. Added documentation for emacs keys.
+	2. Modified so that page could be formatted on Coherent.
+
+Made related changes to ee.msg and ee.i18n.guide.
+
+Thanks are in order for Chuck Cranor for defect information for 
+new_curse, code for getting lines and columns from tty data structure, 
+select code for BSD systems (for getting function keys), and emacs key 
+mappings for ee. 
+
+Thanks to Udo Monk for modifications to ee.1 to allow formatting on 
+Coherent.
+
+To apply the patch, use the 'patch' utility, avaliable from many ftp 
+archive sites (such as wuarchive.wustl.edu) if you don't already have 
+it.  It is a valuable tool to have.
+
+Hugh Mahon              |__|     
+h_mahon@fc.hp.com       |  |     
+                           |\  /|
+                           | \/ |
+
+diff -cr ../ee-p1/Makefile ./Makefile
+*** ../ee-p1/Makefile	Sun Jul 11 19:52:08 1993
+--- ./Makefile	Sun Jul 11 19:49:10 1993
+***************
+*** 15,20 ****
+--- 15,21 ----
+  # define.  If the system supports setlocale(), catopen(), and catgets() and 
+  # localization is desired, do not use -DNO_CATGETS.
+  #
++ # DEFINES is used for new_curse.c, and CFLAGS is used for ee.c.
+  #
+  
+  # for System V, using new_curse with terminfo
+***************
+*** 21,27 ****
+  DEFINES =	-DSYS5 -DNCURSE 
+  
+  # for BSD, using new_curse with termcap
+! #DEFINES = 	-DCAP -DNCURSE
+  
+  # flags for compilation
+  CFLAGS = -s -DNO_CATGETS
+--- 22,31 ----
+  DEFINES =	-DSYS5 -DNCURSE 
+  
+  # for BSD, using new_curse with termcap
+! #DEFINES = 	-DCAP -DNCURSE 
+! 
+! # for BSD systems with select(), using new_curse with termcap, use:
+! #DEFINES =      -DCAP -DNCURSE -DBSD_SELECT 
+  
+  # flags for compilation
+  CFLAGS = -s -DNO_CATGETS
+diff -cr ../ee-p1/README.ee ./README.ee
+*** ../ee-p1/README.ee	Sun Jul 11 19:52:08 1993
+--- ./README.ee	Sun Jul 11 19:49:25 1993
+***************
+*** 66,86 ****
+  will have a defect that reduces the usefulness of the editor relying upon 
+  it.  
+  
+! The new_curse source is provided simply as a back up in case the curses on 
+! your system has such a defect.  The code is a rather nasty hack, and can be 
+! noticeably slower than real curses.  Also, although there is code for 
+! handling non-System V systems, this code has been much less used, and so may 
+! now be non-functional.  Likewise with the code for handling termcap.  I just 
+! felt that since it was already there, I may as well leave it since someone 
+! may find it useful.  While new_curse is somewhat poorly written code in some 
+! places, it is source code that can be hacked if all else fails.  Note, 
+! however, that if you're having problems, first make sure of the terminal 
+! configuration, especially if you're using a terminal emulator, and make sure 
+! that you are using the right terminfo entry before rummaging through code.  
+! Terminfo entries often contain inaccuracies, or incomplete information, or 
+! may not totally match the terminal or emulator the terminal information is 
+! being used with.  Complaints that ee isn't working quite right often end up 
+! being something else (like the terminal emulator being used). 
+  
+  Both ee and new_curse were developed using K&R C (also known as "classic 
+  C").  Some tweaks may be required to make ee and new_curse compile on 
+--- 66,85 ----
+  will have a defect that reduces the usefulness of the editor relying upon 
+  it.  
+  
+! The new_curse source is provided simply as a back up in case the curses 
+! on your system has such a defect.  The code is a rather nasty hack, and 
+! can be noticeably slower than real curses.  new_curse works on both 
+! System V and BSD based systems, with either terminfo or termcap.  While 
+! new_curse is somewhat poorly written code in some places, it is source 
+! code that can be hacked if all else fails.  Note, however, that if you're 
+! having problems, first make sure of the terminal configuration, 
+! especially if you're using a terminal emulator, and make sure that you 
+! are using the right terminfo entry before rummaging through code.  
+! Terminfo entries often contain inaccuracies, or incomplete information, 
+! or may not totally match the terminal or emulator the terminal 
+! information is being used with.  Complaints that ee isn't working quite 
+! right often end up being something else (like the terminal emulator being 
+! used).  
+  
+  Both ee and new_curse were developed using K&R C (also known as "classic 
+  C").  Some tweaks may be required to make ee and new_curse compile on 
+diff -cr ../ee-p1/ee.1 ./ee.1
+*** ../ee-p1/ee.1	Sun Jul 11 19:51:51 1993
+--- ./ee.1	Sun Jul 11 19:49:37 1993
+***************
+*** 4,11 ****
+  .\"
+  .\"    nroff -man ee.1
+  .\"
+! .\"  $Header: /users/hugh/tmp/old_ae/ee.1,v 1.14 1993/01/25 04:13:39 hugh Exp $
+  .\"
+  .TH ee 1 "" "" "" ""
+  .SH NAME
+  ee \- easy editor
+--- 4,12 ----
+  .\"
+  .\"    nroff -man ee.1
+  .\"
+! .\"  $Header: /users/hugh/tmp/old_ae/ee.1,v 1.15 1993/03/29 04:23:12 hugh Exp $
+  .\"
++ .\"
+  .TH ee 1 "" "" "" ""
+  .SH NAME
+  ee \- easy editor
+***************
+*** 57,65 ****
+  performance on some terminals).
+  .br
+  .\"
+! .\"     command summary
+  .\"
+! .SS Command Summary
+  To do anything other than insert text, the user must use the control 
+  keys (the 
+  .B Control 
+--- 58,66 ----
+  performance on some terminals).
+  .br
+  .\"
+! .\"     control keys
+  .\"
+! .SS "Control keys"
+  To do anything other than insert text, the user must use the control 
+  keys (the 
+  .B Control 
+***************
+*** 77,88 ****
+  or 
+  .BR ^u .
+  .RS 4
+- .PP
+- .\"
+- .\"     control keys
+- .\"
+- .SS Control keys
+- .PP
+  .nf
+  .ta 1.4i
+  .sp
+--- 78,83 ----
+***************
+*** 110,124 ****
+  ^x 	Search.
+  ^y 	Delete from the cursor position to the end of line.
+  ^z 	Undelete the last deleted line.
+! ^[ (\s-1ESC\s+1)	Pop up menu.
+  .RE
+  .ta
+  .fi
+  .sp
+  .\"
+  .\"     function keys
+  .\"
+! .SS Function Keys
+  .RS 4
+  .IP "\fBNext Page\fR"
+  Move to the next page.
+--- 105,157 ----
+  ^x 	Search.
+  ^y 	Delete from the cursor position to the end of line.
+  ^z 	Undelete the last deleted line.
+! ^[ (ESC)	Pop up menu.
+! .ta
+! .fi
+  .RE
++ .sp
++ .SS "EMACS keys mode"
++ .PP
++ Since many shells provide an Emacs mode (for cursor movement and other editing 
++ operations), some bindings that may be more useful for people familiar with 
++ those bindings have been provided.  These are accessible via the 
++ .B settings 
++ menu, or via the initialization file (see below).  The mappings are as follows:
++ .RS
++ .nf
++ .ta 1.4i
++ ^a	Move to the beginning of the line.
++ ^b	Back 1 character.
++ ^c	Command prompt.
++ ^d	Delete character the cursor is sitting on.
++ ^e	End of line.
++ ^f	Forward 1 character.
++ ^g	Go back 1 page.
++ ^h	Backspace.
++ ^i	Tab.
++ ^j	Undelete last deleted character.
++ ^k	Delete line.
++ ^l	Undelete last deleted line.
++ ^m	Insert a newline.
++ ^n	Move to the next line.
++ ^o	Prompt for the decimal value of a character to insert.
++ ^p	Previous line.
++ ^r	Restore last deleted word.
++ ^t	Move to the top of the text.
++ ^u	Move to the bottom of the text.
++ ^v	Move to the next page.
++ ^w	Delete the word begining at the cursor position.
++ ^y	Prompt for the string to search for.
++ ^z	Next word.
++ ^[ (ESC)	Pop up menu.
+  .ta
+  .fi
++ .RE
+  .sp
+  .\"
+  .\"     function keys
+  .\"
+! .SS "Function Keys"
+  .RS 4
+  .IP "\fBNext Page\fR"
+  Move to the next page.
+***************
+*** 166,172 ****
+  .IP "\fBnocase\fR
+  Make searches insensitive to case (the default).
+  .IP "\fBnoexpand\fR"
+! Don't expand tab to spaces when the \s-1TAB\s+1 key is pressed.
+  .IP "\fBquit\fR"
+  Leave the editor without saving changes.
+  .IP "\fBread\fR \fIfile\fR"
+--- 199,205 ----
+  .IP "\fBnocase\fR
+  Make searches insensitive to case (the default).
+  .IP "\fBnoexpand\fR"
+! Don't expand tab to spaces when the TAB key is pressed.
+  .IP "\fBquit\fR"
+  Leave the editor without saving changes.
+  .IP "\fBread\fR \fIfile\fR"
+***************
+*** 177,183 ****
+  .\"
+  .\"     menu options
+  .\"
+! .SS Menu Operations
+  .PP
+  Pop-up menus can be obtained by pressing the 
+  .B escape 
+--- 210,216 ----
+  .\"
+  .\"     menu options
+  .\"
+! .SS "Menu Operations"
+  .PP
+  Pop-up menus can be obtained by pressing the 
+  .B escape 
+***************
+*** 225,231 ****
+  .\"
+  .\"     paragraph formatting
+  .\"
+! .SS Paragraph Formatting
+  .PP
+  Paragraphs are defined for \fIee\fR by a block of text bounded by:
+  .sp 
+--- 258,264 ----
+  .\"
+  .\"     paragraph formatting
+  .\"
+! .SS "Paragraph Formatting"
+  .PP
+  Paragraphs are defined for \fIee\fR by a block of text bounded by:
+  .sp 
+***************
+*** 284,289 ****
+--- 317,324 ----
+  .IP "\fBinfo window\fR"
+  A window showing the keyboard operations that can be performed can be 
+  displayed or not.
++ .IP"\fBemacs keys\fR"
++ Control keys may be given bindings similar to emacs, or not.
+  .RE
+  .PP
+  You may set these modes via the initialization file (see below), or with a 
+***************
+*** 291,297 ****
+  .\"
+  .\"     spell checking
+  .\"
+! .SS Spell Checking
+  .PP
+  There are two ways to have the spelling in the text checked from \fIee\fR.  
+  One is by the traditional \fIspell\fR(1) command, the other is with the 
+--- 326,332 ----
+  .\"
+  .\"     spell checking
+  .\"
+! .SS "Spell Checking"
+  .PP
+  There are two ways to have the spelling in the text checked from \fIee\fR.  
+  One is by the traditional \fIspell\fR(1) command, the other is with the 
+***************
+*** 304,310 ****
+  .\"
+  .\"     printing
+  .\"
+! .SS Printing the contents of the editor
+  .PP
+  The user may select a menu item which prints the contents of the editor.  
+  .I ee
+--- 339,345 ----
+  .\"
+  .\"     printing
+  .\"
+! .SS "Printing the contents of the editor"
+  .PP
+  The user may select a menu item which prints the contents of the editor.  
+  .I ee
+***************
+*** 322,328 ****
+  .\"
+  .\"     shell operations
+  .\"
+! .SS Shell operations
+  .PP
+  Shell commands can be executed from within 
+  .I ee 
+--- 357,363 ----
+  .\"
+  .\"     shell operations
+  .\"
+! .SS "Shell operations"
+  .PP
+  Shell commands can be executed from within 
+  .I ee 
+***************
+*** 354,360 ****
+  .\"
+  .\"     initializing ee from a file
+  .\"
+! .SS Initializing ee from a file
+  .PP
+  Since different users have different preferences, \fIee\fR allows some 
+  slight configurability.  There are three possible locations for an 
+--- 389,395 ----
+  .\"
+  .\"     initializing ee from a file
+  .\"
+! .SS "Initializing ee from a file"
+  .PP
+  Since different users have different preferences, \fIee\fR allows some 
+  slight configurability.  There are three possible locations for an 
+***************
+*** 411,416 ****
+--- 446,455 ----
+  .IP \fBnoeightbit\fR
+  Turns off display of eight bit characters (they are displayed as their decimal 
+  value inside angle brackets, e.g., "<220>").
++ .IP \fBemacs\fR
++ Turns on emacs key bindings.
++ .IP \fBnoemacs\fR
++ Turns off emacs key bindings.
+  .RE
+  .SH CAVEATS
+  .PP
+***************
+*** 436,442 ****
+  .PP
+  Always make a copy of files that cannot be easily reproduced before 
+  editing.  Save files early, and save often.
+! .SS International Code Set Support
+  .I ee 
+  supports single-byte character code sets (eight-bit clean).
+  .SH WARNINGS
+--- 475,481 ----
+  .PP
+  Always make a copy of files that cannot be easily reproduced before 
+  editing.  Save files early, and save often.
+! .SS "International Code Set Support"
+  .I ee 
+  supports single-byte character code sets (eight-bit clean).
+  .SH WARNINGS
+***************
+*** 460,466 ****
+  copyright.  All rights are reserved. 
+  .PP
+  Copyright (c) 1990, 1991, 1992, 1993 Hugh Mahon.
+! .SH SEE ALSO
+  .PP
+! terminfo(4), environ(5), spell(1), ispell(1), lp(1)
+  
+--- 499,505 ----
+  copyright.  All rights are reserved. 
+  .PP
+  Copyright (c) 1990, 1991, 1992, 1993 Hugh Mahon.
+! .SH "SEE ALSO"
+  .PP
+! termcap(4), terminfo(4), environ(5), spell(1), ispell(1), lp(1)
+  
+diff -cr ../ee-p1/ee.c ./ee.c
+*** ../ee-p1/ee.c	Sun Jul 11 19:52:09 1993
+--- ./ee.c	Sun Jul 11 19:49:47 1993
+***************
+*** 51,57 ****
+   |	proprietary information which is protected by
+   |	copyright.  All rights are reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/ee.c,v 1.66 1993/02/28 01:00:54 hugh Exp $
+   |
+   */
+  
+--- 51,57 ----
+   |	proprietary information which is protected by
+   |	copyright.  All rights are reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/ee.c,v 1.67 1993/03/29 04:05:34 hugh Exp $
+   |
+   */
+  
+***************
+*** 64,70 ****
+  	"copyright.  All rights are reserved."
+  	};
+  
+! char *version = "@(#) ee, version 1.2.2 pl 1 $Revision: 1.66 $";
+  
+  #ifdef NCURSE
+  #include "new_curse.h"
+--- 64,70 ----
+  	"copyright.  All rights are reserved."
+  	};
+  
+! char *version = "@(#) ee, version 1.2.2 pl 2 $Revision: 1.67 $";
+  
+  #ifdef NCURSE
+  #include "new_curse.h"
+***************
+*** 172,177 ****
+--- 172,181 ----
+  int restricted = FALSE;		/* flag to indicate restricted mode	*/
+  int nohighlight = FALSE;	/* turns off highlighting		*/
+  int eightbit = TRUE;		/* eight bit character flag		*/
++ int local_LINES = 0;		/* copy of LINES, to detect when win resizes */
++ int local_COLS = 0;		/* copy of COLS, to detect when win resizes  */
++ int curses_initialized = FALSE;	/* flag indicating if curses has been started*/
++ int emacs_keys_mode = FALSE;	/* mode for if emacs key binings are used    */
+  
+  char *point;			/* points to current position in line	*/
+  char *srch_str;			/* pointer for search string		*/
+***************
+*** 256,274 ****
+  
+  struct menu_entries modes_menu[] = {
+  	{"", NULL, NULL}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+! 	{"                                                                      ", NULL, -1}, 
+  	{NULL, NULL, -1}
+  	};
+  
+! int modes_initialized = FALSE;
+  
+! char *mode_strings[8]; 
+  
+  struct menu_entries leave_menu[] = {
+  	{"", NULL, -1}, 
+--- 260,279 ----
+  
+  struct menu_entries modes_menu[] = {
+  	{"", NULL, NULL}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+! 	{"", NULL, -1}, 
+  	{NULL, NULL, -1}
+  	};
+  
+! char *mode_strings[9]; 
+  
+! #define NUM_MODES_ITEMS 9
+  
+  struct menu_entries leave_menu[] = {
+  	{"", NULL, -1}, 
+***************
+*** 325,338 ****
+  	};
+  
+  char *help_text[22];
+- 
+  char *control_keys[5];
+  
+  char *command_strings[5];
+  char *commands[30];
+! char *init_strings[18];
+  
+! int abort();
+  
+  /*
+   |	Declarations for strings for localization
+--- 330,345 ----
+  	};
+  
+  char *help_text[22];
+  char *control_keys[5];
+  
++ char *emacs_help_text[22];
++ char *emacs_control_keys[5];
++ 
+  char *command_strings[5];
+  char *commands[30];
+! char *init_strings[20];
+  
+! int edit_abort();
+  
+  /*
+   |	Declarations for strings for localization
+***************
+*** 416,421 ****
+--- 423,430 ----
+  char *NOHIGHLIGHT;
+  char *EIGHTBIT;
+  char *NOEIGHTBIT;
++ char *EMACS_string;
++ char *NOEMACS_string;
+  
+  main(argc, argv)		/* beginning of main program		*/
+  int argc;
+***************
+*** 428,434 ****
+  
+  	signal(SIGCHLD, SIG_DFL);
+  	signal(SIGSEGV, SIG_DFL);
+! 	signal(SIGINT, abort);
+  
+  	d_char = 0;
+  	d_word = malloc(150);
+--- 437,443 ----
+  
+  	signal(SIGCHLD, SIG_DFL);
+  	signal(SIGSEGV, SIG_DFL);
+! 	signal(SIGINT, edit_abort);
+  
+  	d_char = 0;
+  	d_word = malloc(150);
+***************
+*** 477,482 ****
+--- 486,493 ----
+  		if (in == -1)
+  			exit(0);
+  
++ 		resize_check();
++ 
+  		if (clear_com_win)
+  		{
+  			clear_com_win = FALSE;
+***************
+*** 496,502 ****
+  		else if ((in > 31) || (in == 9))
+  			insert(in);
+  		else if ((in >= 0) && (in <= 31))
+! 			control();
+  	}
+  }
+  
+--- 507,518 ----
+  		else if ((in > 31) || (in == 9))
+  			insert(in);
+  		else if ((in >= 0) && (in <= 31))
+! 		{
+! 			if (emacs_keys_mode)
+! 				emacs_control();
+! 			else
+! 				control();
+! 		}
+  	}
+  }
+  
+***************
+*** 1052,1057 ****
+--- 1068,1150 ----
+  	}	
+  }
+  
++ /*
++  |	Emacs control-key bindings
++  */
++ 
++ emacs_control()
++ {
++ 	char *string;
++ 
++ 	if (in == 1)		/* control a	*/
++ 		bol();
++ 	else if (in == 2)	/* control b	*/
++ 		left(TRUE);
++ 	else if (in == 3)	/* control c	*/
++ 	{
++ 		command_prompt();
++ 	}
++ 	else if (in == 4)	/* control d	*/
++ 		del_char();
++ 	else if (in == 5)	/* control e	*/
++ 		eol();
++ 	else if (in == 6)	/* control f	*/
++ 		right(TRUE);
++ 	else if (in == 7)	/* control g	*/
++ 		move_rel("u", max(5, (last_line - 5)));
++ 	else if (in == 8)	/* control h	*/
++ 		delete(TRUE);
++ 	else if (in == 9)	/* control i	*/
++ 		;
++ 	else if (in == 10)	/* control j	*/
++ 		undel_char();
++ 	else if (in == 11)	/* control k	*/
++ 		del_line();
++ 	else if (in == 12)	/* control l	*/
++ 		undel_line();
++ 	else if (in == 13)	/* control m	*/
++ 		insert_line(TRUE);
++ 	else if (in == 14)	/* control n	*/
++ 		down();
++ 	else if (in == 15)	/* control o	*/
++ 	{
++ 		string = get_string(ascii_code_str, TRUE);
++ 		if (*string != NULL)
++ 		{
++ 			in = atoi(string);
++ 			wmove(text_win, scr_vert, (scr_horz - horiz_offset));
++ 			insert(in);
++ 		}
++ 		free(string);
++ 	}
++ 	else if (in == 16)	/* control p	*/
++ 		up();
++ 	else if (in == 17)	/* control q	*/
++ 		;
++ 	else if (in == 18)	/* control r	*/
++ 		undel_word();
++ 	else if (in == 19)	/* control s	*/
++ 		;
++ 	else if (in == 20)	/* control t	*/
++ 		top();
++ 	else if (in == 21)	/* control u	*/
++ 		bottom();
++ 	else if (in == 22)	/* control v	*/
++ 		move_rel("d", max(5, (last_line - 5)));
++ 	else if (in == 23)	/* control w	*/
++ 		del_word();
++ 	else if (in == 24)	/* control x	*/
++ 		search(TRUE);
++ 	else if (in == 25)	/* control y	*/
++ 		search_prompt();
++ 	else if (in == 26)	/* control z	*/
++ 		adv_word();
++ 	else if (in == 27)	/* control [ (escape)	*/
++ 	{
++ 		menu_op(main_menu);
++ 	}	
++ }
++ 
+  bottom()			/* go to bottom of file			*/
+  {
+  	while (curr_line->next_line != NULL)
+***************
+*** 1423,1429 ****
+  	{
+  		wmove(com_win, 0, 0);
+  		wclrtoeol(com_win);
+! 		wprintw(com_win, current_file_str, in_file_name);
+  	}
+  	else if ((*cmd_str >= '0') && (*cmd_str <= '9'))
+  		goto_line(cmd_str);
+--- 1516,1525 ----
+  	{
+  		wmove(com_win, 0, 0);
+  		wclrtoeol(com_win);
+! 		if (in_file_name == NULL)
+! 			wprintw(com_win, no_file_string);
+! 		else
+! 			wprintw(com_win, current_file_str, in_file_name);
+  	}
+  	else if ((*cmd_str >= '0') && (*cmd_str <= '9'))
+  		goto_line(cmd_str);
+***************
+*** 2085,2091 ****
+  	}
+  }
+  
+! abort()
+  {
+  	wrefresh(com_win);
+  	resetty();
+--- 2181,2187 ----
+  	}
+  }
+  
+! edit_abort()
+  {
+  	wrefresh(com_win);
+  	resetty();
+***************
+*** 2655,2669 ****
+  		else
+  			temp_point++;
+  	}
+- 	keypad(com_win, FALSE);
+- 	keypad(text_win, FALSE);
+- 	echo();
+- 	noraw();
+- 	resetty();
+  
+  #ifndef NCURSE
+! 	endwin();
+  #endif
+  
+  	if (in_pipe)
+  	{
+--- 2751,2775 ----
+  		else
+  			temp_point++;
+  	}
+  
++ 	/*
++ 	 |	if in_pipe is true, then output of the shell operation will be 
++ 	 |	read by the editor, and curses doesn't need to be turned off
++ 	 */
++ 
++ 	if (!in_pipe)
++ 	{
++ 		keypad(com_win, FALSE);
++ 		keypad(text_win, FALSE);
++ 		echo();
++ 		nl();
++ 		noraw();
++ 		resetty();
++ 
+  #ifndef NCURSE
+! 		endwin();
+  #endif
++ 	}
+  
+  	if (in_pipe)
+  	{
+***************
+*** 2789,2795 ****
+  			if (!shell_fork)
+  				exit(0);
+  		}
+! 		signal(SIGINT, abort);
+  	}
+  	if (shell_fork)
+  	{
+--- 2895,2901 ----
+  			if (!shell_fork)
+  				exit(0);
+  		}
+! 		signal(SIGINT, edit_abort);
+  	}
+  	if (shell_fork)
+  	{
+***************
+*** 2799,2815 ****
+  			;
+  	}
+  
+! #ifdef NCURSE
+! 	fixterm();
+! 	noecho();
+! 	raw();
+! 	keypad(text_win, TRUE);
+! 	keypad(com_win, TRUE);
+! 	if (info_window)
+! 		clearok(info_win, TRUE);
+! #else
+! 	set_up_term();
+! #endif
+  
+  	redraw();
+  }
+--- 2905,2921 ----
+  			;
+  	}
+  
+! 	if (!in_pipe)
+! 	{
+! 		fixterm();
+! 		noecho();
+! 		nonl();
+! 		raw();
+! 		keypad(text_win, TRUE);
+! 		keypad(com_win, TRUE);
+! 		if (info_window)
+! 			clearok(info_win, TRUE);
+! 	}
+  
+  	redraw();
+  }
+***************
+*** 2816,2825 ****
+  
+  set_up_term()		/* set up the terminal for operating with ae	*/
+  {
+! 	initscr();
+! 	savetty();
+! 	noecho();
+! 	raw();
+  
+  	if (((LINES > 15) && (COLS >= 80)) && info_window)
+  		last_line = LINES - 8;
+--- 2922,2936 ----
+  
+  set_up_term()		/* set up the terminal for operating with ae	*/
+  {
+! 	if (!curses_initialized)
+! 	{
+! 		initscr();
+! 		savetty();
+! 		noecho();
+! 		raw();
+! 		nonl();
+! 		curses_initialized = TRUE;
+! 	}
+  
+  	if (((LINES > 15) && (COLS >= 80)) && info_window)
+  		last_line = LINES - 8;
+***************
+*** 2853,2860 ****
+--- 2964,2988 ----
+  	}
+  
+  	last_col = COLS - 1;
++ 	local_LINES = LINES;
++ 	local_COLS = COLS;
+  }
+  
++ resize_check()
++ {
++ 	if ((LINES == local_LINES) && (COLS == local_COLS))
++ 		return;
++ 
++ 	if (info_window)
++ 		delwin(info_win);
++ 	delwin(text_win);
++ 	delwin(com_win);
++ 	delwin(help_win);
++ 	set_up_term();
++ 	redraw();
++ 	wrefresh(text_win);
++ }
++ 
+  menu_op(menu_list)
+  struct menu_entries menu_list[];
+  {
+***************
+*** 3025,3031 ****
+  	for (counter = 0; counter < 22; counter++)
+  	{
+  		wmove(help_win, counter, 0);
+! 		wprintw(help_win, "%s", help_text[counter]);
+  	}
+  	wrefresh(help_win);
+  	werase(com_win);
+--- 3153,3160 ----
+  	for (counter = 0; counter < 22; counter++)
+  	{
+  		wmove(help_win, counter, 0);
+! 		waddstr(help_win, (emacs_keys_mode) ? 
+! 			emacs_help_text[counter] : help_text[counter]);
+  	}
+  	wrefresh(help_win);
+  	werase(com_win);
+***************
+*** 3056,3062 ****
+  		wmove(info_win, counter, 0);
+  		wclrtoeol(info_win);
+  		if (info_type == CONTROL_KEYS)
+! 			waddstr(info_win, control_keys[counter]);
+  		else if (info_type == COMMANDS)
+  			waddstr(info_win, command_strings[counter]);
+  	}
+--- 3185,3192 ----
+  		wmove(info_win, counter, 0);
+  		wclrtoeol(info_win);
+  		if (info_type == CONTROL_KEYS)
+! 			waddstr(info_win, (emacs_keys_mode) ? 
+! 			  emacs_control_keys[counter] : control_keys[counter]);
+  		else if (info_type == COMMANDS)
+  			waddstr(info_win, command_strings[counter]);
+  	}
+***************
+*** 3095,3101 ****
+  	keypad(text_win, TRUE);
+  	idlok(text_win, TRUE);
+  	werase(text_win);
+- 	wrefresh(text_win);
+  	info_window = TRUE;
+  	info_win = newwin(6, COLS, 0, 0);
+  	werase(info_win);
+--- 3225,3230 ----
+***************
+*** 3103,3108 ****
+--- 3232,3238 ----
+  	midscreen(min(scr_vert, last_line), point);
+  	clearok(info_win, TRUE);
+  	paint_info_win();
++ 	wrefresh(text_win);
+  	clear_com_win = TRUE;
+  }
+  
+***************
+*** 3553,3558 ****
+--- 3683,3692 ----
+  					eightbit = TRUE;
+  				else if (compare(str1, NOEIGHTBIT, FALSE))
+  					eightbit = FALSE;
++ 				else if (compare(str1, EMACS_string, FALSE))
++ 					emacs_keys_mode = TRUE;
++ 				else if (compare(str1, NOEMACS_string, FALSE))
++ 					emacs_keys_mode = FALSE;
+  			}
+  			fclose(init_file);
+  		}
+***************
+*** 3934,3940 ****
+  					(eightbit ? ON : OFF));
+  		sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6], 
+  					(info_window ? ON : OFF));
+! 		sprintf(modes_menu[7].item_string, "%s %d", mode_strings[7], 
+  					right_margin);
+  
+  		ret_value = menu_op(modes_menu);
+--- 4068,4076 ----
+  					(eightbit ? ON : OFF));
+  		sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6], 
+  					(info_window ? ON : OFF));
+! 		sprintf(modes_menu[7].item_string, "%s %s", mode_strings[7], 
+! 					(emacs_keys_mode ? ON : OFF));
+! 		sprintf(modes_menu[8].item_string, "%s %d", mode_strings[8], 
+  					right_margin);
+  
+  		ret_value = menu_op(modes_menu);
+***************
+*** 3967,3972 ****
+--- 4103,4113 ----
+  					create_info_window();
+  				break;
+  			case 7:
++ 				emacs_keys_mode = !emacs_keys_mode;
++ 				if (info_window)
++ 					paint_info_win();
++ 				break;
++ 			case 8:
+  				string = get_string(margin_prompt, TRUE);
+  				if (string != NULL)
+  				{
+***************
+*** 4101,4106 ****
+--- 4242,4249 ----
+  
+  strings_init()
+  {
++ 	int counter;
++ 
+  #ifndef NO_CATGETS
+  	setlocale(LC_ALL, "");
+  	catalog = catopen("ee", 0);
+***************
+*** 4113,4119 ****
+  	mode_strings[4]  = catgetlocal( 5, "auto-paragraph format"); 
+  	mode_strings[5]  = catgetlocal( 6, "eightbit characters  "); 
+  	mode_strings[6]  = catgetlocal( 7, "info window          "); 
+! 	mode_strings[7]  = catgetlocal( 8, "right margin         ");
+  	leave_menu[0].item_string  = catgetlocal( 9, "leave menu");
+  	leave_menu[1].item_string  = catgetlocal( 10, "save changes");
+  	leave_menu[2].item_string  = catgetlocal( 11, "no save");
+--- 4256,4262 ----
+  	mode_strings[4]  = catgetlocal( 5, "auto-paragraph format"); 
+  	mode_strings[5]  = catgetlocal( 6, "eightbit characters  "); 
+  	mode_strings[6]  = catgetlocal( 7, "info window          "); 
+! 	mode_strings[8]  = catgetlocal( 8, "right margin         ");
+  	leave_menu[0].item_string  = catgetlocal( 9, "leave menu");
+  	leave_menu[1].item_string  = catgetlocal( 10, "save changes");
+  	leave_menu[2].item_string  = catgetlocal( 11, "no save");
+***************
+*** 4250,4255 ****
+--- 4393,4432 ----
+  	NOHIGHLIGHT = catgetlocal( 142, "NOHIGHLIGHT");
+  	EIGHTBIT = catgetlocal( 143, "EIGHTBIT");
+  	NOEIGHTBIT = catgetlocal( 144, "NOEIGHTBIT");
++ 	/*
++ 	 |	additions
++ 	 */
++ 	mode_strings[7] = catgetlocal( 145, "emacs key bindings   ");
++ 	emacs_help_text[0] = help_text[0];
++ 	emacs_help_text[1] = catgetlocal( 146, "^a beginning of line    ^i tab                  ^r restore word            ");
++ 	emacs_help_text[2] = catgetlocal( 147, "^b back 1 char          ^j undel char           ^t top of text             ");
++ 	emacs_help_text[3] = catgetlocal( 148, "^c command              ^k delete line          ^u bottom of text          ");
++ 	emacs_help_text[4] = catgetlocal( 149, "^d delete char          ^l undelete line        ^v next page               ");
++ 	emacs_help_text[5] = catgetlocal( 150, "^e end of line          ^m newline              ^w delete word             ");
++ 	emacs_help_text[6] = catgetlocal( 151, "^f forward 1 char       ^n next line            ^x search                  ");
++ 	emacs_help_text[7] = catgetlocal( 152, "^g go back 1 page       ^o ascii char insert    ^y search prompt           ");
++ 	emacs_help_text[8] = catgetlocal( 153, "^h backspace            ^p prev line            ^z next word               ");
++ 	emacs_help_text[9] = help_text[9];
++ 	emacs_help_text[10] = help_text[10];
++ 	emacs_help_text[11] = help_text[11];
++ 	emacs_help_text[12] = help_text[12];
++ 	emacs_help_text[13] = help_text[13];
++ 	emacs_help_text[14] = help_text[14];
++ 	emacs_help_text[15] = help_text[15];
++ 	emacs_help_text[16] = help_text[16];
++ 	emacs_help_text[17] = help_text[17];
++ 	emacs_help_text[18] = help_text[18];
++ 	emacs_help_text[19] = help_text[19];
++ 	emacs_help_text[20] = help_text[20];
++ 	emacs_help_text[21] = help_text[21];
++ 	emacs_control_keys[0] = catgetlocal( 154, "^[ (escape) menu  ^y search prompt  ^k delete line   ^p prev li   ^g prev page");
++ 	emacs_control_keys[1] = catgetlocal( 155, "^o ascii code     ^x search         ^l undelete line ^n next li   ^v next page");
++ 	emacs_control_keys[2] = catgetlocal( 156, "^u end of file    ^a begin of line  ^w delete word   ^b back 1 char           ");
++ 	emacs_control_keys[3] = catgetlocal( 157, "^t top of text    ^e end of line    ^r restore word  ^f forward 1 char        ");
++ 	emacs_control_keys[4] = catgetlocal( 158, "^c command        ^d delete char    ^j undelete char ^z next word              ");
++ 	EMACS_string = catgetlocal( 159, "EMACS");
++ 	NOEMACS_string = catgetlocal( 160, "NOEMACS");
++ 
+  	commands[0] = HELP;
+  	commands[1] = WRITE;
+  	commands[2] = READ;
+***************
+*** 4297,4303 ****
+  	init_strings[14] = NOHIGHLIGHT;
+  	init_strings[15] = EIGHTBIT;
+  	init_strings[16] = NOEIGHTBIT;
+! 	init_strings[17] = NULL;
+  
+  #ifndef NO_CATGETS
+  	catclose(catalog);
+--- 4474,4491 ----
+  	init_strings[14] = NOHIGHLIGHT;
+  	init_strings[15] = EIGHTBIT;
+  	init_strings[16] = NOEIGHTBIT;
+! 	init_strings[17] = EMACS_string;
+! 	init_strings[18] = NOEMACS_string;
+! 	init_strings[19] = NULL;
+! 
+! 	/*
+! 	 |	allocate space for strings here for settings menu
+! 	 */
+! 
+! 	for (counter = 1; counter < NUM_MODES_ITEMS; counter++)
+! 	{
+! 		modes_menu[counter].item_string = malloc(80);
+! 	}
+  
+  #ifndef NO_CATGETS
+  	catclose(catalog);
+diff -cr ../ee-p1/ee.i18n.guide ./ee.i18n.guide
+*** ../ee-p1/ee.i18n.guide	Sun Jul 11 19:51:43 1993
+--- ./ee.i18n.guide	Sun Jul 11 19:49:56 1993
+***************
+*** 88,93 ****
+--- 88,98 ----
+  115		string indicating mode is turned 'off' in modes menu
+  116 - 131	strings used for commands (some also used for initialization)
+  132 - 144	strings used for initialization
++ 145		entry for settings menu for emacs key bindings settings
++ 146 - 153	help screen entries for emacs key bindings info
++ 154 - 158	info window entries for emacs key bindings info
++ 159		string for turning on emacs key bindings in the init file
++ 160		string for turning off emacs key bindings in the init file
+  
+  Care should be taken when translating commands and initialization keywords 
+  because the algorithm used for detecting uniqueness of entered commands 
+diff -cr ../ee-p1/ee.msg ./ee.msg
+*** ../ee-p1/ee.msg	Sun Jul 11 19:51:50 1993
+--- ./ee.msg	Sun Jul 11 19:50:03 1993
+***************
+*** 147,149 ****
+--- 147,166 ----
+  142 "NOHIGHLIGHT"
+  143 "EIGHTBIT"
+  144 "NOEIGHTBIT"
++ 145 "emacs key bindings   "
++ 146 "^a beginning of line    ^i tab                  ^r restore word            "
++ 147 "^b back 1 char          ^j undel char           ^t top of text             "
++ 148 "^c command              ^k delete line          ^u bottom of text          "
++ 149 "^d delete char          ^l undelete line        ^v next page               "
++ 150 "^e end of line          ^m newline              ^w delete word             "
++ 151 "^f forward 1 char       ^n next line            ^x search                  "
++ 152 "^g go back 1 page       ^o ascii char insert    ^y search prompt           "
++ 153 "^h backspace            ^p prev line            ^z next word               "
++ 154 "^[ (escape) menu  ^y search prompt  ^k delete line   ^p prev li   ^g prev page"
++ 155 "^o ascii code     ^x search         ^l undelete line ^n next li   ^v next page"
++ 156 "^u end of file    ^a begin of line  ^w delete word   ^b back 1 char           "
++ 157 "^t top of text    ^e end of line    ^r restore word  ^f forward 1 char        "
++ 158 "^c command        ^d delete char    ^j undelete char ^z next word              "
++ 159 "EMACS"
++ 160 "NOEMACS"
++ 
+diff -cr ../ee-p1/new_curse.c ./new_curse.c
+*** ../ee-p1/new_curse.c	Sun Jul 11 19:52:10 1993
+--- ./new_curse.c	Sun Jul 11 19:50:11 1993
+***************
+*** 39,55 ****
+   |	Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon
+   |	All are rights reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/new_curse.c,v 1.21 1993/02/28 21:50:21 hugh Exp $
+   |
+   */
+  
+  #include "new_curse.h"
+  #include <signal.h>
+  
+  char *copyright_message[] = { "Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon",
+  				"All rights are reserved."};
+  
+! char * new_curse_name= "@(#) new_curse.c $Revision: 1.21 $";
+  
+  WINDOW *curscr;
+  static WINDOW *virtual_scr;
+--- 39,60 ----
+   |	Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon
+   |	All are rights reserved.
+   |
+!  |	$Header: /users/hugh/tmp/old_ae/new_curse.c,v 1.22 1993/03/29 04:10:29 hugh Exp $
+   |
+   */
+  
+  #include "new_curse.h"
+  #include <signal.h>
++ #include <fcntl.h>
++ #ifdef BSD_SELECT
++ #include <sys/types.h>
++ #include <sys/time.h>
++ #endif
+  
+  char *copyright_message[] = { "Copyright (c) 1986, 1987, 1988, 1991, 1992 Hugh Mahon",
+  				"All rights are reserved."};
+  
+! char * new_curse_name= "@(#) new_curse.c $Revision: 1.22 $ pl 2";
+  
+  WINDOW *curscr;
+  static WINDOW *virtual_scr;
+***************
+*** 57,62 ****
+--- 62,73 ----
+  WINDOW *newwin();
+  WINDOW *last_window_refreshed;
+  
++ #ifdef TIOCGWINSZ
++ 	struct winsize ws;
++ #endif
++ 
++ #define min(a, b)	(a < b ? a : b)
++ 
+  #ifndef CAP
+  #define String_Out(table, stack, place) Info_Out(table, stack, place)
+  #else
+***************
+*** 452,460 ****
+  int Repaint_screen;	/* if an operation to change screen impossible, repaint screen	*/
+  int Intr;		/* storeage for interrupt character		*/
+  int Parity;		/* 0 = no parity, 1 = odd parity, 2 = even parity */
+! int Nowait;		/* for BSD systems				*/
+  int Num_bits;	/* number of bits per character	*/
+  int Flip_Bytes;	/* some systems have byte order reversed	*/
+  
+  #ifndef CAP
+  char *Strings;
+--- 463,472 ----
+  int Repaint_screen;	/* if an operation to change screen impossible, repaint screen	*/
+  int Intr;		/* storeage for interrupt character		*/
+  int Parity;		/* 0 = no parity, 1 = odd parity, 2 = even parity */
+! int Noblock;		/* for BSD systems				*/
+  int Num_bits;	/* number of bits per character	*/
+  int Flip_Bytes;	/* some systems have byte order reversed	*/
++ int interrupt_flag = FALSE;	/* set true if SIGWINCH received	*/
+  
+  #ifndef CAP
+  char *Strings;
+***************
+*** 513,518 ****
+--- 525,606 ----
+  
+  int *virtual_lines;
+  
++ #ifdef SIGWINCH
++ 
++ /*
++  |	Copy the contents of one window to another.
++  */
++ 
++ copy_window(origin, destination)
++ WINDOW *origin, *destination;
++ {
++ 	int counter, row, column;
++ 	struct _line *orig, *dest;
++ 
++ 	orig = origin->first_line;
++ 	dest = destination->first_line;
++ 
++ 	for (row = 0; 
++ 		row < (min(origin->Num_lines, destination->Num_lines)); 
++ 			row++)
++ 	{
++ 		for (column = 0; 
++ 		    column < (min(origin->Num_cols, destination->Num_cols)); 
++ 			column++)
++ 		{
++ 			dest->row[column] = orig->row[column];
++ 			dest->attributes[column] = orig->attributes[column];
++ 		}
++ 		dest->changed = orig->changed;
++ 		dest->scroll = orig->scroll;
++ 		dest->last_char = min(orig->last_char, destination->Num_cols);
++ 		orig = orig->next_screen;
++ 		dest = dest->next_screen;
++ 	}
++ 	destination->LX = min((destination->Num_cols - 1), origin->LX);
++ 	destination->LY = min((destination->Num_lines - 1), origin->LY);
++ 	destination->Attrib = origin->Attrib;
++ 	destination->scroll_up = origin->scroll_up;
++ 	destination->scroll_down = origin->scroll_down;
++ 	destination->SCROLL_CLEAR = origin->SCROLL_CLEAR;
++ }
++ 
++ reinitscr() 
++ {
++ 	WINDOW *local_virt;
++ 	WINDOW *local_std;
++ 	WINDOW *local_cur;
++ 
++ 	signal(SIGWINCH, reinitscr);
++ #ifdef TIOCGWINSZ
++ 	if (ioctl(0, TIOCGWINSZ, &ws) < 0)
++ 	{
++ 		perror("TIOCGWINSZ");
++ 		exit(1);
++ 	}
++ 	if (ws.ws_row == LINES && ws.ws_col == COLS) 
++ 		return(0);
++ 	if (ws.ws_row > 0) LINES = ws.ws_row;
++ 	if (ws.ws_col > 0) COLS = ws.ws_col;
++ #endif /* TIOCGWINSZ */
++ 	local_virt = newwin(LINES, COLS, 0, 0);
++ 	local_std = newwin(LINES, COLS, 0, 0);
++ 	local_cur = newwin(LINES, COLS, 0, 0);
++ 	copy_window(virtual_scr, local_virt);
++ 	copy_window(stdscr, local_std);
++ 	copy_window(curscr, local_cur);
++ 	delwin(virtual_scr);
++ 	delwin(stdscr);
++ 	delwin(curscr);
++ 	virtual_scr = local_virt;
++ 	stdscr = local_std;
++ 	curscr = local_cur;
++ 	free(virtual_lines);
++ 	virtual_lines = (int *) malloc(LINES * (sizeof(int)));
++ 	interrupt_flag = TRUE;
++ }
++ #endif /* SIGWINCH */
++ 
+  initscr()		/* initialize terminal for operations	*/
+  {
+  	char *pointer;
+***************
+*** 525,536 ****
+  #endif
+  	if (initialized)
+  		return;
+  	Flip_Bytes = FALSE;
+  	Parity = 0;
+  	Time_Out = FALSE;
+  	bufp = 0;
+  	Move_It = FALSE;
+! 	Nowait = FALSE;
+  #ifdef SYS5
+  	value = ioctl(0, TCGETA, &Terminal);
+  	if (Terminal.c_cflag & PARENB)
+--- 613,627 ----
+  #endif
+  	if (initialized)
+  		return;
++ #ifdef BSD_SELECT
++ 	setbuf(stdin, NULL);
++ #endif /* BSD_SELECT */
+  	Flip_Bytes = FALSE;
+  	Parity = 0;
+  	Time_Out = FALSE;
+  	bufp = 0;
+  	Move_It = FALSE;
+! 	Noblock = FALSE;
+  #ifdef SYS5
+  	value = ioctl(0, TCGETA, &Terminal);
+  	if (Terminal.c_cflag & PARENB)
+***************
+*** 635,665 ****
+  		exit(0);
+  	}
+  #ifndef CAP
+  	TERM_PATH = getenv("TERMINFO");
+  	if (TERM_PATH != NULL)
+  	{
+  		Data_Line_len = 23 + strlen(TERM_PATH) + strlen(TERMINAL_TYPE);
+! 		pointer = Term_File_name = malloc(Data_Line_len);
+! 		strcpy(Term_File_name, TERM_PATH);
+! 		while (*pointer != NULL)
+! 			pointer++;
+! 		*pointer = '/';
+! 		pointer++;
+  	}
+! 	else
+  	{
+! 		pointer = Term_File_name = malloc(22 + strlen(TERMINAL_TYPE));
+! 		strcpy(Term_File_name, "/usr/lib/terminfo/");
+! 		while (*pointer != NULL)
+! 			pointer++;
+  	}
+! 	*pointer = *TERMINAL_TYPE;
+! 	pointer++;
+! 	*pointer = '/';
+! 	pointer++;
+! 	strcpy(pointer, TERMINAL_TYPE);
+! 	if ((Fildes = open(Term_File_name, 0)) == -1)
+  	{
+  		free(Term_File_name);
+  		Term_File_name = NULL;
+  	}
+--- 726,758 ----
+  		exit(0);
+  	}
+  #ifndef CAP
++ 	Fildes = -1;
+  	TERM_PATH = getenv("TERMINFO");
+  	if (TERM_PATH != NULL)
+  	{
+  		Data_Line_len = 23 + strlen(TERM_PATH) + strlen(TERMINAL_TYPE);
+! 		Term_File_name = malloc(Data_Line_len);
+! 		sprintf(Term_File_name, "%s/%c/%s", TERM_PATH, *TERMINAL_TYPE, TERMINAL_TYPE);
+! 		Fildes = open(Term_File_name, O_RDONLY);
+  	}
+! 	if (Fildes == -1)
+  	{
+! 		TERM_PATH = "/usr/lib/terminfo";
+! 		Data_Line_len = 23 + strlen(TERM_PATH) + strlen(TERMINAL_TYPE);
+! 		Term_File_name = malloc(Data_Line_len);
+! 		sprintf(Term_File_name, "%s/%c/%s", TERM_PATH, *TERMINAL_TYPE, TERMINAL_TYPE);
+! 		Fildes = open(Term_File_name, O_RDONLY);
+  	}
+! 	if (Fildes == -1)
+  	{
++ 		TERM_PATH = "/usr/share/lib/terminfo";
++ 		Data_Line_len = 23 + strlen(TERM_PATH) + strlen(TERMINAL_TYPE);
++ 		Term_File_name = malloc(Data_Line_len);
++ 		sprintf(Term_File_name, "%s/%c/%s", TERM_PATH, *TERMINAL_TYPE, TERMINAL_TYPE);
++ 		Fildes = open(Term_File_name, O_RDONLY);
++ 	}
++ 	if (Fildes == -1)
++ 	{
+  		free(Term_File_name);
+  		Term_File_name = NULL;
+  	}
+***************
+*** 666,672 ****
+  	else
+  		TERM_INFO = INFO_PARSE();
+  #else
+! 	Term_File_name = "/etc/termcap";
+  	if ((TFP = fopen(Term_File_name, "r")) == NULL)
+  	{
+  		printf("unable to open /etc/termcap file \n");
+--- 759,777 ----
+  	else
+  		TERM_INFO = INFO_PARSE();
+  #else
+! 	/*
+! 	 |	termcap information can be in the TERMCAP env variable, if so 
+! 	 |	use that, otherwise check the /etc/termcap file
+! 	 */
+! 	if ((pointer = Term_File_name = getenv("TERMCAP")) != NULL)
+! 	{
+! 		if (*Term_File_name != '/')
+! 			Term_File_name = "/etc/termcap";
+! 	}
+! 	else
+! 	{
+! 		Term_File_name = "/etc/termcap";
+! 	}
+  	if ((TFP = fopen(Term_File_name, "r")) == NULL)
+  	{
+  		printf("unable to open /etc/termcap file \n");
+***************
+*** 678,686 ****
+  		Booleans[value] = 0;
+  	for (value = 0; value < 128; value++)	
+  		Numbers[value] = 0;
+! 	Find_term();
+! 	CAP_PARSE();
+  #endif
+  	if ((String_table[cm__] == NULL) || (Booleans[hc__]))
+  	{
+  		fprintf(stderr, "sorry, unable to use this terminal type for screen editing\n");
+--- 783,802 ----
+  		Booleans[value] = 0;
+  	for (value = 0; value < 128; value++)	
+  		Numbers[value] = 0;
+! 	Data_Line = malloc(512);
+! 	if (pointer && *pointer != '/')
+! 	{
+! 		TERM_data_ptr = pointer;
+! 		CAP_PARSE();
+! 	}
+! 	else
+! 	{
+! 		Find_term();
+! 		CAP_PARSE();
+! 	}
+  #endif
++ 	if (String_table[pc__] == NULL) 
++ 		String_table[pc__] = "\0";
+  	if ((String_table[cm__] == NULL) || (Booleans[hc__]))
+  	{
+  		fprintf(stderr, "sorry, unable to use this terminal type for screen editing\n");
+***************
+*** 701,706 ****
+--- 817,836 ----
+  		if (value > 0)
+  			COLS = value;
+  	}
++ #ifdef TIOCGWINSZ
++ 	/*
++ 	 |	get the window size
++ 	 */
++ 	if (ioctl(0, TIOCGWINSZ, &ws) < 0)
++ 	{
++ 		perror("TIOCGWINSZ");
++ 		exit(1);
++ 	}
++ 	if (ws.ws_row > 0)
++ 		LINES = ws.ws_row;
++ 	if (ws.ws_col > 0)
++ 		COLS = ws.ws_col;
++ #endif
+  	virtual_scr = newwin(LINES, COLS, 0, 0);
+  	stdscr = newwin(LINES, COLS, 0, 0);
+  	curscr = newwin(LINES, COLS, 0, 0);
+***************
+*** 709,714 ****
+--- 839,852 ----
+  	Repaint_screen = TRUE;
+  	initialized = TRUE;
+  	virtual_lines = (int *) malloc(LINES * (sizeof(int)));
++ 
++ #ifdef SIGWINCH
++ 	/*
++ 	 |	reset size of windows and LINES and COLS if term window 
++ 	 |	changes size
++ 	 */
++ 	signal(SIGWINCH, reinitscr);
++ #endif /* SIGWINCH */
+  }
+  
+  #ifndef CAP
+***************
+*** 892,897 ****
+--- 1030,1037 ----
+  			Counter++;
+  			Temp++;
+  		}
++ 		if (Counter == 1)	/* no data */
++ 			return(NULL);
+  		String = Temp = malloc(Counter);
+  		while ((*TERM_data_ptr != ':') && (*TERM_data_ptr != NULL))
+  		{
+***************
+*** 948,955 ****
+  	{
+  		while ((*TERM_data_ptr != NULL) && (*TERM_data_ptr != ':'))
+  			TERM_data_ptr++;
+- 		if (*TERM_data_ptr == ':')
+- 			TERM_data_ptr++;
+  	}
+  	return(param);
+  }
+--- 1088,1093 ----
+***************
+*** 966,973 ****
+  			TERM_data_ptr++;
+  		TERM_data_ptr++;
+  		Itemp = AtoI();
+- 		if (*TERM_data_ptr == ':')
+- 			TERM_data_ptr++;
+  		param = Itemp;
+  	}
+  	else
+--- 1104,1109 ----
+***************
+*** 974,981 ****
+  	{
+  		while (*TERM_data_ptr != ':')
+  			TERM_data_ptr++;
+- 		if (*TERM_data_ptr == ':')
+- 			TERM_data_ptr++;
+  	}
+  	return(param);
+  }
+--- 1110,1115 ----
+***************
+*** 991,997 ****
+  		Ftemp++;
+  	*Ftemp++ = '|';
+  	*Ftemp = NULL;
+- 	Data_Line = malloc(512);
+  	CFOUND = FALSE;
+  	Data_Line_len = strlen(TERMINAL_TYPE) + 1;
+  	while ((!CFOUND) && ((TERM_data_ptr=fgets(Data_Line, 512, TFP)) != NULL))
+--- 1125,1130 ----
+***************
+*** 1183,1191 ****
+  				if (*Otemp == 'd')
+  				 	printf("%d", p1);
+  				else if (*Otemp == '2')
+! 					printf("%2d", p1);
+  				else if (*Otemp == '3')
+! 					printf("%3d", p1);
+  				else if (*Otemp == '+')
+  				{
+  					Otemp++;
+--- 1316,1324 ----
+  				if (*Otemp == 'd')
+  				 	printf("%d", p1);
+  				else if (*Otemp == '2')
+! 					printf("%02d", p1);
+  				else if (*Otemp == '3')
+! 					printf("%03d", p1);
+  				else if (*Otemp == '+')
+  				{
+  					Otemp++;
+***************
+*** 1785,1790 ****
+--- 1918,1925 ----
+  	int user_col = 0;
+  	int virt_col = 0;
+  
++ 	if (window->SR >= virtual_scr->Num_lines)
++ 		return;
+  	user_line = window->first_line;
+  	virtual_line = virtual_scr->first_line;
+  	virtual_scr->SCROLL_CLEAR = window->SCROLL_CLEAR;
+***************
+*** 1798,1808 ****
+  	{
+  		virtual_line = virtual_line->next_screen;
+  	}
+! 	for (line_counter = 0; line_counter < window->Num_lines; line_counter++)
+  	{
+  		if ((last_window_refreshed != window) || (user_line->changed) || ((SCROLL | CLEAR) & window->SCROLL_CLEAR))
+  		{
+! 			for (user_col = 0, virt_col = window->SC; user_col < window->Num_cols; virt_col++, user_col++)
+  			{
+  				virtual_line->row[virt_col] = user_line->row[user_col];
+  				virtual_line->attributes[virt_col] = user_line->attributes[user_col];
+--- 1933,1948 ----
+  	{
+  		virtual_line = virtual_line->next_screen;
+  	}
+! 	for (line_counter = 0; (line_counter < window->Num_lines)
+! 		&& ((line_counter + window->SR) < virtual_scr->Num_lines); 
+! 			line_counter++)
+  	{
+  		if ((last_window_refreshed != window) || (user_line->changed) || ((SCROLL | CLEAR) & window->SCROLL_CLEAR))
+  		{
+! 			for (user_col = 0, virt_col = window->SC; 
+! 				(virt_col < virtual_scr->Num_cols) 
+! 				  && (user_col < window->Num_cols); 
+! 				  	virt_col++, user_col++)
+  			{
+  				virtual_line->row[virt_col] = user_line->row[user_col];
+  				virtual_line->attributes[virt_col] = user_line->attributes[user_col];
+***************
+*** 1814,1824 ****
+  			{
+  				if (virtual_line->row[virtual_line->last_char] == NULL)
+  					virtual_line->row[virtual_line->last_char] = ' ';
+! 				virtual_line->last_char = user_line->last_char + window->SC;
+  			}
+  			else if (virtual_line->last_char > (user_line->last_char + window->SC))
+  			{
+! 				virtual_line->row[window->SC + user_line->last_char] = ' ';
+  			}
+  		}
+  		else
+--- 1954,1967 ----
+  			{
+  				if (virtual_line->row[virtual_line->last_char] == NULL)
+  					virtual_line->row[virtual_line->last_char] = ' ';
+! 				virtual_line->last_char = 
+! 					min(virtual_scr->Num_cols, 
+! 					  (user_line->last_char + window->SC));
+  			}
+  			else if (virtual_line->last_char > (user_line->last_char + window->SC))
+  			{
+! 				virtual_line->row[min(virtual_scr->Num_cols, 
+! 					  (user_line->last_char + window->SC))] = ' ';
+  			}
+  		}
+  		else
+***************
+*** 1852,1858 ****
+--- 1995,2032 ----
+  		in_buff[bufp++] = c;
+  }
+  
++ #ifdef BSD_SELECT
+  int 
++ timed_getchar()
++ {
++ 	struct timeval tv;
++ 	fd_set fds;
++ 	int ret_val;
++ 	int nfds = getdtablesize();
++ 
++ 	FD_ZERO(&fds);
++ 	tv.tv_sec = 0;
++ 	tv.tv_usec = 500000;  /* half a second */
++ 	FD_SET(0, &fds);
++ 	Time_Out = FALSE; /* just in case */
++ 
++ 	ret_val = select(nfds, &fds, 0, 0, &tv);
++ 
++ 	/*
++ 	 |	if ret_val is less than zero, there was no input
++ 	 |	otherwise, get a character and return it
++ 	 */
++ 
++ 	if (ret_val <= 0)
++ 	{ 
++ 		Time_Out = TRUE;
++ 		return(-1);
++ 	}
++ 
++ 	return(getchar());
++ }
++ #endif
++ 
+  wgetch(window)			/* get character from specified window	*/
+  WINDOW *window;
+  {
+***************
+*** 1859,1900 ****
+  	int old_arg;
+  	int in_value;
+  
+! #ifndef SYS5
+! 	if (!Nowait)
+  	{
+  		Time_Out = FALSE;
+- 		Nowait = TRUE;
+  		old_arg = fcntl(0, F_GETFL, 0);
+! 		value = fcntl(0, F_SETFL, old_arg | FNDELAY);
+  	}
+- #endif
+  	in_value = ((bufp > 0) ? in_buff[--bufp] : getchar());
+  	if (in_value != -1) 
+  	{
+  		in_value &= 0xff;
+! 		if ((Parity) && (Num_bits < 8))	/* strip eighth bit if parity in use */
+  		in_value &= 0177;
+  	}
+! 	if ((in_value == '\033') || (in_value == '\037'))		/* escape character		*/
+! 		in_value = Get_key(in_value);
+! #ifndef SYS5
+! 	if (!Time_Out)
+  	{
+! 		Nowait = FALSE;
+! 		value = fcntl(0, F_SETFL, old_arg);
+  	}
+! #endif
+  	return(in_value);
+  }
+  
+  Clear()		/* notify that time out has occurred	*/
+  {
+  	Time_Out = TRUE;
+  }
+  
+  int 
+! Get_key(first_char)			/* try to decode key sequence		*/
+! int first_char;				/* first character of sequence		*/
+  {
+  	int in_char;
+  	int Count;
+--- 2033,2091 ----
+  	int old_arg;
+  	int in_value;
+  
+! #ifdef SYS5
+! 	in_value = ((bufp > 0) ? in_buff[--bufp] : getchar());
+! #else /* SYS5 */
+! #ifdef BSD_SELECT
+! 	if (Noblock)
+! 		in_value = ((bufp > 0) ? in_buff[--bufp] : timed_getchar());
+! 	else
+! 		in_value = ((bufp > 0) ? in_buff[--bufp] : getchar());
+! #else /* BSD_SELECT */
+! 	if (Noblock)
+  	{
+  		Time_Out = FALSE;
+  		old_arg = fcntl(0, F_GETFL, 0);
+! 		in_value = fcntl(0, F_SETFL, old_arg | FNDELAY);
+  	}
+  	in_value = ((bufp > 0) ? in_buff[--bufp] : getchar());
++ 	if (Noblock)
++ 	{
++ 		fcntl(0, F_SETFL, old_arg);
++ 		if (Time_Out)
++ 			in_value = -1;
++ 	}
++ #endif /* BSD_SELECT */
++ #endif /* SYS5 */
++ 
+  	if (in_value != -1) 
+  	{
+  		in_value &= 0xff;
+! 		if ((Parity) && (Num_bits < 8))	
+! 				/* strip eighth bit if parity in use */
+  		in_value &= 0177;
+  	}
+! 	else if (interrupt_flag)
+  	{
+! 		interrupt_flag = FALSE;
+! 		in_value = wgetch(window);
+  	}
+! 
+! 	if ((in_value == '\033') || (in_value == '\037'))/* escape character */
+! 		in_value = Get_key(in_value);
+  	return(in_value);
+  }
+  
++ #ifndef BSD_SELECT
+  Clear()		/* notify that time out has occurred	*/
+  {
+  	Time_Out = TRUE;
+  }
++ #endif /* BSD_SELECT */
+  
+  int 
+! Get_key(first_char)			/* try to decode key sequence	*/
+! int first_char;				/* first character of sequence	*/
+  {
+  	int in_char;
+  	int Count;
+***************
+*** 1915,1922 ****
+--- 2106,2115 ----
+  	string[Count++] = first_char;
+  	string[Count] = NULL;
+  	Time_Out = FALSE;
++ #ifndef BSD_SELECT
+  	signal(SIGALRM, Clear);
+  	value = alarm(1);
++ #endif /* BSD_SELECT */
+  #ifdef SYS5
+  /*	value = ioctl(0, TCGETA, &Gterminal);
+  	Gterminal.c_cc[VMIN] = 0;	/* minimum of zero characters	*/
+***************
+*** 1925,1930 ****
+--- 2118,2124 ----
+  	Gterminal.c_lflag &= ~ECHO;		/* disable echo		*/
+  /*	value = ioctl(0, TCSETA, &Gterminal);	/* set characteristics	*/
+  #else
++ 	Noblock = TRUE;
+  /*	value = ioctl(0, TIOCGETP, &Gterminal);
+  	Gterminal.sg_flags |= RAW ;
+  	Gterminal.sg_flags &= ~ECHO;
+***************
+*** 1951,1961 ****
+--- 2145,2158 ----
+  			}
+  		}
+  	}
++ #ifndef BSD_SELECT
+  	if (!Time_Out)
+  		value = alarm(0);
++ #endif /* BSD_SELECT */
+  #ifdef SYS5
+  /*	value = ioctl(0, TCSETA, &Terminal);*/
+  #else
++ 	Noblock = FALSE;
+  	value = ioctl(0, TIOCSETP, &Terminal);
+  /*	value = fcntl(0, F_SETFL, old_arg);*/
+  #endif
+***************
+*** 2626,2631 ****
+--- 2823,2834 ----
+  	tmp1->last_char = column;
+  	if (column < COLS)
+  	{
++ 		if (STAND)
++ 		{
++ 			STAND = FALSE;
++ 			Position(window, row, column);
++ 			attribute_off();
++ 		}
+  		if (String_table[ce__] != NULL)
+  			String_Out(String_table[ce__], NULL, 0);
+  		else
+***************
+*** 2632,2637 ****
+--- 2835,2841 ----
+  		{
+  			for (x = column; x < window->Num_cols; x++)
+  				putchar(' ');
++ 			Curr_x = x;
+  		}
+  	}
+  }
+***************
+*** 2669,2675 ****
+  			if (new_lin[end_new+k] == NULL)
+  			{
+  				Position(window, line, (end_new+k));
+! 						CLEAR_TO_EOL(window, line, (end_new+k));
+  			}
+  			Position(window, line, offset);
+  			for (k = offset; k < end_old; k++)
+--- 2873,2879 ----
+  			if (new_lin[end_new+k] == NULL)
+  			{
+  				Position(window, line, (end_new+k));
+! 				CLEAR_TO_EOL(window, line, (end_new+k));
+  			}
+  			Position(window, line, offset);
+  			for (k = offset; k < end_old; k++)
+***************
+*** 3162,3168 ****
+  		attributes_set[0] = 0;
+  		String_Out(String_table[sa__], attributes_set, 1);
+  	}
+! 	else if (String_table[sa__])
+  		String_Out(String_table[se__], NULL, 0);
+  }
+  
+--- 3366,3372 ----
+  		attributes_set[0] = 0;
+  		String_Out(String_table[sa__], attributes_set, 1);
+  	}
+! 	else if (String_table[se__])
+  		String_Out(String_table[se__], NULL, 0);
+  }
+  
+exit 0 # Just in case...

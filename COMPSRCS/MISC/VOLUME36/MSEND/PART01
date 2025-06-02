@@ -1,0 +1,2032 @@
+Newsgroups: comp.sources.misc
+From: spike@world.std.com (Joe Ilacqua)
+Subject: v36i018:  msend - a write/wall/rwall/talk replacement, v1.2, Part01/02
+Message-ID: <csm-v36i018=msend.133024@sparky.IMD.Sterling.COM>
+X-Md4-Signature: efbb567b17c512be250f6bcb2e96d902
+Date: Fri, 19 Mar 1993 19:31:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: spike@world.std.com (Joe Ilacqua)
+Posting-number: Volume 36, Issue 18
+Archive-name: msend/part01
+Environment: UNIX, networking
+
+"msend" is a program for sending one line messages to other users on
+both local and remote systems.  "msend" can also do local and remote
+broadcast messages in the manner of wall and rwall. 
+
+Basically, it looks like this:
+
+world% msend jimf@centerline.com Hello
+world%
+(on centerline)
+[spike@world.std.com (ttyp4): Hello]
+centerline% msend spike@world.std.com
+msend>Yo!
+msend>What's up?
+msend>^D
+centerline%
+(on world)
+[jimf@centerline.com (ttyq7): Yo!]
+[jimf@centerline.com (ttyq7): What's up?]
+
+Unlike "write", "msend" prints a Line Feed before the message, so it
+appears on a line by itself, not in the middle of what you were
+typing.  "msend" also keeps a history of messages sent to you.  Given
+the above session:
+
+world% msend -huh
+[jimf@centerline.com (ttyq7): What's up?]
+world% msend -huh 2
+[jimf@centerline.com (ttyq7): Yo!]
+[jimf@centerline.com (ttyq7): What's up?]
+
+There is a forwarding mechanism in msend so that all messages sent to
+you can be forwarded to a given tty on a given host.  This is very
+useful when you have windows open on many hosts.
+
+msend has been around for a number of year.  It works, and has been
+tested on a wide range of systems.  It should port to any system with
+BSD style networking.  	This is pretty much the same version that
+appeared in alt.sources, with some very minor changes to support BSDI.
+
+->Spike (spike@world.std.com)
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Configuration Protocol misc.c msend.c network.c
+#   sendrecv.c write.c
+# Wrapped by kent@sparky on Fri Mar 19 13:24:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1846 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XMSEND - Immediate message sending program for UNIX machines
+X
+X(c) Copyright 1988, 1989, 1990, 1991 Jim Frost.  All Rights Reserved.
+XPlease see the accompanying file "Copyright" for more information.
+X
+XThis utility is very similar to "rsend", allowing messages to be sent
+Xto different users on different machines.  "rsend" was, in turn based
+Xon "send" which use the SMTP SEND commands for message delivery (see
+XRFC 821).  "msend" implements the UMTP protocol described in
+X"Protocol" with other enhancements to make life easier on the user.
+XSee the accompanying man page for details.
+X
+XSimple instructions for installation are in "Configuration".
+X
+XWith regards to portability, the current version of msend was compiled
+Xand tested on the following machines:
+X
+X        Machine         	OS           	
+X        --------------- 	-------------	
+X	Sun 3			SunOS 4.0.3,4.1.1
+X	Sun 4 (& clones)	SunOS 4.0.3,4.1,4.1.1,4.1.2
+X	Sun 386i		SunOS 4.0.2
+X	SGI 4D/25		IRIX 3.0
+X	SGI Indigo		IRIX 4.0
+X	IBM R/6000		AIX 3.1.5, 3.1.6, 3.2
+X	HP Series 700   	HP-UX 8.01 (?)
+X	Convex C220		ConvexOS Release V9.1
+X	DEC DECStation		ULTRIX 4.2
+X	DG			DG/UX 5.4
+X	386 Box			SCO UNIX/ODT 1.1
+X	486 Box			BSDI 0.9.4
+X
+XOlder versions have run on:
+X
+X        Machine         OS           	
+X        --------------- -------------	
+X	Encore Multimax	UMAX 4.2 R3.1	
+X	Sun 2		SunOS 3.2, 3.5
+X	VAX 11/750	4.3 BSD UNIX
+X
+Xmsend should run on any machine that has BSD networking support with
+Xfew changes and can be modified quickly to use other reliable
+Xnetworking systems.
+X
+XSpecial thanks to the following people for ideas and code segments:
+X
+X	Adam Bryant     (adb@bucsf.bu.edu)
+X	Phil Budne      (budd@bu-it.bu.edu)
+X	Jason Heirtzler (jdh@bu-it.bu.edu)
+X	Chris Riney     (chris@tisdec.tis.tandy.com)
+X	Barry Shein     (bzs@bu-it.bu.edu)
+X	John Solomon    (jsol@bu-it.bu.edu)
+X	Len Tower       (tower@bu-it.bu.edu)
+END_OF_FILE
+  if test 1846 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Configuration' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Configuration'\"
+else
+  echo shar: Extracting \"'Configuration'\" \(4814 characters\)
+  sed "s/^X//" >'Configuration' <<'END_OF_FILE'
+XCUSTOMIZATION AND INSTALLATION
+X
+X  Be sure to properly customize "msend" by changing config.h and the
+X  Makefile to work with your system.
+X
+X
+X  In config.h:
+X
+X  PATH DEFINITIONS
+X
+X  The following paths are recommended:
+X
+X        #define LOGFILE  "/usr/adm/msend.log"
+X        #define SPOOLDIR "/usr/spool/msend"
+X
+X  LOGFILE - the name of the file that all daemon error messages will be
+X  sent to.
+X
+X  SPOOLDIR - the path of the directory used to save user messages for
+X  the "-huh" option.  It should be cleaned regularly to prevent
+X  overfilling.  If SPOOLDIR is undefined, ~/.msendmsgs is used instead.
+X
+X  OPTIONS
+X
+X  SECURE_PORT - When defined msend will attempt to acquire a secure
+X  port to make the the connect to the msend daemon.  This allows the
+X  remote msendd to detect when someone is trying to spoof it, that is
+X  make a message appear to come from a different user.  This method is
+X  not fool proof, but it can cut way down on abuse.  This does not
+X  currently work on systems the use POSIX setuid(2) semantics.  If you
+X  meet someone from the POSIX committee, punch them in the mouth.
+X
+X  ALONE - build msendd to run standalone instead of under inetd.
+X
+X  The following three options can also be controlled via the command
+X  line.  Best to just leave them defined.
+X
+X  CBROADCAST - allow broadcasting from the client (outgoing broadcasts).
+X
+X  DBROADCAST - allow broadcasting from the daemon (incoming broadcasts).
+X
+X  ROUTING - allow routing of messages to other hosts.
+X
+X  GNUREADLINE and EDIT require you to have GNU readline & history
+X  library that is distributed with 'bash' and 'gdb.  It is worth getting.
+X
+X  GNUREADLINE - make msend use the GNU readline & history library on
+X                the user interface.  This gives you bash/tcsh style
+X                input line editing.  
+X
+X  EDIT - Only meaningful if GNUREADLINE is defined.  Set to ON or OFF,
+X         EDIT determines whether input line editing is enabled or not.
+X         OFF is safest, because readline can fail on terminals that
+X         use 7 bits with parity.
+X
+X  The remaining options are for OS dependences,  The correct ones are
+X  automatically defined for SUNOS, AIX and IRIX.  You should only need
+X  these if you are porting to a new system.
+X
+X  USE_LOCKF - Use lockf() instead of flock().
+X
+X  NEEDS_LOCK - If your system doesn't have flock() *NOR* lockf().  If
+X               you define this it's possible that you'll get some
+X               conflict in writing to spool files.
+X
+X  NOHERROR - If your systems libraries do not contain h_errno.
+X
+X  SYSVUTMP - If your system uses a SYSV style "utmp" file.
+X
+X  SYSV_WAIT_STATUS - If you systems wait status is int not 'union wait'.
+X
+X  SYSV_SETUID - If your system lacks seteuid(2) and setruid(2),
+X                but does have SYSV setuid(2) semantics.
+X
+X  NO_BZERO -  If your system does not have bzero() and bcopy().  This
+X              will use memset and mcopy instead.
+X  In Makefile:
+X
+X  READLINELIBS - if you are using the GNU readline/history package this
+X                 should be the infomation to get that library and the
+X                 termcap library.  If 'libreadline.a' is installed:
+X                    'READLINELIBS = -lreadline -ltermcap'
+X                 should work well.
+X
+X  LIBS -  Any sytem libs you need.  Under SUNOS you may need
+X          "-lresolv" if you are using DNS and have not modified the
+X          system libraries or changed YP to use the name server.
+X          Under IRIX on SGI's you may need "-lsun -lbsd" if you are
+X          using NIS (YP).  For SCO UNIX-ODT you will need "-lx -lsocket".
+X
+X  DESTDIR  -  Directory to install "msend" in.
+X  DAEMONDIR - Directory to install the msend daemon in.
+X  DAEMONNAME - What to call the daemon  (SUN likes "in.msendd"),
+X               others like "msendd"
+X  MANDIR - Directory to install the man page in.
+X  MANSEC - Man section (i.e '1', 'l', or 'n').
+X
+X
+X  PORT NUMBER
+X
+X  Msend determines which port to use by first looking in /etc/services
+X  and if it's not there, using a port number that's fixed at
+X  compilation time.  The default port number is 56060, a number I
+X  picked out of my head.  At some point a universal number may be
+X  allocated, but for now use the default.
+X
+XINSTALLATION
+X
+X  On systems with the BSD install program 'make install' as root.  On
+X  other systems try 'make install-sysv'.
+X
+X
+XInitialization
+X
+X  If you build msend to run normally (you did not define ALONE)
+X  you will need to add entries to /etc/inetd.conf (/usr/etc/inetd.conf
+X  on some systems) and /etc/servers.
+X
+X  /etc/inetd.conf:
+X    msend   stream  tcp     nowait  root    /usr/etc/in.msendd  in.msendd
+X
+X  /etc/services:
+X    msend           56060/tcp
+X
+X  If your are using NIS (YP) you will need to rebuild the maps.  In
+X  any case you need to 'kill -HUP' the inetd process.
+X
+XSend bugs, fixes, and ports to 'msend-bugs@world.std.com'.
+END_OF_FILE
+  if test 4814 -ne `wc -c <'Configuration'`; then
+    echo shar: \"'Configuration'\" unpacked with wrong size!
+  fi
+  # end of 'Configuration'
+fi
+if test -f 'Protocol' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Protocol'\"
+else
+  echo shar: Extracting \"'Protocol'\" \(7194 characters\)
+  sed "s/^X//" >'Protocol' <<'END_OF_FILE'
+X	    User-To-User Message Transfer Protocol (UMTP)
+X
+X			     by Jim Frost
+X
+X			     May 18, 1988
+X
+XINTRODUCTION
+X
+XIn order to facilitate a real-time user-to-user communication system
+Xbetween networked hosts, the User-To-User Message Transfer Protocol
+X(UMTP) was developed.  When fully implemented, it supports manual
+Xrouting, remote broadcasts, and remote terminal selection.
+X
+XPROTOCOL DESCRIPTION
+X
+XUMTP works on a request-reply basis.  Every request must have a reply.
+XRequests are always send to a host, replies always come from a host.
+X
+XMESSAGE REQUEST PACKETS
+X
+XA message request packet is structured as follows:
+X
+X  u_short taddrlen;        /* length of taddr string */
+X  u_short tttylen;         /* length of ttty string */
+X  u_short msglen;          /* length of msg string */
+X  u_short fwdcount;        /* forwarding count */
+X  u_short mode;            /* mode bits */
+X  char    taddr[taddrlen]; /* "to" address string */
+X  char    ttty[tttylen];   /* "to" tty string */
+X  char    msg[msglen];     /* message string */
+X
+XU_short's are unsigned short integers in network byte order.
+X
+XStrings are non-null terminated ASCII.  Their lengths are determined
+Xby the length fields that preceed them.
+X
+XThe "taddr" field describes the user name that the packet is being
+Xsent to on the daemon's host.  Optionally a packet can be routed by
+Xappending "@host" to the user's name (eg "madd@bu-it").  Each daemon
+Xreceiving a routed packet should strip the destination host out of the
+Xtaddr field and send the remainder of the field.
+X
+XAs an example of how the taddr field should be treated at successive
+Xstops, consider the user request to deliver a message to
+X"madd@bu-it@bucsf".  The client will strip off the "@bucsf", connect
+Xto the bucsf daemon, and transmit a packet with the taddr field set to
+X"madd@bu-it".  Bucsf will in turn strip off the "@bu-it" and transmit
+Xa packet with the taddr field set to "madd".  Bu-it will then attempt
+Xto deliver the message to user "madd".
+X
+XThe taddr field cannot be longer than 1024 characters.
+X
+XAfter making the original connection, all subsequent message packets
+Xshould have the same taddr field.  Some hosts may allow different
+Xtaddr fields, but it is not recommended and should be avoided.
+X
+XThe "ttty" field is only used when sending to a particular terminal
+X(see the section on the mode field, which follows).  It is ignored
+Xotherwise; tttylen should be zero (indicating no ttty field).  The
+Xttty field should contain the minimum necessary string to identify the
+Xdestination terminal (eg "tty01" and "console" on BSD UNIX systems).
+XThe ttty field cannot be longer than 10 characters.
+X
+XThe "msg" field is used to store the message to be sent in its
+Xentirety.  The message should contain the text string that is to
+Xbe written to the destination user's terminal.  The string should
+Xcontain a "signature" which indicates (at a minimum) the sender's name
+Xand machine.  A good example msg field is:
+X
+X  "madd@bu-it: this is an example message"
+X
+XValid ASCII characters are 7, 9, 10, and 32 through 126.  These are
+X^G (bell), ^I (tab), ^J (newline), and space through tilde (~).  A
+Xnull string (msglen zero) indicates that the packet is to be sent to
+Xthe destination daemon (including any routing) but not processed at
+Xthat point.  This is usually used to request the closing of an open
+Xconnection.  The msg field cannot be longer than 1024 characters.
+X
+XThe "mode" field gives information describing what to do with the
+Xincoming packet.
+X
+X  SM_CLOSE     1 /* close connection after reply */
+X  SM_TTY       2 /* send to tty */
+X  SM_BROADCAST 4 /* broadcast */
+X
+XIf SM_CLOSE is specified, the network connection is to be closed
+Xfollowing the reply packet; if it is not specified, the connection
+Xmust remain open.
+X
+XIf SM_TTY is specified, the message should not be sent to a user, but
+Xinstead to a particular terminal.  The ttty field must have the
+Xterminal description.  If a user name is given in the taddr field, it
+Xshould be ignored.
+X
+XIf SM_BROADCAST is specified, a broadcast message is te be attempted
+Xon the destination host.  If a user name is given in the taddr field
+Xor a terminal name in the ttty field, it should be ignored.  If
+XSM_BROADCAST is specified in conjunction with SM_TTY, SM_TTY is
+Xignored.  SM_BROADCAST requests should always return a reply error
+Xnumber of RE_OK (message delivered) or RE_NOBROAD (broadcasting
+Xdisabled).
+X
+XThe "fwdcount" field is used when a destination host allows users to
+Xforward messages automatically (in a way similar to the BSD UNIX
+X.forward file).  Whenever a message is forwarded automatically (as
+Xopposed to manual routing), this field should be incremented by one.
+XAfter 5 hops, RE_FWDLOOP should be returned.  This insures that
+Xautomatic forwarding cannot cause an infinite loop of message
+Xforwards.  If the message is not being automatically forwarded, this
+Xfield should be passed without change.
+X
+XREPLY PACKETS
+X
+XA reply packet is structured as follows:
+X
+X  u_short errno;       /* error number */
+X  u_short msglen;      /* length of msg field */
+X  char    msg[msglen]; /* text string describing the error (if any) */
+X
+XValid error numbers are:
+X
+X  RE_OK       0 /* message delivered ok */
+X  RE_SYSERR   1 /* system error */
+X  RE_NOUSER   2 /* user doesn't exist on this host */
+X  RE_NOMSGS   3 /* user's terminal may not be written to */
+X  RE_NOTTHERE 4 /* user is not logged on at the destination */
+X  RE_NOROUTE  5 /* routing is denied at this host */
+X  RE_NOBROAD  6 /* broadcasting is denied at this host */
+X  RE_FWDLOOP  7 /* forwarding loop (too many forwards) */
+X  RE_INTERR   8 /* something really really bad happened */
+X
+XRE_OK indicates that all went well.  This is the only error that does
+Xnot cause automatic termination of a connection.
+X
+XRE_SYSERR indicates that some kind of system error occurred which
+Xcaused delivery to fail.
+X
+XRE_NOUSER indicates that the requested user does not have an account
+Xon the destination machine.
+X
+XRE_NOMSGS indicates that the requested user is logged on, but is not
+Xreceiving messages at any of his terminals.
+X
+XRE_NOTTHERE indicates that the requested user is not logged on.
+X
+XRE_NOROUTE indicates that routing is disabled at one of the daemons
+Xalong the route.
+X
+XRE_NOBROAD indicates that system broadcasts are not allowed at the
+Xdestination host.
+X
+XRE_FWDLOOP indicates that automatic message forwarding went more than
+X5 hops before finding the end of user message forwarding requests.
+X
+XRE_INTERR indicates that the message packet caused an internal error
+Xin the daemon.
+X
+XAll errors returned (except RE_OK) must have a description of the
+Xerror in the "msg" field.  The "msg" field may not be longer than 1024
+Xcharacters.
+X
+XTIMEOUTS
+X
+XTo prevent the accumulation of dead or idle daemons on any host,
+Xconnections time out after ten minutes.  No network traffic indicates
+Xa timeout -- it should be done independently at each client and
+Xdaemon.  This insures a long enough time to deliver a message over
+Xlong distances and through heavy traffic, but keeps idle or dead
+Xconnections to a minimum.
+X
+XIf you want to keep a connection from idling out, send packets with a
+Xzero msglen at intervals of less than ten minutes, but be sure that no
+Xother packet is being transmitted at the same time.
+END_OF_FILE
+  if test 7194 -ne `wc -c <'Protocol'`; then
+    echo shar: \"'Protocol'\" unpacked with wrong size!
+  fi
+  # end of 'Protocol'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(2714 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/* misc.c:
+X *
+X * miscellaneous functions
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X#ifdef M_SYSV
+X#include <unistd.h>                     /* Unix Standard definitions */
+X#endif
+X#if defined(_AIX) && defined(USE_LOCKF)
+X#include <sys/lockf.h>
+X#endif
+X
+Xvoid error();
+X
+X/* easy way to build error messages
+X */
+X
+Xvoid blderr(ri,errno,msg)
+Xstruct rimsg *ri;
+Xint    errno;
+Xchar   *msg;
+X{ ri->h.errno= errno;
+X  ri->h.msglen= strlen(msg);
+X  strcpy(ri->msg,msg);
+X}
+X
+Xvoid die(i)
+Xint i;
+X{ error("md terminated");
+X  exit(i);
+X}
+X
+X/* when we have a problem, call this
+X */
+X
+Xvoid error(s)
+Xchar *s;
+X{ int  uid;
+X  long t;
+X  char when[30];
+X  FILE *f;
+X
+X  time(&t);
+X  strcpy(when,ctime(&t));
+X  when[strlen(when)-1]= '\0';
+X  if (getuid() == ROOTUID) {
+X    uid= geteuid();
+X    seteuid(ROOTUID);
+X  }
+X  f= fopen(LOGFILE,"a");
+X  if (getuid() == ROOTUID)
+X    seteuid(uid);
+X  if (f != NULL) {
+X#ifndef USE_LOCKF
+X    flock(fileno(f),LOCK_EX);
+X#else
+X    lockf(fileno(f),F_TLOCK, 0);
+X#endif
+X    fprintf(f,"%s: %s\n",when,s);
+X#ifndef USE_LOCKF
+X    flock(fileno(f),LOCK_UN);
+X#else
+X    lockf(fileno(f),F_ULOCK, 0);
+X#endif
+X    fclose(f);
+X  }
+X  else
+X    printf("%s: %s\n",when,s);
+X}
+X
+X/* this returns the port number to use for communication
+X */
+X
+Xint portnum()
+X{ struct servent *se;
+X  int    p;
+X
+X  /* if possible, return the port number in /etc/services; if not,
+X   * use hardcoded default
+X   */
+X
+X  if ((se= getservbyname("msend","tcp")) == NULL)
+X    p= PORTNUM;
+X  else
+X    p= ntohs(se->s_port);
+X
+X  /* oops, someone forgot to make me setuid
+X   */
+X
+X  if ((p < 1024) && geteuid()) {
+X    printf("portnum: not setuid\n");
+X    exit(1);
+X  }
+X  return(p);
+X}
+X
+X/* find the host name within an address, put it in an array, and truncate
+X * the address at the hostname.
+X */
+X
+Xchar *striphost(addr,host)
+Xchar addr[];
+Xchar *host;
+X{ int a;
+X
+X  for (a= strlen(addr); (a >= 0) && (addr[a] != '@'); a--)
+X    ;
+X  if (a >= 0) {
+X    strcpy(host,&addr[a+1]);
+X    addr[a]= '\0';
+X    return(host);
+X  }
+X  host[0]= '\0';
+X  return(NULL);
+X}
+X
+Xchar *gethome(user)
+X     char *user;
+X{ struct passwd *pw;
+X
+X  if (! (pw= getpwnam(user)))
+X    return(NULL);
+X  return(pw->pw_dir);
+X}
+X
+Xint getid(user)
+X     char *user;
+X{ struct passwd *pw;
+X
+X  if (! (pw= getpwnam(user)))
+X    return(-1);
+X  return(pw->pw_uid);
+X}
+X
+X#ifdef NEEDS_LOCK
+X/* if the system needs flock, put the correct locking function in here.  if
+X * you leave it like this it's possible that you'll get some conflict in
+X * writing to spool files and such, but it's not likely and it won't hurt
+X * anything much.
+X */
+X
+Xint flock(fd, how)
+X     int fd, how;
+X{
+X  return(0);
+X}
+X#endif
+X
+END_OF_FILE
+  if test 2714 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+if test -f 'msend.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msend.c'\"
+else
+  echo shar: Extracting \"'msend.c'\" \(13872 characters\)
+  sed "s/^X//" >'msend.c' <<'END_OF_FILE'
+X/* msend.c:
+X *
+X * user interface
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X#include "patchlevel"
+X
+Xstatic void huh(i)
+Xint i;
+X{ char   d[10];
+X  char   spoolfile[MAXFILENAME+1];
+X  struct stat   stb;
+X
+X  sprintf(d,"-%d",i);
+X
+X#ifdef SPOOLDIR
+X  if (getuid() == ROOTUID)
+X    seteuid(ROOTUID);
+X  sprintf(spoolfile,"%s/%s",SPOOLDIR,whoami());
+X#else
+X  if (gethome(whoami()))
+X    sprintf(spoolfile,"%s/.msendmsgs",gethome(whoami()));
+X  else {
+X    printf("Can't find your home directory\n");
+X    exit(1);
+X  }
+X#endif
+X
+X  if (stat(spoolfile,&stb) == -1) {
+X    printf("No old messages\n");
+X    exit(0);
+X  }
+X
+X  execlp("tail","tail",d,spoolfile,0);
+X  perror("huh");
+X  exit(0);
+X}
+X
+X/* wipe out a user's spool file on demand
+X */
+X
+Xstatic void rmspool()
+X{ char s[MAXFILENAME+1];
+X
+X#ifdef SPOOLDIR
+X  if (getuid() == ROOTUID)
+X    seteuid(ROOTUID);
+X  sprintf(s,"%s/%s",SPOOLDIR,whoami());
+X#else
+X  if (gethome(whoami()))
+X    sprintf(s,"%s/.msendmsgs",gethome(whoami()));
+X  else {
+X    printf("Can't find your home directory\n");
+X    exit(1);
+X  }
+X#endif
+X
+X  if (unlink(s) < 0)
+X    perror(s);
+X  exit(0);
+X}
+X
+X/* "documentation"
+X */
+X
+Xstatic void version() {
+X  printf("   msend version %s patchlevel %s\n",VERSION,PATCHLEVEL);
+X  printf("   by Jim Frost (%s) & Joe Ilacqua (%s)\n",MADD,SPIKE);
+X  printf("   %s\n",Copyright);
+X}
+X
+Xstatic void usage()
+X{ 
+X  version();
+X#ifndef GNUREADLINE
+X  printf("Usage: msend username[@host] [message]\n");
+X  printf("       msend . [message]\n");
+X#else
+X  printf("Usage: msend [-edit] username[@host] [message]\n");
+X  printf("       msend [-edit] . [message]\n");
+X#endif
+X  printf("       msend -huh [# of messages to display]\n");
+X  printf("       msend -clean\n");
+X  printf("       msend -T tty [@host] [message]\n");
+X  printf("       msend -version [@host]\n");
+X#ifdef CBROADCAST
+X  printf("       msend -B @host [message]\n");
+X#endif
+X  exit(0);
+X}
+X
+Xstatic void bigsig()
+X{ printf("Signature too big\n");
+X  exit(1);
+X}
+X
+Xstatic void sigalrm()
+X{
+X  printf("Inactivity timeout\n");
+X  exit(1);
+X}
+X
+X/* user breaks aren't really wanted, but we let the user break out if
+X * he or she REALLY wants to
+X */
+X
+Xstatic void sigint()
+X{ static wasint= 0;
+X
+X  if (wasint) {
+X    printf("\nConnection broken\n");
+X    exit(1);
+X  }
+X  else {
+X    wasint= 1;
+X    printf("\nInterrupt received -- one more to kill\n");
+X  }
+X}
+X
+Xmain(argc,argv)
+Xint  argc;
+Xchar *argv[];
+X{ int    a,b;
+X  int    broadcast;
+X  int    totty;
+X  int    uid;
+X  long   when;
+X  char   sig[MAXSIGNATURE+1];
+X  char   sigfmt[MAXSIGNATURE+1];
+X  char   line[MAXLINE+1];
+X  char   token[MAXTOKEN+1];
+X  char   fname[MAXFILENAME+1];
+X  char   localhost[MAXHOSTNAME+1];
+X  char   tmphost[MAXHOSTNAME+1];
+X  struct hostent *hp;
+X#ifdef GNUREADLINE
+X  char *gnubuf, *GNUGets();
+X  extern int rl_insert();
+X  short edit = EDIT;
+X#endif
+X  FILE   *f;
+X  struct simsg  si;
+X  struct rimsg  ri;
+X
+X  /* find out who we really are before becoming effectively root
+X   */
+X
+X  whoami();
+X
+X  /* since tty termination requests can leave hanging daemons, ignore
+X   * them.  user can still force termination, but not so easy.
+X   */
+X
+X  signal(SIGINT,sigint);
+X
+X  /* daemon will timeout after 10 minutes of inactivity, so we might
+X   * as well do it too.
+X   */
+X
+X  alarm(LIFETIME);
+X  signal(SIGALRM,sigalrm);
+X
+X  /* swap ruid and euid so our real id is root.  this enables us to toggle
+X   * between root uid-ness and nonroot uid-ness as necessary.
+X   */
+X
+X  if (geteuid() == ROOTUID) {
+X    uid= getuid();
+X    setruid(geteuid());
+X    seteuid(uid);
+X  }
+X
+X  /* please, no piping
+X   */
+X
+X  if (!isatty(0)) {
+X    printf("Input must be a tty\n");
+X    exit(1);
+X  }
+X
+X  gethostname(tmphost,MAXHOSTNAME);
+X  if ((hp = gethostbyname(tmphost)) != NULL)
+X    (void) strncpy(localhost,hp->h_name,MAXHOSTNAME);
+X  else /* better than nothing */
+X    (void) strncpy(localhost,tmphost,MAXHOSTNAME);
+X  /* defaults
+X   */
+X
+X  broadcast= 0;
+X  totty= 0;
+X  sprintf(sig,"%s@%s (%s): ",whoami(),localhost,ttyname(0)+5);
+X  si.ttty[0]= '\0';                /* ttyname(0)+5 to strip "/dev/" */
+X
+X  /* look at options file
+X   */
+X
+X  sprintf(fname,"%s/.msendrc",gethome(whoami()));
+X  if ((f= fopen(fname,"r")) != NULL) {
+X    while (fgets(line,MAXLINE,f) != NULL) {
+X      sscanf(line,"%s",token);
+X
+X
+X      /* user define history size - the default is unlimited
+X       */
+X      if (!strcmp(token,"history")) {
+X	/* If we are not using the GNU readline stuff history is meaningless,
+X	 * but that is no reason for it to cause an error...
+X	 */
+X#ifdef GNUREADLINE
+X	int n;
+X	if (sscanf (line, "%*s %d", &n) == 1) 
+X	  stifle_history (n);
+X	else {
+X	  printf("Bad history value in .msendrc\n");
+X	  exit(1);
+X	}
+X#endif
+X	continue;
+X      }
+X      if (!strcmp(token,"editing_mode")) {
+X	/* If we are not using the GNU readline stuff history is meaningless,
+X	 * but that is no reason for it to cause an error...
+X	 */
+X#ifdef GNUREADLINE
+X	char buf[10];
+X	if (sscanf (line, "%*s \"%s\"", buf) == 1) {
+X	  if (!strncmp(buf,"vi",2))
+X	    rl_vi_editing_mode();
+X	  else if (!strncmp(buf,"emacs",5)) /* The default is emacs, but...*/
+X	    rl_emacs_editing_mode();
+X	  else {
+X	    printf("Bad editor value in .msendrc\n");
+X	    exit(1);
+X	  }
+X	}
+X	else {
+X	  printf("Bad editor value in .msendrc\n");
+X	  exit(1);
+X	}
+X#endif
+X	continue;
+X      }
+X      if (!strcmp(token,"edit")) {
+X	/* If we are not using the GNU readline stuff history is meaningless,
+X	 * but that is no reason for it to cause an error...
+X	 */
+X#ifdef GNUREADLINE
+X	char buf[10];
+X	if (sscanf (line, "%*s \"%s\"", buf) == 1) {
+X	  if (!strncmp(buf,"on",2))
+X	    edit = 1;
+X	  else if (!strncmp(buf,"off",3)) /* The default is emacs, but...*/
+X	    edit = 0;
+X	  else {
+X	    printf("Bad editor value in .msendrc\n");
+X	    exit(1);
+X	  }
+X	}
+X	else {
+X	  printf("Bad editor value in .msendrc\n");
+X	  exit(1);
+X	}
+X#endif
+X	continue;
+X      }
+X
+X      /* user defined signature
+X       */
+X
+X      if (!strcmp(token,"signature")) {
+X        for (a= 0; (line[a] != '\0') && (line[a] != '"'); a++)
+X          ;
+X        if (line[a] == '\0') {
+X          printf("Signature needs a quoted string\n");
+X          exit(1);
+X        }
+X        for (a++, b= 0; (line[a] != '\0') && (line[a] != '"')
+X                         && (b <= MAXSIGNATURE); a++)
+X          sigfmt[b++]= line[a];
+X        if (line[a] != '"') {
+X          printf("Signature format string has no end quotes or is too long\n");
+X          exit(1);
+X        }
+X        sigfmt[b]= '\0';
+X
+X        /* parse signature format and build the signature
+X         */
+X
+X        sprintf(sig,"%s@%s ",whoami(),localhost); /* always include this */
+X        for (b= 0; sigfmt[b] != '\0'; b++)
+X          if (sigfmt[b] == '%')
+X            switch (sigfmt[++b]) {
+X              case '%' :
+X                if (strlen(sig) >= MAXSIGNATURE)
+X                  bigsig();
+X                strcat(sig,"%");
+X                break;
+X              case 'd' : /* date and time */
+X                if (strlen(sig) + strlen(ctime(&when)) > MAXSIGNATURE)
+X                  bigsig();
+X                time(&when);
+X                strcat(sig,ctime(&when));
+X                sig[strlen(sig)-9]= '\0';
+X                break;
+X              case 't' : /* tty */
+X                if (strlen(sig) + strlen(ttyname(0)+5) > MAXSIGNATURE)
+X                  bigsig();
+X                strcat(sig,ttyname(0)+5);
+X                break;
+X              default :
+X                a= strlen(sig);
+X                sig[a]= sigfmt[b];
+X                sig[a+1]= '\0';
+X            }
+X          else {
+X            a= strlen(sig);
+X            sig[a]= sigfmt[b];
+X            sig[a+1]= '\0';
+X          }
+X        strcat(sig,": ");
+X      }
+X    }
+X  fclose(f);
+X  }
+X
+X  /* figure out options
+X   */
+X
+X  for (a= 1; (a < argc) && (*argv[a] == '-'); a++) {
+X
+X    /* the "huh" function
+X     */
+X
+X    if (!strcmp(argv[a],"-huh")) {
+X      if (++a < argc)
+X        huh(atoi(argv[a]));
+X      else
+X        huh(1);
+X    }
+X
+X    /* deliberate forgetfulness option
+X     */
+X
+X    if (!strcmp(argv[a],"-clean"))
+X      rmspool();
+X
+X    else if (!strcmp(argv[a],"-edit"))
+X#ifdef GNUREADLINE
+X      edit = !edit;
+X#else
+X    ;
+X#endif
+X    else if ((!strcmp(argv[a],"-version")) || *(argv[a]+1) == 'v') {
+X      if (argc == 2) {
+X	version();
+X	exit(0);
+X      } else if ( argc == 3 ) {
+X	if (*argv[2] != '@')
+X	  usage();
+X	strcpy(si.taddr,argv[2]);
+X        (void) striphost(si.taddr,si.tohost);
+X	si.fwdcount= 0;
+X	si.msg[0]= '\0';
+X	sendmessage(&si,&ri,SM_CLOSE|SM_VERSION);
+X	if (ri.msg[0] == '\0') {
+X	  while(striphost(si.taddr,si.tohost))
+X		strcpy(si.taddr,si.tohost);
+X	  printf ("%s is running a pre-1.0 version of msend\n",si.taddr);
+X	} else
+X	  printf("%s\n",ri.msg);
+X	exit(0);
+X      } else
+X	usage();
+X    }
+X
+X    /* decode option(s)
+X     */
+X
+X    else switch (*(argv[a]+1)) {
+X      case 'B' :
+X#ifdef CBROADCAST
+X        broadcast= SM_BROADCAST;
+X        break;
+X#else
+X        printf("Broadcasting is not allowed from this host\n");
+X        exit(1);
+X#endif
+X      case 'c' : /* short form of -clean for lazy people like me */
+X        rmspool();
+X	break;
+X      case 'e' : /* short form of -edit for lazy people like jim */
+X#ifdef GNUREADLINE
+X	edit = !edit;
+X#endif
+X	break;
+X      case 'T' :
+X        totty= SM_TTY;
+X        if (*(argv[a]+2) == '\0') {
+X          if (++a == argc) {
+X            printf("Tty name missing\n");
+X            exit(1);
+X          }
+X          else if (strlen(argv[a]) > MAXTTY) {
+X            printf("Tty name too long\n");
+X            exit(1);
+X          }
+X          else
+X            strcpy(si.ttty,argv[a]);
+X        }
+X        else if (strlen(argv[a]+2) > MAXTTY) {
+X          printf("Tty name too long\n");
+X          exit(1);
+X        }
+X        else
+X          strcpy(si.ttty,argv[a]+2);
+X        break;
+X      default :
+X        usage();
+X    }
+X  }
+X
+X  if ((!totty) && (a == argc))
+X    usage();
+X
+X  if (broadcast && totty) {
+X    printf("Broadcast and tty selection functions are mutually exclusive\n");
+X    exit(1);
+X  }
+X
+X  /* argument verification and "last send" function
+X   */
+X
+X  if ((!totty) && (!broadcast)) {
+X    sprintf(fname,"%s/.lastmsend",gethome(whoami()));
+X    if (!strcmp(argv[a],".")) {
+X      if ((f= fopen(fname,"r")) == NULL) {
+X        printf("Last recipient name unknown\n");
+X        exit(1);
+X      }
+X      else {
+X        fscanf(f,"%s",si.taddr);
+X        fclose(f);
+X        if (!striphost(si.taddr,si.tohost))
+X          strcpy(si.tohost,localhost);
+X      }
+X      a++;
+X    }
+X    else {
+X
+X      /* get name from command line argument and save it if we can
+X       */
+X
+X      if (*argv[a] == '@') {
+X        printf("You must specify a username\n");
+X        exit(1);
+X      }
+X      strcpy(si.taddr,argv[a]);
+X      if ((f= fopen(fname,"w")) != NULL) {
+X        fprintf(f,"%s\n",argv[a]);
+X        fclose(f);
+X      }
+X      if (!striphost(si.taddr,si.tohost))
+X        strcpy(si.tohost,localhost);
+X      a++;
+X    }
+X  }
+X  else if (totty) {
+X    if ((a < argc) && (*argv[a] == '@'))
+X      strcpy(si.tohost,argv[a++]+1);
+X    else
+X      strcpy(si.tohost,localhost);
+X  }
+X  else if (*argv[a] != '@') { /* broadcast */
+X    printf("You must indicate '@host' for a broadcast\n");
+X    exit(1);
+X  }
+X  else {
+X    strcpy(si.taddr,argv[a++]);
+X    (void) striphost(si.taddr,si.tohost);
+X  }
+X
+X  if (a < argc) {
+X
+X    /* command line mode
+X     */
+X
+X    strcpy(&si.msg[0],sig); /* copy signature into message area */
+X    for (; a < argc; a++) {
+X      strcat(si.msg,argv[a]);
+X      if (a != argc-1)
+X        strcat(si.msg," ");
+X    }
+X    si.fwdcount= 0;
+X    sendmessage(&si,&ri,SM_CLOSE|broadcast|totty);
+X    if (ri.h.errno != RE_OK)
+X      printf("%s\n",ri.msg);
+X    exit(0);
+X  }
+X
+X  /* make initial connection to see if we can
+X   */
+X
+X  si.msg[0]= '\0';
+X  sendmessage(&si,&ri,0);
+X  if (ri.h.errno != RE_OK) {
+X    printf("%s\n",ri.msg);
+X    exit(1);
+X  }
+X
+X  strcpy(&si.msg[0],sig); /* copy signature into message area */
+X
+X  for (;;) {
+X    int once = 0;
+X#ifdef GNUREADLINE
+X    if (!edit) {
+X#endif
+X      printf("msend>");
+X      if (fgets(&si.msg[strlen(sig)],MAXMSG-strlen(sig),stdin) == NULL) {
+X	printf("^D\n");                       /* EOF */
+X	si.msg[0]= '\0';                      /* send null message to close */
+X	sendmessage(&si,&ri,SM_CLOSE);        /* the connection */
+X	exit(0);
+X      }
+X#ifdef GNUREADLINE
+X    } else {
+X      rl_bind_key('\t',rl_insert); /* The default is "complete" */
+X      bzero(&si.msg[strlen(sig)],MAXMSG-strlen(sig));
+X      if((gnubuf = GNUGets("msend>")) == NULL) {
+X	printf("^D\n");                       /* EOF */
+X	si.msg[0]= '\0';                      /* send null message to close */
+X	sendmessage(&si,&ri,SM_CLOSE);        /* the connection */
+X	exit(0);
+X      } else  {
+X	strncpy(&si.msg[strlen(sig)],gnubuf,MAXMSG-strlen(sig)-1);
+X	free(gnubuf);
+X      }
+X    }
+X#endif
+X    
+X    alarm(LIFETIME);                         /* reset idle out timer */
+X#ifdef GNUREADLINE
+X    if (!edit)
+X#endif
+X      si.msg[strlen(si.msg)-1]= '\0';          /* strip newline */
+X
+X    if (!strcmp(&si.msg[strlen(sig)],".")) { /* exit command */
+X      si.msg[0]= '\0';
+X      sendmessage(&si,&ri,SM_CLOSE);
+X      exit(0);
+X    }
+X      
+X    if (si.msg[strlen(sig)] != '\0') {
+X      si.fwdcount= 0;
+X      sendmessage(&si,&ri,broadcast|totty);
+X      switch (ri.h.errno) {
+X        case RE_OK :
+X          break;
+X	case RE_NOTFATAL:
+X          printf("%s\n",ri.msg);
+X	  break;
+X        default :
+X          printf("%s\n",ri.msg);
+X          exit(1);               /* connection is already broken */
+X      }
+X    }
+X    if (!once) {
+X      /* This is some code to strip off the domain name of the host 
+X       * after we have sent one message.  It works because we know the 
+X       * signature is in the form "<user>@<host><SPACE>...".  If that 
+X       * format changes this will break...
+X       */
+X      int i,j;
+X      once++;
+X      for (i = 0; sig[i] != ' '; i++) {
+X	if (sig[i] == '.') {
+X	  for (j = i+1; sig[j] != ' '; j++);
+X	  strcpy(&sig[i],&sig[j]);
+X	  strcpy(&si.msg[0],sig); /* copy signature into message area */
+X	  break;
+X	}
+X      }
+X    }    
+X  }
+X}
+X
+END_OF_FILE
+  if test 13872 -ne `wc -c <'msend.c'`; then
+    echo shar: \"'msend.c'\" unpacked with wrong size!
+  fi
+  # end of 'msend.c'
+fi
+if test -f 'network.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'network.c'\"
+else
+  echo shar: Extracting \"'network.c'\" \(4982 characters\)
+  sed "s/^X//" >'network.c' <<'END_OF_FILE'
+X/* network.c:
+X *
+X * raw networking commands.  these commands are independent of the
+X * application protocol; they are not tuned specifically for msend,
+X * but instead make up a library that i use to work with networking.
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"    /* for NOHERROR */
+X#include "msend.h"     /* for MAXHOSTNAME */
+X#include <sys/errno.h>
+X
+X#define MAXCONNECTS 1  /* max number of connects we need */
+X
+Xextern errno;
+Xextern int h_errno;
+X
+Xstatic int  init= 1;
+Xstatic int  socki[MAXCONNECTS];
+Xstatic char sockh[MAXCONNECTS][MAXHOSTNAME+1];
+X
+Xstatic void hinit()
+X{ int a;
+X
+X  for (a= 0; a < MAXCONNECTS; a++)
+X    socki[a]= -1;
+X  init= 0;
+X}
+X
+Xint hopen(hostname)
+Xchar *hostname;
+X{ struct sockaddr_in sa;
+X  struct hostent     *hp;
+X  unsigned long address = 0;
+X  unsigned long inet_addr();
+X  int a,i;
+X#ifdef SECURE_PORT
+X  int lport = IPPORT_RESERVED - 1;
+X  int uid;
+X#endif
+X
+X  if (init)
+X    hinit();
+X
+X  /* find host table entry
+X   */
+X
+X  if ((address = inet_addr(hostname)) == (unsigned long) -1) {
+X    address = 0;
+X    if((hp= gethostbyname(hostname)) == NULL) {
+X      errno= ECONNREFUSED;
+X#ifdef NOHERROR
+X      h_errno = 1; /* Unknown Host */
+X#endif
+X      return(-1);
+X    }
+X  }
+X
+X  h_errno = 0;
+X
+X
+X  /* see if we're already talking
+X   */
+X
+X  for (a= 0; (a < MAXCONNECTS) && ((socki[a] == -1) ||
+X             strcmp(sockh[a], address ? hostname : hp->h_name)); a++)
+X    ;
+X  if (a < MAXCONNECTS) /* great!  don't need a connection */
+X    return(socki[a]);
+X
+X  /* find an empty spot
+X   */
+X
+X  for (a= 0; (a < MAXCONNECTS) && (socki[a] != -1); a++)
+X    ;
+X  if (a >= MAXCONNECTS) {
+X    errno= EMFILE;
+X    return(-1);
+X  }
+X
+X  strcpy(sockh[a],address ? hostname : hp->h_name);
+X  bzero(&sa,sizeof(sa));
+X  if (getprotobyname("tcp") == NULL) {
+X    errno= ENOPROTOOPT;
+X    return(-1);
+X  }
+X  if (address)
+X    sa.sin_addr.s_addr = address;
+X  else
+X    bcopy(hp->h_addr,(char *)&sa.sin_addr,hp->h_length);
+X  sa.sin_family= address ? AF_INET : hp->h_addrtype;
+X  i=portnum();
+X  sa.sin_port= htons((u_short)i);
+X#ifndef SECURE_PORT
+X  if ((socki[a]= socket(address ? AF_INET : hp->h_addrtype,SOCK_STREAM,0)) < 0)
+X    return(-1);
+X#else
+X  uid= geteuid();
+X  seteuid(ROOTUID);
+X  if((socki[a] = rresvport(&lport)) < 0) {
+X    seteuid(uid);
+X    return(-1);
+X  }
+X  seteuid(uid);
+X#endif
+X#if defined(h_addr)  /* 4.3 or greater system. Has "h_addr_list". */
+X  while((connect(socki[a],&sa,sizeof sa) < 0)) {
+X    (void) close(socki[a]);
+X#ifdef SECURE_PORT
+X    if (errno == EADDRINUSE) {
+X      lport--;
+X      seteuid(ROOTUID);
+X      if((socki[a] = rresvport(&lport)) < 0) {
+X	seteuid(uid);
+X	return(-1);
+X      }
+X      seteuid(uid);
+X      continue;
+X    }
+X#endif
+X    if (address) 
+X      return(-1);
+X    if (!hp->h_addr_list[1])
+X      return(-1);
+X    hp->h_addr_list++;
+X    bcopy(hp->h_addr_list[0],&sa.sin_addr,hp->h_length);
+X#ifndef SECURE_PORT
+X    if ((socki[a]= socket( hp->h_addrtype,SOCK_STREAM,0)) < 0)
+X      return(-1);
+X#else
+X    seteuid(ROOTUID);
+X    if((socki[a] = rresvport(&lport)) < 0) {
+X      seteuid(uid);
+X      return(-1);
+X    }
+X    seteuid(uid);
+X#endif
+X  }
+X#else
+X#ifdef SECURE_PORT
+Xfor(;;) {
+X#endif
+X  if (connect(socki[a],&sa,sizeof sa) < 0) {
+X    (void) close(socki[a]);
+X#ifndef SECURE_PORT
+X    return(-1);
+X#else
+X    if (errno == EADDRINUSE) {
+X      lport--;
+X      seteuid(ROOTUID);
+X      if((socki[a] = rresvport(&lport)) < 0) {
+X	seteuid(uid);
+X	return(-1);
+X      }
+X      seteuid(uid);
+X      continue;
+X    }
+X    break;
+X#endif
+X  }
+X}
+X
+X#endif
+X  /* at this point you should be connected to the host for commands */
+X
+X  return(socki[a]);
+X}
+X
+X/* close a single network connection
+X */
+X
+Xvoid hclose(s)
+Xint s;
+X{ int a;
+X
+X  for (a= 0; (a < MAXCONNECTS) && (socki[a] != s); a++)
+X  if (a < MAXCONNECTS) {
+X    close(socki[a]);
+X    socki[a]= -1;
+X  }
+X  else        /* not one of ours, but close it anyway */
+X    close(s);
+X}
+X
+X/* this closes all open network connections
+X */
+X
+Xvoid hcleanup()
+X{ int     a;
+X
+X  for (a= 0; a < MAXCONNECTS; a++)
+X    if (socki[a] != -1) {
+X      close(socki[a]);
+X      socki[a]= -1;
+X    }
+X}
+X
+Xint hread(s,buf,n)
+Xint  s;
+Xchar *buf;
+Xint  n;
+X{ int bcount,                      /* counts bytes read */
+X      br;                          /* bytes read this pass */
+X
+X  bcount= 0;
+X  br= 0;
+X  while (bcount < n) {             /* loop until full buffer */
+X    if ((br= read(s,buf,n-bcount)) > 0) {
+X      bcount += br;                /* increment byte counter */
+X      buf += br;                   /* move buffer ptr for next read */
+X    }
+X    if (br == 0)                    /* EOF */
+X      return(0);
+X    if (br < 0)                    /* signal an error to the caller */
+X      return(-1);
+X  }
+X  return(bcount);
+X}
+X
+Xint hwrite(s,buf,n)
+Xint  s;
+Xchar *buf;
+Xint  n;
+X{ int bcount,
+X      bw;
+X
+X  bcount=0;
+X  while (bcount < n) {
+X    if ((bw= write(s,buf,n-bcount))>0) {
+X      bcount += bw;
+X      buf += bw;
+X    }
+X    if (bw < 0)
+X      return(-1);
+X  }
+X  return(bcount);
+X}
+END_OF_FILE
+  if test 4982 -ne `wc -c <'network.c'`; then
+    echo shar: \"'network.c'\" unpacked with wrong size!
+  fi
+  # end of 'network.c'
+fi
+if test -f 'sendrecv.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sendrecv.c'\"
+else
+  echo shar: Extracting \"'sendrecv.c'\" \(5369 characters\)
+  sed "s/^X//" >'sendrecv.c' <<'END_OF_FILE'
+X/* sendrecv.c:
+X *
+X * these routines send messages and receive replies
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X
+Xextern int  errno;
+Xextern char *sys_errlist[];
+X
+X#ifdef NOHERROR
+Xint h_errno;
+Xchar	*h_errlist[] = {
+X  "Error 0",
+X  "Unknown host",			/* 1 HOST_NOT_FOUND */
+X  "Host name lookup failure",		/* 2 TRY_AGAIN */
+X  "Unknown server error",		/* 3 NO_RECOVERY */
+X  "No address associated with name",	/* 4 NO_ADDRESS */
+X};
+X
+X#else
+Xextern int h_errno;
+Xextern char *h_errlist;
+X#endif
+X
+Xstatic char *wrerr= "communications error with socket";
+X
+X/* send a message to another server and get a reply
+X */
+X
+Xvoid sendmessage(si,ri,mode)
+Xstruct simsg *si; /* message to send */
+Xstruct rimsg *ri; /* reply we'll get */
+Xint    mode;      /* communications mode */
+X{ int     a;
+X  int     uid;
+X  static  int     s= -1;
+X  struct  sheader sh;
+X  struct  rheader rh;
+X  u_short fwdcount;
+X  u_short mmode;
+X
+X  /* check to see if we have too many forwards
+X   */
+X
+X  if (si->fwdcount > MAXFORWARD) {
+X    ri->h.errno= RE_FWDLOOP;
+X    strcpy(ri->msg,"Forwarding loop (too many forwards)");
+X    return;
+X  }
+X
+X  /* look for illegal characters in the string.  this stops people
+X   * from sending nasty codes with this
+X   */
+X
+X  for (a= 0; a < strlen(si->msg); a++)
+X    if ((si->msg[a] < ' ') && (si->msg[a] != '\t') && (si->msg[a] != '\n') &&
+X        (si->msg[a] != 010)) {
+X      ri->h.errno= RE_NOTFATAL;
+X      strcpy(ri->msg,"Control characters are not allowed in messages (message not sent)");
+X      ri->h.msglen= strlen(ri->msg);
+X      return;
+X    }
+X
+X  /* s is -1 if we're not already connected
+X   */
+X
+X  if (s == -1) {
+X
+X    /* if possible, become root for duration of hopen() call so we can
+X     * deal with low port numbers
+X     */
+X
+X    if (getuid() == ROOTUID) {
+X      uid= geteuid();
+X      seteuid(ROOTUID);
+X    }
+X
+X    /* return immediate error if we can't connect
+X     */
+X
+X    if ((s= hopen(si->tohost)) < 0) {
+X      if (getuid() == ROOTUID)
+X        seteuid(uid);
+X      if (h_errno == 0) { 
+X	sprintf(ri->msg,"%s: %s",si->tohost,sys_errlist[errno]);
+X	ri->h.msglen= strlen(sys_errlist[errno]);
+X      } else { 
+X	sprintf(ri->msg,"%s: %s",si->tohost,h_errlist[h_errno]);
+X	ri->h.msglen= strlen(h_errlist[h_errno]);
+X      }
+X      ri->h.errno= RE_SYSERR;
+X      return;
+X    }
+X    if (getuid() == ROOTUID)
+X      seteuid(uid); /* become our old selves again */
+X  }
+X
+X  /* format request and send it across
+X   */
+X
+X  fwdcount= htons(si->fwdcount);
+X  mmode= htons((u_short)mode);
+X  sh.taddrlen= htons((u_short)strlen(si->taddr));
+X  sh.tttylen= htons((u_short)strlen(si->ttty));
+X  sh.msglen= htons((u_short)strlen(si->msg));
+X
+X  if (hwrite(s,(char *)&sh,sizeof(struct sheader)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X  if (hwrite(s,(char *)&fwdcount,sizeof(u_short)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X  if (hwrite(s,(char *)&mmode,sizeof(u_short)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X  if (hwrite(s,(char *)si->taddr,strlen(si->taddr)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X  if (hwrite(s,(char *)si->ttty,strlen(si->ttty)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X  if (hwrite(s,(char *)si->msg,strlen(si->msg)) < 0) {
+X    hclose(s);
+X    s= -1;
+X    blderr(ri,RE_SYSERR,wrerr);
+X    return;
+X  }
+X
+X  /* Get the returned structure
+X   */
+X
+X  hread(s,(char *)&rh,sizeof(struct rheader));
+X  ri->h.errno= ntohs(rh.errno);
+X  ri->h.msglen= ntohs(rh.msglen);
+X  hread(s,(char *)ri->msg,ri->h.msglen);
+X  ri->msg[ri->h.msglen]= '\0';
+X  if ((mode & SM_CLOSE) || (ri->h.errno != RE_OK)) {
+X    hclose(s);
+X    s= -1;
+X  }
+X}
+X
+X/* sendreply() and recvmessage() are used only in the daemon
+X */
+X
+X/* send reply back to whomever called us.  automatically close connection
+X * if we were supposed to.
+X */
+X
+Xvoid sendreply(s,ri,mode)
+Xint s;
+Xstruct rimsg *ri;
+Xint mode;
+X{ struct rheader rh;
+X
+X  rh.errno= htons(ri->h.errno);
+X  rh.msglen= htons((u_short)strlen(ri->msg));
+X  hwrite(s,(char *)&rh,sizeof(struct rheader));
+X  hwrite(s,(char *)ri->msg,strlen(ri->msg));
+X  if ((mode & SM_CLOSE) || (ri->h.errno != RE_OK))
+X    hclose(s);
+X}
+X
+X/* this gets a message from the socket.
+X */
+X
+Xvoid recvmessage(s,si)
+Xint s;
+Xstruct simsg *si;
+X{ struct sheader sh;
+X  int    r;
+X
+X  /* pull the message out of the connection and into a structure
+X   */
+X
+X  switch (hread(s,(char *)&sh,sizeof(struct sheader))) {
+X  case -1:
+X    error("error reading message header"); /* oh well */
+X  case 0:
+X    hclose(s);
+X    exit(0);
+X  default:
+X    break;
+X  }
+X
+X  /* adjust integer format
+X   */
+X
+X  sh.taddrlen= ntohs(sh.taddrlen);
+X  sh.tttylen= ntohs(sh.tttylen);
+X  sh.msglen= ntohs(sh.msglen);
+X
+X  /* read the data section
+X   */
+X
+X  r= hread(s,(char *)&si->fwdcount,sizeof(u_short));
+X  r|= hread(s,(char *)&si->mode,sizeof(u_short));
+X  r|= hread(s,(char *)si->taddr,sh.taddrlen);
+X  r|= hread(s,(char *)si->ttty,sh.tttylen);
+X  r|= hread(s,(char *)si->msg,sh.msglen);
+X
+X  if (r < 0) {
+X    error("packet read error");
+X    hclose(s);
+X    exit(1);
+X  }
+X
+X  si->fwdcount= ntohs(si->fwdcount);
+X  si->mode= ntohs(si->mode);
+X  si->taddr[sh.taddrlen]= '\0';
+X  si->ttty[sh.tttylen]= '\0';
+X  si->msg[sh.msglen]= '\0';
+X}
+END_OF_FILE
+  if test 5369 -ne `wc -c <'sendrecv.c'`; then
+    echo shar: \"'sendrecv.c'\" unpacked with wrong size!
+  fi
+  # end of 'sendrecv.c'
+fi
+if test -f 'write.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'write.c'\"
+else
+  echo shar: Extracting \"'write.c'\" \(6464 characters\)
+  sed "s/^X//" >'write.c' <<'END_OF_FILE'
+X/* write.c:
+X *
+X * these routines are used for writing to users
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X#ifdef M_SYS
+X#include <unistd.h>
+X#endif
+X#if defined(_AIX) && defined(USE_LOCKF)
+X#include <sys/lockf.h>
+X#endif
+X
+Xextern int  errno;
+X
+X#ifdef SECURE_PORT
+Xextern short notsecure;
+X#endif
+X
+X/* this writes to the tty specified in si and saves the message in spool
+X */
+X
+Xstatic int ttywrite(si)
+Xstruct simsg *si;
+X{ FILE *f;
+X  char fname[MAXFILENAME];
+X  int  uid;
+X
+X  /* try to write to user's tty
+X   */
+X
+X  sprintf(fname,"/dev/%s",si->ttty);
+X  if ((f= fopen(fname,"w")) == NULL)
+X    if (errno == EACCES)
+X      return(RE_NOMSGS);
+X    else
+X      return(RE_SYSERR);
+X#ifdef SECURE_PORT
+X  if (notsecure)
+X    fprintf(f,"\r\n[Bogus? %s]\r\n",si->msg);
+X  else
+X#endif
+X    if (isatty(fileno(f)))
+X      fprintf(f,"\r\n[%s]\r\n",si->msg);
+X  fclose(f);
+X
+X  /* save the message in the spool for "huh" option
+X   */
+X
+X  if (getuid() == ROOTUID) {
+X    if ((uid= getid(si->taddr)) < 0) /* write to file as if we were user */
+X      return(RE_NOUSER);
+X    seteuid(uid);
+X  }
+X#ifdef SPOOLDIR
+X  sprintf(fname,"%s/%s",SPOOLDIR,si->taddr);
+X#else
+X  sprintf(fname,"%s/.msendmsgs",gethome(si->taddr));
+X#endif
+X
+X
+X  if ((f= fopen(fname,"a")) != NULL) {
+X#ifndef USE_LOCKF
+X    flock(fileno(f),LOCK_EX);
+X#else
+X    lockf(fileno(f), F_TLOCK, 0);
+X#endif
+X    fprintf(f,"[%s]\n",si->msg);
+X#ifndef USE_LOCKF
+X    flock(fileno(f),LOCK_UN);
+X#else
+X    lockf(fileno(f), F_ULOCK, 0);
+X#endif
+X    fclose(f);
+X  }
+X
+X  if (getuid() == ROOTUID)
+X    seteuid(DAEMONUID);
+X
+X  return(RE_OK);
+X}
+X
+Xvoid broadcast(si)
+Xstruct simsg *si;
+X{ char   s[80];
+X  struct utmp *u;
+X
+X  sprintf(s,"Broadcast message %s",si->msg); /* log it! */
+X  error(s);
+X
+X  /* loop for every utmp entry and try to write.  ignore any
+X   * errors returned by ttywrite.  we have to implement the
+X   * entire write command here or else we get an infinite
+X   * loop on the first utmp entry.
+X   */
+X
+X  while (u= getutent()) {
+X#ifdef SYSVUTMP
+X    if (u->ut_type != USER_PROCESS)
+X      continue;
+X#endif
+X    if (strcmp(u->ut_name,"")) {
+X      sprintf(si->ttty,u->ut_line);
+X      sprintf(si->taddr,u->ut_name);
+X      ttywrite(si);
+X    }
+X  }
+X  endutent();
+X}
+X
+X/* single user
+X */
+X
+Xint writeuser(si)
+Xstruct simsg     *si;
+X{ struct utmp    *u;  /* utmp entry */
+X  struct stat    stb;
+X  struct rimsg   ri;
+X  char   *home;
+X  char   ttyname[sizeof("/dev/")+MAXTTY+1];
+X  char   token[MAXTOKEN+1];
+X  char   fname[MAXFILENAME+1];
+X  char   line[MAXLINE+1];
+X  FILE   *f;
+X  time_t ltime;
+X  int    ttystat;
+X  int    notfound;
+X  int    allttys;
+X  int    forward;
+X  int    fwderr;
+X  int    ttyerr;
+X  int    uid;
+X
+X  /* send to particular tty
+X   */
+X
+X  if (si->mode & SM_TTY) {
+X
+X    /* look up user of that tty.
+X     */
+X
+X    ttystat= RE_SYSERR;
+X    while (u= getutent())
+X      if (!strcmp(u->ut_line,si->ttty)) {
+X        strcpy(si->taddr,u->ut_name);
+X        strcpy(si->ttty,u->ut_line);
+X        ttystat= ttywrite(si);
+X        break;
+X      }
+X    endutent();
+X    if (ttystat == RE_SYSERR)
+X      errno= ENODEV;          /* error message for user */
+X    return(ttystat);
+X  }
+X
+X  /* open user's options file and see if they want some special
+X   * propagation
+X   */
+X
+X  allttys= 0;
+X  forward= 0;
+X  fwderr= RE_OK;
+X
+X  if ((home= gethome(si->taddr)) == NULL)
+X    return(RE_NOUSER);
+X  if (getuid() == ROOTUID) {
+X    if ((uid= getid(si->taddr)) < 0)
+X      return(RE_NOUSER);
+X    seteuid(uid);
+X  }
+X
+X  sprintf(fname,"%s/.msendrc",home);
+X  if ((f= fopen(fname,"r")) != NULL) {
+X    while (fgets(line,MAXLINE,f) != NULL) {
+X      sscanf(line,"%s",token);
+X
+X      /* tty options
+X       */
+X
+X      if (!strcmp(token,"allttys"))
+X        allttys= 1;
+X      else if (!strcmp(token,"write-to-tty")) {
+X        sscanf(line,"%*s %s",si->ttty);
+X        ttywrite(si);
+X        forward= 1; /* same idea as forwarding */
+X      }
+X
+X      /* forwarding options.  note that we return the first error that
+X       * we get when forwarding so the user has some idea that something
+X       * went wrong.  compound errors will be lost.  we ignore obvious
+X       * host loops.
+X       */
+X
+X      else if (!strcmp(token,"forward-to-user")) {
+X        sscanf(line,"%*s %s",si->taddr);
+X        if ((striphost(si->taddr,si->tohost)) && (!fwdloop(si->tohost))) {
+X          si->fwdcount++;
+X          forward= 1;
+X          sendmessage(si,&ri,si->mode);
+X          if (fwderr == RE_OK)
+X            fwderr= ri.h.errno;
+X	}
+X      }
+X      else if (!strcmp(token,"forward-to-tty")) {
+X        sscanf(line,"%*s %s %s",si->ttty,si->taddr);
+X        if ((striphost(si->taddr,si->tohost)) && (!fwdloop(si->tohost))) {
+X          forward= 1;
+X          si->fwdcount++;
+X          sendmessage(si,&ri,si->mode);
+X          if (fwderr == RE_OK)
+X            fwderr= ri.h.errno;
+X        }
+X      }
+X      else if (!strcmp(token,"write-and-forward-to-user")) {
+X        sscanf(line,"%*s %s",si->taddr);
+X        if ((striphost(si->taddr,si->tohost)) && (!fwdloop(si->tohost))) {
+X          si->fwdcount++;
+X          sendmessage(si,&ri,si->mode);
+X          if (fwderr == RE_OK)
+X            fwderr= ri.h.errno;
+X        }
+X      }
+X    }
+X    fclose(f);
+X    if (forward)
+X      return(fwderr);
+X  }
+X
+X  if (getuid() == ROOTUID)
+X    seteuid(DAEMONUID);
+X
+X  /* send to least idle user or all writable ttys, depending on mode.
+X   */
+X
+X  ltime= (time_t)0;
+X  notfound= 1;
+X  ttyerr= RE_OK;
+X
+X  while (u= getutent()) {
+X    if (!strcmp(u->ut_name,si->taddr)) {     /* match user */
+X      sprintf(ttyname,"/dev/%s",u->ut_line);
+X
+X      if (stat(ttyname,&stb) != -1) {
+X        notfound= 0;
+X        if (stb.st_mode & 022) /* see if we have permission */
+X          if (allttys) {
+X
+X            /* write to every possible tty
+X             */
+X
+X            strcpy(si->ttty,u->ut_line);
+X            if (ttyerr != RE_OK)
+X              ttywrite(si);
+X            else
+X              ttyerr= ttywrite(si);
+X          }
+X          else {
+X
+X            /* look for least idle terminal
+X             */
+X
+X            if (!ltime) {
+X              ltime= stb.st_mtime;
+X              strcpy(si->ttty,u->ut_line);
+X            }
+X            else if (stb.st_mtime > ltime) { /* less idle */
+X              ltime= stb.st_mtime;
+X              strcpy(si->ttty,u->ut_line);
+X            }
+X	  }
+X      }
+X    }
+X  }
+X  endutent();
+X
+X  if (allttys)
+X    return(ttyerr);
+X
+X  if (notfound)
+X    return(RE_NOTTHERE);
+X  else if (!ltime)
+X    return(RE_NOMSGS);
+X
+X  return(ttywrite(si));
+X}
+END_OF_FILE
+  if test 6464 -ne `wc -c <'write.c'`; then
+    echo shar: \"'write.c'\" unpacked with wrong size!
+  fi
+  # end of 'write.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

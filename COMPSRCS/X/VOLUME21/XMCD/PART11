@@ -1,0 +1,3077 @@
+Newsgroups: comp.sources.x
+From: ti@bazooka.amb.org (Ti Kan)
+Subject: v21i073:  xmcd - X11/Motif CD audio player, Part11/13
+Message-ID: <1993Dec19.194052.24891@sparky.sterling.com>
+X-Md4-Signature: 80911febf40a82dcc5daaa607f213fc0
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 19:40:52 GMT
+Approved: chris@sterling.com
+
+Submitted-by: ti@bazooka.amb.org (Ti Kan)
+Posting-number: Volume 21, Issue 73
+Archive-name: xmcd/part11
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 11 (of 13)."
+# Contents:  widget.c bitmaps bitmaps/Imakefile
+# Wrapped by ti@bazooka on Mon Nov  8 10:35:24 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'widget.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'widget.c'\"
+else
+echo shar: Extracting \"'widget.c'\" \(60957 characters\)
+sed "s/^X//" >'widget.c' <<'END_OF_FILE'
+X/*
+X *   xmcd - Motif(tm) CD Audio Player
+X *
+X *   Copyright (C) 1993  Ti Kan
+X *   E-mail: ti@amb.org
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X */
+X#ifndef LINT
+Xstatic char *_widget_c_ident_ = "@(#)widget.c	1.88 93/09/28";
+X#endif
+X
+X#include <Xm/Xm.h>
+X#include <Xm/Protocols.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Scale.h>
+X#include <Xm/MessageB.h>
+X#include <Xm/Separator.h>
+X#include <Xm/Text.h>
+X#include <Xm/List.h>
+X
+X#include "xmcd.h"
+X#include "patchlevel.h"
+X#include "dbprog.h"
+X#include "cdfunc.h"
+X#include "cdlib.h"
+X#include "widget.h"
+X#include "geometry.h"
+X#include "help.h"
+X#include "hotkey.h"
+X
+X#include "bitmaps/btnlbl.xbm"
+X#include "bitmaps/lock.xbm"
+X#include "bitmaps/repeat.xbm"
+X#include "bitmaps/shuffle.xbm"
+X#include "bitmaps/eject.xbm"
+X#include "bitmaps/poweroff.xbm"
+X#include "bitmaps/dbprog.xbm"
+X#include "bitmaps/help.xbm"
+X#include "bitmaps/time.xbm"
+X#include "bitmaps/ab.xbm"
+X#include "bitmaps/sample.xbm"
+X#include "bitmaps/keypad.xbm"
+X#include "bitmaps/playpaus.xbm"
+X#include "bitmaps/stop.xbm"
+X#include "bitmaps/prevtrk.xbm"
+X#include "bitmaps/nexttrk.xbm"
+X#include "bitmaps/previdx.xbm"
+X#include "bitmaps/nextidx.xbm"
+X#include "bitmaps/rew.xbm"
+X#include "bitmaps/ff.xbm"
+X#include "bitmaps/logo.xbm"
+X#include "bitmaps/xmcd.xbm"
+X
+X
+Xextern widgets_t	widgets;
+XSTATIC Atom		delw;
+XSTATIC XtCallbackRec	chkbox_cblist[] = {
+X	{ (XtCallbackProc) cd_checkbox,		NULL },
+X	{ (XtCallbackProc) NULL,		NULL },
+X};
+XSTATIC	XtCallbackRec	radbox_cblist[] = {
+X	{ (XtCallbackProc) dbprog_timedpy,	NULL },
+X	{ (XtCallbackProc) NULL,		NULL },
+X};
+XSTATIC	XtCallbackRec	help_cblist[] = {
+X	{ (XtCallbackProc) cd_help_popup,	NULL },
+X	{ (XtCallbackProc) NULL,		NULL },
+X};
+X
+X
+X/*
+X * Action routines
+X */
+X
+X/*
+X * focuschg
+X *	Widget action routine to handle keyboard focus change events
+X *	This is used to change the label color of widgets in the
+X *	main window.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xfocuschg(Widget w, XEvent *ev, String *args, Cardinal *num_args)
+X{
+X	Widget	action_widget;
+X	Boolean	cont;
+X
+X	if ((int) *num_args != 1)
+X		return;	/* Error: should have one arg */
+X
+X	action_widget = XtNameToWidget(widgets.main.form, args[0]);
+X	if (action_widget == NULL)
+X		return;	/* Can't find widget */
+X
+X	cd_btn_focus_chg(action_widget, NULL, ev, &cont);
+X}
+X
+X
+X/*
+X * mainmap
+X *	Widget actin routine to handle the map and unmap events
+X *	on the main window.  This is used to perform certain
+X *	optimizations when the user iconifies the application.
+X */
+X/*ARGSUSED*/
+XSTATIC void
+Xmainmap(Widget w, XEvent *ev, String *args, Cardinal *num_args)
+X{
+X	curstat_t	*s = curstat_addr();
+X
+X	if (w != widgets.toplevel)
+X		return;
+X
+X	if (ev->type == MapNotify)
+X		cd_icon(s, FALSE);
+X	else if (ev->type == UnmapNotify)
+X		cd_icon(s, TRUE);
+X}
+X
+X
+X/*
+X * Widget-related functions
+X */
+X
+X/*
+X * bm_to_px
+X *	Convert a bitmap into a pixmap.
+X *
+X * Args:
+X *	w - A widget the pixmap should be associated with
+X *	bits - Pointer to the raw bitmap data
+X *	width, height - The resultant pixmap dimensions
+X *	depth - The depth of the desired pixmap
+X *	mode - The desired color characteristics of the pixmap
+X *		BM_PX_BW	foreground: black, background: white
+X *		BM_PX_BWREV 	foreground: white, background: black
+X *		BM_PX_WHITE 	foreground: white, background: bg of w
+X *		BM_PX_BLACK 	foreground: black, background: bg of w
+X *		BM_PX_HIGHLIGHT	foreground: hl of w, background: bg of w
+X *		BM_PX_NORMAL	foreground: fg of w, background: bg of w
+X *
+X * Return:
+X *	The pixmap ID, or NULL if failure.
+X */
+XPixmap
+Xbm_to_px(
+X	Widget w,
+X	void *bits,
+X	int width,
+X	int height,
+X	int depth,
+X	int mode
+X)
+X{
+X	Display		*display = XtDisplay(w);
+X	Window		window	 = XtWindow(w);
+X	int		screen	 = DefaultScreen(display);
+X	GC		pixmap_gc;
+X	XGCValues	val;
+X	Pixmap		tmp_bitmap;
+X	static Pixmap	ret_pixmap;
+X
+X	tmp_bitmap = XCreateBitmapFromData(display, window,
+X					   (char *) bits, width, height);
+X	if (tmp_bitmap == (Pixmap) NULL)
+X		return((Pixmap) NULL);
+X
+X	if (depth == 1) {
+X		ret_pixmap = tmp_bitmap;
+X		return(ret_pixmap);
+X	}
+X		
+X	/* Create pixmap with depth */
+X	ret_pixmap = XCreatePixmap(display, window, width, height, depth);
+X	if (ret_pixmap == (Pixmap) NULL)
+X		return((Pixmap) NULL);
+X
+X	/* Allocate colors for pixmap if on color screen */
+X	if (DisplayCells(display, screen) > 2) {
+X		/* Get pixmap color configuration */
+X		switch (mode) {
+X		case BM_PX_BW:
+X			val.foreground = BlackPixel(display, screen);
+X			val.background = WhitePixel(display, screen);
+X			break;
+X
+X		case BM_PX_BWREV:
+X			val.foreground = WhitePixel(display, screen);
+X			val.background = BlackPixel(display, screen);
+X			break;
+X
+X		case BM_PX_WHITE:
+X			val.foreground = WhitePixel(display, screen);
+X			XtVaGetValues(w,
+X				XmNbackground, &val.background,
+X				NULL
+X			);
+X			break;
+X
+X		case BM_PX_BLACK:
+X			val.foreground = BlackPixel(display, screen);
+X			XtVaGetValues(w,
+X				XmNbackground, &val.background,
+X				NULL
+X			);
+X			break;
+X
+X		case BM_PX_HIGHLIGHT:
+X			XtVaGetValues(w,
+X				XmNhighlightColor, &val.foreground,
+X				XmNbackground, &val.background,
+X				NULL
+X			);
+X			break;
+X
+X		case BM_PX_NORMAL:
+X		default:
+X			XtVaGetValues(w,
+X				XmNforeground, &val.foreground,
+X				XmNbackground, &val.background,
+X				NULL
+X			);
+X			break;
+X		}
+X
+X		/* Create GC for pixmap */
+X		pixmap_gc = XCreateGC(display, window,
+X				    GCForeground | GCBackground, &val);
+X	}
+X	else
+X		pixmap_gc = DefaultGC(display, screen);
+X		
+X	/* Copy bitmap into pixmap */
+X	XCopyPlane(display, tmp_bitmap, ret_pixmap, pixmap_gc,
+X		   0, 0, width, height, 0, 0, 1);
+X
+X	/* No need for the bitmap any more, so free it */
+X	XFreePixmap(display, tmp_bitmap);
+X
+X	return(ret_pixmap);
+X}
+X
+X
+X/*
+X * create_main_widgets
+X *	Create all widgets in the main window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_main_widgets(widgets_t *m)
+X{
+X	int		i;
+X	Arg		arg[10];
+X	curstat_t	*s = curstat_addr();
+X
+X	chkbox_cblist[0].closure = (XtPointer) s;
+X
+X	/* Create form widget as container */
+X	m->main.form = XmCreateForm(
+X		m->toplevel,
+X		"mainForm",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create frame for check box */
+X	m->main.chkbox_frm = XmCreateFrame(
+X		m->main.form,
+X		"checkBoxFrame",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create check box widget */
+X	i = 0;
+X	XtSetArg(arg[i], XmNbuttonCount, 4); i++;
+X	XtSetArg(arg[i], XmNspacing, 3); i++;
+X	XtSetArg(arg[i], XmNmarginHeight, 4); i++;
+X	XtSetArg(arg[i], XmNentryCallback, chkbox_cblist); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.check_box = XmCreateSimpleCheckBox(
+X		m->main.chkbox_frm,
+X		"checkBox",
+X		arg,
+X		i
+X	);
+X	m->main.btnlbl_btn = XtNameToWidget(m->main.check_box, "button_0");
+X	m->main.lock_btn = XtNameToWidget(m->main.check_box, "button_1");
+X	m->main.repeat_btn = XtNameToWidget(m->main.check_box, "button_2");
+X	m->main.shuffle_btn = XtNameToWidget(m->main.check_box, "button_3");
+X
+X	/* Create pushbutton widget for Eject button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.eject_btn = XmCreatePushButton(
+X		m->main.form,
+X		"ejectButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Power off button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.poweroff_btn = XmCreatePushButton(
+X		m->main.form,
+X		"powerOffButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as track indicator */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.track_ind = XmCreateLabel(
+X		m->main.form,
+X		"trackIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as index indicator */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.index_ind = XmCreateLabel(
+X		m->main.form,
+X		"indexIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as time indicator */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.time_ind = XmCreateLabel(
+X		m->main.form,
+X		"timeIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as indicator label */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.dbmode_ind = XmCreateLabel(
+X		m->main.form,
+X		"dbModeIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as indicator label */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.progmode_ind = XmCreateLabel(
+X		m->main.form,
+X		"progModeIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as indicator label */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.timemode_ind = XmCreateLabel(
+X		m->main.form,
+X		"timeModeIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as indicator label */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.playmode_ind = XmCreateLabel(
+X		m->main.form,
+X		"playModeIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for CDDB/Program button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.dbprog_btn = XmCreatePushButton(
+X		m->main.form,
+X		"dbprogButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Time button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.time_btn = XmCreatePushButton(
+X		m->main.form,
+X		"timeButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widgets for A->B button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.ab_btn = XmCreatePushButton(
+X		m->main.form,
+X		"abButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Sample button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.sample_btn = XmCreatePushButton(
+X		m->main.form,
+X		"sampleButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Sample button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.keypad_btn = XmCreatePushButton(
+X		m->main.form,
+X		"keypadButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Help button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.help_btn = XmCreatePushButton(
+X		m->main.form,
+X		"helpButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create scale widget for level slider */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.level_scale = XmCreateScale(
+X		m->main.form,
+X		"levelScale",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Play-Pause button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.playpause_btn = XmCreatePushButton(
+X		m->main.form,
+X		"playPauseButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Stop button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.stop_btn = XmCreatePushButton(
+X		m->main.form,
+X		"stopButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Prev Track button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.prevtrk_btn = XmCreatePushButton(
+X		m->main.form,
+X		"prevTrackButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Next Track button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.nexttrk_btn = XmCreatePushButton(
+X		m->main.form,
+X		"nextTrackButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Prev Index button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.previdx_btn = XmCreatePushButton(
+X		m->main.form,
+X		"prevIndexButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for Next Index button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.nextidx_btn = XmCreatePushButton(
+X		m->main.form,
+X		"nextIndexButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for REW button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.rew_btn = XmCreatePushButton(
+X		m->main.form,
+X		"rewButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget for FF button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->main.ff_btn = XmCreatePushButton(
+X		m->main.form,
+X		"ffButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets */
+X	XtManageChild(m->main.form);
+X	XtManageChild(m->main.chkbox_frm);
+X	XtManageChild(m->main.check_box);
+X	XtManageChild(m->main.eject_btn);
+X	XtManageChild(m->main.poweroff_btn);
+X	XtManageChild(m->main.track_ind);
+X	XtManageChild(m->main.index_ind);
+X	XtManageChild(m->main.time_ind);
+X	XtManageChild(m->main.dbmode_ind);
+X	XtManageChild(m->main.progmode_ind);
+X	XtManageChild(m->main.timemode_ind);
+X	XtManageChild(m->main.playmode_ind);
+X	XtManageChild(m->main.dbprog_btn);
+X	XtManageChild(m->main.time_btn);
+X	XtManageChild(m->main.ab_btn);
+X	XtManageChild(m->main.sample_btn);
+X	XtManageChild(m->main.keypad_btn);
+X	XtManageChild(m->main.help_btn);
+X	XtManageChild(m->main.level_scale);
+X	XtManageChild(m->main.playpause_btn);
+X	XtManageChild(m->main.stop_btn);
+X	XtManageChild(m->main.prevtrk_btn);
+X	XtManageChild(m->main.nexttrk_btn);
+X	XtManageChild(m->main.previdx_btn);
+X	XtManageChild(m->main.nextidx_btn);
+X	XtManageChild(m->main.rew_btn);
+X	XtManageChild(m->main.ff_btn);
+X}
+X
+X
+X/*
+X * create_keypad_widgets
+X *	Create all widgets in the keypad window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_keypad_widgets(widgets_t *m)
+X{
+X	int		i, j;
+X	Arg		arg[10];
+X	char		btn_name[20];
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNresizePolicy, XmRESIZE_NONE); i++;
+X	m->keypad.form = XmCreateFormDialog(
+X		m->toplevel,
+X		"keypadForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as keypad label */
+X	m->keypad.keypad_lbl = XmCreateLabel(
+X		m->keypad.form,
+X		"keypadLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create label widget as keypad indicator */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->keypad.keypad_ind = XmCreateLabel(
+X		m->keypad.form,
+X		"keypadIndicator",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widgets as number keys */
+X	for (j = 0; j < 10; j++) {
+X		sprintf(btn_name, "keypadNumButton%u", j);
+X
+X		i = 0;
+X		XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X		m->keypad.num_btn[j] = XmCreatePushButton(
+X			m->keypad.form,
+X			btn_name,
+X			arg,
+X			i
+X		);
+X	}
+X
+X	/* Create pushbutton widget as enter button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->keypad.enter_btn = XmCreatePushButton(
+X		m->keypad.form,
+X		"keypadEnterButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->keypad.keypad_sep = XmCreateSeparator(
+X		m->keypad.form,
+X		"keypadSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->keypad.cancel_btn = XmCreatePushButton(
+X		m->keypad.form,
+X		"keypadCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as clear button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->keypad.clear_btn = XmCreatePushButton(
+X		m->keypad.form,
+X		"keypadClearButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->keypad.keypad_lbl);
+X	XtManageChild(m->keypad.keypad_ind);
+X	for (i = 0; i < 10; i++)
+X		XtManageChild(m->keypad.num_btn[i]);
+X	XtManageChild(m->keypad.enter_btn);
+X	XtManageChild(m->keypad.keypad_sep);
+X	XtManageChild(m->keypad.cancel_btn);
+X	XtManageChild(m->keypad.clear_btn);
+X}
+X
+X
+X/*
+X * create_dbprog_widgets
+X *	Create all widgets in the database/program window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_dbprog_widgets(widgets_t *m)
+X{
+X	int		i;
+X	Arg		arg[10];
+X	curstat_t	*s = curstat_addr();
+X
+X	radbox_cblist[0].closure = (XtPointer) s;
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNresizePolicy, XmRESIZE_NONE); i++;
+X	m->dbprog.form = XmCreateFormDialog(
+X		m->toplevel,
+X		"dbprogForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as logo */
+X	m->dbprog.logo_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"logoLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as about button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.about_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"aboutButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as disc title display/editor label */
+X	m->dbprog.dtitle_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"discTitleLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create label widget as disc ext descr label */
+X	m->dbprog.extd_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"discLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create text widget as disc title display/editor */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, True); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmSINGLE_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, True); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.dtitle_txt = XmCreateText(
+X		m->dbprog.form,
+X		"discTitleText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as disc title ext descr popup button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.extd_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"extDiscInfoButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->dbprog.dbprog_sep1 = XmCreateSeparator(
+X		m->dbprog.form,
+X		"dbprogSeparator1",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create label widget as track list label */
+X	m->dbprog.trklist_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"trackListLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create scrolled list widget as track list */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautomaticSelection, False); i++;
+X	XtSetArg(arg[i], XmNselectionPolicy, XmBROWSE_SELECT); i++;
+X	XtSetArg(arg[i], XmNlistSizePolicy, XmCONSTANT); i++;
+X	XtSetArg(arg[i], XmNscrollBarDisplayPolicy, XmSTATIC); i++;
+X	XtSetArg(arg[i], XmNscrolledWindowMarginWidth, 2); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.trk_list = XmCreateScrolledList(
+X		m->dbprog.form,
+X		"trackList",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as time mode selector label */
+X	m->dbprog.radio_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"timeSelectLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create frame for radio box */
+X	m->dbprog.radio_frm = XmCreateFrame(
+X		m->dbprog.form,
+X		"timeSelectFrame",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create radio box widget as time mode selector */
+X	i = 0;
+X	XtSetArg(arg[i], XmNbuttonCount, 2); i++;
+X	XtSetArg(arg[i], XmNbuttonSet, 0); i++;
+X	XtSetArg(arg[i], XmNspacing, 3); i++;
+X	XtSetArg(arg[i], XmNmarginHeight, 4); i++;
+X	XtSetArg(arg[i], XmNentryCallback, radbox_cblist); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.radio_box = XmCreateSimpleRadioBox(
+X		m->dbprog.radio_frm,
+X		"timeSelectBox",
+X		arg,
+X		i
+X	);
+X	m->dbprog.tottime_btn = XtNameToWidget(m->dbprog.radio_box, "button_0");
+X	m->dbprog.trktime_btn = XtNameToWidget(m->dbprog.radio_box, "button_1");
+X
+X	/* Create label widget as track title display/editor label */
+X	m->dbprog.ttitle_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"trackTitleLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create label widget as disc ext descr label */
+X	m->dbprog.extt_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"trackLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create text widget as track title display/editor */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, True); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmSINGLE_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, True); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.ttitle_txt = XmCreateText(
+X		m->dbprog.form,
+X		"trackTitleText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as track title ext descr popup button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.extt_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"extTrackInfoButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as program pushbuttons label */
+X	m->dbprog.pgm_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"programLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as Add to PGM button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.addpgm_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"addProgramButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Clear PGM button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.clrpgm_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"clearProgramButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Play PGM button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.playpgm_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"playProgramButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as program sequence display/editor label */
+X	m->dbprog.pgmseq_lbl = XmCreateLabel(
+X		m->dbprog.form,
+X		"programSequenceLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create text widget as program sequence display/editor */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, True); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmSINGLE_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, True); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.pgmseq_txt = XmCreateText(
+X		m->dbprog.form,
+X		"programSequenceText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->dbprog.dbprog_sep2 = XmCreateSeparator(
+X		m->dbprog.form,
+X		"dbprogSeparator2",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as Save DB button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.savedb_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"saveDatabaseButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Load DB button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.loaddb_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"loadDatabaseButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Link DB button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.linkdb_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"linkDatabaseButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbprog.cancel_btn = XmCreatePushButton(
+X		m->dbprog.form,
+X		"dbprogCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->dbprog.logo_lbl);
+X	XtManageChild(m->dbprog.about_btn);
+X	XtManageChild(m->dbprog.dtitle_lbl);
+X	XtManageChild(m->dbprog.dtitle_txt);
+X	XtManageChild(m->dbprog.extd_lbl);
+X	XtManageChild(m->dbprog.extd_btn);
+X	XtManageChild(m->dbprog.dbprog_sep1);
+X	XtManageChild(m->dbprog.trklist_lbl);
+X	XtManageChild(m->dbprog.trk_list);
+X	XtManageChild(m->dbprog.radio_lbl);
+X	XtManageChild(m->dbprog.radio_frm);
+X	XtManageChild(m->dbprog.radio_box);
+X	XtManageChild(m->dbprog.ttitle_lbl);
+X	XtManageChild(m->dbprog.ttitle_txt);
+X	XtManageChild(m->dbprog.extt_lbl);
+X	XtManageChild(m->dbprog.extt_btn);
+X	XtManageChild(m->dbprog.pgm_lbl);
+X	XtManageChild(m->dbprog.addpgm_btn);
+X	XtManageChild(m->dbprog.clrpgm_btn);
+X	XtManageChild(m->dbprog.playpgm_btn);
+X	XtManageChild(m->dbprog.pgmseq_lbl);
+X	XtManageChild(m->dbprog.pgmseq_txt);
+X	XtManageChild(m->dbprog.dbprog_sep2);
+X	XtManageChild(m->dbprog.savedb_btn);
+X	XtManageChild(m->dbprog.loaddb_btn);
+X	XtManageChild(m->dbprog.linkdb_btn);
+X	XtManageChild(m->dbprog.cancel_btn);
+X}
+X
+X
+X/*
+X * create_exttxt_widgets
+X *	Create all widgets in the extended disc information and
+X *	extended track information windows.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_exttxt_widgets(widgets_t *m)
+X{
+X	int	i;
+X	Arg	arg[10];
+X
+X	/* Extended disc info window */
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNresizePolicy, XmRESIZE_NONE); i++;
+X	m->dbextd.form = XmCreateFormDialog(
+X		m->dbprog.form,
+X		"extDiscInfoForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as extended disc info label */
+X	m->dbextd.disc_lbl = XmCreateLabel(
+X		m->dbextd.form,
+X		"extDiscInfoLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create text widget as extended disc info editor/viewer */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, True); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmMULTI_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, True); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextd.disc_txt = XmCreateScrolledText(
+X		m->dbextd.form,
+X		"extDiscInfoText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->dbextd.dbextd_sep = XmCreateSeparator(
+X		m->dbextd.form,
+X		"extDiscInfoSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as OK button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextd.ok_btn = XmCreatePushButton(
+X		m->dbextd.form,
+X		"extDiscInfoOkButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Clear button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextd.clear_btn = XmCreatePushButton(
+X		m->dbextd.form,
+X		"extDiscInfoClearButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextd.cancel_btn = XmCreatePushButton(
+X		m->dbextd.form,
+X		"extDiscInfoCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Extended track info window */
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNresizePolicy, XmRESIZE_NONE); i++;
+X	m->dbextt.form = XmCreateFormDialog(
+X		m->dbprog.form,
+X		"extTrackInfoForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as extended disc info label */
+X	m->dbextt.trk_lbl = XmCreateLabel(
+X		m->dbextt.form,
+X		"extTrackInfoLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create text widget as extended disc info editor/viewer */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, True); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmMULTI_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, True); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextt.trk_txt = XmCreateScrolledText(
+X		m->dbextt.form,
+X		"extTrackInfoText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->dbextt.dbextt_sep = XmCreateSeparator(
+X		m->dbextt.form,
+X		"extTrackInfoSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as OK button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextt.ok_btn = XmCreatePushButton(
+X		m->dbextt.form,
+X		"extTrackInfoOkButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Clear button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextt.clear_btn = XmCreatePushButton(
+X		m->dbextt.form,
+X		"extTrackInfoClearButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dbextt.cancel_btn = XmCreatePushButton(
+X		m->dbextt.form,
+X		"extTrackInfoCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->dbextd.disc_lbl);
+X	XtManageChild(m->dbextd.disc_txt);
+X	XtManageChild(m->dbextd.dbextd_sep);
+X	XtManageChild(m->dbextd.ok_btn);
+X	XtManageChild(m->dbextd.clear_btn);
+X	XtManageChild(m->dbextd.cancel_btn);
+X
+X	XtManageChild(m->dbextt.trk_lbl);
+X	XtManageChild(m->dbextt.trk_txt);
+X	XtManageChild(m->dbextt.dbextt_sep);
+X	XtManageChild(m->dbextt.ok_btn);
+X	XtManageChild(m->dbextt.clear_btn);
+X	XtManageChild(m->dbextt.cancel_btn);
+X}
+X
+X
+X/*
+X * create_dirsel_widgets
+X *	Create all widgets in the CD database directory selector window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_dirsel_widgets(widgets_t *m)
+X{
+X	int	i;
+X	Arg	arg[10];
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_FULL_APPLICATION_MODAL); i++;
+X	m->dirsel.form = XmCreateFormDialog(
+X		m->dbprog.form,
+X		"dirSelectForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as database directory selector label */
+X	m->dirsel.dir_lbl = XmCreateLabel(
+X		m->dirsel.form,
+X		"dirSelectLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create scrolled list widget as directory list */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautomaticSelection, False); i++;
+X	XtSetArg(arg[i], XmNselectionPolicy, XmBROWSE_SELECT); i++;
+X	XtSetArg(arg[i], XmNlistSizePolicy, XmCONSTANT); i++;
+X	XtSetArg(arg[i], XmNscrollBarDisplayPolicy, XmAS_NEEDED); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dirsel.dir_list = XmCreateScrolledList(
+X		m->dirsel.form,
+X		"dirSelectList",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->dirsel.dirsel_sep = XmCreateSeparator(
+X		m->dirsel.form,
+X		"dirSelectSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as OK button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dirsel.ok_btn = XmCreatePushButton(
+X		m->dirsel.form,
+X		"dirSelectOkButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->dirsel.cancel_btn = XmCreatePushButton(
+X		m->dirsel.form,
+X		"dirSelectCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->dirsel.dir_lbl);
+X	XtManageChild(m->dirsel.dir_list);
+X	XtManageChild(m->dirsel.dirsel_sep);
+X	XtManageChild(m->dirsel.ok_btn);
+X	XtManageChild(m->dirsel.cancel_btn);
+X}
+X
+X
+X/*
+X * create_linksel_widgets
+X *	Create all widgets in the CD database search-link window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_linksel_widgets(widgets_t *m)
+X{
+X	int	i;
+X	Arg	arg[10];
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_FULL_APPLICATION_MODAL); i++;
+X	m->linksel.form = XmCreateFormDialog(
+X		m->dbprog.form,
+X		"linkSelectForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create label widget as cddb link selector label */
+X	m->linksel.link_lbl = XmCreateLabel(
+X		m->linksel.form,
+X		"linkSelectLabel",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create scrolled list widget as disc titles list */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautomaticSelection, False); i++;
+X	XtSetArg(arg[i], XmNselectionPolicy, XmBROWSE_SELECT); i++;
+X	XtSetArg(arg[i], XmNlistSizePolicy, XmCONSTANT); i++;
+X	XtSetArg(arg[i], XmNscrollBarDisplayPolicy, XmAS_NEEDED); i++;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->linksel.link_list = XmCreateScrolledList(
+X		m->linksel.form,
+X		"linkSelectList",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->linksel.linksel_sep = XmCreateSeparator(
+X		m->linksel.form,
+X		"linkSelectSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as OK button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->linksel.ok_btn = XmCreatePushButton(
+X		m->linksel.form,
+X		"linkSelectOkButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Create pushbutton widget as Cancel button */
+X	i = 0;
+X	XtSetArg(arg[i], XmNhelpCallback, help_cblist); i++;
+X	m->linksel.cancel_btn = XmCreatePushButton(
+X		m->linksel.form,
+X		"linkSelectCancelButton",
+X		arg,
+X		i
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->linksel.link_lbl);
+X	XtManageChild(m->linksel.link_list);
+X	XtManageChild(m->linksel.linksel_sep);
+X	XtManageChild(m->linksel.ok_btn);
+X	XtManageChild(m->linksel.cancel_btn);
+X}
+X
+X
+X/*
+X * create_help_widgets
+X *	Create all widgets in the help text display window.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_help_widgets(widgets_t *m)
+X{
+X	int	i;
+X	Arg	arg[10];
+X
+X	/* Help popup window */
+X
+X	/* Create form widget as container */
+X	i = 0;
+X	XtSetArg(arg[i], XmNautoUnmanage, False); i++;
+X	XtSetArg(arg[i], XmNresizePolicy, XmRESIZE_NONE); i++;
+X	m->help.form = XmCreateFormDialog(
+X		m->main.form,
+X		"helpForm",
+X		arg,
+X		i
+X	);
+X
+X	/* Create text widget as help text viewer */
+X	i = 0;
+X	XtSetArg(arg[i], XmNeditable, False); i++;
+X	XtSetArg(arg[i], XmNeditMode, XmMULTI_LINE_EDIT); i++;
+X	XtSetArg(arg[i], XmNcursorPositionVisible, False); i++;
+X	XtSetArg(arg[i], XmNcursorPosition, 0); i++;
+X	m->help.help_txt = XmCreateScrolledText(
+X		m->help.form,
+X		"helpText",
+X		arg,
+X		i
+X	);
+X
+X	/* Create separator bar widget */
+X	m->help.help_sep = XmCreateSeparator(
+X		m->help.form,
+X		"helpSeparator",
+X		NULL,
+X		0
+X	);
+X
+X	/* Create pushbutton widget as OK button */
+X	m->help.ok_btn = XmCreatePushButton(
+X		m->help.form,
+X		"helpOkButton",
+X		NULL,
+X		0
+X	);
+X
+X	/* Manage the widgets (except the form) */
+X	XtManageChild(m->help.help_txt);
+X	XtManageChild(m->help.help_sep);
+X	XtManageChild(m->help.ok_btn);
+X}
+X
+X
+X/*
+X * create_dialog_widgets
+X *	Create all widgets in the dialog box windows.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xcreate_dialog_widgets(widgets_t *m)
+X{
+X	int	i;
+X	Arg	arg[10];
+X	Widget	help_btn,
+X		cancel_btn;
+X
+X	/* Create info dialog widget for information messages */
+X	i = 0;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_MODELESS); i++;
+X	m->dialog.info = XmCreateInformationDialog(
+X		m->toplevel,
+X		"infoPopup",
+X		arg,
+X		i
+X	);
+X
+X	/* Remove unused buttons in the info dialog widget */
+X	help_btn = XmMessageBoxGetChild(
+X		m->dialog.info,
+X		XmDIALOG_HELP_BUTTON
+X	);
+X	cancel_btn = XmMessageBoxGetChild(
+X		m->dialog.info,
+X		XmDIALOG_CANCEL_BUTTON
+X	);
+X
+X	XtUnmanageChild(help_btn);
+X	XtUnmanageChild(cancel_btn);
+X
+X	/* Create warning dialog widget for warning messages */
+X	i = 0;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_FULL_APPLICATION_MODAL); i++;
+X	m->dialog.warning = XmCreateWarningDialog(
+X		m->toplevel,
+X		"warningPopup",
+X		arg,
+X		i
+X	);
+X
+X	/* Remove unused buttons in the warning dialog widget */
+X	help_btn = XmMessageBoxGetChild(
+X		m->dialog.warning,
+X		XmDIALOG_HELP_BUTTON
+X	);
+X	cancel_btn = XmMessageBoxGetChild(
+X		m->dialog.warning,
+X		XmDIALOG_CANCEL_BUTTON
+X	);
+X
+X	XtUnmanageChild(help_btn);
+X	XtUnmanageChild(cancel_btn);
+X
+X	/* Create error dialog widget for fatal error messages */
+X	i = 0;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_FULL_APPLICATION_MODAL); i++;
+X	m->dialog.fatal = XmCreateErrorDialog(
+X		m->toplevel,
+X		"fatalPopup",
+X		arg,
+X		i
+X	);
+X
+X	/* Remove unused buttons in the error dialog widget */
+X	help_btn = XmMessageBoxGetChild(
+X		m->dialog.fatal,
+X		XmDIALOG_HELP_BUTTON
+X	);
+X	cancel_btn = XmMessageBoxGetChild(
+X		m->dialog.fatal,
+X		XmDIALOG_CANCEL_BUTTON
+X	);
+X
+X	XtUnmanageChild(help_btn);
+X	XtUnmanageChild(cancel_btn);
+X
+X	/* Create question dialog widget for confirm messages */
+X	i = 0;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_FULL_APPLICATION_MODAL); i++;
+X	m->dialog.confirm = XmCreateQuestionDialog(
+X		m->toplevel,
+X		"questionPopup",
+X		arg,
+X		i
+X	);
+X
+X	/* Remove unused buttons in the question dialog widget */
+X	help_btn = XmMessageBoxGetChild(
+X		m->dialog.confirm,
+X		XmDIALOG_HELP_BUTTON
+X	);
+X
+X	XtUnmanageChild(help_btn);
+X
+X	/* Create info dialog widget for the About popup */
+X	i = 0;
+X	XtSetArg(arg[i], XmNdialogStyle, XmDIALOG_MODELESS); i++;
+X	m->dialog.about = XmCreateInformationDialog(
+X		m->toplevel,
+X		"aboutPopup",
+X		arg,
+X		i
+X	);
+X
+X	/* Remove unused buttons in the about popup */
+X	help_btn = XmMessageBoxGetChild(
+X		m->dialog.about,
+X		XmDIALOG_HELP_BUTTON
+X	);
+X	cancel_btn = XmMessageBoxGetChild(
+X		m->dialog.about,
+X		XmDIALOG_CANCEL_BUTTON
+X	);
+X
+X	XtUnmanageChild(help_btn);
+X	XtUnmanageChild(cancel_btn);
+X}
+X
+X
+X/*
+X * create_widgets
+X *	Top-level function to create all widgets
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xcreate_widgets(widgets_t *m)
+X{
+X	create_main_widgets(m);
+X	create_keypad_widgets(m);
+X	create_dbprog_widgets(m);
+X	create_exttxt_widgets(m);
+X	create_dirsel_widgets(m);
+X	create_linksel_widgets(m);
+X	create_help_widgets(m);
+X	create_dialog_widgets(m);
+X}
+X
+X
+X/*
+X * make_pixmaps
+X *	Create pixmaps from bitmap data and set up various widgets to
+X *	use them.
+X *
+X * Args:
+X *	m - Pointer to the main widgets placeholder structure
+X *	p - The main pixmaps placeholder structure
+X *	depth - The desired depth of the pixmap
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xmake_pixmaps(widgets_t *m, pixmaps_t *p, int depth)
+X{
+X	/* Set icon pixmap */
+X	p->main.icon_pixmap = bm_to_px(
+X		m->toplevel,
+X		logo_bits,
+X		logo_width,
+X		logo_height,
+X		1,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->toplevel, XmNiconPixmap, p->main.icon_pixmap, NULL);
+X					
+X	/*
+X	 * The following puts proper pixmaps on button faces
+X	 */
+X
+X	p->main.btnlbl_pixmap = bm_to_px(
+X		m->main.check_box,
+X		btnlbl_bits,
+X		btnlbl_width,
+X		btnlbl_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->main.btnlbl_btn,
+X		XmNlabelPixmap, p->main.btnlbl_pixmap,
+X		NULL
+X	);
+X
+X	p->main.lock_pixmap = bm_to_px(
+X		m->main.check_box,
+X		lock_bits,
+X		lock_width,
+X		lock_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->main.lock_btn,
+X		XmNlabelPixmap, p->main.lock_pixmap,
+X		NULL
+X	);
+X
+X	p->main.repeat_pixmap = bm_to_px(
+X		m->main.check_box,
+X		repeat_bits,
+X		repeat_width,
+X		repeat_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->main.repeat_btn,
+X		XmNlabelPixmap, p->main.repeat_pixmap,
+X		NULL
+X	);
+X
+X	p->main.shuffle_pixmap = bm_to_px(
+X		m->main.check_box,
+X		shuffle_bits,
+X		shuffle_width,
+X		shuffle_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->main.shuffle_btn,
+X		XmNlabelPixmap, p->main.shuffle_pixmap,
+X		NULL
+X	);
+X
+X	p->main.eject_pixmap = bm_to_px(
+X		m->main.eject_btn,
+X		eject_bits,
+X		eject_width,
+X		eject_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.eject_hlpixmap = bm_to_px(
+X		m->main.eject_btn,
+X		eject_bits,
+X		eject_width,
+X		eject_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.eject_btn,
+X		XmNlabelPixmap, p->main.eject_pixmap,
+X		NULL
+X	);
+X
+X	p->main.poweroff_pixmap = bm_to_px(
+X		m->main.poweroff_btn,
+X		poweroff_bits,
+X		poweroff_width,
+X		poweroff_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.poweroff_hlpixmap = bm_to_px(
+X		m->main.poweroff_btn,
+X		poweroff_bits,
+X		poweroff_width,
+X		poweroff_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.poweroff_btn,
+X		XmNlabelPixmap, p->main.poweroff_pixmap,
+X		NULL
+X	);
+X
+X	p->main.dbprog_pixmap = bm_to_px(
+X		m->main.dbprog_btn,
+X		dbprog_bits,
+X		dbprog_width,
+X		dbprog_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.dbprog_hlpixmap = bm_to_px(
+X		m->main.dbprog_btn,
+X		dbprog_bits,
+X		dbprog_width,
+X		dbprog_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.dbprog_btn,
+X		XmNlabelPixmap, p->main.dbprog_pixmap,
+X		NULL
+X	);
+X
+X	p->main.time_pixmap = bm_to_px(
+X		m->main.time_btn,
+X		time_bits,
+X		time_width,
+X		time_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.time_hlpixmap = bm_to_px(
+X		m->main.time_btn,
+X		time_bits,
+X		time_width,
+X		time_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.time_btn,
+X		XmNlabelPixmap, p->main.time_pixmap,
+X		NULL
+X	);
+X
+X	p->main.ab_pixmap = bm_to_px(
+X		m->main.ab_btn,
+X		ab_bits,
+X		ab_width,
+X		ab_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.ab_hlpixmap = bm_to_px(
+X		m->main.ab_btn,
+X		ab_bits,
+X		ab_width,
+X		ab_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.ab_btn,
+X		XmNlabelPixmap, p->main.ab_pixmap,
+X		NULL
+X	);
+X
+X	p->main.sample_pixmap = bm_to_px(
+X		m->main.sample_btn,
+X		sample_bits,
+X		sample_width,
+X		sample_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.sample_hlpixmap = bm_to_px(
+X		m->main.sample_btn,
+X		sample_bits,
+X		sample_width,
+X		sample_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.sample_btn,
+X		XmNlabelPixmap, p->main.sample_pixmap,
+X		NULL
+X	);
+X
+X	p->main.keypad_pixmap = bm_to_px(
+X		m->main.keypad_btn,
+X		keypad_bits,
+X		keypad_width,
+X		keypad_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.keypad_hlpixmap = bm_to_px(
+X		m->main.keypad_btn,
+X		keypad_bits,
+X		keypad_width,
+X		keypad_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.keypad_btn,
+X		XmNlabelPixmap, p->main.keypad_pixmap,
+X		NULL
+X	);
+X
+X	p->main.help_pixmap = bm_to_px(
+X		m->main.help_btn,
+X		help_bits,
+X		help_width,
+X		help_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.help_hlpixmap = bm_to_px(
+X		m->main.help_btn,
+X		help_bits,
+X		help_width,
+X		help_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.help_btn,
+X		XmNlabelPixmap, p->main.help_pixmap,
+X		NULL
+X	);
+X
+X	p->main.playpause_pixmap = bm_to_px(
+X		m->main.playpause_btn,
+X		playpause_bits,
+X		playpause_width,
+X		playpause_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.playpause_hlpixmap = bm_to_px(
+X		m->main.playpause_btn,
+X		playpause_bits,
+X		playpause_width,
+X		playpause_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.playpause_btn,
+X		XmNlabelPixmap, p->main.playpause_pixmap,
+X		NULL
+X	);
+X
+X	p->main.stop_pixmap = bm_to_px(
+X		m->main.stop_btn,
+X		stop_bits,
+X		stop_width,
+X		stop_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.stop_hlpixmap = bm_to_px(
+X		m->main.stop_btn,
+X		stop_bits,
+X		stop_width,
+X		stop_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.stop_btn,
+X		XmNlabelPixmap, p->main.stop_pixmap,
+X		NULL
+X	);
+X
+X	p->main.prevtrk_pixmap = bm_to_px(
+X		m->main.prevtrk_btn,
+X		prevtrk_bits,
+X		prevtrk_width,
+X		prevtrk_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.prevtrk_hlpixmap = bm_to_px(
+X		m->main.prevtrk_btn,
+X		prevtrk_bits,
+X		prevtrk_width,
+X		prevtrk_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.prevtrk_btn,
+X		XmNlabelPixmap, p->main.prevtrk_pixmap,
+X		NULL
+X	);
+X
+X	p->main.nexttrk_pixmap = bm_to_px(
+X		m->main.nexttrk_btn,
+X		nexttrk_bits,
+X		nexttrk_width,
+X		nexttrk_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.nexttrk_hlpixmap = bm_to_px(
+X		m->main.nexttrk_btn,
+X		nexttrk_bits,
+X		nexttrk_width,
+X		nexttrk_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.nexttrk_btn,
+X		XmNlabelPixmap, p->main.nexttrk_pixmap,
+X		NULL
+X	);
+X
+X	p->main.previdx_pixmap = bm_to_px(
+X		m->main.previdx_btn,
+X		previdx_bits,
+X		previdx_width,
+X		previdx_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.previdx_hlpixmap = bm_to_px(
+X		m->main.previdx_btn,
+X		previdx_bits,
+X		previdx_width,
+X		previdx_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.previdx_btn,
+X		XmNlabelPixmap, p->main.previdx_pixmap,
+X		NULL
+X	);
+X
+X	p->main.nextidx_pixmap = bm_to_px(
+X		m->main.nextidx_btn,
+X		nextidx_bits,
+X		nextidx_width,
+X		nextidx_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.nextidx_hlpixmap = bm_to_px(
+X		m->main.nextidx_btn,
+X		nextidx_bits,
+X		nextidx_width,
+X		nextidx_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.nextidx_btn,
+X		XmNlabelPixmap, p->main.nextidx_pixmap,
+X		NULL
+X	);
+X
+X	p->main.rew_pixmap = bm_to_px(
+X		m->main.rew_btn,
+X		rew_bits,
+X		rew_width,
+X		rew_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.rew_hlpixmap = bm_to_px(
+X		m->main.rew_btn,
+X		rew_bits,
+X		rew_width,
+X		rew_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.rew_btn,
+X		XmNlabelPixmap, p->main.rew_pixmap,
+X		NULL
+X	);
+X
+X	p->main.ff_pixmap = bm_to_px(
+X		m->main.ff_btn,
+X		ff_bits,
+X		ff_width,
+X		ff_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	p->main.ff_hlpixmap = bm_to_px(
+X		m->main.ff_btn,
+X		ff_bits,
+X		ff_width,
+X		ff_height,
+X		depth,
+X		BM_PX_HIGHLIGHT
+X	);
+X	XtVaSetValues(m->main.ff_btn,
+X		XmNlabelPixmap, p->main.ff_pixmap,
+X		NULL
+X	);
+X
+X	p->dbprog.logo_pixmap = bm_to_px(
+X		m->main.dbprog_btn,
+X		logo_bits,
+X		logo_width,
+X		logo_height,
+X		depth,
+X		BM_PX_NORMAL
+X	);
+X	XtVaSetValues(m->dbprog.logo_lbl,
+X		XmNlabelType, XmPIXMAP,
+X		XmNlabelPixmap, p->dbprog.logo_pixmap,
+X		XmNlabelInsensitivePixmap, p->dbprog.logo_pixmap,
+X		NULL
+X	);
+X
+X	p->dialog.xmcd_pixmap = bm_to_px(
+X		m->main.dbprog_btn,
+X		xmcd_bits,
+X		xmcd_width,
+X		xmcd_height,
+X		depth,
+X		BM_PX_WHITE
+X	);
+X	XtVaSetValues(m->dialog.about,
+X		XmNsymbolPixmap, p->dialog.xmcd_pixmap,
+X		NULL
+X	);
+X}
+X
+X
+X/*
+X * pre_realize_config
+X *	Top-level function to perform set-up and initialization tasks
+X *	prior to realizing all widgets.
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpre_realize_config(widgets_t *m)
+X{
+X	unsigned char		labtype;
+X	static XtActionsRec	actions[] = {
+X		{ "hotkey",	hotkey },
+X		{ "focuschg",	focuschg },
+X		{ "mainmap",	mainmap }
+X	};
+X
+X	/* Set geometry and location of all main widgets */
+X	force_geometry(m);
+X
+X	/* Make main window toggle buttons have the same label setting as
+X	 * the pushbuttons.
+X	 */
+X	XtVaGetValues(m->main.playpause_btn, XmNlabelType, &labtype, NULL);
+X	XtVaSetValues(m->main.btnlbl_btn, XmNlabelType, labtype, NULL);
+X	XtVaSetValues(m->main.lock_btn, XmNlabelType, labtype, NULL);
+X	XtVaSetValues(m->main.repeat_btn, XmNlabelType, labtype, NULL);
+X	XtVaSetValues(m->main.shuffle_btn, XmNlabelType, labtype, NULL);
+X
+X	/* Register action routines */
+X	XtAppAddActions(
+X		XtWidgetToApplicationContext(m->toplevel),
+X		actions,
+X		XtNumber(actions)
+X	);
+X
+X	/* Add translations for iconification handling */
+X	XtOverrideTranslations(
+X		m->toplevel,
+X		XtParseTranslationTable(
+X			"<MapNotify>: mainmap()\n<UnmapNotify>: mainmap()"
+X		)
+X	);
+X
+X	/* Add translations for shortcut keys */
+X	hotkey_setup(m);
+X
+X	/* Add translations for widget-sensitive help popup */
+X	help_setup(m);
+X}
+X
+X
+X/*
+X * post_realize_config
+X *	Top-level function to perform set-up and initialization tasks
+X *	after realizing all widgets.
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure.
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xpost_realize_config(widgets_t *m, pixmaps_t *p)
+X{
+X	Display		*display = XtDisplay(m->toplevel);
+X	int		depth = DefaultDepth(display, DefaultScreen(display));
+X
+X	/* Make pixmaps for all the button tops */
+X	make_pixmaps(m, p, depth);
+X
+X	/* Get WM_DELETE_WINDOW atom */
+X	delw = XmInternAtom(display, "WM_DELETE_WINDOW", False);
+X
+X	XmProcessTraversal(m->main.playpause_btn, XmTRAVERSE_CURRENT);
+X}
+X
+X
+X/*
+X * register_main_callbacks
+X *	Register all callback routines for widgets in the main window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_main_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	/* Main window callbacks */
+X	XtAddCallback(
+X		m->main.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->main.form
+X	);
+X
+X	XtAddCallback(
+X		m->main.eject_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_load_eject,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.eject_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.poweroff_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_poweroff,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.poweroff_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.dbprog_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_dbprog,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.dbprog_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.time_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_time,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.time_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.ab_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_ab,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.ab_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.sample_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_sample,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.sample_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.keypad_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_keypad_popup,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.keypad_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.help_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_help_popup,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.help_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.level_scale,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) cd_level,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->main.level_scale,
+X		XmNdragCallback,
+X		(XtCallbackProc) cd_level,
+X		(XtPointer) s
+X	);
+X
+X	XtAddCallback(
+X		m->main.playpause_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_play_pause,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.playpause_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.stop_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_stop,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.stop_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.prevtrk_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_prevtrk,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.prevtrk_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.nexttrk_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_nexttrk,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.nexttrk_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.previdx_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_previdx,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.previdx_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.nextidx_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_nextidx,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.nextidx_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.rew_btn,
+X		XmNarmCallback,
+X		(XtCallbackProc) cd_rew,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->main.rew_btn,
+X		XmNdisarmCallback,
+X		(XtCallbackProc) cd_rew,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->main.rew_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_rew,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.rew_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	XtAddCallback(
+X		m->main.ff_btn,
+X		XmNarmCallback,
+X		(XtCallbackProc) cd_ff,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->main.ff_btn,
+X		XmNdisarmCallback,
+X		(XtCallbackProc) cd_ff,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->main.ff_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_ff,
+X		(XtPointer) s
+X	);
+X	XtAddEventHandler(
+X		m->main.ff_btn,
+X		FocusChangeMask,
+X		False,
+X		(XtEventHandler) cd_btn_focus_chg,
+X		(XtPointer) NULL
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		m->toplevel,
+X		delw,
+X		(XtCallbackProc) cd_exit,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_keypad_callbacks
+X *	Register all callback routines for widgets in the keypad window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_keypad_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	int	i;
+X
+X	XtAddCallback(
+X		m->keypad.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->keypad.form
+X	);
+X	/* Keypad popup callbacks */
+X	for (i = 0; i < 10; i++) {
+X		XtAddCallback(
+X			m->keypad.num_btn[i],
+X			XmNactivateCallback,
+X			(XtCallbackProc) cd_keypad_num,
+X			(XtPointer) i
+X		);
+X	}
+X	XtAddCallback(
+X		m->keypad.enter_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_keypad_enter,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->keypad.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_keypad_popdown,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->keypad.clear_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_keypad_clear,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->keypad.form),
+X		delw,
+X		(XtCallbackProc) cd_keypad_popdown,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_dbprog_callbacks
+X *	Register all callback routines for widgets in the
+X *	database/program window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_dbprog_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	/* Database/program popup callbacks */
+X	XtAddCallback(
+X		m->dbprog.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->dbprog.form
+X	);
+X	XtAddCallback(
+X		m->dbprog.about_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_about,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.dtitle_txt,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) dbprog_dtitle_new,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.dtitle_txt,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_dtitle_new,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.extd_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extd,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.trk_list,
+X		XmNdefaultActionCallback,
+X		(XtCallbackProc) dbprog_trklist_play,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.trk_list,
+X		XmNbrowseSelectionCallback,
+X		(XtCallbackProc) dbprog_trklist_select,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.ttitle_txt,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) dbprog_ttitle_new,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.ttitle_txt,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_ttitle_new,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.extt_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extt,
+X		(XtPointer) TRUE
+X	);
+X	XtAddCallback(
+X		m->dbprog.pgmseq_txt,
+X		XmNmodifyVerifyCallback,
+X		(XtCallbackProc) dbprog_pgmseq_verify,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.pgmseq_txt,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) dbprog_pgmseq_txtchg,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.pgmseq_txt,
+X		XmNfocusCallback,
+X		(XtCallbackProc) dbprog_pgmseq_focuschg,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.pgmseq_txt,
+X		XmNlosingFocusCallback,
+X		(XtCallbackProc) dbprog_pgmseq_focuschg,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.addpgm_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_addpgm,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.clrpgm_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_clrpgm,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.playpgm_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_playpgm,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.savedb_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_savedb,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.loaddb_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_loaddb,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.linkdb_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_link,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbprog.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_cancel,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->dbprog.form),
+X		delw,
+X		(XtCallbackProc) dbprog_cancel,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_extd_callbacks
+X *	Register all callback routines for widgets in the extended
+X *	disc information window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_extd_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	XtAddCallback(
+X		m->dbextd.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->dbextd.form
+X	);
+X	XtAddCallback(
+X		m->dbextd.disc_txt,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) dbprog_set_changed,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextd.ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extd_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextd.clear_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extd_clear,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextd.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extd_cancel,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->dbextd.form),
+X		delw,
+X		(XtCallbackProc) dbprog_extd_cancel,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_extt_callbacks
+X *	Register all callback routines for widgets in the extended
+X *	track information window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_extt_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	XtAddCallback(
+X		m->dbextt.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->dbextt.form
+X	);
+X	XtAddCallback(
+X		m->dbextt.trk_txt,
+X		XmNvalueChangedCallback,
+X		(XtCallbackProc) dbprog_set_changed,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextt.ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extt_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextt.clear_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extt_clear,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dbextt.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_extt_cancel,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->dbextt.form),
+X		delw,
+X		(XtCallbackProc) dbprog_extt_cancel,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_dirsel_callbacks
+X *	Register all callback routines for widgets in the CD database
+X *	directory selector window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_dirsel_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	/* Directory selector popup callbacks */
+X	XtAddCallback(
+X		m->dirsel.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->dirsel.form
+X	);
+X	XtAddCallback(
+X		m->dirsel.dir_list,
+X		XmNdefaultActionCallback,
+X		(XtCallbackProc) dbprog_dirsel_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dirsel.dir_list,
+X		XmNbrowseSelectionCallback,
+X		(XtCallbackProc) dbprog_dirsel_select,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dirsel.ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_dirsel_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->dirsel.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_dirsel_cancel,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->dirsel.form),
+X		delw,
+X		(XtCallbackProc) dbprog_dirsel_cancel,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_linksel_callbacks
+X *	Register all callback routines for widgets in the CD database
+X *	search-link window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_linksel_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	/* Link selector popup callbacks */
+X	XtAddCallback(
+X		m->linksel.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->linksel.form
+X	);
+X	XtAddCallback(
+X		m->linksel.link_list,
+X		XmNdefaultActionCallback,
+X		(XtCallbackProc) dbprog_linksel_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->linksel.link_list,
+X		XmNbrowseSelectionCallback,
+X		(XtCallbackProc) dbprog_linksel_select,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->linksel.ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_linksel_ok,
+X		(XtPointer) s
+X	);
+X	XtAddCallback(
+X		m->linksel.cancel_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) dbprog_linksel_cancel,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->linksel.form),
+X		delw,
+X		(XtCallbackProc) dbprog_linksel_cancel,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_help_callbacks
+X *	Register all callback routines for widgets in the help text
+X *	display window
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_help_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	/* Help popup window callbacks */
+X	XtAddCallback(
+X		m->help.form,
+X		XmNfocusCallback,
+X		(XtCallbackProc) cd_form_focus_chg,
+X		(XtPointer) m->help.form
+X	);
+X	XtAddCallback(
+X		m->help.ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_help_popdown,
+X		(XtPointer) s
+X	);
+X
+X	/* Install WM_DELETE_WINDOW handler */
+X	XmAddWMProtocolCallback(
+X		XtParent(m->help.form),
+X		delw,
+X		(XtCallbackProc) cd_help_popdown,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_dialog_callbacks
+X *	Register all callback routines for widgets in the dialog
+X *	box windows
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+XSTATIC void
+Xregister_dialog_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	Widget	ok_btn;
+X
+X	ok_btn = XmMessageBoxGetChild(m->dialog.warning, XmDIALOG_OK_BUTTON);
+X	XtAddCallback(
+X		ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_warning_popdown,
+X		(XtPointer) s
+X	);
+X
+X	ok_btn = XmMessageBoxGetChild(m->dialog.fatal, XmDIALOG_OK_BUTTON);
+X	XtAddCallback(
+X		ok_btn,
+X		XmNactivateCallback,
+X		(XtCallbackProc) cd_fatal_popdown,
+X		(XtPointer) s
+X	);
+X}
+X
+X
+X/*
+X * register_callbacks
+X *	Top-level function to register all callback routines
+X *
+X * Args:
+X *	m - Pointer to the main widgets structure
+X *	s - Pointer to the curstat_t structure
+X *
+X * Return:
+X *	Nothing.
+X */
+Xvoid
+Xregister_callbacks(widgets_t *m, curstat_t *s)
+X{
+X	register_main_callbacks(m, s);
+X	register_keypad_callbacks(m, s);
+X	register_dbprog_callbacks(m, s);
+X	register_extd_callbacks(m, s);
+X	register_extt_callbacks(m, s);
+X	register_dirsel_callbacks(m, s);
+X	register_linksel_callbacks(m, s);
+X	register_help_callbacks(m, s);
+X	register_dialog_callbacks(m, s);
+X}
+X
+X
+END_OF_FILE
+if test 60957 -ne `wc -c <'widget.c'`; then
+    echo shar: \"'widget.c'\" unpacked with wrong size!
+fi
+# end of 'widget.c'
+fi
+if test ! -d 'bitmaps' ; then
+    echo shar: Creating directory \"'bitmaps'\"
+    mkdir 'bitmaps'
+fi
+if test -f 'bitmaps/Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/Imakefile'\"
+else
+echo shar: Extracting \"'bitmaps/Imakefile'\" \(382 characters\)
+sed "s/^X//" >'bitmaps/Imakefile' <<'END_OF_FILE'
+X/*
+X * @(#)Imakefile	1.3 93/09/28
+X *
+X * Imakefile for xmcd/bitmaps
+X */
+X
+X
+XSRCS=	ab.xbm \
+X	btnlbl.xbm \
+X	dbprog.xbm \
+X	eject.xbm \
+X	ff.xbm \
+X	help.xbm \
+X	keypad.xbm \
+X	lock.xbm \
+X	logo.xbm \
+X	nextidx.xbm \
+X	nexttrk.xbm \
+X	playpaus.xbm \
+X	poweroff.xbm \
+X	previdx.xbm \
+X	prevtrk.xbm \
+X	repeat.xbm \
+X	rew.xbm \
+X	sample.xbm \
+X	shuffle.xbm \
+X	stop.xbm \
+X	time.xbm \
+X	xmcd.xbm
+X
+XAllTarget()
+X
+END_OF_FILE
+if test 382 -ne `wc -c <'bitmaps/Imakefile'`; then
+    echo shar: \"'bitmaps/Imakefile'\" unpacked with wrong size!
+fi
+# end of 'bitmaps/Imakefile'
+fi
+echo shar: End of archive 11 \(of 13\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 13 archives.
+    echo "Now read the README and INSTALL files for further instructions."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+    ///  Ti Kan                vorsprung durch technik
+   ///   AMB Research Laboratories, Sunnyvale, CA. USA
+  ///    ti@amb.org
+ //////  ...!{decwrl,synopsys,tandem,tsoft,ultra}!sgiblab!bazooka!ti
+///      ...!uunet!bazooka!ti
+
+
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

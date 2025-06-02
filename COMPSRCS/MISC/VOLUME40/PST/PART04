@@ -1,0 +1,2141 @@
+Newsgroups: comp.sources.misc
+From: Panos Tsirigotis (panos@cs.colorado.edu)
+Subject: v40i175:  pst - extract text from a postscript file, Part04/06
+Message-ID: <1993Nov26.170800.6562@sparky.sterling.com>
+X-Md4-Signature: a2cc541f2540d73eab28031403d31f5d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 26 Nov 1993 17:08:00 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Panos Tsirigotis (panos@cs.colorado.edu)
+Posting-number: Volume 40, Issue 175
+Archive-name: pst/part04
+Environment: BSD, SUNOS, ULTRIX, SYSVR4, SYSVR3, POSIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  libs/src/sio/Makefile libs/src/sio/events.h
+#   libs/src/str/README libs/src/str/ss_impl.h libs/src/str/ss_kmp.c
+#   libs/src/str/ss_so.c libs/src/str/str.h libs/src/str/strparse.3
+#   libs/src/str/strprint.3 libs/src/str/strprint.c
+#   libs/src/str/strutil.c pst/COPYRIGHT pst/Makefile pst/main.c
+# Wrapped by kent@sparky on Fri Nov 26 11:02:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 6)."'
+if test -f 'libs/src/sio/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/Makefile'\"
+else
+  echo shar: Extracting \"'libs/src/sio/Makefile'\" \(4242 characters\)
+  sed "s/^X//" >'libs/src/sio/Makefile' <<'END_OF_FILE'
+X# (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X# All rights reserved.  The file named COPYRIGHT specifies the terms 
+X# and conditions for redistribution.
+X
+X#
+X# $Id: Makefile,v 8.7 1993/09/08 05:57:40 panos Exp $
+X#
+X# Based on Library makefile template: *Revision: 1.15 *
+X#
+X
+X# 
+X# Available entries:
+X# 		lib 			--> creates the library
+X#		install		--> installs the library (archive, man page(s), header(s))
+X#		uninstall	--> uninstall the library
+X#		clean			--> removes all .o and .a files
+X#		spotless		--> clean + uninstall
+X# 		lint			--> lints a file (usage: make lint MODULE=foo.c)
+X#		tags			--> creates a tags file (from the SOURCES and HEADERS)
+X#		checkout 	--> checkout all files
+X#		dist			--> distribution support
+X#
+X
+XNAME				= sio
+XVERSION			= 1.6.3
+X
+XHEADERS			= sio.h impl.h events.h sioconf.h
+XSOURCES			= sprint.c sio.c siosup.c
+XOBJECTS			= sprint.o sio.o siosup.o
+X
+XMANFILES			= sio.3 Sprint.3
+XINCLUDEFILES	= sio.h
+X
+X# The following variables are used by the 'install' entry and
+X# should be customized:
+X#     LIBDIR:     where the library will be placed
+X#     INCUDEDIR:  where the include files will be placed
+X#     MANDIR:     where the man pages will be placed
+X#
+XLIBDIR			= $(HOME)/.links/libraries/$(ARCH)
+XINCLUDEDIR		= $(HOME)/.links/includes
+XMANDIR			= $(HOME)/.links/manpages/man3
+X
+X#
+X# Available flags:
+X#  -DDEBUG           :  enables assertions in the code. A failed assertion
+X#                       terminates the program
+X#  -DEVENTS          :  enables code that records events (currently limited
+X#                       to which functions have been called on a given fd)
+X#                       and code that accesses the event buffers.
+X#  -DLITTLE_ENDIAN   :  says that the machine is a little endian. This is
+X#                       needed if you enable EVENTS and your machine is a
+X#                       little endian (big endian is the default).
+X#
+X
+X#
+X# DEFS should be set from the command line; the current group of defs
+X# is for SunOS 4.x
+X#
+XDEFS				= -DHAS_MMAP -DHAS_ONEXIT -DHAS_MEMOPS -DHAS_ISATTY
+X
+XDEBUG				= -g			# -g or -O
+XVERSION_DEF		= -DVERSION=\"SIO\ Version\ $(VERSION)\"
+X
+XCPP_DEFS			= $(VERSION_DEF) $(DEFS)
+X
+X#
+X# The following variables shouldn't need to be changed
+X#
+XLINT_FLAGS		= -hbux
+XCPP_FLAGS		= $(CPP_DEFS)
+XCC_FLAGS			= $(DEBUG)
+XCFLAGS			= $(CPP_FLAGS) $(CC_FLAGS)
+X
+XINSTALL			= install -c
+XFMODE				= -m 640			# used by install
+XRANLIB			= ranlib
+X
+XPAGER				= less
+X
+X
+XLIBNAME			= lib$(NAME).a
+X
+Xlib: $(LIBNAME)
+X
+Xlibopt: clean
+X	make DEBUG=-O "DEFS=$(DEFS)" lib
+X	$(INSTALL) $(FMODE) $(LIBNAME) $(LIBDIR)/optimized
+X
+X$(LIBNAME): $(OBJECTS)
+X	ar r $@ $?
+X	$(RANLIB) $@
+X
+Xlint:
+X	lint $(CPP_FLAGS) $(LINT_FLAGS) $(MODULE) 2>&1 | $(PAGER)
+X
+Xinstall: $(LIBNAME)
+X	@if test "$(LIBDIR)" -a "$(INCLUDEDIR)" -a "$(MANDIR)" ;\
+X	then \
+X		$(INSTALL) $(FMODE) $(LIBNAME) $(LIBDIR) ;\
+X		echo "Installed $(LIBNAME) to $(LIBDIR)" ;\
+X		for i in $(INCLUDEFILES); do $(INSTALL) $(FMODE) $$i $(INCLUDEDIR) ; done ;\
+X		echo Installed $(INCLUDEFILES) to $(INCLUDEDIR) ;\
+X		for i in $(MANFILES) ; do $(INSTALL) $(FMODE) $$i $(MANDIR) ; done ;\
+X		echo Installed $(MANFILES) to $(MANDIR) ;\
+X	else \
+X		echo "You forgot to set one of the following variables: LIBDIR,INCLUDEDIR,MANDIR" ;\
+X	fi
+X
+Xuninstall:
+X	a=`pwd` ; cd $(INCLUDEDIR) ;\
+X	if test $$a != `pwd` ; then rm -f $(INCLUDEFILES) ; fi
+X	a=`pwd` ; cd $(LIBDIR) ;\
+X	if test $$a != `pwd` ; then rm -f $(LIBNAME) ; fi
+X	a=`pwd` ; cd $(MANDIR) ;\
+X	if test $$a != `pwd` ; then rm -f $(MANFILES) ; fi
+X
+Xclean:
+X	rm -f $(OBJECTS) $(LIBNAME) core
+X
+Xspotless: clean uninstall
+X
+Xtags: $(SOURCES) $(HEADERS)
+X	ctags -w $(SOURCES) $(HEADERS)
+X
+Xcheckout:
+X	co $(SOURCES) $(HEADERS) $(MANFILES)
+X
+X#
+X# Distribution section
+X# This section contains the 2 targets for distribution support: dist, dirs
+X# "dist" checks out all files to be distributed
+X# "dirs" prints a list of directories to be included in the distribution.
+X# These directories should have a Makefile with a "dist" target
+X#
+XDISTRIBUTION_FILES	= $(HEADERS) $(SOURCES) $(MANFILES) README COPYRIGHT
+XDIRS						= suite
+X
+Xdist:
+X	-co -q $(DISTRIBUTION_FILES)
+X
+Xdirs:
+X	@echo $(DIRS)
+X
+X#
+X# PUT HERE THE RULES TO MAKE THE OBJECT FILES
+X#
+Xsprint.o:   sio.h impl.h sioconf.h
+Xsio.o:      sio.h impl.h sioconf.h events.h
+Xsiosup.o:   sio.h impl.h sioconf.h events.h
+X
+END_OF_FILE
+  if test 4242 -ne `wc -c <'libs/src/sio/Makefile'`; then
+    echo shar: \"'libs/src/sio/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/Makefile'
+fi
+if test -f 'libs/src/sio/events.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/events.h'\"
+else
+  echo shar: Extracting \"'libs/src/sio/events.h'\" \(3168 characters\)
+  sed "s/^X//" >'libs/src/sio/events.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X
+X/*
+X * $Id: events.h,v 8.1 1993/03/13 01:13:58 panos Exp $
+X */
+X
+X/*
+X * Event codes
+X * 
+X * We use a 2 letter code so that events that accumulate in a buffer
+X * can be displayed as a string
+X * We follow the convention that the first event letter is a capitalized
+X * and the second letter is in lower case. This allows one to easily
+X * recognize events in an event string.
+X */
+X
+X/*
+X * The ENCODE macro takes 2 characters and creates a short integer
+X * The size of the short integer is assumed to be 16-bits.
+X * The macro makes sure that regardless of the endianess of the machine,
+X * the low order byte contains the 1st character and the high order byte
+X * contains the 2nd character.
+X */
+X#ifdef LITTLE_ENDIAN
+X#define ENCODE( c1, c2 )					( (c1) + ( (c2) << 8 ) )
+X#else		/* BIG_ENDIAN */
+X#define ENCODE( c1, c2 )					( (c2) + ( (c1) << 8 ) )
+X#endif
+X
+X/*
+X * Event codes for SIO interface functions
+X * We use the first 2 lettes after the initial 'S'
+X */
+X#define EV_SGETC						ENCODE( 'G', 'e' )
+X#define EV_SPUTC						ENCODE( 'P', 'u' )
+X#define EV_SREAD						ENCODE( 'R', 'e' )
+X#define EV_SWRITE						ENCODE( 'W', 'r' ) 
+X#define EV_SRDLINE					ENCODE( 'R', 'd' )
+X#define EV_SFETCH						ENCODE( 'F', 'e' )
+X#define EV_SUNDO						ENCODE( 'U', 'n' )
+X#define EV_SDONE						ENCODE( 'D', 'o' )
+X#define EV_SFLUSH						ENCODE( 'F', 'l' )
+X#define EV_SCLOSE						ENCODE( 'C', 'l' )
+X#define EV_STIE						ENCODE( 'T', 'i' )
+X#define EV_SUNTIE						ENCODE( 'U', 't' )
+X#define EV_SBUFTYPE					ENCODE( 'B', 'u' )
+X
+X/*
+X * Event codes for internal functions
+X * For the __sio_<name> functions we use 'S' and the first letter of <name>
+X * For the rest we use the first letter from the first two components of
+X * their name, for example for try_memory_mapping we use Tm.
+X */
+X#define EV_SIO_INIT					ENCODE( 'S', 'i' )
+X#define EV_SIO_SWITCH				ENCODE( 'S', 's' )
+X#define EV_SIO_READF					ENCODE( 'S', 'r' )
+X#define EV_SIO_WRITEF				ENCODE( 'S', 'w' )
+X#define EV_SIO_EXTEND_BUFFER		ENCODE( 'S', 'e' )
+X#define EV_SIO_MORE					ENCODE( 'S', 'm' )
+X#define EV_TRY_MEMORY_MAPPING		ENCODE( 'T', 'm' )
+X#define EV_INITIAL_MAP				ENCODE( 'I', 'm' )
+X#define EV_MAP_UNIT					ENCODE( 'M', 'u' )
+X#define EV_INIT_INPUT_STREAM		ENCODE( 'I', 'i' )
+X#define EV_INIT_OUTPUT_STREAM		ENCODE( 'I', 'o' )
+X
+X/*
+X * The # of entries must be a power of 2
+X */
+X#define EVENT_ENTRIES		512
+X
+Xstruct events
+X{
+X	short next ;
+X	short start ;
+X	short *codes ;			/* malloc'ed memory */
+X} ;
+X
+Xtypedef struct events events_s ;
+X
+Xextern events_s *__sio_events ;
+X
+X
+X#define ADD( index, x )				(index) += x ;								\
+X											(index) &= ( EVENT_ENTRIES - 1 )
+X
+X#define EVENT( fd, code )															\
+X					{																		\
+X						events_s *evp = &__sio_events[ fd ] ;					\
+X																							\
+X						if ( evp->codes != NULL )									\
+X						{																	\
+X							evp->codes[ evp->next ] = code ;						\
+X							ADD( evp->next, 1 ) ;									\
+X							if ( evp->next == evp->start )						\
+X							{ ADD( evp->start, 1 ) ; }								\
+X						}																	\
+X					}
+X
+END_OF_FILE
+  if test 3168 -ne `wc -c <'libs/src/sio/events.h'`; then
+    echo shar: \"'libs/src/sio/events.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/events.h'
+fi
+if test -f 'libs/src/str/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/README'\"
+else
+  echo shar: Extracting \"'libs/src/str/README'\" \(3369 characters\)
+  sed "s/^X//" >'libs/src/str/README' <<'END_OF_FILE'
+X======================================================================
+XNOTE: I use vi with a tabstop value of 3. Using the same tabstop
+X		value will make the text/code look properly indented.
+X======================================================================
+X
+X
+X1. What is this library about ?
+X
+XThe STR library consists of string handling functions. These
+Xfunctions can be separated into 4 groups:
+X
+XA. String matching functions. A variety of algorithms are available
+X	for string matching:
+X			brute force
+X			Rabin-Karp
+X			Knuth-Morris-Pratt
+X			Boyer-Moore
+X			Shift-or
+X
+XB. String printing functions (similar to sprintf). These functions offer
+X	2 significant advantages over sprintf:
+X		1) they include functions that will *not* overrun the string buffer 
+X			provided
+X		2) they include functions returning "char *" as well as functions
+X			returning "int" so that one can pick the most appropriate one.
+X
+XC. String parsing functions. These functions offer an easy way of breaking
+X	a string into substrings.
+X
+XD. String utility functions. This group includes functions that will
+X	convert a string to upper/lower case etc.
+X
+X
+X2. Setting up the STR library
+X
+XAll you need to do is type 'make'. This will create the library in the
+Xcurrent directory.  The string printing functions use (and therefore
+Xrequire) the underlying format conversion facility of my SIO (Stream
+XI/O) library. If you got this library as part of a program distribution,
+Xthen the SIO library should also be part of that distribution if the
+Xprogram requires it.  If the SIO library is not present, then you
+Xhave the following options:
+Xa) If you don't want to bother with it, you can define the
+X	flag NO_SIO in the Makefile (check the Makefile comments on how to do
+X	this) which will turn all string printing functions to no-ops.
+Xb) You can get the SIO library via anonymous FTP from any site that
+X	archives comp.sources.unix; SIO is part of the xinetd distribution
+X	which appeared in Volume 26 of comp.sources.unix
+Xc) You can send email to me (panos@cs.colorado.edu) and I will mail it to you
+X
+XNote that if you do find SIO via some other way, or if you already have
+Xit, make sure that the version you use is 1.6.2 or later; versions
+Xprior to 1.6.2 will result in identical behavior between the
+Xstrx_*print* and the str_*print* functions.
+X
+XTo install the library and the associated man pages and include files
+Xtype 'make install'. This will install the library in LIBDIR, the man
+Xpages in MANDIR and the include files in INCLUDEDIR.  LIBDIR,
+XINCLUDEDIR, and MANDIR are Makefile variables that you can edit in the
+XMakefile or override when you invoke 'make'.
+X
+X
+X
+X3. Epilogue
+X
+XPlease send bug-reports/comments to panos@cs.colorado.edu
+X
+XFeel free to modify the library to suit your needs.  If you want to
+Xdistribute modifications to this library, please read the COPYRIGHT
+Xfile.  It basically says that you are free to redistribute as long as
+Xyou retain the original copyright notice and you make sure that your
+Xmodifications are identifiable. In order to achieve this I have
+Xreserved the first 3 components of the version number (for example,
+X1.4.2) and you can identify your mods by appending another component to
+Xthat version number (for example, 1.4.2.A2). Also, if you distribute a
+Xmodified version of the library, you take full responsibility for any
+Xbugs in the code (not just your code; the whole thing).
+X
+END_OF_FILE
+  if test 3369 -ne `wc -c <'libs/src/str/README'`; then
+    echo shar: \"'libs/src/str/README'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/README'
+fi
+if test -f 'libs/src/str/ss_impl.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_impl.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_impl.h'\" \(2969 characters\)
+  sed "s/^X//" >'libs/src/str/ss_impl.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X#ifndef SS_IMPL_H
+X#define SS_IMPL_H
+X
+X/*
+X * $Id: ss_impl.h,v 3.2 1993/06/16 00:06:34 panos Exp $
+X */
+X
+X/*
+X * NBIC is the Number-of-Bits-In-a-Char
+X */
+X#ifndef NBIC
+X#define NBIC								8
+X#endif
+X
+X#define ALPHABET_SIZE					( 1 << NBIC )
+X
+X#ifndef WIDE_INT
+X#define WIDE_INT                 long
+X#define WIDE_INT_SIZE            32       /* bits */
+X#endif
+X
+Xtypedef WIDE_INT wide_int ;
+Xtypedef unsigned WIDE_INT u_wide_int ;
+X
+X
+X#include "ss_rk.h"
+X#include "ss_kmp.h"
+X#include "ss_sbm.h"
+X#include "ss_bmh.h"
+X#include "ss_so.h"
+X
+X#include "str.h"
+X
+Xstruct ss_ops
+X{
+X	int	(*so_setup)() ;
+X	char	*(*so_match)() ;
+X	void	(*so_done)() ;
+X} ;
+X
+X
+Xstruct ss_header
+X{
+X	char 				*ss_pattern ;
+X	int				ss_patlen ;
+X	int				ss_flags ;
+X	char				*ss_map ;				/* either identity or upper->lower */
+X	struct ss_ops	*ss_ops ;
+X	union ss_headers
+X	{
+X		struct rk_header	rkh ;
+X		struct kmp_header kmph ;
+X		struct sbm_header sbmh ;
+X		struct bmh_header bmhh ;
+X		struct so_header	soh ;
+X	} ss_h ;
+X} ;
+X
+Xtypedef struct ss_header header_s ;
+X
+X#define HP( p )							((header_s *)(p))
+X
+X/*
+X * Structure field access
+X */
+X#define SS_PATTERN( hp )				(hp)->ss_pattern
+X#define SS_PATLEN( hp )					(hp)->ss_patlen
+X#define SS_FLAGS( hp )					(hp)->ss_flags
+X#define SS_OPS( hp )						(hp)->ss_ops
+X#define SS_SETMAP( hp, map )			(hp)->ss_map = map
+X#define SS_MAP( hp, c )					(hp)->ss_map[ (unsigned char) (c) ]
+X
+X/*
+X * Predicates
+X */
+X#define SS_MALLOC( hp )				( ! ( SS_FLAGS( hp ) & STRS_NOMALLOC ) )
+X#define SS_IGNCASE( hp )			( SS_FLAGS( hp ) & STRS_IGNCASE )
+X#define SS_SWITCH( hp )				( ! ( SS_FLAGS( hp ) & STRS_NOSWITCH ) )
+X#define SS_SETMALLOC( hp )			SS_FLAGS( hp ) &= ~ STRS_NOMALLOC
+X
+X/*
+X * Indirect op invocation
+X */
+X#define SS_SETUP( hp )					(*SS_OPS( hp )->so_setup)( hp )
+X#define SS_MATCH( hp, str, len )		(*SS_OPS( hp )->so_match)( hp, str, len )
+X#define SS_DONE( hp )					(*SS_OPS( hp )->so_done)( hp )
+X
+X/*
+X * Header extraction
+X */
+X#define RK_HEADER( hp )					(&(hp)->ss_h.rkh)
+X#define KMP_HEADER( hp )				(&(hp)->ss_h.kmph)
+X#define SBM_HEADER( hp )				(&(hp)->ss_h.sbmh)
+X#define BMH_HEADER( hp )				(&(hp)->ss_h.bmhh)
+X#define SO_HEADER( hp )					(&(hp)->ss_h.soh)
+X
+X/*
+X * Macros to extract method and flags from the 'flags' argument
+X */
+X#define METHOD_BITS						5		/* flag bits devoted to methods */
+X#define METHOD_MASK						( ( 1 << METHOD_BITS ) - 1 )
+X#define SS_GETMETHOD( x )				( (x) & METHOD_MASK )
+X#define SS_GETFLAGS( x )				( (x) & ~METHOD_MASK )
+X
+X
+Xstruct ss_select
+X{
+X	int				sel_method ;
+X	struct ss_ops	*sel_ops ;
+X} ;
+X
+X
+X#ifndef NULL
+X#define NULL								0
+X#endif
+X
+X#ifndef FALSE
+X#define FALSE								0
+X#define TRUE								1
+X#endif
+X
+X#define CHAR_NULL							((char *)0)
+X#define NULL_HANDLE						((strs_h)0)
+X
+X#define PRIVATE							static
+X
+X
+X/*
+X * Return values
+X */
+X#define SS_OK								0
+X#define SS_ERR								(-1)
+X
+X#endif	/* SS_IMPL_H */
+X
+END_OF_FILE
+  if test 2969 -ne `wc -c <'libs/src/str/ss_impl.h'`; then
+    echo shar: \"'libs/src/str/ss_impl.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_impl.h'
+fi
+if test -f 'libs/src/str/ss_kmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_kmp.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_kmp.c'\" \(2827 characters\)
+  sed "s/^X//" >'libs/src/str/ss_kmp.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: ss_kmp.c,v 3.1 1993/06/13 02:44:39 panos Exp $" ;
+X
+Xchar *malloc() ;
+X
+X#include "ss_impl.h"
+X
+XPRIVATE int kmp_setup() ;
+XPRIVATE char *kmp_match() ;
+XPRIVATE void kmp_done() ;
+X
+Xstruct ss_ops __strs_kmpops = { kmp_setup, kmp_match, kmp_done } ;
+X
+X
+XPRIVATE void compute_next( hp )
+X	header_s *hp ;
+X{
+X	char			*pattern = SS_PATTERN( hp ) ;
+X	int			patlen	= SS_PATLEN( hp ) ;
+X	next_int		*next		= KMP_HEADER( hp )->next ;
+X	int			q ;
+X	next_int 	k ;
+X
+X	k = next[ 0 ] = -1 ;
+X
+X	for ( q = 0 ; q < patlen-1 ; )
+X	{
+X		/*
+X		 * The invariant of the following loop is:
+X		 * if k>=0, then
+X		 *		pattern[ 0..k-1 ] SUFFIX pattern[ 0..q-1 ]  ( <==> next[ q ] = k )
+X		 * This condition is true on entry to the loop.
+X		 */
+X		while ( k >= 0 && pattern[ k ] != pattern[ q ] )
+X			k = next[ k ] ;
+X
+X		/*
+X		 * Case 1: k == -1
+X		 *		Setting next[ q+1 ] = 0 is ok since it implies that the next
+X		 *		position in the pattern to check is position 0 (i.e. start
+X		 *		from the beginning).
+X		 *	Case 2: k >= 0.
+X		 *		Since we exited the loop, pattern[ k ] == pattern[ q ].
+X		 *		Therefore,
+X		 *			pattern[ 0..k ] SUFFIX pattern[ 0..q ] ==> next[ q+1 ] = k+1
+X		 */
+X		k++, q++ ;
+X#ifdef PATH_COMPRESSION
+X		if ( pattern[ k ] == pattern[ q ] )
+X			next[ q ] = next[ k ] ;
+X#endif
+X		next[ q ] = k ;
+X	}
+X}
+X
+X
+XPRIVATE int kmp_setup( hp )
+X	register header_s *hp ;
+X{
+X	register next_int *next ;
+X
+X	next = (next_int *) malloc( (unsigned)SS_PATLEN( hp )*sizeof( next_int ) ) ;
+X	if ( next == (next_int *)0 )
+X		return( SS_ERR ) ;
+X	
+X	KMP_HEADER( hp )->next = next ;
+X
+X	compute_next( hp ) ;
+X
+X	return( SS_OK ) ;
+X}
+X
+X
+XPRIVATE char *kmp_match( hp, str, len )
+X	header_s		*hp ;
+X	char			*str ;
+X	int			len ;
+X{
+X	register int			i ;
+X	register next_int 	q ;
+X	next_int					*next		= KMP_HEADER( hp )->next ;
+X	char						*pattern = SS_PATTERN( hp ) ;
+X	register int			patlen	= SS_PATLEN( hp ) ;
+X
+X	/*
+X	 * As a special case, we consider pattern[ -1..0 ] to be the empty string.
+X	 */
+X	for ( q = 0, i = 0 ; i < len ; i++ )
+X	{
+X		register char current_char = SS_MAP( hp, str[ i ] ) ;
+X
+Xagain:
+X		/*
+X		 * At this point:
+X		 *		pattern[ 0..q-1 ] is a suffix of str[ 0..i-1 ]
+X		 */
+X		if ( pattern[ q ] == current_char )
+X		{
+X			q++ ;
+X			if ( q == patlen )
+X				return( &str[ i - patlen + 1 ] ) ;
+X		}
+X		else
+X		{
+X			/*
+X			 * Let q' = next[ q ]. If q' >= 0, then
+X			 *		pattern[ 0..q'-1 ] SUFFIX pattern[ 0..q-1 ]
+X			 *	which implies that
+X			 *		pattern[ 0..q'-1 ] SUFFIX str[ 0..i-1 ]
+X			 * Therefore, it is ok to set q = q'.
+X			 */
+X			q = next[ q ] ;
+X			if ( q >= 0 )
+X				goto again ;
+X			q++ ;
+X		}
+X	}
+X
+X	return( CHAR_NULL ) ;
+X}
+X
+X
+XPRIVATE void kmp_done( hp )
+X	header_s *hp ;
+X{
+X	(void) free( (char *)KMP_HEADER( hp )->next ) ;
+X}
+X
+END_OF_FILE
+  if test 2827 -ne `wc -c <'libs/src/str/ss_kmp.c'`; then
+    echo shar: \"'libs/src/str/ss_kmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_kmp.c'
+fi
+if test -f 'libs/src/str/ss_so.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_so.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_so.c'\" \(2898 characters\)
+  sed "s/^X//" >'libs/src/str/ss_so.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: ss_so.c,v 3.1 1993/06/13 02:46:12 panos Exp $" ;
+X
+Xchar *malloc() ;
+X
+X#include "ss_impl.h"
+X
+XPRIVATE int so_setup() ;
+XPRIVATE char *so_match() ;
+XPRIVATE void so_done() ;
+X
+Xstruct ss_ops __strs_soops = { so_setup, so_match, so_done } ;
+X
+X/*
+X * There is a single twist in this implementation of the shift-or algorithm:
+X * To make the check for complete match faster, we are using the sign-bit
+X * of the word. This means that everything is shifted to the left by
+X * 			(word_size - pattern_length)
+X */
+X
+XPRIVATE int so_setup( hp )
+X	header_s *hp ;
+X{
+X	register wide_int		*maskbuf ;
+X	register wide_int		mask ;
+X	register wide_int		offset_mask ;
+X	register int			i ;
+X	int						offset ;
+X	register int			patlen	= SS_PATLEN( hp ) ;
+X	register char			*pattern = SS_PATTERN( hp ) ;
+X
+X	if ( patlen > WIDE_INT_SIZE )
+X		return( SS_ERR ) ;
+X	
+X	maskbuf = (wide_int *) malloc( ALPHABET_SIZE * sizeof( wide_int ) ) ;
+X	if ( maskbuf == (wide_int *)NULL )
+X		return( SS_ERR ) ;
+X	
+X	offset = WIDE_INT_SIZE - patlen ;
+X	offset_mask = ( (~0) << offset ) ;
+X	
+X	/*
+X	 * The bits of each word that won't be used must be set to 0
+X	 */
+X	for ( i = 0 ; i < ALPHABET_SIZE ; i++ )
+X		maskbuf[ i ] = offset_mask ;
+X
+X	for ( i = 0, mask = 1 << offset ; i < patlen ; i++, mask <<= 1 )
+X		maskbuf[ (unsigned char) pattern[ i ] ] &= ~mask ;
+X
+X	SO_HEADER( hp )->mask = maskbuf ;
+X	SO_HEADER( hp )->offset_mask = offset_mask ;
+X	return( SS_OK ) ;
+X}
+X
+X
+XPRIVATE char *so_match( hp, str, len )
+X	register header_s		*hp ;
+X	char						*str ;
+X	int						len ;
+X{
+X	register char			*p ;
+X	register char			pfc				= SS_PATTERN( hp )[ 0 ] ;
+X	register wide_int		*mask				= SO_HEADER( hp )->mask ;
+X	register char			*endmatch		= &str[ len - SS_PATLEN( hp ) + 1 ] ;
+X	char						*endstr			= &str[ len ] ;
+X	wide_int					no_match_state = ~0 & SO_HEADER( hp )->offset_mask ;
+X
+X	/*
+X	 * The shift-or algorithm can be described by the following for-loop:
+X	 *
+X	 *	for ( p = str ; p < endstr ; p++ )
+X	 *	{
+X	 *		state = ( state << 1 ) | mask[ (unsigned char) SS_MAP( hp, *p ) ] ;
+X	 *		if ( state >= 0 )
+X	 *			return( &p[ -SS_PATLEN( hp ) + 1 ] ) ;
+X	 *	}
+X	 *
+X	 * For efficiency reasons, the algorithm is used only after the first 
+X	 * character of the pattern is matched against a character of the string.
+X	 */
+X
+X	for ( p = str ; p < endmatch ; p++ )
+X	{
+X		register wide_int state ;
+X
+X		if ( SS_MAP( hp, *p ) != pfc )
+X			continue ;
+X
+X		for ( state = no_match_state ; p < endstr ; p++ )
+X		{
+X			state = ( state << 1 ) | mask[ (unsigned char) SS_MAP( hp, *p ) ] ;
+X			if ( state >= 0 )
+X				return( &p[ -SS_PATLEN( hp ) + 1 ] ) ;
+X			if ( state == no_match_state )
+X				break ;
+X		}
+X	}
+X	return( CHAR_NULL ) ;
+X}
+X
+X
+XPRIVATE void so_done( hp )
+X	header_s *hp ;
+X{
+X	(void) free( (char *) SO_HEADER( hp )->mask ) ;
+X}
+X
+END_OF_FILE
+  if test 2898 -ne `wc -c <'libs/src/str/ss_so.c'`; then
+    echo shar: \"'libs/src/str/ss_so.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_so.c'
+fi
+if test -f 'libs/src/str/str.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/str.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/str.h'\" \(3551 characters\)
+  sed "s/^X//" >'libs/src/str/str.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X
+X#ifndef __STR_H
+X#define __STR_H
+X
+X/*
+X * $Id: str.h,v 3.1 1993/06/13 02:47:14 panos Exp $
+X */
+X
+X#include <varargs.h>
+X
+X
+X#ifdef __ARGS
+X#undef __ARGS
+X#endif
+X
+X#ifdef PROTOTYPES
+X#   define __ARGS( s )               s
+X#else
+X#   define __ARGS( s )               ()
+X#endif
+X
+X
+X/*
+X * strprint(3) functions
+X */
+Xchar *str_sprint __ARGS( ( char *buf, char *fmt, ... ) ) ;
+Xint str_nprint __ARGS( ( char *buf, char *fmt, ... ) ) ;
+Xvoid str_print __ARGS( ( int *count, char *buf, char *fmt, ... ) ) ;
+X
+Xchar *str_sprintv __ARGS( ( char *buf, char *fmt, va_list ) ) ;
+Xint str_nprintv __ARGS( ( char *buf, char *fmt, va_list ) ) ;
+Xvoid str_printv __ARGS( ( int *count, char *buf, char *fmt, va_list ) ) ;
+X
+Xchar *strx_sprint __ARGS( ( char *buf, int len, char *fmt, ... ) ) ;
+Xint strx_nprint __ARGS( ( char *buf, int len, char *fmt, ... ) ) ;
+Xvoid strx_print __ARGS( ( int *count, char *buf, int len, char *fmt, ... ) ) ;
+X
+Xchar *strx_sprintv __ARGS( ( char *buf, int len, char *fmt, va_list ) ) ;
+Xint strx_nprintv __ARGS( ( char *buf, int len, char *fmt, va_list ) ) ;
+Xvoid strx_printv __ARGS(( int *cnt, char *buf, int len, char *fmt, va_list )) ;
+X
+X
+X/*
+X * strparse(3) functions
+X */
+X
+X/*
+X * Return values
+X */
+X#define STR_OK						0
+X#define STR_ERR					(-1)
+X
+X
+X/* 
+X * Flags for the string parsing functions
+X */
+X#define STR_NOFLAGS				0x0
+X#define STR_RETURN_ERROR		0x1
+X#define STR_NULL_START			0x2
+X#define STR_NULL_END				0x4
+X#define STR_MALLOC				0x8
+X
+Xextern int str_errno ;
+X
+X/*
+X * Error values
+X */
+X#define STR_ENULLSEPAR			1
+X#define STR_ENULLSTRING			2
+X#define STR_ENOMEM				3
+X
+Xtypedef void *str_h ;
+X
+Xstr_h str_parse __ARGS( ( char *str, char *separ, int flags, int *errnop ) ) ;
+Xvoid str_endparse __ARGS( ( str_h handle ) ) ;
+Xchar *str_component __ARGS( ( str_h handle ) ) ;
+Xint str_setstr __ARGS( ( str_h handle, char *newstr ) ) ;
+Xint str_separator __ARGS( ( str_h handle, char *separ ) ) ;
+Xchar *str_nextpos __ARGS( ( str_h handle ) ) ;
+X
+X/*
+X * For backwards compatibility
+X */
+X#define str_process( s, sep, flags )	str_parse( s, sep, flags, (int *)0 )
+X#define str_endprocess( handle )			str_endparse( handle )
+X
+X
+X/*
+X * strutil(3) functions
+X */
+Xchar *str_find __ARGS( ( char *s1, char *s2 ) ) ;
+Xchar *str_casefind __ARGS( ( char *s1, char *s2 ) ) ;
+Xvoid str_fill __ARGS( ( char *s, char c ) ) ;
+Xchar *str_lower __ARGS( ( char *s ) ) ;
+Xchar *str_upper __ARGS( ( char *s ) ) ;
+X
+X
+X/*
+X * strsearch(3) functions
+X */
+X
+X/*
+X * Methods
+X */
+X#define STRS_BF								0			/* brute force				*/
+X#define STRS_RK								1			/* Rabin-Karp				*/
+X#define STRS_KMP								2			/* Knuth-Morris-Pratt	*/
+X#define STRS_SBM								3			/* Simple Boyer-Moore	*/
+X#define STRS_BMH								4			/* Boyer-Moore-Horspool */
+X#define STRS_SO								5			/* Shift-Or					*/
+X
+X#define __STRS_METHOD_BITS					5
+X#define STRS_METHODS_MAX					( 1 << __STRS_METHOD_BITS )
+X
+X/*
+X * Flags
+X */
+X#define __STRS_MAKEFLAG( v )				( (v) << __STRS_METHOD_BITS )
+X#define STRS_IGNCASE							__STRS_MAKEFLAG( 0x1 )
+X#define STRS_NOMALLOC						__STRS_MAKEFLAG( 0x2 )
+X#define STRS_NOSWITCH						__STRS_MAKEFLAG( 0x4 )
+X#define STRS_PATLEN							__STRS_MAKEFLAG( 0x8 )
+X
+X
+Xtypedef void *strs_h ;
+X
+Xchar *strs_search __ARGS( ( int flags, char *str, int len, char *pat, ... ) ) ;
+Xstrs_h strs_setup __ARGS( ( int flags, char *pattern, ... ) ) ;
+Xchar *strs_match	__ARGS( ( strs_h handle, char *str, int len ) ) ;
+Xvoid strs_done		__ARGS( ( strs_h handle ) ) ;
+X
+X#endif 	/* __STR_H */
+X
+END_OF_FILE
+  if test 3551 -ne `wc -c <'libs/src/str/str.h'`; then
+    echo shar: \"'libs/src/str/str.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/str.h'
+fi
+if test -f 'libs/src/str/strparse.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strparse.3'\"
+else
+  echo shar: Extracting \"'libs/src/str/strparse.3'\" \(4130 characters\)
+  sed "s/^X//" >'libs/src/str/strparse.3' <<'END_OF_FILE'
+X.\"(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X.\"All rights reserved.  The file named COPYRIGHT specifies the terms 
+X.\"and conditions for redistribution.
+X.\"
+X.\" $Id: strparse.3,v 3.1 1993/06/13 02:48:02 panos Exp $
+X.TH STRPARSE 3X "30 September 1992"
+X.SH NAME
+Xstr_parse, str_endparse, str_component, str_separator, str_nextpos
+X.SH SYNOPSIS
+X.LP
+X.nf
+X.ft B
+X#include "str.h"
+X.LP
+X.ft B
+Xstr_h str_parse( str, separ, flags, errnop )
+Xchar *str ;
+Xchar *separ ;
+Xint flags ;
+Xint *errnop ;
+X.LP
+X.ft B
+Xvoid str_endparse( handle )
+Xstr_h handle ;
+X.LP
+X.ft B
+Xchar *str_component( handle )
+Xstr_h handle ;
+X.LP
+X.ft B
+Xint str_setstr( handle, newstr )
+Xstr_h handle ;
+Xchar *newstr ;
+X.LP
+X.ft B
+Xint str_separator( handle, separ )
+Xstr_h handle ;
+Xchar *separ ;
+X.LP
+X.ft B
+Xchar *str_nextpos( handle )
+Xstr_h handle ;
+X.LP
+Xextern int str_errno ;
+X.SH DESCRIPTION
+X.LP
+XThese functions are useful for parsing strings.  In this context
+Xparsing means breaking the string into substrings. The substrings are
+Xseparated by a list of possible separator characters.
+X.LP
+X.B str_component()
+Xreturns successive substrings of the string.
+X.B str_parse()
+Xcreates and initializes a string parser with the string
+Xthat will be processed, \fIstr\fR, the list of possible separator
+Xcharacters, \fIsepar\fR, and flags that control how the parser
+Xworks. The \fIflags\fR argument is formed by ORing one or more of
+Xthe following constants:
+X.TP 20
+X.SB STR_RETURN_ERROR
+XIf something goes wrong return a value that indicates that an error occured
+X(e.g. out of memory). The default is for the program to be terminated
+Xwith an appropriate error message.
+X.TP
+X.SB STR_NULL_START
+XIf \fIstr\fR starts with a separator then a zero-length string will be returned
+Xthe first time \fBstr_component()\fR is called.
+X.TP
+X.SB STR_NULL_END
+XIf \fIstr\fR ends with a separator then a zero-length string will be returned
+Xby \fBstr_component()\fR when the substrings of \fIstr\fR are exhausted.
+X.TP
+X.SB STR_MALLOC
+XThe strings returned by \fBstr_component()\fR will be in malloc'ed memory.
+XBy default the substrings are part of \fIstr\fR.
+XIf this option is not used \fIstr\fR will be modified
+Xby \fBstr_component()\fR.
+X.LP
+XFinally, \fBSTR_NOFLAGS\fR may be used to specify no flags.
+XThe \fIerrnop\fR argument points to an integer where the string processing
+Xfunctions will deposit an error code if an error occurs.
+XIf \fIerrnop\fR
+Xis
+X.SM NULL
+Xthe error codes will be placed in \fIstr_errno\fR.
+XThis is useful only if \fBSTR_RETURN_ERROR\fR is used in \fIflags\fR.
+XIt is possible that \fIstr\fP is 
+X.SM NULL.
+XIn this case, a subsequent
+X.B str_setstr()
+Xshould be used to specify the string to be processed.
+X.LP
+X.B str_component()
+Xreturns successive substrings from the string associated with the
+Xparser specified by \fIhandle\fR.
+X.LP
+X.B str_endparse()
+Xdestroys the parser specified by \fIhandle\fR.
+X.LP
+X.B str_setstr()
+Xchanges the processed string to \fInewstr\fP.
+X.LP
+X.B str_separator()
+Xreplaces the list of separator characters with \fIsepar\fR.
+XProcessing continues from the current position.
+X.LP
+X.B str_nextpos()
+Xreturns a pointer to the rest of the string. The previous character
+Xis a separator character (if \fBSTR_MALLOC\fR is not set, then the
+Xprevious character is
+X.SM NUL
+X).
+X.SH "RETURN VALUES"
+X.LP
+X.B str_parse()
+Xreturns a parser handle or
+X.SM NULL
+Xif something goes wrong and \fIflags\fR & \fBSTR_RETURN_ERROR\fR is true.
+XPossible \fIstr_errno\fR values:
+X.RS
+X.TP 20
+X.SB STR_ENULLSEPAR
+X\fIsepar\fR is
+X.SM NULL
+X.TP
+X.SB STR_ENOMEM
+Xthe program ran out of memory
+X.RE
+X.LP
+X.B str_component()
+Xreturns a pointer to the next substring or
+X.SM NULL
+Xif something goes wrong and \fIflags\fR & \fBSTR_RETURN_ERROR\fR is true.
+X.LP
+X.B str_setstr()
+Xreturns 
+X.SB STR_OK
+Xon success or
+X.SB STR_ERR
+Xon failure.
+X.LP
+X.B str_separator()
+Xreturns 
+X.SB STR_OK
+Xon success or
+X.SB STR_ERR
+Xon failure.
+X.LP
+X.B str_nextpos()
+Xreturns a pointer or
+X.SM NULL
+Xif the end of string has been reached.
+X.SH BUGS
+X.B str_component()
+Xmodifies the string unless \fBSTR_MALLOC\fR is
+Xset in the parser.
+X.LP
+XThere should be only one parser active on a specific string. If there
+Xis more than
+Xone, they all must use the \fBSTR_MALLOC\fR option.
+X
+END_OF_FILE
+  if test 4130 -ne `wc -c <'libs/src/str/strparse.3'`; then
+    echo shar: \"'libs/src/str/strparse.3'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strparse.3'
+fi
+if test -f 'libs/src/str/strprint.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strprint.3'\"
+else
+  echo shar: Extracting \"'libs/src/str/strprint.3'\" \(3148 characters\)
+  sed "s/^X//" >'libs/src/str/strprint.3' <<'END_OF_FILE'
+X.\"(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X.\"All rights reserved.  The file named COPYRIGHT specifies the terms 
+X.\"and conditions for redistribution.
+X.\"
+X.\" $Id: strprint.3,v 3.1 1993/06/13 02:48:55 panos Exp $
+X.TH STRPRINT 3X "30 September 1992"
+X.SH NAME
+Xstr_sprint, tr_sprintv, str_nprint, str_nprintv, str_print, str_printv, strx_sprint, strx_sprintv, strx_nprint, strx_nprintv, strx_print, strx_printv -- formatted conversion to string
+X.SH SYNOPSIS
+X.LP
+X.nf
+X.ft B
+X#include "str.h"
+X.LP
+X.ft B
+Xchar *str_sprint( buf, format, ... )
+Xchar *buf ;
+Xchar *format ;
+X.LP
+X.ft B
+Xchar *str_sprintv( buf, format, ap )
+Xchar *buf ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xint str_nprint( buf, format, ... )
+Xchar *buf ;
+Xchar *format ;
+X.LP
+X.ft B
+Xint str_nprintv( buf, format, ap )
+Xchar *buf ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xvoid str_print( countp, buf, format, ... )
+Xint *countp ;
+Xchar *buf ;
+Xchar *format ;
+X.LP
+X.ft B
+Xvoid str_printv( countp, buf, format, ap )
+Xint *countp ;
+Xchar *buf ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xchar *strx_sprint( buf, len, format, ... )
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+X.LP
+X.ft B
+Xchar *strx_sprintv( buf, len, format, ap )
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xint strx_nprint( buf, len, format, ... )
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+X.LP
+X.ft B
+Xint strx_nprintv( buf, len, format, ap )
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+Xva_list ap ;
+X.LP
+X.ft B
+Xvoid strx_print( countp, buf, len, format, ... )
+Xint *countp ;
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+X.LP
+X.ft B
+Xvoid strx_printv( countp, buf, len, format, ap )
+Xint *countp ;
+Xchar *buf ;
+Xint len ;
+Xchar *format ;
+Xva_list ap ;
+X.SH DESCRIPTION
+X.LP
+XAll functions are similar in functionality to \fIsprintf()\fR.
+XTheir only difference is in their return values. For information about their
+Xconversion capabilities, check \fISprint(3)\fR.
+X.LP
+XThe difference between the \fIstr_*\fR and the \fIstrx_*\fR functions
+Xis that the latter take an extra argument, the size of the buffer, so
+Xthat they will never write beyond the end of the buffer. Writing
+Xbeyond the end of the buffer is possible with the \fIstr_*\fR functions.
+XInvoking any of the \fIstrx_*\fR functions with the
+X.I len
+Xargument set to 0
+Xis the same as calling the equivalent \fIstr_*\fR function.
+X.LP
+XAll functions will append a
+X.SM NUL
+Xat the end of
+X.I buf
+X(the \fIstrx_*\fR functions will not do this if it would cause 
+Xa buffer overrun).
+X.LP
+X.B str_print(),
+X.B str_printv(),
+X.B strx_print(),
+Xand
+X.B strx_printv()
+Xwill put in
+X.I "*countp"
+Xthe number of characters placed in 
+X.I buf
+Xexcluding the ending
+X.SM NUL
+X(this happens only if
+X.I "*countp"
+Xis not
+X.SM NULL
+X).
+X.LP
+XThe functions that have a name ending in 'v' are similar to those without
+Xthe 'v' at the end of their name
+Xexcept that instead of accepting a variable number of arguments, they
+Xexpect a \fIvarargs(3)\fR argument list.
+X.SH "RETURN VALUES"
+X.LP
+X.B str_sprint(),
+X.B str_sprintv(),
+X.B strx_sprint(),
+Xand
+X.B strx_sprintv()
+Xreturn
+X.I buf.
+X.LP
+X.B str_nprint(),
+X.B str_nprintv(),
+X.B strx_nprint(),
+Xand
+X.B strx_nprintv()
+Xreturn the number of characters placed in 
+X.I buf
+Xexcluding the ending
+X.SM NUL.
+X.SH "SEE ALSO"
+XSprint(3)
+END_OF_FILE
+  if test 3148 -ne `wc -c <'libs/src/str/strprint.3'`; then
+    echo shar: \"'libs/src/str/strprint.3'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strprint.3'
+fi
+if test -f 'libs/src/str/strprint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strprint.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/strprint.c'\" \(3569 characters\)
+  sed "s/^X//" >'libs/src/str/strprint.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: strprint.c,v 3.1 1993/06/13 02:50:11 panos Exp $" ;
+X
+X#ifndef NO_SIO
+X#include "sio.h"
+X#endif
+X
+X#include "str.h"
+X
+X#define INT_NULL						((int *)0)
+X
+X/*
+X * The strx_* functions will never overwrite the buffer
+X * The str_* functions may overwrite the buffer
+X */
+X
+X/*
+X * Group 1: the strx_* functions
+X */
+X
+X/*
+X * This is the general purpose conversion function. It is invoked
+X * by all the other str[x]_* functions
+X */
+Xvoid strx_printv( ccp, buf, len, format, ap )
+X	int *ccp ;
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_list ap ;
+X{
+X#ifndef NO_SIO
+X	__sio_od_t od ;
+X	int cc ;
+X
+X   /*
+X    * First initialize the descriptor
+X	 * Notice that if no length is given, we initialize buf_end to the
+X	 * highest possible address.
+X    */
+X   od.buf = buf ;                						/* NOT NEEDED        */
+X   od.buf_end = len ? &buf[ len ] : (char *) ~0 ;	/* NEEDED				*/
+X   od.buffer_size = 0 ;          						/* NOT NEEDED        */
+X   od.start = buf ;              						/* NOT NEEDED        */
+X   od.nextb = buf ;              						/* NEEDED            */
+X   od.buftype = 0 ;              						/* NOT NEEDED        */
+X
+X   /*
+X    * Do the conversion
+X    */
+X   cc = __sio_converter( &od, -1, format, ap ) ;
+X	if ( len == 0 || od.nextb < od.buf_end )
+X		*(od.nextb) = '\0' ;
+X   if ( ccp )
+X      *ccp = cc ;
+X#endif	/* ! NO_SIO */
+X}
+X
+X
+Xvoid strx_print( ccp, buf, len, format, va_alist )
+X	int *ccp ;
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_dcl
+X{
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( ccp, buf, len, format, ap ) ;
+X	va_end( ap ) ;
+X}
+X
+X
+Xchar *strx_sprint( buf, len, format, va_alist )
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_dcl
+X{
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( INT_NULL, buf, len, format, ap ) ;
+X	va_end( ap ) ;
+X	return( buf ) ;
+X}
+X
+X
+Xchar *strx_sprintv( buf, len, format, ap )
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_list ap ;
+X{
+X	strx_printv( INT_NULL, buf, len, format, ap ) ;
+X	return( buf ) ;
+X}
+X
+X
+Xint strx_nprint( buf, len, format, va_alist )
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_dcl
+X{
+X	int cc ;
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( &cc, buf, len, format, ap ) ;
+X	va_end( ap ) ;
+X	return( cc ) ;
+X}
+X
+X
+Xint strx_nprintv( buf, len, format, ap )
+X	char *buf ;
+X	int len ;
+X	char *format ;
+X	va_list ap ;
+X{
+X	int cc ;
+X
+X	strx_printv( &cc, buf, len, format, ap ) ;
+X	return( cc ) ;
+X}
+X
+X
+X
+X/*
+X * Group 2: the str_* functions
+X */
+X
+Xvoid str_print( ccp, buf, format, va_alist )
+X	int *ccp ;
+X	char *buf ;
+X	char *format ;
+X	va_dcl
+X{
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( ccp, buf, 0, format, ap ) ;
+X	va_end( ap ) ;
+X}
+X
+X
+Xvoid str_printv( ccp, buf, format, ap )
+X	int *ccp ;
+X	char *buf ;
+X	char *format ;
+X	va_list ap ;
+X{
+X	strx_printv( ccp, buf, 0, format, ap ) ;
+X}
+X
+X
+Xchar *str_sprint( buf, format, va_alist )
+X	char *buf ;
+X	char *format ;
+X	va_dcl
+X{
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( INT_NULL, buf, 0, format, ap ) ;
+X	va_end( ap ) ;
+X	return( buf ) ;
+X}
+X
+X
+Xchar *str_sprintv( buf, format, ap )
+X	char *buf ;
+X	char *format ;
+X	va_list ap ;
+X{
+X	strx_printv( INT_NULL, buf, 0, format, ap ) ;
+X	return( buf ) ;
+X}
+X
+X
+Xint str_nprint( buf, format, va_alist )
+X	char *buf ;
+X	char *format ;
+X	va_dcl
+X{
+X	int cc ;
+X	va_list ap ;
+X
+X	va_start( ap ) ;
+X	strx_printv( &cc, buf, 0, format, ap ) ;
+X	va_end( ap ) ;
+X	return( cc ) ;
+X}
+X
+X
+X
+Xint str_nprintv( buf, format, ap )
+X	char *buf ;
+X	char *format ;
+X	va_list ap ;
+X{
+X	int cc ;
+X
+X	strx_printv( &cc, buf, 0, format, ap ) ;
+X	return( cc ) ;
+X}
+X
+X
+END_OF_FILE
+  if test 3569 -ne `wc -c <'libs/src/str/strprint.c'`; then
+    echo shar: \"'libs/src/str/strprint.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strprint.c'
+fi
+if test -f 'libs/src/str/strutil.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strutil.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/strutil.c'\" \(3554 characters\)
+  sed "s/^X//" >'libs/src/str/strutil.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: strutil.c,v 3.1 1993/06/13 02:50:22 panos Exp $" ;
+X
+X
+X#include <ctype.h>
+X
+X#define NULL				0
+X
+X
+X#ifndef TRIVIAL_STR_FIND
+X
+X/*
+X * look for an instance of s2 in s1
+X * Returns a pointer to the beginning of s2 in s1
+X */
+Xchar *str_find( str, sstr )
+X	register char *str ;
+X	register char *sstr ;
+X{
+X   register int ssfc = *sstr++ ;    /* sub-string first char */
+X
+X	if ( ssfc == 0 )			/* empty string is always a match */
+X		return( str ) ;
+X
+X	while ( *str )
+X	{
+X		char *current = str ;
+X		register int strc = *str++ ;
+X		register char *sp ;                    /* string pointer */
+X		register char *ssp ;                   /* sub-string pointer */
+X
+X		if ( strc != ssfc )
+X			continue ;
+X		
+X		/*
+X		 * We don't need to make the end of str a special case since
+X		 * the comparison of *sp against *ssp is guaranteed to fail
+X		 */
+X		for ( sp = str, ssp = sstr ;; sp++, ssp++ )
+X		{
+X			if ( *ssp == 0 )
+X				return( current ) ;
+X			if ( *sp != *ssp )
+X				break ;
+X		}
+X	}
+X
+X	return( 0 ) ;
+X}
+X
+X
+X#define LOWER_CASE( c )					( (c) + 'a' - 'A' )
+X
+X/*
+X * str_casefind is similar to str_find except that it ignores the
+X * case of the alphabetic characters
+X */
+Xchar *str_casefind( str, sstr )
+X	register char *str ;
+X	char *sstr ;
+X{
+X	register int ssfc = *sstr++ ;		/* sub-string first char */
+X
+X	if ( ssfc == 0 )
+X		return( str ) ;
+X
+X	if ( isalpha( ssfc ) && isupper( ssfc ) )
+X		ssfc = LOWER_CASE( ssfc ) ;
+X
+X	while ( *str )
+X	{
+X		char *current = str ;
+X		register int strc = *str++ ;
+X		char *sp ;							/* string pointer */
+X		char *ssp ;							/* sub-string pointer */
+X
+X		if ( isalpha( strc ) && isupper( strc ) )
+X			strc = LOWER_CASE( strc ) ;
+X		if ( strc != ssfc )
+X			continue ;
+X		
+X		for ( sp = str, ssp = sstr ;; sp++, ssp++ )
+X		{
+X			register int sc = *sp ;				/* string char */
+X			register int ssc = *ssp ;			/* substring char */
+X
+X			/*
+X			 * End-of-substring means we got a match
+X			 */
+X			if ( ssc == 0 )
+X				return( current ) ;
+X
+X			/*
+X			 * Convert to lower case if alphanumeric
+X			 */
+X			if ( isalpha( sc ) && isupper( sc ) )
+X				sc = LOWER_CASE( sc ) ;
+X			if ( isalpha( ssc ) && isupper( ssc ) )
+X				ssc = LOWER_CASE( ssc ) ;
+X			if ( sc != ssc )
+X				break ;
+X		}
+X	}
+X
+X	return( 0 ) ;
+X}
+X
+X
+X#else		/* defined( TRIVIAL_STR_FIND ) */
+X
+X/*
+X * look for an instance of s2 in s1
+X * Returns a pointer to the beginning of s2 in s1
+X */
+Xchar *str_find( s1, s2 )
+X	char *s1 ;
+X	char *s2 ;
+X{
+X   int i ;
+X   int l1 = strlen( s1 ) ;
+X   int l2 = strlen( s2 ) ;
+X
+X   for ( i = 0 ; i < l1 - l2 + 1 ; i++ )
+X      if ( strncmp( &s1[ i ], s2, l2 ) == 0 )
+X         return( &s1[ i ] ) ;
+X   return( NULL ) ;
+X}
+X
+X
+Xchar *str_casefind( s1, s2 )
+X	char *s1 ;
+X	char *s2 ;
+X{
+X   int i ;
+X   int l1 = strlen( s1 ) ;
+X   int l2 = strlen( s2 ) ;
+X
+X   for ( i = 0 ; i < l1 - l2 + 1 ; i++ )
+X      if ( strncasecmp( &s1[ i ], s2, l2 ) == 0 )
+X         return( &s1[ i ] ) ;
+X   return( NULL ) ;
+X}
+X
+X#endif 	/* TRIVIAL_STR_FIND */
+X
+X
+X/*
+X * Fill string s with character c
+X */
+Xvoid str_fill( s, c )
+X	register char *s ;
+X	register char c ;
+X{
+X	while ( *s ) *s++ = c ;
+X}
+X
+X
+Xchar *str_lower( s )
+X	char *s ;
+X{
+X	register char *p ;
+X	register int offset = 'a' - 'A' ;
+X
+X	for ( p = s ; *p ; p++ )
+X		if ( isascii( *p ) && isupper( *p ) )
+X			*p += offset ;
+X	return( s ) ;
+X}
+X
+X
+Xchar *str_upper( s )
+X	char *s ;
+X{
+X	register char *p ;
+X	register int offset = 'a' - 'A' ;
+X
+X	for ( p = s ; *p ; p++ )
+X		if ( isascii( *p ) && islower( *p ) )
+X			*p -= offset ;
+X	return( s ) ;
+X}
+X
+X
+END_OF_FILE
+  if test 3554 -ne `wc -c <'libs/src/str/strutil.c'`; then
+    echo shar: \"'libs/src/str/strutil.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strutil.c'
+fi
+if test -f 'pst/COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/COPYRIGHT'\"
+else
+  echo shar: Extracting \"'pst/COPYRIGHT'\" \(1323 characters\)
+  sed "s/^X//" >'pst/COPYRIGHT' <<'END_OF_FILE'
+XThis software is
+X
+X(c) Copyright 1993 by Panagiotis Tsirigotis
+X
+XThe author (Panagiotis Tsirigotis) grants permission to use, copy,
+Xand distribute this software and its documentation for any purpose 
+Xand without fee, provided that the above copyright notice extant in
+Xfiles in this distribution is not removed from files included in any
+Xredistribution and that this file is also included in any redistribution.
+X
+XModifications to this software may be distributed, either by distributing
+Xthe modified software or by distributing patches to the original software,
+Xunder the following additional terms:
+X
+X1. The version number will be modified as follows:
+X      a. The first 3 components of the version number
+X         (i.e <number>.<number>.<number>) will remain unchanged.
+X      b. A new component will be appended to the version number to indicate
+X         the modification level. The form of this component is up to the 
+X         author of the modifications.
+X
+X2. The author of the modifications will include his/her name by appending it 
+X   along with the new version number to this file and will be responsible for 
+X   any wrong behavior of the modified software.
+X
+XThe author makes no representations about the suitability of this 
+Xsoftware for any purpose.  It is provided "as is" without any express 
+Xor implied warranty.
+X
+END_OF_FILE
+  if test 1323 -ne `wc -c <'pst/COPYRIGHT'`; then
+    echo shar: \"'pst/COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'pst/COPYRIGHT'
+fi
+if test -f 'pst/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/Makefile'\"
+else
+  echo shar: Extracting \"'pst/Makefile'\" \(3407 characters\)
+  sed "s/^X//" >'pst/Makefile' <<'END_OF_FILE'
+X# (c) Copyright 1993 by Panagiotis Tsirigotis
+X# All rights reserved.  The file named COPYRIGHT specifies the terms 
+X# and conditions for redistribution.
+X
+X#
+X# $Id: Makefile,v 1.13 1993/11/14 05:24:54 panos Exp $
+X#
+X
+X#
+X# Based on Program makefile template: *Revision: 1.19 *
+X#
+X
+X#
+X# Available entries:
+X#		$(NAME)		--> create the program (this is the default target)
+X#		install		--> install the program
+X#		install.man --> install man page
+X#		uninstall	--> uninstall the program (and man page)
+X#		clean			--> cleanup
+X#		spotless		--> clean + uninstall
+X# 		lint			--> lints a specific file (usage: make lint MODULE=foo.c)
+X#		lintall		--> lint all files
+X#		tags			--> creates a tags file
+X#		checkout 	--> checkout all files
+X#
+X
+XNAME					= pst
+XVERSION				= 1.0.0
+X
+XDEFS					=
+XDEBUG					= -g
+XLDFLAGS				= -L$(LIBDIR)
+XLIBS					= -lsio -lstr
+X
+XOPT					= options.opt
+XOPT_HEADER			= options.h
+XOPT_SOURCE			= options.c
+XOPT_OBJECT			= options.o
+X
+XSRCS					= dvi.c main.c common.c dit.c wp.c
+XHDRS					= defs.h
+XOBJS					= dvi.o main.o common.o dit.o wp.o
+X
+XSOURCES				= $(SRCS) $(OPT_SOURCE)
+XHEADERS				= $(HDRS) $(OPT_HEADER)
+XOBJECTS				= $(OBJS) $(OPT_OBJECT)
+X
+X
+XINCLUDEDIR			= -I$(INCDIR)
+XMANPATHDIR			= $(HOME)/.links/manpages
+XINSTALLDIR			= $(BINDIR)
+X
+X
+X#
+X# You may modify the following variables but you probably don't need to.
+X#
+X
+XPROGRAM				= $(NAME)
+XMANSECTION			= 1
+XMANSUBSECTION		=						# like V,X,l
+XMANFILE				= $(PROGRAM).man
+XMANPAGE				= $(PROGRAM).$(MANSECTION)$(MANSUBSECTION)
+XMANDIR				= $(MANPATHDIR)/man$(MANSECTION)
+X
+XCC						= cc			# used for compiler-specific options
+XCC_FLAGS				= $(DEBUG)	# used for generic options
+X
+XXMODE					= -m 700				# mode for executables
+XFMODE					= -m 640				# mode for anything but executables
+XINSTALL				= install -c
+X
+XLINT_FLAGS			= -hbux
+XPAGER					= less
+X
+XCPP_DEFS				= $(VERSION_DEF) $(DEFS)
+X
+X#
+X# The following variables do not need to be changed
+X#
+X
+XVERSION_DEF			= -DVERSION=\"$(PROGRAM)\ Version\ $(VERSION)\"
+XCPP_FLAGS			= $(CPP_DEFS) $(INCLUDEDIR)
+XCFLAGS				= $(CPP_FLAGS) $(CC_FLAGS)
+X
+X$(PROGRAM): $(OBJECTS)
+X	$(CC) $(DEBUG) -o $@ $(OBJECTS) $(LDFLAGS) $(LIBS) || rm -f $(PROGRAM)
+X
+Xtags: $(HEADERS) $(SOURCES)
+X	ctags -w $(HEADERS) $(SOURCES)
+X
+Xcheckout:
+X
+Xlint:
+X	lint $(LINT_FLAGS) $(CPP_FLAGS) $(MODULE) 2>&1 | $(PAGER)
+X
+Xlintall:
+X	lint $(LINT_FLAGS) $(CPP_FLAGS) $(SOURCES) 2>&1 | $(PAGER)
+X
+Xclean:
+X	rm -f $(OBJECTS) $(PROGRAM) core
+X
+Xxclean: clean
+X	rm -f $(OPT_HEADER) $(OPT_SOURCE)
+X
+Xinstall: $(PROGRAM)
+X	$(INSTALL) $(XMODE) $(PROGRAM) $(INSTALLDIR)
+X
+Xinstall.man:
+X	if test "$(MANFILE)" -a "$(MANDIR)" ; then $(INSTALL) $(FMODE) $(MANFILE) $(MANDIR)/$(MANPAGE) ; fi
+X
+Xuninstall:
+X	a=`pwd` ; cd $(INSTALLDIR) ;\
+X	if test $$a != `pwd` ; then rm -f $(PROGRAM) ; fi
+X	a=`pwd` ; cd $(MANDIR) ;\
+X	if test $$a != `pwd` ; then rm -f $(MANPAGE) ; fi
+X
+X#
+X# Distribution section
+X# This section contains the 2 targets for distribution support: dist, dirs
+X# "dist" checks out all files to be distributed
+X# "dirs" prints a list of directories to be included in the distribution.
+X# These directories should have a Makefile with a "dist" target
+X#
+XDISTRIBUTION_FILES	= $(SRCS) $(HDRS) $(MANFILE) COPYRIGHT CHANGELOG
+XDIRS						=
+X
+Xdist1:
+X
+Xdist: dist1 $(OPT_SOURCE)
+X	-co -q $(DISTRIBUTION_FILES)
+X
+Xdirs:
+X	@echo $(DIRS)
+X
+X#
+X# This part of the file shows how to make $(OBJECTS) 
+X#
+X
+X$(OPT_OBJECT): $(OPT_HEADER)
+Xmain.o:			$(OPT_HEADER) defs.h
+Xdvi.o:			defs.h
+Xcommon.o:		defs.h
+Xdit.o:			defs.h
+Xwp.o:				defs.h
+END_OF_FILE
+  if test 3407 -ne `wc -c <'pst/Makefile'`; then
+    echo shar: \"'pst/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'pst/Makefile'
+fi
+if test -f 'pst/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/main.c'\"
+else
+  echo shar: Extracting \"'pst/main.c'\" \(3955 characters\)
+  sed "s/^X//" >'pst/main.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: main.c,v 1.5 1993/11/14 05:24:19 panos Exp $" ;
+Xstatic char version[] = VERSION ;
+X
+X#include <fcntl.h>
+X
+Xvoid exit() ;
+X
+X#include "sio.h"
+X#include "str.h"
+X
+X#include "options.h"
+X
+X#include "defs.h"
+X
+Xint line_count = 1 ;
+X
+Xtypedef void (*ps_process)() ;
+X
+X/*
+X * Available processes
+X */
+Xvoid dvi_process() ;
+Xvoid psdit_process() ;
+Xvoid troff_process() ;
+Xvoid ditroff_process() ;
+Xvoid wordperfect_process() ;
+X
+X
+X
+Xstruct process_string
+X{
+X	char			*ps_string ;
+X	char			*ps_name ;
+X	ps_process	ps_func ;
+X	strs_h		ps_sh ;
+X} ;
+X
+Xstatic struct process_string procstr[] =
+X	{
+X		{	".dvi",		"dvi file",						dvi_process				},
+X		{	"/wpdict",	"wordperfect document",		wordperfect_process	},
+X		{	"idraw",		"idraw",							troff_process			},
+X		{	"psdit",		"ditroff through psdit",	psdit_process			},
+X		{	"tpscript",	"Kolstad's hack",				ditroff_process		},
+X		{	"ditroff",	"ditroff file",				ditroff_process		},
+X		{	"troff",		"troff file",					troff_process			},
+X		{	NULL }
+X	} ;
+X
+X
+Xstruct process_name
+X	{
+X		char			*pn_name ;
+X		ps_process	pn_func ;
+X	} ;
+X
+X
+Xstatic struct process_name procnames[] =
+X	{
+X		{	"dvi",		dvi_process				},
+X		{	"psdit",		psdit_process			},
+X		{	"dit",		ditroff_process		},
+X		{	"troff",		troff_process			},
+X		{	"wp",			wordperfect_process	},
+X		{ NULL }
+X	} ;
+X
+X
+Xint main( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X	int			first_arg = opt_recognize( argc, argv ) ;
+X	int			in_fd ;
+X	ps_process	process ;
+X	ps_process	find_process() ;
+X	void			printout_flush() ;
+X
+X	if ( argc - first_arg > 1 )		/* at most 1 arg */
+X		usage() ;
+X
+X	if ( first_arg == argc )
+X		in_fd = 0 ;
+X	else
+X	{
+X		extern int errno ;
+X		char *file = argv[ first_arg ] ;
+X
+X		in_fd = open( file, O_RDONLY ) ;
+X		if ( in_fd == -1 )
+X			error( "Failed to open file %s (errno = %d)\n", file, errno ) ;
+X	}
+X	
+X	if ( l_option )
+X	{
+X		struct process_name *pnp ;
+X
+X		Sprint( 1, "Recognized algorithm names:\n" );
+X		for ( pnp = procnames ; pnp->pn_name ; pnp++ )
+X			Sprint( 1, "\t%s\n", pnp->pn_name ) ;
+X		exit( 0 ) ;
+X	}
+X
+X	if ( d_option )
+X		Sbuftype( 1, SIO_NOBUF ) ;
+X
+X	if ( a_option )
+X	{
+X		struct process_name *pnp ;
+X
+X		for ( pnp = procnames ;; pnp++ )
+X		{
+X			if ( pnp->pn_name == NULL )
+X				error( "Unknown algorithm: %s\n", a_option_arg ) ;
+X			if ( strcmp( pnp->pn_name, a_option_arg ) == 0 )
+X			{
+X				process = pnp->pn_func ;
+X				break ;
+X			}
+X		}
+X	}
+X	else
+X		process = find_process( in_fd ) ;
+X
+X	if ( ! n_option )
+X	{
+X		(*process)( in_fd ) ;
+X		printout_flush() ;
+X	}
+X
+X	exit( 0 ) ;
+X	/* NOTREACHED */
+X}
+X
+X/*
+X * Determine what process to use to parse this file.
+X */
+XPRIVATE ps_process find_process( fd )
+X	int fd ;
+X{
+X	char							*line ;
+X	struct process_string	*psp ;
+X	struct process_string	*found = NULL ;
+X
+X	/*
+X	 * Create string matchers
+X	 */
+X	for ( psp = procstr ; psp->ps_string ; psp++ )
+X	{
+X		psp->ps_sh = strs_setup( STRS_BF + STRS_NOMALLOC, psp->ps_string ) ;
+X		if ( psp->ps_sh == NULL )
+X			error( "out of memory\n" ) ;
+X	}
+X
+X	/*
+X	 * Try to determine how the file was derived.
+X	 * Method:
+X	 *		Read lines looking for one of the identifier strings
+X	 *		If an identifier string is found, continue reading lines
+X	 * 	until a non-comment line is found.
+X	 */
+X	while ( line = Srdline( fd ) )
+X	{
+X		line_count++ ;
+X		if ( line[ 0 ] != '%' && found )
+X			break ;
+X		
+X		/*
+X		 * Check what process (if any) is identified by this line
+X		 */
+X		for ( psp = procstr ; psp->ps_string ; psp++ )
+X			if ( strs_match( psp->ps_sh, line, SIOLINELEN( fd ) ) )
+X			{
+X				/*
+X				 * psdit process takes precedence over ditroff_process
+X				 */
+X				if ( ! found || found->ps_func == ditroff_process && 
+X														psp->ps_func == psdit_process )
+X					found = psp ;
+X			}
+X	}
+X	if ( ! found )
+X		error( "Failed to identify how this file was derived\n" ) ;
+X	if ( v_option )
+X		Sprint( 2, "Postscript file derived from %s\n", found->ps_name ) ;
+X	return( found->ps_func ) ;
+X}
+X
+END_OF_FILE
+  if test 3955 -ne `wc -c <'pst/main.c'`; then
+    echo shar: \"'pst/main.c'\" unpacked with wrong size!
+  fi
+  # end of 'pst/main.c'
+fi
+echo shar: End of archive 4 \(of 6\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

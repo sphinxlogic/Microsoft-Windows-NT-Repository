@@ -1,0 +1,606 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject:  REPOST: v31i134:  log_tcp - TCP/IP daemon wrapper, Patch02
+Message-ID: <1992Sep11.150041.28736@sparky.imd.sterling.com>
+X-Md4-Signature: ca5c1b82ed6e50a766b1acf9946b3cfc
+Date: Fri, 11 Sep 1992 15:00:41 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 31, Issue 134
+Archive-name: log_tcp/patch02
+Environment: UNIX
+Patch-To: log_tcp: Volume 30, Issue 79-80
+
+[ This is being reposted due to a serious propagation problem. -Kent+ ]
+
+This is an interim patch that takes care of some rough edges that were
+left in last June's release. The patch does not introduce any new
+features or changes to installation and/or configuration procedures.
+
+A fully-patched source kit can be found on ftp.win.tue.nl in the file
+/pub/security/log_tcp.shar.Z.  The archives on cert.org (in directory
+/pub/tools/wrappers) and on ftp.uu.net (in /pub/security) will be
+updated ASAP.
+
+    - Some sites reported that connections would be rejected because
+    localhost != localhost.domain. The host name checking code now
+    special-cases localhost (problem reported by several sites).
+
+    - The programs now report an error if an existing access control
+    file cannot be opened (e.g. due to lack of privileges).  Until now,
+    the programs would just pretend that the access control file does
+    not exist (reported by Darren Reed, avalon@coombs.anu.edu.au).
+
+    - The timeout period for remote userid lookups was upped to 30
+    seconds, in order to cope with slow hosts or networks.  If this is
+    too long for you, adjust the TIMEOUT definition in file rfc931.c
+    (problem reported by several sites).
+
+    - On hosts with more than one IP network interface, remote userid
+    lookups could use the IP address of the "wrong" local interface.
+    The problem and its solution were discussed on the rfc931-users
+    mailing list.  Scott Schwartz (schwartz@cs.psu.edu) folded the fix
+    into the rfc931.c module.
+
+    - The result of % expansion (in shell commands) is now checked for
+    stuff that may confuse the shell; it is replaced by underscores
+    (problem reported by Icarus Sparry, I.Sparry@gdr.bath.ac.uk).
+
+    - A portability problem was fixed that caused compile-time problems
+    on a CRAY (problem reported by Michael Barnett, mikeb@rmit.edu.au).
+
+Finally, a caveat for those who use the optional remote username lookup
+feature (RFC 931 protocol).  On some systems, these lookups may trigger
+a kernel bug.  When a client host connects to your system, and the RFC
+931 connection to that client is rejected by a router, some kernels
+drop all connections with that client.  The bug is not in the log_tcp
+programs: complain to your vendor and don't enable remote user name
+lookups until the bug has been fixed.
+
+The following example can be used (from outside the tue.nl domain) to
+find out if you have the bug:
+
+	% ftp 131.155.70.100
+
+Then, when the connection has been established, run the following
+command on the same machine:
+
+	% telnet 131.155.70.100 111
+
+The telnet command should fail with: "host not reachable". If this
+causes you to lose the ftp connection, you have the bug (please report
+OS and hardware type). If the telnet command does not fail, please let
+me know, too :-)
+
+	Wietse Venema (wietse@wzv.win.tue.nl),
+	Department of Mathematics and Computing Science,
+	Eindhoven University of Technology,
+	The Netherlands.
+
+Prereq: 1.7
+*** ./README-	Thu Jun 11 22:21:20 1992
+--- ./README	Mon Aug 31 22:54:43 1992
+***************
+*** 1,4 ****
+! @(#) README 1.7 92/06/11 22:21:17
+  
+  General description
+  -------------------
+--- 1,4 ----
+! @(#) README 1.8 92/08/31 22:54:40
+  
+  General description
+  -------------------
+***************
+*** 44,49 ****
+--- 44,70 ----
+  This makes it impossible for the daemon front ends to look up the
+  remote host address (and hence, the name) in case of UDP connections.
+  
++ On some systems, the optional RFC 931 remote username lookups may
++ trigger a kernel bug.  When a client host connects to your system, and
++ the RFC 931 connection to that client is rejected by a router, some
++ kernels drop all connections with that client.  This is not a bug in
++ the log_tcp programs: complain to your vendor, and don't enable
++ remote user name lookups until the bug has been fixed.
++ 
++ The following example can be used (from outside the tue.nl domain) to
++ find out if you have the bug:
++ 
++ 	% ftp 131.155.70.100
++ 
++ Then, when the connection has been established, run the following
++ command on the same machine:
++ 
++ 	% telnet 131.155.70.100 111
++ 
++ The telnet command should fail with: "host not reachable". If you lose
++ the ftp connection, you have the bug (please report OS and harware
++ type). If the telnet command does not fail, please let me know, too...
++ 
+  Access control
+  --------------
+  
+***************
+*** 129,136 ****
+  servers provided with the authutil package (comp.sources.unix volume
+  22) by Dan Bernstein. This one relies on RFC 931.
+  
+! Source for a reasonably fast and portable RFC 931 daemon by Peter
+! Eriksson is available from ftp.lysator.liu.se:/pub/net/pauthd*.tar.Z.
+  
+  Some TCP/IP implementations come without syslog library. A replacement
+  can be found in ftp.win.tue.nl:/pub/security/surrogate-syslog.tar.Z.
+--- 150,157 ----
+  servers provided with the authutil package (comp.sources.unix volume
+  22) by Dan Bernstein. This one relies on RFC 931.
+  
+! Source for a portable RFC 931-compatible daemon by Peter Eriksson is
+! available from ftp.lysator.liu.se:/pub/ident/servers.
+  
+  Some TCP/IP implementations come without syslog library. A replacement
+  can be found in ftp.win.tue.nl:/pub/security/surrogate-syslog.tar.Z.
+Prereq: 1.5
+*** ./fromhost.c-	Thu Jun 11 22:21:25 1992
+--- ./fromhost.c	Mon Aug 24 21:46:16 1992
+***************
+*** 15,21 ****
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) fromhost.c 1.5 92/06/11 22:21:24";
+  #endif
+  
+  /* System libraries. */
+--- 15,21 ----
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) fromhost.c 1.6 92/08/24 21:46:14";
+  #endif
+  
+  /* System libraries. */
+***************
+*** 154,161 ****
+  
+      /* Look up the remote host name. */
+  
+!     if ((hp = gethostbyaddr((char *) &sin->sin_addr.s_addr,
+! 			    sizeof(sin->sin_addr.s_addr),
+  			    AF_INET)) == 0) {
+  	return (0);
+      }
+--- 154,161 ----
+  
+      /* Look up the remote host name. */
+  
+!     if ((hp = gethostbyaddr((char *) &sin->sin_addr,
+! 			    sizeof(sin->sin_addr),
+  			    AF_INET)) == 0) {
+  	return (0);
+      }
+***************
+*** 199,205 ****
+  
+      } else {
+  
+! 	if (strcasecmp(remotehost, hp->h_name)) {
+  	    syslog(LOG_ERR, "host name/name mismatch: %s != %s",
+  		   remotehost, hp->h_name);
+  	    return (BAD);
+--- 199,214 ----
+  
+      } else {
+  
+! 	/*
+! 	 * Make sure that gethostbyname() returns the "correct" host name.
+! 	 * Unfortunately, gethostbyname("localhost") sometimes yields
+! 	 * "localhost.domain". Since the latter host name comes from the
+! 	 * local DNS, we just have to trust it (all bets are off if the local
+! 	 * DNS is perverted). We always check the address list, though.
+! 	 */
+! 
+! 	if (strcasecmp(remotehost, hp->h_name)
+! 	    && strcasecmp(remotehost, "localhost")) {
+  	    syslog(LOG_ERR, "host name/name mismatch: %s != %s",
+  		   remotehost, hp->h_name);
+  	    return (BAD);
+Prereq: 1.2
+*** ./rfc931.c-	Mon Jun 22 16:32:15 1992
+--- ./rfc931.c	Mon Aug 31 22:54:47 1992
+***************
+*** 11,17 ****
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) rfc931.c 1.2 92/06/22 16:32:14";
+  #endif
+  
+  #include <stdio.h>
+--- 11,17 ----
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) rfc931.c 1.3 92/08/31 22:54:46";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 25,31 ****
+  #include "log_tcp.h"
+  
+  #define	RFC931_PORT	113		/* Semi-well-known port */
+! #define	TIMEOUT		10		/* wait for at most 10 seconds */
+  
+  extern char *strchr();
+  
+--- 25,31 ----
+  #include "log_tcp.h"
+  
+  #define	RFC931_PORT	113		/* Semi-well-known port */
+! #define	TIMEOUT		30		/* wait for at most 30 seconds */
+  
+  extern char *strchr();
+  
+***************
+*** 55,61 ****
+      char   *cp;
+      char   *result = FROM_UNKNOWN;
+  
+!     /* Find out local port number of our stdin. */
+  
+      length = sizeof(here);
+      if (getsockname(0, (struct sockaddr *) & here, &length) == -1) {
+--- 55,61 ----
+      char   *cp;
+      char   *result = FROM_UNKNOWN;
+  
+!     /* Find out local address and port number of stdin. */
+  
+      length = sizeof(here);
+      if (getsockname(0, (struct sockaddr *) & here, &length) == -1) {
+***************
+*** 62,71 ****
+  	syslog(LOG_ERR, "getsockname: %m");
+  	return (result);
+      }
+-     /* Set up timer so we won't get stuck. */
+  
+      if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+  	return (result);
+      signal(SIGALRM, timeout);
+      if (setjmp(timebuf)) {
+  	close(s);				/* not: fclose(fp) */
+--- 62,86 ----
+  	syslog(LOG_ERR, "getsockname: %m");
+  	return (result);
+      }
+  
++     /*
++      * The socket that will be used for user name lookups should be bound to
++      * the same local IP address as stdin. This will automagically happen on
++      * hosts that have only one IP network interface. When the local host has
++      * more than one IP network interface we must do an explicit bind() call.
++      */
++ 
+      if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+  	return (result);
++ 
++     sin = here;
++     sin.sin_port = 0;
++     if (bind(s, (struct sockaddr *) & sin, sizeof sin) < 0) {
++ 	syslog(LOG_ERR, "bind: %s: %m", inet_ntoa(here.sin_addr));
++ 	return (result);
++     }
++     /* Set up timer so we won't get stuck. */
++ 
+      signal(SIGALRM, timeout);
+      if (setjmp(timebuf)) {
+  	close(s);				/* not: fclose(fp) */
+Prereq: 1.1
+*** ./percent_x.c-	Thu Jun 11 22:21:50 1992
+--- ./percent_x.c	Mon Aug 24 21:46:23 1992
+***************
+*** 2,8 ****
+    * percent_x() takes a string and performs %a (host address), %c (client
+    * info), %h (host name or address), %d (daemon name), %p (process id) and
+    * %u (user name) substitutions. It aborts the program when the result of
+!   * expansion would overflow the output buffer.
+    * 
+    * Diagnostics are reported through syslog(3).
+    * 
+--- 2,10 ----
+    * percent_x() takes a string and performs %a (host address), %c (client
+    * info), %h (host name or address), %d (daemon name), %p (process id) and
+    * %u (user name) substitutions. It aborts the program when the result of
+!   * expansion would overflow the output buffer. Because the result of %<char>
+!   * expansion is typically passed on to a shell process, characters that may
+!   * confuse the shell are replaced by underscores.
+    * 
+    * Diagnostics are reported through syslog(3).
+    * 
+***************
+*** 10,16 ****
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) percent_x.c 1.1 92/06/11 22:21:49";
+  #endif
+  
+  /* System libraries. */
+--- 12,18 ----
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) percent_x.c 1.2 92/08/24 21:46:22";
+  #endif
+  
+  /* System libraries. */
+***************
+*** 19,24 ****
+--- 21,27 ----
+  #include <syslog.h>
+  
+  extern char *strncpy();
++ extern char *strchr();
+  extern void exit();
+  
+  /* Local stuff. */
+***************
+*** 39,44 ****
+--- 42,51 ----
+      char   *expansion;
+      int     expansion_len;
+      char    pid_buf[10];
++     static char ok_chars[] = "1234567890!@%-_=+\\:,./\
++ abcdefghijklmnopqrstuvwxyz\
++ ABCDEFGHIJKLMNOPQRSTUVWXYZ";
++     char   *cp;
+  
+      /*
+       * %a becomes the client address; %c all user and host information we
+***************
+*** 45,51 ****
+       * have about the client; %d the daemon process name; %h the client host
+       * name or address; %p the daemon process id; %u the remote user name; %%
+       * becomes a %, and %other is ignored. We terminate with a diagnostic if
+!      * we would overflow the result buffer.
+       */
+  
+      while (*str) {
+--- 52,59 ----
+       * have about the client; %d the daemon process name; %h the client host
+       * name or address; %p the daemon process id; %u the remote user name; %%
+       * becomes a %, and %other is ignored. We terminate with a diagnostic if
+!      * we would overflow the result buffer. Characters that may confuse the
+!      * shell are mapped to underscores.
+       */
+  
+      while (*str) {
+***************
+*** 61,66 ****
+--- 69,77 ----
+  		*str == '%' ? (str++, "%") :
+  		*str == 0 ? "" : (str++, "");
+  	    expansion_len = strlen(expansion);
++ 	    for (cp = expansion; *cp; cp++)
++ 		if (strchr(ok_chars, *cp) == 0)
++ 		    *cp = '_';
+  	} else {
+  	    expansion = str++;
+  	    expansion_len = 1;
+Prereq: 1.9
+*** ./hosts_access.5-	Thu Jun 11 22:21:39 1992
+--- ./hosts_access.5	Mon Aug 24 21:46:19 1992
+***************
+*** 112,117 ****
+--- 112,119 ----
+  .IP %%
+  expands to a single `%\' character.
+  .PP
++ Characters in % expansions that may confuse the shell are replaced by
++ underscores.
+  The result is executed by a \fI/bin/sh\fR child process with standard
+  input, output and error connected to \fI/dev/null\fR.  Specify an `&\'
+  at the end of the command if you do not want to wait until it has
+***************
+*** 216,219 ****
+  Department of Mathematics and Computing Science
+  Eindhoven University of Technology
+  Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+! \" @(#) hosts_access.5 1.9 92/06/11 22:21:37
+--- 218,221 ----
+  Department of Mathematics and Computing Science
+  Eindhoven University of Technology
+  Den Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+! \" @(#) hosts_access.5 1.10 92/08/24 21:46:17
+Prereq: 1.8
+*** ./hosts_access.c-	Fri Jun 12 15:56:29 1992
+--- ./hosts_access.c	Mon Aug 24 21:46:21 1992
+***************
+*** 12,18 ****
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) hosts_access.c 1.8 92/06/12 15:55:52";
+  #endif
+  
+   /* System libraries. */
+--- 12,18 ----
+    */
+  
+  #ifndef lint
+! static char sccsid[] = "@(#) hosts_access.c 1.9 92/08/24 21:46:19";
+  #endif
+  
+   /* System libraries. */
+***************
+*** 24,29 ****
+--- 24,30 ----
+  #include <stdio.h>
+  #include <syslog.h>
+  #include <ctype.h>
++ #include <errno.h>
+  
+  extern char *fgets();
+  extern char *strchr();
+***************
+*** 136,141 ****
+--- 137,144 ----
+  	    }
+  	}
+  	(void) fclose(fp);
++     } else if (errno != ENOENT) {
++ 	syslog(LOG_ERR, "cannot open %s: %m", table);
+      }
+      match = (sv_match == YES && cl_match == YES);
+      if (match && sh_cmd)
+Prereq: 1.5
+*** ./BLURB-	Thu Jun 11 22:21:41 1992
+--- ./BLURB	Mon Aug 31 22:54:45 1992
+***************
+*** 1,4 ****
+! @(#) BLURB 1.5 92/06/11 22:21:40
+  
+  This package provides a couple of tiny programs that monitor incoming
+  requests for IP services such as TFTP, EXEC, FTP, RSH, TELNET, RLOGIN,
+--- 1,4 ----
+! @(#) BLURB 1.6 92/08/31 22:54:43
+  
+  This package provides a couple of tiny programs that monitor incoming
+  requests for IP services such as TFTP, EXEC, FTP, RSH, TELNET, RLOGIN,
+***************
+*** 13,33 ****
+  host name and then invoke the real network daemon. No information is
+  exchanged with the remote client process.
+  
+! Enhancements over the previous release are: 
+  
+!     1 - network daemons no longer have to live within a common directory
+!     2 - the access control code now uses both the host address and name
+!     3 - an access control pattern that supports netmasks
+!     4 - additional protection against forged host names
+!     5 - a pattern that matches hosts whose name or address lookup fails
+!     6 - an operator that prevents hosts or services from being matched
+!     7 - optional remote username lookup with the RFC 931 protocol
+!     8 - an optional umask to prevent the creation of world-writable files
+!     9 - hooks for access control language extensions
+!    10 - last but not least, thoroughly revised documentation.
+  
+! Except for the change described under (2) the present version should be
+! backwards compatible with earlier ones.
+  
+  	Wietse Venema (wietse@wzv.win.tue.nl),
+  	Department of Mathematics and Computing Science,
+--- 13,71 ----
+  host name and then invoke the real network daemon. No information is
+  exchanged with the remote client process.
+  
+! This is an interim release that takes care of some rough edges that
+! were left in last June's release. It does not introduce any new
+! features or changes to installation and/or configuration procedures.
+  
+!     - Some sites reported that connections would be rejected because
+!     localhost != localhost.domain. The host name checking code now
+!     special-cases localhost (problem reported by several sites).
+  
+!     - The programs now report an error if an existing access control
+!     file cannot be opened (e.g. due to lack of privileges).  Until now,
+!     the programs would just pretend that the access control file does
+!     not exist (reported by Darren Reed, avalon@coombs.anu.edu.au).
+! 
+!     - The timeout period for remote userid lookups was upped to 30
+!     seconds, in order to cope with slow hosts or networks.  If this is
+!     too long for you, adjust the TIMEOUT definition in file rfc931.c
+!     (problem reported by several sites).
+! 
+!     - On hosts with more than one IP network interface, remote userid
+!     lookups could use the IP address of the "wrong" local interface.
+!     The problem and its solution were discussed on the rfc931-users
+!     mailing list.  Scott Schwartz (schwartz@cs.psu.edu) folded the fix
+!     into the rfc931.c module.
+! 
+!     - The result of % expansion (in shell commands) is now checked for
+!     stuff that may confuse the shell; it is replaced by underscores
+!     (problem reported by Icarus Sparry, I.Sparry@gdr.bath.ac.uk).
+! 
+!     - A portability problem was fixed that caused compile-time problems
+!     on a CRAY (problem reported by Michael Barnett, mikeb@rmit.edu.au).
+! 
+! Finally, a caveat for those who use the optional remote username lookup
+! feature (RFC 931 protocol).  On some systems, these lookups may trigger
+! a kernel bug.  When a client host connects to your system, and the RFC
+! 931 connection to that client is rejected by a router, some kernels
+! drop all connections with that client.  The bug is not in the log_tcp
+! programs: complain to your vendor and don't enable remote user name
+! lookups until the bug has been fixed.
+! 
+! The following example can be used (from outside the tue.nl domain) to
+! find out if you have the bug:
+! 
+!         % ftp 131.155.70.100
+! 
+! Then, when the connection has been established, run the following
+! command on the same machine:
+! 
+!         % telnet 131.155.70.100 111
+! 
+! The telnet command should fail with: "host not reachable". If this
+! causes you to lose the ftp connection, you have the bug (please report
+! OS and hardware type). If the telnet command does not fail, please let
+! me know, too :-)
+  
+  	Wietse Venema (wietse@wzv.win.tue.nl),
+  	Department of Mathematics and Computing Science,
+Prereq: 1.5
+*** ./Makefile-	Thu Jun 11 22:21:37 1992
+--- ./Makefile	Thu Jul  2 13:00:56 1992
+***************
+*** 1,4 ****
+! # @(#) Makefile 1.5 92/06/11 22:21:35
+  
+  ##############################
+  ## Begin configuration options
+--- 1,4 ----
+! # @(#) Makefile 1.6 92/07/02 13:00:55
+  
+  ##############################
+  ## Begin configuration options
+***************
+*** 113,128 ****
+  	$(RANLIB) $(LIB)
+  
+  tcpd:	tcpd.o fromhost.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ tcpd.o fromhost.o $(LIB)
+  
+  miscd:	miscd.o fromhost.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ miscd.o fromhost.o $(LIB)
+  
+  try:	try.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ try.o $(LIB)
+  
+  fromhost: fromhost.c log_tcp.h Makefile $(LIB)
+! 	$(CC) $(CFLAGS) -DTEST -o fromhost fromhost.c $(LIB)
+  	rm -f fromhost.o
+  
+  shar:	
+--- 113,128 ----
+  	$(RANLIB) $(LIB)
+  
+  tcpd:	tcpd.o fromhost.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ tcpd.o fromhost.o $(LIB) $(LIBS)
+  
+  miscd:	miscd.o fromhost.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ miscd.o fromhost.o $(LIB) $(LIBS)
+  
+  try:	try.o $(LIB)
+! 	$(CC) $(CFLAGS) -o $@ try.o $(LIB) $(LIBS)
+  
+  fromhost: fromhost.c log_tcp.h Makefile $(LIB)
+! 	$(CC) $(CFLAGS) -DTEST -o fromhost fromhost.c $(LIB) $(LIBS)
+  	rm -f fromhost.o
+  
+  shar:	
+
+exit 0 # Just in case...

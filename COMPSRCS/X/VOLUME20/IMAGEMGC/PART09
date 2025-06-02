@@ -1,0 +1,1564 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i065:  imagemagic - X11 image processing and display, Part09/38
+Message-ID: <1993Jul14.175459.1141@sparky.sterling.com>
+X-Md4-Signature: bd1615cb4a7e4f84e93b9d1a63e1023c
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:54:59 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 65
+Archive-name: imagemagic/part09
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.09 (part 9 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/X.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/X.c'
+else
+echo 'x - continuing file ImageMagick/X.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/X.c' &&
+X  */
+X  pixel_info=window->pixel_info;
+X  q=annotate_image->pixels;
+X  for (y=0; y < annotate_image->rows; y++)
+X    for (x=0; x < annotate_image->columns; x++)
+X    {
+X      q->index=(unsigned short) XGetPixel(annotate_ximage,x,y);
+X      if (q->index == 0)
+X        {
+X          /*
+X            Set this pixel to the background color.
+X          */
+X          q->red=pixel_info->background_color.red >> 8;
+X          q->green=pixel_info->background_color.green >> 8;
+X          q->blue=pixel_info->background_color.blue >> 8;
+X        }
+X      else
+X        {
+X          /*
+X            Set this pixel to the pen color.
+X          */
+X          q->red=pixel_info->annotate_color.red >> 8;
+X          q->green=pixel_info->annotate_color.green >> 8;
+X          q->blue=pixel_info->annotate_color.blue >> 8;
+X        }
+X      q->length=0;
+X      q++;
+X    }
+X  XDestroyImage(annotate_ximage);
+X  /*
+X    Determine annotate geometry.
+X  */
+X  (void) XParseGeometry(annotate_info->geometry,&x,&y,&width,&height);
+X  if ((width != annotate_image->columns) || (height != annotate_image->rows))
+X    TransformImage(&annotate_image,(char *) NULL,annotate_info->geometry,
+X      (char *) NULL);
+X  if (annotate_info->degrees != 0.0)
+X    {
+X      Image
+X        *rotated_image;
+X
+X      /*
+X        Rotate image.
+X      */
+X      rotated_image=RotateImage(annotate_image,annotate_info->degrees,False);
+X      if (rotated_image == (Image *) NULL)
+X        return(False);
+X      DestroyImage(annotate_image);
+X      annotate_image=rotated_image;
+X    }
+X  /*
+X    Paste annotated image to image.
+X  */
+X  image->class=DirectClass;
+X  p=annotate_image->pixels;
+X  q=image->pixels+y*image->columns+x;
+X  for (y=0; y < annotate_image->rows; y++)
+X  {
+X    for (x=0; x < annotate_image->columns; x++)
+X    {
+X      if (p->index != 0)
+X        {
+X          /*
+X            Set this pixel to the pen color.
+X          */
+X          *q=(*p);
+X          q->index=pixel_info->annotate_index;
+X        }
+X      else
+X        if (background)
+X          {
+X            /*
+X              Set this pixel to the background color.
+X            */
+X            *q=(*p);
+X            q->index=pixel_info->background_index;
+X          }
+X      p++;
+X      q++;
+X    }
+X    q+=image->columns-annotate_image->columns;
+X  }
+X  DestroyImage(annotate_image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X B e s t F o n t                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XBestFont returns the "best" font.  "Best" is defined as a font
+%  specified in the X resource database or a font such that the text width
+%  displayed with the font does not exceed the specified maximum width.
+%
+%  The format of the XBestFont routine is:
+%
+%      font=XBestFont(display,resource_info,text,maximum_width)
+%
+%  A description of each parameter follows:
+%
+%    o font: XBestFont returns a pointer to a XFontStruct structure.
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o text: Specifies the text whose width is compared to the maximum.
+%
+%    o maximum_width: Specifies the maximum width in pixels of the text.
+%
+%
+*/
+XXFontStruct *XBestFont(display,resource_info,text,maximum_width)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+char
+X  *text;
+X
+unsigned int
+X  maximum_width;
+{
+X  static char
+X    *fonts[]=
+X    {
+X      "fixed",
+X      "9x15",
+X      "6x13",
+X      "6x10",
+X      (char *) NULL
+X    };
+X
+X  char
+X    *font_name,
+X    **p;
+X
+X  unsigned int
+X    width;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  font_info=(XFontStruct *) NULL;
+X  font_name=resource_info->font;
+X  if (font_name != (char *) NULL)
+X    {
+X      /*
+X        Load preferred font specified in the X resource database.
+X      */
+X      font_info=XLoadQueryFont(display,font_name);
+X      if (font_info == (XFontStruct *) NULL)
+X        Warning("unable to load font",font_name);
+X    }
+X  else
+X    if (text != (char *) NULL)
+X      {
+X        /*
+X          Load a font that does not exceed the text width.
+X        */
+X        for (p=fonts; *p != (char *) NULL; p++)
+X        {
+X          if (font_info != (XFontStruct *) NULL)
+X            {
+X              width=XTextWidth(font_info,text,strlen(text))+
+X                2*font_info->max_bounds.width+2*WindowBorderWidth;
+X              if (width < maximum_width)
+X                break;
+X              font_name=(*p);
+X              XFreeFont(display,font_info);
+X            }
+X          font_info=XLoadQueryFont(display,*p);
+X        }
+X      }
+X  if (font_info == (XFontStruct *) NULL)
+X    font_info=XLoadQueryFont(display,"fixed");  /* backup font */
+X  if (font_info == (XFontStruct *) NULL)
+X    font_info=XLoadQueryFont(display,"variable");  /* backup font */
+X  return(font_info);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X B e s t I c o n S i z e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XBestIconSize returns the "best" icon size.  "Best" is defined as
+%  an icon size that maintains the aspect ratio of the image.  If the window
+%  manager has preferred icon sizes, one of the preferred sizes is used.
+%
+%  The format of the XBestIconSize routine is:
+%
+%      XBestIconSize(display,window,image)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+void XBestIconSize(display,window,image)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+Image
+X  *image;
+{
+#define MaxIconSize  96
+X
+X  int
+X    i,
+X    number_sizes;
+X
+X  unsigned int
+X    height,
+X    icon_height,
+X    icon_width,
+X    width;
+X
+X  unsigned long
+X    scale_factor;
+X
+X  Window
+X    root_window;
+X
+X  XIconSize
+X    *icon_size,
+X    *size_list;
+X
+X  /*
+X    Determine if the window manager has specified preferred icon sizes.
+X  */
+X  window->width=MaxIconSize;
+X  window->height=MaxIconSize;
+X  icon_size=(XIconSize *) NULL;
+X  number_sizes=0;
+X  root_window=XRootWindow(display,window->screen);
+X  if (XGetIconSizes(display,root_window,&size_list,&number_sizes) != 0)
+X    if ((number_sizes > 0) && (size_list != (XIconSize *) NULL))
+X      icon_size=size_list;
+X  if (icon_size == (XIconSize *) NULL)
+X    {
+X      /*
+X        Window manager does not restrict icon size.
+X      */
+X      icon_size=XAllocIconSize();
+X      if (icon_size == (XIconSize *) NULL)
+X        {
+X          Warning("unable to choose best icon size","memory allocation failed");
+X          return;
+X        }
+X      icon_size->min_width=1;
+X      icon_size->max_width=MaxIconSize;
+X      icon_size->min_height=1;
+X      icon_size->max_height=MaxIconSize;
+X      icon_size->width_inc=1;
+X      icon_size->height_inc=1;
+X    }
+X  /*
+X    Determine aspect ratio of image.
+X  */
+X  width=image->columns;
+X  height=image->rows;
+X  if (window->clip_geometry)
+X    (void) XParseGeometry(window->clip_geometry,&i,&i,&width,&height);
+X  /*
+X    Look for an icon size that maintains the aspect ratio of image.
+X  */
+X  scale_factor=UpShift(icon_size->max_width)/width;
+X  if (scale_factor > (UpShift(icon_size->max_height)/height))
+X    scale_factor=UpShift(icon_size->max_height)/height;
+X  icon_width=icon_size->min_width;
+X  while (icon_width < icon_size->max_width)
+X  {
+X    if (icon_width >= (DownShift(width*scale_factor)))
+X      break;
+X    icon_width+=icon_size->width_inc;
+X  }
+X  icon_height=icon_size->min_height;
+X  while (icon_height < icon_size->max_height)
+X  {
+X    if (icon_height >= (DownShift(height*scale_factor)))
+X      break;
+X    icon_height+=icon_size->height_inc;
+X  }
+X  XFree((void *) icon_size);
+X  window->width=icon_width;
+X  window->height=icon_height;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X B e s t P i x e l                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XBestPixel returns a pixel from an array of pixels that is closest
+%  to the requested color.
+%
+%  The format of the XBestPixel routine is:
+%
+%      pixel=XBestPixel(colors,number_colors,color)
+%
+%  A description of each parameter follows:
+%
+%    o pixel: XBestPixel returns the pixel value closest to the requested
+%      color.
+%
+%    o colors: Specifies an array of XColor structures.
+%
+%    o number_colors: Specifies the number of XColor structures in the
+%      color definition array.
+%
+%    o color: Specifies the desired RGB value to find in the colors array.
+%
+%
+*/
+static void XBestPixel(colors,number_colors,color)
+XXColor
+X  *colors;
+X
+unsigned int
+X  number_colors;
+X
+XXColor
+X  *color;
+{
+X  register int
+X    blue_distance,
+X    green_distance,
+X    i,
+X    red_distance;
+X
+X  register unsigned long
+X    distance,
+X    min_distance;
+X
+X  /*
+X    Find closest representation for the requested RGB color.
+X  */
+X  color->pixel=0;
+X  min_distance=(unsigned long) (~0);
+X  for (i=0; i < number_colors; i++)
+X  {
+X    red_distance=(int) (colors[i].red >> 8)-(int) (color->red >> 8);
+X    green_distance=(int) (colors[i].green >> 8)-(int) (color->green >> 8);
+X    blue_distance=(int) (colors[i].blue >> 8)-(int) (color->blue >> 8);
+X    distance=red_distance*red_distance+green_distance*green_distance+
+X      blue_distance*blue_distance;
+X    if (distance < min_distance)
+X      {
+X        min_distance=distance;
+X        color->pixel=colors[i].pixel;
+X      }
+X  }
+X  return;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X B e s t V i s u a l I n f o                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XBestVisualInfo returns visual information for a visual that is
+%  the "best" the server supports.  "Best" is defined as:
+%
+%    1. Restrict the visual list to those supported by the default screen.
+%
+%    2. If a visual type is specified, restrict the visual list to those of
+%       that type.
+%
+%    3. If a map type is specified, choose the visual that matches the id
+%       specified by the Standard Colormap.
+%
+%    4  From the list of visuals, choose one that can display the most
+%       simultaneous colors.  If more than one visual can display the same
+%       number of simultaneous colors, one is choosen based on a rank.
+%
+%  The format of the XBestVisualInfo routine is:
+%
+%      visual_info=XBestVisualInfo(display,visual_type,map_type,map_info)
+%
+%  A description of each parameter follows:
+%
+%    o visual_info: XBestVisualInfo returns a pointer to a X11 XVisualInfo
+%      structure.
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o visual_type: Specifies the desired visual type.
+%
+%    o map_type: Specifies the desired Standard Colormap type.
+%
+%    o map_info: If map_type is specified, this structure is initialized
+%      with info from the Standard Colormap.
+%
+%
+*/
+XXVisualInfo *XBestVisualInfo(display,visual_type,map_type,map_info)
+Display
+X  *display;
+X
+char
+X  *visual_type,
+X  *map_type;
+X
+XXStandardColormap
+X  *map_info;
+{
+#define XVisualColormapSize(visual_info) \
+X  ((visual_info->class == TrueColor) || (visual_info->class == DirectColor) ? \
+X    visual_info->red_mask | visual_info->green_mask | visual_info->blue_mask : \
+X    visual_info->colormap_size)
+X
+X  int
+X    number_visuals;
+X
+X  register int
+X    i;
+X
+X  unsigned int
+X    visual_mask;
+X
+X  XVisualInfo
+X    *visual_info,
+X    *visual_list,
+X    visual_template;
+X
+X  /*
+X    Restrict visual search by screen number.
+X  */
+X  visual_mask=VisualScreenMask;
+X  visual_template.screen=XDefaultScreen(display);
+X  if (visual_type != (char *) NULL)
+X    {
+X      /*
+X        Restrict visual search by class or visual id.
+X      */
+X      if (Latin1Compare("staticgray",visual_type) == 0)
+X        {
+X          visual_mask|=VisualClassMask;
+X          visual_template.class=StaticGray;
+X        }
+X      else
+X        if (Latin1Compare("grayscale",visual_type) == 0)
+X          {
+X            visual_mask|=VisualClassMask;
+X            visual_template.class=GrayScale;
+X          }
+X        else
+X          if (Latin1Compare("staticcolor",visual_type) == 0)
+X            {
+X              visual_mask|=VisualClassMask;
+X              visual_template.class=StaticColor;
+X            }
+X          else
+X            if (Latin1Compare("pseudocolor",visual_type) == 0)
+X              {
+X                visual_mask|=VisualClassMask;
+X                visual_template.class=PseudoColor;
+X              }
+X            else
+X              if (Latin1Compare("truecolor",visual_type) == 0)
+X                {
+X                  visual_mask|=VisualClassMask;
+X                  visual_template.class=TrueColor;
+X                }
+X              else
+X                if (Latin1Compare("directcolor",visual_type) == 0)
+X                  {
+X                    visual_mask|=VisualClassMask;
+X                    visual_template.class=DirectColor;
+X                  }
+X                else
+X                  if (Latin1Compare("default",visual_type) == 0)
+X                    {
+X                      visual_mask|=VisualIDMask;
+X                      visual_template.visualid=XVisualIDFromVisual(
+X                        XDefaultVisual(display,XDefaultScreen(display)));
+X                    }
+X                  else
+X                    if (isdigit(*visual_type))
+X                      {
+X                        visual_mask|=VisualIDMask;
+X                        visual_template.visualid=
+X                          strtol(visual_type,(char **) NULL,0);
+X                      }
+X                    else
+X                      Warning("invalid visual specifier",visual_type);
+X    }
+X  /*
+X    Get all visuals that meet our criteria so far.
+X  */
+X  number_visuals=0;
+X  visual_list=XGetVisualInfo(display,visual_mask,&visual_template,
+X    &number_visuals);
+X  visual_mask=VisualScreenMask | VisualIDMask;
+X  if ((number_visuals == 0) || (visual_list == (XVisualInfo *) NULL))
+X    {
+X      /*
+X        Failed to get visual;  try using the default visual.
+X      */
+X      Warning("unable to get visual",visual_type);
+X      visual_template.visualid=
+X        XVisualIDFromVisual(XDefaultVisual(display,XDefaultScreen(display)));
+X      visual_list=XGetVisualInfo(display,visual_mask,&visual_template,
+X        &number_visuals);
+X      if ((number_visuals == 0) || (visual_list == (XVisualInfo *) NULL))
+X        return((XVisualInfo *) NULL);
+X      Warning("using default visual",XVisualClassName(visual_list));
+X    }
+X  if (map_type != (char *) NULL)
+X    {
+X      Atom
+X        map_property;
+X
+X      char
+X        map_name[2048];
+X
+X      int
+X        j,
+X        number_maps,
+X        status;
+X
+X      Window
+X        root_window;
+X
+X      XStandardColormap
+X        *map_list;
+X
+X      /*
+X        Restrict visual search by Standard Colormap visual id.
+X      */
+X      (void) sprintf((char *) map_name,"RGB_%s_MAP",map_type);
+X      Latin1Upper(map_name);
+X      map_property=XInternAtom(display,(char *) map_name,True);
+X      if (map_property == (Atom) NULL)
+X        Error("unable to get Standard Colormap",map_type);
+X      root_window=XRootWindow(display,XDefaultScreen(display));
+X      status=XGetRGBColormaps(display,root_window,&map_list,&number_maps,
+X        map_property);
+X      if (status == 0)
+X        Error("unable to get Standard Colormap",map_type);
+X      /*
+X        Search all Standard Colormaps and visuals for ids that match.
+X      */
+X      *map_info=map_list[0];
+#ifndef PRE_R4_ICCCM
+X      visual_template.visualid=XVisualIDFromVisual(visual_list[0].visual);
+X      for (i=0; i < number_maps; i++)
+X        for (j=0; j < number_visuals; j++)
+X          if (map_list[i].visualid ==
+X              XVisualIDFromVisual(visual_list[j].visual))
+X            {
+X              *map_info=map_list[i];
+X              visual_template.visualid=
+X                XVisualIDFromVisual(visual_list[j].visual);
+X              break;
+X            }
+X      if (map_info->visualid != visual_template.visualid)
+X        Error("unable to match visual to Standard Colormap",map_type);
+#endif
+X      if (map_info->colormap == (Colormap) NULL)
+X        Error("Standard Colormap is not initialized",map_type);
+X      XFree((void *) map_list);
+X    }
+X  else
+X    {
+X      static unsigned int
+X        rank[]=
+X          {
+X            StaticGray,
+X            GrayScale,
+X            StaticColor,
+X            DirectColor,
+X            TrueColor,
+X            PseudoColor
+X          };
+X
+X      XVisualInfo
+X        *p;
+X
+X      /*
+X        Pick one visual that displays the most simultaneous colors.
+X      */
+X      visual_info=visual_list;
+X      p=visual_list;
+X      for (i=1; i < number_visuals; i++)
+X      {
+X        p++;
+X        if (XVisualColormapSize(p) > XVisualColormapSize(visual_info))
+X          visual_info=p;
+X        else
+X          if (XVisualColormapSize(p) == XVisualColormapSize(visual_info))
+X            if (rank[p->class] > rank[visual_info->class])
+X              visual_info=p;
+X      }
+X      visual_template.visualid=XVisualIDFromVisual(visual_info->visual);
+X    }
+X  XFree((void *) visual_list);
+X  /*
+X    Retrieve only one visual by its screen & id number.
+X  */
+X  visual_info=XGetVisualInfo(display,visual_mask,&visual_template,
+X    &number_visuals);
+X  if ((number_visuals == 0) || (visual_info == (XVisualInfo *) NULL))
+X    return((XVisualInfo *) NULL);
+X  return(visual_info);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X C l i e n t W i n d o w                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XClientWindow finds a window, at or below the specified window,
+%  which has a WM_STATE property.  If such a window is found, it is returned,
+%  otherwise the argument window is returned.
+%
+%  The format of the XClientWindow function is:
+%
+%      client_window=XClientWindow(display,target_window)
+%
+%  A description of each parameter follows:
+%
+%    o client_window: XClientWindow returns a window, at or below the specified
+%      window, which has a WM_STATE property otherwise the argument
+%      target_window is returned.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o target_window: Specifies the window to find a WM_STATE property.
+%
+%
+*/
+static Window XClientWindow(display,target_window)
+Display
+X  *display;
+X
+Window
+X  target_window;
+{
+X  Atom
+X    state,
+X    type;
+X
+X  int
+X    format,
+X    status;
+X
+X  unsigned char
+X    *data;
+X
+X  unsigned long
+X    after,
+X    number_items;
+X
+X  Window
+X    client_window;
+X
+X  state=XInternAtom(display,"WM_STATE",True);
+X  if (state == (Atom) NULL)
+X    return(target_window);
+X  type=(Atom) NULL;
+X  status=XGetWindowProperty(display,target_window,state,0L,0L,False,
+X    (Atom) AnyPropertyType,&type,&format,&number_items,&after,&data);
+X  if ((status == Success) && (type != (Atom) NULL))
+X    return(target_window);
+X  client_window=XWindowByProperty(display,target_window,state);
+X  if (client_window == (Window) NULL)
+X    return(target_window);
+X  return(client_window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X D i s p l a y I n f o S t r i n g                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XDisplayInfoString resizes the window to a size determined by the
+%  text, the font size and the border.
+%
+%  The format of the XDisplayInfoString function is:
+%
+%      XDisplayInfoString(display,window,text,borders)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o text: Specifies a pointer to a text string.
+%
+%
+*/
+void XDisplayInfoString(display,window,text)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+char
+X  *text;
+{
+X  unsigned int
+X    height;
+X
+X  XClearWindow(display,window->id);
+X  height=window->font_info->ascent+window->font_info->descent;
+X  XDrawImageString(display,window->id,window->graphic_context,
+X    (3*window->font_info->max_bounds.width) >> 2,window->font_info->ascent+
+X    (height >> 2),text,strlen(text));
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X E r r o r                                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XError ignores BadWindow errors for XQueryTree and
+%  XGetWindowAttributes, and ignores BadDrawable errors for XGetGeometry, and
+%  ignores BadValue errors for XQueryColor.  It returns False in those cases.
+%  Otherwise it returns True.
+%
+%  The format of the XError function is:
+%
+%      XError(display,error)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o error: Specifies the error event.
+%
+%
+*/
+int XError(display,error)
+Display
+X  *display;
+X
+XXErrorEvent
+X  *error;
+{
+X  switch (error->request_code)
+X  {
+X    case X_GetGeometry:
+X    {
+X      if (error->error_code == BadDrawable)
+X        return(False);
+X      break;
+X    }
+X    case X_GetWindowAttributes:
+X    case X_QueryTree:
+X    {
+X      if (error->error_code == BadWindow)
+X        return(False);
+X      break;
+X    }
+X    case X_QueryColors:
+X    {
+X      if (error->error_code == BadValue)
+X        return(False);
+X      break;
+X    }
+X  }
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X F r e e S t a n d a r d C o l o r m a p                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XFreeStandardColormap frees an X11 colormap.
+%
+%  The format of the XFreeStandardColormap routine is:
+%
+%      XFreeStandardColormap(display,visual_info,pixel_info,map_info)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o visual_info: Specifies a pointer to a X11 XVisualInfo structure;
+%      returned from XGetVisualInfo.
+%
+%    o pixel_info: Specifies a pointer to a XPixelInfo structure.
+%
+%    o map_info: If map_type is specified, this structure is initialized
+%      with info from the Standard Colormap.
+%
+%
+*/
+void XFreeStandardColormap(display,visual_info,pixel_info,map_info)
+Display
+X  *display;
+X
+XXVisualInfo
+X  *visual_info;
+X
+XXPixelInfo
+X  *pixel_info;
+X
+XXStandardColormap
+X  *map_info;
+{
+X  /*
+X    Free colormap.
+X  */
+X  XFlush(display);
+X  if (map_info->colormap != (Colormap) NULL)
+X    if (map_info->colormap != XDefaultColormap(display,visual_info->screen))
+X      XFreeColormap(display,map_info->colormap);
+X    else
+X      if ((visual_info->class != TrueColor) &&
+X          (visual_info->class != DirectColor))
+X        XFreeColors(display,map_info->colormap,pixel_info->pixels,
+X          (int) pixel_info->colors,0);
+X  map_info->colormap=(Colormap) NULL;
+X  if (pixel_info->pixels != (unsigned long *) NULL)
+X    (void) free((char *) pixel_info->pixels);
+X  pixel_info->pixels=(unsigned long *) NULL;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t A n n o t a t e I n f o                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetAnnotateInfo initializes the AnnotateInfo structure.
+%
+%  The format of the GetAnnotateInfo routine is:
+%
+%      XGetAnnotateInfo(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o annotate_info: Specifies a pointer to a XAnnotateInfo structure.
+%
+%
+*/
+void XGetAnnotateInfo(annotate_info)
+XXAnnotateInfo
+X  *annotate_info;
+{
+X  /*
+X    Initialize annotate structure.
+X  */
+X  annotate_info->x=0;
+X  annotate_info->y=0;
+X  annotate_info->width=0;
+X  annotate_info->height=0;
+X  annotate_info->degrees=0.0;
+X  annotate_info->font_info=(XFontStruct *) NULL;
+X  annotate_info->text=(char *) NULL;
+X  *annotate_info->geometry=(char) NULL;
+X  annotate_info->previous=(XAnnotateInfo *) NULL;
+X  annotate_info->next=(XAnnotateInfo *) NULL;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t P i x e l I n f o                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetPixelInfo initializes the PixelInfo structure.
+%
+%  The format of the XGetPixelInfo routine is:
+%
+%      XGetPixelInfo(display,visual_info,map_info,resource_info,image,
+%        pixel_info)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o visual_info: Specifies a pointer to a X11 XVisualInfo structure;
+%      returned from XGetVisualInfo.
+%
+%    o map_info: If map_type is specified, this structure is initialized
+%      with info from the Standard Colormap.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%    o pixel_info: Specifies a pointer to a XPixelInfo structure.
+%
+%
+*/
+void XGetPixelInfo(display,visual_info,map_info,resource_info,image,pixel_info)
+Display
+X  *display;
+X
+XXVisualInfo
+X  *visual_info;
+X
+XXStandardColormap
+X  *map_info;
+X
+XXResourceInfo
+X  *resource_info;
+X
+Image
+X  *image;
+X
+XXPixelInfo
+X  *pixel_info;
+{
+X  register int
+X    i;
+X
+X  int
+X    status;
+X
+X  unsigned int
+X    packets;
+X
+X  pixel_info->graphic_context=XDefaultGC(display,visual_info->screen);
+X  pixel_info->highlight_context=XDefaultGC(display,visual_info->screen);
+X  pixel_info->colors=0;
+X  if (image != (Image *) NULL)
+X    if (image->class == PseudoClass)
+X      pixel_info->colors=image->colors;
+X  packets=Max(pixel_info->colors,visual_info->colormap_size)+MaxNumberPens;
+X  pixel_info->pixels=(unsigned long *) malloc(packets*sizeof(unsigned long));
+X  if (pixel_info->pixels == (unsigned long *) NULL)
+X    Error("unable to get pixel info","memory allocation failed");
+X  status=XParseColor(display,map_info->colormap,resource_info->background_color,
+X    &pixel_info->background_color);
+X  if (status == 0)
+X    Warning("color is not known to X server",resource_info->background_color);
+X  pixel_info->background_color.pixel=
+X    XStandardPixel(map_info,pixel_info->background_color,16);
+X  pixel_info->background_color.flags=DoRed | DoGreen | DoBlue;
+X  status=XParseColor(display,map_info->colormap,resource_info->border_color,
+X    &pixel_info->border_color);
+X  if (status == 0)
+X    Warning("color is not known to X server",resource_info->border_color);
+X  pixel_info->border_color.pixel=
+X    XStandardPixel(map_info,pixel_info->border_color,16);
+X  pixel_info->border_color.flags=DoRed | DoGreen | DoBlue;
+X  status=XParseColor(display,map_info->colormap,resource_info->foreground_color,
+X    &pixel_info->foreground_color);
+X  if (status == 0)
+X    Warning("color is not known to X server",resource_info->foreground_color);
+X  pixel_info->foreground_color.pixel=
+X    XStandardPixel(map_info,pixel_info->foreground_color,16);
+X  pixel_info->foreground_color.flags=DoRed | DoGreen | DoBlue;
+X  status=XParseColor(display,map_info->colormap,resource_info->highlight_color,
+X    &pixel_info->highlight_color);
+X  if (status == 0)
+X    Warning("color is not known to X server",resource_info->highlight_color);
+X  pixel_info->highlight_color.pixel=
+X    XStandardPixel(map_info,pixel_info->highlight_color,16);
+X  pixel_info->highlight_color.flags=DoRed | DoGreen | DoBlue;
+X  for (i=0; i < MaxNumberPens; i++)
+X  {
+X    status=XParseColor(display,map_info->colormap,resource_info->pen_color[i],
+X      &pixel_info->pen_color[i]);
+X    if (status == 0)
+X      Warning("color is not known to X server",resource_info->pen_color[i]);
+X    pixel_info->pen_color[i].pixel=
+X      XStandardPixel(map_info,pixel_info->pen_color[i],16);
+X    pixel_info->pen_color[i].flags=DoRed | DoGreen | DoBlue;
+X  }
+X  pixel_info->annotate_color=pixel_info->foreground_color;
+X  if (image != (Image *) NULL)
+X    if (image->class == PseudoClass)
+X      {
+X        /*
+X          Initialize pixel array for images of type PseudoClass.
+X        */
+X        for (i=0; i < image->colors; i++)
+X          pixel_info->pixels[i]=XStandardPixel(map_info,image->colormap[i],8);
+X        for (i=0; i < MaxNumberPens; i++)
+X          pixel_info->pixels[image->colors+i]=pixel_info->pen_color[i].pixel;
+X        pixel_info->colors+=MaxNumberPens;
+X      }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t R e s o u r c e                                                   %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetResource queries the X server for the specified resource name
+%  or class.  If the resource name or class is not defined in the database, the
+%  supplied default value is returned.
+%
+%  The format of the XGetResource routine is:
+%
+%      value=XGetResource(database,client,keyword,resource_default)
+%
+%  A description of each parameter follows:
+%
+%    o value: Function XGetResource returns the resource value associated with
+%      the name or class.  If none is found, the supplied default value is
+%      returned.
+%
+%    o database: Specifies a resource database; returned from
+%      XrmGetStringDatabase.
+%
+%    o client:  Specifies the application name used to retrieve
+%      resource info from the X server database.
+%
+%    o keyword: Specifies the keyword of the value being retrieved.
+%
+%    o resource_default: Specifies the default value to return if the query
+%      fails to find the specified keyword/class.
+%
+%
+*/
+char *XGetResource(database,client,keyword,resource_default)
+XXrmDatabase
+X  database;
+X
+char
+X  *client,
+X  *keyword,
+X  *resource_default;
+{
+X  char
+X    *resource_type,
+X    resource_class[2048],
+X    resource_name[2048];
+X
+X  int
+X    status;
+X
+X  XrmValue
+X    resource_value;
+X
+X  if (database == (XrmDatabase) NULL)
+X    return(resource_default);
+X  *resource_name='\0';
+X  *resource_class='\0';
+X  if (keyword != (char *) NULL)
+X    {
+X      unsigned char
+X        c,
+X        k;
+X
+X      /*
+X        Initialize resource keyword and class.
+X      */
+X      (void) sprintf(resource_name,"%s.%s",client,keyword);
+X      c=(*client);
+X      if ((c >= XK_a) && (c <= XK_z))
+X        c-=(XK_a-XK_A);
+X      else
+X        if ((c >= XK_agrave) && (c <= XK_odiaeresis))
+X          c-=(XK_agrave-XK_Agrave);
+X        else
+X          if ((c >= XK_oslash) && (c <= XK_thorn))
+X            c-=(XK_oslash-XK_Ooblique);
+X      k=(*keyword);
+X      if ((k >= XK_a) && (k <= XK_z))
+X        k-=(XK_a-XK_A);
+X      else
+X        if ((k >= XK_agrave) && (k <= XK_odiaeresis))
+X          k-=(XK_agrave-XK_Agrave);
+X        else
+X          if ((k >= XK_oslash) && (k <= XK_thorn))
+X            k-=(XK_oslash-XK_Ooblique);
+X      (void) sprintf(resource_class,"%c%s.%c%s",c,client+1,k,keyword+1);
+X    }
+X  status=XrmGetResource(database,resource_name,resource_class,&resource_type,
+X    &resource_value);
+X  if (status == False)
+X    return(resource_default);
+X  return(resource_value.addr);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t R e s o u r c e I n f o                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetResourceInfo initializes the ResourceInfo structure.
+%
+%  The format of the XGetResourceInfo routine is:
+%
+%      XGetResourceInfo(resource_database,client_name,resource_info)
+%
+%  A description of each parameter follows:
+%
+%    o resource_database: Specifies a resource database; returned from
+%      XrmGetStringDatabase.
+%
+%    o client_name:  Specifies the application name used to retrieve
+%      resource info from the X server database.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%
+*/
+void XGetResourceInfo(resource_database,client_name,resource_info)
+XXrmDatabase
+X  resource_database;
+X
+char
+X  *client_name;
+X
+XXResourceInfo
+X  *resource_info;
+{
+X  char
+X    *resource_value;
+X
+X  register char
+X    *p;
+X
+X  /*
+X    Get basename of client.
+X  */
+X  p=client_name+(strlen(client_name)-1);
+X  while ((p > client_name) && (*p != '/'))
+X    p--;
+X  if (*p == '/')
+X    client_name=p+1;
+X  /*
+X    Initialize resource info fields.
+X  */
+X  resource_value=XGetResource(resource_database,client_name,"backdrop","False");
+X  resource_info->backdrop=IsTrue(resource_value);
+X  resource_info->background_color=
+X    XGetResource(resource_database,client_name,"background","black");
+X  resource_info->border_color=
+X    XGetResource(resource_database,client_name,"borderColor","white");
+X  resource_value=XGetResource(resource_database,client_name,"borderWidth","2");
+X  resource_info->border_width=atoi(resource_value);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"colormap","shared");
+X  resource_info->colormap=UndefinedColormap;
+X  if (Latin1Compare("private",resource_value) == 0)
+X    resource_info->colormap=PrivateColormap;
+X  if (Latin1Compare("shared",resource_value) == 0)
+X    resource_info->colormap=SharedColormap;
+X  if (resource_info->colormap == UndefinedColormap)
+X    Warning("unrecognized colormap type",resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"colors","0");
+X  resource_info->number_colors=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"colorspace","rgb");
+X  resource_info->colorspace=UndefinedColorspace;
+X  if (Latin1Compare("gray",resource_value) == 0)
+X    resource_info->colorspace=GRAYColorspace;
+X  if (Latin1Compare("rgb",resource_value) == 0)
+X    resource_info->colorspace=RGBColorspace;
+X  if (Latin1Compare("yiq",resource_value) == 0)
+X    resource_info->colorspace=YIQColorspace;
+X  if (Latin1Compare("yuv",resource_value) == 0)
+X    resource_info->colorspace=YUVColorspace;
+X  if (Latin1Compare("xyz",resource_value) == 0)
+X    resource_info->colorspace=XYZColorspace;
+X  if (resource_info->colorspace == UndefinedColorspace)
+X    Warning("unrecognized colorspace type",resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"debug","False");
+X  resource_info->debug=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"delay","0");
+X  resource_info->delay=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"dither","False");
+X  resource_info->dither=IsTrue(resource_value);
+X  resource_info->font=
+X    XGetResource(resource_database,client_name,"font",(char *) NULL);
+X  resource_info->font_name[0]=
+X    XGetResource(resource_database,client_name,"font1","fixed");
+X  resource_info->font_name[1]=
+X    XGetResource(resource_database,client_name,"font2","variable");
+X  resource_info->font_name[2]=
+X    XGetResource(resource_database,client_name,"font3","5x8");
+X  resource_info->font_name[3]=
+X    XGetResource(resource_database,client_name,"font4","6x10");
+X  resource_info->font_name[4]=
+X    XGetResource(resource_database,client_name,"font5","7x13bold");
+X  resource_info->font_name[5]=
+X    XGetResource(resource_database,client_name,"font6","8x13bold");
+X  resource_info->font_name[6]=
+X    XGetResource(resource_database,client_name,"font7","9x15bold");
+X  resource_info->font_name[7]=
+X    XGetResource(resource_database,client_name,"font8","10x20");
+X  resource_info->font_name[8]=
+X    XGetResource(resource_database,client_name,"font9","12x24");
+X  resource_info->foreground_color=
+X    XGetResource(resource_database,client_name,"foreground","white");
+X  resource_info->icon_geometry=
+X    XGetResource(resource_database,client_name,"iconGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"gravity","North");
+X  resource_info->gravity=(-1);
+X  if (Latin1Compare("Forget",resource_value) == 0)
+X    resource_info->gravity=ForgetGravity;
+X  if (Latin1Compare("NorthWest",resource_value) == 0)
+X    resource_info->gravity=NorthWestGravity;
+X  if (Latin1Compare("North",resource_value) == 0)
+X    resource_info->gravity=NorthGravity;
+X  if (Latin1Compare("NorthEast",resource_value) == 0)
+X    resource_info->gravity=NorthEastGravity;
+X  if (Latin1Compare("West",resource_value) == 0)
+X    resource_info->gravity=WestGravity;
+X  if (Latin1Compare("Center",resource_value) == 0)
+X    resource_info->gravity=CenterGravity;
+X  if (Latin1Compare("East",resource_value) == 0)
+X    resource_info->gravity=EastGravity;
+X  if (Latin1Compare("SouthWest",resource_value) == 0)
+X    resource_info->gravity=SouthWestGravity;
+X  if (Latin1Compare("South",resource_value) == 0)
+X    resource_info->gravity=SouthGravity;
+X  if (Latin1Compare("SouthEast",resource_value) == 0)
+X    resource_info->gravity=SouthEastGravity;
+X  if (Latin1Compare("Static",resource_value) == 0)
+X    resource_info->gravity=StaticGravity;
+X  if (resource_info->gravity == (-1))
+X    {
+X      Warning("unrecognized gravity type",resource_value);
+X      resource_info->gravity=CenterGravity;
+X    }
+X  resource_info->highlight_color=XGetResource(resource_database,client_name,
+X    "highlightColor",resource_info->border_color);
+X  resource_value=XGetResource(resource_database,client_name,"iconic","False");
+X  resource_info->iconic=IsTrue(resource_value);
+X  resource_info->image_geometry=
+X    XGetResource(resource_database,client_name,"imageGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"magnify","2");
+X  resource_info->magnify=atoi(resource_value);
+X  resource_info->map_type=
+X    XGetResource(resource_database,client_name,"map",(char *) NULL);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"monochrome","False");
+X  resource_info->monochrome=IsTrue(resource_value);
+X  resource_info->name=
+X    XGetResource(resource_database,client_name,"name",(char *) NULL);
+X  resource_info->pen_color[0]=
+X    XGetResource(resource_database,client_name,"pen1","black");
+X  resource_info->pen_color[1]=
+X    XGetResource(resource_database,client_name,"pen2","blue");
+X  resource_info->pen_color[2]=
+X    XGetResource(resource_database,client_name,"pen3","cyan");
+X  resource_info->pen_color[3]=
+X    XGetResource(resource_database,client_name,"pen4","green");
+X  resource_info->pen_color[4]=
+X    XGetResource(resource_database,client_name,"pen5","gray");
+X  resource_info->pen_color[5]=
+X    XGetResource(resource_database,client_name,"pen6","red");
+X  resource_info->pen_color[6]=
+X    XGetResource(resource_database,client_name,"pen7","magenta");
+X  resource_info->pen_color[7]=
+X    XGetResource(resource_database,client_name,"pen8","yellow");
+X  resource_info->pen_color[8]=
+X    XGetResource(resource_database,client_name,"pen9","white");
+X  resource_info->server_name=
+X    XGetResource(resource_database,client_name,"serverName",(char *) NULL);
+X  resource_info->title=
+X    XGetResource(resource_database,client_name,"title",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"treeDepth","0");
+X  resource_info->tree_depth=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"update","False");
+X  resource_info->update=IsTrue(resource_value);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"usePixmap","False");
+X  resource_info->use_pixmap=IsTrue(resource_value);
+X  resource_info->visual_type=
+X    XGetResource(resource_database,client_name,"visual",(char *) NULL);
+X  resource_info->write_filename=
+X    XGetResource(resource_database,client_name,"writeFilename",(char *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X G e t W i n d o w I m a g e                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XGetWindowImage reads an image from the target X window and returns
+%  it.  XGetWindowImage optionally descends the window hierarchy and overlays
+%  the target image with each subwindow image.
+%
+%  The format of the XGetWindowImage routine is:
+%
+%      image=XGetWindowImage(display,window,borders,level)
+%
+%  A description of each parameter follows:
+%
+%    o image: Function XGetWindowImage returns a MIFF image if it can be
+%      successfully read from the X window.  A null image is returned if
+%      any errors occurs.
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies the window to obtain the image from.
+%
+%    o borders: Specifies whether borders pixels are to be saved with
+%      the image.
+%
+%    o level: Specifies an unsigned integer representing the level of
+%      decent in the window hierarchy.  This value must be zero or one on
+%      the initial call to XGetWindowImage.  A value of zero returns after
+%      one call.  A value of one causes the function to descend the window
+%      hierarchy and overlays the target image with each subwindow image.
+%
+%
+*/
+static Image *XGetWindowImage(display,window,borders,level)
+Display
+X  *display;
+X
+Window
+X  window;
+X
+unsigned int
+X  borders,
+X  level;
+{
+X  typedef struct _ColormapList
+X  {
+X    Colormap
+X      colormap;
+X
+X    XColor
+X      *colors;
+X
+X    struct _ColormapList
+X      *next;
+X  } ColormapList;
+X
+X  GC
+X    graphic_context;
+X
+X  Image
+X    *image;
+X
+X  int
+X    display_height,
+X    display_width,
+X    number_colors,
+X    status,
+X    x_offset,
+X    y_offset;
+X
+X  RectangleInfo
+X    clip_info;
+X
+X  register int
+X    i,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned long
+X    pixel;
+X
+X  static ColormapList
+X    *colormap_list = (ColormapList *) NULL;
+X
+X  Window
+X    child,
+X    root_window;
+X
+X  XColor
+X    *colors;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  XImage
+X    *ximage;
+X
+X  XWindowAttributes
+X    window_attributes;
+X
+X  /*
+X    Verify window is viewable.
+X  */
+X  status=XGetWindowAttributes(display,window,&window_attributes);
+X  if ((status == False) || (window_attributes.map_state != IsViewable))
+X    return((Image *) NULL);
+X  /*
+X    Clipping rectangle is relative to root window.
+X  */
+X  root_window=XRootWindow(display,XDefaultScreen(display));
+X  XTranslateCoordinates(display,window,root_window,0,0,&x_offset,&y_offset,
+X    &child);
+X  clip_info.x=x_offset;
+X  clip_info.y=y_offset;
+X  clip_info.width=window_attributes.width;
+X  clip_info.height=window_attributes.height;
+X  if (borders)
+X    {
+X      /*
+X        Include border in image.
+X      */
+X      clip_info.x-=window_attributes.border_width;
+X      clip_info.y-=window_attributes.border_width;
+X      clip_info.width+=2*window_attributes.border_width;
+X      clip_info.height+=2*window_attributes.border_width;
+X    }
+X  /*
+X    Clip to root window.
+X  */
+X  if (clip_info.x < 0)
+X    {
+X      if ((clip_info.x+(int) clip_info.width) < 0)
+X        return((Image *) NULL);
+X      clip_info.width+=clip_info.x;
+X      clip_info.x=0;
+X    }
+X  if (clip_info.y < 0)
+X    {
+X      if ((clip_info.y+(int) clip_info.height) < 0)
+X        return((Image *) NULL);
+X      clip_info.height+=clip_info.y;
+X      clip_info.y=0;
+X    }
+X  display_width=DisplayWidth(display,XDefaultScreen(display));
+SHAR_EOF
+true || echo 'restore of ImageMagick/X.c failed'
+fi
+echo 'End of ImageMagick part 9'
+echo 'File ImageMagick/X.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

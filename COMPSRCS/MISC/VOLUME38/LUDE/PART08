@@ -1,0 +1,2367 @@
+Newsgroups: comp.sources.misc
+From: laplante@crim.ca (Pierre Laplante)
+Subject: v38i040:  lude - A Distributed Software Library, Part08/12
+Message-ID: <1993Jul11.224709.16721@sparky.imd.sterling.com>
+X-Md4-Signature: 776e355bc8e150376f7cc5afae121340
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 11 Jul 1993 22:47:09 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: laplante@crim.ca (Pierre Laplante)
+Posting-number: Volume 38, Issue 40
+Archive-name: lude/part08
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm
+#   lude-1.1/src/orig/configure lude-1.1/src/orig/html/diri_eng.UU
+#   lude-1.1/src/orig/src/ludeadm
+# Wrapped by kent@sparky on Sun Jul 11 15:49:15 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 12)."'
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'\" \(22260 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# ludeadm - Project lude.
+X# Copyright (C) 1991, 1992  Pierre Laplante
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION=
+X    "-- ludeadm --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.= '$Id: ludeadm,v 1.4 1993/03/17 14:56:49 sbo Exp $' ."\n";
+X
+X$VERSION='1.1';
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Globals definitions
+X#
+X
+X$PL_INCDIR="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/include/lude";
+X$LANG_PATH="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang:../lang";
+X$LUDE_MODIF_FILE_TMPL="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/LUDE-MODIF.tmpl";
+X$LUDE_CLASS_FILE_TMPL="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/LUDE-CLASS.tmpl";
+X$IAFA_FILE_TMPL="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/IAFA-PACKAGES.tmpl";
+X
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Main program
+X#
+X
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X    local($cmdsToDo);
+X
+X    unshift(@INC, split(/:/, $PL_INCDIR));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludemisc', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludeadm', @ARGV);
+X
+X    require('ludemisc');
+X    require('ludeadminc');
+X    require('BldRegexpMinRqr.pl');
+X    require('fileutil.pl');
+X
+X    if (! &VerifySystem) {
+X	$exitval=1;
+X    }
+X    elsif (($cmdsToDo=&Initialisation) < 0) {
+X	$exitval=2;
+X    }
+X    # If any command(s) left to be executed
+X    elsif ($cmdsToDo > 0) {
+X	if (! &ExecCommands) {
+X	    $exitval=3;
+X	}
+X    }
+X
+X    exit $exitval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Create the directories structure for the given
+X#                location/soft/mod/class. If a base tree is not
+X#                already present, one is created.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Create {
+X    if (scalar(@_)!=4) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path);
+X    local($retval)=1;		# success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server/$soft" : "$SOFT_DIR/$soft";
+X
+X    #
+X    # Unlink the sections if it is a link
+X    #
+X    for $section ('run', 'src') {
+X      if (-l "$path/$section") {
+X	if (&VerboseRetShow($WARN_CMD, "unlink $path/$section")) {
+X	  # Showing, so do nothing
+X	}
+X	elsif (! unlink("$path/$section")) {
+X	  &NFError($ERR_UNLINK, "$path/$section");
+X	  $retval=0;
+X	}
+X      }
+X    }
+X
+X    #
+X    # Create the directory Hierarchy
+X    #
+X    if ($retval) {		# If still no error
+X      for $d ("$path",
+X	      "$path/src", "$path/src/orig", "$path/src/$mod", 
+X	      "$path/run", "$path/run/share",
+X	      "$path/run/$mod", "$path/run/$mod/share", 
+X	      "$path/run/$mod/$class", 
+X	      "$path/install", "$path/install/share",
+X	      "$path/install/$mod", "$path/install/$mod/share", 
+X	      "$path/install/$mod/$class") { 
+X	if (! -d $d) {
+X	  if (&VerboseRetShow($WARN_CMD, "mkdir $d")) {
+X	    # Showing, so do nothing
+X	  }
+X	  elsif (! mkdir($d, 0755)) {
+X	    &NFError($ERR_MKDIR, "$d"); 
+X	    $retval=0;
+X	  }
+X	}
+X      }
+X    }
+X
+X    if ($retval) {		# if still no error
+X
+X      # Test for the presence of a LUDE file template
+X      stat("$IAFA_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $IAFA_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $IAFA_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding IAFA templates if none is present
+X	if (! -e "$path/install/$IAFA_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $IAFA_FILE_TMPL $path/install/$IAFA_FILE")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($IAFA_FILE_TMPL, "$path/install/$IAFA_FILE")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X
+X      # Test for the presence of a LUDE_CLASS file template
+X      stat("$LUDE_CLASS_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $LUDE_CLASS_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $LUDE_CLASS_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding LUDE templates if none is present
+X	# The file is named in such way that it is locked
+X	if (! -e "$path/install/$LUDE_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $LUDE_CLASS_FILE_TMPL $path/install/$mod/$class/$LUDE_FILE.lock")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($LUDE_CLASS_FILE_TMPL, "$path/install/$mod/$class/$LUDE_FILE.lock")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X
+X      # Test for the presence of a LUDE_MODIF file template
+X      stat("$LUDE_MODIF_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $LUDE_MODIF_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $LUDE_MODIF_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding LUDE templates if none is present
+X	if (! -e "$path/install/$mod/$LUDE_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $LUDE_MODIF_FILE_TMPL $path/install/$mod/$LUDE_FILE")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($LUDE_MODIF_FILE_TMPL, "$path/install/$mod/$LUDE_FILE")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : Lock a soft/mod/class so that others can't
+X#                install it.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Lock {
+X    if (scalar(@_)!=4) { &Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__)); }
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path, $lockfile);
+X    local($retval)=1;		# success by default
+X
+X    $path=($server ne'/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X    $lockfile="$path/$soft/install/$mod/$class/$LUDE_FILE";
+X    
+X    if (-e "$lockfile") {
+X      if (-l "$path/$soft/install") {
+X	&NFError($ERR_CANT_LOCK_BECAUSE_SYMLINK, "$path/$soft/install");
+X	$retval=0;
+X      }
+X      else {
+X	if (&VerboseRetShow($WARN_CMD, "rename $lockfile $lockfile.lock")) {
+X	  # Showing, so do nothing
+X	}
+X	else {
+X	  if (! rename($lockfile, "$lockfile.lock")) {
+X	    &NFError($ERR_REN, "$lockfile");
+X	    $retval=0;
+X	  }
+X	}
+X      }
+X    }
+X    else {
+X      # Lock file is not there. Can't lock the software.
+X      &NFError($ERR_CANT_LOCK_BECAUSE_NO_LOCK_FILE,
+X	       "$lockfile");
+X      $retval=0;
+X    }
+X      
+X
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Release a soft/mod/class so that others can
+X#                Install it.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Release {
+X    if (scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path, $lockdir, $lockfile);
+X    local($retval)=1;		# Success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X    $lockdir="$path/$soft/install/$mod/$class";
+X    $lockfile="$lockdir/$LUDE_FILE";
+X    
+X    if (-e "$lockfile") {
+X	# The unlock file is there, meaning that the software is
+X	# already released! (confusing... the name of the variables
+X	# will have to be changed one day).
+X    }
+X    elsif (! -e "$lockfile.lock") {
+X      # The lock file is absent, therefore it is an error
+X      &NFError($ERR_CANT_RELEASE_BECAUSE_NO_LOCK_FILE,
+X	       "$lockfile.lock");
+X      $retval=0;
+X    }
+X    elsif (-l "$path/$soft/install") {
+X      &NFError($ERR_CANT_RELEASE_BECAUSE_SYMLINK, "$path/$soft/install");
+X      $retval=0;
+X    }
+X    elsif (! -w "$lockdir") {
+X	&NFError($ERR_NO_W_PERM, "$lockdir");
+X	$retval=0;
+X    }
+X    else {			# Everything is in order
+X	if (&VerboseRetShow($WARN_CMD, "rename $lockfile.lock $lockfile")) {
+X	    # Showing, so do nothing
+X	}
+X	else {
+X	    local(*F);
+X	    if (! open(F, ">$lockfile")) {
+X		&NFError($ERR_OPEN, "$lockfile");
+X		$retval=0;
+X	    }
+X	    else {
+X		close(F);
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : do a Mount tfs of .../src/mod on .../src/orig
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Mount_tfs {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod)=@_;
+X    local($path);
+X    local($retval)=1;		# Success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";    
+X    $path.= "/$soft/src";
+X
+X    if (-l $path) {
+X      &NFError($ERR_CANT_MOUNT_TFS_BECAUSE_SYMLINK, $path);
+X      $retval=0;
+X    }
+X    elsif (&RunCmd("$PROG_MOUNT_TFS $path/$mod $path/orig") != 0) {
+X	# An error occured
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : do a UMount tfs of .../src/orig
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Umount_tfs {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod)=@_;
+X    local($path);
+X    local($retval)=1;
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X    $path.="/$soft/src";    
+X
+X    if (-l $path) {
+X      &NFError($ERR_CANT_UMOUNT_TFS_BECAUSE_SYMLINK, $path);
+X      $retval=0;
+X    }
+X    if (&RunCmd("$PROG_UMOUNT_TFS $path/orig") != 0) {
+X	# An error occured
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------
+X# Description : Check to make sure that $soft/src is not a
+X#               symlink. 
+X#               Initiate the duplication of 
+X#               $server/$soft/src/orig in 
+X#               $server/$soft/src/$mod
+X#
+X# Parameters  : $server - specify the server where to 
+X#                         perform the duplication
+X#               $soft   - Specify the software to duplicate
+X#               $mod    - specify the software's modification
+X#                         to duplicate
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub Duplicate {
+X  if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X  local($server, $soft, $mod)=@_;
+X  local($retval)=1;		# Success by default
+X  
+X  local($dir)=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X  if (-l "$dir/$soft/src") {
+X    &NFError($ERR_CANT_DUPLICATE_BECAUSE_SYMLINK, "$dir/$soft/src");
+X    $retval=0;
+X  }
+X  else {
+X    local($origTree)="$dir/$soft/src/orig";
+X    local($dupTree) ="$dir/$soft/src/$mod";
+X
+X    if (! &DupTree($origTree, $dupTree, '')) {
+X      $retval=0;		# Error occured
+X    }
+X  }
+X
+X  return $retval;
+X}
+X
+X#-----------------------------------------------------------
+X# Description : Check to make sure that $soft/src is not a
+X#               symlink. 
+X#               Initiate the unduplication of 
+X#               $server/$soft/src/orig in 
+X#               $server/$soft/src/$mod
+X#
+X# Parameters  : $server - specify the server where to 
+X#                         perform the unduplication
+X#               $soft   - Specify the software to unduplicate
+X#               $mod    - specify the software's modification
+X#                         to unduplicate
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub Unduplicate {
+X  if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X  local($server, $soft, $mod)=@_;
+X  local($retval)=1;		# Success by default
+X  
+X  local($dir)=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X  if (-l "$dir/$soft/src") {
+X    &NFError($ERR_CANT_UNDUPLICATE_BECAUSE_SYMLINK, "$dir/$soft/src");
+X    $retval=0;
+X  }
+X  else {
+X    local($origTree)="$dir/$soft/src/orig";
+X    local($undupTree) ="$dir/$soft/src/$mod";
+X
+X    if (! &UnDupTree($origTree, $undupTree, '')) {
+X      $retval=0;		# Error occured
+X    }
+X  }
+X
+X  return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : Duplicate the content of origTree in dupTree, with
+X#                the following rules:
+X#                - If the file is present in both tree, and
+X#                  If the original file is more recent that the dupFile,
+X#                  then the original file replaces the diff File.
+X#                  (the time checked is the mtime i.e. last-modified)
+X#                - If the file is only present in the original tree, it
+X#                  is copied in the diff tree.
+X#                (file in the present context refers to links, directory or
+X#                 regular files)      
+X# 
+X# Parameters   : $origTree - root directory of tree of files that will be
+X#                            be duplicated. (must be an absolute path)
+X#                $dupTree  - root directory where to place the duplicated
+X#                            files (must be an absolute path)
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub DupTree {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($origTree, $dupTree, $suffix)=@_;
+X    local($retval)=1;		# Success by default
+X    local(@dupTreeStat, @origTreeStat);
+X
+X    if ($suffix ne '') {
+X	$origTree.="/$suffix";
+X	$dupTree.="/$suffix";
+X    }
+X    
+X    @origTreeStat=lstat($origTree);
+X    if ($origTree =~ m!^(([/.])|(\.\.))?$!) {
+X	# '', '.', '..' or '/' are incorrect value for $origTree
+X	&NFError($ERR_VALUE_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif ($dupTree =~ m!^(([/.])|(\.\.))?$!) {
+X	# '', '.', '..' or '/' are incorrect value for $dupTree
+X	&NFError($ERR_VALUE_DIR, $dupTree);
+X	$retval=0;
+X    }
+X    elsif (! -e _) {
+X	# origTree does not exist
+X	&NFError($ERR_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -d _) {
+X	# Oups, should be a directory
+X	&NFError($ERR_DIR_TYPE_EXPECTED, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -r _) {
+X	# Directory is not readable
+X	&NFError($ERR_READ_DIR, $origTree);
+X	$retval=0;
+X    }
+X    else {			# So far so good
+X	
+X	# Let's do some test on $dupTree now
+X	@dupTreeStat=lstat($dupTree);
+X
+X	if (! -e _) {
+X	    # The dupTree directory does not exist, so
+X	    # simply recursively copy origTree in dupTree
+X	    # and everything is all done.
+X
+X	    # Permissions of the original directory
+X	    local($origTreePerm)=$origTreeStat[2+$[];
+X
+X	    # Create the directory and set the permission to the same
+X	    # permissions of origTree
+X	    if (&VerboseRetShow($WARN_CMD, "mkdir $dupTree")) {
+X		# Showing, so do nothing
+X	    }
+X	    elsif (! mkdir($dupTree, $origTreePerm)) {
+X		&NFError($ERR_MKDIR, $dupTree, $!);
+X		$retval=0;
+X	    }
+X	    
+X	    if ($retval) {	# If still no error
+X		# Check to see if any files in $origTree ...
+X		local(*DIR, $numOfFiles);
+X		opendir(DIR, $origTree);
+X		$numOfFiles=grep(!/^\.{1,2}$/, readdir(DIR));
+X		closedir(DIR);
+X		if ($numOfFiles>0) { # i.e. if an files other than . and ..
+X		    local($cmd)="(cd $origTree; $PROG_TAR cf - *) | (cd $dupTree; $PROG_TAR -xpf -)";
+X		
+X		    if (&RunCmd($cmd) != 0) {
+X			# An error occured while executing the command
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	}
+X	elsif (! -d _) {
+X	    # dupTree is not a directory
+X	    &NFError($ERR_DIR_TYPE_EXPECTED, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -r _) {
+X	    # Directory is not readable
+X	    &NFError($ERR_READ_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -w _) {
+X	    # Directory is not writable
+X	    &NFError($ERR_WRITE_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	else {			# So far so good
+X	    local(@filesToCopy)=();
+X	    local(@files);
+X	    local($origFileMTime, $dupFileMTime);
+X
+X	    local(*DIR);
+X	    opendir(DIR, $origTree);
+X	    @files=grep(!/^\.{1,2}$/, readdir(DIR));
+X	    closedir(DIR);
+X
+X	    foreach $file (@files) {
+X		$dupFileMTime=(lstat("$dupTree/$file"))[9+$[];
+X		# Warning! stat on origTree/file must be last,
+X		# because we will use _ for speed
+X		$origFileMTime=(lstat("$origTree/$file"))[9+$[];
+X
+X		if (-d _) {
+X		    if (! &DupTree($origTree, $dupTree, $file)) {
+X			$retval=0; # An error occured
+X		    }
+X		}
+X		# If the file does not exist in dupTree or
+X		# if the last-modified time of the file in origTree
+X		# is more recent than the last-modified time of
+X		# the file in dupTree, add the file to the list
+X		# of files to copy.
+X		elsif (! -e "$dupTree/$file" ||
+X		       $origFileMTime > $dupFileMTime) {
+X		    push(@filesToCopy, $file);
+X		}    
+X	    }
+X
+X	    # Now copy the files
+X	    # (This will most probably need to be optimized)
+X	    local($cmd)="(cd $origTree; $PROG_TAR cf - %s) | (cd $dupTree; $PROG_TAR -xpf -)";
+X
+X	    # Copy each file, one by one
+X	    foreach $file (@filesToCopy) {
+X		if (&RunCmd(sprintf($cmd, $file)) != 0) {
+X		    $retval=0;	# An error occured
+X		}
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : 
+X# 
+X# Parameters   : 
+X#                
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub UnDupTree {
+X    if (scalar(@_)!=3){&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($origTree, $dupTree, $suffix)=@_;
+X    local($retval)=1;		# Success by default
+X    local(@origTreeStat, @dupTreeStat);
+X
+X    if ($suffix ne '') {
+X	$origTree.="/$suffix";
+X	$dupTree.="/$suffix";
+X    }
+X
+X    @origTreeStat=stat($origTree);
+X    if (! -e _) {
+X	# origTree does not exist
+X	&NFError($ERR_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -d _) {
+X	# Oups, should be a directory
+X	&NFError($ERR_DIR_TYPE_EXPECTED, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -r _) {
+X	# Directory is not readable
+X	&NFError($ERR_READ_DIR, $origTree);
+X	$retval=0;
+X    }
+X    else {			# So far so good
+X	# Let's do some test on $dupTree now
+X	@dupTreeStat=stat($dupTree);
+X
+X	if (! -e _) {
+X	    # The dupTree directory does not exist, so everything
+X	    # is fine. Nothing to do.
+X	}
+X	elsif (! -r _) {
+X	    # Directory is not readable
+X	    &NFError($ERR_READ_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -w _) {
+X	    # Directory is not writable
+X	    &NFError($ERR_WRITE_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	else {			# So far so good
+X	    local(@origFileStat, @dupFileStat);
+X	    local(@files);
+X
+X	    local(*DIR);
+X	    opendir(DIR, $dupTree);
+X	    @files=grep(!/^\.{1,2}$/, readdir(DIR));
+X	    closedir(DIR);
+X
+X	    foreach $file (@files) {
+X		@dupFileStat=lstat("$dupTree/$file");
+X		@origFileStat=lstat("$origTree/$file");
+X
+X		# if file exists in origTree and file mode is the same
+X		# in origTree and dupTree.
+X		if (-e _ && $dupFileStat[2+$[] == $origFileStat[2+$[]) {
+X		    if (-d _) {
+X			if (! &UnDupTree($origTree, $dupTree, $file)) {
+X			    $retval=0; # An error occured
+X			}
+X			else {
+X			    # Remove the directory if it is empty.
+X			    local($numOfFiles);
+X			    local(*dir);
+X			    opendir(dir, "$dupTree/$file");
+X			    $numOfFiles=grep(!/^\.{1,2}$/, readdir(dir));
+X			    closedir(dir);
+X			    if ($numOfFiles == 0) {
+X				if (&VerboseRetShow($WARN_CMD, "rmdir $dupTree/$file")) {
+X				    # Showing, so do nothing.
+X				}
+X				else {
+X				    if (! rmdir("$dupTree/$file")) {
+X					# rmdir failed
+X					&NFError($ERR_RMDIR, "$dupTree/$file", $!);
+X					$retval=0;
+X				    }
+X				}
+X			    }					
+X			}
+X		    }
+X		    elsif (-f _) {
+X			# Compare the two files
+X			if (system("$PROG_CMP -s $origTree/$file $dupTree/$file")/256 == 0) {
+X			    # Files are identical. Remove the file in $dupTree.
+X			    if (&VerboseRetShow($WARN_CMD, "unlink $dupTree/$file")) {
+X				# Showing, so do nothing.
+X			    }
+X			    else {
+X				if (unlink("$dupTree/$file") != 1) {
+X				    # Unlink failed
+X				    &NFError($ERR_UNLINK, "$dupTree/$file");
+X				    $retval=0;
+X				}
+X			    }
+X			}
+X		    }
+X		    else {	# -l, -p, -S, -b, -c
+X			# Leave the files as is
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X    return $retval;
+X}
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 22260 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeadm'
+fi
+if test -f 'lude-1.1/src/orig/configure' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/configure'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/configure'\" \(16069 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/configure' <<'END_OF_FILE'
+X
+XPATH=${PATH}:/usr/etc:/usr/lib:/usr/local/bin
+X
+X#!/bin/sh
+X# Guess values for system-dependent variables and create Makefiles.
+X# Generated automatically using autoconf.
+X# Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+X
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 2, or (at your option)
+X# any later version.
+X
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X# Usage: configure [--srcdir=DIR] [--host=HOST] [--gas] [--nfp] [--no-create]
+X#        [--prefix=PREFIX] [--exec_prefix=PREFIX] [--with-PROGRAM] [TARGET]
+X# Ignores all args except --srcdir, --prefix, --exec_prefix, and --no-create.
+X
+Xtrap 'rm -f conftest* core; exit 1' 1 3 15
+X
+Xfor arg
+Xdo
+X  # Handle --exec_prefix with a space before the argument.
+X  if test x$next_exec_prefix = xyes; then exec_prefix=$arg; next_exec_prefix=
+X  # Handle --host with a space before the argument.
+X  elif test x$next_host = xyes; then next_host=
+X  # Handle --prefix with a space before the argument.
+X  elif test x$next_prefix = xyes; then prefix=$arg; next_prefix=
+X  # Handle --srcdir with a space before the argument.
+X  elif test x$next_srcdir = xyes; then srcdir=$arg; next_srcdir=
+X  else
+X    case $arg in
+X     -exec_prefix=* | --exec_prefix=* | --exec_prefi=* | --exec_pref=* | --exec_pre=* | --exec_pr=* | --exec_p=* | --exec_=* | --exec=* | --exe=* | --ex=* | --e=*)
+X	exec_prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -exec_prefix | --exec_prefix | --exec_prefi | --exec_pref | --exec_pre | --exec_pr | --exec_p | --exec_ | --exec | --exe | --ex | --e)
+X	next_exec_prefix=yes ;;
+X
+X     -gas | --gas | --ga | --g) ;;
+X
+X     -host=* | --host=* | --hos=* | --ho=* | --h=*) ;;
+X     -host | --host | --hos | --ho | --h)
+X	next_host=yes ;;
+X
+X     -nfp | --nfp | --nf) ;;
+X
+X     -no-create | --no-create | --no-creat | --no-crea | --no-cre | --no-cr | --no-c | --no- | --no)
+X        no_create=1 ;;
+X
+X     -prefix=* | --prefix=* | --prefi=* | --pref=* | --pre=* | --pr=* | --p=*)
+X	prefix=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -prefix | --prefix | --prefi | --pref | --pre | --pr | --p)
+X	next_prefix=yes ;;
+X
+X     -srcdir=* | --srcdir=* | --srcdi=* | --srcd=* | --src=* | --sr=* | --s=*)
+X	srcdir=`echo $arg | sed 's/[-a-z_]*=//'` ;;
+X     -srcdir | --srcdir | --srcdi | --srcd | --src | --sr | --s)
+X	next_srcdir=yes ;;
+X
+X     -with-* | --with-*) ;;
+X
+X     *) ;;
+X    esac
+X  fi
+Xdone
+X
+Xrm -f conftest*
+Xcompile='${CC-cc} $DEFS conftest.c -o conftest $LIBS >/dev/null 2>&1'
+X
+X# A filename unique to this package, relative to the directory that
+X# configure is in, which we can look for to find out if srcdir is correct.
+Xunique_file=lude.dir
+X
+X# Find the source files, if location was not specified.
+Xif test -z "$srcdir"; then
+X  srcdirdefaulted=yes
+X  # Try the directory containing this script, then `..'.
+X  prog=$0
+X  confdir=`echo $prog|sed 's%/[^/][^/]*$%%'`
+X  test "X$confdir" = "X$prog" && confdir=.
+X  srcdir=$confdir
+X  if test ! -r $srcdir/$unique_file; then
+X    srcdir=..
+X  fi
+Xfi
+Xif test ! -r $srcdir/$unique_file; then
+X  if test x$srcdirdefaulted = xyes; then
+X    echo "configure: Can not find sources in \`${confdir}' or \`..'." 1>&2
+X  else
+X    echo "configure: Can not find sources in \`${srcdir}'." 1>&2
+X  fi
+X  exit 1
+Xfi
+X# Preserve a srcdir of `.' to avoid automounter screwups with pwd.
+X# But we can't avoid them for `..', to make subdirectories work.
+Xcase $srcdir in
+X  .|/*|~*) ;;
+X  *) srcdir=`cd $srcdir; pwd` ;; # Make relative path absolute.
+Xesac
+X
+X
+Xfor p in cat
+Xdo
+Xif test -z "$CAT"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      CAT="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$CAT" && CAT=""
+X
+Xtest -n "$CAT" && break
+Xdone
+X
+Xfor p in chmod
+Xdo
+Xif test -z "$CHMOD"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      CHMOD="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$CHMOD" && CHMOD=""
+X
+Xtest -n "$CHMOD" && break
+Xdone
+X
+Xfor p in compress gzip
+Xdo
+Xif test -z "$COMPRESS"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      COMPRESS="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$COMPRESS" && COMPRESS=""
+X
+Xtest -n "$COMPRESS" && break
+Xdone
+X
+Xfor p in cp
+Xdo
+Xif test -z "$CP"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      CP="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$CP" && CP=""
+X
+Xtest -n "$CP" && break
+Xdone
+X
+Xfor p in echo
+Xdo
+Xif test -z "$ECHO"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      ECHO="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$ECHO" && ECHO=""
+X
+Xtest -n "$ECHO" && break
+Xdone
+X
+Xfor p in emacs xemacs lemacs
+Xdo
+Xif test -z "$EMACS"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      EMACS="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$EMACS" && EMACS=""
+X
+Xtest -n "$EMACS" && break
+Xdone
+X
+Xfor p in gnumake gmake make pmake
+Xdo
+Xif test -z "$MAKE"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      MAKE="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$MAKE" && MAKE=""
+X
+Xtest -n "$MAKE" && break
+Xdone
+X
+Xfor p in mkdir
+Xdo
+Xif test -z "$MKDIR"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      MKDIR="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$MKDIR" && MKDIR=""
+X
+Xtest -n "$MKDIR" && break
+Xdone
+X
+Xfor p in mv
+Xdo
+Xif test -z "$MV"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      MV="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$MV" && MV=""
+X
+Xtest -n "$MV" && break
+Xdone
+X
+Xfor p in sed
+Xdo
+Xif test -z "$SED"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      SED="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$SED" && SED=""
+X
+Xtest -n "$SED" && break
+Xdone
+X
+Xfor p in sh bash ksh
+Xdo
+Xif test -z "$SH"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      SH="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$SH" && SH=""
+X
+Xtest -n "$SH" && break
+Xdone
+X
+X
+Xfor p in gnutar gtar tar
+Xdo
+Xif test -z "$PROG_TAR"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_TAR="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_TAR" && PROG_TAR=""
+X
+Xtest -n "$PROG_TAR" && break
+Xdone
+X
+Xif test -z "$PROG_TAR"; then
+X	echo " prog tar not found. aborting ..."
+X	exit 1;
+Xfi
+X
+Xfor p in cmp
+Xdo
+Xif test -z "$PROG_CMP"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_CMP="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_CMP" && PROG_CMP=""
+X
+Xtest -n "$PROG_CMP" && break
+Xdone
+X
+Xif test -z "$PROG_CMP"; then
+X	echo You do not seem to have an equivalent to cmp. aborting...
+X	exit 1
+Xelse 
+X	if $PROG_CMP Makefile.in Makefile.in; then
+X		if $PROG_CMP Makefile.in COPYING >& /dev/null; then
+X			echo $PROG_CMP does not work as expected. aborting...
+X			exit 1
+X		else
+X			echo $PROG_CMP works as expected
+X		fi
+X	else
+X		echo $PROG_CMP does not work as expected. aborting...
+X		exit 1
+X	fi
+Xfi
+X
+Xfor p in mount_tfs
+Xdo
+Xif test -z "$PROG_MOUNT_TFS"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_MOUNT_TFS="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_MOUNT_TFS" && PROG_MOUNT_TFS=""
+X
+Xtest -n "$PROG_MOUNT_TFS" && break
+Xdone
+X
+Xfor p in umount_tfs
+Xdo
+Xif test -z "$PROG_UMOUNT_TFS"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_UMOUNT_TFS="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_UMOUNT_TFS" && PROG_UMOUNT_TFS=""
+X
+Xtest -n "$PROG_UMOUNT_TFS" && break
+Xdone
+X
+XCONF_HAVE_TFS=0;
+Xif test -z "$PROG_MOUNT_TFS"; then
+X	echo "TFS doesn't seem to be supported on your system, but it's ok."
+Xelse
+X	CONF_HAVE_TFS=1;
+X	echo "TFS seems to be supported on your system."
+Xfi
+X
+X
+Xfor p in hostname uname
+Xdo
+Xif test -z "$PROG_HOSTNAME"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_HOSTNAME="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_HOSTNAME" && PROG_HOSTNAME=""
+X
+Xtest -n "$PROG_HOSTNAME" && break
+Xdone
+X
+XCONF_HAVE_HOSTNAME=0;
+Xif test -z "$PROG_HOSTNAME"; then
+X	echo "No way to identify the hostname"
+Xelse
+X	DEFS="$DEFS -DCONF_HAVE_HOSTNAME=1"
+X	case "$PROG_HOSTNAME" in
+X	hostname) 
+X		CONF_HAVE_HOSTNAME=1;  
+X		;;
+X	uname) 
+X 		CONF_HAVE_HOSTNAME=1;
+X		PROG_HOSTNAME='uname -n';
+X		;;
+X	*)    	;; 
+X	esac
+Xfi
+X
+X
+X
+Xfor p in domainname
+Xdo
+Xif test -z "$PROG_DOMAINNAME"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_DOMAINNAME="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_DOMAINNAME" && PROG_DOMAINNAME=""
+X
+Xtest -n "$PROG_DOMAINNAME" && break
+Xdone
+X
+XCONF_HAVE_DOMAINNAME=0;
+Xif test -z "$PROG_DOMAINNAME"; then
+X	echo "No way to identify the domain name"
+Xelse
+X	case "$PROG_DOMAINNAME" in
+X	domainname)
+X		CONF_HAVE_DOMAINNAME=1;
+X		;;
+X	*)      ;;
+X	esac
+Xfi
+X
+X
+X
+Xfor p in catman makewhatis
+Xdo
+Xif test -z "$PROG_MAKEWHATIS"; then
+X  echo checking for $p
+X  saveifs="$IFS"; IFS="${IFS}:"
+X  for dir in $PATH; do
+X    test -z "$dir" && dir=.
+X    if test -f $dir/$p; then
+X      PROG_MAKEWHATIS="$p"
+X      break
+X    fi
+X  done
+X  IFS="$saveifs"
+Xfi
+Xtest -z "$PROG_MAKEWHATIS" && PROG_MAKEWHATIS=""
+X
+Xtest -n "$PROG_MAKEWHATIS" && break
+Xdone
+X
+Xcase "$PROG_MAKEWHATIS" in
+Xcatman) PROG_MAKEWHATIS='catman -w -M'
+X	;;
+X*makewhatis)
+X	;;
+X*)	echo 'Did not find the application to rebuild the whatis database.'
+X	exit 1
+X	;;
+Xesac
+X
+X
+Xecho
+Xecho 'What is the path for you system manpaths?'
+Xecho 'This should not have local man (typicaly in /usr/local/man)'
+Xecho 'This should be a ':' seperated list [/usr/man]:'
+Xread CONF_SYS_MAN_PATH
+Xif test -z "$CONF_SYS_MAN_PATH"; then
+X	CONF_SYS_MAN_PATH='/usr/man'
+Xfi
+Xecho
+X
+X
+Xecho checking for symlink
+Xecho "
+Xmain() { exit(0); } t() { 
+X/* Override any gcc2 internal prototype to avoid an error.  */
+Xextern char symlink(); symlink(); }" > conftest.c
+Xif eval $compile; then
+X  echo  Your system seems to support symbolic links. 
+Xelse
+X  echo  Your system does not seem to support symbolic links.
+X  echo That is bad because you need it. Aborting...
+X  exit 1; 
+Xfi
+Xrm -f conftest*
+X
+X
+Xecho
+Xecho 'What is the class of the current machine?:'
+Xread FIRST_CLASS
+Xecho
+X
+X
+X
+Xecho
+Xecho 'What are the other classes that the current machine'
+Xecho 'can be identified with? (list of classes seprated'
+Xecho 'with blanks):'
+Xread OTHER_CLASSES
+Xecho
+X
+X
+Xecho
+Xecho 'What is the location where lude should be installed?'
+Xecho '(the path should be of the form:'
+Xecho '  /usr/local/soft/lude-someversion/run/somemod/somclass):'
+Xread PREFIX
+Xecho
+X
+X
+Xecho
+Xecho 'What language do you want to be the default?'
+Xecho 'Possible choices are francais or english'
+Xecho '(francais|english) [english]'
+Xread CONF_LANG_DEFAULT
+Xif test -z "$CONF_LANG_DEFAULT"; then
+X	CONF_LANG_DEFAULT='english'
+Xfi
+Xcase "$CONF_LANG_DEFAULT" in
+Xfrancais) CONF_LANG_DEFAULT_ABREV='fra'
+X	;;
+Xenglish)  CONF_LANG_DEFAULT_ABREV='eng'
+X	;;
+Xesac
+Xecho
+X
+X
+X
+Xecho
+Xecho 'What language(s) of the documentation do you want?'
+Xecho 'Possible choices are fra for version francaise, and'
+Xecho 'eng for english version. You can specify one or more'
+Xecho 'seperated with blanks ( fra | eng ) [fra eng]'
+Xread LANG_INFO
+Xif test -z "$LANG_INFO"; then
+X	LANG_INFO='fra eng'
+Xfi
+Xecho
+X
+X
+XVERSION=`cat lude-version`
+X
+X
+Xif test -n "$prefix"; then
+X  test -z "$exec_prefix" && exec_prefix='$(prefix)'
+X  prsub="s%^prefix[ 	]*=.*$%prefix = $prefix%"
+Xfi
+Xif test -n "$exec_prefix"; then
+X  prsub="$prsub
+Xs%^exec_prefix[ 	]*=.*$%exec_prefix = $exec_prefix%"
+Xfi
+X
+Xtrap 'rm -f config.status; exit 1' 1 3 15
+Xecho creating config.status
+Xrm -f config.status
+Xcat <<EOF > config.status
+X#!/bin/sh
+X# Generated automatically by configure.
+X# Run this file to recreate the current configuration.
+X# This directory was configured as follows,
+X# on host `(hostname || uname -n) 2>/dev/null`:
+X#
+X# $0 $*
+X
+Xcase "\$1" in
+X  -recheck | --recheck | --rechec | --reche | --rech | --rec | --re | --r)
+X  exec /bin/sh $0 $* ;;
+Xesac
+X
+Xtrap 'rm -f Makefile src/Makefile src/config.pl info/Makefile lang/Makefile html/Makefile; exit 1' 1 3 15
+XCAT='$CAT'
+XCHMOD='$CHMOD'
+XCOMPRESS='$COMPRESS'
+XCP='$CP'
+XECHO='$ECHO'
+XEMACS='$EMACS'
+XMAKE='$MAKE'
+XMKDIR='$MKDIR'
+XMV='$MV'
+XSED='$SED'
+XSH='$SH'
+XPROG_TAR='$PROG_TAR'
+XPROG_CMP='$PROG_CMP'
+XPROG_MOUNT_TFS='$PROG_MOUNT_TFS'
+XPROG_UMOUNT_TFS='$PROG_UMOUNT_TFS'
+XCONF_HAVE_TFS='$CONF_HAVE_TFS'
+XPROG_HOSTNAME='$PROG_HOSTNAME'
+XCONF_HAVE_HOSTNAME='$CONF_HAVE_HOSTNAME'
+XPROG_DOMAINNAME='$PROG_DOMAINNAME'
+XPROG_DOMAINAME='$PROG_DOMAINAME'
+XCONF_HAVE_DOMAINNAME='$CONF_HAVE_DOMAINNAME'
+XPROG_MAKEWHATIS='$PROG_MAKEWHATIS'
+XCONF_SYS_MAN_PATH='$CONF_SYS_MAN_PATH'
+XFIRST_CLASS='$FIRST_CLASS'
+XOTHER_CLASSES='$OTHER_CLASSES'
+XPREFIX='$PREFIX'
+XCONF_LANG_DEFAULT='$CONF_LANG_DEFAULT'
+XCONF_LANG_DEFAULT_ABREV='$CONF_LANG_DEFAULT_ABREV'
+XLANG_INFO='$LANG_INFO'
+XVERSION='$VERSION'
+XLIBS='$LIBS'
+Xsrcdir='$srcdir'
+XDEFS='$DEFS'
+Xprefix='$prefix'
+Xexec_prefix='$exec_prefix'
+Xprsub='$prsub'
+XEOF
+Xcat <<\EOF >> config.status
+X
+Xtop_srcdir=$srcdir
+Xfor file in Makefile src/Makefile src/config.pl info/Makefile lang/Makefile html/Makefile; do
+X  srcdir=$top_srcdir
+X  # Remove last slash and all that follows it.  Not all systems have dirname.
+X  dir=`echo $file|sed 's%/[^/][^/]*$%%'`
+X  if test "$dir" != "$file"; then
+X    test "$top_srcdir" != . && srcdir=$top_srcdir/$dir
+X    test ! -d $dir && mkdir $dir
+X  fi
+X  echo creating $file
+X  rm -f $file
+X  echo "# Generated automatically from `basename $file`.in by configure." > $file
+X  sed -e "
+X$prsub
+Xs%@CAT@%$CAT%g
+Xs%@CHMOD@%$CHMOD%g
+Xs%@COMPRESS@%$COMPRESS%g
+Xs%@CP@%$CP%g
+Xs%@ECHO@%$ECHO%g
+Xs%@EMACS@%$EMACS%g
+Xs%@MAKE@%$MAKE%g
+Xs%@MKDIR@%$MKDIR%g
+Xs%@MV@%$MV%g
+Xs%@SED@%$SED%g
+Xs%@SH@%$SH%g
+Xs%@PROG_TAR@%$PROG_TAR%g
+Xs%@PROG_CMP@%$PROG_CMP%g
+Xs%@PROG_MOUNT_TFS@%$PROG_MOUNT_TFS%g
+Xs%@PROG_UMOUNT_TFS@%$PROG_UMOUNT_TFS%g
+Xs%@CONF_HAVE_TFS@%$CONF_HAVE_TFS%g
+Xs%@PROG_HOSTNAME@%$PROG_HOSTNAME%g
+Xs%@CONF_HAVE_HOSTNAME@%$CONF_HAVE_HOSTNAME%g
+Xs%@PROG_DOMAINNAME@%$PROG_DOMAINNAME%g
+Xs%@PROG_DOMAINAME@%$PROG_DOMAINAME%g
+Xs%@CONF_HAVE_DOMAINNAME@%$CONF_HAVE_DOMAINNAME%g
+Xs%@PROG_MAKEWHATIS@%$PROG_MAKEWHATIS%g
+Xs%@CONF_SYS_MAN_PATH@%$CONF_SYS_MAN_PATH%g
+Xs%@FIRST_CLASS@%$FIRST_CLASS%g
+Xs%@OTHER_CLASSES@%$OTHER_CLASSES%g
+Xs%@PREFIX@%$PREFIX%g
+Xs%@CONF_LANG_DEFAULT@%$CONF_LANG_DEFAULT%g
+Xs%@CONF_LANG_DEFAULT_ABREV@%$CONF_LANG_DEFAULT_ABREV%g
+Xs%@LANG_INFO@%$LANG_INFO%g
+Xs%@VERSION@%$VERSION%g
+Xs%@LIBS@%$LIBS%g
+Xs%@srcdir@%$srcdir%g
+Xs%@DEFS@%$DEFS%" $top_srcdir/${file}.in >> $file
+Xdone
+X
+XEOF
+Xchmod +x config.status
+Xtest -n "$no_create" || ./config.status
+X
+END_OF_FILE
+  if test 16069 -ne `wc -c <'lude-1.1/src/orig/configure'`; then
+    echo shar: \"'lude-1.1/src/orig/configure'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/src/orig/configure'
+  # end of 'lude-1.1/src/orig/configure'
+fi
+if test -f 'lude-1.1/src/orig/html/diri_eng.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/html/diri_eng.UU'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/html/diri_eng.UU'\" \(822 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/html/diri_eng.UU' <<'END_OF_FILE'
+Xbegin 644 lude-1.1/src/orig/html/diri_eng.top
+XM+2HM(%1E>'0@+2HM"E1H:7,@:7,@=&AE(&9I;&4@+BXN+VEN9F\O9&ER+"!W
+XM:&EC:"!C;VYT86EN<R!T:&4@=&]P;6]S="!N;V1E(&]F('1H90I);F9O(&AI
+XM97)A<F-H>2X@(%1H92!F:7)S="!T:6UE('EO=2!I;G9O:V4@26YF;R!Y;W4@
+XM<W1A<G0@;V9F"FQO;VMI;F<@870@=&AA="!N;V1E+"!W:&EC:"!I<R H9&ER
+XM*51O<"X*'PI&:6QE.B!D:7(L"4YO9&4Z(%1O< H@(%1H:7,@*'1H92!$:7)E
+XM8W1O<GD@;F]D92D@9VEV97,@82!M96YU(&]F(&UA:F]R('1O<&EC<RX@"B @
+XM5'EP:6YG(")D(B!R971U<FYS(&AE<F4L(")Q(B!E>&ET<RP@(C\B(&QI<W1S
+XM(&%L;"!)3D9/(&-O;6UA;F1S+" B:"(@"B @9VEV97,@82!P<FEM97(@9F]R
+XM(&9I<G-T+71I;65R<RP@(FU497AI;F9O/%)E='5R;CXB('9I<VET<R!497AI
+XM;F9O('1O<&EC+ H@(&5T8RX*(" M+2T@4$Q%05-%($%$1"!$3T-5345.5$%4
+XM24].(%1/(%1(25,@5%)%12X@*%-E92!)3D9/('1O<&EC(&9I<G-T+BD@+2TM
+XM"@HJ($UE;G4Z(%1H92!L:7-T(&]F(&UA:F]R('1O<&EC<R!B96=I;G,@;VX@
+X0=&AE(&YE>'0@;&EN92X*"G-T
+X 
+Xend
+END_OF_FILE
+  if test 822 -ne `wc -c <'lude-1.1/src/orig/html/diri_eng.UU'`; then
+    echo shar: \"'lude-1.1/src/orig/html/diri_eng.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'lude-1.1/src/orig/html/diri_eng.top'\" \(556 characters\)
+     cat lude-1.1/src/orig/html/diri_eng.UU | uudecode
+     if test 556 -ne `wc -c <'lude-1.1/src/orig/html/diri_eng.top'`; then
+       shar: \"'FILENAME'\" uudecoded with wrong size!
+    else
+      rm lude-1.1/src/orig/html/diri_eng.UU
+    fi
+  fi
+  # end of 'lude-1.1/src/orig/html/diri_eng.UU'
+fi
+if test -f 'lude-1.1/src/orig/src/ludeadm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/src/ludeadm'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/src/ludeadm'\" \(22013 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/src/ludeadm' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# ludeadm - Project lude.
+X# Copyright (C) 1991, 1992  Pierre Laplante
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION=
+X    "-- ludeadm --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.= '$Id: ludeadm,v 1.4 1993/03/17 14:56:49 sbo Exp $' ."\n";
+X
+X$VERSION='%VERSION%';
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Globals definitions
+X#
+X
+X$PL_INCDIR="%PL_INCDIR%";
+X$LANG_PATH="%LANG_PATH%:../lang";
+X$LUDE_MODIF_FILE_TMPL="%LUDE_MODIF_FILE_TMPL%";
+X$LUDE_CLASS_FILE_TMPL="%LUDE_CLASS_FILE_TMPL%";
+X$IAFA_FILE_TMPL="%IAFA_FILE_TMPL%";
+X
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Main program
+X#
+X
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X    local($cmdsToDo);
+X
+X    unshift(@INC, split(/:/, $PL_INCDIR));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludemisc', @ARGV);
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludeadm', @ARGV);
+X
+X    require('ludemisc');
+X    require('ludeadminc');
+X    require('BldRegexpMinRqr.pl');
+X    require('fileutil.pl');
+X
+X    if (! &VerifySystem) {
+X	$exitval=1;
+X    }
+X    elsif (($cmdsToDo=&Initialisation) < 0) {
+X	$exitval=2;
+X    }
+X    # If any command(s) left to be executed
+X    elsif ($cmdsToDo > 0) {
+X	if (! &ExecCommands) {
+X	    $exitval=3;
+X	}
+X    }
+X
+X    exit $exitval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Create the directories structure for the given
+X#                location/soft/mod/class. If a base tree is not
+X#                already present, one is created.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Create {
+X    if (scalar(@_)!=4) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path);
+X    local($retval)=1;		# success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server/$soft" : "$SOFT_DIR/$soft";
+X
+X    #
+X    # Unlink the sections if it is a link
+X    #
+X    for $section ('run', 'src') {
+X      if (-l "$path/$section") {
+X	if (&VerboseRetShow($WARN_CMD, "unlink $path/$section")) {
+X	  # Showing, so do nothing
+X	}
+X	elsif (! unlink("$path/$section")) {
+X	  &NFError($ERR_UNLINK, "$path/$section");
+X	  $retval=0;
+X	}
+X      }
+X    }
+X
+X    #
+X    # Create the directory Hierarchy
+X    #
+X    if ($retval) {		# If still no error
+X      for $d ("$path",
+X	      "$path/src", "$path/src/orig", "$path/src/$mod", 
+X	      "$path/run", "$path/run/share",
+X	      "$path/run/$mod", "$path/run/$mod/share", 
+X	      "$path/run/$mod/$class", 
+X	      "$path/install", "$path/install/share",
+X	      "$path/install/$mod", "$path/install/$mod/share", 
+X	      "$path/install/$mod/$class") { 
+X	if (! -d $d) {
+X	  if (&VerboseRetShow($WARN_CMD, "mkdir $d")) {
+X	    # Showing, so do nothing
+X	  }
+X	  elsif (! mkdir($d, 0755)) {
+X	    &NFError($ERR_MKDIR, "$d"); 
+X	    $retval=0;
+X	  }
+X	}
+X      }
+X    }
+X
+X    if ($retval) {		# if still no error
+X
+X      # Test for the presence of a LUDE file template
+X      stat("$IAFA_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $IAFA_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $IAFA_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding IAFA templates if none is present
+X	if (! -e "$path/install/$IAFA_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $IAFA_FILE_TMPL $path/install/$IAFA_FILE")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($IAFA_FILE_TMPL, "$path/install/$IAFA_FILE")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X
+X      # Test for the presence of a LUDE_CLASS file template
+X      stat("$LUDE_CLASS_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $LUDE_CLASS_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $LUDE_CLASS_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding LUDE templates if none is present
+X	# The file is named in such way that it is locked
+X	if (! -e "$path/install/$LUDE_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $LUDE_CLASS_FILE_TMPL $path/install/$mod/$class/$LUDE_FILE.lock")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($LUDE_CLASS_FILE_TMPL, "$path/install/$mod/$class/$LUDE_FILE.lock")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X
+X      # Test for the presence of a LUDE_MODIF file template
+X      stat("$LUDE_MODIF_FILE_TMPL");
+X      if (! -e _) {		# Template does not exist
+X	&NFError($ERR_FILE, $LUDE_MODIF_FILE_TMPL);
+X	$retval=0;
+X      }
+X      elsif (! -r _) {		# Template is not readable
+X	&NFError($ERR_NO_R_PERM, $LUDE_MODIF_FILE_TMPL);
+X	$retval=0;
+X      }
+X      else {			# Still no error
+X	# Adding LUDE templates if none is present
+X	if (! -e "$path/install/$mod/$LUDE_FILE") {	
+X	  if (&VerboseRetShow($WARN_CMD,
+X			      "cp $LUDE_MODIF_FILE_TMPL $path/install/$mod/$LUDE_FILE")) {
+X	    # Showing, so do nothing
+X	  }
+X	  else {
+X	    if (! &CopyFile($LUDE_MODIF_FILE_TMPL, "$path/install/$mod/$LUDE_FILE")) {
+X	      $retval=0;	# Error while copying
+X	    }
+X	  }
+X	}
+X      }
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : Lock a soft/mod/class so that others can't
+X#                install it.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Lock {
+X    if (scalar(@_)!=4) { &Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__)); }
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path, $lockfile);
+X    local($retval)=1;		# success by default
+X
+X    $path=($server ne'/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X    $lockfile="$path/$soft/install/$mod/$class/$LUDE_FILE";
+X    
+X    if (-e "$lockfile") {
+X      if (-l "$path/$soft/install") {
+X	&NFError($ERR_CANT_LOCK_BECAUSE_SYMLINK, "$path/$soft/install");
+X	$retval=0;
+X      }
+X      else {
+X	if (&VerboseRetShow($WARN_CMD, "rename $lockfile $lockfile.lock")) {
+X	  # Showing, so do nothing
+X	}
+X	else {
+X	  if (! rename($lockfile, "$lockfile.lock")) {
+X	    &NFError($ERR_REN, "$lockfile");
+X	    $retval=0;
+X	  }
+X	}
+X      }
+X    }
+X    else {
+X      # Lock file is not there. Can't lock the software.
+X      &NFError($ERR_CANT_LOCK_BECAUSE_NO_LOCK_FILE,
+X	       "$lockfile");
+X      $retval=0;
+X    }
+X      
+X
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : Release a soft/mod/class so that others can
+X#                Install it.
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#                $class  - class  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Release {
+X    if (scalar(@_)!=4){&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod, $class)=@_;
+X    local($path, $lockdir, $lockfile);
+X    local($retval)=1;		# Success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X    $lockdir="$path/$soft/install/$mod/$class";
+X    $lockfile="$lockdir/$LUDE_FILE";
+X    
+X    if (-e "$lockfile") {
+X	# The unlock file is there, meaning that the software is
+X	# already released! (confusing... the name of the variables
+X	# will have to be changed one day).
+X    }
+X    elsif (! -e "$lockfile.lock") {
+X      # The lock file is absent, therefore it is an error
+X      &NFError($ERR_CANT_RELEASE_BECAUSE_NO_LOCK_FILE,
+X	       "$lockfile.lock");
+X      $retval=0;
+X    }
+X    elsif (-l "$path/$soft/install") {
+X      &NFError($ERR_CANT_RELEASE_BECAUSE_SYMLINK, "$path/$soft/install");
+X      $retval=0;
+X    }
+X    elsif (! -w "$lockdir") {
+X	&NFError($ERR_NO_W_PERM, "$lockdir");
+X	$retval=0;
+X    }
+X    else {			# Everything is in order
+X	if (&VerboseRetShow($WARN_CMD, "rename $lockfile.lock $lockfile")) {
+X	    # Showing, so do nothing
+X	}
+X	else {
+X	    local(*F);
+X	    if (! open(F, ">$lockfile")) {
+X		&NFError($ERR_OPEN, "$lockfile");
+X		$retval=0;
+X	    }
+X	    else {
+X		close(F);
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X# Description  : do a Mount tfs of .../src/mod on .../src/orig
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Mount_tfs {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod)=@_;
+X    local($path);
+X    local($retval)=1;		# Success by default
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";    
+X    $path.= "/$soft/src";
+X
+X    if (-l $path) {
+X      &NFError($ERR_CANT_MOUNT_TFS_BECAUSE_SYMLINK, $path);
+X      $retval=0;
+X    }
+X    elsif (&RunCmd("$PROG_MOUNT_TFS $path/$mod $path/orig") != 0) {
+X	# An error occured
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : do a UMount tfs of .../src/orig
+X# 
+X# Parameters   : $server - server location to perform the action.
+X#                          if eq '/', then $SOFT_DIR is used.
+X#                $soft   - software on which to perform the action.
+X#                $mod    - modification  ...
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub Umount_tfs {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($server, $soft, $mod)=@_;
+X    local($path);
+X    local($retval)=1;
+X
+X    $path=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X    $path.="/$soft/src";    
+X
+X    if (-l $path) {
+X      &NFError($ERR_CANT_UMOUNT_TFS_BECAUSE_SYMLINK, $path);
+X      $retval=0;
+X    }
+X    if (&RunCmd("$PROG_UMOUNT_TFS $path/orig") != 0) {
+X	# An error occured
+X	$retval=0;
+X    }
+X
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------
+X# Description : Check to make sure that $soft/src is not a
+X#               symlink. 
+X#               Initiate the duplication of 
+X#               $server/$soft/src/orig in 
+X#               $server/$soft/src/$mod
+X#
+X# Parameters  : $server - specify the server where to 
+X#                         perform the duplication
+X#               $soft   - Specify the software to duplicate
+X#               $mod    - specify the software's modification
+X#                         to duplicate
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub Duplicate {
+X  if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X  local($server, $soft, $mod)=@_;
+X  local($retval)=1;		# Success by default
+X  
+X  local($dir)=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X  if (-l "$dir/$soft/src") {
+X    &NFError($ERR_CANT_DUPLICATE_BECAUSE_SYMLINK, "$dir/$soft/src");
+X    $retval=0;
+X  }
+X  else {
+X    local($origTree)="$dir/$soft/src/orig";
+X    local($dupTree) ="$dir/$soft/src/$mod";
+X
+X    if (! &DupTree($origTree, $dupTree, '')) {
+X      $retval=0;		# Error occured
+X    }
+X  }
+X
+X  return $retval;
+X}
+X
+X#-----------------------------------------------------------
+X# Description : Check to make sure that $soft/src is not a
+X#               symlink. 
+X#               Initiate the unduplication of 
+X#               $server/$soft/src/orig in 
+X#               $server/$soft/src/$mod
+X#
+X# Parameters  : $server - specify the server where to 
+X#                         perform the unduplication
+X#               $soft   - Specify the software to unduplicate
+X#               $mod    - specify the software's modification
+X#                         to unduplicate
+X#
+X# Returns     : 1 on success
+X#               0 on error
+X#
+Xsub Unduplicate {
+X  if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X  local($server, $soft, $mod)=@_;
+X  local($retval)=1;		# Success by default
+X  
+X  local($dir)=($server ne '/') ? "$SERVER_DIR/$server" : "$SOFT_DIR";
+X
+X  if (-l "$dir/$soft/src") {
+X    &NFError($ERR_CANT_UNDUPLICATE_BECAUSE_SYMLINK, "$dir/$soft/src");
+X    $retval=0;
+X  }
+X  else {
+X    local($origTree)="$dir/$soft/src/orig";
+X    local($undupTree) ="$dir/$soft/src/$mod";
+X
+X    if (! &UnDupTree($origTree, $undupTree, '')) {
+X      $retval=0;		# Error occured
+X    }
+X  }
+X
+X  return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : Duplicate the content of origTree in dupTree, with
+X#                the following rules:
+X#                - If the file is present in both tree, and
+X#                  If the original file is more recent that the dupFile,
+X#                  then the original file replaces the diff File.
+X#                  (the time checked is the mtime i.e. last-modified)
+X#                - If the file is only present in the original tree, it
+X#                  is copied in the diff tree.
+X#                (file in the present context refers to links, directory or
+X#                 regular files)      
+X# 
+X# Parameters   : $origTree - root directory of tree of files that will be
+X#                            be duplicated. (must be an absolute path)
+X#                $dupTree  - root directory where to place the duplicated
+X#                            files (must be an absolute path)
+X#
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub DupTree {
+X    if (scalar(@_)!=3) {&Error($ERR_INTERNAL,sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($origTree, $dupTree, $suffix)=@_;
+X    local($retval)=1;		# Success by default
+X    local(@dupTreeStat, @origTreeStat);
+X
+X    if ($suffix ne '') {
+X	$origTree.="/$suffix";
+X	$dupTree.="/$suffix";
+X    }
+X    
+X    @origTreeStat=lstat($origTree);
+X    if ($origTree =~ m!^(([/.])|(\.\.))?$!) {
+X	# '', '.', '..' or '/' are incorrect value for $origTree
+X	&NFError($ERR_VALUE_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif ($dupTree =~ m!^(([/.])|(\.\.))?$!) {
+X	# '', '.', '..' or '/' are incorrect value for $dupTree
+X	&NFError($ERR_VALUE_DIR, $dupTree);
+X	$retval=0;
+X    }
+X    elsif (! -e _) {
+X	# origTree does not exist
+X	&NFError($ERR_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -d _) {
+X	# Oups, should be a directory
+X	&NFError($ERR_DIR_TYPE_EXPECTED, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -r _) {
+X	# Directory is not readable
+X	&NFError($ERR_READ_DIR, $origTree);
+X	$retval=0;
+X    }
+X    else {			# So far so good
+X	
+X	# Let's do some test on $dupTree now
+X	@dupTreeStat=lstat($dupTree);
+X
+X	if (! -e _) {
+X	    # The dupTree directory does not exist, so
+X	    # simply recursively copy origTree in dupTree
+X	    # and everything is all done.
+X
+X	    # Permissions of the original directory
+X	    local($origTreePerm)=$origTreeStat[2+$[];
+X
+X	    # Create the directory and set the permission to the same
+X	    # permissions of origTree
+X	    if (&VerboseRetShow($WARN_CMD, "mkdir $dupTree")) {
+X		# Showing, so do nothing
+X	    }
+X	    elsif (! mkdir($dupTree, $origTreePerm)) {
+X		&NFError($ERR_MKDIR, $dupTree, $!);
+X		$retval=0;
+X	    }
+X	    
+X	    if ($retval) {	# If still no error
+X		# Check to see if any files in $origTree ...
+X		local(*DIR, $numOfFiles);
+X		opendir(DIR, $origTree);
+X		$numOfFiles=grep(!/^\.{1,2}$/, readdir(DIR));
+X		closedir(DIR);
+X		if ($numOfFiles>0) { # i.e. if an files other than . and ..
+X		    local($cmd)="(cd $origTree; $PROG_TAR cf - *) | (cd $dupTree; $PROG_TAR -xpf -)";
+X		
+X		    if (&RunCmd($cmd) != 0) {
+X			# An error occured while executing the command
+X			$retval=0;
+X		    }
+X		}
+X	    }
+X	}
+X	elsif (! -d _) {
+X	    # dupTree is not a directory
+X	    &NFError($ERR_DIR_TYPE_EXPECTED, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -r _) {
+X	    # Directory is not readable
+X	    &NFError($ERR_READ_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -w _) {
+X	    # Directory is not writable
+X	    &NFError($ERR_WRITE_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	else {			# So far so good
+X	    local(@filesToCopy)=();
+X	    local(@files);
+X	    local($origFileMTime, $dupFileMTime);
+X
+X	    local(*DIR);
+X	    opendir(DIR, $origTree);
+X	    @files=grep(!/^\.{1,2}$/, readdir(DIR));
+X	    closedir(DIR);
+X
+X	    foreach $file (@files) {
+X		$dupFileMTime=(lstat("$dupTree/$file"))[9+$[];
+X		# Warning! stat on origTree/file must be last,
+X		# because we will use _ for speed
+X		$origFileMTime=(lstat("$origTree/$file"))[9+$[];
+X
+X		if (-d _) {
+X		    if (! &DupTree($origTree, $dupTree, $file)) {
+X			$retval=0; # An error occured
+X		    }
+X		}
+X		# If the file does not exist in dupTree or
+X		# if the last-modified time of the file in origTree
+X		# is more recent than the last-modified time of
+X		# the file in dupTree, add the file to the list
+X		# of files to copy.
+X		elsif (! -e "$dupTree/$file" ||
+X		       $origFileMTime > $dupFileMTime) {
+X		    push(@filesToCopy, $file);
+X		}    
+X	    }
+X
+X	    # Now copy the files
+X	    # (This will most probably need to be optimized)
+X	    local($cmd)="(cd $origTree; $PROG_TAR cf - %s) | (cd $dupTree; $PROG_TAR -xpf -)";
+X
+X	    # Copy each file, one by one
+X	    foreach $file (@filesToCopy) {
+X		if (&RunCmd(sprintf($cmd, $file)) != 0) {
+X		    $retval=0;	# An error occured
+X		}
+X	    }
+X	}
+X    }
+X    return $retval;
+X}
+X
+X#-----------------------------------------------------------------------
+X# Description  : 
+X# 
+X# Parameters   : 
+X#                
+X# Returns      : 1 on success
+X#                0 if any errors
+X#
+Xsub UnDupTree {
+X    if (scalar(@_)!=3){&Error($ERR_INTERNAL, sprintf("(%d), %s:%d", scalar(@_), __FILE__, __LINE__));}
+X    local($origTree, $dupTree, $suffix)=@_;
+X    local($retval)=1;		# Success by default
+X    local(@origTreeStat, @dupTreeStat);
+X
+X    if ($suffix ne '') {
+X	$origTree.="/$suffix";
+X	$dupTree.="/$suffix";
+X    }
+X
+X    @origTreeStat=stat($origTree);
+X    if (! -e _) {
+X	# origTree does not exist
+X	&NFError($ERR_DIR, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -d _) {
+X	# Oups, should be a directory
+X	&NFError($ERR_DIR_TYPE_EXPECTED, $origTree);
+X	$retval=0;
+X    }
+X    elsif (! -r _) {
+X	# Directory is not readable
+X	&NFError($ERR_READ_DIR, $origTree);
+X	$retval=0;
+X    }
+X    else {			# So far so good
+X	# Let's do some test on $dupTree now
+X	@dupTreeStat=stat($dupTree);
+X
+X	if (! -e _) {
+X	    # The dupTree directory does not exist, so everything
+X	    # is fine. Nothing to do.
+X	}
+X	elsif (! -r _) {
+X	    # Directory is not readable
+X	    &NFError($ERR_READ_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	elsif (! -w _) {
+X	    # Directory is not writable
+X	    &NFError($ERR_WRITE_DIR, $dupTree);
+X	    $retval=0;
+X	}
+X	else {			# So far so good
+X	    local(@origFileStat, @dupFileStat);
+X	    local(@files);
+X
+X	    local(*DIR);
+X	    opendir(DIR, $dupTree);
+X	    @files=grep(!/^\.{1,2}$/, readdir(DIR));
+X	    closedir(DIR);
+X
+X	    foreach $file (@files) {
+X		@dupFileStat=lstat("$dupTree/$file");
+X		@origFileStat=lstat("$origTree/$file");
+X
+X		# if file exists in origTree and file mode is the same
+X		# in origTree and dupTree.
+X		if (-e _ && $dupFileStat[2+$[] == $origFileStat[2+$[]) {
+X		    if (-d _) {
+X			if (! &UnDupTree($origTree, $dupTree, $file)) {
+X			    $retval=0; # An error occured
+X			}
+X			else {
+X			    # Remove the directory if it is empty.
+X			    local($numOfFiles);
+X			    local(*dir);
+X			    opendir(dir, "$dupTree/$file");
+X			    $numOfFiles=grep(!/^\.{1,2}$/, readdir(dir));
+X			    closedir(dir);
+X			    if ($numOfFiles == 0) {
+X				if (&VerboseRetShow($WARN_CMD, "rmdir $dupTree/$file")) {
+X				    # Showing, so do nothing.
+X				}
+X				else {
+X				    if (! rmdir("$dupTree/$file")) {
+X					# rmdir failed
+X					&NFError($ERR_RMDIR, "$dupTree/$file", $!);
+X					$retval=0;
+X				    }
+X				}
+X			    }					
+X			}
+X		    }
+X		    elsif (-f _) {
+X			# Compare the two files
+X			if (system("$PROG_CMP -s $origTree/$file $dupTree/$file")/256 == 0) {
+X			    # Files are identical. Remove the file in $dupTree.
+X			    if (&VerboseRetShow($WARN_CMD, "unlink $dupTree/$file")) {
+X				# Showing, so do nothing.
+X			    }
+X			    else {
+X				if (unlink("$dupTree/$file") != 1) {
+X				    # Unlink failed
+X				    &NFError($ERR_UNLINK, "$dupTree/$file");
+X				    $retval=0;
+X				}
+X			    }
+X			}
+X		    }
+X		    else {	# -l, -p, -S, -b, -c
+X			# Leave the files as is
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X    return $retval;
+X}
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 22013 -ne `wc -c <'lude-1.1/src/orig/src/ludeadm'`; then
+    echo shar: \"'lude-1.1/src/orig/src/ludeadm'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/src/orig/src/ludeadm'
+  # end of 'lude-1.1/src/orig/src/ludeadm'
+fi
+echo shar: End of archive 8 \(of 12\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

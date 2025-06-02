@@ -1,0 +1,2009 @@
+Newsgroups: comp.sources.misc
+From: prslnk!buhrt@iuvax.cs.indiana.edu (Jeff Buhrt)
+Subject:  v30i020:  sc - The SC Spreadsheet, Patch04a/2
+Message-ID: <csm-v30i020=sc.233621@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 32844adb7a0ead18a7f377dcf5d9bdee
+Date: Sun, 24 May 1992 04:38:10 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: prslnk!buhrt@iuvax.cs.indiana.edu (Jeff Buhrt)
+Posting-number: Volume 30, Issue 20
+Archive-name: sc/patch04a
+Environment: UNIX, VMS, MS-DOS
+Patch-To: sc: Volume 20, Issue 35-41
+
+Sc is a Public Domain Spreadsheet Calculator.
+Sc appears in comp.sources.misc as:
+	v20i035-v20i041 sc/part01-7	original   (Sc6.16)
+	v22i095   sc/patch01a    	Patch01a/2
+	v22i096   sc/patch01b    	Patch01b/2 (6.16->6.17)
+	v22i104   sc/patch02     	Patch02	   (6.17->6.18)
+	v23i035   sc/patch03     	Patch03    (6.18->6.19)
+
+Details of Patch #4 (a and b)
+		-takes sc from 6.19 to 6.21
+
+Changes 6.19 -> 6.21 (for more detail see CHANGES):
+	-possible pointer problem fixed
+	-Makefile changes (errors, compiler support, OS support)
+	-add at end of line ('A')
+	-support of more special keys: DC, FIND, HELP, SELECT
+	-troff output for quickreference
+	-output MIF format (FrameMaker)
+	-@numiter returns the number of iterations performed
+	-table output appends (if possible) standard suffixes (asc, cln, tbl..)
+	-additional system and compiler support
+
+						-Jeff Buhrt
+					nstar!sawmill!prslnk!buhrt
+					Proslink, Inc.
+
+Apply the following patches to Sc6.19 with
+	'patch < pch619-621a' and 'patch < pch619-621b'.
+
+*** ../619/CHANGES	Mon Mar 16 10:09:29 1992
+--- CHANGES	Fri May  8 12:31:13 1992
+***************
+*** 1,3 ****
+--- 1,72 ----
++ CHANGES BETWEEN 6.21 and 6.19
++ Mark R. Rubin
++ 	-noted a problem using bison 1.16 (use any version but 1.16)
++ Marco S Hyman/Ian */and others
++ 	-Crypt/CRYPT_PATH define problem
++ Paul Eggert
++ 	-sc.doc $Revision: 6.21 $ 'buglet'
++ Ulf Noren/Dave Lewis
++ 	-AIX3.1/Microport System V/AT don't have notimeout()
++ 		changed NONOTIMEOUT to NO_NOTIMEOUT, define if not present
++ Niels Baggesen
++ 	-function keys may not return ascii codes that isascii() understands
++ 	-added an A command for vi mode (add at end of row).
++ 	-Special key support: DC='x' (del char in vi mode), FIND='g' (goto),
++ 		HELP='?', SELECT='m'
++ Dave Davey
++ 	-noted Ultrix 4.2 curses doesn't have idlok()
++ 		[I added NO_IDLOK in Makefile]
++ Kim DeVaughn
++ 	-added ${RIGHTBUG} is now passed to sc.o && screen.o
++ 	-suggested a better fix on SunOS 4.x dont use the Sys V
++ 	 package (CC = /usr/5bin/cc, etc), but use the BSD 4.3 defines
++ David Bonnell
++ 	-scqref [will produce] TROFF output instead of plain text, 
++ 	 [when] you define QREF_FMT=TROFF in the Makefile.
++ 	 The resulting quick reference guide uses the MS macro set and you 
++ 	 build with something like:
++ 		scqref > quickref
++ 	 	troff -ms quickref > quickref.ps
++ Kurt Cockrum
++ 	- sc.h:
++ 		If not (defined(BSD42) || defined(BSD43) && !defined(ultrix)),
++ 		include <memory.h> for the benefit of some USG systems...
++ 	- screen.c:
++ 		Repaired cpp logic:
++ 		don't mention IDLOKBAD or idlok() unless SYSV3 defined;
++ 		idlok() does not exist for USG pre-SYSV systems (may exist for
++ 		SYSV{2,3,4}).
++ 	- tutorial.sc:
++ 		Repaired a number of off-by-1 errors.
++ Mats Wichmann
++ 	-cleaned up Robert E. Cousins MIF format support code which is
++ 		compatible with FrameMaker.
++ Neil Skilling
++ 	-added @numiter which returns the number of iterations performed.
++ 	 It allows you to solve equations by direct substitution. Taking a
++ 	 guess from another cell if the first iteration otherwise taking the
++ 	 last best iterate. Other uses may be found.
++ Martin MacLaren
++ 	-MS-DOS cleanup of Makefile
++ Art Mulder
++ 	-^T toggle: don't list crypt if not available
++ John Amanatides
++ 	-pointed out a possible NULL ref in interp.c
++ Phil Johnson
++ 	-sc now appends: "asc", "cln", "tbl", etc. to output files
++ 	-made the engineering format match that used by an engineer
++ 	-deleted an unused engmult[] reference
++ 	-added a fix to struct enode for the HP compiler
++ Kevin Cosgrove
++ 	-noted sc should use any predefined PI
++ Jeff Buhrt
++ 	-'make clean' now leaves the binaries and man pages [Jean-Pierre Radley]
++ 	-'make clobber' cleans all built files (like clean used to) [""]
++ 	-'-D' vs '-S' was needed on a XENIX2_3 line [""]
++ 	-'quit()' -> 'doquit()', function conflict [""]
++ 	-change xmalloc,xrealloc,xfree -> scxmalloc,scxrealloc,scxfree
++ 		(xmalloc is a standard malloc)
++ 
+  CHANGES BETWEEN 6.19 and 6.18
+  Tom Tkacik
+  	-sc.doc and CHANGES changes
+*** ../619/README	Mon Mar 16 10:09:29 1992
+--- README	Fri May  8 12:31:14 1992
+***************
+*** 1,11 ****
+  This is a much modified version of the public domain spread sheet sc,
+  posted several years ago by Mark Weiser as vc, originally by James Gosling.
+  
+! CHANGES lists the changes since 6.1 to 6.19.
+! 	Sc6.16 was released to comp.sources.misc and three sets of patches
+! 	bring Sc6.16->6.17->6.18->6.19.
+  
+! Current maintainer: {sequent, uunet}!sawmill!prslnk!buhrt (Jeff Buhrt)
+  
+  When you get it built, try "sc tutorial.sc" for a simple introduction
+  to the basic commands.
+--- 1,11 ----
+  This is a much modified version of the public domain spread sheet sc,
+  posted several years ago by Mark Weiser as vc, originally by James Gosling.
+  
+! CHANGES lists the changes since 6.1 to 6.21.
+! 	Sc6.16 was released to comp.sources.misc and four sets of patches
+! 	bring Sc6.16->6.17->6.18->6.19->6.21.
+  
+! Current maintainer: nstar!sawmill!prslnk!buhrt (Jeff Buhrt)
+  
+  When you get it built, try "sc tutorial.sc" for a simple introduction
+  to the basic commands.
+***************
+*** 58,64 ****
+  c) Please abide by the style in the code when you make your changes.  It is easy
+   	to break things trying to make them look "right".
+  d) If you do string functions, please, PLEASE pay attention to null pointers,
+! 	use xmalloc, xrealloc, and xfree; and xfree those arguments.
+  e) Please don't forget to document your changes in both help.c and sc.doc.
+  f) WHEN sending diffs: please use diff -c (context diff, and possibly
+  	more than three lines on each side), I get a lot of code and
+--- 58,64 ----
+  c) Please abide by the style in the code when you make your changes.  It is easy
+   	to break things trying to make them look "right".
+  d) If you do string functions, please, PLEASE pay attention to null pointers,
+! 	use scxmalloc, scxrealloc, and scxfree; and scxfree those arguments.
+  e) Please don't forget to document your changes in both help.c and sc.doc.
+  f) WHEN sending diffs: please use diff -c (context diff, and possibly
+  	more than three lines on each side), I get a lot of code and
+***************
+*** 81,86 ****
+--- 81,93 ----
+    Note: dumbcat speaks 9600 at V.32 -- sorry, this is not a Telebit modem.
+    (Grab dumbcat! /INDEX for a complete list)
+  
++ 3) Sc6.16 was posted in comp.sources.misc, about Jun 4 1991, Volume 20, Issues
++ 	035-041. There were then 4 patches: Sc6.16->Sc6.17, Sc6.17->Sc6.18,
++ 	Sc6.18->Sc6.19, and Sc6.19->Sc6.21.
++ 
++ 4) (FTP) Paul A Vixie <uunet!decwrl!vixie>
++ 	gatekeeper.dec.com	in /pub/misc/sc-6.21.tar.Z
++ 
+  Sc is not a product of ProsLink, Inc.  It is supplied as is with no
+  warranty, express or implied, as a service to Usenet readers.  It is not
+  copyrighted, either.  Have at it.
+***************
+*** 87,91 ****
+  
+  					Jeff Buhrt
+  					ProsLink, Inc.
+! 					{sequent, uunet}!sawmill!prslnk!buhrt
+  
+--- 94,98 ----
+  
+  					Jeff Buhrt
+  					ProsLink, Inc.
+! 					nstar!sawmill!prslnk!buhrt
+  
+*** ../619/sc.doc	Mon Mar 16 10:09:30 1992
+--- sc.doc	Fri May  8 12:31:15 1992
+***************
+*** 15,21 ****
+  .\" - TPs use default indent except for function names, then 18.
+  .\" - Smallify uppercase strings.
+  .\" - Avoid passive voice and third person.
+! .\" $Revision: 6.19 $
+  .\"
+  .TH PNAME\ #REVISION#\  1
+  .SH NAME
+--- 15,21 ----
+  .\" - TPs use default indent except for function names, then 18.
+  .\" - Smallify uppercase strings.
+  .\" - Avoid passive voice and third person.
+! .\" $Revision: 6.21 $
+  .\"
+  .TH PNAME\ #REVISION#\  1
+  .SH NAME
+***************
+*** 376,386 ****
+  .B slatex
+  to give a
+  .I SLaTeX (Scandinavian LaTeX)
+! tabular environment; and
+  .B tex
+  to give a
+  .I TeX
+! simple tabbed alignment with ampersands as delimiters.
+  .PP
+  Other
+  .I Set
+--- 376,388 ----
+  .B slatex
+  to give a
+  .I SLaTeX (Scandinavian LaTeX)
+! tabular environment;
+  .B tex
+  to give a
+  .I TeX
+! simple tabbed alignment with ampersands as delimiters; and
+! .B frame
+! to give a tblstyle output for FrameMaker.
+  .PP
+  Other
+  .I Set
+***************
+*** 2174,2179 ****
+--- 2176,2184 ----
+  or to unstable cyclic references (for example, set
+  .IR A0 's
+  expression to ``A0+1'').
++ .TP 18
++ .BR @numiter 
++ Returns the number of iterations performed so far.
+  .\" ==========
+  .SH FILES
+  .TP 4in
+*** ../619/psc.doc	Mon Mar 16 10:09:31 1992
+--- psc.doc	Fri May  8 12:31:16 1992
+***************
+*** 1,4 ****
+! .\" $ Revision $
+  .TH PPNAME\ #REVISION#\  1
+  .SH NAME
+  ppname \- prepare pname files
+--- 1,4 ----
+! .\" $Revision: 6.21 $
+  .TH PPNAME\ #REVISION#\  1
+  .SH NAME
+  ppname \- prepare pname files
+*** ../619/tutorial.sc	Mon Mar 16 10:08:45 1992
+--- tutorial.sc	Fri May  8 12:31:16 1992
+***************
+*** 1,21 ****
+  # This data file was generated by the Spreadsheet Calculator.
+  # You almost certainly shouldn't edit it.
+  
+- define "page4" A71
+- define "page3" A50
+- define "page2" A30
+- define "page1" A11
+  define "page5" A90
+  leftstring A1 = "This is a brief sc tutorial, best run in a 24-line window."
+  leftstring A2 = "Type 'q' to exit, ^Z to suspend (w/ Job Control)."
+  leftstring A3 = "^G interrupts a command."
+  leftstring A5 = "Cells are named by their column and row number.  For example,"
+! leftstring A6 = "Cell A5"
+! leftstring B6 = "Cell B5"
+! leftstring C6 = "Cell C5"
+! leftstring A7 = "Cell A6"
+! leftstring A8 = "Cell A7"
+! leftstring C8 = "Cell C7"
+  leftstring A9 = "Cells range from A0 to ZZ(some number depending on free memory)."
+  leftstring A10 = "Cells can also be named by the user.  See 'range names' in the manual."
+  leftstring page1 = "You can move the cursor a couple of different ways:"
+--- 1,21 ----
+  # This data file was generated by the Spreadsheet Calculator.
+  # You almost certainly shouldn't edit it.
+  
+  define "page5" A90
++ define "page1" A11
++ define "page2" A30
++ define "page3" A50
++ define "page4" A71
+  leftstring A1 = "This is a brief sc tutorial, best run in a 24-line window."
+  leftstring A2 = "Type 'q' to exit, ^Z to suspend (w/ Job Control)."
+  leftstring A3 = "^G interrupts a command."
+  leftstring A5 = "Cells are named by their column and row number.  For example,"
+! leftstring A6 = "Cell A6"
+! leftstring B6 = "Cell B6"
+! leftstring C6 = "Cell C6"
+! leftstring A7 = "Cell A7"
+! leftstring A8 = "Cell A8"
+! leftstring C8 = "Cell C8"
+  leftstring A9 = "Cells range from A0 to ZZ(some number depending on free memory)."
+  leftstring A10 = "Cells can also be named by the user.  See 'range names' in the manual."
+  leftstring page1 = "You can move the cursor a couple of different ways:"
+***************
+*** 28,38 ****
+  leftstring A19 = "Cells can contain numbers, formulas, or text."
+  leftstring A20 = "Most of the cells on this page contain text."
+  leftstring C21 = "<Type 'g page2' to continue>"
+! leftstring A23 = "Cell d22 contains text"
+  leftstring D23 = "Text "
+! leftstring A24 = "Cell d23 contains a number"
+  let D24 = 123.34
+! leftstring A25 = "Cell d24 contains a formula"
+  let D25 = D24+88
+  leftstring A27 = "To see what the cell contains, just move the cursor"
+  leftstring A28 = "onto the cell.  The contents will show up on line 1 in the brackets."
+--- 28,38 ----
+  leftstring A19 = "Cells can contain numbers, formulas, or text."
+  leftstring A20 = "Most of the cells on this page contain text."
+  leftstring C21 = "<Type 'g page2' to continue>"
+! leftstring A23 = "Cell d23 contains text"
+  leftstring D23 = "Text "
+! leftstring A24 = "Cell d24 contains a number"
+  let D24 = 123.34
+! leftstring A25 = "Cell d25 contains a formula"
+  let D25 = D24+88
+  leftstring A27 = "To see what the cell contains, just move the cursor"
+  leftstring A28 = "onto the cell.  The contents will show up on line 1 in the brackets."
+***************
+*** 41,47 ****
+  leftstring B32 = "'>text' enters right justified text."
+  leftstring B33 = "'=number' enters a number"
+  leftstring B34 = "'=formula' enters a formula."
+! leftstring A36 = "Try duplicating d22 through d24 in e22 though e24."
+  leftstring A38 = "You erase a cell by typing 'x' with the cursor on the cell."
+  leftstring C41 = "<Type 'g page3' to continue>"
+  leftstring A43 = "Here is a typical use for numbers and formulas:"
+--- 41,47 ----
+  leftstring B32 = "'>text' enters right justified text."
+  leftstring B33 = "'=number' enters a number"
+  leftstring B34 = "'=formula' enters a formula."
+! leftstring A36 = "Try duplicating d23 through d25 in e23 though e25."
+  leftstring A38 = "You erase a cell by typing 'x' with the cursor on the cell."
+  leftstring C41 = "<Type 'g page3' to continue>"
+  leftstring A43 = "Here is a typical use for numbers and formulas:"
+***************
+*** 65,74 ****
+  let B50 = @sum(B45:B48)
+  let C50 = @sum(C45:C48)
+  let E50 = @sum(A45:C48)
+! leftstring A52 = "The data is entered in a44 through c47."
+! leftstring A53 = "Cells a49, b49 and c49 sum their respective columns."
+! leftstring A54 = "Cells e44, e45, e46, and e47 sum their respective rows."
+! leftstring A55 = "Cell E49 is a grand total."
+  leftstring A56 = "Try changing some of the data cells and watch the sums change."
+  leftstring A58 = "You can also edit cells by putting the cursor on the cell and typing:"
+  leftstring B59 = "'e' to edit the numeric portion."
+--- 65,74 ----
+  let B50 = @sum(B45:B48)
+  let C50 = @sum(C45:C48)
+  let E50 = @sum(A45:C48)
+! leftstring A52 = "The data is entered in a45 through c48."
+! leftstring A53 = "Cells a50, b50 and c50 sum their respective columns."
+! leftstring A54 = "Cells e45, e46, e47, and e48 sum their respective rows."
+! leftstring A55 = "Cell E50 is a grand total."
+  leftstring A56 = "Try changing some of the data cells and watch the sums change."
+  leftstring A58 = "You can also edit cells by putting the cursor on the cell and typing:"
+  leftstring B59 = "'e' to edit the numeric portion."
+*** ../619/build.com	Thu Sep 26 10:53:00 1991
+--- build.com	Fri May  8 12:31:17 1992
+***************
+*** 1,6 ****
+  $! VMS command file to build SC and PSC (requires bison) on VMS
+  $! SC:
+! $! $Revision: 6.19 $
+  $! bison -d gram.y
+  $! ren gram_tab.c gram.c
+  $ cc'p1'  /define=("SIMPLE","SIGVOID") sc.c
+--- 1,6 ----
+  $! VMS command file to build SC and PSC (requires bison) on VMS
+  $! SC:
+! $! $Revision: 6.21 $
+  $! bison -d gram.y
+  $! ren gram_tab.c gram.c
+  $ cc'p1'  /define=("SIMPLE","SIGVOID") sc.c
+*** ../619/Makefile	Mon Mar 16 10:09:31 1992
+--- Makefile	Fri May  8 12:31:18 1992
+***************
+*** 1,4 ****
+! # Makefile $Revision: 6.19 $
+  #
+  # 1) Select the proper EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID,
+  #	RE_COMP/REGCMP, DFLT_PAGER, and FMOD. Most of the other things aren't
+--- 1,4 ----
+! # Makefile $Revision: 6.21 $
+  #
+  # 1) Select the proper EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID,
+  #	RE_COMP/REGCMP, DFLT_PAGER, and FMOD. Most of the other things aren't
+***************
+*** 94,100 ****
+  # BSD
+  #CRYPT=-DCRYPT_PATH=\"/usr/bin/crypt\"
+  # other people?
+! #CRYPT=CRYPT_PATH=\"/usr/local/bin/crypt\"
+  
+  # If you get errors about fmod being undefined when you try to
+  # compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+--- 94,100 ----
+  # BSD
+  #CRYPT=-DCRYPT_PATH=\"/usr/bin/crypt\"
+  # other people?
+! #CRYPT=-DCRYPT_PATH=\"/usr/local/bin/crypt\"
+  
+  # If you get errors about fmod being undefined when you try to
+  # compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+***************
+*** 102,113 ****
+  FMOD=
+  
+  # If your system doesn't have notimeout() in curses define NONOTIMEOUT
+! NONOTIMEOUT=
+! #NONOTIMEOUT=-DNONOTIMEOUT
+  
+  # flags for lint
+  LINTFLAGS=-abchxv
+  
+  # *** SPECIAL NOTES ***
+  # For ULTRIX: define the BSD4.2 section and SIGVOID above
+  #	tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+--- 102,118 ----
+  FMOD=
+  
+  # If your system doesn't have notimeout() in curses define NONOTIMEOUT
+! NO_NOTIMEOUT=
+! #NO_NOTIMEOUT=-DNONOTIMEOUT
+  
+  # flags for lint
+  LINTFLAGS=-abchxv
+  
++ # Format of quick reference guide generated by $(name)qref
++ # Leave undefined for normal text output.
++ #QREF_FMT=
++ QREF_FMT=-DTROFF
++ 
+  # *** SPECIAL NOTES ***
+  # For ULTRIX: define the BSD4.2 section and SIGVOID above
+  #	tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+***************
+*** 128,135 ****
+  #		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+  #	Known systems/terminfos w/ curses problems:
+  #	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+! IDLOKBAD=-DIDLOKBAD
+! #IDLOKBAD=
+  
+  # If moving right off the screen causes the screen to not redraw
+  # properly, define RIGHT_CBUG to get around a curses problem on some
+--- 133,144 ----
+  #		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+  #	Known systems/terminfos w/ curses problems:
+  #	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+! IDLOKISBAD=-DIDLOKBAD
+! #IDLOKISBAD=
+! 
+! # If you don't have idlok() in your curses define NOIDLOK
+! NO_IDLOK=
+! #NO_IDLOK=-DNOIDLOK
+  
+  # If moving right off the screen causes the screen to not redraw
+  # properly, define RIGHT_CBUG to get around a curses problem on some
+***************
+*** 141,148 ****
+--- 150,162 ----
+  # some other yacc. Some systems don't allow you to
+  # increase the number of terminals (mostly AT&T), SCO's does though.
+  #YACC=yacc
++ # NOTE: Do not use with bison 1.16! Get a new version....
+  YACC=bison -y
+  
++ # MS-DOS needs y_tab instead of the normal y.tab
++ #YTAB=y_tab
++ YTAB=y.tab
++ 
+  # Command to use to make temporary copies of some source files.
+  LN=ln
+  #LN=ln -s
+***************
+*** 166,177 ****
+  # Use this for system V.3
+  CFLAGS=  -DSYSV3 -O
+  LDFLAGS= -s
+  LIB=-lm -lcurses -lPW
+  # with gcc also use:
+  #CC=gcc
+  #CFLAGS=  -DSYSV3 -O -pipe -traditional
+! #YACC=bison -y
+! 
+  
+  # Use this for system V.4
+  #CFLAGS=  -DSYSV4 -DSYSV3 -O
+--- 180,194 ----
+  # Use this for system V.3
+  CFLAGS=  -DSYSV3 -O
+  LDFLAGS= -s
++ #CFLAGS=  -DSYSV3 -g
++ #LDFLAGS= -g
+  LIB=-lm -lcurses -lPW
+  # with gcc also use:
+  #CC=gcc
+  #CFLAGS=  -DSYSV3 -O -pipe -traditional
+! # debugging bison (bison 1.16 is broken)
+! #CFLAGS=  -DSYSV3 -g -pipe -traditional
+! #YACC=bison -y -v -t -l
+  
+  # Use this for system V.4
+  #CFLAGS=  -DSYSV4 -DSYSV3 -O
+***************
+*** 190,195 ****
+--- 207,214 ----
+  #CFLAGS= -O -DBSD42
+  #LDFLAGS=
+  #LIB=-lm -lcurses -ltermcap
++ # with gcc also use:
++ #CC=gcc
+  
+  # Use this for Sequent boxes
+  #CC=atscc
+***************
+*** 224,230 ****
+  #LIB=-lm -lcurses -ltermcap
+  
+  # Use this for XENIX Version 2.3
+! #CFLAGS= -O -SSYSIII -DXENIX2_3
+  #LDFLAGS= -i
+  #LIB=-lm -lcurses -ltermcap
+  
+--- 243,249 ----
+  #LIB=-lm -lcurses -ltermcap
+  
+  # Use this for XENIX Version 2.3
+! #CFLAGS= -O -DSYSIII -DXENIX2_3
+  #LDFLAGS= -i
+  #LIB=-lm -lcurses -ltermcap
+  
+***************
+*** 282,312 ****
+  $(name):$(PAR) 	$(OBJS)
+  	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+  
+! # Alternative for MS-DOS
+  #$(name): 	$(OBJS)
+  #	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+  
+  gram.c:	gram.y
+! 	$(YACC) -d gram.y; mv y.tab.c gram.c
+! 
+! y.tab.h:	gram.y
+  
+! # Alternative for MS-DOS
+! #gram.c:	gram.y
+! #	$(YACC) -d gram.y
+! #	mv y_tab.c gram.c
+! #
+! #y_tab.h:	gram.y
+  
+  p$(name):	psc.c pvmtbl.o pxmalloc.o
+  	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) psc.c pvmtbl.o pxmalloc.o ${PSCLIB}
+  
+  qhelp.c: help.c
+  	-rm -f qhelp.c
+  	${LN} help.c qhelp.c
+  
+  $(name)qref:	qhelp.c sc.h
+! 	$(CC) $(CFLAGS) $(LDFLAGS) -DQREF -DSCNAME=\"$(name)\" -o $(name)qref qhelp.c
+  
+  pvmtbl.c: vmtbl.c
+  	-rm -f pvmtbl.c
+--- 301,334 ----
+  $(name):$(PAR) 	$(OBJS)
+  	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+  
+! # Alternative link for MS-DOS
+  #$(name): 	$(OBJS)
+  #	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+  
+  gram.c:	gram.y
+! 	$(YACC) -d gram.y
+! 	mv $(YTAB).c gram.c
+  
+! $(YTAB).h:	gram.y
+  
+  p$(name):	psc.c pvmtbl.o pxmalloc.o
+  	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) psc.c pvmtbl.o pxmalloc.o ${PSCLIB}
+  
++ # Alternative link for MS-DOS (NB: MSC 5.1 has no getopt.c)
++ #p$(name): 	psc.o pvmtbl.o pxmalloc.o getopt.o
++ #	link ${LDFLAGS} psc.o pvmtbl.o pxmalloc.o getopt.o,p$(name);
++ 
+  qhelp.c: help.c
+  	-rm -f qhelp.c
+  	${LN} help.c qhelp.c
+  
+  $(name)qref:	qhelp.c sc.h
+! 	$(CC) $(CFLAGS) $(LDFLAGS) -DQREF $(QREF_FMT) -DSCNAME=\"$(NAME)\" -o $(name)qref qhelp.c
+! 
+! # Alternative link for MS-DOS
+! #$(name)qref:	qhelp.c sc.h
+! #	$(CC) -AL -O -Foqhelp.o -c -DQREF -DSCNAME=\"$(name)\" qhelp.c
+! #	link ${LDFLAGS} qhelp.o,$(name)qref;
+  
+  pvmtbl.c: vmtbl.c
+  	-rm -f pvmtbl.c
+***************
+*** 338,350 ****
+  interp.o:	interp.c sc.h
+  	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+  
+! gram.o:	sc.h y.tab.h gram.c
+  	$(CC) ${CFLAGS} -c gram.c
+  	sed < gram.y > experres.h -f eres.sed
+  	sed < gram.y > statres.h -f sres.sed
+  
+! lex.o:	sc.h y.tab.h gram.o lex.c
+! 	$(CC) ${CFLAGS} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NONOTIMEOUT} -c lex.c
+  
+  pxmalloc.o: sc.h pxmalloc.c
+  	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+--- 360,372 ----
+  interp.o:	interp.c sc.h
+  	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+  
+! gram.o:	sc.h $(YTAB).h gram.c
+  	$(CC) ${CFLAGS} -c gram.c
+  	sed < gram.y > experres.h -f eres.sed
+  	sed < gram.y > statres.h -f sres.sed
+  
+! lex.o:	sc.h $(YTAB).h gram.o lex.c
+! 	$(CC) ${CFLAGS} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NO_NOTIMEOUT} -c lex.c
+  
+  pxmalloc.o: sc.h pxmalloc.c
+  	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+***************
+*** 352,361 ****
+  range.o: range.c sc.h
+  
+  sc.o:	sc.h sc.c
+! 	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c sc.c
+  
+  screen.o:	sc.h screen.c
+! 	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKBAD} ${INTERNATIONAL} ${SIGVOID} -c screen.c
+  
+  vi.o: vi.c sc.h
+  
+--- 374,383 ----
+  range.o: range.c sc.h
+  
+  sc.o:	sc.h sc.c
+! 	$(CC) ${CFLAGS} ${DFLT_PAGER} ${RIGHTBUG} ${SIGVOID} ${SAVE} -c sc.c
+  
+  screen.o:	sc.h screen.c
+! 	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKISBAD} ${INTERNATIONAL} ${RIGHTBUG} ${SIGVOID} ${NO_IDLOK} -c screen.c
+  
+  vi.o: vi.c sc.h
+  
+***************
+*** 362,370 ****
+  # other stuff
+  
+  clean:
+! 	rm -f *.o *res.h y.tab.h $(name) p$(name) debug core gram.c $(name).1 \
+  	$(name).man p$(name).man p$(name).1 y.output $(name)qref \
+! 	pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+  
+  shar: ${SRC} ${DOCS}
+  	shar -c -m 64000 -f shar ${DOCS} ${SRC}
+--- 384,396 ----
+  # other stuff
+  
+  clean:
+! 	rm -f *.o *res.h y.tab.h debug core gram.c $(name).1 \
+! 	p$(name).1 y.output pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+! 
+! clobber:
+! 	rm -f *.o *res.h $(YTAB).h $(name) p$(name) debug core gram.c $(name).1 \
+  	$(name).man p$(name).man p$(name).1 y.output $(name)qref \
+! 	pxmalloc.c pvmtbl.c qhelp.c
+  
+  shar: ${SRC} ${DOCS}
+  	shar -c -m 64000 -f shar ${DOCS} ${SRC}
+***************
+*** 396,402 ****
+  	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev sc.doc >  $(name).1
+  #	sed -e s/pname/$(name)/g -e s/PNAME/$(NAME)/g \
+  #	   -e s%#LIBDIR#%$(LIBDIR)%g sc.doc >  $(name).1
+! #	REVISION=`sed -e '/Revision/!D' -e 's/.*$Revision: 6.19 $(
+  #	sed -e s/pname/$(name)/g -e s/PNAME/$(NAME)/g \
+  #		-e s%#LIBDIR#%$(LIBDIR)%g \
+  #		-e 's/#REVISION#/$(REVISION)/' sc.doc >  $(name).1
+--- 422,428 ----
+  	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev sc.doc >  $(name).1
+  #	sed -e s/pname/$(name)/g -e s/PNAME/$(NAME)/g \
+  #	   -e s%#LIBDIR#%$(LIBDIR)%g sc.doc >  $(name).1
+! #	REVISION=`sed -e '/Revision/!D' -e 's/.*$Revision: 6.21 $(
+  #	sed -e s/pname/$(name)/g -e s/PNAME/$(NAME)/g \
+  #		-e s%#LIBDIR#%$(LIBDIR)%g \
+  #		-e 's/#REVISION#/$(REVISION)/' sc.doc >  $(name).1
+*** ../619/cmds.c	Mon Mar 16 10:09:32 1992
+--- cmds.c	Fri May  8 13:40:24 1992
+***************
+*** 7,13 ****
+   *
+   *              More mods Robert Bond, 12/86
+   *
+!  *		$Revision: 6.19 $
+   */
+  
+  #include <sys/types.h>
+--- 7,13 ----
+   *
+   *              More mods Robert Bond, 12/86
+   *
+!  *		$Revision: 6.21 $
+   */
+  
+  #include <sys/types.h>
+***************
+*** 459,464 ****
+--- 459,465 ----
+      modflg++;
+  }
+  
++ /* delete group of columns (1 or more) */
+  void
+  closecol (cs, numcol)
+  int cs;
+***************
+*** 517,523 ****
+  	fwidth[i] = DEFWIDTH;
+  	precision[i] = DEFPREC;
+  	realfmt[i] = DEFREFMT;
+! 	col_hidden[i] = 0;
+      }
+  
+      maxcol -= numcol;
+--- 518,524 ----
+  	fwidth[i] = DEFWIDTH;
+  	precision[i] = DEFPREC;
+  	realfmt[i] = DEFREFMT;
+! 	col_hidden[i] = FALSE;
+      }
+  
+      maxcol -= numcol;
+***************
+*** 675,681 ****
+  	(void) fprintf(f, " tblstyle = %s", tbl_style == TBL ? "tbl" :
+  					tbl_style == LATEX ? "latex" :
+  					tbl_style == SLATEX ? "slatex" :
+! 					tbl_style == TEX ? "tex" : "0" );
+      if (craction)
+  	(void) fprintf(f, " craction = %d", craction);
+      if (rowlimit >= 0)
+--- 676,683 ----
+  	(void) fprintf(f, " tblstyle = %s", tbl_style == TBL ? "tbl" :
+  					tbl_style == LATEX ? "latex" :
+  					tbl_style == SLATEX ? "slatex" :
+! 					tbl_style == TEX ? "tex" :
+! 					tbl_style == FRAME ? "frame" : "0" );
+      if (craction)
+  	(void) fprintf(f, " craction = %d", craction);
+      if (rowlimit >= 0)
+***************
+*** 698,712 ****
+      int fieldlen, nextcol;
+      register row, col;
+      register struct ent **pp;
+!     char *xmalloc();
+!     char *xrealloc();
+  
+      if ((strcmp(fname, curfile) == 0) &&
+  	!yn_ask("Confirm that you want to destroy the data base: (y,n)")) {
+  	return;
+      }
+  
+!     if (!pline && (pline = xmalloc((unsigned)(FBUFLEN *
+  					++fbufs_allocated))) == (char *)NULL)
+      {   error("Malloc failed in printfile()");
+          return;
+--- 700,731 ----
+      int fieldlen, nextcol;
+      register row, col;
+      register struct ent **pp;
+!     char file[32];
+!     char path[256];
+!     char *tpp;
+! 
+!     /* printfile will be the [path/]file ---> [path/]file.out,
+!      * file is limited to 14 characters.
+!      */
+!     if (*fname == '\0') {
+! 	strcpy(path, curfile);
+  
++ 	if ((tpp = strrchr(path, '/'))  == NULL)
++ 		tpp = path;
++ 	else
++ 		tpp++;
++ 	strcpy(file, tpp);
++ 	file[10] = '\0';
++ 	sprintf(tpp, "%s.asc", file);
++ 	fname = path;
++     }
++ 
+      if ((strcmp(fname, curfile) == 0) &&
+  	!yn_ask("Confirm that you want to destroy the data base: (y,n)")) {
+  	return;
+      }
+  
+!     if (!pline && (pline = scxmalloc((unsigned)(FBUFLEN *
+  					++fbufs_allocated))) == (char *)NULL)
+      {   error("Malloc failed in printfile()");
+          return;
+***************
+*** 741,747 ****
+  		 * attempting to write 'out of bounds'.
+  		 */
+  		while(c > (fbufs_allocated * FBUFLEN)) {
+! 		  if((pline = xrealloc
+  			       ((char *)pline, 
+  				(unsigned)(FBUFLEN * ++fbufs_allocated)))
+  		     == NULL) {
+--- 760,766 ----
+  		 * attempting to write 'out of bounds'.
+  		 */
+  		while(c > (fbufs_allocated * FBUFLEN)) {
+! 		  if((pline = scxrealloc
+  			       ((char *)pline, 
+  				(unsigned)(FBUFLEN * ++fbufs_allocated)))
+  		     == NULL) {
+***************
+*** 754,760 ****
+  		if ((*pp)->flags&is_valid) {
+  		    while(plinelim + fwidth[col] > 
+  			  (fbufs_allocated * FBUFLEN)) {
+! 		      if((pline = ((char *)xrealloc
+  				   ((char *)pline, 
+  				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+  			 == NULL) {
+--- 773,779 ----
+  		if ((*pp)->flags&is_valid) {
+  		    while(plinelim + fwidth[col] > 
+  			  (fbufs_allocated * FBUFLEN)) {
+! 		      if((pline = ((char *)scxrealloc
+  				   ((char *)pline, 
+  				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+  			 == NULL) {
+***************
+*** 811,821 ****
+  			slen = fieldlen;
+  		    
+  		    while(c + fieldlen + 2 > (fbufs_allocated * FBUFLEN)) {
+! 		      if((pline = ((char *)xrealloc
+  				   ((char *)pline, 
+  				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+  			 == NULL) {
+! 			error ("xrealloc failed in printfile()");
+  			return;
+  		      }
+  		    }		  
+--- 830,840 ----
+  			slen = fieldlen;
+  		    
+  		    while(c + fieldlen + 2 > (fbufs_allocated * FBUFLEN)) {
+! 		      if((pline = ((char *)scxrealloc
+  				   ((char *)pline, 
+  				    (unsigned)(FBUFLEN * ++fbufs_allocated))))
+  			 == NULL) {
+! 			error ("scxrealloc failed in printfile()");
+  			return;
+  		      }
+  		    }		  
+***************
+*** 867,872 ****
+--- 886,916 ----
+      register row, col;
+      register struct ent **pp;
+      char coldelim = DEFCOLDELIM;
++     char file[32];
++     char path[256];
++     char *tpp;
++ 
++     /* tblprintfile will be the [path/]file ---> [path/]file.out,
++      * file is limited to 14 characters.
++      */
++     if (*fname == '\0') {
++     strcpy(path, curfile);
++     if ((tpp = strrchr(path, '/'))  == NULL)
++       tpp = path;
++     else
++       tpp++;
++     strcpy(file, tpp);
++     file[10] = '\0';
++     if (tbl_style == 0)
++       sprintf(tpp, "%s.cln", file);
++     else if (tbl_style == TBL)
++       sprintf(tpp, "%s.tbl", file);
++     else if (tbl_style == LATEX)
++       sprintf(tpp, "%s.lat", file);
++     else if (tbl_style == TEX)
++       sprintf(tpp, "%s.tex", file);
++     fname = path;
++     }
+  
+      if ((strcmp(fname, curfile) == 0) &&
+  	!yn_ask("Confirm that you want to destroy the data base: (y,n)"))
+***************
+*** 900,911 ****
+--- 944,992 ----
+  		progname, cn-c0+1);
+  	coldelim = '&';
+      }
++     else if ( tbl_style == FRAME ) {
++ 	fprintf(f,"<MIFFile 3.00> # generated by the sc spreadsheet calculator\n");
++ 	fprintf(f,"<Tbls\n");
++ 	fprintf(f," <Tbl \n");
++ 	fprintf(f,"  <TblID 1> # This table's ID is 1\n");
++ 	fprintf(f,"  <TblFormat \n");
++ 	fprintf(f,"   <TblTag `Format A'> # Table Format Catalog\n");
++ 	fprintf(f,"  > # end of TblFormat\n");
++ 	fprintf(f,"  <TblNumColumns %d> # Has %d columns\n",cn-c0+1,cn-c0+1);
++ 	fprintf(f,"  <TblTitleContent\n");
++ 	fprintf(f,"   <Para\n");
++ 	fprintf(f,"    <PgfTag `TableTitle'> # Forces lookup in Paragraph Format Catalog\n");
++ 	fprintf(f,"    <ParaLine\n");
++ 	fprintf(f,"     <String `%s'>\n",fname);
++ 	fprintf(f,"    > # end of ParaLine\n");
++ 	fprintf(f,"   > # end of Para\n");
++ 	fprintf(f,"  > # end of TblTitleContent\n");
++ 	fprintf(f,"  <TblH # The heading\n");
++ 	fprintf(f,"   <Row # The heading row\n");
++ 	for (col=c0; col <= cn; col++) {
++ 	    fprintf(f,"    <Cell <CellContent <Para # Cell in column \n");
++ 	    fprintf(f,"       <PgfTag `CellHeading'> # in Paragraph Format Catalog\n");
++ 	    fprintf(f,"       <ParaLine <String `%c'>>\n",'A'+col);
++ 	    fprintf(f,"    >>> # end of Cell\n");
++ 	}
++ 	fprintf(f,"   > # end of Row\n");
++ 	fprintf(f,"  > # end of TblH\n");
++ 	fprintf(f,"  <TblBody # The body\n");
++     }
+  
+      for (row=r0; row<=rn; row++) {
+  	if ( tbl_style == TEX )
+  	    (void) fprintf (f, "\\+");
++ 	else if ( tbl_style == FRAME ) {
++ 	    fprintf(f,"   <Row # The next body row\n");
++ 	}
+  	
+  	for (pp = ATBL(tbl, row, col=c0); col<=cn; col++, pp++) {
++ 	    if ( tbl_style == FRAME ) {
++ 		fprintf(f,"    <Cell <CellContent <Para\n");
++ 		fprintf(f,"       <PgfTag `CellBody'> # in Paragraph Format Catalog\n");
++ 		fprintf(f,"       <ParaLine <String `");
++ 	    } 
+  	    if (*pp) {
+  		char *s;
+  		if ((*pp)->flags&is_valid) {
+***************
+*** 933,940 ****
+  	            unspecial (f, s, coldelim);
+  		}
+  	    }
+  	    if ( col < cn )
+! 		(void) fprintf(f,"%c", coldelim);
+  	}
+  	if ( tbl_style == LATEX ) {
+  		if ( row < rn ) (void) fprintf (f, "\\\\");
+--- 1014,1026 ----
+  	            unspecial (f, s, coldelim);
+  		}
+  	    }
++ 	    if (tbl_style == FRAME) {
++ 		fprintf(f, "'>>\n");
++ 		fprintf(f,"    >>> # end of Cell\n");
++ 	    }
+  	    if ( col < cn )
+! 		if (tbl_style != FRAME)
+! 		    (void) fprintf(f,"%c", coldelim);
+  	}
+  	if ( tbl_style == LATEX ) {
+  		if ( row < rn ) (void) fprintf (f, "\\\\");
+***************
+*** 945,950 ****
+--- 1031,1039 ----
+  	else if ( tbl_style == TEX ) {
+  		(void) fprintf (f, "\\cr");
+  	}
++ 	else if ( tbl_style == FRAME ) {
++ 	    fprintf(f,"   > # end of Row\n");
++ 	}
+  	(void) fprintf (f,"\n");
+      }
+  
+***************
+*** 956,961 ****
+--- 1045,1059 ----
+      (void) fprintf (f,"!end<tabular>\n%% ** end of %s spreadsheet output\n", progname);
+      else if ( tbl_style == TEX )
+      (void) fprintf (f,"}\n%% ** end of %s spreadsheet output\n", progname);
++     else if ( tbl_style == FRAME ) {
++ 	fprintf(f,"  > # end of TblBody\n");
++ 	fprintf(f," ># end of Tbl\n");
++ 	fprintf(f,"> # end of Tbls\n");
++ 	fprintf(f,"<TextFlow <Para \n");
++ 	fprintf(f,"  <PgfTag Body> \n");
++ 	fprintf(f,"  <ParaLine <ATbl 1>> # Reference to table ID 1\n");
++ 	fprintf(f,">>\n");
++     }
+  
+      closeout(f, pid);
+  }
+***************
+*** 996,1002 ****
+  		freeenodes = ret->e.o.left;
+  	}
+  	else
+! 		ret = (struct enode *) xmalloc ((unsigned) sizeof (struct enode));
+  	ret->op = e->op;
+  	newrow=e->e.r.left.vf & FIX_ROW ? e->e.r.left.vp->row :
+  					  e->e.r.left.vp->row+Rdelta;
+--- 1094,1100 ----
+  		freeenodes = ret->e.o.left;
+  	}
+  	else
+! 		ret = (struct enode *) scxmalloc ((unsigned) sizeof (struct enode));
+  	ret->op = e->op;
+  	newrow=e->e.r.left.vf & FIX_ROW ? e->e.r.left.vp->row :
+  					  e->e.r.left.vp->row+Rdelta;
+***************
+*** 1016,1022 ****
+  		freeenodes = ret->e.o.left;
+  	}
+  	else
+! 		ret = (struct enode *) xmalloc ((unsigned) sizeof (struct enode));
+  	ret->op = e->op;
+  	switch (ret->op) {
+  	case 'v':
+--- 1114,1120 ----
+  		freeenodes = ret->e.o.left;
+  	}
+  	else
+! 		ret = (struct enode *) scxmalloc ((unsigned) sizeof (struct enode));
+  	ret->op = e->op;
+  	switch (ret->op) {
+  	case 'v':
+***************
+*** 1038,1044 ****
+  		ret->e.o.left = (struct enode *)0;
+   		break;
+  	case '$':
+! 		ret->e.s = xmalloc((unsigned) strlen(e->e.s)+1);
+  		(void) strcpy(ret->e.s, e->e.s);
+  		break;
+  	default:
+--- 1136,1142 ----
+  		ret->e.o.left = (struct enode *)0;
+   		break;
+  	case '$':
+! 		ret->e.s = scxmalloc((unsigned) strlen(e->e.s)+1);
+  		(void) strcpy(ret->e.s, e->e.s);
+  		break;
+  	default:
+***************
+*** 1051,1061 ****
+  }
+  
+  /*
+- 
+   * sync_refs and syncref are used to remove references to
+   * deleted struct ents.  Note that the deleted structure must still
+   * be hanging around before the call, but not referenced by an entry
+!  * in tbl.  Thus the free_ent, fix_ent calls in sc.c
+   */
+  void
+  sync_refs ()
+--- 1149,1158 ----
+  }
+  
+  /*
+   * sync_refs and syncref are used to remove references to
+   * deleted struct ents.  Note that the deleted structure must still
+   * be hanging around before the call, but not referenced by an entry
+!  * in tbl.  Thus the free_ent calls in sc.c
+   */
+  void
+  sync_refs ()
+***************
+*** 1144,1150 ****
+      FullUpdate++;
+      modflg++;
+      while (c1 <= c2)
+! 	col_hidden[c1++] = 1;
+  }
+  
+  /* mark a row as not-hidden */
+--- 1241,1247 ----
+      FullUpdate++;
+      modflg++;
+      while (c1 <= c2)
+! 	col_hidden[c1++] = TRUE;
+  }
+  
+  /* mark a row as not-hidden */
+***************
+*** 1180,1186 ****
+      FullUpdate++;
+      modflg++;
+      while (c1 <= c2)
+! 	col_hidden[c1++] = 0;
+  }
+  
+  /* Open the output file, setting up a pipe if needed */
+--- 1277,1283 ----
+      FullUpdate++;
+      modflg++;
+      while (c1 <= c2)
+! 	col_hidden[c1++] = FALSE;
+  }
+  
+  /* Open the output file, setting up a pipe if needed */
+***************
+*** 1282,1293 ****
+      n -> expr = copye (p -> expr, dr, dc);
+      n -> label = (char *)0;
+      if (p -> label) {
+! 	n -> label = xmalloc ((unsigned) (strlen (p -> label) + 1));
+  	(void) strcpy (n -> label, p -> label);
+      }
+      n -> format = 0;
+      if (p -> format) {
+!         n -> format = xmalloc ((unsigned) (strlen (p -> format) + 1));
+  	(void) strcpy (n -> format, p -> format);
+      }
+  }
+--- 1379,1390 ----
+      n -> expr = copye (p -> expr, dr, dc);
+      n -> label = (char *)0;
+      if (p -> label) {
+! 	n -> label = scxmalloc ((unsigned) (strlen (p -> label) + 1));
+  	(void) strcpy (n -> label, p -> label);
+      }
+      n -> format = 0;
+      if (p -> format) {
+!         n -> format = scxmalloc ((unsigned) (strlen (p -> format) + 1));
+  	(void) strcpy (n -> format, p -> format);
+      }
+  }
+***************
+*** 1457,1463 ****
+  	for (c=0; c++<=maxcol; pp++)
+  	    if (*pp) {
+  		if ((*pp)->expr)  efree ((*pp) -> expr);
+! 		if ((*pp)->label) xfree ((char *)((*pp) -> label));
+  		(*pp)->next = freeents;	/* save [struct ent] for reuse */
+  		freeents = *pp;
+  		*pp = (struct ent *)0;
+--- 1554,1560 ----
+  	for (c=0; c++<=maxcol; pp++)
+  	    if (*pp) {
+  		if ((*pp)->expr)  efree ((*pp) -> expr);
+! 		if ((*pp)->label) scxfree ((char *)((*pp) -> label));
+  		(*pp)->next = freeents;	/* save [struct ent] for reuse */
+  		freeents = *pp;
+  		*pp = (struct ent *)0;
+***************
+*** 1762,1768 ****
+  #ifdef sequent
+  		if ((statbuf.st_blksize > buflen) || (buf == NULL))
+  		{	buflen = statbuf.st_blksize;
+! 			if ((buf = xrealloc(buf, buflen)) == (char *)0)
+  			{	buflen = 0;
+  				return(0);
+  			}
+--- 1859,1865 ----
+  #ifdef sequent
+  		if ((statbuf.st_blksize > buflen) || (buf == NULL))
+  		{	buflen = statbuf.st_blksize;
+! 			if ((buf = scxrealloc(buf, buflen)) == (char *)0)
+  			{	buflen = 0;
+  				return(0);
+  			}
+*** ../619/crypt.c	Mon Mar 16 10:09:33 1992
+--- crypt.c	Fri May  8 12:31:19 1992
+***************
+*** 2,8 ****
+   * Encryption utilites
+   * Bradley Williams	
+   * {allegra,ihnp4,uiucdcs,ctvax}!convex!williams
+!  * $Revision: 6.19 $
+   */
+  
+  #if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+--- 2,8 ----
+   * Encryption utilites
+   * Bradley Williams	
+   * {allegra,ihnp4,uiucdcs,ctvax}!convex!williams
+!  * $Revision: 6.21 $
+   */
+  
+  #if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+***************
+*** 19,25 ****
+  
+  #include "sc.h"
+  
+- char        *strcpy();
+  char        *getpass();
+  
+  #ifdef SYSV3
+--- 19,24 ----
+*** ../619/format.c	Mon Mar 16 10:09:34 1992
+--- format.c	Fri May  8 13:40:26 1992
+***************
+*** 3,9 ****
+   * Mark Nagel <nagel@ics.uci.edu>
+   * 20 July 1989
+   *
+!  * $Revision: 6.19 $
+   *
+   * bool
+   * format(fmt, num, buf, buflen)
+--- 3,9 ----
+   * Mark Nagel <nagel@ics.uci.edu>
+   * 20 July 1989
+   *
+!  * $Revision: 6.21 $
+   *
+   * bool
+   * format(fmt, num, buf, buflen)
+***************
+*** 134,147 ****
+  
+    if (strlen(fmt) + 1 > fmtlen)
+    {	fmtlen = strlen(fmt) + 40;
+! 	tmpfmt1 = xrealloc(tmpfmt1, fmtlen);
+! 	tmpfmt2 = xrealloc(tmpfmt2, fmtlen);
+! 	exptmp = xrealloc(exptmp, fmtlen);
+    }
+    fmt = strcpy(tmpfmt1, fmt);
+    if (buflen + 1 > mantlen)
+    {	mantlen = buflen + 40;
+! 	mantissa = xrealloc(mantissa, mantlen);
+    }
+  
+    /*
+--- 134,147 ----
+  
+    if (strlen(fmt) + 1 > fmtlen)
+    {	fmtlen = strlen(fmt) + 40;
+! 	tmpfmt1 = scxrealloc(tmpfmt1, fmtlen);
+! 	tmpfmt2 = scxrealloc(tmpfmt2, fmtlen);
+! 	exptmp = scxrealloc(exptmp, fmtlen);
+    }
+    fmt = strcpy(tmpfmt1, fmt);
+    if (buflen + 1 > mantlen)
+    {	mantlen = buflen + 40;
+! 	mantissa = scxrealloc(mantissa, mantlen);
+    }
+  
+    /*
+***************
+*** 167,173 ****
+    
+    /*
+     * extract other information from format and produce a
+!    * format string stored in tmpfmt2 also xmalloc()'d above
+     */
+    tmp = tmpfmt2;
+    for (cp = fmt, tp = tmp; *cp != EOS; cp++)
+--- 167,173 ----
+    
+    /*
+     * extract other information from format and produce a
+!    * format string stored in tmpfmt2 also scxmalloc()'d above
+     */
+    tmp = tmpfmt2;
+    for (cp = fmt, tp = tmp; *cp != EOS; cp++)
+***************
+*** 298,304 ****
+      len_ci = strlen(ci);
+      if (len_ci >= cilen)
+      {	cilen = len_ci + 40;
+! 	citmp = xrealloc(citmp, cilen);
+      }
+      ci = strcpy(citmp, ci);
+  
+--- 298,304 ----
+      len_ci = strlen(ci);
+      if (len_ci >= cilen)
+      {	cilen = len_ci + 40;
+! 	citmp = scxrealloc(citmp, cilen);
+      }
+      ci = strcpy(citmp, ci);
+  
+***************
+*** 306,312 ****
+      len_cf = strlen(cf);
+      if (len_cf >= cflen)
+      {	cflen = len_cf + 40;
+! 	cftmp = xrealloc(cftmp, cilen);
+      }
+      cf = strcpy(cftmp, cf);
+  
+--- 306,312 ----
+      len_cf = strlen(cf);
+      if (len_cf >= cflen)
+      {	cflen = len_cf + 40;
+! 	cftmp = scxrealloc(cftmp, cilen);
+      }
+      cf = strcpy(cftmp, cf);
+  
+***************
+*** 314,320 ****
+      len_ce = strlen(ce);
+  /*
+   * Skip copy assuming sprintf doesn't call our format functions
+!  *   ce = strcpy(xmalloc((unsigned)((len_ce = strlen(ce)) + 1)), ce);
+   */
+      if (len_ci + len_cf + len_ce < buflen)
+      {
+--- 314,320 ----
+      len_ce = strlen(ce);
+  /*
+   * Skip copy assuming sprintf doesn't call our format functions
+!  *   ce = strcpy(scxmalloc((unsigned)((len_ce = strlen(ce)) + 1)), ce);
+   */
+      if (len_ci + len_cf + len_ce < buflen)
+      {
+***************
+*** 489,495 ****
+   * format is used.  The formats are:         example
+   *    0:   Fixed point (default)             0.00010
+   *    1:   Scientific                        1.00E-04
+!  *    2:   Engineering                       100.00u
+   *
+   * The format command 'f' now uses three values.  The first two are the
+   * width and precision, and the last one is the format value 0, 1, or 2 as
+--- 489,495 ----
+   * format is used.  The formats are:         example
+   *    0:   Fixed point (default)             0.00010
+   *    1:   Scientific                        1.00E-04
+!  *    2:   Engineering                       100.00e-06
+   *
+   * The format command 'f' now uses three values.  The first two are the
+   * width and precision, and the last one is the format value 0, 1, or 2 as
+***************
+*** 499,507 ****
+   * resulting string is too long to fit into the passed buffer, the
+   * function returns false.  Otherwise the function returns true.
+   *
+!  * When a number is formatted as engineering and is outside of the range
+!  * of typically used engineering exponents, the format reverts to
+!  * scientific.
+   *
+   * To preserve compatability with old spreadsheet files, the third value
+   * may be missing, and the default will be fixed point (format 0).
+--- 499,506 ----
+   * resulting string is too long to fit into the passed buffer, the
+   * function returns false.  Otherwise the function returns true.
+   *
+!  * When a number is formatted as engineering and is outside of the range,
+!  * the format reverts to scientific.
+   *
+   * To preserve compatability with old spreadsheet files, the third value
+   * may be missing, and the default will be fixed point (format 0).
+***************
+*** 518,525 ****
+  #define REFMTDATE	3
+  #endif
+  
+- char engmult[] = "afpnum kMGT";
+- 
+  bool
+  engformat(fmt, width, lprecision, val, buf, buflen)
+  int fmt; 
+--- 517,522 ----
+***************
+*** 529,534 ****
+--- 526,537 ----
+  char *buf;
+  int buflen;
+  {
++ 
++   static char *engmult[] = {
++       "-18", "-15", "-12", "-09", "-06", "-03",
++       "+00",
++       "+03", "+06", "+09", "+12", "+15", "+18"
++   };
+    int engind = 0;
+    double engmant, pow(), engabs, engexp;
+    if (buflen < width) return (false);
+***************
+*** 557,563 ****
+        if ((engabs >= 1e6) && (engabs < 1e9 )) engind=8;
+        if ((engabs >= 1e9) && (engabs < 1e12 )) engind=9;
+        if ((engabs >= 1e12) && (engabs < 1e15 )) engind=10;
+!       if ((engabs <1e-18) || (engabs >=1e15))
+        {
+        /* Revert to floating point */
+          (void) sprintf(buf,"%*.*E", width, lprecision, val);
+--- 560,568 ----
+        if ((engabs >= 1e6) && (engabs < 1e9 )) engind=8;
+        if ((engabs >= 1e9) && (engabs < 1e12 )) engind=9;
+        if ((engabs >= 1e12) && (engabs < 1e15 )) engind=10;
+!       if ((engabs >= 1e15) && (engabs < 1e18 )) engind=11;
+!       if ((engabs >= 1e18) && (engabs < 1e21 )) engind=12;
+!       if ((engabs <1e-18) || (engabs >=1e21))
+        {
+        /* Revert to floating point */
+          (void) sprintf(buf,"%*.*E", width, lprecision, val);
+***************
+*** 566,572 ****
+        {
+          engexp= (double) (engind-6)*3;
+          engmant= val/pow(10.0e0,engexp);
+!         (void) sprintf(buf,"%*.*f%c", width-1,
+                        lprecision, engmant, engmult[engind]);
+        }
+      }
+--- 571,577 ----
+        {
+          engexp= (double) (engind-6)*3;
+          engmant= val/pow(10.0e0,engexp);
+!         (void) sprintf(buf,"%*.*fe%s", width-4,
+                        lprecision, engmant, engmult[engind]);
+        }
+      }
+*** ../619/gram.y	Mon Mar 16 10:08:35 1992
+--- gram.y	Fri May  8 12:31:22 1992
+***************
+*** 9,15 ****
+   *
+   *		More mods by Alan Silverstein, 3/88, see list of changes.
+   *
+!  *		$Revision: 6.18 $
+   */
+  
+  
+--- 9,15 ----
+   *
+   *		More mods by Alan Silverstein, 3/88, see list of changes.
+   *
+!  *		$Revision: 6.21 $
+   */
+  
+  
+***************
+*** 19,26 ****
+  #include "sc.h"
+  
+  #define ENULL (struct enode *)0
+- 
+- char *strcpy();
+  %}
+  
+  %union {
+--- 19,24 ----
+***************
+*** 148,153 ****
+--- 146,152 ----
+  %token K_LATEX
+  %token K_SLATEX
+  %token K_TEX
++ %token K_FRAME
+  %token K_RNDINFINITY
+  %token K_MYROW
+  %token K_MYCOL
+***************
+*** 157,162 ****
+--- 156,162 ----
+  %token K_CRCOL
+  %token K_ROWLIMIT
+  %token K_COLLIMIT
++ %token K_NUMITER
+    
+  %left '?' ':'
+  %left '|'
+***************
+*** 188,223 ****
+  				  char *tmp;
+  				  tmp = $2;
+  				  readfile (tmp, 1);
+! 				  xfree(tmp);
+  				}
+  	|	S_MERGE strarg	{
+  				  char *tmp;
+  				  tmp = $2;
+  				  readfile (tmp, 0);
+! 				  xfree(tmp);
+  				}
+  	|	S_MDIR strarg	
+! 				{ if (mdir) xfree(mdir); mdir = $2; }
+  	|       S_PUT strarg range
+  				{ (void) writefile($2, ($3.left.vp)->row, 
+  			 	($3.left.vp)->col, ($3.right.vp)->row,
+  			 	($3.right.vp)->col);
+! 			 	xfree($2); }
+  	|	S_PUT strarg	
+  				{ (void) writefile ($2, 0, 0, maxrow, maxcol);
+! 			 	xfree($2); }
+  	|       S_WRITE strarg range { (void) printfile($2, ($3.left.vp)->row, 
+  			 ($3.left.vp)->col, ($3.right.vp)->row,
+  			 ($3.right.vp)->col);
+! 			 xfree($2); }
+  	|	S_WRITE strarg	{ (void) printfile ($2, 0, 0, maxrow, maxcol);
+! 			 xfree($2); }
+  	|       S_TBL strarg range { (void) tblprintfile($2, ($3.left.vp)->row, 
+  			 ($3.left.vp)->col, ($3.right.vp)->row,
+  			 ($3.right.vp)->col);
+! 			 xfree($2); }
+  	|	S_TBL strarg	{ (void)tblprintfile ($2, 0, 0, maxrow, maxcol);
+! 			 xfree($2); }
+  	|       S_SHOW COL ':' COL
+  					{ showcol( $2, $4); }
+  	|       S_SHOW NUMBER ':' NUMBER
+--- 188,223 ----
+  				  char *tmp;
+  				  tmp = $2;
+  				  readfile (tmp, 1);
+! 				  scxfree(tmp);
+  				}
+  	|	S_MERGE strarg	{
+  				  char *tmp;
+  				  tmp = $2;
+  				  readfile (tmp, 0);
+! 				  scxfree(tmp);
+  				}
+  	|	S_MDIR strarg	
+! 				{ if (mdir) scxfree(mdir); mdir = $2; }
+  	|       S_PUT strarg range
+  				{ (void) writefile($2, ($3.left.vp)->row, 
+  			 	($3.left.vp)->col, ($3.right.vp)->row,
+  			 	($3.right.vp)->col);
+! 			 	scxfree($2); }
+  	|	S_PUT strarg	
+  				{ (void) writefile ($2, 0, 0, maxrow, maxcol);
+! 			 	scxfree($2); }
+  	|       S_WRITE strarg range { (void) printfile($2, ($3.left.vp)->row, 
+  			 ($3.left.vp)->col, ($3.right.vp)->row,
+  			 ($3.right.vp)->col);
+! 			 scxfree($2); }
+  	|	S_WRITE strarg	{ (void) printfile ($2, 0, 0, maxrow, maxcol);
+! 			 scxfree($2); }
+  	|       S_TBL strarg range { (void) tblprintfile($2, ($3.left.vp)->row, 
+  			 ($3.left.vp)->col, ($3.right.vp)->row,
+  			 ($3.right.vp)->col);
+! 			 scxfree($2); }
+  	|	S_TBL strarg	{ (void)tblprintfile ($2, 0, 0, maxrow, maxcol);
+! 			 scxfree($2); }
+  	|       S_SHOW COL ':' COL
+  					{ showcol( $2, $4); }
+  	|       S_SHOW NUMBER ':' NUMBER
+***************
+*** 375,380 ****
+--- 375,381 ----
+  	| '@' K_MYROW			{ $$ = new(MYROW, ENULL, ENULL);}
+  	| '@' K_MYCOL			{ $$ = new(MYCOL, ENULL, ENULL);}
+  	| '@' K_COLTOA '(' e ')'	{ $$ = new(COLTOA, ENULL, $4);}
++ 	| '@' K_NUMITER			{ $$ = new(NUMITER, ENULL, ENULL);}
+  	;
+  
+  /* expressions */
+***************
+*** 432,438 ****
+  				    s1 = $1.vp->label;
+  				    if (!s1)
+  					s1 = "NULL_STRING";
+! 				    s = xmalloc((unsigned)strlen(s1)+1);
+  				    (void) strcpy(s, s1);
+  				    $$ = s;
+  				}
+--- 433,439 ----
+  				    s1 = $1.vp->label;
+  				    if (!s1)
+  					s1 = "NULL_STRING";
+! 				    s = scxmalloc((unsigned)strlen(s1)+1);
+  				    (void) strcpy(s, s1);
+  				    $$ = s;
+  				}
+***************
+*** 468,473 ****
+--- 469,475 ----
+  	|	K_TBLSTYLE '=' K_LATEX	{ tbl_style = LATEX; }
+  	|	K_TBLSTYLE '=' K_SLATEX	{ tbl_style = SLATEX; }
+  	|	K_TBLSTYLE '=' K_TEX	{ tbl_style = TEX; }
++ 	|	K_TBLSTYLE '=' K_FRAME	{ tbl_style = FRAME; }
+  	|	K_RNDINFINITY		{ rndinfinity = 1; FullUpdate++; }
+  	|	'!' K_RNDINFINITY	{ rndinfinity = 0; FullUpdate++; }
+  	|	K_CRACTION '=' NUMBER	{ craction = $3; }
+*** ../619/help.c	Mon Mar 16 10:09:37 1992
+--- help.c	Fri May  8 12:31:24 1992
+***************
+*** 2,13 ****
+   * Help functions for sc 
+   * R. Bond, 1988
+   * J. Buhrt 1990
+!  * $Revision: 6.19 $
+   */
+  
+  #ifdef QREF
+  #include <stdio.h>
+! char	*header = " Quick Reference\n\n$Revision: 6.19 $";
+  #else
+  #include <curses.h>
+  #include "sc.h"
+--- 2,14 ----
+   * Help functions for sc 
+   * R. Bond, 1988
+   * J. Buhrt 1990
+!  * $Revision: 6.21 $
+   */
+  
+  #ifdef QREF
+  #include <stdio.h>
+! char	*header = " Quick Reference";
+! char	*revision = "$Revision: 6.21 $";
+  #else
+  #include <curses.h>
+  #include "sc.h"
+***************
+*** 15,22 ****
+--- 16,29 ----
+  
+  char *intro[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " Overview:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  " A:   This overview",
+  " B:   Toggle Options",
+  " C:   Set Options",
+***************
+*** 40,47 ****
+--- 47,60 ----
+  
+  char *toggleoptions[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " B: Toggle Options",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     ^To  Toggle options. Toggle one option selected by o:",
+  "          a    Recalculate automatically or on ``@'' commands.",
+  "          c    Current cell highlighting enable/disable.",  
+***************
+*** 65,72 ****
+--- 78,91 ----
+  
+  char *setoptions[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " C: Set Options",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     S  Set options.  Options include:",
+  "          byrows        Recalculate in row order. (default)",
+  "          bycols        Recalculate in column order.",
+***************
+*** 82,89 ****
+--- 101,114 ----
+  
+  char *cursor[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " D: Cell cursor movement (always OK):",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     ^N ^P ^B ^F Down, up, back, forward",
+  "     ^Ed         Go to end of range.  Follow ^E by a direction indicator",
+  "                 such as ^P or j.",
+***************
+*** 109,116 ****
+--- 134,147 ----
+  
+  char *cell[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " E: Cell entry and editing commands:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     =    Enter a numeric constant or expression.",
+  "     <    Enter a left justified string or string expression.",
+  "     \"    Enter a centered label.",
+***************
+*** 133,140 ****
+--- 164,177 ----
+  
+  char *vi[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " F: Line Editor",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     Hitting the ESC key while entering any command on the top line",
+  "     will start a one-line vi-style editor.  Supported commands:",
+  " ",
+***************
+*** 145,151 ****
+  "     fc           Move cursor to character c.",
+  "     tc           Move the cursor the the character before c.",
+  "     i a          Enter insert mode before/after the cursor.",
+! "     I            Move to cursor column 0 and enter insert mode.",
+  "     x X          Delete the character under/before the cursor.",
+  "     rc           Replace the character under the cursor with c.",
+  "     cm           Change - m = b,f,h,l,t or w.",
+--- 182,188 ----
+  "     fc           Move cursor to character c.",
+  "     tc           Move the cursor the the character before c.",
+  "     i a          Enter insert mode before/after the cursor.",
+! "     I A          Move to column 0/end of line and enter insert mode.",
+  "     x X          Delete the character under/before the cursor.",
+  "     rc           Replace the character under the cursor with c.",
+  "     cm           Change - m = b,f,h,l,t or w.",
+***************
+*** 159,166 ****
+--- 196,209 ----
+  
+  char *file[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " G: File commands:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     G    Get a new database from a file. ",
+  "     M    Merge a new file into the current database.",
+  "     P    Put the current database into a file.",
+***************
+*** 171,178 ****
+--- 214,225 ----
+  "          Optionally brackets output with control lines for ``tbl'',",
+  "          ``LaTeX'', ``SLaTex'', or ``TeX''.",
+  " ",
++ #if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+  "     If encryption mode is set, file I/O will be encrypted/decrypted.",
+  "     ``\"| program\"'' for a file name will pipe (unencrypted) output to",
++ #else
++ "     ``\"| program\"'' for a file name will pipe output to",
++ #endif
+  "     a program for Put, Write and Table.  If a cell name is used",
+  "     as the file name, the cell's string part will be used as the",
+  "     file name.",
+***************
+*** 182,189 ****
+--- 229,242 ----
+  
+  char *row[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " H: Row and column commands:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     ir, ic      Insert a new, empty row (column)",
+  "     ar, ac      Append a new copy of the current row (column)",
+  "     dr, dc      Delete the current row (column)",
+***************
+*** 209,215 ****
+--- 262,274 ----
+  
+  char *range[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " I: Range commands:",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     /x   Clear a range. ",
+  "     /v   Remove the expressions from a range of cells, leaving ",
+  "          just the values.",
+***************
+*** 237,244 ****
+--- 296,309 ----
+  
+  char *misc[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " J: Miscellaneous commands:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     Q q ^C   Exit from the program.",
+  "     ^G ESC   Abort entry of the current command.",
+  "     ?        Help",
+***************
+*** 259,266 ****
+--- 324,337 ----
+  
+  char *var[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " K: Variable names:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     K20    Row and column can vary on copies.",
+  "     $K$20  Row and column stay fixed on copies.",
+  "     $K20   Row can vary; column stays fixed on copies.",
+***************
+*** 285,292 ****
+--- 356,369 ----
+  
+  char *rangef[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " L: Range functions:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     @sum(r)           Sum all valid cells in the range.",
+  "     @prod(r)          Multiply together all valid cells in the range.",
+  "     @avg(r)           Average all valid cells in the range.",
+***************
+*** 311,318 ****
+--- 388,401 ----
+  
+  char *numericf[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " M: Numeric functions:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     @atan2(e1,e2)     Arc tangent of e1/e2.",
+  "     @ceil(e)          Smallest integer not less than e.",
+  "     @eqs(se1,se2)     1 if string expr se1 has the same value as se2.",
+***************
+*** 338,344 ****
+--- 421,433 ----
+  
+  char *stringf[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " N: String functions:",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     #                 Concatenate strings.  For example, the",
+  "                       string expression ``A0 # \"zy dog\"'' yields",
+  "                       ``the lazy dog'' if A0 is ``the la''.",
+***************
+*** 366,373 ****
+--- 455,468 ----
+  
+  char *finf[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " O: Financial functions:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     @pmt(e1,e2,e3)    @pmt(60000,.01,360) computes the monthly",
+  "                       payments for a $60000 mortgage at 12%",
+  "                       annual interest (.01 per month) for 30",
+***************
+*** 393,400 ****
+--- 488,501 ----
+  
+  char *timef[] = {
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".SH",
++ #endif
+  " P: Time and date functions:",
+  " ",
++ #if defined(QREF) && defined(TROFF)
++ ".Lp",
++ #endif
+  "     @now              Return the time encoded in seconds since 1970.",
+  "     @dts(m,d,y)       Return m/d/y encoded in seconds since 1970.",
+  "     @tts(h,m,s)       Return h:m:s encoded in seconds since midnight.",
+***************
+*** 482,498 ****
+  main()
+  {   int	lineno;
+      char	***pagep = pages;
+  
+      while (*pagep)
+      {
+  	(void) fputs(SCNAME, stdout);
+! 	(void) puts(header);
+  
+  	for (lineno = 0; (*pagep)[lineno]; lineno++) {
+  		(void) puts((*pagep)[lineno]);
+  	}
+  	(void) putchar('\f');
+  	pagep++;
+      }
+      (void) exit(0);
+  }
+--- 583,632 ----
+  main()
+  {   int	lineno;
+      char	***pagep = pages;
++ #ifdef TROFF
++     int	pageno = 0;
++ #endif
+  
++ #ifdef TROFF
++ puts(".nr PS 12");
++ puts(".nr VS 14");
++ puts(".nr HM 1i");
++ puts(".nr FM 1i");
++ puts(".nr PO 0.5i");
++ printf(".EH '%s%s''%s'\n", SCNAME, header, revision);
++ printf(".OH '%s%s''%s'\n", SCNAME, header, revision);
++ puts(".EF ''%''");
++ puts(".OF ''%''");
++ puts(".de Lp");
++ puts(".LP");
++ puts(".ft CW");
++ puts(".na");
++ puts(".nf");
++ puts("..");
++ puts(".P1");
++ puts(".LP");
++ #endif
++ 
+      while (*pagep)
+      {
++ #ifndef TROFF
+  	(void) fputs(SCNAME, stdout);
+! 	(void) fputs(header);
+! 	(void) printf("\n");
+! 	(void) puts(revision);
+! #endif
+  
+  	for (lineno = 0; (*pagep)[lineno]; lineno++) {
+  		(void) puts((*pagep)[lineno]);
+  	}
++ #if !defined(TROFF)
+  	(void) putchar('\f');
++ #endif
+  	pagep++;
++ #ifdef TROFF
++ 	pageno++;
++ 	if (!(pageno%2)) puts(".bp");
++ #endif
+      }
+      (void) exit(0);
+  }
+
+exit 0 # Just in case...

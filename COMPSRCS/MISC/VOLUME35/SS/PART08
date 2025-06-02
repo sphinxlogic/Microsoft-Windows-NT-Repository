@@ -1,0 +1,2534 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i094:  ss - Simple Spreadsheet program, v1.2b, Part08/11
+Message-ID: <1993Feb22.153118.21839@sparky.imd.sterling.com>
+X-Md4-Signature: eff1aec054304508edbe1afab14f84f1
+Date: Mon, 22 Feb 1993 15:31:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 94
+Archive-name: ss/part08
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/format.c ss_12b/menu_edit.c ss_12b/menu_file.c
+#   ss_12b/sc_stuff/vi.c ss_12b/ss.c
+# Wrapped by kent@sparky on Sat Feb 20 16:01:04 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 11)."'
+if test -f 'ss_12b/format.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/format.c'\"
+else
+  echo shar: Extracting \"'ss_12b/format.c'\" \(15050 characters\)
+  sed "s/^X//" >'ss_12b/format.c' <<'END_OF_FILE'
+X/*****************************************************************************
+X *
+X * Mark Nagel <nagel@ics.uci.edu>
+X * 20 July 1989
+X *
+X * $Revision: 6.21 $
+X *
+X * bool
+X * format(fmt, num, buf, buflen)
+X *  char *fmt;
+X *  double num;
+X *  char buf[];
+X *  int buflen;
+X *
+X * The format function will produce a string representation of a number
+X * given a _format_ (described below) and a double value.  The result is
+X * written into the passed buffer -- if the resulting string is too
+X * long to fit into the passed buffer, the function returns false.
+X * Otherwise the function returns true.
+X *
+X * The fmt parameter contains the format to use to convert the number.
+X *
+X *  #	Digit placeholder.  If the number has fewer digits on either
+X *      side of the decimal point than  there are '#' characters in
+X *      the format, the extra '#' characters are ignored.  The number
+X *      is rounded to the number of digit placeholders as there are
+X *      to the right of the decimal point.  If there are more digits
+X *      in the number than there are digit placeholders on the left
+X *      side of the decimal point, then those digits are displayed.
+X *
+X *  0	Digit placeholder.  Same as for '#' except that the number
+X *      is padded with zeroes on either side of the decimal point.
+X *      The number of zeroes used in padding is determined by the
+X *      number of digit placeholders after the '0' for digits on
+X *      the left side of the decimal point and by the number of
+X *      digit placeholders before the '0' for digits on the right
+X *      side of the decimal point.
+X *
+X *  .	Decimal point.  Determines how many digits are placed on
+X *      the right and left sides of the decimal point in the number.
+X *      Note that numbers smaller than 1 will begin with a decimal
+X *      point if the left side of the decimal point contains only
+X *      a '#' digit placeholder.  Use a '0' placeholder to get a
+X *      leading zero in decimal formats.
+X *
+X *  %	Percentage.  For each '%' character in the format, the actual
+X *      number gets multiplied by 100 (only for purposes of formatting
+X *      -- the original number is left unmodified) and the '%' character
+X *      is placed in the same position as it is in the format.
+X *
+X *  ,	Thousands separator.  The presence of a ',' in the format
+X *      (multiple commas are treated as one) will cause the number
+X *      to be formatted with a ',' separating each set of three digits
+X *      in the integer part of the number with numbering beginning
+X *      from the right end of the integer.
+X *
+X *  \	Quote.  This character causes the next character to be
+X *      inserted into the formatted string directly with no
+X *      special interpretation.
+X *
+X *  E- E+ e- e+
+X *	Scientific format.  Causes the number to formatted in scientific
+X *	notation.  The case of the 'E' or 'e' given is preserved.  If
+X *      the format uses a '+', then the sign is always given for the
+X *	exponent value.  If the format uses a '-', then the sign is
+X *	only given when the exponent value is negative.  Note that if
+X *	there is no digit placeholder following the '+' or '-', then
+X *	that part of the formatted number is left out.  In general,
+X *	there should be one or more digit placeholders after the '+'
+X *	or '-'.
+X *
+X *  ;	Format selector.  Use this character to separate the format
+X *	into two distinct formats.  The format to the left of the
+X *	';' character will be used if the number given is zero or
+X *	positive.  The format to the right of the ';' character is
+X *      used if the number given is negative.
+X *    
+X *  Any
+X *	Self insert.  Any other character will be inserted directly
+X *	into the formatted number with no change made to the actual
+X *      number.
+X *
+X *****************************************************************************/
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*****************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <time.h>
+X#include "ss.h"
+X
+X#define bool	int
+X#define true	1
+X#define false	0
+X#define EOS	'\0'
+X#define MAXBUF	256
+X
+Xextern char
+X  *strcpy(),
+X  *strcat();
+X
+Xstatic char
+X  *fmt_int(),
+X  *fmt_frac(),
+X  *fmt_exp();
+X
+Xstatic void
+X  reverse();
+X
+X/*****************************************************************************/
+X
+Xbool
+Xformat(fmt, val, buf, buflen)
+X  char *fmt;
+X  double val;
+X  char *buf;
+X  int buflen;
+X{
+X  register char *cp;
+X  char *tmp, *tp;
+X  bool comma = false, negative = false;
+X  char *integer = NULL, *decimal = NULL;
+X  char *exponent = NULL;
+X  int exp_val, width;
+X  char prtfmt[32];
+X  static char		*mantissa = NULL;
+X  static char		*tmpfmt1 = NULL, *tmpfmt2 = NULL, *exptmp = NULL;
+X  static unsigned	mantlen = 0, fmtlen = 0;
+X  char *fraction = NULL;
+X  int zero_pad = 0;
+X
+X  if (fmt == NULL)
+X    return(true);
+X
+X  if (strlen(fmt) + 1 > fmtlen)
+X  {	fmtlen = strlen(fmt) + 40;
+X	tmpfmt1 = Realloc(tmpfmt1, fmtlen);
+X	tmpfmt2 = Realloc(tmpfmt2, fmtlen);
+X	exptmp = Realloc(exptmp, fmtlen);
+X  }
+X  fmt = strcpy(tmpfmt1, fmt);
+X  if (buflen + 1 > mantlen)
+X  {	mantlen = buflen + 40;
+X	mantissa = Realloc(mantissa, mantlen);
+X  }
+X
+X  /*
+X   * select positive or negative format if necessary
+X   */
+X  for (cp = fmt; *cp != ';' && *cp != EOS; cp++)
+X  {
+X    if (*cp == '\\')
+X      cp++;
+X  }
+X  if (*cp == ';')
+X  {
+X    if (val < 0.0)
+X    {
+X      val = -val;     /* format should provide sign if desired */
+X      fmt = cp + 1;
+X    }
+X    else
+X    {
+X      *cp = EOS;
+X    }
+X  }
+X  
+X  /*
+X   * extract other information from format and produce a
+X   * format string stored in tmpfmt2 also Malloc()'d above
+X   */
+X  tmp = tmpfmt2;
+X  for (cp = fmt, tp = tmp; *cp != EOS; cp++)
+X  {
+X    switch (*cp)
+X    {
+X      case '\\':
+X        *tp++ = *cp++;
+X        *tp++ = *cp;
+X	break;
+X
+X      case ',':
+X        comma = true;
+X	break;
+X
+X      case '.':
+X        if (decimal == NULL)
+X	  decimal = tp;
+X	*tp++ = *cp;
+X	break;
+X	
+X      case '%':
+X        val *= 100.0;
+X	*tp++ = *cp;
+X	break;
+X	
+X      default:
+X        *tp++ = *cp;
+X	break;
+X    }
+X  }
+X  *tp = EOS;
+X  fmt = tmpfmt2;
+X
+X  if (val < 0.0)
+X  {	negative = true;
+X	val = -val;
+X  }
+X  /*
+X   * extract the exponent from the format if present
+X   */
+X  for (cp = fmt; *cp != EOS; cp++)
+X  { if (*cp == '\\')
+X    {
+X      cp++;
+X    }
+X    else if (*cp == 'e' || *cp == 'E')
+X    {
+X      if (cp[1] == '+' || cp[1] == '-')
+X      {
+X	exponent = strcpy(exptmp, cp);
+X	*cp = EOS;
+X	exp_val = 0;
+X	if (val!=0.0) {
+X	  while (val < 1.0)
+X	  {
+X	    val *= 10.0;
+X	    exp_val--;
+X	  }
+X	  while (val >= 10.0)
+X	  {
+X	    val /= 10.0;
+X	    exp_val++;
+X	  }
+X	}
+X	break;
+X      }
+X    }
+X  }
+X
+X  /*
+X   * determine maximum decimal places and use sprintf
+X   * to build initial character form of formatted value.
+X   */
+X  width = 0;
+X  if (decimal)
+X  {
+X    *decimal++ = EOS;
+X    for (cp = decimal; *cp != EOS; cp++)
+X    {
+X      switch (*cp)
+X      {
+X        case '\\':
+X          cp++;
+X	  break;
+X
+X        case '#':
+X          width++;
+X	  break;
+X
+X	case '0':
+X	  zero_pad = ++width;
+X	  break;
+X      }
+X    }
+X    zero_pad = strlen(decimal) - zero_pad;
+X  }
+X  (void) sprintf(prtfmt, "%%.%dlf", width);
+X  (void) sprintf(mantissa, prtfmt, val);
+X  for (cp = integer = mantissa; *cp != '.' && *cp != EOS; cp++)
+X  {
+X    if (*integer == '0')
+X      integer++;
+X  }
+X  if (*cp == '.')
+X  {
+X    fraction = cp + 1;
+X    *cp = EOS;
+X    cp = fraction + strlen(fraction) - 1;
+X    for (; zero_pad > 0; zero_pad--, cp--)
+X    {
+X      if (*cp == '0')
+X        *cp = EOS;
+X    }
+X  }
+X
+X  /*
+X   * format the puppy
+X   */
+X  {
+X    static	char *citmp = NULL, *cftmp = NULL;
+X    static	unsigned cilen = 0, cflen = 0;
+X    char *ci, *cf, *ce;
+X    int len_ci, len_cf, len_ce;
+X    bool ret = false;
+X    
+X    ci = fmt_int(integer, fmt, comma, negative);
+X    len_ci = strlen(ci);
+X    if (len_ci >= cilen)
+X    {	cilen = len_ci + 40;
+X	citmp = Realloc(citmp, cilen);
+X    }
+X    ci = strcpy(citmp, ci);
+X
+X    cf = (fraction) ? fmt_frac(fraction, decimal) : "";
+X    len_cf = strlen(cf);
+X    if (len_cf >= cflen)
+X    {	cflen = len_cf + 40;
+X	cftmp = Realloc(cftmp, cilen);
+X    }
+X    cf = strcpy(cftmp, cf);
+X
+X    ce = (exponent) ? fmt_exp(exp_val, exponent) : "";
+X    len_ce = strlen(ce);
+X/*
+X * Skip copy assuming sprintf doesn't call our format functions
+X *   ce = strcpy(Malloc((unsigned)((len_ce = strlen(ce)) + 1)), ce);
+X */
+X    if (len_ci + len_cf + len_ce < buflen)
+X    {
+X      (void) sprintf(buf, "%s%s%s", ci, cf, ce);
+X      ret = true;
+X    }
+X
+X    return (ret);
+X  }
+X}
+X
+X/*****************************************************************************/
+X
+Xstatic char *
+Xfmt_int(val, fmt, comma, negative)
+X  char *val;	    /* integer part of the value to be formatted */
+X  char *fmt;	    /* integer part of the format */
+X  bool comma;	    /* true if we should comma-ify the value */
+X  bool negative;    /* true if the value is actually negative */
+X{
+X  int digit, f, v;
+X  int thousands = 0;
+X  char *cp;
+X  static char buf[MAXBUF];
+X  char *bufptr = buf;
+X
+X  /*
+X   * locate the leftmost digit placeholder
+X   */
+X  for (cp = fmt; *cp != EOS; cp++)
+X  {
+X    if (*cp == '\\')
+X      cp++;
+X    else if (*cp == '#' || *cp == '0')
+X      break;
+X  }
+X  digit = (*cp == EOS) ? -1 : cp - fmt;
+X
+X  /*
+X   * format the value
+X   */
+X  f = strlen(fmt) - 1;
+X  v = (digit >= 0) ? strlen(val) - 1 : -1;
+X  while (f >= 0 || v >= 0)
+X  {
+X    if (f > 0 && fmt[f-1] == '\\')
+X    {
+X      *bufptr++ = fmt[f--];
+X    }
+X    else if (f >= 0 && (fmt[f] == '#' || fmt[f] == '0'))
+X    {
+X      if (v >= 0 || fmt[f] == '0')
+X      {
+X        *bufptr++ = v < 0 ? '0' : val[v];
+X	if (comma && (thousands = (thousands + 1) % 3) == 0 && v > 0)
+X	{
+X	  *bufptr++ = ',';
+X	}
+X	v--;
+X      }
+X    }
+X    else if (f >= 0)
+X    {
+X      *bufptr++ = fmt[f];
+X    }
+X    if (v >= 0 && f == digit)
+X    {
+X      continue;
+X    }
+X    f--;
+X  }
+X    
+X  if (negative && digit >= 0)
+X    *bufptr++ = '-';
+X  *bufptr = EOS;
+X  reverse(buf);
+X
+X  return (buf);
+X}
+X
+X/*****************************************************************************/
+X
+Xstatic char *
+Xfmt_frac(val, fmt)
+X  char *val;	    /* fractional part of the value to be formatted */
+X  char *fmt;	    /* fractional portion of format */
+X{
+X  static char buf[MAXBUF];
+X  register char *bufptr = buf;
+X  register char *fmtptr = fmt, *valptr = val;
+X
+X  *bufptr++ = '.';
+X  while (*fmtptr != EOS)
+X  {
+X    if (*fmtptr == '\\')
+X    {
+X      *bufptr++ = *++fmtptr;
+X    }
+X    else if (*fmtptr == '#' || *fmtptr == '0')
+X    {
+X      if (*valptr != EOS || *fmtptr == '0')
+X      {
+X        *bufptr++ = (*valptr != EOS) ? *valptr++ : *fmtptr;
+X      }
+X    }
+X    else
+X    {
+X      *bufptr++ = *fmtptr;
+X    }
+X    fmtptr++;
+X  }
+X  *bufptr = EOS;
+X
+X  return (buf);
+X}
+X
+X/*****************************************************************************/
+X
+Xstatic char *
+Xfmt_exp(val, fmt)
+X  int val;	    /* value of the exponent */
+X  char *fmt;	    /* exponent part of the format */
+X{
+X  static char buf[MAXBUF];
+X  register char *bufptr = buf;
+X  char valbuf[64];
+X  bool negative = false;
+X  
+X  *bufptr++ = *fmt++;
+X  if (*fmt == '+')
+X    *bufptr++ = (val < 0) ? '-' : '+';
+X  else if (val < 0)
+X    *bufptr++ = '-';
+X  fmt++;
+X  *bufptr = EOS;
+X
+X  if (val < 0)
+X  {
+X    val = -val;
+X    negative = false;
+X  }
+X  (void) sprintf(valbuf, "%d", val);
+X  
+X  (void) strcat(buf, fmt_int(valbuf, fmt, false, negative));
+X  return (buf);
+X}
+X
+X/*****************************************************************************/
+X
+Xstatic void
+Xreverse(buf)
+X  register char *buf;
+X{
+X  register char *cp = buf + strlen(buf) - 1;
+X  register char tmp;
+X
+X  while (buf < cp)
+X  {
+X    tmp = *cp;
+X    *cp-- = *buf;
+X    *buf++ = tmp;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/*  
+X * Tom Anderson    <toma@hpsad.hp.com>
+X * 10/14/90
+X *
+X * This routine takes a value and formats it using fixed, scientific,
+X * or engineering notation.  The format command 'f' determines which
+X * format is used.  The formats are:         example
+X *    0:   Fixed point (default)             0.00010
+X *    1:   Scientific                        1.00E-04
+X *    2:   Engineering                       100.00u
+X *
+X * The format command 'f' now uses three values.  The first two are the
+X * width and precision, and the last one is the format value 0, 1, or 2 as
+X * described above.  The format value is passed in the variable fmt.
+X *
+X * This formatted value is written into the passed buffer.  if the
+X * resulting string is too long to fit into the passed buffer, the
+X * function returns false.  Otherwise the function returns true.
+X *
+X * When a number is formatted as engineering and is outside of the range
+X * of typically used engineering exponents, the format reverts to
+X * scientific.
+X *
+X * To preserve compatability with old spreadsheet files, the third value
+X * may be missing, and the default will be fixed point (format 0).
+X *
+X * When an old style sheet is saved, the third value will be stored.
+X *
+X */
+X
+X/* defined in sc.h */
+X#ifndef REFMTFIX
+X#define REFMTFIX	0
+X#define REFMTFLT	1
+X#define REFMTENG	2
+X#define REFMTDATE	3
+X#endif
+X
+Xchar engmult[] = "afpnum kMGT";
+X
+Xbool
+Xengformat(fmt, width, lprecision, val, buf, buflen)
+Xint fmt; 
+Xint width; 
+Xint lprecision;
+Xdouble val;
+Xchar *buf;
+Xint buflen;
+X{
+X  int engind = 0;
+X  double engmant, pow(), engabs, engexp;
+X  if (buflen < width) return (false);
+X  if (fmt == REFMTFIX)
+X  (void) sprintf(buf,"%*.*f", width, lprecision, val);
+X  if (fmt == REFMTFLT)
+X  (void) sprintf(buf,"%*.*E", width, lprecision, val);
+X  if (fmt == REFMTENG)
+X  {
+X    if (val == 0e0)    /* Hack to get zeroes to line up in engr fmt */
+X    {
+X      (void) sprintf((buf-1),"%*.*f ", width, lprecision, val);
+X    }
+X    else
+X    {
+X      engabs=(val);
+X      if (engabs < 0e0) engabs= -engabs;
+X      if ((engabs >= 1e-18) && (engabs < 1e-15 )) engind=0;
+X      if ((engabs >= 1e-15) && (engabs < 1e-12 )) engind=1;
+X      if ((engabs >= 1e-12) && (engabs < 1e-9 )) engind=2;
+X      if ((engabs >= 1e-9) && (engabs < 1e-6 )) engind=3;
+X      if ((engabs >= 1e-6) && (engabs < 1e-3 )) engind=4;
+X      if ((engabs >= 1e-3) && (engabs < 1 )) engind=5;
+X      if ((engabs >= 1) && (engabs < 1e3 )) engind=6;
+X      if ((engabs >= 1e3) && (engabs < 1e6 )) engind=7;
+X      if ((engabs >= 1e6) && (engabs < 1e9 )) engind=8;
+X      if ((engabs >= 1e9) && (engabs < 1e12 )) engind=9;
+X      if ((engabs >= 1e12) && (engabs < 1e15 )) engind=10;
+X      if ((engabs <1e-18) || (engabs >=1e15))
+X      {
+X      /* Revert to floating point */
+X        (void) sprintf(buf,"%*.*E", width, lprecision, val);
+X      }
+X      else
+X      {
+X        engexp= (double) (engind-6)*3;
+X        engmant= val/pow(10.0e0,engexp);
+X        (void) sprintf(buf,"%*.*f%c", width-1,
+X                      lprecision, engmant, engmult[engind]);
+X      }
+X    }
+X  }
+X  if (fmt == REFMTDATE) {
+X    int i;
+X    char *time;
+X    long int secs;
+X
+X    if (buflen < 9) {
+X      for (i = 0; i < width; i++) buf[i] = '*';
+X      buf[i] = '\0';
+X    }
+X    else {
+X      secs = (time_t)val;
+X      time = ctime(&secs);
+X      buf[0] = time[8];
+X      buf[1] = time[9];
+X      buf[2] = ' ';
+X      buf[3] = time[4];
+X      buf[4] = time[5];
+X      buf[5] = time[6];
+X      buf[6] = ' ';
+X      buf[7] = time[22];
+X      buf[8] = time[23];
+X      for (i = 9; i < width; i++) buf[i] = ' ';
+X      buf[i] = '\0';
+X    }
+X  }
+X  return (true);
+X}
+END_OF_FILE
+  if test 15050 -ne `wc -c <'ss_12b/format.c'`; then
+    echo shar: \"'ss_12b/format.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/format.c'
+fi
+if test -f 'ss_12b/menu_edit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/menu_edit.c'\"
+else
+  echo shar: Extracting \"'ss_12b/menu_edit.c'\" \(7158 characters\)
+  sed "s/^X//" >'ss_12b/menu_edit.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Edit Menu Operations
+X***********************************************************************
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include "curses_stuff.h"
+X
+X#include "ss.h"
+X#include "getinput.h"
+X#include "disprange.h"
+X#include "menu_edit.h"
+X
+X/*	Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+X/*
+X** NOTE: How about making some sort of internal Cell Buffer.  Then
+X** write Cut/Copy/Paste Functions to replace the current Copy/Erase
+X** functions.  FUTURE WORK, for now live with the kludge.
+X*/
+X
+Xvoid EditCopy()
+X/*----------------------------------------------------------------------
+X** Copy a range of cells.  Copy the current cell, if no range is
+X** currently defined.  Prompt the user to Enter a Destination Range.
+X*/
+X{
+X    static char saverange[10];		/* To save the first range */
+X    /* need to make special arrangements, because we are handling
+X     * more than one range.
+X     */
+X
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    
+X    /*
+X     * Prompt the user to enter a destination range
+X     */
+X    if (range[0] == NULL) {	/* Null range */
+X	static char *curcell;		/* to hold current cell */
+X	curcell = v_name(currow, curcol); /* Get current cell */
+X	Sprintf(saverange, "%s:%s", curcell, curcell);
+X	     /* record the current cell as the starting range */
+X	
+X
+X	Sprintf(message, "** Copy the Current Cell to... (Enter a range)" );
+X
+X    } else {
+X	Sprintf(message, "** Copy the Cell Range %s to... (Enter a range)",
+X		range);
+X	strcpy(saverange, range); /* Save the starting range */
+X    }
+X    
+X    Message(message);
+X
+X/*
+X * BUG: No way out of this operation!  MUST enter a range
+X * and the copy WILL take place.
+X */
+X      
+X    range = RangeForceInput();	/* Get Destination range */
+X    if (range[0] == NULL) 	/* Null range */
+X	range = r_name(currow, curcol, currow, curcol);
+X
+X    ClearMessage; 
+X    Sprintf(line,"copy [dest_range src_range] %s %s", range, saverange);
+X    PROCESS_line;
+X
+X} /* EditCopy() */
+X
+Xvoid EditErase()
+X/*----------------------------------------------------------------------
+X** Erase a range of cells.  Erase the current cell, if no range is
+X** currently defined.  DANGEROUS OPERATION: Prompt for confirmation.
+X*/
+X{
+X    range = RangeGet();         /* Get range, if any, "" otherwise. */
+X
+X    if (range[0] == NULL)       /* Null range */
+X        Sprintf(message, "** Erase the Current Cell?" );
+X    else
+X        Sprintf(message, "** Erase the Cell Range %s ?", range);
+X
+X    if (yn_ask(message) == 1) {
+X	Sprintf(line,"erase [range] %s", range);
+X	PROCESS_line;
+X    }
+X
+X} /* EditErase(); */
+X
+Xvoid EditLock()
+X/*----------------------------------------------------------------------
+X** Lock a range of cells.  Lock the current cell, if no range is
+X** currently defined.
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    if (range[0] == NULL)	/* Null range */
+X	Sprintf(message, "** Lock the Current Cell?" );
+X    else
+X	Sprintf(message, "** Lock the Cell Range %s ?", range);
+X
+X    if (yn_ask(message) == 1) {
+X	Sprintf(line,"lock [range] %s", range);
+X	Message("** Locked");
+X	PROCESS_line;
+X	
+X    }
+X} /* EditLock(); */
+X
+Xvoid EditUnLock()
+X/*----------------------------------------------------------------------
+X** UnLock a range of cells.  UnLock the current cell, if no range is
+X** currently defined.
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    Sprintf(line,"unlock [range] %s", range);
+X    PROCESS_line;
+X
+X} /* EditUnLock(); */
+X
+Xvoid EditFormat()
+X/*----------------------------------------------------------------------
+X** Format a range of cells.  Format the current cell, if no range is
+X** currently defined.
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    /*
+X     * No Range is Defined, Format the current Cell
+X     */
+X    if (range[0] == NULL) {
+X        register struct ent *p = *ATBL(tbl, currow, curcol);
+X	static char *curcell;		/* for displaying current cell */
+X
+X	curcell = v_name(currow, curcol); /* Get current cell */
+X	
+X        /*
+X         * If the cell already has a Format, Display it for editing,
+X         * otherwise get into insert mode and read in a new format.
+X         */
+X        if (p && p->format) {	/* There IS an existing format  */
+X	    Sprintf(message,
+X		    "** Enter format for cell %s (Edit existing format)",
+X		    curcell);
+X	    Message(message);
+X	    buff = gi_editline( p->format );
+X
+X        } else {		/* There IS NOT an existing format */
+X	    Sprintf(message, "** Enter format for cell %s", curcell);
+X	    Message(message);
+X	    buff = gi_line();
+X	}
+X	Sprintf(line, "fmt [format] %s \"%s\"", curcell, buff);
+X
+X    /*
+X     * Else, there is a range defined, format the range.
+X     */
+X    } else {
+X	Sprintf(message, "** Enter format for the cell range %s", range);
+X	Message(message);
+X	buff = gi_line();
+X	Sprintf(line, "fmt [range \"format\"] %s \"%s\" ", range, buff);
+X    }
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    ClearMessage;	
+X    PROCESS_line;
+X
+X} /* EditFormat(); */
+X
+Xvoid EditFill()
+X/*----------------------------------------------------------------------
+X** Fill a range of cells.  DANGEROUS OPERATION: Prompt for confirmation.
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    if (range[0] == NULL) {	/* Null range */
+X	Message("** No Range Defined, Fill aborted");
+X	return;
+X    }
+X    
+X    Message("** Fill %s.  Enter Starting Value & Increment (eg: \"5 2\")",
+X	    range);
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    
+X    ClearMessage;
+X
+X    Sprintf(message, "** Fill the range %s ? (starting val., incr. = %s)",
+X	    range, buff);
+X    if (yn_ask(message) == 1) {
+X	Sprintf(line,"fill [range start inc] %s %s", range, buff);
+X	PROCESS_line;
+X    }
+X} /* EditFill(); */
+X
+Xvoid EditValueize()
+X/*----------------------------------------------------------------------
+X** "Valueize" a range of cells.  Valueize means to convert all formulas
+X** to just plain numbers.  Valueize the current cell, if no range is
+X** currently defined.  DANGEROUS OPERATION: Prompt for confirmation.
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    if (range[0] == NULL)	/* Null range */
+X	Sprintf(message, "** Valueize the Current Cell?" );
+X    else
+X	Sprintf(message, "** Valueize the Cell Range %s ?", range);
+X
+X    if (yn_ask(message) == 1) {
+X	Sprintf(line,"value [range] %s", range);
+X	PROCESS_line;
+X    }
+X
+X} /* EditValueize() */
+X
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 7158 -ne `wc -c <'ss_12b/menu_edit.c'`; then
+    echo shar: \"'ss_12b/menu_edit.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/menu_edit.c'
+fi
+if test -f 'ss_12b/menu_file.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/menu_file.c'\"
+else
+  echo shar: Extracting \"'ss_12b/menu_file.c'\" \(4858 characters\)
+  sed "s/^X//" >'ss_12b/menu_file.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* File Menu Operations
+X***********************************************************************
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include "curses_stuff.h"
+X
+X#include "ss.h"
+X#include "getinput.h"
+X#include "disprange.h"
+X#include "menu_file.h"
+X
+X/*	Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+Xextern int running;		/* from main() */
+X
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+Xvoid FileLoad()
+X/*----------------------------------------------------------------------
+X** Load a spreadsheet into memory.
+X** -> NOTE: this overwrites the current spreadsheet in memory.
+X*/
+X{
+X    if (*curfile)
+X	Sprintf(message, "** Enter name of file to load (Default: \"%s\")",
+X		curfile);
+X    else
+X	Sprintf(message, "** Enter name of file to load");
+X
+X    Message(message);
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    
+X    Sprintf (line, "get [\"source\"] \"%s\"", buff);
+X    ClearMessage;
+X    PROCESS_line;
+X    
+X} /* fileLoad() */
+X
+Xvoid FileMerge()
+X/*----------------------------------------------------------------------
+X*/
+X{
+X     Sprintf(message, "** Enter name of file to merge in");
+X     Message(message);
+X     buff = gi_line();
+X     ABORT_AND_RETURN_IF_BUFF_NULL;
+X
+X     Sprintf (line, "merge [\"source\"] \"%s\"", buff);
+X     ClearMessage;
+X     PROCESS_line;
+X     
+X} /* FileMerge() */
+X
+Xint FileSave()
+X/*----------------------------------------------------------------------
+X** Save the complete spreadsheet to the current file
+X*/
+X{
+X    if (modflg && curfile[0]) {
+X	sprintf (line, "put [\"dest\" range] \"%s\" ", curfile);
+X	PROCESS_line;
+X
+X/**     if (writefile(curfile, 0, 0, maxrow, maxcol) < 0) {
+X	ClearPrompt;
+X	linelim = -1;	  
+X	return (1);
+X	}
+X**/	
+X    } else if (modflg) { /* No filename yet established */
+X      FileSaveAs();
+X
+X    } else			/* the file is not modified */
+X	Message("** No changes needed to be saved");
+X    return(0);
+X} /* FileSave() */
+X
+X
+Xvoid FileSaveAs()
+X/*----------------------------------------------------------------------
+X** Prompt for a filename & save to that file.  The user can also
+X** optionally enter a range of  cells to be saved (default is all
+X** cells.)
+X*/
+X{
+X#ifdef __STDC__				/* ANSI C can handle this: */
+X    char def_file[MAXSTR] = "";	/* default filename */
+X#else					/* Non-ANSI C can't */
+X    char def_file[MAXSTR];
+X    def_file[0] = '\0';
+X#endif
+X
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X    
+X    if (*curfile)
+X	Sprintf(def_file, "(Default: \"%s\")", curfile);
+X
+X    Sprintf(message, "** Enter filename in which to save %s %s",
+X	    range, def_file);
+X
+X    Message(message);
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X
+X    Sprintf (line, "put [\"dest\" range] \"%s\" %s", buff, range);
+X    PROCESS_line;
+X
+X} /* FileSaveAs() */
+X
+X
+Xvoid FileWriteTxt()
+X/*----------------------------------------------------------------------
+X*/
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    Sprintf(message,
+X	    "** Write File, Text only: Enter filename in which to save %s",
+X	    range);
+X
+X    Message(message);
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X    
+X    Sprintf (line, "write [\"dest\" range] \"%s\" %s", buff, range);
+X    PROCESS_line;
+X
+X} /* FileWriteTxt() */
+X
+X
+Xvoid FileTblSave(tbl_mode)
+X/*----------------------------------------------------------------------
+X** Save the spreadsheet in ``tbl'' mode.  Which tbl mode (tbl, tex, latex
+X** slatex, framemaker) depends on the setting of the global variable
+X** ``tbl_style'' which is set in the /Misc/Settings menu.
+X** tbl_mode is a string representation of tbl_style.
+X*/
+X    char * tbl_mode;	
+X{
+X    range = RangeGet();		/* Get range, if any, "" otherwise. */
+X
+X    Sprintf(message, "** %s : Enter filename in which to save %s",
+X	    tbl_mode, range);
+X
+X    Message(message);
+X    buff = gi_line();
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X
+X    Sprintf (line, "tbl [\"dest\" range] \"%s\" %s", buff, range);
+X    PROCESS_line;
+X
+X} /* FileTblSave() */
+X
+Xvoid FileQuit()
+X/*----------------------------------------------------------------------
+X** Quit the program
+X*/
+X{
+X     Message("** Quit");
+X     running = 0;
+X}
+X
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 4858 -ne `wc -c <'ss_12b/menu_file.c'`; then
+    echo shar: \"'ss_12b/menu_file.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/menu_file.c'
+fi
+if test -f 'ss_12b/sc_stuff/vi.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/sc_stuff/vi.c'\"
+else
+  echo shar: Extracting \"'ss_12b/sc_stuff/vi.c'\" \(13600 characters\)
+  sed "s/^X//" >'ss_12b/sc_stuff/vi.c' <<'END_OF_FILE'
+X/*	SC	A Spreadsheet Calculator
+X *
+X *	One line vi emulation
+X *	$Revision: 6.21 $
+X */
+X
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X#include <sys/types.h>
+X#ifdef BSD42
+X#include <strings.h>
+X#else
+X#ifndef SYSIII
+X#include <string.h>
+X#endif
+X#endif
+X
+X#include <signal.h>
+X#include <curses.h>
+X
+Xextern	char	*strchr();
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include "sc.h"
+X
+X#define istext(a) (isalnum(a) || ((a) == '_'))
+X
+Xstatic	void append_line();
+Xstatic	void back_hist();
+Xstatic	int  back_line();
+Xstatic	int  back_word();
+Xstatic	void back_space();
+Xstatic	void change_cmd();
+Xstatic	void col_0();
+Xstatic	void cr_line();
+Xstatic	void delete_cmd();
+Xstatic	void del_chars();
+Xstatic	void del_in_line();
+Xstatic	void del_to_end();
+Xstatic	void dotcmd();
+Xstatic	int  find_char();
+Xstatic	void for_hist();
+Xstatic	int  for_line();
+Xstatic	int  for_word();
+Xstatic	void ins_in_line();
+Xstatic	void last_col();
+Xstatic	void rep_char();
+Xstatic	void replace_in_line();
+Xstatic	void replace_mode();
+Xstatic	void restore_it();
+Xstatic	void savedot();
+Xstatic	void save_hist();
+Xstatic	void search_again();
+Xstatic	void search_hist();
+Xstatic	void search_mode();
+Xstatic	void stop_edit();
+Xstatic	int  to_char();
+Xstatic	void u_save();
+X
+Xextern int showrange;
+Xextern char mode_ind;		/* Mode indicator */
+X
+X/* values for mode below */
+X
+X#define INSERT_MODE	0	/* Insert mode */
+X#define EDIT_MODE       1	/* Edit mode */
+X#define REP_MODE        2	/* Replace mode */
+X#define SEARCH_MODE	3	/* Get arguments for '/' command */
+X
+X#define	DOTLEN		200
+X
+Xstatic int mode = INSERT_MODE;
+Xstruct	hist {
+X	unsigned	int	len;
+X	char	*histline;
+X} history[HISTLEN];
+X
+Xstatic int histp = -1;
+Xstatic int lasthist = -1;
+Xstatic int endhist = -1;
+Xstatic char *last_search = NULL;
+Xstatic char *undo_line = NULL;
+Xstatic int undo_lim;
+Xstatic char dotb[DOTLEN];
+Xstatic int doti = 0;
+Xstatic int do_dot = 0;
+X
+Xvoid
+Xwrite_line(c)
+Xint c;
+X{
+X    if (mode == EDIT_MODE) {
+X	switch(c) {
+X/**     case (ctl('h')):                linelim = back_line();  break; **/
+X        case (ctl('h')): case DEL:      linelim = back_line();  break;
+X               /** treat DEL like Backspace **/
+X	case (ctl('m')):  cr_line();			break;
+X	case ESC:	stop_edit();			break;
+X	case '+':	for_hist();			break;
+X	case '-':	back_hist();			break;
+X	case '$':	last_col();			break;
+X	case '.':	dotcmd();			break;
+X	case '/':	search_mode();			break;
+X	case '0':	col_0();			break;
+X	case 'D':	u_save(c);del_to_end();		break;
+X	case 'I':	u_save(c);col_0();insert_mode();break;
+X	case 'R':	replace_mode();			break;
+X	case 'X':	u_save(c); back_space();	break;
+X	case 'a':	u_save(c); append_line();	break;
+X	case 'A':	u_save(c);last_col();append_line();	break;
+X	case 'b':	linelim = back_word();		break;
+X	case 'c':	u_save(c); change_cmd();	break;
+X	case 'd':	u_save(c); delete_cmd();	break;
+X	case 'f':	linelim = find_char();		break;
+X	case 'h':	linelim = back_line();		break;
+X	case 'i':	u_save(c); insert_mode();	break;
+X	case 'j':	for_hist();			break;
+X	case 'k':	back_hist();			break;
+X	case ' ':
+X	case 'l':	linelim = for_line(0);		break;
+X	case 'n':	search_again();			break;
+X	case 'q':	stop_edit();			break;
+X	case 'r':	u_save(c); rep_char();		break;
+X	case 't':	linelim = to_char();		break;
+X	case 'u':	restore_it();			break;
+X	case 'w':	linelim = for_word(0);		break;
+X	case 'x':	u_save(c); del_in_line();	break;
+X	default:	break;
+X	}
+X    } else if (mode == INSERT_MODE) { 
+X	savedot(c);
+X	switch(c) {
+X  /**   case (ctl('h')):                back_space();   break; **/
+X        case (ctl('h')): case DEL:      back_space();   break;
+X	case (ctl('m')):  cr_line();			break;
+X	case ESC:	edit_mode();			break;
+X	default:	ins_in_line(c);			break;
+X	}
+X    } else if (mode == SEARCH_MODE) {
+X	switch(c) {
+X  /**   case (ctl('h')):                back_space();   break; **/
+X        case (ctl('h')): case DEL:      back_space();   break;
+X	case (ctl('m')):  search_hist();			break;
+X	case ESC:	edit_mode();			break;
+X	default:	ins_in_line(c);			break;
+X	}
+X   } else if (mode == REP_MODE) {
+X	savedot(c);
+X	switch(c) {
+X  /**   case (ctl('h')):                back_space();   break; **/
+X        case (ctl('h')): case DEL:      back_space();   break;
+X	case (ctl('m')):  cr_line();			break;
+X	case ESC:	edit_mode();			break;
+X	default:	replace_in_line(c);		break;
+X	}
+X    }
+X}
+X
+Xvoid
+Xedit_mode()
+X{
+X    mode = EDIT_MODE;
+X    mode_ind = 'e';
+X    histp = -1;
+X    if (linelim < 0)	/* -1 says stop editing, ...so we still aren't */
+X	return;
+X    if (line[linelim] == '\0')
+X	linelim = back_line();
+X}
+X
+Xvoid
+Xinsert_mode()
+X{
+X    mode_ind = 'i';
+X    mode = INSERT_MODE;
+X}
+X
+Xstatic	void
+Xsearch_mode()
+X{
+X    line[0] = '/';
+X    line[1] = '\0';
+X    linelim = 1;
+X    histp = -1;
+X    mode_ind = '/';
+X    mode = SEARCH_MODE;
+X}
+X
+Xstatic	void
+Xreplace_mode()
+X{
+X    mode_ind = 'R';
+X    mode = REP_MODE;
+X}
+X
+X/* dot command functions.  Saves info so we can redo on a '.' command */
+X
+Xstatic	void
+Xsavedot(c)
+Xint c;
+X{
+X    if (do_dot || (c == '\n'))
+X	return;
+X
+X    if (doti < DOTLEN-1)
+X    {
+X	dotb[doti++] = c;
+X	dotb[doti] = '\0';
+X    }
+X}
+X
+Xstatic int dotcalled = 0;
+X
+Xstatic	void
+Xdotcmd()
+X{
+X    int c;
+X
+X    if (dotcalled)	/* stop recursive calling of dotcmd() */
+X	return;
+X    do_dot = 1;
+X    doti = 0;
+X    while(dotb[doti] != '\0') {
+X	c = dotb[doti++];
+X	dotcalled = 1;
+X	write_line(c);
+X    }
+X    do_dot = 0;
+X    doti = 0;
+X    dotcalled = 0;
+X}
+X
+Xint
+Xvigetch()
+X{
+X    int c;
+X
+X    if(do_dot) {
+X	if (dotb[doti] != '\0') {
+X	    return(dotb[doti++]);
+X	} else {
+X	    do_dot = 0;
+X	    doti = 0;
+X	    return(nmgetch());
+X	}
+X    }
+X    c = nmgetch();
+X    savedot(c);
+X    return(c);
+X}
+X
+X/* saves the current line for possible use by an undo cmd */
+Xstatic	void
+Xu_save(c)
+Xint c;
+X{   static	unsigned	undolen = 0;
+X
+X    if (strlen(line)+1 > undolen)
+X    {	undolen = strlen(line)+40;
+X
+X	undo_line = Realloc(undo_line, undolen);
+X    }
+X    (void) strcpy(undo_line, line);
+X
+X    undo_lim = linelim;
+X
+X    /* reset dot command if not processing it. */
+X
+X    if (!do_dot) {
+X        doti = 0;
+X	savedot(c);
+X    }
+X}
+X
+X/* Restores the current line saved by u_save() */
+Xstatic	void
+Xrestore_it()
+X{
+X    static	char *tempc = NULL;
+X    static	unsigned templen = 0;
+X    int		tempi;
+X
+X    if ((undo_line == NULL) || (*undo_line == '\0')) 
+X	return;
+X
+X    if (strlen(line)+1 > templen)
+X    {	templen = strlen(line)+40;
+X	tempc = Realloc(tempc, templen);
+X    }
+X
+X    strcpy(tempc, line);
+X    tempi = linelim;
+X    (void) strcpy(line, undo_line);
+X    linelim = undo_lim;
+X    strcpy(undo_line, tempc);
+X    undo_lim = tempi;
+X}
+X
+X/* This command stops the editing process. */
+Xstatic	void
+Xstop_edit()
+X{
+X/**    showrange = 0; **/
+X    linelim = -1;
+X    (void) move(1, 0);
+X    (void) clrtoeol();
+X}
+X
+X/*
+X * Motion commands.  Forward motion commands take an argument
+X * which, when set, cause the forward motion to continue onto
+X * the null at the end of the line instead of stopping at the
+X * the last character of the line.
+X */
+Xstatic	int
+Xfor_line(stop_null)
+Xint stop_null;
+X{
+X    if (linelim >= 0 && line[linelim] != '\0' && 
+X    		        (line[linelim+1] != '\0' || stop_null))
+X	return(linelim+1);
+X    else
+X	return(linelim);
+X}
+X
+Xstatic	int
+Xfor_word(stop_null)
+Xint stop_null;
+X{
+X    register int c;
+X    register int cpos;
+X
+X    cpos = linelim;
+X
+X    if (line[cpos] == ' ') {
+X	while (line[cpos] == ' ')
+X	    cpos++;
+X	if (cpos > 0 && line[cpos] == '\0')
+X	    --cpos;
+X	return(cpos);
+X    }
+X
+X    if (istext(line[cpos])) {
+X    	while ((c = line[cpos]) && istext(c)) 
+X		cpos++;
+X    } else {
+X	while ((c = line[cpos]) && !istext(c) && c != ' ')
+X		cpos++;
+X    }
+X
+X    while (line[cpos] == ' ')
+X        cpos++;
+X
+X    if (cpos > 0 && line[cpos] == '\0' && !stop_null) 
+X        --cpos;
+X
+X    return(cpos);
+X}
+X
+Xstatic	int
+Xback_line()
+X{
+X    if (linelim)
+X        return(linelim-1);
+X    else
+X	return(0);
+X}
+X
+Xstatic	int
+Xback_word()
+X{
+X    register int c;
+X    register int cpos;
+X
+X    cpos = linelim;
+X
+X    if (line[cpos] == ' ') {
+X	/* Skip white space */
+X        while (cpos > 0 && line[cpos] == ' ')
+X	    --cpos;
+X    } else if (cpos > 0 && (line[cpos-1] == ' ' 
+X                     || ( istext(line[cpos]) && !istext(line[cpos-1]))
+X                     || (!istext(line[cpos]) &&  istext(line[cpos-1])) )) {
+X	/* Started on the first char of a word - back up to prev. word */
+X	--cpos;
+X        while (cpos > 0 && line[cpos] == ' ')
+X	    --cpos;
+X    }
+X
+X    /* Skip across the word - goes 1 too far */
+X    if (istext(line[cpos])) {
+X    	while (cpos > 0 && (c = line[cpos]) && istext(c)) 
+X		--cpos;
+X    } else {
+X	while (cpos > 0 && (c = line[cpos]) && !istext(c) && c != ' ')
+X		--cpos;
+X    }
+X
+X    /* We are done - fix up the one too far */
+X    if (cpos > 0 && line[cpos] && line[cpos+1]) 
+X	cpos++;
+X
+X    return(cpos);
+X}
+X
+X/* Text manipulation commands */
+X
+Xstatic	void
+Xdel_in_line()
+X{
+X    register int len, i;
+X
+X    if (linelim >= 0) {
+X	len = strlen(line);
+X	if (linelim == len && linelim > 0)
+X	    linelim--;
+X	for (i = linelim; i < len; i++)
+X	    line[i] = line[i+1];
+X    }
+X    if (linelim > 0 && line[linelim] == '\0')
+X	--linelim;
+X}
+X
+Xstatic	void
+Xins_in_line(c)
+Xint c;
+X{
+X    register int i, len;
+X
+X    if (linelim < 0)
+X    {	*line = '\0';
+X	linelim = 0;
+X    }
+X    len = strlen(line);
+X    for (i = len; i >= linelim; --i)
+X	line[i+1] = line[i];
+X    line[linelim++] = c;
+X    line[len+1] = '\0';
+X}
+X
+Xvoid
+Xins_string(s)
+Xchar *s;
+X{
+X    while (*s)
+X	ins_in_line(*s++);
+X}
+X
+Xstatic	void
+Xappend_line()
+X{
+X    register int i;
+X
+X    i = linelim;
+X    if (i >= 0 && line[i])
+X	linelim++;
+X    insert_mode();
+X}
+X
+Xstatic	void
+Xrep_char()
+X{
+X    int c;
+X
+X    if (linelim < 0)
+X    {	linelim = 0;
+X	*line = '\0';
+X    }
+X    c = vigetch();
+X    if (line[linelim] != '\0') {
+X    	line[linelim] = c;
+X    } else {
+X	line[linelim] = c;
+X	line[linelim+1] = '\0';
+X    }
+X}
+X
+Xstatic	void
+Xreplace_in_line(c)
+Xint	c;
+X{
+X    register int len;
+X
+X    if (linelim < 0)
+X    {	linelim = 0;
+X	*line = '\0';
+X    }
+X    len = strlen(line);
+X    line[linelim++] = c;
+X    if (linelim > len)
+X	line[linelim] = '\0';
+X}
+X
+Xstatic	void
+Xback_space()
+X{
+X    if (linelim == 0)
+X	return;
+X
+X    if (line[linelim] == '\0') {
+X	linelim = back_line();
+X	del_in_line();
+X	linelim = strlen(line);
+X    } else {
+X	linelim = back_line();
+X	del_in_line();
+X    }
+X}
+X
+Xint
+Xget_motion()
+X{
+X    int c;
+X
+X    c = vigetch();
+X    switch (c) {
+X    case 'b':	return(back_word());
+X    case 'f':	return(find_char()+1);
+X    case 'h':	return(back_line());
+X    case 'l':	return(for_line(1));
+X    case 't':	return(to_char()+1);
+X    case 'w':	return(for_word(1));
+X    default:	return(linelim);
+X    }
+X}
+X
+Xstatic	void
+Xdelete_cmd()
+X{
+X    int cpos;
+X
+X    cpos = get_motion();
+X    del_chars(cpos, linelim);
+X}
+X
+Xstatic	void
+Xchange_cmd()
+X{
+X    delete_cmd();
+X    insert_mode();
+X}
+X
+Xstatic	void
+Xdel_chars(first, last)
+Xregister int first, last;
+X{
+X    int temp;
+X
+X    if (first == last)
+X	return;
+X
+X    if (last < first) {
+X	temp = last; last = first; first = temp;
+X    }
+X
+X    linelim = first;
+X    while(first < last) {
+X	del_in_line();
+X	--last;
+X    }
+X}
+X
+Xstatic	void
+Xdel_to_end()
+X{
+X    if (linelim < 0)
+X	return;
+X    line[linelim] = '\0';
+X    linelim = back_line();
+X}
+X
+Xstatic	void
+Xcr_line()
+X{
+X    insert_mode();
+X    if (linelim != -1) {
+X/**	showrange = 0; **/
+X	save_hist();
+X	linelim = 0;
+X	(void) yyparse ();
+X	linelim = -1;
+X    }
+X    else	/* '\n' alone will put you into insert mode */
+X    {	*line = '\0';
+X	linelim = 0;
+X    }
+X}
+X
+X/* History functions */
+X
+Xstatic	void
+Xsave_hist()
+X{
+X    if (lasthist < 0)
+X    {	lasthist = 0;
+X    }
+X    else
+X	lasthist = (lasthist + 1) % HISTLEN;
+X
+X    if (lasthist > endhist)
+X	endhist = lasthist;
+X
+X    if (history[lasthist].len < strlen(line)+1)
+X    {	history[lasthist].len = strlen(line)+40;
+X	history[lasthist].histline = Realloc(history[lasthist].histline,
+X					      history[lasthist].len);
+X    }
+X    (void) strcpy(history[lasthist].histline, line);
+X}
+X
+Xstatic	void
+Xback_hist()
+X{
+X    if (histp == -1)
+X	histp = lasthist;
+X    else
+X    if (histp == 0)
+X    {	if (endhist != lasthist)
+X		histp = endhist;
+X    }
+X    else
+X    if (histp != ((lasthist + 1) % (endhist + 1)))
+X	histp--;
+X
+X    if (lasthist < 0)
+X	line[linelim = 0] = '\0';
+X    else {
+X    	(void) strcpy(line, history[histp].histline);
+X	linelim = 0;
+X    }
+X}
+X
+Xstatic	void
+Xsearch_hist()
+X{
+X    static	unsigned lastsrchlen = 0;
+X
+X    if(linelim < 1) {
+X	linelim = 0;
+X	edit_mode();
+X	return;
+X    }
+X
+X    if (strlen(line)+1 > lastsrchlen)
+X    {	lastsrchlen = strlen(line)+40;
+X	last_search = Realloc(last_search, lastsrchlen);
+X    }
+X    (void)strcpy(last_search, line+1);
+X    search_again();
+X    mode = EDIT_MODE;
+X}
+X
+Xstatic	void
+Xsearch_again()
+X{
+X    int found_it;
+X    int do_next;
+X    int prev_histp;
+X    char *look_here;
+X
+X    prev_histp = histp;
+X    if ((last_search == NULL) || (*last_search == '\0'))
+X	return;
+X
+X    do {
+X	back_hist();
+X	if (prev_histp == histp)
+X	    break;
+X	prev_histp = histp;
+X	look_here = line;
+X	found_it = do_next = 0;
+X	while ((look_here = strchr(look_here, last_search[0])) != NULL &&
+X						!found_it && !do_next) {
+X
+X	    if (strncmp(look_here, last_search, strlen(last_search)) == 0)
+X		found_it++;
+X	    else if (look_here < line + strlen(line) - 1)
+X	        look_here++;
+X	    else
+X		do_next++;
+X	}
+X    } while (!found_it);
+X}
+X
+Xstatic	void
+Xfor_hist()
+X{
+X    if (histp == -1)
+X	histp = lasthist;
+X    else
+X    if (histp != lasthist)
+X	histp = (histp + 1) % (endhist + 1);
+X
+X    if (lasthist < 0)
+X	line[linelim = 0] = '\0';
+X    else {
+X	(void) strcpy(line, history[histp].histline);
+X	linelim = 0;
+X    }
+X}
+X
+Xstatic	void
+Xcol_0()
+X{
+X    linelim = 0;
+X}
+X
+Xstatic	void
+Xlast_col()
+X{
+X    linelim = strlen(line);
+X    if (linelim > 0)
+X	--linelim;
+X}
+X
+Xstatic	int
+Xfind_char()
+X{
+X    register int c;
+X    register int i;
+X
+X
+X    c = vigetch();
+X    i = linelim;
+X    while(line[i] && line[i] != c)
+X	i++;
+X    if (!line[i])
+X	i = linelim;
+X    return(i);
+X}
+X
+Xstatic	int
+Xto_char()
+X{
+X    register int i;
+X
+X    i = find_char();
+X    if (i > 0 && i != linelim)
+X	--i;
+X
+X    return(i);
+X}
+END_OF_FILE
+  if test 13600 -ne `wc -c <'ss_12b/sc_stuff/vi.c'`; then
+    echo shar: \"'ss_12b/sc_stuff/vi.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/sc_stuff/vi.c'
+fi
+if test -f 'ss_12b/ss.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/ss.c'\"
+else
+  echo shar: Extracting \"'ss_12b/ss.c'\" \(15245 characters\)
+  sed "s/^X//" >'ss_12b/ss.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* ss 	:	A SpreadSheet Program
+X*
+X* Art's Spreadsheet program.          Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Main Driver
+X***********************************************************************
+X* This program is based (Heavily!) on the well know Public Domain
+X* spreadsheet program 'sc' Revision 6.19
+X* May 12/92 -> hacked a bit to bring it up to Rev 6/21 of `sc'
+X***********************************************************************
+X* SS Notes & Author List:
+X*	Feb 1992: sc 6.19 hacked into a new incarnation: 'ss'
+X*	- currently maintained by Art Mulder ( art@cs.ualberta.ca )
+X*
+X* SC Notes & Author List:
+X*  	original by James Gosling, September 1982
+X*  	modifications by Mark Weiser and Bruce Israel, 
+X*  		University of Maryland
+X*  
+X*  	More mods Robert Bond, 12/86
+X*  	More mods by Alan Silverstein, 3-4/88, see list of changes.
+X*  	Currently supported by sequent!sawmill!buhrt (Jeff Buhrt)
+X*  	$Revision: 6.19 $
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <signal.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X#ifdef BSD42
+X# include <strings.h>
+X#else
+X# ifndef SYSIII
+X#   include <string.h>
+X# endif
+X#endif
+X
+X#include "ss.h"
+X#include "menu.h"
+X#include "disprange.h"
+X#include "getinput.h"
+X
+X
+X/*      Global Variables
+X *----------------------------------------------------------------------
+X */
+X
+X/*
+X * User I/O variables
+X */
+Xchar message[MAXSTR];		/* To hold Messages to the user */
+Xchar *buff;			/* Pointer to User Input buffer - see
+X				   the gi_..() functions  */
+Xchar *range;			/* Ptr to a range string - see
+X				   functions that deal with ranges */
+X
+X/*
+X * General Spreadsheet Variables
+X */
+Xstruct ent ***tbl;		/* data table ref. in vmtbl.c and ATBL() */
+X
+X  int strow = 0, stcol = 0;
+X  int currow = 0, curcol = 0;	/* Current location of cell cursor */
+X  int savedrow, savedcol;
+X  int maxrow, maxcol;
+X  int maxrows, maxcols;		/* # cells currently allocated */
+X
+Xchar curfile[PATHLEN];		/* Filename of spreadsheet */
+X
+X/** UNEXPLORED STUFF FOLLOWS **/
+X/*********************************************************************/
+Xextern	void	startdisp(), stopdisp();
+X
+X#ifdef SYSV3
+X  void exit();
+X#endif
+X
+X#ifndef SAVENAME
+X# define	SAVENAME "SC.SAVE" /* file name to use for emergency saves */
+X#endif /* SAVENAME */
+X
+X
+X/*
+X * Globals defined in sc.h
+X */
+X
+X  int FullUpdate = 0;
+X  int ClearScreen = 0;	/* don't try to be smart (?? Art M.)*/
+X  int *fwidth;
+X  int *precision;
+X  int *realfmt;
+X  char *col_hidden;
+X  char *row_hidden;
+X  char line[FBUFLEN];		/* Most commands to manipulate the
+X				   spreadsheet are stored in this
+X				   variable, and then parsed by a main
+X				   routine. */
+X  int changed;
+X  struct ent *to_fix;
+X  int modflg;			/* Flag: spreadsheet modified */
+X  char *mdir;
+X  int showsc, showsr;	/* Starting cell for highlighted range */
+X#ifdef RIGHT_CBUG
+X  int	wasforw	= FALSE;
+X#endif
+X
+X/*
+X * Function Prototypes
+X */
+X  void	update();
+X  void	repaint();
+X
+X
+X  char    revmsg[80];
+X
+X  int  linelim = -1;
+X
+X  int  showtop   = 1;	/* Causes current cell value display in top line  */
+X  int  showcell  = 1;	/* Causes current cell to be highlighted	  */
+X  int  showrange = 0;	/* Causes ranges to be highlighted		  */
+X  int  showneed  = 0;	/* Causes cells needing values to be highlighted  */
+X  int  showexpr  = 0;	/* Causes cell exprs to be displayed, highlighted */
+X
+X  int  autocalc = 1 ;	/* 1 to calculate after each update */
+X  int  autolabel = 1;   /* If room, causes label to be created after a define*/
+X  int  calc_order = BYROWS;
+X  int  tbl_style = 0;	/* headers for T command output */
+X  int  rndinfinity = 0;
+X  int  craction = 0;	/* 1 for down, 2 for right */
+X  int  rowlimit = -1;
+X  int  collimit = -1;
+X#ifdef	SIGWINCH
+X  int  hitwinch = 0;	/* got a SIGWINCH? */
+X#endif
+X
+X  extern int lastmx, lastmy;	/* Screen address of the cursor */
+X  extern int lastcol, lcols;	/* Spreadsheet Column the cursor was in last */
+X
+X/* a linked list of free [struct ent]'s, uses .next as the pointer */
+X  struct ent *freeents = NULL;
+X
+X  extern	int	seenerr;
+X  extern	char	*rev;
+X
+X#ifdef VMS
+X  int VMS_read_raw = 0;
+X#endif
+X
+Xchar    *progname;
+X/*********************************************************************/
+X/** UNEXPLORED STUFF ENDS **/
+X
+X/*
+X * Global Variables 
+X */
+X    int running;	/* Flag for signal a 'quit' request from user */
+X    int anychanged = FALSE; 
+X
+X/*      Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+X
+Xint main (argc, argv)
+X/*--------------------------------------------------------------------*/
+X  int 	argc;
+X  char  **argv;
+X{
+X    int     inloop = 1;
+X    register int   c; 		/* Main input character */
+X    char    *revi;
+X/** int	    anychanged = FALSE; **/
+X
+X/*
+X * PROCESS COMMAND LINE OPTIONS
+X * 	Keep command line options around until the file is read so the
+X * 	command line overrides file options.
+X */
+X    int Mopt = 0;
+X    int Nopt = 0;
+X    int Copt = 0; 
+X    int Ropt = 0;
+X
+X    int tempx, tempy; 	/* Temp versions of curx, cury */
+X
+X#if defined(MSDOS)
+X    if ((revi = strrchr(argv[0], '\\')) != NULL)
+X#else
+X# ifdef VMS
+X    if ((revi = strrchr(argv[0], ']')) != NULL)
+X# else
+X    if ((revi = strrchr(argv[0], '/')) != NULL)
+X# endif
+X#endif
+X	progname = revi+1;
+X    else
+X	progname = argv[0];
+X
+X    while (argc > 1 && argv[1][0] == '-') {
+X	argv++;
+X	argc--;
+X    	switch (argv[0][1]) {
+X#if !defined(VMS) && !defined(MSDOS) && defined(CRYPT_PATH)
+X	    case 'x':
+X		    Crypt = 1;
+X		    break;
+X#endif
+X	    case 'm':
+X		    Mopt = 1;
+X		    break;
+X	    case 'c':
+X		    Copt = 1;
+X		    break;
+X	    case 'r':
+X		    Ropt = 1;
+X		    break;
+X	    case 'C':
+X		    craction = CRCOLS;
+X		    break;
+X	    case 'R':
+X		    craction = CRROWS;
+X		    break;
+X	    default:
+X		    Fprintf(stderr,"%s: unrecognized option: \"%c\"\n",
+X			progname,argv[0][1]);
+X		    exit(1);
+X	}
+X    }
+X
+X    *curfile ='\0';
+X
+X    startdisp();
+X    signals();
+X
+X	/* setup the spreadsheet arrays, initscr() will get the screen size */
+X    if (!growtbl(GROWNEW, 0, 0))
+X    {	stopdisp();
+X	exit(1);
+X    }
+X
+X/*
+X * Build revision message for later use:
+X */
+X    Strcpy (revmsg, progname);
+X    for (revi = rev; (*revi++) != ':'; );	/* copy after colon */
+X    Strcat (revmsg, revi);
+X    revmsg [strlen (revmsg) - 2] = 0;		/* erase last character */
+X
+X/*  Strcat (revmsg, ":  Type '?' for help, '/' for main menu");  */
+X    Strcat (revmsg, ":  Type '/' for the main menu."); 
+X    
+X/*
+X * READ IN SPREADSHEET FILE
+X */
+X    if (argc > 1) {
+X	Strcpy(curfile,argv[1]);
+X	readfile (argv[1], 0);
+X    }
+X
+X/*
+X * APPLY COMMAND LINE OPTIONS
+X * 	Command line options override settings stored in spreadsheet
+X *	file.  Therefore they are applied after the file is read.
+X */
+X    if (Mopt)
+X	autocalc = 0;
+X    if (Copt)
+X	calc_order = BYCOLS;
+X    if (Ropt)
+X	calc_order = BYROWS;
+X
+X    modflg = 0;
+X#ifdef VENIX
+X    setbuf (stdin, NULL);
+X#endif
+X    FullUpdate++;
+X
+X/************
+X* MAIN LOOP
+X************/
+X    while (inloop) { running = 1;
+X    while (running) {
+X
+X/* 
+X * RECALCULATE THE SPREADSHEET.
+X */
+X/**	if (edistate < 0 && linelim < 0 && autocalc && (changed || FullUpdate))
+X**/
+X	if (autocalc && (changed || FullUpdate)) {
+X	    EvalAll ();
+X	    if (changed)		/* if EvalAll changed or was before */
+X		anychanged = TRUE;
+X	    changed = 0;
+X
+X	} else if (changed)		/* any cells change? */
+X	     anychanged = TRUE;
+X
+X#ifdef	SIGWINCH
+X	/* got a SIGWINCH? */
+X	if (hitwinch) {
+X	    hitwinch = 0;
+X	    stopdisp();
+X	    startdisp();
+X	    FullUpdate++;
+X	}
+X#endif
+X	update(anychanged);
+X	anychanged = FALSE;
+X
+X/*
+X * GET MAIN ROOT-LEVEL COMMAND/INPUT
+X */
+X	c = nmgetch();			/* Get next input character */
+X	getyx(stdscr, tempy, tempx);
+X	ClearMessage;
+X	Move(tempy, tempx);
+X/*	(void) fflush (stdout);*/
+X	seenerr = 0;
+X	showneed = 0;	/* reset after each update */
+X	showexpr = 0;
+X
+X     /* if ((c < ' ') || ( c == DEL )) { how about international here ? PB */
+X#if pyr
+X	if ( iscntrl(c) || (c >= 011 && c <= 015) ) {
+X#else
+X	if ( ( isascii(c) && iscntrl(c) ) || (c == 020 ) ) {
+X#endif
+X	  /* iscntrl broken in OSx4.1 */
+X	    /*
+X	     * There seems to be some question about what to do w/ the
+X	     * iscntrl, some BSD systems are reportedly broken as well.
+X	     */
+X            ProcessControlCommands(c);	/* 1) A Control character */
+X
+X	} else { 	/* NOT a control character, just plain ascii.  */
+X
+X/*
+X * Local Macro: Cannot change locked cells
+X */
+X#define ABORT_IF_LOCKED_CELL 	{if (locked_cell(currow, curcol)) \
+X				     { beep(); break; } }
+X		
+X	    switch (c) {
+X	      case '/':		/* 2) Enter Command/Menu Mode */
+X		MainMenu();	
+X		break;
+X
+X	      case '?':		/* 3) Invoke Help */
+X/*   		help(HELP); */
+X		break;
+X
+X
+X	      /*
+X	       * 4) Numeric or Function Entry into cell.
+X	       *    The case of the '=' differs from the rest in that
+X	       *    we do not want the '=' put into the user's input
+X	       *    buffer.
+X	       */
+X	      case '=':		/* retained for 'sc' compatibility */
+X	      case '0': case '1': case '2': case '3': case '4':
+X	      case '5': case '6': case '7': case '8': case '9':
+X	      case '-': case '.': case '+':
+X	      case '@':		/* @ = begin a function */
+X		ABORT_IF_LOCKED_CELL;
+X		Message("%s (Value)", v_name(currow, curcol) );
+X
+X		if ( c != '=' )
+X		    nmungetch( c ); /* push c back onto input stream */
+X		
+X		buff = gi_line_cursor();
+X		ABORT_AND_BREAK_IF_BUFF_NULL;
+X		
+X		Sprintf(line,"let %s = %s", v_name(currow, curcol), buff);
+X		ClearMessage;
+X		PROCESS_line;
+X		break;
+X
+X	      /*
+X	       * 5) Label/String Entry into cell.
+X	       */
+X	      case '"':		/* 5.a) Centered String */
+X		ABORT_IF_LOCKED_CELL;
+X		Message("%s (Label)", v_name(currow, curcol) );
+X		buff = gi_line_cursor();
+X		ABORT_AND_BREAK_IF_BUFF_NULL;
+X		Sprintf (line, "label %s = \"%s\"",
+X			 v_name(currow, curcol), buff);
+X		PROCESS_line;
+X		break;
+X	      case '>':		/* 5.b) Right Justified String */
+X		ABORT_IF_LOCKED_CELL;
+X		Message("%s (Flush-Right Label)", v_name(currow, curcol) );
+X		buff = gi_line_cursor();
+X		ABORT_AND_BREAK_IF_BUFF_NULL;
+X		Sprintf (line, "rightstring %s = \"%s\"",
+X			 v_name(currow, curcol), buff);
+X		PROCESS_line;
+X		break;
+X
+X	      /* 
+X	       * The default is to assume that they are starting a
+X	       * left-justified string.  Make sure that the character
+X	       * they just entered gets included in the string value.
+X	       */
+X	      case '<':		/* 5.c Left Justified String */
+X	      default:
+X		ABORT_IF_LOCKED_CELL;
+X		Message("%s (Flush-Left Label)", v_name(currow, curcol) );
+X
+X		if ( c != '<' )
+X		    nmungetch( c ); /* push c back onto input stream */
+X		
+X		buff = gi_line_cursor();
+X		ABORT_AND_BREAK_IF_BUFF_NULL;
+X		
+X		Sprintf (line, "leftstring %s = \"%s\"",
+X			 v_name(currow, curcol), buff);
+X		PROCESS_line;
+X		break;
+X
+X	    }	/* End of Command Switch */
+X	} /* End of Else */
+X/*
+X * NO MORE Command options.
+X */
+X    }		/* while (running) */
+X    inloop = modcheck(" before exiting");
+X    }		/*  while (inloop) */
+X/******************
+X* END OF MAIN LOOP
+X******************/
+X
+X    stopdisp();
+X#ifdef VMS	/* Until VMS "fixes" exit we should say 1 here */
+X    exit(1);
+X#else
+X    exit(0);
+X#endif
+X    /*NOTREACHED*/
+X
+X} /* end Main() */
+X
+X/*********************************************************************/
+X
+X/* set the calculation order */
+Xvoid setorder(i)
+X    int i;
+X{
+X    if((i == BYROWS)||(i == BYCOLS))
+X	calc_order = i;
+X}
+X
+Xvoid setauto(i)
+X    int i;
+X{
+X    autocalc = i;
+X}
+X
+Xvoid signals()
+X{
+X    VOID_OR_INT doquit();
+X    VOID_OR_INT time_out();
+X    VOID_OR_INT dump_me();
+X#ifdef	SIGWINCH
+X    VOID_OR_INT winchg();
+X#endif
+X
+X    Signal(SIGINT, SIG_IGN);
+X#if !defined(MSDOS)
+X    Signal(SIGQUIT, dump_me);
+X    Signal(SIGPIPE, doquit);
+X    Signal(SIGALRM, time_out);
+X    Signal(SIGBUS, doquit);
+X#endif
+X    Signal(SIGTERM, doquit);
+X    Signal(SIGFPE, doquit);
+X#ifdef	SIGWINCH
+X    Signal(SIGWINCH, winchg);
+X#endif
+X}
+X
+X#ifdef	SIGWINCH
+X  VOID_OR_INT winchg()
+X  {	hitwinch++;
+X	  Signal(SIGWINCH, winchg);
+X  }
+X#endif
+X
+XVOID_OR_INT doquit()
+X{
+X    diesave();
+X    stopdisp();
+X    exit(1);
+X}
+X
+XVOID_OR_INT dump_me()
+X{
+X    diesave();
+X    deraw();
+X    abort();
+X}
+X
+X/* try to save the current spreadsheet if we can */
+Xvoid diesave()
+X{   char	path[PATHLEN];
+X
+X    if (modcheck(" before Spreadsheet dies") == 1)
+X    {	Sprintf(path, "~/%s", SAVENAME);
+X	if (writefile(path, 0, 0, maxrow, maxcol) < 0)
+X	{
+X	    Sprintf(path, "/tmp/%s", SAVENAME);
+X	    if (writefile(path, 0, 0, maxrow, maxcol) < 0)
+X		Message("Couldn't save current spreadsheet, Sorry");
+X	}
+X    }
+X}
+X
+X/*
+X * modcheck()
+X *	Check if Spreadsheet has been modified and ask to save
+X */
+Xint modcheck(endstr)
+X  char *endstr;		/* message to user */
+X{
+X    if (modflg && curfile[0]) {
+X	int	yn_ans;
+X	char	lin[100];
+X
+X	Sprintf (lin,"File \"%s\" is modified, save%s? ",
+X		curfile,endstr);
+X	if ((yn_ans = yn_ask(lin)) < 0)
+X	    return(1);
+X	else if (yn_ans == 1) {
+X	    if (writefile(curfile, 0, 0, maxrow, maxcol) < 0)
+X 		return (1);
+X	}
+X    } else if (modflg) {
+X	int	yn_ans;
+X
+X	if ((yn_ans = yn_ask("Do you want a chance to save the data? ")) < 0)
+X	    return(1);
+X	else
+X	    return(yn_ans);
+X    }
+X    return(0);
+X} /* modcheck() */
+X
+X/* Returns 1 if cell is locked, 0 otherwise */
+Xint locked_cell (r, c)
+X    int r, c;
+X{
+X    struct ent *p = *ATBL(tbl, r, c);
+X    if (p && (p->flags & is_locked)) {
+X	Message("Cell %s%d is locked", coltoa(c), r) ;
+X	return(1);
+X    }
+X    return(0);
+X}
+X
+X/* Check if area contains locked cells */
+Xint any_locked_cells(r1, c1, r2, c2)
+X    int r1, c1, r2, c2 ;
+X{
+X    int r, c;
+X    struct ent *p ;
+X
+X    for (r=r1; r<=r2; r++)
+X	for (c=c1; c<=c2; c++) {
+X	    p = *ATBL(tbl, r, c);
+X	    if (p && (p->flags&is_locked))
+X		return(1);
+X	}
+X    return(0);
+X}
+X
+X/* 
+X * return a pointer to a cell's [struct ent *], creating if needed 
+X */
+Xstruct ent * lookat(row,col)
+X    int	row, col;
+X{
+X    register struct ent **pp;
+X
+X    checkbounds(&row, &col);
+X    pp = ATBL(tbl, row, col);
+X    if (*pp == (struct ent *)0) {
+X        if (freeents != NULL)
+X	{	*pp = freeents;
+X		freeents = freeents->next;
+X	}
+X	else
+X		*pp = (struct ent *) Malloc((unsigned)sizeof(struct ent));
+X	if (row>maxrow) maxrow = row;
+X	if (col>maxcol) maxcol = col;
+X	(*pp)->label = (char *)0;
+X	(*pp)->row = row;
+X	(*pp)->col = col;
+X	(*pp)->flags = 0;
+X	(*pp)->expr = (struct enode *)0;
+X	(*pp)->v = (double) 0.0;
+X	(*pp)->format = (char *)0;
+X	(*pp)->cellerror = CELLOK;
+X	(*pp)->next = NULL;
+X    }
+X    return *pp;
+X}
+X
+X/*
+X * This structure is used to keep ent structs around before they
+X * are deleted to allow the sync_refs routine a chance to fix the
+X * variable references.
+X * We also use it as a last-deleted buffer for the 'p' command.
+X */
+Xvoid free_ent(p)
+X    register struct ent *p;
+X{
+X    p->next = to_fix;
+X    to_fix = p;
+X    p->flags |= is_deleted;
+X    p->flags &= ~is_locked;
+X}
+X
+X/* free deleted cells */
+Xvoid flush_saved()
+X{
+X    register struct ent *p;
+X    register struct ent *q;
+X
+X    if (!(p = to_fix))
+X	return;
+X    while (p) {
+X	clearent(p);
+X	q = p->next;
+X	p->next = freeents;	/* put this ent on the front of freeents */
+X	freeents = p;
+X	p = q;
+X    }
+X    to_fix = NULL;
+X}
+X/**********************************************************************
+X*	END
+X**********************************************************************/
+END_OF_FILE
+  if test 15245 -ne `wc -c <'ss_12b/ss.c'`; then
+    echo shar: \"'ss_12b/ss.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/ss.c'
+fi
+echo shar: End of archive 8 \(of 11\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

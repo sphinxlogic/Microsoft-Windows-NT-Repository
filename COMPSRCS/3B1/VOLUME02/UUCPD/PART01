@@ -1,0 +1,373 @@
+Path: comp-sources-3b1
+From: Uucp Admins against ATnT <uucpadm@becker.GTS.ORG>
+Subject:  v02i042:  uucpd for 3B1 TCP/IP, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 86ee5d56 63523a77 55b692ee 56ca18a1
+
+Submitted-by: Uucp Admins against ATnT <uucpadm@becker.GTS.ORG>
+Posting-number: Volume 2, Issue 42
+Archive-name: uucpd/part01
+
+[ This was originally submitted with a copy of the binary enclosed.  Since ]
+[ this is a *sources* group I did not want to post the binary.  After      ]
+[ exchaning a couple of letters with the submittor, it was agreed to post  ]
+[ the source code only and make the binary available in the archives.  By  ]
+[ the time you see this, the binary will be available on both uunet and    ]
+[ OSU in the file "att7300/networking/uucpd.Z".                            ]
+[ -- Dave
+
+
+Here's uucpd for 3B1 TCP/IP (you need the TCP/IP
+software & ethernet card for this of course).  It's
+probably portable to most System V sockets-based
+TCP/IP as well, but it may need some tweaks to
+make it work elsewhere (there are better versions
+for BSD-based unices, so this wouldn't necessarily
+be too great a place to start for those).
+
+
+Make the directory "uucpd" in your source directory
+and unshar this into it.  Check "makeit" to see that
+the desired C compiler is invoked ("shcc" is what's
+supplied) and compile, if you don't want to use the
+given compressed uuencoded binary.
+
+
+Copy the executable into "/usr/ethernet/daemons"
+and then add this line to "/etc/lddrv/ether.rc":
+
+
+	/usr/ethernet/daemons/uucpd
+
+
+and add this line to "/etc/services":
+
+
+	uucp		540/tcp		uucpd	# uucp daemon
+
+
+Then the next time you start up ethernet you'll have
+a uucp daemon that will handle up to 3 simultaneous
+sessions (if ethernet is already active you can just
+invoke the uucpd daemon directly).
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  makeit uucpd.c
+# Wrapped by dave@galaxia on Tue Sep  7 20:53:10 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'makeit' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makeit'\"
+else
+echo shar: Extracting \"'makeit'\" \(121 characters\)
+sed "s/^X//" >'makeit' <<'END_OF_FILE'
+Xshcc -I/usr/ethernet/include -DSHORT_IDENT -DSYSTEM5 -c uucpd.c
+Xif [ $? -eq 0 ]; then shcc -s -o uucpd uucpd.o -lnet; fi
+END_OF_FILE
+if test 121 -ne `wc -c <'makeit'`; then
+    echo shar: \"'makeit'\" unpacked with wrong size!
+fi
+chmod +x 'makeit'
+# end of 'makeit'
+fi
+if test -f 'uucpd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'uucpd.c'\"
+else
+echo shar: Extracting \"'uucpd.c'\" \(6908 characters\)
+sed "s/^X//" >'uucpd.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1985 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley by
+X * Rick Adams.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+Xchar copyright[] =
+X"@(#) Copyright (c) 1985 The Regents of the University of California.\n\
+X All rights reserved.\n";
+X#endif /* not lint */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)uucpd.c	5.10 (Berkeley) 2/26/91";
+X#endif /* not lint */
+X
+X/*
+X * 4.2BSD TCP/IP server for uucico
+X * uucico's TCP channel causes this server to be run at the remote end.
+X */
+X
+X#include <sys/types.h>
+X#include <sys/wait.h>
+X#include <sys/ioctl.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <netdb.h>
+X#include <signal.h>
+X#include <fcntl.h>
+X#include <time.h>
+X#include <pwd.h>
+X#include <unistd.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <utmp.h>
+X
+X#define	_PATH_UUCICO	"/usr/lib/uucp/uucico"
+X
+Xstruct	utmp utmp;
+Xstruct	sockaddr_in hisctladdr;
+Xint hisaddrlen = sizeof hisctladdr;
+Xstruct	sockaddr_in myctladdr;
+X
+X#define BACKLOG	3
+X
+X#define	SCPYN(a, b)	strncpy(a, b, sizeof (a))
+X
+Xchar Username[64];
+Xchar *nenv[] = {
+X	Username,
+X	NULL,
+X};
+Xextern char **environ;
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	register int s, tcp_socket;
+X	struct servent *sp;
+X	extern int errno;
+X	int dologout();
+X	int wtmp;
+X
+X	environ = nenv;
+X	sp = getservbyname("uucp", "tcp");
+X	if (sp == NULL){
+X		perror("uucpd: getservbyname");
+X		exit(1);
+X	}
+X	switch (fork()) {
+X	case -1:	perror("uucpd: fork"); exit(1);
+X	case  0:	break;
+X	default:	exit(0);
+X	}
+X
+X	if (setpgrp() == -1) {
+X		perror("uucpd: setpgrp");
+X		exit(1);
+X	}
+X
+X	bzero((char *)&myctladdr, sizeof (myctladdr));
+X	myctladdr.sin_family = AF_INET;
+X	myctladdr.sin_port = sp->s_port;
+X	tcp_socket = socket(AF_INET, SOCK_STREAM, 0);
+X	if (tcp_socket < 0) {
+X		perror("uucpd: socket");
+X		exit(1);
+X	}
+X	if (bind(tcp_socket, (char *)&myctladdr, sizeof (myctladdr)) < 0) {
+X		perror("uucpd: bind");
+X		exit(1);
+X	}
+X
+X	listen(tcp_socket, BACKLOG);	/* at most 3 simultaneous connections */
+X	signal(SIGCLD, dologout);
+X	wtmp = open(WTMP_FILE, O_WRONLY|O_APPEND);
+X	if (wtmp >= 0) {
+X		SCPYN(utmp.ut_user, "LOGIN");
+X		SCPYN(utmp.ut_id, "");
+X		SCPYN(utmp.ut_line, "uucpd");
+X		utmp.ut_pid = getpid();
+X		utmp.ut_type = LOGIN_PROCESS;
+X		utmp.ut_exit.e_termination = 0;
+X		utmp.ut_exit.e_exit = 0;
+X		time(&utmp.ut_time);
+X		(void) write(wtmp, (char *)&utmp, sizeof (utmp));
+X		(void) close(wtmp);
+X	}
+X
+X	for(;;) {
+X		s = accept(tcp_socket, &hisctladdr, &hisaddrlen);
+X		if (s < 0){
+X			if (errno == EINTR) 
+X				continue;
+X			perror("uucpd: accept");
+X			exit(1);
+X		}
+X		if (fork() == 0) {
+X			close(0); close(1); close(2);
+X			dup(s); dup(s); dup(s);
+X			close(tcp_socket); close(s);
+X			doit();
+X			exit(1);
+X		}
+X		close(s);
+X	}
+X
+X}
+X
+Xdoit()
+X{
+X	char user[64], passwd[64];
+X	char *xpasswd, *crypt();
+X	struct passwd *pw, *getpwnam();
+X
+X	alarm(60);
+X	printf("login: "); fflush(stdout);
+X	if (readline(user, sizeof user) < 0) {
+X		fprintf(stderr, "user read\n");
+X		return;
+X	}
+X	/* truncate username to 8 characters */
+X	user[8] = '\0';
+X	pw = getpwnam(user);
+X	if (pw == NULL) {
+X		fprintf(stderr, "user unknown\n");
+X		return;
+X	}
+X	if (strcmp(pw->pw_shell, _PATH_UUCICO)) {
+X		fprintf(stderr, "Login incorrect.");
+X		return;
+X	}
+X	if (pw->pw_passwd && *pw->pw_passwd != '\0') {
+X		printf("Password: "); fflush(stdout);
+X		if (readline(passwd, sizeof passwd) < 0) {
+X			fprintf(stderr, "passwd read\n");
+X			return;
+X		}
+X		xpasswd = crypt(passwd, pw->pw_passwd);
+X		if (strcmp(xpasswd, pw->pw_passwd)) {
+X			fprintf(stderr, "Login incorrect.");
+X			return;
+X		}
+X	}
+X	alarm(0);
+X	sprintf(Username, "LOGNAME=%s", user);
+X	dologin(pw);
+X	setgid(pw->pw_gid);
+X	chdir(pw->pw_dir);
+X	setuid(pw->pw_uid);
+X	execl(_PATH_UUCICO, "uucico", (char *)0);
+X	perror("uucico server: execl");
+X}
+X
+Xreadline(p, n)
+Xregister char *p;
+Xregister int n;
+X{
+X	char c;
+X
+X	while (n-- > 0) {
+X		if (read(0, &c, 1) <= 0)
+X			return(-1);
+X		c &= 0177;
+X		if (c == '\n' || c == '\r') {
+X			*p = '\0';
+X			return(0);
+X		}
+X		*p++ = c;
+X	}
+X	return(-1);
+X}
+X
+Xdologout()
+X{
+X	int  status;
+X	int pid, wtmp;
+X
+X	while ((pid=wait(&status)) > 0) {
+X		wtmp = open(WTMP_FILE, O_WRONLY|O_APPEND);
+X		if (wtmp >= 0) {
+X			SCPYN(utmp.ut_user, "");
+X			SCPYN(utmp.ut_id, "");
+X			SCPYN(utmp.ut_line, "uucpd");
+X			utmp.ut_pid = pid;
+X			utmp.ut_type = DEAD_PROCESS;
+X			utmp.ut_exit.e_termination = status & 0xff;
+X			utmp.ut_exit.e_exit = (status>>8) & 0xff;
+X			(void) time(&utmp.ut_time);
+X			(void) write(wtmp, (char *)&utmp, sizeof (utmp));
+X			SCPYN(utmp.ut_user, "LOGIN");
+X			utmp.ut_pid = getpid();
+X			utmp.ut_type = LOGIN_PROCESS;
+X			utmp.ut_exit.e_termination = 0;
+X			utmp.ut_exit.e_exit = 0;
+X			time(&utmp.ut_time);
+X			(void) write(wtmp, (char *)&utmp, sizeof (utmp));
+X			(void) close(wtmp);
+X		}
+X	}
+X	signal(SIGCLD, dologout);
+X}
+X
+X/*
+X * Record login in wtmp file.
+X */
+Xdologin(pw)
+Xstruct passwd *pw;
+X{
+X	int wtmp;
+X
+X	wtmp = open(WTMP_FILE, O_WRONLY|O_APPEND);
+X	if (wtmp >= 0) {
+X		SCPYN(utmp.ut_user, pw->pw_name);
+X		SCPYN(utmp.ut_id, "");
+X		SCPYN(utmp.ut_line, "uucpd");
+X		utmp.ut_pid = getpid();
+X		utmp.ut_type = USER_PROCESS;
+X		utmp.ut_exit.e_termination = 0;
+X		utmp.ut_exit.e_exit = 0;
+X		time(&utmp.ut_time);
+X		(void) write(wtmp, (char *)&utmp, sizeof (utmp));
+X		(void) close(wtmp);
+X	}
+X}
+END_OF_FILE
+if test 6908 -ne `wc -c <'uucpd.c'`; then
+    echo shar: \"'uucpd.c'\" unpacked with wrong size!
+fi
+# end of 'uucpd.c'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+David H. Brierley                            Work: dhb@ssd.ray.com
+3B1 Hacker Extraordinaire                    Home: dave@galaxia.network23.com

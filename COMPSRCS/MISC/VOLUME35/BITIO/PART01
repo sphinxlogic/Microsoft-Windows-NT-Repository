@@ -1,0 +1,1139 @@
+Newsgroups: comp.sources.misc
+From: pdh@netcom.com (Philip D. Howard)
+Subject: v35i105:  bitio - portable bit stream function library, Part01/03
+Message-ID: <csm-v35i105=bitio.091656@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 6c2571404bf52f23e719763b7dc60094
+Date: Wed, 3 Mar 1993 15:17:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pdh@netcom.com (Philip D. Howard)
+Posting-number: Volume 35, Issue 105
+Archive-name: bitio/part01
+Environment: MS-DOS, UNIX, ANSI-C, BCC, GCC, MSC, PC, NeXT, Sparc, Sequent
+
+Version 1.04 of BITIO
+
+Author:		Philip D. Howard
+Email:		pdh@netcom.com
+
+BITIO is a function library package that implements a bit stream on top
+of a byte stream (8 bits per byte).  This bit stream is designed to be
+exchangeable between different platforms and retain the same bit order
+regardless of the endianness of the platforms.
+
+C programs may read and write 0 to 32 bits or more in each function
+call.  Special functions and macros are implemented for doing exactly
+one bit at a time with less overhead.  The variable length functions
+come in versions that pass the data justified on the low order end of
+the unsigned long value, or on the high order end of the unsigned long
+value.  The single bit functions always use the low order end (i.e. have
+values 0 or 1).  Consistency is maintained through the use of all
+functions and macros executed in any sequence.
+
+For UNIX platforms, I have tested this program with the GNU C Compiler.
+The makefiles are provided with this assumption.
+
+For the MS-DOS platform, special makefiles are provided for Borland C
+and MicroSoft C.  I have tested this package with Borland C++ 3.1 and
+MicroSoft C 6.00a.  Special BAT files are provided to make BITIO on
+these compilers:
+
+BCLEAN   or MCLEAN   make clean
+BMAKE    or MMAKE    make the library and test programs
+BMAKEALL or MMAKEALL make all memory models (CHLMS) of the library
+BREMAKE  or MREMAKE  make clean and make
+BVIRGIN  or MVIRGIN  make clean and virgin (delete .EXE and .LIB files)
+
+Unlike versions prior to 1.02, this version includes its own random
+number generator for the test programs which is designed to produce
+the same random sequence on any platform (this has not been quite as
+thoroughly tested as BITIO itself since some platforms were tested
+only on previous versions).
+
+Three tests are performed.
+
+Test 1 compares a random sequence against a distributed random data
+file (not the same in versions prior to 1.02) to ensure that
+portability works.
+
+Test 2 writes random data and reads it back in to compare in order to
+verify that the various operations are working consistently.  This test
+(and test 1) uses a mixture of the function calls to write and read the
+data, including the macros.  Alternative tests may be configured in the
+file TESTIO.H.
+
+Test 3 tests the macros BIT1PUT and BIT1GET for speed.  This is only a
+demostration test.  If you need actual timings, you will need to add
+the capability to capture it in or around these programs.
+
+-------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bitio104 bitio104/COPYING bitio104/bitget.h
+#   bitio104/test.bit.UU
+# Wrapped by kent@sparky on Wed Mar  3 09:07:09 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test ! -d 'bitio104' ; then
+    echo shar: Creating directory \"'bitio104'\"
+    mkdir 'bitio104'
+fi
+if test -f 'bitio104/COPYING' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitio104/COPYING'\"
+else
+  echo shar: Extracting \"'bitio104/COPYING'\" \(25265 characters\)
+  sed "s/^X//" >'bitio104/COPYING' <<'END_OF_FILE'
+X		  GNU LIBRARY GENERAL PUBLIC LICENSE
+X		       Version 2, June 1991
+X
+X Copyright (C) 1991 Free Software Foundation, Inc.
+X                    675 Mass Ave, Cambridge, MA 02139, USA
+X Everyone is permitted to copy and distribute verbatim copies
+X of this license document, but changing it is not allowed.
+X
+X[This is the first released version of the library GPL.  It is
+X numbered 2 because it goes with version 2 of the ordinary GPL.]
+X
+X			    Preamble
+X
+X  The licenses for most software are designed to take away your
+Xfreedom to share and change it.  By contrast, the GNU General Public
+XLicenses are intended to guarantee your freedom to share and change
+Xfree software--to make sure the software is free for all its users.
+X
+X  This license, the Library General Public License, applies to some
+Xspecially designated Free Software Foundation software, and to any
+Xother libraries whose authors decide to use it.  You can use it for
+Xyour libraries, too.
+X
+X  When we speak of free software, we are referring to freedom, not
+Xprice.  Our General Public Licenses are designed to make sure that you
+Xhave the freedom to distribute copies of free software (and charge for
+Xthis service if you wish), that you receive source code or can get it
+Xif you want it, that you can change the software or use pieces of it
+Xin new free programs; and that you know you can do these things.
+X
+X  To protect your rights, we need to make restrictions that forbid
+Xanyone to deny you these rights or to ask you to surrender the rights.
+XThese restrictions translate to certain responsibilities for you if
+Xyou distribute copies of the library, or if you modify it.
+X
+X  For example, if you distribute copies of the library, whether gratis
+Xor for a fee, you must give the recipients all the rights that we gave
+Xyou.  You must make sure that they, too, receive or can get the source
+Xcode.  If you link a program with the library, you must provide
+Xcomplete object files to the recipients so that they can relink them
+Xwith the library, after making changes to the library and recompiling
+Xit.  And you must show them these terms so they know their rights.
+X
+X  Our method of protecting your rights has two steps: (1) copyright
+Xthe library, and (2) offer you this license which gives you legal
+Xpermission to copy, distribute and/or modify the library.
+X
+X  Also, for each distributor's protection, we want to make certain
+Xthat everyone understands that there is no warranty for this free
+Xlibrary.  If the library is modified by someone else and passed on, we
+Xwant its recipients to know that what they have is not the original
+Xversion, so that any problems introduced by others will not reflect on
+Xthe original authors' reputations.
+X
+X  Finally, any free program is threatened constantly by software
+Xpatents.  We wish to avoid the danger that companies distributing free
+Xsoftware will individually obtain patent licenses, thus in effect
+Xtransforming the program into proprietary software.  To prevent this,
+Xwe have made it clear that any patent must be licensed for everyone's
+Xfree use or not licensed at all.
+X
+X  Most GNU software, including some libraries, is covered by the ordinary
+XGNU General Public License, which was designed for utility programs.  This
+Xlicense, the GNU Library General Public License, applies to certain
+Xdesignated libraries.  This license is quite different from the ordinary
+Xone; be sure to read it in full, and don't assume that anything in it is
+Xthe same as in the ordinary license.
+X
+X  The reason we have a separate public license for some libraries is that
+Xthey blur the distinction we usually make between modifying or adding to a
+Xprogram and simply using it.  Linking a program with a library, without
+Xchanging the library, is in some sense simply using the library, and is
+Xanalogous to running a utility program or application program.  However, in
+Xa textual and legal sense, the linked executable is a combined work, a
+Xderivative of the original library, and the ordinary General Public License
+Xtreats it as such.
+X
+X  Because of this blurred distinction, using the ordinary General
+XPublic License for libraries did not effectively promote software
+Xsharing, because most developers did not use the libraries.  We
+Xconcluded that weaker conditions might promote sharing better.
+X
+X  However, unrestricted linking of non-free programs would deprive the
+Xusers of those programs of all benefit from the free status of the
+Xlibraries themselves.  This Library General Public License is intended to
+Xpermit developers of non-free programs to use free libraries, while
+Xpreserving your freedom as a user of such programs to change the free
+Xlibraries that are incorporated in them.  (We have not seen how to achieve
+Xthis as regards changes in header files, but we have achieved it as regards
+Xchanges in the actual functions of the Library.)  The hope is that this
+Xwill lead to faster development of free libraries.
+X
+X  The precise terms and conditions for copying, distribution and
+Xmodification follow.  Pay close attention to the difference between a
+X"work based on the library" and a "work that uses the library".  The
+Xformer contains code derived from the library, while the latter only
+Xworks together with the library.
+X
+X  Note that it is possible for a library to be covered by the ordinary
+XGeneral Public License rather than by this special one.
+X
+X		  GNU LIBRARY GENERAL PUBLIC LICENSE
+X   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION
+X
+X  0. This License Agreement applies to any software library which
+Xcontains a notice placed by the copyright holder or other authorized
+Xparty saying it may be distributed under the terms of this Library
+XGeneral Public License (also called "this License").  Each licensee is
+Xaddressed as "you".
+X
+X  A "library" means a collection of software functions and/or data
+Xprepared so as to be conveniently linked with application programs
+X(which use some of those functions and data) to form executables.
+X
+X  The "Library", below, refers to any such software library or work
+Xwhich has been distributed under these terms.  A "work based on the
+XLibrary" means either the Library or any derivative work under
+Xcopyright law: that is to say, a work containing the Library or a
+Xportion of it, either verbatim or with modifications and/or translated
+Xstraightforwardly into another language.  (Hereinafter, translation is
+Xincluded without limitation in the term "modification".)
+X
+X  "Source code" for a work means the preferred form of the work for
+Xmaking modifications to it.  For a library, complete source code means
+Xall the source code for all modules it contains, plus any associated
+Xinterface definition files, plus the scripts used to control compilation
+Xand installation of the library.
+X
+X  Activities other than copying, distribution and modification are not
+Xcovered by this License; they are outside its scope.  The act of
+Xrunning a program using the Library is not restricted, and output from
+Xsuch a program is covered only if its contents constitute a work based
+Xon the Library (independent of the use of the Library in a tool for
+Xwriting it).  Whether that is true depends on what the Library does
+Xand what the program that uses the Library does.
+X  
+X  1. You may copy and distribute verbatim copies of the Library's
+Xcomplete source code as you receive it, in any medium, provided that
+Xyou conspicuously and appropriately publish on each copy an
+Xappropriate copyright notice and disclaimer of warranty; keep intact
+Xall the notices that refer to this License and to the absence of any
+Xwarranty; and distribute a copy of this License along with the
+XLibrary.
+X
+X  You may charge a fee for the physical act of transferring a copy,
+Xand you may at your option offer warranty protection in exchange for a
+Xfee.
+X
+X  2. You may modify your copy or copies of the Library or any portion
+Xof it, thus forming a work based on the Library, and copy and
+Xdistribute such modifications or work under the terms of Section 1
+Xabove, provided that you also meet all of these conditions:
+X
+X    a) The modified work must itself be a software library.
+X
+X    b) You must cause the files modified to carry prominent notices
+X    stating that you changed the files and the date of any change.
+X
+X    c) You must cause the whole of the work to be licensed at no
+X    charge to all third parties under the terms of this License.
+X
+X    d) If a facility in the modified Library refers to a function or a
+X    table of data to be supplied by an application program that uses
+X    the facility, other than as an argument passed when the facility
+X    is invoked, then you must make a good faith effort to ensure that,
+X    in the event an application does not supply such function or
+X    table, the facility still operates, and performs whatever part of
+X    its purpose remains meaningful.
+X
+X    (For example, a function in a library to compute square roots has
+X    a purpose that is entirely well-defined independent of the
+X    application.  Therefore, Subsection 2d requires that any
+X    application-supplied function or table used by this function must
+X    be optional: if the application does not supply it, the square
+X    root function must still compute square roots.)
+X
+XThese requirements apply to the modified work as a whole.  If
+Xidentifiable sections of that work are not derived from the Library,
+Xand can be reasonably considered independent and separate works in
+Xthemselves, then this License, and its terms, do not apply to those
+Xsections when you distribute them as separate works.  But when you
+Xdistribute the same sections as part of a whole which is a work based
+Xon the Library, the distribution of the whole must be on the terms of
+Xthis License, whose permissions for other licensees extend to the
+Xentire whole, and thus to each and every part regardless of who wrote
+Xit.
+X
+XThus, it is not the intent of this section to claim rights or contest
+Xyour rights to work written entirely by you; rather, the intent is to
+Xexercise the right to control the distribution of derivative or
+Xcollective works based on the Library.
+X
+XIn addition, mere aggregation of another work not based on the Library
+Xwith the Library (or with a work based on the Library) on a volume of
+Xa storage or distribution medium does not bring the other work under
+Xthe scope of this License.
+X
+X  3. You may opt to apply the terms of the ordinary GNU General Public
+XLicense instead of this License to a given copy of the Library.  To do
+Xthis, you must alter all the notices that refer to this License, so
+Xthat they refer to the ordinary GNU General Public License, version 2,
+Xinstead of to this License.  (If a newer version than version 2 of the
+Xordinary GNU General Public License has appeared, then you can specify
+Xthat version instead if you wish.)  Do not make any other change in
+Xthese notices.
+X
+X  Once this change is made in a given copy, it is irreversible for
+Xthat copy, so the ordinary GNU General Public License applies to all
+Xsubsequent copies and derivative works made from that copy.
+X
+X  This option is useful when you wish to copy part of the code of
+Xthe Library into a program that is not a library.
+X
+X  4. You may copy and distribute the Library (or a portion or
+Xderivative of it, under Section 2) in object code or executable form
+Xunder the terms of Sections 1 and 2 above provided that you accompany
+Xit with the complete corresponding machine-readable source code, which
+Xmust be distributed under the terms of Sections 1 and 2 above on a
+Xmedium customarily used for software interchange.
+X
+X  If distribution of object code is made by offering access to copy
+Xfrom a designated place, then offering equivalent access to copy the
+Xsource code from the same place satisfies the requirement to
+Xdistribute the source code, even though third parties are not
+Xcompelled to copy the source along with the object code.
+X
+X  5. A program that contains no derivative of any portion of the
+XLibrary, but is designed to work with the Library by being compiled or
+Xlinked with it, is called a "work that uses the Library".  Such a
+Xwork, in isolation, is not a derivative work of the Library, and
+Xtherefore falls outside the scope of this License.
+X
+X  However, linking a "work that uses the Library" with the Library
+Xcreates an executable that is a derivative of the Library (because it
+Xcontains portions of the Library), rather than a "work that uses the
+Xlibrary".  The executable is therefore covered by this License.
+XSection 6 states terms for distribution of such executables.
+X
+X  When a "work that uses the Library" uses material from a header file
+Xthat is part of the Library, the object code for the work may be a
+Xderivative work of the Library even though the source code is not.
+XWhether this is true is especially significant if the work can be
+Xlinked without the Library, or if the work is itself a library.  The
+Xthreshold for this to be true is not precisely defined by law.
+X
+X  If such an object file uses only numerical parameters, data
+Xstructure layouts and accessors, and small macros and small inline
+Xfunctions (ten lines or less in length), then the use of the object
+Xfile is unrestricted, regardless of whether it is legally a derivative
+Xwork.  (Executables containing this object code plus portions of the
+XLibrary will still fall under Section 6.)
+X
+X  Otherwise, if the work is a derivative of the Library, you may
+Xdistribute the object code for the work under the terms of Section 6.
+XAny executables containing that work also fall under Section 6,
+Xwhether or not they are linked directly with the Library itself.
+X
+X  6. As an exception to the Sections above, you may also compile or
+Xlink a "work that uses the Library" with the Library to produce a
+Xwork containing portions of the Library, and distribute that work
+Xunder terms of your choice, provided that the terms permit
+Xmodification of the work for the customer's own use and reverse
+Xengineering for debugging such modifications.
+X
+X  You must give prominent notice with each copy of the work that the
+XLibrary is used in it and that the Library and its use are covered by
+Xthis License.  You must supply a copy of this License.  If the work
+Xduring execution displays copyright notices, you must include the
+Xcopyright notice for the Library among them, as well as a reference
+Xdirecting the user to the copy of this License.  Also, you must do one
+Xof these things:
+X
+X    a) Accompany the work with the complete corresponding
+X    machine-readable source code for the Library including whatever
+X    changes were used in the work (which must be distributed under
+X    Sections 1 and 2 above); and, if the work is an executable linked
+X    with the Library, with the complete machine-readable "work that
+X    uses the Library", as object code and/or source code, so that the
+X    user can modify the Library and then relink to produce a modified
+X    executable containing the modified Library.  (It is understood
+X    that the user who changes the contents of definitions files in the
+X    Library will not necessarily be able to recompile the application
+X    to use the modified definitions.)
+X
+X    b) Accompany the work with a written offer, valid for at
+X    least three years, to give the same user the materials
+X    specified in Subsection 6a, above, for a charge no more
+X    than the cost of performing this distribution.
+X
+X    c) If distribution of the work is made by offering access to copy
+X    from a designated place, offer equivalent access to copy the above
+X    specified materials from the same place.
+X
+X    d) Verify that the user has already received a copy of these
+X    materials or that you have already sent this user a copy.
+X
+X  For an executable, the required form of the "work that uses the
+XLibrary" must include any data and utility programs needed for
+Xreproducing the executable from it.  However, as a special exception,
+Xthe source code distributed need not include anything that is normally
+Xdistributed (in either source or binary form) with the major
+Xcomponents (compiler, kernel, and so on) of the operating system on
+Xwhich the executable runs, unless that component itself accompanies
+Xthe executable.
+X
+X  It may happen that this requirement contradicts the license
+Xrestrictions of other proprietary libraries that do not normally
+Xaccompany the operating system.  Such a contradiction means you cannot
+Xuse both them and the Library together in an executable that you
+Xdistribute.
+X
+X  7. You may place library facilities that are a work based on the
+XLibrary side-by-side in a single library together with other library
+Xfacilities not covered by this License, and distribute such a combined
+Xlibrary, provided that the separate distribution of the work based on
+Xthe Library and of the other library facilities is otherwise
+Xpermitted, and provided that you do these two things:
+X
+X    a) Accompany the combined library with a copy of the same work
+X    based on the Library, uncombined with any other library
+X    facilities.  This must be distributed under the terms of the
+X    Sections above.
+X
+X    b) Give prominent notice with the combined library of the fact
+X    that part of it is a work based on the Library, and explaining
+X    where to find the accompanying uncombined form of the same work.
+X
+X  8. You may not copy, modify, sublicense, link with, or distribute
+Xthe Library except as expressly provided under this License.  Any
+Xattempt otherwise to copy, modify, sublicense, link with, or
+Xdistribute the Library is void, and will automatically terminate your
+Xrights under this License.  However, parties who have received copies,
+Xor rights, from you under this License will not have their licenses
+Xterminated so long as such parties remain in full compliance.
+X
+X  9. You are not required to accept this License, since you have not
+Xsigned it.  However, nothing else grants you permission to modify or
+Xdistribute the Library or its derivative works.  These actions are
+Xprohibited by law if you do not accept this License.  Therefore, by
+Xmodifying or distributing the Library (or any work based on the
+XLibrary), you indicate your acceptance of this License to do so, and
+Xall its terms and conditions for copying, distributing or modifying
+Xthe Library or works based on it.
+X
+X  10. Each time you redistribute the Library (or any work based on the
+XLibrary), the recipient automatically receives a license from the
+Xoriginal licensor to copy, distribute, link with or modify the Library
+Xsubject to these terms and conditions.  You may not impose any further
+Xrestrictions on the recipients' exercise of the rights granted herein.
+XYou are not responsible for enforcing compliance by third parties to
+Xthis License.
+X
+X  11. If, as a consequence of a court judgment or allegation of patent
+Xinfringement or for any other reason (not limited to patent issues),
+Xconditions are imposed on you (whether by court order, agreement or
+Xotherwise) that contradict the conditions of this License, they do not
+Xexcuse you from the conditions of this License.  If you cannot
+Xdistribute so as to satisfy simultaneously your obligations under this
+XLicense and any other pertinent obligations, then as a consequence you
+Xmay not distribute the Library at all.  For example, if a patent
+Xlicense would not permit royalty-free redistribution of the Library by
+Xall those who receive copies directly or indirectly through you, then
+Xthe only way you could satisfy both it and this License would be to
+Xrefrain entirely from distribution of the Library.
+X
+XIf any portion of this section is held invalid or unenforceable under any
+Xparticular circumstance, the balance of the section is intended to apply,
+Xand the section as a whole is intended to apply in other circumstances.
+X
+XIt is not the purpose of this section to induce you to infringe any
+Xpatents or other property right claims or to contest validity of any
+Xsuch claims; this section has the sole purpose of protecting the
+Xintegrity of the free software distribution system which is
+Ximplemented by public license practices.  Many people have made
+Xgenerous contributions to the wide range of software distributed
+Xthrough that system in reliance on consistent application of that
+Xsystem; it is up to the author/donor to decide if he or she is willing
+Xto distribute software through any other system and a licensee cannot
+Ximpose that choice.
+X
+XThis section is intended to make thoroughly clear what is believed to
+Xbe a consequence of the rest of this License.
+X
+X  12. If the distribution and/or use of the Library is restricted in
+Xcertain countries either by patents or by copyrighted interfaces, the
+Xoriginal copyright holder who places the Library under this License may add
+Xan explicit geographical distribution limitation excluding those countries,
+Xso that distribution is permitted only in or among countries not thus
+Xexcluded.  In such case, this License incorporates the limitation as if
+Xwritten in the body of this License.
+X
+X  13. The Free Software Foundation may publish revised and/or new
+Xversions of the Library General Public License from time to time.
+XSuch new versions will be similar in spirit to the present version,
+Xbut may differ in detail to address new problems or concerns.
+X
+XEach version is given a distinguishing version number.  If the Library
+Xspecifies a version number of this License which applies to it and
+X"any later version", you have the option of following the terms and
+Xconditions either of that version or of any later version published by
+Xthe Free Software Foundation.  If the Library does not specify a
+Xlicense version number, you may choose any version ever published by
+Xthe Free Software Foundation.
+X
+X  14. If you wish to incorporate parts of the Library into other free
+Xprograms whose distribution conditions are incompatible with these,
+Xwrite to the author to ask for permission.  For software which is
+Xcopyrighted by the Free Software Foundation, write to the Free
+XSoftware Foundation; we sometimes make exceptions for this.  Our
+Xdecision will be guided by the two goals of preserving the free status
+Xof all derivatives of our free software and of promoting the sharing
+Xand reuse of software generally.
+X
+X			    NO WARRANTY
+X
+X  15. BECAUSE THE LIBRARY IS LICENSED FREE OF CHARGE, THERE IS NO
+XWARRANTY FOR THE LIBRARY, TO THE EXTENT PERMITTED BY APPLICABLE LAW.
+XEXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT HOLDERS AND/OR
+XOTHER PARTIES PROVIDE THE LIBRARY "AS IS" WITHOUT WARRANTY OF ANY
+XKIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE
+XIMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+XPURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE
+XLIBRARY IS WITH YOU.  SHOULD THE LIBRARY PROVE DEFECTIVE, YOU ASSUME
+XTHE COST OF ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+X
+X  16. IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN
+XWRITING WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY
+XAND/OR REDISTRIBUTE THE LIBRARY AS PERMITTED ABOVE, BE LIABLE TO YOU
+XFOR DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL OR
+XCONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE
+XLIBRARY (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA BEING
+XRENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD PARTIES OR A
+XFAILURE OF THE LIBRARY TO OPERATE WITH ANY OTHER SOFTWARE), EVEN IF
+XSUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH
+XDAMAGES.
+X
+X		     END OF TERMS AND CONDITIONS
+X
+X     Appendix: How to Apply These Terms to Your New Libraries
+X
+X  If you develop a new library, and you want it to be of the greatest
+Xpossible use to the public, we recommend making it free software that
+Xeveryone can redistribute and change.  You can do so by permitting
+Xredistribution under these terms (or, alternatively, under the terms of the
+Xordinary General Public License).
+X
+X  To apply these terms, attach the following notices to the library.  It is
+Xsafest to attach them to the start of each source file to most effectively
+Xconvey the exclusion of warranty; and each file should have at least the
+X"copyright" line and a pointer to where the full notice is found.
+X
+X    <one line to give the library's name and a brief idea of what it does.>
+X    Copyright (C) <year>  <name of author>
+X
+X    This library is free software; you can redistribute it and/or
+X    modify it under the terms of the GNU Library General Public
+X    License as published by the Free Software Foundation; either
+X    version 2 of the License, or (at your option) any later version.
+X
+X    This library is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+X    Library General Public License for more details.
+X
+X    You should have received a copy of the GNU Library General Public
+X    License along with this library; if not, write to the Free
+X    Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+XAlso add information on how to contact you by electronic and paper mail.
+X
+XYou should also get your employer (if you work as a programmer) or your
+Xschool, if any, to sign a "copyright disclaimer" for the library, if
+Xnecessary.  Here is a sample; alter the names:
+X
+X  Yoyodyne, Inc., hereby disclaims all copyright interest in the
+X  library `Frob' (a library for tweaking knobs) written by James Random Hacker.
+X
+X  <signature of Ty Coon>, 1 April 1990
+X  Ty Coon, President of Vice
+X
+XThat's all there is to it!
+END_OF_FILE
+  if test 25265 -ne `wc -c <'bitio104/COPYING'`; then
+    echo shar: \"'bitio104/COPYING'\" unpacked with wrong size!
+  fi
+  # end of 'bitio104/COPYING'
+fi
+if test -f 'bitio104/bitget.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitio104/bitget.h'\"
+else
+  echo shar: Extracting \"'bitio104/bitget.h'\" \(3850 characters\)
+  sed "s/^X//" >'bitio104/bitget.h' <<'END_OF_FILE'
+X/***********************************************************************\
+X|   Copyright (C) 1993 - by Philip David Howard - all rights reserved	|
+X|									|
+X|   This library is free software; you may redistribute it and/or	|
+X|   modify it under the terms of the GNU Library General Public		|
+X|   License as published by the Free Software Foundation; either	|
+X|   version 2 of the license, or (at your option) any later version.	|
+X|									|
+X|   This library is distributed in the hope that it will be useful,	|
+X|   but WITHOUT ANY WARRANTY; without even the implied warranty of	|
+X|   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the	|
+X|   GNU Library General Public License for more details.		|
+X|									|
+X|   You should have received a copy of the GNU Library General Public	|
+X|   License along with this library.  If not, write to the Free		|
+X|   Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.	|
+X|									|
+X|author:	Philip D. Howard (ka9wgn)				|
+X|email:		pdh@netcom.com						|
+X|postal:	PO Box 5012;  Champaign, IL  61825-5012			|
+X|voice/fax:	217-384-4934						|
+X\***********************************************************************/
+X/***********************************************************************\
+X|header:	bitget							|
+X|purpose:	to input bit data from a bit stream file		|
+X|		generate code for bithget.c or bitlget.c		|
+X\***********************************************************************/
+X{
+X    ulong	data	;
+X    uint	have	;
+X    uint	need	;
+X    int		c	;
+X
+X#ifdef BITIO_CHECK_ERROR
+X    /********************************************************\
+X    |if the bit stream file is in error then return zero bits|
+X    \********************************************************/
+X    if ( NULL == bitstream || 0 == ( BITIO_INPUT & bitstream->flags ) ) {
+X	if ( countptr ) *countptr = 0;
+X	return ( 0 );
+X    }
+X#endif
+X
+X    need = count;
+X    have = 0;
+X    data = 0;
+X
+X    /*******************************************************************\
+X    |if we need more bits than are already buffered then read some bytes|
+X    \*******************************************************************/
+X    if ( need > bitstream->bits ) {
+X
+X	/************************************************\
+X	|first take all the bits we already have buffered|
+X	\************************************************/
+X	data = 0x00ff & bitstream->buf;
+X	have = bitstream->bits;
+X	data &= ( 1 << have ) - 1;
+X	need -= have;
+X
+X	/**********************************************\
+X	|read in as many whole bytes as we need to have|
+X	\**********************************************/
+X	while ( need >= 8 ) {
+X	    c = getc( bitstream->cfile );
+X	    if ( EOF == c ) {
+X		need = 0;		/* abort on EOF */
+X	    } else {
+X		data <<= 8;
+X		data |= 0x00ff & c;
+X		have += 8;
+X		need -= 8;
+X	    }
+X	}
+X
+X	/*****************\
+X	|refill the buffer|
+X	\*****************/
+X	bitstream->buf = getc( bitstream->cfile );
+X	if ( EOF == bitstream->buf ) {
+X	    bitstream->bits = 0;
+X	    need = 0;
+X	} else {
+X	    bitstream->bits = 8;
+X	}
+X    }
+X
+X    /*************************************\
+X    |take the (final) bits from the buffer|
+X    \*************************************/
+X    if ( need ) {
+X	data <<= need;
+X	bitstream->bits -= need;
+X	have += need;
+X	data |= ( ( 1 << need ) - 1 ) & ( bitstream->buf >> bitstream->bits );
+X    }
+X
+X    /**************************************\
+X    |store the count of bits being returned|
+X    \**************************************/
+X    if ( countptr ) *countptr = have;
+X
+X#ifdef BITIO_HIGH
+X    /******************************************\
+X    |return data adjusted to the high order end|
+X    \******************************************/
+X    return ( data << ( LONG_BIT - have ) );
+X#else
+X    /****************************************\
+X    |return data already at the low order end|
+X    \****************************************/
+X    return ( data );
+X#endif
+X
+X}
+END_OF_FILE
+  if test 3850 -ne `wc -c <'bitio104/bitget.h'`; then
+    echo shar: \"'bitio104/bitget.h'\" unpacked with wrong size!
+  fi
+  # end of 'bitio104/bitget.h'
+fi
+if test -f 'bitio104/test.bit.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitio104/test.bit.UU'\"
+else
+  echo shar: Extracting \"'bitio104/test.bit.UU'\" \(24768 characters\)
+  sed "s/^X//" >'bitio104/test.bit.UU' <<'END_OF_FILE'
+Xbegin 644 bitio104/test.bit
+XM4%;&*NE%4O\0LMB"\*2R1W*V9+VU\4N;/Q00GZ?])Y.,"NW!58H7 T <8* O
+XM2RTP9FV-,7G[\-*>OA-LBE\,[=Q"@,?'3@-B^CV^V8LTR&3!O!K=A"@3=31S
+XMAY8&Y8A"26%GBMORIZJ8+]HX']'+QOF/H74<WP;VG+WS5Y(J>Z>?H4G*-)[Q
+XMK\?E?Y/&9((PVI](:B-"H-8;1*46A29A/"S46^FD5I@G/?W;7*OD1(F14$G+
+XMTKOJ&H_[3[:KD$J%5\A&<L/ @9O:=<)[R^G<Q0B]8:K^NNUUV]E.L0PI]?:I
+XM^=)[^9::82A](SW0VYZLN@C4J]X<*&D\P,'KN%S\\.7U8NPN*0<G[9_DGYRL
+XMB\##63M_GKOYATD$/J'S5U3 #5FR0;[Q4*X 3Z&?BX>NOO,N\I3+1=F[Y:5R
+XM[]5&Y!71PCY>?UG@;,&R^L(%E?[$VHL<4-'<U,-QL@D/"?9XWOFKCHG-X8Y%
+XM8A;@>5(E)3S_MD3!-U;$MX:W\Q(Y:-H]JB&DTMZ"F)[H9'89^E \:[;H@2-A
+XM7D8>NN9;96+8NLH-:O.<YQ8L4@=E;I86V<@;!_@<^)I;<336IA#LL%KPI=C\
+XML[*@"::PR:Q">'Y/KOPW\7VR%&,=L/G1X?5E9ZWWK[U3EW"U=^=F&P)TLQ[V
+XM=5,*<41V 8SKWD5.S$$Q89IA^QV8Y..%IMTBG6ADF,=)PJ1=,,C<[D57C<\E
+XM)GX@03FU>V"3J!(PLU_6R8QIJ%:S31+2*:ZWS$3SMHU/"/8,+Y,;&B&7G= Y
+XM3H[F9^GA Y<\U;?763LG&"@'UJ;\ST+BO+B2_)OR1*/>C%VU)[B+#DJ[!():
+XM[9OZ95"H;ZQ+"E!4%*5T[HQR%)057DPP&&3D]"  J8U']O-G2YD[<#C015.=
+XMM1'']2+ T2./Y=;M?.*:.=$-R9:)!RO^*#"UH"EF&-"( W34JVP"_^*Y84>+
+XM%?FM[CCY@2L]C;]81.1XJGIOKRG:G)R3JEC8"=9C*AAR7.*%ZWO4#O-D5F"%
+XMDXND'C=0"EB%A_.EX]_17(7'E?F\3G$#B&QEH,506F.2=$,,5[?ZY^N&Z'=5
+XMO\#CP:%P?V>F!TF%T_F=?L&D-\13<_,_DV=;+V>!0QXK&\?-DQ3CG;/\Q9:M
+XM)T+2?AXJ$]ZH)WDU$+"IA\<(3%]-S-?T[V/%OH= '*P.):N5'57X/VQ$91&O
+XM'"]CO#=70U> !8R?MGS7PADIAY%"[D32"W_$)'*NE$\""0?>+G7LVE<C":HE
+XMQ?JE705Q$U'GFS5>?>P[,UE;;1Z*)>75.*5+LG2, [MMBK15* #0E$!"Y@0X
+XMBM5UVOTC"W/$:G#J SB-\2KR=?A1@'.+^S+NCHKC10%#%C?2_*)-0^K_%E <
+XM--7(+GP%@8C40M7MW%SZY<A.7T1$)0,@4T^S<Z^IL*(@G8'X*IK6TR>E38&Q
+XM)Y^+Q%<%A.XXZ:Y$B!B@X8L:ZY^]P,D/8T.)1-I+2U-S0]CAK"%20"A@.7!"
+XM&4</.^TTGUF(I19VE;DSE-5HLM.G7&HU_JB+C@]HSWP]71\U4C"VU940(E)+
+XMP<H1'3F#KD:/9F%3DBCO@Q_M[MG,_Q()Y3W@T!P/3URV]1>;6]$K?%ZUP:!-
+XM(B"9N["J\].E@4'!=WN:'KT(E$]V[,]M[%K,LPO;G%PV,709 BO7-P+,E<RE
+XM4E]?\ZN&(VU$/\&!&,>\J3\Q C^Q.IL#;TC(AJI4DT7O4CA8Z]SSSVHIUI0[
+XM@XLP@&G<]+#,:$*JIZ@O_VFV-]SN?8SXZXVVG^S9=H'?J>+;IB+'A/I<W9+\
+XMR+'1( !_ 9TSM*2.D_;H\51!*G%PGA3HN+-8/@F'\\TW<CT\O/!)-BX72EFA
+XM''L.6<UK!\U, #)P;?9>/<6'PV"O."MT=QC(YVA+6VR_N6)]$<+67FY!"HW;
+XM([-B1Q Q<"VZ=WY)_D H;4D.''@#PO&B<S9KL3/9]Q_-<('W'3#81K #S2( 
+XM9$Y(7V+OWH]'ZLYBN_K0!YVZB<\U'X(IS;>XS?)/ E:'6""@\]E$L4FV[W=U
+XMW<F<^;C(WT^9^*7\/Q$/CR.!AA'O5#-&RX%CNF25J3#3E7#2 ?>3I>>AD7_U
+XMAS?#X<9-(GB^D!?*F4OK0[1H.BE0 D3S5U2.!X,VI__D2'%UKOH-<E=EIP#!
+XM&^8V@7@QZR8ECO+3^#;R^9S^T<&AKXE< [FZY5' (=N+VJSIKK$Z&>[E.YH7
+XM:;]AIA.IRD1QW>7%V(B5E<6,9T033'I>P./'<0[-]AH1CU7N0N\@N T3/!<D
+XM8I\>I':^5[>.Z:-+9CBF&MO+SMADL*"OWOMCF@D#HVYGN6T2]KGI\+QLTD$R
+XMSN0[-/:OYP.,BG.U4C=Q!9]L-SS;X.;LR]/#56X0'H^$1'R)8JNC+1L?6D@[
+XMH_LH6!M3,[1OQ.7$#<.@6Q=UA8$)6&(,'->/2LOHKE3@^W>_IMNELYL;X2"!
+XMR&KFIC)!L1)O$I@-%1Z@NH&V[&5+G@<41B4S< M72=70Z48)-!0-D0;OD@&B
+XMM9[(F>.%:%F^5DSI4?K+0>*Y8'IV=*ZDM!5U77#CB\ZGIE!XE@[S:SY7GUW(
+XM.\:%HS%@%?AYB;N<VZPX=9%_YS_-60$UB4UWHP"0@@13,>XX2VTUVJS:,PUH
+XM?HXI0P*3UIAG"#M>2UD4I*>H--WW.Q+H%NX#1)1IZY 7SSS/?+7LU_R[LL0+
+XM7?930JZPW;=V@KD^R,*S)C/S2W3IC7$G]9T/.*<7*"N*5[Y[;J=7)I)@QY.Q
+XMN!8GD.0ET1(WAM=?P<*=)W$?(<Y<=M&&+1<.<I<&/"03[QKT:3JEN]:UW^/@
+XM#/*2&%DQA[5GLD2-5$(1%G9X,H0B,1_@@1?T;P8Z%(_SU##QXV8.+T+S(MC;
+XM&^,\!ME#\'WEJ:;'TKUR_3X1@[JB.%8WCO(E5LDXO?\PA4R:/!=@S7M9AGG9
+XMI*G!A6#B<Y<SS/A7<W<T\9/ZL]3NN1O,'-QQ@ST]7$B_<<W4>_TYI]V=KB^1
+XM_=Z.7\KMXDP"@1X 4?/EW?TR:S]RY;$J4^K<A 9._)CL6E*<%M:(??Q!CA]^
+XM2PSAM&6D%\E(4KF9V\$_R!AF!B<P';N.)H)HPIN+8U%J1SM5SG$B2:R_ @-%
+XMHC]@#-?<A,L4-35+X:C"D*UHM\QU&#Z5UZB!#+H8Q ,@XP/RPUXMFLKJ[D'/
+XMP>S!L1/&B']P9G@5)XEWT'H#?5->'XI32FQIXBS)<W15J/V8!PNHGH&>O./_
+XM>O*75_UB 4_\)[]_5(U!LQ:_0V472S1$_6NSI[A6]2);(N9GJ6)@[2] IENZ
+XMOBL\58^/<%#YSB,S3=1#<>93*4%6^DP#\P[YRK0[=7J>&"M4EUK1JN1,*P!/
+XM1U<R*<=0P;#ZDT6@[T[WK,H\&Q%8XNW6<TDE# 3C]XJB$97G>0>!WB3R(\>Z
+XMI;PLGJ%?6C#V:1R_=I@4@^25H6LI_5=!<8@2C9#/A.F))X/ZV#/VX^3]7',E
+XM#H6324L?*B;JA["E6DPM=W*<G-Q3QP(@BO[1J;CD0%$M2>E-%AFV.S,0\+CB
+XM&JS_<'=%JN<FP$6SY8QQ!L?EXL:X!*-94,S*$QP_5'X9S.*]25@#H]ZTW??Y
+XM](HV!3=PEZO.E?OU)):^19>]!,O4(U9D$J!*19R0Z3N(4D,H]*'//BY3233G
+XMG G4K(6ERT-.]9RO,N>3[L^?PF/0BL&HM:633'C;^ZH3::*-X87KMC_7OZG,
+XMM/N[&B-'#D8N39BGBORCX-.,;*M6ZLW$]Z]".-;XN*)KV[P%+G&?_JG@<(&A
+XM$[OO+3TEJ"(7+D+.KY4_ QODVE?C9*7]BKELG:BW@+?%=EC^LNX+CFI.;1C:
+XM U]DFBSN6K_L+]G2F@NM_V2<2C0YT\O-K.:I]+0.+# +T?C#F:-FME21+[+W
+XMFHNWML18'**;LQ&/9=JS<'X-U+8C4^A0?[C.G"QO<'ZNV,$DS&P7C1Q+C39S
+XM(?3X9XW%U6X#\[L,RG8;HN4(5>1ITID&3YO_^.&F\]BR/'"N+@PF*:E@>@)L
+XMD8/;<&W.D41>RKQ.&CXQ\[>"9I+A>C/:P8?VF8JEP1"38MCO6BH%9TQ.3FCL
+XM=^@G^(3]^OC!;.MDZB/'T5PW'L/>B:][*M/=/+9G&\F_*OF$P 4N (<MJV!+
+XM,W5RD-@DTA"P:0+RL&,/W. 26=E"FR?%)_S>G1MV.)A4!:VQ?Z?D^A7EJV<K
+XM)JU+*# #B9F$ 8WDB<:7J@'(/-7[?H%:/9XRK"*RR=ZR#KQ! 6M1L$<58^%R
+XM8>DK0.1']MPAL_9JQQ4R45I36,*5P5X&$R;*'NH"1:;5>\B>1B+[E/(Y,-EU
+XMG0H,F\2\Y%O\LIM<'V8>XU_^R^"::!7&9VC]SYL@;0V1QA,#)#(B V)T?LJA
+XM*<.0L$-1D171YZV6(YI[8V7=9VJ!ZKN=U1X@?9)V>:O:VI-J#H#"D,BT,:!\
+XM5'6=YC_%/H_(]B"(+[<#"AR2Q+VW0AOD$]W58V,Z&;"T@7#/.1O02(\TI&L+
+XM\N>7Y5/1!I^>#$:3% >"'B<;?>GCW@'L!)T6XFKHIBTF0DJ GM?\2;,@>Q):
+XM@S]I)FV-'$VRI O5<HVIKYYD7A*9.0I>LR]YL<9@E"1W@/+$$>[$2IR90(P0
+XM[C$\3'R+;!>7D2U=[\AYE7,(5C"NP^%4/%F:1_WDT&A:N<$WF*R+*9E'2ZV6
+XM7"CMFL*X3%VPQM']5Y/B!'OFJE)%^V+3>EX>[Z@BP2"+;>+R5%D.&%%;6([Q
+XMN5'ISE#R_+S9G/"13\EJPT*J?!SI%(AVU2?\8D:E:D%CTVQ2_"<.[7D:I^>;
+XMHBI(,GG[5.W.=F+C.^@4__AMP!W<\1U,!R %=L?Z17@62JR!6K(V?P:W"[I^
+XM[AIQ*&6#+OHD*URLNGC/[4ZB+*1Q+^5!?T_=:D38E/12;%^CA&OA,^P:3<Y^
+XMD@-;SO<,$.UD%,Z%KO<42<2XYS7C/QVIG3(L-,"APLA74V\OZ;9BPO:W_062
+XMBM1GJ)I<'"QF+-.WM@;@FA(7=\CU?^7&VOY#L@:!HU _,3@AYE)U(;^0DAB]
+XM/=\"DDW&R&$* _5-0!<-_ET^=A*4.*I\D:DB?2:(L6=FL?](%:>111LZ1E!U
+XMT??1Y?OP&\IJ?BN[(B*8E_ZC;N$2///%<Y0W*I%3U$[Y1:P'0C+_^F05H,^(
+XM8<H.PU.P;@!5^:&+L)M&0.:)P(?S;V4*?SGP^^K'"B5XB\%"4Y9&#':E[*)Y
+XM_9SQ1[YV+N"3+/D""2J2O%:7&@XZLH)E7[,U9H:7DSWXT=>$D^H0H+O7@C8[
+XM8B^E=W;%U.U)KH_GW"Y;A/$+/,&[$U^@/D64@):.-1VL;4CY%C4ERW3\S^5]
+XM,(^%]+B*EDR,U ITN,;"HO$I1C/,]($'K6Q+W6/KX;!4Z+V#"^3P70Z\&]!C
+XMPYUC+C7%DYJNTQ Y?V:W[S#?[>/O#<_Y>]#;1Q5[,]Q-%$]P=[U;$,,%*N^O
+XM4C^[7.7W#[/U 7/;M"A(MSL!3U&#&>=)2=&<HT%[-/)+R 9"'9J6&=;M9D+:
+XM %TUY*U:)+]\SQ\9E]*!Q@_/05 Z"FG'F]?H8:^'ER'&_3>((R>Q<K& PLT1
+XM1E&H[+$::!KN.?4['BS;7$7_$B)W&N,@(=E$-7?#^T%TTCD&CYEJ+=SK%L1M
+XM\*=JE,9WJ!X7I?SF&A1=$ +5Q^\C.N+MK(?BC^87\>0F%-J.6X1#E0H(1\:4
+XMS1.$!GY(>@<)$*E32>6)F%(L"KZ6AI/26K2A'?6.N%GN,]Q<#NXFF2NO=(U;
+XMK[=?Y"@TOYQ:$);45OBQ] V8KVJ;'B]D]9=D6^LKD8,:VPR(+'Y^IMZ4:^Z*
+XMAVI&.X7PB*B^:+)-G,\:,*S.O+:VO2$$PPTX+=Q24 ?SCW+]O7K@^M&[?B_7
+XM'1'&4ROI,!WQPOPBM6:^]!Q@1M01-]T47]Z_NPL#OQ4L3?/Q&9G-<E:6%@7M
+XM)9D:"B /K%VR65]O74\Q]6<PZUHLO+,Q/0YKYA:.T)<TH>9*6_U0"B..WM B
+XM[6=CJUN)>BF0RM&8]WV((H,P4B%(TQUB4J?BV>CA-_H?I(WWR_0_V*B3W42<
+XM(/(*$)2;WH='2T)]%;=E?5>#0E?8:S;@JH_MED_Y#QRCU53R&M#1473G9X-$
+XM*G]#4Q0,H8 NZ@4J??(C);^BKMG9T/HC,_)R(E#7E#[QL_I4+[TPIIP_FKOY
+XMH'Y3+4#>BB7CG.+^F=>"^A]["%QR;5\0;V!TP[OQ#' O>4#EUF'3/0I^Q?M]
+XM<ZOL_LQSI&'C&NTYEUI"%:Y<5%"Z_CJ^ H+U<S=L=9$)EH4A-:$0B\H'+5S<
+XM5"[U HGM.\F Y*\0K&_TW&>S48+7JK1LVE*.K9:H-)S/E] O;7SN?!4GEDZ9
+XMJ= 3(Z[<=U<@#4;FHBU7@9!T#5$F0%>[&\()%PHKN'O/T,J$17N!MI";_-1)
+XM*+?78MUW6A@HYHRS_R_H:G7J*-7B\"^RQ)QH$5U^TD!+LVO5)'][3+#U+CJ)
+XM"\LD_+E9B,CJ3I^S4Q9GGZQ$6!PR')HP?":&FS"OJWB=&VBJFL]5V T$PSC:
+XM)ZC,'-MU("E6J.IH1UILA9!':2-)RFQI5'E.GK1+U5+_L:0MZAX;NYS]3U)V
+XM<[+">M'6G['$'&7_M[RS$FO#K-RB(\=9_MSU)MO\<"&60M>-JJ\/$]UAYWS7
+XMJ_%D#'BZ'_?7%[!H=U44#OP*9#__Y'G2A-[!E$SLV[*%S +T<%)]H@EKOD Q
+XM^7\>;!Z3Q* <^Y*NR(*D GLPU#A:#Y*CX!61IEP&K5Y?S4YV<(8"P3J.3;&?
+XM(E.)G=C?'!%!K%;P9EE2W)=(1@?8U$QKA*HA*A?>^SY8 ,B@K[3E^;G*=D!<
+XM<Z"SH55KJ?5"[%X%,7<AC$=X.:R'@ O +PX/#C U=SQAHY#+I5, /3C2@=-8
+XM$"\%R>(4!C+$\AS,Z;Q12!P1ZCJ6L@9V"5AA%IT#^'N@=<4"V:U7>;WZ@#$^
+XMQAC86Z@0U^OSD(BR?IIA\?0H\ZRNU"R9K0X'!=74_9GI6'!$-\QL&B9AGZP%
+XMKY]2T!?3^0-M(\U^W*+M"=,8!SE?T$U"P$D+XD;=A6+2TUOZ+_/!L.K'!T9%
+XMJJ3:7<<AS]?@GHE5(IF3S_I0P0()'X?Q=SJU;;M]1_:9NAT$&*P!G<G"T_SR
+XMY\AX&1Q/MLN^!/.@;_2?/6H%ID-73<D=,S9)E@>]@7=>_>M8N_67ZUK-7U_5
+XMM5V90M/WB&R9]\FHE7+V;1(98UO>F;=L=GC&Q4)\^,)I'GG7F>38FK3_CETR
+XM+C#@F %9Q9*HXDM8$EZK&KYWF4-JM0Z@%85-??40&A+HE(RY;UVZR-E5NM54
+XM /:/-Z!1TE%3YIDM8@1(2J%.G3S=1X1M&TSHJIL" %\81-B&<)Z5U\OB,*V$
+XM-\[7RN"7\WBJ*T^>C"NZ!=)'A7C2EX-OK R'8Q0J;$2Z2 __1),YRP0LM_M,
+XM;WSKK&YS,DY.5Q[:4S/"7I-C#_#:@#'?5^ (#E(IR*01WU,246:0"%B3MZ.O
+XM/<!Q'V.+MVM+ HZTH0AT^.:9[$ 1>QY55XN/!V,K3<+47:]5=%46_&\X/AFN
+XMFY?<0JB8X_J5^4S$J,5;^ :Y[<CAU+3VK5Y(YB<UC):4)2^D)!QSB%U1$/&C
+XMMI,-T$8,DQJF[$M, S-=J#0;U\V,9(\FEX&'?R.S)HJ%S^ \WPG9Z&4QR>!>
+XM/NF>YD^E<:HAY5S"C=@F5:5RR5#7Z:TXA>^'W19>?G)!F76'?X0UFY080Y/:
+XMA\VT(G&)[EJ$V,SOQ$X74<&0"/*[U7^!TH7P4$Q64PY68:7I!MCYCQ')TJK&
+XMD7'.",5""T?<]0\0@BDE]S^<_3W\*K+\$?($&2@6=(+V"6DS-* U=S5AC-/[
+XMN9%Y>T\?23>::VM>#!XOIIZ*+!48(EEZ=ER:WO]CIW$4RZ,0EIQT]@$17/,S
+XM5O,I_SN$!%=A^*@ LAK-4_0+/L0"KIL"9D$2$%WGWW&3A+J>ZHS8B;RF>B3O
+XM5;&+RQ3N<A>A2,>"<2SKV+UFOXLS(JVQD'2R-. 9R))0[O<7XH99.H 9XK1N
+XM%+OJDH%/E!!Z%T?%<:"+F8^635"74-\6\L3/!SCM+:WTL77;WVH:-2^H<O=U
+XM8)VA8I_E]UU3@ +0!:/RX$0N4@@5&9YP5AXR%35IOVJ]"?P]4@YUU*&_\;)L
+XMDFDOBE2;N$7>^_!X40TJ,6;D@G.*ZCC++?',!3@@_%WCDV6_C!"'KJF6L"5R
+XMRY["")6L;R"[+6'N*>OBM/;%FV4UMH 9^U_#HJA X:X4@^GBA[N.LILL.CAN
+XM/#%J"H*H^>GQ>.)KXYU2%7\_CS(W AY#>8-K_U'QRE;5.:?M#%XG+ R($!?5
+XM6B([1]-\F(N1#C&\^^&P3'N?Q3.GZ\=;[/@\L7\H"[<\=&1 .1_5FP5J+'6#
+XM ?'[9CH4W5"4@ +Z:]88>6V5(7OVZ5)?:_UCQY\H9EX:E'AY;D/_OH@H:YP@
+XMYX9XJTD']%,,K7<BA*-KT+W^B;\@&:Z;6\P :.1>JX1;H S E=X1X3-%6VK5
+XM8!]0&1H><A8WD0S SYZ3#)PB<Y<W*FIO]M;9^ZN7W>S$.=W\?=DE8GU B$NZ
+XM1T51J]_3PC#JHG_O]967<,&+5J\BC978HIIY]PCV.J<BP>;>SE2 .U[:YT94
+XM^W0P(R-9&VI0.@QRQ6)JB69'(*0 JY<H>^Z<S&RN\*>1V'G0E?JZ57X4\R]4
+XM.'Z!R^H:L=,##[=_IS_P,3B'K\$I<DZS;8!LUDVZT-V5YS1#<J_N(MT9FANX
+XMHS-?]71FFE@1)1><O:1*\WKP3IA=#O"T6!#TBDHY"KQ%)6"L5Z,EY3843-(T
+XMPP"R]!^UZXS)RSRAB]>T1&*BYVE>_7LZ[X)+#=E<_2G?FQV0>GKR1^C6X8YL
+XM&U^RQ2.G/.C'B7P'" ((0%3;*?QBSE&1,U$SHEP*M-1(L'^2-]V\.R>I"DQD
+XM=;N-XAVR_A]RT7,X"S70VM),JN_SPIIM6\ZV&NC;_KGG.)"A$->C2(JC<0 A
+XM+;V4K7^/&AT^/KOU]O%OH+[ U&LCVNH3;:T2)F^&[YQWL#.Y4.5)ORL@U!PM
+XM76G&AJRP6.= :(.\Y#\K[.R#N]0D+Q:%<GYNZ,8&$1TYS&NO2/N93 0L*PS,
+XMBW@A6IJF#]H9\T5*%2 >7R3Z>T!Z)R;I>B:V:*Z.,L6JAMIYTP ]!N_'@@5^
+XMZ39-)24DURK("WS0MBO$RHWLS/!%Z"#2>#$.X^&]K=*7,>R7^(4PBY1>S0E8
+XMXL%'.[BC,K=3T-TJN>CK0)F.AS-(S3("J&+?WF/.6RZI:.XD5B38?A \VNG-
+XM>5S.R4:SSEE]R)+UTN,"X]< C%!">G<PK*U4.>M\(S;54)GHO$YP(UZ!6,7"
+XMG 'QV7Z(T4U\\!;J89SUGTL><N(0AI"UX2.<S1'"9'1R3$J@Z1DN>X+95J*<
+XME+5?0T2HK\I3F;D_RQ^-ICAZWL[J*5FTT/\U<YDKNCR&V1(!(TT#6_ #LA[M
+XM%.DVG": %AA.X.,GRF?#C!P@QH\R..V]B!.UXC)'"XN.L:NV: 1"QJS4YSI$
+XMU?EW$"[S,(^@UO791)X4WN6^D\M-U1'\OBOA,$Z#KU6M+L(7A=7J5KG89%US
+XMU=Q2:WW<U\:I\K*&"IMQ(?1AL#-GCB0S1B]$JO->)<^N-9E28L[*)4OSB$,;
+XM-0ZQ@4$I-7-W.^8N=LF(VNIXLX,)10BKG_DM J$J0V4?DS4S#MU</,:$U7/C
+XMI:2TH^C^2?NNPB(@EX>!IX[&7B'P?7Q3(A-8G]A"Q"PK>8\Q@H5(<6A6A];9
+XMG_1,=4#!7FVDGBJ\G%: W[:FB2C9OI97*C7Q_8F^HYZ?T-?S!R9-;%7;<K"'
+XMY^&5%99-XI,8?D'DAU:0EP*S2GN&9KC.U(Y:14=O]B^XYC4?IK$.P3<==&UT
+XM],XT#_3<9F $.7"H ]'7_.R(MTBV_0F_50"L5P8+]MLE*N^7FH'7[;'VEFKB
+XMX4E'A!=.,UR);"D=>?/9#Q^G:L.V04A%3H4(P.WT +4F=3Z/)EN\_L5]!+Z>
+XM[RLQ9<R<5J#$M?,?0;V3L,%I-.;\#(&"/).I1?P)QQZ&V-N&"NY0HSOD6!+3
+XM!=FQQ) 03&!Y,:+%W6@0<<0NWV^LD[,K)=YNUS4(% "%C*'A'@I OU@'@4-'
+XM+)T[A)?J#X>FE=^[R)?(XY$3ZB=V16D.ZHN9J\U-%TS1OD_VH+;=N_Q1)@6"
+XM?-4 2\K]0@,G1@DK(!3WV^B:54" #<-3XP"&[X?TSU_&#<&"MHA[:;"<LX>"
+XMW)'2MQ!P-**[9YYQ@DE;TM7GC5"[@[K.9CF'<9B^+D:(01.OS[&I+1'J*$.#
+XM!&UJ-1 N>;8 +Y#33DB/B@QUU[\<L\&P_)XDK=_8L8Q&<5^:=T. :53 M:17
+XMJH9MZ^$0!_I4[ZA]YY#G*(W=^/4&?86"G@AKAIZ9">Y8[J9Z]_FU!F.T@S_Q
+XMG8)LBQ I K/-S^8.X87.! X!YUUK.PWV<D1DJ6'3,0/TQAE-/6!EFT &U2AJ
+XM(7$=61]F!X;")CS6AH-C >S91# +K,NA+870"@2TYJ4O3\AB<=0MKA5J6C_4
+XM;?7]8A"@9@^#P.UNVMC;3AD""8 ?*^VFQ)%SCWZK]%:PN)S@'[SSF(#(,-X=
+XMO2+UB2JZ_W/:>62"=!,_&_/$O=RV&4'((X(W#ZO%FR&'1P.*I[H3=RK\VV"G
+XM5^\$>J3XQ_X=$[!AHE%*L198P2-_1)3(7OT7X#GNT%*<,YWNCT:??1O^8(5%
+XMTT6O@2(BSF] @3L\;N2S/K:1C8*$'S$J\'B6_B@!=_4=@MV[73J1\?!2FC/%
+XMT^.U%40/AN4\O0/"\X^A8F;Q;"O7ATGWQA5@1* H<=8%*I0(F:Q7.WGO[41C
+XM2./$%8;LI+=/S&R_*.I&#H;]5S&>+C*0E.JWG7(->KYQ88F$JODL&]OR'=CG
+XM+,03JBF45<X#4\^OB_GG<C#;3,(1$%A77AWH-":;)R025QOI^'Z!U/C(\"T)
+XM4ACQ9MU*6Y7>&-?5VOJBF[,"&>!)%( X1'' \EE,?\TZ/Q)#S"Z ]0WFJQC>
+XMR1HH7Q8621]:Q#F>C?^FVEGN5D6/!O64$W<OXT/.QLL]\<4^4+<"HZC_I1@"
+XMO*;IQ-7):M28']=6G"SME!Q"XQ^J^"=INVG6B32?#04 %XP>'W=(B)@[\WOQ
+XMVK/]+>ZB_;IUV3=<(-PSU;=Z.JZ"K"[:]?'ZQF@N)+,)62--G*=^3E0+P7V"
+XMI9TL *.3I0_U-+ O<,>J^*7L6,DPP80JR.-_66XK;RXI;\A6JN$09IS]IJ/Y
+XMSV$:8'SMZQL6%)',Q.LOG'),'+-/\%?J#6*WEMN$N4[:EPBY4\<3-HID#E@9
+XMZ+$5%:7/=>:-$9C_P[3CH"#*F/%K%CBKJ\&X-V'3S$B#I\#V([4AE/!T!^;+
+XMIM<5__HQE@!A\ FJ0*)PPX!Q[,IL.AC>PE=>&DWE1+R?2-F:F/6[E61IP@@\
+XMHD6U7$ 7!*+!@%@@]?A[6P?M#BMPM%1 >$92#@ 7'^95#FJ:L(ET(W!7(VG0
+XMT#UV[?WHPP:M!F*/PQJ1RG;7$.C'?9SV@2<:KG&L>CW>$\*LA2/A('>>YWO^
+XMVF/+V8(P8CG','VMIF6RIEKF7R$8.V$E_C=<IUMKX]ZI/2W3QL5<KS#NW[$D
+XM2N5$SJ@ZSU(4"8RU0Y1!#3*G8AABV54B";= CY1R8]O](-VKO:-US:J ^!^U
+XMOB?F,).#&57 ?!FK$S ZP+<"3O,F1UM80"F-%U^EH<6R5@TT#G)-;K7L!R99
+XMY*)F6'VW<3V95P:S3&%\I/#**"]]B(/8)D)G.I9Z8&H>IDJUL2+$0K* >@W6
+XM,#2-Q:-: D?(5*', 5@6_ OP0Q ^99P_M F-G*S(V$[FSF.03<*(A+): #N7
+XM!1[9;->;)EU&>Z:)P+&NU$\K'-O4GE]\MR:(-2%G1A-1T=J2 ]-#QA+^MG5"
+XM;=LI]C\W%#\DG$H=!E2P)(B^3"&*E89OK6+N4#KF-BCZ<$%0_Z"+'U/**.\L
+XMNK8 RG0?D_J44KR$3"A0[GK"2FKP3WE,L+('OX#;1;0-/W4C9]_<WT751SDA
+XM^[E!5P>.)/4)AJ/]H@GFK](FA!=?*9U'0G\_&_P5O>8+CGPG2GP"J+T@?6(;
+XMJW(-@3)<U8*O[CF"%I7:D:($<+#R8+TZ[>>TC7;3"\<2#GN<26+PK!<<2;3\
+XM*> #O3Y<$F14I:1_420AX>B>@,&WIZV6\FQ\BO>[?SD$/"*0IPFBL/QAN*4X
+XMQJEJF5U)R4"^LS6H![Z$%D/>6^M>\=W95*I1D6#.\DAK&U#/'VCJ7D&9)1.6
+XM?D!48FO[#2H1D?ZF7F,4;N<"3 1JWPKF_)1&^=.^%@[A92<-HJF&[L+-6'60
+XM;8:QR/.:]-BG7R_'C8^>#8:L^DXIC7)*\5^8L_EX O QZ(*:GJ1PAK]OPD;E
+XM),/,4!]%H-3^AT;9](JAD@KCO*VI\E8E,IYV@U;M;V2)?X!]D<4ATHV#]<)"
+XM86>I%_B\D+G>%))KUI-&&C3HR:(#-YD?NWNJ6L?ON":$:WH8G&6?6A[&'-4\
+XM@LA ^0]QI'@W>IM  =C(S<D'NFSK7N\FP[B$NJ-,&@4(:_&,E=[R2VO%F2RD
+XM7'(^L]C?'>>P5B=AO"4".IYJZ;AC8CR.[L2N1_TG7N #%FZ+;<U]>)H-LN5E
+XMG]L$F.!$C#;-UVJP2*IK-O]<=(L:)=)?<&"?\U$L:)&KE]SP+?F^/K@8S-4I
+XM@O.$IQC89Z:$[K7&6,];B@-L#SHUC_7V34M7G>A^VK'A+'T,'20<(2@41AR/
+XM<R@?5(0_(>Q_&'(C=20MXS?+(E4Q7U%/'P"=^_:2G#);BR]FR#=B"[Y-<K&1
+XM4$I"X8E _%$\B4?SNY-.6)57SER$V\F.OL/)H=7Z!E,JSF+Y>K9M587M!N$S
+XMG>XSD-(:@O_8Q"_7]:5.P+7NM,YCG+EK@3Y6@!>3_DU,#+TMR!3%*-/^F_]5
+XM7K F.R4_V07+@&6D6/>'/RA+$S8?Y7#DWM0[)2*,B*G?$RG=R60=Q.D/Z1@,
+XM'7)=AU _?5]HE!K;Z<9,^FU46U+%<F@R));)G$;0>D0UQ2E",>QZ3;5JQ-%F
+XM7+@P_QZ,>OW\O=30>@/->:C$'[,:E=MBW1_(W9SRQCT[L13HO&FS F6(=83J
+XM:08E+.10/0XQZ(+S9%KBMF\#(*8_L\TQYI/_T8.#0",M J,SN>J$CR"<4*S8
+XM'FD6@V%$E(<ZP+5)9-[MU'Q$G%I06P)Z=6@;4$I1RA3MP<-T]0E#->J0-C+_
+XM$4KCH+@6 [(ZFU^X?*]6NHQ55SAH=GVB*R!A)J=Q0L>%6P-^4^)I9V\>&ME\
+XM:%:V259^R#B"U"EB[NWDX1<)]U[E5APZ?K0VU?H5N3G!/#RF2*1]^-5'5 2[
+XM5Y0?NZ+/,[=(IW9]$=P<Q]&LO_?4 P?):HJ_3I'\&.9N+:<..'Y5WCPWR!'\
+XM\,8<PM5V&31KJH>UMBR/FNOJD8G<OBPCESG=95&?9':KB0"J\#@-D4&(IK1%
+XM[P[WA&O+1&=US:M.=$JKD>N%/VB.U99(Y ES D(/9]7HM36'Z(P"VV&(NE]G
+XMH$^VX\&'QNM'8A +904@L]$P*"E%@J*5301680I,*UKA2Y51_Z>\NR.8,-["
+XM9:%TQT#>"?0R7J$I7[E_/31<M!2PESW9^+Y'*["P61?_ZWK9_VUIE5@RM3J/
+XM@R>_HK9DRJINY_XTQDQ_'O?3W,(?OUW\$Z>@^V D1F0I")S&U8OG"WLU;"V)
+XMQDB\X[3W]C'Q"ZK;LD%%V6T>]]D> !<3YT7IK( _41'CV[L4W(/T27L=$&SJ
+XMS7PF#];A.U:W9 @A/>X@,7O3C%:#./L1OFH U7:*4Y*'B!"^_4[$?J+5==$5
+XM5<O;OJ4 0AV 5;/\ &"UZ<.<6B-46+$4M9:EL%U"XD/C4)M%@[ATS?TX5XYN
+XMZ7FDNR]P!+_L0Z-YNH)=DIVT)!ICB,\+XWOZP7VMI6<8$R9[DCNW_)_;_MQQ
+XM;4PFQSO@626N'BA04.0/BV6^EWNBCA.<3K#^#B%.^GU(<_+W %9]_H(2%P:U
+XM#C'%[P2>QBX=BD'C[5,H-&JOQS";(1<.Q+_J,C=O$#D:*X_H_+RLI[[@??AD
+XMW&E,^"Q7Y92L.J:^C7TV8$?U^.3+QWMCSX!R;<?4Y6(IUSPLX#BK=27R7K)F
+XM4]2"4E>>:6WS$^RT:G9.8V=BVUI'=X1[:'?2PAOX&E/0[/^*F'SMC(?BC*G6
+XMQ![R9@F:R/]$SAC*8TS77NEF.E.P0X4>7"_8L4,/0\)C8.W8J^EGZHV +29U
+XM4H<R;VRL+@>H9M?(TB']CH9_AK^8G7TD*E&2]E_Q< @];"HEZV\L#J.54"<%
+XM)IXK8'@F<)Q(Y,)%KB67R /K5W6$3%M-A?M3DZ']1;&P6T4,).$G)47W,'75
+XMQS;H+[3G,7TH?0.;$4P\U6N/<#0JAC<'_[U#L O!NH&7L>Q5YN!@+P$43L.K
+XM+6<U;K$\I]ZW]0G4J[TGCEU3>>9*$\?S+C$-P[\"E8+C/9W;_" QXN6\P#]E
+XM\:@M<4S0![$%(_9 [[[Q62P#^C,>I3*8\CKM=E-JZ3V'?@[%*6ME6AVU]")P
+XM?(JL(C^V(V63C!;RK^\5=S Y<^\K.;_@5:_F'J=5AN"%(]GB3&I0Q-8Q6;/,
+XM%8;QM?TV,=IF6&@]4$O--E'_!IP[B)R80$Y[S\]4.8%WL=T8B5FG[XP9H20=
+XM!N^:O'&R<9%<31'/.9 IZ]XL5I_K: T>^CIIZ.OB$Q3;&I95IFB0R4$)*#6'
+XME%PL+TW*CKCTX#. E?7K3N?CLMAB"?2K:[O[@<:SYV!&+ /<;C_]/N7KXFXQ
+XM!S]*T.6!_7^;7$L""^0I/WMV+E#%\UTLW%S;0F,PW<;)0]EE-+TS&"9]8./T
+XMOZ.Q-X\5MDX)_Q:UO#MR!*J_+_%8?B"2:+*L(]?$'=%+;)W<GB\CEQ!^=%AW
+XM55%X75!Q88]E18R69<9Q+1](J9[:R=U%H>(6E\L);WK7\\O$BT($2 @^H2 "
+XMYI4=77>"[ 7+(X6L^GY$S*!UUYPW,OV8FCF=PT (,1WN@/F]G]$TABVSX:B(
+XMMF5]B18/%O*<W^T"2'.=2J >LQE"TY!1NS><B<)QQ!(U[Y_O$(S[L0%G(.'2
+XMU04C< [9Z :STPEIGB*8'Y]8</IZA.YA_LGH.\=(S3 I#1F1>%=&NYO^Y[,6
+XMS$REO"0*+)+HG7?(J@54+SR^HDCP)D6;RR:J\'HX\)GK;TK__M9YOU+Z>=(B
+XM6=#^1D()'?P R!1LR=9B 379VD_Q:P?'(]'!+J2"N!9+2.1;B#_\?.$MU]-Y
+XM+Q(SF,/#S3ZFXZGTN 17(\E5M0LPC !7C@(K<506%U"^?6U"7<GU%,L:H:O^
+XM\2U<.J%,G>'7++$1DSI**GI7ALG^^1TN%WF2MY5<&D@I<+T?6L;5\&.&3Z<\
+XM.QXX#1#P"SF:4:H_H0>*^JM5<"NN,1WTU.(SA<=T[C\2':?: +<((0!NO+EA
+XM/#VZ-/R^K8 DQFWBD@]]][0KQ"IWZ43-A;]N;-->S;.WXD/Q:9AD$S>5NUBT
+XMXGX5(XH=BYBCP84TX=HV$[T6"?#KN$J^.=0Z34/6^8T.9)9AK&B<\U73'26$
+XM6[UI7)-^M0@Y]OE#G)W?9Z=Z.7*Z0T8S])]*%\EOCZR+H8== 0INSL)H.FJE
+XME0'PCXB".75:0D3BOXB$[E0FDEMU8@H,K[_/!(K5^!.X/52,P;A)<1@;J'M(
+XME3@P]57& 'SOF_#75=UJ,V&C>7<>3"SU-I_!>W9$W+6KR:],WTF,YGC5P,9B
+XM\<3D[M#85X?P_0\_Q8RO*T5X*)Y<OCK@0_FXJZ\?$'^.K$%S89*A[U5\6L-_
+XMU9W-MK]$)(BF\] :-VK_WCHQ#Q'*IX+D'RU>#PJH\[F82_L#*AU/XBBUMHE&
+XM%DT6$B/:R-#9RL"FOR3S-YI4-(8-]I-"(-_ >PH>UC'-L:GM$T"/01@IG4X.
+XM#K(Y*=]'WX;"F1P+"VNL8@@'Q'ZW1ZI2<R +OTD*C9J:U5ZD<W(<)-I-L..*
+XMJO8BYY4!<?+9[0RX=296BD/NX'$YL X4,CAW:HED4Q?>?<A$X4K$<_:$6^5+
+XMBZZUO]V/3)>3S_N-]BJZA&^.=RWKK:O"SA-]6,^AQO7SJ 4E60@V9)'5T&[X
+XM)8=JNXN5!F+:A;LBLW[IW9M;3]/ =;>6L^0!E'5X!.VH)?LOR;\>J]8/P",3
+XM@;N:<0:M[D/?O:K3GUMT.T?B;C+ D-B#C;A7PK*CZ/2/$FI5IY]4+[*::<^P
+XM2,T/Q6&=)DH!IL*J157BR]XGCRL:(#Z)4$^6<AM9;29.KDGDL>33$6U\%S90
+XMD)WC!'<K6$/%[Q'@U2AOL/>4?7&&2!@A#>4!ZXBC#SQVX_C^;+#,)1/KZ^8-
+XM6#H% E4:\;/5B@#;30Z0N#.K^H#,FH"_YDLL 4)@LJK9_?]FGNL7,;^[[P5R
+XM"B>X47VB7(F<ZA?)*KSE'P\&*J!_N3EL;E?BO?']:QLU_*VPUAYFXB:V[5 %
+XM*80 'Y$$WK".\+DWF%=[HMKITQ+A:Q=-B&"D)B^(OTB *7U7:I,4%KB<"><0
+XM*-K[QUR=;[-(Q(XJS!;[/.V [21=B0;LT[U(("P<M?N18'B'BW6QC^JH-?=-
+XM:*'*6@/G+"S15X4U-=MR2VF[/4%@G"1D3$-9M,*_&A@*N2(:?OWBKKTU#=V7
+XM\I+'9A1Y]NHLD:315WRBZ$F1$8]77LJU:%L0,<PEU,RB2R($^O'$3]RQEL-*
+XM TD:(),*'=0(MS%:PG?4,T!)0Z> ;(;9>E@'J]G2EA9?7F[?XD#V/"57%2>T
+XM<A1S2"<21(#D\P ]O^,,K[VW-^T6&R44^58Q:^&PMZMPAIFM#51'QQ T5:PP
+XM8#^FYGIA0Q >I%-/@7-@%)T,LOH7?-"'+;XFFCYW=^CDI+2E>)"V+GU\IZUR
+XMR)K# %[T*GZ$9=NM+!+.')+^=Y9>W81RLVD%E9 29A6V;*/JJE.>8&J*"P*F
+XML#*F+,SO>N^%?9L ^ZL0:*H7*?_(%CPG+0Y-\](8[HHT,1^!3#2;MXI);O/Q
+XMJ+(S"6K9<137+)"@8*#R(/37.SX@Y>OZGJ)//2U864>"O!.$X'CX/[2I=WW[
+XMUB<F,QU#:1AZK,W1?0BAAR_'PU_JRD^IM? Z</3Y*T_?!1L6<[D--C'%*VFL
+XMJE$,(90L>WRK?%0S9,ID'LG:R#)J:>M)2TK=#^"[PIYAAQP#IN;&Q3C+/-68
+XM9C?'5:^4*<8*#LJA*O&?P0B/.A"6IC^/]PCX'K4G:CFAIX"V-^#5,M#5X[X1
+XM/POR)76*%JA0,TH*04!B"@L[,$SWXH.40W03Y!KV'./&.^V0Y_:C(5PX<$H@
+XM0:RX1?D"N]ACJ&?-NF<)B#@[/91OC\E%HG4%T:ASZXODKOS)^#!US3$[*2;8
+XM29TRGJ3F?>V:('!_M&>,5O9-!U&?!K\%3;RQQB61QA@4(.5B/C);#9>@&C67
+XMC&G6E\"<N^ E4EN]T:6O'(G).5I2<-YHP["W82/J]:)F<&PY)DW4*1VF&JHH
+XM8%D;\1OGA*V97 ?!KY"-BC@5EP(J3M,8VSTRZRU#?"T*>LZ-(S "L1^0B4I(
+XMSGWVW:238-+?$_%]?#^2A)JLQI2FX_]T"AX?N)9SG( A+!C85F-_4:^DR9%_
+XM#VK F ):)CHAR5]3QMS1R).JA[(8I;RBK*]XN6[[B.-!HVK0&5 ]$ #G?H82
+XM@9HO[Y3;1@]\1*\:;3K?[A@E]8Z1<@CM?+1_43PH!@.]M*&5.125'!94D8 D
+XMXH3P>?8\L/<DOMAX>77(0:*VH+&'$+SC";QM<G<9Q1!'#.1X460_8=TI$_9O
+XM2MV93<,Q6EVCUL4NB!$8=.-*<VO9WAZUZRAYF"PP]#AX^K%(-AZ9R.=8.4?K
+XM_[__%HFO!-_;#\I*O6XL)L1Z%_P6F ^ V!3S1S%\U7C,U3:](PM;O#$[U*7D
+XMU2-*'05F.ON4,RE?R(7_ 'S5K+2_^8C($;B6^X"[@F%BA#&1GS8B[^),_P4M
+XM(6A"^H<V#N0=Y/#%ME)"B4-H?R1+*)Y.1&06GG&"OO1SUKDLY\O*)]7.&A9%
+XM7JS>%5)H4LW8;^\ 2,G&IL[M"O\[C1"8%>3\%P-G4%!BBHP<0Z($O)@*>?+#
+XML(5%B4B3Y.=?QG.'$UK(;TE;2-)LQZU*M2[CDJ&0-'5Z+Y!DR9X@^(+X0+++
+XM?P9=HM3_%(I^=64$HS'MM<1%@QR\>:KQW.J&Y++L7[*"\X-]Y2-?,DB9-/,8
+XM-Q[!+<%[+[PZX4KRWXF%5;E=:OVLT1UPT\%S$H6[-GPO&Q5UQB%$D*,%Y358
+XM4+%ME)PQL[=@(0!7PF+80M[M5@$IH&:V ?8/CQ #&Z?3.Q P&W<+#[?36,;(
+XMZ6+C6U)2Q_YT)DM4Q=%^Z6PC?K*4AOW&HT:P>+()?[.E<HR1DB^#Y5<N)D2&
+XM0H6J[<-G0PH9<M:=+/PH^+UP&MN:XZD71J<!JDZ%$.]N<WNM:RDSO?D!$Z!V
+XM46$8K-QD[:B(2"]#)72$R=[Q^,=-9:.3%G6UOJX!:VGX%--"2X)]EN5-GGCT
+XMQZ&\KIT2<Q^(Q@J4RQOFA([&IOX[0[RH59=7;\X+;FJHP*='PI(CES)91]9;
+XM35):#F6T"2Y@"MQ"@*:N@_!QN9=W3Q)G,,._<X '0*O/5Y&U=SP]/8(ECH%D
+XMH6Y6.M_HK<6&"=SFZIP4;NH[!D5[$<>$>9>?@RW4?=+?P)K+]Z@WJ=):D, 7
+XM]R/;BN@^D)<Y^7KA?0MN&+>./6/RXEU.Q_J'ZL(>[GA4X4:!(/H00U;=YB"0
+XMI5J#T+.O3R.1^76:LD8(V2)$NG!DQLI3]<M&AL?KN(!_O"RAIE!M)KBVTM$Z
+XM1:[&A-)D4X07M&:7W8USD*>%/T#+@*\@\8/73U]7R8I;O.2LXT3UDCV3;_ X
+XM"TFZTXE2EBT]] L[8%B\8?[$22(6)Z].@]"? GK3^9WIBR7\;=#)1RYZZBG6
+XM/\?F1?YF-<].=_M( Z<2H5<E2NXS]"LI+^=GP]F<]'S?9O;O'',"Y/V<ZS8 
+XM7V.N@\99&.]AC5-2A##[+[^BQ9PJ!)<V>^]ZSIRL3((-FNKLG-8*LY,2;&J]
+XM^50O</ OQDYZ:RC+K386_H#8[R6D4Q.&)<X?J?#X;!0]&=2P@C1R 2?U!KAG
+XM6 BP=<(WN#'JTV!4=@FN7@4HEKJ&V4L0U%P'Z_>#E/+4M"74 R4M<X,^.OT_
+XM*]9V@QQUTC^8'$?W^)I8^ROZT<M]OTB(Y9MXR9C:!R1;HHB:@R1PM=>LT0.F
+XM*14&?=-"I(N?OB2;X<+L'F!/?Z,?]2&>U9<1[U02I2<I)/(F>4*$OMOO'I")
+XM82'0_*<T5I[?]T+=/"XQC<S:V7$W_Q]LL=AM0[IO?]\\LG!5ACY^/M/=BABI
+XMQ= 8';QQ#A]^(07)N/;01VFK(@YQY&V-=!KG4[-W.K(K>S+2N8>II"2;8U%W
+XM Y^!TJBB9-3&F5B&"Y@?F$KQV5 I\>JL ZR(R,146.1-)-GN[^WI80LZ83E)
+XMKJIF*GM3!U=+W>N*<FPD9QL:+&%[@FR8\B4Z%GYUJDCPHTZICFV';\-Q!':C
+XM=&&V\M/9UIFB@EWKMSPA8,D __C>X^]L,1!KMOA$O2>K2I^EV$+!M\M)N14%
+XMD8_0G>U,N\\D012[/%6*XT\!P@LI$[%><O[+-A!LQ=V/@;(#DL=:MR+QLI%(
+XMS::%RVPW21C)=Y_W+%:VT8\_1X)=-3!# 1@.:S33NC "XJ-XHPHG@2!;I].;
+XM@H(.3AC(4W:Q>0TW]JC,T%U-?_Z$ <W83\.M\]V_K0!\O4/1V%=5[2K_D4&*
+XM+\51^%;R./22L2E63"_W\D=Y58GW=FD7!5!(T>=4\22QD<^[BAJ&8]>\Y^"%
+XM(AALJZJ4\%+(K(T;=W0Y(H0RHO:P>GTS9_&C515K4H3ZK,H2M9&&K5;QDN"1
+XM$&7U9>W(^K,*+")32<#BA@;&G3%.#P)&0"^WK_5:5Z>N_O\>E&]#JA>8(;#1
+XM(\T7U3[Q9.CSMH=AP2P!6Z%0- CM:]PF-ZX4P^JQFHSKJ(]]Z#\DBUG9]WV\
+XMT8G*.E%O+8L(@S^$(I  (GT>TS:%^5NE1D,)\M5 N^_D/S;R*8L'[&F](G(T
+XM[Z/A52 DZ1@M8#9H(V-3<K'[FWOZMS-49++ O4]WE97._+@F4N16O(X06 B1
+XM\H"LC/[)F2KPT2T\CC-YB@L/-4I5PN:I'5.M:?)#!^C^@[K.IGUG<_-_&?\4
+XM9^K' 6%AH7A5\M8IRXJ1&? K%VO=ER_N "EW/H9%.:UA"3PM])>E6S55H"2!
+XMA/TZ:K:)('%M.\O+39PKDRXF38.+4W>5%^MKH_:?^'(1(8/#JXPN!]FJ3P,P
+XMA6@-@@A\!\08>$LCX6]U$L;(JM:SN8G_ ">\J"*^%(5:8P]].@5Y\@VP.T7S
+XMGF+S%L5I&"8T/P0+,*"*Y=7P10,C,!,[QG16/2'9T$%I;JB#].$!+ VM,P_?
+XM!T<[V:@R!P:LO86=6Z\_#04TML12EW>R/HA@TC[QF!U7XFC04+F@UII+$@/1
+XMM3*?B7X*_W)3!'>_C+K6\"0QMYA8D7?W(;>37'VN%E\?T^?PE1)XXGG^Z2IK
+XM;]_4D B:)C=\G) 2$?M18A_J?\LPOBLX7.=#9 G!E*IL-T1RXVEA.LTKM=T)
+XM::CL0/A*N;?QJ+:S.@..?E/!P>9-C5OG1*#QDC+VO86<DOTSWLU+Q="OK "V
+XMHN\%'3X=L-C9@3H#(Y$;R2D1RNV_[0^576-#,M4<%P\,U(R7!M0FC_O.N%$A
+XMNIGJCJL2N,D8@3WH&BJZ?:/&QY4LLPG4>"(I@$@C14*K".93M'M4D6:/Z&#.
+XM%4S7K 6%=VA@UM>"M]7K; HSM;TQ74VP;;O!ZZIP-V]O'>@8N?4T:*XTT1*9
+XM#PITCV:;3SXAD7VN_+N@>JD8SM./\1\GO1Q$+8[HK_&M7;KSP+"1S38LZ)KU
+XM%T%]A9- SOPQR[60)00FEF9*?[_E!F<[-3+?+8@I[Y+Y$ZC.L#\GM"S<2#"U
+XM2%WDY"+F=72A<*VY(;!7%T1F3WQ5@4/7/E^+</&-M?E@A'SE#?[PZ+GU---L
+XM@HQ:0\N+\/0VGYO,$W2$>^XGNL[!O]XXQ=[#3F]*#4;@T>>-Y%P2JLHO)DEI
+XMTXRY0]YJXH"T@%?@M)34$Q7(4/)NA?7WH6<>#G18B5B8]KDD"4IMYL7#Z]0=
+XM4$G[%]*Y_[-+76,1<92>FA)LXW]).*@D7ZYA+O0S5)][MX=E,!?/(T0LK' A
+XM)'>+PPY?)LPC'&%.22CY6'S:<\6]0:9]X:@Q7^5E@\=S;(JY94XAB^R>78.[
+XM+?O6M21@T-J[W.W5-^RFY=]S/;/S#V[9YPA]U8M!U8.MF@K@F]@ KX2GO3+R
+XM/&?NPVV/AN<TT[\[3EAT4Y] 0N.' GZYVTUO>&_[#6_BSOB8R4L&5F$3_:(2
+XMN:/UYV!9VNBZ@45%$;;<=BQ<98-E1:[7DSE>-!O?UE(ML3;![YU8>&LZ,X &
+XM0U&AO)54O#!J9&NM#!+];X!DE)15G>1@73*+B.S:K_+@.M7^[\-#C11A*>FU
+XMNZ(?,1E39#1HU(@O?[B6RJL[I29JBV1\-3EGO\8'=+TK:Y*K:N?*/4@5'!2C
+XMB)+TY"ZPS4#@JO\:@I!N]"A2-3WMPH>GZ7'DL$R\#[7SE+-]'C538&UCY[A.
+XM*6'Y$.AV%_G4UY.&TZ9',S]_R?T\^5(^N-*VG6(KKMMC'0AV-55=] LNIX97
+XM!97.;:9'MS"6+D;RT2BM+LKULDJ\9AVE8 .!.S 0J&W,,H,\/N['9^-WHM<4
+XMZ,L5*I9?F4_VJE 7Y;%,%%GO([W4K8;/7CK+&;C1#4PT'BM8IR3D[!P@VUSO
+XM>B]3,,H\^MS%U?QHD-7?,WJK098L<$ D%'-L?L%;LQ'N27=!JV4<.21V,2Y!
+XMAD>QAS!D:A.7 (+=#IPH,EXOSN2?M=>V3$BO6JZE05FQU@4;(C3TK^%C]1$"
+XM8\R0W^D\T<QSU"B/RBO?3R9'.VB4B_"VZ('8=L,IQG8V5M]>7(^@J$:#J6&\
+XM*GQ?YG5R$%6SE(0T6,<<D[+3R/TTX;6X^MF(RK]!&4;8J4JJF?$"AW,08[;G
+XMZR\ABU]-ST[='C,3R(+(3V;M*>H0DWBEF_O99;"UZ'(1/I#"W/Q/0ZM?_G)6
+XM[W=KT6(,9%K<_&XBCO7=EK$"]ES.R9@TSZU'58UNT"@B% S@1.L''DZ;,BW&
+XM3)TQQI4IG$9A#WQB\G6R NQ/8CSQT8LKB3(R,*NQAP]TT#+)IS![3+X6]_A 
+XMH^2*=Q:VKUD3JUB!4F""*I3ZI\#L 5I@BGRY A!YZ%\JY_,?\%XYQ?UKN%-G
+XMCW!]MZ\U2.WPE;84'4B02 ;'*.9=+0RK-4UR77%&:(9M/Y\ENVB*T0.]KLZR
+XMS/4K\KR<0*I"3Y^V_(%B]XSQ) *<)$E"47/%*V7S!1>)!QUQ'9M2Z6PYYAA.
+XMT Y948=0IWAF"E>=8'<8-]7?G1^5^.!I?QG!P=!<+=^SRL,BHJV[ZA*B]9<I
+XMDP.8)8+$@\EH#;'6?&M1]XAF!<L:@:_VV QD(Q3^S5<7 31S4UW5D+L;)B"'
+XM.47*K&O2'MJ!#8)<^DQH_*7M7M< P)Y?4<R;V]>NW ,6**4A*Z5Z?@$FB#+>
+XMTFXP4L^_&-4F"_GII%8%VA2O.!%+/[U!ULU\/Y?W>LYGC?7D%_R$@)9X$.Z>
+XM=O8CNS'!X7S'D:Y5 <5'3NKZ>;I.S/,)H&I&52]_&1 + V[1=GDC.\CJ3QAQ
+XM(B8P?N^ASO/9%S.QVS(:;?Z=?@5F84$*0C&_TW@&+U<9O:]\34E."II>GQF!
+XM@5@M] -1GV-_)*%E=QA(<XJF"7?(/%;5 _08+P?]I<2&CS-BM(SR)8[HW:Q#
+XMZHNO>0PF-BK$#_YXP&&MQ#A_56>9(#W/IM &$O#S2LQT_62W"$'#HE\9(X*I
+XM97SH*;!^GHYE:C8(:X4CD:L7?LRZ&3B>^)1.9AI2#6L^OKF\?R+^!PL_Q@/-
+XMBY26)"<J?3O:[@0"_H 1#Z1G9%M;WO=FDLKGYBX2SPW(AW[&_M%<*ANSM!)Y
+XMN&Y'TTF]^IZT8L8ZG5</8NG' GW/K=W"_*EV GC&HM@!-,.9B31VERCV6E2#
+XMEY.Y3+Z3@%:H]S_(_=.4.H)906 DQ1^V4C(@RZ7^]]H*Q9J5EGDOMT])K.DT
+XMH'J)>P5^TT*.T6D[DH_(J&O")M;A=#]O7%E%Y5[F7-N;"7YETFMZA&5;!W4F
+XM$'S[F8R72I0P&'->>9@?@MHZ%9QP#8U<@4.E!N5Q=^T27U;;]1F.Y$2J.&K;
+XM#OLF>X-J<#=>=4:X&SI)]D&^^PN;T$=%3Z5BC;R$40EU4X][@VA'>3X3H1V*
+XMV3-S;4?'4I8UC@L*&Q^Y9H&Y5^#' 0^LMK)W02AKW*1#.BS99&!/PZ F]:IT
+XM_6TDG'T5V4&$"+"3=NAM ']YPDQ$6H^*D8()& K)OTWYQ[O+&@!>F#90L+VM
+XMOYHN',9&Z+TZ<\CBJINPC%P#HZSXU 8Q19XMZ235I%IC"3 -D)-%1^TC(6_?
+XMP^ZNX]/QE\!&A_#%WP J8#[PNN3S66Y*9+$(-E<[5[!IC<JM&[D'8:!^A/G.
+XM&J?KWE60ZD3_:IY4:_PH@-G$F,FBYUSY<L$&',XES&# *\ OT#.SORW:U\%4
+XMQE]4$\?P<B+\W$I6H>?B^WF'VG4/'*N?WV?GAA^_IW9X%SJ0?Q>G#J17+&( 
+XM-DBLL\\:J9)'[X8Z7QB48:5O;,B2++6T79%O_P<TMC:!*=,RVL-K\J8X7A:7
+XM0R2'IH*:.VU'45!=#VP3FFHJ:I+N&!.Y=%O:EYZ$E+G\"PNV<+8E<&J6?)R_
+XM3W0:C/V.(5P[ -/Q'66\_*7I&N59KOE\JZ;?O\ AV[^+AH6BC!2!_J$:=XDD
+XJN'_WN+ +EML^=D=OW(I@D*B2!IIES4?\%?'[/68B7:II7 ]^061$H.L 
+X 
+Xend
+END_OF_FILE
+  if test 24768 -ne `wc -c <'bitio104/test.bit.UU'`; then
+    echo shar: \"'bitio104/test.bit.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'bitio104/test.bit'\" \(17952 characters\)
+    cat bitio104/test.bit.UU | uudecode
+    if test 17952 -ne `wc -c <'bitio104/test.bit'`; then
+      echo shar: \"'bitio104/test.bit'\" uudecoded with wrong size!
+    else
+      rm bitio104/test.bit.UU
+    fi
+  fi
+  # end of 'bitio104/test.bit.UU'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

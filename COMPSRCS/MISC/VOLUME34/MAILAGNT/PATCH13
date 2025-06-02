@@ -1,0 +1,1374 @@
+Newsgroups: comp.sources.misc
+From: ram@eiffel.com (Raphael Manfredi)
+Subject:  v34i025:  mailagent - Rule Based Mail Filtering, Patch13
+Message-ID: <1992Dec13.022249.29882@sparky.imd.sterling.com>
+X-Md4-Signature: a3c760916049925ca96b1720928a195c
+Date: Sun, 13 Dec 1992 02:22:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ram@eiffel.com (Raphael Manfredi)
+Posting-number: Volume 34, Issue 25
+Archive-name: mailagent/patch13
+Environment: Perl, Sendmail, UNIX
+Patch-To: mailagent: Volume 33, Issue 93-109
+
+[Please note that mailagent was initially posted to comp.sources.misc]
+[at patchlevel 12. This is the first of two patches (13 and 14) being]
+[posted, bringing mailagent to version 2.9 patchlevel 14.    -Kent+  ]
+
+System: mailagent version 2.9
+Patch #: 13
+Priority: MEDIUM
+Subject: changed Configure test for 'union wait'
+Subject: chkagent could report errors due to spurious matches
+Subject: added extra checking for writes to soft NFS-mounted disks
+Subject: filter now also complains when using -t in setgid mode
+Subject: removed spurious inclusion of <sys/types.h>
+Subject: hostname is now computed once and cached
+Subject: fixed various typos on the word "Precedence"
+Subject: new paragraph about file inclusion
+Subject: allowed file inclusion for KEEP and STRIP
+Subject: new macros %A, %C, %I and %O
+Subject: remove context file lock when excessively old
+Subject: action parsing rewritten to handle nested braces
+Subject: forgot to handle the %H macro
+Subject: (reported by David Giddy <d.giddy@trl.oz.au>)
+Subject: now also understands multiple To and Cc lines in headers
+Subject: added internet info extraction out of e-mail address
+Subject: now takes care of escaped ';' for layout purposes
+Subject: read statistics lines one at a time to limit memory usage
+Subject: added new tests for file inclusion with KEEP and STRIP
+Date: Tue Dec  1 09:48:46 PST 1992
+From: Raphael Manfredi <ram@eiffel.com>
+
+Description:
+	Changed Configure test for 'union wait'. A lot of platforms had
+	problems with that and had to manually undefine UNION_WAIT from
+	config.h. Configure now looks for 'union.*wait.*{' in <sys/wait.h>
+	to see whether your system wants a plain int pointer or a union
+	wait pointer.
+
+	chkagent could report errors due to spurious matches. This script
+	(intended to be run through cron) gave false alarms when a message
+	subject contained the word 'ERROR' for instance, and was logged.
+	The script now makes sure such a word is preceded by ': ' in the
+	logfile. This should reduce the chance of getting an error report
+	whereas nothing went wrong.
+
+	Added extra checking for writes to soft NFS-mounted disks. The filter
+	program makes all the necessary system call status checks when queuing
+	a message. However, when writing on a soft NFS partition, I once got
+	an empty message with no error report from write. So the filter now
+	stats the queued file to make sure its size matches the size of the
+	mail read from sendmail.
+
+	The filter now also complains when using -t in setgid mode. It already
+	complained when used in setuid mode, but I discovered a way to breach
+	through security by using only the setgid bit, so...
+
+	Removed spurious inclusion of <sys/types.h> in parser.c. This could
+	prevent the parser from actually compiling.
+
+	Fixed various typos on the word "Precedence" throughout the manual page.
+
+	There is a new paragraph about file inclusion in the manual page,
+	explaining what it is and how it works.
+
+	Allowed file inclusion for KEEP and STRIP. I've also made sure that
+	those worked even when mail headers are not normalized. For instance,
+	'STRIP Cc' should strip a 'cc:' line in the message header.
+
+	New macros %A, %C, %I and %O. Refer to the manual page for details.
+
+	Action parsing was rewritten to handle nested braces, in anticipation
+	for other features I'd like to add.
+
+	Forgot to handle the %H macro (reported by David Giddy
+	<d.giddy@trl.oz.au>).
+
+	Now understands multiple To and Cc lines in headers. The fields
+	are correctly concatenated, for filtering purposes, into a long list
+	of comma separated addresses.
+
+	Now takes care of escaped ';' for layout purposes (when dumping rules).
+
+	Read statistics lines one at a time to limit memory usage. If you are
+	collecting statistics and have changed your rule file so often that
+	your statistics file is huge (say 400 Kb), then you may have noticed
+	excessive memory consumptions, since the mailagent was trying to load
+	that file into memory without any pre-extension, thus causing the
+	process to grow rapidly as numerous realloc() occured.
+
+	Added new tests for file inclusion with KEEP and STRIP and make sure
+	they behave in a case insensitive manner.
+
+	Three new files were added in agent/pl/.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #14 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@eiffel.com>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 2.9 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 12
+4c4
+< #define PATCHLEVEL 12
+---
+> #define PATCHLEVEL 13
+
+Index: agent/man/mailagent.SH
+Prereq: 2.9.1.6
+*** agent/man/mailagent.SH.old	Tue Dec  1 09:47:54 1992
+--- agent/man/mailagent.SH	Tue Dec  1 09:47:56 1992
+***************
+*** 18,24 ****
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.6 92/11/10 10:12:13 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+--- 18,24 ----
+  .TH MAILAGENT $manext "Version $VERSION PL$PATCHLEVEL"
+  ''' @(#) Manual page for mailagent's filter -- (c) ram February 1991
+  '''
+! ''' $Id: mailagent.SH,v 2.9.1.7 92/12/01 09:16:23 ram Exp $
+  '''
+  '''  Copyright (c) 1991, 1992, Raphael Manfredi
+  '''
+***************
+*** 26,31 ****
+--- 26,37 ----
+  '''  License as specified in the README file that comes with dist.
+  '''
+  ''' $Log:	mailagent.SH,v $
++ ''' Revision 2.9.1.7  92/12/01  09:16:23  ram
++ ''' patch13: fixed various typos on the word "Precedence"
++ ''' patch13: new paragraph about file inclusion
++ ''' patch13: allowed file inclusion for KEEP and STRIP
++ ''' patch13: new macros %A, %C, %I and %O
++ ''' 
+  ''' Revision 2.9.1.6  92/11/10  10:12:13  ram
+  ''' patch12: perl interface functions now return 1 for success
+  ''' 
+***************
+*** 54,60 ****
+  ''' 
+  ''' Revision 2.9.1.1  92/07/25  12:35:51  ram
+  ''' patch1: now respects English uppercased title conventions
+! ''' patch1: a bulk or junk Precendence header voids vacation message
+  ''' patch1: documents the minimal set of header selectors available
+  ''' patch1: host name in p_host config variable cannot have domain name
+  ''' 
+--- 60,66 ----
+  ''' 
+  ''' Revision 2.9.1.1  92/07/25  12:35:51  ram
+  ''' patch1: now respects English uppercased title conventions
+! ''' patch1: a bulk or junk Precedence header voids vacation message
+  ''' patch1: documents the minimal set of header selectors available
+  ''' patch1: host name in p_host config variable cannot have domain name
+  ''' 
+***************
+*** 1267,1273 ****
+  a "KEEP From To Cc Subject" will keep only the principal fields from the
+  mail message. This is suitable for archving mailing lists messages.
+  You may add a ':' after each header field name if you wish, but that is not
+! strictly necessary.
+  (Does not modify existing status)
+  .TP
+  LEAVE
+--- 1273,1280 ----
+  a "KEEP From To Cc Subject" will keep only the principal fields from the
+  mail message. This is suitable for archving mailing lists messages.
+  You may add a ':' after each header field name if you wish, but that is not
+! strictly necessary. Headers may be specified using shell-style regular
+! expressions, and file inclusion is allowed to get headers from a file.
+  (Does not modify existing status)
+  .TP
+  LEAVE
+***************
+*** 1431,1437 ****
+  Remove the corresponding lines in the header of the mail. For instance,
+  a "STRIP Newsgroups Apparently-To" will remove the appropriate lines to wipe
+  out any Newsgroups: or Apparently-To: header. You may add a ':' after each
+! header field name if you wish, but that is not strictly necessary.
+  (Does not alter execution status)
+  .TP
+  SUBST \fIvar expression\fR
+--- 1438,1445 ----
+  Remove the corresponding lines in the header of the mail. For instance,
+  a "STRIP Newsgroups Apparently-To" will remove the appropriate lines to wipe
+  out any Newsgroups: or Apparently-To: header. You may add a ':' after each
+! header field name if you wish, but that is not strictly necessary. Headers
+! may be specified via shell-style regular expressions or via "file" inclusion.
+  (Does not alter execution status)
+  .TP
+  SUBST \fIvar expression\fR
+***************
+*** 1616,1622 ****
+  The login name of the address on the From: line.
+  .TP
+  .I \$precedence
+! The content of the Precendence: line, if any at all.
+  .TP
+  .I \$sender
+  The sender of the message (may have a comment), derived in the same way the
+--- 1624,1630 ----
+  The login name of the address on the From: line.
+  .TP
+  .I \$precedence
+! The content of the Precedence: line, if any at all.
+  .TP
+  .I \$sender
+  The sender of the message (may have a comment), derived in the same way the
+***************
+*** 1666,1671 ****
+--- 1674,1693 ----
+  includes scripts started via the PERL command and mail hooks. The latter will
+  be described in detail further down.
+  '''
++ .SS "File inclusion"
++ .PP
++ Some commands like FORWARD or KEEP allow you to specify a file name between
++ double quotes to actually load parameters from this file. Unless a full path
++ is given, the following method is used to locate the file: first in the location
++ pointed to by the \fImailfilter\fR variable if set, otherwise in \fImaildir\fR
++ and finally in the home directory. Note that this is not a search path in the
++ sense that if \fImailfilter\fR is defined and the file is not there, an error
++ will be reported.
++ .PP
++ The file should list each parameter (be it an address, a header or a pattern)
++ on a line by itself. Shell-style comments (#) are allowed within that file and
++ leading white spaces are trimmed (but not trailing spaces).
++ '''
+  .SS "Macros Substitutions"
+  .PP
+  All the commands go through a macro substitution mechanism before being
+***************
+*** 1676,1686 ****
+  %%
+  A real percent sign
+  .TP
+  %D
+  Day of the week (0-6)
+  .TP
+  %H
+! Host name (name of the machine on which the \fImailagent\fR runs)
+  .TP
+  %L
+  Length of the body part, in bytes
+--- 1698,1721 ----
+  %%
+  A real percent sign
+  .TP
++ %A
++ The internet address extracted out of the \fIFrom:\fR field (\fIa.b.c\fR
++ in \fIu@a.b.c\fR), converted to lower-case.
++ .TP
++ %C
++ CPU name on which the mailagent runs. That is a fully qualified hostname
++ with the domain name, e.g. \fIlyon.eiffel.com\fR.
++ .TP
+  %D
+  Day of the week (0-6)
+  .TP
+  %H
+! Host name (name of the machine on which the \fImailagent\fR runs), without
+! any domain name. Always in lower-case, regardless of the machine name.
+! .TP
+! %I
+! The internet domain name extracted out of the \fIFrom:\fR field (\fIb.c\fR
+! in \fIu@a.b.c\fR), converted to lower-case.
+  .TP
+  %L
+  Length of the body part, in bytes
+***************
+*** 1688,1693 ****
+--- 1723,1732 ----
+  %N
+  Full name of the sender (login name if none)
+  .TP
++ %O
++ The organization name extracted out of the \fIFrom:\fR field (\fIb\fR in
++ \fIu@a.b.c\fR), converted to lower-case.
++ .TP
+  %R
+  Subject of the original message with leading Re: suppressed
+  .TP
+***************
+*** 1891,1897 ****
+  
+  Sincerely,
+  --
+! %U <%u@%H>
+  .fi
+  .in -5
+  .sp
+--- 1930,1936 ----
+  
+  Sincerely,
+  --
+! %U <%u@%C>
+  .fi
+  .in -5
+  .sp
+***************
+*** 1905,1911 ****
+  \fInewsmaster\fR, \fIusenet\fR, \fIMAILER-DAEMON\fR or \fInobody\fR).
+  Matches are done in a case insentive manner, so \fIMailer-Daemon\fR will also
+  be recognized as a special user.
+! Furthermore, any message tagged with a \fIPrecendence:\fR field set to
+  \fIbulk\fR or \fIjunk\fR will not trigger a vacation message. This built-in
+  behaviour can of course be overloaded by suitable rules (by testing and
+  issuing the vacation message yourself via MESSAGE).
+--- 1944,1950 ----
+  \fInewsmaster\fR, \fIusenet\fR, \fIMAILER-DAEMON\fR or \fInobody\fR).
+  Matches are done in a case insentive manner, so \fIMailer-Daemon\fR will also
+  be recognized as a special user.
+! Furthermore, any message tagged with a \fIPrecedence:\fR field set to
+  \fIbulk\fR or \fIjunk\fR will not trigger a vacation message. This built-in
+  behaviour can of course be overloaded by suitable rules (by testing and
+  issuing the vacation message yourself via MESSAGE).
+
+Index: agent/pl/actions.pl
+Prereq: 2.9.1.3
+*** agent/pl/actions.pl.old	Tue Dec  1 09:48:00 1992
+--- agent/pl/actions.pl	Tue Dec  1 09:48:01 1992
+***************
+*** 1,4 ****
+! ;# $Id: actions.pl,v 2.9.1.3 92/11/01 15:44:28 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: actions.pl,v 2.9.1.4 92/12/01 09:18:05 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	actions.pl,v $
++ ;# Revision 2.9.1.4  92/12/01  09:18:05  ram
++ ;# patch13: allowed file inclusion for KEEP and STRIP
++ ;# patch13: file inclusion processing now handled by &include_file
++ ;# 
+  ;# Revision 2.9.1.3  92/11/01  15:44:28  ram
+  ;# patch11: the PERL command now sets up @ARGV as if invoked from shell
+  ;# patch11: fixed message substitution bug (for MESSAGE and NOTIFY)
+***************
+*** 407,413 ****
+  	local($address) = &email_addr;	# Address of user
+  	# Any address included withing "" is in fact a file name where actual
+  	# forwarding addresses are found.
+! 	$addresses = &complete_addr($addresses);	# Process "include-requests"
+  	unless (open(MAILER,"|/usr/lib/sendmail -odq $addresses")) {
+  		do add_log("cannot run sendmail to forward message") if $loglvl > 0;
+  		return 1;
+--- 411,418 ----
+  	local($address) = &email_addr;	# Address of user
+  	# Any address included withing "" is in fact a file name where actual
+  	# forwarding addresses are found.
+! 	$addresses =
+! 		&complete_list($addresses, 'address');	# Process "include-requests"
+  	unless (open(MAILER,"|/usr/lib/sendmail -odq $addresses")) {
+  		do add_log("cannot run sendmail to forward message") if $loglvl > 0;
+  		return 1;
+***************
+*** 439,445 ****
+  	local($addresses) = @_;			# Address(es) mail should be bounced to
+  	# Any address included withing "" is in fact a file name where actual
+  	# bouncing addresses are found.
+! 	$addresses = &complete_addr($addresses);	# Process "include-requests"
+  	unless (open(MAILER,"|/usr/lib/sendmail -odq $addresses")) {
+  		do add_log("cannot run sendmail to bounce message") if $loglvl > 0;
+  		return 1;
+--- 444,451 ----
+  	local($addresses) = @_;			# Address(es) mail should be bounced to
+  	# Any address included withing "" is in fact a file name where actual
+  	# bouncing addresses are found.
+! 	$addresses =
+! 		&complete_list($addresses, 'address');	# Process "include-requests"
+  	unless (open(MAILER,"|/usr/lib/sendmail -odq $addresses")) {
+  		do add_log("cannot run sendmail to bounce message") if $loglvl > 0;
+  		return 1;
+***************
+*** 955,975 ****
+  # Removes or keeps some headers and update the Header structure
+  sub alter_header {
+  	local($headers, $action) = @_;
+  	local(@list) = split(/\s/, $headers);
+  	local(@head) = split(/\n/, $Header{'Head'});
+  	local(@newhead);				# The constructed header
+  	local($last_was_altered) = 0;	# Set to true when header is altered
+  	local($matched);				# Did any header matched ?
+  	foreach (@head) {
+  		if (/^From\s/) {			# First From line...
+  			push(@newhead, $_);		# Keep it anyway
+  			next;
+  		}
+  		unless (/^\s/) {			# If not a continuation line
+  			$last_was_altered = 0;	# Reset header alteration flag
+  			$matched = 0;			# Assume no match
+  			foreach $h (@list) {	# Loop over to-be-altered lines
+- 				$h =~ s/:$//;		# Remove trailing ':' if any
+  				if (/^$h:/i) {		# We found a line to be removed/kept
+  					$matched = 1;
+  					last;
+--- 961,992 ----
+  # Removes or keeps some headers and update the Header structure
+  sub alter_header {
+  	local($headers, $action) = @_;
++ 	$headers =
++ 		&complete_list($headers, 'header');	# Process "file-inclusion"
+  	local(@list) = split(/\s/, $headers);
+  	local(@head) = split(/\n/, $Header{'Head'});
+  	local(@newhead);				# The constructed header
+  	local($last_was_altered) = 0;	# Set to true when header is altered
+  	local($matched);				# Did any header matched ?
++ 	local($line);					# Original header line
++ 
++ 	foreach $h (@list) {			# Prepare patterns
++ 		$h =~ s/:$//;				# Remove trailing ':' if any
++ 		$h = &perl_pattern($h);		# Headers specified by shell patterns
++ 	}
++ 
+  	foreach (@head) {
+  		if (/^From\s/) {			# First From line...
+  			push(@newhead, $_);		# Keep it anyway
+  			next;
+  		}
++ 		$line = $_;					# Save original
++ 		# Make sure header field name is normalized before attempting a match
++ 		s/^([\w-]+):/&header'normalize($1).':'/e;
+  		unless (/^\s/) {			# If not a continuation line
+  			$last_was_altered = 0;	# Reset header alteration flag
+  			$matched = 0;			# Assume no match
+  			foreach $h (@list) {	# Loop over to-be-altered lines
+  				if (/^$h:/i) {		# We found a line to be removed/kept
+  					$matched = 1;
+  					last;
+***************
+*** 984,990 ****
+  		} else {									# Action is $HD_KEEP
+  			next if /^\s/ && !$last_was_altered;	# Header was not kept
+  		}
+! 		push(@newhead, $_);						# Add line to the new header
+  	}
+  	$Header{'Head'} = join("\n", @newhead) . "\n";
+  }
+--- 1001,1007 ----
+  		} else {									# Action is $HD_KEEP
+  			next if /^\s/ && !$last_was_altered;	# Header was not kept
+  		}
+! 		push(@newhead, $line);		# Add line to the new header
+  	}
+  	$Header{'Head'} = join("\n", @newhead) . "\n";
+  }
+***************
+*** 1158,1194 ****
+  	0;
+  }
+  
+! # Given a list of addresses separated by white spaces, return a new list of
+! # addresses, but with "include-request" processed.
+! sub complete_addr {
+  	local(@addr) = split(' ', $_[0]);	# Original list
+  	local(@result);						# Where result list is built
+  	local($filename);					# Name of include file
+  	local($_);
+  	foreach $addr (@addr) {
+! 		if ($addr !~ /^"/) {			# Address not enclosed within ""
+  			push(@result, $addr);		# Kept as-is
+  		} else {
+! 			($filename) = $addr =~ /^"(.*)"$/;
+! 			$filename = &locate_file($filename);
+! 			if ($filename && open(ADDRESSES, "$filename")) {
+! 				while (<ADDRESSES>) {
+! 					next if /^\s*#/;	# Skip shell comments
+! 					chop;
+! 					s/^\s+//;			# Remove leading spaces
+! 					push(@result, $_);
+! 				}
+! 				close ADDRESSES;
+! 			} elsif ($filename) {		# Could not open file
+! 				&add_log("WARNING couldn't open $filename for addresses: $!")
+! 					if $loglvl > 4;
+! 			} else {
+! 				&add_log("WARNING incorrect file inclusion request")
+! 					if $loglvl > 4;
+! 			}
+  		}
+  	}
+! 	join(' ', @result);		# Return space separated addresses
+  }
+  
+  # Save digest mail into a folder, or queue it if no folder is provided
+--- 1175,1197 ----
+  	0;
+  }
+  
+! # Given a list of items separated by white spaces, return a new list of
+! # items, but with "include-request" processed.
+! sub complete_list {
+  	local(@addr) = split(' ', $_[0]);	# Original list
++ 	local($type) = $_[1];				# Type of item (header, address, ...)
+  	local(@result);						# Where result list is built
+  	local($filename);					# Name of include file
+  	local($_);
+  	foreach $addr (@addr) {
+! 		if ($addr !~ /^"/) {			# Item not enclosed within ""
+  			push(@result, $addr);		# Kept as-is
+  		} else {
+! 			# Load items from file whose name is given between "quotes"
+! 			push(@result, &include_file($addr, $type));
+  		}
+  	}
+! 	join(' ', @result);		# Return space separated items
+  }
+  
+  # Save digest mail into a folder, or queue it if no folder is provided
+
+Index: agent/pl/lexical.pl
+Prereq: 2.9.1.2
+*** agent/pl/lexical.pl.old	Tue Dec  1 09:48:13 1992
+--- agent/pl/lexical.pl	Tue Dec  1 09:48:13 1992
+***************
+*** 1,4 ****
+! ;# $Id: lexical.pl,v 2.9.1.2 92/11/01 15:50:52 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: lexical.pl,v 2.9.1.3 92/12/01 09:22:16 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	lexical.pl,v $
++ ;# Revision 2.9.1.3  92/12/01  09:22:16  ram
++ ;# patch13: now counts lines even when reading rules from memory
++ ;# patch13: action parsing rewritten to handle nested braces
++ ;# 
+  ;# Revision 2.9.1.2  92/11/01  15:50:52  ram
+  ;# patch11: fixed English typo
+  ;# 
+***************
+*** 29,34 ****
+--- 33,39 ----
+  # The following subroutine is called in place of read_rule when rules are
+  # coming from the command line via @Linerules.
+  sub read_linerule {
++ 	$.++;						# One more line
+  	shift(@Linerules);			# Read a new line from array
+  }
+  
+***************
+*** 116,135 ****
+  	$pattern;
+  }
+  
+  sub get_action {
+  	local(*line) = shift(@_);	# edited in place
+  	local($_) = $line;			# make a copy of original
+! 	local($action) = "";
+! 	if (s/^\s*{([^}]*)}//) {
+! 		$action = $1;
+! 	} else {
+! 		unless (/\{.*\}/) {		# trash line if no { action } is present
+! 			&add_log("ERROR expected action, discarded '$_'") if $loglvl;
+! 			$_ = '';
+  		}
+  	}
+- 	$line = $_;					# eventually updates the line
+- 	$action =~ s/\s+$//;		# remove trailing spaces
+- 	$action;
+  }
+  
+--- 121,182 ----
+  	$pattern;
+  }
+  
++ # Extract the action part from the line (by editing it in place) and return
++ # the first action encountered. Nesting of {...} blocks may occur.
+  sub get_action {
+  	local(*line) = shift(@_);	# edited in place
+  	local($_) = $line;			# make a copy of original
+! 	return '' unless s/^\s*\{/{/;
+! 	local($action) = &action_parse(*_, 0);
+! 	&add_log("ERROR no action, discarding '$_'") if $loglvl && $action eq '';
+! 	$line = $_;					# eventually update the line
+! 	$action =~ s/^\{\s*//;		# remove leading and trailing braces
+! 	$action =~ s/\s*\}$//;
+! 	$action;					# return new action block
+! }
+! 
+! # Recursively parse the action string and return the parsed portion of the text
+! # with proper nesting wherever necessary. The string given as parameter is
+! # edited in place and the remaining is the unparsed part.
+! sub action_parse {
+! 	local(*_) = shift(@_);		# edited in place
+! 	local($level) = shift(@_);	# recursion level
+! 	local($parsed) = '';		# the part we parsed so far
+! 	local($block);				# block recognized
+! 	local($follow);				# recursion string returned
+! 	for (;;) {
+! 		# Go to first un-escaped '{', if possible and save leading string
+! 		# up-to first '{'. Note that any '}' immediately stops scanning.
+! 		s/^(([^\\{}]|\\.)*{)// && ($parsed .= $1);
+! 		# Go to first un-escaped '}', with any '{' stopping scan.
+! 		$block = '';
+! 		s/^(([^\\{}]|\\.)*\})// && ($block = $1);
+! 		$parsed .= $block;		# block may be empty, or has trailing '}'
+! 		if ($parsed =~ s/\{$//) {	# recursion if '{' found
+! 			$follow = &action_parse(*_, $level + 1);
+! 			# If a null string is returned, then no matching '}' was found
+! 			&add_log("WARNING no closing brace (added for you)")
+! 				if $follow eq '' && $loglvl > 5;
+! 			$parsed .= '{' . $follow . '}';
+! 		} elsif (s/^\}//) {			# reached end of a block
+! 			&add_log("WARNING extra closing brace ignored")
+! 				if $level == 0 && $loglvl > 5;
+! 			return $parsed;
+! 		} else {
+! 			# Get the whole string until the next '}' and return. If a '{'
+! 			# interposes, the first match will return an empty string. In that
+! 			# case, we continue if we are not at level #0. Otherwise we got the
+! 			# whole action and may return now.
+! 			$block = '';
+! 			s/^(([^\\{}]|\\.)*\})// && ($block = $1);
+! 			if ($block eq '' && $level) {		# Advance until '{'
+! 				s/^(([^\\}]|\\.)*\{)// && ($block = $1);
+! 				$parsed .= $block;
+! 				next;
+! 			}
+! 			$block =~ s/\}//;
+! 			return $parsed . $block;
+  		}
+  	}
+  }
+  
+
+Index: agent/pl/macros.pl
+Prereq: 2.9.1.2
+*** agent/pl/macros.pl.old	Tue Dec  1 09:48:16 1992
+--- agent/pl/macros.pl	Tue Dec  1 09:48:16 1992
+***************
+*** 1,4 ****
+! ;# $Id: macros.pl,v 2.9.1.2 92/08/26 13:16:14 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: macros.pl,v 2.9.1.3 92/12/01 09:24:09 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,16 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	macros.pl,v $
++ ;# Revision 2.9.1.3  92/12/01  09:24:09  ram
++ ;# patch13: new macros %A, %C, %I and %O
++ ;# patch13: forgot to handle the %H macro
++ ;# patch13: (reported by David Giddy <d.giddy@trl.oz.au>)
++ ;# 
+  ;# Revision 2.9.1.2  92/08/26  13:16:14  ram
+  ;# patch8: added support for external variables (persistent)
+  ;# 
+***************
+*** 18,27 ****
+--- 23,36 ----
+  ;# 
+  # Macros:
+  # %%     A real percent sign
++ # %A     Sender's main address (host.domain.ct in user@loc.host.domain.ct)
++ # %C     CPU name, fully qualified with domain name
+  # %D     Day of the week (0-6)
+  # %H     Host name (name of the machine on which the mailagent runs)
++ # %I     Internet domain from sender (domain.ct in user@host.domain.ct)
+  # %L     Length of the message in bytes (without header)
+  # %N     Full name of sender (login name if none)
++ # %O     Organization name from sender address (domain in user@host.domain.ct)
+  # %R     Subject of orginal message with leading Re: suppressed
+  # %S     Re: subject of original message
+  # %T     Time of last modification on mailed file (value taken from $macro_T)
+***************
+*** 83,93 ****
+--- 92,106 ----
+  
+  	s/%%/##pr##/g;						# Protect double percent signs
+  	s/%/#%%!/g;							# Make sure substitutions do not add %
++ 	s/#%%!A/&macro'internet/eg;			# Main internet address of sender
+  	s/#%%!d/$mday/g;					# Day of the month (01-31)
++ 	s/#%%!C/&domain_addr/eg;			# CPU name, fully qualified with domain
+  	s/#%%!D/$wday/g;					# Day of the week (0-6)
+  	s/#%%!f/$Header{'From'}/g;			# The "From:" line
+  	s/#%%!h/$hour/g;					# Hour of the day (00-23)
++ 	s/#%%!H/&myhostname/eg;				# Hostname on which mailagent runs
+  	s/#%%!i/$Header{'Message-Id'}/g;	# Message-Id (null string if none)
++ 	s/#%%!I/&macro'domain/eg;			# Internet domain name of sender
+  	s/#%%!l/$Header{'Lines'}/g;			# Number if lines in message
+  	s/#%%!L/$Header{'Length'}/g;		# Length of message, in bytes
+  	s/#%%!m/$mon/g;						# Month of the year
+***************
+*** 94,99 ****
+--- 107,113 ----
+  	s/#%%!n/$login/g;					# Lower-cased login name of sender
+  	s/#%%!N/$fullname/g;				# Full name of sender (login if none)
+  	s/#%%!o/$orgname/g;					# Organization name
++ 	s/#%%!O/&macro'org/eg;				# Organization part of sender's address
+  	s/#%%!r/$reply_to/g;				# Return path of message
+  	s/#%%!R/$subject/g;					# Subject with leading Re: suppressed
+  	s/#%%!s/$Header{'Subject'}/g;		# Subject of message
+***************
+*** 114,117 ****
+--- 128,159 ----
+  	s/##pr##/%/g;						# A double percent expands to %
+  	$str = $_;							# Update string in-place
+  }
++ 
++ package macro;
++ 
++ # Return the internet information of the From address
++ sub info {
++ 	local($addr) = (&'parse_address($'Header{'From'}))[0];
++ 	&'internet_info($addr);
++ }
++ 
++ # Return the organization name
++ sub org {
++ 	local($host, $domain, $country) = &info;
++ 	$domain;
++ }
++ 
++ # Return the domain name
++ sub domain {
++ 	local($host, $domain, $country) = &info;
++ 	$domain .'.'. $country;
++ }
++ 
++ # Return the qualified internet address
++ sub internet {
++ 	local($host, $domain, $country) = &info;
++ 	$host ne '' ? $host .'.'. $domain .'.'. $country : $domain .'.'. $country;
++ }
++ 
++ package main;
+  
+
+Index: agent/pl/matching.pl
+Prereq: 2.9.1.1
+*** agent/pl/matching.pl.old	Tue Dec  1 09:48:18 1992
+--- agent/pl/matching.pl	Tue Dec  1 09:48:19 1992
+***************
+*** 1,4 ****
+! ;# $Id: matching.pl,v 2.9.1.1 92/08/02 16:11:54 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: matching.pl,v 2.9.1.2 92/12/01 09:25:48 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	matching.pl,v $
++ ;# Revision 2.9.1.2  92/12/01  09:25:48  ram
++ ;# patch13: new perl_pattern function to transform shell-style patterns
++ ;# patch13: file inclusion now handled by include_file
++ ;# 
+  ;# Revision 2.9.1.1  92/08/02  16:11:54  ram
+  ;# patch2: added support for negated selectors
+  ;# 
+***************
+*** 39,44 ****
+--- 43,57 ----
+  	);
+  }
+  
++ # Transform a shell-style pattern into a perl pattern
++ sub perl_pattern {
++ 	local($_) = @_;		# The shell pattern
++ 	s/\./\\./g;			# Escape .
++ 	s/\*/.*/g;			# Transform * into .*
++ 	s/\?/./g;			# Transform ? into .
++ 	$_;					# Perl pattern
++ }
++ 
+  # Take a pattern as written in the rule file and make it suitable for
+  # pattern matching as understood by perl. If the pattern starts with a
+  # leading /, nothing is done. Otherwise, a set of / are added.
+***************
+*** 46,56 ****
+  sub make_pattern {
+  	local($_) = shift(@_);
+  	unless (m|^/|) {				# Pattern does not start with a /
+! 		# With simple words, patterns have the same form as shell ones
+! 		s/\./\\./g;			# Escape .
+! 		s/\*/.*/g;			# Transform * into .*
+! 		s/\?/./g;			# Transform ? into .
+! 		$_ = "/^$_\$/";		# Anchor pattern
+  	}
+  	# The whole pattern is inserted within () to make at least one
+  	# backreference. Otherwise, the following could happen:
+--- 59,66 ----
+  sub make_pattern {
+  	local($_) = shift(@_);
+  	unless (m|^/|) {				# Pattern does not start with a /
+! 		$_ = &perl_pattern($_);		# Simple words specified via shell patterns
+! 		$_ = "/^$_\$/";				# Anchor pattern
+  	}
+  	# The whole pattern is inserted within () to make at least one
+  	# backreference. Otherwise, the following could happen:
+***************
+*** 76,106 ****
+  	if ($pattern !~ /^"/) {
+  		$matched = do apply_match($selector, $pattern);
+  	} else {
+! 		local(@filepat) = ();			# File pattern
+! 		local($filename);				# Where pattern should be read from
+! 		($filename) =
+! 			$pattern =~ /^"(.*)"$/;		# The filename is held within ""
+! 		$filename =
+! 			&locate_file($filename);	# Path may not be absolute
+! 		if ($filename) {
+! 			if (open(PATTERN, "$filename")) {
+! 				while (<PATTERN>) {
+! 					next if /^\s*#/;	# Skip shell comments
+! 					chop;
+! 					s/^\s*//;			# Remove leading spaces
+! 					push(@filepat, $_);
+! 					do add_log ("loading pattern $_") if $loglvl > 19;
+! 				}
+! 				close PATTERN;
+! 			} else {
+! 				do add_log("WARNING couldn't open $filename for patterns")
+! 					if $loglvl > 4;
+! 				push(@filepat, "*");	# Ensure anything matches
+! 			}
+! 		} else {
+! 			do add_log("WARNING incorrect file name $pattern") if $loglvl > 4;
+! 			push(@filepat, "*");	# Ensure anything matches
+! 		}
+  		# Now do the match for all the patterns. Stop as soon as one matches.
+  		foreach (@filepat) {
+  			$matched = do apply_match($selector, $_);
+--- 86,93 ----
+  	if ($pattern !~ /^"/) {
+  		$matched = do apply_match($selector, $pattern);
+  	} else {
+! 		# Load patterns from file whose name is given between "quotes"
+! 		local(@filepat) = &include_file($pattern, 'pattern');
+  		# Now do the match for all the patterns. Stop as soon as one matches.
+  		foreach (@filepat) {
+  			$matched = do apply_match($selector, $_);
+
+Index: agent/filter/io.c
+Prereq: 2.9
+*** agent/filter/io.c.old	Tue Dec  1 09:47:40 1992
+--- agent/filter/io.c	Tue Dec  1 09:47:41 1992
+***************
+*** 11,17 ****
+  */
+  
+  /*
+!  * $Id: io.c,v 2.9 92/07/14 16:48:13 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+--- 11,17 ----
+  */
+  
+  /*
+!  * $Id: io.c,v 2.9.1.1 92/12/01 09:11:51 ram Exp $
+   *
+   *  Copyright (c) 1992, Raphael Manfredi
+   *
+***************
+*** 19,24 ****
+--- 19,27 ----
+   *  Licence as specified in the README file that comes with dist.
+   *
+   * $Log:	io.c,v $
++  * Revision 2.9.1.1  92/12/01  09:11:51  ram
++  * patch13: added extra checking for writes to soft NFS-mounted disks
++  * 
+   * Revision 2.9  92/07/14  16:48:13  ram
+   * 3.0 beta baseline.
+   * 
+***************
+*** 497,502 ****
+--- 500,506 ----
+  	register1 char *mailptr;		/* Pointer into mail buffer */
+  	register2 int length;			/* Number of bytes already written */
+  	register3 int amount;			/* Amount of bytes written by last call */
++ 	struct stat buf;				/* Stat buffer */
+  
+  	sprintf(path, "%s/%s.%d", dir, template, progpid);
+  
+***************
+*** 506,512 ****
+  		return (char *) 0;
+  	}
+  
+! 	/* Write the mail on disc. We do not call a single write on the mail buffer
+  	 * as in "write(fd, mail, len)" in case the mail length exceeds the maximum
+  	 * amount of bytes the system can atomically write.
+  	 */
+--- 510,516 ----
+  		return (char *) 0;
+  	}
+  
+! 	/* Write the mail on disk. We do not call a single write on the mail buffer
+  	 * as in "write(fd, mail, len)" in case the mail length exceeds the maximum
+  	 * amount of bytes the system can atomically write.
+  	 */
+***************
+*** 524,535 ****
+  			if (n == -1)
+  				add_log(1, "SYSERR write: %m (%e)");
+  			add_log(2, "ERROR cannot write to file %s", path);
+- 			if (-1 == unlink(path)) {
+- 				add_log(1, "SYSERR unlink: %m (%e)");
+- 				add_log(4, "WARNING leaving %s around", path);
+- 			}
+  			close(fd);
+! 			return (char *) 0;
+  		}
+  	}
+  
+--- 528,535 ----
+  			if (n == -1)
+  				add_log(1, "SYSERR write: %m (%e)");
+  			add_log(2, "ERROR cannot write to file %s", path);
+  			close(fd);
+! 			goto error;				/* Remove file and report error */
+  		}
+  	}
+  
+***************
+*** 536,542 ****
+--- 536,568 ----
+  	close(fd);
+  	add_log(19, "mail in %s", path);
+  
++ 	/* I don't really trust writes through NFS soft-mounted partitions, and I
++ 	 * am also suspicious about hard-mounted ones. I could have opened the file
++ 	 * with the O_SYNC flag, but the effect on NFS is not well defined either.
++ 	 * So, let's just make sure the mail has been correctly written on the disk
++ 	 * by comparing the file size and the orginal message size. If they differ,
++ 	 * complain and return an error.
++ 	 */
++ 
++ 	if (-1 == stat(path, &buf))		/* No entry in file system, probably */
++ 		return (char *) 0;			/* Saving failed */
++ 
++ 	if (buf.st_size != len) {		/* Not written entirely */
++ 		add_log(2, "ERROR mail truncated to %d bytes (had %d)",
++ 			buf.st_size, len);
++ 		goto error;					/* Remove file and report error */
++ 	}
++ 
+  	return path;			/* Where mail was writen (static data) */
++ 
++ error:		/* Come here when a write error has been detected */
++ 
++ 	if (-1 == unlink(path)) {
++ 		add_log(1, "SYSERR unlink: %m (%e)");
++ 		add_log(4, "WARNING leaving %s around", path);
++ 	}
++ 
++ 	return (char *) 0;
+  }
+  
+  #ifndef RENAME
+
+Index: agent/pl/rules.pl
+Prereq: 2.9.1.2
+*** agent/pl/rules.pl.old	Tue Dec  1 09:48:28 1992
+--- agent/pl/rules.pl	Tue Dec  1 09:48:29 1992
+***************
+*** 1,4 ****
+! ;# $Id: rules.pl,v 2.9.1.2 92/11/01 15:52:24 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: rules.pl,v 2.9.1.3 92/12/01 09:30:01 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,15 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	rules.pl,v $
++ ;# Revision 2.9.1.3  92/12/01  09:30:01  ram
++ ;# patch13: fixed mode selection pattern (no brace allowed)
++ ;# patch13: now takes care of escaped ';' for layout purposes
++ ;# 
+  ;# Revision 2.9.1.2  92/11/01  15:52:24  ram
+  ;# patch11: fixed English typo
+  ;# patch11: makes sure default rules apply if no valid rules are present
+***************
+*** 180,186 ****
+  		next unless &before($rulenum);				# Call 'before' hook
+  		$selnum = 0;
+  		$rules = $_;		# Work on a copy
+! 		$rules =~ s/^(.*){// && ($mode = $1);		# First "word" is the mode
+  		$rules =~ s/\s*(.*)}// && ($action = $1);	# Then action within {}
+  		$mode =~ s/\s*$//;							# Remove trailing spaces
+  		print "<$mode> ";							# Mode in which it applies
+--- 184,190 ----
+  		next unless &before($rulenum);				# Call 'before' hook
+  		$selnum = 0;
+  		$rules = $_;		# Work on a copy
+! 		$rules =~ s/^([^{]*){// && ($mode = $1);	# First "word" is the mode
+  		$rules =~ s/\s*(.*)}// && ($action = $1);	# Then action within {}
+  		$mode =~ s/\s*$//;							# Remove trailing spaces
+  		print "<$mode> ";							# Mode in which it applies
+***************
+*** 213,219 ****
+--- 217,232 ----
+  			}
+  		}
+  		print "  " if $lines == 1;
++ 
++ 		# Split actions, but take care of escaped \; (layout purposes)
++ 		$action =~ s/\\\\/\02/g;			# \\ -> ^B
++ 		$action =~ s/\\;/\01/g;				# \; -> ^A
+  		@action = split(/;/, $action);
++ 		foreach (@action) {					# Restore escapes by in-place edit
++ 			s/\01/\\;/g;					# ^A -> \;
++ 			s/\02/\\\\/g;					# ^B -> \\
++ 		}
++ 
+  		# If action is large enough, format differently (one action/line)
+  		if (length($action) > 60 && @action > 1) {
+  			print "\n\t{\n";
+
+Index: agent/pl/rfc822.pl
+Prereq: 2.9.1.1
+*** agent/pl/rfc822.pl.old	Tue Dec  1 09:48:26 1992
+--- agent/pl/rfc822.pl	Tue Dec  1 09:48:26 1992
+***************
+*** 1,4 ****
+! ;# $Id: rfc822.pl,v 2.9.1.1 92/11/01 15:51:46 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: rfc822.pl,v 2.9.1.2 92/12/01 09:27:19 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	rfc822.pl,v $
++ ;# Revision 2.9.1.2  92/12/01  09:27:19  ram
++ ;# patch13: added internet info extraction out of e-mail address
++ ;# 
+  ;# Revision 2.9.1.1  92/11/01  15:51:46  ram
+  ;# patch11: allows _ as separator in names (as in First_Last)
+  ;# 
+***************
+*** 63,67 ****
+--- 66,93 ----
+  	s/.*_(\w+)/$1/;					# Same as above (_ separation)
+  	tr/A-Z/a-z/;					# And lowercase it
+  	$_;
++ }
++ 
++ # Parse an e-mail address and return a three element array:
++ #   ($host, $domain, $country)
++ sub internet_info {
++ 	local($_) = shift(@_);				# The internet address
++ 	local($login) = &login_name($_);	# Get the address login name
++ 	local($internet);					# The internet part of the address
++ 	# Try with uucp form first, to detect things like eiffel!ram@inria.fr
++ 	# We use the login name to anchor the last '!' or the first '@' or '%'
++ 	($internet) = /([^!]*)!$login/i;
++ 	($internet) = /$login[@%]([\w.-]*)/i unless $internet;
++ 	$internet =~ tr/A-Z/a-z/;				# Always lower-cased
++ 	local(@parts) = split(/\./, $internet);	# Break on dots
++ 	if (@parts == 1) {						# Only a host name
++ 		# Maybe this is a local address, maybe this is a uucp name. Assume that
++ 		# it is local if there is an '@' sign, as in 'ram@lyon'. Otherwise, it
++ 		# is a uucp name, as in 'eiffel!ram'.
++ 		push(@parts, 'uucp') if /!$login/;	# UUCP name
++ 		push(@parts, split(/\./, $mydomain)) if @parts == 1;
++ 	}
++ 	unshift(@parts, '') if @parts == 2;		# No host name
++ 	@parts[($#parts - 2) .. $#parts];		# ($host, $domain, $country)
+  }
+  
+
+Index: agent/magent.SH
+Prereq: 2.9.1.2
+*** agent/magent.SH.old	Tue Dec  1 09:47:48 1992
+--- agent/magent.SH	Tue Dec  1 09:47:49 1992
+***************
+*** 22,28 ****
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: magent.SH,v 2.9.1.2 92/08/26 12:41:27 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+--- 22,28 ----
+  # via the filter. Mine looks like this:
+  #   "|exec /users/ram/mail/filter >>/users/ram/.bak 2>&1"
+  
+! # $Id: magent.SH,v 2.9.1.3 92/12/01 09:14:07 ram Exp $
+  #
+  #  Copyright (c) 1991, 1992, Raphael Manfredi
+  #
+***************
+*** 30,35 ****
+--- 30,39 ----
+  #  Licence as specified in the README file that comes with dist.
+  #
+  # $Log:	magent.SH,v $
++ # Revision 2.9.1.3  92/12/01  09:14:07  ram
++ # patch13: hostname is now computed once and cached
++ # patch13: three new .pl files are now appended
++ # 
+  # Revision 2.9.1.2  92/08/26  12:41:27  ram
+  # patch8: better no-lock handling
+  # patch8: now maintains the notion of private library directory
+***************
+*** 459,465 ****
+  	local($_);							# Our host name
+  	$_ = $hiddennet if $hiddennet ne '';
+  	if ($_ eq '') {
+! 		chop($_ = `$phostname`);		# Must fork to get hostname, grr...
+  		$_ .= $mydomain unless /\./;	# We want something fully qualified
+  	}
+  	$_;
+--- 463,469 ----
+  	local($_);							# Our host name
+  	$_ = $hiddennet if $hiddennet ne '';
+  	if ($_ eq '') {
+! 		$_ = &hostname;					# Must fork to get hostname, grr...
+  		$_ .= $mydomain unless /\./;	# We want something fully qualified
+  	}
+  	$_;
+***************
+*** 568,572 ****
+--- 572,579 ----
+  $grep -v '^;#' pl/mailhook.pl >>magent
+  $grep -v '^;#' pl/interface.pl >>magent
+  $grep -v '^;#' pl/getdate.pl >>magent
++ $grep -v '^;#' pl/include.pl >>magent
++ $grep -v '^;#' pl/plural.pl >>magent
++ $grep -v '^;#' pl/hostname.pl >>magent
+  chmod 755 magent
+  $eunicefix magent
+
+Index: agent/pl/parse.pl
+Prereq: 2.9.1.1
+*** agent/pl/parse.pl.old	Tue Dec  1 09:48:21 1992
+--- agent/pl/parse.pl	Tue Dec  1 09:48:21 1992
+***************
+*** 1,4 ****
+! ;# $Id: parse.pl,v 2.9.1.1 92/08/26 13:17:47 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+--- 1,4 ----
+! ;# $Id: parse.pl,v 2.9.1.2 92/12/01 09:26:19 ram Exp $
+  ;#
+  ;#  Copyright (c) 1992, Raphael Manfredi
+  ;#
+***************
+*** 6,11 ****
+--- 6,14 ----
+  ;#  Licence as specified in the README file that comes with dist.
+  ;#
+  ;# $Log:	parse.pl,v $
++ ;# Revision 2.9.1.2  92/12/01  09:26:19  ram
++ ;# patch13: now also understands multiple To and Cc lines in headers
++ ;# 
+  ;# Revision 2.9.1.1  92/08/26  13:17:47  ram
+  ;# patch8: created by extraction from analyze.pl
+  ;# patch8: parsing can now be done on header only
+***************
+*** 122,132 ****
+  	}
+  
+  	# There is usually one Apparently-To line per address. Remove all new lines
+! 	# in the header line and replace them with ','.
+! 	$* = 1;
+! 	$Header{'Apparently-To'} =~ s/\n/,/g;	# Remove new-lines
+  	$* = 0;
+- 	$Header{'Apparently-To'} =~ s/,$/\n/;	# Restore last new-line
+  
+  	# If no To: field, then maybe there is an Apparently-To: instead. If so,
+  	# make them identical. Otherwise, assume the mail was directed to the user.
+--- 125,138 ----
+  	}
+  
+  	# There is usually one Apparently-To line per address. Remove all new lines
+! 	# in the header line and replace them with ','. Likewise for To: and Cc:.
+! 	# although it is far less likely to occur.
+! 	local($*) = 1;
+! 	foreach $field ('Apparently-To', 'To', 'Cc') {
+! 		$Header{$field} =~ s/\n/,/g;	# Remove new-lines
+! 		$Header{$field} =~ s/,$/\n/;	# Restore last new-line
+! 	}
+  	$* = 0;
+  
+  	# If no To: field, then maybe there is an Apparently-To: instead. If so,
+  	# make them identical. Otherwise, assume the mail was directed to the user.
+
+Index: agent/pl/include.pl
+*** agent/pl/include.pl.old	Tue Dec  1 09:48:11 1992
+--- agent/pl/include.pl	Tue Dec  1 09:48:11 1992
+***************
+*** 0 ****
+--- 1,45 ----
++ ;# $Id: include.pl,v 2.9.1.1 92/12/01 09:21:10 ram Exp $
++ ;#
++ ;#  Copyright (c) 1992, Raphael Manfredi
++ ;#
++ ;#  You may redistribute only under the terms of the GNU General Public
++ ;#  Licence as specified in the README file that comes with dist.
++ ;#
++ ;# $Log:	include.pl,v $
++ ;# Revision 2.9.1.1  92/12/01  09:21:10  ram
++ ;# patch13: created
++ ;# 
++ ;# 
++ # Process "include-file" requests. The file is allowed to have shell comments
++ # and leading spaces are trimmed. The function returns an array, each item
++ # being one of the non-comment lines found in the file.
++ sub include_file {
++ 	local($inc) = shift(@_);	# Include request "file-name"
++ 	local($what) = shift(@_);	# What we are looking for (singular)
++ 	local(*INCLUDE);			# Local file handle
++ 	local($filename) = $inc =~ /^"(.*)"$/;
++ 	local(@result);
++ 	local($_);
++ 	# Find file using mailfilter, maildir variables if not specified with an
++ 	# absolute pathname (starting iwht a '/').
++ 	$filename = &locate_file($filename);
++ 	&add_log("loading ".&plural($what)." from $filename") if $loglvl > 18;
++ 	if ($filename ne '' && open(INCLUDE, "$filename")) {
++ 		while (<INCLUDE>) {
++ 			next if /^\s*#/;	# Skip shell comments
++ 			chop;
++ 			s/^\s+//;			# Remove leading spaces
++ 			push(@result, $_);
++ 			&add_log("loaded $what '$_'") if $loglvl > 19;
++ 		}
++ 		close INCLUDE;
++ 	} elsif ($filename ne '') {		# Could not open file
++ 		&add_log("WARNING couldn't open $filename for ".&plural($what).": $!")
++ 			if $loglvl > 4;
++ 	} else {
++ 		&add_log("WARNING incorrect file inclusion request: $inc")
++ 			if $loglvl > 4;
++ 	}
++ 	@result;		# List of non-comment lines held in file
++ }
++ 
+
+Index: agent/files/chkagent.sh
+Prereq: 2.9
+*** agent/files/chkagent.sh.old	Tue Dec  1 09:47:38 1992
+--- agent/files/chkagent.sh	Tue Dec  1 09:47:38 1992
+***************
+*** 5,13 ****
+  #  You may redistribute only under the terms of the GNU General Public
+  #  Licence as specified in the README file that comes with dist.
+  #
+! # $Id: chkagent.sh,v 2.9 92/07/14 16:47:41 ram Exp $
+  #
+  # $Log:	chkagent.sh,v $
+  # Revision 2.9  92/07/14  16:47:41  ram
+  # 3.0 beta baseline.
+  # 
+--- 5,16 ----
+  #  You may redistribute only under the terms of the GNU General Public
+  #  Licence as specified in the README file that comes with dist.
+  #
+! # $Id: chkagent.sh,v 2.9.1.1 92/12/01 09:10:33 ram Exp $
+  #
+  # $Log:	chkagent.sh,v $
++ # Revision 2.9.1.1  92/12/01  09:10:33  ram
++ # patch13: chkagent could report errors due to spurious matches
++ # 
+  # Revision 2.9  92/07/14  16:47:41  ram
+  # 3.0 beta baseline.
+  # 
+***************
+*** 42,48 ****
+  
+  if test -f "$logfile"; then
+  	grep "$today" $logfile > $todaylog
+! 	egrep "$lookat" $todaylog > $output
+  	if test -s "$output"; then
+  		echo "*** Errors from logfile ($logfile):" > $report
+  		echo " " >> $report
+--- 45,51 ----
+  
+  if test -f "$logfile"; then
+  	grep "$today" $logfile > $todaylog
+! 	egrep ": ($lookat)" $todaylog > $output
+  	if test -s "$output"; then
+  		echo "*** Errors from logfile ($logfile):" > $report
+  		echo " " >> $report
+
+*** End of Patch 13 ***
+
+exit 0 # Just in case...

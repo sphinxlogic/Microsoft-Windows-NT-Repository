@@ -1,0 +1,2551 @@
+Newsgroups: comp.sources.misc
+From: slantin@eis.calstate.edu (Sam Lantinga)
+Subject: v37i092:  newing - interface for your program, Part01/03
+Message-ID: <csm-v37i092=newing.133501@sparky.IMD.Sterling.COM>
+X-Md4-Signature: daf7e77256aba7e58016449c8cb53cb4
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Calif State Univ/Electronic Information Services
+Date: Sat, 29 May 1993 18:35:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: slantin@eis.calstate.edu (Sam Lantinga)
+Posting-number: Volume 37, Issue 92
+Archive-name: newing/part01
+Environment: UNIX
+
+newing is designed to provide an interface layer between you and 
+your program.  Within this layer, many things can be done. 
+
+    o  You can use a history feature to prevent you from 
+       having to retype the same thing over and over again.
+    o  You can log the output of your program in a similar 
+       manner as the program 'script'.
+    o  You can send the contents of a file to the program 
+       you are running, as though you had typed in the
+       whole file by yourself.
+    o  You can detatch painlessly from a program that has 
+       frozen your terminal or otherwise hung.
+    o  You can enable line editing on a program that normally 
+       doesn't have it, such as csh or telnet.
+    o  You can have newing send automatic responses to the
+           output of the program.
+
+newing has been successfully compiled and tested on the following 
+UNIX systems without any modification:
+
+   BSD 4.2, Solaris 2.1, AIX 3.2, HP-UX, AT&T System V.3.2, ULTRIX 4.2
+
+newing was developed on a system running Sun/OS 4.1
+
+If you are a hacker, one of the advantages of this program is 
+that you have full source, and can implement the features you 
+have always wanted, but never had the time to write from scratch.
+
+-Sam Lantinga            slouken@cs.ucdavis.edu
+----------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  INSTALL cmds.c ile.c tty.c
+# Wrapped by kent@sparky on Sat May 29 13:21:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(1244 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+X
+X
+X	newing should be fairly simple to install.
+XAll you have to do is run the Configure script in the current
+Xdirectory.  Look at the Makefile if you want, and then type
+X'make'.  Everything should compile smoothly.
+XThen just move newing to wherever you want it installed.
+X
+X	If you have problems with the line editor feature
+Xof newing, just edit the Makefile and remove '-DHAVE_TERMCAP'
+Xand recompile newing.  First though, check to make sure that
+Xthe TERM environment variable matches the terminal you are
+Xusing.
+X	If HAVE_TERMCAP is not defined, the internal line 
+Xeditor is reduced to a simplistic way of dealing with the 
+Xline.  ^H will backspace, ^W will erase a word, ^U will erase 
+Xthe line, and ^P and ^N move around the history buffers.  
+XThere is no other cursor motion.
+X
+X	Good luck!
+X
+X	If you get this compiled after tweaking it for your
+Xsystem, please send me a detailed list of what changes worked
+Xfor you so I can include them in future releases.
+X
+X	Thanks!
+X
+X		-Sam Lantinga	(slouken@cs.ucdavis.edu)
+X
+X
+X'newing' has been successfully compiled and tested on
+Xthe following UNIX systems without any modification:
+X
+X	BSD 4.2 
+X	Solaris 2.1 
+X	AIX 3.2
+X	HP-UX
+X	AT&T System V.3.2
+X	ULTRIX 4.2
+X
+X'newing' was developed on a system running Sun/OS 4.1
+END_OF_FILE
+  if test 1244 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'cmds.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmds.c'\"
+else
+  echo shar: Extracting \"'cmds.c'\" \(8197 characters\)
+  sed "s/^X//" >'cmds.c' <<'END_OF_FILE'
+X
+X/* cmds.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<signal.h>
+X#include	<ctype.h>
+X#include 	"newing.h"
+X
+Xstatic int   breakup();
+Xstatic char *toprint();
+X
+Xvoid read_escape(line, outfd)
+Xchar *line;			/* If non-null, use as escape line */
+Xint outfd;			/* The pty file descriptor */
+X{
+X	void (*sigptr)();
+X	char *args[12], null[2];
+X	int nargs;
+X
+X	/* Get a line of input if 'line' is NULL */
+X	if ( line == NULL )
+X	{
+X		write(1, "\r\nEscape> ", 10);
+X		if ( (nargs=breakup(ile((-1), ""), args, 12)) < 0 )
+X		{
+X			printf("breakup() error!\r\n");
+X			return;
+X		}
+X		else
+X			write(1, "\r\n", 2);
+X	}
+X	else if ( (nargs=breakup(line, args, 12)) < 0 )
+X		return;
+X
+X	/* Return if there is no command */
+X	if ( strlen(args[0]) == 0 )
+X		return;
+X
+X	/* Toggle verbose mode on and off */
+X	if ( strcmp(args[0], "verbose") == 0 )
+X	{
+X		if ( flag.verbose )
+X			flag.verbose=0;
+X		else
+X			flag.verbose=1;
+X		printf("Verbose mode is now %s.\r\n", 
+X					(flag.verbose ? "on" : "off" ));
+X		return;
+X	}
+X
+X	/* Toggle line edit mode on and off */
+X	if ( strcmp(args[0], "edit") == 0 )
+X	{
+X		if ( flag.edit )
+X			flag.edit=0;
+X		else
+X			flag.edit=1;
+X
+X		if ( flag.verbose )
+X			printf("Line edit mode is now %s.\r\n", 
+X					(flag.edit ? "on" : "off" ));
+X		return;
+X	}
+X
+X	/* Show the current flags and any special status */
+X	if ( strcmp(args[0], "status") == 0 )
+X	{
+X		print_status();
+X		return;
+X	}
+X
+X	/* Suspend ourselves if we can support job control */
+X	if ( strcmp(args[0], "suspend") == 0 )
+X	{
+X#ifdef SIGTSTP	/* Ignore compiler warnings about this */
+X		if ( (sigptr=signal(SIGTSTP, SIG_IGN)) == SIG_DFL )
+X		{  /* We are under a job control shell */
+X
+X			if ( tty_reset(ttyfd) < 0 )
+X				(void) tty_sane(ttyfd);
+X
+X			if ( flag.verbose )
+X				printf("Newing being suspended.\n");
+X			(void) signal(SIGTSTP, SIG_DFL);
+X			(void) kill(0, SIGTSTP);
+X
+X			/* Re-set the terminal raw */
+X			(void) tty_raw(ttyfd);
+X			if ( flag.verbose )
+X				printf("Newing is resumed.\r\n");
+X		}
+X		else
+X		{
+X			if ( flag.debug )
+X				printf(
+X			"Not runnning under a job control shell.\r\n");
+X			if ( flag.verbose )
+X				printf("Running a subshell: %s\r\n", SHELL);
+X			subshell(SHELL);
+X			if ( flag.verbose )
+X				printf("Resuming newing.\r\n");
+X		}
+X#else
+X		if ( flag.verbose )
+X			printf("Running a subshell: %s\r\n", SHELL);
+X		subshell(SHELL);
+X		if ( flag.verbose )
+X			printf("Resuming newing.\r\n");
+X#endif
+X		return;
+X	}
+X	
+X	/* Run an explicit subshell, with a possible argument */
+X	if ( strcmp(args[0], "subsh") == 0 )
+X	{
+X		if ( nargs > 2 )
+X		{
+X			printf("Usage: subsh [command]\r\n");
+X			return;
+X		}
+X		else if ( args[1] )
+X			subshell(args[1]);
+X		else
+X			subshell(SHELL);
+X
+X		printf("Enter any key to continue: ");
+X		fflush(stdout);
+X		read(0, null, 1);
+X		printf("\r\n");
+X		return;
+X	}
+X
+X	/* Show the history listing */
+X	if ( strcmp(args[0], "history") == 0 )
+X	{
+X		showhistory();
+X		return;
+X	}
+X
+X	/* Show the alias listing */
+X	if ( strcmp(args[0], "listalias") == 0 )
+X	{
+X		showaliases();
+X		return;
+X	}
+X
+X	/* Add an alias to the list */
+X	if ( strcmp(args[0], "alias") == 0 )
+X	{
+X		if ( nargs != 3 )
+X		{
+X			printf("Usage: alias <name> <definition>\r\n");
+X			printf(
+X		"Example: alias fn \"finger @neighbor.edu\"\r\n");
+X			return;
+X		}
+X
+X		if ( add_alias(args[1], args[2]) < 0 )
+X			printf("Can't add alias \"%s\": %s.\r\n", args[1],
+X								alias_error);
+X		else if ( flag.verbose )
+X			printf("Added alias \"%s\"\r\n", args[1]);
+X		return;
+X	}
+X
+X	/* Remove an alias from the list */
+X	if ( strcmp(args[0], "unalias") == 0 )
+X	{
+X		if ( nargs != 2 )
+X		{
+X			printf("Usage: unalias <name>\r\n");
+X			return;
+X		}
+X
+X		if ( del_alias(args[1]) < 0 )
+X			printf("Can't unalias \"%s\": %s.\r\n", args[1],
+X								alias_error);
+X		else if ( flag.verbose )
+X			printf("Deleted alias \"%s\"\r\n", args[1]);
+X		return;
+X	}
+X
+X	/* Show the trigger listing */
+X	if ( strcmp(args[0], "showtrigs") == 0 )
+X	{
+X		showtriggers();
+X		return;
+X	}
+X
+X	/* Add an trigger to the list */
+X	if ( strcmp(args[0], "addtrig") == 0 )
+X	{
+X		if ( nargs != 4 )
+X		{
+X			printf(
+X	"Usage: addtrig <name> <trigger> <response>\r\n");
+X			return;
+X		}
+X
+X		if ( add_trig(args[1], args[2], args[3]) < 0 )
+X		{
+X			perror("malloc() error");
+X			fprintf(stderr, "\r\n");
+X		}
+X		else if ( flag.verbose )
+X			printf("Added trigger \"%s\"\r\n", args[1]);
+X		return;
+X	}
+X
+X	/* Remove a trigger from the list */
+X	if ( strcmp(args[0], "deltrig") == 0 )
+X	{
+X		if ( nargs != 2 )
+X		{
+X			printf("Usage: deltrig <name>\r\n");
+X			return;
+X		}
+X
+X		if ( del_trig(args[1]) < 0 )
+X			printf("Can't find trigger \"%s\".\r\n", args[1]);
+X		else if ( flag.verbose )
+X			printf("Deleted trigger \"%s\"\r\n", args[1]);
+X		return;
+X	}
+X
+X	/* Quickly cleanup and exit */
+X	if ( strcmp(args[0], "die") == 0 )
+X	{
+X		printf("Aaaarrgghhh.....\r\n");
+X		finish(0);
+X		/* We should never get here */
+X	}
+X
+X	/* Set the escape character */
+X	if ( strcmp(args[0], "escape") == 0 )
+X	{
+X		if ( args[1] )
+X			escape=args[1][0];
+X		else
+X			printf("Usage: escape <escape_char>\r\n");
+X
+X		if ( flag.verbose )
+X			printf("Escape character set to '%s'\r\n", 
+X							toprint(escape));
+X		return;
+X	}
+X
+X	/* Set the history character */
+X	if ( strcmp(args[0], "histchar") == 0 )
+X	{
+X		if ( args[1] )
+X			histchar=args[1][0];
+X		else
+X			printf("Usage: histchar <history_char>\r\n");
+X
+X		if ( flag.verbose )
+X			printf("History character set to '%s'\r\n", 
+X							toprint(escape));
+X		return;
+X	}
+X
+X	/* Type out a file to the program */
+X	if ( strcmp(args[0], "cat") == 0 )
+X	{
+X		if ( nargs == 2 )
+X		{
+X			if ( cat(args[1], outfd) < 0 )
+X			{
+X				fprintf(stderr, "Can't cat %s: ", args[1]);
+X				perror("");
+X				fprintf(stderr, "\r");
+X			}
+X		}
+X		else
+X			printf("Usage: cat <file>\r\n");
+X		return;
+X	}
+X
+X	/* Print the help messages */
+X	if ( strcmp(args[0], "help") == 0 )
+X	{
+X		print_help(args[1]);
+X		return;
+X	}
+X
+X	/* Check for aliases */
+X	if ( (nargs == 1) && ((args[1]=getalias(args[0])) != NULL) )
+X	{
+X		if ( line == NULL )
+X			(void) add_hist(ile(outfd, args[1]));
+X		else
+X		{
+Xfprintf(stderr, "Boo!");
+X			writen(outfd, args[1], strlen(args[1]));
+X			write(outfd, "\r", 1);
+X		}
+X		return;
+X	}
+X
+X	/* The command wasn't recognized if we got here */
+X	printf("Escape not understood.\r\n");
+X}
+X
+X
+X/* This very handy function takes a null-terminated string, and a pointer
+X   to an array of 'elems' character pointers, and parses the string into 
+X   a series of null terminated strings, pointed to by the array pointer.  
+X   Really handy for breaking up command lines into arrays!! It gave me a 
+X   heck of a lot of trouble with segmentation violations before I got it 
+X   right though. :)   -Sam */
+X
+X/* The actual final line that the array points to */
+Xstatic char pointedto[MAXLINE*2];
+X
+Xstatic int breakup(string, array, elems)
+Xchar string[];
+Xchar *array[];
+Xint elems;
+X{
+X	int   i, j=0, k=0, l=0;
+X	int   hardquotes=0, inquotes=0;
+X
+X#ifdef BIGDEBUG
+X	fprintf(stderr, "breakup(): line: %s\n", string);
+X#endif
+X	for ( i=0; string[i]!='\0'; ++i )
+X	{
+X		switch (string[i])
+X		{
+X			case '\\': if ( hardquotes || inquotes )
+X				   {
+X					if ( inquotes && (string[i+1] == '\"'))
+X					{
+X						pointedto[j++]='\"';
+X						++i;
+X					}
+X					else if ( hardquotes && 
+X						  (string[i+1] == '\'') )
+X					{
+X						pointedto[j++]='\'';
+X						++i;
+X					}
+X					else
+X						pointedto[j++]='\\';
+X					break;
+X				   }
+X				   pointedto[j++]=string[++i]; 
+X				   break;
+X			case '\"': if ( hardquotes )
+X				   {
+X					pointedto[j++]='\"';
+X					break;
+X				   }
+X				   if ( inquotes )
+X					inquotes=0;
+X				   else
+X					inquotes=1;
+X				   break;
+X			case '\'': if ( inquotes )
+X				   {
+X					pointedto[j++]='\'';
+X					break;
+X				   }
+X				   if ( hardquotes )
+X					hardquotes=0;
+X				   else
+X					hardquotes=1;
+X				   break;
+X			case '\t':
+X			case ' ':  if ( ! inquotes && ! hardquotes )
+X				   {
+X					pointedto[j++]='\0';
+X					array[l++]=(&pointedto[k]);
+X					k=j;
+X					if ( l > (elems-1) )
+X					{  /* The array is too small */
+X						return(-1);
+X					}
+X					break;
+X				   }
+X				   /* else fall through */
+X			default:   pointedto[j++]=string[i];
+X		}
+X	}
+X
+X	/* one last time, to get the last bit */
+X	pointedto[j]='\0';
+X	array[l++]=(&pointedto[k]);
+X	array[l]=NULL;
+X	return(l);
+X}
+X
+X
+X/* Convert a character to a printable format */
+X
+Xstatic char printable[3];
+X
+Xstatic char *toprint(ch)
+Xint ch;
+X{
+X    	if (ch < ' ')
+X		sprintf(printable, "^%c", (ch+'@'));
+X	else
+X		sprintf(printable, "%c", ch);
+X
+X	return(printable);
+X}
+END_OF_FILE
+  if test 8197 -ne `wc -c <'cmds.c'`; then
+    echo shar: \"'cmds.c'\" unpacked with wrong size!
+  fi
+  # end of 'cmds.c'
+fi
+if test -f 'ile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ile.c'\"
+else
+  echo shar: Extracting \"'ile.c'\" \(25610 characters\)
+  sed "s/^X//" >'ile.c' <<'END_OF_FILE'
+X
+X/* ile.c    Shareware Copyright by Sam Lantinga	5/6/93	
+X
+XThis is the internal line editor of newing.
+X
+X	This editor has been greatly inspired by the program 
+X'ile' written by Robert C. Pendleton.   <bobp@hal.com>
+X
+X	Thanks!! :)
+X*/
+X
+X#include 	<signal.h>
+X#include	<ctype.h>
+X#include	"newing.h"
+X
+X#undef toctrl
+X#define toctrl(X)		(X-'@')	/* X must be an uppercase letter */
+X#define DEL		'\177'
+X#define ESC		toctrl('[')
+X#define BEL		toctrl('G')
+X#define BS		toctrl('H')
+X#define CR		toctrl('M')
+X
+Xstatic struct history *temphist;	/* For the history feature */
+X
+X#ifdef HAVE_TERMCAP
+X
+X/*------------------------------------------------------------------*/
+X
+Xchar *simple_ile();			/* simple gatherer of input */
+Xstatic int have_inited=0;		/* Can we safely perform editing? */
+Xstatic int vt100_enable=0;		/* Can we use vt100 codes? */
+X
+X/* areas and varaibles used to get termcap information */
+X
+Xextern int tgetnum();
+Xextern char *tgetflag();
+Xextern char *tgetstr();
+X
+Xchar termcap_entry[1024];	/* termcap entry for the users terminal */
+Xchar *terminal_type;		/* type of terminal */
+Xchar term_seqs[1024];		/* area to store control sequences in */
+Xchar *where = term_seqs;
+X
+Xchar *le=NULL;			/* move cursor left one space */
+Xchar *ce=NULL;			/* clear to end of line */
+Xchar *bl=NULL;			/* audible bell */
+Xchar *nl=NULL;			/* new line character */
+Xchar *cr=NULL;			/* carriage return */
+Xchar *cols=NULL;		/* termcap entry for #of columns */
+X
+Xint COLUMNS=0;			/* number of columns */
+X
+X#undef FALSE
+X#define FALSE	0
+X#undef TRUE
+X#define TRUE	1
+X#define CHAR_SET_SIZE 127
+X
+Xchar delimit[CHAR_SET_SIZE];
+X
+X#define BACKWARD	0	/* Definition for window movement */
+X#define FORWARD		1	/* Definition for window movement */
+X
+X
+X/* Termcap entries may have a sequences of digits optionally followed
+X   by a '*' in front of the actual sequence. This routine increments
+X   the pointer past this information.  */
+X
+Xvoid strip(ptr)
+X    char **ptr;
+X{
+X    while (('0' <= **ptr) && (**ptr <= '9'))
+X    {
+X	(*ptr)++;
+X    }
+X
+X    if (**ptr == '*')
+X    {
+X	(*ptr)++;
+X    }
+X}
+X
+X
+X/* Set up everything needed to use the control sequences from the
+X   termcap entry for the terminal.  */
+X
+Xchar ile_errmesg[MAXLINE];
+X
+Xint init_ile()
+X{
+X	int i;
+X
+X    	/* get the terminal name */
+X    	if ( (terminal_type=(char *)getenv("TERM")) == NULL )
+X	{
+X		sprintf(ile_errmesg, "Can't find TERM environment variable");
+X		return(-1);
+X	}
+X
+X    	/* get termcap entry */
+X    	if (tgetent(termcap_entry, terminal_type) < 1)
+X    	{
+X		sprintf(ile_errmesg, 
+X	"Can't find terminal type \"%s\"", terminal_type);
+X		return(-1);
+X    	}
+X
+X
+X    	/* get the control sequences ile needs */
+X
+X    	if ((bl = tgetstr("bl", &where)) == NULL)
+X		bl="\7";
+X
+X    	if ((nl = tgetstr("nl", &where)) == NULL)
+X		nl="\n";
+X
+X    	if ((cr = tgetstr("cr", &where)) == NULL)
+X		cr="\r";
+X
+X    	if ((le = tgetstr("le", &where)) == NULL)
+X    	{
+X		if (tgetflag("bs"))
+X			le="\b";
+X    	}
+X
+X	if ( (cols=(char *)getenv("COLUMNS")) != NULL )
+X	{
+X		if ( (COLUMNS=atoi(cols)) <= 0 )
+X		{
+X			sprintf(ile_errmesg, 
+X		"COLUMNS environment variable must be numeric.\n");
+X			return(-1);
+X		}
+X	}
+X	
+X	if ( ! COLUMNS )
+X	{
+X		if ( (COLUMNS=tgetnum("co")) <= 0 )
+X		{
+X#ifdef DEBUG
+X			fprintf(stderr, 
+X"Can't determine the number of columns on your screen.\r\n");
+X			fprintf(stderr, "Setting 80 columns.\r\n");
+X#endif
+X			COLUMNS=80;
+X		}
+X	}
+X
+X	/* Give 8 chars of buffering between the end of the line
+X	   and our window, for corntrol chars, and prompts. */
+X	COLUMNS-=( (COLUMNS-8) > 0 ? 8 : 0 ); 
+X
+X#ifdef BIGDEBUG
+X	fprintf(stderr, "Using %d columns for this terminal\n", COLUMNS);
+X#endif
+X			
+X    	if ((le == NULL) || ((ce = tgetstr("ce", &where)) == NULL))
+X    	{
+X		sprintf(ile_errmesg, "Can't run on terminal type \"%s\"",
+X						 terminal_type);
+X		return(-1);
+X    	}
+X	else
+X	{
+X		/* There is a bug in my system's tgetstr().  Here is a fix */
+X		if ( strcmp(terminal_type, "vt100") == 0 ||
+X		     strcmp(terminal_type, "ansi") == 0 )
+X		{
+X			vt100_enable=1;
+X
+X			ce="\33[K";
+X
+X		 /* On some terminals ^H erases in addition to moving backwards.
+X		    Use left arrow instead. */
+X			le="\33[D";
+X		}
+X	}
+X
+X    	/* strip timing info from strings */
+X
+X    	strip(&le);
+X    	strip(&ce);
+X    	strip(&bl);
+X    	strip(&nl);
+X    	strip(&cr);
+X
+X    	/* default delimiters */
+X
+X	for ( i=0; i<128; ++i )
+X	{
+X		if ( ispunct((char)i) || isspace((char)i) )
+X			delimit[(char)i]=TRUE;
+X		else
+X			delimit[(char)i]=FALSE;
+X	}
+X
+X	have_inited=1;
+X	return(0);
+X}
+X
+X
+X/*  Global editing variables...  */
+X
+X/* line edit buffer */
+Xstatic char line[MAXLINE];
+X
+X/* delete save buffer */
+Xstatic char delbuf[MAXLINE];
+X
+Xstatic int marker;		/* edit mark */
+Xstatic int point;		/* insertion point */
+Xstatic int length;		/* total chars in buffer */
+X
+Xstatic int firstcol;		/* first column on the screen */
+Xstatic int lastcol;		/* the last column on the screen */
+X
+X
+X/* Here are the internal editing functions  */
+X
+X/* Low level editing functions */
+Xstatic void bell();
+Xstatic void set_mark();
+Xstatic void echo();
+Xstatic void echoline();
+Xstatic void backspace();
+Xstatic void cleartoend();
+Xstatic void clearline();
+Xstatic void update_win();
+X
+X/* Medium level editing functions */
+Xstatic void backbuf();
+Xstatic void backward_char();
+Xstatic void backward_word();
+Xstatic void forward_word();
+Xstatic void forward_char();
+Xstatic void forward_to();
+Xstatic void moveto_bgl();
+Xstatic void moveto_eol();
+Xstatic void delete_to_eol();
+Xstatic void delete_word();
+Xstatic void delete_char();
+Xstatic void delete_under();
+Xstatic void retype_line();
+Xstatic void char_transpose();
+Xstatic void mark_transpose();
+Xstatic void change_case();
+Xstatic void insert();
+X
+X/* High level editing functions */
+Xstatic void init_buf();
+Xstatic void delete_line();
+Xstatic void get_mbuf();
+Xstatic void put_delbuf();
+Xstatic void lasthist();
+Xstatic void nexthist();
+Xstatic char *finishedit();
+Xstatic int isedit();
+X		
+X/* * * * * * * * * *  EDITING FUNCTIONS * * * * * * * * * * * * */
+X
+X/* Beep the terminal */
+Xstatic void bell()
+X{
+X	(void) write(1, bl, strlen(bl));
+X}
+X
+X/* Echo a character in ^X format */
+Xstatic void echo(ch)
+Xchar ch;
+X{
+X	char tinybuf[3];
+X
+X    	/* how should we echo the char? */
+X
+X    	if (ch < ' ')
+X		sprintf(tinybuf, "^%c", (ch+'@'));
+X	else if ( ch == DEL )
+X		sprintf(tinybuf, "^?");
+X	else
+X		sprintf(tinybuf, "%c", ch);
+X
+X	write(1, tinybuf, strlen(tinybuf));
+X}
+X
+X
+X/* Insert a character at point in the line buffer. While we are at it
+X   update the display to show the insertion.  */
+X
+Xstatic void insert(ch)
+Xchar ch;
+X{
+X    	int i;
+X
+X    	if (length < (MAXLINE - 2))
+X    	{
+X		/* display the character */
+X
+X		echo(ch);
+X
+X		/* move the characters in the line buffer */
+X
+X		for ( i=length; i > point; i-- )
+X	    		line[i] = line[i - 1];
+X
+X		/* add the character to the line buffer */
+X		/* and increment point and length */
+X
+X		line[point] = ch;
+X		length++; point++;
+X		lastcol+=( (COLUMNS>(length-firstcol)) ? 1 : 0 );
+X
+X		if ( point > lastcol )
+X			update_win(FORWARD, point, point);
+X		else
+X		{       /* redisplay the rest of the line */
+X			/* and put the cursor back at point */
+X
+X			echoline(&line[point], (lastcol-point));
+X			backbuf((&line[lastcol]), (lastcol-point));
+X		}
+X    	}
+X}
+X
+X
+X/* Transpose the character under the cursor with the one in front 
+X   of the cursor, or the one behind the cursor if we are at the 
+X   end of the line   */
+X
+Xstatic void char_transpose()
+X{
+X	int i;
+X
+X	if ( point == length )
+X	{  /* We are at the end of the buffer */
+X		backspace(line[point-1]);
+X		backspace(line[point-2]);
+X		i=line[point-2];
+X		line[point-2]=line[point-1];
+X		line[point-1]=i;
+X		echo(line[point-2]);
+X		echo(line[point-1]);
+X	}
+X	else if ( point < (length-1) )
+X	{
+X		i=line[point+1];
+X		line[point+1]=line[point];
+X		line[point]=i;
+X		forward_char();
+X		echo(line[point]);
+X		backspace(line[point]);
+X	}
+X	else
+X		bell();
+X}
+X		
+X
+X/* Transpose the character under the cursor with the one at the marker */
+X
+Xstatic void mark_transpose()
+X{
+X	int i;
+X
+X	if ( point == length )
+X		return;
+X
+X	i=line[point];
+X	line[point]=line[marker];
+X	line[marker]=i;
+X
+X	if ( point < marker )
+X	{
+X		if ( marker <= lastcol )
+X		{
+X			echoline(&line[point], (lastcol-point));
+X			backbuf((&line[lastcol]), (lastcol-point));
+X		}
+X		else
+X		{
+X			echo(line[point]);
+X			backspace(line[point]);
+X		}
+X	}
+X	else if ( point > marker )
+X	{
+X		if ( marker >= firstcol )
+X		{
+X			backbuf((&line[point]), (point-marker));
+X			echoline(&line[marker], (point-marker+1));
+X			backspace(line[point]);
+X		}
+X		else
+X		{
+X			echo(line[point]);
+X			backspace(line[point]);
+X		}
+X	}
+X}
+X
+X
+X/* If the current character is upper case, make it lower case, if
+X   it is lower case, make it upper case. :)  */
+X
+Xstatic void change_case()
+X{
+X	if ( isupper(line[point]) )
+X		line[point]=tolower(line[point]);
+X	else if ( islower(line[point]) )
+X		line[point]=toupper(line[point]);
+X	forward_char();
+X}
+X
+X
+X/* Skip forward to a specified character */
+X
+Xstatic void forward_to(ch)
+Xchar ch;
+X{
+X	int i=0, j;
+X
+X	j=point+1;
+X	while ( line[j] != ch && j++<length );
+X
+X	if ( line[j] == ch )
+X	{
+X		for ( i=point; i!=j; ++i )
+X			forward_char();
+X	}
+X}
+X
+X
+X/* Set the marker to the current cursor position */
+X
+Xstatic void set_mark()
+X{
+X	if ( point < length )
+X		marker=point;
+X	else
+X		bell();
+X}
+X
+X
+X/* Delete a character at point in the line buffer. While we are at it
+X   update the display to reflect the deletion.  */
+X
+Xstatic void delete_under()
+X{
+X    	int i;
+X
+X    	if (point < length)
+X    	{
+X		/* Save the deletion in the delete buffer */
+X		sprintf(delbuf, "%c", line[point]);
+X
+X		/* build the new line */
+X
+X		for ( i=point+1; i<length; i++ )
+X	    		line[i-1] = line[i];
+X		length--;
+X
+X		if ( lastcol > length )
+X			lastcol=length;
+X
+X		if (point > length)
+X	    		point = length;
+X
+X		/* clear to the end of the line */
+X		cleartoend();
+X
+X		/* retype the rest of the line */
+X		echoline(&line[point], (lastcol-point));
+X
+X		for ( i=lastcol; i > point; --i )
+X	    		backspace(line[i]);
+X    	}
+X	else
+X		delete_char();
+X}
+X
+X
+X/* Delete the character to the left of point in the line buffer. 
+X   While we are at it update the display to reflect the deletion.  */
+X
+Xstatic void delete_char()
+X{
+X    	int i;
+X
+X    	if (point > 0)
+X    	{
+X		/* move the cursor left one character */
+X		backward_char();
+X
+X		/* delete it */
+X		delete_under();
+X    	}
+X}
+X
+X
+X/* Delete the word to the left of the cursor.  */
+X
+Xstatic void delete_word()
+X{
+X    	int i, j;
+X    	int old;
+X
+X    	if (length > 0)
+X    	{
+X		/* Delete forward if at the start of the line */
+X		if ( point == 0 )
+X		{
+X			/* Put the deleted word in the deletion buffer */
+X			for ( j=point; (!delimit[line[j]]); )
+X				++j;
+X			while ( delimit[line[j]] )
+X				++j;
+X			for ( i=0; i<j; ++i )
+X				delbuf[i]=line[i];
+X			delbuf[i]='\0';
+X
+X			/* construct the new line */
+X			for ( i=0; i < length; ++i )
+X	    			line[i]=line[j+i];
+X
+X			/* update the length */
+X			length = (length - j);
+X			if ( lastcol > length )
+X				lastcol=length;
+X
+X			/* retype the rest of the line */
+X			cleartoend();
+X			echoline(line, lastcol);
+X			backbuf((&line[lastcol]), lastcol);
+X
+X			return;
+X		}
+X
+X		/* find the new deletion point */
+X		old = point;
+X
+X		/* Put the deleted word in the deletion buffer */
+X		for ( j=point; (point > 0) && (delimit[line[j-1]]); )
+X			--j;
+X		while ( (point > 0) && (!delimit[line[j-1]]) )
+X			--j;
+X		for ( i=0; j<point; ++j )
+X			delbuf[i++]=line[j];
+X		delbuf[i]='\0';
+X
+X		/* Now get on with deleting */
+X		backward_word();
+X
+X		/* construct the new line */
+X		for (i = 0; i < (length - old); i++)
+X	    		line[point + i] = line[old + i];
+X
+X		/* update the length */
+X		length = length - (old - point);
+X		if ( lastcol > length )
+X			lastcol=length;
+X
+X		/* retype the rest of the line */
+X		cleartoend();
+X		echoline(&line[point], (lastcol-point));
+X		backbuf((&line[lastcol]), (lastcol-point));
+X    	}
+X}
+X
+X
+X/*  Delete to the end of the line */
+X
+Xstatic void delete_to_eol()
+X{
+X	int i, j;
+X
+X	/* Save the deletion in the delete buffer */
+X	for ( i=0, j=point; j<length; ++j, ++i )
+X		delbuf[i]=line[j];
+X	delbuf[j]='\0';
+X
+X	length=point;
+X	lastcol=point;
+X	cleartoend();
+X}
+X
+X
+X/* Go forward one word.  */
+X
+Xstatic void forward_word()
+X{
+X    	if (length > 0)
+X    	{
+X		/* first skip any delimiters */
+X		for ( ; (point < length) && (delimit[line[point]]); )
+X			forward_char();
+X
+X		/* now skip until we find a delimiter */
+X		for ( ; (point < length) && (!delimit[line[point]]); )
+X			forward_char();
+X
+X		/* now skip any delimiters to the next word */
+X		for ( ; (point < length) && (delimit[line[point]]); )
+X			forward_char();
+X    	}
+X}
+X
+X
+X/* Go backward one word.  */
+X
+Xstatic void backward_word()
+X{
+X    	if (length > 0)
+X    	{
+X		/* first backspace over any delimiters */
+X		while ( (point > 0) && (delimit[line[point - 1]]) ) 
+X			backward_char();
+X
+X		/* now backspace until we find a delimiter */
+X		while ( (point > 0) && (!delimit[line[point - 1]]) )
+X			backward_char();
+X    	}
+X}
+X
+X
+X/* Move the cursor to the start of the line.  */
+X
+Xstatic void moveto_bgl()
+X{
+X    	if (length > 0)
+X    	{
+X		backbuf((&line[point]), (point-firstcol));
+X		point=0;
+X
+X		if ( point < firstcol )
+X			update_win(FORWARD, point, point);
+X    	}
+X}
+X
+X
+X/* Move the cursor one character to the left.  */
+X
+Xstatic void backward_char()
+X{
+X    	if ((length > 0) && (point > 0))
+X    	{
+X		point--;
+X
+X		if ( point < firstcol )
+X			update_win(BACKWARD, point, point);
+X		else
+X			backspace(line[point]);
+X    	}
+X}
+X
+X
+X/* Move the cursor to the right of the last character on the line.  */
+X
+Xstatic void moveto_eol()
+X{
+X	int oldpoint;
+X
+X    	if ((length > 0) && (point < length))
+X    	{
+X		oldpoint=point;
+X		point = length;
+X
+X		if ( point > lastcol )
+X			update_win(BACKWARD, point, oldpoint);
+X		else
+X			echoline(&line[oldpoint], (length - oldpoint));
+X    	}
+X}
+X
+X
+X/* Move the cursor one character to the right.  */
+X
+Xstatic void forward_char()
+X{
+X    	if ((length > 0) && (point < length))
+X    	{
+X		point++;
+X
+X		if ( ((point+1) > lastcol) && (point != length) )
+X			update_win(FORWARD, point, (point-1));
+X		else
+X			echo(line[point-1]);
+X    	}
+X}
+X
+X
+X/* Erase the entire line.  */
+X
+Xstatic void delete_line()
+X{
+X	/* Save the deletion in the delete buffer */
+X	line[length]='\0';
+X	sprintf(delbuf, "%s", line);
+X
+X    	/* remove any text from the display */
+X    	clearline(point);
+X
+X    	/* nothing in the line buffer */
+X    	point = 0;
+X    	length = 0;
+X	lastcol=length;
+X	firstcol=point;
+X}
+X
+X
+X/* Get the buffer from the mark to the current position, and save
+X   it in the deletion buffer, updating the cursor position if
+X   necessary.  We are semi-emulating Korn Shell behavior here.  */
+X
+Xstatic void get_mbuf()
+X{
+X	int i, j;
+X
+X	/* First check the simple case */
+X	if ( point == marker )
+X	{
+X		sprintf(delbuf, "%c", line[point]);
+X		return;
+X	}
+X
+X	if ( point > marker )
+X	{
+X		for ( i=0, j=marker; j<point; ++j )
+X			delbuf[i++]=line[j];
+X		delbuf[i]='\0';
+X	}
+X	else
+X	{
+X		for ( i=0; point < marker; )
+X		{
+X			delbuf[i++]=line[point];
+X			forward_char();
+X		}
+X		delbuf[i++]=line[point];
+X		delbuf[i]='\0';
+X	}
+X}
+X
+X
+X/* Insert the contents of the deletion buffer at the current point */
+X
+Xstatic void put_delbuf()
+X{
+X	char pastebuf[MAXLINE];
+X	int i, j, buflen;
+X
+X	/* Handle the common case of a single character insert */
+X
+X	if ( (buflen=strlen(delbuf)) == 1 )
+X	{
+X		insert(delbuf[0]);
+X		return;
+X	}
+X	else if ( buflen == 0 )
+X		return;
+X
+X	for ( i=0, j=point; j<length; ++j, ++i )
+X		pastebuf[i]=line[j];
+X	pastebuf[i]='\0';
+X
+X	for ( i=0; delbuf[i]; ++i )
+X	{
+X		echo(delbuf[i]);
+X		line[point]=delbuf[i];
+X		++point, ++length;
+X		lastcol+=( (COLUMNS>(length-firstcol)) ? 1 : 0 );
+X	}
+X
+X	for ( i=0; pastebuf[i]; ++i )
+X		line[point+i]=pastebuf[i];
+X
+X	if ( point > lastcol )
+X		update_win(FORWARD, point, point);
+X	else
+X	{       /* redisplay the rest of the line */
+X		/* and put the cursor back at point */
+X
+X		echoline(&line[point], (lastcol-point));
+X		backbuf((&line[lastcol]), (lastcol-point));
+X	}
+X}
+X
+X	
+X/* Retype the current contents of the edit buffer.  */
+X
+Xstatic void retype_line(onnextline)
+Xint onnextline;
+X{
+X    	int i;
+X	char tinybuf[6];
+X
+X	if ( onnextline )
+X	{
+X		sprintf(tinybuf, "%s%s", cr, nl);
+X		write(1, tinybuf, strlen(tinybuf));
+X	}
+X	else
+X    		clearline(point);
+X
+X    	echoline(&(line[firstcol]), (lastcol-firstcol));
+X
+X	backbuf(&(line[lastcol]), (lastcol-point));
+X}
+X
+X
+X/* Clear to the end of the current input line.  */
+X
+Xstatic void cleartoend()
+X{
+X	write(1, ce, strlen(ce));
+X}
+X
+X
+X/* Clear the input line. Backspace to the start of the line. Then clear
+X   to the end of the line.  */
+X
+Xstatic void clearline(distance)
+Xint distance;
+X{
+X	if ( distance > firstcol )
+X		backbuf((&line[point]), (distance-firstcol));
+X
+X    	cleartoend();
+X}
+X
+X
+X/* Echo a line. */
+X
+Xstatic void echoline(buffer, distance)
+Xchar *buffer;
+Xint distance;
+X{
+X	char wbuf[MAXLINE];
+X	int i, j;
+X
+X	for ( i=0, j=0; i < distance; ++i, ++buffer )
+X	{
+X		if ( *buffer < ' ' )
+X		{
+X			wbuf[j++]='^';
+X			wbuf[j++]=(*buffer+'@');
+X		}
+X		else if ( *buffer == DEL )
+X		{
+X			wbuf[j++]='^';
+X			wbuf[j++]='?';
+X		}
+X		else
+X			wbuf[j++]=(*buffer);
+X	}
+X	write(1, wbuf, j);
+X}
+X
+X
+X/* Move the physical cursor backwards over a buffer.  */
+X
+Xstatic void backbuf(buffer, distance)
+Xchar *buffer;
+Xint distance;
+X{
+X	int i, j=0;
+X	char *ptr, tinybuf[10], bsbuf[MAXLINE];
+X
+X	bsbuf[0]='\0';
+X
+X	if ( vt100_enable )
+X	{   /* Let's make it fast! */
+X		for (ptr=buffer, i=0; (i < distance && i < length); --ptr, ++i)
+X		{
+X			if ( (*(ptr-1) < ' ' && *(ptr-1) != '\0') || 
+X							(*(ptr-1) == DEL) )
+X				j+=2;
+X			else
+X				++j;
+X		}
+X		if ( j > 0 )
+X			sprintf(bsbuf, "\033[%dD", j);
+X	}
+X	else
+X	{
+X		for (ptr=buffer, i=0; (i < distance && i < length); --ptr, ++i)
+X		{
+X			/*if ( (*ptr < ' ' && *ptr != '\0') || (*ptr == DEL) )*/
+X			if ( (*(ptr-1) < ' ' && *(ptr-1) != '\0') || 
+X							(*(ptr-1) == DEL) )
+X				sprintf(tinybuf, "%s%s", le, le);
+X			else
+X				sprintf(tinybuf, "%s", le);
+X			strcat(bsbuf, tinybuf);
+X		}
+X	}
+X	write(1, bsbuf, strlen(bsbuf));
+X}
+X
+X
+X/* Backspace over a character. Generate enough bs characters to backspace
+X   over any character.  */
+X
+Xstatic void backspace(ch)
+Xchar ch;
+X{
+X	char tinybuf[12];
+X
+X    	if ( (ch < ' ') || (ch == DEL) )
+X		sprintf(tinybuf, "%s%s", le, le);
+X    	else
+X		sprintf(tinybuf, "%s", le);
+X
+X	write(1, tinybuf, strlen(tinybuf));
+X}
+X
+X
+X/* Takes a character as an argument, and if it is an editing command,
+X   executes the editing function and returns 0.  Otherwise, it returns
+X   the character.  */
+X
+Xstatic int isedit(ch)
+Xint ch;
+X{
+X	char tinybuf[1];
+X
+X	switch (ch)
+X	{
+X		case DEL:		delete_char();
+X					return(0);
+X		case toctrl('A'):	moveto_bgl();
+X					return(0);
+X		case toctrl('B'):	backward_word();
+X					return(0);
+X		case toctrl('C'): /* Interrupt signal character */
+X					return(ch);
+X		case toctrl('D'):	delete_under();
+X					return(0);
+X		case toctrl('E'):	moveto_eol();
+X					return(0);
+X		case toctrl('F'):	forward_word();
+X					return(0);
+X		case toctrl('G'): /* Reserved for future edit functions */
+X					return(0);
+X		case toctrl('H'):	delete_char();
+X					return(0);
+X		case toctrl('I'): /* Tab character */
+X					return(ch);
+X		case toctrl('J'): /* Newline character */
+X					return(ch);
+X		case toctrl('K'):	delete_to_eol();
+X					return(0);
+X		case toctrl('L'):	retype_line(1);
+X					return(0);
+X		case toctrl('M'): /* Carriage return character */
+X					return(ch);
+X		case toctrl('N'):	nexthist();
+X					return(0);
+X		case toctrl('O'): /* Reserved for future edit functions */
+X					return(0);
+X		case toctrl('P'):	lasthist();
+X					return(0);
+X		case toctrl('Q'): /* Start-flow control character */
+X					return(ch);
+X		case toctrl('R'): /* History search? */
+X					return(0);
+X		case toctrl('S'): /* Stop-flow control character */
+X					return(ch);
+X		case toctrl('T'):	char_transpose();
+X					return(0);
+X		case toctrl('U'):	delete_line();
+X					return(0);
+X		case toctrl('V'):	read(0, tinybuf, 1);
+X					return(tinybuf[0]);
+X		case toctrl('W'):	delete_word();
+X					return(0);
+X		case toctrl('X'): /* Reserved for non-use */
+X					return(ch);
+X		case toctrl('Y'):	put_delbuf();
+X					return(0);
+X		case toctrl('Z'): /* Job control character */
+X					return(ch);
+X		case toctrl('\\'): /* Quit signal character */
+X					return(ch);
+X		case toctrl(']'):	read(0, tinybuf, 1);
+X					forward_to(tinybuf[0]);
+X					return(0);
+X		case ESC: read(0, tinybuf, 1);
+X			  switch (tinybuf[0])
+X			  {
+X				case '[': read(0, tinybuf, 1);
+X					  switch (tinybuf[0])
+X					  {
+X						case 'A': lasthist();
+X							  break;
+X						case 'B': nexthist();
+X							  break;
+X						case 'C': forward_char();
+X							  break;
+X						case 'D': backward_char();
+X							  break;
+X						default: bell();
+X					  }
+X					  break;
+X				case 'A': lasthist();
+X					  break;
+X				case 'B': nexthist();
+X					  break;
+X				case 'C': forward_char();
+X					  break;
+X				case 'D': backward_char();
+X					  break;
+X				case 'c': change_case();
+X					  break;
+X				case 'p': get_mbuf();
+X					  break;
+X				case 't': mark_transpose();
+X					  break;
+X				case 'v': /* Vi edit mode entry point? */
+X					  break;
+X				case ' ': set_mark();
+X					  break;
+X				default: bell();
+X			  }
+X			return(0);
+X		default:  return(ch);
+X	}
+X}
+X
+X
+Xstatic void update_win(direction, pointer, clearpoint) 
+Xint direction;
+Xint pointer;
+Xint clearpoint;
+X{
+X	int i;
+X
+X    	clearline(clearpoint);
+X
+X	/* Set up the first column of the window */
+X	if ( direction == FORWARD )
+X	{
+X		firstcol=pointer;
+X		if ( firstcol < 0 )
+X			firstcol=0;
+X	}
+X	else if ( direction == BACKWARD )
+X	{
+X		firstcol=((pointer-COLUMNS)+1);
+X		if ( firstcol < 0 )
+X			firstcol=0;
+X	}
+X
+X	/* Set up the last column based upon the first */
+X	lastcol=(firstcol+COLUMNS);
+X	if ( lastcol > length )
+X		lastcol=length;
+X
+X    	echoline(&(line[firstcol]), (lastcol-firstcol));
+X
+X	backbuf((&line[lastcol]), (lastcol-point));
+X}
+X
+X
+X/*  Function to set up the buffers and indeces for a fresh edit */
+X
+Xstatic void init_buf(buffer, oldbuf)
+Xchar *buffer;
+Xint oldbuf;
+X{
+X	/* If there is an old buffer on the screen, erase it */
+X	if ( oldbuf )
+X		delete_line();
+X
+X	marker=0;
+X	delbuf[0]='\0';
+X	strcpy(line, buffer);
+X    	length = strlen(buffer);  /* the end of the buffer */
+X	point = length; /* The buffer will be echoed. */
+X	lastcol=length;
+X    	firstcol=( (lastcol>COLUMNS) ? (lastcol-COLUMNS) : 0 );
+X
+X	/* Put the set up buffer onto the screen */
+X	echoline(&(line[firstcol]), (lastcol-firstcol));
+X}
+X	
+X
+X/* Set things up for the return from ile() */
+X
+Xstatic char *finishedit(fd)
+Xint fd;
+X{
+X	moveto_bgl();
+X	if ( fd >= 0 )
+X	{
+X 		line[length]='\r';
+X		line[length+1]='\0';
+X		write(fd, line, strlen(line));
+X	}
+X	line[length]='\0';
+X	return(line);
+X}
+X
+X
+X/* Set up the last history buffer as the current buffer */
+X
+Xstatic void lasthist()
+X{
+X	if ( temphist == NULL )
+X		temphist=currhist->prev;
+X	else
+X		temphist=temphist->prev;
+X	init_buf(temphist->buf, 1);
+X}
+X
+X
+X/* Set up the next history buffer as the current buffer */
+X
+Xstatic void nexthist()
+X{
+X	if ( temphist == NULL )
+X		temphist=currhist->next;
+X	else
+X		temphist=temphist->next;
+X	init_buf(temphist->buf, 1);
+X}
+X
+X
+X/* Here is ile() itself. Edit the buffer we have been passed, and
+X   output it to the specified file descriptor.  Assume we are in
+X   raw mode.  Return a pointer to the modified buffer.  The static
+X   buffer that is pointed to is modified upon each call to ile(),
+X   so if you want to save the buffer in a history feature, copy
+X   it to more permanent storage.  */
+X
+Xchar *ile(outfd, buffer)
+Xint outfd;
+Xchar *buffer;
+X{
+X	char ch[1];
+X
+X	if ( (! have_inited) || (! isatty(0)) )
+X		return(simple_ile(outfd, buffer));
+X
+X	/* Initialize the history pointer */
+X	temphist=NULL;
+X
+X	init_buf(buffer, 0);
+X
+X	for ( read(0, ch, 1); (ch[0] != '\r')&&(ch[0] != '\n'); read(0, ch, 1) )
+X	{
+X		if ( (ch[0]=isedit(ch[0])) )
+X		{
+X			if ( (outfd >= 0) && issignal(ch[0]) )
+X			{
+X				delete_line();
+X				write(outfd, ch, 1);
+X				return("");
+X			}
+X			
+X			insert(ch[0]);
+X		}
+X	}
+X
+X	return(finishedit(outfd));
+X}
+X
+X#else
+X#define simple_ile	ile
+X
+Xchar ile_errmesg[MAXLINE];	/* Bogus buffer */
+X
+Xint init_ile()
+X{
+X	return(0);
+X}
+X
+X#endif  /* HAVE_TERMCAP */
+X
+Xstatic char sline[MAXLINE];	/* Temporary storage for the input line */
+X
+Xchar *simple_ile(outfd, buffer)
+Xint outfd;
+Xchar *buffer;
+X{
+X	char  outbuf[MAXLINE];
+X	int c, i, len;
+X	char *bptr, *lptr;
+X
+X	/* A "backspace" character */
+X	static char backsp[3]={ ('H'-'@'), ' ', ('H'-'@') };
+X
+X	for ( lptr=sline, bptr=buffer; *bptr; ++bptr, ++lptr )
+X	{
+X		*lptr=(*bptr);
+X		write(1, bptr, 1);
+X	}
+X	temphist=NULL;
+X
+X	while ( (c=getchar()) != EOF )
+X	{
+X		if ( (c == '\n') || (c == '\r') )
+X			break;
+X		else if ( ((c == BS) || (c == DEL)) && (lptr > sline) )
+X		{
+X			--lptr;
+X			write(1, backsp, 3);
+X		}
+X		else if ( c == toctrl('W') )
+X		{
+X			/* Skip whitespace */
+X			while ( (lptr > sline) && (isspace(*(lptr-1))) )
+X			{
+X				--lptr;
+X				write(1, backsp, 3);
+X			}
+X			/* Now skip word */
+X			while ( (lptr > sline) && (! isspace(*(lptr-1))) )
+X			{
+X				--lptr;
+X				write(1, backsp, 3);
+X			}
+X		}
+X		else if ( c == toctrl('U') )
+X		{
+X			lptr=sline;
+X			write(1, "\r\n", 2);
+X		}
+X		else if ( c == toctrl('L') )
+X		{
+X			write(1, "\r\n", 2);
+X			*lptr='\0';
+X			write(1, sline, strlen(sline));
+X		}
+X		else if ( c == toctrl('P') )
+X		{
+X			write(1, "\r\n", 2);
+X			if ( temphist == NULL )
+X				temphist=currhist->prev;
+X			else
+X				temphist=temphist->prev;
+X			
+X			for ( lptr=sline,bptr=temphist->buf; 
+X							*bptr; ++bptr,++lptr)
+X			{
+X				*lptr=(*bptr);
+X				write(1, bptr, 1);
+X			}
+X		}
+X		else if ( c == toctrl('N') )
+X		{
+X			write(1, "\r\n", 2);
+X			if ( temphist == NULL )
+X				temphist=currhist->next;
+X			else
+X				temphist=temphist->next;
+X			
+X			for ( lptr=sline,bptr=temphist->buf; 
+X							*bptr; ++bptr,++lptr)
+X			{
+X				*lptr=(*bptr);
+X				write(1, bptr, 1);
+X			}
+X		}
+X		else
+X		{
+X			*lptr=c;
+X			++lptr;
+X			write(1, (lptr-1), 1);
+X		}
+X	}
+X	*lptr='\0';
+X	len=strlen(sline);
+X
+X	for ( i=0; i<len; ++i )
+X		outbuf[i]=BS;
+X	write(1, outbuf, len);
+X
+X	if ( outfd >= 0 )
+X	{
+X		write(outfd, sline, len);
+X		write(outfd, "\r", 1);
+X	}
+X	return(sline);
+X}
+X
+X/* The signal characters are hardcoded as Ctrl-C, Ctrl-\, and 
+X   Ctrl-Z if job control is supported.  This function returns 
+X   1 if the character is a signal character, 0 otherwise.
+X*/
+X
+Xint issignal(ch)
+Xint ch;
+X{
+X	switch (ch)
+X	{
+X		case toctrl('C'):
+X		case toctrl('\\'):
+X#ifdef SIGTSTP
+X		case toctrl('Z'):
+X#endif
+X				return(1);
+X		default:
+X				return(0);
+X	}
+X}
+X
+END_OF_FILE
+  if test 25610 -ne `wc -c <'ile.c'`; then
+    echo shar: \"'ile.c'\" unpacked with wrong size!
+  fi
+  # end of 'ile.c'
+fi
+if test -f 'tty.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tty.c'\"
+else
+  echo shar: Extracting \"'tty.c'\" \(13078 characters\)
+  sed "s/^X//" >'tty.c' <<'END_OF_FILE'
+X
+X/*  tty.c   Shareware Copyright by Sam Lantinga	5/6/93	*/
+X
+X#include	<sys/types.h>
+X#include	<sys/stat.h>
+X#include	<fcntl.h>
+X#include	<signal.h>
+X
+X#ifdef HAVE_TERMIO_H
+X#include <termio.h>
+X#else
+X#include <sys/ioctl.h>
+X#endif  /* HAVE_TERMIO_H */
+X
+X#ifdef HAVE_BSDTTY_H
+X#include <sys/bsdtty.h>
+X#ifndef TIOCNOTTY
+X#define TIOCNOTTY	_IO('t', 113)	/* HP-UX void tty definition */
+X#endif
+X#endif /* HAVE_BSDTTY_H */
+X
+X/* Include the local include file after all the system includes */
+X#include	"newing.h"
+X
+X/* Dummy routine */
+Xvoid nulla()
+X{
+X	return;
+X}
+X
+X/*
+X * Initialize a pty, fork a command running under it, and then 
+X * return the master file descriptor
+X */
+X
+Xint pty_open(argv, childpid)
+Xchar *argv[];
+Xint *childpid;
+X{
+X	char tempfile[256];
+X	int returnfd, slave_fd;
+X	int fd, tempfd;
+X
+X	if ( (returnfd=get_pty_master()) < 0 )
+X		return(-1);
+X
+X	/* Name a file for interprocess communication */
+X	if ( flag.utlog )
+X	{
+X		sprintf(tempfile, "/tmp/new.%d", getpid());
+X		/* Don't worry about the child getting this */
+X		signal(SIGUSR1, nulla);
+X	}
+X
+X	/* Fork the child and have the child pass back info */
+X	if ( (*childpid=fork()) < 0 )
+X		return(-1);
+X	else if ( (*childpid) == 0 )
+X	{
+X		/* Dissociate from the controlling terminal */
+X#ifdef TIOCNOTTY
+X		setpgrp(0, 0);
+X		if ( (fd=open("/dev/tty", O_RDWR)) >= 0 )
+X			ioctl(fd, TIOCNOTTY, 0);
+X#else
+X		setpgrp();
+X#endif
+X		/* Re-attatch to the pseudo-tty slave */
+X		if ( (slave_fd=get_pty_slave()) < 0 )
+X			return(-1);
+X
+X		close(fd); close(0); close(1); close(2);
+X		dup(slave_fd); dup(slave_fd); dup(slave_fd);
+X		close(slave_fd); close(returnfd);
+X
+X		if ( tty_reset(0) < 0 )
+X			perror("tty_reset() error");
+X
+X		/* Send the parent the utmp info if we need to */
+X		if ( flag.utlog )
+X		{  
+X			if ( (tempfd=open(tempfile, 
+X				(O_WRONLY|O_CREAT|O_TRUNC), 0600)) >= 0 )
+X			{
+X				init_utinfo();
+X				write(tempfd, (char *)&utinfo, sizeof(utinfo));
+X				close(tempfd);
+X			}
+X			else if ( flag.debug )
+X				perror("Child: Pipe file open error");
+X		
+X			/* Signal parent to wake up */
+X			sleep(1);  /* Wait for the parent to catch up */
+X			kill(getppid(), SIGUSR1);
+X		}
+X
+X#ifdef SIGTSTP	/* Prevent non-job-control programs from dying on SIGTSTP */
+X		signal(SIGTSTP, SIG_IGN);
+X#endif
+X		/* Set user id before the exec(), if we have to */
+X		if ( dosuid )
+X		{	
+X			(void) setgid(dosuid->pw_gid);
+X			(void) setuid(dosuid->pw_uid);
+X		}
+X
+X		/* Tha, tha, tha, that's all folks! */
+X		execvp(argv[0], argv);
+X		return(-1);
+X		/* NOTREACHED */
+X	}
+X
+X	/* Get the child process utmp info if we are supposed to */
+X	if ( flag.utlog )
+X	{
+X		pause();
+X		if ( (tempfd=open(tempfile, O_RDONLY)) >= 0 )
+X		{
+X			if (read(tempfd, (char *)&utinfo, sizeof(utinfo)) > 0)
+X				utmp(utinfo.tty, utinfo.name, time(NULL), 0);
+X			else if ( flag.debug )
+X				perror("read(utinfo) error");
+X			close(tempfd);
+X			(void) unlink(tempfile);
+X		}
+X		else if ( flag.debug )
+X			perror("Pipe file open error");
+X	}
+X	return(returnfd);
+X}
+X
+X
+X
+X/*
+X * Pseudo-terminal routines for Unix System V Release 3.2 and BSD4.2-3
+X * I actually have three sets of routines, for three different methods
+X * of obtaining a pseudo-tty.  The first is for IRIX System V UNIX, 
+X * which uses _getpty() to obtain a pty.  The second is for Solaris
+X * 2.x which uses a clone open with some funky streams stuff to get
+X * a pseudo-tty.  The last is the brute-force method that works on
+X * every thing else I have come across, including Sun/OS 4.x, AIX,
+X * HP-UX, BSD 4.2-3, ULTRIX, and AT&T System V.3
+X */
+X
+X
+Xextern int errno;
+Xint master_fd;
+X
+X
+Xchar tty_name[18];
+Xchar pty_name[12];
+X
+X
+X#ifdef IRIX	/* IRIX System V for SGI machines */
+X
+Xextern char *_getpty();
+X
+Xint get_pty_master()
+X{
+X
+X	char 	*ttyptr;
+X
+X	if ( (ttyptr=_getpty(&master_fd, O_RDWR, 0600, 0)) == 0 )
+X		return(-1);
+X	else
+X		strcpy(tty_name, ttyptr);
+X
+X	return(master_fd);
+X}
+X
+X/*
+X * Open the slave half of a pseudo-terminal.
+X */
+X
+Xint get_pty_slave()
+X{
+X	int	slave_fd;
+X	char	*slavename;
+X
+X	slavename=tty_name;
+X
+X	if (slavename == NULL) {
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	if ( (slave_fd=open(slavename, O_RDWR)) < 0 )	/* open the slave */
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	return(slave_fd);
+X}
+X
+X#endif  /* IRIX */
+X
+X
+X#ifdef SOLARIS		/* Solaris 2.1 (UNIX System V r4)  */
+X
+X#include <stropts.h>
+X
+X#define DEV_CLONE	"/dev/ptmx"
+X
+Xextern char *ptsname();
+X
+Xint get_pty_master()
+X{
+X
+X	char 	*ttyptr;
+X
+X	if ( (master_fd=open(DEV_CLONE, O_RDWR)) < 0 )
+X		return(-1);
+X
+X	if ( grantpt(master_fd) < 0 )	/* grant access to slave */
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	if ( unlockpt(master_fd) < 0 )	/* clear slave's lock flag */
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	if ( (ttyptr=ptsname(master_fd)) == NULL )
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X	else
+X		strcpy(tty_name, ttyptr);
+X
+X	return(master_fd);
+X}
+X
+X/*
+X * Open the slave half of a pseudo-terminal.
+X */
+X
+Xint get_pty_slave()
+X{
+X	int	slave_fd;
+X	char	*slavename;
+X
+X	slavename=tty_name;
+X
+X	if ( (slave_fd=open(slavename, O_RDWR)) < 0 )	/* open the slave */
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	if ( ioctl(slave_fd, I_PUSH, "ptem") < 0 )
+X	{
+X		close(master_fd);
+X		close(slave_fd);
+X		return(-1);
+X	}
+X
+X	if ( ioctl(slave_fd, I_PUSH, "ldterm") < 0 )
+X	{
+X		close(master_fd);
+X		close(slave_fd);
+X		return(-1);
+X	}
+X
+X	if ( ioctl(slave_fd, I_PUSH, "ttcompat") < 0 )
+X	{
+X		close(master_fd);
+X		close(slave_fd);
+X		return(-1);
+X	}
+X
+X	return(slave_fd);
+X}
+X
+X#else	/* BSD, Sun/OS, AIX, ULTRIX, HP-UX, AT&T SYSV */
+X
+X#include	<setjmp.h>
+X
+X#ifndef X_OK
+X#define	R_OK	4	/* Test for Read permission */
+X#define	W_OK	2	/* Test for Write permission */
+X#define	X_OK	1	/* Test for eXecute permission */
+X#endif
+X
+X#define PTY_OWNER 	0	/* the uid of the owner of pty's.
+X				   usually bin or root */
+X#define BIN_UID		2	/* Secondary pty owner */
+X
+Xjmp_buf next;
+X
+Xvoid trynext()
+X{
+X	longjmp(next, 2);
+X}
+X
+X
+Xint get_pty_master()
+X{
+X	int i, master_fd;
+X	char *ptr;
+X	struct stat statbuff;
+X	static char ptychar[]="pqrs";  /* X */ /* 'r' is also a valid letter. */
+X	static char hexdigit[]="0123456789abcdef";  /* Y */
+X
+X	for (ptr=ptychar; *ptr != 0; ptr++)
+X	{
+X		strcpy(pty_name, "/dev/ptyXY");
+X		pty_name[8]=(*ptr);  /* X */
+X		pty_name[9]='0';   /* Y */
+X
+X		if ( access(pty_name, R_OK|W_OK) != 0 )
+X			break;
+X
+X		for ( i=(-1); ; )
+X		{
+X			/* Set a time limit for the open */
+X			if ( setjmp(next) == -1 )
+X				return(-1);
+X			else
+X			{
+X				if ( ++i >= 16 )
+X					break;
+X			}
+X
+X			signal(SIGALRM, trynext);
+X			alarm(2);
+X
+X			pty_name[5]='p';
+X			pty_name[9]=hexdigit[i];
+X
+X			if ( (master_fd=open(pty_name, O_RDWR)) >= 0 )
+X			{
+X				pty_name[5]='t';
+X				sprintf(tty_name, "%s", pty_name);
+X
+X				if ( access(tty_name, R_OK|W_OK) == 0 &&
+X				     stat(tty_name, &statbuff) >= 0 )
+X				{
+X					if ( (statbuff.st_uid == PTY_OWNER) ||
+X					     (statbuff.st_uid == BIN_UID) )
+X					{
+X						/* Reset the alarm */
+X						alarm(0);
+X
+X						return (master_fd);
+X					}
+X				}
+X				else
+X				{
+X					pty_name[5]='p';
+X					(void) close(master_fd);
+X				}
+X			}
+X			/* reset the alarm */
+X			alarm(0);
+X		}
+X	}
+X	return(-1);
+X}
+X
+X/* Open the slave half of a pseudo-terminal. */
+X
+Xint get_pty_slave()
+X{
+X	int slave_fd;
+X
+X	errno=0;
+X
+X	/* Set a time limit for the open */
+X	alarm(3);
+X
+X	if ( (slave_fd=open(tty_name, O_RDWR)) < 0 )
+X	{
+X		close(master_fd);
+X		return(-1);
+X	}
+X
+X	/* reset the alarm */
+X	alarm(0);
+X	return(slave_fd);
+X}
+X
+X#endif  /* Pseudo-tty routines */
+X
+X
+X
+X/* These are the terminal manipulation routines. :)  Fun!  */
+X
+X
+X#ifdef SIGWINCH		 /* Starting window structure */
+X
+X/* I am using struct winsize here, but redefining it, because
+X   Each system seems to define it in a different place, or not
+X   at all.  The actual structure never seems to change though. :)
+X */
+X
+Xstruct winstats {
+X	unsigned short	ws_row;		/* rows, in characters */
+X	unsigned short	ws_col;		/* columns, in characters */
+X	unsigned short	ws_xpixel;	/* horizontal size, pixels - not used */
+X	unsigned short	ws_ypixel;	/* vertical size, pixels - not used */
+X	} tty_win;
+X
+X
+X/* The window size has changed, let the pty know.  Used as a signal handler */
+X
+Xvoid updatewin()
+X{
+X#ifdef TIOCGWINSZ
+X    	(void) ioctl(ttyfd, TIOCGWINSZ, &tty_win);
+X    	(void) ioctl(masterfd, TIOCSWINSZ, &tty_win);
+X#endif /* TIOCGWINSZ */
+X
+X	   /* An interesting note...
+X		I had code here to send a SIGWINCH to the pty
+X		process, but it turns out the kernel does when
+X		the pty recieves the TIOCSWINSZ ioctl.  */
+X}
+X#endif /* SIGWINCH */
+X	
+X
+X#ifdef HAVE_TERMIO_H
+X
+X/* Get the modes of the contorlling tty and save them.  Saves
+X   ttymodes in tty_mode and returns -1 if ioctl fails. */
+X
+Xstruct termio tty_mode;  /* Save tty mode here */
+Xint tty_init=0;
+X
+Xint tty_getmode(fd)
+Xint fd;
+X{
+X	tty_init=1;	/* Flag: we have initialized the tty_mode struct */
+X	d_zero((char *)&tty_mode, sizeof(struct termio));
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TCGETA, (char *) &tty_mode) < 0)
+X		return(-1);  
+X
+X#if defined(SIGWINCH) && defined(TIOCGWINSZ)
+X	d_zero((char *)&tty_win, sizeof(struct winstats));
+X
+X   	(void) ioctl(fd, TIOCGWINSZ, &tty_win);
+X#endif /* SIGWINCH */
+X
+X	return(0);
+X}
+X
+X
+X/* Restore terminal's mode to whatever it was on the most
+X   recent call to the tty_getmode() function. */
+X
+Xint tty_reset(fd)
+Xint fd;
+X{
+X	if ( ! tty_init )
+X		return(-1);
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TCSETA, (char *) &tty_mode) < 0)
+X		return(-1);
+X
+X#if defined(SIGWINCH) && defined(TIOCSWINSZ)
+X	(void) ioctl(fd, TIOCSWINSZ, &tty_win);
+X#endif /* SIGWINCH */
+X
+X	return(0);
+X}
+X
+X
+X/* Set a tty to a sane mode */
+X
+Xint tty_sane(fd)
+Xint fd;
+X{
+X	struct termio temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X#ifdef DEBUG
+X	fprintf(stderr, "tty_init: %d\r\n", tty_init);
+X#endif
+X
+X	temp_mode.c_lflag=(ISIG|ICANON|ECHO|ECHOE);
+X	temp_mode.c_iflag=(BRKINT|IGNPAR|ISTRIP|ICRNL|IXON);
+X	temp_mode.c_oflag=(OPOST|ONLCR);
+X	temp_mode.c_cflag=(CS7|PARENB|CREAD);
+X	temp_mode.c_cc[VERASE]=('H'^64);
+X	temp_mode.c_cc[VKILL]=('U'^64);
+X	temp_mode.c_cc[VQUIT]=('\\'^64);
+X	temp_mode.c_cc[VINTR]=('C'^64);
+X	temp_mode.c_cc[VEOF]=('D'^64);
+X	
+X	if (ioctl(fd, TCSETA, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	return(0);
+X}
+X
+X
+X/* Set a terminal in raw mode */
+X
+Xint tty_raw(fd)
+Xint fd;     	/* file descriptor of tty device */
+X{
+X	struct termio temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if ( ioctl(fd, TCGETA, (char *)&temp_mode) < 0 )
+X		return(-1);
+X
+X	temp_mode.c_iflag=(IGNBRK | ISTRIP);   /* turn off all input control */
+X	temp_mode.c_oflag &= ~(OLCUC | ONLCR | OCRNL | ONLRET);
+X					/* disable output post-processing */
+X	temp_mode.c_lflag = 0;
+X	temp_mode.c_cc[VMIN]=1;		/* 1 or more chars satisfy read */
+X	temp_mode.c_cc[VTIME]=0;	/* 10'ths of seconds between chars */
+X
+X	if (ioctl(fd, TCSETA, (char *) &temp_mode) < 0)
+X		return(-1);
+X	return(0);
+X}
+X
+X
+X/* Function to set a tty echo or no echo */
+X
+Xint tty_echo(fd, echo)
+Xint fd;
+Xint echo;
+X{
+X	struct termio temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if ( ioctl(fd, TCGETA, &temp_mode) < 0 )
+X		return(-1);
+X
+X	if ( echo )
+X		temp_mode.c_lflag|=ECHO;
+X	else
+X		temp_mode.c_lflag&=(~ECHO);
+X
+X	if ( ioctl(fd, TCSETA, &temp_mode) < 0 )
+X		return(-1);
+X	return(0);
+X}
+X
+X#else  /* no /usr/include/termio.h */
+X
+X
+X/* Get the modes of the controlling tty and save them.  Saves
+X   ttymodes in tty_mode and returns 1 if ioctl fails. */
+X
+Xstatic struct sgttyb	tty_mode;	/* save tty mode here */
+Xint tty_init=0;
+X
+Xint tty_getmode(fd)
+Xint fd;
+X{
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	tty_init=1;	/* Flag: we have initialized the tty_mode struct */
+X
+X	if (ioctl(fd, TIOCGETP, (char *) &tty_mode) < 0)
+X		return(-1);
+X
+X#ifdef SIGWINCH
+X	if ( ioctl(fd, TIOCGWINSZ, &tty_win) < 0 )
+X		perror("ioctl TIOCGWINSZ error");
+X#endif /* SIGWINCH */
+X
+X	return(0);
+X}
+X
+X
+X/*
+X * Restore a terminal's mode to whatever it was on the most
+X * recent call to the tty_getmode() function above.
+X */
+X
+Xint tty_reset(fd)
+Xint	fd;		/* of terminal device */
+X{
+X	if ( ! tty_init )	/* Have we been initialized? */
+X		return(-1);
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TIOCSETP, (char *) &tty_mode) < 0)
+X		return(-1);
+X
+X#ifdef SIGWINCH
+X    	(void) ioctl(fd, TIOCSWINSZ, &tty_win);
+X#endif /* SIGWINCH */
+X
+X	return(0);
+X}
+X/* Set a tty to a sane mode */
+X
+Xint tty_sane(fd)
+Xint fd;
+X{
+X	struct sgttyb temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TIOCGETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	temp_mode.sg_flags &= ~RAW;	/* turn RAW mode off */
+X	temp_mode.sg_flags |= ECHO;	/* turn ECHO on */
+X	
+X	if (ioctl(fd, TIOCSETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	return(0);
+X}
+X
+X/*
+X * Put a terminal device into RAW mode with ECHO off.
+X */
+X
+Xint tty_raw(fd)
+Xint	fd;		/* of terminal device */
+X{
+X	struct sgttyb	temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TIOCGETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	temp_mode.sg_flags |= RAW;	/* turn RAW mode on */
+X	temp_mode.sg_flags &= ~ECHO;	/* turn ECHO off */
+X
+X	if (ioctl(fd, TIOCSETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	return(0);
+X}
+X
+X
+X/* Set a terminal echo or no echo, as requested.  */
+X
+Xint tty_echo(fd, echo)
+Xint fd;
+Xint echo;
+X{
+X	struct sgttyb temp_mode;
+X
+X	if ( ! isatty(fd) )
+X		return(0);
+X
+X	if (ioctl(fd, TIOCGETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	if ( echo )
+X		temp_mode.sg_flags |= ECHO;	/* turn ECHO on */
+X	else
+X		temp_mode.sg_flags &= ~ECHO;	/* turn ECHO off */
+X	
+X	if (ioctl(fd, TIOCSETP, (char *) &temp_mode) < 0)
+X		return(-1);
+X
+X	return(0);
+X}
+X
+X#endif /* HAVE_TERMIO_H */
+END_OF_FILE
+  if test 13078 -ne `wc -c <'tty.c'`; then
+    echo shar: \"'tty.c'\" unpacked with wrong size!
+  fi
+  # end of 'tty.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

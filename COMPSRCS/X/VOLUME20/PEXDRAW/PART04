@@ -1,0 +1,2138 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i014:  pexdraw - A PEX drawing program, Part04/14
+Message-ID: <1993Jun8.150059.18794@sparky.imd.sterling.com>
+X-Md4-Signature: ca092ed08086a9e179a05405d24ee4c1
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:00:59 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 14
+Archive-name: pexdraw/part04
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  plcube.c util/pexutcmap.c
+# Wrapped by chris@sparky on Tue Jun  8 09:46:32 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 14)."'
+if test -f 'plcube.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'plcube.c'\"
+else
+  echo shar: Extracting \"'plcube.c'\" \(12619 characters\)
+  sed "s/^X//" >'plcube.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)plcube.c	1.2 Oki 93/05/25";
+X#endif
+X/*
+X * plcube.c - PEXlib / PEXIC Cube
+X   cc -o plcube plcube.c -lPEX5 -lm -lX11                    -lnsl
+X   
+X			Copyright (c) 1992, 1993 by 
+X			Oki Electric Industry Co., Ltd.
+X			All Rights Reserved
+X	
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation, and that the name of Oki not be
+X * used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission. Oki
+X * makes no representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied warranty.
+X*/
+X/* 27-APR-93 made into structure stuffer - PEXlib version */
+X/* 12-MAY-92 debugged letters */
+X/* 17-JUN-91 trueblue.c - find true color visual for PEX testing */
+X/* 17-NOV-90 visual hacking */
+X
+X#define NeedFunctionPrototypes 1
+X
+X#include <X11/Xlib.h>
+X#include <X11/PEX5/PEXlib.h>
+X
+X#define SET_POINT(p,a,b,c) {(p)->x=(a);(p)->y=(b);(p)->z=(c);}
+X
+X#define RADIAN(x) ((x)*(3.1415927 / 180.0))
+X
+XPEXColorRGB red     = {1,0,0};
+XPEXColorRGB green   = {0,1,0};
+XPEXColorRGB blue    = {0,0,1};
+XPEXColorRGB cyan    = {0,1,1};
+XPEXColorRGB magenta = {1,0,1};
+XPEXColorRGB yellow  = {1,1,0};
+X
+XDisplay		*theDisplay;
+XPEXStructure     theStrux;
+X
+Xmain (argc, argv)
+X     int argc;
+X     char  *argv[];
+X{
+X  char			*displayString = (char *)0;
+X  PEXExtensionInfo	*info_return;
+X  char			err_msg[PEXErrorStringLength];
+X  int                   i;
+X  PEXCoord p[2];
+X  PEXCoord verts[30], *pts;
+X  PEXVector normals[30], *ns;
+X  PEXArrayOfFacetData fData;
+X  PEXArrayOfVertex vData;
+X
+X  PEXVector shift, scale;
+X  PEXMatrix bldmat;
+X  PEXCoord  pt;
+X  double x_ang, y_ang, z_ang;
+X
+X  for ( i = 1; i<argc; i++ ) {
+X    if ((strncmp(argv[i],"-display",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      displayString = argv[i];
+X    } else if ((strncmp(argv[i],"-strux",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      theStrux = atoi(argv[i]);
+X    }
+X  }
+X
+X  /*
+X   * Open the display and initialize the PEX extension.
+X   *  - this is a pexdraw structure stuffer, pexdraw creates a structure and
+X   *    uses the system call to execute this program.
+X   */
+X  
+X  if (!(theDisplay = XOpenDisplay(displayString)))
+X    {
+X      printf ( "Could not open display %s\n",displayString);
+X      exit (1);
+X    }
+X  
+X  if (PEXInitialize(theDisplay, &info_return, PEXErrorStringLength, err_msg))
+X    {
+X      printf ("%s\n", err_msg);
+X      exit (1);	    
+X    }
+X
+X  /* need the line because we cannot select */
+X  PEXSetLineColorIndex( theDisplay, theStrux, PEXOCStore, 2);
+X  p[0].x = 0; p[0].y = 0; p[0].z = 0;
+X  p[1].x = -1; p[1].y = -1; p[1].z = -1;
+X  PEXPolyline(theDisplay, theStrux, PEXOCStore, 2, p );
+X
+X/*
+X * make a cube, use PEXlib to generate facet normals.
+X *
+X *                          ( )-----( )
+X *                           |     / |
+X *                           |   /   |
+X *                           | /     |
+X *  (4)-----(*)-----(8)-----(A)-----($)
+X *   | \     |     / |     / |     / |
+X *   |   \   |   /   |   /   |   /   |
+X *   |     \ | /     | /     | /     |
+X *  (2)-----(+)-----(9)-----(B)-----(*)
+X *   | \     |
+X *   |   \   |
+X *   |     \ |
+X *  (0)-----(1)
+X *
+X * * doubled point 5,6 13,14
+X * + points 3&7
+X */
+X
+X#define CUBE 0.4
+X
+X  pts = verts;
+X  ns = normals;
+X
+X  pts->x = 0.0;  pts->y = 0.0; pts->z = 0.0; pts++; /* 0 */
+X  pts->x = CUBE;  pts->y = 0.0; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = 0.0; pts++; /* 2 */
+X  pts->x = CUBE;  pts->y = CUBE; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = CUBE; pts++;
+X  pts->x = CUBE;  pts->y = CUBE; pts->z = CUBE; pts++;
+X  pts->x = CUBE;  pts->y = CUBE; pts->z = CUBE; pts++;
+X  pts->x = CUBE;  pts->y = CUBE; pts->z = 0.0; pts++;
+X  pts->x = CUBE;  pts->y = 0.0; pts->z = CUBE; pts++; /* 8 */
+X  pts->x = CUBE;  pts->y = 0.0; pts->z = 0.0; pts++; /* 9 == 1 */
+X  pts->x = 0.0;  pts->y = 0.0; pts->z = CUBE; pts++;
+X  pts->x = 0.0;  pts->y = 0.0; pts->z = 0.0; pts++; /* B == 0 */
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = CUBE; pts++; /* $ */
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = CUBE; pts++; /* $ */
+X  pts->x = 0.0;  pts->y = CUBE; pts->z = CUBE; pts++; /* $ */
+X  pts->x = 0.0;  pts->y = 0.0; pts->z = CUBE; pts++; /* A */
+X  pts->x = CUBE;  pts->y = CUBE; pts->z = CUBE; pts++;
+X  pts->x = CUBE;  pts->y = 0.0; pts->z = CUBE; pts++;
+X
+X  fData.normal = normals;
+X  vData.no_data = verts;
+X
+X  PEXGeoNormTriangleStrip( PEXGANormal, PEXGANone, PEXColorTypeRGB, fData,
+X			  20, vData );
+X  
+X  PEXTriangleStrip(  theDisplay, theStrux, PEXOCStore,
+X                     PEXGANormal, PEXGANone, PEXColorTypeRGB, fData,
+X                     20, vData );
+X
+X/*************************************************************************
+X * Cube is done, paste the letters on, start with the Red P.
+X */
+X    shift.x = 0.1;
+X    shift.y = 0.03;
+X    shift.z = 0.41;
+X    PEXTranslate( &shift, bldmat );
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor(  theDisplay, theStrux, PEXOCStore,
+X                       PEXColorTypeRGB, (PEXColor *)&red );
+X  PutP();
+X
+X/* Green E */
+X
+X    pt.x = 0.0;
+X    pt.y = 0.0;
+X    pt.z = 0.0;
+X    shift.x = 0;
+X    shift.y = -0.04; /* controls distance to face of cube */
+X    shift.z = -0.37; 
+X    scale.x = 1.0;
+X    scale.y = 1.0;
+X    scale.z = 1.0;
+X    x_ang = RADIAN(90);
+X    y_ang = 0;
+X    z_ang = 0;
+X    PEXBuildTransform(&pt, &shift, x_ang, y_ang, z_ang, &scale, bldmat);
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore,
+X                      PEXColorTypeRGB, (PEXColor *)&green );  
+X  PutE();
+X
+X/* Blue X */
+X
+X    pt.x = 0.0;
+X    pt.y = 0.0;
+X    pt.z = 0.0;
+X    shift.x = 0.31; /* controls distance to face of cube */
+X    shift.y = 0.0;  /* .37 - y from E */
+X    shift.z = -0.07;
+X    scale.x = 1.0;
+X    scale.y = 1.0;
+X    scale.z = 1.0;
+X    x_ang = 0;
+X    y_ang = RADIAN(90);
+X    z_ang = 0;
+X    PEXBuildTransform(&pt, &shift, x_ang, y_ang, z_ang, &scale, bldmat);
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore, 
+X                      PEXColorTypeRGB, (PEXColor *)&blue );
+X  PutX();
+X
+X/* cyan P for the opposite side */
+X
+X    pt.x = 0;
+X    pt.y = 0;
+X    pt.z = 0;
+X    shift.x = CUBE - 0.08;
+X    shift.y = -0.05;  /* distance to face of cube */
+X    shift.z = -0.33;  /* controls X */
+X    scale.x = 1.0;
+X    scale.y = 1.0;
+X    scale.z = 1.0;
+X    x_ang = RADIAN(90);
+X    y_ang = -RADIAN(90);
+X    z_ang = 0;
+X
+X  PEXBuildTransform(&pt, &shift, x_ang, y_ang, z_ang, &scale, bldmat);
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore, 
+X                      PEXColorTypeRGB, (PEXColor *)&cyan );
+X  PutP();
+X
+X/* magenta E */
+X
+X    pt.x = 0.0;
+X    pt.y = 0.0;
+X    pt.z = 0.0;
+X    shift.x = 0;
+X    shift.y = -0.04; /* controls distance to face of cube */
+X    shift.z = -0.37; 
+X    scale.x = 1.0;
+X    scale.y = 1.0;
+X    scale.z = 1.0;
+X    x_ang = RADIAN(90);
+X    y_ang = 0;
+X    z_ang = 0;
+X    PEXBuildTransform(&pt, &shift, x_ang, y_ang, z_ang, &scale, bldmat);
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore,
+X                      PEXColorTypeRGB, (PEXColor *)&magenta );  
+X  PutE();
+X
+X/* Finally, a Yellow X */
+X
+X    pt.x = 0.0;
+X    pt.y = 0.0;
+X    pt.z = 0.0;
+X    shift.x = -0.1; /* controls distance to face of cube */
+X    shift.y = 0.0;  /* .37 - y from E */
+X    shift.z = -0.1;
+X    scale.x = 1.0;
+X    scale.y = 1.0;
+X    scale.z = 1.0;
+X    x_ang = 0;
+X    y_ang = RADIAN(90);
+X    z_ang = 0;
+X    PEXBuildTransform(&pt, &shift, x_ang, y_ang, z_ang, &scale, bldmat);
+X
+X  PEXSetLocalTransform( theDisplay, theStrux, PEXOCStore,
+X                      PEXPreConcatenate, bldmat);
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore, 
+X                      PEXColorTypeRGB, (PEXColor *)&yellow );
+X  PutX();
+X  XSync(theDisplay,0);  /* Must Sync to force this stuff out be fore we exit */
+X}
+X
+X/*************************************************************************
+X * The P polygon, with the lower gap closed to match the PEX cube.
+X *  Followed by the E and X. The "facedness" of all of these needs to
+X *  be touched up.
+X */
+XPutP()
+X{
+X  PEXCoord points[30], *pts;
+X
+X  pts = points;
+X
+X  pts->x = 0.0;  pts->y = 0.02; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = 0.19; pts->z = 0.0; pts++;
+X  pts->x = 0.11;  pts->y = 0.19; pts->z = 0.0; pts++;
+X  pts->x = 0.14;  pts->y = 0.20; pts->z = 0.0; pts++;
+X  pts->x = 0.16;  pts->y = 0.21; pts->z = 0.0; pts++;
+X  pts->x = 0.17;  pts->y = 0.23; pts->z = 0.0; pts++;
+X  pts->x = 0.17;  pts->y = 0.26; pts->z = 0.0; pts++;
+X  pts->x = 0.16;  pts->y = 0.28; pts->z = 0.0; pts++;
+X  pts->x = 0.14;  pts->y = 0.29; pts->z = 0.0; pts++;
+X  pts->x = 0.11;  pts->y = 0.30; pts->z = 0.0; pts++;
+X  pts->x = 0.06;  pts->y = 0.30; pts->z = 0.0; pts++;
+X  pts->x = 0.06;  pts->y = 0.21; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = 0.21; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = 0.32; pts->z = 0.0; pts++;
+X  pts->x = 0.14;  pts->y = 0.32; pts->z = 0.0; pts++;
+X  pts->x = 0.18;  pts->y = 0.31; pts->z = 0.0; pts++;
+X  pts->x = 0.20;  pts->y = 0.30; pts->z = 0.0; pts++;
+X  pts->x = 0.22;  pts->y = 0.28; pts->z = 0.0; pts++;
+X  pts->x = 0.23;  pts->y = 0.26; pts->z = 0.0; pts++;
+X  pts->x = 0.23;  pts->y = 0.23; pts->z = 0.0; pts++;
+X  pts->x = 0.22;  pts->y = 0.21; pts->z = 0.0; pts++;
+X  pts->x = 0.20;  pts->y = 0.19; pts->z = 0.0; pts++;
+X  pts->x = 0.18;  pts->y = 0.18; pts->z = 0.0; pts++;
+X  pts->x = 0.14;  pts->y = 0.17; pts->z = 0.0; pts++;
+X  pts->x = 0.06;  pts->y = 0.17; pts->z = 0.0; pts++;
+X  pts->x = 0.06;  pts->y = 0.02; pts->z = 0.0; pts++;
+X  pts->x = 0.0;  pts->y = 0.02; pts->z = 0.0; pts++;
+X
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X                PEXShapeComplex, True, 27, points );
+X}
+X
+XPutE()
+X{
+X  PEXCoord points[30], *pts;
+X
+X  pts = points;
+X
+X  pts->x = 0.0; pts->y = 0.02; pts->z = 0; pts++;
+X  pts->x = 0.0; pts->y = 0.19; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.19; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.17; pts->z = 0; pts++;
+X  pts->x = 0.06; pts->y = 0.17; pts->z = 0; pts++;
+X  pts->x = 0.06; pts->y = 0.04; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.04; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.02; pts->z = 0; pts++;
+X  pts->x = 0.0; pts->y = 0.02; pts->z = 0; pts++;
+X
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X                PEXShapeComplex, True, 9, points );
+X
+X  pts = points;
+X
+X  pts->x = 0.0; pts->y = 0.21; pts->z = 0; pts++;
+X  pts->x = 0.0; pts->y = 0.32; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.32; pts->z = 0; pts++;
+X  pts->x = 0.21; pts->y = 0.30; pts->z = 0; pts++;
+X  pts->x = 0.06; pts->y = 0.30; pts->z = 0; pts++;
+X  pts->x = 0.06; pts->y = 0.21; pts->z = 0; pts++;
+X  pts->x = 0.0; pts->y = 0.21; pts->z = 0; pts++;
+X
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X                PEXShapeComplex, True, 7, points );
+X}
+X
+XPutX()
+X{
+X  PEXCoord points[30], *pts;
+X
+X  pts = points;
+X
+X pts->x = 0.00;  pts->y = 0.02; pts->z = 0.0; pts++;
+X pts->x = 0.10;  pts->y = 0.17; pts->z = 0.0; pts++;
+X pts->x = 0.00;  pts->y = 0.32; pts->z = 0.0; pts++;
+X pts->x = 0.06;  pts->y = 0.32; pts->z = 0.0; pts++;
+X pts->x = 0.14;  pts->y = 0.20; pts->z = 0.0; pts++;
+X pts->x = 0.02;  pts->y = 0.02; pts->z = 0.0; pts++;
+X pts->x = 0.00;  pts->y = 0.02; pts->z = 0.0; pts++;
+X
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X                PEXShapeComplex, True, 7, points );
+X  pts = points;
+X
+X pts->x = 0.20;  pts->y = 0.02; pts->z = 0.0; pts++;
+X pts->x = 0.12;  pts->y = 0.14; pts->z = 0.0; pts++;
+X pts->x = 0.24;  pts->y = 0.32; pts->z = 0.0; pts++;
+X pts->x = 0.26;  pts->y = 0.32; pts->z = 0.0; pts++;
+X pts->x = 0.16;  pts->y = 0.17; pts->z = 0.0; pts++;
+X pts->x = 0.26;  pts->y = 0.02; pts->z = 0.0; pts++;
+X pts->x = 0.20;  pts->y = 0.02; pts->z = 0.0; pts++;
+X
+X  PEXFillArea(  theDisplay, theStrux, PEXOCStore,
+X                PEXShapeComplex, True, 7, points );
+X}
+X
+END_OF_FILE
+  if test 12619 -ne `wc -c <'plcube.c'`; then
+    echo shar: \"'plcube.c'\" unpacked with wrong size!
+  fi
+  # end of 'plcube.c'
+fi
+if test -f 'util/pexutcmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutcmap.c'\"
+else
+  echo shar: Extracting \"'util/pexutcmap.c'\" \(44664 characters\)
+  sed "s/^X//" >'util/pexutcmap.c' <<'END_OF_FILE'
+X/******************************************************************************/
+X/*                                                                            */
+X/*  (c) Copyright Hewlett-Packard Company, 1992, Fort Collins, Colorado       */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted,          */
+X/*  provided that the above copyright notices appear in all copies and that   */
+X/*  both the copyright notices and this permission notice appear in           */
+X/*  supporting documentation, and that the name of Hewlett-Packard not be     */
+X/*  used in advertising or publicity pertaining to distribution of the        */
+X/*  software without specific, written prior permission.                      */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* $Source: /users/waitz/work/tmp/RCS/pexutcmap.c,v $                            */
+X/* $Date: 93/04/01 13:31:17 $                                                 */
+X/* $Revision: 1.3 $                                                   */
+X/*                                                                            */
+X/* Description:                                                               */
+X/*   Main interface implementation file for PEXUt colormap/visual utilities.  */
+X/*                                                                            */
+X/* Notes:                                                                     */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X#include <math.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/PEX5/PEXlib.h>
+X#include "pexutext.h"
+X
+X#include "pexutcmap.h"
+X#include "pexutcmapint.h"
+X#include "pexutcmaphp.h"
+X
+X
+X/*
+X    This structure describes each of the standard colormap 
+X    properties to be searched when choosing a Visual, in
+X    priority order.  Changing the interoperability convention
+X    should be a simple matter of adding or shuffling these entries.
+X*/
+X
+Xstatic interop_property_type interop_properties[]={
+X	{ True, True, XA_RGB_BEST_MAP, "" },
+X	{ True, True, XA_RGB_DEFAULT_MAP, "" },
+X};
+X
+X#define NUM_INTEROP_PROPERTIES \
+X	(sizeof(interop_properties)/sizeof(interop_property_type))
+X
+X
+X
+X
+Xint PEXUtFindVisual (
+X		display,
+X		screen,
+X		criteria,
+X		vis_info_return,
+X		cmap_info_return,
+X		capx_info_return,
+X		unmet_criteria_return,
+X		std_prop_atom_return
+X		)
+X
+X		Display				*display;
+X		int				screen;
+X		PEXUtVisualCriteria		*criteria;
+X		XVisualInfo			*vis_info_return;
+X		XStandardColormap		*cmap_info_return;
+X		PEXColorApproxEntry		*capx_info_return;
+X		unsigned int			*unmet_criteria_return;
+X		Atom				*std_prop_atom_return;
+X
+X/*
+X    Algorithm:
+X
+X	Section I:    	Initialize and process input criteria masks.
+X
+X	Section II:   	Fetch information from the server.
+X
+X	Section III:  	Build information blocks about all the Visuals
+X			that are supported by PEX.
+X
+X	Section IV:	Evaluate candidates (Visuals that meet hard criteria).
+X
+X	Section V:	Copy or generate return information.
+X*/
+X{
+X	PEXUtVisualCriteria	local_criteria;
+X
+X	PEXExtensionInfo	*ext_info;
+X	int			target_depth;
+X	unsigned long		target_count = 0;
+X	PEXRenderingTarget	*targets = NULL;
+X
+X	XVisualInfo       	vis_template;
+X	unsigned int      	vis_mask;
+X	int			visual_count = 0;
+X	XVisualInfo		*visuals = NULL;
+X
+X	int			property_counts[NUM_INTEROP_PROPERTIES];
+X	Atom			property_atoms[NUM_INTEROP_PROPERTIES];
+X	XStandardColormap	*property_data[NUM_INTEROP_PROPERTIES];
+X
+X	int			overlay_count = 0;
+X	overlay_visuals_type	*overlay_data = NULL;
+X
+X	int			visual_info_count = 0;
+X	visual_info_type	*visual_info = NULL;
+X	visual_info_type	*p_info; 
+X
+X	int			met_hard_count;
+X	int			min_unmet_criteria_count;
+X	int			soft_criteria_count;
+X	int			supported_visual_count;
+X	visual_info_type	*p_chosen_info, *p_min_unmet;
+X
+X	int			visual_index;
+X	int			target_index;
+X	int			prop_index;
+X	int			entry_index;
+X
+X	int			result;
+X	int			color_approx_type;
+X
+X
+X	/*
+X	    This macro is used to clean up in case of an early exit.
+X	*/
+X#define FREE_ALLOCATED_RESOURCES {					\
+X	    int i;							\
+X	    if (target_count) XFree (targets);				\
+X	    if (visual_count > 0) XFree (visuals);			\
+X	    for (i=0; i<NUM_INTEROP_PROPERTIES; i++)			\
+X		if (property_counts[i] > 0) XFree (property_data[i]);	\
+X	    if (overlay_count > 0) XFree (overlay_data);		\
+X	    if (visual_info_count > 0) free (visual_info);		\
+X	}
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section I:    	Initialize and process input criteria masks.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    Initialize property data arrays to empty.
+X	*/
+X
+X	for (prop_index=0; prop_index<NUM_INTEROP_PROPERTIES; prop_index++) {
+X
+X	    property_counts[prop_index] = 0;
+X	    property_data[prop_index] = NULL;
+X	    property_atoms[prop_index] = None;
+X	}
+X
+X
+X	/*
+X	    Copy the caller's criteria structure and clean up the masks
+X	    (eliminate unsupported bits and overlaps).
+X	*/
+X
+X	local_criteria = *criteria;
+X	local_criteria.hard_criteria_mask &= PEXUtAllCriteria;
+X	local_criteria.soft_criteria_mask &= PEXUtAllCriteria;
+X	local_criteria.soft_criteria_mask &= ~(local_criteria.hard_criteria_mask);
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section II:   	Fetch information from the server.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    Get PEX extension info.
+X	*/
+X
+X	if (NULL == (ext_info = PEXGetExtensionInfo (display)))
+X	    return PEXUtPEXFailure;
+X
+X
+X	/*
+X	    Get list of supported targets from PEX.
+X	    If depth is specified as a hard criterion, use it as a filter.
+X	*/
+X
+X	if ((ext_info->major_version == 5) &&
+X	    (ext_info->minor_version >= 1)) {
+X
+X	    if (local_criteria.hard_criteria_mask & PEXUtDepth)
+X		target_depth = local_criteria.depth;
+X	    else
+X		target_depth = 0;
+X
+X	    if (! PEXMatchRenderingTargets (display, 
+X					RootWindow(display, screen),
+X					target_depth, PEXWindowDrawable, NULL,
+X					32, &target_count, &targets)) {
+X		FREE_ALLOCATED_RESOURCES
+X		return PEXUtPEXFailure;
+X	    }
+X
+X	    if (target_count == 0) {
+X		FREE_ALLOCATED_RESOURCES
+X		*unmet_criteria_return = local_criteria.hard_criteria_mask
+X					| local_criteria.soft_criteria_mask;
+X		return PEXUtCriteriaFailure;
+X	    }
+X	}
+X
+X
+X	/*
+X	    Get list of visuals for the screen.
+X	    If depth and/or visual class are specified as hard criteria, 
+X	    use them as filters.
+X	*/
+X
+X	vis_template.screen = screen;
+X	vis_mask = VisualScreenMask;
+X
+X	if (local_criteria.hard_criteria_mask & PEXUtDepth) {
+X	    vis_template.depth = local_criteria.depth;
+X	    vis_mask |= VisualDepthMask;
+X	}
+X
+X	if (local_criteria.hard_criteria_mask & PEXUtVisualClass) {
+X	    vis_template.class = local_criteria.visual_class;
+X	    vis_mask |= VisualClassMask;
+X	}
+X
+X	if (NULL == (visuals = XGetVisualInfo (display, vis_mask, &vis_template,
+X						&visual_count))) {
+X	    FREE_ALLOCATED_RESOURCES
+X	    return PEXUtXFailure;
+X	}
+X
+X
+X	/*
+X	    For each property in the list of properties specified by
+X	    the interoperability conventions, get the value of the property.
+X	*/
+X	if ((PEXUtStandardColormapProperty|PEXUtSharableColormap) &
+X	    (local_criteria.hard_criteria_mask | 
+X	    local_criteria.soft_criteria_mask)) {
+X
+X	    for (prop_index=0; 
+X		prop_index<NUM_INTEROP_PROPERTIES; 
+X		prop_index++) {
+X
+X		result = pexut_get_standard_cmap_property (display, screen, 
+X					&(interop_properties[prop_index]),
+X					&(property_atoms[prop_index]), 
+X					&(property_counts[prop_index]), 
+X					&(property_data[prop_index]));
+X		if (result != PEXUtSuccess) {
+X		    FREE_ALLOCATED_RESOURCES
+X		    return PEXUtXFailure;
+X		}
+X	    }
+X	}
+X
+X
+X	/*
+X	    Get the value of the SERVER_OVERLAY_VISUALS property, if supported.
+X	*/
+X
+X	if (PEXUtLayer &
+X	    (local_criteria.hard_criteria_mask | 
+X	    local_criteria.soft_criteria_mask)) {
+X
+X	    result = pexut_get_overlay_visuals_property (display, screen, 
+X						&overlay_count, &overlay_data);
+X	    if (result != PEXUtSuccess) {
+X		FREE_ALLOCATED_RESOURCES
+X		return PEXUtXFailure;
+X	    }
+X	}
+X	
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section III:  	Build information blocks about all the Visuals
+X			that are supported by PEX.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    Allocate information blocks for all visuals.  (Could filter here
+X	    and only allocate space for visuals listed in target data, but
+X	    might take longer than just allocating space for all visuals.)
+X	*/
+X
+X	visual_info_count = visual_count;
+X	visual_info = (visual_info_type *) 
+X			malloc (visual_info_count * sizeof(visual_info_type));
+X
+X	if (visual_info == NULL) {
+X	    visual_info_count = 0;
+X	    FREE_ALLOCATED_RESOURCES
+X	    return PEXUtAllocFailure;
+X	}
+X
+X
+X	/*
+X	    For the remaining visuals, build an information structure
+X	    for each one.  Keep track of how well each one meets the
+X	    hard and soft criteria.  
+X
+X	    Count the number that meet all the hard criteria.
+X	*/
+X
+X	met_hard_count = 0;
+X	p_chosen_info = NULL;
+X
+X	min_unmet_criteria_count = 999;
+X	p_min_unmet = NULL;
+X	soft_criteria_count = 
+X		pexut_count_bits_in_mask (local_criteria.soft_criteria_mask);
+X
+X	p_info = visual_info;
+X	supported_visual_count = 0;
+X	for (visual_index=0; visual_index<visual_count; visual_index++) {
+X
+X	    int found;
+X	    int supported;
+X	    unsigned int order_rating;
+X	    float temp;
+X	    int unmet_criteria_count;
+X
+X
+X	    /*
+X		If we have target data, determine support for the Visual from 
+X		that data.  Assign a rating based on the relative position in 
+X		the target data.
+X
+X		Otherwise, assume support.
+X	    */
+X
+X	    order_rating = 0;
+X
+X	    if (target_count) {
+X		supported = False;
+X		for (target_index=0; 
+X		    target_index<target_count; 
+X		    target_index++) {
+X
+X		    if (visuals[visual_index].visualid == 
+X			XVisualIDFromVisual (targets[target_index].visual)) {
+X			supported = True;
+X			break;
+X		    }
+X		}
+X	    }
+X	    else
+X		supported = True;
+X
+X	    if (supported) {
+X
+X		p_info->unmet_hard_criteria = 0;
+X		p_info->unmet_soft_criteria = 0;
+X		p_info->order_rating = order_rating;
+X
+X
+X		/*
+X		    Search the colormap properties for the first match with 
+X		    the visual.  The property data is used in evaluating color 
+X		    criteria as well as the standard colormap property 
+X		    criterion.
+X
+X		    If we get property data, and we did not have target data 
+X		    from which to give an order rating, then give a rating 
+X		    depending on the relative position of the property entry, 
+X		    including the possibility of a search
+X		    process that involves more than one property.
+X		*/
+X
+X		p_info->property_ptr = NULL;
+X		p_info->property_atom = None;
+X
+X		if ((PEXUtStandardColormapProperty|PEXUtSharableColormap) &
+X		    (local_criteria.hard_criteria_mask | 
+X		    local_criteria.soft_criteria_mask)) {
+X
+X		    found = False;
+X		    for (prop_index=0; 
+X			prop_index<NUM_INTEROP_PROPERTIES; 
+X			prop_index++) {
+X
+X			for (entry_index=0; 
+X			    entry_index < property_counts[prop_index]; 
+X			    entry_index++) {
+X
+X			    if (property_data[prop_index][entry_index].visualid
+X				== visuals[visual_index].visualid) {
+X
+X				found = True;
+X				p_info->property_ptr = 
+X				    &(property_data[prop_index][entry_index]);
+X				p_info->property_atom = 
+X				    property_atoms[prop_index];
+X				break;
+X			    }
+X			}
+X			if (found) break;
+X		    }
+X
+X		    if ((PEXUtStandardColormapProperty &
+X			(local_criteria.hard_criteria_mask | 
+X			local_criteria.soft_criteria_mask)) &&
+X		    (found != local_criteria.standard_colormap_property)) {
+X			p_info->unmet_hard_criteria |= 
+X			    (local_criteria.hard_criteria_mask 
+X			    & PEXUtStandardColormapProperty);
+X			p_info->unmet_soft_criteria |= 
+X			    (local_criteria.soft_criteria_mask 
+X			    & PEXUtStandardColormapProperty);
+X		    }
+X		}
+X
+X		/*
+X		    Depth is not currently used for any rating.
+X		*/
+X
+X		if (PEXUtDepth &
+X		    (local_criteria.hard_criteria_mask | 
+X		    local_criteria.soft_criteria_mask)) {
+X
+X		    if (visuals[visual_index].depth != local_criteria.depth) {
+X			p_info->unmet_hard_criteria |= 
+X			    (local_criteria.hard_criteria_mask & PEXUtDepth);
+X			p_info->unmet_soft_criteria |= 
+X			    (local_criteria.soft_criteria_mask & PEXUtDepth);
+X		    }
+X		}
+X
+X		/*
+X		    Color criteria are complicated, since they interact with 
+X		    property information.  This procedure not only evaluates 
+X		    whether or not criteria are met, but also assigns a rating 
+X		    based on available color resolution and the 
+X		    sharable_colormap criterion.
+X		*/
+X
+X		result = pexut_evaluate_color_criteria (display, 
+X		    &local_criteria, &(visuals[visual_index]), p_info);
+X		if (result != PEXUtSuccess) {
+X		    FREE_ALLOCATED_RESOURCES
+X		    return result;
+X		}
+X
+X		if (PEXUtVisualClass &
+X		    (local_criteria.hard_criteria_mask | 
+X		    local_criteria.soft_criteria_mask)) {
+X
+X		    if (visuals[visual_index].class != 
+X			local_criteria.visual_class) {
+X
+X			p_info->unmet_hard_criteria |= 
+X			    (local_criteria.hard_criteria_mask 
+X			    & PEXUtVisualClass);
+X			p_info->unmet_soft_criteria |= 
+X			    (local_criteria.soft_criteria_mask 
+X			    & PEXUtVisualClass);
+X		    }
+X		}
+X
+X		/*
+X		    The Visual class is always a factor in rating:
+X		    static Visuals are preferred over dynamic Visuals,
+X		    all else being equal.
+X		*/
+X
+X		if ((visuals[visual_index].class == TrueColor) ||
+X		    (visuals[visual_index].class == StaticColor) ||
+X		    (visuals[visual_index].class == StaticGray))
+X		    p_info->class_rating = MAX_CLASS_RATING;
+X		else
+X		    p_info->class_rating = 0;
+X
+X		/*
+X		    Layer is not currently used for any rating.
+X		*/
+X
+X		if (PEXUtLayer &
+X		    (local_criteria.hard_criteria_mask | 
+X		    local_criteria.soft_criteria_mask)) {
+X
+X		    found = False;
+X		    for (prop_index=0; 
+X			prop_index < overlay_count; 
+X			prop_index++) {
+X
+X			if (overlay_data[prop_index].visualid == 
+X				visuals[visual_index].visualid) {
+X			    found = True;
+X			    break;
+X			}
+X		    }
+X
+X		    if ((!found) || 
+X			(((overlay_data[prop_index].layer == 1)? 
+X				PEXUtOverlay:PEXUtImage)
+X			    != local_criteria.layer)) {
+X			p_info->unmet_hard_criteria |= 
+X			    (local_criteria.hard_criteria_mask & PEXUtLayer);
+X			p_info->unmet_soft_criteria |= 
+X			    (local_criteria.soft_criteria_mask & PEXUtLayer);
+X		    }
+X		}
+X
+X		/*
+X		    Determining double-buffering capability is a complicated 
+X		    affair.  This procedure attempts to assess whether 
+X		    criteria are met and assign a rating.
+X		*/
+X
+X		result = pexut_evaluate_double_buffering_capability (display, 
+X			    &local_criteria, &(visuals[visual_index]), p_info);
+X		if (result != PEXUtSuccess) {
+X		    FREE_ALLOCATED_RESOURCES
+X		    return result;
+X		}
+X
+X		/*
+X		    Determining support for color approximation types is 
+X		    straightforward but is done in a subprocedure in order 
+X		    to centralize it.  This procedure attempts to assess 
+X		    whether criteria are met and assign a rating.
+X		*/
+X
+X		result = pexut_evaluate_color_approx_type (display, 
+X			    &local_criteria, &(visuals[visual_index]), p_info);
+X		if (result != PEXUtSuccess) {
+X		    FREE_ALLOCATED_RESOURCES
+X		    return result;
+X		}
+X
+X
+X		/*
+X		    At this point, all the criteria have been evaluated for 
+X		    this Visual.  If it met all the hard criteria, it is a 
+X		    candidate for success, and we give a rating based on how 
+X		    many soft criteria have also been met.  We keep a pointer 
+X		    to the last Visual that met all hard criteria, so we
+X		    can avoid some work if there turns out to be only one.
+X
+X		    If not, we still keep track of the Visual that came 
+X		    closest to meeting all the hard criteria.
+X		*/
+X
+X		if (p_info->unmet_hard_criteria == 0) {
+X		    met_hard_count++;
+X
+X		    p_info->visual_ptr = &(visuals[visual_index]);
+X		    p_chosen_info = p_info;
+X
+X		    if (soft_criteria_count) {
+X			unmet_criteria_count = 
+X			 pexut_count_bits_in_mask (p_info->unmet_soft_criteria);
+X			p_info->soft_rating = (int) 
+X						((((float) (soft_criteria_count 
+X						      - unmet_criteria_count))
+X						 /((float) soft_criteria_count))
+X						* MAX_SOFT_RATING);
+X		    }
+X		    else
+X			p_info->soft_rating = 0;
+X		}
+X		else {
+X		    unmet_criteria_count = 
+X			pexut_count_bits_in_mask (p_info->unmet_hard_criteria);
+X
+X		    if (unmet_criteria_count < min_unmet_criteria_count) {
+X			min_unmet_criteria_count = unmet_criteria_count;
+X			p_min_unmet = p_info;
+X		    }
+X		}
+X
+X		p_info++;
+X		supported_visual_count++;
+X	    }
+X	}
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section IV:	Evaluate candidates (Visuals that meet hard criteria).
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    If no Visual has met the hard criteria, we have failed.
+X	    We will return the criteria information for the Visual that 
+X	    came closest to being accepted.
+X	*/
+X
+X	if (met_hard_count == 0) {
+X
+X	    *unmet_criteria_return = p_min_unmet->unmet_hard_criteria |
+X				     p_min_unmet->unmet_soft_criteria;
+X	    FREE_ALLOCATED_RESOURCES
+X	    return PEXUtCriteriaFailure;
+X	}
+X
+X
+X	/*
+X	    If more than one Visual has met the hard criteria, make a pass 
+X	    to choose the best one.  
+X	*/
+X
+X	if (met_hard_count > 1) {
+X
+X	    unsigned int overall_rating;
+X	    unsigned int max_rating = 0;
+X
+X	    p_info = visual_info;
+X	    p_chosen_info = p_info;
+X	    for (visual_index=0; 
+X		visual_index<supported_visual_count; 
+X		visual_index++) {
+X
+X		if (p_info->unmet_hard_criteria == 0) {
+X
+X		    overall_rating = pexut_compute_overall_rating (p_info);
+X		    if (overall_rating > max_rating) {
+X			max_rating = overall_rating;
+X			p_chosen_info = p_info;
+X		    }
+X		}
+X
+X		p_info++;
+X	    }
+X	}
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section V:	Copy or generate return information.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    If we have chosen a Visual, and we've got standard colormap 
+X	    information, and the caller requested it, we'll return that 
+X	    and the atom for the property.
+X
+X	    If we have chosen a Visual, but we don't have standard colormap
+X	    information yet, then synthesize the info from the visual.
+X	    This is just an "educated" guess at what kind of color ramp
+X	    might be supported by PEX on the visual.
+X	*/
+X
+X	if (((PEXUtStandardColormapProperty|PEXUtSharableColormap) &
+X	    (local_criteria.hard_criteria_mask | 
+X		local_criteria.soft_criteria_mask)) &&
+X	    (local_criteria.standard_colormap_property || 
+X		local_criteria.sharable_colormap) &&
+X	    (p_chosen_info->property_ptr != NULL)) {
+X
+X	    *cmap_info_return = *(p_chosen_info->property_ptr);
+X	    *std_prop_atom_return = p_chosen_info->property_atom;
+X	    color_approx_type = PEXColorSpace;
+X	}
+X	else {
+X	    pexut_synthesize_cmap_from_visual (p_chosen_info->visual_ptr, 
+X						cmap_info_return);
+X	    *std_prop_atom_return = None;
+X	    color_approx_type = -1;
+X	}
+X
+X	*vis_info_return = *(p_chosen_info->visual_ptr);
+X
+X	if (((PEXUtColorApproxType) &
+X	    (local_criteria.hard_criteria_mask | 
+X		local_criteria.soft_criteria_mask)) &&
+X	    (!(PEXUtColorApproxType & p_chosen_info->unmet_soft_criteria)))
+X	    color_approx_type = local_criteria.color_approx_type;
+X
+X	pexut_load_color_approx_from_std_cmap (color_approx_type, 
+X					vis_info_return, cmap_info_return, 
+X					capx_info_return);
+X
+X	*unmet_criteria_return = p_chosen_info->unmet_soft_criteria;
+X	FREE_ALLOCATED_RESOURCES
+X
+X	if (*unmet_criteria_return)
+X	    return PEXUtQualifiedSuccess;
+X	else
+X	    return PEXUtSuccess;
+X
+X#undef FREE_ALLOCATED_RESOURCES
+X
+X} /* PEXUtFindVisual */
+X
+X
+Xint PEXUtGetStandardColormapInfo (
+X		display,
+X		vis_info,
+X		cmap_info_return,
+X		capx_info_return,
+X		std_prop_atom_return
+X		)
+X
+X		Display				*display;
+X		XVisualInfo			*vis_info;
+X		XStandardColormap		*cmap_info_return;
+X		PEXColorApproxEntry		*capx_info_return;
+X		Atom				*std_prop_atom_return;
+X{
+X
+X	int			entry_count;
+X	Atom			property_atom;
+X	XStandardColormap	*property_data;
+X
+X	int			prop_index;
+X	int			entry_index;
+X	int			result;
+X
+X
+X	/*
+X	    For each property in the list of properties specified by
+X	    the interoperability conventions, get the value of the 
+X	    property, and search it for the specified visual.
+X	*/
+X
+X	for (prop_index=0; prop_index<NUM_INTEROP_PROPERTIES; prop_index++) {
+X
+X	    result = pexut_get_standard_cmap_property (display, 
+X					    vis_info->screen, 
+X					    &(interop_properties[prop_index]),
+X					    &property_atom,
+X					    &entry_count,
+X					    &property_data);
+X
+X	    if (result != PEXUtSuccess) {
+X		return result;
+X	    }
+X
+X	    for (entry_index=0; entry_index < entry_count; entry_index++) {
+X
+X		if (property_data[entry_index].visualid == vis_info->visualid) {
+X
+X			*cmap_info_return = property_data[entry_index];
+X			pexut_load_color_approx_from_std_cmap (PEXColorSpace, 
+X							    vis_info, 
+X							    cmap_info_return, 
+X							    capx_info_return);
+X			XFree (property_data);
+X			*std_prop_atom_return = property_atom;
+X			return PEXUtSuccess;
+X		}
+X	    }
+X
+X	    if (entry_count > 0)
+X		XFree (property_data);
+X	}
+X
+X	/*
+X	    If the visual was not found in any property, synthesize colormap 
+X	    info from the visual.  In other words, make an educated guess.
+X	*/
+X
+X	pexut_synthesize_cmap_from_visual (vis_info, cmap_info_return);
+X	pexut_load_color_approx_from_std_cmap (-1, vis_info, 
+X						cmap_info_return, 
+X						capx_info_return);
+X	*std_prop_atom_return = None;
+X	return PEXUtSuccess;
+X
+X} /* PEXUtGetStandardColormapInfo */
+X
+X
+Xint PEXUtVerifyColorApproximation (
+X		display,
+X		capx_info,
+X		vis_info
+X		)
+X
+X		Display				*display;
+X		PEXColorApproxEntry		*capx_info;
+X		XVisualInfo			*vis_info;
+X{
+X	int			result;
+X	int			return_value;
+X	Window			window;
+X	int			inquiry_supported;
+X
+X	/*
+X	    Create a temporary unmapped window in the visual.
+X	*/
+X	pexut_create_temporary_window (display, vis_info, &window);
+X
+X
+X	/*
+X	    Verify that specified approx type is supported
+X	    using PEXGetEnumTypeInfo.  If not, return failure.
+X	*/
+X
+X	result = pexut_verify_color_approx_type (display, window, 
+X						capx_info->type);
+X	if (result != PEXUtSuccess) {
+X	    pexut_destroy_temporary_window (display, vis_info, window);
+X	    return result;
+X	}
+X
+X	inquiry_supported = False;
+X
+X	{
+X	    int			enum_types[1];
+X	    unsigned long 	*count;
+X	    PEXEnumTypeDesc	*enum_data;
+X	    int			enum_index;
+X
+X	    /*
+X		Verify that the QueryColorApprox escape is supported
+X		using PEXGetEnumTypeInfo.  If not, we just can't verify
+X		support.
+X	    */
+X
+X	    enum_types[0] = PEXETEscape;
+X	    if (!PEXGetEnumTypeInfo (display, window, 1, enum_types, 
+X				    PEXETIndex, &count, &enum_data)) {
+X
+X		pexut_destroy_temporary_window (display, vis_info, window);
+X		return PEXUtPEXFailure;
+X	    }
+X	    else {
+X
+X		for (enum_index = 0; enum_index < *count; enum_index++) {
+X		    if ((short) enum_data[enum_index].index == 
+X			(short) PEXETEscapeQueryColorApprox) {
+X			inquiry_supported = True;
+X			break;
+X		    }
+X		}
+X		PEXFreeEnumInfo (1, count, enum_data);
+X	    }
+X	}
+X
+X	if (inquiry_supported) {
+X
+X	    PEXEscapeQueryColorApproxData	query;
+X	    PEXEscapeQueryColorApproxReplyData	*reply;
+X	    unsigned long 			reply_length;
+X
+X	    query.drawable = window;
+X	    query.capx = *capx_info;
+X
+X	    reply = (PEXEscapeQueryColorApproxReplyData *)
+X		    PEXEscapeWithReply (display, PEXEscapeQueryColorApprox, 
+X					sizeof(query), ((char *) &query), 
+X					&reply_length);
+X
+X	    if (reply != NULL) {
+X
+X		if (reply->capx_is_supported)
+X		    return_value = PEXUtSuccess;
+X		else
+X		    return_value = PEXUtCriteriaFailure;
+X
+X		XFree ((char *) reply);
+X	    }
+X	    else {
+X		pexut_destroy_temporary_window (display, vis_info, window);
+X		return PEXUtPEXFailure;
+X	    }
+X	}
+X	else {
+X	    /* Can't determine support or non-support. */
+X	    return_value = PEXUtQualifiedSuccess;
+X	}
+X
+X
+X	/*
+X	    Destroy the temporary window.
+X	*/
+X
+X	pexut_destroy_temporary_window (display, vis_info, window);
+X
+X
+X	return return_value;
+X	
+X} /* PEXUtVerifyColorApproximation */
+X
+X
+Xint PEXUtCreateWriteableColormap (
+X		display,
+X		vis_info,
+X		capx_info,
+X		colormap_id_return
+X		)
+X
+X		Display				*display;
+X		XVisualInfo			*vis_info;
+X		PEXColorApproxEntry		*capx_info;
+X		Colormap			*colormap_id_return;
+X{
+X	int 	result;
+X
+X	result = PEXUtXFailure;
+X	switch (vis_info->class) {
+X
+X	case PseudoColor:	
+X	case GrayScale:	
+X	    result = pexut_create_one_channel_map (display, vis_info, 
+X						capx_info, colormap_id_return);
+X	    break;
+X
+X	case DirectColor:	
+X	    result = pexut_create_three_channel_map (display, vis_info, 
+X						capx_info, colormap_id_return);
+X	    break;
+X
+X	case StaticColor:
+X	case TrueColor:
+X	case StaticGray:
+X	    result = pexut_create_read_only_map (display, vis_info, 
+X						capx_info, colormap_id_return);
+X	    break;
+X	}
+X
+X	return result;
+X	
+X} /* PEXUtCreateWriteableColormap */
+X
+X
+Xint PEXUtModifyColormapForVendorDependencies (
+X		display,
+X		colormap_id,
+X		vis_info,
+X		capx_info
+X		)
+X
+X		Display				*display;
+X		Colormap			colormap_id;
+X		XVisualInfo			*vis_info;
+X		PEXColorApproxEntry		*capx_info;
+X{
+X	PEXExtensionInfo	*ext_info;
+X	int			result;
+X
+X	/*
+X	    Get PEX extension info.
+X	*/
+X
+X	if (NULL == (ext_info = PEXGetExtensionInfo (display)))
+X	    return PEXUtPEXFailure;
+X
+X	result = PEXUtUnmodifiedResource;
+X	if (!strcmp(ext_info->vendor_name, "Hewlett-Packard Company")) {
+X	    result = pexut_modify_colormap_for_HP_dependencies (
+X					display, colormap_id, 
+X					vis_info, capx_info);
+X	}
+X	/*
+X	else if (!strcmp(ext_info->vendor_name, "vendor_2")) {
+X	    result = pexut_modify_colormap_for_vendor_2_dependencies (
+X					display, colormap_id, 
+X					vis_info, capx_info);
+X	}
+X	*/
+X
+X	return result;
+X
+X} /* PEXUtModifyColormapForVendorDependencies */
+X
+X
+Xint PEXUtCopyColormapAsReadOnly (
+X		display,
+X		source_cmap_id,
+X		vis_info,
+X		capx_info,
+X		cmap_id_return
+X		)
+X
+X		Display				*display;
+X		Colormap			source_cmap_id;
+X		XVisualInfo			*vis_info;
+X		PEXColorApproxEntry		*capx_info;
+X		Colormap			*cmap_id_return;
+X
+X/*
+X    NOTE:  	There is an assumption in this code that if XAllocColor does 
+X		not find an existing cell that matches the RGB, that it
+X		allocates the lowest unallocated cell available, i.e. it
+X		works from pixel zero towards higher values.
+X
+X			
+X    Algorithm:
+X
+X	Section I:	Allocate a new Colormap and allocate all the cells.
+X
+X	Section II:	Compute the number of cells in the color approximation
+X			region.  Fetch all the cells of the source Colormap.
+X
+X	Section III:	Free and reallocate as read-only the regions above
+X			and below the color approximation region if it is
+X			partial.  The color approximation region must be left
+X			read-write because XAllocColor might find matches in
+X			the cells outside the region and so would leave
+X			unallocated cells inside the region.  Later XAllocColor
+X			calls can then corrupt the color approximation ramp.
+X
+X			Freeing and reallocating the color approximation 
+X			region first doesn't work either because then 
+X			XAllocColor calls for the lower region find matches 
+X			within the color ramp, and so leave holes in the 
+X			lower region that is often already in use by other 
+X			clients.  Later XAllocColor calls then write these
+X			cells and cause color flashing in the human interface.
+X
+X	Section IV:	Free and allocate the entire Colormap as read-only
+X			if the color approximation region consumes the entire
+X			Colormap.  This is safe because no unallocated cells
+X			will be left.  If the color approximation region
+X			was partial, then write the region with the source
+X			colors.
+X*/
+X{
+X	Colormap	cmap_id;
+X	int		num_reds, num_greens, num_blues, num_colors;
+X	int		red_shift, green_shift, blue_shift;
+X	int		vis_red_shift, vis_green_shift, vis_blue_shift;
+X	unsigned long	temp;
+X	unsigned long	*pixels, pixel_value, *p_pixel;
+X	XColor		*source_colors, *p_color, screen_def;
+X	int		result;
+X
+X
+X	/*
+X	    Nothing to do for read-only Visuals.
+X	*/
+X
+X	if ((vis_info->class == StaticGray) ||
+X	    (vis_info->class == StaticColor) ||
+X	    (vis_info->class == TrueColor)) {
+X
+X	    *cmap_id_return = source_cmap_id;
+X	    return PEXUtSuccess;
+X	}
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section I:	Allocate a new Colormap and allocate all the cells.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    Allocate new colormap with AllocNone.
+X	    Allocate all the cells as read/write using XAllocColorCells.
+X	*/
+X
+X	cmap_id = XCreateColormap ( display, 
+X				    RootWindow (display, vis_info->screen),
+X				    vis_info->visual, AllocNone );
+X	if (cmap_id == None)
+X	    return PEXUtXFailure;
+X
+X	pixels = (unsigned long *) 
+X		    malloc (vis_info->colormap_size * sizeof(unsigned long));
+X	if (pixels == NULL) {
+X	    XFreeColormap (display, cmap_id);
+X	    return PEXUtAllocFailure;
+X	}
+X
+X	result = XAllocColorCells ( display, cmap_id, True,
+X				    (unsigned long *) NULL, 0, 
+X				    pixels, vis_info->colormap_size);
+X	if (! result) {
+X	    free (pixels);
+X	    XFreeColormap (display, cmap_id);
+X	    return PEXUtXFailure;
+X	}
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section II:	Compute the number of cells in the color approximation
+X		region.  Fetch all the cells of the source Colormap.
+X    -----------------------------------------------------------------------
+X    */
+X	/*
+X	    Compute the number of cells in the ramp region.
+X	*/
+X
+X	if ((vis_info->class == GrayScale) ||
+X	    (vis_info->class == PseudoColor)) {
+X
+X	    if (capx_info->type == PEXColorRange) {
+X
+X		num_colors = capx_info->max1 + 1;
+X	    }
+X	    else { /* assume PEXColorSpace */
+X
+X		num_reds = capx_info->max1 + 1;
+X		num_greens = capx_info->max2 + 1;
+X		num_blues = capx_info->max3 + 1;
+X		num_colors = num_reds * num_greens * num_blues;
+X	    }
+X	}
+X	else { /* assume DirectColor  */
+X
+X	    num_reds = capx_info->max1 + 1;
+X	    num_greens = capx_info->max2 + 1;
+X	    num_blues = capx_info->max3 + 1;
+X	    num_colors = num_reds;
+X	    if (num_greens > num_colors) num_colors = num_greens;
+X	    if (num_blues > num_colors) num_colors = num_blues;
+X
+X	    for (red_shift = 0, temp = capx_info->mult1;
+X		temp > 1; red_shift++, temp >>= 1);
+X	    vis_red_shift = 0;
+X	    temp = vis_info->red_mask;
+X	    while (!(temp & 0x1)) {
+X		vis_red_shift++;
+X		temp >>= 1;
+X	    }
+X
+X	    for (green_shift = 0, temp = capx_info->mult2;
+X		temp > 1; green_shift++, temp >>= 1);
+X	    vis_green_shift = 0;
+X	    temp = vis_info->green_mask;
+X	    while (!(temp & 0x1)) {
+X		vis_green_shift++;
+X		temp >>= 1;
+X	    }
+X
+X	    for (blue_shift = 0, temp = capx_info->mult3;
+X		temp > 1; blue_shift++, temp >>= 1);
+X	    vis_blue_shift = 0;
+X	    temp = vis_info->blue_mask;
+X	    while (!(temp & 0x1)) {
+X		vis_blue_shift++;
+X		temp >>= 1;
+X	    }
+X
+X	    if ((red_shift != vis_red_shift) ||
+X		(green_shift != vis_green_shift) ||
+X		(blue_shift != vis_blue_shift)) {
+X
+X		free (pixels);
+X		XFreeColormap (display, cmap_id);
+X		return PEXUtXFailure;
+X	    }
+X	}
+X
+X	if (capx_info->base_pixel >= vis_info->colormap_size) {
+X	    free (pixels);
+X	    XFreeColormap (display, cmap_id);
+X	    return PEXUtXFailure;
+X	}
+X	if (capx_info->base_pixel + num_colors > vis_info->colormap_size)
+X	    num_colors = vis_info->colormap_size - capx_info->base_pixel;
+X
+X
+X	/*
+X	    Fetch all the cells in the source colormap.
+X	*/
+X
+X	if ((source_colors = (XColor *) malloc 
+X		(vis_info->colormap_size * sizeof(XColor))) == NULL) {
+X
+X	    free (pixels);
+X	    XFreeColormap (display, cmap_id);
+X	    return PEXUtAllocFailure;
+X	}
+X
+X	for (pixel_value = 0, p_color = source_colors; 
+X	    pixel_value < vis_info->colormap_size;
+X	    pixel_value++, p_color++) {
+X
+X	    if (vis_info->class == DirectColor) {
+X
+X		p_color->pixel = (pixel_value << red_shift);
+X		p_color->pixel |= (pixel_value << green_shift);
+X		p_color->pixel |= (pixel_value << blue_shift);
+X	    }
+X	    else {
+X		p_color->pixel = pixel_value;
+X	    }
+X	    p_color->flags = DoRed | DoGreen | DoBlue;
+X	}
+X	XQueryColors (display, source_cmap_id, source_colors, 
+X			vis_info->colormap_size);
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section III:	Free and reallocate as read-only the regions above
+X			and below the color approximation region if it is
+X			partial.  The color approximation region must be left
+X			read-write because XAllocColor might find matches in
+X			the cells outside the region and so would leave
+X			unallocated cells inside the region.  Later XAllocColor
+X			calls can then corrupt the color approximation ramp.
+X
+X			Freeing and reallocating the color approximation 
+X			region first doesn't work either because then 
+X			XAllocColor calls for the lower region find matches 
+X			within the color ramp, and so leave holes in the 
+X			lower region that is often already in use by other 
+X			clients.  Later XAllocColor calls then write these
+X			cells and cause color flashing in the human interface.
+X    -----------------------------------------------------------------------
+X    */
+X
+X	/*
+X	    Free cells above the ramp region and allocate those colors.
+X	*/
+X
+X	if ((capx_info->base_pixel + num_colors) < vis_info->colormap_size) {
+X
+X	    for (pixel_value = (capx_info->base_pixel + num_colors), 
+X		p_pixel = pixels;
+X		pixel_value < vis_info->colormap_size;
+X		pixel_value++, p_pixel++)  {
+X
+X		if (vis_info->class == DirectColor) {
+X
+X		    *p_pixel = (pixel_value << red_shift);
+X		    *p_pixel |= (pixel_value << green_shift);
+X		    *p_pixel |= (pixel_value << blue_shift);
+X		}
+X		else {
+X		    *p_pixel = pixel_value;
+X		}
+X	    }
+X
+X	    XFreeColors (display, cmap_id, pixels, 
+X			(vis_info->colormap_size - 
+X			    (capx_info->base_pixel + num_colors)), 
+X			0);
+X
+X	    for (pixel_value = (capx_info->base_pixel + num_colors), 
+X		p_color = source_colors + (capx_info->base_pixel + num_colors);
+X		pixel_value < vis_info->colormap_size;
+X		pixel_value++, p_color++) {
+X
+X		screen_def = *p_color;
+X		if (!XAllocColor (display, cmap_id, &screen_def)) {
+X		    free (pixels);
+X		    free (source_colors);
+X		    XFreeColormap (display, cmap_id);
+X		    return PEXUtXFailure;
+X		}
+X	    }
+X	}
+X
+X	/*
+X	    Free cells below the ramp region and allocate those colors.
+X	*/
+X
+X	if (capx_info->base_pixel > 0) {
+X
+X	    for (pixel_value = 0, p_pixel = pixels;
+X		pixel_value < capx_info->base_pixel;
+X		pixel_value++, p_pixel++)  {
+X
+X		if (vis_info->class == DirectColor) {
+X
+X		    *p_pixel = (pixel_value << red_shift);
+X		    *p_pixel |= (pixel_value << green_shift);
+X		    *p_pixel |= (pixel_value << blue_shift);
+X		}
+X		else {
+X		    *p_pixel = pixel_value;
+X		}
+X	    }
+X
+X	    XFreeColors (display, cmap_id, pixels, 
+X			capx_info->base_pixel, 0);
+X
+X	    for (pixel_value = 0,
+X		p_color = source_colors;
+X		pixel_value < capx_info->base_pixel;
+X		pixel_value++, p_color++) {
+X
+X		screen_def = *p_color;
+X		if (!XAllocColor (display, cmap_id, &screen_def)) {
+X		    free (pixels);
+X		    free (source_colors);
+X		    XFreeColormap (display, cmap_id);
+X		    return PEXUtXFailure;
+X		}
+X	    }
+X	}
+X
+X
+X    /*
+X    -----------------------------------------------------------------------
+X    Section IV:		Free and allocate the entire Colormap as read-only
+X			if the color approximation region consumes the entire
+X			Colormap.  This is safe because no unallocated cells
+X			will be left.  If the color approximation region
+X			was partial, then write the region with the source
+X			colors.
+X    -----------------------------------------------------------------------
+X    */
+X	/*
+X	    If the ramp consumes the entire map,
+X	    free cells in the ramp region and allocate those colors read-only.
+X	*/
+X
+X	if (num_colors == vis_info->colormap_size) {
+X
+X	    for (pixel_value = capx_info->base_pixel, p_pixel = pixels;
+X		pixel_value < (capx_info->base_pixel + num_colors);
+X		pixel_value++, p_pixel++)  {
+X
+X		if (vis_info->class == DirectColor) {
+X
+X		    *p_pixel = (pixel_value << red_shift);
+X		    *p_pixel |= (pixel_value << green_shift);
+X		    *p_pixel |= (pixel_value << blue_shift);
+X		}
+X		else {
+X		    *p_pixel = pixel_value;
+X		}
+X	    }
+X
+X	    XFreeColors (display, cmap_id, pixels, 
+X			    num_colors, 0);
+X
+X	    for (pixel_value = capx_info->base_pixel,
+X		p_color = source_colors + capx_info->base_pixel;
+X		pixel_value < (capx_info->base_pixel + num_colors);
+X		pixel_value++, p_color++) {
+X
+X		screen_def = *p_color;
+X		if (!XAllocColor (display, cmap_id, &screen_def)) {
+X		    free (pixels);
+X		    free (source_colors);
+X		    XFreeColormap (display, cmap_id);
+X		    return PEXUtXFailure;
+X		}
+X	    }
+X	}
+X	else {
+X	    /*
+X		Write out the colors in the region to the new colormap.
+X	    */
+X
+X	    XStoreColors (display, cmap_id, 
+X			    source_colors + capx_info->base_pixel, 
+X			    num_colors);
+X	}
+X
+X
+X	/*
+X	    Free the allocated storage.
+X	    Caller must free the source colormap.
+X	*/
+X
+X	free (pixels);
+X	free (source_colors);
+X
+X	*cmap_id_return = cmap_id;
+X	return PEXUtSuccess;
+X
+X} /* PEXUtCopyColormapAsReadOnly */
+X
+X
+Xint PEXUtCreateColormap (
+X		display,
+X		vis_info,
+X		capx_info,
+X		colormap_id_return
+X		)
+X
+X		Display				*display;
+X		XVisualInfo			*vis_info;
+X		PEXColorApproxEntry		*capx_info;
+X		Colormap			*colormap_id_return;
+X{
+X	int		result;
+X	Colormap	writeable_cmap_id;
+X	Colormap	readonly_cmap_id;
+X    
+X
+X	result = PEXUtCreateWriteableColormap (display, vis_info,
+X				      capx_info, &writeable_cmap_id);
+X	if (result != PEXUtSuccess)
+X	    return result;
+X
+X	result = PEXUtModifyColormapForVendorDependencies (
+X				    display, writeable_cmap_id,
+X				    vis_info, capx_info);
+X
+X	if ((result != PEXUtUnmodifiedResource) &&
+X	    (result != PEXUtModifiedResource))
+X	    return result;
+X
+X	result = PEXUtCopyColormapAsReadOnly (display, writeable_cmap_id,
+X					    vis_info, capx_info,
+X					    &readonly_cmap_id);
+X	if (result != PEXUtSuccess)
+X	    return result;
+X
+X	if (readonly_cmap_id != writeable_cmap_id)
+X	    XFreeColormap (display, writeable_cmap_id);
+X	*colormap_id_return = readonly_cmap_id;
+X	return PEXUtSuccess;
+X
+X} /* PEXUtCreateColormap */
+X
+X
+Xint PEXUtCreateWindow (
+X		display,
+X		screen,
+X		window_info,
+X		vis_info,
+X		window_return,
+X		background_color_return
+X		)
+X
+X		Display				*display;
+X		int				screen;
+X		PEXUtWindowSpecification	*window_info;
+X		XVisualInfo			*vis_info;
+X		Window				*window_return;
+X		XColor				*background_color_return;
+X{
+X	unsigned long 		window_mask;
+X	XSetWindowAttributes 	window_attrs;
+X	int			result;
+X
+X	unsigned long		pixel_value;
+X	XColor			screen_def;
+X	XColor			exact_def;
+X	int			need_color;
+X
+X
+X	/*
+X	    Check the window specification.
+X	*/
+X
+X	if (( !(window_info->attr_mask & CWColormap)) ||
+X	    (window_info->attrs.colormap == None))
+X	    return PEXUtXFailure;
+X
+X
+X	/*
+X	    Look up colors for background and border.
+X	*/
+X
+X	window_mask = window_info->attr_mask;
+X	window_attrs = window_info->attrs;
+X
+X	if ( !(window_info->attr_mask & CWBackPixel)) {
+X
+X	    need_color = True;
+X	    if (XParseColor (display, window_attrs.colormap, 
+X			    window_info->background_color_name, &exact_def)) {
+X
+X		screen_def = exact_def;
+X
+X		if (XAllocColor (display, window_attrs.colormap, &screen_def)) {
+X		    pixel_value = screen_def.pixel;
+X		    *background_color_return = screen_def;
+X		    need_color = False;
+X		}
+X	    }
+X
+X	    if (need_color) {
+X
+X		if (XAllocNamedColor (display, window_attrs.colormap, "Black", 
+X					&screen_def, &exact_def)) {
+X		    pixel_value = screen_def.pixel;
+X		    *background_color_return = screen_def;
+X		}
+X		else {
+X		    pixel_value = 0;
+X		    background_color_return->pixel = pixel_value;
+X		    background_color_return->red = 0;
+X		    background_color_return->green = 0;
+X		    background_color_return->blue = 0;
+X		}
+X	    }
+X	    window_attrs.background_pixel = pixel_value;
+X	    window_mask |= CWBackPixel;
+X	}
+X
+X	if ( !(window_info->attr_mask & CWBorderPixel)) {
+X
+X	    need_color = True;
+X	    if (XParseColor (display, window_attrs.colormap, 
+X			    window_info->border_color_name, &exact_def)) {
+X
+X		screen_def = exact_def;
+X
+X		if (XAllocColor (display, window_attrs.colormap, &screen_def)) {
+X		    pixel_value = screen_def.pixel;
+X		    need_color = False;
+X		}
+X	    }
+X
+X	    if (need_color) {
+X
+X		if (XAllocNamedColor (display, window_attrs.colormap, "White", 
+X					&screen_def, &exact_def))
+X		    pixel_value = screen_def.pixel;
+X		else
+X		    pixel_value = 0;
+X	    }
+X	    window_attrs.border_pixel = pixel_value;
+X	    window_mask |= CWBorderPixel;
+X	}
+X
+X
+X	/*
+X	    Create the window.
+X	*/
+X
+X	*window_return = XCreateWindow (display, 
+X				window_info->parent,
+X				window_info->size_hints.x,
+X				window_info->size_hints.y,
+X				window_info->size_hints.width,
+X				window_info->size_hints.height,
+X				window_info->border_width,
+X				vis_info->depth, 
+X				InputOutput,
+X				vis_info->visual,
+X				window_mask,
+X				&window_attrs);
+X
+X	if (*window_return == None)
+X	    return PEXUtXFailure;
+X
+X	XSetNormalHints (display, *window_return, &(window_info->size_hints));
+X	XStoreName (display, *window_return, window_info->title);
+X	XSync (display,0);
+X
+X	return PEXUtSuccess;
+X
+X} /* PEXUtCreateWindow */
+X
+X
+Xint PEXUtCreateWindowAndColormap (
+X		display,
+X		screen,
+X		criteria,
+X		window_info,
+X		window_return,
+X		vis_info_return,
+X		cmap_info_return,
+X		capx_info_return,
+X		unmet_criteria_return,
+X		std_prop_atom_return,
+X		background_color_return
+X		)
+X
+X		Display				*display;
+X		int				screen;
+X		PEXUtVisualCriteria		*criteria;
+X		PEXUtWindowSpecification	*window_info;
+X		Window				*window_return;
+X		XVisualInfo			*vis_info_return;
+X		XStandardColormap		*cmap_info_return;
+X		PEXColorApproxEntry		*capx_info_return;
+X		unsigned int			*unmet_criteria_return;
+X		Atom				*std_prop_atom_return;
+X		XColor				*background_color_return;
+X{
+X	Colormap			cmap_id_from_property;
+X	Colormap			created_cmap_id;
+X	PEXUtWindowSpecification	local_window_info;
+X	int 				result;
+X	
+X
+X	/*
+X	    Find visual.
+X	*/
+X
+X	result = PEXUtFindVisual (	display, screen, criteria,
+X					vis_info_return,
+X					cmap_info_return,
+X					capx_info_return,
+X					unmet_criteria_return,
+X					std_prop_atom_return );
+X
+X	if ((result != PEXUtSuccess) && (result != PEXUtQualifiedSuccess))
+X	    return result;
+X
+X	cmap_id_from_property = cmap_info_return->colormap;
+X
+X
+X	/*
+X	    Verify color approximation.
+X	*/
+X
+X	result = PEXUtVerifyColorApproximation (display, 
+X						capx_info_return, 
+X						vis_info_return);
+X	if ((result != PEXUtSuccess) && (result != PEXUtQualifiedSuccess))
+X	    return result;
+X
+X
+X	/*
+X	    If sharing, and the default Visual was chosen but there is
+X	    no Colormap ID from a property, then use the default Colormap.
+X	*/
+X
+X	if ((PEXUtSharableColormap &
+X	    (criteria->hard_criteria_mask | criteria->soft_criteria_mask)) &&
+X	    (vis_info_return->visual == DefaultVisual(display, screen))) {
+X
+X	    if (cmap_id_from_property == None) {
+X		cmap_id_from_property = DefaultColormap(display, screen);
+X		cmap_info_return->colormap = cmap_id_from_property;
+X	    }
+X	}
+X
+X	    
+X	/*
+X	    If no colormap ID in returned info, or not sharing,
+X	    create a colormap and modify it for vendor dependencies.
+X	    Then reallocate the same colors as read-only, so
+X	    XAllocColor has a chance of working.
+X	*/
+X
+X	if ((cmap_id_from_property == None) ||
+X	    (!(PEXUtSharableColormap &
+X	    (criteria->hard_criteria_mask | criteria->soft_criteria_mask)))) {
+X
+X	    result = PEXUtCreateColormap (display, vis_info_return,
+X					  capx_info_return, &created_cmap_id);
+X	    if (result != PEXUtSuccess)
+X		return result;
+X
+X	    cmap_info_return->colormap = created_cmap_id;
+X	}
+X
+X
+X	/*
+X	    Load a local copy of the window info with an augmented set of items
+X	    and create the window.
+X	*/
+X
+X	local_window_info = *window_info;
+X	local_window_info.attrs.colormap = cmap_info_return->colormap;
+X	local_window_info.attr_mask |= CWColormap;
+X	local_window_info.attr_mask &= ~(CWBackPixel|CWBorderPixel);
+X
+X	result = PEXUtCreateWindow (display, screen, &local_window_info, 
+X				   vis_info_return, window_return, 
+X				    background_color_return);
+X
+X	if (result == PEXUtSuccess) {
+X	    XMapWindow (display, *window_return);
+X	    XSync (display, 0);
+X	}
+X
+X	return result;
+X
+X} /* PEXUtCreateWindowAndColormap */
+END_OF_FILE
+  if test 44664 -ne `wc -c <'util/pexutcmap.c'`; then
+    echo shar: \"'util/pexutcmap.c'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutcmap.c'
+fi
+echo shar: End of archive 4 \(of 14\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

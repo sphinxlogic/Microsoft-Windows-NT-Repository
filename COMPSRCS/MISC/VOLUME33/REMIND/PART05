@@ -1,0 +1,569 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject:  v33i062:  remind - A replacement for calendar, Part05/12
+Message-ID: <1992Nov10.041901.990@sparky.imd.sterling.com>
+X-Md4-Signature: bc3d8f3d8f0787059f232cefb966a783
+Date: Tue, 10 Nov 1992 04:19:01 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 33, Issue 62
+Archive-name: remind/part05
+Environment: UNIX, MS-DOS
+Supersedes: remind: Volume 17, Issue 3-6
+
+#!/bin/sh
+# This is part 05 of Remind 03.00.00
+if touch 2>&1 | fgrep 'amc' > /dev/null
+ then TOUCH=touch
+ else TOUCH=true
+fi
+# ============= files.c ==============
+if test X"$1" != X"-c" -a -f 'files.c'; then
+	echo "File already exists: skipping 'files.c'"
+else
+echo "x - extracting files.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > files.c &&
+X/***************************************************************/
+X/*                                                             */
+X/*  FILES.C                                                    */
+X/*                                                             */
+X/*  Controls the opening and closing of files, etc.  Also      */
+X/*  handles caching of lines and reading of lines from         */
+X/*  files.                                                     */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992 by David F. Skoll.                      */
+X/*                                                             */
+X/***************************************************************/
+X
+X#include "config.h"
+X#include <stdio.h>
+X#ifdef HAVE_STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef HAVE_MALLOC_H
+X#include <malloc.h>
+X#endif
+X#include <string.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <time.h>
+X
+X#ifdef __MSDOS__
+X#include <io.h>
+X#endif
+X
+X#ifdef __MSC__
+X#include <dos.h>
+X#endif
+X
+X#include "config.h"
+X#include "types.h"
+X#include "protos.h"
+X#include "globals.h"
+X#include "err.h"
+X
+X/* Define the structures needed by the file caching system */
+Xtypedef struct _cache_ {
+X   struct _cache_ *next;
+X   char *text;
+X   int LineNo;
+X} CachedLine;
+X
+Xtypedef struct _cheader_ {
+X   struct _cheader_ *next;
+X   char *filename;
+X   CachedLine *cache;
+X} CachedFile;
+X
+X/* Define the structures needed by the INCLUDE file system */
+Xtypedef struct {
+X   char *filename;
+X   int LineNo;
+X   unsigned int IfFlags;
+X   int NumIfs;
+X   long offset;
+X   CachedLine *CLine;
+X} IncludeStruct;
+X
+Xstatic CachedFile *CachedFiles = (CachedFile *) NULL;
+Xstatic CachedLine *CLine = (CachedLine *) NULL;
+X
+Xstatic FILE *fp;
+X
+Xstatic IncludeStruct IStack[INCLUDE_NEST];
+Xstatic int IStackPtr = 0;
+X
+XPRIVATE int ReadLineFromFile ARGS ((void));
+XPRIVATE int CacheFile ARGS ((const char *fname));
+XPRIVATE void DestroyCache ARGS ((CachedFile *cf));
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ReadLine                                                   */
+X/*                                                             */
+X/*  Read a line from the file or cache.                        */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int ReadLine(void)
+X#else
+Xint ReadLine()
+X#endif
+X{
+X   int r;
+X
+X/* If we're at the end of a file, pop */
+X   while (!CLine && !fp) {
+X      r = PopFile();
+X      if (r) return r;
+X   }
+X
+X/* If it's cached, read line from the cache */
+X   if (CLine) {
+X      CurLine = CLine->text;
+X      LineNo = CLine->LineNo;
+X      CLine = CLine->next;
+X      FreshLine = 1;
+X      if (DebugFlag & DB_ECHO_LINE) OutputLine(ErrFp);
+X      return OK;
+X   }
+X
+X/* Not cached.  Read from the file. */
+X   CurLine = LineBuffer;
+X   return ReadLineFromFile();
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  ReadLineFromFile                                           */
+X/*                                                             */
+X/*  Read a line from the file pointed to by fp.                */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int ReadLineFromFile(void)
+X#else
+Xstatic ReadLineFromFile()
+X#endif
+X{
+X   int l;
+X   char *ptr;
+X
+X   *LineBuffer = (char) 0;
+X   l = 0;
+X   ptr = LineBuffer;
+X   while(fp) {
+X      (void) fgets(ptr, LINELEN-l, fp);
+X      LineNo++;
+X      if (ferror(fp)) return E_IO_ERR;
+X      if (feof(fp)) {
+X         fclose(fp);
+X	 fp = NULL;
+X      }
+X      l = strlen(LineBuffer);
+X      if (l && (LineBuffer[l-1] == '\n')) LineBuffer[--l] = '\0';
+X      if (l && (LineBuffer[l-1] == '\\')) {
+X	 l--;
+X	 ptr = LineBuffer+l;
+X	 if (l >= LINELEN-1) return E_LINE_2_LONG;
+X	 continue;
+X      }
+X      FreshLine = 1;
+X      if (DebugFlag & DB_ECHO_LINE) OutputLine(ErrFp);
+X      return OK;
+X   }
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  OpenFile                                                   */
+X/*                                                             */
+X/*  Open a file for reading.  If it's in the cache, set        */
+X/*  CLine.  Otherwise, open it on disk and set fp.  If         */
+X/*  ShouldCache is 1, cache the file                           */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int OpenFile(const char *fname)
+X#else
+Xint OpenFile(fname)
+Xchar *fname;
+X#endif
+X{
+X   CachedFile *h = CachedFiles;
+X   int r;
+X
+X/* If it's in the cache, get it from there. */
+X
+X   while (h) {
+X      if (!strcmp(fname, h->filename)) {
+X	 CLine = h->cache;
+X	 STRSET(FileName, fname);
+X	 LineNo = 0;
+X	 if (FileName) return OK; else return E_NO_MEM;
+X      }
+X      h = h->next;
+X   }
+X   fp = fopen(fname, "r");
+X   if (!fp) return E_CANT_OPEN;
+X   CLine = NULL;
+X   if (ShouldCache) {
+X      LineNo = 0;
+X      r = CacheFile(fname);
+X      if (r == OK) {
+X         fp = NULL;
+X	 CLine = CachedFiles->cache;
+X      } else {
+X         fp = fopen(fname, "r");
+X	 if (!fp) return E_CANT_OPEN;
+X      }
+X   }
+X   STRSET(FileName, fname);
+X   LineNo = 0;
+X   if (FileName) return OK; else return E_NO_MEM;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  CacheFile                                                  */
+X/*                                                             */
+X/*  Cache a file in memory.  If we fail, set ShouldCache to 0  */
+X/*  Returns an indication of success or failure.               */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE int CacheFile(const char *fname)
+X#else
+Xstatic int CacheFile(fname)
+Xchar *fname;
+X#endif
+X{
+X   int r;
+X   CachedFile *cf;
+X   CachedLine *cl;
+X   char *s;
+X
+X   cl = NULL;
+X/* Create a file header */
+X   cf = NEW(CachedFile);
+X   cf->cache = NULL;
+X   if (!cf) { ShouldCache = 0; fclose(fp); return E_NO_MEM; }
+X   cf->filename = StrDup(fname);
+X   if (!cf->filename) {
+X      ShouldCache = 0;
+X      fclose(fp);
+X      free(cf);
+X      return E_NO_MEM;
+X   }
+X
+X/* Read the file */
+X   while(fp) {
+X      r = ReadLineFromFile();
+X      if (r) {
+X         DestroyCache(cf);
+X	 ShouldCache = 0;
+X	 if(fp) fclose(fp);
+X	 return r;
+X      }
+X/* Skip blank chars */
+X      s = LineBuffer;
+X      while (isspace(*s)) s++;
+X      if (*s && *s!=';' && *s!='#') {
+X/* Add the line to the cache */
+X         if (!cl) {
+X	    cf->cache = NEW(CachedLine);
+X	    if (!cf->cache) {
+X	       DestroyCache(cf);
+X	       ShouldCache = 0;
+X	       if(fp) fclose(fp);
+X	       return E_NO_MEM;
+X            }
+X	    cl = cf->cache;
+X         } else {
+X	    cl->next = NEW(CachedLine);
+X	    if (!cl->next) {
+X	       DestroyCache(cf);
+X	       ShouldCache = 0;
+X	       if(fp) fclose(fp);
+X	       return E_NO_MEM;
+X            }
+X	    cl = cl->next;
+X         }
+X	 cl->next = NULL;
+X	 cl->LineNo = LineNo;
+X	 cl->text = StrDup(s);
+X	 if (!cl->text) {
+X	    DestroyCache(cf);
+X	    ShouldCache = 0;
+X	    if(fp) fclose(fp);
+X	    return E_NO_MEM;
+X         }
+X      }
+X   }
+X
+X/* Put the cached file at the head of the queue */
+X   cf->next = CachedFiles;
+X   CachedFiles = cf;
+X
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  PopFile - we've reached the end.  Pop up to the previous   */
+X/*  file, or return E_EOF                                      */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int PopFile(void)
+X#else
+Xint PopFile()
+X#endif
+X{
+X   IncludeStruct *i;
+X
+X   if (!Hush && NumIfs) Eprint("Warning: Missing ENDIF");
+X   if (!IStackPtr) return E_EOF;
+X   IStackPtr--;
+X   i = &IStack[IStackPtr];
+X
+X   LineNo = i->LineNo;
+X   IfFlags = i->IfFlags;
+X   NumIfs = i->NumIfs;
+X   CLine = i->CLine;
+X   fp = NULL;
+X   STRSET(FileName, i->filename);
+X   if (!CLine && (i->offset != -1L)) {
+X   /* We must open the file, then seek to specified position */
+X      fp = fopen(i->filename, "r");
+X      if (!fp) return E_CANT_OPEN;
+X      (void) fseek(fp, i->offset, 0);  /* Trust that it works... */
+X   }
+X   free(i->filename);
+X   return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DoInclude                                                  */
+X/*                                                             */
+X/*  The INCLUDE command.                                       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int DoInclude(ParsePtr p)
+X#else
+Xint DoInclude(p)
+XParsePtr p;
+X#endif
+X{     
+X    char tok[TOKSIZE];
+X    int r, e;
+X
+X    if(r=ParseToken(p, tok)) return r;
+X    e = VerifyEoln(p); 
+X    if (e) Eprint("%s", ErrMsg[e]);
+X    if(r=IncludeFile(tok)) return r;
+X    NumIfs = 0;
+X    IfFlags = 0;
+X    return OK;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  IncludeFile                                                */
+X/*                                                             */
+X/*  Process the INCLUDE command - actually do the file         */
+X/*  inclusion.                                                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int IncludeFile(const char *fname)
+X#else
+Xint IncludeFile(fname)
+Xchar *fname;
+X#endif
+X{
+X   IncludeStruct *i;
+X   int r;
+X
+X   if (IStackPtr+1 >= INCLUDE_NEST) return E_NESTED_INCLUDE;
+X   i = &IStack[IStackPtr];
+X
+X   i->filename = StrDup(FileName);
+X   if (!i->filename) return E_NO_MEM;
+X   i->LineNo = LineNo;
+X   i->NumIfs = NumIfs;
+X   i->IfFlags = IfFlags;
+X   i->CLine = CLine;
+X   i->offset = -1L;
+X   if (fp) {
+X      i->offset = ftell(fp);
+X      fclose(fp);
+X      fp = (FILE *) NULL;
+X   }
+X
+X   IStackPtr++;
+X
+X   /* Try to open the new file */
+X   if (!OpenFile(fname)) {
+X      return OK;
+X   }
+X   /* Ugh!  We failed!  */
+X   if (r=PopFile()) return r;
+X   return E_CANT_OPEN;
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/* GetAccessDate - get the access date of a file.              */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int GetAccessDate(char *file)
+X#else
+Xint GetAccessDate(file)
+Xchar *file;
+X#endif
+X{
+X   struct stat statbuf;
+X   struct tm *t1;
+X
+X   if (stat(file, &statbuf)) return -1;
+X#ifdef __TURBOC__
+X   t1 = localtime( (time_t *) &(statbuf.st_atime) );
+X#else
+X   t1 = localtime(&(statbuf.st_atime));
+X#endif
+X
+X   if (t1->tm_year + 1900 < BASE)
+X      return 0;
+X   else
+X      return Julian(t1->tm_year+1900, t1->tm_mon, t1->tm_mday);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  SetAccessDate                                              */
+X/*                                                             */
+X/*  Used only by DOS to set access date after we close the     */
+X/*  file.  Not needed for UNIX.                                */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef __MSDOS__
+X/*
+X * WARNING WARNING WARNING WARNING
+X * In the version of Turbo C which I have, there is a bug in the
+X * stdio.h file.  The following lines correct the bug.  YOU MAY
+X * HAVE TO REMOVE THESE LINES FOR LATER VERSIONS OF TURBOC
+X */
+X#ifdef __TURBOC__
+X#ifndef fileno
+X#define fileno(f) ((f)->fd)
+X#endif
+X#endif
+X
+X#ifdef HAVE_PROTOS
+XPUBLIC int SetAccessDate(char *fname, int jul)
+X#else
+Xint SetAccessDate(fname, jul)
+Xchar *fname;
+Xint jul;
+X#endif
+X{
+X   int y, m, d;
+X#ifdef __TURBOC__   
+X   struct ftime ft;
+X#endif   
+X   FILE *f;
+X
+X   FromJulian(jul, &y, &m, &d);
+X   
+X#ifdef __TURBOC__   
+X   ft.ft_tsec = 0;
+X   ft.ft_min = 0;
+X   ft.ft_hour = 12;  /* Arbitrarily set time to noon. */
+X   ft.ft_day = (unsigned int) d;
+X   ft.ft_month = (unsigned int) m+1;
+X   ft.ft_year = (unsigned int) (y - 1980);
+X#endif
+X
+X   f = fopen(fname, "r");
+X
+X#ifdef __TURBOC__   
+X   if (!f || setftime(fileno(f) , &ft)) {
+X#endif
+X
+X#ifdef __MSC__
+X   if (!f || _dos_setftime(fileno(f),
+X	((y-1980)<<9) + (m+1)<<5 + d,
+X	(12<<11))) {
+X#endif   	
+X      fprintf(ErrFp, "Can't reset access date of %s\n", fname);
+X      if (f) fclose(f);
+X      return -1;
+X   }
+X
+X   fclose(f);
+X   return 0;
+X}
+X#endif /* __MSDOS__ */
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  DestroyCache                                               */
+X/*                                                             */
+X/*  Free all the memory used by a cached file.                 */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPRIVATE void DestroyCache(CachedFile *cf)
+X#else
+Xstatic void DestroyCache(cf)
+XCachedFile *cf;
+X#endif
+X{
+X   CachedLine *cl, *cnext;
+X   if (cf->filename) free(cf->filename);
+X   cl = cf->cache;
+X   while (cl) {
+X      if (cl->text) free (cl->text);
+X      cnext = cl->next;
+X      free(cl);
+X      cl = cnext;
+X   }
+X   free(cf);
+X}
+X
+X/***************************************************************/
+X/*                                                             */
+X/*  TopLevel                                                   */
+X/*                                                             */
+X/*  Returns 1 if current file is top level, 0 otherwise.       */
+X/*                                                             */
+X/***************************************************************/
+X#ifdef HAVE_PROTOS
+XPUBLIC int TopLevel(void)
+X#else
+Xint TopLevel()
+X#endif
+X{
+X   return !IStackPtr;
+X}
+SHAR_EOF
+$TOUCH -am 1109141292 files.c &&
+chmod 0600 files.c ||
+echo "restore of files.c failed"
+set `wc -c files.c`;Wc_c=$1
+if test "$Wc_c" != "14553"; then
+	echo original size 14553, current size $Wc_c
+fi
+fi
+echo "End of part 5, continue with part 6"
+exit 0
+
+exit 0 # Just in case...

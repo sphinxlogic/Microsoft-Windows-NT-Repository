@@ -1,0 +1,1827 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i008: point text editor (TCL and TK), Part07/16
+Message-ID: <1992Mar18.141448.26827@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:14:48 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 8
+Archive-name: tcl-editor/part07
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 15)."
+# Contents:  copymove.c insdel.c undoredo.c
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:41 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'copymove.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copymove.c'\"
+else
+echo shar: Extracting \"'copymove.c'\" \(15083 characters\)
+sed "s/^X//" >'copymove.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/copymove.c,v 1.8 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <stdio.h>
+X#include "pt.h"
+X
+extern int addHandle;
+extern Offset addPosition;
+X
+X/* the scrap buffer */
+struct changeItem scrapBuffer;
+int scrapMode = SELCHAR;
+X
+void
+updateFile( fileId, offset, len, oneLineOnly )
+X	int fileId;
+X	Offset offset;
+X	Offset len;
+X	int oneLineOnly;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *windowList;
+X	extern struct window *selWindow;
+X	extern int debug;
+X
+X	register struct window *w;
+X	Offset topOffset;
+X	int n, col, firstRow, lastRow;
+X	int fid;
+X
+X	/* redraw the affected windows */
+X	w = windowList;
+X	while( w != NULL ) {
+X		fid = w->fileId;
+X		if( fid == fileId ) {
+X			/* repaint the window as necessary */
+X			if( offset <= w->posBotline )
+X				w->posBotline += len;
+X			else
+X				goto nextWindow;
+X			topOffset = w->posTopline;
+X			if( offset < topOffset ) {
+X				/* remember: len < 0 for a delete */
+X				/* a delete overlapping this window? */
+X				if( offset > (topOffset+len) ) {
+X					n = -1;
+X					w->posTopline = prevLine( fid,
+X							topOffset, &n );
+X				}
+X				if( !oneLineOnly ) {
+X					/* recalculate the line number by */
+X					/* letting prevLine count as far back */
+X					/* as it can */
+X					n = 3000000;
+X					(void)prevLine(fid, w->posTopline, &n);
+X					w->numTopline = n + 1;
+X				}
+X			}
+X			OffsetToXY( w, offset, &firstRow, &col );
+X			if( oneLineOnly ) {
+X				if( len > 1 )
+X					/* len > 0 ==> an insert */
+X					OffsetToXY( w, offset+len-1, &lastRow,
+X									&col );
+X				else
+X					lastRow = firstRow;
+X			} else {
+X				lastRow = w->nRows - 1;
+X			}
+X			if( firstRow != -1 )
+X				drawWindowFast(w, firstRow, lastRow,
+X								0, w->nCols-1);
+X		}
+X	nextWindow:
+X		w = w->nextWindow;
+X	}
+X}
+X
+void
+updateTops(fileId, offset, len, oneLineOnly )
+X	int fileId;
+X	Offset offset;
+X	Offset len;
+X	int oneLineOnly;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *windowList;
+X	extern int debug;
+X
+X	register struct window *w;
+X	int n;
+X	Offset topOffset;
+X	int fid;
+X
+X	/* adjust the data of the affected windows */
+X	w = windowList;
+X	while( w != NULL ) {
+X		fid = w->fileId;
+X		if( fid == fileId ) {
+X			if( offset < w->posBotline )
+X				w->posBotline += len;
+X			else
+X				goto nextWindow;
+X			topOffset = w->posTopline;
+X			if( offset < topOffset ) {
+X				/* a delete overlapping this window? */
+X				if( offset > (topOffset+len) ) {
+X					n = -1;
+X					w->posTopline = prevLine( fid,
+X							topOffset, &n);
+X				}
+X				if( !oneLineOnly ) {
+X					/* recalculate the line number by */
+X					/* letting prevLine count as far back */
+X					/* as it can */
+X					n = 3000000;
+X					(void)prevLine(fid, w->posTopline, &n);
+X					w->numTopline = n + 1;
+X				}
+X			}
+X		}
+X	nextWindow:
+X		w = w->nextWindow;
+X	}
+X}
+X
+void
+exchWithScrap()
+X{
+X	extern char msgBuffer[];
+X	extern struct changeItem scrapBuffer;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X	extern struct openFile *files;
+X
+X	Offset length;
+X	struct changeItem *thisChange;
+X	Piece firstPiece;
+X	struct openFile * ff = &files[selWindow->fileId];
+X
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only", ff->origName);
+X		msg(msgBuffer, (int)1);
+X		return;
+X	}
+X
+X	/* remember what was in the scrap */
+X	firstPiece = scrapBuffer.firstPiece;
+X	length = scrapBuffer.length;
+X	/* prevent this from getting freed when the scrap buffer is reused */
+X	scrapBuffer.firstPiece = NULL;
+X	
+X	/* move the selection into the scrap */
+X	(void)deleteChars( selWindow->fileId, NOUPDATE, 1 );
+X
+X	/* record in the change history */
+X	thisChange = GetNewChange( ff );
+X	thisChange->type = CINSERT;
+X	thisChange->w = selWindow;
+X	thisChange->flags = 0;
+X	thisChange->position = selBegin;
+X	thisChange->length = length;
+X	thisChange->lineNumber = selWindow->numTopline;
+X	thisChange->fileId = selWindow->fileId;
+X	thisChange->firstPiece = firstPiece;
+X	RecordChange( ff, thisChange );
+X
+X	/* copy the old scrap into the file */
+X	copyPieces( firstPiece, selWindow, selBegin, length, 1, 0 );
+X	
+X	/* free the scrap pieces */
+X	freePieces(firstPiece);
+X}
+X
+void
+copyToScrap(fromWindow, fromBegin, fromEnd)
+X	struct window *fromWindow;
+X	Offset fromBegin, fromEnd;
+X{
+X	extern char msgBuffer[];
+X	extern struct changeItem scrapBuffer;
+X	extern struct window *selWindow;
+X	extern int selMode;
+X	extern int scrapMode;
+X
+X	int fromId;
+X	Offset fb, copyLength;
+X	Piece tempPP;
+X
+X	fromId = fromWindow->fileId;
+X	
+X	/* eliminate the EOF marker from the selection */
+X	fb = fileSize(fromId);
+X	if( fromEnd >= fb ) {
+X		if( fromBegin < fb )
+X			fromEnd = fb-1;
+X		else	/* only the EOF symbol is selected */
+X			return;
+X	}
+X	copyLength = fromEnd - fromBegin + 1;
+X
+X	/* free the old scrap buffer pieces */
+X	freePieces(scrapBuffer.firstPiece);
+X
+X	/* record in the scrap buffer */
+X	scrapBuffer.type = 1;
+X	scrapBuffer.length = copyLength;
+X	scrapBuffer.w = selWindow;
+X	scrapBuffer.flags = 0;
+X	tempPP = getFreePiece();
+X	scrapBuffer.firstPiece = tempPP;
+X	scrapMode = selMode;
+X
+X	tempPP->file = addHandle;
+X	tempPP->position = addPosition;
+X	fb = fromBegin;
+X	while( fb <= fromEnd ) {
+X		writeChar( (char)getFileByte(fromId, fb++), addPosition++);
+X	}
+X	tempPP->length = copyLength;
+X}
+X
+void
+insScrap( doInsert, update )
+X	int doInsert;
+X	int update;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern struct changeItem scrapBuffer;
+X	extern struct openFile *files;
+X 	extern int selMode;
+X	extern int scrapMode;
+X	extern int maxFiles;
+X
+X	Offset limit, logByte;
+X	Piece tempPP, oldScrap;
+X	struct openFile *ff;
+X	struct changeItem *thisChange;
+X
+X	/* check if this is a readOnly file */
+X	if( files[selWindow->fileId].flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only",
+X			files[selWindow->fileId].origName);
+X		msg(msgBuffer, (int)1);
+X		return;
+X	}
+X
+X	/* See if the text in the scrap buffer is in an edit file rather */
+X	/* then in the add file.  If it is we need to copy it to the add */
+X	/* file. */
+X	if( !scrapBuffer.type ) {
+X		/* keep a pointer to the old piece list */
+X		oldScrap = scrapBuffer.firstPiece;
+X		/* scrapBuffer.length will not change */
+X		
+X		/* get a new piece and initialize the fields */
+X		tempPP = getFreePiece();
+X		tempPP->file = addHandle;
+X		tempPP->position = addPosition;
+X		tempPP->length = scrapBuffer.length;
+X		
+X		/* this will be the new scrapBuffer piece list */
+X		scrapBuffer.type = 1;  /* now it is addFile only type */
+X		scrapBuffer.firstPiece = tempPP;
+X		
+X		/* Now copy the characters into the add file */
+X		logByte = 0;
+X		limit = scrapBuffer.length;
+X
+X		/* simulate a file this was deleted from */
+X		ff = &files[maxFiles];
+X		ff->hiLogBuffer = -1;
+X		ff->loLogBuffer = -1;
+X		ff->origHandle = scrapBuffer.fileId;
+X		ff->fileSize = limit;
+X		ff->logPiece = oldScrap;
+X		ff->loLogPiece = 0;
+X		ff->hiLogPiece = oldScrap->length - 1;
+X		while( logByte < limit ) {
+X			/* copy the characters in pp to the add file */
+X			writeChar( (char)getFileByte(maxFiles, logByte++),
+X				addPosition++);
+X		}
+X		
+X		freePieces(oldScrap);  /* free the old piece chain */
+X	}
+X	if( doInsert ) {
+X		/* record in the change history */
+X		ff = &files[selWindow->fileId];
+X		thisChange = GetNewChange( ff );
+X		thisChange->type = CCOPY;
+X		selMode = scrapMode;
+X		selBegin = adjustSelMode( selBegin );
+X		thisChange->position = selBegin;
+X		thisChange->length = scrapBuffer.length;
+X		thisChange->lineNumber = selWindow->numTopline;
+X		thisChange->fileId = selWindow->fileId;
+X		thisChange->w = selWindow;
+X		thisChange->flags = 0;
+X		thisChange->firstPiece = dupPieces(scrapBuffer.firstPiece);
+X		RecordChange( ff, thisChange );
+X
+X		copyPieces( scrapBuffer.firstPiece, selWindow, selBegin,
+X			scrapBuffer.length, update, 0 );
+X	}
+X}
+X
+void
+copyMove(fromWindow, fromBegin, fromEnd, toWindow, toPosition, mode)
+X	struct window *fromWindow, *toWindow;
+X	Offset fromBegin, fromEnd, toPosition;
+X	int mode;
+X{
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X
+X	int n, fromId, toId;
+X	Offset  fb, copyLength;
+X	Piece tempPP;
+X	struct changeItem *thisChange;
+X	struct changeItem *currentChange;
+X	int wasCR;
+X	char ch;
+X	struct openFile * ff = &files[toWindow->fileId];
+X
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only",ff->origName);
+X		msg(msgBuffer, (int)1);
+X		return;
+X	}
+X
+X	/* Is this a move with source and destination ovelapping? */
+X	if( mode==MOVE && fromBegin<=toPosition && toPosition<=fromEnd
+X						&& fromWindow==toWindow ) {
+X		msg("Cannot move text into itself", 2);
+X		return;
+X	}
+X
+X	fromId = fromWindow->fileId;
+X	toId = toWindow->fileId;
+X
+X	/* eliminate the EOF marker from the selection */
+X	fb = fileSize(fromId);
+X	if( fromEnd >= fb ) {
+X		if( fromBegin < fb )
+X			fromEnd = fb-1;
+X		else	/* only the EOF symbol is selected */
+X			return;
+X	}
+X	copyLength = fromEnd - fromBegin + 1;
+X
+X	/* record in the change history */
+X	thisChange = GetNewChange( ff );
+X	if( mode == COPY )
+X		thisChange->type = CCOPY;
+X	else
+X		thisChange->type = CMOVE;
+X	thisChange->position = toPosition;
+X	thisChange->length = copyLength;
+X	thisChange->lineNumber = selWindow->numTopline;
+X	thisChange->fileId = toId;
+X	thisChange->w = selWindow;
+X	thisChange->flags = 0;
+X	tempPP = getFreePiece();
+X	thisChange->firstPiece = tempPP;
+X	RecordChange( ff, thisChange );
+X
+X	tempPP->file = addHandle;
+X	tempPP->position = addPosition;
+X	fb = fromBegin;
+X	wasCR = 0;
+X	while( fb <= fromEnd ) {
+X		ch = (char)getFileByte(fromId, fb++);
+X		if( ch == '\n' )
+X			wasCR = 1;
+X		writeChar( ch, addPosition++);
+X	}
+X	tempPP->length = copyLength;
+X
+X	/* if it is a move, then delete the from text */
+X	if( mode == MOVE ) {
+X		selWindow = fromWindow;
+X		selBegin = fromBegin;
+X		selEnd = fromEnd;
+X#ifdef XXXXXXXX
+X		if( fromWindow == toWindow )
+X			n = NOUPDATE;
+X		else
+X#endif
+X			n = UPDATEWINDOWS;
+X		(void)deleteChars( fromWindow->fileId, n, 1 );
+X		/* we're going to change the selection in copyPieces */
+X		/* to the character after the moved text. */
+X		drawSelection( 1 );
+X		/* if we deleted text before the toPosition we have */
+X		/* to adjust it since the logical text positions change */
+X		/* after a delete.  We also fix up the position on the */
+X		/* delete following so it will look like it really did */
+X		/* take place AFTER the copying in of the moved text */
+X		if( fromWindow->fileId == toWindow->fileId ) {
+X			if( toPosition > fromBegin )
+X				toPosition -= copyLength;
+X			else {
+X				currentChange = GetCurrentChange( ff );
+X				currentChange->position += copyLength;
+X			}
+X		}
+X	}
+X
+X	copyPieces(thisChange->firstPiece, toWindow, toPosition, copyLength,
+X						1, !wasCR );
+X}
+X
+void
+copyPieces(fromPP, toWindow, toPosition, copyLength, update, oneLineOnly)
+X	Piece fromPP;
+X	struct window *toWindow;
+X	Offset toPosition, copyLength;
+X	int update;
+X	int oneLineOnly;
+X{
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern Offset selBegin, selEnd;
+X	extern int selMode;
+X	extern struct window *selWindow;
+X	extern int trace_file;
+X
+X	int toId;
+X	Offset offset, toNN;
+X	Piece nextPP, toPP, lastPP;
+X	struct openFile *toFF;
+X	Piece pp2;
+X	struct window *w;
+X
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "C %2d %5d %5d\n",
+X			toWindow->fileId, toPosition, copyLength);
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X	if( update ) {
+X		/* just using these variables to save the selection */
+X		offset = selBegin;
+X		toNN = selEnd;
+X		w = selWindow;
+X		selBegin = selEnd = toPosition;
+X		selWindow = toWindow;
+X		selBegin = offset;
+X		selEnd = toNN;
+X		selWindow = w;
+X	}
+X	
+X	/* This is a special case to handle a backspace problem.  To wit, */
+X	/* if we delete text and type in new text, then select other text */
+X	/* and AGAIN, then the piece from the first change is copied in. */
+X	/* If we then backspace and type a new character, the piece itself */
+X	/* is changed and so the orignal edit is changed also.  We have to */
+X	/* prevent this so we bump addPosition in this case so the */
+X	/* backspace does not change the piece */
+X	/* A BETTER SOLUTION would be to make an actual copy of the text */
+X	/* in the piece.  This would allow further editing that would then */
+X	/* be able to be repeated again. */
+X	toPP = fromPP;		/* just using toPP as a convenient variable */
+X	while( toPP->nextPiece != NULL )
+X		toPP = toPP->nextPiece;
+X	if( (toPP->file == addHandle)
+X	 && (toPP->position+toPP->length == addPosition) )
+X	 	++addPosition;
+X		
+X	/* compute some values for later efficiency */
+X	toId = toWindow->fileId;
+X	toFF = &files[toId];
+X
+X	/* find out what piece 'toBegin' is in */
+X	toPP = findPiece(toPosition, toFF, &toNN);
+X	/* special case for the end of the file */
+X	if( toPosition > toFF->fileSize ) {
+X		/* leave toPP as the last piece in the file */
+X		nextPP = NULL;
+X	} else if( toPosition > toNN ) {
+X		/* copied text starts inside piece "toPP" */
+X		/* We split toPP into two pieces (toPP and nextPP) */
+X		/* at toPosition */
+X		/* get a new piece */
+X		nextPP = getFreePiece();
+X		/* link the new piece in before the piece after toPP */
+X		pp2 = toPP->nextPiece;
+X		nextPP->nextPiece = pp2;
+X		if( pp2 != NULL )
+X			pp2->prevPiece = nextPP;
+X		/* adjust the fields of the two pieces */
+X		offset = toPosition - toNN;
+X		nextPP->file = toPP->file;
+X		nextPP->position = toPP->position + offset;
+X		nextPP->length = toPP->length - offset;
+X		toPP->length = offset;
+X	} else {
+X		nextPP = toPP;
+X		toPP = toPP->prevPiece;
+X	}
+X	
+X	/* now copy the pieces into the piece list between toPP and nextPP */
+X	lastPP = toPP;
+X	while( fromPP != NULL ) {
+X		pp2 = getFreePiece();
+X		/* copy the information into the new piece */
+X		pp2->file = fromPP->file;
+X		pp2->position = fromPP->position;
+X		pp2->length = fromPP->length;
+X		/* link in the new piece */
+X		pp2->prevPiece = lastPP;
+X		/* link it into the list */
+X		if( lastPP != NULL )
+X			lastPP->nextPiece = pp2;
+X		else /* new first item on the list */
+X			toFF->pieceList = pp2;
+X		/* move to the next piece to copy */
+X		lastPP = pp2;
+X		fromPP = fromPP->nextPiece;
+X	}
+X	lastPP->nextPiece = nextPP;
+X	if( nextPP != NULL )
+X		nextPP->prevPiece = lastPP;
+X
+X	/* make the cached piece the one after the copied pieces */
+X	/* unless it is NULL */
+X	if( nextPP != NULL ) {
+X		toFF->logPiece = nextPP;
+X		toFF->loLogPiece = toPosition + copyLength;
+X		toFF->hiLogPiece = toFF->loLogPiece + nextPP->length - 1;
+X	} else {	/* make it the first piece in the file */
+X		toFF->logPiece = toFF->pieceList;
+X		toFF->loLogPiece = 0;
+X		toFF->hiLogPiece = toFF->loLogPiece
+X					+ (toFF->logPiece)->length - 1;
+X	}
+X
+X	/* update the length of the "to" file */
+X	toFF->fileSize += copyLength;
+X
+X	/* invalidate the buffer cache of the "to" file */
+X	toFF->hiLogBuffer = -1;
+X	toFF->loLogBuffer = -1;
+X
+X	/* record the fact that the file has changed */
+X	if( !(toFF->flags & IS_CHANGED) ) {
+X		toFF->flags |= IS_CHANGED;
+X		NewOpenList();
+X		banner( toWindow, 0 );
+X	}
+X
+X	/* invalidate the last-row-found cache */
+X	if( toWindow->posCurLast > toPosition )
+X		toWindow->lastPosTop = -1;
+X	
+X	/* make the selection the character past the copied text */
+X	if( selWindow != toWindow ) {
+X		drawSelection( 1 );
+X		selWindow = toWindow;
+X	}
+X	selEnd = selBegin = toPosition + copyLength;
+X
+X	/* change selection mode to character mode */
+X	selMode = SELCHAR;
+X	if( update )
+X		updateFile(toId, toPosition, copyLength, oneLineOnly);
+X}
+END_OF_FILE
+if test 15083 -ne `wc -c <'copymove.c'`; then
+    echo shar: \"'copymove.c'\" unpacked with wrong size!
+fi
+# end of 'copymove.c'
+fi
+if test -f 'insdel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'insdel.c'\"
+else
+echo shar: Extracting \"'insdel.c'\" \(15918 characters\)
+sed "s/^X//" >'insdel.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/insdel.c,v 1.7 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include "pt.h"
+X#include <stdio.h>
+X
+X/* the globals additions file */
+int addHandle;
+Offset addPosition;
+X
+void
+insertChar(c)
+X	int c;
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern Offset addPosition;
+X	extern int addHandle;
+X	extern int debug;
+X	extern int hypertextOn;
+X	extern int trace_file;
+X
+X	struct changeItem *thisChange;
+X	struct openFile *ff = &files[selWindow->fileId];
+X	Piece pp, pp2, thispp, nextpp, thirdpp;
+X	Offset nn, offset;
+X	unsigned char ch = (unsigned char)c;
+X	int oldSelBegin;
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn && selWindow->document != NULL ) {
+X		int ret;
+X
+X		/* convert selBegin to the underlying (real) file */
+X		oldSelBegin = selBegin;
+X		ret = GetRealSelection( ff, 1 /* get selBegin only */ );
+X
+X		/* check for insertion in decoration */
+X		if( ret & 1 ) {
+X			printf(
+X"insertChar ERROR: cannot insert into synthetic text\n");
+X			return;
+X		}
+X
+X		/* free the piece list of the old view */
+X		FreeOldViewPieces( ff );
+X
+X		/* fix up the fileId and ff */
+X		selWindow->fileId = selWindow->realFileId;
+X		ff = &files[selWindow->fileId];
+X	}
+X#endif
+X
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only", ff->origName);
+X		msg(msgBuffer, 1);
+X		return;
+X	}
+X
+X	/* find out what piece 'selBegin' is in */
+X	pp = findPiece( selBegin, ff, &nn );
+X
+X	offset = selBegin - nn;
+X	if( offset > 0 ) {	/* we must split the piece */
+X		/* we insert two new pieces */
+X		/* nextpp is for the character we are inserting */
+X		/* thirdpp is the split of portion of pp */
+X		
+X		/* update the fields of the new piece */
+X		nextpp = getFreePiece();
+X		nextpp->file = addHandle;
+X		nextpp->position = addPosition;
+X		nextpp->length = 1;
+X
+X		/* update the fields of the split off piece */
+X		thirdpp = getFreePiece();
+X		thirdpp->file = pp->file;
+X		thirdpp->position = pp->position + offset;
+X		thirdpp->length = pp->length - offset;
+X
+X		/* update the fields of the original piece */
+X		/* pp->file remains the same */
+X		/* pp->position remains the same */
+X		pp->length = offset;
+X		
+X		/* link everything together again */
+X		nextpp->nextPiece = thirdpp;
+X		thirdpp->prevPiece = nextpp;
+X		pp2 = pp->nextPiece;
+X		thirdpp->nextPiece = pp2;
+X		if( pp2 != NULL )
+X			pp2->prevPiece = thirdpp;
+X		nextpp->prevPiece = pp;
+X		pp->nextPiece = nextpp;
+X
+X		/* make the third piece the cached one */
+X		ff->logPiece = thirdpp;
+X		ff->loLogPiece = selBegin + 1;
+X		ff->hiLogPiece = selBegin + thirdpp->length;
+X	} else {	/* put in front of this piece */
+X		/* can we put it at the end of the previous piece? */
+X		thispp = pp->prevPiece;
+X		/* if (1) there IS a previous piece and */
+X		/*    (2) it is a piece in the add file and */
+X		/*    (3) it is just before the piece we are adding */
+X		/* then we coalsce the two pieces */
+X		if( (thispp != NULL)	/* pp is not the first piece */
+X		 && (thispp->file == addHandle)	/* in the add file */
+X		 && (thispp->position+thispp->length == addPosition)
+X		) {
+X			++(thispp->length);	/* simply adjust the length */
+X			ff->logPiece = pp;
+X			ff->loLogPiece = nn + 1;
+X			ff->hiLogPiece = nn + pp->length;
+X		} else {
+X			/* create a new piece for this character */
+X			thispp = getFreePiece();
+X			thispp->file = addHandle;
+X			thispp->position = addPosition;
+X			thispp->length = 1;
+X			thispp->nextPiece = pp;
+X			pp2 = pp->prevPiece;
+X			pp->prevPiece = thispp;
+X			thispp->prevPiece = pp2;
+X			if( pp2 != NULL )
+X				pp2->nextPiece = thispp;
+X			else
+X				ff->pieceList = thispp;
+X			ff->logPiece = thispp;
+X			ff->loLogPiece = selBegin;
+X			ff->hiLogPiece = selBegin;
+X		}
+X	}
+X
+X	/* record in the change history */
+X	/* see if we can add this to the last insert */
+X	thisChange = GetCurrentChange( ff );
+X	if( thisChange->type == CINSERT
+X	 && thisChange->fileId == selWindow->fileId
+X	 && selBegin == thisChange->position+thisChange->length ) {
+X		++(thisChange->length);
+X		++(thisChange->firstPiece->length);
+X	} else {
+X		/* record in the change history */
+X		thisChange = GetNewChange( ff );
+X		thisChange->type = CINSERT;
+X		thisChange->position = selBegin;
+X		thisChange->length = 1;
+X		thisChange->flags = 0;
+X		thisChange->lineNumber = selWindow->numTopline;
+X		thisChange->fileId = selWindow->fileId;
+X		thisChange->w = selWindow;
+X		pp = getFreePiece();
+X		thisChange->firstPiece = pp;
+X		pp->file = addHandle;
+X		pp->position = addPosition;
+X		pp->length = 1;
+X		RecordChange( ff, thisChange );
+X	}
+X
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "I %2d %5d %5d\n",
+X			selWindow->fileId, selBegin, 1 );
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X
+X	/* add one character to the file */
+X	ff->fileSize += 1;
+X	writeChar(ch, addPosition++);
+X
+X	/* invalidate the buffer cache */
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X
+X	/* record the fact that the file has changed */
+X	if( !(ff->flags & IS_CHANGED) ) {
+X		ff->flags |= IS_CHANGED;
+X		NewOpenList();
+X		banner( selWindow, 0 );
+X	}
+X
+X	/* adjust window data even though we do not redraw */
+X	updateTops( selWindow->fileId, selBegin, 1, (c!='\n') );
+X
+X	/* invalidate the last-row-found cache */
+X	if( selWindow->posCurLast > selBegin )
+X		selWindow->lastPosTop = -1;
+X	
+X	/* move the selection to char past new char */
+X	selEnd = ++selBegin;
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn && selWindow->document != NULL ) {
+X		/* create a new piece table for the view */
+X		selBegin = selEnd = ++oldSelBegin;
+X		selWindow->realFileId = selWindow->fileId;
+X		selWindow->fileId = CreateViewFile( selWindow );
+X		drawWindow( selWindow );
+X	}
+X#endif
+X	/* NOTE -- THE SELECTION WILL BE WRONG. FIX THIS LATER */
+X}
+X
+int
+delChar()
+X{
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern char msgBuffer[];
+X	extern struct openFile *files;
+X	extern Offset addPosition;
+X	extern int addHandle;
+X	extern int debug;
+X
+X	Offset nn, offset;
+X	struct openFile *ff;
+X	Piece pp, thispp;
+X	struct changeItem *currentChange;
+X	char ch;
+X
+X	/* find out what piece 'selBegin' is in */
+X	ff = &files[selWindow->fileId];
+X	pp = findPiece(selBegin, ff, &nn);
+X
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only", ff->origName);
+X		msg(msgBuffer, 1);
+X		return 0;
+X	}
+X
+X	offset = selBegin - nn;
+X	if( offset > 0 )
+X		return 0;
+X
+X	/* get the char deleted (for updateTops) */
+X	ch = getFileByte( selWindow->fileId, selBegin );
+X
+X	/* is the char to delete at the end of the previous piece? */
+X	thispp = pp->prevPiece;
+X	/* if (1) there IS a previous piece and */
+X	/*    (2) it is a piece in the add file and */
+X	/*    (3) it is just before the piece we are adding and */
+X	/*    (4) we are not deleting the last char in the piece */
+X	/*    (5) the preceding change was an insert */
+X	/* then we coalsce the two pieces */
+X	currentChange = GetCurrentChange( ff );
+X	if( (thispp != NULL)	/* pp is not the first piece */
+X	 && (thispp->file == addHandle)	/* in the add file */
+X	 && (thispp->position+thispp->length == addPosition)
+X	 && (thispp->length >= 1)
+X	 && (currentChange->type == CINSERT)
+X	) {
+X		--(thispp->length);	/* simply adjust the length */
+X		ff->logPiece = pp;
+X		ff->loLogPiece = nn - 1;
+X		ff->hiLogPiece = nn + pp->length - 1;
+X	} else
+X		return 0;
+X
+X	/* record in the change history */
+X	/* see if we can add this to the last insert */
+X	if( currentChange->type == CINSERT
+X	 && currentChange->fileId == selWindow->fileId
+X	 && selBegin == currentChange->position+currentChange->length ) {
+X		--(currentChange->length);
+X		--(currentChange->firstPiece->length);
+X	} else {
+X		++(thispp->length);	/* re-adjust the length */
+X		return 0;
+X	}
+X
+X	/* subtract one character to the file */
+X	ff->fileSize -= 1;
+X	--addPosition;
+X
+X	/* invalidate the buffer cache */
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X
+X	/* record the fact that the file has changed */
+X	if( !(ff->flags & IS_CHANGED) ) {
+X		ff->flags |= IS_CHANGED;
+X		NewOpenList();
+X		banner( selWindow, 0 );
+X	}
+X
+X	/* adjust window data even though we do not redraw */
+X	updateTops( selWindow->fileId, selBegin, 1, (ch!='\n') );
+X
+X	/* invalidate the last-row-found cache */
+X	if( selWindow->posCurLast > selBegin )
+X		selWindow->lastPosTop = -1;
+X
+X	selEnd = --selBegin;
+X	return 1;
+X}
+X
+int
+deleteChars(fileId, update, toScrap)
+X	/* toScrap=0 --> do not put in the scrap */
+X	/* toScrap=1 --> do put in the scrap */
+X	/* toScrap=2 --> do not put in the scrap or the history */
+X	int fileId, toScrap;
+X	DoUpdate update;
+X{
+X	extern char msgBuffer[];
+X	extern int debug;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X	extern struct changeItem scrapBuffer;
+X	extern int selMode;
+X	extern int scrapMode;
+X	extern Offset addPosition;
+X	extern struct openFile *files;
+X	extern int addHandle;
+X	extern int trace_file;
+X
+X	struct openFile *ff = &files[fileId];
+X	Offset sb, nn, curPos, nextPos, offset, delLength;
+X	int wasLF;
+X	Piece pp;
+X	Piece pp2, firstPP, nextPP, lastPP;
+X	struct changeItem *thisChange;
+X	int oldSelBegin;
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn && selWindow->document != NULL ) {
+X		int ret;
+X
+X		/* convert selBegin and selEnd to the underlying (real) file */
+X		oldSelBegin = selBegin;
+X		ret = GetRealSelection( ff, 0 /* get selBegin and selEnd */ );
+X
+X		/* check for insertion in decoration */
+X		if( ret & 1 ) {
+X			printf(
+X"deleteChars ERROR: cannot delete from synthetic text\n");
+X/* LATER: just adjust to the first real text */
+X			return 0;
+X		}
+X
+X		/* LATER: go through and only delete real text */
+X		/* NOT any block markers */
+X
+X		/* free the piece list of the old view */
+X		FreeOldViewPieces( ff );
+X
+X		/* fix up the fileId and ff */
+X		selWindow->fileId = selWindow->realFileId;
+X		ff = &files[selWindow->fileId];
+X	}
+X#endif
+X	nn = ff->fileSize;
+X
+X	/* check if this is a readOnly file */
+X	if( ff->flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only", ff->origName);
+X		msg(msgBuffer, 1);
+X		return 0;
+X	}
+X
+X	/* eliminate the EOF marker from the selection */
+X	if( selEnd >= nn ) {
+X		if( selBegin < nn )
+X			selEnd = nn-1;
+X		else	/* only the EOF symbol is selected */
+X			return 0;
+X	}
+X
+X	delLength = selEnd - selBegin + 1;
+X
+X	/* see if we are deleting a newline */
+X	if( delLength < 100 ) {	/* lines are usally < 100 chars */
+X		wasLF = 0;
+X		sb = selBegin;
+X		while( sb <= selEnd )
+X			if( (char)getFileByte( fileId, sb++ ) == '\n' ) {
+X				wasLF = 1;
+X				break;
+X			}
+X	} else	/* assume there is one -- too many to search */
+X		wasLF = 1;
+X
+X	/* find out what piece 'selBegin' is in */
+X	firstPP = findPiece( selBegin, ff, &curPos);
+X
+X/* first see if we have to split pp */
+offset = selBegin - curPos;
+if( offset > 0 ) {	/* delete starts inside this piece */
+X	/* split firstPP at selBegin */
+X	/* that is, get a new piece and adjust all the fields */
+X	nextPP = getFreePiece();
+X	nextPP->file = firstPP->file;
+X	nextPP->position = firstPP->position + offset;
+X	nextPP->length = firstPP->length - offset;
+X	firstPP->length = offset;
+X	nextPP->nextPiece = firstPP->nextPiece;
+X	nextPP->prevPiece = firstPP;
+X	if( (pp = firstPP->nextPiece) != NULL )
+X		pp->prevPiece = nextPP;
+X	firstPP->nextPiece = nextPP;
+X	firstPP = nextPP;
+X	curPos += offset;
+X}
+X
+X/* Now the delete begins at the first byte of firstPP */
+X/* See where the last piece is */
+lastPP = firstPP;
+while( 1 ) {
+X	/* does the selection end in this piece? */
+X	nextPos = curPos + lastPP->length;
+X	if( nextPos > selEnd )
+X		break;
+X	curPos = nextPos;
+X	lastPP = lastPP->nextPiece;
+X}
+X
+X/* now we see if we have to split this piece */
+if( selEnd < nextPos-1 ) {	/* delete ends inside this piece */
+X	/* split lastPP at selEnd */
+X	/* that is, get a new piece and adjust all the fields */
+X	nextPP = getFreePiece();
+X	nextPP->file = lastPP->file;
+X	offset = selEnd - curPos + 1;
+X	nextPP->position = lastPP->position + offset;
+X	nextPP->length = lastPP->length - offset;
+X	lastPP->length = offset;
+X	pp = lastPP->nextPiece;
+X	nextPP->nextPiece = pp;
+X	nextPP->prevPiece = lastPP;
+X	if( pp != NULL )
+X		pp->prevPiece = nextPP;
+X	lastPP->nextPiece = nextPP;
+X}
+X
+X/* Now the selection has been isolated in pieces firstPP (which begins */
+X/* with selBegin) and lastPP (which ends with selEnd) */
+X/* Now just link them out of this piece table */
+if( (pp = firstPP->prevPiece) != NULL ) {
+X	nextPP = lastPP->nextPiece;
+X	pp->nextPiece = nextPP;
+X	ff->logPiece = pp;
+X	ff->loLogPiece = selBegin - pp->length;
+X	if( nextPP != NULL )
+X		nextPP->prevPiece = firstPP->prevPiece;
+X	/* see if we can combine the two pieces now together */
+X	if( (nextPP != NULL) && (pp->file == nextPP->file)
+X	 && ((pp->position+pp->length) == nextPP->position) ) {
+X		pp->length += nextPP->length;	/* add to first piece */
+X		/* link the second piece out of the list */
+X		pp2 = nextPP->nextPiece;
+X		pp->nextPiece = pp2;
+X		if( pp2 != NULL )
+X			pp2->prevPiece = pp;
+X		/* isolate the one piece and free is (as a chain) */
+X		nextPP->nextPiece = nextPP->prevPiece = NULL;
+X		freePieces(nextPP);
+X	}
+X} else {	/* this delete is at the beginning of the file and there */
+X		/* are no pieces in front of firstPiece */
+X	pp = lastPP->nextPiece;
+X	ff->pieceList = pp;
+X	if( pp != NULL ) {
+X		pp->prevPiece = NULL;
+X		ff->logPiece = pp;
+X	} else {
+X		/* the piece table is empty so put a 0 length piece in it */
+X		/* it is convenient to be able to assume (in other parts */
+X		/* of the editor) that a piece table always contains at */
+X		/* least one piece */
+X		pp = getFreePiece();
+X		pp->file = addHandle;
+X		pp->position = addPosition;
+X		pp->length = 0;
+X		ff->pieceList = pp;
+X		ff->logPiece = pp;
+X	}
+X	ff->loLogPiece = 0;
+X}
+X
+X	/* make this an independent chain */
+X	firstPP->prevPiece = NULL;
+X	lastPP->nextPiece = NULL;
+X
+X	/* put it into the history */
+X	if( toScrap != 2 ) {
+X		/* record in the change history */
+X		thisChange = GetNewChange( ff );
+X		thisChange->type = CDELETE;
+X		thisChange->position = selBegin;
+X		thisChange->length = delLength;
+X		thisChange->flags = 0;
+X		thisChange->lineNumber = selWindow->numTopline;
+X		thisChange->fileId = fileId;
+X		thisChange->w = selWindow;
+X		thisChange->firstPiece = firstPP;
+X		RecordChange( ff, thisChange );
+X	}
+X
+X	if( trace_file > 0 ) {
+X		sprintf( msgBuffer, "D %2d %5d %5d\n",
+X			fileId, selBegin, delLength );
+X		write( trace_file, msgBuffer, strlen(msgBuffer) );
+X	}
+X
+X	if( toScrap == 1 ) {
+X		freePieces(scrapBuffer.firstPiece);
+X		scrapBuffer.length = delLength;
+X		scrapBuffer.type = 0;
+X		scrapBuffer.fileId = ff->origHandle;
+X		scrapBuffer.firstPiece = dupPieces(firstPP);
+X		scrapMode = selMode;
+X	} else if( toScrap == 2 )
+X		freePieces(firstPP);
+X
+X	/* update the cached piece */
+X	ff->hiLogPiece = ff->loLogPiece + (ff->logPiece)->length - 1;
+X	if( ff->hiLogPiece > ff->fileSize )
+X		/* this could happen if we just deleted the last piece */
+X		/* in the piece table */
+X		ff->hiLogPiece = ff->fileSize;
+X
+X	/* invalidate the buffer cache */
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X
+X	/* record the fact that the file has changed */
+X	if( !(ff->flags & IS_CHANGED) ) {
+X		ff->flags |= IS_CHANGED;
+X		NewOpenList();
+X		banner( selWindow, 0 );
+X	}
+X
+X	/* invalidate the last-row-found cache */
+X	if( selWindow->posCurLast > selBegin )
+X		selWindow->lastPosTop = -1;
+X		
+X	/* update the file length */
+X	ff->fileSize -= delLength;
+X
+X	/* the character after the deleted characters is the new selection */
+X	selEnd = selBegin;
+X
+X	/* entend the selection according to the selection mode */
+X	{ int row, col, n = -1;
+X	Offset beginRowCp;
+X	OffsetToXY( selWindow, selBegin, &row, &col );
+X	beginRowCp = prevLine( selWindow->fileId, selBegin, &n );
+X	modeExtend( selWindow, selBegin, row, col, beginRowCp );
+X	}
+X
+X#ifdef HYPERTEXT
+X	if( hypertextOn && selWindow->document != NULL ) {
+X		/* create a new piece table for the view */
+X		selBegin = selEnd = oldSelBegin;
+X		selWindow->realFileId = selWindow->fileId;
+X		selWindow->fileId = CreateViewFile( selWindow );
+X		drawWindow( selWindow );
+X	}
+X#endif
+X
+X	if( update == UPDATEWINDOWS ) {
+X		/* redraw all the affected windows */
+X		updateFile( fileId, selBegin, -delLength, !wasLF );
+X	} else {
+X		/* adjust window data even though we do not redraw */
+X		updateTops( fileId, selBegin, -delLength, !wasLF );
+X	}
+X
+X	return wasLF;
+X}
+END_OF_FILE
+if test 15918 -ne `wc -c <'insdel.c'`; then
+    echo shar: \"'insdel.c'\" unpacked with wrong size!
+fi
+# end of 'insdel.c'
+fi
+if test -f 'undoredo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'undoredo.c'\"
+else
+echo shar: Extracting \"'undoredo.c'\" \(15116 characters\)
+sed "s/^X//" >'undoredo.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/undoredo.c,v 1.7 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X
+X#define CHANGES_TO_SHOW		30
+X
+static struct openFile * mostRecentChange = NULL;
+X
+void
+initChanges()
+X{
+X	extern struct changeItem scrapBuffer;
+X	extern int addHandle;
+X
+X	scrapBuffer.firstPiece = getFreePiece();
+X	scrapBuffer.firstPiece->file = addHandle;
+X	scrapBuffer.firstPiece->position = 0L;
+X	scrapBuffer.firstPiece->length = 0L;
+X}
+X
+struct changeItem *
+GetCurrentChange( ff )
+X	struct openFile * ff;
+X{
+X	return ff->cmdHistory;
+X}
+X
+static void
+SetCurrentChange( ff, new_change )
+X	struct openFile * ff;
+X	struct changeItem * new_change;
+X{
+X	ff->cmdHistory = new_change;
+X}
+X
+X/*ARGSUSED*/
+struct changeItem *
+GetNewChange( ff )
+X	struct openFile * ff;
+X{
+X	struct changeItem * new_change;
+X
+X	new_change = (struct changeItem *)
+X			PtMalloc( sizeof(struct changeItem), "change item" );
+X	return new_change;
+X}
+X
+void
+RecordChange( ff, new_change )
+X	struct openFile * ff;
+X	struct changeItem * new_change;
+X{
+X	struct changeItem * last_change;
+X	struct changeItem * next_change;
+X	struct changeItem * change_to_free;
+X	
+X	/* link it into the chain */
+X	last_change = GetCurrentChange( ff );
+X	next_change = last_change->next;
+X
+X	/* free all undone edits */
+X	while( next_change != NULL ) {
+X		change_to_free = next_change;
+X		next_change = next_change->next;
+X		PtFree( (char *)change_to_free );
+X	}
+X
+X	new_change->next = NULL;
+X	new_change->prev = last_change;
+X	last_change->next = new_change;
+X	SetCurrentChange( ff, new_change );
+X	mostRecentChange = ff;
+X}
+X
+static char *
+GetUndoText( thisChange )
+X	struct changeItem * thisChange;
+X{
+X	extern char textBuffer[];
+X	extern struct openFile *files;
+X	extern int maxFiles;
+X
+X	struct openFile *ff;
+X	int len = thisChange->length;
+X	Offset limit, logByte;
+X	int i, ch;
+X
+X	/* cannot do it if the file is closed */
+X	if( thisChange->flags & FILE_WAS_CLOSED ) {
+X		return "File is closed";
+X	}
+X	/* simulate a file this was deleted from */
+X	ff = &files[maxFiles];
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X	ff->origHandle = thisChange->fileId;
+X	ff->fileSize = len;
+X	ff->logPiece = thisChange->firstPiece;
+X	ff->loLogPiece = 0;
+X	ff->hiLogPiece = thisChange->firstPiece->length - 1;
+X	i = 0;
+X	logByte = 0;
+X	if( (limit = 15) > len )
+X		limit = len;
+X	while( i < limit ) {
+X		ch = getFileByte(maxFiles, logByte++);
+X		/* temporay fix because of Tcl parsing of {...} */
+X		if( ch == '{' )
+X			ch = '[';
+X		else if( ch == '}' )
+X			ch = ']';
+X		textBuffer[i++] = ch;
+X	}
+X	if( len > 33 ) {
+X		textBuffer[i++] = '.';
+X		textBuffer[i++] = '.';
+X		textBuffer[i++] = '.';
+X		logByte = len - 15;
+X	}
+X	while( 1 ) {
+X		ch = getFileByte(maxFiles, logByte++);
+X		if( ch == BLOCK_EOF )
+X			break;
+X		/* temporay fix because of Tcl parsing of {...} */
+X		if( ch == '{' )
+X			ch = '[';
+X		else if( ch == '}' )
+X			ch = ']';
+X		textBuffer[i++] = ch;
+X	}
+X	textBuffer[i] = '\0';
+X	return textBuffer;
+X}
+X
+static char *
+flag_msg( flags )
+X	int flags;
+X{
+X	static char buffer[10];
+X
+X	if( flags & FILE_WAS_CLOSED )
+X		return "closed ";
+X	if( flags & CHANGE_WAS_UNDONE )
+X		strcpy( buffer, "no     " );
+X	else
+X		strcpy( buffer, "yes    " );
+X	if( flags & BLOCK_UNDO_BEGIN )
+X		buffer[5] = '>';
+X	else if( flags & BLOCK_UNDO_END )
+X		buffer[5] = '<';
+X	return buffer;
+X}
+X
+void
+UpdateUndoList( ff )
+X	struct openFile * ff;
+X{
+X	extern char msgBuffer[];
+X	extern char textBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *windowList;
+X	extern struct openFile *files;
+X	extern int display_width;
+X	extern int debug;
+X
+X	int i;
+X	char *s, *str;
+X	struct changeItem *thisChange;
+X	struct changeItem *prevChange;
+X
+X	/* empty the current list */
+X	(void)ExecTclCommand( "catch {.ub.list.list delete 0 end}" );
+X
+X	/* fill undo box */
+X	sprintf( msgBuffer,
+X	    "catch {.ub.list.list insert end {%-7s%-8s%-16s%5s%7s%6s %-20s}}",
+X	    "Done", "Type", "File", "Line", "Pos", "Len", "Chars" );
+X	(void)ExecTclCommand( msgBuffer );
+X	/* get the current change */
+X	thisChange = GetCurrentChange( ff );
+X	/* show up to 10 already undone changes */
+X	for( i = 0; i < 10; ++i ) {
+X		if( thisChange->next == NULL )
+X			break;
+X		thisChange = thisChange->next;
+X	}
+X	i = 0;
+X	while( thisChange != NULL && i < CHANGES_TO_SHOW ) {
+X		s = textBuffer;
+X		prevChange = thisChange->prev;
+X		switch( thisChange->type ) {
+X		case CNULL:	/* skip null changes */
+X			/* WAS: continue; */
+X			sprintf( s, "%s", "*** End of list ***" );
+X			break;
+X		case CINSERT:
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d \"%s\"",
+X				flag_msg(thisChange->flags),
+X				"Insert",
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length,
+X				GetUndoText(thisChange) );
+X			break;
+X		case CDELETE:
+X			if( prevChange->type == CMOVE )
+X				str = "MvFrom";
+X			else
+X				str = "Delete";
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d \"%s\"",
+X				flag_msg(thisChange->flags),
+X				str,
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length,
+X				GetUndoText(thisChange) );
+X			break;
+X		case CMOVE:
+X			/* not used -- a combination of CCOPY and CDELETE */
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d \"%s\"",
+X				flag_msg(thisChange->flags),
+X				"MoveTo",
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length,
+X				GetUndoText(thisChange) );
+X			break;
+X		case CCOPY:
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d \"%s\"",
+X				flag_msg(thisChange->flags),
+X				"Copy",
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length,
+X				GetUndoText(thisChange) );
+X			break;
+X		case CREPLACE:
+X			/* not used -- a combination of CDELETE and CINSERT */
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d \"%s\"",
+X				flag_msg(thisChange->flags),
+X				"Replace",
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length,
+X				GetUndoText(thisChange) );
+X			break;
+X		case CMOTION:
+X			sprintf( s, "%7s%-8s%-16s%5d%7d%6d",
+X				flag_msg(thisChange->flags),
+X				"Motion",
+X				&((files[thisChange->fileId].origName)
+X					[thisChange->w->nameOffset]),
+X				thisChange->lineNumber, thisChange->position,
+X				thisChange->length );
+X			break;
+X		}
+X		sprintf(msgBuffer, "catch {.ub.list.list insert end {%s}}",s);
+X		(void)ExecTclCommand( msgBuffer );
+X		++i;
+X		thisChange = prevChange;
+X	}
+X}
+X
+void
+ShowUndos( ff )
+X	struct openFile * ff;
+X{
+X	extern struct window *activeWindow;
+X	extern int display_width;
+X
+X	(void)ExecTclCommand( "MakeUndoBox" );
+X
+X	UpdateUndoList( ff );
+X}
+X
+void
+again( ff, mostRecent )
+X	struct openFile * ff;
+X	int mostRecent;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern struct openFile *files;
+X
+X	struct changeItem *newChange;
+X	struct changeItem *thisChange, *prevChange;
+X	int type;
+X
+X	/* check if this is a readOnly file */
+X	if( files[selWindow->fileId].flags & READ_ONLY ) {
+X		sprintf(msgBuffer, "File %s is read only",
+X			files[selWindow->fileId].origName);
+X		msg(msgBuffer, 1);
+X		return;
+X	}
+X
+X	/* most recent in this file or voer all files? */
+X	if( mostRecent )
+X		ff = mostRecentChange;
+X
+X	thisChange = GetCurrentChange( ff );
+X	if( thisChange == NULL || thisChange->type == CNULL ) {
+noChanges:
+X		msg("No previous change to repeat", 1);
+X		return;
+X	}
+X
+X	/* find the change to repeat (not a delete ) */
+X	while( 1 ) {
+X		if( thisChange == NULL )
+X			goto noChanges;
+X		if( (thisChange->type)!=CDELETE && (thisChange->type)!=CNULL )
+X			break;
+X		thisChange = thisChange->prev;
+X	}
+X
+X	switch( thisChange->type ) {
+X
+X	case CINSERT:
+X		type = CINSERT;
+X		goto doCopy;
+X
+X	case CCOPY:
+X	case CMOVE:
+X		type = CCOPY;
+X	doCopy:
+X		/* see if the previous change was a delete */
+X		prevChange = thisChange->prev;
+X		if( thisChange->position == prevChange->position 
+X		 && prevChange->type == CDELETE )
+X			/* the delete must go into the history first */
+X			(void)deleteChars(selWindow->fileId, NOUPDATE, 0);
+X		/* record the change before copyPieces changes things */
+X		newChange = GetNewChange( ff );
+X		newChange->type = type;
+X		newChange->position = selBegin;
+X		newChange->length = thisChange->length;
+X		newChange->lineNumber = selWindow->numTopline;
+X		newChange->w = thisChange->w;
+X		newChange->flags = 0;
+X		newChange->fileId = selWindow->fileId;
+X		newChange->firstPiece = dupPieces(thisChange->firstPiece);
+X		copyPieces( thisChange->firstPiece, selWindow, selBegin,
+X			thisChange->length, 1, 0 );
+X		RecordChange( ff, newChange );
+X		break;
+X	
+X	case CDELETE:
+X		(void)deleteChars(selWindow->fileId, UPDATEWINDOWS, 0);
+X		break;
+X	}
+X}
+X
+void
+redo( ff, count )
+X	struct openFile * ff;
+X	int count;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *windowList;
+X	extern int debug;
+X
+X	struct changeItem *prevChange;
+X	struct changeItem *thisChange, *nextChange;
+X	struct window *w1;
+X	int blockRedo = 0;
+X
+while( count > 0 || blockRedo ) {
+X	prevChange = GetCurrentChange( ff );
+X	thisChange = prevChange->next;
+X	if( thisChange == NULL ) {
+X		msg("No undone change to redo", 1);
+X		return;
+X	}
+X
+X	if( (prevChange->flags & BLOCK_UNDO_BEGIN)
+X	 && (prevChange->type != CNULL) ) {
+X		blockRedo = 1;
+X	} else if( (prevChange->flags & BLOCK_UNDO_END) && blockRedo ) {
+X		blockRedo = 0;
+X		if( --count <= 0 )
+X			break;
+X	} else
+X		--count;
+X
+X	/* move up the pointer to the last done change */
+X	SetCurrentChange( ff, thisChange );
+X
+X	thisChange->flags &= ~CHANGE_WAS_UNDONE;
+X	nextChange = thisChange->next;
+X
+X	/* find a window displaying the file the change was made in */
+X	if( thisChange->fileId != selWindow->fileId ) {
+X		w1 = windowList;
+X		while( w1 != NULL && w1->fileId != thisChange->fileId )
+X			w1 = w1->nextWindow;
+X		if( w1 == NULL ) {
+X			msg("Cannot redo. No windows have that file open.", 1);
+X			return;
+X		} else
+X			selWindow = w1;
+X	}
+X
+X	switch( thisChange->type ) {
+X
+X	case CMOTION:
+X		doGoto( (struct window *)(thisChange->firstPiece),
+X				thisChange->length, 0 );
+X		break;
+X
+X	case CCOPY:
+X	case CMOVE:
+X		showChange();
+X		copyPieces( thisChange->firstPiece, selWindow,
+X			thisChange->position, thisChange->length, 1, 0 );
+X		/* if this is not a move, stop, we are done */
+X		if( thisChange->type != CMOVE )
+X			break;
+X		/* if it is a move then the delete follows */
+X		/* else finish redoing the move by dropping through */
+X		/* to the CDELETE case to delete the MOVEd text */
+X		nextChange->flags &= ~CHANGE_WAS_UNDONE;
+X		thisChange = nextChange;
+X		SetCurrentChange( ff, thisChange );
+X
+X	case CDELETE:
+X		selBegin = thisChange->position;
+X		selEnd = selBegin + thisChange->length - 1;
+X		selWindow = thisChange->w;
+X		showChange();
+X		(void)deleteChars( thisChange->fileId, UPDATEWINDOWS, 2 );
+X		/* if the next change is an insert at the same position */
+X		/* then redo it also */
+X		if( nextChange == NULL || nextChange->type != CINSERT
+X		 || thisChange->position != nextChange->position )
+X			break;
+X		/* else drop through to redo the insert also */
+X		thisChange = nextChange;
+X		SetCurrentChange( ff, thisChange );
+X		thisChange->flags &= ~CHANGE_WAS_UNDONE;
+X
+X	case CINSERT:
+X		copyPieces( thisChange->firstPiece, thisChange->w,
+X				thisChange->position, thisChange->length,
+X				1, 0 );
+X		break;
+X	}
+X}
+X
+X}
+X
+void
+undo( ff, count )
+X	struct openFile * ff;
+X	int count;
+X{
+X	extern char msgBuffer[];
+X	extern struct window *selWindow;
+X	extern Offset selBegin, selEnd;
+X	extern struct window *windowList;
+X	extern int debug;
+X
+X	DoUpdate delAlso;
+X	struct changeItem *thisChange, *prevChange;
+X	struct window *w1;
+X	int blockUndo = 0;
+X
+while( count > 0 || blockUndo ) {
+X	thisChange = GetCurrentChange( ff );
+X	if( thisChange == NULL || thisChange->type == CNULL ) {
+noChanges:
+X		msg("No previous change to undo", 1);
+X		return;
+X	}
+X
+X	/* find the change to undo */
+X	while( 1 ) {
+X		if( thisChange == NULL )
+X			goto noChanges;
+X		if( (thisChange->type) != CNULL
+X		 && ( (thisChange->flags)
+X		 		& (CHANGE_WAS_UNDONE|FILE_WAS_CLOSED) ) == 0 )
+X			break;
+X		thisChange = thisChange->prev;
+X	}
+X
+X	/* Note that begin and end seem to be reversed here because */
+X	/* the begin comes with the first edit which is earliter than */
+X	/* the last edit.  Since we are going backwards in time here */
+X	/* we encounter the last edit (the BLOCK_UNDO_END) first and */
+X	/* want to undo all the way to the first edit in the block */
+X	/* (the BLOCK_UNDO_BEGIN) */
+X	if( thisChange->flags & BLOCK_UNDO_END ) {
+X		blockUndo = 1;
+X	} else if( (thisChange->flags & BLOCK_UNDO_BEGIN) && blockUndo ) {
+X		blockUndo = 0;
+X		if( --count <= 0 )
+X			break;
+X	} else
+X		--count;
+X
+X	thisChange->flags |= CHANGE_WAS_UNDONE;
+X	prevChange = thisChange->prev;
+X
+X	/* back up the pointer to the last done change */
+X	SetCurrentChange( ff, prevChange );
+X
+X	/* find a window displaying the file the change was made in */
+X	if( thisChange->fileId != selWindow->fileId ) {
+X		w1 = windowList;
+X		while( w1 != NULL && w1->fileId != thisChange->fileId )
+X			w1 = w1->nextWindow;
+X		if( w1 == NULL ) {
+X			msg("Cannot undo. No windows have that file open.",1);
+X			return;
+X		} else
+X			selWindow = w1;
+X	}
+X	
+X	
+X	switch( thisChange->type ) {
+X
+X	case CMOTION:
+X		doGoto( (struct window *)(thisChange->firstPiece),
+X				thisChange->lineNumber, 0 );
+X		break;
+X
+X	case CDELETE:
+X		showChange();
+X		copyPieces( thisChange->firstPiece, selWindow,
+X			thisChange->position, thisChange->length, 1, 0 );
+X		/* see if this is really the DELETE of a CMOVE */
+X		if( prevChange->type != CMOVE )
+X			break;
+X		/* else finish undoing the move by dropping through */
+X		/* to the CCOPY case to delete the MOVEd text */
+X		prevChange->flags |= CHANGE_WAS_UNDONE;
+X		thisChange = prevChange;
+X		SetCurrentChange( ff, thisChange->prev );
+X
+X	case CCOPY:
+X		selBegin = thisChange->position;
+X		selEnd = selBegin + thisChange->length - 1;
+X		showChange();
+X		(void)deleteChars( thisChange->fileId, UPDATEWINDOWS, 2 );
+X		break;
+X
+X	case CINSERT:
+X		/* delete the characters inserted */
+X		selBegin = thisChange->position;
+X		selEnd = selBegin + thisChange->length - 1;
+X		/* test this first so we can avoid updating the */
+X		/* screen twice once for the delete and again for */
+X		/* the copy to follow */
+X		if( thisChange->position == prevChange->position 
+X		 && prevChange->type == CDELETE )
+X			delAlso = NOUPDATE;
+X		else
+X			delAlso = UPDATEWINDOWS;
+X		showChange();
+X		(void)deleteChars( thisChange->fileId, delAlso, 2 );
+X		/* see if there is a previous, related delete to undo */
+X		if( delAlso == NOUPDATE ) {
+X			prevChange->flags |= CHANGE_WAS_UNDONE;
+X			SetCurrentChange( ff, prevChange->prev );
+X			copyPieces( prevChange->firstPiece, selWindow,
+X				selBegin, prevChange->length, 1, 0 );
+X		}
+X		break;
+X	}
+X}
+X}
+X
+X
+X/* make sure the change is visible */
+void
+showChange()
+X{
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X	extern struct window *windowList;
+X	
+X	/* if the selection window is not on top */
+X	/* or if the selection is not in the window */
+X	/* then move the window to show the selection */
+X	if( windowList != selWindow  || selBegin < selWindow->posTopline
+X					|| selEnd > selWindow->posBotline )
+X	 	doGoSel(selWindow);
+X}
+END_OF_FILE
+if test 15116 -ne `wc -c <'undoredo.c'`; then
+    echo shar: \"'undoredo.c'\" unpacked with wrong size!
+fi
+# end of 'undoredo.c'
+fi
+echo shar: End of archive 6 \(of 15\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,1759 @@
+Newsgroups: comp.sources.misc
+From: tynor@prism.gatech.edu (STEVE TYNOR)
+Subject:  v30i081:  fplan-1.3 - Fplan 1.3 (Flight Planner), Part01/04
+Message-ID: <csm-v30i081=fplan-1.3.114503@sparky.IMD.Sterling.COM>
+X-Md4-Signature: e94f0d086a3e1716b1c9dfa6c54237e9
+Date: Sun, 28 Jun 1992 16:50:06 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tynor@prism.gatech.edu (STEVE TYNOR)
+Posting-number: Volume 30, Issue 81
+Archive-name: fplan-1.3/part01
+Environment: K&R C, BSD, MSDOS, Sunview (optional)
+Supersedes: fplan: Volume 09, Issue 11-16
+
+FPLAN v.1.3 - Flight Plan program.
+
+	FPLAN is a flight planner intended for use in general
+aviation.  FPLAN reads a planfile consisting of departure and
+destination airports, navigation aids, intermediate checkpoints, fuel
+consumption rates, winds aloft, and produces a flight plan including
+wind corrected heading, fuel consumption for each leg, vor fixes for
+each checkpoint, etc.  FPLAN uses NAV format databases for upward
+compatibility with those widely distributed databases (see the file
+WHERE_DBS for details on how to get them).
+
+	How is FPLAN different from NAV? Mainly, it will automatically
+compute VOR cross fixes (radial and distance to/from fix) at each
+waypoint along the flight and allow you to enter a waypoint as ``15
+miles since the previous waypoint along the current heading''. These
+features provide a kind of flight plan more useful in VFR / dead
+reckoning flight, where frequent checkpoints are necessary.
+
+	This program is in the public domain. Permission to copy,
+distribute, modify this program is hearby given as long as this header
+remains. If you redistribute this program after modifying it, please
+document your changes so that I do not take the blame (or credit) for
+those changes.  If you fix bugs or add features, please send me a
+patch so that I can keep the `official' version up-to-date. Bug
+reports are welcome and I'll make an attempt to fix those that are
+reported.
+
+	USE AT YOUR OWN RISK! I assume no responsibility for any
+errors in this program, its databases or documentation. I will make an
+effort to fix bugs, but if you crash and burn because, for example,
+fuel estimates in this program were inaccurate, it's your own fault
+for trusting somebody else's code! Remember, as Pilot in Command, it's
+_your_ responsibility to do complete preflight planning. Use this
+program as a flight planning aid, but verify its results before using
+them.
+
+NOTE: Version 1.2 incorporated a number of bug fixes submitted by the
+following fine individuals:
+
+	Chris Coffin	coffin@xroads.UUCP
+	Dave Buck	{amdahl,sun,megatest,plx,ardent,ubvax}!dlb!dave
+	Randy Bailey	randy@hpisla.HP.COM
+	Dave Lockwood	davel@vision.UUCP (Dave has also submitted SysV 
+		patches which have, unfortunately, _not_ been incorporated
+		into this distribution). 
+	Andy Schneider	ajs@sony.com
+
+NOTE: Version 1.3 incorporates a bug fix submitted by:
+
+	Tyko Strassen	strassen@iam.unibe.ch
+
+NOTE: The NAV databases referred to in the README are somewhat out of date. 
+There seems to be some initiative among rec.aviators to update the databases 
+from more recent FAA tapes: see discussions in rec.aviation for details. 
+  
+=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+	Virtue is its own punishment.
+
+	Steve Tynor
+
+	Yellow Jacket Flying Club
+	and
+	Georgia Tech Research Institute
+	Artificial Intelligence Branch
+	Georgia Institute of Technology
+	tynor@prism.gatech.edu
+
+---- cut here ---- cut here ---- cut here ---- cut here ----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README compute.c output.c sv_draw.c
+# Wrapped by kent@sparky on Sun Jun 28 11:39:10 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 4)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(2671 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X	FPLAN v.1.3 - Flight Plan program.
+X
+X	FPLAN is a flight planner intended for use in general
+Xaviation.  FPLAN reads a planfile consisting of departure and
+Xdestination airports, navigation aids, intermediate checkpoints, fuel
+Xconsumption rates, winds aloft, and produces a flight plan including
+Xwind corrected heading, fuel consumption for each leg, vor fixes for
+Xeach checkpoint, etc.  FPLAN uses NAV format databases for upward
+Xcompatibility with those widely distributed databases (see the file
+XWHERE_DBS for details on how to get them).
+X
+X	How is FPLAN different from NAV? Mainly, it will automatically
+Xcompute VOR cross fixes (radial and distance to/from fix) at each
+Xwaypoint along the flight and allow you to enter a waypoint as ``15
+Xmiles since the previous waypoint along the current heading''. These
+Xfeatures provide a kind of flight plan more useful in VFR / dead
+Xreckoning flight, where frequent checkpoints are necessary.
+X
+X	This program is in the public domain. Permission to copy,
+Xdistribute, modify this program is hearby given as long as this header
+Xremains. If you redistribute this program after modifying it, please
+Xdocument your changes so that I do not take the blame (or credit) for
+Xthose changes.  If you fix bugs or add features, please send me a
+Xpatch so that I can keep the `official' version up-to-date. Bug
+Xreports are welcome and I'll make an attempt to fix those that are
+Xreported.
+X
+X	USE AT YOUR OWN RISK! I assume no responsibility for any
+Xerrors in this program, its databases or documentation. I will make an
+Xeffort to fix bugs, but if you crash and burn because, for example,
+Xfuel estimates in this program were inaccurate, it's your own fault
+Xfor trusting somebody else's code! Remember, as Pilot in Command, it's
+X_your_ responsibility to do complete preflight planning. Use this
+Xprogram as a flight planning aid, but verify its results before using
+Xthem.
+X
+XNOTE: Version 1.2 incorporated a number of bug fixes submitted by the
+Xfollowing fine individuals:
+X
+X	Chris Coffin	coffin@xroads.UUCP
+X	Dave Buck	{amdahl,sun,megatest,plx,ardent,ubvax}!dlb!dave
+X	Randy Bailey	randy@hpisla.HP.COM
+X	Dave Lockwood	davel@vision.UUCP (Dave has also submitted SysV 
+X		patches which have, unfortunately, _not_ been incorporated
+X		into this distribution). 
+X	Andy Schneider	ajs@sony.com
+X
+XNOTE: Version 1.3 incorporates a bug fix submitted by:
+X
+X	Tyko Strassen	strassen@iam.unibe.ch
+X
+X=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+X	Virtue is its own punishment.
+X
+X	Steve Tynor
+X
+X	Yellow Jacket Flying Club
+X	and
+X	Georgia Tech Research Institute
+X	Artificial Intelligence Branch
+X	Georgia Institute of Technology
+X	tynor@prism.gatech.edu
+END_OF_FILE
+  if test 2671 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'compute.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'compute.c'\"
+else
+  echo shar: Extracting \"'compute.c'\" \(14905 characters\)
+  sed "s/^X//" >'compute.c' <<'END_OF_FILE'
+X/*
+X * $Id: compute.c,v 2.7 90/06/15 21:31:55 tynor Exp $
+X *----------------------------------------------------------------------------
+X *	FPLAN - Flight Planner
+X *	Steve Tynor
+X *	tynor@prism.gatech.edu
+X *
+X *	This program is in the public domain. Permission to copy,
+X * distribute, modify this program is hearby given as long as this header
+X * remains. If you redistribute this program after modifying it, please
+X * document your changes so that I do not take the blame (or credit) for
+X * those changes.  If you fix bugs or add features, please send me a
+X * patch so that I can keep the 'official' version up-to-date.
+X *
+X *	Bug reports are welcome and I'll make an attempt to fix those
+X * that are reported.
+X *
+X *	USE AT YOUR OWN RISK! I assume no responsibility for any
+X * errors in this program, its database or documentation. I will make an
+X * effort to fix bugs, but if you crash and burn because, for example,
+X * fuel estimates in this program were inaccurate, it's your own fault
+X * for trusting somebody else's code! Remember, as PIC, it's _your_
+X * responsibility to do complete preflight planning. Use this program as
+X * a flight planning aid, but verify its results before using them.
+X *----------------------------------------------------------------------------
+X */
+X
+Xstatic char rcsid[] = "$Id: compute.c,v 2.7 90/06/15 21:31:55 tynor Exp $";
+X
+X#include "wp_info.h"
+X#include <math.h>
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void wind_correct (true_air_speed, mag_course, 
+X			  wind_speed, wind_heading,
+X			  ground_speed, mag_heading)
+X     double true_air_speed, mag_course, 
+X	wind_speed, wind_heading, 
+X	*ground_speed, *mag_heading;
+X{
+X   double hdiff, tx, ty, wca;
+X
+X   if (wind_heading <= 180.0)
+X      wind_heading += 180.0;
+X   else
+X      wind_heading -= 180.0;
+X   hdiff = DEG2RAD (mag_course - wind_heading);
+X   tx = wind_speed * sin (hdiff);
+X   ty = wind_speed * cos (hdiff);
+X   wca = asin (tx / true_air_speed);
+X   *ground_speed = cos (wca) * true_air_speed + ty;
+X   *mag_heading = mag_course + RAD2DEG (wca);
+X   if (*mag_heading >= 360.0)
+X      *mag_heading -= 360.0;
+X   else if (*mag_heading <= 0.0)
+X      *mag_heading += 360.0;
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xvoid distance_and_heading (lat1, long1, lat2, long2, distance, heading)
+X     double lat1, long1, lat2, long2;
+X     double *distance, *heading;
+X{
+X   double tmp;
+X
+X   lat1  = DEG2RAD (lat1);
+X   long1 = DEG2RAD (long1);
+X   lat2  = DEG2RAD (lat2);
+X   long2 = DEG2RAD (long2);
+X
+X   if ((lat1 == lat2) && (long1 == long2)) {
+X      *distance = 0.0;
+X      *heading  = 0.0;
+X      return;
+X   }
+X
+X   tmp = atan2 (2.0 * asin (sin ((long1 - long2) / 2.0)),
+X		log (tan (PI / 4.0 + lat2 / 2.0)) - 
+X		log (tan (PI / 4.0 + lat1 / 2.0)) );
+X   if (lat1 == lat2)
+X      *distance = 60.0 *
+X	 fabs (RAD2DEG (2.0 * asin (sin ((long1 - long2) / 2.0)))) *
+X	    cos (lat1);
+X   else
+X      *distance = 60.0 * RAD2DEG (lat2 - lat1) / cos (fabs (tmp));
+X   
+X   if (asin (sin (long1-long2)) >= 0.0)
+X      *heading = RAD2DEG (fabs(tmp));
+X   else
+X      *heading = 360.0 - RAD2DEG (fabs(tmp));
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic int next_non_incremental (start)
+X     int start;
+X{
+X   int i = start;
+X
+X   for (i = start; i < num_waypoints; i++)
+X      if (waypoints[i].db->mode != WP_INCREMENTAL)
+X	 return i;
+X   return -1;
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void locate_incrementals ()
+X{
+X   int    j, prev, next;
+X   double d, heading;
+X
+X   for (prev = 0; ((prev >= 0) && (prev < num_waypoints)); ) {
+X      next = next_non_incremental (prev+1);
+X      if (next >= 0) {
+X	 distance_and_heading (waypoints[prev].db->latitude,
+X			       waypoints[prev].db->longitude, 
+X			       waypoints[next].db->latitude, 
+X			       waypoints[next].db->longitude, 
+X			       &d, &heading);
+X	 for (j = prev+1; j < next; j++) {
+X	    if (waypoints[j].db->u.dist_since_last_wp >= 0.0) {
+X	       waypoints[j].db->latitude =  waypoints[prev].db->latitude +
+X		  (waypoints[next].db->latitude - waypoints[prev].db->latitude)
+X		     * waypoints[j].db->u.dist_since_last_wp / d;
+X	       waypoints[j].db->longitude =  waypoints[prev].db->longitude +
+X		  (waypoints[next].db->longitude -
+X		   waypoints[prev].db->longitude) * 
+X		      waypoints[j].db->u.dist_since_last_wp / d;
+X	    } else {
+X	       waypoints[j].db->latitude =  waypoints[next].db->latitude +
+X		  (waypoints[next].db->latitude - waypoints[prev].db->latitude)
+X		     * waypoints[j].db->u.dist_since_last_wp / d;
+X	       waypoints[j].db->longitude =  waypoints[next].db->longitude +
+X		  (waypoints[next].db->longitude -
+X		   waypoints[prev].db->longitude) * 
+X		      waypoints[j].db->u.dist_since_last_wp / d;
+X	    }
+X 	    waypoints[j].db->mag_variation =
+X	       waypoints[prev].db->mag_variation + 
+X		  (waypoints[next].db->mag_variation -
+X		   waypoints[prev].db->mag_variation) *
+X 		   waypoints[j].db->u.dist_since_last_wp / d;
+X	 }
+X      }
+X      prev = next;
+X   }
+X}
+X
+X/*----------------------------------------------------------------------------*/
+X#define IS_NAVAID(mode) (((mode) == WP_VOR) || ((mode) == WP_NDB) || \
+X			 ((mode) == WP_DME) || ((mode) == WP_TAC) || \
+X			 ((mode) == WP_ILS) || ((mode) == WP_LOM) || \
+X			 ((mode) == WP_LMM))
+X
+X/*----------------------------------------------------------------------------
+X * FUZZ is the number of degrees two points can be apart and still be considered
+X * colocated - we let this be fuzzy, since it's often the case that onfield VORs
+X * are reported with slightly different lat/long, but we still want to view them
+X * as the same point...
+X */
+X#define FUZZ 0.01
+X#define COLOCATED(db1,db2) \
+X   ((fabs ((db1)->latitude - (db2)->latitude) <= FUZZ) && \
+X    (fabs ((db1)->longitude - (db2)->longitude) <= FUZZ))
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic DATABASE_INFO *get_navaid (wp)
+X     WAYPOINT_INFO wp;
+X     /*
+X      * If the waypoint is a navaid return its db pointer. If it's an airport 
+X      * and there's a navaid colocated on the field, return it's db pointer,
+X      * else return NULL.
+X      */
+X{
+X   DATABASE_INFO *db;
+X   extern BOOLEAN lookup_desig ();
+X
+X   if (IS_NAVAID (wp.db->mode)) {
+X      return (wp.db);
+X   } else if ((wp.db->mode == WP_AIRPORT) && 
+X	      (lookup_desig (WP_VIA, wp.db->desig, &db)) &&
+X	      IS_NAVAID (db->mode) &&
+X	      COLOCATED (db, wp.db) ) {
+X      return (db);
+X   } else {
+X      return ((DATABASE_INFO*) 0);
+X   }
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic track_nav1 ()
+X     /*
+X      * for each waypoint, determine what VOR to tune in on NAV1.
+X      *
+X      * This is tricky - some waypoints are navaids - so we want to track to 
+X      * (and sometimes from) them - others are just "distance-since-last-
+X      * -waypoint" or "lat/long" waypoints, and we can't track to those. 
+X      * From and To Airports also sometimes have VORS on-field, so we need to 
+X      * recognize when that happens so that we can track to/from airport 
+X      * waypoints. 
+X      *
+X      * The vor_fix[0] for each waypoint is for the leg _between_ that waypoint
+X      * and the next one. If there is no navaid that can be used to track along
+X      * that leg, set the .valid falg to FALSE.
+X      */
+X{
+X   int this, to;
+X   DATABASE_INFO *db;
+X
+X   /*
+X    * invalidate all the current NAV1 settings
+X    */
+X   for (this = 0; this < num_waypoints; this++) 
+X      waypoints[this].vor_fix[0].valid = FALSE;
+X
+X   to = 0;
+X   for (this = 0; (to != -1) && (this < num_waypoints); this++) {
+X      to = next_non_incremental (this+1);
+X      if (
+X	  /*
+X	   * if the next non-incremental waypoint is a navaid (or if an
+X	   * airport and there's a navaid colocated on the field) then use that 
+X	   * as NAV1 for this waypoint and those up to that one
+X	   */
+X	  ((to >= 0) && 
+X	   (db = get_navaid (waypoints[to]))) ||
+X	  /*
+X	  * else, if this waypoint is a navaid, use it
+X	  */
+X	   (db = get_navaid (waypoints[this])) ) {
+X	 for (; this < to; this++) {
+X	    waypoints[this].vor_fix[0].valid = TRUE;
+X	    waypoints[this].vor_fix[0].db    = db;
+X	 }
+X	 this = to - 1;
+X      } 
+X      /*
+X       * else, we're out of luck - leave the fix invalid.
+X       */
+X   }
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xnormalize_heading (head)
+X     double *head;
+X{
+X   if (*head < 0.0)
+X      *head += 360.0;
+X   else if (*head > 360.0)
+X      *head -= 360.0;
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic BOOLEAN do_fix (plane_heading, latitude, longitude, vor_fix, force_from)
+X     double plane_heading;
+X     double latitude;
+X     double longitude;
+X     VOR_FIX *vor_fix;
+X     BOOLEAN force_from;
+X{
+X   double d;
+X   double lat_from  = latitude;
+X   double long_from = longitude;
+X   double lat_to    = vor_fix->db->latitude;
+X   double long_to   = vor_fix->db->longitude;
+X   
+X   if (! vor_fix->db)
+X      return FALSE;
+X
+X   if ((lat_from == lat_to) && (long_from == long_to))
+X      return FALSE;
+X
+X   distance_and_heading (lat_from, long_from, lat_to, long_to,
+X			 &vor_fix->distance, &vor_fix->heading); 
+X   vor_fix->heading += vor_fix->db->mag_variation;
+X   normalize_heading (&vor_fix->heading);
+X   d = plane_heading - vor_fix->heading;
+X   vor_fix->from_to = TO;
+X   
+X   {
+X      double anti;
+X      double d1;
+X      
+X      anti = vor_fix->heading - 180;
+X      normalize_heading( &anti );
+X      d1 = plane_heading - anti;
+X      d1 = ( d1 < 0.0 ) ? -d1 : d1;      /* normalize_heading(&d1); */
+X      d  = ( d  < 0.0 ) ? -d  : d ;      /* normalize_heading(&d); */
+X      if( force_from || ( d > d1 ) ) {
+X	 vor_fix->from_to = FROM;
+X	 vor_fix->heading += 180.0;
+X      }
+X   }
+X   normalize_heading (&vor_fix->heading);
+X   return TRUE;
+X}
+X
+X/*----------------------------------------------------------------------------*/
+XBOOLEAN compute_plan (auto_nav1)
+X     BOOLEAN auto_nav1;
+X{
+X   int i;
+X   int num_pairs = 0;
+X#define MAX_NUM_PAIRS 30
+X   double total_dist [MAX_NUM_PAIRS];
+X   double distance, heading;
+X
+X   /*
+X    * locate the waypoints specified only by distance from last waypoint:
+X    */
+X   locate_incrementals ();
+X
+X   /*
+X    * accumulate the total distance between each from/to pair
+X    */
+X   num_pairs = 0;
+X   for (i = 0; i < num_waypoints; i++) {
+X      if (waypoints[i].wp_kind == WP_FROM) {
+X	 waypoints[i].eta.valid = TRUE;
+X	 waypoints[i].eta.value = 0.0;
+X	 total_dist [num_pairs] = 0.0;
+X      }
+X      if ((i+1 < num_waypoints) && (waypoints[i].wp_kind != WP_TO)) {
+X	 distance_and_heading (waypoints[i].db->latitude,
+X			       waypoints[i].db->longitude,
+X			       waypoints[i+1].db->latitude,
+X			       waypoints[i+1].db->longitude,
+X			       &distance, &heading);
+X	 waypoints[i].dist_leg.valid = TRUE;
+X	 waypoints[i].tc.valid       = TRUE;
+X	 waypoints[i].mc.valid       = TRUE;
+X	 waypoints[i].dist_leg.value = distance;
+X	 waypoints[i].tc.value       = heading;
+X	 waypoints[i].mc.value       = heading + waypoints[i].db->mag_variation;
+X	 normalize_heading (&waypoints[i].mc.value);
+X	 normalize_heading (&waypoints[i].tc.value);
+X      } else {
+X	 waypoints[i].dist_leg.valid = FALSE;
+X	 waypoints[i].tc.valid       = FALSE;
+X	 waypoints[i].mc.valid       = FALSE;
+X      }
+X
+X      waypoints[i].dist.valid = TRUE;
+X      waypoints[i].dist.value = total_dist [num_pairs];
+X
+X      total_dist [num_pairs] += waypoints[i].dist_leg.value;
+X
+X      if (waypoints[i].wp_kind == WP_TO)
+X	 num_pairs++;
+X   }
+X
+X   /*
+X    * now, do the distance remaining:
+X    */
+X   num_pairs = 0.0;
+X   for (i = 0; i < num_waypoints; i++) {
+X      waypoints[i].dist_remain.value = 
+X	 total_dist [num_pairs] - waypoints[i].dist.value;
+X      waypoints[i].dist_remain.valid = TRUE;
+X      if (waypoints[i].wp_kind == WP_TO)
+X	 num_pairs++;
+X   }
+X
+X   /*
+X    * wind correction (heading, ground speed)
+X    */
+X   for (i = 0; i < num_waypoints; i++) {
+X      if (waypoints[i].tas.valid && 
+X	  waypoints[i].mc.valid) {
+X
+X	 if (!waypoints[i].wind_speed.valid)
+X	    waypoints[i].wind_speed.value = 0.0; 
+X	 if (!waypoints[i].wind_direction.valid)
+X	    waypoints[i].wind_direction.value = 0.0;
+X 
+X	 wind_correct (waypoints[i].tas.value, 
+X		       waypoints[i].mc.value, 
+X		       waypoints[i].wind_speed.value,
+X		       waypoints[i].wind_direction.value,
+X		       &waypoints[i].egs.value,
+X		       &waypoints[i].mh.value);
+X
+X	 waypoints[i].egs.valid  = TRUE;
+X	 waypoints[i].mh.valid   = TRUE;
+X	 normalize_heading (&waypoints[i].mh.value);
+X
+X	 /*
+X	  * time in hours
+X	  */
+X	 waypoints[i].eta_leg.valid = waypoints[i].dist_leg.valid;
+X	 waypoints[i].eta_leg.value = waypoints[i].dist_leg.value / 
+X	    waypoints[i].egs.value;
+X      } else {
+X	 waypoints[i].egs.valid     = FALSE;
+X	 waypoints[i].mh.valid      = FALSE;
+X	 waypoints[i].eta.valid     = FALSE;
+X	 waypoints[i].eta_leg.valid = FALSE;
+X      }
+X      waypoints[i].eta.valid     = (BOOLEAN) (waypoints[i].wp_kind != WP_FROM);
+X      waypoints[i].eta.value     = (waypoints[i].dist.value == 0.0) ? 0.0 :
+X	 waypoints[i-1].eta_leg.value + waypoints[i-1].eta.value;
+X   }
+X
+X   /*
+X    * fuel burn:
+X    */
+X   for (i = 0; i < num_waypoints; i++) {
+X      waypoints[i].fuel_leg.valid = (BOOLEAN) (waypoints[i].fuel_rate.valid &&
+X					       waypoints[i].eta_leg.valid);
+X      if (waypoints[i].fuel_leg.valid)
+X	 waypoints[i].fuel_leg.value = 
+X	    waypoints[i].fuel_rate.value * waypoints[i].eta_leg.value;
+X      if (waypoints[i].refuel) {
+X	 waypoints[i].fuel_amt.valid = TRUE;
+X      } else if (i && (waypoints[i].wp_kind == WP_FROM) &&
+X		 (!waypoints[i].refuel)) {
+X	 waypoints[i].fuel_amt.valid = waypoints[i-1].fuel_amt.valid;
+X	 waypoints[i].fuel_amt.value = waypoints[i-1].fuel_amt.value;
+X      } else if (i && waypoints[i-1].fuel_leg.valid &&
+X		 waypoints[i-1].fuel_amt.valid) {
+X	 waypoints[i].fuel_amt.value = 
+X	    waypoints[i-1].fuel_amt.value - waypoints[i-1].fuel_leg.value;
+X      }
+X      if (waypoints[i].extra_fuel_burn.valid)
+X	 waypoints[i].fuel_amt.value -= waypoints[i].extra_fuel_burn.value;
+X   }
+X
+X   if (auto_nav1)
+X      track_nav1 ();
+X
+X   /*
+X    * VOR cross fixes:
+X    */
+X   {
+X      int vor;
+X      for (i = 0; i < num_waypoints; i++) {
+X	 for (vor = 0; vor < MAX_NUM_VOR_FIXES; vor++) {
+X	    if (waypoints[i].vor_fix[vor].valid) {
+X	       if (! do_fix (waypoints[i].mh.value, waypoints[i].db->latitude,
+X			     waypoints[i].db->longitude, 
+X			     &waypoints[i].vor_fix[vor], FALSE) ) {
+X		  /*
+X		   * if we failed to compute an xfix, it could be because we're
+X		   * right on top of the navaid - pretend we're at the next
+X		   * waypoint (since that's where we're going...)
+X		   */
+X		  if ((i+1) < num_waypoints) {
+X		     if (!do_fix (waypoints[i].mh.value, 
+X				  waypoints[i+1].db->latitude,
+X				  waypoints[i+1].db->longitude, 
+X				  &waypoints[i].vor_fix[vor], TRUE))
+X			waypoints[i].vor_fix[vor].valid = FALSE;
+X		  } else
+X		     waypoints[i].vor_fix[vor].valid = FALSE;
+X	       }
+X	    }
+X	 }
+X      }
+X   }
+X   return TRUE;
+X}
+X
+X
+END_OF_FILE
+  if test 14905 -ne `wc -c <'compute.c'`; then
+    echo shar: \"'compute.c'\" unpacked with wrong size!
+  fi
+  # end of 'compute.c'
+fi
+if test -f 'output.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'output.c'\"
+else
+  echo shar: Extracting \"'output.c'\" \(21837 characters\)
+  sed "s/^X//" >'output.c' <<'END_OF_FILE'
+X/*
+X * $Id: output.c,v 2.10 89/11/11 19:09:29 tynor Exp $
+X *----------------------------------------------------------------------------
+X *	FPLAN - Flight Planner
+X *	Steve Tynor
+X *	tynor@prism.gatech.edu
+X *
+X *	This program is in the public domain. Permission to copy,
+X * distribute, modify this program is hearby given as long as this header
+X * remains. If you redistribute this program after modifying it, please
+X * document your changes so that I do not take the blame (or credit) for
+X * those changes.  If you fix bugs or add features, please send me a
+X * patch so that I can keep the 'official' version up-to-date.
+X *
+X *	Bug reports are welcome and I'll make an attempt to fix those
+X * that are reported.
+X *
+X *	USE AT YOUR OWN RISK! I assume no responsibility for any
+X * errors in this program, its database or documentation. I will make an
+X * effort to fix bugs, but if you crash and burn because, for example,
+X * fuel estimates in this program were inaccurate, it's your own fault
+X * for trusting somebody else's code! Remember, as PIC, it's _your_
+X * responsibility to do complete preflight planning. Use this program as
+X * a flight planning aid, but verify its results before using them.
+X *----------------------------------------------------------------------------
+X */
+X
+Xstatic char rcsid[] = "$Id: output.c,v 2.10 89/11/11 19:09:29 tynor Exp $";
+X
+X#include <math.h>
+X#include <stdio.h>
+X#include "mystring.h"
+X#include "wp_info.h"
+X
+Xextern double decimal_2_degrees_mins();
+X
+Xtypedef enum {
+X   END_OF_FORMAT,	/* we count on ((int)END_OF_FORMAT == 0) */
+X   CITY, NAME, COMMENT, ELEV, FREQ, TYPE, DESIG, 
+X   TC, MC, MH, WIND, DIST_LEG, DIST, DIST_REMAIN,
+X   ETA_LEG, ETA, ATA, FUEL_AMT, FUEL_RATE, FUEL_LEG, ALT,
+X   TAS, EGS, AGS, VOR_DESIG, VOR_FREQ, VOR_RADIAL, LAT_LONG, VOR_DME,
+X   IGNORE, EMPTY, FORWARD_ARROW, BACKWARD_ARROW, 
+X   SEPARATOR, BAR, CROSS, EOL, END_OF_VOR,
+X   } FORMAT_KIND;
+X
+Xchar *headers[] = 
+X{
+X   "", "CITY", "CHECKPOINT", "COMMENT", "ELEV", "FREQ", "TYPE", "DESIG", 
+X   "TC", "MC", "MH", "WIND", "DIST", "DIS", "REM",
+X   "ETE", "ETE", "ATE", "FUEL", "RATE", "FUEL", "ALT",
+X   "TAS", "EGS", "AGS", "VOR", "FREQ", "RAD", "LAT/LONG", "DME", "", "",
+X};
+X
+Xtypedef enum {R, L} JUSTIFICATION;
+X
+Xtypedef enum {U,S} UNSHIFTED_OR_SHIFTED;
+X
+Xtypedef struct {
+X   FORMAT_KIND	 	kind;
+X   int		 	field_width;
+X   JUSTIFICATION 	justification;
+X   int		 	arg;	/* which_vor or num_decimal_points */
+X   UNSHIFTED_OR_SHIFTED	shifted;
+X} FORMAT_SPEC_CELL;
+X
+X/*
+X * default format (for narrow output (e.g. to terminals) the VORs are not 
+X * output)
+X *
+X *                                                            VOR1    VOR2
+X *+=========//==============+===+=====+                            +=======+
+X *|NAME     //    TYPE DESIG|   | FUEL|                            |    VOR|
+X *|CITY     //      ALT FREQ|DIS|  ETE|======+===+====+====+=======|   FREQ|
+X *|COMMENT  //      LAT/LONG|REM|  ATE|    MC|TAS|DIST| ALT|    VOR|RAD DME|
+X *+=========//==============+===+=====>  WIND|EGS| ETE|RATE|   FREQ<-------+
+X *|         //              |   |     |    MH|AGS| ATE|FUEL|RAD DME|       |
+X *|         //              |   |     |======+===+====+====+=======|       |
+X *|         //              |   |     |      |   |    |    |       |       |
+X *+---------//--------------+---+----->      |   |    |    |       <-------+
+X *|         //              |   |     |      |   |    |    |       |       |
+X *|         //              |   |     |------+---+----+----+-------|       |
+X */
+X
+X#define MAX_NUM_FIELDS 170
+X
+XFORMAT_SPEC_CELL default_format_wide [] = 
+X{
+X   /* line 0 */
+X   /* WAYPOINT INFO */
+X   {CROSS},{SEPARATOR,44,L},{CROSS},
+X   {SEPARATOR,3}, {CROSS}, {SEPARATOR,5},{FORWARD_ARROW},
+X
+X   /* LEG INFO */
+X   {WIND,6,R,0,S},{BAR,1,R,0,S},{EGS,3,R,0,S},{BAR,1,R,0,S},
+X   {ETA_LEG,4,R,0,S},{BAR,1,R,0,S},{FUEL_RATE,5,R,1,S},{BAR,1,R,0,S},
+X   {END_OF_VOR,1,R,0,U},{VOR_FREQ,8,R,0,S},{BACKWARD_ARROW,1,R,0,U},
+X   /* WAYPOINT INFO */
+X   {END_OF_VOR,1,R,1,U},{SEPARATOR,8,R,1,U},{CROSS},
+X   {END_OF_VOR,1,R,2,U},{SEPARATOR,8,R,2,U},{CROSS},
+X   {END_OF_VOR,1,R,3,U},{SEPARATOR,8,R,3,U},{CROSS},
+X   {END_OF_VOR,1,R,4,U},{SEPARATOR,8,R,4,U},{CROSS},
+X   {END_OF_VOR,1,R,5,U},{SEPARATOR,8,R,5,U},{CROSS},
+X   {END_OF_VOR,1,R,6,U},{SEPARATOR,8,R,6,U},{CROSS},
+X   {END_OF_VOR,1,R,7,U},{SEPARATOR,8,R,7,U},{CROSS},
+X   {EOL}, 
+X
+X   /* line 1 */
+X   /* WAYPOINT INFO */
+X   {BAR},{NAME,32,L},{ELEV,5},{EMPTY,1},{DESIG,6},{BAR},
+X   {EMPTY,3}, {BAR}, {FUEL_AMT,5,R,1},{BAR},
+X   /* LEG INFO */
+X   {MH,6,R,0,S},{BAR,1,R,0,S},{AGS,3,R,0,S},{BAR,1,R,0,S},
+X   {ATA,4,R,0,S},{BAR,1,R,0,S},{FUEL_LEG,5,R,1,S},{BAR,1,R,0,S},
+X   {VOR_RADIAL,4,L,0,S},
+X   {VOR_DME,4,R,0,S},{BAR,1,R,0,U},
+X   /* WAYPOINT INFO */
+X   {VOR_DESIG,8,R,1,U},{BAR},
+X   {VOR_DESIG,8,R,2,U},{BAR},
+X   {VOR_DESIG,8,R,3,U},{BAR},
+X   {VOR_DESIG,8,R,4,U},{BAR},
+X   {VOR_DESIG,8,R,5,U},{BAR},
+X   {VOR_DESIG,8,R,6,U},{BAR},
+X   {VOR_DESIG,8,R,7,U},{BAR},
+X   {EOL}, 
+X
+X   /* line 2 */
+X   /* WAYPOINT INFO */
+X   {BAR},{CITY,29,L},{TYPE,8},{EMPTY,1},{FREQ,6},{BAR},
+X   {DIST,3}, {BAR},{ETA,5},{BAR},
+X   /* LEG INFO */
+X   {SEPARATOR,6,R,0,U},{CROSS,1,R,0,U},{SEPARATOR,3,R,0,U},{CROSS,1,R,0,U},
+X   {SEPARATOR,4,R,0,U},{CROSS,1,R,0,U},{SEPARATOR,5,R,0,U},{CROSS,1,R,0,U},
+X   {END_OF_VOR,1,R,0,U},{SEPARATOR,8,R,0,U},{BAR,1,R,0,U},
+X   /* WAYPOINT INFO */
+X   {VOR_FREQ,8,R,1,U},{BAR},
+X   {VOR_FREQ,8,R,2,U},{BAR},
+X   {VOR_FREQ,8,R,3,U},{BAR},
+X   {VOR_FREQ,8,R,4,U},{BAR},
+X   {VOR_FREQ,8,R,5,U},{BAR},
+X   {VOR_FREQ,8,R,6,U},{BAR},
+X   {VOR_FREQ,8,R,7,U},{BAR},
+X   {EOL}, 
+X
+X   /* line 3 */
+X   /* WAYPOINT INFO */
+X   {BAR},{COMMENT,26,L},{LAT_LONG,18},{BAR},
+X   {DIST_REMAIN,3}, {BAR},{ATA,5},{BAR},
+X   /* LEG INFO */
+X   {MC,6,R,0,S},{BAR,1,R,0,S},{TAS,3,R,0,S},{BAR,1,R,0,S},
+X   {DIST_LEG,4,R,0,S},{BAR,1,R,0,S},{ALT,5,R,0,S},{BAR,1,R,0,S},
+X   {VOR_DESIG,8,R,0,S},{BAR,1,R,0,U},
+X   /* WAYPOINT INFO */
+X   {VOR_RADIAL,4,L,1,U}, {VOR_DME,4,R,1,U},{BAR},
+X   {VOR_RADIAL,4,L,2,U}, {VOR_DME,4,R,2,U},{BAR},
+X   {VOR_RADIAL,4,L,3,U}, {VOR_DME,4,R,3,U},{BAR},
+X   {VOR_RADIAL,4,L,4,U}, {VOR_DME,4,R,4,U},{BAR},
+X   {VOR_RADIAL,4,L,5,U}, {VOR_DME,4,R,5,U},{BAR},
+X   {VOR_RADIAL,4,L,6,U}, {VOR_DME,4,R,6,U},{BAR},
+X   {VOR_RADIAL,4,L,7,U}, {VOR_DME,4,R,7,U},{BAR},
+X   {EOL}, 
+X   {END_OF_FORMAT}
+X};
+X
+X#ifdef OLD_FORMAT
+X/*
+X * Default wide column format:
+X *
+X+-------------//--------------+------+---+----+-----+-----+-----+-----+
+X|NAME         //    TYPE DESIG|    MC|TAS| LEG|  LEG|  ALT|  VOR|  VOR|
+X|CITY         //      ALT FREQ|  WIND|EGS|DIST|  ETA| RATE| FREQ| FREQ|
+X|COMMENT      //      LAT/LONG|    MH|AGS| REM|  ATA| FUEL|  RAD|  RAD|
+X+-------------//--------------+------+---+----+-----+-----+-----+-----+
+X *
+X * narrow column format is the same - without the last 2 fields
+X */
+X
+XFORMAT_SPEC_CELL default_format_wide [MAX_NUM_FIELDS] = 
+X{
+X   {BAR},{NAME,33,L},{TYPE,11},{EMPTY,1},{DESIG,6},{BAR},
+X   {MC,6},{BAR},{TAS,3},{BAR},
+X   {DIST_LEG,4},{BAR},{ETA_LEG,5},{BAR},{ALT,5},{BAR},
+X   {VOR_DESIG,6,R,0},{BAR},{VOR_DESIG,6,R,1},{BAR},
+X   {EOL}, 
+X
+X   {BAR},{CITY,33,L},{ELEV,11},{EMPTY,1},{FREQ,6,R,1},{BAR},
+X   {WIND,6},{BAR},{EGS,3},{BAR},
+X   {DIST,4},{BAR},{ETA,5},{BAR},{FUEL_RATE,5,R,1},{BAR},
+X   {VOR_FREQ,6,R,0},{BAR},{VOR_FREQ,6,R,1},{BAR},
+X   {EOL},
+X
+X   {BAR},{COMMENT,33,L},{LAT_LONG,18},
+X   {BAR},{MH,6},{BAR},{AGS,3},{BAR},
+X   {DIST_REMAIN,4},{BAR},{ATA,5},{BAR},{FUEL_AMT,5,R,1},{BAR},
+X   {VOR_RADIAL,6,R,0},{BAR},{VOR_RADIAL,6,R,1},{BAR},
+X   {EOL},
+X
+X   {END_OF_FORMAT}
+X};
+X#endif
+X
+XFORMAT_SPEC_CELL output_format [MAX_NUM_FIELDS];
+X
+Xint line_num;
+X
+Xenum {NAUTICAL, STATUTE} output_units = NAUTICAL;
+X/*
+X * the only things affected by the output_format are:
+X * speeds (TAS, GS) and distance (DIST, DIST_LEG, DIST_REMAIN)
+X * All are internally stored as knots and km.
+X */
+X#define NM_OR_MI(a) ((output_units == NAUTICAL) ? (a) : (a) * MI_PER_NM)
+X
+X#define EPSON_CROSS		197
+X#define EPSON_VERTICAL_BAR	179
+X#define EPSON_HORIZONTAL_BAR	196
+X#define EPSON_FORWARD_ARROW	180
+X#define EPSON_BACKWARD_ARROW	195
+Xstatic BOOLEAN use_epson_box_chars = FALSE;
+X
+X/*----------------------------------------------------------------------------*/
+Xvoid set_output_units (nautical)
+X     int nautical;
+X{
+X   if (nautical)
+X      output_units = NAUTICAL;
+X   else
+X      output_units = STATUTE;
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xvoid set_format (max_nav, epson)
+X     int max_nav;
+X     BOOLEAN epson;
+X{
+X   int i;
+X   FORMAT_SPEC_CELL *spec = default_format_wide;
+X
+X   use_epson_box_chars = epson;
+X   for (i = 0; i < MAX_NUM_FIELDS; i++) {
+X      if (((spec[i].kind == END_OF_VOR) ||
+X	   (spec[i].kind == VOR_DESIG) ||
+X	   (spec[i].kind == VOR_FREQ) ||
+X	   (spec[i].kind == VOR_DME) ||
+X	   (spec[i].kind == VOR_RADIAL))
+X	  && 
+X	  (max_nav < spec[i].arg)) {
+X	 for (; (spec[i].kind != EOL) && (i < MAX_NUM_FIELDS); i++) {
+X	    output_format[i].kind = IGNORE;
+X	 }
+X	 i--;
+X      } else {
+X	 output_format[i] = spec[i];
+X      }
+X   }
+X#if 0
+X   output_format[i] = spec[i];
+X#endif
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_time (out_fp, field_width, hours)
+X     FILE   *out_fp;
+X     int    field_width;
+X     double hours;
+X{
+X   char   buffer[30];
+X   int    h       = (int) hours;
+X   double minutes = hours * 60.0;
+X
+X   if (h > 0) {
+X      sprintf (buffer, "%d:%02.0f", h, minutes - h * 60.0);
+X      fprintf (out_fp, "%*s", field_width, buffer);
+X   } else {
+X      fprintf (out_fp, "%*.0f", field_width, minutes);
+X   }
+X}
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_string (out_fp, fw, str)
+XFILE *out_fp;
+Xint fw;
+Xchar *str;
+X{
+X   /*
+X    * force a string to fit in the specified field width. if we have to 
+X    * truncate, then indicate the truncation with a '>' in the last position
+X    */
+X
+X   char buffer[100];
+X
+X   strncpy (buffer, str, ABS (fw));
+X   if (strlen (str) > ABS(fw))
+X      buffer[ABS (fw)-1] = '>';
+X   buffer[ABS (fw)] = '\0';
+X#ifdef MSDOS
+X   /* 
+X    * both the Microsoft and Zortech compilers generate incorrect output for
+X    * negative field widths.
+X    */
+X   {
+X      int i;
+X      int xtra = ABS(fw) - strlen (buffer);
+X      
+X      if (fw > 0)
+X	 for (i = 0; i < xtra; i++)
+X	    fprintf (out_fp, " ");
+X      fprintf (out_fp, "%s", buffer);
+X      if (fw < 0)
+X	 for (i = 0; i < xtra; i++)
+X	    fprintf (out_fp, " ");
+X   }
+X#else
+X   fprintf (out_fp, "%*s", fw, buffer);
+X#endif
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_lat_long (out_fp, fw, latitude, longitude)
+X     FILE   *out_fp;
+X     int    fw;
+X     double latitude, longitude;
+X{
+X   char buffer [100];
+X   sprintf (buffer, "[%c%3.3lf,%c%3.3lf]", 
+X	    (latitude > 0.0) ? 'N' : 'S',
+X	    fabs ((double) decimal_2_degrees_mins (latitude)),
+X	    (longitude > 0.0) ? 'W' : 'E',
+X	    fabs ((double) decimal_2_degrees_mins (longitude)));
+X   fprintf (out_fp, "%*s", fw, buffer);
+X}
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_db_mode (out_fp, fw, mode)
+X     FILE 	   *out_fp;
+X     int           fw;
+X     WAYPOINT_MODE mode;
+X{
+X   char *str_val;
+X
+X   switch (mode) {
+X   case WP_AIRPORT:
+X      str_val = "Airport";
+X      break;
+X   case WP_VOR:
+X      str_val = "VOR";
+X      break;
+X   case WP_NAMED_INTERSECTION:
+X   case WP_INTERSECTION:
+X      str_val = "Intersection";
+X      break;
+X   case WP_INCREMENTAL:
+X      str_val = "Incremental";
+X      break;
+X   case WP_LAT_LONG:
+X      str_val = "Lat/Long";
+X      break;
+X   case WP_NDB:
+X      str_val = "NDB";
+X      break;
+X   case WP_DME:
+X      str_val = "VOR/DME";
+X      break;
+X   case WP_TAC:
+X      str_val = "TACAN";
+X      break;
+X   case WP_ILS:
+X      str_val = "ILS";
+X      break;
+X   case WP_WPT:
+X      str_val = "Waypoint";
+X      break;
+X   case WP_LOM:
+X      str_val = "Outer Mkr";
+X      break;
+X   case WP_LMM:
+X      str_val = "Middle Mkr";
+X      break;
+X   default:
+X      break;
+X   }
+X   put_string (out_fp, fw, str_val);
+X}
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_header_cell (out_fp, cell, force)
+X     FILE *out_fp;
+X     FORMAT_SPEC_CELL cell;
+X     BOOLEAN force;
+X{
+X   int fw = ((cell.justification == R) ? cell.field_width :
+X	     -1 * cell.field_width);
+X
+X
+X   if ((cell.kind == IGNORE) || (cell.kind == END_OF_VOR))
+X      return;
+X
+X   if (cell.kind == EOL) {
+X      line_num++;
+X      fprintf (out_fp, "\n");
+X      return;
+X   }
+X
+X   if ((!force) &&(cell.shifted == S) && ((line_num == 0) || (line_num == 1))) {
+X      put_string (out_fp, cell.field_width, "");
+X      return;
+X   }
+X
+X   switch (cell.kind) {
+X   case BAR:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_VERTICAL_BAR : '|');
+X      break;
+X   case FORWARD_ARROW:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_FORWARD_ARROW : '+');
+X      break;
+X   case BACKWARD_ARROW:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_BACKWARD_ARROW : '+');
+X      break;
+X   case CROSS:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_CROSS : '+');
+X      break;
+X   case SEPARATOR:
+X      { 
+X	 int i;
+X	 for (i = 0; i < cell.field_width; i++)
+X	    fprintf (out_fp, "%c", 
+X		     use_epson_box_chars ? EPSON_HORIZONTAL_BAR : '-');
+X      }
+X      break;
+X   default:
+X      put_string (out_fp, fw, headers[(int) cell.kind]);
+X   }
+X}
+X
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_info_cell (out_fp, cell, prev_wp, curr_wp)
+X     FILE             *out_fp;
+X     FORMAT_SPEC_CELL cell;
+X     WAYPOINT_INFO    *prev_wp, *curr_wp;
+X{ 
+X   WAYPOINT_INFO *wp;
+X
+X   int fw = ((cell.justification == R) ? cell.field_width :
+X	     -1 * cell.field_width);
+X   char   *str_val;
+X   double d_val;
+X   char buffer[80];
+X   BOOLEAN valid;
+X   
+X   if ((cell.kind == IGNORE) || (cell.kind == END_OF_VOR))
+X      return;
+X   if ((cell.shifted == S) &&
+X	((line_num == 0) || (line_num == 1))) {
+X      if (! prev_wp) {
+X	 put_header_cell (out_fp, cell, TRUE);
+X	 return;
+X      } else
+X	 wp = prev_wp;
+X   } else
+X      wp = curr_wp;
+X
+X   if ((cell.shifted == S) && (wp->wp_kind == WP_TO)) {
+X      put_string (out_fp, cell.field_width, "");
+X      return;
+X   }
+X
+X   switch (cell.kind) {
+X   case EOL:
+X      line_num++;
+X      fprintf (out_fp, "\n");
+X      break;
+X   case BAR:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_VERTICAL_BAR : '|');
+X      break;
+X   case CROSS:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_CROSS : '+');
+X      break;
+X   case FORWARD_ARROW:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_FORWARD_ARROW : '>');
+X      break;
+X   case BACKWARD_ARROW:
+X      fprintf (out_fp, "%c", use_epson_box_chars ? EPSON_BACKWARD_ARROW : '<');
+X      break;
+X   case SEPARATOR:
+X      { 
+X	 int i;
+X	 for (i = 0; i < cell.field_width; i++)
+X	    fprintf (out_fp, "%c", 
+X		     use_epson_box_chars ? EPSON_HORIZONTAL_BAR : '-');
+X      }
+X      break;
+X      /*
+X       * strings
+X       */
+X   case NAME:
+X   case CITY:
+X   case COMMENT:
+X   case DESIG:
+X   case VOR_DESIG:
+X      switch (cell.kind) {
+X      case CITY:
+X	 valid = TRUE;
+X	 str_val = wp->db->city;
+X	 break;
+X      case NAME:
+X	 valid = TRUE;
+X	 str_val = wp->db->name;
+X	 break;
+X      case COMMENT:
+X	 valid = TRUE;
+X	 str_val = wp->db->comment;
+X	 break;
+X      case DESIG:
+X	 valid = TRUE;
+X	 str_val = wp->db->desig;
+X	 break;
+X      case VOR_DESIG:
+X	 valid   = wp->vor_fix [cell.arg].valid;
+X	 if (valid)
+X	    str_val = wp->vor_fix [cell.arg].db->desig;
+X	 break;
+X      default:
+X	 valid   = FALSE;
+X	 str_val = NULL;
+X	 break;
+X      }
+X      if (! str_val)
+X	 valid = FALSE;
+X      if (valid) {
+X	 put_string (out_fp, fw, str_val);
+X      } else
+X	 fprintf (out_fp, "%*s", fw, "");
+X      break;
+X      /*
+X       * headings
+X       */
+X   case MH:
+X   case MC:
+X   case TC:
+X      switch (cell.kind) {
+X      case MH:
+X	 valid = wp->mh.valid;
+X	 d_val = wp->mh.value;
+X	 break;
+X      case MC:
+X	 valid = wp->mc.valid;
+X	 d_val = wp->mc.value;
+X	 break;
+X      case TC:
+X	 valid = wp->tc.valid;
+X	 d_val = wp->tc.value;
+X	 break;
+X      default:
+X	 break;
+X      }
+X      if (valid) {
+X	 sprintf (buffer, "%03.*f", cell.arg, d_val);
+X	 fprintf (out_fp, "%*s", fw, buffer);
+X      } else {
+X	 fprintf (out_fp, "%*s", fw, "");
+X      }
+X      break;
+X      /*
+X       * numbers
+X       */
+X   case FREQ:
+X   case VOR_FREQ:
+X      switch (cell.kind) {
+X      case VOR_FREQ:
+X	 valid = wp->vor_fix [cell.arg].valid;
+X	 if (valid) 
+X	    d_val = wp->vor_fix [cell.arg].db->freq.value;
+X	 break;
+X      case FREQ:
+X	 valid = wp->db->freq.valid;
+X	 d_val = wp->db->freq.value;
+X	 break;
+X      default:
+X	 valid = FALSE;
+X	 break;
+X      }
+X      if (valid) {
+X	 fprintf (out_fp, "%*.2f", fw, d_val);
+X      } else
+X	 fprintf (out_fp, "%*s", fw, "");
+X      break;
+X   case ELEV:
+X   case TAS:
+X   case EGS:
+X   case FUEL_AMT:
+X   case FUEL_LEG:
+X   case FUEL_RATE:
+X   case DIST_LEG:
+X   case DIST:
+X   case DIST_REMAIN:
+X      switch (cell.kind) {
+X      case ELEV:
+X	 valid = wp->db->altitude.valid;
+X	 d_val = wp->db->altitude.value;
+X	 break;
+X      case TAS:
+X	 valid = wp->tas.valid;
+X	 d_val = NM_OR_MI (wp->tas.value); 
+X	 break;
+X      case EGS:
+X	 valid = wp->egs.valid;
+X	 d_val = NM_OR_MI (wp->egs.value);
+X	 break;
+X      case FUEL_AMT:
+X	 valid = wp->fuel_amt.valid;
+X	 d_val = wp->fuel_amt.value;
+X	 break;
+X      case FUEL_LEG:
+X	 valid = wp->fuel_leg.valid;
+X	 d_val = wp->fuel_leg.value;
+X	 break;
+X      case FUEL_RATE:
+X	 valid = wp->fuel_rate.valid;
+X	 d_val = wp->fuel_rate.value;
+X	 break;
+X      case DIST_LEG:
+X	 valid = wp->dist_leg.valid;
+X	 d_val = NM_OR_MI (wp->dist_leg.value);
+X	 break;
+X      case DIST:
+X	 valid = wp->dist.valid;
+X	 d_val = NM_OR_MI (wp->dist.value);
+X	 break;
+X      case DIST_REMAIN:
+X	 valid = wp->dist_remain.valid;
+X	 d_val = NM_OR_MI (wp->dist_remain.value);
+X	 break;
+X      default:
+X	 valid = FALSE;
+X	 d_val = 0.0;
+X	 break;
+X      }
+X      if (valid) {
+X	 fprintf (out_fp, "%*.*f", fw, cell.arg, d_val);
+X      } else
+X	 fprintf (out_fp, "%*s", fw, "");
+X      break;
+X      /*
+X       * times:
+X       */
+X   case ETA:
+X   case ETA_LEG:
+X      valid = (cell.kind == ETA) ? wp->eta.valid : wp->eta_leg.valid;
+X      d_val = (cell.kind == ETA) ? wp->eta.value : wp->eta_leg.value;
+X      if (valid)
+X	 put_time (out_fp, fw, d_val);
+X      else
+X	 fprintf (out_fp, "%*s", fw, "");
+X      break;
+X   case VOR_DME:
+X      if (wp->vor_fix[cell.arg].valid)
+X	 fprintf (out_fp, "%*.0lf", fw, wp->vor_fix[cell.arg].distance);
+X      else
+X	 fprintf (out_fp, "%*s", fw, "");
+X      break;
+X   case VOR_RADIAL:
+X      if (wp->vor_fix[cell.arg].valid) {
+X	 sprintf (buffer, "%03.0f%c", wp->vor_fix[cell.arg].heading, 
+X		  (wp->vor_fix[cell.arg].from_to == FROM ? 'F' : 'T') );
+X	 fprintf (out_fp, "%*s", fw, buffer);
+X      } else {
+X	 fprintf (out_fp, "%*s", fw, "");
+X      }
+X      break;
+X   case LAT_LONG:
+X      put_lat_long (out_fp, fw, wp->db->latitude, wp->db->longitude);
+X      break;
+X   case ALT:
+X      if (! wp->altitude.valid) {
+X	 fprintf (out_fp, "%*s", fw, "");
+X#if 0
+X      } else if (wp->altitude.value < 1000.0) {
+X	 sprintf (buffer, "FL%g", wp->altitude.value);
+X	 fprintf (out_fp, "%*s", fw, buffer);
+X#endif
+X      } else {
+X	 fprintf (out_fp, "%*.0f", fw, wp->altitude.value);
+X      }
+X      break;
+X   case WIND:
+X      if (wp->wind_direction.valid && wp->wind_speed.valid) {
+X	 sprintf (buffer, "%03.0f@%02.0f", wp->wind_direction.value, 
+X		  wp->wind_speed.value);
+X	 fprintf (out_fp, "%*s", fw, buffer);
+X      } else {
+X	 fprintf (out_fp, "%*s", fw, "");
+X      }
+X      break;
+X   case TYPE:
+X      put_db_mode (out_fp, fw, wp->db->mode);
+X      break;
+X   case EMPTY:
+X   case ATA:
+X   case AGS:
+X   default:
+X      fprintf (out_fp, "%*s", fw, "");
+X      break;
+X   }    
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_info_cells (out_fp, cells, prev_wp, wp)
+X     FILE             *out_fp;
+X     FORMAT_SPEC_CELL cells[];
+X     WAYPOINT_INFO    *prev_wp, *wp;
+X{
+X   int i;
+X
+X   line_num = 0;
+X   for (i = 0; (cells[i].kind != END_OF_FORMAT); i++) 
+X      put_info_cell (out_fp, cells[i], prev_wp, wp);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void put_header_cells (out_fp, cells, first_line_only)
+X     FILE             *out_fp;
+X     FORMAT_SPEC_CELL cells[];
+X     BOOLEAN first_line_only;
+X{
+X   int i;
+X
+X   line_num = 0;
+X   for (i = 0; (cells[i].kind != END_OF_FORMAT); i++) {
+X      if (first_line_only && line_num)
+X	 return;
+X      else
+X	 put_header_cell (out_fp, cells[i], FALSE);
+X   }
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xvoid print_plan ()
+X{
+X   int i;
+X
+X   for (i = 0; i < num_waypoints; i++) {
+X      if (waypoints[i].wp_kind == WP_FROM) {
+X	 if (i)
+X	    fprintf (stdout, "\f");
+X	 printf ("\nSpeeds in %s; Distances in %s miles\n",
+X		 (output_units == NAUTICAL) ? "knots" : "mph (wind in knots)",
+X		 (output_units == NAUTICAL) ? "nautical" : "statute");
+X	 put_header_cells (stdout, output_format, FALSE);
+X      }
+X      put_info_cells (stdout, output_format,
+X		      (waypoints[i].wp_kind == WP_FROM) ? 0 : &waypoints[i-1],
+X		      &waypoints[i]);
+X      if (waypoints[i].wp_kind == WP_TO)
+X	 put_header_cells (stdout, output_format, TRUE);
+X   }
+X}
+X
+X
+X/*----------------------------------------------------------------------------*/
+Xput_db (out_fp, db)
+X     FILE          *out_fp;
+X     DATABASE_INFO *db;
+X{
+X   fprintf (out_fp, "______________________________________________________________________________\n");
+X   fprintf (out_fp, "%s\t", db->desig);
+X   put_db_mode (out_fp, -12, db->mode);
+X   if (db->name)
+X      fprintf (out_fp, "\nNAME   : %s\n", db->name);
+X   if (db->city)
+X      fprintf (out_fp, "CITY   : %s\n", db->city);
+X   if (db->comment)
+X      fprintf (out_fp, "COMMENT: %s\n", db->comment);
+X   fprintf (out_fp, "LAT/LONG: ");
+X   put_lat_long (out_fp, 1, db->latitude, db->longitude);
+X   fprintf (out_fp, " MAG VARIATION: %g ", db->mag_variation);
+X   if (db->freq.valid)
+X      fprintf (out_fp, "FREQ: %7.2f ", db->freq.value);
+X   if (db->altitude.valid)
+X      fprintf (out_fp, "ALTITUDE: %g", db->altitude.value);
+X   fprintf (out_fp, "\n");
+X}
+END_OF_FILE
+  if test 21837 -ne `wc -c <'output.c'`; then
+    echo shar: \"'output.c'\" unpacked with wrong size!
+  fi
+  # end of 'output.c'
+fi
+if test -f 'sv_draw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sv_draw.c'\"
+else
+  echo shar: Extracting \"'sv_draw.c'\" \(8895 characters\)
+  sed "s/^X//" >'sv_draw.c' <<'END_OF_FILE'
+X/*
+X * $Id: sv_draw.c,v 1.3 89/11/11 19:43:17 tynor Exp $
+X *----------------------------------------------------------------------------
+X *	FPLAN - Flight Planner
+X *	Steve Tynor
+X *	tynor@prism.gatech.edu
+X *
+X *	This program is in the public domain. Permission to copy,
+X * distribute, modify this program is hearby given as long as this header
+X * remains. If you redistribute this program after modifying it, please
+X * document your changes so that I do not take the blame (or credit) for
+X * those changes.  If you fix bugs or add features, please send me a
+X * patch so that I can keep the 'official' version up-to-date.
+X *
+X *	Bug reports are welcome and I'll make an attempt to fix those
+X * that are reported.
+X *
+X *	USE AT YOUR OWN RISK! I assume no responsibility for any
+X * errors in this program, its database or documentation. I will make an
+X * effort to fix bugs, but if you crash and burn because, for example,
+X * fuel estimates in this program were inaccurate, it's your own fault
+X * for trusting somebody else's code! Remember, as PIC, it's _your_
+X * responsibility to do complete preflight planning. Use this program as
+X * a flight planning aid, but verify its results before using them.
+X *----------------------------------------------------------------------------
+X */
+X
+X#ifdef GFX_SUNVIEW 
+X
+X/*
+X *==============================================================================
+X * Graphics routines for Sunview
+X *==============================================================================
+X */
+X
+X#include "wp_info.h"
+X#include <suntool/sunview.h>
+X#include <suntool/canvas.h>
+X#include <suntool/panel.h>
+X#include <suntool/scrollbar.h>
+X
+Xstatic char rcsid[] = "$Id: sv_draw.c,v 1.3 89/11/11 19:43:17 tynor Exp $";
+X
+Xstatic double min_lat;
+Xstatic double max_lat;
+Xstatic double min_long;
+Xstatic double max_long;
+X
+X#define PIX_OR (PIX_SRC | PIX_DST) /* Rasterop */
+X
+XPixfont *font;
+X#define DEFAULT_SCALE 100 /* pixels per degree */
+X#define SV_MARGIN 40
+X
+XPanel panel;
+XFrame frame;
+XCanvas canvas;
+Xstatic BOOLEAN brief_mode;
+Xint scale = DEFAULT_SCALE;
+XBOOLEAN first_time;
+XScrollbar vert_scroll, horiz_scroll;
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_draw_pt (canvas, x, y)
+X     Canvas canvas;
+X     int x, y;
+X{
+X   pw_writebackground (canvas_pixwin (canvas), x-1, y-1, 3, 3,
+X		       PIX_NOT (PIX_SRC));
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_draw_str (canvas, x, y, str)
+X     Canvas canvas;
+X     int x, y;
+X     char *str;
+X{
+X   pw_text (canvas_pixwin (canvas), x+3, y+3, PIX_OR, font, str);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_project (latitude, longitude, x, y)
+Xdouble latitude, longitude;
+Xint *x, *y;
+X{
+X   /*
+X    * NOTE: this is "Tynor's naive projection system" - ignores the curvature
+X    * of the earth:
+X    */
+X
+X   *x = SV_MARGIN + (int) ((max_long - longitude) * (double) scale);
+X   *y = SV_MARGIN + (int) ((max_lat - latitude  ) * (double) scale);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_draw_db (canvas, db)
+X     Canvas canvas;
+X     DATABASE_INFO *db;
+X{
+X   int x, y;
+X
+X   sv_project (db->latitude, db->longitude, &x, &y);
+X   sv_draw_pt (canvas, x, y);
+X   sv_draw_str (canvas, x, y,
+X		 (db->mode != WP_INCREMENTAL) ? db->desig : db->name);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_draw_leg (canvas, db1, db2)
+X     Canvas canvas;
+X     DATABASE_INFO *db1, *db2;
+X{
+X   int x1, y1, x2, y2;
+X
+X   sv_project (db1->latitude, db1->longitude, &x1, &y1);
+X   sv_project (db2->latitude, db2->longitude, &x2, &y2);
+X
+X   pw_vector (canvas_pixwin (canvas), x1, y1, x2, y2, PIX_OR, 1);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_scroll_to (db)
+X     DATABASE_INFO *db;
+X{
+X   int x, y;
+X
+X   sv_project (db->latitude, db->longitude, &x, &y);
+X
+X   /*
+X    * try to center the waypoint on the canvas
+X    */
+X   scrollbar_scroll_to (horiz_scroll, 
+X			MIN ((int)window_get (canvas, CANVAS_WIDTH, 0),
+X			     MAX (0, 
+X				  x - (int)window_get (canvas, 
+X						       WIN_WIDTH, 0) / 2)));
+X   scrollbar_scroll_to (vert_scroll, 
+X			MIN ((int)window_get (canvas, CANVAS_HEIGHT, 0),
+X			     MAX (0, 
+X				  y - (int)window_get (canvas, 
+X						       WIN_HEIGHT, 0) / 2)));
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xstatic void sv_redraw ()
+X{
+X   int width, height, i;
+X
+X#define MIN_WIDTH 400
+X#define XTRA_WIDTH   30 /* frame needs to be this much bigger than the canvas */
+X#define XTRA_HEIGHT 100 /* frame needs to be this much bigger than the canvas */
+X
+X   width  = ABS ((int) ((max_long - min_long) * (double) scale)) + 
+X      2 * SV_MARGIN;
+X   height = ABS ((int) ((max_lat - min_lat)   * (double) scale)) +
+X      2 * SV_MARGIN;
+X
+X   width = MAX (width, MIN_WIDTH);
+X
+X   window_set (canvas, CANVAS_HEIGHT, height, 0);
+X   window_set (canvas, CANVAS_WIDTH, width, 0);
+X
+X   pw_writebackground (canvas_pixwin (canvas), 0, 0, 3000, 3000, PIX_SRC);
+X
+X   for (i = 0; i < num_cached; i++) {
+X      sv_draw_db (canvas, cache[i]);
+X   }
+X
+X   for (i = 0; i < num_waypoints - 1; i++) {
+X      sv_draw_leg (canvas, waypoints[i].db, waypoints[i+1].db);
+X      if ((!brief_mode) && (waypoints[i].db->mode == WP_INCREMENTAL))
+X	 sv_draw_db (canvas, waypoints[i].db);
+X   }
+X
+X   if (first_time) {
+X      Pixrect *screen = pr_open ("/dev/fb");
+X
+X      window_set (frame, WIN_WIDTH, MIN (screen->pr_size.x, 
+X					 XTRA_WIDTH + width), 0);
+X      window_set (frame, WIN_HEIGHT, MIN (screen->pr_size.y,
+X					  XTRA_HEIGHT + height), 0);
+X      first_time = FALSE;
+X      sv_scroll_to (waypoints[0].db);
+X   }
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xsv_quit_event_proc (item, event)
+X     Panel_item item;
+X     Event *event;
+X{
+X   window_destroy (frame);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xsv_brief_event_proc (item, event)
+X     Panel_item item;
+X     Event *event;
+X{
+X   brief_mode = (int) panel_get (item, PANEL_VALUE, 0);
+X   sv_redraw ();
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xsv_tofirst_event_proc (item, event)
+X     Panel_item item;
+X     Event *event;
+X{
+X   sv_scroll_to (waypoints[0].db);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xsv_tolast_event_proc (item, event)
+X     Panel_item item;
+X     Event *event;
+X{
+X   sv_scroll_to (waypoints[num_waypoints-1].db);
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xsv_scale_event_proc (item, event)
+X     Panel_item item;
+X     Event *event;
+X{
+X   scale = (int) panel_get (item, PANEL_VALUE, 0);
+X   sv_redraw ();
+X}
+X
+X/*----------------------------------------------------------------------------*/
+Xvoid sv_draw (brief)
+X     BOOLEAN brief;
+X{
+X
+X   min_max_lat_long (&min_lat, &max_lat, &min_long, &max_long);
+X
+X   brief_mode = brief;
+X   font = pf_open ("/usr/lib/fonts/fixedwidthfonts/screen.r.7");
+X
+X   frame = window_create (NULL, FRAME,
+X			  FRAME_LABEL, "FPLAN",
+X			  0);
+X
+X   panel = window_create (frame, PANEL,
+X			  0);
+X   
+X   panel_create_item (panel, PANEL_BUTTON,
+X		      PANEL_NOTIFY_PROC, sv_quit_event_proc,
+X		      PANEL_LABEL_IMAGE, panel_button_image (panel,
+X							     "Quit", 0, 0),
+X		      PANEL_ITEM_X,	   ATTR_COL (0),
+X		      PANEL_ITEM_Y,	   ATTR_ROW (0),
+X		      0);
+X
+X   panel_create_item (panel, PANEL_BUTTON,
+X		      PANEL_NOTIFY_PROC, sv_tofirst_event_proc,
+X		      PANEL_LABEL_IMAGE, panel_button_image (panel,
+X							     "To First", 0, 0),
+X		      0);
+X
+X   panel_create_item (panel, PANEL_BUTTON,
+X		      PANEL_NOTIFY_PROC, sv_tolast_event_proc,
+X		      PANEL_LABEL_IMAGE, panel_button_image (panel,
+X							     "To Last", 0, 0),
+X		      0);
+X
+X   panel_create_item (panel, PANEL_CYCLE,
+X		      PANEL_LABEL_STRING,   "Brief:",
+X		      PANEL_CHOICE_STRINGS, "NO", "YES", 0,
+X		      PANEL_NOTIFY_PROC,    sv_brief_event_proc,
+X		      PANEL_VALUE, 	    brief_mode,
+X		      0);		
+X
+X   panel_create_item (panel, PANEL_SLIDER,
+X		      PANEL_LABEL_STRING, "Scale:",
+X		      PANEL_VALUE, 	   scale,
+X		      PANEL_MIN_VALUE, 	   5,
+X		      PANEL_MAX_VALUE, 	   400,
+X		      PANEL_SLIDER_WIDTH,  200,
+X		      PANEL_NOTIFY_PROC,   sv_scale_event_proc,
+X		      0);		
+X
+X   window_fit_height (panel);
+X
+X   horiz_scroll = scrollbar_create(0);
+X   vert_scroll = scrollbar_create(0);
+X
+X   canvas = window_create (frame, CANVAS,
+X			   CANVAS_AUTO_SHRINK, FALSE,
+X			   WIN_VERTICAL_SCROLLBAR, vert_scroll,
+X			   WIN_HORIZONTAL_SCROLLBAR, horiz_scroll,
+X			   CANVAS_WIDTH, 1,
+X			   CANVAS_HEIGHT, 1,
+X			   0);
+X   scrollbar_set (horiz_scroll, SCROLL_ADVANCED_MODE, 1, 0);
+X   scrollbar_set (vert_scroll, SCROLL_ADVANCED_MODE, 1, 0);
+X
+X   first_time = TRUE;
+X   sv_redraw ();
+X   window_main_loop (frame);
+X}
+X
+X#endif /* GFX_SUNVIEW */
+END_OF_FILE
+  if test 8895 -ne `wc -c <'sv_draw.c'`; then
+    echo shar: \"'sv_draw.c'\" unpacked with wrong size!
+  fi
+  # end of 'sv_draw.c'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

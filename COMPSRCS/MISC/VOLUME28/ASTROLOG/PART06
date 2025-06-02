@@ -1,0 +1,1635 @@
+Newsgroups: comp.sources.misc
+From: pullen@cs.washington.edu (Walter D. Pullen)
+Subject:  v28i109:  astrolog - Generation of astrology charts v2.10, Part06/06
+Message-ID: <1992Mar16.025125.13450@sparky.imd.sterling.com>
+X-Md4-Signature: 186668417398edae2eed3f5ffadcbf76
+Date: Mon, 16 Mar 1992 02:51:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pullen@cs.washington.edu (Walter D. Pullen)
+Posting-number: Volume 28, Issue 109
+Archive-name: astrolog/part06
+Environment: UNIX, VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 6)."
+# Contents:  graphics.c
+# Wrapped by pullen@lynx.cs.washington.edu on Sun Mar 15 16:05:16 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'graphics.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'graphics.c'\"
+else
+echo shar: Extracting \"'graphics.c'\" \(44430 characters\)
+sed "s/^X//" >'graphics.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.10) File: graphics.c
+X** Initially programmed 10/23-29/1991
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991 by Walter D. Pullen. Permission is
+X** granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef X11
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+X#define BITMAPX 1152    /* Maximum window size allowed */
+X#define BITMAPY 1152
+X#define BITMAPX1 192    /* Minimum window size allowed */
+X#define BITMAPY1 192
+X#define DEFAULTX 600    /* Default window size         */
+X#define DEFAULTY 600
+X#define CELLSIZE  14    /* Size for each cell in the aspect grid      */
+X#define DEFORB   7.0    /* Min distance glyphs can be from each other */
+X
+X#define color unsigned long
+X#define bit   color
+X#define P(B, X, Y) ((B)->m[X][Y])
+X#define NEW(B) B = (bitmapstruct *) malloc(sizeof(bitmapstruct))
+X#define DISPOSE(B) free(B)
+X
+Xtypedef struct {
+X  bit m[BITMAPX][BITMAPY];
+X} bitmapstruct;
+Xtypedef bitmapstruct *bitmap;
+X
+X#define Xcolor(A) XSetForeground(disp, gc, A);
+X
+X
+X/*
+X*******************************************************************************
+X** Variables
+X*******************************************************************************
+X*/
+X
+Xchar *elemcolorname[]
+X  = {"orangered", "tan", "green", "deepskyblue"};
+Xchar *aspectcolorname[]
+X  = {"white", "yellow", "blue", "red", "green", "cyan",
+X       "tan", "tan", "orange", "orange", "violet", "violet",
+X       "violet", "gold", "pink", "pink", "gold", "gold", "pink"};
+Xcolor elemcolor[4], aspectcolor[ASPECTS+1], objectcolor[OBJECTS+1],
+X  gray, hilite;
+X
+XColormap cmap;
+XDisplay *disp;
+XFont font;
+XGC gc, pmgc;
+XKeySym key;
+XPixmap pixmap, icon;
+XWindow window, root;
+XXEvent event;
+XXSizeHints hint;
+Xint screen, depth;
+Xchar xkey[10];
+Xcolor fg, bg, on = ON, off = OFF;
+X
+Xbitmap bm;
+Xchar modex = 'c', outputfile[STRING] = "tty";
+Xint xmono = FALSE, xcolor = TRUE, xbitmap = FALSE, xroot = FALSE,
+X  xreverse = FALSE, turtlex = 0, turtley = 0, scale = 200,
+X  chartx = DEFAULTX, charty = DEFAULTY, degree = 0, xnow = FALSE;
+Xdouble symbol[OBJECTS+1], circx[360+1], circy[360+1];
+X
+X
+X/*
+X*******************************************************************************
+X** Astrolog icon
+X*******************************************************************************
+X*/
+X
+X#define icon_width 64
+X#define icon_height 32
+Xstatic char icon_bits[] = {
+X 0x00,0x00,0x00,0xa8,0x0a,0x00,0x00,0x00,0x00,0x00,0x40,0x55,0x55,0x01,0x00,
+X 0x00,0x00,0x00,0xa8,0xaa,0xaa,0x0a,0x00,0x00,0x00,0x00,0x54,0xf5,0x57,0x15,
+X 0x00,0x00,0x00,0x80,0xaa,0xaa,0xaa,0xaa,0x00,0x00,0x00,0x40,0xd5,0xff,0xff,
+X 0x55,0x01,0x00,0x00,0xa0,0xaa,0xaa,0xaa,0xaa,0x02,0x00,0x00,0x50,0xfd,0xff,
+X 0xff,0x5f,0x05,0x00,0x00,0xa8,0xaa,0x2a,0xaa,0xaa,0x0a,0x00,0x00,0xd4,0xff,
+X 0xaf,0xfa,0xff,0x15,0x00,0x00,0xaa,0x2a,0x00,0x00,0xaa,0x2a,0x00,0x00,0xf5,
+X 0xbf,0xaa,0xaa,0xfe,0x57,0x00,0x80,0xaa,0x02,0x00,0x00,0xa0,0xaa,0x00,0x40,
+X 0xfd,0xab,0xfa,0xaf,0xea,0x5f,0x01,0xa0,0xaa,0x80,0xff,0xff,0x80,0xaa,0x02,
+X 0x50,0xff,0xea,0xff,0xff,0xab,0x7f,0x05,0xa0,0x2a,0xf0,0xff,0xff,0x07,0xaa,
+X 0x02,0xd0,0xbf,0xfa,0x0f,0xf8,0xaf,0x7e,0x05,0xa8,0x0a,0xfc,0x01,0xc0,0x1f,
+X 0xa8,0x0a,0xd4,0xaf,0x7e,0x00,0x00,0xbf,0xfa,0x15,0xa8,0x0a,0x3f,0x00,0x00,
+X 0x7e,0xa8,0x0a,0xf4,0xaf,0x1f,0xe0,0x03,0xfc,0xfa,0x15,0xaa,0x82,0x0f,0xdc,
+X 0x1d,0xf8,0xa0,0x2a,0xf4,0xab,0x07,0x23,0x62,0xf0,0xea,0x17,0xaa,0xc2,0x87,
+X 0x91,0xc4,0xf0,0xa1,0x2a,0xf4,0xeb,0xc3,0xd0,0x85,0xe1,0xeb,0x17,0xaa,0xe0,
+X 0x83,0x91,0xc4,0xe0,0x83,0x2a,0xf5,0xeb,0x03,0x23,0x62,0xe0,0xeb,0x57,0xaa,
+X 0xe0,0x01,0xdc,0x1d,0xc0,0x83,0x2a,0xf5,0xeb,0x01,0xe0,0x03,0xc0,0xeb,0x57,
+X 0xaa,0xe0,0x01,0x00,0x00,0xc0,0x83,0x2a,0xfd,0xeb,0x01,0x00,0x00,0xc0,0xeb,
+X 0x5f};
+X
+X
+X/*
+X*******************************************************************************
+X** Standard procedures
+X*******************************************************************************
+X*/
+X
+Xsort(n1, n2)
+Xint *n1, *n2;
+X{
+X  int temp;
+X  if (*n1 > *n2) {
+X    temp = *n1;
+X    *n1  = *n2;
+X    *n2  = temp;
+X  }
+X}
+X
+Xint intinstring(str)
+Xchar **str;
+X{
+X  int num = 0, i;
+X  for (i = 0; ; i++) {
+X    if (**str < '0' || **str > '9')
+X      return num > 0 ? num : (i < 1 ? 1 : 0);
+X    num = num*10+(**str)-'0';
+X    (*str)++;
+X  }
+X}
+X
+Xwritefile()
+X{
+X  FILE *data;
+X  char formatw = BITMAPMODE, tty;
+X  tty = (outputfile[0] == 't' && outputfile[1] == 't' &&
+X	 outputfile[2] == 'y' && outputfile[3] == 0);
+X  while (TRUE) {
+X    if (tty) {
+X      printf("Enter name of file to write X bitmap to - ");
+X      scanf("%s", outputfile);
+X    }
+X    data = fopen(outputfile, "w");
+X    if (data != NULL)
+X      break;
+X    else {
+X      printf(" Bad output file.\n");
+X      tty = 1;
+X    }
+X  }
+X  writebitmap(data, outputfile, formatw);
+X  fclose(data);
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Graphic procedures
+X*******************************************************************************
+X*/
+X
+Xlegalize(x, y)
+Xint *x, *y;
+X{
+X  if (*x < 0)
+X    *x = 0;
+X  else if (*x >= chartx)
+X    *x = chartx-1;
+X  if (*y < 0)
+X    *y = 0;
+X  else if (*y >= charty)
+X    *y = charty-1;
+X}
+X
+Xdrawpoint(x, y, o)
+Xint x, y;
+Xbit o;
+X{
+X  legalize(&x, &y);
+X  if (xbitmap)
+X    P(bm, x, y) = o;
+X  else
+X    XDrawPoint(disp, pixmap, gc, x, y);
+X}
+X
+Xblock(x1, y1, x2, y2, o)
+Xint x1, y1, x2, y2;
+Xbit o;
+X{
+X  int x, y;
+X  legalize(&x1, &y1); legalize(&x2, &y2);
+X  sort(&y1, &y2);
+X  for (y = y1; y <= y2; y++)
+X    drawline(x1, y, x2, y, o, 0);
+X}
+X
+Xbox(x1, y1, x2, y2, xsiz, ysiz, o)
+Xint x1, y1, x2, y2, xsiz, ysiz;
+Xbit o;
+X{
+X  block(x1, y1, x2, y1 + ysiz - 1, o);
+X  block(x1, y1 + ysiz, x1 + xsiz - 1, y2 - ysiz, o);
+X  block(x2 - xsiz + 1, y1 + ysiz, x2, y2 - ysiz, o);
+X  block(x1, y2 - ysiz + 1, x2, y2, o);
+X}
+X
+X#define edge(X1, Y1, X2, Y2, O) \
+X  box(X1, Y1, X2, Y2, 1, 1, O)
+X
+X#define boxall(XSIZ, YSIZ, O) \
+X  box(0, 0, chartx-1, charty-1, XSIZ, YSIZ, O)
+X
+Xdrawline(x1, y1, x2, y2, o, skip)
+Xint x1, y1, x2, y2, skip;
+Xbit o;
+X{
+X  int x = x1, y = y1, xadd, yadd, xinc, yinc, xabs, yabs, i, j = 0, temp;
+X  if (!xbitmap) {
+X    Xcolor(o);
+X    if (skip == 0) {
+X      XDrawLine(disp, pixmap, gc, x1, y1, x2, y2);
+X      return;
+X    }
+X  }
+X  if (skip < 0)
+X    skip = 0;
+X  if (x2 - x1 >= 0)
+X    xadd = 1;
+X  else
+X    xadd = 3;
+X  if (y2 - y1 >= 0)
+X    yadd = 2;
+X  else
+X    yadd = 4;
+X  xabs = abs(x2 - x1);
+X  yabs = abs(y2 - y1);
+X  if (xabs < yabs) {
+X    temp = xadd;
+X    xadd = yadd;
+X    yadd = temp;
+X    temp = xabs;
+X    xabs = yabs;
+X    yabs = temp;
+X  }
+X  xinc = xabs;
+X  yinc = xabs >> 1;
+X  if (!(xabs & 1) && xadd > 2)
+X    yinc--;
+X  for (i = 0; i <= xinc; i++) {
+X    if (j < 1)
+X      drawpoint(x, y, o);
+X    j = j < skip ? j+1 : 0;
+X    switch (xadd) {
+X    case 1: x++;
+X      break;
+X    case 2: y++;
+X      break;
+X    case 3: x--;
+X      break;
+X    case 4: y--;
+X    }
+X    yinc += yabs;
+X    if (yinc - xabs >= 0) {
+X      yinc -= xabs;
+X      switch (yadd) {
+X      case 1: x++;
+X	break;
+X      case 2: y++;
+X	break;
+X      case 3: x--;
+X	break;
+X      case 4: y--;
+X      }
+X    }
+X  }
+X}
+X
+Xturtle(lin, x0, y0, o)
+Xchar *lin;
+Xint x0, y0;
+Xbit o;
+X{
+X  int i, j, x, y, deltax, deltay, blank = 0, noupdate = 0;
+X  char cmd;
+X  turtlex = x0; turtley = y0;
+X  if (!xbitmap)
+X    Xcolor(o);
+X  while (TRUE) {
+X    cmd = CAP(*lin);
+X    lin++;
+X    switch (cmd) {
+X    case 0:
+X      return;
+X    case 'B':
+X      blank = 1; break;
+X    case 'N':
+X      noupdate = 1; break;
+X    case 'U': case 'D': case 'L': case 'R':
+X    case 'E': case 'F': case 'G': case 'H':
+X      switch (cmd) {
+X      case 'U': deltax =  0; deltay = -1; break;
+X      case 'D': deltax =  0; deltay =  1; break;
+X      case 'L': deltax = -1; deltay =  0; break;
+X      case 'R': deltax =  1; deltay =  0; break;
+X      case 'E': deltax =  1; deltay = -1; break;
+X      case 'F': deltax =  1; deltay =  1; break;
+X      case 'G': deltax = -1; deltay =  1; break;
+X      case 'H': deltax = -1; deltay = -1; break;
+X      default: ;
+X      }
+X      x = turtlex;
+X      y = turtley;
+X      j = intinstring(&lin)*scale/100;
+X      if (blank) {
+X	turtlex += deltax*j;
+X	turtley += deltay*j;
+X      } else {
+X	drawpoint(turtlex, turtley, o);
+X	for (i = 0; i < j; i++) {
+X	  turtlex += deltax;
+X	  turtley += deltay;
+X	  drawpoint(turtlex, turtley, o);
+X	}
+X      }
+X      if (noupdate) {
+X	turtlex = x;
+X	turtley = y;
+X      }
+X      break;
+X    default:
+X      fprintf(stderr, "Bad turtle subcommand: %c\n", cmd);
+X    }
+X    if (cmd != 'B' && cmd != 'N')
+X      blank = noupdate = 0;
+X  }
+X}
+X
+X#define INTTOHEX(I) (char) ((I) < 10 ? '0' + (I) : 'a' + (I) - 10)
+X
+Xwritebitmap(data, name, mode)
+XFILE *data;
+Xchar *name, mode;
+X{
+X  char line[STRING];
+X  int x, y, i, value, temp = 0;
+X
+X  fprintf(data, "#define %s_width %d\n" , name, chartx);
+X  fprintf(data, "#define %s_height %d\n", name, charty);
+X  fprintf(data, "static %s %s_bits[] = {",
+X	  mode != 'S' ? "char" : "short", name);
+X  for (y = 0; y < charty; y++) {
+X    x = 0;
+X    do {
+X      if (y + x > 0)
+X        fprintf(data, ",");
+X      if (temp == 0)
+X      	fprintf(data, "\n%s",
+X		mode == 'B' ? "  " : (mode == 'C' ? " " : ""));
+X      value = 0;
+X      for (i = (mode != 'S' ? 7 : 15); i >= 0; i--)
+X        value = (value << 1) + (!P(bm, x + i, y) && x + i < chartx);
+X      if (mode == 'B')
+X	putc(' ', data);
+X      fprintf(data, "0x");
+X      if (mode == 'S')
+X        fprintf(data, "%c%c",
+X		INTTOHEX(value >> 12), INTTOHEX((value >> 8) & 15));
+X      fprintf(data, "%c%c",
+X	      INTTOHEX((value >> 4) & 15), INTTOHEX(value & 15));
+X      temp++;
+X      if ((mode == 'B' && temp >= 12) ||
+X	  (mode == 'C' && temp >= 15) ||
+X	  (mode == 'S' && temp >= 11))
+X      	temp = 0;
+X      x += (mode != 'S' ? 8 : 16);
+X    } while (x < chartx);
+X  }
+X  fprintf(data, "};\n");
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Main subprograms
+X*******************************************************************************
+X*/
+X
+X#define POINT(U, R, S) ((int) ((R)*(double)(U)*(S)+0.5))
+X#define PX(A) COSD(180.0-(A)+Asc)
+X#define PY(A) SIND(180.0-(A)+Asc)
+X
+Xcreatechart()
+X{
+X  int cx = chartx / 2, cy = charty / 2, unit, i, j, k = 1, l, k1, k2;
+X  double Asc, orb = DEFORB*256.0/(double)charty*(double)scale/100.0, temp;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  boxall(1, 1, hilite);
+X  unit = MIN(cx, cy);
+X  Asc = house[1];
+X  for (i = 0; i < 360; i++) {
+X    circx[i] = cos((double) i / DEGTORAD);
+X    circy[i] = sin((double) i / DEGTORAD);
+X  }
+X  circx[360] = circx[0]; circy[360] = circy[0];
+X  drawline(cx+POINT(unit, 0.99, PX(house[1])),
+X       cy+POINT(unit, 0.99, PY(house[1])),
+X       cx+POINT(unit, 0.99, PX(house[7])),
+X       cy+POINT(unit, 0.99, PY(house[7])), hilite, 1-xcolor);
+X  drawline(cx+POINT(unit, 0.99, PX(house[10])),
+X       cy+POINT(unit, 0.99, PY(house[10])),
+X       cx+POINT(unit, 0.99, PX(house[4])),
+X       cy+POINT(unit, 0.99, PY(house[4])), hilite, 1-xcolor);
+X  for (i = 0; i < 360; i += 5-xcolor*4) {
+X    temp = (double) i;
+X    drawline(cx+POINT(unit, 0.80, PX(temp)), cy+POINT(unit, 0.80, PY(temp)),
+X	     cx+POINT(unit, 0.75, PX(temp)), cy+POINT(unit, 0.75, PY(temp)),
+X	     i%5 ? gray : on, 0);
+X  }
+X  for (i = 0; i < 360; i++) {
+X    drawline(cx+POINT(unit, 0.95, circx[i]), cy+POINT(unit, 0.95, circy[i]),
+X	 cx+POINT(unit, 0.95, circx[i+1]), cy+POINT(unit, 0.95, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.80, circx[i]), cy+POINT(unit, 0.80, circy[i]),
+X	 cx+POINT(unit, 0.80, circx[i+1]), cy+POINT(unit, 0.80, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.75, circx[i]), cy+POINT(unit, 0.75, circy[i]),
+X	 cx+POINT(unit, 0.75, circx[i+1]), cy+POINT(unit, 0.75, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.65, circx[i]), cy+POINT(unit, 0.65, circy[i]),
+X	 cx+POINT(unit, 0.65, circx[i+1]), cy+POINT(unit, 0.65, circy[i+1]),
+X	 on, 0);
+X  }
+X  for (i = 1; i <= SIGNS; i++) {
+X    temp = (double) (i-1)*30.0;
+X    drawline(cx+POINT(unit, 0.95, PX(temp)),
+X	 cy+POINT(unit, 0.95, PY(temp)),
+X	 cx+POINT(unit, 0.80, PX(temp)),
+X	 cy+POINT(unit, 0.80, PY(temp)), on, 0);
+X    drawline(cx+POINT(unit, 0.75, PX(house[i])),
+X	 cy+POINT(unit, 0.75, PY(house[i])),
+X	 cx+POINT(unit, 0.65, PX(house[i])),
+X	 cy+POINT(unit, 0.65, PY(house[i])), on, 0);
+X    if (xcolor && i%3 != 1)
+X      drawline(cx, cy, cx+POINT(unit, 0.65, PX(house[i])),
+X	       cy+POINT(unit, 0.65, PY(house[i])), gray, 1);
+X    temp += 15.0;
+X    turtle(signdraw[i], cx+POINT(unit, 0.875, PX(temp)),
+X	   cy+POINT(unit, 0.875, PY(temp)), elemcolor[(i-1)%4]);
+X    temp = midpoint(house[i], house[mod12(i+1)]);
+X    turtle(housedraw[i], cx+POINT(unit, 0.70, PX(temp)),
+X	   cy+POINT(unit, 0.70, PY(temp)), elemcolor[(i-1)%4]);
+X  }
+X  for (i = 1; i <= OBJECTS; i++) {
+X    symbol[i] = planet[i];
+X  }
+X  for (l = 0; k && l < 100; l++) {
+X    k = 0;
+X    for (i = 1; i <= OBJECTS; i++)
+X      if (!ignore[i]) {
+X	k1 = 1000; k2 = -1000;
+X	for (j = 1; j <= OBJECTS; j++)
+X	  if (!ignore[j] && i != j) {
+X	    temp = symbol[j]-symbol[i];
+X	    if (dabs(temp) > 180.0)
+X	      temp -= 360.0*sgn(temp);
+X	    if (temp<k1 && temp>=0.0)
+X	      k1 = temp;
+X	    else if (temp>k2 && temp<=0.0)
+X	      k2 = temp;
+X	  }
+X	if (k2>-orb && k1>orb) {
+X	  k = 1; symbol[i] = mod(symbol[i]+orb*0.51+k2*0.49);
+X	} else if (k1<orb && k2<-orb) {
+X	  k = 1; symbol[i] = mod(symbol[i]-orb*0.51+k1*0.49);
+X	} else if (k2>-orb && k1<orb) {
+X	  k = 1; symbol[i] = mod(symbol[i]+(k1+k2)*0.5);
+X	}
+X      }
+X  }
+X  for (i = 1; i <= OBJECTS; i++)
+X    if (!ignore[i]) {
+X      temp = symbol[i];
+X      drawline(cx+POINT(unit, 0.52, PX(planet[i])),
+X	       cy+POINT(unit, 0.52, PY(planet[i])),
+X	       cx+POINT(unit, 0.56, PX(temp)),
+X	       cy+POINT(unit, 0.56, PY(temp)),
+X	       ret[i] ? gray : on, (int) ret[i] - xcolor);
+X      if (!xbitmap)
+X	Xcolor(objectcolor[i]);
+X      drawpoint(cx+POINT(unit, 0.50, PX(planet[i])),
+X		cy+POINT(unit, 0.50, PY(planet[i])), objectcolor[i]);
+X      turtle(objectdraw[i], cx+POINT(unit, 0.60, PX(temp)),
+X	     cy+POINT(unit, 0.60, PY(temp)), objectcolor[i]);
+X    }
+X  creategrid(FALSE);
+X  for (j = OBJECTS; j >= 2; j--)
+X    for (i = j-1; i >= 1; i--)
+X      if (gridname[i][j] && !ignore[i] && !ignore[j])
+X	drawline(cx+POINT(unit, 0.48, PX(planet[i])),
+X		 cy+POINT(unit, 0.48, PY(planet[i])),
+X		 cx+POINT(unit, 0.48, PX(planet[j])),
+X		 cy+POINT(unit, 0.48, PY(planet[j])),
+X		 aspectcolor[gridname[i][j]], abs(grid[i][j]/20));
+X}
+X
+X#define GLOBECALC \
+Xif (deg >= 0) { if (r1 < r2) { if (x < r1 || x > r2) o = 1; \
+X} else if (x < r1 && x > r2) o = 1; \
+Xv = cy + (int) ((double)(ry+1)*-COSD(y)); \
+Xu = cx + (int) ((double)(rx+1)*-COSD(x-deg)*SIND(y)); } else { \
+Xif (xnow ? y < 90 : y > 90) o = 1; \
+Xj = (xnow ? 90.0+(double)x : 270.0-(double)x); \
+Xv = cy + (int) (SIND((double)y)*(double)(ry+1)*SIND(j)); \
+Xu = cx + (int) (SIND((double)y)*(double)(rx+1)*COSD(j)); }
+X
+Xdrawglobe(deg)
+Xint deg;
+X{
+X  char *nam, *loc, *lin;
+X  int cx = chartx / 2, cy = charty / 2, rx, ry,
+X    r1, r2, lon, lat, x, y, m, n, u, v, o = 0, i;
+X  double j;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rx = cx-1; ry = cy-1;
+X  m = cx+rx+1; n = cy;
+X  for (i = 0; i <= 360; i++) {
+X    u = cx+(rx+1)*COSD(i); v = cy+(ry+1)*SIND(i);
+X    u = MIN(u, cx+rx); v = MIN(v, cy+ry);
+X    drawline(m, n, u, v, on, 0); m = u; n = v;
+X  }
+X  r1 = deg; r2 = deg+180;
+X  if (r2 > 359)
+X    r2 -= 360;
+X  while (readworlddata(&nam, &loc, &lin)) {
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    x = 180-lon;
+X    y = 90-lat;
+X    GLOBECALC; m = u; n = v;
+X    for (i = 0; lin[i]; i++) {
+X      if (lin[i] == 'L' || lin[i] == 'H' || lin[i] == 'G')
+X	x--;
+X      else if (lin[i] == 'R' || lin[i] == 'E' || lin[i] == 'F')
+X	x++;
+X      if (lin[i] == 'U' || lin[i] == 'H' || lin[i] == 'E')
+X	y--;
+X      else if (lin[i] == 'D' || lin[i] == 'G' || lin[i] == 'F')
+X	y++;
+X      if (x > 359)
+X	x = 0;
+X      else if (x < 0)
+X	x = 359;
+X      GLOBECALC;
+X      if (!o)
+X	drawline(m, n, u, v, on, 0);
+X      else
+X	o = 0;
+X      m = u; n = v;
+X    }
+X  }
+X}
+X
+Xdrawleyline(l1, f1, l2, f2, o)
+Xdouble l1, f1, l2, f2;
+Xbit o;
+X{
+X  l1 = mod(l1); l2 = mod(l2);
+X  f1 = 90.0-ASIN(f1)/(PI/2.0)*90.0; f2 = 90.0-ASIN(f2)/(PI/2.0)*90.0;
+X  drawline2((int) (l1*(double)(scale/100)+0.5)+1,
+X	    (int) (f1*(double)(scale/100)+0.5)+1,
+X	    (int) (l2*(double)(scale/100)+0.5)+1,
+X	    (int) (f2*(double)(scale/100)+0.5)+1, o);
+X}
+X
+Xdrawleylines()
+X{
+X  color icosa, dodeca;
+X  float off = 0.0, phi, h, h1, h2, r, i;
+X  icosa = aspectcolor[5]; dodeca = hilite;
+X  phi = (sqrt(5.0)+1.0)/2.0;
+X  h = 1.0/(phi*2.0-1.0);
+X  for (i = off; i < 360.0+off; i += 72.0) {
+X    drawleyline(i, h, i+72.0, h, icosa);
+X    drawleyline(i-36.0, -h, i+36.0, -h, icosa);
+X    drawleyline(i, h, i, 1.0, icosa);
+X    drawleyline(i+36.0, -h, i+36.0, -1.0, icosa);
+X    drawleyline(i, h, i+36.0, -h, icosa);
+X    drawleyline(i, h, i-36.0, -h, icosa);
+X  }
+X  r = 1.0/sqrt(3.0)/phi/cos(DTOR(54.0));
+X  h2 = sqrt(1.0-r*r); h1 = h2/(phi*2.0+1.0);
+X  for (i = off; i < 360.0+off; i += 72.0) {
+X    drawleyline(i-36.0, h2, i+36.0, h2, dodeca);
+X    drawleyline(i, -h2, i+72.0, -h2, dodeca);
+X    drawleyline(i+36.0, h2, i+36.0, h1, dodeca);
+X    drawleyline(i, -h2, i, -h1, dodeca);
+X    drawleyline(i+36.0, h1, i+72.0, -h1, dodeca);
+X    drawleyline(i+36.0, h1, i, -h1, dodeca);
+X  }
+X}
+X
+Xdrawworld()
+X{
+X  char *nam, *loc, *lin;
+X  int lon, lat, x, y, xold, yold, i;
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for worldmap.\n", scale);
+X    exit(1);
+X  }
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  boxall(1, 1, hilite);
+X  while (readworlddata(&nam, &loc, &lin)) {
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    xold = x = 180-lon;
+X    yold = y = 91-lat;
+X    for (i = 0; lin[i]; i++) {
+X      if (lin[i] == 'L' || lin[i] == 'H' || lin[i] == 'G')
+X	x--;
+X      else if (lin[i] == 'R' || lin[i] == 'E' || lin[i] == 'F')
+X	x++;
+X      if (lin[i] == 'U' || lin[i] == 'H' || lin[i] == 'E')
+X	y--;
+X      else if (lin[i] == 'D' || lin[i] == 'G' || lin[i] == 'F')
+X	y++;
+X      if (x > 360) {
+X	x = 1;
+X	xold = 0;
+X      }
+X      drawline(xold*scale/100, yold*scale/100,
+X	       x*scale/100, y*scale/100, on, 0);
+X      if (x < 1)
+X	x = 360;
+X      xold = x; yold = y;
+X    }
+X  }
+X}
+X
+Xdrawline2(xold, yold, xnew, ynew, o)
+Xint xold, yold, xnew, ynew;
+Xbit o;
+X{
+X  int xmid, ymid, i;
+X  if (xold < 0) {
+X    drawpoint(xnew, ynew, o);
+X    return;
+X  }
+X  xmid = 180*scale/100;
+X  if (dabs((double)(xnew-xold)) < (double) xmid) {
+X    drawline(xold, yold, xnew, ynew, o, 0);
+X    return;
+X  }
+X  i = xold < xmid ? xold+chartx-xnew-2 : xnew+chartx-xold-2;
+X  ymid = yold+(int)((double)(ynew-yold)*
+X    (xold < xmid ? (double)(xold-1) : (double)(chartx-xold-2))/(double)i);
+X  drawline(xold, yold, xold < xmid ? 1 : chartx-2, ymid, o, 0);
+X  drawline(xnew < xmid ? 1 : chartx-2, ymid, xnew, ynew, o, 0);
+X}
+X
+Xfillsymbol(symbol)
+Xdouble *symbol;
+X{
+X  double orb = DEFORB*1.35*(double)scale/100.0,
+X    max = 360.0*(double)scale/100.0, temp;
+X  int i, j, k = 1, l, k1, k2;
+X  for (l = 0; k && l < 100; l++) {
+X    k = 0;
+X    for (i = 1; i <= THINGS*2; i++) {
+X      if (!ignore[(i+1)/2] && symbol[i] >= 0.0) {
+X	k1 = max-symbol[i]; k2 = -symbol[i];
+X	for (j = 1; j <= THINGS*2; j++) {
+X	  if (!ignore[(j+1)/2] && i != j) {
+X	    temp = symbol[j]-symbol[i];
+X	    if (temp<k1 && temp>=0.0)
+X	      k1 = temp;
+X	    else if (temp>k2 && temp<=0.0)
+X	      k2 = temp;
+X	  }
+X	}
+X	if (k2>-orb && k1>orb) {
+X	  k = 1; symbol[i] = symbol[i]+orb*0.51+k2*0.49;
+X	} else if (k1<orb && k2<-orb) {
+X	  k = 1; symbol[i] = symbol[i]-orb*0.51+k1*0.49;
+X	} else if (k2>-orb && k1<orb) {
+X	  k = 1; symbol[i] = symbol[i]+(k1+k2)*0.5;
+X	}
+X      }
+X    }
+X  }
+X}
+X
+Xcreateastrograph()
+X{
+X  double planet1[OBJECTS+1], planet2[OBJECTS+1],
+X    end1[THINGS*2+1], end2[THINGS*2+1],
+X    symbol1[THINGS*2+1], symbol2[THINGS*2+1],
+X    lon = deflong, longm, x, y, z, ad, oa, am, od, dm, lat;
+X  int unit, lat1 = -60, lat2 = 75, y1, y2, xold1, xold2, i, j, k;
+X  unit = scale/100;
+X  y1 = (91-lat1)*scale/100.0;
+X  y2 = (91-lat2)*scale/100.0;
+X  block(1, 1, chartx-2, y2-1, off);
+X  block(1, charty-2, chartx-2, y1+1, off);
+X  drawline(0, charty/2, chartx-2, charty/2, hilite, 4);
+X  drawline(1, y2, chartx-2, y2, on, 0);
+X  drawline(1, y1, chartx-2, y1, on, 0);
+X  for (i = 1; i <= THINGS*2; i++)
+X    end1[i] = end2[i] = -1000.0;
+X  for (i = lat1; i <= lat2; i += 5) {
+X    j = (91-i)*scale/100.0;
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(1, j, k, j, hilite, 0);
+X    drawline(chartx-2, j, chartx-1-k, j, hilite, 0);
+X  }
+X  for (i = -180; i < 180; i += 5) {
+X    j = (180-i)*scale/100.0;
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0)+(i/90*90 == i ? 1 : 0);
+X    drawline(j, y2+1, j, y2+k, hilite, 0);
+X    drawline(j, y1-1, j, y1-k, hilite, 0);
+X  }
+X  for (i = 1; i <= OBJECTS; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X  if (lon < 0.0)
+X    lon += 360.0;
+X  for (i = 1; i <= THINGS; i++)
+X    if (!ignore[i]) {
+X      x = planet1[18]-planet1[i];
+X      if (x < 0.0)
+X	x += 2.0*PI;
+X      if (x > PI)
+X	x -= 2.0*PI;
+X      z = lon+RTOD(x);
+X      if (z > 180.0)
+X	z -= 360.0;
+X      j = (int) ((180.0-z)*(double)scale/100.0);
+X      drawline(j, y1+unit*4, j, y2-unit*1, elemcolor[1], 0);
+X      end2[i*2-1] = (double) j;
+X      y = RTOD(planet2[i]);
+X      k = (int) ((91.0-y)*(double)scale/100.0);
+X      block(j-1, k-1, j+1, k+1, hilite);
+X      block(j, k, j, k, off);
+X      j += 180*scale/100;
+X      if (j > chartx-2)
+X	j -= (chartx-2);
+X      end1[i*2-1] = (double) j;
+X      drawline(j, y1+unit*2, j, y2-unit*2, elemcolor[3], 0);
+X    }
+X  longm = DTOR(mod(RTOD(planet1[18])+lon));
+X  for (i = 1; i <= THINGS; i++)
+X    if (!ignore[i]) {
+X      xold1 = xold2 = -1000;
+X      for (lat = (double) lat1; lat <= (double) lat2;
+X	   lat += 100.0/(double)scale) {
+X	j = (int) ((91.0-lat)*(double)scale/100.0);
+X	ad = tan(planet2[i])*tan(DTOR(lat));
+X	if (ad*ad > 1.0)
+X	  ad = 1000.0;
+X	else {
+X	  ad = ASIN(ad);
+X	  oa = planet1[i]-ad;
+X	  if (oa < 0.0)
+X	    oa += 2.0*PI;
+X	  am = oa-PI/2.0;
+X	  if (am < 0.0)
+X	    am += 2.0*PI;
+X	  z = longm-am;
+X	  if (z < 0.0)
+X	    z += 2.0*PI;
+X	  if (z > PI)
+X	    z -= 2.0*PI;
+X	  z = RTOD(z);
+X	  k = (int) ((180.0-z)*(double)scale/100.0);
+X	  drawline2(xold1, j+1, k, j, elemcolor[0]);
+X	  if (lat == (double) lat1) {
+X	    drawline(k, y1, k, y1+unit*4, elemcolor[0], 0);
+X	    end2[i*2] = (double) k;
+X	  }
+X	  xold1 = k;
+X	}
+X	if (ad == 1000.0) {
+X	  if (xold1 >= 0) {
+X	    drawline2(xold1, j+1, xold2, j+1, gray);
+X	    lat = 90.0;
+X	  }
+X	} else {
+X	  od = planet1[i]+ad;
+X	  dm = od+PI/2.0;
+X	  z = longm-dm;
+X	  if (z < 0.0)
+X	    z += 2.0*PI;
+X	  if (z > PI)
+X	    z -= 2.0*PI;
+X	  z = RTOD(z);
+X	  k = (int) ((180.0-z)*(double)scale/100.0);
+X	  drawline2(xold2, j+1, k, j, elemcolor[2]);
+X	  if (xold2 < 0)
+X	    drawline2(xold1, j, k, j, elemcolor[2]);
+X	  if (lat == (double) lat1)
+X	    drawline(k, y1, k, y1+unit*2, elemcolor[2], 0);
+X	  xold2 = k;
+X	}
+X      }
+X      if (ad != 1000.0) {
+X	drawline(xold1, y2, xold1, y2-unit*1, elemcolor[0], 0);
+X	drawline(k, y2, k, y2-unit*2, elemcolor[2], 0);
+X	end1[i*2] = (double) k;
+X      }
+X      if (!xbitmap)
+X	Xcolor(on);
+X    }
+X  for (i = 1; i <= THINGS*2; i++) {
+X    symbol1[i] = end1[i];
+X    symbol2[i] = end2[i];
+X  }
+X  fillsymbol(symbol1);
+X  fillsymbol(symbol2);
+X  for (i = 1; i <= THINGS*2; i++) {
+X    j = (i+1)/2;
+X    if (!ignore[j]) {
+X      if ((turtlex = (int) symbol1[i]) > 0) {
+X	drawline((int) end1[i], y2-unit*2, (int) symbol1[i], y2-unit*4,
+X		 ret[j] ? gray : on, xcolor ? 0 : (int) ret[j]);
+X	turtle(objectdraw[j], turtlex, y2-unit*10, objectcolor[j]);
+X      }
+X      if ((turtlex = (int) symbol2[i]) > 0) {
+X	drawline((int) end2[i], y1+unit*4, (int) symbol2[i], y1+unit*8,
+X		 ret[j] ? gray : on, xcolor ? 0 : (int) ret[j]);
+X	turtle(objectdraw[j], turtlex, y1+unit*14, objectcolor[j]);
+X	turtle(objectdraw[i & 1 ? 18 : 19], (int) symbol2[i],
+X	       y1+unit*24, objectcolor[j]);
+X      }
+X    }
+X  }
+X}
+X
+Xcreateaspect()
+X{
+X  int unit, siz, i, j, k;
+X  char string[STRING];
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for aspect grid.\n", scale);
+X    exit(1);
+X  }
+X  unit = CELLSIZE*scale/100; siz = objects*unit;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  creategrid(TRUE);
+X  for (j = 1; j <= objects; j++) {
+X    drawline(0, j*unit, siz, j*unit, gray, 1-xcolor);
+X    drawline(j*unit, 0, j*unit, siz, gray, 1-xcolor);
+X    for (i = 1; i <= objects; i++) {
+X      turtlex = i*unit-unit/2; turtley = j*unit-unit/2 - (scale > 200 ? 5 : 0);
+X      if (i < j)
+X	turtle(aspectdraw[gridname[i][j]], turtlex,
+X	       turtley, aspectcolor[gridname[i][j]]);
+X      else if (i > j)
+X	turtle(signdraw[gridname[i][j]], turtlex,
+X	       turtley, elemcolor[(gridname[i][j]-1)%4]);
+X      else {
+X	box((j-1)*unit, (j-1)*unit, j*unit, j*unit, 1, 1, hilite, 0);
+X	turtle(objectdraw[i], turtlex, turtley, objectcolor[i]);
+X      }
+X      if (!xbitmap && scale > 200) {
+X	k = abs(grid[i][j]);
+X	if (i < j) {
+X	  if (gridname[i][j])
+X	    sprintf(string, "%c%d %d%d'", k != grid[i][j] ? '-' : '+',
+X		    k/60, (k%60)/10, (k%60)%10);
+X	  else
+X	    sprintf(string, "");
+X	} else if (i > j)
+X	  sprintf(string, "%d%d %d%d'",
+X		  (k/60)/10, (k/60)%10, (k%60)/10, (k%60)%10);
+X	else {
+X	  Xcolor(elemcolor[(gridname[i][j]-1)%4]);
+X	  sprintf(string, "%c%c%c %d%d", SIGNAM(gridname[i][j]), k/10, k%10);
+X	}
+X	XDrawImageString(disp, pixmap, gc, i*unit-unit/2-FONT_X*3, j*unit-3,
+X			 string, strlen(string));
+X      }
+X    }
+X  }
+X  boxall(1, 1, hilite);
+X}
+X
+Xcreaterelationaspect()
+X{
+X  int unit, siz, i, j, k, l;
+X  char string[STRING];
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for aspect grid.\n", scale);
+X    exit(1);
+X  }
+X  unit = CELLSIZE*scale/100; siz = (objects+1)*unit;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  createrelationgrid(TRUE);
+X  for (j = 0; j <= objects; j++) {
+X    drawline(0, (j+1)*unit, siz, (j+1)*unit, gray, 1-xcolor);
+X    drawline((j+1)*unit, 0, (j+1)*unit, siz, gray, 1-xcolor);
+X    box(0, j*unit, unit, (j+1)*unit, 1, 1, hilite, 0);
+X    box(j*unit, 0, (j+1)*unit, unit, 1, 1, hilite, 0);
+X    for (i = 0; i <= objects; i++) {
+X      turtlex = i*unit+unit/2;
+X      turtley = j*unit+unit/2 - (!xbitmap && scale > 200 ? 5 : 0);
+X      if (j == 0 || i == 0) {
+X	if (i+j > 0)
+X	  turtle(objectdraw[j == 0 ? i : j], turtlex,
+X		 turtley, objectcolor[j == 0 ? i : j]);
+X      } else
+X	turtle(aspectdraw[gridname[i][j]], turtlex,
+X	       turtley, aspectcolor[gridname[i][j]]);
+X      if (!xbitmap && scale > 200) {
+X	if (j == 0 || i == 0) {
+X	  if (i+j > 0) {
+X	    k = (int)((j == 0 ? planet2[i] : planet1[j])/30.0)+1;
+X	    l = (int)((j == 0 ? planet2[i] : planet1[j])-(double)(k-1)*30.0);
+X	    Xcolor(elemcolor[(k-1)%4]);
+X	    sprintf(string, "%c%c%c %d%d", SIGNAM(k), l/10, l%10);
+X	  } else {
+X	    Xcolor(hilite);
+X	    sprintf(string, "1v 2->");
+X	  }
+X	} else {
+X	  k = abs(grid[i][j]);
+X	  if (gridname[i][j])
+X	    sprintf(string, "%c%d %d%d'", k != grid[i][j] ? '-' : '+',
+X		    k/60, (k%60)/10, (k%60)%10);
+X	  else
+X	    sprintf(string, "");
+X	}
+X	XDrawImageString(disp, pixmap, gc, i*unit+unit/2-FONT_X*3,
+X			 (j+1)*unit-3, string, strlen(string));
+X      }
+X    }
+X  }
+X  boxall(1, 1, hilite);
+X}
+X
+Xcreatehorizon()
+X{
+X  double lon, lat,
+X    lonz[OBJECTS+1], latz[OBJECTS+1], azi[OBJECTS+1], alt[OBJECTS+1];
+X  int x[OBJECTS+1], y[OBJECTS+1], m[OBJECTS+1], n[OBJECTS+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*scale/100,
+X    x1, y1, x2, y2, xs, ys, i, j, k, l;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  boxall(1, 1, hilite);
+X  x1 = y1 = unit/2; x2 = chartx-x1; y2 = charty-y1;
+X  xs = x2-x1; ys = y2-y1;
+X  for (i = 0; i < 180; i += 5) {
+X    j = y1+(int)((double)(i*ys)/180.0);
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(x1+1, j, x1+1+k, j, hilite, 0);
+X    drawline(x2-1, j, x2-1-k, j, hilite, 0);
+X  }
+X  for (i = 0; i < 360; i += 5) {
+X    j = x1+(int)((double)(i*xs)/360.0);
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(j, y1+1, j, y1+1+k, hilite, 0);
+X    drawline(j, y2-1, j, y2-1-k, hilite, 0);
+X  }
+X  drawline(cx, y1, cx, y2, gray, 1);
+X  drawline((cx+x1)/2, y1, (cx+x1)/2, y2, gray, 1);
+X  drawline((cx+x2)/2, y1, (cx+x2)/2, y2, gray, 1);
+X  edge(x1, y1, x2, y2, on);
+X  drawline(x1, cy, x2, cy, on, 1);
+X  lon = DTOR(mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= objects; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= objects; i++) {
+X    lonz[i] = DTOR(mod(RTOD(lonz[18]-lonz[i]+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X    x[i] = x1+(int)((double)xs*(mod(90.0-azi[i]))/360.0+0.5);
+X    y[i] = y1+(int)((double)ys*(90.0-alt[i])/180.0+0.5);
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X  for (i = 1; i <= THINGS; i++) {
+X    k = l = chartx+charty;
+X    for (j = 1; j < i; j++) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X	n[i] -= unit;
+X  }
+X  for (i = THINGS; i >= 1; i--)
+X    turtle(objectdraw[i], m[i], n[i], objectcolor[i]);
+X  for (i = THINGS; i >= 1; i--) {
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X    drawpoint(x[i], y[i], objectcolor[i]);
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** X routines
+X*******************************************************************************
+X*/
+X
+Xcolor Xmakecolor(name)
+Xchar *name;
+X{
+X  XColor col;
+X  XParseColor(disp, cmap, name, &col);
+X  XAllocColor(disp, cmap, &col);
+X  return col.pixel;
+X}
+X
+XXcolorbegin()
+X{
+X  int i;
+X  if (!xbitmap)
+X    cmap = XDefaultColormap(disp, screen);
+X  off    = xbitmap ? 0 : Xmakecolor("black");
+X  on     = xbitmap ? 1 : Xmakecolor("white");
+X  if (xreverse) {
+X    gray = on; on = off; off = gray;
+X  }
+X  gray   = xcolor ? Xmakecolor("gray35") : on;
+X  hilite = xcolor ? Xmakecolor("gold")   : on;
+X  for (i = 0; i < 4; i++)
+X    elemcolor[i] = xcolor ? Xmakecolor(elemcolorname[i]) : on;
+X  for (i = 0; i <= ASPECTS; i++)
+X    aspectcolor[i] = xcolor ? Xmakecolor(aspectcolorname[i]) : on;
+X  for (i = 1; i <= 10; i++)
+X    objectcolor[i] = elemcolor[(ruler1[i]-1)%4];
+X  for (i = 11; i <= 15; i++)
+X    objectcolor[i] = hilite;
+X  for (i = 16; i <= 20; i++)
+X    objectcolor[i] = xcolor ? Xmakecolor("violet") : on;
+X  objectcolor[18] = elemcolor[1]; objectcolor[19] = elemcolor[0];
+X  if (!xbitmap) {
+X    XSetBackground(disp, gc, off);
+X    XSetForeground(disp, pmgc, off);
+X    Xcolor(on);
+X  }
+X}
+X
+XXbegin()
+X{
+X  disp = XOpenDisplay(0);
+X  if (!disp) {
+X    printf("Can't open display.\n");
+X    exit(1);
+X  }
+X  screen = DefaultScreen(disp);
+X  bg = BlackPixel(disp, screen);
+X  fg = WhitePixel(disp, screen);
+X  hint.x = 100; hint.y = 100; hint.width = chartx; hint.height = charty;
+X  hint.flags = PPosition | PSize;
+X  depth = DefaultDepth(disp, screen);
+X  if (depth < 5) {
+X    xmono = TRUE;
+X    xcolor = FALSE;
+X  }
+X  root = RootWindow(disp, DefaultScreen(disp));
+X  if (xroot)
+X    window = root;
+X  else
+X    window = XCreateSimpleWindow(disp, DefaultRootWindow(disp),
+X      hint.x, hint.y, hint.width, hint.height, 5, fg, bg);
+X  pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X  icon = XCreateBitmapFromData(disp, DefaultRootWindow(disp),
+X    icon_bits, icon_width, icon_height);
+X  if (!xroot)
+X    XSetStandardProperties(disp, window, "Astrolog", "Astrolog",
+X      icon, xkey, 0, &hint);
+X  gc = XCreateGC(disp, window, 0, 0);
+X  XSetGraphicsExposures(disp, gc, 0);
+X  font = XLoadFont(disp, FONT);
+X  XSetFont(disp, gc, font);
+X  pmgc = XCreateGC(disp, window, 0, 0);
+X  Xcolorbegin();
+X  if (!xroot)
+X    XSelectInput(disp, window, KeyPressMask | StructureNotifyMask |
+X      ExposureMask | ButtonPressMask);
+X  XMapRaised(disp, window);
+X  XSync(disp, 0);
+X  XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X}
+X
+Xaddtime(mod, vec)
+Xint mod, vec;
+X{
+X  float toadd, h, m, j;
+X  toadd = vec;
+X  h = floor(F);
+X  m = (F-floor(F))*100.0;
+X  if (mod == 1)
+X    m += 1.0/60.0*(double)toadd;
+X  else if (mod == 2)
+X    m += 1.0*(double)toadd;
+X  if (m < 0.0 || m >= 60.0 || mod == 3) {
+X    if (m >= 60.0) {
+X      m -= 60.0; toadd = sgn(toadd);
+X    } else if (m < 0.0) {
+X      m += 60.0; toadd = sgn(toadd);
+X    }
+X    h += 1.0*(double)toadd;
+X  }
+X  if (h >= 24.0 || h < 0.0 || mod == 4) {
+X    if (h >= 24.0) {
+X      h -= 24.0; toadd = sgn(toadd);
+X    } else if (h < 0.0) {
+X      h += 24.0; toadd = sgn(toadd);
+X    }
+X    D += 1.0*(double)toadd;
+X  }
+X  if (D > (j = (double) dayinmonth((int) M, (int) Y)) ||
+X      D < 1.0 || mod == 5) {
+X    if (D > j) {
+X      D -= j; toadd = sgn(toadd);
+X    } else if (D < 1.0) {
+X      D += j; toadd = sgn(toadd);
+X    }
+X    M += 1.0*(double)toadd;
+X  }
+X  if (M > 12.0 || M < 1.0 || mod == 6) {
+X    if (M > 12.0) {
+X      M -= 12.0; toadd = sgn(toadd);
+X    } else if (M < 1.0) {
+X      M += 12.0; toadd = sgn(toadd);
+X    }
+X    Y += 1.0*(double)toadd;
+X  }
+X  if (mod == 7)
+X    Y += 10.0*(double)toadd;
+X  else if (mod == 8)
+X    Y += 100.0*(double)toadd;
+X  else if (mod == 9)
+X    Y += 1000.0*(double)toadd;
+X  F = h+m/100.0;
+X}
+X
+Xdisplaykeys()
+X{
+X  printf("\nAstrolog window keypress options (version %s):\n", VERSION);
+X  printf(" Press 'H' to display this list of key options.\n");
+X  printf(" Press 'p' to toggle pause status on or off.\n");
+X  printf(" Press 'x' to toggle fg/bg colors in window.\n");
+X  printf(" Press 'm' to toggle color/monochrome display in window.\n");
+X  printf(" Press 'T' to toggle header info on current chart in window.\n");
+X  printf(" Press 'R' to toggle restriction status of minor objects.\n");
+X  printf(" Press 'S' to resize wheel chart display to a square.\n");
+X  printf(" Press '<' and '>' to decrease/increase the scale size of the\n");
+X  printf("       glyphs and the size of world map.\n");
+X  printf(" Press 'N' to toggle animation status on or off. Charts will\n");
+X  printf("       be updated to current status and globe will rotate.\n");
+X  printf(" Press '!'-'(' to begin updating current chart by adding times.\n");
+X  printf("       !: seconds, @: minutes, #: hours, $: days, %: months,\n");
+X  printf("       ^: years, &: years*10, *: years*100, (: years*1000.\n");
+X  printf(" Press 'r' to reverse direction of time-lapse or animation.\n");
+X  printf(" Press '1'-'9' to set rate of animation to 'n' degrees, etc.\n");
+X  printf(" Press 'C','L','A','Z','W','G','P' to switch to normal, astro-");
+X  printf("graph (-L), grid\n      (-g), horizon (-Z), world (-XW), ");
+X  printf("globe (-XG), and polar (-XP) modes.\n");
+X  printf(" Press 'q' to terminate the window and program.\n");
+X}
+X
+XXspin()
+X{
+X  int xpause = FALSE, xupdate = FALSE, xbreak = FALSE, xevent = TRUE,
+X    xtext = FALSE, dir = 1, length, i, j, k;
+X  char string[STRING];
+X  while (!xbreak) {
+X    if (chartx < BITMAPX1) {
+X      chartx = BITMAPX1;
+X      xupdate = TRUE;
+X    } else if (chartx > BITMAPX) {
+X      chartx = BITMAPX;
+X      xupdate = TRUE;
+X    }
+X    if (charty < BITMAPY1) {
+X      charty = BITMAPY1;
+X      xupdate = TRUE;
+X    } else if (charty > BITMAPY) {
+X      charty = BITMAPY;
+X      xupdate = TRUE;
+X    }
+X    if (modex == 'l' || modex == 'w') {
+X      if (chartx != (length = 360*scale/100+2)) {
+X	chartx = length;
+X	xupdate = TRUE;
+X      }
+X      if (charty != (length = (90*2+1)*scale/100+2)) {
+X	charty = length;
+X	xupdate = TRUE;
+X      }
+X    } else if (modex == 'a') {
+X      if (chartx != (length = (objects+(relation==1))*CELLSIZE*scale/100+1)) {
+X	chartx = length;
+X	xupdate = TRUE;
+X      } if (charty != length) {
+X	charty = length;
+X	xupdate = TRUE;
+X      }
+X    }
+X    if (xupdate) {
+X      xupdate = FALSE;
+X      XResizeWindow(disp, window, chartx, charty);
+X      XFreePixmap(disp, pixmap);
+X      pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X      xevent = TRUE;
+X    }
+X    if (xnow && !xpause && modex != 'w' && modex != 'p')
+X      xevent = TRUE;
+X    if (xevent) {
+X      xevent = FALSE;
+X      Xcolor(on);
+X      XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X      actionx1();
+X      if (xtext &&
+X	  (modex == 'c' || modex == 'l' || modex == 'a' || modex == 'z')) {
+X	i = (int) Mon; length = (int) floor((Tim-floor(Tim))*100.0);
+X	j = (int) ((dabs(Lon)-floor(dabs(Lon)))*100.0+0.5);
+X	k = (int) ((dabs(Lat)-floor(dabs(Lat)))*100.0+0.5);
+X	sprintf(string,
+X	  "%.0f %c%c%c %.0f %.0f:%d%d (%.2f GMT) %.0f'%d%d%c %.0f'%d%d%c",
+X		Day, monthname[i][0], monthname[i][1], monthname[i][2],
+X		Yea, floor(Tim), length/10, length%10, -Zon,
+X		floor(dabs(Lon)), j/10, j%10, Lon < 0.0 ? 'E' : 'W',
+X		floor(dabs(Lat)), k/10, k%10, Lat < 0.0 ? 'S' : 'N');
+X	XDrawImageString(disp, pixmap, gc, (chartx-strlen(string)*FONT_X)/2,
+X			 charty-3, string, strlen(string));
+X      }
+X      if (xnow)
+X	if (modex == 'g') {
+X	  degree -= dir;
+X	  if (degree >= 360)
+X	    degree -= 360;
+X	  else if (degree < 0)
+X	    degree += 360;
+X	} else if (modex != 'w') {
+X	  readplanetdata(TRUE);
+X	  if (xnow == 10)
+X#ifdef TIME
+X	    inputdata("now")
+X#endif
+X	      ;
+X	  else {
+X	    M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X	    addtime(xnow, dir);
+X	  }
+X	  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X	  castchart(TRUE);
+X	}
+X      XSync(disp, 0);
+X      XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X    }
+X    if (XEventsQueued(disp, QueuedAfterFlush)) { /*QueuedAfterReading)) {*/
+X      XNextEvent(disp, &event);
+X      if (event.type == Expose && event.xexpose.count == 0) {
+X	XSync(disp, 0);
+X	XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X      }
+X      switch (event.type) {
+X      case ConfigureNotify:
+X	chartx = event.xconfigure.width;
+X	charty = event.xconfigure.height;
+X	XFreePixmap(disp, pixmap);
+X	pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X	xevent = TRUE;
+X	break;
+X      case MappingNotify:
+X	XRefreshKeyboardMapping(&event);
+X	break;
+X      case KeyPress:
+X	length = XLookupString(&event, xkey, 10, &key, 0);
+X	if (length == 1) {
+X	  i = xkey[0];
+X	  switch (i) {
+X	  case 'p':
+X	    xpause = 1-xpause;
+X	    break;
+X	  case 'r':
+X	    dir = -dir;
+X	    break;
+X	  case 'x':
+X	    xreverse = 1-xreverse;
+X	    Xcolorbegin();
+X	    xevent = TRUE;
+X	    break;
+X	  case 'm':
+X	    if (!xmono) {
+X	      xcolor = 1-xcolor;
+X	      Xcolorbegin();
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case 'T':
+X	    xtext = 1-xtext;
+X	    xevent = TRUE;
+X	    break;
+X	  case '<':
+X	    if (scale > 100) {
+X	      scale -= 100;
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case '>':
+X	    if (scale < 300) {
+X	      scale += 100;
+X	      xevent = TRUE;
+X	    }
+X	    break;
+X	  case 'S':
+X	    if (chartx > charty)
+X	      chartx = charty;
+X	    else
+X	      charty = chartx;
+X	    xupdate = TRUE;
+X	    break;
+X	  case 'R':
+X	    ignore[11] = 1-ignore[11]; ignore[12] = 1-ignore[12];
+X	    ignore[13] = 1-ignore[13]; ignore[14] = 1-ignore[14];
+X	    ignore[15] = 1-ignore[15]; ignore[17] = 1-ignore[17];
+X	    ignore[20] = 1-ignore[20];
+X	    xevent = TRUE;
+X	    break;
+X	  case 'N':
+X	    xnow = xnow ? 0 : 10;
+X	    xevent = TRUE;
+X	    break;
+X	  case '!': xnow = 1; break;
+X	  case '@': xnow = 2; break;
+X	  case '#': xnow = 3; break;
+X	  case '$': xnow = 4; break;
+X	  case'\%': xnow = 5; break;
+X	  case '^': xnow = 6; break;
+X	  case '&': xnow = 7; break;
+X	  case '*': xnow = 8; break;
+X	  case '(': xnow = 9; break;
+X	  case 'C': modex = 'c'; xevent = TRUE; break;
+X	  case 'L': modex = 'l'; xevent = TRUE; break;
+X	  case 'A': modex = 'a'; xevent = TRUE; break;
+X	  case 'Z': modex = 'z'; xevent = TRUE; break;
+X	  case 'W': modex = 'w'; xevent = TRUE; break;
+X	  case 'P': modex = 'p'; xevent = TRUE; break;
+X	  case 'G': modex = 'g'; xevent = TRUE; break;
+X	  case 'H': case 'h':
+X	    displaykeys();
+X	    break;
+X	  case 'q':
+X	    xbreak = TRUE;
+X	    break;
+X	  default:
+X	    if (i > '0' && i <= '9')
+X	      dir = (dir > 0 ? 1 : -1)*(i-'0');
+X	  }
+X	}
+X      default: ;
+X      }
+X    }
+X  }
+X}
+X
+XXend()
+X{
+X  XFreeGC(disp, gc);
+X  XFreeGC(disp, pmgc);
+X  XFreePixmap(disp, pixmap);
+X  XDestroyWindow(disp, window);
+X  XCloseDisplay(disp);
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Main processing
+X*******************************************************************************
+X*/
+X
+Xvoid displayswitchesx()
+X{
+X  printf("Switches to access X window options:\n");
+X  printf(" -X: Create a wheel or astro-graph bitmap of chart.\n");
+X  printf(" -Xb: Create X bitmap instead of putting graphics in window.\n");
+X  printf(" -XB: Display X chart on root instead of in a separate window.\n");
+X  printf(" -Xm: For color monitors, display charts in black and white.\n");
+X  printf(" -Xr: Create window or bitmap in reversed colors (B on W).\n");
+X  printf(" -Xw <hor> [<ver>]: Change the size of the chart window.\n");
+X  printf(" -Xs <percentage>: Change the size of characters by n%%.\n");
+X  printf(" -XW: Simply create the bitmap of the world.\n");
+X  printf(" -XP: Create the bitmap of the world, but as a polar projection.\n");
+X  printf(" -XG [<degrees>]: Display the bitmap of the world as a globe.\n");
+X  printf(" -Xn: Start up chart or globe display in animation mode.\n");
+X  printf(" -Xo <file>: Write output bitmap to specified file.\n");
+X  printf("Also, press 'H' within X window for list of key press options.\n");
+X}
+X
+Xint processx(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X  int i = 0, j;
+X  switch (argv[0][2]) {
+X  case 0:
+X    break;
+X  case 'W':
+X    modex = 'w';
+X    autom = TRUE;
+X    break;
+X  case 'P':
+X    modex = 'p';
+X    autom = TRUE;
+X    break;
+X  case 'G':
+X    if (argc > 1 && ((degree = atoi(argv[1])) || argv[1][0] == '0')) {
+X      i++;
+X      if (degree < 0 || degree > 359) {
+X	fprintf(stderr, "Value %d passed to switch -XG out of range.\n",
+X		degree);
+X	exit(1);
+X      }
+X    } else
+X      degree = 0;
+X    modex = 'g';
+X    autom = TRUE;
+X    break;
+X  case 'b':
+X    xbitmap = TRUE;
+X    xcolor = FALSE;
+X    break;
+X  case 'B':
+X    xroot = TRUE;
+X    break;
+X  case 'm':
+X    xcolor = FALSE;
+X    break;
+X  case 'r':
+X    xreverse = TRUE;
+X    break;
+X  case 'w':
+X    if (argc <= 1) {
+X      fprintf(stderr, "Too few options to switch -Xw\n");
+X      exit(1);
+X    }
+X    chartx = atoi(argv[1]);
+X    if (argc > 2 && (charty = atoi(argv[2]))) {
+X      argc--; argv++;
+X      i++;
+X    } else
+X      charty = chartx;
+X    if (chartx < BITMAPY1 || chartx > BITMAPX ||
+X	charty < BITMAPY1 || charty > BITMAPY) {
+X      fprintf(stderr, "Values %d,%d passed to switch -Xw out of range.\n",
+X	      chartx, charty);
+X      exit(1);
+X    }
+X    i++;
+X    break;
+X  case 's':
+X    if (argc <= 1) {
+X      fprintf(stderr, "Too few options to switch -Xs\n");
+X      exit(1);
+X    }
+X    scale = atoi(argv[1]);
+X    if (scale < 100 || scale > 300 || scale%100 != 0) {
+X      fprintf(stderr, "Value %d passed to switch -Xs out of range.\n", scale);
+X      exit(1);
+X    }
+X    i++;
+X    break;
+X  case 'n':
+X    if (argc > 1 && (xnow = atoi(argv[1])))
+X      i++;
+X    else
+X      xnow = 10;
+X    if (xnow < 1 || xnow > 10) {
+X      fprintf(stderr, "Value %d passed to switch -Xn out of range.\n", xnow);
+X      exit(1);
+X    }
+X    break;
+X  case 'o':
+X    if (argc <= 1) {
+X      fprintf(stderr, "Too few options to switch -Xo\n");
+X      exit(1);
+X    }
+X    xbitmap = TRUE;
+X    xcolor = FALSE;
+X    for (j = 0; (outputfile[j] = argv[1][j]) != 0; j++)
+X      ;
+X    i++;
+X    break;
+X  default:
+X    fprintf(stderr, "Unknown switch -X%c\n", argv[0][2]);
+X    exit(1);
+X  }
+X  return i;
+X}
+X
+Xactionx1()
+X{
+X  switch (modex) {
+X  case 'c':
+X    createchart();
+X    break;
+X  case 'l':
+X    drawworld();
+X    createastrograph();
+X    break;
+X  case 'a':
+X    if (relation != 1)
+X      createaspect();
+X    else
+X      createrelationaspect();
+X    break;
+X  case 'z':
+X    createhorizon();
+X    break;
+X  case 'w':
+X    drawworld();
+X    if (xnow)
+X      drawleylines();
+X    break;
+X  case 'p':
+X    drawglobe(-1);
+X    break;
+X  case 'g':
+X    drawglobe(degree);
+X    break;
+X  }
+X  if (!xbitmap)
+X    Xcolor(on);
+X}
+X
+Xvoid actionx()
+X{
+X  if (modex == 'c' && (todisplay & 16) == 16)
+X    modex = 'l';
+X  else if (modex == 'c' && (todisplay & 4) == 4) {
+X    modex = 'a';
+X    chartx = charty = (objects+(relation==1))*CELLSIZE*scale/100+1;
+X  } else if (modex == 'c' && (todisplay & 8) == 8) {
+X    modex = 'z';
+X    chartx = (360+12)*scale/100;
+X    charty = (90*2+12)*scale/100;
+X  }
+X  if (modex == 'l' || modex == 'w') {
+X    chartx = 360*scale/100+2;
+X    charty = (90*2+1)*scale/100+2;
+X  }
+X  if (xbitmap) {
+X    NEW(bm);
+X    Xcolorbegin();
+X  } else
+X    Xbegin();
+X  actionx1();
+X  if (xbitmap)
+X    writefile();
+X  else {
+X    if (xroot) {
+X      XSetWindowBackgroundPixmap(disp, root, pixmap);
+X      XClearWindow(disp, root);
+X    } else
+X      Xspin();
+X    Xend();
+X  }
+X}
+X#endif
+X
+X/**/
+END_OF_FILE
+if test 44430 -ne `wc -c <'graphics.c'`; then
+    echo shar: \"'graphics.c'\" unpacked with wrong size!
+fi
+# end of 'graphics.c'
+fi
+echo shar: End of archive 6 \(of 6\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2010 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Subject: v17i070: TeXcad (X) version 1.2, Part06/10
+Message-ID: <1992Apr21.131327.2416@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i065-xtexcad-1.2@uunet.UU.NET>
+Date: Tue, 21 Apr 1992 13:13:27 GMT
+Approved: dcmartin@msi.com
+Lines: 1996
+
+Submitted-by: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Posting-number: Volume 17, Issue 70
+Archive-name: xtexcad-1.2/part06
+
+# this is part.06 (part 6 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file io_trans.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping io_trans.c'
+else
+echo 'x - continuing file io_trans.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'io_trans.c' &&
+X			(*y_slp) = 0;
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		} else if (abs((int) (h - x)) == 0)
+X		{	/* vertical */
+X			(*y_slp) = (y < v) ? 1 : -1;
+X			(*x_slp) = 0;
+X			(*len) = (y < v) ? (v - y) : (y - v);
+X		} else
+X		{	/* normal line */
+X			(*x_slp) = (x < h) ? a_slope[i][1] : -a_slope[i][1];
+X			(*y_slp) = (y < v) ? a_slope[i][2] : -a_slope[i][2];
+X			(*len) = (x < h) ? (h - x) : (x - h);
+X		}
+X	}	/* else */
+X
+X	/* (*len)+=1.0; */
+X
+}
+X
+X
+void
+manage_bezier(int what, FILE * fd)
+{/* medium must be open */
+X
+X  int pts;
+X
+X
+X	bezier_marker = bezier_start;
+X
+X	if (bezier_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X		{
+X			dimension_update(bezier_marker->ax, bezier_marker->ay);
+X			dimension_update(bezier_marker->ex, bezier_marker->ey);
+X			dimension_update(bezier_marker->sx, bezier_marker->sy);  
+X		} else if (what == 1)
+X		{
+X			pts=calc_distance((int)bezier_marker->ax, (int)bezier_marker->ay,
+X					   (int)bezier_marker->sx, (int)bezier_marker->sy)
+X			     +
+X			     calc_distance((int)bezier_marker->sx, (int)bezier_marker->sy,
+X					   (int)bezier_marker->ex, (int)bezier_marker->ey);
+X
+X			fprintf(fd,"\\bezier%i(%03.2f,%03.2f)(%03.2f,%03.2f)(%03.2f,%03.2f)\n",pts,
+X					bezier_marker->ax, newy(bezier_marker->ay),
+X					bezier_marker->sx, newy(bezier_marker->sy),
+X					bezier_marker->ex, newy(bezier_marker->ey));
+X		} else
+X		{
+X			bezier_marker->ax+=xmotion;
+X			bezier_marker->ay+=ymotion;
+X			bezier_marker->ex+=xmotion;
+X			bezier_marker->ey+=ymotion;
+X			bezier_marker->sx+=xmotion;
+X			bezier_marker->sy+=ymotion;
+X		}
+X
+X		if (bezier_marker == bezier_curr)
+X			return;
+X
+X		bezier_marker = bezier_marker->next;
+X
+X	}
+}
+X
+X
+X
+void
+manage_line(int what, FILE * fd)
+{/* medium must be open */
+X	int             x_slp, y_slp;
+X	float           len;
+X	strich_marker = strich_start;
+X
+X	if (strich_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X		{
+X			dimension_update(strich_marker->x, strich_marker->y);
+X			dimension_update(strich_marker->h, strich_marker->v);
+X		} else if (what==1)
+X		{
+X			get_line_info(strich_marker->x, strich_marker->y,
+X				      strich_marker->h, strich_marker->v,
+X				      &x_slp, &y_slp, &len);
+X			if ((line_length!=0) && (len<10.0)) len=10.0;
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\line(%i,%i){%03.2f}}\n",
+X				strich_marker->x, newy(strich_marker->y), x_slp, y_slp, len);
+X		} else
+X		{
+X			strich_marker->x+=xmotion;
+X			strich_marker->h+=xmotion;
+X			strich_marker->y+=ymotion;
+X			strich_marker->v+=ymotion;
+X			/* all moved now */
+X		}
+X			
+X
+X		if (strich_marker == strich_curr)
+X			return;
+X
+X		strich_marker = strich_marker->next;
+X
+X	}
+}
+X
+X
+X
+void
+manage_vector(int what, FILE * fd)
+{/* medium must be open */
+X	int             x_slp, y_slp;
+X	float           len;
+X	pfeil_marker = pfeil_start;
+X
+X	if (pfeil_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X		{
+X			dimension_update(pfeil_marker->x, pfeil_marker->y);
+X			dimension_update(pfeil_marker->h, pfeil_marker->v);
+X		} else if (what == 1)
+X		{
+X			get_vector_info(pfeil_marker->x, pfeil_marker->y,
+X					pfeil_marker->h, pfeil_marker->v,
+X					&x_slp, &y_slp, &len);
+X			if ((line_length!=0) && (len<10.0)) len=10.0;
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\vector(%i,%i){%03.2f}}\n",
+X				pfeil_marker->x, newy(pfeil_marker->y), x_slp, y_slp, len);
+X		} else
+X		{
+X			pfeil_marker->x+=xmotion;
+X			pfeil_marker->h+=xmotion;
+X			pfeil_marker->y+=ymotion;
+X			pfeil_marker->v+=ymotion;
+X			/* all moved now */
+X		}
+X
+X		if (pfeil_marker == pfeil_curr)
+X			return;
+X
+X		pfeil_marker = pfeil_marker->next;
+X
+X	}
+}
+X
+X
+X
+void
+manage_filled(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	filledBox_marker = filledBox_start;
+X
+X	if (filledBox_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		/* normate rectangle */
+X		norm_rectangle(&filledBox_marker->x, &filledBox_marker->y,
+X			       &filledBox_marker->h, &filledBox_marker->v);
+X
+X		if (what == 0)
+X		{
+X			dimension_update(filledBox_marker->x, filledBox_marker->y);
+X			dimension_update(filledBox_marker->h, filledBox_marker->v);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\rule{%03.2f\\unitlength}{%03.2f\\unitlength}}\n",
+X			     filledBox_marker->x, newy(filledBox_marker->v),
+X				(filledBox_marker->h - filledBox_marker->x),
+X				(filledBox_marker->v - filledBox_marker->y));
+X		} else
+X		{
+X			filledBox_marker->x+=xmotion;
+X			filledBox_marker->h+=xmotion;
+X			filledBox_marker->y+=ymotion;
+X			filledBox_marker->v+=ymotion;
+X			/* all moved now */
+X		}
+X
+X		if (filledBox_marker == filledBox_curr)
+X			return;
+X
+X		filledBox_marker = filledBox_marker->next;
+X
+X	}
+}
+X
+void
+manage_framed(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	framedBox_marker = framedBox_start;
+X
+X	if (framedBox_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		/* normate rectangle */
+X		norm_rectangle(&framedBox_marker->x, &framedBox_marker->y,
+X			       &framedBox_marker->h, &framedBox_marker->v);
+X
+X		if (what == 0)
+X		{
+X			dimension_update(framedBox_marker->x, framedBox_marker->y);
+X			dimension_update(framedBox_marker->h, framedBox_marker->v);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\framebox(%03.2f,%03.2f)",
+X			     framedBox_marker->x, newy(framedBox_marker->v),
+X				(framedBox_marker->h - framedBox_marker->x),
+X				(framedBox_marker->v - framedBox_marker->y));
+X
+X			fprintf(fd, "[");
+X
+X			switch (framedBox_marker->textpos[0])
+X			{
+X			case 'b':
+X				fprintf(fd, "b");
+X				break;
+X			case 't':
+X				fprintf(fd, "t");
+X				break;
+X			case 'l':
+X				fprintf(fd, "l");
+X				break;
+X			case 'r':
+X				fprintf(fd, "r");
+X				break;
+X			default:
+X				fprintf(fd, "c");
+X				break;
+X			}
+X
+X			switch (framedBox_marker->textpos[1])
+X			{
+X			case 'b':
+X				fprintf(fd, "b");
+X				break;
+X			case 't':
+X				fprintf(fd, "t");
+X				break;
+X			case 'l':
+X				fprintf(fd, "l");
+X				break;
+X			case 'r':
+X				fprintf(fd, "r");
+X				break;
+X			default:
+X				fprintf(fd, "c");
+X				break;
+X			}
+X
+X			framedBox_marker->text[strlen(framedBox_marker->text)] = '\0';
+X
+X			fprintf(fd, "]{%s}}\n", framedBox_marker->text);
+X
+X		} else
+X		{
+X			framedBox_marker->x+=xmotion;
+X			framedBox_marker->h+=xmotion;
+X			framedBox_marker->y+=ymotion;
+X			framedBox_marker->v+=ymotion;
+X			/* all moved now */
+X		}
+X
+X		if (framedBox_marker == framedBox_curr)
+X			return;
+X
+X		framedBox_marker = framedBox_marker->next;
+X
+X	}
+}
+X
+X
+void
+manage_dashed(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	dashedBox_marker = dashedBox_start;
+X
+X	if (dashedBox_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		/* normate rectangle */
+X		norm_rectangle(&dashedBox_marker->x, &dashedBox_marker->y,
+X			       &dashedBox_marker->h, &dashedBox_marker->v);
+X
+X		if (what == 0)
+X		{
+X			dimension_update(dashedBox_marker->x, dashedBox_marker->y);
+X			dimension_update(dashedBox_marker->h, dashedBox_marker->v);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\dashbox{0.5}(%03.2f,%03.2f)",
+X			     dashedBox_marker->x, newy(dashedBox_marker->v),
+X				(dashedBox_marker->h - dashedBox_marker->x),
+X				(dashedBox_marker->v - dashedBox_marker->y));
+X
+X			fprintf(fd, "[");
+X
+X			switch (dashedBox_marker->textpos[0])
+X			{
+X			case 'b':
+X				fprintf(fd, "b");
+X				break;
+X			case 't':
+X				fprintf(fd, "t");
+X				break;
+X			case 'l':
+X				fprintf(fd, "l");
+X				break;
+X			case 'r':
+X				fprintf(fd, "r");
+X				break;
+X			default:
+X				fprintf(fd, "c");
+X				break;
+X			}
+X
+X			switch (dashedBox_marker->textpos[1])
+X			{
+X			case 'b':
+X				fprintf(fd, "b");
+X				break;
+X			case 't':
+X				fprintf(fd, "t");
+X				break;
+X			case 'l':
+X				fprintf(fd, "l");
+X				break;
+X			case 'r':
+X				fprintf(fd, "r");
+X				break;
+X			default:
+X				fprintf(fd, "c");
+X				break;
+X			}
+X
+X			dashedBox_marker->text[strlen(dashedBox_marker->text)] = '\0';
+X
+X			fprintf(fd, "]{%s}}\n", dashedBox_marker->text);
+X
+X		} else
+X		{
+X			dashedBox_marker->x+=xmotion;
+X			dashedBox_marker->h+=xmotion;
+X			dashedBox_marker->y+=ymotion;
+X			dashedBox_marker->v+=ymotion;
+X			/* all moved now */
+X		}
+X
+X		if (dashedBox_marker == dashedBox_curr)
+X			return;
+X
+X		dashedBox_marker = dashedBox_marker->next;
+X
+X	}
+}
+X
+X
+X
+void
+manage_kreis(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	kreis_marker = kreis_start;
+X
+X	if (kreis_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X		{
+X			dimension_update(kreis_marker->x - (float) kreis_marker->radius,
+X			    kreis_marker->y - (float) kreis_marker->radius);
+X			dimension_update(kreis_marker->x + (float) kreis_marker->radius,
+X			    kreis_marker->y + (float) kreis_marker->radius);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\circle{%i}}\n",
+X				kreis_marker->x, newy(kreis_marker->y),
+X				kreis_marker->radius + kreis_marker->radius);
+X		} else
+X		{
+X			kreis_marker->x+=xmotion;
+X			kreis_marker->y+=ymotion;
+X		}
+X
+X		if (kreis_marker == kreis_curr)
+X			return;
+X
+X		kreis_marker = kreis_marker->next;
+X
+X	}
+}
+X
+X
+void
+manage_disc(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	disc_marker = disc_start;
+X
+X	if (disc_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X		{
+X			dimension_update(disc_marker->x - (float) disc_marker->radius,
+X			      disc_marker->y - (float) disc_marker->radius);
+X			dimension_update(disc_marker->x + (float) disc_marker->radius,
+X			      disc_marker->y + (float) disc_marker->radius);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\circle*{%i}}\n",
+X				disc_marker->x, newy(disc_marker->y),
+X				disc_marker->radius + disc_marker->radius);
+X		} else
+X		{
+X			disc_marker->x+=xmotion;
+X			disc_marker->y+=ymotion;
+X		}
+X
+X		if (disc_marker == disc_curr)
+X			return;
+X
+X		disc_marker = disc_marker->next;
+X
+X	}
+}
+X
+X
+void
+manage_text(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	message_marker = message_start;
+X
+X	if (message_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		if (what == 0)
+X			dimension_update(message_marker->x, message_marker->y);
+X
+X		else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\makebox(0,0)[",
+X				message_marker->x, newy(message_marker->y));
+X
+X			switch (message_marker->textpos[0])
+X			{
+X			case 'b':	break;
+X			case 't':	break;
+X			case 'l':	break;
+X			case 'r':	break;
+X			default:	message_marker->textpos[0]='c';
+X					break;
+X			}
+X
+X			switch (message_marker->textpos[1])
+X			{
+X			case 'b':	break;
+X			case 't':	break;
+X			case 'l':	break;
+X			case 'r':	break;
+X			default:	message_marker->textpos[1]='c';
+X					break;
+X			}
+X
+X			fprintf(fd, "%c%c]{%s}}\n",
+X				message_marker->textpos[0], message_marker->textpos[1],
+X				message_marker->text);
+X		} else
+X		{
+X			message_marker->x+=xmotion;
+X			message_marker->y+=ymotion;
+X		}
+X
+X			
+X
+X		if (message_marker == message_curr)
+X			return;
+X
+X		message_marker = message_marker->next;
+X
+X	}
+}
+X
+X
+X
+X
+void
+manage_oval(int what, FILE * fd)
+{/* medium must be open */
+X
+X
+X	oval_marker = oval_start;
+X
+X	if (oval_start == NULL)
+X		return;
+X
+X	while (True)
+X	{
+X
+X		/* normate rectangle */
+X		norm_rectangle(&oval_marker->x, &oval_marker->y,
+X			       &oval_marker->h, &oval_marker->v);
+X
+X		if (what == 0)
+X		{
+X			dimension_update(oval_marker->x, oval_marker->y);
+X			dimension_update(oval_marker->h, oval_marker->v);
+X		} else if (what == 1)
+X		{
+X			fprintf(fd, "\\put(%03.2f,%03.2f){\\oval(%03.2f,%03.2f)}\n",
+X				oval_marker->x + ((oval_marker->h - oval_marker->x) / 2),
+X				newy(oval_marker->y + (oval_marker->v - oval_marker->y) / 2),
+X				(oval_marker->h - oval_marker->x),
+X				(oval_marker->v - oval_marker->y));
+X		} else
+X		{
+X			oval_marker->x+=xmotion;
+X			oval_marker->h+=xmotion;
+X			oval_marker->y+=ymotion;
+X			oval_marker->v+=ymotion;
+X		}
+X
+X		if (oval_marker == oval_curr)
+X			return;
+X
+X		oval_marker = oval_marker->next;
+X
+X	}
+}
+SHAR_EOF
+echo 'File io_trans.c is complete' &&
+chmod 0644 io_trans.c ||
+echo 'restore of io_trans.c failed'
+Wc_c="`wc -c < 'io_trans.c'`"
+test 36048 -eq "$Wc_c" ||
+	echo 'io_trans.c: original size 36048, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= io_trans.h ==============
+if test -f 'io_trans.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping io_trans.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting io_trans.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'io_trans.h' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* header-file io_trans.h */
+X
+#ifndef IO_TRANSH
+#define IO_TRANSH
+X
+X
+X
+X
+X
+/* prototypes */
+X
+Boolean file_exists(char *fn);
+void load_it(char *fn);
+void get_line_info(float x, float y, float h, float v, int *x_slp, int *y_slp, float *len);
+void get_vector_info(float x, float y, float h, float v, int *x_slp, int *y_slp, float *len);
+float newy(float y);
+float oldy(float y);
+void dimension_update(float x, float y);
+void trans_it(char *fn);
+void manage_line(int what, FILE *fd);
+void manage_vector(int what, FILE *fd);
+void manage_filled(int what, FILE *fd);
+void manage_framed(int what, FILE *fd);
+void manage_dashed(int what, FILE *fd);
+void manage_kreis(int what, FILE *fd);
+void manage_disc(int what, FILE *fd);
+void manage_oval(int what, FILE *fd);
+void manage_text(int what, FILE *fd);
+void manage_bezier(int what, FILE *fd);
+void read_message(void);
+void read_framebox(void);
+void read_dashbox(void);
+void read_filledbox(void);
+void read_line(void);
+void read_vector(void);
+void read_circle(void);
+void read_disc(void);					
+void read_oval(void);
+void read_bezier(void);
+void compute_end_coords(float x, float y, float *h, float *v,float len);
+float compute_length(float inp);
+void error(char *name);
+X
+X
+extern float l_slope[30][3];
+extern float a_slope[20][3];
+extern int line_slope;
+extern int arrow_slope;
+extern struct object_buffer buffer;
+X	
+extern int unit;
+extern float ulen;
+extern float dim_x_max,dim_x_min,dim_y_max,dim_y_min;
+X
+X
+#endif
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 io_trans.h ||
+echo 'restore of io_trans.h failed'
+Wc_c="`wc -c < 'io_trans.h'`"
+test 1526 -eq "$Wc_c" ||
+	echo 'io_trans.h: original size 1526, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= oberfl.c ==============
+if test -f 'oberfl.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping oberfl.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting oberfl.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'oberfl.c' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* oberfl.c */
+X
+X
+#include <stdio.h>
+#include <math.h>
+#include "extdef.h"
+#include "x_stuff.h"
+#include "oberfl.h"
+#include "ereignis.h"
+#include "file_sel.h"
+#include "graphics.h"
+#include "pics.h"
+X
+X
+X
+X
+X
+/* constant */
+X
+const Dimension cmd_btn_width = 60;
+const Dimension cmd_btn_height = 60;
+X
+const           new_section = 22;
+X
+const           vertical_distance = 3;
+/* workspace placement with xorigin and yorigin */
+X
+const           yorigin = 3;
+#define xorigin (cmd_btn_width+2*new_section)
+X
+/* DIN A4 Page (in points) */
+const           y_A4_max = 840;
+const           y_A4_min = 0;
+const           x_A4_max = 600;
+const           x_A4_min = 0;
+/* zoom-window is x div 10 and y div 10 */
+X
+/* global variables */
+X
+Widget          top, top2, toplevel, canvas, pboard, textup, wtext, input_up, box_me_up;
+Widget          line_cmd, box_cmd, circle_cmd, text_cmd, file_cmd;
+Widget          vector_cmd, zoom_cmd, refresh_cmd, copy_cmd, erase_cmd, edit_cmd,
+X                options_cmd;
+Widget          snap1, raster1, radio_up, slp, dias;
+Widget          txt2, txt3, raster_up, ask_up, sign_up, sign_msg;
+Widget          coordinates, about, pop_adjust_up, adj_txt2,fileselector,bezier_cmd;
+Widget		lft,rgt,up,dwn,zentr;
+X
+Arg             args[10];
+int             n, m;
+char            filename[100] = "";
+char            chain[100] = "";
+char            boxinput[256] = "";
+char            textinput[256] = "";
+char            titlename[200] = "";
+char            txtpos[3] = "";
+float           xur = 0.0, yur = 0.0;
+X
+Boolean         snap, raster, steigung, durchmesser, refr_auto, dina4;	/* radio-button-options */
+Boolean         zoomed, ruler, cross;
+char            graph_action, shadow = '-';	/* current action is stored
+X						 * here */
+X
+GC              gc, copy_gc;	/* Graphics Context Identifier */
+X
+X
+X
+/* user data */
+char	aa='A';
+char	bb='B';
+char	cc='C';
+char	dd='D';
+char	ee='E';
+char	ff='F';
+char	gg='G';
+char	hh='H';
+char	ii='I';
+char	jj='J';
+char	kk='K';
+char	ll='L';
+char	mm='M';
+char	nn='N';
+char	oo='O';
+char	pp='P';
+char	qq='Q';
+char	rr='R';
+char	ss='S';
+char	tt='T';
+char	uu='U';
+char	vv='V';
+char	ww='W';
+char	xx='X';
+char	yy='Y';
+char	zz='Z';
+char point='.';
+char DUMMY='|';
+char minus='-';
+char	ka='a';
+char	kb='b';
+char	kc='c';
+char	kd='d';
+char	ke='e';
+char	kf='f';
+char	kg='g';
+char	kh='h';
+char	ki='i';
+char	kj='j';
+char	klein_k='k';
+char	kl='l';
+char	km='m';
+char	kn='n';
+char	ko='o';
+char	kp='p';
+char	kq='q';
+char	kr='r';
+char	ks='s';
+char	kt='t';
+char	ku='u';
+char	kv='v';
+char	kw='w';
+char	kx='x';
+char	ky='y';
+char	kz='z';
+X
+/* Figure Data Base */
+struct fig1     oval;
+struct fig2     filledBox, strich, pfeil, disc, kreis;
+struct fig3     framedBox;
+struct fig4     dashedBox;
+struct fig5     message;
+struct fig6	bezier;
+X
+struct fig2    *disc_start = NULL, *disc_curr = NULL, *disc_marker = NULL;
+struct fig2    *kreis_start = NULL, *kreis_curr = NULL, *kreis_marker = NULL;
+struct fig2    *filledBox_start = NULL, *filledBox_curr = NULL, *filledBox_marker = NULL;
+struct fig1    *oval_start = NULL, *oval_curr = NULL, *oval_marker = NULL;
+struct fig2    *strich_start = NULL, *strich_curr = NULL, *strich_marker = NULL;
+struct fig2    *pfeil_start = NULL, *pfeil_curr = NULL, *pfeil_marker = NULL;
+struct fig3    *framedBox_start = NULL, *framedBox_curr = NULL, *framedBox_marker = NULL;
+struct fig4    *dashedBox_start = NULL, *dashedBox_curr = NULL, *dashedBox_marker = NULL;
+struct fig5    *message_start = NULL, *message_curr = NULL, *message_marker = NULL;
+struct fig6    *bezier_start = NULL, *bezier_curr = NULL, *bezier_marker = NULL; 		
+X
+X
+X
+X
+int             x_zoom_max;
+int             x_zoom_min;
+int             y_zoom_max;
+int             y_zoom_min;
+Pixmap          about_map;
+int		xmotion,ymotion;
+X
+X
+X
+X
+X
+/*-----------------------------------------------------------*/
+/*-----------------------------------------------------------*/
+/*-----------------------------------------------------------*/
+X
+/* the beginning of a wonderful disaster... */
+X
+/*-----------------------------------------------------------*/
+/*-----------------------------------------------------------*/
+/*-----------------------------------------------------------*/
+X
+X
+X
+X
+X
+X
+void
+main(int argc, char *argv[])
+{
+X    	Display        *disp;
+X	Window          win;
+X	
+X	if (argc > 1)
+X		if (*argv[1] == '-')  
+X		if (*++argv[1] == 'h')
+X		{
+X			printf("\n");
+X			printf("This is TeXcad,  SHAREWARE-Version 1.2  ( X-Windows )\n");
+X			printf("====================================================\n\n");
+X			printf("If you like TeXcad and think it's convenient to use,\n");
+X			printf("then please send an appreciation of US $20 to:\n\n");
+X			printf("	Klaus Zitzmann\n");
+X			printf("	Langenaustr. 20\n");
+X			printf("	D-5400 Koblenz, Germany\n");
+X			printf("	Bank Code: 37050299 (BLZ)\n");
+X			printf("	Kreissparkasse Koeln / Germany\n");
+X			printf("	Account No. 1359024299\n\n\n");
+X			printf("''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''\n");
+X			printf("'  Klaus Zitzmann                                     zitzmann@infko.uucp  '\n");
+X			printf(",  Langenaustr.20                    ...!uunet!mcsun!unido!infko!zitzmann  ,\n");
+X			printf(",  5400 Koblenz        			    zitzmann@infko.uni-koblenz.de  ,\n");
+X			printf(",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,\n");
+X			printf("\n\n!!!! The author makes no guarantees with this program and\n");
+X			printf("!!!! is not responsible for any damage caused by it !\n");
+X			printf("!!!! (See documentation)\n");
+X			exit(0);
+X		} else argv[1]--;
+X		
+X	strcpy(titlename, "TeXcad 1.2");
+X
+X	snap = False;
+X	raster = False;
+X	steigung = False;
+X	durchmesser = False;
+X	zoomed = False;
+X	dina4 = False;
+X	refr_auto = True;
+X	ruler = True;
+X	cross = False;
+X
+X	x_zoom_min = -999;
+X
+X	
+X	toplevel = XtInitialize("xtexcad", "Xtexcad", NULL,0, &argc, argv);
+X
+X	/* connect the TeXcad - icon  to the toplevel-shell */
+X	n = 0;
+X	XtSetArg(args[n], XtNiconPixmap,
+X		 XCreateBitmapFromData(XtDisplay(toplevel),
+X				       XtScreen(toplevel)->root,
+X				       icon_bits, icon_width,
+X				       icon_height));
+X	
+X	n++;
+X	XtSetValues(toplevel, args, n);
+X
+X
+X	/* build the desktop */
+X
+X	command_init();
+X
+X	paintboard();
+X
+X	XtRealizeWidget(toplevel);	/* realize all */
+X
+X	
+X
+X	headline(toplevel, titlename);	/* status line */
+X
+X	/* additional settings */
+X	popup_init();	/* initialize all command-popups */
+X	textup_init();	/* initialize text - popup */
+X	radio_init();	/* initialize radio-button-popup */
+X	fileselector = init_file_select(canvas); /* connect file selector box */
+X	init_prompt_text();	/* initialize simple text pop-up */
+X	init_ask_erase();	/* initialize security-queries */
+X	graphics_init();	/* some initializations */
+X
+X
+X	/* startup-message */
+X	XtPopupSpringLoaded(textup);
+X	headline(textup, "Welcome");
+X
+X	init_text_and_position();	/* box queries */
+X	init_text_adjustment();	/* text queries */
+X	init_no_objects_sign();
+X	ruler_on();
+X
+X	/* was there a filename, specified at the command line ? */
+X	/* or maybe a ? */
+X	if ( (argc > 1) && (*argv[1]!='-') && (*argv[1]!='+'))
+X		load_it(argv[1]);
+X
+X
+X
+X	XtMainLoop();	/* wait for events; this is the standard event loop */
+}
+X
+X
+X
+void
+headline(Widget w, char *txt)
+{
+X	/* print status-string at the top of the toplevel-shell */
+X	Window          win;
+X	Display        *disp;
+X	if (!XtIsRealized(w))
+X		return;
+X	disp = XtDisplay(w);
+X	win = XtWindow(w);
+X	XStoreName(disp, win, txt);
+}
+X
+X
+X
+X
+X
+X
+X
+void
+command_init()
+{
+X	/* initializes the command-buttons and connects the bitmaps */
+X	Pixmap          icon;
+X	Display        *disp;
+X	Window          win;
+X	int             hor = 3, vert = 3, vtab;
+X	XtTranslations  trans_table1,trans_table2,trans_table3;
+X	char		cmd_str1[50]="<EnterWindow> : set() \n";
+X	char		cmd_str2[100]="<KeyPress>Return   : notify() unset()\n";
+X  	char		cmd_str3[50]="<ButtonRelease> : notify() unset()\n";
+X	
+X  
+X  	trans_table1 = XtParseTranslationTable(cmd_str1);
+X	trans_table2 = XtParseTranslationTable(cmd_str2);
+X	trans_table3 = XtParseTranslationTable(cmd_str3);
+X
+X
+X	vtab = cmd_btn_height + 3 * vertical_distance - 2;
+X
+X
+X	/* --- canvas database, additional settings --- */
+X	n = 0;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) x_A4_max + 220);
+X	n++;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) y_A4_max + 20);
+X	n++;
+X	canvas = XtCreateManagedWidget("workspace", compositeWidgetClass, toplevel, args, n);
+X
+X
+X
+X	/* --- line command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Line");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, line_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	line_cmd = XtCreateManagedWidget("line", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(line_cmd, XtNcallback, general_purpose_handler, ll);
+X	XtOverrideTranslations(line_cmd, trans_table1);
+X	XtOverrideTranslations(line_cmd, trans_table2);
+X	XtOverrideTranslations(line_cmd, trans_table3);
+X	
+X
+X
+X	vert += vtab;
+X
+X	/* --- vector command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Vector");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, vector_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	vector_cmd = XtCreateManagedWidget("vector", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(vector_cmd, XtNcallback, general_purpose_handler, vv);
+X	XtOverrideTranslations(vector_cmd, trans_table1);
+X	XtOverrideTranslations(vector_cmd, trans_table2);
+X	XtOverrideTranslations(vector_cmd, trans_table3);
+X	
+X
+X	vert += vtab;
+X
+X
+X	/* --- box command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Box");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "BOXMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, box_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	box_cmd = XtCreateManagedWidget("box", menuButtonWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(box_cmd, trans_table1);
+X	XtOverrideTranslations(box_cmd, trans_table2);
+X	XtOverrideTranslations(box_cmd, trans_table3);
+X	/* ------ box_cmd: widget is a popup -------- */
+X
+X
+X	vert += vtab;
+X
+X
+X	/* --- circle command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Circle");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "CIRCLEMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, circle_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	
+X	
+X	circle_cmd = XtCreateManagedWidget("circle", menuButtonWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(circle_cmd, trans_table1);
+X	XtOverrideTranslations(circle_cmd, trans_table2);
+X	XtOverrideTranslations(circle_cmd, trans_table3);
+X	/* ------ circle_cmd: widget is a popup -------*/
+X
+X	vert += vtab;
+X
+X	/* --- bezier command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Bezier");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, bezier_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	bezier_cmd = XtCreateManagedWidget("bezier", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(bezier_cmd, XtNcallback, general_purpose_handler, ii);
+X	XtOverrideTranslations(bezier_cmd, trans_table1);
+X	XtOverrideTranslations(bezier_cmd, trans_table2);
+X	XtOverrideTranslations(bezier_cmd, trans_table3);
+X	
+X	
+X	vert += vtab;
+X
+X	/* --- text command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Text");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, text_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	text_cmd = XtCreateManagedWidget("text", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(text_cmd, XtNcallback, general_purpose_handler, tt);
+X	XtOverrideTranslations(text_cmd, trans_table1);
+X	XtOverrideTranslations(text_cmd, trans_table2);
+X	XtOverrideTranslations(text_cmd, trans_table3);
+X	
+X
+X	vert += vtab;
+X
+X
+X	/* --- zoom command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Area\nZoom");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, zoom_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	zoom_cmd = XtCreateManagedWidget("zoom", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(zoom_cmd, XtNcallback, general_purpose_handler, zz);
+X	XtOverrideTranslations(zoom_cmd, trans_table1);
+X	XtOverrideTranslations(zoom_cmd, trans_table2);
+X	XtOverrideTranslations(zoom_cmd, trans_table3);
+X	
+X
+X	vert += vtab;
+X
+X
+X	/* --- refresh command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Refresh\nDisplay");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, refresh_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	refresh_cmd = XtCreateManagedWidget("refresh", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(refresh_cmd, XtNcallback, refresh, point);
+X	XtOverrideTranslations(refresh_cmd, trans_table1);
+X	XtOverrideTranslations(refresh_cmd, trans_table2);
+X	XtOverrideTranslations(refresh_cmd, trans_table3);
+X	
+X
+X	vert += vtab;
+X
+X	/* --- copy command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Copy");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	/* connect bitmap */
+X
+X
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, copy_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X
+X	copy_cmd = XtCreateManagedWidget("copy", commandWidgetClass, canvas, args, n);
+X	XtAddCallback(copy_cmd, XtNcallback, general_purpose_handler, yy);
+X	XtOverrideTranslations(copy_cmd, trans_table1);
+X	XtOverrideTranslations(copy_cmd, trans_table2);
+X	XtOverrideTranslations(copy_cmd, trans_table3);
+X	
+X
+X	vert += vtab;
+X
+X	/* --- erase command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Erase");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "ERASEMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, erase_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	
+X	erase_cmd = XtCreateManagedWidget("erase", menuButtonWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(erase_cmd, trans_table1);
+X	XtOverrideTranslations(erase_cmd, trans_table2);
+X	XtOverrideTranslations(erase_cmd, trans_table3);
+X	/*------- erase_cmd: widget is a popup ---------*/
+X
+X
+X	vert += vtab;
+X
+X
+X	/* --- edit command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "PickEdit");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "EDITMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, edit_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	
+X	edit_cmd = XtCreateManagedWidget("edit", menuButtonWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(edit_cmd, trans_table1);
+X	XtOverrideTranslations(edit_cmd, trans_table2);
+X	XtOverrideTranslations(edit_cmd, trans_table3);
+X	
+X	
+X	vert += vtab;
+X
+X
+X	/* --- options command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "Options");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "OPTIONSMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, setting_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X
+X	options_cmd = XtCreateManagedWidget("options", commandWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(options_cmd, trans_table1);
+X	XtOverrideTranslations(options_cmd, trans_table2);
+X	XtOverrideTranslations(options_cmd, trans_table3);
+X	XtAddCallback(options_cmd, XtNcallback, options, NULL);
+X
+X
+X	/* buttons top right placement */
+X
+X	vert = 3;
+X	hor = 600+xorigin+new_section;
+X
+X
+X	/* --- file command button db, additional settings --- */
+X	n = 0;
+X	/*
+X	 * XtSetArg(args[n],XtNwidth,(XtArgVal)cmd_btn_width);n++;
+X	 * XtSetArg(args[n],XtNheight,(XtArgVal)cmd_btn_height);n++;
+X	 */
+X	XtSetArg(args[n], XtNlabel, (XtArgVal) "File\nService");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	XtSetArg(args[n], XtNmenuName, (XtArgVal) "FILEMENU");
+X	n++;
+X
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, file_bits, 60, 60);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	
+X	file_cmd = XtCreateManagedWidget("file", menuButtonWidgetClass, canvas, args, n);
+X	XtOverrideTranslations(file_cmd, trans_table1);
+X	XtOverrideTranslations(file_cmd, trans_table2);
+X	XtOverrideTranslations(file_cmd, trans_table3);
+X	/*------- file_cmd:  widget is a popup -----------*/
+X
+X
+X	
+X	vert+=vtab;
+X
+X	/* --- coordinate display area--- */
+X	n = 0;
+X	XtSetArg(args[n], XtNwidth, 90);
+X	n++;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 40);
+X	n++;
+X	XtSetArg(args[n], XtNlabel, " ");
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X
+X	coordinates = XtCreateManagedWidget("coord", labelWidgetClass, canvas, args, n);
+X
+X
+X	vert+=vtab-new_section;
+X
+X	/* up */
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNborderWidth, 0);
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, up_bits, 35,20);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	up=XtCreateManagedWidget("up", commandWidgetClass, canvas, args, n);
+X	XtAddEventHandler(up, ButtonPress,False, move_base, uu);
+X
+X
+X	/* right */
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNborderWidth, 0);
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor+46);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert);
+X	n++;
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, right_bits, 20,35);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	rgt=XtCreateManagedWidget("right", commandWidgetClass, canvas, args, n);
+X	XtAddEventHandler(rgt, ButtonPress,False, move_base, rr);
+X
+X
+X	/* left */
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNborderWidth, 0);
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert+27);
+X	n++;
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, left_bits, 20,35);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	lft=XtCreateManagedWidget("left", commandWidgetClass, canvas, args, n);
+X	XtAddEventHandler(lft, ButtonPress,False, move_base, ll);
+X
+X
+X	/* down */
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNborderWidth, 0);
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor+31);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert+42);
+X	n++;
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, down_bits, 35,20);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	dwn=XtCreateManagedWidget("down", commandWidgetClass, canvas, args, n);
+X	XtAddEventHandler(dwn, ButtonPress,False, move_base, dd);
+X
+X
+X	/* center */
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNborderWidth, 1);
+X	n++;
+X	XtSetArg(args[n], XtNinternalWidth, 2);
+X	n++;
+X	XtSetArg(args[n], XtNx, (XtArgVal) hor+31);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) vert+27);
+X	n++;
+X	/* connect bitmap */
+X	disp = XtDisplay(toplevel);
+X	win = RootWindow(disp, DefaultScreen(disp));
+X	icon = XCreateBitmapFromData(disp, win, zen_bits,8,8);
+X	XtSetArg(args[n], XtNbitmap, icon);
+X	n++;
+X	zentr=XtCreateManagedWidget("center", commandWidgetClass, canvas, args, n);
+X	XtAddEventHandler(zentr, ButtonPress,False, move_base, zz);
+X
+}
+X
+X
+/*-----------------------------------------------------------*/
+X
+X
+void
+popup_init()
+{/* Creating the menu's (popup) for file,box,circle and erase */
+X
+X	Widget          filemenu, load, save, quit, pdir, left;	/* popup-widgets for
+X								 * 'file service' */
+X	Widget          boxmenu, framed, dashed, filled;	/* popup-widgets for
+X								 * 'box' */
+X	Widget          circlemenu, ring, oval, ball;	/* popup-widgets for
+X							 * 'circle' */
+X	Widget          erasemenu, all_erase, obj_erase;	/* popup-widgets for
+X								 * 'erase' */
+X								 
+X	Widget		editmenu,other;
+X	
+X	Widget 		et1,et2,et3;
+X	
+X	Arg             arg[10];
+X	int             n;
+X
+X
+X
+X
+X	/* --- popup for button: file-service --- */
+X
+X	
+X	filemenu = XtCreatePopupShell("FILEMENU", simpleMenuWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Load Object");
+X	n++;
+X	
+X	load = XtCreateManagedWidget("load", smeBSBObjectClass, filemenu, arg, n);
+X	XtAddCallback(load, XtNcallback, load_handler, NULL);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Store Object");
+X	n++;
+X	
+X	save = XtCreateManagedWidget("save", smeBSBObjectClass, filemenu, arg, n);
+X	XtAddCallback(save, XtNcallback, trans_handler, NULL);
+X
+X
+X	XtCreateManagedWidget("line", smeLineObjectClass, filemenu, NULL,0);
+X
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "About...");
+X	n++;
+X	
+X	left = XtCreateManagedWidget("about", smeBSBObjectClass, filemenu, arg, n);
+X	XtAddCallback(left, XtNcallback, about_handler, NULL);
+X
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Terminate");
+X	n++;
+X	
+X	quit = XtCreateManagedWidget("quit", smeBSBObjectClass, filemenu, arg, n);
+X	XtAddCallback(quit, XtNcallback, quit_handler, NULL);
+X
+X
+X
+X
+X
+X	/*---popup for button: box---*/
+X
+X	
+X	
+X	boxmenu = XtCreatePopupShell("BOXMENU", simpleMenuWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Framed");
+X	n++;
+X	
+X	framed = XtCreateManagedWidget("fbox", smeBSBObjectClass, boxmenu, arg, n);
+X	XtAddCallback(framed, XtNcallback, general_purpose_handler, nn);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Dashed");
+X	n++;
+X	
+X	dashed = XtCreateManagedWidget("dashed", smeBSBObjectClass, boxmenu, arg, n);
+X	XtAddCallback(dashed, XtNcallback, general_purpose_handler, dd);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Filled");
+X	n++;
+X	
+X	filled = XtCreateManagedWidget("filled", smeBSBObjectClass, boxmenu, arg, n);
+X	XtAddCallback(filled, XtNcallback, general_purpose_handler, ff);
+X
+X
+X
+X	/*---popup for button: circle---*/
+X
+X
+X	circlemenu = XtCreatePopupShell("CIRCLEMENU", simpleMenuWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Normal");
+X	n++;
+X	
+X	ring = XtCreateManagedWidget("rcircle", smeBSBObjectClass, circlemenu, arg, n);
+X	XtAddCallback(ring, XtNcallback, general_purpose_handler, cc);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Oval");
+X	n++;
+X	
+X	oval = XtCreateManagedWidget("oval", smeBSBObjectClass, circlemenu, arg, n);
+X	XtAddCallback(oval, XtNcallback, general_purpose_handler, oo);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Filled");
+X	n++;
+X	
+X	ball = XtCreateManagedWidget("ball", smeBSBObjectClass, circlemenu, arg, n);
+X	XtAddCallback(ball, XtNcallback, general_purpose_handler, bb);
+X
+X
+X	/*---popup for button: erase---*/
+X
+X	
+X	erasemenu = XtCreatePopupShell("ERASEMENU", simpleMenuWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Pick Object");
+X	n++;
+X	
+X	obj_erase = XtCreateManagedWidget("oerase", smeBSBObjectClass, erasemenu, arg, n);
+X	XtAddCallback(obj_erase, XtNcallback, general_purpose_handler, gg);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Clear Entire Database");
+X	n++;
+X	
+X	all_erase = XtCreateManagedWidget("aerase", smeBSBObjectClass, erasemenu, arg, n);
+X	XtAddCallback(all_erase, XtNcallback, general_purpose_handler, aa);
+X
+X	n = 0;
+X	
+X	
+X	/* --- popup for button: edit --- */
+X	editmenu = XtCreatePopupShell("EDITMENU", simpleMenuWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "Pick Object");
+X	n++;
+X	
+X	other = XtCreateManagedWidget("other_objects", smeBSBObjectClass, editmenu, arg, n);
+X	XtAddCallback(other, XtNcallback, general_purpose_handler, pp);
+X
+X	n = 0;
+X
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "TEXT");
+X	n++;
+X	
+X	et1 = XtCreateManagedWidget("tedit", smeBSBObjectClass, editmenu, arg, n);
+X	XtAddCallback(et1, XtNcallback, textedit, NULL);
+X			
+X	n=0;
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "FRAMED-Box Text");
+X	n++;
+X	
+X	et2=XtCreateManagedWidget("ftext", smeBSBObjectClass, editmenu, arg, n);
+X	XtAddCallback(et2, XtNcallback, fb_textedit, NULL);
+X	
+X	n=0;
+X	XtSetArg(arg[n], XtNlabel, (XtArgVal) "DASHED-Box Text");
+X	n++;
+X	
+X	et3=XtCreateManagedWidget("dtext", smeBSBObjectClass, editmenu, arg, n);
+X	XtAddCallback(et3, XtNcallback, db_textedit, NULL);
+X	
+X	
+X
+X
+}
+X
+X
+/*-----------------------------------------------------------*/
+X
+X
+void
+paintboard()
+{/* create the drawing area */
+X	n = 0;
+X	XtSetArg(args[n], XtNx, (XtArgVal) xorigin);
+X	n++;
+X	XtSetArg(args[n], XtNy, (XtArgVal) yorigin);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) x_A4_max);
+X	n++;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) y_A4_max);
+X	n++;
+X
+X	pboard = XtCreateManagedWidget("", labelWidgetClass, canvas, args, n);
+X
+X	XtAddEventHandler(pboard, ExposureMask, False, refresh, NULL);
+X	XtAddEventHandler(pboard, PointerMotionMask, True, draw_coords, NULL);
+X
+X	/* widget 'pboard' is one of the global widgets */
+X	/* pboard contains all the graphics */
+X
+}
+X
+X
+/*-----------------------------------------------------------*/
+X
+X
+void
+textup_init()
+{/* create a text window */
+X	/* used as 'welcome'-widget and report-container (watch!) */
+X	XtTranslations  trans_table;
+X	trans_table = XtParseTranslationTable("<LeaveNotify>: XtMenuPopdown()");
+X	/* when the pointer is moved outside of the window, it's popped down */
+X
+X	textup = XtCreatePopupShell("txt", shellWidgetClass, canvas, NULL,0);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) 500);
+X	n++;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 200);
+X	n++;
+X	XtSetArg(args[n], XtNborderWidth, (XtArgVal) 30);
+X	n++;
+X	XtSetArg(args[n], XtNeditType, (XtArgVal) XawtextAppend);
+X	n++;
+X	XtSetArg(args[n], XtNscrollHorizontal, (XtArgVal) XawtextScrollAlways);
+X	n++;
+X	XtSetArg(args[n], XtNscrollVertical, (XtArgVal) XawtextScrollAlways);
+X	n++;
+X
+X	
+X
+X
+X	wtext = XtCreateManagedWidget("dialog", asciiTextWidgetClass, textup, args, n);
+X
+X	XtAugmentTranslations(textup, trans_table);	/* add action to
+X							 * translation manager */
+X
+X	print_msg(wtext, "\n");
+X	print_msg(wtext, "This is ");
+X	print_msg(wtext, titlename);
+X	print_msg(wtext, " / \n");
+X	print_msg(wtext, "(c)1991 K. Zitzmann,\nUniversity of Koblenz, Germany\nlast change: 1/92\n\n\n");
+X	print_msg(wtext, "Please don't use the NeWS-Server in combination with\n");
+X	print_msg(wtext, "the twm-Window Manager !!!\n");
+X	print_msg(wtext, "Better use the MIT-Server.\n");
+X	
+}
+/*-----------------------------------------------------------*/
+X
+X
+void
+radio_init()
+{
+X	/* creates the 'settings'-menu */
+X
+X	Widget          dummy1;
+X	Widget          contents, lbl, read_number, manu, din, rul, cross_curs, length_line;
+X	XtTranslations  trans_table, trans_table1, trans_table2;
+X	Position        x_rel, y_rel, x, y;
+X	char            temp_str[200] = "<KeyPress>Return: get_number()\n Ctrl<Key>J      : dummy() \n\
+X			Ctrl<Key>O      : dummy() \n Ctrl<Key>M      : dummy() \n";
+X
+X	static XtActionsRec actions[150] = {{"dummy", dummy},
+X	{"get_number", get_number}};
+X	trans_table = XtParseTranslationTable(temp_str);
+X	/* when the pointer is moved outside of the window, it's popped down */
+X	trans_table1 = XtParseTranslationTable("<LeaveWindow>: XtMenuPopdown() \n");
+X
+X	trans_table2 = XtParseTranslationTable("<Btn1Down>,<Btn1Up>: toggle() notify()");
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNheight, 230);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 330);
+X	n++;
+X	
+X	radio_up = XtCreatePopupShell("options", transientShellWidgetClass, canvas, args, n);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNvSpace, 10);
+X	n++;
+X	XtSetArg(args[n], XtNhSpace, 15);
+X	n++;
+X	dummy1 = XtCreateManagedWidget("dumm1", boxWidgetClass, radio_up, args, n);
+X
+X
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "enable raster");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 140);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);
+X	n++;
+X	XtSetArg(args[n], XtNstate, False);
+X	n++;
+X	
+X	raster1 = XtCreateManagedWidget("rasteron", toggleWidgetClass, dummy1, args, n);
+X	XtAddCallback(raster1, XtNcallback, aus_raster, NULL);
+X
+X
+X	raster_up = XtCreatePopupShell("Raster Definition", transientShellWidgetClass, canvas, NULL, 0);
+X	contents = XtCreateManagedWidget("hi", boxWidgetClass, raster_up, NULL, 0);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 70);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) 250);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNlabel, "Please enter the width\nof the raster !\n(Default = 40pts)");
+X	n++;
+X	
+X	lbl = XtCreateManagedWidget("jj", labelWidgetClass, contents, args, n);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNheight, (XtArgVal) 20);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, (XtArgVal) 250);
+X	n++;
+X	XtSetArg(args[n], XtNautoFill, False);
+X	n++;
+X	XtSetArg(args[n], XtNuseStringInPlace, True);
+X	n++;
+X	XtSetArg(args[n], XtNstring, chain);
+X	n++;
+X	XtSetArg(args[n], XtNlength, XtNumber(chain));
+X	n++;
+X	XtSetArg(args[n], XtNeditType, XawtextEdit);
+X	n++;
+X	XtSetArg(args[n], XtNresize, XawtextResizeWidth);
+X	n++;
+X	XtSetArg(args[n], XtNwrap, XawtextWrapWord);
+X	n++;
+X	
+X	read_number = XtCreateManagedWidget("j", asciiTextWidgetClass, contents, args, n);
+X
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "snap pointer");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 140);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);
+X	n++;
+X	XtSetArg(args[n], XtNstate, False);
+X	n++;
+X	
+X	snap1 = XtCreateManagedWidget("snapon", toggleWidgetClass, dummy1, args, n);
+X	XtAddCallback(snap1, XtNcallback, snap_on, NULL);
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "unlimited slopes");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 140);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);
+X	n++;
+X	XtSetArg(args[n], XtNstate, False);
+X	n++;
+X	
+X	slp = XtCreateManagedWidget("slope", toggleWidgetClass, dummy1, args, n);
+X	XtAddCallback(slp, XtNcallback, slopes, NULL);
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "unlimited diameters");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 140);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);
+X	n++;
+X	XtSetArg(args[n], XtNstate, False);
+X	n++;
+X	
+X	dias = XtCreateManagedWidget("diameters", toggleWidgetClass, dummy1, args, n);
+X	XtAddCallback(dias, XtNcallback, diams, NULL);
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "auto refresh");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+X	XtSetArg(args[n], XtNwidth, 140);
+X	n++;
+X	XtSetArg(args[n], XtNjustify, XtJustifyCenter);
+X	n++;
+X	XtSetArg(args[n], XtNshapeStyle, XmuShapeOval);
+X	n++;
+X	XtSetArg(args[n], XtNstate, True);
+X	n++;
+X	
+X	manu = XtCreateManagedWidget("auto_refresh", toggleWidgetClass, dummy1, args, n);
+X	XtAddCallback(manu, XtNcallback, automatic_refresh, NULL);
+X
+X	n = 0;
+X
+X	XtSetArg(args[n], XtNlabel, "center DIN A4");
+X	n++;
+X	XtSetArg(args[n], XtNheight, 30);
+X	n++;
+SHAR_EOF
+true || echo 'restore of oberfl.c failed'
+fi
+echo 'End of  part 6'
+echo 'File oberfl.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

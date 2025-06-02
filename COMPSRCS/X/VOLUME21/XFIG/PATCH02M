@@ -1,0 +1,1061 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb12.lbl.gov (Brian V. Smith)
+Subject: v21i033:  xfig - Draw amd manipulate objects in an X-Window, Patch02m/16
+Message-ID: <1993Oct21.185936.7476@sparky.sterling.com>
+X-Md4-Signature: 2f9eb5158728bb260d3339baaaf200c6
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 18:59:36 GMT
+Approved: chris@sterling.com
+
+Submitted-by: envbvs@epb12.lbl.gov (Brian V. Smith)
+Posting-number: Volume 21, Issue 33
+Archive-name: xfig/patch02m
+Environment: patch, X11, xfig
+Patch-To: xfig: Volume 19, Issue 113-139
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xfig.08
+# Wrapped by chris@sparky on Thu Oct 21 13:40:07 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 16)."'
+if test -f 'xfig.08' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xfig.08'\"
+else
+  echo shar: Extracting \"'xfig.08'\" \(28511 characters\)
+  sed "s/^X//" >'xfig.08' <<'END_OF_FILE'
+X  };
+X  
+X  #define NUM_VALIGN_CHOICES (sizeof(valign_choices)/sizeof(choice_info))
+X  
+X  static choice_info halign_choices[] = {
+X!     {ALIGN_NONE, &none_ic,},
+X!     {ALIGN_LEFT, &halignl_ic,},
+X!     {ALIGN_CENTER, &halignc_ic,},
+X!     {ALIGN_RIGHT, &halignr_ic,},
+X  };
+X  
+X  #define NUM_HALIGN_CHOICES (sizeof(halign_choices)/sizeof(choice_info))
+X***************
+X*** 299,321 ****
+X  "<EnterWindow>:EnterIndSw()highlight()\n\
+X      <LeaveWindow>:LeaveIndSw()unhighlight()\n";
+X  
+X  init_ind_panel(tool)
+X      TOOL	    tool;
+X  {
+X!     int		i;
+X      ind_sw_info	*sw;
+X  
+X      /* does he want to always see ALL of the indicator buttons? */
+X      if (appres.ShowAllButtons) {
+X  	cur_indmask = I_ALL;	/* yes */
+X! 	i = 2*DEF_IND_SW_HT+2*INTERNAL_BW+6;  /* two rows high when showing all buttons */
+X      } else {
+X! 	i = DEF_IND_SW_HT+4*INTERNAL_BW+14;   /* allow for thickness of scrollbar */
+X      }
+X- 
+X-     /* make a scrollable viewport in case all the buttons don't fit */
+X-     FirstArg(XtNallowHoriz, True);
+X-     NextArg(XtNwidth, INDPANEL_WD);
+X      NextArg(XtNheight, i);
+X      NextArg(XtNborderWidth, 0);
+X      NextArg(XtNresizable, False);
+X--- 303,338 ----
+X  "<EnterWindow>:EnterIndSw()highlight()\n\
+X      <LeaveWindow>:LeaveIndSw()unhighlight()\n";
+X  
+X+ /* bitmaps for set/clear and toggle buttons */
+X+ static unsigned char set_bits[] = {
+X+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+X+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+X+ static unsigned char clr_bits[] = {
+X+    0xff, 0x03, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02, 0x01, 0x02,
+X+    0x01, 0x02, 0x01, 0x02, 0x01, 0x02, 0xff, 0x03};
+X+ static unsigned char tog_bits[] = {
+X+    0xff, 0x03, 0x01, 0x02, 0x03, 0x02, 0x07, 0x02, 0x0f, 0x02, 0x1f, 0x02,
+X+    0x3f, 0x02, 0x7f, 0x02, 0xff, 0x02, 0xff, 0x03};
+X+ 
+X  init_ind_panel(tool)
+X      TOOL	    tool;
+X  {
+X!     int		 i;
+X      ind_sw_info	*sw;
+X+     Widget	 tw; /* temporary widget to get scrollbar widget */
+X  
+X+ 
+X+     /* make a scrollable viewport in case all the buttons don't fit */
+X+     FirstArg(XtNallowHoriz, True);
+X+     NextArg(XtNwidth, INDPANEL_WD);
+X      /* does he want to always see ALL of the indicator buttons? */
+X      if (appres.ShowAllButtons) {
+X  	cur_indmask = I_ALL;	/* yes */
+X! 	i = 2*DEF_IND_SW_HT+5*INTERNAL_BW; /* two rows high when showing all buttons */
+X      } else {
+X! 	i = DEF_IND_SW_HT+2*INTERNAL_BW+MAX_SCROLL_WD;   /* allow for thickness of scrollbar */
+X! 	NextArg(XtNforceBars, True);
+X      }
+X      NextArg(XtNheight, i);
+X      NextArg(XtNborderWidth, 0);
+X      NextArg(XtNresizable, False);
+X***************
+X*** 345,350 ****
+X--- 362,420 ----
+X      ind_panel = XtCreateManagedWidget("ind_panel", boxWidgetClass, ind_viewp,
+X  			       Args, ArgCount);
+X  
+X+     /* make a widget which contains the label and toggle/set/clear form */
+X+ 
+X+     FirstArg(XtNdefaultDistance, 0);
+X+     NextArg(XtNborderWidth, INTERNAL_BW);
+X+     NextArg(XtNorientation, XtorientVertical);
+X+     NextArg(XtNhSpace, 0);
+X+     NextArg(XtNvSpace, 1);
+X+     NextArg(XtNheight, DEF_IND_SW_HT);
+X+     NextArg(XtNwidth, DEF_IND_SW_WD);
+X+     upd_ctrl = XtCreateWidget("upd_ctrl_form", boxWidgetClass,
+X+ 			ind_panel, Args, ArgCount);
+X+ 
+X+     /* make a widget which contains the buttons to toggle/set/clear
+X+        the update buttons in the indicator panel buttons */
+X+ 
+X+     FirstArg(XtNborderWidth, 0);
+X+     NextArg(XtNheight, 13);
+X+     NextArg(XtNwidth, 50);
+X+     NextArg(XtNjustify, XtJustifyCenter);
+X+     NextArg(XtNfont, button_font);
+X+     NextArg(XtNlabel, "Control");
+X+     upd_ctrl_lab = XtCreateManagedWidget("upd_ctrl_label", labelWidgetClass,
+X+ 			upd_ctrl, Args, ArgCount);
+X+ 
+X+     /* make a widget which contains the buttons to toggle/set/clear
+X+        the update buttons in the indicator panel buttons */
+X+ 
+X+     FirstArg(XtNdefaultDistance, 0);
+X+     NextArg(XtNborderWidth, 0);
+X+     NextArg(XtNorientation, XtorientHorizontal);
+X+     NextArg(XtNhSpace, 3);
+X+     NextArg(XtNvSpace, 0);
+X+     upd_ctrl_btns = XtCreateManagedWidget("upd_ctrl_btns", boxWidgetClass,
+X+ 			upd_ctrl, Args, ArgCount);
+X+ 
+X+     FirstArg(XtNheight, 9);
+X+     NextArg(XtNwidth, 9);
+X+     NextArg(XtNinternalWidth, 2);
+X+     NextArg(XtNinternalHeight, 2);
+X+     NextArg(XtNborderWidth, 1);
+X+     set_upd = XtCreateManagedWidget("set_upd", commandWidgetClass,
+X+ 			upd_ctrl_btns, Args, ArgCount);
+X+     XtAddEventHandler(set_upd, ButtonReleaseMask, (Boolean) 0,
+X+ 			set_all_update, (XtPointer) 0);
+X+     clr_upd = XtCreateManagedWidget("clr_upd", commandWidgetClass,
+X+ 			upd_ctrl_btns, Args, ArgCount);
+X+     XtAddEventHandler(clr_upd, ButtonReleaseMask, (Boolean) 0,
+X+ 			clr_all_update, (XtPointer) 0);
+X+     tog_upd = XtCreateManagedWidget("tog_upd", commandWidgetClass,
+X+ 			upd_ctrl_btns, Args, ArgCount);
+X+     XtAddEventHandler(tog_upd, ButtonReleaseMask, (Boolean) 0,
+X+ 			tog_all_update, (XtPointer) 0);
+X+ 
+X      /* start with all components affected by update */
+X      cur_updatemask = I_UPDATEMASK;
+X  
+X***************
+X*** 389,394 ****
+X--- 459,485 ----
+X  	XtOverrideTranslations(sw->button,
+X  			       XtParseTranslationTable(ind_translations));
+X      }
+X+ 
+X+     /* now get the real height of the scrollbar and resize the ind_panel if necessary */
+X+     tw = XtNameToWidget(ind_viewp, "horizontal");
+X+     if (!appres.ShowAllButtons && tw != NULL) {
+X+ 	Dimension    td1; /* temporary variable to get scrollbar thickness */
+X+ 	Dimension    td2; /* temporary variable to get indpanel height */
+X+ 	Dimension    bdw; /* temporary variable to get scrollbar border width */
+X+ 	FirstArg(XtNthickness, &td1);
+X+ 	NextArg(XtNborderWidth, &bdw);
+X+ 	GetValues(tw);
+X+ 	FirstArg(XtNheight, &td2);
+X+ 	GetValues(ind_panel);
+X+ 	td2 = td2 - MAX_SCROLL_WD /* initial kludge value */ + td1 + 4 + bdw;
+X+ 	XtUnmanageChild(ind_panel);
+X+ 	FirstArg(XtNheight, td2);
+X+ 	SetValues(ind_viewp);
+X+ 	SetValues(ind_panel);
+X+ 	FirstArg(XtNforceBars, False);
+X+ 	SetValues(ind_viewp);
+X+ 	XtManageChild(ind_panel);
+X+     }
+X      update_indpanel(cur_indmask);
+X  }
+X  
+X***************
+X*** 414,419 ****
+X--- 505,561 ----
+X  	cur_updatemask &= ~sw->func;	/* turn off update status */
+X  }
+X  
+X+ /* toggle the update buttons in all the widgets */
+X+ static void
+X+ tog_all_update()
+X+ {
+X+     int i;
+X+ 
+X+     cur_updatemask = ~cur_updatemask;	/* tuggle all */
+X+     for (i = 0; i < NUM_IND_SW; ++i) {
+X+ 	if (ind_switches[i].updbut == NULL)
+X+ 		continue;
+X+ 	ind_switches[i].update = !ind_switches[i].update;
+X+ 	FirstArg(XtNstate, &ind_switches[i].update);
+X+ 	SetValues(ind_switches[i].updbut);
+X+     }
+X+     put_msg("Update command status TOGGLED for all buttons");
+X+ }
+X+ 
+X+ /* turn on the update buttons in all the widgets */
+X+ static void
+X+ set_all_update()
+X+ {
+X+     int i;
+X+ 
+X+     cur_updatemask = I_UPDATEMASK;	/* turn all on */
+X+     for (i = 0; i < NUM_IND_SW; ++i) {
+X+ 	if (ind_switches[i].updbut == NULL)
+X+ 		continue;
+X+ 	ind_switches[i].update = True;
+X+ 	FirstArg(XtNstate, True);
+X+ 	SetValues(ind_switches[i].updbut);
+X+     }
+X+     put_msg("Update commands are now ENABLED for all buttons");
+X+ }
+X+ 
+X+ /* turn off the update buttons in all the widgets */
+X+ static void
+X+ clr_all_update()
+X+ {
+X+     int i;
+X+ 
+X+     for (i = 0; i < NUM_IND_SW; ++i) {
+X+     cur_updatemask = 0;			/* turn all off */
+X+ 	if (ind_switches[i].updbut == NULL)
+X+ 		continue;
+X+ 	ind_switches[i].update = False;
+X+ 	FirstArg(XtNstate, False);
+X+ 	SetValues(ind_switches[i].updbut);
+X+     }
+X+     put_msg("Update commands will be IGNORED for all buttons");
+X+ }
+X+ 
+X  manage_update_buts()
+X  {
+X      int		    i;
+X***************
+X*** 437,442 ****
+X--- 579,585 ----
+X      Display	   *d = tool_d;
+X      Screen	   *s = tool_s;
+X      Pixmap	    p;
+X+     Pixel	    fg,bg;
+X  
+X      /* get the foreground and background from the indicator widget */
+X      /* and create a gc with those values */
+X***************
+X*** 481,486 ****
+X--- 624,655 ----
+X      }
+X      XtInstallAllAccelerators(ind_panel, tool);
+X  
+X+     /* now put cute little images in them (full box (set), empty box (clear)
+X+ 	and half full (toggle) */
+X+     FirstArg(XtNforeground, &fg);
+X+     NextArg(XtNbackground, &bg);
+X+     for (i = 0; i < NUM_IND_SW; ++i)		/* find one of the update buttons */
+X+ 	if (ind_switches[i].func & I_UPDATEMASK) { /* and get its bg color */
+X+ 	    GetValues(ind_switches[i].updbut);
+X+ 	    break;
+X+ 	}
+X+ 
+X+     p = XCreatePixmapFromBitmapData(tool_d, XtWindow(ind_panel),
+X+ 		    (char *) set_bits, 10, 10, fg, bg,
+X+ 		    DefaultDepthOfScreen(tool_s));
+X+     FirstArg(XtNbitmap, p);
+X+     SetValues(set_upd);
+X+     p = XCreatePixmapFromBitmapData(tool_d, XtWindow(ind_panel),
+X+ 		    (char *) clr_bits, 10, 10, fg, bg,
+X+ 		    DefaultDepthOfScreen(tool_s));
+X+     FirstArg(XtNbitmap, p);
+X+     SetValues(clr_upd);
+X+     p = XCreatePixmapFromBitmapData(tool_d, XtWindow(ind_panel),
+X+ 		    (char *) tog_bits, 10, 10, fg, bg,
+X+ 		    DefaultDepthOfScreen(tool_s));
+X+     FirstArg(XtNbitmap, p);
+X+     SetValues(tog_upd);
+X+ 
+X      XDefineCursor(d, XtWindow(ind_panel), arrow_cursor);
+X      update_current_settings();
+X  
+X***************
+X*** 698,705 ****
+X  
+X      for (i = 0; i < isw->numchoices; tmp_choice++, i++) {
+X  	if (isw->func == I_FILLSTYLE)
+X! 	    p = ((cur_color==BLACK || cur_color==DEFAULT_COLOR ||
+X! 		 (!all_colors_available && cur_color!=WHITE))?
+X  		fillstyle_choices[i].blackPM :fillstyle_choices[i].normalPM);
+X  	else if (isw->func == I_COLOR) {
+X  	    p = 0;
+X--- 867,873 ----
+X  
+X      for (i = 0; i < isw->numchoices; tmp_choice++, i++) {
+X  	if (isw->func == I_FILLSTYLE)
+X! 	    p = (cur_color==BLACK || cur_color==DEFAULT_COLOR?
+X  		fillstyle_choices[i].blackPM :fillstyle_choices[i].normalPM);
+X  	else if (isw->func == I_COLOR) {
+X  	    p = 0;
+X***************
+X*** 737,746 ****
+X  			form_fg = appres.color[BLACK];
+X  		    NextArg(XtNforeground, form_fg);
+X  		    NextArg(XtNbackground, appres.color[i]);
+X  		}
+X  		NextArg(XtNlabel, colorNames[i + 1]);
+X  	    } else {		/* it's the default color */
+X! 		NextArg(XtNforeground, x_fg_color.pixel);
+X  		NextArg(XtNlabel, colorNames[0]);
+X  	    }
+X  	}
+X--- 905,923 ----
+X  			form_fg = appres.color[BLACK];
+X  		    NextArg(XtNforeground, form_fg);
+X  		    NextArg(XtNbackground, appres.color[i]);
+X+ 		} else {
+X+ 		    if (i == BLACK) {
+X+ 			NextArg(XtNforeground, appres.color[WHITE]);
+X+ 			NextArg(XtNbackground, appres.color[BLACK]);
+X+ 		    } else {
+X+ 			NextArg(XtNforeground, appres.color[BLACK]);
+X+ 			NextArg(XtNbackground, appres.color[WHITE]);
+X+ 		    }
+X  		}
+X  		NextArg(XtNlabel, colorNames[i + 1]);
+X  	    } else {		/* it's the default color */
+X! 		NextArg(XtNbackground, x_fg_color.pixel);
+X! 		NextArg(XtNforeground, x_bg_color.pixel);
+X  		NextArg(XtNlabel, colorNames[0]);
+X  	    }
+X  	}
+X***************
+X*** 823,831 ****
+X      Widget	    w;
+X      XButtonEvent   *ev;
+X  {
+X-     int		    new_i_value;
+X-     float	    new_f_value;
+X- 
+X      if (hidden_text_flag)
+X  	cur_textflags |= HIDDEN_TEXT;
+X      else
+X--- 1000,1005 ----
+X***************
+X*** 1330,1345 ****
+X  {
+X      update_choice_pixmap(sw, cur_valign);
+X      switch (cur_valign) {
+X!     case NONE:
+X  	put_msg("No vertical alignment");
+X  	break;
+X!     case TOP:
+X  	put_msg("Vertically align to TOP");
+X  	break;
+X!     case CENTER:
+X  	put_msg("Center vertically when aligning");
+X  	break;
+X!     case BOTTOM:
+X  	put_msg("Vertically align to BOTTOM");
+X  	break;
+X      }
+X--- 1504,1519 ----
+X  {
+X      update_choice_pixmap(sw, cur_valign);
+X      switch (cur_valign) {
+X!     case ALIGN_NONE:
+X  	put_msg("No vertical alignment");
+X  	break;
+X!     case ALIGN_TOP:
+X  	put_msg("Vertically align to TOP");
+X  	break;
+X!     case ALIGN_CENTER:
+X  	put_msg("Center vertically when aligning");
+X  	break;
+X!     case ALIGN_BOTTOM:
+X  	put_msg("Vertically align to BOTTOM");
+X  	break;
+X      }
+X***************
+X*** 1353,1368 ****
+X  {
+X      update_choice_pixmap(sw, cur_halign);
+X      switch (cur_halign) {
+X!     case NONE:
+X  	put_msg("No horizontal alignment");
+X  	break;
+X!     case LEFT:
+X  	put_msg("Horizontally align to LEFT");
+X  	break;
+X!     case CENTER:
+X  	put_msg("Center horizontally when aligning");
+X  	break;
+X!     case RIGHT:
+X  	put_msg("Horizontally align to RIGHT");
+X  	break;
+X      }
+X--- 1527,1542 ----
+X  {
+X      update_choice_pixmap(sw, cur_halign);
+X      switch (cur_halign) {
+X!     case ALIGN_NONE:
+X  	put_msg("No horizontal alignment");
+X  	break;
+X!     case ALIGN_LEFT:
+X  	put_msg("Horizontally align to LEFT");
+X  	break;
+X!     case ALIGN_CENTER:
+X  	put_msg("Center horizontally when aligning");
+X  	break;
+X!     case ALIGN_RIGHT:
+X  	put_msg("Horizontally align to RIGHT");
+X  	break;
+X      }
+X***************
+X*** 1475,1481 ****
+X      show_boxradius(sw);
+X  }
+X  
+X! #define MAXRADIUS 30
+X  static
+X  show_boxradius(sw)
+X      ind_sw_info	   *sw;
+X--- 1649,1656 ----
+X      show_boxradius(sw);
+X  }
+X  
+X! #define MAXRADIUS 100
+X! 
+X  static
+X  show_boxradius(sw)
+X      ind_sw_info	   *sw;
+X***************
+X*** 1531,1539 ****
+X      ind_sw_info	   *sw;
+X  {
+X      if (cur_fillstyle == 0) {
+X! 	XCopyArea(tool_d, ((cur_color==BLACK ||
+X! 		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X! 			(!all_colors_available && cur_color!=WHITE))? 
+X  			fillstyle_choices[0].blackPM: fillstyle_choices[0].normalPM),
+X  			sw->normalPM,
+X  			ind_button_gc, 0, 0, 32, 32, 32, 0);
+X--- 1706,1713 ----
+X      ind_sw_info	   *sw;
+X  {
+X      if (cur_fillstyle == 0) {
+X! 	XCopyArea(tool_d, (cur_color==BLACK ||
+X! 		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK])?
+X  			fillstyle_choices[0].blackPM: fillstyle_choices[0].normalPM),
+X  			sw->normalPM,
+X  			ind_button_gc, 0, 0, 32, 32, 32, 0);
+X***************
+X*** 1540,1548 ****
+X  	put_msg("NO-FILL MODE");
+X      } else {
+X  	/* put the pixmap in the widget background */
+X! 	XCopyArea(tool_d, ((cur_color==BLACK ||
+X! 		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X! 			(!all_colors_available && cur_color!=WHITE))? 
+X  				fillstyle_choices[cur_fillstyle].blackPM:
+X  				fillstyle_choices[cur_fillstyle].normalPM),
+X  			sw->normalPM,
+X--- 1714,1721 ----
+X  	put_msg("NO-FILL MODE");
+X      } else {
+X  	/* put the pixmap in the widget background */
+X! 	XCopyArea(tool_d, (cur_color==BLACK ||
+X! 		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK])?
+X  				fillstyle_choices[cur_fillstyle].blackPM:
+X  				fillstyle_choices[cur_fillstyle].normalPM),
+X  			sw->normalPM,
+X***************
+X*** 1583,1592 ****
+X      int		    color;
+X  
+X      if (cur_color < 0 || cur_color >= NUMCOLORS) {
+X! 	cur_color == DEFAULT_COLOR;
+X  	color = x_fg_color.pixel;
+X      } else
+X! 	color = all_colors_available ? appres.color[cur_color] : x_fg_color.pixel;
+X  
+X      show_fillstyle(fill_style_sw);
+X      put_msg("Color set to %s", colorNames[cur_color + 1]);
+X--- 1756,1766 ----
+X      int		    color;
+X  
+X      if (cur_color < 0 || cur_color >= NUMCOLORS) {
+X! 	cur_color = DEFAULT_COLOR;
+X  	color = x_fg_color.pixel;
+X      } else
+X! 	color = all_colors_available ? appres.color[cur_color] : 
+X! 			(cur_color == WHITE? x_bg_color.pixel: x_fg_color.pixel);
+X  
+X      show_fillstyle(fill_style_sw);
+X      put_msg("Color set to %s", colorNames[cur_color + 1]);
+X***************
+X*** 1686,1695 ****
+X      ind_sw_info	   *sw;
+X  {
+X      if (using_ps) {
+X! 	if (cur_ps_font >= NUM_PS_FONTS)
+X  	    cur_ps_font = DEFAULT;
+X  	else if (cur_ps_font < DEFAULT)
+X! 	    cur_ps_font = NUM_PS_FONTS - 1;
+X      } else {
+X  	if (cur_latex_font >= NUM_LATEX_FONTS)
+X  	    cur_latex_font = 0;
+X--- 1860,1869 ----
+X      ind_sw_info	   *sw;
+X  {
+X      if (using_ps) {
+X! 	if (cur_ps_font >= NUM_FONTS)
+X  	    cur_ps_font = DEFAULT;
+X  	else if (cur_ps_font < DEFAULT)
+X! 	    cur_ps_font = NUM_FONTS - 1;
+X      } else {
+X  	if (cur_latex_font >= NUM_LATEX_FONTS)
+X  	    cur_latex_font = 0;
+Xdiff -rc xfig.2.1.7a/w_indpanel.h xfig.2.1.8/w_indpanel.h
+X*** xfig.2.1.7a/w_indpanel.h	Fri Feb 12 09:04:25 1993
+X--- xfig.2.1.8/w_indpanel.h	Fri Jun 18 18:47:42 1993
+X***************
+X*** 89,91 ****
+X--- 89,93 ----
+X  
+X  #define ZOOM_SWITCH_INDEX	0	/* used by w_zoom.c */
+X  extern ind_sw_info ind_switches[];
+X+ 
+X+ extern Widget	    upd_ctrl;
+Xdiff -rc xfig.2.1.7a/w_modepanel.c xfig.2.1.8/w_modepanel.c
+X*** xfig.2.1.7a/w_modepanel.c	Fri Feb 12 09:04:26 1993
+X--- xfig.2.1.8/w_modepanel.c	Tue Jun 29 14:42:23 1993
+X***************
+X*** 57,62 ****
+X--- 57,96 ----
+X  extern          arrow_head_selected();
+X  extern          edit_item_selected();
+X  extern          update_selected();
+X+ static stub_circlebyradius_drawing_selected();
+X+ static stub_circlebydiameter_drawing_selected();
+X+ static stub_ellipsebyradius_drawing_selected();
+X+ static stub_ellipsebydiameter_drawing_selected();
+X+ static stub_box_drawing_selected();
+X+ static stub_arcbox_drawing_selected();
+X+ static stub_line_drawing_selected();
+X+ static stub_poly_drawing_selected();
+X+ static stub_regpoly_drawing_selected();
+X+ static stub_epsobj_drawing_selected();
+X+ static stub_text_drawing_selected();
+X+ static stub_arc_drawing_selected();
+X+ static stub_spline_drawing_selected();
+X+ static stub_cl_spline_drawing_selected();
+X+ static stub_intspline_drawing_selected();
+X+ static stub_cl_intspline_drawing_selected();
+X+ static stub_align_selected();
+X+ static stub_compound_selected();
+X+ static stub_break_selected();
+X+ static stub_scale_selected();
+X+ static stub_point_adding_selected();
+X+ static stub_delete_point_selected();
+X+ static stub_move_selected();
+X+ static stub_move_point_selected();
+X+ static stub_delete_selected();
+X+ static stub_copy_selected();
+X+ static stub_rotate_cw_selected();
+X+ static stub_rotate_ccw_selected();
+X+ static stub_flip_ud_selected();
+X+ static stub_flip_lr_selected();
+X+ static stub_convert_selected();
+X+ static stub_arrow_head_selected();
+X+ static stub_edit_item_selected();
+X+ static stub_update_selected();
+X  
+X  /**************	    local variables and routines   **************/
+X  
+X***************
+X*** 154,160 ****
+X      I_MIN1 | I_LINEWIDTH, "ADD/DELETE ARROWs",},
+X  };
+X  
+X! #define		NUM_MODE_SW	(sizeof(mode_switches) / sizeof(mode_sw_info))
+X  
+X  static Arg      button_args[] =
+X  {
+X--- 188,194 ----
+X      I_MIN1 | I_LINEWIDTH, "ADD/DELETE ARROWs",},
+X  };
+X  
+X! int	NUM_MODE_SW = (sizeof(mode_switches) / sizeof(mode_sw_info));
+X  
+X  static Arg      button_args[] =
+X  {
+X***************
+X*** 178,183 ****
+X--- 212,251 ----
+X      {"ReleaseMiddle", (XtActionProc) clear_middle},
+X      {"PressRight", (XtActionProc) notused_right},
+X      {"ReleaseRight", (XtActionProc) clear_right},
+X+     {"ModeCircleR", (XtActionProc) stub_circlebyradius_drawing_selected},
+X+     {"ModeCircleD", (XtActionProc) stub_circlebydiameter_drawing_selected},
+X+     {"ModeEllipseR", (XtActionProc) stub_ellipsebyradius_drawing_selected},
+X+     {"ModeEllipseD", (XtActionProc) stub_ellipsebydiameter_drawing_selected},
+X+     {"ModeBox", (XtActionProc) stub_box_drawing_selected},
+X+     {"ModeArcBox", (XtActionProc) stub_arcbox_drawing_selected},
+X+     {"ModeLine", (XtActionProc) stub_line_drawing_selected},
+X+     {"ModePoly", (XtActionProc) stub_poly_drawing_selected},
+X+     {"ModeRegPoly", (XtActionProc) stub_regpoly_drawing_selected},
+X+     {"ModeEPS", (XtActionProc) stub_epsobj_drawing_selected},
+X+     {"ModeText", (XtActionProc) stub_text_drawing_selected},
+X+     {"ModeArc", (XtActionProc) stub_arc_drawing_selected},
+X+     {"ModeSpline", (XtActionProc) stub_spline_drawing_selected},
+X+     {"ModeClSpline", (XtActionProc) stub_cl_spline_drawing_selected},
+X+     {"ModeIntSpline", (XtActionProc) stub_intspline_drawing_selected},
+X+     {"ModeClIntSpline", (XtActionProc) stub_cl_intspline_drawing_selected},
+X+     {"ModeAlign", (XtActionProc) stub_align_selected},
+X+     {"ModeCompound", (XtActionProc) stub_compound_selected},
+X+     {"ModeBreakCompound", (XtActionProc) stub_break_selected},
+X+     {"ModeScale", (XtActionProc) stub_scale_selected},
+X+     {"ModeAddPoint", (XtActionProc) stub_point_adding_selected},
+X+     {"ModeDeletePoint", (XtActionProc) stub_delete_point_selected},
+X+     {"ModeMoveObject", (XtActionProc) stub_move_selected},
+X+     {"ModeMovePoint", (XtActionProc) stub_move_point_selected},
+X+     {"ModeDeleteObject", (XtActionProc) stub_delete_selected},
+X+     {"ModeCopyObject", (XtActionProc) stub_copy_selected},
+X+     {"ModeRotateObjectCW", (XtActionProc) stub_rotate_cw_selected},
+X+     {"ModeRotateObjectCCW", (XtActionProc) stub_rotate_ccw_selected},
+X+     {"ModeFlipObjectUD", (XtActionProc) stub_flip_ud_selected},
+X+     {"ModeFlipObjectLR", (XtActionProc) stub_flip_lr_selected},
+X+     {"ModeConvertObject", (XtActionProc) stub_convert_selected},
+X+     {"ModeArrow", (XtActionProc) stub_arrow_head_selected},
+X+     {"ModeEditObject", (XtActionProc) stub_edit_item_selected},
+X+     {"ModeUpdateObject", (XtActionProc) stub_update_selected},
+X  };
+X  
+X  static String   mode_translations =
+X***************
+X*** 194,200 ****
+X  init_mode_panel(tool)
+X      TOOL            tool;
+X  {
+X!     register int    i;
+X      register mode_sw_info *sw;
+X  
+X      FirstArg(XtNwidth, MODEPANEL_WD);
+X--- 262,268 ----
+X  init_mode_panel(tool)
+X      TOOL            tool;
+X  {
+X!     register int    i, numindraw;
+X      register mode_sw_info *sw;
+X  
+X      FirstArg(XtNwidth, MODEPANEL_WD);
+X***************
+X*** 227,232 ****
+X--- 295,301 ----
+X  	    d_label = XtCreateManagedWidget("label", labelWidgetClass,
+X  					    mode_panel, Args, ArgCount);
+X  	} else if (sw->mode == FIRST_EDIT_MODE) {
+X+ 	    numindraw = i;	/* this is the number of btns in drawing mode area */
+X  	    /* assume Args still set up from d_label */
+X  	    ArgCount -= 2;
+X  	    NextArg(XtNheight, (MODEPANEL_SPACE) / 2);
+X***************
+X*** 332,341 ****
+X      if (xbutton.button == Button1) {	/* left button */
+X  	turn_off_current();
+X  	turn_on(msw);
+X! 	/* turn off the update boxes if not in update mode */
+X! 	if (msw->mode != F_UPDATE)
+X  		unmanage_update_buts();
+X! 	update_indpanel(msw->indmask);
+X  	put_msg(msw->modemsg);
+X  	if ((cur_mode == F_GLUE || cur_mode == F_BREAK) &&
+X  	    msw->mode != F_GLUE &&
+X--- 401,422 ----
+X      if (xbutton.button == Button1) {	/* left button */
+X  	turn_off_current();
+X  	turn_on(msw);
+X! 	if (msw->mode == F_UPDATE) {	/* map the set/clr/toggle button for update */
+X! 	    if (cur_mode != F_UPDATE) {
+X! 		update_indpanel(0);	/* first remove ind buttons */
+X! 		XtManageChild(upd_ctrl);
+X! 		update_indpanel(msw->indmask);	/* now manage the relevant buttons */
+X! 	    }
+X! 	} else { 	/* turn off the update boxes if not in update mode */
+X! 	    if (cur_mode == F_UPDATE) {	/* if previous mode is update and current */
+X! 		update_indpanel(0);	/* is not, first remove ind buttons */
+X  		unmanage_update_buts();
+X! 		XtUnmanageChild(upd_ctrl);
+X! 		update_indpanel(msw->indmask);	/* now manage the relevant buttons */
+X! 	    } else {
+X! 		update_indpanel(msw->indmask);	/* just update indicator buttons */
+X! 	    }
+X! 	}
+X  	put_msg(msw->modemsg);
+X  	if ((cur_mode == F_GLUE || cur_mode == F_BREAK) &&
+X  	    msw->mode != F_GLUE &&
+X***************
+X*** 402,405 ****
+X--- 483,670 ----
+X  	FirstArg(XtNbackgroundPixmap, current->normalPM);
+X  	SetValues(current->widget);
+X      }
+X+ }
+X+ 
+X+ change_mode(icon)
+X+ PIXRECT icon;
+X+ {
+X+     int i;
+X+     XButtonEvent ev; /* To fake an event with */
+X+ 
+X+     ev.button = Button1;
+X+     for (i = 0; i < NUM_MODE_SW; ++i)
+X+ 	if (mode_switches[i].icon == icon) {
+X+ 	    sel_mode_but(0,&mode_switches[i],&ev,0);
+X+ 	    break;
+X+ 	}
+X+ }
+X+ 
+X+ static stub_circlebyradius_drawing_selected()
+X+ {
+X+ 	change_mode(&cirrad_ic);
+X+ }
+X+ 
+X+ static stub_circlebydiameter_drawing_selected()
+X+ {
+X+ 	change_mode(&cirdia_ic);
+X+ }
+X+ 
+X+ static stub_ellipsebyradius_drawing_selected()
+X+ {
+X+ 	change_mode(&ellrad_ic);
+X+ }
+X+ 
+X+ static stub_ellipsebydiameter_drawing_selected()
+X+ {
+X+ 	change_mode(&elldia_ic);
+X+ }
+X+ 
+X+ static stub_box_drawing_selected()
+X+ {
+X+ 	change_mode(&box_ic);
+X+ }
+X+ 
+X+ static stub_arcbox_drawing_selected()
+X+ {
+X+ 	change_mode(&arc_box_ic);
+X+ }
+X+ 
+X+ static stub_poly_drawing_selected()
+X+ {
+X+ 	change_mode(&polygon_ic);
+X+ }
+X+ 
+X+ static stub_line_drawing_selected()
+X+ {
+X+ 	change_mode(&line_ic);
+X+ }
+X+ 
+X+ static stub_regpoly_drawing_selected()
+X+ {
+X+ 	change_mode(&regpoly_ic);
+X+ }
+X+ 
+X+ static stub_epsobj_drawing_selected()
+X+ {
+X+ 	change_mode(&epsobj_ic);
+X+ }
+X+ 
+X+ static stub_text_drawing_selected()
+X+ {
+X+ 	change_mode(&text_ic);
+X+ }
+X+ 
+X+ static stub_arc_drawing_selected()
+X+ {
+X+ 	change_mode(&arc_ic);
+X+ }
+X+ 
+X+ static stub_cl_spline_drawing_selected()
+X+ {
+X+ 	change_mode(&c_spl_ic);
+X+ }
+X+ 
+X+ static stub_spline_drawing_selected()
+X+ {
+X+ 	change_mode(&spl_ic);
+X+ }
+X+ 
+X+ static stub_cl_intspline_drawing_selected()
+X+ {
+X+ 	change_mode(&c_intspl_ic);
+X+ }
+X+ 
+X+ static stub_intspline_drawing_selected()
+X+ {
+X+ 	change_mode(&intspl_ic);
+X+ }
+X+ 
+X+ static stub_align_selected()
+X+ {
+X+ 	change_mode(&align_ic);
+X+ }
+X+ 
+X+ static stub_compound_selected()
+X+ {
+X+ 	change_mode(&glue_ic);
+X+ }
+X+ 
+X+ static stub_break_selected()
+X+ {
+X+ 	change_mode(&break_ic);
+X+ }
+X+ 
+X+ static stub_scale_selected()
+X+ {
+X+ 	change_mode(&scale_ic);
+X+ }
+X+ 
+X+ static stub_point_adding_selected()
+X+ {
+X+ 	change_mode(&addpt_ic);
+X+ }
+X+ 
+X+ static stub_delete_point_selected()
+X+ {
+X+ 	change_mode(&deletept_ic);
+X+ }
+X+ 
+X+ static stub_move_selected()
+X+ {
+X+ 	change_mode(&move_ic);
+X+ }
+X+ 
+X+ static stub_move_point_selected()
+X+ {
+X+ 	change_mode(&movept_ic);
+X+ }
+X+ 
+X+ static stub_delete_selected()
+X+ {
+X+ 	change_mode(&delete_ic);
+X+ }
+X+ 
+X+ static stub_copy_selected()
+X+ {
+X+ 	change_mode(&copy_ic);
+X+ }
+X+ 
+X+ static stub_rotate_cw_selected()
+X+ {
+X+ 	change_mode(&rotCW_ic);
+X+ }
+X+ 
+X+ static stub_rotate_ccw_selected()
+X+ {
+X+ 	change_mode(&rotCCW_ic);
+X+ }
+X+ 
+X+ static stub_flip_ud_selected()
+X+ {
+X+ 	change_mode(&flip_y_ic);
+X+ }
+X+ 
+X+ static stub_flip_lr_selected()
+X+ {
+X+ 	change_mode(&flip_x_ic);
+X+ }
+X+ 
+X+ static stub_convert_selected()
+X+ {
+X+ 	change_mode(&convert_ic);
+X+ }
+X+ 
+X+ static stub_arrow_head_selected()
+X+ {
+X+ 	change_mode(&autoarrow_ic);
+X+ }
+X+ 
+X+ static stub_edit_item_selected()
+X+ {
+X+ 	change_mode(&change_ic);
+X+ }
+X+ 
+X+ static stub_update_selected()
+X+ {
+X+ 	change_mode(&update_ic);
+X  }
+Xdiff -rc xfig.2.1.7a/w_mousefun.c xfig.2.1.8/w_mousefun.c
+X*** xfig.2.1.7a/w_mousefun.c	Fri Feb 19 14:35:36 1993
+X--- xfig.2.1.8/w_mousefun.c	Tue Aug 24 15:23:21 1993
+X***************
+X*** 148,154 ****
+X  void
+X  draw_mousefun_mode()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun("Change Mode", "", "");
+X  }
+X  
+X--- 148,153 ----
+X***************
+X*** 155,161 ****
+X  void
+X  draw_mousefun_ind()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun("Menu", "Dec/Prev", "Inc/Next");
+X  }
+X  
+X--- 154,159 ----
+X***************
+X*** 162,168 ****
+X  void
+X  draw_mousefun_unitbox()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun("Pan to Origin", "", "Set Units/Scale");
+X  }
+X  
+X--- 160,165 ----
+X***************
+X*** 169,175 ****
+X  void
+X  draw_mousefun_topruler()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun("Pan Left", "Drag", "Pan Right");
+X  }
+X  
+X--- 166,171 ----
+X***************
+X*** 176,182 ****
+X  void
+X  draw_mousefun_sideruler()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun("Pan Up", "Drag", "Pan Down");
+X  }
+X  
+X--- 172,177 ----
+X***************
+X*** 183,189 ****
+X  void
+X  draw_mousefun_canvas()
+X  {
+X-     clear_mousefun();
+X      draw_mousefun(mousefun_l, mousefun_m, mousefun_r);
+X  }
+X  
+X--- 178,183 ----
+X***************
+X*** 203,208 ****
+X--- 197,210 ----
+X  draw_mousefun(left, middle, right)
+X      char	   *left, *middle, *right;
+X  {
+X+     clear_mousefun();
+X+     draw_mousefn2(left, middle, right);
+X+ }
+X+ 
+X+ void
+X+ draw_mousefn2(left, middle, right)
+X+     char	   *left, *middle, *right;
+X+ {
+X      draw_mousefun_msg(left, MOUSE_LEFT_CTR, 30);
+X      draw_mousefun_msg(middle, MOUSE_MID_CTR, 11);
+X      draw_mousefun_msg(right, MOUSE_RIGHT_CTR, 30);
+X***************
+X*** 255,261 ****
+X  void
+X  clear_mousefun()
+X  {
+X!     draw_mousefun(lr_blank, mid_blank, lr_blank);
+X      /* redraw the title in case the blanks overwrite it */
+X      mouse_title();
+X  }
+X--- 257,263 ----
+X  void
+X  clear_mousefun()
+X  {
+X!     draw_mousefn2(lr_blank, mid_blank, lr_blank);
+X      /* redraw the title in case the blanks overwrite it */
+X      mouse_title();
+X  }
+Xdiff -rc xfig.2.1.7a/w_mousefun.h xfig.2.1.8/w_mousefun.h
+X*** xfig.2.1.7a/w_mousefun.h	Wed Dec  9 17:36:27 1992
+X--- xfig.2.1.8/w_mousefun.h	Tue Aug 24 15:23:43 1993
+X***************
+X*** 20,25 ****
+X--- 20,26 ----
+X  void		draw_mousefun_sideruler();
+X  void		draw_mousefun_canvas();
+X  void		draw_mousefun();
+X+ void		draw_mousefn2();
+X  void		clear_mousefun();
+X  void		notused_middle();
+X  void		clear_middle();
+Xdiff -rc xfig.2.1.7a/w_msgpanel.c xfig.2.1.8/w_msgpanel.c
+X*** xfig.2.1.7a/w_msgpanel.c	Tue Mar 23 10:59:07 1993
+X--- xfig.2.1.8/w_msgpanel.c	Tue Aug 31 09:47:23 1993
+X***************
+X*** 23,28 ****
+X--- 23,32 ----
+X  #include "w_setup.h"
+X  #include <varargs.h>
+X  
+X+ /********************* IMPORTS *******************/
+X+ 
+X+ extern char    *basename();
+END_OF_FILE
+  if test 28511 -ne `wc -c <'xfig.08'`; then
+    echo shar: \"'xfig.08'\" unpacked with wrong size!
+  fi
+  # end of 'xfig.08'
+fi
+echo shar: End of archive 13 \(of 16\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 16 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Creating merged patch file xfig.p2
+    cat xfig.[01][0-9] > xfig.p2
+    rm -f xfig.[01][0-9]
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

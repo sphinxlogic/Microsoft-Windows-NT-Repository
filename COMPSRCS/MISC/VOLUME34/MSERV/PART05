@@ -1,0 +1,2199 @@
+Newsgroups: comp.sources.misc
+From: jv@squirrel.mh.nl (Johan Vromans)
+Subject: v34i096:  mserv - Squirrel Mail Server Software, version 3.1, Part05/06
+Message-ID: <1993Jan7.034945.11784@sparky.imd.sterling.com>
+X-Md4-Signature: 26a833bf806dff65e06394688d5226f6
+Date: Thu, 7 Jan 1993 03:49:45 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@squirrel.mh.nl (Johan Vromans)
+Posting-number: Volume 34, Issue 96
+Archive-name: mserv/part05
+Environment: Perl
+Supersedes: mserv-3.0: Volume 30, Issue 46-49
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  mserv-3.1/Makefile mserv-3.1/chat2.pl
+#   mserv-3.1/do_report.pl mserv-3.1/dr_mail.pl mserv-3.1/mlistener.pl
+#   mserv-3.1/pr_ftp.pl mserv-3.1/pr_help.pl mserv-3.1/report.pl
+#   mserv-3.1/ud_sample1.pl
+# Wrapped by kent@sparky on Wed Jan  6 21:39:49 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 6)."'
+if test -f 'mserv-3.1/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/Makefile'\"
+else
+  echo shar: Extracting \"'mserv-3.1/Makefile'\" \(5083 characters\)
+  sed "s/^X//" >'mserv-3.1/Makefile' <<'END_OF_FILE'
+X# Makefile -- for mail server
+X# SCCS Status     : %Z%@ %M%	%I%
+X# Author          : Johan Vromans
+X# Created On      : Fri May  1 15:44:47 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Dec 23 23:13:14 1992
+X# Update Count    : 109
+X# Status          : 
+X
+XSHELL	= /bin/sh
+XCC	= gcc -Wall
+XCFLAGS	= -O
+X
+X# Perl 4.035 needs fixes!
+XPERL	= /usr/local/bin/perl
+X# Where programs and files reside.
+XLIBDIR	= /usr/local/lib/mserv
+X# Where help data will be installed.
+XPUBDIR	= $(LIBDIR)/pub
+X# The owner of the mail server files
+XSERVER	= mserv
+X
+X# Perl scripts that will be public executable.
+XPEARLS	= process dorequest unpack makeindex chkconfig report do_report
+X# Misc. files.
+XFILES	= rfc822.pl ms_common.pl patchlevel.h \
+X	ms_lock.pl ftp.pl chat2.pl dateconv.pl \
+X	dr_mail.pl dr_uucp.pl dr_pack.pl \
+X	pr_isearch.pl pr_dsearch.pl pr_doindex.pl pr_dowork.pl \
+X	pr_parse.pl pr_ftp.pl pr_help.pl
+X# Config data. Will not replace existing files.
+XCONFIG	= ms_config.pl mserv.hints mserv.notes mserv.notesi
+X# Public executable shell scripts.
+XSHELLS	= do_runq
+X# These files will be created, if needed
+XTOUCH	= logfile lockfile queue .errrun
+X# Public services.
+XAIDS	= HELP unpack.pl
+X
+Xall:	$(PEARLS) mlistener
+X	@echo "Use \"make listener\" to generate the listener program"
+X	@echo "Use \"make ixlookup\" if you selected index lookup"
+X
+X$(PEARLS) mlistener:
+X	@for prog in $(PEARLS) mlistener; do \
+X		echo "Preparing $$prog..."; \
+X		rm -f $$prog; \
+X		sed -e '1s|/usr/local/bin/perl|$(PERL)|' \
+X		    -e 's|/usr/local/lib/mserv|$(LIBDIR)|' \
+X			$$prog.pl >$$prog; \
+X	done
+X
+Xinstall: $(PEARLS)
+X	-mkdir $(LIBDIR)
+X	@for prog in $(PEARLS); do \
+X		echo "Installing $$prog..."; \
+X		install -c -m 0555 $$prog $(LIBDIR)/$$prog; \
+X	done
+X	@for prog in $(SHELLS); do \
+X		echo "Installing $$prog..."; \
+X		install -c -m 0555 $$prog.sh $(LIBDIR)/$$prog; \
+X	done
+X	@for prog in $(FILES); do \
+X		echo "Installing $$prog..."; \
+X		install -c -m 0444 $$prog $(LIBDIR); \
+X	done
+X	@for prog in $(TOUCH); do \
+X	    if [ -f $(LIBDIR)/$$prog ]; then \
+X		true; \
+X	    else \
+X		echo "Creating $$prog..."; \
+X		cat < /dev/null > $(LIBDIR)/$$prog; \
+X	    fi; \
+X	done
+X	@for prog in $(CONFIG); do \
+X	    if [ -f $(LIBDIR)/$$prog ]; then \
+X		echo "Installing $$prog as NEW-$$prog..."; \
+X		echo "IMPORTANT: Update $$prog by hand if needed!"; \
+X		install -c -m 0644 $$prog $(LIBDIR)/NEW-$$prog; \
+X	    else \
+X		echo "Installing $$prog..."; \
+X		install -c -m 0644 $$prog $(LIBDIR); \
+X	    fi \
+X	done
+X	-mkdir $(PUBDIR)
+X	@for prog in $(AIDS); do \
+X		echo "Installing $$prog in $(PUBDIR)..."; \
+X		install -c -m 0444 $$prog $(PUBDIR)/$$prog; \
+X	done
+X	-(cd $(PUBDIR); rm -f help; ln HELP help)
+X	@echo "Use \"make install-listener\" to install the listener program"
+X	@echo "Use \"make install-ixlookup\" to install the ixlookup program"
+X
+X################ Listener ################
+X
+Xlistener: mlistener
+X	rm -f listener listener.c
+X	$(PERL) mlistener -verbose > listener.c
+X	$(CC) $(CFLAGS) -o listener listener.c
+X
+X# Install setuid to the installer...
+Xinstall-listener:	listener
+X	rm -f $(LIBDIR)/listener
+X	install -s -c listener $(LIBDIR)/listener
+X	chmod -w,+x,u+s $(LIBDIR)/listener
+X
+X################ ixlookup ################
+X
+X# ixlookup is based on GNU find/locate.
+X# If you have GNU find 3.6 or later, you can use the locate program.
+X# For locate 3.5, a patch is available to create a customized version
+X# of this program. "make ixlookup" will build it.
+X# Set GNUFIND to indicate where the source of GNU locate, includes
+X# and find lib can be found.
+X# Reference version is GNU find 3.5.
+XGNUFIND = /beethoven/arch/GNU/find-3.5
+X
+Xixlookup.c: $(GNUFIND)/locate/locate.c ixlookup.patch
+X	rm -f ixlookup.c
+X	cp  $(GNUFIND)/locate/locate.c ixlookup.c
+X	patch -p0 -N < ixlookup.patch
+X
+Xixlookup:	ixlookup.c
+X	rm -f ixlookup
+X	$(CC) $(CFLAGS) '-DFCODES="$(LIBDIR)/find.codes"' \
+X		-I$(GNUFIND)/lib -o ixlookup ixlookup.c \
+X		$(GNUFIND)/lib/libfind.a
+X
+Xinstall-ixlookup:	ixlookup
+X	install -s -m 0555 -c ixlookup $(LIBDIR)
+X
+X################ Cleanup ################
+X
+Xclean:
+X	rm -f *~ core a.out $(PEARLS) mlistener listener listener.c \
+X	    *.orig *.rej ixlookup.c ixlookup
+X
+X################ Maintenance ################
+X
+XREV	= X3.01
+X
+Xdist:	tar.Z
+X
+Xtar.Z:	HELP INSTALL
+X	rm -f mserv-$(REV)
+X	ln -s . mserv-$(REV)
+X	sed < MANIFEST -e "s/^/mserv-$(REV)\//" | \
+X	    pdtar -zcv -T - -f mserv-$(REV).tar.Z
+X	rm -f mserv-$(REV)
+X
+Xshar:	HELP INSTALL
+X	rm -f mserv-$(REV)
+X	ln -s . mserv-$(REV)
+X	rm -f mserv-$(REV).shar.*
+X	sed < MANIFEST -e "s/^/mserv-$(REV)\//" | \
+X	    shar -p -F -S -L 50 -o mserv-$(REV).shar \
+X		-a -n mserv-$(REV).shar -s 'jv@mh.nl (Johan Vromans)'
+X	rm -f mserv-$(REV)
+X	ls -l mserv-$(REV).shar.*
+X
+XAUX   = Makefile ms_config.pl ChangeLog* Misc
+X
+XTZ:
+X	tar cvf - $(AUX) SCCS | compress > mserv.TZ
+X
+X#
+X# Create formatted documents (Ascii or PostScript)
+X#
+X.SUFFIXES:	.ps .txt .asc
+XMH_DOC	= mh_doc -language uk
+X
+X.txt.ps:
+X	rm -f $@
+X	$(MH_DOC) -expert -verbose -ps -printer foo:ps -output $@ $<
+X
+X.txt.asc:
+X	rm -f $@
+X	$(MH_DOC) -text -output $@ $<
+X
+XHELP:	usrguide.asc
+X	rm -f $@ && cp $< $@ && chmod -w $@
+X
+XINSTALL:	mservmgr.asc
+X	rm -f $@ && cp $< $@ && chmod -w $@
+END_OF_FILE
+  if test 5083 -ne `wc -c <'mserv-3.1/Makefile'`; then
+    echo shar: \"'mserv-3.1/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/Makefile'
+fi
+if test -f 'mserv-3.1/chat2.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/chat2.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/chat2.pl'\" \(8328 characters\)
+  sed "s/^X//" >'mserv-3.1/chat2.pl' <<'END_OF_FILE'
+X# chat2.pl -- 
+X# SCCS Status     : @(#)@ chat2	1.1
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Fri Dec  4 00:12:05 1992
+X# Update Count    : 3
+X# Status          : OK
+X
+X## chat.pl: chat with a server
+X## V2.01.alpha.3 91/04/30
+X## Randal L. Schwartz <merlyn@iwarp.intel.com>
+X## minor change by A.Macpherson@bnr.co.uk
+X# Adopted (w/o changes) for use by the Squirrel Mail Server Software 
+X# by Johan Vromans <jv@mh.nl>.
+X
+Xpackage chat;
+X
+X$sockaddr = 'S n a4 x8';
+Xchop($thishost = `hostname`);
+X# We may be multi-homed, start with 0, fixup once connexion is made
+X$thisaddr = "\0\0\0\0" ;
+X$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X
+X# *S = symbol for current I/O, gets assigned *chatsymbol....
+X$next = "chatsymbol000000"; # next one
+X$nextpat = "^chatsymbol"; # patterns that match next++, ++, ++, ++
+X
+X
+X## $handle = &chat'open_port("server.address",$port_number);
+X## opens a named or numbered TCP server
+X
+Xsub open_port { ## public
+X	local($server, $port) = @_;
+X
+X	local($serveraddr,$serverproc);
+X	$thisaddr = "\0\0\0\0" ;
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X
+X	*S = ++$next;
+X	if ($server =~ /^(\d+)+\.(\d+)\.(\d+)\.(\d+)$/) {
+X		$serveraddr = pack('C4', $1, $2, $3, $4);
+X	} else {
+X		local(@x) = gethostbyname($server);
+X		return undef unless @x;
+X		$serveraddr = $x[4];
+X	}
+X	$serverproc = pack($sockaddr, 2, $port, $serveraddr);
+X	unless (socket(S, 2, 1, 6)) {
+X		# XXX hardwired $AF_SOCKET, $SOCK_STREAM, 'tcp'
+X		# but who the heck would change these anyway? (:-)
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (bind(S, $thisproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (connect(S, $serverproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X# We opened with the local address set to ANY, at this stage we know
+X# which interface we are using.  This is critical if our machine is
+X# multi-homed, with IP forwarding off, so fix-up.
+X	local($fam,$lport);
+X	($fam,$lport,$thisaddr) = unpack($sockaddr, getsockname(S));
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X# end of post-connect fixup
+X	select((select(S), $| = 1)[0]);
+X	$next; # return symbol for switcharound
+X}
+X
+X## ($host, $port, $handle) = &chat'open_listen();
+X## opens a TCP port on the current machine, ready to be listened to
+X
+Xsub open_listen { ## public
+X
+X	*S = ++$next;
+X	local(*NS) = "__" . time;
+X	unless (socket(NS, 2, 1, 6)) {
+X		# XXX hardwired $AF_SOCKET, $SOCK_STREAM, 'tcp'
+X		# but who the heck would change these anyway? (:-)
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (bind(NS, $thisproc)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (listen(NS, 1)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	select((select(NS), $| = 1)[0]);
+X	local($family, $port, @myaddr) =
+X		unpack("S n C C C C x8", getsockname(NS));
+X	$S{"needs_accept"} = *NS; # so expect will open it
+X	(@myaddr, $port, $next); # returning this
+X}
+X
+X## $handle = &chat'open_proc("command","arg1","arg2",...);
+X## opens a /bin/sh on a pseudo-tty
+X
+Xsub open_proc { ## public
+X	local(@cmd) = @_;
+X
+X	*S = ++$next;
+X	local(*TTY) = "__TTY" . time;
+X	local($pty,$tty) = &_getpty(S,TTY);
+X	die "Cannot find a new pty" unless defined $pty;
+X	$pid = fork;
+X	die "Cannot fork: $!" unless defined $pid;
+X	unless ($pid) {
+X		close STDIN; close STDOUT; close STDERR;
+X		setpgrp(0,$$);
+X		if (open(DEVTTY, "/dev/tty")) {
+X		    ioctl(DEVTTY,0x20007471,0);		# XXX s/b &TIOCNOTTY
+X		    close DEVTTY;
+X		}
+X		open(STDIN,"<&TTY");
+X		open(STDOUT,">&TTY");
+X		open(STDERR,">&STDOUT");
+X		die "Oops" unless fileno(STDERR) == 2;	# sanity
+X		close(S);
+X		exec @cmd;
+X		die "Cannot exec @cmd: $!";
+X	}
+X	close(TTY);
+X	$next; # return symbol for switcharound
+X}
+X
+X# $S is the read-ahead buffer
+X
+X## $return = &chat'expect([$handle,] $timeout_time,
+X## 	$pat1, $body1, $pat2, $body2, ... )
+X## $handle is from previous &chat'open_*().
+X## $timeout_time is the time (either relative to the current time, or
+X## absolute, ala time(2)) at which a timeout event occurs.
+X## $pat1, $pat2, and so on are regexs which are matched against the input
+X## stream.  If a match is found, the entire matched string is consumed,
+X## and the corresponding body eval string is evaled.
+X##
+X## Each pat is a regular-expression (probably enclosed in single-quotes
+X## in the invocation).  ^ and $ will work, respecting the current value of $*.
+X## If pat is 'TIMEOUT', the body is executed if the timeout is exceeded.
+X## If pat is 'EOF', the body is executed if the process exits before
+X## the other patterns are seen.
+X##
+X## Pats are scanned in the order given, so later pats can contain
+X## general defaults that won't be examined unless the earlier pats
+X## have failed.
+X##
+X## The result of eval'ing body is returned as the result of
+X## the invocation.  Recursive invocations are not thought
+X## through, and may work only accidentally. :-)
+X##
+X## undef is returned if either a timeout or an eof occurs and no
+X## corresponding body has been defined.
+X## I/O errors of any sort are treated as eof.
+X
+Xsub expect { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	local($endtime) = shift;
+X
+X	$endtime += time if $endtime < 600_000_000;
+X	local($rmask, $nfound, $timeleft, $thisbuf);
+X	local($timeout,$eof) = (1,1);
+X	local($cases,$pattern,$action);
+X	local($caller) = caller;
+X	local($return,@return);
+X	local($returnvar) = wantarray ? '@return' : '$return';
+X	$cases = '';
+X
+X	if (defined $S{"needs_accept"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_accept"};
+X		delete $S{"needs_accept"};
+X		$S{"needs_close"} = *NS;
+X		unless(accept(S,NS)) {
+X			($!) = ($!, close(S), close(NS));
+X			return undef;
+X		}
+X		select((select(S), $| = 1)[0]);
+X	}
+X
+X	## strategy: create a giant block inside $cases
+X	$cases .= <<'ESQ';
+X	LOOP: {
+XESQ
+X	while (@_) {
+X		($pattern,$action) = splice(@_,0,2);
+X		if ($pattern =~ /^eof$/i) {
+X			$cases .= <<"EDQ";
+X		if (\$eof) {
+X			$returnvar = do { package $caller; $action; };
+X			last LOOP;
+X		}
+XEDQ
+X			$eof = 0;
+X		} elsif ($pattern =~ /^timeout$/i) {
+X			$cases .= <<"EDQ";
+X		if (\$timeout) {
+X			$returnvar = do { package $caller; $action; };
+X			last LOOP;
+X		}
+XEDQ
+X			$timeout = 0;
+X		} else {
+X			$pattern =~ s#/#\\/#g;
+X			$cases .= <<"EDQ";
+X		if (\$S =~ /$pattern/) {
+X			\$S = \$';
+X			$returnvar = do { package $caller; $action; };
+X			last LOOP;
+X		}
+XEDQ
+X		}
+X	}
+X	$cases .= <<"EDQ" if $eof;
+X		if (\$eof) {
+X			$returnvar = undef;
+X			last LOOP;
+X		}
+XEDQ
+X	$cases .= <<"EDQ" if $timeout;
+X		if (\$timeout) {
+X			$returnvar = undef;
+X			last LOOP;
+X		}
+XEDQ
+X	$eof = $timeout = 0;
+X	$cases .= <<'ESQ';
+X		$rmask = "";
+X		vec($rmask,fileno(S),1) = 1;
+X		($nfound, $rmask) =
+X		 	select($rmask, undef, undef, $endtime - time);
+X		if ($nfound) {
+X			"<nfound = $nfound>";
+X			$nread = sysread(S, $thisbuf, 1024);
+X			if( $chat'debug ){
+X				print STDERR "read $nread bytes: $thisbuf";
+X			}
+X			if ($nread > 0) {
+X				$S .= $thisbuf;
+X			} else {
+X				$eof++, redo LOOP; # any error is also eof
+X			}
+X		} else {
+X			$timeout++, redo LOOP; # timeout
+X		}
+X		redo LOOP;
+X	}
+XESQ
+X	eval $cases; die "$cases:\n$@" if $@;
+X	if (wantarray) {
+X		return @return;
+X	} else {
+X		return $return;
+X	}
+X}
+X
+X## &chat'print([$handle,] @data)
+X## $handle is from previous &chat'open().
+X## like print $handle @data
+X
+Xsub print { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	print S @_;
+X	if( $chat'debug ){
+X		print STDERR "printed:";
+X		print STDERR @_;
+X	}
+X}
+X
+X## &chat'close([$handle,])
+X## $handle is from previous &chat'open().
+X## like close $handle
+X
+Xsub close { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X	 	*S = shift;
+X	}
+X	close(S);
+X	if (defined $S{"needs_close"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_close"};
+X		delete $S{"needs_close"};
+X		close(NS);
+X	}
+X}
+X
+X# ($pty,$tty) = $chat'_getpty(PTY,TTY):
+X# internal procedure to get the next available pty.
+X# opens pty on handle PTY, and matching tty on handle TTY.
+X# returns undef if can't find a pty.
+X
+Xsub _getpty { ## private
+X	local($_PTY,$_TTY) = @_;
+X	$_PTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	$_TTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	local($pty,$tty);
+X	for $bank (112..127) {
+X		next unless -e sprintf("/dev/pty%c0", $bank);
+X		for $unit (48..57) {
+X			$pty = sprintf("/dev/pty%c%c", $bank, $unit);
+X			open($_PTY,"+>$pty") || next;
+X			select((select($_PTY), $| = 1)[0]);
+X			($tty = $pty) =~ s/pty/tty/;
+X			open($_TTY,"+>$tty") || next;
+X			select((select($_TTY), $| = 1)[0]);
+X			system "stty nl>$tty";
+X			return ($pty,$tty);
+X		}
+X	}
+X	undef;
+X}
+X
+X1;
+END_OF_FILE
+  if test 8328 -ne `wc -c <'mserv-3.1/chat2.pl'`; then
+    echo shar: \"'mserv-3.1/chat2.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/chat2.pl'
+fi
+if test -f 'mserv-3.1/do_report.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/do_report.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/do_report.pl'\" \(6395 characters\)
+  sed "s/^X//" >'mserv-3.1/do_report.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# do_report.pl -- run mail server report
+X# SCCS Status     : @(#)@ do_report	1.13
+X# Author          : Johan Vromans
+X# Created On      : Sat May  2 14:15:16 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Fri Dec 25 16:23:12 1992
+X# Update Count    : 82
+X# Status          : OK
+X
+X$my_name = "do_report";
+X$my_version = "1.13";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+X
+X################ Presets ################
+X
+X@args = ();
+X
+X################ Options handling ################
+X
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+Xrequire "ms_common.pl";
+Xprint ($my_package, " [", $my_name, " ", $my_version, "]\n")
+X    if $opt_ident;
+Xif ( @ARGV > 0 ) {
+X    @dest = @ARGV;
+X}
+Xelse {
+X    @dest = ( $mserv_owner );
+X}
+X
+X################ Main ################
+X
+X$tmpfile_prefix = $tmpdir . "/rpt$$.";
+X$rpt = $tmpfile_prefix . "rpt";
+X$err = $tmpfile_prefix . "err";
+X$tmp = $tmpfile_prefix . "tmp";
+X$oldlog = $logfile . ".o";
+X
+Xif ( $opt_collect ) {
+X    # Seize logfile.
+X    &die ("Found $oldlog, will not proceed") if -s $oldlog;
+X    &unlink ($oldlog);
+X
+X    if ( &rename ($logfile, $oldlog) ) {
+X	open (LOG, ">".$logfile) && close (LOG);
+X    }
+X    else {
+X	&die ("Cannot rename $logfile to $oldlog [$!]");
+X    }
+X
+X    # Run report.
+X    &system ("$libdir/report @args $oldlog >$rpt 2>$err")
+X	if $opt_usage || $opt_errors;
+X}
+Xelse {
+X    &system ("$libdir/report @args >$rpt 2>$err")
+X	if $opt_usage || $opt_errors;
+X}
+X
+Xopen (RPT, ">>$rpt");
+Xprint RPT ($^L) if -s RPT;	# Insert form-feed if needed.
+X
+Xif ( $opt_collect ) {
+X
+X    # Append to accumulating data and compress (again).
+X    if ( -f $logfile . ".cum.Z") {
+X	&system ("uncompress $logfile.cum");
+X	&system ("cat $oldlog >> $logfile.cum");
+X	&unlink ($oldlog);
+X	&system ("compress $logfile.cum");
+X    }
+X    else {
+X	&system ("cat $oldlog >> $logfile.cum");
+X	&unlink ($oldlog);
+X	# &system ("compress $logfile.cum");
+X    }
+X}
+X
+Xif ( ($opt_ftp || $opt_ftpclean) && $ftp && $ftp_cache ) {
+X
+X    require 'find.pl';
+X
+X    $ftp_keep = $opt_ftpkeep if defined $opt_ftpkeep;
+X    $files = 0;
+X    $preflen = length ($ftp_cache) + 1;
+X    *wanted = *ftw_ftp;
+X    select (RPT);
+X    $^ = 'FTP_TOP';
+X    $~ = 'FTP_OUT';
+X    $: = " /";
+X    &find ($ftp_cache);
+X}
+X
+Xclose (RPT);
+X
+X&cleanup;
+X
+X################ Subroutines ################
+X
+Xsub cleanup {
+X    &mail ($err, "ERRORS from Mail Server") if -s $err;
+X    &mail ($rpt, "Mail Server Report") if -s $rpt;
+X    &unlink ($rpt, $err, $tmp);
+X}
+X
+Xsub unlink {
+X    local (@files) = @_;
+X    print STDERR ("+ unlink @files\n") if $opt_trace;
+X    unlink (@files);
+X}
+X
+Xsub rename {
+X    local ($old, $new) = @_;
+X    print STDERR ("+ rename $old $new\n") if $opt_trace;
+X    rename ($old, $new);
+X}
+X
+Xsub system {
+X    local ($cmd) = (@_);
+X    local ($ret);
+X    print STDERR ("+ $cmd\n") if $opt_trace;
+X    $ret = system ($cmd);
+X    &die (sprintf ("Return 0x%x from \"$cmd\"", $ret))
+X	unless $ret == 0;
+X    $ret;
+X}
+X
+Xformat FTP_TOP =
+XFiles in FTP cache @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$ftp_cache
+X
+X  Timestamp     Age*  Size  Filename   (* means: file has been removed)
+X--------------  ----  ----  -------------------------------------------
+X.
+Xformat FTP_OUT =
+X@<<<<<<<<<<<<< @>>@@>>>>>K  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$timestamp, $age, $tag, $size, $fname
+X~~                            ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$fname
+X.
+X
+Xsub ftw_ftp {
+X    @st = stat ($_);
+X    if ( @st[2] & 0100000 ) {
+X	$size = int (($st[7] + 1023) / 1024);
+X	$age = int (-A _ );
+X	@tm = localtime ($st[9]);
+X	$tag = '';
+X	if ( $opt_ftpclean && $ftp_keep > 0 && ( $age > $ftp_keep ) ) {
+X	    if (unlink($_)) {
+X		$tag = '*';
+X	    }
+X	    else {
+X		$_ .= " (not removed: $!)";
+X	    }
+X	}
+X	$timestamp = sprintf ("%02d/%02d/%02d %02d:%02d", 
+X			      $tm[5], 1+$tm[4], $tm[3], $tm[2], $tm[1]);
+X	$fname = substr($dir,$preflen) . '/' . $_;
+X	write;
+X    }
+X}
+X
+Xsub warn {
+X    local ($msg) = (@_);
+X    warn ($my_name . ": " . $msg . "\n");
+X}
+X
+Xsub die {
+X    &warn;
+X    &cleanup;
+X    exit (1);
+X}
+X
+Xsub mail {
+X    local ($file, $subj) = @_;
+X    local ($cmd) = "$sendmail '" . join("' '", @dest) . "'";
+X
+X    # DO NOT USE '&die' in this routine.
+X
+X    print STDERR ("+ |", $cmd, "\n") if $opt_trace;
+X
+X    open (MAIL, "|" . $cmd)
+X	|| die ("$my_name: Cannot invoke $cmd [$!]\n");
+X    print MAIL ("To: ", join(", ", @dest), "\n",
+X		"Subject: $subj\n",
+X		"\n");
+X    if ( open (FILE, $file) ) {
+X	while ( <FILE> ) {
+X	    print MAIL $_;
+X	}
+X	close (FILE);
+X    }
+X    close (MAIL);
+X    die ("$my_name: Mail error $?\n") if $?;
+X}
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    $opt_ident = $opt_help = 0;
+X    $opt_errors = $opt_usage = $opt_full = 0;
+X    $opt_collect = $opt_trace = $opt_noupdate = 0;
+X    if ( !&NGetOpt ("ident", "errors", "usage", "full", "collect",
+X		    "config=s", "since=s", "noupdate",
+X		    "ftp", "ftpclean", "ftpkeep=i",
+X		    "trace", "help")
+X	|| $opt_help ) {
+X	&usage;
+X    }
+X    $opt_errors |= $opt_full;
+X    $opt_usage |= $opt_full;
+X    $opt_ftp |= $opt_full;
+X    $opt_usage = 1 unless $opt_errors || $opt_ftp || $opt_ftpclean;
+X    unshift (@args, "-full") if $opt_usage && $opt_errors;
+X    unshift (@args, "-errors") if $opt_errors && !$opt_usage;
+X    unshift (@args, "-since", $opt_since) if defined $opt_since;
+X    unshift (@args, "-noupdate") if $opt_noupdate;
+X    unshift (@args, "-usage") if $opt_usage && !$opt_errors;
+X    undef $opt_errors, $opt_full, $opt_usage;
+X    $config_file = $opt_config if defined $opt_config;
+X}
+X
+Xsub usage {
+X    require "ms_common.pl";
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [options] [ recipients... ]
+X
+XOptions:
+X    -config XX	use alternate config file
+X    -usage	generate usage report
+X    -ftp	show files in FTP cache
+X    -full	generate report for usage, errors and ftp
+X    -ftpclean	cleanup old files in FTP cache (implies -ftp)
+X    -ftpkeep NN number of days a file is to be kept in the FTP cache (default: $ftp_keep)
+X    -since FILE	only error messages newer than FILE
+X		(FILE date will be updated upon successful completion)
+X    -noupdate	do not update FILE date
+X    -collect	collect and cleanup logfile data
+X    -help	this message
+X    -trace	show commands
+X    -ident	print identification
+X
+XDefault action is to generate a usage report, and to mail it to the
+Xrecipients (default: $mserv_owner).
+XEndOfUsage
+X    exit (1);
+X}
+END_OF_FILE
+  if test 6395 -ne `wc -c <'mserv-3.1/do_report.pl'`; then
+    echo shar: \"'mserv-3.1/do_report.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/do_report.pl'
+fi
+if test -f 'mserv-3.1/dr_mail.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/dr_mail.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/dr_mail.pl'\" \(7856 characters\)
+  sed "s/^X//" >'mserv-3.1/dr_mail.pl' <<'END_OF_FILE'
+X# dr_mail.pl -- handle request via email
+X# SCCS Status     : @(#)@ dr_mail.pl	3.5
+X# Author          : Johan Vromans
+X# Created On      : Thu Jun  4 22:22:20 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Dec 12 01:52:22 1992
+X# Update Count    : 25
+X# Status          : OK
+X
+Xsub mail_request {
+X
+X    local ($rcpt, $address, $uunote, $request, $file, $encoding, $limit, $parts) = @_;
+X
+X    if ( $opt_debug ) {
+X	print STDERR ("&mail_request(rcpt=$rcpt, address=$address, ",
+X		      "request=$request,\n",
+X		      "    file=$file,\n",
+X		      "    encoding=$encoding, limit=$limit, parts=$parts,",
+X		      " remove=$remove_file)\n");
+X    }
+X
+X    # This routine handles the requests.
+X    # Handling includes encoding, splitting and transmitting.
+X
+X    &check_file ($file, 0);
+X
+X    local ($fname);		# Basename of file to send
+X    local ($cmd);		# Command to handle encoding
+X    local ($code) = '';		# Verbose description of encoding
+X    local ($files);		# Number of files to send
+X    local (@files);		# List of files to send
+X    local ($the_file);		# Current part be send
+X    local ($the_part);		# Sequence number thereof
+X    local ($size);		# Size of chunk
+X    local ($tmpfile_prefix) = $opt_keep || "$tmpdir/drq$$.";
+X    local ($Dtmpdir);		# Private dir for Dumas uue
+X    local ($opt_nolog) = $opt_nolog;
+X    local ($opt_keep) = $opt_keep;
+X    local ($compressed) = '';	# we compressed it
+X
+X    if ( $address eq "" || $address eq "-" ) {
+X	# Use this e.g. to include an encoded archive in email.
+X	$limit = "0";
+X	$opt_nolog = 1;		# Local.
+X	$address = "";
+X    }
+X    $limit = 32*1024 if $limit eq "";
+X    if ( $limit ne "0" ) {
+X	# Limit must be between 10 and 256K, with 32K default.
+X	$limit =  $`*1024 if $limit =~ /K$/;
+X	$limit =  10*1024 if $limit <  10*1024;
+X	$limit = 256*1024 if $limit > 256*1024;
+X    }
+X    print STDERR ("Using limit = $limit\n") if $opt_debug;
+X
+X    $encoding = $default_encoding unless defined $encoding;
+X
+X    # Compress first, if requested.
+X    if ( $encoding =~ /^[^ap].*z$/i && $compress ) {
+X	local ($tmp) = &fttemp;
+X	print STDERR ("Using compression\n") if $opt_debug;
+X	&system ("$compress < $file > $tmp");
+X	if ( $remove_file ) {
+X	    print STDERR ("Unlinking $file\n") if $opt_debug;
+X	    unlink ($file);
+X	}
+X	$remove_file = 1;
+X	$file = $tmp;
+X	$code = 'compressed,';
+X	$compressed = chop ($encoding);
+X    }
+X
+X    # Get dir and basename of the requested file.
+X    local ($dir, $fname) = &fnsplit ($file);
+X
+X    # Prepare the command to use.
+X    # The result of command should be the encoded file, written
+X    # to standard output.
+X
+X    if ( $encoding =~ /^u/i ) {
+X
+X	# Standard UU encoding.
+X	$code .= "uuencoded";
+X	$cmd = "$uuencode $file '$fname'";
+X    }
+X    elsif ( $encoding =~ /^x/i ) {
+X
+X	# Modified UU encoding.
+X	$code .= "xxencoded";
+X	$cmd = "$xxencode $file '$fname'";
+X    }
+X    elsif ( $encoding =~ /^d/i ) {
+X
+X	# Dumas' modified UU encoding.
+X	# Uue has a built-in facility to generate multi-part
+X	# files. The customer wants to use this feature...
+X	local ($split) = '';
+X	$code .= "uue-encoded";
+X	$split = '-' . (int ($limit / 63) - 2) if $limit;
+X
+X	# Prepare a private directory for uue to work in.
+X	$Dtmpdir = "$tmpdir/D$$";
+X	&system ("rm -fr $Dtmpdir");
+X	&system ("mkdir $Dtmpdir");
+X	&symlink ($file, "$Dtmpdir/$fname");
+X	$cmd = "cd $Dtmpdir; $uue $split '$fname'";
+X    }
+X    elsif ( $encoding =~ /^[pa]/i || $encoding eq "" ) {
+X	
+X	# No decoding.
+X	$encoding = "A";
+X	$code .= "ascii";
+X	$cmd = "";
+X    }
+X    else {
+X
+X	# Binary-to-Ascii encoding.
+X	$encoding = "B";
+X	$code .= "btoa encoded";
+X	$cmd = "$btoa < $file";
+X    }
+X    print STDERR ("Using encoding = $encoding ($code)\n") if $opt_debug;
+X
+X    if ( $encoding eq "A" && ($limit == 0 || (-s $file <= $limit)) ) {
+X	# A simple ascii file smaller than $limit -> use it.
+X	@files = ($file);
+X	$opt_keep = 1;		# Local copy!
+X    }
+X    elsif ( $encoding eq "D" ) {
+X	local ($path) = ($Dtmpdir);
+X
+X	# Encode and split.
+X	&system ($cmd);
+X
+X	# Now gather all the parts, and tally them.
+X	opendir (DIR, $path)
+X	    || &die ("Cannot read $path/ [$!]");
+X	@files = sort (grep (/\.u[a-z][a-z]$/o, readdir (DIR)));
+X	close (DIR);
+X	foreach ( @files ) {
+X	    # Note: $_ is a *ref* into @files!
+X	    $_ = "$path/$_";
+X	}
+X    }
+X    else {
+X	# It is tempting to use 'split' to cut the request into
+X	# pieces. Until recently, I did.
+X	# Splitting ourselves makes it possible to split ascii files
+X	# also. In this case we can spare another process.
+X	local ($suffix) = "aa";
+X	local ($size) = $limit + 1;
+X
+X	if ( $cmd ) {
+X	    print STDERR ("+ $cmd|\n") if $opt_trace;
+X	    open (FEED, "$cmd|")
+X		|| die ("Error opening pipe \"$cmd|\" [$!]\n");
+X	}
+X	else {
+X	    print STDERR ("+ <$file\n") if $opt_trace;
+X	    open (FEED, "$file")
+X		|| die ("Error opening file \"$file\" [$!]\n");
+X	}
+X
+X	@files = ();
+X	while ( <FEED> ) {
+X	    if ( $limit > 0 && ($size += length ($_)) > $limit ) {
+X		close (OUT);
+X		open (OUT, ">$tmpfile_prefix$suffix")
+X		    || die ("Cannot create $tmpfile_prefix$suffix: [$!]\n");
+X		push (@files, "$tmpfile_prefix$suffix");
+X		$size = length ($_);
+X		$suffix++;
+X	    }
+X	    print OUT;
+X	}
+X	close (OUT);
+X	close (FEED);
+X    }
+X
+X    $files = @files;
+X
+X    if ( $opt_debug ) {
+X	if ( $files > 1 ) {
+X	    print STDERR ("Sending ", $files, " files: ",
+X			  $files[0], " .. ", $files[$#files], "\n");
+X	}
+X	elsif ( $files == 1 ) {
+X	    print STDERR ("Sending file: ", $files[0], "\n");
+X	}
+X	else {
+X	    printf STDERR ("No files to send.\n");
+X	}    
+X    }
+X
+X    # Format for "part xx of yy" message. Keep things sortable.
+X    local ($part_fmt) = ( $files == 1 ) ? "complete" : 
+X	"part %0" . length("$files") . "d of %d";
+X
+X    $the_part = 0;
+X    foreach $the_file ( @files ) {
+X
+X	$the_part++;
+X	# Form "part xx of yy" message.
+X	$part = sprintf ($part_fmt, $the_part, $files);
+X
+X	if ( $parts && $parts !~ /\b$the_part\b/ ) {
+X	    unlink ($the_file) unless $opt_keep;
+X	    print STDERR ("Skipping part $the_part (not requested).\n")
+X		if $opt_debug;
+X	    next;
+X	}
+X	else {
+X	    print STDERR ("Sending $part.\n")
+X		if $opt_debug;
+X	}
+X
+X	# Send it.
+X	if ( open (PART, $the_file) ) {
+X	    if ( $address eq "" ) {
+X		$size = &copy (*STDOUT);
+X	    }
+X	    else {
+X		# Suppress sleep after the last part.
+X		local ($mailer_delay) = $mailer_delay;
+X		undef $mailer_delay if $the_part == $files;
+X		$size = &xfer;
+X	    }
+X	    close (PART);
+X	}
+X
+X	# Write a log message.
+X	&writelog ("M \"$address\" $request $encoding$compressed$the_part".
+X		   "/$files $size")
+X	    if $address ne "";
+X
+X	unlink ($the_file) unless $opt_keep;
+X    }
+X
+X    &system ("rm -fr $Dtmpdir") if $encoding eq "D" && !$opt_keep;
+X    if ( $remove_file ) {
+X	print STDERR ("Unlinking $file\n") if $opt_debug;
+X	unlink ($file);
+X    }
+X}
+X
+Xsub headers {
+X    local (*FILE, $full) = @_;
+X
+X    # Provide some RFC822 compliant headers.
+X
+X    local ($size) = 0;
+X
+X    if ( defined $sender ) {
+X	print FILE "$sender\n";
+X	$size += length ($sender) + 1;
+X    }
+X
+X    $ln = "To: $address\n";
+X    $ln .= "Subject: $request ($part) $code\n";
+X    $ln .= "Precedence: bulk\n";
+X    $ln .= join ("\n", @x_headers) . "\n" if defined @x_headers;
+X    print FILE ($ln, "\n");
+X    $size += length ($ln) + 1;
+X}
+X
+Xsub copy {
+X    local (*FILE) = shift (@_);
+X    local ($size);
+X    local ($ln);
+X
+X    $ln = "Request: $request\n\n".
+X	"------ begin of $fname -- $code -- $part ------\n";
+X    $size = length ($ln);
+X    print FILE $ln;
+X    while ( <PART> ) {
+X	print FILE $_;
+X	$size += length ($_);
+X    }
+X    $ln = "------ end of $fname -- $code -- $part ------\n";
+X    print FILE $ln;
+X    $size + length ($ln);
+X}
+X
+Xsub xfer {
+X
+X    # Send the file via e-mail.
+X    local ($size);
+X
+X    if ( $opt_nomail ) {
+X	print STDERR "[Would call \"$chunkmail\"]\n";
+X	&headers (*STDOUT, 0);
+X    }
+X    elsif ( open (MAILER, "|$chunkmail '$address'") ) {
+X	$size = &headers (*MAILER, 0);
+X	$size += &copy (*MAILER);
+X	close MAILER;
+X
+X	# Allow system to stabilize.
+X	sleep ($mailer_delay) if defined $mailer_delay;
+X    }
+X    $size;
+X}
+X
+X1;
+END_OF_FILE
+  if test 7856 -ne `wc -c <'mserv-3.1/dr_mail.pl'`; then
+    echo shar: \"'mserv-3.1/dr_mail.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/dr_mail.pl'
+fi
+if test -f 'mserv-3.1/mlistener.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/mlistener.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/mlistener.pl'\" \(4924 characters\)
+  sed "s/^X//" >'mserv-3.1/mlistener.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# mlistener.pl -- make listener.c
+X# SCCS Status     : @(#)@ mlistener.pl	1.7
+X# Author          : Johan Vromans
+X# Created On      : Sun May 31 14:22:56 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Dec 23 23:03:16 1992
+X# Update Count    : 29
+X# Status          : Unknown, Use with caution!
+X
+X$my_name = "mlistener.pl";
+X$my_version = "1.7";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+X
+X################ Options handling ################
+X
+X$opt_verbose = $opt_ident = $opt_help = 0;
+X$opt_setruid = $opt_setenv = $opt_uid = 0;
+X$opt_nosetruid = $opt_nosetenv = $opt_nouid = 0;
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+Xrequire "./ms_common.pl";	# USE CURRENT DIR, NOT LIBDIR!
+Xprint STDERR ($my_package, " [", $my_name, " ", $my_version, "]\n")
+X    if $opt_ident || $opt_verbose;
+X
+X################ Main ################
+X
+X$mserv_uid = (getpwnam ($mserv_owner))[2];
+Xdie ("Cannot get UID for user $mserv_owner\n") unless defined $mserv_uid;
+X
+Xif ( $opt_verbose ) {
+X    print STDERR ("Using ", $have_setruid ? "setruid system call" :
+X		  "'su' program", ".\n");
+X    print STDERR ("Using setenv library call.\n")
+X	if $have_setruid && $have_setenv;
+X    print STDERR ("Change to UID $mserv_uid.\n")
+X	if $have_setruid && $use_uid;
+X}
+X
+X$have_setruid |= $opt_setruid;
+X$have_setruid = 0 if $opt_nosetruid;
+X$have_setenv |= $opt_setenv;
+X$have_setenv = 0 if $opt_nosetenv || !$have_setruid;
+X$use_uid |= $opt_uid;
+X$use_uid = 0 if $opt_nouid || !$have_setruid;
+X
+Xrequire "ctime.pl";
+Xchop ($ctime = &ctime(time));
+X$uid = $use_uid ? ", uid = $mserv_uid" : "";
+X$opt = "";
+X$opt .= " setruid" if $have_setruid;
+X$opt .= " setenv" if $have_setenv;
+X$opt .= " useuid" if $use_uid;
+X
+Xprint <<EOD;
+X/* listener - receives mails and passes them to the mail server */
+X
+Xstatic char *SCCS_id[] = 
+X    {"@(#)@ Generated by mlistener.pl 1.7 on $ctime",
+X     "@(#)@ Configuration:",
+X     "@(#)@     Server  = $mserv_owner$uid",
+X     "@(#)@     Process = $libdir/process",
+X     "@(#)@     Options =$opt"};
+X
+X#include <stdio.h>
+XEOD
+Xprint <<EOD if $have_setruid && !$use_uid;
+X#include <pwd.h>
+XEOD
+Xprint <<EOD if $have_setruid;
+Xint setruid();
+XEOD
+Xprint <<EOD if $have_setruid && !$use_uid;
+Xint setrgid();
+XEOD
+Xprint <<EOD if $have_setenv;
+Xint setenv();
+XEOD
+Xprint <<EOD;
+X
+X/* In an attempt to leave some useful tracks upon failure, 
+X * we're gonna exit with special values.
+X */
+X#define abend(i)	exit(88+(i))
+X
+Xint chdir();
+X
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+XEOD
+Xif ( $have_setruid && $use_uid || $have_setruid ) {
+X    print <<EOD;
+X	argv[0] = "process";
+XEOD
+X}
+Xif ( $have_setruid && $use_uid ) {
+X    print <<EOD;
+X	/* Change identity. */
+X	if (setruid ($mserv_uid) < 0) abend (1);
+XEOD
+X    print <<EOD if $have_setenv;
+X	setenv ("USER", "$mserv_owner", 1);
+X	setenv ("LOGNAME", "$mserv_owner", 1);
+X	setenv ("HOME", "/tmp", 1);
+XEOD
+X    print <<EOD;
+X	if (chdir ("/tmp") < 0) abend (3);
+X
+X	/* Execute the real listener */
+X	return execv ("$libdir/process", argv);
+X	abend (4);
+XEOD
+X}
+Xelsif ( $have_setruid ) {
+X    print <<EOD;
+X	struct passwd *pw;
+X
+X	/* Get info from system */
+X	pw = getpwnam ("$mserv_owner");
+X	if ( pw == NULL ) {
+X	  perror ("getpwnam");
+X	  exit (70);			/* Internal software error */
+X	}
+X
+X	/* Change identity. */
+X	if (setruid (pw->pw_uid) < 0) abend (1);
+X	if (setrgid (pw->pw_gid) < 0) abend (2);
+XEOD
+X    print <<EOD if $have_setenv;
+X	setenv ("USER", pw->pw_name, 1);
+X	setenv ("LOGNAME", pw->pw_name, 1);
+X	setenv ("HOME", pw->pw_dir, 1);
+XEOD
+X    print <<EOD;
+X	if (chdir (pw->pw_dir) < 0) abend (3);
+X
+X	/* Execute the real listener */
+X	return execv ("$libdir/process", argv);
+X	abend (4);
+XEOD
+X}
+Xelse {
+X    print <<EOD;
+X	/* NOTE: arbitrary limits ahead! */
+X	char *args[64];
+X	char cmd[512];
+X	int i = 0;
+X	args[i++] = "su";
+X	args[i++] = "$mserv_owner";
+X	args[i++] = "-c";
+X	args[i++] = strcpy (cmd, "$libdir/process");
+X	argv++;
+X	while ( *argv ) {
+X	    strcat (cmd, " ");
+X	    strcat (cmd, *argv++);
+X	}
+X
+X	/* Become root so we can so "su" w/o asking */
+X	if (setuid (0) < 0) abend (10);
+X	chdir ("/tmp");
+X
+X	/* Execute the real listener via "su" */
+X	return execv ("/bin/su", args);
+X	abend (11);
+XEOD
+X}
+Xprint "}\n";
+X
+X################ Subroutines ################
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    if ( !&NGetOpt ("setenv", "setruid", "nosetenv", "nosetruid",
+X		    "uid", "nouid", "config=s",
+X		    "verbose", "ident", "help")
+X	|| $opt_help
+X	|| (@ARGV > 0)) {
+X	&usage;
+X    }
+X    $config_file = $opt_config if defined $opt_config;
+X}
+X
+Xsub usage {
+X    require "./ms_common.pl";
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [-help] [-ident]
+X
+XOptions:
+X    -config XX	  use alternate config file
+X    -[no]setruid  use (do not use) setruid system call
+X    -[no]setenv	  use (do not use) setenv library call
+X    -help	  this message
+X    -ident	  print identification
+X    -verbose	  supply verbose information
+XEndOfUsage
+X    exit (1);
+X}
+END_OF_FILE
+  if test 4924 -ne `wc -c <'mserv-3.1/mlistener.pl'`; then
+    echo shar: \"'mserv-3.1/mlistener.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/mlistener.pl'
+fi
+if test -f 'mserv-3.1/pr_ftp.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_ftp.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_ftp.pl'\" \(5633 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_ftp.pl' <<'END_OF_FILE'
+X# pr_ftp.pl -- mail server support for FTP
+X# SCCS Status     : @(#)@ pr_ftp.pl	1.6
+X# Author          : Johan Vromans
+X# Created On      : Sat Dec  5 01:06:44 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Thu Dec 31 16:23:04 1992
+X# Update Count    : 35
+X# Status          : Unknown, Use with caution!
+X
+X# This is the Squirrel Mail Server interface to the ftp.pl package.
+X
+Xrequire "$libdir/ftp.pl";
+X
+X&ftp'debug (1);		#';
+X
+Xsub ftp_connect {
+X    local ($host, $user, $pass) = @_;
+X
+X    print STDOUT ("FTP Command execution:\n",
+X		  "    OPEN $host\n");
+X
+X    &ftp'close if $ftphost;			#';
+X    &ftp'open ($host, 21, 0, 2);		#';
+X    &ftp'login ($user, $pass);			#';
+X    $ftphost = $host;
+X}
+X
+Xsub ftp_get {
+X    local ($file) = @_;
+X
+X    # See if a given file exists on the FTP site, and if a valid
+X    # copy exists in the local ftp cache.
+X    # Returns 
+X    #   the name of the file in the cache, if it is valid
+X    #   tmpname	if no valid file in cache, or the cache could not
+X    #		be updated.
+X
+X    local ($faf);		# file name in cache
+X    local ($time) = 0;		# timestamp
+X
+X    print STDOUT ("FTP Command execution:\n",
+X		  "    GET $file\n");
+X
+X    unless ( -d $ftp_cache && -w _ ) {
+X	# No cache....
+X	$faf = &fttemp;
+X    }
+X    else {
+X
+X	local ($rf, $rf_size, $rf_mtime) = &get_file_and_date ($file);
+X
+X	# Got it?
+X	if ( $rf eq '' ) {
+X	    # No info, cannot use cache.
+X	    $faf = &fttemp;
+X	}
+X	else {
+X	    local ($af, $af_mtime, $tdiff);
+X
+X	    # Look it up in the local ftp cache.
+X	    $af = &ftp_archname ($ftphost, $rf);
+X	    $faf = $ftp_cache . '/' . $af;
+X
+X	    # Check size and timestamp.
+X	    if ( $rf_size == ( -s $faf ) ) {
+X		$af_mtime = (stat(_))[9];
+X		$tdiff = $af_mtime - $rf_mtime;
+X		# Allow one hour difference (daylight savings).
+X		if ( $tdiff == 0 || $tdiff == 3600 || $tdiff == -3600 ) {
+X		    # We have a valid file in the cache, return it.
+X		    print STDOUT "    [File found in local FTP cache]\n";
+X		    return $faf;
+X		}
+X	    }
+X
+X	    # Note the timestamp.
+X	    $time = $rf_mtime;
+X
+X	    # Prepare to copy the file into the cache.
+X	    local ($tmp, @tmp);
+X	    $tmp = $ftp_cache;
+X	    @tmp = split (/\/+/, $af);
+X	    pop (@tmp);
+X	    foreach $dir ( @tmp ) {
+X		$tmp .= '/' . $dir;
+X		next if -d $tmp;
+X		print STDOUT ("=> creating dir $tmp\n") if $opt_debug;
+X		mkdir ($tmp, 0755) || print STDOUT ("    [mkdir $tmp: $!]\n");
+X	    }
+X
+X	    if ( -d $tmp && -w $tmp ) {
+X		unlink ($faf);
+X	    }
+X	    else {
+X		local ($msg) = "No ftp cache for $af";
+X		print STDOUT ("    [$msg]\n\n");
+X		&writelog ("F $msg");
+X		$faf = &fttemp;
+X	    }
+X	}
+X    }
+X
+X    # Fetch...
+X    &ftp_type ('I');
+X    if ( &ftp'get ($file, $faf, 0) ) {	#'){
+X	# Set times to match the server.
+X	utime (time, $time, $faf) if $time;
+X    }
+X
+X    # Return the full name of the file.
+X    $faf;
+X}
+X
+Xsub ftp_dir {
+X    local ($dir, $thefile) = @_;
+X
+X    local ($ret, *F);
+X    open (F, '>' . $thefile);
+X    print STDOUT ("FTP Command execution:\n",
+X		  "    DIR $dir\n");
+X    &ftp_type ('A');
+X    &ftp'dir_open ($dir);			#';
+X    while ( $ret = &ftp'read ) {		#'){
+X	$ftp'buf =~ s/\r\n/\n/g;		#';
+X	print F $ftp'buf;			#';
+X    }
+X    &ftp'dir_close;				#';
+X    close (F);
+X}
+X
+Xsub ftp_type {
+X    local ($type) = @_;
+X    $current_ftp_type = '' unless defined $current_ftp_type;
+X    unless ( $current_ftp_type eq $type ) {
+X	&ftp'type ($type);		#';
+X	$current_ftp_type = $type;
+X    }
+X}
+X
+Xsub get_file_and_date {
+X    local ($file) = @_;		# returns (remote file name, size, date)
+X
+X    print STDOUT ("=> get_file_and_date ($file)\n") if $opt_debug;
+X
+X    local (@res, $result);
+X
+X    # Retrieve ls info from FTP server.
+X    &ftp_type ('A');
+X    &ftp'dir_open ($file);		#';
+X    if ( $ret = &ftp'read ) {		#'){
+X	($result = $ftp'buf) =~ s/\r\n/\n/g;		#');
+X    }
+X    &ftp'dir_close;		#';
+X    $result = $' if $result =~ /^total.*\n/i;
+X    $result = $1 if $result =~ /^(.+)\n/i;
+X    print STDOUT ("    ", $result, "\n");
+X    # &ftp'type ('I');		#';
+X    print STDOUT ("\n");
+X
+X    # Only the last few fields are relevant.
+X    @res = split (' ', $result);
+X
+X    # Check for symlink.
+X    if ( $res[$#res-1] eq '->' ) {
+X	return ('', 0, 0)
+X	    unless $file = &resolve_symlink ($res[$#res-2], $res[$#res]);
+X	return (&get_file_and_date ($file));
+X    }
+X
+X    local ($size, $mon, $day, $year, $fn) = splice(@res,$#res-4, 5);
+X    print STDOUT ("=> file = $file, size  = $size, Y/M/D = $year/$mon/$day\n")
+X	if $opt_debug;
+X
+X    # Got it?
+X    return ('', 0, 0) if $fn ne $file;
+X
+X    # Convert and return date.
+X    require 'dateconv.pl';
+X    return ($file, $size, &lstime_to_time ("$mon $day $year"));
+X}
+X
+Xsub resolve_symlink {
+X    local ($file, $link) = @_;
+X
+X    # This routine does a reasonable job on resolving symlinks.
+X    # Since the symlinks we'll be resolving point to files on a
+X    # remote system, we can hardly do better than this.
+X
+X    return $file unless $link;		# not a symlink
+X
+X    print STDOUT ("=> resolve_symlink ($file, $link)\n") if $opt_debug;
+X
+X    return $link if $link =~ m|^/|;	# absolute path
+X    return undef if $link =~ m|^~|;	# cannot resolve
+X
+X    local (@file) = split (m|/+|, $file);
+X    local (@link) = split (m|/+|, $link);
+X    local ($result, $t) = ('','');
+X    local ($skip) = 0;			# updir (..) skip count
+X
+X    pop (@file) if @file > 0;		# remove final component
+X    push (@file, @link);		# add symlink value
+X
+X    # Normalize filename.
+X    while ( @file ) {
+X	$t = pop (@file);
+X	next if $t eq '.';		# ignore
+X	$skip++, next if $t eq '..';	# skip this and predecessor
+X	$skip--, next if $skip;		# skip this
+X	$result = $t . '/' . $result;	# prepend to result
+X    }
+X    chop ($result);		# chop trailing slash
+X
+X    print STDOUT ("=> resolved: $result\n") if $opt_debug;
+X    $result;
+X}
+X
+X1;
+END_OF_FILE
+  if test 5633 -ne `wc -c <'mserv-3.1/pr_ftp.pl'`; then
+    echo shar: \"'mserv-3.1/pr_ftp.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_ftp.pl'
+fi
+if test -f 'mserv-3.1/pr_help.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/pr_help.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/pr_help.pl'\" \(6030 characters\)
+  sed "s/^X//" >'mserv-3.1/pr_help.pl' <<'END_OF_FILE'
+X# pr_help.pl -- auto-configuring HELP message
+X# SCCS Status     : @(#)@ pr_help.pl	1.6
+X# Author          : Johan Vromans
+X# Created On      : Sun Dec 13 21:29:38 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Jan  2 15:01:57 1993
+X# Update Count    : 54
+X# Status          : OK
+X
+X# Auto-configuring help message.
+X#
+X# The help texts are contained in array @help_msgs (standard commands)
+X# and @ext_help (extended commands). The format for both arrays is the
+X# same:
+X# 
+X#   +COMMAND NAME
+X#   text line
+X#   text line
+X#   ...
+X#   +COMMAND NAME
+X#   text line
+X#   ...
+X# 
+X# A lone '+' causes an blank line to be written.
+X#
+X# User extensions should call &add_help to add help texts to the help
+X# system. 
+X
+Xsub do_help {
+X
+X    local ($line, $cmd) = '';
+X
+X    &setup_help unless defined @help_msgs;
+X
+X    select (STDOUT);
+X    $~ = HELP_LINE;
+X
+X    print STDOUT ('Valid server commands are:', "\n\n");
+X
+X    unshift (@help_msgs,
+X	     '+BEGIN',
+X	     'Discard anything above this line, and start processing commands.',
+X	     '+HELP',
+X	     'This message.',
+X	     "\n",
+X	     'Use "send HELP" for a more detailed description on',
+X	     'how to use the mail server.');
+X
+X    push (@ext_help,
+X	  '+END',
+X	  'Terminate command processing.',
+X	  'The remainder of the input will be ignored.',
+X	  '+',
+X	  '+Case is not significant in the command verbs, '.
+X	  'but it *IS* significant',
+X	  '+in <path> and <item> specifications.');
+X    push (@ext_help,
+X	  '+',
+X	  '+Mail messages originating from the any of the following accounts',
+X	  '+will be discarded (without notice)'.
+X	  ($black_list_warning ? ' in the future:' : ':'),
+X	  @black_list
+X	  ) if defined @black_list;
+X
+X    foreach ( @help_msgs, @ext_help, '+', '+' ) {
+X	if ( /^\+/ ) {
+X	    if ( $cmd ne '' || $line =~ /[^ ]/ ) {
+X		$= = 999;
+X		foreach $text ( split (/\n/, $line) ) {
+X		    $text = $' if $text =~ /^ +/;
+X		    $text =~ s/ +/ /g;
+X		    write;
+X		    $cmd = '';
+X		}
+X	    }
+X	    else {
+X		print STDOUT "\n";
+X	    }
+X	    $cmd = $';
+X	    $line = ' ';
+X	}
+X	else {
+X	    $line .= $_ . ' ';
+X	}
+X    }
+X
+X
+X    $didhelp = 1;
+X}
+X
+Xsub setup_help {
+X    local ($tmp);
+X    local ($o_host) = $ftp ? '[<host>:]' : '';
+X
+X    push (@help_msgs,
+X	  '+REPLY <address>',
+X	  'Specify return address for replies.',
+X	  'Use this if you are not sure that',
+X	  'your mail system generates correct return addresses.');
+X
+X    push (@help_msgs,
+X	  '+MAIL <address>',
+X	  'Requests will be sent via email to <address>.');
+X    push (@help_msgs,
+X	  'This is the default.')
+X	if (defined $email && defined $uucp && !$prefer_uucp);
+X
+X    push (@help_msgs,
+X	  '+UUCP <host>!<path> <user>',
+X	  'Requests will be sent via uucp to <host>!<path>.',
+X	  'The <user> on <host> will be notified.',
+X	  '<path> must be writable by the UUCP system on <host>.')
+X	if $uucp;
+X    push (@help_msgs,
+X	  "\n",
+X	  'A UUCP command *MUST* be issued before any requests.')
+X	if $uucp && !defined $email;
+X
+X    $tmp = '';
+X    $tmp .= "$email_limits[1]K bytes for email" if defined $email;
+X    $tmp .= ' and ' if defined $email && defined $uucp;
+X    $tmp .= "$uucp_limits[1]K bytes for UUCP" if defined $uucp;
+X    push (@help_msgs,
+X	  '+LIMIT <number>',
+X	  'Maximum number of Kbytes to be sent per transfer.',
+X	  "Default is $tmp.\n",
+X	  'The limit applies to subsequent "send" commands.');
+X
+X    $tmp = '[ENCODING] {';
+X    $tmp .= ' BTOA |'		if -x $btoa;
+X    $tmp .= ' UUE |'		if -x $uue;
+X    $tmp .= ' XXENCODE |'	if -x $xxencode;
+X    $tmp .= ' UUENCODE }';
+X    push (@help_msgs,
+X	  "+$tmp",
+X	  'Specify encoding to be used.',
+X	  'Default is UUENCODE.',
+X	  'The encoding applies to subsequent "send" commands.');
+X
+X    push (@help_msgs,
+X	  '+CWD [<path>]',
+X	  'Sets or cancels the current working directory',
+X	  'for subsequent commands.');
+X
+X    push (@help_msgs,
+X	  "+DIR $o_host[<path>]",
+X	  'Returns a list of files in <path>.');
+X    push (@help_msgs,
+X	  "\n", 'If a hostname is specified, retrieve the info',
+X	  'from <host> using anonymous FTP.')
+X	if $ftp;
+X
+X    push (@help_msgs,
+X	  '+INDEX [<item>...]',
+X	  'Look up everything in the archives that matches the <item>s.',
+X	  'If no <item>s are specified, requests for a file named "INDEX".')
+X	if defined $indexfile;
+X
+X    push (@help_msgs,
+X	  '+SEARCH <item> [<item>...]',
+X	  'Look up the indicated archive entries, and return a list of',
+X	  'files found.');
+X
+X    push (@help_msgs,
+X	  "+SEND $o_host<item> [<item>...]",
+X	  'Specify the items to be sent.');
+X    push (@help_msgs,
+X	  "\n", 'If a hostname is specified, retrieve the files',
+X	  'from <host> using anonymous FTP.')
+X	if $ftp;
+X
+X    push (@help_msgs,
+X	  "+RESEND $o_host<item> <part> [<part>...]",
+X	  'Re-sends the indicated <parts> from the specified <item>.',
+X	  'The encoding and limit must be identical to those used in the',
+X	  'original request.');
+X    push (@help_msgs,
+X	  "\n", 'If a hostname is specified, retrieve the files',
+X	  'from <host> using anonymous FTP.')
+X	if $ftp;
+X
+X    push (@help_msgs,
+X	  '+FTP USER <user> <password>',
+X	  'Set login information for subsequent FTP commands.',
+X	  '+FTP OPEN <host>',
+X	  'Open FTP connection to the indicated <host>.',
+X	  'If no login information was supplied, use anonymous FTP.',
+X	  "\n",
+X	  'If an FTP connection is open, subsequent commands',
+X	  '(SEND, RESEND, DIR, CWD) will be executed on <host>.',
+X	  '+FTP CLOSE',
+X	  'Close any open FTP connection.')
+X	if $ftp;
+X
+X    push (@help_msgs,
+X	  '+ARCHIE PROG <request>',
+X	  'Consult Archie for <request> (a regular expression pattern).')
+X	if $archie;
+X
+X    if ( defined $packing_limit ) {
+X	$tmp = 'PACK {';
+X	$tmp .= ' TAR |' if -x $tar || -x $pdtar;
+X	$tmp .= ' ZOO |' if -x $zoo;
+X	$tmp .= ' ZIP |' if -x $zip;
+X	$tmp .= ' OFF }';
+X	push (@help_msgs,
+X	      "+$tmp",
+X	      'Subsequent requests must specify directories,',
+X	      'which will be packed using the indicated method',
+X	      'and transferred.',
+X	      "\n", 'PACK OFF cancels packing.');
+X    }
+X}
+X
+Xformat HELP_LINE =
+X@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<~
+X$cmd
+X~~  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$text
+X.
+X
+X1;
+END_OF_FILE
+  if test 6030 -ne `wc -c <'mserv-3.1/pr_help.pl'`; then
+    echo shar: \"'mserv-3.1/pr_help.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/pr_help.pl'
+fi
+if test -f 'mserv-3.1/report.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/report.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/report.pl'\" \(7200 characters\)
+  sed "s/^X//" >'mserv-3.1/report.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# report.pl -- make mail server report
+X# SCCS Status     : @(#)@ report	3.14
+X# Author          : Johan Vromans
+X# Created On      : Sat May  2 14:23:10 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Fri Dec 25 16:22:32 1992
+X# Update Count    : 67
+X# Status          : Unknown, Use with caution!
+X
+X# Read the mail server logfile, and create a report.
+X
+X$my_name = "report";
+X$my_version = "3.14";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+X
+X################ Options handling ################
+X
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+Xrequire "ms_common.pl";
+X$opt_usage = 1 unless $opt_errors;
+X@ARGV = ( $logfile ) unless @ARGV > 0;
+X$now = time;
+X
+X################ Preamble ################
+X
+Xrequire "$libdir/rfc822.pl";
+X
+Xformat std_hdr =
+XMail Server Report for @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<     @>>>>>>>>>>>>
+X"$thismonth 19$year -- by $report_type", "Page $%"
+X
+X                                                         1111111111222222222233
+X@<<<<<<<<<<<<<<<<<<<                 Type Total 1234567890123456789012345678901
+X$report_type
+X-------------------------------------------------------------------------------
+X.
+X
+Xformat std_out =
+X^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< @ @>>>> @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$item, $type, $count, $seq
+X ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<~~
+X$item
+X.
+X
+X################ Main ################
+X
+X$logfile = $ARGV[0] if @ARGV == 1;
+X
+Xopen (LOG, $logfile) || die ("$my_name: Cannot open $logfile [$!]\n");
+X
+X$curmonth = "";
+X@mnames = split (/,/, "January,February,March,April,May,June," .
+X		"July,August,September,October,November,December");
+X
+X# Form pattern for the known libraries so we can easily
+X# strip them off the names of the requests.
+X$libpat = "(";
+Xforeach $lib ( @libdirs ) {
+X    $lib =~ s/(\W)/\\\1/g;
+X    $libpat .= $lib . "|";
+X}
+Xchop ($libpat);
+X$libpat .= ")";
+X
+X# Process logfile.
+X$msgcnt = 0;
+Xwhile ( <LOG> ) {
+X
+X    # 891002 19:48 M "Neil Dixon <neil@yc1>" /u2/goodies/gwm/INDEX U1/1 32678
+X    #    0     1   2             3                  4                5    6
+X
+X    # Note: $size is not used (yet).
+X    ($date, $time, $type, $user, $pkg, $part, $size) = 
+X	/^(\S+)\s+(\S+)\s(\S+)\s+"([^\042]+)"\s+(.+)\s+(\S+\/\d+)\s+(\S+)$/;
+X
+X    unless ( defined $user ) {	# Assume error record.
+X
+X	next unless $opt_errors;
+X
+X	($date, $time, $msg) = 
+X	    /^(\S+)\s+(\S+)\s+(.+)$/;
+X	$date .= " " . $time;
+X	next if $since && $date lt $since; 
+X
+X	if ( $msgcnt == 0 && $since ) {
+X	    print STDERR ("Errors since $since\n\n");
+X	}
+X	print STDERR ($date, " ", $msg, "\n");
+X	$msgcnt++;
+X	next;
+X    }
+X
+X    next unless $opt_usage;
+X
+X    # Use first parts for accounting only.
+X    next unless $part =~ m|^[^0-9]*1/|;
+X
+X    # Get date.
+X    $year = substr ($date, 0, 2);
+X    $month = substr ($date, 2, 2);
+X    $day = substr ($date, 4, 2);
+X
+X    # Strip known libraries.
+X    $pkg = $' if $pkg =~ /^$libpat\//o;
+X    $pkg = $` if $pkg =~ /\s+\(.+\)$/;
+X    $pkg .= $type;
+X
+X    # Generate a new report page if the month runs over.
+X    if ( $curmonth ne $month ) {
+X	if ( $curmonth ne "" ) {
+X	    &report;
+X	    $- = 0;			# Force page break.
+X	    reset "Z";
+X	}
+X	$curmonth = $month;
+X	$thismonth = $mnames[$curmonth-1];
+X	$weeksh = &firstday ($month, $year);
+X    }
+X
+X    # Normalize addresses and count them.
+X    &rfc822'parse_addresses ($user);
+X    $user = $rfc822'addresses[0] . $type;
+X    $Zucounts{$user}++;
+X    $Zudays{$user} |= 1 << ($day - 1);
+X    $Zpcounts{$pkg}++;
+X    $Zpdays{$pkg} |= 1 << ($day - 1);
+X}
+Xclose (LOG);
+X
+X# Update since-file.
+Xif ( $opt_since && !$opt_noupdate ) {
+X    utime ($now, $now, $opt_since) ||
+X	print STDERR ("Cannot change times on \"$opt_since\" [$!]\n");
+X}
+X
+X# Now for the remaining usage reports ...
+X&report if $opt_usage;
+X
+X# That's it ...
+Xexit (0);
+X
+X################ Subroutines ################
+X
+Xsub report {
+X    $^ = "std_hdr";
+X    $~ = "std_out";
+X    $: = " \n-/";
+X    &report1;
+X    print STDOUT ($^L);		# Form-feed between reports.
+X    &report2;
+X}
+X
+Xsub report1 {
+X    local ($report_type) = "User";
+X    local ($total) = 0;
+X    local ($days) = 0;
+X    local ($seq, $days, $count, $type);
+X    $- = 0;
+X    $% = 0;
+X
+X    foreach $item (sort (keys (%Zucounts))) {
+X	$seq = &daylist ($Zudays{$item});
+X	$days |= $Zpdays{$item};
+X	$count = $Zucounts{$item};
+X	$total += $count;
+X	$type = chop ($item);
+X	write;
+X    }
+X    $item = "TOTAL";
+X    $type = "";
+X    $seq = &daylist ($days);
+X    $count = $total;
+X    write;
+X}
+X
+Xsub report2 {
+X    local ($report_type) = "Package";
+X    local ($total) = 0;
+X    local ($days) = 0;
+X    local ($seq, $days, $count, $type);
+X    $- = 0;
+X    $% = 0;
+X
+X    foreach $item (sort (keys (%Zpcounts))) {
+X	$seq = &daylist ($Zpdays{$item});
+X	$days |= $Zpdays{$item};
+X	$count = $Zpcounts{$item};
+X	$total += $count;
+X	$type = chop ($item);
+X	write;
+X    }
+X    $item = "TOTAL";
+X    $type = "";
+X    $seq = &daylist ($days);
+X    $count = $total;
+X    write;
+X}
+X
+Xsub daylist {
+X    local ($day) = pop (@_);
+X    local ($seq) = "";
+X    local ($cc) = 1;
+X
+X    while ( $cc <= 31 ) {
+X	if ( $day & 0x1 ) {
+X	    $seq .= substr ("SMTWTFS", ($cc - $weeksh + 7) % 7, 1);
+X	}
+X	else {
+X	    $seq = "$seq ";
+X	}
+X	$day >>= 1;
+X	$cc++;
+X    }
+X    return $seq;
+X}
+X
+Xsub firstday {
+X    local ($month) = shift (@_);
+X    local ($year) = shift (@_);
+X    local ($t);
+X    local (@tm); 
+X
+X    $t = 
+X	($year - 70) * (365 * 24 * 60 * 60) +
+X	    ($month - 1) * (28 * 24 * 60 * 60);
+X    $month--;
+X
+X    do {
+X	@tm = localtime ($t);
+X	$t += (28 * 24 * 60 * 60);
+X    }
+X    while (($tm[5] < $year) || ($tm[4] < $month));
+X
+X    $t = ($tm[3] - $tm[6]) % 7;
+X    $t += 7 if $t < 0;
+X    return $t;
+X}
+X
+Xsub options {
+X    local ($opt_full, $opt_help, $opt_ident) = (0, 0, 0);
+X
+X    require "newgetopt.pl";
+X
+X    $opt_errors = $opt_usage = 0;
+X    if ( !&NGetOpt ("config=s", "ident", "errors", "usage", "full",
+X		    "since=s", "noupdate",
+X		    "help")
+X	|| $opt_help
+X	|| (@ARGV > 1)) {
+X	&usage;
+X    }
+X    $opt_errors |= $opt_full;
+X    $opt_usage |= $opt_full;
+X    print ($my_package, " [", $my_name, " ", $my_version, "]\n")
+X	if $opt_ident && $opt_usage;
+X    print STDERR ($my_package, " [", $my_name, " ", $my_version, "]\n")
+X	if $opt_ident && $opt_errors;
+X    if ( defined $opt_since ) {
+X	local ($a) = (stat ($opt_since))[9];
+X	die ("Cannot timestamp \"$opt_since\" [$!]\n") unless $a > 0;
+X	local (@tm) = localtime ($a);
+X	$since = sprintf ("%02d%02d%02d %02d:%02d",
+X			  $tm[5], 1+$tm[4], $tm[3], $tm[2], $tm[1]);
+X	$opt_noupdate = defined $opt_noupdate;
+X    }
+X    else {
+X	$since = "";
+X    }
+X    $config_file = $opt_config if defined $opt_config;
+X}
+X
+Xsub usage {
+X    require "ms_common.pl";
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [options] [ logfile ]
+X
+XOptions:
+X    -config XX	use alternate config file
+X    -errors	generate error report to STDERR
+X    -usage	generate usage report to STDOUT
+X    -full	generate usage report and error report
+X    -since FILE	only error messages newer than FILE
+X		(FILE date will be updated upon successful completion)
+X    -noupdate	do not update FILE
+X    -help	this message
+X    -ident	print program identification
+X
+XDefault action is to generate a usage report from logfile
+X"$logfile".
+XEndOfUsage
+X    exit (1);
+X}
+END_OF_FILE
+  if test 7200 -ne `wc -c <'mserv-3.1/report.pl'`; then
+    echo shar: \"'mserv-3.1/report.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/report.pl'
+fi
+if test -f 'mserv-3.1/ud_sample1.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ud_sample1.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ud_sample1.pl'\" \(1583 characters\)
+  sed "s/^X//" >'mserv-3.1/ud_sample1.pl' <<'END_OF_FILE'
+X# userdefs.pl -- sample userdefs.
+X# SCCS Status     : @(#)@ ud_sample1.pl	1.3
+X# Author          : Johan Vromans
+X# Created On      : Fri Dec 18 22:29:57 1992
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Fri Jan  1 18:01:30 1993
+X# Update Count    : 19
+X# Status          : Use at your own risk
+X
+X# How to implement Mail Server extensions.
+X#
+X#  1. Write a subroutine to parse the command.
+X#     See 'pr_parse.pl' for lots of examples.
+X#     Any work should be pushed on the @workq.
+X#  2. Add a command verb to $cmd_tbl, pointing to this routine.
+X#     The command verb must be in ALL UPPERCASE.
+X#  3. Write a subroutine to execute the command.
+X#     See 'pr_dowork.pl' for lots of examples.
+X#  4. Add a command verb to $exe_tbl, pointing to this routine.
+X#     Since the Mail Server uses uppercase command verbs, 
+X#     please use a lowercase verb.
+X#  5. Add a help message using &add_help.
+X#
+X# As an example, the following code adds the 'REPORT' command to the
+X# Mail Server.
+X
+Xsub cmd_report {			# step 1.
+X    # Check syntax.
+X    # $cmd is the command verb, upcased.
+X    # @cmd has the remainder of the command.
+X    return &errmsg ("Usage: $cmd") unless @cmd == 0;
+X
+X    # Push exe command on work queue.
+X    push (@workq, &zp ('r'));
+X
+X    # Feedback.
+X    print STDOUT ("=> Okay\n");
+X    1;
+X}
+X
+X$cmd_tbl{'REPORT'} = 'cmd_report';	# step 2.
+X
+Xsub exe_report {			# step 3.
+X    &do_unix ("$libdir/report -usage");
+X    1;
+X}
+X
+X$exe_tbl{'r'} = 'exe_report';		# step 4.
+X
+X&add_help ('REPORT',			# step 5.
+X	   'Generate a mail server usage report.');
+X
+X################ 1 ################
+X1;
+END_OF_FILE
+  if test 1583 -ne `wc -c <'mserv-3.1/ud_sample1.pl'`; then
+    echo shar: \"'mserv-3.1/ud_sample1.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ud_sample1.pl'
+fi
+echo shar: End of archive 5 \(of 6\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

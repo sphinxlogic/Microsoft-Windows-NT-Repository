@@ -1,0 +1,1571 @@
+Newsgroups: comp.sources.x
+From: jch@okimicro.oki.com (Jan Hardenbergh)
+Subject: v20i022:  pexdraw - A PEX drawing program, Part12/14
+Message-ID: <1993Jun8.150241.19399@sparky.imd.sterling.com>
+X-Md4-Signature: e2b20327788d75432f344528206c582b
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 8 Jun 1993 15:02:41 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: jch@okimicro.oki.com (Jan Hardenbergh)
+Posting-number: Volume 20, Issue 22
+Archive-name: pexdraw/part12
+Environment: X11R5, PEX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  XMU/CrCmap.c teapotc.3 util/pexutdbint.c util/pexutdbint.h
+# Wrapped by chris@sparky on Tue Jun  8 09:46:35 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 14)."'
+if test -f 'XMU/CrCmap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'XMU/CrCmap.c'\"
+else
+  echo shar: Extracting \"'XMU/CrCmap.c'\" \(17396 characters\)
+  sed "s/^X//" >'XMU/CrCmap.c' <<'END_OF_FILE'
+X#ifdef SCCS
+Xstatic char sccsid[]="@(#)CrCmap.c	1.4 Oki 92/11/30";
+X#endif
+X/*
+X	This file is under sccs control at Oki in:
+X	/nfs/sole/root/sccs1.p/X11R5/mit/lib/Xmu/s.CrCmap.c
+X*/
+X/* $XConsortium: CrCmap.c,v 1.5 92/11/24 14:40:47 rws Exp $
+X *
+X * CreateCmap.c - given a standard colormap description, make the map.
+X * 
+X * Copyright 1989 by the Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted, provided 
+X * that the above copyright notice appear in all copies and that both that 
+X * copyright notice and this permission notice appear in supporting 
+X * documentation, and that the name of M.I.T. not be used in advertising
+X * or publicity pertaining to distribution of the software without specific, 
+X * written prior permission. M.I.T. makes no representations about the 
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Donna Converse, MIT X Consortium
+X */
+X
+X#include <stdio.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+Xextern char	*calloc();
+X
+Xstatic int	ROmap();		/* allocate entire map Read Only */
+Xstatic Status	ROorRWcell();		/* allocate a cell, prefer Read Only */
+Xstatic Status	RWcell();		/* allocate a cell Read Write */
+Xstatic int	compare();		/* for quicksort */
+Xstatic Status 	contiguous();		/* find contiguous sequence of cells */
+Xstatic void	free_cells();		/* frees resources before quitting */
+Xstatic Status	readonly_map();		/* create a map in a RO visual type */
+Xstatic Status	readwrite_map();	/* create a map in a RW visual type */
+X
+X#define lowbit(x) ((x) & (~(x) + 1))
+X#define TRUEMATCH(mult,max,mask) \
+X    (colormap->max * colormap->mult <= vinfo->mask && \
+X     lowbit(vinfo->mask) == colormap->mult)
+X
+X/*
+X * To create any one colormap which is described by an XStandardColormap
+X * structure, use XmuCreateColormap().
+X *
+X * Return 0 on failure, non-zero on success.
+X * Resources created by this function are not made permanent.
+X * No argument error checking is provided.  Use at your own risk.
+X *
+X * All colormaps are created with read only allocations, with the exception
+X * of read only allocations of colors in the default map or otherwise
+X * which fail to return the expected pixel value, and these are individually 
+X * defined as read/write allocations.  This is done so that all the cells
+X * defined in the default map are contiguous, for use in image processing.
+X * This typically happens with White and Black in the default map.
+X *
+X * Colormaps of static visuals are considered to be successfully created if
+X * the map of the static visual matches the definition given in the
+X * standard colormap structure.
+X */
+X   
+XStatus XmuCreateColormap(dpy, colormap)
+X    Display		*dpy;		/* specifies the connection under 
+X					 * which the map is created */
+X    XStandardColormap	*colormap;	/* specifies the map to be created,
+X					 * and returns, particularly if the
+X					 * map is created as a subset of the
+X					 * default colormap of the screen,
+X					 * the base_pixel of the map.
+X					 */
+X{
+X    XVisualInfo		vinfo_template;	/* template visual information */
+X    XVisualInfo		*vinfo;		/* matching visual information */
+X    XVisualInfo		*vpointer;	/* for freeing the entire list */
+X    long		vinfo_mask;	/* specifies the visual mask value */
+X    int 		n;		/* number of matching visuals */
+X    int			status;		
+X
+X    vinfo_template.visualid = colormap->visualid;
+X    vinfo_mask = VisualIDMask;
+X    if ((vinfo = XGetVisualInfo(dpy, vinfo_mask, &vinfo_template, &n)) == NULL)
+X	return 0;
+X
+X    /* A visual id may be valid on multiple screens.  Also, there may 
+X     * be multiple visuals with identical visual ids at different depths.  
+X     * If the colormap is the Default Colormap, use the Default Visual.
+X     * Otherwise, arbitrarily, use the deepest visual.
+X     */
+X    vpointer = vinfo;
+X    if (n > 1)
+X    {
+X	register int	i;
+X	register int	screen_number;
+X	Bool 		def_cmap;
+X
+X	def_cmap = False;
+X	for (screen_number = ScreenCount(dpy); --screen_number >= 0; )
+X	    if (colormap->colormap == DefaultColormap(dpy, screen_number)) {
+X		def_cmap = True;
+X		break;
+X	    }
+X
+X	if (def_cmap) {
+X	    for (i=0; i < n; i++, vinfo++) {
+X		if (vinfo->visual == DefaultVisual(dpy, screen_number))
+X			break;
+X	    }
+X	} else {
+X	    unsigned int	maxdepth = 0;
+X	    XVisualInfo		*v;
+X
+X	    for (i=0; i < n; i++, vinfo++)
+X		if (vinfo->depth > maxdepth) {
+X		    maxdepth = vinfo->depth;
+X		    v = vinfo;
+X		}
+X	    vinfo = v;
+X	}
+X    }
+X
+X    if (vinfo->class == PseudoColor || vinfo->class == DirectColor ||
+X	vinfo->class == GrayScale)
+X	status = readwrite_map(dpy, vinfo, colormap);
+X    else if (vinfo->class == TrueColor)
+X	status = TRUEMATCH(red_mult, red_max, red_mask) &&
+X	         TRUEMATCH(green_mult, green_max, green_mask) &&
+X		 TRUEMATCH(blue_mult, blue_max, blue_mask);
+X    else 
+X	status = readonly_map(dpy, vinfo, colormap);
+X    
+X    XFree((char *) vpointer);
+X    return status;
+X}
+X
+X/****************************************************************************/
+Xstatic Status readwrite_map(dpy, vinfo, colormap)
+X    Display		*dpy;
+X    XVisualInfo		*vinfo;
+X    XStandardColormap	*colormap;
+X{
+X    register unsigned long i, n;	/* index counters */
+X    int			ncolors;	/* number of colors to be defined */
+X    int			npixels;	/* number of pixels allocated R/W */
+X    int			first_index;	/* first index of pixels to use */
+X    int			remainder;	/* first index of remainder */
+X    XColor		color;		/* the definition of a color */
+X    unsigned long	*pixels;	/* array of colormap pixels */
+X    unsigned long	delta;
+X
+X    
+X    /* Determine ncolors, the number of colors to be defined.
+X     * Insure that 1 < ncolors <= the colormap size.
+X     */
+X    if (vinfo->class == DirectColor) {
+X	ncolors = colormap->red_max;
+X	if (colormap->green_max > ncolors)
+X	    ncolors = colormap->green_max;
+X	if (colormap->blue_max > ncolors)
+X	    ncolors = colormap->blue_max;
+X	ncolors++;
+X	delta = lowbit(vinfo->red_mask) +
+X	        lowbit(vinfo->green_mask) +
+X		lowbit(vinfo->blue_mask);
+X    } else {
+X	ncolors = colormap->red_max * colormap->red_mult +
+X		  colormap->green_max * colormap->green_mult +
+X		  colormap->blue_max * colormap->blue_mult + 1;
+X	delta = 1;
+X    }
+X    if (ncolors <= 1 || ncolors > vinfo->colormap_size)	return 0;
+X
+X    /* Allocate Read/Write as much of the colormap as we can possibly get.
+X     * Then insure that the pixels we were allocated are given in 
+X     * monotonically increasing order, using a quicksort.  Next, insure
+X     * that our allocation includes a subset of contiguous pixels at least
+X     * as long as the number of colors to be defined.  Now we know that 
+X     * these conditions are met:
+X     *	1) There are no free cells in the colormap.
+X     *  2) We have a contiguous sequence of pixels, monotonically 
+X     *     increasing, of length >= the number of colors requested.
+X     *
+X     * One cell at a time, we will free, compute the next color value, 
+X     * then allocate read only.  This takes a long time.
+X     * This is done to insure that cells are allocated read only in the
+X     * contiguous order which we prefer.  If the server has a choice of
+X     * cells to grant to an allocation request, the server may give us any
+X     * cell, so that is why we do these slow gymnastics.
+X     */
+X
+X    if ((pixels = (unsigned long *) calloc((unsigned) vinfo->colormap_size,
+X				      sizeof(unsigned long))) == NULL)
+X	return 0;
+X
+X    if ((npixels = ROmap(dpy, colormap->colormap, pixels,
+X			   vinfo->colormap_size, ncolors)) == 0) {
+X	free((char *) pixels);
+X	return 0;
+X    }
+X
+X    qsort((char *) pixels, npixels, sizeof(unsigned long), compare);
+X
+X    if (!contiguous(pixels, npixels, ncolors, delta, &first_index, &remainder))
+X    {
+X	/* can't find enough contiguous cells, give up */
+X	XFreeColors(dpy, colormap->colormap, pixels, npixels,
+X		    (unsigned long) 0);
+X	free((char *) pixels);
+X	return 0;
+X    }
+X    colormap->base_pixel = pixels[first_index];
+X
+X    /* construct a gray map */
+X    if (colormap->red_mult == 1 && colormap->green_mult == 1 &&
+X	colormap->blue_mult == 1)
+X	for (n=colormap->base_pixel, i=0; i < ncolors; i++, n += delta)
+X	{
+X	    color.pixel = n;
+X	    color.blue = color.green = color.red =
+X		(unsigned short) ((i * 65535) / (colormap->red_max +
+X						 colormap->green_max +
+X						 colormap->blue_max));
+X
+X	    if (! ROorRWcell(dpy, colormap->colormap, pixels, npixels, &color,
+X			     first_index + i))
+X		return 0;
+X	}
+X
+X    /* construct a red ramp map */
+X    else if (colormap->green_max == 0 && colormap->blue_max == 0)
+X    	for (n=colormap->base_pixel, i=0; i < ncolors; i++, n += delta)
+X	{
+X	    color.pixel = n;
+X	    color.red = (unsigned short) ((i * 65535) / colormap->red_max);
+X	    color.green = color.blue = 0;
+X
+X	    if (! ROorRWcell(dpy, colormap->colormap, pixels, npixels, &color,
+X			     first_index + i))
+X		return 0;
+X	}
+X
+X    /* construct a green ramp map */
+X    else if (colormap->red_max == 0 && colormap->blue_max == 0)
+X    	for (n=colormap->base_pixel, i=0; i < ncolors; i++, n += delta)
+X	{
+X	    color.pixel = n;
+X	    color.green = (unsigned short) ((i * 65535) / colormap->green_max);
+X	    color.red = color.blue = 0;
+X
+X	    if (! ROorRWcell(dpy, colormap->colormap, pixels, npixels, &color,
+X			     first_index + i))
+X		return 0;
+X	}
+X
+X    /* construct a blue ramp map */
+X    else if (colormap->red_max == 0 && colormap->green_max == 0)
+X    	for (n=colormap->base_pixel, i=0; i < ncolors; i++, n += delta)
+X	{
+X	    color.pixel = n;
+X	    color.blue = (unsigned short) ((i * 65535) / colormap->blue_max);
+X	    color.red = color.green = 0;
+X
+X	    if (! ROorRWcell(dpy, colormap->colormap, pixels, npixels, &color,
+X			     first_index + i))
+X		return 0;
+X	}
+X
+X    /* construct a standard red green blue cube map */
+X    else
+X    {
+X#define calc(max,mult) (((n / colormap->mult) % \
+X			 (colormap->max + 1)) * 65535) / colormap->max
+X
+X    	for (n=0, i=0; i < ncolors; i++, n += delta)
+X	{
+X	    color.pixel = n + colormap->base_pixel;
+X	    color.red = calc(red_max, red_mult);
+X	    color.green = calc(green_max, green_mult);
+X	    color.blue = calc(blue_max, blue_mult);
+X	    if (! ROorRWcell(dpy, colormap->colormap, pixels, npixels, &color,
+X			     first_index + i))
+X		return 0;
+X	}
+X#undef calc
+X    }
+X    /* We have a read-only map defined.  Now free unused cells,
+X     * first those occuring before the contiguous sequence begins,
+X     * then any following the contiguous sequence.
+X     */
+X
+X    if (first_index)
+X	XFreeColors(dpy, colormap->colormap, pixels, first_index, 
+X		    (unsigned long) 0);
+X    if (remainder)
+X	XFreeColors(dpy, colormap->colormap,
+X		    &(pixels[first_index + ncolors]), remainder,
+X		    (unsigned long) 0);
+X
+X    free((char *) pixels);
+X    return 1;
+X}
+X
+X
+X/****************************************************************************/
+Xstatic int ROmap(dpy, cmap, pixels, m, n)
+X    Display		*dpy;		/* the X server connection */
+X    Colormap		cmap;		/* specifies colormap ID */
+X    unsigned long	pixels[];	/* returns pixel allocations */
+X    int			m;		/* specifies colormap size */
+X    int			n;		/* specifies number of colors */
+X{
+X    register int	p;
+X
+X    /* first try to allocate the entire colormap */
+X    if (XAllocColorCells(dpy, cmap, 1, (unsigned long *) NULL, 
+X			 (unsigned) 0, pixels, (unsigned) m))
+X	return m;
+X
+X    /* Allocate all available cells in the colormap, using a binary
+X     * algorithm to discover how many cells we can allocate in the colormap.
+X     */
+X    m--;
+X    while (n <= m) {
+X	p = n + ((m - n + 1) / 2);
+X	if (XAllocColorCells(dpy, cmap, 1, (unsigned long *) NULL,
+X			     (unsigned) 0, pixels, (unsigned) p)) {
+X	    if (p == m)
+X		return p;
+X	    else {
+X		XFreeColors(dpy, cmap, pixels, p, (unsigned long) 0);
+X		n = p;
+X	    }
+X	}
+X	else
+X	    m = p - 1;
+X    }
+X    return 0;
+X}
+X      
+X
+X/****************************************************************************/
+Xstatic Status contiguous(pixels, npixels, ncolors, delta, first, rem)
+X    unsigned long	pixels[];	/* specifies allocated pixels */
+X    int			npixels;	/* specifies count of alloc'd pixels */
+X    int			ncolors;	/* specifies needed sequence length */
+X    unsigned long	delta;		/* between pixels */
+X    int			*first;		/* returns first index of sequence */
+X    int			*rem;		/* returns first index after sequence,
+X					 * or 0, if none follow */
+X{
+X    register int i = 1;		/* walking index into the pixel array */
+X    register int count = 1;	/* length of sequence discovered so far */
+X
+X    *first = 0;
+X    if (npixels == ncolors) {
+X	*rem = 0;
+X	return 1;
+X    }
+X    *rem = npixels - 1;
+X    while (count < ncolors && ncolors - count <= *rem)
+X    {
+X	if (pixels[i-1] + delta == pixels[i])
+X	    count++;
+X	else {
+X	    count = 1;
+X	    *first = i;
+X	}
+X	i++;
+X	(*rem)--;
+X    }
+X    if (count != ncolors)
+X	return 0;
+X    return 1;
+X}
+X
+X
+X/****************************************************************************/
+Xstatic Status ROorRWcell(dpy, cmap, pixels, npixels, color, p)
+X    Display		*dpy;
+X    Colormap		cmap;
+X    unsigned long	pixels[];
+X    int			npixels;
+X    XColor		*color;
+X    unsigned long	p;
+X{
+X    unsigned long	pixel;
+X    XColor		request;
+X
+X    /* Free the read/write allocation of one cell in the colormap.
+X     * Request a read only allocation of one cell in the colormap.
+X     * If the read only allocation cannot be granted, give up, because
+X     * there must be no free cells in the colormap.
+X     * If the read only allocation is granted, but gives us a cell which
+X     * is not the one that we just freed, it is probably the case that
+X     * we are trying allocate White or Black or some other color which
+X     * already has a read-only allocation in the map.  So we try to 
+X     * allocate the previously freed cell with a read/write allocation,
+X     * because we want contiguous cells for image processing algorithms.
+X     */
+X     
+X    pixel = color->pixel;
+X    request.red = color->red;
+X    request.green = color->green;
+X    request.blue = color->blue;
+X
+X    XFreeColors(dpy, cmap, &pixel, 1, (unsigned long) 0);
+X    if (! XAllocColor(dpy, cmap, color) 
+X	|| (color->pixel != pixel &&
+X	    (!RWcell(dpy, cmap, color, &request, &pixel)))) 
+X    {
+X	free_cells(dpy, cmap, pixels, npixels, (int)p);
+X	return 0;
+X    }
+X    return 1;
+X}
+X
+X
+X/****************************************************************************/
+Xstatic void free_cells(dpy, cmap, pixels, npixels,  p)
+X    Display		*dpy;
+X    Colormap		cmap;
+X    unsigned long	pixels[];	/* to be freed */
+X    int			npixels;        /* original number allocated */
+X    int			p;	  
+X{
+X    /* One of the npixels allocated has already been freed.
+X     * p is the index of the freed pixel.
+X     * First free the pixels preceeding p, and there are p of them;
+X     * then free the pixels following p, there are npixels - p - 1 of them.
+X     */
+X    XFreeColors(dpy, cmap, pixels, p, (unsigned long) 0);
+X    XFreeColors(dpy, cmap, &(pixels[p+1]), npixels - p - 1, (unsigned long) 0);
+X    free((char *) pixels);
+X}
+X
+X
+X/****************************************************************************/
+Xstatic Status RWcell(dpy, cmap, color, request, pixel)
+X    Display		*dpy;
+X    Colormap		cmap;
+X    XColor		*color;
+X    XColor		*request;
+X    unsigned long	*pixel;
+X{
+X    unsigned long	n = *pixel;
+X
+X    XFreeColors(dpy, cmap, &(color->pixel), 1, (unsigned long)0);
+X    if (! XAllocColorCells(dpy, cmap, (Bool) 0, (unsigned long *) NULL,
+X			   (unsigned) 0, pixel, (unsigned) 1))
+X	return 0;
+X    if (*pixel != n)
+X    {
+X	XFreeColors(dpy, cmap, pixel, 1, (unsigned long) 0);
+X	return 0;
+X    }
+X    color->pixel = *pixel;
+X    color->flags = DoRed | DoGreen | DoBlue;
+X    color->red = request->red;
+X    color->green = request->green;
+X    color->blue = request->blue;
+X    XStoreColors(dpy, cmap, color, 1);
+X    return 1;
+X}
+X
+X
+X/****************************************************************************/
+Xstatic int compare(e1, e2)
+X    unsigned long	*e1, *e2;
+X{
+X    if (*e1 < *e2)	return -1;
+X    if (*e1 > *e2)	return 1;
+X    return 0;
+X}
+X
+X
+X/****************************************************************************/
+Xstatic Status readonly_map(dpy, vinfo, colormap)
+X    Display		*dpy;
+X    XVisualInfo		*vinfo;
+X    XStandardColormap	*colormap;
+X{
+X    int			i, last_pixel;
+X    XColor		color;
+X
+X    last_pixel = (colormap->red_max + 1) * (colormap->green_max + 1) * 
+X	(colormap->blue_max + 1) + colormap->base_pixel - 1;
+X
+X    for(i=colormap->base_pixel; i <= last_pixel; i++) {
+X
+X	color.pixel = (unsigned long) i;
+X	color.red = (unsigned short)
+X	    (((i/colormap->red_mult) * 65535) / colormap->red_max);
+X
+X	if (vinfo->class == StaticColor) {
+X	    color.green = (unsigned short)
+X		((((i/colormap->green_mult) % (colormap->green_max + 1)) *
+X		  65535) / colormap->green_max);
+X	    color.blue = (unsigned short)
+X		(((i%colormap->green_mult) * 65535) / colormap->blue_max);
+X	}
+X	else	/* vinfo->class == GrayScale, old style allocation XXX */
+X	    color.green = color.blue = color.red;
+X
+X	XAllocColor(dpy, colormap->colormap, &color);
+X	if (color.pixel != (unsigned long) i)
+X	    return 0;
+X    }
+X    return 1;
+X}
+END_OF_FILE
+  if test 17396 -ne `wc -c <'XMU/CrCmap.c'`; then
+    echo shar: \"'XMU/CrCmap.c'\" unpacked with wrong size!
+  fi
+  # end of 'XMU/CrCmap.c'
+fi
+if test -f 'teapotc.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'teapotc.3'\"
+else
+  echo shar: Extracting \"'teapotc.3'\" \(14709 characters\)
+  sed "s/^X//" >'teapotc.3' <<'END_OF_FILE'
+X{{0,0,-1.975},{0.014531,0.011613,-0.999827}},
+X{{0.664723,1.34956,-1.825},{0.435809,0.900039,0}},
+X{{0.661041,1.34209,-1.85692},{0.365784,0.755423,-0.543635}},
+X{{0.643405,1.30628,-1.88754},{0.184533,0.3811,-0.905931}},
+X{{0.601933,1.22208,-1.91552},{0.08733,0.180355,-0.979717}},
+X{{0.52674,1.06942,-1.93958},{0.0435014,0.0898399,-0.995006}},
+X{{0.407942,0.82823,-1.95838},{0.0210444,0.0434613,-0.998833}},
+X{{0.235657,0.478445,-1.97063},{0.00811517,0.0167596,-0.999827}},
+X{{0,0,-1.975},{0.0116129,0.0145311,-0.999827}},
+X{{0.34758,1.46099,-1.825},{0.22374,0.974649,0}},
+X{{0.345655,1.4529,-1.85692},{0.187887,0.818467,-0.542964}},
+X{{0.336433,1.41414,-1.88754},{0.0948736,0.413285,-0.905646}},
+X{{0.314747,1.32299,-1.91552},{0.0449099,0.195634,-0.979648}},
+X{{0.275429,1.15772,-1.93958},{0.022372,0.0974559,-0.994988}},
+X{{0.213311,0.896614,-1.95838},{0.010823,0.0471463,-0.998829}},
+X{{0.123224,0.517949,-1.97063},{0.00417375,0.0181806,-0.999826}},
+X{{0,0,-1.975},{0.00811517,0.0167596,-0.999827}},
+X{{0,1.5,-1.825},{0,1,0}},
+X{{0,1.49169,-1.85692},{0,0.840039,-0.542525}},
+X{{0,1.45189,-1.88754},{0,0.424434,-0.905459}},
+X{{0,1.35831,-1.91552},{0,0.200944,-0.979603}},
+X{{0,1.18863,-1.93958},{0,0.100104,-0.994977}},
+X{{0,0.920554,-1.95838},{0,0.048428,-0.998827}},
+X{{0,0.531778,-1.97063},{0,0.018675,-0.999826}},
+X{{0,0,-1.975},{0.00417375,0.0181806,-0.999826}}
+X};
+X
+XPEXVertexNormal pt30[] = {
+X{{0,1.5,-1.825},{0,1,0}},
+X{{0,1.49169,-1.85692},{0,0.840039,-0.542525}},
+X{{0,1.45189,-1.88754},{0,0.424434,-0.905459}},
+X{{0,1.35831,-1.91552},{0,0.200944,-0.979603}},
+X{{0,1.18863,-1.93958},{0,0.100104,-0.994977}},
+X{{0,0.920554,-1.95838},{0,0.048428,-0.998827}},
+X{{0,0.531778,-1.97063},{0,0.018675,-0.999826}},
+X{{0,0,-1.975},{-0.00417347,0.0181807,-0.999826}},
+X{{-0.34758,1.46099,-1.825},{-0.22374,0.974649,0}},
+X{{-0.345655,1.4529,-1.85692},{-0.187887,0.818467,-0.542964}},
+X{{-0.336433,1.41414,-1.88754},{-0.0948736,0.413285,-0.905646}},
+X{{-0.314748,1.32299,-1.91552},{-0.0449098,0.195634,-0.979648}},
+X{{-0.275429,1.15772,-1.93958},{-0.0223719,0.0974559,-0.994988}},
+X{{-0.213311,0.896614,-1.95838},{-0.0108228,0.0471463,-0.998829}},
+X{{-0.123224,0.517949,-1.97063},{-0.00417347,0.0181807,-0.999826}},
+X{{0,0,-1.975},{0,0.018675,-0.999826}},
+X{{-0.664723,1.34956,-1.825},{-0.435809,0.900039,0}},
+X{{-0.661041,1.34209,-1.85692},{-0.365784,0.755423,-0.543635}},
+X{{-0.643405,1.30628,-1.88754},{-0.184533,0.3811,-0.905931}},
+X{{-0.601933,1.22208,-1.91552},{-0.0873301,0.180355,-0.979717}},
+X{{-0.52674,1.06942,-1.93958},{-0.0435015,0.0898399,-0.995006}},
+X{{-0.407942,0.82823,-1.95838},{-0.0210445,0.0434613,-0.998833}},
+X{{-0.235657,0.478445,-1.97063},{-0.00811527,0.0167595,-0.999827}},
+X{{0,0,-1.975},{-0.00417347,0.0181807,-0.999826}},
+X{{-0.943032,1.17411,-1.825},{-0.624305,0.781181,0}},
+X{{-0.937808,1.16761,-1.85692},{-0.52383,0.655459,-0.544037}},
+X{{-0.912789,1.13646,-1.88754},{-0.264119,0.330487,-0.906101}},
+X{{-0.853953,1.0632,-1.91552},{-0.124976,0.15638,-0.979758}},
+X{{-0.747277,0.930389,-1.93958},{-0.0622519,0.0778947,-0.995016}},
+X{{-0.578741,0.720555,-1.95838},{-0.030115,0.0376823,-0.998836}},
+X{{-0.334323,0.416244,-1.97063},{-0.011613,0.014531,-0.999827}},
+X{{0,0,-1.975},{-0.00811527,0.0167595,-0.999827}},
+X{{-1.17411,0.943032,-1.825},{-0.781181,0.624304,0}},
+X{{-1.16761,0.937808,-1.85692},{-0.655459,0.52383,-0.544037}},
+X{{-1.13646,0.912789,-1.88754},{-0.330488,0.264119,-0.906101}},
+X{{-1.0632,0.853953,-1.91552},{-0.15638,0.124976,-0.979758}},
+X{{-0.930389,0.747277,-1.93958},{-0.0778947,0.0622519,-0.995016}},
+X{{-0.720555,0.578741,-1.95838},{-0.0376823,0.030115,-0.998836}},
+X{{-0.416244,0.334323,-1.97063},{-0.0145311,0.0116129,-0.999827}},
+X{{0,0,-1.975},{-0.011613,0.014531,-0.999827}},
+X{{-1.34956,0.664723,-1.825},{-0.900039,0.435809,0}},
+X{{-1.34209,0.661041,-1.85692},{-0.755423,0.365784,-0.543635}},
+X{{-1.30628,0.643405,-1.88754},{-0.3811,0.184533,-0.905931}},
+X{{-1.22208,0.601933,-1.91552},{-0.180355,0.08733,-0.979717}},
+X{{-1.06942,0.52674,-1.93958},{-0.0898399,0.0435014,-0.995006}},
+X{{-0.82823,0.407942,-1.95838},{-0.0434613,0.0210444,-0.998833}},
+X{{-0.478445,0.235657,-1.97063},{-0.0167596,0.00811517,-0.999827}},
+X{{0,0,-1.975},{-0.0145311,0.0116129,-0.999827}},
+X{{-1.46099,0.34758,-1.825},{-0.974649,0.22374,0}},
+X{{-1.4529,0.345655,-1.85692},{-0.818467,0.187887,-0.542964}},
+X{{-1.41414,0.336433,-1.88754},{-0.413285,0.0948736,-0.905646}},
+X{{-1.32299,0.314747,-1.91552},{-0.195634,0.0449099,-0.979648}},
+X{{-1.15772,0.275429,-1.93958},{-0.0974559,0.022372,-0.994988}},
+X{{-0.896614,0.213311,-1.95838},{-0.0471463,0.010823,-0.998829}},
+X{{-0.517949,0.123224,-1.97063},{-0.0181806,0.00417375,-0.999826}},
+X{{0,0,-1.975},{-0.0167596,0.00811517,-0.999827}},
+X{{-1.5,0,-1.825},{-1,0,0}},
+X{{-1.49169,0,-1.85692},{-0.840039,0,-0.542525}},
+X{{-1.45189,0,-1.88754},{-0.424434,0,-0.905459}},
+X{{-1.35831,0,-1.91552},{-0.200944,0,-0.979603}},
+X{{-1.18863,0,-1.93958},{-0.100104,0,-0.994977}},
+X{{-0.920554,0,-1.95838},{-0.048428,0,-0.998827}},
+X{{-0.531778,0,-1.97063},{-0.018675,0,-0.999826}},
+X{{0,0,-1.975},{-0.0181806,0.00417375,-0.999826}}
+X};
+X
+XPEXVertexNormal pt31[] = {
+X{{-1.5,0,-1.825},{-1,0,0}},
+X{{-1.49169,0,-1.85692},{-0.840039,0,-0.542525}},
+X{{-1.45189,0,-1.88754},{-0.424434,0,-0.905459}},
+X{{-1.35831,0,-1.91552},{-0.200944,0,-0.979603}},
+X{{-1.18863,0,-1.93958},{-0.100104,0,-0.994977}},
+X{{-0.920554,0,-1.95838},{-0.048428,0,-0.998827}},
+X{{-0.531778,0,-1.97063},{-0.018675,0,-0.999826}},
+X{{0,0,-1.975},{-0.0181807,-0.00417347,-0.999826}},
+X{{-1.46099,-0.34758,-1.825},{-0.974649,-0.22374,0}},
+X{{-1.4529,-0.345655,-1.85692},{-0.818467,-0.187887,-0.542964}},
+X{{-1.41414,-0.336433,-1.88754},{-0.413285,-0.0948736,-0.905646}},
+X{{-1.32299,-0.314748,-1.91552},{-0.195634,-0.0449098,-0.979648}},
+X{{-1.15772,-0.275429,-1.93958},{-0.0974559,-0.0223719,-0.994988}},
+X{{-0.896614,-0.213311,-1.95838},{-0.0471463,-0.0108228,-0.998829}},
+X{{-0.517949,-0.123224,-1.97063},{-0.0181807,-0.00417347,-0.999826}},
+X{{0,0,-1.975},{-0.018675,0,-0.999826}},
+X{{-1.34956,-0.664723,-1.825},{-0.900039,-0.435809,0}},
+X{{-1.34209,-0.661041,-1.85692},{-0.755423,-0.365784,-0.543635}},
+X{{-1.30628,-0.643405,-1.88754},{-0.3811,-0.184533,-0.905931}},
+X{{-1.22208,-0.601933,-1.91552},{-0.180355,-0.0873301,-0.979717}},
+X{{-1.06942,-0.52674,-1.93958},{-0.0898399,-0.0435015,-0.995006}},
+X{{-0.82823,-0.407942,-1.95838},{-0.0434613,-0.0210445,-0.998833}},
+X{{-0.478445,-0.235657,-1.97063},{-0.0167595,-0.00811527,-0.999827}},
+X{{0,0,-1.975},{-0.0181807,-0.00417347,-0.999826}},
+X{{-1.17411,-0.943032,-1.825},{-0.781181,-0.624305,0}},
+X{{-1.16761,-0.937808,-1.85692},{-0.655459,-0.52383,-0.544037}},
+X{{-1.13646,-0.912789,-1.88754},{-0.330487,-0.264119,-0.906101}},
+X{{-1.0632,-0.853953,-1.91552},{-0.15638,-0.124976,-0.979758}},
+X{{-0.930389,-0.747277,-1.93958},{-0.0778947,-0.0622519,-0.995016}},
+X{{-0.720555,-0.578741,-1.95838},{-0.0376823,-0.030115,-0.998836}},
+X{{-0.416244,-0.334323,-1.97063},{-0.014531,-0.011613,-0.999827}},
+X{{0,0,-1.975},{-0.0167595,-0.00811527,-0.999827}},
+X{{-0.943032,-1.17411,-1.825},{-0.624304,-0.781181,0}},
+X{{-0.937808,-1.16761,-1.85692},{-0.52383,-0.655459,-0.544037}},
+X{{-0.912789,-1.13646,-1.88754},{-0.264119,-0.330488,-0.906101}},
+X{{-0.853953,-1.0632,-1.91552},{-0.124976,-0.15638,-0.979758}},
+X{{-0.747277,-0.930389,-1.93958},{-0.0622519,-0.0778947,-0.995016}},
+X{{-0.578741,-0.720555,-1.95838},{-0.030115,-0.0376823,-0.998836}},
+X{{-0.334323,-0.416244,-1.97063},{-0.0116129,-0.0145311,-0.999827}},
+X{{0,0,-1.975},{-0.014531,-0.011613,-0.999827}},
+X{{-0.664723,-1.34956,-1.825},{-0.435809,-0.900039,0}},
+X{{-0.661041,-1.34209,-1.85692},{-0.365784,-0.755423,-0.543635}},
+X{{-0.643405,-1.30628,-1.88754},{-0.184533,-0.3811,-0.905931}},
+X{{-0.601933,-1.22208,-1.91552},{-0.08733,-0.180355,-0.979717}},
+X{{-0.52674,-1.06942,-1.93958},{-0.0435014,-0.0898399,-0.995006}},
+X{{-0.407942,-0.82823,-1.95838},{-0.0210444,-0.0434613,-0.998833}},
+X{{-0.235657,-0.478445,-1.97063},{-0.00811517,-0.0167596,-0.999827}},
+X{{0,0,-1.975},{-0.0116129,-0.0145311,-0.999827}},
+X{{-0.34758,-1.46099,-1.825},{-0.22374,-0.974649,0}},
+X{{-0.345655,-1.4529,-1.85692},{-0.187887,-0.818467,-0.542964}},
+X{{-0.336433,-1.41414,-1.88754},{-0.0948736,-0.413285,-0.905646}},
+X{{-0.314747,-1.32299,-1.91552},{-0.0449099,-0.195634,-0.979648}},
+X{{-0.275429,-1.15772,-1.93958},{-0.022372,-0.0974559,-0.994988}},
+X{{-0.213311,-0.896614,-1.95838},{-0.010823,-0.0471463,-0.998829}},
+X{{-0.123224,-0.517949,-1.97063},{-0.00417375,-0.0181806,-0.999826}},
+X{{0,0,-1.975},{-0.00811517,-0.0167596,-0.999827}},
+X{{0,-1.5,-1.825},{0,-1,0}},
+X{{0,-1.49169,-1.85692},{0,-0.840039,-0.542525}},
+X{{0,-1.45189,-1.88754},{0,-0.424434,-0.905459}},
+X{{0,-1.35831,-1.91552},{0,-0.200944,-0.979603}},
+X{{0,-1.18863,-1.93958},{0,-0.100104,-0.994977}},
+X{{0,-0.920554,-1.95838},{0,-0.048428,-0.998827}},
+X{{0,-0.531778,-1.97063},{0,-0.018675,-0.999826}},
+X{{0,0,-1.975},{-0.00417375,-0.0181806,-0.999826}}
+X};
+X
+XPEXVertexNormal pt32[] = {
+X{{0,-1.5,-1.825},{0,-1,0}},
+X{{0,-1.49169,-1.85692},{0,-0.840039,-0.542525}},
+X{{0,-1.45189,-1.88754},{0,-0.424434,-0.905459}},
+X{{0,-1.35831,-1.91552},{0,-0.200944,-0.979603}},
+X{{0,-1.18863,-1.93958},{0,-0.100104,-0.994977}},
+X{{0,-0.920554,-1.95838},{0,-0.048428,-0.998827}},
+X{{0,-0.531778,-1.97063},{0,-0.018675,-0.999826}},
+X{{0,0,-1.975},{0.00417347,-0.0181807,-0.999826}},
+X{{0.34758,-1.46099,-1.825},{0.22374,-0.974649,0}},
+X{{0.345655,-1.4529,-1.85692},{0.187887,-0.818467,-0.542964}},
+X{{0.336433,-1.41414,-1.88754},{0.0948736,-0.413285,-0.905646}},
+X{{0.314748,-1.32299,-1.91552},{0.0449098,-0.195634,-0.979648}},
+X{{0.275429,-1.15772,-1.93958},{0.0223719,-0.0974559,-0.994988}},
+X{{0.213311,-0.896614,-1.95838},{0.0108228,-0.0471463,-0.998829}},
+X{{0.123224,-0.517949,-1.97063},{0.00417347,-0.0181807,-0.999826}},
+X{{0,0,-1.975},{0,-0.018675,-0.999826}},
+X{{0.664723,-1.34956,-1.825},{0.435809,-0.900039,0}},
+X{{0.661041,-1.34209,-1.85692},{0.365784,-0.755423,-0.543635}},
+X{{0.643405,-1.30628,-1.88754},{0.184533,-0.3811,-0.905931}},
+X{{0.601933,-1.22208,-1.91552},{0.0873301,-0.180355,-0.979717}},
+X{{0.52674,-1.06942,-1.93958},{0.0435015,-0.0898399,-0.995006}},
+X{{0.407942,-0.82823,-1.95838},{0.0210445,-0.0434613,-0.998833}},
+X{{0.235657,-0.478445,-1.97063},{0.00811527,-0.0167595,-0.999827}},
+X{{0,0,-1.975},{0.00417347,-0.0181807,-0.999826}},
+X{{0.943032,-1.17411,-1.825},{0.624305,-0.781181,0}},
+X{{0.937808,-1.16761,-1.85692},{0.52383,-0.655459,-0.544037}},
+X{{0.912789,-1.13646,-1.88754},{0.264119,-0.330487,-0.906101}},
+X{{0.853953,-1.0632,-1.91552},{0.124976,-0.15638,-0.979758}},
+X{{0.747277,-0.930389,-1.93958},{0.0622519,-0.0778947,-0.995016}},
+X{{0.578741,-0.720555,-1.95838},{0.030115,-0.0376823,-0.998836}},
+X{{0.334323,-0.416244,-1.97063},{0.011613,-0.014531,-0.999827}},
+X{{0,0,-1.975},{0.00811527,-0.0167595,-0.999827}},
+X{{1.17411,-0.943032,-1.825},{0.781181,-0.624304,0}},
+X{{1.16761,-0.937808,-1.85692},{0.655459,-0.52383,-0.544037}},
+X{{1.13646,-0.912789,-1.88754},{0.330488,-0.264119,-0.906101}},
+X{{1.0632,-0.853953,-1.91552},{0.15638,-0.124976,-0.979758}},
+X{{0.930389,-0.747277,-1.93958},{0.0778947,-0.0622519,-0.995016}},
+X{{0.720555,-0.578741,-1.95838},{0.0376823,-0.030115,-0.998836}},
+X{{0.416244,-0.334323,-1.97063},{0.0145311,-0.0116129,-0.999827}},
+X{{0,0,-1.975},{0.011613,-0.014531,-0.999827}},
+X{{1.34956,-0.664723,-1.825},{0.900039,-0.435809,0}},
+X{{1.34209,-0.661041,-1.85692},{0.755423,-0.365784,-0.543635}},
+X{{1.30628,-0.643405,-1.88754},{0.3811,-0.184533,-0.905931}},
+X{{1.22208,-0.601933,-1.91552},{0.180355,-0.08733,-0.979717}},
+X{{1.06942,-0.52674,-1.93958},{0.0898399,-0.0435014,-0.995006}},
+X{{0.82823,-0.407942,-1.95838},{0.0434613,-0.0210444,-0.998833}},
+X{{0.478445,-0.235657,-1.97063},{0.0167596,-0.00811517,-0.999827}},
+X{{0,0,-1.975},{0.0145311,-0.0116129,-0.999827}},
+X{{1.46099,-0.34758,-1.825},{0.974649,-0.22374,0}},
+X{{1.4529,-0.345655,-1.85692},{0.818467,-0.187887,-0.542964}},
+X{{1.41414,-0.336433,-1.88754},{0.413285,-0.0948736,-0.905646}},
+X{{1.32299,-0.314747,-1.91552},{0.195634,-0.0449099,-0.979648}},
+X{{1.15772,-0.275429,-1.93958},{0.0974559,-0.022372,-0.994988}},
+X{{0.896614,-0.213311,-1.95838},{0.0471463,-0.010823,-0.998829}},
+X{{0.517949,-0.123224,-1.97063},{0.0181806,-0.00417375,-0.999826}},
+X{{0,0,-1.975},{0.0167596,-0.00811517,-0.999827}},
+X{{1.5,0,-1.825},{1,0,0}},
+X{{1.49169,0,-1.85692},{0.840039,0,-0.542525}},
+X{{1.45189,0,-1.88754},{0.424434,0,-0.905459}},
+X{{1.35831,0,-1.91552},{0.200944,0,-0.979603}},
+X{{1.18863,0,-1.93958},{0.100104,0,-0.994977}},
+X{{0.920554,0,-1.95838},{0.048428,0,-0.998827}},
+X{{0.531778,0,-1.97063},{0.018675,0,-0.999826}},
+X{{0,0,-1.975},{0.0181806,-0.00417375,-0.999826}}
+X};
+X
+XPEXVertexNormal *ptrs[] = {pt1,pt2,pt3,pt4,pt5,pt6,pt7,pt8,
+X  pt9,pt10,pt11,pt12,pt13,pt14,pt15,pt16,
+X  pt17,pt18,pt19,pt20,pt21,pt22,pt23,pt24,
+X  pt25,pt26,pt27,pt28,pt29,pt30,pt31,pt32};
+X
+XPEXColorRGB myColor = { 1.0, 0., 0.8};
+Xmain (argc, argv)
+X     int argc;
+X     char  *argv[];
+X{
+X  Display		*theDisplay;
+X  char			*displayString = (char *)0;
+X  PEXExtensionInfo	*info_return;
+X  char			err_msg[PEXErrorStringLength];
+X  XID                   theStrux;  
+X  int                   i, j;
+X  PEXCoord p[2];
+X  PEXArrayOfVertex      vdata;
+X  PEXArrayOfFacetData      aFacetData;
+X  PEXVector             fnorm[100];
+X
+X  for ( i = 1; i<argc; i++ ) {
+X    if ((strncmp(argv[i],"-display",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      displayString = argv[i];
+X    } else if ((strncmp(argv[i],"-strux",strlen(argv[i]))) == 0) {
+X      if (++i > argc) { printf("not enough args"); exit(1); }
+X      theStrux = atoi(argv[i]);
+X    }
+X  }
+X
+X  /*
+X   * Open the display and initialize the PEX extension.
+X   */
+X  
+X  if (!(theDisplay = XOpenDisplay(displayString)))
+X    {
+X      printf ( "Could not open display %s\n",displayString);
+X      exit (1);
+X    }
+X  
+X  if (PEXInitialize(theDisplay, &info_return, PEXErrorStringLength, err_msg))
+X    {
+X      printf ("%s\n", err_msg);
+X      exit (1);	    
+X    }
+X
+X  PEXSetLineColorIndex( theDisplay, theStrux, PEXOCStore, 2);
+X  p[0].x = 0; p[0].y = 0; p[0].z = 0;
+X  p[1].x = -2; p[1].y = -2; p[1].z = -2;
+X  PEXPolyline(theDisplay, theStrux, PEXOCStore, 2, p );
+X
+X  PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore, PEXColorTypeRGB, 
+X		     (PEXColor *)&myColor);
+X
+X  aFacetData.normal = fnorm;
+X
+X  for ( i = 0; i < 32; i++ ) {
+X    vdata.normal = ptrs[i];
+X
+X
+X    PEXGeoNormQuadrilateralMesh( PEXGANormal, PEXGANormal,
+X				PEXColorTypeRGB, aFacetData, 8, 8, vdata );
+X
+X    for (j = 0; j < 49; j++ ) {
+X      fnorm[j].x = -fnorm[j].x;
+X      fnorm[j].y = -fnorm[j].y;
+X      fnorm[j].z = -fnorm[j].z;
+X    }
+X
+X    PEXSetSurfaceColor( theDisplay, theStrux, PEXOCStore, PEXColorTypeRGB, 
+X		       (PEXColor *)&myColor);
+X
+X    PEXQuadrilateralMesh(theDisplay, theStrux, PEXOCStore,
+X			 PEXShapeConvex, PEXGANormal, PEXGANormal,
+X			 PEXColorTypeRGB, aFacetData, 8, 8, vdata );
+X  }
+X
+X  XSync(theDisplay,0);
+X}
+END_OF_FILE
+  if test 14709 -ne `wc -c <'teapotc.3'`; then
+    echo shar: \"'teapotc.3'\" unpacked with wrong size!
+  fi
+  # end of 'teapotc.3'
+fi
+if test -f 'util/pexutdbint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutdbint.c'\"
+else
+  echo shar: Extracting \"'util/pexutdbint.c'\" \(6265 characters\)
+  sed "s/^X//" >'util/pexutdbint.c' <<'END_OF_FILE'
+X/* $Header: pexutdbint.c,v 500.1.200.1 93/03/17 13:50:54 rj Exp $ */
+X
+X/******************************************************************************/
+X/*  (c) Copyright Hewlett-Packard Company, 1992,  Fort Collins, Colorado      */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted provided  */
+X/*  that the above copyright notices appear in all copies and that both the   */
+X/*  copyright notices and this permission notice appear in supporting         */
+X/*  documentation, and that the name of Hewlett-Packard not be used in        */
+X/*  advertising or publicity pertaining to distribution of the software       */
+X/*  without specific, written prior permission.                               */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Module:  PEXlib Double-Buffer Utilities                                    */
+X/*                                                                            */
+X/* File Content:                                                              */
+X/*   This file contains source code for data management functions used by the */
+X/*   PEXlib double-buffer utilities.                                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X/*
+X** Include files
+X*/
+X#include <X11/PEX5/PEXlib.h>
+X#include "pexutdbint.h"
+X
+X
+X/*
+X** Global internal data
+X*/
+Xstatic PEXUtDBData *pexutdb_head = (PEXUtDBData *)NULL;   /* modified by all  */
+X                                                          /* *_node functions */
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* lookup_node                                                                */
+X/*                                                                            */
+X/******************************************************************************/
+X
+XPEXUtDBData *lookup_node( win, dpy )
+X    Window      win;
+X    Display     *dpy;
+X{
+X    PEXUtDBData *ptr;
+X    
+X    ptr = pexutdb_head;
+X    while ( ptr != (PEXUtDBData *)NULL ) {
+X        if ( ( ptr->window != win ) || ( ptr->display != dpy ) )
+X            ptr = ptr->next;
+X        else
+X            break;
+X    }
+X
+X    return( ptr );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* add_node                                                                   */
+X/*                                                                            */
+X/******************************************************************************/
+X
+XPEXUtDBData *add_node( win, dpy )
+X    Window      win;
+X    Display     *dpy;
+X{
+X    PEXUtDBData *ptr;
+X    
+X    if ( pexutdb_head == (PEXUtDBData *)NULL ) {
+X        /*
+X        ** if no data, create a new list of nodes
+X        */
+X        ptr = (PEXUtDBData *)malloc( sizeof( PEXUtDBData ) );
+X        if ( ptr == (PEXUtDBData *)NULL )
+X            return( ptr );
+X        ptr->next = (PEXUtDBData *)NULL;
+X    } else {
+X        /*
+X        ** check for existing node with matching search keys
+X        */
+X        ptr = pexutdb_head;
+X        while ( ptr != (PEXUtDBData *)NULL ) {
+X            if ( ( ptr->window == win ) && ( ptr->display == dpy ) )
+X                return( (PEXUtDBData *)NULL );
+X            ptr = ptr->next;
+X        }
+X        /*
+X        ** allocate new node
+X        */
+X        ptr = (PEXUtDBData *)malloc( sizeof( PEXUtDBData ) );
+X        if ( ptr == (PEXUtDBData *)NULL )
+X            return( ptr );
+X        /*
+X        ** add the new data node at the beginning of the list;
+X        ** this optimizes searches for the most recent additions
+X        */
+X        ptr->next = pexutdb_head;
+X    }
+X
+X    pexutdb_head = ptr;
+X    return( ptr );
+X}
+X
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* delete_node                                                                */
+X/*                                                                            */
+X/******************************************************************************/
+X
+Xvoid delete_node( win, dpy )
+X    Window      win;
+X    Display     *dpy;
+X{
+X    PEXUtDBData *ptr, *prev;
+X
+X    if ( pexutdb_head == (PEXUtDBData *)NULL )
+X        return;
+X        
+X    /*
+X    ** first, need to find the previous node
+X    */
+X    ptr = pexutdb_head;
+X    prev = pexutdb_head;
+X    while ( ptr != (PEXUtDBData *)NULL ) {
+X        if ( ( ptr->window != win ) || ( ptr->display != dpy ) ) {
+X            prev = ptr;
+X            ptr = ptr->next;
+X        } else
+X            break;
+X    }
+X
+X    /*
+X    ** now, we have the previous node;
+X    ** point the previous node to the node after the node we are deleting
+X    */
+X    if ( ptr == pexutdb_head )
+X        pexutdb_head = ptr->next;
+X    else
+X        prev->next = ptr->next;
+X        
+X    /*
+X    ** now, free the node
+X    */
+X    free( ptr );
+X}
+END_OF_FILE
+  if test 6265 -ne `wc -c <'util/pexutdbint.c'`; then
+    echo shar: \"'util/pexutdbint.c'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutdbint.c'
+fi
+if test -f 'util/pexutdbint.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util/pexutdbint.h'\"
+else
+  echo shar: Extracting \"'util/pexutdbint.h'\" \(17902 characters\)
+  sed "s/^X//" >'util/pexutdbint.h' <<'END_OF_FILE'
+X/* $Header: pexutdbint.h,v 500.1.200.1 93/03/17 14:14:40 rj Exp $ */
+X
+X/******************************************************************************/
+X/*  (c) Copyright Hewlett-Packard Company, 1992,  Fort Collins, Colorado      */
+X/*                                                                            */
+X/*                            All Rights Reserved                             */
+X/*                                                                            */
+X/*  Permission to use, copy, modify, and distribute this software and its     */
+X/*  documentation for any purpose and without fee is hereby granted provided  */
+X/*  that the above copyright notices appear in all copies and that both the   */
+X/*  copyright notices and this permission notice appear in supporting         */
+X/*  documentation, and that the name of Hewlett-Packard not be used in        */
+X/*  advertising or publicity pertaining to distribution of the software       */
+X/*  without specific, written prior permission.                               */
+X/*                                                                            */
+X/*  HEWLETT-PACKARD MAKES NO WARRANTY OF ANY KIND WITH REGARD TO THIS         */
+X/*  SOFTWARE, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF        */
+X/*  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  Hewlett-Packard    */
+X/*  shall not be liable for errors contained herein or direct, indirect,      */
+X/*  special, incidental or consequential damages in connection with the       */
+X/*  furnishing, performance or use of this software.                          */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Module:  PEXlib Double-Buffer Utilities (see file pexutdb.h for more info) */
+X/*                                                                            */
+X/* File Content:                                                              */
+X/*   This file contains constants, data structures and function declarations  */
+X/*   for internal use in the PEXlib double-buffer utilities.                  */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X
+X#ifndef _PEXUTDBINT_H_ /* [ */
+X#define _PEXUTDBINT_H_
+X
+X
+X#ifndef NeedFunctionPrototypes
+X#if defined(FUNCPROTO) || defined(__STDC__) || \
+X    defined(__cplusplus) || defined(c_plusplus)
+X#define NeedFunctionPrototypes  1
+X#else
+X#define NeedFunctionPrototypes  0
+X#endif /* FUNCPROTO, __STDC__, __cplusplus, c_plusplus */
+X#endif /* NeedFunctionPrototypes */
+X
+X
+X#ifdef __cplusplus   /* do not leave open across includes */
+Xextern "C" {         /* for C++ V2.0 */
+X#endif
+X
+X
+X/*
+X** Data structures and constants for the Multi-Buffering Extension (MBX).
+X** This is included here because some vendors ship the MBX library extension,
+X** but not the multibuf.h include file.
+X** This is the X11R5 version of the multibuf.h include file.
+X*/
+X
+X/*
+X * $XConsortium: multibuf.h,v 1.15 91/07/12 10:20:42 rws Exp $
+X *
+X * Copyright 1989 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X */
+X
+X#ifndef _MULTIBUF_H_ /* [ */
+X#define _MULTIBUF_H_
+X
+X#include <X11/Xfuncproto.h>
+X
+X#define MULTIBUFFER_PROTOCOL_NAME "Multi-Buffering"
+X
+X#define MULTIBUFFER_MAJOR_VERSION	1	/* current version numbers */
+X#define MULTIBUFFER_MINOR_VERSION	0
+X
+X#define X_MbufGetBufferVersion		0
+X#define X_MbufCreateImageBuffers	1
+X#define X_MbufDestroyImageBuffers	2
+X#define X_MbufDisplayImageBuffers	3
+X#define X_MbufSetMBufferAttributes	4
+X#define X_MbufGetMBufferAttributes	5
+X#define X_MbufSetBufferAttributes	6
+X#define X_MbufGetBufferAttributes	7
+X#define X_MbufGetBufferInfo		8
+X#define X_MbufCreateStereoWindow	9
+X
+X/*
+X * update_action field
+X */
+X#define MultibufferUpdateActionUndefined	0
+X#define MultibufferUpdateActionBackground	1
+X#define MultibufferUpdateActionUntouched	2
+X#define MultibufferUpdateActionCopied		3
+X
+X/*
+X * update_hint field
+X */
+X#define MultibufferUpdateHintFrequent		0
+X#define MultibufferUpdateHintIntermittent	1
+X#define MultibufferUpdateHintStatic		2
+X
+X/*
+X * valuemask fields
+X */
+X#define MultibufferWindowUpdateHint	(1L << 0)
+X#define MultibufferBufferEventMask	(1L << 0)
+X
+X/*
+X * mono vs. stereo and left vs. right
+X */
+X#define MultibufferModeMono		0
+X#define MultibufferModeStereo		1
+X#define MultibufferSideMono		0
+X#define MultibufferSideLeft	  	1
+X#define MultibufferSideRight		2
+X
+X/*
+X * clobber state
+X */
+X#define MultibufferUnclobbered		0
+X#define MultibufferPartiallyClobbered	1
+X#define MultibufferFullyClobbered	2
+X
+X/*
+X * event stuff
+X */
+X#define MultibufferClobberNotifyMask	0x02000000
+X#define MultibufferUpdateNotifyMask	0x04000000
+X
+X#define MultibufferClobberNotify	0
+X#define MultibufferUpdateNotify		1
+X#define MultibufferNumberEvents		(MultibufferUpdateNotify + 1)
+X
+X#define MultibufferBadBuffer		0
+X#define MultibufferNumberErrors		(MultibufferBadBuffer + 1)
+X
+X
+X#ifndef _MULTIBUF_SERVER_ /* [ */
+X/*
+X * Extra definitions that will only be needed in the client
+X */
+Xtypedef XID Multibuffer;
+X
+Xtypedef struct {
+X    int	type;		    /* of event */
+X    unsigned long serial;   /* # of last request processed by server */
+X    int send_event;	    /* true if this came frome a SendEvent request */
+X    Display *display;	    /* Display the event was read from */
+X    Multibuffer buffer;	    /* buffer of event */
+X    int	state;		    /* see Clobbered constants above */
+X} XmbufClobberNotifyEvent;
+X
+Xtypedef struct {
+X    int	type;		    /* of event */
+X    unsigned long serial;   /* # of last request processed by server */
+X    int send_event;	    /* true if this came frome a SendEvent request */
+X    Display *display;	    /* Display the event was read from */
+X    Multibuffer buffer;	    /* buffer of event */
+X} XmbufUpdateNotifyEvent;
+X
+X
+X/*
+X * per-window attributes that can be got
+X */
+Xtypedef struct {
+X    int displayed_index;	/* which buffer is being displayed */
+X    int update_action;		/* Undefined, Background, Untouched, Copied */
+X    int update_hint;		/* Frequent, Intermittent, Static */
+X    int window_mode;		/* Mono, Stereo */
+X    int nbuffers;		/* Number of buffers */
+X    Multibuffer *buffers;	/* Buffers */
+X} XmbufWindowAttributes;
+X
+X/*
+X * per-window attributes that can be set
+X */
+Xtypedef struct {
+X    int update_hint;		/* Frequent, Intermittent, Static */
+X} XmbufSetWindowAttributes;
+X
+X
+X/*
+X * per-buffer attributes that can be got
+X */
+Xtypedef struct {
+X    Window window;		/* which window this belongs to */
+X    unsigned long event_mask;	/* events that have been selected */
+X    int buffer_index;		/* which buffer is this */
+X    int side;			/* Mono, Left, Right */
+X} XmbufBufferAttributes;
+X
+X/*
+X * per-buffer attributes that can be set
+X */
+Xtypedef struct {
+X    unsigned long event_mask;	/* events that have been selected */
+X} XmbufSetBufferAttributes;
+X
+X
+X/*
+X * per-screen buffer info (there will be lists of them)
+X */
+Xtypedef struct {
+X    VisualID visualid;		/* visual usuable at this depth */
+X    int max_buffers;		/* most buffers for this visual */
+X    int depth;			/* depth of buffers to be created */
+X} XmbufBufferInfo;
+X
+X_XFUNCPROTOBEGIN
+X
+Xextern Bool XmbufQueryExtension(
+X#if NeedFunctionPrototypes
+X    Display*		/* dpy */,
+X    int*		/* event_base_return */,
+X    int*		/* error_base_return */
+X#endif
+X);
+X
+Xextern Status XmbufGetVersion(
+X#if NeedFunctionPrototypes
+X    Display*		/* dpy */,
+X    int*		/* major_version_return */,
+X    int*		/* minor_version_return */
+X#endif
+X);
+X
+Xextern int XmbufCreateBuffers(
+X#if NeedFunctionPrototypes
+X    Display*		/* dpy */,
+X    Window		/* w */,
+X    int			/* count */,
+X    int			/* update_action */,
+X    int			/* update_hint */,
+X    Multibuffer*	/* buffers */
+X#endif
+X);
+X
+Xextern void XmbufDestroyBuffers(
+X#if NeedFunctionPrototypes
+X    Display*		/* dpy */,
+X    Window		/* window */
+X#endif
+X);
+X
+Xextern void XmbufDisplayBuffers(
+X#if NeedFunctionPrototypes
+X    Display*		/* dpy */,
+X    int			/* count */,
+X    Multibuffer*	/* buffers */,
+X    int			/* min_delay */,
+X    int			/* max_delay */
+X#endif
+X);
+X
+Xextern Status XmbufGetWindowAttributes(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Window			/* w */,
+X    XmbufWindowAttributes*	/* attr */
+X#endif
+X);
+X
+Xextern void XmbufChangeWindowAttributes(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Window			/* w */,
+X    unsigned long		/* valuemask */,
+X    XmbufSetWindowAttributes*	/* attr */
+X#endif
+X);
+X
+Xextern Status XmbufGetBufferAttributes(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Multibuffer			/* b */,
+X    XmbufBufferAttributes*	/* attr */
+X#endif
+X);
+X
+Xextern void XmbufChangeBufferAttributes(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Multibuffer			/* b */,
+X    unsigned long		/* valuemask */,
+X    XmbufSetBufferAttributes*	/* attr */
+X#endif
+X);
+X
+Xextern Status XmbufGetScreenInfo(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Drawable			/* d */,
+X    int*			/* nmono_return */,
+X    XmbufBufferInfo**		/* mono_info_return */,
+X    int*			/* nstereo_return */,
+X    XmbufBufferInfo**		/* stereo_info_return */
+X#endif
+X);
+X
+Xextern Window XmbufCreateStereoWindow(
+X#if NeedFunctionPrototypes
+X    Display*			/* dpy */,
+X    Window			/* parent */,
+X    int				/* x */,
+X    int				/* y */,
+X    unsigned int		/* width */,
+X    unsigned int		/* height */,
+X    unsigned int		/* border_width */,
+X    int				/* depth */,
+X    unsigned int		/* class */,
+X    Visual*			/* visual */,
+X    unsigned long		/* valuemask */,
+X    XSetWindowAttributes*	/* attr */,
+X    Multibuffer*		/* leftp */,
+X    Multibuffer*		/* rightp */
+X#endif
+X);
+X
+X_XFUNCPROTOEND
+X
+X#endif /* _MULTIBUF_SERVER_ ] */
+X#endif /* _MULTIBUF_H_ ] */
+X
+X
+X/*
+X** Aliases for DFRONT constants defined in order to match data structure name
+X*/
+X#define HP_ESCAPE_SETRENDERINGBUFFER            0x80070001
+X#define HP_ESCAPE_ET_SETRENDERINGBUFFER         0x8701
+X#define HP_ESCAPE_ETM_SETRENDERINGBUFFER        "HP_ESCAPE_DFRONT"
+X
+X
+X/*
+X** constants for dbtype variable in PEXUtDBData
+X*/
+X#define PEXUTDBMBX      0
+X#define PEXUTDBESC      1
+X#define PEXUTDBPIX      2
+X
+X/*
+X** Global internal data
+X*/
+Xtypedef struct pexutdbdata {
+X    Window              window;         /* window id - also search key        */
+X    Display             *display;       /* display ptr - secondary search key */
+X    struct pexutdbdata  *next;          /* ptr to next node in the data list  */
+X    int                 db_type;        /* indicates db mechanism used        */
+X    int                 front_supported;/* indicates support of render front  */
+X    int                 render_to_front;/* flag indicating front or back      */
+X    int                 db_x;           /* indicates double-buffer X rendering*/
+X    Multibuffer         back_buffer;    /* current back buffer, if MBX        */
+X    Multibuffer         buffers[2];     /* buffer identifiers, if using MBX   */
+X    PEXRenderer         renderer;       /* renderer id, used for clearing     */
+X    int                 clear_renderer; /* flag indicating whether to clear   */
+X    Pixmap              pixmap;         /* pixmap identifier, if using pixmap */
+X    GC                  gc;             /* gc for clearing pixmap             */
+X    int                 width;          /* window width                       */
+X    int                 height;         /* window height                      */
+X    int                 depth;          /* window depth                       */
+X} PEXUtDBData;
+X
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Internal Functions Description:                                            */
+X/*   This set of functions provides a simple interface for managing global    */
+X/*   data in the PEXlib double-buffer utilities.                              */
+X/*                                                                            */
+X/* Internal Functions:                                                        */
+X/*   lookup_node  - lookup the data node for the specified window             */
+X/*   add_node     - add a new data node for the specified window              */
+X/*   delete_node  - delete the data node for the specified window             */
+X/*                                                                            */
+X/******************************************************************************/
+X
+X/*
+X** function declarations
+X*/
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   lookup_node    - lookup the data node for the specified window           */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   PEXUtDBData *  - a pointer to the data node                              */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   win            - window id search key                                    */
+X/*   dpy            - display ptr secondary search key                        */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern PEXUtDBData *lookup_node(
+X#if NeedFunctionPrototypes
+X    Window              /* win */,
+X    Display *           /* dpy */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   add_node       - add a new data node for the specified window            */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   PEXUtDBData *  - a pointer to the new data node                          */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   win            - window id search key                                    */
+X/*   dpy            - display ptr secondary search key                        */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern PEXUtDBData *add_node(
+X#if NeedFunctionPrototypes
+X    Window              /* win */,
+X    Display *           /* dpy */
+X#endif
+X);
+X
+X/******************************************************************************/
+X/*                                                                            */
+X/* Function:                                                                  */
+X/*   delete_node    - delete the data node for the specified window           */
+X/*                                                                            */
+X/* Returns:                                                                   */
+X/*   void           - no return value                                         */
+X/*                                                                            */
+X/* Arguments:                                                                 */
+X/*   win            - window id search key                                    */
+X/*   dpy            - display ptr secondary search key                        */
+X/*                                                                            */
+X/******************************************************************************/
+Xextern void delete_node(
+X#if NeedFunctionPrototypes
+X    Window              /* win */,
+X    Display *           /* dpy */
+X#endif
+X);
+X
+X
+X/*
+X** macro definition
+X*/
+X
+X#define LOOKUP_NODE(p,w,d)                                                     \
+X    if ( ( pexutdb_last != (PEXUtDBData *)NULL ) &&                            \
+X         ( ( pexutdb_last->window == w ) && ( pexutdb_last->display == d ) ) ) \
+X        p = pexutdb_last;                                                      \
+X    else {                                                                     \
+X        p = lookup_node( w, d );                                               \
+X        pexutdb_last = p;                                                      \
+X    }
+X
+X
+X#ifdef __cplusplus
+X}                    /* for C++ V2.0 */
+X#endif
+X
+X
+X#endif /* _PEXUTDBINT_H_ ] */
+END_OF_FILE
+  if test 17902 -ne `wc -c <'util/pexutdbint.h'`; then
+    echo shar: \"'util/pexutdbint.h'\" unpacked with wrong size!
+  fi
+  # end of 'util/pexutdbint.h'
+fi
+echo shar: End of archive 12 \(of 14\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "concatentating pexdraw.c ..."
+    cat pexdrawc.? > pexdraw.c
+    rm pexdrawc.?
+    echo "concatentating pexdraw.uil ..."
+    cat pexdrawu.? > pexdraw.uil
+    rm pexdrawu.?
+    echo "concatentating teapot.c ..."
+    rm teapotc.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

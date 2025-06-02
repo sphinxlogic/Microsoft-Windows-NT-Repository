@@ -1,0 +1,396 @@
+Newsgroups: comp.sources.misc
+From: Craig Kolb <rayshade-request@cs.princeton.edu>
+Subject:  v28i032:  rayshade - A raytracing package for UNIX, Patch06
+Message-ID: <1992Feb10.162152.6029@sparky.imd.sterling.com>
+X-Md4-Signature: 8823d1170e9d315973bd6e1c96f6209d
+Date: Mon, 10 Feb 1992 16:21:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Craig Kolb <rayshade-request@cs.princeton.edu>
+Posting-number: Volume 28, Issue 32
+Archive-name: rayshade/patch06
+Environment: UNIX
+Patch-To: rayshade: Volume 21, Issue 3-22
+
+System: rayshade version 4.0
+Patch #: 6
+Priority: CRITICAL 
+Date: Sun Feb  9 21:21:06 EST 1992
+From: Rayshade Construction Co. <rayshade-request@cs.princeton.edu>
+
+Description:
+
+	libshade:
+
+	Fixed typo in libshade/picture.c that kept
+	source from compiling when not using the URT.
+
+	libray:
+
+	Decreased MAXMODELDEPTH to keep from beating on the stack
+	and to avoid the odd core dump in CsgIntersect();.
+
+	rsconvert:
+
+	Fixed extended source syntax in quickref.
+
+	Superquads now convert to comments.
+
+	Adaptive keyword now converts to samples.
+
+	Associated cylinder surf with endcaps.
+
+	More informative error messages.
+
+	raypaint:
+
+	Noted X11 greyscale operation.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your rayshade source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -d
+		make depend
+		make
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained through
+	anonymous ftp from weedeaer.math.yale.edu (130.132.23.17) in
+	pub/rayshade.4.0/patches.
+
+
+Index: patchlevel.h
+Prereq: 5
+1c1
+< #define PATCHLEVEL 5
+---
+> #define PATCHLEVEL 6
+Index: etc/rsconvert/yacc.y
+Prereq: 4.0.1.2
+*** old/etc/rsconvert/yacc.y	1991/11/26 21:13:36
+--- new/etc/rsconvert/yacc.y	1992/02/07 11:05:22
+***************
+*** 11,17 ****
+  /* 									   */
+  /* There is no warranty or other guarantee of fitness of this software	   */
+  /* for any purpose.  It is provided solely "as is".			   */
+! /* $Id: yacc.y,v 4.0.1.2 91/11/26 21:13:36 cek Exp cek $ */
+  %{
+  #include <stdio.h>
+  #include "libcommon/common.h"
+--- 11,17 ----
+  /* 									   */
+  /* There is no warranty or other guarantee of fitness of this software	   */
+  /* for any purpose.  It is provided solely "as is".			   */
+! /* $Id: yacc.y,v 4.0.1.3 92/02/07 11:05:21 cek Exp Locker: cek $ */
+  %{
+  #include <stdio.h>
+  #include "libcommon/common.h"
+***************
+*** 36,41 ****
+--- 36,43 ----
+  %type <d> Fnumber sFnumber
+  %type <col> sColor
+  %type <v> sVector
++ %type <i> sInt
++ %type <c> sString
+  %token tADAPTIVE tAPERTURE
+  %token tBACKGROUND tBLOTCH tBOX tBUMP tCONE tCYL tDIRECTIONAL
+  %token tENDDEF tEXTENDED tEYEP tFBM tFBMBUMP tFOCALDIST tFOG tFOV tGLOSS tGRID
+***************
+*** 258,265 ****
+  			NEWLINE();
+  		}
+  		;
+! Adaptive	: ADAPTIVE Int
+  		{
+  			NEWLINE();
+  		}
+  		;
+--- 260,268 ----
+  			NEWLINE();
+  		}
+  		;
+! Adaptive	: ADAPTIVE sInt
+  		{
++ 			WriteFloat((Float)($2+1));
+  			NEWLINE();
+  		}
+  		;
+***************
+*** 440,466 ****
+  			NEWLINE();
+  		}
+  		;
+! Cylinder	: CYL String sVector sVector sFnumber
+  		{
+  			Vector tmp;
+  
+  			/* Radius now goes first */
+  			WriteFloat($5);
+  			WriteVector(&$3);
+  			WriteVector(&$4);
+  			NEWLINE();
+! 			WriteString("#ifdef ENDCAPS\n");
+  				VecSub($3, $4, &tmp);
+  				WriteVerbatim("disc ");
+  				WriteFloat($5);	/* radius */
+  				WriteVector(&$3); /* pos */
+  				WriteVector(&tmp);
+  				WriteVerbatim("\ndisc ");
+  				VecScale(-1, tmp, &tmp);
+  				WriteFloat($5);	/* radius */
+  				WriteVector(&$4); /* pos */
+  				WriteVector(&tmp);
+! 			WriteString("\n#endif\n");
+  		}
+  		;
+  Sphere		: SPHERE String Fnumber Vector
+--- 443,472 ----
+  			NEWLINE();
+  		}
+  		;
+! Cylinder	: CYL sString sVector sVector sFnumber
+  		{
+  			Vector tmp;
+  
++ 			WriteString($2);
+  			/* Radius now goes first */
+  			WriteFloat($5);
+  			WriteVector(&$3);
+  			WriteVector(&$4);
+  			NEWLINE();
+! 			WriteVerbatim("#ifdef ENDCAPS\n");
+  				VecSub($3, $4, &tmp);
+  				WriteVerbatim("disc ");
++ 				WriteString($2);
+  				WriteFloat($5);	/* radius */
+  				WriteVector(&$3); /* pos */
+  				WriteVector(&tmp);
+  				WriteVerbatim("\ndisc ");
++ 				WriteString($2);
+  				VecScale(-1, tmp, &tmp);
+  				WriteFloat($5);	/* radius */
+  				WriteVector(&$4); /* pos */
+  				WriteVector(&tmp);
+! 			WriteVerbatim("\n#endif\n");
+  		}
+  		;
+  Sphere		: SPHERE String Fnumber Vector
+***************
+*** 496,501 ****
+--- 502,508 ----
+  			Fnumber Fnumber Fnumber
+  			Fnumber
+  		{
++ 			WriteVerbatim("*/");
+  			NEWLINE();
+  		}
+  		;
+***************
+*** 545,550 ****
+--- 552,559 ----
+  		;
+  Int		: tINT
+  		{ WriteFloat((Float)$1); };
++ sInt		: tINT
++ 		{ $$ = (int)$1; };
+  sFnumber	: tFLOAT
+  		| tINT
+  		{ $$ = (double)$1; }
+***************
+*** 551,557 ****
+  		;
+  String		: tSTRING
+  		{ WriteString($1); }
+! ADAPTIVE	: tADAPTIVE	{ WriteString("adaptive"); }
+  APERTURE	: tAPERTURE	{ WriteString("aperture"); }
+  BACKGROUND	: tBACKGROUND	{ WriteString("background"); }
+  BLOTCH		: tBLOTCH	{ WriteString("blotch"); }
+--- 560,568 ----
+  		;
+  String		: tSTRING
+  		{ WriteString($1); }
+! sString		: tSTRING
+! 		{ $$ = $1; }
+! ADAPTIVE	: tADAPTIVE	{ WriteString("samples"); }
+  APERTURE	: tAPERTURE	{ WriteString("aperture"); }
+  BACKGROUND	: tBACKGROUND	{ WriteString("background"); }
+  BLOTCH		: tBLOTCH	{ WriteString("blotch"); }
+***************
+*** 589,595 ****
+  SCREEN		: tSCREEN	{ WriteString("screen"); }
+  SPHERE		: tSPHERE	{ WriteString("sphere"); }
+  STARTDEF	: tSTARTDEF tSTRING	{ StartDefine($2); }
+! SUPERQ		: tSUPERQ	{ WriteString("superq"); }
+  SURFACE		: tSURFACE	{ WriteString("surface"); }
+  RESOLUTION	: tRESOLUTION	{ WriteString("resolution"); }
+  TRANSLATE	: tTRANSLATE	{ WriteString("translate"); }
+--- 600,606 ----
+  SCREEN		: tSCREEN	{ WriteString("screen"); }
+  SPHERE		: tSPHERE	{ WriteString("sphere"); }
+  STARTDEF	: tSTARTDEF tSTRING	{ StartDefine($2); }
+! SUPERQ		: tSUPERQ	{ WriteString("/* superq"); }
+  SURFACE		: tSURFACE	{ WriteString("surface"); }
+  RESOLUTION	: tRESOLUTION	{ WriteString("resolution"); }
+  TRANSLATE	: tTRANSLATE	{ WriteString("translate"); }
+***************
+*** 618,624 ****
+  
+  yyerror(s)
+  {
+! 	fprintf(stderr,"yyerror: %s\n",s);
+  }
+  
+  StartDefine(name)
+--- 629,637 ----
+  
+  yyerror(s)
+  {
+! 	fprintf(stderr,"rsconvert: %s, line %d: %s \n",
+! 			yyfilename[0] ? yyfilename : "stdin",
+! 			yylineno, s);
+  }
+  
+  StartDefine(name)
+Index: libshade/picture.c
+Prereq: 4.0.1.1
+*** old/libshade/picture.c	1992/01/10 16:28:28
+--- new/libshade/picture.c	1992/02/07 09:22:20
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: picture.c,v 4.0.1.1 92/01/10 16:28:28 cek Exp Locker: cek $
+   *
+   * $Log:	picture.c,v $
+   * Revision 4.0.1.1  92/01/10  16:28:28  cek
+   * patch3: Added check for nonexistent patial image file.
+   * patch3: Fixed declaration of nrow in count_rle_rows().
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: picture.c,v 4.0.1.2 92/02/07 09:22:20 cek Exp Locker: cek $
+   *
+   * $Log:	picture.c,v $
++  * Revision 4.0.1.2  92/02/07  09:22:20  cek
++  * patch6: Fixed typo in MTV error message.
++  * 
+   * Revision 4.0.1.1  92/01/10  16:28:28  cek
+   * patch3: Added check for nonexistent patial image file.
+   * patch3: Fixed declaration of nrow in count_rle_rows().
+***************
+*** 293,299 ****
+  	if (Options.imgname) {
+  		Options.pictfile = fopen(Options.imgname, "w");
+  		if (Options.pictfile == (FILE *)NULL)
+! 			RLerror(RL_ERROR, "Cannot open %s for writing.",
+  				Options.imgname);
+  	} else
+  		Options.pictfile = stdout;
+--- 296,302 ----
+  	if (Options.imgname) {
+  		Options.pictfile = fopen(Options.imgname, "w");
+  		if (Options.pictfile == (FILE *)NULL)
+! 			RLerror(RL_ABORT, "Cannot open %s for writing.",
+  				Options.imgname);
+  	} else
+  		Options.pictfile = stdout;
+Index: libray/libobj/geom.h
+Prereq: 4.0
+*** old/libray/libobj/geom.h	1991/07/17 14:37:52
+--- new/libray/libobj/geom.h	1992/02/07 13:10:58
+***************
+*** 13,21 ****
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: geom.h,v 4.0 91/07/17 14:37:52 kolb Exp Locker: kolb $
+   *
+   * $Log:	geom.h,v $
+   * Revision 4.0  91/07/17  14:37:52  kolb
+   * Initial version.
+   * 
+--- 13,24 ----
+   * There is no warranty or other guarantee of fitness of this software
+   * for any purpose.  It is provided solely "as is".
+   *
+!  * $Id: geom.h,v 4.0.1.1 92/02/07 13:10:58 cek Exp Locker: cek $
+   *
+   * $Log:	geom.h,v $
++  * Revision 4.0.1.1  92/02/07  13:10:58  cek
++  * patch6: Decreased MAXMODELDEPTH to keep from beating on the stack.
++  * 
+   * Revision 4.0  91/07/17  14:37:52  kolb
+   * Initial version.
+   * 
+***************
+*** 33,39 ****
+  #define EXITING		1
+  #define ENTERING	2
+  
+! #define MAXMODELDEPTH	128		/* Maximum height of DAG. */
+  
+  typedef char * GeomRef;
+  typedef GeomRef GeomCreateFunc();
+--- 36,42 ----
+  #define EXITING		1
+  #define ENTERING	2
+  
+! #define MAXMODELDEPTH	32		/* Maximum height of DAG. */
+  
+  typedef char * GeomRef;
+  typedef GeomRef GeomCreateFunc();
+Index: raypaint/README
+*** old/raypaint/README	1992/02/07 09:04:27
+--- new/raypaint/README	1992/02/07 11:29:36
+***************
+*** 1,6 ****
+  Raypaint reads a rayshade input file and opens a graphics window into
+  which the image is progressively rendered.  Graphics support routines
+! are provided for X11 and GL (SGI / RS6000).
+  
+  Command-line arguments to raypaint are identical to rayshade arguments.
+  
+--- 1,7 ----
+  Raypaint reads a rayshade input file and opens a graphics window into
+  which the image is progressively rendered.  Graphics support routines
+! are provided for X11 and GL (SGI / RS6000).  Note that raypaint displays
+! a greyscale image when running under X.
+  
+  Command-line arguments to raypaint are identical to rayshade arguments.
+  
+Index: Doc/quickref.txt
+*** old/Doc/quickref.txt	1992/02/07 08:56:47
+--- new/Doc/quickref.txt	1992/02/07 14:20:03
+***************
+*** 212,218 ****
+          ambient
+          point       Xpos Ypos Zpos
+          directional Xdir Ydir Zdir
+!         extended    Xpos Ypos Zpos Radius
+          spot        Xpos Ypos Zpos Xat Yat Zat Coef Thetain Thetaout
+          area        Xorigin Yorigin Zorigin Xu Yu Zu Usamples Xv Yv Zv Vsamples
+  
+--- 212,218 ----
+          ambient
+          point       Xpos Ypos Zpos
+          directional Xdir Ydir Zdir
+!         extended    Radius Xpos Ypos Zpos
+          spot        Xpos Ypos Zpos Xat Yat Zat Coef Thetain Thetaout
+          area        Xorigin Yorigin Zorigin Xu Yu Zu Usamples Xv Yv Zv Vsamples
+  
+
+*** End of Patch 6 ***
+
+exit 0 # Just in case...

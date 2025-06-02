@@ -1,0 +1,2196 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F Haugh II)
+Subject:  v32i098:  shadow - Shadow Login/Password Suite, Patch06a/3
+Message-ID: <csm-v32i098=shadow.101926@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 117be586259212287f3466f9a68117a9
+Date: Mon, 12 Oct 1992 15:20:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F Haugh II)
+Posting-number: Volume 32, Issue 98
+Archive-name: shadow/patch06a
+Environment: UNIX
+Patch-To: shadow: Volume 26, Issue 54-64
+
+This is the first of three parts that make up patch #6 for the Shadow
+Password Suite.  Your source code must be at version 3.2.1 in order to
+apply this patch kit.  You will have version 3.2.2 when you are done.
+
+The most significant change made for this patch is the addition of
+administrator defined authentication mechanisms.  This allows the system
+administrator to replace the standard encrypted password with a program
+which performs the authentication.  Any user written program may be used.
+This feature may be used to add any of a number of authentication schemes.
+
+Also, I have begun removing the requirement that you define SHADOWPWD.
+This is because people keep writing me saying that they like the tools,
+but don't want to use shadowed passwords.  So the user and group commands
+({user,group}{add,del,mod}) have all be fixed so that they work with the
+old style password file.  This means that those 6 commands may now be
+used on an unaltered BSD system.  The remaining commands will be changed
+as time permits.
+--
+Prereq: "3.2.1"
+Index: patchlevel.h
+*** patchlevel.h.old	Sat Oct 10 11:11:57 1992
+--- patchlevel.h	Sat Oct 10 11:11:56 1992
+***************
+*** 19,26 ****
+   *		Changes for SVR4, plus bug fixes
+   *	04/03/92	3.2.1	patchlevel 18
+   *		Minor bug fixes, new baseline
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	18
+! #define	VERSION		"3.2.1"
+--- 19,28 ----
+   *		Changes for SVR4, plus bug fixes
+   *	04/03/92	3.2.1	patchlevel 18
+   *		Minor bug fixes, new baseline
++  *	07/07/92	3.2.2	patchlevel 20
++  *		Added administrator defined authentication
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	20
+! #define	VERSION		"3.2.2"
+Index: dpmain.c
+*** dpmain.c.old	Sat Oct 10 11:12:13 1992
+--- dpmain.c	Sat Oct 10 11:12:13 1992
+***************
+*** 12,17 ****
+--- 12,18 ----
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <stdio.h>
++ #include <signal.h>
+  #include <fcntl.h>
+  #ifdef	BSD
+  #include <strings.h>
+***************
+*** 21,27 ****
+  #include "dialup.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)dpmain.c	3.6	07:49:11	4/29/92";
+  #endif
+  
+  #ifdef	USG
+--- 22,28 ----
+  #include "dialup.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)dpmain.c	3.7	15:41:44	6/16/92";
+  #endif
+  
+  #ifdef	USG
+Index: Makefile
+*** Makefile.old	Sat Oct 10 11:12:31 1992
+--- Makefile	Sat Oct 10 11:12:29 1992
+***************
+*** 8,17 ****
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile	3.25.1.10	14:47:00  - Shadow password system
+  #
+! #	@(#)Makefile	3.25.1.10	14:47:00	4/28/92
+  #
+  SHELL = /bin/sh
+  
+  #
+--- 8,20 ----
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! # This software is provided on an AS-IS basis and the author makes
+! # no warrantee of any kind.
+  #
+! #	@(#)Makefile	3.25.1.13	08:23:37  - Shadow password system
+  #
++ #	@(#)Makefile	3.25.1.13	08:23:37	10/1/92
++ #
+  SHELL = /bin/sh
+  
+  #
+***************
+*** 176,182 ****
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+--- 179,185 ----
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c pwauth.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+***************
+*** 195,201 ****
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+--- 198,204 ----
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c pwauth.c pwauth.h
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+***************
+*** 208,218 ****
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+--- 211,221 ----
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3 pwauth.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8 pwauth.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+***************
+*** 246,251 ****
+--- 249,255 ----
+  	libshadow.a(pwent.o) \
+  	libshadow.a(pwio.o) \
+  	libshadow.a(pwpack.o) \
++ 	libshadow.a(pwauth.o) \
+  	libshadow.a(rad64.o) \
+  	libshadow.a(spdbm.o) \
+  	libshadow.a(shadow.o) \
+***************
+*** 256,261 ****
+--- 260,288 ----
+  libsec: $(LIBSEC)(shadow.o)
+  	$(RANLIB) $(LIBSEC)
+  
++ save:
++ 	[ ! -d save ] && mkdir save
++ 	-cp $(LOGINDIR)/login save
++ 	-cp /etc/mkpasswd /etc/pwconv /etc/pwunconv /etc/sulogin /etc/chpasswd \
++ 		/etc/newusers /etc/useradd /etc/userdel /etc/usermod \
++ 		/etc/groupadd /etc/groupdel /etc/groupmod /etc/logoutd \
++ 		/etc/login.defs save
++ 	-cp /bin/su /bin/passwd /bin/gpasswd /bin/dpasswd /bin/faillog \
++ 		/bin/newgrp /bin/chfn /bin/chsh /bin/chage /bin/id \
++ 		/bin/scologin save
++ 	-cp $(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/shadow.h \
++ 		$(DEST_INCLUDE_DIR)/pwd.h save
++ 
++ restore:
++ 	[ -d save ]
++ 	-(cd save ; cp login $(LOGINDIR) )
++ 	-(cd save ; -cp mkpasswd pwconv pwunconv sulogin chpasswd \
++ 		newusers useradd userdel usermod groupadd groupdel groupmod \
++ 		logoutd login.defs /etc)
++ 	-(cd save ; cp su passwd gpasswd dpasswd faillog newgrp chfn chsh \
++ 		chage id scologin /bin)
++ 	-(cd save ; cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR) )
++ 
+  install: all
+  	strip $(BINS)
+  	cp login $(LOGINDIR)/login
+***************
+*** 506,514 ****
+  scologin: scologin.o
+  	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
+  
+! passwd.o: config.h shadow.h pwd.h
+! lmain.o: config.h lastlog.h faillog.h pwd.h
+! smain.o: config.h lastlog.h pwd.h shadow.h
+  sub.o: pwd.h
+  setup.o: config.h pwd.h
+  mkrmdir.o: config.h
+--- 533,541 ----
+  scologin: scologin.o
+  	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
+  
+! passwd.o: config.h shadow.h pwd.h pwauth.h
+! lmain.o: config.h lastlog.h faillog.h pwd.h pwauth.h
+! smain.o: config.h lastlog.h pwd.h shadow.h pwauth.h
+  sub.o: pwd.h
+  setup.o: config.h pwd.h
+  mkrmdir.o: config.h
+***************
+*** 535,548 ****
+  id.o: pwd.h
+  newusers.o: config.h shadow.h pwd.h
+  dpmain.o: dialup.h
+! useradd.o: config.h shadow.h pwd.h
+! userdel.o: config.h shadow.h pwd.h
+! usermod.o: config.h shadow.h pwd.h
+  groupadd.o: config.h shadow.h
+  groupdel.o: config.h shadow.h
+  groupmod.o: config.h shadow.h
+  logoutd.o: config.h
+! sulogin.o: config.h
+  
+  libshadow.a(shadow.o): shadow.h config.h
+  libshadow.a(shadowio.o): shadow.h
+--- 562,575 ----
+  id.o: pwd.h
+  newusers.o: config.h shadow.h pwd.h
+  dpmain.o: dialup.h
+! useradd.o: config.h shadow.h pwd.h pwauth.h
+! userdel.o: config.h shadow.h pwd.h pwauth.h
+! usermod.o: config.h shadow.h pwd.h pwauth.h
+  groupadd.o: config.h shadow.h
+  groupdel.o: config.h shadow.h
+  groupmod.o: config.h shadow.h
+  logoutd.o: config.h
+! sulogin.o: config.h pwauth.h
+  
+  libshadow.a(shadow.o): shadow.h config.h
+  libshadow.a(shadowio.o): shadow.h
+***************
+*** 554,560 ****
+--- 581,589 ----
+  libshadow.a(pwdbm.o): config.h pwd.h
+  libshadow.a(spdbm.o): config.h shadow.h
+  libshadow.a(grdbm.o): config.h
++ libshadow.a(gshadow.o): config.h
+  libshadow.a(gsdbm.o): config.h shadow.h
++ libshadow.a(pwauth.o): config.h pwauth.h
+  libshadow.a(pwpack.o): config.h pwd.h
+  libshadow.a(pwent.o): config.h pwd.h
+  libshadow.a(pwio.o): pwd.h
+Index: Makefile.svr4
+*** Makefile.svr4.old	Sat Oct 10 11:12:48 1992
+--- Makefile.svr4	Sat Oct 10 11:12:47 1992
+***************
+*** 8,17 ****
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile.svr4	3.3	11:27:39  - Shadow password system (SVR4)
+  #
+! #	@(#)Makefile.svr4	3.3	11:27:39	3/19/92
+  #
+  SHELL = /sbin/sh
+  
+  #
+--- 8,20 ----
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! # This software is provided on an AS-IS basis and the author makes
+! # no warrantee of any kind.
+  #
+! #	@(#)Makefile.svr4	3.5	08:28:03  - Shadow password system (SVR4)
+  #
++ #	@(#)Makefile.svr4	3.5	08:28:03	10/1/92
++ #
+  SHELL = /sbin/sh
+  
+  #
+***************
+*** 143,149 ****
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+--- 146,152 ----
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c pwauth.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+***************
+*** 162,168 ****
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+--- 165,171 ----
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c pwauth.c pwauth.h
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+***************
+*** 175,185 ****
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+--- 178,188 ----
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3 pwauth.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8 pwauth.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+***************
+*** 213,218 ****
+--- 216,222 ----
+  	libshadow.a(pwent.o) \
+  	libshadow.a(pwio.o) \
+  	libshadow.a(pwpack.o) \
++ 	libshadow.a(pwauth.o) \
+  	libshadow.a(rad64.o) \
+  	libshadow.a(spdbm.o) \
+  	libshadow.a(shadow.o) \
+***************
+*** 222,227 ****
+--- 226,255 ----
+  
+  libsec: $(LIBSEC)(shadow.o)
+  	$(RANLIB) $(LIBSEC)
++ 
++ save:
++ 	[ ! -d save ] && mkdir save
++ 	-cp $(LOGINDIR)/login save
++ 	-cp $(SBIN)/mkpasswd $(SBIN)/pwconv $(SBIN)/pwunconv $(SBIN)/sulogin \
++ 		$(SBIN)/chpasswd $(SBIN)/newusers $(SBIN)/useradd \
++ 		$(SBIN)/userdel $(SBIN)/usermod $(SBIN)/groupadd \
++ 		$(SBIN)/groupdel $(SBIN)/groupmod $(SBIN)/logoutd \
++ 		$(SBIN)/login.defs save
++ 	-cp $(UBIN)/su $(UBIN)/passwd $(UBIN)/gpasswd $(UBIN)/dpasswd \
++ 		$(UBIN)/faillog $(UBIN)/newgrp $(UBIN)/chfn $(UBIN)/chsh \
++ 		$(UBIN)/chage $(UBIN)/id $(UBIN)/scologin save
++ 	-cp $(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/shadow.h \
++ 		$(DEST_INCLUDE_DIR)/pwd.h save
++ 
++ restore:
++ 	[ -d save ]
++ 	-(cd save ; cp login $(LOGINDIR) )
++ 	-(cd save ; -cp mkpasswd pwconv pwunconv sulogin chpasswd \
++ 		newusers useradd userdel usermod groupadd groupdel groupmod \
++ 		logoutd login.defs $(SBIN) )
++ 	-(cd save ; cp su passwd gpasswd dpasswd faillog newgrp chfn chsh \
++ 		chage id scologin $(UBIN) )
++ 	-(cd save ; cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR) )
+  
+  install: all
+  	strip $(BINS)
+Index: Makefile.sun4
+*** Makefile.sun4.old	Sat Oct 10 11:13:04 1992
+--- Makefile.sun4	Sat Oct 10 11:13:04 1992
+***************
+*** 8,17 ****
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile.sun4	3.5	11:27:30  - Shadow password system (SunOS 4.1.1 version)
+  #
+! #	@(#)Makefile.sun4	3.5	11:27:30	3/19/92
+  #
+  SHELL = /bin/sh
+  
+  #
+--- 8,20 ----
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! # This software is provided on an AS-IS basis and the author makes
+! # no warrantee of any kind.
+  #
+! #	@(#)Makefile.sun4	3.7	08:24:54  - Shadow password system (SunOS 4.1.1 version)
+  #
++ #	@(#)Makefile.sun4	3.7	08:24:54	10/1/92
++ #
+  SHELL = /bin/sh
+  
+  #
+***************
+*** 140,146 ****
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+--- 143,149 ----
+  	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+  	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+  	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+! 	logoutd.c groups.c pwauth.c
+  
+  FILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+  	age.c id.c
+***************
+*** 159,165 ****
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+--- 162,168 ----
+  	fields.c gsdbm.c utmp.c failure.c
+  
+  FILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+! 	mkpasswd.c pwauth.c pwauth.h
+  
+  FILES8 = useradd.c usermod.c login.defs
+  
+***************
+*** 172,182 ****
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+--- 175,185 ----
+  MAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+  	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+  	groups.1
+! MAN_3 = shadow.3 pwauth.3
+  MAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+  MAN_5 = login.5
+  MAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+! 	sulogin.8 mkpasswd.8 logoutd.8 pwauth.8
+  
+  DOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+  DOCS2 = $(MAN_5) $(MAN_8)
+***************
+*** 209,214 ****
+--- 212,218 ----
+  	libshadow.a(pwent.o) \
+  	libshadow.a(pwio.o) \
+  	libshadow.a(pwpack.o) \
++ 	libshadow.a(pwauth.o) \
+  	libshadow.a(rad64.o) \
+  	libshadow.a(spdbm.o) \
+  	libshadow.a(shadow.o) \
+***************
+*** 219,224 ****
+--- 223,251 ----
+  libsec: $(LIBSEC)(shadow.o)
+  	$(RANLIB) $(LIBSEC)
+  
++ save:
++ 	[ ! -d save ] && mkdir save
++ 	-cp $(LOGINDIR)/login save
++ 	-cp /etc/mkpasswd /etc/pwconv /etc/pwunconv /etc/sulogin /etc/chpasswd \
++ 		/etc/newusers /etc/useradd /etc/userdel /etc/usermod \
++ 		/etc/groupadd /etc/groupdel /etc/groupmod /etc/logoutd \
++ 		/etc/login.defs save
++ 	-cp /bin/su /bin/passwd /bin/gpasswd /bin/dpasswd /bin/faillog \
++ 		/bin/newgrp /bin/chfn /bin/chsh /bin/chage /bin/id \
++ 		/bin/scologin save
++ 	-cp $(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/shadow.h \
++ 		$(DEST_INCLUDE_DIR)/pwd.h save
++ 
++ restore:
++ 	[ -d save ]
++ 	-(cd save ; cp login $(LOGINDIR) )
++ 	-(cd save ; -cp mkpasswd pwconv pwunconv sulogin chpasswd \
++ 		newusers useradd userdel usermod groupadd groupdel groupmod \
++ 		logoutd login.defs /etc)
++ 	-(cd save ; cp su passwd gpasswd dpasswd faillog newgrp chfn chsh \
++ 		chage id scologin /bin)
++ 	-(cd save ; cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR) )
++ 
+  install: all
+  	strip $(BINS)
+  	cp login $(LOGINDIR)/login
+***************
+*** 471,479 ****
+  scologin: scologin.o
+  	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
+  
+! passwd.o: config.h shadow.h pwd.h
+! lmain.o: config.h lastlog.h faillog.h pwd.h
+! smain.o: config.h lastlog.h pwd.h shadow.h
+  sub.o: pwd.h
+  setup.o: config.h pwd.h
+  mkrmdir.o: config.h
+--- 498,506 ----
+  scologin: scologin.o
+  	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
+  
+! passwd.o: config.h shadow.h pwd.h pwauth.h
+! lmain.o: config.h lastlog.h faillog.h pwd.h pwauth.h
+! smain.o: config.h lastlog.h pwd.h shadow.h pwauth.h
+  sub.o: pwd.h
+  setup.o: config.h pwd.h
+  mkrmdir.o: config.h
+***************
+*** 500,513 ****
+  id.o: pwd.h
+  newusers.o: config.h shadow.h pwd.h
+  dpmain.o: dialup.h
+! useradd.o: config.h shadow.h pwd.h
+! userdel.o: config.h shadow.h pwd.h
+! usermod.o: config.h shadow.h pwd.h
+  groupadd.o: config.h shadow.h
+  groupdel.o: config.h shadow.h
+  groupmod.o: config.h shadow.h
+  logoutd.o: config.h
+! sulogin.o: config.h
+  
+  libshadow.a(shadow.o): shadow.h config.h
+  libshadow.a(shadowio.o): shadow.h
+--- 527,540 ----
+  id.o: pwd.h
+  newusers.o: config.h shadow.h pwd.h
+  dpmain.o: dialup.h
+! useradd.o: config.h shadow.h pwd.h pwauth.h
+! userdel.o: config.h shadow.h pwd.h pwauth.h
+! usermod.o: config.h shadow.h pwd.h pwauth.h
+  groupadd.o: config.h shadow.h
+  groupdel.o: config.h shadow.h
+  groupmod.o: config.h shadow.h
+  logoutd.o: config.h
+! sulogin.o: config.h pwauth.h
+  
+  libshadow.a(shadow.o): shadow.h config.h
+  libshadow.a(shadowio.o): shadow.h
+***************
+*** 519,525 ****
+--- 546,554 ----
+  libshadow.a(pwdbm.o): config.h pwd.h
+  libshadow.a(spdbm.o): config.h shadow.h
+  libshadow.a(grdbm.o): config.h
++ libshadow.a(gshadow.o): config.h
+  libshadow.a(gsdbm.o): config.h shadow.h
++ libshadow.a(pwauth.o): config.h pwauth.h
+  libshadow.a(pwpack.o): config.h pwd.h
+  libshadow.a(pwent.o): config.h pwd.h
+  libshadow.a(pwio.o): pwd.h
+Index: README
+*** README.old	Sat Oct 10 11:13:22 1992
+--- README	Sat Oct 10 11:13:21 1992
+***************
+*** 1,7 ****
+! [	@(#)README	3.8.1.2	14:48:13	4/28/92	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 4/28/92.
+  
+  This software is copyright 1988, 1989, 1990, 1991, 1992, John F. Haugh II.
+  All rights reserved.  Use, duplication and disclosure is permitted according
+--- 1,7 ----
+! [	@(#)README	3.8.1.4	11:05:55	10/10/92	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 10/10/92.
+  
+  This software is copyright 1988, 1989, 1990, 1991, 1992, John F. Haugh II.
+  All rights reserved.  Use, duplication and disclosure is permitted according
+***************
+*** 14,26 ****
+  
+  This source code is currently archived on ftp.cs.widener.edu in the
+  directory pub/src/adm.  The file name is "shadow" followed by the
+! version number.
+  
+  THIS SOFTWARE IS BEING DISTRIBUTED AS-IS.  THE AUTHORS DISCLAIM ALL
+  LIABILITY FOR ANY CONSEQUENCES OF USE.  THE USER IS SOLELY RESPONSIBLE
+  FOR THE MAINTENANCE OF THIS SOFTWARE PACKAGE.  THE AUTHORS ARE UNDER NO
+  OBLIGATION TO PROVIDE MODIFICATIONS OR IMPROVEMENTS.  THE USER IS
+! ENCOURAGE TO TAKE ANY AND ALL STEPS NEEDED TO PROTECT AGAINST ACCIDENTAL
+  LOSS OF INFORMATION OR MACHINE RESOURCES.
+  
+  Special thanks are due to Chip Rosenthal for his fine testing efforts;
+--- 14,27 ----
+  
+  This source code is currently archived on ftp.cs.widener.edu in the
+  directory pub/src/adm.  The file name is "shadow" followed by the
+! version number.  You may contact the author, John F. Haugh, II, at
+! jfh@rpp386.cactus.org if you have any questions regarding this package.
+  
+  THIS SOFTWARE IS BEING DISTRIBUTED AS-IS.  THE AUTHORS DISCLAIM ALL
+  LIABILITY FOR ANY CONSEQUENCES OF USE.  THE USER IS SOLELY RESPONSIBLE
+  FOR THE MAINTENANCE OF THIS SOFTWARE PACKAGE.  THE AUTHORS ARE UNDER NO
+  OBLIGATION TO PROVIDE MODIFICATIONS OR IMPROVEMENTS.  THE USER IS
+! ENCOURAGED TO TAKE ANY AND ALL STEPS NEEDED TO PROTECT AGAINST ACCIDENTAL
+  LOSS OF INFORMATION OR MACHINE RESOURCES.
+  
+  Special thanks are due to Chip Rosenthal for his fine testing efforts;
+***************
+*** 52,61 ****
+--- 53,75 ----
+  	been added.  The man pages for these commands have been written
+  	as well.
+  
++ 	User-defined authentication has been added.  This allows you to
++ 	write programs to replace the password authentication method
++ 	which uses the crypt() function.
++ 
+  Warning:
+  	The newuser command will be removed in a later release.
+  	The libsec.a library will be removed in a later release.
+  
++ This software is described in the 3rd USENIX Security Symposium
++ proceedings.  These proceedings are available from
++ 
++ 	USENIX Association
++ 	2560 Ninth Street, Suite 215
++ 	Berkeley, CA 94710
++ 
++ The current price is $30 for USENIX members and $39 for non-members.
++ 
+  Begin by reading and editing the config.h file.  All options are selected
+  by using #define's.  A brief description for each available option appears
+  below.  You may want to print this file out as it is LONG and you will
+***************
+*** 62,68 ****
+  need to refer to it while editting config.h.  You will also have to edit
+  the Makefile.  The possible differences are documented there.  Pay close
+  attention to the install: rule.  Login now runs on about 30 different
+! varieties of UNIX that I have been made aware of.
+  
+  Note that there are MANY options.  As distributed most options are turned
+  on, which produces a really nice package.  This is the system as used on
+--- 76,86 ----
+  need to refer to it while editting config.h.  You will also have to edit
+  the Makefile.  The possible differences are documented there.  Pay close
+  attention to the install: rule.  Login now runs on about 30 different
+! varieties of UNIX that I have been made aware of.  If you have any qualms,
+! you should run "make save" before running "make install".  If something
+! breaks you can use "make restore" to put things back.  In any case, you
+! should have a recent system backup as the potential for serious damage
+! exists.
+  
+  Note that there are MANY options.  As distributed most options are turned
+  on, which produces a really nice package.  This is the system as used on
+***************
+*** 70,76 ****
+  selected at run time.  You should refer to the login.5 manual page for
+  more information regarding these options.
+  
+! There are several files which you may have to replace.  If you system has
+  a lastlog.h file, you should replace the one which I provide with your
+  system version.  The pwd.h file that is produced by "make" must agree
+  exactly with the system supplied version.  You should re-arrange the
+--- 88,94 ----
+  selected at run time.  You should refer to the login.5 manual page for
+  more information regarding these options.
+  
+! There are several files which you may have to replace.  If your system has
+  a lastlog.h file, you should replace the one which I provide with your
+  system version.  The pwd.h file that is produced by "make" must agree
+  exactly with the system supplied version.  You should re-arrange the
+***************
+*** 96,101 ****
+--- 114,122 ----
+  
+  	Select this option by defining the SHADOWPWD macro.
+  
++ 	This feature is optional, but only certain commands may
++ 	be compiled with this option disabled.
++ 
+  Shadow Group Files -
+  	This option utilizes an alternate, non-readable file to
+  	contain encrypted group passwords and group administrator
+***************
+*** 106,112 ****
+  	or deleting members and changing the group password.
+  
+  	Select this option by defining the SHADOWGRP macro.  You
+! 	must also create an emptry /etc/gshadow file.
+  
+  DBM Password Files -
+  	This option utilizes the DBM database access routines to
+--- 127,134 ----
+  	or deleting members and changing the group password.
+  
+  	Select this option by defining the SHADOWGRP macro.  You
+! 	must also create an emptry /etc/gshadow file.  You must
+! 	select the SHADOWPWD option if you select SHADOWGRP.
+  
+  DBM Password Files -
+  	This option utilizes the DBM database access routines to
+Index: chfn.c
+*** chfn.c.old	Sat Oct 10 11:13:38 1992
+--- chfn.c	Sat Oct 10 11:13:37 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+***************
+*** 15,21 ****
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)chfn.c	3.8	11:59:27	12/28/91";
+  #endif
+  
+  /*
+--- 18,24 ----
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)chfn.c	3.9	13:02:17	7/27/92";
+  #endif
+  
+  /*
+***************
+*** 42,51 ****
+  #define	LOG_WARN LOG_WARNING
+  #endif
+  #endif
+! #ifdef	USE_RLIMIT
+  #include <sys/resource.h>
+  
+! struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINIT };
+  #endif
+  
+  /*
+--- 45,54 ----
+  #define	LOG_WARN LOG_WARNING
+  #endif
+  #endif
+! #ifdef	HAVE_RLIMIT
+  #include <sys/resource.h>
+  
+! struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINITY };
+  #endif
+  
+  /*
+Index: chsh.c
+*** chsh.c.old	Sat Oct 10 11:13:54 1992
+--- chsh.c	Sat Oct 10 11:13:53 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1989, 1990, 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+***************
+*** 15,21 ****
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)chsh.c	3.7	11:58:57	12/28/91";
+  #endif
+  
+  /*
+--- 18,24 ----
+  #include <signal.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)chsh.c	3.8	13:02:23	7/27/92";
+  #endif
+  
+  /*
+***************
+*** 42,51 ****
+  #define	LOG_WARN LOG_WARNING
+  #endif
+  #endif
+! #ifdef	USE_RLIMIT
+  #include <sys/resource.h>
+  
+! struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINIT };
+  #endif
+  
+  /*
+--- 45,54 ----
+  #define	LOG_WARN LOG_WARNING
+  #endif
+  #endif
+! #ifdef	HAVE_RLIMIT
+  #include <sys/resource.h>
+  
+! struct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINITY };
+  #endif
+  
+  /*
+***************
+*** 71,82 ****
+  #endif
+  
+  /*
+!  * #defines for messages.  This facilities foreign language conversion
+   * since all messages are defined right here.
+   */
+  
+  #define	USAGE		"Usage: %s [ -s shell ] [ name ]\n"
+! #define	WHOAREYOU	"%s: Cannot determine you user name.\n"
+  #define	UNKUSER		"%s: Unknown user %s\n"
+  #define	NOPERM		"You may not change the shell for %s.\n"
+  #define	NOPERM2		"can't change shell for `%s'\n"
+--- 74,85 ----
+  #endif
+  
+  /*
+!  * #defines for messages.  This facilitates foreign language conversion
+   * since all messages are defined right here.
+   */
+  
+  #define	USAGE		"Usage: %s [ -s shell ] [ name ]\n"
+! #define	WHOAREYOU	"%s: Cannot determine your user name.\n"
+  #define	UNKUSER		"%s: Unknown user %s\n"
+  #define	NOPERM		"You may not change the shell for %s.\n"
+  #define	NOPERM2		"can't change shell for `%s'\n"
+***************
+*** 184,190 ****
+  /*
+   * chsh - this command controls changes to the user's shell
+   *
+!  *	The only suppoerted option is -s which permits the
+   *	the login shell to be set from the command line.
+   */
+  
+--- 187,193 ----
+  /*
+   * chsh - this command controls changes to the user's shell
+   *
+!  *	The only supported option is -s which permits the
+   *	the login shell to be set from the command line.
+   */
+  
+Index: config.h.svr4
+*** config.h.svr4.old	Sat Oct 10 11:14:10 1992
+--- config.h.svr4	Sat Oct 10 11:14:10 1992
+***************
+*** 0 ****
+--- 1,129 ----
++ /*
++  * Copyright 1989, 1990, 1991, 1992, John F. Haugh II
++  * All rights reserved.
++  *
++  * Permission is granted to copy and create derivative works for any
++  * non-commercial purpose, provided this copyright notice is preserved
++  * in all copies of source code, or included in human readable form
++  * and conspicuously displayed on all copies of object code or
++  * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
++  */
++ 
++ /*
++  * Configuration file for login.
++  *
++  *	@(#)config.h.svr4	3.2	13:02:27	7/27/92	(SVR4)
++  */
++ 
++ 
++ /*
++  * Pathname to the run-time configuration definitions file.
++  */
++ 
++ #define LOGINDEFS "/etc/login.defs"
++ 
++ /*
++  * Define SHADOWPWD to use shadow [ unreadable ] password file.
++  * Release 3 has a requirement that SHADOWPWD always be defined.
++  */
++ 
++ #define	SHADOWPWD
++ 
++ /*
++  * Define AUTOSHADOW to have root always copy sp_pwdp to pw_passwd
++  * for getpwuid() and getpwnam().  This provides compatibility for
++  * privileged applications which are shadow-ignorant.  YOU ARE
++  * ENCOURAGED TO NOT USE THIS OPTION UNLESS ABSOLUTELY NECESSARY.
++  */
++ 
++ #define	AUTOSHADOW
++ 
++ /*
++  * Define SHADOWGRP to user shadowed group files.  This feature adds
++  * the concept of a group administrator.
++  */
++ 
++ /* #define	SHADOWGRP	/**/
++ 
++ /*
++  * Define DOUBLESIZE to use 16 character passwords
++  */
++ 
++ #define DOUBLESIZE
++ 
++ /*
++  * Define AGING if you want the password aging checks made.
++  * Release 3 has a requirement that AGING always be defined.
++  */
++ 
++ #define	AGING
++ 
++ /*
++  * Pick your version of DBM.  If you define either DBM or NDBM, you must
++  * define GETPWENT.  If you define NDBM you must define GETGRENT as well.
++  */
++ 
++ /* #define	DBM	/**/
++ /* #define	NDBM	/**/
++ 
++ /*
++  * Define USE_SYSLOG if you want to have SYSLOG functions included in your code.
++  */
++ 
++ #undef	USE_SYSLOG
++ 
++ /*
++  * Enable RLOGIN to support the "-r" and "-h" options.
++  * Also enable UT_HOST if your /etc/utmp provides for a host name.
++  */
++ 
++ #define RLOGIN
++ #define UT_HOST
++ 
++ /*
++  * Select one of the following
++  */
++ 
++ /* #define DIR_XENIX	/* include <sys/ndir.h>, use (struct direct)	*/
++ /* #define DIR_BSD	/* include <ndir.h>, use (struct direct)	*/
++ #define DIR_SYSV	/* include <dirent.h>, use (struct dirent)	*/
++ 
++ /*
++  * Various system environment definitions.
++  */
++ 
++ #undef	HAVE_ULIMIT	/* Define if your UNIX supports ulimit()	*/
++ #define	HAVE_RLIMIT	/* Define if your UNIX supports setrlimit()	*/
++ #define	GETPWENT	/* Define if you want my GETPWENT(3) routines	*/
++ #undef	GETGRENT	/* Define if you want my GETGRENT(3) routines	*/
++ #undef	NEED_AL64	/* Define if library does not include a64l()	*/
++ #undef	NEED_MKDIR	/* Define if system does not have mkdir()	*/
++ #undef	NEED_RMDIR	/* Define if system does not have rmdir()	*/
++ #undef	NEED_RENAME	/* Define if system does not have rename()	*/
++ #undef	NEED_STRSTR	/* Define if library does not include strstr()	*/
++ #define	SIGTYPE	void	/* Type returned by signal()                    */
++ 
++ /*
++  * These definitions MUST agree with the values defined in <pwd.h>.
++  */
++ 
++ #undef	BSD_QUOTA	/* the pw_quota field exists */
++ #define	ATT_AGE		/* the pw_age field exists */
++ #define	ATT_COMMENT	/* the pw_comment field exists */
++ 
++ /*
++  * Define NDEBUG for production versions
++  */
++ 
++ #define	NDEBUG
++ 
++ /*
++  * Define PWDFILE and GRPFILE to the names of the password and
++  * group files.
++  */
++ 
++ #define	PWDFILE	"/etc/passwd"
++ #define	GRPFILE	"/etc/group"
+Index: config.h
+*** config.h.old	Sat Oct 10 11:14:29 1992
+--- config.h	Sat Oct 10 11:14:28 1992
+***************
+*** 12,18 ****
+  /*
+   * Configuration file for login.
+   *
+!  *	@(#)config.h	3.16	09:42:44	1/20/92
+   */
+  
+  
+--- 12,18 ----
+  /*
+   * Configuration file for login.
+   *
+!  *	@(#)config.h	3.16.1.1	10:52:06	10/10/92
+   */
+  
+  
+***************
+*** 40,46 ****
+  
+  /*
+   * Define SHADOWGRP to user shadowed group files.  This feature adds
+!  * the concept of a group administrator.
+   */
+  
+  /* #define	SHADOWGRP /**/
+--- 40,47 ----
+  
+  /*
+   * Define SHADOWGRP to user shadowed group files.  This feature adds
+!  * the concept of a group administrator.  You MUST NOT define this
+!  * if you disable SHADOWPWD.
+   */
+  
+  /* #define	SHADOWGRP /**/
+Index: copydir.c
+*** copydir.c.old	Sat Oct 10 11:14:47 1992
+--- copydir.c	Sat Oct 10 11:14:46 1992
+***************
+*** 1,6 ****
+  /*
+!  * Copyright 1991, John F. Haugh II
+!  * An unpublished work.
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 8,18 ****
+--- 7,23 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include "config.h"
++ 
++ #if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
++ 
+  #ifdef DIR_XENIX
+  #include <sys/ndir.h>
+  #define DIRECT direct
+***************
+*** 29,35 ****
+  #include <stdio.h>
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)copydir.c	3.1	10:09:26	6/13/91";
+  #endif
+  
+  #ifndef	S_ISDIR
+--- 34,40 ----
+  #include <stdio.h>
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)copydir.c	3.2	10:52:09	10/10/92";
+  #endif
+  
+  #ifndef	S_ISDIR
+***************
+*** 124,134 ****
+   */
+  
+  int
+! copy_tree (src_root, dst_root, uid, gid)
+  char	*src_root;
+  char	*dst_root;
+  int	uid;
+  int	gid;
+  {
+  	char	src_name[BUFSIZ];
+  	char	dst_name[BUFSIZ];
+--- 129,141 ----
+   */
+  
+  int
+! copy_tree (src_root, dst_root, uid, gid, ouid, ogid)
+  char	*src_root;
+  char	*dst_root;
+  int	uid;
+  int	gid;
++ int	ouid;
++ int	ogid;
+  {
+  	char	src_name[BUFSIZ];
+  	char	dst_name[BUFSIZ];
+***************
+*** 370,372 ****
+--- 377,381 ----
+  
+  	return err ? -1:0;
+  }
++ 
++ #endif	/* defined(DIR_XXX) */
+Index: env.c
+*** env.c.old	Sat Oct 10 11:15:02 1992
+--- env.c	Sat Oct 10 11:15:02 1992
+***************
+*** 1,9 ****
+  /*
+!  * Copyright 1989, 1990, John F. Haugh II
+   * All rights reserved.
+   *
+!  * Use, duplication, and disclosure prohibited without
+!  * the express written permission of the author.
+   */
+  
+  #include <stdio.h>
+--- 1,15 ----
+  /*
+!  * Copyright 1989, 1990, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+!  * Permission is granted to copy and create derivative works for any
+!  * non-commercial purpose, provided this copyright notice is preserved
+!  * in all copies of source code, or included in human readable form
+!  * and conspicuously displayed on all copies of object code or
+!  * distribution media.
+!  *
+!  * This software is provided on an AS-IS basis and the author makes
+!  * no warrantee of any kind.
+   */
+  
+  #include <stdio.h>
+***************
+*** 16,22 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	_sccsid[] = "@(#)env.c	2.2	19:23:43	7/29/90";
+  #endif
+  
+  extern	char	**environ;
+--- 22,28 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	_sccsid[] = "@(#)env.c	3.1	13:00:03	7/27/92";
+  #endif
+  
+  extern	char	**environ;
+***************
+*** 35,41 ****
+  	(char *) 0
+  };
+  
+! void	addenv (entry)
+  char	*entry;
+  {
+  	char	*cp;
+--- 41,52 ----
+  	(char *) 0
+  };
+  
+! /*
+!  * addenv - add a new environmental entry
+!  */
+! 
+! void
+! addenv (entry)
+  char	*entry;
+  {
+  	char	*cp;
+***************
+*** 64,70 ****
+  	}
+  }
+  
+! void	setenv (argc, argv)
+  int	argc;
+  char	**argv;
+  {
+--- 75,86 ----
+  	}
+  }
+  
+! /*
+!  * setenv - copy command line arguments into the environment
+!  */
+! 
+! void
+! setenv (argc, argv)
+  int	argc;
+  char	**argv;
+  {
+Index: getdef.c
+*** getdef.c.old	Sat Oct 10 11:15:17 1992
+--- getdef.c	Sat Oct 10 11:15:17 1992
+***************
+*** 7,16 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.6	14:49:39	4/28/92";
+  #endif
+  
+  #include <stdio.h>
+--- 7,19 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.7	13:02:29	7/27/92";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 53,58 ****
+--- 56,62 ----
+  	{ "ENV_TZ",			NULL },
+  	{ "ERASECHAR",			NULL },
+  	{ "FAILLOG_ENAB",		NULL },
++ 	{ "FAIL_DELAY",			NULL },
+  	{ "FTMP_FILE",			NULL },
+  	{ "HUSHLOGIN_FILE",		NULL },
+  	{ "ISSUE_FILE_ENAB",		NULL },
+Index: lastlog.h
+*** lastlog.h.old	Sat Oct 10 11:15:32 1992
+--- lastlog.h	Sat Oct 10 11:15:32 1992
+***************
+*** 1,15 ****
+  /*
+!  * Copyright 1989, 1990, John F. Haugh II
+   * All rights reserved.
+   *
+!  * Use, duplication, and disclosure prohibited without
+!  * the express written permission of the author.
+   */
+  
+  /*
+   * lastlog.h - structure of lastlog file
+   *
+!  *	@(#)lastlog.h	3.1	11:30:22	12/3/91
+   *
+   *	This file defines a lastlog file structure which should be sufficient
+   *	to hold the information required by login.  It should only be used if
+--- 1,21 ----
+  /*
+!  * Copyright 1989, 1990, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+!  * Permission is granted to copy and create derivative works for any
+!  * non-commercial purpose, provided this copyright notice is preserved
+!  * in all copies of source code, or included in human readable form
+!  * and conspicuously displayed on all copies of object code or
+!  * distribution media.
+!  *
+!  * This software is provided on an AS-IS basis and the author makes
+!  * not warrantee of any kind.
+   */
+  
+  /*
+   * lastlog.h - structure of lastlog file
+   *
+!  *	@(#)lastlog.h	3.1.1.1	13:02:32	7/27/92
+   *
+   *	This file defines a lastlog file structure which should be sufficient
+   *	to hold the information required by login.  It should only be used if
+***************
+*** 18,22 ****
+--- 24,32 ----
+  
+  struct	lastlog	{
+  	time_t	ll_time;
++ #ifdef SVR4
++ 	char	ll_line[24];
++ #else
+  	char	ll_line[8];
++ #endif
+  };
+Index: lmain.c
+*** lmain.c.old	Sat Oct 10 11:15:50 1992
+--- lmain.c	Sat Oct 10 11:15:48 1992
+***************
+*** 7,12 ****
+--- 7,15 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #include "config.h"
+***************
+*** 14,20 ****
+--- 17,27 ----
+  #include <sys/stat.h>
+  #include <stdio.h>
+  #include "pwd.h"
++ #ifdef SVR4
++ #include <utmpx.h>
++ #else
+  #include <utmp.h>
++ #endif
+  #include <time.h>
+  #include <signal.h>
+  #ifndef	BSD
+***************
+*** 39,45 ****
+--- 46,55 ----
+  
+  #include "lastlog.h"
+  #include "faillog.h"
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
++ #include "pwauth.h"
+  
+  #if !defined(BSD) && !defined(SUN)
+  #define	bzero(a,n)	memset(a, 0, n);
+***************
+*** 54,60 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)lmain.c	3.19	20:36:55	3/7/92";
+  #endif
+  
+  					/* danger - side effects */
+--- 64,70 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)lmain.c	3.21	13:40:20	7/31/92";
+  #endif
+  
+  					/* danger - side effects */
+***************
+*** 66,72 ****
+  #endif
+  
+  struct	passwd	pwent;
+! struct	utmp	utent;
+  struct	lastlog	lastlog;
+  int	pflg;
+  int	rflg;
+--- 76,86 ----
+  #endif
+  
+  struct	passwd	pwent;
+! #ifdef SVR4
+! struct	utmpx	utent, failent;
+! #else
+! struct	utmp	utent, failent;
+! #endif
+  struct	lastlog	lastlog;
+  int	pflg;
+  int	rflg;
+***************
+*** 121,126 ****
+--- 135,141 ----
+  extern	int	optind;
+  extern	char	*optarg;
+  extern	char	**environ;
++ extern	int	pw_auth();
+  
+  #ifdef HAVE_ULIMIT
+  extern	long	ulimit();
+***************
+*** 136,146 ****
+  
+  struct	faillog	faillog;
+  
+- struct	utmp	failent;
+- 
+  #define	NO_SHADOW	"no shadow password for `%s' on `%s'\n"
+  #define	BAD_PASSWD	"invalid password for `%s' on `%s'\n"
+  #define	BAD_DIALUP	"invalid dialup password for `%s' on `%s'\n"
+  #define	BAD_TIME	"invalid login time for `%s' on `%s'\n"
+  #define	BAD_ROOT_LOGIN	"ILLEGAL ROOT LOGIN ON TTY `%s'\n"
+  #define	ROOT_LOGIN	"ROOT LOGIN ON TTY `%s'\n"
+--- 151,161 ----
+  
+  struct	faillog	faillog;
+  
+  #define	NO_SHADOW	"no shadow password for `%s' on `%s'\n"
++ #define	BAD_PASSWD_HOST	"invalid password for `%s' on `%s' from `%s'\n"
+  #define	BAD_PASSWD	"invalid password for `%s' on `%s'\n"
+  #define	BAD_DIALUP	"invalid dialup password for `%s' on `%s'\n"
++ #define	BAD_TIME_HOST	"invalid login time for `%s' on `%s' from `%s'\n"
+  #define	BAD_TIME	"invalid login time for `%s' on `%s'\n"
+  #define	BAD_ROOT_LOGIN	"ILLEGAL ROOT LOGIN ON TTY `%s'\n"
+  #define	ROOT_LOGIN	"ROOT LOGIN ON TTY `%s'\n"
+***************
+*** 147,152 ****
+--- 162,168 ----
+  #define	FAILURE_CNT	"exceeded failure limit for `%s' on `%s'\n"
+  #define	NOT_A_TTY	"not a tty\n"
+  #define	NOT_ROOT	"-r or -f flag and not ROOT on `%s'\n"
++ #define AUTHFAIL	"authentication failed for user `%s'\n"
+  
+  /*
+   * usage - print login command usage and exit
+***************
+*** 260,267 ****
+--- 276,285 ----
+  	char	*tmp;
+  	char	buff[128];
+  	struct	passwd	*pwd;
++ #ifdef	SHADOWPWD
+  	struct	spwd	*spwd;
+  	struct	spwd	*getspnam();
++ #endif
+  
+  	/*
+  	 * Some quick initialization.
+***************
+*** 339,354 ****
+  		exit (1);
+  	}
+  
+  #ifdef	USE_SYSLOG
+  	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+  #endif
+  
+- 	if (! isatty (0) || ! isatty (1) || ! isatty (2)) {
+- #ifdef	USE_SYSLOG
+- 		closelog ();
+- #endif
+- 		exit (1);		/* must be a terminal */
+- 	}
+  #ifndef	BSD
+  	(void) ioctl (0, TCGETA, &termio); /* get terminal characteristics */
+  
+--- 357,369 ----
+  		exit (1);
+  	}
+  
++ 	if (! isatty (0) || ! isatty (1) || ! isatty (2))
++ 		exit (1);		/* must be a terminal */
++ 
+  #ifdef	USE_SYSLOG
+  	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+  #endif
+  
+  #ifndef	BSD
+  	(void) ioctl (0, TCGETA, &termio); /* get terminal characteristics */
+  
+***************
+*** 427,434 ****
+--- 442,461 ----
+  		if (rflg || fflg)
+  			usage ();
+  
++ #ifdef SVR4
++ 		/*
++ 		 * The "-h" option can't be used with a command-line username,
++ 		 * because telnetd invokes us as: login -h host TERM=...
++ 		 */
++ 
++ 		if (! hflg) {
++ 			STRFCPY (name, argv[optind]);
++ 			++optind;
++ 		}
++ #else
+  		STRFCPY (name, argv[optind]);
+  		++optind;
++ #endif
+  	}
+  #ifdef SVR4
+  	/*
+***************
+*** 474,479 ****
+--- 501,507 ----
+  			pwent = *pwd;
+  
+  		if (pwent.pw_name) {
++ #ifdef	SHADOWPWD
+  			if (! (spwd = getspnam (name)))
+  #ifdef	USE_SYSLOG
+  				syslog (LOG_WARN, NO_SHADOW, name, tty);
+***************
+*** 482,487 ****
+--- 510,516 ----
+  #endif
+  			else
+  				pwent.pw_passwd = spwd->sp_pwdp;
++ #endif	/* SHADOWPWD */
+  			failed = 0;	/* hasn't failed validation yet */
+  		} else
+  			failed = 1;	/* will never pass validation */
+***************
+*** 496,504 ****
+  			goto have_name;
+  #endif	/*RLOGIN*/
+  
+  	/*
+  	 * Get the user's password.  One will only be prompted for
+! 	 * if the pw_passwd (or sp_passwd) field is non-blank.  It
+  	 * will then be checked against the password entry, along
+  	 * with other options which prevent logins.
+  	 */
+--- 525,543 ----
+  			goto have_name;
+  #endif	/*RLOGIN*/
+  
++ 		if (pwent.pw_name && pwent.pw_passwd[0] == '@') {
++ 			if (pw_auth (pwent.pw_passwd + 1, name, PW_LOGIN)) {
++ 				failed = 1;
++ #ifdef	USE_SYSLOG
++ 				syslog (LOG_WARN, AUTHFAIL, name);
++ #endif
++ 			}
++ 			goto auth_done;
++ 		}
++ 
+  	/*
+  	 * Get the user's password.  One will only be prompted for
+! 	 * if the pw_passwd (or sp_pwdp) field is non-blank.  It
+  	 * will then be checked against the password entry, along
+  	 * with other options which prevent logins.
+  	 */
+***************
+*** 505,511 ****
+  		cp = 0;
+  		if ((! pwent.pw_name || (strlen (pwent.pw_passwd) > 0))
+  				&& ! (cp = getpass ("Password:")))
+! 			continue;
+  
+  		if (cp) {
+  			STRFCPY (pass, cp);
+--- 544,550 ----
+  		cp = 0;
+  		if ((! pwent.pw_name || (strlen (pwent.pw_passwd) > 0))
+  				&& ! (cp = getpass ("Password:")))
+! 			goto again;
+  
+  		if (cp) {
+  			STRFCPY (pass, cp);
+***************
+*** 513,520 ****
+  		}
+  		if (! valid (pass, &pwent)) { /* check encrypted passwords */
+  #ifdef	USE_SYSLOG
+! 			syslog (LOG_WARN, BAD_PASSWD, name, tty);
+! #endif
+  			failed = 1;
+  		}
+  		bzero (pass, sizeof pass);
+--- 552,565 ----
+  		}
+  		if (! valid (pass, &pwent)) { /* check encrypted passwords */
+  #ifdef	USE_SYSLOG
+! #ifdef UT_HOST
+! 			if (*(utent.ut_host))
+! 				syslog (LOG_WARN, BAD_PASSWD_HOST, name, tty,
+! 					utent.ut_host);
+! 			else
+! #endif /* UT_HOST */
+! 				syslog (LOG_WARN, BAD_PASSWD, name, tty);
+! #endif /* USE_SYSLOG */
+  			failed = 1;
+  		}
+  		bzero (pass, sizeof pass);
+***************
+*** 525,530 ****
+--- 570,576 ----
+  		 * been authenticated and so on.
+  		 */
+  
++ auth_done:
+  #ifdef	RLOGIN
+  have_name:
+  #endif
+***************
+*** 544,551 ****
+  			! isttytime (pwent.pw_name, tty, time ((time_t *) 0))
+  		) {
+  #ifdef	USE_SYSLOG
+  				syslog (LOG_WARN, BAD_TIME, name, tty);
+! #endif
+  				failed = 1;
+  		}
+  		if (! failed && pwent.pw_name && pwent.pw_uid == 0 &&
+--- 590,603 ----
+  			! isttytime (pwent.pw_name, tty, time ((time_t *) 0))
+  		) {
+  #ifdef	USE_SYSLOG
++ #ifdef UT_HOST
++ 			if (*(utent.ut_host))
++ 				syslog (LOG_WARN, BAD_TIME_HOST, name, tty,
++ 				    utent.ut_host);
++ 			else
++ #endif	/* UT_HOST */
+  				syslog (LOG_WARN, BAD_TIME, name, tty);
+! #endif	/* USE_SYSLOG */
+  				failed = 1;
+  		}
+  		if (! failed && pwent.pw_name && pwent.pw_uid == 0 &&
+***************
+*** 588,594 ****
+--- 640,650 ----
+  					STRFCPY (failent.ut_name, name);
+  				else
+  					STRFCPY (failent.ut_name, "UNKNOWN");
++ #ifdef SVR4
++ 			gettimeofday (&(failent.ut_tv));
++ #else
+  			time (&failent.ut_time);
++ #endif
+  #ifdef	USG_UTMP
+  			failent.ut_type = USER_PROCESS;
+  #endif
+***************
+*** 601,608 ****
+--- 657,674 ----
+  #endif
+  			exit (1);
+  		}
++ again:
+  		bzero (name, sizeof name);
+  		bzero (pass, sizeof pass);
++ 
++ 		/*
++ 		 * Wait a while (a la SVR4 /usr/bin/login) before attempting
++ 		 * to login the user again.  If the earlier alarm occurs
++ 		 * before the sleep() below completes, login will exit.
++ 		 */
++ 
++ 		if (getdef_num ("FAIL_DELAY", 0))
++ 			sleep (getdef_num ("FAIL_DELAY", 0));
+  	}
+  	(void) alarm (0);		/* turn off alarm clock */
+  
+***************
+*** 643,650 ****
+--- 709,720 ----
+  		subroot++;		/* say i was here again */
+  		endpwent ();		/* close all of the file which were */
+  		endgrent ();		/* open in the original rooted file */
++ #ifdef	SHADOWPWD
+  		endspent ();		/* system.  they will be re-opened */
++ #endif
++ #ifdef	SHADOWGRP
+  		endsgent ();		/* in the new rooted file system */
++ #endif
+  		goto top;		/* go do all this all over again */
+  	}
+  
+***************
+*** 652,657 ****
+--- 722,728 ----
+  		log ();			/* give last login and log this one */
+  	setup (&pwent);			/* set UID, GID, HOME, etc ... */
+  #ifdef	AGING
++ #ifdef	SHADOWPWD
+  	if (spwd) {			/* check for age of password */
+  		if (expire (&pwent, spwd)) {
+  			spwd = getspnam (name);
+***************
+*** 659,666 ****
+  			pwent = *pwd;
+  		}
+  	}
+  #ifdef	ATT_AGE
+! 	else if (pwent.pw_age && pwent.pw_age[0]) {
+  		if (expire (&pwent, (void *) 0)) {
+  			pwd = getpwnam (name);
+  			pwent = *pwd;
+--- 730,741 ----
+  			pwent = *pwd;
+  		}
+  	}
++ #endif
+  #ifdef	ATT_AGE
+! #ifdef	SHADOWPWD
+! 	else
+! #endif
+! 	if (pwent.pw_age && pwent.pw_age[0]) {
+  		if (expire (&pwent, (void *) 0)) {
+  			pwd = getpwnam (name);
+  			pwent = *pwd;
+***************
+*** 676,682 ****
+--- 751,761 ----
+  			printf ("Last login: %.19s on %s\n",
+  				ctime (&lastlog.ll_time), lastlog.ll_line);
+  #ifdef	AGING
++ #ifdef	SHADOWPWD
+  		agecheck (&pwent, spwd);
++ #else
++ 		agecheck (&pwent, (void *) 0);
++ #endif
+  #endif	/* AGING */
+  		mailcheck ();	/* report on the status of mail */
+  	}
+***************
+*** 690,696 ****
+--- 769,777 ----
+  
+  	endpwent ();			/* stop access to password file */
+  	endgrent ();			/* stop access to group file */
++ #ifdef	SHADOWPWD
+  	endspent ();			/* stop access to shadow passwd file */
++ #endif
+  #ifdef	SHADOWGRP
+  	endsgent ();			/* stop access to shadow group file */
+  #endif
+Index: log.c
+*** log.c.old	Sat Oct 10 11:16:09 1992
+--- log.c	Sat Oct 10 11:16:09 1992
+***************
+*** 7,16 ****
+--- 7,23 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
++ #ifdef SVR4
++ #include <utmpx.h>
++ #else
+  #include <sys/types.h>
+  #include <utmp.h>
++ #endif
+  #include "pwd.h"
+  #include <fcntl.h>
+  #include <time.h>
+***************
+*** 25,31 ****
+  #include "config.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)log.c	3.3	20:37:03	3/7/92";
+  #endif
+  
+  #include "lastlog.h"
+--- 32,38 ----
+  #include "config.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)log.c	3.4	13:02:34	7/27/92";
+  #endif
+  
+  #include "lastlog.h"
+***************
+*** 38,44 ****
+--- 45,55 ----
+  #endif	/* SVR4 */
+  #endif	/* LASTLOG_FILE */
+  
++ #ifdef SVR4
++ extern	struct	utmpx	utent;
++ #else
+  extern	struct	utmp	utent;
++ #endif
+  extern	struct	passwd	pwent;
+  extern	struct	lastlog	lastlog;
+  extern	char	**environ;
+Index: login.defs
+*** login.defs.old	Sat Oct 10 11:16:28 1992
+--- login.defs	Sat Oct 10 11:16:27 1992
+***************
+*** 1,7 ****
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.5	14:51:26	4/28/92
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+--- 1,7 ----
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.6	13:02:35	7/27/92
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+***************
+*** 10,15 ****
+--- 10,20 ----
+  #
+  # Comment lines (lines beginning with "#") and blank lines are ignored.
+  #
++ 
++ #
++ # Delay in seconds before being allowed another attempt after a login failure
++ #
++ FAIL_DELAY		5
+  
+  #
+  # Enable additional passwords upon dialup lines specified in /etc/dialups.
+Index: logoutd.c
+*** logoutd.c.old	Sat Oct 10 11:16:45 1992
+--- logoutd.c	Sat Oct 10 11:16:44 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1991, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1991, 1992, John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 7,34 ****
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)logoutd.c	3.3	13:22:33	3/9/92";
+  #endif
+  
+  #include <sys/types.h>
+  #include <stdio.h>
+  #include <signal.h>
+  #include <utmp.h>
+  #include "config.h"
+  
+! #ifdef SUN4
+! #include <fcntl.h>
+  #endif
+  
+! main ()
+  {
+  	int	i;
+  	struct	utmp	utmp;
+  	int	fd;
+! #if defined(BSD) || defined(SUN) || defined(SUN4)
+  	char	tty_name[BUFSIZ];
+  	int	tty_fd;
+  #endif
+--- 7,112 ----
+   * in all copies of source code, or included in human readable form
+   * and conspicuously displayed on all copies of object code or
+   * distribution media.
++  *
++  * This software is provided on an AS-IS basis and the author makes
++  * no warrantee of any kind.
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)logoutd.c	3.4	13:02:38	7/27/92";
+  #endif
+  
+  #include <sys/types.h>
++ #include <sys/stat.h>
+  #include <stdio.h>
+  #include <signal.h>
+  #include <utmp.h>
++ #include <fcntl.h>
+  #include "config.h"
+  
+! #define	HUP_MESG_FILE	"/etc/logoutd.mesg"
+! 
+! #ifndef	UTMP_FILE
+! #define	UTMP_FILE	"/etc/utmp"
+  #endif
+  
+! #ifdef	SVR4
+! #include <libgen.h>
+! #include <unistd.h>
+! #else
+! #define	basename(s) (strrchr(s, '/') ? strrchr (s, '/') + 1 : s)
+! #define	SEEK_SET	0
+! #endif
+! 
+! #ifdef	USE_SYSLOG
+! #include <syslog.h>
+! 
+! #ifndef	LOG_WARN
+! #define	LOG_WARN	LOG_WARNING
+! #endif
+! #endif
+! 
+! #ifdef	SVR4
+! #define	signal	sigset
+! #endif
+! 
+! #ifdef	HUP_MESG_FILE
+! int	mesg_len;
+! int	mesg_size;
+! char	*mesg_buf;
+! 
+! /*
+!  * reload_mesg - reload the message that is output when killing a process
+!  */
+! 
+! void
+! reload_mesg (sig)
+! int	sig;
+! {
+! 	int	fd;
+! 	struct	stat	sb;
+! 
+! 	signal (SIGHUP, reload_mesg);
+! 
+! 	if (stat (HUP_MESG_FILE, &sb))
+! 		return;
+! 
+! 	if ((sb.st_mode & S_IFMT) != S_IFREG)
+! 		return;
+! 
+! 	if ((fd = open (HUP_MESG_FILE, O_RDONLY)) != -1) {
+! 		if (sb.st_size + 1 > mesg_size) {
+! 			if (mesg_buf)
+! 				free (mesg_buf);
+! 
+! 			mesg_len = sb.st_size;
+! 			mesg_size = mesg_len + 1;
+! 			if (! (mesg_buf = malloc (mesg_len + 1)))
+! 				goto end;
+! 		} else
+! 			mesg_len = sb.st_size;
+! 
+! 		if (read (fd, mesg_buf, mesg_len) != mesg_len) {
+! 			mesg_len = 0;
+! 			goto end;
+! 		}
+! 	} else
+! 		return;
+! 
+! end:
+! 	close (fd);
+! }
+! #endif
+! 
+! void
+! main (argc, argv)
+! int	argc;
+! char	**argv;
+  {
+  	int	i;
+  	struct	utmp	utmp;
+  	int	fd;
+! #if defined(BSD) || defined(SUN) || defined(SUN4) || defined(HUP_MESG_FILE)
+  	char	tty_name[BUFSIZ];
+  	int	tty_fd;
+  #endif
+***************
+*** 39,64 ****
+  #ifdef	NDEBUG
+  #ifdef	USG
+  	setpgrp ();
+! #endif
+  #if defined(BSD) || defined(SUN) || defined(SUN4)
+  	setpgid (getpid ());
+! #endif
+  	signal (SIGHUP, SIG_IGN);
+  
+! 	if (fork () > 0)
+! 		exit (0);
+! #endif
+  	while (1) {
+  #ifdef	NDEBUG
+  		sleep (60);
+  #endif
+! 		if ((fd = open ("/etc/utmp", 0)) == -1)
+! 			continue;
+  
+  		while (read (fd, &utmp, sizeof utmp) == sizeof utmp) {
+  #ifdef	USG_UTMP
+  			if (utmp.ut_type != USER_PROCESS)
+  				continue;
+  			if (isttytime (utmp.ut_user, utmp.ut_line, time (0)))
+  				continue;
+  #endif
+--- 117,183 ----
+  #ifdef	NDEBUG
+  #ifdef	USG
+  	setpgrp ();
+! #endif	/* USG */
+  #if defined(BSD) || defined(SUN) || defined(SUN4)
+  	setpgid (getpid ());
+! #endif /* BSD || SUN || SUN4 */
+! #ifdef	HUP_MESG_FILE
+! 	signal (SIGHUP, reload_mesg);
+! #else
+  	signal (SIGHUP, SIG_IGN);
++ #endif	/* HUP_MESG_FILE */
+  
+! 	/*
+! 	 * Put this process in the background.
+! 	 */
+! 
+! 	if (i = fork ())
+! 		exit (i < 0 ? 1:0);
+! #endif	/* NDEBUG */
+! 
+! #ifdef	USE_SYSLOG
+! 	/*
+! 	 * Start syslogging everything
+! 	 */
+! 
+! 	openlog (basename (argv[0]), LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+! #endif
+! 
+! 	/*
+! 	 * Scan the UTMP file once per minute looking for users that
+! 	 * are not supposed to still be logged in.
+! 	 */
+! 
+  	while (1) {
+  #ifdef	NDEBUG
+  		sleep (60);
+  #endif
+! 
+! 		/* 
+! 		 * Attempt to re-open the utmp file.  The file is only
+! 		 * open while it is being used.
+! 		 */
+! 
+! 		if ((fd = open (UTMP_FILE, 0)) == -1) {
+! #ifdef	USE_SYSLOG
+! 			syslog (LOG_ERR, "cannot open %s - aborting\n",
+! 				UTMP_FILE);
+! 			closelog ();
+! #endif
+! 			exit (1);
+! 		}
+! 
+! 		/*
+! 		 * Read all of the entries in the utmp file.  The entries
+! 		 * for login sessions will be checked to see if the user
+! 		 * is permitted to be signed on at this time.
+! 		 */
+  
+  		while (read (fd, &utmp, sizeof utmp) == sizeof utmp) {
+  #ifdef	USG_UTMP
+  			if (utmp.ut_type != USER_PROCESS)
+  				continue;
++ 
+  			if (isttytime (utmp.ut_user, utmp.ut_line, time (0)))
+  				continue;
+  #endif
+***************
+*** 68,78 ****
+  			if (isttytime (utmp.ut_name, utmp.ut_line, time (0)))
+  				continue;
+  #endif
+  #ifdef	USG_UTMP
+  			kill (- utmp.ut_pid, SIGHUP);
+  			sleep (10);
+  			kill (- utmp.ut_pid, SIGKILL);
+! #endif
+  #if defined(BSD) || defined(SUN) || defined(SUN4)
+  
+  			/*
+--- 187,205 ----
+  			if (isttytime (utmp.ut_name, utmp.ut_line, time (0)))
+  				continue;
+  #endif
++ #ifdef	HUP_MESG_FILE
++ 			strcat (strcpy (tty_name, "/dev/"), utmp.ut_line);
++ 			if ((tty_fd = open (tty_name,
++ 					O_WRONLY|O_NDELAY)) != -1) {
++ 				write (tty_fd, mesg_buf, mesg_len);
++ 				close (tty_fd);
++ 			}
++ #endif	/* HUP_MESG_FILE */
+  #ifdef	USG_UTMP
+  			kill (- utmp.ut_pid, SIGHUP);
+  			sleep (10);
+  			kill (- utmp.ut_pid, SIGKILL);
+! #endif	/* USG_UTMP */
+  #if defined(BSD) || defined(SUN) || defined(SUN4)
+  
+  			/*
+***************
+*** 88,93 ****
+--- 215,226 ----
+  			close (tty_fd);
+  #endif
+  		}
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_NOTICE,
++ 			"logged off user `%.*s' on `%.*s'\n",
++ 			sizeof utmp.ut_name, utmp.ut_name,
++ 			sizeof utmp.ut_line, utmp.ut_line);
++ #endif	/* USE_SYSLOG */
+  		close (fd);
+  	}
+  }
+-- 
+John F. Haugh II                  [  TSAKC  ] !'s: ...!cs.utexas.edu!rpp386!jfh
+Ma Bell: (512) 251-2151           [ DoF #17 ]        @'s: jfh@rpp386.cactus.org
+
+exit 0 # Just in case...

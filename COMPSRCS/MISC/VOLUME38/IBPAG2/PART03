@@ -1,0 +1,1666 @@
+Newsgroups: comp.sources.misc
+From: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Subject: v38i047:  ibpag2 - Icon-Based Parser Generator, Part03/05
+Message-ID: <1993Jul13.044428.17151@sparky.sterling.com>
+X-Md4-Signature: 221d98ad8dbb09a8fa5382d7c00f1539
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: University of Chicago
+Date: Tue, 13 Jul 1993 04:44:28 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Posting-number: Volume 38, Issue 47
+Archive-name: ibpag2/part03
+Environment: Icon
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ibtokens.icn iiparse.lib slrtbls.icn
+# Wrapped by kent@sparky on Sun Jul 11 18:51:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'ibtokens.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ibtokens.icn'\"
+else
+  echo shar: Extracting \"'ibtokens.icn'\" \(26595 characters\)
+  sed "s/^X//" >'ibtokens.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 ibtokens.icn
+X#
+X#	Title:	 ibtokens (Ibpag2 source-file tokenizer)
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.10
+X#
+X############################################################################
+X#
+X#  This file contains ibtokens() - a utility for breaking Ibpag2
+X#  source files up into individual tokens.  Ibtokens(f) takes, as its
+X#  first and only argument, an open file, and suspends successive
+X#  ib_TOK records (declared below).  ib_TOK records contain two
+X#  fields.  The first field, sym, contains a string that represents
+X#  the name of the next token (e.g. "CSET", "STRING", etc.).  The
+X#  second field, str, gives that token's literal value.  E.g. the
+X#  ib_TOK for a literal semicolon is ib_TOK("SEMICOL", ";").  For a
+X#  mandatory newline, ibtokens would suspend ib_TOK("SEMICOL", "\n").
+X#  NB:  As a cheat, ibtokens() suspends ib_TOK(&null, "\n") for
+X#  nonessential newlines.
+X#
+X#  NOTE WELL: If new reserved words or operators are added to a given
+X#  Icon implementation, the tables below will have to be altered.
+X#  Note also that &keywords are implemented on the syntactic level -
+X#  not on the lexical one.  As a result, a keyword like &features will
+X#  be suspended as ib_TOK("CONJUNC", "&") and ib_TOK("IDENT",
+X#  "features").  In fact, this tokenizer mirrors closely the tokenizer
+X#  used in Icon's C implementation.
+X#
+X############################################################################
+X#
+X#  Links: slshupto
+X#
+X#  Requires: coexpressions
+X#
+X#  See also: itokens.icn, ibreader.icn, ibwriter.icn
+X#
+X############################################################################
+X
+X#link slshupto
+X
+Xglobal next_c, line_number
+Xrecord ib_TOK(sym, str)
+X
+X#
+X# ibtokens:  file      -> ib_TOK records (a generator)
+X#           (stream)   -> Rs
+X#
+X#     Where stream is an open file, and Rs are ib_TOK records.  Note that
+X#     ibtokens strips out useless newlines.  If you want to preserve
+X#     the line structure of the original file, see the description of
+X#     ibpag2_tokens() below.
+X#
+Xprocedure ibtokens(stream)
+X
+X    local T
+X
+X    every T := \ibpag2_tokens(stream) do {
+X	#
+X	# Ibpag2_tokens emits dummy tokens for nonessential newlines.
+X	# These have a null sym field.
+X	#
+X	\T.sym == "EOFX" & fail
+X        suspend T
+X    }
+X
+Xend
+X
+X
+X#
+X# ibpag2_tokens:  file     -> ib_TOK records (a generator)
+X#                 (stream) -> tokens
+X#
+X#     Where file is an open input stream, and tokens are ib_TOK records
+X#     holding both the token type and actual token text.
+X#
+X#     ib_TOK records contain two parts, a preterminal symbol (the first
+X#     "sym" field), and the actual text of the token ("str").  The
+X#     parser only pays attention to the sym field, although the
+X#     strings themselves get pushed onto the value stack.
+X#
+X#     Note the following kludge:  Unlike real Icon tokenizers, this
+X#     procedure returns syntactially meaningless newlines as ib_TOK
+X#     records with a null sym field.  Normally they would be ignored.
+X#     I wanted to return them so they could be printed on the output
+X#     stream, thus preserving the line structure of the original
+X#     file, and making later diagnostic messages more usable.
+X#
+Xprocedure ibpag2_tokens(stream, getchar)
+X
+X    local elem, whitespace, token, last_token, primitives, reserveds
+X    static be_tbl, reserved_tbl, operators
+X    initial {
+X
+X	#  Primitive Tokens
+X	#
+X	primitives := [
+X		       ["identifier",      "IDENT",     "be"],
+X		       ["integer-literal", "INTLIT",    "be"],
+X		       ["real-literal",    "REALLIT",   "be"],
+X		       ["string-literal",  "STRINGLIT", "be"],
+X		       ["cset-literal",    "CSETLIT",   "be"],
+X		       ["end-of-file",     "EOFX",      "" ]]
+X
+X	# Reserved Words
+X	#
+X	reserveds  := [
+X		       ["break",           "BREAK",     "be"],
+X		       ["by",              "BY",        ""  ],
+X		       ["case",            "CASE",      "b" ],
+X		       ["create",          "CREATE",    "b" ],
+X		       ["default",         "DEFAULT",   "b" ],
+X		       ["do",              "DO",        ""  ],
+X                       ["else",            "ELSE",      ""  ],
+X		       ["end",             "END",       "b" ],
+X		       ["every",           "EVERY",     "b" ],
+X		       ["fail",            "FAIL",      "be"],
+X		       ["global",          "GLOBAL",    ""  ],
+X		       ["if",              "IF",        "b" ],
+X		       ["initial",         "INITIAL",   "b" ],
+X		       ["invocable",       "INVOCABLE", ""  ],
+X		       ["link",            "LINK",      ""  ],
+X		       ["local",           "LOCAL",     "b" ],
+X		       ["next",            "NEXT",      "be"],
+X		       ["not",             "NOT",       "b" ],
+X		       ["of",              "OF",        ""  ],
+X		       ["procedure",       "PROCEDURE", ""  ],
+X		       ["record",          "RECORD",    ""  ],
+X		       ["repeat",          "REPEAT",    "b" ],
+X		       ["return",          "RETURN",    "be"],
+X		       ["static",          "STATIC",    "b" ],
+X		       ["suspend",         "SUSPEND",   "be"],
+X		       ["then",            "THEN",      ""  ],
+X		       ["to",              "TO",        ""  ],
+X		       ["until",           "UNTIL",     "b" ],
+X		       ["while",           "WHILE",     "b" ]]
+X
+X	# Operators
+X	#
+X	operators  := [
+X		       [":=",              "ASSIGN",    ""  ],
+X		       ["@",               "AT",        "b" ],
+X		       ["@:=",             "AUGACT",    ""  ],
+X		       ["&:=",             "AUGAND",    ""  ],
+X		       ["=:=",             "AUGEQ",     ""  ],
+X		       ["===:=",           "AUGEQV",    ""  ],
+X		       [">=:=",            "AUGGE",     ""  ],
+X		       [">:=",             "AUGGT",     ""  ],
+X		       ["<=:=",            "AUGLE",     ""  ],
+X		       ["<:=",             "AUGLT",     ""  ],
+X		       ["~=:=",            "AUGNE",     ""  ],
+X		       ["~===:=",          "AUGNEQV",   ""  ],
+X		       ["==:=",            "AUGSEQ",    ""  ],
+X		       [">>=:=",           "AUGSGE",    ""  ],
+X		       [">>:=",            "AUGSGT",    ""  ],
+X		       ["<<=:=",           "AUGSLE",    ""  ],
+X		       ["<<:=",            "AUGSLT",    ""  ],
+X		       ["~==:=",           "AUGSNE",    ""  ],
+X		       ["\\",              "BACKSLASH", "b" ],
+X		       ["!",               "BANG",      "b" ],
+X		       ["|",               "BAR",       "b" ],
+X		       ["^",               "CARET",     "b" ],
+X		       ["^:=",             "CARETASGN", "b" ],
+X		       [":",               "COLON",     ""  ],
+X		       [",",               "COMMA",     ""  ],
+X		       ["||",              "CONCAT",    "b" ],
+X                       ["||:=",            "CONCATASGN",""  ],
+X		       ["&",               "CONJUNC",   "b" ],
+X		       [".",               "DOT",       "b" ],
+X		       ["--",              "DIFF",      "b" ],
+X		       ["--:=",            "DIFFASGN",  ""  ],
+X		       ["===",             "EQUIV",     "b" ],
+X		       ["**",              "INTER",     "b" ],
+X		       ["**:=",            "INTERASGN", ""  ],
+X		       ["{",               "LBRACE",    "b" ],
+X		       ["[",               "LBRACK",    "b" ],
+X		       ["|||",             "LCONCAT",   "b" ],
+X		       ["|||:=",           "LCONCATASGN","" ],
+X		       ["==",              "LEXEQ",     "b" ],
+X		       [">>=",             "LEXGE",     ""  ],
+X		       [">>",              "LEXGT",     ""  ],
+X		       ["<<=",             "LEXLE",     ""  ],
+X		       ["<<",              "LEXLT",     ""  ],
+X		       ["~==",             "LEXNE",     "b" ],
+X		       ["(",               "LPAREN",    "b" ],
+X		       ["-:",              "MCOLON",    ""  ],
+X		       ["-",               "MINUS",     "b" ],
+X		       ["-:=",             "MINUSASGN", ""  ],
+X		       ["%",               "MOD",       ""  ],
+X		       ["%:=",             "MODASGN",   ""  ],
+X		       ["~===",            "NOTEQUIV",  "b" ],
+X		       ["=",               "NUMEQ",     "b" ],
+X		       [">=",              "NUMGE",     ""  ],
+X		       [">",               "NUMGT",     ""  ],
+X		       ["<=",              "NUMLE",     ""  ],
+X		       ["<",               "NUMLT",     ""  ],
+X		       ["~=",              "NUMNE",     "b" ],
+X		       ["+:",              "PCOLON",    ""  ],
+X		       ["+",               "PLUS",      "b" ],
+X		       ["+:=",             "PLUSASGN",  ""  ],
+X		       ["?",               "QMARK",     "b" ],
+X		       ["<-",              "REVASSIGN", ""  ],
+X		       ["<->",             "REVSWAP",   ""  ],
+X		       ["}",               "RBRACE",    "e" ],
+X		       ["]",               "RBRACK",    "e" ],
+X		       [")",               "RPAREN",    "e" ],
+X		       [";",               "SEMICOL",   ""  ],
+X		       ["?:=",             "SCANASGN",  ""  ],
+X		       ["/",               "SLASH",     "b" ],
+X		       ["/:=",             "SLASHASGN", ""  ],
+X		       ["*",               "STAR",      "b" ],
+X		       ["*:=",             "STARASGN",  ""  ],
+X		       [":=:",             "SWAP",      ""  ],
+X		       ["~",               "TILDE",     "b" ],
+X		       ["++",              "UNION",     "b" ],
+X		       ["++:=",            "UNIONASGN", ""  ],
+X		       ["$(",              "LBRACE",    "b" ],
+X		       ["$)",              "RBRACE",    "e" ],
+X		       ["$<",              "LBRACK",    "b" ],
+X		       ["$>",              "RBRACK",    "e" ],
+X		       ["$",               "RHSARG",    "b" ],
+X		       ["%$(",             "BEGGLOB",   "b" ],
+X		       ["%$)",             "ENDGLOB",   "e" ],
+X		       ["%{",              "BEGGLOB",   "b" ],
+X		       ["%}",              "ENDGLOB",   "e" ],
+X		       ["%%",              "NEWSECT",   "be"]]
+X
+X	# static be_tbl, reserved_tbl
+X	reserved_tbl := table()
+X	every elem := !reserveds do
+X	    insert(reserved_tbl, elem[1], elem[2])
+X	be_tbl := table()
+X	every elem := !primitives | !reserveds | !operators do {
+X	    insert(be_tbl, elem[2], elem[3])
+X	}
+X    }
+X
+X    /getchar   := create {
+X	line_number := 0
+X	! ( 1(!stream, line_number +:=1) || "\n" )
+X    }
+X    whitespace := ' \t'
+X    /next_c    := @getchar | {
+X	if \stream then
+X	    return ib_TOK("EOFX")
+X	else fail
+X    }
+X
+X
+X    repeat {
+X	case next_c of {
+X
+X	    "."      : {
+X		# Could be a real literal *or* a dot operator.  Check
+X		# following character to see if it's a digit.  If so,
+X		# it's a real literal.  We can only get away with
+X		# doing the dot here because it is not a substring of
+X		# any longer identifier.  If this gets changed, we'll
+X		# have to move this code into do_iboperator().
+X		#
+X		last_token := do_ibdot(getchar)
+X		suspend last_token
+X#		write(&errout, "next_c == ", image(next_c))
+X		next
+X	    }
+X
+X	    "\n"     : {
+X		# If do_ibnewline fails, it means we're at the end of
+X		# the input stream, and we should break out of the
+X		# repeat loop.
+X		#
+X		every last_token := do_ibnewline(getchar, last_token, be_tbl)
+X		do suspend last_token
+X		if next_c === &null then break
+X		next
+X	    }
+X
+X	    "\#"     : {
+X		# Just a comment.  Strip it by reading every character
+X		# up to the next newline.  The global var next_c
+X		# should *always* == "\n" when this is done.
+X		#
+X		do_ibnumber_sign(getchar)
+X#		write(&errout, "next_c == ", image(next_c))
+X		next
+X	    }
+X
+X	    "\""    : {
+X		# Suspend as STRINGLIT everything from here up to the
+X		# next non-backslashed quotation mark, inclusive
+X		# (accounting for the _ line-continuation convention).
+X		#
+X		last_token := do_ibquotation_mark(getchar)
+X		suspend last_token
+X#		write(&errout, "next_c == ", image(next_c))
+X		next
+X	    }
+X
+X	    "'"     : {
+X		# Suspend as CSETLIT everything from here up to the
+X		# next non-backslashed apostrophe, inclusive.
+X		#
+X		last_token := do_ibapostrophe(getchar)
+X		suspend last_token
+X#		write(&errout, "next_c == ", image(next_c))
+X		next
+X	    }
+X
+X	    &null   : iohno(4)
+X
+X	    default : {
+X		# If we get to here, we have either whitespace, an
+X		# integer or real literal, an identifier or reserved
+X		# word (both get handled by do_ibidentifier), or an
+X		# operator.  The question of which we have can be
+X		# determined by checking the first character.
+X		#
+X		if any(whitespace, next_c) then {
+X		    # Like all of the ib_TOK forming procedures,
+X		    # do_ibwhitespace resets next_c.
+X		    do_ibwhitespace(getchar, whitespace)
+X		    # don't suspend any tokens
+X		    next
+X		}
+X		if any(&digits, next_c) then {
+X		    last_token := do_ibdigits(getchar)
+X		    suspend last_token
+X		    next
+X		}
+X		if any(&letters ++ '_', next_c) then {
+X		    last_token := do_ibidentifier(getchar, reserved_tbl)
+X		    suspend last_token
+X		    next
+X		}
+X#		write(&errout, "it's an operator")
+X		last_token := do_iboperator(getchar, operators)
+X		suspend last_token
+X		next
+X	    }
+X	}
+X    }
+X
+X    # If stream argument is nonnull, then we are in the top-level
+X    # ibpag2_tokens().  If not, then we are in a recursive call, and
+X    # we should not emit all this end-of-file crap.
+X    #
+X    if \stream then
+X	return ib_TOK("EOFX")
+X    else fail
+X
+Xend
+X
+X
+X#
+X#  do_ibdot:  coexpression -> ib_TOK record
+X#             getchar      -> t
+X#
+X#      Where getchar is the coexpression that produces the next
+X#      character from the input stream and t is a token record whose
+X#      sym field contains either "REALLIT" or "DOT".  Essentially,
+X#      do_ibdot checks the next char on the input stream to see if
+X#      it's an integer.  Since the preceding char was a dot, an
+X#      integer tips us off that we have a real literal.  Otherwise,
+X#      it's just a dot operator.  Note that do_ibdot resets next_c for
+X#      the next cycle through the main case loop in the calling
+X#      procedure.
+X#
+Xprocedure do_ibdot(getchar)
+X
+X    local token
+X    # global next_c
+X
+X#    write(&errout, "it's a dot")
+X
+X    # If dot's followed by a digit, then we have a real literal.
+X    #
+X    if any(&digits, next_c := @getchar) then {
+X#	write(&errout, "dot -> it's a real literal")
+X	token := "." || next_c
+X	while any(&digits, next_c := @getchar) do
+X	    token ||:= next_c
+X	if token ||:= (next_c == ("e"|"E")) then {
+X	    while (next_c := @getchar) == "0"
+X	    while any(&digits, next_c) do {
+X		token ||:= next_c
+X		next_c = @getchar
+X	    }
+X	}
+X	return ib_TOK("REALLIT", token)
+X    }
+X
+X    # Dot not followed by an integer; so we just have a dot operator,
+X    # and not a real literal.
+X    #
+X#    write(&errout, "dot -> just a plain dot")
+X    return ib_TOK("DOT", ".")
+X    
+Xend
+X
+X
+X#
+X#  do_ibnewline:  coexpression x ib_TOK record x table -> ib_TOK records
+X#                 (getchar, last_token, be_tbl)        -> Ts (a generator)
+X#
+X#      Where getchar is the coexpression that returns the next
+X#      character from the input stream, last_token is the last ib_TOK
+X#      record suspended by the calling procedure, be_tbl is a table of
+X#      tokens and their "beginner/ender" status, and Ts are ib_TOK
+X#      records.  Note that do_ibnewline resets next_c.  Do_Ibnewline
+X#      is a mess.  What it does is check the last token suspended by
+X#      the calling procedure to see if it was a beginner or ender.  It
+X#      then gets the next token by calling ibpag2_tokens again.  If
+X#      the next token is a beginner and the last token is an ender,
+X#      then we have to suspend a SEMICOL token.  In either event, both
+X#      the last and next token are suspended.
+X#
+Xprocedure do_ibnewline(getchar, last_token, be_tbl)
+X
+X    local next_token
+X    # global next_c
+X
+X#    write(&errout, "it's a newline")
+X
+X    # Go past any additional newlines.
+X    #
+X    while next_c == "\n" do {
+X        # NL can be the last char in the getchar stream; if it *is*,
+X	# then signal that it's time to break out of the repeat loop
+X	# in the calling procedure.
+X	#
+X	next_c := @getchar | {
+X	    next_c := &null
+X	    fail
+X	}
+X	suspend ib_TOK(&null, next_c == "\n")
+X    }
+X
+X    # If there was a last token (i.e. if a newline wasn't the first
+X    # character of significance in the input stream), then check to
+X    # see if it was an ender.  If so, then check to see if the next
+X    # token is a beginner.  If so, then suspend an ib_TOK("SEMICOL")
+X    # record before suspending the next token.
+X    #
+X    if find("e", be_tbl[(\last_token).sym]) then {
+X#	write(&errout, "calling ibpag2_tokens via do_ibnewline")
+X#	&trace := -1
+X	# First arg to ibpag2_tokens can be null here.
+X	\ (next_token := ibpag2_tokens(&null, getchar)).sym
+X	if \next_token then {
+X#	    write(&errout, "call of ibpag2_tokens via do_ibnewline yields ",
+X#		  ximage(next_token))
+X	    if find("b", be_tbl[next_token.sym])
+X	    then suspend ib_TOK("SEMICOL", "\n")
+X	    #
+X	    # See below.  If this were like the real Icon parser,
+X	    # the following line would be commented out.
+X	    #
+X	    else suspend ib_TOK(&null, "\n")
+X	    return next_token
+X	}
+X	else {
+X	    #
+X	    # If this were a *real* Icon tokenizer, it would not emit
+X	    # any record here, but would simply fail.  Instead, we'll
+X	    # emit a dummy record with a null sym field.
+X	    #
+X	    return ib_TOK(&null, "\n")
+X#           &trace := 0
+X#	    fail
+X	}
+X    }
+X
+X    # See above.  Again, if this were like Icon's own tokenizer, we
+X    # would just fail here, and not return any ib_TOK record.
+X    #
+X#   &trace := 0
+X    return ib_TOK(&null, "\n")
+X#   fail
+X
+Xend
+X
+X
+X#
+X#  do_ibnumber_sign:  coexpression -> &null
+X#                     getchar      -> 
+X#
+X#      Where getchar is the coexpression that pops characters off the
+X#      main input stream.  Sets the global variable next_c.  This
+X#      procedure simply reads characters until it gets a newline, then
+X#      returns with next_c == "\n".  Since the starting character was
+X#      a number sign, this has the effect of stripping comments.
+X#
+Xprocedure do_ibnumber_sign(getchar)
+X
+X    # global next_c
+X
+X#    write(&errout, "it's a number sign")
+X    while next_c ~== "\n" do {
+X	next_c := @getchar
+X    }
+X
+X    # Return to calling procedure to cycle around again with the new
+X    # next_c already set.  Next_c should always be "\n" at this point.
+X    return
+X
+Xend
+X
+X
+X#
+X#  do_ibquotation_mark:  coexpression -> ib_TOK record
+X#                        getchar      -> t
+X#
+X#      Where getchar is the coexpression that yields another character
+X#      from the input stream, and t is an ib_TOK record with "STRINGLIT"
+X#      as its sym field.  Puts everything upto and including the next
+X#      non-backslashed quotation mark into the str field.  Handles the
+X#      underscore continuation convention.
+X#
+Xprocedure do_ibquotation_mark(getchar)
+X
+X    local token
+X    # global next_c
+X
+X    # write(&errout, "it's a string literal")
+X    token := "\""
+X    while next_c := @getchar do {
+X	if next_c == "\n" & token[-1] == "_" then {
+X	    token := token[1:-1]
+X	    next
+X	} else {
+X	    if slshupto("\"", token ||:= next_c, 2)
+X	    then {
+X		next_c := @getchar
+X		# resume outermost (repeat) loop in calling procedure,
+X		# with the new (here explicitly set) next_c
+X		return ib_TOK("STRINGLIT", token)
+X	    }
+X	}
+X    }
+X
+Xend
+X
+X
+X#
+X#  do_ibapostrophe:  coexpression -> ib_TOK record
+X#                    getchar      -> t
+X#
+X#      Where getchar is the coexpression that yields another character
+X#      from the input stream, and t is an ib_TOK record with "CSETLIT"
+X#      as its sym field.  Puts everything upto and including the next
+X#      non-backslashed apostrope into the str field.
+X#
+Xprocedure do_ibapostrophe(getchar)
+X
+X    local token
+X    # global next_c
+X
+X#   write(&errout, "it's a cset literal")
+X    token := "'"
+X    while next_c := @getchar do {
+X	if slshupto("'", token ||:= next_c, 2)
+X	then {
+X	    next_c := @getchar
+X	    # Return & resume outermost containing loop in calling
+X	    # procedure w/ new next_c.
+X	    return ib_TOK("CSETLIT", token)
+X	}
+X    }
+X
+Xend
+X
+X
+X#
+X#  do_ibdigits:  coexpression -> ib_TOK record
+X#                getchar      -> t
+X#
+X#      Where getchar is the coexpression that produces the next char
+X#      on the input stream, and where t is an ib_TOK record containing
+X#      either "REALLIT" or "INTLIT" in its sym field, and the text of
+X#      the numeric literal in its str field.
+X#
+Xprocedure do_ibdigits(getchar)
+X
+X    local token, tok_record
+X    # global next_c
+X
+X    # Assume integer literal until proven otherwise....
+X    tok_record := ib_TOK("INTLIT")
+X
+X#   write(&errout, "it's an integer or real literal")
+X    token := ("0" ~== next_c) | ""
+X    while any(&digits, next_c := @getchar) do
+X	token ||:= next_c
+X    if token ||:= (next_c == ("R"|"r")) then {
+X	while any(&digits, next_c := @getchar) do
+X	    token ||:= next_c
+X    } else {
+X	if token ||:= (next_c == ".") then {
+X	    while any(&digits, next_c := @getchar) do
+X		token ||:= next_c
+X	    tok_record := ib_TOK("REALLIT")
+X	}
+X	if token ||:= (next_c == ("e"|"E")) then {
+X	    while any(&digits, next_c := @getchar) do
+X		token ||:= next_c
+X	    tok_record := ib_TOK("REALLIT")
+X	}
+X    }
+X    tok_record.str := ("" ~== token) | "0"
+X    return tok_record
+X    
+Xend
+X
+X
+X#
+X#  do_ibwhitespace:  coexpression x cset  -> &null
+X#                    getchar x whitespace -> &null
+X#
+X#      Where getchar is the coexpression producing the next char on
+X#      the input stream.  Do_ibwhitespace just repeats until it finds
+X#      a non-whitespace character, whitespace being defined as
+X#      membership of a given character in the whitespace argument (a
+X#      cset).
+X#
+Xprocedure do_ibwhitespace(getchar, whitespace)
+X
+X#   write(&errout, "it's junk")
+X    while any(whitespace, next_c) do
+X	next_c := @getchar
+X    return
+X
+Xend
+X
+X
+X#
+X#  do_ibidentifier:  coexpression x table    -> ib_TOK record
+X#                    (getchar, reserved_tbl) -> t
+X#
+X#      Where getchar is the coexpression that pops off characters from
+X#      the input stream, reserved_tbl is a table of reserved words
+X#      (keys = the string values, values = the names qua symbols in
+X#      the grammar), and t is an ib_TOK record containing all subsequent
+X#      letters, digits, or underscores after next_c (which must be a
+X#      letter or underscore).  Note that next_c is global and gets
+X#      reset by do_ibidentifier.
+X#
+Xprocedure do_ibidentifier(getchar, reserved_tbl)
+X
+X    local token
+X    # global next_c
+X
+X#   write(&errout, "it's an indentifier")
+X    token := next_c
+X    while any(&letters ++ &digits ++ '_', next_c := @getchar)
+X    do token ||:= next_c
+X    return ib_TOK(\reserved_tbl[token], token) | ib_TOK("IDENT", token)
+X    
+Xend
+X
+X
+X#
+X#  do_iboperator:  coexpression x list      -> ib_TOK record
+X#                  getchar      x operators -> t
+X#
+X#      Where getchar is the coexpression that produces the next
+X#      character on the input stream, and t is an ib_TOK record
+X#      describing the operator just scanned.  Calls recognibop, which
+X#      creates a DFSA to recognize valid Icon operators.  Arg2
+X#      (operators) is the list of lists containing valid Icon operator
+X#      string values and names (see above).
+X#
+Xprocedure do_iboperator(getchar, operators)
+X
+X    local token, elem
+X
+X    token := next_c
+X
+X    # Go until recognibop fails.
+X    while elem := recognibop(operators, token, 1) do
+X	token ||:= (next_c := @getchar)
+X#   write(&errout, ximage(elem))
+X    if *\elem = 1 then
+X	return ib_TOK(elem[1][2], elem[1][1])
+X    else fail
+X
+Xend
+X
+X
+Xrecord ib_dfstn_state(b, e, tbl)
+Xrecord ib_start_state(b, e, tbl, master_list)
+X#
+X#  recognibop: list x string x integer -> list
+X#              (l, s, i)               -> l2
+X#
+X#      Where l is the list of lists created by the calling procedure
+X#      (each element contains a token string value, name, and
+X#      beginner/ender string), where s is a string possibly
+X#      corresponding to a token in the list, where i is the position
+X#      in the elements of l where the operator string values are
+X#      recorded, and where l2 is a list of elements from l that
+X#      contain operators for which string s is an exact match.
+X#      Fails if there are no operators that s is a prefix of, but
+X#      returns an empty list if there just aren't any that happen to
+X#      match exactly.
+X#
+X#      What this does is let the calling procedure just keep adding
+X#      characters to s until recognibop fails, then check the last
+X#      list it returned to see if it is of length 1.  If it is, then
+X#      it contains list with the vital stats for the operator last
+X#      recognized.  If it is of length 0, then string s did not
+X#      contain any recognizable operator.
+X#
+Xprocedure recognibop(l, s, i)
+X
+X    local   current_state, master_list, c, result, j
+X    static  dfstn_table
+X    initial dfstn_table := table()
+X
+X    /i := 1
+X    # See if we've created an automaton for l already.
+X    /dfstn_table[l] := ib_start_state(1, *l, &null, &null) & {
+X	dfstn_table[l].master_list := sortf(l, i)
+X    }
+X
+X    current_state := dfstn_table[l]
+X    # Save master_list, as current_state will change later on.
+X    master_list   := current_state.master_list
+X
+X    s ? {
+X	while c := move(1) do {
+X
+X	    # Null means that this part of the automaton isn't
+X	    # complete.
+X	    #
+X	    if /current_state.tbl then
+X		create_ib_arcs(master_list, i, current_state, &pos)
+X
+X	    # If the table has been clobbered, then there are no arcs
+X	    # leading out of the current state.  Fail.
+X	    #
+X	    if current_state.tbl === 0 then
+X		fail
+X	    
+X#	    write(&errout, "c = ", image(c))
+X#	    write(&errout, "table for current state = ", 
+X#		  ximage(current_state.tbl))
+X
+X	    # If we get to here, the current state has arcs leading
+X	    # out of it.  See if c is one of them.  If so, make the
+X	    # node to which arc c is connected the current state.
+X	    # Otherwise fail.
+X	    #
+X	    current_state := \current_state.tbl[c] | fail
+X	}
+X    }
+X
+X    # Return possible completions.
+X    #
+X    result := list()
+X    every j := current_state.b to current_state.e do {
+X	if *master_list[j][i] = *s then
+X	    put(result, master_list[j])
+X    }
+X    # return empty list if nothing the right length is found
+X    return result
+X
+Xend
+X
+X
+X#
+X#  create_ib_arcs:  fill out a table of arcs leading out of the current
+X#                   state, and place that table in the tbl field for
+X#                   current_state
+X#
+Xprocedure create_ib_arcs(master_list, field, current_state, POS)
+X
+X    local elem, i, first_char, old_first_char
+X
+X    current_state.tbl := table()
+X    old_first_char := ""
+X    
+X    every elem := master_list[i := current_state.b to current_state.e][field]
+X    do {
+X	
+X	# Get the first character for the current position (note that
+X	# we're one character behind the calling routine; hence
+X	# POS-1).
+X	#
+X	first_char := elem[POS-1] | next
+X	
+X	# If we have a new first character, create a new arc out of
+X	# the current state.
+X	#
+X	if first_char ~== old_first_char then {
+X	    # Store the start position for the current character.
+X	    current_state.tbl[first_char] := ib_dfstn_state(i)
+X	    # Store the end position for the old character.
+X	    (\current_state.tbl[old_first_char]).e := i-1
+X	    old_first_char := first_char
+X	}
+X    }
+X    (\current_state.tbl[old_first_char]).e := i
+X
+X    # Clobber table with 0 if no arcs were added.
+X    current_state.tbl := (*current_state.tbl = 0)
+X    return current_state
+X
+Xend
+END_OF_FILE
+  if test 26595 -ne `wc -c <'ibtokens.icn'`; then
+    echo shar: \"'ibtokens.icn'\" unpacked with wrong size!
+  fi
+  # end of 'ibtokens.icn'
+fi
+if test -f 'iiparse.lib' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'iiparse.lib'\"
+else
+  echo shar: Extracting \"'iiparse.lib'\" \(11774 characters\)
+  sed "s/^X//" >'iiparse.lib' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 iiparse.lib
+X#
+X#	Title:	 LR parser code
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.28
+X#
+X############################################################################
+X#
+X#  LR parser code for use by Ibpag2-generated files.  Entry point is
+X#  iiparse(infile, fail_on_error).  Infile is the stream from which
+X#  input is to be taken.  Infile is passed as argument 1 to the
+X#  user-supplied lexical analyzer, iilex_module() (where _module is
+X#  the string supplied with the -m option to Ibpag2).  If
+X#  fail_on_error is nonnull, the parser, iiparse, will fail on errors,
+X#  rather than abort.  Iiparse() returns the top element on its value
+X#  stack on a successful parse (which can be handy).
+X#
+X#  Iilex_module() must suspend integers for tokens and may also set
+X#  iilval_module to the actual string values.  Tokens -2, -1, and 0
+X#  are reserved.  -2 is epsilon, and -1 is error.  0 is EOF, and is
+X#  automatically appended to the token stream when iilex_module, the
+X#  tokenizer, fails.  These values should not normally be returned by
+X#  the analyzer.  In general, it is a good idea to $include
+X#  iilex_module from your Ibpag2 source files, so that it can use the
+X#  symbolic %token names declared in the original Ibpag2 source file.
+X#  As implied above ("suspend"), iilex_module must be a generator,
+X#  failing on EOF.
+X#
+X#  If desired, the user may include his or her own error-handling
+X#  routine.  It must be called iiparse_module (where _module is once
+X#  again the module name supplied to ibpag2 via the -m option).  The
+X#  global variable line_number_module is automatically defined below,
+X#  so a typical arrangement would be for the lexical analyzer to
+X#  initialize line_number_module to 0, and increment by 1 for each
+X#  line read.  The error handler, iierror_module() can then display
+X#  this variable.  Note that the error handler should accept a single
+X#  string argument (set by iiparse to describe the error just
+X#  encountered).
+X#
+X############################################################################
+X#
+X#  See also: ibpag2.icn
+X#
+X############################################################################
+X
+X$$line 50 "iiparse.lib"
+X
+X# These defines are output by Ibpag2 ahead of time (with the module
+X# name appended, if need be):
+X#
+X# $define iierrok    	recover_shifts  := &null;
+X# $define IIERROR    	iidirective := "error";
+X# $define IIACCEPT   	iidirective := "accept";
+X# $define iiclearin  	iidirective := "clearin";
+X
+X# Warning!  If you change the name of the value stack, change it also
+X# in ibreader.icn, procedure write_action_as_procedure().
+X#
+Xglobal $iilval, $errors, $line_number, $state_stack, $value_stack,
+X    $iidirective, $recover_shifts, $discards
+X
+X#
+X# iiparse: file x   anything        -> ?
+X#          (stream, fail_on_error)  -> ?
+X#
+X#     Where stream is an open file, where fail_on_error is a switch
+X#     that (if nonnull) tells the iiparse to fail, rather than abort,
+X#     on error, and where ? represents the user-defined result of a
+X#     completed parse of file, from the current location up to the
+X#     point where the parser executes an "accept" action.
+X#
+Xprocedure $iiparse(stream, fail_on_error)
+X
+X    local token, next_token, act, ruleno, newsym, rhsize, arglist,
+X	result, tmp, func
+X    static atbl, gtbl, ttbl
+X
+X    initial {
+X	atbl := $atbl_insertion_point
+X	gtbl := $gtbl_insertion_point
+X	ttbl := $ttbl_insertion_point
+X    $$line 86 "iiparse.lib"
+X	\$iilex | stop("no iilex tokenizer defined")
+X    }
+X
+X$$ifndef IIDEBUG
+X    $iidebug := 1
+X$$endif				# not IIDEBUG
+X
+X    $state_stack := [1]
+X    $value_stack := []
+X
+X    $errors := 0		# errors is global
+X    next_token := create $iilex(stream, fail_on_error) | 0
+X
+X    token := @next_token
+X    repeat {
+X	#
+X	# Begin cycle by checking whether there is a valid action
+X	# for state $state_stack[1] and lookahead token.  Atbl and
+X	# gtbl here have a "backwards" structure: t[token][state]
+X	# (usually they go t[state][token]).
+X	#
+X	if act := \ (\atbl[token])[$state_stack[1]] then {
+X	$$ifdef COMPRESSED_TABLES
+X	    act := $uncompress_action(act)
+X	$$endif	#COMPRESSED TABLES
+X	    act ? {
+X		# There's a valid action:  Perform it.
+X		case move(1) of {
+X		    "s": {
+X			#
+X			# Shift action format, e.g. s2.1 = shift and
+X			# go to state 2 by rule 1.
+X			#
+X			push($state_stack, integer(tab(find("."))))
+X			push($value_stack, $iilval)
+X			="."; ruleno := integer(tab(many(&digits)))
+X			$iidebug("s", ttbl, token, ruleno)
+X			pos(0) | stop("malformed action:  ", act)
+X			#
+X			# If, while recovering, we can manage to
+X			# shift 3 tokens, then we consider ourselves 
+X			# resynchronized.  Don't count error (-1).
+X			#
+X			if token ~= -1 then {
+X			    if \$recover_shifts +:= 1 then {
+X				# 3 shifts = successful recovery
+X				if $recover_shifts > 4 then {
+X				    $recover_shifts := &null
+X				    $discards := 0
+X				}
+X			    }
+X			}
+X			token := @next_token | break
+X		    }
+X		    "r": {
+X			#
+X			# Reduce action format, e.g. r1<S>2 = reduce
+X			# by rule 1 (LHS = S, RHS length = 2).
+X			#
+X			ruleno := integer(1(tab(find("<")), move(1)))
+X			newsym := 1(tab(find(">")), move(1))
+X			rhsize := integer(tab(many(&digits)))
+X			arglist := []
+X			every 1 to rhsize do {
+X			    pop($state_stack)
+X			    push(arglist, pop($value_stack))
+X			}
+X			# on the structure of gtbl, see above on atbl
+X			push($state_stack, gtbl[newsym][$state_stack[1]])
+X			#
+X			# The actions are in procedures having the same
+X			# name as the number of their rule, bracketed
+X			# by underscores followed by the current module.
+X			#
+X			if func := proc("_" || ruleno || "_" || $module)
+X			then {
+X			    result := func!arglist | arglist[-1] | &null
+X			    tmp := $iidirective
+X			    $iidirective := &null
+X			    #
+X			    # IIERROR, IIACCEPT, iierrok, and iiclearin
+X			    # are implemented using a switch on a global
+X			    # iidirective variable; see the $defines
+X			    # above
+X			    #
+X			    case tmp of {
+X				"error"  : {
+X				    # restore stacks & fake an error
+X				    pop($state_stack)
+X				    every 1 to rhsize do
+X					push($value_stack, !arglist)
+X				    $errors +:= 1
+X				    token := -1
+X				    next
+X				}
+X				"accept" : {
+X				    $iidebug("a", ttbl, token, ruleno)
+X				    return arglist[-1] | &null
+X				}
+X				"clearin": token := @next_token
+X				&null    : &null
+X				default  : stop("bad iidirective")
+X			    }
+X			}
+X			# If there is no action code for this rule...
+X			else {
+X			    # ...push the value of the last RHS arg.
+X			    # For 0-length e-productions, push &null.
+X			    result := arglist[-1] | &null
+X			}
+X			push($value_stack, result)
+X			$iidebug("r", ttbl, token, ruleno)
+X		    }
+X		    # We're done.  Return the last-generated value.
+X		    "a": {
+X			$iidebug("a", ttbl, token, ruleno)
+X			return $value_stack[1]
+X		    }
+X		}
+X	    }
+X	}
+X	#
+X	# ...but if there is *no* action for atbl[token][$state_stack[1]],
+X	# then we have an error.
+X	#
+X	else {
+X	    if \$recover_shifts := 0 then {
+X		#
+X		# If we're already in an error state, discard the
+X		# current token, and increment the number of discards
+X		# we have made.  500 is too many; abort.
+X		#
+X		if ($discards +:= 1) > 500 then {
+X		    if \$iierror
+X		    then $iierror("fatal error: can't resynchronize")
+X		    else write(&errout, "fatal error: can't resynchronize")
+X		    if \fail_on_error then fail
+X		    else stop()
+X		}
+X		$iidebug("e", ttbl, token)
+X	    } else {
+X		$errors +:= 1 # global error count
+X		$discards := $recover_shifts := 0
+X		if \$iierror
+X		then $iierror(image(\ttbl[token]) | image(token))
+X		else write(&errout, "parse error")
+X		#
+X		# If error appears in a RHS, pop states until we get to
+X		# a spot where error (-1) is a valid lookahead token:
+X		#
+X		if \ttbl[-1] then {
+X		    until *$state_stack = 0 do {
+X			if \atbl[-1][$state_stack[1]] then {
+X			    $iidebug("e", ttbl, token)
+X			    token := -1
+X			    break next
+X			} else pop($state_stack) & pop($value_stack)
+X		    }
+X		# If we get past here, the stack is now empty.  Abort.
+X		}
+X		if \fail_on_error then fail
+X		else stop()
+X	    }
+X	}
+X    }
+X
+X    #
+X    # If we get to here without hitting a final state, then we aren't
+X    # going to get a valid parse.  Abort.
+X    #
+X    if \$iierror
+X    then $iierror("unexpected EOF")
+X    else write(&errout, "unexpected EOF")
+X
+X    if \fail_on_error then fail
+X    else stop()
+X
+Xend
+X
+X
+X$$ifdef IIDEBUG
+X
+Xrecord production(LHS, RHS, POS, LOOK, no, prec, assoc)
+X#
+X# iidebug
+X#
+Xprocedure $iidebug(action, ttbl, token, ruleno)
+X
+X    local p, t, state
+X    static rule_list
+X    initial {
+X	rule_list := $rule_list_insertion_point
+X    $$line 279 "iiparse.lib"
+X    }
+X
+X    case action of {
+X	"a"     : writes(&errout, "accepting ")    & state := $state_stack[1]
+X	"e"     : writes(&errout, "***ERROR***\n") &
+X	          writes(&errout, "recovery shifts = ", $recover_shifts,"\n") &
+X		  writes(&errout, "discarded tokens = ", $discards, "\n") &
+X		  writes(&errout, "total error count = ", $errors, "\n") &
+X	          writes(&errout, "error action ") & state := $state_stack[1]
+X	"r"     : writes(&errout, "reducing ")     & state := $state_stack[2]
+X	"s"     : writes(&errout, "shifting ")     & state := $state_stack[2]
+X	default : stop("malformed action argument to iidebug")
+X    }
+X
+X    t := image(token) || (" (" || (\ttbl[token] | "unknown") || ")")
+X    writes(&errout, "on lookahead ", t, ", in state ", state)
+X    if \ruleno then {
+X	(p := !rule_list).no = ruleno |
+X	    stop("no rule number ", tbl[symbol][state])
+X	write(&errout, "; rule ", $production_2_string(p, ttbl))
+X    }
+X    # for errors, ruleno is null
+X    else write(&errout)
+X
+X    write(&errout, "    state stack now: ")
+X    every write(&errout, "\t", image(!$state_stack))
+X    write(&errout, "    value stack now: ")
+X    if *$value_stack > 0
+X    then every write(&errout, "\t", image(!$value_stack))
+X    else write(&errout, "\t(empty)")
+X
+X    return
+X
+Xend
+X
+X
+X#
+X# production_2_string:  production record -> string
+X#                       p                 -> s
+X#
+X#     Stringizes an image of the LHS and RHS of production p in
+X#     human-readable form.
+X#
+Xprocedure $production_2_string(p, ibtoktbl)
+X
+X    local s, m, t
+X
+X    s := image(p.LHS) || " -> "
+X    every m := !p.RHS do {
+X	if t := \ (\ibtoktbl)[m]
+X	then s ||:= t || " "
+X	else s ||:= image(m) || " "
+X    }
+X    # if the POS field is nonnull, print it
+X    s ||:= "(POS = " || image(\p.POS) || ") "
+X    # if the LOOK field is nonnull, print it, too
+X    s ||:= "lookahead = " || image(\p.LOOK)
+X
+X    return trim(s)
+X
+Xend
+X$$endif				# IIDEBUG
+X
+X
+X$$ifdef COMPRESSED_TABLES
+X
+X#
+X# uncompress_action
+X#
+Xprocedure $uncompress_action(action)
+X
+X    local next_chunk, full_action
+X
+X    next_chunk := create ord(!action)
+X    case $in_ib_bits(next_chunk, 2) of {
+X	0: {
+X	    full_action := "s"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= "."
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	}
+X	1: {
+X	    full_action := "r"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= "<"
+X	    full_action ||:= $in_ib_bits(next_chunk, 11)
+X	    full_action ||:= ">"
+X	    full_action ||:= $in_ib_bits(next_chunk, 8)
+X	}
+X        2: {
+X	    full_action := "a"
+X	}
+X    }
+X
+X    return full_action
+X
+Xend
+X
+X
+X#
+X# in_ib_bits:  like inbits (IPL), but with coexpression for file
+X#
+Xprocedure $in_ib_bits(next_chunk, len)
+X
+X    local i, byte, old_byte_mask
+X    static old_byte, old_len, byte_length
+X    initial {
+X	old_byte := old_len := 0
+X	byte_length := 8
+X    }
+X
+X    old_byte_mask := (0 < 2^old_len - 1) | 0
+X    old_byte := iand(old_byte, old_byte_mask)
+X    i := ishift(old_byte, len-old_len)
+X
+X    len -:= (len > old_len) | {
+X	old_len -:= len
+X	return i
+X    }
+X    
+X    while byte := @next_chunk do {
+X	i := ior(i, ishift(byte, len-byte_length))
+X	len -:= (len > byte_length) | {
+X	    old_len := byte_length-len
+X	    old_byte := byte
+X	    return i
+X	}
+X    }
+X
+Xend
+X
+X$$endif				# COMPRESSED_TABLES
+END_OF_FILE
+  if test 11774 -ne `wc -c <'iiparse.lib'`; then
+    echo shar: \"'iiparse.lib'\" unpacked with wrong size!
+  fi
+  # end of 'iiparse.lib'
+fi
+if test -f 'slrtbls.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'slrtbls.icn'\"
+else
+  echo shar: Extracting \"'slrtbls.icn'\" \(11984 characters\)
+  sed "s/^X//" >'slrtbls.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 slrtbls.icn
+X#
+X#	Title:	 slr table generation routines
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.20
+X#
+X############################################################################
+X#
+X#  Contains make_slr_tables(grammar, atbl, gtbl, noconflict,
+X#  like_yacc), where grammar is an ib_grammar record (as returned by
+X#  ibreader), where atbl and gtbl are initialized (default &null) hash
+X#  tables, and where noconflict is a switch that, if nonnull, directs
+X#  the resolver to abort on unresolvable conflicts.  Returns &null if
+X#  successful in filling out atbl and gtbl.  If likeyacc is nonnull,
+X#  make_slr_tables will resolve reduce/reduce conflicts by order of
+X#  occurrence in the grammar, just like YACC.  Shift/reduce conflicts
+X#  will be resolved in favor of shift.
+X#
+X#  The reason for the noconflict switch is that there are parsers that
+X#  can accept tables with multiple action entries, i.e.  parsers that
+X#  can use tables generated by ambiguous grammars.
+X#
+X#  In this routine's case, success is identified with creating a
+X#  standard SLR action and goto table.  Note that both tables end up
+X#  as tables of tables, with symbols being the primary or first key,
+X#  and state numbers being the second.  This is the reverse of the
+X#  usual arrangement, but turns out to save a lot of space.  Atbl
+X#  values are of the form "s2.3", "r4<A>10", "a", etc.  The string
+X#  "s2.3" means "shift the current lookahead token, and enter state 2
+X#  via rule 3."  By way of contrast, "r4<A>10" means "reduce by rule
+X#  number 4, which has A as its LHS symbol and 10 RHS symbols."  A
+X#  single "a" means "accept."
+X
+X#  Atbl entries may contain more than one action.  The actions are
+X#  simply concatenated: "s2.3r4<A>10a".  Conflicts may be resolved
+X#  later by associativity or precedence, if available.  Unresolvable
+X#  conflicts only cause error termination if the 5th and final
+X#  argument is nonnull (see above on "noconflict").
+X#
+X#  Gtbl entries are simpler than atble entries, consisting of a single
+X#  integer.
+X#
+X############################################################################
+X#
+X#  Links: follow, slritems, iohno
+X#
+X############################################################################
+X
+X# declared in ibreader.icn
+X# record ib_grammar(start, rules, tbl)
+X
+X#link follow, slritems, iohno#, ximage
+X
+X#
+X# make_slr_tables
+X#
+Xprocedure make_slr_tables(grammar, atbl, gtbl, noconflict, like_yacc)
+X
+X    local start_symbol, st, C, i, augmented_start_symbol, item,
+X	symbol, new_item_list, j, action
+X
+X    # Initialize start symbol and rule list/set (either is okay).
+X    start_symbol := grammar.start
+X    st := grammar.rules
+X
+X    # Number the rules, and then construct the canonical LR(0) item sets.
+X    every i := 1 to *st do st[i].no := i
+X    C := make_slr_item_sets(start_symbol, st)
+X
+X    # Now, go through each item in each item set in C filling out the
+X    # action (atbl) and goto table (gtbl) as we go.
+X    #
+X    augmented_start_symbol := "`_" || start_symbol || "_'"
+X    every i := 1 to *C do {
+X        every item := !C[i] do {
+X	    # if the dot's *not* at the end of the production...
+X	    if symbol := item.RHS[item.POS] then {
+X		# if were looking at a terminal, enter a shift action
+X		if type(symbol) == "integer" then {
+X		    if symbol = -2 then next   # Never shift epsilon!
+X		    new_item_list := slr_goto(C[i], symbol, st)
+X		    every j := 1 to *C do {
+X			if equivalent_item_lists(new_item_list, C[j]) then {
+X			    action := "s" || j || "." || item.no
+X			    resolve(st, atbl, symbol, i, action,
+X				    noconflict, like_yacc)
+X			    break next
+X			}
+X		    }
+X		# if we're looking at a nonterminal, add action to gtbl
+X		} else {
+X		    new_item_list := slr_goto(C[i], symbol, st)
+X		    every j := 1 to *C do {
+X			if equivalent_item_lists(new_item_list, C[j]) then {
+X			    /gtbl[symbol] := table()
+X			    /gtbl[symbol][i] := j |
+X				gtbl[symbol][i] =:= j |
+X				iohno(80, image(symbol), ".", image(i), ":", j)
+X			    break next
+X			}
+X		    }
+X		}
+X	    # ...else if the dot *is* at the end of the production
+X	    } else {
+X		if item.LHS == augmented_start_symbol then {
+X		    action := "a"
+X		    # 0 = EOF 
+X		    resolve(st, atbl, 0, i, action, noconflict, like_yacc)
+X		} else {
+X		    # add a reduce for every symbol in FOLLOW(item.LHS)
+X		    every symbol := !FOLLOW(start_symbol, st, item.LHS) do {
+X			# RHS size is 0 for epsilon.
+X			if item.RHS[1] === -2 then {
+X			    action := "r" || item.no || "<" || item.LHS ||
+X				">0"
+X			} else
+X			    action := "r" || item.no || "<" || item.LHS ||
+X			        ">" || *item.RHS
+X			resolve(st, atbl, symbol, i, action,
+X				noconflict, like_yacc)
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X    return
+X
+Xend
+X
+X
+X#
+X# resolve: list|set x table x string|integer, integer, anything, anything
+X#	      						-> string
+X#          (st, tbl, symbol, state, action, noconflict, like_yacc)
+X#							-> new_action_list
+X#
+X#     Add action to action table, resolving conflicts by precedence
+X#     and associativity, if need be.  If noconflict is nonnull, abort
+X#     on unresolvable conflicts.  Fails on shift/shift "conflicts," or
+X#     if an identical action is already present in the table entry to
+X#     be modified.  If like_yacc is nonnull, resolve reduce/reduce
+X#     conflicts by their order of occurrence in the grammar; resolve
+X#     shift/reduce conflicts in favor of shift.
+X#
+Xprocedure resolve(st, tbl, symbol, state, action, noconflict, like_yacc)
+X
+X    local actions, chr, a, ruleno, p, newp
+X
+X    /tbl[symbol] := table()
+X    /tbl[symbol][state] := ""
+X    
+X    # If this action is already present, then don't re-enter it.  Just
+X    # fail.
+X    #
+X    tbl[symbol][state] ? {
+X	while a := tab(any('sra')) do {
+X	    a ||:= tab(upto('.<'))
+X	    a ||:= { (="<" || tab(find(">")+1)) | ="." }
+X	    a ||:= tab(many(&digits))
+X	    if a == action then fail
+X	}
+X    }
+X
+X    # Get rule number for the new action specified as arg 5, and
+X    # fetch its source production.
+X    action ? {
+X	case move(1) of {
+X	    "s": ruleno := (tab(find(".")+1), tab(many(&digits)))
+X	    "r": ruleno := 1(tab(find("<")), move(1))
+X	    "a": return tbl[symbol][state] := action || tbl[symbol][state]
+X	} | iohno(70, tbl[symbol][state])
+X	(newp := !st).no = ruleno |
+X	    iohno(72, tbl[symbol][state])
+X    }
+X
+X    # Resolve any conflicts that might be present.
+X    #
+X    actions := ""
+X    tbl[symbol][state] ? {
+X	while a := tab(any('sra')) do {
+X	    # Snip out the old action, and put it into a.
+X	    a ||:= tab(upto('.<'))
+X	    a ||:= { (="<" || tab(find(">")+1)) | ="." }
+X	    a ||:= tab(many(&digits))
+X	    #
+X	    # Get the old action's rule number, and use it to fetch
+X	    # the full production that it is keyed to.
+X	    #
+X	    a ? {
+X		case move(1) of {
+X		    "s": ruleno := (tab(find(".")+1), tab(many(&digits)))
+X		    "r": ruleno := 1(tab(find("<")), move(1))
+X		    "a": return tbl[symbol][state] := a || actions || action
+X		} | iohno(70, tbl[symbol][state])
+X		# Go through rule list; find the one whose number is ruleno.
+X		(p := !st).no = ruleno |
+X		    iohno(71, tbl[symbol][state])
+X	    }
+X
+X	    # Check precedences to see if we can resolve the conflict
+X	    # this way.
+X	    #
+X	    if \newp.prec > \p.prec then
+X		# discard the old action, a
+X		return tbl[symbol][state] := actions || action || tab(0)
+X	    else if \newp.prec < \p.prec then
+X		# discard the new action, action
+X		return tbl[symbol][state] := actions || a || tab(0)
+X	    else {
+X		#
+X		# If, however, both precedences are the same (i.e.
+X		# newp.prec === p.prec), then we must check the
+X		# associativities.  Right implies shift; left, reduce.
+X		# If there is no associativity, then we have a
+X		# conflict.  Nonassociative ("n") implies error.
+X		#
+X		case action[1] of {
+X		    default: iohno(70, tbl[symbol][state])	
+X		    # case "a" is handled above; look for "s" & "r"
+X		    "s" : {
+X			if a[1] == "s" then fail  # no shift/shift "conflict"
+X			else if a[1] == "r" then {
+X			    newp.assoc === p.assoc | {
+X				iohno(40, "state " || state || "; token " ||
+X				      symbol || "; rules " || newp.no ||
+X				      "," || p.no)
+X			    }
+X			    case newp.assoc of {
+X				"n"  : iohno(41, production_2_string(newp))
+X				&null: { # no associativity given
+X				    if \noconflict & /like_yacc then
+X					iohno(46, "state " || state ||
+X					      "; token " || symbol ||
+X					      "; rules " || newp.no ||
+X					      "," || p.no)
+X				    else {
+X					write(&errout, "warning: shift/reduce",
+X					      " conflict in state " || state ||
+X					      "; token " || symbol ||
+X					      "; rules " || newp.no ||
+X					      "," || p.no)
+X					if \like_yacc then {
+X					    write(&errout, "resolving in _
+X						            favor of shift.")
+X					    return tbl[symbol][state] :=
+X					       actions || action || tab(0)
+X					} else {
+X					    write(&errout, "creating multi-_
+X							action table entry")
+X					    return tbl[symbol][state] :=
+X					       actions || action || a || tab(0)
+X					}
+X				    }
+X				}
+X				"l"  : { # left associative
+X				    # discard new action, action
+X				    return tbl[symbol][state] := 
+X					actions || a || tab(0)
+X				}
+X				"r"  : { # right associative
+X				    # remove old action, a
+X				    return tbl[symbol][state] := 
+X					actions || action || tab(0)
+X				}
+X			    }
+X			}
+X		    }
+X		    "r" : {
+X			if a[1] == "r" then {
+X			    #
+X			    # If conflicts in general, and reduce-reduce
+X			    # conflicts in specific are not okay...
+X			    #
+X			    if \noconflict & /like_yacc then {
+X				# ...abort, otherwise...
+X				iohno(42, "state " || state || "; token " ||
+X				      symbol || "; " || "; rules " ||
+X				      newp.no || "," || p.no)
+X			    } else {
+X				#
+X				# ...flag reduce-reduce conficts, and
+X				# then resolve them by their order of
+X				# occurrence in the grammar.
+X				#
+X				write(&errout, "warning: reduce/reduce",
+X				      " conflict in state ", state,
+X				      "; token ", symbol, "; rules ",
+X				      newp.no, ",", p.no)
+X				if \like_yacc then {
+X				    write(&errout, "resolving by order of _
+X				          occurrence in the grammar")
+X				    if newp.no > p.no
+X				    # discard later production (newp)
+X				    then return return tbl[symbol][state] := 
+X					actions || a || tab(0)
+X				    # discard later production (old p)
+X				    else return tbl[symbol][state] := 
+X					actions || action || tab(0)
+X				} else {
+X				    #
+X				    # If conflicts ok, but we aren't supposed
+X				    # to resolve reduce-reduce conflicts by
+X				    # order of rule occurrence:
+X				    #
+X				    write(&errout, "creating multi-action _
+X					table entry")
+X				    return tbl[symbol][state] :=
+X					actions || action || a || tab(0)
+X				}
+X			    }
+X			} else {
+X			    # associativities must be the same for both rules:
+X			    newp.assoc === p.assoc | {
+X				iohno(40, "state " || state || "; token " ||
+X				      symbol || "; rules " || newp.no ||
+X				      "," || p.no)
+X			    }
+X			    case newp.assoc of {
+X				"n"  : iohno(41, production_2_string(newp))
+X				&null: {
+X				    if \noconflict & /like_yacc then
+X					iohno(46, "state " || state ||
+X					      "; token " || symbol ||
+X					      "; rules " || newp.no ||
+X					      "," || p.no)
+X				    else {
+X					write(&errout, "warning: shift/reduce",
+X					      " conflict in state " || state ||
+X					      "; token " || symbol ||
+X					      "; rules " || newp.no ||
+X					      "," || p.no)
+X					if \like_yacc then {
+X					    write(&errout, "resolving in _
+X						            favor of shift.")
+X					    return tbl[symbol][state] :=
+X					       actions || a || tab(0)
+X					} else {
+X					    write(&errout, "creating multi-_
+X							action table entry")
+X					    return tbl[symbol][state] :=
+X					       actions || action || a || tab(0)
+X					}
+X				    }
+X				}
+X				"r"  : {
+X				    # discard new action, action
+X				    return tbl[symbol][state] :=
+X					actions || a || tab(0)
+X				}
+X				"l"  : {
+X				    # remove old action, a
+X				    return tbl[symbol][state] :=
+X					actions || action || tab(0)
+X				}
+X			    }
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X    return tbl[symbol][state] ||:= action
+X
+Xend
+END_OF_FILE
+  if test 11984 -ne `wc -c <'slrtbls.icn'`; then
+    echo shar: \"'slrtbls.icn'\" unpacked with wrong size!
+  fi
+  # end of 'slrtbls.icn'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

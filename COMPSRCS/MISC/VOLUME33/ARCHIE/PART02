@@ -1,0 +1,1986 @@
+Newsgroups: comp.sources.misc
+From: brendan@cygnus.com (Brendan Kehoe)
+Subject:  v33i051:  archie - A client to query the Archie FTP databases, v1.4.1, Part02/07
+Message-ID: <1992Nov5.210000.24360@sparky.imd.sterling.com>
+X-Md4-Signature: b982f4e25bebdd2d53bded4b78a04b58
+Date: Thu, 5 Nov 1992 21:00:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cygnus.com (Brendan Kehoe)
+Posting-number: Volume 33, Issue 51
+Archive-name: archie/part02
+Environment: UNIX, VMS, DOS
+Supersedes: archie: Volume 27, Issue 79-84
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dirsend.c support.c vms/signal.h
+# Wrapped by kent@sparky on Thu Nov  5 12:53:07 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 7)."'
+if test -f 'dirsend.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dirsend.c'\"
+else
+  echo shar: Extracting \"'dirsend.c'\" \(29177 characters\)
+  sed "s/^X//" >'dirsend.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X/* If you're going to hack on this, I'd suggest using unifdef with -UCUTCP
+X   and possibly -UVMS, for your working copy.  When you've got your changes
+X   done, come back and add them into this main file.  It's getting pretty
+X   nasty down there.  */
+X
+X#include <stdio.h>
+X#include <errno.h>
+X
+X#ifdef VMS
+X# ifdef WOLLONGONG
+X#  include "twg$tcp:[netdist.include]netdb.h"
+X# else /* not Wollongong */
+X#  ifdef UCX
+X#   include <netdb.h>
+X#  else /* Multinet */
+X#   include "multinet_root:[multinet.include]netdb.h"
+X#  endif
+X# endif
+X# include <vms.h>
+X#else /* not VMS */
+X# include <sys/types.h> /* this may/will define FD_SET etc */
+X# ifdef u3b2
+X#  include <sys/inet.h> /* THIS does FD_SET etc on AT&T 3b2s.  */
+X# endif /* u3b2 */
+X# ifdef PCNFS
+X#  include <tklib.h>
+X#  include <tk_errno.h>
+X#  include <sys/nfs_time.h>
+X# endif
+X# include <pmachine.h>
+X# if defined(NEED_TIME_H) && !defined(AUX)
+X#  include <time.h>
+X# else
+X#  include <sys/time.h>
+X# endif
+X# ifdef WANT_BOTH_TIME
+X#  include <sys/time.h>
+X# endif
+X# ifdef NEED_STRING_H
+X#  include <string.h>
+X# else
+X#  include <strings.h>
+X# endif
+X# ifdef CUTCP
+X#  include <msdos/cutcp.h>
+X#  include <msdos/netevent.h>
+X#  include <msdos/hostform.h>
+X# else /* not CUTCP */
+X#  include <netdb.h>
+X#  include <sys/socket.h>
+X# endif
+X# ifdef NEED_SELECT_H
+X#  include <sys/select.h>
+X# endif /* NEED_SELECT_H */
+X# ifndef IN_H
+X#  include <netinet/in.h>
+X#  define IN_H
+X# endif
+X# if !defined(hpux) && !defined(PCNFS)
+X#  include <arpa/inet.h>
+X# endif
+X#endif /* !VMS */
+X
+X/* Interactive UNIX keeps some of the socket definitions in funny places.  */
+X#ifdef ISC
+X# include <net/errno.h>
+X#endif /* ISC */
+X/* PC-NFS Toolkit 4.0 keeps important forward definitions here. */
+X#ifdef PCNFS
+X# include <in_addr.h>
+X#endif
+X
+X#include <pfs.h>
+X#include <pprot.h>
+X#include <pcompat.h>
+X#include <perrno.h>
+X
+X/* Gnu C currently fails to pass structures on Sparcs properly.  This directly
+X   effects the calling of inet_ntoa().  To get around it, we use this hack;
+X   take the address of what's being called to inet_ntoa, so it gets it
+X   properly.  This won't be necessary with gcc 2.0.  */
+X#if defined(sun) && defined(__GNUC__) && !defined(__GNU_LIBRARY__) \
+X    && !defined(__svr4__)
+X# define SUN_GNU_FIX &
+X#else
+X# define SUN_GNU_FIX
+X#endif
+X
+Xstatic int notprived = 0;
+X#ifndef MSDOS
+Xextern int errno;
+X#endif
+Xextern int perrno;
+Xextern int rdgram_priority;
+X#ifdef DEBUG
+Xextern int pfs_debug;
+X#endif
+Xextern int pfs_disable_flag;
+X
+Xextern int verbose;
+X
+Xchar	*nlsindex();
+X
+X#define max(X, Y)  ((X) > (Y) ? (X) : (Y))
+X
+Xstatic int		dir_udp_port = 0;	/* Remote UDP port number */
+X
+X#ifdef CUTCP
+X# define	NS_TIMEOUT	15
+X#endif
+X
+Xstatic unsigned short	next_conn_id = 0;
+X
+Xstatic int client_dirsrv_timeout = CLIENT_DIRSRV_TIMEOUT;
+Xstatic int client_dirsrv_retry = CLIENT_DIRSRV_RETRY; 
+X
+X/* These were parameters to dirsend() */
+Xstatic PTEXT pkt;
+Xstatic char *hostname;
+Xstatic struct sockaddr_in *hostaddr;
+X
+X/* These were locals in dirsend(). Note that the initializations here
+X * are really meaningless since we have to redo them for each call to
+X * dirsend() since they were formerly automatically initialized.
+X */
+Xstatic PTEXT		first = NULL;	/* First returned packet	 */
+Xstatic PTEXT		next;		/* The one we are waiting for 	 */
+Xstatic PTEXT		vtmp;           /* For reorganizing linked list  */
+Xstatic PTEXT		comp_thru;	/* We have all packets though    */
+Xstatic int		lp = -1;	/* Opened UDP port	         */
+Xstatic int		hdr_len;	/* Header Length                 */
+Xstatic int		nd_pkts;	/* Number of packets we want     */
+Xstatic int		no_pkts;	/* Number of packets we have     */
+Xstatic int		pkt_cid;        /* Packet connection identifier  */
+Xstatic unsigned short	this_conn_id;	/* Connection ID we are using    */
+Xstatic unsigned short	recvd_thru;	/* Received through              */
+Xstatic short		priority;	/* Priority for request          */
+Xstatic short		one = 0;	/* Pointer to value 1            */
+Xstatic short		zero = 0;	/* Pointer to value 0		 */
+Xstatic char		*seqtxt;	/* Pointer to text w/ sequence # */
+Xstatic struct sockaddr_in  us;		/* Our address                   */
+Xstatic struct sockaddr_in  to;		/* Address to send query	 */
+Xstatic struct sockaddr_in  from;	/* Reply received from		 */
+Xstatic int		from_sz;	/* Size of from structure	 */
+Xstatic struct hostent	*host;		/* Host info from gethostbyname  */
+Xstatic long		newhostaddr;    /* New host address from *host   */
+Xstatic int		req_udp_port=0; /* Requested port (optional)     */
+Xstatic char		*openparen;	/* Delimits port in name         */
+Xstatic char		hostnoport[500];/* Host name without port        */
+Xstatic int		ns;		/* Number of bytes actually sent */
+Xstatic int		nr;		/* Number of bytes received      */
+Xstatic SELECTARG	readfds;	/* Used for select		 */
+Xstatic int		tmp;
+Xstatic char		*ctlptr;	/* Pointer to control field      */
+Xstatic short		stmp;		/* Temp short for conversions    */
+Xstatic int		backoff;	/* Server requested backoff      */
+Xstatic unsigned char	rdflag11;	/* First byte of flags (bit vect)*/
+Xstatic unsigned char	rdflag12;	/* Second byte of flags (int)    */
+Xstatic int		scpflag = 0;	/* Set if any sequencd cont pkts */
+Xstatic int		ackpend = 0;    /* Acknowledgement pending      */
+Xstatic int		gaps = 0;	/* Gaps present in recvd pkts   */
+Xstatic struct timeval	timeout;	/* Time to wait for response    */
+Xstatic struct timeval	ackwait;	/* Time to wait before acking   */
+Xstatic struct timeval	gapwait;	/* Time to wait b4 filling gaps */
+Xstatic struct timeval	*selwait;	/* Time to wait for select      */
+Xstatic int		retries;	/* was = client_dirsrv_retry    */
+Xchar   to_hostname[512];		/* lmjm: saves inet_ntoa() str  */
+X
+X/* These are added so dirsend() "blocks" properly */
+Xstatic PTEXT dirsendReturn;
+Xstatic int dirsendDone;
+X
+X/* And here are the values for dirsendDone */
+X#define DSRET_DONE		1
+X#define DSRET_SEND_ERROR	-1
+X#define DSRET_RECV_ERROR	-2
+X#define DSRET_SELECT_ERROR	-3
+X#define DSRET_TIMEOUT		-4
+X#define DSRET_ABORTED		-5
+X
+X/* New procedures to break up dirsend() */
+Xstatic int initDirsend();
+Xstatic void retryDirsend(), keepWaitingDirsend();
+Xstatic void timeoutProc();
+Xstatic void readProc();
+X
+X/* Wrappers around X calls to allow non-X usage */
+Xstatic void processEvent();
+X
+X/* Extra stuff for the asynchronous X version of dirsend() */
+Xtypedef char *XtPointer;
+Xtypedef char *XtInputId;
+Xtypedef char *XtIntervalId;
+X
+Xstatic XtInputId inputId;
+Xstatic XtIntervalId timerId = (XtIntervalId)0;
+X
+X/*
+X * dirsend - send packet and receive response
+X *
+X *   DIRSEND takes a pointer to a structure of type PTEXT, a hostname,
+X *   and a pointer to a host address.  It then sends the supplied
+X *   packet off to the directory server on the specified host.  If
+X *   hostaddr points to a valid address, that address is used.  Otherwise,
+X *   the hostname is looked up to obtain the address.  If hostaddr is a
+X *   non-null pointer to a 0 address, then the address will be replaced
+X *   with that found in the hostname lookup.
+X *
+X *   DIRSEND will wait for a response and retry an appropriate
+X *   number of times as defined by timeout and retries (both static
+X *   variables).  It will collect however many packets form the reply, and
+X *   return them in a structure (or structures) of type PTEXT.
+X *
+X *   DIRSEND will free the packet that it is presented as an argument.
+X *   The packet is freed even if dirsend fails.
+X */
+XPTEXT
+Xdirsend(pkt_p,hostname_p,hostaddr_p)
+X    PTEXT pkt_p;
+X    char *hostname_p;
+X    struct sockaddr_in	*hostaddr_p;
+X{
+X    /* copy parameters to globals since other routines use them */
+X    pkt = pkt_p;
+X    hostname = hostname_p;
+X    hostaddr = hostaddr_p;
+X    /* Do the initializations of formerly auto variables */
+X    first = NULL;
+X    lp = -1;
+X    one = 0;
+X    zero = 0;
+X    req_udp_port=0;
+X    scpflag = 0;
+X    ackpend = 0;
+X    gaps = 0;
+X    retries = client_dirsrv_retry;
+X
+X    if (initDirsend() < 0)
+X	return(NULL);
+X
+X    /* set the first timeout */
+X    retryDirsend();
+X
+X    dirsendReturn = NULL;
+X    dirsendDone = 0;
+X    /* Until one of the callbacks says to return, keep processing events */
+X    while (!dirsendDone)
+X	processEvent();
+X
+X    /* Return whatever we're supposed to */
+X    return(dirsendReturn);
+X}
+X
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/* This function does all the initialization that used to be done at the
+X * start of dirsend(), including opening the socket descriptor "lp". It
+X * returns the descriptor if successful, otherwise -1 to indicate that
+X * dirsend() should return NULL immediately.
+X */
+Xstatic int
+XinitDirsend()
+X{
+X    if(one == 0) one = htons((short) 1);
+X
+X    priority = htons(rdgram_priority);
+X
+X    timeout.tv_sec = client_dirsrv_timeout;
+X    timeout.tv_usec = 0;
+X
+X    ackwait.tv_sec = 0;
+X    ackwait.tv_usec = 500000;
+X
+X    gapwait.tv_sec = (client_dirsrv_timeout < 5 ? client_dirsrv_timeout : 5);
+X    gapwait.tv_usec = 0;
+X
+X    comp_thru = NULL;
+X    perrno = 0;
+X    nd_pkts = 0;
+X    no_pkts = 0;
+X    pkt_cid = 0;
+X
+X    /* Find first connection ID */
+X    if(next_conn_id == 0) {
+X	srand(getpid()+time(0)); /* XXX: arg ok, but not right type. */
+X	next_conn_id = rand();
+X    }
+X
+X
+X    /* If necessary, find out what udp port to send to */
+X    if (dir_udp_port == 0) {
+X        register struct servent *sp;
+X	tmp = pfs_enable; pfs_enable = PMAP_DISABLE;
+X#ifdef USE_ASSIGNED_PORT
+X	/* UCX needs 0 & -1 */
+X        sp = getservbyname("prospero","udp");
+X	if (sp == (struct servent *)0 || sp == (struct servent *)-1) {
+X#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "dirsrv: udp/prospero unknown service - using %d\n", 
+X			PROSPERO_PORT);
+X#endif
+X	    dir_udp_port = htons((u_short) PROSPERO_PORT);
+X        }
+X#else
+X	/* UCX needs 0 & -1 */
+X        sp = getservbyname("dirsrv","udp");
+X	if (sp == (struct servent *)0 || sp == (struct servent *)-1) {
+X#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "dirsrv: udp/dirsrv unknown service - using %d\n", 
+X			DIRSRV_PORT);
+X#endif
+X	    dir_udp_port = htons((u_short) DIRSRV_PORT);
+X        }
+X#endif
+X	else dir_udp_port = sp->s_port;
+X	pfs_enable = tmp;
+X#ifdef DEBUG
+X        if (pfs_debug > 3)
+X            fprintf(stderr,"dir_udp_port is %d\n", ntohs(dir_udp_port));
+X#endif
+X    }
+X
+X    /* If we were given the host address, then use it.  Otherwise  */
+X    /* lookup the hostname.  If we were passed a host address of   */
+X    /* 0, we must lookup the host name, then replace the old value */
+X    if(!hostaddr || (hostaddr->sin_addr.s_addr == 0)) {
+X	/* I we have a null host name, return an error */
+X	if((hostname == NULL) || (*hostname == '\0')) {
+X#ifdef DEBUG
+X            if (pfs_debug)
+X                fprintf(stderr, "dirsrv: Null hostname specified\n");
+X#endif
+X	    perrno = DIRSEND_BAD_HOSTNAME;
+X	    ptlfree(pkt);
+X            /* return(NULL); */
+X	    return(-1);
+X	}
+X	/* If a port is included, save it away */
+X	if(openparen = index(hostname,'(')) {
+X	    sscanf(openparen+1,"%d",&req_udp_port);
+X	    strncpy(hostnoport,hostname,400);
+X	    if((openparen - hostname) < 400) {
+X		*(hostnoport + (openparen - hostname)) = '\0';
+X		hostname = hostnoport;
+X	    }
+X	}
+X	tmp = pfs_enable; pfs_enable = PMAP_DISABLE;
+X	if((host = gethostbyname(hostname)) == NULL) {
+X	    pfs_enable = tmp;
+X	    /* Check if a numeric address */
+X	    newhostaddr = inet_addr(hostname);
+X	    if(newhostaddr == -1) {
+X#ifdef DEBUG
+X		if (pfs_debug)
+X		  fprintf(stderr, "dirsrv: Can't resolve host %s\n",hostname);
+X#endif
+X		perrno = DIRSEND_BAD_HOSTNAME;
+X		ptlfree(pkt);
+X		/* return(NULL); */
+X		return(-1);
+X	    }
+X	    bzero((char *)&to, S_AD_SZ);
+X	    to.sin_family = AF_INET;
+X	    bcopy((char *) &newhostaddr, (char *)&to.sin_addr, 4);
+X	    if(hostaddr) bcopy(&to,hostaddr, S_AD_SZ);
+X	}
+X	else {
+X	    pfs_enable = tmp;
+X	    bzero((char *)&to, S_AD_SZ);
+X	    to.sin_family = host->h_addrtype;
+X#ifdef CUTCP
+X	    bcopy((char *) &host->h_addr, (char *)&to.sin_addr, host->h_length);
+X#else
+X	    bcopy(host->h_addr, (char *)&to.sin_addr, host->h_length);
+X#endif
+X	    if(hostaddr) bcopy(&to,hostaddr, S_AD_SZ);
+X	}
+X    }
+X    else bcopy(hostaddr,&to, S_AD_SZ);
+X    /* lmjm: Save away the hostname */
+X    strncpy(to_hostname,
+X	    inet_ntoa(SUN_GNU_FIX *(struct in_addr *)&to.sin_addr),
+X	    sizeof(to_hostname)-1);
+X
+X    if(req_udp_port) to.sin_port = htons(req_udp_port);
+X    else to.sin_port = dir_udp_port;
+X
+X    /* If a port was specified in hostaddr, use it, otherwise fill it in */
+X    if(hostaddr) {
+X	if(hostaddr->sin_port) to.sin_port = hostaddr->sin_port;
+X	else hostaddr->sin_port = to.sin_port;
+X    }
+X
+X#ifndef CUTCP
+X    /* Must open a new port each time. we do not want to see old */
+X    /* responses to messages we are done with                    */
+X    if ((lp = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+X#ifdef DEBUG
+X        if (pfs_debug)
+X            fprintf(stderr,"dirsrv: Can't open socket\n");
+X#endif
+X	perrno = DIRSEND_UDP_CANT;
+X	ptlfree(pkt);
+X        /* return(NULL); */
+X	return(-1);
+X    }
+X#endif /* not CUTCP */
+X
+X    /* Try to bind it to a privileged port - loop through candidate */
+X    /* ports trying to bind.  If failed, that's OK, we will let the */
+X    /* system assign a non-privileged port later                    */
+X#ifndef CUTCP
+X    if(!notprived) {
+X	for(tmp = PROS_FIRST_PRIVP; tmp < PROS_FIRST_PRIVP+PROS_NUM_PRIVP; 
+X	    tmp++) {
+X#endif
+X	    bzero((char *)&us, sizeof(us));
+X	    us.sin_family = AF_INET;
+X#ifndef CUTCP
+X	    us.sin_port = htons((u_short) tmp);
+X	    if (bind(lp, (struct sockaddr *)&us, sizeof(us))) {
+X		if(errno != EADDRINUSE) {
+X		    notprived++;
+X		    break;
+X		}
+X	    }
+X	    else break;
+X	}
+X    }
+X#else
+X    us.sin_port = htons(PROS_FIRST_PRIVP);
+X    netulisten(PROS_FIRST_PRIVP);
+X#endif
+X
+X#ifndef USE_V3_PROT
+X    /* Add header */
+X    if(rdgram_priority) {
+X	pkt->start -= 15;
+X	pkt->length += 15;
+X	*(pkt->start) = (char) 15;
+X	bzero(pkt->start+9,4);
+X	*(pkt->start+11) = 0x02;
+X	bcopy(&priority,pkt->start+13,2);
+X    }
+X    else {
+X	pkt->start -= 9;
+X	pkt->length += 9;
+X	*(pkt->start) = (char) 9;
+X    }
+X    this_conn_id = htons(next_conn_id++);
+X    if(next_conn_id == 0) next_conn_id++;
+X    bcopy(&this_conn_id,pkt->start+1,2);
+X    bcopy(&one,pkt->start+3,2);
+X    bcopy(&one,pkt->start+5,2);
+X    bzero(pkt->start+7,2);
+X#endif
+X
+X#ifdef DEBUG
+X    if (pfs_debug > 2) {
+X#ifndef USE_V3_PROT
+X        if (to.sin_family == AF_INET) {
+X	    if(req_udp_port) 
+X		fprintf(stderr,"Sending message to %s+%d(%d)...",
+X			to_hostname, req_udp_port, ntohs(this_conn_id));
+X	    else fprintf(stderr,"Sending message to %s(%d)...",
+X			 to_hostname, ntohs(this_conn_id));
+X	}
+X#else
+X        if (to.sin_family == AF_INET) 
+X	    fprintf(stderr,"Sending message to %s...", to_hostname);
+X#endif /* USE_V3_PROT */
+X        else
+X            fprintf(stderr,"Sending message...");
+X        (void) fflush(stderr);
+X    }
+X#endif /* DEBUG */
+X
+X    first = ptalloc();
+X    next = first;
+X
+X#ifndef CUTCP
+X    return(lp);
+X#else
+X    return(1);
+X#endif /* CUTCP */
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * This used to be a label to goto to retry the last packet. Now we resend
+X * the packet and call keepWaitingDirsend() to wait for a reply. (We
+X * call keepWaitingDirsend() because formerly the code dropped through
+X * the keep_waiting label.)
+X */
+Xstatic void
+XretryDirsend()
+X{
+X#ifdef CUTCP
+X    int lretry = 3;
+X#endif
+X    gaps = ackpend = 0;
+X
+X#ifndef CUTCP
+X    ns = sendto(lp,(char *)(pkt->start), pkt->length, 0, (struct sockaddr *)&to, S_AD_SZ);
+X#else
+X    while(--lretry) {
+X	    ns = netusend(&to.sin_addr,ntohs(to.sin_port),ntohs(us.sin_port),
+X			  (char *) pkt->start, pkt->length);
+X	    if(!ns)
+X		break;
+X	    Stask();
+X	    Stask();
+X	    Stask();
+X    }
+X#endif /* CUTCP */
+X
+X#ifndef CUTCP
+X    if(ns != pkt->length) {
+X#else
+X    if(ns != 0) {
+X#endif
+X#ifdef DEBUG
+X	if (pfs_debug) {
+X    fprintf(stderr,"\nsent only %d/%d: ",ns, pkt->length);
+X	    perror("");
+X	}
+X#endif
+X	close(lp);
+X	perrno = DIRSEND_NOT_ALL_SENT;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL); */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_SEND_ERROR;
+X    }
+X#ifdef DEBUG
+X    if (pfs_debug > 2) fprintf(stderr,"Sent.\n");
+X#endif
+X    keepWaitingDirsend();
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * This used to be a label to goto to set the appropriate timeout value
+X * and blocked in select(). Now we set selwait and the SELECTARGs to the
+X * appropriate values, and in X register a new timeout, then return to
+X * allow event processing.
+X */
+Xstatic void
+XkeepWaitingDirsend()
+X{
+X    /* We come back to this point (by a goto) if the packet */
+X    /* received is only part of the response, or if the     */
+X    /* response came from the wrong host		    */
+X
+X#ifdef DEBUG
+X    if (pfs_debug > 2) fprintf(stderr,"Waiting for reply...");
+X#endif
+X
+X#ifndef CUTCP
+X    FD_ZERO(&readfds);
+X    FD_SET(lp, &readfds);
+X#endif
+X
+X    if(ackpend) selwait = &ackwait;
+X    else if(gaps) selwait = &gapwait;
+X    else selwait = &timeout;
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * This routine is called when a timeout occurs. It includes the code that
+X * was formerly used when select() returned 0 (indicating a timeout).
+X */
+X/*ARGSUSED*/
+Xstatic void
+XtimeoutProc(client_data,id)
+XXtPointer client_data;
+XXtIntervalId *id;
+X{
+X    if (gaps || ackpend) { /* Send acknowledgment */
+X	/* Acks are piggybacked on retries - If we have received */
+X	/* an ack from the server, then the packet sent is only  */
+X	/* an ack and the rest of the message will be empty      */
+X#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X            fprintf(stderr,"Acknowledging (%s).\n",
+X		    (ackpend ? "requested" : "gaps"));
+X	}	
+X#endif
+X	if (gaps && verbose)
+X	  fprintf (stderr, "Searching...\n");
+X	retryDirsend();
+X	return;
+X    }
+X
+X    if (retries-- > 0) {
+X	timeout.tv_sec = CLIENT_DIRSRV_BACKOFF(timeout.tv_sec);
+X#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X            fprintf(stderr,"Timed out.  Setting timeout to %d seconds.\n",
+X		    timeout.tv_sec);
+X	}
+X#endif
+X	retryDirsend();
+X	return;
+X    }
+X
+X#ifdef DEBUG
+X    if (pfs_debug) {
+X	fprintf(stderr, "select failed(timeoutProc): readfds=%x ",
+X		readfds);
+X	perror("");
+X    }
+X#endif
+X#ifndef CUTCP
+X    close(lp);
+X#endif
+X    perrno = DIRSEND_SELECT_FAILED;
+X    ptlfree(first);
+X    ptlfree(pkt);
+X    /* return(NULL); */
+X    dirsendReturn = NULL;
+X    dirsendDone = DSRET_TIMEOUT;
+X}
+X
+X/*	-	-	-	-	-	-	-	-	*/
+X/*
+X * This function is called whenever there's something to read on the
+X * connection. It includes the code that was run when select() returned
+X * greater than 0 (indicating read ready).
+X */
+X/*ARGSUSED*/
+Xstatic void
+XreadProc(client_data,source,id)
+XXtPointer client_data;
+Xint *source;
+XXtInputId *id;
+X{
+X#ifdef CUTCP
+X    int lretry = 3;
+X#endif
+X
+X    from_sz = sizeof(from);
+X    next->start = next->dat;
+X
+X#ifndef CUTCP
+X    if ((nr = recvfrom(lp, next->start, sizeof(next->dat), 0, (struct sockaddr *)&from, &from_sz)) < 0) {
+X#else
+X    nr = neturead(next->start);
+X    if (nr < 1) {
+X#endif
+X#ifdef DEBUG
+X        if (pfs_debug) perror("recvfrom");
+X#endif
+X#ifndef CUTCP
+X	close(lp);
+X#endif
+X	perrno = DIRSEND_BAD_RECV;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL) */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_RECV_ERROR;
+X        return;
+X    }
+X
+X    next->length = nr;
+X    next->start[next->length] = 0;
+X
+X#ifdef DEBUG
+X    if (pfs_debug > 2)
+X        fprintf(stderr,"Received packet from %s\n",
+X		inet_ntoa(SUN_GNU_FIX *(struct in_addr *)&from.sin_addr));
+X#endif
+X
+X
+X    /* For the current format, if the first byte is less than             */
+X    /* 20, then the first two bits are a version number and the next six  */
+X    /* are the header length (including the first byte).                  */
+X    if((hdr_len = (unsigned char) *(next->start)) < 20) {
+X	ctlptr = next->start + 1;
+X	next->seq = 0;
+X	if(hdr_len >= 3) { 	/* Connection ID */
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) pkt_cid = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+X	    /* The packet is not for us */
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	if(hdr_len >= 5) {	/* Packet number */
+X	    bcopy(ctlptr,&stmp,2);
+X	    next->seq = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	else { /* No packet number specified, so this is the only one */
+X	    next->seq = 1;
+X	    nd_pkts = 1;
+X	}
+X	if(hdr_len >= 7) {	    /* Total number of packets */
+X	    bcopy(ctlptr,&stmp,2);  /* 0 means don't know      */
+X	    if(stmp) nd_pkts = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 9) {	/* Receievd through */
+X	    bcopy(ctlptr,&stmp,2);  /* 1 means received request */
+X#ifndef USE_V3_PROT
+X	    if((stmp) && (ntohs(stmp) == 1)) {
+X		/* Future retries will be acks only */
+X		pkt->length = 9;
+X		bcopy(&zero,pkt->start+3,2);
+X#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Server acked request - retries will be acks only\n");
+X#endif
+X	    }
+X#endif
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 11) {	/* Backoff */
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) {
+X		backoff = (short) ntohs(stmp);
+X#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Backing off to %d seconds\n", backoff);
+X#endif
+X		timeout.tv_sec = backoff;
+X		if ((backoff > 60) && (first == next) && (no_pkts == 0)) {
+X		    /* Probably a long queue on the server - don't give up */
+X		    retries = client_dirsrv_retry;
+X		}
+X	    }
+X	    ctlptr += 2;
+X	}
+X	if(hdr_len >= 12) {	/* Flags (1st byte) */
+X	    bcopy(ctlptr,&rdflag11,1);
+X	    if(rdflag11 & 0x80) {
+X#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Ack requested\n");
+X#endif
+X		ackpend++;
+X	    }
+X	    if(rdflag11 & 0x40) {
+X#ifdef DEBUG
+X		if(pfs_debug > 2) 
+X		    fprintf(stderr,"Sequenced control packet\n");
+X#endif
+X		next->length = -1;
+X		scpflag++;
+X	    }
+X	    ctlptr += 1;
+X	}
+X	if(hdr_len >= 13) {	/* Flags (2nd byte) */
+X	    /* Reserved for future use */
+X	    bcopy(ctlptr,&rdflag12,1);
+X	    ctlptr += 1;
+X	}
+X	if(next->seq == 0) {
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	if(next->length >= 0) next->length -= hdr_len;
+X	next->start += hdr_len;
+X	goto done_old;
+X    }
+X
+X    pkt_cid = 0;
+X
+X    /* if intermediate format (between old and new), then process */
+X    /* and go to done_old                                         */
+X    ctlptr = next->start + max(0,next->length-20);
+X    while(*ctlptr) ctlptr++;
+X    /* Control fields start after the terminating null */
+X    ctlptr++;
+X    /* Until old version are gone, must be 4 extra bytes minimum */
+X    /* When no version 3 servers, can remove the -4              */
+X    if(ctlptr < (next->start + next->length - 4)) {
+X	/* Connection ID */
+X	bcopy(ctlptr,&stmp,2);
+X	if(stmp) pkt_cid = ntohs(stmp);
+X	ctlptr += 2;
+X	if(pkt_cid && this_conn_id && (pkt_cid != ntohs(this_conn_id))) {
+X	    /* The packet is not for us */
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	/* Packet number */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    next->seq = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	/* Total number of packets */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    if(stmp) nd_pkts = ntohs(stmp);
+X	    ctlptr += 2;
+X	}
+X	/* Receievd through */
+X	if(ctlptr < (next->start + next->length)) {
+X	    /* Not supported by clients */
+X	    ctlptr += 2;
+X	}
+X	/* Backoff */
+X	if(ctlptr < (next->start + next->length)) {
+X	    bcopy(ctlptr,&stmp,2);
+X	    backoff = ntohs(stmp);
+X#ifdef DEBUG
+X	    if(pfs_debug > 2) 
+X		fprintf(stderr,"Backing off to %d seconds\n", backoff);
+X#endif
+X	    if (verbose && backoff)
+X	      fprintf (stderr, "Searching...\n");
+X	    if(backoff) timeout.tv_sec = backoff;
+X	    ctlptr += 2;
+X	}
+X	if(next->seq == 0) {
+X	    /* goto keep_waiting; */
+X	    keepWaitingDirsend();
+X	    return;
+X	}
+X	goto done_old;
+X
+X    }
+X
+X    /* Notes that we have to start searching 11 bytes before the    */
+X    /* expected start of the MULTI-PACKET line because the message  */
+X    /* might include up to 10 bytes of data after the trailing null */
+X    /* The order of those bytes is two bytes each for Connection ID */
+X    /* Packet-no, of, Received-through, Backoff                     */
+X    seqtxt = nlsindex(next->start + max(0,next->length - 40),"MULTI-PACKET"); 
+X    if(seqtxt) seqtxt+= 13;
+X
+X    if((nd_pkts == 0) && (no_pkts == 0) && (seqtxt == NULL)) goto all_done;
+X
+X    tmp = sscanf(seqtxt,"%d OF %d", &(next->seq), &nd_pkts);
+X#ifdef DEBUG    
+X    if (pfs_debug && (tmp == 0)) 
+X	fprintf(stderr,"Cant read packet sequence number: %s", seqtxt);    
+X#endif
+X done_old:
+X#ifdef DEBUG
+X    if(pfs_debug > 2) fprintf(stderr,"Packet %d of %d\n",next->seq,nd_pkts);
+X#endif
+X    if ((first == next) && (no_pkts == 0)) {
+X	if(first->seq == 1) {
+X	    comp_thru = first;
+X	    /* If only one packet, then return it */
+X	    if(nd_pkts == 1) goto all_done;
+X	}
+X	else gaps++;
+X	no_pkts = 1;
+X	next = ptalloc();
+X	/* goto keep_waiting; */
+X	keepWaitingDirsend();
+X	return;
+X    }
+X	
+X    if(comp_thru && (next->seq <= comp_thru->seq))
+X	ptfree(next);
+X    else if (next->seq < first->seq) {
+X	vtmp = first;
+X	first = next;
+X	first->next = vtmp;
+X	first->previous = NULL;
+X	vtmp->previous = first;
+X	if(first->seq == 1) comp_thru = first;
+X	no_pkts++;
+X    }
+X    else {
+X	vtmp = (comp_thru ? comp_thru : first);
+X	while (vtmp->seq < next->seq) {
+X	    if(vtmp->next == NULL) {
+X		vtmp->next = next;
+X		next->previous = vtmp;
+X		next->next = NULL;
+X		no_pkts++;
+X		goto ins_done;
+X	    }
+X	    vtmp = vtmp->next;
+X	}
+X	if(vtmp->seq == next->seq)
+X	    ptfree(next);
+X	else {
+X	    vtmp->previous->next = next;
+X	    next->previous = vtmp->previous;
+X	    next->next = vtmp;
+X	    vtmp->previous = next;
+X	    no_pkts++;
+X	}
+X    }   
+X
+Xins_done:
+X	
+X    while(comp_thru && comp_thru->next && 
+X	  (comp_thru->next->seq == (comp_thru->seq + 1))) {
+X	comp_thru = comp_thru->next;
+X#ifndef USE_V3_PROT
+X	recvd_thru = htons(comp_thru->seq);
+X	bcopy(&recvd_thru,pkt->start+7,2); /* Let server know we got it */
+X#endif
+X	/* We've made progress, so reset retry count */
+X	retries = client_dirsrv_retry;
+X	/* Also, next retry will be only an acknowledgement */
+X	/* but for now, we can't fill in the ack field      */
+X#ifdef DEBUG
+X	if(pfs_debug > 2) 
+X	    fprintf(stderr,"Packets now received through %d\n",comp_thru->seq);
+X#endif
+X    }
+X
+X    /* See if there are any gaps */
+X    if(!comp_thru || comp_thru->next) gaps++;
+X    else gaps = 0;
+X
+X    if ((nd_pkts == 0) || (no_pkts < nd_pkts)) {
+X	next = ptalloc();
+X	/* goto keep_waiting; */
+X	keepWaitingDirsend();
+X	return;
+X    }
+X
+X all_done:
+X    if(ackpend) { /* Send acknowledgement if requested */
+X#ifdef DEBUG
+X	if (pfs_debug > 2) {
+X	    if (to.sin_family == AF_INET)
+X		fprintf(stderr,"Acknowledging final packet to %s(%d)\n",
+X			to_hostname, ntohs(this_conn_id));
+X            else
+X                fprintf(stderr,"Acknowledging final packet\n");
+X	    (void) fflush(stderr);
+X	}
+X#endif
+X#ifndef CUTCP
+X	ns = sendto(lp,(char *)(pkt->start), pkt->length, 0, (struct sockaddr *)&to, S_AD_SZ);
+X#else
+X	while(--lretry) {
+X	    ns = netusend(&to.sin_addr, ntohs(to.sin_port), ntohs(us.sin_port),(char *) pkt->start, pkt->length);
+X		if(!ns)
+X			break;
+X		Stask();
+X		Stask();
+X	}
+X#endif
+X
+X#ifndef CUTCP
+X	if(ns != pkt->length) {
+X#else
+X	if(ns != 0) {
+X#endif
+X
+X#ifdef DEBUG
+X	    if (pfs_debug) {
+X		fprintf(stderr,"\nsent only %d/%d: ",ns, pkt->length);
+X		perror("");
+X	    }
+X#endif
+X	}
+X
+X    }
+X#ifndef CUTCP
+X    close(lp);
+X#endif
+X    ptlfree(pkt);
+X
+X    /* Get rid of any sequenced control packets */
+X    if(scpflag) {
+X	while(first && (first->length < 0)) {
+X	    vtmp = first;
+X	    first = first->next;
+X	    if(first) first->previous = NULL;
+X	    ptfree(vtmp);
+X	}
+X	vtmp = first;
+X	while(vtmp && vtmp->next) {
+X	    if(vtmp->next->length < 0) {
+X		if(vtmp->next->next) {
+X		    vtmp->next = vtmp->next->next;
+X		    ptfree(vtmp->next->previous);
+X		    vtmp->next->previous = vtmp;
+X		}
+X		else {
+X		    ptfree(vtmp->next);
+X		    vtmp->next = NULL;
+X		}
+X	    }
+X	    vtmp = vtmp->next;
+X	}
+X    }
+X
+X    /* return(first); */
+X    dirsendReturn = first;
+X    dirsendDone = DSRET_DONE;
+X
+X}
+X
+Xstatic void
+XprocessEvent()
+X{
+X#ifdef CUTCP
+X    unsigned long now;
+X#endif
+X    /* select - either recv is ready, or timeout */
+X    /* see if timeout or error or wrong descriptor */
+X#ifndef CUTCP
+X    tmp = select(lp + 1, &readfds, (SELECTARG *)0, (SELECTARG *)0, selwait);
+X    if (tmp == 0) {
+X	timeoutProc(NULL,&timerId);
+X    } else if ((tmp < 0) || !FD_ISSET(lp,&readfds)) {
+X#ifdef DEBUG
+X	if (pfs_debug) {
+X	    fprintf(stderr, "select failed(processEvent): readfds=%x ",
+X		    readfds);
+X	    perror("");
+X	}
+X#endif
+X	close(lp);
+X#else /* CUTCP's flood. */
+X	/* while not timeout in selwait loop, stask looking for uevents */
+X	now = time(NULL) + selwait->tv_sec;
+X#ifdef	DEBUG
+X 	if(pfs_debug) {
+X		fprintf(stderr,"Waiting %d seconds\n",selwait->tv_sec);
+X	}
+X
+X#endif
+X	while(now > time(NULL)) {
+X		int	i, cl, dat;
+X
+X		Stask();
+X		if (0 < (i = Sgetevent(USERCLASS, &cl, &dat))) {
+X			/* got a user class event */
+X			if(cl == USERCLASS &&
+X				i == UDPDATA) {
+X					readProc(NULL,&lp,&inputId);
+X					return;
+X			}
+X		}
+X		if(kbhit()) {
+X			int c = getch();
+X			if(c == 27 || c == 3)
+X				break;
+X			fprintf(stderr,"Press <ESCAPE> to abort\n");
+X		}
+X	}
+X	if(now <= time(NULL)) {	/* timeout */
+X		timeoutProc(NULL,&timerId);
+X		 return;
+X	}
+X
+X#endif /* CUTCP */
+X	perrno = DIRSEND_SELECT_FAILED;
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	/* return(NULL); */
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_SELECT_ERROR;
+X#ifndef CUTCP
+X    } else {
+X	readProc(NULL,&lp,&inputId);
+X    }
+X#endif /* CUTCP */
+X}
+X
+Xvoid
+XabortDirsend()
+X{
+X    if (!dirsendDone) {
+X#ifndef CUTCP
+X	close(lp);
+X#endif
+X	ptlfree(first);
+X	ptlfree(pkt);
+X	dirsendReturn = NULL;
+X	dirsendDone = DSRET_ABORTED;
+X    }
+X    return;
+X}
+END_OF_FILE
+  if test 29177 -ne `wc -c <'dirsend.c'`; then
+    echo shar: \"'dirsend.c'\" unpacked with wrong size!
+  fi
+  # end of 'dirsend.c'
+fi
+if test -f 'support.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'support.c'\"
+else
+  echo shar: Extracting \"'support.c'\" \(21319 characters\)
+  sed "s/^X//" >'support.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X/*
+X * Miscellaneous routines pulled from ~beta/lib/pfs and ~beta/lib/filters
+X */
+X
+X#include <stdio.h>
+X
+X#include <errno.h>
+X
+X#ifdef VMS
+X# ifdef WOLLONGONG
+X#  include "twg$tcp:[netdist.include]netdb.h"
+X# else /* not Wollongong */
+X#  ifdef UCX
+X#   include <netdb.h>
+X#  else /* Multinet */
+X#   include "multinet_root:[multinet.include]netdb.h"
+X#  endif
+X# endif
+X# include <vms.h>
+X#else /* not VMS */
+X# include <sys/types.h>
+X# include <pmachine.h>
+X# ifdef NEED_STRING_H
+X#  include <string.h>
+X# else
+X#  include <strings.h>
+X# endif
+X# ifndef CUTCP
+X#  include <netdb.h>
+X# endif
+X# if !defined(MSDOS) || defined(OS2)
+X#  include <sys/file.h>
+X#  include <sys/param.h>
+X# endif
+X#endif /* VMS */
+X
+X#include <pfs.h>
+X#include <pprot.h>
+X#include <perrno.h>
+X#include <pcompat.h>
+X#include <pauthent.h>
+X
+X#include "regex.h"
+X
+Xint	pfs_enable = PMAP_ATSIGN;
+X
+X#ifndef FALSE
+X# define TRUE 	1
+X# define FALSE   0
+X#endif
+X
+X/* 
+X * wcmatch - Match string s against template containing widlcards
+X *
+X *	     WCMATCH takes a string and a template, and returns
+X *	     true if the string matches the template, and 
+X *	     FALSE otherwise.
+X *
+X *    ARGS:  s        - string to be tested
+X *           template - Template containing optional wildcards
+X *
+X * RETURNS:  TRUE (non-zero) on match.  FALSE (0) otherwise.
+X *
+X *    NOTE:  If template is NULL, will return TRUE.
+X *
+X */
+Xint
+Xwcmatch(s,template)
+X    char	*s;
+X    char	*template;
+X    {
+X	char	temp[200];
+X	char	*p = temp;
+X
+X	if(!template) return(TRUE);
+X	*p++ = '^';
+X
+X	while(*template) {
+X	    if(*template == '*') {*(p++)='.'; *(p++) = *(template++);}
+X	    else if(*template == '?') {*(p++)='.';template++;}
+X	    else if(*template == '.') {*(p++)='\\';*(p++)='.';template++;}
+X	    else if(*template == '[') {*(p++)='\\';*(p++)='[';template++;}
+X	    else if(*template == '$') {*(p++)='\\';*(p++)='$';template++;}
+X	    else if(*template == '^') {*(p++)='\\';*(p++)='^';template++;}
+X	    else if(*template == '\\') {*(p++)='\\';*(p++)='\\';template++;}
+X	    else *(p++) = *(template++);
+X	}
+X	    
+X	*p++ = '$';
+X	*p++ = '\0';
+X
+X	if(re_comp(temp)) return(FALSE);
+X
+X#ifdef AUX
+X	if (re_exec(s) == (char *)NULL)
+X	  return 0;
+X	return 1;
+X#else
+X	return(re_exec(s));
+X#endif
+X    }
+X
+X/*
+X * ul_insert - Insert a union link at the right location
+X *
+X *             UL_INSERT takes a directory and a union link to be added
+X *             to a the list of union links in the directory.  It then
+X *             inserts the union link in the right spot in the linked
+X *             list of union links associated with that directory.
+X *
+X *	       If an identical link already exists, then the link which
+X *             would be evaluated earlier (closer to the front of the list)
+X *             wins and the other one is freed.  If this happens, an error
+X *             will also be returned.
+X *        
+X *    ARGS:    ul    - link to be inserted
+X *	       vd    - directory to get link
+X *             p     - vl that this link will apper after
+X *                     NULL - This vl will go at end of list
+X *                     vd   - This vl will go at head of list
+X *
+X * RETURNS:    Success, or UL_INSERT_ALREADY_THERE or UL_INSERT_SUPERSEDING
+X */
+Xint
+Xul_insert(ul,vd,p)
+X    VLINK	ul;		/* Link to be inserted                   */
+X    PVDIR	vd;		/* Directory to receive link             */
+X    VLINK	p;		/* Union link to appear prior to new one */
+X    {
+X	VLINK	current;
+X
+X	/* This is the first ul in the directory */
+X	if(vd->ulinks == NULL) {
+X	    vd->ulinks = ul;
+X	    ul->previous = NULL;
+X	    ul->next = NULL;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* This ul will go at the head of the list */
+X	if(p == (VLINK) vd) {
+X	    ul->next = vd->ulinks;
+X	    ul->next->previous = ul;
+X	    vd->ulinks = ul;
+X	    ul->previous = NULL;
+X	}
+X	/* Otherwise, decide if it must be inserted at all  */
+X	/* If an identical link appears before the position */
+X	/* at which the new one is to be inserted, we can   */
+X	/* return without inserting it 			    */
+X	else {
+X	    current = vd->ulinks;
+X
+X	    while(current) {
+X		/* p == NULL means we insert after last link */
+X		if(!p && (current->next == NULL))
+X		    p = current;
+X
+X		if(vl_comp(current,ul) == 0) {
+X		    vlfree(ul);
+X		    return(UL_INSERT_ALREADY_THERE);
+X		}
+X
+X		if(current == p) break;
+X		current = current->next;
+X	    }
+X
+X	    /* If current is null, p was not found */
+X	    if(current == NULL)
+X		return(UL_INSERT_POS_NOTFOUND);
+X
+X	    /* Insert ul */
+X	    ul->next = p->next;
+X	    p->next = ul;
+X	    ul->previous = p;
+X	    if(ul->next) ul->next->previous = ul;
+X	}
+X
+X	/* Check for identical links after ul */
+X	current = ul->next;
+X
+X	while(current) {
+X	    if(vl_comp(current,ul) == 0) {
+X		current->previous->next = current->next;
+X		if(current->next)
+X		    current->next->previous = current->previous;
+X		vlfree(current);
+X		return(UL_INSERT_SUPERSEDING);
+X	    }
+X	    current = current->next;
+X	}
+X	
+X	return(PSUCCESS);
+X    }
+X
+X/*
+X * vl_insert - Insert a directory link at the right location
+X *
+X *             VL_INSERT takes a directory and a link to be added to a 
+X *             directory and inserts it in the linked list of links for
+X *             that directory.  
+X *
+X *             If a link already exists with the same name, and if the
+X *             information associated with the new link matches that in
+X *             the existing link, an error is returned.  If the information
+X *             associated with the new link is different, but the magic numbers
+X *             match, then the new link will be added as a replica of the
+X *             existing link.  If the magic numbers do not match, the new
+X *             link will only be added to the list of "replicas" if the
+X *             allow_conflict flag has been set.
+X * 
+X *             If the link is not added, an error is returned and the link
+X *             is freed.  Ordering for the list of links is by the link name.  
+X *        
+X *             If vl is a union link, then VL_INSERT calls ul_insert with an
+X *	       added argument indicating the link is to be included at the
+X *             end of the union link list.
+X * 
+X *    ARGS:    vl - Link to be inserted, vd - directory to get link
+X *             allow_conflict - insert links with conflicting names
+X *
+X * RETURNS:    Success, or VL_INSERT_ALREADY_THERE
+X */
+Xint
+Xvl_insert(vl,vd,allow_conflict)
+X    VLINK	vl;		/* Link to be inserted               */
+X    PVDIR	vd;		/* Directory to receive link         */
+X    int		allow_conflict;	/* Allow duplicate names             */
+X    {
+X	VLINK	current;	/* To step through list		     */
+X	VLINK	crep;		/* To step through list of replicas  */
+X	int	retval;		/* Temp for checking returned values */
+X
+X	/* This can also be used to insert union links at end of list */
+X	if(vl->linktype == 'U') return(ul_insert(vl,vd,NULL));
+X
+X	/* If this is the first link in the directory */
+X	if(vd->links == NULL) {
+X	    vd->links = vl;
+X	    vl->previous = NULL;
+X	    vl->next = NULL;
+X	    vd->lastlink = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* If no sorting is to be done, just insert at end of list */
+X	if(allow_conflict == VLI_NOSORT) {
+X	    vd->lastlink->next = vl;
+X	    vl->previous = vd->lastlink;
+X	    vl->next = NULL;
+X	    vd->lastlink = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	/* If it is to be inserted at start of list */
+X	if(vl_comp(vl,vd->links) < 0) {
+X	    vl->next = vd->links;
+X	    vl->previous = NULL;
+X	    vl->next->previous = vl;
+X	    vd->links = vl;
+X	    return(PSUCCESS);
+X	}
+X
+X	current = vd->links;
+X
+X	/* Otherwise, we must find the right spot to insert it */
+X	while((retval = vl_comp(vl,current)) > 0) {
+X	    if(!current->next) {
+X		/* insert at end */
+X		vl->previous = current;
+X		vl->next = NULL;
+X		current->next = vl;
+X		vd->lastlink = vl;
+X		return(PSUCCESS);
+X	    }
+X	    current = current->next;
+X	}
+X
+X	/* If we found an equivilant entry already in list */
+X	if(!retval) {
+X	    if(vl_equal(vl,current)) {
+X		vlfree(vl);
+X		return(VL_INSERT_ALREADY_THERE);
+X	    }
+X	    if((allow_conflict == VLI_NOCONFLICT) &&
+X	       ((vl->f_magic_no != current->f_magic_no) ||
+X		(vl->f_magic_no==0)))
+X		return(VL_INSERT_CONFLICT);
+X	    /* Insert the link into the list of "replicas" */
+X	    /* If magic is 0, then create a pseudo magic number */
+X	    if(vl->f_magic_no == 0) vl->f_magic_no = -1;
+X	    crep = current->replicas;
+X	    if(!crep) {
+X		current->replicas = vl;
+X		vl->next = NULL;
+X		vl->previous = NULL;
+X	    }
+X	    else {
+X		while(crep->next) {
+X		    /* If magic was 0, then we need a unique magic number */
+X		    if((crep->f_magic_no < 0) && (vl->f_magic_no < 1))
+X			(vl->f_magic_no)--;
+X		    crep = crep->next;
+X		}
+X		/* If magic was 0, then we need a unique magic number */
+X		if((crep->f_magic_no < 0) && (vl->f_magic_no < 1))
+X		    (vl->f_magic_no)--;
+X		crep->next = vl;
+X		vl->previous = crep;
+X		vl->next = NULL;
+X	    }
+X	    return(PSUCCESS);
+X	}
+X
+X	/* We found the spot where vl is to be inserted */
+X	vl->next = current;
+X	vl->previous = current->previous;
+X	current->previous = vl;
+X	vl->previous->next = vl;
+X	return(PSUCCESS);
+X    }
+X
+X/*
+X * nlsindex - Find first instance of string 2 in string 1 following newline
+X *
+X *	      NLSINDEX scans string 1 for the first instance of string
+X *	      2 that immediately follows a newline.  If found, NLSINDEX
+X *	      returns a pointer to the first character of that instance.
+X *	      If no instance is found, NLSINDEX returns NULL (0).
+X *
+X *    NOTE:   This function is only useful for searching strings that
+X *            consist of multiple lines.  s1 is assumed to be preceeded
+X * 	      by a newline.  Thus, if s2 is at the start of s1, it will
+X *	      be found.
+X *    ARGS:   s1 - string to be searched
+X *            s2 - string to be found
+X * RETURNS:   First instance of s2 in s1, or NULL (0) if not found
+X */
+Xchar *
+Xnlsindex(s1,s2)
+X    char	*s1;		/* String to be searched */
+X    char	*s2;		/* String to be found    */
+X    {
+X	register int s2len = strlen(s2);
+X	char	*curline = s1;	/* Pointer to start of current line */
+X
+X	/* In case s2 appears at start of s1 */
+X	if(strncmp(curline,s2,s2len) == 0)
+X	    return(curline);
+X
+X	/* Check remaining lines of s1 */
+X	while((curline = (char *) index(curline,'\n')) != NULL) {
+X	    curline++;
+X	    if(strncmp(curline,s2,s2len) == 0)
+X		return(curline);
+X	}
+X
+X	/* We didn't find it */
+X	return(NULL);
+X    }
+X
+X/*
+X * month_sname - Return a month name from it's number
+X *
+X *               MONTH_SNAME takes a number in the range 0
+X *               to 12 and returns a pointer to a string
+X *               representing the three letter abbreviation
+X *	         for that month.  If the argument is out of 
+X *		 range, MONTH_SNAME returns a pointer to "Unk".
+X *
+X *       ARGS:   n - Number of the month
+X *    RETURNS:   Abbreviation for selected month
+X */
+Xchar *month_sname(n)
+X    int n;		/* Month number */
+X{
+X    static char *name[] = { "Unk",
+X        "Jan","Feb","Mar","Apr","May","Jun",
+X        "Jul","Aug","Sep","Oct","Nov","Dec"
+X    };
+X    return((n < 1 || n > 12) ? name[0] : name[n]);
+X}
+X
+X/*
+X * sindex - Find first instance of string 2 in string 1 
+X *
+X *	      SINDEX scans string 1 for the first instance of string
+X *	      2.  If found, SINDEX returns a pointer to the first
+X *	      character of that instance.  If no instance is found, 
+X *	      SINDEX returns NULL (0).
+X *
+X *    ARGS:   s1 - string to be searched
+X *            s2 - string to be found
+X * RETURNS:   First instance of s2 in s1, or NULL (0) if not found
+X */
+Xchar *
+Xsindex(s1,s2)
+X    char	*s1;		/* String to be searched   */
+X    char	*s2;		/* String to be found      */
+X    {
+X	register int s2len = strlen(s2);
+X	char	*s = s1;	/* Temp pointer to string  */
+X
+X	/* Check for first character of s2 */
+X	while((s = (char *) index(s,*s2)) != NULL) {
+X	    if(strncmp(s,s2,s2len) == 0)
+X		return(s);
+X	    s++;
+X	}
+X
+X	/* We didn't find it */
+X	return(NULL);
+X    }
+X
+Xint
+Xscan_error(erst)
+X    char	*erst;
+X    {
+X	*p_err_string = '\0';
+X
+X	if(strncmp(erst,"NOT-A-DIRECTORY",15) == 0) 
+X	    return(DIRSRV_NOT_DIRECTORY);
+X
+X	if(strncmp(erst,"UNIMPLEMENTED",13) == 0) {
+X	    perrno = DIRSRV_UNIMPLEMENTED;
+X	    sscanf(erst+13,"%*[^\n \t\r]%*[ \t]%[^\n]",p_err_string);
+X	    return(perrno);
+X	}
+X
+X	if(strncmp(erst,"WARNING ",8) == 0) {
+X	    erst += 8;
+X	    *p_warn_string = '\0';
+X	    sscanf(erst,"%*[^\n \t\r]%*[ \t]%[^\n]",p_warn_string);
+X	    /* Return values for warnings are negative */
+X	    if(strncmp(erst,"OUT-OF-DATE",11) == 0) {
+X		pwarn = PWARN_OUT_OF_DATE;
+X		return(PSUCCESS);
+X	    }
+X	    if(strncmp(erst,"MESSAGE",7) == 0) {
+X		pwarn = PWARN_MSG_FROM_SERVER;
+X		return(PSUCCESS);
+X	    }
+X	    pwarn = PWARNING;
+X	    sscanf(erst,"%[^\n]",p_warn_string);
+X	    return(PSUCCESS);
+X	}
+X	else if(strncmp(erst,"ERROR",5) == 0) {
+X	    if(*(erst+5)) sscanf(erst+6,"%[^\n]",p_err_string);
+X	    perrno = DIRSRV_ERROR;
+X	    return(perrno);
+X	}
+X	/* The rest start with "FAILURE" */
+X	else if(strncmp(erst,"FAILURE",7) != 0) {
+X	    /* Unrecognized - Give warning, but return PSUCCESS */
+X	    if(pwarn == 0) {
+X		*p_warn_string = '\0';
+X		pwarn = PWARN_UNRECOGNIZED_RESP;
+X		sscanf(erst,"%[^\n]",p_warn_string);
+X	    }
+X	    return(PSUCCESS);
+X	}
+X
+X	if(strncmp(erst,"FAILURE ",8) != 0) {
+X	    perrno = PFAILURE;
+X	    return(perrno);
+X	}	
+X	erst += 8;
+X	
+X	sscanf(erst,"%*[^\n \t\r]%*[ \t]%[^\n]",p_err_string);
+X
+X	/* Still to add               */
+X	/* DIRSRV_AUTHENT_REQ     242 */
+X	/* DIRSRV_BAD_VERS        245 */
+X
+X	if(strncmp(erst,"NOT-FOUND",9) == 0) 
+X	    perrno = DIRSRV_NOT_FOUND;
+X	else if(strncmp(erst,"NOT-AUTHORIZED",13) == 0) 
+X	    perrno = DIRSRV_NOT_AUTHORIZED;
+X	else if(strncmp(erst,"ALREADY-EXISTS",14) == 0) 
+X	    perrno = DIRSRV_ALREADY_EXISTS;
+X	else if(strncmp(erst,"NAME-CONFLICT",13) == 0) 
+X	    perrno = DIRSRV_NAME_CONFLICT;
+X	else if(strncmp(erst,"SERVER-FAILED",13) == 0) 
+X	    perrno = DIRSRV_SERVER_FAILED;
+X 	/* Use it whether it starts with FAILURE or not */
+X	else if(strncmp(erst,"NOT-A-DIRECTORY",15) == 0) 
+X	    perrno = DIRSRV_NOT_DIRECTORY;
+X	else perrno = PFAILURE;
+X
+X	return(perrno);
+X    }
+X
+XPATTRIB 
+Xparse_attribute(line)
+X    char	*line;
+X    {
+X	char	l_precedence[MAX_DIR_LINESIZE];
+X	char	l_name[MAX_DIR_LINESIZE];
+X	char	l_type[MAX_DIR_LINESIZE];
+X	char	l_value[MAX_DIR_LINESIZE];
+X	PATTRIB	at;
+X	int	tmp;
+X
+X	tmp = sscanf(line,"OBJECT-INFO %s %s %[^\n]", l_name, l_type, l_value);
+X	
+X	if(tmp < 3) {
+X	    tmp = sscanf(line,"LINK-INFO %s %s %s %[^\n]", l_precedence,
+X			 l_name, l_type, l_value);
+X	    if(tmp < 4) {
+X		perrno = DIRSRV_BAD_FORMAT;
+X		return(NULL);
+X	    }
+X	}
+X
+X	at = atalloc();
+X
+X	if(tmp == 4) {
+X	    if(strcmp(l_precedence,"CACHED") == 0) 
+X		at->precedence = ATR_PREC_CACHED;
+X	    else if(strcmp(l_precedence,"LINK") == 0) 
+X		at->precedence = ATR_PREC_LINK;
+X	    else if(strcmp(l_precedence,"REPLACEMENT") == 0) 
+X		at->precedence = ATR_PREC_REPLACE;
+X	    else if(strcmp(l_precedence,"ADDITIONAL") == 0) 
+X		at->precedence = ATR_PREC_ADD;
+X	}
+X
+X	at->aname = stcopy(l_name);
+X	at->avtype = stcopy(l_type);
+X	if(strcmp(l_type,"ASCII") == 0) 
+X	    at->value.ascii = stcopy(l_value);
+X	else if(strcmp(l_type,"LINK") == 0) {
+X	    char		ftype[MAX_DIR_LINESIZE];
+X	    char		lname[MAX_DIR_LINESIZE];
+X	    char		htype[MAX_DIR_LINESIZE];
+X	    char		host[MAX_DIR_LINESIZE];
+X	    char		ntype[MAX_DIR_LINESIZE];
+X	    char		fname[MAX_DIR_LINESIZE];
+X	    VLINK		al;
+X
+X	    al = vlalloc();
+X	    at->value.link = al;
+X
+X	    tmp = sscanf(l_value,"%c %s %s %s %s %s %s %d %d",
+X			 &(al->linktype),
+X			 ftype,lname,htype,host,ntype,fname,
+X			 &(al->version),
+X			 &(al->f_magic_no));
+X	    if(tmp == 9) {
+X		al->type = stcopyr(ftype,al->type);
+X		al->name = stcopyr(unquote(lname),al->name);
+X		al->hosttype = stcopyr(htype,al->hosttype);
+X		al->host = stcopyr(host,al->host);
+X		al->nametype = stcopyr(ntype,al->nametype);
+X		al->filename = stcopyr(fname,al->filename);
+X	    }
+X	    else {
+X		perrno = DIRSRV_BAD_FORMAT;
+X		return(NULL);
+X	    }
+X	    
+X	}
+X
+X	return(at);
+X    }
+X
+X/*
+X * nxtline - Find the next line in the string
+X *
+X *	      NXTLINE takes a string and returns a pointer to
+X *	      the character immediately following the next newline.
+X *
+X *    ARGS:   s - string to be searched
+X *
+X * RETURNS:   Next line or NULL (0) on failure
+X */
+Xchar *
+Xnxtline(s)
+X    char	*s;		/* String to be searched */
+X {
+X	s = (char *) index(s,'\n');
+X	if(s) return(++s);
+X	else return(NULL);
+X    }
+X
+X
+X/*
+X * unquote - unquote string if necessary
+X *
+X *	      UNQUOTE takes a string and unquotes it if it has been quoted.
+X *
+X *    ARGS:   s - string to be unquoted
+X *            
+X * RETURNS:   The original string.  If the string has been quoted, then the
+X *            result appears in static storage, and must be copied if 
+X *            it is to last beyond the next call to quote.
+X *
+X */
+Xchar *
+Xunquote(s)
+X    char	*s;		/* String to be quoted */
+X    {
+X	static char	unquoted[200];
+X	char		*c = unquoted;
+X
+X	if(*s != '\'') return(s);
+X
+X	s++;
+X
+X	/* This should really treat a quote followed by other */
+X	/* than a quote or a null as an error                 */
+X	while(*s) {
+X	    if(*s == '\'') s++;
+X	    if(*s) *c++ = *s++;
+X	}
+X
+X	*c++ = '\0';
+X
+X	return(unquoted);
+X    }
+X
+X#if defined(DEBUG) && defined(STRSPN)
+X/* needed for -D option parsing */
+X/*
+X * strspn - Count initial characters from chrs in s
+X *
+X *	      STRSPN counts the occurances of chacters from chrs
+X *            in the string s preceeding the first occurance of
+X *            a character not in s.
+X *
+X *    ARGS:   s    - string to be checked
+X *            chrs - string of characters we are looking for
+X *
+X * RETURNS:   Count of initial characters from chrs in s
+X */
+Xstrspn(s,chrs)
+X    char	*s;    /* String to search                         */
+X    char	*chrs; /* String of characters we are looking for  */
+X    {
+X	char	*cp;   /* Pointer to the current character in chrs */
+X	int	count; /* Count of characters seen so far          */
+X	
+X	count = 0;
+X
+X	while(*s) {
+X	    for(cp = chrs;*cp;cp++)
+X		if(*cp == *s) {
+X		    s++;
+X		    count++;
+X		    goto done;
+X		}
+X	    return(count);
+X	done:
+X	    ;
+X	}
+X	return(count);
+X    }
+X#endif
+X
+X#ifdef CUTCP
+Xchar
+X*inet_ntoa(struct in_addr in)
+X{
+X	static	char	buff[36];
+X
+X	unsigned char	*c = (char *) &in.address;
+X	sprintf(buff,"%d.%d.%d.%d",*c,*(c+1),*(c+2),*(c+3));
+X	return(buff);
+X}
+X
+Xlong
+Xinet_addr(char *cp)
+X{
+X	long	value = 0;
+X	unsigned	v1,v2,v3,v4;
+X
+X	v1 = v2 = v3 = v4 = 0xff;
+X	sscanf(cp,"%d.%d.%d.%d",&v1,&v2,&v3,&v4);
+X	value = (v1 << 24) | (v2 << 16) | (v3 << 8) | v4;
+X	return(value);
+X}
+X
+Xstruct	hostent
+X*gethostbyname(char *name)
+X{
+X	struct machinfo	*mp;
+X	int	mnum;
+X	unsigned long	now;
+X	static	struct hostent	ht;
+X	extern int pfs_debug;
+X
+X	mp = Shostlook(name);
+X	if(!mp || (!mp->hostip[0])) {	/* DNS lookup */
+X#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s\n", name);
+X#endif
+X		mnum = Sdomain(name);		/* start a DNS lookup */
+X		now = time(NULL) + NS_TIMEOUT;
+X		while(now > time(NULL)) {
+X			int	i, class, dat;
+X
+X			Stask();
+X			i = Sgetevent(USERCLASS, &class, &dat);
+X			if(i == DOMOK) {	/* domain lookup ok */
+X				mp = Slooknum(mnum);
+X#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s Completed OK\n", name);
+X#endif
+X				break;
+X			}
+X		}
+X		if(!mp)	{	/* get here if timeout */
+X#ifdef DEBUG
+X	    if (pfs_debug)
+X		fprintf(stderr, "Domain name lookup of %s Failed\n", name);
+X#endif
+X			return(NULL);
+X		}
+X	}
+X	ht.h_addr = *((unsigned long *) mp->hostip);
+X	ht.h_length = 4;
+X	ht.h_addrtype = AF_INET;
+X	return(&ht);
+X
+X}
+X#endif /* CUTCP */
+X
+X#ifdef GETENV
+X/*
+X * Copyright (c) 1987 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that: (1) source distributions retain this entire copyright
+X * notice and comment, and (2) distributions including binaries display
+X * the following acknowledgement:  ``This product includes software
+X * developed by the University of California, Berkeley and its contributors''
+X * in the documentation or other materials provided with the distribution
+X * and in all advertising materials mentioning features or use of this
+X * software. Neither the name of the University nor the names of its
+X * contributors may be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)getenv.c	5.7 (Berkeley) 6/1/90";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <stdlib.h>
+X#include <stddef.h>
+X
+X/*
+X * getenv --
+X *	Returns ptr to value associated with name, if any, else NULL.
+X */
+Xchar *
+Xgetenv(name)
+X	char *name;
+X{
+X	int offset;
+X	char *_findenv();
+X
+X	return(_findenv(name, &offset));
+X}
+X
+X/*
+X * _findenv --
+X *	Returns pointer to value associated with name, if any, else NULL.
+X *	Sets offset to be the offset of the name/value combination in the
+X *	environmental array, for use by setenv(3) and unsetenv(3).
+X *	Explicitly removes '=' in argument name.
+X *
+X *	This routine *should* be a static; don't use it.
+X */
+Xchar *
+X_findenv(name, offset)
+X	register char *name;
+X	int *offset;
+X{
+X	extern char **environ;
+X	register int len;
+X	register char **P, *C;
+X
+X	for (C = name, len = 0; *C && *C != '='; ++C, ++len);
+X	for (P = environ; *P; ++P)
+X		if (!strncmp(*P, name, len))
+X			if (*(C = *P + len) == '=') {
+X				*offset = P - environ;
+X				return(++C);
+X			}
+X	return(NULL);
+X}
+X#endif
+END_OF_FILE
+  if test 21319 -ne `wc -c <'support.c'`; then
+    echo shar: \"'support.c'\" unpacked with wrong size!
+  fi
+  # end of 'support.c'
+fi
+if test -f 'vms/signal.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'vms/signal.h'\"
+else
+  echo shar: Extracting \"'vms/signal.h'\" \(261 characters\)
+  sed "s/^X//" >'vms/signal.h' <<'END_OF_FILE'
+X/* signal.h */
+X#define SIGURG  16
+X#define SIGTSTP 18
+X#define SIGCHLD 20
+X#define SIGIO   23
+X#define sigmask(m) (1 << ((m)-1))
+X
+X#ifndef __GNUC__
+X# include <sys$library:signal.h>
+X#else /* Gnu C */
+X# include <gnu_cc_include:[000000]signal.h>
+X#endif /* not Gnu C */
+END_OF_FILE
+  if test 261 -ne `wc -c <'vms/signal.h'`; then
+    echo shar: \"'vms/signal.h'\" unpacked with wrong size!
+  fi
+  # end of 'vms/signal.h'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

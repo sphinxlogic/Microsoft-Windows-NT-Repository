@@ -1,0 +1,1391 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i006:  dist-3.0 - Configure script generator and related tools, Part02/28
+Message-ID: <1993Aug18.183629.16541@sparky.sterling.com>
+X-Md4-Signature: 13b9e49772320088498e01669a7e684b
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Wed, 18 Aug 1993 18:36:29 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 6
+Archive-name: dist-3.0/part02
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  mcon/U/d_access.U mcon/man/mconfig.SH.01
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:18 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 28)."'
+if test -f 'mcon/U/d_access.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_access.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_access.U'\" \(2215 characters\)
+  sed "s/^X//" >'mcon/U/d_access.U' <<'END_OF_FILE'
+X?RCS: $Id: d_access.U,v 3.0 1993/08/18 12:05:42 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_access.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:42  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_access: test +cc cat +cppflags h_fcntl h_sysfile rm Inlibc Findhdr
+X?MAKE:	-pick add $@ %<
+X?S:d_access:
+X?S:	This variable conditionally defines HAS_ACCESS if the access() system
+X?S:	call is available to check for access permissions using real IDs.
+X?S:.
+X?C:HAS_ACCESS:
+X?C:	This manifest constant lets the C program know that the access()
+X?C:	system call is available to check for accessibility using real UID/GID.
+X?C:	(always present on UNIX.)
+X?C:.
+X?H:#$d_access HAS_ACCESS		/**/
+X?H:.
+X?W:%<:R_OK W_OK X_OK F_OK
+X?LINT:set d_access
+X?LINT:change h_fcntl h_sysfile
+X: access call always available on UNIX
+Xset access d_access
+Xeval $inlibc
+X
+X: locate the flags for 'access()'
+Xcase "$d_access" in
+X"$define")
+X	echo " "
+X	$cat >access.c <<'EOCP'
+X#include <sys/types.h>
+X#ifdef I_FCNTL
+X#include <fcntl.h>
+X#endif
+X#ifdef I_SYS_FILE
+X#include <sys/file.h>
+X#endif
+X#ifdef I_UNISTD
+X#include <unistd.h>
+X#endif
+Xmain() {
+X	exit(R_OK);
+X}
+XEOCP
+X	: check sys/file.h first, no particular reason here
+X	if $test `./findhdr sys/file.h` && \
+X		$cc $cppflags -DI_SYS_FILE access.c -o access >/dev/null 2>&1 ; then
+X		h_sysfile=true;
+X		echo "<sys/file.h> defines the *_OK access constants." >&4
+X	elif $test `./findhdr fcntl.h` && \
+X		$cc $cppflags -DI_FCNTL access.c -o access >/dev/null 2>&1 ; then
+X		h_fcntl=true;
+X		echo "<fcntl.h> defines the *_OK access constants." >&4
+X@if I_UNISTD
+X	elif $test `./findhdr unistd.h` && \
+X		$cc $cppflags -DI_UNISTD access.c -o access >/dev/null 2>&1 ; then
+X		echo "<unistd.h> defines the *_OK access constants." >&4
+X@end
+X	else
+X		echo "I can't find the four *_OK access constants--I'll use mine." >&4
+X	fi
+X	;;
+Xesac
+X$rm -f access*
+X
+END_OF_FILE
+  if test 2215 -ne `wc -c <'mcon/U/d_access.U'`; then
+    echo shar: \"'mcon/U/d_access.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_access.U'
+fi
+if test -f 'mcon/man/mconfig.SH.01' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/man/mconfig.SH.01'\"
+else
+  echo shar: Extracting \"'mcon/man/mconfig.SH.01'\" \(49943 characters\)
+  sed "s/^X//" >'mcon/man/mconfig.SH.01' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting mcon/man/metaconfig.$manext (with variable substitutions)"
+X$rm -f metaconfig.$manext
+X$spitshell >metaconfig.$manext <<!GROK!THIS!
+X.TH METACONFIG $manext "Version $VERSION PL$PATCHLEVEL"
+X''' @(#) Manual page for metaconfig
+X'''
+X''' $Id: mconfig.SH,v 3.0 1993/08/18 12:10:14 ram Exp $
+X'''
+X'''  Copyright (c) 1991-1993, Raphael Manfredi
+X'''  
+X'''  You may redistribute only under the terms of the Artistic Licence,
+X'''  as specified in the README file that comes with the distribution.
+X'''  You may reuse parts of this distribution only within the terms of
+X'''  that same Artistic Licence; a copy of which may be found at the root
+X'''  of the source tree for dist 3.0.
+X'''
+X''' $Log: mconfig.SH,v $
+X''' Revision 3.0  1993/08/18  12:10:14  ram
+X''' Baseline for dist 3.0 netwide release.
+X'''
+X'''
+X.de Ex		\" Start of Example
+X.sp
+X.in +5
+X.nf
+X..
+X.de Ef		\" End of Example
+X.sp
+X.in -5
+X.fi
+X..
+X.SH NAME
+Xmetaconfig \- a Configure script generator
+X.SH SYNOPSIS
+X.B metaconfig
+X[ \-\fBdhkmostvwV\fR ]
+X.SH DESCRIPTION
+X.I Metaconfig
+Xis a program that generates Configure scripts. If you don't know what a
+XConfigure script is, please skip to the \fBTUTORIAL\fR section of this
+Xmanual page. If you want a full (formal) description of the way to
+Xuse \fImetaconfig\fR and its units, please look at the \fBREFERENCE\fR
+Xsection. The following is a quick introduction and reference for
+Xknowledgeable users.
+X.PP
+X.B Metaconfig
+Xoperates from set of
+X.I units
+Xwhich define everything that metaconfig knows about portability.
+XEach unit is self-contained, and does not have to be registered anywhere
+Xother than by inclusion in either the public U directory or your private
+XU directory.
+XIf the dist package (of which metaconfig is a part) is installed in LIB,
+Xthen the public U directory is LIB/dist/mcon/U. On this machine, the
+XLIB directory is $privlibexp.
+XYour private U directory, if you have one,
+Xis in the top level directory of your package.
+XBefore you can run \fImetaconfig\fR you must do a several things:
+X.IP \(bu 5
+XCreate a .package file in the package's top level directory by running
+X\fIpackinit\fR.
+XThis program will ask you about your package and remember what you tell
+Xit so that all the dist programs can be smart.
+X.IP \(bu
+XConsult the Glossary (in LIB/dist/mcon) and write your shell scripts and
+XC programs in terms of the symbols that metaconfig knows how to define.
+XYou don't need to tell metaconfig which symbols you used, since metaconfig
+Xwill figure that out for you.
+X.IP \(bu
+XGenerate any .SH scripts needed to write Makefiles or shell scripts that
+Xwill depend on values defined by Configure.
+XThere is a program called \fImakeSH\fR that will help you convert a plain
+Xscript into a script.SH template; some editing will still need to be performed
+Xon the resulting .SH file to move the variable configuration part in the
+Xtop part of the script (see inline comments generated by \fImakeSH\fR within
+Xyour .SH file).
+X.IP \(bu
+XCreate a MANIFEST.new file in your top level directory that lists all the
+Xfiles in your package. This file will remain private and will not be
+Xpart of the final distribution.
+XThe filename should be the first field on each line.
+XAfter some whitespace you can add a short comment describing your file.
+XOnly source files should be listed in there. The special file
+X\fIpatchlevel.h\fR (which is handled and maintained by the patching tools --
+Xsee \fIpat\fR(1)) should not be part of the MANIFEST.new file. As a rule of
+Xthumb, only files maintained by RCS should be listed in there.
+X.IP \(bu
+XOptionally, you may wish to create a MANIFEST file, which will be an
+Xexported version of your MANIFEST.new. That file must be made part of
+Xthe release, i.e. listed in both your MANIFEST.new and MANIFEST itself.
+XOne of the \fImetaconfig\fR units knows about this file and will force
+XConfigure to perform a release check, ensuring all the files listed
+Xthere are part of the distribution. The MANIFEST and MANIFEST.new
+Xfiles should be distinct, not links.
+X.IP \(bu
+XCopy any .U files that you want to modify to your private U directory.
+XAny .U files in your private U directory will be used in preference to
+Xthe one in the public U directory.
+XFor example, one way to force inclusion of any unit is to copy the End.U
+Xfile to your .U directory and add the name of the unit you want as
+Xa dependency on the end of the ?MAKE: line.
+XCertain units can ONLY be forced in this way, namely those of the form
+XWarn_*.U and Chk_*.U.
+XYou can also customize certain default Configure variables by copying
+XMyinit.U to your package's private U directory and setting the variables in
+Xthat unit.
+X.PP
+XNow you are ready to run \fImetaconfig\fR. That will create a \fIConfigure\fR
+Xfile, and optionally a \fIconfig_h.SH\fR file (if your sources make any use
+Xof C symbols).
+XThe generated files will automatically be added to your MANIFEST.new
+Xif necessary. Do not forget to update your MANIFEST file though.
+X.PP
+XIn order to create new units, do the following:
+X.IP \(bu 5
+XCopy a similar unit to a new .U file.
+XThe name you choose should be the name of a variable generated by the unit,
+Xalthough this is only a convenience for you, not a requirement.
+XIt should be 12 or less characters to prevent filename chopping.
+XActually, it should probably be 10 or less so that those who want to use RCS
+Xcan have a .U,v on the end without chopping.
+XMetaconfig uses the case of the first letter to determine if any variable is
+Xactually produced by this unit, so don't Capitalize your unit
+Xname if it is supposed to produce a shell variable.
+X.IP \(bu
+XEdit the new .U file to do what you want.
+XThe first ?MAKE: line indicates the dependencies; before the final list
+Xcolon all the variables this unit defines, and after the final colon
+Xall the variables (or other units) on which this unit depends.
+XIt is very important that these lists be accurate. If a dependency is
+Xoptional and a default value can be used, you should prefix the dependency
+Xwith a '+' sign. The corresponding unit will not be loaded to compute the
+Xsymbol, unless really required by another unit.
+X.IP \(bu
+XTo the extent possible, parameterize your unit based on shell
+Xvariable defined on ?INIT: lines.
+XThis will move the variable definitions up to the Init.U unit,
+Xwhere they can be overridden by definitions in Myinit.U, which is
+Xincluded after Init.U.
+X.IP \(bu
+XAdd the definition of any C symbols desired as ?H: lines.
+XA line beginning with ?H:?%<: in the .U file will be added to the eventual
+Xconfig.h file if and only if metaconfig decides that this unit is needed.
+XThe %< stands for the unit's name, which happens to be the name of
+Xthe file too (without .U) if you followed the convention.
+XAlways put a comment on each ?H: line in case one of the variable
+Xsubstitutions earlier on the line starts a comment without finishing it.
+XAny shell variable starting with d_ may do this, so beware.
+XIf you ommit the ?%<:, then metaconfig will try to intuit the symbol whose
+Xdefinition is needed prior any inclusion in config.h.
+X.IP \(bu
+XAdd glossary definitions as ?S: lines for shell variables and ?C:
+Xlines for C preprocessor variables.
+XSee a current unit for examples.
+XIt is VERY important to start each entry with a left justified symbol
+Xname, and end each entry with a ?C:. or ?S:. line.  The algorithm
+Xthat translates C preprocessor symbol entries for the Glossary into
+Xcomments for config.h depends on this.
+X.IP \(bu
+XMake sure the order of all your ? lines is right.  The correct order is:
+X.sp
+X.RS +10
+X.PD 0
+X.TP 15
+X?RCS: and ?X:
+Xbasically just comments
+X.TP
+X?MAKE:
+Xmetaconfig dependencies
+X.TP
+X?S:
+Xglossary shell definitions
+X.TP
+X?C:
+Xglossary C definitions
+X.TP
+X?H:
+Xconfig.h definitions
+X.TP
+X?W:
+Xwanted symbols
+X.TP
+X?V:
+Xvisible symbols
+X.TP
+X?T:
+Xtemporary shell symbols used
+X.TP
+X?D:
+Xoptional dependencies default value
+X.TP
+X?O:
+Xused to mark obsolete units
+X.TP
+X?LINT:
+Xmetalint hints
+X.TP
+X?INIT:
+Xshell symbols initializations
+X.PD
+X.RE
+X.PP
+XHere is an example to show the ordering of the lines and the various
+Xformats allowed:
+X.Ex
+X?RCS: \$RCS-Id\$
+X?RCS: Copyright information
+X?RCS: \$RCS-Log\$
+X?X:
+X?X: A contrived example
+X?X:
+X?MAKE:d_one two: three +four Five
+X?MAKE:	-pick add \$@ %<
+X?S:d_one:
+X?S:	First shell symbol, conditionally defines ONE.
+X?S:.
+X?S:two:
+X?S:	Second shell symbol, value for TWO.
+X?S:.
+X?C:ONE:
+X?C:	First C symbol.
+X?C:.
+X?C:TWO:
+X?C:	Second C symbol.
+X?C:.
+X?H:#\$d_one ONE	/**/
+X?H:#define TWO "\$two"
+X?H:#\$d_one ONE_TWO "\$two"
+X?H:.
+X?W:%<:one_two
+X?V:p_one p_two:p_three
+X?T:tmp var
+X?D:two='undef'
+X?LINT:change three
+X?INIT:two_init='2'
+X: shell code implementing the unit follows
+Xp_one='one'
+Xp_two='two'
+Xp_three="$three"
+X.Ef
+XLet me state it one more time: the above unit definition is a \fIfake\fR
+Xone to only show the different possibilities. Such a unit would serve
+Xlittle purpose anyway... Some more advanced features are not described
+Xhere. Please refer to the \fBREFERENCE\fR section for more complete
+Xinformation.
+X.IP \(bu
+XPut the unit into the public or private U directory as appropriate.
+X.IP \(bu
+XRerun \fImetaconfig\fR.
+X.IP \(bu
+XSend your unit to ram@acri.fr (Raphael Manfredi) for inclusion
+Xin the master copy, if you think it's of general interest.
+X.PP
+XIn order to add a new program to be located:
+X.IP \(bu
+XEdit Loc.U, and add the name of the program both to the ?MAKE: line
+X(between the two colons) and to either loclist or trylist (depending
+Xon whether the program is mandatory or not).
+X.IP \(bu
+XRerun metaconfig.
+X.IP \(bu
+XSend your unit to me for inclusion in the master copy, if you think it's
+Xof general interest.
+X.PP
+XNotes for writing .U files:
+X.IP * 5
+XAlways use "rm -f" because there are systems where rm is interactive by
+Xdefault.
+X.IP *
+XDo not use "set -- ..." because '--' does not work with every shell. Use
+X"set x ...; shift".
+X.IP *
+XAlways use echo " " (with a space) because of Eunice systems.
+X.IP *
+XUse only programs that came with V7, so that you know everyone has them.
+X.IP *
+XUse \$\&contains when you want to grep conditionally, since not all
+Xgreps return a reasonable status.
+XBe sure to redirect the output to /dev/null, by using '>/dev/null 2>&1'.
+X.IP *
+XUse "if test" rather than "if [...]" since not every sh knows the
+Xlatter construct.
+X.IP *
+XUse the myread script for inputs so that they can do shell escapes
+Xand default evaluation.  The general form is
+X.Ex
+Xcase "$grimble" in
+X'') dflt=452;;
+X*) dflt="$grimble";;
+Xesac
+Xrp='How many grimbles do you have?'
+X. myread
+Xgrimble="$ans"
+X.Ef
+X.IP *
+XUse the getfile script when asking for a file pathname in order to
+Xhave optional ~name expansion and sanity checks. See the Getfile.U
+Xunit for a full decription.
+X.IP *
+XIssue important messages on file descriptor #4, by using '>&4' to redirect
+Xoutput. Only those messages will appear when the \fB\-s\fR switch is
+Xgiven to \fIConfigure\fR on the command line (silent mode).
+X.IP *
+XAlways try to determine whether a feature is present in the most
+Xspecific way--don't say "if bsd" when you can grep libc.  There
+Xare many hybrid systems out there, and each feature should stand
+Xor fall by itself.
+X.IP *
+XAlways try to determine whether a feature is present in the most
+Xgeneral way, so that other packages can use your unit.
+X.IP *
+XWhen in doubt, set a default and ask.  Don't assume anything.
+X.IP *
+XIf you think the user is wrong, allow for the fact that he may be right.
+XFor instance, he could be running Configure on a different system than
+Xhe is going to use the final product on.
+X.PP
+XMetaconfig reserves the following names in your directory, and if you use such
+Xa name it may get clobbered or have other unforeseen effects:
+X.Ex
+X.MT/*
+XConfigure
+XWanted
+XObsolete
+Xconfig_h.SH
+XU/*
+XMANIFEST.new
+X.Ef
+XAdditionally, Configure may clobber these names in the directory it is run in:
+X.Ex
+XUU/*
+Xconfig.sh
+Xconfig.h
+X.Ef
+X'''
+X''' O p t i o n s
+X'''
+X.SH OPTIONS
+XThe following options are recognized by \fImetaconfig\fR:
+X.TP 15
+X.B \-d
+XTurn on debug mode. Not really useful unless you are debugging \fImetaconfig\fR
+Xitself.
+X.TP
+X.B \-h
+XPrint help message and exit.
+X.TP
+X.B \-k
+XKeep temporary directory, so that you may examine the working files used
+Xby \fImetaconfig\fR to build your \fIConfigure\fR script. Useful only when
+Xdebugging the units.
+X.TP
+X.B \-m
+XAssume lots of memory and swap space. This will speed up symbol lookup in
+Xsource files by a significant amount of time, at the expense of memory
+Xconsumption...
+X.TP
+X.B \-o
+XMap obsolete symbols on new ones. Use this switch if you still have some
+Xobsolete symbols in your source code and do not want (or cannot) remove
+Xthem for now. The obsolete symbols are otherwise ignored, although that
+Xwill give you a warning from \fImetaconfig\fR.
+X.TP
+X.B \-s
+XTurn silent mode on.
+X.TP
+X.B \-t
+XTrace symbols as they are found.
+X.TP
+X.B \-v
+XTurn verbose mode on.
+X.TP
+X.B \-w
+XAssume Wanted file is up-to-date. This will skip the time and memory
+Xconsuming phase of source code scanning, looking for known symbols.
+XUse it only when you know your source file have not changed with respect
+Xto the pool of \fImetaconfig\fR symbols used.
+X.TP
+X.B \-V
+XPrint version number and exit.
+X'''
+X''' T u t o r i a l
+X'''
+X.SH TUTORIAL
+XThis (long) section is an introduction to \fImetaconfig\fR, in which we will
+Xlearn all the basics. If you already know how to use \fImetaconfig\fR, you
+Xmay safely skip to the next section.
+X'''
+X.SS Overview
+X.PP
+XUsually when you want to get some source package to compile on a given
+Xplatform you have to edit the main Makefile (assuming there is one!),
+Xchoose a C compiler, make sure you have the proper libraries, and then
+Xfire the \fImake\fR command. If the package is reasonably well written, it
+Xwill compile (without a warning being an option :-). In itself, the last
+Xsentence is a real performance, since given the variety of UNIX platforms
+Xavailable today and the diversity of flavours, that means the author of the
+Xpackage has gone into deep trouble to figure out the right choices given
+Xsome standard trial, guessing and messing around with system includes and
+Xtypes.
+X.PP
+XHowever, despite all his talent, the author cannot possibly know that
+Xsome system has a broken system call, or that some sytem structure lacks
+Xone otherwise standard field, or simply wheter a given include file exists
+Xor not. And I'm not considering the implicit assumptions, like the type
+Xreturned by the \fImalloc()\fR function or the presence of the \fIrename()\fR
+Xsystem call to name a few. But that knowledge is necessary to achieve real
+Xportability.
+X.PP
+XNow let's not abuse ourselves. Using that information requires greater
+Xskills, yet it can lead to more portable programs since it is then
+Xwritten in a system-independant fashion and relies only on the fact that
+Xsome assumption is true or false on a particular system, each assumption
+Xbeing unrelated with each other. That is to say, we do not say: We're on
+Xa BSD system or we are on a USG system. That's too fuzzy anyway nowadays.
+XNo, we want to say to the source code: this system does not have the
+X\fIrename()\fR system call and \fImalloc()\fR returns a \f(Ivoid *)\fR
+Xvalue.
+X.PP
+XMetaconfig is a tool that will let you do just that, with the additional
+Xbenefit of not having to hand-edit the Makefile if all goes well. By
+Xrunning \fImetaconfig\fR, you create a shell script named \fIConfigure\fR.
+XLots of efforts have been devoted to the Configure script internals to ensure
+Xit will run on 99% of the existing shells available as of this writing.
+XConfigure will probe the target system, asking questions when in doubt and
+Xgather all the answers in one single shell file, which in turn can be used
+Xto automatically generate configured Makefiles and C include files.
+X.PP
+XThere is only a limited (but quite large) set of symbols available for your
+Xshell scripts and C programs. They are all documented in the Glossary file.
+XAll you need to do is learn about them and start using them to address
+Xportability and configuration problems. Then, by running \fImetaconfig\fR,
+Xa suitable Configure script will be generated for your package.
+X.PP
+XThe Configure script is built out several units (more than 300), each
+Xunit being responsible for defining a small number of shell and/or C
+Xsymbols. Units are assembled together at the final stage, honoring
+Xthe dependency graph (one unit may need the result of several other
+Xunits which are then placed before in the script).
+X'''
+X.SS Symbols
+X.PP
+XSymbols are the most important thing in the \fImetaconfig\fR world. They
+Xare the smallest recognized entity, usually a word, and can be granted
+Xa value at the end of the Configure execution. For instance, the C
+Xpre-processor symbol \fIHAS_RENAME\fR is a \fImetaconfig\fR symbol that is
+Xguranteed to be defined if, and only if, the \fIrename()\fR system call
+Xis present. Likewise, the \fI\$\&ranlib\fR shell variable will be set to
+Xeither ':' or 'ranlib' depending on whether the call to the \fIranlib\fR
+Xprogram is needed to order a library file. How this works is not important
+Xfor now, what is important is to understand that those symbols are given
+Xa \fIlife\fR (i.e. a value) upon \fIConfigure\fR execution.
+X.PP
+XUsing symbols is relatively straightforward. In a C source file, you simply
+Xuse the symbol value, as a pre-processor directive (for instance an: \fI#ifdef
+XHAS_RENAME\fR) or, if the symbol value is a string, directly as you would use
+Xa macro in C. And in a shell file or a Makefile, you may reference a shell
+Xsymbol directly.
+X.PP
+XActually, I'm lying, because that's not completely as magic as the previous
+Xparagraph could sound. In a C file, you need to include the Configure-produced
+X\fIconfig.h\fR file, and you must wrap your shell script or Makefile in a .SH
+Xfile and you may reference the shell symbol only in the variable
+Xsubstitution part of that .SH file. More on this later.
+X'''
+X.SS Source Files
+X.PP
+XSymbols may only appear in a limited set of source files, because
+X\fImetaconfig\fR will only scan those when looking for known symbols, trying
+Xto figure out which units it will need. You may use C symbols in C source
+Xfiles, i.e. files with a \fI.c\fR, \fI.h\fR, \fI.y\fR or \fI.l\fR extension,
+Xand shell symbols are looked for only in .SH files.
+X.PP
+XIn order to get the value of a symbol, a C file needs to include the special
+X\fIconfig.h\fR file, which is produced by \fIConfigure\fR when C symbols
+Xare present. And .SH files are run through a shell, producing a new file.
+XHowever, in the top section of the .SH file, the special \fIconfig.sh\fR
+Xfile (also produced by running \fIConfigure\fR) is sourced, and variable
+Xsubstitutions apply. Actually, \fIconfig.h\fR is produced by running the
+X\fImetaconfig\fR-produced \fIconfig_h.SH\fR file, again using variable
+Xsubstitution. So we're going to look at that a little more closely since
+Xthis is the heart of the whole \fIconfiguration\fR scheme...
+X'''
+X.SS Variable Substitution
+X.PP
+XThere is shell construct called \fIhere document\fR which enables a
+Xcommand to take an input specified within the script itself. That
+Xinput is interpreted by the shell as a double-quoted string or a
+Xsingle quoted string depending on the form of the here document
+Xspecification.
+X.PP
+XTo specify a here document, the '<<' token is used, followed by a single
+Xidentifier. From then on, the remaining script lines form the input for
+Xthe command, until the here document is found on a line by itself.
+XShell substitution (including shell variable substitutions) is done
+Xunless the identifier is surrounded by single quotes. For instance:
+X.Ex
+Xvar='first'
+Xtar='second'
+Xecho "--> first here document:"
+Xcat <<EOM
+Xvar='\$var'
+Xtar='\$\&tar'
+XEOM
+Xecho "--> second here document:"
+Xcat <<'EOM'
+Xecho \$var
+Xecho \$\&tar
+XEOM
+Xecho "--> end."
+X.Ef
+Xwill produce, when run through a shell:
+X.Ex
+X--> first here document:
+Xvar='first'
+Xtar='second'
+X--> second here document:
+Xecho \$var
+Xecho \$\&tar
+X--> end.
+X.Ef
+XThe first here document has its content interpreted whilst the second
+Xone is output as-is. Both are useful in a .SH script, as we are about to see.
+X'''
+X.SS Using .SH Scripts
+X.PP
+XA .SH script is usually produced by running the \fIMakeSH\fR script other
+Xan existing file, transforming \fIfile\fR into a \fIfile.SH\fR. Let's take
+Xa single example. Here is a little script (let's call it \fIintsize\fR)
+Xwhich prints a single message, the size of the \fBint\fR datatype in C.
+XUnfortunately, it has the value hardwired in it, thusly:
+X.Ex
+X#!/bin/sh
+Xintsize='4'
+Xecho "On this machine, the int type is \$\&intsize bytes"
+X.Ef
+XLet's run \fImakeSH\fR on it by typing '\fImakeSH intsize\fR'. We get a single
+X\fIintsize.SH\fR file that looks like this:
+X.Ex
+Xcase \$CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. \$TOP/config.sh
+X	;;
+Xesac
+X: This forces SH files to create target in same directory as SH file.
+X: This is so that make depend always knows where to find SH derivatives.
+Xcase "\$0" in
+X*/*) cd \`expr X\$0 : 'X\\\\(.*\\\\)/'\` ;;
+Xesac
+Xecho "Extracting intsize (with variable substitutions)"
+X: This section of the file will have variable substitutions done on it.
+X: Move anything that needs config subs from !NO!SUBS! section to !GROK!THIS!.
+X: Protect any dollar signs and backticks that you do not want interpreted
+X: by putting a backslash in front.  You may delete these comments.
+X\$spitshell >intsize <<!GROK!THIS!
+X\$startsh
+X\&!GROK!THIS!
+X
+X: In the following dollars and backticks do not need the extra backslash.
+X\$spitshell >>intsize <<'!NO!SUBS!'
+Xintsize='4'
+Xecho "On this machine, the int type is \$\&intsize bytes"
+X\&!NO!SUBS!
+Xchmod 755 intsize
+X\$\&eunicefix intsize
+X.Ef
+XThe first part of this script (in the \fIcase\fR statement) is trying to
+Xlocate the \fIconfig.sh\fR file, in order to source it. The \fI\$CONFIG\fR
+Xvariable is false by default, by true when \fIconfig.sh\fR has been sourced
+Xalready (which would be the case if this file was executed from within
+X\fIConfigure\fR itself, but let's not confuse the issue here).
+X.PP
+XOnce the \fIconfig.sh\fR file has been sources, all the shell symbols
+Xdefined by \fIConfigure\fR are set. We know reach a second case statement,
+Xused to change the current directory should a path be used to
+Xreach this program (for instance if we said '\fIsh ../scripts/intsize.SH\fR',
+Xwe would first run '\fIcd ../scripts\fR' before continuing). If you do not
+Xunderstand this, don't worry about it.
+X.PP
+XHere comes the intersting stuff. This script uses the \fI\$spitshell\fR
+Xvariable, and it's not something we know about...yet. If you look through
+Xthe Glossary file, you will see that this is a variable known by
+X\fImetaconfig\fR. If you make this file part of your distribution (by including
+Xit in the MANIFEST.new file, we'll come back to that later on) and run
+X\fImetaconfig\fR, then the \fIConfigure\fR script will determine a suitable
+Xvalue for this variable and it will be set in \fIconfig.sh\fR. Same goes for
+X\fI\$startsh\fR and the mysterious \fI\$\&eunicefix\fR at the end. On a
+Xreasonable system, the relevant part of \fIconfig.sh\fR would look like this:
+X.Ex
+Xspitshell='cat'
+Xstartsh='#!/bin/sh'
+Xeunicefix=':'
+X.Ef
+XAh! We're getting there. Now it looks familiar. We're facing a single
+X\fIcat\fR command whose input comes from a variable-interpolated here
+Xdocument and whose output is redirected to \fIintsize\fR. The value
+Xwill be that of \fI\$startsh\fR, i.e. '#!/bin/sh'. Fine so far.
+X.PP
+XThen we reach the second here document expansion, to get the remaining of
+Xthe script. This time, the here document symbol is surrounded by single
+Xquotes so the contents will be appended verbatim to the \fIintsize\fR file.
+XSo, by running '\fIsh intsize.SH\fR', we get the following output:
+X.Ex
+XExtracting intsize (with variable substitutions)
+X.Ef
+Xand by looking at the produced intsize file, we see:
+X.Ex
+X#!/bin/sh
+Xintsize='4'
+Xecho "On this machine, the int type is \$\&intsize bytes"
+X.Ef
+Xwhich is exactly what we had at the beginning. So far, it's a no-operation
+Xprocedure... But, how marvelous! It so happens (pure coincidence, trust me!),
+Xthat \fImetaconfig\fR knows about the \fI$\&intsize\fR shell symbol. By moving
+Xthe initialization of intsize to the variable-interpolated area of the .SH
+Xscript and initializing it with the \fIConfigure\fR-computed value,
+Xand removing the now useless comments added by \fImakeSH\fR, we get:
+X.Ex
+Xcase \$CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. \$TOP/config.sh
+X	;;
+Xesac
+Xcase "\$0" in
+X*/*) cd \`expr X\$0 : 'X\\\\(.*\\\\)/'\` ;;
+Xesac
+Xecho "Extracting intsize (with variable substitutions)"
+X\$\&spitshell >intsize <<!GROK!THIS!
+X\$\&startsh
+Xintsize='\$\&intsize'
+X\&!GROK!THIS!
+X
+X\$\&spitshell >>intsize <<'!NO!SUBS!'
+Xecho "On this machine, the int type is \$\&intsize bytes"
+X\&!NO!SUBS!
+Xchmod 755 intsize
+X\$\&eunicefix intsize
+X.Ef
+XOf course, running this script through a shell will again output the same
+Xscript. But if we run \fIConfigure\fR on a machine where an \fBint\fR is
+Xstored as a 64 bits quantity, \fIconfig.sh\fR will set \fIintsize\fR to
+X8 and the \fIintsize\fR script will bear the right value and print:
+X.Ex
+XOn this machine, the int type is 8 bytes
+X.Ef
+Xwhich is correct. Congratulations! We have just configured a shell script!!
+X'''
+X.SS Producing config.h
+X.PP
+XWe can now have a look at the way \fIconfig.h\fR is produced out of
+X\fIconfig_h.SH\fR. We know that running \fIConfigure\fR produces a
+X\fIconfig.sh\fR script (how exactly this is done is not strictly
+Xrelevant here, but for the curious, it's another here document
+Xsubstitution within \fIConfigure\fR itself). The \fIconfig_h.SH\fR
+Xitself is built by \fImetaconfig\fR at the same time \fIConfigure\fR
+Xis, provided you make use of at least one C symbol within your sources.
+X.PP
+XLet's have a look at some random \fIconfig_h.SH\fR file to see what
+Xreally happens:
+X.Ex
+Xcase \$CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		(echo "Can't find config.sh."; exit 1)
+X	fi
+X	. \$TOP/config.sh
+X	;;
+Xesac
+Xcase "\$0" in
+X*/*) cd \`expr X\$0 : 'X\\\\(.*\\\\)/'\` ;;
+Xesac
+Xecho "Extracting config.h (with variable substitutions)"
+Xsed <<!GROK!THIS! >config.h -e 's!^#undef!/\*#define!' -e 's!^#un-def!#undef!'
+X/*
+X * This file was produced by running the config_h.SH script, which
+X * gets its values from config.sh, which is generally produced by
+X * running Configure.
+X *
+X * Feel free to modify any of this as the need arises.  Note, however,
+X * that running config.h.SH again will wipe out any changes you've made.
+X * For a more permanent change edit config.sh and rerun config.h.SH.
+X */
+X
+X/* Configuration time: \$\&cf_time
+X * Configured by: \$\&cf_by
+X * Target system: \$myuname
+X */
+X
+X#ifndef _config_h_
+X#define _config_h_
+X
+X/* bcopy:
+X *	This symbol is maped to memcpy if the bcopy() routine is not
+X *	available to copy strings.
+X */
+X/* HAS_BCOPY:
+X *	This symbol is defined if the bcopy() routine is available to
+X *	copy blocks of memory. You should not use this symbol under
+X *	normal circumstances and use bcopy() directly instead, which
+X *	will get mapped to memcpy() if bcopy is not available.
+X */
+X#\$\&d_bcopy HAS_BCOPY	/**/
+X#ifndef HAS_BCOPY
+X#ifdef bcopy
+X#un-def bcopy
+X#endif
+X#define bcopy(s,d,l) memcpy((d),(s),(l))		/* mapped to memcpy */
+X#endif
+X
+X/* HAS_DUP2:
+X *	This symbol, if defined, indicates that the dup2 routine is
+X *	available to duplicate file descriptors.
+X */
+X#\$\&d_dup2 HAS_DUP2	/**/
+X
+X/* I_STRING:
+X *	This symbol, if defined, indicates to the C program that it should
+X *	include <string.h> (USG systems) instead of <strings.h> (BSD systems).
+X */
+X#\$\&i_string I_STRING		/**/
+X
+X#endif
+X\&!GROK!THIS!
+X.Ef
+XAt the top of the file, we recognize the standard .SH construct that we
+Xhave already studied in detail. Next comes the extraction of the file
+Xitself, via a here document with variable substitutions. However, here
+Xwe do not use a plain \fIcat\fR but a \fIsed\fR instead, since we need
+Xto do some further editing on-the-fly. We'll see why later on, so let's
+Xforget about it right now.
+X.PP
+XWe now reach the leading comment, and the file is tagged with the
+Xconfiguration time, the target system, etc... (those variables coming
+Xfrom the sourced \fIconfig.sh\fR file have been set up by \fIConfigure\fR).
+XThat comment header is followed by a '#ifndef' protection to guard against
+Xmultiple inclusions of this file. Then comes the heart of the file...
+X.PP
+XIt helps to know that \fI\$d_*\fR and \fI\$i_*\fR variables are set to
+Xeither '\fIdefine\fR' or '\fIundef\fR' by \fIConfigure\fR, depending on
+Xwether a function or an include file is present on the system or not.
+XThat means the:
+X.Ex
+X#\$\&d_bcopy HAS_BCOPY /**/
+X.Ef
+Xline will be expanded to either:
+X.Ex
+X#define HAS_BCOPY /**/
+X.Ef
+Xif the \$\&d_bcopy variable is set to 'define' or:
+X.Ex
+X#undef HAS_BCOPY /**/
+X.Ef
+Xif \$\&d_bcopy was set to 'undef', because the feature was not there. However,
+Xthat's not what gets written in the \fIconfig.h\fR file because of the
+X\fIsed\fR filter we have already seen, which will transform the second form
+Xinto:
+X.Ex
+X/*#define HAS_BCOPY /**/
+X.Ef
+XThat's a handy form for later editing of \fIconfig.h\fR because you only need
+Xto remove the leading '/*' if you want to override \fIConfigure\fR's choice.
+XLikewise, you may add a single '/*' at the beginning of a '#define' line
+Xto avoid the definition of a particular symbol. This is why each symbol
+Xdefinition is protected by a trailing '/**/', to close the leading
+Xcomment opened by '/*' (comments are not nested in C).
+X.PP
+XNow transforming '#undef' into '/*#define' is nice, but if we want to actually
+Xwrite a '#undef', we're stuck... unless we write it as '#un-def' and let
+X\fIsed\fR fix that to '#undef' while producing \fIconfig.h\fR, which is what
+Xis actually done here.
+X.PP
+XThe same kind of reasoning applies to those two lines:
+X.Ex
+X#\$\&d_dup2 HAS_DUP2   /**/
+X#\$\&i_string I_STRING      /**/
+X.Ef
+Xand assuming \fIconfig.sh\fR defines:
+X.Ex
+Xd_dup2='define'
+Xi_string='undef'
+X.Ef
+Xwe'll get in the produced \fIconfig.h\fR:
+X.Ex
+X#define HAS_DUP2   /**/
+X/*#define I_STRING      /**/
+X.Ef
+XClear as running water? Good!
+X.PP
+XNow it should be obvious that by including \fIconfig.h\fR in all your
+XC source files, you get to know what \fIConfigure\fR has guessed on
+Xyour system. In effect, by using those symbols, you are writing
+Xconfigured C code, since \fImetaconfig\fR will know that you need
+Xthose symbols and will generate a suitable \fIconfig_h.SH\fR file as
+Xwell as all the necessary code in \fIConfigure\fR to compute a
+Xproper value for them (by assigning values to associated shell variables).
+X'''
+X.SS Running Metaconfig
+X.PP
+XLet's focus on the \fImetaconfig\fR program for a while to understand how
+Xit uses its units and your source code to produce all the needed configuration
+Xfiles. If you intend to write new units, you should have a good understanding
+Xof the whole scheme.
+X.PP
+XAssuming your MANIFEST.new file is properly set and lists all the source
+Xfiles you wish to configure, and that you have run \fIpackint\fR in your
+Xroot source directory to create a \fI.package\fR file, you may run
+X\fImetaconfig\fR and you'll get the following:
+X.Ex
+X\$ metaconfig
+XLocating units...
+XExtracting dependency lists from 312 units...
+XExtracting filenames (*.[chyl] and *.SH) from MANIFEST.new...
+XBuilding a Wanted file...
+X.in +2
+XScanning .[chyl] files for symbols...
+XScanning .SH files for symbols...
+X.in -2
+XComputing optimal dependency graph...
+X.in +2
+XBuilding private make file...
+XDetermining loadable units...
+XUpdating make file...
+X.in -2
+XDetermining the correct order for the units...
+XCreating Configure...
+XDone.
+X.Ef
+XThe first phase looks for all the units files (ending with .U) in the public
+Xdirectory first, then in your private one. If you copy a public file in your
+Xprivate U directory (i.e. a directory named U at the top level of your package),
+Xit will override the public version. Once it has a list of all the available
+Xunits, it parses them and extracts all the ?MAKE: lines to know about the
+Xdependencies and the known shell symbols. It also focuses on the ?H: lines to
+Xlearn about the C symbols and which shell symbols needs to be computed to get
+Xa proper value for that C symbol (so we have another level of dependencies
+Xhere).
+X.PP
+XNext, the proper filenames are extracted from the MANIFEST.new files and a
+X\fIWanted\fR file is built: that file lists all the C symbols and the shell
+Xsymbols needed for that package. We first scan the C-type files for C symbols,
+Xthen propagate the dependencies to their associated shell symbols (gathered
+Xfrom ?H: lines). Next .SH files are scanned and finally all the shell symbols
+Xare known.
+X.PP
+XA temporary Makefile is built and metaconfig tries to \fImake\fR all the shell
+Xsymbols to see what commands (listed on the second ?MAKE: lines) are
+Xexecuted, and thus which units are really needed. Optional units not otherwise
+Xrequired are removed and a second Makefile is generated. This time, we know
+Xabout all the units and their respective orders, optional units having been
+Xremoved and default values computed for their shell symbols. The \fIConfigure\fR
+Xscript can then be generated, along with \fIconfig_h.SH\fR. We're done.
+X'''
+X.SS Conventions
+X.PP
+XProper conventions needs to be followed to make the whole process sound.
+XThere is a case convention for units and a variable naming convention.
+X.PP
+XAll units should have their first letter lower-cased, unless they are
+Xspecial units. By special, we mean they do not really define new
+Xshell variables that can be used by the user in his .SH files, but rather
+Xunits producing scripts or shell variables that are to be used internally
+Xby the \fIConfigure\fR script. Typical examples are the \fIInit.U\fR
+Xfile which is the main variable initialization, or \fIMyread.U\fR which
+Xproduces the \fImyread\fR script used almost everywhere in \fIConfigure\fR
+Xwhen a question is to be asked to the user.
+X.PP
+XNon-special units then subdivise in two distinct groups: units defining
+Xvariables associated to a C symbol and units defining shell variables of
+Xtheir own. The first group is further divided in variables related to
+Xinclude files (their name begin with \fIi_\fR) and variables related to
+Xother definitions (name starting with \fId_\fR). The second group have
+Xnames standing for itself, for instance \fIcc.U\fR defines the \fI\$\&cc\fR
+Xshell variable whose value is the C compiler to be used.
+X.PP
+XSpecial units sometimes reserve themselves some pre-defined variable and
+Xreturn "results" in other well-known variables. For instance, the \fImyread\fR
+Xscript produced by Myread.U expects the prompt in \fI$rp\fR, the default
+Xanswer in \fI\$dflt\fR and places the user answer in \fI$ans\fR. This is
+Xnot documented in this manual page: you have to go and look at the unit
+Xitself to understand which variables are used and how the unit is to be
+Xused.
+X'''
+X.SS Using The Glossary
+X.PP
+XThe Glossary file is automatically produced by the \fImakegloss\fR script,
+Xwhich extracts the information from ?S:, ?C: and ?MAKE: lines and reformats
+Xthem into an alphabetically sorted glossary.
+XIt is important to read the Glossary to know about the symbols you are
+Xallowed to use. However, the Glossary will not tell you how to use them.
+XUsually, that's up to you.
+X.PP
+XOne day, you will probably write your own units and you will know enough
+Xabout \fImetaconfig\fR to do so quickly and efficiently. However, never
+Xforget to properly document your work in the ?S: and ?C: lines, or other
+Xpeople will not be able to reuse it. Remember about the time where you
+Xhad only the Glossary and this manual page to get started.
+X'''
+X.SS Conclusion
+X.PP
+XNow that you know the \fImetaconfig\fR basics, you should read the
+X\fIDESCRIPTION\fR section, then skip to the \fIREFERENCE\fR section
+Xto learn about all the gory details such as the allowed syntax for
+Xunit control lines (lines starting with a '?') or the distinct MAKE
+Xcommands you are allowed to use.
+X.SH REFERENCE
+XThis section documents the internals of \fImetaconfig\fR, basically the
+Xunit syntax, the special units you should know about and the hint files.
+X'''
+X.SS General Unit Syntax
+X.PP
+XA metaconfig unit is divided into two distinct parts. The header section
+X(lines starting with '?') and a shell section (code to be included in
+Xthe \fIConfigure\fR script). It is possible to add '?X:' comments anywhere
+Xwithin the unit, but the other '?' lines (also called \fIcontrol lines\fR)
+Xhave a strict ordering policy.
+X.PP
+XIf a control line is too long, it
+Xis possible to use a continuation by escaping the final new-line with a
+Xbackslash and continuing on the next line (which should then be indented by
+Xspaces or tabs).
+X.PP
+XThe following is a formal description of each of the control lines. Unless
+Xstated otherwise, the order of this presentation is the order to be used
+Xwithin the unit.
+X.TP 5
+X?RCS: \fIfree_text\fR
+XTo be used for RCS comments, at the top of the unit.
+X.TP
+X?X: \fIany text\fR
+XGeneral purpose comments. May appear anywhere in the unit but must be left
+Xjustfied. For RCS comments, please use the ?RCS: comment form.
+X.TP
+X?MAKE:\fIsymbol list\fR:\fIdependency list\fR [\fI+optional\fR]
+XThis is the first dependency line. The first \fIsymbol list\fR should list
+Xall the symbols built by this unit (i.e. whose value is computed by the
+Xshell section of the unit). Symbols should be space separated.
+XThe second part of the list (after the middle ':') is the unit dependency.
+XIt should list all the needed special units, as well as all the symbols
+Xused by the shell implementation. If a symbol is nedded but its configuration
+Xvalue is not critical, it can be preceded by a '+', in which case it is
+Xcalled a conditional dependency: its corresponding unit will be loaded if,
+Xand only if, that symbol is otherwise really wanted; otherwise the default
+Xvalue will be used.
+X.TP
+X?MAKE:\fItab\fR \fIcommand\fR
+XThere can be one or more command lines following the initial dependency lines.
+XThose commands will be executed when the unit is wanted to load them into
+X\fIConfigure\fR. See the paragraph about make commands for more information.
+XNote that the leading \fItab\fR character is required before the \fIcommand\fR.
+X.TP
+X?S:\fIsymbol_name\fR [(\fIobsolete symbol list\fR)]:
+XIntroduces a shell symbol. This first line names the symbol, optionally
+Xfollowed by a list enclosed between parenthesis and giving the obsolete
+Xequivalent. Those obsolete symbols will be remapped to the new
+X\fIsymbol_name\fR if the \fB\-o\fR option is given to \fImetaconfig\fR.
+X.TP
+X?S:\fIany text, for Glossary\fR
+XBasically a comment describing the shell symbol, which will be extracted
+Xby \fImakegloss\fR into the Glossary file.
+X.TP
+X?S:.
+XCloses the shell symbol comment.
+X.TP
+X?C:\fIsymbol_name\fR [~ \fIalias\fR] [(\fIobsolete symbol list\fR)]:
+XIntroduces a new C symbol. The \fIalias\fR name is the name under which
+Xthe C symbol will be controlled, i.e. if the \fIalias\fR symbol is wanted,
+Xthen that C symbol will be written in the \fIconfig_h.SH\fR file. Usually,
+Xthe alias is just '%<' (stands for the unit's name) and there is also
+Xa ?W: line mapping a C symbol to the \fIalias\fR. Also the relevant parts
+Xof the ?H: lines are explicitely protected by a '?%<' condition. See
+Xthe symbol aliasing paragraph for more details.
+XThe remaining of the line is the optional \fIobsolete symbol list\fR,
+Xwhich lists old equivalents for the new \fIsymbol_name\fR.
+X.TP
+X?C:\fIany text, for Glossary and config_h.SH\fR
+XBasically a comment describing the C symbol, which will be extracted
+Xby \fImakegloss\fR into the Glossary file and by \fImetaconfig\fR into
+Xthe \fIconfig_h.SH\fR file if the symbol is wanted (or if its alias is
+Xwanted when symbol aliasing is used).
+X.TP
+X?C:.
+XCloses the C symbol comment.
+X.TP
+X?H:?\fIsymbol\fR:\fIconfig_h.SH stuff\fR
+XThis is the general inclusion request into \fIconfig_h.SH\fR. The line is
+Xonly written when the guarding \fIsymbol\fR is really wanted. This general
+Xform is needed when C symbol aliasing was used. Otherwise, if you use one
+Xof the other "standard" forms, the guarding is automatically done by
+X\fImetaconfig\fR itself.
+X.TP
+X?H:#\fI\$d_var VAR\fR "\fI\$var\fR"
+XConditionally defines the \fIVAR\fR C symbol into \fI\$var\fR when \fI$d_var\fR
+Xis set to '\fIdefine\fR'. Implies a '?\fIVAR\fR:' guarding condition, and
+X\fImetaconfig\fR automatically links \fIVAR\fR to its two shell variable
+Xdependencies (i.e. both \fI\$d_var\fR and \fI\$var\fR will be flagged as
+X\fIwanted\fR if \fIVAR\fR is used in C sources).
+X.TP
+X?H:#define \fIVAR\fR [\fIoptional text\fR]
+XAlways defines the \fIVAR\fR C symbol to some value. Implies a '?\fIVAR\fR:'
+Xguarding condition. An automatic shell dependency is made to the unit itself.
+X.TP
+X?H:#\fI\$d_var VAR\fR
+XConditionally defines \fIVAR\fR if \fI\$d_var\fR is set to '\fIdefine\fR'.
+XImplies a '?\fIVAR\fR:' guarding condition. An automatic shell dependency is
+Xgenerated towards \fI\$d_war\fR.
+X.TP
+X?H:#define \fIVAR\fR "\fI\$var\fR"
+XAssigns a configured value to the \fIVAR\fR C symbol. Implies a '?\fIVAR\fR:'
+Xgurading condition. An automatic shell dependency is generated to link
+X\fIVAR\fR and \fI\$var\fR.
+X.TP
+X?H:.
+XCloses the \fIconfig_h.SH\fR inclusion requests.
+X.TP
+X?W:\fIshell symbol list\fR:\fIC symbol list\fR
+XTies up the destiny of the shell symbols with that of the C symbols: if any
+Xof the C symbols listed is wanted, then all the shell symbols are marked
+Xas wanted. Useful to force inclusion of a unit (shell symbol list set to
+X'%<') when the presence of some C symbol is detected. The shell symbol list
+Xmay be left empty, to benefit from the side effect of C symbol location
+Xwithin the builtin pre-processor (symbol being \fIdefined\fR for that
+Xpre-processor if located in the source). To look for patterns with a space
+Xin them, you need to quote the C symbols within simple quotes, as in
+X'struct timezone'.
+X.TP
+X?V:\fIread-only symbols\fR:\fIread-write symbols\fR
+XThis is a \fImetalint\fR hint and should be used only in special units
+Xexporting some shell variables. The variables before the middle ':'
+Xare exported read-only (changing them will issue a warning), while
+Xother symbols may be freely read and changed.
+X.TP
+X?T:\fIshell temporaries\fR
+XAnother \fImetalint\fR hint. This line lists all the shell variables used
+Xas temporaries within the shell section of this unit.
+X.TP
+X?D:\fIsymbol\fR='\fIvalue\fR'
+XInitialization value for symbols used as conditional dependencies. If no
+X?D: line is found, then a null value is used instead. The \fImetalint\fR
+Xprogram will warn you if a symbol is used at least once as a conditional
+Xdependency and does not have a proper ?D: initialization. It's a good
+Xpractice to add those lines even for a null initialization since it
+Xemphasizes on the possibly optional nature of a symbol.
+X.TP
+X?O:\fIany message you want\fR
+XThis directive indicates that this unit is obsolete as a whole. Whenever
+Xusage of any of its symbols is made (or indirect usage via dependencies),
+Xthe message is output on the screen (on stderr). You can put one ore more
+Xlines, in which case each line will be printed, in order.
+X.TP
+X?LINT:\fImetalint hints\fR
+XSee the \fImetalint\fR manual page for an explaination of the distinct
+Xhints that can be used.
+X.TP
+X?INIT:\fIinitialization code\fR
+XThe initialization code specified by this line will be loaded at the top
+Xof the \fIConfigure\fR script provided the unit is needed.
+X'''
+X.SS C Symbol Aliasing
+X.PP
+XSometimes it is not possible to rely on \fImetaconfig\fR's own default
+Xselection for \fIconfig_h.SH\fR comments and C symbol definition. That's
+Xwhere aliasing comes into play. Since it's rather tricky to explain, we'll
+Xstudy an example to understand the underlying mechanism.
+X.PP
+XThe d_const.U unit tries to determine whether or not your C compiler
+Xknown about the \fIconst\fR keyword. If it doesn't we want to remap
+Xthat keyword to a null string, in order to let the program compile.
+XMoreover, we want to automatically trigger the test when the \fIconst\fR
+Xword is used.
+X.PP
+XHere are the relevant parts of the d_const.U unit:
+X.Ex
+X?MAKE:d_const: cat cc ccflags Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_const:
+X?S:	This variable conditionally defines the HASCONST symbol, which
+X?S:	indicates to the C program that this C compiler knows about the
+X?S:	const type.
+X?S:.
+X?C:HASCONST ~ %<:
+X?C:	This symbol, if defined, indicates that this C compiler knows about
+X?C:	the const type. There is no need to actually test for that symbol
+X?C:	within your programs. The mere use of the "const" keyword will
+X?C:	trigger the necessary tests.
+X?C:.
+X?H:?%<:#$\&d_const HASCONST	/**/
+X?H:?%<:#ifndef HASCONST
+X?H:?%<:#define const
+X?H:?%<:#endif
+X?H:.
+X?W:%<:const
+X?LINT:set d_const
+X?LINT:known const
+X: check for const keyword
+Xecho " "
+Xecho 'Checking to see if your C compiler knows about "const"...' >&4
+X$cat >const.c <<'EOCP'
+Xmain()
+X{
+X	const char *foo;
+X}
+XEOCP
+Xif $\&cc -c $\&ccflags const.c >/dev/null 2>&1 ; then
+X	val="$\&define"
+X	echo "Yup, it does."
+Xelse
+X	val="$\&undef"
+X	echo "Nope, it doesn't."
+Xfi
+Xset d_const
+Xeval $\&setvar
+X.Ef
+XFirst we notice the use of a ?W: line, which basically says: "This unit
+Xis wanted when the \fIconst\fR keyword is used in a C file.". In order
+Xto conditionally remap \fIconst\fR to a null string in \fIconfig.h\fR,
+XI chose to conditionally define \fIHASCONST\fR via \fI\$\&d_const\fR.
+X.PP
+XHowever, this raises a problem, because the \fIHASCONST\fR symbol is not
+Xgoing to be used in the sources, only the \fIconst\fR token is. And the
+X?H: line defining \fIHASCONST\fR is implicitely guarded by '?HASCONST'.
+XTherefore, we must add the explicit '?%<' constraint to tell \fImetaconfig\fR
+Xthat those lines should be included in \fIconfig_h.SH\fR whenever the
+X'%<' symbol gets wanted (%< refers to the unit's name, here \fId_const\fR).
+X.PP
+XThat's almost perfect, because the ?W: line will want \fId_const\fR whenever
+X\fIconst\fR is used, then the ?H: lines will get included in the
+X\fIconfig_h.SH\fR file. However, the leading comment (?C: lines) attached to
+X\fIHASCONST\fR is itself also guarded via \fIHASCONST\fR, i.e. it has an
+Ximplicit '?HASCONST' constraint. Hence the need for \fIaliasing\fR the
+X\fIHASCONST\fR symbol to '%<'.
+X.PP
+XThe remaining part of the unit (the shell part) is really straightforward.
+XIt simply tries to compile a sample C program using the \fIconst\fR keyword.
+XIf it can, then it will define \fI\$\&d_const\fR via the \fI\$\&setvar\fR
+Xfonction (defined by the \fISetvar.U\fR unit). See the paragraph about
+Xspecial units for more details.
+X'''
+X.SS Make Commands
+X.PP
+XOn the ?MAKE: command line, you may write a shell command to be executed as-is
+Xor a special \fI-pick\fR command which is trapped by \fImetaconfig\fR and
+Xparsed to see what should be done. The leading '-' is only there to prevent
+X\fImake\fR from failing when the command returns a non-zero status -- it's
+Xnot really needed since we use '\fImake -n\fR' to resolve the dependencies,
+Xbut I advise you to keep it in case it becomes mandatory in future versions.
+XThe syntax of the \fIpick\fR command is:
+X.Ex
+X-pick \fIcmd\fR \$@ \fItarget_file\fR
+X.Ef
+Xwhere \fI\$@\fR is the standard macro within Makefiles standing for the current
+Xtarget (the name of the unit being built, with the final .U extension stripped).
+XThe \fIcmd\fR part is the actual \fImetaconfig\fR command to be run, and the
+X\fItarget_file\fR is yet another parameter, whose interpretation depends on
+Xthe \fIcmd\fR itself. It also has its final .U extension stripped and normally
+Xrefers to a unit file, unless it start with './' in which case it references
+Xone of the \fImetaconfig\fR control files in the '\fI.MT\fR directory.
+X.PP
+XThe available commands are:
+X.TP 10
+Xadd
+XAdds the \fItarget_file\fR to \fIConfigure\fR.
+X.TP
+Xadd.Config_sh
+XFills in that part of \fIConfigure\fR producing the \fIconfig.sh\fR file.
+XOnly used variables are added, conditional ones (from conditional dependencies)
+Xare skipped.
+X.TP
+Xadd.Null
+XAdds the section initializing all the shell variables used to an empty string.
+X.TP
+Xc_h_weed
+XProduces the \fIconfig_h.SH\fR file. Only the necessary lines are printed.
+X.TP
+Xclose.Config_sh
+XAdds the final 'EOT' symbol on a line by itself to end the here document
+Xconstruct producing the \fIconfig.sh\fR file.
+X.TP
+Xprepend
+XPrepends the content of the target to the \fItarget_file\fR if that file is
+Xnot empty.
+X.TP
+Xweed
+XAdds the unit to \fIConfigure\fR like the \fIadd\fR command, but make some
+Xadditional tests to remove the '?\fIsymbol\fR' and '%\fIsymbol\fR' lines
+Xfrom the \fItarget_file\fR if the symbol is not wanted or conditionally
+Xwanted. The '%' form is only used internally by \fImetaconfig\fR while
+Xproducing its own .U files in the '\fI.MT\fR' directory.
+X.TP
+Xwipe
+XSame as \fIadd\fR really, but performs an additional macro substitution.
+XThe available macros are described in the \fIHardwired Macros\fR paragraph.
+X.PP
+XAs a side note, \fImetaconfig\fR generates a \fI-cond\fR command internally
+Xto deal with conditional dependencies. You should not use it by yourself,
+Xbut you will see it if scanning the generated \fIMakefile\fR in the \fI.MT\fR
+Xdirectory.
+X'''
+X.SS Hardwired Macros
+X.PP
+XThe following macros are recognized by the \fIwipe\fR command and subsituted
+Xbefore inclusion in \fIConfigure\fR:
+X.TP 10
+X<BASEREV>
+XThe base revision number of the package, derived from \fI.package\fR.
+X.TP
+X<DATE>
+XThe current date.
+X.TP
+X<MAINTLOC>
+XThe e-mail address of the maintainer of this package, derived from
+Xyour \fI.package\fR.
+X.TP
+X<PACKAGENAME>
+END_OF_FILE
+  if test 49943 -ne `wc -c <'mcon/man/mconfig.SH.01'`; then
+    echo shar: \"'mcon/man/mconfig.SH.01'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/man/mconfig.SH.01'
+fi
+echo shar: End of archive 2 \(of 28\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

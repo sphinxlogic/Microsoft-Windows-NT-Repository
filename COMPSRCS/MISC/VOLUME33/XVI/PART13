@@ -1,0 +1,2562 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i022:  xvi - portable multi-window vi-like editor, Part13/18
+Message-ID: <1992Oct24.172432.2229@sparky.imd.sterling.com>
+X-Md4-Signature: acfc7434ac3367299701e94351de32e1
+Date: Sat, 24 Oct 1992 17:24:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 22
+Archive-name: xvi/part13
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/find.c xvi/src/movement.c xvi/src/qnx.c
+#   xvi/src/regmagic.h xvi/src/yankput.c
+# Wrapped by kent@sparky on Thu Oct 22 09:03:43 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 18)."'
+if test -f 'xvi/src/find.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/find.c'\"
+else
+  echo shar: Extracting \"'xvi/src/find.c'\" \(12296 characters\)
+  sed "s/^X//" >'xvi/src/find.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)find.c	2.2 (Chris & John Downey) 7/29/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    find.c
+X* module function:
+X    Character and function searching.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X#include "regexp.h"	/* Henry Spencer's regular expression routines */
+X
+X#ifdef	MEGAMAX
+Xoverlay "find"
+X#endif
+X
+X/*
+X * Character Searches
+X */
+X
+Xstatic char lastc;		/* last character searched for */
+Xstatic int  lastcdir;		/* last direction of character search */
+Xstatic int  lastctype;		/* last type of search ("find" or "to") */
+X
+X/*
+X * searchc(c, dir, type, num)
+X *
+X * Search for character 'c', in direction 'dir'. If type is 0, move to
+X * the position of the character, otherwise move to just before the char.
+X * 'num' is the number of times to do it (the prefix number).
+X */
+XPosn *
+Xsearchc(ch, dir, type, num)
+Xint	ch;
+Xint	dir;
+Xint	type;
+Xint	num;
+X{
+X    static Posn		pos;			/* saved cursor posn */
+X    enum mvtype		(*mvfunc) P((Posn *));
+X    enum mvtype		(*backfunc) P((Posn *));
+X    unsigned char	c;			/* as ch but uchar */
+X    register int	i;			/* loop counter */
+X
+X    /*
+X     * Remember details in case we want to repeat the search.
+X     */
+X    lastc = ch;
+X    lastcdir = dir;
+X    lastctype = type;
+X
+X    pos = *(curwin->w_cursor);	/* save position in case we fail */
+X    c = ch;
+X    if (dir == FORWARD) {
+X	mvfunc = inc;
+X	backfunc = dec;
+X    } else {
+X	mvfunc = dec;
+X	backfunc = inc;
+X    }
+X
+X    /*
+X     * On 'to' searches, skip one to start with so we can repeat
+X     * searches in the same direction and have it work right.
+X     */
+X    if (type) {
+X	if ((*mvfunc)(&pos) != mv_SAMELINE) {
+X	    return(NULL);
+X	}
+X    }
+X
+X    for (i = 0; i < num; i++) {
+X	bool_t	found;
+X
+X	found = FALSE;
+X	while ((*mvfunc)(&pos) == mv_SAMELINE) {
+X	    if ((unsigned char) gchar(&pos) == c) {
+X		found = TRUE;
+X		break;
+X	    }
+X	}
+X	if (!found) {
+X	    return(NULL);
+X	}
+X    }
+X    if (type) {
+X	(void) (*backfunc)(&pos);
+X    }
+X    return(&pos);
+X}
+X
+X/*ARGSUSED*/
+XPosn *
+Xcrepsearch(buffer, flag, num)
+XBuffer	*buffer;
+Xint	flag;
+Xint	num;
+X{
+X    Posn	*newpos;
+X    int	dir;
+X    int	savedir;
+X
+X    if (lastc == '\0') {
+X	return(NULL);
+X    }
+X
+X    savedir = lastcdir;
+X    if (flag) {
+X	dir = (lastcdir == FORWARD) ? BACKWARD : FORWARD;
+X    } else {
+X	dir = lastcdir;
+X    }
+X
+X    newpos = searchc(lastc, dir, lastctype, num);
+X
+X    lastcdir = savedir;		/* put direction of search back how it was */
+X
+X    return(newpos);
+X}
+X
+X/*
+X * "Other" Searches
+X */
+X
+X/*
+X * showmatch - move the cursor to the matching paren or brace
+X */
+XPosn *
+Xshowmatch()
+X{
+X    register char	initc;			/* initial char */
+X    register enum mvtype
+X	    		(*move) P((Posn *));	/* function to move cursor */
+X    register char	findc;			/* terminating char */
+X    static Posn		pos;			/* current position */
+X    char		c;
+X    int			count = 0;
+X    bool_t		found = FALSE;
+X
+X    pos = *curwin->w_cursor;
+X
+X    /*
+X     * Move forward to the first bracket character after the cursor.
+X     * If we get to EOF before a bracket, return NULL.
+X     */
+X    for (found = FALSE; !found; ) {
+X	initc = gchar(&pos);
+X	switch (initc) {
+X	case '(':
+X	    findc = ')';
+X	    move = inc;
+X	    found = TRUE;
+X	    break;
+X	case ')':
+X	    findc = '(';
+X	    move = dec;
+X	    found = TRUE;
+X	    break;
+X	case '{':
+X	    findc = '}';
+X	    move = inc;
+X	    found = TRUE;
+X	    break;
+X	case '}':
+X	    findc = '{';
+X	    move = dec;
+X	    found = TRUE;
+X	    break;
+X	case '[':
+X	    findc = ']';
+X	    move = inc;
+X	    found = TRUE;
+X	    break;
+X	case ']':
+X	    findc = '[';
+X	    move = dec;
+X	    found = TRUE;
+X	    break;
+X	default:
+X	    if (inc(&pos) == mv_NOMOVE) {
+X		return(NULL);
+X	    }
+X	}
+X    }
+X
+X    /*
+X     * Move in the appropriate direction until we find a matching
+X     * bracket or reach end of file.
+X     */
+X    while ((*move)(&pos) != mv_NOMOVE) {
+X	c = gchar(&pos);
+X	if (c == initc) {
+X	    count++;
+X	} else if (c == findc) {
+X	    if (count == 0)
+X		return(&pos);
+X	    count--;
+X	}
+X    }
+X    return(NULL);			/* never found it */
+X}
+X
+X/*
+X * Find the nth next occurrence of str in the specified direction.
+X */
+XPosn *
+Xfind_pattern(str, dir, num)
+Xchar	*str;
+Xint	dir;
+Xint	num;
+X{
+X    Posn	*p;
+X    Posn	*lastp;
+X
+X    p = curwin->w_cursor;
+X    lastp = NULL;
+X    while (num-- > 0) {
+X	p = nsearch(curwin, p->p_line, p->p_index, dir, str);
+X	if (p != NULL) {
+X	    lastp = p;
+X	} else {
+X	    break;
+X	}
+X    }
+X
+X    return(lastp);
+X}
+X
+X/*
+X * The following routines do the word searches performed by the
+X * 'w', 'W', 'b', 'B', 'e', and 'E' commands.
+X */
+X
+X/*
+X * To perform these searches, characters are placed into one of three
+X * classes, and transitions between classes determine word boundaries.
+X *
+X * The classes are:
+X *
+X * cl_white - white space
+X * cl_text  - letters, digits, and underscore
+X * cl_punc  - everything else
+X */
+X
+Xtypedef enum {
+X    cl_white,
+X    cl_text,
+X    cl_punc
+X} cclass;
+X
+Xstatic	int	stype;		/* type of the word motion being performed */
+X
+X#define is_white(c)	(((c) == ' ') || ((c) == '\t') || ((c) == '\0'))
+X#define is_text(c)	(is_alnum(c) || ((c) == '_'))
+X
+X/*
+X * cls(c) - returns the class of character 'c'
+X *
+X * The 'type' of the current search modifies the classes of characters
+X * if a 'W', 'B', or 'E' motion is being done. In this case, chars. from
+X * class "cl_punc" are reported as class "cl_text" since only white space
+X * boundaries are of interest.
+X */
+Xstatic cclass
+Xcls(c)
+Xchar	c;
+X{
+X    if (is_white(c))
+X	return(cl_white);
+X
+X    if (is_text(c))
+X	return(cl_text);
+X
+X    /*
+X     * If stype is non-zero, report these as class 1.
+X     */
+X    return((stype == 0) ? cl_punc : cl_text);
+X}
+X
+X
+X/*
+X * fwd_word(pos, type, skip_white) - move forward one word
+X *
+X * Returns the resulting position, or NULL if EOF was reached.
+X *
+X * The extra argument "skip_white" (which is only used in fwd_word,
+X * but also included in bck_word and end_word for compatibility) is
+X * used to indicate whether to skip over white space to get to the
+X * start of the next word. If it is FALSE, the position returned will
+X * be the first white-space character (or punctuation) encountered.
+X * This is used by one command only: "cw".
+X */
+XPosn *
+Xfwd_word(p, type, skip_white)
+XPosn	*p;
+Xint	type;
+Xbool_t	skip_white;
+X{
+X    static	Posn	pos;
+X    cclass		sclass;		/* starting class */
+X
+X    stype = type;
+X    sclass = cls(gchar(p));
+X
+X    pos = *p;
+X
+X    /*
+X     * We always move at least one character.
+X     */
+X    if (inc(&pos) == mv_NOMOVE)
+X	return(NULL);
+X
+X    if (sclass != cl_white) {
+X	/*
+X	 * We were in the middle of a word to start with.
+X	 * Move right until we change character class.
+X	 */
+X	while (cls(gchar(&pos)) == sclass) {
+X	    if (inc(&pos) == mv_NOMOVE) {
+X		/*
+X		 * Got to EOF. Return current position.
+X		 */
+X		return(&pos);
+X	    }
+X	}
+X
+X	/*
+X	 * If we went from punctuation -> text
+X	 * or text -> punctuation, return here.
+X	 *
+X	 * If we went text/punctuation -> whitespace,
+X	 * we want to continue to the start of the
+X	 * next word, if there is one.
+X	 */
+X	if (cls(gchar(&pos)) != cl_white)
+X	    return(&pos);
+X    }
+X
+X    /*
+X     * We're in white space; go to next non-white.
+X     */
+X    if (skip_white) {
+X	while (cls(gchar(&pos)) == cl_white) {
+X	    /*
+X	     * We'll stop if we land on a blank line
+X	     */
+X	    if (pos.p_index == 0 && pos.p_line->l_text[0] == '\0')
+X		break;
+X
+X	    if (inc(&pos) == mv_NOMOVE) {
+X		/*
+X		 * We have reached end of file; if we are at
+X		 * the beginning of a line, just return that
+X		 * position, otherwise try to back up so that
+X		 * we are still within the line.
+X		 */
+X		if (pos.p_index != 0) {
+X		    (void) dec(&pos);
+X		}
+X		break;
+X	    }
+X	}
+X
+X	/*
+X	 * If we didn't move, return NULL.
+X	 */
+X	if (pos.p_line == p->p_line && pos.p_index == p->p_index) {
+X	    return(NULL);
+X	}
+X    }
+X
+X    return(&pos);
+X}
+X
+X/*
+X * bck_word(pos, type, skip_white) - move backward one word
+X *
+X * Returns the resulting position, or NULL if EOF was reached.
+X */
+X/*ARGSUSED*/
+XPosn *
+Xbck_word(p, type, skip_white)
+XPosn	*p;
+Xint	type;
+Xbool_t	skip_white;
+X{
+X    static	Posn	pos;
+X    cclass		sclass;		/* starting class */
+X
+X    stype = type;
+X    sclass = cls(gchar(p));
+X
+X    pos = *p;
+X
+X    if (dec(&pos) == mv_NOMOVE)
+X	return(NULL);
+X
+X    /*
+X     * If we're in the middle of a word, we just have to
+X     * back up to the start of it.
+X     */
+X    if (cls(gchar(&pos)) == sclass && sclass != cl_white) {
+X	/*
+X	 * Move backward to start of the current word
+X	 */
+X	while (cls(gchar(&pos)) == sclass) {
+X	    if (dec(&pos) == mv_NOMOVE)
+X		return(&pos);
+X	}
+X	(void) inc(&pos);	/* overshot - forward one */
+X	return(&pos);
+X    }
+X
+X    /*
+X     * We were at the start of a word. Go back to the start
+X     * of the prior word.
+X     */
+X
+X    while (cls(gchar(&pos)) == cl_white) {	/* skip any white space */
+X	/*
+X	 * We'll stop if we land on a blank line
+X	 */
+X	if (pos.p_index == 0 && pos.p_line->l_text[0] == '\0')
+X	    return(&pos);
+X
+X	if (dec(&pos) == mv_NOMOVE)
+X	    return(&pos);
+X    }
+X
+X    sclass = cls(gchar(&pos));
+X
+X    /*
+X     * Move backward to start of this word.
+X     */
+X    while (cls(gchar(&pos)) == sclass) {
+X	if (dec(&pos) == mv_NOMOVE)
+X	    return(&pos);
+X    }
+X    (void) inc(&pos);		/* overshot - forward one */
+X
+X    return(&pos);
+X}
+X
+X/*
+X * end_word(pos, type, skip_white) - move to the next end-of-word after
+X *				     the current cursor position
+X *
+X * There is an apparent bug in the 'e' motion of the real vi. At least
+X * on the System V Release 3 version for the 80386. Unlike 'b' and 'w',
+X * the 'e' motion crosses blank lines. When the real vi crosses a blank
+X * line in an 'e' motion, the cursor is placed on the FIRST character
+X * of the next non-blank line. The 'E' command, however, works correctly.
+X * Since this appears to be a bug, I have not duplicated it here.
+X *
+X * Returns the resulting position, or NULL if EOF was reached.
+X */
+X/*ARGSUSED*/
+XPosn *
+Xend_word(p, type, skip_white)
+XPosn	*p;
+Xint	type;
+Xbool_t	skip_white;
+X{
+X    static	Posn	pos;
+X    cclass		sclass;
+X
+X    stype = type;
+X    sclass = cls(gchar(p));
+X
+X    pos = *p;
+X
+X    if (inc(&pos) == mv_NOMOVE)
+X	return(NULL);
+X
+X    /*
+X     * If we're in the middle of a word, we just have to
+X     * move to the end of it.
+X     */
+X    if (cls(gchar(&pos)) == sclass && sclass != cl_white) {
+X	/*
+X	 * Move forward to end of the current word
+X	 */
+X	while (cls(gchar(&pos)) == sclass) {
+X	    if (inc(&pos) == mv_NOMOVE) {
+X		return(&pos);
+X	    }
+X	}
+X	(void) dec(&pos);		/* overshot - forward one */
+X	return(&pos);
+X    }
+X
+X    /*
+X     * We were at the end of a word. Go to the end
+X     * of the next word.
+X     */
+X
+X    while (cls(gchar(&pos)) == cl_white) {	/* skip any white space */
+X	if (inc(&pos) == mv_NOMOVE) {
+X	    return(&pos);
+X	}
+X    }
+X
+X    sclass = cls(gchar(&pos));
+X
+X    /*
+X     * Move forward to end of this word.
+X     */
+X    while (cls(gchar(&pos)) == sclass) {
+X	if (inc(&pos) == mv_NOMOVE) {
+X	    return(&pos);
+X	}
+X    }
+X    (void) dec(&pos);			/* overshot - forward one */
+X
+X    return(&pos);
+X}
+X
+X/*
+X * Search for the given pattern in the given buffer,
+X * in the direction specified.
+X */
+Xbool_t
+Xdosearch(window, str, cmd_char)
+XXviwin		*window;
+Xchar		*str;
+Xint		cmd_char;
+X{
+X    Posn	*p;
+X    unsigned	savecho;
+X    bool_t	retval;
+X    int		dir;
+X    static int	lastdir = FORWARD;
+X
+X    /*
+X     * Place the cursor at bottom left of the window,
+X     * so the user knows what we are doing.
+X     */
+X    gotocmd(window, FALSE);
+X
+X    switch (cmd_char) {
+X    case '/':
+X	lastdir = dir = FORWARD;
+X	break;
+X    case '?':
+X	lastdir = dir = BACKWARD;
+X	break;
+X    case 'n':
+X	dir = lastdir;
+X	break;
+X    case 'N':
+X	dir = (lastdir == FORWARD) ? BACKWARD : FORWARD;
+X	break;
+X    }
+X
+X    /*
+X     * It is safe not to put the cursor back, because
+X     * we are going to produce some more output anyway.
+X     */
+X
+X    savecho = echo;
+X
+X    p = search(window, window->w_cursor->p_line,
+X			window->w_cursor->p_index, dir, &str);
+X    if (p == NULL) {
+X	regerror("Pattern not found");
+X	retval = FALSE;
+X    } else if (*str != '\0') {
+X	regerror("Usage: /pattern or ?pattern");
+X	retval = FALSE;
+X    } else {
+X	setpcmark(window);
+X	move_cursor(window, p->p_line, p->p_index);
+X	window->w_set_want_col = TRUE;
+X	retval = TRUE;
+X    }
+X
+X    echo = savecho;
+X    return retval;
+X}
+END_OF_FILE
+  if test 12296 -ne `wc -c <'xvi/src/find.c'`; then
+    echo shar: \"'xvi/src/find.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/find.c'
+fi
+if test -f 'xvi/src/movement.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/movement.c'\"
+else
+  echo shar: Extracting \"'xvi/src/movement.c'\" \(12825 characters\)
+  sed "s/^X//" >'xvi/src/movement.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)movement.c	2.2 (Chris & John Downey) 9/1/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    movement.c
+X* module function:
+X    Movement of the cursor and the window into the buffer.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Shift a buffer's contents down relative to its window,
+X * but don't change the display.
+X *
+X * Return number of physical lines shifted.
+X */
+Xint
+Xshiftdown(win, nlines)
+Xregister Xviwin	*win;
+Xunsigned	nlines;
+X{
+X    register unsigned	k;		/* loop counter */
+X    int			done = 0;	/* # of physical lines done */
+X
+X    for (k = 0; k < nlines; k++) {
+X	register Line	*p;
+X	register long	physlines;
+X
+X	/*
+X	 * Set the top screen line to the previous one.
+X	 */
+X	p = win->w_topline->l_prev;
+X	if (p == win->w_buffer->b_line0)
+X	    break;
+X
+X	physlines = plines(win, p);
+X	done += LONG2INT(physlines);
+X
+X	win->w_topline = p;
+X    }
+X
+X    win->w_curs_new = TRUE;
+X
+X    return(done);
+X}
+X
+X/*
+X * Shift a buffer's contents up relative to its window,
+X * but don't change the display.
+X *
+X * Return number of physical lines shifted.
+X */
+Xint
+Xshiftup(win, nlines)
+Xregister Xviwin	*win;
+Xunsigned	nlines;
+X{
+X    register unsigned	k;		/* loop counter */
+X    int			done = 0;	/* # of physical lines done */
+X
+X    for (k = 0; k < nlines; k++) {
+X	register Line	*p;
+X	register long	physlines;
+X
+X	/*
+X	 * Set the top screen line to the next one.
+X	 */
+X	p = win->w_topline->l_next;
+X	if (p == win->w_buffer->b_lastline)
+X	    break;
+X
+X	physlines = plines(win, win->w_topline);
+X	done += LONG2INT(physlines);
+X
+X	win->w_topline = p;
+X    }
+X
+X    win->w_curs_new = TRUE;
+X
+X    return(done);
+X}
+X
+X/*
+X * Scroll the screen down 'nlines' lines.
+X */
+Xvoid
+Xscrolldown(win, nlines)
+Xregister Xviwin	*win;
+Xunsigned	nlines;
+X{
+X    s_ins(win, 0, shiftdown(win, nlines));
+X}
+X
+X/*
+X * Scroll the screen up 'nlines' lines.
+X */
+Xvoid
+Xscrollup(win, nlines)
+Xregister Xviwin	*win;
+Xunsigned	nlines;
+X{
+X    s_del(win, 0, shiftup(win, nlines));
+X}
+X
+X/*
+X * oneup
+X * onedown
+X * one_left
+X * one_right
+X *
+X * Move cursor one char {left,right} or one line {up,down}.
+X *
+X * Return TRUE when successful, FALSE when we hit a boundary
+X * (of a line, or the file).
+X */
+X
+X/*
+X * Move the cursor up 'nlines' lines.
+X *
+X * Returns TRUE if we moved at all.
+X */
+Xbool_t
+Xoneup(win, nlines)
+Xregister Xviwin	*win;
+Xlong		nlines;
+X{
+X    Posn		*pp;
+X    register Line	*curr_line;
+X    long		k;
+X
+X    pp = win->w_cursor;
+X    curr_line = pp->p_line;
+X
+X    for (k = 0; k < nlines; k++) {
+X	/*
+X	 * Look for the previous line.
+X	 */
+X	if (curr_line == win->w_buffer->b_file) {
+X	    /*
+X	     * If we've at least backed up a little ...
+X	     */
+X	    if (k > 0) {
+X		break;	/* to update the cursor, etc. */
+X	    } else {
+X		return(FALSE);
+X	    }
+X	}
+X	curr_line = curr_line->l_prev;
+X    }
+X
+X    pp->p_line = curr_line;
+X    pp->p_index = 0;
+X    win->w_curs_new = TRUE;
+X
+X    /*
+X     * Try to advance to the column we want to be at.
+X     */
+X    coladvance(win, win->w_curswant);
+X    return(TRUE);
+X}
+X
+X/*
+X * Move the cursor down 'nlines' lines.
+X *
+X * Returns TRUE if we moved at all.
+X */
+Xbool_t
+Xonedown(win, nlines)
+Xregister Xviwin	*win;
+Xlong		nlines;
+X{
+X    Posn		*pp;
+X    register Line	*curr_line;
+X    long		k;
+X
+X    pp = win->w_cursor;
+X    curr_line = pp->p_line;
+X
+X    for (k = 0; k < nlines; k++) {
+X	/*
+X	 * Look for the next line.
+X	 */
+X	if (curr_line->l_next == win->w_buffer->b_lastline) {
+X	    if (k > 0) {
+X		break;
+X	    } else {
+X		return(FALSE);
+X	    }
+X	}
+X	curr_line = curr_line->l_next;
+X    }
+X
+X    pp->p_line = curr_line;
+X    pp->p_index = 0;
+X    win->w_curs_new = TRUE;
+X
+X    /*
+X     * Try to advance to the column we want to be at.
+X     */
+X    coladvance(win, win->w_curswant);
+X
+X    return(TRUE);
+X}
+X
+X/*ARGSUSED*/
+Xbool_t
+Xone_left(window, unused)
+XXviwin	*window;
+Xbool_t	unused;
+X{
+X    Posn	*p;
+X
+X    window->w_set_want_col = TRUE;
+X    p = window->w_cursor;
+X
+X    if (p->p_index > 0) {
+X	p->p_index--;
+X	curs_horiz(window, -1);
+X	return(TRUE);
+X    } else {
+X	return(FALSE);
+X    }
+X}
+X
+X/*
+X * The move_past_end parameter will be TRUE if moving past the end
+X * of the line (onto the first '\0' character) is allowed. We will
+X * never move past this character.
+X */
+Xbool_t
+Xone_right(window, move_past_end)
+XXviwin	*window;
+Xbool_t	move_past_end;
+X{
+X    Posn	*p;
+X    char	*txtp;
+X
+X    window->w_set_want_col = TRUE;
+X    p = window->w_cursor;
+X    txtp = &p->p_line->l_text[p->p_index];
+X
+X    if (txtp[0] != '\0' && (move_past_end || txtp[1] != '\0')) {
+X	p->p_index++;
+X	curs_horiz(window, 1);
+X	return(TRUE);
+X    } else {
+X	return(FALSE);
+X    }
+X}
+X
+Xvoid
+Xbegin_line(window, flag)
+XXviwin	*window;
+Xbool_t	flag;
+X{
+X    register Posn	*pos;
+X    register int	c;
+X
+X    pos = window->w_cursor;
+X
+X    if (flag) {
+X	char		*startp;
+X	register char	*p;
+X
+X	startp = p = pos->p_line->l_text;
+X	while ((c = *p) != '\0' && p[1] != '\0' && is_space(c)) {
+X	    p++;
+X	}
+X	pos->p_index = p - startp;
+X    } else {
+X	pos->p_index = 0;
+X    }
+X
+X    window->w_set_want_col = TRUE;
+X    window->w_curs_new = TRUE;
+X}
+X
+X/*
+X * coladvance(win, col)
+X *
+X * Try to advance to the specified column, starting at p.
+X */
+Xvoid
+Xcoladvance(win, col)
+Xregister Xviwin	*win;
+Xregister int	col;
+X{
+X    register int	c;
+X    register char	*tstart, *tp;
+X
+X    tp = tstart = win->w_cursor->p_line->l_text;
+X    /*
+X     * Try to advance to the specified column.
+X     */
+X    for (c = 0; c < col; ) {
+X	if (*tp == '\0') {
+X	    /*
+X	     * We're at the end of the line.
+X	     */
+X	    break;
+X	}
+X	c += vischar(*tp, (char **) NULL, (Pb(P_list) ? -1 : c));
+X
+X	tp++;
+X    }
+X
+X    /*
+X     * Move back onto last character if we have to.
+X     */
+X    if ((*tp == '\0' || c > col) && tp > tstart)
+X	--tp;
+X    win->w_cursor->p_index = tp - tstart;
+X    curwin->w_curs_new = TRUE;
+X}
+X
+X/*
+X * Go to the specified line number in the current buffer.
+X * Position the cursor at the first non-white.
+X */
+Xvoid
+Xdo_goto(line)
+Xlong line;
+X{
+X    curwin->w_cursor->p_line = gotoline(curbuf, line);
+X    curwin->w_cursor->p_index = 0;
+X    curwin->w_curs_new = TRUE;
+X    begin_line(curwin, TRUE);
+X}
+X
+X/*
+X * Move the cursor to the specified line, at the specified position.
+X */
+Xvoid
+Xmove_cursor(win, lp, index)
+XXviwin	*win;
+XLine	*lp;
+Xint	index;
+X{
+X    win->w_cursor->p_line = lp;
+X    win->w_cursor->p_index = index;
+X    win->w_curs_new = TRUE;
+X}
+X
+X/*
+X * Adjust window so that currline is, as far as possible, in the
+X * middle of it.
+X *
+X * Don't update the screen: move_window_to_cursor() does that.
+X */
+Xstatic void
+Xjump(win, currline, halfwinsize)
+XXviwin		*win;
+XLine		*currline;
+Xint		halfwinsize;
+X{
+X    register int	count;
+X    register int	spare;
+X    register Line	*topline;
+X    register Line	*filestart = win->w_buffer->b_file;
+X
+X    spare = win->w_nrows - (unsigned int) plines(win, topline = currline) - 1;
+X    for (count = 0; count < halfwinsize && topline != filestart;) {
+X	topline = topline->l_prev;
+X	count += (unsigned int) plines(win, topline);
+X	if (count >= spare) {
+X	    if (count > spare)
+X		topline = topline->l_next;
+X	    break;
+X	}
+X    }
+X    win->w_topline = topline;
+X    update_buffer(win->w_buffer);
+X
+X    /*
+X     * The result of calling show_file_info here is that if the
+X     * cursor moves a long away - e.g. for a "G" command or a search
+X     * - the status line is updated with the correct line number.
+X     * This is a small cost compared to updating the whole window.
+X     */
+X    show_file_info(win);
+X}
+X
+X/*
+X * Update the position of the window relative to the buffer, moving
+X * the window if necessary to ensure that the cursor is inside the
+X * window boundary. w_topline, w_botline and w_cursor must be set to
+X * something reasonable for us to be able to test whether the cursor
+X * is in the window or not, unless (as a special case) the buffer is
+X * empty - in this case, the cursor sits at top left, despite there
+X * being no character there for it to sit on.
+X *
+X * If we have to move the window only a small amount, we try to scroll
+X * it rather than redrawing. If we have to redraw, we also rewrite the
+X * status line on the principle that it's probably a negligible cost
+X * compared to updating the whole window.
+X */
+Xvoid
+Xmove_window_to_cursor(win)
+Xregister Xviwin		*win;
+X{
+X    register Line	*currline;
+X    int			halfwinsize;
+X    long		distance;
+X
+X    currline = win->w_cursor->p_line;
+X    halfwinsize = (win->w_nrows - 1) / 2;
+X
+X    /*
+X     * First stage: move window towards cursor.
+X     */
+X    if (bufempty(win->w_buffer)) {
+X	/*
+X	 * Special case - file is empty.
+X	 */
+X	win->w_topline = win->w_buffer->b_file;
+X	win->w_cursor->p_line = win->w_buffer->b_file;
+X	win->w_cursor->p_index = 0;
+X	win->w_curs_new = TRUE;
+X
+X    } else if (earlier(currline, win->w_topline)) {
+X	long	nlines;
+X
+X	/*
+X	 * The cursor is above the top of the window; move the
+X	 * window towards it.
+X	 */
+X
+X	nlines = cntplines(win, currline, win->w_topline);
+X
+X	/*
+X	 * Decide whether it's worthwhile - & possible - to
+X	 * scroll to get the window to the right place.
+X	 *
+X	 * It's possible if we can have scrolling regions, or
+X	 * we can insert screen lines & the window is at the
+X	 * bottom of the screen.
+X	 *
+X	 * The actual scrolling is done by s_ins(), in
+X	 * screen.c.
+X	 *
+X	 * If Pn(P_jumpscroll) is js_OFF, we don't use
+X	 * jumpscroll anyway.
+X	 */
+X	if (
+X	    nlines > halfwinsize
+X	    ||
+X	    Pn(P_jumpscroll) == js_ON
+X	    ||
+X	    (
+X		!can_scroll_area
+X		&&
+X		Pn(P_jumpscroll) == js_AUTO
+X		&&
+X		(
+X		    !can_ins_line
+X		    ||
+X		    win->w_cmdline < (Rows - 1)
+X		)
+X	    )
+X	) {
+X	    jump(win, currline, halfwinsize);
+X	} else {
+X	    s_ins(win, 0, (int) nlines);
+X	    win->w_topline = currline;
+X	    update_window(win);
+X	}
+X    } else {
+X	long	nlines;
+X
+X	/*
+X	 * The cursor is on or after the last line of the screen,
+X	 * so we might have to move the screen to it. Check to see
+X	 * whether we are actually off the screen; if not, we don't
+X	 * have to do anything. We do this in a certain way so as
+X	 * not to do any unnecessary calculations; this routine is
+X	 * called very often, so we must not take too much time.
+X	 */
+X	if (earlier(currline, win->w_botline->l_prev) ||
+X			    (plines(win, currline) == 1 &&
+X			     earlier(currline, win->w_botline))) {
+X	    return;
+X	}
+X	distance = cntplines(win, win->w_topline, currline->l_next);
+X	if (distance <= win->w_nrows - 1) {
+X	    return;
+X	}
+X
+X	/*
+X	 * The cursor is off the bottom of the window, or the
+X	 * line the cursor is on won't completely fit in the
+X	 * window.
+X	 */
+X
+X	nlines = distance - (win->w_nrows - 1);
+X
+X	/*
+X	 * Decide whether it's worthwhile - & possible - to
+X	 * scroll to get the window to the right place.
+X	 *
+X	 * It's possible if we can have scrolling regions, or
+X	 * we can delete screen lines & the window is at the
+X	 * bottom of the screen, or it's the only window on
+X	 * the screen.
+X	 *
+X	 * The actual scrolling is done by s_del(), in
+X	 * screen.c.
+X	 *
+X	 * If Pn(P_jumpscroll) is js_OFF, we don't use
+X	 * jumpscroll anyway.
+X	 */
+X	if (
+X	    nlines > halfwinsize
+X	    ||
+X	    Pn(P_jumpscroll) == js_ON
+X	    ||
+X	    (
+X		!can_scroll_area
+X		&&
+X		Pn(P_jumpscroll) == js_AUTO
+X		&&
+X		(
+X		    (
+X			!can_del_line
+X			&&
+X			win->w_winpos != 0
+X		    )
+X		    ||
+X		    win->w_cmdline < (Rows - 1)
+X		)
+X	    )
+X	) {
+X	    jump(win, currline, halfwinsize);
+X	} else {
+X	    long	done = 0;
+X	    Line	*l;
+X	    Line	*newtopline;
+X
+X	    /*
+X	     * Work out where we should place topline in
+X	     * order that the cursor line is made the
+X	     * bottom line of the screen.
+X	     */
+X	    for (l = currline;; l = l->l_prev) {
+X		done += plines(win, l);
+X		if (done >= win->w_nrows - 1)
+X		    break;
+X		if (l == win->w_buffer->b_file)
+X		    break;
+X	    }
+X	    while (done > win->w_nrows - 1 && l != currline) {
+X		done -= plines(win, l);
+X		l = l->l_next;
+X	    }
+X	    newtopline = l;
+X
+X	    /*
+X	     * Now work out how many screen lines we want
+X	     * to scroll the window by. This code assumes
+X	     * that the old value of topline is earlier
+X	     * in the buffer than the new, so check this
+X	     * first.
+X	     */
+X	    if (earlier(win->w_topline, newtopline)) {
+X		done = cntplines(win, win->w_topline, newtopline);
+X
+X		if (done != 0) {
+X		    s_del(win, 0, (int) done);
+X		}
+X	    }
+X
+X	    win->w_topline = newtopline;
+X	    update_window(win);
+X	}
+X    }
+X}
+X
+X/*
+X * Make sure the cursor is within the given window.
+X *
+X * This is needed for commands like control-E & control-Y.
+X */
+Xvoid
+Xmove_cursor_to_window(win)
+XXviwin		*win;
+X{
+X    Posn	*cp;
+X
+X    cp = win->w_cursor;
+X
+X    if (earlier(cp->p_line, win->w_topline)) {
+X	cp->p_line = win->w_topline;
+X	coladvance(win, win->w_curswant);
+X    } else if (!earlier(cp->p_line, win->w_botline)
+X	       && earlier(win->w_topline, win->w_botline)) {
+X	cp->p_line = win->w_botline->l_prev;
+X	coladvance(win, win->w_curswant);
+X    }
+X    win->w_curs_new = TRUE;
+X}
+END_OF_FILE
+  if test 12825 -ne `wc -c <'xvi/src/movement.c'`; then
+    echo shar: \"'xvi/src/movement.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/movement.c'
+fi
+if test -f 'xvi/src/qnx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/qnx.c'\"
+else
+  echo shar: Extracting \"'xvi/src/qnx.c'\" \(13461 characters\)
+  sed "s/^X//" >'xvi/src/qnx.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)qnx.c	2.2 (Chris & John Downey) 8/7/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    qnx.c
+X* module function:
+X    QNX system interface module.
+X
+X    Note that this module assumes the C86 compiler,
+X    which is an ANSI compiler, rather than the standard
+X    QNX compiler, which is not.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/*
+X * QNX-specific include files.
+X *
+X * <stdio.h> etc. get included by "xvi.h".
+X */
+X#include <io.h>
+X#include <dev.h>
+X#include <sys/stat.h>
+X#include <timer.h>
+X#include <tcap.h>
+X#include <tcapkeys.h>
+X#include <taskmsgs.h>
+X
+X#include "xvi.h"
+X
+X#define	PIPE_MASK_1	"/tmp/xvipipe1XXXXXX"
+X#define	PIPE_MASK_2	"/tmp/xvipipe2XXXXXX"
+X#define	EXPAND_MASK	"/tmp/xvexpandXXXXXX"
+X
+Xextern	int		tcap_row;
+Xextern	int		tcap_col;
+X
+Xint			can_scroll_area;
+Xvoid			(*up_func)(int, int, int);
+Xvoid			(*down_func)(int, int, int);
+X
+Xstatic	int		disp_inited = 0;
+Xstatic	unsigned	screen_colour = DEF_COLOUR;
+Xstatic	int		old_options;
+X
+Xstatic	bool_t		triggered;
+X
+Xstatic void
+Xcatch_usr1(i)
+Xint	i;
+X{
+X    (void) signal(SIGUSR1, SIG_IGN);
+X    triggered = TRUE;
+X}
+X
+X/*
+X * inchar() - get a character from the keyboard
+X */
+Xint
+Xinchar(timeout)
+Xlong	timeout;
+X{
+X    register int	c;
+X    bool_t		setsignal = FALSE;
+X
+X    /*
+X     * Set a timeout on input if asked to do so.
+X     */
+X    if (timeout != 0) {
+X	/*
+X	 * Timeout value is in milliseconds, so we have to convert
+X	 * to 50 millisecond ticks, rounding up as we do it.
+X	 */
+X	(void) signal(SIGUSR1, catch_usr1);
+X	(void) set_timer(TIMER_SET_EXCEPTION, RELATIVE,
+X			(int) ((timeout + 19) / 20),
+X			SIGUSR1,
+X			(char *) NULL);
+X	setsignal = TRUE;
+X    }
+X
+X    flush_output();
+X    for (;;) {
+X	triggered = FALSE;
+X
+X	c = term_key();
+X
+X	if (triggered) {
+X	    return(EOF);
+X	}
+X
+X	if (c > 127) {
+X	    /*
+X	     * Must be a function key press.
+X	     */
+X
+X	    if (State != NORMAL) {
+X		/*
+X		 * Function key pressed during insert
+X		 * or command line mode.
+X		 */
+X		alert();
+X		continue;
+X	    }
+X
+X	    switch (c) {
+X	    case KEY_F1: /* F1 key */
+X		c = K_HELP;
+X		break;
+X	    case KEY_HOME:
+X		c = 'H';
+X		break;
+X	    case KEY_END:
+X		c = 'L';
+X		break;
+X	    case KEY_PAGE_UP:
+X		c = CTRL('B');
+X		break;
+X	    case KEY_PAGE_DOWN:
+X		c = CTRL('F');
+X		break;
+X	    case KEY_UP:
+X		c = K_UARROW;
+X		break;
+X	    case KEY_LEFT:
+X		c = K_LARROW;
+X		break;
+X	    case KEY_RIGHT:
+X		c = K_RARROW;
+X		break;
+X	    case KEY_DOWN:
+X		c = K_DARROW;
+X		break;
+X	    case KEY_WORD_LEFT:
+X		c = 'b';
+X		break;
+X	    case KEY_WORD_RIGHT:
+X		c = 'w';
+X		break;
+X	    case KEY_INSERT:
+X		c = 'i';
+X		break;
+X	    case KEY_DELETE:
+X		c = 'x';
+X		break;
+X	    case KEY_RUBOUT:
+X		c = '\b';
+X		break;
+X	    case KEY_TAB:
+X		c = '\t';
+X		break;
+X	    }
+X	}
+X	if (setsignal)
+X	    (void) signal(SIGUSR1, SIG_IGN);
+X	return(c);
+X    }
+X    /*NOTREACHED*/
+X}
+X
+Xvoid
+Xsys_init()
+X{
+X    if (!disp_inited) {
+X	term_load(stdin);
+X	term_video_on();
+X    }
+X    if (strcmp(tcap_entry.term_name, "qnx") == 0) {
+X	up_func = co_up;
+X	down_func = co_down;
+X	can_scroll_area = TRUE;
+X    } else if (strncmp(tcap_entry.term_name, "vt100", 5) == 0) {
+X	up_func = vt_up;
+X	down_func = vt_down;
+X	can_scroll_area = TRUE;
+X    } else {
+X	can_scroll_area = FALSE;
+X    }
+X
+X    /*
+X     * Support different number of rows for VGA text modes.
+X     */
+X    if (tcap_entry.term_type == VIDEO_MAPPED) {
+X	unsigned	console;
+X	unsigned	row_col;
+X
+X	console = fdevno(stdout);
+X	row_col = video_get_size(console);
+X	Rows = (row_col >> 8) & 0xff;
+X	Columns = row_col & 0xff;
+X    }
+X
+X    sys_startv();
+X    disp_inited = 1;
+X}
+X
+Xstatic	int		pcmode;			/* display mode */
+X
+Xvoid
+Xsys_exit(r)
+Xint	r;
+X{
+X    if (disp_inited) {
+X	term_cur(Rows - 1, 0);
+X	sys_endv();
+X    }
+X    exit(r);
+X}
+X
+X/*
+X * Returns TRUE if file does not exist or exists and is writeable.
+X */
+Xbool_t
+Xcan_write(file)
+Xchar	*file;
+X{
+X    return(access(file, W_OK) == 0 || access(file, F_OK) != 0);
+X}
+X
+Xbool_t
+Xexists(file)
+Xchar *file;
+X{
+X    return(access(file, F_OK) == 0);
+X}
+X
+X/*
+X * Scroll an area on the console screen up by nlines.
+X * The number of lines is always positive, and
+X * we can assume we will not be called with
+X * parameters which would result in scrolling
+X * the entire window.
+X *
+X * Note that this routine will not be called unless
+X * can_scroll_area is TRUE, which is only the case
+X * for the console screen (i.e. term_name == "qnx").
+X */
+Xvoid
+Xco_up(start, end, nlines)
+Xint	start, end, nlines;
+X{
+X    char	*buf;
+X    int		i;
+X
+X    buf = malloc((unsigned) Columns * term_save_image(0, 0, NULL, 0));
+X    if (buf == NULL)
+X	return;
+X
+X    for (i = start; i <= end - nlines; i++) {
+X	term_save_image(i + nlines, 0, buf, Columns);
+X	term_restore_image(i, 0, buf, Columns);
+X    }
+X
+X    for ( ; i <= end; i++) {
+X	term_cur(i, 0);
+X	term_clear(_CLS_EOL);
+X    }
+X
+X    free(buf);
+X}
+X
+X/*
+X * Scroll an area on the console screen down by nlines.
+X * The number of lines is always positive, and
+X * we can assume we will not be called with
+X * parameters which would result in scrolling
+X * the entire window.
+X *
+X * Note that this routine will not be called unless
+X * can_scroll_area is TRUE, which is only the case
+X * for the console screen (i.e. term_name == "qnx").
+X */
+Xvoid
+Xco_down(start, end, nlines)
+Xint	start, end, nlines;
+X{
+X    char	*buf;
+X    int		i;
+X
+X    buf = malloc((unsigned) Columns * term_save_image(0, 0, NULL, 0));
+X    if (buf == NULL)
+X	return;
+X
+X    for (i = end; i >= start + nlines; --i) {
+X	term_save_image(i - nlines, 0, buf, Columns);
+X	term_restore_image(i, 0, buf, Columns);
+X    }
+X
+X    for ( ; i >= start; --i) {
+X	term_cur(i, 0);
+X	term_clear(_CLS_EOL);
+X    }
+X
+X    free(buf);
+X}
+X
+X/*
+X * Scroll an area on a vt100 terminal screen up by nlines.
+X * The number of lines is always positive, and we can assume
+X * we will not be called with parameters which would result
+X * in scrolling the entire window.
+X */
+Xvoid
+Xvt_up(start, end, nlines)
+Xint	start, end, nlines;
+X{
+X    int		count;
+X
+X    (void) printf("\0337");				/* save cursor */
+X    (void) printf("\033[%d;%dr", start + 1, end + 1);	/* set scroll region */
+X    (void) printf("\033[%d;1H", end + 1);		/* goto bottom left */
+X    for (count = 0; count < nlines; count++) {
+X	putchar('\n');
+X    }
+X    (void) printf("\033[1;%dr", Rows);			/* set scroll region */
+X    (void) printf("\0338");				/* restore cursor */
+X}
+X
+X/*
+X * Scroll an area on a vt100 terminal screen down by nlines.
+X * The number of lines is always positive, and we can assume
+X * we will not be called with parameters which would result
+X * in scrolling the entire window.
+X */
+Xvoid
+Xvt_down(start, end, nlines)
+Xint	start, end, nlines;
+X{
+X    int		count;
+X
+X    (void) printf("\0337");				/* save cursor */
+X    (void) printf("\033[%d;%dr", start + 1, end + 1);	/* set scroll region */
+X    (void) printf("\033[%d;1H", start + 1);		/* goto top left */
+X    for (count = 0; count < nlines; count++) {
+X	fputs("\033[L", stdout);
+X    }
+X    (void) printf("\033[1;%dr", Rows);			/* set scroll region */
+X    (void) printf("\0338");				/* restore cursor */
+X}
+X
+Xint
+Xcall_shell(sh)
+Xchar	*sh;
+X{
+X    return(spawnlp(0, sh, sh, (char *) NULL));
+X}
+X
+Xvoid
+Xalert()
+X{
+X    putchar('\007');
+X}
+X
+Xvoid
+Xdelay()
+X{
+X    (void) set_timer(TIMER_WAKEUP, RELATIVE, 2, 0, NULL);
+X}
+X
+Xvoid
+Xoutchar(c)
+Xint	c;
+X{
+X    char	cbuf[2];
+X
+X    cbuf[0] = c;
+X    cbuf[1] = '\0';
+X    outstr(cbuf);
+X}
+X
+Xvoid
+Xoutstr(s)
+Xchar	*s;
+X{
+X    term_type(-1, -1, s, 0, screen_colour);
+X}
+X
+Xvoid
+Xflush_output()
+X{
+X    (void) fflush(stdout);
+X}
+X
+Xvoid
+Xset_colour(c)
+Xint	c;
+X{
+X    screen_colour = (unsigned) c;
+X    term_colour(screen_colour >> 8);
+X}
+X
+Xvoid
+Xtty_goto(r, c)
+Xint	r, c;
+X{
+X    term_cur(r, c);
+X}
+X
+Xvoid
+Xsys_startv()
+X{
+X    /*
+X     * Turn off:
+X     *	EDIT	to get "raw" mode
+X     *	ECHO	to stop characters being echoed
+X     *	MAPCR	to stop mapping of \r into \n
+X     */
+X    old_options = get_option(stdin);
+X    set_option(stdin, old_options & ~(EDIT | ECHO | MAPCR));
+X}
+X
+Xvoid
+Xsys_endv()
+X{
+X    term_cur(Rows - 1, 0);
+X    set_colour(Pn(P_systemcolour));
+X    erase_line();
+X    flush_output();
+X
+X    /*
+X     * This flushes the typeahead buffer so that recall of previous
+X     * commands will not work - this is desirable because some of
+X     * the commands typed to vi (i.e. control characters) will
+X     * have a deleterious effect if given to the shell.
+X     */
+X    flush_input(stdin);
+X
+X    set_option(stdin, old_options);
+X}
+X
+X/*
+X * Construct unique name for temporary file,
+X * to be used as a backup file for the named file.
+X */
+Xchar *
+Xtempfname(srcname)
+Xchar	*srcname;
+X{
+X    char	*newname;		/* ptr to allocated new pathname */
+X    char	*last_slash;		/* ptr to last slash in srcname */
+X    char	*last_hat;		/* ptr to last slash in srcname */
+X    int		tail_length;		/* length of last component */
+X    int		head_length;		/* length up to (including) '/' */
+X
+X    /*
+X     * Obtain the length of the last component of srcname.
+X     */
+X    last_slash = strrchr(srcname, '/');
+X    last_hat = strrchr(srcname, '^');
+X    if ((last_slash == NULL) ||
+X	(last_slash != NULL && last_hat != NULL && last_hat > last_slash)) {
+X	last_slash = last_hat;
+X    }
+X
+X    /*
+X     * last_slash now points at the last delimiter in srcname,
+X     * or is NULL if srcname contains no delimiters.
+X     */
+X    if (last_slash != NULL) {
+X	tail_length = strlen(last_slash + 1);
+X	head_length = last_slash - srcname;
+X    } else {
+X	tail_length = strlen(srcname);
+X	head_length = 0;
+X    }
+X
+X    /*
+X     * We want to add ".tmp" onto the end of the name,
+X     * and QNX restricts filenames to 16 characters.
+X     * So we must ensure that the last component
+X     * of the pathname is not more than 12 characters
+X     * long, or truncate it so it isn't.
+X     */
+X    if (tail_length > 12)
+X	tail_length = 12;
+X
+X    /*
+X     * Create the new pathname. We need the total length
+X     * of the path as is, plus ".tmp" plus a null byte.
+X     */
+X    newname = alloc(head_length + tail_length + 5);
+X    if (newname != NULL) {
+X	(void) strncpy(newname, srcname, head_length + tail_length);
+X    }
+X
+X    {
+X	char	*endp;
+X	int	indexnum;
+X
+X	endp = newname + head_length + tail_length;
+X	indexnum = 0;
+X	do {
+X	    /*
+X	     * Keep trying this until we get a unique file name.
+X	     */
+X	    if (indexnum > 0) {
+X		(void) sprintf(endp, ".%03d", indexnum);
+X	    } else {
+X		(void) strcpy(endp, ".tmp");
+X	    }
+X	    indexnum++;
+X	} while (access(newname, 0) == 0 && indexnum < 1000);
+X    }
+X
+X    return(newname);
+X}
+X
+X/*
+X * Fake out a pipe by writing output to temp file, running a process with
+X * i/o redirected from this file to another temp file, and then reading
+X * the second temp file back in.
+X */
+Xbool_t
+Xsys_pipe(cmd, writefunc, readfunc)
+Xchar	*cmd;
+Xint	(*writefunc) P((FILE *));
+Xlong	(*readfunc) P((FILE *));
+X{
+X    Flexbuf		cmdbuf;
+X    static char	*args[] = { NULL, "+s", NULL, NULL };
+X    char		*temp1;
+X    char		*temp2;
+X    char		buffer[512];
+X    FILE		*fp;
+X    bool_t		retval = FALSE;
+X
+X    if (Ps(P_shell) == NULL) {
+X	return(FALSE);
+X    }
+X    args[0] = Ps(P_shell);
+X
+X    temp1 = mktemp(PIPE_MASK_1);
+X    temp2 = mktemp(PIPE_MASK_2);
+X
+X    if (temp1 == NULL || temp2 == NULL) {
+X	return(FALSE);
+X    }
+X
+X    /*
+X     * At this stage we are comitted; any failures must go through
+X     * the cleanup code at the end of the routine.
+X     */
+X
+X    sys_endv();
+X
+X    flexnew(&cmdbuf);
+X    (void) lformat(&cmdbuf, "%s < %s > %s", cmd, temp1, temp2);
+X    args[2] = flexgetstr(&cmdbuf);
+X
+X    fp = fopen(temp1, "w+");
+X    if (fp == NULL) {
+X	retval = FALSE;
+X	goto ret;
+X    }
+X
+X    (void) (*writefunc)(fp);
+X    (void) fclose(fp);
+X
+X    if (createv(buffer, 0, -1, 0, BEQUEATH_TTY, 0, args, NULL) != 0) {
+X	retval = FALSE;
+X	goto ret;
+X    }
+X
+X    fp = fopen(temp2, "r");
+X    if (fp == NULL) {
+X	retval = FALSE;
+X	goto ret;
+X    }
+X
+X    (void) (*readfunc)(fp);
+X    (void) fclose(fp);
+X
+X    retval = TRUE;
+X
+Xret:
+X    flexdelete(&cmdbuf);
+X
+X    (void) remove(temp1);
+X    (void) remove(temp2);
+X    free(temp1);
+X    free(temp2);
+X
+X    sys_startv();
+X
+X    return(retval);
+X}
+X
+X/*
+X * Expand filename.
+X * Have to do this using the shell, using a /tmp filename in the vain
+X * hope that it will be on a ramdisk and hence reasonably fast.
+X */
+Xchar *
+Xfexpand(name)
+Xchar	*name;
+X{
+X    static char	meta[] = "*?";
+X    int		has_meta;
+X    static char	*args[] = { NULL, "+s", NULL, NULL };
+X    static char	*io[4];
+X    Flexbuf	cmdbuf;
+X    char	*temp = NULL;
+X    FILE	*fp;
+X    static char	newname[256];
+X    char	*cp;
+X
+X    if (name == NULL || *name == '\0') {
+X	return(name);
+X    }
+X
+X    has_meta = FALSE;
+X    for (cp = meta; *cp != '\0'; cp++) {
+X	if (strchr(name, *cp) != NULL) {
+X	    has_meta = TRUE;
+X	    break;
+X	}
+X    }
+X    if (!has_meta) {
+X	return(name);
+X    }
+X
+X    if (Ps(P_shell) == NULL) {
+X	goto fail;
+X    }
+X    args[0] = Ps(P_shell);
+X
+X    temp = mktemp(EXPAND_MASK);
+X
+X    if (temp == NULL) {
+X	goto fail;
+X    }
+X
+X    flexnew(&cmdbuf);
+X    (void) lformat(&cmdbuf, "echo %s > %s", name, temp);
+X    args[2] = flexgetstr(&cmdbuf);
+X
+X    io[0] = io[1] = io[2] = "$tty99";
+X    if (createv(NULL, 0, -1, 0, 0, 0, args, NULL) != 0) {
+X	goto fail;
+X    }
+X    flexdelete(&cmdbuf);
+X
+X    fp = fopen(temp, "r");
+X    if (fp == NULL) {
+X	goto fail;
+X    }
+X
+X    if (fgets(newname, sizeof(newname), fp) == NULL) {
+X	(void) fclose(fp);
+X	goto fail;
+X    }
+X    cp = strchr(newname, '\n');
+X    if (cp != NULL) {
+X	*cp = '\0';
+X    }
+X
+X    (void) fclose(fp);
+X    (void) remove(temp);
+X    free(temp);
+X
+X    return(newname);
+X    
+Xfail:
+X    if (temp != NULL) {
+X	free(temp);
+X    }
+X    return(name);
+X}
+END_OF_FILE
+  if test 13461 -ne `wc -c <'xvi/src/qnx.c'`; then
+    echo shar: \"'xvi/src/qnx.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/qnx.c'
+fi
+if test -f 'xvi/src/regmagic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/regmagic.h'\"
+else
+  echo shar: Extracting \"'xvi/src/regmagic.h'\" \(706 characters\)
+  sed "s/^X//" >'xvi/src/regmagic.h' <<'END_OF_FILE'
+X/***
+X
+X* @(#)regmagic.h	2.1 7/29/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    regmagic.h
+X* module function:
+X    Definition of magic number for regular expression routines.
+X
+X* history:
+X    Regular expression routines by Henry Spencer.
+X    Modfied for use with STEVIE (ST Editor for VI Enthusiasts,
+X     Version 3.10) by Tony Andrews.
+X    Adapted for use with Xvi by Chris & John Downey.
+X    Original copyright notice is in regexp.c.
+X    Please note that this is a modified version.
+X***/
+X
+X/*
+X * The first byte of the regexp internal "program" is actually this magic
+X * number; the start node begins in the second byte.
+X */
+X#define	MAGIC	0234
+END_OF_FILE
+  if test 706 -ne `wc -c <'xvi/src/regmagic.h'`; then
+    echo shar: \"'xvi/src/regmagic.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/regmagic.h'
+fi
+if test -f 'xvi/src/yankput.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/yankput.c'\"
+else
+  echo shar: Extracting \"'xvi/src/yankput.c'\" \(11738 characters\)
+  sed "s/^X//" >'xvi/src/yankput.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)yankput.c	2.4 (Chris & John Downey) 8/6/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    yankput.c
+X* module function:
+X    Functions to handle "yank" and "put" commands.
+X
+X    Note that there is still some code in normal.c to do
+X    some of the work - this will have to be changed later.
+X
+X    Some of the routines and data structures herein assume ASCII
+X    order, so I don't know if they are particularly portable.
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+X/*
+X * Structure to store yanked text or yanked lines.
+X */
+Xtypedef struct yankbuffer {
+X    enum {
+X	y_none,
+X	y_chars,
+X	y_lines
+X    } y_type;
+X
+X    char	*y_1st_text;
+X    char	*y_2nd_text;
+X    Line	*y_line_buf;
+X} Yankbuffer;
+X
+X/*
+X * For named buffers, we have an array of yankbuffer structures,
+X * mapped by printable ascii characters. Only the alphabetic
+X * characters, and '@', are directly settable by the user.
+X * The uppercase versions mean "append" rather than "replace".
+X */
+X#define	LOWEST_NAME	' '
+X#define	HIGHEST_NAME	'Z'
+X#define	NBUFS		(HIGHEST_NAME - LOWEST_NAME + 1)
+X#define	bufno(c)	((c) - LOWEST_NAME)
+X#define	validname(c)	((c) >= LOWEST_NAME && (c) < 'A')
+X
+Xstatic	Yankbuffer	yb[NBUFS];
+X
+Xstatic	void		put P((char *, bool_t, bool_t));
+Xstatic	Yankbuffer	*yp_get_buffer P((int));
+Xstatic	Line		*copy_lines P((Line *, Line *));
+Xstatic	char		*yanktext P((Posn *, Posn *));
+Xstatic	void		yp_free P((Yankbuffer *));
+X
+Xvoid
+Xinit_yankput()
+X{
+X}
+X
+X/*
+X * Set the buffer name to be used for the next yank/put operation to
+X * the given character. The character '@' is used as a synonym for the
+X * default (unnamed) buffer.
+X */
+Xstatic Yankbuffer *
+Xyp_get_buffer(name)
+Xint	name;
+X{
+X    int	i;
+X
+X    if (validname(name)) {
+X	i = bufno(name);
+X    } else if (is_alpha(name)) {
+X	if (is_upper(name)) {
+X	    show_message(curwin, "Appending to named buffers not supported");
+X	}
+X	i = bufno(to_upper(name));
+X    } else {
+X	show_error(curwin, "Illegal buffer name");
+X	return(NULL);
+X    }
+X    return(&yb[i]);
+X}
+X
+X/*
+X * Yank the text specified by the given start/end positions.
+X * The fourth parameter is TRUE if we are doing a character-
+X * based, rather than a line-based, yank.
+X *
+X * For line-based yanks, the range of positions is inclusive.
+X *
+X * Returns TRUE if successfully yanked.
+X *
+X * Positions must be ordered properly, i.e. "from" <= "to".
+X */
+X/*ARGSUSED*/
+Xbool_t
+Xdo_yank(buffer, from, to, charbased, name)
+XBuffer	*buffer;
+XPosn	*from, *to;
+Xbool_t	charbased;
+Xint	name;
+X{
+X    Yankbuffer	*yp_buf;
+X    long	nlines;
+X
+X    yp_buf = yp_get_buffer(name);
+X    if (yp_buf == NULL) {
+X	return(FALSE);
+X    }
+X    yp_free(yp_buf);
+X
+X    nlines = cntllines(from->p_line, to->p_line);
+X
+X    if (charbased) {
+X	Posn		ptmp;
+X
+X	/*
+X	 * First yank either the whole of the text string
+X	 * specified (if from and to are on the same line),
+X	 * or from "from" to the end of the line.
+X	 */
+X	ptmp.p_line = from->p_line;
+X	if (to->p_line == from->p_line) {
+X	    ptmp.p_index = to->p_index;
+X	} else {
+X	    ptmp.p_index = strlen(from->p_line->l_text) - 1;
+X	}
+X	yp_buf->y_1st_text = yanktext(from, &ptmp);
+X	if (yp_buf->y_1st_text == NULL) {
+X	    return(FALSE);
+X	}
+X
+X	/*
+X	 * Next, determine if it is a multi-line character-based
+X	 * yank, in which case we have to yank from the start of
+X	 * the line containing "to" up to "to" itself.
+X	 */
+X	if (nlines > 1) {
+X	    ptmp.p_line = to->p_line;
+X	    ptmp.p_index = 0;
+X	    yp_buf->y_2nd_text = yanktext(&ptmp, to);
+X	    if (yp_buf->y_1st_text == NULL) {
+X		free(yp_buf->y_1st_text);
+X		return(FALSE);
+X	    }
+X	}
+X
+X	/*
+X	 * Finally, we may need to yank any lines between "from"
+X	 * and "to".
+X	 */
+X	if (nlines > 2) {
+X	    yp_buf->y_line_buf =
+X		copy_lines(from->p_line->l_next, to->p_line);
+X	    if (yp_buf->y_line_buf == NULL) {
+X		free(yp_buf->y_1st_text);
+X		free(yp_buf->y_2nd_text);
+X		return(FALSE);
+X	    }
+X	}
+X
+X	yp_buf->y_type = y_chars;
+X    } else {
+X	/*
+X	 * Yank lines starting at "from", ending at "to".
+X	 */
+X	yp_buf->y_line_buf = copy_lines(from->p_line,
+X			to->p_line->l_next);
+X	if (yp_buf->y_line_buf == NULL) {
+X	    return(FALSE);
+X	}
+X	yp_buf->y_type = y_lines;
+X    }
+X    return(TRUE);
+X}
+X
+X/*
+X * Yank the given string.
+X *
+X * Third parameter indicates whether to do it as a line or a string.
+X *
+X * Returns TRUE if successfully yanked.
+X */
+Xbool_t
+Xyank_str(name, str, line_based)
+Xint	name;
+Xchar	*str;
+Xbool_t	line_based;
+X{
+X    Yankbuffer		*yp_buf;
+X    register Line	*tmp;
+X    register char	*cp;
+X
+X    yp_buf = yp_get_buffer(name);
+X    if (yp_buf == NULL) {
+X	return(FALSE);
+X    }
+X    yp_free(yp_buf);
+X
+X    /*
+X     * Obtain space to store the string.
+X     */
+X    if (line_based) {
+X	/*
+X	 * First try to save the string. If no can do,
+X	 * return FALSE without affecting the current
+X	 * contents of the yank buffer.
+X	 */
+X	tmp = newline(strlen(str) + 1);
+X	if (tmp == NULL) {
+X	    return(FALSE);
+X	}
+X	tmp->l_prev = tmp->l_next = NULL;
+X	(void) strcpy(tmp->l_text, str);
+X    } else {
+X    	cp = strsave(str);
+X	if (cp == NULL) {
+X	    return(FALSE);
+X	}
+X    }
+X
+X    /*
+X     * Set up the yank structure.
+X     */
+X    if (line_based) {
+X	yp_buf->y_type = y_lines;
+X	yp_buf->y_line_buf = tmp;
+X    } else {
+X    	yp_buf->y_type = y_chars;
+X	yp_buf->y_1st_text = cp;
+X    }
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * Put back the last yank at the specified position,
+X * in the specified direction.
+X */
+Xvoid
+Xdo_put(win, location, direction, name)
+XXviwin	*win;
+XPosn	*location;
+Xint	direction;
+Xint	name;
+X{
+X    Yankbuffer		*yp_buf;
+X    register Line	*currline;	/* line we are on now */
+X    register Line	*nextline;	/* line after currline */
+X    Buffer		*buffer;
+X
+X    yp_buf = yp_get_buffer(name);
+X    if (yp_buf == NULL) {
+X	return;
+X    }
+X
+X    buffer = win->w_buffer;
+X
+X    /*
+X     * Set up current and next line pointers.
+X     */
+X    currline = location->p_line;
+X    nextline = currline->l_next;
+X
+X    /*
+X     * See which type of yank it was ...
+X     */
+X    if (yp_buf->y_type == y_chars) {
+X	int	l;
+X
+X	l = win->w_cursor->p_index;
+X	if (direction == FORWARD && currline->l_text[l] != '\0') {
+X	    ++l;
+X	}
+X
+X	if (!start_command(win)) {
+X	    return;
+X	}
+X
+X	/*
+X	 * Firstly, insert the 1st_text buffer, since this is
+X	 * always present. We may wish to split the line after
+X	 * the inserted text if this was a multi-line yank.
+X	 */
+X	replchars(win, currline, l, 0, yp_buf->y_1st_text);
+X	updateline(win);
+X
+X	if (yp_buf->y_2nd_text != NULL) {
+X	    int	end_of_1st_text;
+X	    Line	*newl;
+X
+X	    end_of_1st_text = l + strlen(yp_buf->y_1st_text);
+X	    newl = newline(strlen(yp_buf->y_1st_text) + SLOP);
+X	    if (newl == NULL)
+X		return;
+X
+X	    /*
+X	     * Link the new line into the list.
+X	     */
+X	    repllines(win, nextline, 0L, newl);
+X	    nextline = newl;
+X	    replchars(win, nextline, 0, 0,
+X	    		currline->l_text + end_of_1st_text);
+X	    replchars(win, currline, end_of_1st_text,
+X			strlen(currline->l_text + end_of_1st_text), "");
+X
+X	}
+X
+X	if (yp_buf->y_line_buf != NULL) {
+X	    Line	*newlines;
+X
+X	    newlines = copy_lines(yp_buf->y_line_buf, (Line *) NULL);
+X	    if (newlines != NULL) {
+X		repllines(win, nextline, 0L, newlines);
+X	    }
+X	}
+X
+X	if (yp_buf->y_2nd_text != NULL) {
+X	    if (nextline == buffer->b_lastline) {
+X		Line	*new;
+X
+X		/*
+X		 * Can't put the remainder of the text
+X		 * on the following line, 'cos there
+X		 * isn't one, so we have to create a
+X		 * new line.
+X		 */
+X		new = newline(strlen(yp_buf->y_2nd_text) + 1);
+X		if (new == NULL) {
+X		    end_command(win);
+X		    return;
+X		}
+X		repllines(win, nextline, 0L, new);
+X		nextline = new;
+X	    }
+X	    replchars(win, nextline, 0, 0, yp_buf->y_2nd_text);
+X	}
+X
+X	end_command(win);
+X
+X	/*
+X	 * Move on to the last character of the inserted text.
+X	 */
+X	if (direction == BACKWARD) {
+X	    (void) one_left(curwin, FALSE);
+X	}
+X
+X	cursupdate(win);
+X	update_buffer(buffer);
+X
+X    } else if (yp_buf->y_type == y_lines) {
+X
+X	Line	*new;		/* first line of lines to be put */
+X
+X	/*
+X	 * Make a new copy of the saved lines.
+X	 */
+X	new = copy_lines(yp_buf->y_line_buf, (Line *) NULL);
+X	if (new == NULL) {
+X	    return;
+X	}
+X
+X	repllines(win, (direction == FORWARD) ? nextline : currline, 0L, new);
+X
+X	/*
+X	 * Put the cursor at the "right" place
+X	 * (i.e. the place the "real" vi uses).
+X	 */
+X	move_cursor(win, new, 0);
+X	begin_line(win, TRUE);
+X	move_window_to_cursor(win);
+X	cursupdate(win);
+X	update_buffer(buffer);
+X    } else {
+X	show_error(win, "Nothing to put!");
+X    }
+X}
+X
+X/*
+X * Stuff the specified buffer into the input stream.
+X * Called by the '@' command.
+X *
+X * The "vi_mode" parameter will be FALSE if the buffer should
+X * be preceded by a ':' and followed by a '\n', i.e. it is the
+X * result of a :@ command rather than a vi-mode @ command.
+X */
+Xvoid
+Xyp_stuff_input(win, name, vi_mode)
+XXviwin	*win;
+Xint	name;
+Xbool_t	vi_mode;
+X{
+X    Yankbuffer	*yp_buf;
+X
+X    yp_buf = yp_get_buffer(name);
+X    if (yp_buf == NULL) {
+X	show_error(win, "Nothing in buffer %c", name);
+X	return;
+X    }
+X
+X    switch (yp_buf->y_type) {
+X    case y_chars:
+X	put(yp_buf->y_1st_text, vi_mode, FALSE);
+X	break;
+X
+X    case y_lines:
+X	break;
+X
+X    default:
+X	show_error(win, "Nothing to put!");
+X	return;
+X    }
+X
+X    if (yp_buf->y_line_buf != NULL) {
+X	Line	*lp;
+X
+X	for (lp = yp_buf->y_line_buf; lp != NULL; lp = lp->l_next) {
+X	    put(lp->l_text, vi_mode, TRUE);
+X	}
+X    }
+X
+X    if (yp_buf->y_type == y_chars && yp_buf->y_2nd_text != NULL) {
+X	put(yp_buf->y_2nd_text, vi_mode, FALSE);
+X    }
+X}
+X
+Xstatic void
+Xput(str, vi_mode, newline)
+Xchar	*str;
+Xbool_t	vi_mode;
+Xbool_t	newline;
+X{
+X    stuff("%s%s%s",
+X	    (!vi_mode && str[0] != ':') ? ":" : "",
+X	    str,
+X	    (!vi_mode || newline) ? "\n" : "");
+X}
+X
+X/*
+X * Copy the lines pointed at by "from", up to but not including
+X * pointer "to" (which might be NULL), into new memory and return
+X * a pointer to the start of the new list.
+X *
+X * Returns NULL for errors.
+X */
+Xstatic Line *
+Xcopy_lines(from, to)
+XLine	*from, *to;
+X{
+X    Line	*src;
+X    Line	head;
+X    Line	*dest = &head;
+X
+X    for (src = from; src != to; src = src->l_next) {
+X	Line	*tmp;
+X
+X	tmp = newline(strlen(src->l_text) + 1);
+X	if (tmp == NULL) {
+X	    throw(head.l_next);
+X	    return(NULL);
+X	}
+X
+X	/*
+X	 * Copy the line's text over, and advance
+X	 * "dest" to point to the new line structure.
+X	 */
+X	(void) strcpy(tmp->l_text, src->l_text);
+X	tmp->l_next = NULL;
+X	tmp->l_prev = dest;
+X	dest->l_next = tmp;
+X	dest = tmp;
+X    }
+X
+X    return(head.l_next);
+X}
+X
+Xstatic char *
+Xyanktext(from, to)
+XPosn	*from, *to;
+X{
+X    int		nchars;
+X    char	*cp;
+X
+X    nchars = to->p_index - from->p_index + 1;
+X    cp = (char *) alloc((unsigned) nchars + 1);
+X    if (cp == NULL) {
+X	return(NULL);
+X    }
+X
+X    (void) strncpy(cp, from->p_line->l_text + from->p_index, nchars);
+X    cp[nchars] = '\0';
+X
+X    return(cp);
+X}
+X
+Xstatic void
+Xyp_free(yp)
+XYankbuffer	*yp;
+X{
+X    if (yp->y_type == y_lines) {
+X	throw(yp->y_line_buf);
+X	yp->y_line_buf = NULL;
+X    } else if (yp->y_type == y_chars) {
+X	free(yp->y_1st_text);
+X	yp->y_1st_text = NULL;
+X	if (yp->y_2nd_text != NULL)
+X	    free(yp->y_2nd_text);
+X	yp->y_2nd_text = NULL;
+X	if (yp->y_line_buf != NULL)
+X	    throw(yp->y_line_buf);
+X	yp->y_line_buf = NULL;
+X    }
+X    yp->y_type = y_none;
+X}
+X
+X/*
+X * Push up buffers 1..8 by one, spilling 9 off the top.
+X * Then move '@' into '1'.
+X *
+X * This routine assumes contiguity of characters '0' to '9',
+X * i.e. probably ASCII, but what the hell.
+X */
+Xvoid
+Xyp_push_deleted()
+X{
+X    Yankbuffer	*atp;
+X    int		c;
+X
+X    yp_free(&yb[bufno('9')]);
+X    for (c = '9'; c > '1'; --c) {
+X    	yb[bufno(c)] = yb[bufno(c - 1)];
+X    }
+X    atp = &yb[bufno('@')];
+X    yb[bufno('1')] = *atp;
+X    atp->y_type = y_none;
+X    atp->y_line_buf = NULL;
+X    atp->y_1st_text = NULL;
+X    atp->y_2nd_text = NULL;
+X}
+END_OF_FILE
+  if test 11738 -ne `wc -c <'xvi/src/yankput.c'`; then
+    echo shar: \"'xvi/src/yankput.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/yankput.c'
+fi
+echo shar: End of archive 13 \(of 18\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

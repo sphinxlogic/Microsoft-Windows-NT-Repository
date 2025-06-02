@@ -1,0 +1,1706 @@
+Newsgroups: comp.sources.misc
+From: adrian@stein2.u.washington.edu (Adrian Mariano)
+Subject: v38i061:  units - clone of the unix program for unit conversion, Part01/01
+Message-ID: <1993Jul22.203650.4325@sparky.sterling.com>
+X-Md4-Signature: 8504f729b95a325b66badcc518bd2061
+Keywords: units
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: University of Washington
+Date: Thu, 22 Jul 1993 20:36:50 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: adrian@stein2.u.washington.edu (Adrian Mariano)
+Posting-number: Volume 38, Issue 61
+Archive-name: units/part01
+Environment: UNIX, DOS
+
+This is a program which I wrote as a clone of the UNIX 'units'
+command.  I threw it together in a couple days, but it seems to work,
+with some restrictions.  I have tested it under DOS with Borland C and
+Ultrix 4.2.
+
+Adrian Mariano (adrian@u.washington.edu or mariano@geom.umn.edu)
+-------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile Makefile.dos getopt.c getopt.h units.1
+#   units.c units.doc units.lib
+# Wrapped by kent@sparky on Thu Jul 22 15:24:17 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(283 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XThis is a program which I wrote as a clone of the UNIX 'units'
+Xcommand.  I threw it together in a couple days, but it seems to work,
+Xwith some restrictions.  I have tested it under DOS with Borland C and
+XUltrix 4.2.
+X
+XAdrian Mariano (adrian@u.washington.edu or mariano@geom.umn.edu)
+X
+END_OF_FILE
+  if test 283 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(81 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XCC=gcc
+XCFLAGS= -DUNITSFILE=\"units.lib\"
+X
+Xunits:	units.o
+X	$(CC) -o units units.o
+END_OF_FILE
+  if test 81 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'Makefile.dos' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.dos'\"
+else
+  echo shar: Extracting \"'Makefile.dos'\" \(152 characters\)
+  sed "s/^X//" >'Makefile.dos' <<'END_OF_FILE'
+XCC=bccx
+X
+Xunits.exe: units.obj getopt.obj
+X	$(CC) units.obj getopt.obj
+X
+Xunits.obj: units.c 
+X	$(CC) -c units.c
+X
+Xgetopt.obj: getopt.c
+X	$(CC) -c getopt.c
+X
+X
+X
+END_OF_FILE
+  if test 152 -ne `wc -c <'Makefile.dos'`; then
+    echo shar: \"'Makefile.dos'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile.dos'
+fi
+if test -f 'getopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.c'\"
+else
+  echo shar: Extracting \"'getopt.c'\" \(1950 characters\)
+  sed "s/^X//" >'getopt.c' <<'END_OF_FILE'
+X/* optarg - parse command-line arguments */
+X/* Author: AT&T */
+X
+X#include <stdio.h>
+X
+X#define ERR(s, c)				if(opterr){\
+X	char errbuf[2];\
+X	errbuf[0] = c; errbuf[1] = '\n';\
+X	fwrite(argv[0], 1, (unsigned)strlen(argv[0]),stderr);\
+X	fwrite(s, 1, (unsigned)strlen(s),stderr);\
+X	fwrite(errbuf, 1, 2, stderr);}
+X
+Xextern int strcmp();
+Xextern char *strchr();
+Xextern int strlen();
+X
+Xint	opterr = 1;		/* getopt prints errors if this is on */
+Xint	optind = 1;		/* token pointer */
+Xint	optopt;			/* option character passed back to user */
+Xchar	*optarg;		/* flag argument (or value) */
+X
+Xint	/* return option character, EOF if no more or ? if problem */
+Xgetopt(argc, argv, opts)
+Xint	argc;
+Xchar	**argv;
+Xchar	*opts;				/* option string */
+X{
+X	static int sp = 1;		/* character index in current token */
+X	register char *cp;		/* pointer into current token */
+X
+X	if(sp == 1)
+X		/* check for more flag-like tokens */
+X		if(optind >= argc ||
+X		   argv[optind][0] != '-' || argv[optind][1] == '\0')
+X			return(EOF);
+X		else if(strcmp(argv[optind], "--") == 0) {
+X			optind++;
+X			return(EOF);
+X		}
+X	optopt = argv[optind][sp];
+X	if(optopt == ':' || (cp=strchr(opts, optopt)) == 0) {
+X		ERR(": illegal option -- ", optopt);
+X		/* if no chars left in this token, move to next token */
+X		if(argv[optind][++sp] == '\0') {
+X			optind++;
+X			sp = 1;
+X		}
+X		return('?');
+X	}
+X
+X	if(*++cp == ':') {	/* if a value is expected, get it */
+X		if(argv[optind][sp+1] != '\0')
+X			/* flag value is rest of current token */
+X			optarg = &argv[optind++][sp+1];
+X		else if(++optind >= argc) {
+X			ERR(": option requires an argument -- ", optopt);
+X			sp = 1;
+X			return('?');
+X		} else
+X			/* flag value is next token */
+X			optarg = argv[optind++];
+X		sp = 1;
+X	} else {
+X		/* set up to look at next char in token, next time */
+X		if(argv[optind][++sp] == '\0') {
+X			/* no more in current token, so setup next token */
+X			sp = 1;
+X			optind++;
+X		}
+X		optarg = 0;
+X	}
+X	return(optopt);/* return the current flag character found */
+X}
+END_OF_FILE
+  if test 1950 -ne `wc -c <'getopt.c'`; then
+    echo shar: \"'getopt.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.c'
+fi
+if test -f 'getopt.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.h'\"
+else
+  echo shar: Extracting \"'getopt.h'\" \(336 characters\)
+  sed "s/^X//" >'getopt.h' <<'END_OF_FILE'
+X#ifndef GETOPT_H
+X#define GETOPT_H
+X#include "proto.h"				/* define PROTO */
+X
+Xint getopt PROTO((int, char **, char *));
+Xextern char *optarg;				/* current argv string */
+Xextern int optind;				/* current argv index */
+Xextern int optopt;				/* option character */
+Xextern int opterr;				/* getopt prints errors if 1 */
+X#endif /* GETOPT_H */
+END_OF_FILE
+  if test 336 -ne `wc -c <'getopt.h'`; then
+    echo shar: \"'getopt.h'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.h'
+fi
+if test -f 'units.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'units.1'\"
+else
+  echo shar: Extracting \"'units.1'\" \(3782 characters\)
+  sed "s/^X//" >'units.1' <<'END_OF_FILE'
+X.TH UNITS 1  "14 July 1993"
+X.SH NAME
+Xunits - conversion program
+X.SH SYNTAX
+X.B units
+X[-f filename] [-q] [to-unit from-unit]
+X.SH SUMMARY
+X.TP 4
+X.B -f filename
+XSpecifies the name of the units data file to load.
+X.LP
+X.TP 4
+X.B -q 
+XSupresses prompting of the user for units and the display of statistics
+Xabout the number of units loaded.
+X.LP
+X.TP 4
+X.B from-unit to-unit
+XAllows a single unit converstion to be done directly from the command
+Xline.  No prompting will occur.  The units program will print out
+Xonly the result of this single conversion.
+X
+X.SH DESCRIPTION
+XThe units program converts quantities expression in various scales to 
+Xtheir equivalents in other scales.  The units program can only
+Xhandle multiplicative scale changes.  It cannot convert Centigrade
+Xto Fahrenheit, for example.  It works interactively by prompting
+Xthe user for input:
+X.nf
+X
+X    You have: meters
+X    You want: feet
+X            * 3.2808399
+X            / 0.3048
+X
+X    You have: cm^3
+X    You want: gallons
+X            * 0.00026417205
+X            / 3785.4118
+X
+X.fi
+XPowers of units can be specified using the '^' character as shown in
+Xthe example, or by simple concatenation: 'cm3' is equivalent to 'cm^3'.
+XMultiplication of units can be specified by using spaces, a dash or
+Xan asterisk.  Division of units is indicated by the slash ('/').  
+XNote that multiplication has a higher precedence than division, so
+X'm/s/s' is the same as 'm/s^2' or 'm/s s'
+XIf the user enters incompatible unit types, the units program will
+Xprint a message indicating that the units are not conformable and
+Xit will display the reduced form for each unit:
+X.nf
+X
+X    You have: ergs/hour
+X    You want: fathoms kg^2 / day 
+X    conformability error
+X            2.7777778e-11 kg m^2 / sec^3
+X            2.1166667e-05 kg^2 m / sec
+X
+X.fi
+X.LP
+XThe conversion information is read from a units data file.  The default
+Xfile includes definitions for most familiar units, abbreviations and
+Xmetric prefixes.  Some constants of nature included are:
+X.in +4m
+X.ta
+X.ta 9m +
+X.nf
+X
+Xpi	ratio of circumference to diameter
+Xc	speed of light
+Xe	charge on an electron
+Xg	acceleration of gravity
+Xforce	same as g
+Xmole	Avogadro's number
+Xwater	pressure per unit height of water
+Xmercury	pressure per unit height of mercury
+Xau	astronomical unit
+X
+X.fi
+X.in -4m
+X\'Pound' is a unit of mass.  Compound names are run together
+Xso 'poundforce' is a unit of force.  British units that differ from their
+XUS counterparts are prefixed with 'br', and currency is prefixed with
+Xits country name: 'belgiumfranc', 'britainpound'.  When searching for
+Xa unit, if the specified string does not appear exactly as a unit
+Xname, then the units program will try to remove a trailing 's' or
+Xa trailing 'es' and check again for a match.  
+X.LP
+XAll of these definitions can be read in the standard units file, or you
+Xcan supply your own file.  A unit is specified on a single line by
+Xgiving its name and an equivalence.  One should be careful to define
+Xnew units in terms of old ones so that a reduction leads to the
+Xprimitive units which are marked with '!' characters.  
+XThe units program will not detect infinite loops that could be caused
+Xby careless unit definitions.
+X.LP
+XPrefixes are defined in the same was as standard units, but with 
+Xa trailing dash at the end of the prefix name.  
+X.SH BUGS
+X.LP
+XThe effect of including a '/' in a prefix is surprising.
+X.LP
+XExponents entered by the user can be only one digit.
+X.LP
+XThe user must use | to indicate division of numbers and / to
+Xindicate division of symbols.  This distinction should not
+Xbe necessary.
+X.LP
+XThe program contains various arbitrary limits on the length
+Xof the units converted and on the length of the data file.
+X.SH FILES
+Xunits.lib - the standard units library
+X.SH AUTHOR
+XAdrian Mariano (adrian@u.washington.edu or mariano@geom.umn.edu)
+X
+X
+X
+END_OF_FILE
+  if test 3782 -ne `wc -c <'units.1'`; then
+    echo shar: \"'units.1'\" unpacked with wrong size!
+  fi
+  # end of 'units.1'
+fi
+if test -f 'units.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'units.c'\"
+else
+  echo shar: Extracting \"'units.c'\" \(13465 characters\)
+  sed "s/^X//" >'units.c' <<'END_OF_FILE'
+X/* 
+X   units.c   Copyright (c) 1993 by Adrian Mariano
+X
+X   This program can be freely distributed as long as no money is
+X   charged for it. 
+X*/
+X
+X
+X#include<stdio.h>
+X#include<string.h>
+X#include<stdlib.h>
+X
+X#define VERSION "1.0"
+X
+X#ifndef UNITSFILE
+X#define UNITSFILE "units.lib"
+X#endif
+X
+X#define MAXUNITS 1000
+X#define MAXPREFIXES 50
+X
+X#define MAXSUBUNITS 500
+X
+X#define PRIMITIVECHAR '!'
+X
+Xchar *powerstring="^";
+X
+Xstruct {
+X   char *uname;
+X   char *uval;
+X} unittable[MAXUNITS];
+X
+Xstruct unittype {
+X   char *numerator[MAXSUBUNITS];
+X   char *denominator[MAXSUBUNITS];
+X   double factor;
+X};
+X
+Xstruct {
+X   char *prefixname;
+X   char *prefixval;
+X} prefixtable[MAXPREFIXES];
+X
+X
+Xchar *NULLUNIT="";
+X
+Xint unitcount;
+Xint prefixcount;
+X
+X
+Xchar *dupstr(char *str)
+X{
+X  char *ret;
+X  ret=malloc(strlen(str)+1);
+X  if (!ret) {
+X    fprintf(stderr,"Memory allocation error\n");
+X    exit(3);
+X  }
+X  strcpy(ret,str);
+X  return(ret);
+X} 
+X
+X
+Xvoid readerror(int linenum)
+X{
+X  fprintf(stderr,"Error in units file '%s' line %d\n",UNITSFILE,linenum);
+X}
+X
+X
+Xvoid readunits(char *userfile)
+X{
+X  FILE *unitfile;
+X  char line[80],*lineptr;
+X  int len,linenum,i;
+X
+X  unitcount=0;
+X  linenum=0;
+X
+X  if (userfile){
+X    unitfile=fopen(userfile,"rt");
+X    if (!unitfile) {
+X      fprintf(stderr,"Unable to open units file '%s'\n",userfile);
+X      exit(1);
+X    }
+X  } else {
+X    unitfile=fopen(UNITSFILE,"rt");
+X    if (!unitfile) { 
+X      char *direc,*env;
+X      char filename[1000];
+X      char separator[2];
+X      env=getenv("PATH");
+X      if (env){
+X        if (strchr(env,';')) strcpy(separator,";");
+X        else strcpy(separator,":");
+X        direc=strtok(env,separator);
+X        while(direc){
+X          strcpy(filename,"");
+X          strncat(filename,direc,999);
+X          strncat(filename,"/",999-strlen(filename));
+X          strncat(filename,UNITSFILE,999-strlen(filename));
+X          unitfile=fopen(filename,"rt");
+X          if (unitfile) break;
+X          direc=strtok(NULL,separator);
+X        }
+X      }
+X      if (!unitfile){
+X        fprintf(stderr,"Can't find units file '%s'\n",UNITSFILE);
+X        exit(1);
+X      }
+X    }
+X  }
+X  while (!feof(unitfile)){
+X    if (!fgets(line,79,unitfile)) break;
+X    linenum++;
+X    lineptr=line;
+X    if (*lineptr=='/') continue;
+X    lineptr+=strspn(lineptr," \n\t");
+X    len = strcspn(lineptr, " \n\t");
+X    lineptr[len]=0;
+X    if (!strlen(lineptr)) continue;
+X    if (lineptr[strlen(lineptr)-1]=='-'){   /* it's a prefix */
+X      if (prefixcount==MAXPREFIXES) {
+X        fprintf(stderr,"Memory for prefixes exceeded in line %d\n",linenum);
+X        continue;
+X      }
+X      lineptr[strlen(lineptr)-1]=0;
+X      prefixtable[prefixcount].prefixname=dupstr(lineptr);
+X      for(i=0;i<prefixcount;i++) 
+X        if (!strcmp(prefixtable[i].prefixname,lineptr)){
+X        fprintf(stderr,"Redefinition of prefix '%s' on line %d ignored\n",
+X            lineptr,linenum);
+X	continue;
+X      }
+X      lineptr+=len+1;
+X      if (!strlen(lineptr)) { readerror(linenum); continue;}
+X      lineptr+=strspn(lineptr," \n\t");
+X      len = strcspn(lineptr, "\n\t");
+X      lineptr[len]=0;
+X      prefixtable[prefixcount++].prefixval=dupstr(lineptr);
+X    } else {  /* it's not a prefix */
+X      if (unitcount==MAXUNITS) {
+X        fprintf(stderr,"Memory for units exceeded in line %d\n",linenum);
+X        continue;
+X      }
+X      unittable[unitcount].uname=dupstr(lineptr);
+X      for(i=0;i<unitcount;i++) if (!strcmp(unittable[i].uname,lineptr)){
+X        fprintf(stderr,"Redefinition of unit '%s' on line %d ignored\n",
+X            lineptr,linenum);
+X	continue;
+X      }
+X      lineptr+=len+1;
+X      lineptr+=strspn(lineptr," \n\t");
+X      if (!strlen(lineptr)) { readerror(linenum); continue;}
+X      len = strcspn(lineptr, "\n\t");
+X      lineptr[len]=0;
+X      unittable[unitcount++].uval=dupstr(lineptr);
+X    }
+X  }
+X  fclose(unitfile);
+X}
+X
+Xvoid initializeunit(struct unittype *theunit)
+X{
+X  theunit->factor=1.0;
+X  theunit->numerator[0]=theunit->denominator[0]=NULL;
+X}
+X
+X
+Xint addsubunit(char *product[], char *toadd)
+X{
+X  char **ptr;
+X
+X  for(ptr=product;*ptr && *ptr!=NULLUNIT;ptr++);
+X  if (ptr>=product+MAXSUBUNITS){
+X    fprintf(stderr,"Memory overflow in unit reduction\n");
+X    return 1;
+X  }
+X  if (!*ptr) *(ptr+1)=0;
+X  *ptr=dupstr(toadd);
+X  return 0;
+X}
+X
+X
+Xvoid showunit(struct unittype *theunit)
+X{
+X  char **ptr;
+X  int printedslash;
+X  int counter=1;
+X
+X  printf("\t%.8g",theunit->factor);
+X  for(ptr=theunit->numerator;*ptr;ptr++){
+X    if (ptr>theunit->numerator && **ptr &&
+X       !strcmp(*ptr,*(ptr-1))) counter++;
+X      else {
+X        if (counter>1) printf("%s%d",powerstring,counter);
+X        if (**ptr) printf(" %s",*ptr);
+X	counter=1;
+X      }
+X  }
+X  if (counter>1) printf("%s%d",powerstring,counter);
+X  counter=1;
+X  printedslash=0;
+X  for(ptr=theunit->denominator;*ptr;ptr++){
+X    if (ptr>theunit->denominator && **ptr && 
+X         !strcmp(*ptr,*(ptr-1))) counter++;
+X      else {
+X        if (counter>1) printf("%s%d",powerstring,counter);
+X        if (**ptr) { 
+X	  if (!printedslash) printf(" /");
+X	  printedslash=1;
+X          printf(" %s",*ptr);
+X	}
+X	counter=1;
+X      }
+X  }
+X  if (counter>1) printf("%s%d",powerstring,counter);
+X  printf("\n");
+X}
+X
+X
+Xvoid zeroerror()
+X{
+X   fprintf(stderr,"Unit reduces to zero\n");
+X}   
+X
+X/* 
+X   Adds the specified string to the unit. 
+X   Flip is 0 for adding normally, 1 for adding reciprocal.
+X 
+X   Returns 0 for successful addition, nonzero on error.
+X*/
+X
+Xint addunit(struct unittype *theunit,char *toadd,int flip)
+X{
+X  char *scratch,*savescr;
+X  char *item;
+X  char *divider,*subunit,*slash;
+X  int doingtop;
+X
+X  savescr=scratch=dupstr(toadd);
+X  for(slash=scratch+1;*slash;slash++) 
+X    if (*slash=='-' && 
+X      (tolower(*(slash-1))!='e' || !strchr(".0123456789",*(slash+1))))
+X      *slash=' ';
+X  slash=strchr(scratch,'/');
+X  if (slash) *slash=0;
+X  doingtop=1;
+X  do{
+X  item=strtok(scratch," *\t\n/");
+X  while(item){
+X    if (strchr("0123456789.",*item)){  /* item is a number */
+X      double num;
+X
+X      divider=strchr(item,'|');
+X      if (divider){
+X	*divider=0;
+X	num=atof(item);
+X	if (!num) {
+X          zeroerror();
+X          return 1;
+X        }
+X	if (doingtop^flip) theunit->factor *= num;
+X	     else  theunit->factor /=num;
+X	num=atof(divider+1);
+X	if (!num)  {
+X          zeroerror();
+X          return 1;
+X        }
+X	if (doingtop^flip) theunit->factor /= num;
+X	 else theunit->factor *= num;
+X      } else {
+X	num=atof(item);
+X	if (!num)  {
+X          zeroerror();
+X          return 1;
+X        }
+X	if (doingtop^flip) theunit->factor *= num;
+X	else theunit->factor /= num;
+X
+X      }
+X    } else {                         /* item is not a number */
+X      int repeat=1;
+X      if (strchr("23456789",item[strlen(item)-1])){
+X	repeat=item[strlen(item)-1]-'0';
+X	item[strlen(item)-1]=0;
+X      }
+X      for(;repeat;repeat--)
+X	if (addsubunit(doingtop^flip?theunit->numerator:theunit->denominator,item))
+X  return 1;
+X    }
+X    item=strtok(NULL," *\t/\n");
+X  }
+X  doingtop--;
+X  if (slash){
+X    scratch=slash+1;
+X  } else doingtop--;
+X  }while (doingtop>=0 );
+X  free(savescr);
+X  return 0;
+X}
+X
+X
+Xint compare(const void *item1, const void *item2)
+X{
+X  return strcmp(*(char **) item1, * (char **) item2);
+X}
+X
+X
+Xvoid sortunit(struct unittype *theunit)
+X{
+X  char **ptr;
+X  int count;
+X
+X  for(count=0,ptr=theunit->numerator;*ptr;ptr++,count++);
+X  qsort(theunit->numerator, count, sizeof(char *), compare);
+X  for(count=0,ptr=theunit->denominator;*ptr;ptr++,count++);
+X  qsort(theunit->denominator, count, sizeof(char *), compare);
+X}
+X
+X
+Xvoid cancelunit(struct unittype *theunit)
+X{
+X  char **den,**num;
+X  int comp;
+X
+X  den=theunit->denominator;
+X  num=theunit->numerator;
+X
+X  while(*num && *den){
+X    comp=strcmp(*den,*num);
+X    if (!comp) {
+X/*      if (*den!=NULLUNIT) free(*den);
+X      if (*num!=NULLUNIT) free(*num);*/
+X      *den++=NULLUNIT;
+X      *num++=NULLUNIT;
+X    }
+X    else if (comp<0) den++;
+X    else num++;
+X  }
+X}
+X
+X
+X
+X
+X/*
+X   Looks up the definition for the specified unit.  
+X   Returns a pointer to the definition or a null pointer
+X   if the specified unit does not appear in the units table.
+X*/
+X
+Xstatic char buffer[100];  /* buffer for lookupunit answers with prefixes */
+X
+Xchar *lookupunit(char *unit)
+X{
+X  int i;
+X  char *copy;
+X
+X  for(i=0;i<unitcount;i++){
+X    if (!strcmp(unittable[i].uname,unit)) return unittable[i].uval;
+X  }
+X
+X  if (unit[strlen(unit)-1]=='^') {
+X    copy=dupstr(unit);
+X    copy[strlen(copy)-1]=0;
+X    for(i=0;i<unitcount;i++){
+X      if (!strcmp(unittable[i].uname,copy)) {
+X        strcpy(buffer,copy);
+X        free(copy);
+X        return buffer;
+X      }
+X    } 
+X    free(copy);
+X  }
+X  if (unit[strlen(unit)-1]=='s') {
+X    copy=dupstr(unit);
+X    copy[strlen(copy)-1]=0;
+X    for(i=0;i<unitcount;i++){
+X      if (!strcmp(unittable[i].uname,copy)) {
+X        strcpy(buffer,copy);
+X        free(copy);
+X        return buffer;
+X      }
+X    }
+X    if (copy[strlen(copy)-1]=='e') {
+X      copy[strlen(copy)-1]=0;
+X      for(i=0;i<unitcount;i++){
+X        if (!strcmp(unittable[i].uname,copy)){
+X          strcpy(buffer,copy);
+X          free(copy);
+X          return buffer;
+X        }
+X      }
+X    }
+X    free(copy);
+X  }
+X  for(i=0;i<prefixcount;i++){
+X    if (!strncmp(prefixtable[i].prefixname,unit,
+X        strlen(prefixtable[i].prefixname))) {
+X      unit += strlen(prefixtable[i].prefixname);
+X      if (!strlen(unit) || lookupunit(unit)){
+X        strcpy(buffer,prefixtable[i].prefixval);
+X        strcat(buffer," ");
+X        strcat(buffer,unit);
+X        return buffer;
+X      }
+X    }
+X  }
+X  return 0;
+X}
+X
+X
+X
+X/*
+X   reduces a product of symbolic units to primitive units. 
+X   The three low bits are used to return flags:
+X
+X     bit 0 (1) set on if reductions were performed without error.
+X     bit 1 (2) set on if no reductions are performed.
+X     bit 2 (4) set on if an unknown unit is discovered.
+X*/
+X
+X
+X#define ERROR 4
+X
+Xint reduceproduct(struct unittype *theunit, int flip)
+X{
+X
+X  char *toadd;
+X  char **product;
+X  int didsomething=2;
+X
+X  if (flip) product=theunit->denominator;
+X  else product=theunit->numerator;
+X
+X  for(;*product;product++){
+X    
+X    for(;;){
+X      if (!strlen(*product)) break;
+X      toadd=lookupunit(*product);
+X      if (!toadd) { 
+X        printf("unknown unit '%s'\n",*product);
+X        return ERROR;
+X      }
+X      if (strchr(toadd,PRIMITIVECHAR)) break;
+X      didsomething=1;
+X      if (*product!=NULLUNIT) {
+X        free (*product);
+X        *product=NULLUNIT;
+X      }
+X      if (addunit(theunit, toadd, flip)) return ERROR;
+X    }
+X  }
+X  return didsomething;
+X}
+X
+X
+X/* 
+X   Reduces numerator and denominator of the specified unit.
+X   Returns 0 on success, or 1 on unknown unit error.
+X*/
+X
+Xint reduceunit(struct unittype *theunit)
+X{
+X  int ret;
+X  ret=1;
+X  while(ret & 1){
+X    ret = reduceproduct(theunit,0) | reduceproduct(theunit,1);
+X    if (ret & 4) return 1;
+X  }
+X  return 0;
+X}
+X
+X
+Xint compareproducts(char **one,char **two)
+X{
+X  while(*one || *two){
+X    if (!*one && *two!=NULLUNIT) return 1;
+X    if (!*two && *one!=NULLUNIT) return 1;
+X    if (*one==NULLUNIT) one++;
+X    else if (*two==NULLUNIT) two++;
+X    else if (strcmp(*one,*two)) return 1;
+X    else one++,two++;
+X  }
+X  return 0;
+X}
+X
+X
+X/* Return zero if units are compatible, nonzero otherwise */
+X
+Xint compareunits(struct unittype *first, struct unittype *second)
+X{
+X  return 
+X    compareproducts(first->numerator,second->numerator) ||
+X    compareproducts(first->denominator,second->denominator);
+X}
+X
+X
+Xint completereduce(struct unittype *unit)
+X{
+X  if (reduceunit(unit)) return 1;
+X  sortunit(unit);
+X  cancelunit(unit);
+X  return 0;
+X}
+X
+X
+Xvoid showanswer(struct unittype *have, struct unittype *want)
+X{
+X  if (compareunits(have,want)) {
+X    printf("conformability error\n");
+X    showunit(have);
+X    showunit(want);
+X  }
+X  else printf("\t* %.8g\n\t/ %.8g\n",have->factor/want->factor,
+X                           want->factor/have->factor);
+X}
+X
+X
+Xvoid usage()
+X{
+X  fprintf(stderr,"\nunits [-f unitsfile] [-q] [-v] [from-unit to-unit]\n");
+X  fprintf(stderr,"\n    -f specify units file\n");
+X  fprintf(stderr,"    -q supress prompting (quiet)\n");
+X  fprintf(stderr,"    -v print version number\n");
+X  exit(3);
+X}
+X
+X
+Xvoid main(int argc, char **argv){
+X
+X  struct unittype have,want;
+X  char havestr[81],wantstr[81];
+X  char optchar;
+X  char *userfile=0;
+X  int quiet=0;
+X
+X  extern char *optarg;
+X  extern int optind;
+X
+X  while (EOF != (optchar = getopt(argc,argv,"vqf:"))) {
+X    switch(optchar) {
+X      case 'f':
+X        userfile=optarg;
+X        break;
+X      case 'q':
+X        quiet=1;
+X        break;
+X      case 'v':
+X        fprintf(stderr,"\n  units version %s  Copyright (c) 1993 by Adrian Mariano\n",VERSION);
+X        fprintf(stderr,"                    This program may be freely distributed\n");
+X        usage();
+X      default:
+X        usage();
+X        break;
+X     }
+X  }
+X    
+X  if (optind != argc-2 && optind!=argc) usage();
+X
+X  readunits(userfile);
+X
+X  if (optind==argc-2){
+X    strcpy(havestr,argv[optind]);
+X    strcpy(wantstr,argv[optind+1]);
+X    initializeunit(&have);
+X    addunit(&have,havestr,0);
+X    completereduce(&have);
+X    initializeunit(&want);
+X    addunit(&want,wantstr,0);
+X    completereduce(&want);
+X    showanswer(&have,&want);
+X  } else {
+X    if (!quiet) printf("%d units, %d prefixes\n\n",unitcount,prefixcount);
+X    for(;;){
+X      do{
+X        initializeunit(&have);
+X        if (!quiet) printf("You have: ");
+X        if (!fgets(havestr,80,stdin)) { if (!quiet);putchar('\n');exit(0);}
+X      } while(addunit(&have,havestr,0) || completereduce(&have));
+X      do{
+X        initializeunit(&want);
+X        if (!quiet) printf("You want: ");
+X        if (!fgets(wantstr,80,stdin)) {if (!quiet) putchar('\n');exit(0);}
+X      } while(addunit(&want,wantstr,0) || completereduce(&want));
+X      showanswer(&have,&want);
+X    }
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 13465 -ne `wc -c <'units.c'`; then
+    echo shar: \"'units.c'\" unpacked with wrong size!
+  fi
+  # end of 'units.c'
+fi
+if test -f 'units.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'units.doc'\"
+else
+  echo shar: Extracting \"'units.doc'\" \(4315 characters\)
+  sed "s/^X//" >'units.doc' <<'END_OF_FILE'
+X
+X
+X
+X   14 July 1993                                                      UNITS(1)
+X
+X
+X
+X   NAME
+X     units - conversion program
+X
+X   SYNTAX
+X     units [-f filename] [-q] [to-unit from-unit]
+X
+X   SUMMARY
+X
+X     -f filename
+X         Specifies the name of the units data file to load.
+X
+X     -q  Supresses prompting of the user for units and the display of statis-
+X         tics about the number of units loaded.
+X
+X     from-unit to-unit
+X         Allows a single unit converstion to be done directly from the com-
+X         mand line.  No prompting will occur.  The units program will print
+X         out only the result of this single conversion.
+X
+X
+X   DESCRIPTION
+X     The units program converts quantities expression in various scales to
+X     their equivalents in other scales.  The units program can only handle
+X     multiplicative scale changes.  It cannot convert Centigrade to
+X     Fahrenheit, for example.  It works interactively by prompting the user
+X     for input:
+X
+X         You have: meters
+X         You want: feet
+X                 * 3.2808399
+X                 / 0.3048
+X
+X         You have: cm^3
+X         You want: gallons
+X                 * 0.00026417205
+X                 / 3785.4118
+X
+X     Powers of units can be specified using the '^' character as shown in the
+X     example, or by simple concatenation: 'cm3' is equivalent to 'cm^3'.
+X     Multiplication of units can be specified by using spaces, a dash or an
+X     asterisk.  Division of units is indicated by the slash ('/'). Note that
+X     multiplication has a higher precedence than division, so If the user
+X     enters incompatible unit types, the units program will print a message
+X     indicating that the units are not conformable and it will display the
+X     reduced form for each unit:
+X
+X         You have: ergs/hour
+X         You want: fathoms kg^2 / day
+X         conformability error
+X                 2.7777778e-11 kg m^2 / sec^3
+X                 2.1166667e-05 kg^2 m / sec
+X
+X
+X
+X
+X                                                                            1
+X
+X
+X
+X
+X
+X
+X   UNITS(1)                                                      14 July 1993
+X
+X
+X     The conversion information is read from a units data file.  The default
+X     file includes definitions for most familiar units, abbreviations and
+X     metric prefixes.  Some constants of nature included are:
+X
+X         pi       ratio of circumference to diameter
+X         c        speed of light
+X         e        charge on an electron
+X         g        acceleration of gravity
+X         force    same as g
+X         mole     Avogadro's number
+X         water    pressure per unit height of water
+X         mercury  pressure per unit height of mercury
+X         au       astronomical unit
+X
+X     'Pound' is a unit of mass.  Compound names are run together so 'pound-
+X     force' is a unit of force.  British units that differ from their US
+X     counterparts are prefixed with 'br', and currency is prefixed with its
+X     country name: 'belgiumfranc', 'britainpound'.  When searching for a
+X     unit, if the specified string does not appear exactly as a unit name,
+X     then the units program will try to remove a trailing 's' or a trailing
+X     'es' and check again for a match.
+X
+X     All of these definitions can be read in the standard units file, or you
+X     can supply your own file.  A unit is specified on a single line by giv-
+X     ing its name and an equivalence.  One should be careful to define new
+X     units in terms of old ones so that a reduction leads to the primitive
+X     units which are marked with '!' characters. The units program will not
+X     detect infinite loops that could be caused by careless unit definitions.
+X
+X     Prefixes are defined in the same was as standard units, but with a
+X     trailing dash at the end of the prefix name.
+X
+X   BUGS
+X
+X     The effect of including a '/' in a prefix is surprising.
+X
+X     Exponents entered by the user can be only one digit.
+X
+X     The user must use | to indicate division of numbers and / to indicate
+X     division of symbols.  This distinction should not be necessary.
+X
+X     The program contains various arbitrary limits on the length of the units
+X     converted and on the length of the data file.
+X
+X   FILES
+X     units.lib - the standard units library
+X
+X   AUTHOR
+X     Adrian Mariano (adrian@u.washington.edu or mariano@geom.umn.edu)
+X
+X
+X
+X
+X
+X
+X
+X   2
+X
+X
+X
+END_OF_FILE
+  if test 4315 -ne `wc -c <'units.doc'`; then
+    echo shar: \"'units.doc'\" unpacked with wrong size!
+  fi
+  # end of 'units.doc'
+fi
+if test -f 'units.lib' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'units.lib'\"
+else
+  echo shar: Extracting \"'units.lib'\" \(10159 characters\)
+  sed "s/^X//" >'units.lib' <<'END_OF_FILE'
+X/ primitive units
+X
+Xm			!a!
+Xkg			!b!
+Xsec			!c!
+Xcoul			!d!
+Xcandela			!e!
+Xdollar			!f!
+Xbit			!h!
+Xerlang			!i!
+XK			!j!
+X
+X/ prefixes
+X
+Xyotta-			1e24
+Xzetta-			1e21
+Xexa-			1e18
+Xpeta-			1e15
+Xtera-			1e12
+Xgiga-			1e9
+Xmega-			1e6
+Xmyria-			1e4
+Xkilo-			1e3
+Xhecto-			1e2
+Xdeka-			1e1
+Xdeci-			1e-1
+Xcenti-			1e-2
+Xmilli-			1e-3
+Xmicro-			1e-6
+Xnano-			1e-9
+Xpico-			1e-12
+Xfemto-			1e-15
+Xatto-			1e-18
+Xzopto-			1e-21
+Xyocto-			1e-24
+X
+Xsemi-			.5
+Xdemi-			.5
+X
+XY-			yotta
+XZ-			zetta
+XE-			exa
+XP-			peta
+XT-			tera
+XG-			giga
+XM-			mega
+Xk-			kilo
+Xh-			hecto
+Xda-			deka
+Xd-			deci
+Xc-			centi
+Xm-			milli
+Xp-			pico
+Xf-			femto
+Xa-			atto
+Xz-			zopto
+Xy-			yocto
+X
+X/ constants
+X
+Xfuzz			1
+Xpi			3.14159265358979323846
+Xc			2.99792458e+8 m/sec fuzz
+Xg			9.80665 m/sec2
+Xau			1.49597871e+11 m fuzz
+Xmole			6.022169e+23 fuzz
+Xe			1.6021917e-19 coul fuzz
+Xenergy			c2
+Xforce			g
+Xmercury			1.33322e+5 kg/m2-sec2
+Xhg			mercury
+X
+X/ dimensionless
+X
+Xradian			.5 / pi
+Xdegree			1|180 pi-radian
+Xcircle			2 pi-radian
+Xturn			2 pi-radian
+Xrevolution			turn
+Xrev			turn
+Xgrade			.9 degree
+Xarcdeg			1 degree
+Xarcmin			1|60 arcdeg
+Xccs			1|36 erlang
+Xarcsec			1|60 arcmin
+X
+Xsteradian		radian2
+Xsphere			4 pi-steradian
+Xsr			steradian
+X
+X/ Time
+X
+Xsecond			sec
+Xs			sec
+Xminute			60 sec
+Xmin			minute
+Xhour			60 min
+Xhr			hour
+Xday			24 hr
+Xda			day
+Xweek			7 day
+Xyear			365.24219879 day fuzz
+Xyr			year
+Xmonth			1|12 year
+Xms			millisec
+Xus			microsec
+X
+X/ Mass
+X
+Xgram			millikg
+Xgm			gram
+Xmg			milligram
+Xmetricton		kilokg
+X
+X/ Avoirdupois
+X
+Xlb			.45359237 kg
+Xpound			lb
+Xlbf			lb g
+Xounce			1|16 lb
+Xoz			ounce
+Xdram			1|16 oz
+Xdr			dram
+Xgrain			1|7000 lb
+Xgr			grain
+Xshortton		2000 lb
+Xton			shortton
+Xlongton			2240 lb
+X
+X/ Apothecary
+X
+Xscruple			20 grain
+Xapdram			60 grain
+Xapounce			480 grain
+Xappound			5760 grain
+Xtroypound		appound
+X
+X/ Length
+X
+Xmeter			m
+Xcm			centimeter
+Xmm			millimeter
+Xkm			kilometer
+Xnm			nanometer
+Xmicron			micrometer
+Xangstrom		decinanometer
+X
+Xinch			2.54 cm
+Xin			inch
+Xfoot			12 in
+Xfeet			foot
+Xft			foot
+Xyard			3 ft
+Xyd			yard
+Xrod			5.5 yd
+Xrd			rod
+Xmile			5280 ft
+Xmi			mile
+X
+Xbritish			1200|3937 m/ft
+Xnmile			1852m
+X
+Xacre			4840 yd2
+X
+Xcc			cm3
+Xliter			kilocc
+Xml			milliliter
+X
+X/ US Liquid
+X
+Xgallon			231 in3
+Ximperial		1.20095
+Xgal			gallon
+Xquart			1|4 gal
+Xqt			quart
+Xpint			1|2 qt
+Xpt			pint
+X
+Xfloz			1|16 pt
+Xfldr			1|8 floz
+X
+X/ US Dry
+X
+Xdry			268.8025 in3/gallon fuzz
+Xpeck			8 dry-quart
+Xpk			peck
+Xbushel			4 peck
+Xbu			bushel
+Xchaldron		36 bushel
+X
+X/ British
+X
+Xbrgallon		277.420 in3 fuzz
+Xbrquart			1|4 brgallon
+Xbrpint			1|2 brquart
+Xbrfloz			1|20 brpint
+Xbrpeck			554.84 in3 fuzz
+Xbrbushel		4 brpeck
+X
+X/ Energy Work
+X
+Xnewton			kg-m/sec2
+Xnt			newton
+XN			newton
+Xjoule			nt-m
+Xcal			4.1868 joule
+X
+X/ Electrical
+X
+Xcoulomb			coul
+XC			coul
+Xampere			coul/sec
+Xamp			ampere
+Xwatt			joule/sec
+Xvolt			watt/amp
+Xohm			volt/amp
+Xmho			/ohm
+Xfarad			coul/volt
+Xhenry			sec2/farad
+Xweber			volt-sec
+X
+X/ Light
+X
+Xcd			candela
+Xlumen			cd sr
+Xlux			cd sr/m2
+X
+X/ Wall Street Journal, July 2, 1993
+X
+X$			dollar
+Xargentinapeso		$
+Xaustraliadollar		.66 $
+Xaustriaschilling	.83 $
+Xbahraindinar		2.6522 $
+Xbelgiumfranc		.028 $
+Xbrazilcruzeiro		.000019 $
+Xbritainpound		1.49 $
+Xcanadadollar		.77 $
+Xczechkoruna		.034 $
+Xchilepeso		.0025 $
+Xchinarenminbi		.174856 $
+Xcolombiapeso		.001495 $
+Xdenmarkkrone		.15 $
+Xecuadorsucre		.000539 $
+Xfinlandmarkka		.17 $
+Xfrancefranc		.17 $
+Xgermanymark		.58 $
+Xgreatbritainpound	britainpound
+Xgreecedrachma		.0043 $
+Xhongkongdollar		.13  $
+Xhungaryforint		.011 $
+Xindiarupee		.03211 $
+Xindonesiarupiah		.0004782 $
+Xirelandpunt		1.43 $
+Xisraelshekel		.3642 $
+Xitalylira		.00064 $
+Xjapanyen		.0093 $
+Xjordandinar		1.4682 $
+Xkuwaitdinar		3.3173 $
+Xlebanonpound		.000578 $
+Xmalaysiaringgit		.338 $
+Xmaltalira		2.6042 $
+Xmexicopeso		.3205128 $
+Xnetherlandguilder	.52 $
+Xnewzealanddollar	.539 $
+Xnorwaykrone		.139 $
+Xpakistanrupee		.037 $
+Xperunewsol		.5065 $
+Xphilippinespeso		.03738 $
+Xpolandzloty		.000059 $
+Xportugalescudo		.00617 $
+Xsaudiarabiariyal	.26702 $
+Xsingaporedollar		.6157 $
+Xslovakkoruna		.034 $
+Xsouthamericarand	.21 $
+Xsouthkoreawon		.001 $
+Xspainpeseta		.007 $
+Xswedenkrona		.13 $
+Xswitzerlandfranc	.66 $
+Xtaiwandollar		.038285 $
+Xthailandbaht		.03962 $
+Xturkeylira		.0000929 $
+Xunitedarabdirham	.2723 $
+Xuruguaynewpeso		.246852 $
+Xvenezuelabolivar	.011 $
+X
+Xmark			germanymark
+Xbolivar			venezuelabolivar
+Xpeseta			spainpeseta
+Xrand			southafricarand
+Xescudo			portugalescudo
+Xsol			perusol
+Xguilder			netherlandsguilder
+Xhollandguilder		netherlandsguilder
+Xpeso			mexicopeso
+Xyen			japanyen
+Xlira			italylira
+Xrupee			indiarupee
+Xdrachma			greecedrachma
+Xfranc			francefranc
+Xmarkka			finlandmarkka
+Xsucre			ecuadorsucre
+Xpoundsterling		britainpound
+Xcruzeiro		brazilcruzeiro
+X
+X/ computer
+X
+Xbaud			bit/sec
+Xbyte			8 bit
+Xblock			512 byte
+Xkbyte			1024 byte
+Xmegabyte		1024 kbyte
+Xgigabyte		1024 megabyte
+Xmeg			megabyte
+X
+X
+X/ Trivia
+X
+X%			1|100
+Xadmiraltyknot		6080 ft/hr
+Xapostilb		cd/pi-m2
+Xare			1e+2 m2
+Xarpentcan		27.52 mi
+Xarpentlin		191.835 ft
+Xastronomicalunit	au
+Xatmosphere		1.01325e+5 nt/m2
+Xatm			atmosphere
+Xatomicmassunit		1.66044e-27 kg fuzz
+Xamu			atomicmassunit
+Xbag			94 lb
+Xbakersdozen		13
+Xbar			1e+5 nt/m2
+Xbarie			1e-1 nt/m2
+Xbarleycorn		1|3 in
+Xbarn			1e-28 m2
+Xbarrel			42 gal
+Xbarye			1e-1 nt/m2
+Xbev			1e+9 e-volt
+Xbiot			10 amp
+Xblondel			cd/pi-m2
+Xboardfoot		144 in3
+Xbolt			40 yd
+Xbottommeasure		1|40 in
+Xbritishthermalunit	1.05506e+3 joule fuzz
+Xbtu			britishthermalunit
+Xrefrigeration		12000 btu/ton-hour
+Xbuck			dollar
+Xcable			720 ft
+Xcaliber			1e-2 in
+Xcalorie			cal
+Xcarat			205 mg
+Xcaratgold		1|24
+Xcent			centidollar
+Xcental			100 lb
+Xcentesimalminute	1e-2 grade
+Xcentesimalsecond	1e-4 grade
+Xcentury			100 year
+Xcfs			ft3/sec
+Xchain			66 ft
+Xcircularinch		1|4 pi-in2
+Xcircularmil		1e-6|4 pi-in2
+Xclusec			1e-8 mm-hg m3/s
+Xcoomb			4 bu
+Xcord			128 ft3
+Xcordfoot		cord
+Xcrith			9.06e-2 gm
+Xcubit			18 in
+Xcup			1|2 pt
+Xcurie			3.7e+10 /sec
+Xdalton			amu
+Xdecade			10 yr
+Xdipotre			/m
+Xdisplacementton		35 ft3
+Xdoppelzentner		100 kg
+Xdozen			12
+Xdrop			.03 cm3
+Xdyne			cm-gm/sec2
+Xelectronvolt		e-volt
+Xell			45 in
+Xengineerschain		100 ft
+Xengineerslink		100|100 ft
+Xequivalentfootcandle	lumen/pi-ft2
+Xequivalentlux		lumen/pi-m2
+Xequivalentphot		cd/pi-cm2
+Xerg			cm2-gm/sec2
+Xev			e-volt
+Xfaraday			9.652e+4 coul
+Xfathom			6 ft
+Xfermi			1e-15 m
+Xfifth			4|5 qt
+Xfin			5 dollar
+Xfinger			7|8 in
+Xfirkin			9 gal
+Xfootcandle		lumen/ft2
+Xfootlambert		cd/pi-ft2
+Xfortnight		14 da
+Xfranklin		3.33564e-10 coul
+Xfrigorie		kilocal
+Xfurlong			220 yd
+Xgalileo			1e-2 m/sec2
+Xgamma			1e-9 weber/m2
+Xgauss			1e-4 weber/m2
+Xgeodeticfoot		british-ft
+Xgeographicalmile	1852 m
+Xgilbert			7.95775e-1 amp
+Xgill			1|4 pt
+Xgross			144
+Xgunterschain		22 yd
+Xhand			4 in
+Xhectare			1e+4 m2
+Xhefnercandle		.92 cd
+Xhertz			/sec
+XHz			hertz
+Xhogshead		2 barrel
+Xhd			hogshead
+Xhomestead		1|4 mi2
+Xhorsepower		550 ft-lb-g/sec
+Xhp			horsepower
+Xhyl			gm force sec2/m
+Xhz			/sec
+Ximaginarycubicfoot	1.4 ft3
+Xjeroboam		4|5 gal
+Xkarat			1|24
+Xkcal			kilocal
+Xkcalorie		kilocal
+Xkev			1e+3 e-volt
+Xkey			kg
+Xkhz			1e+3 /sec
+Xkilderkin		18 gal
+Xknot			nmile/hr
+Xlambert			cd/pi-cm2
+Xlangley			cal/cm2
+Xlast			80 bu
+Xleague			3 mi
+Xlightyear		c-yr
+Xline			1|12 in
+Xlink			66|100 ft
+Xlonghundredweight	112 lb
+Xlongquarter		28 lb
+Xlusec			1e-6 mm-hg m3/s
+Xmach			331.46 m/sec
+Xmagnum			2 qt
+Xmarineleague		3 nmile
+Xmaxwell			1e-8 weber
+Xmetriccarat		200 mg
+Xmgd			megagal/day
+Xmh			millihenry
+Xmhz			1e+6 /sec
+Xmil			1e-3 in
+Xmillenium		1000 year
+Xminersinch		1.5 ft3/min
+Xminim			1|60 fldr
+Xmo			month
+Xmpg			mile/gal
+Xmph			mile/hr
+Xnail			1|16 yd
+Xnauticalmile		nmile
+Xnit			cd/m2
+Xnoggin			1|8 qt
+Xnox			1e-3 lux
+Xns			nanosec
+Xoersted			2.5e+2 pi-amp/m
+Xoe			oersted
+Xpace			36 in
+Xpalm			3 in
+Xparasang		3.5 mi
+Xparsec			au-radian/arcsec
+Xpascal			nt/m2
+Xpc			parsec
+Xpennyweight		1|20 oz
+Xpwt			pennyweight
+Xpercent			%
+Xperch			rd
+Xpf			picofarad
+Xphot			lumen/cm2
+Xpica			1|6 in
+Xpieze			1e+3 nt/m2
+Xpipe			4 barrel
+Xpoint			1|72 in
+Xpoise			gm/cm-sec
+Xpole			rd
+Xpoundal			ft-lb/sec2
+Xpdl			poundal
+Xproof			1|200
+Xpsi			lb-g/in2
+Xquarter			9 in
+Xquartersection		1|4 mi2
+Xquintal			100 kg
+Xquire			25
+Xrad			100 erg/gm
+Xream			500
+Xregisterton		100 ft3
+Xrehoboam		156 floz
+Xrhe			10 m2/nt-sec
+Xrontgen			2.58e-4 curie/kg
+Xrood			1.21e+3 yd
+Xrope			20 ft
+Xrutherford		1e+6 /sec
+Xrydberg			1.36054e+1 ev
+Xsabin			1 ft2
+Xsack			3 bu
+Xseam			8 bu
+Xsection			mi2
+Xshippington		40 ft3
+Xshorthundredweight	100 lb
+Xshortquarter		25 lb
+Xsiemens			/ohm
+Xsigma			microsec
+Xskein			120 yd
+Xskot			1e-3 apostilb
+Xslug			lb-g-sec2/ft
+Xspan			9 in
+Xspat			4 pi sr
+Xspindle			14400 yd
+Xsquare			100 ft2
+Xstere			m3
+Xsthene			1e+3 nt
+Xstilb			cd/cm2
+Xstoke			1e-4 m2/sec
+Xstone			14 lb
+Xstrike			2 bu
+Xsurveyfoot		british-ft
+Xsurveyyard		3 surveyfoot
+Xsurveyorschain		66 ft
+Xsurveyorslink		66|100 ft
+Xtablespoon		4 fldr
+Xteaspoon		4|3 fldr
+Xtesla			weber/m2
+Xtherm			1e+5 btu
+Xthermie			1e+6 cal
+Xtimberfoot		ft3
+Xtnt			4.6e+6 m2/sec2
+Xtonne			1e+6 gm
+Xtorr			mm hg
+Xtownship		36 mi2
+Xtun			8 barrel
+Xwater			gram g / cc
+Xwey			40 bu
+Xweymass			252 lb
+XXunit			1.00202e-13m
+Xk			1.38047e-16 erg/degC
+X
+X
+XdegC			K
+Xkelvin			K
+Xbrewster		1e-12 m2/newton
+XdegF			5|9 degC
+Xdegreesrankine		degF
+Xdegrankine		degreesrankine
+Xdegreerankine		degF
+Xdegreaumur		10|8 degC
+Xdrachm			60 grain
+Xponcelet		100 kg m g / sec
+Xdenier			.05|450 gram / m
+Xtex			.001 gram / m
+Xenglishell		45 inch
+Xscottishell		37.2 inch
+Xflemishell		27 inch
+Xplanck			6.626e-34 joule-sec
+Xhbar			1.055e-34 joule-sec
+Xelectronmass		9.1095e-31 kg
+Xprotonmass		1.6726e-27 kg
+Xneutronmass		1.6606e-27 kg
+XV			volt
+XeV			e V
+Xbohrradius		hbar2-C2/8.988e9 N m2-e2-electronmass
+Xbecquerel		1|3.7e10 curie
+Xfresnel			1e12 hertz
+Xstatcoul		1|2.99792458e9 coul
+Xstatamp			1|2.99792458e9 amp
+Xstatvolt		2.99792458e2 volt
+Xstatcoulomb		statcoul
+Xstatampere		statamp
+Xdebye			3.336e-30 coul-m
+Xpulsatance		2 pi/sec
+Xrpm			rev/minute
+Xrps			rev/sec
+Xkilohm			kiloohm
+Xmegohm			megaohm
+Xsiderealyear		365.256360417 day
+Xsiderealday		23.934469444 hour
+Xsiderealhour		1|24 sidereal day
+Xlunarmonth		29.5305555 day
+Xsynodicmonth		lunarmonth
+Xsiderealmonth		27.32152777 day
+Xtropicalyear		year
+Xsolaryear		year
+Xlunaryear		12 lunarmonth
+Xcran			37.5 brgallon
+Xkip			1000 lbf
+Xfrenchfoot		16|15 ft
+Xfrenchfeet		frenchfoot
+Xtoise			6 frenchfeet
+Xsievert			8.4 rontgen
+Xcandle			1.02 candela
+Xmilitarypace		2.5 feet
+Xmetre			meter
+Xlitre			liter
+Xgramme			gram
+Xiudiptheria		62.8 microgram
+Xiupenicillin		.6 microgram
+Xiuinsulin		41.67 microgram
+Xcottonyarncount		2520 ft/pound
+Xlinenyarncount		900 ft/pound
+Xworstedyarncount	1680 ft/pound
+Xmetricyarncount		meter/gram
+Xjewlerspoint		2 milligram
+X
+END_OF_FILE
+  if test 10159 -ne `wc -c <'units.lib'`; then
+    echo shar: \"'units.lib'\" unpacked with wrong size!
+  fi
+  # end of 'units.lib'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2159 @@
+Newsgroups: comp.sources.misc
+From: fleurant@hri.com (P.Fleurant)
+Subject: v37i041:  magiccube - a cube simulator for X11/Motif, Part04/05
+Message-ID: <1993May10.213408.29831@sparky.imd.sterling.com>
+X-Md4-Signature: 97015015268469c6268a0794fb9fcf4d
+Date: Mon, 10 May 1993 21:34:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: fleurant@hri.com (P.Fleurant)
+Posting-number: Volume 37, Issue 41
+Archive-name: magiccube/part04
+Environment: X11, Motif, ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  cube/init_cubik.c cube/layer1c_txx.c cube/layer1edge_tb.c
+#   cube/layer1edge_tf.c cube/layer1edge_tl.c cube/layer1edge_tr.c
+#   cube/layer3flip.c cube/layer3twirl.c cube/lib/help_dialog.c
+#   cube/lib/quit.c cube/lib/talkto.c cube/lib/wprintf.c
+#   cube/lib/xmstr_to_str.c cube/taylor.c
+# Wrapped by kent@sparky on Mon May 10 16:15:41 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 5)."'
+if test -f 'cube/init_cubik.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/init_cubik.c'\"
+else
+  echo shar: Extracting \"'cube/init_cubik.c'\" \(5166 characters\)
+  sed "s/^X//" >'cube/init_cubik.c' <<'END_OF_FILE'
+X/*The following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------
+X
+X  init_cubik
+X  This is a callback that creates a message box.
+X  The message box contains a pallette of colors 
+X  and 6 buttons (front, back, ...etc.) for each 
+X  side of the cube. 
+X   The user chooses a side which causes the main window's
+X  canvas to display the side. Then the user picks a color
+X  from the pallette. After this the uses clicks on the 
+X  canvas' cube subplane to init to this color.
+X   
+X  `OK' ends the operation.
+X 
+X  This is used with cube.c
+X 
+X                       popup(transientShell)
+X                        |
+X                       framework
+X                        |
+X               ---------|
+X               |        |
+X            message  command
+X                        |---------|
+X                        |         |
+X                      tiles      panel
+X		      
+X */
+X#include "init_cubik.h"
+X#include "common.h"
+X
+Xvoid xcube_init_cubik(w, wdata, call_data) 
+X     Widget          w; 
+X     widget_data     *wdata;
+X     caddr_t         call_data;
+X{
+X  int        i,n;
+X  Widget     framework,message,command,tiles,panel;
+X  Arg        wargs[10];
+X  XmString   xmstr;
+X
+X  /*
+X   * Create the dialog 
+X   */
+X  wdata->popup = XtCreatePopupShell("Init_Cube",transientShellWidgetClass,
+X			     w,NULL,0);
+X
+X
+X  framework = XtCreateManagedWidget("popframework", 
+X                                    xmFormWidgetClass, 
+X                                    wdata->popup, NULL, 0);
+X
+X  /*
+X   * Count the text up to the first NULL string.
+X   */
+X  for(i=0; popup_str[i][0] != '\0'; i++)
+X    ;
+X  /*
+X   * Convert the string array to an XmString array and 
+X   * set it as the label text.
+X   */
+X  xmstr  = xs_str_array_to_xmstr(popup_str, i);
+X
+X  n = 0;
+X  XtSetArg(wargs[n],  XmNmessageString, xmstr);n++;
+X  /* add a message */
+X
+X  message = XtCreateManagedWidget("popmessage",
+X				  xmMessageBoxWidgetClass,
+X				  framework,wargs,n);
+X  /* Make the button say 'Done' instead of 'Ok' */
+X  xmstr = XmStringCreate("Done", XmSTRING_DEFAULT_CHARSET);
+X  n = 0;
+X  XtSetArg(wargs[n], XmNokLabelString, xmstr);     n++;
+X  XtSetValues(message, wargs, n);
+X  
+X  /* Add OK (Done) callback to pop down the dialog. */
+X  XtAddCallback(message, XmNokCallback, xcic_done_callback, wdata);
+X  
+X  /*
+X   * We won't be using the help and cancel widgets. Unmanage 'em.
+X   */
+X  XtUnmanageChild(XmMessageBoxGetChild (message,
+X					XmDIALOG_HELP_BUTTON));
+X  XtUnmanageChild(XmMessageBoxGetChild (message,
+X					XmDIALOG_CANCEL_BUTTON));
+X  
+X  /*
+X   * Create the column to hold pallette and side buttons (panel).
+X   */
+X  command = XtCreateManagedWidget("popcommand", 
+X                                  xmRowColumnWidgetClass, 
+X                                  framework, NULL, 0);
+X  
+X  /* add pallette */
+X  tiles = xss_create_pixmap_browser(command, 
+X				    seed_color,
+X				    6, /* sides */
+X				    set_fill_pattern, wdata->graph_pointer);
+X  /* add side buttons */
+X  panel = xss_create_label_wbutton(command, 
+X				   side_names,
+X				   6, /* sides */
+X				   set_cube_side, wdata);
+X  
+X  XtManageChild(tiles);
+X  XtManageChild(panel);
+X
+X  /* fix pallette orientation */
+X  n = 0;
+X  XtSetArg(wargs[n], XmNorientation,    XmHORIZONTAL);     n++;
+X  XtSetValues(tiles, wargs, n);
+X
+X  /* fix side names orientation */
+X  n = 0;
+X  XtSetArg(wargs[n], XmNorientation,    XmHORIZONTAL);     n++;
+X  XtSetValues(panel, wargs, n);
+X
+X  /* specifiy attachments */
+X  /* message */
+X  n = 0;
+X  XtSetArg(wargs[n], XmNtopAttachment,    XmATTACH_FORM);     n++;
+X  XtSetArg(wargs[n], XmNleftAttachment,   XmATTACH_FORM);     n++;
+X  XtSetValues(message, wargs, n);
+X
+X  /* command */
+X  n = 0;
+X  XtSetArg(wargs[n], XmNtopAttachment,    XmATTACH_WIDGET);   n++;
+X  XtSetArg(wargs[n], XmNtopWidget,        message);           n++;
+X  XtSetArg(wargs[n], XmNleftAttachment,   XmATTACH_FORM);     n++;
+X  XtSetValues(command, wargs, n);
+X
+X  /* 
+X     Cube must be inited because we can't orient back from
+X     an arbitrary r-s-f angle.
+X   */
+X  init_cube(wdata->canvas, wdata, NULL);
+X
+X  XtPopup(wdata->popup,XtGrabNone);
+X  
+X}
+X
+Xvoid xcic_done_callback(w, wdata, call_data) 
+X     Widget               w; 
+X     widget_data     *wdata;
+X     XmAnyCallbackStruct *call_data; 
+X{
+X  align_subfaces(w,wdata,call_data); /* update front[], left[],... */
+X  XtUnmanageChild(wdata->popup);
+X  XtDestroyWidget(wdata->popup);   
+X  /* reset */
+X  Fill_Pattern_Chosen = FALSE;
+X  Cube_Side_Chosen = FALSE;
+X}
+END_OF_FILE
+  if test 5166 -ne `wc -c <'cube/init_cubik.c'`; then
+    echo shar: \"'cube/init_cubik.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/init_cubik.c'
+fi
+if test -f 'cube/layer1c_txx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer1c_txx.c'\"
+else
+  echo shar: Extracting \"'cube/layer1c_txx.c'\" \(3422 characters\)
+  sed "s/^X//" >'cube/layer1c_txx.c' <<'END_OF_FILE'
+X/* layer1c_txx.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   First Layer Corner Cube top/front/right
+X----------------------------------------------------------
+X   The following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------    
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+Xvoid first_layer_corner_tfr(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Front/Right
+X   * The src cube in bottom layer is directly below
+X   * the destination cube in the top layer.
+X   * Operation depends where the TOP face is in the src cube.
+X   */
+X  
+X  if(Front(8) == TOP){
+X    F(1);D(1);F(-1);
+X    return;
+X  }
+X  else if(Right(6) == TOP){
+X    R(-1);D(-1);R(1);
+X    return;
+X  }
+X  else if(Bottom(2) == TOP){
+X    R(-1);D(1);R(1);D(2);
+X    R(-1);D(-1);R(1);
+X    return;
+X  }
+X}
+X
+Xvoid first_layer_corner_trb(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Right/Back
+X   * The src cube in bottom layer is directly below
+X   * the destination cube in the top layer.
+X   * Operation depends where the TOP face is in the src cube.
+X   */
+X  
+X  if(Right(8) == TOP){
+X    R(1);D(1);R(-1);
+X    return;
+X  }
+X  else if(Back(8) == TOP){
+X    B(-1);D(-1);B(1);
+X    return;
+X  }
+X  else if(Bottom(8) == TOP){
+X    B(-1);D(1);B(1);D(2);
+X    B(-1);D(-1);B(1);
+X    return;
+X  }
+X}
+X
+Xvoid first_layer_corner_tbl(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Back/Left
+X   * The src cube in bottom layer is directly below
+X   * the destination cube in the top layer.
+X   * Operation depends where the TOP face is in the src cube.
+X   */
+X  
+X  if(Back(6) == TOP){
+X    B(1);D(1);B(-1);
+X    return;
+X  }
+X  else if(Left(8) == TOP){
+X    L(-1);D(-1);L(1);
+X    return;
+X  }
+X  else if(Bottom(6) == TOP){
+X    L(-1);D(1);L(1);D(2);
+X    L(-1);D(-1);L(1);
+X    return;
+X  }
+X}
+X
+Xvoid first_layer_corner_tlf(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Left/Front
+X   * The src cube in bottom layer is directly below
+X   * the destination cube in the top layer.
+X   * Operation depends where the TOP face is in the src cube.
+X   */
+X  
+X  if(Left(6) == TOP){
+X    L(1);D(1);L(-1);
+X    return;
+X  }
+X  else if(Front(6) == TOP){
+X    F(-1);D(-1);F(1);
+X    return;
+X  }
+X  else if(Bottom(0) == TOP){
+X    F(-1);D(1);F(1);D(2);
+X    F(-1);D(-1);F(1);
+X    return;
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 3422 -ne `wc -c <'cube/layer1c_txx.c'`; then
+    echo shar: \"'cube/layer1c_txx.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer1c_txx.c'
+fi
+if test -f 'cube/layer1edge_tb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer1edge_tb.c'\"
+else
+  echo shar: Extracting \"'cube/layer1edge_tb.c'\" \(3460 characters\)
+  sed "s/^X//" >'cube/layer1edge_tb.c' <<'END_OF_FILE'
+X/* layer1edge_tb.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   First Layer Edge Cube top/back
+X
+X
+X   The following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------    
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+Xvoid first_layer_edge_cube_tb(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Right */
+X  /* Search for the Top/Back edge cube.
+X     There are 12 edge cubes in all,
+X     with 2 possible configurations: Top/Back
+X     or Back/Top.
+X     */
+X  
+X  /* Top edge cubes */
+X  if(Top(1) == BACK && Front(1) == TOP){
+X    F(2);D(-1);L(1);B(-1);L(-1);
+X  }
+X  
+X  else if(Top(5) == BACK && Right(1) == TOP){
+X    R(1);B(1);
+X  }
+X  
+X  else if(Top(7) == BACK && Back(1) == TOP){
+X    B(2);D(1);L(1);B(-1);L(-1);
+X  } 
+X  
+X  else if(Top(3) == BACK && Left(1) == TOP){
+X    L(-1);B(-1);
+X  }
+X
+X
+X
+X  
+X  else if(Top(1) == TOP && Front(1) == BACK){
+X    F(2);D(2);B(2);
+X  }
+X  
+X  else if(Top(5) == TOP && Right(1) == BACK){
+X    R(2);D(1);B(2);
+X  }
+X  
+X  else if(Top(7) == TOP && Back(1) == BACK){
+X    /* the correct one */ 
+X    ;
+X  } 
+X  
+X  else if(Top(3) == TOP && Left(1) == BACK){
+X    L(2);D(-1);B(2);
+X  }
+X
+X
+X
+X  /* middle edge cubes */ 
+X  else if(Front(5) == BACK && Right(3) == TOP){
+X    F(1);D(2);F(-1);B(2);
+X  }
+X  
+X  else if(Right(5) == BACK && Back(5) == TOP){
+X    R(1);D(1);R(-1);B(2);
+X  }
+X  
+X  else if(Back(3) == BACK && Left(5) == TOP){
+X    B(-1);
+X  } 
+X
+X  else if(Left(3) == BACK && Front(3) == TOP){
+X    F(-1);D(-1);F(1);L(1);B(-1);L(-1);
+X  }
+X
+X
+X
+X  else if(Front(5) == TOP && Right(3) == BACK){
+X    F(1);D(-1);F(-1);L(1);B(-1);L(-1);
+X  }
+X
+X  else if(Right(5) == TOP && Back(5) == BACK){
+X    B(1);
+X  }
+X
+X  else if(Back(3) == TOP && Left(5) == BACK){
+X    B(1);D(1);L(1);B(-1);L(-1);
+X  } 
+X
+X  else if(Left(3) == TOP && Front(3) == BACK){
+X    L(2);B(-1);L(-2);
+X  }
+X
+X
+X  /* Bottom edge cubes */
+X  else if(Bottom(1) == BACK && Front(7) == TOP){
+X    D(-1);L(1);B(-1);L(-1);
+X  }
+X  
+X  else if(Bottom(5) == BACK && Right(7) == TOP){
+X    R(-1);B(1);R(1);
+X  }
+X  
+X  else if(Bottom(7) == BACK && Back(7) == TOP){
+X    D(1);L(1);B(-1);L(-1);
+X  } 
+X  
+X  else if(Bottom(3) == BACK && Left(7) == TOP){
+X    L(1);B(-1);L(-1);
+X  }
+X
+X
+X  else if(Bottom(1) == TOP && Front(7) == BACK){
+X    D(2);B(2);
+X  }
+X
+X  else if(Bottom(5) == TOP && Right(7) == BACK){
+X    D(1);B(2);
+X  }
+X
+X  else if(Bottom(7) == TOP && Back(7) == BACK){
+X    B(2);
+X  } 
+X
+X  else if(Bottom(3) == TOP && Left(7) == BACK){
+X    D(-1);B(2);
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 3460 -ne `wc -c <'cube/layer1edge_tb.c'`; then
+    echo shar: \"'cube/layer1edge_tb.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer1edge_tb.c'
+fi
+if test -f 'cube/layer1edge_tf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer1edge_tf.c'\"
+else
+  echo shar: Extracting \"'cube/layer1edge_tf.c'\" \(3480 characters\)
+  sed "s/^X//" >'cube/layer1edge_tf.c' <<'END_OF_FILE'
+X/* layer1edge_tf.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   First Layer Edge Cube top/front
+X   
+XThe following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------    
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+Xvoid first_layer_edge_cube_tf(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Front */
+X  /* Search for the Top/Front edge cube.
+X     There are 12 edge cubes in all,
+X     with 2 possible configurations: Top/Front
+X     or Front/Top.
+X     */
+X  
+X  /* Top edge cubes */
+X  if(Top(1) == FRONT && Front(1) == TOP){
+X    F(2);D(1);R(1);F(-1);R(-1);
+X  }
+X  
+X  else if(Top(5) == FRONT && Right(1) == TOP){
+X    R(-1);F(-1);
+X  }
+X  
+X  else if(Top(7) == FRONT && Back(1) == TOP){
+X    B(2);D(-1);R(1);F(-1);R(-1);
+X  } 
+X  
+X  else if(Top(3) == FRONT && Left(1) == TOP){
+X    L(1);F(1);
+X  }
+X
+X
+X  
+X  else if(Top(1) == TOP && Front(1) == FRONT){
+X    /* the correct one */ 
+X    ;
+X  }
+X  
+X  else if(Top(5) == TOP && Right(1) == FRONT){
+X    R(2);D(-1);F(2);
+X  }
+X  
+X  else if(Top(7) == TOP && Back(1) == FRONT){
+X    B(2);D(2);F(2);
+X  } 
+X  
+X  else if(Top(3) == TOP && Left(1) == FRONT){
+X    L(2);D(1);F(2);
+X  }
+X
+X  /* middle edge cubes */ 
+X  else if(Front(5) == FRONT && Right(3) == TOP){
+X    F(-1);
+X  }
+X  
+X  else if(Right(5) == FRONT && Back(5) == TOP){
+X    B(-1);D(-1);B(1);R(1);F(-1);R(-1);
+X  }
+X  
+X  else if(Back(3) == FRONT && Left(5) == TOP){
+X    B(1);D(2);B(-1);F(2);
+X  } 
+X
+X  else if(Left(3) == FRONT && Front(3) == TOP){
+X    L(1);D(1);L(-1);F(2);
+X  }
+X
+X
+X
+X  else if(Front(5) == TOP && Right(3) == FRONT){
+X    F(1);D(1);R(1);F(-1);R(-1);
+X  }
+X
+X  else if(Right(5) == TOP && Back(5) == FRONT){
+X    R(2);F(-1);R(-2);
+X  }
+X
+X  else if(Back(3) == TOP && Left(5) == FRONT){
+X    B(1);D(-1);B(-1);R(1);F(-1);R(-1);
+X  } 
+X
+X  else if(Left(3) == TOP && Front(3) == FRONT){
+X    F(1);
+X  }
+X
+X
+X  /* Bottom edge cubes */
+X  else if(Bottom(1) == FRONT && Front(7) == TOP){
+X    D(1);R(1);F(-1);R(-1);
+X  }
+X  
+X  else if(Bottom(5) == FRONT && Right(7) == TOP){
+X    R(1);F(-1);R(-1);
+X  }
+X
+X  else if(Bottom(7) == FRONT && Back(7) == TOP){
+X    D(-1);R(1);F(-1);R(-1);
+X  } 
+X
+X  else if(Bottom(3) == FRONT && Left(7) == TOP){
+X    L(-1);F(1);L(1);
+X  }
+X
+X
+X  else if(Bottom(1) == TOP && Front(7) == FRONT){
+X    F(2);
+X  }
+X
+X  else if(Bottom(5) == TOP && Right(7) == FRONT){
+X    D(-1);F(2);
+X  }
+X
+X  else if(Bottom(7) == TOP && Back(7) == FRONT){
+X    D(2);F(2);
+X  } 
+X
+X  else if(Bottom(3) == TOP && Left(7) == FRONT){
+X    D(1);F(2);
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 3480 -ne `wc -c <'cube/layer1edge_tf.c'`; then
+    echo shar: \"'cube/layer1edge_tf.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer1edge_tf.c'
+fi
+if test -f 'cube/layer1edge_tl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer1edge_tl.c'\"
+else
+  echo shar: Extracting \"'cube/layer1edge_tl.c'\" \(3461 characters\)
+  sed "s/^X//" >'cube/layer1edge_tl.c' <<'END_OF_FILE'
+X/* layer1edge_tl.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   First Layer Edge Cube top/back
+X   
+X
+XThe following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X------------------------------------------------------------------- 
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+Xvoid first_layer_edge_cube_tl(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Right */
+X  /* Search for the Top/Left edge cube.
+X     There are 12 edge cubes in all,
+X     with 2 possible configurations: Top/Left
+X     or Left/Top.
+X     */
+X  
+X  /* Top edge cubes */
+X  if(Top(1) == LEFT && Front(1) == TOP){
+X    F(-1);L(-1);
+X  }
+X  
+X  else if(Top(5) == LEFT && Right(1) == TOP){
+X    R(2);D(-1);F(1);L(-1);F(-1);
+X  }
+X  
+X  else if(Top(7) == LEFT && Back(1) == TOP){
+X    B(1);L(1);
+X  } 
+X  
+X  else if(Top(3) == LEFT && Left(1) == TOP){
+X    L(2);D(1);F(1);L(-1);F(-1);
+X  }
+X
+X  
+X
+X
+X  else if(Top(1) == TOP && Front(1) == LEFT){
+X    F(2);D(-1);L(2);
+X  }
+X  
+X  else if(Top(5) == TOP && Right(1) == LEFT){
+X    R(2);D(2);L(2);
+X  }
+X  
+X  else if(Top(7) == TOP && Back(1) == LEFT){
+X    B(2);D(1);L(2);
+X  } 
+X  
+X  else if(Top(3) == TOP && Left(1) == LEFT){
+X    /* the correct one */ 
+X    ;
+X  }
+X
+X
+X
+X  /* middle edge cubes */ 
+X  else if(Front(5) == LEFT && Right(3) == TOP){
+X    R(-1);D(-1);R(1);F(1);L(-1);F(-1);
+X  }
+X  
+X  else if(Right(5) == LEFT && Back(5) == TOP){
+X    R(1);D(2);R(-1);L(2);
+X  }
+X  
+X  else if(Back(3) == LEFT && Left(5) == TOP){
+X    B(1);D(1);B(-1);L(2);
+X  } 
+X
+X  else if(Left(3) == LEFT && Front(3) == TOP){
+X    L(-1);
+X  }
+X
+X
+X
+X
+X  else if(Front(5) == TOP && Right(3) == LEFT){
+X    F(2);L(-1);F(-2);
+X  }
+X
+X  else if(Right(5) == TOP && Back(5) == LEFT){
+X    R(1);D(-1);R(-1);F(1);L(-1);F(-1);
+X  }
+X
+X  else if(Back(3) == TOP && Left(5) == LEFT){
+X    L(1);
+X  } 
+X
+X  else if(Left(3) == TOP && Front(3) == LEFT){
+X    L(1);D(1);F(1);L(-1);F(-1);
+X  }
+X
+X
+X
+X  /* Bottom edge cubes */
+X  else if(Bottom(1) == LEFT && Front(7) == TOP){
+X    F(1);L(-1);F(-1);
+X  }
+X  
+X  else if(Bottom(5) == LEFT && Right(7) == TOP){
+X    D(-1);F(1);L(-1);F(-1);
+X  }
+X  
+X  else if(Bottom(7) == LEFT && Back(7) == TOP){
+X    B(-1);L(1);B(1);
+X  } 
+X  
+X  else if(Bottom(3) == LEFT && Left(7) == TOP){
+X    D(1);F(1);L(-1);F(-1);
+X  }
+X
+X
+X
+X
+X  else if(Bottom(1) == TOP && Front(7) == LEFT){
+X    D(-1);L(2);
+X  }
+X
+X  else if(Bottom(5) == TOP && Right(7) == LEFT){
+X    D(2);L(2);
+X  }
+X
+X  else if(Bottom(7) == TOP && Back(7) == LEFT){
+X    D(1);L(2);
+X  } 
+X
+X  else if(Bottom(3) == TOP && Left(7) == LEFT){
+X    L(2);
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 3461 -ne `wc -c <'cube/layer1edge_tl.c'`; then
+    echo shar: \"'cube/layer1edge_tl.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer1edge_tl.c'
+fi
+if test -f 'cube/layer1edge_tr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer1edge_tr.c'\"
+else
+  echo shar: Extracting \"'cube/layer1edge_tr.c'\" \(3483 characters\)
+  sed "s/^X//" >'cube/layer1edge_tr.c' <<'END_OF_FILE'
+X/* layer1edge_tr.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   First Layer Edge Cube top/front
+X
+X
+X   The following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------    
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+Xvoid first_layer_edge_cube_tr(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Top/Right */
+X  /* Search for the Top/Right edge cube.
+X     There are 12 edge cubes in all,
+X     with 2 possible configurations: Top/Right
+X     or Right/Top.
+X     */
+X  
+X  /* Top edge cubes */
+X  if(Top(1) == RIGHT && Front(1) == TOP){
+X    F(1);R(1);
+X  }
+X  
+X  else if(Top(5) == RIGHT && Right(1) == TOP){
+X    R(2);D(1);B(1);R(-1);B(-1);
+X  }
+X  
+X  else if(Top(7) == RIGHT && Back(1) == TOP){
+X    B(-1);R(-1);
+X  } 
+X  
+X  else if(Top(3) == RIGHT && Left(1) == TOP){
+X    L(2);D(-1);B(1);R(-1);B(-1);
+X  }
+X  
+X
+X  
+X  else if(Top(1) == TOP && Front(1) == RIGHT){
+X    F(2);D(1);R(2);
+X  }
+X  
+X  else if(Top(5) == TOP && Right(1) == RIGHT){
+X    /* the correct one */ 
+X    ;
+X  }
+X  
+X  else if(Top(7) == TOP && Back(1) == RIGHT){
+X    B(2);D(-1);R(2);
+X  } 
+X  
+X  else if(Top(3) == TOP && Left(1) == RIGHT){
+X    L(2);D(2);R(2);
+X  }
+X
+X  /* middle edge cubes */ 
+X  else if(Front(5) == RIGHT && Right(3) == TOP){
+X    F(1);D(1);F(-1);R(2);
+X  }
+X  
+X  else if(Right(5) == RIGHT && Back(5) == TOP){
+X    R(-1);
+X  }
+X  
+X  else if(Back(3) == RIGHT && Left(5) == TOP){
+X    L(-1);D(-1);L(1);B(1);R(-1);B(-1);
+X  } 
+X
+X  else if(Left(3) == RIGHT && Front(3) == TOP){
+X    L(1);D(2);L(-1);R(2);
+X  }
+X
+X
+X
+X  else if(Front(5) == TOP && Right(3) == RIGHT){
+X    R(1);
+X  }
+X
+X  else if(Right(5) == TOP && Back(5) == RIGHT){
+X    R(1);D(1);B(1);R(-1);B(-1);
+X  }
+X
+X  else if(Back(3) == TOP && Left(5) == RIGHT){
+X    B(2);R(-1);B(-2);
+X  } 
+X
+X  else if(Left(3) == TOP && Front(3) == RIGHT){
+X    L(1);D(-1);L(-1);B(1);R(-1);B(-1);
+X  }
+X
+X
+X  /* Bottom edge cubes */
+X  else if(Bottom(1) == RIGHT && Front(7) == TOP){
+X    F(-1);R(1);F(1);
+X  }
+X  
+X  else if(Bottom(5) == RIGHT && Right(7) == TOP){
+X    D(1);B(1);R(-1);B(-1);
+X  }
+X
+X  else if(Bottom(7) == RIGHT && Back(7) == TOP){
+X    B(1);R(-1);B(-1);
+X  } 
+X
+X  else if(Bottom(3) == RIGHT && Left(7) == TOP){
+X    D(-1);B(1);R(-1);B(-1);
+X  }
+X
+X
+X  else if(Bottom(1) == TOP && Front(7) == RIGHT){
+X    D(1);R(2);
+X  }
+X
+X  else if(Bottom(5) == TOP && Right(7) == RIGHT){
+X    R(2);
+X  }
+X
+X  else if(Bottom(7) == TOP && Back(7) == RIGHT){
+X    D(-1);R(2);
+X  } 
+X
+X  else if(Bottom(3) == TOP && Left(7) == RIGHT){
+X    D(2);R(2);
+X  }
+X}
+X
+X
+X
+X
+END_OF_FILE
+  if test 3483 -ne `wc -c <'cube/layer1edge_tr.c'`; then
+    echo shar: \"'cube/layer1edge_tr.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer1edge_tr.c'
+fi
+if test -f 'cube/layer3flip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer3flip.c'\"
+else
+  echo shar: Extracting \"'cube/layer3flip.c'\" \(3595 characters\)
+  sed "s/^X//" >'cube/layer3flip.c' <<'END_OF_FILE'
+X/* layer3flip.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   Last Layer Cubes
+X
+X   Flip edge cubes.
+X
+XThe following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+XBoolean flip(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Test if ok */
+X  if(Front(7) == FRONT &&
+X     Right(7) == RIGHT &&
+X     Back(7)  == BACK  &&
+X     Left(7)  == LEFT)
+X    return(True);
+X
+X  /* Here if not ok 
+X   * Flip corners   
+X   * There are always an even number of cubes that nedd to be flipped.
+X   *
+X   * Look for an edge that needs to be flipped.
+X   */
+X  if(Front(7) == BOTTOM){
+X    F(1);D(1);U(-1);R(2);D(2);U(2);L(1);
+X    if(Left(7) == BOTTOM){
+X      L(-1);U(2);D(2);R(2);U(1);D(-1);F(-1);
+X    }
+X    else if(Back(7) == BOTTOM){
+X      D(1);
+X      L(-1);U(2);D(2);R(2);U(1);D(-1);F(-1);
+X      D(-1);
+X    }
+X    else if(Right(7) == BOTTOM){
+X      D(2);
+X      L(-1);U(2);D(2);R(2);U(1);D(-1);F(-1);
+X      D(2);
+X    }
+X    else if(Front(7) == BOTTOM){
+X      D(-1);
+X      L(-1);U(2);D(2);R(2);U(1);D(-1);F(-1);
+X      D(1);
+X    }
+X  }
+X  else if(Right(7) == BOTTOM){
+X    R(1);D(1);U(-1);B(2);D(2);U(2);F(1);
+X    if(Front(7) == BOTTOM){
+X      F(-1);U(2);D(2);B(2);U(1);D(-1);R(-1);
+X    }
+X    else if(Left(7) == BOTTOM){
+X      D(1);
+X      F(-1);U(2);D(2);B(2);U(1);D(-1);R(-1);
+X      D(-1);
+X    }
+X    else if(Back(7) == BOTTOM){
+X      D(2);
+X      F(-1);U(2);D(2);B(2);U(1);D(-1);R(-1);
+X      D(2);
+X    }
+X    else if(Right(7) == BOTTOM){
+X      D(-1);
+X      F(-1);U(2);D(2);B(2);U(1);D(-1);R(-1);
+X      D(1);
+X    }
+X  }
+X  else if(Back(7) == BOTTOM){
+X    B(1);D(1);U(-1);L(2);D(2);U(2);R(1);
+X    if(Right(7) == BOTTOM){
+X      R(-1);U(2);D(2);L(2);U(1);D(-1);B(-1);
+X    }
+X    else if(Front(7) == BOTTOM){
+X      D(1);
+X      R(-1);U(2);D(2);L(2);U(1);D(-1);B(-1);
+X      D(-1);
+X    }
+X    else if(Left(7) == BOTTOM){
+X      D(2);
+X      R(-1);U(2);D(2);L(2);U(1);D(-1);B(-1);
+X      D(2);
+X    }
+X    else if(Back(7) == BOTTOM){
+X      D(-1);
+X      R(-1);U(2);D(2);L(2);U(1);D(-1);B(-1);
+X      D(1);
+X    }
+X  }
+X  else if(Left(7) == BOTTOM){
+X    L(1);D(1);U(-1);F(2);D(2);U(2);B(1);
+X    if(Back(7) == BOTTOM){
+X      B(-1);U(2);D(2);F(2);U(1);D(-1);L(-1);
+X    }
+X    else if(Right(7) == BOTTOM){
+X      D(1);
+X      B(-1);U(2);D(2);F(2);U(1);D(-1);L(-1);
+X      D(-1);
+X    }
+X    else if(Front(7) == BOTTOM){
+X      D(2);
+X      B(-1);U(2);D(2);F(2);U(1);D(-1);L(-1);
+X      D(2);
+X    }
+X    else if(Left(7) == BOTTOM){
+X      D(-1);
+X      B(-1);U(2);D(2);F(2);U(1);D(-1);L(-1);
+X      D(1);
+X    }
+X  }
+X  return(False);
+X}
+END_OF_FILE
+  if test 3595 -ne `wc -c <'cube/layer3flip.c'`; then
+    echo shar: \"'cube/layer3flip.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer3flip.c'
+fi
+if test -f 'cube/layer3twirl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/layer3twirl.c'\"
+else
+  echo shar: Extracting \"'cube/layer3twirl.c'\" \(4294 characters\)
+  sed "s/^X//" >'cube/layer3twirl.c' <<'END_OF_FILE'
+X/* layer3twirl.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   Last Layer Cubes
+X
+X   Twirl corner cubes.
+X
+X
+XThe following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------
+X*/   
+X
+X#include "taylor.h"
+X
+Xextern void F(); /*  front  */
+Xextern void L(); /*  left   */
+Xextern void R(); /*  right  */
+Xextern void B(); /*  back   */
+Xextern void U(); /*  up     */
+Xextern void D(); /*  down   */
+X
+XBoolean twirl(w,wdata,call_data) /* These parameters needed for macros */
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Test if ok */
+X  if(Front(6) == FRONT &&
+X     Right(6) == RIGHT &&
+X     Back(8)  == BACK  &&
+X     Left(8)  == LEFT)
+X    return(True);
+X
+X  /* Here if not ok */
+X  /* Twirl corners */
+X  /* 3 possibilities:
+X   * 1: one corner needs twirl clockwise and another needs twirl anti-clockwise
+X   * 2: two corners need twirl clockwise and other two need twirl anti-clockwise
+X   * 3: three corners need to be twirled the same way
+X   * 
+X   * The twirl algorithm twirls one corner clockwise, and another anti-clockwise.
+X   * This is repeated until all 4 corners are correct.
+X   */
+X
+X  /* Find a corner that needs a clockwise twirl.
+X   * (Note: all corners are in correct position.
+X   * A corner needs a clockwise twirl if the front matches the top with
+X   * said cube oriented in a top right-hand position.
+X   * A corner needs an anti-clockwise twirl if the right-hand face matches the top.)
+X   */
+X
+X  if(Front(6) == BOTTOM){
+X    L(-1);U(1);L(1);F(1);U(1);F(-1);
+X    /* Now search for cube that needs an anti-clockwise turn. */
+X    if(Back(6) == BOTTOM){
+X      D(1);
+X      F(1);U(-1);F(-1);L(-1);U(-1);L(1);
+X      D(-1);
+X    }
+X    else if(Right(8) == BOTTOM){
+X      D(2);
+X      F(1);U(-1);F(-1);L(-1);U(-1);L(1);
+X      D(2);
+X    }
+X    else if(Front(8) == BOTTOM){
+X      D(-1);
+X      F(1);U(-1);F(-1);L(-1);U(-1);L(1);
+X      D(1);
+X    }
+X  }
+X  else if(Right(6) == BOTTOM){
+X    F(-1);U(1);F(1);R(1);U(1);R(-1);
+X    if(Left(6) == BOTTOM){
+X      D(1);
+X      R(1);U(-1);R(-1);F(-1);U(-1);F(1);
+X      D(-1);
+X    }
+X    else if(Back(6) == BOTTOM){
+X      D(2);
+X      R(1);U(-1);R(-1);F(-1);U(-1);F(1);
+X      D(2);
+X    }
+X    else if(Right(8) == BOTTOM){
+X      D(-1);
+X      R(1);U(-1);R(-1);F(-1);U(-1);F(1);
+X      D(1);
+X    }
+X  }
+X  else if(Back(8) == BOTTOM){
+X    R(-1);U(1);R(1);B(1);U(1);B(-1);
+X    if(Front(8) == BOTTOM){
+X      D(1);
+X      B(1);U(-1);B(-1);R(-1);U(-1);R(1);
+X      D(-1);
+X    }
+X    else if(Left(6) == BOTTOM){
+X      D(2);
+X      B(1);U(-1);B(-1);R(-1);U(-1);R(1);
+X      D(2);
+X    }
+X    else if(Back(6) == BOTTOM){
+X      D(-1);
+X      B(1);U(-1);B(-1);R(-1);U(-1);R(1);
+X      D(1);
+X    }
+X  }
+X  else if(Left(8) == BOTTOM){
+X    B(-1);U(1);B(1);L(1);U(1);L(-1);
+X    if(Right(8) == BOTTOM){
+X      D(1);
+X      L(1);U(-1);L(-1);B(-1);U(-1);B(1);
+X      D(-1);
+X    }
+X    else if(Front(8) == BOTTOM){
+X      D(2);
+X      L(1);U(-1);L(-1);B(-1);U(-1);B(1);
+X      D(2);
+X    }
+X    else if(Left(6) == BOTTOM){
+X      D(-1);
+X      L(1);U(-1);L(-1);B(-1);U(-1);B(1);
+X      D(1);
+X    }
+X  }
+X  else{
+X    /* Here if not ok and no corners need clockwise twirl.
+X     * So this is case 3 with three corners needing an
+X     * anti-clockwise twirl.
+X     * 
+X     * So we perform operations to create atleast 1 corner
+X     * needing a clockwise twirl, then return false.
+X     * Operation is from "Front(6) == BOTTOM/Back(6) == BOTTOM" case.
+X     */
+X    L(-1);U(1);L(1);F(1);U(1);F(-1);
+X    D(1);
+X    F(1);U(-1);F(-1);L(-1);U(-1);L(1);
+X    D(-1);
+X  }
+X  return(False);
+X}
+END_OF_FILE
+  if test 4294 -ne `wc -c <'cube/layer3twirl.c'`; then
+    echo shar: \"'cube/layer3twirl.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/layer3twirl.c'
+fi
+if test -f 'cube/lib/help_dialog.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/lib/help_dialog.c'\"
+else
+  echo shar: Extracting \"'cube/lib/help_dialog.c'\" \(4205 characters\)
+  sed "s/^X//" >'cube/lib/help_dialog.c' <<'END_OF_FILE'
+X/**********************************************************
+X * A help callback.
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages:  119-121
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X#include <X11/StringDefs.h>
+X#include <X11/Intrinsic.h> 
+X#include <Xm/Xm.h>
+X#include <Xm/MessageB.h>
+X#include "libXs.h"
+X
+Xstatic void xs_ok_callback();
+X
+Xvoid xs_help_callback(w, str, call_data) 
+X     Widget    w; 
+X     char     *str[];
+X     caddr_t   call_data;
+X{
+X  int        i, n;
+X  Widget     dialog;
+X  Widget     label;
+X  XmString   xmstr;
+X  Arg        wargs[5];
+X  /*
+X   * Create the message dialog to display the help.
+X   */
+X   n = 0;
+X   XtSetArg(wargs[n], XmNautoUnmanage, FALSE); n++;
+X   dialog = XmCreateMessageDialog(w, "Help", wargs, n);
+X   /*
+X    * We won't be using the cancel widget. Unmanage it.
+X    */
+X   XtUnmanageChild(XmMessageBoxGetChild (dialog,
+X                   XmDIALOG_CANCEL_BUTTON));
+X   /*
+X    * Retrieve the label widget and make the 
+X    * text left justified
+X    */
+X   label = XmMessageBoxGetChild (dialog,
+X                                 XmDIALOG_MESSAGE_LABEL);
+X   n = 0;
+X   XtSetArg(wargs[n],XmNalignment,XmALIGNMENT_BEGINNING);n++;
+X   XtSetValues(label, wargs, n);
+X   /*
+X    * Add an OK callback to pop down the dialog.
+X    */
+X   XtAddCallback(dialog, XmNokCallback, 
+X                 xs_ok_callback, NULL);
+X  /*
+X   * Count the text up to the first NULL string.
+X   */
+X  for(i=0; str[i][0] != '\0'; i++)
+X    ;
+X  /*
+X   * Convert the string array to an XmString array and 
+X   * set it as the label text.
+X   */
+X  xmstr  = xs_str_array_to_xmstr(str, i);
+X  n = 0;
+X  XtSetArg(wargs[n],  XmNmessageString, xmstr);n++;
+X  XtSetValues(dialog, wargs, n);
+X  /*
+X   * If the next entry in the help string array is also NULL,
+X   * then this is the last message. Unmanage the help button.
+X   */
+X  if(str[++i][0] == '\0')
+X    XtUnmanageChild(XmMessageBoxGetChild (dialog,
+X                    XmDIALOG_HELP_BUTTON));
+X  /*
+X   * Otherwise, add a help callback function with the address of 
+X   * the next entry  in the help string as client_data.
+X   */
+X  else{
+X    XtAddCallback(dialog, XmNhelpCallback, 
+X                  xs_help_callback, &str[i]);
+X  }
+X  /*
+X   * Display the dialog.
+X   */
+X  XtManageChild(dialog);
+X}
+X
+Xstatic void xs_ok_callback(w, client_data, call_data) 
+X   Widget               w; 
+X   caddr_t              client_data;
+X   XmAnyCallbackStruct *call_data; 
+X{
+X   XtUnmanageChild(w);
+X   XtDestroyWidget(w);   
+X}
+END_OF_FILE
+  if test 4205 -ne `wc -c <'cube/lib/help_dialog.c'`; then
+    echo shar: \"'cube/lib/help_dialog.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/lib/help_dialog.c'
+fi
+if test -f 'cube/lib/quit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/lib/quit.c'\"
+else
+  echo shar: Extracting \"'cube/lib/quit.c'\" \(3250 characters\)
+  sed "s/^X//" >'cube/lib/quit.c' <<'END_OF_FILE'
+X/*******************************************************
+X * quit.c: A utility function that adds a quit button 
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages:  77-78
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <Xm/Xm.h>
+X#include <Xm/PushB.h>
+X
+X/* 
+X * Define three callbacks. Make them static - no need 
+X * to make them known outside this file.
+X */
+Xstatic void arm_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+X{
+X *flag = FALSE;
+X}
+Xstatic void activate_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+X{
+X  *flag = TRUE;
+X}
+Xstatic void disarm_callback(w, flag, call_data)
+X     Widget     w;
+X     int       *flag;
+X     XmAnyCallbackStruct *call_data; 
+X{
+X  if(*flag){
+X    XtCloseDisplay(XtDisplay(w));
+X    exit(0);
+X  }
+X}
+X/* 
+X * Function to add a quit button as a child of any widget.
+X */
+XWidget xs_create_quit_button(parent)
+X   Widget  parent;
+X{
+X   Widget     w;
+X   static int really_quit;
+X   w = XtCreateManagedWidget("quit", xmPushButtonWidgetClass,
+X                            parent, NULL, 0);
+X   XtAddCallback(w, XmNarmCallback, 
+X                 arm_callback, &really_quit);
+X   XtAddCallback(w, XmNdisarmCallback, 
+X                 disarm_callback, &really_quit);
+X   XtAddCallback(w, XmNactivateCallback, 
+X                 activate_callback, &really_quit);     
+X   return (w);
+X}
+END_OF_FILE
+  if test 3250 -ne `wc -c <'cube/lib/quit.c'`; then
+    echo shar: \"'cube/lib/quit.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/lib/quit.c'
+fi
+if test -f 'cube/lib/talkto.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/lib/talkto.c'\"
+else
+  echo shar: Extracting \"'cube/lib/talkto.c'\" \(3249 characters\)
+  sed "s/^X//" >'cube/lib/talkto.c' <<'END_OF_FILE'
+X/********************************************************************************
+X *  xs_talkto(): connect two processes suchj that stdin of each reads from 
+X *  stdout of the other
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages:  ??
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X#include 	<stdio.h>
+Xvoid xs_talkto(cmd)
+X   char   *cmd;
+X{
+X  int   to_child[2], /* pipe descriptors from parent->child */
+X        to_parent[2];/* pipe descriptors from child->parent */
+X  int   pid;
+X  pipe(to_child);
+X  pipe(to_parent);
+X  if (pid = fork(), pid == 0){    /* in the child   */
+X     close(0);                    /* redirect stdin */
+X     dup(to_child[0]);
+X     close(1);                    /* redirect stdout*/
+X     dup(to_parent[1]);
+X     close(to_child[0]);          /* close pipes    */
+X     close(to_child[1]);
+X     close(to_parent[0]);
+X     close(to_parent[1]);
+X     execlp(cmd, cmd, NULL);      /* exec the new cmd */
+X   }
+X   else if (pid > 0){             /* in the parent  */
+X      close(0);                   /* redirect stdin */
+X      dup(to_parent[0]);
+X      close(1);                   /* redirect stdout  */
+X      dup(to_child[1]);
+X      setbuf(stdout, NULL);       /* no buffered output */
+X      close(to_child[0]);         /* close pipes */
+X      close(to_child[1]);
+X      close(to_parent[0]);
+X      close(to_parent[1]);
+X    }
+X    else {                        /* error!       */
+X      fprintf(stderr,"Couldn't fork process %s\n", cmd);
+X      exit(1);
+X    }
+X}
+END_OF_FILE
+  if test 3249 -ne `wc -c <'cube/lib/talkto.c'`; then
+    echo shar: \"'cube/lib/talkto.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/lib/talkto.c'
+fi
+if test -f 'cube/lib/wprintf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/lib/wprintf.c'\"
+else
+  echo shar: Extracting \"'cube/lib/wprintf.c'\" \(3012 characters\)
+  sed "s/^X//" >'cube/lib/wprintf.c' <<'END_OF_FILE'
+X/*********************************************************
+X * xs_wprintf: fprintf-like function for XmLabel widgets
+X  *         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages: ??
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X#include <varargs.h>
+X#include <stdio.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Label.h>
+X
+Xvoid xs_wprintf(va_alist)
+X     va_dcl
+X{
+X  Widget    w;
+X  char     *format;
+X  va_list   args;
+X  char      str[1000];  /* DANGER: Fixed buffer size */
+X  Arg       wargs[1];
+X  XmString  xmstr;
+X  /*
+X   * Init the variable length args list.
+X   */
+X  va_start(args);
+X  /*
+X   * Extract the destination widget.
+X   * Make sure it is a subclass of XmLabel.
+X   */
+X  w = va_arg(args, Widget);
+X  if(!XtIsSubclass(w, xmLabelWidgetClass))
+X     XtError("xs_wprintf() requires a Label Widget");
+X  /*
+X   * Extract the format to be used.
+X   */
+X  format = va_arg(args, char *);
+X  /*
+X   * Use vsprintf to format the string to be displayed in the
+X   * XmLabel widget, then convert it to a compound string
+X   */
+X  vsprintf(str, format, args);
+X  xmstr =  XmStringLtoRCreate(str, XmSTRING_DEFAULT_CHARSET);
+X
+X  XtSetArg(wargs[0], XmNlabelString, xmstr);
+X  XtSetValues(w, wargs, 1);     
+X
+X  va_end(args);
+X}
+END_OF_FILE
+  if test 3012 -ne `wc -c <'cube/lib/wprintf.c'`; then
+    echo shar: \"'cube/lib/wprintf.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/lib/wprintf.c'
+fi
+if test -f 'cube/lib/xmstr_to_str.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/lib/xmstr_to_str.c'\"
+else
+  echo shar: Extracting \"'cube/lib/xmstr_to_str.c'\" \(2966 characters\)
+  sed "s/^X//" >'cube/lib/xmstr_to_str.c' <<'END_OF_FILE'
+X/***********************************************************************
+X * Retrieve the character string from a possibly composite compound string, such as
+X * created by xs_concat_words()
+X*         From:
+X  *                   The X Window System, 
+X  *            Programming and Applications with Xt
+X  *                   OSF/Motif Edition
+X  *         by
+X  *                Douglas Young
+X  *              Prentice Hall, 1990
+X  *
+X  *                 Example described on pages:  ??
+X  *
+X  *
+X  *  Copyright 1989 by Prentice Hall
+X  *  All Rights Reserved
+X  *
+X  * This code is based on the OSF/Motif widget set and the X Window System
+X  *
+X  * Permission to use, copy, modify, and distribute this software for 
+X  * any purpose and without fee is hereby granted, provided that the above
+X  * copyright notice appear in all copies and that both the copyright notice
+X  * and this permission notice appear in supporting documentation.
+X  *
+X  * Prentice Hall and the author disclaim all warranties with regard to 
+X  * this software, including all implied warranties of merchantability and fitness.
+X  * In no event shall Prentice Hall or the author be liable for any special,
+X  * indirect or cosequential damages or any damages whatsoever resulting from 
+X  * loss of use, data or profits, whether in an action of contract, negligence 
+X  * or other tortious action, arising out of or in connection with the use 
+X  * or performance of this software.
+X  *
+X  * Open Software Foundation is a trademark of The Open Software Foundation, Inc.
+X  * OSF is a trademark of Open Software Foundation, Inc.
+X  * OSF/Motif is a trademark of Open Software Foundation, Inc.
+X  * Motif is a trademark of Open Software Foundation, Inc.
+X  * DEC is a registered trademark of Digital Equipment Corporation
+X  * HP is a registered trademark of the Hewlett Packard Company
+X  * DIGITAL is a registered trademark of Digital Equipment Corporation
+X  * X Window System is a trademark of the Massachusetts Institute of Technology
+X  **********************************************************************************/
+X#include <X11/Intrinsic.h> 
+X#include <Xm/Xm.h>
+X
+Xchar * xs_get_string_from_xmstring (string) 
+X    XmString string; 
+X{ 
+X   caddr_t           context; 
+X   char             *text; 
+X   XmStringCharSet   charset; 
+X   XmStringDirection dir; 
+X   Boolean           separator; 
+X   char             *buf = NULL; 
+X
+X int               done = FALSE;
+X  XmStringInitContext (&context, string);
+X  while (!done)
+X   if(XmStringGetNextSegment (context, &text, &charset,
+X                              &dir, &separator)){ 
+X     if(separator) /* Stop when next segment is a separator */
+X        done = TRUE;
+X
+X     if(buf){
+X        buf = XtRealloc(buf, strlen(buf) + strlen(text) + 2);
+X        strcat(buf, text);			
+X     }
+X     else {
+X        buf = (char *) XtMalloc(strlen(text) +1);
+X        strcpy(buf, text);
+X      }
+X     XtFree(text);
+X   }
+X     else
+X     done = TRUE;
+X
+X  XmStringFreeContext (context);
+X  return buf;
+X}
+END_OF_FILE
+  if test 2966 -ne `wc -c <'cube/lib/xmstr_to_str.c'`; then
+    echo shar: \"'cube/lib/xmstr_to_str.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/lib/xmstr_to_str.c'
+fi
+if test -f 'cube/taylor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/taylor.c'\"
+else
+  echo shar: Extracting \"'cube/taylor.c'\" \(5569 characters\)
+  sed "s/^X//" >'cube/taylor.c' <<'END_OF_FILE'
+X/* taylor.c
+X   This incorporates Don Taylor's solution to the 
+X   Buvos Kocka (Hungarian Magic Cube). 
+X
+X   Steps to Solution:
+X    1) First Layer Edge Cubes (top)
+X       top/front
+X       top/right
+X       top/back
+X       top/left
+X    2) First layer Corner Cubes (top)
+X       top/front/right
+X       top/right/back
+X       top/back/left
+X       top/left/front
+X    3) Middle layer (edge cubes)
+X    4) Last Layer
+X       Getting corner cubes in correct position
+X       Getting edge cubes in correct position
+X       Edge Flips/Corner Cubes
+X      
+XThe following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------
+X 
+X*/   
+X
+X#include "taylor.h"
+X
+XWidget         saved_w;
+Xwidget_data    *saved_wdata;
+Xcaddr_t        saved_call_data;
+Xint            number_moves;
+X
+Xvoid F(); /*  front  */
+Xvoid L(); /*  left   */
+Xvoid R(); /*  right  */
+Xvoid B(); /*  back   */
+Xvoid U(); /*  up     */
+Xvoid D(); /*  down   */
+X
+Xextern void first_layer_edge_cube_tf(); /* layer1edge_tf */
+Xextern void first_layer_edge_cube_tr(); /* layer1edge_tr */
+Xextern void first_layer_edge_cube_tb(); /* layer1edge_tb */
+Xextern void first_layer_edge_cube_tl(); /* layer1edge_tl */
+X
+Xextern Boolean first_layer_corner();    /* layer1corner */
+X
+Xextern Boolean middle_layer();          /* layer2 */ 
+X
+Xextern void last_layer();               /* layer3 */
+X
+Xextern Boolean twirl();                 /* layer3twirl */
+Xextern Boolean flip();                  /* layer3flip */
+X
+Xvoid taylor(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  /* Save 'em in a global so we don't have to pass 'em 
+X   * around all the time.
+X   */
+X  saved_w = w;
+X  saved_wdata = wdata;
+X  saved_call_data = call_data;
+X  number_moves = 1;
+X  printf("\nSolution:\n");
+X
+X  /* major parts of solution */
+X  first_layer_edge_cube_tf(w,wdata,call_data); /* top/front */
+X  first_layer_edge_cube_tr(w,wdata,call_data); /* top/right */
+X  first_layer_edge_cube_tb(w,wdata,call_data); /* top/back  */
+X  first_layer_edge_cube_tl(w,wdata,call_data); /* top/left  */
+X
+X  /* This is repeated until top layer is completed */
+X  while(!first_layer_corner(w,wdata,call_data));
+X  printf("TOP LAYER COMPLETED\n");
+X
+X  /* This is repeated until middle layer is completed */
+X  while(!middle_layer(w,wdata,call_data));
+X  printf("MIDDLE LAYER COMPLETED\n");
+X
+X  /* put last layer's corners and edges in correct position */
+X  last_layer(w,wdata,call_data);
+X
+X  /* twirl last layer's corners */
+X  while(!twirl(w,wdata,call_data));
+X  printf("CORNERS TWIRLED\n");
+X
+X  /* flip last layer's edges */
+X  while(!flip(w,wdata,call_data));
+X
+X  printf("End Of Solution\n");
+X
+X}
+X
+X
+Xvoid F(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Front(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_front goes the wrong way */
+X  /* normturns ranges from -3 to +3, 
+X     change this range to a 3, 2, 1, -3, -2, -1
+X   */
+X  if(normturns > 0)
+X    normturns -= 4;
+X  for(i=normturns; i<0; i++)
+X    cubik_front(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+Xvoid L(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Left(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_left goes the wrong way */
+X  if(normturns > 0)
+X    normturns -= 4;
+X  for(i=normturns; i<0; i++)
+X    cubik_left(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+Xvoid R(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Right(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_right goes the correct way */
+X  if(normturns < 0)
+X    normturns += 4;
+X  for(i=normturns; i>0; i--)
+X    cubik_right(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+Xvoid B(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Back(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_back goes the right way */
+X  if(normturns < 0)
+X    normturns += 4;
+X  for(i=normturns; i>0; i--)
+X    cubik_back(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+Xvoid U(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Up(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_top goes the right way */
+X  if(normturns < 0)
+X    normturns += 4;
+X  for(i=normturns; i>0; i--)
+X    cubik_top(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+Xvoid D(nturns)
+X     int nturns;
+X{
+X  int i, normturns;
+X
+X  printf("%d. Down(%d)\n", number_moves++,nturns);
+X
+X  /* get rid of extra turns...just in case */
+X  normturns = nturns % 4;
+X
+X  /* our cubik_bottom goes the wrong way */
+X  if(normturns > 0)
+X    normturns -= 4;
+X  for(i=normturns; i<0; i++)
+X    cubik_bottom(saved_w,saved_wdata,saved_call_data);
+X}
+X  
+X
+END_OF_FILE
+  if test 5569 -ne `wc -c <'cube/taylor.c'`; then
+    echo shar: \"'cube/taylor.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/taylor.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

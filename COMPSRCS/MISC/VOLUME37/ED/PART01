@@ -1,0 +1,2337 @@
+Newsgroups: comp.sources.misc
+From: alm@netcom.com (Andrew Moore)
+Subject: v37i095:  ed - POSIX-compliant line editor, Part01/03
+Message-ID: <csm-v37i095=ed.215318@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 64f346280da090e7913cdedd422f7d0c
+Keywords: ed(1) POSIX editor
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Talke Studio
+Date: Mon, 31 May 1993 02:53:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: alm@netcom.com (Andrew Moore)
+Posting-number: Volume 37, Issue 95
+Archive-name: ed/part01
+Environment: POSIX, sun, linux, bsd
+
+ed is an 8-bit-clean, POSIX-compliant line editor.  It should work with
+any regular expression package that conforms to the POSIX interface
+standard, such as GNU regex(3).
+
+---- Cut Here ----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile.sun ed.c
+# Wrapped by kent@sparky on Sun May 30 21:42:59 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(816 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+Xed is an 8-bit-clean, POSIX-compliant line editor.  It should work with
+Xany regular expression package that conforms to the POSIX interface
+Xstandard, such as GNU regex(3).
+X
+XIf reliable signals are supported (e.g., POSIX sigaction(2)), it should
+Xcompile with little trouble.  Otherwise, the macros spl1() and spl0()
+Xshould be redefined to disable interrupts.
+X
+XThe following compiler directives are recognized:
+XGNU_REGEX	- use with GNU regex(3)
+XDES		- use to add encryption support (requires crypt(3))
+XNO_REALLOC_NULL	- use if realloc(3) does not accept a NULL pointer
+XBACKWARDS	- use for backwards compatibility
+X
+XThe file `POSIX' describes extensions to and deviations from the POSIX
+Xstandard.
+X
+XFor a description of the ed algorithm, see Kernighan and Plauger's book
+X"Software Tools in Pascal," Addison-Wesley, 1981.
+END_OF_FILE
+  if test 816 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile.sun' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.sun'\"
+else
+  echo shar: Extracting \"'Makefile.sun'\" \(439 characters\)
+  sed "s/^X//" >'Makefile.sun' <<'END_OF_FILE'
+XPROG   =ed
+XCC	=gcc
+XCFLAGS=-O -I. -DGNU_REGEX -DNO_REALLOC_NULL -DVI_BANG -DHAVE_STRING_H=1 -DHAVE_ALLOCA_H=1
+XSRCS=	ed.c re.c buf.c cbc.c signal.c regex.c
+XOBJS=	ed.o re.o buf.o cbc.o signal.o regex.c
+X
+Xall: ${PROG} doc
+X
+X${PROG}: ${OBJS}
+X	${CC} -o $@ ${CFLAGS} ${OBJS} ${LDADD}
+X
+Xed.o: ed.c ed.h
+X
+Xre.o: re.c ed.h
+X
+Xbuf.o: buf.c ed.h
+X
+Xcbc.o: cbc.c ed.h
+X
+Xdoc:
+X	nroff -man ${PROG}.1 >${PROG}.0
+X
+Xclean:
+X	rm -f *.o ${PROG}.0 ${PROG} [Ee]rrs core *~
+END_OF_FILE
+  if test 439 -ne `wc -c <'Makefile.sun'`; then
+    echo shar: \"'Makefile.sun'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile.sun'
+fi
+if test -f 'ed.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ed.c'\"
+else
+  echo shar: Extracting \"'ed.c'\" \(47458 characters\)
+  sed "s/^X//" >'ed.c' <<'END_OF_FILE'
+X/* ed.c: This file contains the main control and user-interface routines
+X   for the ed line editor. */
+X/*-
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * This code is derived from software contributed to Berkeley
+X * by Andrew Moore, Talke Studio.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*-
+X * Kernighan/Plauger, "Software Tools in Pascal," (c) 1981 by
+X * Addison-Wesley Publishing Company, Inc.  Reprinted with permission of
+X * the publisher.
+X */
+X
+X#ifndef lint
+Xchar copyright1[] =
+X"@(#) Copyright (c) 1993 The Regents of the University of California.\n\
+X All rights reserved.\n";
+Xchar copyright2[] =
+X"@(#) Kernighan/Plauger, Software Tools in Pascal, (c) 1981 by\n\
+X Addison-Wesley Publishing Company, Inc.  Reprinted with permission of\n\
+X the publisher.\n";
+X#endif /* not lint */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)ed.c	5.5 (Berkeley) 3/28/93";
+X#endif /* not lint */
+X
+X/*
+X * CREDITS
+X *	The buf.c algorithm is attributed to Rodney Ruddock of
+X *	the University of Guelph, Guelph, Ontario.
+X *
+X *	The cbc.c encryption code is adapted from
+X *	the bdes program by Matt Bishop of Dartmouth College,
+X *	Hanover, NH.
+X *
+X *	Addison-Wesley Publishing Company generously granted
+X *	permission to distribute this program over Internet.
+X *
+X */
+X
+X#include <unistd.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <setjmp.h>
+X#include <pwd.h>
+X#include <sys/ioctl.h>
+X
+X#include "ed.h"
+X
+X#ifdef _POSIX_SOURCE
+Xsigjmp_buf env;
+X#else
+Xjmp_buf env;
+X#endif
+X
+X/* static buffers */
+Xchar *shcmd;			/* shell command buffer */
+Xint shcmdsz;			/* shell command buffer size */
+Xint shcmdi;			/* shell command buffer index */
+Xchar *cvbuf;			/* global command buffer */
+Xint cvbufsz;			/* global command buffer size */
+Xchar *lhbuf;			/* lhs buffer */
+Xint lhbufsz;			/* lhs buffer size */
+Xchar *rhbuf;			/* rhs buffer */
+Xint rhbufsz;			/* rhs buffer size */
+Xint rhbufi;			/* rhs buffer index */
+Xchar *rbuf;			/* regsub buffer */
+Xint rbufsz;			/* regsub buffer size */
+Xchar *sbuf;			/* file i/o buffer */
+Xint sbufsz;			/* file i/o buffer size */
+Xchar *ibuf;			/* ed command-line buffer */
+Xint ibufsz;			/* ed command-line buffer size */
+Xchar *ibufp;			/* pointer to ed command-line buffer */
+X
+X/* global flags */
+Xint isbinary;			/* if set, buffer contains ASCII NULs */
+Xint modified;			/* if set, buffer modified since last write */
+Xint garrulous = 0;		/* if set, print all error messages */
+Xint scripted = 0;		/* if set, suppress diagnostics */
+Xint des = 0;			/* if set, use crypt(3) for i/o */
+Xint mutex = 0;			/* if set, signals set "sigflags" */
+Xint sigflags = 0;		/* if set, signals received while mutex set */
+Xint sigactive = 0;		/* if set, signal handlers are enabled */
+Xint red = 0;			/* if set, restrict shell/directory access */
+X
+Xchar dfn[MAXFNAME + 1] = "";	/* default filename */
+Xlong curln;			/* current address */
+Xlong lastln;			/* last address */
+Xint lineno;			/* script line number */
+Xchar *prompt;			/* command-line prompt */
+Xchar *dps = "*";		/* default command-line prompt */
+X
+Xchar *usage = "usage: %s [-] [-sx] [-p string] [name]\n";
+X
+Xextern char errmsg[];
+Xextern int optind;
+Xextern char *optarg;
+X
+X/* ed: line editor */
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	int c, n;
+X	long status = 0;
+X
+X	red = (n = strlen(argv[0])) > 2 && argv[0][n - 3] == 'r';
+Xtop:
+X	while ((c = getopt(argc, argv, "p:sx")) != EOF)
+X		switch(c) {
+X		case 'p':				/* set prompt */
+X			prompt = optarg;
+X			break;
+X		case 's':				/* run script */
+X			scripted = 1;
+X			break;
+X		case 'x':				/* use crypt */
+X#ifdef DES
+X			des = getkey();
+X#else
+X			fprintf(stderr, "crypt unavailable\n?\n");
+X#endif
+X			break;
+X
+X		default:
+X			fprintf(stderr, usage, argv[0]);
+X			exit(1);
+X		}
+X	argv += optind;
+X	argc -= optind;
+X	if (argc && **argv == '-') {
+X		scripted = 1;
+X		if (argc > 1) {
+X			optind = 1;
+X			goto top;
+X		}
+X		argv++;
+X		argc--;
+X	}
+X	/* assert: reliable signals! */
+X#ifdef SIGWINCH
+X	dowinch(SIGWINCH);
+X	if (isatty(0)) signal(SIGWINCH, dowinch);
+X#endif
+X	signal(SIGHUP, onhup);
+X	signal(SIGQUIT, SIG_IGN);
+X	signal(SIGINT, onintr);
+X#ifdef _POSIX_SOURCE
+X	if (status = sigsetjmp(env, 1))
+X#else
+X	if (status = setjmp(env))
+X#endif
+X	{
+X		fputs("\n?\n", stderr);
+X		sprintf(errmsg, "interrupt");
+X	} else {
+X		init_buf();
+X		sigactive = 1;			/* enable signal handlers */
+X		if (argc && **argv && ckfn(*argv)) {
+X			if (doread(0, *argv) < 0 && !isatty(0))
+X				quit(2);
+X			else if (**argv != '!')
+X				strcpy(dfn, *argv);
+X		} else if (argc) {
+X			fputs("?\n", stderr);
+X			if (**argv == '\0')
+X				sprintf(errmsg, "invalid filename");
+X			if (!isatty(0))
+X				quit(2);
+X		}
+X	}
+X	for (;;) {
+X		if (status < 0 && garrulous)
+X			fprintf(stderr, "%s\n", errmsg);
+X		if (prompt) {
+X			printf("%s", prompt);
+X			fflush(stdout);
+X		}
+X		if ((n = getline()) < 0) {
+X			status = ERR;
+X			continue;
+X		} else if (n == 0) {
+X			if (modified && !scripted) {
+X				fputs("?\n", stderr);
+X				sprintf(errmsg, "warning: file modified");
+X				if (!isatty(0)) {
+X					fprintf(stderr, garrulous ? "script, line %d: %s\n"
+X						: "", lineno, errmsg);
+X					quit(2);
+X				}
+X				clearerr(stdin);
+X				modified = 0;
+X				status = EMOD;
+X				continue;
+X			} else
+X				quit(0);
+X		} else if (ibuf[n - 1] != '\n') {
+X			/* discard line */
+X			sprintf(errmsg, "unexpected end-of-file");
+X			clearerr(stdin);
+X			status = ERR;
+X			continue;
+X		}
+X		if ((n = getlist()) >= 0 && (status = ckglob()) != 0) {
+X			if (status > 0 && (status = doglob(status)) >= 0) {
+X				curln = status;
+X				continue;
+X			}
+X		} else if ((status = n) >= 0 && (status = docmd(0)) >= 0) {
+X			if (!status || status
+X			 && (status = doprint(curln, curln, status)) >= 0)
+X				continue;
+X		}
+X		switch (status) {
+X		case EOF:
+X			quit(0);
+X		case EMOD:
+X			modified = 0;
+X			fputs("?\n", stderr);		/* give warning */
+X			sprintf(errmsg, "warning: file modified");
+X			if (!isatty(0)) {
+X				fprintf(stderr, garrulous ? "script, line %d: %s\n" : "", lineno, errmsg);
+X				quit(2);
+X			}
+X			break;
+X		case FATAL:
+X			if (!isatty(0))
+X				fprintf(stderr, garrulous ? "script, line %d: %s\n" : "", lineno, errmsg);
+X			else
+X				fprintf(stderr, garrulous ? "%s\n" : "", errmsg);
+X			quit(3);
+X		default:
+X			fputs("?\n", stderr);
+X			if (!isatty(0)) {
+X				fprintf(stderr, garrulous ? "script, line %d: %s\n" : "", lineno, errmsg);
+X				quit(2);
+X			}
+X			break;
+X		}
+X	}
+X	/*NOTREACHED*/
+X}
+X
+X
+Xlong line1, line2, nlines;
+X
+X/* getlist: get line numbers from the command buffer until an illegal
+X   address is seen.  return range status */
+Xgetlist()
+X{
+X	long num;
+X
+X	nlines = line2 = 0;
+X	while ((num = getone()) >= 0) {
+X		line1 = line2;
+X		line2 = num;
+X		nlines++;
+X		if (*ibufp != ',' && *ibufp != ';')
+X			break;
+X		else if (*ibufp++ == ';')
+X			curln = num;
+X	}
+X	nlines = min(nlines, 2);
+X	if (nlines == 0)
+X		line2 = curln;
+X	if (nlines <= 1)
+X		line1 = line2;
+X	return  (num == ERR) ? ERR : nlines;
+X}
+X
+X
+X/*  getone: return the next line number in the command buffer */
+Xlong
+Xgetone()
+X{
+X	int c;
+X	long i, num;
+X
+X	if ((num = getnum(1)) < 0)
+X		return num;
+X	for (;;) {
+X		c = isspace(*ibufp);
+X		skipblanks();
+X		c = c && isdigit(*ibufp);
+X		if (!c && *ibufp != '+' && *ibufp != '-' && *ibufp != '^')
+X			break;
+X		c = c ? '+' : *ibufp++;
+X		if ((i = getnum(0)) < 0) {
+X			sprintf(errmsg, "invalid address");
+X			return  i;
+X		}
+X		if (c == '+')
+X			num += i;
+X		else	num -= i;
+X	}
+X	if (num > lastln || num < 0) {
+X		sprintf(errmsg, "invalid address");
+X		return ERR;
+X	}
+X	return num;
+X}
+X
+X
+X#define MAXMARK 26			/* max number of marks */
+X
+Xline_t	*mark[MAXMARK];			/* line markers */
+Xint markno;				/* line marker count */
+X
+X/* getnum:  return a relative line number from the command buffer */
+Xlong
+Xgetnum(first)
+X	int first;
+X{
+X	pattern_t *pat;
+X	char c;
+X
+X	skipblanks();
+X	if (isdigit(*ibufp))
+X		return strtol(ibufp, &ibufp, 10);
+X	switch(c = *ibufp) {
+X	case '.':
+X		ibufp++;
+X		return first ? curln : ERR;
+X	case '$':
+X		ibufp++;
+X		return first ? lastln : ERR;
+X	case '/':
+X	case '?':
+X		if ((pat = optpat()) == NULL)
+X			return ERR;
+X		else if (*ibufp == c)
+X			ibufp++;
+X		return first ? patscan(pat, (c == '/') ? 1 : 0) : ERR;
+X	case '^':
+X	case '-':
+X	case '+':
+X		return first ? curln : 1;
+X	case '\'':
+X		ibufp++;
+X		return (first && islower(*ibufp)) ? getaddr(mark[*ibufp++ - 'a']) : ERR;
+X	case '%':
+X	case ',':
+X	case ';':
+X		if (first) {
+X			ibufp++;
+X			line2 = (c == ';') ? curln : 1;
+X			nlines++;
+X			return lastln;
+X		}
+X		return 1;
+X	default:
+X		return  first ? EOF : 1;
+X	}
+X}
+X
+X
+X/* gflags */
+X#define GLB 001		/* global command */
+X#define GPR 002		/* print after command */
+X#define GLS 004		/* list after command */
+X#define GNP 010		/* enumerate after command */
+X#define GSG 020		/* global substitute */
+X
+X
+X/* VRFYCMD: verify the command suffix in the command buffer */
+X#define VRFYCMD() { \
+X	int done = 0; \
+X	do { \
+X		switch(*ibufp) { \
+X		case 'p': \
+X			gflag |= GPR, ibufp++; \
+X			break; \
+X		case 'l': \
+X			gflag |= GLS, ibufp++; \
+X			break; \
+X		case 'n': \
+X			gflag |= GNP, ibufp++; \
+X			break; \
+X		default: \
+X			done++; \
+X		} \
+X	} while (!done); \
+X	if (*ibufp++ != '\n') { \
+X		sprintf(errmsg, "invalid command suffix"); \
+X		return ERR; \
+X	} \
+X}
+X
+X
+X/* ckglob:  set lines matching a pattern in the command buffer; return
+X   global status  */
+Xckglob()
+X{
+X	pattern_t *pat;
+X	char c, delim;
+X	char *s;
+X	int nomatch;
+X	long n;
+X	line_t *lp;
+X	int gflag = 0;			/* print suffix of interactive cmd */
+X
+X	if ((c = *ibufp) == 'V' || c == 'G')
+X		gflag = GLB;
+X	else if (c != 'g' && c != 'v')
+X		return 0;
+X	if (ckrange(1, lastln) < 0)
+X		return ERR;
+X	else if ((delim = *++ibufp) == ' ' || delim == '\n') {
+X		sprintf(errmsg, "invalid pattern delimiter");
+X		return ERR;
+X	} else if ((pat = optpat()) == NULL)
+X		return ERR;
+X	else if (*ibufp == delim)
+X		ibufp++;
+X	if (gflag)
+X		VRFYCMD();			/* get print suffix */
+X	for (lp = getlp(n = 1); n <= lastln; n++, lp = lp->next) {
+X		if ((s = gettxt(lp)) == NULL)
+X			return ERR;
+X		lp->len &= ~ACTV;			/* zero ACTV  bit */
+X		if (isbinary)
+X			s = nultonl(s, lp->len & ~ACTV);
+X		if (line1 <= n && n <= line2
+X		 && (!(nomatch = regexec(pat, s, 0, NULL, 0))
+X		 && (c == 'g'  || c == 'G')
+X		 || nomatch && (c == 'v' || c == 'V')))
+X			lp->len |= ACTV;
+X	}
+X	return gflag | GSG;
+X}
+X
+X
+X/* doglob: apply command list in the command buffer to the active
+X   lines in a range; return command status */
+Xlong
+Xdoglob(gflag)
+X	int gflag;
+X{
+X	static char *ocmd = NULL;
+X	static int ocmdsz = 0;
+X
+X	line_t *lp = NULL;
+X	long lc;
+X	int status;
+X	int n;
+X	int interact = gflag & ~GSG;		/* GLB & gflag ? */
+X	char *cmd = NULL;
+X
+X	if (!interact && (cmd = getcmdv(&n, 0)) == NULL)
+X		return ERR;
+X	ureset();
+X	for (;;) {
+X		for (lp = getlp(lc = 1); lc <= lastln; lc++, lp = lp->next)
+X			if (lp->len & ACTV)		/* active line */
+X				break;
+X		if (lc > lastln)
+X			break;
+X		lp->len ^= ACTV;			/* zero ACTV bit */
+X		curln = lc;
+X		if (interact) {
+X			/* print curln and get a command in global syntax */
+X			if (doprint(curln, curln, 0) < 0)
+X				return ERR;
+X			while ((n = getline()) > 0
+X			    && ibuf[n - 1] != '\n')
+X				clearerr(stdin);
+X			if (n < 0)
+X				return ERR;
+X			else if (n == 0) {
+X				sprintf(errmsg, "unexpected end-of-file");
+X				return ERR;
+X			} else if (n == 1 && !strcmp(ibuf, "\n"))
+X				continue;
+X			else if (n == 2 && !strcmp(ibuf, "&\n")) {
+X				if (cmd == NULL) {
+X					sprintf(errmsg, "no previous command");
+X					return ERR;
+X				} else cmd = ocmd;
+X			} else if ((cmd = getcmdv(&n, 0)) == NULL)
+X				return ERR;
+X			else {
+X				CKBUF(ocmd, ocmdsz, n + 1, ERR);
+X				memcpy(ocmd, cmd, n + 1);
+X				cmd = ocmd;
+X			}
+X
+X		}
+X		ibufp = cmd;
+X		for (; *ibufp;)
+X			if ((status = getlist()) < 0
+X			 || (status = docmd(1)) < 0
+X			 || (status > 0
+X			 && (status = doprint(curln, curln, status)) < 0))
+X				return status;
+X	}
+X	return ((interact & ~GLB ) && doprint(curln, curln, interact) < 0) ? ERR : curln;
+X}
+X
+X
+X/* GETLINE3: get a legal address from the command buffer */
+X#define GETLINE3(num) \
+X{ \
+X	long ol1, ol2; \
+X\
+X	ol1 = line1, ol2 = line2; \
+X	if (getlist() < 0) \
+X		return ERR; \
+X	if (line2 < 0 || lastln < line2) { \
+X		sprintf(errmsg, "invalid address"); \
+X		return ERR; \
+X	} \
+X	num = line2; \
+X	line1 = ol1, line2 = ol2; \
+X}
+X
+X/* sgflags */
+X#define SGG 001		/* complement previous global substitute suffix */
+X#define SGP 002		/* complement previous print suffix */
+X#define SGR 004		/* use last regex instead of last pat */
+X#define SGF 010		/* newline found */
+X
+Xlong ucurln = -1;	/* if >= 0, undo enabled */
+Xlong ulastln = -1;	/* if >= 0, undo enabled */
+Xint usw = 0;		/* if set, undo last undo */
+Xint patlock = 0;	/* if set, pattern not released by optpat() */
+X
+Xlong rows = 22;		/* scroll length: ws_row - 2 */
+X
+X/* docmd: execute the next command in command buffer; return print
+X   request, if any */
+Xdocmd(glob)
+X	int glob;
+X{
+X	static pattern_t *pat = NULL;
+X	static int sgflag = 0;
+X
+X	pattern_t *tpat;
+X	char *fnp;
+X	int gflag = 0;
+X	int sflags = 0;
+X	long num = 0;
+X	int n = 0;
+X	int c;
+X
+X	skipblanks();
+X	switch(c = *ibufp++) {
+X	case 'a':
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (append(line2, glob) < 0)
+X			return ERR;
+X		break;
+X	case 'c':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (lndelete(line1, line2) < 0 || append(curln, glob) < 0)
+X			return ERR;
+X		break;
+X	case 'd':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (lndelete(line1, line2) < 0)
+X			return ERR;
+X		else if (nextln(curln, lastln) != 0)
+X			curln = nextln(curln, lastln);
+X		modified = 1;
+X		break;
+X	case 'e':
+X		if (modified && !scripted)
+X			return EMOD;
+X		/* fall through */
+X	case 'E':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		} else if (!isspace(*ibufp)) {
+X			sprintf(errmsg, "unexpected command suffix");
+X			return ERR;
+X		} else if ((fnp = getfn()) == NULL)
+X			return ERR;
+X		VRFYCMD();
+X		memset(mark, 0, sizeof mark);
+X		lndelete(1, lastln);
+X		ureset();
+X		if (sbclose() < 0)
+X			return ERR;
+X		else if (sbopen() < 0)
+X			return FATAL;
+X		if (*fnp && *fnp != '!') strcpy(dfn, fnp);
+X#ifdef BACKWARDS
+X		if (*fnp == '\0' && *dfn == '\0') {
+X			sprintf(errmsg, "no current filename");
+X			return ERR;
+X		}
+X#endif
+X		if (doread(0, *fnp ? fnp : dfn) < 0)
+X			return ERR;
+X		ureset();
+X		modified = 0;
+X		ucurln = ulastln = -1;
+X		break;
+X	case 'f':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		} else if (!isspace(*ibufp)) {
+X			sprintf(errmsg, "unexpected command suffix");
+X			return ERR;
+X		} else if ((fnp = getfn()) == NULL)
+X			return ERR;
+X		else if (*fnp == '!') {
+X			sprintf(errmsg, "invalid redirection");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (*fnp) strcpy(dfn, fnp);
+X		printf("%s\n", esctos(dfn));
+X		break;
+X	case 'g':
+X	case 'G':
+X		sprintf(errmsg, "cannot nest global commands");
+X		return ERR;
+X	case 'h':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (*errmsg) fprintf(stderr, "%s\n", errmsg);
+X		break;
+X	case 'H':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if ((garrulous = 1 - garrulous) && *errmsg)
+X			fprintf(stderr, "%s\n", errmsg);
+X		break;
+X	case 'i':
+X		if (line2 == 0) {
+X			sprintf(errmsg, "invalid address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (append(prevln(line2, lastln), glob) < 0)
+X			return ERR;
+X		break;
+X	case 'j':
+X		if (ckrange(curln, curln + 1) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (line1 != line2 && join(line1, line2) < 0)
+X			return ERR;
+X		break;
+X	case 'k':
+X		c = *ibufp++;
+X		if (line2 == 0) {
+X			sprintf(errmsg, "invalid address");
+X			return ERR;
+X		} else if (!islower(c)) {
+X			sprintf(errmsg, "invalid mark character");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (!mark[c - 'a']) markno++;
+X		mark[c - 'a'] = getlp(line2);
+X		break;
+X	case 'l':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (doprint(line1, line2, gflag | GLS) < 0)
+X			return ERR;
+X		gflag = 0;
+X		break;
+X	case 'm':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		GETLINE3(num);
+X		if (line1 <= num && num < line2) {
+X			sprintf(errmsg, "invalid destination");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (num == line1 - 1 || num == line2)
+X			curln = line2;
+X		else if (move(num) < 0)
+X			return ERR;
+X		else
+X			modified = 1;
+X		break;
+X	case 'n':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (doprint(line1, line2, gflag | GNP) < 0)
+X			return ERR;
+X		gflag = 0;
+X		break;
+X	case 'p':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (doprint(line1, line2, gflag | GPR) < 0)
+X			return ERR;
+X		gflag = 0;
+X		break;
+X	case 'P':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		prompt = prompt ? NULL : optarg ? optarg : dps;
+X		break;
+X	case 'q':
+X	case 'Q':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		gflag =  (modified && !scripted && c == 'q') ? EMOD : EOF;
+X		break;
+X	case 'r':
+X		if (!isspace(*ibufp)) {
+X			sprintf(errmsg, "unexpected command suffix");
+X			return ERR;
+X		} else if (nlines == 0)
+X			line2 = lastln;
+X		if ((fnp = getfn()) == NULL)
+X			return ERR;
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (*dfn == '\0' && *fnp != '!') strcpy(dfn, fnp);
+X#ifdef BACKWARDS
+X		if (*fnp == '\0' && *dfn == '\0') {
+X			sprintf(errmsg, "no current filename");
+X			return ERR;
+X		}
+X#endif
+X		if ((num = doread(line2, *fnp ? fnp : dfn)) < 0)
+X			return ERR;
+X		else if (num && num != lastln)
+X			modified = 1;
+X		break;
+X	case 's':
+X		do {
+X			switch(*ibufp) {
+X			case '\n':
+X				sflags |=SGF;
+X				break;
+X			case 'g':
+X				sflags |= SGG;
+X				ibufp++;
+X				break;
+X			case 'p':
+X				sflags |= SGP;
+X				ibufp++;
+X				break;
+X			case 'r':
+X				sflags |= SGR;
+X				ibufp++;
+X				break;
+X			default:
+X				if (sflags) {
+X					sprintf(errmsg, "invalid command suffix");
+X					return ERR;
+X				}
+X			}
+X		} while (sflags && *ibufp != '\n');
+X		if (sflags && !pat) {
+X			sprintf(errmsg, "no previous substitution");
+X			return ERR;
+X		} else if (!(sflags & SGF))
+X			sgflag &= 0xff;
+X		tpat = pat;
+X		spl1();
+X		if ((!sflags || (sflags & SGR))
+X		 && (tpat = optpat()) == NULL)
+X			return ERR;
+X		else if (tpat != pat) {
+X			if (pat) {
+X				 regfree(pat);
+X				 free(pat);
+X			 }
+X			pat = tpat;
+X			patlock = 1;		/* reserve pattern */
+X		} else if (pat == NULL) {
+X			/* NOTREACHED */
+X			sprintf(errmsg, "no previous substitution");
+X			return ERR;
+X		}
+X		spl0();
+X		if (!sflags && (sgflag = getrhs(glob)) < 0)
+X			return ERR;
+X		else if (glob)
+X			sgflag |= GLB;
+X		else
+X			sgflag &= ~GLB;
+X		if (sflags & SGG)
+X			sgflag ^= GSG;
+X		if (sflags & SGP)
+X			sgflag ^= GPR, sgflag &= ~(GLS | GNP);
+X		do {
+X			switch(*ibufp) {
+X			case 'p':
+X				sgflag |= GPR, ibufp++;
+X				break;
+X			case 'l':
+X				sgflag |= GLS, ibufp++;
+X				break;
+X			case 'n':
+X				sgflag |= GNP, ibufp++;
+X				break;
+X			default:
+X				n++;
+X			}
+X		} while (!n);
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if ((n = subst(pat, sgflag)) < 0)
+X			return ERR;
+X		else if (n)
+X			modified = 1;
+X		break;
+X	case 't':
+X		if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		GETLINE3(num);
+X		VRFYCMD();
+X		if (!glob) ureset();
+X		if (transfer(num) < 0)
+X			return ERR;
+X		modified = 1;
+X		break;
+X	case 'u':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X		if (undo() < 0)
+X			return ERR;
+X		break;
+X	case 'v':
+X	case 'V':
+X		sprintf(errmsg, "cannot nest global commands");
+X		return ERR;
+X	case 'w':
+X	case 'W':
+X		if ((n = *ibufp) == 'q' || n == 'Q') {
+X			gflag = EOF;
+X			ibufp++;
+X		}
+X		if (!isspace(*ibufp)) {
+X			sprintf(errmsg, "unexpected command suffix");
+X			return ERR;
+X		} else if ((fnp = getfn()) == NULL)
+X			return ERR;
+X		if (nlines == 0 && !lastln)
+X			line1 = line2 = 0;
+X		else if (ckrange(1, lastln) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (*dfn == '\0' && *fnp != '!') strcpy(dfn, fnp);
+X#ifdef BACKWARDS
+X		if (*fnp == '\0' && *dfn == '\0') {
+X			sprintf(errmsg, "no current filename");
+X			return ERR;
+X		}
+X#endif
+X		if ((num = dowrite(line1, line2, *fnp ? fnp : dfn, (c == 'W') ? "a" : "w")) < 0)
+X			return ERR;
+X		else if (num == lastln)
+X			modified = 0;
+X		else if (modified && !scripted && n == 'q')
+X			gflag = EMOD;
+X		break;
+X	case 'x':
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X		VRFYCMD();
+X#ifdef DES
+X		des = getkey();
+X#else
+X		sprintf(errmsg, "crypt unavailable");
+X		return ERR;
+X#endif
+X		break;
+X	case 'z':
+X		if (ckrange(line1 = 1, curln + !glob) < 0)
+X			return ERR;
+X		else if ('0' < *ibufp && *ibufp <= '9')
+X			rows = strtol(ibufp, &ibufp, 10);
+X		VRFYCMD();
+X		if (doprint(line2, min(lastln, line2 + rows - 1), gflag) < 0)
+X			return ERR;
+X		gflag = 0;
+X		break;
+X	case '=':
+X		VRFYCMD();
+X		printf("%d\n", nlines ? line2 : lastln);
+X		break;
+X	case '!':
+X#ifndef VI_BANG
+X		if (nlines > 0) {
+X			sprintf(errmsg, "unexpected address");
+X			return ERR;
+X		}
+X#endif
+X		if ((sflags = getshcmd()) < 0)
+X			return ERR;
+X		VRFYCMD();
+X		if (sflags) printf("%s\n", shcmd + 1);
+X#ifdef VI_BANG
+X		if (nlines == 0) {
+X#endif
+X			system(shcmd + 1);
+X			if (!scripted) printf("!\n");
+X			break;
+X#ifdef VI_BANG
+X		}
+X		if (!lastln && !line1 && !line2) {
+X			if (!glob) ureset();
+X		} else if (ckrange(curln, curln) < 0)
+X			return ERR;
+X		else {
+X			if (!glob) ureset();
+X			if (lndelete(line1, line2) < 0)
+X				return ERR;
+X			line2 = curln;
+X			modified = 1;
+X		}
+X		if ((num = doread(line2, shcmd)) < 0)
+X			return ERR;
+X		else if (num && num != lastln)
+X			modified = 1;
+X		break;
+X#endif
+X	case '\n':
+X		if (ckrange(line1 = 1, curln + !glob) < 0
+X		 || doprint(line2, line2, 0) < 0)
+X			return ERR;
+X		break;
+X	default:
+X		sprintf(errmsg, "unknown command");
+X		return ERR;
+X	}
+X	return gflag;
+X}
+X
+X
+X/* ckrange: return status of line number range check */
+Xckrange(def1, def2)
+X	long def1, def2;
+X{
+X	if (nlines == 0) {
+X		line1 = def1;
+X		line2 = def2;
+X	}
+X	if (line1 > line2 || 1 > line1 || line2 > lastln) {
+X		sprintf(errmsg, "invalid address");
+X		return ERR;
+X	}
+X	return 0;
+X}
+X
+X
+X/* patscan: return the number of the next line matching a pattern in a
+X   given direction.  wrap around begin/end of line queue if necessary */
+Xlong
+Xpatscan(pat, dir)
+X	pattern_t *pat;
+X	int dir;
+X{
+X	char *s;
+X	long n = curln;
+X	line_t *lp;
+X
+X	do {
+X		if (n = dir ? nextln(n, lastln) : prevln(n, lastln)) {
+X			if ((s = gettxt(lp = getlp(n))) == NULL)
+X				return ERR;
+X			if (isbinary)
+X				s = nultonl(s, lp->len & ~ACTV);
+X			if (!regexec(pat, s, 0, NULL, 0))
+X				return n;
+X		}
+X	} while (n != curln);
+X	sprintf(errmsg, "no match");
+X	return  ERR;
+X}
+X
+X
+X/* getfn: return pointer to copy of filename in the command buffer */
+Xchar *
+Xgetfn()
+X{
+X	static char *file = NULL;
+X	static int filesz = 0;
+X
+X	int n;
+X
+X	if (*ibufp != '\n') {
+X		skipblanks();
+X		if (*ibufp == '\n') {
+X			sprintf(errmsg, "invalid filename");
+X			return NULL;
+X		} else if ((ibufp = getcmdv(&n, 1)) == NULL)
+X			return NULL;
+X#ifdef VI_BANG
+X		else if (*ibufp == '!') {
+X			ibufp++;
+X			if ((n = getshcmd()) < 0)
+X				return NULL;
+X			if (n) printf("%s\n", shcmd + 1);
+X			return shcmd;
+X		}
+X#endif
+X		else if (n - 1 > MAXFNAME) {
+X			sprintf(errmsg, "filename too long");
+X			return  NULL;
+X		}
+X	}
+X#ifndef BACKWARDS
+X	else if (*dfn == '\0') {
+X		sprintf(errmsg, "no current filename");
+X		return  NULL;
+X	}
+X#endif
+X	CKBUF(file, filesz, MAXFNAME + 1, NULL);
+X	for (n = 0; *ibufp != '\n';)
+X		file[n++] = *ibufp++;
+X	file[n] = '\0';
+X	return ckfn(file);
+X}
+X
+X
+X/* getrhs: extract substitution template from the command buffer */
+Xgetrhs(glob)
+X	int glob;
+X{
+X	char delim;
+X
+X	if ((delim = *ibufp) == '\n') {
+X		rhbufi = 0;
+X		return GPR;
+X	} else if (makesub(glob) == NULL)
+X		return  ERR;
+X	else if (*ibufp == '\n')
+X		return GPR;
+X	else if (*ibufp == delim)
+X		ibufp++;
+X	if ('1' <= *ibufp && *ibufp <= '9')
+X		return (int) strtol(ibufp, &ibufp, 10) << 8;
+X	else if (*ibufp == 'g') {
+X		ibufp++;
+X		return GSG;
+X	}
+X	return  0;
+X}
+X
+X
+X/* makesub: return pointer to copy of substitution template in the command
+X   buffer */
+Xchar *
+Xmakesub(glob)
+X	int glob;
+X{
+X	int n = 0;
+X	int i = 0;
+X	char delim = *ibufp++;
+X	char c;
+X
+X	if (*ibufp == '%' && *(ibufp + 1) == delim) {
+X		ibufp++;
+X		if (!rhbuf) sprintf(errmsg, "no previous substitution");
+X		return rhbuf;
+X	}
+X	while (*ibufp != delim) {
+X		CKBUF(rhbuf, rhbufsz, i + 2, NULL);
+X		if ((c = rhbuf[i++] = *ibufp++) == '\n' && *ibufp == '\0') {
+X			i--, ibufp--;
+X			break;
+X		} else if (c != '\\')
+X			;
+X		else if ((rhbuf[i++] = *ibufp++) != '\n')
+X			;
+X		else if (!glob) {
+X			while ((n = getline()) == 0
+X			    || n > 0 && ibuf[n - 1] != '\n')
+X				clearerr(stdin);
+X			if (n < 0)
+X				return NULL;
+X		} else
+X			/*NOTREACHED*/
+X			;
+X	}
+X	CKBUF(rhbuf, rhbufsz, i + 1, NULL);
+X	rhbuf[rhbufi = i] = '\0';
+X	return  rhbuf;
+X}
+X
+X
+X/* getshcmd: read a shell command up a maximum size from stdin; return
+X   substitution status */
+Xint
+Xgetshcmd()
+X{
+X	static char *buf = NULL;
+X	static int n = 0;
+X
+X	char *s;			/* substitution char pointer */
+X	int i = 0;
+X	int j = 0;
+X
+X	if (red) {
+X		sprintf(errmsg, "shell access restricted");
+X		return ERR;
+X	} else if ((s = ibufp = getcmdv(&j, 1)) == NULL)
+X		return ERR;
+X	CKBUF(buf, n, j + 1, ERR);
+X	buf[i++] = '!';			/* prefix command w/ bang */
+X	while (*ibufp != '\n')
+X		switch (*ibufp) {
+X		default:
+X			CKBUF(buf, n, i + 2, ERR);
+X			buf[i++] = *ibufp;
+X			if (*ibufp++ == '\\')
+X				buf[i++] = *ibufp++;
+X			break;
+X		case '!':
+X			if (s != ibufp) {
+X				CKBUF(buf, n, i + 1, ERR);
+X				buf[i++] = *ibufp++;
+X			}
+X#ifdef BACKWARDS
+X			else if (shcmd == NULL || *(shcmd + 1) == '\0')
+X#else
+X			else if (shcmd == NULL)
+X#endif
+X			{
+X				sprintf(errmsg, "no previous command");
+X				return ERR;
+X			} else {
+X				CKBUF(buf, n, i + shcmdi, ERR);
+X				for (s = shcmd + 1; s < shcmd + shcmdi;)
+X					buf[i++] = *s++;
+X				s = ibufp++;
+X			}
+X			break;
+X		case '%':
+X			if (*dfn  == '\0') {
+X				sprintf(errmsg, "no current filename");
+X				return ERR;
+X			}
+X			j = strlen(s = esctos(dfn));
+X			CKBUF(buf, n, i + j, ERR);
+X			while (j--)
+X				buf[i++] = *s++;
+X			s = ibufp++;
+X			break;
+X		}
+X	CKBUF(shcmd, shcmdsz, i + 1, ERR);
+X	memcpy(shcmd, buf, i);
+X	shcmd[shcmdi = i] = '\0';
+X	return *s == '!' || *s == '%';
+X}
+X
+X
+X/* append: insert text from stdin to after line n; stop when either a
+X   single period is read or EOF; return status */
+Xappend(n, glob)
+X	long n;
+X	int  glob;
+X{
+X	int l;
+X	char *lp = ibuf;
+X	char *eot;
+X	undo_t *up = NULL;
+X
+X	for (curln = n;;) {
+X		if (!glob) {
+X			if ((l = getline()) < 0)
+X				return ERR;
+X			else if (l == 0 || ibuf[l - 1] != '\n') {
+X				clearerr(stdin);
+X				return  l ? EOF : 0;
+X			}
+X			lp = ibuf;
+X		} else if (*(lp = ibufp) == '\0')
+X			return 0;
+X		else {
+X			while (*ibufp++ != '\n')
+X				;
+X			l = ibufp - lp;
+X		}
+X		if (l == 2 && lp[0] == '.' && lp[1] == '\n') {
+X			return 0;
+X		}
+X		eot = lp + l;
+X		spl1();
+X		do {
+X			if ((lp = puttxt(lp)) == NULL) {
+X				spl0();
+X				return ERR;
+X			} else if (up)
+X				up->t = getlp(curln);
+X			else if ((up = upush(UADD, curln, curln)) == NULL) {
+X				spl0();
+X				return ERR;
+X			}
+X		} while (lp != eot);
+X		spl0();
+X		modified = 1;
+X	}
+X}
+X
+X
+X#ifdef sun
+X/* subst: change all text matching a pattern in a range of lines according to
+X   a substitution template; return status  */
+Xsubst(pat, gflag)
+X	pattern_t *pat;
+X	int gflag;
+X{
+X	undo_t *up = NULL;
+X	char *txt;
+X	char *eot;
+X	line_t *bp, *ep, *np;
+X	long ocl;
+X	long nsubs = 0;
+X	int len;
+X
+X	ep = getlp(curln = line2);
+X	for (bp = getlp(line1); bp != ep->next; bp = bp->next)
+X		if ((len = regsub(pat, bp, gflag)) < 0)
+X			return ERR;
+X		else if (!len) {
+X			/* add copy of bp after current line - this avoids
+X			   overloading the undo structure, since only two
+X			   undo nodes are needed for the whole substitution;
+X			   the cost is high, but the less than if undo is
+X			   overloaded on a Sun evidently. XXX */
+X			if ((np = lpdup(bp)) == NULL)
+X				return ERR;
+X			spl1();
+X			lpqueue(np);
+X			if (up)
+X				up->t = getlp(curln);
+X			else if ((up = upush(UADD, curln, curln)) == NULL) {
+X				spl0();
+X				return ERR;
+X			}
+X			spl0();
+X		} else {
+X			txt = rbuf;
+X			eot = rbuf + len;
+X			spl1();
+X			do {
+X				if ((txt = puttxt(txt)) == NULL) {
+X					spl0();
+X					return ERR;
+X				} else if (up)
+X					up->t = getlp(curln);
+X				else if ((up = upush(UADD, curln, curln)) == NULL) {
+X					spl0();
+X					return ERR;
+X				}
+X			} while (txt != eot);
+X			spl0();
+X			nsubs++;
+X		}
+X	ocl = curln;
+X	lndelete(line1, line2);
+X	curln = ocl - (line2 - line1 + 1);
+X	if  (nsubs == 0 && !(gflag & GLB)) {
+X		sprintf(errmsg, "no match");
+X		return ERR;
+X	} else if ((gflag & (GPR | GLS | GNP))
+X	 && doprint(curln, curln, gflag) < 0)
+X		return ERR;
+X	return 1;
+X}
+X#else	/* sun */
+X
+X
+X/* subst: change all text matching a pattern in a range of lines according to
+X   a substitution template; return status  */
+Xsubst(pat, gflag)
+X	pattern_t *pat;
+X	int gflag;
+X{
+X	undo_t *up;
+X	char *txt;
+X	char *eot;
+X	long lc;
+X	int nsubs = 0;
+X	line_t *lp;
+X	int len;
+X
+X	curln = prevln(line1, lastln);
+X	for (lc = 0; lc <= line2 - line1; lc++) {
+X		lp = getlp(curln = nextln(curln, lastln));
+X		if ((len = regsub(pat, lp, gflag)) < 0)
+X			return ERR;
+X		else if (len) {
+X			up = NULL;
+X			lndelete(curln, curln);
+X			txt = rbuf;
+X			eot = rbuf + len;
+X			spl1();
+X			do {
+X				if ((txt = puttxt(txt)) == NULL) {
+X					spl0();
+X					return ERR;
+X				} else if (up)
+X					up->t = getlp(curln);
+X				else if ((up = upush(UADD, curln, curln)) == NULL) {
+X					spl0();
+X					return ERR;
+X				}
+X			} while (txt != eot);
+X			spl0();
+X			nsubs++;
+X		}
+X	}
+X	if  (nsubs == 0 && !(gflag & GLB)) {
+X		sprintf(errmsg, "no match");
+X		return ERR;
+X	} else if ((gflag & (GPR | GLS | GNP))
+X	 && doprint(curln, curln, gflag) < 0)
+X		return ERR;
+X	return 1;
+X}
+X#endif	/* sun */
+X
+X
+X/* regsub: replace text matched by a pattern according to a substitution
+X   template; return pointer to the modified text */
+Xregsub(pat, lp, gflag)
+X	pattern_t *pat;
+X	line_t *lp;
+X	int gflag;
+X{
+X	int off = 0;
+X	int kth = gflag >> 8;		/* substitute kth match only */
+X	int chngd = 0;
+X	int matchno = 0;
+X	int len;
+X	int i = 0;
+X	regmatch_t rm[SE_MAX];
+X	char *txt;
+X	char *eot;
+X
+X	if ((txt = gettxt(lp)) == NULL)
+X		return ERR;
+X	len = lp->len & ~ACTV;
+X	eot = txt + len;
+X	if (isbinary) txt = nultonl(txt, len);
+X	if (!regexec(pat, txt, SE_MAX, rm, 0)) {
+X		do {
+X			if (!kth || kth == ++matchno) {
+X				chngd++;
+X				i = rm[0].rm_so;
+X				CKBUF(rbuf, rbufsz, off + i, ERR);
+X				if (isbinary) txt = nltonul(txt, rm[0].rm_eo);
+X				memcpy(rbuf + off, txt, i);
+X				if ((off = catsub(txt, rm, off += i)) < 0)
+X					return ERR;
+X			} else {
+X				i = rm[0].rm_eo;
+X				CKBUF(rbuf, rbufsz, off + i, ERR);
+X				if (isbinary) txt = nltonul(txt, i);
+X				memcpy(rbuf + off, txt, i);
+X				off += i;
+X			}
+X			txt += rm[0].rm_eo;
+X		} while (*txt && (!chngd || (gflag & GSG) && rm[0].rm_eo)
+X		      && !regexec(pat, txt, SE_MAX, rm, REG_NOTBOL));
+X		i = eot - txt;
+X		CKBUF(rbuf, rbufsz, off + i + 2, ERR);
+X		if (i > 0 && !rm[0].rm_eo && (gflag & GSG)) {
+X			sprintf(errmsg, "infinite substitution loop");
+X			return  ERR;
+X		}
+X		if (isbinary) txt = nltonul(txt, i);
+X		memcpy(rbuf + off, txt, i);
+X		memcpy(rbuf + off + i, "\n", 2);
+X	}
+X	return chngd ? off + i + 1 : 0;
+X}
+X
+X
+X/* join: replace a range of lines with the joined text of those lines */
+Xjoin(from, to)
+X	long from;
+X	long to;
+X{
+X	static char *buf = NULL;
+X	static int n;
+X
+X	char *s;
+X	int len = 0;
+X	int size = 0;
+X	line_t *bp, *ep;
+X
+X	ep = getlp(nextln(to, lastln));
+X	for (bp = getlp(from); bp != ep; bp = bp->next, size += len) {
+X		if ((s = gettxt(bp)) == NULL)
+X			return ERR;
+X		len = bp->len & ~ACTV;
+X		CKBUF(buf, n, size + len, ERR);
+X		memcpy(buf + size, s, len);
+X	}
+X	CKBUF(buf, n, size + 2, ERR);
+X	memcpy(buf + size, "\n", 2);
+X	lndelete(from, to);
+X	curln = from - 1;
+X	spl1();
+X	if (puttxt(buf) == NULL
+X	 || upush(UADD, curln, curln) == NULL) {
+X		spl0();
+X		return ERR;
+X	}
+X	spl0();
+X	modified = 1;
+X	return 0;
+X}
+X
+X
+X/* move: move a range of lines */
+Xmove(num)
+X	long num;
+X{
+X	line_t *b1, *a1, *b2, *a2;
+X	long n = nextln(line2, lastln);
+X	long p = prevln(line1, lastln);
+X
+X	spl1();
+X	if (upush(UMOV, p, n) == NULL
+X	 || upush(UMOV, num, nextln(num, lastln)) == NULL) {
+X	 	spl0();
+X	 	return ERR;
+X	}
+X	a1 = getlp(n);
+X	if (num < line1)
+X		b1 = getlp(p), b2 = getlp(num);	/* this getlp last! */
+X	else	b2 = getlp(num), b1 = getlp(p);	/* this getlp last! */
+X	a2 = b2->next;
+X	requeue(b2, b1->next);
+X	requeue(a1->prev, a2);
+X	requeue(b1, a1);
+X	curln = num + ((num < line1) ? line2 - line1 + 1 : 0);
+X	spl0();
+X	return 0;
+X}
+X
+X
+X/* transfer: copy a range of lines; return status */
+Xtransfer(num)
+X	long num;
+X{
+X	line_t *lp;
+X	long nl, nt, lc;
+X	long mid = (num < line2) ? num : line2;
+X	undo_t *up = NULL;
+X
+X	curln = num;
+X	for (nt = 0, nl = line1; nl <= mid; nl++, nt++) {
+X		spl1();
+X		if ((lp = lpdup(getlp(nl))) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		lpqueue(lp);
+X		if (up)
+X			up->t = lp;
+X		else if ((up = upush(UADD, curln, curln)) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		spl0();
+X	}
+X	for (nl += nt, lc = line2 + nt; nl <= lc; nl += 2, lc++) {
+X		spl1();
+X		if ((lp = lpdup(getlp(nl))) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		lpqueue(lp);
+X		if (up)
+X			up->t = lp;
+X		else if ((up = upush(UADD, curln, curln)) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		spl0();
+X	}
+X	return 0;
+X}
+X
+X
+X/* lndelete: delete a range of lines */
+Xlndelete(from, to)
+X	long from, to;
+X{
+X	line_t *before, *after;
+X
+X	spl1();
+X	if (upush(UDEL, from, to) == NULL) {
+X		spl0();
+X		return ERR;
+X	}
+X	after = getlp(nextln(to, lastln));
+X	before = getlp(prevln(from, lastln));		/* this getlp last! */
+X	requeue(before, after);
+X	lastln -= to - from + 1;
+X	curln = prevln(from, lastln);
+X	spl0();
+X	return 0;
+X}
+X
+X
+X/* catsub: modify text according to a substitution template;
+X   return offset to end of modified text */
+Xcatsub(boln, rm, off)
+X	char *boln;
+X	regmatch_t *rm;
+X	int off;
+X{
+X	int j = 0;
+X	int k = 0;
+X	char *sub = rhbuf;
+X
+X	for (; sub - rhbuf < rhbufi; sub++)
+X		if (*sub == '&') {
+X			j = rm[0].rm_so;
+X			k = rm[0].rm_eo;
+X			CKBUF(rbuf, rbufsz, off + k - j, ERR);
+X			while (j < k)
+X				rbuf[off++] = boln[j++];
+X		} else if (*sub == '\\' && '1' <= *++sub && *sub <= '9'
+X		      && rm[*sub - '0'].rm_so >= 0
+X		      && rm[*sub - '0'].rm_eo >= 0) {
+X			j = rm[*sub - '0'].rm_so;
+X			k = rm[*sub - '0'].rm_eo;
+X			CKBUF(rbuf, rbufsz, off + k - j, ERR);
+X			while (j < k)
+X				rbuf[off++] = boln[j++];
+X		} else {
+X			CKBUF(rbuf, rbufsz, off + 1, ERR);
+X			rbuf[off++] = *sub;
+X		}
+X	CKBUF(rbuf, rbufsz, off + 1, ERR);
+X	rbuf[off] = '\0';
+X	return off;
+X}
+X
+X/* doprint: print a range of lines to stdout */
+Xdoprint(from, to, gflag)
+X	long from;
+X	long to;
+X	int gflag;
+X{
+X	line_t *bp;
+X	line_t *ep;
+X	char *s;
+X
+X	if (!from) {
+X		sprintf(errmsg, "invalid address");
+X		return ERR;
+X	}
+X	ep = getlp(nextln(to, lastln));
+X	for (bp = getlp(from); bp != ep; bp = bp->next) {
+X		if ((s = gettxt(bp)) == NULL)
+X			return ERR;
+X		putstr(s, bp->len & ~ACTV, curln = from++, gflag);
+X	}
+X	return 0;
+X}
+X
+X
+Xint cols = 72;		/* wrap column: ws_col - 8 */
+X
+X/* putstr: print text to stdout */
+Xvoid
+Xputstr(s, l, n, gflag)
+X	char *s;
+X	int l;
+X	long n;
+X	int gflag;
+X{
+X	int col = 0;
+X
+X	if (gflag & GNP) {
+X		printf("%ld\t", n);
+X		col = 8;
+X	}
+X	for (; l--; s++) {
+X		if ((gflag & GLS) && ++col > cols) {
+X			fputs("\\\n", stdout);
+X			col = 1;
+X		}
+X		if (gflag & GLS) {
+X			switch (*s) {
+X			case '\b':
+X				fputs("\\b", stdout);
+X				break;
+X			case '\f':
+X				fputs("\\f", stdout);
+X				break;
+X			case '\n':
+X				fputs("\\n", stdout);
+X				break;
+X			case '\r':
+X				fputs("\\r", stdout);
+X				break;
+X			case '\t':
+X				fputs("\\t", stdout);
+X				break;
+X			case '\v':
+X				fputs("\\v", stdout);
+X				break;
+X			default:
+X				if (*s < 32 || 126 < *s) {
+X					putchar('\\');
+X					putchar((((unsigned char) *s & 0300) >> 6) + '0');
+X					putchar((((unsigned char) *s & 070) >> 3) + '0');
+X					putchar(((unsigned char) *s & 07) + '0');
+X					col += 2;
+X				} else if (*s == '\\')
+X					fputs("\\\\", stdout);
+X				else {
+X					putchar(*s);
+X					col--;
+X				}
+X			}
+X			col++;
+X		} else
+X			putchar(*s);
+X	}
+X#ifndef BACKWARDS
+X	if (gflag & GLS)
+X		putchar('$');
+X#endif
+X	putchar('\n');
+X}
+X
+X
+Xint newline_added;		/* set if newline appended to input file */
+X
+X/* doread: read a text file into the editor buffer; return line count */
+Xlong
+Xdoread(n, fn)
+X	long n;
+X	char *fn;
+X{
+X	FILE *fp;
+X	line_t *lp = getlp(n);
+X	unsigned long size = 0;
+X	undo_t *up = NULL;
+X	int len;
+X
+X	isbinary = newline_added = 0;
+X	if ((fp = (*fn == '!') ? popen(fn + 1, "r") : fopen(esctos(fn), "r")) == NULL) {
+X		fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X		sprintf(errmsg, "cannot open input file");
+X		return ERR;
+X	} else if (des)
+X		desinit();
+X	for (curln = n; (len = sgetline(fp)) > 0; size += len) {
+X		spl1();
+X		if (puttxt(sbuf) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		lp = lp->next;
+X		if (up)
+X			up->t = lp;
+X		else if ((up = upush(UADD, curln, curln)) == NULL) {
+X			spl0();
+X			return ERR;
+X		}
+X		spl0();
+X	}
+X	if (((*fn == '!') ?  pclose(fp) : fclose(fp)) < 0) {
+X		fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X		sprintf(errmsg, "cannot close input file");
+X		return ERR;
+X	}
+X	if (newline_added && !isbinary)
+X		fputs("newline appended\n", stderr);
+X	if (des) size += 8 - size % 8;
+X	fprintf(stderr, !scripted ? "%lu\n" : "", size);
+X	return  (len < 0) ? ERR : curln - n;
+X}
+X
+X
+X/* dowrite: write the text of a range of lines to a file; return line count */
+Xlong
+Xdowrite(n, m, fn, mode)
+X	long n;
+X	long m;
+X	char *fn;
+X	char *mode;
+X{
+X	FILE *fp;
+X	line_t *lp;
+X	unsigned long size = 0;
+X	long lc = n ? m - n + 1 : 0;
+X	char *s = NULL;
+X	int len;
+X	int ct;
+X
+X	if ((fp = ((*fn == '!') ? popen(fn + 1, "w") : fopen(esctos(fn), mode))) == NULL) {
+X		fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X		sprintf(errmsg, "cannot open output file");
+X		return ERR;
+X	} else if (des)
+X		desinit();
+X	if (n && !des)
+X		for (lp = getlp(n); n <= m; n++, lp = lp->next) {
+X			if ((s = gettxt(lp)) == NULL)
+X				return ERR;
+X			len = lp->len & ~ACTV;
+X			if (n != lastln || !isbinary || !newline_added)
+X				s[len++] = '\n';
+X			if ((ct = fwrite(s, sizeof(char), len, fp)) < 0 || ct != len) {
+X				fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X				sprintf(errmsg, "cannot write file");
+X				return ERR;
+X			}
+X			size += len;
+X		}
+X	else if (n)
+X		for (lp = getlp(n); n <= m; n++, lp = lp->next) {
+X			if ((s = gettxt(lp)) == NULL)
+X				return ERR;
+X			len = lp->len & ~ACTV;
+X			while (len--) {
+X				if (desputc(*s++, fp) == EOF && ferror(fp)) {
+X					fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X					sprintf(errmsg, "cannot write file");
+X					return ERR;
+X				}
+X			}
+X			if (n != lastln || !isbinary || !newline_added) {
+X				if (desputc('\n', fp) < 0) {
+X					fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X					sprintf(errmsg, "cannot write file");
+X					return ERR;
+X				}
+X				size++;			/* for '\n' */
+X			}
+X			size += (lp->len & ~ACTV);
+X		}
+X	if (des) {
+X		desflush(fp);				/* flush buffer */
+X		size += 8 - size % 8;			/* adjust DES size */
+X	}
+X	if (((*fn == '!') ?  pclose(fp) : fclose(fp)) < 0) {
+X		fprintf(stderr, "%s: %s\n", fn, strerror(errno));
+X		sprintf(errmsg, "cannot close output file");
+X		return ERR;
+X	}
+X	fprintf(stderr, !scripted ? "%lu\n" : "", size);
+X	return  lc;
+X}
+X
+X
+X#define USIZE 100				/* undo stack size */
+Xundo_t *ustack = NULL;				/* undo stack */
+Xlong usize = 0;					/* stack size variable */
+Xlong u_p = 0;					/* undo stack pointer */
+X
+X
+X/* upush: return pointer to intialized undo node */
+Xundo_t *
+Xupush(type, from, to)
+X	int type;
+X	long from;
+X	long to;
+X{
+X	undo_t *t;
+X
+X#if defined(sun) || defined(NO_REALLOC_NULL)
+X	if (ustack == NULL
+X	 && (ustack = (undo_t *) malloc((usize = USIZE) * sizeof(undo_t))) == NULL) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "out of memory");
+X		return NULL;
+X	}
+X#endif
+X	t = ustack;
+X	if (u_p < usize
+X	 || (t = (undo_t *) realloc(ustack, (usize += USIZE) * sizeof(undo_t))) != NULL) {
+X		ustack = t;
+X		ustack[u_p].type = type;
+X		ustack[u_p].t = getlp(to);
+X		ustack[u_p].h = getlp(from);
+X		return ustack + u_p++;
+X	}
+X	/* out of memory - release undo stack */
+X	fprintf(stderr, "%s\n", strerror(errno));
+X	sprintf(errmsg, "out of memory");
+X	ureset();
+X	free(ustack);
+X	ustack = NULL;
+X	usize = 0;
+X	return NULL;
+X}
+X
+X/* undo: undo last change to the editor buffer */
+Xundo()
+X{
+X	long n = usw ? 0 : u_p - 1;
+X	int i = usw ? 1 : -1;
+X	long j = u_p;
+X	long ocurln = curln;
+X	long olastln = lastln;
+X
+X	if (ucurln == -1 || ulastln == -1) {
+X		sprintf(errmsg, "nothing to undo");
+X		return ERR;
+X	} else if (u_p)
+X		modified = 1;
+X	getlp(0);				/* this getlp last! */
+X	spl1();
+X	for (; j-- > 0; n += i)
+X		switch(ustack[n].type ^ usw) {
+X		case UADD:
+X			requeue(ustack[n].h->prev, ustack[n].t->next);
+X			break;
+X		case UDEL:
+X			requeue(ustack[n].h->prev, ustack[n].h);
+X			requeue(ustack[n].t, ustack[n].t->next);
+X			break;
+X		case UMOV:
+X		case VMOV:
+X			requeue(ustack[n + i].h, ustack[n].h->next);
+X			requeue(ustack[n].t->prev, ustack[n + i].t);
+X			requeue(ustack[n].h, ustack[n].t);
+X			n += i, j--;
+X			break;
+X		default:
+X			/*NOTREACHED*/
+X			;
+X		}
+X	usw = 1 - usw;
+X	curln = ucurln, ucurln = ocurln;
+X	lastln = ulastln, ulastln = olastln;
+X	spl0();
+X	return 0;
+X}
+X
+X
+X/* ureset: clear the undo stack */
+Xvoid
+Xureset()
+X{
+X	line_t *lp, *ep, *tl;
+X	int i;
+X
+X	while (u_p--)
+X		if ((ustack[u_p].type ^ usw) == UDEL) {
+X			ep = ustack[u_p].t->next;
+X			for (lp = ustack[u_p].h; lp != ep; lp = tl) {
+X				if (markno)
+X					for (i = 0; i < MAXMARK; i++)
+X						if (mark[i] == lp) {
+X							mark[i] = NULL;
+X							markno--;
+X						}
+X				tl = lp->next;
+X				free(lp);
+X			}
+X		}
+X	u_p = usw = 0;
+X	ucurln = curln;
+X	ulastln = lastln;
+X}
+X
+X
+X
+X/* sgetline: read a line of text up a maximum size from a file; return
+X   line length */
+Xsgetline(fp)
+X	FILE *fp;
+X{
+X	register int c;
+X	register int i = 0;
+X
+X	while (((c = des ? desgetc(fp) : getc(fp)) != EOF || !feof(fp) && !ferror(fp)) && c != '\n') {
+X		CKBUF(sbuf, sbufsz, i + 1, ERR);
+X		if (!(sbuf[i++] = c)) isbinary = 1;
+X	}
+X	CKBUF(sbuf, sbufsz, i + 2, ERR);
+X	if (c == '\n')
+X		sbuf[i++] = c;
+X	else if (feof(fp) && i) {
+X		sbuf[i++] = '\n';
+X		newline_added = 1;
+X	} else if (ferror(fp)) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "cannot read input file");
+X		return ERR;
+X	}
+X	sbuf[i] = '\0';
+X	return (isbinary && newline_added && i) ? --i : i;
+X}
+X
+X
+X/* getline: read a line of text up a maximum size from stdin; return
+X   line length */
+Xgetline()
+X{
+X	register int i = 0;
+X	register int oi = 0;
+X	char c;
+X
+X	/* Read one character at a time to avoid i/o contention with shell
+X	   escapes invoked by nonterminal input, e.g.,
+X	   ed - <<EOF
+X	   !cat
+X	   hello, world
+X	   EOF */
+X	for (;;)
+X		switch (read(0, &c, 1)) {
+X		default:
+X			oi = 0;
+X			CKBUF(ibuf, ibufsz, i + 2, ERR);
+X			if (!(ibuf[i++] = c)) isbinary = 1;
+X			if (c != '\n')
+X				continue;
+X			lineno++;		/* script line no. */
+X			ibuf[i] = '\0';
+X			ibufp = ibuf;
+X			return i;
+X		case 0:
+X			if (i != oi) {
+X				oi = i;
+X				continue;
+X			} else if (i)
+X				ibuf[i] = '\0';
+X			ibufp = ibuf;
+X			return i;
+X		case -1:
+X			fprintf(stderr, "%s\n", strerror(errno));
+X			sprintf(errmsg, "cannot read standard input");
+X			clearerr(stdin);
+X			ibufp = NULL;
+X			return ERR;
+X		}
+X}
+X
+X
+X/* getcmdv: get a command vector */
+Xchar *
+Xgetcmdv(sizep, nonl)
+X	int *sizep;
+X	int nonl;
+X{
+X	int l, n;
+X	char *t = ibufp;
+X
+X	while (*t++ != '\n')
+X		;
+X	if ((l = t - ibufp) < 2 || !oddesc(ibufp, ibufp + l - 1)) {
+X		*sizep = l;
+X		return ibufp;
+X	}
+X	*sizep = -1;
+X	CKBUF(cvbuf, cvbufsz, l, NULL);
+X	memcpy(cvbuf, ibufp, l);
+X	*(cvbuf + --l - 1) = '\n'; 	/* strip trailing esc */
+X	if (nonl) l--; 			/* strip newline */
+X	for (;;) {
+X		if ((n = getline()) < 0)
+X			return NULL;
+X		else if (n == 0 || ibuf[n - 1] != '\n') {
+X			sprintf(errmsg, "unexpected end-of-file");
+X			return NULL;
+X		}
+X		CKBUF(cvbuf, cvbufsz, l + n, NULL);
+X		memcpy(cvbuf + l, ibuf, n);
+X		if (n < 2 || !oddesc(cvbuf, cvbuf + (l += n) - 1))
+X			break;
+X		*(cvbuf + --l - 1) = '\n'; 	/* strip trailing esc */
+X		if (nonl) l--; 			/* strip newline */
+X	}
+X	CKBUF(cvbuf, cvbufsz, l + 1, NULL);
+X	cvbuf[l] = '\0';
+X	*sizep = l;
+X	return cvbuf;
+X}
+X
+X
+X/* lpdup: return a pointer to a copy of a line node */
+Xline_t *
+Xlpdup(lp)
+X	line_t *lp;
+X{
+X	line_t *np;
+X
+X	if ((np = (line_t *) malloc(sizeof(line_t))) == NULL) {
+X		fprintf(stderr, "%s\n", strerror(errno));
+X		sprintf(errmsg, "out of memory");
+X		return NULL;
+X	}
+X	np->seek = lp->seek;
+X	np->len = (lp->len & ~ACTV);	/* zero ACTV bit */
+X	return np;
+X}
+X
+X
+X/* oddesc:  return the parity of escapes preceding a character in a
+X   string */
+Xoddesc(s, t)
+X	char *s;
+X	char *t;
+X{
+X    return (s == t || *(t - 1) != '\\') ? 0 : !oddesc(s, t - 1);
+X}
+X
+X
+X/* esctos: return copy of escaped string */
+Xchar *
+Xesctos(s)
+X	char *s;
+X{
+X	static char *file = NULL;
+X	static int filesz = 0;
+X
+X	int i = 0;
+X
+X	CKBUF(file, filesz, MAXFNAME + 1, NULL);
+X	/* assert: no trailing escape */
+X	while (file[i++] = (*s == '\\') ? *++s : *s)
+X		s++;
+X	return file;
+X}
+X
+X
+Xvoid
+Xonhup(signo)
+X	int signo;
+X{
+X	if (mutex)
+X		sigflags |= (1 << signo);
+X	else	dohup(signo);
+X}
+X
+X
+Xvoid
+Xonintr(signo)
+X	int signo;
+X{
+X	if (mutex)
+X		sigflags |= (1 << signo);
+X	else	dointr(signo);
+X}
+X
+X
+X
+Xvoid
+Xdohup(signo)
+X	int signo;
+X{
+X	char *hup = NULL;		/* hup filename */
+X	char *s;
+X	int n;
+X
+X	if (!sigactive)
+X		quit(1);
+X	sigflags &= ~(1 << signo);
+X	if (lastln && dowrite(1, lastln, "ed.hup", "w") < 0
+X	 && (s = getenv("HOME")) != NULL
+X	 && (n = strlen(s)) + 8 <= MAXFNAME	/* "ed.hup" + '/' */
+X	 && (hup = (char *) malloc(n + 10)) != NULL) {
+X		strcpy(hup, s);
+X		if (hup[n - 1] != '/')
+X			hup[n] = '/', hup[n+1] = '\0';
+X		strcat(hup, "ed.hup");
+X		dowrite(1, lastln, hup, "w");
+X	}
+X	quit(2);
+X}
+X
+X
+Xvoid
+Xdointr(signo)
+X	int signo;
+X{
+X	if (!sigactive)
+X		quit(1);
+X	sigflags &= ~(1 << signo);
+X#ifdef _POSIX_SOURCE
+X	siglongjmp(env, -1);
+X#else
+X	longjmp(env, -1);
+X#endif
+X}
+X
+X
+Xstruct winsize ws;		/* window size structure */
+X
+Xvoid
+Xdowinch(signo)
+X	int signo;
+X{
+X	sigflags &= ~(1 << signo);
+X	if (ioctl(0, TIOCGWINSZ, (char *) &ws) >= 0) {
+X		if (ws.ws_row > 2) rows = ws.ws_row - 2;
+X		if (ws.ws_col > 8) cols = ws.ws_col - 8;
+X	}
+X}
+X
+X
+Xunsigned char ctab[256];		/* character translation table */
+X
+X/* translit: translate characters in a string */
+Xchar *
+Xtranslit(s, len, from, to)
+X	char *s;
+X	int len;
+X	int from;
+X	int to;
+X{
+X	static int i = 0;
+X
+X	unsigned char *us;
+X
+X	ctab[i] = i;			/* restore table to initial state */
+X	ctab[i = from] = to;
+X	for (us = (unsigned char *) s; len-- > 0; us++)
+X		*us = ctab[*us];
+X	return s;
+X}
+X
+X
+Xline_t line0;			/* initial node of line queue */
+X
+X/* init_buf: open scratch buffer; initialize line queue */
+Xvoid
+Xinit_buf()
+X{
+X	int i = 0;
+X
+X	if (sbopen() < 0)
+X		quit(2);
+X	requeue(&line0, &line0);
+X	for (i = 0; i < 256; i++)
+X		ctab[i] = i;
+X}
+X
+X
+X/* ckfn: return a legal filename */
+Xchar *
+Xckfn(s)
+X	char *s;
+X{
+X	if (red && (*s == '!' || !strcmp(s, "..") || strchr(s, '/'))) {
+X		sprintf(errmsg, "shell access restricted");
+X		return NULL;
+X	}
+X	return s;
+X}
+END_OF_FILE
+  if test 47458 -ne `wc -c <'ed.c'`; then
+    echo shar: \"'ed.c'\" unpacked with wrong size!
+  fi
+  # end of 'ed.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

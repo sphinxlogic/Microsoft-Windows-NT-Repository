@@ -1,0 +1,2111 @@
+Path: uunet!wupost!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i064: Video Extension for X (v2r2), Part13/29
+Message-ID: <1992Feb6.145635.430@msi.com>
+Date: 6 Feb 92 14:56:35 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2098
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 64
+Archive-name: vex.v2r2/part13
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 13 (of 29)."
+# Contents:  extensions/xv/doc/xv-protocol-v2.mem
+#   extensions/xv/include/Xvproto.h server/ddx/cfb32/cfbgc.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:47 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/doc/xv-protocol-v2.mem' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/doc/xv-protocol-v2.mem'\"
+else
+echo shar: Extracting \"'extensions/xv/doc/xv-protocol-v2.mem'\" \(20567 characters\)
+sed "s/^X//" >'extensions/xv/doc/xv-protocol-v2.mem' <<'END_OF_FILE'
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X			  X Video Extension
+X			 Protocol Description
+X
+X			      Version 2
+X
+X			      25-JUL-91
+X
+X			     David Carver
+X
+X		    Digital Equipment Corporation
+X		Workstation Engineering/Project Athena
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+X  Copyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts, 
+X  and the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+X  Permission to use, copy, modify, and distribute this software and its
+X  documentation for any purpose and without fee is hereby granted, provided
+X  that the above copyright notice appear in all copies and that both that
+X  copyright notice and this permission notice appear in supporting
+X  documentation, and that the names of Digital or MIT not be used in
+X  advertising or publicity pertaining to distribution of the software
+X  without specific, written prior permission.
+X
+X  DIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING 
+X  ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL 
+X  DIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR 
+X  ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER 
+X  IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING 
+X  OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.  
+X  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X
+X
+X
+X  Preface
+X  -------
+X  
+X    The following is an outline for an X video extension protocol.  It
+X    is preliminary and subject to change.  My goal in writing this was
+X    to fix some the shortcomings of existing overly simplistic
+X    extensions while avoiding pitfalls in an overly complex extension.
+X  
+X    Your feedback is desired, and since the major design directions
+X    have been stable for some time, feel free to hammer on the details
+X    of the protocol.
+X
+X    When you receive a revision of the document, refer to the changes
+X    and issues sections to guide your review and analysis.
+X
+X
+X  Acknowledgements
+X  ---------------
+X
+X    The following people have made major contributions to the design of
+X    the Xv protocol:
+X
+X      Branko Gerovac (DEC/Corporate Research)
+X      Russ Sasnett (GTE/Project Athena)
+X      Ralph Swick (DEC/Project Athena)
+X
+X    Many ideas and approaches in Xv were the product of discussions
+X    with several groups, including
+X
+X      Project Athena's Visual Computing Group
+X      The MIT X Consortium 
+X      The MIT Media Lab's Interactive Cinema Group
+X      
+X  
+X  
+X  Changes
+X  -------
+X
+X    From version 1.3 to 2.0
+X
+X    -- Changed SetPortControl and GetPortControl to GetPortAttribute
+X       and SetPortAttribute.
+X
+X    -- Changed QueryBestSize
+X
+X    -- Simplified SelectVideoNotify and SelectPortNotify requests.
+X
+X    -- Changed the way SetPortControl and GetPortControl works.
+X
+X    -- Added a QueryExtension request to return the version and
+X       revision information of the extension.
+X
+X    -- Changed the name of the QueryVideo request to QueryAdaptors;
+X       Removed the list of encodings from QueryVideo and added a
+X       QueryEncodings request.
+X
+X    -- Added a PortNotify event that notifies interested clients that
+X       a port control has been changed.
+X
+X    -- Added SelectPortNotify request to select for PortNotify events.
+X
+X    -- The XvInterruped reason has been replaced by two new reasons:
+X       one for when video is preempted by another video request and
+X       one for when video is terminated because of hard transmission
+X       or reception errors.
+X
+X    -- Changed the wording of the QueryBestSize request.  Added issue
+X       about whether or not returned sizes should maintain the
+X       requested aspect ratio.
+X
+X
+X
+X  Introduction
+X  ------------
+X  
+X    Video technology is moving very quickly.  Standards for processing
+X    high resolution video are currently a hot topic of discussion
+X    internationally, and it will soon be possible to process video
+X    entirely within the digital domain.  The Xv extension, however,
+X    does not attempt to address issues of digital video.  Its purpose
+X    is to provide a mechanism for support of current and near term
+X    interactive video technology.
+X    
+X    It is somewhat ironic that Xv contains nothing particularly
+X    innovative.  It takes a minimalistic approach, and without a doubt
+X    it could have been defined years ago, and with several revisions.
+X    So, the life expectancy of Xv is not long.  Nevertheless, it may
+X    undergo further revision and experimentation that will help our
+X    progress towards digital video systems.
+X  
+X    One premise of the Xv extension is that the X server is not alone.
+X    A separate video server is often used to manage other aspects of
+X    video processing, though the partition between what the X server
+X    does and what a video server does is a matter of great debate.
+X
+X  
+X  Model
+X  -----
+X  
+X    This extension models video monitor capabilities in the X Window
+X    System.  Some advanced monitors support the simultaneous display
+X    of multiple video signals (into separate windows), and that is
+X    prepresented here through the ability to display video from
+X    multiple video input adaptors into X drawables.
+X  
+X    Some monitors support multiple video encodings (mostly for
+X    internationalization purposes) either through switches or
+X    automatic detection, thus each video adaptor specifies the set of
+X    encodings it supports.
+X  
+X    The requests to display video from an adaptor into a drawable are
+X    modeled after the core PutImage request, though extended to
+X    support scaling and source clipping.
+X  
+X    Video output is also supported and is symmetric with the video
+X    input function, though fewer GC components are used.
+X  
+X  
+X  Mechanism
+X  ---------
+X  
+X    The Xv extension does the following:
+X  
+X      --  lists available video adaptors
+X      --  identifies the number of ports each adaptor supports
+X      --  describes what drawable formats each adaptor supports
+X      --  describes what video encodings each adaptor supports
+X      --  displays video from a port to a drawable
+X      --  captures video from a drawable to a port
+X      --  grabs and ungrabs ports
+X      --  sets and gets port attributes
+X      --  delivers event notification
+X  
+X
+X  
+X  Adaptors
+X  --------
+X  
+X    A display may have multiple video input and output adaptors.  An
+X    adaptor may support multiple simultaneously active ports, and in
+X    some cases the number of ports has no fixed limit.
+X  
+X    An input port receives encoded video data and converts it to a
+X    stream of data used to update a drawable.  An output port samples
+X    data from a drawable and produces a stream of encoded video data.
+X  
+X    The ADAPTORINFO structure is used to describe a video adaptor.
+X    
+X    ADAPTORINFO:
+X  	[base-id: PORT
+X         num-ports: CARD16
+X         type: SETofADAPTORTYPE
+X         formats: LISTofFORMAT
+X         name: STRING]
+X  
+X    ADAPTORTYPE: {Input, Output}
+X
+X    FORMAT:
+X  	[depth: CARD8
+X  	 visual: VISUALID]
+X  
+X    The base-id field specifies the XID of the first port of the
+X    adaptor.  The `num-ports' field specifies how many ports the
+X    adaptor supports.  The ports of the adaptor have XIDs in the range
+X    [base-id..base-id + num-ports - 1]
+X
+X    The type attribute determines if the adaptor can process video
+X    input, output, or input and output.  The if the adaptor can
+X    process input then Input is asserted, if the adaptor can process
+X    output then Output is asserted.
+X
+X    The drawable depths and visual types supported by the adaptor are
+X    listed in `formats'.  Note: that when video is being processed for
+X    pixmaps the visual format is taken to be the visual of the first
+X    pair that matches the depth of the pixmap.
+X
+X    The name field contains an a vendor specific string that
+X    identifies the adaptor.
+X
+X    It should be noted that the existence of separate adaptors doesn't
+X    necessarily imply that simultaneous operation is supported.
+X
+X
+X  
+X  Errors
+X  ------
+X  
+X    Port
+X  
+X    A Port error is returned if any request names a PORT that does not
+X    exist.
+X
+X  
+X    Encoding
+X  
+X    An Encoding error is returned if any request names an ENCODINGID
+X    that does not exist.
+X
+X
+X
+X  
+X  Query Requests
+X  -------------------
+X
+X    QueryExtension
+X    ==>
+X      version: CARD16
+X      revision: CARD16
+X
+X    The QueryExtension request returns the extension version and
+X    revision numbers.
+X
+X  
+X    QueryAdaptors
+X      win: WINDOW
+X    ==>
+X      adaptors: LISTofADAPTORINFO
+X  
+X    The QueryAdaptors request returns the video adaptor information for
+X    the screen of the specified window.
+X  
+X    Errors: {Window}
+X
+X
+X    QueryEncodings    
+X      port: PORT
+X    ==>
+X      encodings: LISTofENCODINGINFO
+X
+X    The QueryEncodings request returns the list of encodings supported
+X    by the port adaptor.  Use the SetPortAttribute request to set
+X    which encoding a port is to process.  The ENCODINGINFO record
+X    describes an encoding:
+X
+X    ENCODINGINFO:
+X  	[encoding: ENCODINGID
+X  	 name: STRING
+X  	 width, height: CARD16
+X  	 rate: FRACTION]
+X  
+X    The `encoding' field identifies an encoding supported by a port.
+X    Its value is unique for a screen.  Width and height specify the
+X    size of the video image and rate specifies the rate at which
+X    fields of image information are encoded.
+X  
+X    An encoding is identified by a string that names the encoding.
+X    Encoding naming conventions need to be established (i.e.,
+X    something along the lines of font naming, but simpler)
+X  
+X    FRACTION
+X          [numerator, denominator: INT32]
+X  
+X    The FRACTION structure is used to specify a fractional number.
+X
+X    Errors: {Port}
+X
+X
+X  
+X  Put Video Requests
+X  ------------------
+X  
+X    PutVideo
+X      port: PORT
+X      drawable: DRAWABLE
+X      gc: GCONTEXT
+X      vid-x, vid-y: INT16
+X      vid-w, vid-h: CARD16
+X      drw-x, drw-y: INT16
+X      drw-w, drw-h: CARD16
+X  
+X    The PutVideo request writes video into a drawable.  The position
+X    and size of the source rectangle is specified by vid-x, vid-y,
+X    vid-w, and vid-h.  The position and size of the destination
+X    rectangle is specified by drw-x, drw-y, drw-w, drw-h.
+X  
+X    Video data is clipped to the bounds of the video encoding, scaled
+X    to the requested drawable region size (or the closest size
+X    supported), and clipped to the bounds of the drawable.
+X
+X    If video is successfully initiated, a VideoNotify event with
+X    detail Started is generated for the drawable.  If the port is
+X    already in use, its video is preempted, and if the new drawable is
+X    different than the old, a VideoNotify event with detail Preempted
+X    is generated for the old drawable.  If the port is grabbed by
+X    another client, this request is ignored, and a VideoNotify event
+X    with detail Busy is generated for the drawable.  If the port is
+X    not receiving a valid video signal or if the video signal is
+X    interrupted while video is active a VideoNotify event with detail
+X    HardError is generated for the drawable.
+X
+X    GC components: subwindow-mode, clip-x-origin, clip-y-origin, clip-mask.
+X  
+X    Errors: {Match, Value, GContext, Port, Alloc}
+X  
+X  
+X    PutStill
+X      port: PORT
+X      drawable: DRAWABLE
+X      gc: GCONTEXT
+X      vid-x, vid-y: INT16
+X      vid-w, vid-h: CARD16
+X      drw-x, drw-y: INT16
+X      drw-w, drw-h: CARD16
+X  
+X    The PutStill request writes a single frame of video into a
+X    drawable.  The position and size of the source rectangle is
+X    specified by vid-x, vid-y, vid-w, and vid-h.  The position and
+X    size of the destination rectangle is specified by drw-x, drw-y,
+X    drw-w, drw-h.
+X  
+X    Video data is clipped to the bounds of the video encoding, scaled
+X    to the requested drawable region size (or the closest size
+X    supported) and clipped to the bounds of the drawable.
+X
+X    If the port is grabbed by another client, this request is ignored,
+X    and a VideoNotify event with detail Busy is generated for the
+X    drawable.  If the port is not receiving a valid video signal a
+X    VideoNotify event with detail HardError is generated for the
+X    drawable.
+X
+X    GC components: subwindow-mode, clip-x-origin, clip-y-origin, clip-mask.
+X  
+X    Errors: {Match, Value, GContext, Port, Alloc}
+X  
+X  
+X  
+X  Get Video Requests
+X  ------------------
+X  
+X    GetVideo
+X      port: PORT
+X      drawable: DRAWABLE
+X      gc: GCONTEXT
+X      vid-x, vid-y: INT16
+X      vid-w, vid-h: CARD16
+X      drw-x, drw-y: INT16
+X      drw-w, drw-h: CARD16
+X  
+X    The GetVideo request outputs video from a drawable.  The position
+X    and size of the destination rectangle is specified by vid-x,
+X    vid-y, vid-w, and vid-h.  The position and size of the source
+X    rectangle is specified by drw-x, drw-y, drw-w, and drw-h.
+X  
+X    Drawable data is clipped to the bounds of the drawable, scaled to
+X    the requested video region size (or the closest size supported)
+X    and clipped to the bounds of the video encoding.  The contents of
+X    any region not updated with drawable data is undefined.
+X
+X    If video is successfully initiated, a VideoNotify event with
+X    detail Started is generated for the drawable.  If the port is
+X    already in use, its video is preempted, and if the new drawable is
+X    different than the old, a VideoNotify event with detail Preempted
+X    is generated for the old drawable.  If the port is grabbed by
+X    another client, this request is ignored, and a VideoNotify event
+X    with detail Busy is generated for the drawable.
+X
+X    GC components: subwindow-mode, clip-x-origin, clip-y-origin,
+X    clip-mask.
+X  
+X    Errors: {Match, Value, GContext, Port, Alloc}
+X  
+X  
+X    GetStill
+X      port: PORT
+X      drawable: DRAWABLE
+X      gc: GCONTEXT
+X      vid-x, vid-y: INT16
+X      vid-w, vid-h: CARD16
+X      drw-x, drw-y: INT16
+X      drw-w, drw-h: CARD16
+X  
+X    The GetStill request outputs video from a drawable.  The position
+X    and size of the destination rectangle is specified by vid-x,
+X    vid-y, vid-w, and vid-h.  The position and size of the source
+X    rectangle is specified by drw-x, drw-y, drw-w, and drw-h.
+X  
+X    Drawable data is clipped to the bounds of the drawable, scaled to
+X    the requested video region size (or the closest size supported)
+X    and clipped to the bounds of the video encoding.  The contents of
+X    any region not updated with drawable data is undefined.
+X
+X    If the still is successfully captured a VideoNotify event with
+X    detail Still is generated for the drawable.  If the port is
+X    grabbed by another client, this request is ignored, and a
+X    VideoNotify event with detail Busy is generated for the drawable.
+X
+X    GC components: subwindow-mode, clip-x-origin, clip-y-origin,
+X    clip-mask.
+X  
+X    Errors: {Match, Value, GContext, Port, Alloc}
+X  
+X  
+X  
+X  
+X  Grab Requests
+X  -------------
+X  
+X    GrabPort
+X      port: PORT    
+X      timestamp: {TIMESTAMP, CurrentTime}
+X    ==>
+X      status: {Success, AlreadyGrabbed, InvalidTime}
+X  
+X    The GrabPort request grabs a port.  While a port is grabbed, only
+X    video requests from the grabbing client are permitted.
+X  
+X    If timestamp specifies a time older than the current port time, a
+X    status of InvalidTime is returned.  If the port is already grabbed
+X    by another client, a status of AlreadyGrabbed is returned.
+X    Otherwise a status of Success is returned. The port time is
+X    updated when the following requests are processed: GrabPort,
+X    UngrabPort, PutVideo, PutStill, GetVideo, GetStill
+X  
+X    If the port is actively processing video for another client, the
+X    video is preempted, and an VideoNotify event with detail Preempted
+X    is generated for its drawable.
+X
+X    Errors: {Port}
+X  
+X  
+X    UngrabPort
+X      port: PORT    
+X      timestamp: {TIMESTAMP, CurrentTime}
+X  
+X    The UngrabPort request ungrabs a port.  If timestamp specifies a
+X    time before the last connection request time of this port, the
+X    request is ignored.
+X  
+X    Errors: {Port}
+X  
+X
+X
+X  Other Requests
+X  --------------
+X  
+X    StopVideo
+X      port: PORT
+X      drawable: DRAWABLE
+X  
+X    The StopVideo request stops active video for the specified port
+X    and drawable.  If the port isn't processing video, or if it is
+X    processing video in a different drawable, the request is ignored.
+X    When video is stopped a VideoNotify event with detail Stopped is
+X    generated for the associated drawable.
+X
+X    Errors: {Drawable, Port}  
+X
+X  
+X    SelectVideoNotify
+X      drawable: DRAWABLE
+X      onoff: BOOL
+X  
+X    The SelectVideoNotify request enables or disables VideoNotify
+X    event delivery to the requesting client.  VideoNotify events are
+X    generated when video starts and stops.
+X
+X    Errors: {Drawable}
+X
+X
+X    SelectPortNotify
+X      port: PORT
+X      onoff: BOOL
+X  
+X    The SelectPortNotify request enables or disables PortNotify event
+X    delivery to the requesting client.  PortNotify events are
+X    generated when port attributes are changed using SetPortAttribute.
+X
+X    Errors: {Port}
+X
+X  
+X    QueryBestSize
+X      port: PORT
+X      motion: BOOL
+X      vid-w, vid-h: CARD16
+X      drw-w, drw-h: CARD16
+X    ==>
+X      actual-width, actual-height: CARD16
+X  
+X    The QueryBestSize request returns, for the given source size and
+X    desired destination size, the closest destination size that the
+X    port adaptor supports.  The returned size will be equal
+X    or smaller than the requested size if one is supported.  If motion
+X    is True then the requested size is intended for use with full
+X    motion video.  If motion is False, the requested size is intended
+X    for use with stills only.
+X
+X    The retuned size is also chosen to maintain the requested aspect ratio
+X    if possible.
+X  
+X    Errors: {Port}
+X  
+X
+X    
+X    SetPortAttribute
+X      port: PORT
+X      attribute: ATOM
+X      value: INT32
+X  
+X    The SetPortAttribute request sets the value of a port attribute.
+X    The port attribute is identified by the attribute atom.  The
+X    following strings are guaranteed to generate valid atoms using the
+X    InternAtom request.
+X
+X    String                Type          
+X    -----------------------------------------------------------------
+X  
+X    "XV_ENCODING"         ENCODINGID
+X    "XV_HUE"	          [-1000..1000] 
+X    "XV_SATURATION"       [-1000..1000] 
+X    "XV_BRIGHTNESS"       [-1000..1000] 
+X    "XV_CONTRAST"         [-1000..1000]
+X  
+X
+X    If the given attribute doesn't match an attribute supported by the
+X    port adaptor a Match error is generated.  The supplied encoding
+X    must be one of the encodings listed for the adaptor, otherwise an
+X    Encoding error is generated.
+X
+X    If the adaptor doesn't support the exact hue, saturation,
+X    brightness, and contrast levels supplied, the closest levels
+X    supported are assumed.  The GetPortAttribute request can be used
+X    to query the resulting levels.
+X
+X    When a SetPortAttribute request is processed a PortNotify event is
+X    generated for all clients that have requested port change
+X    notification using SelectPortNotify.
+X
+X    Errors: {Port, Match, Value}
+X  
+X  
+X    GetPortAttribute
+X      port: PORT
+X      attribute: ATOM
+X    ==>
+X      value: INT32  
+X        
+X
+X    The GetPortAttribute request returns the current value of the
+X    attribute identified by the given atom.  If the given atom
+X    doesn't match an attribute supported by the adaptor a Match
+X    error is generated.
+X
+X    Errors: {Port, Match}
+X
+X
+X
+X  Events
+X  ------
+X  
+X    VideoNotify
+X      drawable: DRAWABLE
+X      port: PORT
+X      reason: REASON
+X      time: TIMESTAMP
+X
+X    REASON: {Started, Still, Stopped, Busy, Preempted, HardError}
+X
+X    A VideoNotify event is generated when video activity is started,
+X    stopped, or unable to proceed in a drawable.
+X
+X    A Started reason is generated when video starts in a drawable.
+X
+X    A Stopped reason is generated when video is stopped in a
+X    drawable upon request.
+X
+X    A Busy reason is generated when a put or get request cannot
+X    proceed because the port is grabbed by another client.
+X
+X    A Preempted reason is generated when video is stopped by a
+X    conflicting request.
+X  
+X    A HardError reason is generated when the video port cannot
+X    initiate or continue processing a video request because of an
+X    underlying transmission or reception error.
+X  
+X
+X    PortNotify
+X      port: PORT
+X      attribute: ATOM
+X      value: INT32
+X      time: TIMESTAMP
+X  
+X    The PortNotify event is generated when a SetPortAttribute request
+X    is processed.  The event is delivered to all clients that have
+X    performed a SelectPortNotify request for the port.  The event
+X    contains the atom identifying the attribute that changed, and the
+X    new value of that attribute.
+END_OF_FILE
+if test 20567 -ne `wc -c <'extensions/xv/doc/xv-protocol-v2.mem'`; then
+    echo shar: \"'extensions/xv/doc/xv-protocol-v2.mem'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/doc/xv-protocol-v2.mem'
+fi
+if test -f 'extensions/xv/include/Xvproto.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/include/Xvproto.h'\"
+else
+echo shar: Extracting \"'extensions/xv/include/Xvproto.h'\" \(9368 characters\)
+sed "s/^X//" >'extensions/xv/include/Xvproto.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X#ifndef XVPROTO_H
+X#define XVPROTO_H
+X/*
+X** File: 
+X**
+X**   Xvproto.h --- Xv protocol header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   11.06.91 Carver
+X**     - changed SetPortControl to SetPortAttribute
+X**     - changed GetPortControl to GetPortAttribute
+X**     - changed QueryBestSize
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   24.01.91 Carver
+X**     - version 1.4 upgrade
+X**
+X*/
+X
+X#include "Xmd.h"  
+X
+X/* Symbols: These are undefined at the end of this file to restore the
+X   values they have in Xv.h */
+X
+X#define XvPortID CARD32
+X#define XvEncodingID CARD32
+X
+X/* Structures */
+X
+Xtypedef struct {
+X  INT32 numerator B32;
+X  INT32 denominator B32;
+X} xvRational;
+X#define sz_xvRational 8
+X
+Xtypedef struct {
+X  XvPortID base_id B32;
+X  CARD16 name_size B16;
+X  CARD16 num_ports B16;
+X  CARD16 num_formats B16;
+X  CARD8 type;
+X  CARD8 pad;
+X} xvAdaptorInfo;
+X#define sz_xvAdaptorInfo 12
+X
+Xtypedef struct {
+X  XvEncodingID encoding B32;
+X  CARD16 name_size B16;
+X  CARD16 width B16, height B16;
+X  xvRational rate;
+X  CARD16 pad B16;
+X} xvEncodingInfo;
+X#define sz_xvEncodingInfo (12 + sz_xvRational)
+X
+Xtypedef struct {
+X  VisualID visual B32;
+X  CARD8 depth;
+X  CARD8 pad1;
+X  CARD16 pad2 B16;
+X} xvFormat;
+X#define sz_xvFormat 8
+X
+X/* Requests */
+X
+X#define xv_QueryExtension                  0
+X#define	xv_QueryAdaptors                   1
+X#define	xv_QueryEncodings                  2
+X#define xv_GrabPort                        3
+X#define xv_UngrabPort                      4
+X#define xv_PutVideo                        5
+X#define xv_PutStill                        6
+X#define xv_GetVideo                        7
+X#define xv_GetStill                        8
+X#define xv_StopVideo                       9
+X#define xv_SelectVideoNotify              10
+X#define xv_SelectPortNotify               11
+X#define xv_QueryBestSize                  12
+X#define xv_SetPortAttribute               13
+X#define xv_GetPortAttribute               14
+X#define xv_LastRequest                    15
+X
+X#define xvNumRequests                     (xv_LastRequest)
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X} xvQueryExtensionReq;
+X#define sz_xvQueryExtensionReq 4
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  CARD32 window B32;
+X} xvQueryAdaptorsReq;
+X#define sz_xvQueryAdaptorsReq 8
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  CARD32 port B32;
+X} xvQueryEncodingsReq;
+X#define sz_xvQueryEncodingsReq 8
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Drawable drawable B32;
+X  GContext gc B32;
+X  INT16 vid_x B16;
+X  INT16 vid_y B16;
+X  CARD16 vid_w B16;
+X  CARD16 vid_h B16;
+X  INT16 drw_x B16;
+X  INT16 drw_y B16;
+X  CARD16 drw_w B16;
+X  CARD16 drw_h B16;
+X} xvPutVideoReq;
+X#define sz_xvPutVideoReq 32
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Drawable drawable B32;
+X  GContext gc B32;
+X  INT16 vid_x B16;
+X  INT16 vid_y B16;
+X  CARD16 vid_w B16;
+X  CARD16 vid_h B16;
+X  INT16 drw_x B16;
+X  INT16 drw_y B16;
+X  CARD16 drw_w B16;
+X  CARD16 drw_h B16;
+X} xvPutStillReq;
+X#define sz_xvPutStillReq 32
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Drawable drawable B32;
+X  GContext gc B32;
+X  INT16 vid_x B16;
+X  INT16 vid_y B16;
+X  CARD16 vid_w B16;
+X  CARD16 vid_h B16;
+X  INT16 drw_x B16;
+X  INT16 drw_y B16;
+X  CARD16 drw_w B16;
+X  CARD16 drw_h B16;
+X} xvGetVideoReq;
+X#define sz_xvGetVideoReq 32
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Drawable drawable B32;
+X  GContext gc B32;
+X  INT16 vid_x B16;
+X  INT16 vid_y B16;
+X  CARD16 vid_w B16;
+X  CARD16 vid_h B16;
+X  INT16 drw_x B16;
+X  INT16 drw_y B16;
+X  CARD16 drw_w B16;
+X  CARD16 drw_h B16;
+X} xvGetStillReq;
+X#define sz_xvGetStillReq 32
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Time time B32;
+X} xvGrabPortReq;
+X#define sz_xvGrabPortReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Time time B32;
+X} xvUngrabPortReq;
+X#define sz_xvUngrabPortReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  Drawable drawable B32;
+X  BOOL onoff;
+X  CARD8 pad1;
+X  CARD16 pad2;
+X} xvSelectVideoNotifyReq;
+X#define sz_xvSelectVideoNotifyReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  BOOL onoff;
+X  CARD8 pad1;
+X  CARD16 pad2;
+X} xvSelectPortNotifyReq;
+X#define sz_xvSelectPortNotifyReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Drawable drawable B32;
+X} xvStopVideoReq;
+X#define sz_xvStopVideoReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Atom attribute B32;
+X  INT32 value B32;
+X} xvSetPortAttributeReq;
+X#define sz_xvSetPortAttributeReq 16
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  Atom attribute B32;
+X} xvGetPortAttributeReq;
+X#define sz_xvGetPortAttributeReq 12
+X
+Xtypedef struct {
+X  CARD8 reqType;
+X  CARD8 xvReqType;
+X  CARD16 length B16;
+X  XvPortID port B32;
+X  CARD16 vid_w B16;
+X  CARD16 vid_h B16;
+X  CARD16 drw_w B16;
+X  CARD16 drw_h B16;
+X  CARD8 motion;
+X  CARD8 pad1;
+X  CARD16 pad2 B16;
+X} xvQueryBestSizeReq;
+X#define sz_xvQueryBestSizeReq 20
+X
+X/* Replies */
+X
+Xtypedef struct _QueryExtensionReply {
+X  BYTE type;   /* X_Reply */
+X  CARD8 padb1;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;
+X  CARD16 version B16;
+X  CARD16 revision B16;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvQueryExtensionReply;
+X#define sz_xvQueryExtensionReply 32
+X
+Xtypedef struct _QueryAdaptorsReply {
+X  BYTE type;   /* X_Reply */
+X  CARD8 padb1;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;
+X  CARD16 num_adaptors B16;
+X  CARD16 pads3 B16;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvQueryAdaptorsReply;
+X#define sz_xvQueryAdaptorsReply 32
+X
+Xtypedef struct _QueryEncodingsReply {
+X  BYTE type;   /* X_Reply */
+X  CARD8 padb1;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;
+X  CARD16 num_encodings B16;
+X  CARD32 padl3 B32;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvQueryEncodingsReply;
+X#define sz_xvQueryEncodingsReply 32
+X
+Xtypedef struct {
+X  BYTE type;  /* X_Reply */
+X  BYTE result;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;  /* 0 */
+X  CARD32 padl3 B32;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvGrabPortReply;
+X#define sz_xvGrabPortReply 32
+X
+Xtypedef struct {
+X  BYTE type;  /* X_Reply */
+X  BYTE padb1;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;  /* 0 */
+X  INT32 value B32;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvGetPortAttributeReply;
+X#define sz_xvGetPortAttributeReply 32
+X
+Xtypedef struct {
+X  BYTE type;  /* X_Reply */
+X  BYTE padb1;
+X  CARD16 sequenceNumber B16;
+X  CARD32 length B32;  /* 0 */
+X  CARD16 actual_width B16;
+X  CARD16 actual_height B16;
+X  CARD32 padl4 B32;
+X  CARD32 padl5 B32;
+X  CARD32 padl6 B32;
+X  CARD32 padl7 B32;
+X  CARD32 padl8 B32;
+X} xvQueryBestSizeReply;
+X#define sz_xvQueryBestSizeReply 32
+X
+X/* DEFINE EVENT STRUCTURE */
+X
+Xtypedef struct {
+X  union {
+X    struct {
+X      BYTE type;
+X      BYTE detail;
+X      CARD16 sequenceNumber B16;
+X    } u;
+X    struct {
+X      BYTE type;
+X      BYTE reason;
+X      CARD16 sequenceNumber B16;
+X      Time time B32;
+X      Drawable drawable B32;
+X      XvPortID port B32;
+X      CARD32 padl5 B32;
+X      CARD32 padl6 B32;
+X      CARD32 padl7 B32;
+X      CARD32 padl8 B32;
+X    } videoNotify;
+X    struct {
+X      BYTE type;
+X      BYTE padb1;
+X      CARD16 sequenceNumber B16;
+X      Time time B32;
+X      XvPortID port B32;
+X      Atom attribute B32;
+X      INT32 value B32;
+X      CARD32 padl6 B32;
+X      CARD32 padl7 B32;
+X      CARD32 padl8 B32;
+X    } portNotify;
+X  } u;
+X} xvEvent;
+X
+X#undef XvPortID
+X#undef XvEncodingID
+X
+X#endif XVPROTO_H
+X
+END_OF_FILE
+if test 9368 -ne `wc -c <'extensions/xv/include/Xvproto.h'`; then
+    echo shar: \"'extensions/xv/include/Xvproto.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/include/Xvproto.h'
+fi
+if test -f 'server/ddx/cfb32/cfbgc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbgc.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbgc.c'\" \(22046 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbgc.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/* $XConsortium: cfbgc.c,v 5.51 91/07/18 23:36:42 keith Exp $ */
+X
+X#include "X.h"
+X#include "Xmd.h"
+X#include "Xproto.h"
+X#include "cfb.h"
+X#include "fontstruct.h"
+X#include "dixfontstr.h"
+X#include "gcstruct.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "region.h"
+X
+X#include "mistruct.h"
+X#include "mibstore.h"
+X
+X#include "cfbmskbits.h"
+X#include "cfb8bit.h"
+X
+Xvoid cfbValidateGC(), cfbChangeGC(), cfbCopyGC(), cfbDestroyGC();
+Xvoid cfbChangeClip(), cfbDestroyClip(), cfbCopyClip();
+X
+XGCFuncs cfbGCFuncs = {
+X    cfbValidateGC,
+X    cfbChangeGC,
+X    cfbCopyGC,
+X    cfbDestroyGC,
+X    cfbChangeClip,
+X    cfbDestroyClip,
+X    cfbCopyClip,
+X};
+X
+Xextern void cfbPolyGlyphBlt (), cfbImageGlyphBlt ();
+X
+XGCOps	cfbTEOps1Rect = {
+X    cfbSolidSpansCopy,
+X    cfbSetSpans,
+X    cfbPutImage,
+X    cfbCopyArea,
+X    cfbCopyPlane,
+X    cfbPolyPoint,
+X#ifdef PIXEL_ADDR
+X    cfb8LineSS1Rect,
+X    cfb8SegmentSS1Rect,
+X#else
+X    cfbLineSS,
+X    cfbSegmentSS,
+X#endif
+X    miPolyRectangle,
+X#ifdef PIXEL_ADDR
+X    cfbZeroPolyArcSS8Copy,
+X#else
+X    miZeroPolyArc,
+X#endif
+X    cfbFillPoly1RectCopy,
+X    cfbPolyFillRect,
+X    cfbPolyFillArcSolidCopy,
+X    miPolyText8,
+X    miPolyText16,
+X    miImageText8,
+X    miImageText16,
+X#if PPW == 4
+X    cfbTEGlyphBlt8,
+X    cfbPolyGlyphBlt8,
+X    cfbPushPixels8,
+X#else
+X    cfbImageGlyphBlt,
+X    cfbPolyGlyphBlt,
+X    mfbPushPixels,
+X#endif
+X    NULL,
+X};
+X
+XGCOps	cfbTEOps = {
+X    cfbSolidSpansCopy,
+X    cfbSetSpans,
+X    cfbPutImage,
+X    cfbCopyArea,
+X    cfbCopyPlane,
+X    cfbPolyPoint,
+X    cfbLineSS,
+X    cfbSegmentSS,
+X    miPolyRectangle,
+X#ifdef PIXEL_ADDR
+X    cfbZeroPolyArcSS8Copy,
+X#else
+X    miZeroPolyArc,
+X#endif
+X    miFillPolygon,
+X    cfbPolyFillRect,
+X    cfbPolyFillArcSolidCopy,
+X    miPolyText8,
+X    miPolyText16,
+X    miImageText8,
+X    miImageText16,
+X#if PPW == 4
+X    cfbTEGlyphBlt8,
+X    cfbPolyGlyphBlt8,
+X    cfbPushPixels8,
+X#else
+X    cfbImageGlyphBlt,
+X    cfbPolyGlyphBlt,
+X    mfbPushPixels,
+X#endif
+X    NULL,
+X};
+X
+XGCOps	cfbNonTEOps1Rect = {
+X    cfbSolidSpansCopy,
+X    cfbSetSpans,
+X    cfbPutImage,
+X    cfbCopyArea,
+X    cfbCopyPlane,
+X    cfbPolyPoint,
+X#ifdef PIXEL_ADDR
+X    cfb8LineSS1Rect,
+X    cfb8SegmentSS1Rect,
+X#else
+X    cfbLineSS,
+X    cfbSegmentSS,
+X#endif
+X    miPolyRectangle,
+X#ifdef PIXEL_ADDR
+X    cfbZeroPolyArcSS8Copy,
+X#else
+X    miZeroPolyArc,
+X#endif
+X    cfbFillPoly1RectCopy,
+X    cfbPolyFillRect,
+X    cfbPolyFillArcSolidCopy,
+X    miPolyText8,
+X    miPolyText16,
+X    miImageText8,
+X    miImageText16,
+X#if PPW == 4
+X    cfbImageGlyphBlt8,
+X    cfbPolyGlyphBlt8,
+X    cfbPushPixels8,
+X#else
+X    cfbImageGlyphBlt,
+X    cfbPolyGlyphBlt,
+X    mfbPushPixels,
+X#endif
+X    NULL,
+X};
+X
+XGCOps	cfbNonTEOps = {
+X    cfbSolidSpansCopy,
+X    cfbSetSpans,
+X    cfbPutImage,
+X    cfbCopyArea,
+X    cfbCopyPlane,
+X    cfbPolyPoint,
+X    cfbLineSS,
+X    cfbSegmentSS,
+X    miPolyRectangle,
+X#ifdef PIXEL_ADDR
+X    cfbZeroPolyArcSS8Copy,
+X#else
+X    miZeroPolyArc,
+X#endif
+X    miFillPolygon,
+X    cfbPolyFillRect,
+X    cfbPolyFillArcSolidCopy,
+X    miPolyText8,
+X    miPolyText16,
+X    miImageText8,
+X    miImageText16,
+X#if PPW == 4
+X    cfbImageGlyphBlt8,
+X    cfbPolyGlyphBlt8,
+X    cfbPushPixels8,
+X#else
+X    cfbImageGlyphBlt,
+X    cfbPolyGlyphBlt,
+X    mfbPushPixels,
+X#endif
+X    NULL,
+X};
+X
+XGCOps *
+XcfbMatchCommon (pGC, devPriv)
+X    GCPtr	    pGC;
+X    cfbPrivGCPtr    devPriv;
+X{
+X    if (pGC->lineWidth != 0)
+X	return 0;
+X    if (pGC->lineStyle != LineSolid)
+X	return 0;
+X    if (pGC->fillStyle != FillSolid)
+X	return 0;
+X    if (devPriv->rop != GXcopy)
+X	return 0;
+X    if (pGC->font &&
+X	FONTMAXBOUNDS(pGC->font,rightSideBearing) -
+X        FONTMINBOUNDS(pGC->font,leftSideBearing) <= 32 &&
+X	FONTMINBOUNDS(pGC->font,characterWidth) >= 0)
+X    {
+X	if (TERMINALFONT(pGC->font)
+X#if PPW == 4
+X	    && FONTMAXBOUNDS(pGC->font,characterWidth) >= 4
+X#endif
+X	)
+X	    if (devPriv->oneRect)
+X		return &cfbTEOps1Rect;
+X	    else
+X		return &cfbTEOps;
+X	else
+X	    if (devPriv->oneRect)
+X		return &cfbNonTEOps1Rect;
+X	    else
+X		return &cfbNonTEOps;
+X    }
+X    return 0;
+X}
+X
+XBool
+XcfbCreateGC(pGC)
+X    register GCPtr pGC;
+X{
+X    cfbPrivGC  *pPriv;
+X
+X    if (pGC->depth == 1)
+X	return (mfbCreateGC(pGC));
+X    pGC->clientClip = NULL;
+X    pGC->clientClipType = CT_NONE;
+X
+X    /*
+X     * some of the output primitives aren't really necessary, since they
+X     * will be filled in ValidateGC because of dix/CreateGC() setting all
+X     * the change bits.  Others are necessary because although they depend
+X     * on being a color frame buffer, they don't change 
+X     */
+X
+X    pGC->ops = &cfbNonTEOps;
+X    pGC->funcs = &cfbGCFuncs;
+X
+X    /* cfb wants to translate before scan conversion */
+X    pGC->miTranslate = 1;
+X
+X    pPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr);
+X    pPriv->rop = pGC->alu;
+X    pPriv->oneRect = FALSE;
+X    pPriv->fExpose = TRUE;
+X    pPriv->freeCompClip = FALSE;
+X    pPriv->pRotatedPixmap = (PixmapPtr) NULL;
+X    return TRUE;
+X}
+X
+X/*ARGSUSED*/
+Xvoid
+XcfbChangeGC(pGC, mask)
+X    GC		    *pGC;
+X    BITS32	    mask;
+X{
+X    return;
+X}
+X
+Xvoid
+XcfbDestroyGC(pGC)
+X    GC 			*pGC;
+X{
+X    cfbPrivGC *pPriv;
+X
+X    pPriv = (cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr);
+X    if (pPriv->pRotatedPixmap)
+X	cfbDestroyPixmap(pPriv->pRotatedPixmap);
+X    if (pPriv->freeCompClip)
+X	(*pGC->pScreen->RegionDestroy)(pPriv->pCompositeClip);
+X    cfbDestroyOps (pGC->ops);
+X}
+X
+X/*
+X * create a private op array for a gc
+X */
+X
+XGCOps *
+XcfbCreateOps (prototype)
+X    GCOps	*prototype;
+X{
+X    GCOps	*ret;
+X    extern Bool	Must_have_memory;
+X
+X    /* XXX */ Must_have_memory = TRUE;
+X    ret = (GCOps *) xalloc (sizeof(GCOps));
+X    /* XXX */ Must_have_memory = FALSE;
+X    if (!ret)
+X	return 0;
+X    *ret = *prototype;
+X    ret->devPrivate.val = 1;
+X    return ret;
+X}
+X
+XcfbDestroyOps (ops)
+X    GCOps   *ops;
+X{
+X    if (ops->devPrivate.val)
+X	xfree (ops);
+X}
+X
+X/* Clipping conventions
+X	if the drawable is a window
+X	    CT_REGION ==> pCompositeClip really is the composite
+X	    CT_other ==> pCompositeClip is the window clip region
+X	if the drawable is a pixmap
+X	    CT_REGION ==> pCompositeClip is the translated client region
+X		clipped to the pixmap boundary
+X	    CT_other ==> pCompositeClip is the pixmap bounding box
+X*/
+X
+Xvoid
+XcfbValidateGC(pGC, changes, pDrawable)
+X    register GCPtr  pGC;
+X    Mask	    changes;
+X    DrawablePtr	    pDrawable;
+X{
+X    WindowPtr   pWin;
+X    int         mask;		/* stateChanges */
+X    int         index;		/* used for stepping through bitfields */
+X    int		new_rrop;
+X    int         new_line, new_text, new_fillspans, new_fillarea;
+X    int		new_rotate;
+X    int		xrot, yrot;
+X    /* flags for changing the proc vector */
+X    cfbPrivGCPtr devPriv;
+X    int		oneRect;
+X
+X    new_rotate = pGC->lastWinOrg.x != pDrawable->x ||
+X		 pGC->lastWinOrg.y != pDrawable->y;
+X
+X    pGC->lastWinOrg.x = pDrawable->x;
+X    pGC->lastWinOrg.y = pDrawable->y;
+X    if (pDrawable->type == DRAWABLE_WINDOW)
+X    {
+X	pWin = (WindowPtr) pDrawable;
+X    }
+X    else
+X    {
+X	pWin = (WindowPtr) NULL;
+X    }
+X
+X    devPriv = ((cfbPrivGCPtr) (pGC->devPrivates[cfbGCPrivateIndex].ptr));
+X
+X    new_rrop = FALSE;
+X    new_line = FALSE;
+X    new_text = FALSE;
+X    new_fillspans = FALSE;
+X    new_fillarea = FALSE;
+X
+X    /*
+X     * if the client clip is different or moved OR the subwindowMode has
+X     * changed OR the window's clip has changed since the last validation
+X     * we need to recompute the composite clip 
+X     */
+X
+X    if ((changes & (GCClipXOrigin|GCClipYOrigin|GCClipMask|GCSubwindowMode)) ||
+X	(pDrawable->serialNumber != (pGC->serialNumber & DRAWABLE_SERIAL_BITS))
+X	)
+X    {
+X	ScreenPtr pScreen = pGC->pScreen;
+X
+X	if (pWin) {
+X	    RegionPtr   pregWin;
+X	    Bool        freeTmpClip, freeCompClip;
+X
+X	    if (pGC->subWindowMode == IncludeInferiors) {
+X		pregWin = NotClippedByChildren(pWin);
+X		freeTmpClip = TRUE;
+X	    }
+X	    else {
+X		pregWin = &pWin->clipList;
+X		freeTmpClip = FALSE;
+X	    }
+X	    freeCompClip = devPriv->freeCompClip;
+X
+X	    /*
+X	     * if there is no client clip, we can get by with just keeping
+X	     * the pointer we got, and remembering whether or not should
+X	     * destroy (or maybe re-use) it later.  this way, we avoid
+X	     * unnecessary copying of regions.  (this wins especially if
+X	     * many clients clip by children and have no client clip.) 
+X	     */
+X	    if (pGC->clientClipType == CT_NONE) {
+X		if (freeCompClip)
+X		    (*pScreen->RegionDestroy) (devPriv->pCompositeClip);
+X		devPriv->pCompositeClip = pregWin;
+X		devPriv->freeCompClip = freeTmpClip;
+X	    }
+X	    else {
+X		/*
+X		 * we need one 'real' region to put into the composite
+X		 * clip. if pregWin the current composite clip are real,
+X		 * we can get rid of one. if pregWin is real and the
+X		 * current composite clip isn't, use pregWin for the
+X		 * composite clip. if the current composite clip is real
+X		 * and pregWin isn't, use the current composite clip. if
+X		 * neither is real, create a new region. 
+X		 */
+X
+X		(*pScreen->TranslateRegion)(pGC->clientClip,
+X					    pDrawable->x + pGC->clipOrg.x,
+X					    pDrawable->y + pGC->clipOrg.y);
+X						  
+X		if (freeCompClip)
+X		{
+X		    (*pGC->pScreen->Intersect)(devPriv->pCompositeClip,
+X					       pregWin, pGC->clientClip);
+X		    if (freeTmpClip)
+X			(*pScreen->RegionDestroy)(pregWin);
+X		}
+X		else if (freeTmpClip)
+X		{
+X		    (*pScreen->Intersect)(pregWin, pregWin, pGC->clientClip);
+X		    devPriv->pCompositeClip = pregWin;
+X		}
+X		else
+X		{
+X		    devPriv->pCompositeClip = (*pScreen->RegionCreate)(NullBox,
+X								       0);
+X		    (*pScreen->Intersect)(devPriv->pCompositeClip,
+X					  pregWin, pGC->clientClip);
+X		}
+X		devPriv->freeCompClip = TRUE;
+X		(*pScreen->TranslateRegion)(pGC->clientClip,
+X					    -(pDrawable->x + pGC->clipOrg.x),
+X					    -(pDrawable->y + pGC->clipOrg.y));
+X						  
+X	    }
+X	}			/* end of composite clip for a window */
+X	else {
+X	    BoxRec      pixbounds;
+X
+X	    /* XXX should we translate by drawable.x/y here ? */
+X	    pixbounds.x1 = 0;
+X	    pixbounds.y1 = 0;
+X	    pixbounds.x2 = pDrawable->width;
+X	    pixbounds.y2 = pDrawable->height;
+X
+X	    if (devPriv->freeCompClip)
+X		(*pScreen->RegionReset)(devPriv->pCompositeClip, &pixbounds);
+X	    else {
+X		devPriv->freeCompClip = TRUE;
+X		devPriv->pCompositeClip = (*pScreen->RegionCreate)(&pixbounds,
+X								   1);
+X	    }
+X
+X	    if (pGC->clientClipType == CT_REGION)
+X	    {
+X		(*pScreen->TranslateRegion)(devPriv->pCompositeClip,
+X					    -pGC->clipOrg.x, -pGC->clipOrg.y);
+X		(*pScreen->Intersect)(devPriv->pCompositeClip,
+X				      devPriv->pCompositeClip,
+X				      pGC->clientClip);
+X		(*pScreen->TranslateRegion)(devPriv->pCompositeClip,
+X					    pGC->clipOrg.x, pGC->clipOrg.y);
+X	    }
+X	}			/* end of composute clip for pixmap */
+X#ifndef NO_ONE_RECT
+X	oneRect = REGION_NUM_RECTS(devPriv->pCompositeClip) == 1;
+X	if (oneRect != devPriv->oneRect)
+X	    new_line = TRUE;
+X	devPriv->oneRect = oneRect;
+X#endif
+X    }
+X
+X    mask = changes;
+X    while (mask) {
+X	index = lowbit (mask);
+X	mask &= ~index;
+X
+X	/*
+X	 * this switch acculmulates a list of which procedures might have
+X	 * to change due to changes in the GC.  in some cases (e.g.
+X	 * changing one 16 bit tile for another) we might not really need
+X	 * a change, but the code is being paranoid. this sort of batching
+X	 * wins if, for example, the alu and the font have been changed,
+X	 * or any other pair of items that both change the same thing. 
+X	 */
+X	switch (index) {
+X	case GCFunction:
+X	case GCForeground:
+X	    new_rrop = TRUE;
+X	    break;
+X	case GCPlaneMask:
+X	    new_rrop = TRUE;
+X	    new_text = TRUE;
+X	    break;
+X	case GCBackground:
+X	    break;
+X	case GCLineStyle:
+X	case GCLineWidth:
+X	    new_line = TRUE;
+X	    break;
+X	case GCJoinStyle:
+X	case GCCapStyle:
+X	    break;
+X	case GCFillStyle:
+X	    new_text = TRUE;
+X	    new_fillspans = TRUE;
+X	    new_line = TRUE;
+X	    new_fillarea = TRUE;
+X	    break;
+X	case GCFillRule:
+X	    break;
+X	case GCTile:
+X	    new_fillspans = TRUE;
+X	    new_fillarea = TRUE;
+X	    break;
+X
+X	case GCStipple:
+X	    if (pGC->stipple)
+X	    {
+X		int width = pGC->stipple->drawable.width;
+X		PixmapPtr nstipple;
+X
+X		if ((width <= 32) && !(width & (width - 1)) &&
+X		    (nstipple = cfbCopyPixmap(pGC->stipple)))
+X		{
+X		    cfbPadPixmap(nstipple);
+X		    cfbDestroyPixmap(pGC->stipple);
+X		    pGC->stipple = nstipple;
+X		}
+X	    }
+X	    new_fillspans = TRUE;
+X	    new_fillarea = TRUE;
+X	    break;
+X
+X	case GCTileStipXOrigin:
+X	    new_rotate = TRUE;
+X	    break;
+X
+X	case GCTileStipYOrigin:
+X	    new_rotate = TRUE;
+X	    break;
+X
+X	case GCFont:
+X	    new_text = TRUE;
+X	    break;
+X	case GCSubwindowMode:
+X	    break;
+X	case GCGraphicsExposures:
+X	    break;
+X	case GCClipXOrigin:
+X	    break;
+X	case GCClipYOrigin:
+X	    break;
+X	case GCClipMask:
+X	    break;
+X	case GCDashOffset:
+X	    break;
+X	case GCDashList:
+X	    break;
+X	case GCArcMode:
+X	    break;
+X	default:
+X	    break;
+X	}
+X    }
+X
+X    /*
+X     * If the drawable has changed,  ensure suitable
+X     * entries are in the proc vector. 
+X     */
+X    if (pDrawable->serialNumber != (pGC->serialNumber & (DRAWABLE_SERIAL_BITS))) {
+X	new_fillspans = TRUE;	/* deal with FillSpans later */
+X    }
+X
+X    if (new_rotate || new_fillspans)
+X    {
+X	Bool new_pix = FALSE;
+X
+X	xrot = pGC->patOrg.x + pDrawable->x;
+X	yrot = pGC->patOrg.y + pDrawable->y;
+X
+X	switch (pGC->fillStyle)
+X	{
+X	case FillTiled:
+X	    if (!pGC->tileIsPixel)
+X	    {
+X		int width = pGC->tile.pixmap->drawable.width * PSZ;
+X
+X		if ((width <= 32) && !(width & (width - 1)))
+X		{
+X		    cfbCopyRotatePixmap(pGC->tile.pixmap,
+X					&devPriv->pRotatedPixmap,
+X					xrot, yrot);
+X		    new_pix = TRUE;
+X		}
+X	    }
+X	    break;
+X#if (PPW == 4)
+X	case FillStippled:
+X	case FillOpaqueStippled:
+X	    {
+X		int width = pGC->stipple->drawable.width;
+X
+X		if ((width <= 32) && !(width & (width - 1)))
+X		{
+X		    mfbCopyRotatePixmap(pGC->stipple,
+X					&devPriv->pRotatedPixmap, xrot, yrot);
+X		    new_pix = TRUE;
+X		}
+X	    }
+X	    break;
+X#endif
+X	}
+X	if (!new_pix && devPriv->pRotatedPixmap)
+X	{
+X	    cfbDestroyPixmap(devPriv->pRotatedPixmap);
+X	    devPriv->pRotatedPixmap = (PixmapPtr) NULL;
+X	}
+X    }
+X
+X    if (new_rrop)
+X    {
+X	int old_rrop;
+X
+X	old_rrop = devPriv->rop;
+X	devPriv->rop = cfbReduceRasterOp (pGC->alu, pGC->fgPixel,
+X					   pGC->planemask,
+X					   &devPriv->and, &devPriv->xor);
+X	if (old_rrop == devPriv->rop)
+X	    new_rrop = FALSE;
+X	else
+X	{
+X#if PPW ==  4
+X	    new_line = TRUE;
+X	    new_text = TRUE;
+X#endif
+X	    new_fillspans = TRUE;
+X	    new_fillarea = TRUE;
+X	}
+X    }
+X
+X    if (new_rrop || new_fillspans || new_text || new_fillarea || new_line)
+X    {
+X	GCOps	*newops;
+X
+X	if (newops = cfbMatchCommon (pGC, devPriv))
+X 	{
+X	    if (pGC->ops->devPrivate.val)
+X		cfbDestroyOps (pGC->ops);
+X	    pGC->ops = newops;
+X	    new_rrop = new_line = new_fillspans = new_text = new_fillarea = 0;
+X	}
+X 	else
+X 	{
+X	    if (!pGC->ops->devPrivate.val)
+X	    {
+X		pGC->ops = cfbCreateOps (pGC->ops);
+X		pGC->ops->devPrivate.val = 1;
+X	    }
+X	}
+X    }
+X
+X    /* deal with the changes we've collected */
+X    if (new_line)
+X    {
+X	pGC->ops->FillPolygon = miFillPolygon;
+X	if (devPriv->oneRect && pGC->fillStyle == FillSolid)
+X	{
+X	    switch (devPriv->rop) {
+X	    case GXcopy:
+X		pGC->ops->FillPolygon = cfbFillPoly1RectCopy;
+X		break;
+X	    default:
+X		pGC->ops->FillPolygon = cfbFillPoly1RectGeneral;
+X		break;
+X	    }
+X	}
+X	if (pGC->lineWidth == 0)
+X	{
+X#ifdef PIXEL_ADDR
+X	    if ((pGC->lineStyle == LineSolid) && (pGC->fillStyle == FillSolid))
+X	    {
+X		switch (devPriv->rop)
+X		{
+X		case GXxor:
+X		    pGC->ops->PolyArc = cfbZeroPolyArcSS8Xor;
+X		    break;
+X		case GXcopy:
+X		    pGC->ops->PolyArc = cfbZeroPolyArcSS8Copy;
+X		    break;
+X		default:
+X		    pGC->ops->PolyArc = cfbZeroPolyArcSS8General;
+X		    break;
+X		}
+X	    }
+X	    else
+X#endif
+X		pGC->ops->PolyArc = miZeroPolyArc;
+X	}
+X	else
+X	    pGC->ops->PolyArc = miPolyArc;
+X	pGC->ops->PolySegment = miPolySegment;
+X	switch (pGC->lineStyle)
+X	{
+X	case LineSolid:
+X	    if(pGC->lineWidth == 0)
+X	    {
+X		if (pGC->fillStyle == FillSolid)
+X		{
+X#ifdef PIXEL_ADDR
+X		    if (devPriv->oneRect)
+X		    {
+X			pGC->ops->Polylines = cfb8LineSS1Rect;
+X			pGC->ops->PolySegment = cfb8SegmentSS1Rect;
+X		    } else
+X#endif
+X		    {
+X		    	pGC->ops->Polylines = cfbLineSS;
+X		    	pGC->ops->PolySegment = cfbSegmentSS;
+X		    }
+X		}
+X 		else
+X		    pGC->ops->Polylines = miZeroLine;
+X	    }
+X	    else
+X		pGC->ops->Polylines = miWideLine;
+X	    break;
+X	case LineOnOffDash:
+X	case LineDoubleDash:
+X	    if (pGC->lineWidth == 0 && pGC->fillStyle == FillSolid)
+X	    {
+X		pGC->ops->Polylines = cfbLineSD;
+X		pGC->ops->PolySegment = cfbSegmentSD;
+X	    } else
+X		pGC->ops->Polylines = miWideDash;
+X	    break;
+X	}
+X    }
+X
+X    if (new_text && (pGC->font))
+X    {
+X        if (FONTMAXBOUNDS(pGC->font,rightSideBearing) -
+X            FONTMINBOUNDS(pGC->font,leftSideBearing) > 32 ||
+X	    FONTMINBOUNDS(pGC->font,characterWidth) < 0)
+X        {
+X            pGC->ops->PolyGlyphBlt = miPolyGlyphBlt;
+X            pGC->ops->ImageGlyphBlt = miImageGlyphBlt;
+X        }
+X        else
+X        {
+X	    if (pGC->fillStyle == FillSolid && devPriv->rop == GXcopy)
+X		pGC->ops->PolyGlyphBlt = cfbPolyGlyphBlt;
+X	    else
+X		pGC->ops->PolyGlyphBlt = miPolyGlyphBlt;
+X            /* special case ImageGlyphBlt for terminal emulator fonts */
+X#if PPW == 4
+X            if (TERMINALFONT(pGC->font) &&
+X		(pGC->planemask & PMSK) == PMSK
+X		&& FONTMAXBOUNDS(pGC->font,characterWidth) >= 4
+X		)
+X	    {
+X                pGC->ops->ImageGlyphBlt = cfbTEGlyphBlt8;
+X	    }
+X            else
+X#endif
+X	    {
+X#if PPW == 4
+X		pGC->ops->ImageGlyphBlt = cfbImageGlyphBlt8;
+X#else
+X                pGC->ops->ImageGlyphBlt = cfbImageGlyphBlt;
+X#endif
+X	    }
+X        }
+X    }    
+X
+X
+X    if (new_fillspans) {
+X	switch (pGC->fillStyle) {
+X	case FillSolid:
+X	    switch (devPriv->rop) {
+X	    case GXcopy:
+X		pGC->ops->FillSpans = cfbSolidSpansCopy;
+X		break;
+X	    case GXxor:
+X		pGC->ops->FillSpans = cfbSolidSpansXor;
+X		break;
+X	    default:
+X		pGC->ops->FillSpans = cfbSolidSpansGeneral;
+X		break;
+X	    }
+X	    break;
+X	case FillTiled:
+X	    if (devPriv->pRotatedPixmap)
+X	    {
+X		if (pGC->alu == GXcopy && (pGC->planemask & PMSK) == PMSK)
+X		    pGC->ops->FillSpans = cfbTile32FSCopy;
+X		else
+X		    pGC->ops->FillSpans = cfbTile32FSGeneral;
+X	    }
+X	    else
+X		pGC->ops->FillSpans = cfbUnnaturalTileFS;
+X	    break;
+X	case FillStippled:
+X#if PPW == 4
+X	    if (devPriv->pRotatedPixmap)
+X		pGC->ops->FillSpans = cfb8Stipple32FS;
+X	    else
+X#endif
+X		pGC->ops->FillSpans = cfbUnnaturalStippleFS;
+X	    break;
+X	case FillOpaqueStippled:
+X#if PPW == 4
+X	    if (devPriv->pRotatedPixmap)
+X		pGC->ops->FillSpans = cfb8OpaqueStipple32FS;
+X	    else
+X#endif
+X		pGC->ops->FillSpans = cfbUnnaturalStippleFS;
+X	    break;
+X	default:
+X	    FatalError("cfbValidateGC: illegal fillStyle\n");
+X	}
+X    } /* end of new_fillspans */
+X
+X    if (new_fillarea) {
+X#if PPW != 4
+X	pGC->ops->PolyFillRect = miPolyFillRect;
+X	if (pGC->fillStyle == FillSolid || pGC->fillStyle == FillTiled)
+X	{
+X	    pGC->ops->PolyFillRect = cfbPolyFillRect;
+X	}
+X#endif
+X#if PPW == 4
+X	pGC->ops->PushPixels = mfbPushPixels;
+X	if (pGC->fillStyle == FillSolid && devPriv->rop == GXcopy)
+X	    pGC->ops->PushPixels = cfbPushPixels8;
+X#endif
+X	pGC->ops->PolyFillArc = miPolyFillArc;
+X	if (pGC->fillStyle == FillSolid)
+X	{
+X	    switch (devPriv->rop)
+X	    {
+X	    case GXcopy:
+X		pGC->ops->PolyFillArc = cfbPolyFillArcSolidCopy;
+X		break;
+X	    default:
+X		pGC->ops->PolyFillArc = cfbPolyFillArcSolidGeneral;
+X		break;
+X	    }
+X	}
+X    }
+X}
+X
+Xvoid
+XcfbDestroyClip(pGC)
+X    GCPtr	pGC;
+X{
+X    if(pGC->clientClipType == CT_NONE)
+X	return;
+X    else if (pGC->clientClipType == CT_PIXMAP)
+X    {
+X	cfbDestroyPixmap((PixmapPtr)(pGC->clientClip));
+X    }
+X    else
+X    {
+X	/* we know we'll never have a list of rectangles, since
+X	   ChangeClip immediately turns them into a region 
+X	*/
+X        (*pGC->pScreen->RegionDestroy)(pGC->clientClip);
+X    }
+X    pGC->clientClip = NULL;
+X    pGC->clientClipType = CT_NONE;
+X}
+X
+Xvoid
+XcfbChangeClip(pGC, type, pvalue, nrects)
+X    GCPtr	pGC;
+X    int		type;
+X    pointer	pvalue;
+X    int		nrects;
+X{
+X    cfbDestroyClip(pGC);
+X    if(type == CT_PIXMAP)
+X    {
+X	pGC->clientClip = (pointer) (*pGC->pScreen->BitmapToRegion)((PixmapPtr)pvalue);
+X	(*pGC->pScreen->DestroyPixmap)(pvalue);
+X    }
+X    else if (type == CT_REGION) {
+X	/* stuff the region in the GC */
+X	pGC->clientClip = pvalue;
+X    }
+X    else if (type != CT_NONE)
+X    {
+X	pGC->clientClip = (pointer) (*pGC->pScreen->RectsToRegion)(nrects,
+X						    (xRectangle *)pvalue,
+X						    type);
+X	xfree(pvalue);
+X    }
+X    pGC->clientClipType = (type != CT_NONE && pGC->clientClip) ? CT_REGION :
+X								 CT_NONE;
+X    pGC->stateChanges |= GCClipMask;
+X}
+X
+Xvoid
+XcfbCopyClip (pgcDst, pgcSrc)
+X    GCPtr pgcDst, pgcSrc;
+X{
+X    RegionPtr prgnNew;
+X
+X    switch(pgcSrc->clientClipType)
+X    {
+X      case CT_PIXMAP:
+X	((PixmapPtr) pgcSrc->clientClip)->refcnt++;
+X	/* Fall through !! */
+X      case CT_NONE:
+X        cfbChangeClip(pgcDst, (int)pgcSrc->clientClipType, pgcSrc->clientClip,
+X		      0);
+X        break;
+X      case CT_REGION:
+X        prgnNew = (*pgcSrc->pScreen->RegionCreate)(NULL, 1);
+X        (*pgcSrc->pScreen->RegionCopy)(prgnNew,
+X                                       (RegionPtr)(pgcSrc->clientClip));
+X        cfbChangeClip(pgcDst, CT_REGION, (pointer)prgnNew, 0);
+X        break;
+X    }
+X}
+X
+X/*ARGSUSED*/
+Xvoid
+XcfbCopyGC (pGCSrc, changes, pGCDst)
+X    GCPtr	pGCSrc;
+X    Mask 	changes;
+X    GCPtr	pGCDst;
+X{
+X    return;
+X}
+END_OF_FILE
+if test 22046 -ne `wc -c <'server/ddx/cfb32/cfbgc.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbgc.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbgc.c'
+fi
+echo shar: End of archive 13 \(of 29\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

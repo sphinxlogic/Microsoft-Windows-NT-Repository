@@ -1,0 +1,2160 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i135:  xfig - Draw amd manipulate objects in an X-Window, Part23/27
+Message-ID: <1993May21.021734.7376@sparky.imd.sterling.com>
+X-Md4-Signature: ad26ce0899a35778ebe9db5839d2141d
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:17:34 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 135
+Archive-name: xfig/part23
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 23 (of 27)."
+# Contents:  w_indpanel.c
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:06:07 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'w_indpanel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_indpanel.c'\"
+else
+echo shar: Extracting \"'w_indpanel.c'\" \(58921 characters\)
+sed "s/^X//" >'w_indpanel.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1991 by Paul King
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "figx.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "paintop.h"
+X#include "u_fonts.h"
+X#include "w_drawprim.h"
+X#include "w_icons.h"
+X#include "w_indpanel.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X#include "w_zoom.h"
+X
+Xextern Pixmap	psfont_menu_bitmaps[], latexfont_menu_bitmaps[];
+Xextern Atom	wm_delete_window;
+Xextern struct	_fstruct ps_fontinfo[], latex_fontinfo[];
+Xextern char    *panel_get_value();
+Xextern int	show_zoom();
+Xextern int	show_depth();
+Xextern int	cur_updatemask;
+Xextern Widget	make_popup_menu();
+X
+X/**************	    local variables and routines   **************/
+X
+Xstatic int	cur_anglegeom = L_UNCONSTRAINED;
+Xstatic int	cur_indmask = I_MIN1;
+Xstatic int	cur_flagshown = 0;
+X#define MAX_FLAGS 2 /* maximum value for cur_flagshown */
+X
+Xstatic String	set_translations = 
+X	"<Key>Return: SetValue()";
+Xstatic void	nval_panel_set();
+Xstatic XtActionsRec set_actions[] =
+X{
+X    {"SetValue", (XtActionProc) nval_panel_set},
+X};
+Xstatic String   nval_translations =
+X        "<Message>WM_PROTOCOLS: QuitNval()\n";
+Xstatic void	nval_panel_cancel();
+Xstatic XtActionsRec     nval_actions[] =
+X{
+X    {"QuitNval", (XtActionProc) nval_panel_cancel},
+X};
+Xstatic String   choice_translations =
+X        "<Message>WM_PROTOCOLS: QuitChoice()\n";
+Xstatic void     choice_panel_cancel();
+Xstatic XtActionsRec     choice_actions[] =
+X{
+X    {"QuitChoice", (XtActionProc) choice_panel_cancel},
+X};
+X
+XDeclareStaticArgs(15);
+X
+X/* declarations for choice buttons */
+Xstatic int	inc_choice(), dec_choice();
+Xstatic int	show_valign(), show_halign(), show_textjust();
+Xstatic int	show_arrowmode(), show_linestyle(), show_anglegeom();
+Xstatic int	show_pointposn(), show_gridmode(), show_linkmode();
+X
+X/* declarations for value buttons */
+Xstatic int	show_linewidth(), inc_linewidth(), dec_linewidth();
+Xstatic int	show_boxradius(), inc_boxradius(), dec_boxradius();
+Xstatic int	show_fillstyle(), darken_fill(), lighten_fill();
+Xstatic int	show_color(), next_color(), prev_color();
+Xstatic int	show_font(), inc_font(), dec_font();
+Xstatic int	show_flags(), inc_flags(), dec_flags();
+Xstatic int	show_fontsize(), inc_fontsize(), dec_fontsize();
+Xstatic int	show_textstep(), inc_textstep(), dec_textstep();
+Xstatic int	inc_zoom(), dec_zoom();
+Xstatic int	show_rotnangle(), inc_rotnangle(), dec_rotnangle();
+Xstatic int	show_elltextangle(), inc_elltextangle(), dec_elltextangle();
+Xstatic int	show_numsides(), inc_numsides(), dec_numsides();
+Xstatic int	inc_depth(), dec_depth();
+X
+Xstatic int	popup_fonts();
+Xstatic void	note_state();
+X
+Xstatic char	indbuf[12];
+Xstatic float	old_zoomscale = -1.0;
+Xstatic int	old_rotnangle = -1;
+Xstatic float	old_elltextangle = -1.0;
+X
+X#define		DEF_IND_SW_HT		32
+X#define		DEF_IND_SW_WD		64
+X#define		FONT_IND_SW_WD		(40+PS_FONTPANE_WD)
+X#define		NARROW_IND_SW_WD	56
+X#define		WIDE_IND_SW_WD		76
+X#define		XWIDE_IND_SW_WD		86
+X
+X/* indicator switch definitions */
+X
+Xstatic choice_info anglegeom_choices[] = {
+X    {L_UNCONSTRAINED, &unconstrained_ic,},
+X    {L_LATEXLINE, &latexline_ic,},
+X    {L_LATEXARROW, &latexarrow_ic,},
+X    {L_MOUNTHATTAN, &mounthattan_ic,},
+X    {L_MANHATTAN, &manhattan_ic,},
+X    {L_MOUNTAIN, &mountain_ic,},
+X};
+X
+X#define NUM_ANGLEGEOM_CHOICES (sizeof(anglegeom_choices)/sizeof(choice_info))
+X
+Xstatic choice_info valign_choices[] = {
+X    {NONE, &none_ic,},
+X    {TOP, &valignt_ic,},
+X    {CENTER, &valignc_ic,},
+X    {BOTTOM, &valignb_ic,},
+X};
+X
+X#define NUM_VALIGN_CHOICES (sizeof(valign_choices)/sizeof(choice_info))
+X
+Xstatic choice_info halign_choices[] = {
+X    {NONE, &none_ic,},
+X    {LEFT, &halignl_ic,},
+X    {CENTER, &halignc_ic,},
+X    {RIGHT, &halignr_ic,},
+X};
+X
+X#define NUM_HALIGN_CHOICES (sizeof(halign_choices)/sizeof(choice_info))
+X
+Xstatic choice_info gridmode_choices[] = {
+X    {GRID_0, &none_ic,},
+X    {GRID_1, &grid1_ic,},
+X    {GRID_2, &grid2_ic,},
+X};
+X
+X#define NUM_GRIDMODE_CHOICES (sizeof(gridmode_choices)/sizeof(choice_info))
+X
+Xstatic choice_info pointposn_choices[] = {
+X    {P_ANY, &any_ic,},
+X    {P_MAGNET, &fine_grid_ic,},
+X    {P_GRID1, &grid1_ic,},
+X    {P_GRID2, &grid2_ic,},
+X};
+X
+X#define NUM_POINTPOSN_CHOICES (sizeof(pointposn_choices)/sizeof(choice_info))
+X
+Xstatic choice_info arrowmode_choices[] = {
+X    {L_NOARROWS, &noarrows_ic,},
+X    {L_FARROWS, &farrows_ic,},
+X    {L_FBARROWS, &fbarrows_ic,},
+X    {L_BARROWS, &barrows_ic,},
+X};
+X
+X#define NUM_ARROWMODE_CHOICES (sizeof(arrowmode_choices)/sizeof(choice_info))
+X
+Xstatic choice_info textjust_choices[] = {
+X    {T_LEFT_JUSTIFIED, &textL_ic,},
+X    {T_CENTER_JUSTIFIED, &textC_ic,},
+X    {T_RIGHT_JUSTIFIED, &textR_ic,},
+X};
+X
+X#define NUM_TEXTJUST_CHOICES (sizeof(textjust_choices)/sizeof(choice_info))
+X
+Xstatic choice_info linestyle_choices[] = {
+X    {SOLID_LINE, &solidline_ic,},
+X    {DASH_LINE, &dashline_ic,},
+X    {DOTTED_LINE, &dottedline_ic,},
+X};
+X
+X#define NUM_LINESTYLE_CHOICES (sizeof(linestyle_choices)/sizeof(choice_info))
+X
+Xstatic choice_info linkmode_choices[] = {
+X    {SMART_OFF, &smartoff_ic,},
+X    {SMART_MOVE, &smartmove_ic,},
+X    {SMART_SLIDE, &smartslide_ic,},
+X};
+X
+X#define NUM_LINKMODE_CHOICES (sizeof(linkmode_choices)/sizeof(choice_info))
+X
+Xchoice_info	fillstyle_choices[NUMFILLPATS + 1];
+X
+Xchoice_info	color_choices[NUMCOLORS + 1];
+Xstatic ind_sw_info *fill_style_sw;
+X
+X#define I_CHOICE	0
+X#define I_IVAL		1
+X#define I_FVAL		2
+X
+X#define		inc_action(z)	(z->inc_func)(z)
+X#define		dec_action(z)	(z->dec_func)(z)
+X#define		show_action(z)	(z->show_func)(z)
+X
+Xind_sw_info	ind_switches[] = {
+X    {I_FVAL, I_ZOOM, "Zoom", "Scale", NARROW_IND_SW_WD,
+X	NULL, &zoomscale, inc_zoom, dec_zoom, show_zoom,},
+X    {I_CHOICE, I_GRIDMODE, "Grid", "Mode", DEF_IND_SW_WD,
+X	&cur_gridmode, NULL, inc_choice, dec_choice, show_gridmode,
+X	gridmode_choices, NUM_GRIDMODE_CHOICES, NUM_GRIDMODE_CHOICES,},
+X    {I_CHOICE, I_POINTPOSN, "Point", "Posn", DEF_IND_SW_WD,
+X	&cur_pointposn, NULL, inc_choice, dec_choice, show_pointposn,
+X	pointposn_choices, NUM_POINTPOSN_CHOICES, NUM_POINTPOSN_CHOICES,},
+X    {I_IVAL, I_DEPTH, "Depth", "", NARROW_IND_SW_WD,
+X	&cur_depth, NULL, inc_depth, dec_depth, show_depth,},
+X    {I_IVAL, I_ROTNANGLE, "Rotn", "Angle", NARROW_IND_SW_WD,
+X	&cur_rotnangle, NULL, inc_rotnangle, dec_rotnangle, show_rotnangle,},
+X    {I_IVAL, I_NUMSIDES, "Num", "Sides", NARROW_IND_SW_WD,
+X	&cur_numsides, NULL, inc_numsides, dec_numsides, show_numsides,},
+X    {I_CHOICE, I_VALIGN, "Vert", "Align", DEF_IND_SW_WD,
+X	&cur_valign, NULL, inc_choice, dec_choice, show_valign,
+X	valign_choices, NUM_VALIGN_CHOICES, NUM_VALIGN_CHOICES,},
+X    {I_CHOICE, I_HALIGN, "Horiz", "Align", DEF_IND_SW_WD,
+X	&cur_halign, NULL, inc_choice, dec_choice, show_halign,
+X	halign_choices, NUM_HALIGN_CHOICES, NUM_HALIGN_CHOICES,},
+X    {I_CHOICE, I_ANGLEGEOM, "Angle", "Geom", DEF_IND_SW_WD,
+X	&cur_anglegeom, NULL, inc_choice, dec_choice, show_anglegeom,
+X	anglegeom_choices, NUM_ANGLEGEOM_CHOICES, NUM_ANGLEGEOM_CHOICES / 2,},
+X    {I_CHOICE, I_FILLSTYLE, "Fill", "Style", DEF_IND_SW_WD,
+X	&cur_fillstyle, NULL, darken_fill, lighten_fill, show_fillstyle,
+X	fillstyle_choices, NUMFILLPATS + 1, (NUMFILLPATS + 1) / 2},
+X    {I_CHOICE, I_COLOR, "Color", "", WIDE_IND_SW_WD,
+X	(int *) &cur_color, NULL, next_color, prev_color, show_color,
+X	color_choices, NUMCOLORS + 1, (NUMCOLORS + 1) / 2},
+X    {I_CHOICE, I_LINKMODE, "Smart", "Links", DEF_IND_SW_WD,
+X	&cur_linkmode, NULL, inc_choice, dec_choice, show_linkmode,
+X	linkmode_choices, NUM_LINKMODE_CHOICES, NUM_LINKMODE_CHOICES},
+X    {I_IVAL, I_LINEWIDTH, "Line", "Width", NARROW_IND_SW_WD,
+X	&cur_linewidth, NULL, inc_linewidth, dec_linewidth, show_linewidth,},
+X    {I_CHOICE, I_LINESTYLE, "Line", "Style", DEF_IND_SW_WD,
+X	&cur_linestyle, NULL, inc_choice, dec_choice, show_linestyle,
+X	linestyle_choices, NUM_LINESTYLE_CHOICES, NUM_LINESTYLE_CHOICES,},
+X    {I_IVAL, I_BOXRADIUS, "Box", "Curve", DEF_IND_SW_WD,
+X	&cur_boxradius, NULL, inc_boxradius, dec_boxradius, show_boxradius,},
+X    {I_CHOICE, I_ARROWMODE, "Arrow", "Mode", DEF_IND_SW_WD,
+X	&cur_arrowmode, NULL, inc_choice, dec_choice, show_arrowmode,
+X	arrowmode_choices, NUM_ARROWMODE_CHOICES, NUM_ARROWMODE_CHOICES,},
+X    {I_CHOICE, I_TEXTJUST, "Text", "Just", DEF_IND_SW_WD,
+X	&cur_textjust, NULL, inc_choice, dec_choice, show_textjust,
+X	textjust_choices, NUM_TEXTJUST_CHOICES, NUM_TEXTJUST_CHOICES,},
+X    {I_FVAL, I_ELLTEXTANGLE, "Text/Ellipse", "Angle", XWIDE_IND_SW_WD,
+X	NULL, &cur_elltextangle, inc_elltextangle, dec_elltextangle, 
+X	show_elltextangle,},
+X    {I_IVAL, I_TEXTFLAGS, "Text Flags", "", WIDE_IND_SW_WD,
+X	&cur_fontsize, NULL, inc_flags, dec_flags, show_flags,},
+X    {I_IVAL, I_FONTSIZE, "Text", "Size", NARROW_IND_SW_WD,
+X	&cur_fontsize, NULL, inc_fontsize, dec_fontsize, show_fontsize,},
+X    {I_FVAL, I_TEXTSTEP, "Text", "Step", NARROW_IND_SW_WD,
+X	NULL, &cur_textstep, inc_textstep, dec_textstep, show_textstep,},
+X    {I_IVAL, I_FONT, "Text", "Font", FONT_IND_SW_WD,
+X	&cur_ps_font, NULL, inc_font, dec_font, show_font,},
+X};
+X
+X#define		NUM_IND_SW	(sizeof(ind_switches) / sizeof(ind_sw_info))
+X
+Xstatic Arg	button_args[] =
+X{
+X     /* 0 */ {XtNlabel, (XtArgVal) "        "},
+X     /* 1 */ {XtNwidth, (XtArgVal) 0},
+X     /* 2 */ {XtNheight, (XtArgVal) 0},
+X     /* 3 */ {XtNresizable, (XtArgVal) False},
+X     /* 4 */ {XtNborderWidth, (XtArgVal) 0},
+X     /* 5 */ {XtNresize, (XtArgVal) False},	/* keeps buttons from being
+X						 * resized when there are not
+X						 * a multiple of three of
+X						 * them */
+X     /* 6 */ {XtNbackgroundPixmap, (XtArgVal) NULL},
+X};
+X
+X/* button selection event handler */
+Xstatic void	sel_ind_but();
+X
+X/* arguments for the update indicator boxes in the indicator buttons */
+X
+Xstatic Arg	upd_args[] = 
+X{
+X    /* 0 */ {XtNwidth, (XtArgVal) 8},
+X    /* 1 */ {XtNheight, (XtArgVal) 8},
+X    /* 2 */ {XtNborderWidth, (XtArgVal) 1},
+X    /* 3 */ {XtNtop, XtChainTop},
+X    /* 4 */ {XtNright, XtChainRight},
+X    /* 5 */ {XtNstate, (XtArgVal) True},
+X    /* 6 */ {XtNvertDistance, (XtArgVal) 0},
+X    /* 7 */ {XtNhorizDistance, (XtArgVal) 0},
+X    /* 8 */ {XtNlabel, (XtArgVal) " "},
+X    /* 9 */ {XtNhighlightThickness, (XtArgVal) 0},
+X};
+X
+Xstatic XtActionsRec ind_actions[] =
+X{
+X    {"EnterIndSw", (XtActionProc) draw_mousefun_ind},
+X    {"LeaveIndSw", (XtActionProc) clear_mousefun},
+X};
+X
+Xstatic String	ind_translations =
+X"<EnterWindow>:EnterIndSw()highlight()\n\
+X    <LeaveWindow>:LeaveIndSw()unhighlight()\n";
+X
+Xinit_ind_panel(tool)
+X    TOOL	    tool;
+X{
+X    int		i;
+X    ind_sw_info	*sw;
+X
+X    /* does he want to always see ALL of the indicator buttons? */
+X    if (appres.ShowAllButtons) {
+X	cur_indmask = I_ALL;	/* yes */
+X	i = 2*DEF_IND_SW_HT+2*INTERNAL_BW+6;  /* two rows high when showing all buttons */
+X    } else {
+X	i = DEF_IND_SW_HT+4*INTERNAL_BW+14;   /* allow for thickness of scrollbar */
+X    }
+X
+X    /* make a scrollable viewport in case all the buttons don't fit */
+X    FirstArg(XtNallowHoriz, True);
+X    NextArg(XtNwidth, INDPANEL_WD);
+X    NextArg(XtNheight, i);
+X    NextArg(XtNborderWidth, 0);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNfromVert, canvas_sw);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNtop, XtChainBottom);
+X    NextArg(XtNbottom, XtChainBottom);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainRight);
+X    NextArg(XtNuseBottom, True);
+X
+X    ind_viewp = XtCreateWidget("ind_viewport", viewportWidgetClass, tool,
+X			Args, ArgCount);
+X
+X    FirstArg(XtNwidth, INDPANEL_WD);
+X    NextArg(XtNheight, i);
+X    NextArg(XtNhSpace, 0);
+X    NextArg(XtNvSpace, 0);
+X    NextArg(XtNresizable, True);
+X    NextArg(XtNborderWidth, 0);
+X    if (appres.ShowAllButtons) {
+X	NextArg(XtNorientation, XtorientVertical);	/* use two rows */
+X    } else {
+X	NextArg(XtNorientation, XtorientHorizontal);	/* expand horizontally */
+X    }
+X
+X    ind_panel = XtCreateManagedWidget("ind_panel", boxWidgetClass, ind_viewp,
+X			       Args, ArgCount);
+X
+X    /* start with all components affected by update */
+X    cur_updatemask = I_UPDATEMASK;
+X
+X    XtAppAddActions(tool_app, ind_actions, XtNumber(ind_actions));
+X
+X    for (i = 0; i < NUM_IND_SW; ++i) {
+X	sw = &ind_switches[i];
+X
+X	FirstArg(XtNwidth, sw->sw_width);
+X	NextArg(XtNheight, DEF_IND_SW_HT);
+X	NextArg(XtNdefaultDistance, 0);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	sw->formw = XtCreateWidget("button_form", formWidgetClass,
+X			     ind_panel, Args, ArgCount);
+X
+X	/* make an update button in the upper-right corner of the main button */
+X	if (sw->func & I_UPDATEMASK)
+X	    {
+X	    upd_args[7].value = sw->sw_width
+X					- upd_args[0].value
+X					- 2*upd_args[2].value;
+X	    sw->updbut = XtCreateWidget("update", toggleWidgetClass,
+X			     sw->formw, upd_args, XtNumber(upd_args));
+X	    sw->update = True;
+X	    XtAddEventHandler(sw->updbut, ButtonReleaseMask, (Boolean) 0,
+X			     note_state, (XtPointer) sw);
+X	    }
+X
+X	/* now create the command button */
+X	button_args[1].value = sw->sw_width;
+X	button_args[2].value = DEF_IND_SW_HT;
+X	sw->button = XtCreateManagedWidget("button", commandWidgetClass,
+X			     sw->formw, button_args, XtNumber(button_args));
+X	/* map this button if it is needed */
+X	if (sw->func & cur_indmask)
+X	    XtManageChild(sw->formw);
+X
+X	/* allow left & right buttons */
+X	/* (callbacks pass same data for ANY button) */
+X	XtAddEventHandler(sw->button, ButtonReleaseMask, (Boolean) 0,
+X			  sel_ind_but, (XtPointer) sw);
+X	XtOverrideTranslations(sw->button,
+X			       XtParseTranslationTable(ind_translations));
+X    }
+X    update_indpanel(cur_indmask);
+X}
+X
+Xstatic void
+Xnote_state(w, closure, ev, continue_to_dispatch)
+X    Widget	    w;
+X    XtPointer	    closure;
+X    XEvent         *ev;
+X    Boolean        *continue_to_dispatch;
+X
+X{
+X    ind_sw_info *sw = (ind_sw_info *) closure;
+X    XButtonEvent *event = &ev->xbutton;
+X
+X    if (event->button != Button1)
+X	return;
+X
+X    /* toggle update status of this indicator */
+X    sw->update = !sw->update;
+X    if (sw->update)
+X	cur_updatemask |= sw->func;	/* turn on update status */
+X    else
+X	cur_updatemask &= ~sw->func;	/* turn off update status */
+X}
+X
+Xmanage_update_buts()
+X{
+X    int		    i;
+X    for (i = 0; i < NUM_IND_SW; ++i)
+X	if (ind_switches[i].func & I_UPDATEMASK)
+X	    XtManageChild(ind_switches[i].updbut);
+X}
+X		
+Xunmanage_update_buts()
+X{
+X    int		    i;
+X    for (i = 0; i < NUM_IND_SW; ++i)
+X	if (ind_switches[i].func & I_UPDATEMASK)
+X	    XtUnmanageChild(ind_switches[i].updbut);
+X}
+X		
+Xsetup_ind_panel()
+X{
+X    int		    i;
+X    ind_sw_info	   *isw;
+X    Display	   *d = tool_d;
+X    Screen	   *s = tool_s;
+X    Pixmap	    p;
+X
+X    /* get the foreground and background from the indicator widget */
+X    /* and create a gc with those values */
+X    ind_button_gc = XCreateGC(tool_d, XtWindow(ind_panel), (unsigned long) 0, NULL);
+X    FirstArg(XtNforeground, &ind_but_fg);
+X    NextArg(XtNbackground, &ind_but_bg);
+X    GetValues(ind_switches[0].button);
+X    XSetBackground(tool_d, ind_button_gc, ind_but_bg);
+X    XSetForeground(tool_d, ind_button_gc, ind_but_fg);
+X    XSetFont(tool_d, ind_button_gc, button_font->fid);
+X
+X    /* also create gc with fore=background for blanking areas */
+X    ind_blank_gc = XCreateGC(tool_d, XtWindow(ind_panel), (unsigned long) 0, NULL);
+X    XSetBackground(tool_d, ind_blank_gc, ind_but_bg);
+X    XSetForeground(tool_d, ind_blank_gc, ind_but_bg);
+X
+X    /* create a gc for the color 'palette' */
+X    color_gc = XCreateGC(tool_d, XtWindow(ind_panel), (unsigned long) 0, NULL);
+X
+X    /* initialize the fill style gc and pixmaps */
+X    init_fill_pm();
+X    init_fill_gc();
+X
+X    FirstArg(XtNbackgroundPixmap, fillstyle_choices[NUMFILLPATS].blackPM);
+X    SetValues(ind_viewp);
+X
+X    for (i = 0; i < NUM_IND_SW; ++i) {
+X	isw = &ind_switches[i];
+X	if (ind_switches[i].func == I_FILLSTYLE)
+X		fill_style_sw = isw;
+X
+X	p = XCreatePixmap(d, XtWindow(isw->button), isw->sw_width,
+X			  DEF_IND_SW_HT, DefaultDepthOfScreen(s));
+X	XFillRectangle(d, p, ind_blank_gc, 0, 0,
+X		       isw->sw_width, DEF_IND_SW_HT);
+X	XDrawImageString(d, p, ind_button_gc, 3, 12, isw->line1, strlen(isw->line1));
+X	XDrawImageString(d, p, ind_button_gc, 3, 25, isw->line2, strlen(isw->line2));
+X
+X	isw->normalPM = button_args[6].value = (XtArgVal) p;
+X	XtSetValues(isw->button, &button_args[6], 1);
+X	XtInstallAllAccelerators(isw->button, tool);
+X    }
+X    XtInstallAllAccelerators(ind_panel, tool);
+X
+X    XDefineCursor(d, XtWindow(ind_panel), arrow_cursor);
+X    update_current_settings();
+X
+X    FirstArg(XtNmappedWhenManaged, True);
+X    SetValues(ind_panel);
+X}
+X
+Xupdate_indpanel(mask)
+X    int		    mask;
+X{
+X    register int    i;
+X    register ind_sw_info *isw;
+X
+X    /* only update current mask if user wants to see relevant ind buttons */
+X    if (appres.ShowAllButtons)
+X	return;
+X
+X    cur_indmask = mask;
+X    XtUnmanageChild(ind_panel);
+X    for (isw = ind_switches, i = 0; i < NUM_IND_SW; isw++, i++) {
+X	if (isw->func & cur_indmask) {
+X	    XtManageChild(isw->formw);
+X	} else {
+X	    XtUnmanageChild(isw->formw);
+X	}
+X    }
+X    XtManageChild(ind_panel);
+X}
+X
+X/* come here when a button is pressed in the indicator panel */
+X
+Xstatic void
+Xsel_ind_but(widget, closure, event, continue_to_dispatch)
+X    Widget	    widget;
+X    XtPointer	    closure;
+X    XEvent*	    event;
+X    Boolean*	    continue_to_dispatch;
+X{
+X    XButtonEvent xbutton;
+X    ind_sw_info *isw = (ind_sw_info *) closure;
+X    xbutton = event->xbutton;
+X    if ((xbutton.button == Button2)  ||
+X              (xbutton.button == Button3 && xbutton.state & Mod1Mask)) { /* middle button */
+X	dec_action(isw);
+X    } else if (xbutton.button == Button3) {	/* right button */
+X	inc_action(isw);
+X    } else {			/* left button */
+X	if (isw->func == I_FONT)
+X	    popup_fonts(isw);
+X	else if (isw->func == I_TEXTFLAGS)
+X	    popup_flags_panel(isw);
+X	else if (isw->type == I_IVAL || isw->type == I_FVAL)
+X	    popup_nval_panel(isw);
+X	else if (isw->type == I_CHOICE)
+X	    popup_choice_panel(isw);
+X    }
+X}
+X
+Xstatic
+Xupdate_string_pixmap(isw, buf, xpos, ypos)
+X    ind_sw_info	   *isw;
+X    char	   *buf;
+X    int		    xpos, ypos;
+X{
+X    XDrawImageString(tool_d, isw->normalPM, ind_button_gc,
+X		     xpos, ypos, buf, strlen(buf));
+X    /*
+X     * Fool the toolkit by changing the background pixmap to 0 then giving it
+X     * the modified one again.	Otherwise, it sees that the pixmap ID is not
+X     * changed and doesn't actually draw it into the widget window
+X     */
+X    button_args[6].value = 0;
+X    XtSetValues(isw->button, &button_args[6], 1);
+X
+X    /* put the pixmap in the widget background */
+X    button_args[6].value = isw->normalPM;
+X    XtSetValues(isw->button, &button_args[6], 1);
+X}
+X
+Xstatic
+Xupdate_choice_pixmap(isw, mode)
+X    ind_sw_info	   *isw;
+X    int		    mode;
+X{
+X    choice_info	   *tmp_choice;
+X    register Pixmap p;
+X
+X    /* put the pixmap in the widget background */
+X    p = isw->normalPM;
+X    tmp_choice = isw->choices + mode;
+X    XPutImage(tool_d, p, ind_button_gc, tmp_choice->icon, 0, 0, 32, 0, 32, 32);
+X    /*
+X     * Fool the toolkit by changing the background pixmap to 0 then giving it
+X     * the modified one again.	Otherwise, it sees that the pixmap ID is not
+X     * changed and doesn't actually draw it into the widget window
+X     */
+X    button_args[6].value = 0;
+X    XtSetValues(isw->button, &button_args[6], 1);
+X    button_args[6].value = p;
+X    XtSetValues(isw->button, &button_args[6], 1);
+X}
+X
+X/********************************************************
+X
+X	auxiliary functions
+X
+X********************************************************/
+X
+Xstatic Widget	choice_popup;
+Xstatic ind_sw_info *choice_i;
+Xstatic Widget	nval_popup, form, cancel, set, beside, below, newvalue,
+X		label;
+Xstatic Widget	dash_length, dot_gap;
+Xstatic ind_sw_info *nval_i;
+X
+X/* handle choice settings */
+X
+Xstatic void
+Xchoice_panel_dismiss()
+X{
+X    XtDestroyWidget(choice_popup);
+X    XtSetSensitive(choice_i->button, True);
+X}
+X
+Xstatic void
+Xchoice_panel_cancel(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    choice_panel_dismiss();
+X}
+X
+Xstatic void
+Xchoice_panel_set(w, sel_choice, ev)
+X    Widget	    w;
+X    choice_info	   *sel_choice;
+X    XButtonEvent   *ev;
+X{
+X    (*choice_i->i_varadr) = sel_choice->value;
+X    show_action(choice_i);
+X
+X    /* auxiliary info */
+X    switch (choice_i->func) {
+X    case I_LINESTYLE:
+X	/* dash length */
+X	cur_dashlength = (float) atof(panel_get_value(dash_length));
+X	if (cur_dashlength <= 0.0)
+X	    cur_dashlength = DEF_DASHLENGTH;
+X	/* dot gap */
+X	cur_dotgap = (float) atof(panel_get_value(dot_gap));
+X	if (cur_dotgap <= 0.0)
+X	    cur_dotgap = DEF_DOTGAP;
+X	break;
+X    }
+X
+X    choice_panel_dismiss();
+X}
+X
+Xpopup_choice_panel(isw)
+X    ind_sw_info	   *isw;
+X{
+X    Position	    x_val, y_val;
+X    Dimension	    width, height;
+X    char	    buf[32];
+X    choice_info	   *tmp_choice;
+X    Pixmap	    p;
+X    Pixel	    form_fg;
+X    register int    i;
+X    static int      actions_added=0;
+X
+X    choice_i = isw;
+X    XtSetSensitive(choice_i->button, False);
+X
+X    FirstArg(XtNwidth, &width);
+X    NextArg(XtNheight, &height);
+X    GetValues(tool);
+X    /* position the popup 1/3 in from left and 2/3 down from top */
+X    XtTranslateCoords(tool, (Position) (width / 3), (Position) (2 * height / 3),
+X		      &x_val, &y_val);
+X
+X    FirstArg(XtNx, x_val);
+X    NextArg(XtNy, y_val);
+X    NextArg(XtNresize, False);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtitle, "Xfig: Set indicator panel");
+X
+X    choice_popup = XtCreatePopupShell("xfig_set_indicator_panel",
+X				      transientShellWidgetClass, tool,
+X				      Args, ArgCount);
+X    XtOverrideTranslations(choice_popup,
+X                       XtParseTranslationTable(choice_translations));
+X    if (!actions_added) {
+X        XtAppAddActions(tool_app, choice_actions, XtNumber(choice_actions));
+X	actions_added = 1;
+X    }
+X
+X    form = XtCreateManagedWidget("form", formWidgetClass, choice_popup, NULL, 0);
+X
+X    FirstArg(XtNborderWidth, 0);
+X    sprintf(buf, "%s %s", isw->line1, isw->line2);
+X    label = XtCreateManagedWidget(buf, labelWidgetClass, form, Args, ArgCount);
+X
+X    FirstArg(XtNlabel, "cancel");
+X    NextArg(XtNfromVert, label);
+X    NextArg(XtNresize, False);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNheight, 32);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				   form, Args, ArgCount);
+X    XtAddEventHandler(cancel, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)choice_panel_cancel, (XtPointer) NULL);
+X
+X    tmp_choice = isw->choices;
+X
+X    for (i = 0; i < isw->numchoices; tmp_choice++, i++) {
+X	if (isw->func == I_FILLSTYLE)
+X	    p = ((cur_color==BLACK || cur_color==DEFAULT_COLOR ||
+X		 (!all_colors_available && cur_color!=WHITE))?
+X		fillstyle_choices[i].blackPM :fillstyle_choices[i].normalPM);
+X	else if (isw->func == I_COLOR) {
+X	    p = 0;
+X	    tmp_choice->value = (i >= NUMCOLORS ? DEFAULT_COLOR : i);
+X	} else
+X	    p = XCreatePixmapFromBitmapData(tool_d, XtWindow(ind_panel),
+X			    (char *) tmp_choice->icon->data, tmp_choice->icon->width,
+X			   tmp_choice->icon->height, ind_but_fg, ind_but_bg,
+X					    DefaultDepthOfScreen(tool_s));
+X	if (i % isw->sw_per_row == 0) {
+X	    if (i == 0)
+X		below = label;
+X	    else
+X		below = beside;
+X	    beside = cancel;
+X	}
+X	FirstArg(XtNfromVert, below);
+X	NextArg(XtNfromHoriz, beside);
+X	if (isw->func != I_COLOR) {
+X	    NextArg(XtNbackgroundPixmap, p);
+X	    NextArg(XtNwidth, tmp_choice->icon->width);
+X	    NextArg(XtNheight, tmp_choice->icon->height);
+X	} else {		/* Color popup menu */
+X	    NextArg(XtNheight, 32);
+X	    NextArg(XtNwidth, 64);
+X	    if (i < NUMCOLORS && i >= 0) {	/* it's a proper color */
+X		if (all_colors_available) {
+X		    XColor	    col;
+X
+X		    col.pixel = appres.color[i];
+X		    XQueryColor(tool_d, DefaultColormapOfScreen(tool_s), &col);
+X		    if ((0.3 * col.red + 0.59 * col.green + 0.11 * col.blue) < 0.5 * (255 << 8))
+X			form_fg = appres.color[WHITE];
+X		    else
+X			form_fg = appres.color[BLACK];
+X		    NextArg(XtNforeground, form_fg);
+X		    NextArg(XtNbackground, appres.color[i]);
+X		}
+X		NextArg(XtNlabel, colorNames[i + 1]);
+X	    } else {		/* it's the default color */
+X		NextArg(XtNforeground, x_fg_color.pixel);
+X		NextArg(XtNlabel, colorNames[0]);
+X	    }
+X	}
+X	NextArg(XtNresize, False);
+X	NextArg(XtNresizable, False);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	beside = XtCreateManagedWidget(" ", commandWidgetClass,
+X				       form, Args, ArgCount);
+X	XtAddEventHandler(beside, ButtonReleaseMask, (Boolean) 0,
+X			  (XtEventHandler)choice_panel_set, (XtPointer) tmp_choice);
+X    }
+X
+X    /* auxiliary info */
+X    switch (isw->func) {
+X    case I_LINESTYLE:
+X	/* dash length */
+X	FirstArg(XtNfromVert, beside);
+X	NextArg(XtNborderWidth, 0);
+X	NextArg(XtNlabel, "Default dash length =");
+X	label = XtCreateManagedWidget("default_dash_length",
+X				    labelWidgetClass, form, Args, ArgCount);
+X	sprintf(buf, "%1.1f", cur_dashlength);
+X	FirstArg(XtNfromVert, beside);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNfromHoriz, label);
+X	NextArg(XtNstring, buf);
+X	NextArg(XtNinsertPosition, strlen(buf));
+X	NextArg(XtNeditType, "append");
+X	NextArg(XtNwidth, 40);
+X	dash_length = XtCreateManagedWidget(buf, asciiTextWidgetClass,
+X					    form, Args, ArgCount);
+X	/* dot gap */
+X	FirstArg(XtNfromVert, dash_length);
+X	NextArg(XtNborderWidth, 0);
+X	NextArg(XtNlabel, "    Default dot gap =");
+X	label = XtCreateManagedWidget("default_dot_gap",
+X				    labelWidgetClass, form, Args, ArgCount);
+X	sprintf(buf, "%1.1f", cur_dotgap);
+X	FirstArg(XtNfromVert, dash_length);
+X	NextArg(XtNborderWidth, INTERNAL_BW);
+X	NextArg(XtNfromHoriz, label);
+X	NextArg(XtNstring, buf);
+X	NextArg(XtNinsertPosition, strlen(buf));
+X	NextArg(XtNeditType, "append");
+X	NextArg(XtNwidth, 40);
+X	dot_gap = XtCreateManagedWidget(buf, asciiTextWidgetClass,
+X					form, Args, ArgCount);
+X	break;
+X    }
+X
+X    XtPopup(choice_popup, XtGrabExclusive);
+X    (void) XSetWMProtocols(XtDisplay(choice_popup), XtWindow(choice_popup),
+X                           &wm_delete_window, 1);
+X
+X}
+X
+X/* handle text flag settings */
+X
+Xstatic int      hidden_text_flag, special_text_flag, rigid_text_flag;
+Xstatic Widget   hidden_text_panel, rigid_text_panel, special_text_panel;
+Xstatic Widget   hidden_text_menu, special_text_menu, rigid_text_menu;
+X
+Xstatic void
+Xflags_panel_dismiss()
+X{
+X    XtDestroyWidget(nval_popup);
+X    XtSetSensitive(nval_i->button, True);
+X}
+X
+Xstatic void
+Xflags_panel_cancel(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    flags_panel_dismiss();
+X}
+X
+Xstatic void
+Xflags_panel_set(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    int		    new_i_value;
+X    float	    new_f_value;
+X
+X    if (hidden_text_flag)
+X	cur_textflags |= HIDDEN_TEXT;
+X    else
+X	cur_textflags &= ~HIDDEN_TEXT;
+X    if (special_text_flag)
+X	cur_textflags |= SPECIAL_TEXT;
+X    else
+X	cur_textflags &= ~SPECIAL_TEXT;
+X    if (rigid_text_flag)
+X	cur_textflags |= RIGID_TEXT;
+X    else
+X	cur_textflags &= ~RIGID_TEXT;
+X    flags_panel_dismiss();
+X    show_action(nval_i);
+X}
+X
+Xstatic void
+Xhidden_text_select(w, new_hidden_text, garbage)
+X    Widget          w;
+X    XtPointer       new_hidden_text, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(hidden_text_panel);
+X    hidden_text_flag = (int) new_hidden_text;
+X    if (hidden_text_flag)
+X	put_msg("Text will be displayed as hidden");
+X    else
+X	put_msg("Text will be displayed normally");
+X}
+X
+Xstatic void
+Xrigid_text_select(w, new_rigid_text, garbage)
+X    Widget          w;
+X    XtPointer       new_rigid_text, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(rigid_text_panel);
+X    rigid_text_flag = (int) new_rigid_text;
+X    if (rigid_text_flag)
+X	put_msg("Text in compound group will not scale with compound");
+X    else
+X	put_msg("Text in compound group will scale with compound");
+X}
+X
+Xstatic void
+Xspecial_text_select(w, new_special_text, garbage)
+X    Widget          w;
+X    XtPointer       new_special_text, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(special_text_panel);
+X    special_text_flag = (int) new_special_text;
+X    if (special_text_flag)
+X	put_msg("Text will be printed as special during print/export");
+X    else
+X	put_msg("Text will be printed as normal during print/export");
+X}
+X
+Xpopup_flags_panel(isw)
+X    ind_sw_info	   *isw;
+X{
+X    Position	    x_val, y_val;
+X    Dimension	    width, height;
+X    char	    buf[32];
+X    static int      actions_added=0;
+X    static char    *hidden_text_items[] = {
+X    "Normal ", "Hidden "};
+X    static char    *rigid_text_items[] = {
+X    "Normal ", "Rigid  "};
+X    static char    *special_text_items[] = {
+X    "Normal ", "Special"};
+X
+X    nval_i = isw;
+X    XtSetSensitive(nval_i->button, False);
+X    rigid_text_flag = (cur_textflags & RIGID_TEXT) ? 1 : 0;
+X    special_text_flag = (cur_textflags & SPECIAL_TEXT) ? 1 : 0;
+X    hidden_text_flag = (cur_textflags & HIDDEN_TEXT) ? 1 : 0;
+X
+X    FirstArg(XtNwidth, &width);
+X    NextArg(XtNheight, &height);
+X    GetValues(tool);
+X    /* position the popup 1/3 in from left and 2/3 down from top */
+X    XtTranslateCoords(tool, (Position) (width / 3), (Position) (2 * height / 3),
+X		      &x_val, &y_val);
+X
+X    FirstArg(XtNx, x_val);
+X    NextArg(XtNy, y_val);
+X    NextArg(XtNwidth, 240);
+X
+X    nval_popup = XtCreatePopupShell("xfig_set_indicator_panel",
+X				    transientShellWidgetClass, tool,
+X				    Args, ArgCount);
+X    XtOverrideTranslations(nval_popup,
+X                       XtParseTranslationTable(nval_translations));
+X    if (!actions_added) {
+X        XtAppAddActions(tool_app, nval_actions, XtNumber(nval_actions));
+X	actions_added = 1;
+X    }
+X
+X    form = XtCreateManagedWidget("form", formWidgetClass, nval_popup, NULL, 0);
+X
+X    FirstArg(XtNborderWidth, 0);
+X    sprintf(buf, "%s %s", isw->line1, isw->line2);
+X    label = XtCreateManagedWidget(buf, labelWidgetClass, form, Args, ArgCount);
+X
+X    /* make hidden text menu */
+X
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget(" Hidden Flag     =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNfromHoriz, beside);
+X    hidden_text_panel = XtCreateManagedWidget(
+X                 hidden_text_items[hidden_text_flag], menuButtonWidgetClass,
+X                                              form, Args, ArgCount);
+X    below = hidden_text_panel;
+X    hidden_text_menu = make_popup_menu(hidden_text_items,
+X                                       XtNumber(hidden_text_items),
+X                                     hidden_text_panel, hidden_text_select);
+X
+X    /* make rigid text menu */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget(" Rigid Flag      =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, beside);
+X    rigid_text_panel = XtCreateManagedWidget(
+X                   rigid_text_items[rigid_text_flag], menuButtonWidgetClass,
+X                                             form, Args, ArgCount);
+X    below = rigid_text_panel;
+X    rigid_text_menu = make_popup_menu(rigid_text_items,
+X                                      XtNumber(rigid_text_items),
+X                                      rigid_text_panel, rigid_text_select);
+X
+X    /* make special text menu */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget(" Special Flag    =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, beside);
+X    special_text_panel = XtCreateManagedWidget(
+X                                      special_text_items[special_text_flag],
+X                               menuButtonWidgetClass, form, Args, ArgCount);
+X    below = special_text_panel;
+X    special_text_menu = make_popup_menu(special_text_items,
+X                                        XtNumber(special_text_items),
+X                                   special_text_panel, special_text_select);
+X
+X    FirstArg(XtNlabel, "cancel");
+X    NextArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				   form, Args, ArgCount);
+X    XtAddEventHandler(cancel, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)flags_panel_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNlabel, "set");
+X    NextArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, cancel);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    set = XtCreateManagedWidget("set", commandWidgetClass,
+X				form, Args, ArgCount);
+X    XtAddEventHandler(set, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)flags_panel_set, (XtPointer) NULL);
+X
+X    XtPopup(nval_popup, XtGrabExclusive);
+X    (void) XSetWMProtocols(XtDisplay(nval_popup), XtWindow(nval_popup),
+X                           &wm_delete_window, 1);
+X}
+X
+X/* handle integer and floating point settings */
+X
+Xstatic void
+Xnval_panel_dismiss()
+X{
+X    XtDestroyWidget(nval_popup);
+X    XtSetSensitive(nval_i->button, True);
+X}
+X
+Xstatic void
+Xnval_panel_cancel(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    nval_panel_dismiss();
+X}
+X
+Xstatic void
+Xnval_panel_set(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    int		    new_i_value;
+X    float	    new_f_value;
+X
+X
+X    if (nval_i->type == I_IVAL)
+X	    {
+X	    new_i_value = atoi(panel_get_value(newvalue));
+X	    (*nval_i->i_varadr) = new_i_value;
+X	    }
+X    else
+X	    {
+X	    new_f_value = atof(panel_get_value(newvalue));
+X	    (*nval_i->f_varadr) = new_f_value;
+X	    }
+X    nval_panel_dismiss();
+X    show_action(nval_i);
+X}
+X
+Xpopup_nval_panel(isw)
+X    ind_sw_info	   *isw;
+X{
+X    Position	    x_val, y_val;
+X    Dimension	    width, height;
+X    char	    buf[32];
+X    static int      actions_added=0;
+X
+X    nval_i = isw;
+X    XtSetSensitive(nval_i->button, False);
+X
+X    FirstArg(XtNwidth, &width);
+X    NextArg(XtNheight, &height);
+X    GetValues(tool);
+X    /* position the popup 1/3 in from left and 2/3 down from top */
+X    XtTranslateCoords(tool, (Position) (width / 3), (Position) (2 * height / 3),
+X		      &x_val, &y_val);
+X
+X    FirstArg(XtNx, x_val);
+X    NextArg(XtNy, y_val);
+X    NextArg(XtNwidth, 240);
+X
+X    nval_popup = XtCreatePopupShell("xfig_set_indicator_panel",
+X				    transientShellWidgetClass, tool,
+X				    Args, ArgCount);
+X    XtOverrideTranslations(nval_popup,
+X                       XtParseTranslationTable(nval_translations));
+X    if (!actions_added) {
+X        XtAppAddActions(tool_app, nval_actions, XtNumber(nval_actions));
+X	actions_added = 1;
+X    }
+X
+X    form = XtCreateManagedWidget("form", formWidgetClass, nval_popup, NULL, 0);
+X
+X    FirstArg(XtNborderWidth, 0);
+X    sprintf(buf, "%s %s", isw->line1, isw->line2);
+X    label = XtCreateManagedWidget(buf, labelWidgetClass, form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNborderWidth, 0);
+X    NextArg(XtNlabel, "Value =");
+X    newvalue = XtCreateManagedWidget("value", labelWidgetClass,
+X				     form, Args, ArgCount);
+X    /* int or float? */
+X    if (isw->type == I_IVAL)
+X	    sprintf(buf, "%d", (*isw->i_varadr));
+X    else
+X	    sprintf(buf, "%4.2lf", (*isw->f_varadr));
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    NextArg(XtNfromHoriz, newvalue);
+X    NextArg(XtNstring, buf);
+X    NextArg(XtNinsertPosition, strlen(buf));
+X    NextArg(XtNeditType, "append");
+X    NextArg(XtNwidth, 40);
+X    newvalue = XtCreateManagedWidget(buf, asciiTextWidgetClass,
+X				     form, Args, ArgCount);
+X
+X    /* add translation and action to set value on carriage return */
+X    XtAppAddActions(tool_app, set_actions, XtNumber(set_actions));
+X    XtOverrideTranslations(newvalue, XtParseTranslationTable(set_translations));
+X
+X    FirstArg(XtNlabel, "cancel");
+X    NextArg(XtNfromVert, newvalue);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				   form, Args, ArgCount);
+X    XtAddEventHandler(cancel, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)nval_panel_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNlabel, "set");
+X    NextArg(XtNfromVert, newvalue);
+X    NextArg(XtNfromHoriz, cancel);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    set = XtCreateManagedWidget("set", commandWidgetClass,
+X				form, Args, ArgCount);
+X    XtAddEventHandler(set, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)nval_panel_set, (XtPointer) NULL);
+X
+X    XtPopup(nval_popup, XtGrabExclusive);
+X    (void) XSetWMProtocols(XtDisplay(nval_popup), XtWindow(nval_popup),
+X                           &wm_delete_window, 1);
+X}
+X
+X/********************************************************
+X
+X	commands to change indicator settings
+X
+X********************************************************/
+X
+Xupdate_current_settings()
+X{
+X    int		    i;
+X    ind_sw_info	   *isw;
+X
+X    for (i = 0; i < NUM_IND_SW; ++i) {
+X	isw = &ind_switches[i];
+X	show_action(isw);
+X    }
+X}
+X
+Xstatic
+Xdec_choice(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (--(*sw->i_varadr) < 0)
+X	(*sw->i_varadr) = sw->numchoices - 1;
+X    show_action(sw);
+X}
+X
+Xstatic
+Xinc_choice(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (++(*sw->i_varadr) > sw->numchoices - 1)
+X	(*sw->i_varadr) = 0;
+X    show_action(sw);
+X}
+X
+X/* ARROW MODE		 */
+X
+Xstatic
+Xshow_arrowmode(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_arrowmode);
+X    switch (cur_arrowmode) {
+X    case L_NOARROWS:
+X	autobackwardarrow_mode = 0;
+X	autoforwardarrow_mode = 0;
+X	put_msg("NO ARROWS");
+X	break;
+X    case L_FARROWS:
+X	autobackwardarrow_mode = 0;
+X	autoforwardarrow_mode = 1;
+X	put_msg("Auto FORWARD ARROWS (for ARC, POLYLINE and SPLINE)");
+X	break;
+X    case L_FBARROWS:
+X	autobackwardarrow_mode = 1;
+X	autoforwardarrow_mode = 1;
+X	put_msg("Auto FORWARD and BACKWARD ARROWS (for ARC, POLYLINE and SPLINE)");
+X	break;
+X    case L_BARROWS:
+X	autobackwardarrow_mode = 1;
+X	autoforwardarrow_mode = 0;
+X	put_msg("Auto BACKWARD ARROWS (for ARC, POLYLINE and SPLINE)");
+X	break;
+X    }
+X}
+X
+X/* LINE WIDTH		 */
+X
+X#define MAXLINEWIDTH 200
+X
+Xstatic
+Xdec_linewidth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    --cur_linewidth;
+X    show_linewidth(sw);
+X}
+X
+Xstatic
+Xinc_linewidth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    ++cur_linewidth;
+X    show_linewidth(sw);
+X}
+X
+Xstatic
+Xshow_linewidth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_linewidth > MAXLINEWIDTH)
+X	cur_linewidth = MAXLINEWIDTH;
+X    else if (cur_linewidth < 0)
+X	cur_linewidth = 0;
+X
+X    /* erase by drawing wide, inverted (white) line */
+X    pw_vector(sw->normalPM, DEF_IND_SW_WD / 2 + 2, DEF_IND_SW_HT / 2,
+X	      sw->sw_width - 2, DEF_IND_SW_HT / 2, ERASE,
+X	      DEF_IND_SW_HT, PANEL_LINE, 0.0, DEFAULT_COLOR);
+X    /* draw current line thickness into pixmap */
+X    if (cur_linewidth > 0)	/* don't draw line for zero-thickness */
+X	pw_vector(sw->normalPM, DEF_IND_SW_WD / 2 + 2, DEF_IND_SW_HT / 2,
+X		  sw->sw_width - 2, DEF_IND_SW_HT / 2, PAINT,
+X		  cur_linewidth, PANEL_LINE, 0.0, DEFAULT_COLOR);
+X
+X    /*
+X     * Fool the toolkit by changing the background pixmap to 0 then giving it
+X     * the modified one again.	Otherwise, it sees that the pixmap ID is not
+X     * changed and doesn't actually draw it into the widget window
+X     */
+X    button_args[6].value = 0;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    /* put the pixmap in the widget background */
+X    button_args[6].value = (XtArgVal) sw->normalPM;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    put_msg("LINE Thickness = %d", cur_linewidth);
+X}
+X
+X/* ANGLE GEOMETRY		 */
+X
+Xstatic
+Xshow_anglegeom(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_anglegeom);
+X    switch (cur_anglegeom) {
+X    case L_UNCONSTRAINED:
+X	manhattan_mode = 0;
+X	mountain_mode = 0;
+X	latexline_mode = 0;
+X	latexarrow_mode = 0;
+X	put_msg("UNCONSTRAINED geometry (for POLYLINE and SPLINE)");
+X	break;
+X    case L_MOUNTHATTAN:
+X	mountain_mode = 1;
+X	manhattan_mode = 1;
+X	latexline_mode = 0;
+X	latexarrow_mode = 0;
+X	put_msg("MOUNT-HATTAN geometry (for POLYLINE and SPLINE)");
+X	break;
+X    case L_MANHATTAN:
+X	manhattan_mode = 1;
+X	mountain_mode = 0;
+X	latexline_mode = 0;
+X	latexarrow_mode = 0;
+X	put_msg("MANHATTAN geometry (for POLYLINE and SPLINE)");
+X	break;
+X    case L_MOUNTAIN:
+X	mountain_mode = 1;
+X	manhattan_mode = 0;
+X	latexline_mode = 0;
+X	latexarrow_mode = 0;
+X	put_msg("MOUNTAIN geometry (for POLYLINE and SPLINE)");
+X	break;
+X    case L_LATEXLINE:
+X	latexline_mode = 1;
+X	manhattan_mode = 0;
+X	mountain_mode = 0;
+X	latexarrow_mode = 0;
+X	put_msg("LATEX LINE geometry: allow only LaTeX line slopes");
+X	break;
+X    case L_LATEXARROW:
+X	latexarrow_mode = 1;
+X	manhattan_mode = 0;
+X	mountain_mode = 0;
+X	latexline_mode = 0;
+X	put_msg("LATEX ARROW geometry: allow only LaTeX arrow slopes");
+X	break;
+X    }
+X}
+X
+X/* LINE STYLE		 */
+X
+Xstatic
+Xshow_linestyle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_linestyle);
+X    switch (cur_linestyle) {
+X    case SOLID_LINE:
+X	cur_styleval = 0.0;
+X	put_msg("SOLID LINE STYLE (for BOX, POLYGON and POLYLINE)");
+X	break;
+X    case DASH_LINE:
+X	cur_styleval = cur_dashlength;
+X	put_msg("DASH LINE STYLE (for BOX, POLYGON and POLYLINE)");
+X	break;
+X    case DOTTED_LINE:
+X	cur_styleval = cur_dotgap;
+X	put_msg("DOTTED LINE STYLE (for BOX, POLYGON and POLYLINE)");
+X	break;
+X    }
+X}
+X
+X/* VERTICAL ALIGNMENT	 */
+X
+Xstatic
+Xshow_valign(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_valign);
+X    switch (cur_valign) {
+X    case NONE:
+X	put_msg("No vertical alignment");
+X	break;
+X    case TOP:
+X	put_msg("Vertically align to TOP");
+X	break;
+X    case CENTER:
+X	put_msg("Center vertically when aligning");
+X	break;
+X    case BOTTOM:
+X	put_msg("Vertically align to BOTTOM");
+X	break;
+X    }
+X}
+X
+X/* HORIZ ALIGNMENT	 */
+X
+Xstatic
+Xshow_halign(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_halign);
+X    switch (cur_halign) {
+X    case NONE:
+X	put_msg("No horizontal alignment");
+X	break;
+X    case LEFT:
+X	put_msg("Horizontally align to LEFT");
+X	break;
+X    case CENTER:
+X	put_msg("Center horizontally when aligning");
+X	break;
+X    case RIGHT:
+X	put_msg("Horizontally align to RIGHT");
+X	break;
+X    }
+X}
+X
+X/* GRID MODE	 */
+X
+Xstatic
+Xshow_gridmode(sw)
+X    ind_sw_info	   *sw;
+X{
+X    static int	    prev_gridmode = -1;
+X
+X    update_choice_pixmap(sw, cur_gridmode);
+X    switch (cur_gridmode) {
+X    case GRID_0:
+X	put_msg("No grid");
+X	break;
+X    case GRID_1:
+X	put_msg("Small grid");
+X	break;
+X    case GRID_2:
+X	put_msg("Large grid");
+X	break;
+X    }
+X    if (cur_gridmode != prev_gridmode)
+X	setup_grid(cur_gridmode);
+X    prev_gridmode = cur_gridmode;
+X}
+X
+X/* POINT POSITION	 */
+X
+Xstatic
+Xshow_pointposn(sw)
+X    ind_sw_info	   *sw;
+X{
+X    char	    buf[80];
+X
+X    update_choice_pixmap(sw, cur_pointposn);
+X    switch (cur_pointposn) {
+X    case P_ANY:
+X	put_msg("Arbitrary Positioning of Points");
+X	break;
+X    case P_MAGNET:
+X    case P_GRID1:
+X    case P_GRID2:
+X	sprintf(buf,
+X	  "MAGNET MODE: entered points rounded to the nearest %s increment",
+X		grid_name[cur_pointposn]);
+X	put_msg(buf);
+X	break;
+X    }
+X}
+X
+X/* SMART LINK MODE */
+X
+Xstatic
+Xshow_linkmode(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_linkmode);
+X    switch (cur_linkmode) {
+X    case SMART_OFF:
+X	put_msg("Do not adjust links automatically");
+X	break;
+X    case SMART_MOVE:
+X	put_msg("Adjust links automatically by moving endpoint");
+X	break;
+X    case SMART_SLIDE:
+X	put_msg("Adjust links automatically by sliding endlink");
+X	break;
+X    }
+X}
+X
+X/* TEXT JUSTIFICATION	 */
+X
+Xstatic
+Xshow_textjust(sw)
+X    ind_sw_info	   *sw;
+X{
+X    update_choice_pixmap(sw, cur_textjust);
+X    switch (cur_textjust) {
+X    case T_LEFT_JUSTIFIED:
+X	put_msg("Left justify text");
+X	break;
+X    case T_CENTER_JUSTIFIED:
+X	put_msg("Center text");
+X	break;
+X    case T_RIGHT_JUSTIFIED:
+X	put_msg("Right justify text");
+X	break;
+X    }
+X}
+X
+X/* BOX RADIUS	 */
+X
+Xstatic
+Xdec_boxradius(sw)
+X    ind_sw_info	   *sw;
+X{
+X    --cur_boxradius;
+X    show_boxradius(sw);
+X}
+X
+Xstatic
+Xinc_boxradius(sw)
+X    ind_sw_info	   *sw;
+X{
+X    ++cur_boxradius;
+X    show_boxradius(sw);
+X}
+X
+X#define MAXRADIUS 30
+Xstatic
+Xshow_boxradius(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_boxradius > MAXRADIUS)
+X	cur_boxradius = MAXRADIUS;
+X    else if (cur_boxradius < 3)
+X	cur_boxradius = 3;
+X    /* erase by drawing wide, inverted (white) line */
+X    pw_vector(sw->normalPM, DEF_IND_SW_WD / 2, DEF_IND_SW_HT / 2,
+X	      DEF_IND_SW_WD, DEF_IND_SW_HT / 2, ERASE,
+X	      DEF_IND_SW_HT, PANEL_LINE, 0.0, DEFAULT_COLOR);
+X    /* draw current radius into pixmap */
+X    curve(sw->normalPM, 0, cur_boxradius, -cur_boxradius, 0, 1,
+X	  cur_boxradius, cur_boxradius, DEF_IND_SW_WD - 2, DEF_IND_SW_HT - 2,
+X	  PAINT, 1, PANEL_LINE, 0.0, 0, DEFAULT_COLOR);
+X
+X    /*
+X     * Fool the toolkit by changing the background pixmap to 0 then giving it
+X     * the modified one again.	Otherwise, it sees that the pixmap ID is not
+X     * changed and doesn't actually draw it into the widget window
+X     */
+X    button_args[6].value = 0;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    /* put the pixmap in the widget background */
+X    button_args[6].value = (XtArgVal) sw->normalPM;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    put_msg("ROUNDED-CORNER BOX Radius = %d", cur_boxradius);
+X}
+X
+X/* FILL STYLE */
+X
+Xstatic
+Xdarken_fill(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (++cur_fillstyle > NUMFILLPATS)
+X	cur_fillstyle = 0;
+X    show_fillstyle(sw);
+X}
+X
+Xstatic
+Xlighten_fill(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (--cur_fillstyle < 0)
+X	cur_fillstyle = NUMFILLPATS;
+X    show_fillstyle(sw);
+X}
+X
+Xstatic
+Xshow_fillstyle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_fillstyle == 0) {
+X	XCopyArea(tool_d, ((cur_color==BLACK ||
+X		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X			(!all_colors_available && cur_color!=WHITE))? 
+X			fillstyle_choices[0].blackPM: fillstyle_choices[0].normalPM),
+X			sw->normalPM,
+X			ind_button_gc, 0, 0, 32, 32, 32, 0);
+X	put_msg("NO-FILL MODE");
+X    } else {
+X	/* put the pixmap in the widget background */
+X	XCopyArea(tool_d, ((cur_color==BLACK ||
+X		   (cur_color==DEFAULT_COLOR && x_fg_color.pixel==appres.color[BLACK]) ||
+X			(!all_colors_available && cur_color!=WHITE))? 
+X				fillstyle_choices[cur_fillstyle].blackPM:
+X				fillstyle_choices[cur_fillstyle].normalPM),
+X			sw->normalPM,
+X			ind_button_gc, 0, 0, 26, 24, 35, 4);
+X	put_msg("FILL MODE (black density/color intensity = %d%%)",
+X		((cur_fillstyle - 1) * 100) / (NUMFILLPATS - 1));
+X    }
+X    button_args[6].value = 0;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    button_args[6].value = (XtArgVal) sw->normalPM;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X}
+X
+X/* COLOR */
+X
+Xstatic
+Xnext_color(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (++cur_color >= NUMCOLORS)
+X	cur_color = DEFAULT_COLOR;
+X    show_color(sw);
+X}
+X
+Xstatic
+Xprev_color(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (--cur_color < DEFAULT_COLOR)
+X	cur_color = NUMCOLORS - 1;
+X    show_color(sw);
+X}
+X
+Xstatic
+Xshow_color(sw)
+X    ind_sw_info	   *sw;
+X{
+X    int		    color;
+X
+X    if (cur_color < 0 || cur_color >= NUMCOLORS) {
+X	cur_color == DEFAULT_COLOR;
+X	color = x_fg_color.pixel;
+X    } else
+X	color = all_colors_available ? appres.color[cur_color] : x_fg_color.pixel;
+X
+X    show_fillstyle(fill_style_sw);
+X    put_msg("Color set to %s", colorNames[cur_color + 1]);
+X    XSetForeground(tool_d, color_gc, color);
+X    /* now fill the color rectangle with the new color */
+X    XFillRectangle(tool_d, sw->normalPM, color_gc, sw->sw_width - 29, 4, 26, 24);
+X    /*
+X     * write the widget background over old color name before writing new
+X     * name
+X     */
+X    /* first set the foreground color to the background for the fill */
+X    XSetForeground(tool_d, ind_button_gc, ind_but_bg);
+X    XFillRectangle(tool_d, sw->normalPM, ind_button_gc, 0, DEF_IND_SW_HT / 2,
+X		   sw->sw_width - 29, DEF_IND_SW_HT / 2);
+X    /* now restore the foreground in the gc */
+X    XSetForeground(tool_d, ind_button_gc, ind_but_fg);
+X    XDrawImageString(tool_d, sw->normalPM, ind_button_gc, 3, 25,
+X	      colorNames[cur_color + 1], strlen(colorNames[cur_color + 1]));
+X    button_args[6].value = 0;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    button_args[6].value = (XtArgVal) sw->normalPM;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X}
+X
+X/* TEXT FLAGS */
+X
+Xstatic
+Xinc_flags(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (++cur_flagshown > MAX_FLAGS)
+X	cur_flagshown = 0;
+X    show_flags(sw);
+X}
+X
+Xstatic
+Xdec_flags(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (--cur_flagshown < 0)
+X	cur_flagshown = MAX_FLAGS;
+X    show_flags(sw);
+X}
+X
+Xstatic
+Xshow_flags(sw)
+X    ind_sw_info	   *sw;
+X{
+X    put_msg("Text flags: Hidden=%s, Special=%s, Rigid=%s (Button 1 to change)",
+X		(cur_textflags & HIDDEN_TEXT) ? "on" : "off",
+X		(cur_textflags & SPECIAL_TEXT) ? "on" : "off",
+X		(cur_textflags & RIGID_TEXT) ? "on" : "off");
+X
+X    /* write the text/ellipse angle in the background pixmap */
+X    switch(cur_flagshown) {
+X	case 0:
+X	    sprintf(indbuf, "hidden=%s",
+X			(cur_textflags & HIDDEN_TEXT) ? "on  " : "off ");
+X	    break;
+X	case 1:
+X	    sprintf(indbuf, "special=%s",
+X			(cur_textflags & SPECIAL_TEXT) ? "on " : "off");
+X	    break;
+X	default:
+X	    sprintf(indbuf, "rigid=%s",
+X			(cur_textflags & RIGID_TEXT) ? "on   " : "off  ");
+X    }
+X    update_string_pixmap(sw, indbuf, 6, 26);
+X}
+X
+X/* FONT */
+X
+Xstatic
+Xinc_font(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (using_ps)
+X	cur_ps_font++;
+X    else
+X	cur_latex_font++;
+X    show_font(sw);
+X}
+X
+Xstatic
+Xdec_font(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (using_ps)
+X	cur_ps_font--;
+X    else
+X	cur_latex_font--;
+X    show_font(sw);
+X}
+X
+Xstatic
+Xshow_font(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (using_ps) {
+X	if (cur_ps_font >= NUM_PS_FONTS)
+X	    cur_ps_font = DEFAULT;
+X	else if (cur_ps_font < DEFAULT)
+X	    cur_ps_font = NUM_PS_FONTS - 1;
+X    } else {
+X	if (cur_latex_font >= NUM_LATEX_FONTS)
+X	    cur_latex_font = 0;
+X	else if (cur_latex_font < 0)
+X	    cur_latex_font = NUM_LATEX_FONTS - 1;
+X    }
+X
+X    /* erase larger fontpane bits if we switched to smaller (Latex) */
+X    XFillRectangle(tool_d, sw->normalPM, ind_blank_gc, 0, 0,
+X	       32 + max2(PS_FONTPANE_WD, LATEX_FONTPANE_WD), DEF_IND_SW_HT);
+X    /* and redraw info */
+X    XDrawImageString(tool_d, sw->normalPM, ind_button_gc, 3, 12, sw->line1,
+X		     strlen(sw->line1));
+X    XDrawImageString(tool_d, sw->normalPM, ind_button_gc, 3, 25, sw->line2, 
+X		     strlen(sw->line2));
+X
+X    XCopyArea(tool_d, using_ps ? psfont_menu_bitmaps[cur_ps_font + 1] :
+X	      latexfont_menu_bitmaps[cur_latex_font],
+X	      sw->normalPM, ind_button_gc, 0, 0,
+X	      using_ps ? PS_FONTPANE_WD : LATEX_FONTPANE_WD,
+X	      using_ps ? PS_FONTPANE_HT : LATEX_FONTPANE_HT,
+X	  using_ps ? 32 : 32 + (PS_FONTPANE_WD - LATEX_FONTPANE_WD) / 2, 6);
+X
+X    button_args[6].value = 0;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    /* put the pixmap in the widget background */
+X    button_args[6].value = (XtArgVal) sw->normalPM;
+X    XtSetValues(sw->button, &button_args[6], 1);
+X    put_msg("Font: %s", using_ps ? ps_fontinfo[cur_ps_font + 1].name :
+X	    latex_fontinfo[cur_latex_font].name);
+X}
+X
+X/* popup menu of printer fonts */
+X
+Xstatic int	psflag;
+Xstatic ind_sw_info *return_sw;
+X
+Xint		show_font_return();
+X
+Xstatic
+Xpopup_fonts(sw)
+X    ind_sw_info	   *sw;
+X{
+X    return_sw = sw;
+X    psflag = using_ps ? 1 : 0;
+X    fontpane_popup(&cur_ps_font, &cur_latex_font, &psflag,
+X		   show_font_return, sw->button);
+X}
+X
+Xshow_font_return(w)
+X    Widget	    w;
+X{
+X    if (psflag)
+X	cur_textflags = cur_textflags | PSFONT_TEXT;
+X    else
+X	cur_textflags = cur_textflags & (~PSFONT_TEXT);
+X    show_font(return_sw);
+X}
+X
+X/* FONT SIZE */
+X
+Xstatic
+Xinc_fontsize(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_fontsize >= 100) {
+X	cur_fontsize = (cur_fontsize / 10) * 10;	/* round first */
+X	cur_fontsize += 10;
+X    } else if (cur_fontsize >= 50) {
+X	cur_fontsize = (cur_fontsize / 5) * 5;
+X	cur_fontsize += 5;
+X    } else if (cur_fontsize >= 20) {
+X	cur_fontsize = (cur_fontsize / 2) * 2;
+X	cur_fontsize += 2;
+X    } else
+X	cur_fontsize++;
+X    show_fontsize(sw);
+X}
+X
+Xstatic
+Xdec_fontsize(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_fontsize > 100) {
+X	cur_fontsize = (cur_fontsize / 10) * 10;	/* round first */
+X	cur_fontsize -= 10;
+X    } else if (cur_fontsize > 50) {
+X	cur_fontsize = (cur_fontsize / 5) * 5;
+X	cur_fontsize -= 5;
+X    } else if (cur_fontsize > 20) {
+X	cur_fontsize = (cur_fontsize / 2) * 2;
+X	cur_fontsize -= 2;
+X    } else if (cur_fontsize > 4)
+X	cur_fontsize--;
+X    show_fontsize(sw);
+X}
+X
+Xstatic
+Xshow_fontsize(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_fontsize < 4)
+X	cur_fontsize = 4;
+X    else if (cur_fontsize > 1000)
+X	cur_fontsize = 1000;
+X
+X    put_msg("Font size %d", cur_fontsize);
+X    /* write the font size in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    sprintf(indbuf, "%4d", cur_fontsize);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 28, 20);
+X}
+X
+X/* ELLIPSE/TEXT ANGLE */
+X
+Xstatic
+Xinc_elltextangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X
+X    if (cur_elltextangle < 0.0)
+X	cur_elltextangle = ((int) ((cur_elltextangle-14.999)/15.0))*15.0;
+X    else
+X	cur_elltextangle = ((int) (cur_elltextangle/15.0))*15.0;
+X    cur_elltextangle += 15.0;
+X    show_elltextangle(sw);
+X}
+X
+Xstatic
+Xdec_elltextangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_elltextangle < 0.0)
+X	cur_elltextangle = ((int) (cur_elltextangle/15.0))*15.0;
+X    else
+X	cur_elltextangle = ((int) ((cur_elltextangle+14.999)/15.0))*15.0;
+X    cur_elltextangle -= 15.0;
+X    show_elltextangle(sw);
+X}
+X
+Xstatic
+Xshow_elltextangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    cur_elltextangle = round(cur_elltextangle*10.0)/10.0;
+X    if (cur_elltextangle <= -360.0 || cur_elltextangle >= 360)
+X	cur_elltextangle = 0.0;
+X
+X    put_msg("Text/Ellipse angle %.1f", cur_elltextangle);
+X    if (cur_elltextangle == old_elltextangle)
+X	return;
+X
+X    /* write the text/ellipse angle in the background pixmap */
+X    indbuf[0]=indbuf[1]=indbuf[2]=indbuf[3]=indbuf[4]=indbuf[5]=' ';
+X    sprintf(indbuf, "%5.1f", cur_elltextangle);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 40, 26);
+X    old_elltextangle = cur_elltextangle;
+X}
+X
+X/* ROTATION ANGLE */
+X
+Xstatic
+Xinc_rotnangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_rotnangle < 30 || cur_rotnangle >= 120)
+X	cur_rotnangle = 30;
+X    else if (cur_rotnangle < 45)
+X	cur_rotnangle = 45;
+X    else if (cur_rotnangle < 60)
+X	cur_rotnangle = 60;
+X    else if (cur_rotnangle < 90)
+X	cur_rotnangle = 90;
+X    else if (cur_rotnangle < 120)
+X	cur_rotnangle = 120;
+X    show_rotnangle(sw);
+X}
+X
+Xstatic
+Xdec_rotnangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_rotnangle > 120 || cur_rotnangle <= 30)
+X	cur_rotnangle = 120;
+X    else if (cur_rotnangle > 90)
+X	cur_rotnangle = 90;
+X    else if (cur_rotnangle > 60)
+X	cur_rotnangle = 60;
+X    else if (cur_rotnangle > 45)
+X	cur_rotnangle = 45;
+X    else if (cur_rotnangle > 30)
+X	cur_rotnangle = 30;
+X    show_rotnangle(sw);
+X}
+X
+Xstatic
+Xshow_rotnangle(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_rotnangle < 1)
+X	cur_rotnangle = 1;
+X    else if (cur_rotnangle > 180)
+X	cur_rotnangle = 180;
+X
+X    put_msg("Angle of rotation %d", cur_rotnangle);
+X    if (cur_rotnangle == old_rotnangle)
+X	return;
+X
+X    /* write the rotation angle in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    sprintf(indbuf, "%3d", cur_rotnangle);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 22, 20);
+X
+X    /* change markers if we changed to or from 90 degrees (except at start) */
+X    if (old_rotnangle != -1) {
+X	if (cur_rotnangle == 90)
+X	    update_markers(M_ALL);
+X	else if (old_rotnangle == 90)
+X	    update_markers(M_ROTATE_ANGLE);
+X    }
+X    old_rotnangle = cur_rotnangle;
+X}
+X
+X/* NUMSIDES */
+X
+Xstatic
+Xinc_numsides(sw)
+X    ind_sw_info	   *sw;
+X{
+X    cur_numsides++;
+X    show_numsides(sw);
+X}
+X
+Xstatic
+Xdec_numsides(sw)
+X    ind_sw_info	   *sw;
+X{
+X    cur_numsides--;
+X    show_numsides(sw);
+X}
+X
+Xstatic
+Xshow_numsides(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_numsides < 3)
+X	cur_numsides = 3;
+X    else if (cur_numsides > 99)
+X	cur_numsides = 99;
+X
+X    put_msg("Number of sides %2d", cur_numsides);
+X    /* write the font size in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    sprintf(indbuf, "%2d", cur_numsides);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 18, 20);
+X}
+X
+X/* ZOOM */
+X
+Xstatic
+Xinc_zoom(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (zoomscale < 1.0)
+X	{
+X	zoomscale = (int)(zoomscale*4.0)/4.0 + 0.25;
+X	if (zoomscale > 1.0)
+X		zoomscale = 1.0;
+X	}
+X    else
+X	zoomscale = (int)zoomscale + 1.0;
+X    show_zoom(sw);
+X}
+X
+Xstatic
+Xdec_zoom(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (zoomscale <= 1.0)	/* keep to 0.25 increments */
+X	zoomscale = (int)((zoomscale+0.23)*4.0)/4.0 - 0.25;
+X    else
+X	{
+X	zoomscale = (int)zoomscale - 1.0;
+X	if (zoomscale < 1.0)
+X		zoomscale = 1.0;
+X	}
+X    show_zoom(sw);
+X}
+X
+Xshow_zoom(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (zoomscale < 0.1)
+X	zoomscale = 0.1;
+X    else if (zoomscale > 10.0)
+X	zoomscale = 10.0;
+X
+X    put_msg("Zoom scale %.2f", zoomscale);
+X    if (zoomscale == old_zoomscale)
+X	return;
+X
+X    /* write the font size in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    if (zoomscale == (int) zoomscale)
+X	sprintf(indbuf, " %.0f  ", zoomscale);
+X    else
+X	sprintf(indbuf, "%.2f", zoomscale);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 24, 14);
+X
+X    /* fix up the rulers and grid */
+X    reset_rulers();
+X    redisplay_rulers();
+X    /* reload text objects' font structures since we need 
+X	to load larger/smaller fonts */
+X    reload_text_fstructs();
+X    setup_grid(cur_gridmode);
+X    old_zoomscale = zoomscale;
+X}
+X
+X/* DEPTH */
+X
+Xstatic
+Xinc_depth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    cur_depth++;
+X    show_depth(sw);
+X}
+X
+Xstatic
+Xdec_depth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    cur_depth--;
+X    show_depth(sw);
+X}
+X
+Xshow_depth(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_depth < 0)
+X	cur_depth = 0;
+X    else if (cur_depth > MAXDEPTH)
+X	cur_depth = MAXDEPTH;
+X
+X    put_msg("Depth %3d", cur_depth);
+X
+X    /* write the font size in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    sprintf(indbuf, "%3d", cur_depth);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 22, 20);
+X}
+X
+X/* TEXTSTEP */
+X
+Xstatic
+Xinc_textstep(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_textstep >= 10.0) {
+X	cur_textstep = (int) cur_textstep;	/* round first */
+X	cur_textstep += 1.0;
+X    } else if (cur_textstep >= 5.0) {
+X	cur_textstep = ((int)(cur_textstep*2.0+0.01))/2.0;
+X	cur_textstep += 0.5;
+X    } else if (cur_textstep >= 2.0) {
+X	cur_textstep = ((int)(cur_textstep*5.0+0.01))/5.0;
+X	cur_textstep += 0.2;
+X    } else
+X	cur_textstep += 0.1;
+X    show_textstep(sw);
+X}
+X
+Xstatic
+Xdec_textstep(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_textstep > 10.0) {
+X	cur_textstep = (int)cur_textstep;	/* round first */
+X	cur_textstep -= 1.0;
+X    } else if (cur_textstep > 5.0) {
+X	cur_textstep = ((int)(cur_textstep*2.0+0.01))/2.0;
+X	cur_textstep -= 0.5;
+X    } else if (cur_textstep > 2.0) {
+X	cur_textstep = ((int)(cur_textstep*5.0+0.01))/5.0;
+X	cur_textstep -= 0.2;
+X    } else if (cur_textstep > 0.4)
+X	cur_textstep -= 0.1;
+X    show_textstep(sw);
+X}
+X
+X/* could make this more generic - but a copy will do for font set JNT */
+Xstatic
+Xshow_textstep(sw)
+X    ind_sw_info	   *sw;
+X{
+X    if (cur_textstep < 0)
+X	cur_textstep = 0;
+X    else if (cur_textstep > 99.0)
+X	cur_textstep = 99.0;
+X
+X    put_msg("Text step %.1f", cur_textstep);
+X    /* write the font size in the background pixmap */
+X    indbuf[0] = indbuf[1] = indbuf[2] = indbuf[3] = indbuf[4] = '\0';
+X    sprintf(indbuf, "%4.1f", cur_textstep);
+X    update_string_pixmap(sw, indbuf, sw->sw_width - 28, 20);
+X}
+END_OF_FILE
+if test 58921 -ne `wc -c <'w_indpanel.c'`; then
+    echo shar: \"'w_indpanel.c'\" unpacked with wrong size!
+fi
+# end of 'w_indpanel.c'
+fi
+echo shar: End of archive 23 \(of 27\).
+cp /dev/null ark23isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

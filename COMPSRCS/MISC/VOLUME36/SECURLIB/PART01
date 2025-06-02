@@ -1,0 +1,1191 @@
+Newsgroups: comp.sources.misc
+From: phil@pex.eecs.nwu.edu (William LeFebvre)
+Subject: v36i015:  securelib - Shared library control for network daemon access, Part01/03
+Message-ID: <csm-v36i015=securelib.154226@sparky.IMD.Sterling.COM>
+X-Md4-Signature: af64ad1815d7c4a20ed5b0abaa69808e
+Date: Fri, 12 Mar 1993 21:44:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: phil@pex.eecs.nwu.edu (William LeFebvre)
+Posting-number: Volume 36, Issue 15
+Archive-name: securelib/part01
+Environment: SunOS 4.1.x
+
+This package contains replacement routines for these three kernel
+calls: accept, recvfrom, recvmsg.  These replacements are compatible
+with the originals, with the additional functionality that they check
+the Internet address of the machine initiating the connection to make
+sure that it is "allowed" to connect.
+
+Once compiled, these can be used when building a new shared libc.  The
+resulting libc.so can then be put in a special place.  Any program
+that should be protected can then be started with an alternate
+LD_LIBRARY_PATH.
+
+Do you need to use this?  If you can answer all of these questions
+with "yes", then this package will benefit you:
+
+    Are you connected to the Internet (even via a local or
+    regional network)?
+
+    Do all of the routers/gateways between your machine and the
+    "rest of the world" route all packets regardless of protocol
+    or port number?
+
+    Are you concerned about the fact that any user on any system
+    anywhere on the Internet can connect to any network daemon
+    that runs on your machine, including ypserv and pwdauthd?
+
+What you need:
+    SunOS version 4.1, 4.1.1, or 4.1.2 or 4.1.3,
+    installation of the "shared library" option,
+    root access.
+
+SunOS 5 (Solaris 2.0) users are on your own.  I have no idea if this
+will work with version 5 or its successors.
+
+Written by William LeFebvre, EECS Department, Northwestern University.
+Internet address: phil@eecs.nwu.edu
+
+Code for reading the configuration file, along with a few important
+patches, was provided by Sam Horrocks of UCI (sam@ics.uci.edu).
+-----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile accept.c install_newlib recvfrom.c
+#   recvmsg.c securelib.conf.ex securelib.ps.C
+# Wrapped by kent@sparky on Fri Mar 12 09:49:52 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(11209 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XSunOS 4.1 secure C library package
+X
+XWritten by William LeFebvre, EECS Department, Northwestern University.
+XInternet address: phil@eecs.nwu.edu
+X
+XCode for reading the configuration file, along with a few important
+Xpatches, was provided by Sam Horrocks of UCI (sam@ics.uci.edu).
+X
+XOVERVIEW:
+X
+XThis package contains replacement routines for these three kernel
+Xcalls: accept, recvfrom, recvmsg.  These replacements are compatible
+Xwith the originals, with the additional functionality that they check
+Xthe Internet address of the machine initiating the connection to make
+Xsure that it is "allowed" to connect.
+X
+XOnce compiled, these can be used when building a new shared libc.  The
+Xresulting libc.so can then be put in a special place.  Any program
+Xthat should be protected can then be started with an alternate
+XLD_LIBRARY_PATH.
+X
+XWhat you need:
+X	SunOS version 4.1, 4.1.1, or 4.1.2 (or 4.1.3 if there ever is one),
+X	installation of the "shared library" option,
+X	root access.
+X
+XSunOS 5 (Solaris 2.0) users are on your own.  I have no idea if this
+Xwill work with version 5 or its successors.
+X
+XYou can see if your machine has the shared library option installed by
+Xlooking for the directory "/usr/lib/shlib.etc".  If it is not
+Xinstalled, then you will need to extract it from the distribution
+Xtapes (Sun-factory installed machines will NOT have it installed).
+X
+XDo you need to use this?  If you can answer all of these questions
+Xwith "yes", then this package will benefit you:
+X
+X	Are you connected to the Internet (even via a local or
+X	regional network)?
+X
+X	Do all of the routers/gateways between your machine and the
+X	"rest of the world" route all packets regardless of protocol
+X	or port number?
+X
+X	Are you concerned about the fact that any user on any system
+X	anywhere on the Internet can connect to any network daemon
+X	that runs on your machine, including ypserv and pwdauthd?
+X
+XAVAILABILITY:
+X
+XThe latest version of securelib is available via anonymous FTP from
+Xthe host "eecs.nwu.edu".  It is stored in the file "pub/securelib.tar".
+XRemember to use the "binary" transfer mode!
+X
+XDETAILS:
+X
+XEach modified system call has the same basic algorithm:
+X
+X{
+X	int retval;
+X
+X	if ((retval = syscall(...)) >= 0)
+X	{
+X		if (_ok_address(socket, addr, *addrlen))
+X		{
+X			return (retval);
+X		}
+X		close(retval); /* this line: "accept" only */
+X		errno = ECONNREFUSED;
+X		return (-1);
+X	}
+X	return (retval);
+X}
+X
+XConnections that are established from a host that is not "okay" will
+Xbe closed (if established via "accept"), then errno will be set to
+XECONNREFUSED and the calling application will get an error indication
+Xback from its system call.  It is assumed that the application will
+Xdeal with such an error in an intelligent fashion.  All Sun daemons
+Xthat we have tried seem to handle this correctly: they merely do the
+Xsystem call again.
+X
+XThe application will only see success for machines that "_ok_address"
+Xsays are acceptable.  All other connections look like failures.
+X
+XThe function "_ok_address" reads a configuration file (normally
+X"/etc/securelib.conf" or "/etc/security/securelib.conf") which
+Xdescribes what Internet address are acceptable.
+X
+XCONFIGURATION FILE:
+X
+XThe configuration file (usually /etc/securelib.conf) is read by every
+Xprocess using securelib to find out which hosts are allowed to make
+Xconnections.  Every hour, the config file is stat'ed to see if it has
+Xchanged.  If it has, the file is re-read.
+X
+XThe first column in the file is the name of the process to which this
+Xline applies.  If this name is "all" then this line will apply to all
+Xprocesses using securlib on this host.  Otherwise, this name is
+Xchecked against the environment variable "SL_NAME" to see if that's a
+Xmatch.  If it does match, then the line is taken to apply to the
+Xcurrent process.
+X
+XThe mask field (the last field on each line) is a set of bits which
+Xare taken out of the source host's address before further comparison.
+XThese are bits in the address which can be ignored.
+X
+XThe address field (the second field on each line) is the address which
+Xthe source host's address must match in order for a connection to be
+Xsuccessful.  The source address is only compared to this address after
+Xthe bits specified by the mask field have been cancelled out.
+X
+XFor example, the line:
+X
+Xall	128.199.0.0	0.0.255.255
+X
+Xwould apply to all programs using securelib and would allow
+Xconnections from hosts whose address start with 128.199.
+X
+XA host is allowed to connect if *any* of the lines in the config file,
+Xwhich apply to that process, give it access.  There is no way to
+Xspecify a "deny" line which would cause unconditional rejection of
+Xcertain addresses.
+X
+XSTARTING A SECURELIB PROCESS:
+X
+X"make install" will install both the "start" script and the securelib
+Xshared library in the destination specified in Makefile (usually
+X"/usr/lib/secure").  To start a process using securelib, use the
+Xcommand:
+X
+X    /usr/lib/secure/start <program> <arguments>
+X
+XThis will pass the correct "SL_NAME" environment variable to the program and
+Xwill set the correct LD_LIBRARY_PATH so that the program uses securelib.
+X
+XSPECIAL NOTE TO SunOS 4.1.2 USERS:
+X
+XThere is essentially a bug in /usr/etc/shlib.etc/Makefile.  The line
+Ximmediately following "libc.so:" looks like this:
+X
+X        ld -assert pure-text `${OBJSORT} lorder-sparc tmp`
+X
+XIt should look like this:
+X
+X        ld -assert pure-text `${OBJSORT} lorder-sparc tmp` -ldl
+X
+XAlthough I have not actually tested securelib on a 4.1.2 system, I am
+Xfairly certain that you will need to make this change before securelib
+Xwill compile and link successfully under 4.1.2.
+X
+XINSTALLATION:
+X
+XCreate a file called "securelib.conf" in the source directory, using the
+Xfile "securelib.conf.ex" as an example.  Be sure to tailor this file
+Xto your site's needs.  You should also make sure that you include a
+Xrule for the loopback network:
+X
+Xall             127.0.0.0       0.255.255.255
+X
+XEdit the Makefile and make changes as appropriate to the definitions
+Xof SHLIB, DESTDIR, and CONFFILE.  SHLIB defines the location of Sun's
+Xshlib.etc directory as extracted from the installation tape.  This
+Xwill almost certainly be "/usr/lib/shlib.etc".  DESTDIR is the
+Xdirectory in which you want the secure library (libc.so.X.X.X) and the
+X"start" shell script installed.  CONFFILE is the full name of the
+Xinstalled configuration file.  The Makefile will set compile-time
+Xconstants indicating the location of the configuration file, and it
+Xwill also install "securelib.conf" from the current directory as the
+Xname specified by CONFFILE in the "make install" step.
+X
+XThe process of buliding the new shared library uses the Makefile in
+X/usr/lib/shlib.etc.  Unfortunately, this Makefile assumes that "."
+Xis on your path.  Make sure that this is the case or the make will
+Xfail with a message like "objsort: not found".
+X
+XOnce you have made these changes, type "make install" and everything
+Xshould go smoothly.  Typing just "make" will build the new library in
+Xthe SHLIB directory, but it will not install it.
+X
+XCHOOSING APPROPRIATE LOCATIONS:
+X
+XTwo good places for securelib.conf are "/etc" and "/etc/security".
+XThe advantage of placing it in "/etc/security" is that non-root users
+Xwill not be able to determine which Internet addresses are accepted by
+Xthe sensitive daemons.  This is an extra measure of security, similar
+Xto protecting /.rhosts.  However, the disadvantage is that use of the
+Xsecure shared library is then restricted to only root processes (since
+Xonly root can read the configuration file).  If you need non-root
+Xprocesses to use securelib, or if you do not feel a need to protect
+Xthe information in the configuration file, then place the file in "/etc".
+X
+XThe location of the library itself is typically "/usr/lib/secure".
+XThere is no reasonable place to put the library in the Sun file system
+Xheirarchy, so I just invented a new directory.  REPLACING OR
+XSUPERCEDING THE EXISTING libc LIBRARY IS NOT RECOMMENDED!!!  The
+Xintent of this package is to provide an alternate libc that can be
+Xused only on selected server processes (usually servers that are
+Xstarted at boot time).  The alternate library is selected by setting
+XLD_LIBRARY_PATH before starting the server.
+X
+XUSING THE ALTERNATE LIBRARY:
+X
+XNow decide which servers you want to protect.  I personally have
+Xchosen portmap, rpc.pwdauthd, ypserv, and rpc.yppasswdd.  Another
+Xpossibility is nfsd, but remember that each packet received by nfsd
+Xmust be verified by "_ok_address".  This may have a noticeable impact
+Xon nfs performance.
+X
+XModify /etc/rc.local so that it starts the daemon with the "start"
+Xscript.  What I have done locally is put some code at the very
+Xbeginning of rc.local to determine if the secure library is available
+Xon the system and set an environment variable accordingly:
+X
+X	SECURE=""
+X	if [ -x /usr/lib/secure/start ]; then
+X	        SECURE="/usr/lib/secure/start"
+X	fi
+X
+XNow any daemon which I want to protect is started with a line like
+Xthis:
+X
+X        $SECURE portmap;                echo 'starting rpc port mapper.'
+X
+XIf the shell script does not exist on the machine being booted, then
+XSECURE will be null and "$SECURE portmap" will expand to merely "portmap".
+X
+XNOTE TO CUSTOM SHARED LIBRARY BUILDERS:
+X
+XIf you have already built a customized shared library, for example if
+Xyou have built a shared library with alternate gethost* routines for
+Xname resolution, you can still use this package.  Just make sure that
+Xbefore you type "make", the object files for your alternate library
+Xare already in place in SHLIB/tmp.  If the "tmp" subdirectory already
+Xexists, then this package will not recreate it or re-extract
+Xlibc_pic.a.  However, it WILL overwrite tmp/accept.o, tmp/recvfrom.o,
+Xand tmp/recvmsg.o.  And it will add a line to lorder-sparc (after
+Xsaving the original in lorder-sparc.orig).
+X
+X
+XDISCLAIMERS:
+X
+XIMPORTANT NOTE:  THIS LIBRARY DOES NOT GUARANTEE THAT YOUR MACHINE IS
+XSECURE!!!  This library enhances security---it does not guarantee it.
+XIt can be used to plug several known security holes on machines running
+XSunOS 4.1 and 4.1.x.
+X
+XNO WARRANTY:
+X
+XBECAUSE "securelib" IS DISTRIBUTED FREE OF CHARGE, THERE IS ABSOLUTELY
+XNO WARRANTY PROVIDED, TO THE EXTENT PERMITTED BY APPLICABLE STATE LAW.
+XEXCEPT WHEN OTHERWISE STATED IN WRITING, NORTHWESTERN UNIVERSITY,
+XWILLIAM N. LeFEBVRE AND/OR OTHER PARTIES PROVIDE "securelib" "AS IS"
+XWITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING,
+XBUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS FOR A PARTICULAR PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY
+XAND PERFORMANCE OF THE PROGRAM IS WITH YOU.  SHOULD THE "securelib"
+XPROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF ALL NECESSARY
+XSERVICING, REPAIR OR CORRECTION.
+X
+XIN NO EVENT WILL NORTHWESTERN UNIVERSITY, WILLIAM N. LeFEBVRE, AND/OR
+XANY OTHER PARTY WHO MAY MODIFY AND REDISTRIBUTE "securelib", BE LIABLE
+XTO YOU FOR DAMAGES, INCLUDING ANY LOST PROFITS, LOST MONIES, OR OTHER
+XSPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR
+XINABILITY TO USE (INCLUDING BUT NOT LIMITED TO LOSS OF DATA OR DATA
+XBEING RENDERED INACCURATE OR LOSSES SUSTAINED BY THIRD PARTIES OR A
+XFAILURE OF THE PROGRAM TO OPERATE WITH OTHER PROGRAMS) THE PROGRAM,
+XEVEN IF YOU HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES, OR
+XFOR ANY CLAIM BY ANY OTHER PARTY.
+END_OF_FILE
+  if test 11209 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1486 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#  securelib:  a package to enhance network security.
+X#
+X#  Written by William LeFebvre, EECS Department, Northwestern University
+X#  Internet address:  phil@eecs.nwu.edu
+X
+X#  SHLIB is the location of Sun's "shared library" option.
+X
+XSHLIB = /usr/lib/shlib.etc
+X
+X#  DESTDIR is the directory where you want the secure libc installed
+X#  NOTE:  it is NOT recommended that you install it in /usr/lib!
+X
+XDESTDIR = /usr/lib/secure
+X
+X# CONFFILE is the path name of the configuration file.  See the file
+X# securelib.conf.ex in this distribution for an example.  Then create
+X# your own securelib.conf.  The Makefile will copy it in to CONFFILE
+X# during the installation step.
+X
+XCONFFILE = /etc/securelib.conf
+X
+XOBJS = accept.o recvfrom.o recvmsg.o _okaddr.o
+X
+XFILES = README Makefile accept.c recvfrom.c recvmsg.c _okaddr.c \
+X	patchlevel.h extract_lib install_newlib start.X securelib.conf.ex
+X
+XCFLAGS=-pic -DCONF_FILE=\"$(CONFFILE)\"
+X
+Xall: shlib
+X
+Xshlib: objs
+X	./extract_lib $(SHLIB)
+X	cp $(OBJS) $(SHLIB)/tmp
+X	(cd $(SHLIB); make)
+X	touch shlib
+X
+Xobjs: $(OBJS)
+X	touch objs
+X
+Xinstall: shlib securelib.conf
+X	./install_newlib $(SHLIB) $(DESTDIR)
+X	sed -e "s|%DESTDIR%|$(DESTDIR)|" start.X >$(DESTDIR)/start
+X	chmod +x $(DESTDIR)/start
+X	cp securelib.conf $(CONFFILE)
+X
+Xsecurelib.conf:
+X	@echo "You need to create your own 'securelib.conf' file before"
+X	@echo "running 'make install'.  Please read the instructions!"
+X	@exit 1
+X
+Xclean:
+X	rm -f $(OBJS) shlib objs
+X
+Xtar:
+X	rm -f securelib.tar
+X	tar cvf securelib.tar $(FILES)
+END_OF_FILE
+  if test 1486 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'accept.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'accept.c'\"
+else
+  echo shar: Extracting \"'accept.c'\" \(693 characters\)
+  sed "s/^X//" >'accept.c' <<'END_OF_FILE'
+X/*
+X *  securelib:  a package to enhance network security.
+X *
+X *  Written by William LeFebvre, EECS Department, Northwestern University
+X *  Internet address:  phil@eecs.nwu.edu
+X */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/syscall.h>
+X#include <errno.h>
+X
+Xaccept(s, addr, addrlen)
+X
+Xint s;
+Xstruct sockaddr *addr;
+Xint *addrlen;
+X
+X{
+X    register int retval;
+X    struct sockaddr sa;
+X    int salen;
+X
+X    salen = sizeof(sa);
+X    if ((retval = syscall(SYS_accept, s, &sa, &salen)) >= 0)
+X    {
+X	if (_ok_address(retval, &sa, salen))
+X	{
+X	    _addrcpy(addr, addrlen, &sa, salen);
+X	    return (retval);
+X	}
+X	close(retval);
+X	errno = ECONNREFUSED;
+X	return (-1);
+X    }
+X    return (retval);
+X}
+X
+END_OF_FILE
+  if test 693 -ne `wc -c <'accept.c'`; then
+    echo shar: \"'accept.c'\" unpacked with wrong size!
+  fi
+  # end of 'accept.c'
+fi
+if test -f 'install_newlib' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'install_newlib'\"
+else
+  echo shar: Extracting \"'install_newlib'\" \(181 characters\)
+  sed "s/^X//" >'install_newlib' <<'END_OF_FILE'
+X#!/bin/csh -f
+Xif (! -e $2) then
+X	echo mkdir $2
+X	mkdir $2
+Xendif
+Xecho cd $1
+Xcd $1
+Xset a = `cat TMP_FILE | awk -f awkfile`
+Xecho cp libc.so.$a $2/libc.so.$a
+Xcp libc.so.$a $2/libc.so.$a
+END_OF_FILE
+  if test 181 -ne `wc -c <'install_newlib'`; then
+    echo shar: \"'install_newlib'\" unpacked with wrong size!
+  fi
+  # end of 'install_newlib'
+fi
+if test -f 'recvfrom.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'recvfrom.c'\"
+else
+  echo shar: Extracting \"'recvfrom.c'\" \(637 characters\)
+  sed "s/^X//" >'recvfrom.c' <<'END_OF_FILE'
+X/*
+X *  securelib:  a package to enhance network security.
+X *
+X *  Written by William LeFebvre, EECS Department, Northwestern University
+X *  Internet address:  phil@eecs.nwu.edu
+X */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/syscall.h>
+X#include <errno.h>
+X
+Xrecvfrom(s, buf, len, flags, from, fromlen)
+X
+Xint s;
+Xchar *buf;
+Xint len, flags;
+Xstruct sockaddr *from;
+Xint *fromlen;
+X
+X{
+X    register int retval;
+X
+X    if ((retval = syscall(SYS_recvfrom, s, buf, len, flags, from, fromlen)) >= 0)
+X    {
+X	if (_ok_address(s, from, *fromlen))
+X	{
+X	    return (retval);
+X	}
+X	errno = ECONNREFUSED;
+X	return (-1);
+X    }
+X    return (retval);
+X}
+END_OF_FILE
+  if test 637 -ne `wc -c <'recvfrom.c'`; then
+    echo shar: \"'recvfrom.c'\" unpacked with wrong size!
+  fi
+  # end of 'recvfrom.c'
+fi
+if test -f 'recvmsg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'recvmsg.c'\"
+else
+  echo shar: Extracting \"'recvmsg.c'\" \(603 characters\)
+  sed "s/^X//" >'recvmsg.c' <<'END_OF_FILE'
+X/*
+X *  securelib:  a package to enhance network security.
+X *
+X *  Written by William LeFebvre, EECS Department, Northwestern University
+X *  Internet address:  phil@eecs.nwu.edu
+X */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/syscall.h>
+X#include <errno.h>
+X
+Xrecvmsg(s, msg, flags)
+X
+Xint s;
+Xstruct msghdr *msg;
+Xint flags;
+X
+X{
+X    register int retval;
+X
+X    if ((retval = syscall(SYS_recvmsg, s, msg, flags)) >= 0)
+X    {
+X	if (_ok_address(s, (struct sockaddr *)(msg->msg_name),
+X			msg->msg_namelen))
+X	{
+X	    return (retval);
+X	}
+X	errno = ECONNREFUSED;
+X	return (-1);
+X    }
+X    return (retval);
+X}
+END_OF_FILE
+  if test 603 -ne `wc -c <'recvmsg.c'`; then
+    echo shar: \"'recvmsg.c'\" unpacked with wrong size!
+  fi
+  # end of 'recvmsg.c'
+fi
+if test -f 'securelib.conf.ex' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'securelib.conf.ex'\"
+else
+  echo shar: Extracting \"'securelib.conf.ex'\" \(675 characters\)
+  sed "s/^X//" >'securelib.conf.ex' <<'END_OF_FILE'
+X#
+X# Example config file for securelib.
+X#
+X# Lines starting with "all" apply to all processes.  Otherwise the first
+X# column has to match the environment variable "SL_NAME".  Up to eight config
+X# lines can apply to each process.  Mask specifies bits that aren't counted.
+X# After those bits are taken out, the connection address must match the
+X# address in the middle column.
+X#
+X# Since the buffer for reading this file is fairly small, it's probably a
+X# good idea to use a file with as few comments and spaces in it as possible.
+X#
+X# <name>	<address>	<mask>
+X#
+Xall		127.0.0.0	0.255.255.255
+Xall		128.197.0.0	0.0.255.255
+Xall		128.210.32.0	0.0.0.255
+Xportmap		128.210.0.0	0.0.255.255
+END_OF_FILE
+  if test 675 -ne `wc -c <'securelib.conf.ex'`; then
+    echo shar: \"'securelib.conf.ex'\" unpacked with wrong size!
+  fi
+  # end of 'securelib.conf.ex'
+fi
+if test -f 'securelib.ps.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'securelib.ps.C'\"
+else
+  echo shar: Extracting \"'securelib.ps.C'\" \(38580 characters\)
+  sed "s/^X//" >'securelib.ps.C' <<'END_OF_FILE'
+Xo(et's)g(p)q(eer)h(against)e(a)189 1259 y(con\014gurable)f(list)f(of)g(allo)o
+X(w)o(ed)f(hosts.)18 b(If)10 b(the)i(p)q(eer)g(is)e(not)h(found)f(in)h(the)g
+X(list,)f(then)i(the)f(augmen)o(ted)189 1309 y(call)i(returns)i(an)f
+X(indication)f(of)g(failure)g(to)h(the)g(caller.)75 1452 y Fl(1)69
+Xb(The)23 b(Problem)e(of)i(Net)n(w)n(ork)g(Services)75 1554
+Xy Fk(Lo)q(cal)c(net)o(w)o(orking)e(tec)o(hnology)h(has)g(pro)o(vided)h(a)f(v)
+Xo(ery)f(p)q(o)o(w)o(erful)h(mec)o(hanism)h(for)e(the)h(in)o(teraction)75
+X1610 y(of)f(m)o(ultiple)i(mac)o(hine.)28 b(Services)19 b(and)f(information)f
+X(can)h(b)q(e)g(pro)o(vided)h(for)d(mac)o(hines)j(on)e(the)h(lo)q(cal)75
+X1667 y(net)o(w)o(ork)e(via)h(serv)o(ers,)g(or)f(daemons,)i(running)g(on)f(a)f
+X(select)i(n)o(um)o(b)q(er)g(of)e(hosts.)25 b(These)17 b(services)h(are)75
+X1723 y(vital)h(to)f(the)g(op)q(eration)g(of)g(the)h(lo)q(cal)g(en)o(vironmen)
+Xo(t)g(and)f(their)h(presence)g(mak)o(es)f(managemen)o(t)f(of)75
+X1780 y(the)e(mac)o(hines)h(signi\014can)o(tly)h(easier.)146
+X1836 y(A)o(t)k(the)h(same)g(time)g(that)f(lo)q(cal)i(net)o(w)o(orking)f(tec)o
+X(hnology)g(has)f(explo)q(ded,)k(so)d(has)g(wide)h(area)75 1893
+Xy(net)o(w)o(orking.)f(As)16 b(a)g(result,)h(most)e(\(if)h(not)g(all\))h(of)f
+X(the)g(daemons)g(whic)o(h)h(in)o(tend)g(to)e(pro)o(vide)i(services)75
+X1949 y(for)d(the)g(lo)q(cal)i(net)o(w)o(ork)d(inadv)o(erten)o(tly)j(pro)o
+X(vide)f(access)f(to)g(mac)o(hines)i(all)f(around)f(the)h(w)o(orld.)20
+Xb(These)75 2006 y(lo)q(opholes)e(can)g(b)q(e)f(and)g(ha)o(v)o(e)g(b)q(een)h
+X(exploited)h(b)o(y)e(unscrupulous)h(individual)q(s)i(of)c(malicious)j(in)o
+X(ten)o(t)75 2062 y([5)o(].)146 2118 y(The)12 b(most)g(striking)g(example)i
+X(of)e(this)g(problem)h(is)g(Sun's)g(Net)o(w)o(ork)e(Information)h(Service)i
+X(\(NIS\))1843 2102 y Fj(1)1862 2118 y Fk(.)75 2175 y(This)k(service)f(pro)o
+X(vides)h(a)e(great)h(deal)g(of)g(critical)h(information)f(for)g(a)f
+XFi(unix)h Fk(system,)f(including)k(the)75 2231 y(data)14 b(normally)h(found)f
+X(in)i Fh(/etc/passwd)p Fk(,)c(and)j(esp)q(ecially)i(including)g(encrypted)e
+X(passw)o(ords.)k(A)14 b(list)75 2288 y(of)h(kno)o(wn)g(accoun)o(t)g(names)h
+X(is)f(an)h(incredible)i(b)q(ene\014t)f(to)d(an)i(abuser,)f(and)g(common)g
+X(passw)o(ords)g(can)75 2344 y(b)q(e)i(easily)g(disco)o(v)o(ered)f(from)g
+X(their)g(encrypted)h(forms)e([4)o(].)22 b(In)17 b(all)g(curren)o(tly)f
+X(distributed)i(forms,)d(the)75 2401 y(program)h(whic)o(h)h(pro)o(vides)g
+X(this)h(information,)e Fh(ypserv)p Fk(,)g(will)j(gladly)e(giv)o(e)g(this)g
+X(information)g(out)g(to)75 2457 y(an)o(y)e(mac)o(hine)h(that)e(asks)h(for)g
+X(it.)20 b(Only)c(the)f(name)h(of)e(the)i(NIS)g(domain)f(is)h(needed.)146
+X2514 y(Sites)c(whic)o(h)g(no)o(w)f(use)h(Sun's)g(\\adjunct)f(\014les")h(to)f
+X(protect)g(encrypted)h(passw)o(ords)f(ma)o(y)g(ha)o(v)o(e)g(lured)75
+X2570 y(themselv)o(es)h(in)o(to)f(a)g(false)g(sense)h(of)f(securit)o(y)l(.)19
+Xb(All)12 b(the)g(data)e(in)i(the)g Fh(passwd)e Fk(map)h(except)h(the)f(passw)
+Xo(ord)p 75 2611 720 2 v 127 2638 a Fg(1)144 2654 y Ff(In)i(a)g(previous)i
+X(life,)f(NIS)e(w)o(as)h(kno)o(wn)h(as)f(Y)m(ello)o(w)h(P)o(ages)f(\(YP\).)p
+Xeop
+X%%Page: 2 2
+Xbop 75 8 a Fk(is)18 b(still)g(a)o(v)m(ailable)h(to)e(an)o(y)o(one)f(who)h
+X(can)h(guess)f(the)g(domain)h(name,)f(including)j(usernames)d(and)h(full)75
+X64 y(names.)i(Sites)15 b(whic)o(h,)h(for)e(the)h(sak)o(e)g(of)f(con)o(v)o
+X(enience,)i(pro)o(vide)g(NIS)g(maps)e(for)h(the)g(adjunct)g(\014les)h(via)75
+X121 y(the)i(map)g Fh(passwd.adjunct)e Fk(are)i(putting)g(themselv)o(es)h(bac)
+Xo(k)f(in)g(the)h(same)e(p)q(osition)i(they)f(w)o(ere)g(in)75
+X177 y(b)q(efore)e(using)g(the)f(adjunct)h(\014les.)21 b(Although)16
+Xb(it)g(is)g(true)f(that)g Fh(ypserv)f Fk(will)j(only)f(answ)o(er)f(queries)i
+X(for)75 233 y(\\protected")e(maps)g(if)g(the)h(originator)f(of)g(the)g(query)
+Xg(is)h(uid)h(0,)d(no)h(c)o(hec)o(k)h(is)g(made)f(against)g(the)g(host)75
+X290 y(whic)o(h)i(originated)f(the)g(request.)22 b(So)16 b(uid)h(0)f(on)g(an)o
+X(y)f(In)o(ternet)h(host)g(can)g(still)h(obtain)f(the)g(encrypted)75
+X346 y(passw)o(ords.)146 403 y(Other)c(examples)h(exist)f(as)g(w)o(ell.)20
+Xb(Ev)o(en)12 b(for)f(a)h(minimal)h(lev)o(el)h(of)e(securit)o(y)l(,)g(some)g
+X(net)o(w)o(ork)f(services)75 459 y(m)o(ust)k(b)q(e)g(activ)o(ely)h(protected)
+Xg(from)e(access)h(b)o(y)g(non-lo)q(cal)i(mac)o(hines.)75 600
+Xy Fl(2)69 b(P)n(ossible)22 b(Solutions)75 703 y Fe(2.1)56 b(The)18
+Xb(Firew)n(all)75 789 y Fk(The)j(most)f(sev)o(ere)h(form)f(of)g(protection)h
+X(is)g(a)g(net)o(w)o(ork)e(barrier)i(b)q(et)o(w)o(een)g(the)g(lo)q(cal)h
+X(organization)75 845 y(and)c(the)g(rest)f(of)g(the)h(w)o(orld)f([1].)27
+Xb(This)18 b(barrier,)g(usually)h(called)g(a)f Fd(\014r)n(ewal)r(l)p
+XFk(,)f(is)h(con\014gured)g(so)g(that)75 902 y(only)d(pac)o(k)o(ets)f(for)g
+X(sp)q(eci\014c)i(services)f(are)g(forw)o(arded)e(b)q(et)o(w)o(een)i(lo)q(cal)
+Xh(and)e(global)h(net)o(w)o(orks.)k(Exactly)75 958 y(whic)o(h)f(pac)o(k)o(ets)
+Xe(are)g(forw)o(arded)g(is)i(determined)g(b)o(y)f(the)f(net)o(w)o(ork)g
+X(administrator)h(or)f(his)i(sup)q(eriors.)75 1014 y(T)o(ypically)k(it)f(is)g
+X(limited)i(to)c(a)i(v)o(ery)f(few)g(proto)q(cols,)i(including)h(SMTP)d(and)h
+X(NNTP)g(but)f(almost)75 1071 y(alw)o(a)o(ys)14 b(excluding)j(remote)d(login)i
+X(and)f(\014le)h(transfer)e(proto)q(cols)h(\(suc)o(h)f(as)h(T)l(elnet,)g(FTP)l
+X(,)f(and)h(rexec\).)146 1127 y(A)g(\014rew)o(all)g(insures)h(the)f(highest)h
+X(lev)o(el)g(of)f(securit)o(y)g(short)g(of)f(remo)o(ving)h(the)g(outside)h
+X(connection)75 1184 y(altogether)i([2)o(].)29 b(But)18 b(this)h(securit)o(y)f
+X(tak)o(es)g(its)g(toll)h(in)g(the)f(form)g(of)g(added)h(incon)o(v)o(enience)h
+X(for)e(the)75 1240 y(legitimate)12 b(users.)18 b(An)o(y)11
+Xb(remote)f(logins)h(whic)o(h)h(lo)q(cal)g(users)e(wish)h(to)f(mak)o(e)h(m)o
+X(ust)f(b)q(e)h(done)g(it)g(t)o(w)o(o)e(hops:)75 1297 y(a)18
+Xb(login)h(in)o(to)f(the)h(\014rew)o(all,)g(then)g(a)f(login)h(from)f(there)g
+X(to)g(the)g(remote)g(host.)29 b(Most)17 b(organizations)75
+X1353 y(pro)o(vide)g(a)g(mec)o(hanism)h(to)e(mak)o(e)g(this)i(nearly)f
+X(transparen)o(t)f(to)h(the)g(lo)q(cal)h(users.)25 b(Other)17
+Xb(activities,)75 1410 y(suc)o(h)f(as)e(FTP)l(,)h(remain)g(problematical.)146
+X1466 y(Un)o(til)c(global)h(net)o(w)o(orks)d(and)i(net)o(w)o(ork)e(proto)q
+X(cols)i(reac)o(h)g(a)f(sup)q(erior)h(lev)o(el)h(of)f(securit)o(y)l(,)g(the)g
+X(\014rew)o(all)75 1523 y(will)20 b(remain)e(the)g(only)g(c)o(hoice)h(for)e
+X(man)o(y)h(organizations.)28 b(Still,)19 b(there)f(are)g(alternativ)o(es)g
+X(for)f(those)75 1579 y(who)e(are)g(willing)i(to)e(sacri\014ce)h(a)f(small)h
+X(amoun)o(t)e(of)h(securit)o(y)l(.)75 1698 y Fe(2.2)56 b(Secure)18
+Xb(RPC)75 1784 y Fi(Rpc)h Fk(do)q(es)f(not)g(enforce)g(an)o(y)g(sp)q(eci\014c)
+Xi(authen)o(tication)e(sc)o(heme.)29 b(Rather)18 b(it)h(uses)f(op)q(en-ended)i
+X(au-)75 1840 y(then)o(tication,)e(allo)o(wing)g(the)f(applications)i(to)d(sp)
+Xq(ecify)j(what)d(t)o(yp)q(e)i(they)f(require.)27 b(Curren)o(tly)17
+Xb(most)75 1897 y Fi(rpc)e Fk(implemen)o(tations)h(pro)o(vide)g(only)f(t)o(w)o
+X(o)f(forms)g(of)g(authen)o(tication:)20 b Fi(unix)14 b Fk(and)h
+XFi(des)p Fk(.)20 b(Those)15 b(who)75 1953 y(are)h(seriously)h(concerned)h(ab)
+Xq(out)e(the)g(securit)o(y)h(of)f Fi(rpc)h Fk(comm)o(unications)g(ma)o(y)f(c)o
+X(ho)q(ose)g(to)g(use)g Fi(des)75 2010 y Fk(authen)o(tication,)e(whic)o(h)g
+X(actually)g(encrypts)g(the)f(information)h(in)g(the)f Fi(rpc)h
+XFk(transaction)f([6)o(,)h(pp.)f(429{)75 2066 y(437].)75 2185
+Xy Fe(2.3)56 b(Explicit)16 b(Serv)n(er)i(Chec)n(king)75 2271
+Xy Fk(The)g(most)f(ob)o(vious)g(form)g(of)h(protection)f(tak)o(es)g(place)i
+X(in)f(the)g(serv)o(er)f(itself.)28 b(When)18 b(a)f(serv)o(er)h(suc)o(h)75
+X2327 y(as)d Fh(ypserv)g Fk(receiv)o(es)i(a)f(request,)f(it)h(\014rst)g(c)o
+X(hec)o(ks)g(the)g(address)g(of)f(the)h(originator)f(to)h(determine)g(if)h(it)
+X75 2384 y(is)h(a)f(\\trusted")g(host.)26 b(It)18 b(is)g(the)g(opinion)h(of)e
+X(this)h(author)f(that)g(all)h Fi(unix)f Fk(systems)g(should)h(pro)o(vide)75
+X2440 y(this)f(functionalit)o(y)g(in)h(the)e(form)g(of)f(library)j(functions)f
+X(and)f(that)g(serv)o(ers)g(whic)o(h)h(pro)o(vide)g(sensitiv)o(e)75
+X2497 y(information)f(use)h(suc)o(h)g(functions)g(to)f(protect)f(themselv)o
+X(es.)24 b(Unfortunately)l(,)17 b(few)f(v)o(endors)g(had)h(the)75
+X2553 y(foresigh)o(t)e(to)f(pro)o(vide)i(suc)o(h)g(functionalit)o(y)l(.)146
+X2610 y(V)l(ery)11 b(recen)o(tly)i(Sun)f(b)q(egan)g(pro)o(viding)g(binaries)h
+X(whic)o(h)f(do)g(this)g(sort)e(of)i(c)o(hec)o(king)g([3)o(])f(b)o(y)h
+X(releasing)75 2666 y(patc)o(h)j(100482{2.)j(But)d(this)h(patc)o(h)f(falls)h
+X(short)e(in)i(sev)o(eral)f(w)o(a)o(ys:)p eop
+X%%Page: 3 3
+Xbop 143 8 a Fc(\017)23 b Fk(it)15 b(is)h(not)f(y)o(et)f(part)h(of)g(an)o(y)g
+X(standard)f(op)q(erating)i(system)f(distribution)143 101 y
+XFc(\017)23 b Fk(it)15 b(only)h(protects)e(three)i(binaries:)21
+Xb Fh(ypserv)p Fk(,)14 b Fh(ypxfrd)p Fk(,)g Fh(portmap)143 195
+Xy Fc(\017)23 b Fk(the)10 b(con\014guration)h(mec)o(hanism)h(do)q(es)f(not)f
+X(generalize)j(w)o(ell:)18 b(it)11 b(do)q(es)g(not)g(pro)o(vide)g(a)f(mec)o
+X(hanism)189 252 y(to)k(selectiv)o(ely)j(protect)e(services)75
+X346 y(A)e(more)g(generalized)j(approac)o(h)d(is)g(needed,)i(and)f(it)f(needs)
+Xh(to)f(b)q(e)h(adopted,)g(implemen)o(ted,)h(and)e(used)75 402
+Xy(b)o(y)i Fd(al)r(l)20 b Fi(unix)14 b Fk(v)o(endors.)75 524
+Xy Fe(2.4)56 b(The)18 b(W)-5 b(rapp)r(er)75 609 y Fk(Since)18
+Xb Fi(unix)f Fk(v)o(endors)f(didn't)i(compile)g(the)f(protection)g(in)h(to)e
+X(their)h(daemons)g(and)g(since)h(they)f(also)75 666 y(usually)g(don't)e(giv)o
+X(e)h(out)g(source,)f(t)o(w)o(o)g(options)h(remain.)22 b(One)16
+Xb(is)g(to)g(\014nd)g(the)g(source)g(for)f(a)g(reimple-)75 722
+Xy(men)o(tation)f(of)f(the)h(net)o(w)o(ork)f(daemon)h(and)h(alter)f(it.)19
+Xb(Another)14 b(is)h(to)e(\014nd)i(a)f(w)o(a)o(y)f(to)g(wrap)h(protection)75
+X779 y(around)h(the)g(serv)o(er.)146 835 y(If)g(a)h(service's)g(executable)h
+X(is)f(in)o(v)o(ok)o(ed)g(once)g(p)q(er)g(connection)h(\(for)d(example,)i
+X(those)g(handled)h(b)o(y)75 892 y Fh(inet)p Fk(\),)12 b(it)h(is)g(p)q
+X(ossible)i(to)d(start)g(a)g(generalized)j(\\wrapp)q(er")d(program)g(whic)o(h)
+Xi(will)g(c)o(hec)o(k)f(and)g(p)q(ossibly)75 948 y(log)18 b(the)g(connection)h
+X(b)q(efore)f(in)o(v)o(oking)h(the)f(real)g(executable.)30 b(The)18
+Xb(pac)o(k)m(age)g(\\TCP)f(W)l(rapp)q(er")h(b)o(y)75 1005 y(Wietse)e(V)l
+X(enema)g(do)q(es)f(this)h([8)o(].)k(Unfortunately)l(,)c(this)g(approac)o(h)f
+X(will)i(not)e(w)o(ork)f(for)h(true)g(daemons)75 1061 y(suc)o(h)i(as)g
+XFh(ypserv)f Fk(and)i Fh(portmap)p Fk(.)24 b(A)17 b(true)g(daemon)g(is)h
+X(started)e(once)h(and)h(con)o(tin)o(ues)f(to)g(run)g(in)h(the)75
+X1118 y(bac)o(kground)d(forking)g(o\013)g(c)o(hildren)i(to)d(handle)j
+X(requests.)75 1261 y Fl(3)69 b(Kernel)22 b(W)-6 b(rapp)r(er)24
+Xb(via)e(Shared)i(Libraries)75 1362 y Fk(Starting)c(with)g(v)o(ersion)h(4.0,)e
+X(SunOS)j(b)q(egan)e(pro)o(viding)h(a)f(library)h(sharing)f(mec)o(hanism.)36
+Xb(Nearly)75 1419 y(all)18 b(executables)h(distributed)g(with)f(the)g(system)f
+X(are)g(link)o(ed)i(against)f(a)f(shared)g(C)h(library)l(.)28
+Xb(SunOS)75 1475 y(v)o(ersions)20 b(4.1)f(and)h(higher)g(also)g(pro)o(vides)g
+X(the)g(\014les)g(necessary)g(to)f(rebuild)j(the)e(shared)g(C)f(library)l(.)75
+X1532 y(With)14 b(this)g(functionalit)o(y)l(,)h(it)e(is)h(p)q(ossible)i(to)d
+X(build)i(sp)q(ecial-purp)q(ose)h(copies)f(of)e(the)g(shared)h(C)f(library)75
+X1588 y(and)i(to)f(in)o(v)o(ok)o(e)h(standard)g(executables)h(with)f
+X(alternate)g(libraries.)21 b(This)16 b(is)f(su\016cien)o(t)h(to)e(ho)q(ok)h
+X(in)h(to)75 1645 y(the)f(serv)o(ers)g(and)g(force)g(them)h(to)e(do)h
+X(appropriate)g(source)h(v)o(eri\014cation.)75 1766 y Fe(3.1)56
+Xb(Implem)o(en)n(tation)75 1852 y Fk(T)l(o)22 b(understand)g(the)h(implemen)o
+X(tation,)h(one)f(m)o(ust)e(\014rst)h(understand)g(a)g(v)o(ery)g(fundamen)o
+X(tal)h(fact)75 1909 y(ab)q(out)17 b(the)g Fi(unix)f Fk(C)g(run-time)i
+X(library)l(.)25 b(All)19 b(k)o(ernel)e(calls)h([7)o(])f(are)f(implemen)o(ted)
+Xj(b)o(y)d(a)h(fron)o(t)f(end)h(in)75 1965 y(the)h(C)f(library)l(.)28
+Xb(Di\013eren)o(t)17 b(computers)g(will)i(ha)o(v)o(e)e(di\013eren)o(t)h(mac)o
+X(hine)h(instructions)f(for)f(generating)75 2021 y(the)e(protected)g(trap)g
+X(required)h(of)f(k)o(ernel)h(calls,)f(and)h(the)f(fron)o(t-end)g(routines)h
+X(hide)g(this)g(detail)g(from)75 2078 y(C)k(programmers.)36
+Xb(The)21 b(C)f(run-time)i(library|the)g(same)e(library)i(whic)o(h)f(con)o
+X(tains)g Fh(printf)f Fk(and)75 2134 y Fh(malloc)p Fk(|also)d(con)o(tains)h(a)
+Xf(fron)o(t-end)h(function)g(for)f(ev)o(ery)h(k)o(ernel)g(call.)29
+Xb(F)l(or)17 b(example,)h(the)g(k)o(ernel)75 2191 y(call)k Fh(write)e
+XFk(actually)h(exists)g(as)f(a)h(function)g(in)h(the)e(C)h(library)l(.)37
+Xb(This)21 b(function)h(is)f(trivial:)32 b(after)75 2247 y(p)q(ossibly)16
+Xb(mo)o(ving)f(or)f(rearranging)g(the)h(argumen)o(ts,)f(it)h(merely)g
+X(executes)h(the)e(appropriate)h(mac)o(hine)75 2304 y(language)g(\\trap")f
+X(instruction.)146 2360 y(Since)20 b(the)g(fron)o(t-end)f(functions)i(exist)e
+X(in)i(the)e(C)g(library)l(,)j(the)d(SunOS)i(shared)e(library)i(mec)o(h-)75
+X2417 y(anism)e(allo)o(ws)f(a)g(su\016cien)o(tly)i(clev)o(er)f(individual)j
+X(to)17 b(replace)j(suc)o(h)e(a)g(function,)i(e\013ectiv)o(ely)f(adding)75
+X2473 y(functionalit)o(y)e(to)d(an)o(y)h(k)o(ernel)h(call.)21
+Xb(This)16 b(is)g(what)f(the)g(secure)h(library)g(pac)o(k)m(age)f(uses)h(to)f
+X(implemen)o(t)75 2530 y(its)f(securit)o(y)h(c)o(hec)o(ks:)k(ev)o(ery)14
+Xb(k)o(ernel)h(call)g(p)q(ertaining)g(to)f(net)o(w)o(ork)f(access)h(has)g(its)
+Xg(fron)o(t-end)g(function)75 2586 y(replaced)i(with)g(one)f(that)g(v)o
+X(eri\014es)h(the)f(address)g(of)g(the)g(connecting)i(host.)p
+Xeop
+X%%Page: 4 4
+Xbop 575 112 a Fb(in)o(t)16 b Fd(r)n(etval)p Fk(;)575 225 y
+XFd(r)n(etval)h Fk(=)c Fd(sysc)n(al)r(l)s Fk(\()p Fa(:)8 b(:)g(:)n
+XFk(\);)575 281 y Fb(if)p Fk(\()p Fd(r)n(etval)17 b Fc(\025)c
+XFk(0\))575 338 y Fc(f)666 394 y Fb(if)p Fk(\()p 717 394 14
+X2 v 17 w Fd(ok)p 778 394 V 17 w(addr)n(ess)s Fk(\()p Fd(so)n(cket)s
+XFa(;)8 b Fd(addr)d Fa(;)j Fd(*addrlen)s Fk(\)\))666 451 y Fc(f)757
+X507 y Fb(return)o Fk(\()p Fd(r)n(etval)t Fk(\);)666 564 y Fc(g)666
+X620 y Fd(errno)15 b Fk(=)e Fh(ECONNREFUSED)o Fk(;)666 676 y
+XFb(return)o Fk(\()p Fc(\000)p Fk(1\);)575 733 y Fc(g)575 789
+Xy Fb(return)o Fk(\()p Fd(r)n(etval)t Fk(\);)528 944 y(Figure)j(1:)j(Basic)d
+X(Net)o(w)o(ork)e(W)l(rapp)q(er)h(Algorithm)146 1122 y(It)g(turns)g(out)g
+X(that)f(only)i(three)f(k)o(ernel)h(calls)g(need)g(suc)o(h)g(protection:)392
+X1206 y Fh(accept)97 b Fk(accept)16 b(a)e(connection)j(on)e(a)g(so)q(c)o(k)o
+X(et)392 1263 y Fh(recvfrom)49 b Fk(receiv)o(e)16 b(a)f(message)g(from)f(a)h
+X(connectionless)i(so)q(c)o(k)o(et)392 1319 y Fh(recvmsg)73
+Xb Fk(receiv)o(e)16 b(a)f(message)g(using)h(a)f Fh(struct)23
+Xb(msghdr)75 1404 y Fk(Other)13 b(k)o(ernel)h(calls)g(read)f(data)f(from)g
+X(the)h(net)o(w)o(ork,)f(but)h(only)g(if)h(the)f(data)f(is)h(read)g(from)f(a)h
+X(connected)75 1460 y(so)q(c)o(k)o(et.)20 b(Only)c Fh(accept)f
+XFk(can)g(generate)g(\014le)i(descriptors)e(for)g(connected)h(so)q(c)o(k)o
+X(ets.)k(Therefore,)15 b(ha)o(ving)75 1517 y Fh(accept)f Fk(v)o(erify)i(the)f
+X(remote)g(host)f(is)i(su\016cien)o(t.)146 1573 y(Figure)j(1)g(giv)o(es)h(the)
+Xf(basic)h(algorithm)g(for)e(the)i(secured)g(\\wrapp)q(er")f(functions.)33
+Xb(Eac)o(h)19 b(of)g(the)75 1629 y(fron)o(t-end)i(functions)g(listed)h(ab)q(o)
+Xo(v)o(e)e(is)i(replaced)f(with)g(a)g(wrapp)q(er)g(function)g(whic)o(h)h(is)f
+X(patterned)75 1686 y(after)14 b(this)i(algorithm.)k(The)15
+Xb(actual)h(C)f(co)q(de)h(is)f(listed)i(in)f(app)q(endix)h(A.)146
+X1742 y(Eac)o(h)d(replaced)j(function)e(calls)p 719 1742 V 33
+Xw Fd(ok)p 780 1742 V 17 w(addr)n(ess)j Fk(for)d(v)o(eri\014cation.)20
+Xb(It)15 b(is)h(this)f(function)h(that)e(v)o(eri\014es)75 1799
+Xy(the)h(remote)g(host)f(address,)h(returning)h Fd(true)g Fk(\(1\))e(if)h(the)
+Xh(remote)e(host)h(is)g(acceptable)i(and)e Fd(false)f Fk(\(0\))g(if)75
+X1855 y(it)h(is)h(not.)k(It)15 b(tak)o(es)f(three)i(argumen)o(ts:)131
+X1943 y(1.)22 b(a)15 b(\014le)h(descriptor)f(for)g(the)g(so)q(c)o(k)o(et)131
+X2035 y(2.)22 b(a)15 b(p)q(oin)o(ter)g(to)g(the)g(so)q(c)o(k)o(et)g(address)g
+X(\(a)f Fh(struct)24 b(sockaddr)e(*)p Fk(\))131 2126 y(3.)g(the)15
+Xb(length)h(of)f(the)g(so)q(c)o(k)o(et)f(address)75 2214 y(Eac)o(h)e(of)g
+X(these)g(v)m(alues)i(is)e(readily)i(a)o(v)m(ailable)g(to)d(eac)o(h)h(wrapp)q
+X(er,)h(since)g(they)g(are)f(passed)g(as)g(argumen)o(ts)75 2271
+Xy(\(either)k(directly)g(or)f(indirectly\))i(to)d(the)i(corresp)q(onding)g(k)o
+X(ernel)g(call.)146 2327 y(The)j(function)p 428 2327 V 37 w
+XFd(ok)p 489 2327 V 16 w(addr)n(ess)k Fk(uses)c(the)h(so)q(c)o(k)o(et)e
+X(address)h(and)h(length)f(argumen)o(ts)g(if)g(they)g(mak)o(e)75
+X2384 y(sense.)28 b(Ho)o(w)o(ev)o(er,)18 b(if)g(the)g(so)q(c)o(k)o(et)f
+X(address)h(p)q(oin)o(ter)g(is)h Fh(NULL)e Fk(or)g(the)h(length)h(is)f(not)g
+X(su\016cien)o(t,)h(then)p 75 2440 V 89 2440 a Fd(ok)p 136 2440
+XV 17 w(addr)n(ess)14 b Fk(will)f(attempt)d(to)h(get)f(the)i(remote)e(host's)h
+X(address)g(b)o(y)g(calling)i Fd(getp)n(e)n(ername)d Fk(with)i(the)f(\014le)75
+X2497 y(descriptor)j(\(the)f(\014rst)g(argumen)o(t\).)19 b(If)14
+Xb(the)f(so)q(c)o(k)o(et)g(is)h(connectionless,)h(then)f(the)g(call)h(to)e
+XFd(getp)n(e)n(ername)75 2553 y Fk(will)k(fail)f(and)p 329 2553
+XV 32 w Fd(ok)p 390 2553 V 17 w(addr)n(ess)i Fk(tak)o(es)d(the)g(attitude)g
+X(\\b)q(etter)g(safe)g(than)g(sorry")f(b)o(y)h(returning)h(failure.)146
+X2610 y(It)c(is)g(imp)q(ortan)o(t)g(to)f(realize)j(that)d(the)h(\014le)i
+X(descriptor)e(is)h(only)f(used)h(if)g(the)f(so)q(c)o(k)o(et)f(address)h(p)q
+X(oin)o(ter)75 2666 y(and)20 b(length)h(do)f(not)g(pro)o(vide)g(su\016cien)o
+X(t)h(information.)35 b(In)21 b(all)g(three)f(cases)g(\()p Fh(accept)p
+XFk(,)f Fh(recvfrom)p Fk(,)p eop
+X%%Page: 5 5
+Xbop 314 44 a Fh(#)23 b(Configuration)f(file)i(for)f(securelib.)314
+X100 y(#)g(<name>)190 b(<address>)166 b(<mask>)314 157 y(all)309
+Xb(127.0.0.0)166 b(0.255.255.255)314 213 y(all)309 b(129.105.5.0)118
+Xb(0.0.0.255)314 270 y(ypserv)237 b(129.105.2.0)118 b(0.0.0.255)600
+X417 y Fk(Figure)15 b(2:)20 b(Example)15 b(Con\014guration)g(File)75
+X551 y Fh(recvmsg)p Fk(\),)h(the)i(so)q(c)o(k)o(et)e(address)i(v)m(alues)g
+X(are)f(tak)o(en)g(from)g(the)g(argumen)o(ts)g(supplied)i(b)o(y)f(the)f
+X(caller.)75 607 y(Therefore,)e(a)g(w)o(ell-written)h(program)e(should)i(not)f
+X(encoun)o(ter)g(an)o(y)g(problems.)75 729 y Fe(3.2)56 b(Con\014guration)75
+X815 y Fk(The)16 b(\014rst)g(implemen)o(tation)h(of)p 644 815
+X14 2 v 32 w Fd(ok)p 705 815 V 17 w(addr)n(ess)i Fk(used)d(a)g(static)f(table)
+Xi(to)e(determine)i(if)f(an)g(address)g(w)o(as)75 871 y(acceptable.)36
+Xb(When)21 b(the)f(\014rst)g(v)o(ersion)h(of)f(this)g(pac)o(k)m(age)h(w)o(as)e
+X(released,)j(one)f(of)e(its)i(users)f(kindly)75 928 y(sen)o(t)h(the)g(author)
+Xg(a)g(b)q(etter)g(v)o(ersion)h(of)p 819 928 V 37 w Fd(ok)p
+X880 928 V 17 w(addr)n(ess)j Fk(whic)o(h)d(reads)f(its)g(information)h(from)e
+X(a)h(\014le.)75 984 y(Av)m(ailabilit)o(y)e(of)d(source)h(means)f(that)p
+X757 984 V 32 w Fd(ok)p 818 984 V 17 w(addr)n(ess)k Fk(can)d(b)q(e)g(c)o
+X(hanged)f(to)g(suit)h(an)o(y)f(particular)h(needs)75 1040 y(that)d(a)h(giv)o
+X(en)h(site)g(ma)o(y)e(ha)o(v)o(e.)146 1097 y(The)k(lo)q(cation)h(of)e(the)h
+X(con\014guration)g(\014le)h(is)g(determined)g(at)e(compile)j(time.)28
+Xb(By)18 b(default,)h(it)f(is)75 1153 y(named)13 b Fh(/etc/securelib.conf)p
+XFk(.)k(Some)c(ma)o(y)f(wish)i(to)e(pro)o(vide)i(an)f(additional)i(lev)o(el)f
+X(of)f(securit)o(y)g(b)o(y)75 1210 y(placing)i(the)f(con\014guration)g(\014le)
+Xh(in)g(a)e(directory)h(readable)h(only)g(b)o(y)e Fh(root)p
+XFk(,)g(suc)o(h)i(as)e Fh(/etc/security)p Fk(.)75 1266 y(The)j(adv)m(an)o
+X(tage)f(is)h(that)f(a)h(regular)f(user)h(cannot)g(determine)g(whic)o(h)h
+X(hosts)e(are)g(allo)o(w)o(ed)h(to)f(connect)75 1323 y(to)j(whic)o(h)i(lo)q
+X(cal)g(serv)o(ers.)30 b(The)19 b(disadv)m(an)o(tage)g(is)g(that)f(only)h(pro)
+Xq(cesses)g(run)g(as)g Fh(root)f Fk(can)h(use)g(the)75 1379
+Xy(secured)d(library)l(.)23 b(In)16 b(most)f(en)o(vironmen)o(ts,)g(this)h(is)g
+X(not)f(an)h(issue)g(since)h(all)g(net)o(w)o(ork)d(serv)o(ers)h(run)h(as)75
+X1436 y(ro)q(ot)e(an)o(yw)o(a)o(y)l(.)146 1492 y(The)22 b(syn)o(tax)g(of)f
+X(the)i(con\014guration)f(\014le)i(is)e(t)o(ypical)h(for)f Fi(unix)p
+XFk(.)41 b(A)22 b(hash)g(mark)g(\()p Fh(#)p Fk(\))f(starts)g(a)75
+X1549 y(commen)o(t)16 b(whic)o(h)i(ends)f(at)f(the)h(end)h(of)e(the)h(line.)26
+Xb(Eac)o(h)16 b(line)j(has)d(three)h(\014elds)h(separated)f(b)o(y)f(white)75
+X1605 y(space:)131 1699 y(1.)22 b(the)15 b(service)h(name)131
+X1793 y(2.)22 b(the)15 b(p)q(ermissible)j(address)131 1886 y(3.)k(the)15
+Xb(comparison)g(mask)75 1980 y(An)j(example)g(con\014guration)f(\014le)h(is)g
+X(giv)o(en)g(in)g(\014gure)f(2.)26 b(The)17 b(function)p 1376
+X1980 V 35 w Fd(ok)p 1437 1980 V 17 w(addr)n(ess)j Fk(main)o(tains)e(an)75
+X2037 y(in)o(ternal)c(cop)o(y)e(of)g(eac)o(h)h(applicable)i(line)g(from)d(the)
+Xh(\014le.)20 b(It)12 b(only)i(considers)f(a)g(line)h(\\applicable")h(if)e
+X(the)75 2093 y(service)k(name)e(is)h(\\)p Fh(all)p Fk(")f(or)g(if)h(it)g
+X(matc)o(hes)f(the)h(name)g(of)f(this)h(pro)q(cess's)g(service)g(\(the)g
+X(metho)q(d)f(used)75 2150 y(to)k(determine)h(that)f(name)g(is)h(discussed)g
+X(in)h(section)e(3.3\).)31 b(T)l(o)19 b(v)o(erify)h(a)f(connection,)p
+X1656 2150 V 38 w Fd(ok)p 1717 2150 V 16 w(addr)n(ess)75 2206
+Xy Fk(c)o(hec)o(ks)c(ev)o(ery)g(applicable)j(line)f(as)e(follo)o(ws:)143
+X2300 y Fc(\017)23 b Fk(the)16 b(so)q(c)o(k)o(et's)f(In)o(ternet)i(address)f
+X(is)h(mask)o(ed)f(via)h(a)f(\\bit)o(wise)h(and")f(of)g(the)g(one's)g
+X(complemen)o(t)189 2356 y(of)d(the)h(sp)q(eci\014ed)h(mask)e(\(in)i(retrosp)q
+X(ect,)e(the)h(con\014guration)f(\014le)i(should)g(ha)o(v)o(e)e(sp)q
+X(eci\014ed)j(a)d(true)189 2413 y(subnet)i(mask\))143 2507 y
+XFc(\017)23 b Fk(the)15 b(result)h(is)f(compared)g(against)g(the)h(address)f
+X(sp)q(eci\014ed)i(in)f(the)f(con\014guration)h(\014le)143 2600
+Xy Fc(\017)23 b Fk(success)15 b(is)h(indicated)h(if)f(and)f(only)h(if)g(the)f
+X(result)h(is)f(true)p eop
+X%%Page: 6 6
+Xbop 605 55 a Fh(LD_LIBRARY_PATH=/usr/lib/se)o(cure)605 112
+Xy(export)23 b(LD_LIBRARY_PATH)605 168 y(exec)g($@)501 312 y
+XFk(Figure)15 b(3:)20 b(Shell)d(script)f(to)e(start)g(secured)i(programs)295
+X455 y Fh(SECURE="")295 512 y(if)23 b([)h(-x)g(/usr/lib/secure/start)d(];)i
+X(then)366 568 y(echo)h('Using)f(network)g(secure)g(library)g(where)g
+X(appropriate.')366 625 y(SECURE="/usr/lib/secure/start")295
+X681 y(fi)576 825 y Fk(Figure)15 b(4:)20 b(P)o(ossible)c(addition)g(to)f
+XFh(rc.local)75 949 y Fe(3.3)56 b(Use)75 1035 y Fk(After)12
+Xb(prop)q(er)i(con\014guration,)f(the)g Fh(Makefile)e Fk(distributed)k(with)e
+X(the)g(pac)o(k)m(age)f(\(in)i(conjunction)g(with)75 1091 y(a)k(few)h(shell)i
+X(scripts\))d(will)j(p)q(erform)e(all)g(steps)g(required)h(to)e(build)j(a)d
+X(new)h(shared)g(C)g(library)l(.)32 b(The)75 1148 y(library)17
+Xb(should)h(then)f(b)q(e)h(installed)g(in)g(a)e(lo)q(cation)i(separate)e(from)
+Xg Fh(/usr/lib)p Fk(.)23 b(This)17 b(library)h(is)f Fd(not)75
+X1204 y Fk(designed)k(to)f(replace)g(the)g(standard)g(lib)q(c.)36
+Xb(Rather,)20 b(it)g(is)h(in)o(tended)g(to)e(b)q(e)i(used)f(only)h(in)g
+X(certain)75 1261 y(cases.)f(The)c(author)f(c)o(hose)g(to)g(create)g(a)g(sp)q
+X(ecial)i(directory)f(for)f(the)g(task:)20 b Fh(/usr/lib/secure)p
+XFk(.)e(An)o(y)75 1317 y(pro)q(cess)f(started)g(with)g(the)g(en)o(vironmen)o
+X(t)h(v)m(ariable)g Fh(LD_LIBRARY_PATH)d Fk(set)i(to)f(this)i(directory)f
+X(will)75 1374 y(b)q(e)h(dynamically)i(link)o(ed)f(against)e(the)h(secure)g(C)
+Xf(library)h(instead)h(of)e(the)g(standard)g(one.)27 b(Figure)18
+Xb(3)75 1430 y(giv)o(es)d(an)g(Bourne)h(shell)h(script)f(whic)o(h)g(can)f(b)q
+X(e)h(used)g(to)e(start)g(\\secured")i(daemons.)146 1486 y(Normally)l(,)k(the)
+Xg(name)f(of)g(a)g(net)o(w)o(ork)f(service)j(is)f(determined)g
+XFd(a)h(priori)f Fk(or)f(b)o(y)g(lo)q(oking)h(at)f(the)75 1543
+Xy(pro)q(cess's)i(zeroth)g(argumen)o(t)g(\()p Fh(argv[0])p Fk(\).)36
+Xb(The)22 b(secure)f(library)h(cannot)g(use)f(either)h(metho)q(d)g(for)75
+X1599 y(determining)f(the)f(service)h(name.)34 b(It)20 b(m)o(ust)f(resort)g
+X(to)g(either)i(heuristics)g(or)e(sneaky)h(tric)o(ks.)34 b(The)75
+X1656 y(author)20 b(of)f(the)i(con\014guration)f(\014le)h(co)q(de)g(opted)f
+X(for)g(the)g(latter.)35 b(An)o(y)20 b(pro)q(cess)g(using)h(the)f(secure)75
+X1712 y(library)c(is)f(already)g(b)q(eing)h(started)e(with)h(an)g(altered)g
+X(en)o(vironmen)o(t,)g(so)g(requiring)h(one)f(more)f(c)o(hange)75
+X1769 y(to)g(the)h(en)o(vironmen)o(t)g(w)o(as)f(deemed)h(acceptable.)21
+Xb(The)15 b(function)p 1232 1769 14 2 v 32 w Fd(ok)p 1293 1769
+XV 17 w(addr)n(ess)j Fk(uses)d(the)g(v)m(alue)h(of)e(the)75
+X1825 y(en)o(vironmen)o(t)f(v)m(ariable)i Fh(SL_NAME)d Fk(to)g(determine)i
+X(the)f(name)h(of)e(the)h(service.)20 b(Only)15 b(those)d(lines)j(in)f(the)75
+X1882 y(con\014guration)h(\014le)i(whic)o(h)f(start)e(with)h(the)g(same)g
+X(name)h(or)e(the)i(name)f Fh(all)f Fk(will)j(ha)o(v)o(e)e(signi\014cance.)146
+X1938 y(The)j(shell)h(\014le)g(presen)o(ted)f(in)h(\014gure)f(3)g(is)g(easily)
+Xh(mo)q(di\014ed)g(to)e(accommo)q(date)h(this)g(metho)q(d)g(b)o(y)75
+X1995 y(adding)e(one)f(line)i(to)e(the)g(b)q(eginning:)724 2076
+Xy Fh(SL_NAME=`basename)22 b($1`)75 2158 y Fk(The)15 b(only)h(other)e(c)o
+X(hange)h(required)h(is)g(the)f(ob)o(vious)g(one)g(to)f(the)h
+XFh(export)f Fk(command.)20 b(This)c(mo)q(di\014ed)75 2214 y(script)h(is)h
+X(pro)o(vided)g(in)f(the)g(secure)h(library)g(pac)o(k)m(age)f(and)g(is)g
+X(called)i Fh(start)p Fk(.)24 b(The)18 b(installation)g(step)75
+X2271 y(places)e(a)f(cop)o(y)g(in)h(the)f(same)g(directory)h(as)e(the)i
+X(secure)g(library)f(itself.)146 2327 y(Actual)d(in)o(v)o(o)q(cation)g(of)f
+X(the)g Fh(start)g Fk(script)h(will)h(almost)e(certainly)i(b)q(e)f(limited)h
+X(to)e Fh(/etc/rc.local)p Fk(.)75 2384 y(Those)g(who)g(wish)h(to)f(k)o(eep)h
+XFh(rc.local)e Fk(as)h(adaptable)h(as)f(p)q(ossible)i(should)f(mak)o(e)f(mo)q
+X(di\014cations)i(as)e(fol-)75 2440 y(lo)o(ws.)18 b(Near)12
+Xb(the)f(b)q(eginning)j(of)d Fh(rc.local)f Fk(a)h(c)o(hec)o(k)h(is)g(made)f
+X(for)g(the)g(existence)i(of)e Fh(/usr/lib/secure)75 2497 y
+XFk(and)h(an)g(en)o(vironmen)o(t)g(v)m(ariable)h(is)g(set)f(accordingly)l(.)20
+Xb(The)12 b(script)g(fragmen)o(t)f(in)i(\014gure)f(4)f(accomplishes)75
+X2553 y(this.)146 2610 y(The)16 b(lines)h(in)f Fh(rc.local)f
+XFk(whic)o(h)i(in)o(v)o(ok)o(e)e(the)h(daemons)g(in)g(need)h(of)e(protection)h
+X(are)f(mo)q(di\014ed)i(so)75 2666 y(that)d(they)h(start)e(with)i
+XFh($SECURE)p Fk(.)e(If)i(the)g(library)g(exists)g(on)g(this)g(mac)o(hine,)g
+X(the)g Fh(start)e Fk(script)j(mak)o(es)p eop
+X%%Page: 7 7
+Xbop 75 8 a Fk(sure)18 b(that)f(eac)o(h)h(daemon)f(is)h(started)f(with)h(the)g
+X(appropriate)g(en)o(vironmen)o(t.)27 b(Otherwise,)19 b Fh($SECURE)75
+X64 y Fk(expands)d(to)e(nothing)i(and)f(the)h(daemon)f(is)h(started)e
+X(normally)l(.)75 186 y Fe(3.4)56 b(Limitations)75 272 y Fk(This)13
+Xb(tec)o(hnique)g(is)g(not)f(in)o(tended)h(to)f(solv)o(e)g(all)h(net)o(w)o
+X(ork)f(securit)o(y)g(problems.)20 b(It)12 b(insures)h(that)e(serv)o(ers)75
+X328 y(ha)o(v)o(e)21 b(some)h(con)o(trol)g(o)o(v)o(er)f(the)h(net)o(w)o(ork)e
+X(lo)q(cation)j(of)e(clien)o(ts)j(who)d(are)h(requesting)g(information.)75
+X384 y(Net)o(w)o(ork)14 b(administrators)g(m)o(ust)h(use)g(ev)o(ery)g(to)q(ol)
+Xg(at)f(their)i(disp)q(osal)g(to)e(secure)i(their)f(systems.)k(This)75
+X441 y(is)d(just)f(another)f(to)q(ol)i(for)e(the)h(to)q(olb)q(o)o(x.)146
+X497 y(The)i(most)g(serious)h(shortcoming)g(is)g(its)g(reliance)h(on)f(p)q
+X(eer)g(information.)28 b(The)18 b(wrapp)q(ers)f(ha)o(v)o(e)75
+X554 y(no)j(c)o(hoice)h(but)f(to)f(trust)g(the)h(information)h(ab)q(out)e(the)
+Xh(remote)g(host)f(whic)o(h)i(the)f(k)o(ernel)h(giv)o(es)f(it.)75
+X610 y(But)i(this)g(information)h(is)f(based)g(solely)h(on)f(the)g(data)f(in)i
+X(the)f(IP)g(pac)o(k)o(et)g(header|information)75 667 y(that)c(can)g(b)q(e)h
+X(forged.)29 b(The)19 b(more)f(common)g(In)o(ternet)h(problem)g(of)f
+X(falsifying)h(IP)g(address)g(to)e(host)75 723 y(name)e(translations)h(will)h
+X(not)e(a\013ect)g(the)g(secure)h(library)l(,)g(since)h(its)f(c)o(hec)o(king)g
+X(is)g(based)g(solely)g(on)g(IP)75 780 y(addresses.)146 836
+Xy(Another)e(limitation)i(is)g(time.)k(It)14 b(tak)o(es)g(time)h(to)f(c)o(hec)
+Xo(k)h(ev)o(en)g(one)g(pac)o(k)o(et.)k(F)l(or)c(most)e(proto)q(cols,)75
+X893 y(this)21 b(extra)f(o)o(v)o(erhead)g(has)h(little)h(impact.)36
+Xb(But)21 b(for)f(hea)o(vily)i(used)f(stateless)f(and)h(connectionless)75
+X949 y(proto)q(cols,)16 b(suc)o(h)h(as)f Fi(nfs)p Fk(,)h(the)f(impact)h(is)g
+X(v)o(ery)f(noticeable.)26 b(This)17 b(tec)o(hnique)h(is)f(not)f(w)o(ell)h
+X(suited)h(to)75 1006 y(suc)o(h)e(applications.)23 b(This)17
+Xb(is)f(a)f(v)o(ery)h(disapp)q(oin)o(ting)h(realization.)23
+Xb(It)16 b(implies)i(that)d(an)g Fi(nfs)h Fk(daemon)75 1062
+Xy(whic)o(h)e(do)q(es)g(explicit)h(c)o(hec)o(king)f(for)f(ev)o(ery)g(request)h
+X(w)o(ould)f(b)q(e)h(to)q(o)f(slo)o(w)g(for)g(an)o(y)g(practical)h(purp)q
+X(oses.)75 1205 y Fl(4)69 b(In)23 b(the)g(Absence)f(of)h(Shared)h(Libraries)75
+X1307 y Fk(This)16 b(tec)o(hnique)h(w)o(as)e(dev)o(elop)q(ed)i(under)g(SunOS)g
+X(sp)q(eci\014cally)h(for)d(a)h(net)o(w)o(ork)e(of)i(SunOS)h(mac)o(hines.)75
+X1363 y(It)e(can)g(easily)g(b)q(e)h(adapted)e(to)g(an)o(y)h(op)q(erating)g
+X(system)f(whic)o(h)h(supp)q(orts)g(and)g(uses)g(shared)g(libraries,)75
+X1420 y(pro)o(vided)j(that)f(there)g(is)h(a)f(mec)o(hanism)h(for)f(rebuilding)
+Xj(a)d(shared)g(C)g(run-time)h(library)l(.)27 b(Although)75
+X1476 y(implemen)o(tation)12 b(w)o(ould)g(certainly)g(b)q(e)g(di\016cult,)h
+X(the)e(idea)h(ma)o(y)e(b)q(e)i(applicable)i(to)c(op)q(erating)h(systems)75
+X1532 y(whic)o(h)16 b(do)f(not)g(supp)q(ort)g(shared)h(libraries.)146
+X1589 y(An)g(unstripp)q(ed)h(executable)g(still)h(con)o(tains)d(the)h(sym)o(b)
+Xq(ol)h(table,)f(whic)o(h)g(includes)i(enough)f(infor-)75 1645
+Xy(mation)c(to)f(\014nd)h(the)g(en)o(try)g(p)q(oin)o(t)g(for)f(an)o(y)h
+X(external)g(function)h(in)f(the)g(program.)18 b(This)13 b(w)o(ould)h(include)
+X75 1702 y(the)19 b(fron)o(t)e(ends)i(for)f(k)o(ernel)h(calls.)31
+Xb(One)20 b(can)e(conceiv)o(e)i(of)e(a)g(program)g(that)f(w)o(ould)i(alter)g
+X(the)f(\014rst)75 1758 y(instruction)13 b(in)f(a)f(function)i(with)f(a)f
+X(jump)h(to)f(a)g(new)h(function)g(added)h(to)d(the)i(executable.)20
+Xb(Adding)13 b(ad-)75 1815 y(ditional)j(co)q(de)f(is)f(the)h(di\016cult)g
+X(part:)k(ev)o(en)c(an)f(unstripp)q(ed)i(executable)g(t)o(ypically)f(do)q(es)g
+X(not)f(con)o(tain)75 1871 y(the)i(relo)q(cation)h(information,)f(making)g(it)
+Xg(imp)q(ossible)i(to)e(mo)o(v)o(e)f(an)o(y)h(existing)h(sym)o(b)q(ols.)22
+Xb(Ironically)l(,)75 1928 y(application)15 b(of)f(virus)g(writing)g(tec)o
+X(hnology)g(w)o(ould)g(mak)o(e)g(it)g(p)q(ossible)h(to)e(add)h(the)g
+X(necessary)g(co)q(de)h(to)75 1984 y(the)g(executable.)146 2041
+Xy(Executables)21 b(whic)o(h)g(ha)o(v)o(e)e(had)i(the)f(sym)o(b)q(ol)h(table)f
+X(stripp)q(ed)i(p)q(ose)e(an)g(additional)i(c)o(hallenge.)75
+X2097 y(The)16 b(only)g(w)o(a)o(y)e(to)h(patc)o(h)g(it)h(w)o(ould)g(b)q(e)g
+X(to)f(do)g(some)g(sort)g(of)g(disassem)o(bly)l(.)22 b(Prior)15
+Xb(kno)o(wledge)h(of)f(the)75 2153 y(program's)d(structure)h(w)o(ould)h(aid)h
+X(the)e(disassem)o(bly)i(pro)q(cess,)f(and)g(suc)o(h)g(kno)o(wledge)g(can)g(b)
+Xq(e)g(gleaned)75 2210 y(from)d(the)h(freely)h(a)o(v)m(ailable)h
+XFi(bsd)e Fk(net)o(w)o(ork)f(program)g(sources.)19 b(The)12
+Xb(v)o(endor's)f(executable)i(ma)o(y)f(not)f(b)q(e)75 2266 y(iden)o(tical)16
+Xb(to)d(the)i Fi(bsd)f Fk(programs,)f(but)h(similarities)j(should)e(still)g
+X(exist.)20 b(Eac)o(h)14 b(net)o(w)o(ork)f(daemon)h(has)75 2323
+Xy(essen)o(tially)h(the)f(same)f(structure:)19 b(initialization)e(follo)o(w)o
+X(ed)c(b)o(y)h(the)g(main)g(lo)q(op.)20 b(Near)13 b(the)h(b)q(eginning)75
+X2379 y(of)g(the)g(main)h(lo)q(op)g(one)f(w)o(ould)h(\014nd)g(a)e(call)j(to)d
+X(one)i(of)f(the)g(three)g(net)o(w)o(orking)g(system)g(calls:)20
+Xb Fh(accept)p Fk(,)75 2436 y Fh(recvfrom)15 b Fk(or)g Fh(recvmsg)p
+XFk(.)20 b(Once)d(this)f(call)h(is)f(found,)g(the)f(lo)q(cation)i(of)e(the)h
+X(appropriate)f(k)o(ernel)i(fron)o(t)75 2492 y(end)h(function)f(w)o(ould)h(b)q
+X(e)g(kno)o(wn)e(and)h(the)h(tec)o(hnique)g(used)f(in)h(the)f(previous)h
+X(paragraph)e(could)i(b)q(e)75 2549 y(applied.)k(It)15 b(w)o(ould)h(b)q(e)f
+X(di\016cult|p)q(erhaps)j(imp)q(ossible|to)g(automate)c(this)h(analysis.)p
+Xeop
+X%%Page: 8 8
+Xbop 75 8 a Fl(5)69 b(Av)l(ailabilit)n(y)75 109 y Fk(The)16
+Xb(secured)i(C)e(library)h(pac)o(k)m(age)f(is)h(freely)f(redistributable.)25
+Xb(It)17 b(is)f(a)o(v)m(ailable)i(via)f(anon)o(ymous)e Fi(ftp)75
+X166 y Fk(from)10 b Fh(eecs.nwu.edu)e Fk(in)k(the)e(directory)h
+XFh(/pub/securelib)p Fk(.)16 b(A)o(t)10 b(the)h(time)f(this)h(pap)q(er)g(w)o
+X(as)f(published,)75 222 y(the)15 b(In)o(ternet)h(address)f(for)f
+XFh(eecs.nwu.edu)g Fk(w)o(as)g(129)p Fa(:)p Fk(105)p Fa(:)p
+XFk(5)p Fa(:)p Fk(103.)75 365 y Fl(6)69 b(Conclusions)75 467
+Xy Fk(Securit)o(y)18 b(is)f(a)g(v)o(ery)g(di\016cult)h(problem.)26
+Xb(This)18 b(pac)o(k)m(age)f(tak)o(es)f(one)h(step)g(in)h(the)f(righ)o(t)g
+X(direction)h(b)o(y)75 523 y(pro)o(viding)d(an)f(extra)f(lev)o(el)j(of)d(c)o
+X(hec)o(king.)21 b(It)14 b(prev)o(en)o(ts)f(access)i(to)e(critical)i(system)f
+X(services)h(b)o(y)f(clien)o(ts)75 580 y(outside)20 b(a)f(sp)q(eci\014ed)j
+X(realm.)33 b(It)20 b(pro)o(vides)g(added)g(functionalit)o(y)h(whic)o(h)f
+X(should)h(ha)o(v)o(e)e(b)q(een)i(there)75 636 y(all)c(along,)g(but)f(it)h(do)
+Xq(es)g(so)f(in)h(a)f(w)o(a)o(y)f(that)h(do)q(es)h(not)f(require)h(source)f
+X(from)g(the)g(original)i(op)q(erating)75 692 y(system.)30 b(The)18
+Xb(secure)h(library)h(can)e(b)q(e)i(installed)g(and)f(used)g(on)g(an)o(y)f
+X(sto)q(c)o(k)g(Sun)h(system)f(pro)o(vided)75 749 y(these)h(simple)h
+X(requiremen)o(ts)e(are)h(met:)26 b(SunOS)19 b(v)o(ersion)g(4.1,)f(4.1.1,)f
+X(or)h(4.1.2)f(and)i(installation)g(of)75 805 y(the)14 b(option)h
+XFh(shlib_custom)d Fk(\(a)o(v)m(ailable)k(on)e(all)h(distribution)h(tap)q(es,)
+Xe(but)h(not)e(preinstalled)k(b)o(y)d(Sun\).)75 949 y Fl(7)69
+Xb(Ac)n(kno)n(wledgemen)n(ts)75 1050 y Fk(The)12 b(author)f(w)o(ould)i(lik)o
+X(e)g(to)e(thank)h(all)h(the)f(bra)o(v)o(e)f(p)q(eople)i(who)f(tried)g(the)g
+X(\014rst)g(v)o(ersion)g(of)f(his)i(pac)o(k)m(age)75 1107 y(and)k(to)f(North)o
+X(w)o(estern)g(Univ)o(ersit)o(y)i(for)e(giving)i(him)f(a)g(sandb)q(o)o(x)g(to)
+Xf(pla)o(y)h(in.)26 b(He)17 b(w)o(ould)g(esp)q(ecially)75 1163
+Xy(lik)o(e)j(to)d(thank)i(Sam)f(Horro)q(c)o(ks)f(of)h(UCI)h(for)f(pro)o
+X(viding)h(the)g(co)q(de)g(whic)o(h)g(reads)f(the)h(con\014guration)75
+X1219 y(\014le.)75 1363 y Fl(References)75 1464 y Fk([1])j(William)d(R.)f
+X(Cheswic)o(k.)29 b(The)18 b(design)h(of)f(a)f(secure)i(in)o(ternet)f(gatew)o
+X(a)o(y)l(.)27 b(In)18 b Fd(Pr)n(o)n(c)n(e)n(e)n(dings)f(of)i(the)146
+X1521 y(Summer)d(1990)i(USENIX)c(Confer)n(enc)n(e)p Fk(.)f(USENIX)j(Asso)q
+X(ciation,)f(1990.)75 1614 y([2])22 b(William)e(R.)f(Cheswic)o(k.)32
+Xb(An)19 b(ev)o(ening)g(with)h(b)q(erferd)f(in)h(whic)o(h)g(a)e(crac)o(k)o(er)
+Xg(is)i(lured,)g(endured,)146 1671 y(and)e(studied.)29 b(In)19
+Xb Fd(Pr)n(o)n(c)n(e)n(e)n(dings)d(of)j(the)g(Winter)g(1992)h(USENIX)d(Confer)
+Xn(enc)n(e)p Fk(,)f(pages)i(163{174.)146 1727 y(USENIX)e(Asso)q(ciation,)f
+X(1992.)75 1821 y([3])22 b(Computer)11 b(Emergency)h(Resp)q(onse)h(T)l(eam.)h
+X(SunOS)f(NIS)f(vulnerabilit)o(y)l(.)17 b(CER)l(T)12 b(Advisory)g(92:13,)146
+X1878 y(June)k(4)f(1992.)75 1971 y([4])22 b(Daniel)g(V.)g(Klein.)41
+Xb(F)l(oiling)23 b(the)e(crac)o(k)o(er:)32 b(A)22 b(surv)o(ey)f(of,)i(and)e
+X(impro)o(v)o(emen)o(ts)h(to,)g(passw)o(ord)146 2028 y(securit)o(y)l(.)e(In)c
+XFd(UNIX)f(Se)n(curity)h(Workshop)h(II)p Fk(,)d(pages)h(5{14.)f(USENIX)i(Asso)
+Xq(ciation,)f(1990.)75 2122 y([5])22 b(Eugene)17 b(H.)f(Spa\013ord.)23
+Xb(The)17 b(in)o(ternet)g(w)o(orm)e(inciden)o(t.)26 b(T)l(ec)o(hnical)18
+Xb(Rep)q(ort)f(CSD-TR-933,)f(De-)146 2178 y(partmen)o(t)e(of)h(Computer)g
+X(Science,)h(Purdue)g(Univ)o(ersit)o(y)l(,)g(Septem)o(b)q(er)g(1991.)75
+X2272 y([6])22 b(Sun)16 b(Microsystems.)j Fd(Network)e(and)f(Communic)n
+X(ations)f(A)n(dministr)n(ation)p Fk(,)f(Marc)o(h)g(27)h(1990.)75
+X2366 y([7])22 b Fd(Unix)15 b(Pr)n(o)n(gr)n(ammers)h(R)n(efer)n(enc)n(e)f
+X(Manual)p Fk(.)k(Section)d(2.)75 2460 y([8])22 b(Wietse)17
+Xb(V)l(enema.)26 b(TCP)16 b(wrapp)q(er,)h(a)g(to)q(ol)g(for)f(net)o(w)o(ork)g
+X(monitoring,)i(access)f(con)o(trol,)f(and)i(for)146 2516 y(setting)d(up)h(b)q
+X(o)q(ob)o(y)f(traps.)k(In)d Fd(Thir)n(d)g(UNIX)f(Se)n(curity)h(Symp)n(osium)p
+XFk(,)f(1992.)k(T)l(o)c(b)q(e)g(published.)p eop
+X%%Page: 9 9
+Xbop 75 8 a Fl(A)69 b(Kernel)21 b(Call)g(W)-6 b(rapp)r(ers)75
+X109 y Fk(This)16 b(is)f(the)h(C)f(function)h(used)g(in)g(place)g(of)f(the)g
+X(k)o(ernel)h(call)g Fh(accept)p Fk(.)75 215 y Fh(#include)23
+Xb(<sys/types.h>)75 272 y(#include)g(<sys/socket.h>)75 328 y(#include)g
+X(<sys/syscall.h>)75 385 y(#include)g(<errno.h>)75 498 y(accept\(s,)g(addr,)g
+X(addrlen\))75 611 y(int)g(s;)75 667 y(struct)g(sockaddr)g(*addr;)75
+X723 y(int)g(*addrlen;)75 836 y({)170 893 y(register)g(int)h(retval;)170
+X949 y(struct)f(sockaddr)g(sa;)170 1006 y(int)h(salen;)170 1119
+Xy(salen)g(=)f(sizeof\(sa\);)170 1175 y(if)h(\(\(retval)f(=)h
+X(syscall\(SYS_accept,)d(s,)i(&sa,)h(&salen\)\))e(>=)i(0\))170
+X1232 y({)266 1288 y(if)f(\(_ok_address\(retval,)f(&sa,)h(salen\)\))266
+X1344 y({)361 1401 y(_addrcpy\(addr,)f(addrlen,)h(&sa,)g(salen\);)361
+X1457 y(return)g(\(retval\);)266 1514 y(})266 1570 y(close\(retval\);)266
+X1627 y(errno)g(=)h(ECONNREFUSED;)266 1683 y(return)f(\(-1\);)170
+X1740 y(})170 1796 y(return)g(\(retval\);)75 1853 y(})p eop
+X%%Page: 10 10
+Xbop 75 8 a Fk(This)16 b(is)f(the)h(C)f(function)h(used)g(in)g(place)g(of)f
+X(the)g(k)o(ernel)h(call)g Fh(recvfrom)p Fk(.)75 114 y Fh(#include)23
+Xb(<sys/types.h>)75 170 y(#include)g(<sys/socket.h>)75 227 y(#include)g
+X(<sys/syscall.h>)75 283 y(#include)g(<errno.h>)75 396 y(recvfrom\(s,)f(buf,)i
+X(len,)f(flags,)g(from,)g(fromlen\))75 509 y(int)g(s;)75 566
+Xy(char)g(*buf;)75 622 y(int)g(len,)h(flags;)75 678 y(struct)f(sockaddr)g
+X(*from;)75 735 y(int)g(*fromlen;)75 848 y({)170 904 y(register)g(int)h
+X(retval;)170 1017 y(if)g(\(\(retval)f(=)h(syscall\(SYS_recvfrom,)d(s,)i(buf,)
+Xg(len,)h(flags,)695 1074 y(from,)g(fromlen\)\))e(>=)i(0\))170
+X1130 y({)266 1187 y(if)f(\(_ok_address\(s,)f(from,)h(*fromlen\)\))266
+X1243 y({)361 1299 y(return)g(\(retval\);)266 1356 y(})266 1412
+Xy(errno)g(=)h(ECONNREFUSED;)266 1469 y(return)f(\(-1\);)170
+X1525 y(})170 1582 y(return)g(\(retval\);)75 1638 y(})p eop
+X%%Page: 11 11
+Xbop 75 8 a Fk(This)16 b(is)f(the)h(C)f(function)h(used)g(in)g(place)g(of)f
+X(the)g(k)o(ernel)h(call)g Fh(recvmsg)p Fk(.)75 114 y Fh(#include)23
+Xb(<sys/types.h>)75 170 y(#include)g(<sys/socket.h>)75 227 y(#include)g
+X(<sys/syscall.h>)75 283 y(#include)g(<errno.h>)75 396 y(recvmsg\(s,)f(msg,)i
+X(flags\))75 509 y(int)f(s;)75 566 y(struct)g(msghdr)g(*msg;)75
+X622 y(int)g(flags;)75 735 y({)170 791 y(register)g(int)h(retval;)170
+X904 y(if)g(\(\(retval)f(=)h(syscall\(SYS_recvmsg,)d(s,)i(msg,)h(flags\)\))e
+X(>=)i(0\))170 961 y({)266 1017 y(if)f(\(_ok_address\(s,)f(\(struct)h
+X(sockaddr)g(*\)\(msg->msg_name\),)648 1074 y(msg->msg_namelen\)\))266
+X1130 y({)361 1187 y(return)g(\(retval\);)266 1243 y(})266 1299
+Xy(errno)g(=)h(ECONNREFUSED;)266 1356 y(return)f(\(-1\);)170
+X1412 y(})170 1469 y(return)g(\(retval\);)75 1525 y(})p eop
+X%%Trailer
+Xend
+Xuserdict /end-hook known{end-hook}if
+X%%EOF
+END_OF_FILE
+  if test 38580 -ne `wc -c <'securelib.ps.C'`; then
+    echo shar: \"'securelib.ps.C'\" unpacked with wrong size!
+ elif test -f 'securelib.ps.A' && test -f 'securelib.ps.B'; then
+    echo shar: Combining  \"'securelib.ps'\" \(131349 characters\)
+    cat 'securelib.ps.A' 'securelib.ps.B' 'securelib.ps.C' > 'securelib.ps'
+    if test 131349 -ne `wc -c <'securelib.ps'`; then
+      echo shar: \"'securelib.ps'\" combined with wrong size!
+    else
+      rm securelib.ps.A securelib.ps.B securelib.ps.C
+    fi
+  fi
+  # end of 'securelib.ps.C'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

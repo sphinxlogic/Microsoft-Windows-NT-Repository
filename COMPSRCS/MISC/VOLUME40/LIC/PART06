@@ -1,0 +1,1895 @@
+Newsgroups: comp.sources.misc
+From: casey@gauss.llnl.gov (Casey Leedom)
+Subject: v40i120:  lic - LLNL Line Integral Convolution, v1.3, Part06/09
+Message-ID: <1993Nov9.171011.26848@sparky.sterling.com>
+X-Md4-Signature: 665e9ec0afab99cc8a6c2b1b030d439d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 9 Nov 1993 17:10:11 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: casey@gauss.llnl.gov (Casey Leedom)
+Posting-number: Volume 40, Issue 120
+Archive-name: lic/part06
+Environment: UNIX
+Supersedes: lic: Volume 38, Issue 104
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lic.1.3/avs/LIC.txt lic.1.3/include/lic.h
+#   lic.1.3/liblic/ComputeImage.c lic.1.3/liblic/Convolve2D.c
+#   lic.1.3/liblic/Convolve3D.c lic.1.3/test/BasketWeave.c
+# Wrapped by kent@sparky on Tue Nov  9 10:09:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 9)."'
+if test -f 'lic.1.3/avs/LIC.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/avs/LIC.txt'\"
+else
+  echo shar: Extracting \"'lic.1.3/avs/LIC.txt'\" \(9112 characters\)
+  sed "s/^X//" >'lic.1.3/avs/LIC.txt' <<'END_OF_FILE'
+XAVS Modules						                    LIC
+XLawrence Livermore National Laboratory
+X
+XNAME
+X     LIC - 2D Line Integral Convolution (LIC) vector field imager
+X
+XSUMMARY
+X     Name	   LIC
+X
+X     Type	   mapper
+X
+X     Inputs	   field 2D 2-vector float (vector field)
+X	           field 2D 4-vector byte (image)
+X
+X     Outputs	   field 2D 4-vector 2-space byte (filtered image)
+X
+X     Parameters	   
+X	Name		           Type         Default		Min	  Max
+X	---------------------------------------------------------------------
+X	Filter type        	   choice	Box		N/A       N/A
+X	Normalization type 	   choice	Variable        N/A       N/A
+X	Length             	   integer	10              0         1000
+X	Frequency             	   real 	3.0             0.1       100.0
+X	Variable length filtering  toggle	off		off	  on
+X	Variable speed filtering   toggle	off		off       on
+X	Animate                    toggle       off             off       on
+X	Red			   integer      -1              -1        255
+X	Green			   integer      -1              -1        255
+X	Blue			   integer      -1              -1        255
+X	Alpha			   integer      -1              -1        255
+X	Threads			   integer      1               0         1000
+X
+X
+XDESCRIPTION
+X     This module one-dimensionally filters the input image along local
+X     stream lines defined by the input vector field. The resulting
+X     output image appears as though it was painted using a coarse
+X     brush. Many options exist for modifying the behavior of the
+X     algorithm and thus controlling the appearance of the output image
+X     (see below).  Particularly noteworthy is the ripple filter option
+X     used in conjunction with the animate option. One can use these
+X     two options to animate a sequence, visualizing the flow of the
+X     vector field for a single time step.
+X
+X     An arbitrary RGBA image can be used as input, however white or
+X     band limited noise produce the most effective scientific
+X     visualizations.  The input image and vector field need not be the
+X     same size. If the input image is smaller the input vector field
+X     then the image is replicated and truncated to match the vector
+X     field dimensions. Best results occur when contrast stretching the
+X     output (see example 1).
+X
+X     The algorithm details and descriptions are presented in the
+X     SIGGRAPH '93 paper ``Imaging Vector Fields Using Line Integral
+X     Convolution'' by Brian Cabral and Casey Leedom.
+X
+XINPUTS
+X     Input field - a 2-D 2-vector float field
+X	A classic 2-space 2-vector field. Note that many 3-D slicing tools
+X	produce 2-dimensional 3-vector fields and will require using the
+X	extract vector module to remove one of the 3-vector components.
+X
+X     Input texture - a 2-D 4-vector byte RGBA image
+X	An arbitrary RGBA image.
+X
+XPARAMETERS
+X
+X     Filter type
+X	Choice: Box, Ripple, Ramp or Select
+X	Default: Box
+X
+X	The Box filter is the default filter. The Ripple filter can be
+X	used for animating vector field flow for a single time step.
+X	The Ramp filter can be used for motion blurring and special
+X	effects.  The Select filter selects an approximately one pixel
+X	wide window near the end of the locally advected streamline.
+X	This can be used to produce a warp of the input texture.
+X
+X     Normalization type
+X	Choice: Fixed or Variable
+X	Default: Variable
+X
+X	Fixed normalization uses a constant value to normalize the
+X	output pixel intensity. This type of normalization causes
+X	field singularities to appear darkener.  If the vector field
+X	flows out of or into an edge this edge is also attenuated.
+X	Variable normalization normalizes the output pixel so that the
+X	entire image appears uniform in brightness (assuming uniform
+X	brightness in the input image) irrespective of any vector
+X	field singularities.
+X
+X     Length
+X	Integer
+X	Default: 10
+X
+X	This parameter controls the amount of blurring or the length
+X	of the line integral convolution. The number is given in unit
+X	pixels. Note that the run time of the algorithm is
+X	proportional to this parameter.
+X
+X     Frequency
+X	(only available for filter type "ripple")
+X	Real
+X	Default: 3.0
+X
+X	This parameter is only used in conjunction with the ripple
+X	filter.  It specifies the number cycles of the ripple filter
+X	over the length of the filter.  This governs the relative
+X	feature size of apparent motion when used with the animate
+X	option. Smaller values for frequency produce bigger features.
+X	However, low frequency values produce animations which appear
+X	to come in to and out of apparent focus (i.e.  the filter
+X	has poor frequency response).  High frequencies have better
+X	frequency response, but smaller apparent features.  Finally,
+X	the frequency response problem can also be dealt with by
+X	increasing the length of the filter, but this may introduce
+X	more blurring than desired.  There's no free lunch.
+X
+X     Variable length filtering
+X	Toggle
+X	Default: off
+X
+X	Enabling variable length filtering.  The filter length for each
+X	vector v will vary from 0 to Length based on the vector's
+X	magnitude.  This magnitude scaling is performed by finding the
+X	maximum magnitude vector in the input vector field, max_v, and
+X	then using a filter length equal to Length * ||v|| / ||max_v||.
+X	The filter will be dilated to match the length of the convolution.
+X	This prevents any visual artifacts which might occur because of
+X	abrupt filter truncation if the filter were not dilated.
+X
+X     Variable speed filtering
+X	(only available for filter type "ripple")
+X	Toggle
+X	Default: off
+X
+X	This option is used in conjunction with the ripple filter in
+X	animation mode. When enabled the LIC algorithm will vary
+X	apparent motion flow as a function of the vector field
+X	magnitude so that high magnitude portions of the vector field
+X	move faster than low magnitude parts.  This is accomplished by
+X	scaling the ripple filter frequency inversely by vector
+X	magnitudes.
+X
+X     Animate
+X	(only available for filter type "ripple")
+X	Toggle
+X	Default: off
+X
+X	Enabling the animate option will cause this module to produce
+X	LIC_ANIMATION_FRAMES animated frames showing vector field flow
+X	for a single time step.  The phase of the ripple filter will
+X	be different for each frame, varying from 0 to 2*Pi.
+X	LIC_ANIMATION_FRAMES is currently hardwired to 10.
+X
+X     Red, Green, Blue and Alpha
+X	Integer
+X	Default: -1
+X
+X	These RGBA values instruct the module on how to color pixels which
+X	map onto zero length vectors. A value of -1 instructs the
+X	algorithm to use the underlying texture pixel value for the given
+X	color channel.
+X
+X     Threads
+X	Integer
+X	Default: 1
+X
+X	Specifies the number of parallel threads to use when computing the
+X	output image.  If 0, the maximum number of CPUs available for
+X	parallel processing on the current system will be used.  Note that
+X	parallel processing support is not available on all systems.  If a
+X	value other than 1 is specified on a system which does not support
+X	parallel processing, a warning will be issued and the calculation
+X	will proceed single threaded.
+X
+XOUTPUTS
+X     Output image - 2D 4-vector 2-space byte field RGBA image
+X	The module generates the usual RGBA AVS image which can be
+X        displayed or otherwise manipulated.
+X
+XEXAMPLE	1
+X	The first example illustrates the use of the LIC module
+X	to visualize a 2-D vector field. Note the use of the contrast
+X        stretching module to produce a crisper image. Good contrast values
+X        are 50 and 200 for the input minimum and maximum values
+X        respectively.
+X
+X	READ FIELD      GENERATE NOISE
+X             |            |
+X             +----------+ |
+X                        | |
+X                        LIC
+X                         |
+X                         |
+X                      CONTRAST
+X                         |
+X                 +-------+------+
+X                 |              |
+X          DISPLAY IMAGE     WRITE IMAGE
+X
+XEXAMPLE	2
+X	This second example is the same as first except it produces a
+X        single time step flow animation. Note that the ripple function and
+X        animation options must be enabled on the LIC algorithm the number
+X        of frames is equal to the length of the LIC filter. The image
+X        viewer will allow you to view and save the animation sequence.
+X
+X	READ FIELD      GENERATE NOISE
+X             |            |
+X             +----------+ |
+X                        | |
+X                        LIC
+X                         |
+X                         |
+X                      CONTRAST
+X                         |
+X                    IMAGE VIEWER
+X       
+XFEATURES/BUGS
+X     Asynchronous button display
+X        When this module is invoked and the flow executive is disabled the
+X        animate, period, and variable speed buttons will not become visible
+X        upon selection of the ripple filter. In all other cases these latter
+X        buttons become visible upon selection of the ripple filter and become
+X        invisible upon selection of another filter.
+X
+XRELATED MODULES
+X     Generate noise
+X
+XAUTHOR
+X     Brian Cabral, Casey Leedom
+X     Lawrence Livermore National Laboratory
+X
+X     Copyright (c) 1993 The Regents of the University of California.
+X     All rights reserved.
+X
+X
+XAVS Modules						                    LIC
+XLawrence Livermore National Laboratory
+END_OF_FILE
+  if test 9112 -ne `wc -c <'lic.1.3/avs/LIC.txt'`; then
+    echo shar: \"'lic.1.3/avs/LIC.txt'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/avs/LIC.txt'
+fi
+if test -f 'lic.1.3/include/lic.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/include/lic.h'\"
+else
+  echo shar: Extracting \"'lic.1.3/include/lic.h'\" \(9521 characters\)
+  sed "s/^X//" >'lic.1.3/include/lic.h' <<'END_OF_FILE'
+X/*
+X * $Header: /usr/local/src/lic/include/RCS/lic.h,v 1.18 1993/11/04 03:42:02 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef _LIC_H_
+X#define	_LIC_H_
+X
+X
+X/*
+X * Public user interface to Line Integral Convolution (LIC) library.
+X *
+X * For a thorough explaination of vector field imaging algorithms used in
+X * this library see: "Imaging Vector Fields Using Line Integral Convolution"
+X * by Brian Cabral and Casey Leedom in the SIGGRAPH '93 proceedings.
+X */
+X#define LIC_VERSION	"1.3/PL0"
+X
+X
+X/*
+X * Handy booleans.
+X */
+X#ifndef TRUE
+X#   define TRUE		1
+X#endif
+X
+X#ifndef FALSE
+X#   define FALSE 	0
+X#endif
+X
+X
+X/*
+X * Integral tabel length and the number of different speeds we keep.
+X */
+X#define LIC_INTEGRAL_LEN	2048
+X#define LIC_INTEGRAL_SPEEDS	20
+X
+X
+X/*
+X * Convolution integration direction for LIC_Convolve routines.
+X */
+X#define LIC_FOREWARD	 1
+X#define LIC_BACKWARD	-1
+X
+X
+X/*
+X * Normalization types.  The Line Integral Convolution process integrates
+X * a set of pixels on a parametric curve in an input image multiplied by
+X * a filter kernel.  Unless this integral is normalized by the integral of
+X * the filter kernel (the area under the filter kernel), output pixels will
+X * often be overly bright (and quite probably clamped to maximum pixel
+X * values).  With VARIABLE normalization the convolution integral is
+X * normalized by the integral of the filter kernel actually used in the LIC.
+X * With FIXED normalization the convolution integral is normalized by the
+X * full integral of the filter kernel.  This will have an effect when a
+X * LIC is prematurely terminated by a singularity.  With FIXED normalization
+X * these truncated LICs will have their brightness lowered by the larger
+X * normalization factor.
+X */
+X#define LIC_VARIABLE	0
+X#define LIC_FIXED	1
+X
+X
+X/*
+X * Image and vector field data types used by the LIC algorithm.
+X */
+Xtypedef struct LIC_Image_
+X{
+X    unsigned char     *data;		/* image pixel data */
+X    int	               Xres;		/* size of image in x, y and z */
+X    int	               Yres;
+X    int	               Zres;
+X    int	               Rank;		/* size of pixels in bytes */
+X} LIC_Image;
+X
+Xtypedef struct LIC_VectorField_
+X{
+X    float              *data;		/* original vector field data */
+X    int	               Xres;		/* size of field in x, y and z */
+X    int	               Yres;
+X    int	               Zres;
+X    int	               Rank;		/* size of field elements in floats */
+X} LIC_VectorField;
+X
+X
+X/*
+X * LIC instance structure.
+X */
+Xtypedef struct LIC_
+X{
+X    /*
+X     * User supplied arguments.  Most are supplied by the LIC_Create
+X     * constructor.  Phase is supplied by LIC_ChangePhase for use in
+X     * computing LICs with varying phase for animation purposes.
+X     */
+X    LIC_Image       InputImage;		/* input image */
+X    LIC_VectorField InputField;		/* input vector field */
+X    LIC_VectorField NormalField;	/* (normalized version of field) */
+X    LIC_Image       OutputImage;	/* output image (possibly allocated */
+X					/*   by Create) */
+X    int	            FreeOutput;		/* (free OutputImage on Destroy) */
+X    double        (*Filter)(struct LIC_ *, double, double, int);
+X					/* function called to provide filter */
+X					/*   kernel integrals */
+X    int	            NormalizationType;	/* normalization type */
+X    int	            Normalized;
+X    double          Length;		/* half length of filter kernel */
+X    double          Phase;		/* phase of filter */
+X    double          Frequency;		/* frequency of filter */
+X    int	            VariableLength;	/* do variable length LIC */
+X    int	            VariableSpeed;	/* do variable speed (phase) LIC */
+X    int             DefaultAlpha;	/* default pixel value for zero */
+X    int             DefaultRed;		/*   magnitude vectors */
+X    int             DefaultGreen;
+X    int             DefaultBlue;
+X    void          (*UpdateUser)(double);
+X					/* function called to report percent */
+X					/*   of LIC completed */
+X    void          (*ReportError)(const char *);
+X					/* function called to report errors */
+X    unsigned int    NumThreads;		/* number of parallel threads to */
+X					/*   spawn in LIC_ComputeImage ... */
+X
+X    /*
+X     * Convolution filter integral tables.  Cumulative filter kernel integral
+X     * values are computed at LIC_INTEGRAL_LEN points from 0 to Length.
+X     * Integral tables are constructed for both the positive and negative
+X     * haves of the filter kernel (-Length .. Length).
+X     *
+X     * Additionally, LIC_INTEGRAL_SPEEDS versions of these tables are
+X     * constructed for use in variable ``speed'' LIC computation.
+X     * The scaled magnitude of the vector being imaged is used to index
+X     * into one of the speed variation tables.
+X     */
+X    int	            NeedIntegration;	/* need to build integral tables */
+X    double          NegIntegralTable[LIC_INTEGRAL_SPEEDS][LIC_INTEGRAL_LEN];
+X    double          PosIntegralTable[LIC_INTEGRAL_SPEEDS][LIC_INTEGRAL_LEN];
+X    double          MaxLength;		/* maximum vector magnitude in */
+X					/*   input vector field */
+X
+X    /*
+X     * Bookkeeping ...
+X     */
+X    double          TotalLength;	/* total length of LICs traversed */
+X    int	            TotalLoopCount;	/* total loop cells visited */
+X} LIC;
+X
+X
+X/*
+X * Filter function types.
+X */
+Xtypedef double
+X    (*LIC_Filter)(LIC *This, double a, double b, int speed);
+X
+X
+X/*
+X * User interface to the LIC library.
+X */
+X#ifdef __cplusplus
+Xextern "C" {
+X#endif
+X
+XLIC *
+XLIC_Create(unsigned char *InputImage,
+X	   int	          iiXres,
+X	   int	          iiYres,
+X	   int	          iiZres,
+X	   float         *InputField,
+X	   int	          ifXres,
+X	   int	          ifYres,
+X	   int	          ifZres,
+X	   unsigned char *OutputImage,
+X	   LIC_Filter     Filter,
+X	   int	          NormalizationType,
+X	   int	          Normalized,
+X	   double         Length,
+X	   double         Frequency,
+X	   int	          VariableLength,
+X	   int	          VariableSpeed,
+X	   int            DefaultRed,
+X	   int            DefaultGreen,
+X	   int            DefaultBlue,
+X	   int            DefaultAlpha,
+X	   void		(*UpdateUser)(double),
+X	   void		(*ReportError)(const char *));
+X
+Xvoid        LIC_Destroy(LIC *This);
+X
+Xvoid        LIC_ChangeLength    (LIC *This, double length);
+Xvoid        LIC_ChangePhase     (LIC *This, double phase);
+Xvoid        LIC_ChangeFrequency (LIC *This, double frequency);
+Xvoid        LIC_ChangeFilter    (LIC *This, LIC_Filter filter);
+Xvoid        LIC_ChangeNumThreads(LIC *This, int threads);
+X
+Xdouble      LIC_Box   (LIC *This, double a, double b, int speed);
+Xdouble      LIC_Ripple(LIC *This, double a, double b, int speed);
+Xdouble      LIC_Ramp  (LIC *This, double a, double b, int speed);
+Xdouble      LIC_Select(LIC *This, double a, double b, int speed);
+X
+Xvoid        LIC_BuildIntegralTables(LIC *This);
+Xvoid        LIC_ComputeImage(LIC *This);
+X
+Xvoid
+XLIC_Convolve2D(LIC      *This,
+X	       int       i,
+X	       int       j,
+X	       int       direction,
+X	       double   *rIntegral,
+X	       double   *gIntegral,
+X	       double   *bIntegral,
+X	       double   *aIntegral,
+X	       double   *KernelArea);
+X
+Xvoid
+XLIC_Convolve3D(LIC      *This,
+X	       int       i,
+X	       int       j,
+X	       int       k,
+X	       int       direction,
+X	       double   *rIntegral,
+X	       double   *gIntegral,
+X	       double   *bIntegral,
+X	       double   *aIntegral,
+X	       double   *KernelArea);
+X
+X#define LIC_InputImage(T)	(T)->InputImage->data
+X#define LIC_InputField(T)	(T)->InputField->data
+X#define LIC_OutputImage(T)	(T)->OutputImage->data
+X#define LIC_Length(T)		(T)->Length
+X#define LIC_Phase(T)		(T)->Phase
+X#define LIC_Frequency(T)	(T)->Frequency
+X#define	LIC_NumThreads(T)	(T)->NumThreads
+X
+Xint         LIC_ConfiguredPixelSize(void);
+Xconst char *LIC_ConfiguredPixelType(void);
+X
+X#ifdef __cplusplus
+X}
+X#endif
+X
+X
+X#endif /* _LIC_H_ */
+END_OF_FILE
+  if test 9521 -ne `wc -c <'lic.1.3/include/lic.h'`; then
+    echo shar: \"'lic.1.3/include/lic.h'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/include/lic.h'
+fi
+if test -f 'lic.1.3/liblic/ComputeImage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/liblic/ComputeImage.c'\"
+else
+  echo shar: Extracting \"'lic.1.3/liblic/ComputeImage.c'\" \(11062 characters\)
+  sed "s/^X//" >'lic.1.3/liblic/ComputeImage.c' <<'END_OF_FILE'
+X/*
+X * $Header: /usr/local/src/lic/liblic/RCS/ComputeImage.c,v 1.15 1993/11/05 00:14:44 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+X    static char rcsid[] = "$Header: /usr/local/src/lic/liblic/RCS/ComputeImage.c,v 1.15 1993/11/05 00:14:44 casey Exp $";
+X    static char copyright[] =
+X	"Copyright (c) 1993 The Regents of the University of California.\n"
+X	"All rights reserved.\n";
+X#endif
+X
+X
+X#include "liblic.h"
+X
+X
+X/*
+X *	Perform Line Integral Convolution (LIC) on a LIC instance.
+X *	==========================================================
+X */
+X
+X
+X#ifdef DEBUG
+XFILE *ps;
+X#endif
+X
+X
+X/*
+X *	Local routines
+X *	==============
+X */
+Xstatic void ComputeStripe(LIC *This, int parallel, int y_lo, int y_hi);
+X
+X
+X/*
+X *	Code to implement ComputeImage(...) API.
+X *	========================================
+X *
+X * Includes a generic single threaded implementation and various platform
+X * specific multithreaded implementations.
+X */
+X
+X
+X#if (!defined(PARALLEL))
+X    void
+X    LIC_ComputeImage(LIC *This)
+X	/*
+X	 * Compute LIC for each vector in input vector field.
+X	 *
+X	 * Generic, non-parallel version.  Just call ComputeStripe to compute
+X	 * LICs for entire field and indicate this *isn't* a stripe out of a
+X	 * parallel set of threads.
+X	 */
+X    {
+X	if (LIC_NumThreads(This) > 1 && This->ReportError)
+X	    This->ReportError("LIC_ComputeImage: no parallel support,"
+X			      " executing single threaded");
+X	ComputeStripe(This, FALSE, 0, This->InputField.Yres);
+X    }
+X#endif /* PARALLEL */
+X
+X
+X#if (defined(HAS_M_FORK))
+X    /*
+X     * This is known to work under SGI IRIX 4.0.5.  The SGI m_fork()
+X     * primitives are based on the Sequent Computer Systems parallel
+X     * programming primitives, thus there is some chance that this may
+X     * also work on a Sequent ...
+X     */
+X
+X#   include <ulocks.h>
+X#   include <task.h>
+X
+X    static void mstripe(LIC *This);
+X
+X    void
+X    LIC_ComputeImage(LIC *This)
+X	/*
+X	 * Compute LIC for each vector in input vector field.
+X	 *
+X	 * Basic algorithm is to use m_fork to split the task among
+X	 * numprocs threads.  Each thread will process a stripe of
+X	 * rows.
+X	 *
+X	 * If their are fewer rows than threads (as reported by
+X	 * m_get_numprocs()), then we limit the number of threads to
+X	 * the number of rows.  We should really automatically slice
+X	 * the field more intelligently to take full advantage of the
+X	 * number of processors available -- perhaps via vertical
+X	 * stripes or tiles or even bricks (cuboids) for
+X	 * three-dimensional fields -- but this is really just a quick
+X	 * hack and True Intelligence is not our aim ... :-)
+X	 *
+X	 * Note also that it would really be nice if we could mark all
+X	 * of the InputImage and NormalField as read-only in order to
+X	 * prevent cache snoopers from flushing caches when multiple
+X	 * threads access the same input cells.  Unfortunately can't
+X	 * see a way of doing this.  lic(1) automatically does this
+X	 * for us if HAS_MMAP is defined -- but only if the vector
+X	 * field is already normalized ...
+X	 */
+X    {
+X	if (This->NumThreads == 1 || This->InputField.Yres == 1)
+X	    ComputeStripe(This, FALSE, 0, This->InputField.Yres);
+X	else
+X	{
+X	    int numprocs,  onumprocs;
+X
+X	    numprocs = onumprocs = m_get_numprocs();
+X
+X	    /* pay attention to any user parallelization limits */
+X	    if (This->NumThreads > 0 && numprocs > This->NumThreads)
+X		numprocs = This->NumThreads;
+X
+X	    /* don't fork more threads than we have rows */
+X	    if (numprocs > This->InputField.Yres)
+X		numprocs = This->InputField.Yres;
+X
+X	    /* restrict the number of threads to execute ... */
+X	    if (numprocs != onumprocs)
+X		m_set_procs(numprocs);
+X
+X	    if (m_fork(mstripe, This) >= 0)
+X		m_kill_procs();
+X	    else
+X	    {
+X		if (This->ReportError)
+X		    This->ReportError("LIC_ComputeImage: m_fork failed,"
+X				      " executing single threaded");
+X		ComputeStripe(This, FALSE, 0, This->InputField.Yres);
+X	    }
+X
+X	    /* restore previous default number of parallel threads ... */
+X	    if (numprocs > onumprocs)
+X		m_set_procs(onumprocs);
+X	}
+X    }
+X
+X
+X    static void
+X    mstripe(LIC *This)
+X	/*
+X	 * mstripe is called by m_fork to distribute LIC calculations among
+X	 * numprocs threads.
+X	 */
+X    {
+X	int numprocs = m_get_numprocs();
+X	int myid = m_get_myid();
+X	int stripesize = (This->InputField.Yres + numprocs-1) / numprocs;
+X	int y_lo = myid * stripesize;
+X	int y_hi = y_lo + stripesize;
+X	if (y_hi > This->InputField.Yres)
+X	    y_hi = This->InputField.Yres;
+X	ComputeStripe(This, TRUE, y_lo, y_hi);
+X    }
+X#   endif /* HAS_M_FORK */
+X
+X
+X/*
+X *	Main code for top-level LIC computation.
+X *	========================================
+X */
+X
+X
+Xstatic void
+XComputeStripe(LIC *This, int parallel, int y_lo, int y_hi)
+X    /*
+X     * Compute LIC for the row stripe [y_lo, y_hi).  The flag "parallel" tells
+X     * us if we've been invoked as a parallel thread and, thus, need to use
+X     * special code to estimate how far along the whole job is ...
+X     */
+X{
+X    int    i, j, k;
+X    double nrows    = (This->InputField.Yres * This->InputField.Zres);
+X    int    nrows_10 = (This->InputField.Yres * This->InputField.Zres)/10;
+X    int    rowcount = 0;
+X
+X#   if (defined(DEBUG))
+X	ps = fopen("tmp.ps", "r+");
+X	if (ps == NULL)
+X	{
+X	    perror("tmp.ps");
+X	    exit(1);
+X	}
+X#   endif
+X
+X    /*
+X     * Loop over the vector field rendering a pixel per field vector.
+X     */
+X    for (k = 0; k < This->InputField.Zres; k++)
+X    {
+X	for (j = y_lo; j < y_hi; j++)
+X	{
+X	    /* Update status every 10% rows */
+X	    if (This->UpdateUser)
+X	    {
+X		int count;
+X
+X#		if (defined(PARALLEL))
+X		    if (parallel)
+X		    {
+X#			if (defined(HAS_M_FORK))
+X			    count = m_next();
+X#			endif
+X		    }
+X		    else
+X			count = rowcount++;
+X#		else
+X		    count = rowcount++;
+X#		endif
+X
+X		if ((count % nrows_10) == 0)
+X		    This->UpdateUser(100.0 * count / nrows);
+X	    }
+X
+X	    for (i = 0; i < This->InputField.Xres; i++)
+X	    {
+X		double ForewardKernelArea, BackwardKernelArea;
+X		double rForewardIntegral, gForewardIntegral,
+X		       bForewardIntegral, aForewardIntegral;
+X		double rBackwardIntegral, gBackwardIntegral,
+X		       bBackwardIntegral, aBackwardIntegral;
+X
+X		if (This->InputField.Zres == 1)
+X		{
+X		    LIC_Convolve2D(This, i, j, LIC_FOREWARD,
+X				   &rForewardIntegral, &gForewardIntegral,
+X				   &bForewardIntegral, &aForewardIntegral,
+X				   &ForewardKernelArea);
+X		    LIC_Convolve2D(This, i, j, LIC_BACKWARD,
+X				   &rBackwardIntegral, &gBackwardIntegral,
+X				   &bBackwardIntegral, &aBackwardIntegral,
+X				   &BackwardKernelArea);
+X		}
+X		else
+X		{
+X		    LIC_Convolve3D(This, i, j, k, LIC_FOREWARD,
+X				   &rForewardIntegral, &gForewardIntegral,
+X				   &bForewardIntegral, &aForewardIntegral,
+X				   &ForewardKernelArea);
+X		    LIC_Convolve3D(This, i, j, k, LIC_BACKWARD,
+X				   &rBackwardIntegral, &gBackwardIntegral,
+X				   &bBackwardIntegral, &aBackwardIntegral,
+X				   &BackwardKernelArea);
+X		}
+X
+X#		if (PixelSize >= 3)
+X		{
+X		    double red, green, blue;
+X
+X		    red   = (rForewardIntegral + rBackwardIntegral)
+X			/ (ForewardKernelArea + BackwardKernelArea);
+X		    green = (gForewardIntegral + gBackwardIntegral)
+X			/ (ForewardKernelArea + BackwardKernelArea);
+X		    blue  = (bForewardIntegral + bBackwardIntegral)
+X			/ (ForewardKernelArea + BackwardKernelArea);
+X
+X		    /* k is 0 for 2D case ... */
+X		    RED  (INDEX_3D(This->OutputImage, i, j, k)) = CLAMP(red);
+X		    GREEN(INDEX_3D(This->OutputImage, i, j, k)) = CLAMP(green);
+X		    BLUE (INDEX_3D(This->OutputImage, i, j, k)) = CLAMP(blue);
+X		}
+X#		endif
+X#		if (PixelSize == 4 || PixelSize == 1)
+X		{
+X		    double alpha;
+X
+X		    alpha = (aForewardIntegral + aBackwardIntegral)
+X			/ (ForewardKernelArea + BackwardKernelArea);
+X
+X		    ALPHA(INDEX_3D(This->OutputImage, i, j, k)) = CLAMP(alpha);
+X		}
+X#		endif
+X
+X#		if (defined(DEBUG))
+X		    if (ThisPixel)
+X		    {
+X			int a, b;
+X
+X			fprintf(ps,  "stroke\n");
+X			fprintf(ps,  "} def\n");
+X			fprintf(ps,  "25 25 scale\n");
+X			fprintf(ps,  "0.01 setlinewidth\n");
+X			fprintf(ps,  "11 11 translate\n");
+X			fprintf(ps,  "verticals\nhorizontals\n");
+X			fprintf(ps,  "0.02 setlinewidth\n");
+X			fprintf(ps,  "0.5 -0.5 translate\n");
+X
+X			for (a = i - 10; a < i + 10; a++)
+X			{
+X			    for (b = j - 10; b < j + 10; b++)
+X			    {
+X				fprintf(ps,  "%f %f %d %d arrow\n",
+X					INDEX_2D(This->NormalField, a, b)[1],
+X					INDEX_2D(This->NormalField, a, b)[0],
+X					a-i, b-j);
+X			    }
+X			}
+X			fprintf(ps,  "streamlines\n");
+X			fprintf(ps,  "grestore\n");
+X			fprintf(ps,  "showpage\n");
+X			fclose(ps);
+X		    }
+X#		endif
+X	    }
+X	}
+X    }
+X}
+X
+X
+X/*
+X *	LIC_ChangeNumThreads ...
+X *	========================
+X */
+X
+X
+Xvoid
+XLIC_ChangeNumThreads(LIC *This, int threads)
+X    /*
+X     * Change the number of parallel threads to use by LIC_ComputeImage.
+X     *
+X     * We put this here rather than in liblic/Modify.c since it only affects
+X     * LIC_ComputeImage and lowers the number of files that are affected by
+X     * the PARALLEL define ...
+X     */
+X{
+X    if (threads < 0)
+X    {
+X	threads = 1;
+X	if (This->ReportError)
+X	    This->ReportError("LIC_ChangeNumThreads: threads must be greater"
+X			      " than or equal to 0 -- using 1");
+X    }
+X#   if (!defined(PARALLEL))
+X	if (threads != 1)
+X	{
+X	    threads = 1;
+X	    if (This->ReportError)
+X		This->ReportError("LIC_ChangeNumThreads: no parallel"
+X				  " processing support available"
+X				  " -- using threads=1");
+X	}
+X#   endif
+X    This->NumThreads = threads;
+X}
+END_OF_FILE
+  if test 11062 -ne `wc -c <'lic.1.3/liblic/ComputeImage.c'`; then
+    echo shar: \"'lic.1.3/liblic/ComputeImage.c'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/liblic/ComputeImage.c'
+fi
+if test -f 'lic.1.3/liblic/Convolve2D.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/liblic/Convolve2D.c'\"
+else
+  echo shar: Extracting \"'lic.1.3/liblic/Convolve2D.c'\" \(9921 characters\)
+  sed "s/^X//" >'lic.1.3/liblic/Convolve2D.c' <<'END_OF_FILE'
+X/*
+X * $Header: /usr/local/src/lic/liblic/RCS/Convolve2D.c,v 1.8 1993/10/26 18:26:58 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+X    static char rcsid[] = "$Header: /usr/local/src/lic/liblic/RCS/Convolve2D.c,v 1.8 1993/10/26 18:26:58 casey Exp $";
+X    static char copyright[] =
+X	"Copyright (c) 1993 The Regents of the University of California.\n"
+X	"All rights reserved.\n";
+X#endif
+X
+X
+X#include "liblic.h"
+X
+X
+X/*
+X *	Two-dimensional Line Integral Convolution.
+X *	============================================
+X */
+X
+X
+X#ifdef DEBUG
+Xextern FILE *ps;
+X#endif
+X
+X
+Xvoid
+XLIC_Convolve2D(LIC      *This,
+X	       int       i,
+X	       int       j,
+X	       int       direction,
+X	       double   *rIntegral,
+X	       double   *gIntegral,
+X	       double   *bIntegral,
+X	       double   *aIntegral,
+X	       double   *KernelArea)
+X    /*
+X     * Perform Line Integral Convolution on a two-dimensional vector field.
+X     */
+X{
+X    REGISTER double L;			/* pos/neg length of kernel */
+X    REGISTER double s, sp;		/* parametric distance along kernel */
+X    double          wp;			/* integral corresponding to sp */
+X    double          rSum, gSum,		/* integrated pixel values */
+X		    bSum, aSum;
+X    int             speed;		/* integral table speed index */
+X    double         *itab, is;		/* integral table and index scale */
+X    int             LoopCount;		/* main loop iteration count */
+X
+X    sp = 0.0;
+X
+X    rSum = 0.0;
+X    gSum = 0.0;
+X    bSum = 0.0;
+X    aSum = 0.0;
+X
+X    /*
+X     * Establish length, L, of convolution and which ``speed'' version of the
+X     * filter kernel to use.  The default L is the value set by the user.
+X     * For VariableLength convolutions, L is scaled by the magnitude of the
+X     * vector.  The default speed is to use the maximum ``speed'' version of
+X     * the filter kernel.  For VariableSpeed convolutions, speed is scaled
+X     * by the magnitude of the vector.
+X     */
+X    L = LIC_Length(This);
+X    speed = LIC_INTEGRAL_SPEEDS - 1;
+X    if (This->VariableLength || This->VariableSpeed)
+X    {
+X	REGISTER double fx, fy, norm;
+X
+X	fx = INDEX_2D(This->InputField, i, j)[0];
+X	fy = INDEX_2D(This->InputField, i, j)[1];
+X	norm = sqrt(fx*fx + fy*fy) / This->MaxLength;
+X
+X	if (This->VariableLength)
+X	    L *= norm;
+X	if (This->VariableSpeed)
+X	    speed *= norm;
+X    }
+X
+X    /*
+X     * Establish filter kernel integral table to use based on direction and
+X     * speed.  Also determine index scaling for values of s, 0 <= s <= L,
+X     * into the table.  Note that the scaling is performed relative to L,
+X     * not LIC_Length(This).  Scaling relative to L means that the filter
+X     * is effectively dilated to match the convolution length even when
+X     * performing VariableLength convolution.
+X     */
+X    if (This->NeedIntegration)
+X	LIC_BuildIntegralTables(This);
+X    if (direction == LIC_FOREWARD)
+X	itab = &This->PosIntegralTable[speed][0];
+X    else
+X	itab = &This->NegIntegralTable[speed][0];
+X    is = (double)(LIC_INTEGRAL_LEN - 1) / L;
+X
+X    LoopCount = 0;
+X
+X#   ifdef DEBUG
+X	if (ThisPixel)
+X	    fprintf(ps, "0.0 0.0 moveto\n");
+X#   endif
+X
+X    /*
+X     * Only perform LIC if L is greater than zero.  Zero lengths
+X     * can result from bad user input or magnitude based lengths.
+X     */
+X    if (L > 0)
+X    {
+X	REGISTER int    fi, fj;		/* vector field index */
+X	REGISTER double x, y;		/* current cartesian location in the */
+X					/*   vector field */
+X
+X	fi = i;
+X	fj = j;
+X
+X	x =  i + 0.5;
+X	y = This->NormalField.Yres - j - 0.5;
+X
+X	wp = 0.0;
+X
+X	/* Loop until we reach the end of the line integral */
+X	do
+X	{
+X	    REGISTER double t;		/* distance to nearest cell edge */
+X	    REGISTER double fx, fy;	/* vector field values */
+X
+X	    /*
+X	     * Grab the current cell vector.
+X	     */
+X
+X	    /* Get the field value for this cell */
+X	    fx = INDEX_2D(This->NormalField, fi, fj)[0];
+X	    fy = INDEX_2D(This->NormalField, fi, fj)[1];
+X
+X	    /* Bail out if the vector field goes to zero */
+X	    if (fx == 0.0 && fy == 0.0)
+X		break;
+X
+X	    if (direction == LIC_BACKWARD)
+X	    {
+X		fx = -fx;
+X		fy = -fy;
+X	    }
+X
+X	    /*
+X	     * Compute the intersection with the next cell along the line
+X	     * of the vector field.
+X	     */
+X	    {
+X		REGISTER double tt;
+X#		define TT(v) \
+X		{ \
+X		    tt = (v); \
+X		    if (tt < t) \
+X			t = tt; \
+X		}
+X
+X		if (fx < -SIN_PARALLEL)
+X		    t = (FLOOR(x) - x) / fx;		/* left edge */
+X		else if (fx > SIN_PARALLEL)
+X		    t = (CEIL(x) - x) / fx;		/* right edge */
+X		else
+X		    t = HUGE_VAL;
+X
+X		if (fy < -SIN_PARALLEL)
+X		    TT((FLOOR(y) - y) / fy)		/* bottom edge */
+X		else if (fy > SIN_PARALLEL)
+X		    TT((CEIL(y) - y) / fy)		/* top edge */
+X
+X#		undef TT
+X	    }
+X
+X	    /* s and sp represent a monotonically moving convolution window */
+X	    s  = sp;
+X	    sp = sp + t;
+X	    t += ROUND_OFF;
+X
+X	    /* Make sure we don't exceed the kernel width */
+X	    if (sp > L)
+X	    {
+X		sp = L;
+X		t  =  sp - s;
+X	    }
+X
+X#	    ifdef DEBUG
+X		if (ThisPixel)
+X		    fprintf(ps, "%f %f rlineto\n", fx*t, fy*t);
+X#	    endif
+X
+X	    /*
+X	     * Grab the input pixel corresponding to the current cell and
+X	     * integrate its value over the convolution kernel from s to sp.
+X	     */
+X	    {
+X#		if (PixelSize >= 3)
+X		    double rV, gV, bV;
+X#		endif
+X#		if (PixelSize == 4 || PixelSize == 1)
+X		    double aV;
+X#		endif
+X		{
+X		    REGISTER int ii, ij;
+X
+X		    /* toriodally wrap input image coordinates */
+X		    ii = fi;
+X		    ij = fj;
+X		    WRAP(ii, This->InputImage.Xres);
+X		    WRAP(ij, This->InputImage.Yres);
+X
+X		    /* Get the input image value for this cell */
+X#		    if (PixelSize >= 3)
+X			rV = RED  (INDEX_2D(This->InputImage, ii, ij));
+X			gV = GREEN(INDEX_2D(This->InputImage, ii, ij));
+X			bV = BLUE (INDEX_2D(This->InputImage, ii, ij));
+X#		    endif
+X#		    if (PixelSize == 4 || PixelSize == 1)
+X			aV = ALPHA(INDEX_2D(This->InputImage, ii, ij));
+X#		    endif
+X		}
+X
+X		/* integrate over the convolution kernel between s and sp */
+X		{
+X		    double          wt;
+X		    REGISTER double dw;
+X
+X		    wt = itab[(int)(sp * is)];
+X		    dw = wt - wp;
+X		    wp = wt;
+X
+X#		    if (PixelSize >= 3)
+X			rSum  += (rV * dw);
+X			gSum  += (gV * dw);
+X			bSum  += (bV * dw);
+X#		    endif
+X#		    if (PixelSize == 4 || PixelSize == 1)
+X			aSum  += (aV * dw);
+X#		    endif
+X		}
+X	    }
+X
+X	    /*
+X	     * March to the next cell.
+X	     */
+X
+X	    LoopCount++;
+X
+X	    /* Compute the cell we just stepped into */
+X	    x = x + fx*t;
+X	    y = y + fy*t;
+X
+X	    /* break out of the loop if we step out of the field */
+X	    if (x < 0.0 || y < 0.0)
+X		    break;
+X
+X	    fi = IFLOOR(x);
+X	    fj = This->NormalField.Yres - ICEIL(y);
+X
+X	    /* Break out of the loop if we step out of the field */
+X	    if (   fi >= This->NormalField.Xres
+X		|| fj < 0)
+X		break;
+X
+X	    /*
+X	     * Loop until we reach the end or we think we've fallen into
+X	     * a singularity.
+X	     */
+X	} while (sp < L && LoopCount <= 3*L);
+X    }
+X
+X    if (LoopCount > 0 && L > 0)
+X    {
+X	*rIntegral = rSum;
+X	*gIntegral = gSum;
+X	*bIntegral = bSum;
+X	*aIntegral = aSum;
+X
+X	/* Compute an integration normalization factor as function of sp */
+X	*KernelArea = (This->NormalizationType == LIC_VARIABLE)
+X	    ? wp
+X	    : itab[LIC_INTEGRAL_LEN - 1];
+X    }
+X    else
+X    {
+X#	if (PixelSize >= 3)
+X	    *rIntegral = (This->DefaultRed == -1)
+X		? RED  (INDEX_2D(This->InputImage, i, j))
+X		: (double)This->DefaultRed;
+X	    *gIntegral = (This->DefaultGreen == -1)
+X		? GREEN(INDEX_2D(This->InputImage, i, j))
+X		: (double)This->DefaultGreen;
+X	    *bIntegral = (This->DefaultBlue == -1)
+X		? BLUE (INDEX_2D(This->InputImage, i, j))
+X		: (double)This->DefaultBlue;
+X#	else
+X	    *rIntegral = 0.0;
+X	    *gIntegral = 0.0;
+X	    *bIntegral = 0.0;
+X#	endif
+X#	if (PixelSize == 4 || PixelSize == 1)
+X	    *aIntegral = (This->DefaultAlpha == -1)
+X		? ALPHA(INDEX_2D(This->InputImage, i, j))
+X		: (double)This->DefaultAlpha;
+X#	else
+X	    *aIntegral = 0.0;
+X#	endif
+X
+X	*KernelArea = 1;
+X    }
+X
+X    /*
+X     * Random bookkeeping for performance monitoring.
+X     */
+X#   if (defined(PARALLEL))
+X	/*
+X	 * It isn't really worth the performance hit to do a critical
+X	 * section locking per pixel just to keep track of a few
+X	 * performance metrics that probably won't be used ...
+X	 */
+X#   else
+X	This->TotalLoopCount += LoopCount;
+X	This->TotalLength    += sp;
+X#   endif
+X}
+END_OF_FILE
+  if test 9921 -ne `wc -c <'lic.1.3/liblic/Convolve2D.c'`; then
+    echo shar: \"'lic.1.3/liblic/Convolve2D.c'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/liblic/Convolve2D.c'
+fi
+if test -f 'lic.1.3/liblic/Convolve3D.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/liblic/Convolve3D.c'\"
+else
+  echo shar: Extracting \"'lic.1.3/liblic/Convolve3D.c'\" \(10234 characters\)
+  sed "s/^X//" >'lic.1.3/liblic/Convolve3D.c' <<'END_OF_FILE'
+X/*
+X * $Header: /usr/local/src/lic/liblic/RCS/Convolve3D.c,v 1.7 1993/10/26 18:26:58 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+X    static char rcsid[] = "$Header: /usr/local/src/lic/liblic/RCS/Convolve3D.c,v 1.7 1993/10/26 18:26:58 casey Exp $";
+X    static char copyright[] =
+X	"Copyright (c) 1993 The Regents of the University of California.\n"
+X	"All rights reserved.\n";
+X#endif
+X
+X
+X#include "liblic.h"
+X
+X
+X/*
+X *	Three-dimensional Line Integral Convolution.
+X *	============================================
+X */
+X
+X
+Xvoid
+XLIC_Convolve3D(LIC      *This,
+X	       int       i,
+X	       int       j,
+X	       int       k,
+X	       int       direction,
+X	       double   *rIntegral,
+X	       double   *gIntegral,
+X	       double   *bIntegral,
+X	       double   *aIntegral,
+X	       double   *KernelArea)
+X    /*
+X     * Perform Line Integral Convolution on a three-dimensional vector field.
+X     */
+X{
+X    REGISTER double L;			/* pos/neg length of kernel */
+X    REGISTER double s, sp;		/* parametric distance along kernel */
+X    double          wp;			/* integral corresponding to sp */
+X    double          rSum, gSum,		/* integrated pixel values */
+X		    bSum, aSum;
+X    int             speed;		/* integral table speed index */
+X    double         *itab, is;		/* integral table and index scale */
+X    int             LoopCount;		/* main loop iteration count */
+X
+X    sp = 0.0;
+X
+X    rSum = 0.0;
+X    gSum = 0.0;
+X    bSum = 0.0;
+X    aSum = 0.0;
+X
+X    /*
+X     * Establish length, L, of convolution and which ``speed'' version of the
+X     * filter kernel to use.  The default L is the value set by the user.
+X     * For VariableLength convolutions, L is scaled by the magnitude of the
+X     * vector.  The default speed is to use the maximum ``speed'' version of
+X     * the filter kernel.  For VariableSpeed convolutions, speed is scaled
+X     * by the magnitude of the vector.
+X     */
+X    L = LIC_Length(This);
+X    speed = LIC_INTEGRAL_SPEEDS - 1;
+X    if (This->VariableLength || This->VariableSpeed)
+X    {
+X	REGISTER double fx, fy, fz, norm;
+X
+X	fx = INDEX_3D(This->InputField, i, j, k)[0];
+X	fy = INDEX_3D(This->InputField, i, j, k)[1];
+X	fz = INDEX_3D(This->InputField, i, j, k)[2];
+X	norm = sqrt(fx*fx + fy*fy + fz*fz) / This->MaxLength;
+X
+X	if (This->VariableLength)
+X	    L *= norm;
+X	if (This->VariableSpeed)
+X	    speed *= norm;
+X    }
+X
+X    /*
+X     * Establish filter kernel integral table to use based on direction and
+X     * speed.  Also determine index scaling for values of s, 0 <= s <= L,
+X     * into the table.  Note that the scaling is performed relative to L,
+X     * not LIC_Length(This).  Scaling relative to L means that the filter
+X     * is effectively dilated to match the convolution length even when
+X     * performing VariableLength convolution.
+X     */
+X    if (This->NeedIntegration)
+X	LIC_BuildIntegralTables(This);
+X    if (direction == LIC_FOREWARD)
+X	itab = &This->PosIntegralTable[speed][0];
+X    else
+X	itab = &This->NegIntegralTable[speed][0];
+X    is = (double)(LIC_INTEGRAL_LEN - 1) / L;
+X
+X    LoopCount = 0;
+X
+X    /*
+X     * Only perform LIC if L is greater than zero.  Zero lengths
+X     * can result from bad user input or magnitude based lengths.
+X     */
+X    if (L > 0)
+X    {
+X	REGISTER int    fi, fj, fk;	/* vector field indices */
+X	REGISTER double x, y, z;	/* current cartesian location in the */
+X					/*   vector field */
+X
+X	fi = i;
+X	fj = j;
+X	fk = k;
+X
+X	x = i + 0.5;
+X	y = This->NormalField.Yres - j - 0.5;
+X	z = k + 0.5;
+X
+X	wp = 0.0;
+X
+X	/* Loop until we reach the end of the line integral */
+X	do
+X	{
+X	    REGISTER double t;		/* distance to nearest cell face */
+X	    REGISTER double fx, fy, fz;	/* vector field values */
+X
+X	    /*
+X	     * Grab the current cell vector.
+X	     */
+X
+X	    /* Get the field value in This pixel */
+X	    fx = INDEX_3D(This->NormalField, fi, fj, fk)[0];
+X	    fy = INDEX_3D(This->NormalField, fi, fj, fk)[1];
+X	    fz = INDEX_3D(This->NormalField, fi, fj, fk)[2];
+X
+X	    /* bail out if the vector field goes to zero */
+X	    if (fx == 0.0 && fy == 0.0 && fz == 0.0)
+X		break;
+X
+X	    if (direction == LIC_BACKWARD)
+X	    {
+X		fx = -fx;
+X		fy = -fy;
+X		fz = -fz;
+X	    }
+X
+X	    /*
+X	     * Compute the intersection with the next cell along the line
+X	     * of the vector field.
+X	     */
+X	    {
+X		REGISTER double tt;
+X#		define TT(v) \
+X		{ \
+X		    tt = (v); \
+X		    if (tt < t) \
+X			t = tt; \
+X		}
+X
+X		if (fx < -SIN_PARALLEL)
+X		    t = (FLOOR(x) - x) / fx;		/* left face */
+X		else if (fx > SIN_PARALLEL)
+X		    t = (CEIL(x) - x) / fx;		/* right face */
+X		else
+X		    t = HUGE_VAL;
+X
+X		if (fy < -SIN_PARALLEL)
+X		    TT((FLOOR(y) - y) / fy)		/* bottom face */
+X		else if (fy > SIN_PARALLEL)
+X		    TT((CEIL(y) - y) / fy)		/* top face */
+X
+X		if (fz < -SIN_PARALLEL)
+X		    TT((FLOOR(z) - z) / fz)		/* front face */
+X		else if (fz > SIN_PARALLEL)
+X		    TT((CEIL(z) - z) / fz)		/* back face */
+X
+X#		undef TT
+X	    }
+X
+X	    /* s and sp represent a monotonically moving convolution window */
+X	    s  = sp;
+X	    sp = sp + t;
+X	    t += ROUND_OFF;
+X
+X	    /* Make sure we don't exceed the kernel width */
+X	    if (sp > L)
+X	    {
+X		sp = L;
+X		t  =  sp - s;
+X	    }
+X
+X	    /*
+X	     * Grab the input pixel corresponding to the current cell and
+X	     * integrate its value over the convolution kernel from s to sp.
+X	     */
+X	    {
+X#		if (PixelSize >= 3)
+X		    double rV, gV, bV;
+X#		endif
+X#		if (PixelSize == 4 || PixelSize == 1)
+X		    double aV;
+X#		endif
+X		{
+X		    REGISTER int ii, ij, ik;
+X
+X		    /* toriodally wrap input image coordinates */
+X		    ii = fi;
+X		    ij = fj;
+X		    ik = fk;
+X		    WRAP(ii, This->InputImage.Xres);
+X		    WRAP(ij, This->InputImage.Yres);
+X		    WRAP(ik, This->InputImage.Zres);
+X
+X		    /* Get the input image value for this cell */
+X#		    if (PixelSize >= 3)
+X			rV = RED  (INDEX_3D(This->InputImage, ii, ij, ik));
+X			gV = GREEN(INDEX_3D(This->InputImage, ii, ij, ik));
+X			bV = BLUE (INDEX_3D(This->InputImage, ii, ij, ik));
+X#		    endif
+X#		    if (PixelSize == 4 || PixelSize == 1)
+X			aV = ALPHA(INDEX_3D(This->InputImage, ii, ij, ik));
+X#		    endif
+X		}
+X
+X		/* integrate over the convolution kernel between s and sp */
+X		{
+X		    double          wt;
+X		    REGISTER double dw;
+X
+X		    wt = itab[(int)(sp * is)];
+X		    dw = wt - wp;
+X		    wp = wt;
+X
+X#		    if (PixelSize >= 3)
+X			rSum  += (rV * dw);
+X			gSum  += (gV * dw);
+X			bSum  += (bV * dw);
+X#		    endif
+X#		    if (PixelSize == 4 || PixelSize == 1)
+X			aSum  += (aV * dw);
+X#		    endif
+X		}
+X	    }
+X
+X	    /*
+X	     * March to the next cell.
+X	     */
+X
+X	    LoopCount++;
+X
+X	    /* Compute the cell we just stepped into */
+X	    x = x + fx*t;
+X	    y = y + fy*t;
+X	    z = z + fz*t;
+X
+X	    /* break out of the loop if we step out of the field */
+X	    if (x < 0.0 || y < 0.0 || z < 0.0)
+X		    break;
+X
+X	    fi = IFLOOR(x);
+X	    fj = This->NormalField.Yres - ICEIL(y);
+X	    fk = IFLOOR(z);
+X
+X	    /* break out of the loop if we step out of the field */
+X	    if (   fi >= This->NormalField.Xres
+X		|| fj < 0
+X		|| fk >= This->NormalField.Zres)
+X		break;
+X
+X	    /*
+X	     * Loop until we reach the end or we think we've fallen into
+X	     * a singularity.
+X	     */
+X	} while (sp < L && LoopCount <= 3*L);
+X    }
+X
+X    if (LoopCount > 0 && L > 0)
+X    {
+X	*rIntegral = rSum;
+X	*gIntegral = gSum;
+X	*bIntegral = bSum;
+X	*aIntegral = aSum;
+X
+X	/* Compute an integration normalization factor as function of sp */
+X	*KernelArea = (This->NormalizationType == LIC_VARIABLE)
+X	    ? wp
+X	    : itab[LIC_INTEGRAL_LEN - 1];
+X    }
+X    else
+X    {
+X#	if (PixelSize >= 3)
+X	    *rIntegral = (This->DefaultRed == -1)
+X		? RED  (INDEX_3D(This->InputImage, i, j, k))
+X		: (double)This->DefaultRed;
+X	    *gIntegral = (This->DefaultGreen == -1)
+X		? GREEN(INDEX_3D(This->InputImage, i, j, k))
+X		: (double)This->DefaultGreen;
+X	    *bIntegral = (This->DefaultBlue == -1)
+X		? BLUE (INDEX_3D(This->InputImage, i, j, k))
+X		: (double)This->DefaultBlue;
+X#	else
+X	    *rIntegral = 0.0;
+X	    *gIntegral = 0.0;
+X	    *bIntegral = 0.0;
+X#	endif
+X#	if (PixelSize == 4 || PixelSize == 1)
+X	    *aIntegral = (This->DefaultAlpha == -1)
+X		? ALPHA(INDEX_3D(This->InputImage, i, j, k))
+X		: (double)This->DefaultAlpha;
+X#	else
+X	    *aIntegral = 0.0;
+X#	endif
+X
+X	*KernelArea = 1;
+X    }
+X
+X    /*
+X     * Random bookkeeping for performance monitoring.
+X     */
+X#   if (defined(PARALLEL))
+X	/*
+X	 * It isn't really worth the performance hit to do a critical
+X	 * section locking per pixel just to keep track of a few
+X	 * performance metrics that probably won't be used ...
+X	 */
+X#   else
+X	This->TotalLoopCount += LoopCount;
+X	This->TotalLength    += sp;
+X#   endif
+X}
+END_OF_FILE
+  if test 10234 -ne `wc -c <'lic.1.3/liblic/Convolve3D.c'`; then
+    echo shar: \"'lic.1.3/liblic/Convolve3D.c'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/liblic/Convolve3D.c'
+fi
+if test -f 'lic.1.3/test/BasketWeave.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lic.1.3/test/BasketWeave.c'\"
+else
+  echo shar: Extracting \"'lic.1.3/test/BasketWeave.c'\" \(5417 characters\)
+  sed "s/^X//" >'lic.1.3/test/BasketWeave.c' <<'END_OF_FILE'
+X/*
+X * $Header: /usr/local/src/lic/test/RCS/BasketWeave.c,v 1.6 1993/11/04 02:24:20 casey Exp $
+X */
+X
+X/*
+X * Copyright (c) 1993 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Lawrence Livermore National Laboratory and its
+X *	contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X#ifndef lint
+X    static char rcsid[] = "$Header: /usr/local/src/lic/test/RCS/BasketWeave.c,v 1.6 1993/11/04 02:24:20 casey Exp $";
+X    static char copyright[] =
+X	"Copyright (c) 1993 The Regents of the University of California.\n"
+X	"All rights reserved.\n";
+X#endif
+X
+X
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <string.h>
+X#include <stdio.h>
+X
+X
+X/*
+X * Create a two-dimensional floating point vector field with horizontal and
+X * vertical vectors alternating in a checkerboard fashion.  Each checker
+X * will be surrounded by a border of zero vectors.  When rendered with
+X * Line Integral Convolution and white noise as input, this will generate
+X * a basket weave texture.
+X */
+X
+X
+X#ifdef NEED_STRERROR
+X    /*
+X     * strerror is supposed to be defined in <string.h> and supplied in the
+X     * standard C library according to the ANSI C X3.159-1989 specification,
+X     * but Sun OS 4.1.1 fails to define or supply it ...  Unfortunately the
+X     * only way we can control this is with an externally supplied define.
+X     */
+X    extern int      errno;		/* system error number */
+X    extern char     *sys_errlist[];	/* system error messages */
+X    extern int      sys_nerr;		/* number of entries in sys_errlist */
+X
+X    char *
+X    strerror(int err)
+X    {
+X	if (err < 0 || err >= sys_nerr) {
+X	    static char msg[100];
+X
+X	    sprintf(msg, "system error number %d", err);
+X	    return(msg);
+X	}
+X	return(sys_errlist[err]);
+X    }
+X#endif
+X
+X
+X#define HORIZONTAL   0			/* must == !VERTICAL */
+X#define VERTICAL     1			/* must == !HORIZONTAL */
+X
+X
+Xmain(int argc, char *argv[])
+X{
+X    char          *myname;
+X    char          *file;
+X    int            Xres, Yres, Xchecks, Ychecks;
+X    int            Xchecker, Ychecker;
+X    register int   Orientation;
+X    float         *VectorField;
+X    register float fx, fy;
+X    register int   i, j;
+X    int            fd, cc;
+X
+X    myname = argv[0];
+X    if (argc != 6)
+X    {
+X	(void)fprintf(stderr, "usage: %s file-name x-res y-res x-checks"
+X		      " y-checks\n", myname);
+X	exit(EXIT_FAILURE);
+X    }
+X
+X    /* grab arguments */
+X    file    = argv[1];
+X    Xres    = atoi(argv[2]);
+X    Yres    = atoi(argv[3]);
+X    Xchecks = atoi(argv[4]);
+X    Ychecks = atoi(argv[5]);
+X
+X    Xchecker = Xres / Xchecks;
+X    Ychecker = Yres / Ychecks;
+X
+X    VectorField = (float *)malloc(sizeof(float)*Yres*Xres*2);
+X    if (VectorField == NULL)
+X    {
+X	(void)fprintf(stderr, "%s: insufficient memory for creating the basket"
+X		      " weave\n", myname);
+X	exit(EXIT_FAILURE);
+X    }
+X
+X    Orientation = HORIZONTAL;
+X    for (j = 0; j < Yres; j++)
+X    {
+X	if ((j % Ychecker) == 0)
+X	    Orientation = !Orientation;
+X
+X	for (i = 0; i < Xres; i++)
+X	{
+X	    if ((i % Xchecker) == 0)
+X		Orientation = !Orientation;
+X
+X	    if ((i % Xchecker) == 0  || (j % Ychecker) == 0)
+X	    {
+X		fx = 0;
+X		fy = 0;
+X	    }
+X	    else
+X	    {
+X		fx = Orientation;
+X		fy = !Orientation;
+X	    }
+X	    VectorField[2*(j*Xres + i) + 0] = fx;
+X	    VectorField[2*(j*Xres + i) + 1] = fy;
+X	}
+X    }
+X
+X    fd = open(file, O_CREAT|O_TRUNC|O_WRONLY, 0666);
+X    if (fd < 0)
+X    {
+X	(void)fprintf(stderr, "%s: unable to open %s: %s\n", myname, file,
+X		      strerror(errno));
+X	exit(EXIT_FAILURE);
+X    }
+X
+X    cc = write(fd, VectorField, 2*sizeof(float)*Xres*Yres);
+X    if (cc != 2*sizeof(float)*Xres*Yres)
+X    {
+X	(void)fprintf(stderr, "%s: write returned short: %s\n", myname,
+X		      strerror(errno));
+X	(void)close(fd);
+X	exit(EXIT_FAILURE);
+X    }
+X    (void)close(fd);
+X    exit(EXIT_SUCCESS);
+X}
+END_OF_FILE
+  if test 5417 -ne `wc -c <'lic.1.3/test/BasketWeave.c'`; then
+    echo shar: \"'lic.1.3/test/BasketWeave.c'\" unpacked with wrong size!
+  fi
+  # end of 'lic.1.3/test/BasketWeave.c'
+fi
+echo shar: End of archive 6 \(of 9\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 9 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

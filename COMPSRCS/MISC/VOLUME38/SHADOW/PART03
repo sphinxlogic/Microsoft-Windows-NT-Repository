@@ -1,0 +1,2709 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i122:  shadow - Shadow Password Suite, v3.3, Part03/14
+Message-ID: <1993Aug14.192342.9192@sparky.sterling.com>
+X-Md4-Signature: c939780af8154b0e8793bf0a5d860361
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:23:42 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 122
+Archive-name: shadow/part03
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  chage.c passwd.c pwauth.c
+# Wrapped by kent@sparky on Sat Aug 14 14:11:39 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 14)."'
+if test -f 'chage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chage.c'\"
+else
+  echo shar: Extracting \"'chage.c'\" \(21736 characters\)
+  sed "s/^X//" >'chage.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X#include <ctype.h>
+X#include <time.h>
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)chage.c	3.12	08:07:05	19 Jul 1993";
+X#endif
+X
+X/*
+X * Set up some BSD defines so that all the BSD ifdef's are
+X * kept right here 
+X */
+X
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#define	bzero(a,n)	memset(a, 0, n)
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X
+X#include "config.h"
+X#include "pwd.h"
+X
+X/*
+X * chage depends on some form of aging being present.  It makes no sense
+X * to have a program that has no input.
+X */
+X
+X#ifdef	SHADOWPWD
+X#include "shadow.h"
+X#ifndef	AGING
+X#define	AGING
+X#endif	/* AGING */
+X#else	/* !SHADOWPWD */
+X#if !defined(ATT_AGE) && defined(AGING)
+X#undef	AGING
+X#endif	/* !ATT_AGE && AGING */
+X#endif	/* SHADOWPWD */
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN LOG_WARNING
+X#endif	/* !LOG_WARN */
+X#endif	/* USE_SYSLOG */
+X
+X#ifdef	AGING
+X
+X/*
+X * Global variables
+X */
+X
+Xchar	*Prog;
+Xlong	mindays;
+Xlong	maxdays;
+Xlong	lastday;
+X#ifdef	SHADOWPWD
+Xlong	warndays;
+Xlong	inactdays;
+Xlong	expdays;
+X#endif
+Xvoid	cleanup();
+X
+X/*
+X * External identifiers
+X */
+X
+Xextern	long	a64l();
+Xextern	char	*l64a();
+Xextern	int	pw_lock(), pw_open(),
+X		pw_unlock(), pw_close(),
+X		pw_update();
+Xextern	struct	passwd	*pw_locate();
+X#ifdef	SHADOWPWD
+Xextern	int	spw_lock(), spw_open(),
+X		spw_unlock(), spw_close(),
+X		spw_update();
+Xextern	struct	spwd	*spw_locate();
+X#endif
+Xextern	int	optind;
+Xextern	char	*optarg;
+Xextern	char	*getlogin ();
+X#ifdef	NDBM
+Xextern	int	pw_dbm_mode;
+X#ifdef	SHADOWPWD
+Xextern	int	sp_dbm_mode;
+X#endif
+X#endif
+X
+X/*
+X * Password aging constants
+X *
+X *	DAY - seconds in a day
+X *	WEEK - seconds in a week
+X *	SCALE - convert from clock to aging units
+X */
+X
+X#define	DAY	(24L*3600L)
+X#define	WEEK	(7*DAY)
+X
+X#ifdef	ITI_AGING
+X#define	SCALE	(1)
+X#else
+X#define	SCALE	(DAY)
+X#endif
+X
+X#if !defined(MDY_DATE) && !defined(DMY_DATE) && !defined(YMD_DATE)
+X#define	MDY_DATE	1
+X#endif
+X#if (defined (MDY_DATE) && (defined (DMY_DATE) || defined (YMD_DATE))) || \
+X    (defined (DMY_DATE) && (defined (MDY_DATE) || defined (YMD_DATE)))
+XError: You must only define one of MDY_DATE, DMY_DATE, or YMD_DATE
+X#endif
+X
+X/*
+X * days and juldays are used to compute the number of days in the
+X * current month, and the cummulative number of days in the preceding
+X * months.  they are declared so that january is 1, not 0.
+X */
+X
+Xstatic	short	days[13] = { 0,
+X	31,	28,	31,	30,	31,	30,	/* JAN - JUN */
+X	31,	31,	30,	31,	30,	31 };	/* JUL - DEC */
+X
+Xstatic	short	juldays[13] = { 0,
+X	0,	31,	59,	90,	120,	151,	/* JAN - JUN */
+X	181,	212,	243,	273,	304,	334 };	/* JUL - DEC */
+X
+X/*
+X * #defines for messages.  This facilitates foreign language conversion
+X * since all messages are defined right here.
+X */
+X
+X#ifdef	SHADOWPWD
+X#define	USAGE \
+X"Usage: %s [ -l ] [ -m min_days ] [ -M max_days ] [ -W warn ]\n\
+X       [ -I inactive ] [ -E expire ] [ -d last_day ] user\n"
+X#else
+X#define	USAGE \
+X"Usage: %s [ -l ] [ -m min_days ] [ -M max_days ] [ -d last_day ] user\n"
+X#endif
+X#define	DBMERROR	"Error updating the DBM password entry.\n"
+X#define	UNK_USER	"%s: unknown user: %s\n"
+X#define	NO_LFLAG	"%s: do no include \"l\" with other flags\n"
+X#define	NO_PERM		"%s: permission denied\n"
+X#define	NO_PWLOCK	"%s: can't lock password file\n"
+X#define	NO_PWOPEN	"%s: can't open password file\n"
+X#define	CHANGE_INFO	"Changing the aging information for %s\n"
+X#define	AGE_CHANGED	"changed password expiry for %s\n"
+X#define	FIELD_ERR	"%s: error changing fields\n"
+X#define	NO_PWUPDATE	"%s: can't update password file\n"
+X#define	NO_PWCLOSE	"%s: can't rewrite password file\n"
+X#define	LOCK_FAIL	"failed locking %s\n"
+X#define	OPEN_FAIL	"failed opening %s\n"
+X#define	WRITE_FAIL	"failed updating %s\n"
+X#define	CLOSE_FAIL	"failed rewriting %s\n"
+X#ifdef	MDY_DATE
+X#define	LAST_CHG	"Last Password Change (MM/DD/YY)"
+X#ifdef	SHADOWPWD
+X#define	ACCT_EXP	"Account Expiration Date (MM/DD/YY)"
+X#endif
+X#define	EPOCH		"12/31/69"
+X#endif
+X#ifdef	DMY_DATE
+X#define	LAST_CHG	"Last Password Change (DD/MM/YY)"
+X#ifdef	SHADOWPWD
+X#define	ACCT_EXP	"Account Expiration Date (DD/MM/YY)"
+X#endif
+X#define	EPOCH		"31/12/69"
+X#endif
+X#ifdef	YMD_DATE
+X#define	LAST_CHG	"Last Password Change (YY/MM/DD)"
+X#ifdef	SHADOWPWD
+X#define	ACCT_EXP	"Account Expiration Date (YY/MM/DD)"
+X#endif
+X#define	EPOCH		"69/12/31"
+X#endif
+X#ifdef	SHADOWPWD
+X#define	DBMERROR2	"error updating DBM shadow entry.\n"
+X#define	NO_SPLOCK	"%s: can't lock shadow password file\n"
+X#define	NO_SPOPEN	"%s: can't open shadow password file\n"
+X#define	NO_SPUPDATE	"%s: can't update shadow password file\n"
+X#define	NO_SPCLOSE	"%s: can't rewrite shadow password file\n"
+X#else
+X#define	DBMERROR2	"error updating DBM passwd entry.\n"
+X#endif
+X
+X/*
+X * usage - print command line syntax and exit
+X */
+X
+Xvoid
+Xusage ()
+X{
+X	fprintf (stderr, USAGE, Prog);
+X	exit (1);
+X}
+X
+X/*
+X * strtoday - compute the number of days since 1970.
+X *
+X * the total number of days prior to the current date is
+X * computed.  january 1, 1970 is used as the origin with
+X * it having a day number of 0.  the gmtime() routine is
+X * used to prevent confusion regarding time zones.
+X */
+X
+Xlong
+Xstrtoday (str)
+Xchar	*str;
+X{
+X	char	slop[2];
+X	int	month;
+X	int	day;
+X	int	year;
+X	long	total;
+X
+X	/*
+X	 * start by separating the month, day and year.  the order
+X	 * is compiled in ...
+X	 */
+X
+X#ifdef	MDY_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &month, &day, &year, slop) != 3)
+X		return -1;
+X#endif
+X#ifdef	DMY_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &day, &month, &year, slop) != 3)
+X		return -1;
+X#endif
+X#ifdef	YMD_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &year, &month, &day, slop) != 3)
+X		return -1;
+X#endif
+X
+X	/*
+X	 * the month, day of the month, and year are checked for
+X	 * correctness and the year adjusted so it falls between
+X	 * 1970 and 2069.
+X	 */
+X
+X	if (month < 1 || month > 12)
+X		return -1;
+X
+X	if (day < 1)
+X		return -1;
+X
+X	if ((month != 2 || (year % 4) != 0) && day > days[month])
+X		return -1;
+X	else if ((month == 2 && (year % 4) == 0) && day > 29)
+X		return -1;
+X
+X	if (year < 0)
+X		return -1;
+X	else if (year < 69)
+X		year += 2000;
+X	else if (year < 99)
+X		year += 1900;
+X
+X	if (year < 1970 || year > 2069)
+X		return -1;
+X
+X	/*
+X	 * the total number of days is the total number of days in all
+X	 * the whole years, plus the number of leap days, plus the
+X	 * number of days in the whole months preceding, plus the number
+X	 * of days so far in the month.
+X	 */
+X
+X	total = ((year - 1970) * 365) + (((year + 1) - 1970) / 4);
+X	total += juldays[month] + (month > 2 && (year % 4) == 0 ? 1:0);
+X	total += day - 1;
+X
+X	return total;
+X}
+X
+X/*
+X * new_fields - change the user's password aging information interactively.
+X *
+X * prompt the user for all of the password age values.  set the fields
+X * from the user's response, or leave alone if nothing was entered.  the
+X * value (-1) is used to indicate the field should be removed if possible.
+X * any other negative value is an error.  very large positive values will
+X * be handled elsewhere.
+X */
+X
+Xint
+Xnew_fields ()
+X{
+X	char	buf[BUFSIZ];
+X	char	*cp;
+X	long	value;
+X	struct	tm	*tp;
+X
+X	printf ("Enter the new value, or press return for the default\n\n");
+X
+X	sprintf (buf, "%ld", mindays);
+X	change_field (buf, "Minimum Password Age");
+X	if (((mindays = strtol (buf, &cp, 10)) == 0 && *cp) || mindays < -1)
+X		return 0;
+X
+X	sprintf (buf, "%ld", maxdays);
+X	change_field (buf, "Maximum Password Age");
+X	if (((maxdays = strtol (buf, &cp, 10)) == 0 && *cp) || maxdays < -1)
+X		return 0;
+X
+X	value = lastday * SCALE;
+X	tp = gmtime (&value);
+X	sprintf (buf, "%02d/%02d/%02d",
+X#ifdef	MDY_DATE
+X		tp->tm_mon + 1, tp->tm_mday, tp->tm_year
+X#endif
+X#ifdef	DMY_DATE
+X		tp->tm_mday, tp->tm_mon + 1, tp->tm_year
+X#endif
+X#ifdef	YMD_DATE
+X		tp->tm_year, tp->tm_mon + 1, tp->tm_mday
+X#endif
+X		);
+X
+X	change_field (buf, LAST_CHG);
+X	if (strcmp (buf, EPOCH) == 0)
+X		lastday = -1;
+X	else if ((lastday = strtoday (buf)) == -1)
+X		return 0;
+X
+X#ifdef	SHADOWPWD
+X	sprintf (buf, "%ld", warndays);
+X	change_field (buf, "Password Expiration Warning");
+X	if (((warndays = strtol (buf, &cp, 10)) == 0 && *cp) || warndays < -1)
+X		return 0;
+X
+X	sprintf (buf, "%ld", inactdays);
+X	change_field (buf, "Password Inactive");
+X	if (((inactdays = strtol (buf, &cp, 10)) == 0 && *cp) || inactdays < -1)
+X		return 0;
+X
+X	value = expdays * SCALE;
+X	tp = gmtime (&value);
+X	sprintf (buf, "%02d/%02d/%02d",
+X#ifdef	MDY_DATE
+X		tp->tm_mon + 1, tp->tm_mday, tp->tm_year
+X#endif
+X#ifdef	DMY_DATE
+X		tp->tm_mday, tp->tm_mon + 1, tp->tm_year
+X#endif
+X#ifdef	YMD_DATE
+X		tp->tm_year, tp->tm_mon + 1, tp->tm_mday
+X#endif
+X		);
+X
+X	change_field (buf, ACCT_EXP);
+X	if (strcmp (buf, EPOCH) == 0)
+X		expdays = -1;
+X	else if ((expdays = strtoday (buf)) == -1)
+X		return 0;
+X#endif	/* SHADOWPWD */
+X
+X	return 1;
+X}
+X
+X/*
+X * list_fields - display the current values of the expiration fields
+X *
+X * display the password age information from the password fields.  date
+X * values will be displayed as a calendar date, or the word "Never" if
+X * the date is 1/1/70, which is day number 0.
+X */
+X
+Xvoid
+Xlist_fields ()
+X{
+X	struct	tm	*tp;
+X	char	*cp;
+X	long	changed;
+X	long	expires;
+X
+X	/*
+X	 * Start with the easy numbers - the number of days before the
+X	 * password can be changed, the number of days after which the
+X	 * password must be chaged, the number of days before the
+X	 * password expires that the user is told, and the number of
+X	 * days after the password expires that the account becomes
+X	 * unusable.
+X	 */
+X
+X	printf ("Minimum:\t%d\n", mindays);
+X	printf ("Maximum:\t%d\n", maxdays);
+X#ifdef	SHADOWPWD
+X	printf ("Warning:\t%d\n", warndays);
+X	printf ("Inactive:\t%d\n", inactdays);
+X#endif
+X
+X	/*
+X	 * The "last change" date is either "Never" or the date the
+X	 * password was last modified.  The date is the number of
+X	 * days since 1/1/1970.
+X	 */
+X
+X	printf ("Last Change:\t\t");
+X	if (lastday <= 0) {
+X		printf ("Never\n");
+X	} else {
+X		changed = lastday * SCALE;
+X		tp = gmtime (&changed);
+X		cp = asctime (tp);
+X		printf ("%6.6s, %4.4s\n", cp + 4, cp + 20);
+X	}
+X
+X	/*
+X	 * The password expiration date is determined from the last
+X	 * change date plus the number of days the password is valid
+X	 * for.
+X	 */
+X
+X	printf ("Password Expires:\t");
+X	if (lastday <= 0 || maxdays >= 10000*(DAY/SCALE) || maxdays <= 0) {
+X		printf ("Never\n");
+X	} else {
+X		expires = changed + maxdays * SCALE;
+X		tp = gmtime (&expires);
+X		cp = asctime (tp);
+X		printf ("%6.6s, %4.4s\n", cp + 4, cp + 20);
+X	}
+X
+X#ifdef	SHADOWPWD
+X	/*
+X	 * The account becomes inactive if the password is expired
+X	 * for more than "inactdays".  The expiration date is calculated
+X	 * and the number of inactive days is added.  The resulting date
+X	 * is when the active will be disabled.
+X	 */
+X
+X	printf ("Password Inactive:\t");
+X	if (lastday <= 0 || inactdays <= 0 ||
+X			maxdays >= 10000*(DAY/SCALE) || maxdays <= 0) {
+X		printf ("Never\n");
+X	} else {
+X		expires = changed + (maxdays + inactdays) * SCALE;
+X		tp = gmtime (&expires);
+X		cp = asctime (tp);
+X		printf ("%6.6s, %4.4s\n", cp + 4, cp + 20);
+X	}
+X
+X	/*
+X	 * The account will expire on the given date regardless of the
+X	 * password expiring or not.
+X	 */
+X
+X	printf ("Account Expires:\t");
+X	if (expdays <= 0) {
+X		printf ("Never\n");
+X	} else {
+X		expires = expdays * SCALE;
+X		tp = gmtime (&expires);
+X		cp = asctime (tp);
+X		printf ("%6.6s, %4.4s\n", cp + 4, cp + 20);
+X	}
+X#endif
+X}
+X
+X/*
+X * chage - change a user's password aging information
+X *
+X *	This command controls the password aging information.
+X *
+X *	The valid options are
+X *
+X *	-m	minimum number of days before password change (*)
+X *	-M	maximim number of days before password change (*)
+X *	-d	last password change date (*)
+X *	-l	password aging information
+X *	-W	expiration warning days (*)
+X *	-I	password inactive after expiration (*)
+X *	-E	account expiration date (*)
+X *
+X *	(*) requires root permission to execute.
+X *
+X *	All of the time fields are entered in the internal format
+X *	which is either seconds or days.
+X *
+X *	The options -W, -I and -E all depend on the SHADOWPWD
+X *	macro being defined.
+X */
+X
+Xint
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	int	flag;
+X	int	lflg = 0;
+X	int	mflg = 0;
+X	int	Mflg = 0;
+X	int	dflg = 0;
+X#ifdef	SHADOWPWD
+X	int	Wflg = 0;
+X	int	Iflg = 0;
+X	int	Eflg = 0;
+X	struct	spwd	*sp;
+X	struct	spwd	spwd;
+X#else
+X	char	new_age[5];
+X#endif
+X	int	ruid = getuid ();
+X	struct	passwd	*pw;
+X	struct	passwd	pwent;
+X	char	name[BUFSIZ];
+X
+X	/*
+X	 * Get the program name so that error messages can use it.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X#ifdef	NDBM
+X#ifdef	SHADOWPWD
+X	sp_dbm_mode = O_RDWR;
+X#endif
+X	pw_dbm_mode = O_RDWR;
+X#endif
+X
+X	/*
+X	 * Parse the flags.  The difference between password file
+X	 * formats includes the number of fields, and whether the
+X	 * dates are entered as days or weeks.  Shadow password
+X	 * file info =must= be entered in days, while regular
+X	 * password file info =must= be entered in weeks.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	while ((flag = getopt (argc, argv, "lm:M:W:I:E:d:")) != EOF)
+X#else
+X	while ((flag = getopt (argc, argv, "lm:M:d:")) != EOF)
+X#endif
+X	{
+X		switch (flag) {
+X			case 'l':
+X				lflg++;
+X				break;
+X			case 'm':
+X				mflg++;
+X				mindays = strtol (optarg, 0, 10);
+X				break;
+X			case 'M':
+X				Mflg++;
+X				maxdays = strtol (optarg, 0, 10);
+X				break;
+X			case 'd':
+X				dflg++;
+X				if (strchr (optarg, '/'))
+X					lastday = strtoday (optarg);
+X				else
+X					lastday = strtol (optarg, 0, 10);
+X				break;
+X#ifdef	SHADOWPWD
+X			case 'W':
+X				Wflg++;
+X				warndays = strtol (optarg, 0, 10);
+X				break;
+X			case 'I':
+X				Iflg++;
+X				inactdays = strtol (optarg, 0, 10);
+X				break;
+X			case 'E':
+X				Eflg++;
+X				if (strchr (optarg, '/'))
+X					expdays = strtoday (optarg);
+X				else
+X					expdays = strtol (optarg, 0, 10);
+X				break;
+X#endif
+X			default:
+X				usage ();
+X		}
+X	}
+X
+X	/*
+X	 * Make certain the flags do not conflict and that there is
+X	 * a user name on the command line.
+X	 */
+X
+X	if (argc != optind + 1)
+X		usage ();
+X
+X#ifdef	SHADOWPWD
+X	if (lflg && (mflg || Mflg || dflg || Wflg || Iflg || Eflg))
+X#else
+X	if (lflg && (mflg || Mflg || dflg))
+X#endif
+X	{
+X		fprintf (stderr, NO_LFLAG, Prog);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		usage ();
+X	}
+X
+X	/*
+X	 * An unprivileged user can ask for their own aging information,
+X	 * but only root can change it, or list another user's aging
+X	 * information.
+X	 */
+X
+X	if (ruid != 0 && ! lflg) {
+X		fprintf (stderr, NO_PERM, Prog);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Lock and open the password file.  This loads all of the
+X	 * password file entries into memory.  Then we get a pointer
+X	 * to the password file entry for the requested user.
+X	 */
+X
+X	if (! pw_lock ()) {
+X		fprintf (stderr, NO_PWLOCK, Prog);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, LOCK_FAIL, "/etc/passwd");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	if (! pw_open (ruid != 0 || lflg ? O_RDONLY:O_RDWR)) {
+X		fprintf (stderr, NO_PWOPEN, Prog);
+X		cleanup (1);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, OPEN_FAIL, "/etc/passwd");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	if (! (pw = pw_locate (argv[optind]))) {
+X		fprintf (stderr, UNK_USER, Prog, argv[optind]);
+X		cleanup (1);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X
+X#ifdef	SHADOWPWD
+X	/*
+X	 * For shadow password files we have to lock the file and
+X	 * read in the entries as was done for the password file.
+X	 * The user entries does not have to exist in this case;
+X	 * a new entry will be created for this user if one does
+X	 * not exist already.
+X	 */
+X
+X	if (! spw_lock ()) {
+X		fprintf (stderr, NO_SPLOCK, Prog);
+X		cleanup (1);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, LOCK_FAIL, "/etc/shadow");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	if (! spw_open ((ruid != 0 || lflg) ? O_RDONLY:O_RDWR)) {
+X		fprintf (stderr, NO_SPOPEN, Prog);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, OPEN_FAIL, "/etc/shadow");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	if (sp = spw_locate (argv[optind]))
+X		spwd = *sp;
+X#endif	/* SHADOWPWD */
+X
+X	strcpy (name, pw->pw_name);
+X	pwent = *pw;
+X
+X	/*
+X	 * Set the fields that aren't being set from the command line
+X	 * from the password file.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (sp) {
+X		if (! Mflg)
+X			maxdays = spwd.sp_max;
+X		if (! mflg)
+X			mindays = spwd.sp_min;
+X		if (! dflg)
+X			lastday = spwd.sp_lstchg;
+X		if (! Wflg)
+X			warndays = spwd.sp_warn;
+X		if (! Iflg)
+X			inactdays = spwd.sp_inact;
+X		if (! Eflg)
+X			expdays = spwd.sp_expire;
+X	}
+X#ifdef	ATT_AGE
+X	else
+X#endif	/* ATT_AGE */
+X#endif	/* SHADOWPWD */
+X#ifdef	ATT_AGE
+X	{
+X		if (pwent.pw_age && strlen (pwent.pw_age) >= 2) {
+X			if (! Mflg)
+X				maxdays = c64i (pwent.pw_age[0]) * (WEEK/SCALE);
+X			if (! mflg)
+X				mindays = c64i (pwent.pw_age[1]) * (WEEK/SCALE);
+X			if (! dflg && strlen (pwent.pw_age) == 4)
+X				lastday = a64l (pwent.pw_age+2) * (WEEK/SCALE);
+X		} else {
+X			mindays = 0;
+X			maxdays = 10000L * (DAY/SCALE);
+X			lastday = -1;
+X		}
+X#ifdef	SHADOWPWD
+X		warndays = inactdays = expdays = -1;
+X#endif	/* SHADOWPWD */
+X	}
+X#endif	/* ATT_AGE */
+X
+X	/*
+X	 * Print out the expiration fields if the user has
+X	 * requested the list option.
+X	 */
+X
+X	if (lflg) {
+X		if (ruid != 0 && ruid != pw->pw_uid) {
+X			fprintf (stderr, NO_PERM, Prog);
+X#ifdef	USE_SYSLOG
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X		list_fields ();
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (0);
+X	}
+X
+X	/*
+X	 * If none of the fields were changed from the command line,
+X	 * let the user interactively change them.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (! mflg && ! Mflg && ! dflg && ! Wflg && ! Iflg && ! Eflg)
+X#else
+X	if (! mflg && ! Mflg && ! dflg)
+X#endif
+X	{
+X		printf (CHANGE_INFO, name);
+X		if (! new_fields ()) {
+X			fprintf (stderr, FIELD_ERR, Prog);
+X			cleanup (2);
+X#ifdef	USE_SYSLOG
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X	}
+X
+X#ifdef	SHADOWPWD
+X	/*
+X	 * There was no shadow entry.  The new entry will have the
+X	 * encrypted password transferred from the normal password
+X	 * file along with the aging information.
+X	 */
+X
+X	if (sp == 0) {
+X		sp = &spwd;
+X		bzero (&spwd, sizeof spwd);
+X
+X		sp->sp_namp = strdup (pw->pw_name);
+X		sp->sp_pwdp = strdup (pw->pw_passwd);
+X		sp->sp_flag = -1;
+X
+X		pwent.pw_passwd = "!";
+X#ifdef	ATT_AGE
+X		pwent.pw_age = "";
+X#endif
+X		if (! pw_update (&pwent)) {
+X			fprintf (stderr, NO_PWUPDATE, Prog);
+X			cleanup (2);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, WRITE_FAIL, "/etc/passwd");
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X#if defined(DBM) || defined(NDBM)
+X		(void) pw_dbm_update (&pwent);
+X		endpwent ();
+X#endif
+X	}
+X#endif	/* SHADOWPWD */
+X
+X#ifdef	SHADOWPWD
+X
+X	/*
+X	 * Copy the fields back to the shadow file entry and
+X	 * write the modified entry back to the shadow file.
+X	 * Closing the shadow and password files will commit
+X	 * any changes that have been made.
+X	 */
+X
+X	sp->sp_max = maxdays;
+X	sp->sp_min = mindays;
+X	sp->sp_lstchg = lastday;
+X	sp->sp_warn = warndays;
+X	sp->sp_inact = inactdays;
+X	sp->sp_expire = expdays;
+X
+X	if (! spw_update (sp)) {
+X		fprintf (stderr, NO_SPUPDATE, Prog);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, WRITE_FAIL, "/etc/shadow");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#else	/* !SHADOWPWD */
+X
+X	/*
+X	 * fill in the new_age string with the new values
+X	 */
+X
+X	if (maxdays > (63 * 7) && mindays == 0) {
+X		new_age[0] = '\0';
+X	} else {
+X		if (maxdays > (63 * 7))
+X			maxdays = 63 * 7;
+X
+X		if (mindays > (63 * 7))
+X			mindays = 63 * 7;
+X
+X		new_age[0] = i64c (maxdays / 7);
+X		new_age[1] = i64c ((mindays + 6) / 7);
+X
+X		if (lastday == 0)
+X			new_age[2] = '\0';
+X		else
+X			strcpy (new_age + 2, l64a (lastday / 7));
+X
+X	}
+X	pw->pw_age = new_age;
+X
+X	if (! pw_update (pw)) {
+X		fprintf (stderr, NO_PWUPDATE, Prog);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, WRITE_FAIL, "/etc/passwd");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#endif	/* SHADOWPWD */
+X
+X#ifdef	NDBM
+X#ifdef	SHADOWPWD
+X
+X	/*
+X	 * See if the shadow DBM file exists and try to update it.
+X	 */
+X
+X	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_update (sp)) {
+X		fprintf (stderr, DBMERROR);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, DBMERROR2);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	endspent ();
+X
+X#else	/* !SHADOWPWD */
+X
+X	/*
+X	 * See if the password DBM file exists and try to update it.
+X	 */
+X
+X	if (access ("/etc/passwd.pag", 0) == 0 && ! pw_dbm_update (pw)) {
+X		fprintf (stderr, DBMERROR);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, DBMERROR2);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	endpwent ();
+X#endif	/* SHADOWPWD */
+X#endif	/* NDBM */
+X
+X#ifdef	SHADOWPWD
+X	/*
+X	 * Now close the shadow password file, which will cause all
+X	 * of the entries to be re-written.
+X	 */
+X
+X	if (! spw_close ()) {
+X		fprintf (stderr, NO_SPCLOSE, Prog);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, CLOSE_FAIL, "/etc/shadow");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#endif	/* SHADOWPWD */
+X
+X	/*
+X	 * Close the password file.  If any entries were modified, the
+X	 * file will be re-written.
+X	 */
+X
+X	if (! pw_close ()) {
+X		fprintf (stderr, NO_PWCLOSE, Prog);
+X		cleanup (2);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, CLOSE_FAIL, "/etc/passwd");
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	cleanup (2);
+X#ifdef	USE_SYSLOG
+X	syslog (LOG_INFO, AGE_CHANGED, name);
+X	closelog ();
+X#endif
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * cleanup - unlock any locked password files
+X */
+X
+Xvoid
+Xcleanup (state)
+Xint	state;
+X{
+X	switch (state) {
+X		case 2:
+X#ifdef	SHADOWPWD
+X			spw_unlock ();
+X#endif
+X		case 1:
+X			pw_unlock ();
+X		case 0:
+X			break;
+X	}
+X}
+X
+X#else	/* !AGING */
+X
+X/*
+X * chage - but there is no age info!
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X	fprintf (stderr, "%s: no aging information present\n", Prog);
+X	exit (1);
+X}
+X
+X#endif	/* AGING */
+END_OF_FILE
+  if test 21736 -ne `wc -c <'chage.c'`; then
+    echo shar: \"'chage.c'\" unpacked with wrong size!
+  fi
+  # end of 'chage.c'
+fi
+if test -f 'passwd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'passwd.c'\"
+else
+  echo shar: Extracting \"'passwd.c'\" \(27325 characters\)
+  sed "s/^X//" >'passwd.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1989, 1990, 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#include "config.h"
+X#include <sys/types.h>
+X#include <time.h>
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)passwd.c	3.11	08:57:44	10 Jun 1993";
+X#endif
+X
+X/*
+X * Set up some BSD defines so that all the BSD ifdef's are
+X * kept right here 
+X */
+X
+X#ifndef	BSD
+X#include <string.h>
+X#include <memory.h>
+X#define	bzero(a,n)	memset(a, 0, n)
+X#else
+X#include <strings.h>
+X#define	strchr	index
+X#define	strrchr	rindex
+X#endif
+X
+X#ifdef	STDLIB_H
+X#include <stdlib.h>
+X#endif
+X#ifdef	UNISTD_H
+X#include <unistd.h>
+X#endif
+X#ifdef	ULIMIT_H
+X#include <ulimit.h>
+X#endif
+X
+X#ifndef UL_SFILLIM
+X#define UL_SFILLIM	2
+X#endif
+X
+X#include "pwd.h"
+X#include "lastlog.h"
+X#ifdef	SHADOWPWD
+X#include "shadow.h"
+X#ifndef	AGING
+X#define	AGING	0
+X#endif
+X#endif
+X#include "pwauth.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN	LOG_WARNING
+X#endif
+X#endif
+X#ifdef	HAVE_RLIMIT
+X#include <sys/resource.h>
+X
+Xstruct	rlimit	rlimit_fsize = { RLIM_INFINITY, RLIM_INFINITY };
+X#endif
+X
+X#ifdef	AGING
+X
+X/*
+X * Password aging constants
+X *
+X *	DAY - seconds in a day
+X *	WEEK - seconds in a week
+X *	SCALE - convert from clock to aging units
+X */
+X
+X#ifndef	DAY
+X#define	DAY	(24L*3600L)
+X#endif
+X#define	WEEK	(7L*DAY)
+X
+X#ifdef	ITI_AGING
+X#define	SCALE	(1)
+X#else
+X#define	SCALE	DAY
+X#endif
+X#endif
+X
+X/*
+X * Global variables
+X */
+X
+Xchar	name[32];		/* The user's name */
+Xchar	crypt_passwd[32];	/* The "old-style" password, if present */
+Xchar	*Prog;			/* Program name */
+Xint	amroot;			/* The real UID was 0 */
+X
+X/*
+X * External identifiers
+X */
+X
+Xextern	char	*getpass();
+Xextern	char	*pw_encrypt();
+Xextern	int	pw_auth();
+Xextern	char	*getlogin();
+Xextern	char	l64a();
+Xextern	int	optind;		/* Index into argv[] for current option */
+Xextern	char	*optarg;	/* Pointer to current option value */
+X#ifdef	NDBM
+Xextern	int	sp_dbm_mode;
+Xextern	int	pw_dbm_mode;
+X#endif
+X
+X/*
+X * #defines for messages.  This facilities foreign language conversion
+X * since all messages are defined right here.
+X */
+X
+X#define	USAGE		"usage: %s [ -f | -s ] [ name ]\n"
+X#define	ADMUSAGE \
+X	"       %s [ -x max ] [ -n min ] [ -w warn ] [ -i inact ] name\n"
+X#define	ADMUSAGE2 \
+X	"       %s { -l | -d | -S } name\n"
+X#define	OLDPASS		"Old Password:"
+X#define	NEWPASSMSG \
+X"Enter the new password (minimum of %d characters)\n\
+XPlease use a combination of upper and lower case letters and numbers.\n"
+X#define	CHANGING	"Changing password for %s\n"
+X#define NEWPASS		"New Password:"
+X#define	NEWPASS2	"Re-enter new password:"
+X#define	WRONGPWD	"Incorrect password for %s.\n"
+X#define	WRONGPWD2	"incorrect password for `%s'\n"
+X#define	NOMATCH		"They don't match; try again.\n"
+X#define	CANTCHANGE	"The password for %s cannot be changed.\n"
+X#define	CANTCHANGE2	"password locked for `%s'\n"
+X
+X#ifdef	AGING
+X#define	TOOSOON		"Sorry, the password for %s cannot be changed yet.\n"
+X#define	TOOSOON2	"now < sp_min for `%s'\n"
+X#endif
+X
+X#define	EXECFAILED	"%s: Cannot execute %s"
+X#define	EXECFAILED2	"cannot execute %s\n"
+X#define	WHOAREYOU	"%s: Cannot determine you user name.\n"
+X#define	UNKUSER		"%s: Unknown user %s\n"
+X#define	NOPERM		"You may not change the password for %s.\n"
+X#define	NOPERM2		"can't change pwd for `%s'\n"
+X#define	UNCHANGED	"The password for %s is unchanged.\n"
+X
+X#ifdef	SHADOWPWD
+X#define	SPWDBUSY	"Cannot lock the password file; try again later.\n"
+X#define	SPWDBUSY2	"can't lock /etc/shadow\n"
+X#define	OPNERROR	"Cannot open the password file.\n"
+X#define	OPNERROR2	"can't open /etc/shadow\n"
+X#define	UPDERROR	"Error updating the password entry.\n"
+X#define	UPDERROR2	"error updating shadow entry\n"
+X#define	DBMERROR	"Error updating the DBM password entry.\n"
+X#define	DBMERROR2	"error updating DBM shadow entry.\n"
+X#define	CLSERROR	"Cannot commit shadow file changes.\n"
+X#define	CLSERROR2	"can't rewrite /etc/shadow.\n"
+X#define	UNLKERROR	"Cannot unlock the shadow file.\n"
+X#define	UNLKERROR2	"can't unlock /etc/shadow.\n"
+X#else
+X#define	PWDBUSY		"Cannot lock the password file; try again later.\n"
+X#define	PWDBUSY2	"can't lock /etc/passwd\n"
+X#define	OPNERROR	"Cannot open the password file.\n"
+X#define	OPNERROR2	"can't open /etc/passwd\n"
+X#define	UPDERROR	"Error updating the password entry.\n"
+X#define	UPDERROR2	"error updating password entry\n"
+X#define	DBMERROR	"Error updating the DBM password entry.\n"
+X#define	DBMERROR2	"error updating DBM password entry.\n"
+X#define	CLSERROR	"Cannot commit password file changes.\n"
+X#define	CLSERROR2	"can't rewrite /etc/passwd.\n"
+X#define	UNLKERROR	"Cannot unlock the password file.\n"
+X#define	UNLKERROR2	"can't unlock /etc/passwd.\n"
+X#endif
+X
+X#define	NOTROOT		"Cannot change ID to root.\n"
+X#define	NOTROOT2	"can't setuid(0).\n"
+X#define	TRYAGAIN	"Try again.\n"
+X#define	CHGPASSWD	"changed password for `%s'\n"
+X#define	NOCHGPASSWD	"did not change password for `%s'\n"
+X
+X/*
+X * usage - print command usage and exit
+X */
+X
+Xvoid
+Xusage ()
+X{
+X	fprintf (stderr, USAGE, Prog);
+X	if (amroot) {
+X		fprintf (stderr, ADMUSAGE, Prog);
+X		fprintf (stderr, ADMUSAGE2, Prog);
+X	}
+X	exit (1);
+X}
+X
+X/*
+X * get_password - locate encrypted password in authentication list
+X */
+X
+Xchar *
+Xget_password (list)
+Xchar	*list;
+X{
+X	char	*cp, *end;
+X	static	char	buf[257];
+X
+X	strcpy (buf, list);
+X	for (cp = buf;cp;cp = end) {
+X		if (end = strchr (cp, ';'))
+X			*end++ = 0;
+X
+X		if (cp[0] == '@')
+X			continue;
+X
+X		return cp;
+X	}
+X	return (char *) 0;
+X}
+X
+X/*
+X * uses_default_method - determine if "old-style" password present
+X *
+X *	uses_default_method determines if a "old-style" password is present
+X *	in the authentication string, and if one is present it extracts it.
+X */
+X
+Xint
+Xuses_default_method (methods)
+Xchar	*methods;
+X{
+X	char	*cp;
+X
+X	if (cp = get_password (methods)) {
+X		strcpy (crypt_passwd, cp);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+X/*
+X * update_age - update the "last_changed" field
+X */
+X
+X#ifdef	AGING
+Xvoid
+X#ifdef	SHADOWPWD
+Xupdate_age (sp)
+Xstruct	spwd	*sp;
+X{
+X	sp->sp_lstchg = time ((time_t *) 0) / SCALE;
+X}
+X#else
+Xupdate_age (pw)
+Xstruct	passwd	*pw;
+X{
+X#ifdef	ATT_AGE
+X	long	week;		/* at the office ... */
+X	static	char	age[5];	/* Password age string */
+X
+X	week = time ((time_t *) 0) / WEEK;
+X	if (pw->pw_age[0]) {
+X		cp = l64a (week);
+X		age[0] = pw->pw_age[0];
+X		age[1] = pw->pw_age[1];
+X		age[2] = cp[0];
+X		age[3] = cp[1];
+X		age[4] = '\0';
+X		pw->pw_age = age;
+X	}
+X#endif	/* ATT_AGE */
+X}
+X#endif	/* SHADOWPWD */
+X#endif	/* AGING */
+X
+X/*
+X * insert_crypt_passwd - add an "old-style" password to authentication string
+X */
+X
+Xinsert_crypt_passwd (string, passwd, result)
+Xchar	*string;
+Xchar	*passwd;
+Xchar	*result;
+X{
+X	while (*string) {
+X		if (string[0] == ';') {
+X			*result++ = *string++;
+X		} else if (string[0] == '@') {
+X			while (*string && *string != ';')
+X				*result++ = *string++;
+X		} else {
+X			while (*passwd)
+X				*result++ = *passwd++;
+X
+X			while (*string && *string != ';')
+X				string++;
+X		}
+X	}
+X	*result = '\0';
+X}
+X
+X/*
+X * new_password - validate old password and replace with new
+X */
+X
+X/*ARGSUSED*/
+Xint
+X#ifdef	SHADOWPWD
+Xnew_password (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X#else
+Xnew_password (pw)
+Xstruct	passwd	*pw;
+X#endif
+X{
+X	char	*clear;		/* Pointer to clear text */
+X	char	*cipher;	/* Pointer to cipher text */
+X	char	*cp;		/* Pointer to getpass() response */
+X	char	orig[BUFSIZ];	/* Original password */
+X	char	pass[BUFSIZ];	/* New password */
+X	char	new_auth[257];
+X	int	i;		/* Counter for retries */
+X#ifdef	AGING
+X	long	week;		/* This week in history ... */
+X#endif
+X
+X	/*
+X	 * Authenticate the user.  The user will be prompted for their
+X	 * own password.
+X	 */
+X
+X	if (! amroot && crypt_passwd[0]) {
+X		bzero (orig, sizeof orig);
+X
+X		if (! (clear = getpass (OLDPASS)))
+X			return -1;
+X
+X		cipher = pw_encrypt (clear, crypt_passwd);
+X		if (strcmp (cipher, crypt_passwd) != 0) {
+X			sleep (1);
+X			fprintf (stderr, WRONGPWD, pw->pw_name);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_WARN, WRONGPWD2, pw->pw_name);
+X#endif
+X			return -1;
+X		}
+X		strcpy (orig, clear);
+X		bzero (cipher, strlen (cipher));
+X		bzero (clear, strlen (clear));
+X	}
+X
+X	/*
+X	 * Get the new password.  The user is prompted for the new password
+X	 * and has three tries to get it right.  The password will be tested
+X	 * for strength, unless it is the root user.  This provides an escape
+X	 * for initial login passwords.
+X	 */
+X
+X	printf (NEWPASSMSG, getdef_num ("PASS_MIN_LEN", 5));
+X	for (i = 0;i < 3;i++) {
+X		if (! (cp = getpass (NEWPASS))) {
+X			bzero (orig, sizeof orig);
+X			return -1;
+X		} else
+X			strcpy (pass, cp);
+X
+X		if (! amroot && ! obscure (orig, pass)) {
+X			printf (TRYAGAIN);
+X			continue;
+X		}
+X		if (! (cp = getpass (NEWPASS2))) {
+X			bzero (orig, sizeof orig);
+X			return -1;
+X		}
+X		if (strcmp (cp, pass))
+X			fprintf (stderr, NOMATCH);
+X		else {
+X			bzero (cp, strlen (cp));
+X			break;
+X		}
+X	}
+X	bzero (orig, sizeof orig);
+X
+X	if (i == 3) {
+X		bzero (pass, sizeof pass);
+X		return -1;
+X	}
+X
+X	/*
+X	 * Encrypt the password.  The new password is encrypted and
+X	 * the shadow password structure updated to reflect the change.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	cp = pw_encrypt (pass, (char *) 0);
+X	insert_crypt_passwd (sp->sp_pwdp, cp, new_auth);
+X	cp = sp->sp_pwdp;
+X	sp->sp_pwdp = strdup (new_auth);
+X	update_age (sp);
+X#else
+X	cp = pw_encrypt (pass, (char *) 0);
+X	insert_crypt_passwd (pw->pw_passwd, cp, new_auth);
+X	cp = pw->pw_passwd;
+X	pw->pw_passwd = strdup (new_auth);
+X#ifdef	AGING
+X	update_age (pw);
+X#endif
+X#endif	/* SHADOWPWD */
+X	bzero (pass, sizeof pass);
+X	bzero (new_auth, sizeof new_auth);
+X	bzero (cp, strlen (cp));
+X
+X	return 0;
+X}
+X
+X#ifdef	AGING
+X
+X/*
+X * check_password - test a password to see if it can be changed
+X *
+X *	check_password() sees if the invoker has permission to change the
+X *	password for the given user.
+X */
+X
+X/*ARGSUSED*/
+Xvoid
+X#ifdef	SHADOWPWD
+Xcheck_password (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X#else
+Xcheck_password (pw)
+Xstruct	passwd	*pw;
+X#endif
+X{
+X	time_t	now = time ((time_t *) 0) / SCALE;
+X#ifndef	SHADOWPWD
+X	time_t	last;
+X	time_t	ok;
+X#endif
+X
+X	/*
+X	 * Root can change any password any time.
+X	 */
+X
+X	if (amroot)
+X		return;
+X
+X	/*
+X	 * Expired accounts cannot be changed ever.  Passwords
+X	 * which are locked may not be changed.  Passwords where
+X	 * min > max may not be changed.  Passwords which have
+X	 * been inactive too long cannot be changed.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if ((sp->sp_expire > 0 && now >= sp->sp_expire) ||
+X	    (sp->sp_inact >= 0 && sp->sp_max >= 0 &&
+X		now >= (sp->sp_lstchg + sp->sp_inact + sp->sp_max)) ||
+X			strcmp (sp->sp_pwdp, "!") == 0 ||
+X			sp->sp_min > sp->sp_max) {
+X		fprintf (stderr, CANTCHANGE, sp->sp_namp);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, CANTCHANGE2, sp->sp_namp);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#endif	/* SHADOWPWD */
+X
+X	/*
+X	 * Passwords may only be changed after sp_min time is up.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (sp->sp_min >= 0 && now < (sp->sp_lstchg + sp->sp_min)) {
+X		fprintf (stderr, TOOSOON, sp->sp_namp);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, TOOSOON2, sp->sp_namp);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#else	/* !SHADOWPWD */
+X
+X	/*
+X	 * Can always be changed if there is no age info
+X	 */
+X
+X	if (! pw->pw_age[0])
+X		return;
+X
+X	last = a64l (pw->pw_age + 2) * WEEK;
+X	ok = last + c64i (pw->pw_age[1]) * WEEK;
+X
+X	if (now < ok) {
+X		fprintf (stderr, TOOSOON, pw->pw_name);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, TOOSOON2, pw->pw_name);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#endif	/* SHADOWPWD */
+X}
+X#endif	/* AGING */
+X
+X#ifdef	SHADOWPWD
+X
+X/*
+X * pwd_to_spwd - create entries for new spwd structure
+X *
+X *	pwd_to_spwd() creates a new (struct spwd) containing the
+X *	information in the pointed-to (struct passwd).
+X */
+X
+Xvoid
+Xpwd_to_spwd (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X{
+X	time_t	t;
+X
+X	/*
+X	 * Nice, easy parts first.  The name and passwd map directly
+X	 * from the old password structure to the new one.
+X	 */
+X
+X	sp->sp_namp = strdup (pw->pw_name);
+X	sp->sp_pwdp = strdup (pw->pw_passwd);
+X#ifdef	ATT_AGE
+X
+X	/*
+X	 * AT&T-style password aging maps the sp_min, sp_max, and
+X	 * sp_lstchg information from the pw_age field, which appears
+X	 * after the encrypted password.
+X	 */
+X
+X	if (pw->pw_age[0]) {
+X		t = (c64i (pw->pw_age[0]) * WEEK) / SCALE;
+X		sp->sp_max = t;
+X
+X		if (pw->pw_age[1]) {
+X			t = (c64i (pw->pw_age[1]) * WEEK) / SCALE;
+X			sp->sp_min = t;
+X		} else
+X			sp->sp_min = (10000L * DAY) / SCALE;
+X
+X		if (pw->pw_age[1] && pw->pw_age[2]) {
+X			t = (a64l (pw->pw_age + 2) * WEEK) / SCALE;
+X			sp->sp_lstchg = t;
+X		} else
+X			sp->sp_lstchg = time ((time_t *) 0) / SCALE;
+X	} else {
+X		sp->sp_min = 0;
+X		sp->sp_max = (10000L * DAY) / SCALE;
+X		sp->sp_lstchg = time ((time_t *) 0) / SCALE;
+X	}
+X#else	/* !ATT_AGE */
+X	/*
+X	 * BSD does not use the pw_age field and has no aging information
+X	 * anywheres.  The default values are used to initialize the
+X	 * fields which are in the missing pw_age field;
+X	 */
+X
+X	sp->sp_min = 0;
+X	sp->sp_max = (10000L * DAY) / SCALE;
+X	sp->sp_lstchg = time ((time_t *) 0) / SCALE;
+X#endif	/* ATT_AGE */
+X
+X	/*
+X	 * These fields have no corresponding information in the password
+X	 * file.  They are set to uninitialized values.
+X	 */
+X
+X	sp->sp_warn = -1;
+X	sp->sp_inact = -1;
+X	sp->sp_expire = -1;
+X	sp->sp_flag = -1;
+X}
+X
+X#endif	/* SHADOWPWD */
+X
+X/*
+X * print_status - print current password status
+X */
+X
+X/*ARGSUSED*/
+Xvoid
+X#ifdef	SHADOWPWD
+Xprint_status (pw, sp)
+Xstruct	passwd	*pw;
+Xstruct	spwd	*sp;
+X#else
+Xprint_status (pw)
+Xstruct	passwd	*pw;
+X#endif
+X{
+X#ifdef	AGING
+X	struct	tm	*tm;
+X	time_t	last_time;
+X#endif
+X#ifdef	SHADOWPWD
+X	last_time = sp->sp_lstchg * SCALE;
+X	tm = gmtime (&last_time);
+X
+X	printf ("%s ", sp->sp_namp);
+X	printf ("%s ",
+X		sp->sp_pwdp[0] ? (sp->sp_pwdp[0] == '!' ? "L":"P"):"NP");
+X	printf ("%02.2d/%02.2d/%02.2d ",
+X		tm->tm_mon + 1, tm->tm_mday, tm->tm_year % 100);
+X	printf ("%d %d %d %d\n",
+X		(sp->sp_min * SCALE) / DAY, (sp->sp_max * SCALE) / DAY,
+X		(sp->sp_warn * SCALE) / DAY, (sp->sp_inact * SCALE) / DAY);
+X#else
+X	printf ("%s ", pw->pw_name);
+X	printf ("%s",
+X		pw->pw_passwd[0] ? (pw->pw_passwd[0] == '!' ? "L":"P"):"NP");
+X
+X#ifdef	ATT_AGE
+X	if (pw->pw_age[0])
+X		last_time = a64l (pw->pw_age + 2);
+X	else
+X		last_time = 0L;
+X
+X	tm = gmtime (&last_time);
+X	printf (" %02.2d/%02.2d/%02.2d ",
+X		tm->tm_mon + 1, tm->tm_mday, tm->tm_year % 100);
+X	printf ("%d %d\n",
+X		pw->pw_age[0] ? c64i (pw->pw_age[1]) * 7:10000,
+X		pw->pw_age[0] ? c64i (pw->pw_age[0]) * 7:0);
+X#else	/* !ATT_AGE */
+X	putchar ('\n');
+X#endif	/* ATT_AGE */
+X#endif	/* SHADOWPWD */
+X}
+X
+X/*
+X * passwd - change a user's password file information
+X *
+X *	This command controls the password file and commands which are
+X * 	used to modify it.
+X *
+X *	The valid options are
+X *
+X *	-l	lock the named account (*)
+X *	-d	delete the password for the named account (*)
+X *	-x #	set sp_max to # days (*)
+X *	-n #	set sp_min to # days (*)
+X *	-w #	set sp_warn to # days (*)
+X *	-i #	set sp_inact to # days (*)
+X *	-S	show password status of named account (*)
+X *	-g	execute gpasswd command to interpret flags
+X *	-f	execute chfn command to interpret flags
+X *	-s	execute chsh command to interpret flags
+X *
+X *	(*) requires root permission to execute.
+X *
+X *	All of the time fields are entered in days and converted to the
+X * 	appropriate internal format.  For finer resolute the chage
+X *	command must be used.
+X */
+X
+Xint
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	char	buf[BUFSIZ];		/* I/O buffer for messages, etc.      */
+X	char	new_passwd[BUFSIZ];	/* Buffer for changed passwords       */
+X	char	*cp;			/* Miscellaneous character pointing   */
+X	time_t	min;			/* Minimum days before change         */
+X	time_t	max;			/* Maximum days until change          */
+X	time_t	warn;			/* Warning days before change         */
+X	time_t	inact;			/* Days without change before locked  */
+X	int	i;			/* Loop control variable              */
+X	int	flag;			/* Current option to process          */
+X	int	lflg = 0;		/* -l - lock account option           */
+X	int	uflg = 0;		/* -u - unlock account option         */
+X	int	dflg = 0;		/* -d - delete password option        */
+X#ifdef	AGING
+X	int	xflg = 0;		/* -x - set maximum days              */
+X	int	nflg = 0;		/* -n - set minimum days              */
+X	int	wflg = 0;		/* -w - set warning days              */
+X	int	iflg = 0;		/* -i - set inactive days             */
+X#endif
+X	int	Sflg = 0;		/* -S - show password status          */
+X	struct	passwd	*pw;		/* Password file entry for user       */
+X#ifdef	SHADOWPWD
+X	struct	spwd	*sp;		/* Shadow file entry for user         */
+X	struct	spwd	tspwd;		/* New shadow file entry if none      */
+X#else
+X	char	age[5];			/* New password age entry             */
+X#endif
+X
+X	/*
+X	 * The program behaves differently when executed by root
+X	 * than when executed by a normal user.
+X	 */
+X
+X	amroot = getuid () == 0;
+X#ifdef	NDBM
+X#ifdef	SHADOWPWD
+X	sp_dbm_mode = O_RDWR;
+X#endif
+X	pw_dbm_mode = O_RDWR;
+X#endif
+X
+X	/*
+X	 * Get the program name.  The program name is used as a
+X	 * prefix to most error messages.  It is also used as input
+X	 * to the openlog() function for error logging.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X
+X	/*
+X	 * Start with the flags which cause another command to be
+X	 * executed.  The effective UID will be set back to the
+X	 * real UID and the new command executed with the flags
+X	 */
+X
+X	if (argc > 1 && argv[1][0] == '-' && strchr ("gfs", argv[1][1])) {
+X		setuid (getuid ());
+X		switch (argv[1][1]) {
+X			case 'g':
+X				argv[1] = "gpasswd";
+X				execv ("/bin/gpasswd", &argv[1]);
+X				break;
+X			case 'f':
+X				argv[1] = "chfn";
+X				execv ("/bin/chfn", &argv[1]);
+X				break;
+X			case 's':
+X				argv[1] = "chsh";
+X				execv ("/bin/chsh", &argv[1]);
+X				break;
+X			default:
+X				usage ();
+X		}
+X		sprintf (buf, EXECFAILED, Prog, argv[1]);
+X		perror (buf);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_CRIT, EXECFAILED2, argv[1]);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X
+X	/* 
+X	 * The remaining arguments will be processed one by one and
+X	 * executed by this command.  The name is the last argument
+X	 * if it does not begin with a "-", otherwise the name is
+X	 * determined from the environment and must agree with the
+X	 * real UID.  Also, the UID will be checked for any commands
+X	 * which are restricted to root only.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	while ((flag = getopt (argc, argv, "ludx:n:w:i:S")) != EOF)
+X#else
+X	while ((flag = getopt (argc, argv, "ludx:n:S")) != EOF)
+X#endif
+X	{
+X		switch (flag) {
+X			case 'x':
+X				max = strtol (optarg, &cp, 10);
+X#ifndef	SHADOWPWD
+X				if (max > 0)
+X					max /= 7;
+X#endif
+X				if (*cp || getuid ())
+X					usage ();
+X
+X				xflg++;
+X				break;
+X			case 'n':
+X				min = strtol (optarg, &cp, 10);
+X#ifndef	SHADOWPWD
+X				if (min > 0)
+X					min /= 7;
+X#endif
+X				if (*cp || getuid ())
+X					usage ();
+X
+X				nflg++;
+X				break;
+X#ifdef	SHADOWPWD
+X			case 'w':
+X				warn = strtol (optarg, &cp, 10);
+X				if (*cp || getuid ())
+X					usage ();
+X
+X				if (warn >= -1)
+X					wflg++;
+X
+X				break;
+X			case 'i':
+X				inact = strtol (optarg, &cp, 10);
+X				if (*cp || getuid ())
+X					usage ();
+X
+X				if (inact >= -1)
+X					iflg++;
+X
+X				break;
+X#endif	/* SHADOWPWD */
+X			case 'S':
+X				if (getuid ())
+X					usage ();
+X
+X				Sflg++;
+X				break;
+X			case 'd':
+X				if (getuid ())
+X					usage ();
+X
+X				dflg++;
+X				break;
+X			case 'l':
+X				if (getuid ())
+X					usage ();
+X
+X				lflg++;
+X				break;
+X			case 'u':
+X				if (getuid ())
+X					usage ();
+X
+X				uflg++;
+X				break;
+X			default:
+X				usage ();
+X		}
+X	}
+X
+X	/*
+X	 * If any of the flags were given, a user name must be supplied
+X	 * on the command line.  Only an unadorned command line doesn't
+X	 * require the user's name be given.  Also, on -x, -n, -m, and
+X	 * -i may appear with each other.  -d, -l and -S must appear alone.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if ((dflg || lflg || xflg || nflg ||
+X				wflg || iflg || Sflg) && optind >= argc)
+X#else
+X	if ((dflg || lflg || xflg || nflg || Sflg) && optind >= argc)
+X#endif
+X		usage ();
+X
+X#ifdef	SHADOWPWD
+X	if ((dflg + lflg + uflg + (xflg || nflg || wflg || iflg) + Sflg) > 1)
+X#else
+X	if ((dflg + lflg + uflg + (xflg || nflg) + Sflg) > 1)
+X#endif
+X		usage ();
+X
+X	/*
+X	 * Now I have to get the user name.  The name will be gotten 
+X	 * from the command line if possible.  Otherwise it is figured
+X	 * out from the environment.
+X	 */
+X
+X	if (optind < argc) {
+X		strncpy (name, argv[optind], sizeof name);
+X		name[sizeof name - 1] = '\0';
+X	} else if (amroot) {
+X		strcpy (name, "root");
+X	} else if (cp = getlogin ()) {
+X		strncpy (name, cp, sizeof name);
+X		name[sizeof name - 1] = '\0';
+X	} else {
+X		fprintf (stderr, WHOAREYOU, Prog);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Now I have a name, let's see if the UID for the name
+X	 * matches the current real UID.
+X	 */
+X
+X	if (! (pw = getpwnam (name))) {
+X		fprintf (stderr, UNKUSER, Prog, name);
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	if (! amroot && pw->pw_uid != getuid ()) {
+X		fprintf (stderr, NOPERM, name);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_WARN, NOPERM2, name);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Let the user know whose password is being changed.
+X	 */
+X
+X	if (! Sflg)
+X		printf (CHANGING, name);
+X
+X#ifdef	SHADOWPWD
+X	/*
+X	 * The user name is valid, so let's get the shadow file
+X	 * entry.
+X	 */
+X
+X	if (! (sp = getspnam (name)))
+X		pwd_to_spwd (pw, sp = &tspwd);
+X
+X	/*
+X	 * Save the shadow entry off to the side so it doesn't
+X	 * get changed by any of the following code.
+X	 */
+X
+X	if (sp != &tspwd) {
+X		tspwd = *sp;
+X		sp = &tspwd;
+X	}
+X	tspwd.sp_namp = strdup (sp->sp_namp);
+X	tspwd.sp_pwdp = strdup (sp->sp_pwdp);
+X#endif	/* SHADOWPWD */
+X
+X	if (Sflg) {
+X#ifdef	SHADOWPWD
+X		print_status (pw, sp);
+X#else
+X		print_status (pw);
+X#endif
+X#ifdef	USE_SYSLOG
+X		closelog ();
+X#endif
+X		exit (0);
+X	}
+X
+X	/*
+X	 * If there are no other flags, just change the password.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (! (dflg || lflg || uflg || xflg || nflg || wflg || iflg))
+X#else
+X	if (! (dflg || lflg || uflg || xflg || nflg))
+X#endif
+X	{
+X#ifdef	SHADOWPWD
+X		if (strchr (sp->sp_pwdp, '@')) {
+X			if (pw_auth (sp->sp_pwdp, name, PW_CHANGE, 0)) {
+X#ifdef	USE_SYSLOG
+X				syslog (LOG_INFO, NOCHGPASSWD, name);
+X				closelog ();
+X#endif
+X				exit (1);
+X			} else {
+X				update_age (sp);
+X
+X				if (! uses_default_method (sp->sp_pwdp))
+X					goto done;
+X			}
+X		} else
+X			strcpy (crypt_passwd, sp->sp_pwdp);
+X#else	/* !SHADOWPWD */
+X		if (strchr (pw->pw_passwd, '@')) {
+X			if (pw_auth (pw->pw_passwd, name, PW_CHANGE, 0)) {
+X#ifdef	USE_SYSLOG
+X				syslog (LOG_INFO, CHGPASSWD, name);
+X				closelog ();
+X#endif
+X				exit (0);
+X			} else {
+X				update_age (pw);
+X
+X				if (! uses_default_method (pw->pw_passwd))
+X					goto done;
+X			}
+X		} else
+X			strcpy (crypt_passwd, pw_pw_passwd);
+X#endif	/* SHADOWPWD */
+X
+X		/*
+X		 * See if the user is permitted to change the password.
+X		 * Otherwise, go ahead and set a new password.
+X		 */
+X
+X#ifdef	SHADOWPWD
+X		check_password (pw, sp);
+X		if (new_password (pw, sp))
+X#else
+X#ifdef	AGING
+X
+X		/*
+X		 * Only check the age when there is one to check.
+X		 */
+X
+X		check_password (pw);
+X#endif
+X		if (new_password (pw))
+X#endif
+X		{
+X			fprintf (stderr, UNCHANGED, name);
+X#ifdef	USE_SYSLOG
+X			closelog ();
+X#endif
+X			exit (1);
+X		}
+X	}
+X
+X	/*
+X	 * The other options are incredibly simple.  Just modify the
+X	 * field in the shadow file entry.
+X	 */
+X
+X	if (dflg)			/* Set password to blank */
+X#ifdef	SHADOWPWD
+X		sp->sp_pwdp = "";
+X#else
+X		pw->pw_passwd = "";
+X#endif
+X	if (lflg) {			/* Set password to "locked" value */
+X#ifdef	SHADOWPWD
+X		if (sp->sp_pwdp && sp->sp_pwdp[0] != '!') {
+X			strcpy (new_passwd, "!");
+X			strcat (new_passwd, sp->sp_pwdp);
+X			sp->sp_pwdp = new_passwd;
+X		}
+X#else
+X		if (pw->pw_passwd & pw->pw_passwd[0] != '!') {
+X			strcpy (new_passwd, "!");
+X			strcat (new_passwd, pw->pw_passwd);
+X			pw->pw_passwd = new_passwd;
+X		}
+X#endif
+X	}
+X	if (uflg) {			/* Undo password "locked" value */
+X#ifdef	SHADOWPWD
+X		if (sp->sp_pwdp && sp->sp_pwdp[0] == '!') {
+X			strcpy (new_passwd, sp->sp_pwdp + 1);
+X			sp->sp_pwdp = new_passwd;
+X		}
+X#else
+X		if (pw->pw_passwd && pw->pw_passwd[0] == '!') {
+X			strcpy (new_passwd, pw->pw_passwd + 1);
+X			pw->pw_passwd = new_passwd;
+X		}
+X#endif
+X	}
+X#if !defined(SHADOWPWD) && defined(ATT_AGE)
+X	bzero (age, sizeof age);
+X	strcpy (age, pw->pw_age);
+X#endif
+X	if (xflg) {
+X#ifdef	SHADOWPWD
+X		sp->sp_max = (max * DAY) / SCALE;
+X#else
+X		age[0] = i64c (max);
+X#endif
+X	}
+X	if (nflg) {
+X#ifdef	SHADOWPWD
+X		sp->sp_min = (min * DAY) / SCALE;
+X#else
+X		if (age[0] == '\0')
+X			age[0] = '/';
+X
+X		age[1] = i64c (min);
+X#endif
+X	}
+X#ifdef	SHADOWPWD
+X	if (wflg)
+X		sp->sp_warn = (warn * DAY) / SCALE;
+X
+X	if (iflg)
+X		sp->sp_inact = (inact * DAY) / SCALE;
+X#endif
+X#if !defined(SHADOWPWD) && defined(ATT_AGE)
+X	pw->pw_age = age;
+X#endif
+X
+Xdone:
+X	/*
+X	 * Before going any further, raise the ulimit to prevent
+X	 * colliding into a lowered ulimit, and set the real UID
+X	 * to root to protect against unexpected signals.  Any
+X	 * keyboard signals are set to be ignored.
+X	 */
+X
+X#ifdef	HAVE_ULIMIT
+X	ulimit (UL_SFILLIM, 30000);
+X#endif
+X#ifdef	HAVE_RLIMIT
+X	setrlimit (RLIMIT_FSIZE, &rlimit_fsize);
+X#endif
+X	if (setuid (0)) {
+X		fprintf (stderr, NOTROOT);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, NOTROOT2);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X	signal (SIGHUP, SIG_IGN);
+X	signal (SIGINT, SIG_IGN);
+X	signal (SIGQUIT, SIG_IGN);
+X#ifdef	SIGTSTP
+X	signal (SIGTSTP, SIG_IGN);
+X#endif
+X
+X	/*
+X	 * The shadow entry is now ready to be committed back to
+X	 * the shadow file.  Get a lock on the file and open it.
+X	 */
+X
+X	for (i = 0;i < 30;i++)
+X#ifdef	SHADOWPWD
+X		if (spw_lock ())
+X#else
+X		if (pw_lock ())
+X#endif
+X			break;
+X
+X	if (i == 30) {
+X#ifdef	SHADOWPWD
+X		fprintf (stderr, SPWDBUSY);
+X#else
+X		fprintf (stderr, PWDBUSY);
+X#endif
+X#ifdef	USE_SYSLOG
+X#ifdef	SHADOWPWD
+X		syslog (LOG_WARN, SPWDBUSY2);
+X#else
+X		syslog (LOG_WARN, PWDBUSY2);
+X#endif
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#ifdef	SHADOWPWD
+X	if (! spw_open (O_RDWR))
+X#else
+X	if (! pw_open (O_RDWR))
+X#endif
+X	{
+X		fprintf (stderr, OPNERROR);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, OPNERROR2);
+X		closelog ();
+X#endif
+X#ifdef	SHADOWPWD
+X		(void) spw_unlock ();
+X#else
+X		(void) pw_unlock ();
+X#endif
+X		exit (1);
+X	}
+X
+X	/*
+X	 * Update the shadow file entry.  If there is a DBM file,
+X	 * update that entry as well.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (! spw_update (sp))
+X#else
+X	if (! pw_update (pw))
+X#endif
+X	{
+X		fprintf (stderr, UPDERROR);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, UPDERROR2);
+X		closelog ();
+X#endif
+X#ifdef	SHADOWPWD
+X		(void) spw_unlock ();
+X#else
+X		(void) pw_unlock ();
+X#endif
+X		exit (1);
+X	}
+X#ifdef	NDBM
+X#ifdef	SHADOWPWD
+X	if (access ("/etc/shadow.pag", 0) == 0 && ! sp_dbm_update (sp))
+X#else
+X	if (access ("/etc/passwd.pag", 0) == 0 && ! pw_dbm_update (pw))
+X#endif
+X	{
+X		fprintf (stderr, DBMERROR);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, DBMERROR2);
+X		closelog ();
+X#endif
+X#ifdef	SHADOWPWD
+X		(void) spw_unlock ();
+X#else
+X		(void) pw_unlock ();
+X#endif
+X		exit (1);
+X	}
+X#ifdef	SHADOWPWD
+X	endspent ();
+X#endif
+X	endpwent ();
+X#endif	/* NDBM */
+X
+X	/*
+X	 * Changes have all been made, so commit them and unlock the
+X	 * file.
+X	 */
+X
+X#ifdef	SHADOWPWD
+X	if (! spw_close ())
+X#else
+X	if (! pw_close ())
+X#endif
+X	{
+X		fprintf (stderr, CLSERROR);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, CLSERROR2);
+X		closelog ();
+X#endif
+X#ifdef	SHADOWPWD
+X		(void) spw_unlock ();
+X#else
+X		(void) pw_unlock ();
+X#endif
+X		exit (1);
+X	}
+X#ifdef	SHADOWPWD
+X	if (! spw_unlock ())
+X#else
+X	if (! pw_unlock ())
+X#endif
+X	{
+X		fprintf (stderr, UNLKERROR);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, UNLKERROR2);
+X		closelog ();
+X#endif
+X		exit (1);
+X	}
+X#ifdef	USE_SYSLOG
+X	syslog (LOG_INFO, CHGPASSWD, name);
+X	closelog ();
+X#endif
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+  if test 27325 -ne `wc -c <'passwd.c'`; then
+    echo shar: \"'passwd.c'\" unpacked with wrong size!
+  fi
+  # end of 'passwd.c'
+fi
+if test -f 'pwauth.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pwauth.c'\"
+else
+  echo shar: Extracting \"'pwauth.c'\" \(7401 characters\)
+  sed "s/^X//" >'pwauth.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * not warrantee of any kind.
+X */
+X
+X#include <signal.h>
+X#include <fcntl.h>
+X#include <stdio.h>
+X#include "config.h"
+X#include "pwauth.h"
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#ifndef	lint
+Xstatic	char	sccsid[] = "@(#)pwauth.c	3.6	08:57:46	10 Jun 1993";
+X#endif
+X
+Xchar	*PROMPT = "%s's Password:";
+X
+X/*
+X * _old_auth - perform getpass/crypt authentication
+X *
+X *	_old_auth gets the user's cleartext password and encrypts it
+X *	using the salt in the encrypted password.  The results are
+X *	compared.
+X */
+X
+Xint
+X_old_auth (cipher, user, reason, input)
+Xchar	*cipher;
+Xchar	*user;
+Xint	reason;
+Xchar	*input;
+X{
+X	char	prompt[BUFSIZ];
+X	char	*result;
+X	char	*clear = input;
+X
+X	/*
+X	 * There are programs for adding and deleting authentication data.
+X	 */
+X
+X	if (reason == PW_ADD || reason == PW_DELETE)
+X		return 0;
+X
+X	/*
+X	 * There are even programs for changing the user name ...
+X	 */
+X
+X	if (reason == PW_CHANGE && input != (char *) 0)
+X		return 0;
+X
+X	/*
+X	 * WARNING:
+X	 *
+X	 * When we change a password and we are root, we don't prompt.
+X	 * This is so root can change any password without having to
+X	 * know it.  This is a policy decision that might have to be
+X	 * revisited.
+X	 */
+X
+X	if (reason == PW_CHANGE && getuid () == 0)
+X		return 0;
+X
+X	/*
+X	 * WARNING:
+X	 *
+X	 * When we are logging in a user with no ciphertext password,
+X	 * we don't prompt for the password or anything.  In reality
+X	 * the user could just hit <ENTER>, so it doesn't really
+X	 * matter.
+X	 */
+X
+X	if (cipher == (char *) 0 || *cipher == '\0')
+X		return 0;
+X
+X	/*
+X	 * Prompt for the password as required.  FTPD and REXECD both
+X	 * get the cleartext password for us.
+X	 */
+X
+X	if (reason != PW_FTP && reason != PW_REXEC) {
+X		sprintf (prompt, PROMPT, user);
+X		clear = getpass (prompt);
+X	}
+X
+X	/*
+X	 * Convert the cleartext password into a ciphertext string.
+X	 */
+X
+X	result = pw_encrypt (clear, cipher);
+X
+X	/*
+X	 * If the two match, the return value will be zero, which is
+X	 * SUCCESS.
+X	 */
+X
+X	return (strcmp (result, cipher));
+X}
+X
+X/*
+X * _pw_auth - perform alternate password authentication
+X *
+X *	pw_auth executes the alternate password authentication method
+X *	described in the user's password entry.  _pw_auth does the real
+X *	work, pw_auth splits the authentication string into individual
+X *	command names.
+X */
+X
+Xstatic int
+X_pw_auth (command, user, reason, input)
+Xchar	*command;
+Xchar	*user;
+Xint	reason;
+Xchar	*input;
+X{
+X	SIGTYPE (*sigint)();
+X	SIGTYPE (*sigquit)();
+X#ifdef	SIGTSTP
+X	SIGTYPE	(*sigtstp)();
+X#endif
+X	int	pid;
+X	int	status;
+X	int	i;
+X	char	*argv[5];
+X	int	argc = 0;
+X	int	pipes[2];
+X
+X	/*
+X	 * Start with a quick sanity check.  ALL command names must
+X	 * be fully-qualified path names.
+X	 */
+X
+X	if (command[0] != '/')
+X		return -1;
+X
+X	/*
+X	 * Set the keyboard signals to be ignored.  When the user kills
+X	 * the child we don't want the parent dying as well.
+X	 */
+X
+X	sigint = signal (SIGINT, SIG_IGN);
+X	sigquit = signal (SIGQUIT, SIG_IGN);
+X#ifdef	SIGTSTP
+X	sigtstp = signal (SIGTSTP, SIG_IGN);
+X#endif
+X
+X	/* 
+X	 * FTP and REXEC reasons don't give the program direct access
+X	 * to the user.  This means that the program can only get input
+X	 * from this function.  So we set up a pipe for that purpose.
+X	 */
+X
+X	if (reason == PW_FTP || reason == PW_REXEC)
+X		if (pipe (pipes))
+X			return -1;
+X
+X	/*
+X	 * The program will be forked off with the parent process waiting
+X	 * on the child to tell it how successful it was.
+X	 */
+X
+X	switch (pid = fork ()) {
+X
+X		/*
+X		 * The fork() failed completely.  Clean up as needed and
+X		 * return to the caller.
+X		 */
+X
+X		case -1:
+X			if (reason == PW_FTP || reason == PW_REXEC) {
+X				close (pipes[0]);
+X				close (pipes[1]);
+X			}
+X			return -1;
+X		case 0:
+X
+X			/*
+X			 * Let the child catch the SIGINT and SIGQUIT
+X			 * signals.  The parent, however, will continue
+X			 * to ignore them.
+X			 */
+X
+X			signal (SIGINT, SIG_DFL);
+X			signal (SIGQUIT, SIG_DFL);
+X
+X			/*
+X			 * Set up the command line.  The first argument is
+X			 * the name of the command being executed.  The
+X			 * second is the command line option for the reason,
+X			 * and the third is the user name.
+X			 */
+X
+X			argv[argc++] = command;
+X			switch (reason) {
+X				case PW_SU:	argv[argc++] = "-s"; break;
+X				case PW_LOGIN:	argv[argc++] = "-l"; break;
+X				case PW_ADD:	argv[argc++] = "-a"; break;
+X				case PW_CHANGE:	argv[argc++] = "-c"; break;
+X				case PW_DELETE:	argv[argc++] = "-d"; break;
+X				case PW_TELNET:	argv[argc++] = "-t"; break;
+X				case PW_RLOGIN:	argv[argc++] = "-r"; break;
+X				case PW_FTP:	argv[argc++] = "-f"; break;
+X				case PW_REXEC:	argv[argc++] = "-x"; break;
+X			}
+X			if (reason == PW_CHANGE && input)
+X				argv[argc++] = input;
+X
+X			argv[argc++] = user;
+X			argv[argc] = (char *) 0;
+X
+X			/*
+X			 * The FTP and REXEC reasons use a pipe to communicate
+X			 * with the parent.  The other standard I/O descriptors
+X			 * are closed and re-opened as /dev/null.
+X			 */
+X
+X			if (reason == PW_FTP || reason == PW_REXEC) {
+X				close (0);
+X				close (1);
+X				close (2);
+X
+X				if (dup (pipes[0]) != 0)
+X					exit (1);
+X
+X				close (pipes[0]);
+X				close (pipes[1]);
+X
+X				if (open ("/dev/null", O_WRONLY) != 1)
+X					exit (1);
+X
+X				if (open ("/dev/null", O_WRONLY) != 2)
+X					exit (1);
+X			}
+X
+X			/*
+X			 * Now we execute the command directly.
+X			 */
+X
+X			execv (command, argv);
+X			_exit (255);
+X
+X			/*NOTREACHED*/
+X		default:
+X
+X			/* 
+X			 * FTP and REXEC cause a single line of text to be
+X			 * sent to the child over a pipe that was set up
+X			 * earlier.
+X			 */
+X
+X			if (reason == PW_FTP || reason == PW_REXEC) {
+X				close (pipes[0]);
+X
+X				if (input)
+X					write (pipes[1], input, strlen (input));
+X
+X				write (pipes[1], "\n", 1);
+X				close (pipes[1]);
+X			}
+X
+X			/*
+X			 * Wait on the child to die.  When it does you will
+X			 * get the exit status and use that to determine if
+X			 * the authentication program was successful.
+X			 */
+X
+X			while ((i = wait (&status)) != pid && i != -1)
+X				;
+X
+X			/*
+X			 * Re-set the signals to their earlier values.
+X			 */
+X
+X			signal (SIGINT, sigint);
+X			signal (SIGQUIT, sigquit);
+X#ifdef	SIGTSTP
+X			signal (SIGTSTP, sigtstp);
+X#endif
+X
+X			/*
+X			 * Make sure we found the right process!
+X			 */
+X
+X			if (i == -1)
+X				return -1;
+X
+X			if (status == 0)
+X				return 0;
+X			else
+X				return -1;
+X	}
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * This function does the real work.  It splits the list of program names
+X * up into individual programs and executes them one at a time.
+X */
+X
+Xint
+X/*VARARGS3*/
+Xpw_auth (command, user, reason, input)
+Xchar	*command;
+Xchar	*user;
+Xint	reason;
+Xchar	*input;
+X{
+X	char	buf[256];
+X	char	*cmd, *end;
+X	int	rc;
+X
+X	/* 
+X	 * Quick little sanity check ...
+X	 */
+X
+X	if (strlen (command) >= sizeof buf)
+X		return -1;
+X
+X	strcpy (buf, command);
+X
+X	/*
+X	 * Find each command and make sure it is NUL-terminated.  Then
+X	 * invoke _pw_auth to actually run the program.  The first
+X	 * failing program ends the whole mess.
+X	 */
+X
+X	for (cmd = buf;cmd;cmd = end) {
+X		if (end = strchr (cmd, ';'))
+X			*end++ = '\0';
+X
+X		if (cmd[0] != '@')
+X			rc = _old_auth (cmd, user, reason, input);
+X		else
+X			rc = _pw_auth (cmd + 1, user, reason, input);
+X
+X		if (rc)
+X			return -1;
+X	}
+X	return 0;
+X}
+END_OF_FILE
+  if test 7401 -ne `wc -c <'pwauth.c'`; then
+    echo shar: \"'pwauth.c'\" unpacked with wrong size!
+  fi
+  # end of 'pwauth.c'
+fi
+echo shar: End of archive 3 \(of 14\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

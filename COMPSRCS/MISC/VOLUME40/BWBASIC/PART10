@@ -1,0 +1,2636 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i061:  bwbasic - Bywater BASIC interpreter version 2.10, Part10/15
+Message-ID: <1993Oct29.162718.4011@sparky.sterling.com>
+X-Md4-Signature: 62a0430993a3803d456fd9eb4fe70438
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:27:18 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 61
+Archive-name: bwbasic/part10
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_dio.c bwbasic-2.10/bwbtest/callfunc.bas
+#   bwbasic-2.10/bwbtest/callsub.bas bwbasic-2.10/bwbtest/deffn.bas
+#   bwbasic-2.10/bwbtest/dowhile.bas bwbasic-2.10/bwbtest/elseif.bas
+#   bwbasic-2.10/bwbtest/end.bas bwbasic-2.10/bwbtest/fncallfn.bas
+#   bwbasic-2.10/bwbtest/fornext.bas bwbasic-2.10/bwbtest/gosub.bas
+#   bwbasic-2.10/bwbtest/gotolabl.bas bwbasic-2.10/bwbtest/input.bas
+#   bwbasic-2.10/bwbtest/main.bas bwbasic-2.10/bwbtest/on.bas
+#   bwbasic-2.10/bwbtest/onerr.bas bwbasic-2.10/bwbtest/onerrlbl.bas
+#   bwbasic-2.10/bwbtest/ongosub.bas bwbasic-2.10/bwbtest/opentest.bas
+#   bwbasic-2.10/bwbtest/option.bas bwbasic-2.10/bwbtest/pascaltr.bas
+#   bwbasic-2.10/bwbtest/putget.bas bwbasic-2.10/bwbtest/random.bas
+#   bwbasic-2.10/bwbtest/selcase.bas bwbasic-2.10/bwbtest/snglfunc.bas
+#   bwbasic-2.10/bwbtest/stop.bas bwbasic-2.10/bwbtest/term.bas
+#   bwbasic-2.10/bwbtest/whilwend.bas bwbasic-2.10/bwbtest/width.bas
+#   bwbasic-2.10/configure.in
+# Wrapped by kent@sparky on Thu Oct 21 10:47:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_dio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_dio.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_dio.c'\" \(41067 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_dio.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_dio.c       Device Input/Output Routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X#if HAVE_SYSSTAT
+X#include <sys/stat.h>
+X#endif
+X
+X#ifndef SEEK_SET
+X#define	SEEK_SET	0
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X#define RANDOM_FILLCHAR		'X'
+X#else
+X#define RANDOM_FILLCHAR		' '
+X#endif
+X
+X#if COMMON_CMDS
+Xstruct dev_element *dev_table;          /* table of devices */
+X#endif
+X
+Xstatic struct bwb_variable *v;
+Xstatic int pos;
+Xstatic int req_devnumber;
+Xstatic int rlen;
+Xstatic int mode;
+X
+X#if ANSI_C
+Xstatic struct bwb_line *dio_lrset( struct bwb_line *l, int rset );
+Xstatic int dio_flush( int dev_number );
+X#else
+Xstatic struct bwb_line *dio_lrset();
+Xstatic int dio_flush();
+X#endif
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_open()
+X
+X	DESCRIPTION:    This function implements the BASIC OPEN
+X			command to open a stream for device input/output.
+X
+X        SYNTAX: 1. OPEN "I"|"O"|"R", [#]n, filename [,rlen]
+X                2. OPEN filename [FOR INPUT|OUTPUT|APPEND|] AS [#]n [LEN=n]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_open( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_open( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   FILE *fp;
+X   struct exp_ese *e;
+X   int previous_buffer;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char first[ MAXSTRINGSIZE + 1 ];
+X   char devname[ MAXSTRINGSIZE + 1 ];
+X
+X   /* initialize */
+X
+X   mode = req_devnumber = rlen = -1;
+X   previous_buffer = FALSE;
+X
+X   /* get the first expression element up to comma or whitespace */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   /* parse the first expression element */
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X   str_btoc( first, exp_getsval( e ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): first element is <%s>",
+X      first );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* test for syntactical form: if a comma follows the first element,
+X      then the syntax is form 1 (the old CP/M BASIC format); otherwise we
+X      presume form 2 */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   /* Parse syntax Form 1 (OPEN "x",#n, devname...) */
+X
+X   if ( l->buffer[ l->position ] == ',' )
+X      {
+X
+X      /* parse the next element to get the device number */
+X
+X      ++( l->position );                        /* advance beyond comma */
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == '#' )
+X         {
+X         ++( l->position );
+X         adv_ws( l->buffer, &( l->position ) );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type == STRING )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "String where number was expected for device number" );
+X#else
+X	 bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X      req_devnumber = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, req dev number is %d",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* parse the next element to get the devname */
+X
+X      adv_ws( l->buffer, &( l->position ) );    /* advance past whitespace */
+X      ++( l->position );                        /* advance past comma */
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type != STRING )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_open(): number where string was expected for devname" );
+X#else
+X	 bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X      str_btoc( devname, exp_getsval( e ) );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, devname <%s>",
+X         devname  );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* see if there is another element; if so, parse it to get the
+X         record length */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X
+X         ++( l->position );                     /* advance beyond comma */
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X
+X         pos = 0;
+X         e = bwb_exp( atbuf, FALSE, &pos );
+X         if ( e->type == STRING )
+X            {
+X#if PROG_ERRORS
+X            bwb_error( "String where number was expected for record length" );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            return bwb_zline( l );
+X            }
+X         rlen = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_open(): syntax 1, record length is %d",
+X            rlen );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         }
+X
+X      /* the first letter of the first should indicate the
+X         type of file opening requested: test this letter,
+X         then parse accordingly */
+X
+X      /* open file for sequential INPUT */
+X
+X      if ( ( first[ 0 ] == 'i' ) || ( first[ 0 ] == 'I' ))
+X         {
+X         mode = DEVMODE_INPUT;
+X         }
+X
+X      /* open file for sequential OUTPUT */
+X
+X      else if ( ( first[ 0 ] == 'o' ) || ( first[ 0 ] == 'O' ))
+X         {
+X         mode = DEVMODE_OUTPUT;
+X         }
+X
+X      /* open file for RANDOM access input and output */
+X
+X      else if ( ( first[ 0 ] == 'r' ) || ( first[ 0 ] == 'R' ))
+X         {
+X         mode = DEVMODE_RANDOM;
+X         }
+X
+X      /* error: none of the appropriate modes found */
+X
+X      else
+X         {
+X#if PROG_ERRORS
+X	 sprintf( bwb_ebuf, "in bwb_open(): invalid mode" );
+X	 bwb_error( bwb_ebuf );
+X#else
+X	 bwb_error( err_syntax );
+X#endif
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, mode is %d", mode );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      }
+X
+X   /* Parse syntax Form 2 (OPEN devname FOR mode AS#n ... ) */
+X
+X   else
+X      {
+X
+X      /* save the devname from first */
+X
+X      strcpy( devname, first );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, devname <%s>",
+X         devname );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* get the next element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      /* check for "FOR mode" statement */
+X
+X      bwb_strtoupper( atbuf );
+X      if ( strcmp( atbuf, "FOR" ) == 0 )
+X         {
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X         bwb_strtoupper( atbuf );
+X         if ( strcmp( atbuf, "INPUT" ) == 0 )
+X            {
+X            mode = DEVMODE_INPUT;
+X            }
+X         else if ( strcmp( atbuf, "OUTPUT" ) == 0 )
+X            {
+X            mode = DEVMODE_OUTPUT;
+X            }
+X         else if ( strcmp( atbuf, "APPEND" ) == 0 )
+X            {
+X            mode = DEVMODE_RANDOM;
+X            }
+X         else
+X            {
+X#if PROG_ERRORS
+X            bwb_error( "in bwb_open(): Invalid device i/o mode specified" );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            return bwb_zline( l );
+X            }
+X
+X         /* get the next element */
+X
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X
+X         }
+X      else
+X         {
+X         mode = DEVMODE_RANDOM;
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, mode is %d", mode );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* This leaves us with the next element in the atbuf: it
+X         should read "AS" */
+X
+X      bwb_strtoupper( atbuf );
+X      if ( strcmp( atbuf, "AS" ) != 0 )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_open(): expected AS statement" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      /* get the next element */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      if ( l->buffer[ l->position ] == '#' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): string to parse for req dev number <%s>",
+X         atbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type == STRING )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "String where number was expected for record length" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X      req_devnumber = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, req dev number is %d",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* Check for LEN = n statement */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X      bwb_strtoupper( atbuf );
+X      if ( strncmp( atbuf, "LEN", (size_t) 3 ) == 0 )
+X         {
+X
+X         pos = l->position - strlen( atbuf );
+X         while( ( l->buffer[ pos ] != '=' ) && ( l->buffer[ pos ] != '\0' ))
+X            {
+X            ++pos;
+X            }
+X         if ( l->buffer[ pos ] == '\0' )
+X            {
+X#if PROG_ERRORS
+X            bwb_error( "Failed to find equals sign after LEN element" );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            return bwb_zline( l );
+X            }
+X         ++pos;         /* advance past equal sign */
+X
+X         e = bwb_exp( l->buffer, FALSE, &pos );
+X
+X         if ( e->type == STRING )
+X            {
+X#if PROG_ERRORS
+X            bwb_error( "String where number was expected for record length" );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            return bwb_zline( l );
+X            }
+X         rlen = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_open(): syntax 2, record length is %d",
+X            rlen );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         }
+X
+X      }                                 /* end of syntax 2 */
+X
+X   /* check for valid requested device number */
+X
+X   if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_open(): Requested device number is out of range." );
+X#else
+X      bwb_error( err_devnum );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   if ( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): using previously closed file (and buffer)" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      previous_buffer = TRUE;
+X      }
+X
+X   if ( ( dev_table[ req_devnumber ].mode != DEVMODE_CLOSED ) &&
+X      ( dev_table[ req_devnumber ].mode != DEVMODE_AVAILABLE ) )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_open(): Requested device number is already in use." );
+X#else
+X      bwb_error( err_devnum );
+X#endif
+X
+X      return bwb_zline( l );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): ready to open device <%s> mode <%d>",
+X      devname, mode );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* attempt to open the file */
+X
+X   switch( mode )
+X      {
+X      case DEVMODE_OUTPUT:
+X         fp = fopen( devname, "w" );
+X         break;
+X      case DEVMODE_INPUT:
+X         fp = fopen( devname, "r" );
+X         break;
+X      case DEVMODE_APPEND:
+X         fp = fopen( devname, "a" );
+X         break;
+X      case DEVMODE_RANDOM:
+X         fp = fopen( devname, "r+" );
+X         if ( fp == NULL )
+X            {
+X            fp = fopen( devname, "w" );
+X            fclose( fp );
+X            fp = fopen( devname, "r+" );
+X            }
+X         break;
+X      }
+X
+X   /* check for valid file opening */
+X
+X   if ( fp == NULL )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Failed to open device <%s>", devname );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_dev );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* assign values to device table */
+X
+X   dev_table[ req_devnumber ].mode = mode;
+X   dev_table[ req_devnumber ].cfp = fp;
+X   dev_table[ req_devnumber ].reclen = rlen;
+X   dev_table[ req_devnumber ].next_record = 1;
+X   dev_table[ req_devnumber ].loc = 0;
+X   strcpy( dev_table[ req_devnumber ].filename, devname );
+X
+X   /* allocate a character buffer for random access */
+X
+X   if (( mode == DEVMODE_RANDOM ) && ( previous_buffer != TRUE ))
+X      {
+X      if ( ( dev_table[ req_devnumber ].buffer = calloc( rlen + 1, 1 )) == NULL )
+X	 {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_open(): failed to find memory for device buffer" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 return bwb_zline( l );
+X	 }
+X
+X      dio_flush( req_devnumber );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): allocated new random-access buffer" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): file is open now; end of function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* return next line number in sequence */
+X
+X   return bwb_zline( l );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_close()
+X
+X	DESCRIPTION:    This function implements the BASIC CLOSE
+X			command to close a stream for device input/output.
+X
+X        SYNTAX:         CLOSE [#]n [,[#]n...]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_close( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_close( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* loop to get device numbers to close */
+X
+X   do
+X      {
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] =='#' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X      if ( e->type == STRING )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "String where number was expected for device number" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      req_devnumber = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_close(): requested device number <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* check for valid requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Requested device number is out if range." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      if (( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED ) ||
+X         ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Requested device number is not in use." );
+X#else
+X         bwb_error( err_devnum );
+X#endif
+X
+X         return bwb_zline( l );
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_close(): closing device# <%d>",
+X	 req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* attempt to close the file */
+X
+X      if ( fclose( dev_table[ req_devnumber ].cfp ) != 0 )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Failed to close the device" );
+X#else
+X         bwb_error( err_dev );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      /* mark the device in the table as unavailable */
+X
+X      dev_table[ req_devnumber ].mode = DEVMODE_CLOSED;
+X
+X      /* eat up any remaining whitespace */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   while ( l->buffer[ l->position ] == ',' );
+X
+X   /* return next line number in sequence */
+X
+X   return bwb_zline( l );
+X   }
+X
+X#endif 				/* COMMON_CMDS */
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_chdir()
+X
+X	DESCRIPTION:    This function implements the BASIC CHDIR
+X			command to switch logged directories.
+X
+X	SYNTAX:         CHDIR pathname$
+X
+X***************************************************************/
+X
+X#if UNIX_CMDS
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_chdir( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_chdir( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_chdir(): failed to find memory for atbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_chdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   /* try to chdir to the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = chdir( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      return bwb_zline( l );
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_rmdir()
+X
+X	DESCRIPTION:    This function implements the BASIC CHDIR
+X			command to remove a subdirectory.
+X
+X	SYNTAX:         RMDIR pathname$
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_rmdir( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_rmdir( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in rmdir(): failed to find memory for atbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_rmdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   /* try to remove the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = rmdir( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_mkdir()
+X
+X	DESCRIPTION:    This function implements the BASIC MKDIR
+X			command to create a new subdirectory.
+X
+X	SYNTAX:         MKDIR pathname$
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_mkdir( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_mkdir( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_mkdir(): failed to find memory for atbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_mkdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   /* try to make the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X#if MKDIR_ONE_ARG
+X   r = mkdir( atbuf );
+X#else
+X   r = mkdir( atbuf, PERMISSIONS );
+X#endif
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_kill()
+X
+X	DESCRIPTION:    This function implements the BASIC KILL
+X			command to erase a disk file.
+X
+X	SYNTAX:         KILL filename
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_kill( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_kill( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_kill(): failed to find memory for atbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_kill(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   /* try to delete the specified file */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = unlink( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X#endif				/* UNIX_CMDS */
+X
+X#if COMMON_CMDS
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_name()
+X
+X	DESCRIPTION:    This function implements the BASIC NAME
+X			command to rename a disk file.
+X
+X	SYNTAX:         NAME old_filename AS new_filename
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_name( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_name( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static char *btbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_name(): failed to find memory for atbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      if ( ( btbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X	 {
+X#if PROG_ERRORS
+X	 bwb_error( "in bwb_name(): failed to find memory for btbuf" );
+X#else
+X	 bwb_error( err_getmem );
+X#endif
+X	 }
+X      }
+X
+X   /* get the first argument in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   /* interpret the first argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   /* this argument must be copied back to atbuf, else the next
+X      call to bwb_exp() will overwrite the structure to which e
+X      refers */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): old name is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* get the second argument in btbuf */
+X
+X   adv_element( l->buffer, &( l->position ), btbuf  );
+X   bwb_strtoupper( btbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): AS string is <%s>", btbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if ( strcmp( btbuf, "AS" ) != 0 )
+X      {
+X      bwb_error( err_syntax );
+X      return bwb_zline( l );
+X      }
+X
+X   /* get the third argument in btbuf */
+X
+X   adv_element( l->buffer, &( l->position ), btbuf  );
+X
+X   /* interpret the third argument */
+X
+X   position = 0;
+X   e = bwb_exp( btbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      return bwb_zline( l );
+X      }
+X
+X   str_btoc( btbuf, &( e->sval ) );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): new name is <%s>", btbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* try to rename the file */
+X
+X   r = rename( atbuf, btbuf );
+X
+X   /* detect error */
+X
+X   if ( r != 0 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_field()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			FIELD command.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_field( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_field( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int dev_number;
+X   int length;
+X   struct exp_ese *e;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   int current_pos;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   current_pos = 0;
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_field(): device# buffer <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X
+X   if ( e->type != NUMBER )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_field(): Number was expected for device number" );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   dev_number = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_field(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if (( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_field(): Requested device number is not in use." );
+X#else
+X      bwb_error( err_devnum );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* loop to read variables */
+X
+X   do
+X      {
+X
+X      /* read the comma and advance beyond it */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] ==',' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      /* first find the size of the field */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X      if ( e->type != NUMBER )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_field(): number value for field size not found" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      length = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): device <%d> length <%d> buf <%s>",
+X         dev_number, length, &( l->buffer[ l->position ] ) );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* read the AS */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X      bwb_strtoupper( atbuf );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): AS element <%s>", atbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      if ( strncmp( atbuf, "AS", 2 ) != 0 )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_field(): AS statement not found" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      /* read the string variable name */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X      v = var_find( atbuf );
+X
+X      if ( v->type != STRING )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_field(): string variable name not found" );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): device <%d> var <%s> length <%d>",
+X         dev_number, v->name, length );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* check for overflow of record length */
+X
+X      if ( ( current_pos + length ) > dev_table[ dev_number ].reclen )
+X         {
+X#if PROG_ERRORS
+X         bwb_error( "in bwb_field(): record length exceeded" );
+X#else
+X         bwb_error( err_overflow );
+X#endif
+X         return bwb_zline( l );
+X         }
+X
+X      /* set buffer */
+X
+X      b = var_findsval( v, v->array_pos );
+X
+X#if DONTDOTHIS
+X      if ( b->sbuffer != NULL )
+X	 {
+X	 free( b->sbuffer );
+X	 }
+X#endif
+X
+X      b->sbuffer = dev_table[ dev_number ].buffer + current_pos;
+X      b->length = (unsigned char) length;
+X      b->rab = TRUE;
+X
+X      current_pos += length;
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): buffer <%lXh> var <%s> buffer <%lXh>",
+X         (long) dev_table[ dev_number ].buffer, v->name, (long) b->buffer );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* eat up any remaining whitespace */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   while ( l->buffer[ l->position ] == ',' );
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_lset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LSET command.
+X
+X	SYNTAX:		LSET string-variable$ = expression
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_lset( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_lset( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   return dio_lrset( l, FALSE );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_rset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			RSET command.
+X
+X	SYNTAX:		RSET string-variable$ = expression
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_rset( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_rset( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   return dio_lrset( l, TRUE );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dio_lrset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			RSET and LSET commands.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic struct bwb_line *
+Xdio_lrset( struct bwb_line *l, int rset )
+X#else
+Xstatic struct bwb_line *
+Xdio_lrset( l, rset )
+X   struct bwb_line *l;
+X   int rset;
+X#endif
+X   {
+X   char varname[ MAXVARNAMESIZE + 1 ];
+X   bstring *d, *s;
+X   int *pp;
+X   int n_params;
+X   int p;
+X   register int n, i;
+X   int startpos;
+X   struct exp_ese *e;
+X
+X   /* find the variable name */
+X
+X   bwb_getvarname( l->buffer, varname, &( l->position ));
+X
+X   v = var_find( varname );
+X
+X   if ( v == NULL )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): failed to find variable" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   if ( v->type != STRING )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): assignment must be to string variable" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   /* read subscripts */
+X
+X   pos = 0;
+X   if ( ( v->dimensions == 1 ) && ( v->array_sizes[ 0 ] == 1 ))
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in dio_lrset(): variable <%s> has 1 dimension",
+X         v->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      n_params = 1;
+X      pp = &p;
+X      pp[ 0 ] = dim_base;
+X      }
+X   else
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in dio_lrset(): variable <%s> has > 1 dimensions",
+X         v->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      dim_getparams( l->buffer, &( l->position ), &n_params, &pp );
+X      }
+X
+X   CURTASK exps[ CURTASK expsc ].pos_adv = pos;
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      v->array_pos[ n ] = pp[ n ];
+X      }
+X
+X   /* get bstring pointer */
+X
+X   d = var_findsval( v, pp );
+X
+X   /* find equals sign */
+X
+X   adv_ws( l->buffer, &( l->position ));
+X   if ( l->buffer[ l->position ] != '=' )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): failed to find equal sign" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X   ++( l->position );
+X   adv_ws( l->buffer, &( l->position ));
+X
+X   /* read remainder of line to get value */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X   s = exp_getsval( e );
+X
+X   /* set starting position */
+X
+X   startpos = 0;
+X   if ( rset == TRUE )
+X      {
+X      if ( s->length < d->length )
+X         {
+X         startpos = d->length - s->length;
+X         }
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in dio_lrset(): startpos <%d> buffer <%lX>",
+X      startpos, (long) d->buffer );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* write characters to new position */
+X
+X   i = 0;
+X   for ( n = startpos; ( i < (int) s->length ) && ( n < (int) d->length ); ++n )
+X      {
+X      d->sbuffer[ n ] = s->sbuffer[ i ];
+X      ++i;
+X      }
+X
+X   /* return */
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_get()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			GET command.
+X
+X	SYNTAX:		GET [#] device-number [, record-number]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_get( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_get( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int dev_number;
+X   int rec_number;
+X   register int i;
+X   struct exp_ese *e;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X
+X   if ( e->type != NUMBER )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_get(): Number was expected for device number" );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   dev_number = (int) exp_getnval( e );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_get(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if ( ( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_get(): Requested device number is not in use." );
+X#else
+X      bwb_error( err_devnum );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* see if there is a comma (and record number) */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] == ',' )	/* yes, there is a comma */
+X      {
+X      ++( l->position );
+X
+X      /* get the record number element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      rec_number = (int) exp_getnval( e );
+X
+X      }
+X
+X   else				/* no record number given */
+X      {
+X      rec_number = dev_table[ dev_number ].next_record;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_get(): record number <%d>", rec_number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* wind the c file up to the proper point */
+X
+X   if ( fseek( dev_table[ dev_number ].cfp,
+X      (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ),
+X      SEEK_SET ) != 0 )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_get(): fseek() failed, rec number <%d> offset <%ld>",
+X        rec_number, (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ) );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_dev );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* read the requested bytes into the buffer */
+X
+X   for ( i = 0; i < dev_table[ dev_number ].reclen; ++i )
+X      {
+X      dev_table[ dev_number ].buffer[ i ] =
+X         (char) fgetc( dev_table[ dev_number ].cfp );
+X      ++( dev_table[ dev_number ].loc );
+X      }
+X
+X   /* increment (or reset) the current record */
+X
+X   dev_table[ dev_number ].next_record = rec_number + 1;
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_put()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			PUT command.
+X
+X	SYNTAX:		PUT [#] device-number [, record-number]
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct bwb_line *
+Xbwb_put( struct bwb_line *l )
+X#else
+Xstruct bwb_line *
+Xbwb_put( l )
+X   struct bwb_line *l;
+X#endif
+X   {
+X   int dev_number;
+X   int rec_number;
+X   register int i;
+X   struct exp_ese *e;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X   dev_number = atoi( atbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if ( ( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_put(): Requested device number is not in use." );
+X#else
+X      bwb_error( err_devnum );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X   /* see if there is a comma (and record number) */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] == ',' )	/* yes, there is a comma */
+X      {
+X      ++( l->position );
+X
+X      /* get the record number element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_put(): rec no buffer <%s>", atbuf );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_put(): return type <%c>", e->type );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      rec_number = (int) exp_getnval( e );
+X
+X      }
+X
+X   else				/* no record number given */
+X      {
+X      rec_number = dev_table[ dev_number ].next_record;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): record number <%d>", rec_number );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* wind the c file up to the proper point */
+X
+X   if ( fseek( dev_table[ dev_number ].cfp,
+X      (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ),
+X      SEEK_SET ) != 0 )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_get(): fseek() failed, rec number <%d> offset <%ld>",
+X        rec_number, (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ) );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_dev );
+X#endif
+X      return bwb_zline( l );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): ready to write to file, buffer <%lXh>",
+X      (long) dev_table[ dev_number ].buffer );
+X   bwb_debug( bwb_ebuf );
+X   prn_xprintf( stderr, "Buffer: <" );
+X#endif
+X
+X   /* write the requested bytes to the file */
+X
+X   for ( i = 0; i < dev_table[ dev_number ].reclen; ++i )
+X      {
+X      fputc( dev_table[ dev_number ].buffer[ i ],
+X         dev_table[ dev_number ].cfp );
+X#if INTENSIVE_DEBUG
+X      xputc( stderr, dev_table[ dev_number ].buffer[ i ] );
+X#endif
+X      ++( dev_table[ dev_number ].loc );
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   prn_xprintf( stderr, ">\n" );
+X   sprintf( bwb_ebuf, "in bwb_put(): write to file complete" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* flush the buffer */
+X
+X   dio_flush( dev_number );
+X
+X   /* increment (or reset) the current record */
+X
+X   dev_table[ dev_number ].next_record = rec_number + 1;
+X
+X   return bwb_zline( l );
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dio_flush()
+X
+X        DESCRIPTION:    This C function flushes the random-access
+X			buffer associated with file dev_number.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstatic int
+Xdio_flush( int dev_number )
+X#else
+Xstatic int
+Xdio_flush( dev_number )
+X   int dev_number;
+X#endif
+X   {
+X   register int n;
+X
+X   if ( dev_table[ dev_number ].mode != DEVMODE_RANDOM )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_flush(): only random-access buffers can be flushed" );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_dev );
+X#endif
+X      }
+X
+X   /* fill buffer with blanks (or 'X' for test) */
+X
+X   for ( n = 0; n < dev_table[ req_devnumber ].reclen; ++n )
+X      {
+X      dev_table[ req_devnumber ].buffer[ n ] = RANDOM_FILLCHAR;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X#endif				/* COMMON_CMDS */
+X
+X
+END_OF_FILE
+  if test 41067 -ne `wc -c <'bwbasic-2.10/bwb_dio.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_dio.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_dio.c'
+fi
+if test -f 'bwbasic-2.10/bwbtest/callfunc.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/callfunc.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/callfunc.bas'\" \(1032 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/callfunc.bas' <<'END_OF_FILE'
+X
+Xrem ----------------------------------------------------
+Xrem CallFunc.BAS
+Xrem ----------------------------------------------------
+X
+XPrint "CallFunc.BAS -- Test BASIC User-defined Function Statements"
+XPrint "The next printed line should be from the Function."
+XPrint
+Xtestvar = 17
+X
+Xx = TestFnc( 5, "Hello", testvar )
+X
+XPrint
+XPrint "This is back at the main program. "
+XPrint "The value of variable <testvar> is now "; testvar
+XPrint "The returned value from the function is "; x
+X
+XPrint "Did it work?"
+XEnd
+X
+Xrem ----------------------------------------------------
+Xrem Subroutine TestFnc
+Xrem ----------------------------------------------------
+X
+XFunction TestFnc( xarg, yarg$, tvar )
+X   Print "This is written from the Function."
+X   Print "The value of variable <xarg> is"; xarg
+X   Print "The value of variable <yarg$> is "; yarg$
+X   Print "The value of variable <tvar> is "; tvar
+X   tvar = 99
+X   Print "The value of variable <tvar> is reset to "; tvar
+X   TestFnc = xarg + tvar
+X   Print "The Function should return "; TestFnc
+XEnd Function
+END_OF_FILE
+  if test 1032 -ne `wc -c <'bwbasic-2.10/bwbtest/callfunc.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/callfunc.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/callfunc.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/callsub.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/callsub.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/callsub.bas'\" \(889 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/callsub.bas' <<'END_OF_FILE'
+X
+Xrem ----------------------------------------------------
+Xrem CallSub.BAS
+Xrem ----------------------------------------------------
+X
+XPrint "CallSub.BAS -- Test BASIC Call and Sub Statements"
+XPrint "The next printed line should be from the Subroutine."
+XPrint
+Xtestvar = 17
+X
+XCall TestSub 5, "Hello", testvar
+X
+XPrint
+XPrint "This is back at the main program. "
+XPrint "The value of variable <testvar> is now "; testvar
+X
+XPrint "Did it work?"
+XEnd
+X
+Xrem ----------------------------------------------------
+Xrem Subroutine TestSub
+Xrem ----------------------------------------------------
+X
+XSub TestSub( xarg, yarg$, tvar )
+X   Print "This is written from the Subroutine."
+X   Print "The value of variable <xarg> is"; xarg
+X   Print "The value of variable <yarg$> is "; yarg$
+X   Print "The value of variable <tvar> is "; tvar
+X   tvar = 99
+X   Print "The value of variable <tvar> is reset to "; tvar
+XEnd Sub
+X
+END_OF_FILE
+  if test 889 -ne `wc -c <'bwbasic-2.10/bwbtest/callsub.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/callsub.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/callsub.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/deffn.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/deffn.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/deffn.bas'\" \(240 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/deffn.bas' <<'END_OF_FILE'
+X10 REM ------------------------------------------ 
+X20 PRINT "DEFFN.BAS -- Test DEF FN Statement" 
+X30 DEF fnadd( x, y ) = x + y 
+X40 PRINT fnadd( 2, 3 ) 
+X50 DEF fnjoin$( a$, b$ ) = a$ + b$ 
+X60 PRINT fnjoin$( chr$( &h43 ), "orrect" ) 
+X70 END 
+END_OF_FILE
+  if test 240 -ne `wc -c <'bwbasic-2.10/bwbtest/deffn.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/deffn.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/deffn.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/dowhile.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/dowhile.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/dowhile.bas'\" \(237 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/dowhile.bas' <<'END_OF_FILE'
+X10 REM DOWHILE.BAS -- Test DO WHILE-LOOP
+X20 PRINT "START" 
+X30 LET X = 0 
+X40 DO WHILE X < 25
+X50 PRINT "x is ";X 
+X60 LET X = X + 1 
+X70 LET Y = 0 
+X80 DO WHILE Y < 2
+X90 PRINT "y is "; Y 
+X100 LET Y = Y + 1 
+X110 LOOP
+X120 LOOP
+X130 PRINT "END" 
+END_OF_FILE
+  if test 237 -ne `wc -c <'bwbasic-2.10/bwbtest/dowhile.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/dowhile.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/dowhile.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/elseif.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/elseif.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/elseif.bas'\" \(592 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/elseif.bas' <<'END_OF_FILE'
+X
+Xrem -----------------------------------------------------
+Xrem elseif.bas -- Test MultiLine IF-ELSEIF-THEN statement
+Xrem -----------------------------------------------------
+X
+XPrint "ELSEIF.BAS -- Test MultiLine IF-THEN-ELSE Constructions"
+X
+XPrint
+XPrint "The program should detect if the number you enter is 4 or 5 or 6."
+XInput "Please enter a number, 1-9"; x
+X
+XIf x = 4 then
+X   Print "The number is 4."
+X
+XElseif x = 5 then
+X   Print "The number is 5."
+X
+XElseif x = 6 then
+X   Print "The number is 6."
+X
+XElse
+X   Print "The number is neither 4 nor 5 nor 6."
+X
+XEnd If
+X
+XPrint "This concludes our test."
+END_OF_FILE
+  if test 592 -ne `wc -c <'bwbasic-2.10/bwbtest/elseif.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/elseif.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/elseif.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/end.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/end.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/end.bas'\" \(220 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/end.bas' <<'END_OF_FILE'
+X10 REM END.BAS -- Test END Statement 
+X20 PRINT "END.BAS -- Test END Statement" 
+X30 PRINT "If the program ends after this line, END worked OK." 
+X40 END 
+X50 PRINT "But if this line printed, then it did not work." 
+X60 END 
+END_OF_FILE
+  if test 220 -ne `wc -c <'bwbasic-2.10/bwbtest/end.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/end.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/end.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/fncallfn.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/fncallfn.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/fncallfn.bas'\" \(344 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/fncallfn.bas' <<'END_OF_FILE'
+X10 rem FNCALLFN.BAS -- Test User-defined function called
+X20 rem                 from user-defined function
+X30 def fnabs(x) = abs(x)
+X40 def fncmp(y) = 1.45678+fnabs(y)
+X50 print "Test user-defined function calling user-defined function"
+X60 print "The result should be: ";2.45678
+X70 q = -1.000
+X80 print "The result is:      : "; fncmp( q )
+X90 end
+END_OF_FILE
+  if test 344 -ne `wc -c <'bwbasic-2.10/bwbtest/fncallfn.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/fncallfn.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/fncallfn.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/fornext.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/fornext.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/fornext.bas'\" \(343 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/fornext.bas' <<'END_OF_FILE'
+X10 REM FORNEXT.BAS -- Test FOR-NEXT Statements 
+X20 REM 
+X30 PRINT "FORNEXT.BAS: Test FOR-NEXT Statements" 
+X40 PRINT "A FOR-NEXT Loop with STEP statement:" 
+X50 FOR i=1 to 30 step 2 
+X60 PRINT "FOR: i is ";i 
+X70 NEXT i 
+X80 REM 
+X90 PRINT "A FOR-NEXT Loop without STEP statement:" 
+X100 FOR i = 2 to 7 
+X110 PRINT "FOR: i is ";i 
+X120 NEXT i 
+X130 END 
+END_OF_FILE
+  if test 343 -ne `wc -c <'bwbasic-2.10/bwbtest/fornext.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/fornext.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/fornext.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/gosub.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/gosub.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/gosub.bas'\" \(1086 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/gosub.bas' <<'END_OF_FILE'
+X10 REM -------------------------------------------------------- 
+X20 REM GOSUB.BAS Test Bywater BASIC Interpreter GOSUB Statement
+X30 REM -------------------------------------------------------- 
+X40 GOSUB 160 
+X50 PRINT "Test GOSUB Statements" 
+X60 PRINT "---------------------" 
+X70 PRINT 
+X80 PRINT "1 - Run Subroutine" 
+X90 PRINT "9 - Exit to system" 
+X92 PRINT "x - Exit to BASIC" 
+X100 PRINT 
+X110 INPUT c$ 
+X120 IF c$ = "1" then gosub 430 
+X130 IF c$ = "9" then goto 600 
+X132 IF c$ = "x" then end 
+X134 IF c$ = "X" then end 
+X140 GOTO 10 
+X150 END 
+X160 REM subroutine to clear screen 
+X170 PRINT 
+X180 PRINT 
+X190 PRINT 
+X200 PRINT 
+X210 PRINT 
+X220 PRINT 
+X230 PRINT 
+X240 PRINT 
+X250 PRINT 
+X260 PRINT 
+X270 PRINT 
+X280 PRINT 
+X290 PRINT 
+X300 PRINT 
+X310 PRINT 
+X320 PRINT 
+X330 PRINT 
+X340 PRINT 
+X350 PRINT 
+X360 PRINT 
+X370 PRINT 
+X380 PRINT 
+X390 PRINT 
+X400 PRINT 
+X410 PRINT 
+X420 RETURN 
+X430 REM subroutine to test branching 
+X435 GOSUB 160 
+X440 PRINT "This is the subroutine." 
+X445 PRINT "Press any key: "; 
+X450 INPUT x$ 
+X460 RETURN 
+X600 GOSUB 160 
+X610 PRINT "Exit from Bywater BASIC Test Program" 
+X620 SYSTEM 
+END_OF_FILE
+  if test 1086 -ne `wc -c <'bwbasic-2.10/bwbtest/gosub.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/gosub.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/gosub.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/gotolabl.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/gotolabl.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/gotolabl.bas'\" \(253 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/gotolabl.bas' <<'END_OF_FILE'
+XPrint "Hello"
+X
+X
+Xgoto test_label
+XPrint "This should NOT print"
+X
+X
+Xtest_label:
+Xgosub test_sub
+XPrint "Goodbye"
+XEnd
+X
+X
+Xtest_sub:
+X   Print "This is the subroutine."
+X   gosub test_subsub
+X   Return
+X
+X
+Xtest_subsub:
+X   Print "This is the sub-subroutine."
+X   Return
+END_OF_FILE
+  if test 253 -ne `wc -c <'bwbasic-2.10/bwbtest/gotolabl.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/gotolabl.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/gotolabl.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/input.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/input.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/input.bas'\" \(207 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/input.bas' <<'END_OF_FILE'
+X10 REM INPUT.BAS -- Test INPUT Statement 
+X20 PRINT "INPUT.BAS -- Test INPUT Statement" 
+X30 REM 
+X40 INPUT "Input string, number: "; s$, n 
+X50 PRINT "The string is: ";s$ 
+X60 PRINT "The number is: ";n 
+X70 END 
+END_OF_FILE
+  if test 207 -ne `wc -c <'bwbasic-2.10/bwbtest/input.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/input.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/input.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/main.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/main.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/main.bas'\" \(300 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/main.bas' <<'END_OF_FILE'
+X
+XSub Prior
+X   Print "This is a subroutine prior to MAIN."
+X   Print "This should not print."
+XEnd Sub
+X
+XSub Main
+X   Print "This is the MAIN subroutine."
+X   Print "This should print."
+XEnd Sub
+X
+XSub Subsequent
+X   Print "This is a subroutine subsequent to MAIN."
+X   Print "This should not print."
+XEnd Sub
+X
+X
+END_OF_FILE
+  if test 300 -ne `wc -c <'bwbasic-2.10/bwbtest/main.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/main.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/main.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/on.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/on.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/on.bas'\" \(310 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/on.bas' <<'END_OF_FILE'
+X10 print "ON.BAS -- Test ON...GOTO Statement"
+X20 input "Enter a number 1-5:";n
+X30 on n goto 40, 60, 80, 100, 120
+X40 print "You entered 1"
+X50 goto 140
+X60 print "You entered 2"
+X70 goto 140
+X80 print "You entered 3"
+X90 goto 140
+X100 print "You entered 4"
+X110 goto 140
+X120 print "You entered 5"
+X130 goto 140
+X140 end
+END_OF_FILE
+  if test 310 -ne `wc -c <'bwbasic-2.10/bwbtest/on.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/on.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/on.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/onerr.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/onerr.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/onerr.bas'\" \(424 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/onerr.bas' <<'END_OF_FILE'
+X10 rem onerr.bas -- test bwBASIC ON ERROR GOSUB statement
+X20 print "Test bwBASIC ON ERROR GOSUB statement"
+X30 on error gosub 100
+X40 print "The next line will include an error"
+X50 if d$ = 78.98 then print "This should not print"
+X60 print "This is the line after the error"
+X70 end
+X100 rem Error handler
+X110 print "This is the error handler"
+X120 print "The error number is ";err
+X130 print "The error line   is ";erl
+X150 return
+END_OF_FILE
+  if test 424 -ne `wc -c <'bwbasic-2.10/bwbtest/onerr.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/onerr.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/onerr.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/onerrlbl.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/onerrlbl.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/onerrlbl.bas'\" \(392 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/onerrlbl.bas' <<'END_OF_FILE'
+Xrem onerrlbl.bas -- test bwBASIC ON ERROR GOSUB statement with label
+Xprint "Test bwBASIC ON ERROR GOSUB statement"
+Xon error gosub handler
+Xprint "The next line will include an error"
+Xif d$ = 78.98 then print "This should not print"
+Xprint "This is the line after the error"
+Xend
+Xhandler:
+Xprint "This is the error handler"
+Xprint "The error number is ";err
+Xprint "The error line   is ";erl
+Xreturn
+END_OF_FILE
+  if test 392 -ne `wc -c <'bwbasic-2.10/bwbtest/onerrlbl.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/onerrlbl.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/onerrlbl.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/ongosub.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/ongosub.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/ongosub.bas'\" \(326 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/ongosub.bas' <<'END_OF_FILE'
+X10 print "ONGOSUB.BAS -- Test ON..GOSUB Statement"
+X20 input "Enter a number 1-5";n
+X30 on n gosub 60, 80, 100, 120, 140
+X40 print "The End"
+X50 end
+X60 print "You entered 1"
+X70 return
+X80 print "You entered 2"
+X90 return
+X100 print "You entered 3"
+X110 return
+X120 print "You entered 4"
+X130 return
+X140 print "You entered 5"
+X150 return
+END_OF_FILE
+  if test 326 -ne `wc -c <'bwbasic-2.10/bwbtest/ongosub.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/ongosub.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/ongosub.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/opentest.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/opentest.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/opentest.bas'\" \(328 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/opentest.bas' <<'END_OF_FILE'
+X10 PRINT "OPENTEST.BAS -- Test OPEN, PRINT#, LINE INPUT#, and CLOSE"
+X20 OPEN "test.out" FOR OUTPUT AS # 1
+X30 PRINT #1,"This is line 1."
+X40 PRINT #1, "This is line 2."
+X50 CLOSE #1
+X60 OPEN "test.out" FOR INPUT AS #1
+X70 LINE INPUT #1,A$
+X80 LINE INPUT #1,B$
+X90 PRINT "Read from file:"
+X100 PRINT ">";A$
+X110 PRINT ">";B$
+X120 CLOSE #1
+END_OF_FILE
+  if test 328 -ne `wc -c <'bwbasic-2.10/bwbtest/opentest.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/opentest.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/opentest.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/option.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/option.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/option.bas'\" \(188 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/option.bas' <<'END_OF_FILE'
+X1 PRINT "OPTION.BAS -- Test OPTION BASE Statement"
+X5 OPTION BASE 1
+X10 DIM n(5) 
+X20 FOR i = 1 to 5 
+X30 LET n(i) = i + 2 
+X40 PRINT "The value at position ";i;" is ";n(i) 
+X50 NEXT i 
+X60 END 
+END_OF_FILE
+  if test 188 -ne `wc -c <'bwbasic-2.10/bwbtest/option.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/option.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/option.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/pascaltr.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/pascaltr.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/pascaltr.bas'\" \(415 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/pascaltr.bas' <<'END_OF_FILE'
+X100   dim pascal(14,14)
+X110   pascal(1,1) = 1
+X120   for i = 2 to 14
+X130           pascal(i,1) = 1
+X140           for j = 2 to i
+X150                   pascal(i,j) = pascal(i-1,j)+pascal(i-1,j-1)
+X160           next j
+X170   next i
+X180   for i = 1 to 14
+X190           print i-1; ": ";
+X200           for j = 1 to i
+X210                   print pascal(i,j);
+X220           next j
+X230           print 
+X240   next i
+X250   end
+END_OF_FILE
+  if test 415 -ne `wc -c <'bwbasic-2.10/bwbtest/pascaltr.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/pascaltr.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/pascaltr.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/putget.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/putget.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/putget.bas'\" \(422 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/putget.bas' <<'END_OF_FILE'
+Xrem PUTGET.BAS -- Test PUT and GET statements
+Xopen "r", 1, "test.dat", 48
+Xfield 1, 20 as r1$, 20 as r2$, 8 as r3$
+Xfor l = 1 to 2
+Xline input "name: "; n$
+Xline input "address: "; m$
+Xline input "phone: "; p$
+Xlset r1$ = n$
+Xlset r2$ = m$
+Xlset r3$ = p$
+Xput #1, l
+Xnext l
+Xclose #1
+Xopen "r", 1, "test.dat", 48
+Xfield 1, 20 as r1$, 20 as r2$, 8 as r3$
+Xfor l = 1 to 2
+Xget #1, l
+Xprint r1$, r2$, r3$
+Xnext l
+Xclose #1
+Xkill "test.dat"
+Xend
+END_OF_FILE
+  if test 422 -ne `wc -c <'bwbasic-2.10/bwbtest/putget.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/putget.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/putget.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/random.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/random.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/random.bas'\" \(381 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/random.bas' <<'END_OF_FILE'
+X100 rem RANDOM.BAS -- Test RANDOMIZE and RND
+X110 print "This is a first sequence of three RND numbers:"
+X120 randomize timer
+X130 print rnd
+X140 print rnd
+X150 print rnd
+X160 print "This is a second sequence of three RND numbers:"
+X170 randomize timer + 18
+X180 print rnd
+X190 print rnd
+X200 print rnd
+X210 print "The second sequence should have been differrent"
+X220 print "from the first."
+END_OF_FILE
+  if test 381 -ne `wc -c <'bwbasic-2.10/bwbtest/random.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/random.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/random.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/selcase.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/selcase.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/selcase.bas'\" \(556 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/selcase.bas' <<'END_OF_FILE'
+Xrem SelCase.bas  -- test SELECT CASE
+X
+XSub Main
+X   Print "SelCase.bas -- test SELECT CASE statement"
+X   Input "Enter a number"; d
+X
+X   Select Case d
+X
+X      Case 3 to 5
+X         Print "The number is between 3 and 5."
+X
+X      Case 6
+X         Print "The number you entered is 6."
+X
+X      Case 7 to 9
+X         Print "The number is between 7 and 9."
+X
+X      Case If > 10
+X         Print "The number is greater than 10"
+X
+X      Case If < 0
+X         Print "The number is less than 0"
+X
+X      Case Else
+X         Print "The number is 1, 2 or 10."
+X
+X   End Select
+X
+XEnd Sub
+X
+X
+END_OF_FILE
+  if test 556 -ne `wc -c <'bwbasic-2.10/bwbtest/selcase.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/selcase.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/selcase.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/snglfunc.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/snglfunc.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/snglfunc.bas'\" \(323 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/snglfunc.bas' <<'END_OF_FILE'
+X
+Xrem ----------------------------------------------------
+Xrem SnglFunc.BAS
+Xrem ----------------------------------------------------
+X
+XPrint "SnglFunc.BAS -- Test Single-Line User-defined Function Statement"
+XPrint
+X
+XDef Sum( x, y ) = x + y
+X
+XPrint
+XPrint "The sum of 6 and 4 is "; Sum( 6, 4 )
+X
+XPrint "Did it work properly?"
+XEnd
+END_OF_FILE
+  if test 323 -ne `wc -c <'bwbasic-2.10/bwbtest/snglfunc.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/snglfunc.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/snglfunc.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/stop.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/stop.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/stop.bas'\" \(234 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/stop.bas' <<'END_OF_FILE'
+X10 REM STOP.BAS -- Test STOP Statement 
+X20 PRINT "STOP.BAS -- Test STOP Statement" 
+X30 PRINT "If the program is interrupted after this line, STOP worked OK"
+X40 STOP 
+X50 PRINT "But if this line printed, then it did not work." 
+X60 END 
+END_OF_FILE
+  if test 234 -ne `wc -c <'bwbasic-2.10/bwbtest/stop.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/stop.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/stop.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/term.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/term.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/term.bas'\" \(312 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/term.bas' <<'END_OF_FILE'
+X10 REM BWBASIC Program to Demonstrate Terminal-Specific Use 
+X20 REM The following definitions are for an ANSI Terminal. 
+X30 REM You may have to define different variables for your 
+X40 REM particular terminal 
+X50 REM 
+X60 LET CL$ = chr$(&h1b)+"[2J" 
+X70 PRINT CL$; 
+X80 PRINT " Bywater BASIC" 
+X90 INPUT c$ 
+X100 END 
+END_OF_FILE
+  if test 312 -ne `wc -c <'bwbasic-2.10/bwbtest/term.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/term.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/term.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/whilwend.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/whilwend.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/whilwend.bas'\" \(239 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/whilwend.bas' <<'END_OF_FILE'
+X10 REM WHILWEND.BAS -- Test WHILE-WEND Loops
+X20 PRINT "START" 
+X30 LET X = 0 
+X40 WHILE X < 25 
+X50 PRINT "x is ";X 
+X60 LET X = X + 1 
+X70 LET Y = 0 
+X80 WHILE Y < 2 
+X90 PRINT "y is "; Y 
+X100 LET Y = Y + 1 
+X110 WEND 
+X120 WEND 
+X130 PRINT "END" 
+END_OF_FILE
+  if test 239 -ne `wc -c <'bwbasic-2.10/bwbtest/whilwend.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/whilwend.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/whilwend.bas'
+fi
+if test -f 'bwbasic-2.10/bwbtest/width.bas' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwbtest/width.bas'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwbtest/width.bas'\" \(206 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwbtest/width.bas' <<'END_OF_FILE'
+X10 open "o", #1, "data.tmp"
+X20 width #1, 35
+X30 print #1, "123456789012345678901234567890123456789012345678901234567890"
+X40 close #1
+X50 print "Check file <data.tmp> to see if the printing wrapped at col 35"
+END_OF_FILE
+  if test 206 -ne `wc -c <'bwbasic-2.10/bwbtest/width.bas'`; then
+    echo shar: \"'bwbasic-2.10/bwbtest/width.bas'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwbtest/width.bas'
+fi
+if test -f 'bwbasic-2.10/configure.in' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/configure.in'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/configure.in'\" \(361 characters\)
+  sed "s/^X//" >'bwbasic-2.10/configure.in' <<'END_OF_FILE'
+Xdnl Process this file with autoconf to produce a configure script.
+XAC_INIT(bwb_cmd.c)
+XAC_PROG_CC
+XAC_PROG_CPP
+XAC_PROG_INSTALL
+XAC_SIZE_T
+XAC_HEADER_CHECK(string.h, AC_DEFINE(HAVE_STRING))
+XAC_HEADER_CHECK(stdlib.h, AC_DEFINE(HAVE_STDLIB))
+XAC_COMPILE_CHECK(raise, [#include <sys/types.h>
+X#include <signal.h>], [raise(1);], AC_DEFINE(HAVE_RAISE))
+XAC_OUTPUT(Makefile)
+END_OF_FILE
+  if test 361 -ne `wc -c <'bwbasic-2.10/configure.in'`; then
+    echo shar: \"'bwbasic-2.10/configure.in'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/configure.in'
+fi
+echo shar: End of archive 10 \(of 15\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

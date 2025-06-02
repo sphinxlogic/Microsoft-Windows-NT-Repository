@@ -1,0 +1,207 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i048:  mailagent - Flexible mail filtering and processing package, v3.0, Patch04
+Message-ID: <1993Dec19.214046.4774@sparky.sterling.com>
+X-Md4-Signature: 197bdb4319d8ea4e3e6ae3cf15aad932
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France
+Date: Sun, 19 Dec 1993 21:40:46 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 48
+Archive-name: mailagent/patch04
+Environment: UNIX, Perl
+Patch-To: mailagent: Volume 41, Issue 1-26
+
+[The latest patch for mailagent version 3.0 is #4.]
+
+System: mailagent version 3.0
+Patch #: 4
+Priority: HIGH
+Subject: a regular expression got corrupted by an appliance of itself
+Subject: one spurious single quote still remained after patch3
+Date: Fri Dec 17 09:13:24 MET 1993
+From: Raphael Manfredi <ram@acri.fr>
+
+Description:
+	A regular expression got corrupted by an appliance of itself. Indeed,
+	in maildist, there was a line saying:
+
+		s|Locker:.*\$|\$|;
+	
+	whose aim was to remove RCS locker's marks (in RCS 4.3 I think)
+	when mailing distributions. Unfortunately, when maildist was asked
+	to mail the mailagent distribution, it applied this regexp on the
+	maildist.SH file and since this regexp is roughly self-matching,
+	it got transformed into:
+
+		s|$|;
+
+	This patch changes the regexp to:
+
+		s|Lock[e]r:.*\$|\$|;
+		
+	so that it cannot apply to itself... Note that since the dist-3.0
+	tools also perform this substitution, the comp.sources.misc version
+	is corrupted as well...  Graham Stoney <greyham@research.canon.oz.au>
+	is to be thanked for reporting this bug, which of course I could
+	hardly spot since my master copy is not post-processed by dist-3.0
+	before being installed!
+
+	One spurious single quote still remained after patch3 in the
+	agent/test/actions file.
+
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your mailagent source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		Configure -ders
+		make depend
+		make
+		make install
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+		Raphael Manfredi <ram@acri.fr>
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+		Subject: Command
+		@SH mailpatch PATH mailagent 3.0 LIST
+			   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+	To get some more detailed instructions, send me the following mail:
+
+		Subject: Command
+		@SH mailhelp PATH
+
+
+Index: patchlevel.h
+Prereq: 3
+4c4
+< #define PATCHLEVEL 3
+---
+> #define PATCHLEVEL 4
+
+Index: agent/maildist.SH
+Prereq: 3.0
+*** agent/maildist.SH.old	Fri Dec 17 09:13:22 1993
+--- agent/maildist.SH	Fri Dec 17 09:13:22 1993
+***************
+*** 20,26 ****
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maildist.SH,v 3.0 1993/11/29 13:48:23 ram Exp $
+  #
+  #  Copyright (c) 1990-1993, Raphael Manfredi
+  #  
+--- 20,26 ----
+  	eval "exec perl -S \$0 \$*"
+  		if \$running_under_some_shell;
+  
+! # $Id: maildist.SH,v 3.0.1.1 1993/12/17 08:12:18 ram Exp $
+  #
+  #  Copyright (c) 1990-1993, Raphael Manfredi
+  #  
+***************
+*** 31,36 ****
+--- 31,39 ----
+  #  of the source tree for mailagent 3.0.
+  #
+  # $Log: maildist.SH,v $
++ # Revision 3.0.1.1  1993/12/17  08:12:18  ram
++ # patch4: a regular expression got corrupted by an appliance of itself
++ #
+  # Revision 3.0  1993/11/29  13:48:23  ram
+  # Baseline for mailagent 3.0 netwide release.
+  #
+***************
+*** 297,303 ****
+  				&abort("cannot open $location/$file");
+  		}
+  		while (<FILE>) {
+! 			s|$|;      # Remove locker mark
+  			(print COPY) || &abort("copy error: $!");
+  		}
+  		close(FILE) || &abort("copy error: $!");
+--- 300,308 ----
+  				&abort("cannot open $location/$file");
+  		}
+  		while (<FILE>) {
+! 			# Use Lock[e]r, not Locker, since we might apply this on
+! 			# ourself one day and get corrupted...
+! 			s|Lock[e]r:.*\$|\$|;      # Remove locker mark
+  			(print COPY) || &abort("copy error: $!");
+  		}
+  		close(FILE) || &abort("copy error: $!");
+
+Index: agent/test/actions
+Prereq: 3.0.1.1
+*** agent/test/actions.old	Fri Dec 17 09:13:23 1993
+--- agent/test/actions	Fri Dec 17 09:13:23 1993
+***************
+*** 2,8 ****
+  # Mailagent rules for action regression tests
+  #
+  
+! # $Id: actions,v 3.0.1.1 1993/12/15 09:05:21 ram Exp $
+  #
+  #  Copyright (c) 1990-1993, Raphael Manfredi
+  #  
+--- 2,8 ----
+  # Mailagent rules for action regression tests
+  #
+  
+! # $Id: actions,v 3.0.1.2 1993/12/17 08:13:20 ram Exp $
+  #
+  #  Copyright (c) 1990-1993, Raphael Manfredi
+  #  
+***************
+*** 13,18 ****
+--- 13,21 ----
+  #  of the source tree for mailagent 3.0.
+  #
+  # $Log: actions,v $
++ # Revision 3.0.1.2  1993/12/17  08:13:20  ram
++ # patch4: one spurious single quote still remained after patch3
++ #
+  # Revision 3.0.1.1  1993/12/15  09:05:21  ram
+  # patch3: extra closing single quote removed (was there since 2.9 PL0)
+  #
+***************
+*** 59,65 ****
+  	ASSIGN :ram %#:ram + 4;
+  	ASSIGN other '1+2';
+  	ASSIGN final %#other + 4;
+! 	RUN /bin/echo '%#:ram,%#other,%#final' > output';
+  }
+  
+  X-Tag: /back/
+--- 62,68 ----
+  	ASSIGN :ram %#:ram + 4;
+  	ASSIGN other '1+2';
+  	ASSIGN final %#other + 4;
+! 	RUN /bin/echo '%#:ram,%#other,%#final' > output;
+  }
+  
+  X-Tag: /back/
+
+*** End of Patch 4 ***
+
+exit 0 # Just in case...

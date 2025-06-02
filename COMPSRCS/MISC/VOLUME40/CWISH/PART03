@@ -1,0 +1,2206 @@
+Newsgroups: comp.sources.misc
+From: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Subject: v40i070:  cwish - Window Shell / Filemanager v2.00, Part03/05
+Message-ID: <1993Nov1.220630.9299@sparky.sterling.com>
+X-Md4-Signature: 0725d0c5793805c6619074257d222948
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 1 Nov 1993 22:06:30 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Posting-number: Volume 40, Issue 70
+Archive-name: cwish/part03
+Environment: UNIX, ANSI-C, SYSV-CURSES
+Supersedes: cwish: Volume 39, Issue 97-100
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  config.c cwish.h files.c header.c history.c
+# Wrapped by kent@sparky on Fri Oct 29 14:39:10 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'config.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.c'\"
+else
+  echo shar: Extracting \"'config.c'\" \(8738 characters\)
+  sed "s/^X//" >'config.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  cwish - windowing user friendly shell
+X *                  -------------------------------------
+X *
+X *              (c) Copyright Hellmuth Michaelis 1989 - 1993
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *           All rights are reserved except as explicitly granted
+X *                  by written permission of the author.
+X *
+X *             See the file COPYING, distributed with cwish, for
+X *                  restriction and warranty information
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Sun Oct 17 18:17:40 1993]
+X *
+X *	-hm	initial configuration menu design
+X *	-hm	altcharset debugging
+X *	-hm	fkey labels for config screen
+X *	-hm	enter wildcard string
+X *	-go	ported to Ultrix
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "cwish.h"
+X#include "config.h"
+X#include "control.h"
+X
+Xextern char *contin;		/* from help.c */
+X
+Xstatic char *help1 = "Use cursor keys to move to the items you wish change";
+Xstatic char *help2 = "SPACE toggles between YES and NO";
+Xstatic char *help3 = "CONTROL-D exits configuration menu";
+X
+Xstatic void separate(int);
+Xstatic char *enter_string(int row, int col, char *string, int length);
+X
+Xstatic char was_wildcard[OPTSLEN+1];
+Xstatic char was_wildon;
+Xstatic char was_cdrom;
+Xstatic char was_cdnoprog;
+X
+X/*---------------------------------------------------------------------------*
+X *	config function key labels
+X *---------------------------------------------------------------------------*/
+X
+Xstatic struct fk_tab conf_keys[] = {
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"                ", "         "},
+X	{"  Exit   Config ", "         "}
+X};
+X
+X/*---------------------------------------------------------------------------*
+X *	run-time configuration menu
+X *---------------------------------------------------------------------------*/
+Xvoid config(void)
+X{
+X	struct item *ip;
+X	char *q;
+X	int c;
+X	int i;
+X	int dids = 0;
+X	int helpline = 0;
+X	
+X	suspend_time();		/* stop updating time */
+X
+X	cur_fktab = &conf_keys;	/* config screen fkey label table */
+X	init_flabels();
+X
+X	strcpy(was_wildcard, opt_wild);
+X	was_wildon = opt_wildon;
+X	was_cdrom = opt_cdrom;
+X	was_cdnoprog = opt_cdnoprog;
+X	
+X	wmove(stdscr, 0, 0);	/* first line */
+X	wclear(stdscr);		/* clear window */
+X	touchwin(stdscr);	/* touch it */
+X	wnoutrefresh(stdscr);	/* force refresh */
+X
+X	move(0, 0);		/* first line */
+X	attron(A_REVERSE);	/* highlight on */
+X	addstr(headerline);	/* program/copyright header */
+X	attroff(A_REVERSE);	/* highlight off */
+X
+X	ip = FIRST_I;
+X	
+X	/* display menu */
+X	
+X	do
+X	{
+X		if(!dids && ip->type & ITEM_NOCHANGE)
+X		{
+X			dids = 1;
+X			separate(ip->row - 2);
+X		}
+X			
+X		mvaddstr(ip->row, ip->col, ip->name);
+X		standout();
+X		switch(ip->type & ~ITEM_NOCHANGE)
+X		{
+X			case ITEM_ONOFF:
+X				if(*(ip->value))
+X					addstr("YES");
+X				else
+X					addstr(" NO");
+X				break;
+X			case ITEM_STRING:
+X				if(*((char *)ip->value))
+X					addstr((char *)ip->value);
+X				else
+X				{
+X					standend();
+X					addstr("[Not set]");
+X				}
+X				break;
+X			case ITEM_CHAR:
+X				if((char)*(ip->value))
+X					addch((char)*(ip->value));
+X				else
+X				{
+X					standend();
+X					addstr("[Not set]");
+X				}
+X				break;
+X		}
+X		standend();
+X		if(helpline < ip->row)
+X			helpline = ip->row;
+X	}
+X	while((ip = ip->next) != FIRST_I);
+X
+X	helpline += 3;
+X
+X	separate(helpline-1);
+X	
+X	move(helpline + 2, (COLS-strlen(help1))/2);
+X	addstr(help1);
+X
+X	move(helpline + 3, (COLS-strlen(help2))/2);
+X	addstr(help2);
+X
+X	move(helpline + 4, (COLS-strlen(help3))/2);
+X	addstr(help3);
+X	
+X	ip = FIRST_I;
+X
+X	/* cruise in menu */
+X
+X	i = 0;
+X	
+X	for(;;)
+X	{
+X		move(helpline, 0);
+X		clrtoeol();
+X		move(helpline, (COLS-strlen(ip->help))/2);
+X		addstr(ip->help);
+X
+X		move(ip->row, ((ip->col)+(ip->nl)));
+X		refresh();
+X
+X		c = getch();
+X
+X		switch(c)
+X		{
+X			case CR:
+X				if(ip->type != ITEM_STRING)
+X					break;
+X
+X				if((q = enter_string(ip->row, ((ip->col)+(ip->nl)), (char *)ip->value , OPTSLEN)) != NULL)
+X					strcpy((char *)ip->value, q);
+X
+X				mvaddstr(ip->row, ip->col, ip->name);
+X				if(*((char *)ip->value))
+X				{
+X					standout();				
+X					addstr((char *)ip->value);
+X					standend();
+X				}
+X				else
+X				{
+X					addstr("[Not set]");
+X				}
+X				break;
+X				
+X			case ' ':		/* nextopt */
+X				if(ip->type == ITEM_ONOFF)
+X				{
+X					standout();
+X					if(*(ip->value))
+X					{
+X						*(ip->value) = 0;
+X						addstr(" NO");
+X					}
+X					else
+X					{
+X						*(ip->value) = 1;
+X						addstr("YES");
+X					}
+X					standend();
+X				}				
+X				break;
+X
+X			case CNTRL_D:
+X				goto breakout;
+X
+X			case KEY_UP:		/* up item */
+X				i = ip->col;
+X				do
+X					ip = ip->prev;
+X				while(ip->col != i);
+X				break;
+X
+X			case KEY_DOWN:		/* down item */
+X				i = ip->col;
+X				do
+X					ip = ip->next;
+X				while(ip->col != i);
+X				break;
+X
+X			case KEY_LEFT:		/* left item */
+X#ifdef KEY_BTAB
+X			case KEY_BTAB:
+X#endif
+X				ip = ip->prev;
+X				break;
+X
+X			case KEY_RIGHT:		/* right item */
+X			case TAB:
+X				ip = ip->next;
+X				break;
+X
+X			case KEY_F(1):	/* function key 1 */
+X				break;
+X
+X			case KEY_F(2):	/* function key 2 */
+X				break;
+X			
+X			case KEY_F(3):	/* function key 3 */
+X				break;
+X				
+X			case KEY_F(4):	/* function key 4 */
+X				break;
+X				
+X			case KEY_F(5):	/* function key 5 */
+X				break;
+X
+X			case KEY_F(6):	/* function key 6 */
+X				break;
+X				
+X			case KEY_F(7):	/* function key 7 */
+X				break;
+X				
+X			case KEY_F(8):	/* function key 8 */
+X				goto breakout;
+X
+X			case CNTRL_L:	/* refresh */
+X				touchwin(curscr);
+X				wrefresh(curscr);
+X				break;
+X		}
+X	}
+X
+Xbreakout:
+X
+X	/* do we have to reread dir ? */
+X
+X	if((strcmp(opt_wild, was_wildcard)) || (opt_wildon != was_wildon) ||
+X	   (was_cdrom != opt_cdrom) || (was_cdnoprog != opt_cdnoprog))
+X	{
+X		free_list();			/* free malloc'ed buffers */
+X		init_files(PRES_NORM, NULL);	/* yes, read current dir */
+X	}
+X
+X	wmove(stdscr, 0, 0);			/* first line */
+X	wclear(stdscr);				/* clear window */
+X	touchwin(stdscr);
+X	wnoutrefresh(stdscr);
+X
+X	touchwin(cmnd_w);
+X	touchwin(fst_w);
+X	touchwin(file_w);
+X	if(opt_attrib)
+X		touchwin(attr_w);
+X	if(opt_labels)
+X		touchwin(flbl_w);
+X	
+X	resume_time();		/* restart updating time */
+X
+X	header();		/* new header */
+X	dis_hist();		/* display current commandline */
+X	fresh_files();		/* refresh files */
+X	attribs(1);		/* new attributes */
+X	update_all();		/* update complete screen */
+X
+X	cur_fktab = &sys_keys;	/* system fkey label table */
+X	init_flabels();
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	print a horizontal line
+X *---------------------------------------------------------------------------*/
+Xstatic void separate(int row)
+X{
+X	int i = COLS;
+X	unsigned char delim;
+X	
+X	move(row, 0);
+X
+X	if(opt_delimiter)
+X	{
+X		delim = opt_delimiter;		
+X	}
+X	else if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X	        *enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		attron(A_ALTCHARSET);
+X		switch(termtype)
+X		{
+X			case TERM_HP:	/* HEWLETT-PACKARD Terminals (2392,700/9x etc) */
+X				delim = ';';
+X				break;
+X	
+X			case TERM_VT2:	/* DEC VT220 / 320 */
+X			case TERM_VT3:
+X			case TERM_PCVT:
+X				delim = 'q';
+X				break;
+X	
+X			default:	/* everything else */
+X				delim = DEFDELIMCH;
+X				break;
+X		}
+X	}
+X	else
+X	{
+X		delim = DEFDELIMCH;
+X	}
+X		
+X	while(i--)
+X		addch(delim);
+X
+X	if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X           *enter_alt_charset_mode && *exit_alt_charset_mode && !opt_delimiter)
+X		attroff(A_ALTCHARSET);
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	enter a string into a string variable
+X *---------------------------------------------------------------------------*/
+Xstatic char *enter_string(int row, int col, char *string, int length)
+X{
+X	static char buffer[81];
+X	int ccol, c;
+X
+X	strcpy(buffer, string);
+X	ccol = strlen(buffer);
+X
+X	for(;;)
+X	{
+X		mvaddstr(row, col, buffer);
+X		clrtoeol();
+X		
+X		refresh();
+X
+X		c = getch();	
+X
+X		if(c == bschar)
+X		{
+X			if(ccol > 0)
+X			{
+X				ccol--;
+X				buffer[ccol] = '\0';
+X			}
+X			continue;
+X		}
+X
+X		switch(c)
+X		{
+X			case CR:
+X				return(buffer);
+X				
+X			case ESC:
+X				return(NULL);
+X				
+X			case CNTRL_L:	/* refresh */
+X				touchwin(curscr);
+X				wrefresh(curscr);
+X				break;
+X
+X			default:
+X				if(ccol < length)
+X				{
+X					buffer[ccol++] = c;
+X					buffer[ccol] = '\0';
+X				}
+X				else
+X				{
+X					flash();
+X				}
+X				break;
+X		}
+X	}
+X}
+X
+X/*----------------------- E O F -------------------------------------------*/
+END_OF_FILE
+  if test 8738 -ne `wc -c <'config.c'`; then
+    echo shar: \"'config.c'\" unpacked with wrong size!
+  fi
+  # end of 'config.c'
+fi
+if test -f 'cwish.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cwish.h'\"
+else
+  echo shar: Extracting \"'cwish.h'\" \(13389 characters\)
+  sed "s/^X//" >'cwish.h' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  cwish - windowing user friendly shell
+X *                  -------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Wed Oct 20 10:04:22 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	conversion to multi-windows
+X *	-hm	conversion to programs, files & directories
+X *	-hm	adding history to commandline
+X *	-hm	bsd porting
+X *	-hm	preserve dir when cd ..
+X *	-hm	stdlib inclusion for malloc()
+X *	-hm	getcwd debugging
+X *	-hm	fkey handling structures
+X *	-hm	wildcard matching cd
+X *	-go	ported to Ultrix
+X *	-hm	PAGEMASK renamed to PAGE_MSK, nameclash in SunOS 4.1.3
+X *	-hm	new flag USE_NCURSES
+X *	-hm	alternate attribute line
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#ifdef USE_NCURSES
+X#include <ncurses.h>
+X#else /* !USE_NCURSES */
+X#ifdef ultrix
+X#include <cursesX.h>
+X#else /* !ultrix */
+X#include <curses.h>
+X#endif /* ultrix */
+X#endif /* USE_NCURSES */
+X
+X#include <ctype.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <grp.h>
+X#include <pwd.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <strings.h>
+X#include <term.h>
+X#include <time.h>
+X#include <unistd.h>
+X#include <utmp.h>
+X#include <sys/dir.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <sys/types.h>
+X
+X#ifdef MAIN
+X#define EXTERNAL
+X#else
+X#define EXTERNAL extern
+X#endif
+X
+X#define EXPSEL	'%'	/* expand selection character in commandline */
+X
+X#define DEFDELIMCH '-'	/* default char used for horizontal delimiting lines */
+X
+X/* screen */
+X
+X#define C_HEAD	 0	/* copyright header line */
+X#define C_LINE	 1	/* command entry line */
+X#define C_SEP	 2	/* separator line between command & file display */
+X#define C_HEIGHT 3	/* commandline height in lines */
+X
+X#define F_BEG	 0	/* first line of file window */
+X
+X#define A_SEP	 0	/* separator line between file display & status line */
+X#define A_LINE	 1	/* attributes line */
+X
+X#define CURDIRW	11	/* F_CURDIR: current dir string width */
+X#define ENTRYSW	9	/* F_CURDIR: entries string width */
+X#define ENTRYCW	4	/* F_CURDIR: entries count width */
+X
+X/* normal attribute line */
+X
+X#define PP_PERM	0		/* position of permission string */
+X
+X#define PP_DATE	11		/* position of date string */
+X
+X#define PS_SIZE	26		/* position description string */
+X#define ST_SIZE	"Size:"		/* description */
+X#define PP_SIZE	PS_SIZE+6	/* position parameter string */
+X
+X#define PS_LINK	42		/* position description string */
+X#define ST_LINK	"Link:"		/* description */
+X#define PP_LINK	PS_LINK+6	/* position parameter string */
+X
+X#define PS_USER	52		/* position description string */
+X#define ST_USER	"Usr:"		/* description */
+X#define PP_USER	PS_USER+5	/* position parameter string */
+X
+X#define PS_GRUP	66		/* position description string */
+X#define ST_GRUP	"Grp:"		/* description */
+X#define PP_GRUP	PS_GRUP+5	/* position parameter string */
+X
+X/* alternate attribute line */
+X
+X#define APS_ADATE	0		/* position description string */
+X#define AST_ADATE	"Acc:"		/* description */
+X#define APP_ADATE	APS_ADATE+5	/* position parameter string */
+X
+X#define APS_MDATE	20 		/* position description string */
+X#define AST_MDATE	"Mod:"		/* description */
+X#define APP_MDATE	APS_MDATE+5	/* position parameter string */
+X
+X#define APS_CDATE	40		/* position description string */
+X#define AST_CDATE	"Chg:"		/* description */
+X#define APP_CDATE	APS_CDATE+5	/* position parameter string */
+X
+X#define APS_INODE	60		/* position description string */
+X#define AST_INODE	"Ino:"		/* description */
+X#define APP_INODE	APS_INODE+5	/* position parameter string */
+X
+X#define STOPS 	 30	/* # of positions for filename on screen */
+X#define MINSPACE 2	/* minimum space between two filenames */
+X#define STARTCOL 7	/* start column in a row */
+X
+X#ifndef TRUE
+X#define TRUE	1	/* TRUE */
+X#define FALSE	0	/* not TRUE */
+X#endif
+X
+X#define ABORT	-1	/* wildmatch */
+X#define GOOD	TRUE	/* good return */
+X#define BAD  	FALSE	/* bad return */
+X
+X#define FIRST	0x100	/* first entry of a file-page */
+X#define PAGE_MSK 0x0ff	/* for reading just the page */
+X
+X#define CR	0x0d	/* some characters */
+X#define LF	0x0a
+X#define TAB	0x09
+X#define BS	0x08
+X#define DEL	0x7f
+X#define SPACE	0x20
+X#define BEL	0x07
+X#define ESC	0x1b
+X
+X/* keycodes for cursor motion */
+X
+X#define	K_UP	0x10	/* ^P */
+X#define K_DOWN	0x0e	/* ^N */
+X#define	K_LEFT	0x02	/* ^B */
+X#define	K_RIGHT	0x06	/* ^F */
+X
+X#define K_TAB	0x09	/* tab */
+X
+X#define K_NEXT	0x16	/* ^V */
+X#define K_PREV	0x1a	/* ^Z */
+X
+X#define K_QUIT	0x04	/* ^D */
+X#define K_REF	0x0c	/* ^L */
+X
+X#define K_MARK	0x01	/* ^A */
+X#define	K_ECHO	0x17	/* ^W */
+X#define K_UMARK	0x15	/* ^U */
+X
+X#define HISLINES	32	/* no. of lines in history buffer */
+X#define HISLNLEN	512	/* length of one history line */
+X
+X/* terminal types */
+X
+X#define TERM_DUMB		0	/* dumb whatsoever */
+X#define TERM_HP			1	/* Hewlett Packard 2392 or 700/9x */
+X#define TERM_VT1		2	/* DEC VT100 */
+X#define TERM_VT2		3	/* DEC VT220 */
+X#define TERM_VT3		4	/* DEC VT320 */
+X#define TERM_PCVT		5	/* 386BSD pcvt driver */
+X#define TERM_HPX		6	/* hpterm X11 terminal emulator */
+X
+X/* preserve options */
+X
+X#define PRES_NO		0		/* don't preserve anything */
+X#define PRES_NORM	1		/* try "normal" position preserve */
+X#define PRES_DD		2		/* jump to cur dir after cd .. */
+X
+X/* one file */
+X
+Xstruct onefile {		/* structure for one directory entry */
+X	off_t	osiz;		/* file size */
+X	uid_t	ousr;		/* user */
+X	gid_t	ogrp;		/* group */
+X	nlink_t	olinks;		/* no of hard links */	
+X	time_t	oatime;		/* access time */
+X	time_t	octime;		/* last file status chage time */
+X	ino_t	oinode;		/* inode */
+X	char	*onam;		/* filename, malloc'ed */
+X	char	oslink;		/* softlink flag */
+X	char	oprm[16];	/* permissions */
+X	char	odat[15];	/* modification time */
+X	int	orow;		/* relative row to display item */
+X	int	ocol;		/* relative column to display item */
+X	int	tag;		/* flag for tagging files */
+X	int	page;		/* page and number for display window */
+X	struct onefile *next;	/* ptr to next entry */
+X	struct onefile *prev;	/* prt to previous entry */
+X};
+X
+X/* onam[0] contains the entry type, which can be:	*/
+X
+X#define ISDIR	'1'
+X#define	ISPROG	'2'
+X#define	ISDATA	'3'
+X#define	ISCHAR	'4'
+X#define	ISBLOCK	'5'
+X#define	ISPIPE	'6'
+X#define ISSOCK	'7'
+X#define ISUNKN	'8'
+X
+X#define OPTSLEN	60		/* option string length */
+X
+X#define WILDCHARS "\\?*["	/* special meaning chars */
+X
+X/* fkey labels */
+X
+Xstruct fk_tab {
+X	char *label_16;		/* HP Terminal Labels */
+X	char *label_8;		/* DEC (and others) Terminal Labels */
+X};
+X
+Xextern struct fk_tab sys_keys[];
+X
+X#ifdef MAIN
+X
+Xchar *hislines[HISLINES];	/* array of history line pointers */
+Xint  cur_his = 0;		/* current history line */
+Xchar cbuff[HISLNLEN+16];	/* command buffer */
+X
+Xchar counter[5] = "\0";		/* entrycount as string */
+Xchar cur_path[1024];		/* current path */
+Xchar errorline[256];		/* error line if errorflag == 1 */
+Xchar headerline[256];		/* headerline for copyright etc */
+X
+Xint stops[STOPS];		/* table of stop points on row */
+X
+Xint tagsize = 0;		/* sum of sizes of tagged files */
+X
+Xstruct onefile *cur_file = NULL;/* the CURRENT highlighted filename */
+Xstruct onefile *first = NULL;	/* init dir-list head-ptr */
+Xstruct onefile *last = NULL;	/* init dir-list tail-ptr */
+X
+Xint maxfnleng = 0;		/* length of longest filename of this dir */
+Xint opt_attrib = 1;		/* display attribute line */
+Xint opt_labels = 0;		/* use virtual f-key labels in last line */
+Xint opt_point  = 0;		/* display current dir in file window */
+Xint opt_preserve = 0;		/* initially preserve dirs when cd .. */
+Xint opt_links = 0;		/* initially show files not links */
+Xint opt_return = 1;		/* press any key to continue */
+Xunsigned char opt_delimiter = 0;/* window delimiter character */
+Xint opt_wildon = 0;		/* no wildcarding yet */
+Xchar opt_wild[OPTSLEN+1];	/* file window wildcard spec */
+Xchar opt_edit[OPTSLEN+1];	/* user sepecified editor */
+Xchar opt_more[OPTSLEN+1];	/* user sepecified pager */
+Xint opt_cdrom = 0;		/* cdrom special filename processing */
+Xint opt_cdnoprog = 0;		/* cdrom, convert executables to data */
+Xint opt_dotnames = 1;		/* display filenames starting with dot */
+Xint opt_tagmove = 1;		/* move to next filename after tagging */
+Xint opt_altattr = 0;		/* alternate attribute line */
+X
+X#else /* !MAIN */
+X
+Xextern char *hislines[];
+Xextern int  cur_his;
+X
+Xextern char cbuff[];
+X
+Xextern char counter[];
+Xextern char cur_path[];
+Xextern char errorline[];
+Xextern char headerline[];
+X
+Xextern int stops[];
+X
+Xextern int tagsize;
+X
+Xextern struct onefile *cur_file;
+Xextern struct onefile *first;
+Xextern struct onefile *last;
+X
+Xextern int maxfnleng;
+Xextern int opt_attrib;
+Xextern int opt_labels;
+Xextern int opt_point;
+Xextern int opt_preserve;
+Xextern int opt_links;
+Xextern int opt_return;
+Xextern unsigned char opt_delimiter;
+Xextern opt_wildon;
+Xextern char opt_wild[];
+Xextern char opt_edit[];
+Xextern char opt_more[];
+Xextern int opt_cdrom;
+Xextern int opt_cdnoprog;
+Xextern int opt_dotnames;
+Xextern int opt_tagmove;
+Xextern int opt_altattr;
+X
+X#endif /* MAIN */
+X
+XEXTERNAL char bschar;		/* backspace */
+X
+XEXTERNAL WINDOW *attr_w;	/* attributes display window (separation,attributes) */
+XEXTERNAL WINDOW *cmnd_w;	/* command line window (copyright,command,separation) */
+XEXTERNAL WINDOW *file_w;	/* files display window (file names) */
+XEXTERNAL WINDOW *fst_w;		/* files status window (cur dir, entries) */
+XEXTERNAL WINDOW *flbl_w;	/* function key labels */
+X
+XEXTERNAL char *envhome;		/* ptr to HOME - env var */
+XEXTERNAL char *envmore;		/* ptr to PAGER - env var */
+XEXTERNAL char *envedit;		/* ptr to EDITOR - env var */
+XEXTERNAL char *term_string;	/* terminal type string from environment */
+X
+XEXTERNAL int termtype;		/* flag what terminal category we are on */
+X
+XEXTERNAL struct onefile *scr_beg;/* ptr to first filename on screen */
+XEXTERNAL struct onefile *scr_end;/* ptr to last filename on screen */
+X
+XEXTERNAL int cur_page;		/* current file window page */
+XEXTERNAL int errorflag;		/* if error string is in header line */
+XEXTERNAL int fileheight;	/* height of filewindow */
+XEXTERNAL struct fk_tab (*cur_fktab)[]; /* current fkey label table */
+XEXTERNAL int iscdfs;		/* flag, true if we are on a cdrom filesys */
+X
+Xvoid attribs ( int flag );
+Xvoid bol_line ( void );
+Xint cd( char *string );
+Xvoid clear_toeol ( void );
+Xvoid close_cdir ( void );
+Xvoid clrerror ( void );
+Xint cmdline ( int c );
+Xvoid complete ( void );
+Xvoid config( void );
+Xint cr_on_files ( void );
+Xint curcol ( void );
+Xvoid cur_blink ( struct onefile *current );
+Xvoid cur_inv ( struct onefile *current );
+Xvoid cur_norm ( struct onefile *current );
+Xvoid del_char ( void );
+Xvoid dis_hist ( void );
+Xvoid edit_current ( void );
+Xvoid eol_line ( void );
+Xvoid error ( char *str );
+Xvoid exec_command ( char *cline );
+Xvoid expsel ( char *p );
+Xvoid fatal ( char *str );
+Xint fill_list ( void );
+Xvoid fini_flabels ( void );
+Xint firstfile ( void );
+Xvoid fnclabel ( int n, char *string );
+Xvoid free_list ( void );
+Xvoid fresh_files ( void );
+Xchar *group_from_gid ( gid_t gid, int size );
+Xvoid handlebs ( void );
+Xvoid handlecr ( void );
+Xvoid header ( void );
+Xvoid help ( void );
+Xvoid h_files ( void );
+Xvoid h_line ( void );
+Xvoid init_files ( int preserve, char *dirname );
+Xvoid init_flabels ( void );
+Xvoid init_header ( void );
+Xvoid init_history ( void );
+Xvoid init_screen ( void );
+Xvoid init_time ( void );
+Xvoid is_tagged ( struct onefile *current );
+Xint lastfile ( void );
+Xvoid left_line ( void );
+Xint main ( int argc, char *argv[] );
+Xvoid move_down ( void );
+Xvoid move_hmdn ( void );
+Xvoid move_home ( void );
+Xvoid move_left ( void );
+Xvoid move_right ( void );
+Xvoid move_up ( void );
+Xvoid name_echo ( void );
+Xint nextfile ( void );
+Xvoid next_line ( void );
+Xvoid next_page ( void );
+Xint prevfile ( void );
+Xvoid prev_line ( void );
+Xvoid prev_page ( void );
+Xvoid readrc ( void );
+Xvoid resume_time ( void );
+Xvoid right_line ( void );
+Xvoid save_line ( void );
+Xvoid sepaline ( struct _win_st *window );
+Xvoid set_termtype ( void );
+Xstruct onefile *store ( struct onefile *new, struct onefile *top );
+Xvoid suspend_time ( void );
+Xvoid tag_current ( struct onefile *current );
+Xvoid timeout_hdlr ( int sig );
+Xvoid untag_all ( void );
+Xvoid update_all ( void );
+Xvoid update_files ( void );
+Xvoid usage ( void );
+Xchar *user_from_uid ( uid_t uid, int size );
+Xint wildmat( char *text, char *p );
+Xvoid yank ( void );
+X
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 13389 -ne `wc -c <'cwish.h'`; then
+    echo shar: \"'cwish.h'\" unpacked with wrong size!
+  fi
+  # end of 'cwish.h'
+fi
+if test -f 'files.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'files.c'\"
+else
+  echo shar: Extracting \"'files.c'\" \(10569 characters\)
+  sed "s/^X//" >'files.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  cwish - windowing user friendly shell
+X *                  -------------------------------------
+X *
+X *              (c) Copyright Hellmuth Michaelis 1989 - 1993
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *           All rights are reserved except as explicitly granted
+X *                  by written permission of the author.
+X *
+X *             See the file COPYING, distributed with cwish, for
+X *                  restriction and warranty information
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Wed Oct 20 11:08:55 1993]
+X *
+X *	-hm	conversion to curses
+X *	-hm	new sorting order
+X *	-hm	displaying file count
+X *	-hm	optimizing .....
+X *	-hm	wildcard filenames
+X *	-hm	cdrom processing option
+X *	-hm	cdrom programs to files option
+X *	-go	ported to Ultrix
+X *	-hm	portability definitions, statfs portability
+X *	-hm	NOSTATFS for SunOS 4.1.3
+X *	-hm	more file stat info for alternate attrib line
+X *	-hm	malloced file name for struct onefile
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "cwish.h"		/* global include file */
+X
+X#ifdef ultrix
+X
+X#include <sys/fs_types.h>
+X
+X#define S_IFLNK		0120000		/* symbolic link */
+X#define S_IFSOCK	0140000		/* socket */
+X#define _S_IFLNK	S_IFLNK
+X#define _S_IFSOCK	S_IFSOCK
+X
+X/* macro to test for symbolic link */
+X#define S_ISLNK( mode )		(((mode) & _S_IFLNK) == _S_IFLNK)
+X
+X/* macro to test for socket */
+X#define S_ISSOCK( mode )	(((mode) & _S_IFSOCK) == _S_IFSOCK)
+X
+X#else /* !ultrix */
+X
+X#ifndef __386BSD__
+X
+X#include <sys/vfs.h>
+X
+X/* some SYSVR4 don't know these */
+X
+X#ifndef S_ISLNK
+X#define S_ISLNK(_Mode)		(((_Mode) & S_IFMT) == S_IFLNK)
+X#endif
+X
+X#ifndef S_ISSOCK
+X#define S_ISSOCK(_Mode)		(((_Mode) & S_IFMT) == S_IFSOCK)
+X#endif
+X
+X#endif /* __386BSD__ */
+X
+X#endif /* ultrix */
+X
+X#include <sys/mount.h>
+X
+Xstatic int  pia[] = {S_IFDIR,S_IREAD,S_IWRITE,S_IEXEC,040,020,010,04,02,01};
+Xstatic char pca[] = "drwxrwxrwx";
+X
+X/*---------------------------------------------------------------------------*
+X *	create a doubly linked list in sorted order, return pointer to new
+X *	first element of list
+X *---------------------------------------------------------------------------*/
+Xstruct onefile *store
+X(register struct onefile *new,	/* new entry to store into list */
+X register struct onefile *top)	/* current first entry in list */
+X{
+X	register struct onefile *old,*p;
+X	
+X	if(last == NULL)	/* enter very first element ? */
+X	{
+X		new->next = NULL;
+X		new->prev = NULL;
+X		last = new;	/* init last */
+X		return(new);	/* return new first */
+X	}
+X	p = top;		/* p = old first element */
+X	old = NULL;
+X	while(p)
+X	{
+X		if((strcmp(p->onam,new->onam)) < 0)	/* current less new ? */
+X		{
+X			old = p;
+X			p = p->next;
+X		}
+X		else
+X		{	/* current >= new */
+X		
+X			if(p->prev)
+X			{
+X				p->prev->next = new;
+X				new->next = p;
+X				new->prev = p->prev;
+X				p->prev = new;
+X				return(top);
+X			}
+X			new->next = p;
+X			new->prev = NULL;
+X			p->prev = new;
+X			return(new);
+X		}
+X	}
+X	old->next = new;
+X	new->next = NULL;
+X	new->prev = old;
+X	last = new;
+X	return(first);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	read current directory and build up a doubly linked sorted list
+X *---------------------------------------------------------------------------*/
+Xint fill_list(void)
+X{
+X	register struct direct *dp;
+X	register struct onefile *new_entry;
+X	register struct tm *tp;
+X	register DIR *dirp;
+X	
+X	static struct stat fdbuffer;
+X	static char templine[MAXPATHLEN+2];
+X
+X	int templeng;
+X	int flcnt = 0;
+X	int sret;
+X
+X	maxfnleng = 0;		/* init global variables */	
+X
+X	iscdfs = 0;		/* no cdrom filesys */
+X
+X#ifndef NOSTATFS
+X	
+X	if(opt_cdrom)
+X	{
+X
+X#ifdef __386BSD__
+X
+X		struct statfs statfsb;
+X	/* the 386BSD way, this also seems to work for SunOS 4.1.x */
+X		if((statfs(".", &statfsb)==0) && (statfsb.f_type==MOUNT_ISOFS))
+X
+X#else /* ! __386BSD__ */
+X
+X#ifdef ultrix
+X
+X		struct fs_data statfsb;
+X	/* the ULTRIX way ... */
+X		if((statfs(".", &statfsb)==0) && (statfsb.fd_req.fstype==GT_CDFS))
+X
+X#else /* ! ultrix */
+X
+X		struct statfs statfsb;
+X	/* the HPUX way ... */
+X		if((statfs(".", &statfsb)==0) && (statfsb.f_fsid[1]==MOUNT_CDFS))
+X
+X#endif /* ultrix */
+X
+X#endif /* __386BSD__ */
+X
+X		iscdfs = 1;
+X	}
+X		
+X#endif /* NOSTATFS */
+X
+X	if((dirp = opendir(".")) == NULL)
+X		return(-1);	/* cannot open directory */
+X
+X	for(dp = readdir(dirp); dp != NULL; dp = readdir(dirp))
+X	{
+X  		flcnt++;			/* increment file count */
+X
+X 		if(!opt_point)			/* display dot ? */
+X 		{
+X			if((*(dp->d_name) == '.') && (*(dp->d_name+1) == '\0'))
+X				continue;
+X		}
+X
+X		if(!opt_dotnames)		/* display dot-names ? */
+X		{
+X			if((*(dp->d_name) == '.') && (*(dp->d_name+1) != '.') && (*(dp->d_name+1) != '\0'))
+X				continue;
+X		}
+X		
+X		if((new_entry = (struct onefile *) malloc(sizeof(struct onefile))) == NULL)
+X		{
+X			fatal("files.c, fill_list(): structure onefile malloc failed");
+X		}
+X
+X		new_entry->oslink = 0;		/* init softlink flag */
+X		
+X		if(opt_links)			/* detect SOFT links ? */
+X		{
+X			sret = 0;		/* init return */
+X
+X			if((lstat(dp->d_name, &fdbuffer)) < 0)
+X			{
+X				free(new_entry);	/* lstat failed */
+X				continue;		/* next one .. */
+X			}
+X
+X			if(S_ISLNK(fdbuffer.st_mode))	/* have a soft link ? */
+X			{
+X				new_entry->oslink = 1;	/* mark as soft link */
+X				sret = stat(dp->d_name, &fdbuffer); /* and get status */
+X			}
+X		}
+X		else
+X		{
+X			sret = stat(dp->d_name, &fdbuffer);	/* get status */
+X		}
+X
+X		if(sret < 0)			/* return from stat bad ? */
+X		{
+X			free(new_entry);	/* next entry ... */
+X			continue;
+X		}
+X		else	/* got status, fill in from stat buffer */
+X		{
+X			register int j;
+X			
+X			/* size, userid, groupid, hardlinks, inode */
+X			
+X			new_entry->osiz = fdbuffer.st_size;
+X			new_entry->ousr = fdbuffer.st_uid;
+X			new_entry->ogrp = fdbuffer.st_gid;
+X			new_entry->olinks = fdbuffer.st_nlink;
+X			new_entry->oinode = fdbuffer.st_ino;
+X
+X			/* permissions */
+X			
+X			for(j = 0; j < 10; j++)
+X			{
+X				if(fdbuffer.st_mode & pia[j])
+X					new_entry->oprm[j] = pca[j];
+X				else
+X					new_entry->oprm[j] = '-';
+X			}
+X			new_entry->oprm[j] = '\0';
+X			
+X			/* type of file -> templine[0] */
+X			
+X			if(S_ISREG(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				new_entry->oprm[0] = '-';
+X				if((new_entry->oprm[3] == 'x') ||
+X		                   (new_entry->oprm[6] == 'x') ||
+X        	        	   (new_entry->oprm[9] == 'x'))
+X        	        	{
+X	        	        	if(iscdfs && opt_cdnoprog)
+X	        	        	{
+X						new_entry->oprm[3] = '-';
+X				                new_entry->oprm[6] = '-';
+X						new_entry->oprm[9] = '-';
+X						templine[0] = ISDATA;
+X					}
+X					else
+X					{
+X	        	        	   	templine[0] = ISPROG;
+X	        	        	}
+X	        	        }
+X				else
+X					templine[0] = ISDATA;
+X				if((fdbuffer.st_mode & S_IFMT) == S_ISUID)
+X					new_entry->oprm[3] = 's';
+X				if((fdbuffer.st_mode & S_IFMT) == S_ISGID)
+X					new_entry->oprm[6] = 's';
+X			}
+X			else if(S_ISDIR(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon)
+X				{
+X					flcnt--;
+X				}
+X				templine[0] = ISDIR;
+X				new_entry->oprm[0] = 'd';
+X			}
+X			else if(S_ISCHR(fdbuffer.st_mode))
+X			{			
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISCHAR;
+X				new_entry->oprm[0] = 'c';
+X			}
+X			else if(S_ISBLK(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISBLOCK;
+X				new_entry->oprm[0] = 'b';
+X			}
+X			else if(S_ISFIFO(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISPIPE;
+X				new_entry->oprm[0] = 'p';
+X			}
+X			else if(S_ISSOCK(fdbuffer.st_mode))
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISSOCK;
+X				new_entry->oprm[0] = 'n';
+X			}
+X			else
+X			{
+X				if(opt_wildon && (wildmat(dp->d_name, opt_wild) != TRUE))
+X				{
+X					free(new_entry);
+X					continue;
+X				}
+X				templine[0] = ISUNKN; /* unknown */
+X				new_entry->oprm[0] = 'u';
+X			}
+X			templine[1] = '\0'; /* terminate templine */
+X
+X			/* file time */
+X			
+X			tp = localtime(&(fdbuffer.st_mtime));
+X
+X#ifdef DATE_US
+X			/* us date string */
+X			sprintf(new_entry->odat,"%02d/%02d/%02d %02d:%02d",
+X				(tp->tm_mon)+1,tp->tm_mday,tp->tm_year,
+X				tp->tm_hour,tp->tm_min);
+X#else
+X			/* german date string */
+X			sprintf(new_entry->odat,"%02d.%02d.%02d %02d:%02d",
+X				tp->tm_mday,(tp->tm_mon)+1,tp->tm_year,
+X				tp->tm_hour,tp->tm_min);
+X#endif /* DATE_US  */
+X
+X			new_entry->oatime = fdbuffer.st_atime;
+X			new_entry->octime = fdbuffer.st_ctime;
+X
+X			/* misc init */
+X			
+X			new_entry->tag = 0;	/* clear tag-field */
+X			new_entry->page = -1;	/* page # unknown */
+X
+X			/* new max filename length */
+X			
+X			templeng = strlen(dp->d_name);	/* get name length */
+X			if(templeng > maxfnleng)	/* new max filename length ? */
+X				maxfnleng = templeng;	/* yes */
+X
+X			/* cat templine + filename */
+X
+X			strcat(templine, dp->d_name);	/* file name */
+X
+X			/* alloc filename memory and copy name into it */
+X
+X			if((new_entry->onam = (char *)malloc(strlen(templine) + 1)) == NULL)
+X			{
+X				fatal("files.c, fill_list(): malloc filename string memory failed");
+X			}
+X
+X			strcpy(new_entry->onam, templine);	
+X
+X			/* sort entry into linked list */
+X			
+X			first = store(new_entry,first);
+X		}
+X	}
+X	closedir(dirp);				/* close current dir */
+X	sprintf(counter,"%4d",flcnt);		/* entries counter */
+X	return(0);				/* ok return */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	free the current malloc'ed list
+X *---------------------------------------------------------------------------*/
+Xvoid free_list(void)
+X{
+X	register struct onefile *dir;
+X	register struct onefile *tmp;		
+X
+X	tagsize = 0;			/* reset any tags/marks size */
+X	
+X	dir = first;			/* start of linked list */
+X
+X	while(dir)			/* free all */
+X	{
+X		tmp = dir->next;	/* save ptr to next entry */
+X		free(dir->onam);	/* free filename space */
+X		free(dir);		/* free struct space */
+X		dir = tmp;		/* ptr = ptr to next entry */
+X	}
+X	first = NULL;			/* first ptr = NULL */
+X	last = NULL;			/* last ptr = NULL */
+X}
+X 
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 10569 -ne `wc -c <'files.c'`; then
+    echo shar: \"'files.c'\" unpacked with wrong size!
+  fi
+  # end of 'files.c'
+fi
+if test -f 'header.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'header.c'\"
+else
+  echo shar: Extracting \"'header.c'\" \(8632 characters\)
+  sed "s/^X//" >'header.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  cwish - windowing user friendly shell
+X *                  -------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Tue Oct 19 13:46:54 1993]
+X *
+X *	-hm	converting to curses and multiwindows
+X *	-hm	separation line in attribs window
+X *	-hm	vt220 support
+X *	-hm	show time in header
+X *	-hm	hpterm / zero pointers in hpux 9.0
+X *	-hm	alternate attrib line
+X *	-hm	inode in alternate attr line
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "cwish.h"
+X
+X/*---------------------------------------------------------------------------*
+X *	print a horizontal separation line based on delimiter-character
+X *---------------------------------------------------------------------------*/
+Xvoid sepaline(WINDOW *window) 	
+X{
+X	int i = COLS;
+X	unsigned char delim;
+X	
+X	if(window == cmnd_w)
+X		wmove(window, 2, 0);
+X	else if(window == attr_w)
+X		wmove(window, 0, 0);
+X	else
+X		return;
+X
+X	if(opt_delimiter)
+X	{
+X		delim = opt_delimiter;		
+X	}
+X	else if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X		*enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		wattron(window, A_ALTCHARSET);
+X		switch(termtype)
+X		{
+X			case TERM_HP:	/* HEWLETT-PACKARD Terminals (2392,700/9x etc) */
+X				delim = ';';
+X				break;
+X	
+X			case TERM_VT2:	/* DEC VT220 / 320 */
+X			case TERM_VT3:
+X			case TERM_PCVT:
+X				delim = 'q';
+X				break;
+X	
+X			case TERM_HPX:	/* X11 HEWLETT-PACKARD */
+X				delim = '-';
+X				break;
+X	
+X			default:	/* everything else */
+X				delim = DEFDELIMCH;
+X				break;
+X		}
+X	}
+X	else
+X	{
+X		delim = DEFDELIMCH;
+X	}
+X		
+X	while(i--)
+X		waddch(window, delim);
+X
+X	if(enter_alt_charset_mode && exit_alt_charset_mode && !opt_delimiter &&
+X	   *enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		wattroff(window, A_ALTCHARSET);
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	print error string in header-line
+X *---------------------------------------------------------------------------*/
+Xvoid error(char *str)
+X{
+X	extern int errno;
+X	extern char *sys_errlist[];
+X	extern int sys_nerr;
+X
+X	int i;
+X
+X	if(str == NULL)
+X	{
+X		if(errno && (errno <= sys_nerr))
+X			strcpy(errorline, sys_errlist[errno]);
+X		else
+X			strcpy(errorline, "Unknown Error, call your guru ...");
+X	}
+X	strcpy(errorline, str);		
+X
+X	i = strlen(errorline);
+X	while(i++ < COLS)
+X		strcat(errorline," ");
+X
+X	wmove(cmnd_w, C_HEAD, 0);
+X	wattron(cmnd_w, A_REVERSE);
+X	waddstr(cmnd_w, errorline);
+X	wattroff(cmnd_w, A_REVERSE);
+X	wmove(cmnd_w, C_LINE, curcol());
+X	suspend_time();
+X	errorflag = 1;
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	clear error string and rewrite "normal" header
+X *---------------------------------------------------------------------------*/
+Xvoid clrerror(void)
+X{
+X	if(errorflag)				/* error-string in header ? */
+X	{
+X		resume_time();
+X		errorflag = 0;			/* reset error-flag */		
+X		wmove(cmnd_w, C_HEAD, 0);	/* headerline pos */
+X		wclrtoeol(cmnd_w);		/* clear old */
+X		header();			/* rewrite header */
+X		wmove(cmnd_w, C_LINE, curcol());
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	fatal, irrecoverable error
+X *---------------------------------------------------------------------------*/
+Xvoid fatal(char *str)
+X{
+X	free_list();		/* free memory */
+X	fini_flabels();		/* fk-labels to normal */
+X	endwin();		/* exit curses */
+X	fprintf(stderr,"\n\n\t *** cwish Fatal Error: ***\n\t *** [%s] ***\n\n",str);
+X	exit(1);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	print headerline centered in display
+X *---------------------------------------------------------------------------*/
+Xvoid header(void)
+X{
+X	int p,q;
+X
+X	wmove(cmnd_w, C_HEAD, 0);
+X
+X	if(errorflag)
+X	{
+X		wattron(cmnd_w, A_REVERSE);
+X		waddstr(cmnd_w, errorline);
+X		wattroff(cmnd_w, A_REVERSE);
+X	}
+X	else
+X	{
+X		wattron(cmnd_w, A_REVERSE);
+X		if((COLS+1) > 80)
+X		{
+X			p = (COLS+1) - 80;
+X			p /= 2;
+X			q = p;
+X			while(q--)
+X				waddch(cmnd_w, SPACE);
+X			waddstr(cmnd_w, headerline);
+X			q = p;
+X			while(q--)
+X			waddch(cmnd_w, SPACE);
+X		}
+X		else
+X		{
+X			waddstr(cmnd_w, headerline);
+X		}
+X		wattroff(cmnd_w, A_REVERSE);
+X	}
+X	sepaline(cmnd_w);
+X	wmove(cmnd_w, C_LINE, curcol());
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	display the attribute window, init if required
+X *---------------------------------------------------------------------------*/
+Xvoid attribs(int flag)
+X{
+X	if(!opt_attrib)
+X		return;
+X		
+X	if(flag)	/* rewrite static data ?? */
+X	{
+X		sepaline(attr_w);		/* draw horiz line */
+X		wmove(attr_w, 1, 0);		/* start of line */
+X		wclrtoeol(attr_w);		/* clear old */
+X		
+X		if(opt_altattr == 0)		/* normal */
+X		{
+X			wmove(attr_w, 1, PS_SIZE);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, ST_SIZE);
+X			wattroff(attr_w, A_REVERSE);
+X	
+X			wmove(attr_w, 1, PS_USER);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, ST_USER);
+X			wattroff(attr_w, A_REVERSE);
+X			
+X			wmove(attr_w, 1, PS_GRUP);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, ST_GRUP);
+X			wattroff(attr_w, A_REVERSE);
+X	
+X			wmove(attr_w, 1, PS_LINK);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, ST_LINK);
+X			wattroff(attr_w, A_REVERSE);
+X		}
+X		else	/* alternate */
+X		{
+X			wmove(attr_w, 1, APS_ADATE);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, AST_ADATE);
+X			wattroff(attr_w, A_REVERSE);
+X			
+X			wmove(attr_w, 1, APS_MDATE);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, AST_MDATE);
+X			wattroff(attr_w, A_REVERSE);
+X			
+X			wmove(attr_w, 1, APS_CDATE);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, AST_CDATE);
+X			wattroff(attr_w, A_REVERSE);
+X
+X			wmove(attr_w, 1, APS_INODE);
+X			wattron(attr_w, A_REVERSE);
+X			waddstr(attr_w, AST_INODE);
+X			wattroff(attr_w, A_REVERSE);
+X		}
+X	}
+X	if(opt_altattr == 0)	/* normal */
+X	{
+X		mvwaddstr(attr_w, 1, PP_PERM, cur_file->oprm);			  /* permissions */
+X		if(cur_file->oslink)						  /* a soft link ?? */
+X			mvwaddch(attr_w, 1, PP_PERM, 'l');			  /*     yes ! */
+X		mvwaddstr(attr_w, 1, PP_DATE, cur_file->odat);                    /* date */
+X		mvwprintw(attr_w, 1, PP_SIZE, "%-9d",cur_file->osiz);		  /* filesize */
+X		mvwaddstr(attr_w, 1, PP_USER, user_from_uid(cur_file->ousr, 8));  /* user */
+X		mvwaddstr(attr_w, 1, PP_GRUP, group_from_gid(cur_file->ogrp, 8)); /* group */
+X		mvwprintw(attr_w, 1, PP_LINK, "%-2d", cur_file->olinks);		  /* hard links */
+X	}
+X	else	/* alternate */
+X	{
+X		register struct tm *tp;
+X		static char buffer[16];
+X
+X		tp = localtime(&(cur_file->oatime));
+X
+X#ifdef DATE_US
+X		sprintf(buffer,"%02d/%02d/%02d %02d:%02d",
+X			(tp->tm_mon)+1,tp->tm_mday,tp->tm_year,
+X			tp->tm_hour,tp->tm_min);
+X#else
+X		sprintf(buffer,"%02d.%02d.%02d %02d:%02d",
+X			tp->tm_mday,(tp->tm_mon)+1,tp->tm_year,
+X			tp->tm_hour,tp->tm_min);
+X#endif /* DATE_US  */
+X
+X		mvwaddstr(attr_w, 1, APP_ADATE, buffer);		/* access date */
+X
+X		mvwaddstr(attr_w, 1, APP_MDATE, cur_file->odat);	/* modify date */
+X
+X		tp = localtime(&(cur_file->octime));
+X
+X#ifdef DATE_US
+X		sprintf(buffer,"%02d/%02d/%02d %02d:%02d",
+X			(tp->tm_mon)+1,tp->tm_mday,tp->tm_year,
+X			tp->tm_hour,tp->tm_min);
+X#else
+X		sprintf(buffer,"%02d.%02d.%02d %02d:%02d",
+X			tp->tm_mday,(tp->tm_mon)+1,tp->tm_year,
+X			tp->tm_hour,tp->tm_min);
+X#endif /* DATE_US */
+X
+X		mvwaddstr(attr_w, 1, APP_CDATE, buffer);		/* stat change date */
+X
+X		mvwprintw(attr_w, 1, APP_INODE, "%-10d", cur_file->oinode); /* inode */
+X	}
+X}
+X
+X/*---------------------------------- EOF -------------------------------------*/
+X
+END_OF_FILE
+  if test 8632 -ne `wc -c <'header.c'`; then
+    echo shar: \"'header.c'\" unpacked with wrong size!
+  fi
+  # end of 'header.c'
+fi
+if test -f 'history.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'history.c'\"
+else
+  echo shar: Extracting \"'history.c'\" \(14580 characters\)
+  sed "s/^X//" >'history.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  cwish - windowing user friendly shell
+X *                  -------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	last edit-date: [Fri Oct 29 13:14:49 1993]
+X *
+X *	-hm	history on commandline
+X *	-hm	integrating line handling from terminal.c from my sh
+X *	-hm	debugging line editor
+X *
+X *---------------------------------------------------------------------------*/ 
+X
+X#include "cwish.h"		/* local includes */
+X
+Xstatic char overstrike;		/* overstrike mode */
+Xstatic char kbuf[HISLNLEN];	/* kill buffer */
+Xstatic int  kbuf_init = 0;	/* static kill buffer */
+Xstatic char *beg;		/* line start      (first char on line)	*/
+Xstatic char *pnt;		/* next insertion position     (cursor)	*/
+Xstatic char *end;		/* line end    (first free pos on line)	*/
+Xstatic char *sbeg;		/* first character on screen		*/
+Xstatic int lmax;		/* maximum charcount requested from caller */
+X
+Xstatic void pmstr(char *);		/* forward decl */
+Xstatic void pnstr(int, char *);
+Xvoid dis_hist(void);
+X
+X/*---------------------------------------------------------------------------*
+X *	return current (cursor) column
+X *---------------------------------------------------------------------------*/
+Xint curcol(void)
+X{
+X	return((int)(pnt - sbeg));
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	return true, if commandline empty ( == operate on file window on CR )
+X *---------------------------------------------------------------------------*/
+Xint cr_on_files(void)
+X{
+X	return((int)(beg == end));
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	init commandline history system
+X *---------------------------------------------------------------------------*/
+Xvoid init_history(void)
+X{
+X	overstrike = 0;		/* insert is default */
+X	
+X	cur_his = 0;		/* current history pointer */
+X	strcpy(cbuff,hislines[cur_his]);
+X
+X	sbeg = cbuff;		/* screen begin at start of buffer */
+X	beg = cbuff + strlen(cbuff);	/* position beg after prompt */
+X	pnt = end = beg;	/* point = end = buffer begin */
+X
+X	kbuf[0] = '\0';		/* init kill - buffer */
+X	kbuf_init = 1;		/* static kbuf */
+X	
+X	lmax = HISLNLEN-1;	/* max line length */
+X
+X	wmove(cmnd_w,C_LINE,0);	/* beg of line */
+X	waddstr(cmnd_w, cbuff);	/* write prompt */
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	save current commandline to history stack
+X *---------------------------------------------------------------------------*/
+Xvoid save_line(void)
+X{
+X	strncpy(hislines[cur_his],cbuff,HISLNLEN-1);
+X	if(cur_his == HISLINES-1)
+X		cur_his = 0;
+X	else
+X		cur_his++;
+X	hislines[cur_his][3] = '\0';	
+X	dis_hist();
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	get previous history line
+X *---------------------------------------------------------------------------*/
+Xvoid prev_line(void)
+X{
+X	if(cur_his == 0)
+X		cur_his = HISLINES-1;
+X	else
+X		cur_his--;
+X
+X	dis_hist();
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	get next history line
+X *---------------------------------------------------------------------------*/
+Xvoid next_line(void)
+X{
+X	if(cur_his == HISLINES-1)
+X		cur_his = 0;
+X	else
+X		cur_his++;
+X
+X	dis_hist();
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	valid new line from history stack, display it
+X *---------------------------------------------------------------------------*/
+Xvoid dis_hist(void)
+X{
+X	strncpy(cbuff,hislines[cur_his],HISLNLEN-1);
+X	
+X	if((strlen(cbuff)) < COLS)
+X	{ 				/* new line will fit onto screen */
+X		wmove(cmnd_w,C_LINE,0);	/* move to start of line */
+X		wclrtoeol(cmnd_w);	/* clear line */
+X		wmove(cmnd_w,C_LINE,0);	/* move to start of line */
+X		waddstr(cmnd_w, cbuff);	/* write new line */
+X		sbeg = cbuff;		/* new screen begin */
+X	}
+X	else
+X	{ /* line will not fit onto screen, search end & write new */
+X		wmove(cmnd_w,C_LINE,0);		/* start of line */
+X		wclrtoeol(cmnd_w);		/* clear to end of line */
+X		sbeg = cbuff;			/* start of buffer */
+X		while((strlen(sbeg) + 1) > COLS) /* find segment */
+X			sbeg += COLS/2;		/*	         start */
+X		waddstr(cmnd_w, sbeg);		/* write last segment */
+X	}
+X	pnt = end = (cbuff + strlen(cbuff));
+X	beg = cbuff + 3;	/* position beg after prompt */	
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		move cursor forward
+X *---------------------------------------------------------------------------*/
+Xvoid right_line(void)
+X{
+X	if(pnt < end)		/* something to move ? */
+X	{
+X		pnt++;		/* next char */
+X		if(pnt > (sbeg + COLS))	/* moving on screen ? */
+X		{
+X			sbeg += COLS/2;	/* new screen begin */
+X			wmove(cmnd_w,C_LINE,0);	/* start of screen */
+X			wclrtoeol(cmnd_w);	/* clear line */
+X			pmstr(sbeg);		/* write new segment */
+X		}
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		move cursor back one character
+X *---------------------------------------------------------------------------*/
+Xvoid left_line(void)
+X{
+X	if(pnt > beg)	/* allowed to move ?? */
+X	{
+X		pnt--;			/* prev char */
+X		if(pnt < sbeg)		/* move on screen ?? */
+X		{
+X			sbeg -= COLS/2;	/* back 1/2 length */
+X			wmove(cmnd_w,C_LINE,0);	/* start of screen */
+X			wclrtoeol(cmnd_w);	/* clear line */
+X			pmstr(sbeg);		/* print this part of buffer */
+X		}
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	append / insert / overstrike a (printable) character
+X *---------------------------------------------------------------------------*/
+Xint cmdline(int c)
+X{
+X	if((end-beg) < lmax)	/* space in buffer ? */
+X	{
+X		if(pnt == end)	/************ append **********/
+X		{
+X			*pnt++ = c;		/* store char */
+X			end++;			/* new end ptr */
+X			*end = '\0';		/* new terminator */
+X
+X			if((end-sbeg+1) > COLS)
+X			{
+X				sbeg += COLS/2;
+X				wmove(cmnd_w,C_LINE,0);
+X				wclrtoeol(cmnd_w);
+X				waddstr(cmnd_w, sbeg);
+X			}
+X			else
+X			{
+X				waddch(cmnd_w,c);	/* echo char */
+X			}
+X		}
+X		else if(!overstrike)	/************** insert **********/
+X		{
+X			register char *p;
+X			register char *q;
+X
+X			p = end-1;		/* last char */
+X			q = end;		/* last char + 1 */
+X			while(q > pnt)		/* shift right buffer */
+X				*q-- = *p--;
+X
+X			*pnt = c;		/* store chr into gap */
+X			end++;			/* increment end ptr */
+X			*end = '\0';		/* new terminator */
+X			
+X			if( (pnt+1) > (sbeg + COLS)) /* scroll right ? */
+X			{
+X				sbeg += COLS/2;	/* new screen beg */
+X			}
+X			wmove(cmnd_w,C_LINE,0);	/* start of line */
+X			pmstr(sbeg);		/* print string */
+X			pnt++;			/* new point */
+X		}
+X		else		/**************	overstrike ****************/
+X		{
+X			*pnt++ = c;		/* store char */
+X
+X			if((pnt-sbeg+1) > COLS)
+X			{
+X				sbeg += COLS/2;
+X				wmove(cmnd_w,C_LINE,0);
+X				wclrtoeol(cmnd_w);
+X				pmstr(sbeg);
+X			}
+X			else
+X			{
+X				waddch(cmnd_w,c);	/* echo char */
+X			}
+X		}
+X		return(GOOD);
+X	}
+X	else
+X	{
+X		flash();	/* no no .. */
+X		return(BAD);	/* don't accept it */
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		delete character left of cursor
+X *---------------------------------------------------------------------------*/
+Xvoid handlebs(void)
+X{
+X	register char *p;
+X	register char *q;
+X
+X	if(pnt == beg)		/* at start of buffer ? */
+X		return;		/* yes */
+X
+X	q = pnt;		/* next char */
+X	pnt--;			/* point backward */
+X	p = pnt;		/* this char */
+X	while(q < end)		/* shift left buffer */
+X		*p++ = *q++;
+X	end--;			/* new end pointer */
+X	*end = '\0';		/* new end terminator */
+X
+X	if(pnt < sbeg)			/* moved into previous segment ? */
+X	{
+X		sbeg -= COLS/2;		/* new segment start */
+X	}
+X	wmove(cmnd_w,C_LINE,0);	/* start of screen line */
+X	wclrtoeol(cmnd_w);	/* clear line */
+X	pmstr(sbeg);		/* write segment */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		delete character under cursor
+X *---------------------------------------------------------------------------*/
+Xvoid del_char(void)
+X{
+X	register char *p;
+X	register char *q;
+X
+X	if(pnt == end)		/* at start of buffer ? */
+X		return;		/* yes */
+X
+X	p = pnt;		/* current char */
+X	q = pnt+1;		/* next char */
+X
+X	while(q < end)		/* shift left buffer */
+X		*p++ = *q++;
+X
+X	end--;			/* new end pointer */
+X	*end = '\0';		/* new end terminator */
+X
+X	wmove(cmnd_w,C_LINE,0);	/* start of screen line */
+X	wclrtoeol(cmnd_w);	/* clear line */
+X	pmstr(sbeg);		/* write new segment */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		print string, maximum length is COLS
+X *---------------------------------------------------------------------------*/
+Xstatic void pmstr(char *str)
+X{
+X	char buf[256];
+X	register int i = 0;
+X	
+X	while((*str) && (i < COLS))
+X		buf[i++] = *str++;
+X	buf[i] = '\0';
+X	waddstr(cmnd_w, buf);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		print string, maximum length parameter <n>
+X *---------------------------------------------------------------------------*/
+Xstatic void pnstr(int n, char *str)
+X{
+X	char buf[256];
+X	register int i = 0;
+X	
+X	while((*str) && (i < n))
+X		buf[i++] = *str++;
+X	buf[i] = '\0';
+X	waddstr(cmnd_w, buf);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X * 		delete from cursor to end of line
+X *---------------------------------------------------------------------------*/
+Xvoid clear_toeol(void)
+X{
+X	strcpy(kbuf, pnt);	/* save to kill buffer */
+X	wclrtoeol(cmnd_w);	/* clear line */
+X	end = pnt;		/* new end ptr */
+X	*end = '\0';		/* terminate line */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		move cursor to end of line
+X *---------------------------------------------------------------------------*/
+Xvoid eol_line(void)
+X{
+X	if(pnt == end)		/* already at end ? */
+X		return;		/* yes */
+X
+X	if((strlen(cbuff) < COLS) && (sbeg == cbuff))
+X	{
+X		pnt = end;	/* set point to end */
+X	}		
+X	else
+X	{
+X		wmove(cmnd_w,C_LINE,0);	/* start of line */
+X		wclrtoeol(cmnd_w);	/* clear to end of line */
+X		sbeg = cbuff;		/* start of buffer */
+X		while((strlen(sbeg) + 1) > COLS) /* find segment */
+X			sbeg += COLS/2;		/*	         start */
+X		waddstr(cmnd_w, sbeg);	/* write last segment */
+X		pnt = end;		/* new point */
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X * 		move cursor to begin of line
+X *---------------------------------------------------------------------------*/
+Xvoid bol_line(void)
+X{
+X	if(pnt == beg)			/* already at begin of buffer */
+X		return;			/* nothing to do ! */
+X
+X	pnt = beg;			/* point = buffer start */
+X	
+X	if(sbeg != cbuff)		/* not in first screen segment */
+X	{
+X		wmove(cmnd_w,C_LINE,0);	/* cursor -> start of screen */
+X		wclrtoeol(cmnd_w);	/* clear to end of line */
+X		pmstr(cbuff);		/* write from start of buffer */
+X		sbeg = cbuff;		/* screen begin = buffer start */
+X	}
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *		yank text from kill-buffer to current point
+X *---------------------------------------------------------------------------*/
+Xvoid yank(void)
+X{
+X	if(kbuf[0] == '\0')	/* kill buffer empty ? */
+X		return;		/* yes, exit */
+X
+X	if((end - beg) >= lmax)			 /* space in buffer ? */
+X	{					 /* no... */
+X		if((overstrike) && (pnt == end)) /* perhaps overstr in the middle ? */
+X			return;			 /* no... */
+X		if(!overstrike)			 /* insert / append ? */
+X			return;			 /* yes */
+X	}
+X
+X	/* here if either space in buffer or overwrite not at end */
+X		
+X	if(pnt == end)		/************ append **********/
+X	{
+X		/* append kill buffer to buffer, observe buffer max length */
+X		
+X		strncat(cbuff, kbuf, lmax);
+X		end = cbuff + strlen(cbuff);
+X		if((end-sbeg+1) > COLS)
+X		{
+X			while((end-sbeg+1) > COLS)
+X				sbeg += COLS/2;
+X			wmove(cmnd_w,C_LINE,0);
+X			wclrtoeol(cmnd_w);
+X			waddstr(cmnd_w, sbeg);	/* write whole new segment */
+X		}
+X		else
+X		{
+X			waddstr(cmnd_w, pnt);	/* write new end */
+X		}
+X		pnt = end;		/* set new pnt */
+X	}
+X	else if(!overstrike)	/************** insert **********/
+X	{
+X		char tail[HISLNLEN];	/* temp storage */
+X		register int i;		/* gp... */
+X		register char *p = pnt;	/* save point pos */
+X		
+X		strcpy(tail, pnt);	/* save string frm point on */
+X		strncpy(pnt, kbuf, lmax); /* insert up to max */
+X		pnt = cbuff + strlen(cbuff);
+X		strcat(pnt, tail);	/* append saved tail */
+X		end = cbuff + strlen(cbuff);
+X
+X		if((pnt-sbeg+1) > COLS)
+X		{ /* new point is outside current segment */
+X			while((pnt-sbeg+1) > COLS)
+X				sbeg += COLS/2;
+X			wmove(cmnd_w,C_LINE,0);
+X			wclrtoeol(cmnd_w);
+X			pmstr(sbeg);		/* print string */
+X		}
+X		else
+X		{ /* new point is inside current segment */
+X			if((strlen(sbeg)) < COLS) /* line > than screen ? */
+X				i = (sbeg + strlen(sbeg)) - p; /* no */
+X			else
+X				i = (sbeg + COLS) - p; /* yes */
+X			pnstr(i, p);		/* new tail */
+X			p += i;
+X			while(p-- > pnt)
+X				wmove(cmnd_w, C_LINE, (curcol()-1));
+X		}
+X	}
+X	else		/**************	overstrike ****************/
+X	{
+X		register int j = lmax;
+X		register char *k = kbuf;
+X		
+X		while(j-- && *k)
+X			*pnt++ = *k++;	/* copy kbuf over buffer */
+X		
+X		if(pnt > end)	/* buffer grown bigger ? */
+X		{
+X			end = pnt;	/* set new end ptr */
+X			*end = '\0';	/* terminate buffer */
+X		}
+X
+X		if((pnt-sbeg+1) > COLS)
+X		{ /* new point is outside current segment */
+X			while((pnt-sbeg+1) > COLS)
+X				sbeg += COLS/2;
+X			wmove(cmnd_w,C_LINE,0);
+X			wclrtoeol(cmnd_w);
+X			pmstr(sbeg);		/* print string */
+X		}
+X		else
+X		{ /* new point is inside current segment */
+X			waddstr(cmnd_w, kbuf);
+X		}
+X	}
+X}
+X
+X/*----------------------- E O F -------------------------------------------*/
+END_OF_FILE
+  if test 14580 -ne `wc -c <'history.c'`; then
+    echo shar: \"'history.c'\" unpacked with wrong size!
+  fi
+  # end of 'history.c'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

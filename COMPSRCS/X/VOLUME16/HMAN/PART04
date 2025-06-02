@@ -1,0 +1,720 @@
+Newsgroups: comp.sources.x
+Path: uunet!munnari.oz.au!mips!mips!msi!dcmartin
+From: mab@ecmwf.co.uk (Baudouin Raoult)
+Subject: v16i146: hyperwidget & manual browser, Part04/06
+Message-ID: <1992Mar6.204843.8779@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i143-hman@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 20:48:43 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: mab@ecmwf.co.uk (Baudouin Raoult)
+Posting-number: Volume 16, Issue 146
+Archive-name: hman/part04
+
+#!/bin/sh
+# this is part 4 of a multipart archive
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Hyper.c continued
+#
+CurArch=4
+if test ! -r s2_seq_.tmp
+then echo "Please unpack part 1 first!"
+     exit 1; fi
+( read Scheck
+  if test "$Scheck" != $CurArch
+  then echo "Please unpack part $Scheck next!"
+       exit 1;
+  else exit 0; fi
+) < s2_seq_.tmp || exit 1
+echo "x - Continuing file Hyper.c"
+sed 's/^X//' << 'SHAR_EOF' >> Hyper.c
+X/*-----------------------------------------------------------------------*/
+X
+Xstatic void show_selection(h)
+XHyperWidget h;
+X{
+X#ifdef MOTIF
+X#define SetArg(a,b)  XtSetArg(al[ac],a,b);ac++
+X#define GetValues(w) XtGetValues(w,al,ac);ac=0
+X#define SetValues(w) XtSetValues(w,al,ac);ac=0
+X
+X    Widget clip = XtParent(h);
+X    Widget swin;
+X
+X    Widget h_scroll;
+X    Widget v_scroll;
+X
+X    int ac = 0;
+X
+X    Position    x_parent,y_parent;
+X    Position    x_grep,y_grep;
+X    Dimension   h_grep,w_grep;
+X    Position    x_clip,y_clip;
+X    Dimension   h_clip,w_clip;
+X    Position    dv=0,dh=0;
+X    int min,max;
+X    int v_val,v_size,v_inc,v_page;
+X    int h_val,h_size,h_inc,h_page;
+X    Position x,y;
+X
+X    Arg al[5];
+X
+X
+X
+X    /* check if selection exists */
+X
+X    if(!h->hyper.grep_seg) return;
+X
+X    /* check if the widget is in a scrolled window */
+X    /* the XnScrolledWindow creates a clip window  */
+X    /* The widget's parent is the clip window      */
+X
+X
+X    if(!clip) return;
+X    swin = XtParent(clip);
+X
+X    if(!swin || !XmIsScrolledWindow(swin)) return;
+X
+X
+X    /* Get window scroll bars */
+X
+X    SetArg(XmNhorizontalScrollBar, &h_scroll);
+X    SetArg(XmNverticalScrollBar  , &v_scroll);
+X    GetValues(swin);
+X
+X    /* Get size of clip window and selection rect */
+X
+X    w_clip = clip->core.width;
+X    h_clip = clip->core.height;
+X
+X    w_grep = h->hyper.grep_width;
+X    h_grep = h->hyper.grep_height;
+X
+X    /* Get global coordinates of clip and selection rect */
+X
+X    XtTranslateCoords(clip,0,0,&x_clip,&y_clip);
+X    XtTranslateCoords(h,h->hyper.grep_x,h->hyper.grep_y,&x_grep,&y_grep);
+X
+X    /* offset of selection within clip window */
+X
+X    x = x_grep - x_clip;
+X    y = y_grep - y_clip;
+X
+X
+X    /* selection y coordinate is not visible */
+X
+X    if( y < 0 || y + h_grep > h_clip)
+X    {
+X        /* the widget must be moved verticaly by dv pixels */
+X
+X        dv = (y + h_grep / 2)  - h_clip / 2;
+X
+X        SetArg(XmNminimum,&min);
+X        SetArg(XmNmaximum,&max);
+X
+X        GetValues(v_scroll);
+X
+X        XmScrollBarGetValues(v_scroll,&v_val,&v_size,&v_inc,&v_page);
+X
+X        max -= v_size;
+X
+X        if( dv + v_val > max ) dv = max - v_val;
+X        if( dv + v_val < min ) dv = min - v_val;
+X
+X
+X    }
+X
+X    /* selection x coordinate is not visible */
+X
+X    if( x < 0 || x + w_grep > w_clip)
+X    {
+X        /* the widget must be moved horizontaly by dh pixels */
+X
+X        dh = (x + w_grep / 2)  - w_clip / 2;
+X
+X        SetArg(XmNminimum,&min);
+X        SetArg(XmNmaximum,&max);
+X        GetValues(h_scroll);
+X
+X        XmScrollBarGetValues(h_scroll,&h_val,&h_size,&h_inc,&h_page);
+X
+X        max -= h_size;
+X
+X        if( dh + h_val > max ) dh = max - h_val;
+X        if( dh + h_val < min ) dh = min - h_val;
+X
+X    }
+X
+X    /* if the widget must be moved */
+X
+X    if(dv || dh)
+X    {
+X        Position x = h->core.x-dh;
+X        Position y = h->core.y-dv;
+X
+X        /* move it */
+X
+X        SetArg(XmNx,x);
+X        SetArg(XmNy,y);
+X        SetValues(h);
+X
+X        /* update scroll bars */
+X
+X        if(dv) XmScrollBarSetValues(v_scroll,v_val+dv,v_size,v_inc,
+X            v_page,TRUE);
+X        if(dh) XmScrollBarSetValues(h_scroll,h_val+dh,h_size,h_inc,
+X            h_page,TRUE);
+X
+X
+X    }
+X
+X
+X#endif /* MOTIF */
+X}
+X
+X/*-----------------------------------------------------------------------*/
+X/* Clear previous selection                                              */
+X/*-----------------------------------------------------------------------*/
+X
+Xstatic void clear_selection(w)
+XHyperWidget w;
+X{
+X    if(w->hyper.grep_seg)
+X    {
+X        if(XtIsRealized(w))
+X
+X            /* force a redraw */
+X
+X            XClearArea(XtDisplay(w),XtWindow(w),
+X                w->hyper.grep_x,
+X                w->hyper.grep_y,
+X                w->hyper.grep_width,
+X                w->hyper.grep_height,
+X                TRUE);
+X
+X    }
+X    w->hyper.grep_seg = NULL;
+X}
+X
+X/*-----------------------------------------------------------------------*/
+X/* Set the new selection                                                 */
+X/*-----------------------------------------------------------------------*/
+X
+Xstatic void set_selection(w)
+XHyperWidget w;
+X{
+X    if(w->hyper.grep_seg)
+X    {
+X        text_segment *s = w->hyper.grep_seg;
+X        char *p = s->text;
+X        XCharStruct   char_info;
+X        int dir,ascent,desc;
+X
+X        /* get size of the begining of
+X           the segment, up to the found string */
+X
+X        XTextExtents(
+X            (s->type == HIGHLIGHT ? 
+X            w->hyper.highlight_font : 
+X            w->hyper.normal_font),
+X            s->text,
+X            w->hyper.grep_off,
+X            &dir,&ascent,&desc,&char_info);
+X
+X        w->hyper.grep_x      = s->x + char_info.width;
+X        w->hyper.grep_y      = s->y + desc;
+X        w->hyper.grep_height = s->height;
+X
+X        /* Get size of the selection */
+X
+X        XTextExtents(
+X            (s->type == HIGHLIGHT ? 
+X            w->hyper.highlight_font : 
+X            w->hyper.normal_font),
+X            w->hyper.grep_txt,
+X            w->hyper.grep_len,
+X            &dir,&ascent,&desc,&char_info);
+X
+X
+X        w->hyper.grep_width  = char_info.width;
+X
+X        /* force update */
+X
+X        if(XtIsRealized(w))
+X            XClearArea(XtDisplay(w),XtWindow(w),
+X                w->hyper.grep_x,
+X                w->hyper.grep_y,
+X                w->hyper.grep_width,
+X                w->hyper.grep_height,
+X                TRUE);
+X    }
+X}
+X
+X/* size of regexp buffer */
+X
+X#define ESIZE 1024
+X
+X/*-----------------------------------------------------------------------*/
+X/* if you have regexp, define USE_REGEXP                                 */
+X/* NOTE : since regexp variables and functions are not static            */
+X/* you can have some problems if you use the same names or include       */
+X/* regexp somewhere else                                                 */
+X/*-----------------------------------------------------------------------*/
+X#ifdef USE_REGEXP
+X
+X/* regexp macros ... see "man regexp" */
+X
+X#define INIT        register char *sp = instring;
+X#define GETC()      (*sp++)
+X#define PEEKC()     (*sp)
+X#define UNGETC(c)   (--sp)
+X#define RETURN(c)   return;
+X#define ERROR(c)    printf(stderr,"Warning regexp error %d\n",c)
+X
+X
+X#include <regexp.h>
+X
+X
+X#else 
+X
+X/*-----------------------------------------------------------------------*/
+X/* If we don't have regexp mimic it.                                     */
+X/* Just find plain text using strncmp. no regular expression matching    */
+X/*-----------------------------------------------------------------------*/
+X
+Xstatic char *loc1,*loc2;
+Xstatic int len;
+X
+Xstatic compile(w,buf,end)
+Xchar *w,*buf;
+Xint end;
+X{
+X    strcpy(buf,w);
+X    len = strlen(w);
+X}
+X
+Xstatic step(w,buf)
+Xchar *w;
+Xchar *buf;
+X{
+X    loc1 = w;
+X    while(*loc1)
+X    {
+X        if(strncmp(loc1,buf,len) == 0)
+X        {
+X            loc2 = loc1+len;
+X            return TRUE;
+X        }
+X        loc1++;
+X    }
+X    return FALSE;
+X}
+X
+X
+X#endif
+X
+X/*-----------------------------------------------------------------------*/
+X/* Select a word in the hyper widget                                     */
+X/* word : word to find ( or regular expression if USE_REGEX is defined)  */
+X/* ignore_case : if TRUE ignore case in comparaison                      */
+X/* from_start : if TRUE search from start of text, else search from      */
+X/* current selection                                                     */
+X/* wrap: if TRUE, continue search from the begining of text if the end   */
+X/* is reached                                                            */
+X/*-----------------------------------------------------------------------*/
+X
+X#ifdef _NO_PROTO
+X
+XBoolean HyperGrep(widget,word,ignore_case,from_start,wrap)
+XWidget   widget;
+Xchar     *word;
+XBoolean  ignore_case;
+XBoolean  from_start;
+XBoolean  wrap;
+X
+X#else
+X
+XBoolean HyperGrep(Widget widget,
+X				  char *word,
+X				  Boolean ignore_case,
+X				  Boolean from_start,
+X				  Boolean wrap)
+X
+X#endif
+X
+X{
+X    HyperWidget  h = (HyperWidget)widget;
+X    char         *w = word;
+X    char         *p;
+X    int          offset,from,to;
+X    text_segment *s;
+X    char          expbuf[ESIZE];
+X
+X    if(!h->hyper.first_seg) return;
+X
+X    if(ignore_case)
+X    {
+X        /* if ignore case, change word to lower case */
+X        w = XtNewString(word);
+X        lowcase(w);
+X    }
+X
+X    /* compile the regular expression */
+X    compile(w,expbuf,&expbuf[ESIZE],'\0');
+X
+X
+X    if(ignore_case) XtFree(w);
+X
+X    /* if from_start or no previous selection, 
+X       start from first segment */
+X
+X    if(from_start || h->hyper.grep_seg == NULL)
+X    {
+X        offset=0;
+X        wrap = FALSE;
+X        s = h->hyper.first_seg;
+X    }
+X    else 
+X    {
+X        /* start from last selection */
+X
+X        offset = h->hyper.grep_off + h->hyper.grep_len;
+X        s = h->hyper.grep_seg;
+X    }
+X
+X    for(;;)
+X    {
+X        if(s->text)
+X        {
+X            if(ignore_case)
+X            {
+X                /* if ignore case, change segment to lower case */
+X                p = XtNewString(s->text);
+X                lowcase(p);
+X            }
+X
+X            /* search the string */
+X
+X            if(step(p+offset,expbuf))
+X            {
+X                /* if found ...*/
+X
+X                /* clear previous selection */
+X                clear_selection(h);
+X
+X                h->hyper.grep_seg = s;
+X                h->hyper.grep_off = offset + (loc1-(p+offset));
+X                h->hyper.grep_txt = s->text + h->hyper.grep_off;
+X                h->hyper.grep_len = loc2-loc1;
+X
+X                /* set new selection */
+X
+X                set_selection(h);
+X
+X                /* make it visible */
+X
+X                show_selection(h);
+X
+X                if(ignore_case) XtFree(p);
+X
+X                return TRUE;
+X            }
+X
+X            if(ignore_case) XtFree(p);
+X        }
+X
+X        offset = 0;
+X        s = s->next;
+X
+X        /* if end of text and wrap mode, go to start of text */
+X        if(!s)
+X            if(wrap)
+X            {
+X                wrap = FALSE;
+X                s = h->hyper.first_seg;
+X            }
+X            else break;
+X
+X    }
+X
+X
+X    return FALSE;
+X
+X}
+SHAR_EOF
+echo "File Hyper.c is complete"
+chmod 0644 Hyper.c || echo "restore of Hyper.c fails"
+set `wc -c Hyper.c`;Sum=$1
+if test "$Sum" != "39179"
+then echo original size 39179, current size $Sum;fi
+echo "x - extracting Hyper.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Hyper.h &&
+X/*==================================================================*/
+X/*                                                                  */
+X/* HyperWidget                                                      */
+X/*                                                                  */
+X/* B.Raoult (mab@ecmwf.co.uk)                              Oct.91   */
+X/*                                                                  */
+X/* Hyper text like widget.                                          */
+X/*                                                                  */
+X/*==================================================================*/
+X
+X#ifndef  HYPER_H
+X#define  HYPER_H
+X
+X/* 
+X    If you define MOTIF, the widget will inherit proprieties 
+X   from the XmPrimitive class : Help Callback, user data, ...
+X*/
+X
+X/*
+X#define MOTIF
+X*/
+X
+X/*
+X   If your machine got regexp.h
+X*/
+X/*#define USE_REGEXP*/
+X
+Xextern WidgetClass hyperWidgetClass;
+Xtypedef struct _HyperClassRec * HyperWidgetClass;
+Xtypedef struct _HyperRec      * HyperWidget;
+X
+X/*
+X * Define resource strings for the Hyper widget.
+X */
+X
+X#define XtNhighlightFont     "highlightFont"
+X#define XtNnormalFont        "normalFont"
+X#define XtNhighlightColor    "highlightColor"
+X#define XtNselectColor       "selectColor"
+X#define XtNnormalColor       "normalColor"
+X#define XtNactivateCallback  "activateCallback"
+X#define XtNzoomEffect        "zoomEffect"
+X#define XtCZoom              "Zoom"
+X#define XtNstartHighlight    "startHighlight"
+X#define XtNendHighlight      "endHighlight"
+X#define XtCTagChar           "TagChar"
+X#define XtNzoomSpeed         "zoomSpeed"
+X#define XtCZoomSpeed         "ZoomSpeed"
+X#define XtCMargin            "Margin"
+X#define XtNmargin            "margin"
+X
+X/*
+X  Callback structure
+X*/
+X
+X#define HYPER_REASON 1
+X
+Xtypedef struct {
+X    int     reason;   /* always = HYPER_REASON                            */
+X    XEvent *event;    /* event                                            */
+X    char     *text;     /* pointer on highlighted text selected (read only) */
+X    int  length;    /* length of selected text                          */
+X}  hyperCallbackStruct;
+X
+X#ifdef _NO_PROTO
+X
+Xextern Widget CreateHyper();
+Xextern void HyperLoadFile();
+Xextern void HyperSetText();
+Xextern void HyperSetTags();
+Xextern Boolean HyperFind();
+Xextern char    *HyperGetText();
+X
+X#else
+X
+X#if defined(__cplusplus) || defined(c_plusplus)
+Xextern "C" {
+X#endif
+X
+X    extern Widget CreateHyper(Widget parent,
+X        char *name,
+X        ArgList al,
+X        int ac);
+X
+X    extern void HyperLoadFile(Widget widget,
+X        char *fname);
+X
+X    extern void HyperSetText(Widget widget,
+X        char *text);
+X
+X    extern void HyperSetTags (Widget widget,
+X        unsigned char start_highlight,
+X        unsigned char end_highlight);
+X
+X    Boolean HyperGrep(Widget  widget,
+X        char    *word,
+X        Boolean ignore_case,
+X        Boolean from_start,
+X        Boolean wrap);
+X
+X        char *HyperGetText(Widget widget,Boolean include_tags);
+X
+X
+X#if defined(__cplusplus) || defined(c_plusplus)
+X}
+X#endif
+X
+X#endif /* _NO_PROTO */
+X
+X#define XtIsHyper(w)     XtIsSubclass(w,hyperWidgetClass)
+X
+X#endif HYPER_H
+SHAR_EOF
+chmod 0644 Hyper.h || echo "restore of Hyper.h fails"
+set `wc -c Hyper.h`;Sum=$1
+if test "$Sum" != "3108"
+then echo original size 3108, current size $Sum;fi
+echo "x - extracting HyperP.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > HyperP.h &&
+X/*==================================================================*/
+X/*                                                                  */
+X/* HyperWidget                                                      */
+X/*                                                                  */
+X/* B.Raoult (mab@ecmwf.co.uk)                              Oct.91   */
+X/*                                                                  */
+X/* Hyper text like widget.                                          */
+X/*                                                                  */
+X/*==================================================================*/
+X
+X#ifndef HYPERP_H
+X#define HYPERP_H
+X
+X#ifdef MOTIF
+X#include <Xm/XmP.h>
+X#endif
+X
+X/* Hyper class : no new fileds */
+X
+Xtypedef struct _HyperClassPart{
+X    int ignore;
+X} HyperClassPart;
+X
+Xtypedef struct _HyperClassRec{
+X    CoreClassPart    core_class;
+X#ifdef MOTIF
+X    XmPrimitiveClassPart  primitive_class;
+X#endif
+X    HyperClassPart  hyper_class;
+X} HyperClassRec;
+X
+Xextern HyperClassRec hyperClassRec;
+X
+X/* Text segment */
+X
+Xtypedef struct text_segment {
+X
+X    struct text_segment *next; /* Next segment */
+X    int          type;         /* NEWLINE, NORMAL or HIGHLIGHT */
+X    char         *text;        /* pointer to text */
+X    int          length;       /* length of text */
+X    int          desc;         /* font descent */
+X    GC           gc;           /* GC used to draw text */
+X    Position     x,y;          /* Position of drawn text */
+X    Dimension    width,height; /* Size of drawn text */
+X
+X} text_segment;
+X
+Xtypedef struct _HyperPart {
+X
+X    Cursor    hand;               /* Selecting cursor shape */
+X
+X    Pixel     normal_color;       /* Color of the normal text */
+X    Pixel     highlight_color;    /* Color of the highlighted text */
+X    Pixel     select_color;       /* Color of the selected text */
+X
+X    XFontStruct  *normal_font;    /* Font of the normal text */
+X    XFontStruct  *highlight_font; /* Font of the highlighted text */
+X
+X    GC        normal_gc;          /* Gc for the normal text */
+X    GC        highlight_gc;       /* Gc for the highlighted text */
+X
+X    GC        xor_gc;             /* Gc for zoom  */
+X    GC        select_gc;          /* Gc for select */
+X
+X    Boolean  zoom;               /* zoom effect when selected */
+X    int      speed;              /* zoom speed                */
+X    char         start_of_highlight; /* start of highlighted text mark */
+X    char         end_of_highlight;   /* end of highlighted text mark */
+X
+X    int      margin;             /* margins size */
+X
+X
+X    text_segment         *grep_seg;  /* segment where found text is */
+X
+X    char                 *grep_txt;  /* pointer to found text */
+X    int              grep_len;   /* length of found text */
+X    int              grep_off;   /* offset of found text */
+X
+X    Position          grep_x;    /* rectangle of founf text*/
+X    Position          grep_y;
+X    Dimension        grep_width;
+X    Dimension        grep_height;
+X
+X    text_segment        *first_seg;     /* the text segments         */
+X    text_segment        *last_selected; /* last selected segment     */
+X    text_segment        *last_cursor;   /* last under cursor segment */
+X
+X
+X    XtCallbackList activate;         /* callback list             */
+X
+X} HyperPart;
+X
+Xtypedef struct _HyperRec {
+X    CorePart          core;
+X#ifdef MOTIF
+X    XmPrimitivePart  primitive;
+X#endif
+X    HyperPart        hyper;
+X} HyperRec;
+X
+X#endif HYPERP_H
+SHAR_EOF
+chmod 0644 HyperP.h || echo "restore of HyperP.h fails"
+set `wc -c HyperP.h`;Sum=$1
+if test "$Sum" != "3432"
+then echo original size 3432, current size $Sum;fi
+echo "x - extracting hman.xbm (Text)"
+sed 's/^X//' << 'SHAR_EOF' > hman.xbm &&
+X#define hman_width 32
+X#define hman_height 32
+Xstatic char hman_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c,
+X   0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0xc0, 0x08, 0x00, 0x00, 0x30, 0x08,
+X   0x00, 0x00, 0x0c, 0x0b, 0xff, 0xff, 0x03, 0x78, 0x01, 0x80, 0x60, 0x48,
+X   0x01, 0x80, 0x0c, 0xc8, 0x3d, 0x8d, 0x60, 0xcb, 0x01, 0x80, 0x0c, 0xc8,
+X   0xcd, 0x99, 0xe0, 0xc8, 0x01, 0x80, 0x0c, 0xc8, 0x3d, 0x87, 0x00, 0xc9,
+X   0x01, 0x80, 0x98, 0xc8, 0x2d, 0x89, 0x04, 0xc8, 0x01, 0x80, 0x00, 0xc8,
+X   0x9d, 0x9b, 0xcc, 0xcf, 0x01, 0x80, 0x40, 0xc4, 0x9d, 0x8e, 0x40, 0xc2,
+X   0x01, 0x80, 0x4c, 0xc1, 0x75, 0x86, 0xc0, 0xc8, 0x01, 0x80, 0x40, 0xc0,
+X   0xe5, 0x9c, 0x30, 0xc5, 0x01, 0x80, 0x0c, 0xc0, 0x01, 0x80, 0x03, 0xc0,
+X   0xff, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 hman.xbm || echo "restore of hman.xbm fails"
+set `wc -c hman.xbm`;Sum=$1
+if test "$Sum" != "875"
+then echo original size 875, current size $Sum;fi
+echo "x - extracting Imakefile (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Imakefile &&
+X# Where is your motif stuff
+X
+XMOTIF_HOME=/vol/motif
+X
+X# If you don't have regexp, remove -DUSE_REGEXP
+X
+XDEFINES=-DUSE_REGEXP -DMOTIF
+SHAR_EOF
+echo "End of part 4"
+echo "File Imakefile is continued in part 5"
+echo "5" > s2_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

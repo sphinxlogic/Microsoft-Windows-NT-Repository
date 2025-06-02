@@ -1,0 +1,932 @@
+Newsgroups: comp.sources.x
+From: duane@blacks.jpl.nasa.gov (Duane Clark)
+Subject: v19i083:  Jetedit - A Motif text editor, Part04/04
+Message-ID: <1993Apr8.144511.20438@sparky.imd.sterling.com>
+X-Md4-Signature: 57661da3e1fa4ac8f08f553fe0fe6b46
+Date: Thu, 8 Apr 1993 14:45:11 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: duane@blacks.jpl.nasa.gov (Duane Clark)
+Posting-number: Volume 19, Issue 83
+Archive-name: Jetedit/part04
+Environment: X11, OSF/Motif
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 4)."
+# Contents:  xmepref.c
+# Wrapped by duane@blacks.jpl.nasa.gov on Sat Apr  3 20:04:06 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xmepref.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmepref.c'\"
+else
+echo shar: Extracting \"'xmepref.c'\" \(31274 characters\)
+sed "s/^X//" >'xmepref.c' <<'END_OF_FILE'
+X/**---------------------------------------------------------------------
+X***     
+X***	file:		xmepref.c
+X***			Preferences dialog and supporting routines.
+X***
+X***	project:	jetedit - Motif Widgets text editor
+X***
+X***-------------------------------------------------------------------*/
+X
+X#include "xme.h"
+X
+X#define	PREF_OPEN1	0
+X#define PREF_OPEN2	1
+X#define	PREF_OPEN3	2
+X#define PREF_CLOSE1	3
+X#define PREF_CLOSE2	4
+X#define PREF_LEAD_T	10
+X#define PREF_LEAD_F	11
+X#define PREF_TRAIL_T	12
+X#define PREF_TRAIL_F	13
+X#define PREF_STYLE_N	20
+X#define PREF_STYLE_SM	21
+X#define PREF_STYLE_SY	22
+X#define PREF_CASE_T	30
+X#define PREF_CASE_F	31
+X#define PREF_WRAP	40
+X#define PREF_SPACES	41
+X#define PREF_MAP	100
+X#define PREF_OK		101
+X#define PREF_CANCEL	102
+X#define PREF_HELP       103
+X
+Xchar	pref_string[] = "\n\
+X********************************\n\
+XIndenting mode:\n\
+X	None   - No automatic indenting is done.\n\
+X	Smart  - New lines are indented to the level of the preceding line.\n\
+X	Syntax - jetedit will attempt to make intelligent decisions about where to indent and outdent determined by C syntax and the selected indenting preferences.\n\
+X\n\
+XBracketing Style:\n\
+X	Can only be changed when syntax sensitive indenting is selected. Click on the brackets at the locations corresponding to your desired bracketing style.\n\
+X\n\
+XIf desired, a variable number of spaces can be substituted for tabs when the tab key is hit. Already existing tabs are not affected. Leading tabs are tabs occurring before any non white space characters in a line. All others are trailing tabs.\n\
+X\n\
+XWhile the editor will work in wordwrap mode, note that the Motif text widget gets very slow as the number of characters gets above 1000 or so - they claim to be working on speeding this up for a future release.\n\
+X";
+X
+XWidget	open1_button;
+XWidget	open2_button;
+XWidget	open3_button;
+XWidget	close1_button;
+XWidget	close2_button;
+XWidget  lead_t_button;
+XWidget	lead_f_button;
+XWidget	trail_t_button;
+XWidget	trail_f_button;
+XWidget	style_n_button;
+XWidget	style_sm_button;
+XWidget	style_sy_button;
+XWidget	case_t_button;
+XWidget	case_f_button;
+XWidget	wrap_button;
+XWidget	spaces_text;
+X
+X/* Temporary storage for values in the preference dialog.
+X** These are copied into the permanent variables only when
+X** the OK button is clicked.
+X*/
+Xint	open_br, close_br, style,tab_sp;
+XBoolean	lead, trail, in_case;
+X
+X/*-------------------------------------------------------------
+X**	PreferencesCB
+X**		Process callback from the preferences dialog selections.
+X*/
+Xvoid PreferencesCB (w, client_data, call_data) 
+XWidget 		w;		/*  widget id           */
+Xcaddr_t		client_data;	/*  data from application   */
+Xcaddr_t		call_data;	/*  data from widget class  */
+X{
+X    Arg		al[1],ag[1];
+X    Boolean	Wrap;
+X    char	help_str[4000];
+X    char	temp_str[120];
+X
+X    switch ((int)client_data)
+X    {
+X    case PREF_OPEN1:
+X        open_br = 0;
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(open1_button, al, 1);
+X        XtSetArg (al[0], XmNforeground, gcol);
+X        XtSetValues(open2_button, al, 1);
+X        XtSetValues(open3_button, al, 1);
+X        break;
+X    case PREF_OPEN2:
+X        open_br = 1;
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(open2_button, al, 1);
+X        XtSetArg (al[0], XmNforeground, gcol);
+X        XtSetValues(open1_button, al, 1);
+X        XtSetValues(open3_button, al, 1);
+X        break;
+X    case PREF_OPEN3:
+X        open_br = 2;
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(open3_button, al, 1);
+X        XtSetArg (al[0], XmNforeground, gcol);
+X        XtSetValues(open2_button, al, 1);
+X        XtSetValues(open1_button, al, 1);
+X        break;
+X    case PREF_CLOSE1:
+X        close_br = 0;
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(close1_button, al, 1);
+X        XtSetArg (al[0], XmNforeground, gcol);
+X        XtSetValues(close2_button, al, 1);
+X        break;
+X    case PREF_CLOSE2:
+X        close_br = 1;
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(close2_button, al, 1);
+X        XtSetArg (al[0], XmNforeground, gcol);
+X        XtSetValues(close1_button, al, 1);
+X        break;
+X    case PREF_LEAD_T:
+X        lead = True;
+X        if (trail) {
+X            XtSetSensitive(spaces_text, False);
+X            XtSetArg (al[0], XmNforeground, gcol);
+X            XtSetValues(spaces_text, al, 1);
+X        }
+X        break;
+X    case PREF_LEAD_F:
+X        lead = False;
+X        XtSetSensitive(spaces_text, True);
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(spaces_text, al, 1);
+X        break;
+X    case PREF_TRAIL_T:
+X        trail = True;
+X        if (lead) {
+X            XtSetSensitive(spaces_text, False);
+X            XtSetArg (al[0], XmNforeground, gcol);
+X            XtSetValues(spaces_text, al, 1);
+X        }
+X        break;
+X    case PREF_TRAIL_F:
+X        trail = False;
+X        XtSetSensitive(spaces_text, True);
+X        XtSetArg (al[0], XmNforeground, fcol);
+X        XtSetValues(spaces_text, al, 1);
+X        break;
+X    case PREF_STYLE_N:
+X        style = NONE;
+X        XtSetSensitive(open1_button, False);
+X        XtSetSensitive(open2_button, False);
+X        XtSetSensitive(open3_button, False);
+X        XtSetSensitive(close1_button, False);
+X        XtSetSensitive(close2_button, False);
+X        XtSetSensitive(case_t_button, False);
+X        XtSetSensitive(case_f_button, False);
+X        break;
+X    case PREF_STYLE_SM:
+X        style = SMART;
+X        XtSetSensitive(open1_button, False);
+X        XtSetSensitive(open2_button, False);
+X        XtSetSensitive(open3_button, False);
+X        XtSetSensitive(close1_button, False);
+X        XtSetSensitive(close2_button, False);
+X        XtSetSensitive(case_t_button, False);
+X        XtSetSensitive(case_f_button, False);
+X        break;
+X    case PREF_STYLE_SY:
+X        style = SYNTAX;
+X        XtSetSensitive(open1_button, True);
+X        XtSetSensitive(open2_button, True);
+X        XtSetSensitive(open3_button, True);
+X        XtSetSensitive(close1_button, True);
+X        XtSetSensitive(close2_button, True);
+X        XtSetSensitive(case_t_button, True);
+X        XtSetSensitive(case_f_button, True);
+X        break;
+X    case PREF_CASE_T:
+X        in_case = True;
+X        break;
+X    case PREF_CASE_F:
+X        in_case = False;
+X        break;
+X    case PREF_WRAP:
+X        XtSetArg (al[0], XmNset, &Wrap);
+X        XtGetValues (wrap_button, al, 1);
+X        WordWrap(!Wrap);
+X        break;
+X    case PREF_SPACES:
+X        {
+X        XmTextVerifyCallbackStruct *cb = (XmTextVerifyCallbackStruct *) call_data;
+X        temp_str[0] = (cb->text->ptr)[0];
+X        }
+X        temp_str[1] = '\0';
+X        sscanf(temp_str, "%d", &tab_sp);
+X        break;
+X    case PREF_MAP:
+X        open_br = open_brace;
+X        close_br = close_brace;
+X        lead = leading_tabs;
+X        trail = trailing_tabs;
+X        style = indent_style;
+X        in_case = indent_case;
+X        tab_sp = tab_spaces;
+X        break;
+X    case PREF_OK:
+X        open_brace = open_br;
+X        close_brace = close_br;
+X        leading_tabs = lead;
+X        trailing_tabs = trail;
+X        indent_style = style;
+X        indent_case = in_case;
+X        tab_spaces = tab_sp;
+X        break;
+X    case PREF_CANCEL:
+X        if (open_br != open_brace) {
+X            XtSetArg (al[0], XmNforeground, fcol);
+X            XtSetArg (ag[0], XmNforeground, gcol);
+X            if (open_brace == 0) {
+X                XtSetValues(open1_button, al, 1);
+X                XtSetValues(open2_button, ag, 1);
+X                XtSetValues(open3_button, ag, 1);
+X            }
+X            else if (open_brace == 1) {
+X                XtSetValues(open1_button, ag, 1);
+X                XtSetValues(open2_button, al, 1);
+X                XtSetValues(open3_button, ag, 1);
+X            }
+X            else {
+X                XtSetValues(open1_button, ag, 1);
+X                XtSetValues(open2_button, ag, 1);
+X                XtSetValues(open3_button, al, 1);
+X            }
+X        }
+X        if (close_br != close_brace) {
+X            XtSetArg (al[0], XmNforeground, fcol);
+X            XtSetArg (ag[0], XmNforeground, gcol);
+X            if (close_brace == 0) {
+X                XtSetValues(close1_button, al, 1);
+X                XtSetValues(close2_button, ag, 1);
+X            }
+X            else {
+X                XtSetValues(close1_button, ag, 1);
+X                XtSetValues(close2_button, al, 1);
+X            }
+X        }
+X        if (lead != leading_tabs) {
+X            XtSetArg (al[0], XmNset, True);
+X            XtSetArg (ag[0], XmNset, False);
+X            if (leading_tabs) {
+X                XtSetValues(lead_t_button, al, 1);
+X                XtSetValues(lead_f_button, ag, 1);
+X            }
+X            else {
+X                XtSetValues(lead_t_button, ag, 1);
+X                XtSetValues(lead_f_button, al, 1);
+X            }
+X        }
+X        if (style != indent_style) {
+X            XtSetArg (al[0], XmNset, True);
+X            XtSetArg (ag[0], XmNset, False);
+X            if (indent_style == NONE) {
+X                XtSetValues(style_n_button, al, 1);
+X                XtSetValues(style_sm_button, ag, 1);
+X                XtSetValues(style_sy_button, ag, 1);
+X            }
+X            else if (indent_style == SMART) {
+X                XtSetValues(style_n_button, ag, 1);
+X                XtSetValues(style_sm_button, al, 1);
+X                XtSetValues(style_sy_button, ag, 1);
+X            }
+X            else {
+X                XtSetValues(style_n_button, ag, 1);
+X                XtSetValues(style_sm_button, ag, 1);
+X                XtSetValues(style_sy_button, al, 1);
+X            }
+X        }
+X        if (in_case != indent_case) {
+X            XtSetArg (al[0], XmNset, True);
+X            XtSetArg (ag[0], XmNset, False);
+X            if (indent_case) {
+X                XtSetValues(case_t_button, al, 1);
+X                XtSetValues(case_f_button, ag, 1);
+X            }
+X            else {
+X                XtSetValues(case_t_button, ag, 1);
+X                XtSetValues(case_f_button, al, 1);
+X            }
+X        }
+X        if (tab_sp != tab_spaces) {
+X            sprintf(temp_str, "%d", tab_spaces);
+X            XtSetArg(al[0], XmNvalue, temp_str);
+X            XtSetValues(spaces_text, al, 1);
+X        }
+X        break;
+X    case PREF_HELP:
+X        strcpy(help_str,     "The following lines in your .Xdefaults file will\
+X set the selected preferences:\n\n");
+X        strcat(help_str,     "jetedit*indent:          ");
+X        switch (style) {
+X        case NONE:
+X            strcat(help_str, "regular\n");
+X            break;
+X        case SMART:
+X            strcat(help_str, "smart\n");
+X            break;
+X        case SYNTAX:
+X            strcat(help_str, "syntax\n");
+X            break;
+X        }
+X    
+X        if (lead)
+X            strcat(help_str, "jetedit*leadingTabs:     True\n");
+X        else
+X            strcat(help_str, "jetedit*leadingTabs:     False\n");
+X    
+X        if (trail)
+X            strcat(help_str, "jetedit*trailingTabs:    True\n");
+X        else
+X            strcat(help_str, "jetedit*trailingTabs:    False\n");
+X        
+X        if (!lead || !trail) {
+X            sprintf(temp_str,"jetedit*spaces:          %d\n", tab_sp);
+X            strcat(help_str, temp_str);
+X        }
+X        
+X        if (style == SYNTAX) {
+X            sprintf(temp_str,"jetedit*openBrace:       %d\n", open_br);
+X            strcat(help_str, temp_str);
+X            sprintf(temp_str,"jetedit*closeBrace:      %d\n", close_br);
+X            strcat(help_str, temp_str);
+X            if (in_case)
+X                strcat(help_str,"jetedit*indentCase:      True\n");
+X            else
+X                strcat(help_str,"jetedit*indentCase:      False\n");
+X        }
+X        
+X        strcat(help_str, pref_string);
+X        XmTextSetString(help_text, help_str);
+X        XtManageChild (help_dialog);
+X        break;
+X    }
+X}
+X
+X
+X/*-------------------------------------------------------------
+X**	CreatePreferencesDialog
+X**		Create the preferences dialog out of a selection box.
+X*/
+XWidget CreatePreferencesDialog (parent, name, arglist, argcount)
+XWidget	parent;
+XString	name;
+XArg	arglist[];
+Xint	argcount;
+X{
+X    XmFontList	font_list;
+X    Widget	pref_dialog;
+X    Widget	work_area, dialog_area;
+X    Widget	form;
+X    Widget	radio;
+X    Widget	separator;
+X    Widget	button;
+X    Widget	label,label2;
+X    Widget	kid[5];		/*  buttons		*/
+X    register int i;		/*  kid index		*/
+X    Arg		al[15];
+X    Cardinal	ac;
+X    XColor	*closeColor, *exactColor;
+X    char        spaces_string[3];
+X    
+X    /* Start with a prompt dialog */
+X    pref_dialog = XmCreatePromptDialog(parent, name, arglist, argcount);
+X
+X    /* Create dialog area. */
+X    ac = 0;
+X    XtSetArg (al[ac], XmNorientation, XmVERTICAL);  ac++;
+X    dialog_area = XmCreateRowColumn(pref_dialog, "dialog_area", al, ac);
+X    XtManageChild(dialog_area);
+X    
+X    /* Create work area. */
+X    ac = 0;
+X    XtSetArg (al[ac], XmNorientation, XmHORIZONTAL);  ac++;
+X    work_area = XmCreateRowColumn(dialog_area, "work_area", al, ac);
+X    XtManageChild(work_area);
+X    
+X    /*************************************************/
+X    /*** Create the indenting style selection area ***/
+X    ac = 0;
+X    form = XmCreateForm(work_area, "IndentArea", al, ac);
+X    XtManageChild(form);
+X    
+X    /*** Mode selection area ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("Indenting mode: ", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_FORM); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftWidget, label); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_FORM); ac++;
+X    radio = XmCreateRadioBox (form, "Radio", al, ac);
+X    
+X    ac=0;
+X    if (indent_style == NONE) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("None", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    style_n_button = XmCreateToggleButtonGadget (radio, "Style_N", al, ac);
+X    XtManageChild (style_n_button);
+X    XtAddCallback (style_n_button, XmNarmCallback, PreferencesCB, PREF_STYLE_N);
+X    
+X    ac=0;
+X    if (indent_style == SMART) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Smart", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    style_sm_button = XmCreateToggleButtonGadget (radio, "Style_SM", al, ac);
+X    XtManageChild (style_sm_button);
+X    XtAddCallback (style_sm_button, XmNarmCallback, PreferencesCB, PREF_STYLE_SM);
+X    
+X    ac=0;
+X    if (indent_style == SYNTAX) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Syntax", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    style_sy_button = XmCreateToggleButtonGadget (radio, "Style_SY", al, ac);
+X    XtManageChild (style_sy_button);
+X    XtAddCallback (style_sy_button, XmNarmCallback, PreferencesCB, PREF_STYLE_SY);
+X    
+X    XtManageChild (radio);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, radio); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    separator = XmCreateSeparator(form, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*** Bracketing selection area ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("Bracketing Style:\n", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("for (...) ", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, label); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopOffset, 4); ac++;
+X    label2 = XmCreateLabelGadget (form, "ForLabel", al, ac);
+X    XtManageChild (label2);
+X    
+X    ac = 0;
+X    if (open_brace != 2) {
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("{", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftWidget, label2); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, label); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X    open3_button = XmCreatePushButton (form, "Open3", al, ac);
+X    XtAddCallback (open3_button, XmNactivateCallback, PreferencesCB, PREF_OPEN3);
+X    XtManageChild (open3_button);
+X    
+X    ac = 0;
+X    if (open_brace != 0) {
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("{", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, open3_button); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X    open1_button = XmCreatePushButton (form, "Open1", al, ac);
+X    XtAddCallback (open1_button, XmNactivateCallback, PreferencesCB, PREF_OPEN1);
+X    XtManageChild (open1_button);
+X    
+X    ac = 0;
+X    if (open_brace != 1) {
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("{", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftWidget, open1_button); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, open3_button); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X    XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X    open2_button = XmCreatePushButton (form, "Open2", al, ac);
+X    XtAddCallback (open2_button, XmNactivateCallback, PreferencesCB, PREF_OPEN2);
+X    XtManageChild (open2_button);
+X    
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR(".\n.\n.", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftWidget, open2_button); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_OPPOSITE_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, open2_button); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    label2 = XmCreateLabelGadget (form, "Label2", al, ac);
+X    XtManageChild (label2);
+X    
+X    ac = 0;
+X    if (close_brace != 0) {
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("}", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, label2); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X    close1_button = XmCreatePushButton (form, "Close1", al, ac);
+X    XtAddCallback (close1_button, XmNactivateCallback, PreferencesCB, PREF_CLOSE1);
+X    XtManageChild (close1_button);
+X    
+X    ac = 0;
+X    if (close_brace != 1) {
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("}", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftWidget, close1_button); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, label2); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNshadowThickness, 1); ac++;
+X    XtSetArg (al[ac], XmNleftOffset, 20); ac++;
+X    close2_button = XmCreatePushButton (form, "Close2", al, ac);
+X    XtAddCallback (close2_button, XmNactivateCallback, PreferencesCB, PREF_CLOSE2);
+X    XtManageChild (close2_button);
+X    
+X    /*** Separator between indent and tabs areas ***/
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNorientation, XmVERTICAL); ac++;
+X    separator = XmCreateSeparator(work_area, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*******************************************/
+X    /*** Create the tab style selection area ***/
+X    ac = 0;
+X    form = XmCreateForm(work_area, "Form", al, ac);
+X    XtManageChild(form);
+X    
+X    /*** Leading tabs ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("For leading tabs use:  ", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_FORM); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftWidget, label); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_FORM); ac++;
+X    radio = XmCreateRadioBox (form, "Radio", al, ac);
+X    
+X    ac=0;
+X    if (leading_tabs) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Tabs", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    lead_t_button = XmCreateToggleButtonGadget (radio, "Lead_T", al, ac);
+X    XtManageChild (lead_t_button);
+X    XtAddCallback (lead_t_button, XmNarmCallback, PreferencesCB, PREF_LEAD_T);
+X    
+X    ac=0;
+X    if (!leading_tabs) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Spaces", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    lead_f_button = XmCreateToggleButtonGadget (radio, "Lead_F", al, ac);
+X    XtManageChild (lead_f_button);
+X    XtAddCallback (lead_f_button, XmNarmCallback, PreferencesCB, PREF_LEAD_F);
+X    
+X    XtManageChild (radio);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, radio); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    separator = XmCreateSeparator(form, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*** Trailing tabs ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("For trailing tabs use: ", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftWidget, label); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    radio = XmCreateRadioBox (form, "Radio", al, ac);
+X    
+X    ac=0;
+X    if (trailing_tabs) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Tabs", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    trail_t_button = XmCreateToggleButtonGadget (radio, "Trail_T", al, ac);
+X    XtManageChild (trail_t_button);
+X    XtAddCallback (trail_t_button, XmNarmCallback, PreferencesCB, PREF_TRAIL_T);
+X    
+X    ac=0;
+X    if (!trailing_tabs) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Spaces", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    trail_f_button = XmCreateToggleButtonGadget (radio, "Trail_F", al, ac);
+X    XtManageChild (trail_f_button);
+X    XtAddCallback (trail_f_button, XmNarmCallback, PreferencesCB, PREF_TRAIL_F);
+X    
+X    XtManageChild (radio);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, radio); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    separator = XmCreateSeparator(form, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*** Spaces ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("Number of spaces to use for tabs: ", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    sprintf(spaces_string, "%d", tab_spaces);
+X    ac = 0;
+X    if (leading_tabs && trailing_tabs) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X        XtSetArg (al[ac], XmNforeground, gcol);  ac++;
+X    }
+X    XtSetArg(al[ac], XmNvalue, spaces_string); ac++;
+X    XtSetArg (al[ac], XmNcolumns, 1); ac++;
+X    XtSetArg (al[ac], XmNleftWidget, label); ac++;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    spaces_text = XmCreateText(form, "spaces",al,ac);
+X    XtManageChild (spaces_text);
+X    XtAddCallback (spaces_text, XmNmodifyVerifyCallback, PreferencesCB, PREF_SPACES);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, spaces_text); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    separator = XmCreateSeparator(form, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*** Case style selection area ***/
+X    ac = 0;
+X    XtSetArg(al[ac], XmNlabelString,
+X    	XmStringCreateLtoR("Indent case statements?:", charset)); ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    label = XmCreateLabelGadget (form, "Label", al, ac);
+X    XtManageChild (label);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, label); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNorientation, XmHORIZONTAL); ac++;
+X    radio = XmCreateRadioBox (form, "Radio", al, ac);
+X    
+X    ac=0;
+X    if (!indent_case) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("switch ()\ncase 1:", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    case_f_button = XmCreateToggleButtonGadget (radio, "Case_F", al, ac);
+X    XtManageChild (case_f_button);
+X    XtAddCallback (case_f_button, XmNarmCallback, PreferencesCB, PREF_CASE_F);
+X    
+X    ac=0;
+X    if (indent_case) {
+X        XtSetArg (al[ac], XmNset, True);  ac++;
+X    }
+X    if (indent_style != SYNTAX) {
+X        XtSetArg (al[ac], XmNsensitive, False);  ac++;
+X    }
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("switch ()\n    case 1:", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    case_t_button = XmCreateToggleButtonGadget (radio, "Case_T", al, ac);
+X    XtManageChild (case_t_button);
+X    XtAddCallback (case_t_button, XmNarmCallback, PreferencesCB, PREF_CASE_T);
+X    
+X    XtManageChild (radio);
+X    
+X    ac = 0;
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNrightAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, radio); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    separator = XmCreateSeparator(form, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    /*** Word wrap selector ***/
+X    XtSetArg (al[ac], XmNlabelString, 
+X        XmStringCreateLtoR("Use wordwrap", charset));  ac++;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNleftAttachment, XmATTACH_FORM); ac++;
+X    XtSetArg (al[ac], XmNtopWidget, separator); ac++;
+X    XtSetArg (al[ac], XmNtopAttachment, XmATTACH_WIDGET); ac++;
+X    XtSetArg (al[ac], XmNalignment, XmALIGNMENT_BEGINNING); ac++;
+X    wrap_button = XmCreateToggleButtonGadget (form, "Wrap", al, ac);
+X    XtManageChild (wrap_button);
+X    XtAddCallback (wrap_button, XmNarmCallback, PreferencesCB, PREF_WRAP);
+X    
+X    /*** Put a separator and help message below the work area ***/
+X    ac = 0;
+X    separator = XmCreateSeparator(dialog_area, "separator", al, ac);
+X    XtManageChild(separator);
+X    
+X    ac = 0;
+X#ifdef HARDCODE
+X    XtSetArg (al[ac], XmNfontList, fontlist);  ac++;
+X#endif
+X    XtSetArg (al[ac], XmNalignment, XmALIGNMENT_CENTER);  ac++;
+X    label = XmCreateLabelGadget (dialog_area, 
+X        "Press HELP for lines to put in a defaults file for these preferences.", al, ac);
+X    XtManageChild (label);
+X    
+X    XtAddCallback (pref_dialog, XmNmapCallback, PreferencesCB, PREF_MAP);
+X    XtAddCallback (pref_dialog, XmNokCallback, PreferencesCB, PREF_OK);
+X    XtAddCallback (pref_dialog, XmNcancelCallback, PreferencesCB, PREF_CANCEL);
+X    XtAddCallback (pref_dialog, XmNhelpCallback, PreferencesCB, PREF_HELP);
+X    
+X    
+X    /***  Unmanage unneeded children.  ***/
+X    i = 0;
+X    kid[i++] = XmSelectionBoxGetChild (pref_dialog, XmDIALOG_TEXT);
+X    kid[i++] = XmSelectionBoxGetChild (pref_dialog, XmDIALOG_SELECTION_LABEL);
+X    XtUnmanageChildren (kid, i);
+X
+X    return pref_dialog;
+X}
+X
+END_OF_FILE
+if test 31274 -ne `wc -c <'xmepref.c'`; then
+    echo shar: \"'xmepref.c'\" unpacked with wrong size!
+fi
+chmod +x 'xmepref.c'
+# end of 'xmepref.c'
+fi
+echo shar: End of archive 4 \(of 4\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

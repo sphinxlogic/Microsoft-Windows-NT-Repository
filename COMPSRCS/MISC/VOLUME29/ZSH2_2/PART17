@@ -1,0 +1,2277 @@
+Newsgroups: comp.sources.misc
+From: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Subject:  v29i113:  zsh2.2 - The Z shell, Part17/17
+Message-ID: <1992May13.161122.11272@sparky.imd.sterling.com>
+X-Md4-Signature: 9818c2e325b5a02a67e832feaeaf6758
+Date: Wed, 13 May 1992 16:11:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pfalstad@phoenix.Princeton.EDU (Paul Falstad)
+Posting-number: Volume 29, Issue 113
+Archive-name: zsh2.2/part17
+Environment: BSD
+Supersedes: zsh2.1: Volume 24, Issue 1-19
+
+#!/bin/sh
+# this is aa.17 (part 17 of zsh2.2)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file zsh2.2/src/zle_misc.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 17; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping zsh2.2/src/zle_misc.c'
+else
+echo 'x - continuing file zsh2.2/src/zle_misc.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'zsh2.2/src/zle_misc.c' &&
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+X
+Xvoid selfinsert() /**/
+X{
+Xint ncs = cs+mult;
+X
+X	if (mult < 0) { mult = -mult; ncs = cs; }
+X	if (insmode || ll == cs)
+X		spaceinline(mult);
+X	else if (mult+cs > ll)
+X		spaceinline(ll-(mult+cs));
+X	while (mult--)
+X		line[cs++] = c;
+X	cs = ncs;
+X}
+X
+Xvoid selfinsertunmeta() /**/
+X{
+X	c &= 0x7f;
+X	if (c == '\r') c = '\n';
+X	selfinsert();
+X}
+X
+Xvoid deletechar() /**/
+X{
+X	if (mult < 0) { mult = -mult; backwarddeletechar(); return; }
+X	if (c == 4 && !ll)
+X		{
+X		eofsent = 1;
+X		return;
+X		}
+X	if (!(cs+mult > ll || line[cs] == '\n'))
+X		{
+X		cs += mult;
+X		backdel(mult);
+X		}
+X	else
+X		feep();
+X}
+X
+Xvoid backwarddeletechar() /**/
+X{
+X	if (mult < 0) { mult = -mult; deletechar(); return; }
+X	if (mult > cs)
+X		mult = cs;
+X	backdel(mult);
+X}
+X
+Xvoid videletechar() /**/
+X{
+X	if (mult < 0) { mult = -mult; vibackwarddeletechar(); return; }
+X	if (c == 4 && !ll) {
+X		eofsent = 1;
+X		return;
+X	}
+X	if (!(cs+mult > ll || line[cs] == '\n')) {
+X		cs += mult;
+X		backkill(mult,0);
+X		if (cs && (cs == ll || line[cs] == '\n')) cs--;
+X	} else
+X		feep();
+X}
+X
+Xvoid vibackwarddeletechar() /**/
+X{
+X	if (mult < 0) { mult = -mult; videletechar(); return; }
+X	if (mult > cs)
+X		mult = cs;
+X	if (cs-mult < viinsbegin) { feep(); return; }
+X	backkill(mult,1);
+X}
+X
+Xvoid vikillline() /**/
+X{
+X	if (viinsbegin > cs) { feep(); return; }
+X	backdel(cs-viinsbegin);
+X}
+X
+Xvoid killwholeline() /**/
+X{
+Xint i,fg;
+X
+X	if (mult < 0) return;
+X	while (mult--)
+X		{
+X		if (fg = (cs && cs == ll))
+X			cs--;
+X		while (cs && line[cs-1] != '\n') cs--;
+X		for (i = cs; i != ll && line[i] != '\n'; i++);
+X		forekill(i-cs+(i != ll),fg);
+X		}
+X}
+X
+Xvoid killbuffer() /**/
+X{
+X	cs = 0;
+X	forekill(ll,0);
+X}
+X
+Xvoid backwardkillline() /**/
+X{
+Xint i = 0;
+X
+X	if (mult < 0) { mult = -mult; killline(); return; }
+X	while (mult--)
+X		{
+X		while (cs && line[cs-1] != '\n') cs--,i++;
+X		if (mult && cs && line[cs-1] == '\n')
+X			cs--,i++;
+X		}
+X	forekill(i,1);
+X}
+X
+Xvoid gosmacstransposechars() /**/
+X{
+Xint cc;
+X
+X	if (cs < 2 || line[cs-1] == '\n' || line[cs-2] == '\n')
+X		{
+X		if (line[cs] == '\n' || line[cs+1] == '\n')
+X			{
+X			feep();
+X			return;
+X			}
+X		cs += (cs == 0 || line[cs-1] == '\n') ? 2 : 1;
+X		}
+X	cc = line[cs-2];
+X	line[cs-2] = line[cs-1];
+X	line[cs-1] = cc;
+X}
+X
+Xvoid transposechars() /**/
+X{
+Xint cc;
+Xint neg = mult < 0;
+X
+X	if (neg) mult = -mult;
+X	while (mult--) {
+X		if (cs == 0 || line[cs-1] == '\n') {
+X			if (ll == cs || line[cs] == '\n' || line[cs+1] == '\n') {
+X				feep();
+X				return;
+X			}
+X			cs++;
+X		}
+X		if (!neg) {
+X			if (cs != ll && line[cs] != '\n') cs++;
+X		} else {
+X			if (cs != 0 && line[cs-1] != '\n') cs--;
+X		}
+X		cc = line[cs-2];
+X		line[cs-2] = line[cs-1];
+X		line[cs-1] = cc;
+X	}
+X}
+X
+Xvoid poundinsert() /**/
+X{
+X	if (*line != '#') {
+X		cs = 0;
+X		spaceinline(1);
+X		*line = '#';
+X	} else {
+X		cs = 0;
+X		foredel(1);
+X	}
+X	done = 1;
+X}
+X
+Xvoid acceptline() /**/
+X{
+X	done = 1;
+X}
+X
+Xvoid acceptandhold() /**/
+X{
+X	pushnode(bufstack,ztrdup((char *) line));
+X	stackcs = cs;
+X	done = 1;
+X}
+X
+Xvoid killline() /**/
+X{
+Xint i = 0;
+X
+X	if (mult < 0) { mult = -mult; backwardkillline(); return; }
+X	while (mult--) {
+X		if (line[cs] == '\n')
+X			cs++,i++;
+X		while (cs != ll && line[cs] != '\n') cs++,i++;
+X	}
+X	backkill(i,0);
+X}
+X
+Xvoid killregion() /**/
+X{
+X	if (mark > ll)
+X		mark = ll;
+X	if (mark > cs)
+X		forekill(mark-cs,0);
+X	else
+X		backkill(cs-mark,1);
+X}
+X
+Xvoid copyregionaskill() /**/
+X{
+X	if (mark > ll)
+X		mark = ll;
+X	if (mark > cs)
+X		cut(cs,mark-cs,0);
+X	else
+X		cut(mark,cs-mark,1);
+X}
+X
+Xstatic int kct,yankb,yanke;
+X
+Xvoid yank() /**/
+X{
+Xint cc;
+Xchar *buf = cutbuf;
+X
+X	if (!cutbuf) {
+X		feep();
+X		return;
+X	}
+X	if (mult < 0) return;
+X	if (vibufspec) {
+X		vibufspec = tolower(vibufspec);
+X		vibufspec += (idigit(vibufspec)) ? -'1'+26 : -'a';
+X		if (!(buf = vibuf[vibufspec])) {
+X			feep();
+X			vibufspec = 0;
+X			return;
+X		}
+X		vibufspec = 0;
+X	}
+X	yankb = cs;
+X	while (mult--) {
+X		kct = kringnum;
+X		cc = strlen(buf);
+X		spaceinline(cc);
+X		strncpy((char *) line+cs,buf,cc);
+X		cs += cc;
+X		yanke = cs;
+X	}
+X}
+X
+Xvoid viputafter() /**/
+X{
+Xint cc;
+Xchar *buf = cutbuf;
+X
+X	if (!cutbuf) {
+X		feep();
+X		return;
+X	}
+X	if (mult < 0) return;
+X	if (vibufspec) {
+X		vibufspec = tolower(vibufspec);
+X		vibufspec += (idigit(vibufspec)) ? -'1'+26 : -'a';
+X		if (!(buf = vibuf[vibufspec])) {
+X			feep();
+X			vibufspec = 0;
+X			return;
+X		}
+X		vibufspec = 0;
+X	}
+X	if (strchr(buf,'\n')) {
+X		cs = findeol();
+X		if (cs == ll) { spaceinline(1); line[cs] = '\n'; }
+X	}
+X	if (cs != ll) cs++;
+X	yankb = cs;
+X	while (mult--) {
+X		kct = kringnum;
+X		cc = strlen(buf);
+X		spaceinline(cc);
+X		strncpy((char *) line+cs,buf,cc);
+X		cs += cc;
+X		yanke = cs;
+X	}
+X	cs = yankb;
+X}
+X
+Xvoid yankpop() /**/
+X{
+Xint cc;
+X
+X	if (!(lastcmd & ZLE_YANK) || !kring[kct]) {
+X		feep();
+X		return;
+X	}
+X	cs = yankb;
+X	foredel(yanke-yankb);
+X	cc = strlen(kring[kct]);
+X	spaceinline(cc);
+X	strncpy((char *) line+cs,kring[kct],cc);
+X	cs += cc;
+X	yanke = cs;
+X	kct = (kct-1) & (KRINGCT-1);
+X}
+X
+Xvoid overwritemode() /**/
+X{
+X	insmode ^= 1;
+X}
+X
+Xvoid undefinedkey() /**/
+X{
+X	feep();
+X}
+X
+Xvoid quotedinsert() /**/
+X{
+X#ifndef TIO
+Xstruct sgttyb sob;
+X	sob = shttyinfo.sgttyb;
+X	sob.sg_flags = (sob.sg_flags|RAW) & ~ECHO;
+X	ioctl(SHTTY,TIOCSETN,&sob);
+X#endif
+X	c = getkey(0);
+X#ifndef TIO
+X	setterm();
+X#endif
+X	if (c) selfinsert(); else feep();
+X}
+X
+Xvoid digitargument() /**/
+X{
+X	if (!(lastcmd & ZLE_ARG))
+X		mult = 0;
+X	mult = mult*10+(c&0xf);
+X	if (lastcmd & ZLE_NEGARG) mult = -mult;
+X}
+X
+Xvoid negargument() /**/
+X{
+X	if (lastcmd & ZLE_ARG) feep();
+X}
+X
+Xvoid universalargument() /**/
+X{
+X	if (!(lastcmd & ZLE_ARG))
+X		mult = 4;
+X	else
+X		mult *= 4;
+X}
+X
+Xvoid copyprevword() /**/
+X{
+Xint len,t0;
+X
+X	for (t0 = cs-1; t0 >= 0; t0--)
+X		if (iword(line[t0]))
+X			break;
+X	for (; t0 >= 0; t0--)
+X		if (!iword(line[t0]))
+X			break;
+X	if (t0)
+X		t0++;
+X	len = cs-t0;
+X	spaceinline(len);
+X	strncpy((char *) line+cs,(char *) line+t0,len);
+X	cs += len;
+X}
+X
+Xvoid sendbreak() /**/
+X{
+X	errflag = done = 1;
+X}
+X
+Xvoid undo() /**/
+X{
+Xchar *s;
+Xstruct undoent *ue;
+X
+X	ue = undos+undoct;
+X	if (!ue->change)
+X		{
+X		feep();
+X		return;
+X		}
+X	line[ll] = '\0';
+X	s = ztrdup((char *) line+ll-ue->suff);
+X	sizeline((ll = ue->pref+ue->suff+ue->len)+1);
+X	strncpy((char *) line+ue->pref,ue->change,ue->len);
+X	strcpy((char *) line+ue->pref+ue->len,s);
+X	free(s);
+X	ue->change = NULL;
+X	undoct = (undoct-1) & (UNDOCT-1);
+X	cs = ue->cs;
+X}
+X
+Xvoid quoteregion() /**/
+X{
+Xchar *s,*t;
+Xint x,y;
+X
+X	if (mark > ll)
+X		mark = ll;
+X	if (mark < cs)
+X		{
+X		x = mark;
+X		mark = cs;
+X		cs = x;
+X		}
+X	s = hcalloc((y = mark-cs)+1);
+X	strncpy(s,(char *) line+cs,y);
+X	s[y] = '\0';
+X	foredel(mark-cs);
+X	t = makequote(s);
+X	spaceinline(x = strlen(t));
+X	strncpy((char *) line+cs,t,x);
+X	mark = cs;
+X	cs += x;
+X}
+X
+Xvoid quoteline() /**/
+X{
+Xchar *s;
+X
+X	line[ll] = '\0';
+X	s = makequote((char *) line);
+X	setline(s);
+X}
+X
+Xchar *makequote(s) /**/
+Xchar *s;
+X{
+Xint qtct = 0;
+Xchar *l,*ol;
+X
+X	for (l = s; *l; l++)
+X		if (*l == '\'')
+X			qtct++;
+X	l = ol = halloc((qtct*3)+3+strlen(s));
+X	*l++ = '\'';
+X	for (; *s; s++)
+X		if (*s == '\'')
+X			{
+X			*l++ = '\'';
+X			*l++ = '\\';
+X			*l++ = '\'';
+X			*l++ = '\'';
+X			}
+X		else
+X			*l++ = *s;
+X	*l++ = '\'';
+X	*l = '\0';
+X	return ol;
+X}
+X
+X#define NAMLEN 70
+X
+Xint executenamedcommand() /**/
+X{
+Xchar buf[NAMLEN],*ptr;
+Xint len,ch,t0;
+X
+X	strcpy(buf,"execute: ");
+X	ptr = buf+9;
+X	len = 0;
+X	statusline = buf;
+X	refresh();
+X	for (;ch = getkey(1);refresh())
+X		{
+X		switch (ch)
+X			{
+X			case 8: case 127:
+X				if (len)
+X					{
+X					len--;
+X					*--ptr = '\0';
+X					}
+X				break;
+X			case 23:
+X				while (len && (len--, *--ptr != '-'))
+X					*ptr = '\0';
+X				break;
+X			case 21:
+X				len = 0;
+X				ptr = buf+9;
+X				*ptr = '\0';
+X				break;
+X			case 10: case 13: goto brk;
+X			case 7: case -1: statusline = NULL; return z_undefinedkey;
+X			case 9: case 32:
+X				{
+X				Lklist ll;
+X				int ambig = 100;
+X
+X				heapalloc();
+X				ll = newlist();
+X				for (t0 = 0; t0 != ZLECMDCOUNT; t0++)
+X					if (strpfx(buf+9,zlecmds[t0].name))
+X						{
+X						int xx;
+X
+X						addnode(ll,zlecmds[t0].name);
+X						xx = pfxlen(peekfirst(ll),zlecmds[t0].name);
+X						if (xx < ambig)
+X							ambig = xx;
+X						}
+X				permalloc();
+X				if (!full(ll))
+X					feep();
+X				else if (!nextnode(firstnode(ll)))
+X					{
+X					strcpy(buf+9,peekfirst(ll));
+X					ptr = buf+(len = strlen(buf));
+X					}
+X				else
+X					{
+X					strcpy(buf+9,peekfirst(ll));
+X					len = ambig;
+X					ptr = buf+9+len;
+X					*ptr = '\0';
+X					feep();
+X					listmatches(ll,NULL);
+X					}
+X				break;
+X				}
+X			default:
+X				if (len == NAMLEN-10 || icntrl(ch))
+X					feep();
+X				else
+X					*ptr++ = ch, *ptr = '\0', len++;
+X				break;
+X			}
+X		}
+Xbrk:
+X	statusline = NULL;
+X	ptr = buf+9;
+X	for (t0 = 0; t0 != ZLECMDCOUNT; t0++)
+X		if (!strcmp(ptr,zlecmds[t0].name))
+X			break;
+X	if (t0 != ZLECMDCOUNT)
+X		return lastnamed = t0;
+X	else
+X		return z_undefinedkey;
+X}
+X
+Xvoid vijoin() /**/
+X{
+Xint x;
+X
+X	if ((x = findeol()) == ll)
+X		{
+X		feep();
+X		return;
+X		}
+X	cs = x+1;
+X	for (x = 1; cs != ll && iblank(line[cs]); cs++,x++);
+X	backdel(x);
+X	spaceinline(1);
+X	line[cs] = ' ';
+X}
+X
+Xvoid viswapcase() /**/
+X{
+X	if (cs < ll)
+X		{
+X		int ch = line[cs];
+X
+X		if (islower(ch))
+X			ch = tuupper(ch);
+X		else if (isupper(ch))
+X			ch = tulower(ch);
+X		line[cs++] = ch;
+X		}
+X}
+X
+Xvoid vicapslockpanic() /**/
+X{
+Xchar ch;
+X
+X	statusline = "press a lowercase key to continue";
+X	refresh();
+X	do
+X		ch = getkey(0);
+X	while (!islower(ch));
+X}
+X
+Xvoid visetbuffer() /**/
+X{
+Xint ch;
+X
+X	ch = getkey(1);
+X	if (!ialnum(ch)) {
+X		feep();
+X		return;
+X	}
+X	vibufspec = ch;
+X}
+X
+Xstatic char *bp;
+Xstatic int lensb,countp;
+X
+Xvoid stradd(d) /**/
+Xchar *d;
+X{
+X	while (*bp++ = *d++);
+X	bp--;
+X}
+X
+Xint putstr(d) /**/
+Xint d;
+X{
+X	*bp++ = d;
+X	if (countp)
+X		lensb++;
+X	return 0;
+X}
+X
+X#define tstradd(X) \
+X	if (termok && unset(SINGLELINEZLE)) { \
+X		char tbuf[2048],*tptr = tbuf; \
+X		if (tgetstr(X,&tptr)) \
+X			tputs(tbuf,1,putstr); \
+X	} \
+X	break
+X
+X/* get a prompt string */
+X
+Xchar *putprompt(fm,lenp) /**/
+Xchar *fm;int *lenp;
+X{
+Xchar *ss,*bl0;
+Xstatic char buf1[256],buf2[256],*buf;
+Xchar buf3[MAXPATHLEN];
+Xint t0,bracepos = 0;
+Xstruct tm *tm = NULL;
+Xtime_t timet;
+X
+X	lensb = 0; countp = 1;
+X	if (!fm) { *lenp = 0; return ""; }
+X	/* kludge alert! */
+X	buf = (buf == buf1) ? buf2 : buf1;
+X	bp = bl0 = buf;
+X	if (!columns) columns = 80;
+X	clearerr(stdin);
+X	for(;*fm;fm++) {
+X		if (bp-buf >= 220)
+X			break;
+X		if (*fm == '%')
+X			switch (*++fm) {
+X				case '~':
+X					t0 = finddir(pwd);
+X					if (t0 != -1) {
+X						*bp++ = '~';
+X						stradd(usernames[t0]);
+X						stradd(pwd+strlen(userdirs[t0]));
+X						break;
+X					}
+X					if (!strncmp(pwd,home,t0 = strlen(home)) && t0 > 1) {
+X						*bp++ = '~';
+X						stradd(pwd+t0);
+X						break;
+X					}
+X				case 'd': case '/': stradd(pwd); break;
+X				case 'c': case '.':
+X					t0 = finddir(pwd);
+X					if (t0 != -1) {
+X						sprintf(buf3,"~%s%s",usernames[t0],
+X							pwd+strlen(userdirs[t0]));
+X					} else if (!strncmp(pwd,home,t0 = strlen(home)) && t0 > 1) {
+X						sprintf(buf3,"~%s",pwd+t0);
+X					} else {
+X						strcpy(buf3,pwd);
+X					}
+X					t0 = 1;
+X					if (idigit(fm[1])) { t0 = fm[1]-'0'; fm++; }
+X					for (ss = buf3+strlen(buf3); ss > buf3; ss--)
+X						if (*ss == '/' && !--t0) {
+X							ss++;
+X							break;
+X						}
+X					if (*ss == '/' && ss[1] && (ss != buf3)) ss++;
+X					stradd(ss);
+X					break;
+X				case 'C':
+X					strcpy(buf3,pwd);
+X					t0 = 1;
+X					if (idigit(fm[1])) { t0 = fm[1]-'0'; fm++; }
+X					for (ss = buf3+strlen(buf3); ss > buf3; ss--)
+X						if (*ss == '/' && !--t0) {
+X							ss++;
+X							break;
+X						}
+X					if (*ss == '/' && ss[1] && (ss != buf3)) ss++;
+X					stradd(ss);
+X					break;
+X				case 'h': case '!':
+X					sprintf(bp,"%d",curhist);
+X					bp += strlen(bp);
+X					break;
+X				case 'M': stradd(hostnam); break;
+X				case 'm':
+X					if (idigit(fm[1]))
+X						t0 = (*++fm)-'0';
+X					else
+X						t0 = 1;
+X					for (ss = hostnam; *ss; ss++)
+X						if (*ss == '.' && !--t0)
+X							break;
+X					t0 = *ss;
+X					*ss = '\0';
+X					stradd(hostnam);
+X					*ss = t0;
+X					break;
+X				case 'S': tstradd("so"); /* <- this is a macro */
+X				case 's': tstradd("se");
+X				case 'B': tstradd("md");
+X				case 'b': tstradd("me");
+X				case 'U': tstradd("us");
+X				case 'u': tstradd("ue");
+X				case '{': bracepos = bp-buf; countp = 0; break;
+X				case '}': lensb += (bp-buf)-bracepos; countp = 1; break;
+X				case 't': case '@':
+X					timet = time(NULL);
+X					tm = localtime(&timet);
+X					ztrftime(bp,16,"%l:%M%p",tm);
+X					if (*bp == ' ')
+X						chuck(bp);
+X					bp += strlen(bp);
+X					break;
+X				case 'T':
+X					timet = time(NULL);
+X					tm = localtime(&timet);
+X					ztrftime(bp,16,"%k:%M",tm);
+X					bp += strlen(bp);
+X					break;
+X				case '*':
+X					timet = time(NULL);
+X					tm = localtime(&timet);
+X					ztrftime(bp,16,"%k:%M:%S",tm);
+X					bp += strlen(bp);
+X					break;
+X				case 'n': stradd(username); break;
+X				case 'w':
+X					timet = time(NULL);
+X					tm = localtime(&timet);
+X					ztrftime(bp,16,"%a %e",tm);
+X					bp += strlen(bp);
+X					break;
+X				case 'W':
+X					timet = time(NULL);
+X					tm = localtime(&timet);
+X					ztrftime(bp,16,"%m/%d/%y",tm);
+X					bp += strlen(bp);
+X					break;
+X				case 'D':
+X 					strcpy(buf3, "%y-%m-%d");
+X 					if (fm[1] == '{') {
+X 						for (ss = fm + 1, t0 = 0; *ss; ++ss)
+X 							if (*ss == '{')
+X 								++t0;
+X 							else if (*ss == '}')
+X 								if (--t0 == 0)
+X 									break;
+X 						if (*ss == '}' && t0 == 0) {
+X 							t0 = (ss - 1) - (fm + 1);
+X 							strncpy(buf3, fm + 2, t0);
+X 							buf3[t0] = 0;
+X 							fm = ss;
+X 						}
+X 					}
+X  					timet = time(NULL);
+X  					tm = localtime(&timet);
+X 					ztrftime(bp,16,buf3,tm);
+X  					bp += strlen(bp);
+X  					break;
+X				case 'l':
+X					if (*ttystrname) stradd((strncmp(ttystrname,"/dev/tty",8) ? 
+X						ttystrname+5 : ttystrname+8));
+X					else stradd("()");
+X					break;
+X				case '?':
+X					sprintf(bp,"%d",lastval);
+X					bp += strlen(bp);
+X					break;
+X				case '%': *bp++ = '%'; break;
+X				case '#': *bp++ = (geteuid()) ? '%' : '#'; break;
+X				case 'r': stradd(rstring); break;
+X				case 'R': stradd(Rstring); break;
+X				default: *bp++ = '%'; *bp++ = *fm; break;
+X			}
+X		else if (*fm == '!') {
+X			sprintf(bp,"%d",curhist);
+X			bp += strlen(bp);
+X		} else {
+X			if (fm[0] == '\\' && fm[1])
+X				fm++;
+X			if ((*bp++ = *fm) == '\n')
+X				bl0 = bp, lensb = 0;
+X		}
+X	}
+X	*lenp = (bp-bl0)-lensb;
+X	*lenp %= columns;
+X	if (*lenp == columns-1) {
+X		*lenp = 0;
+X		*bp++ = ' ';
+X	}
+X	*bp = '\0';
+X	return buf;
+X}
+X
+SHAR_EOF
+echo 'File zsh2.2/src/zle_misc.c is complete' &&
+chmod 0644 zsh2.2/src/zle_misc.c ||
+echo 'restore of zsh2.2/src/zle_misc.c failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_misc.c'`"
+test 14519 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_misc.c: original size 14519, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_word.c ==============
+if test -f 'zsh2.2/src/zle_word.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_word.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_word.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_word.c' &&
+X/*
+X *
+X * zle_word.c - word-related editor functions
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+X
+Xvoid forwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; backwardword(); return; }
+X	while (mult--) {
+X		while (cs != ll && iword(line[cs])) cs++;
+X		if (wordflag && !mult) return;
+X		while (cs != ll && !iword(line[cs])) cs++;
+X	}
+X}
+X
+Xvoid viforwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; backwardword(); return; }
+X	while (mult--) {
+X		if (iident(line[cs])) while (cs != ll && iident(line[cs])) cs++;
+X		else while (cs != ll && !iident(line[cs]) && !iblank(line[cs])) cs++;
+X		if (wordflag && !mult) return;
+X		while (cs != ll && iblank(line[cs])) cs++;
+X	}
+X}
+X
+Xvoid viforwardblankword() /**/
+X{
+X	if (mult < 0) { mult = -mult; vibackwardblankword(); return; }
+X	while (mult--) {
+X		while (cs != ll && !iblank(line[cs])) cs++;
+X		if (wordflag && !mult) return;
+X		while (cs != ll && iblank(line[cs])) cs++;
+X	}
+X}
+X
+Xvoid emacsforwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; emacsbackwardword(); return; }
+X	while (mult--)
+X		{
+X		while (cs != ll && !iword(line[cs])) cs++;
+X		if (wordflag && !mult) return;
+X		while (cs != ll && iword(line[cs])) cs++;
+X		}
+X}
+X
+Xvoid viforwardblankwordend() /**/
+X{
+X	if (mult < 0) return;
+X	while (mult--) {
+X		while (cs != ll && iblank(line[cs+1])) cs++;
+X		while (cs != ll && !iblank(line[cs+1])) cs++;
+X	}
+X	if (cs != ll && virangeflag) cs++;
+X}
+X
+Xvoid viforwardwordend() /**/
+X{
+X	if (mult < 0) { mult = -mult; backwardword(); return; }
+X	while (mult--) {
+X		if (iblank(line[cs+1])) while (cs != ll && iblank(line[cs+1])) cs++;
+X		if (iident(line[cs+1])) while (cs != ll && iident(line[cs+1])) cs++;
+X		else while (cs != ll && !iident(line[cs+1]) && !iblank(line[cs+1])) cs++;
+X	}
+X	if (cs != ll && virangeflag) cs++;
+X}
+X
+Xvoid backwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; forwardword(); return; }
+X	while (mult--) {
+X		while (cs && !iword(line[cs-1])) cs--;
+X		while (cs && iword(line[cs-1])) cs--;
+X	}
+X}
+X
+Xvoid vibackwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; backwardword(); return; }
+X	while (mult--) {
+X		while (cs && iblank(line[cs-1])) cs--;
+X		if (iident(line[cs-1])) while (cs && iident(line[cs-1])) cs--;
+X		else while (cs && !iident(line[cs-1]) && !iblank(line[cs-1])) cs--;
+X	}
+X}
+X
+Xvoid vibackwardblankword() /**/
+X{
+X	if (mult < 0) { mult = -mult; viforwardblankword(); return; }
+X	while (mult--) {
+X		while (cs && iblank(line[cs-1])) cs--;
+X		while (cs && !iblank(line[cs-1])) cs--;
+X	}
+X}
+X
+Xvoid emacsbackwardword() /**/
+X{
+X	if (mult < 0) { mult = -mult; emacsforwardword(); return; }
+X	while (mult--) {
+X		while (cs && !iword(line[cs-1])) cs--;
+X		while (cs && iword(line[cs-1])) cs--;
+X	}
+X}
+X
+Xvoid backwarddeleteword() /**/
+X{
+Xint x = cs;
+X
+X	if (mult < 0) { mult = -mult; deleteword(); return; }
+X	while (mult--) {
+X		while (x && !iword(line[x-1])) x--;
+X		while (x && iword(line[x-1])) x--;
+X	}
+X	backdel(cs-x);
+X}
+X
+Xvoid vibackwardkillword() /**/
+X{
+Xint x = cs;
+X
+X	if (mult < 0) { feep(); return; }
+X	while (mult--) {
+X		while (x > viinsbegin && !iword(line[x-1])) x--;
+X		while (x > viinsbegin && iword(line[x-1])) x--;
+X	}
+X	backkill(cs-x,1);
+X}
+X
+Xvoid backwardkillword() /**/
+X{
+Xint x = cs;
+X
+X	if (mult < 0) { mult = -mult; killword(); return; }
+X	while (mult--) {
+X		while (x && !iword(line[x-1])) x--;
+X		while (x && iword(line[x-1])) x--;
+X	}
+X	backkill(cs-x,1);
+X}
+X
+Xvoid upcaseword() /**/
+X{
+Xint neg = mult < 0, ocs = cs;
+X
+X	if (neg) mult = -mult;
+X	while (mult--) {
+X		while (cs != ll && !iword(line[cs])) cs++;
+X		while (cs != ll && iword(line[cs])) {
+X			line[cs] = tuupper(line[cs]);
+X			cs++;
+X		}
+X	}
+X	if (neg) cs = ocs;
+X}
+X
+Xvoid downcaseword() /**/
+X{
+Xint neg = mult < 0, ocs = cs;
+X
+X	if (neg) mult = -mult;
+X	while (mult--) {
+X		while (cs != ll && !iword(line[cs])) cs++;
+X		while (cs != ll && iword(line[cs])) {
+X			line[cs] = tulower(line[cs]);
+X			cs++;
+X		}
+X	}
+X	if (neg) cs = ocs;
+X}
+X
+Xvoid capitalizeword() /**/
+X{
+Xint first;
+Xint neg = mult < 0, ocs = cs;
+X	
+X	if (neg) mult = -mult;
+X	while (mult--) {
+X		first = 1;
+X		while (cs != ll && !iword(line[cs])) cs++;
+X		while (cs != ll && iword(line[cs])) {
+X			line[cs] = (first) ? tuupper(line[cs]) : tulower(line[cs]);
+X			first = 0;
+X			cs++;
+X		}
+X	}
+X	if (neg) cs = ocs;
+X}
+X
+Xvoid deleteword() /**/
+X{
+Xint x = cs;
+X
+X	if (mult < 0) { mult = -mult; backwarddeleteword(); return; }
+X	while (mult--) {
+X		while (x != ll && !iword(line[x])) x++;
+X		while (x != ll && iword(line[x])) x++;
+X	}
+X	foredel(x-cs);
+X}
+X
+Xvoid killword() /**/
+X{
+Xint x = cs;
+X
+X	if (mult < 0) { mult = -mult; backwardkillword(); return; }
+X	while (mult--) {
+X		while (x != ll && !iword(line[x])) x++;
+X		while (x != ll && iword(line[x])) x++;
+X	}
+X	forekill(x-cs,0);
+X}
+X
+Xvoid transposewords() /**/
+X{
+Xint p1,p2,p3,p4,x = cs;
+Xchar *temp,*pp;
+Xint neg = mult < 0, ocs = cs;
+X
+X	if (neg) mult = -mult;
+X	while (mult--) {
+X		while (x != ll && line[x] != '\n' && !iword(line[x]))
+X			x++;
+X		if (x == ll || line[x] == '\n') {
+X			x = cs;
+X			while (x && line[x-1] != '\n' && !iword(line[x]))
+X				x--;
+X			if (!x || line[x-1] == '\n') {
+X				feep();
+X				return;
+X			}
+X		}
+X		for (p4 = x; p4 != ll && iword(line[p4]); p4++);
+X		for (p3 = p4; p3 && iword(line[p3-1]); p3--);
+X		if (!p3) {
+X			feep();
+X			return;
+X		}
+X		for (p2 = p3; p2 && !iword(line[p2-1]); p2--);
+X		if (!p2) {
+X			feep();
+X			return;
+X		}
+X		for (p1 = p2; p1 && iword(line[p1-1]); p1--);
+X		pp = temp = halloc(p4-p1+1);
+X		struncpy(&pp,line+p3,p4-p3);
+X		struncpy(&pp,line+p2,p3-p2);
+X		struncpy(&pp,line+p1,p2-p1);
+X		strncpy((char *) line+p1,temp,p4-p1);
+X		cs = p4;
+X	}
+X	if (neg) cs = ocs;
+X}
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_word.c ||
+echo 'restore of zsh2.2/src/zle_word.c failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_word.c'`"
+test 6019 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_word.c: original size 6019, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_hist.c ==============
+if test -f 'zsh2.2/src/zle_hist.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_hist.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_hist.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_hist.c' &&
+X/*
+X *
+X * zle_hist.c - history editing
+X *
+X * This file is part of zsh, the Z shell.
+X *
+X * This software is Copyright 1992 by Paul Falstad
+X *
+X * Permission is hereby granted to copy, reproduce, redistribute or otherwise
+X * use this software as long as: there is no monetary profit gained
+X * specifically from the use or reproduction of this software, it is not
+X * sold, rented, traded or otherwise marketed, and this copyright notice is
+X * included prominently in any copy made. 
+X *
+X * The author make no claims as to the fitness or correctness of this software
+X * for any use whatsoever, and it is provided as is. Any use of this software
+X * is at the user's own risk. 
+X *
+X */
+X
+X#define ZLE
+X#include "zsh.h"
+X
+Xvoid toggleliteralhistory() /**/
+X{
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	lithist ^= 1;
+X	if (!(s = qgetevent(histline)))
+X		feep();
+X	else
+X		sethistline(s);
+X}
+X
+Xvoid uphistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) { mult = -mult; downhistory(); return; }
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	histline -= mult;
+X	if (!(s = qgetevent(histline)))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		histline += mult;
+X		}
+X	else
+X		sethistline(s);
+X}
+X
+Xvoid uplineorhistory() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; downlineorhistory(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	cs = findbol();
+X	while (mult) {
+X		if (!cs)
+X			break;
+X		cs--;
+X		cs = findbol();
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		uphistory();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid downlineorhistory() /**/
+X{
+Xint ocs = cs;
+X
+X	if (mult < 0) { mult = -mult; uplineorhistory(); return; }
+X	if ((lastcmd & ZLE_LINEMOVE) != ZLE_LINEMOVE)
+X		lastcol = cs-findbol();
+X	while (mult) {
+X		int x = findeol();
+X		if (x == ll)
+X			break;
+X		cs = x+1;
+X		mult--;
+X	}
+X	if (mult) {
+X		cs = ocs;
+X		if (virangeflag) {
+X			feep();
+X			return;
+X		}
+X		downhistory();
+X	} else {
+X		int x = findeol();
+X		if ((cs += lastcol) > x)
+X			cs = x;
+X	}
+X}
+X
+Xvoid acceptlineanddownhistory() /**/
+X{
+Xchar *s,*t;
+X
+X	if (!(s = qgetevent(histline+1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	pushnode(bufstack,t = ztrdup(s));
+X	for (; *t; t++)
+X		if (*t == HISTSPACE)
+X			*t = ' ';
+X	done = 1;
+X	stackhist = histline+1;
+X}
+X
+Xvoid downhistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) { mult = -mult; uphistory(); return; }
+X	histline += mult;
+X	if (!(s = qgetevent(histline)))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		histline -= mult;
+X		return;
+X		}
+X	sethistline(s);
+X}
+X
+Xstatic int histpos;
+X
+Xvoid historysearchbackward() /**/
+X{
+Xint t0,ohistline = histline;
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	if (lastcmd & ZLE_HISTSEARCH) t0 = histpos;
+X	else for (t0 = 0; line[t0] && iword(line[t0]); t0++);
+X	histpos = t0;
+X	for (;;)
+X		{
+X		histline--;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrncmp(s,line,t0) && hstrcmp(s,line))
+X			break;
+X		}
+X	sethistline(s);
+X}
+X
+Xvoid historysearchforward() /**/
+X{
+Xint t0,ohistline = histline;
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	if (lastcmd & ZLE_HISTSEARCH) t0 = histpos;
+X	else for (t0 = 0; line[t0] && iword(line[t0]); t0++);
+X	histpos = t0;
+X	for (;;)
+X		{
+X		histline++;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrncmp(s,line,t0) && hstrcmp(s,line))
+X			break;
+X		}
+X	sethistline(s);
+X}
+X
+Xvoid beginningofbufferorhistory() /**/
+X{
+X	if (findbol())
+X		cs = 0;
+X	else
+X		beginningofhistory();
+X}
+X
+Xvoid beginningofhistory() /**/
+X{
+Xchar *s;
+X
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	if (!(s = qgetevent(firsthist())))
+X		{
+X		if (unset(NOHISTBEEP)) feep();
+X		return;
+X		}
+X	histline = firsthist();
+X	sethistline(s);
+X}
+X
+Xvoid endofbufferorhistory() /**/
+X{
+X	if (findeol() != ll)
+X		cs = ll;
+X	else
+X		endofhistory();
+X}
+X
+Xvoid endofhistory() /**/
+X{
+X	if (histline == curhist) {
+X		if (unset(NOHISTBEEP)) feep();
+X	} else
+X		{
+X		histline = curhist;
+X		sethistline(curhistline);
+X		}
+X}
+X
+Xvoid insertlastword() /**/
+X{
+Xchar *s,*t;
+Xint len,z = lithist;
+X
+X	/* multiple calls will now search back through the history, pem */
+X	static char	*lastinsert;
+X	static int	lasthist, lastpos;
+X	int		evhist = curhist - 1;
+X
+X	if (lastinsert) {
+X	    int len = strlen(lastinsert);
+X	    int pos = cs;
+X	    if (	lastpos <= pos &&
+X			len == pos - lastpos &&
+X			strncmp(lastinsert, (char *) &line[lastpos], len) == 0) {
+X		evhist = --lasthist;
+X		cs = lastpos;
+X		foredel(pos-cs);
+X	    }
+X	    free(lastinsert);
+X	    lastinsert = NULL;
+X	}
+X	lithist = 0;
+X	if (!(s = qgetevent(evhist), lithist = z, s))
+X		{
+X		feep();
+X		return;
+X		}
+X	for (t = s+strlen(s); t > s; t--)
+X		if (*t == HISTSPACE)
+X			break;
+X	if (t != s)
+X		t++;
+X	lasthist = evhist;
+X	lastpos = cs;
+X	lastinsert = ztrdup(t);
+X	spaceinline(len = strlen(t));
+X	strncpy((char *) line+cs,t,len);
+X	cs += len;
+X}
+X
+Xchar *qgetevent(ev) /**/
+Xint ev;
+X{
+X	if (ev > curhist)
+X		return NULL;
+X	return ((ev == curhist) ? curhistline : quietgetevent(ev));
+X}
+X
+Xvoid pushline() /**/
+X{
+X	if (mult < 0) return;
+X	pushnode(bufstack,ztrdup(line));
+X	while (--mult)
+X		pushnode(bufstack,ztrdup(""));
+X	stackcs = cs;
+X	*line = '\0';
+X	ll = cs = 0;
+X}
+X
+Xvoid getline() /**/
+X{
+Xchar *s = getnode(bufstack);
+X
+X	if (!s)
+X		feep();
+X	else
+X		{
+X		int cc;
+X
+X		cc = strlen(s);
+X		spaceinline(cc);
+X		strncpy((char *) line+cs,s,cc);
+X		cs += cc;
+X		free(s);
+X		}
+X}
+X
+Xvoid historyincrementalsearchbackward() /**/
+X{
+X	doisearch(-1);
+X}
+X
+Xvoid historyincrementalsearchforward() /**/
+X{
+X	doisearch(1);
+X}
+X
+Xvoid doisearch(dir) /**/
+Xint dir;
+X{
+Xchar *s,*oldl;
+Xchar ibuf[256],*sbuf = ibuf+10;
+Xint sbptr = 0,ch,ohl = histline,ocs = cs;
+Xint nomatch = 0,chequiv = 0;
+X
+X	strcpy(ibuf,"i-search: ");
+X	statusline = ibuf;
+X	oldl = ztrdup(line);
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	for (;;)
+X		{
+X		nomatch = 0;
+X		if (sbptr > 1 || (sbptr == 1 && sbuf[0] != '^'))
+X			{
+X			int ohistline = histline;
+X
+X			for (;;)
+X				{
+X				char *t;
+X
+X				if (!(s = qgetevent(histline)))
+X					{
+X					feep();
+X					nomatch = 1;
+X					histline = ohistline;
+X					break;
+X					}
+X				if ((sbuf[0] == '^') ?
+X						(t = (hstrncmp(s,sbuf+1,sbptr-1)) ? NULL : s) :
+X						(t = hstrnstr(s,sbuf,sbptr)))
+X					if (!(chequiv && !hstrcmp(line,s)))
+X						{
+X						sethistline(s);
+X						cs = t-s+sbptr-(sbuf[0] == '^');
+X						break;
+X						}
+X				histline += dir;
+X				}
+X			chequiv = 0;
+X			}
+X		refresh();
+X		if ((ch = getkey(1)) == -1)
+X			break;
+X		if (ch == 22 || ch == 17) {
+X			if ((ch = getkey(1)) == -1)
+X				break;
+X		} else if (ch == 24) { /* ^XS and ^XR */
+X			if ((ch = getkey(1)) == -1)
+X				break;
+X			if (ch != 's' && ch != 'r') {
+X				ungetkey(24);
+X				ungetkey(ch);
+X				break;
+X			}
+X			ungetkey(ch & 0x1f);
+X			continue;
+X		} else if (ch == 8 || ch == 127) {
+X			if (sbptr)
+X				sbuf[--sbptr] = '\0';
+X			else
+X				feep();
+X			histline = ohl;
+X			continue;
+X		} else if (ch == 7 || ch == 3) {
+X			setline(oldl);
+X			cs = ocs;
+X			histline = ohl;
+X			statusline = NULL;
+X			break;
+X		} else if (ch == 27)
+X			break;
+X		else if (ch == 10 || ch == 13) {
+X			ungetkey(ch);
+X			break;
+X		} else if (ch == 18) {
+X			ohl = (histline += (dir = -1));
+X			chequiv = 1;
+X			continue;
+X		} else if (ch == 19) {
+X			ohl = (histline += (dir = 1));
+X			chequiv = 1;
+X			continue;
+X		} else if (!(ch & 0x60)) {
+X			ungetkey(ch);
+X			break;
+X		}
+X		if (!nomatch && sbptr != 39 && !icntrl(ch)) {
+X			sbuf[sbptr++] = ch;
+X			sbuf[sbptr] = '\0';
+X		}
+X	}
+X	free(oldl);
+X	statusline = NULL;
+X}
+X
+Xvoid acceptandinfernexthistory() /**/
+X{
+Xint t0;
+Xchar *s,*t;
+X
+X	done = 1;
+X	for (t0 = histline-2;;t0--)
+X		{
+X		if (!(s = qgetevent(t0)))
+X			return;
+X		if (!hstrncmp(s,line,ll))
+X			break;
+X		}
+X	if (!(s = qgetevent(t0+1)))
+X		return;
+X	pushnode(bufstack,t = ztrdup(s));
+X	for (; *t; t++)
+X		if (*t == HISTSPACE)
+X			*t = ' ';
+X	stackhist = t0+1;
+X}
+X
+Xvoid infernexthistory() /**/
+X{
+Xint t0;
+Xchar *s,*t;
+X
+X	if (!(t = qgetevent(histline-1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	for (t0 = histline-2;;t0--)
+X		{
+X		if (!(s = qgetevent(t0)))
+X			{
+X			feep();
+X			return;
+X			}
+X		if (!strcmp(s,t))
+X			break;
+X		}
+X	if (!(s = qgetevent(t0+1)))
+X		{
+X		feep();
+X		return;
+X		}
+X	histline = t0+1;
+X	sethistline(s);
+X}
+X
+Xvoid vifetchhistory() /**/
+X{
+Xchar *s;
+X
+X	if (mult < 0) return;
+X	if (histline == curhist) {
+X		if (!(lastcmd & ZLE_ARG)) {
+X			cs = ll;
+X			cs = findbol();
+X			return;
+X		}
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X	}
+X	if (!(lastcmd & ZLE_ARG)) mult = curhist;
+X	if (!(s = qgetevent(mult)))
+X		feep();
+X	else {
+X		histline = mult;
+X		sethistline(s);
+X	}
+X}
+X
+Xint getvisrchstr() /**/
+X{
+Xchar sbuf[80];
+Xint sptr = 1;
+X
+X	if (visrchstr)
+X		{
+X		free(visrchstr);
+X		visrchstr = NULL;
+X		}
+X	statusline = sbuf;
+X	sbuf[0] = c;
+X	sbuf[1] = '\0';
+X	while (sptr)
+X		{
+X		refresh();
+X		c = getkey(0);
+X		if (c == '\r' || c == '\n' || c == '\033')
+X			{
+X			visrchstr = ztrdup(sbuf+1);
+X			return 1;
+X			}
+X		if (c == '\b' || c == 127)
+X			{
+X			sbuf[--sptr] = '\0';
+X			continue;
+X			}
+X		if (sptr != 79)
+X			{
+X			sbuf[sptr++] = c;
+X			sbuf[sptr] = '\0';
+X			}
+X		}
+X	return 0;
+X}
+X
+Xvoid vihistorysearchforward() /**/
+X{
+X	visrchsense = 1;
+X	if (getvisrchstr())
+X		virepeatsearch();
+X}
+X
+Xvoid vihistorysearchbackward() /**/
+X{
+X	visrchsense = -1;
+X	if (getvisrchstr())
+X		virepeatsearch();
+X}
+X
+Xvoid virepeatsearch() /**/
+X{
+Xint ohistline = histline,t0;
+Xchar *s;
+X
+X	if (!visrchstr)
+X		{
+X		feep();
+X		return;
+X		}
+X	t0 = strlen(visrchstr);
+X	if (histline == curhist)
+X		{
+X		if (curhistline)
+X			free(curhistline);
+X		curhistline = ztrdup(line);
+X		}
+X	for (;;)
+X		{
+X		histline += visrchsense;
+X		if (!(s = qgetevent(histline)))
+X			{
+X			feep();
+X			histline = ohistline;
+X			return;
+X			}
+X		if (!hstrcmp(line,s))
+X			continue;
+X		if (*visrchstr == '^')
+X			{
+X			if (!hstrncmp(s,visrchstr+1,t0-1))
+X				break;
+X			}
+X		else
+X			if (hstrnstr(s,visrchstr,t0))
+X				break;
+X		}
+X	sethistline(s);
+X}
+X
+Xvoid virevrepeatsearch() /**/
+X{
+X	visrchsense = -visrchsense;
+X	virepeatsearch();
+X	visrchsense = -visrchsense;
+X}
+X
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_hist.c ||
+echo 'restore of zsh2.2/src/zle_hist.c failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_hist.c'`"
+test 10080 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_hist.c: original size 10080, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_hist.pro ==============
+if test -f 'zsh2.2/src/zle_hist.pro' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_hist.pro (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_hist.pro (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_hist.pro' &&
+Xvoid toggleliteralhistory DCLPROTO((void));
+Xvoid uphistory DCLPROTO((void));
+Xvoid uplineorhistory DCLPROTO((void));
+Xvoid downlineorhistory DCLPROTO((void));
+Xvoid acceptlineanddownhistory DCLPROTO((void));
+Xvoid downhistory DCLPROTO((void));
+Xvoid historysearchbackward DCLPROTO((void));
+Xvoid historysearchforward DCLPROTO((void));
+Xvoid beginningofbufferorhistory DCLPROTO((void));
+Xvoid beginningofhistory DCLPROTO((void));
+Xvoid endofbufferorhistory DCLPROTO((void));
+Xvoid endofhistory DCLPROTO((void));
+Xvoid insertlastword DCLPROTO((void));
+Xchar *qgetevent DCLPROTO((int ev));
+Xvoid pushline DCLPROTO((void));
+Xvoid getline DCLPROTO((void));
+Xvoid historyincrementalsearchbackward DCLPROTO((void));
+Xvoid historyincrementalsearchforward DCLPROTO((void));
+Xvoid doisearch DCLPROTO((int dir));
+Xvoid acceptandinfernexthistory DCLPROTO((void));
+Xvoid infernexthistory DCLPROTO((void));
+Xvoid vifetchhistory DCLPROTO((void));
+Xint getvisrchstr DCLPROTO((void));
+Xvoid vihistorysearchforward DCLPROTO((void));
+Xvoid vihistorysearchbackward DCLPROTO((void));
+Xvoid virepeatsearch DCLPROTO((void));
+Xvoid virevrepeatsearch DCLPROTO((void));
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_hist.pro ||
+echo 'restore of zsh2.2/src/zle_hist.pro failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_hist.pro'`"
+test 1119 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_hist.pro: original size 1119, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_misc.pro ==============
+if test -f 'zsh2.2/src/zle_misc.pro' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_misc.pro (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_misc.pro (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_misc.pro' &&
+Xvoid selfinsert DCLPROTO((void));
+Xvoid selfinsertunmeta DCLPROTO((void));
+Xvoid deletechar DCLPROTO((void));
+Xvoid backwarddeletechar DCLPROTO((void));
+Xvoid videletechar DCLPROTO((void));
+Xvoid vibackwarddeletechar DCLPROTO((void));
+Xvoid vikillline DCLPROTO((void));
+Xvoid killwholeline DCLPROTO((void));
+Xvoid killbuffer DCLPROTO((void));
+Xvoid backwardkillline DCLPROTO((void));
+Xvoid gosmacstransposechars DCLPROTO((void));
+Xvoid transposechars DCLPROTO((void));
+Xvoid poundinsert DCLPROTO((void));
+Xvoid acceptline DCLPROTO((void));
+Xvoid acceptandhold DCLPROTO((void));
+Xvoid killline DCLPROTO((void));
+Xvoid killregion DCLPROTO((void));
+Xvoid copyregionaskill DCLPROTO((void));
+Xvoid yank DCLPROTO((void));
+Xvoid viputafter DCLPROTO((void));
+Xvoid yankpop DCLPROTO((void));
+Xvoid overwritemode DCLPROTO((void));
+Xvoid undefinedkey DCLPROTO((void));
+Xvoid quotedinsert DCLPROTO((void));
+Xvoid digitargument DCLPROTO((void));
+Xvoid negargument DCLPROTO((void));
+Xvoid universalargument DCLPROTO((void));
+Xvoid copyprevword DCLPROTO((void));
+Xvoid sendbreak DCLPROTO((void));
+Xvoid undo DCLPROTO((void));
+Xvoid quoteregion DCLPROTO((void));
+Xvoid quoteline DCLPROTO((void));
+Xchar *makequote DCLPROTO((char *s));
+Xint executenamedcommand DCLPROTO((void));
+Xvoid vijoin DCLPROTO((void));
+Xvoid viswapcase DCLPROTO((void));
+Xvoid vicapslockpanic DCLPROTO((void));
+Xvoid visetbuffer DCLPROTO((void));
+Xvoid stradd DCLPROTO((char *d));
+Xint putstr DCLPROTO((int d));
+Xchar *putprompt DCLPROTO((char *fm,int *lenp));
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_misc.pro ||
+echo 'restore of zsh2.2/src/zle_misc.pro failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_misc.pro'`"
+test 1478 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_misc.pro: original size 1478, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_move.pro ==============
+if test -f 'zsh2.2/src/zle_move.pro' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_move.pro (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_move.pro (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_move.pro' &&
+Xvoid beginningofline DCLPROTO((void));
+Xvoid endofline DCLPROTO((void));
+Xvoid beginningoflinehist DCLPROTO((void));
+Xvoid endoflinehist DCLPROTO((void));
+Xvoid forwardchar DCLPROTO((void));
+Xvoid backwardchar DCLPROTO((void));
+Xvoid setmarkcommand DCLPROTO((void));
+Xvoid exchangepointandmark DCLPROTO((void));
+Xvoid vigotocolumn DCLPROTO((void));
+Xvoid vimatchbracket DCLPROTO((void));
+Xvoid viforwardchar DCLPROTO((void));
+Xvoid vibackwardchar DCLPROTO((void));
+Xvoid viendofline DCLPROTO((void));
+Xvoid vibeginningofline DCLPROTO((void));
+Xvoid vifindnextchar DCLPROTO((void));
+Xvoid vifindprevchar DCLPROTO((void));
+Xvoid vifindnextcharskip DCLPROTO((void));
+Xvoid vifindprevcharskip DCLPROTO((void));
+Xvoid virepeatfind DCLPROTO((void));
+Xvoid virevrepeatfind DCLPROTO((void));
+Xvoid vifirstnonblank DCLPROTO((void));
+Xvoid visetmark DCLPROTO((void));
+Xvoid vigotomark DCLPROTO((void));
+Xvoid vigotomarkline DCLPROTO((void));
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_move.pro ||
+echo 'restore of zsh2.2/src/zle_move.pro failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_move.pro'`"
+test 909 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_move.pro: original size 909, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/zle_word.pro ==============
+if test -f 'zsh2.2/src/zle_word.pro' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/zle_word.pro (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/zle_word.pro (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/zle_word.pro' &&
+Xvoid forwardword DCLPROTO((void));
+Xvoid viforwardword DCLPROTO((void));
+Xvoid viforwardblankword DCLPROTO((void));
+Xvoid emacsforwardword DCLPROTO((void));
+Xvoid viforwardblankwordend DCLPROTO((void));
+Xvoid viforwardwordend DCLPROTO((void));
+Xvoid backwardword DCLPROTO((void));
+Xvoid vibackwardword DCLPROTO((void));
+Xvoid vibackwardblankword DCLPROTO((void));
+Xvoid emacsbackwardword DCLPROTO((void));
+Xvoid backwarddeleteword DCLPROTO((void));
+Xvoid vibackwardkillword DCLPROTO((void));
+Xvoid backwardkillword DCLPROTO((void));
+Xvoid upcaseword DCLPROTO((void));
+Xvoid downcaseword DCLPROTO((void));
+Xvoid capitalizeword DCLPROTO((void));
+Xvoid deleteword DCLPROTO((void));
+Xvoid killword DCLPROTO((void));
+Xvoid transposewords DCLPROTO((void));
+SHAR_EOF
+chmod 0644 zsh2.2/src/zle_word.pro ||
+echo 'restore of zsh2.2/src/zle_word.pro failed'
+Wc_c="`wc -c < 'zsh2.2/src/zle_word.pro'`"
+test 733 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/zle_word.pro: original size 733, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/config.h ==============
+if test -f 'zsh2.2/src/config.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/config.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/config.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/config.h' &&
+X/* this file is created automatically by buildzsh */
+X
+X/* define this if you are sysvish */
+X/* #define SYSV */
+X
+X#define TERMIOS
+X/* #define TTY_NEEDS_DRAINING */
+X/* #define CLOBBERS_TYPEAHEAD */
+X
+X#define HAS_STDLIB
+X
+X#define HAS_STRING
+X
+X#define HAS_LOCALE
+X
+X/* define this if you have a host field in utmp */
+X#define UTMP_HOST
+X
+X/* define this if you have WAITPID */
+X#define WAITPID
+X
+X/* define this if you have SELECT */
+X#define HAS_SELECT
+X
+X/* define this if you have <sys/select.h> */
+X/* #define HAS_SYS_SELECT */
+X
+X/* we can't just test for S_IFIFO or check to see if the mknod worked,
+X   because the NeXTs sold by a vendor which will remain nameless will
+X   happily create the FIFO for you, and then panic when you try to do
+X	something weird with them, because they aren't supported by the OS. */
+X
+X/* #define NO_FIFOS */
+X
+X/* define this if you have strftime() */
+X#define HAS_STRFTIME
+X
+X#define HAS_TCSETPGRP
+X
+X#define HAS_TCCRAP
+X
+X#define HAS_SETPGID
+X
+X/* #define HAS_SIGRELSE */
+X
+X/* define this if you have RFS */
+X/* #define HAS_RFS */
+X
+X/* define this if you have a working getrusage and wait3 */
+X#define HAS_RUSAGE
+X
+X/* define this if your signal handlers return void */
+X#define SIGVOID
+X#ifdef sgi
+X#undef SIGVOID
+X#endif
+X
+X/* define this if signal handlers need to be reset each time */
+X/* #define RESETHANDNEEDED */
+X
+X#ifdef SIGVOID
+X#define HANDTYPE void
+X#else
+X#define HANDTYPE int
+X#define INTHANDTYPE
+X#endif
+X
+X/* a string corresponding to the host type */
+X#define HOSTTYPE "sun4"
+X
+X/* the default editor for the fc builtin */
+X#define DEFFCEDIT "vi"
+X
+X/* the path of wtmp */
+X#define WTMP_FILE "/var/adm/wtmp"
+X
+X/* the path of utmp */
+X#define UTMP_FILE "/etc/utmp"
+X
+X/* default prefix for temporary files */
+X#define DEFTMPPREFIX "/tmp/zsh"
+X
+X/* define if you prefer "suspended" to "stopped" */
+X#define USE_SUSPENDED
+X
+X/* the file to source whenever zsh is run; if undefined, don't source
+X	anything */
+X#define GLOBALZSHRC "/etc/zshrc"
+X
+X/* the file to source whenever zsh is run as a login shell; if
+X	undefined, don't source anything */
+X#define GLOBALZLOGIN "/etc/zlogin"
+X
+X/* the file to source whenever zsh is run as a login shell, before
+X	zshrc is read; if undefined, don't source anything */
+X#define GLOBALZPROFILE "/etc/zprofile"
+X
+X/* the default HISTSIZE */
+X#define DEFAULT_HISTSIZE 30
+X
+X#define _BSD_SIGNALS   /* this could be an iris, you never know */
+X#define _BSD           /* this could be HP-UX, you never know */
+X#define _BSD_INCLUDES  /* this could be AIX, you never know */
+X
+X/* if your compiler doesn't like void *, change this to char *
+X	and ignore all the warnings.
+X*/
+X
+Xtypedef void *vptr;
+X
+X#define JOB_CONTROL
+SHAR_EOF
+chmod 0644 zsh2.2/src/config.h ||
+echo 'restore of zsh2.2/src/config.h failed'
+Wc_c="`wc -c < 'zsh2.2/src/config.h'`"
+test 2607 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/config.h: original size 2607, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/signals.h ==============
+if test -f 'zsh2.2/src/signals.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/signals.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/signals.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/signals.h' &&
+X/* this file is created automatically by buildzsh */
+X/* if all this is wrong, blame csh ;-) */
+X
+X#define SIGCOUNT       31
+X
+X#ifdef GLOBALS
+X
+Xchar *sigmsg[SIGCOUNT+2] = {
+X	"done",
+X	"hangup",
+X	"interrupt",
+X	"quit",
+X	"illegal instruction",
+X	"trace trap",
+X	"abort",
+X	"EMT instruction",
+X	"floating point exception",
+X	"killed",
+X	"bus error",
+X	"segmentation fault",
+X	"bad system call",
+X	"broken pipe",
+X	"SIGALRM",
+X	"terminated",
+X	"SIGURG",
+X#ifdef USE_SUSPENDED
+X	"suspended (signal)",
+X#else
+X	"stopped (signal)",
+X#endif
+X#ifdef USE_SUSPENDED
+X	"suspended",
+X#else
+X	"stopped",
+X#endif
+X	"continued",
+X	"SIGCHLD",
+X#ifdef USE_SUSPENDED
+X	"suspended (tty input)",
+X#else
+X	"stopped (tty input)",
+X#endif
+X#ifdef USE_SUSPENDED
+X	"suspended (tty output)",
+X#else
+X	"stopped (tty output)",
+X#endif
+X	"SIGIO",
+X	"cpu limit exceeded",
+X	"filesize limit exceeded",
+X	"virtual time alarm",
+X	"SIGPROF",
+X	"SIGWINCH",
+X	"SIGLOST",
+X	"SIGUSR1",
+X	"SIGUSR2",
+X	NULL
+X};
+X
+Xchar *sigs[SIGCOUNT+4] = {
+X	"EXIT",
+X	"HUP",
+X	"INT",
+X	"QUIT",
+X	"ILL",
+X	"TRAP",
+X	"ABRT",
+X	"EMT",
+X	"FPE",
+X	"KILL",
+X	"BUS",
+X	"SEGV",
+X	"SYS",
+X	"PIPE",
+X	"ALRM",
+X	"TERM",
+X	"URG",
+X	"STOP",
+X	"TSTP",
+X	"CONT",
+X	"CHLD",
+X	"TTIN",
+X	"TTOU",
+X	"IO",
+X	"XCPU",
+X	"XFSZ",
+X	"VTALRM",
+X	"PROF",
+X	"WINCH",
+X	"LOST",
+X	"USR1",
+X	"USR2",
+X	"ERR",
+X	"DEBUG",
+X	NULL
+X};
+X
+X#else
+X
+Xextern char *sigs[SIGCOUNT+4],*sigmsg[SIGCOUNT+2];
+X
+X#endif
+SHAR_EOF
+chmod 0644 zsh2.2/src/signals.h ||
+echo 'restore of zsh2.2/src/signals.h failed'
+Wc_c="`wc -c < 'zsh2.2/src/signals.h'`"
+test 1322 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/signals.h: original size 1322, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= zsh2.2/src/Makefile ==============
+if test -f 'zsh2.2/src/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping zsh2.2/src/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting zsh2.2/src/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'zsh2.2/src/Makefile' &&
+X#! /bin/make -f
+X# Makefile for zsh
+X# generated by buildzsh
+X
+XOBJS=builtin.o cond.o exec.o glob.o hist.o init.o jobs.o lex.o loop.o \
+Xmath.o mem.o params.o parse.o subst.o table.o text.o utils.o watch.o \
+Xzle_bindings.o zle_hist.o zle_main.o zle_misc.o zle_move.o zle_refresh.o \
+Xzle_tricky.o zle_utils.o zle_vi.o zle_word.o
+X
+XBINDIR=/usr/local/bin
+XMANDIR=/usr/local/man/man1
+X
+X# debugging flags
+X#CFLAGS=-g -Wreturn-type -Wunused -Wpointer-arith -DQDEBUG
+X#CC=gcc -traditional
+X
+XCC=cc
+XCFLAGS= -O
+XLIBS= -ltermcap
+X
+XZSHPATH=zsh
+X
+X.c.o:
+X	$(CC) $(CFLAGS) -c $<
+X
+Xall: $(ZSHPATH)
+X
+X$(ZSHPATH): $(OBJS)
+X	$(CC) -o $(ZSHPATH) $(OBJS) $(LIBS) $(LFLAGS)
+X	
+Xtags: /tmp
+X	ctags *.[cy]
+X
+X# I hate this next line
+X$(OBJS): config.h zsh.h zle.h signals.h ztype.h funcs.h
+X
+Xclean:
+X	rm -f *.o zsh core 
+X
+Xcleanall:
+X	rm -f *.o zsh core Makefile signals.h config.h
+X
+Xinstall: zsh
+X	install -s -m 755 zsh $(BINDIR)
+X	install -m 444 ../man/man1/zsh.1 $(MANDIR)
+SHAR_EOF
+chmod 0644 zsh2.2/src/Makefile ||
+echo 'restore of zsh2.2/src/Makefile failed'
+Wc_c="`wc -c < 'zsh2.2/src/Makefile'`"
+test 921 -eq "$Wc_c" ||
+	echo 'zsh2.2/src/Makefile: original size 921, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+
+exit 0 # Just in case...

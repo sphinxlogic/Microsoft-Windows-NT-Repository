@@ -1,0 +1,1347 @@
+Newsgroups: comp.sources.misc
+From: pullen@cs.washington.edu (Walter D. Pullen)
+Subject:  v28i107:  astrolog - Generation of astrology charts v2.10, Part04/06
+Message-ID: <1992Mar16.025040.13304@sparky.imd.sterling.com>
+X-Md4-Signature: b824ad407dc05a54268230b44b61650f
+Date: Mon, 16 Mar 1992 02:50:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pullen@cs.washington.edu (Walter D. Pullen)
+Posting-number: Volume 28, Issue 107
+Archive-name: astrolog/part04
+Environment: UNIX, VMS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 6)."
+# Contents:  data.c formulas.c
+# Wrapped by pullen@lynx.cs.washington.edu on Sun Mar 15 16:05:15 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'data.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'data.c'\"
+else
+echo shar: Extracting \"'data.c'\" \(23711 characters\)
+sed "s/^X//" >'data.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.10) File: data.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IN ADDITION: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991 by Walter D. Pullen. Permission is
+X** granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X/*
+X*******************************************************************************
+X** Global variables
+X*******************************************************************************
+X*/
+X
+XFILE *data;
+Xchar *filename, *filename2;
+X
+Xint objects = OBJECTS;
+Xint aspects = 5;
+Xint siderial = FALSE;
+Xint heliocentric = FALSE;
+Xint todisplay = 0;
+Xint housesystem = DEFAULT_SYSTEM;
+Xint uranian = FALSE;
+Xint multiplyfactor = 1;
+Xint onasc = 0;
+Xint flip = FALSE;
+Xint decan = FALSE;
+Xint progress = FALSE;
+Xint autom = FALSE;
+Xint relation = FALSE;
+Xint operation = 0;
+Xdouble defzone = DEFAULT_ZONE;
+Xdouble deflong = DEFAULT_LONG;
+Xdouble deflat  = DEFAULT_LAT;
+Xdouble modulus = 360.0;
+X
+Xdouble SD = 0.0, Mon, Day, Yea, Tim, Zon, Lon, Lat, Mon2, Yea2, Delta = 0.0,
+X  M = 1.0, D = 4.0, Y = 1992.0, F = 23.11, X = 0.0, L5 = 0.0, LA = 51.30,
+X  JD, Jdp;
+X
+Xdouble planet[OBJECTS+1], planetalt[OBJECTS+1], house[SIGNS+1], ret[OBJECTS+1];
+Xint inhouse[OBJECTS+1], grid[OBJECTS+1][OBJECTS+1],
+X  gridname[OBJECTS+1][OBJECTS+1], wheel[SIGNS][WHEELROWS],
+X  inhouse1[OBJECTS+1], inhouse2[OBJECTS+1];
+Xint ignore[OBJECTS+5] =
+X#ifdef ASTEROIDS
+X  {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+X#else
+X  {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0};
+X#endif
+X
+X/*
+X*******************************************************************************
+X** Table data
+X*******************************************************************************
+X*/
+X
+Xchar *signname[]
+X  = {"???", "Aries", "Taurus", "Gemini", "Cancer",
+X       "Leo", "Virgo", "Libra", "Scorpio",
+X       "Sagittarius", "Capricorn", "Aquarius", "Pisces"};
+X
+Xchar signabbrev[][3]
+X  = {"??",
+X       "Ar", "Ta", "Ge", "Cn", "Le", "Vi", "Li", "Sc", "Sg", "Cp", "Aq", "Pi"};
+X
+Xchar objectname[][10]
+X  = {"???", "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+X       "Uranus", "Neptune", "Pluto", "Chiron", "Ceres", "Pallas", "Juno",
+X       "Vesta", "Node", "Fortune", "Midheaven", "Ascendant", "Vertex",
+X       "11th Cusp", "12th Cusp", "2nd Cusp", "3rd Cusp"};
+X
+Xchar uranianname[][10]
+X  = {"???", "Cupido", "Hades", "Zeus", "Kronos",
+X       "Apollo", "Admetos", "Vulkanus", "Poseidon"};
+X
+Xchar *systemname[]
+X  = {"Placidus", "Koch", "Equal", "Campanus", "Meridian",
+X       "Regiomontanus", "Porphyry", "Morinus", "Topocentric", "Null"};
+X
+Xchar *aspectname[]
+X  = {"???", "Conjunct", "Opposite", "Square", "Trine", "Sextile",
+X       "Inconjunct", "Semisextile", "Semisquare", "Sesquiquadrate",
+X       "Quintile", "Biquintile",
+X       "Semiquintile", "Septile", "Novile",
+X       "Binovile", "Biseptile", "Triseptile", "Quatronovile"};
+X
+Xchar *aspectglyph[]
+X = {"???", "Circle with extending line", "Two circles joined by line",
+X      "Quadrilateral", "Triangle", "Six pointed asterisk", "'K' rotated right",
+X      "'K' rotated left", "Acute angle", "Square with extending lines",
+X      "Letter 'Q'", "'+' over '-'", "'-' over '+'", "Number '7'", "Number '9'",
+X      "'9' under Roman 'II'", "'7' under Roman 'II'", "'7' under Roman 'III'",
+X      "'9' under Roman 'IV'"};
+X
+Xchar aspectabbrev[][4]
+X  = {"   ", "Con", "Opp", "Squ", "Tri", "Sex",
+X       "Inc", "SSx", "SSq", "Ses", "Qui", "BQn",
+X       "SQn", "Sep", "Nov", "BNv", "BSp", "TSp", "QNv"};
+X
+Xdouble aspectangle[ASPECTS+1]
+X  = {0, 0.0, 180.0, 90.0, 120.0, 60.0, 150.0, 30.0, 45.0, 135.0, 72.0, 144.0,
+X       36.0, 360.0/7.0, 40.0, 80.0, 720.0/7.0, 1080.0/7.0, 160.0};
+X
+Xdouble aspectorb[ASPECTS+1]
+X  = {0, 7.0, 7.0, 7.0, 7.0, 6.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0,
+X       1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+X
+Xdouble planetorbmax[OBJECTS+1]
+X  = {0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0, 360.0,
+X       360.0, 360.0, 360.0, 360.0, 360.0, 2.0, 2.0, 360.0, 360.0, 2.0};
+X
+Xint ruler1[OBJECTS+1]
+X  = {0, 5, 4,  3,  7,  1,  9, 10, 11, 12, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+Xint ruler2[OBJECTS+1]
+X  = {0, 0, 0,  6,  2,  8, 12, 11,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+Xint exalt[OBJECTS+1]
+X  = {0, 1, 2, 11, 12, 10,  4,  7,  8,  9, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+X
+Xchar *element[] = {"Fire", "Earth", "Air", "Water"};
+Xchar *mode[] = {"Cardinal", "Fixed", "Mutuable"};
+X
+Xchar post[][3]
+X  = {"",
+X       "st", "nd", "rd", "th", "th", "th", "th", "th", "th", "th", "th", "th"};
+X
+Xchar *monthname[]
+X  = {"?", "January", "February", "March", "April", "May", "June", "July",
+X       "August", "September", "October", "November", "December"};
+X
+Xint errorcount[PLANETS+1] = {0, 0, 0, 0, 0, 0, 11, 5, 4, 4, 4};
+X
+Xdouble planetdata[] = {
+X358.4758,35999.0498,-.0002,.01675,-.4E-4,0,1,101.2208,1.7192,.00045,0,0,0,0,0,
+X0, /* sun */
+X102.2794,149472.515,0,.205614,.2E-4,0,.3871,28.7538,.3703,.0001,47.1459,1.1852,
+X.0002,7.009,.00186,0, /* mercury */
+X212.6032,58517.8039,.0013,.00682,-.5E-4,0,.7233,54.3842,.5082,-.14E-2,75.7796,
+X.8999,.4E-3,3.3936,.1E-2,0, /* venus */
+X319.5294,19139.8585,.2E-3,.09331,.9E-4,0,1.5237,285.4318,1.0698,.1E-3,48.7864,
+X.77099,0,1.8503,-.7E-3,0, /* mars */
+X225.4928,3033.6879,0,.04838,-.2E-4,0,5.2029,273.393,1.3383,0,99.4198,1.0583,0,
+X1.3097,-.52E-2,0, /* jupiter */
+X-.001,-.0005,.0045,.0051,581.7,-9.7,-.0005,2510.7,-12.5,-.0026,1313.7,-61.4,
+X.0013,2370.79,-24.6,-.0013,3599.3,37.7,-.001,2574.7,31.4,-.00096,6708.2,-114.5,
+X-.0006,5499.4,-74.97,-.0013,1419,54.2,.0006,6339.3,-109,.0007,4824.5,-50.9,
+X.0020,-.0134,.0127,-.0023,676.2,.9,.00045,2361.4,174.9,.0015,1427.5,-188.8,
+X.0006,2110.1,153.6,.0014,3606.8,-57.7,-.0017,2540.2,121.7,-.00099,6704.8,-22.3,
+X-.0006,5480.2,24.5,.00096,1651.3,-118.3,.0006,6310.8,-4.8,.0007,4826.6,
+X36.2, /* jupiter error */
+X174.2153,1223.50796,0,.05423,-.2E-3,0,9.5525,338.9117,-.3167,0,112.8261,.8259,0
+X,2.4908,-.0047,0, /* saturn */
+X-.0009,.0037,0,.0134,1238.9,-16.4,-.00426,3040.9,-25.2,.0064,1835.3,36.1,
+X-.0153,610.8,-44.2,-.0015,2480.5,-69.4,-.0014,.0026,0,.0111,1242.2,78.3,-.0045,
+X3034.96,62.8,-.0066,1829.2,-51.5,-.0078,640.6,24.2,-.0016,2363.4,-141.4,.0006,
+X-.0002,0,-.0005,1251.1,43.7,.0005,622.8,13.7,.0003,1824.7,-71.1,.0001,2997.1,
+X78.2, /* saturn error */
+X74.1757,427.2742,0,.04682,.00042,0,19.2215,95.6863,2.0508,0,73.5222,.5242,0,
+X.7726,.1E-3,0, /* uranus */
+X-.0021,-.0159,0,.0299,422.3,-17.7,-.0049,3035.1,-31.3,-.0038,945.3,60.1,-.0023,
+X1227,-4.99,.0134,-.02186,0,.0317,404.3,81.9,-.00495,3037.9,57.3,.004,993.5,
+X-54.4,-.0018,1249.4,79.2,-.0003,.0005,0,.0005,352.5,-54.99,.0001,3027.5,54.2,
+X-.0001,1150.3,-88, /* uranus error */
+X30.13294,240.45516,0,.00913,-.00127,0,30.11375,284.1683,-21.6329,0,130.68415,
+X1.1005,0,1.7794,-.0098,0, /* neptune */
+X.1832,-.6718,.2726,-.1923,175.7,31.8,.0122,542.1,189.6,.0027,1219.4,178.1,
+X-.00496,3035.6,-31.3,-.1122,.166,-.0544,-.00496,3035.3,58.7,.0961,177.1,-68.8,
+X-.0073,630.9,51,-.0025,1236.6,78,.00196,-.0119,.0111,.0001,3049.3,44.2,-.0002,
+X893.9,48.5,.00007,1416.5,-25.2, /* neptune error */
+X229.781,145.1781,0,.24797,.002898,0,39.539,113.5366,.2086,0,108.944,1.3739,0,
+X17.1514,-.0161,0, /* pluto */
+X-.0426,.073,-.029,.0371,372,-331.3,-.0049,3049.6,-39.2,-.0108,566.2,318.3,
+X.0003,1746.5,-238.3,-.0603,.5002,-.6126,.049,273.97,89.97,-.0049,3030.6,61.3,
+X.0027,1075.3,-28.1,-.0007,1402.3,20.3,.0145,-.0928,.1195,.0117,302.6,-77.3,
+X.00198,528.1,48.6,-.0002,1000.4,-46.1, /* pluto error */
+X104.5959,138.5369,0,0,0,0,40.99837, 0,0,0,0,0,0,0,0,0, /* cupido */
+X337.4517,101.2176,0,0,0,0,50.667443,0,0,0,0,0,0,0,0,0, /* hades */
+X104.0904,80.4057, 0,0,0,0,59.214362,0,0,0,0,0,0,0,0,0, /* zeus */
+X17.7346, 70.3863, 0,0,0,0,64.816896,0,0,0,0,0,0,0,0,0, /* kronos */
+X138.0354,62.5,    0,0,0,0,70.361652,0,0,0,0,0,0,0,0,0, /* apollo */
+X-8.678,  58.3468, 0,0,0,0,73.736476,0,0,0,0,0,0,0,0,0, /* admetos */
+X55.9826, 54.2986, 0,0,0,0,77.445895,0,0,0,0,0,0,0,0,0, /* vulkanus */
+X165.3595,48.6486, 0,0,0,0,83.493733,0,0,0,0,0,0,0,0,0, /* poseidon */
+X34.6127752,713.5756219,0,.382270369,-.004694073,0,13.66975144,337.407213,
+X2.163306646,0,208.1482658,1.247724355,0,6.911179715,.011236955,0, /* chiron */
+X108.2925,7820.36556,0,.0794314,0,0,2.7672273,71.0794444,0,0,80.23555556,
+X1.3960111,0,10.59694444,0,0, /* ceres */
+X106.6641667,7806.531667,0,.2347096,0,0,2.7704955,310.166111,0,0,172.497222,
+X1.39601111,0,34.81416667,0,0, /* pallas athena */
+X267.685,8256.081111,0,.2562318,0,0,2.6689897,245.3752778,0,0,170.137777,
+X1.396011111,.0003083333,13.01694444,0,0, /* juno */
+X138.7733333,9924.931111,0,.0902807,0,0,2.360723,149.6386111,0,0,103.2197222,
+X1.396011111,.000308333,7.139444444,0,0 /* vesta */
+X};
+X
+Xchar *signdraw[] = {"",
+X  "ND4HU2HLGDFBR6EUHLGD2G", "BL3D2F2R2E2U2H2NE2L2NH2G2",
+X  "BLU3LHBR7GLNL3D6NL3RFBL7ERU3", "BGNDHLGDFRNEFR2EREBU3NHDGLHUENRHL2GLG",
+X  "BF4H2UEU2H2L2G2D2FDGH", "BF4HNGNHEU5GHND5HGND6HGND6H",
+X  "BGNL3HUER2FDGR3BD2L8", "BH4FND6EFND6EFD6FREU",
+X  "BG4E3NH2NF2E5NL2D2", "BH3NLNUD3FND2EU2ENF2UFERFDGLF2D2G",
+X  "BG4EUEDFDEUEDFDEUEBU5GDGUHUGDGUHUGDG", "NL4NR4BH4F2D4G2BR8H2U4E2"};
+X
+Xchar *objectdraw[] = {"",
+X  "U0BH3DGD2FDRFR2ERUEU2HULHL2GL", /* Sun */
+X  "BG3E2U2H2ER2FRDFD2GDLGL2H", /* Moon */
+X  "BD4UNL2NR2U2REU2HNEL2NHGD2FR", /* Mercury */
+X  "LHU2ER2FD2GLD2NL2NR2D2", /* Venus */
+X  "HLG2DF2RE2UHE4ND2L2", /* Mars */
+X  "BH3RFDGDGDR5NDNR2U6E", /* Jupiter */
+X  "BH3R2NUNR2D3ND3RERFDGDF", /* Saturn */
+X  "BD4NEHURBFULU3NUNR2L2NU2DGBU5NFBR6GD3F", /* Uranus */
+X  "BD4U2NL2NR2U5NUNRLBL2NUNLDF2R2E2UNRU", /* Neptune */
+X  "D2NL2NR2D2BU8GFEHBL3D2F2R2E2U2", /* Pluto */
+X  "BG2LDFEULU3NURFRFBU5GLGLU2", /* Chiron */
+X  "BD4UNL3NR3U2RE2UH2L2G", /* Ceres */
+X  "BD4UNL3NR3UE2HUHNUGDGF2", /* Pallas Athena */
+X  "BD4UNL2NR2U4NL4NR4NE3NF3NG3NH3U3", /* Juno */
+X  "BU4DBG3NLFDF2E2UERBH2GDGHUH", /* Vesta */
+X  "BG2LGFEU2HU2E2R2F2D2GD2FEHL", /* North Node */
+X  "NE2NF2NG2H2GD2F2R2E2U2H2L2G", /* Part of Fortune */
+X  "BG4U8F4E4D8", /* Midheaven */
+X  "NR4L4ND4UE3R2F3D5", /* Ascendant */
+X  "U2NHNEBD4NGNFU2L2NHNGR4NEF" /* Vertex */};
+X
+Xchar *housedraw[] = {"",
+X  "BD2NLNRU4L", "BHBUR2D2L2D2R2", "BHBUR2D2NL2D2L2",
+X  "BHBUD2R2NU2D2", "BEBUL2D2R2D2L2", "NLRD2L2U4R2",
+X  "BHBUR2DG2D", "NRLU2R2D4L2U2", "NRLU2R2D4L2",
+X  "BH2NLD4NLRBR2U4R2D4L2", "BH2NLD4NLRBR2RNRU4L", "BH2NLD4NLRBR2NR2U2R2U2L2"};
+X
+Xchar *aspectdraw[] = {"",
+X  "HLG2DF2RE2UHE4", "BGL2GDFREU2E2U2ERFDGL2", "BH4R8D8L8U8",
+X  "BU4GDGDGDGDR8UHUHUHUH", "BLNH3NG3RNU4ND4RNE3F3",
+X  "BG4EUEUEUEUNL4NR4BDFDFDFDF", "BH4FDFDFDFDNL4NR4BUEUEUEUE", "BE4G8R8",
+X  "BD2L3U6R6D6L3D2R2", "F4BU3U2HULHL2GLDGD2FDRFR2E3", "BD2U3NR3NU3L3BD5R6",
+X  "BU2D3NR3ND3L3BU5R6", "BH3R6G6", "BR3L5HUER4FD4GL4H",
+X  "BF2UHL2GFR3DGL3BE6LNLU2NRLBL4LNLD2NLR", "BL2R4G4BE6LNLU2NRLBL4LNLD2NLR",
+X  "BL2R4G4BE6L7NLU2NLR3ND2R3ND2R", "BF2UHL2GFR3DGL3BU6LNLU2NLRBR2F2E2"};
+X
+Xchar *worlddata[] = {
+X"-031+70",
+X"LLRRHLLLLDULLGLLLDULGLLLGLRREDEGGLGGLGLGLLGDRLDRLFFRRERFDFRRREUEEHLUERERUERRF\
+XGLGLDDFRRRRREFRLGLLLLLGEFDLHGDDLGHLGLLHGLHURDLRRELLLRHUGLDFDLGLLFHGGLGLLLDLLLD\
+XRRFFDDGLLLLLLGDFGDDRRFRERREEUEREUEFRRERRFFFRFRDDLLLLRFRUREURULHLHHHEF",
+X"EUROPE",
+X"+006+50", "RRERRRRUELLUHHLLREULLELLDGHDUFDEGRDRRLFDLLRGRRGGL", "ENGLAND",
+X"+008+55", "GLFGRRREUULL", "IRELAND",
+X"+023+64", "RRFRERRREHLLLLLGHLLRFLLRFL", "ICELAND",
+X"-011+80", "DDURFRERLGRRLLFRRREEFRRRLHGELLLHRRFRRRRERLLLLLLLLLLLDHGULLL",
+X"SVALBARD",
+X"-014+45",
+X"FRFRFDDFRDRRLLFRURFHHUERRRRRHUUEERRRRGRDERRLHLRRERRGGRFRFFGLLLLHLLLLGLLDLLLFG\
+XRFFRERFRERDDDGDGLLDFFEUDDFFDFFDDFFFDFDDDRRERRERRRUERRERURUEEHHLHUGGLLLUUGUHUHU\
+XRRFFRFRRRDRRFRRRRRRRF",
+X"MIDDLE EAST",
+X"-009+41", "DDRUULEUGD", "SARDINIA",
+X"-024+35", "RRLL", "CRETE",
+X"-032+35", "RRLL", "CYPRUS",
+X"-052+37", "LLHUURHUHUHERERRRDDLLLFFDDURFLLDFDDL", "CASPAIN SEA",
+X"-060+44", "LLUEERDFLDL", "ARAL SEA",
+X"-068+24",
+X"FRGFRREDDDDDFDFDDFDDFERUEUUUUEEEEEREURRREFDFRDDDDRREFDDFDDGDDRFDDFDFFRUHUUHHH\
+XULUEUUURDRFDFRDEEREUUUHHHUUEERRDDEURRERREREEEUEULLREUHUHLEERRHLGLULUREERDLDRER\
+XRFGRFDGRRREUHHUREUE",
+X"ASIA S",
+X"-140+36",
+X"DEUUEUHURREREEGLLHHDDGLDRGDDGGLGLLLGGLDLRDFEUHRRGEERDLLRGLRERRERRE",
+X"JAPAN",
+X"-121+25", "GDFUEUL", "TAIWAN",
+X"-080+10", "DDDDREUHH", "SRI LANKA",
+X"-121+18", "LDDDRDDRHRRFFDDDLLEHDULRHDFDDGERDDREUUULUUHHLHEUUL", "PHILIPPINES",
+X"-131+43",
+X"EFREEREEEUUUEUHLLUDLULEERERERRRRRRERRFLRRRRLUERERRRDRERURRGDLGLGLGLGGDDFDFEUR\
+XRUERUURULEEREDERRFRERERRRERRHLHLRRRREURDRRFRFRUURRHLLLDHHLLHLLHLLLLLLLDLLHRLLL\
+XLLLLGHULLLLLLLLLLULLLGL",
+X"SIBERIA",
+X"-145+71",
+X"RELLRHLLLLGDHGHLLLLGLLHUHLLLLLDLLLLHLLLLLDULUDLGLLLLRRERERRRELHLLLLLLLELLLLGD\
+XLLLLLUDLLLLLGLLLDLLLLLLLDFRDDHELLLLLLDRRLLHUDLGFGRRRRFRLHLLDGLGLLHRRREUHUUULLG\
+XGLDRFGHLLLHLLLLRFGHLGLLLULGLLLGLLHRHLDDDLLLLDLLLFLLHUHLRRFRRRREHLLHLLLHLL",
+X"RUSSIA",
+X"-143+54", "GDDDDDDDEDUUURUUHUU", "SAKHALIN",
+X"-180+72", "GRRRRULLL", "WRANGEL I.",
+X"-137+76", "DRRRRRRRELLLLLLLL", "SIBERIAN I.",
+X"-091+80", "FERDRRRRRRULLLLLRRULLLLGL", "SEVERNAYA",
+X"-101+79", "GRRRRELLLL", "ZEMLYA",
+X"-068+77", "LLGLLLLLLGLLGGLGLRFRRRRLHERERERRRERRRREL", "NOVAYA",
+X"+123+49",
+X"FGULLFDDDGFDDDFFDFRFRFDFFFDLFFRDFFEHHHHUHHUFRDFFFRDFFFDFGFRFRFRRFRRRRFFRRFRFF\
+XDRFFRFEUUGLHHUUEUHLLLLLEUUEULLLGDLLGLHHUHUUUEHEERERRFRRHRREFRRFDFDFEUUHUUUEERE\
+XRUUUHFDEUHFEURRRELUERRE",
+X"NORTH AMERICA S",
+X"+113+42", "FH", "SALT LAKE",
+X"+156+20", "DRULHLHL", "HAWAII",
+X"+085+22", "RERFRRFRGRRRRHLHLHLLLLLG", "CUBA",
+X"+070+18", "RRHHLLLFLLLFRRRRRR", "HAITI",
+X"+078+18", "RRHLLF", "JAMAICA",
+X"+066+18", "ELLDR", "PUERTO RICO",
+X"+078+24", "UD", "NASSAU",
+X"+067+45",
+X"REFLGDERERREHDLLLHUELLLGLGLREEERRRRRRREERRGGDGRRRFEFUUHLLLEUUHHGLRELLHHUHHHDG\
+XLGHHULLHLLLLLDFGFDDGLLFDDGHHUULLLLHLLHLLLUHUUEREEREERRRREUUHLLLDDGHULLLHLUHLGD\
+XRFGGULLLLLLLLLHLLGFLHLLLLLRHLLLLLHLLLLLLHGLLLLGUGLLLHLL",
+X"CANADA",
+X"+088+49",
+X"LGLGRRRRRRRFLLLGRGDDREUURUFRGRFGFERERREEREERLGGLGLLLGRLLGLEUERHLLLHULHL",
+X"GREAT LAKES",
+X"+117+61", "REHRFRRERGLGLLLL", "SLAVE LAKE",
+X"+125+66", "RRERRRGREDLFHGLLLERLLLL", "BEAR LAKE",
+X"+097+50", "UULHURFDFG", "LAKE WINNIPEG",
+X"+090+72",
+X"FRRLLFRRRRRRRRRRFRRGLLGRREEFRFLGLFLLLLFRERFRFRRFRRHLHFRRRUHLHRRFRURELLHLLLHRR\
+XHLHLHGHLHLLGLLEHFRRRHLLLLLLGLDFHLUELLGG",
+X"BAFFIN I.",
+X"+125+72",
+X"RFRREERRRLLGFFRRRRRLLLLLFRRRRRRRREFRRRRHRRLHLHHLRRULGLFLHLDLLULLLLHLLLLLLLDG",
+X"VICTORIA I.",
+X"+141+70",
+X"LLLLLLLLHGLHLLLHGLLGLLGLLDRRFRRDLLLULGLLFRRRRRRDLGLLGFDRRRDRRRRRGGGLLGLLGGLLR\
+XRERERRRERREERRELEERRRLLGDRERRURRFRRRRRFRRFUDRUDDHFDURDURLURDDLFRULURDHFFRGFEGR\
+XFFRFRFLHLHLFFRFE",
+X"ALASKA",
+X"+045+60",
+X"REUEREUERRRRERERRRERRRRERLLLLLLHRRRGERHFRRRRHLUDLLHLRERFRERLEUHRRHLEERLLURRRR\
+XRRRRELLLLLLLLLLGLLLRERHGLRELLLLLLLELLLLLLLLLLGLLLLLLGLLLLLLGLULLLLLLLFRLLLLLGL\
+XRRRGLLLLLLLGRRRRRRRGLLLLRRFRRRRRRRRRRFDFDLFREFRDLLLDERRFGLLGFFDRFFFRRRF",
+X"GREENLAND",
+X"+080+10",
+X"DRFDFDDGGGDDGRDGDDFFDFDFFDFFRFFFDDDDDDGDDDDGDDDDGDGFGDDDEUDDDGUDDLDRGDDDFDFRF\
+XRRFERRLHLUHUURUEELHEREURULURREURREREUHUUDFRREEEEEUEUUEERERRREUEUEUUUUUEEEEUUUH\
+XLHLHLLLLHLHLGEHLGEUHUUHLHLLLHHLHULEDLLELLGHLLHLGDDHUELLGLGDGHHL",
+X"SOUTH AMERICA",
+X"+060-51", "LDRRELL", "FALKLAND ISLANDS",
+X"+092+00", "FUL", "GALAPAGOS I.",
+X"-032+32",
+X"LLGLHLLLLHLGDGHLLHHLLHLEUULLLLLLLLLGLGLLLLHDGLGDGDGGLDGGGDGDFDDDDGDDFFFFDFRFF\
+XRRRRRRRRERERRFFRRFFDDDGDFFFDFDDDFDGDGDDDFDFDFDDDFDFDFDDFFERRRRREEEEEEEUUEREUUH\
+XUEEEREEUUUUHUUUHUEUEEEEEREEUEUEEUUULLLLGLLHUHHLHUHHUUHHUUHUHHUU",
+X"AFRICA",
+X"-049-12", "DGGGLGDDDDGDDFFREUEUEUUUEUUUUH", "MADAGASCAR",
+X"-032+00", "DDDREUELLL", "LAKE VICTORIA",
+X"-014+14", "LRFLU", "LAKE CHAD",
+X"-124-16",
+X"LGDGGLGLLGLDDDGFDDFDFDGFRRRERRRRURERRRRRRRFFFEEDDRFDFRFREFRERRUUEUEEUUUUUUUHH\
+XHHHHHUUHHHUULDDDDGDGHLHLHEUELLLHLFLLULDRGDDLLHLGG",
+X"AUSTRALIA",
+X"-173-35", "FFDGFDREURULHHHL", "NEW ZEALAND N",
+X"-174-41", "LLDGLGLGGRFREEUREEU", "NEW ZEALAND S",
+X"-145-41", "DFRRUUUDLLL", "TASMANIA",
+X"-178-17", "GRRURUGDH", "FIJI",
+X"-130+00", "FRFRLGFEFRFRFDGRRFRRUERFFFRRRLHHHHRHLHHLHLLHGGLHUHLGH",
+X"NEW GUINEA",
+X"-115-04", "RUUEEURHUUEHHGGGGLLDDHLDDFDDRRDERF", "BORNEO",
+X"-095+06", "DFFFFFFDFFFFRUUUHFRHLHLUHHHHHLLH", "SUMATRA",
+X"-106-06", "GRFRRRRRRFRRHLHLLLLLHL", "JAVA",
+X"-120+00", "DGDDRDFHUEDFRHUHREFHLGHURRRRELLLLG", "CELEBES",
+X"+000-70",
+X"ULDLLLLLLLLGLLGLLLGLLGLLLLGLGLLGLLLLGLLLLLHLGLLLLLHLLLLLHLLLLHLLUERLEUUUUUUEE\
+XRRRULLGLLLLGLGGLLLDRUDRDLGHLLGLLFGRRFLLLLLLLDHLLLLHLLLLLGLLLLHLLLLLLLGRFDLLLUL\
+XLLGHLLLLLLLLLLHGHLLGLLLLLLLGLLLLLLLLLLLGLLLGLLLLLLLLGLLLLLLLLLLLLLLLLLLLLL",
+X"ANTARCTICA W",
+X"+180-78",
+X"LLLLLLLHLLGHLLGHLUEERRERREHLLLLHLLLLLLHLLLLLLLLLLLHLHLLLLLHLLULDLLLLLDLLHLLLL\
+XGHFLLLLLHLLLLLLGLHLLHLGLLLLHLGLLGLLLULLLGLLHDFLLLGLGLLLELLLLHLLLLLLLLLLHLLLHLL\
+XLLGGHGHGLLLGLDLLLLHLLGHGLLLLLLLLLLLLLLHLGLLLLLLLLLLLLLL",
+X"ANTARCTICA E",
+X"END", "", ""};
+X
+X
+X/*
+X*******************************************************************************
+X** General and numeric routines
+X*******************************************************************************
+X*/
+X
+Xvoid swapint(i1, i2)
+Xint *i1, *i2;
+X{
+X  int temp;
+X  temp = *i1; *i1 = *i2; *i2 = temp;
+X}
+X
+Xvoid swapdoub(f1, f2)
+Xdouble *f1, *f2;
+X{
+X  double temp;
+X  temp = *f1; *f1 = *f2; *f2 = temp;
+X}
+X
+Xint stringlen(line)
+Xchar *line;
+X{
+X  int i;
+X  for (i = 0; line[i] != 0; i++)
+X    ;
+X  return i;
+X}
+X
+Xdouble dabs(A)
+Xdouble A;
+X{
+X  return A < 0.0 ? -A : A;
+X}
+X
+Xdouble sgn(A)
+Xdouble A;
+X{
+X  return A < 0.0 ? -1.0 : (A > 0.0 ? 1.0 : 0.0);
+X}
+X
+Xdouble dectodeg(A)
+Xdouble A;
+X{
+X  return sgn(A)*(floor(dabs(A))+(dabs(A)-floor(dabs(A)))*100.0/60.0);
+X}
+X
+Xdouble mod(A)
+Xdouble A;
+X{
+X  return ((A)-(floor((A)/modulus)*modulus));
+X}
+X
+Xint mod12(A)
+Xint A;
+X{
+X  return A > SIGNS ? A-SIGNS : (A < 1 ? A+SIGNS : A);
+X}
+X
+Xdouble mindistance(deg1, deg2)
+Xdouble deg1, deg2;
+X{
+X  double i;
+X  i = dabs(deg1-deg2);
+X  return i < 180 ? i : DEGREES - i;
+X}
+X
+Xdouble midpoint(deg1, deg2)
+Xdouble deg1, deg2;
+X{
+X  double mid;
+X  mid = (deg1+deg2)/2.0;
+X  return mindistance(deg1, mid) < 90 ? mid : mod(mid+180);
+X}
+X
+Xchar dignify(body, sign)
+Xint body, sign;
+X{
+X  if (body > 10)
+X    return ' ';
+X  if (ruler1[body] == sign || ruler2[body] == sign)
+X    return 'R';
+X  if (ruler1[body] == mod12(sign+6) || ruler2[body] == mod12(sign+6))
+X    return 'F';
+X  if (exalt[body] == sign)
+X    return 'e';
+X  if (exalt[body] == mod12(sign+6))
+X    return 'd';
+X  return '-';
+X}
+X
+Xint dayinmonth(month, year)
+Xint month, year;
+X{
+X  return (month == 9 || month == 4 || month == 6 || month == 11 ? 30 :
+X	  (month != 2 ? 31 :
+X	   (year/4*4==year && (year/100*100!=year || year/400*400==year) ?
+X	    29 : 28)));
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** IO routines
+X*******************************************************************************
+X*/
+X
+Xdouble readplanetdata(reset)
+Xint reset;
+X{
+X  static int datapointer = 0;
+X  if (!reset)
+X    return planetdata[datapointer++];
+X  return (double) (datapointer = 0);
+X}
+X
+Xint readworlddata(nam, loc, lin)
+Xchar **nam, **loc, **lin;
+X{
+X  static int datapointer = 0;
+X  *loc = worlddata[datapointer++];
+X  *lin = worlddata[datapointer++];
+X  *nam = worlddata[datapointer++];
+X  if (*loc[0] != 'E')
+X    return 1;
+X  datapointer = 0;
+X  return 0;
+X}
+X
+X/*printsecond(deg)
+Xdouble deg;
+X{
+X  int sign, d, m, s;
+X  deg = mod(deg + 1.0/60.0/60.0/2.0);
+X  sign = (int) (deg / 30.0);
+X  d = (int) deg - sign*30;
+X  m = (int) ((deg - floor(deg))*60.0);
+X  s = (int) (((deg - floor(deg))*60 - (double) m)*60.0);
+X  printf("%s%d%c%c%c%s%d'%s%d\"",
+X	 d < 10 ? "0" : "", d, SIGNAM(sign + 1),
+X	 m < 10 ? "0" : "", m, s < 10 ? "0" : "", s);
+X}
+X
+Xprinttenth(deg)
+Xdouble deg;
+X{
+X  int sign, d, m;
+X  deg = mod(deg + 1.0/60.0/10.0/2.0);
+X  sign = (int) (deg / 30.0);
+X  d = (int) deg - sign*30;
+X  m = (int) ((deg - floor(deg))*600.0);
+X  printf("%s%d%c%c%c%s%.1f",
+X	 d < 10 ? "0" : "", d, SIGNAM(sign + 1),
+X	 m < 100 ? "0" : "", (double) m / 10.0);
+X}*/
+X
+Xprintminute(deg)
+Xdouble deg;
+X{
+X  int sign, d, m;
+X  deg = mod(deg + 1.0/60.0/2.0);
+X  sign = (int) (deg / 30.0);
+X  d = (int) deg - sign*30;
+X  m = (int) ((deg - floor(deg))*60.0);
+X  printf("%s%d%c%c%c%s%d",
+X	 d < 10 ? "0" : "", d, SIGNAM(sign + 1), m < 10 ? "0" : "", m);
+X}
+X
+Xprintaltitude(deg)
+Xdouble deg;
+X{
+X  int d, m;
+X  if (deg < -90)
+X    deg += DEGREES;
+X  else if (deg > 90)
+X    deg -= DEGREES;
+X  if (deg < 0.0)
+X    putchar('-');
+X  else
+X    putchar('+');
+X  deg = dabs(deg) + 1.0/60.0/2.0;
+X  d = (int) deg;
+X  m = (int) ((deg - floor(deg))*60.0);
+X  printf("%s%d %s%d'",
+X	 d < 10 ? "0" : "", d,
+X	 m < 10 ? "0" : "", m);
+X}
+X
+Xdouble input(prompt, low, high)
+Xchar prompt[];
+Xdouble low, high;
+X{
+X  char line[80];
+X  double x;
+X  while (1) {
+X    printf("%s > ", prompt);
+X    if (gets(line) == (char *) NULL) {
+X      printf("\nAstrolog terminated.\n");
+X      exit(1);
+X    }
+X    sscanf(line, "%lf", &x);
+X    if (x >= low && x <= high)
+X      return x;
+X    printf("Value out of range of from %.0f to %.0f.\n", low, high);
+X  }
+X}
+X
+Xvoid inputdata(filename)
+Xchar *filename;
+X{
+X  char name[80], *defdir, c;
+X  int i, j;
+X  double k, l, m;
+X#ifdef TIME
+X  struct tm curtime;
+X  long int curtimer;
+X  if (filename[0] == 'n' && filename[1] == 'o' && filename[2] == 'w' &&
+X      filename[3] == 0) {
+X    autom = 1;
+X    curtimer = (long int) time((long int *) 0);
+X    curtime = *localtime(&curtimer);
+X    M = (double) curtime.tm_mon + 1.0;
+X    D = (double) curtime.tm_mday;
+X    Y = (double) curtime.tm_year + 1900.0;
+X    F = (double) curtime.tm_hour + (double) curtime.tm_min / 100.0 +
+X      (double) curtime.tm_sec / 6000.0;
+X    X = defzone; L5 = deflong; LA = deflat;
+X    return;
+X  }
+X#endif
+X  if (filename[0] == 't' && filename[1] == 't' && filename[2] == 'y' &&
+X      filename[3] == 0) {
+X    printf("** Astrolog version %s (pullen@lynx.cs.washington.edu) **\n",
+X      VERSION);
+X#ifdef SWITCHES
+X    printf("   Invoke as 'astrolog -H' for brief list of command options.\n");
+X#endif
+X    M = input("Enter month of birth [MM]  ", 1.0, 12.0);
+X    D = input("Enter date  of birth [DD]  ", 1.0, 31.0);
+X    Y = input("Enter year  of birth [YYYY]", 0.0, 4000.0);
+X    printf("Assuming a 24 hour clock below (0.00=midnight, 18.00=6pm, etc)\n");
+X    printf("Subtract 1 from hour entered if Daylight Saving time then.\n");
+X    F = input("Time of birth [HR.MIN - Add 12 for PM times]", -2.0, 24.0);
+X    printf("Enter negative value below for time zones east of Greenwich.\n");
+X    X = input("Time zone in hours off GMT [HR.MIN - 5=Eastern, 8=Pacific]",
+X	      -24.0, 24.0);
+X    printf("Enter negative values below for eastern or southern locations.\n");
+X    L5 = input("Longitude west of place: DEG.MIN", -180.0, 180.0);
+X    LA = input("Latitude north of place: DEG.MIN", -90.0, 90.0);
+X    printf("\n");
+X    return;
+X  }
+X  autom = 1;
+X  data = fopen(filename, "r");
+X  if (data == NULL) {
+X    defdir = DEFAULT_DIR;
+X    for (i = 0; defdir[i]; i++)
+X      name[i] = defdir[i];
+X    for (j = 0; filename[j]; j++)
+X      name[i+j] = filename[j];
+X    name[i+j] = 0;
+X    data = fopen(name, "r");
+X    if (data == NULL) {
+X      fprintf(stderr, "File '%s' not found.\n", filename);
+X      exit(1);
+X    }
+X  }
+X  if ((c = getc(data)) != 'S') {
+X    ungetc(c, data);
+X    fscanf(data, "%lf%lf%lf%lf%lf%lf%lf", &M, &D, &Y, &F, &X, &L5, &LA);
+X  } else {
+X    M = -1.0;
+X    for (i = 1; i <= objects; i++) {
+X      fscanf(data, "%s%lf%lf%lf", name, &k, &l, &m);
+X      planet[i] = (l-1.0)*30.0+k+m/60.0;
+X      fscanf(data, "%s%lf%lf", name, &k, &l);
+X      planetalt[i] = k+l/60.0;
+X      ret[i] = name[1] == 'D' ? 0.0 : 1.0;
+X    }
+X    for (i = 1; i <= SIGNS/2; i++) {
+X      fscanf(data, "%s%lf%lf%lf", name, &k, &l, &m);
+X      house[i+6] = mod((house[i] = mod((l-1.0)*30.0+k+m/60.0))+180.0);
+X    }
+X  }
+X  fclose(data);
+X}
+X
+X/**/
+END_OF_FILE
+if test 23711 -ne `wc -c <'data.c'`; then
+    echo shar: \"'data.c'\" unpacked with wrong size!
+fi
+# end of 'data.c'
+fi
+if test -f 'formulas.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'formulas.c'\"
+else
+echo shar: Extracting \"'formulas.c'\" \(14938 characters\)
+sed "s/^X//" >'formulas.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.10) File: formulas.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X*/
+X
+X#include "astrolog.h"
+X
+Xdouble T, OB,
+X  A, R, B, Q, L, G, O, RA, R2, MC, Asc, AZ, Vtx, XX, R1, FF, LO, OA,
+X  S, S1, S2, AP, IN, AN, YY, ZZ, C, NU, BR, SS, AB, P, T0[4];
+X
+Xdouble geo[PLANETS+2], geoalt[PLANETS+2], georet[PLANETS+2],
+X  helio[PLANETS+2], helioalt[PLANETS+2], helioret[PLANETS+2],
+X  planet1[OBJECTS+1], planet2[OBJECTS+1],
+X  planetalt1[OBJECTS+1], planetalt2[OBJECTS+1],
+X  house1[SIGNS+1], house2[SIGNS+1],
+X  ret1[OBJECTS+1], ret2[OBJECTS+1];
+X
+X
+X/*
+X*******************************************************************************
+X** Specific calculations
+X*******************************************************************************
+X*/
+X
+Xdouble mdytojulian(mon, day, yea)
+Xdouble mon, day, yea;
+X{
+X  double im, j;
+X  im = 12.0*(yea+4800.0)+mon-3.0;
+X  j = (2.0*(im-floor(im/12.0)*12.0)+7.0+365.0*im)/12.0;
+X  j = floor(j)+day+floor(im/48.0)-32083.0;
+X  if (!(j <= 2299171.0))
+X    j += floor(im/4800.0)-floor(im/1200.0)+38.0;
+X  return j;
+X}
+X
+Xprocessinput(var)
+Xint var;
+X{
+X  double LN;
+X  if (var) {
+X    F = sgn(F)*floor(dabs(F))+(dabs(F)-floor(dabs(F)))*100.0/60.0+dectodeg(X);
+X    L5 = dectodeg(L5);
+X    LA = DTOR(dectodeg(LA));
+X    JD = mdytojulian(M, D+Delta, Y);
+X    if (!progress)
+X      T = ((JD-2415020.0)+F/24.0-0.5)/36525.0;
+X    else
+X      T = (((Jdp-JD)/365.25+JD)-2415020.0+F/24.0-0.5)/36525.0;
+X  }
+X  OB = DTOR(23.452294-0.0130125*T);
+X  LN = mod((933060-6962911*T+7.5*T*T)/3600.0);
+X  if (!siderial)
+X    return;
+X  SD = (259205536.0*T+2013816.0)/3600.0;
+X  SD = 17.23*sin(DTOR(LN))+1.27*sin(DTOR(SD))-(5025.64+1.11*T)*T;
+X  SD = (SD-84038.27)/3600.0;
+X}
+X
+Xpoltorec()
+X{
+X  if (A == 0.0)
+X    A = 1.7453E-09;
+X  X = R*cos(A);
+X  Y = R*sin(A);
+X}
+X
+Xrectopol()
+X{
+X  if (Y == 0.0)
+X    Y = 1.7453E-09;
+X  R = sqrt(X*X+Y*Y);
+X  A = atan(Y/X);
+X  if (A < 0.0)
+X    A += PI;
+X  if (Y < 0.0)
+X    A += PI;
+X}
+X
+Xrectosph()
+X{
+X  A = B; R = 1.0;
+X  poltorec();
+X  Q = Y; R = X; A = L;
+X  poltorec();
+X  G = X; X = Y; Y = Q;
+X  rectopol();
+X  A += O;
+X  poltorec();
+X  Q = ASIN(Y);
+X  Y = X; X = G;
+X  rectopol();
+X  if (A < 0.0)
+X    A += 2*PI;
+X  G = A;
+X}
+X
+Xvoid ecltoequ(azi, alt)
+Xdouble *azi, *alt;
+X{
+X  double tilt = DTOR(23.44578889), x, y, a1, l1;
+X  x = cos(*alt)*sin(*azi)*cos(tilt);
+X  y = sin(*alt)*sin(tilt);
+X  x -= y;
+X  a1 = cos(*alt);
+X  y = cos(*alt)*cos(*azi);
+X  l1 = atan(x/y);
+X  if (l1 < 0.0)
+X    l1 += PI;
+X  if (x < 0.0)
+X    l1 += PI;
+X  a1 = ASIN(a1*sin(*azi)*sin(tilt)+sin(*alt)*cos(tilt));
+X  *azi = l1; *alt = a1;
+X}
+X
+Xcomputevariables(var)
+Xint var;
+X{
+X  RA = DTOR(mod((6.6460656+2400.0513*T+2.58E-5*T*T+
+X		 (var ? F : (T+0.5-floor(T+0.5))*24.0)) *15.0-L5));
+X  R2 = RA; O = -OB; B = LA; A = R2; R = 1.0;
+X  poltorec();
+X  X *= cos(O);
+X  rectopol();
+X  MC = mod(SD+RTOD(A));
+X  L = R2;
+X  rectosph();
+X  AZ = mod(SD+mod(G+PI/2.0));
+X  L= R2+PI; B = PI/2.0-dabs(B);
+X  if (LA < 0.0)
+X    B = -B;
+X  rectosph();
+X  Vtx = mod(SD+RTOD(G+PI/2.0));
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** House cusp calculations
+X*******************************************************************************
+X*/
+X
+Xint inhouseplace(point)
+Xdouble point;
+X{
+X  int i = 0;
+X  do {
+X    i++;
+X  } while (!(i >= SIGNS ||
+X	     (point >= house[i] && point < house[mod12(i+1)]) ||
+X	     (house[i] > house[mod12(i+1)] &&
+X	      (point >= house[i] || point < house[mod12(i+1)]))));
+X  return i;
+X}
+X
+Xvoid houseplace()
+X{
+X  int i;
+X  for (i = 1; i <= objects; i++)
+X    inhouse[i] = inhouseplace(planet[i]);
+X}
+X
+Xdouble midheaven()
+X{
+X  double X;
+X  X = atan(tan(RA)/cos(OB));
+X  if (X < 0.0)
+X    X += PI;
+X  if (RA > PI)
+X    X += PI;
+X  return mod(RTOD(X)+SD);
+X}
+X
+Xdouble ascendant()
+X{
+X  double Asc;
+X  Asc = atan(cos(RA)/(-sin(RA)*cos(OB)-tan(LA)*sin(OB)));
+X  if (Asc < 0.0)
+X    Asc += PI;
+X  if (cos(RA) < 0.0)
+X    Asc += PI;
+X  return mod(RTOD(Asc)+SD);
+X}
+X
+Xplacidus_cusp()
+X{
+X  int i;
+X  X = -1.0;
+X  if (Y == 1.0)
+X    X = 1.0;
+X  for (i = 1; i <= 10; i++) {
+X    XX = ACOS(X*sin(R1)*tan(OB)*tan(LA));
+X    if (XX < 0.0)
+X      XX += PI;
+X    R2 = RA+(XX/FF);
+X    if (Y == 1.0)
+X      R2 = RA+PI-(XX/FF);
+X    R1 = R2;
+X  }
+X  LO = atan(tan(R1)/cos(OB));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(R1) < 0.0)
+X    LO += PI;
+X  LO = RTOD(LO);
+X}
+X
+Xplacidus()
+X{
+X  int i;
+X  Y = 0.0;
+X  house[4] = mod(MC+180.0-SD);
+X  house[1] = mod(Asc-SD);
+X  R1 = RA+DTOR(30.0);  FF=3.0; placidus_cusp(); house[5]=mod(LO+180.0);
+X  R1 = RA+DTOR(60.0);  FF=1.5; placidus_cusp(); house[6]=mod(LO+180.0);
+X  R1 = RA+DTOR(120.0); Y=1.0;  placidus_cusp(); house[2]=LO;
+X  R1 = RA+DTOR(150.0); FF=3.0; placidus_cusp(); house[3]=LO;
+X  for (i = 1; i <= SIGNS; i++) {
+X    house[i] = mod(house[i]+SD);
+X    if (i > 6)
+X      house[i] = mod(house[i-6]+180.0);
+X  }
+X}
+X
+Xkoch()
+X{
+X  double A1, A2, A3, KN;
+X  int i;
+X  A1 = ASIN(sin(RA)*tan(LA)*tan(OB));
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = mod(60.0+30.0*(double)i);
+X    A2 = D/90.0-1.0; KN = 1.0;
+X    if (D >= 180.0) {
+X      KN = -1.0;
+X      A2 = D/90.0-3.0;
+X    }
+X    A3 = DTOR(mod(RTOD(RA)+D+A2*RTOD(A1)));
+X    X = atan(sin(A3)/(cos(A3)*cos(OB)-KN*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (sin(A3) < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xequal()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    house[i] = mod(Asc-30.0+30.0*(double)i);
+X  }
+X}
+X
+Xcampanus()
+X{
+X  double KO, DN;
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    KO = DTOR(60.000001+30.0*(double)i);
+X    DN = atan(tan(KO)*cos(LA));
+X    if (DN < 0.0)
+X      DN += PI;
+X    if (sin(KO) < 0.0)
+X      DN += PI;
+X    Y = sin(RA+DN);
+X    X = cos(RA+DN)*cos(OB)-sin(DN)*tan(LA)*sin(OB);
+X    X = atan(Y/X);
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xmeridian()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(double)i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xregiomontanus()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)-sin(D)*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xporphyry()
+X{
+X  int i;
+X  X = Asc-MC;
+X  if (X < 0.0)
+X    X += 360;
+X  Y = X/3.0;
+X  for (i = 1; i <= 2; i++)
+X    house[i+4] = mod(180.0+MC+i*Y);
+X  X = mod(180.0+MC)-Asc;
+X  if (X < 0.0)
+X    X += 360;
+X  house[1]=Asc;
+X  Y = X/3.0;
+X  for (i = 1; i <= 3; i++)
+X    house[i+1] = mod(Asc+i*Y);
+X  for (i = 1; i <= 6; i++)
+X    house[i+6] = mod(house[i]+180.0);
+X}
+X
+Xmorinus()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(double)i);
+X    Y = sin(RA+D)*cos(OB);
+X    X = atan(Y/cos(RA+D));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xtopocentric_cusp()
+X{
+X  X = atan(tan(LA)/cos(OA));
+X  Y = X+OB;
+X  LO = atan(cos(X)*tan(OA)/cos(Y));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(OA) < 0.0)
+X    LO += PI;
+X}
+X
+Xtopocentric()
+X{
+X  double TL, P1, P2, LT;
+X  int i;
+X  modulus = 2.0*PI;
+X  house[4] = mod(DTOR(MC+180.0-SD));
+X  TL = tan(LA); P1 = atan(TL/3.0); P2 = atan(TL/1.5); LT = LA;
+X  LA = P1; OA = mod(RA+DTOR(30.0)); topocentric_cusp(); house[5] = mod(LO+PI);
+X  LA = P2; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[6] = mod(LO+PI);
+X  LA = LT; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[1] = LO;
+X  LA = P2; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[2] = LO;
+X  LA = P1; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[3] = LO;
+X  LA = LT; modulus = 360.0;
+X  for (i = 1; i <= 6; i++) {
+X    house[i] = mod(RTOD(house[i])+SD);
+X    house[i+6] = mod(house[i]+180.0);
+X  }
+X}
+X
+Xnull()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++)
+X    house[i] = mod((double)(i-1)*30.0+SD);
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Planetary position calculations
+X*******************************************************************************
+X*/
+X
+Xdouble readthree()
+X{
+X  S = readplanetdata(0); S1 = readplanetdata(0); S2 = readplanetdata(0);
+X  return S = DTOR(S+S1*T+S2*T*T);
+X}
+X
+Xrectosph2()
+X{
+X  rectopol(); A += AP; poltorec(); D = X; X = Y; Y = 0.0; rectopol();
+X  A += IN; poltorec(); G = Y; Y = X; X = D; rectopol(); A += AN;
+X  if (A < 0.0)
+X    A += 2.0*PI;
+X  poltorec();
+X}
+X
+Xerrorcorrect(ind)
+Xint ind;
+X{
+X  double U, V, W;
+X  int IK, IJ, errorindex;
+X  errorindex = errorcount[ind];
+X  for (IK = 1; IK <= 3; IK++) {
+X    if (ind == 6 && IK == 3) {
+X      T0[3]=0;
+X      return;
+X    }
+X    if (IK == 3)
+X      errorindex--;
+X    readthree(); A = 0.0;
+X    for (IJ = 1; IJ <= errorindex; IJ++) {
+X      U = readplanetdata(0); V = readplanetdata(0); W = readplanetdata(0);
+X      A = A+DTOR(U)*cos((V*T+W)*PI/180.0);
+X    }
+X    T0[IK] = RTOD(S+A);
+X  }
+X}
+X
+Xprocessplanet(ind, isgeo, isret)
+Xint ind, isgeo, isret;
+X{
+X  X = XX; Y = YY; rectopol();
+X  C = RTOD(A)+NU-BR;
+X  if (ind == 2 && AB == 1.0)
+X    C = mod(C+180.0);
+X  C = mod(C+SD); SS = C; Y = ZZ; X = R; rectopol();
+X  if (A > 0.35)
+X    A -= 2*PI;
+X  P = RTOD(A);
+X  if (isgeo) {
+X    geo[ind] = C; geoalt[ind] = P; georet[ind] = (double) isret;
+X  } else {
+X    helio[ind] = C; helioalt[ind] = P; helioret[ind] = (double) isret;
+X  }
+X}
+X
+Xplanets()
+X{
+X  double AU, E, EA, E1, XK, XW, YW, ZW, XH, YH, ZH, XA, YA, ZA, X1, Y1, Z1;
+X  int ind, isret, i;
+X  for (ind = 2; ind <= PLANETS+1; ind++) {
+X    if (ind == 2 && uranian)
+X      for (i = 1; i <= 8*16+72+51+42+42+42; i++)
+X	readplanetdata(0);
+X    modulus = 2.0*PI;
+X    M = mod(readthree());
+X    E = RTOD(readthree());
+X    EA = M;
+X    for (A = 1; A <= 5; A++)
+X      EA = M+E*sin(EA);
+X    AU = readplanetdata(0);
+X    E1 = 0.01720209/(pow(AU,1.5)*(1.0-E*cos(EA)));
+X    XW = -(AU*E1)*sin(EA);
+X    YW = (AU*E1)*pow(1.0-E*E,0.5)*cos(EA);
+X    AP = readthree(); AN = readthree(); IN = readthree();
+X    X = XW; Y = YW; rectosph2();
+X      XH = X; YH = Y; ZH = G;
+X    modulus = 360.0;
+X    if (ind == 2) {
+X      XA = -XH; YA = -YH; ZA = -ZH; AB = 0.0;
+X    } else {
+X      XW = XH+XA; YW = YH+YA; ZW = ZH+ZA;
+X    }
+X    X = AU*(cos(EA)-E); Y = AU*sin(EA)*pow(1.0-E*E,0.5);
+X    rectosph2(); XX = X; YY = Y; ZZ = G;
+X    if (ind >= 6 && ind <= 10 && !uranian) {
+X      errorcorrect(ind); XX += T0[2]; YY += T0[1]; ZZ += T0[3];
+X    }
+X    if (ind == 10 && !uranian)
+X      for (i = 1; i <= 8*16; i++)
+X	readplanetdata(0);
+X    XK = (XX*YH-YY*XH)/(XX*XX+YY*YY);
+X    isret = 0;
+X    BR = 0.0; processplanet(ind, 0, isret); AB = 1.0;
+X    if (ind == 2) {
+X      X1 = XX; Y1 = YY; Z1 = ZZ;
+X    } else {
+X      XX -= X1; YY -= Y1; ZZ -= Z1; XK = (XX*YW-YY*XW)/(XX*XX+YY*YY);
+X    }
+X    BR = 0.0057756*sqrt(XX*XX+YY*YY+ZZ*ZZ)*RTOD(XK);
+X    if (XK < 0.0)
+X      isret = 1;
+X    processplanet(ind, 1, isret);
+X    if (heliocentric) {
+X      planet[ind] = helio[ind]; planetalt[ind] = helioalt[ind];
+X      ret[ind] = helioret[ind];
+X    } else {
+X      planet[ind] = geo[ind]; planetalt[ind] = geoalt[ind];
+X      ret[ind] = georet[ind];
+X    }
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Lunar calculations
+X*******************************************************************************
+X*/
+X
+Xlunar(moonlo, moonla, nodelo, nodela)
+Xdouble *moonlo, *moonla, *nodelo, *nodela;
+X{
+X  double LL, G, N, G1, D, L, ML, L1, MB, TN, M = 3600.0;
+X  LL = 973563.0+1732564379.0*T-4.0*T*T;
+X  G = 1012395.0+6189.0*T;
+X  N = 933060.0-6962911.0*T+7.5*T*T;
+X  G1 = 1203586.0+14648523.0*T-37.0*T*T;
+X  D = 1262655.0+1602961611.0*T-5.0*T*T;
+X  L = (LL-G1)/M; L1 = ((LL-D)-G)/M; F = (LL-N)/M; D = D/M; Y = 2.0*D;
+X  ML = 22639.6*SIND(L)-4586.4*SIND(L-Y)+2369.9*SIND(Y)+769.0*SIND(2.0*L)-
+X    669.0*SIND(L1)-411.6*SIND(2.0*F)-212.0*SIND(2.0*L-Y)-206.0*SIND(L+L1-Y);
+X  ML += 192.0*SIND(L+Y)-165.0*SIND(L1-Y)+148.0*SIND(L-L1)-125.0*SIND(D)-
+X    110.0*SIND(L+L1)-55.0*SIND(2.0*F-Y)-45.0*SIND(L+2.0*F)+ 40.0*SIND(L-2.0*F);
+X  *moonlo = G = mod((LL+ML)/M+SD);
+X  MB = 18461.5*SIND(F)+1010.0*SIND(L+F)-999.0*SIND(F-L)-624.0*SIND(F-Y)+
+X    199.0*SIND(F+Y-L)-167.0*SIND(L+F-Y);
+X  MB += 117.0*SIND(F+Y)+62.0*SIND(2.0*L+F)-
+X    33.0*SIND(F-Y-L)-32.0*SIND(F-2.0*L)-30.0*SIND(L1+F-Y);
+X  *moonla = MB = sgn(MB)*((dabs(MB)/M)/360.0-floor((dabs(MB)/M)/360.0))*360.0;
+X  TN = N+5392.0*SIND(2.0*F-Y)-541.0*SIND(L1)-442.0*SIND(Y)+423.0*SIND(2.0*F)-
+X    291.0*SIND(2.0*L-2.0*F);
+X  TN = mod(TN/M);
+X  *nodelo = N = mod(N/M+SD);
+X  *nodela = 0.0;
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Calculate chart for specific time
+X*******************************************************************************
+X*/
+X
+Xvoid castchart(var)
+Xint var;
+X{
+X  int i, k;
+X  double housetemp[SIGNS+1], j;
+X  if (M == -1.0) {
+X    MC = planet[18]; Asc = planet[19]; Vtx = planet[20];
+X  } else {
+X    processinput(var); computevariables(var);
+X    MC = midheaven(); Asc = ascendant();
+X    if      (housesystem == 1) koch();
+X    else if (housesystem == 2) equal();
+X    else if (housesystem == 3) campanus();
+X    else if (housesystem == 4) meridian();
+X    else if (housesystem == 5) regiomontanus();
+X    else if (housesystem == 6) porphyry();
+X    else if (housesystem == 7) morinus();
+X    else if (housesystem == 8) topocentric();
+X    else if (housesystem == 9) null();
+X    else                       placidus();
+X    planets();
+X    planet[1] = planet[2]; ret[1] = 0.0;
+X    lunar(&planet[2], &planetalt[2], &planet[16], &planetalt[16]);
+X    ret[2] = 0.0; ret[16] = 1.0;
+X    j = planet[2]-planet[1]; j = dabs(j) < 90.0 ? j : j - sgn(j)*DEGREES;
+X    planet[17] = mod(j+Asc); ret[17] = 0.0;
+X    planet[18] = MC; ret[18] = 0.0;
+X    planet[19] = Asc; ret[19] = 0.0;
+X    planet[20] = Vtx; ret[20] = 0.0;
+X  }
+X  for (i = 1; i <= objects; i++)
+X    planet[i] = mod(planet[i] * multiplyfactor);
+X  if (onasc) {
+X    j = planet[onasc]-Asc;
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = mod(house[i]+j);
+X  }
+X  houseplace();
+X  if (flip) {
+X    for (i = 1; i <= objects; i++) {
+X      k = inhouse[i];
+X      inhouse[i] = (int) (planet[i]/30.0)+1;
+X      planet[i] = (double)(k-1)*30.0+mindistance(house[k], planet[i])/
+X	mindistance(house[k], house[mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++) {
+X      k = inhouseplace((double) (i-1)*30.0);
+X      housetemp[i] = (double)(k-1)*30.0+mindistance(house[k],
+X        (double) (i-1)*30.0)/mindistance(house[k], house[mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = housetemp[i];
+X  }
+X  if (decan)
+X    for (i = 1; i <= objects; i++) {
+X      k = (int) (planet[i]/30.0)+1;
+X      j = planet[i] - (double)((k-1)*30);
+X      k = mod12(k + 4*((int)floor(j/10.0)));
+X      j = (j - floor(j/10.0)*10.0)*3.0;
+X      planet[i] = (double)(k-1)*30.0+j;
+X      houseplace();
+X    }
+X}
+X
+X/**/
+END_OF_FILE
+if test 14938 -ne `wc -c <'formulas.c'`; then
+    echo shar: \"'formulas.c'\" unpacked with wrong size!
+fi
+# end of 'formulas.c'
+fi
+echo shar: End of archive 4 \(of 6\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

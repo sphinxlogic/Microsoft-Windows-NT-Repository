@@ -1,0 +1,1199 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject: v36i006:  log_tcp - TCP/IP daemon wrapper, v5.0, Part03/03
+Message-ID: <1993Mar8.041425.22570@sparky.imd.sterling.com>
+X-Md4-Signature: ad4b614210ac9ec1cbeebd6f5640e9e5
+Date: Mon, 8 Mar 1993 04:14:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 36, Issue 6
+Archive-name: log_tcp/part03
+Environment: UNIX
+Supersedes: log_tcp: Volume 30, Issue 79-80
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 3)."
+# Contents:  Makefile.dist hosts_access.c options.c
+# Wrapped by wietse@wzv on Sun Mar  7 22:58:27 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f Makefile.dist -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile.dist\"
+else
+echo shar: Extracting \"Makefile.dist\" \(15298 characters\)
+sed "s/^X//" >Makefile.dist <<'END_OF_Makefile.dist'
+X# @(#) Makefile.dist 1.1 93/03/07 22:47:45
+X# 
+X# If you did not already do so, copy the file Makefile.dist to Makefile
+X# and edit the copy, not the original. Have a copy of the README file at
+X# hand while editing. It gives some additional background.
+X#
+X# For your convenience, all configurable parameters have been moved into
+X# the Makefile, so that you do not have to hack the source files anymore.
+X#
+X# Some parameters must always be set to match the operating environment.
+X# Other parameter settings are a matter of taste. Their sections headings
+X# are labeled "(Optional)". The defaults correspond to the programs as
+X# documented in the manual pages.
+X
+X######################################################
+X# Choice between easy and advanced installation recipe
+X# 
+X# According to the easy installation recipe in the README file, vendor-
+X# provided network daemons are moved to "some other" directory, and the
+X# tcpd wrapper fills in the "holes". For this mode of operation, the
+X# REAL_DAEMON_DIR macro should be set to the "some other" directory.
+X# Uncomment the appropriate line. The "..." is here for historical
+X# reasons only; you will probably want to use some other name. Watch out
+X# for the quotes and backslashes.
+X
+XREAL_DAEMON_DIR=\"/usr/etc/...\"	# BSD 4.3 Ultrix 4.x SunOS 4.x
+X#REAL_DAEMON_DIR=\"/usr/sbin/...\"	# SysV.4 Solaris 2.x
+X#REAL_DAEMON_DIR=\"/usr/libexec/...\"	# BSD 4.4
+X
+X# According to the advanced installation recipe, vendor-provided daemons
+X# are left alone, and the inetd file is edited instead. In that case, the
+X# REAL_DAEMON_DIR macro should reflect the actual directory with (most of)
+X# your vendor-provided network daemons.  Uncomment the appropriate line.
+X
+X#REAL_DAEMON_DIR=\"/usr/etc\"		# BSD 4.3 Ultrix 4.x SunOS 4.x
+X#REAL_DAEMON_DIR=\"/usr/sbin\"		# SysV.4 Solaris 2.x
+X#REAL_DAEMON_DIR=\"/usr/libexec\"	# BSD 4.4
+X
+X#########################################################
+X# Differences between ranlib(1) and ar(1) implementations
+X#
+X# Some C compilers (Ultrix 4.x) insist that ranlib(1) be run on an object
+X# library; some don't care as long as the modules are in the right order;
+X# some systems don't even have a ranlib(1) command. SGI IRIX uses the 's'
+X# option to the 'ar' command instead. Make your choice.
+X
+XRANLIB	= ranlib	# have ranlib (BSD-ish UNIX)
+X#RANLIB	= echo		# no ranlib (SYSV-ish UNIX)
+X
+XARFLAGS	= rv		# OK for most systems
+X#ARFLAGS= rvs		# ranlib flag for 'ar' on IRIX 4.0.x
+X
+X#######################################################
+X# Routines that are not present in the system libraries
+X# 
+X# The strcasecmp.c file provided with this package comes from 4.3+BSD
+X# UNIX. The setenv.c module is a re-implementation of the 4.4 BSD one.
+X# strtok.c comes from 4.4BSD. 
+X
+XAUX_OBJ	= setenv.o			# no setenv(3)
+X#AUX_OBJ= setenv.o strcasecmp.o		# no setenv(3) and no strcasecmp(3)
+X#AUX_OBJ= setenv.o strcasecmp.o strtok.o
+X
+X# While building the file strcasecmp.o, the compiler may complain that
+X# u_char is undefined. Uncomment the following definition for a fix.
+X#
+X#UCHAR	= -Du_char="unsigned char"	# no u_char type
+X
+X# Uncomment the following if your C library has index/rindex/bcmp
+X# but does not provide the strchr/strrchr/memcmp routines. If that
+X# is the case, you probably also do not have strtok() (see above).
+X#
+X#STRINGS= -Dindex=strchr -Drindex=strrchr -Dmemcmp=bcmp
+X
+X###########################################
+X# Selection of non-default object libraries
+X#
+X# Many System-V versions require that you explicitly specify the networking
+X# libraries (for example, -lnet or -linet).
+X#
+X#LIBS	= -lsocket -lnsl	# SysV.4 Solaris 2.x
+X#LIBS	= -lsun			# IRIX
+X
+X#########################
+X# Ultrix-specific section
+X#
+X# Ultrix users may want to use the miscd wrapper, too. The Ultrix miscd
+X# implements among others the SYSTAT service which runs the WHO command,
+X# and thus provides a subset of the finger service. The very first wrapper
+X# application (in the early hours of May 20, 1990) was to monitor SYSTAT.
+X
+Xall:	tcpd try			# no Ultrix miscd
+X#all:	tcpd try miscd			# Ultrix, monitor systat etc. too
+X
+X#REAL_MISCD=\"/usr/etc/.../miscd\"	# easy installation
+X#REAL_MISCD=\"/usr/etc/miscd\"		# advanced installation
+X
+X################################
+X# System-specific compiler flags
+X#
+X# Apollo Domain/OS offers both bsd and sys5 environments, sometimes
+X# on the same machine.  If your Apollo is primarily sys5.3 and also
+X# has bsd4.3, uncomment the following to build under bsd and run under
+X# either environment.
+X#
+X#SYSTYPE= -A run,any -A sys,any
+X
+X# For MIPS RISC/os 4_52.p3, uncomment the following definition.
+X#
+X#SYSTYPE= -sysname bsd43
+X
+X############################
+X# Working around system bugs
+X#
+X# Some versions of Apollo or SYSV.4 UNIX have a bug in the getpeername(2)
+X# routine.  You may have this bug when the wrapper reports that all UDP
+X# connections come from address 0.0.0.0. Compile with -DGETPEERNAME_BUG
+X# for a workaround. The workaround does no harm on other systems. If in
+X# doubt, leave it in.
+X#
+X# Some System V versions (Solaris 2) have a problem in the recvfrom()
+X# emulation code.  You may have this bug when the wrapper programs
+X# complain about "unexpected address family 0" when processing an UDP
+X# request. Compile with -DRECVFROM_BUG for a workaround. The workaround
+X# does no harm on other systems. If in doubt, leave it in.
+X# 
+X# With some System V implementations (SCO UNIX 3.2v4), even compiling
+X# with -DRECVFROM_BUG does not solve the "address family 0" problem. If
+X# that is the case, compile with -DADDRESS_FAMILY_BUG instead.
+X#
+X# DG/UX 5.4.1 comes with an inet_ntoa() function that returns a structure
+X# instead of a long integer. Compile with -DINET_ADDR_BUG to work around
+X# this mutant behavour.
+X
+XBUGS	= -DGETPEERNAME_BUG -DRECVFROM_BUG # -DADDRESS_FAMILY_BUG
+X
+X####################################################
+X# Whether or not your system has NIS (or YP) support
+X#
+X# If your system supports NIS or YP-style netgroups, enable the following
+X# macro definition. Netgroups are used only for host access control.
+X#
+X#NETGROUP= -DNETGROUP
+X
+X# End of the required configuration options; all other ones are optional.
+X#########################################################################
+X
+X################################################################
+X# Changing the default disposition of logfile records (Optional)
+X#
+X# By default, logfile entries are written to the same file as used for
+X# sendmail transaction logs. See your /etc/syslog.conf file for actual
+X# path names of logfiles. The tutorial section in the README file
+X# gives a brief introduction to the syslog daemon.
+X# 
+X# Change the FACILITY definition below if you disagree with the default
+X# disposition. Some syslog versions (including Ultrix 4.x) do not provide
+X# this flexibility.
+X# 
+X# If nothing shows up on your system, it may be that the syslog records
+X# are sent to a dedicated loghost. It may also be that no syslog daemon
+X# is running at all. The README file gives pointers to surrogate syslog
+X# implementations for systems that have no syslog library routines or
+X# no syslog daemons.
+X#
+X# The LOG_XXX names below are taken from the /usr/include/syslog.h file.
+X
+XFACILITY= LOG_MAIL	# LOG_MAIL is what most sendmail daemons use
+X
+X# The syslog priority at which successful connections are logged.
+X
+XSEVERITY= LOG_INFO	# LOG_INFO is normally not logged to the console
+X
+X#############################################
+X# Enabling remote username lookups (Optional)
+X#
+X# By default, the wrappers just report the remote host name (the host
+X# address if the host name lookup fails or times out).  Username lookups
+X# require that the remote host runs a daemon that supports a RFC 931 like
+X# protocol.  Remote user name lookups are not possible for UDP-based
+X# connections, and can cause noticeable delays with connections from
+X# non-UNIX PCs.  On some systems, remote username lookups can trigger a
+X# kernel bug, causing loss of service. The README file gives details on
+X# how to find out if your system has that problem.
+X# 
+X# Uncomment the following definition if the wrappers should always
+X# attempt to get the remote user name.
+X#
+X# The default username lookup timeout is 30 seconds.
+X#
+X#AUTH	= -DRFC931_TIMEOUT=30 -DRFC931
+X
+X# The USER_AT_HOST feature does selective username lookups. It triggers
+X# on access control patterns of the form xxx@yyy. Until now, such
+X# patterns were not used, so that USER_AT_HOST does not break existing
+X# rules.
+X# 
+X# The feature is not documented and is not yet intended for general use,
+X# because it can complicate the design of access control tables.
+X# 
+X# With USER_AT_HOST enabled, remote username lookups are done only for
+X# user_pattern@host_pattern expressions in the access control files, but
+X# only when the host_pattern matches. Example: "ALL: @pcgroup ALL@ALL"
+X# avoids user name lookups for members of the pcgroup netgroup.  The
+X# user_pattern syntax is identical to that of host_pattern, but "ALL"
+X# is usually the only user_pattern that makes sense.
+X# 
+X# The default username lookup timeout is 30 seconds.
+X#
+X#AUTH	= -DRFC931_TIMEOUT=30 -DUSER_AT_HOST
+X
+X########################################################
+X# Turning on experimental language extensions (Optional)
+X#
+X# Instead of the officially documented access control language, the
+X# software can be configured to implement a more experimental language
+X# that is easily extended. The experimental language is implemented by
+X# the "options.c" source module which also serves as its documentation.
+X
+XSTYLE	= -DOPTIONS_STYLE=shell_cmd		# The documented language
+X#STYLE	= -DOPTIONS_STYLE=process_options	# The experimental one
+X
+X######################################################
+X# Changing the default file protection mask (Optional)
+X#
+X# On many systems, network daemons and other system processes are started
+X# with a zero umask value, so that world-writable files may be produced.
+X# It is a good idea to edit your /etc/rc* files so that they begin with
+X# an explicit umask setting.  On our site we use `umask 022' because it
+X# does not break anything yet gives adequate protection against tampering.
+X# 
+X# The following macro specifies the default umask for processes run under
+X# control of the daemon wrappers. Comment it out only if you are certain
+X# that inetd and its children are started with a safe umask value.
+X
+XUMASK	= -DDAEMON_UMASK=022
+X
+X#######################################
+X# Turning off access control (Optional)
+X#
+X# By default, host access control is enabled.  To disable host access
+X# control, comment out the following definition.  Host access control
+X# can also be turned off at runtime by providing no or empty access
+X# control tables.
+X
+XACCESS	= -DHOSTS_ACCESS
+X
+X########################################################
+X# Changing the access control table pathnames (Optional)
+X#
+X# The HOSTS_ALLOW and HOSTS_DENY macros define where the programs will
+X# look for access control information. Watch out for the quotes and
+X# backslashes when you make changes.
+X
+XTABLES	= -DHOSTS_DENY=\"/etc/hosts.deny\" -DHOSTS_ALLOW=\"/etc/hosts.allow\"
+X
+X###########################################
+X# Turning off host NAME checking (Optional)
+X#
+X# By default, the software tries to protect against hosts that claim to
+X# have someone elses host name. This is relevant for network services
+X# whose authentication depends on host names, such as rsh and rlogin.
+X#
+X# With paranoid mode on, connections will be rejected when the host name
+X# does not match the host address. Connections will also be rejected when
+X# the host name cannot be verified because gethostbyname() fails.
+X#
+X# Comment out the following definition if you do not need this additional
+X# protection. If paranoid mode is off, and a host name check fails, the
+X# daemon wrappers will use only the host address, but your daemons may
+X# still use the host name.
+X
+XPARANOID= -DPARANOID
+X
+X##############################################
+X# Turning off host ADDRESS checking (Optional)
+X#
+X# By default, the software tries to protect against hosts that pretend to
+X# have someone elses host address. This is relevant for network services
+X# whose authentication depends on host names, such as rsh and rlogin,
+X# because the network address is used to look up the remote host name.
+X# 
+X# The protection is effective only when the offending host claims to have
+X# a network address that lies outside its own network.
+X#
+X# My site has been running rlogind and rshd daemons that implement this
+X# feature for more than 2 years, and without any ill effects.
+X#
+X# Comment out the following definition if you do not need the additional
+X# protection.
+X
+XKILL_OPT= -DKILL_IP_OPTIONS
+X
+X## End configuration options
+X############################
+X
+XCFLAGS	= -O -DFACILITY=$(FACILITY) $(ACCESS) $(PARANOID) $(NETGROUP) \
+X	$(BUGS) $(SYSTYPE) $(AUTH) $(UMASK) -DREAL_MISCD=$(REAL_MISCD) \
+X	-DREAL_DAEMON_DIR=$(REAL_DAEMON_DIR) $(STYLE) $(KILL_OPT) \
+X	-DSEVERITY=$(SEVERITY) $(UCHAR) $(TABLES) $(STRINGS)
+X
+XLIB_OBJ= hosts_access.o options.o shell_cmd.o rfc931.o hosts_info.o \
+X	hosts_ctl.o refuse.o percent_x.o clean_exit.o $(AUX_OBJ) \
+X	fromhost.o fix_options.o
+X
+XKIT	= README miscd.c tcpd.c fromhost.c hosts_access.c shell_cmd.c \
+X	log_tcp.h try.c refuse.c Makefile.dist hosts_access.5 strcasecmp.c \
+X	BLURB rfc931.c tcpd.8 hosts_info.c hosts_access.3 hosts_ctl.c \
+X	percent_x.c options.c clean_exit.c setenv.c patchlevel.h strtok.c \
+X	fix_options.c inet_addr_fix
+X
+XLIB	= libwrap.a
+X
+X$(LIB):	$(LIB_OBJ)
+X	rm -f $(LIB)
+X	ar $(ARFLAGS) $(LIB) $(LIB_OBJ)
+X	$(RANLIB) $(LIB)
+X
+Xtcpd:	tcpd.o fromhost.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ tcpd.o fromhost.o $(LIB) $(LIBS)
+X
+Xmiscd:	miscd.o fromhost.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ miscd.o fromhost.o $(LIB) $(LIBS)
+X
+Xtry:	try.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ try.o $(LIB) $(LIBS)
+X
+Xfromhost: fromhost.c log_tcp.h Makefile $(LIB)
+X	$(CC) $(CFLAGS) -DTEST -o fromhost fromhost.c $(LIB) $(LIBS)
+X	rm -f fromhost.o
+X
+Xshar:	$(KIT)
+X	@shar $(KIT)
+X
+Xkit:	$(KIT)
+X	@makekit $(KIT)
+X
+Xarchive:
+X	$(ARCHIVE) $(KIT)
+X
+Xclean:
+X	rm -f tcpd miscd try fromhost *.[oa] core
+X
+X# Enable all bells and whistles for linting.
+X
+Xlint: tcpd_lint miscd_lint try_lint
+X
+Xtcpd_lint:
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DPARANOID -DNETGROUP \
+X	-DGETPEERNAME_BUG -DDAEMON_UMASK=022 -DSEVERITY=$(SEVERITY) \
+X	-DUSER_AT_HOST -DKILL_IP_OPTIONS -DOPTIONS_STYLE=process_options \
+X	tcpd.c fromhost.c hosts_access.c shell_cmd.c refuse.c rfc931.c \
+X	hosts_info.c percent_x.c clean_exit.c options.c setenv.c fix_options.c
+X
+Xmiscd_lint:
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DPARANOID -DNETGROUP \
+X	-DGETPEERNAME_BUG -DDAEMON_UMASK=022 -DSEVERITY=$(SEVERITY) \
+X	-DUSER_AT_HOST -DKILL_IP_OPTIONS -DOPTIONS_STYLE=process_options \
+X	miscd.c fromhost.c hosts_access.c shell_cmd.c refuse.c rfc931.c \
+X	hosts_info.c percent_x.c clean_exit.c options.c setenv.c fix_options.c
+X
+Xtry_lint:
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DNETGROUP try.c \
+X	hosts_ctl.c hosts_access.c hosts_info.c percent_x.c
+X
+X# Compilation dependencies.
+X
+Xclean_exit.o: log_tcp.h Makefile
+Xfix_options.o: log_tcp.h Makefile
+Xfromhost.o: log_tcp.h Makefile
+Xhosts_access.o: log_tcp.h Makefile
+Xhosts_ctl.o: log_tcp.h Makefile
+Xhosts_info.o: log_tcp.h Makefile
+Xmiscd.o: patchlevel.h log_tcp.h Makefile
+Xoptions.o: log_tcp.h Makefile
+Xpercent_x.o: log_tcp.h Makefile
+Xrefuse.o: log_tcp.h Makefile
+Xrfc931.o: log_tcp.h Makefile
+Xshell_cmd.o: log_tcp.h Makefile
+Xtcpd.o: patchlevel.h log_tcp.h Makefile
+Xtry.o: log_tcp.h Makefile
+END_OF_Makefile.dist
+if test 15298 -ne `wc -c <Makefile.dist`; then
+    echo shar: \"Makefile.dist\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f hosts_access.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hosts_access.c\"
+else
+echo shar: Extracting \"hosts_access.c\" \(11173 characters\)
+sed "s/^X//" >hosts_access.c <<'END_OF_hosts_access.c'
+X /*
+X  * This module implements a simple access control language that is based on
+X  * host (or domain) names, netgroup, internet addresses (or network numbers)
+X  * and daemon process names. When a match is found an optional shell command
+X  * is executed and the search is terminated.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Compile with -DNETGROUP if your library provides support for netgroups.
+X  * 
+X  * Compile with -DUSER_AT_HOST for rule-driven username lookups.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) hosts_access.c 1.10 93/03/07 22:47:36";
+X#endif
+X
+X /* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <ctype.h>
+X#include <errno.h>
+X
+Xextern char *fgets();
+Xextern char *strchr();
+Xextern char *strtok();
+X
+X#ifndef	INADDR_NONE
+X#define	INADDR_NONE	(-1)		/* XXX should be 0xffffffff */
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X#ifdef INET_ADDR_BUG
+X#include "inet_addr_fix"
+X#endif
+X
+X/* Delimiters for lists of daemons or clients. */
+X
+Xstatic char sep[] = ", \t";
+X
+X/* Constants to be used in assignments only, not in comparisons... */
+X
+X#define	YES		1
+X#define	NO		0
+X#define	FAIL		(-1)
+X
+X/* Forward declarations. */
+X
+Xstatic int table_match();
+Xstatic int list_match();
+Xstatic int client_match();
+Xstatic int string_match();
+Xstatic int masked_match();
+Xstatic char *xgets();
+X
+X/* The user@host access control. Trivial to add but complicates use. */
+X
+X#ifdef USER_AT_HOST
+Xstatic int userhost_match();
+X#define CLIENT_MATCH userhost_match
+X#else
+X#define CLIENT_MATCH client_match
+X#endif
+X
+X/* Size of logical line buffer. */
+X
+X#define	BUFLEN 2048
+X
+X/* hosts_access - host access control facility */
+X
+Xint     hosts_access(daemon, client)
+Xchar   *daemon;
+Xstruct from_host *client;		/* host or user name may be empty */
+X{
+X
+X    /*
+X     * If the (daemon, client) pair is matched by an entry in the file
+X     * /etc/hosts.allow, access is granted. Otherwise, if the (daemon,
+X     * client) pair is matched by an entry in the file /etc/hosts.deny,
+X     * access is denied. Otherwise, access is granted. A non-existent
+X     * access-control file is treated as an empty file.
+X     */
+X
+X    if (table_match(HOSTS_ALLOW, daemon, client))
+X	return (YES);
+X    if (table_match(HOSTS_DENY, daemon, client))
+X	return (NO);
+X    return (YES);
+X}
+X
+X/* table_match - match table entries with (daemon, client) pair */
+X
+Xstatic int table_match(table, daemon, client)
+Xchar   *table;
+Xchar   *daemon;
+Xstruct from_host *client;		/* host or user name may be empty */
+X{
+X    FILE   *fp;
+X    char    sv_list[BUFLEN];		/* becomes list of daemons */
+X    char   *cl_list;			/* becomes list of clients */
+X    char   *sh_cmd;			/* becomes optional shell command */
+X    int     match;
+X    int     end;
+X
+X    /* The following variables should always be tested together. */
+X
+X    int     sv_match = NO;		/* daemon matched */
+X    int     cl_match = NO;		/* client matced */
+X
+X    /*
+X     * Process the table one logical line at a time. Lines that begin with a
+X     * '#' character are ignored. Non-comment lines are broken at the ':'
+X     * character (we complain if there is none). The first field is matched
+X     * against the daemon process name (argv[0]), the second field against
+X     * the host name or address. A non-existing table is treated as if it
+X     * were an empty table. The search terminates at the first matching rule.
+X     * When a match is found an optional shell command is executed.
+X     */
+X
+X    if (fp = fopen(table, "r")) {
+X	while (!(sv_match && cl_match) && xgets(sv_list, sizeof(sv_list), fp)) {
+X	    if (sv_list[end = strlen(sv_list) - 1] != '\n') {
+X		syslog(LOG_ERR, "%s: missing newline or line too long", table);
+X		continue;
+X	    }
+X	    if (sv_list[0] == '#')		/* skip comments */
+X		continue;
+X	    while (end > 0 && isspace(sv_list[end - 1]))
+X		 end--;
+X	    sv_list[end] = '\0';		/* strip trailing whitespace */
+X	    if (sv_list[0] == 0)		/* skip blank lines */
+X		continue;
+X	    if ((cl_list = strchr(sv_list, ':')) == 0) {
+X		syslog(LOG_ERR, "%s: malformed entry: \"%s\"", table, sv_list);
+X		continue;
+X	    }
+X	    *cl_list++ = '\0';			/* split 1st and 2nd fields */
+X	    if ((sh_cmd = strchr(cl_list, ':')) != 0)
+X		*sh_cmd++ = '\0';		/* split 2nd and 3rd fields */
+X	    if ((sv_match = list_match(sv_list, daemon, string_match)))
+X		cl_match = list_match(cl_list, (char *) client, CLIENT_MATCH);
+X	}
+X	(void) fclose(fp);
+X    } else if (errno != ENOENT) {
+X	syslog(LOG_ERR, "cannot open %s: %m", table);
+X    }
+X    match = (sv_match == YES && cl_match == YES);
+X    if (match && sh_cmd)
+X	OPTIONS_STYLE(sh_cmd, daemon, client);
+X    return (match);
+X}
+X
+X/* list_match - match an item against a list of tokens with exceptions */
+X
+Xstatic int list_match(list, item, match_fn)
+Xchar   *list;
+Xchar   *item;
+Xint   (*match_fn) ();
+X{
+X    char   *tok;
+X    int     match = NO;
+X
+X    /*
+X     * Process tokens one at a time. We have exhausted all possible matches
+X     * when we reach an "EXCEPT" token or the end of the list. If we do find
+X     * a match, look for an "EXCEPT" list and recurse to determine whether
+X     * the match is affected by any exceptions.
+X     */
+X
+X    for (tok = strtok(list, sep); tok != 0; tok = strtok((char *) 0, sep)) {
+X	if (strcasecmp(tok, "EXCEPT") == 0)	/* EXCEPT: give up */
+X	    break;
+X	if (match = (*match_fn) (tok, item))	/* YES or FAIL */
+X	    break;
+X    }
+X    /* Process exceptions to YES or FAIL matches. */
+X
+X    if (match != NO) {
+X	while ((tok = strtok((char *) 0, sep)) && strcasecmp(tok, "EXCEPT"))
+X	     /* VOID */ ;
+X	if (tok == 0 || list_match((char *) 0, item, match_fn) == NO)
+X	    return (match);
+X    }
+X    return (NO);
+X}
+X
+X/* client_match - match host name and address against token */
+X
+Xstatic int client_match(tok, item)
+Xchar   *tok;
+Xchar   *item;
+X{
+X    struct from_host *client = (struct from_host *) item;
+X    int     match;
+X
+X    /*
+X     * Try to match the address first. If that fails, try to match the host
+X     * name if available.
+X     */
+X
+X    if ((match = string_match(tok, client->addr)) == 0)
+X	if (client->name[0] != 0)
+X	    match = string_match(tok, client->name);
+X    return (match);
+X}
+X
+X#ifdef USER_AT_HOST
+X
+X/* userhost_match - do user@host access control */
+X
+Xstatic int userhost_match(tok, item)
+Xchar   *tok;
+Xchar   *item;
+X{
+X    struct from_host *client = (struct from_host *) item;
+X    int     match = NO;
+X    char   *at;
+X    int     host_match;
+X    int     user_match;
+X
+X    /*
+X     * Warning: experimental code, enabled only when USER_AT_HOST is defined.
+X     * 
+X     * Basically, you specify user_pattern@host_pattern where remote username
+X     * lookups are desired, and plain host_pattern for all other cases. The
+X     * syntax of user name patterns is the same as for hosts or daemons, but
+X     * ALL is probably the only user_pattern that makes sense.
+X     * 
+X     * In case of UDP connections, the result of username lookup will always be
+X     * "unknown".
+X     * 
+X     * Return FAIL if we match a pattern of the form user@FAIL or FAIL@host:
+X     * FAIL, like NO, is transitive. According to some people, such patterns
+X     * should be taken out and shot. Good news: FAIL is on its way out.
+X     */
+X
+X    if (at = strchr(tok + 1, '@')) {		/* user@host */
+X	*at = 0;
+X	if (host_match = client_match(at + 1, item)) {
+X	    if (client->user[0] == 0) {
+X		if (client->sock_type != FROM_CONNECTED) {
+X		    client->user = FROM_UNKNOWN;
+X		} else if (client->sin == 0) {
+X		    syslog(LOG_ERR, "no socket info for user name lookup");
+X		    client->user = FROM_UNKNOWN;
+X		} else {
+X		    client->user = rfc931_name(client->sin);
+X		}
+X	    }
+X	    user_match = string_match(tok, client->user);
+X	    if (user_match == NO || user_match == FAIL) {
+X		match = user_match;
+X	    } else {
+X		match = host_match;
+X	    }
+X	}
+X	*at = '@';
+X    } else {					/* host */
+X	match = client_match(tok, item);
+X    }
+X    return (match);
+X}
+X
+X#endif /* USER_AT_HOST */
+X
+X/* string_match - match string against token */
+X
+Xstatic int string_match(tok, string)
+Xchar   *tok;
+Xchar   *string;
+X{
+X    int     tok_len;
+X    int     str_len;
+X    char   *cut;
+X#ifdef	NETGROUP
+X    static char *mydomain = 0;
+X#endif
+X
+X    /*
+X     * Return YES if a token has the magic value "ALL". Return FAIL if the
+X     * token is "FAIL". If the token starts with a "." (domain name), return
+X     * YES if it matches the last fields of the string. If the token has the
+X     * magic value "LOCAL", return YES if the string does not contain a "."
+X     * character. If the token ends on a "." (network number), return YES if
+X     * it matches the first fields of the string. If the token begins with a
+X     * "@" (netgroup name), return YES if the string is a (host) member of
+X     * the netgroup. Return YES if the token fully matches the string. If the
+X     * token is a netnumber/netmask pair, return YES if the address is a
+X     * member of the specified subnet.
+X     */
+X
+X    if (tok[0] == '.') {			/* domain: match last fields */
+X	if ((str_len = strlen(string)) > (tok_len = strlen(tok))
+X	    && strcasecmp(tok, string + str_len - tok_len) == 0)
+X	    return (YES);
+X    } else if (tok[0] == '@') {			/* netgroup: look it up */
+X#ifdef	NETGROUP
+X	if (mydomain == 0)
+X	    yp_get_default_domain(&mydomain);
+X	if (!isdigit(string[0])
+X	    && innetgr(tok + 1, string, (char *) 0, mydomain))
+X	    return (YES);
+X#else
+X	syslog(LOG_ERR, "wrapper: netgroup support is not configured");
+X	return (NO);
+X#endif
+X    } else if (strcasecmp(tok, "ALL") == 0) {	/* all: match any */
+X	return (YES);
+X    } else if (strcasecmp(tok, "FAIL") == 0) {	/* fail: match any */
+X	return (FAIL);
+X    } else if (strcasecmp(tok, "LOCAL") == 0) {	/* local: no dots */
+X	if (strchr(string, '.') == 0 && strcasecmp(string, "unknown") != 0)
+X	    return (YES);
+X    } else if (!strcasecmp(tok, string)) {	/* match host name or address */
+X	return (YES);
+X    } else if (tok[(tok_len = strlen(tok)) - 1] == '.') {	/* network */
+X	if (strncmp(tok, string, tok_len) == 0)
+X	    return (YES);
+X    } else if ((cut = strchr(tok, '/')) != 0) {	/* netnumber/netmask */
+X	if (isdigit(string[0]) && masked_match(tok, cut, string))
+X	    return (YES);
+X    }
+X    return (NO);
+X}
+X
+X/* masked_match - match address against netnumber/netmask */
+X
+Xstatic int masked_match(tok, slash, string)
+Xchar   *tok;
+Xchar   *slash;
+Xchar   *string;
+X{
+X    unsigned long net;
+X    unsigned long mask;
+X    unsigned long addr;
+X
+X    if ((addr = inet_addr(string)) == INADDR_NONE)
+X	return (NO);
+X    *slash = 0;
+X    net = inet_addr(tok);
+X    *slash = '/';
+X    if (net == INADDR_NONE || (mask = inet_addr(slash + 1)) == INADDR_NONE) {
+X	syslog(LOG_ERR, "bad net/mask access control: %s", tok);
+X	return (NO);
+X    }
+X    return ((addr & mask) == net);
+X}
+X
+X/* xgets - fgets() with backslash-newline stripping */
+X
+Xstatic char *xgets(buf, len, fp)
+Xchar   *buf;
+Xint     len;
+XFILE   *fp;
+X{
+X    int     got;
+X    char   *start = buf;
+X
+X    for (;;) {
+X	if (fgets(buf, len, fp) == 0)
+X	    return (buf > start ? start : 0);
+X	got = strlen(buf);
+X	if (got >= 2 && buf[got - 2] == '\\' && buf[got - 1] == '\n') {
+X	    got -= 2;
+X	    buf += got;
+X	    len -= got;
+X	    buf[0] = 0;
+X	} else {
+X	    return (start);
+X	}
+X    }
+X}
+END_OF_hosts_access.c
+if test 11173 -ne `wc -c <hosts_access.c`; then
+    echo shar: \"hosts_access.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f options.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"options.c\"
+else
+echo shar: Extracting \"options.c\" \(10084 characters\)
+sed "s/^X//" >options.c <<'END_OF_options.c'
+X /*
+X  * General skeleton for adding options to the access control language. The
+X  * Makefile describes how this alternative language is enabled. Shell
+X  * commands will still be available, be it with a slightly different syntax.
+X  * 
+X  * The code uses a slightly different format of access control rules. It
+X  * assumes that an access control rule looks like this:
+X  * 
+X  * daemon_list : client_list : option : option ...
+X  * 
+X  * An option is of the form "keyword" or "keyword = value". Option fields are
+X  * processed from left to right. Blanks around keywords, "="  and values are
+X  * optional. Blanks within values are left alone.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Examples of options that are already implemented by the current skeleton:
+X  * 
+X  * user = nobody
+X  * 
+X  * Causes the process to switch its user id to that of "nobody". This normally
+X  * requires root privilege.
+X  * 
+X  * group = tty
+X  * 
+X  * Causes the process to change its group id to that of the "tty" group. In
+X  * order to switch both user and group ids you should normally switch the
+X  * group id before switching the user id.
+X  * 
+X  * setenv = name value
+X  * 
+X  * places a name,value pair into the environment. The value is subjected to
+X  * %<character> expansions.
+X  * 
+X  * spawn = (/usr/ucb/finger -l @%h | /usr/ucb/mail root) &
+X  * 
+X  * Executes (in a background child process) the shell command "finger -l @%h |
+X  * mail root" after doing the %<character> expansions described in the
+X  * hosts_access(5) manual page. The command is executed with stdin, stdout
+X  * and stderr connected to the null device. Because options are processed in
+X  * order, multiple spawn comands can be specified within the same access
+X  * control rule, though "spawn = command1; command2" would be more
+X  * efficient.
+X  * 
+X  * in.ftpd : ... : twist = /bin/echo 421 Some customized bounce message
+X  * 
+X  * Sends some custmized bounce message to the remote client instead of running
+X  * the real ftp daemon. The command is subjected to %<character> expansion
+X  * before execution by /bin/sh. Stdin, stdout and stderr are connected to the
+X  * remote client process. The twist'ed command overlays the current process;
+X  * it makes no sense to specify other options on the same line after a
+X  * "twist". The "twist" option was inspired by Dan Bernstein's shuctl daemon
+X  * wrapper control language.
+X  * 
+X  * umask = value
+X  * 
+X  * Sets the process file creation mask. Value must be an octal number.
+X  * 
+X  * If you compile with -DRFC_OPTION, code is enabled for the following option
+X  * that does selective rfc931 lookups.
+X  * 
+X  * rfc931
+X  * 
+X  * Causes the daemon front ends to look up the remote user name with the RFC
+X  * 931 protocol.
+X  * 
+X  * Warnings:
+X  * 
+X  * This module uses the non-reentrant strtok() library routine. The options
+X  * argument to process_options() is destroyed.
+X  * 
+X  * There cannot be a ":" character in keywords or values. Backslash sequences
+X  * are not yet recognized.
+X  * 
+X  * In case of UDP connections, do not "twist" commands that use the standard
+X  * I/O or read(2)/write(2) routines to communicate with the client process;
+X  * UDP requires other communications primitives.
+X  * 
+X  * In case of errors, use clean_exit() instead of directly calling exit(), or
+X  * your inetd may loop on an UDP request.
+X  */
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/stat.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <pwd.h>
+X#include <grp.h>
+X#include <ctype.h>
+X
+Xextern char *strtok();
+Xextern char *strchr();
+Xextern void closelog();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* List of functions that implement the options. Add yours here. */
+X
+Xstatic void user_option();		/* execute "user=name" option */
+Xstatic void group_option();		/* execute "group=name" option */
+Xstatic void umask_option();		/* execute "umask=mask" option */
+Xstatic void twist_option();		/* execute "twist=command" option */
+X#ifdef RFC931_OPTION
+Xstatic void rfc931_option();		/* execute "rfc931" option */
+X#endif
+Xstatic void setenv_option();		/* execute "setenv=name value" */
+X
+Xstatic char *chop_string();		/* strip leading and trailing blanks */
+X
+X/* Structure of the options table. */
+X
+Xstruct option {
+X    char   *name;			/* keyword name, case does not matter */
+X    int     need_value;			/* value required or not */
+X    void    (*func) ();			/* function that does the real work */
+X};
+X
+X/* List of known keywords. Add yours here. */
+X
+Xstatic struct option option_table[] = {
+X    "user", 1, user_option,		/* switch user id */
+X    "group", 1, group_option,		/* switch group id */
+X    "umask", 1, umask_option,		/* change umask */
+X    "spawn", 1, shell_cmd,		/* spawn shell command */
+X    "twist", 1, twist_option,		/* replace current process */
+X#ifdef RFC931_OPTION
+X    "rfc931", 0, rfc931_option,		/* do RFC 931 lookup */
+X#endif
+X    "setenv", 1, setenv_option,		/* update environment */
+X    0,
+X};
+X
+Xstatic char whitespace[] = " \t\r\n";
+X
+X/* process_options - process optional access control information */
+X
+Xprocess_options(options, daemon, client)
+Xchar   *options;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char   *key;
+X    char   *value;
+X    struct option *op;
+X
+X    /*
+X     * Light-weight parser. Remember, we may be running as root so we need
+X     * code that is easy to comprehend.
+X     */
+X
+X    for (key = strtok(options, ":"); key; key = strtok((char *) 0, ":")) {
+X	if (value = strchr(key, '=')) {		/* keyword=value */
+X	    *value++ = 0;
+X	    value = chop_string(value);		/* strip blanks around value */
+X	    if (*value == 0)
+X		value = 0;			/* no value left */
+X	}
+X	key = chop_string(key);			/* strip blanks around key */
+X	for (op = option_table; op->name; op++)	/* find keyword */
+X	    if (strcasecmp(op->name, key) == 0)
+X		break;
+X	if (op->name == 0) {
+X	    syslog(LOG_ERR, "bad option or syntax: \"%s\"", key);
+X	} else if (value == 0 && op->need_value) {
+X	    syslog(LOG_ERR, "option \"%s\" requires value", key);
+X	} else if (value && op->need_value == 0) {
+X	    syslog(LOG_ERR, "option \"%s\" requires no value", key);
+X	} else {
+X	    (*(op->func)) (value, daemon, client);
+X	}
+X    }
+X}
+X
+X/* user_option - switch user id */
+X
+X/* ARGSUSED */
+X
+Xstatic void user_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    struct passwd *pwd;
+X    struct passwd *getpwnam();
+X
+X    if ((pwd = getpwnam(value)) == 0) {
+X	syslog(LOG_ERR, "unknown user: \"%s\"", value);
+X	clean_exit(client);
+X    } else if (setuid(pwd->pw_uid)) {
+X	syslog(LOG_ERR, "setuid(%s): %m", value);
+X	clean_exit(client);
+X    }
+X}
+X
+X/* group_option - switch group id */
+X
+X/* ARGSUSED */
+X
+Xstatic void group_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    struct group *grp;
+X    struct group *getgrnam();
+X
+X    if ((grp = getgrnam(value)) == 0) {
+X	syslog(LOG_ERR, "unknown group: \"%s\"", value);
+X	clean_exit(client);
+X    } else if (setgid(grp->gr_gid)) {
+X	syslog(LOG_ERR, "setgid(%s): %m", value);
+X	clean_exit(client);
+X    }
+X}
+X
+X/* umask_option - set file creation mask */
+X
+X/* ARGSUSED */
+X
+Xstatic void umask_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    unsigned mask;
+X    char    junk;
+X
+X    if (sscanf(value, "%o%c", &mask, &junk) != 1 || (mask & 0777) != mask) {
+X	syslog(LOG_ERR, "bad umask: \"%s\"", value);
+X	clean_exit(client);
+X    }
+X    (void) umask(mask);
+X}
+X
+X/* twist_option - replace process by shell command */
+X
+Xstatic void twist_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X    char   *error;
+X
+X    percent_x(buf, sizeof(buf), value, daemon, client, pid);
+X
+X    /* Since we will not be logging in the usual way, do it here and now. */
+X
+X    syslog(SEVERITY, "twist from %s to %s", hosts_info(client), buf);
+X    closelog();
+X
+X    /*
+X     * Before switching to the shell, set up stdout and stderr in case the
+X     * Ultrix inetd didn't.
+X     */
+X
+X    (void) close(1);
+X    (void) close(2);
+X    if (dup(0) != 1 || dup(0) != 2) {
+X	error = "dup: %m";
+X    } else {
+X	(void) execl("/bin/sh", "sh", "-c", buf, (char *) 0);
+X	error = "/bin/sh: %m";
+X    }
+X
+X    /* Can get here only in case of errors. */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(daemon, LOG_PID, FACILITY);
+X#else
+X    (void) openlog(daemon, LOG_PID);
+X#endif
+X    syslog(LOG_ERR, error);
+X    clean_exit(client);
+X}
+X
+X#ifdef RFC931_OPTION
+X
+X/* rfc931_option - look up remote user name */
+X
+X/* ARGSUSED */
+X
+Xstatic void rfc931_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    if (client->sock_type == FROM_CONNECTED) {
+X	if (client->sin == 0) {
+X	    syslog(LOG_ERR, "no socket info for username lookup");
+X	} else {
+X	    client->user = rfc931_name(client->sin);
+X	}
+X    }
+X}
+X
+X#endif
+X
+X/* setenv_option - set environment variable */
+X
+X/* ARGSUSED */
+X
+Xstatic void setenv_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct from_host *client;
+X{
+X    char   *var_name;
+X    char   *var_value;
+X    char    buf[BUFSIZ];
+X    int     pid;
+X
+X    /*
+X     * What we get is one string with the name and the value separated by
+X     * whitespace. Find the end of the name. If that is also the end of the
+X     * string, the value is empty.
+X     */
+X
+X    var_value = value + strcspn(value, whitespace);
+X
+X    if (*var_value == 0) {			/* just a name, that's all */
+X	var_name = value;
+X    } else {					/* expand %stuff in value */
+X	*var_value++ = 0;
+X	var_name = chop_string(value);
+X	pid = getpid();
+X	percent_x(buf, sizeof(buf), var_value, daemon, client, pid);
+X	var_value = chop_string(buf);
+X    }
+X    if (setenv(var_name, var_value, 1)) {
+X	syslog(LOG_ERR, "memory allocation failure");
+X	clean_exit(client);
+X    }
+X}
+X
+X/* chop_string - strip leading and trailing blanks from string */
+X
+Xstatic char *chop_string(start)
+Xregister char *start;
+X{
+X    register char *end;
+X
+X    while (*start && isspace(*start))
+X	start++;
+X
+X    for (end = start + strlen(start); end > start && isspace(end[-1]); end--)
+X	 /* void */ ;
+X    *end = 0;
+X
+X    return (start);
+X}
+END_OF_options.c
+if test 10084 -ne `wc -c <options.c`; then
+    echo shar: \"options.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

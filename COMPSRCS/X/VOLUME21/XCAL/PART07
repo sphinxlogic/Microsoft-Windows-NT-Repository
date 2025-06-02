@@ -1,0 +1,1874 @@
+Newsgroups: comp.sources.x
+From: pc@hillside.co.uk (Peter Collinson)
+Subject: v21i082:  xcal - A calendar program for X, Part07/08
+Message-ID: <1993Dec21.161826.22276@sparky.sterling.com>
+X-Md4-Signature: 4538a4bed324629e0653d811e1d9fc7d
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Hillside Systems, 61 Hillside Avenue, Canterbury, Kent CT2 8HA
+Date: Tue, 21 Dec 1993 16:18:26 GMT
+Approved: chris@sterling.com
+
+Submitted-by: pc@hillside.co.uk (Peter Collinson)
+Posting-number: Volume 21, Issue 82
+Archive-name: xcal/part07
+Environment: X11
+Supersedes: xcal: Volume 12, Issue 101
+
+Xcal is a calendar program. For more details see Part 1 of this posting
+
+Part 7 of 8
+--shar starts here--
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 8)."
+# Contents:  xcal.c xcal_alarm.c
+# Wrapped by pc@hillside on Wed Nov 17 11:24:37 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xcal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xcal.c'\"
+else
+echo shar: Extracting \"'xcal.c'\" \(23399 characters\)
+sed "s/^X//" >'xcal.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char    *sccsid = "@(#)xcal.c	3.50 (Hillside Systems) 11/17/93";
+Xstatic char    *copyright = "@(#)Copyright 1989,1990,1993 Peter Collinson, Hillside Systems";
+X#endif				/* lint */
+X/***
+X
+X* program name:
+X	xcal.c
+X* function:
+X	display the current calendar date
+X	if pressed as a button go into strip calendar mode
+X* switches:
+X	-format str	use str as a main display format
+X	-debug		run quickly incrementing time - 1 day per sec
+X	-alarmscan	print alarm debug info
+X	-format		Set date format of top level box
+X	-stripfmt	Set date format of strip
+X	-editfmt	Set date format of edit boxes
+X	-clocktick	Set clock tick rate.
+X	-u		Look at another user's calendar
+X* libraries used:
+X	libXaw.a, libXmu.a libXt.a libX11.a
+X* compile time parameters:
+X	standard
+X* history:
+X	Written November 1989
+X	Hacked again October 1993
+X	Peter Collinson
+X	Hillside Systems
+X* (C) Copyright: 1989 Hillside Systems/Peter Collinson
+X	
+X	Permission to use, copy, modify, and distribute this software
+X	and its documentation for any purpose is hereby granted to
+X	anyone, provided that the above copyright notice appear
+X	in all copies and that both that copyright notice and this
+X	permission notice appear in supporting documentation, and that
+X	the name of Peter Collinson not be used in advertising or
+X	publicity pertaining to distribution of the software without
+X	specific, written prior permission.  Hillside Systems makes no
+X	representations about the suitability of this software for any
+X	purpose.  It is provided "as is" without express or implied
+X	warranty.
+X	
+X	Peter Collinson DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+X	SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+X	AND FITNESS, IN NO EVENT SHALL Peter Collinson BE LIABLE FOR
+X	ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X	WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+X	WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+X	ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X	PERFORMANCE OF THIS SOFTWARE.
+X
+X***/
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <time.h>
+X#include <X11/Intrinsic.h>
+X#include <X11/Xos.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Shell.h>
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/Form.h>
+X#include "xcal.h"
+X
+Xchar            date_area[BUFSIZ];
+X
+X/* command line options specific to the application */
+Xstatic XrmOptionDescRec Options[] = {
+X	{"-debug", "debug", XrmoptionNoArg, (caddr_t) "TRUE"},
+X	{"-alarmscan", "alarmScan", XrmoptionNoArg, (caddr_t) "TRUE"},
+X	{"-format", "format", XrmoptionSepArg, NULL},
+X	{"-stripfmt", "stripFmt", XrmoptionSepArg, NULL},
+X	{"-editfmt", "editFmt", XrmoptionSepArg, NULL},
+X	{"-clocktick", "clockTick", XrmoptionSepArg, NULL},
+X	{"-u", "otherUser", XrmoptionSepArg, NULL},
+X};
+X
+Xstruct resources appResources;
+X
+XPixmap          HelpPix;
+XPixmap          HelpPressPix;
+XPixmap          IconPix;
+XPixmap          MouseOnPix;
+XPixmap          MouseOffPix;
+X
+XXtAppContext	appContext;
+X
+X#define offset(field) XtOffset(struct resources *, field)
+X
+Xstatic XtResource Resources[] = {
+X	{"debug", "Debug", XtRBoolean, sizeof(Boolean),
+X	offset(debug), XtRString, "False"},
+X        {"otherUser", "OtherUser", XtRString, sizeof(String),
+X        offset(otheruser), XtRString, NULL},
+X	{"alarmScan", "AlarmScan", XtRBoolean, sizeof(Boolean),
+X	offset(alarmScan), XtRString, "False"},
+X	{"reverseVideo", "ReverseVideo", XtRBoolean, sizeof(Boolean),
+X	offset(reverseVideo), XtRString, "False"},
+X	{"xcalendarCompat", "XcalendarCompat", XtRBoolean, sizeof(Boolean),
+X	offset(calCompat), XtRString, "False"},
+X	{"giveHelp", "GiveHelp", XtRBoolean, sizeof(Boolean),
+X	offset(giveHelp), XtRString, "True"},
+X	{"helpFromFile", "HelpFromFile", XtRBoolean, sizeof(Boolean),
+X	offset(helpFromFile), XtRString, "True"},
+X        {"helpFile", "HelpFile", XtRString, sizeof(String),
+X        offset(helpfile), XtRString, "/usr/lib/X11/app-defaults/XCal.help"},
+X	{"useMemo", "UseMemo", XtRBoolean, sizeof(Boolean),
+X	offset(useMemo), XtRString, "True"},
+X	{"memoLeft", "MemoLeft", XtRBoolean, sizeof(Boolean),
+X	offset(memoLeft), XtRString, "True"},
+X	{"initialCalendar", "InitialCalendar", XtRBoolean, sizeof(Boolean),
+X	offset(initialCalendar), XtRString, "False"},
+X	{"initialEdit", "InitialEdit", XtRBoolean, sizeof(Boolean),
+X	offset(initialEdit), XtRString, "False"},
+X	{"initialMemo", "InitialMemo", XtRBoolean, sizeof(Boolean),
+X	offset(initialMemo), XtRString, "False"},
+X        {"format", "Format", XtRString, sizeof(String),
+X        offset(format), XtRString, "%A %d %B %Y"},
+X        {"stripFmt", "StripFmt", XtRString, sizeof(String),
+X        offset(stripfmt), XtRString, "%B %Y"},
+X        {"editFmt", "EditFmt", XtRString, sizeof(String),
+X        offset(editfmt), XtRString, "%A %d %B %Y"},
+X	{"clockTick", "ClockTick", XtRInt, sizeof(int),
+X	offset(clocktick), XtRString, "0"},
+X	{"markToday", "MarkToday", XtRBoolean, sizeof(Boolean),
+X	offset(markToday), XtRString, "True"},
+X	{"fontToday", "FontToday", XtRFontStruct, sizeof(XFontStruct *),
+X	offset(fontToday), XtRString, "XtDefaultFont"},
+X	{"todayForeground", "TodayForeground", XtRPixel, sizeof(Pixel),
+X	offset(today.fg), XtRString, "White"},
+X	{"todayBackground", "TodayBackground", XtRPixel, sizeof(Pixel),
+X	offset(today.bg), XtRString, "Black"},
+X	{"directory", "Directory", XtRString, sizeof(String),
+X	offset(directory), XtRString, "Calendar"},
+X	{"textBufferSize", "TextBufferSize", XtRInt, sizeof(int),
+X	offset(textbufsz), XtRString, "2048"},
+X	{"useWmTitle", "UseWmTitle", XtRBoolean, sizeof(Boolean),
+X	offset(useWmTitle), XtRString, "True"},
+X	{"minStripWidth", "MinStripWidth", XtRDimension, sizeof(Dimension),
+X	offset(minstripwidth), XtRString, "0"},
+X	/* set to screen size in the code */
+X	{"maxStripHeight", "MinStripHeight", XtRDimension, sizeof(Dimension),
+X	offset(maxstripheight), XtRString, "0"},
+X	{"january", "January", XtRString, sizeof(String),
+X	offset(mon[0]), XtRString, "January"},
+X	{"february", "February", XtRString, sizeof(String),
+X	offset(mon[1]), XtRString, "February"},
+X	{"march", "March", XtRString, sizeof(String),
+X	offset(mon[2]), XtRString, "March"},
+X	{"april", "April", XtRString, sizeof(String),
+X	offset(mon[3]), XtRString, "April"},
+X	{"may", "May", XtRString, sizeof(String),
+X	offset(mon[4]), XtRString, "May"},
+X	{"june", "June", XtRString, sizeof(String),
+X	offset(mon[5]), XtRString, "June"},
+X	{"july", "July", XtRString, sizeof(String),
+X	offset(mon[6]), XtRString, "July"},
+X	{"august", "August", XtRString, sizeof(String),
+X	offset(mon[7]), XtRString, "August"},
+X	{"september", "September", XtRString, sizeof(String),
+X	offset(mon[8]), XtRString, "September"},
+X	{"october", "October", XtRString, sizeof(String),
+X	offset(mon[9]), XtRString, "October"},
+X	{"november", "November", XtRString, sizeof(String),
+X	offset(mon[10]), XtRString, "November"},
+X	{"december", "December", XtRString, sizeof(String),
+X	offset(mon[11]), XtRString, "December"},
+X	{"jan", "Jan", XtRString, sizeof(String),
+X	offset(smon[0]), XtRString, "Jan"},
+X	{"feb", "Feb", XtRString, sizeof(String),
+X	offset(smon[1]), XtRString, "Feb"},
+X	{"mar", "Mar", XtRString, sizeof(String),
+X	offset(smon[2]), XtRString, "Mar"},
+X	{"apr", "Apr", XtRString, sizeof(String),
+X	offset(smon[3]), XtRString, "Apr"},
+X	{"may", "May", XtRString, sizeof(String),
+X	offset(smon[4]), XtRString, "May"},
+X	{"jun", "Jun", XtRString, sizeof(String),
+X	offset(smon[5]), XtRString, "Jun"},
+X	{"jul", "Jul", XtRString, sizeof(String),
+X	offset(smon[6]), XtRString, "Jul"},
+X	{"aug", "Aug", XtRString, sizeof(String),
+X	offset(smon[7]), XtRString, "Aug"},
+X	{"sep", "Sep", XtRString, sizeof(String),
+X	offset(smon[8]), XtRString, "Sep"},
+X	{"oct", "Oct", XtRString, sizeof(String),
+X	offset(smon[9]), XtRString, "Oct"},
+X	{"nov", "Nov", XtRString, sizeof(String),
+X	offset(smon[10]), XtRString, "Nov"},
+X	{"dec", "Dec", XtRString, sizeof(String),
+X	offset(smon[11]), XtRString, "Dec"},
+X	{"sunday", "Sunday", XtRString, sizeof(String),
+X	offset(day[0]), XtRString, "Sunday"},
+X	{"monday", "Monday", XtRString, sizeof(String),
+X	offset(day[1]), XtRString, "Monday"},
+X	{"tuesday", "Tuesday", XtRString, sizeof(String),
+X	offset(day[2]), XtRString, "Tuesday"},
+X	{"wednesday", "Wednesday", XtRString, sizeof(String),
+X	offset(day[3]), XtRString, "Wednesday"},
+X	{"thursday", "Thursday", XtRString, sizeof(String),
+X	offset(day[4]), XtRString, "Thursday"},
+X	{"friday", "Friday", XtRString, sizeof(String),
+X	offset(day[5]), XtRString, "Friday"},
+X	{"saturday", "Saturday", XtRString, sizeof(String),
+X	offset(day[6]), XtRString, "Saturday"},
+X	{"sun", "Sun", XtRString, sizeof(String),
+X	offset(sday[0]), XtRString, "Sun"},
+X	{"mon", "Mon", XtRString, sizeof(String),
+X	offset(sday[1]), XtRString, "Mon"},
+X	{"tue", "Tue", XtRString, sizeof(String),
+X	offset(sday[2]), XtRString, "Tue"},
+X	{"wed", "Wed", XtRString, sizeof(String),
+X	offset(sday[3]), XtRString, "Wed"},
+X	{"thu", "Thu", XtRString, sizeof(String),
+X	offset(sday[4]), XtRString, "Thu"},
+X	{"fri", "Fri", XtRString, sizeof(String),
+X	offset(sday[5]), XtRString, "Fri"},
+X	{"sat", "Sat", XtRString, sizeof(String),
+X	offset(sday[6]), XtRString, "Sat"},
+X	{"weekly", "Weekly", XtRString, sizeof(String),
+X	offset(weekly), XtRString, "Weekly"},
+X	{"alarms", "Alarms", XtRBoolean, sizeof(Boolean),
+X	offset(alarms), XtRString, "True"},
+X	{"execAlarms", "ExecAlarms", XtRBoolean, sizeof(Boolean),
+X 	offset(execalarms), XtRString, "True"},
+X	{"alarmWarp", "AlarmWarp", XtRBoolean, sizeof(Boolean),
+X	offset(alarmWarp), XtRString, "False"},
+X	{"minAlarmWarp", "MinAlarmWarp", XtRInt, sizeof(int),
+X	offset(minAlarmWarp), XtRString, "7"},
+X	{"update", "Update", XtRInt, sizeof(int),
+X	offset(update), XtRString, "0"},
+X	{"volume", "Volume", XtRInt, sizeof(int),
+X	offset(volume), XtRString, "50"},
+X	{"nbeeps", "Nbeeps", XtRInt, sizeof(int),
+X	offset(nbeeps), XtRString, "3"},
+X	{"cmd", "Cmd", XtRString, sizeof(String),
+X	offset(cmd), XtRString, NULL},
+X	{"countdown", "Countdown", XtRString, sizeof(String),
+X	offset(countdown), XtRString, "10,0"},
+X	{"autoquit", "Autoquit", XtRInt, sizeof(int),
+X	offset(autoquit), XtRString, "120"},
+X	{"alarmleft", "Alarmleft", XtRString, sizeof(String),
+X	offset(alarmleft), XtRString, "%d minutes before..."},
+X	{"alarmnow", "Alarmnow", XtRString, sizeof(String),
+X	offset(alarmnow), XtRString, "Time is now..."},
+X	{"private", "Private", XtRString, sizeof(String),
+X	offset(private), XtRString, "Private calendar entry"},
+X	{"already", "Already", XtRString, sizeof(String),
+X	offset(already), XtRString, "Already editing %d %B %Y"},
+X	{"alreadyWeekly", "AlreadyWeekly", XtRString, sizeof(String),
+X	offset(alreadyWeekly), XtRString, "Already editing %A"},
+X	{"memoFile", "MemoFile", XtRString, sizeof(String),
+X	offset(memoFile), XtRString, "memo"},
+X	{"maxDisplayLines", "MaxDisplayLines", XtRInt, sizeof(int),
+X	offset(maxDisplayLines), XtRString, "5"},
+X};
+X
+Xstatic XtCallbackRec callbacks[] = {
+X	{NULL, NULL},
+X	{NULL, NULL},
+X};
+X#define ClearCallbacks() memset((caddr_t)callbacks, '\0', sizeof (callbacks))
+X
+Xstatic XtActionsRec appActions[] = {
+X	{"setdate", SetDate},
+X	{"leave", AskLeave},
+X	{"SetDateAction", TextCal},
+X	{"LoadDateAction", LoadDateStrip },
+X};
+X
+Xstatic String   defTranslations =
+X"<Btn2Down>: set()\n\
+X	<Btn2Up>:setdate() unset()\n\
+X	<Btn3Down>: set()\n\
+X	<Btn3Up>: leave() unset()";
+X
+XWidget          toplevel;
+X
+XWidget          mHelp;		/* popup help widget */
+X
+XDate            today;
+X
+Xint		updatefreq;	/* clock tick on the top level widget */
+X
+X/*
+X * external routines
+X */
+Xextern void     MainHelp();
+X
+X/*
+X * Forward routines local to this file
+X */
+Xvoid		AlterTitles();
+Xstatic void	ConvDate();
+Xstatic void     MkDate();
+Xstatic void     DebugMkDate();
+Xstatic void     PixInit();
+Xstatic int	CycleDays();
+Xstatic int	CycleMonths();
+Xstatic void	SetUpdateFreq();
+Xstatic int	UpdateFreq();
+Xstatic void	AdjustHeights();
+X
+X/*
+X *	Create the three components of the date strip
+X */
+Xstatic Widget	MemoWidget();
+Xstatic Widget	DateWidget();
+Xstatic Widget	HelpWidget();
+X
+X/*
+X * Your compiler may complain about the fact that some of the
+X * characters in these bitmaps are eight bits.
+X * If this worries you 
+X * #define UNSIGNED unsigned
+X */
+X#define UNSIGNED
+X
+X#include "calendar.bm"
+X#include "help.bm"
+X#include "help_press.bm"
+X#include "mouse.bm"
+X#include "mouseaway.bm"
+X#undef UNSIGNED
+X
+X/* defines fallbackResources */
+X#include "xcal_ad.h"
+X
+Xvoid
+Xmain(argc, argv)
+X	int    		argc;
+X	char           *argv[];
+X{
+X
+X	Widget          parent;
+X	Widget          memo;
+X	Widget          lab;
+X	static Arg      iconArg[] = {
+X		{XtNiconPixmap, (XtArgVal) NULL},
+X	};
+X
+X
+X	toplevel = XtAppInitialize(&appContext, "XCal",
+X				Options, XtNumber(Options), &argc, argv,
+X				fallbackResources, NULL, 0);
+X
+X	PixInit(toplevel);
+X	iconArg[0].value = IconPix;
+X	XtSetValues(toplevel, iconArg, XtNumber(iconArg));
+X
+X	if (argc != 1)
+X		fprintf(stderr, "%s: Error in arguments\n", argv[0]);
+X
+X	XtGetApplicationResources(toplevel, (caddr_t) & appResources, Resources,
+X				  XtNumber(Resources), (ArgList) NULL, 0);
+X
+X	/*
+X	 * If reverse video invert default colour settings
+X	 */
+X	if (appResources.reverseVideo) {
+X		Colour          old;
+X		old = appResources.today;
+X		appResources.today.fg = old.bg;
+X		appResources.today.bg = old.fg;
+X	}
+X	
+X	if (!MyCalendar)
+X		AlterTitles();
+X	
+X	InitMonthEntries();
+X
+X	/* get a maximum initial size of the box */
+X	DoTemplate(date_area, sizeof(date_area), appResources.format);
+X
+X	parent = XtVaCreateManagedWidget("form", formWidgetClass, toplevel,
+X			 		  XtNborderWidth, 0,
+X				 	  XtNdefaultDistance, 0,
+X					  NULL);
+X	if (appResources.useMemo) {
+X		if (appResources.memoLeft) {
+X			memo = MemoWidget(parent, NULL);
+X			lab = DateWidget(parent, memo);
+X			if (appResources.giveHelp)
+X				mHelp = HelpWidget(parent, lab);
+X		} else {
+X			lab = DateWidget(parent, NULL);
+X			memo = MemoWidget(parent, lab);
+X			if (appResources.giveHelp)
+X				mHelp = HelpWidget(parent, memo);
+X		}
+X	} else {
+X		lab = DateWidget(parent, NULL);
+X		if (appResources.giveHelp)
+X			mHelp = HelpWidget(parent, lab);
+X	}
+X
+X	AdjustHeights(appResources.useMemo ? memo : NULL,
+X		      lab,
+X		      appResources.giveHelp ? mHelp : NULL);	
+X
+X	XtSetMappedWhenManaged(toplevel, False);
+X
+X	XtRealizeWidget(toplevel);	/* set the default geometry */
+X
+X	SetUpdateFreq(appResources.format);
+X
+X	if (appResources.debug) {
+X		fprintf(stderr, "Debug ON\n");
+X		DebugMkDate(lab);
+X	} else
+X		MkDate(lab);
+X
+X	XtAppAddActions(appContext, appActions, 4);	/* register actions */
+X	XtAugmentTranslations(lab, XtParseTranslationTable(defTranslations));
+X
+X	XtMapWidget(toplevel);
+X
+X	if (appResources.initialCalendar)
+X		DoCalendar(lab, NULL, NULL);
+X
+X	if (appResources.initialEdit) {
+X		MonthEntry     *me;
+X
+X		me = GetMonthEntry(today.year, today.month);
+X		if (me->me_have[today.day])
+X			StartEditing(lab, &today, NULL);
+X	}
+X	if (appResources.useMemo && appResources.initialMemo)
+X		DoMemo(memo, NULL, NULL);
+X
+X	InitAlarms();
+X
+X	XtAppMainLoop(appContext);
+X	exit(0);
+X}
+X
+X/*
+X *	Make three widgets for the main strip
+X */
+Xstatic Widget
+XMemoWidget(parent, horiz)
+X	Widget parent;
+X	Widget horiz;
+X{
+X	Widget ret;
+X	
+X	callbacks[0].callback = DoMemo;
+X	ret = XtVaCreateManagedWidget("today", commandWidgetClass, parent,
+X				XtNcallback, (XtArgVal) callbacks,
+X				XtNfromHoriz, horiz,
+X				XtNleft, XtChainLeft,
+X				XtNright, XtRubber,
+X				XtNborderWidth, 0,
+X				XtNbitmap, MouseOnPix,
+X				NULL);
+X	ClearCallbacks();
+X	return ret;
+X}
+X
+Xstatic Widget
+XDateWidget(parent, horiz)
+X	Widget	parent, horiz;
+X{
+X	Widget	ret;
+X
+X	callbacks[0].callback = DoCalendar;
+X	ret = XtVaCreateManagedWidget("date", commandWidgetClass, parent,
+X				XtNlabel, (XtArgVal) date_area,
+X				XtNcallback, (XtArgVal) callbacks,
+X				XtNfromHoriz, horiz,
+X				XtNleft, XtChainLeft,
+X				XtNright, XtRubber,
+X				XtNborderWidth, 0,
+X				NULL);
+X	ClearCallbacks();
+X	return ret;
+X}
+X
+Xstatic Widget
+XHelpWidget(parent, horiz)
+X	Widget	parent, horiz;
+X{
+X	Widget	ret;
+X
+X	callbacks[0].callback = MainHelp;
+X	ret = XtVaCreateManagedWidget("mainHelp", commandWidgetClass, parent,
+X				XtNcallback, (XtArgVal) callbacks,
+X				XtNfromHoriz, horiz,
+X				XtNleft, XtRubber,
+X				XtNright, XtChainRight,
+X				XtNborderWidth, 0,
+X				XtNbitmap, HelpPix,
+X				NULL);
+X	ClearCallbacks();
+X	return ret;
+X}
+X		
+X/*
+X * Initialise Pixmaps
+X */
+Xstatic void
+XPixInit(toplevel)
+X	Widget          toplevel;
+X{
+X	Display        *theDisplay = XtDisplay(toplevel);
+X
+X	HelpPix = XCreateBitmapFromData(theDisplay,
+X					DefaultRootWindow(theDisplay),
+X					help_bits, help_width, help_height);
+X	HelpPressPix = XCreateBitmapFromData(theDisplay,
+X					     DefaultRootWindow(theDisplay),
+X		      help_press_bits, help_press_width, help_press_height);
+X	IconPix = XCreateBitmapFromData(theDisplay,
+X					DefaultRootWindow(theDisplay),
+X					cal_bits, cal_width, cal_height);
+X	MouseOnPix = XCreateBitmapFromData(theDisplay,
+X					   DefaultRootWindow(theDisplay),
+X			    (char *) mouse_bits, mouse_width, mouse_height);
+X	MouseOffPix = XCreateBitmapFromData(theDisplay,
+X					    DefaultRootWindow(theDisplay),
+X		(char *) mouseaway_bits, mouseaway_width, mouseaway_height);
+X}
+X
+X/*
+X *	Adjust height of the command box
+X */
+Xstatic void
+XAdjustHeights(memo, date, help)
+X	Widget	memo;
+X	Widget	date;
+X	Widget	help;
+X{
+X	Dimension hm, hd, hh, max;
+X
+X	hm = memo ? wHeight(memo): 0;
+X	hd = date ? wHeight(date): 0;
+X	hh = help ? wHeight(help): 0;
+X	
+X	max = hm;
+X	max = (hd > max) ? hd : max;
+X	max = (hh > max) ? hh : max;
+X
+X	if (hm && hm < max)
+X		SetWidgetHeightMax(memo, hm, max);
+X	if (hd && hd < max)
+X		SetWidgetHeightMax(date, hd, max);
+X	if (hh && hh < max)
+X		SetWidgetHeightMax(help, hh, max);
+X}
+X
+Xvoid
+XSetWidgetHeightMax(w, h, max)
+X	Widget		w;
+X	Dimension	 h;
+X	Dimension 	max;
+X{
+X	Arg	args[3];
+X	int	adj;
+X
+X	adj = ((int)max - (int)h)/2;
+X	if (adj > 0) {
+X		XtSetArg(args[0], XtNvertDistance, adj);
+X		XtSetArg(args[1], XtNfromVert, NULL);
+X		XtSetValues(w, args, 2);
+X	}
+X}
+X
+X/*
+X * If we are not dealing with our calendar entries add
+X * (user-name)
+X * to the end of the date format strings
+X */
+Xvoid
+XAlterTitles()
+X{
+X	char	us[16];
+X	char	fmt[256];
+X
+X	(void) sprintf(us, " (%s)", appResources.otheruser);
+X
+X	/* I am unsure whether it is safe to free these strings */
+X#define cstr(v) { strcpy(fmt, v); strcat(fmt, us); v = XtNewString(fmt); }
+X	cstr(appResources.format);
+X	cstr(appResources.stripfmt);
+X	cstr(appResources.editfmt);
+X#undef cstr
+X}
+X	
+X/*
+X * Flip mouse state
+X */
+Xvoid
+XMouseShow(w, OnOff)
+X	Widget          w;
+X	Boolean         OnOff;
+X{
+X	Arg             arg[1];
+X
+X	XtSetArg(arg[0], XtNbitmap, OnOff ? MouseOnPix : MouseOffPix);
+X	XtSetValues(w, arg, 1);
+X}
+X
+X/*
+X * Flip help state
+X */
+Xvoid
+XHelpShow(w, Pressed)
+X	Widget          w;
+X	Boolean         Pressed;
+X{
+X	Arg             arg[1];
+X
+X	XtSetArg(arg[0], XtNbitmap, Pressed ? HelpPressPix : HelpPix);
+X	XtSetValues(w, arg, 1);
+X}
+X
+X
+X/*
+X * Exit routine
+X */
+Xvoid
+XLeave(retval)
+X	int             retval;
+X{
+X	exit(retval);
+X}
+X
+X/************************************************************************/
+X/*									*/
+X/*									*/
+X/*      This deals with the top level date `icon'			*/
+X/*									*/
+X/*									*/
+X/************************************************************************/
+X/*
+X * Time management code
+X * Set up a Date structure from today's information
+X */
+Xstatic void
+XConvDate(tm, dp)
+X        struct tm      *tm;
+X        Date           *dp;
+X{
+X        dp->day = tm->tm_mday;
+X        dp->month = tm->tm_mon;
+X        dp->year = tm->tm_year + 1900;
+X        dp->wday = tm->tm_wday;
+X}
+X
+Xvoid
+XFmtTime(tm, buf, len, fmt)
+X	struct tm 	*tm;
+X	char		*buf;
+X	int		 len;
+X	char		*fmt;
+X	
+X{
+X	if (strftime(buf, len, fmt, tm) == 0) {
+X		strftime(buf, len, "%A %e %B %Y", tm);
+X	}
+X}
+X
+Xvoid
+XFmtDate(da, buf, len, fmt)
+X	Date	*da;
+X	char	*buf;
+X	int	len;
+X	char	*fmt;
+X{
+X	if (strfdate(buf, len, fmt, da) == 0) {
+X		strfdate(buf, len, "%A %e %B %Y", da);
+X	}
+X}
+X	
+Xstatic void
+XDebugMkDate(w)
+X	Widget          w;
+X{
+X	static long     ti;
+X	struct tm      *tm;
+X	Date            yesterday;
+X	static		firsttime;
+X
+X	yesterday = today;
+X
+X	if (ti == 0)
+X		(void) time(&ti);
+X	else 
+X		ti += updatefreq;
+X	tm = localtime(&ti);
+X
+X        ConvDate(tm, &today);
+X
+X	FmtTime(tm, date_area, sizeof(date_area), appResources.format);
+X
+X	XtVaSetValues(w, XtNlabel, (XtArgVal) date_area, NULL);
+X
+X	if (firsttime != 0) {
+X		if (yesterday.day != today.day) {
+X			ChangeHighlight(&yesterday, &today);
+X			AlarmFilePoll(tm);
+X		}
+X		UpdateMemo();
+X	}
+X	firsttime = 1;
+X	XtAppAddTimeOut(appContext, (updatefreq < 60) ? 25 : 500, DebugMkDate, (caddr_t) w);
+X}
+X
+Xstatic void
+XMkDate(w)
+X	Widget          w;
+X{
+X	long            ti;
+X	struct tm      *tm;
+X	Date            yesterday;
+X	static		firsttime;
+X
+X	yesterday = today;
+X
+X	(void) time(&ti);
+X	tm = localtime(&ti);
+X
+X        ConvDate(tm, &today);
+X
+X	FmtTime(tm, date_area, sizeof(date_area), appResources.format);
+X
+X	XtVaSetValues(w, XtNlabel, (XtArgVal) date_area, NULL);
+X
+X	if (firsttime != 0) {
+X		if (yesterday.day != today.day) {
+X			ChangeHighlight(&yesterday, &today);
+X			AlarmFilePoll(tm);
+X		}
+X		UpdateMemo();
+X	}
+X	firsttime = 1;
+X	
+X	ti = ClockSync(tm, updatefreq);
+X	XtAppAddTimeOut(appContext, ti * 1000, MkDate, (caddr_t) w);
+X}
+X
+X/*
+X * Given a time structure and a frequency in secs
+X * return no of secs to hit that interval
+X */
+Xlong
+XClockSync(tm, freq)
+X	struct	tm     *tm;
+X	long		freq;
+X{
+X	long	ti;
+X
+X	ti = freq;
+X	if (ti > 1 && ti < 60)
+X		ti -= tm->tm_sec%freq;
+X	else
+X	if (ti >= 60 && ti < 3600)
+X		ti -= (tm->tm_min*60 + tm->tm_sec)%freq;
+X	else
+X	if (ti >= 3600)
+X		ti -= (tm->tm_hour*60*60 + tm->tm_min*60 + tm->tm_sec)%freq;
+X	return ti;
+X}
+X
+X/*
+X * DoTemplate
+X * place an initial string into the date area so that the label
+X * box will always be big enough
+X */
+Xvoid
+XDoTemplate(buf, len, fmt)
+X	char	*buf;
+X	size_t	len;
+X	char	*fmt;
+X{
+X	Tm	 *tm;
+X	Tm	  tml;	
+X	time_t    ti;
+X	
+X	time(&ti);
+X	tm = localtime(&ti);
+X
+X	tml = *tm;	/* it seems that Solaris is unhappy when you */
+X	tm = &tml;	/* poke values into its own structure */
+X			/* but is OK if you have your own */
+X	/* generate a maximal structure */
+X	tm->tm_sec = 59;
+X	tm->tm_min = 59;
+X	tm->tm_hour = 23;
+X	tm->tm_mday = 27;
+X	tm->tm_mon = CycleMonths();
+X	tm->tm_year = 93;
+X	tm->tm_wday = CycleDays();
+X	FmtTime(tm, buf, len, fmt);
+X}
+X
+Xstatic int
+XCycleDays()
+X{
+X	int	max = 0;
+X	int	maxday = 0;
+X	char	buf[BUFSIZ];
+X	struct tm tm;
+X	int	d;
+X	int	len;
+X
+X	for (d = 0; d < 7; d++) {
+X		tm.tm_wday = d;
+X		len = strftime(buf, sizeof buf, "%A", &tm);
+X		if (len > max) {
+X			maxday = d;
+X			max = len;
+X		}
+X	}
+X	return maxday;
+X}
+X
+Xstatic int
+XCycleMonths()
+X{
+X	int	max = 0;
+X	int	maxmon = 0;
+X	char	buf[BUFSIZ];
+X	struct tm tm;
+X	int	d;
+X	int	len;
+X
+X	for (d = 0; d < 11; d++) {
+X		tm.tm_mon = d;
+X		len = strftime(buf, sizeof buf, "%B", &tm);
+X		if (len > max) {
+X			maxmon = d;
+X			max = len;
+X		}
+X	}
+X	return maxmon;
+X}
+X
+X/*
+X * Look to see if we need to do something more than poll daily to change
+X * the main toplevel strip
+X */
+Xstatic void
+XSetUpdateFreq(fmt)
+X	char	*fmt;
+X{	
+X	updatefreq = UpdateFreq(fmt);
+X	if (appResources.clocktick && updatefreq && 
+X	    updatefreq < appResources.clocktick)
+X		updatefreq = appResources.clocktick;
+X	if (updatefreq == 0)
+X		updatefreq = 24*60*60;
+X}
+X
+X
+X/*
+X * Scan the time format string looking for an update frequency
+X */
+Xstatic int
+XUpdateFreq(fmt)
+X	char *fmt;
+X{
+X	int	update = 0;
+X#define	minu(v)	update = (update == 0 ? v : ((update < v) ? update : v))
+X
+X	for(;*fmt; ++fmt) {
+X		if (*fmt == '%')
+X			switch(*++fmt) {
+X			case '\0':
+X				--fmt;
+X				break;
+X			case 'C':
+X			case 'c':
+X			case 'r':
+X			case 'S':
+X			case 's':
+X			case 'T':
+X			case 'X':
+X				minu(1);	/* every second */
+X				break;
+X			case 'M':
+X			case 'R':
+X				minu(60);	/* every minute */
+X				break;
+X			case 'H':
+X			case 'h':
+X			case 'I':
+X			case 'k':
+X			case 'l':
+X				minu(3600);	/* every hour */
+X				break;
+X			case 'p':
+X			case 'P':
+X				minu(43200);	/* AM/PM */
+X				break;
+X			}
+X	}
+X	return update;
+X}
+END_OF_FILE
+if test 23399 -ne `wc -c <'xcal.c'`; then
+    echo shar: \"'xcal.c'\" unpacked with wrong size!
+fi
+# end of 'xcal.c'
+fi
+if test -f 'xcal_alarm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xcal_alarm.c'\"
+else
+echo shar: Extracting \"'xcal_alarm.c'\" \(19473 characters\)
+sed "s/^X//" >'xcal_alarm.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char    *sccsid = "@(#)xcal_alarm.c	1.24 (Hillside Systems) 10/29/93";
+Xstatic char    *copyright = "@(#)Copyright 1989,1990,1993 Mark Majhor, Peter Collinson";
+X#endif				/* lint */
+X/***
+X
+X* module name:
+X	xcal_alarm.c
+X* function:
+X	Deal with editable days
+X	This is derived from xcalendar's view of how to store things
+X* history:
+X	Original idea and code from
+X	Mark Majhor, Sequent written August 1990, received Sept 1990
+X	I have reworked most of the code and algorithms
+X	Peter Collinson
+X	Hillside Systems
+X
+X* (C) Copyright: 1989/1990 Hillside Systems/Peter Collinson/Mark Majhor
+X	
+X	For full permissions and copyright notice - see xcal.c
+X	
+X***/
+X#include <X11/IntrinsicP.h>	/* for toolkit stuff */
+X#include <X11/Intrinsic.h>
+X#include <X11/Xos.h>
+X#include <X11/StringDefs.h>	/* for useful atom names */
+X#include <X11/Shell.h>
+X#include <X11/Xaw/AsciiText.h>
+X#include <X11/Xaw/Text.h>
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xaw/Label.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Paned.h>
+X#include <stdio.h>		/* for printing error messages */
+X#include <ctype.h>
+X#include <sys/stat.h>		/* for stat() */
+X#include <pwd.h>		/* for getting username */
+X#include <errno.h>
+X#include "xcal.h"
+X
+X#ifndef wordBreak
+X#define wordBreak	0x01
+X#define scrollVertical	0x02
+X#endif
+X
+Xstatic char    *LocalMapStem;
+Xstatic int	LocalMapStemMade;	/* day when LocalMapStem made last */
+Xstatic struct stat localstat;
+Xstatic char    *TodayFile;
+Xstatic struct stat todaystat;
+Xstatic Alarm    head;
+Xstatic int     *countDown;
+Xstatic int      countDownCt;
+X
+Xstatic XtCallbackRec callbacks[] = {
+X	{NULL, NULL},
+X	{NULL, NULL}
+X};
+X
+X#define	dprintf	if (appResources.alarmScan) printf
+X
+X#define	MINUTES(hr, mn)	((hr)*60 + (mn))
+X
+X#define argLD(N,V) { XtSetArg(args[nargs], N, V); nargs++; }
+X
+X/*
+X * Local routines
+X */
+Xstatic void     AlarmScan();
+Xstatic void     FreeAlarmList();
+Xstatic void     setCall();
+Xstatic void     beep();
+Xstatic void     AddAlarm();
+Xstatic void     DisplayAlarmWindow();
+Xstatic void     DestroyAlarm();
+Xstatic void     HoldAlarm();
+Xstatic void     AutoDestroy();
+Xstatic void	AlarmEvent();
+Xstatic void	ClockTick();
+Xstatic void	AlarmsOff();
+Xstatic int      readDataLine();
+Xstatic String	CreateCommand();
+Xstatic int	ReloadAlarms();
+X
+X/*
+X * Initialise variables for the alarm mechanism
+X */
+Xvoid
+XInitAlarms()
+X{
+X	register char  *str;
+X	register char  *wk;
+X	register        ct;
+X	register int   *p;
+X	char           *XtMalloc();
+X
+X	if (!MyCalendar)
+X		return;
+X
+X	if (appResources.alarms == False) {
+X		dprintf("Alarms not enabled\n");
+X		return;
+X	}
+X	dprintf("Alarms on\n");
+X	/*
+X	 * Interpret the countDown string established
+X	 * by user - turn this into a vector
+X	 * countDown -> points to a vector of integers
+X	 *	indicating the number of mins each alarm will be set
+X	 * countDownCt - the number of integers in the vector
+X	 */
+X	if (str = appResources.countdown) {
+X		for (wk = str, ct = 0; *wk; wk++)
+X			if (*wk == ',')
+X				ct++;
+X		ct++;		/* no of things to store */
+X
+X		countDown = (int *) XtMalloc(sizeof(int) * (ct + 2));
+X
+X		p = countDown;
+X		while (*str)
+X			if (!isdigit(*str))
+X				str++;
+X			else
+X				break;
+X		while (*str) {
+X			*p = 0;
+X			ct = 0;
+X			while (isdigit(*str))
+X				ct = ct * 10 + *str++ - '0';
+X			*p++ = ct;
+X			countDownCt++;
+X			while (*str && !isdigit(*str))
+X				str++;
+X		}
+X	}
+X	if (appResources.update)
+X		ClockTick(0, 0);
+X	else
+X		AlarmFilePoll(0);
+X}
+X
+X
+X/*
+X * ClockTick is polled every minute (update) to see if the data file has
+X * altered - if so then a new data list is built
+X */
+Xstatic void
+XClockTick(client_data, id)
+X	caddr_t         client_data;
+X	XtIntervalId   *id;
+X{
+X	long            secs;
+X	time_t          ti;
+X	struct tm      *tm;
+X
+X
+X	ti = time(0);
+X	tm = localtime(&ti);
+X
+X	dprintf("ClockTick %d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+X
+X	secs = ClockSync(tm, appResources.update);
+X	(void) XtAppAddTimeOut(appContext, secs * 1000,
+X			    (XtTimerCallbackProc) ClockTick,
+X			    (caddr_t) NULL);
+X	AlarmFilePoll(tm);
+X	MemoPoll();
+X}
+X
+Xvoid
+XAlarmFilePoll(tm)
+X	struct tm      *tm;
+X{
+X	time_t          ti;
+X	int		mnow;
+X	int             files, changed;
+X	struct stat	oldstat;
+X	char           *home;
+X	char            buf[256];
+X	Alarm		*old;
+X
+X	if (appResources.alarms == False)
+X		return;
+X
+X	if (tm == NULL) {
+X		ti = time(0);
+X		tm = localtime(&ti);
+X	}
+X	/*
+X	 * Create the name of the data file in a cache to save energy
+X	 */
+X	if (LocalMapStemMade != tm->tm_mday) {
+X		LocalMapStemMade = tm->tm_mday;
+X		if (appResources.calCompat == False) {
+X			(void) sprintf(buf, "%s/xy%d/xc%d%s%d",
+X				       MapStem,
+X				       tm->tm_year + 1900,
+X				       tm->tm_mday,
+X				       appResources.smon[tm->tm_mon],
+X				       tm->tm_year + 1900);
+X		} else {
+X			(void) sprintf(buf, "%s/xc%d%s%d",
+X				       MapStem,
+X			 	       tm->tm_mday,
+X				       appResources.smon[tm->tm_mon],
+X				       tm->tm_year + 1900);
+X		}
+X		if (LocalMapStem)
+X			XtFree(LocalMapStem);
+X		LocalMapStem = XtNewString(buf);
+X		dprintf("Todays Daily Filename = %s\n", LocalMapStem);
+X
+X		if (TodayFile)
+X			XtFree(TodayFile);
+X
+X		TodayFile = XtNewString(MakeWeeklyName(today.wday));
+X
+X		memset(&localstat, '\0', sizeof (struct stat));
+X		memset(&todaystat, '\0', sizeof (struct stat));
+X	}
+X	files = 0;
+X	changed = 0;
+X	/*
+X	 * check for file existence
+X	 */
+X	if (access(LocalMapStem, F_OK) == 0) {
+X		files = 1;
+X		oldstat = localstat;
+X		(void) stat(LocalMapStem, &localstat);
+X		if (oldstat.st_mtime != localstat.st_mtime ||
+X		    oldstat.st_ctime != localstat.st_ctime)
+X			changed = 1;
+X	}
+X	if (access(TodayFile, F_OK) == 0) {
+X		files |= 2;
+X		oldstat = todaystat;
+X		(void) stat(TodayFile, &todaystat);
+X		if (oldstat.st_mtime != todaystat.st_mtime ||
+X		    oldstat.st_ctime != todaystat.st_ctime)
+X			changed |= 2;
+X	}
+X
+X	old = NULL;
+X	if (changed) {
+X		old = head.next;
+X		head.next = NULL;
+X	}
+X	if (files) {
+X		if (changed) {
+X			mnow = MINUTES(tm->tm_hour, tm->tm_min);
+X			if (files & 1)
+X				AlarmScan(LocalMapStem, tm, mnow);
+X			if (files & 2)
+X				AlarmScan(TodayFile, tm, mnow);
+X			/* check on any extant alarm */
+X			if (ReloadAlarms(old, mnow))
+X				AlarmsOff();
+X			if (appResources.interval_id == 0 && head.next)
+X				setCall();
+X		}
+X	} else
+X		dprintf("No files to scan\n");
+X
+X	if (old)
+X		FreeAlarmList(old);
+X
+X	UpdateMemo();
+X}
+X
+Xstatic int
+XReloadAlarms(old, mnow)
+X	Alarm	       *old;
+X	int		mnow;
+X{
+X	Alarm	       *prev;
+X
+X	dprintf("Checking old alarm details\n");
+X	if (head.next == NULL) {
+X		if (old) {
+X			dprintf("No new alarms, stop old running\n");
+X			return 1;
+X		}
+X	}
+X	else if (head.next->alarm_mm <= mnow && 
+X	         (old == NULL ||
+X	 	  old->alarm_mm > head.next->alarm_mm)) {
+X		/* 
+X		 * this looks different but let's be careful
+X		 * if the entries on the new list are earlier
+X		 * than those on the old - then we have
+X		 * serviced those requests and we need to
+X		 * ensure that we don't fire them again
+X		 */
+X		while (head.next && head.next->alarm_mm <= mnow &&
+X		       (old == NULL ||
+X		        old->alarm_mm > head.next->alarm_mm)) {
+X			dprintf("Discard alarm\n");
+X			XtFree(head.next->alarm);
+X			XtFree(head.next->what);
+X			prev = head.next;
+X			head.next = prev->next;
+X			XtFree((char *)prev);
+X		}
+X		return (ReloadAlarms(old, mnow));
+X	}
+X	else if (old && old->alarm_mm != head.next->alarm_mm) {
+X		dprintf("First new alarm differs from old, stop old alarm\n");
+X		dprintf("Old: %d %s %s\n", old->alarm_mm, old->alarm, old->what);
+X		dprintf("New: %d %s %s\n", head.next->alarm_mm, head.next->alarm, head.next->what);
+X		return 1;
+X	}
+X	return 0;
+X}
+X
+Xstatic void
+XAlarmScan(file, tm, mnow)
+X	String          file;
+X	struct tm      *tm;
+X	int             mnow;
+X{
+X	FILE           *fp;
+X	char            hrstr[16];
+X	char            remline[256];
+X	char           *rem;
+X	int             hr, mn;
+X	Boolean         isAction;
+X
+X
+X	dprintf("Scanning data file %s\n", file);
+X
+X	if ((fp = fopen(file, "r")) == NULL) {
+X		fprintf(stderr, "Unexpected failure to open: %s\n", file);
+X		exit(1);
+X	}
+X	while (readDataLine(fp, &hr, &mn, hrstr, remline)) {
+X		/* see if we have an action string to do */
+X		isAction = False;
+X		rem = remline;
+X		if (*rem == '!' || strncmp(remline, "%cron", 5) == 0) {
+X			if (appResources.execalarms == False)
+X				continue;
+X			isAction = True;
+X			if (*rem == '!')
+X				rem++;
+X			else	rem += 5;
+X			while (isspace(*rem))
+X				rem++;
+X			if (*rem == '\0')
+X				continue;
+X		}
+X		AddAlarm(mnow, isAction, hr, mn, hrstr, rem);
+X	}
+X	(void) fclose(fp);
+X}
+X
+X/*
+X * The idea here is to generate a sorted event list - one element for each
+X * event. We will discard anything that has already happened
+X */
+Xstatic void
+XAddAlarm(mnow, exec, hr, mn, hrstr, rem)
+X	int             mnow;
+X	Boolean         exec;
+X	int             hr;
+X	int             mn;
+X	char           *hrstr;
+X	char           *rem;
+X{
+X
+X	Alarm          *al, *prev, *new;
+X	char           *XtMalloc();
+X	int             al_hr, al_mn, mm;
+X	int             loop;
+X	int             zero = 0;
+X	int            *p;
+X
+X	if (exec || countDownCt == 0) {
+X		loop = 1;
+X		p = &zero;
+X	} else {
+X		loop = countDownCt;
+X		p = countDown;
+X	}
+X
+X	for (; loop--; p++) {
+X		al_hr = hr;
+X		al_mn = mn;
+X		if (*p) {
+X			al_mn -= *p;
+X			if (al_mn < 0) {
+X				al_mn += 60;
+X				al_hr--;
+X				if (al_hr < 0)
+X					continue;
+X			}
+X		}
+X		if ((mm = MINUTES(al_hr, al_mn)) < mnow)
+X			continue;
+X
+X		new = (Alarm *) XtMalloc(sizeof(Alarm));
+X		new->alarm = XtNewString(hrstr);
+X		new->what = XtNewString(rem);
+X		new->alarm_mm = mm;
+X		new->alarm_state = *p;
+X		new->isAction = exec;
+X		new->next = NULL;
+X
+X		/* now insert into correct place in List */
+X		if (head.next == NULL) {
+X			head.next = new;
+X			dprintf("%s - %s; alarm at %02d:%02d\n",
+X				hrstr, rem, al_hr, al_mn);
+X		} else {
+X			for (prev = &head, al = head.next; al; prev = al, al = prev->next)
+X				if (mm < al->alarm_mm)
+X					break;
+X			prev->next = new;
+X			new->next = al;
+X			dprintf("%s - %s; alarm at %02d:%02d\n",
+X				hrstr, rem, al_hr, al_mn);
+X		}
+X	}
+X}
+X
+X/*
+X * read a line looking for a time spec and some data
+X * return 1 if found
+X * return 0 at end
+X * Time spec is: hhmm hmm
+X * hh:mm hh.mm
+X * h:mm h.mm
+X * all above may be optionally followed by:
+X * A a AM am Am aM P p PM pm Pm pM
+X * the string is terminated by a space or a tab
+X */
+Xstatic int
+XreadDataLine(fin, hrp, minp, timestr, remline)
+X	FILE           *fin;
+X	int            *hrp;
+X	int            *minp;
+X	char           *timestr;
+X	char           *remline;
+X{
+X	register enum readState {
+X		Ignore, Hr1, Hr2, HrSep,
+X		Mn1, Mn2, AmPm, LoseM,
+X		LookSp, LoseSp, Store, AllDone
+X	}               state;
+X	register int    c = 0;
+X	int             hr = 0, mn = 0;
+X	char           *destp;
+X	Boolean		foundampm = False;
+X
+X	if (feof(fin))
+X		return 0;
+X
+X	state = Hr1;
+X
+X	while (state != AllDone) {
+X		if ((c = getc(fin)) == EOF) {
+X			if (state == Store)
+X				break;
+X			return 0;
+X		}
+X		switch (state) {
+X		case Ignore:
+X			if (c == '\n')
+X				state = Hr1;
+X			continue;
+X		case Hr1:
+X			destp = timestr;
+X			if (isdigit(c)) {
+X				hr = c - '0';
+X				mn = 0;
+X				destp = timestr;
+X				*destp = '\0';
+X				state = Hr2;
+X				break;
+X			}
+X			state = (c == '\n' ? Hr1 : Ignore);
+X			continue;
+X		case Hr2:
+X			if (isdigit(c)) {
+X				hr = hr * 10 + c - '0';
+X				state = HrSep;
+X				break;
+X			}
+X			/* Falls through to .. */
+X		case HrSep:
+X			if (c == ':' || c == '.') {
+X				state = Mn1;
+X				break;
+X			}
+X			/* Falls through to .. */
+X		case Mn1:
+X			if (isdigit(c)) {
+X				mn = c - '0';
+X				state = Mn2;
+X				break;
+X			}
+X			/* Falls through to .. */
+X		case Mn2:
+X			if (isdigit(c)) {
+X				mn = mn * 10 + c - '0';
+X				state = AmPm;
+X				break;
+X			} else if (state == Mn2) {
+X				state = (c == '\n' ? Hr1 : Ignore);
+X				continue;
+X			}
+X			/* Falls through to .. */
+X		case AmPm:
+X			if (c == 'a' || c == 'A') {
+X				if (hr == 12)
+X					hr = 0;
+X				foundampm = True;
+X				state = LoseM;
+X				break;
+X			} else if (c == 'p' || c == 'P') {
+X				if (hr < 12)
+X					hr += 12;
+X				foundampm = True;
+X				state = LoseM;
+X				break;
+X			}
+X			/* Falls through to .. */
+X		case LoseM:
+X			if (c == 'M' || c == 'm') {
+X				state = LookSp;
+X				break;
+X			}
+X			/* Falls through to .. */
+X		case LookSp:
+X			if (c == ' ' || c == '\t') {
+X				state = LoseSp;
+X				if (hr >= 24 || mn >= 60)
+X					state = Ignore;
+X				destp = remline;
+X				*destp = '\0';
+X				continue;
+X			} else {
+X				state = (c == '\n' ? Hr1 : Ignore);
+X				continue;
+X			}
+X			break;
+X		case LoseSp:
+X			if (c == ' ' || c == '\t')
+X				continue;
+X			state = Store;
+X			/* Falls through to .. */
+X		case Store:
+X			if (c == '\n') {
+X				state = AllDone;
+X				continue;
+X			}
+X			break;
+X		}
+X		*destp++ = c;
+X		*destp = '\0';
+X	}
+X	/*
+X	 * idea from Marc Pawliger
+X	 * if you don't give an am or pm, then hours from 0 to minAlarmWarp
+X	 * is treated as a pm time
+X	 */
+X	if (appResources.alarmWarp == True &&
+X	    hr <= appResources.minAlarmWarp &&
+X	    appResources.minAlarmWarp < 12 &&
+X	    foundampm == False)
+X		hr += 12;
+X	*hrp = hr;
+X	*minp = mn;
+X	return 1;
+X}
+X
+X/*
+X * set up the timeout for the next event
+X */
+Xstatic void
+XsetCall()
+X{
+X	time_t          ti;
+X	long		mnow;
+X	struct tm      *tm;
+X	Alarm          *sc;
+X	int             togo;
+X
+X	ti = time(0);
+X	tm = localtime(&ti);
+X	mnow = MINUTES(tm->tm_hour, tm->tm_min);
+X
+X	for (sc = head.next; sc; sc = sc->next) {
+X		togo = sc->alarm_mm - mnow;
+X		if (togo == 0)
+X		{	AlarmEvent(1, 0);	/* don't miss any current alarms */
+X			sc = &head;
+X			continue;
+X		}
+X		if (togo < 0)
+X			continue;
+X		appResources.interval_id = XtAppAddTimeOut(appContext, 
+X			  togo * 60 * 1000 - tm->tm_sec * 1000,
+X			  (XtTimerCallbackProc) AlarmEvent, (caddr_t) NULL);
+X		dprintf("Alarm in %d mins (less %d secs)\n", togo, tm->tm_sec);
+X		break;
+X	}
+X}
+X
+X
+Xstatic void
+XAlarmEvent(client_data, id)
+X	caddr_t         client_data;
+X	XtIntervalId   *id;
+X{
+X	int             tnow;
+X	long            ti;
+X	struct tm      *tm;
+X	Alarm          *al, *action, *actionend;
+X	String		cmd;
+X
+X	appResources.interval_id = 0;
+X
+X	ti = time(0);
+X	tm = localtime(&ti);
+X	tnow = MINUTES(tm->tm_hour, tm->tm_min);
+X
+X	dprintf("Alarm %d:%02d:%02d\n", tm->tm_hour, tm->tm_min, tm->tm_sec);
+X
+X	/*
+X	 * Look for alarms that have fired and remove them
+X	 * from the list
+X	 */
+X	actionend = NULL;
+X	for (al = head.next; al; al = al->next) {
+X		if (al->alarm_mm <= tnow)
+X			actionend = al;
+X		else break;
+X	}
+X	if (actionend) {
+X		al = head.next;
+X		head.next = actionend->next;
+X		actionend->next = NULL;	
+X		/*
+X		 * now process the list
+X		 */
+X		while (al) {
+X			if (tnow == al->alarm_mm) {
+X
+X				if (appResources.cmd != NULL) {
+X					cmd = CreateCommand(appResources.cmd, al->what);
+X					system(cmd);
+X					XtFree(cmd);
+X				}
+X				if (al->isAction == False) {
+X					DisplayAlarmWindow(al->alarm_state, al->alarm, al->what);
+X					beep();	/* notify the user */
+X				} else {
+X					cmd = CreateCommand(al->what, NULL);
+X					system(cmd);
+X					XtFree(cmd);
+X				}
+X			}
+X			actionend = al->next;
+X			XtFree(al->alarm);
+X			XtFree(al->what);
+X			XtFree((char *) al);
+X			al = actionend;
+X		}
+X	}
+X	if (client_data == NULL)
+X		setCall();
+X}
+X
+Xstatic String
+XCreateCommand(cmd, arg)
+X	String	cmd;
+X	String	arg;
+X{
+X	String	buf;
+X	char	*s, *d;
+X	char	*fmt;
+X	int	cmdlen;
+X	int	arglen;
+X	
+X	cmdlen = strlen(cmd);
+X	arglen = arg ? strlen(arg) : 0;
+X
+X	buf = XtMalloc(cmdlen + arglen + 200);
+X	if (arglen == 0)
+X		fmt = "%s&";
+X	else	fmt = "%s '";
+X	(void) sprintf(buf, fmt, cmd);
+X	/*
+X	 * copy the arguments worrying about any embedded quote
+X	 */
+X#define	QUOTE	'\''
+X#define BACKSLASH '\\'
+X	if (arglen) {
+X		d = buf + strlen(buf);
+X		for(s = arg; *s; s++) {
+X			if (*s == QUOTE) {
+X				*d++ = QUOTE;
+X				*d++ = BACKSLASH;
+X				*d++ = QUOTE;
+X			}
+X			*d++ = *s;
+X		}
+X		*d++ = QUOTE;
+X		*d++ = '&';
+X		*d++ = '\0';
+X	}
+X	return buf;
+X}
+X
+Xstatic void
+Xbeep()
+X{
+X	register Display *dpy = XtDisplay(toplevel);
+X	int             i;
+X
+X	for (i = 0; i < appResources.nbeeps; i++) {
+X		XBell(dpy, appResources.volume);
+X		sleep(1);
+X	}
+X}
+X
+Xstatic void
+XFreeAlarmList(al)
+X	register Alarm *al;
+X{
+X	register Alarm *nx;
+X
+X	for (; al; al = nx) {
+X		nx = al->next;
+X		XtFree(al->alarm);
+X		XtFree(al->what);
+X		XtFree((char *) al);
+X	}
+X}
+X
+Xstatic void
+XAlarmsOff()
+X{
+X	if (appResources.interval_id) {
+X		XtRemoveTimeOut(appResources.interval_id);
+X		appResources.interval_id = 0;
+X	}
+X}
+X	
+Xtypedef struct {
+X	Widget          sa_top;
+X	XtIntervalId    sa_id;
+X} AlarmStatus;
+X
+Xstatic void
+XDisplayAlarmWindow(tleft, str1, str2)
+X	int             tleft;
+X	String          str1, str2;
+X{
+X	Widget          shell, form, title, aq, ah;
+X	Arg             args[10];
+X	Cardinal        nargs;
+X	char           *fmt;
+X	char            buf[255];
+X	AlarmStatus    *als;
+X
+X	/*
+X	 * making the top level shell the override widget class causes it to
+X	 * popup without window manager interaction or window manager
+X	 * handles.  this also means that it pops on the foreground of an
+X	 * xlocked terminal and is not resizable by the window manager.  If
+X	 * any one finds that to be desirable behavior, then change the
+X	 * transient class below to override.
+X	 * 
+X	 * For now transient class is much better behaved
+X	 */
+X	nargs = 0;
+X	argLD(XtNallowShellResize, True);
+X	argLD(XtNinput, True);
+X	argLD(XtNsaveUnder, TRUE);
+X	shell = XtCreatePopupShell("alarm", transientShellWidgetClass,
+X				   toplevel, args, nargs);
+X
+X	form = XtCreateManagedWidget("alarmPanel", panedWidgetClass,
+X				     shell, NULL, 0);
+X	/*
+X	 * create alarm status save area
+X	 */
+X	als = (AlarmStatus *) XtMalloc(sizeof(AlarmStatus));
+X
+X	als->sa_top = shell;
+X	als->sa_id = (XtIntervalId) NULL;
+X	if (appResources.autoquit) {
+X		als->sa_id = XtAppAddTimeOut(appContext,
+X				   	     appResources.autoquit * 1000,
+X					     AutoDestroy, (caddr_t) als);
+X	}
+X	nargs = 0;
+X	argLD(XtNshowGrip, False);
+X	argLD(XtNdefaultDistance, 2);
+X	title = XtCreateManagedWidget("alarmForm", formWidgetClass,
+X				      form, args, nargs);
+X	/*
+X	 * Exit button Take "Quit" from resources
+X	 */
+X	callbacks[0].callback = DestroyAlarm;
+X	callbacks[0].closure = (caddr_t) als;
+X	nargs = 0;
+X	argLD(XtNcallback, callbacks);
+X	argLD(XtNfromHoriz, NULL);
+X	argLD(XtNleft, XtChainLeft);
+X	argLD(XtNright, XtChainLeft);
+X	aq = XtCreateManagedWidget("alarmQuit", commandWidgetClass,
+X				   title, args, nargs);
+X
+X	/*
+X	 * Hold button Take "Hold" from resources
+X	 */
+X	callbacks[0].callback = HoldAlarm;
+X	callbacks[0].closure = (caddr_t) als;
+X	nargs = 0;
+X	argLD(XtNcallback, callbacks);
+X	argLD(XtNfromHoriz, aq);
+X	if (!appResources.autoquit) {
+X		argLD(XtNsensitive, False);
+X	}
+X	argLD(XtNleft, XtChainLeft);
+X	argLD(XtNright, XtChainLeft);
+X	ah = XtCreateManagedWidget("alarmHold", commandWidgetClass,
+X				   title, args, nargs);
+X
+X	if (tleft == 0)
+X		fmt = appResources.alarmnow;
+X	else
+X		fmt = appResources.alarmleft;
+X
+X	if (fmt && *fmt) {
+X		nargs = 0;
+X		argLD(XtNfromHoriz, ah);
+X		argLD(XtNleft, XtChainLeft);
+X		argLD(XtNright, XtChainLeft);
+X		argLD(XtNborderWidth, 0);
+X		argLD(XtNfromVert, NULL);
+X		argLD(XtNvertDistance, 3);
+X		(void) sprintf(buf, fmt, tleft);
+X		argLD(XtNlabel, buf);
+X		(void) XtCreateManagedWidget("alarmTitle", labelWidgetClass, title, args, nargs);
+X	}
+X	/*
+X	 * Now the text which is the remainder of the panel
+X	 */
+X	(void) sprintf(buf, "%s\n%s\n", str1, str2);
+X	nargs = 0;
+X	argLD(XtNshowGrip, False);
+X	argLD(XtNstring, buf);
+X	argLD(XtNdisplayCaret, False);
+X	(void) XtCreateManagedWidget("alarmText", asciiTextWidgetClass,
+X				     form, args, nargs);
+X
+X	XtPopup(shell, XtGrabNone);
+X}
+X
+X/* ARGSUSED */
+Xstatic void
+XDestroyAlarm(w, als, call_data)
+X	Widget          w;
+X	AlarmStatus    *als;
+X	caddr_t         call_data;
+X{
+X	if (als->sa_id)
+X		XtRemoveTimeOut(als->sa_id);
+X	AutoDestroy(als, NULL);
+X}
+X
+X/* ARGSUSED */
+Xstatic void
+XHoldAlarm(w, als, call_data)
+X	Widget          w;
+X	AlarmStatus    *als;
+X	caddr_t         call_data;
+X{
+X	if (als->sa_id)
+X		XtRemoveTimeOut(als->sa_id);
+X	XtSetSensitive(w, FALSE);
+X}
+X
+X/* ARGSUSED */
+Xstatic void
+XAutoDestroy(als, id)
+X	AlarmStatus    *als;
+X	XtIntervalId   *id;
+X{
+X
+X	XtDestroyWidget(als->sa_top);
+X	XtFree((char *) als);
+X}
+END_OF_FILE
+if test 19473 -ne `wc -c <'xcal_alarm.c'`; then
+    echo shar: \"'xcal_alarm.c'\" unpacked with wrong size!
+fi
+# end of 'xcal_alarm.c'
+fi
+echo shar: End of archive 7 \(of 8\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga: The only way to fly!  |    sources-x@sterling.com
+       "It's intuitively obvious to the most casual observer..."
+ GCS d++(--) -p+ c++ !l u++ e+ m+(-) s++/++ n h--- f+ g+++ w+ t++ r+ y+

@@ -1,0 +1,1784 @@
+Newsgroups: comp.sources.misc
+From: Guido van Rossum <guido@cwi.nl>
+Subject:  v30i085: radio2.0 - Broadcast FM/AM over Local Area Network, Part01/02
+Message-ID: <csm-v30i085=radio2.0.134802@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 3983810fb8ecb39e70a373937d1ff1c0
+Date: Sun, 28 Jun 1992 18:49:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Guido van Rossum <guido@cwi.nl>
+Posting-number: Volume 30, Issue 85
+Archive-name: radio2.0/part01
+Environment: Sun, SGI, NeXT
+
+ Welcome to the wonderful world of Local Area Network radio!
+ ===========================================================
+
+This is Radio version 2.0, patchlevel 0.
+
+If you have a local area network full of workstations with audio
+capabilities and at least one FM/AM radio or other audio source, you
+can broadcast the audio over the network, and let other users listen
+to it.
+
+This software works for Sun Sparcs running SunOS 4.0 or 4.1, for SGI
+Indigo or Personal IRIS 4D/30 or 4D/35 workstations running SGI IRIX
+4.0 or 3.3.2, and for NeXT workstations (running version 2.1).  At
+CWI, versions of it have been in continuous use on a mix of Sun and
+SGI system types for almost a year; version 1.0 (patchlevel 4) was
+quickly tested on a NeXT.
+
+Man pages for "radio" and "broadcast" are provided.
+
+The implementation continuously transmits UDP broadcast packets of
+1400 bytes each (i.e. less than six per second), which contain the
+data in U-LAW format (8000 samples/second, 1 byte/sample,
+logarithmically encoded).  On a typical ethernet, this uses about 1
+percent of the net available bandwith.  Some loss of UDP packets is
+tolerated by the receiving program (this is heard as short
+interruptions of the sound).  Every now and then, a short "station
+call" packet is transmitted as well, for the benefit of advanced
+listening programs.
+
+It is possible to use multiple transmission stations (each identified
+by a different UDP port), and to transmit to multiple connected
+subnets simultaneously (as long as the gateways let UDP broadcast
+packets through).  For reasons you don't want to know, you can only
+have one broadcasting and one radio process per host, except on
+the SGI there may be multiple radio processes.
+
+If you have Motif, you may be interested in the "tuner" program
+(version 1.3) by Jack Jansen.  This is a window-based interface that
+shows the different broadcasting stations at your site and lets you
+tune your radio process to the station of your choice.  It will be
+posted to comp.sources.x around the same time as radio 2.0; you can
+also ftp it from site ftp.cwi.nl [192.16.184.180], file
+/pub/tuner1.3.tar.Z.
+
+If you missed a part of the posting of radio, you can ftp the whole
+source from ftp.cwi.nl [192.16.184.180], file /pub/radio2.0.tar.Z.
+
+This software is copyrighted.
+
+
+Author
+ ------
+
+The author of this software is:
+
+Guido van Rossum
+CWI, dept. CST
+Kruislaan 413
+1098 SJ  Amsterdam
+The Netherlands
+
+E-mail (Internet)  :  Guido.van.Rossum@cwi.nl (guido@cwi.nl)
+E-mail (X.400)     :  G=Guido;S=van.Rossum;O=cwi;PRMD=surf;ADMD=400net;C=nl
+
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  MANIFEST Makefile README libst.c libst.h nielsen.py
+#   patchlevel.h playulaw.c radio.man recordulaw.c sndulaw.c socklib.c
+#   stations.py
+# Wrapped by guido@voorn.cwi.nl on Wed Jun 10 13:30:31 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(672 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	This shipping list
+X Makefile                   1	
+X README                     1	
+X broadcast.c                2	
+X broadcast.man              2	
+X checkradio.py              2	
+X libst.c                    1	
+X libst.h                    1	
+X nielsen.py                 1	
+X patchlevel.h               1	
+X playulaw.c                 1	
+X radio.c                    2	
+X radio.man                  1	
+X recordulaw.c               1	
+X sndulaw.c                  1	
+X socklib.c                  1	
+X stations.py                1	
+X ttytuner.py                2	
+END_OF_FILE
+if test 672 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(2294 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# /***********************************************************
+X# Copyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+X# Netherlands.
+X# 
+X#                         All Rights Reserved
+X# 
+X# Permission to use, copy, modify, and distribute this software and its 
+X# documentation for any purpose and without fee is hereby granted, 
+X# provided that the above copyright notice appear in all copies and that
+X# both that copyright notice and this permission notice appear in 
+X# supporting documentation, and that the names of Stichting Mathematisch
+X# Centrum or CWI not be used in advertising or publicity pertaining to
+X# distribution of the software without specific, written prior permission.
+X# 
+X# STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X# FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+X# FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+X# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+X# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X# 
+X# ******************************************************************/
+X
+X
+Xdefault:
+X		@echo 'You must use "make sun4.0", "make sun4.1",'
+X		@echo '"make next" or "make sgi"'
+X		exit 1
+X
+Xall:		radio broadcast
+X
+X# Platform-specific entries
+X
+Xsun4.0:		# For SunOS 4.x
+X		make all
+X
+Xsun4.1:		# For SunOS  4.1 with audio library (/usr/demo/SOUND)
+X		make all LIBS=/usr/demo/SOUND/libaudio.a \
+X			CFLAGS='-DREMHDR -I/usr/demo/SOUND'
+X
+Xsgi:		# For SGI IRIX 4.0
+X		make all recordulaw playulaw LIBS=-laudio
+X
+Xnext:		# NeXT 2.1
+X		make all sndulaw
+X
+X# Common programs:
+X
+Xradio:		radio.o socklib.o
+X		$(CC) radio.o socklib.o $(LIBS) -o radio
+X
+Xbroadcast:	broadcast.o socklib.o
+X		$(CC) broadcast.o socklib.o $(LIBS) -o broadcast
+X
+X# NeXT-only programs:
+X
+Xsndulaw:	sndulaw.o
+X		$(CC) sndulaw.o -o sndulaw
+X
+X# SGI-only programs:
+X
+Xrecordulaw:	recordulaw.o libst.o # Used on 
+X		$(CC) recordulaw.o -laudio -o recordulaw
+X
+Xplayulaw:	playulaw.o
+X		$(CC) playulaw.o -laudio -o playulaw
+X
+X# Service entries:
+X
+Xclean:
+X		-rm -f core *.o *~ @* '#'* ,* *.pyc *.BAK Part??
+X
+Xclobber:	clean
+X		-rm -f radio broadcast recordulaw playulaw sndulaw
+END_OF_FILE
+if test 2294 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(11396 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XWelcome to the wonderful world of Local Area Network radio!
+X===========================================================
+X
+XThis is Radio version 2.0, patchlevel 0.
+X
+XIf you have a local area network full of workstations with audio
+Xcapabilities and at least one FM/AM radio or other audio source, you
+Xcan broadcast the audio over the network, and let other users listen
+Xto it.
+X
+XThis software works for Sun Sparcs running SunOS 4.0 or 4.1, for SGI
+XIndigo or Personal IRIS 4D/30 or 4D/35 workstations running SGI IRIX
+X4.0 or 3.3.2, and for NeXT workstations (running version 2.1).  At
+XCWI, versions of it have been in continuous use on a mix of Sun and
+XSGI system types for almost a year; version 1.0 (patchlevel 4) was
+Xquickly tested on a NeXT.
+X
+XMan pages for "radio" and "broadcast" are provided.
+X
+XThe implementation continuously transmits UDP broadcast packets of
+X1400 bytes each (i.e. less than six per second), which contain the
+Xdata in U-LAW format (8000 samples/second, 1 byte/sample,
+Xlogarithmically encoded).  On a typical ethernet, this uses about 1
+Xpercent of the net available bandwith.  Some loss of UDP packets is
+Xtolerated by the receiving program (this is heard as short
+Xinterruptions of the sound).  Every now and then, a short "station
+Xcall" packet is transmitted as well, for the benefit of advanced
+Xlistening programs.
+X
+XIt is possible to use multiple transmission stations (each identified
+Xby a different UDP port), and to transmit to multiple connected
+Xsubnets simultaneously (as long as the gateways let UDP broadcast
+Xpackets through).  For reasons you don't want to know, you can only
+Xhave one broadcasting and one radio process per host, except on
+Xthe SGI there may be multiple radio processes.
+X
+XIf you have Motif, you may be interested in the "tuner" program
+X(version 1.3) by Jack Jansen.  This is a window-based interface that
+Xshows the different broadcasting stations at your site and lets you
+Xtune your radio process to the station of your choice.  It will be
+Xposted to comp.sources.x around the same time as radio 2.0; you can
+Xalso ftp it from site ftp.cwi.nl [192.16.184.180], file
+X/pub/tuner1.3.tar.Z.
+X
+XIf you missed a part of the posting of radio, you can ftp the whole
+Xsource from ftp.cwi.nl [192.16.184.180], file /pub/radio2.0.tar.Z.
+X
+XThis software is copyrighted.  See the notice at the end of this file.
+X
+X
+XChanges since version 1.0 patchlevel 4
+X--------------------------------------
+X
+X(Skip to the next section if you aren't already using version 1.0 of
+Xradio.)
+X
+XThe source structure has been changed -- all files are in one
+Xdirectory now.
+X
+XMore Python programs have been provided, and the existing ones have
+Xbeen improved.  (Translations to C will be accepted and may end up in
+Xa future distribution -- here's your chance to gain world popularity!)
+X
+XBuilding for the Sun now requires an explicit choice between sun4.0
+Xand sun4.1 -- "make sun" no longer works.
+X
+XThe radio program can now be "paused" by a separate tuner program.
+XThis means you don't have to kill the radio process if you want a few
+Xminutes of silence.
+X
+XThe broadcast program now broadcasts "station call" messages to a
+Xfixed port twice a minute, as a service to more sophisticated tuner
+Xprograms.  The Python program "stations.py" can be used to display
+Xthese station calls (in a primitive manner).
+X
+XThe broadcast program now implements silence suppression: if the input
+Xis silent longer than 20 seconds it stops transmitting packets,
+Xkeeping network overhead low.  (You may have to tweak the level -- our
+Xtypical "silent" input is rather noisy, so we set the livel rather
+Xhigh.)
+X
+XMany minor changes and bugfixes.
+X
+X
+XBuilding and installing
+X-----------------------
+X
+XFor SunOS 4.1 or higher (assuming the audio library is in
+X/usr/demo/SOUND), type "make sun4.1".  For SGI IRIX, type "make sgi".
+XFor the NeXT, type "make next".  This should produce binaries for
+X"radio" and "broadcast".  For the SGI it also produces binaries
+X"recordulaw" and "playulaw"; for the NeXT, it also builds "sndulaw".
+XRead the Makefile for details -- it's pretty trivial.
+X
+X(For SunOS 4.0, you may try "make sun4.0" instead.  This does not make
+Xthe assumption that the audio library is in /usr/demo/SOUND.  Edit the
+XMakefile if necessary to accomodate other locations.)
+X
+XFor SGI IRIX, the Makefile builds the "recordulaw" and "playulaw"
+Xprograms.  "recordulaw" uses the IRIX audio library to sample the
+Xaudio input and convert it to U-LAW format.  "playulaw" does the
+Xreverse (it is not actually used but provided as a convenience).  The
+Xaudio library is available on IRIS 4.0 and on IRIS 3.3.2 or higher.
+X
+XInstall the "radio" program on a convenient public place (where
+Xpotential listeners can find it, e.g., /usr/local/bin); install
+X"broadcast" on a convenient place for yourself (assuming you're the
+Xone doing transmissions).  The "recordulaw" or "sndulaw" programs, if
+Xneeded, should be installed together with "broadcast".  On an SGI
+Xsystem you may install "playulaw" if you like.
+X
+X
+XUsage -- transmissions
+X----------------------
+X
+X(See the man page for broadcast for more details.)
+X
+XTo start transmissions on Sun Sparcs, run this command (probably in
+Xthe background, once you've debugged your audio setup):
+X
+X	broadcast -p port </dev/audio
+X
+XYou must connect a mono audio source to the machine using a standard
+Xcable provided by Sun.  Control the input gain with [x_]gaintool
+X(e.g., /usr/demo/SOUND/x_gaintool).
+X
+X
+XThis command start transmissions on SGI IRIX:
+X
+X	recordulaw | broadcast -p port
+X
+XConnect a stereo audio source to the machine using a standard walkman
+Xjack.  If you're using an early personal Iris, check that you have
+Xaudio hardware and software installed -- the output from hinv will
+Xtell you this.
+X
+X
+XOn the NeXT you start transmissions as follows:
+X
+X	sndulaw | broadcast -p port
+X
+XThis takes input from the microphone; you may also connect an audio
+Xsource to the microphone input (probably needs some attenuation to get
+Xthe impedance right).
+X
+X
+XBy default this broadcasts on the local ethernet.  You can specify one
+Xor more -b options to broadcast, passing it explicit IP broadcast
+Xaddresses (last byte 0 or 255, depending on local convention).  You can
+Xspecify your local IP net or another net; the latter only works if
+Xyour gateways pass UDP broadcasts through (at CWI it works).
+X
+XNote: each transmitter must choose a unique port number.  The default
+Xis 54321; other suitable ports are 54322, 54323, and so on.
+X
+X
+XUsage -- reception
+X------------------
+X
+X(See the man page for radio for more details.)
+X
+XTo listen to transmissions on either system:
+X
+X	radio -p port
+X
+XThis sends the data directly to the audio output device (speaker or
+Xheadphones).  It is also possible to get the ULAW audio data on
+Xstandard output with the -f option ("filter").
+X
+XThe -v option sets the output volume (on a scale from 0 to 100).  To
+Xchange the volume later on a Sun Sparc, use [x_]gaintool (at CWI:
+X/usr/demo/SOUND/x_gaintool).  On an SGI, use "apanel".
+X
+X
+XBells 'n whistles
+X-----------------
+X
+XSome Python programs are distributed together with radio.  Python is
+Xan object-oriented prototyping language that I developed partly
+Xbecause I wanted to write system hacks without having to resort to C
+Xor Perl.  Free source and documentation for the Python interpreter is
+Xavailable by anonymous ftp from various file servers, in particular
+Xftp.cwi.nl (in the Netherlands) and wuarchive.wustl.edu (in the US).
+X
+XThe Python program "ttytuner.py" (by Jack Jansen) can be used to
+Xcontrol the port that radio listens to.  Note that this allows anybody
+Xon the world to control your radio, in principle.  If you don't want
+Xthis, you can pass the -s flag (secure), which turns off the control
+Xport altogether.  By convention, the tuner program assumes that every
+Xuser who performs transmissions has two files "CD" and "CDlog" in
+Xtheir home directory giving program information (this is actually a
+Xbad idea, since it requires that the listener and the broadcaster
+Xshare the same file name space for user's home directories, but it
+Xsaves a lot of complication in the broadcast program).  Jack has also
+Xwritten a window-oriented tuner (using Motif) -- write to jack@cwi.nl
+Xfor source.
+X
+XThe Python program "checkradio.py" (after an idea of Behr de Ruiter)
+Xcontinually checks and displays what one or more stations are
+Xtransmitting.  Arguments are port numbers (default is the default port
+Xto which radio is listening).  When the "-t" option is given, it
+Xprints the reports on stdandard output.  Without this option, it must
+Xbe running on an SGI machine and uses only one port number argument.
+XThis goes in the background and opens a tiny window in which it
+Xdisplays the title of the program being transmitted (as glanced from
+Xthe sender's CD file).  The window's background color varies from
+Xbright yellow to dark red as the CD file gets older.  When the
+Xtransmission stops the window goes away altogether, to pop up only
+Xwhen it is resumed.
+X
+XThe Python program "stations.py" waits for incoming station call
+Xmessages (transmitted regularly by "broadcast") and prints essential
+Xinfo from them on stdout.
+X
+XThe Python program "nielsen.py" implements a rudimentary way of
+Xfinding out who's listening to what.  Pass it a "-w" option to list
+Xthe users on each host where it finds a listener.  You must then be
+Xable to log in to that host remotely (with rlogin or rsh) without
+Xtyping your password.
+X
+XAuthor
+X------
+X
+XThe author of this software is:
+X
+XGuido van Rossum
+XCWI, dept. CST
+XKruislaan 413
+X1098 SJ  Amsterdam
+XThe Netherlands
+X
+XE-mail (Internet)  :  Guido.van.Rossum@cwi.nl (guido@cwi.nl)
+XE-mail (X.400)     :  G=Guido;S=van.Rossum;O=cwi;PRMD=surf;ADMD=400net;C=nl
+X
+XThe "libst" U-LAW conversion library is written and copyrighted by Jef
+XPoskanzer.
+X
+XIf you port this software to other systems or have useful additions
+X(like translations of Python programs to C), I'd like to hear from
+Xyou.
+X
+X
+XAcknowledgements
+X----------------
+X
+XI would like the following contributors for pieces of code and/or
+Xdocumentation:
+X
+XToerless Eckert for the -n, -l, -r and -t options to radio
+X
+XPaul Friedman for the -v option
+X
+XAxel Belinfante for starting the man pages
+X
+XReimer A. Mellin for the NeXT port
+X
+XJack Jansen for the tuner programs and for many discussions about
+Xpossible features
+X
+XBehr de Ruiter for the idea for the checkradio program
+X
+X
+XCopyright notice
+X----------------
+X
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+END_OF_FILE
+if test 11396 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'libst.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libst.c'\"
+else
+echo shar: Extracting \"'libst.c'\" \(3474 characters\)
+sed "s/^X//" >'libst.c' <<'END_OF_FILE'
+X/* libst.c - portable sound tools library
+X*/
+X
+X/*
+X** This routine converts from linear to ulaw.
+X**
+X** Craig Reese: IDA/Supercomputing Research Center
+X** Joe Campbell: Department of Defense
+X** 29 September 1989
+X**
+X** References:
+X** 1) CCITT Recommendation G.711  (very difficult to follow)
+X** 2) "A New Digital Technique for Implementation of Any
+X**     Continuous PCM Companding Law," Villeret, Michel,
+X**     et al. 1973 IEEE Int. Conf. on Communications, Vol 1,
+X**     1973, pg. 11.12-11.17
+X** 3) MIL-STD-188-113,"Interoperability and Performance Standards
+X**     for Analog-to_Digital Conversion Techniques,"
+X**     17 February 1987
+X**
+X** Input: Signed 16 bit linear sample
+X** Output: 8 bit ulaw sample
+X*/
+X
+X/* #define ZEROTRAP    /* turn on the trap as per the MIL-STD */
+X#define BIAS 0x84   /* define the add-in bias for 16 bit samples */
+X#define CLIP 32635
+X
+Xunsigned char
+Xst_linear_to_ulaw( sample )
+Xint sample;
+X    {
+X    static int exp_lut[256] = {0,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3,
+X                               4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+X                               5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+X                               5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+X                               6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+X                               6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+X                               6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+X                               6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+X                               7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7};
+X    int sign, exponent, mantissa;
+X    unsigned char ulawbyte;
+X
+X    /* Get the sample into sign-magnitude. */
+X    sign = (sample >> 8) & 0x80;		/* set aside the sign */
+X    if ( sign != 0 ) sample = -sample;		/* get magnitude */
+X    if ( sample > CLIP ) sample = CLIP;		/* clip the magnitude */
+X
+X    /* Convert from 16 bit linear to ulaw. */
+X    sample = sample + BIAS;
+X    exponent = exp_lut[( sample >> 7 ) & 0xFF];
+X    mantissa = ( sample >> ( exponent + 3 ) ) & 0x0F;
+X    ulawbyte = ~ ( sign | ( exponent << 4 ) | mantissa );
+X#ifdef ZEROTRAP
+X    if ( ulawbyte == 0 ) ulawbyte = 0x02;	/* optional CCITT trap */
+X#endif
+X
+X    return ulawbyte;
+X    }
+X
+X/*
+X** This routine converts from ulaw to 16 bit linear.
+X**
+X** Craig Reese: IDA/Supercomputing Research Center
+X** 29 September 1989
+X**
+X** References:
+X** 1) CCITT Recommendation G.711  (very difficult to follow)
+X** 2) MIL-STD-188-113,"Interoperability and Performance Standards
+X**     for Analog-to_Digital Conversion Techniques,"
+X**     17 February 1987
+X**
+X** Input: 8 bit ulaw sample
+X** Output: signed 16 bit linear sample
+X*/
+X
+Xint
+Xst_ulaw_to_linear_slow( ulawbyte )
+Xunsigned char ulawbyte;
+X    {
+X    static int exp_lut[8] = { 0, 132, 396, 924, 1980, 4092, 8316, 16764 };
+X    int sign, exponent, mantissa, sample;
+X
+X    ulawbyte = ~ ulawbyte;
+X    sign = ( ulawbyte & 0x80 );
+X    exponent = ( ulawbyte >> 4 ) & 0x07;
+X    mantissa = ulawbyte & 0x0F;
+X    sample = exp_lut[exponent] + ( mantissa << ( exponent + 3 ) );
+X    if ( sign != 0 ) sample = -sample;
+X
+X    return sample;
+X    }
+END_OF_FILE
+if test 3474 -ne `wc -c <'libst.c'`; then
+    echo shar: \"'libst.c'\" unpacked with wrong size!
+fi
+# end of 'libst.c'
+fi
+if test -f 'libst.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libst.h'\"
+else
+echo shar: Extracting \"'libst.h'\" \(3224 characters\)
+sed "s/^X//" >'libst.h' <<'END_OF_FILE'
+X/* libst.h - include file for portable sound tools library
+X**
+X** Copyright (C) 1989 by Jef Poskanzer.
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose and without fee is hereby granted, provided
+X** that the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation.  This software is provided "as is" without express or
+X** implied warranty.
+X*/
+X
+X#define SAMPLES_PER_SECOND 8192
+X
+X#define MINLIN -32768
+X#define MAXLIN 32767
+X#define LINCLIP(x) do { if ( x < MINLIN ) x = MINLIN ; else if ( x > MAXLIN ) x = MAXLIN; } while ( 0 )
+X
+Xunsigned char st_linear_to_ulaw( /* int sample */ );
+Xint st_ulaw_to_linear_slow( /* unsigned char ulawbyte */ );
+X
+X/*
+X** This macro converts from ulaw to 16 bit linear, faster.
+X**
+X** Jef Poskanzer
+X** 23 October 1989
+X**
+X** Input: 8 bit ulaw sample
+X** Output: signed 16 bit linear sample
+X*/
+X#define st_ulaw_to_linear(ulawbyte) ulaw_table[ulawbyte]
+X
+Xstatic int ulaw_table[256] = {
+X    -32124, -31100, -30076, -29052, -28028, -27004, -25980, -24956,
+X    -23932, -22908, -21884, -20860, -19836, -18812, -17788, -16764,
+X    -15996, -15484, -14972, -14460, -13948, -13436, -12924, -12412,
+X    -11900, -11388, -10876, -10364,  -9852,  -9340,  -8828,  -8316,
+X     -7932,  -7676,  -7420,  -7164,  -6908,  -6652,  -6396,  -6140,
+X     -5884,  -5628,  -5372,  -5116,  -4860,  -4604,  -4348,  -4092,
+X     -3900,  -3772,  -3644,  -3516,  -3388,  -3260,  -3132,  -3004,
+X     -2876,  -2748,  -2620,  -2492,  -2364,  -2236,  -2108,  -1980,
+X     -1884,  -1820,  -1756,  -1692,  -1628,  -1564,  -1500,  -1436,
+X     -1372,  -1308,  -1244,  -1180,  -1116,  -1052,   -988,   -924,
+X      -876,   -844,   -812,   -780,   -748,   -716,   -684,   -652,
+X      -620,   -588,   -556,   -524,   -492,   -460,   -428,   -396,
+X      -372,   -356,   -340,   -324,   -308,   -292,   -276,   -260,
+X      -244,   -228,   -212,   -196,   -180,   -164,   -148,   -132,
+X      -120,   -112,   -104,    -96,    -88,    -80,    -72,    -64,
+X       -56,    -48,    -40,    -32,    -24,    -16,     -8,      0,
+X     32124,  31100,  30076,  29052,  28028,  27004,  25980,  24956,
+X     23932,  22908,  21884,  20860,  19836,  18812,  17788,  16764,
+X     15996,  15484,  14972,  14460,  13948,  13436,  12924,  12412,
+X     11900,  11388,  10876,  10364,   9852,   9340,   8828,   8316,
+X      7932,   7676,   7420,   7164,   6908,   6652,   6396,   6140,
+X      5884,   5628,   5372,   5116,   4860,   4604,   4348,   4092,
+X      3900,   3772,   3644,   3516,   3388,   3260,   3132,   3004,
+X      2876,   2748,   2620,   2492,   2364,   2236,   2108,   1980,
+X      1884,   1820,   1756,   1692,   1628,   1564,   1500,   1436,
+X      1372,   1308,   1244,   1180,   1116,   1052,    988,    924,
+X       876,    844,    812,    780,    748,    716,    684,    652,
+X       620,    588,    556,    524,    492,    460,    428,    396,
+X       372,    356,    340,    324,    308,    292,    276,    260,
+X       244,    228,    212,    196,    180,    164,    148,    132,
+X       120,    112,    104,     96,     88,     80,     72,     64,
+X	56,     48,     40,     32,     24,     16,      8,      0 };
+END_OF_FILE
+if test 3224 -ne `wc -c <'libst.h'`; then
+    echo shar: \"'libst.h'\" unpacked with wrong size!
+fi
+# end of 'libst.h'
+fi
+if test -f 'nielsen.py' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nielsen.py'\"
+else
+echo shar: Extracting \"'nielsen.py'\" \(2593 characters\)
+sed "s/^X//" >'nielsen.py' <<'END_OF_FILE'
+X#! /usr/local/python
+X
+X# /***********************************************************
+X# Copyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+X# Netherlands.
+X# 
+X#                         All Rights Reserved
+X# 
+X# Permission to use, copy, modify, and distribute this software and its 
+X# documentation for any purpose and without fee is hereby granted, 
+X# provided that the above copyright notice appear in all copies and that
+X# both that copyright notice and this permission notice appear in 
+X# supporting documentation, and that the names of Stichting Mathematisch
+X# Centrum or CWI not be used in advertising or publicity pertaining to
+X# distribution of the software without specific, written prior permission.
+X# 
+X# STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X# FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+X# FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+X# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+X# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X# 
+X# ******************************************************************/
+X
+X# Radio listening statistics.
+X#
+X# usage: nielsen [-w] [port]
+X# -w	print who's logged on (slow)
+X# port	alternate port to broadcast to
+X#
+X# XXX should understand -b options as well, instead of hardwiring addresses.
+X
+Ximport sys, posix, time, string
+Xfrom socket import *
+X
+Xprint 'getting hosts...',
+Xsys.stdout.flush()
+Xhosts = {}
+Xfor line in posix.popen('ypcat hosts', 'r').readlines():
+X	words = string.split(line)
+X	if len(words) >= 2:
+X		hosts[words[0]] = words[1:]
+Xprint 'done.'
+X
+Xaddrlist = '192.16.184.0', '192.16.191.0', '192.16.201.255'
+Xport = 54320
+Xwho = 0
+Xif sys.argv[1:2] == ['-w']: who = 1; sys.argv[1:2] = []
+Xif sys.argv[1:]: port = eval(sys.argv[1])
+X
+Xs = socket(AF_INET, SOCK_DGRAM)
+Xs.allowbroadcast(1)
+Xfor addr in addrlist:
+X	s.sendto('radio:i', (addr, port))
+X
+XTIMEOUT = 7
+X
+Xtry:
+X	while 1:
+X		# Time-out if no next response within TIMEOUT seconds
+X		for i in range(TIMEOUT):
+X			if s.avail(): break
+X			else: time.sleep(1)
+X		else:
+X			print 'Time-out -- assume no more responses.'
+X			break # out of the enclosing while loop
+X		data, (host, port) = s.recvfrom(1400)
+X		print data, host,
+X		if hosts.has_key(host):
+X			host = hosts[host][0]
+X			print host,
+X		print
+X		if who:
+X			cmd = 'who | sed \'s/ .*//\' | sort -u'
+X			sts = posix.system('rsh ' + host + ' "' + cmd + '"')
+Xexcept KeyboardInterrupt:
+X	pass
+END_OF_FILE
+if test 2593 -ne `wc -c <'nielsen.py'`; then
+    echo shar: \"'nielsen.py'\" unpacked with wrong size!
+fi
+chmod +x 'nielsen.py'
+# end of 'nielsen.py'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(21 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 0
+END_OF_FILE
+if test 21 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'playulaw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'playulaw.c'\"
+else
+echo shar: Extracting \"'playulaw.c'\" \(4086 characters\)
+sed "s/^X//" >'playulaw.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X******************************************************************/
+X
+X/* Play ulaw audio data read from stdin */
+X
+X#define BUFFERSIZE 4000
+X
+X#ifdef sgi
+X#define USE_AL
+X#endif
+X#ifdef sun
+X#define USE_SUN
+X#endif
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <stdlib.h>
+X#include <fcntl.h>
+X#include <signal.h>
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X
+X#ifdef USE_AL
+X#include <audio.h>
+X#include "libst.h"
+X
+Xlong savestate[] = {
+X	AL_OUTPUT_RATE, 0,
+X};
+X#endif
+X
+X#ifdef USE_SUN
+X#include <stropts.h>
+X#endif
+X
+X/* getopt() interface */
+Xextern int optind;
+Xextern char * optarg;
+X
+X/* Forward */
+Xvoid cleanup_handler();
+X
+X/* Globals */
+Xchar *progname;
+X
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	char buf[BUFFERSIZE];
+X	int n;
+X	int c;
+X	int ifd, ofd;
+X	int sts = 0;
+X#ifdef USE_AL
+X	short obuf[BUFFERSIZE];
+X	ALport aport;
+X	ALconfig config;
+X	int i;
+X	long pvbuf[2];
+X#endif
+X
+X	progname = argv[0];
+X	while ((c = getopt(argc, argv, "")) != EOF) {
+X		switch (c) {
+X		case '?':
+X			usage();
+X		}
+X	}
+X
+X	if (optind >= argc) {
+X		ifd = fileno(stdin);
+X	}
+X	else {
+X		if (optind+1 < argc)
+X			usage();
+X		ifd = open(argv[optind], 0);
+X		if (ifd < 0) {
+X			perror(argv[optind]);
+X			exit(1);
+X		}
+X	}
+X
+X#ifdef USE_AL
+X	/* Fetch the original state */
+X	ALgetparams(AL_DEFAULT_DEVICE, savestate,
+X		    sizeof(savestate) / sizeof(long));
+X
+X	/* Set signal handlers */
+X	signal(SIGINT, cleanup_handler);
+X	signal(SIGTERM, cleanup_handler);
+X
+X	/* Set the output sampling rate to 8000 Hz */
+X	pvbuf[0] = AL_OUTPUT_RATE;
+X	pvbuf[1] = AL_RATE_8000;
+X	ALsetparams(AL_DEFAULT_DEVICE, pvbuf, 2L);
+X
+X	/* Configure and open an SGI audio port */
+X	config = ALnewconfig();
+X	ALsetchannels(config, AL_MONO);
+X	ALsetwidth(config, AL_SAMPLE_16);
+X	ALsetqueuesize(config, 16000); /* 2 seconds slop */
+X	aport = ALopenport("radio", "w", config);
+X	if (aport == NULL) {
+X		perror("ALopenport");
+X		exit(1);
+X	}
+X#else
+X	/* Write to /dev/audio */
+X	if ((ofd = open("/dev/audio", O_WRONLY | O_NDELAY)) < 0) {
+X		perror("/dev/audio");
+X		exit(1);
+X	}
+X#endif
+X
+X	for (;;) {
+X		n = read(ifd, buf, BUFFERSIZE);
+X		if (n <= 0) {
+X			if (n < 0) {
+X				perror("read");
+X				sts = 1;
+X			}
+X			break;
+X		}
+X#ifdef USE_AL
+X		for (i = 0; i < n; i++)
+X			obuf[i] = st_ulaw_to_linear(buf[i]);
+X		ALwritesamps(aport, obuf, (long)n);
+X#else
+X		if (write(ofd, buf, n) != n) {
+X			perror("write");
+X			sts = 1;
+X			break;
+X		}
+X#endif
+X	}
+X
+X#ifdef USE_AL
+X	/* Wait until all sound has played */
+X	while(ALgetfilled(aport) > 0) /* still sound to play */
+X		sginap(1);	/* sleep for 1/60 of a second */
+X
+X	/* Restore the output sampling rate */
+X	ALsetparams(AL_DEFAULT_DEVICE, savestate,
+X		    sizeof(savestate) / sizeof(long));
+X#endif
+X
+X	exit(sts);
+X}
+X
+Xusage()
+X{
+X	fprintf(stderr, "usage: %s [file]\n", progname);
+X	exit(2);
+X}
+X
+X#ifdef USE_AL
+X
+Xvoid cleanup_handler(sig)
+X	int sig;
+X{
+X	signal(sig, SIG_DFL);
+X	ALsetparams(AL_DEFAULT_DEVICE, savestate,
+X		    sizeof(savestate) / sizeof(long));
+X	kill(getpid(), sig);
+X}
+X
+X#endif /* USE_AL */
+END_OF_FILE
+if test 4086 -ne `wc -c <'playulaw.c'`; then
+    echo shar: \"'playulaw.c'\" unpacked with wrong size!
+fi
+# end of 'playulaw.c'
+fi
+if test -f 'radio.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'radio.man'\"
+else
+echo shar: Extracting \"'radio.man'\" \(3909 characters\)
+sed "s/^X//" >'radio.man' <<'END_OF_FILE'
+X.TH RADIO 1
+X.SH NAME
+Xradio \- receive audio UDP packets transmitted by broadcast
+X.SH SYNOPSIS
+X.B radio
+X[
+X.B \-c
+X.I port
+X] [
+X.B \-d
+X] [
+X.B \-f
+X] [
+X.B \-l
+X.I addr
+X] [
+X.B \-n
+X]
+X      [
+X.B \-p
+X.I port
+X] [
+X.B -r
+X.I addr
+X] [
+X.B \-s
+X] [
+X.B \-v
+X.I volume
+X]
+X.SH DESCRIPTION
+X.I Radio
+Xallows you to listen to audio transmitted as UDP packets on a local
+Xarea network by
+X.IR broadcast (1).
+XObviously, this requires a workstation with audio hardware; currently
+Xthe program works on SGI Indigo and 4D/35 workstations, Sun Sparcs, and
+Xall NeXTs.
+X.PP
+X.I Radio
+Xis normally run in the background.
+XYou may need a system-specific tool to change the volume or direct the
+Xoutput to the speaker or headphone jack; e.g., on an SGI, you would
+Xuse
+X.IR apanel (1);
+X on a Sun you would use
+X.IR gaintool (1)
+Xor, when using X,
+X.IR x_gaintool (1)
+X(these programs can be found in /usr/demo/SOUND in SunOS 4.1).
+X(On the NeXT, just use the volume keys on the keyboard.)
+X.PP
+XSome loss of UDP packets is tolerated; this is heard as short
+Xinterruptions of the sound.
+X.SH OPTIONS
+X.TP 10
+X.BI "\-c " port
+XUse this UDP port number as control port (default 54320).
+XNormally you never need to change this; the control port is used by
+Xoptional ``tuner'' software (not distributed) and possibly by listener
+Xpolling programs.
+X.TP 10
+X.B \-d
+XTurn on debugging (a message on stderr for each 8 packets received,
+Xand when rare or unexpected events happen).
+X.TP 10
+X.B \-f
+XFilter mode: write the U-LAW audio data to stdout instead of
+Xsending it to the audio hardware.
+X.TP 10
+X.BI "\-l " addr
+XListen only for packets to IP address
+X.I addr
+X(useful for forwarding stations).
+X.TP 10
+X.B \-n
+XNoninterruptable mode (Sun Sparc only).
+XBy default,
+X.I radio
+Xnotices when another program wants to open the
+Xaudio output device, and temporarily ``backs off'' until the other
+Xprogram is finished, hoping it won't take too long.
+XThis option turns off that feature.
+X.TP 10
+X.BI "\-p " port
+XReceive packets sent to this UDP port number (default 54321).
+XThis corresponds to the port used by
+X.I broadcast.
+XPort numbers 1..99 are shorthands for 54321..54419.
+X.TP 10
+X.BI "\-r " addr
+XListen only for packets from IP address
+X.I addr
+X(useful for forwarding stations).
+X.TP 10
+X.B \-s
+XSecure mode: don't listen to the control port.
+XThis is for really paranoid users: in theory, any user on the net
+Xcan override the port specified with \fB\-p\fP by sending a control
+Xmessage to the control port of your radio program.
+X.TP 10
+X.BI "\-v " volume
+XSet the initial volume, on a scale from 0 to 100.  (SGI and Sun Sparc only.)
+XBy default, the volume is left unchanged.
+XWhen the volume is specified this way, its original value is restored
+Xwhen the program exits.
+X.SH AUTHOR
+XGuido van Rossum
+X.SH VERSION
+XThis manual page documents radio version 2.0, patchlevel 0.
+X.SH SEE ALSO
+Xbroadcast(1)
+X.SH COPYRIGHT
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+END_OF_FILE
+if test 3909 -ne `wc -c <'radio.man'`; then
+    echo shar: \"'radio.man'\" unpacked with wrong size!
+fi
+# end of 'radio.man'
+fi
+if test -f 'recordulaw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'recordulaw.c'\"
+else
+echo shar: Extracting \"'recordulaw.c'\" \(4830 characters\)
+sed "s/^X//" >'recordulaw.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X******************************************************************/
+X
+X/* Record SGI audio data and output it to Sparc uLAW format,
+X   converting the sampling size and encoding on the fly.
+X   This writes to stdout -- use rsh to pipe it to /dev/audio on a Sparc.
+X   No Sun audio header is added.
+X   
+X   Caveats:
+X   - the program gets the input sampling rate when it starts;
+X     if you change the sampling rate, better restart this program
+X   - since it uses an audio port, of which there can only be 4 open
+X     at a time, running several copies is not a good idea;
+X     see broadcast.c and radio.c for a distribution mechanism.
+X
+X  To do:
+X  - support the other three sampling rates
+X*/
+X
+X#include <stdio.h>
+X#include <audio.h>
+X
+Xint inrate;
+X
+X#define OUTRATE	8000
+X#define INBUFSIZE 48000
+X
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	short inbuf[INBUFSIZE];
+X	char outbuf[8000];
+X	ALconfig c;
+X	ALport p;
+X	int n;
+X	int insamps;
+X	int sts = 0;
+X	
+X	checkinrate();
+X	insamps = calcinsamps();
+X	
+X	c = ALnewconfig();
+X	if (c == NULL) {
+X		perror("ALnewconfig");
+X		exit(1);
+X	}
+X	ALsetwidth(c, AL_SAMPLE_16);
+X	ALsetchannels(c, AL_MONO);
+X	
+X	p = ALopenport(argv[0], "r", c);
+X	if (p == NULL) {
+X		perror("ALopenport");
+X		exit(1);
+X	}
+X
+X	initcvt();
+X
+X	for (;;) {
+X		checkinrate();
+X		insamps = calcinsamps();
+X		ALreadsamps(p, (void *)inbuf, insamps);
+X		n = convert(inbuf, insamps, outbuf);
+X		if (write(1, outbuf, n) != n) {
+X			perror("write error");
+X			sts = 1;
+X			break;
+X		}
+X	}
+X
+X	exit(sts);
+X}
+X
+Xint calcinsamps()
+X{
+X	int insamps = inrate/2;
+X	if (insamps > INBUFSIZE)
+X		insamps = INBUFSIZE;
+X	return insamps;
+X}
+X
+Xcheckinrate()
+X{
+X	inrate = getinrate();
+X	if ((inrate/OUTRATE)*OUTRATE != inrate) {
+X		fprintf(stderr,
+X			"current sampling rate (%d) is not a multiple of %d\n",
+X			inrate, OUTRATE);
+X		exit(1);
+X	}
+X}
+X
+Xint getinrate()
+X{
+X	long PVbuffer[2];
+X	
+X	PVbuffer[0] = AL_INPUT_RATE;
+X	ALgetparams(AL_DEFAULT_DEVICE, PVbuffer, 2);
+X	return PVbuffer[1];
+X}
+X
+X/* Convert a bufferful of data from SGI to uLAW format
+X   - inrate samples/sec --> 8000 samples/sec
+X   - 16 bit linear encoding --> 8 bit uLAW encoding
+X*/
+X
+Xextern unsigned char *cvtvec; /* Forward */
+X
+Xint convert(inbuf, n, outbuf)
+X	short *inbuf;
+X	int n;
+X	unsigned char *outbuf;
+X{
+X	register short *inp = inbuf;
+X	register short *inend = inbuf + n;
+X	register int di = inrate/OUTRATE;
+X	register int x;
+X	register unsigned char *outp = outbuf;
+X
+X	while (inp < inend) {
+X		switch (di) {
+X		case 1:
+X			*outp++ = cvtvec[*inp++ >> 2];
+X			break;
+X		case 2:
+X			x = *inp++;
+X			x += *inp++;
+X			*outp++ = cvtvec[x >> 3];
+X			break;
+X		case 4:
+X			x = *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			*outp++ = cvtvec[x >> 4];
+X			break;
+X		case 6:
+X			x = *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			x += *inp++;
+X			*outp++ = cvtvec[x / 24];
+X			break;
+X		}
+X	}
+X
+X	return outp - outbuf;
+X}
+X
+X
+X/* convert two's complement ch (1+13 bits) into uLAW format (8 bits) */
+X
+Xunsigned int cvt(ch)
+Xint ch;
+X{
+X	int mask;
+X
+X	if (ch < 0) {
+X		ch = -ch;
+X		mask = 0x7f;
+X	} else {
+X		mask = 0xff;
+X	}
+X
+X	if (ch < 32) {
+X		ch = 0xF0 | 15 - (ch / 2);
+X	} else if (ch < 96) {
+X		ch = 0xE0 | 15 - (ch - 32) / 4;
+X	} else if (ch < 224) {
+X		ch = 0xD0 | 15 - (ch - 96) / 8;
+X	} else if (ch < 480) {
+X		ch = 0xC0 | 15 - (ch - 224) / 16;
+X	} else if (ch < 992) {
+X		ch = 0xB0 | 15 - (ch - 480) / 32;
+X	} else if (ch < 2016) {
+X		ch = 0xA0 | 15 - (ch - 992) / 64;
+X	} else if (ch < 4064) {
+X		ch = 0x90 | 15 - (ch - 2016) / 128;
+X	} else if (ch < 8160) {
+X		ch = 0x80 | 15 - (ch - 4064) /	256;
+X	} else {
+X		ch = 0x80;
+X	}
+X
+X	return (mask & ch);
+X}
+X
+Xunsigned char cvttab[1<<14];
+Xunsigned char *cvtvec = &cvttab[1<<13];
+X
+Xinitcvt()
+X{
+X	int i;
+X	for (i = -(1<<13); i < (1<<13); i++)
+X		cvtvec[i] = cvt(i);
+X}
+END_OF_FILE
+if test 4830 -ne `wc -c <'recordulaw.c'`; then
+    echo shar: \"'recordulaw.c'\" unpacked with wrong size!
+fi
+# end of 'recordulaw.c'
+fi
+if test -f 'sndulaw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sndulaw.c'\"
+else
+echo shar: Extracting \"'sndulaw.c'\" \(2972 characters\)
+sed "s/^X//" >'sndulaw.c' <<'END_OF_FILE'
+X/*
+X * Author : Reimer A. Mellin
+X * Date : 4.12.1991
+X * no copyrights
+X *
+X *
+X * ulaw: based on recordchaintest.c
+X * it writes a endless stream of Sound to stdout until terminated or
+X * interrupted.
+X * sndrecord can't be used, since it can not write to stdout :-(
+X */ 
+X
+X#import	<stdio.h>
+X#import <signal.h>
+X#import	<sound/sound.h>
+X
+X#define	NUM_BUFFERS	5
+X#define	BUF_SIZE	8000
+X
+Xstatic SNDSoundStruct *buffers[NUM_BUFFERS];
+Xstatic FILE *sfp;
+X
+Xstatic void record(int tag);
+X
+Xstatic int recordDone(SNDSoundStruct *s, int tag, int err)
+X/*
+X * Called when a buffer has been recorded.
+X * Appends the buffer to the soundfile.
+X */
+X{
+X    if (err)
+X        fprintf(stderr, "recordDone: %s\n", SNDSoundError(err));
+X    if (fwrite((void *)((char *)s + s->dataLocation), 1, s->dataSize, sfp) !=
+X	s->dataSize)
+X	fprintf(stderr, "recordDone: could not write data to soundfile\n");
+X    return 0;
+X}
+X
+Xstatic void record(int bufNum)
+X/*
+X * Initiates recording into a buffers[bufNum].
+X */
+X{
+X    int err;
+X    
+X
+X    if (err = SNDStartRecording(buffers[bufNum], bufNum+1, 0, 0, SND_NULL_FUN,
+X				recordDone))
+X        fprintf(stderr, "record: %s\n", SNDSoundError(err));
+X}
+X
+Xstatic void init(int n, int size)
+X/*
+X * Allocate n sound buffers.
+X * Creates the soundfile.
+X */
+X{
+X    int i, err;
+X    SNDSoundStruct s;
+X
+X    for (i = 0; i < n; i++)
+X        if (err = SNDAlloc(&buffers[i], size, SND_FORMAT_MULAW_8,
+X			   SND_RATE_CODEC, 1, 4))
+X	    fprintf(stderr, "init: %s\n", SNDSoundError(err));
+X
+X    s.magic = SND_MAGIC;
+X    s.dataLocation = sizeof(SNDSoundStruct);
+X    s.dataSize = 0;
+X    s.dataFormat = SND_FORMAT_MULAW_8;
+X    s.samplingRate = SND_RATE_CODEC;
+X    s.channelCount = 1;
+X    (void)strcpy( s.info, "ram");
+X    if (fwrite((void *)&s, sizeof(SNDSoundStruct), 1, sfp) != 1)
+X	fprintf(stderr, "init: could not write dummy header to soundfile\n");
+X}
+X
+Xstatic void cleanup(void)
+X/*
+X * Write the soundfile header.
+X */
+X{
+X    SNDSoundStruct s;
+X
+X    s.magic = SND_MAGIC;
+X    s.dataLocation = sizeof(SNDSoundStruct);
+X    s.dataSize = 0;
+X    s.dataFormat = SND_FORMAT_MULAW_8;
+X    s.samplingRate = SND_RATE_CODEC;
+X    s.channelCount = 1;
+X    (void)strcpy( s.info, "ram");
+X
+X    if(!isatty(fileno(sfp))) {
+X      rewind(sfp);
+X      if (fwrite((void *)&s, sizeof(SNDSoundStruct), 1, sfp) != 1)
+X	fprintf(stderr, "cleanup: could not write header to soundfile\n");
+X    }
+X    fflush(sfp);
+X    exit(0);
+X}
+X
+Xmain(int argc, char *argv[])
+X{
+X    int i;
+X
+X    if( argc > 1 ) {
+X      fprintf(stderr, "%s: Records sound from CODEC and writes it to stdout\n",
+X	      argv[0]);
+X      exit(1);
+X    }
+X    sfp = stdout;
+X    (void)signal( SIGTERM, (void *)cleanup);
+X    (void)signal( SIGINT, (void *)cleanup);
+X
+X    /* prepare sound and start the first 5 recordings */
+X    init(NUM_BUFFERS, BUF_SIZE);
+X    for (i = 0; i < NUM_BUFFERS; i++) {
+X      record(i);
+X    }
+X    for(;;){
+X      /* As soon as the first is finished, restart it */
+X      for (i = 0; i < NUM_BUFFERS; i++) {
+X	SNDWait(i+1);
+X	record(i);
+X      }
+X    }
+X    cleanup();
+X}
+END_OF_FILE
+if test 2972 -ne `wc -c <'sndulaw.c'`; then
+    echo shar: \"'sndulaw.c'\" unpacked with wrong size!
+fi
+# end of 'sndulaw.c'
+fi
+if test -f 'socklib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'socklib.c'\"
+else
+echo shar: Extracting \"'socklib.c'\" \(3341 characters\)
+sed "s/^X//" >'socklib.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+XNetherlands.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Stichting Mathematisch
+XCentrum or CWI not be used in advertising or publicity pertaining to
+Xdistribution of the software without specific, written prior permission.
+X
+XSTICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+XTHIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+XFITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+XFOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+XWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+XACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+XOF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X
+X******************************************************************/
+X
+X/* Socket-related subroutines shared by broadcast and radio */
+X
+X#include <stdio.h>
+X#include <errno.h>
+X#include <stdlib.h>
+X#include <fcntl.h>
+X#include <netdb.h>
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X
+Xint
+Xopensock(sockdesc, localname, localport, remotename, remoteport, broadcast)
+X	char *sockdesc;
+X	char *localname;
+X	int localport;
+X	char *remotename;
+X	int remoteport;
+X	int broadcast;
+X{
+X	int s;
+X	struct sockaddr_in sin;
+X	char desc[512];
+X
+X	s = socket(AF_INET, SOCK_DGRAM, 0);
+X	if (s < 0) {
+X		sprintf(desc, "socket(%s)", sockdesc);
+X		perror(desc);
+X		exit(1);
+X	}
+X	memset((char *)&sin, '\0', sizeof(sin));
+X	if(localname) {
+X		setipaddr(localname, &sin);
+X	}
+X	else {
+X		sin.sin_addr.s_addr = INADDR_ANY;
+X		sin.sin_family = AF_INET;
+X	}
+X	sin.sin_port = htons(localport);
+X
+X#ifdef SO_REUSEPORT
+X	if (!broadcast) {
+X		int on = 1;
+X		if (setsockopt(s, SOL_SOCKET, SO_REUSEPORT,
+X				&on, sizeof (on)) < 0) {
+X			sprintf(desc,"setsockopt(%s, SO_REUSEPORT)", sockdesc);
+X			perror(desc);
+X			/* Don't exit -- this isn't fatal */
+X		}
+X	}
+X#endif
+X
+X	if (bind(s, &sin, sizeof sin) < 0) {
+X		sprintf(desc,"bind(%s)", sockdesc);
+X		perror(desc);
+X		exit(1);
+X	}
+X
+X	if(remotename) {
+X		memset((char *)&sin, '\0', sizeof(sin));
+X		setipaddr(remotename, &sin);
+X		sin.sin_port = htons(remoteport);
+X
+X		if (connect(s, &sin, sizeof sin) < 0) {
+X			sprintf(desc, "connect(%s)", sockdesc);
+X			perror(desc);
+X			exit(1);
+X		}
+X	}
+X
+X	if(broadcast) {
+X		int on = 1;
+X		if (setsockopt(s, SOL_SOCKET, SO_BROADCAST,
+X				&on, sizeof (on)) < 0) {
+X			sprintf(desc,"setsockopt(%s, SO_BROADCAST)", sockdesc);
+X			perror(desc);
+X			exit(1);
+X		}
+X	}
+X	return s;
+X}
+X
+Xint
+Xsetipaddr(name, addr_ret)
+X        char *name;
+X        struct sockaddr_in *addr_ret;
+X{
+X        struct hostent *hp;
+X
+X        if((hp = gethostbyname(name)) == NULL) {
+X                if((addr_ret->sin_addr.s_addr = inet_addr(name)) == -1) {
+X                        return(-1);
+X                }
+X        }
+X	else  {
+X                memcpy((char *) &addr_ret->sin_addr, hp->h_addr, hp->h_length);
+X        }
+X        addr_ret->sin_family = AF_INET;
+X        return 4;
+X}
+END_OF_FILE
+if test 3341 -ne `wc -c <'socklib.c'`; then
+    echo shar: \"'socklib.c'\" unpacked with wrong size!
+fi
+# end of 'socklib.c'
+fi
+if test -f 'stations.py' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'stations.py'\"
+else
+echo shar: Extracting \"'stations.py'\" \(3124 characters\)
+sed "s/^X//" >'stations.py' <<'END_OF_FILE'
+X#! /usr/local/python
+X
+X# /***********************************************************
+X# Copyright 1991, 1992 by Stichting Mathematisch Centrum, Amsterdam, The
+X# Netherlands.
+X# 
+X#                         All Rights Reserved
+X# 
+X# Permission to use, copy, modify, and distribute this software and its 
+X# documentation for any purpose and without fee is hereby granted, 
+X# provided that the above copyright notice appear in all copies and that
+X# both that copyright notice and this permission notice appear in 
+X# supporting documentation, and that the names of Stichting Mathematisch
+X# Centrum or CWI not be used in advertising or publicity pertaining to
+X# distribution of the software without specific, written prior permission.
+X# 
+X# STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+X# THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+X# FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+X# FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+X# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+X# OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X# 
+X# ******************************************************************/
+X
+X# Print station call packets received from broadcast programs around the net.
+X
+Ximport time
+Ximport string
+Ximport os
+Xfrom stat import *
+Xfrom socket import *
+X##from SOCKET import *
+X
+XINFOPORT = 54317
+XBCASTCTLPORT = 54319
+X
+Xdef main():
+X	s = socket(AF_INET, SOCK_DGRAM)
+X##	s.setsockopt(SOL_SOCKET, SO_BROADCAST, 1) # Python 0.9.7 or higher
+X	s.allowbroadcast(1) # Python 0.9.6
+X	s.bind('', INFOPORT)
+X	s.sendto('radio:s', ('<broadcast>', BCASTCTLPORT))
+X	while 1:
+X		data, sender = s.recvfrom(100)
+X		if data[:7] == 'radio:S':
+X			name, prt, tr, log, age, prg = decodeinfo(data)
+X			print name+':', prg,
+X			if age >= 0: print '(' + formatage(age) + ')',
+X			print
+X		elif data[:6] == 'radio:':
+X			print 'bad control packet:', `data`
+X		else:
+X			print 'bad packet received'
+X
+X
+Xdef formatage(age):
+X	if age < 60: return `age` + ' sec'
+X	if age < 3600: return `age/60` + ' min'
+X	if age < 24*3600: return `age/3600` + ' hrs'
+X	return `age/(24*3600)` + ' days'
+X
+Xdef decodeinfo(data):
+X	fields = string.splitfields(data, ':')
+X	name = fields[2]
+X	port = eval(fields[3])
+X	if fields[4:]:
+X		transmitting = eval(fields[4])
+X		logfile = fields[5]
+X		age = eval(fields[6])
+X		contents = string.joinfields(fields[7:], ':')
+X	else:
+X		transmitting = -1
+X		programfile = '/ufs/' + name + '/CD'
+X		logfile = programfile + 'log'
+X		age = getage(programfile)
+X		if age == None:
+X			age = -1
+X		contents = getcontents(programfile)
+X		if contents == None:
+X			contents = '???'
+X	return name, port, transmitting, logfile, age, contents
+X	return None
+X
+Xdef getcontents(filename):
+X	try:
+X		f = open(filename, 'r')
+X	except IOError:
+X		return None
+X	res = f.readline()
+X	f.close()
+X	return string.strip(res)
+X
+Xdef getage(filename):
+X	try:
+X		st = os.stat(filename)
+X	except os.error:
+X		return None
+X	return time.time() - st[ST_MTIME]
+X
+X
+Xtry:
+X	main()
+Xexcept KeyboardInterrupt:
+X	print
+X	print '[Interrupt]'
+END_OF_FILE
+if test 3124 -ne `wc -c <'stations.py'`; then
+    echo shar: \"'stations.py'\" unpacked with wrong size!
+fi
+chmod +x 'stations.py'
+# end of 'stations.py'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

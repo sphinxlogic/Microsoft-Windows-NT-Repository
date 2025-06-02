@@ -1,0 +1,1821 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i091:  ss - Simple Spreadsheet program, v1.2b, Part05/11
+Message-ID: <1993Feb22.152840.21542@sparky.imd.sterling.com>
+X-Md4-Signature: c48e2de92c3481c2af790c723fb83c6e
+Date: Mon, 22 Feb 1993 15:28:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 91
+Archive-name: ss/part05
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/getinput.c ss_12b/gram.y ss_12b/sc_stuff/CHANGES
+#   ss_12b/sunfkeys/Makefile
+# Wrapped by kent@sparky on Sat Feb 20 16:01:02 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 11)."'
+if test -f 'ss_12b/getinput.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/getinput.c'\"
+else
+  echo shar: Extracting \"'ss_12b/getinput.c'\" \(16929 characters\)
+  sed "s/^X//" >'ss_12b/getinput.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Get User input.
+X*
+X* This is intended (as the original was) to be a re-usable package.
+X* Unlike the original it *does* depend on Curses.
+X* The Internal functions are independent, and should need NO
+X* customization at all to be used with another software package.
+X* the Externally accessable functions will probably need tweeking &
+X* modifying for whatever package they are used with.
+X*
+X* The Macro functins gi_getchar(), gi_ungetc(), and gi_beep() also
+X* probably need adjusting to fit whatever package this is
+X* incorporated into.
+X*
+X***********************************************************************
+X* This is based upon the public domain utility package ``input-edit''
+X* by Chris Thewalt.  His Copyright, appears here:
+X*
+X* * Copyright (C) 1991, 1992 by Chris Thewalt (thewalt@ce.berkeley.edu)
+X* *
+X* * Permission to use, copy, modify, and distribute this software
+X* * for any purpose and without fee is hereby granted, provided
+X* * that the above copyright notices appear in all copies and that both
+X* * copyright notice and this permission notice appear in supporting
+X* * documentation.  This software is provided "as is" without express or
+X* * implied warranty.
+X*
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include "curses_stuff.h"
+X#include <ctype.h>
+X
+X/**
+X  #include <sys/types.h>
+X  #include <signal.h>
+X**/
+X
+X#include "ss.h"
+X    /* the function prototype for ``nmgetch()'' is really all
+X     * that is gotten from here
+X     */
+X#include "keys.h"
+X
+X/*	Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+X#define gi_getchar()	nmgetch()  /* Get a character of input */
+X#define gi_ungetc(c)	nmungetch(c) /* push `c' back onto input stream */
+X#define gi_beep()	beep()	   /* error bell */
+X
+X#define BUF_SIZE 512
+Xstatic char gi_buff[BUF_SIZE];		/* input buffer */
+Xstatic char gi_killbuff[BUF_SIZE] = "";	/* hold killed text for yanking */
+X
+Xstatic int	gi_buffsize;		/* Size of input in buffer */
+Xstatic int	gi_buffpos;		/* Position of Cursor in buffer */
+Xstatic int	gi_extent = 0;
+X/* How much (the extent) of the input buffer must be redrawn each
+X * time through the gi_display_buff() function.  0 = all of it.
+X * IE: in overwrite mode, you only need to redraw the single character
+X *     that has been entered into the buffer.
+X */
+Xstatic int 	gi_overwrite = 0; 	/* 1=overwrite mode, 0=insert mode */
+X
+X#define GI_NOCHANGE	-1
+X
+X#define GI_NOT_DONE	1	/* Flag: Not Done Processing input */
+X#define GI_DONE		2	/* Flag: Done Processing Input */
+X#define GI_ABORT	3	/* Flag: User ABORTED input */
+X
+X/*	Function Prototypes
+X ***********************************************************************
+X */
+X
+Xstatic int 	gi_edit_input();
+Xstatic void 	gi_addchar();		/* add character to buffer */
+Xstatic void 	gi_display_buff();	/* display any changes to buffer */
+Xstatic void 	gi_newline();
+Xstatic void     gi_del();               /* delete char, left or right */
+Xstatic void     gi_kill();              /* delete to EOL */
+Xstatic void     gi_yank();              /* yank killed text */
+Xstatic void     gi_transpose();         /* transpose two chars */
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+Xchar * gi_line ()
+X/*----------------------------------------------------------------------
+X** Get a line of input.
+X** RETURNS: NULL -> signals that the user aborted input.
+X**	    A pointer to a *static* *internal* buffer, which holds
+X**		the line of input.  Do Not Free() it!  
+X**
+X** This function should serve as a template for writing other
+X** function front-ends to the internal functions in this
+X** getinput.c package.
+X**
+X** BUG: all the curses stuff (X,Y) location, curses window, window width
+X** is all "hard-wired" in.  Should be passed as a function parameter.
+X*/
+X{
+X    int c;
+X    int flag;			/* returned from gi_edit_input() */
+X
+X    (void)move(0,0);		/* Position Cursor, Clear  */
+X    (void)clrtoeol();
+X
+X    gi_buff[0]  = 0;		/* Initialize buffer & var's */
+X    gi_buffpos  = 0;
+X    gi_buffsize = 0;
+X  
+X    do {			/* Input processing loop */
+X	c = gi_getchar();
+X
+X	/* PRE-PROCESS INPUT HERE: */
+X
+X	/* PROCESS INPUT: */
+X	flag = gi_edit_input(c); /* General Input/Edit routine */
+X    } while (flag == GI_NOT_DONE);
+X
+X    if (flag == GI_ABORT)
+X	return NULL;
+X    else
+X	return gi_buff;		/* Return pointer to the input buffer */
+X
+X} /* gi_line() */
+X
+Xchar * gi_line_cursor()
+X/*----------------------------------------------------------------------
+X** Get a line of input.  
+X** RETURNS: NULL -> signals that the user aborted input.
+X**	    A pointer to a *static* *internal* buffer, which holds
+X**		the line of input.  Do Not Free() it!  
+X**
+X** Based on, and almost identical to ``gi_line()''.  Input is
+X** preprocessed, such that a cursor key (Arrow Key) terminates input.
+X** Furthermore, the character that caused the termination of input
+X** is pushed back onto the input stream, so that it is available to
+X** the calling routine to act upon.
+X*/
+X{
+X    int c;
+X    int flag;			/* Returned from gi_edit_input() */
+X
+X    (void)move(0,0);		/* Position Cursor, Clear  */
+X    (void)clrtoeol();
+X
+X    gi_buff[0]  = 0;		/* Initialize buffer & var's */
+X    gi_buffpos  = 0;
+X    gi_buffsize = 0;
+X
+X    do {				/* Input processing loop */
+X	c = gi_getchar();
+X
+X	/* PRE-PROCESS INPUT HERE:
+X	 *
+X	 * Check if `c' is an arrow/cursor key
+X	 */
+X	if ( (c == kLEFT) || (c == kRIGHT) || (c == kDOWN) || (c == kUP) ) {
+X	    gi_newline();
+X	    flag = GI_DONE;
+X	} else
+X
+X	    /* PROCESS INPUT: */
+X	    flag = gi_edit_input(c); /* General Input/Edit routine */
+X    
+X    } while (flag == GI_NOT_DONE);
+X
+X    if (flag == GI_ABORT)
+X	return NULL;
+X    else {
+X	gi_ungetc(c);		/* push `c' back onto the input stream */
+X	return gi_buff;		/* Return pointer to the input buffer */
+X    }
+X
+X} /* gi_line_cursor() */
+X
+Xchar * gi_editline (initstr)
+X/*----------------------------------------------------------------------
+X** Get a line of input.  The input is returned in a *static* *internal*
+X** buffer.  Do Not Free() it!  
+X**
+X** Based on, and almost identical to ``gi_line()''.
+X** The function starts out with a non-empty edit buffer -> ``initstr''.
+X*/
+X    char *initstr;		/* Initial string to be edited. */
+X{
+X    int c;
+X    int flag;
+X
+X    (void)move(0,0);		/* Position Cursor, Clear  */
+X    (void)clrtoeol();
+X
+X    /*
+X     * Initialize edit buffer to hold the user-provided initial string
+X     * (initstr).  If the user string exceeds the internal edit buffer
+X     * size, it is truncated to fit.  Calculate the size of the buffer
+X     * and the cursor position (end of the string).  Finally, display
+X     * the buffer, and everything is ready for user editing.
+X     */	
+X    strncpy(gi_buff, initstr, (BUF_SIZE - 1)); /* Initialize edit buffer */
+X    gi_buffpos = gi_buffsize = strlen(gi_buff);
+X    gi_display_buff(0, gi_buffpos); /* Display initial Edit buffer */
+X  
+X    do {			/* Input processing loop */
+X	c = gi_getchar();
+X
+X	/* PRE-PROCESS INPUT HERE: */
+X
+X	/* PROCESS INPUT: */
+X	flag = gi_edit_input(c); /* General Input/Edit routined */
+X    } while (flag == GI_NOT_DONE);
+X
+X    if (flag == GI_ABORT)
+X	return NULL;
+X    else
+X	return gi_buff;		/* Return pointer to the input buffer */
+X
+X} /* gi_editline() */
+X
+X
+X
+X/*	Internal Functions
+X ***********************************************************************
+X */
+X
+Xstatic int gi_edit_input(c)
+X/*----------------------------------------------------------------------
+X** General input/Edit routine.
+X** RETURNS: GI_DONE -> done processing input line, a <CR> was entered.
+X**	    GI_NOT_DONE -> not yet done processing input.
+X**	    GI_ABORT -> user aborted (via ^g, ^c) input
+X*/
+X     int c;
+X{
+X  if (isprint(c)) { 		/* Just a regular character */
+X      gi_addchar(c);
+X  } else {
+X      switch(c) {
+X	case ctl('a'):			/* ^A -> Beginning of Line */
+X	    gi_display_buff(GI_NOCHANGE, 0);
+X	    break;
+X	  
+X	case ctl('b'): 			/* ^B, Left Arrow Key */
+X	    if (gi_buffpos == 0 )
+X		gi_beep();	/* At the begining of the line */
+X	    else
+X		gi_display_buff(GI_NOCHANGE, gi_buffpos-1);
+X	    break;
+X
+X	case ctl('c'): case ctl('g'):	/* ^C,^G -> ABORT input */
+X	    return GI_ABORT;
+X
+X	case ctl('d'):			/* ^D -> Delete char 'under' cursor */
+X	    gi_del(0);
+X	    break;
+X	    
+X	case ctl('e'):			/* ^E -> End of Line */
+X	    gi_display_buff(GI_NOCHANGE, gi_buffsize); 
+X	    break;
+X	    
+X	case ctl('f'): 			/* ^F, Right Arrow Key */
+X	    if (gi_buffpos == gi_buffsize)
+X		gi_beep();	/* At the end of the line */
+X	    else
+X		gi_display_buff(GI_NOCHANGE, gi_buffpos+1);
+X	    break;
+X
+X	/* See above for ^G */
+X	    
+X	case ctl('h'): case '\177':	/* ^H, <del> -> Delete char */
+X	    gi_del(-1);			/* to left of cursor. */
+X	    break;
+X
+X	case ctl('k'):			/* ^K -> Kill to EOL */
+X	    gi_kill();
+X	    break;
+X	      
+X	case ctl('l'):			/* ^L -> Redraw line */
+X	    /* Redraw by re-displaying the entire buffer from position 0.
+X	     * The cursor does not change position.
+X	     */
+X	    gi_display_buff(0, gi_buffpos);
+X	    break;
+X
+X	case ctl('m'):			/* ^M, <CR> -> done input */
+X	    gi_newline();
+X	    return GI_DONE;
+X	    break;
+X	
+X	case ctl('o'):			/* ^O -> toggle overwrite mode */
+X	    gi_overwrite = ! gi_overwrite; 
+X	    break;
+X
+X        case ctl('t'): 			/* ^T -> transpose char's */
+X	    gi_transpose();
+X	    break;
+X	    
+X	case ctl('y'):			/* ^Y -> Yank back killed text */
+X	    gi_yank();
+X	    break;
+X	    
+X	default:
+X	  gi_beep();
+X	  break;
+X      }
+X  }
+X  return GI_NOT_DONE;		/* not done yet! */
+X  
+X} /* gi_input_edit() */
+X	    
+Xstatic void gi_addchar(c)
+X     int c;
+X{
+X    int i;
+X    
+X    /*
+X     * Make sure the buffer is not over flowed.  (BUF_SIZE - 1) because
+X     * C arrays count from 0 to n-1.  (BUF_SIZE - 2) so that we *always*
+X     * have room for the string-terminating NULL character
+X     */
+X    if (gi_buffsize >= (BUF_SIZE - 2)) {
+X	gi_beep();
+X	return;
+X    }
+X
+X    if (gi_overwrite == 0 || gi_buffpos == gi_buffsize) {
+X	/* If we're NOT in over-write mode, or at the end of the input:
+X	 * 1) move everything from cursor position to the end of the buffer
+X	 *    to the right one.
+X	 * 2) insert the new character.
+X	 */
+X        for (i=gi_buffsize; i >= gi_buffpos; i--)
+X            gi_buff[i+1] = gi_buff[i];
+X        gi_buff[gi_buffpos] = c;
+X
+X	gi_buffsize++;		/* Buffer is now one char bigger... */
+X        gi_display_buff(gi_buffpos, gi_buffpos+1);
+X
+X	
+X    } else {
+X	/* Else we are in overwrite mode. Overwrite the character at
+X	 * the current buffer position with the new character.
+X	 */
+X	gi_buff[gi_buffpos] = c;
+X	gi_extent = 1; 		/* Only need to display 1 character */
+X        gi_display_buff(gi_buffpos, gi_buffpos+1);
+X    }
+X} /* gi_addchar() */
+X
+Xstatic void gi_display_buff( change, cursor )
+X/*----------------------------------------------------------------------
+X** Main output routine.  Displays the contents of the buffer.
+X** -> would get considerably more complicated if you add code to overflow
+X**    the edge of the display.
+X** -> if ``change'' is negative, special activitiy occurs.
+X*/
+X     int change;	/* index of start of changes in gi_buff */
+X     int cursor;	/* where to put cursor after changes */
+X{
+X    int x;
+X    int how_far;	/* index of the end of changes in gi_buff. */
+X			/* (How Far we have to redisplay the buffer) */
+X    
+X    if (change >= 0) {
+X
+X	/* Usually we redisplay the buffer from the current cursor position
+X	 * right through to the end of the buffer (gi_buffsize).  However,
+X	 * sometimes that is not necessary.  IE: in overwrite mode, you only
+X	 * need to display the newly entered character, the rest of the
+X	 * buffer is fine.  When gi_extent is non-zero, it indicates how
+X	 * many characters (starting at the current cursor position) must
+X	 * be displayed.
+X	 */
+X	if (gi_extent != 0)
+X	    how_far = change + gi_extent;
+X	else
+X	    how_far = gi_buffsize;
+X	
+X	for (x=change; x < how_far; x++) 
+X	    mvaddch( 0, x, gi_buff[x]);
+X            /* Display the buffer, starting at the `change' location,
+X	     * through to ``how far'' we're supposed to go.
+X	     */
+X	
+X	if (gi_extent == 0) {
+X	    move (0, how_far);
+X	    /* mvadch() doesn't seem to leave us in the right spot for
+X	     * this, misses the last character in the buffer.  Odd
+X	     */
+X	    clrtoeol();		/* In case we've deleted something */
+X	}
+X	
+X	gi_extent = 0;	
+X    }
+X
+X    gi_buffpos = cursor;	/* Position the cursor */
+X    move (0, cursor);
+X    Refresh(); 			/* Now's the acid test... */
+X      /* Yes there is a refresh in nmgetch(), but there
+X      ** seems to be some lag time, should investigate...
+X      */
+X	
+X} /* gi_display_buff() */
+X
+Xstatic void gi_newline()
+X/*----------------------------------------------------------------------
+X** The user has entered a <CR>.  Finish up & clean up the buffer.
+X*/
+X{
+X    gi_buff[++gi_buffsize] = '\0';
+X    
+X} /* gi_newline() */
+X
+X
+Xstatic void gi_del(loc)
+X/*----------------------------------------------------------------------
+X** Delete a character.  The loc variable can be:
+X** -1 : delete character to left of cursor
+X**  0 : delete character under cursor
+X*/
+X    int loc;
+X
+X{
+X    int i;
+X
+X    /*
+X     * -Deleting to the left: Make sure that we aren't already at
+X     *  the left margin.
+X     * -Deleting to the right: Check that we aren't at the right margin.
+X     * -Delete by moving everything in the buffer left one position,
+X     *  starting at the position (gi_buffpos + loc).
+X     */
+X    if ((loc == -1 && gi_buffpos > 0) ||
+X	(loc == 0 && gi_buffpos < gi_buffsize)) {
+X
+X	for (i=gi_buffpos+loc; i < gi_buffsize; i++)
+X	    gi_buff[i] = gi_buff[i+1];
+X
+X	gi_buffsize--;		/* reset buffer size */
+X	gi_display_buff(gi_buffpos+loc, gi_buffpos+loc);
+X	
+X    } else			/* Nothing to delete! */
+X	gi_beep();
+X
+X} /* gi_del() */
+X
+X
+Xstatic void gi_kill()
+X/*----------------------------------------------------------------------
+X** Delete from current position to the end of line.  The deleted test
+X** is stored in a kill buffer, from which it can be later retrieved.
+X*/
+X{
+X    if (gi_buffpos < gi_buffsize) { /* Not at end of line, go ahead... */
+X	
+X	strcpy(gi_killbuff, gi_buff + gi_buffpos);
+X	gi_buff[gi_buffpos] = '\0';
+X
+X	gi_buffsize = gi_buffpos;	/* reset buffer size */
+X	gi_display_buff(gi_buffpos, gi_buffpos);
+X	
+X    } else			/* At the end of the line, */
+X	gi_beep();		/* Nothing to Kill */
+X
+X} /* gi_kill() */
+X
+X
+Xstatic void gi_yank()
+X/*----------------------------------------------------------------------
+X** Add the kill buffer to the input buffer at current location.
+X** Overwrite the text following the cursor in the buffer, if we
+X** are in overwrite mode.  Otherwise shift it right (Insert).
+X*/
+X{
+X    int  i, len;
+X
+X    len = strlen(gi_killbuff);	/* Length of text in kill buffer */
+X    if (len <= 0)
+X	gi_beep();		/* nothing to yank! */
+X
+X    else {
+X	if (gi_overwrite == 0) {	/* INSERT mode */
+X	    if (gi_buffsize + len >= BUF_SIZE - 2)
+X		gi_beep();	/* No Room in buffer for yanked text ! */
+X
+X	    else {
+X		/* Move the current text over */
+X		for (i=gi_buffsize; i >= gi_buffpos; i--)
+X		    gi_buff[i + len] = gi_buff[i];
+X
+X		/* Insert the yanked text */
+X		for (i=0; i<len; i++)
+X		    gi_buff[gi_buffpos+i] = gi_killbuff[i];
+X
+X		gi_buffsize += len; 	/* reset buffer contents size */
+X	    }
+X	} else {			/* OVERWRITE mode */
+X            if (gi_buffpos + len >= BUF_SIZE - 2)
+X		gi_beep();      /* No Room in buffer for yanked text ! */
+X	    
+X	    else {
+X		/* Write the yanked text over the current buffer text */
+X		for (i=0; i < len; i++)
+X		    gi_buff[gi_buffpos + i] = gi_killbuff[i];
+X
+X		/* Reset size of buffer contents, if necessary. */
+X		if ((gi_buffpos + len) > gi_buffsize)
+X		    gi_buffsize = gi_buffpos + len;
+X
+X		/* In overwrite mode, only the characters entered need
+X		 * to be displayed, so set gi_extent accordingly.
+X		 */
+X		gi_extent = len;
+X	    }
+X	}
+X	gi_display_buff(gi_buffpos, gi_buffpos + len);
+X    }
+X
+X} /* gi_yank() */
+X				    
+Xstatic void gi_transpose()
+X/*----------------------------------------------------------------------
+X** Switch character under cursor and to left of cursor
+X*/
+X{
+X    int    c;
+X
+X    /* - if the cursor is at the left margin, you cannot transpose,
+X     * since there is no character to the left of it.
+X     * - if the cursor is at the right margin (past the end of
+X     * the text) you cannot transpose either.
+X     */
+X    if ((gi_buffpos > 0) && (gi_buffsize > gi_buffpos)) {
+X	c = gi_buff[gi_buffpos-1];
+X	gi_buff[gi_buffpos-1] = gi_buff[gi_buffpos];
+X	gi_buff[gi_buffpos] = c;
+X
+X	gi_extent = 2; 	/* Only need to redisplay the 2 affected char's. */
+X	gi_display_buff(gi_buffpos-1, gi_buffpos);
+X    } else
+X	gi_beep();
+X
+X} /* gi_transpose() */	
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+END_OF_FILE
+  if test 16929 -ne `wc -c <'ss_12b/getinput.c'`; then
+    echo shar: \"'ss_12b/getinput.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/getinput.c'
+fi
+if test -f 'ss_12b/gram.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/gram.y'\"
+else
+  echo shar: Extracting \"'ss_12b/gram.y'\" \(16624 characters\)
+  sed "s/^X//" >'ss_12b/gram.y' <<'END_OF_FILE'
+X/*
+X * %W% %G%
+X *
+X *	SC	A Spreadsheet Calculator
+X *		Command and expression parser
+X *
+X *		original by James Gosling, September 1982
+X *		modified by Mark Weiser and Bruce Israel,
+X *			University of Maryland
+X *
+X * 		more mods Robert Bond 12/86
+X *
+X *		More mods by Alan Silverstein, 3/88, see list of changes.
+X *
+X *		$Revision: 6.21 $
+X *
+X *              Some Mod's by Art Mulder, 1992.
+X *                Look for "CHANGE/OLD CODE/NEW CODE" comments
+X */
+X
+X%{
+X#include "curses_stuff.h"
+X#include "ss.h"
+X
+X#define ENULL (struct enode *)0
+X%}
+X
+X%union {
+X    int ival;
+X    double fval;
+X    struct ent_ptr ent;
+X    struct enode *enode;
+X    char *sval;
+X    struct range_s rval;
+X}
+X
+X%type <ent> var
+X%type <fval> num
+X%type <rval> range
+X%type <rval> var_or_range
+X%type <sval> strarg
+X%type <enode> e term expr_list
+X%token <sval> STRING
+X%token <ival> NUMBER
+X%token <fval> FNUMBER
+X%token <rval> RANGE
+X%token <rval> VAR
+X%token <sval> WORD
+X%token <ival> COL
+X%token S_FORMAT
+X%token S_FMT
+X%token S_LABEL
+X%token S_LEFTSTRING
+X%token S_RIGHTSTRING
+X%token S_GET
+X%token S_PUT
+X%token S_MERGE
+X%token S_LET
+X%token S_WRITE
+X%token S_TBL
+X%token S_COPY
+X%token S_SHOW
+X%token S_ERASE
+X%token S_FILL
+X%token S_LOCK
+X%token S_UNLOCK
+X%token S_GOTO
+X%token S_DEFINE
+X%token S_UNDEFINE
+X%token S_VALUE
+X%token S_MDIR
+X%token S_HIDE
+X%token S_SET
+X
+X%token K_ERROR
+X%token K_INVALID
+X%token K_FIXED
+X%token K_SUM
+X%token K_PROD
+X%token K_AVG
+X%token K_STDDEV
+X%token K_COUNT
+X%token K_ABS
+X%token K_ACOS
+X%token K_ASIN
+X%token K_ATAN
+X%token K_ATAN2
+X%token K_CEIL
+X%token K_COS
+X%token K_EXP
+X%token K_FABS
+X%token K_FLOOR
+X%token K_HYPOT
+X%token K_LN
+X%token K_LOG
+X%token K_PI
+X%token K_POW
+X%token K_SIN
+X%token K_SQRT
+X%token K_TAN
+X%token K_DTR
+X%token K_RTD
+X%token K_MAX
+X%token K_MIN
+X%token K_RND
+X%token K_ROUND
+X%token K_IF
+X
+X%token K_PV
+X%token K_FV
+X%token K_PMT
+X
+X%token K_HOUR
+X%token K_MINUTE
+X%token K_SECOND
+X%token K_MONTH
+X%token K_DAY
+X%token K_YEAR
+X%token K_NOW
+X%token K_DATE
+X%token K_DTS
+X%token K_TTS
+X%token K_FMT
+X%token K_SUBSTR
+X%token K_UPPER
+X%token K_LOWER
+X%token K_CAPITAL
+X%token K_STON
+X%token K_EQS
+X%token K_EXT
+X%token K_NVAL
+X%token K_SVAL
+X%token K_LOOKUP
+X%token K_HLOOKUP
+X%token K_VLOOKUP
+X%token K_INDEX
+X%token K_STINDEX
+X%token K_AUTO
+X%token K_AUTOCALC
+X%token K_BYROWS
+X%token K_BYCOLS
+X%token K_ITERATIONS
+X%token K_NUMERIC
+X%token K_PRESCALE
+X%token K_EXTFUN
+X%token K_CELLCUR
+X%token K_TOPROW
+X%token K_TBLSTYLE
+X%token K_TBL
+X%token K_LATEX
+X%token K_SLATEX
+X%token K_TEX
+X%token K_FRAME
+X%token K_RNDINFINITY
+X%token K_MYROW
+X%token K_MYCOL
+X%token K_COLTOA
+X%token K_CRACTION
+X%token K_CRROW
+X%token K_CRCOL
+X%token K_ROWLIMIT
+X%token K_COLLIMIT
+X%token K_NUMITER
+X  
+X%left '?' ':'
+X%left '|'
+X%left '&'
+X%nonassoc '<' '=' '>' '!'
+X%left '+' '-' '#'
+X%left '*' '/' '%'
+X%left '^'
+X
+X%%
+Xcommand:	S_LET var_or_range '=' e
+X				{ let($2.left.vp, $4); }
+X	|	S_LABEL var_or_range '=' e
+X				{ slet($2.left.vp, $4, 0); }
+X	|	S_LEFTSTRING var_or_range '=' e
+X				{ slet($2.left.vp, $4, -1); }
+X	|	S_RIGHTSTRING var_or_range '=' e
+X				{ slet($2.left.vp, $4, 1); }
+X	|	S_FORMAT COL ':' COL NUMBER NUMBER NUMBER
+X				{ doformat($2,$4,$5,$6,$7); }
+X	|	S_FORMAT COL NUMBER NUMBER NUMBER
+X				{ doformat($2,$2,$3,$4,$5); }
+X        |       S_FORMAT COL ':' COL NUMBER NUMBER
+X                                { doformat($2,$4,$5,$6, REFMTFIX); }
+X        |       S_FORMAT COL NUMBER NUMBER
+X                                { doformat($2,$2,$3,$4, REFMTFIX); }
+X	|	S_GET strarg	{  /* This tmp hack is because readfile
+X				    * recurses back through yyparse. */
+X				  char *tmp;
+X				  tmp = $2;
+X				  readfile (tmp, 1);
+X				  Free(tmp);
+X				}
+X	|	S_MERGE strarg	{
+X				  char *tmp;
+X				  tmp = $2;
+X				  readfile (tmp, 0);
+X				  Free(tmp);
+X				}
+X	|	S_MDIR strarg	
+X				{ if (mdir) Free(mdir); mdir = $2; }
+X	|       S_PUT strarg range
+X				{ (void) writefile($2, ($3.left.vp)->row, 
+X			 	($3.left.vp)->col, ($3.right.vp)->row,
+X			 	($3.right.vp)->col);
+X			 	Free($2); }
+X	|	S_PUT strarg	
+X				{ (void) writefile ($2, 0, 0, maxrow, maxcol);
+X			 	Free($2); }
+X	|       S_WRITE strarg range { (void) printfile($2, ($3.left.vp)->row, 
+X			 ($3.left.vp)->col, ($3.right.vp)->row,
+X			 ($3.right.vp)->col);
+X			 Free($2); }
+X	|	S_WRITE strarg	{ (void) printfile ($2, 0, 0, maxrow, maxcol);
+X			 Free($2); }
+X	|       S_TBL strarg range { (void) tblprintfile($2, ($3.left.vp)->row, 
+X			 ($3.left.vp)->col, ($3.right.vp)->row,
+X			 ($3.right.vp)->col);
+X			 Free($2); }
+X	|	S_TBL strarg	{ (void)tblprintfile ($2, 0, 0, maxrow, maxcol);
+X			 Free($2); }
+X	|       S_SHOW COL ':' COL
+X					{ showcol( $2, $4); }
+X	|       S_SHOW NUMBER ':' NUMBER
+X					{ showrow( $2, $4); }
+X 	|	S_HIDE COL
+X 					{ hide_col( $2 ); }
+X 	|	S_HIDE NUMBER
+X 					{ hide_row( $2 ); }
+X	|	S_COPY range var_or_range 
+X					{ copy($2.left.vp,$2.right.vp,
+X					$3.left.vp,$3.right.vp); }
+X/*
+X** CHANGE:
+X**  Under `sc' a call to 'erase' with no argument, would erase from
+X**  (showsr,showsc) to the current row,column.  This would erase from
+X**  wherever the last tab (range) region started, to the current
+X**  row,column.  I think this is wrong.  A call to erase with no
+X**  argument should erase the cell at the current row,column position
+X**  only.
+X**
+X** OLD CODE:
+X**	|	S_ERASE       
+X**					{ eraser(lookat(showsr, showsc),
+X**				        lookat(currow, curcol)); }
+X** NEW:
+X*/
+X	|	S_ERASE       
+X					{ eraser(lookat(currow, curcol),
+X				        lookat(currow, curcol)); }
+X
+X	|	S_ERASE var_or_range 
+X					{ eraser($2.left.vp, $2.right.vp); }
+X
+X/*
+X** CHANGE: the `value' command has the same bug as the `erase'
+X** command, with regards to the action taken when no argument is
+X** present.  The same fix is applied.
+X**
+X** OLD CODE:
+X**  	|	S_VALUE       { valueize_area(showsr, showsc, currow, curcol);
+X**				 modflg++; }
+X** NEW:
+X*/
+X	|	S_VALUE       { valueize_area(currow, curcol, currow, curcol);
+X				 modflg++; }
+X	|	S_VALUE var_or_range { valueize_area(($2.left.vp)->row,
+X					($2.left.vp)->col,
+X					($2.right.vp)->row,
+X					($2.right.vp)->col); modflg++; }
+X
+X/*
+X** CHANGE: the `fill' command have a similar bug to the `erase'
+X** command, w.r.t. the action taken when no range argument is present.
+X**
+X** OLD CODE:
+X**
+X**	|	S_FILL num num  { fill(lookat(showsr, showsc),
+X**				      lookat(currow, curcol), $2, $3); }
+X** NEW:
+X*/
+X	|	S_FILL num num  { fill(lookat(currow, curcol),
+X				      lookat(currow, curcol), $2, $3); }
+X	|	S_FILL var_or_range num num
+X				{ fill($2.left.vp, $2.right.vp, $3, $4); }
+X	|	S_FMT var_or_range STRING
+X				{ format_cell($2.left.vp, $2.right.vp, $3); }
+X
+X/*
+X** CHANGE: the `lock' and `unlock' commands have the same bug as the
+X** `erase' command, w.r.t. the action taken when no argument is present.
+X**
+X** OLD CODE:
+X**	|	S_LOCK       
+X**      				{ lock_cells(lookat(showsr, showsc),
+X**				        lookat(currow, curcol)); }
+X** NEW:
+X*/
+X	|	S_LOCK       
+X					{ lock_cells(lookat(currow, curcol),
+X				        lookat(currow, curcol)); }
+X	|	S_LOCK var_or_range
+X				{ lock_cells($2.left.vp, $2.right.vp); }
+X
+X/* OLD CODE:				
+X**	|	S_UNLOCK       
+X**					{ unlock_cells(lookat(showsr, showsc),
+X**				        lookat(currow, curcol)); }
+X** NEW:
+X*/
+X	|	S_UNLOCK       
+X					{ unlock_cells(lookat(currow,curcol),
+X				        lookat(currow, curcol)); }
+X	|	S_UNLOCK var_or_range
+X				{ unlock_cells($2.left.vp, $2.right.vp); }
+X
+X	|	S_GOTO var_or_range {moveto($2.left.vp->row, $2.left.vp->col);}
+X	|       S_GOTO num		{ num_search($2, 0); }
+X	|       S_GOTO errlist
+X	|       S_GOTO STRING		{ str_search($2); }
+X	|	S_GOTO			{ go_last(); }
+X/*
+X** CHANGE:
+X**  Under `sc' a call to 'define' with no argument, would define a name from
+X**  (showsr,showsc) to the current row,column.  This would define a name from
+X**  wherever the last tab (range) region started, to the current
+X**  row,column.  This doesn't work with `ss'.  A call to define with no
+X**  argument should define a name for the cell at the current row,column
+X**  position only.
+X**  
+X** OLD CODE:
+X**	|	S_DEFINE strarg       { struct ent_ptr arg1, arg2;
+X**					arg1.vp = lookat(showsr, showsc);
+X**					arg1.vf = 0;
+X**					arg2.vp = lookat(currow, curcol);
+X**					arg2.vf = 0;
+X**                                      if (arg1.vp == arg2.vp)
+X**                                         add_range($2, arg2, arg2, 0);
+X**                                      else
+X**                                         add_range($2, arg1, arg2, 1); }
+X** NEW:
+X*/
+X	|	S_DEFINE strarg       { struct ent_ptr arg1;
+X					arg1.vp = lookat(currow, curcol);
+X					arg1.vf = 0;
+X					add_range($2, arg1, arg1, 0);
+X				      }
+X
+X	|	S_DEFINE strarg range	{ add_range($2, $3.left, $3.right, 1); }
+X	|	S_DEFINE strarg var	{ add_range($2, $3, $3, 0); }
+X	|	S_UNDEFINE var_or_range	{ del_range($2.left.vp, $2.right.vp); }
+X 	|	S_SET setlist
+X	|	/* nothing */
+X	|	error;
+X
+Xterm: 		var			{ $$ = new_var(O_VAR, $1); }
+X	|	K_FIXED term		{ $$ = new ('f', ENULL, $2); }
+X	|       '@' K_SUM '(' var_or_range ')' 
+X				{ $$ = new_range(REDUCE | '+', $4); }
+X	|       '@' K_PROD '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | '*', $4); }
+X	|       '@' K_AVG '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | 'a', $4); }
+X	|       '@' K_STDDEV '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | 's', $4); }
+X	|       '@' K_COUNT '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | 'c', $4); }
+X	|       '@' K_MAX '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | MAX, $4); }
+X	|	'@' K_MAX '(' e ',' expr_list ')'
+X				{ $$ = new(LMAX, $6, $4); }
+X	|       '@' K_MIN '(' var_or_range ')' 
+X				{ $$ = new_range (REDUCE | MIN, $4); }
+X	|	'@' K_MIN '(' e ',' expr_list ')'
+X				{ $$ = new(LMIN, $6, $4); }
+X	| '@' K_ABS '(' e ')'		{ $$ = new(ABS, ENULL, $4); }
+X	| '@' K_ACOS '(' e ')'		{ $$ = new(ACOS, ENULL, $4); }
+X	| '@' K_ASIN '(' e ')'		{ $$ = new(ASIN, ENULL, $4); }
+X	| '@' K_ATAN '(' e ')'		{ $$ = new(ATAN, ENULL, $4); }
+X	| '@' K_ATAN2 '(' e ',' e ')'	{ $$ = new(ATAN2, $4, $6); }
+X	| '@' K_CEIL '(' e ')'		{ $$ = new(CEIL, ENULL, $4); }
+X	| '@' K_COS '(' e ')'		{ $$ = new(COS, ENULL, $4); }
+X	| '@' K_EXP '(' e ')'		{ $$ = new(EXP, ENULL, $4); }
+X	| '@' K_FABS '(' e ')'		{ $$ = new(FABS, ENULL, $4); }
+X	| '@' K_FLOOR '(' e ')'		{ $$ = new(FLOOR, ENULL, $4); }
+X	| '@' K_HYPOT '(' e ',' e ')'	{ $$ = new(HYPOT, $4, $6); }
+X	| '@' K_LN '(' e ')'		{ $$ = new(LOG, ENULL, $4); }
+X	| '@' K_LOG '(' e ')'		{ $$ = new(LOG10, ENULL, $4); }
+X	| '@' K_POW '(' e ',' e ')'	{ $$ = new(POW, $4, $6); }
+X	| '@' K_SIN '(' e ')'		{ $$ = new(SIN, ENULL, $4); }
+X	| '@' K_SQRT '(' e ')'		{ $$ = new(SQRT, ENULL, $4); }
+X	| '@' K_TAN '(' e ')'		{ $$ = new(TAN, ENULL, $4); }
+X	| '@' K_DTR '(' e ')'		{ $$ = new(DTR, ENULL, $4); }
+X	| '@' K_RTD '(' e ')'		{ $$ = new(RTD, ENULL, $4); }
+X	| '@' K_RND '(' e ')'		{ $$ = new(RND, ENULL, $4); }
+X	| '@' K_ROUND '(' e ',' e ')'	{ $$ = new(ROUND, $4, $6); }
+X	| '@' K_IF  '(' e ',' e ',' e ')' { $$ = new(IF,  $4,new(',',$6,$8)); }
+X
+X	| '@' K_PV  '(' e ',' e ',' e ')' { $$ = new(PV,  $4,new(':',$6,$8)); }
+X 	| '@' K_FV  '(' e ',' e ',' e ')' { $$ = new(FV,  $4,new(':',$6,$8)); }
+X 	| '@' K_PMT '(' e ',' e ',' e ')' { $$ = new(PMT, $4,new(':',$6,$8)); }
+X 
+X	| '@' K_HOUR '(' e ')'		{ $$ = new(HOUR,ENULL, $4); }
+X	| '@' K_MINUTE '(' e ')'	{ $$ = new(MINUTE,ENULL, $4); }
+X	| '@' K_SECOND '(' e ')'	{ $$ = new(SECOND,ENULL, $4); }
+X	| '@' K_MONTH '(' e ')'		{ $$ = new(MONTH,ENULL,$4); }
+X	| '@' K_DAY '(' e ')'		{ $$ = new(DAY, ENULL, $4); }
+X	| '@' K_YEAR '(' e ')'		{ $$ = new(YEAR, ENULL, $4); }
+X	| '@' K_NOW			{ $$ = new(NOW, ENULL, ENULL);}
+X	| '@' K_DTS '(' e ',' e ',' e ')'
+X					{ $$ = new(DTS, $4, new(',', $6, $8));}
+X	| '@' K_TTS '(' e ',' e ',' e ')'
+X					{ $$ = new(TTS, $4, new(',', $6, $8));}
+X	| '@' K_STON '(' e ')'		{ $$ = new(STON, ENULL, $4); }
+X	| '@' K_EQS '(' e ',' e ')'	{ $$ = new (EQS, $4, $6); }
+X	| '@' K_DATE '(' e ')'		{ $$ = new(DATE, ENULL, $4); }
+X	| '@' K_FMT  '(' e ',' e ')'	{ $$ = new(FMT, $4, $6); }
+X	| '@' K_UPPER '(' e ')'		{ $$ = new(UPPER, ENULL, $4); }
+X	| '@' K_LOWER '(' e ')'		{ $$ = new(LOWER, ENULL, $4); }
+X	| '@' K_CAPITAL '(' e ')'	{ $$ = new(CAPITAL, ENULL, $4); }
+X	| '@' K_INDEX  '(' e ',' var_or_range ')'
+X		 { $$ = new(INDEX, $4, new_range(REDUCE | INDEX, $6)); }
+X	| '@' K_LOOKUP  '(' e ',' var_or_range ')'
+X		 { $$ = new(LOOKUP, $4, new_range(REDUCE | LOOKUP, $6)); }
+X	| '@' K_HLOOKUP  '(' e ',' var_or_range ',' e ')'
+X		 { $$ = new(HLOOKUP, new(',', $4, $8),
+X		    new_range(REDUCE | HLOOKUP, $6)); }
+X	| '@' K_VLOOKUP  '(' e ',' var_or_range ',' e ')'
+X		 { $$ = new(VLOOKUP, new(',', $4, $8),
+X		    new_range(REDUCE | VLOOKUP, $6)); }
+X	| '@' K_STINDEX  '(' e ',' var_or_range ')'
+X		 { $$ = new(STINDEX, $4, new_range(REDUCE | STINDEX, $6)); }
+X	| '@' K_EXT  '(' e ',' e ')'	{ $$ = new(EXT, $4, $6); }
+X	| '@' K_NVAL '(' e ',' e ')'	{ $$ = new(NVAL, $4, $6); }
+X	| '@' K_SVAL '(' e ',' e ')'	{ $$ = new(SVAL, $4, $6); }
+X	| '@' K_SUBSTR '(' e ',' e ',' e ')'
+X				{ $$ = new(SUBSTR, $4, new(',', $6, $8)); }
+X	|	'(' e ')'	{ $$ = $2; }
+X	|	'+' term	{ $$ = $2; }
+X	|	'-' term	{ $$ = new ('m', ENULL, $2); }
+X	|	NUMBER		{ $$ = new_const(O_CONST, (double) $1); }
+X	|	FNUMBER		{ $$ = new_const(O_CONST, $1); }
+X	|	NUMBER '_' NUMBER '_' NUMBER
+X			{ $$ = new_const(O_CONST, convert_date($1,$3,$5)); }
+X	|	K_PI { $$ = new_const(O_CONST, (double)3.14159265358979323846); }
+X	| '@'   K_PI { $$ = new_const(O_CONST, (double)3.14159265358979323846); }
+X	|	STRING	        { $$ = new_str($1); }
+X	|	'~' term	{ $$ = new ('~', ENULL, $2); }
+X	|	'!' term	{ $$ = new ('~', ENULL, $2); }
+X	| '@' K_MYROW			{ $$ = new(MYROW, ENULL, ENULL);}
+X	| '@' K_MYCOL			{ $$ = new(MYCOL, ENULL, ENULL);}
+X	| '@' K_COLTOA '(' e ')'	{ $$ = new(COLTOA, ENULL, $4);}
+X	| '@' K_NUMITER			{ $$ = new(NUMITER, ENULL, ENULL);}
+X	;
+X
+X/* expressions */
+Xe:		e '+' e		{ $$ = new ('+', $1, $3); }
+X	|	e '-' e		{ $$ = new ('-', $1, $3); }
+X	|	e '*' e		{ $$ = new ('*', $1, $3); }
+X	|	e '/' e		{ $$ = new ('/', $1, $3); }
+X	|	e '%' e		{ $$ = new ('%', $1, $3); }
+X	|	e '^' e		{ $$ = new ('^', $1, $3); }
+X	|	term
+X	|	e '?' e ':' e	{ $$ = new ('?', $1, new(':', $3, $5)); }
+X	|	e '<' e		{ $$ = new ('<', $1, $3); }
+X	|	e '=' e		{ $$ = new ('=', $1, $3); }
+X	|	e '>' e		{ $$ = new ('>', $1, $3); }
+X	|	e '&' e		{ $$ = new ('&', $1, $3); }
+X	|	e '|' e		{ $$ = new ('|', $1, $3); }
+X	|	e '<' '=' e	{ $$ = new ('~', ENULL, new ('>', $1, $4)); }
+X	|	e '!' '=' e	{ $$ = new ('~', ENULL, new ('=', $1, $4)); }
+X	|	e '<' '>' e	{ $$ = new ('~', ENULL, new ('=', $1, $4)); }
+X	|	e '>' '=' e	{ $$ = new ('~', ENULL, new ('<', $1, $4)); }
+X	|	e '#' e		{ $$ = new ('#', $1, $3); }
+X	;
+X
+Xexpr_list:	e		{ $$ = new(ELIST, ENULL, $1); }
+X	|	expr_list ',' e	{ $$ = new(ELIST, $1, $3); }
+X	;
+X
+Xrange:		var ':' var	{ $$.left = $1; $$.right = $3; }
+X	| 	RANGE		{ $$ = $1; }
+X	;
+X
+Xvar:		COL NUMBER	{ $$.vp = lookat($2 , $1); $$.vf = 0; }
+X	|	'$' COL NUMBER	{ $$.vp = lookat($3 , $2);
+X					$$.vf = FIX_COL; }
+X	|	COL '$' NUMBER	{ $$.vp = lookat($3 , $1);
+X					$$.vf = FIX_ROW; }
+X	|	'$' COL '$' NUMBER { $$.vp = lookat($4 , $2);
+X					$$.vf = FIX_ROW | FIX_COL; }
+X	|	VAR		{ $$ = $1.left; }
+X	;
+X
+Xvar_or_range:	range		{ $$ = $1; }
+X	|	var		{ $$.left = $1; $$.right = $1; }
+X	;
+X
+Xnum:		NUMBER		{ $$ = (double) $1; }
+X	|	FNUMBER		{ $$ = $1; }
+X	|	'-' num		{ $$ = -$2; }
+X	|	'+' num		{ $$ = $2; }
+X	;
+X
+Xstrarg:		STRING		{ $$ = $1; }
+X	|	var		{
+X				    char *s, *s1;
+X				    s1 = $1.vp->label;
+X				    if (!s1)
+X					s1 = "NULL_STRING";
+X				    s = Malloc((unsigned)strlen(s1)+1);
+X				    (void) strcpy(s, s1);
+X				    $$ = s;
+X				}
+X  	;
+X
+X/* allows >=1 'setitem's to be listed in the same 'set' command */
+Xsetlist :
+X	|	setlist	setitem
+X	;
+X
+X/* things that you can 'set' */
+Xsetitem	:	K_AUTO		{ setauto(1); }
+X	|	K_AUTOCALC	{ setauto(1); }
+X	|	'~' K_AUTO	{ setauto(0); }
+X	|	'~' K_AUTOCALC	{ setauto(0); }
+X	|	'!' K_AUTO	{ setauto(0); }
+X	|	'!' K_AUTOCALC	{ setauto(0); }
+X	|	K_BYCOLS	{ setorder(BYCOLS); }
+X	|	K_BYROWS	{ setorder(BYROWS); }
+X	|	K_NUMERIC	{ numeric = 1; }
+X	|	'!' K_NUMERIC	{ numeric = 0; }
+X	|	K_PRESCALE	{ prescale = 0.01; }
+X	|	'!' K_PRESCALE	{ prescale = 1.0; }
+X	|	K_EXTFUN	{ extfunc = 1; }
+X	|	'!' K_EXTFUN	{ extfunc = 0; }
+X	|	K_CELLCUR	{ showcell = 1; }
+X	|	'!' K_CELLCUR	{ showcell = 0; }
+X	|	K_TOPROW	{ showtop = 1; }
+X	|	'!' K_TOPROW	{ showtop = 0; }
+X	|	K_ITERATIONS '=' NUMBER	{ setiterations($3); }
+X	|	K_TBLSTYLE '=' NUMBER	{ tbl_style = $3; }
+X	|	K_TBLSTYLE '=' K_TBL	{ tbl_style = TBL; }
+X	|	K_TBLSTYLE '=' K_LATEX	{ tbl_style = LATEX; }
+X	|	K_TBLSTYLE '=' K_SLATEX	{ tbl_style = SLATEX; }
+X	|	K_TBLSTYLE '=' K_TEX	{ tbl_style = TEX; }
+X	|	K_TBLSTYLE '=' K_FRAME	{ tbl_style = FRAME; }
+X	|	K_RNDINFINITY		{ rndinfinity = 1; FullUpdate++; }
+X	|	'!' K_RNDINFINITY	{ rndinfinity = 0; FullUpdate++; }
+X	|	K_CRACTION '=' NUMBER	{ craction = $3; }
+X	|	K_ROWLIMIT '=' NUMBER	{ rowlimit = $3; }
+X	|	K_COLLIMIT '=' NUMBER	{ collimit = $3; }
+X  	;
+X
+X/* types of errors, to 'goto' */
+Xerrlist :	K_ERROR		{ num_search((double)0, CELLERROR); }
+X	|	K_INVALID	{ num_search((double)0, CELLINVALID); }
+X	;
+END_OF_FILE
+  if test 16624 -ne `wc -c <'ss_12b/gram.y'`; then
+    echo shar: \"'ss_12b/gram.y'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/gram.y'
+fi
+if test -f 'ss_12b/sc_stuff/CHANGES' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/sc_stuff/CHANGES'\"
+else
+  echo shar: Extracting \"'ss_12b/sc_stuff/CHANGES'\" \(22217 characters\)
+  sed "s/^X//" >'ss_12b/sc_stuff/CHANGES' <<'END_OF_FILE'
+XCHANGES BETWEEN 6.21 and 6.19
+XMark R. Rubin
+X	-noted a problem using bison 1.16 (use any version but 1.16)
+XMarco S Hyman/Ian */and others
+X	-Crypt/CRYPT_PATH define problem
+XPaul Eggert
+X	-sc.doc $Revision: 6.21 $ 'buglet'
+XUlf Noren/Dave Lewis
+X	-AIX3.1/Microport System V/AT don't have notimeout()
+X		changed NONOTIMEOUT to NO_NOTIMEOUT, define if not present
+XNiels Baggesen
+X	-function keys may not return ascii codes that isascii() understands
+X	-added an A command for vi mode (add at end of row).
+X	-Special key support: DC='x' (del char in vi mode), FIND='g' (goto),
+X		HELP='?', SELECT='m'
+XDave Davey
+X	-noted Ultrix 4.2 curses doesn't have idlok()
+X		[I added NO_IDLOK in Makefile]
+XKim DeVaughn
+X	-added ${RIGHTBUG} is now passed to sc.o && screen.o
+X	-suggested a better fix on SunOS 4.x dont use the Sys V
+X	 package (CC = /usr/5bin/cc, etc), but use the BSD 4.3 defines
+XDavid Bonnell
+X	-scqref [will produce] TROFF output instead of plain text, 
+X	 [when] you define QREF_FMT=TROFF in the Makefile.
+X	 The resulting quick reference guide uses the MS macro set and you 
+X	 build with something like:
+X		scqref > quickref
+X	 	troff -ms quickref > quickref.ps
+XKurt Cockrum
+X	- sc.h:
+X		If not (defined(BSD42) || defined(BSD43) && !defined(ultrix)),
+X		include <memory.h> for the benefit of some USG systems...
+X	- screen.c:
+X		Repaired cpp logic:
+X		don't mention IDLOKBAD or idlok() unless SYSV3 defined;
+X		idlok() does not exist for USG pre-SYSV systems (may exist for
+X		SYSV{2,3,4}).
+X	- tutorial.sc:
+X		Repaired a number of off-by-1 errors.
+XMats Wichmann
+X	-cleaned up Robert E. Cousins MIF format support code which is
+X		compatible with FrameMaker.
+XNeil Skilling
+X	-added @numiter which returns the number of iterations performed.
+X	 It allows you to solve equations by direct substitution. Taking a
+X	 guess from another cell if the first iteration otherwise taking the
+X	 last best iterate. Other uses may be found.
+XMartin MacLaren
+X	-MS-DOS cleanup of Makefile
+XArt Mulder
+X	-^T toggle: don't list crypt if not available
+XJohn Amanatides
+X	-pointed out a possible NULL ref in interp.c
+XPhil Johnson
+X	-sc now appends: "asc", "cln", "tbl", etc. to output files
+X	-made the engineering format match that used by an engineer
+X	-deleted an unused engmult[] reference
+X	-added a fix to struct enode for the HP compiler
+XKevin Cosgrove
+X	-noted sc should use any predefined PI
+XJeff Buhrt
+X	-'make clean' now leaves the binaries and man pages [Jean-Pierre Radley]
+X	-'make clobber' cleans all built files (like clean used to) [""]
+X	-'-D' vs '-S' was needed on a XENIX2_3 line [""]
+X	-'quit()' -> 'doquit()', function conflict [""]
+X	-change xmalloc,xrealloc,xfree -> scxmalloc,scxrealloc,scxfree
+X		(xmalloc is a standard malloc)
+X
+XCHANGES BETWEEN 6.19 and 6.18
+XTom Tkacik
+X	-sc.doc and CHANGES changes
+XEdgard
+X	-moving right off the screen now redraws vs optimize
+XSisira Jayasinghe
+X	- added build.com (VMS) and VMS fixes
+XJonathan I. Kamen && Charlie Shub
+X	-noted fmod doesn't exist on BSD4.3 and Mt Xinu 
+XBen Priest
+X	-vi compatability: ' ' moves right as well as 'l' while line editing
+XJeff Buhrt
+X	-one more possible NULL pointer fixed
+X	-added NONOTIMEOUT for those that don't have notimeout() in curses
+X	-undef CRYPT=-DCRYPT_PATH... if crypt isn't available
+X	-merged simple fmod into interp.c if fmod() is not present
+X
+XCHANGES BETWEEN 6.18 and 6.17
+XJames Dugal	
+X	- NULL pointer fix for is_locked
+XKevin Pye
+X	- add a new mode suitable for entry of large amounts of data.
+X		moves to next cell on return, maxrow/col when to start
+X		entering in the next row/col. (see help screens B&C)
+X	COMMANDS ADDED: ^Tz, ^Tr, Srowlimit=?, Scollimit=?
+XDavid Fox - added a date format so that columns whose values are the number
+X	of seconds since 1/1/70 will be displayed as dates in the format
+X	dd-mmm-yy, and a modification to the grammar so data entered in the
+X	format dd_mm_yy will be converted into the number of seconds since
+X	1/1/70.
+X	COMMANDS ADDED: f # # 3
+XTeus Hagen
+X	- labels are centered strings
+X	- constant strings with '\' preceeding character will
+X	  be wheeled over the column width
+X	- a restart of sc on an sc file will go to last used cel
+X	- added toupper, tolower and do proper word capitalization
+X	COMMANDS ADDED: @toupper(), @tolower(), @capital(), @pi, "\[String]
+XJeff Buhrt
+X	- external functions null/previous message was backwards
+X	- cleaned up help.c by inserting a new screen
+X	- found a possible NULL pointer in screen.c
+X
+XCHANGES BETWEEN 6.17 and 6.16
+XUlf Noren
+X	- added cell locking, disallowing input, to ranges of cells
+XHerr Soeryantono
+X	- I added ifdef's around curses KEY_* functions his curses didn't have
+X		(Sun/OS 4 on a SPARC)
+XJay Lepreau
+X	- changes to tutorial.sc: how to get out, should be used w/ 24 lines
+X	- IDLOKBAD was not passed to screen.c
+X	- suggested error messages if the execl of crypt fails
+X	- pointed out BSD's crypt is in /usr/bin/crypt
+XHenk P. Penning
+X	- suggested Makefile list the mode of the man page & tutorial.sc
+X	- make install will now install the psc man
+X	- yylval was not known in lex.c for HP-UX 7.05
+XEdgard
+X	- hitwinch fixes
+X	- KEY_HOME now takes you to 0,0
+XCHECK KEY_NPAGE/PPAGE
+XStephen (Steve) M. Brooks
+X	- suggested the man pages should include Sc's revision
+XDan Banay
+X	- code to set LINES and COLS after a window size change
+XBart Schaefer
+X	- @myrow/@mycol fix
+XBruce Jerrick
+X	- noted ln may not always work for the temporary source files
+XGene H. Olson
+X	- fixes for SIGWINCH for Sun OS 4.1.1
+XTeus Hagen
+X	- added three functions:
+X		1) allow @PI as well
+X		2) @upper/@lower for casing characters in a string
+X		3) @capital for upper case first char of words in a string.
+XMartin Maclaren
+X	- added MS-DOS support
+X		COMPILER USED: Microsoft C, 5.1
+X		TOOLS USED   : NDMAKE GNUBISON GNUSED PCCURSES
+XCuong Bui
+X	- has a working Vietnamese version of sc, noted a A_CHARTEXT
+X		mask problem
+XJeff Buhrt
+X	- when numeric prescale is on: 300 -> 3.0, now 300. -> 300. not 3.0
+X		(numbers with a decimal aren't scaled)
+X
+XCHANGES BETWEEN 6.16 and 6.15
+XTom Tkacik
+X	-fixed a bug in ^W
+XJonathan I. Kamens
+X	- added Makefile rules so scqref and psc don't clobber .o's
+XLarry Philps
+X	- fixed a SCO XENIX vs M_XENIX problem
+X	- fixed a problem where dosval() might not xmalloc enough memory
+XDave Close
+X	- fix for Xenix 2.3 to reset terminal modes
+X
+XCHANGES BETWEEN 6.15 and 6.14
+XLowell Skoog
+X	- fixed a bug in 'F'ormat
+XHenk Hesselink
+X	- format.c double neg. sign 
+X	- interp.c minr/minc bug, plus modflg wasn't set
+X	- fixed a hardcoded path in sc.doc
+X	- improvement: 
+X		-show current cell format in top line
+X		-[buhrt: go into edit mode on the old format if it existed
+X			otherwise insert mode]
+XJonathan Crompron
+X	- made sure doformat() does a checkbounds()
+XStephen (Steve) M. Brooks
+X	- pointed out -s in psc was broke
+XMichael Richardson
+X	- fixed negative numbers in exponential format
+X
+XCHANGES BETWEEN 6.14 and 6.13
+XMats Wichmann
+X	- Sys V R4 patches, fixed 'Press RETURN ...' on a shell command
+XTim Theisen
+X	- changed #define for memcpy/memset under ultrix
+XRick Walker
+X	- Added @myrow and @mycol to give the row/col of the current cell
+X	'The two functions are @myrow and @mycol, which return the numerical
+X	row and column of the calling cell.  The cell directly above a cell
+X	in the D column could then be accessed by @nval("d",@myrow-1).'
+X	NOTE: @myrow and @mycol can't be used in specifying ranges.
+X
+XCHANGES BETWEEN 6.13 and 6.12
+XRick Walker
+X	- pointed out a move(x,y)-> (y,x) in sc.c
+XGlenn Barry
+X	- Further SunOS 4.X cleanups
+XTom Tkacik
+X	- made sure 'J' moves downward 1/2 a screen even at the bottom
+XDavid I. Dalva
+X	- pointed out crypt may not be in /bin/crypt
+XGregory Bond
+X	- allows the vi-mode editing of very long expressions
+X		(> 1 screen width) to work on 2nd + subsequent lines
+XTom Anderson
+X	- "let A1 = aaa" (where aaa is defined as A0:A0) is now valid
+X	- added autolabeling
+X		'When there is an empty cell to the left of a cell that has
+X		just been defined (with /d), a label is created in the blank
+X		cell.  The label holds the definition that has just been
+X		created.  This labeling is only done for definitions of single
+X		cells (and not for ranges).'
+X		'The feature can be turned on and off with a toggle (^T)
+X		command'
+XPetri Wessman
+X	- Added support for SLaTeX, 'a Scandinavian version of LaTeX, in
+X		intensive use ... in Finland and in Sweden'
+XJeff Buhrt
+X	- vmtbl.c explictly set arrays of pointers to NULL, vs memset()
+X	- psc   [-P] plain numbers only:a number only when there is no [-+eE]
+X		[-S] all numbers are strings
+X	- psc: a number must end in [0-9.eE] anything else makes it a string
+X		(4, 4., 4.5, and 4e are numbers; 4-, 4+, etc are not).
+X	- psc: made sure we grow enough when we call growtbl()
+X	- cleaned up the Makefile w/ a few suggestions
+X	- SIGWINCH is delt with next time the screen would update (testing)
+X	- added IDLOKBAD to get around a SysV curses bug (see Makefile)
+X	- moved screen functions into screen.c (except for one indirect
+X		'repaint()' call in sc.c, and help.c)
+X
+XCHANGES BETWEEN 6.12 and 6.11
+XJames Dugal
+X	- added format.c to SRCS in Makefile
+X	- noted RETURN didn't enter insert mode
+XPeter King
+X	- pointed out iscntrl is broken on some other systems as well
+X	- sent some lint cleanups
+XMichael Richardson
+X	- patch to stop format looping when scientific notation was selected
+XGlenn T. Barry
+X	- code to turn on hardware scrolling and added 'slow speed display'
+X		speedups, default for SYSV3 or see -DSUNOS41SYSV in Makefile.
+XTom Tkacik
+X	- fixes to make sure J and K move same amount, and re-added H code
+XJeff Buhrt
+X	- fixed a possible xfree(NULL) in getent() (found when adding K_VAL)
+X	- merged compiler cleanups
+X*	- added $(name)qref to print a Quick Reference card
+X	- got rid of INVALIDS that may have been left around
+X*	- pressing return on a empty line puts you into insert mode
+X		(like in <=Sc6.1). When entering you can also press ESC
+X		to go into the editor (no change); this is also documented
+X		now so it might stay around this time.
+X
+XCHANGES BETWEEN 6.11 and 6.10
+X
+XJonathan I. Kamens
+X	- sc.doc now mentions the tutorial file in the FILES section
+XAndy Fyfe
+X	- pointed out 3 locations where a NULL should have been '\0'
+XRobert Bond
+X	- pointed out the ERROR could hide a cellerror
+XPiercarlo Grandi
+X	- H,J,I,K now move 1/2 screen
+XUlf Noren
+X	- changes for AIX V3.1
+X		- defined CHTYPE and NLS for the preprocessor. CHTYPE is
+X		the type of every character in a curses window.
+X		- Added KEY_BACKSPACE to nmgetch
+X		- strtof ifdef
+X	- Iteration change: when Sc says: "Still changing after 9 iterations"
+X	Sc at that point will have eval'd 9 times
+XChris Metcalf
+X	- pointed out I broke setlist when adding 'goto {error,invalid}'
+XJames P. Dugal
+X	- iscntrl() wasn't handling TABS though CRs under Pyramid OSx4.1
+XPeter King
+X	- BROKENCURSES patch for nl()/nonl() bug on some BSD systems
+X	- backups, tutorial file, and man references now depend on $name
+X	- DFLTPAGER to DFLT_PAGER fix
+X
+XCHANGES BETWEEN 6.10 and 6.9
+X
+XTom Tkacik
+X	- when moving off the current table (resizing) now move the cursor
+X		on 'l' or 'k'.
+X	- patches to sc.doc to correctly format the vi-mode notes
+XJim Clausing
+X	- made sure / doesn't try to divide by zero.
+XTom Kloos
+X	- correction to substr() example in help.c
+XPiercarlo "Peter" Grandi
+X	- Disable non-constant expressions while loading
+X	- Added extra code in dealing w/ floating point exceptions
+X	- #ifdef'd SAVENAME (vs hardcoded SC.SAVE) to allowing changing the
+X		emergency save name.
+XCasey Leedom
+X	- Makefile changes: man extension, RINT note, make values should
+X		never be left undefined and then referenced, don't leave
+X		around *.old's
+XTom Anderson
+X	- patches to add type of column format (note format now has 3 args)
+XJeff Buhrt
+X	- xmalloc/xfree fatal() will now call diesave()
+X		(MAKE SURE the saved file is ok if this were to happen)
+X	- history[] is now a circular queue, this will cut down on the
+X		number of data moves and also xmalloc/xfree calls
+X		(idea from Keith Bostic)
+X	- cells with an error (ex: divide by 0) will show 'ERROR'
+X	- you can 'goto error' (or 'goto') to find an ERROR (for next ERROR)
+XRobert Bond
+X	- When in numeric mode the ^B, ^F, ^N, ^P key will end a numeric entry.
+X
+XCHANGES BETWEEN 6.9 and 6.8
+X
+XJim Richardson
+X	- pointed out vi mode was not documented in sc.doc
+X	- found a nasty buffer limit bug in savedot()
+X	- a side effect was ^D could cause a core dump (-Jeff)
+XTim Wilson
+X	- Hints on compiling on Ultrix
+XEric Putz
+X	-patch for printfile() (sc died on huge # of columns in a W)
+XJeffrey C Honig
+X	-patch for lex.c which bombed on SunOS 4.1 if $TERM was not set
+XTom Kloos
+X	-psc now calls [+-.] strings vs numbers.
+X	-also pointed out a format reversal problem
+XJack Goral
+X	-changes to Makefile to compile under SCO Unix V rel 3.2.0
+XMark Nagel
+X	-changes to allow arbitrarily complex formatting of cells 
+XKim Sanders
+X	-^W generated an incorrect equation (line was not started at beginning)
+XMike Schwartz
+X	-a put command will use the same encryption key as when the
+X	file was read.
+X	>I have a suggestion for making the encyrption option of "sc" more
+X	>usable:  Right now, if you use the -x option when you start up sc, it
+X	>prompts you for the key (just like "vi -x" does).  But when you try to
+X	>write the file out using the Put command, it asks for the key again
+X	>each time.  Why not make it use the same key you used before (as "vi
+X	>-x" does)?  That would really help, because as it is, each time you try
+X	>to save the file you run the risk of mistyping the key.
+X	>
+X	>You might think this causes a security problem, since the key is then
+X	>an argument to crypt, and hence is visible from ps.  But when crypt
+X	>runs, the first thing it does is to copy the key to an internal buffer
+X	>and then zero out the argv copy, so the window of vulnerability is
+X	>vanishingly small.
+XAdri Verhoef
+X	- pointed out a ^D caused a core dump (fixed)
+XGene H. Olson
+X	- format now grows the spreadsheet before setting the column format.
+X	- removed an extra ';' that caused a possible column number trashing
+XPaul Eggert
+X	-sc now also has round-to-even, also known as ``banker's rounding''.
+X	>With round-to-even, a number exactly halfway between two values is
+X	>rounded to whichever is even; e.g. rnd(0.5)=0, rnd(1.5)=2,
+X	>rnd(2.5)=2, rnd(3.5)=4.  This is the default rounding mode for
+X	>IEEE floating point, for good reason: it has better numeric
+X	>properties.  For example, if X+Y is an integer,
+X	>then X+Y = rnd(X)+rnd(Y) with round-to-even,
+X	>but not always with sc's rounding (which is
+X	>round-to-positive-infinity).  I ran into this problem when trying to
+X	>split interest in an account to two people fairly.
+X	-While we're on the subject, @round(X,Y) should also work when Y
+X	>is negative. For example, @round(123,-2) should yield 100.
+X
+X
+XCHANGES BETWEEN 6.8 and 6.7
+X
+XJeff Buhrt (with help from some beta testers-Thank you)
+X	  1) added a per row memory allocation
+X		-runs in about 1/2 run time and 1/3 the space of 6.6vm.1
+X		-insert/delete row now just moves pointers (# == maxrow+1-currow)
+X			and blanks one row (of columns (maxcol))
+X		-as the number of cells grows the size is more linear
+X			(no more ##Meg images except for 100,000's of rows....)
+X		-row to column pointer translation is done by a macro (ATBL)
+X			that returns a pointer to the cell pointer.
+X			*ATBL would be a pointer to a *ent (cell).
+X		-the maximum # of columns is limited by ABSMAXCOLS or
+X			sizeof(struct ent *)*maxcols (whichever is smaller)
+X			(702 * 4 = 2808 is no real limit even for 286 large model)
+X		-the maximum # of rows is limited by the virtual memory limit or
+X			sizeof(struct ent **)*maxrows (whichever is smaller)
+X			(4*X=64k, X=16384 rows (excluding malloc overhead) on
+X				a '286 large model. Even w/ 3.25Meg and 10Mhz)
+X			(plus of course any memory used for cells)
+X	2) dolookup (int vs double)
+X	3) dolookup calling eval w/ ent * not enode *
+X		 (dolookup called w/ ent * not enode *)
+X	4) cleaned up a lot of .... *x = 0 to  (.... *)0 (cmds, interp)
+X	5) psc: fwidth/precision were reversed on the output
+X	6) Backup copy (on save) using same mode to [path/]#file~
+X		 (will prompt if a backup fails)
+X	7) put y/n prompt function into yn_ask(mesg)
+X	8) found a move(x,y) in sc -> move(y,x) and only move when needed
+X	9) we use FullUpdate || changed (to see if ANY cells changed) 
+X		before trying to redraw the screen in update
+X		(now we don't try to redraw every time a key is hit)
+X		-if we are stand[ing]out we do not create a cell just to force a
+X		 standout inside the repaint section of update()
+X		-only draw blank cells if we cleared it or it is standing out
+X		reason: the less work (what to update) curses has to do, the faster
+X			a screen update will be (less cpu required)
+X	14) {insert, delete}col replaced w/ {open,close}col(currow, numcol_to_insert)
+X		(limits looping)
+X	6.7.1.1
+X	15) goto nonexistant cell may loop
+X	16) make sure that startup size will at least fill the screen w/ cells.
+X	17) added version.c
+X	6.7.1.2
+X	18) When we would normally die w/o saving (SIGQUIT, etc), we now ask
+X		if people would like to save the current spreadsheet.
+X		If 'y', saves to the current file name, otherwise ~/SC.SAVE,
+X		then /tmp/SC.SAVE if all else fails.
+X	6.7.1.3
+X	19) don't use malloc.c for production code
+X	20) progname is now truncated to just the basename (systems w/ long paths
+X		caused problems)
+X
+XCHANGES BETWEEN 6.1 and 6.7
+X
+XDave Lewis - 
+X	Found and fixed a null pointer derefrece in the 'R' command.
+X
+XRob McMahon -
+X	Changed the ctl() macro to work with ANSI style compilers.
+X	Cleaned up some non-readonly text problems.
+X
+XRick Linck -
+X	Fixed a bug in lex.c - Ann Arbor Ambassadors have long ks and ke
+X	termcap entries.
+X
+XSam Drake -
+X	A fix for undefined C_* symbols in AIX.
+X
+XPeter Brower -
+X	Cleaned up the INTERNATIONAL ifdefs with more portable code.
+X
+XGlen Ditchfield
+X	Cleaned up a problem in crypt.c when the encrypted file shrank.
+X
+XBob Bond -
+X	Vi style editing for the command line.
+X	A bug in range name aliases.
+X
+XJeff Buhrt -
+X	-Added "~" filename expansion.
+X	-702 columns (A-ZZ) and unlimited rows/cells based on max. memory
+X	-fixed a few bugs
+X	-slightly decreased CPU usage
+X	-MAKES backup copies of files
+X	-understands ~$HOME stuff
+X
+XCHANGES BETWEEN 5.1 and 6.1:
+X
+XAndy Valencia -
+X	xmalloc aligns data to a double boundary.
+X
+XLawrence Cipriani -
+X	Fixed a bug in the "do you want to save this" sequence.
+X
+XSoren Lundsgaard -
+X	A null pointer derefrence.
+X
+XRick Perry -
+X	Cleaned up a problem with modchk() in sc.c.
+X
+XGregory Bond -
+X	Added code for multi argument versions of @min and @max.
+X
+XTad Mannes -
+X	Added code to save/restore hidden rows and columns when the
+X	data base is saved or restored.
+X
+XMarius Olafsson -
+X	INTERNATIONAL changes.  Allows full 8 bit characters (if
+X	curses supports them.)
+X
+XKurt Horton -
+X	Added support for @pv, @fv and @pmt financial functins.
+X	Tested lots of different systems, linting.
+X
+XJohn Campbell -
+X	Support for VMS.  See VMS_NOTES.
+X
+XPeter King -
+X	 User selection of row or column order for recalculation.
+X		Also affects order of traversing regions in /f and /r
+X	 User setting of automatic or manual recalculation.
+X	 User setting of number of times to try recalculation.
+X	 + and - commands when in non-numeric mode to do 
+X		increment and decrement operations.
+X	@index, @stindex, @atan2, @lookup  functions.
+X	Save/restore options.
+X	Support for TeX, LaTeX, and better support for tbl in "T" cmd.
+X	Provision of a copyent function to copy entries (same code repeated
+X		in several locations)
+X	Forwrow, backrow, forwcol, backcol functions to replace
+X		repeated code
+X	Correct interpretation of ESCAPE or ^G as an abort when in a 
+X		two character command such as 'ar' or 'ac'
+X	Cleanup in eval() - catches non-trap function errors.
+X
+XBob Bond - 
+X       Added search options to "g".
+X       Added supression of hidden columns to "W"
+X       Added the mod operator "%"
+X       New help functions.
+X       Constant prescale "$"
+X       Added string matching to @lookup.
+X       Some more bug fixes.
+X       Testing, integration, documentation.
+X
+XAlan Silverstein-
+X	Greatly revised the manual entry.
+X	Added menus for ^E command and row/column commands, which
+X	involved a bunch of code cleanup.
+X
+X	Changed top row display to clearly indicate string labels
+X	versus number parts, and to distinguish string functions from
+X	constant labels.
+X
+X	When the character cursor is on a cell (not topline), ^H
+X	(backspace) is like ^B (move back one cell), rather than being
+X	ignored.
+X
+X	When the character cursor is on a cell (not topline), ^I (tab)
+X	is like ^F (move forward one cell), rather than being ignored.
+X	^R is no longer identical with ^L.  Now ^R highlights all cells
+X	which should be entered by a user because they contain constant
+X	numeric values (not the result of a numeric expression).
+X
+X	Added a ^X command, similar to ^R, which highlights cells which
+X	have expressions.  It also displays the expressions in the
+X	highlighted cells as left-justified strings, instead of the
+X	label and/or value of the cell.
+X
+X	Added indirection functions (@nval() and @sval()) for simple
+X	table lookups.  Given a column name and row number, they return
+X	the numeric or string value of the selected cell.
+X
+X	Added external functions (@ext()) for non-trivial
+X	computations.  Given a command name and argument, it calls the
+X	command and reads back one output line.
+X
+X	Added a ^T,e command to toggle enabling of external functions.
+X
+X	Changed ^T,t to only control the top line display, and added
+X	^T,c to control current cell highlighting.  (Separated the
+X	functions.)
+X
+X	"!" (shell escape) gives a vi-style warning if there were any
+X	changes since the last write.  (No change to manual entry.)
+X
+X	Fixed some startup, error, and prompt messages to be cleaner
+X	and/or more consistent.  (No changes to manual entry.)
+X
+X	Fixed a bug:  If @substr() upper bound (third parameter) is
+X	past the end of the string operand, return the substring
+X	through the end of the string, rather than returning a null
+X	string.
+X
+X	Fixed a bug:  Reset SIGINT to default after forking before
+X	calling shell escape program and before starting pipeline (for
+X	commands which support this).  Didn't reset SIGINT before
+X	calling crypt and external functions because in both cases it
+X	should be irrelevant.  (No change to manual entry.)
+X
+XCHANGES BETWEEN 6.1 and 6.2:
+X
+X
+XChris Cole-
+X	Compatibility with Lotus 1-2-3
+X		a) @hlookup(expr,range,expr)
+X		b) @vlookup(expr,range,expr)
+X		c) @round(expr,expr)
+X		d) @if(expr,expr,expr)
+X		e) @abs(expr)
+END_OF_FILE
+  if test 22217 -ne `wc -c <'ss_12b/sc_stuff/CHANGES'`; then
+    echo shar: \"'ss_12b/sc_stuff/CHANGES'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/sc_stuff/CHANGES'
+fi
+if test -f 'ss_12b/sunfkeys/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/sunfkeys/Makefile'\"
+else
+  echo shar: Extracting \"'ss_12b/sunfkeys/Makefile'\" \(978 characters\)
+  sed "s/^X//" >'ss_12b/sunfkeys/Makefile' <<'END_OF_FILE'
+X#############################################################################
+X# Arthur E. Mulder.	art@cs.ualberta.ca
+X# University of Alberta, Department of Computing Science
+X#############################################################################
+X# NOTE: f1.c uses system V curses and terminfo, therefore make sure your
+X# include the proper header files and libraries.
+X#############################################################################
+X# USAGE:  Make f1
+X#############################################################################
+X
+X#
+X# 	Variables.  Modify as necessary for customization
+X#---------------------------------------------------------------------------
+X
+X# CC	=	cc
+X# CC	=	/usr/5bin/cc
+XCC	=	/usr/gnu/bin/gcc
+XDEFINES =	
+X#CFLAGS	=	-O $(DEFINES) -I/usr/5include
+XCFLAGS	=	-g $(DEFINES) -I/usr/5include
+X# LIBS	= 	-lcurses -ltermcap
+XLDLIBS	= 	-lcurses
+XLDFLAGS =	-L/usr/5lib
+X
+X#---------------------------------------------------------------------------
+X#	end
+END_OF_FILE
+  if test 978 -ne `wc -c <'ss_12b/sunfkeys/Makefile'`; then
+    echo shar: \"'ss_12b/sunfkeys/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/sunfkeys/Makefile'
+fi
+echo shar: End of archive 5 \(of 11\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

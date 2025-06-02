@@ -1,0 +1,2280 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i053:  ecu - ECU Asynchronous Communications v3.20, Part18/40
+Message-ID: <1992Sep13.153743.5724@sparky.imd.sterling.com>
+X-Md4-Signature: fe8c6728dbcc0f7990d998733a66f3a8
+Date: Sun, 13 Sep 1992 15:37:43 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 53
+Archive-name: ecu/part18
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.18 (part 18 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file kbdtest3.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 18; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping kbdtest3.c'
+else
+echo 'x - continuing file kbdtest3.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'kbdtest3.c' &&
+X/*+-----------------------------------------------------------------------
+X	kbdtest3.c -- test keyboard values
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  See ecu manual section titled Function Key Recognition
+X
+X  Defined functions:
+X	dump_putc(ch)
+X	dump_puts(str)
+X	hex_dump16(int16)
+X	hex_dump32(int32)
+X	hex_dump4(int4)
+X	hex_dump8(int8)
+X	hex_dump_fp(fp,str,len,title,terse_flag)
+X	k3ttymode(arg)
+X	main(argc,argv)
+X	read_kbd_string(buf,max)
+X	termio_parity_text(cflag)
+X	tputstrs(strs)
+X	write_funckeymap_desc(fp,buf,buflen,name)
+X	xtoasc(ch,incl_3char)
+X
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:04-19-1992-20:59-wht@n4hgf-nonansikeys to funckeymap */
+X/*:02-22-1992-12:46-root@n4hgf-thank markd@phoenix.pub.uu.oz.au for typo fix */
+X/*:01-06-1992-17:56-wht@tridom-much more error checking */
+X/*:01-06-1992-17:56-wht@tridom-eliminate sun stty - causes problems */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-17-1991-13:58-root@n4hgf-make kbd entirely raw */
+X/*:08-06-1991-13:12-wht@n4hgf-add parity reporting */
+X/*:08-06-1991-13:12-wht@n4hgf-some terminals reinvent parity bit's use */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:04-29-1991-18:24-wht@n4hgf-let us see what keyboards say */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <ctype.h>
+X#include "ecu_types.h"
+X#include <sys/errno.h>
+X#include "ecu_stat.h"
+X#include <string.h>
+X#include <termio.h>
+X
+Xchar *ctime();
+Xchar *getenv();
+X
+X#define VMIN_VALUE  32
+X#define VTIME_VALUE 2
+X
+X#define TTYIN   0				/* mnemonic */
+X#define TTYOUT  1				/* mnemonic */
+X#define TTYERR  2				/* mnemonic */
+X
+Xstruct termio lv;		/* attributes for the line to remote */
+Xstruct termio tv0;		/* for saving, changing TTY atributes */
+Xstruct termio tv;		/* for saving, changing TTY atributes */
+X
+Xchar *strs_intro[] = {
+X	"\n",
+X	"Let's learn your keyboard.  I'll be making a file named kbdtest3.out\n",
+X	"For each of the key names shown below, please press the key and wait.\n",
+X	"\n",
+X	"If you do not have a key on your keyboard, make an alternate choice\n",
+X	"or press the space bar if nothing seems reasonable.\n",
+X	"\n",
+X	"If you press a key but don't see further activity after a second or two\n",
+X	"press the slash '/' key unless you can choose a reasonable alternate.\n",
+X	"Keys which produce duplicate the keystroke sequence of other keys are\n",
+X	"not acceptable.\n",
+X	"\n",
+X	"Do not use the same key for more than one function.\n",
+X	"\n",
+X	(char *)0
+X};
+X
+Xchar *strs_thanks[] = {
+X	"\n",
+X	"Thank you.  If you wish to mail me the contents of kbdtest3.out,\n",
+X	"please include  a detailed description of the system and software\n",
+X	"(i.e., \"Metrolink xterm keyboard on SCO 3.2r2\")\n",
+X	"(I WANT you to mail me results for non-SCO/non-ISC-console keyboards.)\n",
+X	"If you had to hack this program, mail it in its entirety as well.\n",
+X	"\n",
+X	"My address: wht@n4hgf.Mt-Park.GA.US or emory!n4hgf!wht\n",
+X	(char *)0
+X};
+X
+Xchar *strs_bktab[] = {
+X	"You'll have to pick another function key (like F11?).  If you are\n",
+X	"using an xterm here perhaps a <Shift>Tab VT100 override will help.\n",
+X	(char *)0
+X};
+X
+Xstruct keystruc {
+X	char *ecuname;
+X	char *peoplename;
+X	int count;
+X	unsigned char str[VMIN_VALUE + 1];
+X};
+X
+Xstruct keystruc need_names[] = {
+X	{ "BkTab",	"Back Tab (Shift Tab)" },	/*  0 */
+X	{ "CU5",	"Unshifted Keypad 5" },		/*  1 */
+X	{ "F1",		"F1" },						/*  2 */
+X	{ "F2",		"F2" },						/*  3 */
+X	{ "F3",		"F3" },						/*  4 */
+X	{ "F4",		"F4" },						/*  5 */
+X	{ "F5",		"F5" },						/*  6 */
+X	{ "F6",		"F6" },						/*  7 */
+X	{ "F7",		"F7" },						/*  8 */
+X	{ "F8",		"F8" },						/*  9 */
+X	{ "F9",		"F9" },						/* 10 */
+X	{ "F10",	"F10" },					/* 11 */
+X	{ "F11",	"F11" },					/* 12 */
+X	{ "F12",	"F12" },					/* 13 */
+X	{ "Ins",	"Ins" },					/* 14 */
+X#define I_HOME	15
+X	{ "Home",	"Home" },					/* 15 */
+X#define I_END	16
+X	{ "End",	"End" },					/* 16 */
+X	{ "PgUp",	"PgUp" },					/* 17 */
+X	{ "PgDn",	"PgDn" },					/* 18 */
+X	{ "CUU",	"Cursor Up" },				/* 19 */
+X	{ "CUD",	"Cursor Down" },			/* 21 */
+X	{ "CUL",	"Cursor Left" },			/* 22 */
+X	{ "CUR",	"Cursor Right" },			/* 23 */
+X	{(char *)0,(char *)0}
+X};
+X
+Xchar *parity_text = "<undetermined>";
+Xstatic FILE *dumpfp;
+X
+X/*+-------------------------------------------------------------------------
+X	dump_putc(ch)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdump_putc(ch)
+Xchar ch;
+X{
+X	fputc(ch,dumpfp);
+X}	/* end of dump_putc */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	dump_puts(str)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdump_puts(str)
+Xchar *str;
+X{
+X	fputs(str,dumpfp);
+X}	/* end of dump_puts */
+X
+X/*+-----------------------------------------------------------------------
+X	hex_dump#... subservient routines
+X------------------------------------------------------------------------*/
+Xvoid hex_dump4(int4)
+Xunsigned char int4;
+X{
+X	int4 &= 15;
+X	dump_putc((int4 >= 10) ? (int4 + 'A' - 10) : (int4 + '0'));
+X}
+X
+Xvoid hex_dump8(int8)
+Xunsigned char int8;
+X{
+X	hex_dump4(int8 >> 4);
+X	hex_dump4(int8);
+X}
+X
+Xvoid hex_dump16(int16)
+Xunsigned short int16;
+X{
+X	hex_dump8(int16 >> 8);
+X	hex_dump8(int16);
+X}
+X
+Xvoid hex_dump32(int32)
+Xunsigned long int32;
+X{
+X	hex_dump16(int32 >> 16);
+X	hex_dump16(int32);
+X}
+X
+X/*+-----------------------------------------------------------------
+X	hex_dump_fp(fp,str,len,title,terse_flag)
+X
+X  if 'title' not NULL, title is printed... 'terse_flag'
+X  controls whether or not the title is "conspicuous" with
+X  hyphens before and after it making title line >70 chars long
+X------------------------------------------------------------------*/
+Xvoid
+Xhex_dump_fp(fp,str,len,title,terse_flag)
+XFILE *fp;
+Xchar *str;
+Xint len;
+Xchar *title;
+Xint terse_flag;
+X{
+Xint istr;
+Xregister ipos = 0;
+Xregister itmp;
+X
+X	dumpfp = fp;
+X
+X	if(title && (istr = strlen(title)))
+X	{
+X		if(!terse_flag)
+X		{
+X			ipos = (73 - istr) / 2;
+X			itmp = ipos;
+X			while(itmp--)
+X				dump_putc('-');
+X			dump_putc(' ');
+X			if(istr & 1)
+X				ipos--;
+X		}
+X		dump_puts(title);
+X		if(!terse_flag)
+X		{
+X			dump_putc(' ');
+X			while(ipos--)
+X				dump_putc('-');
+X		}
+X		dump_puts("\n");
+X
+X	}
+X
+X	istr = 0;
+X	while(istr < len)
+X	{
+X		hex_dump16(istr);
+X		dump_putc(' ');
+X		for(itmp = 0; itmp < 16; ++itmp)
+X		{
+X			ipos = istr + itmp;
+X			if(ipos >= len)
+X			{
+X				if(!terse_flag)
+X					dump_puts("   ");
+X				continue;
+X			}
+X			dump_putc(' ');
+X			hex_dump8(str[ipos]);
+X		}
+X		dump_puts(" | ");
+X		for(itmp = 0; itmp < 16; ++itmp)
+X		{
+X			ipos = istr + itmp;
+X			if( (ipos) >= len)
+X			{
+X				if(!terse_flag)
+X					dump_putc(' ');
+X			}
+X			else
+X			{
+X				dump_putc((str[ipos] >= ' ' && str[ipos] < 0x7f)
+X		 			? str[ipos] : '.' );
+X			}
+X		}
+X		if(dumpfp == stdout)
+X			dump_puts(" |\r\n");
+X		else
+X			dump_puts(" |\n");
+X		istr += 16;
+X	}   /* end of while(istr < len) */
+X
+X}	/* end of hex_dump_fp */
+X
+X/*+-----------------------------------------------------------------------
+X	xtoasc(character) - Make all chars "printable"
+X
+X  returns pointer to a static string containing printable version
+X  of a character.  If control char, printed as "^A", etc.
+X  if incl_3char set true, then space + ASCII assignment (e.g. "NUL") is
+X  appended to the string for non-printable graphics
+X------------------------------------------------------------------------*/
+Xchar *
+Xxtoasc(ch,incl_3char)
+Xregister unsigned char ch;
+Xint incl_3char;
+X{
+Xstatic char gg[8];
+Xchar *ascii_ctlstr =
+X"nulsohstxetxeotenqackbelbs ht nl vt ff cr so si dledc1dc2dc3dc4naksynetbcanem subescfs gs rs us sp ";
+X
+X	if(ch == 0x7F)
+X		strcpy(gg,"del");
+X	else if(ch == 0x9b)
+X		strcpy(gg,"csi");
+X	else if(ch > 0x7F)
+X		sprintf(gg,"0x%02x",(unsigned char)ch);
+X	else if(ch > 0x20)
+X	{
+X		gg[0] = ch;
+X		gg[1] = 0;
+X	}
+X	else
+X	{
+X		strncpy(gg,ascii_ctlstr + (ch * 3),3);
+X		gg[3] = 0;
+X	}
+X	return(gg);
+X}	/* end of xtoasc */
+X
+X/*+-------------------------------------------------------------------------
+X	write_funckeymap_desc(fp,buf,buflen,name)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xwrite_funckeymap_desc(fp,buf,buflen,name)
+XFILE *fp;
+Xunsigned char *buf;
+Xint buflen;
+Xchar *name;
+X{
+Xchar s256[256];
+X
+X	sprintf(s256,"    %s:%s:",name,name);
+X	while(strlen(s256) < (unsigned)20)
+X		strcat(s256," ");
+X
+X	while(buflen--)
+X	{
+X		strcat(s256,xtoasc(*buf++));
+X		if(buflen)
+X			strcat(s256," ");
+X	}
+X	strcat(s256,"\n");
+X
+X	fputs(s256,fp);
+X
+X}	/* end of write_funckeymap_desc */
+X
+X/*+-------------------------------------------------------------------------
+X	tputstrs(strs)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtputstrs(strs)
+Xchar **strs;
+X{
+X	while(*strs)
+X		fputs(*strs++,stdout);
+X}	/* end of tputstrs */
+X
+X/*+-----------------------------------------------------------------------
+X	k3ttymode(arg) -- control user console (kbd/screen)
+X
+X  Where arg ==
+X	0 restore attributes saved at start of execution
+X	1 raw mode 
+X
+X------------------------------------------------------------------------*/
+Xvoid k3ttymode(arg)
+Xint arg;
+X{
+X	if(arg)
+X	{
+X		(void)ioctl(TTYIN,TCGETA,&tv);
+X		tv.c_cflag &= ~(CS8 | PARENB | PARODD);
+X		tv.c_cflag |= CS8;
+X		tv.c_iflag &= ~(INLCR | ICRNL | IGNCR | IXOFF | IUCLC | ISTRIP);
+X		tv.c_lflag &= ~(ICANON | ISIG | ECHO);
+X		tv.c_cc[VEOF] = '\01';
+X		tv.c_cc[VEOL] = '\0';
+X		tv.c_cc[VMIN] = VMIN_VALUE;
+X		tv.c_cc[VTIME] = VTIME_VALUE;
+X		(void)ioctl(TTYIN,TCSETAW,&tv);
+X	}
+X	else
+X		(void)ioctl(TTYIN,TCSETAW,&tv0);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	read_kbd_string(buf,max)
+X--------------------------------------------------------------------------*/
+Xint
+Xread_kbd_string(buf,maxsize)
+Xunsigned char *buf;
+Xint maxsize;
+X{
+X	int count = read(TTYIN,buf,maxsize);
+X
+X#if 0
+X	int itmp;
+X	for(itmp = 0; itmp < count; itmp++)
+X		buf[itmp] &= 0x7F;
+X#endif
+X	return(count);
+X
+X}	/* end of read_kbd_string */
+X
+X/*+-------------------------------------------------------------------------
+X	termio_parity_text(cflag)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xtermio_parity_text(cflag)
+Xunsigned short cflag;
+X{
+X	 return((cflag & PARENB) ? ((cflag & PARODD) ? "odd" : "even") : "none");
+X}	/* end of termio_parity_text */
+X
+X/*+-----------------------------------------------------------------------
+X	main()
+X------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xint itmp;
+Xint count;
+Xint got_ctrl;
+Xint found_dup;
+Xint unusable = 0;
+Xchar ch;
+Xchar *ttype;
+Xchar *cptr;
+Xstruct keystruc *key = need_names;
+Xstruct keystruc *key2;
+Xunsigned char instr[VMIN_VALUE + 1];
+X#if !defined(sun)
+Xchar s128[128];
+X#endif
+XFILE *fpout;
+Xlong now;
+Xint errflg = 0;
+Xchar *outfile = "kbdtest3.out";
+X/* extern char *optarg; */
+Xextern int optind;
+X
+X	setbuf(stdout,NULL);
+X	setbuf(stderr,NULL);
+X
+X	while((itmp = getopt(argc,argv,"")) != -1)
+X	{
+X		switch(itmp)
+X		{
+X			case '?':
+X				errflg++;
+X		}
+X	}
+X
+X	if(optind == (argc - 1))
+X		outfile = argv[optind++];
+X
+X	if(errflg || (optind != argc))
+X	{
+X		(void)fprintf(stderr,"usage: %s [-hx] [outfile]\n");
+X		exit(1);
+X	}
+X
+X	printf("\n\n\necu kbdtest3 revision %s\n",revision);
+X	tputstrs(strs_intro);
+X	if(!(fpout = fopen(outfile,"a")))
+X	{
+X		perror(outfile);
+X		exit(1);
+X	}
+X
+X	ioctl(TTYIN,TCGETA,&tv0);		/* get original status */
+X	parity_text = termio_parity_text(tv0.c_cflag);
+X
+X	if(!(ttype = getenv("TERM")))
+X		ttype = "??";
+X	time(&now);
+X	fprintf(fpout,"# funckeymap for '%s' under ",ttype);
+X#if defined(M_SYSV)
+X	fputs("SCO\n",fpout);
+X#else
+X#if defined(ISC)
+X	fputs("ISC\n",fpout);
+X#else
+X#if defined(sun)
+X	fputs("SunOS\n",fpout);
+X#else
+X	fputs("??? OS\n",fpout);
+X#endif /* sun */
+X#endif /* ISC */
+X#endif /* M_SYSV */
+X
+X	fprintf(fpout,"# built by kbdtest3 %s %s",revision,ctime(&now));
+X	fprintf(fpout,"# keyboard parity required = %s\n",parity_text);
+X#if !defined(sun)
+X	fprintf(fpout,"# stty -a at kbdtest3 execution time:\n");
+X	fclose(fpout);
+X	strcpy(s128,"/bin/stty -a | /bin/sed -e 's/^/# /' >> ");
+X	strcat(s128,outfile);
+X	system(s128);
+X	if(!(fpout = fopen(outfile,"a")))
+X	{
+X		perror(outfile);
+X		exit(1);
+X	}
+X#endif
+X	fprintf(fpout,"%s\n",ttype);
+X
+X	printf("Your keyboard driver parity is set to %s\n",parity_text);
+X	printf("press ^D (0x04) to terminate program early\n\n");
+X	k3ttymode(1);
+X
+X	while(key->ecuname)
+X	{
+X		key->count = -1;
+X		printf("%-20.20s: ",key->peoplename);
+X		count = read_kbd_string(instr,VMIN_VALUE);
+X		if(!count)
+X		{
+X			printf("whoops ..... zero length read\n");
+X			break;
+X		}
+X		if(!count)
+X		{
+X			perror("keyboard");
+X			break;
+X		}
+X
+X		if(!strcmp(key->ecuname,"BkTab") && (count == 1) &&
+X			(instr[0] == 9))
+X		{
+X			printf("produced the same keystroke sequence as TAB\n");
+X			tputstrs(strs_bktab);
+X			continue;
+X		}
+X
+X		if((count == 1) && ((instr[0] & 0x7F) == 4))
+X		{
+X			printf("--abort--\n");
+X			fputs("# User aborted entry.\n",fpout);
+X			unusable = 2;
+X			goto DONE;
+X		}
+X
+X
+X		if((count == 1) && (instr[0] == '/'))
+X		{
+X			printf("--dead key--\n");
+X			fprintf(fpout,"# %s: dead key and no reasonable alternate\n",
+X				key->ecuname);
+X		}
+X		else if((count == 1) && (instr[0] == ' '))
+X		{
+X			printf("--no key--\n");
+X			fprintf(fpout,"# %s: no key and no reasonable alternate\n",
+X				key->ecuname);
+X		}
+X		else
+X		{
+X			for(itmp = 0; itmp < count; itmp++)
+X				printf("%02x ",instr[itmp]);
+X			fputc(' ',stdout);
+X			got_ctrl = 0;
+X			for(itmp = 0; itmp < count; itmp++)
+X			{
+X				ch = instr[itmp] & 0x7F;
+X				if((ch < ' ') || (ch > '~'))
+X					ch = '.',got_ctrl = 1;
+X				fputc(ch,stdout);
+X			}
+X			printf("\n");
+X
+X			key->count = count;
+X			memcpy(key->str,instr,sizeof(key->str));
+X			write_funckeymap_desc(fpout,(unsigned char *)instr,count,
+X				key->ecuname);
+X			if(!got_ctrl)
+X			{
+X				printf("This looks like a printable character string.\n");
+X				printf("You might want to reconsider another key.\n");
+X				fprintf(fpout,"# the above entry is suspect\n");
+X			}
+X		}
+X
+X		key++;
+X	}
+X	printf("\n");
+X
+X	/*
+X	 * check for dup sequences
+X	 */
+X	found_dup = 0;
+X	for(key = need_names,key2 = key + 1; ; key2++)
+X	{
+X		if(!key2->ecuname)
+X		{
+X			key++;
+X			if(!key->ecuname)
+X				break;
+X			key2 = key + 1;
+X			if(!key2->ecuname)
+X				break;
+X		}
+X		if((key->count < 0) || (key2->count < 0) || (key->count != key2->count))
+X			continue;
+X		if(!memcmp(key->str,key2->str,key->count))
+X		{
+X			printf("'%s' and '%s' produced the same key sequence\n",
+X				key->peoplename,key2->peoplename);
+X			found_dup++;
+X		}
+X	}
+X
+X	if(found_dup)
+X	{
+X		fprintf(fpout,
+X			"# found %d keystroke sequence duplication(s)\n",found_dup);
+X		unusable = 1;
+X	}
+X
+X	if(need_names[I_HOME].count < 0)
+X	{
+X		cptr = "# No Home key was successfully defined!\n";
+X		printf(cptr + 2);
+X		fprintf(fpout,cptr);
+X		unusable = 1;
+X	}
+X	if(need_names[I_END].count < 0)
+X	{
+X		cptr = "# No End key was successfully defined!\n";
+X		printf(cptr + 2);
+X		fprintf(fpout,cptr);
+X		unusable = 1;
+X	}
+X
+XDONE:
+X	if(unusable)
+X	{
+X		printf("\nThis will be unusable.  Please try again.\n");
+X		fprintf(fpout,"# above entry is unusable\n");
+X	}
+X	else
+X	{
+X		printf("\nRemember to set keyboard parity to \"%s\" ",
+X			parity_text);
+X		fputs("when using this entry.\n",stdout);
+X		tputstrs(strs_thanks);
+X	}
+X
+X	fputs("\n",fpout);
+X	fclose(fpout);
+X	k3ttymode(0);
+X	exit(0);
+X
+X}	/* end of main */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File kbdtest3.c is complete' &&
+chmod 0644 kbdtest3.c ||
+echo 'restore of kbdtest3.c failed'
+Wc_c="`wc -c < 'kbdtest3.c'`"
+test 15128 -eq "$Wc_c" ||
+	echo 'kbdtest3.c: original size 15128, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= logevent.c ==============
+if test -f 'logevent.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping logevent.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting logevent.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'logevent.c' &&
+X/*+-------------------------------------------------------------------------
+X	logevent.c - log ecu event
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1991-02:00-wht@n4hgf-sun does not have xenix locking - fix later */
+X/*:08-07-1991-14:23-wht@n4hgf-use static logname */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#if defined(USE_LOCKING)
+X# include <sys/locking.h>
+X#endif
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	ecu_log_event(pid,event_note)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xecu_log_event(pid,event_note)
+Xint pid;
+Xchar *event_note;
+X{
+Xchar s32[32];
+XFILE *ecu_log_fp;
+Xstatic char logname[256] = "";
+X
+X	if(!logname[0])
+X	{
+X		get_home_dir(logname);
+X		strcat(logname,"/.ecu/log");
+X	}
+X	if(ecu_log_fp = fopen(logname,"a"))
+X	{
+X#if defined(USE_LOCKING)
+X		locking(fileno(ecu_log_fp),LK_LOCK,0L);
+X#endif
+X		get_tod(2,s32);
+X		s32[10] = '-';
+X		fputs(s32,ecu_log_fp);
+X		fprintf(ecu_log_fp,"-%05d-",pid);
+X		fputs(event_note,ecu_log_fp);
+X		fputs("\n",ecu_log_fp);
+X#if defined(USE_LOCKING)
+X		fflush(ecu_log_fp);
+X		locking(fileno(ecu_log_fp),LK_UNLCK,0L);
+X#endif
+X		fclose(ecu_log_fp);
+X	}
+X}	/* end of ecu_log_event */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of logevent.c */
+SHAR_EOF
+chmod 0644 logevent.c ||
+echo 'restore of logevent.c failed'
+Wc_c="`wc -c < 'logevent.c'`"
+test 1647 -eq "$Wc_c" ||
+	echo 'logevent.c: original size 1647, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= lstat.c ==============
+if test -f 'lstat.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping lstat.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting lstat.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'lstat.c' &&
+X/*+-------------------------------------------------------------------------
+X	lstat.c - SCO 3.2v4OS with 3.2v2DS interim hack
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XUsing 3.2v2 DS with 3.2v4 is wrought with troubles, but some
+Xain't ready to go the trip yet, so here is a piece of projectile vomitus
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-09-1992-06:05-wht@n4hgf-creation */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#if defined(M_UNIX) && defined(S_IFLNK) && !defined(SCO32v4)
+X
+X#include <errno.h>
+X
+X/*+-------------------------------------------------------------------------
+X	lstat(path,statptr)
+X--------------------------------------------------------------------------*/
+Xint
+Xlstat(path,statptr)
+Xchar *path;
+Xstruct stat *statptr;
+X{
+X	int err = EINVAL;
+X	/*
+X	 * try lstat system call first 
+X	 * if it fails with EINVAL, we are not on 3.2v4
+X	 */
+X	if(err = syscall(0x5b,path,statptr) && (err == EINVAL))
+X		err = stat(path,statptr);
+X	return(err);
+X
+X}	/* end of lstat */
+X
+X#endif /* if defined(M_UNIX) && defined(S_IFLNK) && !defined(SCO32v4) */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of lstat.c */
+SHAR_EOF
+chmod 0644 lstat.c ||
+echo 'restore of lstat.c failed'
+Wc_c="`wc -c < 'lstat.c'`"
+test 1197 -eq "$Wc_c" ||
+	echo 'lstat.c: original size 1197, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= makedirs.c ==============
+if test -f 'makedirs.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping makedirs.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting makedirs.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'makedirs.c' &&
+X/*+-------------------------------------------------------------------------
+X	makedirs.c
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-30-1991-00:37-wht@n4hgf2-force umask to 022 for installation */
+X/*:08-23-1991-14:38-wht@n4hgf-was not making last subdirectory in list */
+X/*:08-09-1991-02:13-root@n4hgf-need smart_fork for XENIX */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:07-15-1991-14:24-wht@n4hgf-creation */
+X
+X#include <stdio.h>
+X#include <sys/errno.h>
+X#include "ecu_types.h"
+X#include "ecu_stat.h"
+X
+Xextern int errno;
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int itmp;
+X	int errflg = 0;
+X	int dmode = 0755;
+X	char *dname;
+X	struct stat stat_buf,*st = &stat_buf;
+X	char s512[512];
+X	extern char *optarg;
+X	extern int optind;
+X
+X	umask(022);
+X
+X	while((itmp = getopt(argc,argv,"m:")) != -1)
+X	{
+X		switch(itmp)
+X		{
+X			case 'm':
+X				sscanf(optarg,"%o",&dmode);
+X				dmode &= 0777;
+X				if(!dmode)
+X					dmode = 0755;
+X		}
+X	}
+X	if(errflg || (optind == argc))
+X	{
+X		(void)fprintf(stderr,"usage: makedirs [-m mode] dir ...\n");
+X		exit(1);
+X	}
+X
+X	for(; optind < argc; optind++)
+X	{
+X		if(!stat(dname = argv[optind],st))
+X		{
+X			if((st->st_mode & S_IFMT) != S_IFDIR)
+X			{
+X				fprintf(stderr,"%s exists and is not a directory\n",dname);
+X				exit(1);
+X			}
+X			chmod(dname,(unsigned short)dmode);
+X		}
+X		else
+X		{
+X			strcpy(s512,dname);
+X			strcat(s512,"/dummy");
+X			errno = ENOENT;		/* fake make_dirs() into always trying */
+X			if(!make_dirs(s512,dmode))
+X			{
+X				perror(dname);
+X				exit(1);
+X			}
+X			else
+X				printf("Made directory %s\n",dname);
+X		}
+X	}
+X	exit(0);
+X}	/* end of main */
+X
+X/*+-------------------------------------------------------------------------
+X	smart_fork() - needed for mkdirs.c under XENIX
+X--------------------------------------------------------------------------*/
+X#if defined(M_XENIX)
+Xint
+Xsmart_fork()
+X{
+Xregister int count = 5;
+Xregister int pid;
+X
+X	while(count--)
+X	{
+X		if((pid = fork()) >= 0)
+X			return(pid);
+X		if(count)
+X			nap(40L);
+X	}
+X	return(-1);
+X}	/* end of smart_fork */
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of makedirs.c */
+SHAR_EOF
+chmod 0644 makedirs.c ||
+echo 'restore of makedirs.c failed'
+Wc_c="`wc -c < 'makedirs.c'`"
+test 2371 -eq "$Wc_c" ||
+	echo 'makedirs.c: original size 2371, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mkdirs.c ==============
+if test -f 'mkdirs.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mkdirs.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mkdirs.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mkdirs.c' &&
+X/* CHK=0x9A80 */
+X/*+-------------------------------------------------------------------------
+X	mkdirs.c - make multiple directories
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XXENIX lacks mkdir() so use elegant PD version by John Gilmore
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-25-1991-14:21-wht@n4hgf-XENIX code hinges on M_XENIX not !sun&&!isc etc */
+X/*:08-09-1991-00:30-wht@n4hgf-no need for sys/wait.h + XENIX doesn't have it */
+X/*:08-06-1991-02:37-root@n4hgf-how did compile succeed without signal.h? */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:07-15-1991-14:20-wht@n4hgf-creation */
+X
+X#include <string.h>
+X#include <errno.h>
+X#include "ecu_types.h"
+X#include "ecu_stat.h"
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+Xextern int sys_nerr;
+X
+X#ifdef M_UNIX
+X#undef M_XENIX
+X#endif
+X
+X#if defined(M_XENIX)
+X#include <signal.h>
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	mkdir(dpath,dmode)
+X
+X Directory-creating routines from Public Domain TAR by John Gilmore
+X Make a directory.  Compatible with the mkdir() system call on 4.2BSD.
+X--------------------------------------------------------------------------*/
+X#if defined(M_XENIX)
+X#define	TERM_SIGNAL(status)		((status) & 0x7F)
+X#define TERM_COREDUMP(status)	(((status) & 0x80) != 0)
+X#define TERM_VALUE(status)		((status) >> 8)
+Xmkdir(dpath,dmode)
+Xchar *dpath;
+Xint dmode;
+X{
+X	int cpid,status;
+X	struct stat statbuf;
+X	SIGTYPE (*original_sighdlr)();
+X
+X	if(stat(dpath,&statbuf) == 0)
+X	{
+X		errno = EEXIST;		/* Stat worked,so it already exists */
+X		return(-1);
+X	}
+X
+X	/* If stat fails for a reason other than non-existence,return error */
+X	if(errno != ENOENT)
+X		return(-1);
+X
+X	original_sighdlr = signal(SIGCLD,SIG_DFL);
+X	switch(cpid = smart_fork())
+X	{
+X
+X	case -1:			/* Error in fork() */
+X		return(-1);		/* Errno is set already */
+X
+X	case 0:				/* Child process */
+X		/*
+X		 * Cheap hack to set mode of new directory.  Since this
+X		 * child process is going away anyway,we zap its umask.
+X		 * FIXME,this won't suffice to set SUID,SGID,etc. on this
+X		 * directory.  Does anybody care?
+X		 */
+X		status = umask(0);	/* Get current umask */
+X		status = umask(status | (0777 & ~dmode)); /* Set for mkdir */
+X		execl("/bin/mkdir","mkdir",dpath,(char *)0);
+X		_exit(-1);		/* Can't exec /bin/mkdir */
+X
+X	default:			/* Parent process */
+X		while((cpid != wait(&status)) && (cpid != -1))
+X			;	/* Wait for kid to finish */
+X	}
+X
+X	signal(SIGCLD,original_sighdlr);
+X
+X	if(TERM_SIGNAL(status) != 0 || TERM_VALUE(status) != 0)
+X	{
+X		errno = EIO;		/* We don't know why,but */
+X		return(-1);		/* /bin/mkdir failed */
+X	}
+X
+X	return(0);
+X}	/* end of mkdir */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	make_dirs(pathname)
+X
+X  Directory-creating routines from Public Domain TAR by John Gilmore
+X  After a file/link/symlink/dir creation has failed, see if it's because
+X  some required directory was not present, and if so, create all
+X  required dirs.
+X
+X  returns 0 if no directory made, else # levels required to get target
+X--------------------------------------------------------------------------*/
+Xint
+Xmake_dirs(pathname)
+Xregister char *pathname;
+X{
+X	register char *p;			/* Points into path */
+X	int madeone = 0;			/* Did we do anything yet? */
+X	int save_errno = errno;		/* Remember caller's errno */
+X	struct stat fst;
+X
+X	if(errno != ENOENT)
+X		return(0);		/* Not our problem */
+X
+X	for(p = strchr(pathname,'/'); p; p = strchr(p+1,'/'))
+X	{
+X		/* Avoid mkdir of empty string,if leading or double '/' */
+X		if(p == pathname || p[-1] == '/')
+X			continue;
+X		/* Avoid mkdir where last part of path is '.' */
+X		if(p[-1] == '.' && (p == pathname+1 || p[-2] == '/'))
+X			continue;
+X		*p = 0;				/* Truncate the path there */
+X        if(!stat(pathname,&fst))
+X        {
+X            if((fst.st_mode & S_IFMT) == S_IFDIR)
+X            {
+X                *p = '/';
+X                continue;
+X            }
+X#ifdef S_IFLNK
+X            if(((fst.st_mode & S_IFMT) == S_IFLNK) && !lstat(pathname,&fst))
+X            {
+X                if((fst.st_mode & S_IFMT) == S_IFDIR)
+X                {
+X                    *p = '/';
+X                    continue;
+X                }
+X            }
+X#endif /* S_IFLNK */
+X            errno = ENOTDIR;
+X            return(0);
+X        }
+X
+X		if( !mkdir(pathname,0777))
+X		{	/* Try to create it as a dir */
+X			madeone++;		/* Remember if we made one */
+X			*p = '/';
+X			continue;
+X		}
+X		*p = '/';
+X		if(errno == EEXIST)		/* Directory already exists */
+X			continue;
+X		/*
+X		 * Some other error in the mkdir.  We return to the caller.
+X		 */
+X		break;
+X	}
+X	errno = save_errno;		/* Restore caller's errno */
+X	return(madeone);		/* Tell them to retry if we made one */
+X}	/* end of make_dirs */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of mkdirs.c */
+SHAR_EOF
+chmod 0644 mkdirs.c ||
+echo 'restore of mkdirs.c failed'
+Wc_c="`wc -c < 'mkdirs.c'`"
+test 4860 -eq "$Wc_c" ||
+	echo 'mkdirs.c: original size 4860, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= nap.c ==============
+if test -f 'nap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping nap.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting nap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'nap.c' &&
+X/* CHK=0x24D1 */
+X/*+-------------------------------------------------------------------------
+X	nap.c - nap() support
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-10-1992-03:04-wht@n4hgf-add init_Nap */
+X/*:07-17-1992-18:19-wht@n4hgf-creation of common module for all binaries */
+X
+X#include "ecu.h"
+X
+X#undef NULL	/* some stdio and param.h define these differently */
+X#include <sys/param.h>
+X#ifndef NULL		/* fake usual sys/param.h value */
+X#define NULL 0
+X#endif
+X
+Xint hz;					/* HZ from environ or sys/param.h */
+Xulong hzmsec;			/* clock period in msec rounded up */
+X
+X/*+-------------------------------------------------------------------------
+X	Nap(msec) - wrapper for nap()
+X
+Xearly/most ISC and SCO UNIX nap() misbehave.  This kludge doesn't return the
+Xproper value (the actual time slept), but at least it does not make
+Xa mockery of the manual page.  It says:
+X
+X     NAP(S)		       UNIX System V			NAP(S)
+X
+X     Name
+X	  nap -	suspends execution for a short interval
+X
+X     Syntax
+X	  long nap(period)
+X	  long period;
+X
+X     Description
+X	  The current process is suspended from	execution for at least
+X	  the number of	milliseconds specified by period, or until a
+X	  signal is received.
+X
+X     Return Value
+X	  On successful	completion, a long integer indicating the
+X	  number of milliseconds actually slept	is returned. If	the
+X	  process received a signal while napping, the return value
+X	  will be -1, and errno	will be	set to EINTR.
+X
+X     See Also
+X	  sleep(S)
+X
+X     Notes
+X	  This function	is driven by the system	clock, which in	most
+X	  cases	has a granularity of tens of milliseconds.  This
+X	  function must	be linked with the linker option -lx.
+X
+XIt appears nap() under UNIX 3.2.x has departed virtually entirely from
+Xthe manual page.  I'm beginning to look rather silly in several
+Xmilleus since I keep telling people SCO UNIX is a viable upgrade from
+XXENIX.  But process control people need some kind of timing capability
+Xless than one second and we can't do it with nap or select.
+X
+Xnap(msec) is supposed to nap *at least* msec milliseconds.  However,
+Xif msec is specified less than 1000/HZ + 1, it will not nap at all.
+XThis was true for 3.2.0 and 3.2.1.
+X
+XIt is supposed to return the number of milliseconds it actually
+Xslept.  Instead, it appears to "save up" the values and return them in
+Xlots of 1000. This behavior is true for 3.2.2.
+X
+XAs it is nap() is nearly useless for accurate timing.  I believe
+Xselect() suffers from the same deficiency (< 1000 msec timeout
+Xbecomes 1000 msec) but I haven't "proven" it yet.  [[ It was later
+Xproven for SCO 3.2v2 at least ... see READMEs and *HISTORY ]]
+X
+XOn systems with a working select(), we use a relatively complex select
+Xarrangement to accomplish the nap requirement, but with an improvement.
+XThe "nap" survives any EINTR except for SIGINT (as indicated by sigint
+Xgetting set).  On SIGINT, the nap is aborted.
+X
+XA "working select" means
+X1. the system tries to support it (all but XENIX 286)
+X2. it is in libc.a (all but XENIX; see directory xsel386 to fix XENIX 386)
+X3. it is not broken (XENIX 386 select fails on ttys, but can be
+X      fixed: see xsel386; even an "unfixed" XENIX select would work
+X      here because we are only interested in timeouts)
+X4. it times out properly (SCO UNIX 3.2.[1-2] screws up by ROUNDING
+X      timeouts UP to ONE SECOND).
+X
+Xselect() and nap() works very well on SCO 3.2v4
+X--------------------------------------------------------------------------*/
+Xlong
+XNap(msec)
+Xlong msec;
+X{
+X#if defined(M_XENIX) || defined(SCO32v4) || defined(WORKING_NAP)
+X	return(nap(msec));
+X#else
+X#if defined(WORKING_SELECT)
+X/* precision guard */
+X#define SECDELTA 684300000L	/* sometime in 9/91 */
+X/*
+X * Compute  A -= B for timeval structs A, B (thanks to ping.c)
+X */
+X#ifdef USE_GETTIMEOFDAY
+X
+X#define tvsub(A, B) \
+X	if(1) { \
+X		(A)->tv_sec -= (B)->tv_sec ;\
+X		if (((A)->tv_usec -= (B)->tv_usec) < 0)\
+X			{ (A)->tv_sec--; (A)->tv_usec += 1000000; } \
+X	} else /* ; supplied by invocation */
+X
+X	struct timeval timer;
+X	struct timeval start;
+X	struct timeval now;
+X	struct timezone trash;
+X
+X	gettimeofday(&start,&trash);
+X	start.tv_sec -= SECDELTA;
+X	timer.tv_sec = msec / 1000;
+X	timer.tv_usec = (msec % 1000L) * 1000L;
+X	while(((timer.tv_sec * 1000000) + timer.tv_usec) > 0)
+X	{
+X		if(!select(0,0,0,0,&timer))
+X			break;
+X		if(errno != EINTR)
+X			break;
+X		if(sigint)		/* if SIGINT posted, exit now */
+X			return(-1);
+X		gettimeofday(&now,&trash);
+X		now.tv_sec -= SECDELTA;
+X		tvsub(&now,&start);
+X		timer.tv_sec = msec / 1000;
+X		timer.tv_usec = (msec % 1000L) * 1000L;
+X		tvsub(&timer,&now);
+X	}
+X	gettimeofday(&now,&trash);
+X	now.tv_sec -= SECDELTA;
+X	tvsub(&now,&start);
+X	msec = (now.tv_sec * 1000) + (now.tv_usec / 1000);
+X#else
+X
+X#define tbsub(t, t0) \
+X	if(1) { \
+X		register long delta_msec = ((((t)->time * 1000L) + ( t)->millitm) - \
+X                                   (((t0)->time * 1000L) + (t0)->millitm)); \
+X		(t)->time = delta_msec / 1000; \
+X		(t)->millitm = delta_msec % 1000; \
+X	} else /* ; supplied by invoker */
+X
+X	struct timeb timer;
+X	struct timeb start;
+X	struct timeb now;
+X
+X	ftime(&start);
+X	start.time -= SECDELTA;
+X	timer.time = msec / 1000;
+X	timer.millitm = msec % 1000;
+X	while(((timer.time * 1000) + timer.millitm) > 0)
+X	{
+X		struct timeval tval;
+X		tval.tv_sec = timer.time;
+X		tval.tv_usec = timer.millitm * 1000;
+X		if(!select(0,0,0,0,&tval))
+X			break;
+X		if(errno != EINTR)
+X			break;
+X		if(sigint)		/* if SIGINT posted, exit now */
+X			return(-1);
+X		ftime(&now);
+X		now.time -= SECDELTA;
+X		tbsub(&now,&start);
+X		timer.time = msec / 1000;
+X		timer.millitm = msec % 1000;
+X		tbsub(&timer,&now);
+X	}
+X	ftime(&now);
+X	now.time -= SECDELTA;
+X	tbsub(&now,&start);
+X	msec = (now.time * 1000) + now.millitm;
+X#endif /* USE_GETTIMEOFDAY */
+X
+X	return(msec);
+X#else
+X#if defined(M_UNIX) || defined(ISC) 
+X	if(msec < hzmsec)
+X		msec = hzmsec;
+X	if(nap(msec) < 0)
+X		return(-1);
+X	return(msec);
+X#else
+Xporting_attention_needed_here;
+X#endif /* use hacked nap */
+X#endif /* WORKING_SELECT */
+X#endif /* working nap */
+X
+X}	/* end of Nap */
+X
+X
+X/*+-------------------------------------------------------------------------
+X	init_Nap()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xinit_Nap()
+X{
+X
+X	/*
+X	 * learn tick rate for various timers
+X	 */
+X	if(getenv("HZ"))
+X		hz = (ulong)atoi(getenv("HZ"));
+X	else
+X		hz = HZ;
+X	hzmsec = (ulong)(1000 / hz) + 2;
+X
+X}	/* end of init_Nap */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of nap.c */
+SHAR_EOF
+chmod 0644 nap.c ||
+echo 'restore of nap.c failed'
+Wc_c="`wc -c < 'nap.c'`"
+test 6533 -eq "$Wc_c" ||
+	echo 'nap.c: original size 6533, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+X#define PATCHLEVEL 20
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 22 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 22, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pc_scr.h ==============
+if test -f 'pc_scr.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping pc_scr.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pc_scr.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pc_scr.h' &&
+X/*+-------------------------------------------------------------------------
+X	pc_scr.h - PC/AT screen definitions
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:12-04-1990-02:48-wht@n4hgf-for nonansi terminals provide either ruling set */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _pc_scr_h
+X#define _pc_scr_h
+X
+X/*
+X * AT ROM ruling characters
+X */
+X#define at_TL		0xDA	/* top left single rule */
+X#define at_TR		0xBF	/* top right single rule */
+X#define at_BL		0xC0	/* bottom left single rule */
+X#define at_BR		0xD9	/* bottom right single rule */
+X#define at_LT		0xC3	/* left hand T */
+X#define at_RT		0xB4	/* right hand T */
+X#define at_VR		0xB3	/* vertical rule */
+X#define at_HR		0xC4	/* horizontal rule */
+X/*
+X * non-ANSI equivalents
+X */
+X#define vanilla_TL		'.'
+X#define vanilla_TR		'.'
+X#define vanilla_BL		'`'
+X#define vanilla_BR		'\''
+X#define vanilla_LT		'+'
+X#define vanilla_RT		'+'
+X#define vanilla_VR		'|'
+X#define vanilla_HR		'-'
+X
+Xextern unsigned char sTL;
+Xextern unsigned char sTR;
+Xextern unsigned char sBL;
+Xextern unsigned char sBR;
+Xextern unsigned char sLT;
+Xextern unsigned char sRT;
+Xextern unsigned char sVR;
+Xextern unsigned char sHR;
+X
+X#endif /* _pc_scr_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of pc_scr.h */
+SHAR_EOF
+chmod 0644 pc_scr.h ||
+echo 'restore of pc_scr.h failed'
+Wc_c="`wc -c < 'pc_scr.h'`"
+test 1547 -eq "$Wc_c" ||
+	echo 'pc_scr.h: original size 1547, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pcmd.c ==============
+if test -f 'pcmd.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pcmd.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pcmd.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pcmd.c' &&
+X/*+-------------------------------------------------------------------------
+X	pcmd.c - ecu miscellaneous procedure commands
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	get_big_endian_16(ptr)
+X	get_big_endian_32(ptr)
+X	pcmd_autorz(param)
+X	pcmd_baud(param)
+X	pcmd_cd(param)
+X	pcmd_clrx(param)
+X	pcmd_dcdwatch(param)
+X	pcmd_dial(param)
+X	pcmd_duplex(param)
+X	pcmd_echo(param)
+X	pcmd_exec(param)
+X	pcmd_exit(param)
+X	pcmd_flush(param)
+X	pcmd_getf(param)
+X	pcmd_hangup(param)
+X	pcmd_hexdump(param)
+X	pcmd_lbreak(param)
+X	pcmd_lgets(param)
+X	pcmd_logevent(param)
+X	pcmd_lookfor(param)
+X	pcmd_nap(param)
+X	pcmd_nice(param)
+X	pcmd_parity(param)
+X	pcmd_popd(param)
+X	pcmd_prompt(param)
+X	pcmd_ptrace(param)
+X	pcmd_pushd(param)
+X	pcmd_putf(param)
+X	pcmd_rname(param)
+X	pcmd_rtscts(param)
+X	pcmd_send(param)
+X	pcmd_set(param)
+X	pcmd_setline(param)
+X	pcmd_system(param)
+X	pcmd_xon(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:09-06-1992-13:44-wht@n4hgf-rtscts would not accept a numeric argument */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:01-12-1992-20:54-wht@n4hgf-add autorz command */
+X/*:12-12-1991-05:27-wht@n4hgf-proctrace of intvar shows char value if 0-255 */
+X/*:11-11-1991-14:38-wht@n4hgf-add pcmd_dcdwatch code */
+X/*:10-09-1991-21:54-wht@n4hgf-add -p and -v switch to send */
+X/*:10-09-1991-20:32-wht@n4hgf-proctrace code for send */
+X/*:09-01-1991-19:10-wht@n4hgf2-baud cmd can set rate even if no line open */
+X/*:09-01-1991-18:10-wht@n4hgf2-add setline */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-06-1991-21:18-wht@n4hgf-nap -m test wrong sense ... old bug! */
+X/*:08-05-1991-16:22-wht@n4hgf-add nap -1 return and proctrace */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:07-17-1991-07:04-wht@n4hgf-avoid SCO UNIX nap bug */
+X/*:06-05-1991-22:50-wht@n4hgf-fix parity cmd not taking alpha str */
+X/*:05-21-1991-18:52-wht@n4hgf-add pcmd_pushd and pcmd_popd */
+X/*:03-16-1991-15:12-wht@n4hgf-add pcmd_nice */
+X/*:01-09-1991-22:31-wht@n4hgf-ISC port */
+X/*:12-26-1990-02:34-wht@n4hgf-add cmd_rtscts */
+X/*:12-03-1990-04:59-wht@n4hgf-beef up pcmd_exit */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X#include "termecu.h"
+X#include "ecukey.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+X#define NAMED_VARIABLE_FLAG 0x1000L
+X
+X#if defined(SVR4)
+X# include <sys/termiox.h>
+Xextern int hx_flag;
+X#endif
+X
+Xextern int rc_ep_has_run;
+Xextern ulong colors_current;
+Xextern char errmsg[];
+Xextern char curr_dir[CURR_DIRSIZ];		/* current working directory */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_autorz(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_autorz(param)
+XESD *param;
+X{
+Xchar s8[8];
+X
+X	if(get_alpha_zstr(param,s8,sizeof(s8)))
+X		return(eSyntaxError);
+X	if(!strcmp(s8,"on"))
+X		shm->autorz = 1;
+X	else if(!strcmp(s8,"off"))
+X		shm->autorz = 0;
+X	else
+X		return(eSyntaxError);
+X	shm->autorz_pos = 0;
+X	return(0);
+X}	/* end of pcmd_autorz */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_baud(param) - set line or default baud rate
+X
+XThe command sets shm->Lbaud whether or not a line is open.
+XIf a line is open, the baud rate is actually set.
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_baud(param)
+XESD *param;
+X{
+Xlong new_baud;
+Xint erc;
+X
+X
+X	if(erc = gint(param,&new_baud))
+X		return(erc);
+X	if(!valid_baud_rate((uint)new_baud))
+X	{
+X		pprintf("invalid baud rate: %lu\n",new_baud);
+X		return(eFATAL_ALREADY);
+X	}
+X	shm->Lbaud = (uint)new_baud;
+X	if(shm->Liofd >= 0)
+X		lset_baud_rate(1);
+X	if(proctrace)
+X	{
+X		pprintf("baud rate set to %u\n",shm->Lbaud);
+X	}
+X	return(0);
+X
+X}	/* end of pcmd_baud */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_cd(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_cd(param)
+XESD *param;
+X{
+Xint erc;
+XESD *tesd = esdalloc(256);
+X
+X	if(!tesd)
+X		return(eNoMemory);
+X	if(erc = gstr(param,tesd,0))
+X		goto RETURN;
+X	if(expand_dirname(tesd->pb,tesd->maxcb))
+X	{
+X		pprintf("%s\n",errmsg);
+X		param->index = param->old_index;
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X	if(chdir(tesd->pb) < 0)		/* now change to the new directory */
+X	{
+X		pperror(tesd->pb);		/* print error if we get one */
+X		pputs("\n");
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X	get_curr_dir(curr_dir,256);
+X
+XRETURN:
+X	esdfree(tesd);
+X	return(erc);
+X}	/* end of pcmd_cd */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_pushd(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_pushd(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xint arg_present;
+XESD *tesd = (ESD *)0;
+X
+X	if(arg_present = !!end_of_cmd(param))
+X	{
+X		if(!(tesd = esdalloc(256)))
+X			return(eNoMemory);
+X		if(erc = gstr(param,tesd,0))
+X			goto RETURN;
+X	}
+X
+X	if(!push_directory((arg_present) ? tesd->pb : "",arg_present,1))
+X	{
+X		param->index = param->old_index;
+X		erc = eFATAL_ALREADY;
+X	}
+X
+XRETURN:
+X	if(tesd)
+X		esdfree(tesd);
+X	return(erc);
+X
+X}	/* end of pcmd_pushd */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_popd(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_popd(param)
+XESD *param;
+X{
+Xint erc = 0;
+Xint arg_present;
+Xchar allstr[8];
+X
+X	allstr[0] = 0;
+X	if(arg_present = !!end_of_cmd(param))
+X	{
+X		if(get_alpha_zstr(param,allstr,sizeof(allstr)))
+X		{
+X			param->index = param->old_index;
+X			return(eSyntaxError);
+X		} 
+X	}
+X
+X	if(!pop_directory(allstr,arg_present,1))
+X	{
+X		param->index = param->old_index;
+X		erc = eFATAL_ALREADY;
+X	}
+X
+X	return(erc);
+X
+X}	/* end of pcmd_popd */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_clrx(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_clrx(param)
+XESD *param;
+X{
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	lclear_xmtr_xoff();
+X	if(proctrace)
+X		pputs("transmitter XOFF cleared\n");
+X	return(0);
+X}	/* end of pcmd_clrx */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_dcdwatch(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_dcdwatch(param)
+XESD *param;
+X{
+Xint erc;
+Xchar s16[16];
+Xchar *cptr;
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	if(erc = get_alpha_zstr(param,s16,sizeof(s16)))
+X		return(erc);
+X
+X	erc = (ldcdwatch_str(s16)) ? eSyntaxError : 0;
+X	if(!erc && proctrace)
+X	{
+X		pputs("DCD watch set to ");
+X		cptr = "???";
+X		switch(shm->Ldcdwatch)
+X		{
+X			case DCDW_OFF:			cptr = "off"; break;
+X			case DCDW_ON:			cptr = "on"; break;
+X			case DCDW_TERMINATE:	cptr = "TERMINATE"; break;
+X		}
+X		pprintf("%s\n",cptr);
+X	}
+X	return(0);
+X
+X}	/* end of pcmd_dcdwatch */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_dial(param) - connect to a remote DTE or to local DCE
+X
+X  sets I0 to 0==connect,
+X             1==failed to connect,
+X             2==interrupted,
+X             3==modem error
+X  sets S0 to modem result code
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_dial(param)
+XESD *param;
+X{
+Xint erc;
+XESD *tesd = (ESD *)0;
+X
+X	if(shm->Lconnected)
+X	{
+X		pprintf("Already connected (to %s)\n",shm->Llogical);
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if(!(tesd = esdalloc(64)))
+X		return(eNoMemory);
+X
+X	if(erc = gstr(param,tesd,0))
+X	{
+X		esdfree(tesd);
+X		return(erc);
+X	}
+X
+X	if((erc = call_logical_telno(tesd->pb)) && (erc == eConnectFailed))
+X		erc = 0;
+X
+X	if(!erc && (shm->Liofd < 0))
+X		erc = eNoLineAttached;
+X
+X	esdfree(tesd);
+X
+X	return(erc);
+X}	/* end of pcmd_dial */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_duplex(param)
+X
+Xduplex [f | h]
+Xduplex ['f' | 'h']
+Xduplex <int>  0 == half, non-0 == full
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_duplex(param)
+XESD *param;
+X{
+Xint erc;
+Xint new_duplex;
+XESD *tesd;
+X
+X	if(erc = skip_cmd_break(param))
+X		return(erc);
+X	if(!(tesd = esdalloc(64)))
+X		return(eNoMemory);
+X	erc = gstr(param,tesd,0);
+X	new_duplex = to_lower((erc) ? param->pb[param->index] : *tesd->pb);
+X	esdfree(tesd);
+X	erc = 0;
+X
+X	switch(new_duplex)
+X	{
+X		case 'f':
+X			shm->Lfull_duplex = 1;
+X			break;
+X		case 'h':
+X			shm->Lfull_duplex = 0;
+X			break;
+X		default:
+X			erc = eBadParameter;
+X	}
+X	if(proctrace && !erc)
+X		pprintf("duplex set to %s\n",(shm->Lfull_duplex) ? "full" : "half");
+X	return(erc);
+X
+X}	/* end of pcmd_duplex */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_echo(param)
+Xecho [-n] <str>
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_echo(param)
+XESD *param;
+X{
+Xint erc;
+XESD *tesd;
+Xchar switches[8];
+X
+X	if((tesd = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = gstr(param,tesd,1))
+X	{
+X		esdfree(tesd);
+X		return(erc);
+X	}
+X	pputs(tesd->pb);
+X	if(!strchr(switches,'n'))	/* if no -n */
+X		pputs("\n");
+X	esdfree(tesd);
+X	return(0);
+X
+X}	/* end of pcmd_echo */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_exec(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_exec(param)
+XESD *param;
+X{
+X	int erc = 0;
+X	ESD *tesd = (ESD *)0;
+X
+X	if(!(tesd = esdalloc(64)))
+X		return(eNoMemory);
+X	if(erc = gstr(param,tesd,1))
+X		goto RETURN;
+X
+X	/* reset indices */
+X	tesd->index = 0;
+X	tesd->old_index = 0;
+X
+X	if(proctrace)
+X		pprintf("executing: <%s>\n",tesd->pb);
+X	if(erc = execute_esd(tesd))
+X	{
+X		esdshow(tesd,"error executing dynamic statement:");
+X		proc_error(erc);
+X		erc = eFATAL_ALREADY;
+X	}
+X
+XRETURN:
+X	if(tesd)
+X		esdfree(tesd);
+X	return(erc);
+X
+X}	/* end of pcmd_exec */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_exit(param)
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_exit(param)
+XESD *param;
+X{
+Xlong int1;
+Xulong colors_at_entry = colors_current;
+X
+X	if(!gint(param,&int1) && int1)
+X	{
+X		setcolor(colors_error);
+X		pprintf("[procedure terminating ecu: user code %ld]\n",int1);
+X		setcolor(colors_at_entry);
+X		if((int1 += TERMECU_USER1 - 1) > TERMECU_USERN)
+X		{
+X			int1 = TERMECU_USERN;
+X			pprintf("user exit code too large, using %d\r\n",
+X				TERMECU_USERN - TERMECU_USER1);
+X		}
+X		termecu((int)int1);
+X	}
+X	setcolor(colors_success);
+X	pputs("[procedure terminating ecu: normal exit]\n");
+X	setcolor(colors_at_entry);
+X	termecu(0);
+X}	/* end of pcmd_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_lgets(param)
+X
+Xlgets [-er] <strvar> <int1> <int2> [<str>]
+X
+Xread string into string variable number <stvar>
+Xwaiting <int1> 1/10th secs for first char,
+Xwaiting <int2> 1/10th secs for subsequent chars,
+Xoptionally terminating read upon detection of <str>
+X-e echos to screen
+X-r completely raw, else strip CRs & NLs from either end of string
+X$i0 receives the length of the read
+X<strvar> receives the string
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_lgets(param)
+XESD *param;
+X{
+Xint erc;
+Xlong int2;
+Xlong int3;
+XESD *tesd1 = (ESD *)0;
+XESD *svptr;
+XLRWT lr;
+Xchar switches[8];
+XESD *esdalloc();
+Xchar ctmp;
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	skip_cmd_char(param,'$');
+X	if(erc = get_cmd_char(param,&ctmp))
+X		return(erc);
+X	if(to_lower(ctmp) != 's')
+X		return(eIllegalVarType);
+X	if(erc = get_svptr(param,&svptr,1))
+X		return(erc);
+X
+X	if(erc = gint(param,&int2))
+X		return(erc);
+X
+X	if(erc = gint(param,&int3))
+X		return(erc);
+X
+X	if((tesd1 = esdalloc(64)) == (ESD *)0)
+X		return(eNoMemory);
+X	if(gstr(param,tesd1,1))	/* optional delimiter */
+X	{
+X		esdfree(tesd1);
+X		tesd1 = (ESD *)0;
+X	}	
+X
+X	esdzero(svptr);
+X
+X	lr.to1 = int2 * 100L;
+X	lr.to2 = int3 * 100L;
+X	/* allow interrupts + raw read per -r */
+X	lr.raw_flag = (strchr(switches,'r')) ? 0x81 : 0x80;
+X	lr.buffer = svptr->pb;
+X	lr.bufsize = svptr->maxcb;
+X	lr.delim = (tesd1) ? tesd1->pb : (char *)0;
+X	lr.echo_flag = (strchr(switches,'e') != (char *)0);
+X	(void)lgets_timeout(&lr);
+X	if(tesd1)
+X		esdfree(tesd1);
+X
+X	svptr->cb = lr.count;
+X	esd_null_terminate(svptr);
+X	iv[0] = (long)lr.count;
+X	if(zero_length_read_detected)
+X	{
+X		zero_length_read_detected = 0;
+X		erc = eProcAttn_DCDloss;
+X	}
+X	if(proctrace)
+X		pprintf("lgets read %d chars\n",lr.count);
+X	return(erc);
+X
+X}	/* end of pcmd_lgets */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_flush(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_flush(param)
+XESD *param;
+X{
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	lflush(2);
+X	if(proctrace)
+X		pputs("line flushed\n");
+X	return(0);
+X}	/* end of pcmd_flush */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_hangup(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_hangup(param)
+XESD *param;
+X{
+X	if(shm->Liofd < 0)
+X	{
+X		if(proctrace)
+X			pputs("no line attached ... hangup ignored\n");
+X		DCE_now_on_hook();
+X		return(0);
+X	}
+X
+X	if(proctrace)
+X		pputs("hanging up ... ");
+X	DCE_hangup();
+X	if(proctrace)
+X		pputs("line on hook\n");
+X	return(0);
+X}	/* end of pcmd_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_hexdump(param)
+X
+Xhexdump [-s] <str>
+Xhexdump -t[s] <str1> <str>
+X<str> buf to dump
+X<str1> title (if -t)
+X-s short (terse) dump
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_hexdump(param)
+XESD *param;
+X{
+Xint erc;
+XESD *title = (ESD *)0;
+XESD *buf;
+Xchar switches[8];
+Xextern FILE *plog_fp;
+X
+X	if((buf = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(strchr(switches,'t'))	/* if -t */
+X	{
+X		if((title = esdalloc(256)) == (ESD *)0)
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = gstr(param,title,0))
+X			goto RETURN;
+X	}
+X
+X	if(erc = gstr(param,buf,1))
+X		goto RETURN;
+X
+X	hex_dump(buf->pb,buf->cb,(title) ? title->pb : "",
+X		(strchr(switches,'s')) ? 1 : 0);
+X
+X	if(plog_fp)
+X		hex_dump_fp(plog_fp,buf->pb,buf->cb,(title) ? title->pb : "",
+X			(strchr(switches,'s')) ? 1 : 0);
+X
+XRETURN:
+X	esdfree(buf);
+X	if(title)
+X		esdfree(title);
+X	return(erc);
+X
+X}	/* end of pcmd_hexdump */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_lbreak(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_lbreak(param)
+XESD *param;
+X{
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	lbreak();
+X	return(0);
+X}	/* end of pcmd_lbreak */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_logevent(param)
+X
+Xlogevent 'cmd'
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_logevent(param)
+XESD *param;
+X{
+Xint erc;
+XESD *eventstr;
+Xchar switches[8];
+X
+X	if((eventstr = esdalloc(256)) == (ESD *)0)
+X		return(eNoMemory);
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X/* a hack */
+X	strcpy(eventstr->pb,"PROC ");
+X	eventstr->pb += 5;
+X	eventstr->maxcb -= 5;
+X
+X	if(erc = gstr(param,eventstr,0))
+X	{
+X		eventstr->pb -= 5;		/* be nice */
+X		eventstr->maxcb += 5;	/* or surely this will haunt us one day */
+X		esdfree(eventstr);
+X		return(erc);
+X	}
+X
+X/* rehack */
+X	eventstr->pb -= 5;
+X	eventstr->maxcb += 5;
+X	eventstr->cb += 5;
+X
+X	ecu_log_event(getpid(),eventstr->pb);
+X	esdfree(eventstr);
+X	return(0);
+X
+X}	/* end of eventstr_logevent */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_lookfor(param)
+X
+Xlookfor [-e] [quiet | <str>] [<int>]
+X
+X-e echo to screen while looking
+Xquiet means look for quiet
+X<str> means look for string
+X<int> number 1/10ths secs (default 5.0 second) for timeout
+X
+Xin case of lookfor <str>, $i0 plugged 1 if found, else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_lookfor(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+Xchar *cptr = (char *)0;
+XESD *tesd = (ESD *)0;
+Xulong decisecs = 50; /* default wait is 5 seconds */
+Xint echo_flag;
+Xchar s8[8];
+Xlong start_secs;
+X
+X
+X	if(shm->Liofd < 0)
+X		return(eNoLineAttached);
+X
+X	get_switches(param,switches,sizeof(switches));
+X	echo_flag = (strchr(switches,'e') != (char *)0);
+X
+X	if(!get_alpha_zstr(param,s8,sizeof(s8)))
+X	{
+X		if(strcmp(s8,"quiet"))
+X			return(eSyntaxError);
+X	} 
+X	else
+X	{
+X		if((tesd = esdalloc(64)) == (ESD *)0)
+X			return(eNoMemory);
+X		if(erc = gstr(param,tesd,0))
+X			goto RETURN;
+X		if(!tesd->cb)
+X		{
+X			pputs("lookfor null string\n");
+X			erc = eFATAL_ALREADY;
+X			goto RETURN;
+X		}
+X		cptr = tesd->pb;
+X	}
+X
+X	if(erc = gint(param,&decisecs))
+X	{
+X		/* if something there non-integer */
+X		if(!end_of_cmd(param))
+X		{
+X			erc = eSyntaxError;
+X			goto RETURN;
+X		}
+X	}
+X	erc = 0;
+X
+X	if(proctrace)
+X		time(&start_secs);
+X
+X	if(cptr)
+X	{
+X		iv[0] = (long)llookfor(cptr,decisecs * 100L,echo_flag);
+X		if(proctrace)
+X			pprintf("lookfor set $i00 = %ld\n",iv[0]);
+X	}
+X	else
+X		lquiet(decisecs * 100L,echo_flag);
+X
+X	if(proctrace)
+X		pprintf("waited %ld secs\n",time((long *)0) - start_secs);
+X
+XRETURN:
+X	if(tesd)
+X		esdfree(tesd);
+X	if(zero_length_read_detected)
+X	{
+X		zero_length_read_detected = 0;
+X		erc = eProcAttn_DCDloss;
+X	}
+X	return(erc);
+X
+X}	/* end of pcmd_lookfor */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_nap(param)
+Xnap [-m] <int>
+X<int> number 1/10ths secs, except if -m, nap <int> milliseconds
+X--------------------------------------------------------------------------*/
+Xint
+Xpcmd_nap(param)
+XESD *param;
+X{
+Xint erc;
+Xchar switches[8];
+Xulong interval;
+X
+X	get_switches(param,switches,sizeof(switches));
+X
+X	if(erc = gint(param,&interval))
+X		return(erc);
+X	if(interval)
+X	{
+X		if(!strchr(switches,'m'))
+X			interval *= 100L;
+X		if(interval < hzmsec)		/* SCO nap bug */
+SHAR_EOF
+true || echo 'restore of pcmd.c failed'
+fi
+echo 'End of ecu320 part 18'
+echo 'File pcmd.c is continued in part 19'
+echo 19 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

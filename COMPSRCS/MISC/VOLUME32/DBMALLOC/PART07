@@ -1,0 +1,1994 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i012:  dbmalloc - Debug Malloc Library PL14, Part07/10
+Message-ID: <1992Sep4.152300.13414@sparky.imd.sterling.com>
+X-Md4-Signature: 1d5e96179641aecee129427d453e2930
+Date: Fri, 4 Sep 1992 15:23:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 12
+Archive-name: dbmalloc/part07
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 10)."
+# Contents:  malloc.man size.c testerr.c
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:20 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'malloc.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'malloc.man'\"
+else
+echo shar: Extracting \"'malloc.man'\" \(45140 characters\)
+sed "s/^X//" >'malloc.man' <<'END_OF_FILE'
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     NAME
+X	  dbmalloc - debugging malloc library
+X
+X     SYNOPSIS
+X	  #include <malloc.h>
+X
+X	  int malloc_chain_check(flag);
+X	  int flag;
+X
+X	  void malloc_dump(fd);
+X	  int fd;
+X
+X	  void malloc_list(fd,histid1,histid2);
+X	  int fd;
+X	  unsigned long	histid1, histid2;
+X
+X	  unsigned long	malloc_inuse(histidptr);
+X	  unsigned long	* histidptr;
+X
+X	  void malloc_mark(ptr);
+X	  char * ptr;
+X
+X	  int dbmallopt(cmd,val);
+X	  int cmd;
+X	  union	dbmalloptarg val;
+X
+X	  void malloc_abort();
+X
+X	  void malloc_enter(func);
+X	  char * func;
+X
+X	  void malloc_leave(func);
+X	  char * func;
+X
+X     DESCRIPTION
+X	  This malloc library is a replacement for the standard
+X	  library to be	used during software development/debugging.
+X	  See the standard malloc(3) pages for more information	on the
+X	  use of the following functions:
+X
+X	       calloc(), cfree(), free(), malloc(), realloc()
+X
+X	  This library differs from the	standard malloc	library	in the
+X	  following ways:
+X
+X	  1. Each malloc segment contains a magic number so that free
+X	  can verify that the pointer passed points to a valid malloc
+X	  segment.
+X
+X	  2. Each malloc segment is filled with	a non-zero pattern so
+X	  that code that depends upon malloc segments being null will
+X	  fail.
+X
+X
+X
+X     Page 1			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  3. The size of each segment will be at least 1 byte larger
+X	  than requested and the extra bytes will be filled with a
+X	  non-zero pattern.  When free is called, it will verify that
+X	  you did not go beyond	the number of bytes you	asked for.
+X
+X	  4. When a segment is freed, it will be filled	with a
+X	  different non-zero pattern to	ensure that the	program
+X	  doesn't depend upon the use of already freed data.
+X
+X	  5. Whenever any of the string	or memory functions (str*, b*,
+X	  mem*)	are called with	a pointer that is within the malloc
+X	  arena,  the operation	is checked to verify that it does not
+X	  overrun the malloced segment.	 A failure of this check is
+X	  considered a "warning	level error" (described	later) and is
+X	  handled accordingly.
+X
+X	  6. Run time checking can include verification	of the malloc
+X	  chain	at each	and every call to one of the malloc functions
+X	  or manually by calling the malloc_chain_check	function.
+X
+X	  7. Extensive support for tracking memory leaks is provided.
+X
+X	  When a problem is found, the following error message is
+X	  displayed:
+X
+X	       MALLOC Warning from funcname() (called from filename.c line ###):
+X	       Warning message goes here
+X
+X	  funcname is the name of the function that has	found the
+X	  problem and will usually be an entry point into the library.
+X	  The information that identifies where	the function is	called
+X	  from will only be available if the source module was
+X	  compiled with	the malloc.h file included.
+X
+X	  If the error is caused by a problem in the malloc chain and
+X	  the offending	chain element can be identified, the following
+X	  information is also displayed	(NOTE: this is just a guess by
+X	  the software,	it may not be the actual culprit):
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		  A call to malloc for 33 bytes	in program.c on	line 834.
+X		  This was the 172nd call to malloc.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 2			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  This example assumes that program.c included the debugging
+X	  library malloc.h file.  If not, the identification
+X	  information will be as follows:
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		  A call to malloc for 33 bytes	in an unknown file.
+X		  This was the 172nd call to malloc.
+X
+X	  The identification of	which call to malloc is	associated
+X	  with the problem is helpful in that it gives you the
+X	  information necessary	to set the breakpoint on the
+X	  allocation function for that particular invocation
+X	  (breakpoints usually can have	counters associated with
+X	  them).  The counters for the three primary allocation	entry
+X	  points (malloc, calloc, and realloc) are managed separately.
+X
+X	  NOTE 1: if you want to set a breakpoint to capture this
+X	  invocation of	malloc,	the actual function that is being
+X	  called is debug_malloc (or debug_realloc for realloc and
+X	  debug_calloc for calloc) and that is where the breakpoint
+X	  should be set.
+X
+X	  NOTE 2: Since	the software is	guessing at the	offending
+X	  malloc chain segment,	it is possible that one	of the nearby
+X	  segments is actually the culprit.  If	the environment
+X	  variable MALLOC_SHOW_LINKS is	set, both the segment
+X	  preceding and	the segment following the accused segment will
+X	  also be identified.  The following is	a sample output:
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		   A call to malloc for	33 bytes in an unknown file.
+X		   This	was the	172nd call to malloc.
+X
+X		   The malloc chain element prior to the suspect allocation is from:
+X
+X		   A call to calloc for	512 bytes in main.c line 16.
+X		   This	was the	4th call to calloc.
+X		   This	block was freed	on the 2nd call	to free()
+X		   in main.c on	line 51.
+X
+X		   The malloc chain element following the suspect allocation is	from:
+X
+X		   A call to realloc for 4096 bytes in func.c line 376.
+X		   This	was the	1st call to realloc.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 3			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  Once the error message has been displayed, the software will
+X	  then determine how to	handle the error.  This	handling will
+X	  be based upon	the type of error level	(warning or fatal) and
+X	  the error handling in	effect for that	error level (as
+X	  specified by calls to	mallopt	or via environment variables).
+X	  The coding for the error handling is as follows:
+X
+X	    0	continue operations
+X	    1	drop core and exit
+X	    2	just exit
+X	    3	drop core, but continue	executing.  Core files will be
+X		placed into core.[PID].[counter] i.e: core.00123.001
+X	  128	dump malloc chain and continue
+X	  129	dump malloc chain, dump	core, and exit
+X	  130	dump malloc chain, exit
+X	  131	dump malloc chain, dump	core, continue processing
+X
+X	  dbmallopt() is used to set the malloc	debugging options. The
+X	  following options can	be set:
+X
+X	  MALLOC_WARN	      set the error handling for warning level
+X			      errors.  val.i is	an integer that	can
+X			      contain any one of the following values:
+X
+X			      M_HANDLE_IGNORE	  ignore error (just
+X						  display warning
+X						  message and continue
+X						  processing)
+X			      M_HANDLE_ABORT	  drop core and	exit
+X			      M_HANDLE_EXIT	  just exit (no	core
+X						  drop)
+X			      M_HANDLE_CORE	  drop core, but keep
+X						  on going
+X
+X			      In addition, M_HANDLE_DUMP may be	or'd
+X			      in to cause a dump of the	current	malloc
+X			      chain.
+X
+X			      The default action for MALLOC_WARN is
+X			      M_HANDLE_IGNORE.
+X
+X	  MALLOC_FATAL	      set the error handling for fatal level
+X			      errors.  val.i is	equivalent to val.i
+X			      for MALLOC_WARN.
+X
+X			      The default action for MALLOC_FATAL is
+X			      M_HANDLE_ABORT.
+X
+X	  MALLOC_ERRFILE      set the destination for malloc error
+X			      messages.	 val.str is a pointer to a
+X			      character	string containing the name of
+X			      the file to be used for error messages.
+X
+X
+X
+X     Page 4			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      Note that	error messages are APPENDED to
+X			      this file, so existing error messages
+X			      will not be removed.
+X
+X			      If MALLOC_ERRFILE	is not set, all	error
+X			      messages will be sent to stderr.
+X
+X	  MALLOC_CKCHAIN      set the malloc chain checking flag.  If
+X			      val.i is non-zero, chain checking	at
+X			      every call to malloc is turned on. The
+X			      default behavior is to not check the
+X			      chain at each call to malloc because of
+X			      performance issues (the library is
+X			      considerably slower when this function
+X			      is enabled).
+X
+X	  MALLOC_FREEMARK     sets the behavior	of freeing of marked
+X			      areas.  By default, a free of a marked
+X			      segment generates	a warning.  If val.i
+X			      is zero, warnings	will not be generated.
+X
+X	  MALLOC_FILLAREA     set the malloc fill area flag.  val.i
+X			      specifies	the malloc filling mode	to be
+X			      used.   There are	four modes: 0, 1, 2
+X			      and 3.  Mode 0 disables all filling and
+X			      checking of filled areas (thereby
+X			      reducing the effectiveness of the
+X			      library).	 Mode 1	enables	the filling of
+X			      boundary areas before and	after the
+X			      allocation areas which are used to check
+X			      for writing before or after the pointer.
+X			      Mode 2 includes mode 1 and adds the
+X			      filling of malloced regions with a
+X			      specified	fill pattern so	that a program
+X			      does not depend upon malloced regions to
+X			      be filled	with zeros.  Mode 3 includes
+X			      all of mode 2 and	adds the filling of
+X			      free'd regions so	that an	attempt	to
+X			      used a freed data	area will result in an
+X			      error.
+X
+X			      As far as	performance is concerned, mode
+X			      0	will be	the fastest mode, while
+X			      (somewhat	unexpectedly) mode 3 is	the
+X			      next "fastest" mode with mode 1 bring up
+X			      the tail end.
+X
+X			      The default behavior for MALLOC_FILLAREA
+X			      is mode 3.
+X
+X	  MALLOC_LOWFRAG      set the malloc allocation	fragmentation
+X			      handling level.  By default, malloc uses
+X
+X
+X
+X     Page 5			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      a	first fit algorithm for	new
+X			      allocations.  Under certain allocation
+X			      scenarios, this can lead to significant
+X			      memory fragmentation because of the fact
+X			      that little allocations can break	big
+X			      blocks up.
+X
+X			      If val.i is non-zero, malloc uses	a best
+X			      fit algorithm which will reduce
+X			      fragmentation.  This mechanism, while
+X			      using less memory, is slower because the
+X			      entire free list is checked instead of
+X			      just checking until we find a segment
+X			      that is at least big enough.  Normally
+X			      you will not need	to set this variable.
+X
+X	  MALLOC_CKDATA	      enable/disable the checking of pointers
+X			      passed to	the memory (mem*,b*) and
+X			      string (str*) functions.	This can be
+X			      used to startup the code with checking
+X			      disabled (when you know the startup code
+X			      is functioning correctly)	and then turn
+X			      it on later when you get into the	area
+X			      of the code that is in question.
+X
+X			      if val.i is non-zero, pointer checking
+X			      is enabled (which	is the default mode).
+X
+X	  MALLOC_REUSE	      enable/disable the reuse of freed
+X			      segments.	 This option can be used to
+X			      help identify where a freed pointer is
+X			      being re-used, or	where it is being
+X			      freed a second time, since the location
+X			      where it was freed is also kept.
+X
+X			      It should	be noted that the memory
+X			      requirements for a program will
+X			      typically	increase significantly if this
+X			      option is	used.
+X
+X			      if val.i is zero,	freed segments are not
+X			      reused for subsequent allocations.   If
+X			      non-zero,	freed segments can be reused.
+X			      If freed segments	are not	re-used, you
+X			      might want to disable filling of freed
+X			      segments (see the	MALLOC_FILLAREA
+X			      discussions) so that you can see the
+X			      data in the segment - this would be fill
+X			      mode 2 or	below.
+X
+X
+X
+X
+X
+X
+X     Page 6			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  For example, to set up the session to	generate a core	file
+X	  for every malloc warning, to drop core and exit on a malloc
+X	  fatal, and to	log all	messages to the	file "malloc_log" do
+X	  the following:
+X
+X	       #include	<malloc.h>
+X	       union dbmalloptarg  m;
+X
+X	       m.i = M_HANDLE_CORE | M_HANDLE_DUMP;
+X	       dbmallopt(MALLOC_WARN,m);
+X
+X	       m.i = M_HANDLE_ABORT;
+X	       dbmallopt(MALLOC_FATAL,m);
+X
+X	       m.str = "malloc_log";
+X	       dbmallopt(MALLOC_ERRFILE,m);
+X
+X	  dbmallopt() can be used to set/alter the debugging options
+X	  at any time (i.e. you	may want to turn on chain-checking
+X	  after	the program startup if the program startup does	a lot
+X	  of allocations which are known to be OK).
+X
+X	  malloc_chain_check() will check the status of	the malloc
+X	  arena.  If flag is non-zero, an error	found in the chain
+X	  will cause a fatal error.  malloc_chain_check() returns zero
+X	  when there are no problems found in the malloc chain,	non-
+X	  zero otherwise.
+X
+X	  malloc_dump()	will dump a list of all	in-use malloc segments
+X	  and the first	few bytes of each segment.  If the environment
+X	  variable MALLOC_DETAIL is set	to a non-zero integer, all
+X	  segments (including those that have been freed) are listed
+X	  and additional internal information is displayed.  fd	is the
+X	  file descriptor to write the data to.
+X
+X	  malloc_list()	will dump a list in the	same format as
+X	  malloc_dump but only the items that are still	in use and
+X	  which	have been allocated within the malloc history id range
+X	  specified by histid1 and histid2, inclusive.	The histids
+X	  are obtained from calls to malloc_inuse(). This is
+X	  especially useful in tracking	down memory leaks.  fd is the
+X	  file descriptor to write the data to.
+X
+X	  malloc_inuse() returns the amount of malloc data that	is
+X	  currently in use (in bytes).	If histidptr is	not NULL, it
+X	  is taken to be a pointer to a	place to store the current
+X	  malloc history id which can be used later when malloc_list
+X	  is called to list items that are still in use.
+X
+X
+X
+X
+X
+X
+X
+X     Page 7			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  The following	example	shows the typical use of the
+X	  malloc_inuse and malloc_list functions in tracking down
+X	  memory leaks:
+X
+X	       unsigned	long  histid1, histid2,	orig_size, current_size;
+X
+X	       orig_size = malloc_inuse(&histid1);
+X
+X	       /* .....	go do lots of stuff ...... */
+X
+X	       current_size = malloc_inuse(&histid2);
+X
+X	       if( current_size	!= orig_size )
+X	       {
+X		    malloc_list(2,histid1,histid2);
+X	       }
+X
+X	  malloc_mark()	marks a	segment	as a non-leak.	Segments that
+X	  are marked are not counted or	listed when dealing with
+X	  memory leaks.	 This is designed to be	used on	pointers that
+X	  remain around	forever	and shouldn't be considered to be a
+X	  leak (in order to decrease the amount	of entries in the leak
+X	  lists)
+X
+X	  malloc_abort() causes	the current program to drop core and
+X	  exit.	 This function simply calls abort() to do its dirty
+X	  work and is here solely for the purpose of allowing the
+X	  programmer to	substitute thier own abort routine to handle
+X	  fatal	errors.	 If a substitute routine is used, it must not
+X	  return to the	caller or else the program will	use the
+X	  abort() system call to cause the program to stop.
+X
+X	  malloc_enter() and malloc_leave() provide a rudimentary
+X	  mechanism to track the calling stack that was	in place when
+X	  the allocation was made.  In order to	use this feature, the
+X	  enter	function should	be called upon entry to	a function,
+X	  while	the leave function is called when you exit from	the
+X	  function.  In	order to be accurate, the two functions	must
+X	  be used in conjunction with each other and a missing call
+X	  will result in an error generated by the library (if it is
+X	  detected).
+X
+X	  NOTE:	the argument to	either of these	functions must be a
+X	  constant character string or a static	data area.  This is
+X	  because the stack mechanism does not maintain	it's own copy
+X	  of these strings, it just records pointers to	the strings
+X	  and if the strings are on the	stack, they will go away.
+X	  Typically the	functions would	be used	with "funcname"	as the
+X	  argument and this will avoid any problems.
+X
+X
+X
+X
+X
+X
+X     Page 8			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  The stack is listed on the dump and/or list reports and on
+X	  an error message for a segment that has already been freed.
+X
+X	  If these functions have been used, error messages will
+X	  include the stack information	when the identity of the error
+X	  is displayed.	 For example:
+X
+X	       This error is *probably*	associated with	the following allocation:
+X
+X		   A call to malloc for	1 bytes	in teststack.c on line 75.
+X		   This	was the	13th call to malloc.
+X		   Stack from where allocated:
+X		    -> sub3() in teststack.c(73)
+X		    -> sub2() in teststack.c(59)
+X		    -> main() in teststack.c(23)
+X
+X
+X
+X     USAGE
+X	  The library can be used in several modes, each increasingly
+X	  intrusive (i.e. requiring changes to be made to the build
+X	  process and/or source	code).	However, the extra cost	of a
+X	  little intrusiveness is repaid in much better	problem
+X	  identification.  Each	mode is	built upon the previous	modes
+X	  and therefore	requires the changes and/or commands specified
+X	  in the lower modes.
+X
+X	  MODE 1 - library substitution
+X
+X	  The simplest use is to just link the object module with the
+X	  libdbmalloc.a.  Be sure to have this library before the C
+X	  library (libc.a) on the link command (this is	automatic if
+X	  you use cc to	link and specify the debug library without
+X	  specifying the C library).
+X
+X	  This mode links in all of the	debug versions of the library
+X	  modules and will trap	as many	errors as it can (yes, there
+X	  are errors that the malloc library cannot catch).
+X	  Environment variables	can be used to control the behavior of
+X	  the library.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 9			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  MODE 2 - malloc.h inclusion
+X
+X	  This mode involves including the malloc.h file included with
+X	  the debugging	library.  The malloc.h file includes macros
+X	  that will identify the source	line and file name for each
+X	  debugging function called.  This is how the library is able
+X	  to tell you that it was the call to malloc on	line 55	in
+X	  file junk.c.
+X
+X	  Typically you	should always include malloc.h in your source
+X	  files	and just use the -I INCLUDEDIR directive for the
+X	  compiler to point the	compiler to the	debugging version of
+X	  the header file instead of the normal	file.  That way	you
+X	  don't	have to	change the source files	when you want to turn
+X	  off the debugging library.
+X
+X	  NOTE:	Once you compile code in this mode, you	must recompile
+X	  the code without the debugging malloc.h include file in
+X	  order	to get the software to use the non-debugging
+X	  functions.
+X
+X	  MODE 3 - run-time specification of options
+X
+X	  Environment variables	can be used to control the behavior of
+X	  the debugging	library	to some	extent.	 However, this control
+X	  is very coarse in that you only have one setting available
+X	  for the entire running of the	program.
+X
+X	  This can be a	problem	if you want to turn on malloc chain
+X	  checking, but	know that the problem occurs between a
+X	  relatively narrow portion of the code	and don't want to take
+X	  the hit of having chain checking on for the entire program
+X	  execution.
+X
+X	  The solution to this problem is to include calls to
+X	  dbmallopt() with the debugging options which set the
+X	  appropriate modes when you want them set.  Since you don't
+X	  want to have to change the code to remove and	add these
+X	  functions every time you decide to include malloc debugging
+X	  or not, the malloc.h file defines the	preprocessor symbol
+X	  _DEBUG_MALLOC_INC which can be used in your code as follows:
+X
+X	       #ifdef _DEBUG_MALLOC_INC
+X		    dbmallopt(.... );
+X	       #endif
+X
+X	  In addition to setting behavior options, you might want to
+X	  make use of the memory leak detection	routines in this mode.
+X	  These	calls should also be surrounded	by #ifdefs for the
+X	  debug	malloc symbol so that you can leave them in the	code
+X	  and automatically get	the increased functionality whenever
+X	  you compile with the debugging library.
+X
+X
+X
+X     Page 10			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  MODE 4 - deeper inclusion of malloc calls
+X
+X	  This mode involves inserting calls to	the special functions
+X	  supported by the malloc library (like	the leak detection or
+X	  stack	maintenance routines).	The effects of the inclusions
+X	  depends upon the modules included and	the amount to which
+X	  they are used.
+X
+X	  It is	strongly recommended that you setup your code with the
+X	  following lines in a header file that	is included by all
+X	  modules, or just add the code	to the beginning of the
+X	  modules themselves:
+X
+X	       #ifndef _DEBUG_MALLOC_INC
+X	       #define malloc_enter(func)
+X	       #define malloc_leave(func)
+X	       #define malloc_chain_check()
+X	       #define malloc_dump(fd)
+X	       #define malloc_list(a,b,c)
+X	       #define malloc_inuse(hist)    (*(hist) =	0, 0)
+X	       #endif
+X
+X	  This will automatically disable the referenced functions
+X	  when the malloc library is not included (as should be	the
+X	  case when you	make a production build).
+X
+X     ENVIRONMENT VARIABLES
+X	  Environment variables	can be used to control error handling,
+X	  error	logging	and malloc chain checking at run time.	Most
+X	  of these environment variables can be	set via	the
+X	  dbmallopt() routine and are well described in	that portion
+X	  of the document.  Look for further information there.
+X
+X	  The following	environment variables are used:
+X
+X	  MALLOC_BOUNDSIZE    This specifies the minimum number	of
+X			      bytes that the allocation	routines will
+X			      leave unused at the end of each segment.
+X			      This value may be	any non-zero positive
+X			      integer (although	you must remember that
+X			      the amount of memory used	is directly
+X			      related to this buffer area.
+X
+X			      It may be	necessary to increase this
+X			      value if you think you have a module
+X			      that is writing far enough beyond	its
+X			      malloc segment that it changes the next
+X			      segment (and therefore doesn't make a
+X			      change that this library would be	able
+X			      to detect.
+X
+X			      The default for this value is 1
+X
+X
+X
+X     Page 11			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      (although	because	of memory alignment
+X			      issues, you will usually have more than
+X			      one byte of filler at the	end of most
+X			      segments).
+X	  MALLOC_CKCHAIN      if 1, turns on malloc chain checking at
+X			      every call to any	of the malloc
+X			      functions.
+X	  MALLOC_DETAIL	      if set to	a non-zero integer,
+X			      malloc_dump shows	some internal detail
+X			      for each entry in	the chain.  This info
+X			      is probably only of use if you are
+X			      debugging	the malloc library itself.
+X	  MALLOC_ERRFILE      specifies	the error log file for error
+X			      messages.	 Error messages	generated by
+X			      the library are APPENDED to this file,
+X			      so if you	want a clean file, you will
+X			      have to remove or	empty it yourself
+X			      between runs.  If	this option is used,
+X			      no indication of an error	will be	sent
+X			      to stdout	or stderr (this	is
+X			      purposefully done	this way so that if
+X			      you are running a	full screen program,
+X			      it doesn't mess up the screen).
+X	  MALLOC_FATAL	      specifies	the error handling for fatal
+X			      errors
+X	  MALLOC_FILLAREA     specifies	the fill area flag setting.
+X			      If zero, malloc/free area	filling	and
+X			      checking is disabled (thereby increasing
+X			      performance, while decreasing
+X			      effectiveness of the library).  See the
+X			      discussion of the	dbmallopt() arguments
+X			      for more info on other settings.
+X	  MALLOC_FILLBYTE     This specifies the integer value of the
+X			      character	to use when filling allocated
+X			      areas.  This value defaults to 1 and
+X			      must be within the range of 0 - 255.
+X			      This capability is useful	if you believe
+X			      that you are having a problem with code
+X			      that is trashing its malloc region with
+X			      a	data pattern that matches the default
+X			      fill pattern.
+X
+X			      NOTE: if an attempt is made to use a
+X			      value outside the	specified range, the
+X			      new value	is silently ignored and	the
+X			      default is used.
+X	  MALLOC_FREEBYTE     This specifies the integer value of the
+X			      character	to use when filling freed
+X			      areas.  This value defaults to 1 and
+X			      must be within the range of 0 - 255. It
+X			      should also be different from
+X			      MALLOC_FILLBYTE, but that	is not
+X
+X
+X
+X     Page 12			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X			      enforced.
+X
+X			      NOTE: if an attempt is made to use a
+X			      value outside the	specified range, the
+X			      new value	is silently ignored and	the
+X			      default is used.
+X	  MALLOC_LOWFRAG      if 1, turns on best fit allocation
+X			      algorithm.  Otherwise, first fit
+X			      algorithm	is used	for finding allocation
+X			      segments (which can cause	memory
+X			      fragmentation).
+X	  MALLOC_CKDATA	      if 0, disables checking of pointers
+X			      passed to	string/memory functions	for
+X			      malloc region overwrites.
+X	  MALLOC_REUSE	      if 0, disables reuse of freed memory
+X			      segments and it does not fill free'd
+X			      segments with the	fill pattern.  If 1,
+X			      freed segments are filled	and they can
+X			      be reused.  If 2,	freed segments can be
+X			      reused, but they are not filled when
+X			      freed.
+X	  MALLOC_SHOW_LINKS   when an error is found, the suspected
+X			      allocation is displayed.	However, since
+X			      it is possible that the next or previous
+X			      allocation in the	malloc chain was the
+X			      actual culprit these links may be	of
+X			      interest.	 If this variable is set to a
+X			      non-zero integer (i.e. 1)	the links will
+X			      also be shown.
+X	  MALLOC_WARN	      specifies	the error handling for warning
+X			      errors
+X
+X	  As an	example, to set	up the session to generate a core file
+X	  for every malloc warning, to drop core and exit on a malloc
+X	  fatal, and to	log all	messages to the	file "malloc_log" do
+X	  the following:
+X
+X	       MALLOC_WARN=131
+X	       MALLOC_FATAL=1
+X	       MALLOC_ERRFILE=malloc_log
+X
+X	       export MALLOC_WARN MALLOC_FATAL MALLOC_ERRFILE
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 13			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     ERROR MESSAGES
+X	  The following	error messages are reported by the library:
+X
+X	  M_CODE_BAD_CONNECT		Pointers between this segment
+X					and adjoining segments are
+X					invalid.
+X
+X					This error indicates that the
+X					malloc chain has been
+X					corrupted.  This is most often
+X					caused by an overwrite of the
+X					malloc header by an access via
+X					the previous malloc segment.
+X
+X	  M_CODE_BAD_MAGIC		Malloc region does not have a
+X					valid magic number in header.
+X
+X					This error is caused by
+X					several	mechanisms including
+X					free()ing the same pointer
+X					twice or a pointer that	was
+X					not returned by	malloc(), or
+X					writing	beyond the end of a
+X					segment.
+X
+X	  M_CODE_BAD_PTR		Pointer	is not within malloc
+X					region.
+X
+X					The pointer passed to free
+X					orrealloc is not pointer
+X					returned by malloc.  Another
+X					cause is corruption of the
+X					malloc chain by	writing	beyond
+X					the end	of a segment.
+X
+X	  M_CODE_CHAIN_BROKE		Malloc chain is	corrupted,
+X					pointers out of	order.
+X
+X					Corruption has been detected
+X					in the malloc chain that is
+X					related	to the relative
+X					positions of the malloc	chain
+X					segments in memory.  This is
+X					an indication that someone has
+X					overwritten beyond the amount
+X					they allocated.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 14			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  M_CODE_FREELIST_BAD		Malloc segment in free list is
+X					in-use.
+X
+X					A segment that is in the
+X					free-list is flagged as	in-
+X					use.  This is usually caused
+X					by overwriting from the
+X					previous segment in the	malloc
+X					chain.
+X
+X	  M_CODE_FREEMARK		Free called to free a segment
+X					that has been marked.
+X
+X					Marking	a segment is done
+X					because	you believe that the
+X					segment	will not be free'd and
+X					therefore don't	want it	to
+X					appear in the list of possible
+X					leaks.	If you then go on to
+X					free it, perhaps it shouldn't
+X					have been marked.
+X
+X					This error message can be
+X					disabled with the
+X					MALLOC_FREEMARK	option on the
+X					dbmallopt() function.
+X
+X	  M_CODE_NOBOUND		Unable to determine doubleword
+X					boundary
+X
+X					The code was unable to figure
+X					out the	boundary requirements
+X					for a doubleword.  This	error
+X					should never occur.
+X
+X	  M_CODE_NOMORE_MEM		Unable to get additional
+X					memory from the	system.
+X
+X					The system call	sbrk failed to
+X					obtain more memory for the
+X					program.
+X
+X	  M_CODE_NOT_INUSE		Data is	not in use (can't be
+X					freed or reallocated).
+X
+X					A pointer to a malloc segment
+X					has been passed	to free() or
+X					realloc(), but this segment
+X					has already been freed.
+X
+X
+X
+X
+X
+X
+X     Page 15			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  M_CODE_NO_END			Malloc chain is	corrupted, end
+X					before end pointer.
+X
+X					Yet another overwrite problem.
+X					This error means that we got
+X					to what	we believe is the end
+X					of the chain, but it does not
+X					match the recorded end of the
+X					chain.
+X
+X	  M_CODE_OUTOF_BOUNDS		Pointer	within malloc region,
+X					but outside of malloc data
+X					bounds.
+X
+X					This is	caused by a call to
+X					one of the string/memory
+X					functions that attempt to
+X					read/write bytes that are not
+X					included in the	allocation
+X					associated with	that memory.
+X					This is	the most typical error
+X					that you will see from the
+X					malloc library.
+X
+X	  M_CODE_OVERRUN		Data has overrun beyond
+X					requested number of bytes.
+X
+X					This error is detected by
+X					free() and indicates that the
+X					current	segment	has written
+X					data beyond the	number of
+X					bytes that it requested.  This
+X					only catches overwrites	when
+X					they are within	the extra
+X					space allocated	with each
+X					segment	(this can range	from
+X					one to eight bytes).  If the
+X					overwrite occurs further along
+X					it will	usually	cause some
+X					corruption in the malloc
+X					chain.
+X
+X	  M_CODE_REUSE			Data in	free'd area has	been
+X					modified.
+X
+X					Data in	a freed	segment	has
+X					been modified.	This usually
+X					indicates that the program is
+X					using a	pointer	after it
+X					called free, but it may	also
+X					be caused by an	overwrite from
+X					a previous segment in the
+X
+X
+X
+X     Page 16			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X					chain.
+X
+X	  M_CODE_STK_BADFUNC		Current	function name doesn't
+X					match name on stack.
+X
+X					malloc_leave() was called with
+X					a function name	that is	not
+X					the current function.  This is
+X					usually	caused by a missing
+X					call to	malloc_enter() in the
+X					same function, or a missing
+X					call to	malloc_leave() in a
+X					sub-function.
+X
+X	  M_CODE_STK_NOCUR		No current function on stack,
+X					probably missing call to
+X					malloc_enter().
+X
+X					malloc_leave() was called with
+X					a function name	and there is
+X					no current function (the stack
+X					is empty). This	is usually
+X					caused by a missing call to
+X					malloc_enter(),	or an extra
+X					call to	malloc_leave() in the
+X					same function.
+X
+X	  M_CODE_UNDERRUN		Data has written before
+X					beginning of requested bytes.
+X
+X					This error is detected by
+X					free() and indicates that the
+X					current	segment	has written
+X					data before the	beginning of
+X					the requested block.  This
+X					only catches overwrites	when
+X					they are within	the extra
+X					space allocated	before each
+X					segment	(this is usually four
+X					bytes).	 If the	overwrite
+X					occurs further back it will
+X					usually	cause some corruption
+X					in the malloc chain.
+X
+X	  M_CODE_ZERO_ALLOC		An allocation routine was
+X					called to allocate zero	bytes.
+X
+X					While ANSI C requires that
+X					allocations of zero bytes are
+X					permissible and	should be
+X					supported, the behavior	of
+X					such an	operation can be
+X
+X
+X
+X     Page 17			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X					undefined on non-ANSI systems.
+X					This warning will alert	you to
+X					the locations where these
+X					calls are made.
+X
+X					This error message can be
+X					disabled with the MALLOC_ZERO
+X					option on the dbmallopt()
+X					function.
+X
+X
+X     DUMP OUTPUT
+X	  Sample dump/list output:
+X
+X	       ************************** Dump of Malloc Chain ****************************
+X	       POINTER	   FILE	 WHERE	       LINE	 ALLOC	      DATA     HEX DUMP
+X	       TO DATA	    ALLOCATED	      NUMBER	 FUNCT	     LENGTH  OF	BYTES 1-7
+X	       --------	-------------------- ------- -------------- ------- --------------
+X	       0x403DB4	teststack.c		  75 malloc(1)		 40 01010101010101
+X			-> sub3() in teststack.c(73)
+X			-> main() in teststack.c(23)
+X	       0x403E0C	testerr.c		  16 realloc(1)		 20 01010101010101
+X
+X	  The info in each column is as	follows:
+X
+X	  POINTER	      the pointer returned by the allocation
+X			      function (the pointer the	the allocated
+X			      data area).
+X
+X	  FILE		      the name of the file where the
+X			      allocation function was called.  This
+X			      information is only available if the
+X			      source file includes the malloc.h	file
+X			      from this	library	(as opposed to the
+X			      system include file).  If	the source
+X			      file did not include this	file, the file
+X			      will be listed as	unknown	and the	line
+X			      number will be blank.  Note that any
+X			      malloc calls from	system libraries will
+X			      probably not have	been compiled with the
+X			      malloc.h file included and will
+X			      therefore	appear as unknown.
+X
+X	  LINE NUM	      The line number of the line that called
+X			      the allocation function.	This field
+X			      will be left blank if the	malloc.h from
+X			      this library was not included in the
+X			      source file when it was compiled.
+X
+X
+X
+X
+X
+X
+X
+X     Page 18			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  ALLOC	FUNC	      The allocation function called: malloc,
+X			      realloc, or calloc.  The number in
+X			      parenthesis following the	function name
+X			      is the call number for that particular
+X			      function.	 For example: malloc(1)	means
+X			      that this	allocation was the 1st call to
+X			      malloc.
+X
+X	  DATA LEN	      The number of bytes allocated.
+X
+X	  HEX DUMP	      A	hexadecimal dump of the	first seven
+X			      bytes in the allocated data.  This
+X			      example shows the	bytes filled with
+X			      0x01s which happen to be the fill
+X			      pattern used by the malloc library (to
+X			      make sure	that one doesn't depend	upon
+X			      the fact that some calls to malloc
+X			      result in	NULL bytes).  So the
+X			      allocations that are shown haven't
+X			      stored any data in the area yet.
+X
+X	  The lines that begin with a "->" are stack dump lines	which
+X	  show the calling environment that was	present	when the are
+X	  was allocated.  The environment is managed via the use of
+X	  the malloc_enter() and malloc_leave()	routines.
+X
+X	  If the environment variable MALLOC_DETAIL is non-zero, the
+X	  following additional information will	be included:
+X
+X	       ************************************************************** Du...
+X					    FREE     FREE		   ACTUAL SIZE	  ...
+X		 PTR	  NEXT	   PREV	    NEXT     PREV      FLAGS	   INT	  HEX	  ...
+X	       --------	-------- -------- -------- -------- ---------- --------	--------- ...
+X	       0x403C94	0x403CEC 0x40326C 0x000000 0x000000 0x03156111	     48(0x000030) ...
+X	       0x403CEC	0x403D2C 0x403C94 0x000000 0x000000 0x03156121	     24(0x000018) ...
+X	       0x403D2C	0x403D6C 0x403CEC 0x000000 0x403D6C 0x03156120	     24(0x000018) ...
+X	       0x403D6C	0x000000 0x403D2C 0x403D2C 0x000000 0x03156120	     24(0x000018) ...
+X
+X	       Malloc start:	  0x40326C
+X	       Malloc end:	  0x403D2C
+X	       Malloc data start: 0x403C94
+X	       Malloc data end:	  0x405C94
+X	       Malloc free list:  0x403D6C
+X			       -> 0x403D2C
+X
+X	  NOTE that I cut off the example at the point where the
+X	  normal output	would begin (hence the ...).
+X
+X	  The info in each column is as	follows:
+X
+X	  PTR		  The malloc chain pointer for the segment
+X			  (the address of the segment).
+X
+X
+X
+X     Page 19			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	  NEXT		  The pointer to the next segment in the
+X			  chain.
+X
+X	  PREV		  The pointer to the previous segment in the
+X			  chain.
+X
+X	  FREE NEXT	  The pointer to the next segment in the free
+X			  list.
+X
+X	  FREE PREV	  The pointer to the previous segment in the
+X			  free list.
+X
+X	  FLAGS		  The flags associated with this segment.
+X			  This is a long integer which contains	the
+X			  following fields
+X
+X			  0xFFFFFF00  the magic	number.	 This should
+X				      be 0x03156100 (probably
+X				      someone's	birthday).
+X
+X			  0x00000070  the type of allocation function.
+X				      Malloc (x010), realloc (0x20),
+X				      or calloc	(0x30) are the only
+X				      valid values for this field).
+X
+X			  0x00000001  the in-use flag.	if this	value
+X				      is non-zero, the indicated
+X				      segment is currently in use (not
+X				      freed).
+X
+X	  ACTUAL SIZE	  The actual size reserved for the allocation
+X			  in both decimal and hex.  This will be at
+X			  least	one byte more than the requested size,
+X			  and as much as 8, so that we can check to
+X			  see if the allocation	has been overrun.
+X
+X	  Malloc start and end are pointers to the first and last
+X	  malloc chain segment,	respectively.
+X
+X	  Malloc data start and	data end are the lowest	and highest
+X	  data bytes managed my	the malloc sub-system.	These are only
+X	  used as a quick check	to see if a pointer is in the malloc
+X	  region before	we go hunting down the chain trying to
+X	  identify the segment it belongs to.
+X
+X	  Malloc free list is a	chain of the elements in the free list
+X	  (so it is easier for the programmer to follow	the free list
+X	  if they choose to).  The address of each element in the list
+X	  follows below	the list head.
+X
+X
+X
+X
+X
+X
+X     Page 20			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     X PROGRAM DEBUGGING
+X	  The malloc library includes a	set of compatibility routines
+X	  for the Xt toolkit allocation	routines: XtMalloc(),
+X	  XtCalloc(), XtRealloc(),and XtFree().	  These	routines
+X	  provide the same level of malloc area	integrity checking
+X	  that is provided by the basic	malloc functions while
+X	  maintaining complete compatibility with the X11R5 functions.
+X
+X	  If you link an X package with	the debug library and you make
+X	  a call to any	of the Xt allocation routines, the debug
+X	  modules will automatically be	included.  If you don't	call
+X	  them directly, but you still want to include them in order
+X	  to better debug their	use, you can add a -u linker
+X	  specification	for XtRealloc.	For example:
+X
+X	       cc -o xapp -u XtRealloc xapp.o -ldbmalloc -lXt -lX....
+X
+X	  Note that you	may have to add	an underscore before the
+X	  XtRealloc if your compiler does this automatically.
+X
+X	  A second potential problem with X is caused by a difference
+X	  between X11R4	and X11R5.  If you only	have one of theses
+X	  packages, then the malloc library will be automatically
+X	  configured to	handle that package.  If, however, you have
+X	  both of them installed and you need to be able to link with
+X	  either system, you may have to add a -u _XtHeapInit to the
+X	  link line on the X11R5 links.	 This is because X11R5 defines
+X	  both the heap	management and malloc management routines in
+X	  the same module, while X11R4 defines them in different
+X	  modules.
+X
+X	  The sign of this problem is a	link error due to duplicate
+X	  references to	the Xt allocation routines (XtMalloc, etc).
+X
+X     LINKING
+X	  The order in which you link your programs can	have a
+X	  significant effect on	the usefulness of the library and even
+X	  on the ability to link itself.  The debug library should be
+X	  placed as the	first system library that you are linking to
+X	  (assuming that you are calling at least one of the malloc,
+X	  string, or memory functions).
+X
+X	  For example, if the following	is your	normal link command:
+X
+X	       cc -o app app.o supp.o else.o applib.a -lmath -lcurses
+X
+X	  You should add the malloc debug library in between applib.a
+X	  and -lmath, which would result in the	following:
+X
+X
+X
+X
+X
+X
+X
+X     Page 21			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X	       cc -o app app.o supp.o else.o applib.a -ldbmalloc -lmath	-lcurses
+X
+X	  This will ensure that	the debug malloc library overrides all
+X	  of the allocation routines within the	other libraries.
+X
+X	  If you have other problems compiling or linking with the
+X	  library you should look at the PROBLEMS file in the source
+X	  directory.  This file	contains descriptions of common
+X	  problems and the recommended solutions to the	problems.
+X
+X     PERFORMANCE
+X	  This malloc library and its associated string	and memory
+X	  functions are	much less efficient than the standard
+X	  functions due	in part	to the extra error checking.  You do
+X	  not want to use this library when generating a production
+X	  (i.e.	releasable) version of your software.  It should only
+X	  be used during development and testing.
+X
+X	  The following	environment variable settings will give	you
+X	  the best performance (at the expense of some additional
+X	  error	checking):
+X
+X	       MALLOC_CKCHAIN=0
+X	       MALLOC_CKDATA=0
+X	       MALLOC_FILLAREA=0
+X	       MALLOC_LOWFRAG=0
+X
+X	  We recommend against setting MALLOC_FILLAREA to zero
+X	  because, while it will increase the performance, it takes
+X	  away the capability to uncover small malloc overruns which
+X	  don't	overrite the pointers surrounding the malloc regions.
+X	  The same anti-recommendation applies to MALLOC_CKDATA.
+X
+X	  Anyway, with these settings, the malloc library runs at
+X	  about	1/2 the	speed (things only take	twice as long) as the
+X	  standard library.  If	you program spends most	of its time in
+X	  malloc, it will still	be slow	(but perhaps this is an
+X	  indication that you need to consider changing	the way	you
+X	  are using malloc).
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 22			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     WARNINGS
+X	  The include file for this library "malloc.h" should be
+X	  included after the includes for any system related
+X	  information.	This is	because	"malloc.h" redefines several
+X	  system functions including string and	memory routines	and
+X	  this will usually cause compilation errors if	malloc.h is
+X	  processed first (of course, the compile errors will talk
+X	  about	errors in the other system include files like
+X	  string.h).
+X
+X	  This goes hand in hand with the fact that if you have	local
+X	  definitions of the return types of standard functions	like
+X	  strcmp() or malloc(),	these lines will cause compile errors
+X	  due to the #defines in the malloc.h header file.  Therefore,
+X	  it is	suggested that you remove all such definitions from
+X	  your code and	rely on	the system header files	to define
+X	  these	functions, or you surround the definitions with	#ifdef
+X	  DEBUG_MALLOC_INC.
+X
+X	  There	is a possibility that the use of sbrk()	by other
+X	  modules will cause this library to get confused and possibly
+X	  report some pointers as bad when the really aren't part of
+X	  the malloc chain itself.  Therefore the direct use of	sbrk()
+X	  is strongly discouraged.
+X
+X	  This library attempts	to trap	errors and exit/handle them
+X	  gracefully. However, the nature of the problems may be such
+X	  that it causes the code in the library itself	to crash.
+X	  There	is no way to avoid this, but if	it does	occur,	turn
+X	  on chain checking to narrow the place	where it will occur.
+X
+X	  The functions	in this	library	will often conflict with
+X	  duplicate functions in shared	library	versions of libc.a.
+X	  This is usually due to the fact that some shared library
+X	  modules have explicit	references to shared library versions
+X	  of the debug functions.  The only way	around this is to not
+X	  use the shared library when linking.
+X
+X	  This malloc library, like most malloc	libraries, is not re-
+X	  entrant and therefore	should not be called from interrupt
+X	  handlers because of the potential for	receiving an interrupt
+X	  in the middle	of a call to malloc which would	really mess
+X	  things up.
+X
+X     SEE ALSO
+X	  malloc(3), string(3),	memory(3)
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 23			   1.11
+X
+X
+X
+X
+X
+X
+X     DEBUG_MALLOC(3)		   (VTI)	       DEBUG_MALLOC(3)
+X
+X
+X
+X     COPYRIGHT
+X	   (c) Copyright 1990, 1991, 1992 Conor	P. Cahill (cpcahil@virtech.vti.com)
+X
+X	   This	software may be	distributed freely as long as the following conditions
+X	   are met:
+X		  * the	distribution, or any derivative	thereof, may not be
+X		    included as	part of	a commercial product
+X		  * full source	code is	provided including this	copyright
+X		  * there is no	charge for the software	itself (there may be
+X		    a minimal charge for the copying or	distribution effort)
+X		  * this copyright notice is not modified or removed from any
+X		      source file
+X
+X
+X     AUTHOR
+X	  Conor	P. Cahill
+X	  Virtual Technologies Incorporated
+X	  46030	Manekin	Plaza, Suite 160
+X	  Sterling VA 22170
+X	  703-430-9247
+X
+X	  cpcahil@virtech.vti.com
+X	  uunet!virtech!cpcahil
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X     Page 24			   1.11
+X
+X
+X
+END_OF_FILE
+if test 45140 -ne `wc -c <'malloc.man'`; then
+    echo shar: \"'malloc.man'\" unpacked with wrong size!
+fi
+# end of 'malloc.man'
+fi
+if test -f 'size.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'size.c'\"
+else
+echo shar: Extracting \"'size.c'\" \(3417 characters\)
+sed "s/^X//" >'size.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include <stdio.h>
+X#include "mallocin.h"
+X#include "debug.h"
+X
+X/*
+X * Function:	malloc_size()
+X *
+X * Purpose:	return the size of the allocated segment associated with ptr
+X *
+X * Arguments:	ptr	- pointer to allocated area 
+X *
+X * Returns:	the size of the segment
+X *
+X * Narrative:
+X *		verify pointer is within malloc region
+X *		get mlist pointer from passed address
+X *		verify magic number
+X *		verify inuse flag
+X *		verify pointer connections with surrounding segments
+X *		return size of segment
+X */
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: size.c,v 1.4 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+XSIZETYPE
+Xmalloc_size(cptr)
+X	CONST DATATYPE	* cptr;
+X{
+X	return( DBmalloc_size((char *)NULL, 0, cptr) );
+X}
+X
+XSIZETYPE
+XDBmalloc_size(file,line,cptr)
+X	CONST char	* file;
+X	int		  line;
+X	CONST DATATYPE	* cptr;
+X{
+X	char			* func = "malloc_size";
+X	register struct mlist	* ptr;
+X
+X	/*
+X	 * initialize the malloc sub-system.
+X	 */
+X	MALLOC_INIT();
+X
+X	/*
+X	 * IF malloc chain checking is on, go do it.
+X	 */
+X	if( malloc_opts & MOPT_CKCHAIN )
+X	{
+X		VOIDCAST DBFmalloc_chain_check(func,file,line,1);
+X	}
+X
+X	/*
+X	 * verify that cptr is within the malloc region and that it is on
+X	 * the correct alignment
+X	 */
+X	if(        (cptr < malloc_data_start)
+X		|| (cptr > malloc_data_end)
+X		|| ((((long)cptr) & malloc_round) != 0)  )
+X	{
+X		malloc_errno = M_CODE_BAD_PTR;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return( (SIZETYPE) -1);
+X	}
+X
+X	/* 
+X	 * convert pointer to mlist struct pointer.  To do this we must 
+X	 * move the pointer backwards the correct number of bytes...
+X	 */
+X	ptr = DATATOMLIST(cptr);
+X
+X	/*
+X	 * check the magic number 
+X	 */	
+X	if( (ptr->flag&M_MAGIC_BITS) != M_MAGIC )
+X	{
+X		malloc_errno = M_CODE_BAD_MAGIC;
+X		malloc_warning(func,file,line,(struct mlist *)NULL);
+X		return((SIZETYPE) -1);
+X	}
+X
+X	/*
+X	 * if this segment is not flagged as being in use
+X	 */
+X	if( ! (ptr->flag & M_INUSE) )
+X	{
+X		malloc_errno = M_CODE_NOT_INUSE;
+X		malloc_warning(func,file,line,ptr);
+X		return( (SIZETYPE) -1 );
+X	}
+X
+X	/*
+X	 * check to see that the pointers are still connected
+X	 */
+X 	if( (ptr->prev && (ptr->prev->next != ptr) ) ||
+X	    (ptr->next && (ptr->next->prev != ptr) ) ||
+X	    ((ptr->next == NULL) && (ptr->prev == NULL)) )
+X	{
+X		malloc_errno = M_CODE_BAD_CONNECT;
+X		malloc_warning(func,file,line,ptr);
+X		return( (SIZETYPE) -1 );
+X	}
+X
+X	/*
+X	 * check fill regions for overflow
+X	 */
+X	VOIDCAST FILLCHECK(func,file,line,ptr,SHOWERRORS);
+X
+X	return(ptr->r_size);
+X
+X} /* DBmalloc_size(... */
+X
+X/*
+X * $Log: size.c,v $
+X * Revision 1.4  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.3  1992/07/03  00:03:25  cpcahil
+X * more fixes for pl13, several suggestons from Rich Salz.
+X *
+X * Revision 1.2  1992/07/02  15:35:52  cpcahil
+X * misc cleanups for PL13
+X *
+X * Revision 1.1  1992/07/02  13:49:54  cpcahil
+X * added support for new malloc_size function and additional tests to testerr
+X *
+X */
+END_OF_FILE
+if test 3417 -ne `wc -c <'size.c'`; then
+    echo shar: \"'size.c'\" unpacked with wrong size!
+fi
+# end of 'size.c'
+fi
+if test -f 'testerr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testerr.c'\"
+else
+echo shar: Extracting \"'testerr.c'\" \(4588 characters\)
+sed "s/^X//" >'testerr.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include "sysdefs.h"
+X#include <stdio.h>
+X#if ANSI_HEADERS
+X#include <stdlib.h>
+X#endif
+X#include <sys/types.h>
+X#include "malloc.h"
+X
+X#define ALLOCSIZE	20
+X#define BIG_ALIGN	(4*1024)
+X#define SMALL_ALIGN	(1*1024)
+X
+X/*ARGSUSED*/
+Xint
+Xmain(argc,argv)
+X	int			  argc;
+X	char			**argv[];
+X{
+X
+X	union dbmalloptarg	  m;
+X	unsigned long		  oldsize;
+X	char			* s;
+X	unsigned long		  size;
+X	char			* t;
+X	char			* u;
+X
+X
+X	/*
+X	 * make sure we have both chain checking and fill area enabled
+X	 */
+X	m.i = 1;
+X	dbmallopt(MALLOC_CKCHAIN,&m);
+X	m.i = 3;
+X	dbmallopt(MALLOC_FILLAREA,&m);
+X
+X	/*
+X	 * test leak detection software
+X	 */
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Testing malloc_inuse()...");
+X	oldsize = malloc_inuse( (unsigned long *)0);
+X	s = malloc(ALLOCSIZE);
+X	size = malloc_inuse( (unsigned long *)0);
+X	if( size != (oldsize + ALLOCSIZE))
+X	{
+X		fprintf(stderr,"ERROR\n");
+X		fprintf(stderr,"\toldsize = %lu, size = %lu - should be %lu\n",
+X			oldsize, size, oldsize+ALLOCSIZE);
+X	}
+X	else
+X	{
+X		fprintf(stderr,"OK\n");
+X	}
+X	
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Testing malloc_mark()...");
+X	malloc_mark(s);
+X	size = malloc_inuse( (unsigned long *) 0);
+X	if( size != oldsize )
+X	{
+X		fprintf(stderr,"ERROR\n");
+X		fprintf(stderr,"\tsize = %lu, should be %lu\n",size,oldsize);
+X	}
+X	else
+X	{
+X		fprintf(stderr,"OK\n");
+X	}
+X
+X	/*
+X	 * test new malloc_size function
+X	 */
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Testing malloc_size()...");
+X	size = malloc_size(s);
+X	if( size != ALLOCSIZE )
+X	{
+X		fprintf(stderr,"ERROR\n");
+X		fprintf(stderr,"\tsize = %lu, should be %d\n",size,ALLOCSIZE);
+X	}
+X	else
+X	{
+X		fprintf(stderr,"OK\n");
+X	}
+X			
+X		
+X	/*
+X	 * test memalign
+X	 */
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Testing memalign()...");
+X	s = memalign((SIZETYPE)BIG_ALIGN,(SIZETYPE)10);
+X	t = memalign((SIZETYPE)BIG_ALIGN,(SIZETYPE)20);
+X	if( (s == NULL) || ((((SIZETYPE)s)&(BIG_ALIGN-1)) != 0)
+X			|| ((((SIZETYPE)t)&(SMALL_ALIGN-1)) != 0) )
+X	{
+X		fprintf(stderr,"ERROR\n");
+X		fprintf(stderr,"\ts = 0x%lx(align=%d), t = 0x%lx(align=%d)\n",
+X			s, BIG_ALIGN, t, SMALL_ALIGN);
+X	}
+X	else
+X	{
+X		fprintf(stderr,"OK\n");
+X	}
+X	
+X	s = memalign((SIZETYPE)4096,(SIZETYPE)10);
+X	
+X
+X	t = malloc(20);
+X
+X	s = malloc(10);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from strcpy() - out of bounds\n");
+X	fflush(stderr);
+X	strncpy(s," ",11);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from memset() - out of bounds (beyond)\n");
+X	fflush(stderr);
+X	memset(t,' ',21);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - overrun\n");
+X	fflush(stderr);
+X	free(t);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - double free\n");
+X	fflush(stderr);
+X	free(t);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"NO error from bzero\n");
+X	fflush(stderr);
+X	bzero(s,10);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from bzero() - out of bounds\n");
+X	fflush(stderr);
+X	bzero(s,11);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - overrun\n");
+X	fflush(stderr);
+X	free(s);
+X
+X	u = malloc(1);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from memset() - out of bounds (before)\n");
+X	fflush(stderr);
+X	memset(u-2,' ',3);
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from free() - underrun\n");
+X	fflush(stderr);
+X	free(u);
+X
+X	s = malloc(10);
+X	t = malloc(500); 	/* do this to make sure memset doesnt core */
+X
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from memset() - out of bounds\n");
+X	fflush(stderr);
+X	memset(s,'1',100);
+X
+X	
+X	fprintf(stderr,"-------------------------------------\n");
+X	fprintf(stderr,"Error from malloc() - chain broken\n");
+X	fflush(stderr);
+X	t = malloc(10);
+X	
+X	return(0);
+X}
+X
+END_OF_FILE
+if test 4588 -ne `wc -c <'testerr.c'`; then
+    echo shar: \"'testerr.c'\" unpacked with wrong size!
+fi
+# end of 'testerr.c'
+fi
+echo shar: End of archive 7 \(of 10\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

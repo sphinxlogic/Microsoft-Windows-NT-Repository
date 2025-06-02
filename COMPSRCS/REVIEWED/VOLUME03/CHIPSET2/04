@@ -1,0 +1,1163 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:19 EST 1993
+Submit chipset-2 04/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 4 (of 10)."
+# Contents:  src/btree/README src/btree/bt_next.c src/btree/bt_prev.c
+#   src/btree/btdestroy.c src/btree/btpriv.h src/btree/btrank.c
+#   src/btree/bttraverse.c src/list/dlist.h src/list/dljoin.c
+# Wrapped by paul@sander on Sun Nov 22 15:41:51 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f src/btree/README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/README\"
+else
+echo shar: Extracting \"src/btree/README\" \(3120 characters\)
+sed "s/^X//" >src/btree/README <<'END_OF_src/btree/README'
+XThis directory contains source code to an in-memory B-tree implementation.
+XThe tree can hold arbitrary keys, but duplicate keys cannot be inserted.
+X
+XThis implementation has been placed in the public domain by its author,
+XPaul Sander, to be used as you wish.  However, if you add neat new features,
+XI'd appreciate having a copy sent to me at paul@sander.cupertino.ca.us .
+X
+XYou are strongly urged to review the Makefile.  It contains a lot of stuff
+Xthat is specific to my system, but configuring it to your needs should be
+Xstraightforward.  The most important places to look are at the macros near
+Xthe beginning of the file, and in the "installDocs" and "installLib" recipes.
+X
+XAlso review the btdump.c file.  It contains additional debugging code that
+Xdisplay the contents of a B-tree to the standard output device.  This file
+Xcontains platform-specific code to format pointers.
+X
+XTo build the library on a Unix system, invoke "make".  VMS users will need
+Xto translate the Makefile into a DESCRIP.MMS file.  Others will need to do
+Xsomething different, of course.  The code should compile under either an
+XANSI or a K&R compiler.  If your implementation predates the "void" type,
+Xyou should add a typedef or macro to the .h files to alias the "char" type
+Xas "void".
+X
+XOnline documentation has been provided.  It consists of source code using
+Xthe Unix "man" macros, and also ASCII plaintext and PostScript versions
+Xproduced by nroff and troff, respectively.  The plaintext and PostScript
+Xdocuments can be rebuilt by invoking the "make docs" command.
+X
+XInstallation should be done by invoking other tools provided with the
+XSoftware ChipSet that package the components up and install them in one
+Xpass.  For details about using these tools, please see the ../../README
+Xfile.
+X
+XThere is a test program that performs a very rigorous test of the B-tree
+Ximplementation.  The program is built by invoking "make test".  It is
+Xalso built as the result of "make all" or simply "make".  To run the test,
+Xinvoke the command "./test | tail -1".  This should write "TEST PASSED" to
+Xthe controlling tty.
+X
+XAn attempt to do coverage analysis was done by hand.  To view the coverage,
+Xcompile the library while #define'ing the COVERAGE macro and run the test
+Xprogram.  The test program's output will then contain data reflecting each
+Xdecision point in the library.  Portions of the code not stimulated by the
+Xtest program are noted in comments in the source code, or fall along paths
+Xwhere malloc fails (which is difficult to induce in a controlled way).  Each
+Xof these paths has been reviewed and appears to be correct.
+X
+XIf you make changes to the library and discover that the heap is becoming
+Xcorrupt, there is some heap debugging scaffolding provided in the file
+Xbtmalloc.c .  It matches mallocs and frees, and detects when a block is
+Xfreed twice.  This debugging tool can be added to the library by compiling
+Xit with the DEBUG macro #define'd.  A word of warning:  This package was
+Xsufficient to debug the library, but is very primitive.  Other debugging
+Xmalloc packages are available that are much more effective at diagnosing
+Xheap problems.
+X
+END_OF_src/btree/README
+if test 3120 -ne `wc -c <src/btree/README`; then
+    echo shar: \"src/btree/README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/bt_next.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/bt_next.c\"
+else
+echo shar: Extracting \"src/btree/bt_next.c\" \(3095 characters\)
+sed "s/^X//" >src/btree/bt_next.c <<'END_OF_src/btree/bt_next.c'
+X/********************************************************************
+X *
+X * bt_next.c -- This file contains functions needed to scan an in-memory
+X *              B-tree in ascending order.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_next -- This function returns the key that appears next in
+X *            the lexical order of the items stored in the tree,
+X *            after the last bt_search, bt_next, bt_prev, bt_last,
+X *            or bt_first.  NULL is returned if the tree is empty, an
+X *            insertion or deletion invalidated the state of the
+X *            tree, or the last item in the tree was already visited.
+X *
+X *******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_next(void *ptree, void **data)
+X#else
+Xvoid *bt_next(ptree,data)
+Xvoid	*ptree;
+Xvoid	**data;
+X#endif
+X{
+X	BTNODE	*node;
+X	int	key;
+X	BTREE	tree;
+X
+X	COVER("bt_next.c",1);
+X
+X	/* Return if error, or insertion/deletion invalidated state */
+X	tree = (BTREE) ptree;
+X	if (tree == NULL)
+X	{
+X		COVER("bt_next.c",2);
+X		return NULL;
+X	}
+X	if (tree->currNode == NULL)
+X	{
+X		COVER("bt_next.c",3);
+X		return NULL;
+X	}
+X
+X	/* Set up temporaries */
+X	node = tree->currNode;
+X	key = node->currKey;
+X
+X	/* Return if we've overrun the tree */
+X	if (key >= node->nkeys)
+X	{
+X		COVER("bt_next.c",4);
+X		return NULL;
+X	}
+X
+X	/*
+X	 * Bump current key in current node, compensating for unsuccessful
+X	 * search
+X	 */
+X	if (tree->nextOk)
+X	{
+X		COVER("bt_next.c",5);
+X		key++;
+X	}
+X	tree->nextOk = 1;
+X
+X	/* If node has children, return leftmost key of next child */
+X	if (node->children != NULL)
+X	{
+X		COVER("bt_next.c",6);
+X		node->currKey = key;
+X		node = node->children[key];
+X		while (node->children != NULL)
+X		{
+X			COVER("bt_next.c",7);
+X			node->currKey = 0;
+X			node = node->children[0];
+X		}
+X		node->currKey = 0;
+X		tree->currNode = node;
+X		if (data != NULL)
+X		{
+X			COVER("bt_next.c",8);
+X			*data = node->data[0];
+X		}
+X		return node->keys[0];
+X	}
+X
+X	/* Leaf node, return next key */
+X	if (key < node->nkeys)
+X	{
+X		COVER("bt_next.c",9);
+X		node->currKey = key;
+X		if (data != NULL)
+X		{
+X			COVER("bt_next.c",10);
+X			*data = node->data[key];
+X		}
+X		return node->keys[key];
+X	}
+X
+X	/* Already visited rightmost key of leaf, go back to parent */
+X	COVER("bt_next.c",11);
+X	while ((node->parent != NULL) && (key >= node->nkeys))
+X	{
+X		COVER("bt_next.c",12);
+X		node = node->parent;
+X		key = node->currKey;
+X	}
+X
+X	COVER("bt_next.c",13);
+X	/* Return NULL after last key in tree */
+X	if (key >= node->nkeys)
+X	{
+X		COVER("bt_next.c",14);
+X		tree->currNode = node;
+X		node->currKey = key;
+X		return NULL;
+X	}
+X
+X	/* Return next key in parent */
+X	COVER("bt_next.c",15);
+X	tree->currNode = node;
+X	if (data != NULL)
+X	{
+X		COVER("bt_next.c",16);
+X		*data = node->data[key];
+X	}
+X	return node->keys[key];
+X}
+X
+X/*********** End of file ***********/
+X
+END_OF_src/btree/bt_next.c
+if test 3095 -ne `wc -c <src/btree/bt_next.c`; then
+    echo shar: \"src/btree/bt_next.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/bt_prev.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/bt_prev.c\"
+else
+echo shar: Extracting \"src/btree/bt_prev.c\" \(3012 characters\)
+sed "s/^X//" >src/btree/bt_prev.c <<'END_OF_src/btree/bt_prev.c'
+X/********************************************************************
+X *
+X * btprev.c -- This file contains functions needed to scan an in-memory
+X *             B-tree in descending order.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_prev -- This function returns the next key that appears
+X *            earlier in the lexical order of the items stored in
+X *            the tree, after the last bt_search, bt_next, bt_prev, or
+X *            bt_last.  NULL is returned if the tree is empty, an
+X *            insertion or deletion invalidated the state of the
+X *            tree, or the next item in the tree was already visited.
+X *
+X *******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_prev(void *ptree, void **data)
+X#else
+Xvoid *bt_prev(ptree,data)
+Xvoid	*ptree;
+Xvoid	**data;
+X#endif
+X{
+X	BTNODE	*node;
+X	int	key;
+X	BTREE	tree;
+X
+X	/* Return if error, or insertion/deletion invalidated state */
+X	tree = (BTREE) ptree;
+X	if (tree == NULL)
+X	{
+X		COVER("bt_prev.c",1);
+X		return NULL;
+X	}
+X	if (tree->currNode == NULL)
+X	{
+X		COVER("bt_prev.c",2);
+X		return NULL;
+X	}
+X	COVER("bt_prev.c",3);
+X	tree->nextOk = 1;
+X
+X	/* Set up temporaries */
+X	node = tree->currNode;
+X	key = node->currKey;
+X
+X	/* Return if we've overrun the tree */
+X	if (key < 0)
+X	{
+X		COVER("bt_prev.c",4);
+X		return NULL;
+X	}
+X
+X	/*
+X	 * If node has children, return rightmost key of previous
+X	 * child
+X	 */
+X	if (node->children != NULL)
+X	{
+X		COVER("bt_prev.c",5);
+X		node = node->children[key];
+X		while (node->children != NULL)
+X		{
+X			COVER("bt_prev.c",6);
+X			node->currKey = node->nkeys;
+X			node = node->children[node->nkeys];
+X		}
+X		node->currKey = node->nkeys - 1;
+X		tree->currNode = node;
+X		if (data != NULL)
+X		{
+X			COVER("bt_prev.c",7);
+X			*data = node->data[node->currKey];
+X		}
+X		return node->keys[node->currKey];
+X	}
+X
+X	/* Leaf node, return previous key */
+X	COVER("bt_prev.c",8);
+X	key--;
+X	if (key >= 0)
+X	{
+X		COVER("bt_prev.c",9);
+X		node->currKey = key;
+X		if (data != NULL)
+X		{
+X			COVER("bt_prev.c",10);
+X			*data = node->data[key];
+X		}
+X		COVER("bt_prev.c",11);
+X		return node->keys[key];
+X	}
+X
+X	/* Already visited leftmost key of node, go back to parent */
+X	COVER("bt_prev.c",12);
+X	while ((node->parent != NULL) && (key < 0))
+X	{
+X		COVER("bt_prev.c",13);
+X		node = node->parent;
+X		key = node->currKey - 1;
+X	}
+X
+X	/* Return NULL after last key in tree */
+X	if (key < 0)
+X	{
+X		COVER("bt_prev.c",14);
+X		node->currKey = -1;
+X		tree->currNode = node;
+X		return NULL;
+X	}
+X
+X	/* Return next key in parent */
+X	COVER("bt_prev.c",15);
+X	node->currKey = key;
+X	tree->currNode = node;
+X	if (data != NULL)
+X	{
+X		COVER("bt_prev.c",16);
+X		*data = node->data[key];
+X	}
+X	return node->keys[key];
+X}
+X
+X/*********** End of file ***********/
+X
+END_OF_src/btree/bt_prev.c
+if test 3012 -ne `wc -c <src/btree/bt_prev.c`; then
+    echo shar: \"src/btree/bt_prev.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btdestroy.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btdestroy.c\"
+else
+echo shar: Extracting \"src/btree/btdestroy.c\" \(3219 characters\)
+sed "s/^X//" >src/btree/btdestroy.c <<'END_OF_src/btree/btdestroy.c'
+X/********************************************************************
+X *
+X * btdestroy.c -- This function contains functions needed to deallocate
+X *                an in-memory B-tree in its entirety.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_freeNode -- This function frees a node in a b-tree.  It is
+X *                provided with functions that free each key and its
+X *                related data in the node also.  The free_key and
+X *                free_data functions have the following interface:
+X *
+X *			void free_stuff(keyOrData,info)
+X *			void *keyOrData;
+X *			void *info;
+X *
+X *              If NULL is passed as the free_stuff function, the node
+X *              is freed, but no action is taken for the keys or data.
+X *
+X *              The info parameter is used for passing information from
+X *              the client to the free_stuff function.
+X *
+X *              The free_data function is always called before the
+X *              free_key function.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void bt_freeNode(BTNODE *node, void (*free_key)(void*,void*),
+X                        void (*free_data)(void*,void*), void *info)
+X#else
+Xstatic void bt_freeNode(node,free_key,free_data,info)
+XBTNODE	*node;
+Xvoid	(*free_key)();
+Xvoid	(*free_data)();
+Xvoid	*info;
+X#endif
+X{
+X	int	i;
+X
+X	if (node->children != NULL)
+X	{
+X		COVER("btdestroy.c",1);
+X		for (i = 0; i <= node->nkeys; i++)
+X		{
+X			COVER("btdestroy.c",2);
+X			bt_freeNode(node->children[i],free_key,free_data,info);
+X		}
+X		bt_free(node->children);
+X	}
+X	for (i = 0; i < node->nkeys; i++)
+X	{
+X		COVER("btdestroy.c",3);
+X		if (free_data != NULL)
+X		{
+X			COVER("btdestroy.c",4);
+X			(*free_data)(node->data[i],info);
+X		}
+X		if (free_key != NULL)
+X		{
+X			COVER("btdestroy.c",5);
+X			(*free_key)(node->keys[i],info);
+X		}
+X	}
+X	COVER("btdestroy.c",6);
+X	bt_free(node->keys);
+X	bt_free(node->data);
+X	bt_free(node);
+X	return;
+X}
+X
+X/********************************************************************
+X *
+X * bt_destroy -- This function frees a b-tree structure.  It is also
+X *               passed functions that free the keys and data contained
+X *               by the tree.  The free_key and free_data functions have the
+X *               same calling protocol their counterparts passed to bt_freeNode
+X *               above.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_destroy(void *ptree, void (*free_key)(void*,void*),
+X                void (*free_data)(void*,void*), void *info)
+X#else
+Xvoid bt_destroy(ptree,free_key,free_data,info)
+Xvoid	*ptree;
+Xvoid	(*free_key)();
+Xvoid	(*free_data)();
+Xvoid	*info;
+X#endif
+X{
+X	BTREE	tree;
+X
+X	COVER("btdestroy.c",7);
+X	if (ptree != NULL)
+X	{
+X		COVER("btdestroy.c",8);
+X		tree = (BTREE) ptree;
+X		bt_freeNode(tree->root,free_key,free_data,info);
+X		bt_free(tree);
+X	}
+X	return;
+X}
+X
+X/************ End of file ***********/
+X
+END_OF_src/btree/btdestroy.c
+if test 3219 -ne `wc -c <src/btree/btdestroy.c`; then
+    echo shar: \"src/btree/btdestroy.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btpriv.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btpriv.h\"
+else
+echo shar: Extracting \"src/btree/btpriv.h\" \(2718 characters\)
+sed "s/^X//" >src/btree/btpriv.h <<'END_OF_src/btree/btpriv.h'
+X/**********************************************************************
+X *
+X * btpriv.h -- This file contains private declarations and definitions
+X *             required by the in-memory B-tree implementation.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X **********************************************************************/
+X
+X/* The following structure describes a B-tree node. */
+X
+X#ifdef __STDC__
+Xtypedef int(*COMPFN)(void*,void*);
+X#else
+Xtypedef int(*COMPFN)();
+X#endif
+X
+Xstruct btnode {
+X	int		nkeys;		/* Number of keys stored here */
+X	int		tsize;		/* Keys in subtree rooted here */
+X	int		currKey;	/* Last key found */
+X	struct btnode	*parent;	/* Parent of this node */
+X	void		**keys;		/* array[order-1] of keys */
+X	void		**data;		/* array[order-1] of other data */
+X	struct btnode	**children;	/* array[order] of children */
+X};
+X
+X/* The following structure describes a B-tree. */
+X
+Xstruct btree {
+X	int		order;		/* Max children permitted */
+X	COMPFN		comp;		/* Comparison function for keys */
+X	struct btnode	*root;		/* Root of tree */
+X	int		capacity;	/* Max keys that will fit */
+X	struct btnode	*currNode;	/* Node accessed */
+X	int		nextOk;		/* Indicates last search successful */
+X	void		*data;		/* Other data */
+X};
+X
+Xtypedef struct btree *BTREE;
+Xtypedef struct btnode BTNODE;
+X
+X/* The following structure describes a B-tree setup structure. */
+X
+Xstruct bt_setup {
+X	int		order;		/* Max children permitted per node */
+X	int		(*comp)();	/* Comparision function for keys */
+X	void		*data;		/* Other data */
+X};
+X
+Xtypedef struct bt_setup BT_SETUP;
+X
+X#ifndef DEBUG
+X#define bt_malloc malloc
+X#define bt_free (void) free
+X#else
+X#ifdef __STDC__
+Xextern void *bt_malloc(unsigned);
+Xextern void bt_free(void *);
+X#else
+Xextern void *bt_malloc();
+Xextern void bt_free();
+X#endif
+X#endif
+X
+X#ifdef __STDC__
+Xextern int bt_malloc_verify(void);
+X#else
+Xextern int bt_malloc_verify();
+X#endif
+X
+X#ifndef __BTUTIL_C__
+X#ifdef __STDC__
+Xextern int bt_searchNode(BTNODE*, void*, int(*)(), int*);
+Xextern int bt_rotateRight(BTNODE*, int, int);
+Xextern int bt_rotateLeft(BTNODE*, int, int);
+X#else
+Xextern int bt_searchNode();
+Xextern int bt_rotateRight();
+Xextern int bt_rotateLeft();
+X#endif
+X#endif
+X
+X#ifndef __BTDELUTL_C__
+X#ifdef __STDC__
+Xextern void bt_delKey(BTNODE*, int);
+Xextern void bt_weld(BTREE, BTNODE*, int);
+Xextern void *bt_delPred(BTREE, BTNODE*, void**);
+X#else
+Xextern void bt_delKey();
+Xextern void bt_weld();
+Xextern void *bt_delPred();
+X#endif
+X#endif
+X
+X#ifdef COVERAGE
+X#define	COVER(fn,loc)	printf("Coverage:  file %s, location %03d\n",fn,loc)
+X#else
+X#define COVER(file,loc)
+X#endif
+X
+X/*********** End of File *************/
+X
+END_OF_src/btree/btpriv.h
+if test 2718 -ne `wc -c <src/btree/btpriv.h`; then
+    echo shar: \"src/btree/btpriv.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btrank.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btrank.c\"
+else
+echo shar: Extracting \"src/btree/btrank.c\" \(3343 characters\)
+sed "s/^X//" >src/btree/btrank.c <<'END_OF_src/btree/btrank.c'
+X/********************************************************************
+X *
+X * btrank.c -- This file contains functions needed to locate a
+X *             key given its rank location.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/********************************************************************
+X *
+X * bt_locRank -- This function performs a recursive descent of the
+X *               tree until the key at the desired rank location is
+X *               found.
+X *
+X *               Note that "node" is an in-out parameter.  As input,
+X *               it is the current node to be searched.  As output,
+X *               it is the node where the key was actually found.
+X *               It is used to mark the updated current node stored
+X *               in the root so that bt_next and bt_prev will work
+X *               later.
+X *
+X ********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void *bt_locRank(BTNODE **node, int rank, void **data)
+X#else
+Xstatic void *bt_locRank(node,rank,data)
+XBTNODE	**node;
+Xint	rank;
+Xvoid	**data;
+X#endif
+X{
+X	void	*retval;
+X	int	i;
+X	int	acc;
+X	int	last;
+X
+X	COVER("btrank.c",1);
+X	if ((*node)->children == NULL)
+X	{
+X		COVER("btrank.c",2);
+X		/* rank < (*node)->nkeys */
+X		(*node)->currKey = rank;
+X		retval = (*node)->keys[rank];
+X		if (data != NULL)
+X		{
+X			COVER("btrank.c",3);
+X			*data = (*node)->data[rank];
+X		}
+X		COVER("btrank.c",4);
+X	}
+X	else
+X	{
+X		/*
+X		 * Scan to find subtree containing node containing key of
+X		 * given rank
+X		 */
+X		COVER("btrank.c",5);
+X		acc = 0;
+X		last = 0;
+X		for (i = 0; acc += (*node)->children[i]->tsize, acc < rank; i++)
+X		{
+X			COVER("btrank.c",6);
+X			acc++;		/* Count key in this node */
+X			last = acc;
+X		}
+X		COVER("btrank.c",7);
+X
+X		(*node)->currKey = i;
+X		if (acc == rank)
+X		{
+X			COVER("btrank.c",8);
+X			/* Key is contained in this node */
+X			if (data != NULL) *data = (*node)->data[i];
+X			retval = (*node)->keys[i];
+X		}
+X		else
+X		{
+X			COVER("btrank.c",9);
+X			/* Key is in the subtree rooted at the i'th child */
+X			*node = (*node)->children[i];
+X			retval = bt_locRank(node, rank - last,data);
+X		}
+X		COVER("btrank.c",10);
+X	}
+X	COVER("btrank.c",11);
+X	return retval;
+X}
+X
+X/********************************************************************
+X *
+X * bt_rank -- This function locates a key within a tree that has
+X *            the given rank number.  NULL is returned if the
+X *            rank is out of range; rank is zero-based.
+X *
+X *******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_rank(void *ptree, int rank, void *data)
+X#else
+Xvoid *bt_rank(ptree,rank,data)
+Xvoid	*ptree;
+Xint	rank;
+Xvoid	*data;
+X#endif
+X{
+X	void	*retval;
+X	BTREE	tree;
+X
+X	tree = (BTREE) ptree;
+X	if (tree == NULL)
+X	{
+X		COVER("btrank.c",12);
+X		retval = NULL;
+X	}
+X	else if (rank < 0)
+X	{
+X		COVER("btrank.c",13);
+X		retval = NULL;
+X	}
+X	else if (rank >= tree->root->tsize)
+X	{
+X		COVER("btrank.c",14);
+X		retval = NULL;
+X	}
+X	else
+X	{
+X		COVER("btrank.c",15);
+X		tree->currNode = tree->root;
+X		retval = bt_locRank(&tree->currNode,rank,data);
+X		tree->nextOk = 1;
+X	}
+X	return retval;
+X}
+X
+X/********* End of file ************/
+X
+END_OF_src/btree/btrank.c
+if test 3343 -ne `wc -c <src/btree/btrank.c`; then
+    echo shar: \"src/btree/btrank.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/bttraverse.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/bttraverse.c\"
+else
+echo shar: Extracting \"src/btree/bttraverse.c\" \(2911 characters\)
+sed "s/^X//" >src/btree/bttraverse.c <<'END_OF_src/btree/bttraverse.c'
+X/****************************************************************
+X *
+X * bttraverse.c -- This file contains functions needed to
+X *                 traverse an in-memory B-tree, passing each
+X *                 item stored there to a callback function.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ****************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/****************************************************************
+X *
+X * bt_visit -- This function is used while traversing a b-tree.
+X *             It is called once for each node.  It calls some
+X *             specified function once for each key in its
+X *             key array, and calls itself once for each child
+X *             in its child array.
+X *
+X ****************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void bt_visit(BTNODE *node, void (*fn)(void*, void*, void*), void *parms)
+X#else
+Xstatic void bt_visit(node,fn,parms)
+XBTNODE	*node;
+Xvoid	(*fn)();
+Xvoid	*parms;
+X#endif
+X{
+X	int	i;
+X
+X	if (node == NULL)
+X	{
+X		/* Should never happen */
+X		COVER("bttraverse.c",1);
+X		return;
+X	}
+X	COVER("bttraverse.c",2);
+X	for (i = 0; i < node->nkeys; i++)
+X	{
+X		if (node->children != NULL)
+X		{
+X			COVER("bttraverse.c",3);
+X			bt_visit(node->children[i],fn,parms);
+X		}
+X		COVER("bttraverse.c",4);
+X		(*fn)(node->keys[i],parms,node->data[i]);
+X	}
+X	COVER("bttraverse.c",5);
+X	if (node->children != NULL)
+X	{
+X		COVER("bttraverse.c",6);
+X		bt_visit(node->children[i],fn,parms);
+X	}
+X	COVER("bttraverse.c",7);
+X	return;
+X}
+X
+X/****************************************************************
+X *
+X * bt_traverse -- This function traverses a b-tree, calling some
+X *                specified function once for each key stored in
+X *                it.  The specified function has the following
+X *                protocol:
+X *
+X *			void fn(key,parms)
+X *			void *key;
+X *			void *parms;
+X *                      void *data;
+X *
+X *                where key is a pointer to a key stored in the
+X *                btree, parms is the parameter structure passed by
+X *                the caller, and data is the secondary data stored
+X *                with the key.
+X *
+X *                The nodes are visited in descending order, if
+X *                the comp function passed to bt_new is
+X *                strcmp-like.
+X *
+X ****************************************************************/
+X
+X#ifdef __STDC__
+Xvoid bt_traverse(void *ptree, void (*fn)(void*, void*, void*), void *parms)
+X#else
+Xvoid bt_traverse(ptree,fn,parms)
+Xvoid	*ptree;
+Xvoid	(*fn)();
+Xvoid	*parms;
+X#endif
+X{
+X	BTREE	tree;
+X
+X	COVER("bttraverse.c",8);
+X	tree = (BTREE) ptree;
+X	if ((tree != NULL) && (fn != NULL))
+X	{
+X		COVER("bttraverse.c",9);
+X		bt_visit(tree->root,fn,parms);
+X	}
+X	return;
+X}
+X
+X/********* End of file *********/
+X
+END_OF_src/btree/bttraverse.c
+if test 2911 -ne `wc -c <src/btree/bttraverse.c`; then
+    echo shar: \"src/btree/bttraverse.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dlist.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dlist.h\"
+else
+echo shar: Extracting \"src/list/dlist.h\" \(2690 characters\)
+sed "s/^X//" >src/list/dlist.h <<'END_OF_src/list/dlist.h'
+X/******************************************************************
+X *
+X * dlist.h -- This file contains public declarations and definitions
+X *            used by the in-memory doubly-linked list implementation.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ******************************************************************/
+X
+X#ifndef DLIST_H
+X#define DLIST_H
+X
+X/* Hidden data types */
+X
+Xtypedef void *DL_LIST;
+Xtypedef void *DLL_SETUP;
+X
+X/* Peek/push/pop locations */
+X
+X#define	DLL_FRONT	0
+X#define	DLL_BACK	1
+X
+X/* Function declarations */
+X
+X#ifdef __STDC__
+Xextern	DLL_SETUP	dll_setup(int(*)(void*,void*),void*);
+Xextern	void		dll_freeSetup(DLL_SETUP);
+Xextern	DL_LIST		dll_new(DLL_SETUP);
+Xextern	void		dll_destroy(DL_LIST,void(*)(void*,void*),
+X			            void(*)(void*,void*),void*);
+Xextern	int		dll_insert(DL_LIST, void*, void*);
+Xextern	void		*dll_delete(DL_LIST, void*, void**);
+Xextern	void		*dll_search(DL_LIST,void*,void**);
+Xextern	void		dll_traverse(DL_LIST,void(*)(void*,void*,void*),void*);
+Xextern	void		dll_dump(DL_LIST, void(*)(void*,void*,void*),void*);
+Xextern	void		*dll_first(DL_LIST, void**);
+Xextern	void		*dll_next(DL_LIST,void**);
+Xextern	void		*dll_last(DL_LIST,void**);
+Xextern	void		*dll_prev(DL_LIST,void**);
+Xextern	void		*dll_rank(DL_LIST,int,void**);
+Xextern	void		*dll_delRank(DL_LIST, int, void**);
+Xextern	void		dll_setData(DL_LIST, void*);
+Xextern	void		*dll_data(DL_LIST);
+Xextern	void		*dll_pushf(DL_LIST,void*,void*);
+Xextern	void		*dll_pushr(DL_LIST,void*,void*);
+Xextern	void		*dll_push(DL_LIST,int,void*,void*);
+Xextern	void		*dll_popf(DL_LIST,void**);
+Xextern	void		*dll_popr(DL_LIST,void**);
+Xextern	void		*dll_pop(DL_LIST,int,void**);
+Xextern	void		*dll_peekf(DL_LIST,void**);
+Xextern	void		*dll_peekr(DL_LIST,void**);
+Xextern	void		*dll_peek(DL_LIST,int,void**);
+X
+X#else
+X
+Xextern	DLL_SETUP	dll_setup();
+Xextern	void		dll_freeSetup();
+Xextern	DL_LIST		dll_new();
+Xextern	void		dll_destroy();
+Xextern	int		dll_insert();
+Xextern	void		*dll_delete();
+Xextern	void		*dll_search();
+Xextern	void		dll_traverse();
+Xextern	void		dll_dump();
+Xextern	void		*dll_first();
+Xextern	void		*dll_next();
+Xextern	void		*dll_last();
+Xextern	void		*dll_prev();
+Xextern	void		*dll_rank();
+Xextern	void		*dll_delRank();
+Xextern	void		dll_setData();
+Xextern	void		*dll_data();
+Xextern	void		*dll_pushf();
+Xextern	void		*dll_pushr();
+Xextern	void		*dll_push();
+Xextern	void		*dll_popf();
+Xextern	void		*dll_popr();
+Xextern	void		*dll_pop();
+Xextern	void		*dll_peekf();
+Xextern	void		*dll_peekr();
+Xextern	void		*dll_peek();
+X
+X#endif
+X
+X#endif
+X
+X/************* End of file *************/
+X
+END_OF_src/list/dlist.h
+if test 2690 -ne `wc -c <src/list/dlist.h`; then
+    echo shar: \"src/list/dlist.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dljoin.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dljoin.c\"
+else
+echo shar: Extracting \"src/list/dljoin.c\" \(3184 characters\)
+sed "s/^X//" >src/list/dljoin.c <<'END_OF_src/list/dljoin.c'
+X/***********************************************************************
+X *
+X * dljoin.c -- This file contains functions used for concatenating
+X *             two lists.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ***********************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/***********************************************************************
+X *
+X * dll_join -- This function 
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+XDL_LIST dll_join(DL_LIST plist1, DL_LIST plist2)
+X#else
+XDL_LIST dll_data(plist1,plist2)
+XDL_LIST	plist1;
+XDL_LIST	plist2;
+X#endif
+X{
+X	LIST	*list1;
+X	LIST	*list2;
+X	LIST	*retval;
+X
+X	list1 = (LIST*) plist1;
+X	list2 = (LIST*) plist2;
+X	COVER("dll_join.c",1);
+X
+X	if ( list1 == NULL )
+X	{
+X		/*
+X		 * Return second list if first is NULL.  Note that the
+X		 * second may be NULL, which indicates an error.
+X		 */
+X		COVER("dll_join.c",2);
+X		retval = list2;
+X	}
+X	else if ( list2 == NULL )
+X	{
+X		/* Return first list if second is NULL */
+X		COVER("dll_join.c",3);
+X		retval = list1;
+X	}
+X	else if ( list1->comp != list2->comp )
+X	{
+X		/*
+X		 * Error if the comparison functions differ.  To
+X		 * do otherwise would mix data types in the same
+X		 * structure.
+X		 */
+X		COVER("dll_join.c",4);
+X		retval = NULL;
+X	}
+X	else if ( (list1->data != NULL) && (list2->data != NULL) &&
+X	          (list1->data != list2->data) )
+X	{
+X		/*
+X		 * Error if both lists have the global data item set and
+X		 * they differ.  To do otherwise loses one of the global
+X		 * data items.
+X		 */
+X		COVER("dll_join.c",5);
+X		retval = NULL;
+X	}
+X	else if (list1->last == NULL)
+X	{
+X		/*
+X		 * list1 is empty, return second list.  Note that the
+X		 * global data items must be checked, and if one of the
+X		 * lists has one, it must be returned.  list1 is freed.
+X		 */
+X		COVER("dll_join.c",6);
+X		retval = list2;
+X		if (list1->data != NULL)
+X		{
+X			COVER("dll_join.c",7);
+X			list2->data = list1->data;
+X		}
+X		free(list1);
+X	}
+X	else if (list2->last == NULL)
+X	{
+X		/*
+X		 * list2 is empty, return first list.  Note that the
+X		 * global data items must be checked, and if one of the
+X		 * lists has one, it must be returned.  list2 is freed.
+X		 */
+X		COVER("dll_join.c",8);
+X		retval = list1;
+X		if (list2->data != NULL)
+X		{
+X			COVER("dll_join.c",9);
+X			list1->data = list2->data;
+X		}
+X		free(list2);
+X	}
+X	else if ((list1->comp != NULL) &&
+X	         ((list1->comp)(list1->last->key,list2->last->next->key) > 0))
+X	{
+X		/*
+X		 * The lists are ordered, but the last item in the first list
+X		 * compares greater than the first item in the second list.
+X		 */
+X		COVER("dll_join.c",10);
+X		retval = NULL;
+X	}
+X	else
+X	{
+X		/* Concatenate the lists. */
+X		COVER("dll_join.c",11);
+X		retval = list1;
+X		list2->last->next = list1->last->next;
+X		list1->last = list2->last;
+X		list1->size = list1->size + list2->size;
+X		dll_touch(list1);
+X		if (list1->data == NULL)
+X		{
+X			/* Don't lose the global data */
+X			COVER("dll_join.c",12);
+X			list1->data = list2->data;
+X		}
+X		free(list2);
+X	}
+X	return retval;
+X}
+X
+X/****** End of File ******/
+X
+END_OF_src/list/dljoin.c
+if test 3184 -ne `wc -c <src/list/dljoin.c`; then
+    echo shar: \"src/list/dljoin.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 4 \(of 10\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

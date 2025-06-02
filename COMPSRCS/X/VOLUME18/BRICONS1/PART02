@@ -1,0 +1,1427 @@
+Newsgroups: comp.sources.x
+Path: uunet!gatech!darwin.sura.net!mips!msi!dcmartin
+From: bri@ukc.ac.uk
+Subject: v18i082: bricons - iconic command panel, Part02/02
+Message-ID: <1992Aug3.192434.2189@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i081-bricons-1.0@uunet.UU.NET>
+Date: Mon, 3 Aug 1992 19:24:34 GMT
+Approved: dcmartin@msi.com
+Lines: 1414
+
+Submitted-by: bri@ukc.ac.uk
+Posting-number: Volume 18, Issue 82
+Archive-name: bricons-1.0/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file main.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping main.c'
+else
+echo 'x - continuing file main.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'main.c' &&
+"*box.background:	gray",
+NULL,
+};
+X
+X
+/*
+X	We store our application's resources in a structure of 
+X	the following type.
+*/
+typedef struct
+{
+X	int 	no_of_cols;
+X	char	*icon_file;
+X	char	*help_file;
+X	char	*icon_dirs;
+X	Boolean	sensitive;
+X	Boolean	default_buttons;
+} AppData, *AppDataPtr;
+X
+X
+/* The description of our application's resources. */
+static XtResource resources[] = {
+X	{ "no_of_cols", "No_of_cols",XtRInt,sizeof (int),
+X	  XtOffset(AppDataPtr,no_of_cols),XtRString,"18" },
+X	{ "icon_file", "Icon_file", XtRString, sizeof(char *),
+X	  XtOffset(AppDataPtr,icon_file),XtRString,"./.briconsrc" },
+X	{ "help_file", "Help_file", XtRString, sizeof(char *),
+X	  XtOffset(AppDataPtr,help_file),XtRString,
+X	"bricons.txt" },
+X	{ "icon_dirs", "Icon_dis", XtRString, sizeof(char *),
+X	  XtOffset(AppDataPtr,icon_dirs), XtRString, "" },
+X	{ "sensitive", "Sensitive", XtRBoolean, sizeof(Boolean),
+X	XtOffset(AppDataPtr,sensitive),XtRString,"False" },
+X	{ "default_buttons", "Default_buttons", XtRBoolean, sizeof(Boolean),
+X	XtOffset(AppDataPtr, default_buttons),XtRString,"True" },
+X
+};
+X
+/* Reading command line options. */
+XXrmOptionDescRec options[] = {
+X	{ "-col", "*no_of_cols", XrmoptionSepArg, NULL },
+X	{ "-file", "*icon_file", XrmoptionSepArg, NULL },
+X	{ "-help", "*help_file", XrmoptionSepArg, NULL },
+X	{ "-bmdir", "*icon_dirs", XrmoptionSepArg, NULL },
+X	{ "-sensitive", "sensitive", XrmoptionSepArg, NULL },
+X	{ "-default", "default_buttons", XrmoptionSepArg, NULL }
+};
+X
+X
+XXtAppContext    app_context;
+X
+int 
+main(argc,argv)
+unsigned int argc;
+char **argv;
+{
+X	int		string_len = 0;
+X	Info		*data;	
+X	AppData		Rdata;
+X	char		bm_dirs[MAXPATHLEN];
+X
+X	/* create a shell widget for this application */
+X	toplevel = XtVaAppInitialize(
+X                &app_context,           /* Application context */
+X                "Xbricons",             /* Application class name */
+X                options, 		/* Command line option list */
+X		XtNumber(options),  
+X                &argc, argv,            /* Command line args */
+X		/*fallback_resources,  	 use fallback_resources or */
+X		NULL,		 	/* app_defaults file */
+X                NULL);			/* terminate varargs list */	
+X
+X	/* Retrieve the application resources */
+X	XtVaGetApplicationResources(toplevel,&Rdata,resources,
+X			XtNumber(resources),NULL);
+X
+X	if(strlen(Rdata.icon_dirs) == 0)
+X	{
+X		(void)getcwd(bm_dirs, MAXPATHLEN);
+X		AddResource(argv[0], bm_dirs, True);
+X	}
+X	else
+X		AddResource(argv[0], Rdata.icon_dirs, False); 
+X
+X	/* add the menu actions to the global action list */
+X	XtAppAddActions(app_context,(XtActionList) menu_actions,
+X				XtNumber(menu_actions));
+X
+X	/* create a form widget which is used to hold all the buttons */
+X	box = XtVaCreateManagedWidget("box",	/* widget name */
+X		formWidgetClass,		/* widget class */
+X		toplevel,			/* parent widget */
+X		NULL);				/* terminate varargs list */
+X
+/*
+X	allocate some memory for data structure holding number of buttons,
+X	the name of the icon file etc.
+*/
+X	data = (struct info *) malloc(sizeof(struct info));
+X	if(data == NULL)
+X	{
+X		(void) fprintf(stderr,"%s: out of memory when creating Info data structure. In function main\n",argv[0]);
+X		exit(1);
+X	}	
+X
+X	string_len = 0;
+X	string_len = strlen(Rdata.icon_file);
+X	if((data->icon_file = malloc(strlen(Rdata.icon_file) +1)) == NULL)
+X	{
+X		(void) fprintf(stderr,"%s: out of memory reading icon file name.  In function main\n",argv[0]);
+X		exit(1);
+X	}
+X	strcpy(data->icon_file,Rdata.icon_file);
+X
+X	string_len = 0;
+X	if((data->help_file = malloc(strlen(Rdata.help_file) +1)) == NULL)
+X	{
+X		(void) fprintf(stderr,"%s: out of memory reading icon file name.  In function main\n",argv[0]);
+X		exit(1);
+X	}
+X	strcpy(data->help_file,Rdata.help_file);
+X
+X	data->no_of_columns = Rdata.no_of_cols;
+X
+X	data->sensitive = Rdata.sensitive;
+X	data->default_buttons = Rdata.default_buttons;
+X
+X	/* read contents of icon file & create buttons */
+X	data->no_of_buttons = ProcessFile(data, argv[0]);
+X
+X	/* position buttons according to number of columns */
+X	PositionButtons(data->no_of_buttons, data->no_of_columns); 
+X
+X	ManageButtons(); 
+X
+X	/* create windows for widgets and map them. */
+X	XtRealizeWidget(toplevel);
+X
+X	/* loop for events */
+X	XtAppMainLoop(app_context);
+X	return(0);
+}
+X
+X
+X
+static	void
+AddResource(prog_name, bmap_dirs, default_bm)
+char *prog_name;
+char	*bmap_dirs;
+Boolean	default_bm;
+{
+X	char		*getcwd();
+X
+X	int		string_len, len;
+X	char		*bitmap_dir;	
+X	char		tmp_string[300];
+X	char		*res_name_ptr;
+X	char		current_dir[MAXPATHLEN];
+X	char		*dummy;
+X	XrmDatabase	resource_db;
+X	XrmDatabase	*dbPtr;
+X	XrmValue	value;
+X	XrmValue	*vPtr;
+X	Bool		found;
+X
+X	resource_db = XtDatabase(XtDisplay(toplevel));
+X
+X
+X	string_len = strlen(RESOURCE_NAME);
+X	string_len += strlen(RESOURCE_VALUE);
+X	string_len += strlen(bmap_dirs);
+X	res_name_ptr = malloc((string_len) + 1);
+X	if(res_name_ptr == NULL)
+X	{
+X		(void) fprintf(stderr,"\nOut of memory error\n");
+X		exit(1);
+X	}
+X
+X	(void) sprintf(tmp_string,"%s.bitmapFilePath",prog_name);
+X	found = XrmGetResource(resource_db, tmp_string, 
+X			"Xbricons.BitmapFilePath", &dummy, &value);
+X	dbPtr = &resource_db;
+X	vPtr = &value;
+X	if(!found)
+X	{
+X		strcpy(res_name_ptr,RESOURCE_NAME);
+X		strcat(res_name_ptr,bmap_dirs);
+X		if(default_bm)
+X			strcat(res_name_ptr,RESOURCE_VALUE);
+X		(void) fprintf(stderr,"\n.bitmapFilePath not defined in resource file");
+X		(void) fprintf(stderr,"\nAdding default: %s\n",res_name_ptr);
+X		XrmPutLineResource(dbPtr, res_name_ptr); 
+X	}
+X	else
+X	{
+X		len  = strlen(vPtr->addr);
+X		len += strlen(bmap_dirs);
+X		len += strlen(RESOURCE_NAME);
+X		len += strlen(RESOURCE_VALUE);
+X		bitmap_dir = malloc(len + 1);
+X		if(bitmap_dir == NULL)
+X		{
+X			(void) fprintf(stderr,"\nOut of memory error\n");
+X			exit(1);
+X		}
+X		strcpy(bitmap_dir, RESOURCE_NAME);
+X		strcat(bitmap_dir,vPtr->addr);
+X		strcat(bitmap_dir,":");
+X		strcat(bitmap_dir, bmap_dirs);
+X		strcat(bitmap_dir, RESOURCE_VALUE);
+X		XrmPutLineResource(dbPtr, bitmap_dir); 
+X	}
+}
+SHAR_EOF
+echo 'File main.c is complete' &&
+chmod 0644 main.c ||
+echo 'restore of main.c failed'
+Wc_c="`wc -c < 'main.c'`"
+test 7959 -eq "$Wc_c" ||
+	echo 'main.c: original size 7959, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= parser.c ==============
+if test -f 'parser.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping parser.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting parser.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'parser.c' &&
+static char* sccs_buttons_c = "%W%%G%";
+X
+#include "gen.h"
+X
+static	int 	ReadALine PROTO((FILE*, char**));
+static	int	CheckForComments PROTO((FILE*));
+static	int	KeyWordLength PROTO((char*));
+static  int	GetKeyword PROTO((char*));
+static	void	GetTitle PROTO((char*, char**));
+static	int	GetSymbol PROTO((char*));
+static	void	ConvertTitle PROTO((char*));
+extern	int	ParseFile PROTO((FILE*, Info*, char*));
+extern	void	DefaultButtons PROTO((Info *,int));
+extern	void	CreateSubButton PROTO((Info*, int, int, char*));
+extern	void	CreateMainMenuButton PROTO((Info*, int, int, char*, char*));
+extern  void	CreateSubMenuButton PROTO((int, char*, int, char*, int));
+X
+X
+X
+extern  int
+ProcessFile(data, prog_name)
+Info    *data;
+char    *prog_name;
+{
+X        int     i = 0;
+X        FILE    *fp;
+X
+X        fp = fopen(data->icon_file,"r");
+X        if(fp == NULL)
+X        {
+X		(void) fprintf(stderr,"\n%s: unable to open file: %s\n", prog_name, data->icon_file);
+X                fp = fopen(data->icon_file,"w");
+X                (void) fprintf(fp,"# Default .briconsrc file\n");
+X                (void) fprintf(fp,"# A line starting with a '#' is a comment line\n");
+X                (void) fprintf(fp,"# first line must have keyword %%icon or %%text\n");
+X                (void) fprintf(fp,"# to indicate if button is an icon or text\n");
+X                (void) fprintf(fp,"# for more information select the help button\n");
+X                (void) fprintf(fp,"\n%%text test1\n");
+X                (void) fprintf(fp,"xterm\n");
+X                fclose(fp);
+X        }
+X        else
+X        {
+X                i = ParseFile(fp, data, prog_name);
+X                fclose(fp);
+X		if(i == 0)
+X		{
+X			(void) fprintf(stderr,"\n%s: Very sorry cannot understand file: %s Is it corrupted?\n", prog_name, data->icon_file);
+X			DefaultButtons(data,i);
+X			return(0);
+X		}
+X		else if(data->default_buttons == True)
+X		{
+X			DefaultButtons(data,i); 
+X			return(i);
+X		}
+X		else
+X			return(--i);
+X	}
+X	DefaultButtons(data,i);
+X	return(0);
+}
+X
+extern int
+ParseFile(fp, data, prog_name)
+FILE	*fp;
+Info	*data;
+char	*prog_name;
+{
+X	int	line_no = 0;
+X	int	prev_kword = UNKNOWN;
+X	int	kword = UNKNOWN;
+X	int	button_no = 0;
+X	int	in_sub_menu = FALSE;
+X	int	sub_menu_no = 0;
+X	int	found_title = FALSE;
+X	char	ch, *title = NULL;
+X	char	*heading = NULL;
+X	char	*exe_command = NULL;
+X	char	path[MAXPATHLEN];
+X
+X	GetPath(path);
+X	ch = getc(fp);
+X	while(ch != EOF)
+X	{
+X		ungetc(ch,fp);
+X		line_no += ReadALine(fp, &heading);
+X		if(heading == NULL)
+X		{
+X			fprintf(stderr,"\n%s: Very sorry cannot understand file: %s is it corrupted?\n", prog_name, data->icon_file);
+X			exit(1);
+X		}
+X		if(*heading == '%')
+X		{
+X			prev_kword = kword;
+X			kword = GetSymbol(heading);
+X			switch(kword)
+X			{
+X				case SUB_MENU:
+X					if(in_sub_menu)
+X					{
+X						fprintf(stderr,"%s: error: only one sub menu allowed per button.\n", prog_name);
+X						break;
+X					}
+X					else
+X					{
+X						in_sub_menu = TRUE;
+X						CreateSubButton(data, 
+X						button_no, prev_kword, title);
+X					}
+X					break;
+X				case END_SUB_MENU:
+X					if(in_sub_menu)
+X					{
+X						if(sub_menu_no == 0)
+X						{
+X							fprintf(stderr, "\n%s: \"%s\" line: %d cannot have a sub menu with no buttons.\n", prog_name, data->icon_file, line_no - 1);
+X							exit(1);
+X						}
+X						sub_menu_no = 0;
+X						button_no++;
+X						in_sub_menu = FALSE;
+X					}
+X					break;
+X				case ICON:
+X				case ICONPLUS:
+X				case TEXT:
+X				case TEXTPLUS:
+X					found_title = TRUE;
+X					GetTitle(heading, &title);
+X					ConvertTitle(title);
+X					break;
+X				case UNKNOWN:
+X				default:
+X					fprintf(stderr,"%s: syntax error: in %s line: %d\n", prog_name, data->icon_file, line_no);
+X					break;
+X			}
+X		}
+X		else
+X		{
+X			if((found_title) && (GetCommand(path, heading, 
+X					data->icon_file, prog_name, line_no)))
+X			{
+X				exe_command = malloc(strlen(heading) + 1);
+X				if(exe_command == NULL)
+X				{
+X					fprintf(stderr,"\nFATAL ERROR: malloc out of memory.\n");
+X					exit(1);
+X				}
+X				strcpy(exe_command, heading);
+X				if(in_sub_menu)
+X				{
+X					if(sub_menu_no > MAXSUBBUTTONS)
+X					{
+X						fprintf(stderr,"\n%s: only %d buttons allowed for each sub menu.\n", prog_name, MAXSUBBUTTONS + 1);
+X					}
+X					else
+X					{
+X						CreateSubMenuButton(kword, 
+X						title, sub_menu_no, 
+X						exe_command, data->sensitive);
+X						sub_menu_no++;
+X					}
+X				}
+X				else
+X				{
+X					CreateMainMenuButton(data, button_no, 
+X						kword, title, exe_command);
+X					button_no++;
+X				}
+X				found_title = FALSE;
+X			}
+X		}	
+X		free(heading);
+X		ch = getc(fp);
+X	}
+X	return(button_no);
+}
+X
+static void
+GetTitle(buffer, title)
+char	*buffer;
+char	**title;
+{
+X	int		i = 0;
+X	int		x = 0;
+X	char	*c_ptr = NULL;
+X
+X	i = KeyWordLength(buffer);
+X	*title = malloc(strlen(buffer) +1);
+X	if(title == NULL)
+X	{
+X		fprintf(stderr,"\nFATAL ERROR: malloc out of memory.\n");
+X		exit(1);
+X	}
+X	c_ptr = buffer;
+X	while(x <= i)
+X	{
+X		c_ptr++;
+X		x++;
+X	}
+X	strncpy(*title, c_ptr, strlen(buffer) - i);
+}
+X
+static int
+GetSymbol(buffer)
+char	*buffer;
+{
+X	char	key_word[100];
+X	int		i = 0;
+X
+X	if((strcmp(buffer, "%sub_menu\n")) == 0)
+X		return(SUB_MENU);
+X	else if((strcmp(buffer, "%end_sub_menu\n")) == 0)
+X		return(END_SUB_MENU);
+X	else
+X	{
+X		i = KeyWordLength(buffer);
+X		strncpy(key_word, buffer, i);
+X		key_word[i++] = '\0';
+X		return(GetKeyword(key_word));
+X	}
+}
+X
+static int
+KeyWordLength(buffer)
+char	*buffer;
+{
+X	char    *c_ptr = buffer;
+X	int	i = 0;
+X
+X	while((!isspace(*c_ptr)) && (*c_ptr != '\0'))
+X	{
+X		i++;
+X		c_ptr++;
+X	}
+X	return(i);
+}
+X
+static int
+ReadALine(fp,command)
+FILE	*fp;
+char	**command;
+{
+X	int	space_allocated = 20;
+X	int	length = 0;
+X	int	l_no = 0;
+X	char	ch;
+X	char	*c_line;
+X
+X	c_line = malloc(space_allocated + 1);
+X	if(c_line == NULL)
+X	{
+X		(void) fprintf(stderr,"\nFATAL ERROR: malloc out of memory.\n");
+X		exit(1);
+X	}
+X	l_no += CheckForComments(fp);
+X	while (((ch = getc(fp))!= EOF) && (ch != '\n'))
+X	{
+X		if(length == space_allocated)
+X		{
+X			space_allocated += 10;
+X			c_line =  realloc(c_line, space_allocated + 1);
+X		}
+X		c_line[length++] = ch;
+X	}
+X	c_line[length] = '\0';
+X	*command = malloc(strlen(c_line) +1);
+X	if(*command == NULL)
+X	{
+X		(void) fprintf(stderr,"\nFATAL ERROR: malloc out of memory.\n");
+X		exit(1);
+X	}
+X	strcpy(*command, c_line);
+X	free(c_line);
+X	l_no++;
+X	return(l_no);
+}
+X
+X
+static int
+GetKeyword(label)
+char	*label;
+{
+X	int		symbol = UNKNOWN;
+X
+X	if((strcmp(label,"%icon")) == 0)
+X		symbol = ICON;
+X	else if((strcmp(label,"%icon+")) == 0)
+X		symbol = ICONPLUS;
+X	else if((strcmp(label,"%text")) == 0)
+X		symbol = TEXT;
+X	else if((strcmp(label,"%text+")) == 0)
+X		symbol = TEXTPLUS;
+X	else if((strcmp(label,"%sub_menu")) == 0)
+X		symbol = SUB_MENU;
+X	else if((strcmp(label,"%end_sub_menu")) == 0)
+X		symbol = END_SUB_MENU;
+X	else if((strcmp(label,"\0")) == 0)
+X		symbol = END;
+X	else
+X		symbol = UNKNOWN;
+X	return(symbol);
+}
+X
+X
+/*
+X	Read the button title from file pointed at by file pointer fp. 
+*/
+static void
+ConvertTitle(title)
+char	*title;
+{
+X	int	i = 0;
+X	int	j = 0;
+X	char	*c_ptr = NULL;
+X	char	*c_tmp = NULL;
+X
+X	c_tmp = malloc(strlen(title) + 1);
+X	if(c_tmp == NULL)
+X	{
+X		(void) fprintf(stderr,"\nFATAL ERROR: malloc out of memory.\n");
+X		exit(1);
+X	}
+X	c_ptr = title;
+X	while(c_ptr[i] != '\0')
+X	{
+X		if(c_ptr[i] == '\\')
+X		{
+X			i++;
+X			if(c_ptr[i] == 'n')
+X			{
+X				i--;
+X				c_tmp[j] = '\n';
+X				i += 2;
+X				j++;
+X			}
+X			else
+X				i--;
+X		}
+X		c_tmp[j] = c_ptr[i];
+X		i++;
+X		j++;
+X	}
+X	c_tmp[j++] = '\0';
+X	*title = '\0';
+X	strcpy(title, c_tmp);
+X	free(c_tmp);
+}
+X
+X
+/*
+X	Any line of text beginning with a "#" character is a comment line.
+X	This function looks for comment lines and ignores them.
+*/
+static int
+CheckForComments(fp)
+FILE	*fp;
+{
+X	int	l_no = 0;
+X	int	is_comment = TRUE;
+X	char	ch;
+X
+X	ch = getc(fp);
+X	while(is_comment)
+X	{
+X		if(ch == '\n')
+X			l_no++;
+X		if(ch == '#')
+X		{
+X			while((ch != EOF) && (ch != '\n'))
+X				ch = getc(fp);
+X		}
+X		else if(isspace(ch))
+X		{
+X			 while((ch != EOF) && (isspace(ch)))
+X			 {
+X				ch = getc(fp);
+X				if(ch == '\n')
+X					l_no++;
+X			 }
+X		}
+X		else
+X		{
+X			is_comment = FALSE;
+X			ungetc(ch,fp);
+X		}
+X	}
+X	return(l_no);
+}
+SHAR_EOF
+chmod 0644 parser.c ||
+echo 'restore of parser.c failed'
+Wc_c="`wc -c < 'parser.c'`"
+test 7867 -eq "$Wc_c" ||
+	echo 'parser.c: original size 7867, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/help ==============
+if test ! -d 'bitmaps'; then
+    echo 'x - creating directory bitmaps'
+    mkdir 'bitmaps'
+fi
+if test -f 'bitmaps/help' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/help (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/help (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/help' &&
+#define help2.icon_width 52
+#define help2.icon_height 51
+#define help2.icon_x_hot 0
+#define help2.icon_y_hot 0
+static char help2.icon_bits[] = {
+X   0x00, 0x00, 0xe0, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0xc0, 0x03,
+X   0x00, 0x00, 0x00, 0xc0, 0x01, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x70, 0x00,
+X   0x00, 0x30, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00,
+X   0x0e, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x80, 0x07,
+X   0x00, 0x80, 0x3f, 0x80, 0x08, 0xc0, 0x0f, 0x00, 0xc0, 0x7f, 0x10, 0x22,
+X   0xe1, 0x1f, 0x00, 0xe0, 0xff, 0x40, 0x55, 0xf2, 0x3f, 0x00, 0xf0, 0xff,
+X   0xa9, 0xaa, 0xf8, 0x3f, 0x00, 0xf0, 0xff, 0x57, 0x55, 0xfd, 0x7f, 0x00,
+X   0xc8, 0xff, 0xef, 0xbf, 0xfe, 0xff, 0x00, 0x88, 0xff, 0x3f, 0xe0, 0xff,
+X   0x9f, 0x00, 0x0c, 0xff, 0x0f, 0x80, 0xff, 0x8f, 0x00, 0x04, 0xfe, 0x07,
+X   0x00, 0xff, 0x07, 0x01, 0x04, 0xfc, 0x03, 0x00, 0xfe, 0x03, 0x01, 0x02,
+X   0xf8, 0x01, 0x00, 0xfc, 0x01, 0x02, 0x02, 0xf4, 0x00, 0x00, 0xf8, 0x00,
+X   0x02, 0x02, 0x68, 0x00, 0x00, 0x70, 0x01, 0x02, 0x02, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x01, 0x9c,
+X   0xfb, 0x3b, 0xfc, 0x00, 0x04, 0x01, 0x08, 0x11, 0x12, 0x88, 0x01, 0x04,
+X   0x01, 0x08, 0x11, 0x10, 0x08, 0x01, 0x04, 0x01, 0x08, 0x11, 0x11, 0x88,
+X   0x01, 0x04, 0x01, 0xf8, 0xf1, 0x11, 0xf8, 0x00, 0x04, 0x01, 0x08, 0x11,
+X   0x11, 0x08, 0x00, 0x04, 0x01, 0x08, 0x11, 0x10, 0x08, 0x00, 0x04, 0x01,
+X   0x08, 0x11, 0x12, 0x09, 0x00, 0x04, 0x02, 0x9c, 0xfb, 0xfb, 0x1d, 0x00,
+X   0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x04, 0xf8,
+X   0x03, 0x00, 0xfe, 0x01, 0x01, 0x04, 0xfc, 0x07, 0x00, 0xff, 0x03, 0x01,
+X   0x08, 0xfe, 0x0f, 0x80, 0xff, 0x87, 0x00, 0x08, 0xff, 0x3f, 0xe0, 0xff,
+X   0x4f, 0x00, 0x98, 0xff, 0xef, 0x1f, 0xff, 0x5f, 0x00, 0xd0, 0xff, 0x07,
+X   0x00, 0xfe, 0x3f, 0x00, 0xf0, 0xff, 0x03, 0x00, 0xfc, 0x3f, 0x00, 0xe0,
+X   0xff, 0x01, 0x00, 0xf8, 0x1f, 0x00, 0xc0, 0xff, 0x00, 0x00, 0xf0, 0x1f,
+X   0x00, 0x80, 0x7f, 0x00, 0x00, 0xe0, 0x07, 0x00, 0x00, 0x3f, 0x00, 0x00,
+X   0xc0, 0x03, 0x00, 0x00, 0x1e, 0x01, 0x00, 0xd2, 0x00, 0x00, 0x00, 0x5c,
+X   0x48, 0x84, 0x68, 0x00, 0x00, 0x00, 0x70, 0x15, 0x51, 0x15, 0x00, 0x00,
+X   0x00, 0x80, 0xab, 0xaa, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x5c, 0xd5, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/help ||
+echo 'restore of bitmaps/help failed'
+Wc_c="`wc -c < 'bitmaps/help'`"
+test 2378 -eq "$Wc_c" ||
+	echo 'bitmaps/help: original size 2378, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/calander ==============
+if test -f 'bitmaps/calander' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/calander (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/calander (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/calander' &&
+#define cal_width 48
+#define cal_height 48
+static char cal_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x07, 0xf8, 0x07, 0xfc, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x01, 0xaa, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x07, 0xf8, 0x07, 0xfc, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x01, 0xaa, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x07, 0xf8, 0x07, 0xfc, 0x01,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x15, 0xaa, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0xa8, 0x2a, 0x54, 0x01, 0xaa, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/calander ||
+echo 'restore of bitmaps/calander failed'
+Wc_c="`wc -c < 'bitmaps/calander'`"
+test 1871 -eq "$Wc_c" ||
+	echo 'bitmaps/calander: original size 1871, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/letters ==============
+if test -f 'bitmaps/letters' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/letters (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/letters (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/letters' &&
+#define letters_width 48
+#define letters_height 48
+static char letters_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0xfe, 0xff, 0xff, 0xff, 0x3f, 0x00, 0x02, 0x00, 0x00, 0x00, 0x20,
+X   0x00, 0xfa, 0x00, 0x00, 0x00, 0x2e, 0x00, 0x02, 0x00, 0x00, 0x00, 0x2a,
+X   0x00, 0x3a, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x02, 0x00, 0x00, 0x00, 0x2e,
+X   0xe0, 0xff, 0xff, 0xff, 0xff, 0x21, 0x20, 0x00, 0x00, 0x00, 0x00, 0x21,
+X   0xa0, 0x03, 0x00, 0x00, 0x70, 0x21, 0x20, 0x00, 0x00, 0x00, 0x50, 0x21,
+X   0xa0, 0x1f, 0x00, 0x00, 0x50, 0x21, 0x20, 0x00, 0x00, 0x00, 0x70, 0x21,
+X   0xfe, 0xff, 0xff, 0xff, 0x0f, 0x21, 0x02, 0x00, 0x00, 0x00, 0x08, 0x21,
+X   0xfa, 0x01, 0x00, 0x80, 0x0b, 0x21, 0x02, 0x00, 0x00, 0x80, 0x0a, 0x21,
+X   0xba, 0x01, 0x00, 0x80, 0x0a, 0x21, 0x02, 0x00, 0x00, 0x80, 0x0b, 0x21,
+X   0x3a, 0x00, 0x00, 0x00, 0x08, 0x21, 0x02, 0x00, 0x00, 0x00, 0x08, 0x21,
+X   0x02, 0xc0, 0xfb, 0x03, 0x08, 0x21, 0x02, 0x00, 0x00, 0x00, 0x08, 0x3f,
+X   0x02, 0xc0, 0xbd, 0x0f, 0x08, 0x01, 0x02, 0x00, 0x00, 0x00, 0x08, 0x01,
+X   0x02, 0xc0, 0x7f, 0x7b, 0x08, 0x01, 0x02, 0x00, 0x00, 0x00, 0x08, 0x01,
+X   0x02, 0x00, 0x00, 0x00, 0xf8, 0x01, 0x02, 0x00, 0x00, 0x00, 0x08, 0x00,
+X   0x02, 0x00, 0x00, 0x00, 0x08, 0x00, 0x02, 0x00, 0x00, 0x00, 0x08, 0x00,
+X   0x02, 0x00, 0x00, 0x00, 0x08, 0x00, 0x02, 0x00, 0x00, 0x00, 0x08, 0x00,
+X   0xfe, 0xff, 0xff, 0xff, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/letters ||
+echo 'restore of bitmaps/letters failed'
+Wc_c="`wc -c < 'bitmaps/letters'`"
+test 1883 -eq "$Wc_c" ||
+	echo 'bitmaps/letters: original size 1883, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/dclock ==============
+if test -f 'bitmaps/dclock' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/dclock (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/dclock (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/dclock' &&
+#define dclock_width 49
+#define dclock_height 42
+#define dclock_x_hot 0
+#define dclock_y_hot 0
+static char dclock_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x08, 0xa2, 0x06, 0x00, 0x00, 0x00, 0x00, 0x70, 0xa2, 0x09, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0xa2, 0x08, 0x00, 0x00, 0x00, 0x00, 0x80, 0xa2,
+X   0x08, 0x00, 0x00, 0x00, 0x00, 0x88, 0xb2, 0x08, 0x00, 0x00, 0x00, 0x00,
+X   0x70, 0xac, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x80, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x0f, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0xc0, 0x1f, 0x00, 0x48, 0x10, 0x00, 0x00, 0x60, 0x18, 0x00,
+X   0x6c, 0x18, 0x00, 0x00, 0x60, 0x18, 0x00, 0x6c, 0x18, 0x00, 0x00, 0x60,
+X   0x18, 0x00, 0x6c, 0x18, 0x00, 0x00, 0x60, 0x98, 0x01, 0x6c, 0x18, 0x00,
+X   0x00, 0x60, 0x98, 0x01, 0x6c, 0x18, 0x00, 0x00, 0x60, 0x98, 0x01, 0x6c,
+X   0x18, 0x00, 0x00, 0xe0, 0x0f, 0x01, 0xe6, 0x0f, 0x00, 0x00, 0xe0, 0x07,
+X   0x00, 0xe0, 0x07, 0x00, 0x00, 0xe0, 0x0f, 0x00, 0xc4, 0x0f, 0x00, 0x00,
+X   0x30, 0x0c, 0x00, 0x06, 0x0c, 0x00, 0x00, 0x30, 0x0c, 0x00, 0x06, 0x0c,
+X   0x00, 0x00, 0x30, 0x8c, 0x00, 0x06, 0x0c, 0x00, 0x00, 0x30, 0xcc, 0x00,
+X   0x06, 0x0c, 0x00, 0x00, 0x30, 0xcc, 0x00, 0x06, 0x0c, 0x00, 0x00, 0x30,
+X   0x8c, 0x00, 0x06, 0x0c, 0x00, 0x00, 0xf0, 0x07, 0x00, 0x02, 0x04, 0x00,
+X   0x00, 0xe0, 0x07, 0x00, 0x02, 0x04, 0x00, 0x00, 0xe0, 0x03, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/dclock ||
+echo 'restore of bitmaps/dclock failed'
+Wc_c="`wc -c < 'bitmaps/dclock'`"
+test 1965 -eq "$Wc_c" ||
+	echo 'bitmaps/dclock: original size 1965, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/dragon ==============
+if test -f 'bitmaps/dragon' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/dragon (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/dragon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/dragon' &&
+#define dragon2.icon_width 50
+#define dragon2.icon_height 48
+#define dragon2.icon_x_hot 0
+#define dragon2.icon_y_hot 0
+static char dragon2.icon_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x0a, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0xef, 0x01, 0x00,
+X   0x00, 0x00, 0xe0, 0xc0, 0x10, 0x01, 0x00, 0x00, 0x00, 0x20, 0x41, 0x89,
+X   0xe0, 0x01, 0x00, 0x00, 0xa0, 0xe2, 0x41, 0x1c, 0x03, 0x00, 0x00, 0x20,
+X   0x1c, 0x61, 0x83, 0x02, 0x00, 0x00, 0x60, 0x00, 0xe0, 0x40, 0x00, 0x00,
+X   0x00, 0xc0, 0x03, 0x34, 0x20, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x14, 0x40,
+X   0x00, 0x00, 0x00, 0x00, 0x30, 0x36, 0x78, 0x00, 0x00, 0x00, 0x20, 0xc0,
+X   0x61, 0x48, 0x00, 0x00, 0x00, 0x20, 0x87, 0x50, 0x10, 0x00, 0x00, 0x00,
+X   0xb0, 0x58, 0x48, 0x1f, 0x00, 0x00, 0x00, 0x70, 0x30, 0x24, 0x11, 0x00,
+X   0x00, 0x00, 0xf8, 0x60, 0xa2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0xd6,
+X   0x78, 0x00, 0x00, 0x00, 0x00, 0x88, 0x59, 0x86, 0x00, 0x00, 0x00, 0x00,
+X   0x04, 0xf3, 0x01, 0x01, 0x00, 0x00, 0x00, 0x42, 0x06, 0x00, 0x02, 0x00,
+X   0x00, 0x70, 0x49, 0x06, 0x00, 0x02, 0x00, 0x00, 0xf8, 0x4f, 0x8c, 0x03,
+X   0x02, 0x00, 0x00, 0xe8, 0x40, 0x54, 0x00, 0x02, 0x00, 0x00, 0xa8, 0x23,
+X   0x28, 0x00, 0x01, 0x00, 0x00, 0xa8, 0x1c, 0xd0, 0x83, 0x07, 0x00, 0x00,
+X   0x80, 0x00, 0x20, 0x7c, 0x04, 0x00, 0x00, 0x80, 0x00, 0xc3, 0x01, 0x04,
+X   0x00, 0x00, 0xc0, 0x81, 0x7c, 0x06, 0x04, 0x00, 0x00, 0x20, 0x42, 0x01,
+X   0x38, 0x02, 0x00, 0x00, 0xd0, 0x4e, 0x15, 0xc0, 0x01, 0x00, 0x00, 0xf8,
+X   0xf3, 0xef, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0xc0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x06,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x60, 0x6a, 0x9c, 0x01, 0x00, 0x00,
+X   0x60, 0xd7, 0xfe, 0xd6, 0x00, 0x00, 0x00, 0x60, 0xe6, 0xd6, 0xde, 0x01,
+X   0x00, 0x00, 0x60, 0x96, 0xd6, 0x86, 0x01, 0x00, 0x00, 0xc0, 0xf3, 0xd7,
+X   0xdd, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/dragon ||
+echo 'restore of bitmaps/dragon failed'
+Wc_c="`wc -c < 'bitmaps/dragon'`"
+test 2256 -eq "$Wc_c" ||
+	echo 'bitmaps/dragon: original size 2256, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/games ==============
+if test -f 'bitmaps/games' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/games (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/games (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/games' &&
+#define dragon2.icon_width 50
+#define dragon2.icon_height 48
+#define dragon2.icon_x_hot 0
+#define dragon2.icon_y_hot 0
+static char dragon2.icon_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x0a, 0x01, 0x00, 0x00, 0x00, 0x00, 0x80, 0xef, 0x01, 0x00,
+X   0x00, 0x00, 0xe0, 0xc0, 0x10, 0x01, 0x00, 0x00, 0x00, 0x20, 0x41, 0x89,
+X   0xe0, 0x01, 0x00, 0x00, 0xa0, 0xe2, 0x41, 0x1c, 0x03, 0x00, 0x00, 0x20,
+X   0x1c, 0x61, 0x83, 0x02, 0x00, 0x00, 0x60, 0x00, 0xe0, 0x40, 0x00, 0x00,
+X   0x00, 0xc0, 0x03, 0x34, 0x20, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x14, 0x40,
+X   0x00, 0x00, 0x00, 0x00, 0x30, 0x36, 0x78, 0x00, 0x00, 0x00, 0x20, 0xc0,
+X   0x61, 0x48, 0x00, 0x00, 0x00, 0x20, 0x87, 0x50, 0x10, 0x00, 0x00, 0x00,
+X   0xb0, 0x58, 0x48, 0x1f, 0x00, 0x00, 0x00, 0x70, 0x30, 0x24, 0x11, 0x00,
+X   0x00, 0x00, 0xf8, 0x60, 0xa2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xd0, 0xd6,
+X   0x78, 0x00, 0x00, 0x00, 0x00, 0x88, 0x59, 0x86, 0x00, 0x00, 0x00, 0x00,
+X   0x04, 0xf3, 0x01, 0x01, 0x00, 0x00, 0x00, 0x42, 0x06, 0x00, 0x02, 0x00,
+X   0x00, 0x70, 0x49, 0x06, 0x00, 0x02, 0x00, 0x00, 0xf8, 0x4f, 0x8c, 0x03,
+X   0x02, 0x00, 0x00, 0xe8, 0x40, 0x54, 0x00, 0x02, 0x00, 0x00, 0xa8, 0x23,
+X   0x28, 0x00, 0x01, 0x00, 0x00, 0xa8, 0x1c, 0xd0, 0x83, 0x07, 0x00, 0x00,
+X   0x80, 0x00, 0x20, 0x7c, 0x04, 0x00, 0x00, 0x80, 0x00, 0xc3, 0x01, 0x04,
+X   0x00, 0x00, 0xc0, 0x81, 0x7c, 0x06, 0x04, 0x00, 0x00, 0x20, 0x42, 0x01,
+X   0x38, 0x02, 0x00, 0x00, 0xd0, 0x4e, 0x15, 0xc0, 0x01, 0x00, 0x00, 0xf8,
+X   0xf3, 0xef, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0xc0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x06,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x60, 0x6a, 0x9c, 0x01, 0x00, 0x00,
+X   0x60, 0xd7, 0xfe, 0xd6, 0x00, 0x00, 0x00, 0x60, 0xe6, 0xd6, 0xde, 0x01,
+X   0x00, 0x00, 0x60, 0x96, 0xd6, 0x86, 0x01, 0x00, 0x00, 0xc0, 0xf3, 0xd7,
+X   0xdd, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/games ||
+echo 'restore of bitmaps/games failed'
+Wc_c="`wc -c < 'bitmaps/games'`"
+test 2256 -eq "$Wc_c" ||
+	echo 'bitmaps/games: original size 2256, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/load ==============
+if test -f 'bitmaps/load' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/load (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/load (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/load' &&
+#define load_width 32
+#define load_height 32
+static char load_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0xfe, 0xff, 0xff, 0x7f, 0x02, 0x00, 0x00, 0x40,
+X   0x02, 0x00, 0x00, 0x40, 0x02, 0x00, 0x00, 0x40, 0x02, 0x04, 0x00, 0x40,
+X   0x02, 0x0e, 0x00, 0x40, 0x02, 0x0e, 0x00, 0x40, 0x02, 0x0f, 0x00, 0x40,
+X   0x02, 0x1f, 0x00, 0x40, 0x02, 0x1f, 0x00, 0x40, 0xfe, 0xff, 0xff, 0x7f,
+X   0x02, 0x1f, 0x00, 0x40, 0x02, 0x1f, 0x00, 0x40, 0x92, 0x3f, 0x00, 0x40,
+X   0xb2, 0x3f, 0x00, 0x40, 0xf2, 0x3f, 0x00, 0x40, 0xfa, 0x7f, 0x00, 0x40,
+X   0xfa, 0x7f, 0x00, 0x40, 0xfa, 0xff, 0x00, 0x40, 0xfe, 0xff, 0x00, 0x40,
+X   0xfe, 0xff, 0x01, 0x40, 0xfe, 0xff, 0x09, 0x40, 0xfe, 0xff, 0x2d, 0x62,
+X   0xfe, 0xff, 0x7f, 0x73, 0xfe, 0xff, 0x7f, 0x77, 0xfe, 0xff, 0xff, 0x7f,
+X   0xfe, 0xff, 0xff, 0x7f, 0xfe, 0xff, 0xff, 0x7f, 0xfe, 0xff, 0xff, 0x7f,
+X   0xfe, 0xff, 0xff, 0x7f, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 bitmaps/load ||
+echo 'restore of bitmaps/load failed'
+Wc_c="`wc -c < 'bitmaps/load'`"
+test 875 -eq "$Wc_c" ||
+	echo 'bitmaps/load: original size 875, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= bitmaps/readNews ==============
+if test -f 'bitmaps/readNews' -a X"$1" != X"-c"; then
+	echo 'x - skipping bitmaps/readNews (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting bitmaps/readNews (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'bitmaps/readNews' &&
+#define unnamed_width 41
+#define unnamed_height 43
+#define unnamed_x_hot 0
+#define unnamed_y_hot 0
+static char unnamed_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfc,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfa,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00, 0x30, 0x00, 0x00, 0x00, 0xfa,
+X   0x00, 0xf0, 0x00, 0x00, 0x00, 0xfe, 0x00, 0x30, 0x03, 0x00, 0x00, 0xfa,
+X   0x00, 0x18, 0x03, 0x00, 0x00, 0xfa, 0x00, 0x18, 0x03, 0x00, 0x00, 0xfe,
+X   0x00, 0xfc, 0x01, 0x00, 0x00, 0xfa, 0x00, 0x6c, 0x00, 0x00, 0x00, 0xfa,
+X   0x00, 0x67, 0x6c, 0x00, 0x00, 0xbe, 0x00, 0xcc, 0x4c, 0x00, 0x00, 0xba,
+X   0x00, 0xc0, 0x7e, 0x04, 0x00, 0xba, 0x00, 0xc0, 0x66, 0x1a, 0x00, 0xba,
+X   0x00, 0x00, 0x06, 0x10, 0x18, 0xba, 0x00, 0x00, 0xb8, 0x1f, 0x19, 0xba,
+X   0x00, 0x00, 0x80, 0xd9, 0x0e, 0xba, 0x80, 0x01, 0x80, 0xcd, 0x0c, 0xba,
+X   0xc0, 0x01, 0x00, 0x6a, 0x06, 0xbe, 0xc0, 0x11, 0x00, 0x68, 0x06, 0xbe,
+X   0xa0, 0x31, 0x00, 0x60, 0x03, 0xba, 0x20, 0x11, 0x00, 0x80, 0x02, 0xba,
+X   0x90, 0x09, 0x00, 0x00, 0x02, 0xba, 0x10, 0x0b, 0x00, 0x00, 0x00, 0xbe,
+X   0x18, 0xb7, 0x01, 0x00, 0x00, 0xba, 0x00, 0x36, 0x01, 0x00, 0x00, 0xbe,
+X   0x00, 0xfa, 0x19, 0x00, 0x00, 0xba, 0x00, 0x9a, 0x6d, 0x00, 0x00, 0xba,
+X   0x00, 0x18, 0xd8, 0x00, 0x00, 0xbe, 0x00, 0xe0, 0x6c, 0x03, 0x00, 0xba,
+X   0x00, 0x00, 0x7c, 0x09, 0x00, 0xe0, 0x00, 0x00, 0x6c, 0x36, 0x00, 0xe0,
+X   0x00, 0x00, 0x60, 0x2c, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x0c, 0x00, 0xe0,
+X   0x00, 0x00, 0x00, 0x0d, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x0f, 0x00, 0xe0,
+X   0x00, 0x00, 0x00, 0x04, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xa0,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe0,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0xa0,  };
+SHAR_EOF
+chmod 0644 bitmaps/readNews ||
+echo 'restore of bitmaps/readNews failed'
+Wc_c="`wc -c < 'bitmaps/readNews'`"
+test 1748 -eq "$Wc_c" ||
+	echo 'bitmaps/readNews: original size 1748, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and <Imakefile>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit sun.cf to change
+X
+# platform:  $XConsortium: sun.cf,v 1.68 91/07/30 11:34:39 rws Exp $
+X
+# operating system:  SunOS 4.1.1
+X
+# $XConsortium: sunLib.rules,v 1.6 91/03/24 17:55:58 rws Exp $
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X
+X               RM = rm -f
+X            TROFF = psroff
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X      PROJECTROOT = /usr/X11/R5
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -pipe
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS) -L$(USRLIBDIR)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+# -------------------------------------------------------------------------
+# X Window System make variables; this need to be coordinated with rules
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/X11/R5/lib
+X           BINDIR = /usr/X11/R5/bin
+X          INCROOT = /usr/X11/R5/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/X11/R5/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+X         XILIBSRC = $(EXTENSIONSRC)/lib/xinput
+X      PHIGSLIBSRC = $(EXTENSIONSRC)/lib/PEX
+X
+# $XConsortium: sunLib.tmpl,v 1.11 91/07/31 11:32:08 rws Exp $
+X
+SHLIBLDFLAGS = -assert pure-text
+PICFLAGS = -pic
+X
+X  DEPEXTENSIONLIB =
+X     EXTENSIONLIB = -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X        DEPXMULIB = $(USRLIBDIR)/libXmu.sa.$(SOXMUREV)
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB = $(USRLIBDIR)/libXt.sa.$(SOXTREV)
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB = $(USRLIBDIR)/libXaw.sa.$(SOXAWREV)
+X           XAWLIB = -lXaw
+X
+X        DEPXILIB =
+X           XILIB = -lXi
+X
+X        SOXLIBREV = 4.10
+X          SOXTREV = 4.10
+X         SOXAWREV = 5.0
+X        SOOLDXREV = 4.10
+X         SOXMUREV = 4.10
+X        SOXEXTREV = 4.10
+X      SOXINPUTREV = 4.10
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X      DEPXDMCPLIB = $(USRLIBDIR)/libXdmcp.a
+X         XDMCPLIB =  -lXdmcp
+X
+X        DEPPHIGSLIB = $(USRLIBDIR)/libphigs.a
+X           PHIGSLIB =  -lphigs
+X
+X       DEPXBSDLIB = $(USRLIBDIR)/libXbsd.a
+X          XBSDLIB =  -lXbsd
+X
+X LINTEXTENSIONLIB = $(LINTLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(LINTLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(LINTLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(LINTLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(LINTLIBDIR)/llib-lXaw.ln
+X           LINTXI = $(LINTLIBDIR)/llib-lXi.ln
+X        LINTPHIGS = $(LINTLIBDIR)/llib-lphigs.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+# -------------------------------------------------------------------------
+# Imake rules for building libraries, programs, scripts, and data files
+# rules:  $XConsortium: Imake.rules,v 1.123 91/09/16 20:12:16 rws Exp $
+X
+# -------------------------------------------------------------------------
+# start of Imakefile
+X
+# static char* sccs_imake = "%W%%G%";
+# Imakefile,v 1 25 June 1991
+#
+# MTI: Build srcs
+#
+# #include "/s/bri/Xstuff/Xukc.tmpl"
+# #define PassCDebugFlags
+X
+X        DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+LOCAL_LIBRARIES = $(XAWLIB) $(XMULIB) $(XTOOLLIB) $(XLIB)
+X
+SRCS =  main.c \
+X	action.c \
+X	buttons.c \
+X	gen.c \
+X	parser.c \
+X	gen.h \
+X	trans.h \
+X	widgets.h
+X
+OBJS =  main.o \
+X	buttons.o \
+X	action.o \
+X	parser.o \
+X	gen.o
+X
+TARGET = bricons
+INSTALLBIN = /s/bri/bin/mbins/$Mbin
+X
+X PROGRAM = $(TARGET)
+X
+all:: $(TARGET)
+X
+$(TARGET): $(OBJS) $(DEPLIBS)
+X	$(RM) $@
+X	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+X
+saber_$(TARGET):: $(SRCS)
+X	# load $(ALLDEFINES) $(SRCS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+osaber_$(TARGET):: $(OBJS)
+X	# load $(ALLDEFINES) $(OBJS) $(LOCAL_LIBRARIES) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+install:: $(TARGET)
+X	@if [ -d $(DESTDIR)$(BINDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(BINDIR)); fi
+X	$(INSTALL) -c $(INSTPGMFLAGS)  $(TARGET) $(DESTDIR)$(BINDIR)
+X
+install.man:: $(TARGET).man
+X	@if [ -d $(DESTDIR)$(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) $(TARGET).man $(DESTDIR)$(MANDIR)/$(TARGET).$(MANSUFFIX)
+X
+depend::
+X	$(DEPEND) $(DEPENDFLAGS) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+lint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+lint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+clean::
+X	$(RM) $(PROGRAM)
+X
+depend::
+X	$(DEPEND) $(DEPENDFLAGS) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+# -------------------------------------------------------------------------
+# common rules for all Makefiles - do not edit
+X
+emptyrule::
+X
+clean::
+X	$(RM_CMD) "#"*
+X
+Makefile::
+X	-@if [ -f Makefile ]; then set -x; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+tags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+saber:
+X	# load $(ALLDEFINES) $(SRCS)
+X
+osaber:
+X	# load $(ALLDEFINES) $(OBJS)
+X
+# -------------------------------------------------------------------------
+# empty rules for directories that do not have SUBDIRS - do not edit
+X
+install::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+install.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+Makefiles::
+X
+includes::
+X
+# -------------------------------------------------------------------------
+# dependencies generated by makedepend
+X
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 10825 -eq "$Wc_c" ||
+	echo 'Makefile: original size 10825, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

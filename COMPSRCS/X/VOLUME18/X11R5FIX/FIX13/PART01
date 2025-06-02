@@ -1,0 +1,1728 @@
+Path: uunet!dtix!darwin.sura.net!mips!msi!dcmartin
+From: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Newsgroups: comp.sources.x
+Subject: v18i042: X11R5 public fix #13, Part01/05
+Message-ID: <csx-18i042-X11R5-fix13@uunet.UU.NET>
+Date: 22 Jul 92 15:05:45 GMT
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1716
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Posting-number: Volume 18, Issue 42
+Archive-name: X11R5-fix13/part01
+
+Fix 13 corrects some serious Font Service protocol errors in both the
+font server and font client libraries.  Because these fixes change the
+implemented protocol in an incompatible way, the version number is
+changed to 2.0.  The old, broken implementation is still supported as
+version 1; new clients can talk to old font servers, and vice versa.
+
+These protocol fixes and other bug fixes are detailed below:
+
+FS protocol: fontserver and fontlib have fsChar2B backwards
+FS protocol: ListFontsWithXInfo reply incorrectly formatted
+FS protocol: fs returns font metrics rather than ink metrics for some fonts
+FS protocol: ListFontsWithXInfo reply length incorrect
+FS protocol: ListFontsWithXInfo last reply length incorrect
+FS protocol: fs can return -1 authorization index
+FS protocol: auth_len is miscalculated in initial connection
+config: bdftopcf and mkfontdir not made if BuildFonts is NO
+fontlib: fs crashes if filename suggests scalable but XLFD name does not
+fontlib: bdf file with empty XLFD field crashes fs
+fontlib: bdf reader doesn't check for end of file
+fontlib: pcf reader frees uninitialized pointer on error
+fontlib: "byte" used as a variable name
+fontlib: fs_send_load_bitmap uses QueryXBitamp8 with 16-bit encoded character
+fontlib: attempt to access fonts through chained font servers fails
+fontlib: Speedo reader frees uninitialized pointer on error
+fontlib: Speedo generation fails at tiny sizes
+fontlib: ListFontsWithXInfo reply incorrectly parsed
+fontlib: libFS tries to read extension data twice
+fontlib: X server can't detect when font server has died
+fontlib: memory leaks
+fontserver: fs dies if garbage characters fed to its socket
+fontserver: fs doesn't manage signals correctly
+fontserver: syntax errors in osdep.h
+fontserver: fs dispatch routines poorly named
+fontserver: parameters swapped on call to WriteSwappedDataToClient
+fontserver: some error states return the same value as FSSuccess
+fontserver: fs can dereference a bogus pointer when reseting
+fontserver: ListFonts can attempt to free nonexistent memory
+fontserver: fs can dump core when chaining fontservers
+fontserver: when no font path elements, ListFonts sends no reply
+fontserver: num_range not byte-swapped for QueryXExtents and QueryXBitmaps
+fontserver: QueryExtension request doesn't get byte swapped
+fontserver: memory leaks
+FS protocol document: changed to read version 2.0
+showfont: handles nonexistent characters incorrectly
+showfont: incorrectly generates 2-byte ranges
+showfont: bitmap format is not always passed to the font server correctly
+misc fonts: some Scandinavian characters wrong or poorly-formed
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.50)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 07/22/1992 15:01 UTC by dcmartin@fascet
+# Source directory /n/merlin/u2/src/X11R5/fixes
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+# 229952 -rw-r--r-- fix-13
+#
+if test -r _shar_seq_.tmp; then
+	echo 'Must unpack archives in sequence!'
+	echo Please unpack part `cat _shar_seq_.tmp` next
+	exit 1
+fi
+# ============= fix-13 ==============
+if test -f 'fix-13' -a X"$1" != X"-c"; then
+	echo 'x - skipping fix-13 (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fix-13 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fix-13' &&
+X		      Release 5 Public Patch #13
+X			   MIT X Consortium
+X
+To apply this patch:
+X
+cd to the top of the source tree (to the directory containing the "mit"
+and "contrib" subdirectories) and do:
+X	patch -p -s < ThisFile
+Patch will work silently unless an error occurs.  You will likely get
+the following warning messages, which can be ignored:
+X	mkdir: mit: File exists
+X	mkdir: mit/fonts: File exists
+X	mkdir: mit/fonts/server: File exists
+X	mkdir: mit/fonts/server/difs: File exists
+If you want to watch patch do its thing, leave out the "-s" argument to patch.
+X
+This patch creates one new file, mit/fonts/server/difs/charinfo.c.
+If you are using a symbolic link tree, you will need to create a new link.
+X
+Next, from the same top-level directory do:
+X	rm -f mit/fonts/lib/font/util/fsfuncs.[co]
+X	rm -f mit/fonts/lib/font/bitmap/fsfuncs.[co]
+(If you are using a symbolic tree, the .o files should be deleted there.)
+X
+Finally, to rebuild after applying this patch, cd to the "mit" subdirectory
+and do:
+X	make Everything >& every.log
+Note: this will *not* "clean" your tree.
+X
+X
+Brief notes on what this patch fixes:
+X
+This patch fixes some serious Font Service protocol errors in both the
+font server and font client libraries.  Because these fixes change the
+implemented protocol in an incompatible way, the version number is
+changed to 2.0.  The old, broken implementation is still supported as
+version 1; new clients can talk to old font servers, and vice versa.
+X
+These protocol fixes and other bug fixes are detailed below:
+X
+FS protocol: fontserver and fontlib have fsChar2B backwards
+FS protocol: ListFontsWithXInfo reply incorrectly formatted
+FS protocol: fs returns font metrics rather than ink metrics for some fonts
+FS protocol: ListFontsWithXInfo reply length incorrect
+FS protocol: ListFontsWithXInfo last reply length incorrect
+FS protocol: fs can return -1 authorization index
+FS protocol: auth_len is miscalculated in initial connection
+config: bdftopcf and mkfontdir not made if BuildFonts is NO
+fontlib: fs crashes if filename suggests scalable but XLFD name does not
+fontlib: bdf file with empty XLFD field crashes fs
+fontlib: bdf reader doesn't check for end of file
+fontlib: pcf reader frees uninitialized pointer on error
+fontlib: "byte" used as a variable name
+fontlib: fs_send_load_bitmap uses QueryXBitamp8 with 16-bit encoded character
+fontlib: attempt to access fonts through chained font servers fails
+fontlib: Speedo reader frees uninitialized pointer on error
+fontlib: Speedo generation fails at tiny sizes
+fontlib: ListFontsWithXInfo reply incorrectly parsed
+fontlib: libFS tries to read extension data twice
+fontlib: X server can't detect when font server has died
+fontlib: memory leaks
+fontserver: fs dies if garbage characters fed to its socket
+fontserver: fs doesn't manage signals correctly
+fontserver: syntax errors in osdep.h
+fontserver: fs dispatch routines poorly named
+fontserver: parameters swapped on call to WriteSwappedDataToClient
+fontserver: some error states return the same value as FSSuccess
+fontserver: fs can dereference a bogus pointer when reseting
+fontserver: ListFonts can attempt to free nonexistent memory
+fontserver: fs can dump core when chaining fontservers
+fontserver: when no font path elements, ListFonts sends no reply
+fontserver: num_range not byte-swapped for QueryXExtents and QueryXBitmaps
+fontserver: QueryExtension request doesn't get byte swapped
+fontserver: memory leaks
+FS protocol document: changed to read version 2.0
+showfont: handles nonexistent characters incorrectly
+showfont: incorrectly generates 2-byte ranges
+showfont: bitmap format is not always passed to the font server correctly
+misc fonts: some Scandinavian characters wrong or poorly-formed
+X
+X
+Prereq: public-patch-12
+X
+*** /tmp/da09678	Mon Jul 20 14:05:24 1992
+--- mit/bug-report	Mon Jul 20 14:05:24 1992
+***************
+*** 2,8 ****
+X  Subject: [area]: [synopsis]   [replace with actual area and short description]
+X  
+X  VERSION:
+!     R5, public-patch-12
+X      [MIT public patches will edit this line to indicate the patch level]
+X  
+X  CLIENT MACHINE and OPERATING SYSTEM:
+--- 2,8 ----
+X  Subject: [area]: [synopsis]   [replace with actual area and short description]
+X  
+X  VERSION:
+!     R5, public-patch-13
+X      [MIT public patches will edit this line to indicate the patch level]
+X  
+X  CLIENT MACHINE and OPERATING SYSTEM:
+*** /tmp/da28082	Tue Jul 14 18:07:11 1992
+--- mit/fonts/include/FS.h	Tue Jul 14 18:07:10 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: FS.h,v 1.4 91/05/13 16:45:26 gildea Exp $ */
+X  /* 
+X   * Copyright 1990, 1991 Network Computing Devices; 
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the 
+--- 1,4 ----
+! /* $XConsortium: FS.h,v 1.5 92/05/12 18:07:12 gildea Exp $ */
+X  /* 
+X   * Copyright 1990, 1991 Network Computing Devices; 
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the 
+***************
+*** 20,28 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)FS.h	3.2	91/04/11
+-  *
+X   */
+X  #ifndef _FS_H_
+X  #define	_FS_H_
+--- 20,25 ----
+***************
+*** 29,35 ****
+X  
+X  #include <fsmasks.h>
+X  
+! #define	FS_PROTOCOL		1
+X  #define	FS_PROTOCOL_MINOR	0
+X  
+X  typedef unsigned long FSID;
+--- 26,32 ----
+X  
+X  #include <fsmasks.h>
+X  
+! #define	FS_PROTOCOL		2
+X  #define	FS_PROTOCOL_MINOR	0
+X  
+X  typedef unsigned long FSID;
+*** /tmp/da28104	Tue Jul 14 18:07:13 1992
+--- mit/fonts/include/FSproto.h	Tue Jul 14 18:07:12 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: FSproto.h,v 1.5 91/07/26 21:00:24 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: FSproto.h,v 1.6 92/05/12 18:07:14 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 20,28 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * $NCDId: @(#)FSproto.h,v 4.3 1991/06/27 16:30:07 lemke Exp $
+-  *
+X   */
+X  
+X  #ifndef _FS_PROTO_H_
+--- 20,25 ----
+***************
+*** 114,122 ****
+X  }           fsCharInfo;
+X  
+X  typedef struct {
+X      CARD8       low,
+X                  high;
+! }           fsChar2b;
+X  
+X  typedef struct {
+X      fsChar2b    min_char,
+--- 111,124 ----
+X  }           fsCharInfo;
+X  
+X  typedef struct {
++     CARD8       high;
++     CARD8       low;
++ }           fsChar2b;
++ 
++ typedef struct {
+X      CARD8       low,
+X                  high;
+! }           fsChar2b_version1;
+X  
+X  typedef struct {
+X      fsChar2b    min_char,
+*** /tmp/da28168	Tue Jul 14 18:07:18 1992
+--- mit/fonts/include/fontstruct.h	Tue Jul 14 18:07:18 1992
+***************
+*** 1,4 ****
+! /* $Header: fontstruct.h,v 1.10 91/07/22 15:37:41 keith Exp $ */
+X  /***********************************************************
+X  Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+X  and the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+--- 1,4 ----
+! /* $XConsortium: fontstruct.h,v 1.11 92/05/12 18:07:16 gildea Exp $ */
+X  /***********************************************************
+X  Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+X  and the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+***************
+*** 21,28 ****
+X  ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+X  SOFTWARE.
+X  
+- 	@(#)fontstruct.h	3.2	91/04/15
+- 
+X  ******************************************************************/
+X  
+X  #ifndef FONTSTR_H
+--- 21,26 ----
+***************
+*** 115,124 ****
+X      fsBitmapFormat format;
+X      int         (*get_glyphs) ( /* font, count, chars, encoding, count, glyphs */ );
+X      int         (*get_metrics) ( /* font, count, chars, encoding, count, glyphs */ );
+-     int         (*get_bitmaps) (/* client, font, flags, ranges, nranges,
+- 				    nextents, extents */ );
+-     int         (*get_extents) (/* client, font, format, flags, ranges,
+- 				    nranges, nglyphs, offsets, glyphs */ );
+X      void        (*unload_font) ( /* font */ );
+X      FontPathElementPtr fpe;
+X      pointer     svrPrivate;
+--- 113,118 ----
+*** /tmp/da25571	Tue Jul 14 18:03:15 1992
+--- mit/fonts/lib/Imakefile	Tue Jul 14 18:03:15 1992
+***************
+*** 1,12 ****
+! XCOMM $XConsortium: Imakefile,v 1.2 91/07/17 16:05:47 gildea Exp $
+X  #define IHaveSubdirs
+X  #define PassCDebugFlags 'CDEBUGFLAGS=$(CDEBUGFLAGS)'
+X  
+! #if BuildServer | BuildFontServer | BuildFonts
+! SRVDIRS = font
+! #endif
+! 
+! SUBDIRS = $(SRVDIRS) fs
+X  
+X  MakeSubdirs($(SUBDIRS))
+X  DependSubdirs($(SUBDIRS))
+--- 1,8 ----
+! XCOMM $XConsortium: Imakefile,v 1.3 91/12/23 11:05:24 rws Exp $
+X  #define IHaveSubdirs
+X  #define PassCDebugFlags 'CDEBUGFLAGS=$(CDEBUGFLAGS)'
+X  
+! SUBDIRS = font fs
+X  
+X  MakeSubdirs($(SUBDIRS))
+X  DependSubdirs($(SUBDIRS))
+*** /tmp/da25708	Tue Jul 14 18:03:29 1992
+--- mit/fonts/lib/font/fontfile/fontdir.c	Tue Jul 14 18:03:28 1992
+***************
+*** 1,5 ****
+X  /*
+!  * $XConsortium: fontdir.c,v 1.6 91/12/11 19:46:47 eswu Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+--- 1,5 ----
+X  /*
+!  * $XConsortium: fontdir.c,v 1.9 92/03/20 15:53:29 eswu Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+***************
+*** 138,144 ****
+X  
+X      /* can't add entries to a sorted table, pointers get broken! */
+X      if (table->sorted)
+! 	abort ();
+X      if (table->used == table->size) {
+X  	newsize = table->size + 100;
+X  	entry = (FontEntryPtr) xrealloc(table->entries,
+--- 138,144 ----
+X  
+X      /* can't add entries to a sorted table, pointers get broken! */
+X      if (table->sorted)
+! 	return (FontEntryPtr) 0;    /* "cannot" happen */
+X      if (table->used == table->size) {
+X  	newsize = table->size + 100;
+X  	entry = (FontEntryPtr) xrealloc(table->entries,
+***************
+*** 425,430 ****
+--- 425,435 ----
+X  					     &vals, FONT_XLFD_REPLACE_NONE)) ||
+X  	  vals.pixel != 0)
+X      {
++       /* If the fontname says it is nonScalable, make sure that the
++        * renderer supports OpenBitmap and GetInfoBitmap.
++        */
++       if (renderer->OpenBitmap && renderer->GetInfoBitmap)
++       {
+X  	entry.type = FONT_ENTRY_BITMAP;
+X  	entry.u.bitmap.renderer = renderer;
+X  	entry.u.bitmap.pFont = NullFont;
+***************
+*** 435,440 ****
+--- 440,446 ----
+X  	    xfree (entry.u.bitmap.fileName);
+X  	    return FALSE;
+X  	}
++       }
+X      }
+X      /*
+X       * Parse out scalable fields from XLFD names - a scalable name
+***************
+*** 442,447 ****
+--- 448,458 ----
+X       */
+X      if (isscale)
+X      {
++       /* If the fontname says it is scalable, make sure that the
++        * renderer supports OpenScalable and GetInfoScalable.
++        */
++       if (renderer->OpenScalable && renderer->GetInfoScalable)
++       {
+X  	if (vals.pixel != 0)
+X  	{
+X  	    zeroVals.pixel = 0;
+***************
+*** 524,529 ****
+--- 535,541 ----
+X  	}
+X  	if (vals.pixel != 0)
+X  	    FontFileAddScaledInstance (scalable, &vals, NullFont, bitmap->name.name);
++       }
+X      }
+X      return TRUE;
+X  }
+*** /tmp/da25926	Tue Jul 14 18:03:49 1992
+--- mit/fonts/lib/font/bitmap/pcfwrite.c	Tue Jul 14 18:03:48 1992
+***************
+*** 1,5 ****
+X  /*
+!  * $XConsortium: pcfwrite.c,v 1.2 91/05/10 15:58:16 keith Exp $
+X   *
+X   * Copyright 1990 Massachusetts Institute of Technology
+X   *
+--- 1,5 ----
+X  /*
+!  * $XConsortium: pcfwrite.c,v 1.3 92/03/26 17:37:17 gildea Exp $
+X   *
+X   * Copyright 1990 Massachusetts Institute of Technology
+X   *
+***************
+*** 208,218 ****
+X  pcfNameForAtom(a)
+X      Atom        a;
+X  {
+!     char       *name;
+! 
+!     if (!(name = NameForAtom(a)))
+! 	name = "";
+!     return name;
+X  }
+X  
+X  pcfWriteFont(pFont, file)
+--- 208,214 ----
+X  pcfNameForAtom(a)
+X      Atom        a;
+X  {
+!     return NameForAtom(a);
+X  }
+X  
+X  pcfWriteFont(pFont, file)
+*** /tmp/da25948	Tue Jul 14 18:03:51 1992
+--- mit/fonts/lib/font/bitmap/Imakefile	Tue Jul 14 18:03:51 1992
+***************
+*** 1,4 ****
+! XCOMM $XConsortium: Imakefile,v 1.5 91/07/22 22:20:44 rws Exp $
+X  #include <Server.tmpl>
+X  
+X          INCLUDES = -I$(FONTSRC)/include -I../include -I$(FONTSERVERSRC)/include
+--- 1,4 ----
+! XCOMM $XConsortium: Imakefile,v 1.6 92/05/13 14:12:15 gildea Exp $
+X  #include <Server.tmpl>
+X  
+X          INCLUDES = -I$(FONTSRC)/include -I../include -I$(FONTSERVERSRC)/include
+***************
+*** 7,17 ****
+X       FORMAT_DEFS = FontFormatDefines
+X  #endif
+X              SRCS = bdfread.c bdfutils.c bitmap.c bitmaputils.c bitscale.c \
+! 		   bitmapfuncs.c fsfuncs.c pcfread.c pcfwrite.c snfread.c \
+X  		   fontink.c
+X  
+X              OBJS = bdfread.o bdfutils.o bitmap.o bitmaputils.o bitscale.o \
+! 		   bitmapfuncs.o fsfuncs.o pcfread.o pcfwrite.o snfread.o \
+X  		   fontink.o
+X  
+X  SubdirLibraryRule($(OBJS))
+--- 7,17 ----
+X       FORMAT_DEFS = FontFormatDefines
+X  #endif
+X              SRCS = bdfread.c bdfutils.c bitmap.c bitmaputils.c bitscale.c \
+! 		   bitmapfuncs.c pcfread.c pcfwrite.c snfread.c \
+X  		   fontink.c
+X  
+X              OBJS = bdfread.o bdfutils.o bitmap.o bitmaputils.o bitscale.o \
+! 		   bitmapfuncs.o pcfread.o pcfwrite.o snfread.o \
+X  		   fontink.o
+X  
+X  SubdirLibraryRule($(OBJS))
+*** /tmp/da25991	Tue Jul 14 18:03:56 1992
+--- mit/fonts/lib/font/bitmap/bdfread.c	Tue Jul 14 18:03:54 1992
+***************
+*** 22,28 ****
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: bdfread.c,v 1.8 91/07/22 22:58:44 keith Exp $ */
+X  
+X  #include <ctype.h>
+X  #include "fontfilest.h"
+--- 22,28 ----
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: bdfread.c,v 1.13 92/05/12 18:07:40 gildea Exp $ */
+X  
+X  #include <ctype.h>
+X  #include "fontfilest.h"
+***************
+*** 32,37 ****
+--- 32,38 ----
+X  
+X  #define INDICES 256
+X  #define MAXENCODING 0xFFFF
++ #define BDFLINELEN  1024
+X  
+X  extern int  bitmapGetGlyphs(), bitmapGetMetrics();
+X  extern int  bitmapGetBitmaps(), bitmapGetExtents();
+***************
+*** 62,68 ****
+X      unsigned char *pInBits,
+X                 *picture,
+X                 *line = NULL;
+!     char        lineBuf[BUFSIZ];
+X  
+X      widthBits = GLYPHWIDTHPIXELS(pCI);
+X      height = GLYPHHEIGHTPIXELS(pCI);
+--- 63,69 ----
+X      unsigned char *pInBits,
+X                 *picture,
+X                 *line = NULL;
+!     char        lineBuf[BDFLINELEN];
+X  
+X      widthBits = GLYPHWIDTHPIXELS(pCI);
+X      height = GLYPHHEIGHTPIXELS(pCI);
+***************
+*** 88,94 ****
+X  /*		0 width characters? */
+X  
+X      for (row = 0; row < height; row++) {
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if (!line)
+X  	    break;
+X  
+--- 89,95 ----
+X  /*		0 width characters? */
+X  
+X      for (row = 0; row < height; row++) {
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if (!line)
+X  	    break;
+X  
+***************
+*** 136,142 ****
+X      }
+X  
+X      if ((line && (!bdfIsPrefix(line, "ENDCHAR"))) || (height == 0))
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  
+X      if ((!line) || (!bdfIsPrefix(line, "ENDCHAR"))) {
+X  	bdfError("missing 'ENDCHAR'\n");
+--- 137,143 ----
+X      }
+X  
+X      if ((line && (!bdfIsPrefix(line, "ENDCHAR"))) || (height == 0))
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  
+X      if ((!line) || (!bdfIsPrefix(line, "ENDCHAR"))) {
+X  	bdfError("missing 'ENDCHAR'\n");
+***************
+*** 174,183 ****
+X  {
+X      unsigned char *line;
+X      int         i = 0;
+!     char        lineBuf[BUFSIZ];
+X  
+X      do {
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	i++;
+X      } while (line && !bdfIsPrefix(line, "ENDCHAR") && i <= height);
+X  
+--- 175,184 ----
+X  {
+X      unsigned char *line;
+X      int         i = 0;
+!     char        lineBuf[BDFLINELEN];
+X  
+X      do {
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	i++;
+X      } while (line && !bdfIsPrefix(line, "ENDCHAR") && i <= height);
+X  
+***************
+*** 207,220 ****
+X                  ndx,
+X                  nchars,
+X                  nignored;
+!     int         char_row,
+!                 char_col;
+X      int         numEncodedGlyphs = 0;
+X      CharInfoPtr *bdfEncoding[256];
+X      BitmapFontPtr  bitmapFont;
+X      BitmapExtraPtr bitmapExtra;
+X      CARD32     *bitmapsSizes;
+!     char        lineBuf[BUFSIZ];
+X      int         nencoding;
+X  
+X      bitmapFont = (BitmapFontPtr) pFont->fontPrivate;
+--- 208,220 ----
+X                  ndx,
+X                  nchars,
+X                  nignored;
+!     unsigned int char_row, char_col;
+X      int         numEncodedGlyphs = 0;
+X      CharInfoPtr *bdfEncoding[256];
+X      BitmapFontPtr  bitmapFont;
+X      BitmapExtraPtr bitmapExtra;
+X      CARD32     *bitmapsSizes;
+!     char        lineBuf[BDFLINELEN];
+X      int         nencoding;
+X  
+X      bitmapFont = (BitmapFontPtr) pFont->fontPrivate;
+***************
+*** 224,231 ****
+X  	bitmapsSizes = bitmapExtra->bitmapsSizes;
+X  	for (i = 0; i < GLYPHPADOPTIONS; i++)
+X  	    bitmapsSizes[i] = 0;
+- 	bitmapExtra->glyphNames = 0;
+- 	bitmapExtra->sWidths = 0;
+X      } else
+X  	bitmapsSizes = NULL;
+X  
+--- 224,229 ----
+***************
+*** 233,239 ****
+X      bitmapFont->metrics = NULL;
+X      ndx = 0;
+X  
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  
+X      if ((!line) || (sscanf((char *) line, "CHARS %d", &nchars) != 1)) {
+X  	bdfError("bad 'CHARS' in bdf file\n");
+--- 231,237 ----
+X      bitmapFont->metrics = NULL;
+X      ndx = 0;
+X  
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  
+X      if ((!line) || (sscanf((char *) line, "CHARS %d", &nchars) != 1)) {
+X  	bdfError("bad 'CHARS' in bdf file\n");
+***************
+*** 267,273 ****
+X  	    return FALSE;
+X  	}
+X      }
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      pFont->info.firstRow = 256;
+X      pFont->info.lastRow = 0;
+X      pFont->info.firstCol = 256;
+--- 265,271 ----
+X  	    return FALSE;
+X  	}
+X      }
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      pFont->info.firstRow = 256;
+X      pFont->info.lastRow = 0;
+X      pFont->info.firstCol = 256;
+***************
+*** 294,300 ****
+X  	if (bitmapExtra)
+X  	    bitmapExtra->glyphNames[ndx] = bdfForceMakeAtom(charName, NULL);
+X  
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if (!line || (t = sscanf((char *) line, "ENCODING %d %d", &enc, &enc2)) < 1) {
+X  	    bdfError("bad 'ENCODING' in BDF file\n");
+X  	    goto BAILOUT;
+--- 292,298 ----
+X  	if (bitmapExtra)
+X  	    bitmapExtra->glyphNames[ndx] = bdfForceMakeAtom(charName, NULL);
+X  
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if (!line || (t = sscanf((char *) line, "ENCODING %d %d", &enc, &enc2)) < 1) {
+X  	    bdfError("bad 'ENCODING' in BDF file\n");
+X  	    goto BAILOUT;
+***************
+*** 342,348 ****
+X  	    }
+X  	}
+X  
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if ((!line) || (sscanf((char *) line, "SWIDTH %d %d", &wx, &wy) != 2)) {
+X  	    bdfError("bad 'SWIDTH'\n");
+X  	    goto BAILOUT;
+--- 340,346 ----
+X  	    }
+X  	}
+X  
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if ((!line) || (sscanf((char *) line, "SWIDTH %d %d", &wx, &wy) != 2)) {
+X  	    bdfError("bad 'SWIDTH'\n");
+X  	    goto BAILOUT;
+***************
+*** 357,363 ****
+X  /* 5/31/89 (ef) -- we should be able to ditch the character and recover */
+X  /*		from all of these.					*/
+X  
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if ((!line) || (sscanf((char *) line, "DWIDTH %d %d", &wx, &wy) != 2)) {
+X  	    bdfError("bad 'DWIDTH'\n");
+X  	    goto BAILOUT;
+--- 355,361 ----
+X  /* 5/31/89 (ef) -- we should be able to ditch the character and recover */
+X  /*		from all of these.					*/
+X  
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if ((!line) || (sscanf((char *) line, "DWIDTH %d %d", &wx, &wy) != 2)) {
+X  	    bdfError("bad 'DWIDTH'\n");
+X  	    goto BAILOUT;
+***************
+*** 366,372 ****
+X  	    bdfError("DWIDTH y value must be zero\n");
+X  	    goto BAILOUT;
+X  	}
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if ((!line) || (sscanf((char *) line, "BBX %d %d %d %d", &bw, &bh, &bl, &bb) != 4)) {
+X  	    bdfError("bad 'BBX'\n");
+X  	    goto BAILOUT;
+--- 364,370 ----
+X  	    bdfError("DWIDTH y value must be zero\n");
+X  	    goto BAILOUT;
+X  	}
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if ((!line) || (sscanf((char *) line, "BBX %d %d %d %d", &bw, &bh, &bl, &bb) != 4)) {
+X  	    bdfError("bad 'BBX'\n");
+X  	    goto BAILOUT;
+***************
+*** 376,382 ****
+X  		     charName, bw, bh);
+X  	    goto BAILOUT;
+X  	}
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if ((line) && (bdfIsPrefix(line, "ATTRIBUTES"))) {
+X  	    for (p = line + strlen("ATTRIBUTES ");
+X  		    (*p == ' ') || (*p == '\t');
+--- 374,380 ----
+X  		     charName, bw, bh);
+X  	    goto BAILOUT;
+X  	}
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if ((line) && (bdfIsPrefix(line, "ATTRIBUTES"))) {
+X  	    for (p = line + strlen("ATTRIBUTES ");
+X  		    (*p == ' ') || (*p == '\t');
+***************
+*** 383,389 ****
+X  		    p++)
+X  		 /* empty for loop */ ;
+X  	    ci->metrics.attributes = bdfHexByte(p) << 8 + bdfHexByte(p + 2);
+! 	    line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	} else
+X  	    ci->metrics.attributes = 0;
+X  
+--- 381,387 ----
+X  		    p++)
+X  		 /* empty for loop */ ;
+X  	    ci->metrics.attributes = bdfHexByte(p) << 8 + bdfHexByte(p + 2);
+! 	    line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	} else
+X  	    ci->metrics.attributes = 0;
+X  
+***************
+*** 413,419 ****
+X  	} else
+X  	    bdfSkipBitmap(file, bh);
+X  
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);	/* get STARTCHAR or
+X  							 * ENDFONT */
+X      }
+X  
+--- 411,417 ----
+X  	} else
+X  	    bdfSkipBitmap(file, bh);
+X  
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);	/* get STARTCHAR or
+X  							 * ENDFONT */
+X      }
+X  
+***************
+*** 473,486 ****
+X      for (i = 0; i < 256; i++)
+X  	if (bdfEncoding[i])
+X  	    xfree(bdfEncoding[i]);
+!     for (i = 0; i < ndx; i++)
+! 	if (bitmapFont->metrics[i].bits)
+! 	    xfree(bitmapFont->metrics[i].bits);
+!     xfree(bitmapFont->metrics);
+!     if (bitmapExtra) {
+! 	xfree(bitmapExtra->glyphNames);
+! 	xfree(bitmapExtra->sWidths);
+!     }
+X      return (FALSE);
+X  }
+X  
+--- 471,477 ----
+X      for (i = 0; i < 256; i++)
+X  	if (bdfEncoding[i])
+X  	    xfree(bdfEncoding[i]);
+!     /* bdfFreeFontBits will clean up the rest */
+X      return (FALSE);
+X  }
+X  
+***************
+*** 492,513 ****
+X      bdfFileState *pState;
+X  {
+X      unsigned char *line;
+!     char        namebuf[BUFSIZ];
+X      int         tmp;
+!     char        lineBuf[BUFSIZ];
+X  
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      if (!line || sscanf((char *) line, "STARTFONT %s", namebuf) != 1 ||
+X  	    !bdfStrEqual(namebuf, "2.1")) {
+X  	bdfError("bad 'STARTFONT'\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      if (!line || sscanf((char *) line, "FONT %[^\n]", pState->fontName) != 1) {
+X  	bdfError("bad 'FONT'\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      if (!line || !bdfIsPrefix(line, "SIZE")) {
+X  	bdfError("missing 'SIZE'\n");
+X  	return (FALSE);
+--- 483,504 ----
+X      bdfFileState *pState;
+X  {
+X      unsigned char *line;
+!     char        namebuf[BDFLINELEN];
+X      int         tmp;
+!     char        lineBuf[BDFLINELEN];
+X  
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      if (!line || sscanf((char *) line, "STARTFONT %s", namebuf) != 1 ||
+X  	    !bdfStrEqual(namebuf, "2.1")) {
+X  	bdfError("bad 'STARTFONT'\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      if (!line || sscanf((char *) line, "FONT %[^\n]", pState->fontName) != 1) {
+X  	bdfError("bad 'FONT'\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      if (!line || !bdfIsPrefix(line, "SIZE")) {
+X  	bdfError("missing 'SIZE'\n");
+X  	return (FALSE);
+***************
+*** 522,528 ****
+X  	bdfError("SIZE values must be > 0\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      if (!line || !bdfIsPrefix(line, "FONTBOUNDINGBOX")) {
+X  	bdfError("missing 'FONTBOUNDINGBOX'\n");
+X  	return (FALSE);
+--- 513,519 ----
+X  	bdfError("SIZE values must be > 0\n");
+X  	return (FALSE);
+X      }
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      if (!line || !bdfIsPrefix(line, "FONTBOUNDINGBOX")) {
+X  	bdfError("missing 'FONTBOUNDINGBOX'\n");
+X  	return (FALSE);
+***************
+*** 542,555 ****
+X                  nextProp;
+X      char       *stringProps;
+X      FontPropPtr props;
+!     char        namebuf[BUFSIZ],
+!                 secondbuf[BUFSIZ],
+!                 thirdbuf[BUFSIZ];
+X      unsigned char *line;
+!     char        lineBuf[BUFSIZ];
+X      BitmapFontPtr  bitmapFont = (BitmapFontPtr) pFont->fontPrivate;
+X  
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      if (!line || !bdfIsPrefix(line, "STARTPROPERTIES")) {
+X  	bdfError(file, "missing 'STARTPROPERTIES'\n");
+X  	return (FALSE);
+--- 533,546 ----
+X                  nextProp;
+X      char       *stringProps;
+X      FontPropPtr props;
+!     char        namebuf[BDFLINELEN],
+!                 secondbuf[BDFLINELEN],
+!                 thirdbuf[BDFLINELEN];
+X      unsigned char *line;
+!     char        lineBuf[BDFLINELEN];
+X      BitmapFontPtr  bitmapFont = (BitmapFontPtr) pFont->fontPrivate;
+X  
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      if (!line || !bdfIsPrefix(line, "STARTPROPERTIES")) {
+X  	bdfError(file, "missing 'STARTPROPERTIES'\n");
+X  	return (FALSE);
+***************
+*** 577,583 ****
+X      }
+X      nextProp = 0;
+X      while (nProps-- > 0) {
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X  	if (line == NULL || bdfIsPrefix(line, "ENDPROPERTIES")) {
+X  	    bdfError("%d too few properites\n", nProps + 1);
+X  	    goto BAILOUT;
+--- 568,574 ----
+X      }
+X      nextProp = 0;
+X      while (nProps-- > 0) {
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X  	if (line == NULL || bdfIsPrefix(line, "ENDPROPERTIES")) {
+X  	    bdfError("%d too few properites\n", nProps + 1);
+X  	    goto BAILOUT;
+***************
+*** 600,605 ****
+--- 591,598 ----
+X  		stringProps[nextProp] = TRUE;
+X  		props[nextProp].value =
+X  		    bdfGetPropertyValue(line + strlen(namebuf) + 1);
++ 		if (!props[nextProp].value)
++ 		    goto BAILOUT;
+X  		break;
+X  	    } else if (bdfIsInteger(secondbuf)) {
+X  		stringProps[nextProp] = FALSE;
+***************
+*** 619,624 ****
+--- 612,619 ----
+X  		stringProps[nextProp] = TRUE;
+X  		props[nextProp].value =
+X  		    bdfGetPropertyValue(line + strlen(namebuf) + 1);
++ 		if (!props[nextProp].value)
++ 		    goto BAILOUT;
+X  		break;
+X  	    } else {
+X  		bdfError("invalid '%s' parameter value\n", namebuf);
+***************
+*** 635,642 ****
+X  	    nextProp++;
+X      }
+X  
+!     line = bdfGetLine(file, lineBuf, BUFSIZ);
+!     if (!bdfIsPrefix(line, "ENDPROPERTIES")) {
+X  	bdfError("missing 'ENDPROPERTIES'\n");
+X  	goto BAILOUT;
+X      }
+--- 630,637 ----
+X  	    nextProp++;
+X      }
+X  
+!     line = bdfGetLine(file, lineBuf, BDFLINELEN);
+!     if (!line || !bdfIsPrefix(line, "ENDPROPERTIES")) {
+X  	bdfError("missing 'ENDPROPERTIES'\n");
+X  	goto BAILOUT;
+X      }
+***************
+*** 717,723 ****
+X  	pFont->info.props = NULL;
+X      }
+X      while (line && bdfIsPrefix(line, "ENDPROPERTIES"))
+! 	line = bdfGetLine(file, lineBuf, BUFSIZ);
+X      return (FALSE);
+X  }
+X  
+--- 712,718 ----
+X  	pFont->info.props = NULL;
+X      }
+X      while (line && bdfIsPrefix(line, "ENDPROPERTIES"))
+! 	line = bdfGetLine(file, lineBuf, BDFLINELEN);
+X      return (FALSE);
+X  }
+X  
+***************
+*** 755,760 ****
+--- 750,757 ----
+X      bitmapFont->encoding = 0;
+X      bitmapFont->pDefault = NULL;
+X      bitmapFont->bitmapExtra = (BitmapExtraPtr) xalloc(sizeof(BitmapExtraRec));
++     bitmapFont->bitmapExtra->glyphNames = 0;
++     bitmapFont->bitmapExtra->sWidths = 0;
+X  
+X      if (!bdfReadProperties(file, pFont, &state))
+X  	goto BAILOUT;
+***************
+*** 763,771 ****
+X  	goto BAILOUT;
+X  
+X      if (state.haveDefaultCh) {
+! 	int         r,
+! 	            c,
+! 	            cols;
+X  
+X  	r = pFont->info.defaultCh >> 8;
+X  	c = pFont->info.defaultCh & 0xFF;
+--- 760,766 ----
+X  	goto BAILOUT;
+X  
+X      if (state.haveDefaultCh) {
+! 	unsigned int r, c, cols;
+X  
+X  	r = pFont->info.defaultCh >> 8;
+X  	c = pFont->info.defaultCh & 0xFF;
+***************
+*** 813,820 ****
+X      if (state.weightProp && (state.weightProp->value == -1))
+X  	state.weightProp->value = bitmapComputeWeight(pFont);
+X  
+-     pFont->get_bitmaps = bitmapGetBitmaps;
+-     pFont->get_extents = bitmapGetExtents;
+X      pFont->get_glyphs = bitmapGetGlyphs;
+X      pFont->get_metrics = bitmapGetMetrics;
+X      pFont->unload_font = bdfUnloadFont;
+--- 808,813 ----
+***************
+*** 829,842 ****
+--- 822,843 ----
+X      FontPtr pFont;
+X  {
+X      BitmapFontPtr  bitmapFont;
++     BitmapExtraPtr bitmapExtra;
+X      int         i;
+X  
+X      bitmapFont = (BitmapFontPtr) pFont->fontPrivate;
++     bitmapExtra = (BitmapExtraPtr) bitmapFont->bitmapExtra;
+X      xfree(bitmapFont->ink_metrics);
+X      xfree(bitmapFont->encoding);
+X      for (i = 0; i < bitmapFont->num_chars; i++)
+X  	xfree(bitmapFont->metrics[i].bits);
+X      xfree(bitmapFont->metrics);
++     if (bitmapExtra)
++     {
++ 	xfree (bitmapExtra->glyphNames);
++ 	xfree (bitmapExtra->sWidths);
++ 	xfree (bitmapExtra);
++     }
+X      xfree(pFont->info.props);
+X      xfree(bitmapFont);
+X  }
+*** /tmp/da26013	Tue Jul 14 18:03:58 1992
+--- mit/fonts/lib/font/bitmap/bdfutils.c	Tue Jul 14 18:03:57 1992
+***************
+*** 22,28 ****
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: bdfutils.c,v 1.3 91/07/17 20:43:53 rws Exp $ */
+X  
+X  #include <ctype.h>
+X  
+--- 22,28 ----
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: bdfutils.c,v 1.6 92/04/16 09:20:57 gildea Exp $ */
+X  
+X  #include <ctype.h>
+X  
+***************
+*** 85,91 ****
+X  /***====================================================================***/
+X  
+X  /*
+!  * read the next (non-comment) line and keep a count for error messages
+X   */
+X  
+X  unsigned char *
+--- 85,92 ----
+X  /***====================================================================***/
+X  
+X  /*
+!  * read the next (non-comment) line and keep a count for error messages.
+!  * Returns buf, or NULL if EOF.
+X   */
+X  
+X  unsigned char *
+***************
+*** 109,114 ****
+--- 110,117 ----
+X  	    *b++ = c;
+X  	}
+X  	*b = '\0';
++ 	if (c == FontFileEOF)
++ 	    return NULL;
+X  	if (b != buf && !bdfIsPrefix(buf, "COMMENT"))
+X  	    break;
+X      }
+***************
+*** 142,147 ****
+--- 145,151 ----
+X  {
+X      register char *p,
+X                 *pp;
++     char *orig_s = s;
+X      Atom        atom;
+X  
+X      /* strip leading white space */
+***************
+*** 148,154 ****
+X      while (*s && (*s == ' ' || *s == '\t'))
+X  	s++;
+X      if (*s == 0) {
+! 	return None;
+X      }
+X      if (*s != '"') {
+X  	pp = s;
+--- 152,158 ----
+X      while (*s && (*s == ' ' || *s == '\t'))
+X  	s++;
+X      if (*s == 0) {
+! 	return bdfForceMakeAtom(s, NULL);
+X      }
+X      if (*s != '"') {
+X  	pp = s;
+***************
+*** 167,178 ****
+X  	if (*s == '"') {
+X  	    if (*(s + 1) != '"') {
+X  		*p++ = 0;
+! 		if (strlen(pp)) {
+! 		    atom = bdfForceMakeAtom(pp, NULL);
+! 		} else {
+! 		    atom = None;
+! 		}
+! 		free(pp);
+X  		return atom;
+X  	    } else {
+X  		s++;
+--- 171,178 ----
+X  	if (*s == '"') {
+X  	    if (*(s + 1) != '"') {
+X  		*p++ = 0;
+! 		atom = bdfForceMakeAtom(pp, NULL);
+! 		xfree(pp);
+X  		return atom;
+X  	    } else {
+X  		s++;
+***************
+*** 180,185 ****
+--- 180,187 ----
+X  	}
+X  	*p++ = *s++;
+X      }
++     xfree (pp);
++     bdfError("unterminated quoted string property: %s\n", orig_s);
+X      return None;
+X  }
+X  
+*** /tmp/da26100	Tue Jul 14 18:04:06 1992
+--- mit/fonts/lib/font/bitmap/bitscale.c	Tue Jul 14 18:04:05 1992
+***************
+*** 1,5 ****
+X  /*
+!  * $XConsortium: bitscale.c,v 1.9 91/07/22 20:46:06 keith Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+--- 1,5 ----
+X  /*
+!  * $XConsortium: bitscale.c,v 1.11 92/05/12 18:07:44 gildea Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+***************
+*** 241,253 ****
+X  	    }
+X  	}
+X      }
+!     if (best_scaled)
+!     {
+! 	*best = best_scaled->vals;
+! 	*fpep = best_fpe;
+! 	*dxp = best_dx;
+! 	*dyp = best_dy;
+!     }
+X      return best_scaled->bitmap;
+X  }
+X  
+--- 241,253 ----
+X  	    }
+X  	}
+X      }
+!     if (!best_scaled)
+! 	return NULL;
+! 
+!     *best = best_scaled->vals;
+!     *fpep = best_fpe;
+!     *dxp = best_dx;
+!     *dyp = best_dy;
+X      return best_scaled->bitmap;
+X  }
+X  
+***************
+*** 434,441 ****
+X      pf->glyph = opf->glyph;
+X      pf->scan = opf->scan;
+X  
+-     pf->get_bitmaps = bitmapGetBitmaps;
+-     pf->get_extents = bitmapGetExtents;
+X      pf->get_glyphs = bitmapGetGlyphs;
+X      pf->get_metrics = bitmapGetMetrics;
+X      pf->unload_font = bitmapUnloadScalable;
+--- 434,439 ----
+***************
+*** 479,486 ****
+X      pfi->anamorphic = FALSE;
+X      if (heightMult != widthMult)
+X  	pfi->anamorphic = TRUE;
+!     pfi->fontDescent *= heightMult;
+!     pfi->fontAscent *= heightMult;
+X      pfi->minbounds.leftSideBearing = MAXSHORT;
+X      pfi->minbounds.rightSideBearing = MAXSHORT;
+X      pfi->minbounds.ascent = MAXSHORT;
+--- 477,487 ----
+X      pfi->anamorphic = FALSE;
+X      if (heightMult != widthMult)
+X  	pfi->anamorphic = TRUE;
+! 
+!     newHeight = (opfi->fontAscent + opfi->fontDescent) * heightMult;
+!     pfi->fontAscent = opfi->fontAscent * heightMult;
+!     pfi->fontDescent = newHeight - pfi->fontAscent;
+! 
+X      pfi->minbounds.leftSideBearing = MAXSHORT;
+X      pfi->minbounds.rightSideBearing = MAXSHORT;
+X      pfi->minbounds.ascent = MAXSHORT;
+***************
+*** 616,621 ****
+--- 617,623 ----
+X  	    	glyphBytes += BYTES_FOR_GLYPH(pci, glyph);
+X  	    }
+X      	}
++ 	FontComputeInfoAccelerators (pfi);
+X      	xfree(scratch);
+X      }
+X  
+***************
+*** 728,735 ****
+X      if (pink) {
+X  	pink->leftSideBearing = MAXSHORT;
+X  	pink->rightSideBearing = MINSHORT;
+! 	pink->ascent = 0;
+! 	pink->descent = 0;
+X  	pink->characterWidth = pci->metrics.characterWidth;
+X  	pink->attributes = pci->metrics.attributes;
+X      }
+--- 730,737 ----
+X      if (pink) {
+X  	pink->leftSideBearing = MAXSHORT;
+X  	pink->rightSideBearing = MINSHORT;
+! 	pink->ascent = MINSHORT;
+! 	pink->descent = MINSHORT;
+X  	pink->characterWidth = pci->metrics.characterWidth;
+X  	pink->attributes = pci->metrics.attributes;
+X      }
+***************
+*** 851,866 ****
+X  		if (newHeight >= pink->ascent)
+X  		    pink->ascent = newHeight;
+X  		pink->descent = newHeight;
+X  	    }
+- 	    newBit = pci->metrics.leftSideBearing + newWidth - newBit - 1;
+- 	    if (newBit < pink->leftSideBearing)
+- 		pink->leftSideBearing = newBit;
+X  	    for (acc = scratch + newWidth, newBit = newWidth;
+X  		    --newBit >= 0 && *--acc >= 0;
+X  		);
+! 	    newBit = pci->metrics.leftSideBearing + newBit + 1;
+! 	    if (newBit > pink->rightSideBearing)
+! 		pink->rightSideBearing = newBit;
+X  	}
+X      }
+X  #define MINMAX(field) \
+--- 853,871 ----
+X  		if (newHeight >= pink->ascent)
+X  		    pink->ascent = newHeight;
+X  		pink->descent = newHeight;
++ 		newBit = pci->metrics.leftSideBearing + newWidth - newBit - 1;
++ 		if (newBit < pink->leftSideBearing)
++ 		    pink->leftSideBearing = newBit;
+X  	    }
+X  	    for (acc = scratch + newWidth, newBit = newWidth;
+X  		    --newBit >= 0 && *--acc >= 0;
+X  		);
+! 	    if (newBit >= 0)
+! 	    {
+! 	    	newBit = pci->metrics.leftSideBearing + newBit + 1;
+! 	    	if (newBit > pink->rightSideBearing)
+! 		    pink->rightSideBearing = newBit;
+! 	    }
+X  	}
+X      }
+X  #define MINMAX(field) \
+***************
+*** 870,875 ****
+--- 875,889 ----
+X  	pFont->info.ink_maxbounds.field = pink->field
+X  
+X      if (pink) {
++ 	if (pink->ascent == MINSHORT)
++ 	{
++ 	    /* hack to make computation below work */
++ 	    pink->ascent = pci->metrics.descent;
++ 	    /* these would also have not been set as this character is empty */
++ 	    pink->descent = pink->ascent + 1;
++ 	    pink->leftSideBearing = 0;
++ 	    pink->rightSideBearing = 0;
++ 	}
+X  	height = pink->ascent - pink->descent + 1;
+X  	pink->ascent = pci->metrics.ascent -
+X  	    (GLYPHHEIGHTPIXELS(pci) - pink->ascent);
+***************
+*** 1045,1050 ****
+--- 1059,1066 ----
+X  
+X      propCount = ComputeScaledProperties (&scaleInfo, fontName->name, vals, dx, dy,
+X  					&props, &isStringProp);
++     xfree (scaleInfo.isStringProp);
++     xfree (scaleInfo.props);
+X      if (propCount && (!props || !isStringProp))
+X  	return AllocError;
+X  
+*** /tmp/da26164	Tue Jul 14 18:04:13 1992
+--- mit/fonts/lib/font/bitmap/pcfread.c	Tue Jul 14 18:04:12 1992
+***************
+*** 1,5 ****
+X  /*
+!  * $XConsortium: pcfread.c,v 1.7 91/07/22 22:58:57 keith Exp $
+X   *
+X   * Copyright 1990 Massachusetts Institute of Technology
+X   *
+--- 1,5 ----
+X  /*
+!  * $XConsortium: pcfread.c,v 1.10 92/05/12 18:07:47 gildea Exp $
+X   *
+X   * Copyright 1990 Massachusetts Institute of Technology
+X   *
+***************
+*** 169,175 ****
+X      for (i = 0; i < ntables; i++)
+X  	if (tables[i].type == type) {
+X  	    if (position > tables[i].offset)
+! 		abort ();
+X  	    if (!FontFileSkip(file, tables[i].offset - position))
+X  		return FALSE;
+X  	    position = tables[i].offset;
+--- 169,175 ----
+X      for (i = 0; i < ntables; i++)
+X  	if (tables[i].type == type) {
+X  	    if (position > tables[i].offset)
+! 		return FALSE;
+X  	    if (!FontFileSkip(file, tables[i].offset - position))
+X  		return FALSE;
+X  	    position = tables[i].offset;
+***************
+*** 348,360 ****
+X      CharInfoPtr metrics = 0;
+X      xCharInfo  *ink_metrics = 0;
+X      char       *bitmaps = 0;
+!     CharInfoPtr *encoding;
+X      int         nencoding;
+X      int         encodingOffset;
+X      CARD32      bitmapSizes[GLYPHPADOPTIONS];
+!     CARD32     *offsets;
+X      Bool	hasBDFAccelerators;
+X  
+X      if (!(tables = pcfReadTOC(file, &ntables)))
+X  	goto Bail;
+X  
+--- 348,361 ----
+X      CharInfoPtr metrics = 0;
+X      xCharInfo  *ink_metrics = 0;
+X      char       *bitmaps = 0;
+!     CharInfoPtr *encoding = 0;
+X      int         nencoding;
+X      int         encodingOffset;
+X      CARD32      bitmapSizes[GLYPHPADOPTIONS];
+!     CARD32     *offsets = 0;
+X      Bool	hasBDFAccelerators;
+X  
++     pFont->info.props = 0;
+X      if (!(tables = pcfReadTOC(file, &ntables)))
+X  	goto Bail;
+X  
+***************
+*** 557,564 ****
+X      }
+X      bitmapFont->bitmapExtra = (BitmapExtraPtr) 0;
+X      pFont->fontPrivate = (pointer) bitmapFont;
+-     pFont->get_bitmaps = bitmapGetBitmaps;
+-     pFont->get_extents = bitmapGetExtents;
+X      pFont->get_glyphs = bitmapGetGlyphs;
+X      pFont->get_metrics = bitmapGetMetrics;
+X      pFont->unload_font = pcfUnloadFont;
+--- 558,563 ----
+***************
+*** 572,577 ****
+--- 571,577 ----
+X      xfree(ink_metrics);
+X      xfree(encoding);
+X      xfree(bitmaps);
++     xfree(offsets);
+X      xfree(metrics);
+X      xfree(pFont->info.props);
+X      pFont->info.props = 0;
+***************
+*** 592,597 ****
+--- 592,600 ----
+X      int         nencoding;
+X      Bool	hasBDFAccelerators;
+X  
++     pFontInfo->isStringProp = NULL;
++     pFontInfo->props = NULL;
++ 
+X      if (!(tables = pcfReadTOC(file, &ntables)))
+X  	goto Bail;
+X  
+***************
+*** 639,644 ****
+--- 642,649 ----
+X      xfree(tables);
+X      return Successful;
+X  Bail:
++     xfree (pFontInfo->props);
++     xfree (pFontInfo->isStringProp);
+X      xfree(tables);
+X      return AllocError;
+X  }
+*** /tmp/da26186	Tue Jul 14 18:04:15 1992
+--- mit/fonts/lib/font/bitmap/snfread.c	Tue Jul 14 18:04:14 1992
+***************
+*** 22,28 ****
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: snfread.c,v 1.10 91/07/22 22:59:00 keith Exp $ */
+X  
+X  #include <ctype.h>
+X  #include "fontfilest.h"
+--- 22,28 ----
+X  
+X  ************************************************************************/
+X  
+! /* $XConsortium: snfread.c,v 1.11 92/05/12 18:07:49 gildea Exp $ */
+X  
+X  #include <ctype.h>
+X  #include "fontfilest.h"
+***************
+*** 358,365 ****
+X      }
+X      bitmapFont->bitmapExtra = (BitmapExtraPtr) 0;
+X      pFont->fontPrivate = (pointer) bitmapFont;
+-     pFont->get_bitmaps = bitmapGetBitmaps;
+-     pFont->get_extents = bitmapGetExtents;
+X      pFont->get_glyphs = bitmapGetGlyphs;
+X      pFont->get_metrics = bitmapGetMetrics;
+X      pFont->unload_font = snfUnloadFont;
+--- 358,363 ----
+*** /tmp/da26443	Tue Jul 14 18:04:39 1992
+--- mit/fonts/lib/font/util/format.c	Tue Jul 14 18:04:38 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: format.c,v 1.2 91/05/13 16:38:48 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: format.c,v 1.3 92/04/15 16:16:08 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 20,28 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)format.c	4.1	91/05/02
+-  *
+X   */
+X  
+X  #include	"FSproto.h"
+--- 20,25 ----
+***************
+*** 29,39 ****
+X  #include	"font.h"
+X  
+X  int
+! CheckFSFormat(format, fmask, bit, byte, scan, glyph, image)
+X      fsBitmapFormat format;
+X      fsBitmapFormatMask fmask;
+!     int        *bit,
+!                *byte,
+X                 *scan,
+X                 *glyph,
+X                 *image;
+--- 26,36 ----
+X  #include	"font.h"
+X  
+X  int
+! CheckFSFormat(format, fmask, bit_order, byte_order, scan, glyph, image)
+X      fsBitmapFormat format;
+X      fsBitmapFormatMask fmask;
+!     int        *bit_order,
+!                *byte_order,
+X                 *scan,
+X                 *glyph,
+X                 *image;
+***************
+*** 40,51 ****
+X  {
+X      /* convert format to what the low levels want */
+X      if (fmask & BitmapFormatMaskBit) {
+! 	*bit = format & BitmapFormatBitOrderMask;
+! 	*bit = (*bit == BitmapFormatBitOrderMSB) ? MSBFirst : LSBFirst;
+X      }
+X      if (fmask & BitmapFormatMaskByte) {
+! 	*byte = format & BitmapFormatByteOrderMask;
+! 	*byte = (*byte == BitmapFormatByteOrderMSB) ? MSBFirst : LSBFirst;
+X      }
+X      if (fmask & BitmapFormatMaskScanLineUnit) {
+X  	*scan = format & BitmapFormatScanlineUnitMask;
+--- 37,50 ----
+X  {
+X      /* convert format to what the low levels want */
+X      if (fmask & BitmapFormatMaskBit) {
+! 	*bit_order = format & BitmapFormatBitOrderMask;
+! 	*bit_order = (*bit_order == BitmapFormatBitOrderMSB)
+! 	    	     ? MSBFirst : LSBFirst;
+X      }
+X      if (fmask & BitmapFormatMaskByte) {
+! 	*byte_order = format & BitmapFormatByteOrderMask;
+! 	*byte_order = (*byte_order == BitmapFormatByteOrderMSB)
+! 	    	      ? MSBFirst : LSBFirst;
+X      }
+X      if (fmask & BitmapFormatMaskScanLineUnit) {
+X  	*scan = format & BitmapFormatScanlineUnitMask;
+*** /tmp/da26570	Tue Jul 14 18:04:50 1992
+--- mit/fonts/lib/font/util/Imakefile	Tue Jul 14 18:04:49 1992
+***************
+*** 1,4 ****
+! XCOMM $XConsortium: Imakefile,v 1.8 91/10/18 11:22:58 keith Exp $
+X  #include <Server.tmpl>
+X  
+X          INCLUDES = -I$(FONTSRC)/include -I../include -I$(FONTSERVERSRC)/include
+--- 1,4 ----
+! XCOMM $XConsortium: Imakefile,v 1.9 92/05/15 11:15:42 gildea Exp $
+X  #include <Server.tmpl>
+X  
+X          INCLUDES = -I$(FONTSRC)/include -I../include -I$(FONTSERVERSRC)/include
+***************
+*** 7,16 ****
+X       FORMAT_DEFS = FontFormatDefines
+X  #endif
+X              SRCS = bitmaputil.c fontnames.c fontutil.c fontxlfd.c format.c \
+! 		   fontaccel.c atom.c miscutil.c private.c patcache.c fsfuncs.c
+X  
+X              OBJS = bitmaputil.o fontnames.o fontutil.o fontxlfd.o format.o \
+! 		   fontaccel.o atom.o miscutil.o private.o patcache.o fsfuncs.o
+X  
+X  SubdirLibraryRule($(OBJS))
+X  NormalLibraryObjectRule()
+--- 7,16 ----
+X       FORMAT_DEFS = FontFormatDefines
+X  #endif
+X              SRCS = bitmaputil.c fontnames.c fontutil.c fontxlfd.c format.c \
+! 		   fontaccel.c atom.c miscutil.c private.c patcache.c
+X  
+X              OBJS = bitmaputil.o fontnames.o fontutil.o fontxlfd.o format.o \
+! 		   fontaccel.o atom.o miscutil.o private.o patcache.o
+X  
+X  SubdirLibraryRule($(OBJS))
+X  NormalLibraryObjectRule()
+*** /tmp/da26634	Tue Jul 14 18:04:56 1992
+--- mit/fonts/lib/font/util/patcache.c	Tue Jul 14 18:04:56 1992
+***************
+*** 1,5 ****
+X  /*
+!  * $XConsortium: patcache.c,v 1.2 91/06/14 10:58:11 rws Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+--- 1,5 ----
+X  /*
+!  * $XConsortium: patcache.c,v 1.3 92/03/23 16:46:12 keith Exp $
+X   *
+X   * Copyright 1991 Massachusetts Institute of Technology
+X   *
+***************
+*** 63,73 ****
+X      if (!cache)
+X  	return 0;
+X      for (i = 0; i < NENTRIES; i++)
+-     {
+- 	cache->entries[i].patlen = 0;
+X  	cache->entries[i].pattern = 0;
+- 	cache->entries[i].pFont = 0;
+-     }
+X      EmptyFontPatternCache (cache);
+X      return cache;
+X  }
+--- 63,69 ----
+***************
+*** 113,118 ****
+--- 109,117 ----
+X  	cache->entries[i].next = &cache->entries[i+1];
+X  	cache->entries[i].prev = 0;
+X  	cache->entries[i].pFont = 0;
++ 	xfree (cache->entries[i].pattern);
++ 	cache->entries[i].pattern = 0;
++ 	cache->entries[i].patlen = 0;
+X      }
+X      cache->free = &cache->entries[0];
+X      cache->entries[i].next = 0;
+*** /tmp/da26702	Tue Jul 14 18:05:05 1992
+--- mit/fonts/lib/font/fc/fserve.c	Tue Jul 14 18:05:03 1992
+***************
+*** 1,30 ****
+! /* $XConsortium: fserve.c,v 1.14 91/07/26 20:59:30 keith Exp $ */
+X  /*
+-  *
+X   * Copyright 1990 Network Computing Devices
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and its
+!  * documentation for any purpose is hereby granted without fee, provided that
+!  * the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+!  * documentation, and that the name of Network Computing Devices not be
+!  * used in advertising or publicity pertaining to distribution of the
+!  * software without specific, written prior permission.  Network Computing
+!  * Devices makes no representations about the suitability of this software
+!  * for any purpose.  It is provided "as is" without express or implied
+!  * warranty.
+X   *
+!  * NETWORK COMPUTING DEVICES DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+!  * SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS,
+!  * IN NO EVENT SHALL NETWORK COMPUTING DEVICES BE LIABLE FOR ANY SPECIAL,
+!  * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+!  * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+!  * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
+!  * OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+-  *
+-  * $NCDId: @(#)fserve.c,v 1.19 1991/07/10 14:20:31 lemke Exp $
+X   */
+X  /*
+X   * font server specific font access
+--- 1,25 ----
+! /* $XConsortium: fserve.c,v 1.25 92/07/09 16:08:03 gildea Exp $ */
+X  /*
+X   * Copyright 1990 Network Computing Devices
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+!  * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+!  * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   *
+X   * Author:  	Dave Lemke, Network Computing Devices, Inc
+X   */
+X  /*
+X   * font server specific font access
+***************
+*** 43,52 ****
+--- 38,57 ----
+X  #include	<ncd/nvram.h>
+X  #endif
+X  
++ #ifndef NULL
++ #define NULL 0
++ #endif
++ 
+X  #ifndef MIN
+X  #define MIN(a,b)    ((a)<(b)?(a):(b))
+X  #endif
+X  
++ #define NONZEROMETRICS(pci) ((pci)->leftSideBearing || \
++ 			     (pci)->rightSideBearing || \
++ 			     (pci)->ascent || \
++ 			     (pci)->descent || \
++ 			     (pci)->characterWidth)
+SHAR_EOF
+true || echo 'restore of fix-13 failed'
+fi
+echo 'End of  part 1'
+echo 'File fix-13 is continued in part 2'
+echo 2 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

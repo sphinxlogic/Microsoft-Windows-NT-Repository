@@ -1,0 +1,1803 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 6/8
+Message-ID: <1992Apr12.182135.15503@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:35 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1792
+
+Archive-name: empireclient_110/part6
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 6 -+-+-+-+-+-+-+-+
+X    vars`091V_BADDES`093.len = 0;
+X
+X    for (i = 0; i < database -> count; i++) `123
+X`009int X = database -> sectors`091i`093`091F_x`093.U_num;
+X`009int Y = database -> sectors`091i`093`091F_y`093.U_num;
+X
+X`009int yes = 0;
+X`009int dir;
+X`009int comm,peff;
+X
+X`009if (X == UNKNOWN_num `124`124 Y == UNKNOWN_num) continue;
+X
+X`009if (check_desig(database -> sectors`091i`093,&comm, &peff) > 0)`032
+X`009    yes = peff <= 5;
+X
+X`009if (yes) add_to_var_i(V_BADDES,X,Y);
+X    `125
+X`125
+X
+Xstatic int init_var(int *var,char *buffer)
+X`123
+X    int flag = 0;
+X
+X    *var = -1;
+X    if (*buffer == '=') flag = 1;
+X    else if (*buffer == '+') flag = -1;
+X    if (flag == 0) return 0;
+X
+X    buffer++;   `032
+X    if(sscanf(buffer,"$%d",var) != 1 `124`124
+X`009    *var < 0 `124`124 *var >= MAX_VARS) `123
+X`009write_line("Not such variable",E_tool,buffer);
+X`009return -1;
+X    `125
+X
+X    if (flag == 1) clear_var(*var);`032
+X    return 1;
+X`125
+X
+Xstatic int CompSect(sector_data *Sector1,sector_data *Sector2)
+X`123
+X    if ((*Sector1)`091F_y`093.U_num < (*Sector2)`091F_y`093.U_num) return -1
+V;
+X    if ((*Sector1)`091F_y`093.U_num > (*Sector2)`091F_y`093.U_num) return 1;
+X    if ((*Sector1)`091F_x`093.U_num < (*Sector2)`091F_x`093.U_num) return -1
+V;
+X    if ((*Sector1)`091F_x`093.U_num > (*Sector2)`091F_x`093.U_num) return 1;
+X    return 0;
+X`125
+X
+Xstatic void sort_database(sectors *database)
+X`123
+X    qsort(database -> sectors,database -> count,
+X`009sizeof(sector_data),CompSect);
+X`125
+X
+Xstatic sector_data *Locate(sectors *database,int x, int y)
+X`123
+X    sector_data Key;
+X    Key`091F_y`093.U_num = y;
+X    Key`091F_x`093.U_num = x;
+X    return bsearch(&Key,database -> sectors,database -> count,
+X`009sizeof(sector_data),CompSect);
+X`125
+X
+Xstatic sector_data *LocateNoSort(sectors *database,int x, int y)
+X`123  `032
+X    int i;
+X    for (i = 0; i <= database -> count; i++) `123
+X`009if (database -> sectors`091i`093`091F_x`093.U_num == x &&
+X`009    database -> sectors`091i`093`091F_y`093.U_num == y)
+X`009    return &database -> sectors`091i`093;
+X    `125
+X    return NULL;
+X`125
+X
+X#define UNKNOWN_text "?"
+X
+Xstatic void Text(sector_data *Sector, dump_fields Field, char *buffer)
+X`123
+X    switch (field_types`091Field`093) `123
+X`009case DF_num:
+X`009    if ((*Sector)`091Field`093.U_num == UNKNOWN_num)
+X`009`009strcpy(buffer,UNKNOWN_text);
+X`009    else sprintf(buffer,"%d",(*Sector)`091Field`093.U_num);
+X`009    break;
+X`009case DF_string:
+X`009    if ((*Sector)`091Field`093.U_string == UNKNOWN_string)
+X`009`009strcpy(buffer,UNKNOWN_text);
+X`009    else sprintf(buffer,"%s",refer_str_field(Sector,Field));
+X`009break;`009`009   `032
+X`009case DF_bool:
+X`009    if ((*Sector)`091Field`093.U_bool == UNKNOWN_bool)`032
+X`009`009strcpy(buffer,UNKNOWN_text);
+X`009    else if ((*Sector)`091Field`093.U_bool) strcpy(buffer,"*");
+X`009    else strcpy(buffer,".");
+X`009break;
+X`009case DF_char:
+X`009    if ((*Sector)`091Field`093.U_char == UNKNOWN_char)
+X`009`009strcpy(buffer,UNKNOWN_text);
+X`009    else sprintf(buffer,"%c",(*Sector)`091Field`093.U_char);
+X`009break;
+X    `125
+X`125
+X
+Xtypedef selector`091MAX_SECTORS`093;
+X
+Xstatic int cutarg(char **ptr,char *buffer) /* get one field from line */
+X`123
+X    char *prev = buffer;
+X    while (*(*ptr) == '&' `124`124
+X`009*(*ptr) == '#' `124`124`032
+X`009*(*ptr) == '<' `124`124
+X`009*(*ptr) == '>' `124`124
+X`009*(*ptr) == '=') (*ptr)++;
+X    while (*(*ptr) != '=' &&
+X`009*(*ptr) != '&' &&
+X`009*(*ptr) != '#' &&
+X`009*(*ptr) != '<' &&
+X`009*(*ptr) != '>' &&
+X`009*(*ptr) != '\0') *buffer++ = *(*ptr)++;
+X    *buffer = '\0';
+X
+X#ifdef ARGDEBUG
+X    printf("cutarg = %d: %s\n        > %s\n",prev != buffer,prev,*ptr);
+X#endif
+X
+X    return prev != buffer;
+X`125
+X
+Xstatic int cutoper(char **ptr,char *buffer) /* get one operator */
+X`123
+X    char *prev = buffer;
+X    while (*(*ptr) == '=' `124`124
+X`009*(*ptr) == '#' `124`124
+X`009*(*ptr) == '<' `124`124
+X`009*(*ptr) == '>') *buffer++ = *(*ptr)++;
+X    *buffer = '\0';
+X
+X#ifdef ARGDEBUG
+X    printf("cutoper = %d: %s\n        > %s\n",prev != buffer,prev,*ptr);
+X#endif
+X
+X    return prev != buffer;
+X`125
+X
+Xstatic void steparg(char **ptr)
+X`123
+X    while (*(*ptr) != '&' && *(*ptr) != '\0') (*ptr)++;
+X
+X#ifdef ARGDEBUG
+X    printf("steparg > %s\n",*ptr);
+X#endif
+X
+X`125
+X
+Xstatic int cutorarg(char **ptr,char *buffer) /* get one field from line */
+X`123
+X    char *prev = buffer;
+X    while (*(*ptr) == '`124') (*ptr)++;
+X    while (*(*ptr) != '`124' &&
+X`009*(*ptr) != '\0') *buffer++ = *(*ptr)++;
+X    *buffer = '\0';
+X
+X#ifdef ARGDEBUG
+X    printf("cutorarg = %d: %s\n        > %s\n",prev != buffer,prev,*ptr);
+X#endif
+X
+X    return prev != buffer;
+X`125
+X
+Xstatic int cutoroper(char **ptr,char *buffer) /* get one operator */
+X`123
+X    char *prev = buffer;
+X    while (*(*ptr) == '`124') *buffer++ = *(*ptr)++;
+X    *buffer = '\0';
+X
+X#ifdef ARGDEBUG
+X    printf("cutoroper = %d: %s\n        > %s\n",prev != buffer,prev,*ptr);
+X#endif
+X
+X    return prev != buffer;
+X`125
+X
+Xstatic void steporarg(char **ptr)
+X`123
+X    while (*(*ptr) != '`124' && *(*ptr) != '\0') (*ptr)++;
+X
+X#ifdef ARGDEBUG
+X    printf("steporarg > %s\n",*ptr);
+X#endif
+X`125
+X
+X#define FUNCHAR(c) ( (c) >= 'a' && (c) <= 'z' `124`124 \
+X`009`009     (c) >= 'A' && (c) <= 'Z' `124`124 \
+X`009`009     (c) == ':' `124`124 (c) == '_' `124`124 \
+X`009`009     (c) >= '0' && (c) <= '9' )
+X
+X
+Xstatic int cutexptoken(char **ptr,char *buffer,
+X`009`009       char *lbuffer) /* get expression token */
+X`123
+X    char *prev = buffer;
+X    while (*(*ptr) != '\0') `123
+X`009unsigned char C = *(*ptr)++;
+X`009*buffer++ = C;
+X`009if (C >= 'A' && C <= 'Z') C = C - 'A' + 'a';
+X`009*lbuffer++ = C;
+X`009if (!FUNCHAR(C)) break;
+X`009if (!FUNCHAR(**ptr))  break;
+X    `125
+X
+X    *buffer = '\0';
+X    *lbuffer = '\0';
+X
+X#ifdef ARGDEBUG
+X    printf("cutexptoken = %d: %s\n        > %s\n",prev != buffer,prev,*ptr);
+X#endif
+X
+X    return prev != buffer;
+X`125
+X
+X
+Xstatic void InitSelector(selector table)
+X`123
+X    int i;
+X    for (i = 0; i < MAX_SECTORS; i++) table`091i`093 = 1;
+X`125
+X
+Xstatic int BaseCord(int *xmin,int *xmax, int *ymin, int *ymax, char *Sel,
+X    int silent)
+X`123
+X   char *ptr;
+X   char *X=NULL,*Y=NULL;
+X   char buffer`091TERM_LEN`093;
+X
+X   if (!strcmp(Sel,"*")) return 1;
+X   `032
+X   strcpy(buffer,Sel);
+X   ptr = strchr(buffer,',');
+X   if(!ptr) `123
+X`009if (!silent) write_line("Bad sector specification",E_tool,Sel);
+X`009return 0;
+X    `125
+X    *ptr = '\0';
+X    X = buffer; Y = ptr+1;
+X
+X    /* Handle X */
+X    if (!strcmp(X,"*")) /* OK */ ;
+X    else `123
+X`009switch(sscanf(X,"%d:%d",xmin,xmax)) `123
+X`009    case 0:
+X`009`009if (!silent) write_line("Bad sector specification",E_tool,X);
+X`009`009return 0;
+X`009`009break;
+X`009    case 1:
+X`009`009*xmax = *xmin;
+X`009`009break;
+X`009    case 2:
+X`009`009/* OK */
+X`009`009break;
+X`009`125
+X    `125
+X   `032
+X    /* Handle Y */
+X    if (!strcmp(Y,"*")) /* OK */ ;
+X    else `123
+X`009switch(sscanf(Y,"%d:%d",ymin,ymax)) `123
+X`009    case 0:
+X`009`009if (!silent) write_line("Bad sector specification",E_tool,Y);
+X`009`009return 0;
+X`009`009break;
+X`009    case 1:
+X`009`009*ymax = *ymin;
+X`009`009break;
+X`009    case 2:
+X`009`009/* OK */
+X`009`009break;
+X`009`125
+X    `125
+X    return 1; /* ok */
+X
+X`125
+X
+Xstatic int Base(sectors *database, selector table, char *Sel)
+X`123
+X    int xmin = -9999, xmax = 9999;
+X    int ymin = -9999, ymax = 9999;
+X    int i,var = -1;
+X
+X    if (*Sel == '$')
+X    `123
+X`009if ((var = parse_var(Sel,database)) <0) return 0;
+X
+X`009for (i = 0; i < database -> count; i++)
+X`009    if (!is_in_var(var,
+X`009`009database -> sectors`091i`093`091F_x`093.U_num,
+X`009`009database -> sectors`091i`093`091F_y`093.U_num))
+X`009`009    table`091i`093 = 0;  `032
+X`009return 1;
+X    `125
+X
+X    if (!BaseCord(&xmin,&xmax,&ymin,&ymax,Sel,0)) return 0;
+X`032
+X    for (i = 0; i < database -> count; i++)
+X`009if( database -> sectors`091i`093`091F_x`093.U_num < xmin `124`124
+X`009    database -> sectors`091i`093`091F_x`093.U_num > xmax `124`124
+X`009    database -> sectors`091i`093`091F_y`093.U_num < ymin `124`124
+X`009    database -> sectors`091i`093`091F_y`093.U_num > ymax)
+X`009`009table`091i`093 = 0;
+X    return 1;
+X`125
+X
+X#define EXPRESSION_MAX 20
+X
+Xtypedef enum exp_oper `123 E_plus = 0, E_minus, E_mul, E_div, E_funcall,
+X`009`009`009E_field, E_num, OPER_MAX `125 exp_oper;
+X
+X#define OPER_LIMIT E_funcall
+Xtypedef struct exp `123
+X    int count;
+X    struct exp_elem `123
+X`009exp_oper F;
+X`009int L,R; `125 elems`091EXPRESSION_MAX`093;
+X`009`125 expression;
+X
+Xtypedef int expression_func (sector_data *sector);
+X
+Xint EX_needfood(sector_data *sector)
+X`123
+X    int L;
+X    if (!check_food(sector,&L)) return UNKNOWN_num;
+X    if (L > 0) return 0;
+X    return -L;
+X`125
+X
+Xint EX_foodleft(sector_data *sector)
+X`123
+X    int L;
+X    if (!check_food(sector,&L)) return UNKNOWN_num;
+X    if (L < 0) return 0;
+X    return L;
+X`125
+X
+Xint EX_proeff(sector_data *sector)
+X`123
+X    int C,E;
+X    if (!check_desig(sector,&C,&E) <= 0) return UNKNOWN_num;
+X    return C;
+X`125
+X
+Xint EX_newciv(sector_data *sector)
+X`123
+X    int civ,uw;
+X    if (!check_baby(sector,&civ,&uw)) return UNKNOWN_num;
+X    return civ;
+X`125
+X
+Xint EX_newuw(sector_data *sector)
+X`123
+X    int civ,uw;
+X    if (!check_baby(sector,&civ,&uw)) return UNKNOWN_num;
+X    return uw;
+X`125
+X
+X
+Xstatic struct funcs `123
+X    char *name;
+X    expression_func *func;
+X    `125 exp_functions`091`093 = `123 `123 "needfood", EX_needfood `125,
+X`009`009`009  `123 "foodleft", EX_foodleft `125,
+X`009`009`009  `123 "proeff",`009EX_proeff `125,
+X`009`009`009  `123 "newciv",`009EX_newciv `125,
+X`009`009`009  `123 "newuw",`009EX_newuw `125,
+X`009`009`009`125;
+X
+Xstatic int MatchFunc(char *buffer)
+X`123  `032
+X    int j;
+X    int match = -1,refer = -1;
+X    int count = 0;
+X    for (j = 0; j < sizeof(exp_functions) / sizeof(struct funcs); j++) `123
+X`009if (!strcmp(exp_functions`091j`093.name,buffer)) match = j;
+X`009if (strstr(exp_functions`091j`093.name,buffer) == exp_functions`091j`093
+V.name) `123
+X`009    refer = j;
+X`009    count++;
+X`009`125
+X    `125
+X    if (match != -1) return match;
+X    if (count > 1) `123
+X`009write_line("Ambiguous function",E_tool,buffer);
+X`009return -1;
+X    `125
+X    if (count == 0) `123
+X`009write_line("Unknown function",E_tool,buffer);
+X`009return -1;
+X    `125
+X    return refer;
+X`125
+X
+Xstatic int add_to_expression(expression *E,
+X`009exp_oper F, int L, int R)
+X`123
+X    if (E -> count >= EXPRESSION_MAX) `123
+X`009write_line("Expression too complex",E_tool,NULL);
+X`009return -1;
+X    `125
+X    E -> elems`091 E -> count`093.F = F;
+X    E -> elems`091 E -> count`093.L = L;
+X    E -> elems`091 E -> count`093.R = R;
+X    E -> count++;
+X    return E -> count -1;
+X`125
+X
+Xtypedef struct `123
+X    int f;
+X    char *Sel;
+X    char term`091TERM_LEN`093;
+X    char lterm`091TERM_LEN`093;
+X`125 exp_input;
+X
+Xstatic int exp_get(exp_input *I, char **term, char **lterm)
+X`123
+X    if (I -> f) `123
+X`009if (term) *term = I -> term;
+X`009if (lterm) *lterm = I -> lterm;
+X`009return 1;
+X    `125
+X    I -> f = cutexptoken(&(I -> Sel), I -> term, I -> lterm);
+X    if (I -> f) `123
+X`009if (term) *term = I -> term;
+X`009if (lterm) *lterm = I -> lterm;
+X`009return 1;
+X    `125
+X    return 0;
+X`125
+X
+Xstatic int exp_accept(exp_input *I)
+X`123
+X    I -> f = 0;
+X`125
+X
+Xstatic int exp_all(expression *E, exp_input *I);
+X
+Xstatic int exp_elem(expression *E, exp_input *I)
+X`123
+X    char *lterm, *term;
+X    if (!exp_get(I,&term,&lterm)) `123
+X`009write_line("Unexpected end of expression",E_tool,NULL);
+X`009return -1;
+X    `125
+X
+X    if (StrEQ(term,"-",0) `124`124 StrEQ(term,"+",0)) `123
+X`009int plus = StrEQ(term,"+",0);
+X`009int L = add_to_expression(E,E_num,0,0);
+X`009int R;
+X`009if (L == -1) return -1;
+X`009exp_accept(I);
+X`009R = exp_elem(E,I);
+X`009if (R == -1) return -1;
+X`009return add_to_expression(E, plus ? E_plus : E_minus, L , R);
+X    `125 else if (*term >= '0' && *term <= '9') `123
+X`009exp_accept(I);
+X`009return add_to_expression(E,E_num,atoi(term),0);
+X    `125 else if (*lterm == ':') `123
+X`009int i = MatchFunc(lterm+1);
+X`009exp_accept(I);
+X`009if (i == -1) return -1;
+X`009return add_to_expression(E,E_funcall,i,0);
+X    `125 else if (StrEQ(term,"(",0)) `123
+X`009int pos;
+X`009exp_accept(I);
+X`009pos = exp_all(E,I);
+X`009if (!exp_get(I,&term,&lterm)) `123
+X`009    write_line("Missing )",E_tool,NULL);
+X`009    return -1;
+X`009`125
+X`009if (!StrEQ(term,")",0)) `123
+X`009    write_line("Expected )",E_tool,term);
+X`009    return -1;
+X`009`125
+X`009exp_accept(I);
+X`009return pos;
+X    `125 else `123
+X`009int i = MatchRef(term);
+X`009if (i == F_NULL) return -1;
+X`009if (field_types`091i`093 != DF_num) `123
+X`009    write_line("Field isn't numerical",E_tool,term);
+X`009    return -1;
+X`009`125
+X`009exp_accept(I);
+X`009return add_to_expression(E,E_field,i,0);
+X    `125
+X    return -1;
+X`125
+X
+Xstatic int exp_mul(expression *E, exp_input *I)
+X`123
+X    char *lterm, *term;
+X    int pos;
+X
+X    pos = exp_elem(E,I);
+X    if (pos == -1) return -1;
+X
+X    while (exp_get(I,&term,&lterm) &&`032
+X`009( StrEQ(term,"*",0) `124`124 StrEQ(term,"/",0)))  `123
+X`009int mul = StrEQ(term,"*",0);
+X`009int R, L = pos;
+X`009exp_accept(I);
+X`009R = exp_elem(E,I);
+X`009if (R == -1) return -1;
+X`009pos = add_to_expression(E, mul ? E_mul : E_div, L, R);
+X`009if (pos == -1) return -1;
+X    `125
+X    return pos;
+X`125
+X
+Xstatic int exp_all(expression *E, exp_input *I)
+X`123
+X    char *lterm, *term;
+X    int pos;
+X
+X    pos = exp_mul(E,I);
+X    if (pos == -1) return -1;
+X
+X    while (exp_get(I,&term,&lterm) &&`032
+X`009( StrEQ(term,"+",0) `124`124 StrEQ(term,"-",0))) `123
+X`009int add = StrEQ(term,"+",0);
+X`009int R, L = pos;
+X`009exp_accept(I);
+X`009R = exp_mul(E,I);
+X`009if (R == -1) return -1;
+X`009pos = add_to_expression(E, add ? E_plus : E_minus, L, R);
+X`009if (pos == -1) return -1;
+X    `125
+X    return pos;
+X`125
+X
+Xstatic int parse_expression(expression *E, int *Sel)
+X`123
+X    exp_input data;
+X    int result;
+X    int more;
+X    char *term,*lterm;
+X    int error;
+X    char buffer1`091TERM_LEN+20`093,buffer2`091TERM_LEN+30`093;
+X
+X    data.f = 0;
+X    data.Sel = Sel;
+X   `032
+X    E -> count = 0;
+X    result = exp_all(E,&data);
+X    more = exp_get(&data,&term,&lterm);
+X
+X    error = (more `124`124 result == -1);
+X   `032
+X    if (error) `123
+X
+X`009if (more) sprintf(buffer2,", next token '%s'",term);
+X`009else strcpy(buffer2,"");
+X
+X`009sprintf(buffer1,"Error in expression%s",buffer2);
+X`009write_line(buffer1,E_tool,Sel);
+X`009return 0;
+X    `125
+X    return 1;
+X`125
+X
+Xstatic int execute_expression(expression E, sector_data *sector)
+X`123
+X    int result`091EXPRESSION_MAX`093;
+X    int i;
+X    int res = 0;
+X
+X    for (i = 0; i < E.count; i++) `123
+X`009switch(E.elems`091i`093.F) `123
+X`009    case E_funcall:
+X`009`009res = exp_functions`091E.elems`091i`093.L`093.func(sector);
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: funcall %-10s=> %d\n",i,
+X`009`009`009exp_functions`091E.elems`091i`093.L`093.name,res);
+X#endif
+X`009`009break;
+X`009    case E_field:
+X`009`009res = (*sector)`091E.elems`091i`093.L`093.U_num;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: field            => %d\n",i,res);
+X#endif
+X`009`009break;
+X`009    case E_num:
+X`009`009res = E.elems`091i`093.L;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: num %d           => %d\n",i,
+X`009`009`009E.elems`091i`093.L,res);
+X#endif
+X`009`009break;
+X`009    case E_plus:
+X`009`009res = result`091E.elems`091i`093.L`093 + result`091E.elems`091i`093.
+VR`093;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: plus %d %d       => %d\n",i,
+X`009`009`009E.elems`091i`093.L,E.elems`091i`093.R,res);
+X#endif
+X`009`009break;
+X`009    case E_minus:
+X`009`009res = result`091E.elems`091i`093.L`093 - result`091E.elems`091i`093.
+VR`093;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: minus %d %d      => %d\n",i,
+X`009`009`009E.elems`091i`093.L,E.elems`091i`093.R,res);
+X#endif
+X`009`009break;
+X`009    case E_mul:
+X`009`009res = result`091E.elems`091i`093.L`093 * result`091E.elems`091i`093.
+VR`093;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: mul %d %d        => %d\n",i,
+X`009`009`009E.elems`091i`093.L,E.elems`091i`093.R,res);
+X#endif
+X`009`009break;
+X`009    case E_div:
+X`009`009if (result`091E.elems`091i`093.R`093 == 0) res = UNKNOWN_num;
+X`009`009else res = result`091E.elems`091i`093.L`093 / result`091E.elems`091i
+V`093.R`093;
+X#ifdef EXP_DEBUG
+X`009`009printf("%d: div %d %d        => %d\n",i,
+X`009`009`009E.elems`091i`093.L,E.elems`091i`093.R,res);
+X#endif
+X`009`009break;
+X`009`125
+X`009if (res == UNKNOWN_num) return UNKNOWN_num;
+X`009result`091i`093 = res;
+X    `125
+X    return res;
+X`125
+X
+Xstatic int  andFilter(sectors *database, selector table, char *Sel)
+X`123
+X    int i,flag, error = 0;
+X    dump_fields field;
+X    char *oper;
+X    char buffer`091TERM_LEN`093,buffer2`091TERM_LEN`093,buffer3`091TERM_LEN`
+V093,
+X`009obuffer`091TERM_LEN`093;
+X
+X    while (cutarg(&Sel,buffer)) `123
+X`009if (*buffer == '$') `123`009/* handle variables */
+X`009    int var;
+X`009    if ((var = parse_var(buffer,database)) <0) `123
+X`009`009error = 1;
+X`009    `125 else `123
+X`009`009for (i = 0; i < database -> count; i++)
+X`009`009    if (!is_in_var(var,
+X`009`009`009database -> sectors`091i`093`091F_x`093.U_num,
+X`009`009`009database -> sectors`091i`093`091F_y`093.U_num))
+X`009`009`009table`091i`093 = 0; `032
+X`009    `125
+X`009`125 else `123
+X`009 if(!cutoper(&Sel,obuffer)) buffer2`0910`093 = '\0';
+X`009 else cutarg(&Sel,buffer2);
+X`009 field = MatchRef(buffer);
+X`009 if (field != F_NULL) `123
+X`009    int exp_flag = 0;
+X`009    switch (field_types`091field`093) `123
+X`009`009 int num,val;
+X`009`009 char *val2;
+X`009`009 expression E;
+X`009    case DF_num:
+X`009`009if (*buffer2) `123
+X`009`009    if (StrEQ(buffer2,UNKNOWN_text,0)) num = UNKNOWN_num;
+X`009`009    else if (!parse_expression(&E,buffer2)) `123
+X`009`009`009error = 1;
+X`009`009`009continue;   /* go to while */
+X`009`009    `125 else exp_flag = 1;
+X`009`009`125 else num = 0;
+X`009`009for (i = 0; i < database -> count; i++) `123
+X`009`009    val = database -> sectors`091i`093`091field`093.U_num;
+X`009`009    if (exp_flag) num =`032
+X`009`009`009execute_expression(E,database -> sectors`091i`093);
+X`009`009    flag = 0;
+X`009`009    for (oper = obuffer; *oper; oper++) `123
+X`009`009`009if (val == UNKNOWN_num `124`124 num == UNKNOWN_num) `123
+X`009`009`009    if (*oper == '=') flag = (val == num);
+X`009`009`009    else if (*oper == '#' && num == UNKNOWN_num)
+X`009`009`009`009flag = (val != num);
+X`009`009`009    else flag = 1;
+X`009`009`009`125 else switch(*oper) `123
+X`009`009`009    case '=':
+X`009`009`009`009if (val == num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '#':
+X`009`009`009`009if (val != num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '<':
+X`009`009`009`009if (val < num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '>':
+X`009`009`009    if (val > num) flag = 1;
+X`009`009`009    break;
+X`009`009`009`125
+X`009`009    `125
+X`009`009    if (!flag) table`091i`093 = 0;
+X`009`009`125
+X`009`009break;
+X`009    case DF_string:
+X`009`009for (i = 0; i < database -> count; i++) `123
+X`009`009    char *str = buffer2;
+X`009`009    if (StrEQ(buffer2,UNKNOWN_text,0)) str = UNKNOWN_string;
+X
+X`009`009    if (database -> sectors`091i`093`091field`093.U_string == UNKNOW
+VN_string)
+X`009`009`009val2 = UNKNOWN_string;
+X`009`009    else val2 = refer_str_field(&database -> sectors`091i`093,field)
+V;
+X`009`009    flag = 0;
+X`009`009    for (oper = obuffer; *oper; oper++) `123
+X`009`009`009if (val2 == UNKNOWN_string `124`124 str == UNKNOWN_string) `123
+X`009`009`009    if (*oper == '=') flag = (val2 == str);
+X`009`009`009    else if (*oper == '#' && str == UNKNOWN_string)
+X`009`009`009`009flag = (val2 != str);
+X`009`009`009    else flag = 1;
+X`009`009`009`125 else switch(*oper) `123
+X`009`009`009    case '=':
+X`009`009`009    if (StrEQ(val2,str,0)) flag = 1;
+X`009`009`009    break;
+X`009`009`009case '#':
+X`009`009`009    if (!StrEQ(val2,str,0)) flag = 1;
+X`009`009`009    break;
+X`009`009`009case '<':
+X`009`009`009    if (strcmp(val2,str) < 0) flag = 1;
+X`009`009`009    break;
+X`009`009`009case '>':
+X`009`009`009    if (strcmp(val2,str) > 0) flag = 1;
+X`009`009`009    break;
+X`009`009`009`125
+X`009`009    `125
+X`009`009    if (!flag) table`091i`093 = 0;
+X`009`009`125
+X`009`009break;`009`009   `032
+X`009    case DF_bool:
+X`009`009if (*buffer2 == '\0' &&
+X`009`009    *obuffer == '\0') `123
+X`009`009`009/* search with only boolean is same as boolean=t */
+X`009`009    strcpy(buffer2,"*");
+X`009`009    strcpy(obuffer,"=");
+X`009`009`125
+X
+X`009`009if (*buffer2) `123
+X`009`009    if (StrEQ(buffer2,UNKNOWN_text,0)) num = UNKNOWN_bool;
+X`009`009    else if (!strcmp(buffer2,".") `124`124 !strcmp(buffer2,"0")
+X`009`009`009`124`124 !strcmp(buffer2,"f")) num = 0;
+X`009`009    else if (!strcmp(buffer2,"*") `124`124 !strcmp(buffer2,"1")
+X`009`009`009`124`124 !strcmp(buffer2,"t")) num = 1;
+X`009`009    else `123
+X`009`009`009write_line("Not boolean",E_tool,buffer2);
+X`009`009`009error = 1;
+X`009`009`009continue;   /* go to while */
+X`009`009    `125
+X`009`009`125 else num = 0;
+X`009`009for (i = 0; i < database -> count; i++) `123
+X`009`009    val = database -> sectors`091i`093`091field`093.U_num;
+X`009`009    flag = 0;
+X`009`009    for (oper = obuffer; *oper; oper++) `123
+X`009`009`009if (val == UNKNOWN_bool `124`124 num == UNKNOWN_bool) `123
+X`009`009`009    if (*oper == '=') flag = (val == num);
+X`009`009`009    else if (*oper == '#' && num == UNKNOWN_bool)
+X`009`009`009`009flag = (val != num);
+X`009`009`009    else flag = 1;
+X`009`009`009`125 else switch(*oper) `123
+X`009`009`009    case '=':
+X`009`009`009`009if (val == num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '#':
+X`009`009`009`009if (val != num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '<':
+X`009`009`009`009if (val < num) flag = 1;
+X`009`009`009`009break;
+X`009`009`009    case '>':
+X`009`009`009`009if (val > num) flag = 1;
+X`009`009`009    break;
+X`009`009`009`125
+X`009`009    `125
+X`009`009    if (!flag) table`091i`093 = 0;
+X`009`009`125
+X`009    break;
+X`009    case DF_char:
+X`009`009if (*buffer2) `123
+X`009`009    if (StrEQ(buffer2,UNKNOWN_text,0)) num = UNKNOWN_char;
+X`009`009    else `123
+X`009`009`009if (strlen(buffer2) != 1) `123
+X`009`009`009    write_line("Not character",E_tool,buffer2);
+X`009`009`009    error = 1;
+X`009`009`009    continue;   /* go to while */
+X`009`009`009`125  `032
+X`009`009`009num = buffer2`0910`093;
+X`009`009    `125
+X`009`009`125 else num = 0;
+X`009`009for (i = 0; i < database -> count; i++) `123
+X`009`009    val = database -> sectors`091i`093`091field`093.U_num;
+X`009`009    flag = 0;
+X`009`009    for (oper = obuffer; *oper; oper++) `123
+X`009`009`009if (val == UNKNOWN_char `124`124 num == UNKNOWN_char) `123
+X`009`009`009    if (*oper == '=') flag = (val == num);
+X`009`009`009    else if (*oper == '#' && num == UNKNOWN_char)
+X`009`009`009`009flag = (val != num);
+X`009`009`009    else flag = 1;
+X`009`009`009`125 else switch(*oper) `123
+X`009`009`009    case '=':
+X`009`009`009`009if (val == num) flag = 1;
+X`009`009`009    break;
+X`009`009`009    case '#':
+X`009`009`009`009if (val != num) flag = 1;
+X`009`009`009    break;
+X`009`009`009    case '<':
+X`009`009`009`009if (val < num) flag = 1;
+X`009`009`009    break;
+X`009`009`009    case '>':
+X`009`009`009`009if (val > num) flag = 1;
+X`009`009`009    break;
+X`009`009`009`125
+X`009`009    `125
+X`009`009    if (!flag) table`091i`093 = 0;
+X`009`009`125
+X`009    break;
+X`009    `125
+X`009  `125 else error = 1;
+X`009`125
+X`009steparg(&Sel);
+X    `125   `032
+X    return (!error);
+X`125
+X
+Xstatic int Filter(sectors *database, selector table, char *Sel)
+X`123
+X    char *start;
+X    char buffer`091TERM_LEN`093;
+X    int error = 0,i;
+X    selector ortable,andtable;
+X    if (*Sel == '?') Sel++;
+X    start = Sel;
+X       `032
+X    for (i = 0; i < database -> count; i++) ortable`091i`093 = 0;
+X
+X    while(cutorarg(&Sel,buffer)) `123
+X`009InitSelector(andtable);
+X`009
+X`009if (!andFilter(database,andtable,buffer)) `123
+X`009    error = 1;
+X`009    if (!StrEQ(start,buffer,0))
+X`009`009write_line("Bad selection component",E_tool,buffer);
+X`009`125
+X
+X`009for (i = 0; i < database -> count; i++)`032
+X`009    if (andtable`091i`093) ortable`091i`093 = 1;
+X`009steporarg(&Sel);
+X    `125
+X
+X    for (i = 0; i < database -> count; i++)`032
+X`009if (!ortable`091i`093) table`091i`093 = 0;
+X
+X    return (!error);
+X`125
+X
+Xstatic char *FieldName(dump_fields field)
+X`123
+X    int i;
+X    for (i = 0; i <= LAST_DUMP_FIELD; i++)`032
+X`009if (fields`091i`093.id == field) return fields`091i`093.text;
+X    return NULL;
+X
+X`125
+X
+X/* Update DUMP ************************************************************
+V */
+X
+Xstatic parse_dump_update(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    if (temp_database.linecount == 0) `123
+X`009temp_database.count = 0;
+X    `009error = 0;
+X`009if (!temp_database.sectors) `123
+X`009    if(!init_database(&temp_database)) `123
+X`009`009error = 1;
+X`009`009return;
+X`009    `125
+X`009`125 else reset_database(&temp_database);
+X    `125
+X    if (D == D_EOD) `123
+X
+X`009if (error `124`124 temp_database.linecount == 0 `124`124 empiretool_canc
+Vel) `123
+X`009    if (empiretool_cancel) write_line("Canceled.",E_tool,NULL);
+X`009    empiretool_cancel = 0;
+X`009    error = 0;
+X`009`125 else `123
+X`009    char buffer`091PROMPT_SIZE`093;
+X
+X`009    sprintf(buffer,"%d sector%s",
+X`009`009temp_database.count, temp_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009    sort_database(&temp_database); /* new update_database requires */
+X`009    update_database(&dump_database,&temp_database);
+X`009    check_visual();
+X
+X`009    sprintf(buffer,"Total: %d sector%s",
+X`009`009dump_database.count, dump_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009`125
+X
+X`009temp_database.linecount = 0;`009/* is ended */
+X`009call_empiretool_handler();
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (error) `123
+X`009return; /* skip rest */
+X    `125 else if (!parse_one_line(&temp_database,line)) `123
+X`009write_line("Can't parse",E_tool,line);
+X`009error = 1;
+X    `125
+X`125
+X
+X/* Spy for DUMP ************************************************************
+V */
+X
+Xstatic int parse_spy_line(sectors *database, char *line)
+X`123
+X    char buffer`091MAX_FIELD+1`093;
+X    int lc = ++(database -> linecount);
+X    int i,ok,known,unknown;
+X    dump_fields match,j;
+X    int pos;
+X    int X,Y;
+X    sector_data *temp;
+X
+X    switch(lc) `123
+X    case 1:`009/* SPY report */
+X`009return (strstr(line,"SPY report") != NULL);
+X    case 2:`009/* time line */
+X`009strcpy(database -> date,line);
+X`009return 1;
+X    case 3:`009/* field names */
+X`009known = 0;
+X`009unknown = 0;
+X`009for (i = 0; i < MAX_ROWS; i++)`032
+X`009    database -> parse_index`091i`093 = F_NULL;
+X`009  `032
+X`009/* sect -field */
+X`009if (!stepper(&line,buffer,sizeof(buffer)) `124`124
+X`009    !StrEQ(buffer,"sect",1)) return 0;
+X`009  `032
+X`009/* rest */
+X`009for (i = 0; stepper(&line,buffer,sizeof(buffer)) && i < MAX_ROWS; i++) `
+V123
+X`009    match = Ref(buffer);;
+X`009    if (match == F_NULL) unknown++;
+X`009    else known++;
+X`009    database -> parse_index`091i`093 = match;
+X`009`125
+X`009sprintf(buffer,"%d known field%s, %d unknow field%s",
+X`009    known, match == 1 ? "" : "s",
+X`009    unknown, unknown == 1 ? "" : "s");
+X`009write_line(buffer,E_tool,NULL);
+X`009return 1;
+X    default:`032
+X`009/* check that there is space left */
+X`009if (!realloc_database(database)) return 0;
+X
+X`009pos = database -> count++;
+X`009temp = database -> sectors;
+X
+X`009/* messages */
+X`009if (sscanf(line,"Spy deported from %d,%d",&X,&Y) == 2) `123
+X`009    temp`091pos`093`091F_x`093.U_num = X;
+X`009    temp`091pos`093`091F_y`093.U_num = Y;
+X`009    temp`091pos`093`091F_OWNED`093.U_bool = 0;  /* Not mine */
+X`009    write_line(line,E_none,NULL);   /* print this */
+X`009    return 1;`009/* ok */
+X`009`125 else if (sscanf(line,"BANG!! A spy was shot in %d,%d",&X,&Y) == 2)
+V `123
+X`009    temp`091pos`093`091F_x`093.U_num = X;
+X`009    temp`091pos`093`091F_y`093.U_num = Y;
+X`009    temp`091pos`093`091F_OWNED`093.U_bool = 0;  /* Not mine */
+X`009    write_line(line,E_none,NULL);   /* print this */
+X`009    return 1;`009/* ok */
+X`009`125
+X
+X`009/* sect -field */
+X`009if (!stepper(&line,buffer,sizeof(buffer)) `124`124
+X`009    sscanf(buffer,"%d,%d",&X,&Y) != 2) return 0;
+X`009temp`091pos`093`091F_x`093.U_num = X;
+X`009temp`091pos`093`091F_y`093.U_num = Y;
+X`009  `032
+X`009/* rest */
+X`009temp`091pos`093`091F_OWNED`093.U_bool = 0; /* Not mine */
+X`009ok = 1;
+X`009for (i = 0; stepper(&line,buffer,sizeof(buffer)) && i < MAX_ROWS; i++) `
+V123
+X`009    match = database -> parse_index`091i`093;
+X`009    if (match == F_NULL) /* OK */;
+X`009    else switch (field_types`091match`093) `123
+X`009`009case DF_num:
+X`009`009    if (sscanf(buffer,"%d",
+X`009`009`009&temp`091pos`093`091match`093.U_num) != 1) ok = 0;
+X`009`009    break;
+X`009`009case DF_string:
+X`009`009    change_str_field(temp,pos,match,buffer);
+X`009`009    break;`009`009   `032
+X`009`009case DF_bool:
+X`009`009    if (strlen(buffer) != 1) ok = 0;
+X`009`009    temp`091pos`093`091match`093.U_bool = buffer`0910`093 != '.';
+X`009`009    break;
+X`009`009case DF_char:
+X`009`009    if (strlen(buffer) != 1) ok = 0;
+X`009`009    temp`091pos`093`091match`093.U_char = buffer`0910`093;
+X`009`009    break;
+X`009    `125
+X`009`125
+X`009return ok;
+X    `125
+X`125
+X
+Xstatic parse_dump_spy(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    if (temp_database.linecount == 0) `123
+X`009temp_database.count = 0;
+X    `009error = 0;
+X`009if (!temp_database.sectors) `123
+X`009    if(!init_database(&temp_database)) `123
+X`009`009error = 1;
+X`009`009return;
+X`009    `125
+X`009`125 else reset_database(&temp_database);
+X    `125
+X    if (D == D_EOD) `123
+X
+X`009if (error `124`124 temp_database.linecount == 0 `124`124 empiretool_canc
+Vel) `123
+X`009    if (empiretool_cancel) write_line("Canceled.",E_tool,NULL);
+X`009    empiretool_cancel = 0;
+X`009    error = 0;
+X`009`125 else `123
+X`009    char buffer`091PROMPT_SIZE`093;
+X
+X`009    sort_database(&temp_database);
+X`009    pack_database(&temp_database);`009/* remove duplicates */
+X
+X`009    sprintf(buffer,"%d sector%s",
+X`009`009temp_database.count, temp_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009    update_database(&dump_database,&temp_database);
+X`009    check_visual();
+X
+X`009    sprintf(buffer,"Total: %d sector%s",
+X`009`009dump_database.count, dump_database.count == 1 ? "" : "s");
+X`009    write_line(buffer,E_tool,NULL);
+X
+X`009`125
+X
+X`009temp_database.linecount = 0;`009/* is ended */
+X`009call_empiretool_handler();
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (error) `123
+X`009return; /* skip rest */
+X    `125 else if (!parse_spy_line(&temp_database,line)) `123
+X`009write_line("Can't parse",E_tool,line);
+X`009error = 1;
+X    `125
+X`125
+X
+X/* read EXPLORE 'dump' ***************************************************
+V  */
+X
+X#define EXP_LINES 3
+X#define EXP_CUT 12
+Xstatic char exp_lines`091EXP_LINES`093`091EXP_CUT+1`093;
+Xstatic char exp_line`091ERROR_LEN`093;
+X
+Xstatic int parse_explore_line(sectors *database, char *line)
+X`123
+X    int known,unknown,i;
+X    dump_fields match;
+X    char buffer`091ERROR_LEN`093;
+X    int lc = ++(database -> linecount);
+X
+X    if (lc > EXP_LINES) return 0;`009    /* something is wrong */
+X
+X    strncpy(exp_lines`091lc-1`093,line,EXP_CUT);
+X    exp_lines`091lc-1`093`091EXP_CUT`093 = '\0';
+X
+X    line = line + EXP_CUT;
+X
+X    switch(lc) `123
+X    case 1:
+X`009known = 0;
+X`009unknown = 0;
+X`009for (i = 0; i < MAX_ROWS; i++)`032
+X`009    database -> parse_index`091i`093 = F_NULL;
+X`009  `032
+X`009/* rest */
+X`009for (i = 0; stepper(&line,buffer,sizeof(buffer)) && i < MAX_ROWS; i++) `
+V123
+X`009    match = Ref(buffer);;
+X`009    if (match == F_NULL) unknown++;
+X`009    else known++;
+X`009    database -> parse_index`091i`093 = match;
+X`009`125
+X`009/*
+X`009sprintf(buffer,"%d known field%s, %d unknow field%s",
+X`009    known, match == 1 ? "" : "s",
+X`009    unknown, unknown == 1 ? "" : "s");
+X`009write_line(buffer,E_tool,NULL);
+X`009*/
+X`009return 1;
+X    case 2:
+X`009strcpy(exp_line,line);
+X`009return 1;
+X    case 3:
+X`009return 1;
+X    `125
+X    return 0;
+X`125
+X
+Xstatic int count_lead_space(char *line)
+X`123
+X    int res = 0;
+X    while (*line++ == ' ') res++;
+X    return res;
+X`125
+X
+Xstatic int map_add_sector(sectors *database,int X, int Y, char C);
+X
+Xint start_X,start_Y;
+Xint cur_X,cur_Y,cur_mob;
+Xint tar_X,tar_Y;
+X
+Xstatic int parse_explore_query(sectors *database, char *line)
+X`123
+X    int X,Y,A,B,ok,pos,i;
+X    float mob;
+X    char des, C;
+X    sector_data *temp;
+X    int new_X,new_Y;
+X    char buffer`09110`093,*ptr;
+X    dump_fields match;
+X
+X    if (database -> linecount != EXP_LINES) `123
+X`009write_line("Line count not match",E_tool,NULL);
+X`009return 0; /* something is wrong */
+X    `125
+X   `032
+X    if (sscanf(line,"<%f: %c %d,%d>",&mob,&des,&X,&Y) != 4) `123
+X`009write_line("Bad prompt",E_tool,line);
+X`009return 0;   /* something is wrong */
+X    `125
+X
+X    if (des == ' ') `123
+X`009write_line("No desig in prompt",E_tool,line);
+X`009return 0;
+X    `125
+X
+X    cur_X = X;
+X    cur_Y = Y;
+X    cur_mob = mob;
+X
+X    A = count_lead_space(exp_lines`0910`093);
+X    B = count_lead_space(exp_lines`0911`093);
+X    if (count_lead_space(exp_lines`0912`093) != A `124`124 A != B +1) `123
+X`009write_line("Can't parse explore (mini)map",E_tool,NULL);
+X`009return 0;
+X    `125
+X   `032
+X    /* y:   -1,-1 */
+X    C = exp_lines`0910`093`091A`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0910`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,-1,-1,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* u:   1,-1 */
+X    C = exp_lines`0910`093`091A+2`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0910`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,1,-1,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* g:   -2,0 */
+X    C = exp_lines`0911`093`091B`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0911`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,-2,0,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* j:   2,0 */
+X    C = exp_lines`0911`093`091B+4`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0911`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,2,0,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* b:   -1,1 */
+X    C = exp_lines`0912`093`091A`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0912`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,-1,1,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* n:   1,1 */
+X    C = exp_lines`0912`093`091A+2`093;
+X    if (C == ' ') `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0912`093);
+X`009return 0;
+X    `125
+X    count_new(X,Y,1,1,&new_X,&new_Y);
+X    map_add_sector(database,new_X,new_Y,C);
+X
+X    /* h:   0,0 */
+X    C = exp_lines`0911`093`091B+2`093;
+X    if (C != des) `123
+X`009write_line("Can't parse explore (mini)map",E_tool,exp_lines`0911`093);
+X`009return 0;
+X    `125
+X
+X    /* check that there is space left */
+X    if (!realloc_database(database)) return 0;
+X
+X    pos = database -> count++;
+X    temp = database -> sectors;
+X `032
+X    temp`091pos`093`091F_x`093.U_num = X;
+X    temp`091pos`093`091F_y`093.U_num = Y;
+X    temp`091pos`093`091F_des`093.U_char = des;
+X
+X    /* owner is unknown (me or deity) */
+X   `032
+X    ptr = exp_line;
+X
+X    ok = 1;
+X    for (i = 0; stepper(&ptr,buffer,sizeof(buffer)) && i < MAX_ROWS; i++) `1
+V23
+X        match = database -> parse_index`091i`093;
+X`009if (match == F_NULL) /* OK */;
+X`009else switch (field_types`091match`093) `123
+X`009    case DF_num:
+X`009`009if (sscanf(buffer,"%d",
+X`009`009    &temp`091pos`093`091match`093.U_num) != 1) ok = 0;
+X`009    break;
+X`009    case DF_string:
+X`009`009change_str_field(temp,pos,match,buffer);
+X`009    break;`009`009   `032
+X`009    case DF_bool:
+X`009`009if (strlen(buffer) != 1) ok = 0;
+X`009`009temp`091pos`093`091match`093.U_bool = buffer`0910`093 != '.';
+X`009    break;
+X`009    case DF_char:
+X`009`009if (strlen(buffer) != 1) ok = 0;
+X`009`009temp`091pos`093`091match`093.U_char = buffer`0910`093;
+X`009    break;
+X`009`125
+X    `125
+X    if (!ok) write_line("Can't parse data",E_tool,exp_line);
+X    return ok;
+X`125
+X
+X
+X#define EXP_LEAVE 'h'
+X#define EXP_DONT_GO ".`094?"
+X
+Xstatic int select_target(sectors *database,cost_table costtable,
+X    int *best_pos, float *best_cost)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    int pos;
+X    *best_pos = -1;
+X    *best_cost = INFINITE_COST;
+X
+X    for (pos = 0; pos < database -> count; pos++) `123
+X`009    if (costtable`091pos`093 < *best_cost &&
+X`009`009database -> sectors`091pos`093`091F_des`093.U_char == '-' &&
+X`009`009database -> sectors`091pos`093`091F_OWNED`093.U_bool != 1) `123
+X
+X`009    *best_cost = costtable`091pos`093;
+X`009    *best_pos = pos;
+X`009`125
+X    `125
+X
+X    if (*best_pos == -1) return 0;
+X    tar_X = database -> sectors`091*best_pos`093`091F_x`093.U_num;
+X    tar_Y = database -> sectors`091*best_pos`093`091F_y`093.U_num;
+X
+X    sprintf(buffer,"Going to: %d,%d",tar_X,tar_Y);
+X    write_line(buffer,E_tool,NULL);
+X    return 1;
+X`125
+X
+Xstatic void next_explore(void);
+Xstatic int exp_var = -1;
+X
+Xstatic parse_dump_explore(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    static int stop = 0;
+X    static int rest = 0;
+X    if (temp_database.linecount == 0) `123
+X`009temp_database.count = 0;
+X    `009error = 0;
+X`009rest = 0;
+X`009if (!temp_database.sectors) `123
+X`009    if(!init_database(&temp_database)) `123
+X`009`009error = 1;
+X`009`009return;
+X`009    `125
+X`009`125 else reset_database(&temp_database);
+X    `125
+X    if (D == D_EOD) `123  /* !!!!!!!!!! */
+X`009error = 0;
+X`009stop = 0;
+X`009rest = 0;
+X`009temp_database.linecount = 0;`009/* is ended */
+X
+X`009next_explore();   /* empiretool_cancel handled here */
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009if (temp_database.linecount == 0 `124`124 error `124`124 rest) `123
+X`009    ask_message(line);  /* ask from user */
+X`009    return;`032
+X`009`125 else if (stop) `123
+X`009    char buffer`0912`093;
+X`009    buffer`0910`093 = EXP_LEAVE;
+X`009    buffer`0911`093 = '\0';
+X`009    answer_query(buffer);
+X`009    rest = 1;
+X`009`125 else `123
+X`009    char buffer`0912`093;
+X`009    if (!parse_explore_query(&temp_database,line)) `123
+X`009`009write_line("Can't parse:",E_tool,line);
+X`009`009ask_message(line);
+X`009`009error = 1;
+X`009`009return;
+X`009    `125
+X`009    sort_database(&temp_database);   /* new update_database requires */
+X`009    update_database(&dump_database,&temp_database);
+X`009    check_visual();
+X`009   `032
+X`009    buffer`0910`093 = EXP_LEAVE;
+X`009    buffer`0911`093 = '\0';
+X`009    answer_query(buffer);
+X`009    rest = 1;
+X`009    return;
+X`009`125
+X    `125 else if (strstr(line,"can't go")) `123
+X`009write_line(line,E_none,NULL);
+X`009stop = 1;
+X    `125 else if(rest) `123
+X`009if (strstr(line,"is now yours")) `123
+X`009    int X,Y;
+X
+X`009    if (sscanf(line,"Sector %d,%d",&X,&Y)) `123
+X`009`009sector_data *secs2 = Locate(&dump_database,X,Y);
+X
+X`009`009write_line(line,E_none,NULL);
+X`009`009if (!secs2) `123
+X`009`009    char buffer`091ERROR_LEN`093;
+X`009`009    sprintf(buffer,"cord: %d,%d",X,Y);
+X`009`009    write_line("Internal error(parse_dump_explore): Sector not found
+V from database",
+X`009`009`009E_tool,buffer);
+X`009`009`125 else `123
+X`009`009    (*secs2)`091F_OWNED`093.U_bool = 1;`009/* this is mine */
+X`009`009    (*secs2)`091F_civ`093.U_num  = 1;
+X`009`009    (*secs2)`091F_mil`093.U_num  = 0;
+X`009`009    (*secs2)`091F_mob`093.U_num  = 0;
+X`009`009    add_to_var(exp_var,X,Y);
+X`009`009`125
+X`009    `125 else `123
+X`009`009write_line("Can't parse (rest)",E_tool,line);
+X`009`009error = 1;
+X`009    `125
+X`009`125 else `123
+X`009    error = 1;
+X`009    write_line("Can't parse (rest)",E_tool,line);
+X`009`125
+X    `125 else if (!parse_explore_line(&temp_database,line)) `123
+X`009write_line("Can't parse",E_tool,line);
+X`009error = 1;
+X    `125
+X`125
+X
+Xstatic void past_explore(void);
+X
+Xstatic int des_X,des_Y,des_C;
+Xstatic int des_explore = 0;
+Xstatic int des_var = -1;
+Xstatic int exp_civ_limit = 2;
+Xstatic int exp_mob_limit = 0;
+Xstatic int btu_limit = 20;
+Xstatic int exp_count = 0;
+X
+Xstatic void parse_dump_desig(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    if (D == D_EOD) `123 `032
+X`009if (!error) `123
+X`009    sector_data *secs = Locate(&dump_database,des_X,des_Y);
+X`009    if (!secs) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"cord: %d,%d",des_X,des_Y);
+X`009`009write_line("Internal error(parse_dump_desig): Sector not found from
+V database",
+X`009`009    E_tool,buffer);
+X`009    `125 if ((*secs)`091F_eff`093.U_num != UNKNOWN_num &&`032
+X`009`009(*secs)`091F_eff`093.U_num > 2) `123
+X`009`009(*secs)`091F_sdes`093.U_char = des_C;
+X`009`009add_to_var(des_var,des_X,des_Y);
+X`009    `125 else `123`009    /* supposed that efficiently is 0 */
+X`009`009(*secs)`091F_des`093.U_char = des_C;
+X`009`009(*secs)`091F_eff`093.U_num = 0;
+X`009`009add_to_var(des_var,des_X,des_Y);
+X`009    `125
+X`009`125
+X`009error = 0;
+X`009if (des_explore) past_explore();
+X`009else call_empiretool_handler();
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009if (strstr(line,"(secs)")) ask_message(line);
+X`009else answer_query(RS_ABORT);
+X`009return;`032
+X    `125 else `123
+X`009write_line(line,E_none,NULL);
+X`009error = 1;
+X    `125
+X`125
+X
+Xstatic void next_explore(void)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    sector_data *secs = Locate(&dump_database,start_X,start_Y);
+X    if (!secs) `123
+X`009sprintf(buffer,"cord: %d,%d",start_X,start_Y);
+X`009write_line("Internal error(next_explore): Sector not found from database
+V",
+X`009    E_tool,buffer);
+X    `125
+X
+X    if (cur_mob != UNKNOWN_num && secs) `123
+X`009    (*secs)`091F_mob`093.U_num = cur_mob; /* update mobility */
+X`009    (*secs)`091F_civ`093.U_num --;`009    /* update civilians */
+X    `125
+X
+X    if (empiretool_cancel) `123
+X`009write_line("Autoexplore canceled.",E_tool,NULL);
+X`009empiretool_cancel = 0;
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X`009
+X
+X    if (tar_X != cur_X `124`124 tar_Y != cur_Y `124`124 !secs) `123
+X`009write_line("Autoexplore finished to error.",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    exp_count ++;
+X
+X    des_X = cur_X;
+X    des_Y = cur_Y;
+X    des_C = '+';
+X    des_explore = 1;
+X    des_var = -1;
+X    sprintf(buffer,"designate %d,%d %c",des_X,des_Y,des_C);
+X    feed_command(buffer,parse_dump_desig);
+X`125
+X
+Xstatic void start_explore(void);
+X
+Xstatic void past_explore(void)
+X`123
+X    char buffer`091ERROR_LEN`093;
+X    sector_data *secs = Locate(&dump_database,start_X,start_Y);
+X    if (!secs) `123
+X`009sprintf(buffer,"cord: %d,%d",start_X,start_Y);
+X`009write_line("Internal error(past_explore): Sector not found from database
+V",
+X`009    E_tool,buffer);
+X    `125
+X
+X    if ((*secs)`091F_civ`093.U_num < 2 `124`124 cur_mob < 1) `123
+X`009sprintf(buffer,"Autoexplore finished, %d sector%s explored.",
+X`009    exp_count, exp_count != 1 ? "s" : "");
+X`009write_line(buffer,E_none,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    if (BTU_left < btu_limit) `123
+X`009sprintf(buffer,"BTU_limit reached, %d sector%s explored.",
+X`009    exp_count, exp_count != 1 ? "s" : "");
+X`009write_line(buffer,E_none,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X    start_explore();
+X`125
+X
+X
+Xstatic void start_explore(void)
+X`123
+X#define MAX_PATH 15
+X    cost_table costtable;
+X    dir_table  dirtable;
+X    int tpos,temp_X,temp_Y;
+X    float cost;
+X
+X    char buffer`091PROMPT_SIZE`093;
+X    char path`091MAX_PATH+2`093;
+X
+X    sector_data *secs = Locate(&dump_database,start_X,start_Y);
+X
+X    if (!secs) `123
+X`009char buffer`091ERROR_LEN`093;
+X`009sprintf(buffer,"cord: %d,%d",start_X,start_Y);
+X`009write_line("Internal error(next_explore): Sector not found from database
+V",
+X`009    E_tool,buffer);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X   `032
+X    if ((*secs)`091F_civ`093.U_num < 2 `124`124 (*secs)`091F_civ`093.U_num <
+V exp_civ_limit) `123
+X`009write_line("No civilians to explore",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    if (BTU_left < 5 `124`124 BTU_left < btu_limit)  `123
+X`009write_line("No BTUs to explore",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    calculate_cost(&dump_database,start_X,start_Y,
+X`009costtable,dirtable,MAX_PATH);
+X
+X    if(!select_target(&dump_database,costtable,&tpos, &cost)) `123
+X`009write_line("Nothing for explore",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    if ((*secs)`091F_mob`093.U_num < cost * commodities`0910`093.mob_mul `12
+V4`124
+X`009(*secs)`091F_mob`093.U_num - cost * commodities`0910`093.mob_mul < exp_m
+Vob_limit) `123
+X`009write_line("No mobility to explore",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X`009
+X    give_path(&dump_database,dirtable,path,tpos,&temp_X,&temp_Y);
+X    if (temp_X != start_X `124`124 temp_Y != start_Y) `123
+X`009write_line("Something is wrong with route",E_tool,NULL);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    cur_X = UNKNOWN_num;
+X    cur_Y = UNKNOWN_num;
+X    cur_mob = UNKNOWN_num;
+X
+X    sprintf(buffer,"explore civ %d,%d 1 %s",start_X,start_Y,path);
+X    feed_command(buffer,parse_dump_explore);
+X`125
+X
+X/* threshold ***************************************************************
+V */
+X
+Xstatic dump_fields thre_field;
+Xstatic int thre_amount;
+Xstatic int thre_X,thre_Y;
+Xstatic int thre_var = -1;
+X
+Xstatic void parse_dump_thre(data_type D,char *line)
+X`123
+X    int X,Y,val;
+X
+X    static int error = 0;
+X    if (D == D_EOD) `123 `032
+X`009if (empiretool_cancel) `123
+X`009    write_line("Canceled.",E_tool,NULL);
+X`009    empiretool_cancel = 0;
+X`009`125 else if (!error) `123
+X`009    sector_data *secs = Locate(&dump_database,thre_X,thre_Y);
+X`009    if (!secs) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"cord: %d,%d",thre_X,thre_Y);
+X`009`009write_line("Internal error(parse_dump_thre): Sector not found from d
+Vatabase",
+X`009`009    E_tool,buffer);
+X`009    `125 else `123`009  `032
+X`009`009add_to_var(thre_var,thre_X,thre_Y);
+X`009`009(*secs)`091thre_field`093.U_char = thre_amount;
+X`009    `125
+X`009`125
+X`009error = 0;
+X`009call_empiretool_handler();
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);
+X`009return;`032
+X    `125 else if (sscanf(line,"%d,%d old threshold %d",&X,&Y,&val) == 3) `12
+V3
+X`009if (X != thre_X `124`124 Y != thre_Y) `123
+X`009    write_line("Wrong cordinates",E_tool,line);
+X`009    error = 1;
+X`009`125
+X    `125 else `123
+X`009write_line("Can't parse",E_tool,line);
+X`009error = 1;
+X    `125
+X`125
+X
+X/* read DISTRIBUTE dump ***************************************************
+V */
+X
+Xstatic int dist_cur = 0;
+Xstatic int dist_count = 0;
+Xstatic int dist_auto = 0;
+Xstatic int dist_targ = 1;
+Xstatic int dist_var = -1;
+Xstatic selector dist_table;
+Xstatic selector dist_targ_table;
+X
+X#define MAX_DIST_PATH 10
+Xstatic char dist_path`091MAX_DIST_PATH+2`093;
+X
+Xstatic void next_distribute(void);
+X
+Xstatic void parse_dump_dist(data_type D,char *line)
+X`123
+X    static int error = 0;
+X    static int ok = 0;
+X    char *ptr;
+X    if (D == D_EOD) `123 `032
+X`009if (empiretool_cancel) `123
+X`009    write_line("Canceled.",E_tool,NULL);
+X`009`125 else if (!error) `123
+X`009    sector_data *secs = Locate(&dump_database,start_X,start_Y);
+X`009    if (!secs) `123
+X`009`009char buffer`091ERROR_LEN`093;
+X`009`009sprintf(buffer,"cord: %d,%d",start_X,start_Y);
+X`009`009write_line("Internal error(parse_dump_dist): Sector not found from d
+Vatabase",
+X`009`009    E_tool,buffer);
+X`009    `125 else if (ok) `123
+X`009`009if (!dist_path`0910`093) change_str_field(secs,0,F_dist_path,"_");
+X`009`009else change_str_field(secs,0,F_dist_path,dist_path);
+X
+X`009`009(*secs)`091F_dist_x`093.U_num = tar_X;
+X`009`009(*secs)`091F_dist_y`093.U_num = tar_Y;
+X`009`009dist_count ++;
+X`009`009add_to_var(dist_var,start_X,start_Y);
+X`009    `125 else `123
+X`009`009write_line("Something goes wrong with distribute",E_tool,NULL);
+X`009    `125
+X`009`125
+X`009error = 0;
+X`009if (dist_auto && !empiretool_cancel) next_distribute();
+X`009else call_empiretool_handler();
+X`009ok = 0;
+X`009empiretool_cancel = 0;
+X
+X    `125 else if (D == D_data && IsWarning(line)) `123
+X`009return; /* ok: IsWarning print message */
+X    `125 else if (D == D_data && fatal_message(line)) `123
+X`009error = 1;  /* COMMAND failed */
+X`009return; /* fatal_message print message */
+X    `125 else if (D == D_prompt) `123
+X`009ask_message(line);  /* ask from user */
+X`009return;`032
+X    `125 else if (D == D_data && (ptr = strstr(line,
+X`009"New path distributes to"))) `123
+X`009int x,y;
+X`009write_line(line,E_none,NULL);
+X`009if (sscanf(ptr,"New path distributes to %d,%d",&x,&y) != 2) `123
+X`009    write_line("Can't parse",E_tool,ptr);
+X`009    error = 1;
+X`009`125 else if (x != tar_X `124`124 y != tar_Y) `123
+X`009    write_line("Internal(?) error(parse_dump_dist); Cordinates not match
+V",
+X`009`009E_tool,ptr);
+X`009    error = 1;
+X`009`125 else ok = 1;
+X    `125 else if (D == D_data && (ptr = strstr(line,
+X`009"Distribution from and to"))) `123
+X`009int x,y;
+X`009write_line(line,E_none,NULL);
+X`009if (sscanf(ptr,"Distribution from and to %d,%d",&x,&y) != 2) `123
+X`009    write_line("Can't parse",E_tool,ptr);
+X`009    error = 1;
+X`009`125 else if (x != tar_X `124`124 y != tar_Y) `123
+X`009    write_line("Internal(?) error(parse_dump_dist); Cordinates not match
+V",
+X`009`009E_tool,ptr);
+X`009    error = 1;
+X`009`125 else ok = 1;
+X    `125 else `123
+X`009write_line(line,E_none,NULL);
+X`009/* these are only warnings */
+X    `125
+X`125
+X
+Xstatic void next_distribute(void)
+X`123
+X    sector_data *tar,*B = dump_database.sectors;
+X    cost_table costtable;
+X    dir_table dirtable;
+X    char des,*oldpath;
+X    int temp_X,temp_Y;
+X    int try_next = 1;
+X
+X    char buffer`091COMMAND_SIZE`093;
+X
+X    if(dist_targ && !(tar = Locate(&dump_database,tar_X,tar_Y))) `123
+X`009sprintf(buffer,"Internal error(next_distribute): sector not found %d,%d"
+V,
+X`009`009tar_X,tar_Y);
+X`009write_line(buffer,E_tool,buffer);
+X`009call_empiretool_handler();
+X`009return;
+X    `125
+X
+X    if (BTU_left <= btu_limit) `123
+X`009sprintf(buffer,"BTU limit reached, %d sector%s modified.",
+X`009    dist_count, dist_count != 1 ? "s" : "");
+X`009write_line(buffer,E_tool,NULL);
+X`009call_empiretool_handler();
++-+-+-+-+-+-+-+-  END  OF PART 6 +-+-+-+-+-+-+-+-

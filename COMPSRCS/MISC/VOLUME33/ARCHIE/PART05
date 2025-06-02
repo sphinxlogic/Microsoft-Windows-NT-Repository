@@ -1,0 +1,1532 @@
+Newsgroups: comp.sources.misc
+From: brendan@cygnus.com (Brendan Kehoe)
+Subject:  v33i054:  archie - A client to query the Archie FTP databases, v1.4.1, Part05/07
+Message-ID: <1992Nov5.210636.25870@sparky.imd.sterling.com>
+X-Md4-Signature: d91f21192ca2044f889bc39d6401d715
+Date: Thu, 5 Nov 1992 21:06:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brendan@cygnus.com (Brendan Kehoe)
+Posting-number: Volume 33, Issue 54
+Archive-name: archie/part05
+Environment: UNIX, VMS, DOS
+Supersedes: archie: Volume 27, Issue 79-84
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  aquery.c archie.doc archie.man pauthent.h perrmesg.c pfs.h
+# Wrapped by kent@sparky on Thu Nov  5 12:53:09 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 7)."'
+if test -f 'aquery.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'aquery.c'\"
+else
+  echo shar: Extracting \"'aquery.c'\" \(8163 characters\)
+  sed "s/^X//" >'aquery.c' <<'END_OF_FILE'
+X/*
+X * aquery.c : Programmatic Prospero interface to Archie
+X *
+X * Copyright (c) 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <stdio.h>
+X
+X#include <pfs.h>
+X#include <perrno.h>
+X#include <archie.h>
+X
+X#include <pmachine.h>
+X#ifdef NEED_STRING_H
+X# include <string.h>			/* for char *index() */
+X#else
+X# include <strings.h>			/* for char *index() */
+X#endif
+X
+X#ifdef __GNUC__
+X#define INLINE __inline__
+X#else
+X#define INLINE
+X#endif
+X
+Xstatic void translateArchieResponse();
+XINLINE static int hostnamecmp();
+X
+Xextern int pwarn;
+Xextern char p_warn_string[];
+X
+X/*
+X * archie_query : Sends a request to _host_, telling it to search for
+X *                _string_ using _query_ as the search method.
+X *                No more than _max_hits_ matches are to be returned
+X *                skipping over _offset_ matches.
+X *
+X *		  archie_query returns a linked list of virtual links. 
+X *                If _flags_ does not include AQ_NOTRANS, then the Archie
+X *                responses will be translated. If _flags_ does not include 
+X *                AQ_NOSORT, then the list will be sorted using _cmp_proc_ to
+X *                compare pairs of links.  If _cmp_proc_ is NULL or AQ_DEFCMP,
+X *                then the default comparison procedure, defcmplink(), is used
+X *                sorting by host, then filename. If cmp_proc is AQ_INVDATECMP
+X *                then invdatecmplink() is used, sorting inverted by date.
+X *                otherwise a user-defined comparison procedure is called.
+X *
+X *                archie_query returns NULL and sets perrno if the query
+X *                failed. Note that it can return NULL with perrno == PSUCCESS
+X *                if the query didn't fail but there were simply no matches.
+X *
+X *        query:  S  Substring search ignoring case   
+X *                C  Substring search with case significant
+X *                R  Regular expression search
+X *                =  Exact String Match
+X *            s,c,e  Tries exact match first and falls back to S, C, or R 
+X *                   if not found.
+X *
+X *     cmp_proc:  AQ_DEFCMP      Sort by host, then filename
+X *                AQ_INVDATECMP  Sort inverted by date
+X *
+X *        flags:  AQ_NOSORT      Don't sort results
+X *                AQ_NOTRANS     Don't translate results
+X */
+XVLINK 
+Xarchie_query(host,string,max_hits,offset,query,cmp_proc,flags)
+X    char	*host,*string;
+X    int		max_hits,offset;
+X    Query	query;
+X    int		(*cmp_proc)();
+X    int		flags;
+X    {
+X	char qstring[MAX_VPATH];    /* For construting the query  */
+X	VLINK	links;		/* Matches returned by server */
+X	VDIR_ST	dir_st;         /* Filled in by get_vdir      */
+X	PVDIR	dir= &dir_st;
+X	
+X	VLINK	p,q,r,lowest,nextp,pnext,pprev;
+X	int	tmp;
+X
+X	/* Set the cmp_proc if not given */
+X	if (cmp_proc == NULL) cmp_proc = defcmplink;
+X
+X	/* Make the query string */
+X	sprintf(qstring,"ARCHIE/MATCH(%d,%d,%c)/%s",
+X		max_hits,offset, (char) query,string);
+X
+X	/* Initialize Prospero structures */
+X	perrno = PSUCCESS; *p_err_string = '\0';
+X	pwarn = PNOWARN; *p_warn_string = '\0';
+X	vdir_init(dir);
+X	
+X	/* Retrieve the list of matches, return error if there was one */
+X#if defined(MSDOS)
+X	if(tmp = get_vdir(host, qstring, "", dir, (long)GVD_ATTRIB|GVD_NOSORT,
+X		NULL, NULL)) {
+X#else
+X	if(tmp = get_vdir(host,qstring,"",dir,GVD_ATTRIB|GVD_NOSORT,NULL,NULL)) {
+X# endif
+X	    perrno = tmp;
+X	    return(NULL);
+X	}
+X
+X	/* Save the links, and clear in dir in case it's used again   */
+X	links = dir->links; dir->links = NULL;
+X
+X	/* As returned, list is sorted by suffix, and conflicting     */
+X	/* suffixes appear on a list of "replicas".  We want to       */
+X	/* create a one-dimensional list sorted by host then filename */
+X	/* and maybe by some other parameter                          */
+X
+X	/* First flatten the doubly-linked list */
+X	for (p = links; p != NULL; p = nextp) {
+X	    nextp = p->next;
+X	    if (p->replicas != NULL) {
+X		p->next = p->replicas;
+X		p->next->previous = p;
+X		for (r = p->replicas; r->next != NULL; r = r->next)
+X		    /*EMPTY*/ ;
+X		r->next = nextp;
+X		nextp->previous = r;
+X		p->replicas = NULL;
+X	    }
+X	}
+X
+X	/* Translate the filenames unless NOTRANS was given */
+X	if (!(flags & AQ_NOTRANS))
+X	    for (p = links; p != NULL; p = p->next)
+X		translateArchieResponse(p);
+X
+X	/* If NOSORT given, then just hand it back */
+X	if (flags & AQ_NOSORT) {
+X	    perrno = PSUCCESS;
+X	    return(links);
+X	}
+X
+X	/* Otherwise sort it using a selection sort and the given cmp_proc */
+X	for (p = links; p != NULL; p = nextp) {
+X	    nextp = p->next;
+X	    lowest = p;
+X	    for (q = p->next; q != NULL; q = q->next)
+X		if ((*cmp_proc)(q,lowest) < 0)
+X		    lowest = q;
+X	    if (p != lowest) {
+X		/* swap the two links */
+X		pnext = p->next;
+X		pprev = p->previous;
+X		if (lowest->next != NULL)
+X		    lowest->next->previous = p;
+X		p->next = lowest->next;
+X		if (nextp == lowest) {
+X		    p->previous = lowest;
+X		} else {
+X		    lowest->previous->next = p;
+X		    p->previous = lowest->previous;
+X		}
+X		if (nextp == lowest) {
+X		    lowest->next = p;
+X		} else {
+X		    pnext->previous = lowest;
+X		    lowest->next = pnext;
+X		}
+X		if (pprev != NULL)
+X		    pprev->next = lowest;
+X		lowest->previous = pprev;
+X		/* keep the head of the list in the right place */
+X		if (links == p)
+X		    links = lowest;
+X	    }
+X	}
+X
+X	/* Return the links */
+X	perrno = PSUCCESS;
+X	return(links);
+X    }
+X
+X/*
+X * translateArchieResponse: 
+X *
+X *   If the given link is for an archie-pseudo directory, fix it. 
+X *   This is called unless AQ_NOTRANS was given to archie_query().
+X */
+Xstatic void
+XtranslateArchieResponse(l)
+X    VLINK l;
+X    {
+X	char *slash;
+X
+X	if (strcmp(l->type,"DIRECTORY") == 0) {
+X	    if (strncmp(l->filename,"ARCHIE/HOST",11) == 0) {
+X		l->type = stcopyr("EXTERNAL(AFTP,DIRECTORY)",l->type);
+X		l->host = stcopyr(l->filename+12,l->host);
+X		slash = (char *)index(l->host,'/');
+X		if (slash) {
+X		    l->filename = stcopyr(slash,l->filename);
+X		    *slash++ = '\0';
+X		} else
+X		    l->filename = stcopyr("",l->filename);
+X	    }
+X	}
+X    }
+X
+X
+X/* hostnamecmp: Compare two hostnames based on domain,
+X *              right-to-left.  Returns <0 if a belongs before b, >0
+X *              if b belongs before a, and 0 if they are identical.
+X *              Contributed by asami@cs.berkeley.edu (Satoshi ASAMI).
+X */
+XINLINE
+Xstatic int
+Xhostnamecmp(a,b)
+X    char *a,*b;
+X    {
+X	char	*pa, *pb;
+X	int	result;
+X
+X	for (pa = a ; *pa ; pa++)
+X	    ;
+X	for (pb = b ; *pb ; pb++)
+X	    ;
+X
+X	while (pa > a && pb > b) {
+X	    for (; pa > a ; pa--)
+X		if (*pa == '.')	{
+X		    pa++;
+X		    break;
+X		}
+X	    for (; pb > b ; pb--)
+X		if (*pb == '.')	{
+X		    pb++;
+X		    break;
+X		}
+X	    if (result = strcmp(pa, pb))
+X		return (result);
+X	    pa -= 2;
+X	    pb -= 2;
+X	}
+X	if (pa <= a) {
+X	    if (pb <= b)
+X		return (0);
+X	    else
+X		return (-1);
+X	} else
+X	    return (1);
+X    }
+X
+X/*
+X * defcmplink: The default link comparison function for sorting. Compares
+X *	       links p and q first by host then by filename. Returns < 0 if p
+X *             belongs before q, > 0 if p belongs after q, and == 0 if their
+X *             host and filename fields are identical.
+X */
+Xint
+Xdefcmplink(p,q)
+X    VLINK p,q;
+X    {
+X	int result;
+X
+X	if ((result=hostnamecmp(p->host,q->host)) != 0)
+X	    return(result);
+X	else
+X	    return(strcmp(p->filename,q->filename));
+X    }
+X
+X/*
+X * invdatecmplink: An alternative comparison function for sorting that
+X *	           compares links p and q first by LAST-MODIFIED date,
+X *                 if they both have that attribute. If both links
+X *                 don't have that attribute or the dates are the
+X *                 same, it then calls defcmplink() and returns its 
+X *		   value.
+X */
+Xint
+Xinvdatecmplink(p,q)
+X    VLINK p,q;
+X    {
+X	PATTRIB pat,qat;
+X	char *pdate,*qdate;
+X	int result;
+X	
+X	pdate = qdate = NULL;
+X	for (pat = p->lattrib; pat; pat = pat->next)
+X	    if(strcmp(pat->aname,"LAST-MODIFIED") == 0)
+X		pdate = pat->value.ascii;
+X	for (qat = q->lattrib; qat; qat = qat->next)
+X	    if(strcmp(qat->aname,"LAST-MODIFIED") == 0)
+X		qdate = qat->value.ascii;
+X	if(!pdate && !qdate) return(defcmplink(p,q));
+X	if(!pdate) return(1); 
+X	if(!qdate) return(-1);
+X	if((result=strcmp(qdate,pdate)) == 0) return(defcmplink(p,q));
+X	else return(result);
+X    }
+END_OF_FILE
+  if test 8163 -ne `wc -c <'aquery.c'`; then
+    echo shar: \"'aquery.c'\" unpacked with wrong size!
+  fi
+  # end of 'aquery.c'
+fi
+if test -f 'archie.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.doc'\"
+else
+  echo shar: Extracting \"'archie.doc'\" \(11259 characters\)
+  sed "s/^X//" >'archie.doc' <<'END_OF_FILE'
+X
+X
+X
+XARCHIE(1)                 User Commands                 ARCHIE(1)
+X
+X
+X
+XN_N_N_NA_A_A_AM_M_M_ME_E_E_E
+X     archie - query the  Archie  anonymous  FTP  databases  using
+X     Prospero
+X
+XS_S_S_SY_Y_Y_YN_N_N_NO_O_O_OP_P_P_PS_S_S_SI_I_I_IS_S_S_S
+X     a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e [_[_[_[ -_-_-_-c_c_c_ce_e_e_er_r_r_rs_s_s_s ] [ -_-_-_-a_a_a_a ] [ -_-_-_-l_l_l_l ] [ -_-_-_-t_t_t_t ] [ -_-_-_-m_m_m_m hits ]
+X            [ -_-_-_-N_N_N_N [_[_[_[ level ] ] [ -_-_-_-h_h_h_h hostname ] [ -_-_-_-o_o_o_o filename ]
+X            [ -_-_-_-L_L_L_L ] [ -_-_-_-V_V_V_V ] [ -_-_-_-v_v_v_v ] string
+X
+XD_D_D_DE_E_E_ES_S_S_SC_C_C_CR_R_R_RI_I_I_IP_P_P_PT_T_T_TI_I_I_IO_O_O_ON_N_N_N
+X     a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e queries an archie anonymous FTP database looking  for
+X     the  specified  string  using  the  P_P_P_Pr_r_r_ro_o_o_os_s_s_sp_p_p_pe_e_e_er_r_r_ro_o_o_o protocol.  This
+X     client is based on P_P_P_Pr_r_r_ro_o_o_os_s_s_sp_p_p_pe_e_e_er_r_r_ro_o_o_o version Beta.4.2 and is provided
+X     to  encourage non-interactive use of the Archie servers (and
+X     subsequently better performance on both  sides).   This  man
+X     page describes version 1.3 of the client.
+X
+X     The general method of use is of the form
+X
+X          % a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e s_s_s_st_t_t_tr_r_r_ri_i_i_in_n_n_ng_g_g_g
+X
+X     This will go to the archie server and ask it to look for all
+X     known  systems  that have a file named `string' in their FTP
+X     area.  a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e will wait, and print out any matches.
+X
+X     For example,
+X
+X          % a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e e_e_e_em_m_m_ma_a_a_ac_c_c_cs_s_s_s
+X
+X     will find all anonymous FTP sites  in  the  archie  database
+X     that  have  files  named  e_e_e_em_m_m_ma_a_a_ac_c_c_cs_s_s_s somewhere in their FTP area.
+X     (This particular query would probably return a lot of direc-
+X     tories.)  If you want a list of every filename that contains
+X     e_e_e_em_m_m_ma_a_a_ac_c_c_cs_s_s_s anywhere in it, you'd use
+X
+X          % a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e -_-_-_-c_c_c_c e_e_e_em_m_m_ma_a_a_ac_c_c_cs_s_s_s
+X
+X     Regular expressions, such as
+X
+X          % a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e -_-_-_-r_r_r_r '_'_'_'[_[_[_[x_x_x_xX_X_X_X]_]_]_][_[_[_[l_l_l_lL_L_L_L]_]_]_]i_i_i_is_s_s_sp_p_p_p'_'_'_'
+X
+X     may also be used for searches.  (See the manual of a reason-
+X     ably good editor, like GNU Emacs or vi, for more information
+X     on using regular expressions.)
+X
+X
+XO_O_O_OP_P_P_PT_T_T_TI_I_I_IO_O_O_ON_N_N_NS_S_S_S
+X     The options currently available to this a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e client are:
+X
+X     -_-_-_-c_c_c_c          Search substrings paying attention  to  upper  &
+X                 lower case.
+X     -_-_-_-e_e_e_e          Exact string match.  (This is the default.)
+X
+X
+X
+XArchie (Prospero) Last change: 26 October 1992                  1
+X
+X
+X
+X
+X
+X
+XARCHIE(1)                 User Commands                 ARCHIE(1)
+X
+X
+X
+X     -_-_-_-r_r_r_r          Search using a regular expression.
+X     -_-_-_-s_s_s_s          Search  substrings  ignoring  the  case  of  the
+X                 letters.
+X     -_-_-_-o_o_o_ofilename  If specified, place the results of the search in
+X                 filename.
+X     -_-_-_-a_a_a_a          Output results as Alex filenames.
+X     -_-_-_-l_l_l_l          Output results in a form suitable for parsing by
+X                 programs.
+X     -_-_-_-t_t_t_t          Sort the results inverted by date.
+X     -_-_-_-m_m_m_mhits      Specifies the maximum number of  hits  (matches)
+X                 to return (default of 9_9_9_95_5_5_5).
+X     -_-_-_-N_N_N_Nlevel     Sets the niceness of a query; by  default,  it's
+X                 set  to 0.  Without an argument, ``-N'' defaults
+X                 to 3_3_3_35_5_5_57_7_7_76_6_6_65_5_5_5.   If  you  use  -_-_-_-N_N_N_N  with  an  argument
+X                 between 0 and 35765, it'll adjust itself accord-
+X                 ingly.  (N_N_N_No_o_o_ot_t_t_te_e_e_e: VMS users will have to put quotes
+X                 around  this  argument, and -_-_-_-L_L_L_L, like "-_-_-_-N_N_N_N4_4_4_45_5_5_5"; VMS
+X                 will otherwise convert it to lowercase.)
+X     -_-_-_-h_h_h_h hostname Tells the client  to  query  the  Archie  server
+X                 hostname.
+X     -_-_-_-L_L_L_L          Lists the Archie servers known  to  the  program
+X                 when it was compiled, as well as the name of the
+X                 default Archie server.  For an up-to-date  list,
+X                 write  to  ``archie@archie.mcgill.ca''  (or  any
+X                 Archie  server)  with  the  single  command   of
+X                 servers.
+X     -_-_-_-V_V_V_V          With the verbose option, a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e will  make  some
+X                 comments  along  the way if a search is going to
+X                 take some time, to pacify the user.
+X
+X     The three search-modifying arguments  (``-c'',  ``-r'',  and
+X     ``-s'')  are  all  mutually  exclusive;  only  the  last one
+X     counts.  If you specify -_-_-_-e_e_e_e with any of  ``-c'',  ``-r'',  or
+X     ``-s'', the server will first check for an exact match, then
+X     fall back to the case-sensitive, case-insensitive, or  regu-
+X     lar expression search.  This is so if there are matches that
+X     are particularly obvious, it will take a minimal  amount  of
+X     time to satisfy your request.
+X
+X     If you list a single `-' by itself,  any  further  arguments
+X     will  be  taken  as  part  of  the  search  string.  This is
+X     intended to enable searching for strings that begin  with  a
+X     `-'; for example:
+X
+X          % a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e -_-_-_-s_s_s_s -_-_-_- -_-_-_-o_o_o_ol_l_l_ld_d_d_d
+X
+X     will search for all filenames that contain the string `-old'
+X     in them.
+X
+XR_R_R_RE_E_E_ES_S_S_SP_P_P_PO_O_O_ON_N_N_NS_S_S_SE_E_E_E
+X     Archie servers are set up to respond to a number of requests
+X     in  a  queued fashion.  That is, smaller requests get served
+X
+X
+X
+XArchie (Prospero) Last change: 26 October 1992                  2
+X
+X
+X
+X
+X
+X
+XARCHIE(1)                 User Commands                 ARCHIE(1)
+X
+X
+X
+X     much more quickly than do large requests.  As a result,  the
+X     more  often  you query the Archie server, or the larger your
+X     requests, the longer the queue will become, resulting  in  a
+X     longer  waiting  period  for everyone's requests.  Please be
+X     frugal when possible, for your benefit as well  as  for  the
+X     other users.
+X
+XQ_Q_Q_QU_U_U_UE_E_E_ER_R_R_RY_Y_Y_Y P_P_P_PR_R_R_RI_I_I_IO_O_O_OR_R_R_RI_I_I_IT_T_T_TY_Y_Y_Y
+X     Please use the  ``-N''  option  whenever  you  don't  demand
+X     immediacy,  or when you're requesting things that could gen-
+X     erate large responses.  Even when using the nice option, you
+X     should  still  try  to  avoid  big jobs during busy periods.
+X     Here is a list of what we consider to be  nice  values  that
+X     accurately reflect the priority of a job to the server.
+X
+X          N_N_N_No_o_o_or_r_r_rm_m_m_ma_a_a_al_l_l_l              0
+X          N_N_N_Ni_i_i_ic_c_c_ce_e_e_e                500
+X          N_N_N_Ni_i_i_ic_c_c_ce_e_e_er_r_r_r               1000
+X          V_V_V_Ve_e_e_er_r_r_ry_y_y_y N_N_N_Ni_i_i_ic_c_c_ce_e_e_e           5000
+X          E_E_E_Ex_x_x_xt_t_t_tr_r_r_re_e_e_em_m_m_me_e_e_el_l_l_ly_y_y_y N_N_N_Ni_i_i_ic_c_c_ce_e_e_e      10000
+X          N_N_N_Ni_i_i_ic_c_c_ce_e_e_es_s_s_st_t_t_t              32765
+X
+X     The last priority, N_N_N_Ni_i_i_ic_c_c_ce_e_e_es_s_s_st_t_t_t, would be used when a  job  should
+X     wait  until  the  queue is essentially empty before running.
+X     You should pick one of these values to use, possibly modify-
+X     ing  it  slightly depending on where you think your priority
+X     should land.  For example, 32760 would mean wait  until  the
+X     queue  is  empty,  but  jump  ahead  of other jobs that have
+X     selected N_N_N_Ni_i_i_ic_c_c_ce_e_e_es_s_s_st_t_t_t.
+X
+X     There are certain types of  things  that  we  suggest  using
+X     N_N_N_Ni_i_i_ic_c_c_ce_e_e_es_s_s_st_t_t_t  for,  irregardless.  In particular, any searches for
+X     which you would have a hard time justifying the use of  any-
+X     thing but extra resources.  (We all know what those searches
+X     would be for.)
+X
+XE_E_E_EN_N_N_NV_V_V_VI_I_I_IR_R_R_RO_O_O_ON_N_N_NM_M_M_ME_E_E_EN_N_N_NT_T_T_T
+X     ARCHIE_HOST
+X             This will change the host archie will  consult  when
+X             making  queries.   (The default value is what's been
+X             compiled in.)  The ``-h'' option will override this.
+X             If  you're  running  VMS,  create  a  symbol  called
+X             ARCHIE_HOST.
+X
+XS_S_S_SE_E_E_EE_E_E_E A_A_A_AL_L_L_LS_S_S_SO_O_O_O
+X     For more information on regular expressions, see the  manual
+X     pages on:
+X
+X     r_r_r_re_e_e_eg_g_g_ge_e_e_ex_x_x_x(3),_,_,_, e_e_e_ed_d_d_d(1)
+X
+X     Also   read    the    file    a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e/_/_/_/d_d_d_do_o_o_oc_c_c_c/_/_/_/w_w_w_wh_h_h_ha_a_a_at_t_t_ti_i_i_is_s_s_s._._._.a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e    on
+X     a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e._._._.m_m_m_mc_c_c_cg_g_g_gi_i_i_il_l_l_ll_l_l_l._._._.c_c_c_ca_a_a_a for a detailed paper on Archie as a whole.
+X
+X
+X
+XArchie (Prospero) Last change: 26 October 1992                  3
+X
+X
+X
+X
+X
+X
+XARCHIE(1)                 User Commands                 ARCHIE(1)
+X
+X
+X
+X     Read the file README.ALEX distributed with this  client  for
+X     more information on what Alex is and how you can take advan-
+X     tage of it.
+XA_A_A_AU_U_U_UT_T_T_TH_H_H_HO_O_O_OR_R_R_RS_S_S_S
+X     The a_a_a_ar_r_r_rc_c_c_ch_h_h_hi_i_i_ie_e_e_e service was conceived  and  implemented  by  Alan
+X     Emtage       (b_b_b_ba_a_a_aj_j_j_ja_a_a_an_n_n_n@_@_@_@c_c_c_cs_s_s_s._._._.m_m_m_mc_c_c_cg_g_g_gi_i_i_il_l_l_ll_l_l_l._._._.c_c_c_ca_a_a_a),       Peter       Deutsch
+X     (p_p_p_pe_e_e_et_t_t_te_e_e_er_r_r_rd_d_d_d@_@_@_@c_c_c_cs_s_s_s._._._.m_m_m_mc_c_c_cg_g_g_gi_i_i_il_l_l_ll_l_l_l._._._.c_c_c_ca_a_a_a),        and        Bill         Heelan
+X     (w_w_w_wh_h_h_he_e_e_ee_e_e_el_l_l_la_a_a_an_n_n_n@_@_@_@c_c_c_cs_s_s_s._._._.m_m_m_mc_c_c_cg_g_g_gi_i_i_il_l_l_ll_l_l_l._._._.c_c_c_ca_a_a_a).   The  entire  Internet  is in their
+X     debt.
+X
+X     The  P_P_P_Pr_r_r_ro_o_o_os_s_s_sp_p_p_pe_e_e_er_r_r_ro_o_o_o  system  was  created   by   Clifford   Neuman
+X     (b_b_b_bc_c_c_cn_n_n_n@_@_@_@i_i_i_is_s_s_si_i_i_i._._._.e_e_e_ed_d_d_du_u_u_u);   write  to  i_i_i_in_n_n_nf_f_f_fo_o_o_o-_-_-_-p_p_p_pr_r_r_ro_o_o_os_s_s_sp_p_p_pe_e_e_er_r_r_ro_o_o_o@_@_@_@i_i_i_is_s_s_si_i_i_i._._._.e_e_e_ed_d_d_du_u_u_u  for  more
+X     information on the protocol and its use.
+X
+X     This stripped client  was  put  together  by  Brendan  Kehoe
+X     (b_b_b_br_r_r_re_e_e_en_n_n_nd_d_d_da_a_a_an_n_n_n@_@_@_@c_c_c_cy_y_y_yg_g_g_gn_n_n_nu_u_u_us_s_s_s._._._.c_c_c_co_o_o_om_m_m_m),  with modifications by Clifford Neuman
+X     and George Ferguson (f_f_f_fe_e_e_er_r_r_rg_g_g_gu_u_u_us_s_s_so_o_o_on_n_n_n@_@_@_@c_c_c_cs_s_s_s._._._.r_r_r_ro_o_o_oc_c_c_ch_h_h_he_e_e_es_s_s_st_t_t_te_e_e_er_r_r_r._._._.e_e_e_ed_d_d_du_u_u_u).
+X
+XB_B_B_BU_U_U_UG_G_G_GS_S_S_S
+X     There are none; only a few unexpected features.
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+XArchie (Prospero) Last change: 26 October 1992                  4
+X
+X
+X
+END_OF_FILE
+  if test 11259 -ne `wc -c <'archie.doc'`; then
+    echo shar: \"'archie.doc'\" unpacked with wrong size!
+  fi
+  # end of 'archie.doc'
+fi
+if test -f 'archie.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'archie.man'\"
+else
+  echo shar: Extracting \"'archie.man'\" \(6945 characters\)
+  sed "s/^X//" >'archie.man' <<'END_OF_FILE'
+X.\" Originally by Jeff Kellem (composer@chem.bu.edu).
+X.\"
+X.\" This is from rn (1):
+X.de Ip
+X.br
+X.ie \\n.$>=3 .ne \\$3
+X.el .ne 3
+X.IP "\\$1" \\$2
+X..
+X.\"
+X.TH ARCHIE 1 "26 October 1992" "Archie (Prospero)"
+X.SH NAME
+Xarchie \- query the Archie anonymous FTP databases using Prospero
+X.SH SYNOPSIS
+X.in +\w'\fBarchie \fR'u
+X.ti -\w'\fBarchie \fR'u
+X.B archie\
+X\ [\ \fB\-cers\fR\ ]\
+X\ [\ \fB\-a\fR\ ]\ [\ \fB\-l\fR\ ]\ [\ \fB\-t\fR\ ]\
+X\ [\ \fB\-m\ \fIhits\fR\ ]
+X[\ \fB\-N\ [\ \fIlevel\fR\ ]\ ]\
+X\ [\ \fB\-h\fR\ \fIhostname\fR\ ]\
+X\ [\ \fB\-o\fR\ \fIfilename\fR\ ]
+X[\ \fB\-L\fR\ ]\ [\ \fB\-V\fR\ ]\ [\ \fB\-v\fR\ ]\ \fIstring\fR
+X.SH DESCRIPTION
+X.B archie
+Xqueries an archie anonymous FTP database looking for the specified
+X.I string
+Xusing the
+X.B Prospero
+Xprotocol.  This client is based on
+X.B Prospero
+Xversion Beta.4.2 and is provided to encourage non-interactive use of
+Xthe Archie servers (and subsequently better performance on both
+Xsides).  This man page describes version 1.3 of the client.
+X
+XThe general method of use is of the form
+X
+X.RS
+X%
+X.B archie string
+X.RE
+X.PP
+X
+XThis will go to the archie server and ask it to look for all known
+Xsystems that have a file named `string' in their FTP area.  \fBarchie\fP
+Xwill wait, and print out any matches.
+X
+XFor example,
+X
+X.RS
+X%
+X.B archie emacs
+X.RE
+X.PP
+X
+Xwill find all anonymous FTP sites in the archie database that have files
+Xnamed
+X.B emacs
+Xsomewhere in their FTP area.  (This particular query would probably
+Xreturn a lot of directories.)  If you want a list of every filename
+Xthat contains \fBemacs\fR \fIanywhere\fR in it, you'd use
+X
+X.RS
+X%
+X.B archie -c emacs
+X.RE
+X.PP
+X
+XRegular expressions, such as
+X
+X.RS
+X%
+X.B archie -r '[xX][lL]isp'
+X.RE
+X.PP
+X
+Xmay also be used for searches.  (See the manual of a reasonably good
+Xeditor, like GNU Emacs or vi, for more information on using regular
+Xexpressions.)
+X
+X.SH OPTIONS
+XThe options currently available to this
+X.B archie
+Xclient are:
+X
+X.PD 0
+X.TP 12
+X.BR \-c
+XSearch substrings paying attention to upper & lower case.
+X.TP
+X.BR \-e
+XExact string match.  (This is the default.)
+X.TP
+X.BR \-r
+XSearch using a regular expression.
+X.TP
+X.BR \-s
+XSearch substrings ignoring the case of the letters.
+X.TP
+X.BI \-o filename
+XIf specified, place the results of the search in \fIfilename\fR.
+X.TP
+X.BR \-a
+XOutput results as Alex filenames.
+X.TP
+X.BR \-l
+XOutput results in a form suitable for parsing by programs.
+X.TP
+X.BR \-t
+XSort the results inverted by date.
+X.TP
+X.BI \-m hits
+XSpecifies the maximum number of hits (matches) to return (default of 
+X\fB95\fR).
+X.TP
+X.BI \-N level
+XSets the \fIniceness\fR of a query; by default, it's set to 0.
+XWithout an argument, ``\-N'' defaults to \fB35765\fR.  If you use
+X\fB\-N\fR with an argument between 0 and 35765, it'll adjust itself
+Xaccordingly.  (\fBNote\fR: VMS users will have to put quotes around
+Xthis argument, and \fB\-L\fR, like "\fB\-N45\fR"; VMS will otherwise convert
+Xit to lowercase.)
+X.TP
+X.BI \-h\ \fIhostname\fR
+XTells the client to query the Archie server \fIhostname\fR.
+X.TP
+X.BI \-L
+XLists the Archie servers known to the program when it was compiled, as
+Xwell as the name of the default Archie server.  For an up-to-date
+Xlist, write to ``archie@archie.mcgill.ca'' (or any Archie server) with
+Xthe single command of \fIservers\fR.
+X.TP
+X.BI \-V
+XWith the verbose option, \fBarchie\fR will make some comments along
+Xthe way if a search is going to take some time, to pacify the user.
+X
+X.PP
+XThe three search-modifying arguments (``\-c'', ``\-r'', and ``\-s'')
+Xare all mutually exclusive; only the last one counts.  If you specify
+X\fB\-e\fR with any of ``\-c'', ``\-r'', or ``\-s'',
+Xthe server will first check for an exact match, then fall back to the
+Xcase-sensitive, case-insensitive, or regular expression search.  This is
+Xso if there are matches that are particularly obvious, it will take a
+Xminimal amount of time to satisfy your request.
+X
+XIf you list a single `\-' by itself, any further arguments will be
+Xtaken as part of the search string.  This is intended to enable
+Xsearching for strings that begin with a `\-'; for example:
+X
+X.RS
+X%
+X.B archie \-s \- \-old
+X.RE
+X
+Xwill search for all filenames that contain the string `\-old' in them.
+X
+X.SH RESPONSE
+XArchie servers are set up to respond to a number of requests in a
+Xqueued fashion.  That is, smaller requests get served much more
+Xquickly than do large requests.  As a result, the more often you query
+Xthe Archie server, or the larger your requests, the longer the queue
+Xwill become, resulting in a longer waiting period for everyone's
+Xrequests.  Please be frugal when possible, for your benefit as well as
+Xfor the other users.
+X
+X.SH QUERY PRIORITY
+XPlease use the ``-N'' option whenever you don't demand immediacy, or
+Xwhen you're requesting things that could generate large responses.
+XEven when using the nice option, you should still try to avoid big
+Xjobs during busy periods.  Here is a list of what we consider to be
+Xnice values that accurately reflect the priority of a job to the server.
+X
+X.RS
+X.TP 20
+X.B Normal
+X0
+X.TP
+X.B Nice
+X500
+X.TP
+X.B Nicer
+X1000
+X.TP
+X.B Very Nice
+X5000
+X.TP
+X.B Extremely Nice
+X10000
+X.TP
+X.B Nicest
+X32765
+X.RE
+X
+XThe last priority, \fBNicest\fR, would be used when a job should wait until
+Xthe queue is essentially empty before running.  You should pick one of
+Xthese values to use, possibly modifying it slightly depending on where
+Xyou think your priority should land.  For example, 32760 would mean
+Xwait until the queue is empty, but jump ahead of other jobs that have
+Xselected \fBNicest\fR.
+X
+XThere are certain types of things that we suggest using \fBNicest\fR
+Xfor, irregardless.  In particular, any searches for which you would
+Xhave a hard time justifying the use of anything but extra resources.
+X(We all know what those searches would be for.)
+X
+X.SH ENVIRONMENT
+X.Ip "ARCHIE_HOST" 8
+XThis will change the host
+X.IR archie
+Xwill consult when making queries.  (The default value is what's been
+Xcompiled in.)  The ``\-h'' option will override this.  If you're
+Xrunning VMS, create a symbol called ARCHIE_HOST.
+X
+X.SH SEE ALSO
+XFor more information on regular expressions, see the manual pages on:
+X
+X.BR regex (3) ,
+X.BR ed (1)
+X
+XAlso read the file \fBarchie/doc/whatis.archie\fR on
+X\fBarchie.mcgill.ca\fR for a detailed paper on Archie as a whole.
+X
+XRead the file README.ALEX distributed with this client for more
+Xinformation on what Alex is and how you can take advantage of it.
+X.SH AUTHORS
+XThe 
+X.B archie
+Xservice was conceived and implemented by Alan Emtage (\fBbajan@cs.mcgill.ca\fR),
+XPeter Deutsch (\fBpeterd@cs.mcgill.ca\fR), and Bill Heelan
+X(\fBwheelan@cs.mcgill.ca\fR).  The entire Internet is in their debt.
+X
+XThe \fBProspero\fR system was created by Clifford Neuman
+X(\fBbcn@isi.edu\fR); write to \fBinfo\-prospero@isi.edu\fR for more
+Xinformation on the protocol and its use.
+X
+XThis stripped client was put together by Brendan Kehoe
+X(\fBbrendan@cygnus.com\fR), with modifications by
+XClifford Neuman and George Ferguson (\fBferguson@cs.rochester.edu\fR).
+X
+X.SH BUGS
+XThere are none; only a few unexpected features.
+X
+END_OF_FILE
+  if test 6945 -ne `wc -c <'archie.man'`; then
+    echo shar: \"'archie.man'\" unpacked with wrong size!
+  fi
+  # end of 'archie.man'
+fi
+if test -f 'pauthent.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pauthent.h'\"
+else
+  echo shar: Extracting \"'pauthent.h'\" \(885 characters\)
+  sed "s/^X//" >'pauthent.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <copyright.h>
+X
+X#define PFSA_UNAUTHENTICATED		1
+X
+Xstruct pfs_auth_info {
+X    char			auth_type[100];
+X    char			authenticator[250];
+X};
+X
+Xtypedef struct pfs_auth_info *PAUTH;
+Xtypedef struct pfs_auth_info PAUTH_ST;
+X
+XPAUTH get_pauth();
+X
+X#ifndef VMS
+X# ifndef IN_H
+X#  ifdef PCNFS
+X#   include <tklib.h>
+X#  endif
+X#  include <netinet/in.h>
+X#  define IN_H
+X# endif
+X#else
+X# ifndef _ARCHIE_VMS
+X#  include <vms.h>
+X# endif
+X#endif
+X
+Xstruct client_info {
+X    int				ainfo_type;
+X    char			*auth_type;
+X    char			*authenticator;
+X    char			*userid;
+X    short			port;
+X    struct in_addr		haddr;
+X    struct pfs_auth_info	*previous;
+X    struct pfs_auth_info	*next;
+X};
+X
+Xtypedef struct client_info *CINFO;
+Xtypedef struct client_info CINFO_ST;
+END_OF_FILE
+  if test 885 -ne `wc -c <'pauthent.h'`; then
+    echo shar: \"'pauthent.h'\" unpacked with wrong size!
+  fi
+  # end of 'pauthent.h'
+fi
+if test -f 'perrmesg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'perrmesg.c'\"
+else
+  echo shar: Extracting \"'perrmesg.c'\" \(9004 characters\)
+  sed "s/^X//" >'perrmesg.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <perrno.h>
+X#include <stdio.h>
+X
+X/* This file and perrno.h should always be updated simultaneously */
+X
+Xint	perrno = 0;
+Xint	pwarn = 0;
+Xchar	p_err_string[P_ERR_STRING_SZ];
+Xchar	p_warn_string[P_ERR_STRING_SZ];
+X
+Xchar	*p_err_text[256] = {
+X    /*   0 */ "Success (prospero)",
+X    /*   1 */ "Port unknown (dirsend)",
+X    /*   2 */ "Can't open local UDP port (dirsend)",
+X    /*   3 */ "Can't resolve hostname (dirsend)",
+X    /*   4 */ "Unable to send entire message (dirsend)",
+X    /*   5 */ "Timed out (dirsend)",
+X    /*   6 */ "Recvfrom failed (dirsend)",
+X    /*   7 */ "",    /*   8 */ "",    /*   9 */ "",    /*  10 */ "",
+X    /*  11 */ "Sendto failed (reply)",
+X    /*  12 */ "",    /*  13 */ "",    /*  14 */ "",    /*  15 */ "",
+X    /*  16 */ "",    /*  17 */ "",    /*  18 */ "",    /*  19 */ "",
+X    /*  20 */ "",
+X    /*  21 */ "Link already exists (vl_insert)",
+X    /*  22 */ "Link with same name already exists (vl_insert)",
+X    /*  23 */ "",    /*  24 */ "",
+X    /*  25 */ "Link already exists (ul_insert)",
+X    /*  26 */ "Replacing existing link (ul_insert)",
+X    /*  27 */ "Previous entry not found in dir->ulinks (ul_insert)",
+X    /*  28 */ "",    /*  29 */ "",    /*  30 */ "",    /*  31 */ "",
+X    /*  32 */ "",    /*  33 */ "",    /*  34 */ "",    /*  35 */ "",
+X    /*  36 */ "",    /*  37 */ "",    /*  38 */ "",    /*  39 */ "",
+X    /*  40 */ "",
+X    /*  41 */ "Temporary not found (rd_vdir)",
+X    /*  42 */ "Namespace not closed with object (rd_vdir)",
+X    /*  43 */ "Alias for namespace not defined (rd_vdir)",
+X    /*  44 */ "Specified namespace not found (rd_vdir)",
+X    /*  45 */ "",    /*  46 */ "",    /*  47 */ "",    /*  48 */ "",
+X    /*  49 */ "",    /*  50 */ "",
+X    /*  51 */ "File access method not supported (pfs_access)",
+X    /*  52 */ "",    /*  53 */ "",    /*  54 */ "",
+X    /*  55 */ "Pointer to cached copy - delete on close (pmap_cache)",
+X    /*  56 */ "Unable to retrieve file (pmap_cache)",
+X    /*  57 */ "",    /*  58 */ "",    /*  59 */ "",    /*  60 */ "",
+X    /*  61 */ "Directory already exists (mk_vdir)",
+X    /*  62 */ "Link with same name already exists (mk_vdir)",
+X    /*  63 */ "",    /*  64 */ "",
+X    /*  65 */ "Not a virtual system (vfsetenv)",
+X    /*  66 */ "Can't find directory (vfsetenv)",
+X    /*  67 */ "",    /*  68 */ "",    /*  69 */ "",    /*  70 */ "",
+X    /*  71 */ "Link already exists (add_vlink)",
+X    /*  72 */ "Link with same name already exists (add_vlink)",
+X    /*  73 */ "",    /*  74 */ "",    /*  75 */ "",    /*  76 */ "",
+X    /*  77 */ "",    /*  78 */ "",    /*  79 */ "",    /*  80 */ "",
+X    /*  81 */ "",    /*  82 */ "",    /*  83 */ "",    /*  84 */ "",
+X    /*  85 */ "",    /*  86 */ "",    /*  87 */ "",    /*  88 */ "",
+X    /*  89 */ "",    /*  90 */ "",    /*  91 */ "",    /*  92 */ "",
+X    /*  93 */ "",    /*  94 */ "",    /*  95 */ "",    /*  96 */ "",
+X    /*  97 */ "",    /*  98 */ "",    /*  99 */ "",    /* 100 */ "",
+X    /* 101 */ "",    /* 102 */ "",    /* 103 */ "",    /* 104 */ "",
+X    /* 105 */ "",    /* 106 */ "",    /* 107 */ "",    /* 108 */ "",
+X    /* 109 */ "",    /* 110 */ "",    /* 111 */ "",    /* 112 */ "",
+X    /* 113 */ "",    /* 114 */ "",    /* 115 */ "",    /* 116 */ "",
+X    /* 117 */ "",    /* 118 */ "",    /* 119 */ "",    /* 120 */ "",
+X    /* 121 */ "",    /* 122 */ "",    /* 123 */ "",    /* 124 */ "",
+X    /* 125 */ "",    /* 126 */ "",    /* 127 */ "",    /* 128 */ "",
+X    /* 129 */ "",    /* 130 */ "",    /* 131 */ "",    /* 132 */ "",
+X    /* 133 */ "",    /* 134 */ "",    /* 135 */ "",    /* 136 */ "",
+X    /* 137 */ "",    /* 138 */ "",    /* 139 */ "",    /* 140 */ "",
+X    /* 141 */ "",    /* 142 */ "",    /* 143 */ "",    /* 144 */ "",
+X    /* 145 */ "",    /* 146 */ "",    /* 147 */ "",    /* 148 */ "",
+X    /* 149 */ "",    /* 150 */ "",    /* 151 */ "",    /* 152 */ "",
+X    /* 153 */ "",    /* 154 */ "",    /* 155 */ "",    /* 156 */ "",
+X    /* 157 */ "",    /* 158 */ "",    /* 159 */ "",    /* 160 */ "",
+X    /* 161 */ "",    /* 162 */ "",    /* 163 */ "",    /* 164 */ "",
+X    /* 165 */ "",    /* 166 */ "",    /* 167 */ "",    /* 168 */ "",
+X    /* 169 */ "",    /* 170 */ "",    /* 171 */ "",    /* 172 */ "",
+X    /* 173 */ "",    /* 174 */ "",    /* 175 */ "",    /* 176 */ "",
+X    /* 177 */ "",    /* 178 */ "",    /* 179 */ "",    /* 180 */ "",
+X    /* 181 */ "",    /* 182 */ "",    /* 183 */ "",    /* 184 */ "",
+X    /* 185 */ "",    /* 186 */ "",    /* 187 */ "",    /* 188 */ "",
+X    /* 189 */ "",    /* 190 */ "",    /* 191 */ "",    /* 192 */ "",
+X    /* 193 */ "",    /* 194 */ "",    /* 195 */ "",    /* 196 */ "",
+X    /* 197 */ "",    /* 198 */ "",    /* 199 */ "",    /* 200 */ "",
+X    /* 201 */ "",    /* 202 */ "",    /* 203 */ "",    /* 204 */ "",
+X    /* 205 */ "",    /* 206 */ "",    /* 207 */ "",    /* 208 */ "",
+X    /* 209 */ "",    /* 210 */ "",    /* 211 */ "",    /* 212 */ "",
+X    /* 213 */ "",    /* 214 */ "",    /* 215 */ "",    /* 216 */ "",
+X    /* 217 */ "",    /* 218 */ "",    /* 219 */ "",    /* 220 */ "",
+X    /* 221 */ "",    /* 222 */ "",    /* 223 */ "",    /* 224 */ "",
+X    /* 225 */ "",    /* 226 */ "",    /* 227 */ "",    /* 228 */ "",
+X    /* 229 */ "",
+X    /* 230 */ "File not found (prospero)",
+X    /* 231 */ "Directory not found (prospero)",
+X    /* 232 */ "Symbolic links nested too deep (prospero)",
+X    /* 233 */ "Environment not initialized - source vfsetup.source then run vfsetup",
+X    /* 234 */ "Can't traverse an external file (prospero)",
+X    /* 235 */ "Forwarding chain is too long (prospero)",
+X    /* 236 */ "",    /* 237 */ "",    /* 238 */ "",    /* 239 */ "",
+X    /* 240 */ "",    /* 241 */ "",
+X    /* 242 */ "Authentication required (prospero server)",
+X    /* 243 */ "Not authorized (prospero server)",
+X    /* 244 */ "Not found (prospero server)",
+X    /* 245 */ "Bad version number (prospero server)",
+X    /* 246 */ "Not a directory (prospero server)",
+X    /* 247 */ "Already exists (prospero server)",
+X    /* 248 */ "Link with same name already exists (prospero server)",
+X    /* 249 */ "",    /* 250 */ "",
+X    /* 251 */ "Command not implemented on server (dirsrv)",
+X    /* 252 */ "Bad format for response (dirsrv)",
+X    /* 253 */ "Protocol error (prospero server)",
+X    /* 254 */ "Unspecified server failure (prospero server)",
+X    /* 255 */ "Generic Failure (prospero)"};
+X
+Xchar	*p_warn_text[256] = {
+X    /*   0 */ "No warning",
+X    /*   1 */ "You are using an old version of this program",
+X    /*   2 */ "From server",
+X    /*   3 */ "Unrecognized line in response from server",
+X  /* 4-254 */ "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X  "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+X    /* 255 */ ""};
+X
+X#ifndef ARCHIE
+Xperrmesg(prefix,no,text)
+X    char	*prefix;
+X    int		no;
+X    char	*text;
+X    {
+X	fprintf(stderr,"%s%s%s%s\n", (prefix ? prefix : ""),
+X		(no ? p_err_text[no] : p_err_text[perrno]),
+X		((text ? (*text ? " - " : "") : 
+X		  (!no && *p_err_string ? " - " : ""))),
+X		(text ? text : (no ? "" : p_err_string)));
+X    }
+X
+Xsperrmesg(buf,prefix,no,text)
+X    char	*buf;
+X    char	*prefix;
+X    int		no;
+X    char	*text;
+X    {
+X	sprintf(buf,"%s%s%s%s\n", (prefix ? prefix : ""),
+X		(no ? p_err_text[no] : p_err_text[perrno]),
+X		((text ? (*text ? " - " : "") : 
+X		  (!no && *p_err_string ? " - " : ""))),
+X		(text ? text : (no ? "" : p_err_string)));
+X    }
+X
+Xpwarnmesg(prefix,no,text)
+X    char	*prefix;
+X    int		no;
+X    char	*text;
+X    {
+X	fprintf(stderr,"%s%s%s%s\n", (prefix ? prefix : ""),
+X		(no ? p_warn_text[no] : p_warn_text[pwarn]),
+X		((text ? (*text ? " - " : "") : 
+X		  (!no && *p_warn_string ? " - " : ""))),
+X		(text ? text : (no ? "" : p_warn_string)));
+X    }
+X
+Xspwarnmesg(buf,prefix,no,text)
+X    char	*buf;
+X    char	*prefix;
+X    int		no;
+X    char	*text;
+X    {
+X	sprintf(buf,"%s%s%s%s\n", (prefix ? prefix : ""),
+X		(no ? p_warn_text[no] : p_warn_text[pwarn]),
+X		((text ? (*text ? " - " : "") : 
+X		  (!no && *p_warn_string ? " - " : ""))),
+X		(text ? text : (no ? "" : p_warn_string)));
+X    }
+X#endif
+END_OF_FILE
+  if test 9004 -ne `wc -c <'perrmesg.c'`; then
+    echo shar: \"'perrmesg.c'\" unpacked with wrong size!
+  fi
+  # end of 'perrmesg.c'
+fi
+if test -f 'pfs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pfs.h'\"
+else
+  echo shar: Extracting \"'pfs.h'\" \(14049 characters\)
+  sed "s/^X//" >'pfs.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1989, 1990, 1991 by the University of Washington
+X *
+X * For copying and distribution information, please see the file
+X * <copyright.h>.
+X */
+X
+X#include <copyright.h>
+X
+X#ifdef PCNFS
+X#include <tklib.h>
+X#include <tk_errno.h>
+X#include <sys/nfs_time.h>
+X#endif
+X#ifdef VMS
+X# include <vms.h>
+X#else /* not VMS */
+X# ifndef _TYPES_
+X#  include <sys/types.h>
+X# endif /* _TYPES_ */
+X# ifndef IN_H
+X#  include <netinet/in.h> 
+X#  define IN_H
+X# endif
+X#endif /* VMS */
+X
+X#ifndef NULL
+X# ifdef MSDOS
+X#  include <stdio.h>
+X# else
+X#  define NULL 0
+X# endif /* MSDOS */
+X#endif /* NULL */
+X
+X#define		PFS_RELEASE	"Beta.4.2E"
+X#define		PFS_SW_ID	"B42E"
+X
+X/* moved up for vdir_init */
+X#define ZERO(p)		bzero((char *)(p), sizeof(*(p)))
+X
+X/* General Definitions */
+X
+X#define		MAX_PTXT_LEN	1250     /* Max length of PTEXT structure   */
+X#define		MAX_PTXT_HDR	32       /* Max offset for start            */
+X#define		P_ERR_STRING_SZ 100	 /* Size of error string	    */
+X#define		MAX_VPATH	1024	 /* Max length of virtual pathname  */
+X
+X/* Definition of text structure used to pass text around */
+X
+Xstruct ptext {
+X    int			length;		  /* Length of text (from start)    */
+X    char		*start;		  /* Start of text		    */
+X    char		dat[MAX_PTXT_LEN+2*MAX_PTXT_HDR];/* The data itself */
+X    unsigned long 	mbz;		  /* ZERO to catch runaway strings  */
+X    struct ptext	*previous;        /* Previous element in list       */
+X    struct ptext	*next;		  /* Next element in linked list    */
+X    int			seq;		  /* Sequence Number		    */
+X};
+X
+Xtypedef struct ptext *PTEXT;
+Xtypedef struct ptext PTEXT_ST;
+X
+X/* Request structure: maintains information about server requests */
+Xstruct preq {
+X    int			cid;		  /* Connection ID                  */
+X    short		priority;	  /* Connection priority            */
+X    int			pf_priority;	  /* Priority assigned by pri_func  */
+X    int			recv_tot;	  /* Total # of packets received    */
+X    int			trns_tot;	  /* Total # of packets to transmit */
+X    struct ptext	*cpkt;		  /* Current packet being filled in */
+X    struct ptext	*recv;		  /* Received packets               */
+X    struct ptext	*trns;		  /* Transmitted packets            */
+X    int			rcvd_thru;	  /* Received all packets through # */
+X    struct preq		*previous;        /* Previous element in list       */
+X    struct preq		*next;		  /* Next element in linked list    */
+X    struct sockaddr_in	fromto; 	  /* Sender/Destination		    */
+X};
+X
+Xtypedef struct preq *PREQ;
+Xtypedef struct preq PREQ_ST;
+X
+X
+X/* Definition of structure containing information on virtual link */
+X
+Xstruct vlink {
+X    int			dontfree;	  /* Flag: don't free this link     */
+X    char		*name;		  /* Component of path name	    */
+X    char		linktype;	  /* L = Link, U = Union, N= Native */
+X    int			expanded;	  /* Has a union link been expanded */
+X    char		*type;            /* Type of object pointed to      */
+X    struct vlink	*filters;	  /* Filters associated with link   */
+X    struct vlink	*replicas;	  /* Replicas (* see comment below) */
+X    char		*hosttype;	  /* Type of hostname		    */
+X    char		*host;		  /* Files physical location	    */
+X    char		*nametype;	  /* Type of filename		    */
+X    char		*filename;	  /* System level filename	    */
+X    long		version;	  /* Version number of destination  */
+X    long		f_magic_no;	  /* File's magic number	    */
+X    struct acl		*acl;		  /* ACL for link		    */
+X    long		dest_exp;	  /* Expiration for dest of link    */
+X    long		link_exp;	  /* Expiration of link itself      */
+X    char		*args;		  /* Arguments if this is a filter  */
+X    struct pattrib	*lattrib;	  /* Attributes associated w/ link  */
+X    struct pfile	*f_info;	  /* Info to be assoicated w/ file  */
+X    struct vlink	*previous;        /* Previous elt in linked list    */
+X    struct vlink	*next;		  /* Next element in linked list    */
+X};
+X
+Xtypedef struct vlink *VLINK;
+Xtypedef struct vlink VLINK_ST;
+X
+X/* * Note that vlink->replicas is not really a list of replicas of the  */
+X/*   object.  Instead, it is a list of the objects returned during name */
+X/*   resolution that share the same name as the current object.  Such   */
+X/*   an object should only be considered a replica if it also shares    */
+X/*   the same non-zero magic number.                                    */
+X
+X/* Definition of structure continiaing virtual directory information    */
+X
+Xstruct vdir {
+X    int			version;	  /* Version of local directory fmt  */
+X    int			inc_native;	  /* Include the native directory    */
+X    long		magic_no;	  /* Magic number of current file    */
+X    struct acl		*dacl;            /* Default acl for links in dir    */
+X    struct pfile	*f_info;	  /* Directory file info             */
+X    struct vlink	*links;		  /* The directory entries	     */
+X    struct vlink	*lastlink;	  /* Last directory entry            */
+X    struct vlink	*ulinks;	  /* The entries for union links     */
+X    struct vdir		*previous;        /* Previous element in linked list */
+X    struct vdir		*next;		  /* Next element in linked list     */
+X};
+X
+Xtypedef struct vdir *PVDIR;
+Xtypedef struct vdir VDIR_ST;
+X
+X/* Initialize directory */
+X#define vdir_init(dir)  ZERO(dir)
+X/* XXX: was
+X
+X  dir->version = 0;     dir->inc_native = 0; \
+X  dir->magic_no = 0;    dir->f_info = NULL; \
+X  dir->links = NULL;    dir->lastlink = NULL; \
+X  dir->ulinks = NULL;   dir->dacl = NULL; \
+X  dir->previous = NULL; dir->next = NULL;
+X*/
+X
+X#define vdir_copy(d1,d2) d2->version = d1->version; \
+X                         d2->inc_native = d1->inc_native; \
+X                         d2->magic_no = d1->magic_no; \
+X    			 d2->f_info = d1->f_info; \
+X                         d2->links = d1->links; \
+X                         d2->lastlink = d1->lastlink; \
+X                         d2->ulinks = d1->ulinks; \
+X                         d2->dacl = d1->dacl; \
+X                         d2->previous = d1->previous; \
+X                         d2->next = d1->next; 
+X                         
+X/* Values of ->inc_native in vdir structure */
+X#define VDIN_REALONLY	-1   /* Include native files, but not . and ..       */
+X#define VDIN_NONATIVE	 0   /* Do not include files from native directory   */
+X#define VDIN_INCLNATIVE	 1   /* Include files from native directory          */
+X#define VDIN_NATIVEONLY  2   /* All entries in directory are from native dir */
+X#define VDIN_PSEUDO      3   /* Directory is not real                        */
+X
+X
+X/* Definition of structure containing information on a specific file */
+X
+Xunion avalue {
+X    char		*ascii;		/* Character string                */
+X    struct vlink	*link;		/* A link			   */
+X};
+X
+X
+Xstruct pattrib {
+X    char		precedence;	/* Precedence for link attribute   */
+X    char		*aname;		/* Name of the attribute           */
+X    char		*avtype;	/* Type of the attribute value     */
+X    union avalue	value;		/* Attribute Value                 */
+X    struct pattrib	*previous;      /* Previous element in linked list */
+X    struct pattrib	*next;		/* Next element in linked list     */
+X};
+X
+Xtypedef struct pattrib *PATTRIB;
+Xtypedef struct pattrib PATTRIB_ST;
+X
+X#define 	ATR_PREC_OBJECT  'O'   /* Authoritative answer for object */
+X#define 	ATR_PREC_LINK    'L'   /* Authoritative answer for link   */
+X#define 	ATR_PREC_CACHED  'C'   /* Object info cached w/ link      */
+X#define 	ATR_PREC_REPLACE 'R'   /* From link (replaces O)          */
+X#define 	ATR_PREC_ADD     'A'   /* From link (additional value)    */
+X
+X/* **** Incomplete **** */
+Xstruct pfile {
+X    int			version;	  /* Version of local finfo format   */
+X    long		f_magic_no;	  /* Magic number of current file    */
+X    long		exp;		  /* Expiration date of timeout      */
+X    long		ttl;		  /* Time to live after reference    */
+X    long		last_ref;	  /* Time of last reference          */
+X    struct vlink	*forward;	  /* List of forwarding pointers     */
+X    struct vlink	*backlinks;	  /* Partial list of back links      */
+X    struct pattrib	*attributes;	  /* List of file attributes         */
+X    struct pfile	*previous;        /* Previous element in linked list */
+X    struct pfile	*next;		  /* Next element in linked list     */
+X};
+X
+Xtypedef struct pfile *PFILE;
+Xtypedef struct pfile PFILE_ST;
+X
+X/* Definition of structure contining an access control list entry */
+X
+Xstruct acl {
+X    int			acetype;	  /* Access Contol Entry type       */
+X    char		*atype;           /* Authentication type            */
+X    char		*rights;          /* Rights                         */
+X    char		*principals;      /* Authorized principals          */
+X    struct restrict     *restrictions;    /* Restrictions on use            */
+X    struct acl		*previous;        /* Previous elt in linked list    */
+X    struct acl		*next;		  /* Next element in linked list    */
+X};
+Xtypedef struct acl *ACL;
+Xtypedef struct acl ACL_ST;
+X
+X#define ACL_NONE		0         /* Nobody authorized by ths entry */
+X#define ACL_DEFAULT		1         /* System default                 */
+X#define ACL_SYSTEM		2         /* System administrator           */
+X#define ACL_OWNER               3         /* Directory owner                */
+X#define ACL_DIRECTORY           4         /* Same as directory              */
+X#define ACL_ANY                 5         /* Any user                       */
+X#define ACL_AUTHENT             6         /* Authenticated principal        */
+X#define ACL_LGROUP              7         /* Local group                    */
+X#define ACL_GROUP               8         /* External group                 */
+X#define ACL_ASRTHOST            10        /* Check host and asserted userid */
+X#define ACL_TRSTHOST            11        /* ASRTHOST from privileged port  */
+X
+X
+X/* Definition of structure contining access restrictions */
+X/* for future extensions                                 */
+Xstruct restrict {
+X    struct acl		*previous;        /* Previous elt in linked list    */
+X    struct acl		*next;		  /* Next element in linked list    */
+X};
+X
+X/* Definitions for send_to_dirsrv */
+X#define	CLIENT_DIRSRV_TIMEOUT		4	/* time between retries      */
+X#define CLIENT_DIRSRV_BACKOFF(x)  (2 * x)	/* Backoff algorithm         */
+X#define CLIENT_DIRSRV_RETRY		3	/* retry this many times     */
+X
+X/* Definitions for rd_vlink and rd_vdir */
+X#define		SYMLINK_NESTING 10       /* Max nesting depth for sym links */
+X
+X/* Definition fo check_acl */
+X#define		ACL_NESTING     10       /* Max depth for ACL group nesting */
+X
+X/* Flags for mk_vdir */
+X#define	     MKVD_LPRIV     1   /* Minimize privs for creator in new ACL    */
+X
+X/* Flags for get_vdir */
+X#define	     GVD_UNION      0	/* Do not expand union links 		     */
+X#define      GVD_EXPAND     1   /* Expand union links locally		     */
+X#define	     GVD_LREMEXP    3   /* Request remote expansion of local links   */
+X#define	     GVD_REMEXP     7   /* Request remote expansion of all links     */
+X#define	     GVD_VERIFY     8	/* Only verify args are for a directory      */
+X#define      GVD_FIND	   16   /* Stop expanding when match is found        */
+X#define	     GVD_ATTRIB    32   /* Request attributes from remote server     */
+X#define	     GVD_NOSORT	   64   /* Do not sort links when adding to dir      */
+X
+X/* Flags for rd_vdir */
+X#define	     RVD_UNION      GVD_UNION
+X#define	     RVD_EXPAND     GVD_EXPAND 
+X#define	     RVD_LREMEXP    GVD_LREMEXP
+X#define	     RVD_REMEXP     GVD_REMEXP
+X#define	     RVD_DFILE_ONLY GVD_VERIFY /* Only return ptr to dir file        */
+X#define      RVD_FIND       GVD_FIND   
+X#define      RVD_ATTRIB     GVD_ATTRIB
+X#define	     RVD_NOSORT	    GVD_NOSORT
+X#define	     RVD_NOCACHE    128
+X
+X/* Flags for add_vlink */
+X#define	     AVL_UNION      1   /* Link is a union link                      */
+X
+X/* Flags for vl_insert */
+X#define	     VLI_NOCONFLICT 0   /* Do not insert links w/ conflicting names  */
+X#define      VLI_ALLOW_CONF 1   /* Allow links with conflicting names        */
+X#define	     VLI_NOSORT     2   /* Allow conflicts and don't sort            */
+X
+X/* Flags for mapname */
+X#define      MAP_READWRITE  0   /* Named file to be read and written         */
+X#define	     MAP_READONLY   1   /* Named file to be read only                */
+X
+X/* Flags for modify_acl */
+X#define	     MACL_NOSYSTEM   0x01
+X#define      MACL_NOSELF     0x02
+X#define      MACL_DEFAULT    0x08
+X#define      MACL_SET        0x0C
+X#define      MACL_INSERT     0x14
+X#define      MACL_DELETE     0x10
+X#define      MACL_ADD        0x1C
+X#define      MACL_SUBTRACT   0x18
+X#define      MACL_LINK       0x00
+X#define      MACL_DIRECTORY  0x20
+X#define      MACL_OBJECT     0x60
+X#define      MACL_INCLUDE    0x40
+X
+X#define      MACL_OP    (MACL_DEFAULT|MACL_SET|MACL_INSERT|\
+X			 MACL_DELETE|MACL_ADD|MACL_SUBTRACT)
+X
+X#define      MACL_OTYPE (MACL_LINK|MACL_DIRECTORY|MACL_OBJECT|MACL_INCLUDE)
+X
+X/* Flags for dsrdir */
+X#define DSRD_ATTRIBUTES                      0x1 /* Fill in attributes for links */
+X
+X/* Access methods returned by Pget_am */
+X#define P_AM_ERROR			0
+X#define P_AM_FTP			1
+X#define P_AM_AFTP			2  /* Anonymous FTP  */
+X#define P_AM_NFS			4
+X#define P_AM_KNFS			8  /* Kerberized NFS */
+X#define P_AM_AFS		       16
+X
+X/* Return codes */
+X
+X#define		PSUCCESS	0
+X#define		PFAILURE	255
+X
+X/* Hush up warnings.  */
+Xvoid vllfree();
+X
+X/* Procedures in libpfs.a */
+X
+Xchar *pget_wdhost(), *pget_wdfile(), *pget_wd(), *pget_hdhost();
+Xchar *pget_hdfile(), *pget_hd(), *pget_rdhost(), *pget_rdfile();
+Xchar *pget_dhost(), *pget_dfile(), *pget_vsname(), *nlsindex();
+Xchar *sindex(), *strtok(), *nxtline(), *unquote(), *stcopy();
+Xchar *stcopyr(), *readheader(), *month_sname();
+X
+Xlong		asntotime();
+Xvoid		procquery();
+X
+XPTEXT		ptalloc();
+XPTEXT		dirsend();
+Xvoid		ptfree();
+Xvoid		ptlfree();
+X
+XPREQ		pralloc();
+XPREQ		get_next_request();
+X
+XVLINK		rd_slink();
+XVLINK		rd_vlink();
+XVLINK		vl_delete();
+XVLINK		vlalloc();
+XVLINK		vlcopy();
+Xvoid		vlfree();
+X
+XPFILE		pfalloc();
+X
+XPATTRIB         parse_attribute();
+XPATTRIB         atalloc();
+XPATTRIB 	pget_at();
+Xvoid		atfree();
+Xvoid		atlfree();
+X
+XACL             acalloc();
+XACL             get_acl();
+X
+Xvoid		stfree();
+X
+X/* Miscellaneous useful definitions */
+X#ifndef TRUE
+X#define TRUE		1
+X#define FALSE		0
+X#endif
+X
+X#define AUTHORIZED      1
+X#define NOT_AUTHORIZED  0
+X#define NEG_AUTHORIZED  -1
+X
+X#ifndef NULL
+X#define NULL		0
+X#endif
+X
+X#define FAILED		-1
+END_OF_FILE
+  if test 14049 -ne `wc -c <'pfs.h'`; then
+    echo shar: \"'pfs.h'\" unpacked with wrong size!
+  fi
+  # end of 'pfs.h'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

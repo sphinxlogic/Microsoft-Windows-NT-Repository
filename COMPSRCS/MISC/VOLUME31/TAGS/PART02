@@ -1,0 +1,635 @@
+Newsgroups: comp.sources.misc
+From: kendall@centerline.com (Sam Kendall)
+Subject:  v31i125:  tags++ - etags/ctags for C and C++, version 1.1, Part02/03
+Message-ID: <1992Aug26.144927.3261@sparky.imd.sterling.com>
+X-Md4-Signature: b3dab4dac18d416ab8bee0f012d3e5e0
+Date: Wed, 26 Aug 1992 14:49:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: kendall@centerline.com (Sam Kendall)
+Posting-number: Volume 31, Issue 125
+Archive-name: tags++/part02
+Environment: UNIX, GNU Emacs, vi
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 3)."
+# Contents:  tags.el
+# Wrapped by kendall@pen on Tue Aug 25 13:34:19 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'tags.el' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tags.el'\"
+else
+echo shar: Extracting \"'tags.el'\" \(20187 characters\)
+sed "s/^X//" >'tags.el' <<'END_OF_FILE'
+X;; $Id: tags.el,v 1.14 1992/08/25 17:28:36 kendall Exp $
+X
+X;; Tags facility for Emacs.
+X;; Copyright (C) 1985, 1986, 1988 Free Software Foundation, Inc.
+X
+X;; GNU Emacs is distributed in the hope that it will be useful,
+X;; but WITHOUT ANY WARRANTY.  No author or distributor
+X;; accepts responsibility to anyone for the consequences of using it
+X;; or for whether it serves any particular purpose or works at all,
+X;; unless he says so in writing.  Refer to the GNU Emacs General Public
+X;; License for full details.
+X
+X;; Everyone is granted permission to copy, modify and redistribute
+X;; GNU Emacs, but only under the conditions described in the
+X;; GNU Emacs General Public License.   A copy of this license is
+X;; supposed to have been given to you along with GNU Emacs so you
+X;; can know your rights and responsibilities.  It should be in a
+X;; file named COPYING.  Among other things, the copyright notice
+X;; and this notice must be preserved on all copies.
+X
+X;; This version is maintained by Sam Kendall, CenterLine Software Inc.,
+X;; 10 Fawcett Street, Cambridge, MA 02138 USA.  Email is
+X;; kendall@CenterLine.COM or uunet!saber!kendall.
+X
+X;; NOTE:
+X;; 	"Quick fix" inserted for C users.  The problem is that in the tags line
+X;;
+X;;		typedef char *string^?...
+X;;
+X;;	`string' won't be an exact match, because the `*' is a word character
+X;;	in the TAGS buffer (although not in a C source file).  The quick fix is
+X;;	in tag-exact-match-p; look for "HACK 7/19/89". -kendall@centerline.com
+X
+X(provide 'tags)
+X
+X;; Tag table state.
+X
+X(defun initialize-new-tag-table ()
+X  "Call when the tag table changes."
+X  (setq tag-table-files nil
+X	find-tag-state nil
+X	tag-order nil
+X	tag-lines-already-matched nil)
+X  (make-local-variable 'tags-completion-alist))
+X
+X(defun save-tags-state ()
+X  "Returns an object that can later be passed to `restore-tags-state'."
+X  (vector tag-order
+X	  tag-lines-already-matched
+X	  tag-table-files
+X	  find-tag-state
+X	  next-file-list))
+X
+X(defun restore-tags-state (state)
+X  "Restore from an object created by `save-tags-state'."
+X  (setq tag-order (aref state 0)
+X	tag-lines-already-matched (aref state 1)
+X	tag-table-files (aref state 2)
+X	find-tag-state (aref state 3)
+X	next-file-list (aref state 4)))
+X
+X(defvar tag-order nil
+X  "List of functions to use in partitioning the set of tag matches.")
+X
+X(defvar tag-lines-already-matched nil
+X  "List of lines within the tag table that are already matched.")
+X
+X(defvar tag-table-files nil
+X  "List of file names covered by current tags table.
+Xnil means it has not been computed yet; do (tag-table-files) to compute it.")
+X
+X(defvar tags-completion-alist nil
+X  "Alist of tag names defined in current tags table.")
+X
+X(defvar find-tag-state nil
+X  "Some of the state of the last find-tag, find-tag-other-window, or
+Xfind-tag-regexp.  This is a vector whose 0th element is the last tagname
+Xor regexp used.")
+X
+X(defvar tags-table-file-list nil
+X  "Alist of tags table file names for \\[select-tags-table].
+XEach element is a list containing one element, a file name.
+XAny tags table file you visit is automatically added to this list.
+XYou can also add names yourself.")
+X
+X(defvar next-file-list nil
+X  "List of files for \\[next-file] to process.")
+X
+X
+X
+X(defun visit-tags-table (file)
+X  "Tell tags commands to use tags table file FILE.
+XFILE should be the name of a file created with the `etags' program.
+XA directory name is ok too; it means file TAGS in that directory."
+X  (interactive (list (read-file-name "Visit tags table: (default TAGS) "
+X				     default-directory
+X				     (expand-file-name "TAGS" default-directory)
+X				     t)))
+X  (setq file (expand-file-name file default-directory))
+X  (if (file-directory-p file)
+X      (setq file (expand-file-name "TAGS" file)))
+X  ;; Add an element to TAGS-TABLE-FILE-LIST.
+X  (or (assoc file tags-table-file-list)
+X      (setq tags-table-file-list
+X	    (cons (list file) tags-table-file-list)))
+X  (setq tags-file-name file)
+X  (save-excursion
+X    (visit-tags-table-buffer)
+X    (initialize-new-tag-table)		;; must occur within correct buffer
+X    (or tags-completion-alist
+X	(setq tags-completion-alist (tags-completion-alist)))))
+X
+X(defun visit-tags-table-buffer ()
+X  "Select the buffer containing the current tags table.
+XThis is a file whose name is in the variable tags-file-name."
+X  (or tags-file-name
+X      (call-interactively 'visit-tags-table))
+X  (set-buffer (or (get-file-buffer tags-file-name)
+X		  (progn
+X		    (initialize-new-tag-table)
+X		    (find-file-noselect tags-file-name))))
+X  (or (verify-visited-file-modtime (get-file-buffer tags-file-name))
+X      (cond ((yes-or-no-p "Tags file has changed, read new contents? ")
+X	     (revert-buffer t t)
+X	     (initialize-new-tag-table)
+X	     (setq tags-completion-alist (tags-completion-alist)))))
+X  (or (eq (char-after 1) ?\^L)
+X      (error "File %s not a valid tag table" tags-file-name)))
+X
+X(defun file-of-tag ()
+X  "Return the file name of the file whose tags point is within.
+XAssumes the tag table is the current buffer.
+XFile name returned is relative to tag table file's directory."
+X  (save-excursion
+X    (search-backward "\f\n")
+X    (forward-char 2)
+X    (buffer-substring (point)
+X		      (progn (skip-chars-forward "^,") (point)))))
+X
+X(defun tag-table-files ()
+X  "Return a list of files in the current tag table.
+XFile names returned are absolute."
+X  (or tag-table-files
+X      (save-excursion
+X	(visit-tags-table-buffer)
+X	(let (files)
+X	  (goto-char (point-min))
+X	  (while (search-forward "\f\n" nil t)
+X	    (setq files (cons (expand-file-name
+X				(buffer-substring
+X				  (point)
+X				  (progn (skip-chars-forward "^,\n") (point)))
+X				(file-name-directory tags-file-name))
+X			      files)))
+X	  (setq tag-table-files (nreverse files))))))
+X
+X(defun tags-completion-alist ()
+X  "Return an alist of tags in the current buffer, which is a tag table."
+X  (let (alist next)
+X    (message "Making tags completion alist...")
+X    (save-excursion
+X      (goto-char (point-min))
+X	(while (search-forward "\177" nil t)
+X	  (if (save-excursion
+X		(skip-chars-forward "^\001\n")
+X		(setq next (1+ (point)))
+X		(= (following-char) ?\001))
+X	      ;;; If there are ^A's, get tags after them.
+X	      (progn
+X		(goto-char next)	;; after the first ^A
+X		(while (= (preceding-char) ?\001)
+X		  (setq alist
+X			(cons (cons (buffer-substring
+X				     (point)
+X				     (progn (skip-chars-forward "^\001\n")
+X					    (point)))
+X				    nil)
+X			      alist))
+X		  (forward-char 1)))
+X	    ;;; If no ^A's, get tags from before the ^?.
+X	    (skip-chars-backward "^-A-Za-z0-9_$\n")
+X	    (or (bolp)
+X		(setq alist
+X		      (cons (cons (buffer-substring
+X				   (point)
+X				   (progn
+X				     (skip-chars-backward "-A-Za-z0-9_$")
+X				     ;;; `::' in the middle of a C++ tag.
+X				     (while (and (= (preceding-char) ?:)
+X						 (= (char-after (- (point) 2)) ?:))
+X				       (progn (backward-char 2)
+X					      (skip-chars-backward
+X					       "-A-Za-z0-9_$")))
+X				     (point)))
+X				  nil)
+X			    alist)))
+X	    (goto-char next)		; next line
+X	    )))
+X    (message "Making tags completion alist...done")
+X    alist))
+X
+X(defun prompt-for-tag (prompt)
+X  "Prompt for a tag to find.  Default is determined by find-tag-default."
+X  (let* ((default (find-tag-default))
+X	 (alist (save-excursion (visit-tags-table-buffer)
+X				tags-completion-alist))
+X	 (spec (completing-read
+X		(if default
+X		    (format "%s(default %s) " prompt default)
+X		  prompt)
+X		;;; completing-read craps out if given a nil table
+X		(or alist '((""))))))
+X    (if (equal spec "")
+X	(or default (error "There is no default tag."))
+X      spec)))
+X
+X;; Return a default tag to search for, based on the text at point, or nil.
+X(defun find-tag-default ()
+X  (save-excursion
+X    (while (looking-at "\\sw\\|\\s_")
+X      (forward-char 1))
+X    (if (re-search-backward "\\sw\\|\\s_" nil t)
+X	(progn (forward-char 1)
+X	       (buffer-substring (point)
+X				 (progn (forward-sexp -1)
+X					(while (looking-at "\\s'")
+X					  (forward-char 1))
+X					(point))))
+X      nil)))
+X
+X(defun find-tag (tagname &optional next-p other-window regexp-p)
+X  "Find tag (in current tag table) whose name contains TAGNAME;
+Xmore exact matches are found first.
+XSelect the buffer containing the tag's definition and move point there.
+XThe default for TAGNAME is the expression in the buffer after or around point.
+X
+XIf second arg NEXT-P is non-nil (interactively, with prefix arg), search
+Xfor another tag that matches the last tagname or regexp used.
+X
+XIf third arg OTHER-WINDOW is non-nil, select the buffer in another window.
+X
+XIf fourth arg REGEXP-P is non-nil, treat TAGNAME as a regexp.
+X
+XSee documentation of variable `tags-file-name'."
+X  (interactive (if current-prefix-arg
+X		   '(nil t)
+X		   (list (prompt-for-tag "Find tag: "))))
+X  (cond
+X   (next-p (find-tag-in-order nil nil nil nil nil other-window))
+X   (regexp-p (find-tag-in-order tagname
+X				're-search-forward
+X				'(tag-re-match-p)
+X				t
+X				"matching"
+X				other-window))
+X   (t (find-tag-in-order
+X       tagname
+X       'search-forward
+X       '(tag-exact-match-p tag-word-match-p tag-any-match-p)
+X       nil
+X       "containing"
+X       other-window))))
+X
+X(defun find-tag-other-window (tagname &optional next-p)
+X  "Find tag (in current tag table) whose name contains TAGNAME;
+Xmore exact matches are found first.
+XSelect the buffer containing the tag's definition
+Xin another window, and move point there.
+XThe default for TAGNAME is the expression in the buffer around or before point.
+X
+XIf second arg NEXT-P is non-nil (interactively, with prefix arg), search
+Xfor another tag that matches the last tagname used.
+X
+XSee documentation of variable `tags-file-name'."
+X  (interactive (if current-prefix-arg
+X		   '(nil t)
+X		   (list (prompt-for-tag "Find tag other window: "))))
+X  (find-tag tagname next-p t))
+X
+X(defun find-tag-regexp (regexp &optional next-p other-window)
+X  "Find tag (in current tag table) whose name matches REGEXP.
+XSelect the buffer containing the tag's definition and move point there.
+X
+XIf second arg NEXT-P is non-nil (interactively, with prefix arg), search
+Xfor another tag that matches the last tagname used.
+X
+XIf third arg OTHER-WINDOW is non-nil, select the buffer in another window.
+X
+XSee documentation of variable `tags-file-name'."
+X  (interactive (if current-prefix-arg
+X		   '(nil t)
+X		 (list (read-string "Find tag regexp: "))))
+X  (find-tag regexp next-p other-window t))
+X
+X(defun find-tag-in-order
+X  (pattern search-forward-func order next-line-after-failure-p matching other-window)
+X  "Internal tag finding function.  PATTERN is a string to pass to
+Xsecond arg SEARCH-FORWARD-FUNC, and to any member of the function list
+XORDER (third arg).  If ORDER is nil, use saved state to continue a
+Xprevious search.
+X
+XFourth arg MATCHING is a string, an English '-ing' word, to be used in
+Xan error message.
+X
+XFifth arg NEXT-LINE-AFTER-FAILURE-P is non-nil if after a failed match,
+Xpoint should be moved to the next line.
+X
+XIf sixth arg OTHER-WINDOW is non-nil, select the buffer in another window.
+X
+XAlgorithm is as follows.  For each qualifier-func in ORDER, go to
+Xbeginning of tags file, and perform inner loop: for each naive match for
+XPATTERN found using SEARCH-FORWARD-FUNC, qualify the naive match using
+Xqualifier-func.  If it qualifies, go to the specified line in the
+Xspecified source file and return.  Qualified matches are remembered to
+Xavoid repetition.  State is saved so that the loop can be continued."
+X  (let (file linebeg startpos)
+X    (save-excursion
+X      (visit-tags-table-buffer)
+X      (if order
+X	  (progn
+X	    ;; Save state.
+X	    (setq find-tag-state (vector pattern search-forward-func matching)
+X		  tag-order order
+X		  tag-lines-already-matched nil)
+X	    ;; Start at beginning of tags file.
+X	    (goto-char (point-min)))
+X	(progn
+X	  ;; Restore state.
+X	  (setq pattern (aref find-tag-state 0)
+X		search-forward-func (aref find-tag-state 1)
+X		matching (aref find-tag-state 2))))
+X
+X      ;; Get a qualified match.
+X      (catch 'qualified-match-found
+X	(while (car tag-order)
+X	  (while (funcall search-forward-func pattern nil t)
+X	    ;; Naive match found.
+X	    (if (and
+X		 ;; Qualify the match.
+X		 (funcall (car tag-order) pattern)
+X		 ;; Make sure it is not a previous qualified match.
+X		 ;; Use of `memq' depends on numbers being eq.
+X		 (not (memq (save-excursion (beginning-of-line) (point))
+X			    tag-lines-already-matched)))
+X		(throw 'qualified-match-found nil))
+X	    (if next-line-after-failure-p (forward-line 1)))
+X	  (setq tag-order (cdr tag-order))
+X	  (goto-char (point-min)))
+X	(error "No %stags %s %s" (if order "" "more ") matching pattern))
+X
+X      ;; Found a tag; extract location info.
+X      (beginning-of-line)
+X      (setq tag-lines-already-matched (cons (point) tag-lines-already-matched))
+X      (search-forward "\177")
+X      (setq file (expand-file-name (file-of-tag)
+X				   (file-name-directory tags-file-name)))
+X      (setq linebeg
+X	    (buffer-substring (1- (point))
+X			      (save-excursion (beginning-of-line) (point))))
+X      (search-forward ",")
+X      (setq startpos (string-to-int (buffer-substring
+X				      (point)
+X				      (progn (skip-chars-forward "0-9")
+X					     (point)))))
+X      ;; Leave point on next line of tags file.
+X      (forward-line 1))
+X
+X    ;; Find the right line in the specified file.
+X    (if other-window
+X	(find-file-other-window file)
+X      (find-file file))
+X    (widen)
+X    (push-mark)
+X    (let ((offset 16)	;; this constant is 1/2 the initial search window
+X	  found
+X	  (pat (concat "^" (regexp-quote linebeg))))
+X      (or startpos (setq startpos (point-min)))
+X      (while (and (not found)
+X		  (progn
+X		   (goto-char (- startpos offset))
+X		   (not (bobp))))
+X	(setq found
+X	      (re-search-forward pat (+ startpos offset) t))
+X	(setq offset (* 4 offset)))	;; expand search window
+X      (or found
+X	  (re-search-forward pat nil t)
+X	  (error "\"%s\" not found in %s; time to rerun etags" pat file)))
+X    (beginning-of-line))
+X  (setq tags-loop-form '(find-tag-in-order nil nil nil nil nil nil))
+X  ;; Return t in case used as the tags-loop-form.
+X  t)
+X
+X;;; Match qualifier functions for tagnames.
+X
+X(defun tag-exact-match-p (tag)
+X  "Did we find an exact match for TAG?  Assume point is in a tags file,
+Ximmediately after an occurence of TAG."
+X  (let ((tag-length (length tag)))
+X    (or (and (looking-at "[ \t();,]?\177")
+X	     (save-excursion (backward-char tag-length)
+X			     (or (bolp)
+X				 (let ((c (preceding-char)))
+X				   (or (= c ? ) (= c ?\t)
+X				       (= c ?*)	;; HACK 7/19/89
+X				       )))))
+X	(and (looking-at "[\001\n]")
+X	     (save-excursion (backward-char tag-length)
+X			     (= (preceding-char) ?\001))))))
+X
+X(defun tag-word-match-p (tag)
+X  "Did we find a word match for TAG?  Assume point is in a tags file,
+Ximmediately after an occurence of TAG."
+X  (let ((tag-length (length tag)))
+X    (or (and (looking-at "\\b.*\177")
+X	     (save-excursion (backward-char tag-length)
+X			     (looking-at "\\b")))
+X	(and (looking-at "\\b.*[\001\n]")
+X	     (save-excursion (backward-char tag-length)
+X			     (and
+X			      (looking-at "\\b")
+X			      (progn
+X				(skip-chars-backward "^\001\n")
+X				(= (preceding-char) ?\001))))))))
+X
+X(defun tag-any-match-p (tag)
+X  "Did we find any match for TAG?  Assume point is in a tags file,
+Ximmediately after an occurence of TAG."
+X  (or (looking-at ".*\177")
+X      (save-excursion
+X	(backward-char (length tag))
+X	(skip-chars-backward "^\001\n")
+X	(= (preceding-char) ?\001))))
+X
+X;;; Match qualifier function for regexps.
+X
+X(defun tag-re-match-p (re)
+X  "Is point (in a tags file) on a line with a match for RE?"
+X  (save-excursion
+X    (beginning-of-line)
+X    (catch 'done
+X      (let* ((bol (point))
+X	     (eol (save-excursion (end-of-line) (point)))
+X	     (del (save-excursion (if (search-forward "\177" eol t)
+X				      (point)
+X				    (throw 'done nil)))))
+X	 (if (search-forward "\001" eol t)
+X	     ;; There are ^A's: try to match in each tag after a ^A
+X	     (let ((bot (point))
+X		   eot)
+X	       (while (< bot eol)
+X		 (save-excursion
+X		   (setq eot (if (search-forward "\001" eol t)
+X				    (1- (point))
+X				  eol))
+X		   (if (re-search-forward re eot t)
+X		       (throw 'done t))
+X		   (setq bot (1+ eot))
+X		   (goto-char bot))))
+X	   ;; No ^A: try to match the line before the ^?
+X	   (goto-char bol)
+X	   (re-search-forward re (1- del) t))))))
+X
+X(defun next-file (&optional initialize)
+X  "Select next file among files in current tag table.
+XNon-nil argument (prefix arg, if interactive)
+Xinitializes to the beginning of the list of files in the tag table."
+X  (interactive "P")
+X  (if initialize
+X      (setq next-file-list (tag-table-files)))
+X  (or next-file-list
+X      (error "All files processed."))
+X  (find-file (car next-file-list))
+X  (setq next-file-list (cdr next-file-list)))
+X
+X(defvar tags-loop-form nil
+X  "Form for tags-loop-continue to eval to process one file.
+XIf it returns nil, it is through with one file; move on to next.")
+X
+X(defun tags-loop-continue (&optional first-time)
+X  "Continue last \\[find-tag], \\[tags-search], or
+X\\[tags-query-replace] command.  Used noninteractively with non-nil
+Xargument to begin such a command.  See variable `tags-loop-form'."
+X  (interactive)
+X  (if first-time
+X      (progn (next-file t)
+X	     (goto-char (point-min))))
+X  (while (not (eval tags-loop-form))
+X    (next-file)
+X    (message "Scanning file %s..." buffer-file-name)
+X    (goto-char (point-min))))
+X
+X(defun tags-search (regexp)
+X  "Search through all files listed in tag table for match for REGEXP.
+XStops when a match is found.
+XTo continue searching for next match, use command \\[tags-loop-continue].
+X
+XSee documentation of variable tags-file-name."
+X  (interactive "sTags search (regexp): ")
+X  (if (and (equal regexp "")
+X	   (eq (car tags-loop-form) 're-search-forward))
+X      (tags-loop-continue nil)
+X    (setq tags-loop-form
+X	  (list 're-search-forward regexp nil t))
+X    (tags-loop-continue t)))
+X
+X(defun tags-query-replace (from to)
+X  "Query-replace-regexp FROM with TO through all files listed in tag table.
+XIf you exit (C-G or ESC), you can resume the query-replace
+Xwith the command \\[tags-loop-continue].
+X
+XSee documentation of variable tags-file-name."
+X  (interactive "sTags query replace (regexp): \nsTags query replace %s by: ")
+X  (setq tags-loop-form
+X	(list 'and (list 'save-excursion
+X			 (list 're-search-forward from nil t))
+X	      (list 'not (list 'perform-replace from to t t nil))))
+X  (tags-loop-continue t))
+X
+X(defun list-tags (string)
+X  "Display list of tags in file FILE.
+XFILE should not contain a directory spec
+Xunless it has one in the tag table."
+X  (interactive "sList tags (in file): ")
+X  (with-output-to-temp-buffer "*Tags List*"
+X    (princ "Tags in file ")
+X    (princ string)
+X    (terpri)
+X    (save-excursion
+X     (visit-tags-table-buffer)
+X     (goto-char 1)
+X     (search-forward (concat "\f\n" string ","))
+X     (forward-line 1)
+X     (while (not (looking-at "\f"))
+X       (princ (buffer-substring (point)
+X				(progn (skip-chars-forward "^\177")
+X				       (point))))
+X       (terpri)
+X       (forward-line 1)))))
+X
+X(defun tags-apropos (string)
+X  "Display list of all tags in tag table REGEXP matches."
+X  (interactive "sTag apropos (regexp): ")
+X  (with-output-to-temp-buffer "*Tags List*"
+X    (princ "Tags matching regexp ")
+X    (prin1 string)
+X    (terpri)
+X    (save-excursion
+X     (visit-tags-table-buffer)
+X     (goto-char 1)
+X     (while (re-search-forward string nil t)
+X       (beginning-of-line)
+X       (princ (buffer-substring (point)
+X				(progn (skip-chars-forward "^\177")
+X				       (point))))
+X       (terpri)
+X       (forward-line 1)))))
+X
+X(defun select-tags-table ()
+X  "Select a tags table file from a menu of those you have already used.
+XThe list of tags tables to select from is stored in `tags-table-file-list';
+Xsee the doc of that variable if you want to add names to the list."
+X  (interactive)
+X  (switch-to-buffer "*Tags Table List*")
+X  (erase-buffer)
+X  (let ((list tags-table-file-list))
+X    (while list
+X      (insert (car (car list)) "\n")
+X      (setq list (cdr list))))
+X  (goto-char 1)
+X  (insert "Type `t' to select a tag table:\n\n")
+X  (set-buffer-modified-p nil)
+X  (let ((map (make-sparse-keymap)))
+X    (define-key map "t" 'select-tags-table-select)
+X    (use-local-map map)))
+X  
+X(defun select-tags-table-select ()
+X  "Select the tag table named on this line."
+X  (interactive)
+X  (let ((name (buffer-substring (point)
+X				(save-excursion (end-of-line) (point)))))
+X    (visit-tags-table name)
+X    (message "Tag table now %s" name)))
+END_OF_FILE
+if test 20187 -ne `wc -c <'tags.el'`; then
+    echo shar: \"'tags.el'\" unpacked with wrong size!
+fi
+# end of 'tags.el'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

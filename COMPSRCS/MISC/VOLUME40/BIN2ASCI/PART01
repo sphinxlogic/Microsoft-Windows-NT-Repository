@@ -1,0 +1,599 @@
+Newsgroups: comp.sources.misc
+From: joe@montebello.soest.hawaii.edu ("Joe Dellinger")
+Subject: v40i067:  bin2ascii - convert binary to ascii and back again, Part01/01
+Message-ID: <1993Nov1.220211.8378@sparky.sterling.com>
+X-Md4-Signature: a57d88e927fb55b46f6f9149a7eabb6b
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 1 Nov 1993 22:02:11 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: joe@montebello.soest.hawaii.edu ("Joe Dellinger")
+Posting-number: Volume 40, Issue 67
+Archive-name: bin2ascii/part01
+Environment: UNIX
+
+Here is a "shar" file for bin2ascii, a small C utility for converting
+arbitrary binary files into a form where standard UNIX utilities like
+vi, grep, sed, diff, etc, can be used on them. bin2ascii can then be
+used to convert the modified files back into their original binary
+form.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Makefile bin2ascii.c
+# Wrapped by joe@montebello.soest.hawaii.edu on Thu Oct 28 22:09:46 1993 HST
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(268 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+XDEFINES = 
+X
+X# Your favorite C compiler
+X#CC	= gcc
+XCC	= cc
+X
+X# The flags your favorite C compiler requires to work.
+X#CFLAGS  = -O -I/usr/X386/include -DSVR4 -DSYSV386 ${DEFINES}
+XCFLAGS  = -O ${DEFINES}
+X
+Xall:	bin2ascii
+X
+Xbin2ascii:	bin2ascii.o
+X	$(CC) -o $@ bin2ascii.o -lm
+END_OF_FILE
+if test 268 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'bin2ascii.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bin2ascii.c'\"
+else
+echo shar: Extracting \"'bin2ascii.c'\" \(13004 characters\)
+sed "s/^X//" >'bin2ascii.c' <<'END_OF_FILE'
+X/*
+X * bin2ascii:
+X *	Convert an arbitrary binary file into vi-editable text, and back
+X *	again. Tries to do a "human-readable" job: well-known control
+X *	characters are by default represented using their standard backslash
+X *	sequences. Newlines are by default left as newlines, but they can
+X *	also be rendered as \n. (Newlines created by the program are preceded
+X *	by a backslash, and thus look like a dangling backslash at the end of
+X *	a line like you might find in a Makefile or csh script.) Text can
+X *	either be printed free-form to follow the original (with a maximum
+X *	line length imposed if desired), or broken into regular columns
+X *	separated by spaces. If the latter, _real_ spaces are indicated by
+X *	the backslash sequence \w, although "\ " works too. The sequence \E
+X *	is used to mark the end of the file, to get around vi's habit of
+X *	appending a spurious carriage-return on the end of anything it edits.
+X *	You can also use \E to prematurely stop processing before the end of
+X *	a long file. See self-doc for a complete list of options.
+X *
+X *	Joe Dellinger
+X *	U. Hawai`i Manoa
+X *	Oct 10, 1993
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include <fcntl.h>
+X#include <sys/types.h>
+X#include <unistd.h>
+X
+X/* How many bytes to read in at a time */
+X#define BUFFERLENGTH	1024
+X
+X#ifndef lint
+Xchar            copyright[] =
+X"@(#) Joe Dellinger, Oct 10, 1993, U. Hawaii Manoa\n";
+X#endif			/* not lint */
+X
+X#define YES	1
+X#define NO	0
+X
+Xstatic int      return_ascii = YES;
+Xstatic int      columns = 0;
+Xstatic int      all_hex = 0;
+Xstatic int      spaces = NO;
+Xstatic int      label = NO;
+Xstatic unsigned int offset = 0;
+Xstatic unsigned int endpoint = 0;
+Xstatic int      invert = NO;
+X
+Xstatic int      buffer_len = BUFFERLENGTH;
+Xstatic char     inbuf[BUFFERLENGTH];
+Xstatic int      fdin;
+Xstatic int      alldone = NO;
+Xstatic int      newline;
+X
+Xmain (argc, argv)
+X    int             argc;
+X    char          **argv;
+X{
+Xextern char    *optarg;
+Xextern int      optind;
+Xint             ch;
+Xint             nread;
+Xint             ii, count;
+Xunsigned int    lencount;
+Xchar            sp4[5];
+Xchar            sp3[4];
+Xchar            sp1[2];
+Xextern int      getachar ();
+Xextern void     putachar ();
+Xunsigned int    hexno;
+Xchar            hexstring[10];
+X
+X    if (argc == 1 && isatty (fileno (stdin)))
+X    {
+X/*
+X * SELF DOC
+X */
+X	printf ("bin2ascii: Convert an arbitrary binary file into a readable ASCII format,\n");
+X	printf ("           and back again.\n\n");
+X	printf ("Usage: bin2ascii [options] binary_input > ascii_output\n");
+X	printf ("       bin2ascii [options] < binary_input > ascii_output\n");
+X	printf ("       bin2ascii -i [options] bin2ascii_output > binary_input\n");
+X	printf ("       bin2ascii -i [options] < bin2ascii_output > binary_input\n");
+X	printf ("              HEX looks like \\xDD where DD is a two-digit\n");
+X	printf ("              hexadecimal number. The second digit can be\n");
+X	printf ("              a space, but it should be present.\n");
+X	printf ("              A \"\\E\" marks the end of the file.\n");
+X	printf ("\n");
+X	printf ("\tOptions: -c #columns -e #bytes -h -H -i -n -o #bytes -r -s\n");
+X	printf ("\t-c  #columns (or merely max line length unless -r).\n");
+X	printf ("\t-e  #bytes of the input file to process before exiting.\n");
+X	printf ("\t-h  means print ALL nonprintables as hex, even \\0 \\a \\b \\f \\n \\r and \\t.\n");
+X	printf ("\t-H  means treat EVERYTHING as hex.\n");
+X	printf ("\t-i  means do the reverse: go from ASCII back to BINARY.\n");
+X	printf ("\t    (For this to work, options should be same as before.)\n");
+X	printf ("\t-n  means label byte offset at start of each line.\n");
+X	printf ("\t-o  #bytes to offset into the input file before\n");
+X	printf ("\t    beginning. Only works when input is a file!\n");
+X	printf ("\t-r  means treat carriage returns like any other nonprintable.\n");
+X	printf ("\t-s  put spaces between characters. WARNING!\n");
+X	printf ("\t    In this case \"\\w\" is used to identify a legitimate space.\n");
+X	exit (0);
+X    }
+X
+X
+X    while ((ch = getopt (argc, argv, "c:e:hHino:rs")) != EOF)
+X	switch (ch)
+X	{
+X	case 'c':		/* Number of columns to print.  */
+X	    sscanf (optarg, "%d", &columns);
+X	    if (columns <= 0)
+X		columns = 0;
+X	    break;
+X	case 'e':		/* number of bytes to process */
+X	    sscanf (optarg, "%u", &endpoint);
+X	    break;
+X	case 'h':		/* use \xHEX or things like \r, \t, etc? */
+X	    all_hex = 1;
+X	    break;
+X	case 'H':		/* use \xHEX for EVERYTHING? */
+X	    all_hex = 2;
+X	    break;
+X	case 'i':		/* The inverse program */
+X	    invert = YES;
+X	    break;
+X	case 'n':		/* label offset */
+X	    label = YES;
+X	    break;
+X	case 'o':		/* offset to seek */
+X	    sscanf (optarg, "%u", &offset);
+X	    break;
+X	case 'r':		/* Should a carriage return be left alone? */
+X	    return_ascii = NO;
+X	    break;
+X	case 's':		/* Put in spaces to keep columns regular? */
+X	    spaces = YES;
+X	    break;
+X	default:
+X	    fprintf (stderr, "Type \"bin2hex\" without arguments to get self-doc!\n");
+X	    exit (1);
+X	    break;
+X	}
+X    argc -= optind;
+X    argv += optind;
+X
+X    if (((offset != 0) || (endpoint != 0)) && invert)
+X    {
+X	fprintf (stderr, "Warning: offset and endpoint options ignored in inverse mode.\n");
+X	offset = 0;
+X	endpoint = 0;
+X    }
+X
+X    /* Find input */
+X    if (argc > 0)
+X    {
+X	/* Input file name */
+X	fdin = open (argv[0], O_RDONLY);
+X	if (fdin < 0)
+X	{
+X	    fprintf (stderr, "Could not open input file \"%s\".\n", argv[1]);
+X	    exit (1);
+X	}
+X	if (offset > 0)
+X	{
+X	    if (lseek (fdin, (off_t) offset, SEEK_SET) < 0)
+X	    {
+X		fprintf (stderr, "The lseek didn't work.\n");
+X		exit (1);
+X	    }
+X	}
+X	else if (offset < 0)
+X	{
+X	    fprintf (stderr, "Negative offset?! It's unsigned; this should NOT be able to happen!\n");
+X	    exit (1);
+X	}
+X    }
+X    else
+X    {
+X	fdin = fileno (stdin);
+X	if (offset != 0)
+X	{
+X	    fprintf (stderr, "Sorry, can't seek on a stream.\n");
+X	    exit (1);
+X	}
+X    }
+X
+X
+X/* Forward direction */
+X    if (!invert)
+X    {
+X	if (spaces)
+X	{
+X	    strcpy (sp4, "    ");
+X	    strcpy (sp3, "   ");
+X	    strcpy (sp1, " ");
+X	}
+X	else
+X	{
+X	    strcpy (sp4, "");
+X	    strcpy (sp3, "");
+X	    strcpy (sp1, "");
+X	}
+X
+X	count = 0;
+X	lencount = offset;
+X
+X	while (
+X	       ((endpoint == 0) || (lencount < offset + endpoint))
+X	       &&
+X	       ((nread = read (fdin, inbuf, buffer_len)) > 0)
+X	 )
+X	{
+X	    for (ii = 0;
+X		 (ii < nread) && ((endpoint == 0) || (lencount < offset + endpoint));
+X		 ii++, count++, lencount++)
+X	    {
+X		/* Handle newlines that are inserted automatically */
+X		if (columns > 0 && count % columns == 0 && count > 0)
+X		{
+X		    printf ("\\\n");
+X		    count = 0;
+X		}
+X
+X		/* Handle byte count at start of line */
+X		if (label && count == 0)
+X		{
+X		    printf ("%10u: ", lencount);
+X		}
+X
+X		ch = 0xFF & (unsigned int) inbuf[ii];
+X
+X		if (all_hex < 2)
+X		{
+X		    /*
+X		     * Have to catch backslashes, because we use it to mark
+X		     * special characters.
+X		     */
+X		    if (ch == '\\')
+X		    {
+X			printf ("\\\\%s", sp3);
+X			continue;
+X		    }
+X		    else if (ch == ' ')
+X		    {
+X			if (spaces)
+X			    printf ("\\w%s", sp3);
+X			else
+X			    printf ("%c", (char) ch);
+X
+X			continue;
+X		    }
+X		    else if (isprint (ch))
+X		    {
+X			printf ("%c%s", (char) ch, sp4);
+X			continue;
+X		    }
+X		    else if (return_ascii && ch == '\n')
+X		    {
+X			printf ("\n");
+X			count = -1;
+X			continue;
+X		    }
+X		    else if (all_hex == 0)
+X		    {
+X			switch (ch)
+X			{
+X			case '\0':
+X			    printf ("\\0%s", sp3);
+X			    continue;
+X			    break;
+X			case '\007':	/* Some compilers don't know '\a' */
+X			    printf ("\\a%s", sp3);
+X			    continue;
+X			    break;
+X			case '\b':
+X			    printf ("\\b%s", sp3);
+X			    continue;
+X			    break;
+X			case '\f':
+X			    printf ("\\f%s", sp3);
+X			    continue;
+X			    break;
+X			case '\n':
+X			    printf ("\\n%s", sp3);
+X			    continue;
+X			    break;
+X			case '\r':
+X			    printf ("\\r%s", sp3);
+X			    continue;
+X			    break;
+X			case '\t':
+X			    printf ("\\t%s", sp3);
+X			    continue;
+X			    break;
+X			case '\v':
+X			    printf ("\\v%s", sp3);
+X			    continue;
+X			    break;
+X			default:
+X			    break;
+X			}
+X		    }
+X		}
+X		/*
+X		 * Last case left: it's a random garbage thing we have to do
+X		 * as hex. Force it to have a leading zero.
+X		 */
+X		sprintf (hexstring, "%2X", (unsigned int) ch);
+X		if (hexstring[2] != '\0')
+X		{
+X		    fprintf (stderr, "uh oh! Something is badly wrong with the hex conversion!\n");
+X		    exit (2);
+X		}
+X		/* Zero pad, don't blank-pad */
+X		if (hexstring[0] == ' ')
+X		    hexstring[0] = '0';
+X		printf ("\\x%s%s", hexstring, sp1);
+X		/*
+X		 * Does nothing, but all the other possibilities ended with
+X		 * continue, so do it that way here too.
+X		 */
+X		continue;
+X	    }
+X	}
+X	/*
+X	 * vi's going to insert a carriage return at the end anyway!
+X	 */
+X	if (lencount == offset + endpoint)
+X	    printf ("\\End of dumping after %u bytes.\n", endpoint);
+X	else
+X	    printf ("\\EOF\n");
+X    }
+X    else
+X    {
+X/* Go the other direction! */
+X
+X	newline = YES;
+X
+X	while (ch = getachar (), !alldone)
+X	{
+X	    /*
+X	     * If lines are labeled, then skip past the number and ":" and
+X	     * blank.
+X	     */
+X	    if (newline && label)
+X	    {
+X		if (ch != ':')
+X		    continue;
+X
+X		/*
+X		 * We've made it past the initial number and ":"
+X		 */
+X		newline = NO;
+X
+X		ch = getachar ();
+X		if (ch != ' ')
+X		{
+X		    fprintf (stderr, "Warning! Expected to find a number then a : then a space at start of a line.\n");
+X		    fprintf (stderr, "The space is missing!\n");
+X		}
+X		else
+X		    ch = getachar ();
+X	    }
+X
+X	    /*
+X	     * If automatic spaces is present, then ignore all spaces.
+X	     */
+X	    if (spaces && ch == ' ')
+X		continue;
+X
+X	    /*
+X	     * Check for the start of a backslash sequence.
+X	     */
+X	    if (ch == '\\')
+X	    {
+X		/* Backslash what? */
+X		ch = getachar ();
+X
+X		switch (ch)
+X		{
+X		case 'x':	/* Aha! Hex */
+X		    ch = getachar ();
+X		    if (
+X			(ch >= '0' && ch <= '9') ||
+X			(ch >= 'a' && ch <= 'f') ||
+X			(ch >= 'A' && ch <= 'F')
+X		     )
+X		    {
+X			if (ch >= '0' && ch <= '9')
+X			    hexno = 0xFF & (unsigned int) (ch - '0');
+X			else
+X			    hexno = 0xFF & (unsigned int) (tolower (ch) - 'a' + 10);
+X		    }
+X		    else
+X		    {
+X			fprintf (stderr, "Warning! Unknown backslash sequence \\x%c.\n", (char) ch);
+X			putachar ();
+X			continue;
+X		    }
+X
+X		    ch = getachar ();
+X		    if (
+X			(ch >= '0' && ch <= '9') ||
+X			(ch >= 'a' && ch <= 'f') ||
+X			(ch >= 'A' && ch <= 'F')
+X		     )
+X		    {
+X			if (ch >= '0' && ch <= '9')
+X			    hexno = (hexno << 4) | (0xFF & (unsigned int) (ch - '0'));
+X			else
+X			    hexno = (hexno << 4) | (0xFF & ((unsigned int) tolower (ch) - 'a' + 10));
+X		    }
+X		    else if (ch != ' ')
+X		    {
+X			fprintf (stderr, "Warning! Prematurely truncated backslash sequence \\x?%c.\n", (char) ch);
+X			putachar ();
+X		    }
+X		    printf ("%c", (char) (hexno));
+X		    break;
+X		case '\\':	/* Hey, it really *was* a backslash */
+X		    printf ("%c", (char) ch);
+X		    break;
+X		case '\n':	/* A newline inserted by the program: ignore
+X				 * it! */
+X		    newline = YES;	/* Start ignoring the label for the
+X					 * next line */
+X		    break;
+X		case 'E':	/* the END OF THE FILE! */
+X		    alldone = YES;
+X		    break;
+X		case 'w':	/* A space denoted by \w */
+X		case ' ':	/* A space made visible by backslashing it */
+X		    printf ("%c", (char) ' ');
+X		    continue;
+X		    break;
+X		case '0':	/* A null */
+X		    printf ("%c", (char) '\0');
+X		    continue;
+X		    break;
+X		case 'a':	/* Bell */
+X		    printf ("%c", (char) '\007');
+X		    continue;
+X		    break;
+X		case 'b':	/* backspace */
+X		    printf ("%c", (char) '\b');
+X		    continue;
+X		    break;
+X		case 'f':	/* form feed */
+X		    printf ("%c", (char) '\f');
+X		    continue;
+X		    break;
+X		case 'n':	/* A bona-fide newline made visible */
+X		    printf ("%c", (char) '\n');
+X		    continue;
+X		    break;
+X		case 'r':	/* carriage return */
+X		    printf ("%c", (char) '\r');
+X		    continue;
+X		    break;
+X		case 't':	/* tab */
+X		    printf ("%c", (char) '\t');
+X		    continue;
+X		    break;
+X		case 'v':	/* vertical tab */
+X		    printf ("%c", (char) '\v');
+X		    continue;
+X		    break;
+X		default:
+X		    fprintf (stderr, "Warning! Unknown backslash sequence \\%c.\n", (char) ch);
+X		    printf ("%c", (char) ch);
+X		    break;
+X		}
+X		continue;
+X	    }
+X
+X	    /*
+X	     * Otherwise, just pass it on through.
+X	     */
+X	    printf ("%c", (char) ch);
+X
+X	    if (ch == '\n')
+X		newline = YES;	/* Start ignoring the label for the next line */
+X	}
+X    }
+X
+X    return 0;
+X}
+X
+Xstatic int      left_in_queue = 0;
+Xvoid
+Xputachar ()
+X{
+X    left_in_queue++;
+X}
+X
+X/*
+X * On most UNIX systems reading from input a byte at a time is horribly
+X * Slow and inefficient, so buffer the intput reading ourselves.
+X */
+Xint
+Xgetachar ()
+X{
+Xstatic int      nread = 0;
+Xint             output;
+X
+X    if (left_in_queue == 0)
+X    {
+X	if (alldone || ((nread = read (fdin, inbuf, buffer_len)) == 0))
+X	{
+X/* We're done! Let them know. */
+X	    alldone = YES;
+X/*
+X * Just in case something is wrong and they try to use this value,
+X * go ahead and give them something.
+X */
+X	    output = '\0';
+X	    return output;
+X	}
+X	else
+X	{
+X	    left_in_queue = nread;
+X	}
+X    }
+X    output = 0xFF & (unsigned int) inbuf[nread - left_in_queue];
+X    left_in_queue--;
+X
+X    return output;
+X}
+END_OF_FILE
+if test 13004 -ne `wc -c <'bin2ascii.c'`; then
+    echo shar: \"'bin2ascii.c'\" unpacked with wrong size!
+fi
+# end of 'bin2ascii.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

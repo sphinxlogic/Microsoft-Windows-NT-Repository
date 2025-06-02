@@ -1,0 +1,1779 @@
+Newsgroups: comp.sources.misc
+From: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Subject: v39i097:  cwish - Window Shell / Filemanager v1.00, Part01/04
+Message-ID: <csm-v39i097=cwish.111232@sparky.Sterling.COM>
+X-Md4-Signature: 60d76d82031cb3aaf968e80d770808d2
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Reply-To: hm@hcshh.hcs.de
+Organization: HCS Hanseatischer Computerservice GmbH
+Date: Wed, 22 Sep 1993 16:14:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: hm@hcshh.hcs.de (Hellmuth Michaelis)
+Posting-number: Volume 39, Issue 97
+Archive-name: cwish/part01
+Environment: HP-UX, 386BSD, NETBSD, ANSI-C, SYSV-CURSES
+
+Cwish is an easy to use tool for traveling through the filesystem,
+either for doing administrative work or as a shell replacement.
+I also use it frequently to browse through CDROM's, a special mode
+is available to handle untranslated ISO 9660 filenames.
+
+It depends on a System-V curses library. If there is none available
+with your system (i.e. 386BSD), I recommend getting "ncurses", which
+is available from netcom.com:pub/zmbenhal.  The author is Zeyd M. 
+Ben-Halim (zmbenhal@netcom.com) - I use it for running cwish on 386BSD.
+
+Cwish has been tested with Hewlett-Packard Terminals such as the 2392
+and 70092, with DEC Terminals VT100 and VT220 and with the 386BSD
+console drivers pccons and pcvt.
+	
+If you need help with cwish, just ask!
+
+Hellmuth Michaelis    HCS Hanseatischer Computerservice GmbH    Hamburg, Europe
+-----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README commandline.c header.c wish.1
+# Wrapped by kent@sparky on Wed Sep 22 10:49:57 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 4)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(5868 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X================================================================================
+X#                                                                              #
+X#        wish - user friendly windowing shell for character terminals          #
+X#        ------------------------------------------------------------          #
+X#                                                                              #
+X#            Release 1.00  (First Public Release)  September 1993              #
+X#                                                                              #
+X#                 Written and (c) Copyright 1988-1993 by                       #
+X#                        Hellmuth Michaelis (hm@hcshh.hcs.de)                  #
+X#                        Eggerstedtstr. 28                                     #
+X#                        22765 Hamburg                                         #
+X#                        Germany                                               #
+X#                                                                              #
+X#        See the file COPYING for restriction and warranty information         #
+X#                                                                              #
+X================================================================================
+X
+XYes, i know there is another program floating around called "wish", but i use
+Xit now for so long that i am not going to change it's name to something else!
+X
+XWish is an easy to use tool for travelling through the filesystem, either for
+Xdoing administrative work or as a shell replacement.
+X
+XIt was rewritten several times, a fact which is noticable in many dark corners
+Xof the source, flames to /dev/null please!
+X
+XThe code is neither beautiful nor elegant, as are the underlying data-
+Xstructures, so this is definitely NOT usable for an intro class into device
+Xindependant programming - it just does the job for many years now and the
+Xusers (yes, REAL users!) are satisfied with it.
+X
+XIt is now curses based, with the exception of two areas of terminal handling:
+X- the first being the access of alternate character sets, which is used for
+X  drawing horizontal lines across the screen, and
+X- second, the access of function keys in general (and HP-terminal function
+X  keys in special).
+X
+XBefore you cry, there is no alternate character handling and function key
+Xlabel handling available in the current version of HP-UX's curses (9.0).
+X
+XWhat i did was, that i programmed "around" curses, which is a very bad thing
+Xfor portability and other reasons - i know, but i did not found any other way.
+X
+XI think, i found failsafe methods in order to run wish on other than the 
+Xtested terminals, but due to the lack of appropriate hardware, i tested it
+Xonly on HP and DEC terminals or clones or terminal emulation packages
+Xemulating one of the before mentioned.
+X
+XIf you get wish to run on some other terminals (Wyse, Qume, Televideo etc.)
+Xplease tell me !
+X
+X
+XHISTORY
+X--------------------------------------------------------------------------------
+X
+XRelease		Changes/Features
+X-------		----------------------------------------------------------------
+X1.00		First public release to comp.sources.misc
+X
+X
+XINSTALLATION
+X--------------------------------------------------------------------------------
+X
+XHP-UX:
+X	You need a ANSI-C compiler to compile everything. You should have no
+X	problems using the 8.0 and 9.0 compiler or GCC from the Free Software
+X	Foundation. Wish does not compile with the crippled 9.0 compiler.
+X
+X	Copy Makefile.hpux to Makefile and execute make. You should
+X	have no problems compiling wish.
+X
+X	I had some problems with terminfo entries for "unsupported" terminals
+X	under HP-UX 8.0, contact me if you need help.
+X
+X	"make install" installs wish to /usr/local/bin, "make man-hpux"
+X	installs the manual page to /usr/local/man/man1/wish.1.
+X
+X
+X386BSD:
+X	Zeyd M. Ben-Halim (zmbenhal@netcom.com) rewrote Pavel Curtis'
+X	ncurses library and made it available for 386BSD and Linux.
+X	
+X	This library is needed in order to get wish up and running on
+X	386BSD, NetBSD and Linux.
+X
+X	It is available from netcom.com:pub/zmbenhal.
+X
+X	Uncomment the appropriate Makefile-entry and execute make. You should
+X	have no problems compiling wish.
+X
+X	"make install" installs wish to /usr/local/bin, "make man-386bsd"
+X	installs the manual page to /usr/local/man/cat1/wish.0.
+X
+X
+XOTHER:
+X	You are on your own! I will be glad to get Makefile entries and/or
+X	diffs for other machines, if you need help, get in touch with me!
+X
+X
+X
+XWYSIWYG - WHAT YOU SHARE IS WHAT YOU GET
+X--------------------------------------------------------------------------------
+X
+XPLEASE, if you fix bugs, add features, hack this program to work on your
+Xterminal and/or operating system or simply don't get it up and running, get
+Xin contact with me!
+X
+XThe code is far from being perfect, YOU are very welcome to enhance it !
+X
+XPlease mail bug reports/fixes, suggestions, enhancements & diffs to 
+X
+X			hm@hcshh.hcs.de
+X
+XI will support this program as my time permits it, feel free to contact me!
+X
+XThank You!
+X
+X
+XKNOWN BUGS
+X-------------------------------------------------------------------------------
+X
+Xtoo much ...
+X
+X
+XTESTED TERMINALS
+X--------------------------------------------------------------------------------
+X
+XDEC VT100           no function keys, have to use escape + number
+XDEC VT220           F1 .. F8 mapped to F6 .. F13
+XHP2392A             slooow, but ok
+XHP700/92            ok, but very small font
+XWRQ R1+             nice, fast & easy
+XWRQ R2+             nice, fast & easy, F1 .. F8 mapped to F6 .. F13
+X386BSD pcvt         fully supported
+X386BSD pc3          supported
+X
+X
+XGood Luck and Have Fun !
+X
+XHellmuth
+X
+Xe-mail:	hm@hcshh.hcs.de (...mcsun!unido!hcshh!hm)
+Xs-mail:	c/o HCS GmbH, Oldesloer Str 97-99, 22457 Hamburg, Germany
+Xtel:	+49/40/55903-0 or +49/40/55903-170	(business)
+Xfax:	+49/40/5591486				(business)
+Xtel:	+49/40/384298				(private)
+END_OF_FILE
+  if test 5868 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'commandline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'commandline.c'\"
+else
+  echo shar: Extracting \"'commandline.c'\" \(18934 characters\)
+  sed "s/^X//" >'commandline.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                 --------------------------------------
+X *
+X *              (c) Copyright Hellmuth Michaelis 1989 - 1993
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *           All rights are reserved except as explicitly granted
+X *                  by written permission of the author.
+X *
+X *             See the file COPYING, distributed with wish, for
+X *                  restriction and warranty information
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *      last edit-date: [Mon Aug 30 12:27:37 1993]
+X *
+X *      -hm     debugging "more" output
+X *      -hm     separate sys-call function exec_command
+X *      -hm     time suspend/resume
+X *      -hm     nochng flag introduced
+X *      -hm     current dir preserve when cd ..
+X *      -hm     compress / gzip support
+X *      -hm     tar support
+X *      -hm     no space on echo to first cmdline pos
+X *      -hm     fixed no space bug ....
+X *      -hm     curdir debugging
+X *      -hm     housekeeping
+X *      -hm     cd bugfix, cdmount did not do what it should
+X *      -hm     new routine ending to support multiple extensions
+X *      -hm     cd with wildcards
+X *      -hm     cdrom special processing for filenames containing ';'
+X *
+X *----------------------------------------------------------------------------*/ 
+X
+X#include "wish.h"               /* local includes */
+X
+Xstatic int waitcr = 0;          /* do not wait for cr */
+Xstatic int reread = 0;          /* reread current dir */
+Xstatic int nochng = 0;          /* nothing has changed */
+Xstatic int preserve = PRES_NO;  /* preserve highlighted position */
+Xstatic char curdirb[MAXPATHLEN+1];
+Xstatic char *curdir = curdirb;  /* current dir to preserve if cd .. */
+X
+Xstatic char *str_nxtw(char *, int); /* returns a pointer to the next word in string */
+Xstatic char *ending(char *filename);
+Xstatic char *adjustfn(register char *name);
+X
+X/*---------------------------------------------------------------------------*
+X *      echo the current highlighted filename onto the commandline
+X *---------------------------------------------------------------------------*/
+Xvoid name_echo(void)
+X{
+X        char *ptr;              /* temp ptr */
+X
+X        ptr = &(cur_file->onam[1]);     /* ptr = current filename */
+X                                        /* check for delimiter */
+X        
+X        if( (!(cr_on_files())) && (cbuff[curcol()-1] != SPACE) )
+X                cmdline(SPACE);         /* if none, insert one */
+X                
+X        ptr = adjustfn(ptr);
+X
+X        while((*ptr) && ((cmdline(*ptr++)) == GOOD))
+X                ;
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      returns a pointer to the next word in string
+X *---------------------------------------------------------------------------*/
+Xstatic char *str_nxtw(char *str, int frst)
+X{
+X        char *r;
+X        
+X        if((str == NULL) || (*str == '\0'))
+X                return(NULL);
+X
+X        r = str;
+X        
+X        if(frst)
+X        {
+X                while(*r == SPACE)      /* while leading delimiters */
+X                        r++;
+X                if(*r != '\0')
+X                        return(r);      /* first non-space char */
+X                else
+X                        return(NULL);
+X        }
+X        else
+X        {
+X                while((*r != SPACE) && (*r != '\0')) /* find space */
+X                        r++;
+X                if(*r == '\0')          /* test for end of string */
+X                        return(NULL);
+X                while(*r == SPACE)      /* while there are delimiters */
+X                        r++;
+X                if(*r != '\0')
+X                        return(r);      /* first non-space char */
+X                else
+X                        return(NULL);   /* end of string */
+X        }
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      expand the selection character onto the commandline
+X *---------------------------------------------------------------------------*/
+Xvoid expsel(char *p)
+X{
+X        char rest[512];         /* save buffer */
+X        struct onefile *info;   /* our file struct ptr */
+X        int i;                  /* free space counter in cbuff */
+X        register char *fnp;     /* for filename conversion */
+X
+X        strcpy(rest,p+1);       /* save right half of cbuff after EXPSEL-char */
+X
+X        if(*(p-1) != SPACE)     /* check for delimiter present */
+X        {
+X                *p = SPACE;
+X                p++;
+X        }
+X        
+X        i = (p - cbuff) + strlen(rest); /* count of already occupied chars */
+X        
+X        info = first;           /* first in list */
+X
+X        *p = '\0';              /* terminate left half of cbuff */
+X        
+X        while(info)             /* scan through dir - list */
+X        {
+X                if(info->tag)   /* search for tagged files */
+X                {
+X                        fnp = adjustfn(&(info->onam[1]));
+X                        
+X                        if(((strlen(fnp))+1) < (HISLNLEN - i))
+X                        {
+X                                /* we have enough space  */
+X
+X                                i += (strlen(fnp)+1);
+X                                strcat(cbuff, fnp);
+X                                strcat(cbuff," ");
+X                        }
+X                }
+X                info = info->next;      /* next entry */
+X        }
+X        strcat(cbuff,rest);     /* copy saved right half to generated part */
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      user has typed a <CR>
+X *---------------------------------------------------------------------------*/
+Xvoid handlecr(void)
+X{
+X        nochng = 0;             /* anything may change on screen */
+X        preserve = PRES_NORM;   /* nothing to preserve */
+X        
+X        if(cr_on_files())       /* nothing on commandline, process high- */
+X        {                       /*  lighted filename field */
+X                h_files();      /* cr on a filename */
+X        }
+X        else    /* something in commandlinebuffer */
+X        {
+X                h_line();       /* commandline */
+X        }
+X
+X        if(waitcr && opt_return)        /* wait for <cr> being hit */
+X        {
+X                move(LINES-1, 0);       /* last line */
+X                clrtoeol();             /* clear it */
+X                move(LINES-1, 0);       /* last line */
+X                attrset(A_REVERSE);             /* highlight on */
+X                addstr("Press any key to continue ...");
+X                attroff(A_REVERSE);             /* highlight on */              
+X                refresh();
+X                getch();
+X                move(LINES-1, 0);       /* last line */
+X                clrtoeol();             /* clear it */
+X                touchwin(stdscr);
+X                wnoutrefresh(stdscr);
+X        }
+X        header();       /* new header */
+X        dis_hist();     /* display current history entry */
+X
+X        if(reread)      /* directory has to be re-read */
+X        {
+X                free_list();            /* free malloc'ed buffers */
+X                init_files(preserve, curdir);   /* yes, read current dir */
+X        }
+X        else
+X        {
+X                if(!nochng)
+X                        fresh_files();  /* just refresh window */
+X        }
+X        resume_time();          /* restart time display update */
+X        if(!nochng)
+X        {
+X                attribs(1);             /* new attributes */
+X                init_flabels();         /* fk-labels onto screen */
+X                update_all();           /* update all windows */
+X        }
+X        else
+X        {
+X                wrefresh(cmnd_w);
+X        }
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      user has typed <CR> and something is on commandline
+X *---------------------------------------------------------------------------*/
+Xvoid h_line(void)
+X{
+X        char *cptr = cbuff+3;   /* ptr to start of line after prompt */
+X        char *cp;               /* command ptr */
+X        char *ap;               /* argument ptr */
+X        char *ep;               /* expansion char ptr */
+X
+X        if((cp = str_nxtw(cptr,1)) == NULL)     /* just spaces on commandline ? */
+X        {       
+X                nochng = 1;
+X                errno = 0;                      /* yes ... */
+X                error("commandline empty ... ");
+X                waitcr = 0;
+X                reread = 0;
+X        }
+X        else if( (*cp == 'c') && (*(cp+1) == 'd') &&
+X                 ( (*(cp+2) == ' ') || (*(cp+2) == '\t') || (*(cp+2) == '\0') ) )
+X        {
+X                int ret;
+X                if((ap = str_nxtw(cp, 0)) == NULL)
+X                {
+X                        ret = chdir(envhome);   /* cd to home */
+X                }
+X                else
+X                {
+X                        char *ptr;
+X
+X                        if((ptr = (char *)index(ap, '.')) != NULL)
+X                        {
+X                                if(!(strncmp(ptr, "..", 2)))
+X                                {
+X                                        if(getcwd(curdir, MAXPATHLEN) == NULL)
+X                                                *curdir = '\0';
+X                                        preserve = PRES_DD;
+X                                }
+X                        }
+X                        ret = cd(ap);   /* cd to <dir> */
+X                }
+X
+X                if(ret == -1)
+X                {
+X                        nochng = 1;
+X                        error("changing directory failed - chdir() error");
+X                        waitcr = 0;
+X                        reread = 0;
+X                }
+X                else
+X                {
+X                        waitcr = 0;
+X                        reread = 1;
+X                }                       
+X        }
+X        else
+X        {
+X                if((ep = strchr((cbuff+3),EXPSEL)) != NULL)             
+X                        expsel(ep);             /* expand selection char */
+X
+X                exec_command(cbuff+3);
+X
+X                waitcr = 1;             /* wait for <cr> */
+X                reread = 1;             /* reread current dir */
+X        }
+X        save_line();                    /* save commandline to history */       
+X}
+X        
+X/*---------------------------------------------------------------------------*
+X *      user has typed <CR> and commandline is empty
+X *---------------------------------------------------------------------------*/
+Xvoid h_files(void)
+X{               
+X        preserve = PRES_NORM;
+X        
+X        if(cur_file->oprm[0] == 'd')    /* directories */
+X        {
+X                preserve = PRES_DD;
+X
+X                if(getcwd(curdir, MAXPATHLEN) == NULL)
+X                        *curdir = '\0';
+X
+X                if((chdir(&(cur_file->onam[1]))) == -1)
+X                {
+X                        nochng = 1;
+X                        error("changing directory to current selection failed - chdir() error");
+X                        reread = 0;     /* no need to re-read */
+X                }
+X                else
+X                {
+X                        reread = 1;     /* (re-) read (new) dir */
+X                }
+X
+X                waitcr = 0;             /* don't wait for <CR> */
+X        }
+X
+X        /* executables */
+X
+X        else if((cur_file->oprm[3] == 'x') ||
+X                (cur_file->oprm[6] == 'x') ||
+X                (cur_file->oprm[9] == 'x'))
+X        {
+X                sprintf(cbuff, "%s/%s", cur_path, &(cur_file->onam[1]));
+X
+X                exec_command(cbuff);            /* shell-call */
+X
+X                waitcr = 1;
+X                reread = 1;
+X        }
+X
+X        /* data files */
+X        else if((cur_file->oprm[1] == 'r') ||
+X                (cur_file->oprm[4] == 'r') ||
+X                (cur_file->oprm[7] == 'r'))                     
+X        {
+X                FILE *pfp;
+X                char *pp;
+X                char *fnp;
+X
+X                fnp = adjustfn(&(cur_file->onam[1]));
+X
+X                sprintf(cbuff, "cat %s/%s", cur_path, fnp);
+X                
+X                if((pp = ending(fnp)) != NULL)
+X                        strcat(cbuff, pp);
+X
+X                strcat(cbuff,"|");              /* pipe to pager */     
+X                strcat(cbuff, opt_more);        /* pager */
+X                
+X                suspend_time();         /* stop updating time */
+X                fini_flabels();         /* remove user labels */
+X                move(0, 0);             /* first line */
+X                touchwin(stdscr);       /* force */
+X                clear();                /* clear it */
+X                refresh();              /* update screen */
+X                savetty();              /* save tty-modes for resetty() */
+X                reset_shell_mode();     /* set tty to pre-curses values */
+X                
+X                if((pfp = popen(cbuff, "w")) == NULL)   /* exec */
+X                        error("cannot open pipe to PAGER");
+X                else
+X                {
+X                        if(pclose(pfp) == -1)
+X                                error("PAGER pclose error");
+X                }
+X
+X                resetty();              /* restore modes to curses operation */
+X
+X                reset_prog_mode();      /* set to curses values */
+X                
+X#ifdef CURSESBUG
+X                putp(keypad_xmit);      /* hp curses bug .. */
+X#endif
+X
+X                touchwin(cmnd_w);
+X                touchwin(fst_w);
+X                touchwin(file_w);
+X                if(opt_attrib)
+X                        touchwin(attr_w);
+X                if(opt_labels)
+X                        touchwin(flbl_w);
+X        
+X                resume_time();          /* restart updating time */
+X                waitcr = 0;             /* don't wait for <CR> */
+X                reread = 0;             /* reread dir */
+X        }
+X
+X        /* OOPS, whats this ?? */
+X        else
+X        {
+X                errno = 0;              /* no errno display */
+X                error("no exec/read permission found ....");
+X                flash();                /* no no .. */
+X                waitcr = 0;             /* don't wait for <CR> */
+X                reread = 0;             /* don't reread dir !!! */
+X        }
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      what to do with the file depending on ending
+X *---------------------------------------------------------------------------*/
+Xstatic char *ending(char *filename)
+X{
+X        int i;
+X        char *p;
+X
+X        static char *etab[][2] = {
+X                {".tar.Z",      "|compress -dfc|tar tvf -"},
+X                {".tar.z",      "|gzip -cdf|tar tvf -"},
+X                {".tar.gz",     "|gzip -cdf|tar tvf -"},
+X                {".tar",        "|tar tvf -"},
+X                {".Z",          "|compress -dfc"},
+X                {".z",          "|gzip -cdf"},
+X                {".gz",         "|gzip -cdf"},
+X                {NULL, NULL}
+X        };
+X
+X        /* see if filename contains a known extension and return the    */
+X        /* commandline string to decode that file                       */
+X
+X        for(i = 0; etab[i][0] != NULL; i++)
+X        {
+X                if( ((p = strstr(filename, etab[i][0])) != NULL) &&
+X                    (strlen(p) == strlen(etab[i][0])) )
+X                        return(etab[i][1]);
+X        }
+X        return(NULL);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      edit the current file
+X *---------------------------------------------------------------------------*/
+Xvoid edit_current(void)
+X{
+X        char *fnp;
+X
+X        if(cur_file->oprm[0] == 'd')    /* directories */
+X                return;
+X
+X        fnp = adjustfn(&(cur_file->onam[1]));
+X        
+X        sprintf(cbuff,"%s %s/%s", opt_edit, cur_path, fnp);
+X
+X        exec_command(cbuff);            /* shell-call */
+X
+X        header();               /* new header */
+X        dis_hist();             /* display current history */
+X        fresh_files();          /* display files */
+X        attribs(1);             /* new attributes */
+X        init_flabels();         /* fk-labels onto screen */
+X        update_all();
+X        resume_time();          /* restart time display update */       
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      close current directory
+X *---------------------------------------------------------------------------*/
+Xvoid close_cdir(void)
+X{
+X        if(getcwd(curdir, MAXPATHLEN) == NULL)
+X                *curdir = '\0';
+X        
+X        if((chdir("..")) == -1)
+X        {
+X                error("changing directory to '..' dir failed - chdir() error");
+X                return;
+X        }
+X        else
+X        {
+X                header();               /* new header */
+X                free_list();            /* free malloc'ed buffers */
+X                init_files(PRES_DD, curdir);    /* yes, read current dir */
+X                attribs(1);             /* new attributes */
+X                init_flabels();         /* fk-labels onto screen */
+X        }
+X        update_all();
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      execute a command/program
+X *---------------------------------------------------------------------------*/
+Xvoid exec_command(char *cline)
+X{
+X        suspend_time();         /* no time display update */
+X        fini_flabels();         /* remove user labels */
+X        move(0, 0);             /* last line */
+X        touchwin(stdscr);       /* force */
+X        clear();                /* clear it */
+X        refresh();              
+X        savetty();              /* save tty-modes for resetty() */
+X        reset_shell_mode();     /* set to pre-curses values */
+X        system(cline);          /* shell-call */
+X        resetty();              /* restore modes to curses operation */
+X        reset_prog_mode();      /* set to curses values */
+X
+X#ifdef CURSESBUG
+X        putp(keypad_xmit);      /* hp curses bug .. */
+X#endif
+X
+X        touchwin(cmnd_w);
+X        touchwin(fst_w);
+X        touchwin(file_w);
+X        if(opt_attrib)
+X                touchwin(attr_w);
+X        if(opt_labels)
+X                touchwin(flbl_w);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *      adjust filename (cdrom, others ?)
+X *---------------------------------------------------------------------------*/
+Xstatic char *adjustfn(char *name)
+X{
+X	static char buffer[MAXPATHLEN];
+X	register char *bp = buffer;
+X	register char *sp = name;
+X	
+X	while(*sp)
+X	{
+X		if(iscdfs && (*sp == ';'))
+X			*bp++ = '\\';
+X		*bp++ = *sp++;
+X	}
+X	*bp = '\0';
+X	return((char *)buffer);
+X}
+X	
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 18934 -ne `wc -c <'commandline.c'`; then
+    echo shar: \"'commandline.c'\" unpacked with wrong size!
+  fi
+  # end of 'commandline.c'
+fi
+if test -f 'header.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'header.c'\"
+else
+  echo shar: Extracting \"'header.c'\" \(6728 characters\)
+  sed "s/^X//" >'header.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------*
+X *
+X *                  wish - windowing user friendly shell
+X *                  ------------------------------------
+X *
+X *               Copyright (c) 1988-1993 Hellmuth Michaelis
+X *
+X *                  Eggerstedtstr. 28
+X *                  22765 Hamburg
+X *                  Germany
+X *
+X *                  Tel:    +49 / 40 / 384298    (private)
+X *                  Tel:    +49 / 40 / 55903-170 (at work)
+X *                  e-mail: hm@hcshh.hcs.de
+X *
+X *                          --------oOo--------
+X *
+X *   This program is free software; you can redistribute it and/or modify
+X *   it under the terms of the GNU General Public License as published by
+X *   the Free Software Foundation; either version 2 of the License, or
+X *   (at your option) any later version.
+X *
+X *   This program is distributed in the hope that it will be useful,
+X *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X *   GNU General Public License for more details.
+X *
+X *   You should have received a copy of the GNU General Public License
+X *   along with this program; if not, write to the Free Software
+X *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X *---------------------------------------------------------------------------*
+X *
+X *	Last Edit-Date: [Mon Aug 30 19:50:08 1993]
+X *
+X *	-hm	converting to curses and multiwindows
+X *	-hm	separation line in attribs window
+X *	-hm	vt220 support
+X *	-hm	show time in header
+X *	-hm	hpterm / zero pointers in hpux 9.0
+X *
+X *----------------------------------------------------------------------------*/
+X
+X#include "wish.h"
+X
+X/*---------------------------------------------------------------------------*
+X *	print a horizontal separation line based on delimiter-character
+X *---------------------------------------------------------------------------*/
+Xvoid sepaline(WINDOW *window) 	
+X{
+X	int i = COLS;
+X	unsigned char delim;
+X	
+X	if(window == cmnd_w)
+X		wmove(window, 2, 0);
+X	else if(window == attr_w)
+X		wmove(window, 0, 0);
+X	else
+X		return;
+X
+X	if(opt_delimiter)
+X	{
+X		delim = opt_delimiter;		
+X	}
+X	else if(enter_alt_charset_mode && exit_alt_charset_mode &&
+X		*enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		wattron(window, A_ALTCHARSET);
+X		switch(termtype)
+X		{
+X			case TERM_HP:	/* HEWLETT-PACKARD Terminals (2392,700/9x etc) */
+X				delim = ';';
+X				break;
+X	
+X			case TERM_VT2:	/* DEC VT220 / 320 */
+X			case TERM_VT3:
+X			case TERM_PCVT:
+X				delim = 'q';
+X				break;
+X	
+X			case TERM_HPX:	/* X11 HEWLETT-PACKARD */
+X				delim = '-';
+X				break;
+X	
+X			default:	/* everything else */
+X				delim = DEFDELIMCH;
+X				break;
+X		}
+X	}
+X	else
+X	{
+X		delim = DEFDELIMCH;
+X	}
+X		
+X	while(i--)
+X		waddch(window, delim);
+X
+X	if(enter_alt_charset_mode && exit_alt_charset_mode && !opt_delimiter &&
+X	   *enter_alt_charset_mode && *exit_alt_charset_mode)
+X	{
+X		wattroff(window, A_ALTCHARSET);
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	print error string in header-line
+X *---------------------------------------------------------------------------*/
+Xvoid error(char *str)
+X{
+X	extern int errno;
+X	extern char *sys_errlist[];
+X	extern int sys_nerr;
+X
+X	int i;
+X
+X	if(str == NULL)
+X	{
+X		if(errno && (errno <= sys_nerr))
+X			strcpy(errorline, sys_errlist[errno]);
+X		else
+X			strcpy(errorline, "Unknown Error, call your guru ...");
+X	}
+X	strcpy(errorline, str);		
+X
+X	i = strlen(errorline);
+X	while(i++ < COLS)
+X		strcat(errorline," ");
+X
+X	wmove(cmnd_w, C_HEAD, 0);
+X	wattron(cmnd_w, A_REVERSE);
+X	waddstr(cmnd_w, errorline);
+X	wattroff(cmnd_w, A_REVERSE);
+X	wmove(cmnd_w, C_LINE, curcol());
+X	suspend_time();
+X	errorflag = 1;
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	clear error string and rewrite "normal" header
+X *---------------------------------------------------------------------------*/
+Xvoid clrerror(void)
+X{
+X	if(errorflag)				/* error-string in header ? */
+X	{
+X		resume_time();
+X		errorflag = 0;			/* reset error-flag */		
+X		wmove(cmnd_w, C_HEAD, 0);	/* headerline pos */
+X		wclrtoeol(cmnd_w);		/* clear old */
+X		header();			/* rewrite header */
+X		wmove(cmnd_w, C_LINE, curcol());
+X	}
+X}	
+X
+X/*---------------------------------------------------------------------------*
+X *	fatal, irrecoverable error
+X *---------------------------------------------------------------------------*/
+Xvoid fatal(char *str)
+X{
+X	free_list();		/* free memory */
+X	fini_flabels();		/* fk-labels to normal */
+X	endwin();		/* exit curses */
+X	fprintf(stderr,"\n\n\t *** Wish Fatal Error: ***\n\t *** [%s] ***\n\n",str);
+X	exit(1);
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	print headerline centered in display
+X *---------------------------------------------------------------------------*/
+Xvoid header(void)
+X{
+X	int p,q;
+X
+X	wmove(cmnd_w, C_HEAD, 0);
+X
+X	if(errorflag)
+X	{
+X		wattron(cmnd_w, A_REVERSE);
+X		waddstr(cmnd_w, errorline);
+X		wattroff(cmnd_w, A_REVERSE);
+X	}
+X	else
+X	{
+X		wattron(cmnd_w, A_REVERSE);
+X		if((COLS+1) > 80)
+X		{
+X			p = (COLS+1) - 80;
+X			p /= 2;
+X			q = p;
+X			while(q--)
+X				waddch(cmnd_w, SPACE);
+X			waddstr(cmnd_w, headerline);
+X			q = p;
+X			while(q--)
+X			waddch(cmnd_w, SPACE);
+X		}
+X		else
+X		{
+X			waddstr(cmnd_w, headerline);
+X		}
+X		wattroff(cmnd_w, A_REVERSE);
+X	}
+X	sepaline(cmnd_w);
+X	wmove(cmnd_w, C_LINE, curcol());
+X}
+X
+X/*---------------------------------------------------------------------------*
+X *	display the attribute window, init if required
+X *---------------------------------------------------------------------------*/
+Xvoid attribs(int flag)
+X{
+X	if(!opt_attrib)
+X		return;
+X		
+X	if(flag)	/* rewrite static data ?? */
+X	{
+X		sepaline(attr_w);
+X
+X		wmove(attr_w, 1, PS_SIZE);
+X		wattron(attr_w, A_REVERSE);
+X		waddstr(attr_w, ST_SIZE);
+X		wattroff(attr_w, A_REVERSE);
+X
+X		wmove(attr_w, 1, PS_USER);
+X		wattron(attr_w, A_REVERSE);
+X		waddstr(attr_w, ST_USER);
+X		wattroff(attr_w, A_REVERSE);
+X		
+X		wmove(attr_w, 1, PS_GRUP);
+X		wattron(attr_w, A_REVERSE);
+X		waddstr(attr_w, ST_GRUP);
+X		wattroff(attr_w, A_REVERSE);
+X
+X		wmove(attr_w, 1, PS_DATE);
+X		wattron(attr_w, A_REVERSE);
+X		waddstr(attr_w, ST_DATE);
+X		wattroff(attr_w, A_REVERSE);
+X	}
+X	mvwaddstr(attr_w, 1, PP_PERM, cur_file->oprm);			  /* permissions */
+X	if(cur_file->oislnk)						  /* a link ?? */
+X		mvwaddch(attr_w, 1, PP_PERM, 'l');			  /*     yes ! */
+X	mvwprintw(attr_w, 1, PP_SIZE, "%-9d",cur_file->osiz);		  /* filesize */
+X	mvwaddstr(attr_w, 1, PP_USER, user_from_uid(cur_file->ousr, 8));  /* user */
+X	mvwaddstr(attr_w, 1, PP_GRUP, group_from_gid(cur_file->ogrp, 8)); /* group */
+X	mvwaddstr(attr_w, 1, PP_DATE, cur_file->odat);                    /* date */
+X}
+X
+X/*---------------------------------- EOF -------------------------------------*/
+END_OF_FILE
+  if test 6728 -ne `wc -c <'header.c'`; then
+    echo shar: \"'header.c'\" unpacked with wrong size!
+  fi
+  # end of 'header.c'
+fi
+if test -f 'wish.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wish.1'\"
+else
+  echo shar: Extracting \"'wish.1'\" \(22850 characters\)
+  sed "s/^X//" >'wish.1' <<'END_OF_FILE'
+X.\"---------------------------------------------------------------------------
+X.\"
+X.\"                  wish - windowing user friendly shell
+X.\"                  ------------------------------------
+X.\"
+X.\"               Copyright (c) 1988-1993 Hellmuth Michaelis
+X.\"
+X.\"                  Eggerstedtstr. 28
+X.\"                  22765 Hamburg
+X.\"                  Germany
+X.\"
+X.\"                  Tel:    +49 / 40 / 384298    (private)
+X.\"                  Tel:    +49 / 40 / 55903-170 (at work)
+X.\"                  e-mail: hm@hcshh.hcs.de
+X.\"
+X.\"                          --------oOo--------
+X.\"
+X.\"   This program is free software; you can redistribute it and/or modify
+X.\"   it under the terms of the GNU General Public License as published by
+X.\"   the Free Software Foundation; either version 2 of the License, or
+X.\"   (at your option) any later version.
+X.\"
+X.\"   This program is distributed in the hope that it will be useful,
+X.\"   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X.\"   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X.\"   GNU General Public License for more details.
+X.\"
+X.\"   You should have received a copy of the GNU General Public License
+X.\"   along with this program; if not, write to the Free Software
+X.\"   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X.\"
+X.\"---------------------------------------------------------------------------
+X.\"
+X.\"	last edit-date: [Mon Sep 20 16:18:03 1993]
+X.\"
+X.\"	-hm	initial manual converted from old text pages
+X.\"	-hm	updating to reflect changes, version 1.00
+X.\"
+X.\"---------------------------------------------------------------------------
+X.PU
+X.TH wish 1
+X.SH NAME
+Xwish \- windowing user friendly shell 
+X.SH SYNOPSIS
+X.B wish
+X[
+X.RB [ + | - ]
+X.RB [ acCdflnprw ]
+X]
+X.SH DESCRIPTION
+X.I Wish
+Xis a powerful fullscreen, menu-based, easy to use and user friendly 
+Xinterface to the UNIX (tm) filesystem. It can also be used as a shell
+Xreplacement for interactive use.
+XIt is intended for character terminal environments where such tools are not
+Xavailable at all and where one needs a general purpose tool for easily
+Xwalking through the filesystem.
+X.SH OPTIONS
+X.I Wish
+Xhas several commandline options to change the runtime behaviour:
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fB+a\fR	Display the "attribute" line at the bottom of the screen.
+XIf you don't like to contiuously have the line showing the current file's
+Xattributes, you can switch this off by using the -a switch. As a side
+Xeffect, you will be able to use two more screen lines for the file window
+Xdisplay. 
+X.sp
+X.ti -0.4i
+X\fB-a\fR	Don't display the "attribute" line.
+X.sp
+X.ti -0.4i
+X\fB+C\fR	On CDROM media, files containing data have often all execute
+Xattributes set, so that
+X.I wish
+Xtries to execute the file as a shell script when selected for display. By 
+Xspecifying the
+X.B +C
+Xoption in conjunction with the
+X.B +c
+Xoption,
+X.I wish
+Xremoves internally all execute permission from ordinary files.
+X.sp
+X.ti -0.4i
+X\fB-C\fR	No execute permission removal is done on regular files.
+X.sp
+X.ti -0.4i
+X\fB+c\fR	On CDROM's conforming to the
+X.I High Sierra
+Xor the
+X.I ISO-9660
+Xstandard a version number is appended to a regular file's name delimited
+Xby a semicolon. This semicolon is interpreted by the shell as an end of
+Xline delimiter. To get around this behaviour,
+X.I wish
+Xescapes the semicolon by placing a backslash in front of the semicolon
+Xif this option is selected.
+X.sp
+X.ti -0.4i
+X\fB-c\fR	Do not escape the semicolon in CDROM filenames.
+X.sp
+X.ti -0.4i
+X\fB+d\fR	Try to preserve the current directory when walking through
+Xthe directory tree.
+X.sp
+X.ti -0.4i
+X\fB-d\fR	Don't try to preserve the current directory.
+X.sp
+X.ti -0.4i
+X\fB+f\fR	Display "virtual" function key labels.
+X.I Wish
+Xdetects the presence of a Hewlett-Packard-Terminal by the presence 
+Xof the "xs"-flag in termcap or the "xhp"-flag in terminfo. If this flag is
+Xnot present, 
+X.I wish
+Xemulates the function key labels in the last line of the
+Xscreen. If this behaviour is not desired, use the -f switch to run
+X.I wish
+Xwithout emulated function key labels. 
+X.sp
+X.ti -0.4i
+X\fB-f\fR	Don't Display "virtual" function key labels.
+X.sp
+X.ti -0.4i
+X\fB+l\fR	Enable the detection and display of symbolic links. This option
+Xonly makes sense if the "attributes" line is displayed.
+X.sp
+X.ti -0.4i
+X\fB-l\fR	Disable the detection and display of symbolic links. 
+X.sp
+X.ti -0.4i
+X\fB+n\fR	Enable display of filenames starting with a dot.
+X.sp
+X.ti -0.4i
+X\fB-n\fR	Disable display of filenames starting with a dot.
+X.sp
+X.ti -0.4i
+X\fB+p\fR	Display the current directory as "." in the file window
+Xof the screen. Usually the first file displayed in the file window is the 
+X"..", the directory above the current directory. This is convenient for 
+Xeasy walking through the directory tree. Although the current directory,
+X".", is not displayed, it is present and included in the entry count in
+Xthe upper right corner of the file window. If you wish to display the
+Xcurrent directory too, use the +p switch to turn this option on. 
+X.sp
+X.ti -0.4i
+X\fB-p\fR	Don't display the current directory as ".".
+X.sp
+X.ti -0.4i
+X\fB+r\fR	Wait for pressing \fIRETURN\fR after executing an external
+Xcommand.
+X.sp
+X.ti -0.4i
+X\fB-r\fR	Don't wait for pressing \fIRETURN\fR after executing an external
+Xcommand.
+X.sp
+X.ti -0.4i
+X\fB+w\fR	Enable the processing of wildcard filenames for file display.
+XThe wildcard specification must be entered using the
+X.B \.wishrc
+Xfile option "wildcard=" or by using
+X.I wish's
+Xconfiguration screen.
+X.sp
+X.ti -0.4i
+X\fB-w\fR	Disable the processing of wildcard filenames.
+X.sp
+X.ti -0.4i
+X\fB-?\fR	Displays current version of 
+X.I wish
+Xand copyright and usage
+Xinformation.
+X.SH THE DISPLAY SCREEN
+XAfter starting 
+X.I wish
+X, the screen becomes divided into several "windows":
+X.SS Command Window
+XThe command window consists of the uppermost two lines on screen, the first
+Xline is displaying the program's name, version, copyright information,
+Xterminal type and the current time. In case that an error message has to be
+Xdisplayed, this line is used to display the error message until the next key
+Xis pressed.
+X.PP
+XThe next line in this window is the the \fIcommand line\fR, displaying the
+Xcurrent history line number as it's prompt. One can cycle through the command
+Xline history by using the popular emacs control sequences. Any alphanumeric
+Xinput typed at the keyboard is displayed here and executed by the users
+Xshell (system(3)) after pressing <return>.
+X.SS File Window
+XThe middle part of the screen becomes your "window" into the
+Xcurrently selected directory - it's called the file window. The
+Xfirst line of the file window contains the full pathname of the current
+Xdirectory together with the number of files in this directory labelled
+X.B Entries.
+XIf filename wildcarding is active, this label becomes
+X.B Matches.
+X.sp
+XWith the cursor keys, the user moves a "cursor" or "current file", which is a
+Xhighlighted bar, over the filenames in the file window. If a file
+Xis made the current selected file by placing the cursor on it,
+Xvarious operations can be done on it, i.e. if the file is a
+Xdirectory, and the user hits return, a change to that directory is
+Xdone. If the file is an executable file, it is either executed as a
+Xbinary executable or as a shell script. If the file is a data file
+Xit is displayed by the selected pager program - more options are
+Xavailable. If there are more files in a directory than fitting into 
+Xthe file window, it can be paged through by using the page up/down
+Xfunction keys.
+X.sp
+XFiles can be marked in the file window and expanded in the
+Xcommandline by the special wildcard character "%" - so if you mark
+Xseveral files in the file window, and type "rm % <RETURN>" in the
+Xcommandline, all selected files will be deleted. 
+X.sp
+XThe current selected filename can be echoed onto the commandline
+Xfor further processing by some other commands. 
+X.sp
+XIf there are more files in the directory than will fit into the file window,
+Xone can move through file window "pages" by using the PAGE UP and PAGE DOWN
+Xterminal keys. There is an indicator available in the lower right corner
+Xof the file window for telling the user if there is page above "^", a page
+Xbelow "V" or pages above and below "*" available beside the current one.
+X.sp
+X.SS Attribute Window
+XIf it was configured by either using the commandline switch 
+X.B a
+Xor by using the configuration file option, the lower part of the screen
+Xbecomes the attribute window. Here are the attributes of the currently
+Xhighlighted file displayed: permissions, size, user, group and date.
+X.SS Function Key Label Window
+XIf it was configured by either using the commandline switch 
+X.B f
+Xor by using the configuration file option, the last part of the screen
+Xbecomes the virtual function key label window.
+XSome 
+X.I wish
+Xfunctionality is controllable by the terminals special
+Xfunction keys (f1....f8). Hewlett-Packard Terminals have special
+Xprogrammable function key labels; for terminals having
+Xfunction keys, but no labels, 
+X.I wish
+Xsimulates 8 function key labels in the last line of the terminal.
+X.PP
+X.SH Command Window Keys
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBBackspace\fR - Erases the character left of the cursor.
+X.sp
+X.ti -0.4i
+X\fBDelete\fR - Erases the character under the cursor.
+X.sp
+X.ti -0.4i
+X\fBReturn\fR - Return key handling is dependent of the status of
+Xthe commandline:
+X.br
+X.B Commandline contains characters:
+X.br
+XThe command string entered into the command line is terminated and executed
+Xby handing it to the system() call to execute it.
+X.br
+X.B Commandline is empty:
+X.br
+XWhile you are maneuvering with the highlighting bar through the file
+Xwindow, you are able to do the most natural commands depending on the
+Xtype of file to the current selected (highlighted) file by just
+Xpressing <RETURN>. This means, that if your file is:
+X.br
+X\(bu a executable program, it is executed 
+X.br
+X\(bu a data file, it is displayed using the pager program
+X.br
+X\(bu a directory, the current directory is changed to the highlighted one
+X.sp
+X.ti -0.4i
+X\fBDelete Char\fR - Erases the character under the cursor.
+X.sp
+X.ti -0.4i
+X\fBControl-F\fR - Forward one character on the commandline.
+X.sp
+X.ti -0.4i
+X\fBControl-B\fR - Backward one character on the commandline.
+X.sp
+X.ti -0.4i
+X\fBControl-P\fR - Previous commandline from history buffer.
+X.sp
+X.ti -0.4i
+X\fBControl-N\fR - Next commandline from history buffer.
+X.sp
+X.ti -0.4i
+X\fBControl-D\fR - If the commandline is empty, exit 
+X.I wish.
+XIf the commandline is not empty, delete the character under the cursor.
+X.sp
+X.ti -0.4i
+X\fBControl-K\fR - Kill the line on the commandline from the cursor
+Xposition to the end of the commandline and place the string into the
+Xkill-buffer. See also key 
+X.B
+XControl-Y.
+X.sp
+X.ti -0.4i
+X\fBControl-Y\fR - Yank text from the kill-buffer (if any) onto the
+Xcommandline at the current cursor position. See also key
+X.B
+XControl-K.
+X.sp
+X.ti -0.4i
+X\fBControl-A\fR - Position the cursor at the beginning of the
+Xcommandline.
+X.sp
+X.ti -0.4i
+X\fBControl-E\fR - Position the cursor at the endo of the commandline.
+X.sp
+X.ti -0.4i
+X\fBControl-L\fR - Refresh display
+X.sp
+X.ti -0.4i
+X\fBAlphanumeric Characters\fR 	Any alphanumeric, non-control character
+Xtyped on the keyboard is displayed on the commandline.
+X.PP
+X.SH File Window Keys
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBCursor Right\fR - Move the current file one position
+Xto the right. If on the right margin, wrap onto the next line, first position.
+XIf on the lowest right position, wrap to the upper left position.
+X.sp
+X.ti -0.4i
+X\fBCursor Left\fR - Move the current file one position
+Xto the left. If on the left margin, wrap onto the previous line, last position.
+XIf on the upper left position, wrap to the lowest right position.
+X.sp
+X.ti -0.4i
+X\fBCursor Up\fR - Move the current file one position up in the same column.
+X.sp
+X.ti -0.4i
+X\fBCursor Down\fR - Move the current file one position down in the same column.
+X.sp
+X.ti -0.4i
+X\fBCursor Home\fR - Move the current file to the upper left position.
+X.sp
+X.ti -0.4i
+X\fBCursor Home Down\fR - Move the current file to the lower right position.
+X.sp
+X.ti -0.4i
+X\fBNext Page\fR - Display the next file window screen (if any).
+X.sp
+X.ti -0.4i
+X\fBPrevious Page\fR - Display the previous file window screen (if any).
+X.PP
+X.SH Function Keys
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBFunction Key 1\fR - Edit the current file with your editor.
+XThis function is also executable by pressing "ESC 1".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 2\fR - Echo the current filename onto the commandline.
+XThis function is also executable by pressing "ESC 2".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 3\fR - Display the help screen.
+XThis function is also executable by pressing "ESC 3".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 4\fR - Enter the
+X.I wish
+Xruntime configuration menu screen.
+XThis function is also executable by pressing "ESC 4".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 5\fR - Mark the current filename. The current filename advances
+Xone position to the right. [KEY_F(5)]
+XThis function is also executable by pressing "ESC 5".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 6\fR - Unmark all marked filenames.
+XThis function is also executable by pressing "ESC 6".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 7\fR - No function.
+XThis function is also executable by pressing "ESC 7".
+X.sp
+X.ti -0.4i
+X\fBFunction Key 8\fR - Close the current directory and open the the next
+Xupper directory (this has the same effect as executing "cd .." on the commandline.
+XThis function is also executable by pressing "ESC 8".
+X.sp
+X.PP
+X.SH HANDLING OF FILES WITH SPECIAL ENDINGS
+XSeveral endings of filenames are detected and handled according to
+Xbuilt-in rules, these are:
+X.in +0.4i
+X.ti -0.4i
+X.RS
+X.TP 15
+X file-ending
+X method to handle file
+X.PD 0
+X.TP
+X -----------
+X ---------------------
+X.TP
+X .tar.Z
+X | compress -dfc | tar tvf -
+X.TP
+X .tar.z
+X | gzip -cdf | tar tvf -
+X.TP
+X .tar.gz
+X | gzip -cdf | tar tvf -
+X.TP
+X .Z
+X | compress -dfc
+X.TP
+X .z
+X | gzip -cdf
+X.TP
+X .gz
+X | gzip -cdf
+X.RE
+X.PD
+X.sp
+X.PP
+X.SH MARKING FILES
+XA special purpose wildcard character is recognized on the command line and
+Xis expanded after pressing <RETURN>, it is the character "%" (percent).
+XThis character expands to all marked files in the file window and gives the user
+Xa new powerful file handling functionality.
+XSee also the 
+X.B
+XFunction Key 5
+Xand
+X.B
+XFunction Key 6
+Xfunctions.
+X.sp
+X.PP
+X.SH FILENAME COMPLETITION
+XThere is a rather primitive filename completition available on the commandline,
+Xwhich is initiated by pressing the Escape key twice.
+X.sp
+X.PP
+X.SH COMMANDLINE WILDCARD PROCESSING
+XIt is possible to specify wildcard characters in a filename on the commandline.
+XIf the command to be performed is not a
+X.B cd
+Xcommand, the wildcard matching rules of the shell used apply, if the command
+Xis a 
+X.B cd
+Xcommand (which is executed by 
+X.I wish
+Xitself), the wildcard string is interpreted according to the following rules:
+X.TP
+X.BI \e x
+XTurns off the special meaning of
+X.I x
+Xand matches it directly; this is used mostly before a question mark or
+Xasterisk, and is not valid inside square brackets.
+X.TP
+X.B ~
+XAt the beginning of a pathname is replaced with the users's HOME directory
+X.TP
+X.B ?
+XMatches any single character.
+X.TP
+X.B *
+XMatches any sequence of zero or more characters.
+X.TP
+X.BI [ x...y ]
+XMatches any single character specified by the set
+X.IR x...y ,
+Xwhere any character other than minus sign or close bracket may appear
+Xin the set.
+XA minus sign may be used to indicate a range of characters.
+XThat is,
+X.I [0\-5abc]
+Xis a shorthand for
+X.IR [012345abc] .
+XMore than one range may appear inside a character set;
+X.I [0-9a-zA-Z._]
+Xmatches almost all of the legal characters for a host name.
+X.TP
+X.BI [!x...y ]
+XThis matches any character
+X.I not
+Xin the set
+X.IR x...y ,
+Xwhich is interpreted as described above.
+X.br
+XThere is no way to specify a minus sign in a character range.
+X.sp
+X.PP
+X.SH FILE WINDOW WILDCARD PROCESSING
+XIf the users wants to display just some files in the file window, he may do
+Xso by specifying a wildcard string in the configuration menu or with the 
+Xconfiguration file variable
+X.B wildcard.
+XThe rules for constructing such a string are the same as described in the above
+Xparagraph.
+XBecause there is a speed penalty in using this option, it has to be enabled
+Xin the configuartion menu or file.
+X.sp
+XIf wildcard processing is in effect, the label
+X.B Entries
+Xin the upper right corner of the file window is replaced by the label
+X.B Matches.
+X.sp
+XFilename wildcard processing affect all types of files with the exception
+Xof directories, which are always displayed.
+X.sp
+X.PP
+X.SH THE ATTRIBUTE WINDOW
+XIf an attribute window is displayed, (see command line options
+X.B
+X+a
+Xand
+X.B
+X-a
+X), some more information for the currently highlighted file in the file
+Xwindow is displayed:
+X.br
+X\(bu the file access permissions in a format as used by the "ls" utility
+X.br
+X\(bu the file size in bytes
+X.br
+X\(bu the name of the owner of the file
+X.br
+X\(bu the name of the group of the file
+X.br
+X\(bu the file access time
+X.PP
+X.SH CONFIGURATION FILE
+XOn startup, 
+X.I wish
+Xsearches a startup configuration file named ".wishrc" in the
+Xusers HOME directory, and, if found, configures itself using the information
+Xin this file.
+X.br
+XOne can configure 
+X.I wish
+Xby setting three types of Variables:
+X.br
+X.sp
+X.SS Boolean Variables
+X.sp
+XBoolean Variables can be set/reset by using the stings "on" or "off"
+Xafter the variable name and an equal sign.
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBattributes\fR - Enable/disable attribute line display
+X.sp
+X.ti -0.4i
+X\fBpreserve\fR - Enable/disable preserve directory
+X.sp
+X.ti -0.4i
+X\fBfkeys\fR - Enable/disable virtual function key label display
+X.sp
+X.ti -0.4i
+X\fBlinks\fR - Enable/disable link detection and display
+X.sp
+X.ti -0.4i
+X\fBpoint\fR - Enable/disable display of the current directory in the file 
+Xwindow as "." (dot).
+X.sp
+X.ti -0.4i
+X\fBreturn\fR - Enable/disable wait for pressing <RETURN> after a external
+Xcommand is executed.
+X.sp
+X.ti -0.4i
+X\fBwildenable\fR - Enable/disable wildcard filename processing.
+X.sp
+X.ti -0.4i
+X\fBcdrom\fR - Enable/disable CDROM semicolon in filename processing.
+X.sp
+X.ti -0.4i
+X\fBcdnoprog\fR - Enable/disable CDROM removal of execute permissions.
+X.sp
+X.ti -0.4i
+X\fBdotnames\fR - Enable/disable the display of filenames starting with a dot.
+X.br
+X.sp
+X.SS String Variables
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBpager\fR - the partial or full filename of the program to be used as 
+Xthe pager program.
+X.sp
+X.ti -0.4i
+X\fBeditor\fR - the partial or full filename of the program to be used as 
+Xthe editor program.
+X.sp
+X.ti -0.4i
+X\fBwildcard\fR - specify a wildcard expression to be used for selecting
+Xfilenames to be displayed in the file window.
+X.br
+X.sp
+X.SS Character Variables
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBdelimiter\fR - the delimiter character to be used to delimit the command
+Xand the the attribute window from the file window.
+X.sp
+X.SH STARTUP AND CONFIGURATION-FILE PROCESSING
+XWhen 
+X.I wish
+Xis started, it runtime configures itself in the following
+Xorder:
+X.br
+X.IP 1.
+Xit sets up defaults taken from the environment
+X.IP 2.
+Xit (re-) configures itself by reading the 
+X.B .wishrc 
+Xconfiguration file from the users HOME directory
+X.IP 3.
+Xthe command line options (if any) are processed and used for (re-)configuration
+X.sp
+X.SH RUNTIME CONFIGURATION
+XWhile running
+X.I wish
+Xthe user is able to change several configuration variables on the fly by
+Xusing the configuration menu which is entered by pressing
+X.B Function Key 4.
+X.sp
+XYou can leave the configuration menu by pressing 
+X.B CONTROL-D.
+X.sp
+XPressing
+X.B SPACE
+Xtoggles a the value of a boolean variable.
+X.sp
+XA wildcard string can be entered by moving the curser onto the 
+X.B Wildcard
+Xfield and pressing <RETURN>, the only editing key available is <BACKSPACE>.
+XLeave the field by pressing <RETURN> again - remember to enable the processing
+Xof wildcards by setting the boolean variable
+X.B WildEnabl
+Xto YES.
+X.sp
+XThe variables in the lower half of the screen are just displayed but cannot
+Xbe changed here. Use the 
+X.B .wishrc
+Xconfiguration file options to change these and restart
+X.I wish.
+X.sp
+X.PP
+X.SH ENVIRONMENT
+X.I Wish
+Xdepends on some of the following environment variables:
+X.sp
+X.ta 0.4i
+X.in +0.4i
+X.ti -0.4i
+X\fBHOME\fR - mandatory, the users HOME directory
+X.sp
+X.ti -0.4i
+X\fBPAGER\fR - optional, the pager program used to display text files, this
+Xdefaults to using "more".
+X.sp
+X.ti -0.4i
+X\fBEDITOR\fR - optional, the ditor used for editing files, if this variable
+Xdoes not exist, the environment variable \fBVISUAL\fR is used, if it also
+Xdoes not exist, this defaults to "vi".
+X.sp
+X.ti -0.4i
+X\fBTERM\fR - mandatory, the users termcap/terminfo entry
+X.sp
+X.PP
+X.SH SEE ALSO
+Xsh(1), system(3)
+X.SH COPYRIGHT
+X.I Wish
+Xis
+X.br
+XCopyright (c) 1988-1993 by Hellmuth Michaelis
+X.br
+XEggerstedtstr. 28
+X.br
+X22765 Hamburg
+X.br
+XGermany
+X.br
+XTel: +49 40 384298 (private)
+X.br
+XTel: +49 40 55903-170 (at work)
+X.br
+Xe-mail: hm@hcshh.hcs.de
+X.sp
+XAll rights are reserved except as explicitly granted
+Xby written permission of the author.
+X.sp
+X.I
+XWish
+Xis free software; you can redistribute it and/or modify it under the
+Xterms of the GNU General Public License as published by
+Xthe Free Software Foundation; either version 2 of the License, or
+X(at your option) any later version.
+X.sp
+XSee the file COPYING, distributed with 
+X.I wish
+X, for restriction
+Xand warranty information
+X.sp
+XThe 
+X.B wildmat(3)
+Xlibrary function used by
+X.I wish
+Xto perform all types of wildcard matching was written by Rich $alz 
+X<rsalz@bbn.com> in 1986, and posted to Usenet. The version used here
+Xwas taken from volume 17 of comp.sources.misc.
+X.SH RETURN VALUES
+XThe return value is 0 if 
+X.I wish
+Xwas exited normally by the user, any other
+Xreturn value signals that a fatal error has occured.
+X.SH FILES
+X$HOME/.wishrc
+X.SH DIAGNOSTICS
+X.I Wish
+Xuses the first line (which under no error conditions contains a copyright
+Xmessage, version, terminal name and time) to tell the user in case of error
+Xwhat type of error has occured. This error message is overwritten with the
+Xnormal header when the next key is pressed.
+X.SH HISTORY
+X.I Wish
+Xwas modeled after a utility called "PAM" (Personal Application Manager)
+Xwhich was distributed as part of the Hewlett-Packards HP-UX (tm)
+XOperating System.
+X.sp
+XIn contrast to PAM, which runs only on HP's own terminals,
+X.I wish
+Xis curses based
+Xand should run on all sorts of terminals, although it was tested just with
+XHP-terminals (HP2392A,HP700/9x) and DEC-terminals (VT100/VT220) and terminal
+Xemulators which come with X Windows (xterm, hpterm).
+X.sp
+X.I Wish
+Xbegan as a termcap based program on a Microware OS-9/68k\*(Tm machine,
+Xmoved over to the HP-UX environment to replace PAM (still termcap based) and
+Xwas then rewritten to use curses.
+X.sp
+XIt is known to compile on OS-9 (using Reimer Mellin's curses library), on
+XHP-UX 7.0, 8.0 and 9.0 using either HP's ANSI-C compiler or GCC from the FSF,
+Xon SUN Sparc's running SunOS 4.1 with the System V curses library, and on 
+X386BSD and NetBSD using a SYSV - compatible curses library originally written
+Xby Pavel Curtis and enhanced and modified by Zeyd Ben-Halim.
+END_OF_FILE
+  if test 22850 -ne `wc -c <'wish.1'`; then
+    echo shar: \"'wish.1'\" unpacked with wrong size!
+  fi
+  # end of 'wish.1'
+fi
+echo shar: End of archive 1 \(of 4\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1711 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v38i071:  lout - Lout document formatting system, v2.05, Part03/35
+Message-ID: <1993Aug8.180555.11183@sparky.sterling.com>
+X-Md4-Signature: 477a4f00e488769a4673a318728b2e69
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 8 Aug 1993 18:05:55 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 38, Issue 71
+Archive-name: lout/part03
+Environment: UNIX
+Supersedes: lout: Volume 37, Issue 99-128
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  externs.B font/README z05.c
+# Wrapped by kent@sparky on Sun Aug  8 12:29:21 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 35)."'
+if test -f 'externs.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'externs.B'\"
+else
+  echo shar: Extracting \"'externs.B'\" \(49929 characters\)
+  sed "s/^X//" >'externs.B' <<'END_OF_FILE'
+X#define	DO_ADJUST	6		/* placed in ACATs when adjust need  */
+X
+X/* sides of a mark */
+X#define	BACK		88		/* means lies to left of mark        */
+X#define	ON		89		/* means lies on mark                */
+X#define	FWD		90		/* means lies to right of mark       */
+X
+X/* statuses of thread objects */
+X#define	NOTSIZED	 0		/* this thread object is not sized   */
+X#define	SIZED		 1		/* thread is sized but not printed   */
+X#define	FINALSIZE	 2		/* thread object size is now final   */
+X
+X/* constraint statuses */
+X#define	PROMOTE		91		/* this component may be promoted    */
+X#define	CLOSE		92		/* must close dest before promoting  */
+X#define	BLOCK		93		/* cannot promote this component     */
+X#define	CLEAR		94		/* this constraint is now satisfied  */
+X
+X/* gap increment types */
+X#define	GAP_ABS		95		/* absolute,  e.g.  3p               */
+X#define	GAP_INC		96		/* increment, e.g. +3p               */
+X#define	GAP_DEC		97		/* decrement, e.g. -3p               */
+X
+X/* file types */
+X#define	SOURCE_FILE	 0		/* input file from command line      */
+X#define	INCLUDE_FILE	 1		/* @Include file                     */
+X#define	INCGRAPHIC_FILE	 2		/* @IncludeGraphic file              */
+X#define	DATABASE_FILE	 3		/* database file                     */
+X#define	INDEX_FILE	 4		/* database index file               */
+X#define	FONT_FILE	 5		/* font file                         */
+X#define	PREPEND_FILE	 6		/* PostScript prologue file          */
+X#define	HYPH_FILE	 7		/* hyphenation file                  */
+X#define	HYPH_PACKED_FILE 8		/* packed hyphenation file           */
+X#define	ENCODING_FILE	 9		/* encoding vector file              */
+X
+X/* path types (i.e. sequences of directories for file searching) */
+X#define	SOURCE_PATH	 0		/* path to search for source files   */
+X#define	INCLUDE_PATH	 1		/* path for @Include files           */
+X#define	SYSINCLUDE_PATH	 2		/* path for @SysInclude files        */
+X#define	DATABASE_PATH	 3		/* path for @Database files          */
+X#define	SYSDATABASE_PATH 4		/* path for @SysDatabase files       */
+X#define	FONT_PATH	 5		/* path for font metrics (AFM) files */
+X#define	ENCODING_PATH	 6		/* path for encoding (CEV) files     */
+X
+X/* units of measurement */
+X#define	NO_UNIT		 0		/* no unit - for error detection     */
+X#define	FIXED_UNIT	 1		/* inches, cm, points, ems           */
+X#define	FRAME_UNIT	 2		/* f unit (frame widths)             */
+X#define	AVAIL_UNIT	 3		/* r unit (available spaces)         */
+X#define	DEG_UNIT	 4		/* d unit (degrees)                  */
+X#define	NEXT_UNIT	 5		/* b unit (inners)                   */
+X 
+X/* units of distance as multiples of the basic unit */
+X#define	CM	       567		/* 1 centimetre                      */
+X#define	IN	      1440		/* 1 inch                            */
+X#define	EM	       120		/* 1 em (= 1/12 inch)                */
+X#define	PT		20		/* 1 point (= 1/72 inch)             */
+X#define	FR	      4096		/* virtual unit for frame units      */
+X#define	DG	       128		/* virtual unit for degrees          */
+X#define	SF	       128		/* virtual unit for @Scale factors   */
+X
+X/* precedences */
+X#define	NO_PREC		 0		/* lower than any precedence         */
+X#define	BEGIN_PREC	 1		/* precedence of @Begin              */
+X#define	END_PREC	 2		/* precedence of @End                */
+X#define	LBR_PREC	 3		/* precedence of {                   */
+X#define	RBR_PREC	 4		/* precedence of }                   */
+X#define	VCAT_PREC	 5		/* precedence of /                   */
+X#define	HCAT_PREC	 6		/* precedence of |                   */
+X#define	ACAT_PREC	 7		/* precedence of & and white space   */
+X#define	MIN_PREC        10		/* minimum precedence of user ops    */
+X#define	MAX_PREC       100		/* maximim precedence of user ops    */
+X#define	DEFAULT_PREC   100		/* default precedence of user ops    */
+X#define CROSSOP_PREC   101		/* precedence of cross op &&         */
+X#define GAP_PREC       102		/* precedence of gap op after cat op */
+X#define JUXTA_PREC     103		/* precedence of juxtaposition &     */
+X#define	FORCE_PREC     104		/* higher than any precedence        */
+X
+X/* error types */
+X#define	INTERN	0			/* internal error (i.e. bug)         */
+X#define	FATAL	1			/* fatal error, abort now            */
+X#define	WARN	2			/* warning, non-fatal                */
+X
+X
+X/*@::Keywords@****************************************************************/
+X/*                                                                           */
+X/*  Keywords.                                                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define	KW_START		AsciiToFull("\\Start")
+X#define	KW_PRINT		AsciiToFull("\\Print")
+X#define	KW_DEF			AsciiToFull("def")
+X#define	KW_FONTDEF		AsciiToFull("fontdef")
+X#define	KW_FORCE		AsciiToFull("force")
+X#define	KW_INTO			AsciiToFull("into")
+X#define	KW_IMPORT		AsciiToFull("import")
+X#define	KW_EXPORT		AsciiToFull("export")
+X#define	KW_PRECEDENCE		AsciiToFull("precedence")
+X#define	KW_ASSOC		AsciiToFull("associativity")
+X#define	KW_LEFT			AsciiToFull("left")
+X#define	KW_RIGHT		AsciiToFull("right")
+X#define	KW_BODY			AsciiToFull("body")
+X#define	KW_MACRO		AsciiToFull("macro")
+X#define	KW_NAMED		AsciiToFull("named")
+X#define	KW_NEXT			AsciiToFull("@Next")
+X#define	KW_WIDE			AsciiToFull("@Wide")
+X#define	KW_HIGH			AsciiToFull("@High")
+X#define	KW_ONE_COL		AsciiToFull("@OneCol")
+X#define	KW_ONE_ROW		AsciiToFull("@OneRow")
+X#define	KW_HSCALE		AsciiToFull("@HScale")
+X#define	KW_VSCALE		AsciiToFull("@VScale")
+X#define	KW_SCALE		AsciiToFull("@Scale")
+X#define	KW_HCONTRACT		AsciiToFull("@HContract")
+X#define	KW_VCONTRACT		AsciiToFull("@VContract")
+X#define	KW_HEXPAND		AsciiToFull("@HExpand")
+X#define	KW_VEXPAND		AsciiToFull("@VExpand")
+X#define	KW_PADJUST		AsciiToFull("@PAdjust")
+X#define	KW_HADJUST		AsciiToFull("@HAdjust")
+X#define	KW_VADJUST		AsciiToFull("@VAdjust")
+X#define	KW_ROTATE		AsciiToFull("@Rotate")
+X#define	KW_INCGRAPHIC		AsciiToFull("@IncludeGraphic")
+X#define	KW_SINCGRAPHIC		AsciiToFull("@SysIncludeGraphic")
+X#define	KW_GRAPHIC		AsciiToFull("@Graphic")
+X#define	KW_CASE			AsciiToFull("@Case")
+X#define	KW_YIELD		AsciiToFull("@Yield")
+X#define	KW_XCHAR		AsciiToFull("@Char")
+X#define	KW_FONT			AsciiToFull("@Font")
+X#define	KW_SPACE		AsciiToFull("@Space")
+X#define	KW_BREAK		AsciiToFull("@Break")
+X#define	KW_ENV			AsciiToFull("@LEnv")
+X#define	KW_CLOS			AsciiToFull("@LClos")
+X#define	KW_LVIS			AsciiToFull("@LVis")
+X#define	KW_OPEN			AsciiToFull("@Open")
+X#define	KW_USE			AsciiToFull("@Use")
+X#define	KW_TAGGED		AsciiToFull("@Tagged")
+X#define	KW_DATABASE		AsciiToFull("@Database")
+X#define	KW_SYSDATABASE		AsciiToFull("@SysDatabase")
+X#define	KW_INCLUDE		AsciiToFull("@Include")
+X#define	KW_SYSINCLUDE		AsciiToFull("@SysInclude")
+X#define	KW_PREPEND		AsciiToFull("@PrependGraphic")
+X#define	KW_SYSPREPEND		AsciiToFull("@SysPrependGraphic")
+X#define	KW_TARGET		AsciiToFull("@Target")
+X#define	KW_FOLLOWING		AsciiToFull("following")
+X#define	KW_PRECEDING		AsciiToFull("preceding")
+X#define	KW_NOW			AsciiToFull("now")
+X#define	KW_NULL			AsciiToFull("@Null")
+X#define	KW_GALLEY		AsciiToFull("@Galley")
+X#define	KW_INPUT		AsciiToFull("@LInput")
+X#define	KW_SPLIT		AsciiToFull("@Split")
+X#define	KW_TAG			AsciiToFull("@Tag")
+X#define	KW_KEY			AsciiToFull("@Key")
+X#define	KW_CROSS		AsciiToFull("&&")
+X#define	KW_LBR			AsciiToFull("{")
+X#define	KW_RBR			AsciiToFull("}")
+X#define	KW_BEGIN		AsciiToFull("@Begin")
+X#define	KW_END			AsciiToFull("@End")
+X#define	KW_VCAT_NN		AsciiToFull("//")
+X#define	KW_VCAT_MN		AsciiToFull("^//")
+X#define	KW_VCAT_NJ		AsciiToFull("/")
+X#define	KW_VCAT_MJ		AsciiToFull("^/")
+X#define	KW_HCAT_NN		AsciiToFull("||")
+X#define	KW_HCAT_MN		AsciiToFull("^||")
+X#define	KW_HCAT_NJ		AsciiToFull("|")
+X#define	KW_HCAT_MJ		AsciiToFull("^|")
+X#define	KW_ACAT_NJ		AsciiToFull("&")
+X#define	KW_ACAT_MJ		AsciiToFull("^&")
+X#define	KW_MOMENT		AsciiToFull("@Moment")
+X#define	KW_SECOND		AsciiToFull("@Second")
+X#define	KW_MINUTE		AsciiToFull("@Minute")
+X#define	KW_HOUR			AsciiToFull("@Hour")
+X#define	KW_DAY			AsciiToFull("@Day")
+X#define	KW_MONTH		AsciiToFull("@Month")
+X#define	KW_YEAR			AsciiToFull("@Year")
+X#define	KW_CENTURY		AsciiToFull("@Century")
+X#define	KW_WEEKDAY		AsciiToFull("@WeekDay")
+X#define	KW_YEARDAY		AsciiToFull("@YearDay")
+X#define	KW_DAYLIGHTSAVING	AsciiToFull("@DaylightSaving")
+X
+X
+X/*@::GetMem(), New(), NewWord(), PutMem(), Dispose()@*************************/
+X/*                                                                           */
+X/*  OBJECT GetMem(siz, pos)                                                  */
+X/*  OBJECT New(typ)                                                          */
+X/*  OBJECT NewWord(typ, len, pos)                                            */
+X/*         PutMem(x, siz)                                                    */
+X/*         Dispose(x)                                                        */
+X/*                                                                           */
+X/*  Return a pointer to a new record, of appropriate length (in ALIGNs).     */
+X/*  The New and NewWord versions initialise LIST, type and rec_size fields.  */
+X/*  Note that NewWord must be used for WORD and QWORD objects.               */
+X/*  Dispose x, which is of size siz.  Dispose works out the size itself.     */
+X/*                                                                           */
+X/*****************************************************************************/
+X#define	USES_SIZE ceiling( sizeof(struct uses_type), sizeof(ALIGN) )
+X
+X#if DEBUG_ON
+X#define newcount zz_newcount++,
+X#else
+X#define newcount
+X#endif
+X
+X#define	GetMem(siz, pos)						\
+X( newcount (zz_size=(siz))>=MAX_OBJECT_REC ?				\
+X      (OBJECT) Error(FATAL, pos, "word is too long")			\
+X  : zz_free[zz_size] == nil ? zz_hold = GetMemory(zz_size, pos)		\
+X  : (zz_hold = zz_free[zz_size],					\
+X	zz_free[zz_size] = pred(zz_hold, CHILD), zz_hold)		\
+X)
+X
+X#if DEBUG_ON
+X#define checknew(typ)							\
+X  !is_type(typ) ? Error(INTERN, no_fpos,"New: type = %s", Image(typ)) :	\
+X  zz_lengths[typ] == 0 ? Error(INTERN, no_fpos, "New: 0 length!") : 0,
+X#else
+X#define checknew(typ)
+X#endif
+X
+X#define	New(typ)							\
+X( checknew(typ) GetMem(zz_lengths[typ], no_fpos), type(zz_hold) = typ,	\
+X  pred(zz_hold, CHILD)  = succ(zz_hold, CHILD)  =			\
+X  pred(zz_hold, PARENT) = succ(zz_hold, PARENT) = zz_hold		\
+X)
+X
+X#define NewWord(typ, len, pos)						\
+X( zz_size = sizeof(struct word_type) - 4 + ((len)+1)*sizeof(FULL_CHAR),	\
+X  GetMem(ceiling(zz_size, sizeof(ALIGN)), pos),  /* RESETS zz_size */	\
+X  rec_size(zz_hold) = zz_size,  type(zz_hold) = typ,			\
+X  pred(zz_hold, CHILD)  = succ(zz_hold, CHILD)  =			\
+X  pred(zz_hold, PARENT) = succ(zz_hold, PARENT) = zz_hold		\
+X)
+X
+X#if DEBUG_ON
+X#define disposecount zz_disposecount++,
+X#define	setdisposed  , type(zz_hold) = DISPOSED
+X#else
+X#define disposecount
+X#define	setdisposed
+X#endif
+X
+X#define PutMem(x, siz)							\
+X( disposecount zz_hold = (x), zz_size = (siz),				\
+X  pred(zz_hold, CHILD) = zz_free[zz_size], zz_free[zz_size] = zz_hold )
+X
+X#define Dispose(x)							\
+X( zz_hold = (x),							\
+X  assert( pred(zz_hold, CHILD)  == zz_hold, "Dispose: pred(CHILD)!"  ),	\
+X  assert( succ(zz_hold, CHILD)  == zz_hold, "Dispose: succ(CHILD)!"  ),	\
+X  assert( pred(zz_hold, PARENT) == zz_hold, "Dispose: pred(PARENT)!" ),	\
+X  assert( succ(zz_hold, PARENT) == zz_hold, "Dispose: succ(PARENT)!" ),	\
+X  PutMem(zz_hold, is_word(type(zz_hold)) ? rec_size(zz_hold)		\
+X			  : zz_lengths[type(zz_hold)]) setdisposed  )
+X
+X/*@::Append(), Delete(), DeleteAndDispose()@**********************************/
+X/*                                                                           */
+X/*  OBJECT Append(x, y, dir)                                                 */
+X/*                                                                           */
+X/*  Return the append of lists x and y (dir is PARENT or CHILD).             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define	Append(x, y, dir)						\
+X( zz_res = (x),	zz_hold = (y),						\
+X  zz_hold == nil ? zz_res  :						\
+X  zz_res  == nil ? zz_hold :						\
+X  ( zz_tmp = pred(zz_hold, dir),					\
+X    pred(zz_hold, dir) = pred(zz_res, dir),				\
+X    succ(pred(zz_res, dir), dir) = zz_hold,				\
+X    pred(zz_res, dir) = zz_tmp,						\
+X    succ(zz_tmp, dir) = zz_res						\
+X  )									\
+X)
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT Delete(x, dir)                                                    */
+X/*                                                                           */
+X/*  Delete x from its dir list, and return succ(x, dir) or nil if none.      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define Delete(x, dir)							\
+X( zz_hold = (x),							\
+X  succ(zz_hold, dir) == zz_hold ? nil :					\
+X  ( zz_res = succ(zz_hold, dir),					\
+X    pred(zz_res, dir) = pred(zz_hold, dir),				\
+X    succ(pred(zz_hold, dir), dir) = zz_res,				\
+X    pred(zz_hold, dir) = succ(zz_hold, dir) = zz_hold,			\
+X    zz_res								\
+X  )									\
+X)
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT DeleteAndDispose(x, dir)                                          */
+X/*                                                                           */
+X/*  Delete x as above, dispose it, and return succ(x, dir) or nil if none.   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define DeleteAndDispose(x, dir)					\
+X( zz_hold = (x),							\
+X  zz_res  = succ(zz_hold, dir) == zz_hold ? nil :			\
+X	    ( pred(succ(zz_hold, dir), dir) = pred(zz_hold, dir),	\
+X	      succ(pred(zz_hold, dir), dir) = succ(zz_hold, dir) ),	\
+X  pred(zz_hold, dir) = succ(zz_hold, dir) = zz_hold,			\
+X  Dispose(zz_hold),							\
+X  zz_res								\
+X)
+X
+X#define Down(x)		succ(x, CHILD)
+X#define NextDown(x)	succ(x, CHILD)
+X#define LastDown(x)	pred(x, CHILD)
+X#define PrevDown(x)	pred(x, CHILD)
+X#define	Up(x)		succ(x, PARENT)
+X#define	NextUp(x)	succ(x, PARENT)
+X#define	LastUp(x)	pred(x, PARENT)
+X#define	PrevUp(x)	pred(x, PARENT)
+X
+X#define	Child(y, link)							\
+Xfor( y = pred(link, PARENT);  type(y) == LINK;  y = pred(y, PARENT) )
+X
+X#define	Parent(y, link)							\
+Xfor( y = pred(link, CHILD);   type(y) == LINK;  y = pred(y, CHILD) )
+X
+X
+X/*@::UpDim(), DownDim(), Link(), DeleteLink(), etc.@**************************/
+X/*                                                                           */
+X/*  UpDim(x, dim)                                                            */
+X/*  DownDim(x, dim)                                                          */
+X/*                                                                           */
+X/*  Returns the dim child or parent link of node x (dim == COL or ROW).      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define UpDim(x, dim)	( (dim) == COL ? succ(x, PARENT) : pred(x, PARENT) )
+X#define DownDim(x, dim)	( (dim) == COL ? succ(x, CHILD) : pred(x, CHILD) )
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT Link(x, y)                                                        */
+X/*                                                                           */
+X/*  Make y a child of x in the directed graph, using a new link.             */
+X/*  The link node is returned.                                               */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define Link(x, y)							\
+X( xx_link = New(LINK),							\
+X  Append(xx_link, (x), CHILD),						\
+X  Append(xx_link, (y), PARENT)						\
+X)
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  OBJECT DeleteLink(link)                                                  */
+X/*                                                                           */
+X/*  Cut the link between nodes x and y of the directed graph.                */
+X/*  Returns the link node of the next child of x, or x if none.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define DeleteLink(link)						\
+X( xx_link = (link),							\
+X  Delete(xx_link, PARENT),						\
+X  DeleteAndDispose(xx_link, CHILD)					\
+X)
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DisposeChild(link)                                                       */
+X/*                                                                           */
+X/*  Delete link, and if its child is thereby unattached, dispose it.         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define DisposeChild(link)						\
+X( xx_link = (link),							\
+X  xx_tmp = Delete(xx_link, PARENT),					\
+X  DeleteAndDispose(xx_link, CHILD),					\
+X  succ(xx_tmp, PARENT) == xx_tmp ? DisposeObject(xx_tmp) : 0		\
+X) /* end DisposeChild */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  MoveLink(link, x, dir)                                                   */
+X/*                                                                           */
+X/*  Move the dir end of link from wherever it is now to node x.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define MoveLink(link, x, dir)						\
+X( xx_link = (link),							\
+X  Delete(xx_link, 1 - (dir) ),						\
+X  Append(xx_link, (x), 1 - (dir) )					\
+X) /* end MoveLink */
+X
+X
+X/*@::TransferLinks(), DeleteNode(), etc.@*************************************/
+X/*                                                                           */
+X/*  TransferLinks(start_link, stop_link, dest_link)                          */
+X/*                                                                           */
+X/*  Move parent end of links start_link (inclusive) to stop_link (exclusive) */
+X/*  to just before dest_link.                                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define TransferLinks(start_link, stop_link, dest_link)			\
+X{ OBJECT xxstart = start_link, xxstop = stop_link, xxdest = dest_link;	\
+X  if( xxstart != xxstop )						\
+X  {	assert( type(xxstart) == LINK, "TransferLinks: start_link!" );	\
+X	Append(xxstart, xxstop, CHILD); /* actually a split */		\
+X	Append(xxstart, xxdest, CHILD);					\
+X  }									\
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  DeleteNode(x)                                                            */
+X/*                                                                           */
+X/*  Delete node x and every edge attaching to x.                             */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define DeleteNode(x)							\
+X{ xx_hold = (x);							\
+X  while( Up(xx_hold)   != xx_hold ) DeleteLink( Up(xx_hold) );		\
+X  while( Down(xx_hold) != xx_hold ) DeleteLink( Down(xx_hold) );	\
+X  Dispose(xx_hold);							\
+X}
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  MergeNode(x, y)                                                          */
+X/*                                                                           */
+X/*  Take all the children of y and make them children of x.                  */
+X/*  Take all the parents of y and make them parents of x.  Dispose y.        */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define MergeNode(x, y)							\
+X{ xx_res = (x); xx_hold = (y);						\
+X  xx_tmp = Delete(xx_hold, PARENT);					\
+X  Append(xx_res, xx_tmp, PARENT);					\
+X  xx_tmp = DeleteAndDispose(xx_hold, CHILD);				\
+X  Append(xx_res, xx_tmp, CHILD);					\
+X}  /* end MergeNode */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ReplaceNode(x, y)                                                        */
+X/*                                                                           */
+X/*  Move all the parent links of y to x.                                     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define ReplaceNode(x, y)						\
+X( xx_tmp = Delete((y), PARENT),						\
+X  Append((x), xx_tmp, PARENT)						\
+X) /* end ReplaceNode */
+X
+X
+X/*@::FirstDefinite(), NextDefinite(), etc.@***********************************/
+X/*                                                                           */
+X/*  FirstDefinite(x, link, y)                                                */
+X/*                                                                           */
+X/*  On input, x is an object and link and y are undefined.  On output there  */
+X/*  are two cases:                                                           */
+X/*                                                                           */
+X/*  link != x.  Then y is first definite child of x and link is its link.    */
+X/*                                                                           */
+X/*  link == x.  Then x has no definite child and y is undefined.             */
+X/*                                                                           */
+X/*  A SPLIT object is considered to be definite if both its children are     */
+X/*  definite.  This condition is returned by SplitIsDefinite.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define FirstDefinite(x, link, y)					\
+X{ for( link = Down(x);  link != x;  link = NextDown(link) )		\
+X  { Child(y, link);							\
+X    if( type(y) == SPLIT ? SplitIsDefinite(y) : is_definite(type(y)) )	\
+X	break;								\
+X  }									\
+X} /* end FirstDefinite */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  NextDefinite(x, link, y)                                                 */
+X/*                                                                           */
+X/*  On input, x is an object and link is a link to one of its children; y    */
+X/*  is undefined.  On output there are two cases:                            */
+X/*                                                                           */
+X/*  link != x.  Then y is the first definite child of x following link, and  */
+X/*              link is changed to be the link of y.                         */
+X/*                                                                           */
+X/*  link == x.  Then x has no definite child following link, and y remains   */
+X/*              undefined.                                                   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define NextDefinite(x, link, y)					\
+X{ for( link = NextDown(link);  link != x;  link = NextDown(link) )	\
+X  { Child(y, link);							\
+X    if( type(y) == SPLIT ? SplitIsDefinite(y) : is_definite(type(y)) )	\
+X	break;								\
+X  }									\
+X} /* end NextDefinite */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  NextDefiniteWithGap(x, link, y, g)                                       */
+X/*                                                                           */
+X/*  On input, x is an object and link is a link to one of its children; y    */
+X/*  and g are undefined.  On output there are two cases:                     */
+X/*                                                                           */
+X/*  link != x.  Then y is the first definite child of x following link, and  */
+X/*              link is changed to be the link of y.  Also, g is defined     */
+X/*              to be the gap just before y; this must exist and is tested   */
+X/*              by an assert test.                                           */
+X/*                                                                           */
+X/*  link == x.  Then x has no definite child following link, and y and g     */
+X/*              remain undefined.                                            */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define NextDefiniteWithGap(x, link, y, g)				\
+X{ g = nil;								\
+X  for( link = NextDown(link);  link != x;  link = NextDown(link) )	\
+X  { Child(y, link);							\
+X    if( type(y) == GAP_OBJ )  g = y;					\
+X    else if( type(y)==SPLIT ? SplitIsDefinite(y):is_definite(type(y)) )	\
+X    { assert( g != nil, "NextDefinite: g == nil!" );			\
+X      break;								\
+X    }									\
+X  }									\
+X} /* end NextDefiniteWithGap */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  LastDefinite(x, link, y)                                                 */
+X/*                                                                           */
+X/*  On input, x is an object and link and y are undefined.  On output there  */
+X/*  are two cases:                                                           */
+X/*                                                                           */
+X/*  link != x.  Then y is the last definite child of x and link is its link. */
+X/*                                                                           */
+X/*  link == x.  Then x has no definite child and y is undefined.             */
+X/*                                                                           */
+X/*  A SPLIT object is considered to be definite if both its children are     */
+X/*  definite.  This condition is returned by SplitIsDefinite.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define LastDefinite(x, link, y)					\
+X{ for( link = LastDown(x);  link != x;  link = PrevDown(link) )		\
+X  { Child(y, link);							\
+X    if( type(y) == SPLIT ? SplitIsDefinite(y) : is_definite(type(y)) )	\
+X	break;								\
+X  }									\
+X} /* end LastDefinite */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  PrevDefinite(x, link, y)                                                 */
+X/*                                                                           */
+X/*  On input, x is an object and link is a link to one of its children; y    */
+X/*  is undefined.  On output there are two cases:                            */
+X/*                                                                           */
+X/*  link != x.  Then y is the first definite child of x preceding link, and  */
+X/*              link is changed to be the link of y.                         */
+X/*                                                                           */
+X/*  link == x.  Then x has no definite child preceding link, and y remains   */
+X/*              undefined.                                                   */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define PrevDefinite(x, link, y)					\
+X{ for( link = PrevDown(link);  link != x;  link = PrevDown(link) )	\
+X  { Child(y, link);							\
+X    if( type(y) == SPLIT ? SplitIsDefinite(y) : is_definite(type(y)) )	\
+X	break;								\
+X  }									\
+X} /* end PrevDefinite */
+X
+X
+X/*@::Module Declarations@*****************************************************/
+X/*                                                                           */
+X/*  MODULE DECLARATIONS                                                      */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X/*****  z01.c		Supervise		******************************/
+Xextern			main();			/* main program              */
+Xextern	OBJECT		StartSym;		/* sym tab entry for \Start  */
+Xextern	OBJECT		GalleySym;		/* sym tab entry for @Galley */
+Xextern	OBJECT		InputSym;		/* sym tab entry for \Input  */
+Xextern	OBJECT		PrintSym;		/* sym tab entry for \Print  */
+Xextern	BOOLEAN		AllowCrossDb;		/* true when -s flag absent  */
+Xextern	BOOLEAN		Encapsulated;		/* true when eps wanted      */
+X
+X/*****  z02.c		Lexical Analyser	******************************/
+Xextern			LexInit();		/* initialise lex. analyser  */
+Xextern			LexPush();		/* switch to new file list   */
+Xextern			LexPop();		/* return to prev. file list */
+Xextern	BOOLEAN		LexLegalName();		/* check identifier format   */
+Xextern	OBJECT		LexGetToken();		/* get next token from input */
+Xextern	long		LexNextTokenPos();	/* like ftell() on curr file */
+X
+X/*****  z03.c		File Service	        ******************************/
+Xextern	FILE_POS	*no_fpos;		/* a null filepos            */
+Xextern			InitFiles();		/* initialize this module    */
+Xextern			AddToPath();		/* add directory to path     */
+Xextern	FILE_NUM	DefineFile();		/* declare input file        */
+Xextern	FILE_NUM	FirstFile();		/* first file of given type  */
+Xextern	FILE_NUM	NextFile();		/* next file of given type   */
+Xextern	FILE_NUM	FileNum();		/* file with given name      */
+Xextern	FULL_CHAR	*FileName();		/* file name of file         */
+Xextern	FULL_CHAR	*EchoFilePos();		/* string value of FILE_POS  */
+Xextern	FILE_POS	*PosOfFile();		/* string of file FILE_POS   */
+Xextern	FILE		*OpenFile();		/* open file for reading     */
+Xextern	FILE		*OpenIncGraphicFile();	/* open @IncludeGraphic file */
+Xextern	OBJECT		ReadFromFile();		/* read object from file     */
+Xextern			AppendToFile();		/* append object to file     */
+Xextern			CloseFiles();		/* close database files      */
+X
+X/*****  z04.c		Token Service	        ******************************/
+Xextern	OBJECT		NewToken();		/* get a new token           */
+Xextern	OBJECT		CopyTokenList();	/* copy a list of tokens     */
+Xextern	FULL_CHAR	*EchoCatOp();		/* string value of CAT op    */
+Xextern	FULL_CHAR	*EchoToken();		/* returns image of token    */
+X
+X/*****  z05.c		Read Definitions  	******************************/
+Xextern			ReadPrependDef();	/* read @Prepend ...         */
+Xextern			ReadDatabaseDef();	/* read @Database ...        */
+Xextern			ReadDefinitions();	/* read definitions          */
+X
+X/*****  z06.c		Object Parser	        ******************************/
+Xextern			InitParser();		/* initialise parser         */
+Xextern	OBJECT		Parse();		/* parser                    */
+X
+X/*****  z07.c		Object Service	        ******************************/
+Xextern	OBJECT		MakeWord();		/* a new WORD or QWORD       */
+Xextern	OBJECT		MakeWordTwo();		/* a new WORD from 2 strings */
+Xextern	OBJECT		CopyObject();		/* make a copy of an object  */
+Xextern			DisposeObject();	/* dispose an object         */
+Xextern	BOOLEAN		SplitIsDefinite();	/* TRUE if SPLIT is definite */
+X
+X/*****  z08.c		Object Manifest	        ******************************/
+Xextern	OBJECT		ReplaceWithTidy();	/* tidy up an object         */
+Xextern	OBJECT		Manifest();		/* manifest an object        */
+X
+X/*****  z09.c		Closure Expansion	******************************/
+Xextern	OBJECT		SetEnv();		/* build up environment      */
+Xextern			AttachEnv();		/* attach env. to object     */
+Xextern	OBJECT		SearchEnv();		/* search environment        */
+Xextern	OBJECT		GetEnv();		/* retrieve env. from object */
+Xextern	OBJECT		DetachEnv();		/* retrieve and detach env.  */
+Xextern	OBJECT		ClosureExpand();	/* expand a user-def CLOSURE */
+X
+X/*****  z10.c		Cross References	******************************/
+Xextern			CrossInit();		/* initialize cr record      */
+Xextern			CrossAddTag();		/* add auto tag to closure   */
+Xextern	OBJECT		CrossMake();		/* returns a cross-reference */
+Xextern	OBJECT		GallTargEval();		/* returns the value of a cr */
+Xextern	OBJECT		CrossExpand();		/* returns the value of a cr */
+Xextern			CrossSequence();	/* record cr off root galley */
+Xextern			CrossClose();		/* close down this module    */
+X
+X/*****  z11.c		Style Service		******************************/
+Xextern			BreakChange();		/* change line spacing       */
+Xextern			SpaceChange();		/* change word spacing       */
+Xextern	FULL_CHAR	*EchoStyle();		/* string value of a style   */
+X
+X/*****  z12.c		Size Finder		******************************/
+Xextern	OBJECT		MinSize();		/* min. possible size of obj */
+X
+X/*****  z13.c		Object Breaking		******************************/
+Xextern	OBJECT		BreakObject();		/* break object to fit width */
+X
+X/*****  z14.c		Object Filling	        ******************************/
+Xextern	OBJECT		FillObject();		/* optimal paragraph breaker */
+Xextern	OBJECT		SimpleFillObject();	/* simple paragraph breaker  */
+X
+X/*****  z15.c		Size Constraints	******************************/
+Xextern	FULL_CHAR	*EchoConstraint();	/* string value of a constr. */
+Xextern			MinConstraint();	/* take minimum of two const */
+Xextern			EnlargeToConstraint();	/* enlarge obj to constraint */
+Xextern			RotateConstraint();	/* rotate constraints        */
+Xextern			InvScaleConstraint();	/* inverse scale a constr.   */
+Xextern			Constrained();		/* finds size constraint     */
+Xextern			DebugConstrained();	/* debug constraint code     */
+X
+X/*****  z16.c		Size Adjustments	******************************/
+Xextern			SetNeighbours();	/* locate definite neighbours*/
+Xextern			AdjustSize();		/* updates sizes if changed  */
+X
+X/*****  z17.c		Gap Widths		******************************/
+Xextern			GetGap();		/* convert string gap to num */
+Xextern	LENGTH		MinGap();		/* min. possible gap width   */
+Xextern	LENGTH		ExtraGap();		/* extra available gap width */
+Xextern	LENGTH		ActualGap();		/* gap width for output      */
+Xextern	FULL_CHAR	*EchoGap();		/* echo gap (cat. operator)  */
+X
+X/*****  z18.c		Galley Transfer		******************************/
+Xextern			TransferInit();		/* initialise this module    */
+Xextern	OBJECT		TransferBegin();	/* begin transfer of galley  */
+Xextern			TransferComponent();	/* transfer one component    */
+Xextern			TransferEnd();		/* end galley transfer       */
+Xextern			TransferClose();	/* close this module         */
+X
+X/*****  z19.c		Galley Attaching	******************************/
+Xextern	OBJECT		SearchGalley();		/* search galley for target  */
+Xextern			AttachGalley();		/* start off a galley        */
+Xextern			DetachGalley();		/* detach a galley           */
+X
+X/*****  z20.c		Galley Flushing		******************************/
+Xextern			FlushGalley();		/* flush out a galley        */
+X
+X/***    z21.c		Galley Maker		******************************/
+Xextern			SizeGalley();		/* convert object to galley  */
+X
+X/***    z22.c		Galley Service		******************************/
+Xextern			FlushInners();		/* flush a list of galleys.  */
+Xextern			ExpandRecursives();	/* expand recursive definite */
+Xextern			Promote();		/* promote components        */
+Xextern			KillGalley();		/* destroy a galley          */
+Xextern			FreeGalley();		/* free a galley to flush    */
+Xextern			Interpose();		/* interpose a VCAT          */
+Xextern	BOOLEAN		TargetSymbol();		/* find target of galley     */
+Xextern	int		CheckConstraint();	/* check ordering constraint */
+X
+X/*****  z23.c		Galley Printer		******************************/
+Xextern			FixAndPrintObject();	/* fix and print component   */
+X
+X/*****  z24.c		Print Service           ******************************/
+Xextern			PrintInit();		/* initialise this module    */
+Xextern			PrintPrologue();	/* print output prologue     */
+Xextern			PrintOriginIncrement();	/* reset current o/p origin  */
+Xextern			PrintWord();		/* print word at given pos   */
+Xextern			PrintClose();		/* wrapup output stream      */
+Xextern			CoordTranslate();	/* translate coord system    */
+Xextern			CoordRotate();		/* rotate coord system       */
+Xextern			CoordScale();		/* scale coord system        */
+Xextern			SaveGraphicState();	/* save coord system etc.    */
+Xextern			RestoreGraphicState();	/* restore coord system etc. */
+Xextern			DefineGraphicNames();	/* define xsize, ysize, etc. */
+Xextern			PrintGraphicObject();	/* print PostScript object   */
+Xextern			PrintGraphicInclude();	/* include PostScript file   */
+X
+X/*****  z25.c		Object Echo	        ******************************/
+Xextern	FULL_CHAR	*EchoObject();		/* return object as string   */
+Xextern			DebugObject();		/* print object on stderr    */
+X
+X/*****  z26.c		Echo Service	        ******************************/
+Xextern			BeginString();		/* begin string accumulator  */
+Xextern			AppendString();		/* append to current string  */
+Xextern	FULL_CHAR	*EndString();		/* return current string     */
+Xextern	FULL_CHAR	*EchoLength();		/* echo a length             */
+Xextern	FULL_CHAR	*Image();		/* string value of type(x)   */
+X
+X/*****	z27.c		Debug Service		******************************/
+Xextern			DebugInit();		/* set debug flag            */
+Xextern			Debug();		/* print debug o/p on stderr */
+Xextern			ProfileOn();		/* start profiling           */
+Xextern			ProfileOff();		/* stop profiling            */
+Xextern			ProfilePrint();		/* print profiling results   */
+X
+X/*****	z28.c		Error Service		******************************/
+Xextern			ErrorInit();		/* initialise log file       */
+Xextern			Error();		/* print error message       */
+Xextern	BOOLEAN		ErrorSeen();		/* TRUE after first error    */
+Xextern			EnterErrorBlock();	/* new error message block   */
+Xextern			LeaveErrorBlock();	/* commit or discard block   */
+X
+X/*****  z29.c		Symbol Table		******************************/
+Xextern			InitSym();		/* initialize table to empty */
+Xextern			PushScope();		/* push a new scope on stack */
+Xextern			PopScope();		/* pop a scope from stack    */
+Xextern			SuppressVisible();	/* suppress visible flag     */
+Xextern			UnSuppressVisible();	/* unsuppress visible flag   */
+Xextern			SuppressScope();	/* suppress all scoping      */
+Xextern			UnSuppressScope();	/* unsuppress scoping        */
+Xextern			SwitchScope();		/* switch to a saved scope   */
+Xextern			UnSwitchScope();	/* switch back from saved s. */
+Xextern			BodyParAllowed();	/* body par is invokable     */
+Xextern			BodyParNotAllowed();	/* body par is not invokable */
+Xextern	OBJECT		SearchSym();		/* search table for symbol   */
+Xextern	OBJECT		InsertSym();		/* insert a new symbol       */
+Xextern			DeleteEverySym();	/* dispose all symbols       */
+Xextern	FULL_CHAR	*SymName();		/* string name of a symbol   */
+Xextern	FULL_CHAR	*FullSymName();		/* full path name of symbol  */
+Xextern	OBJECT		ChildSym();		/* return a child of a sym   */
+Xextern			CheckSymSpread();	/* check hash table spread   */
+X
+X/*****  z30.c		Symbol Uses		******************************/
+Xextern			InsertUses();		/* record symbol x uses y    */
+Xextern			FlattenUses();		/* massage uses relation     */
+Xextern	BOOLEAN		SearchUses();		/* retrieve uses info        */
+Xextern	OBJECT		FirstExternTarget();	/* together these return all */
+Xextern	OBJECT		NextExternTarget();	/*   targets of extern galls */
+X
+X/*****  z31.c		Memory Allocator	******************************/
+Xextern			MemInit();		/* initialise mem. allocator */
+Xextern	OBJECT		GetMemory();		/* get some fresh memory     */
+Xextern			DebugMemory();		/* print memory usage        */
+Xextern	OBJECT		zz_free[];		/* array of free lists       */
+Xextern	unsigned char	zz_lengths[];		/* array of record lengths   */
+Xextern	int		zz_newcount;		/* debug count of News       */
+Xextern	int		zz_disposecount;	/* debug count of Disposes   */
+Xextern	OBJECT		zz_hold;		/* temporary variable only   */
+Xextern	OBJECT		zz_tmp;			/* temporary variable only   */
+Xextern	OBJECT		zz_res;			/* temporary variable only   */
+Xextern	int		zz_size;		/* temporary variable only   */
+Xextern	OBJECT		xx_link, xx_tmp;	/* temporary variable only   */
+Xextern	OBJECT		xx_hold, xx_res;	/* temporary variable only   */
+X
+X/*****  z32.c		Counter Service		******************************/
+Xextern	OBJECT		Next();			/* increment argument by one */
+X
+X/*****  z33.c		Database Service	******************************/
+Xextern	OBJECT		OldCrossDb;		/* cross refs from last run  */
+Xextern	OBJECT		NewCrossDb;		/* cross refs from this run  */
+Xextern	OBJECT		DbCreate();		/* create writable database  */
+Xextern			DbInsert();		/* insert into database      */
+Xextern			DbConvert();		/* con. writable to readable */
+Xextern	OBJECT		DbLoad();		/* open readable database    */
+Xextern	BOOLEAN		DbRetrieve();		/* retrieve from database    */
+Xextern	BOOLEAN		DbRetrieveNext();	/* next entry from database  */
+Xextern			DbClose();		/* close a readable database */
+X
+X/*****  z34.c		Rotation Service    	******************************/
+Xextern			RotateSize();		/* calculate rotated size    */
+X
+X/*****  z35.c		Time Keeper     	******************************/
+Xextern	OBJECT		MomentSym;		/* the @Moment symbol        */
+Xextern			InitTime();		/* initialize this module    */
+Xextern	OBJECT		StartMoment();		/* a copy of the init time   */
+Xextern	FULL_CHAR	*TimeString();		/* a string containing time  */
+X
+X/*****  z36.c		Hyphenation     	******************************/
+Xextern	OBJECT		Hyphenate();		/* hyphenate a paragraph     */
+X
+X/*****  z37.c		Font Service             *****************************/
+Xextern			FontInit();		/* intialize this module     */
+Xextern			FontDefine();		/* define a font             */
+Xextern			FontChange();		/* change current font       */
+Xextern			FontWordSize();		/* set sizes of a word       */
+Xextern	LENGTH		FontSize();		/* size of a font            */
+Xextern	LENGTH		FontHalfXHeight();	/* xheight/2 of a font       */
+Xextern	ENCODING	FontEncoding();		/* encoding vector of a font */
+Xextern	FULL_CHAR	*FontName();		/* output name of a font     */
+Xextern	FULL_CHAR	*FontFamilyAndFace();	/* Lout name of a font       */
+Xextern	BOOLEAN		FontNeeded();		/* writes out font needs     */
+X
+X/*****  z38.c		Encoding Vectors	******************************/
+Xextern	ENCODING	EvLoad();		/* load one encoding vector  */
+Xextern	FULL_CHAR	EvRetrieve();		/* convert char name to code */
+Xextern	FULL_CHAR	*EvName();		/* name of encoding vector   */
+Xextern			EvPrintAll();		/* print encoding vectors    */
+X
+X/*****  z39.c		String Handler          ******************************/
+X#define			AsciiToFull(x)		( (FULL_CHAR *) (x) )
+X#define			StringEqual(a, b) (strcmp((char *)(a), (char *)(b))==0)
+X#define			StringLessEqual(a, b) (strcmp((char*)(a),(char*)(b))<=0)
+X#define			StringCat(a, b)		strcat((char *)(a),(char *)(b))
+X#define			StringCopy(a, b)	strcpy((char *)(a),(char *)(b))
+X#define			StringLength(a)		strlen((char *)(a))
+X#define			StringFOpen(a, b)	fopen( (char *) (a), (b) )
+X#define			StringFPuts(a, b)	fputs( (char *) (a), (b) )
+X#define			StringFGets(a, b, c)	fgets( (char *) (a), (b), (c) )
+X#define			StringUnlink(a)		unlink((char *)(a))
+X#define			StringLink(a, b)	link((char *)(a),(char *)(b))
+Xextern	BOOLEAN		StringBeginsWith();	/* string compare            */
+Xextern	BOOLEAN		StringContains();	/* string search             */
+Xextern	FULL_CHAR	*StringInt();		/* returns integer as string */
+Xextern	FULL_CHAR	*StringFiveInt();	/* returns integer as string */
+Xextern	FULL_CHAR	*StringQuotedWord();	/* returns string in Lout    */
+X
+X/*@::assert(), debug(), debug flags@******************************************/
+X/*                                                                           */
+X/*  ASSERT AND DEBUG CODE                                                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#if ASSERT_ON
+X#define assert(c, m)							\
+X   ( (c) ? 0 : Error(INTERN, no_fpos, "Assert failed in %s", m) )
+X#else
+X#define assert(c, m)	0
+X#endif
+X
+X#if DEBUG_ON
+X
+Xstruct dbs
+X{	char	*flag;			/* external names for debug flags    */
+X	BOOLEAN	on[3];			/* the debug flags                   */
+X};
+Xextern	struct dbs 	dbg[];
+X
+X/* debug routines */
+X#define debug0(cat, urg, str)                				\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str); else
+X#define debug1(cat, urg, str, p1)					\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1); else
+X#define debug2(cat, urg, str, p1, p2)					\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2); else
+X#define debug3(cat, urg, str, p1, p2, p3)				\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2, p3); else
+X#define debug4(cat, urg, str, p1, p2, p3, p4)				\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2, p3, p4); else
+X#define debug5(cat, urg, str, p1, p2, p3, p4, p5)			\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2, p3, p4, p5); else
+X#define debug6(cat, urg, str, p1, p2, p3, p4, p5, p6)			\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2, p3, p4, p5, p6); else
+X#define debug7(cat, urg, str, p1, p2, p3, p4, p5, p6, p7)		\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2, p3, p4, p5,p6,p7); else
+X#define debug8(cat, urg, str, p1, p2, p3, p4, p5, p6, p7, p8)		\
+X    if( dbg[cat].on[urg] ) Debug(cat, urg, str, p1, p2,p3,p4,p5,p6,p7,p8); else
+X#define	ifdebug(cat, urg, x)						\
+X    if( dbg[cat].on[urg] ) { x; } else 
+X#define	debug_init(str)							\
+X    DebugInit(str)
+X
+X/* debug styles */
+X#define	D	 0
+X#define	DD	 1
+X#define	DDD	 2
+X
+X/* debug flags */
+X#define	DSP	 1		/*  z01.c   -dsp   Supervise                 */
+X#define	DLA	 2		/*  z02.c   -dla   Lexical Analyser          */
+X#define	DFS	 3		/*  z03.c   -dfs   File Service              */
+X#define	DTS	 4		/*  z04.c   -dts   Token Service             */
+X#define	DRD	 5		/*  z05.c   -drd   Read Definitions          */
+X#define	DOP	 6		/*  z06.c   -dop   Object Parser             */
+X#define	DOS	 7		/*  z07.c   -dos   Object Service            */
+X#define	DOM	 8		/*  z08.c   -dom   Object Manifest           */
+X#define	DCE	 9		/*  z09.c   -dce   Closure Expansion         */
+X#define	DCR	10		/*  z10.c   -dcr   Cross References	     */
+X#define	DSS	11		/*  z11.c   -dss   Style Service	     */
+X#define	DSF	12		/*  z12.c   -dsf   Size Finder               */
+X#define	DOB	13		/*  z13.c   -dob   Object Breaking	     */
+X#define	DOF	14		/*  z14.c   -dof   Object Filling	     */
+X#define	DSC	15		/*  z15.c   -dsc   Size Constraints          */
+X#define	DSA	16		/*  z16.c   -dsa   Size Adjustments	     */
+X#define	DGW	17		/*  z17.c   -dgw   Gap Widths                */
+X#define	DGT	18		/*  z18.c   -dgt   Galley Transfer           */
+X#define	DGA	19		/*  z19.c   -dgf   Galley Attaching          */
+X#define	DGF	20		/*  z20.c   -dgf   Galley Flushing           */
+X#define	DGM	21		/*  z21.c   -dgm   Galley Maker              */
+X#define	DGS	22		/*  z22.c   -dgs   Galley Service            */
+X#define	DGP	23		/*  z23.c   -dgp   Galley Printer            */
+X#define	DPS	24		/*  z24.c   -dps   Print Service             */
+X#define	DOE	25		/*  z25.c   -doe   Object Echo               */
+X#define	DES	26		/*  z26.c   -des   Echo Service		     */
+X#define	DZZ	27		/*  z27.c   -dzz   Debug Service             */
+X#define	DYY	28		/*  z28.c   -dyy   Error Service             */
+X#define	DST	29		/*  z29.c   -dst   Symbol Table              */
+X#define	DSU	30		/*  z30.c   -dsu   Symbol Uses               */
+X#define	DMA	31		/*  z31.c   -dma   Memory Allocator          */
+X#define	DCS	32		/*  z32.c   -dcs   Counter Service           */
+X#define	DBS	33		/*  z33.c   -dbs   Database Service          */
+X#define	DRS	34		/*  z34.c   -drs   Rotation Service          */
+X#define	DTK	35		/*  z35.c   -dtk   Time Keeper               */
+X#define	DHY	36		/*  z36.c   -dhy   Hyphenation               */
+X#define	DFT	37		/*  z37.c   -dft   Font Service              */
+X#define	DEV	38		/*  z38.c   -dev   Encoding Vectors          */
+X#define	DSH	39		/*  z39.c   -dsh   String Handler            */
+X#define	DPP	40		/*          -dpp   Profiling                 */
+X#define	ANY	41		/*          -d     any                       */
+X
+X#else
+X#define ifdebug(cat, urg, x)
+X#define debug0(cat, urg, str)
+X#define debug1(cat, urg, str, p1)
+X#define debug2(cat, urg, str, p1, p2)
+X#define debug3(cat, urg, str, p1, p2, p3)
+X#define debug4(cat, urg, str, p1, p2, p3, p4)
+X#define debug5(cat, urg, str, p1, p2, p3, p4, p5)
+X#define debug6(cat, urg, str, p1, p2, p3, p4, p5, p6)
+X#define debug7(cat, urg, str, p1, p2, p3, p4, p5, p6, p7)
+X#define debug8(cat, urg, str, p1, p2, p3, p4, p5, p6, p7, p8)
+X#define	debug_init(str)	Error(FATAL, no_fpos,			\
+X			"%s - debug flags not implemented", str)
+X#endif
+END_OF_FILE
+  if test 49929 -ne `wc -c <'externs.B'`; then
+    echo shar: \"'externs.B'\" unpacked with wrong size!
+  elif test -f 'externs.A' ; then
+    echo shar: Combining  \"'externs'\" \(96127 characters\)
+    cat 'externs.A' 'externs.B' > 'externs'
+    if test 96127 -ne `wc -c <'externs'`; then
+      echo shar: \"'externs'\" combined with wrong size!
+    else
+      rm externs.A externs.B
+    fi
+  fi
+  # end of 'externs.B'
+fi
+if test -f 'font/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'font/README'\"
+else
+  echo shar: Extracting \"'font/README'\" \(419 characters\)
+  sed "s/^X//" >'font/README' <<'END_OF_FILE'
+XDirectory lout/font0 - font metrics for ASCII
+X
+XThis directory contains Adobe Systems font metrics
+X(.AFM) files for the ASCII character set, exactly as
+Xdistributed by Adobe Systems except that erroneous
+Xligature information has been removed from Couri*.AFM
+X(Courier font).  These files are the source of Lout's
+Xinformation about the height and width of all characters.
+X
+XJeffrey H. Kingston
+X30 July 1991
+X22 December 1992
+END_OF_FILE
+  if test 419 -ne `wc -c <'font/README'`; then
+    echo shar: \"'font/README'\" unpacked with wrong size!
+  fi
+  # end of 'font/README'
+fi
+if test -f 'z05.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'z05.c'\"
+else
+  echo shar: Extracting \"'z05.c'\" \(20549 characters\)
+  sed "s/^X//" >'z05.c' <<'END_OF_FILE'
+X/*@z05.c:Read Definitions:ReadFontDef()@**************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.05)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z05.c                                                      */
+X/*  MODULE:       Read Definitions                                           */
+X/*  EXTERNS:      ReadPrependDef(), ReadDatabaseDef(), ReadDefinitions()     */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  is_string(t, str)                                                        */
+X/*                                                                           */
+X/*  If t is a token denoting unquoted word str, return TRUE.                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define is_string(t, str)    (type(t) == WORD && StringEqual(string(t), str) )
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  static ReadFontDef(encl)                                                 */
+X/*                                                                           */
+X/*  Read one font definition and pass it on to the font module.  The         */
+X/*  syntax is  fontdef <family> <face> { <object> }.                         */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic ReadFontDef(encl)
+XOBJECT encl;
+X{ OBJECT t, family, face, inside;
+X  
+X  SuppressScope();
+X  family = LexGetToken();
+X  if( !is_word(type(family)) )
+X    Error(WARN, &fpos(family), "expected font family name here");
+X  face = LexGetToken();
+X  if( !is_word(type(face)) )
+X    Error(WARN, &fpos(face), "expected font face name here");
+X  UnSuppressScope();
+X  t = LexGetToken();
+X  if( type(t) != LBR )
+X  { Error(WARN, &fpos(t), "expected opening %s of fontdef here", KW_LBR);
+X    Dispose(t);
+X    return;
+X  }
+X  inside = Parse(&t, encl, FALSE, FALSE);
+X  inside = ReplaceWithTidy(inside);
+X  FontDefine(family, face, inside);
+X  return;
+X} /* end ReadFontDef */
+X
+X
+X/*@::ReadPrependDef(), ReadDatabaseDef()@*************************************/
+X/*                                                                           */
+X/*  ReadPrependDef(typ, encl)                                                */
+X/*                                                                           */
+X/*  Read @Prepend { <filename> } and record its presence.                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XReadPrependDef(typ, encl)
+Xunsigned typ;  OBJECT encl;
+X{ OBJECT t, fname;  FILE_NUM fnum;
+X  t = LexGetToken();
+X  if( type(t) != LBR )
+X  { Error(WARN, &fpos(t), "symbol name or %s expected here in %s declaration",
+X      KW_LBR, KW_PREPEND);
+X    Dispose(t);
+X    return;
+X  }
+X  fname = Parse(&t, encl, FALSE, FALSE);
+X  fname = ReplaceWithTidy(fname);
+X  if( !is_word(type(fname)) )
+X  { Error(WARN, &fpos(fname), "name of %s file expected here", KW_PREPEND);
+X    DisposeObject(fname);
+X    return;
+X  }
+X  fnum = DefineFile(string(fname), STR_EMPTY, &fpos(fname), PREPEND_FILE,
+X	   typ == PREPEND ? INCLUDE_PATH : SYSINCLUDE_PATH);
+X
+X} /* end ReadPrependDef */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ReadDatabaseDef(typ, encl)                                               */
+X/*                                                                           */
+X/*  Read @Database <symname> ... <symname> { <filename> } and record it.     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XReadDatabaseDef(typ, encl)
+Xunsigned typ;  OBJECT encl;
+X{ OBJECT symbs, t, db, fname;
+X  symbs = New(ACAT);
+X  t = LexGetToken();
+X  while( type(t) == CLOSURE )
+X  { Link(symbs, t);
+X    t = LexGetToken();
+X  }
+X  if( type(t) != LBR )
+X  { Error(WARN, &fpos(t), "symbol name or %s expected here in %s declaration",
+X      KW_LBR, KW_DATABASE);
+X    Dispose(t);
+X    return;
+X  }
+X  if( Down(symbs) == symbs )
+X  { Error(WARN, &fpos(t), "symbol names missing in %s declaration",
+X      KW_DATABASE);
+X    Dispose(t);
+X    return;
+X  }
+X  fname = Parse(&t, encl, FALSE, FALSE);
+X  fname = ReplaceWithTidy(fname);
+X  if( !is_word(type(fname)) )
+X  { Error(WARN, &fpos(fname), "name of %s file expected here", KW_DATABASE);
+X    DisposeObject(fname);
+X    return;
+X  }
+X  db = DbLoad(fname, typ == DATABASE ? DATABASE_PATH : SYSDATABASE_PATH,
+X	 TRUE, symbs);
+X} /* end ReadDatabaseDef */
+X
+X
+X/*@::ReadTokenList()@*********************************************************/
+X/*                                                                           */
+X/*  static ReadTokenList(res)                                                */
+X/*                                                                           */
+X/*  Read a list of tokens from input and append them to sym_body(res).       */
+X/*  The list is assumed to begin immediately after an LBR, and input is      */
+X/*  to be read up to and including the matching RBR.                         */
+X/*                                                                           */
+X/*****************************************************************************/
+X#define NextToken(t, res)						\
+X  t = LexGetToken(); sym_body(res) = Append(sym_body(res), t, PARENT);
+X
+Xstatic ReadTokenList(res)
+XOBJECT res;
+X{ OBJECT t, xsym, new_par;
+X  NextToken(t, res);
+X  for(;;) switch(type(t))
+X  {
+X    case WORD:
+X
+X      if( string(t)[0] == CH_SYMSTART )
+X	Error(WARN, &fpos(t), "symbol %s unknown", string(t));
+X      NextToken(t, res);
+X      break;
+X
+X
+X    case QWORD:
+X
+X      NextToken(t, res);
+X      break;
+X
+X
+X    case VCAT:
+X    case HCAT:
+X    case ACAT:
+X    case CROSS:
+X    case NULL_CLOS:
+X    case ONE_COL:
+X    case ONE_ROW:
+X    case WIDE:
+X    case HIGH:
+X    case HSCALE:
+X    case VSCALE:
+X    case SCALE:
+X    case HCONTRACT:
+X    case VCONTRACT:
+X    case HEXPAND:
+X    case VEXPAND:
+X    case PADJUST:
+X    case HADJUST:
+X    case VADJUST:
+X    case ROTATE:
+X    case CASE:
+X    case YIELD:
+X    case XCHAR:
+X    case FONT:
+X    case SPACE:
+X    case BREAK:
+X    case NEXT:
+X    case TAGGED:
+X    case INCGRAPHIC:
+X    case SINCGRAPHIC:
+X    case GRAPHIC:
+X
+X      NextToken(t, res);
+X      break;
+X
+X
+X    case LVIS:
+X    case ENV:
+X    case USE:
+X    case BEGIN:
+X    case END:
+X    case DATABASE:
+X    case SYS_DATABASE:
+X    case PREPEND:
+X    case SYS_PREPEND:
+X    case OPEN:
+X
+X      Error(WARN, &fpos(t), "symbol %s not allowed in macro",
+X	SymName(actual(t)));
+X      NextToken(t, res);
+X      break;
+X
+X
+X    case LBR:
+X
+X      ReadTokenList(res);
+X      NextToken(t, res);
+X      break;
+X
+X
+X    case RBR:
+X
+X      return;
+X
+X
+X    case CLOSURE:
+X
+X      xsym = actual(t);
+X      PushScope(xsym, TRUE, FALSE);
+X      NextToken(t, res);
+X      PopScope();
+X      if( type(t) == CROSS )
+X      { NextToken(t, res);
+X	break;
+X      }
+X
+X      /* read named parameters */
+X      while( type(t) == CLOSURE && enclosing(actual(t)) == xsym &&
+X	     type(actual(t)) == NPAR )
+X      {	new_par = t;
+X	NextToken(t, res);
+X	if( type(t) != LBR )
+X	{ Error(WARN, &fpos(new_par), "%s must follow name parameter %s",
+X	    KW_LBR, SymName(actual(new_par)));
+X	  break;
+X	}
+X	PushScope(actual(new_par), FALSE, FALSE);
+X	ReadTokenList(res);
+X	PopScope();
+X
+X	/* get next token, possibly another named parameter */
+X	PushScope(xsym, TRUE, FALSE);
+X	NextToken(t, res);
+X	PopScope();
+X      }
+X
+X      /* read body parameter, if any */
+X      if( has_body(xsym) )
+X      {	if( type(t) == LBR )
+X	{ PushScope(xsym, FALSE, TRUE);
+X	  PushScope(ChildSym(xsym, RPAR), FALSE, FALSE);
+X	  ReadTokenList(res);
+X	  PopScope();
+X	  PopScope();
+X	  NextToken(t, res);
+X	}
+X	else Error(WARN, &fpos(t), "right parameter of %s must begin with %s",
+X		SymName(xsym), KW_LBR);
+X      }
+X      break;
+X
+X    default:
+X
+X
+X      Error(INTERN, &fpos(t), "unknown token type %s", Image(type(t)));
+X      break;
+X
+X  }
+X} /* end ReadTokenList */
+X
+X
+X/*@::ReadMacro()@*************************************************************/
+X/*                                                                           */
+X/*  static OBJECT ReadMacro(token, encl)                                     */
+X/*                                                                           */
+X/*  Read a macro from input and insert into symbol table.                    */
+X/*  Token *token contains the "macro" keyword.  Input is read up to and      */
+X/*  including the closing right brace, and nil is returned in *token if OK.  */
+X/*  The proper scope for reading the macro body is open at entry and exit.   */
+X/*  ReadMacro returns the new symbol table entry if successful, else nil.    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic OBJECT ReadMacro(token, encl)
+XOBJECT *token, encl;
+X{ OBJECT t, res;
+X
+X  /* find macro name and insert into symbol table */
+X  SuppressScope();
+X  Dispose(*token);  t = LexGetToken();
+X  if( !is_word(type(t)) )
+X  { Error(WARN, &fpos(t), "%s ignored - name is missing", KW_MACRO);
+X    debug1(ANY, D, "offending type is %s", Image(type(t)));
+X    UnSuppressScope();
+X    *token = t;
+X    return nil;
+X  }
+X  res = InsertSym(string(t), MACRO, &fpos(t), 0, FALSE, TRUE, 0, encl, nil);
+X
+X  /* find opening left brace */
+X  t = LexGetToken();
+X  if( !is_string(t, KW_LBR) )
+X  { Error(WARN, &fpos(t), "%s ignored - opening %s missing", KW_MACRO, KW_LBR);
+X    UnSuppressScope();
+X    *token = t;
+X    return nil;
+X  }
+X  Dispose(t);
+X  
+X  /* read macro body */
+X  UnSuppressScope();
+X  ReadTokenList(res);
+X
+X  /* clean up (kill final RBR, dispose macro name) and exit */
+X  sym_body(res) = DeleteAndDispose(pred(sym_body(res), PARENT), PARENT);
+X  recursive(res) = FALSE;
+X  *token = nil;
+X  return res;
+X} /* end ReadMacro */
+X
+X
+X/*@::ReadDefinitions()@*******************************************************/
+X/*                                                                           */
+X/*  ReadDefinitions(token, encl, res_type)                                   */
+X/*                                                                           */
+X/*  Read a sequence of definitions and insert them into the symbol table.    */
+X/*  Either a sequence of local definitions (res_type == LOCAL) or named      */
+X/*  parameters (res_type == NPAR) is expected; *token is the first def etc.  */
+X/*  A scope appropriate for reading the bodies of the definitions is open.   */
+X/*  The parent definition is encl.                                           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XReadDefinitions(token, encl, res_type)
+XOBJECT *token, encl;  unsigned char res_type;
+X{ OBJECT t, res, res_target, export_list, import_list, link, y, z;
+X  t = *token;
+X
+X  while( res_type != LOCAL ? is_string(t, KW_NAMED) : TRUE )
+X  {
+X    if( is_string(t, KW_FONTDEF) )
+X    { ReadFontDef(encl);
+X      t = LexGetToken();
+X      continue;  /* next definition */
+X    }
+X    else if( type(t) == PREPEND || type(t) == SYS_PREPEND )
+X    { ReadPrependDef(type(t), encl);
+X      Dispose(t);
+X      t = LexGetToken();
+X      continue;  /* next definition */
+X    }
+X    else if( type(t) == DATABASE || type(t) == SYS_DATABASE )
+X    { ReadDatabaseDef(type(t), encl);
+X      Dispose(t);
+X      t = LexGetToken();
+X      continue;  /* next definition */
+X    }
+X
+X    if( !is_string(t, KW_DEF)   && !is_string(t, KW_MACRO)  &&
+X	!is_string(t, KW_NAMED) && !is_string(t, KW_IMPORT) &&
+X        !is_string(t, KW_EXPORT) )
+X      break;
+X
+X    /* get import list and change scope appropriately */
+X    BodyParNotAllowed();
+X    import_list = New(ACAT);
+X    if( is_string(t, KW_IMPORT) )
+X    { Dispose(t);
+X      t = LexGetToken();
+X      while( type(t) == CLOSURE ||
+X	       (type(t)==WORD && !is_string(t,KW_EXPORT) && !is_string(t,KW_DEF)
+X	       && !is_string(t, KW_MACRO)) )
+X      {	if( type(t) == CLOSURE )
+X	{ if( type(actual(t)) == LOCAL )
+X	  { PushScope(actual(t), FALSE, TRUE);
+X	    Link(import_list, t);
+X	  }
+X	  else
+X	  { Error(WARN, &fpos(t), "import name expected here");
+X	    Dispose(t);
+X	  }
+X	}
+X	else
+X	{ Error(WARN,&fpos(t),"import %s not in scope", string(t));
+X	  Dispose(t);
+X	}
+X	t = LexGetToken();
+X      }
+X    }
+X
+X    /* get export list and store for setting visible flags below */
+X    export_list = New(ACAT);
+X    if( is_string(t, KW_EXPORT) )
+X    { Dispose(t);
+X      SuppressScope();
+X      t = LexGetToken();
+X      while( is_word(type(t)) && !is_string(t, KW_DEF) )
+X      { Link(export_list, t);
+X	t = LexGetToken();
+X      }
+X      UnSuppressScope();
+X    }
+X
+X
+X    if( res_type == LOCAL && !is_string(t, KW_DEF) && !is_string(t, KW_MACRO) )
+X    { Error(WARN,&fpos(t),"keyword %s or %s expected here", KW_DEF, KW_MACRO);
+X      break;
+X    }
+X    if( res_type == NPAR && !is_string(t, KW_NAMED) )
+X    { Error(WARN, &fpos(t), "keyword %s expected here", KW_NAMED);
+X      break;
+X    }
+X
+X    if( is_string(t, KW_MACRO) )
+X    { if( Down(export_list) != export_list )
+X	Error(WARN, &fpos(t), "ignoring %s list of %s", KW_EXPORT, KW_MACRO);
+X      res = ReadMacro(&t, encl);
+X    }
+X    else
+X    {
+X      SuppressScope();  Dispose(t);  t = LexGetToken();
+X
+X      /* find name of symbol and insert it */
+X      if( !is_word(type(t)) )
+X      { Error(WARN, &fpos(t), "cannot find symbol name");
+X	debug1(ANY, D, "offending type is %s", Image(type(t)));
+X	UnSuppressScope();
+X	*token = t;
+X	return;
+X      }
+X      res = InsertSym(string(t), res_type, &fpos(t), DEFAULT_PREC,
+X		FALSE, FALSE, 0, encl, nil);
+X      t = LexGetToken();
+X
+X      /* find force, if any */
+X      if( is_string(t, KW_FORCE) )
+X      {	force_target(res) = TRUE;
+X	Dispose(t);  t = LexGetToken();
+X	if( !is_string(t, KW_INTO) )
+X	   Error(WARN, &fpos(t), "%s expected after %s", KW_INTO, KW_FORCE);
+X      }
+X	
+X      /* find into clause, if any */
+X      res_target = nil;
+X      if( is_string(t, KW_INTO) )
+X      { UnSuppressScope();
+X	Dispose(t);  t = LexGetToken();
+X	if( type(t) != LBR )
+X	{ Error(WARN, &fpos(t), "%s expected after %s", KW_LBR, KW_INTO);
+X	  debug1(ANY, D, "offending type is %s", Image(type(t)));
+X	  UnSuppressScope();
+X	  *token = t;
+X	  return;
+X	}
+X	res_target = Parse(&t, encl, FALSE, FALSE);
+X	SuppressScope();
+X	if( t == nil )  t = LexGetToken();
+X      }
+X
+X      /* find precedence clause, if any */
+X      if( is_string(t, KW_PRECEDENCE) )
+X      {	int prec = 0;
+X	Dispose(t);
+X	t = LexGetToken();
+X	while( type(t) == WORD && decimaldigit(string(t)[0]) )
+X	{
+X	  prec = prec * 10 + digitchartonum(string(t)[0]);
+X	  Dispose(t);  t = LexGetToken();
+X	}
+X
+X	if( prec < MIN_PREC )
+X	{ Error(WARN, &fpos(t), "%s is too low - %d substituted",
+X	    KW_PRECEDENCE, MIN_PREC);
+X	  prec = MIN_PREC;
+X	}
+X	else if( prec > MAX_PREC )
+X	{ Error(WARN, &fpos(t), "%s is too high - %d substituted",
+X	    KW_PRECEDENCE, MAX_PREC);
+X	  prec = MAX_PREC;
+X	}
+X	precedence(res) = prec;
+X      }
+X
+X      /* find associativity clause, if any */
+X      if( is_string(t, KW_ASSOC) )
+X      {	Dispose(t);  t = LexGetToken();
+X	if( is_string(t, KW_LEFT) )  right_assoc(res) = FALSE;
+X	else if( !is_string(t, KW_RIGHT) )
+X	  Error(WARN, &fpos(t), "%s replaced by %s", KW_ASSOC, KW_RIGHT);
+X	Dispose(t);  t = LexGetToken();
+X      }
+X
+X      /* find left parameter, if any */
+X      if( is_string(t, KW_LEFT) )
+X      {	Dispose(t);  t = LexGetToken();
+X	if( type(t) != WORD )
+X	{ Error(WARN, &fpos(t), "cannot find %s parameter name", KW_LEFT);
+X	  debug1(ANY, D, "offending type is %s", Image(type(t)));
+X	  UnSuppressScope();
+X	  *token = t;
+X	  return;
+X	}
+X	InsertSym(string(t), LPAR, &fpos(t), DEFAULT_PREC, 
+X	  FALSE, FALSE, 0, res, nil);
+X	Dispose(t);  t = LexGetToken();
+X      }
+X
+X      /* find named parameters, if any */
+X      UnSuppressScope();
+X      ReadDefinitions(&t, res, NPAR);
+X
+X      /* find right or body parameter, if any */
+X      if( is_string(t, KW_RIGHT) || is_string(t, KW_BODY) )
+X      {	has_body(res) = is_string(t, KW_BODY);
+X	SuppressScope();
+X	Dispose(t);  t = LexGetToken();
+X	if( type(t) != WORD )
+X	{ Error(WARN, &fpos(t), "cannot find %s parameter name", KW_RIGHT);
+X	  debug1(ANY, D, "offending type is %s", Image(type(t)));
+X	  UnSuppressScope();
+X	  *token = t;
+X	  return;
+X	}
+X	InsertSym(string(t), RPAR, &fpos(t), DEFAULT_PREC,
+X	  FALSE, FALSE, 0, res, nil);
+X	UnSuppressScope();
+X	Dispose(t);  t = LexGetToken();
+X      }
+X
+X      /* read local definitions and body */
+X      if( res_target != nil )
+X	InsertSym(KW_TARGET, LOCAL, &fpos(res_target), DEFAULT_PREC,
+X			FALSE, FALSE, 0, res, res_target);
+X      if( type(t) == WORD && StringEqual(string(t), KW_LBR) )
+X      {	z = NewToken(LBR, &fpos(t), 0, 0, LBR_PREC, StartSym);
+X	Dispose(t);
+X	t = z;
+X      }
+X      else if( type(t) == WORD && StringEqual(string(t), KW_BEGIN) )
+X      {	z = NewToken(BEGIN, &fpos(t), 0, 0, BEGIN_PREC, StartSym);
+X	Dispose(t);
+X	t = z;
+X      }
+X      else if( type(t) != LBR && type(t) != BEGIN )
+X	Error(FATAL, &fpos(t), "opening %s or %s of %s expected",
+X	 KW_LBR, KW_BEGIN, SymName(res));
+X      if( type(t) == BEGIN )  actual(t) = res;
+X      PushScope(res, FALSE, FALSE);
+X      BodyParAllowed();
+X      sym_body(res) = Parse(&t, res, TRUE, FALSE);
+X
+X      /* set visible flag of the exported symbols */
+X      for( link=Down(export_list);  link != export_list;  link=NextDown(link) )
+X      {	Child(y, link);
+X	z = SearchSym(string(y), StringLength(string(y)));
+X	if( z == nil || enclosing(z) != res )
+X	  Error(WARN, &fpos(y), "exported symbol %s not defined in %s",
+X		string(y), SymName(res));
+X	else if( has_body(res) && type(z) == RPAR )
+X	  Error(WARN, &fpos(y), "body parameter %s may not be exported",
+X		string(y));
+X	else if( visible(z) )
+X	  Error(WARN, &fpos(y), "symbol %s exported twice", string(y));
+X	else visible(z) = TRUE;
+X      }
+X      DisposeObject(export_list);
+X
+X      /* pop scope of res */
+X      PopScope();
+X    }
+X
+X    /* pop import scopes and store imports in sym tab */
+X    for( link=Down(import_list);  link != import_list;  link=NextDown(link) )
+X      PopScope();
+X    if( Down(import_list) == import_list )
+X    { Dispose(import_list);
+X      import_list = nil;
+X    }
+X    if( res != nil )  imports(res) = import_list;
+X
+X    BodyParAllowed();
+X    if( t == nil ) t = LexGetToken();
+X
+X  } /* end while */
+X
+X  *token = t;
+X  return;
+X} /* end ReadDefinitions */
+END_OF_FILE
+  if test 20549 -ne `wc -c <'z05.c'`; then
+    echo shar: \"'z05.c'\" unpacked with wrong size!
+  fi
+  # end of 'z05.c'
+fi
+echo shar: End of archive 3 \(of 35\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 35 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

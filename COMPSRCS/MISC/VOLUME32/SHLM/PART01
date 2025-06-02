@@ -1,0 +1,1733 @@
+Newsgroups: comp.sources.misc
+From: root@candle.UUCP (Bruce Momjian)
+Subject:  v32i087:  shlm - shell layer manager, console dump/restore, Part01/01
+Message-ID: <1992Sep20.234931.4255@sparky.imd.sterling.com>
+X-Md4-Signature: 6a04d7c41c128193529bdc76f253b7e8
+Date: Sun, 20 Sep 1992 23:49:31 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: root@candle.UUCP (Bruce Momjian)
+Posting-number: Volume 32, Issue 87
+Archive-name: shlm/part01
+Environment: sxt, SYSV
+
+Designed for Unix Systems, this source code produces one executable that
+does three things:
+
+	shm        - a shell layer manager, like shl(1), but better
+	condump    - outputs the contents of the console screen
+	conrestore - restores the console screen from a previous condump
+
+The shell layer manager requires sxt devices, found on many System V
+machines.  Condump/restore requires that the video memory of your
+console display adaptor be addressable from the kernel.  All programs
+must be installed set-uid root.
+
+---- cut here ----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README MANIFEST Make.con_only Makefile condump.c
+#   condump.doc config.h getkey.c halt.c patchlevel.h shm.c shm.doc
+# Wrapped by kent@sparky on Sun Sep 20 18:43:31 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1978 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+Xshm - shell layer manager, version 1.1                      Sept 13, 1992
+Xcondump/restore - dump/restore console screen contents
+X
+XINTRODUCTION  
+XShm allows a user at any terminal to create multiple shell sessions and
+Xto switch between them.  It is designed as an improved 'shl'. Read shm.doc
+Xfor more information.
+X
+XCondump/restore allows you to pipe the contents of the console screen
+Xinto a file, and print or restore it later.
+X
+XPLATFORMS
+XAny system that has sxt devices, like System V and Xenix, should be able
+Xto run this program.  It does not work under some SVr4 because of an sxt
+Xbug. If your 'shl' command allows you to create shells and do 'ls'
+Xcommands, this program should work for you too.
+X
+XINSTALLATION  
+XEdit the Makefile and config.h, type 'make', then  'make install'.  
+X
+XIf you desire to have shm without condump or restore, merely edit
+Xconfig.h to undefine USE_CONDUMP, and remove the links to condump and
+Xconrestore after installation.
+X
+XIf you desire condump and conrestore without shm, copy Make.con_only to
+XMakefile and tdo your 'make' and 'make install'.
+X
+XDEBUGGING
+XI think you can possibly have three types of problems.  Here they are,
+Xand here's how to deal with them.
+X
+X- shm hangs - 
+Xcompile with DEBUG defined and look in a file called 'shm_debug.log' in
+Xthe current directory to see the last debug line it reached.  Add more
+X'DB;' calls to the code and try again until you have found the line it
+Xis getting hung on.  Then, if you can't find the problem, e-mail me with
+Xthe source code line and I will try to figure it out.  Telling me the
+Xline number probably wouldn't help because after you add all those DB's,
+Xthe line numbering is going to change.
+X
+X- you exit shm but processes are still running on your sxt devices -
+XLet me know the circumstances of this.
+X
+X- program works on console but not on dumb terminals -
+X- multi-screens broke -
+X- compile problems -
+XLet me know about these.
+X
+XBUGS, COMMENTS
+Xsend to Bruce Momjian, root%candle.uucp@bts.com 
+X
+END_OF_FILE
+  if test 1978 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+  echo shar: Extracting \"'MANIFEST'\" \(770 characters\)
+  sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+Xtotal 90
+X-rw-r--r--   1 root     other          0 Aug 21 01:36 MANIFEST
+X-rw-r--r--   1 root     other        592 Aug 21 01:34 Make.con_only
+X-rw-r--r--   1 root     other        628 Aug 21 01:34 Makefile
+X-rw-r--r--   1 root     other       1977 Aug 21 01:24 README
+X-rw-r--r--   1 root     other       7536 Aug 10 19:25 condump.c
+X-rw-r--r--   1 root     other       2414 Aug 17 14:08 condump.doc
+X-rw-r--r--   1 root     other       3360 Aug 13 13:54 config.h
+X-rw-r--r--   2 root     other        839 Aug 15 00:23 getkey.c
+X-rw-r--r--   2 root     other       1253 Aug 10 19:04 halt.c
+X-rw-r--r--   1 root     other         23 Aug 13 13:54 patchlevel.h
+X-rw-r--r--   1 root     other      15882 Aug 16 01:24 shm.c
+X-rw-r--r--   1 root     other       5734 Aug 13 14:00 shm.doc
+END_OF_FILE
+  if test 770 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+  fi
+  # end of 'MANIFEST'
+fi
+if test -f 'Make.con_only' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Make.con_only'\"
+else
+  echo shar: Extracting \"'Make.con_only'\" \(610 characters\)
+  sed "s/^X//" >'Make.con_only' <<'END_OF_FILE'
+X#
+X# Makefile
+X#
+X#
+X
+X# add -DDEBUG for debug output to shm_debug.log
+XCFLAGS = -O
+X
+X# librarys
+XLIBS = -ltermlib
+X
+X# install dir
+XBINDIR = /usr/lbin
+X
+Xcondump   : condump.o halt.o
+X	$(CC) -o condump $(CFLAGS) condump.o halt.o $(LIBS)
+X	rm -f conrestore
+X	ln condump conrestore
+X
+Xcondump.o : condump.c
+X	$(CC) -DMAIN -c $(CFLAGS) condump.c
+X	
+Xhalt.o : halt.c
+X	$(CC) -c $(CFLAGS) halt.c
+X
+Xcondump.o halt.o : config.h
+X
+Xclean:
+X	rm -f *.o log core condump
+X
+Xinstall:
+X	strip condump
+X	cp condump $(BINDIR)
+X	chown root $(BINDIR)/condump
+X	chmod u+s $(BINDIR)/condump
+X	rm $(BINDIR)/conrestore
+X	ln $(BINDIR)/condump $(BINDIR)/conrestore
+X
+END_OF_FILE
+  if test 610 -ne `wc -c <'Make.con_only'`; then
+    echo shar: \"'Make.con_only'\" unpacked with wrong size!
+  fi
+  # end of 'Make.con_only'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(646 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile
+X#
+X#
+X
+X# add -DDEBUG for debug output to shm_debug.log
+XCFLAGS = -O
+X
+X# librarys
+XLIBS = -ltermlib
+X
+X# install dir
+XBINDIR = /usr/lbin
+X
+Xshm   : shm.o condump.o halt.o
+X	$(CC) -o shm $(CFLAGS) shm.o condump.o halt.o $(LIBS)
+X
+Xshm.o : shm.c
+X	$(CC) -c $(CFLAGS) shm.c
+X
+Xcondump.o : condump.c
+X	$(CC) -c $(CFLAGS) condump.c
+X	
+Xhalt.o : halt.c
+X	$(CC) -c $(CFLAGS) halt.c
+X
+Xshm.o condump.o halt.o : config.h
+X
+Xclean:
+X	rm -f *.o shm log core
+X
+Xinstall:
+X	strip shm
+X	cp shm $(BINDIR)
+X	chown root $(BINDIR)/shm
+X	chmod u+s $(BINDIR)/shm
+X	rm -f $(BINDIR)/condump $(BINDIR)/conrestore
+X	ln $(BINDIR)/shm $(BINDIR)/condump
+X	ln $(BINDIR)/shm $(BINDIR)/conrestore
+X
+END_OF_FILE
+  if test 646 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'condump.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'condump.c'\"
+else
+  echo shar: Extracting \"'condump.c'\" \(7541 characters\)
+  sed "s/^X//" >'condump.c' <<'END_OF_FILE'
+X/*
+X
+X	condump / conrestore
+X
+X*/
+X
+X/* tabs = 4 */
+X
+X/*------------------------------------------------------------------------
+X**
+X**	includes
+X**
+X**-----------------------------------------------------------------------*/
+X
+X#include "config.h"
+X#if defined(MAIN) || defined(USE_CONDUMP)
+X	
+X#include <fcntl.h>
+X#include <unistd.h>
+X#include <termio.h>
+X#include <stdio.h>
+X#include <string.h>
+X
+Xvoid condump(), conrestore();
+Xint  put_mark();
+X
+Xextern char *optarg;
+Xextern int optind;
+Xstatic int mem_fd = -1, put_mark_fd;
+X
+X#ifdef MAIN
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	main()
+X**
+X**----------------------------------------------------------------------*/
+Xint main(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	return con_run(argc, argv);
+X}
+X
+X#endif /* MAIN */
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	con_run()
+X**
+X**----------------------------------------------------------------------*/
+Xint con_run(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int 	ch, iosize, cursor_fd;
+X	char 	screen[SCREEN_SIZE + SCREEN_LINES + 2];
+X	int 	verbose = 0,
+X			newline = 0,
+X			cursor  = 0;
+X	char	*ttyname(),
+X			*tty_ptr = NULL;
+X	
+X	while ((ch = getopt(argc, argv, "cnv")) != -1)
+X		switch (ch)
+X		{
+X			case 'c' : cursor = 1;	break;
+X			case 'n' : newline = 1;	break;
+X			case 'v' : verbose = 1; break;
+X			case '?' :
+X				halt("USAGE: %s [ -vnc ]\n-v verbose, -n newlines, -c cursor\n",
+X					argv[0]);
+X		}
+X 	if (optind < argc)
+X		tty_ptr = argv[optind];
+X
+X	open_mem_fd();
+X	
+X	iosize = SCREEN_LINES * SCREEN_COLS;
+X	if (verbose)	iosize *= SCREEN_CHAR_SPACING;
+X	if (newline)	iosize += SCREEN_LINES;
+X	if (cursor)		iosize += 2;
+X
+X 	if (strcmp(argv[0], "conrestore") != 0 &&
+X		strcmp(strrchr(argv[0],'/'), "/conrestore" ) != 0)
+X	{
+X		if (cursor)
+X		{
+X			if ( tty_ptr == NULL &&
+X				(tty_ptr = ttyname(0)) == NULL)
+X				halt("Cannot find tty name.\n");
+X			if ( (cursor_fd=open(tty_ptr, O_WRONLY)) == -1)
+X				halt("PERROR : Can not open console for writing.\n");
+X			if ( (cursor_fd=open(tty_ptr, O_WRONLY)) == -1)
+X				halt("PERROR : Can not open console for writing.\n");
+X		}
+X		condump(screen, cursor, newline, verbose, cursor_fd);
+X		if (fwrite(screen, 1, iosize, stdout) != iosize)
+X			halt("PERROR : Could not write required number of bytes.\n");
+X	}
+X	else
+X	{
+X		if (cursor)
+X		{
+X			if (tty_ptr == NULL)
+X				cursor_fd = 1;
+X			else if ( (cursor_fd=open(tty_ptr, O_WRONLY)) == -1)
+X					halt("PERROR : Can not open console for writing.\n");
+X		}
+X		if (fread(screen, 1, iosize, stdin) != iosize)
+X			halt("PERROR : Could not read required number of bytes.\n");
+X		conrestore(screen, cursor, newline, verbose, cursor_fd);
+X	}
+X	return 0;
+X}
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	condump()
+X**
+X**----------------------------------------------------------------------*/
+Xvoid condump(screen, cursor, newline, verbose, cursor_fd)
+Xchar *screen;
+Xint cursor, newline, verbose, cursor_fd;
+X{
+X	static char	*left_ptr = NULL;
+X	char	screen2[SCREEN_SIZE];
+X	int 	i, errret;
+X
+X	if (lseek(mem_fd, SCREEN_START, SEEK_SET) == -1)
+X		halt( "PERROR : Can not seek in memory device.\n");
+X
+X	if (read(mem_fd, screen2, SCREEN_SIZE) == -1)
+X		halt("PERROR : Can not read from memory device.\n");
+X
+X	if (verbose && !newline)
+X	{
+X		memcpy(screen, screen2, SCREEN_SIZE);
+X		screen += SCREEN_SIZE;
+X	}
+X	else
+X		for (i=0 ; i < SCREEN_SIZE; i++)
+X		{
+X			if (newline &&
+X					i % (SCREEN_COLS * SCREEN_CHAR_SPACING) == 0 &&
+X					i != 0)
+X				*(screen++) = '\n';
+X			*(screen++) = screen2[i];
+X			if (!verbose)
+X				i += SCREEN_CHAR_SPACING - 1;
+X		}
+X		
+X	if (cursor)
+X	{
+X		if (lseek(mem_fd, SCREEN_START, SEEK_SET) == -1)
+X			halt( "PERROR :Can not seek in memory device.\n");
+X		put_mark_fd = cursor_fd;
+X		put_mark(CURSOR_MARK);
+X		if (read(mem_fd, screen2, SCREEN_SIZE) == -1)
+X			halt("PERROR : Can not read from memory device.\n");
+X		for (i=0; i < SCREEN_SIZE; i += SCREEN_CHAR_SPACING)
+X			if (screen2[i] == CURSOR_MARK)
+X				break;
+X		if (i < SCREEN_SIZE)
+X		{
+X			*(screen++) = (i/SCREEN_CHAR_SPACING) / SCREEN_COLS;
+X			*(screen++) = (i/SCREEN_CHAR_SPACING) % SCREEN_COLS;
+X
+X#ifdef TERMINFO
+X		if (left_ptr == NULL &&
+X			(setupterm(CONSOLE_TERM_TYPE, 2, &errret) != 0 ||  /* 0==OK in curses.h */
+X		     (left_ptr = (char *)tigetstr("cub1")) == NULL ||
+X   		      left_ptr == (char *) -1 ) )
+X#else
+X		if (left_ptr == NULL &&
+X			(tgetent(left_ptr, CONSOLE_TERM_TYPE) == -1 ||
+X		   	(left_ptr = (char *)tgetstr("le", NULL)) == NULL) )
+X#endif
+X			halt("Can not get termcap/info for left cursor movement\n");
+X
+X			tputs(left_ptr, 1, put_mark);
+X			put_mark(screen2[i]);
+X			tputs(left_ptr, 1, put_mark);
+X		}
+X		else
+X		{
+X			fprintf(stderr,"Can not get cursor position.\n");
+X			sleep(2);
+X		}
+X	}
+X}
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	conrestore()
+X**
+X**----------------------------------------------------------------------*/
+Xvoid conrestore(screen, cursor, newline, verbose, cursor_fd)
+Xchar *screen;
+Xint cursor, newline, verbose;
+Xint cursor_fd;
+X{
+X	int i, j, errret;	
+X	static  char 	*curs_ptr  = NULL,
+X					*curs_ptr2 = NULL;
+X	char	*tparm();
+X	char	screen2[SCREEN_SIZE];
+X					
+X	if (verbose && !newline)
+X	{
+X		memcpy(screen2, screen, SCREEN_SIZE);
+X		screen += SCREEN_SIZE;
+X	}
+X	else
+X	{
+X		if (lseek(mem_fd, SCREEN_START, SEEK_SET) == -1)
+X			halt( "PERROR : Can not seek in memory device.\n");	
+X
+X		if (read(mem_fd, screen2, SCREEN_SIZE) == -1)
+X			halt("PERROR : Can not read from memory device.\n");
+X
+X		for (i=0 ; i < SCREEN_SIZE; i++)
+X		{
+X			if (!newline ||
+X					i % (SCREEN_COLS * SCREEN_CHAR_SPACING) != 0 ||  
+X					i == 0)
+X			screen2[i] = *(screen++);
+X
+X			if (!verbose)
+X				i += SCREEN_CHAR_SPACING - 1;
+X		}
+X	}
+X	
+X	if (lseek(mem_fd, SCREEN_START, SEEK_SET) == -1)
+X		halt( "PERROR :Can not seek in memory device.\n");
+X	if (write(mem_fd, screen2, SCREEN_SIZE) == -1)
+X		halt("PERROR : Can not write to memory device.\n");
+X	if (cursor)
+X	{
+X		i  = *(screen++);
+X		j  = *(screen++);
+X#ifdef TERMINFO
+X		if (curs_ptr == NULL &&							/*0==OK in curses.h */
+X			(setupterm(CONSOLE_TERM_TYPE, 2, &errret) != 0 ||
+X		     (curs_ptr = (char *)tigetstr("cup")) == NULL ||
+X   		      curs_ptr == (char *) -1 ) )
+X			halt("Can not get termcap/info for address cursor.\n");
+X		curs_ptr2 = tparm(curs_ptr, i, j);
+X#else
+X		if (curs_ptr == NULL &&
+X			(tgetent(curs_ptr, CONSOLE_TERM_TYPE) == -1 ||
+X		   	(curs_ptr = (char *)tgetstr("cm", NULL)) == NULL) )
+X 			halt("Can not get termcap/info for address cursor.\n");
+X		curs_ptr2 = tgoto(curs_ptr, i, j);
+X#endif
+X		put_mark_fd = cursor_fd;
+X		tputs(curs_ptr2, 1, put_mark);
+X	}
+X}
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	open_mem_fd()
+X**
+X**----------------------------------------------------------------------*/
+Xint open_mem_fd()
+X{
+X	if (mem_fd == -1)
+X	{
+X		if ( access(CONSOLE_DEVICE, R_OK) == -1)
+X		 halt("PERROR : Can not read from console.  Security check failed.\n");
+X		if ( (mem_fd=open(MEMORY_DEVICE, O_RDWR)) == -1)
+X			halt("PERROR : Can not open memory device.\n");
+X	}
+X	return mem_fd;
+X}
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	close_mem_fd()
+X**
+X**----------------------------------------------------------------------*/
+Xint close_mem_fd()
+X{
+X
+X	close(mem_fd);	
+X	return mem_fd;
+X}
+X
+X/*-----------------------------------------------------------------------
+X**
+X**	put_mark()
+X**
+X**----------------------------------------------------------------------*/
+Xstatic int put_mark(ch)
+Xchar ch;
+X{
+X	if (write(put_mark_fd, &ch, 1) == -1)
+X 		halt("PERROR : Can not write to terminal.\n");
+X 	return 0;
+X}
+X
+X#endif /* MAIN || USE_CONDUMP */
+END_OF_FILE
+  if test 7541 -ne `wc -c <'condump.c'`; then
+    echo shar: \"'condump.c'\" unpacked with wrong size!
+  fi
+  # end of 'condump.c'
+fi
+if test -f 'condump.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'condump.doc'\"
+else
+  echo shar: Extracting \"'condump.doc'\" \(2414 characters\)
+  sed "s/^X//" >'condump.doc' <<'END_OF_FILE'
+XCONDUMP(1)                 Unix Programmer's Manual                 CONDUMP(1)
+X
+XNAME
+X	condump    - dump console screen
+X	conrestore - restore console screen
+X
+XSYNOPSYS
+X	condump [ -cnv ] [ console_device ]
+X	conrestore [ -cnv ] [ console_device ]
+X
+XDESCRIPTION
+X	condump copies the contents of the console screen to the
+X	standard output.  conrestore replaces the contents of the
+X	console screen with standard input.
+X
+X	Normally, only the ASCII characters on the screen are 
+X	handled.  The -v flag causes attribute bytes stored in 
+X	the video screen memory area to be handled as well. 
+X	The -n flag causes newlines to be placed at the end of 
+X	each line.  The -c flag causes additional information to
+X	be processed representing the current position of the cursor
+X	on the screen.  When using the previous output of condump
+X	with conrestore, the conrestore flags used should be the same
+X	used in comdump.
+X
+X	If condump(restore) is invoked from a terminal other than the
+X	console, the console device must be supplied as standard input
+X	(output), or on the command line.
+X 
+XNOTES
+X	To use either program, you must have write permission on the
+X	console device.  This prevents non-root users from seeing the
+X	the contents of another user's console screen.
+X
+X	Here's a sample screen-saver.  It displays a user-supplied
+X	program's output on to the screen after 15 minutes of console
+X	inactivity.  Note the use of the /etc/inittab comment field 
+X	by 'who' with 'grep' to find the console device even under shm. 
+X	See details in the shm documentation.
+X
+X		# ssaver - console screen saver
+X		umask 077	# so one else can read it
+X		TERM=AT386-M	# my console TERM type
+X		export TERM
+X		PATH=/bin:/usr/bin:/usr/lbin	# path to executables
+X		while :
+X		do
+X			sleep 900 		# 15 minutes
+X			set `(who -u;who -l) | grep console`
+X			DELAY=`echo $6 | cut -d: -f2`
+X			if [ "$DELAY" -ge "15" ]
+X			then	screendump -vc > /tmp/$$ </dev/$2
+X				clear > /dev/$2
+X				# put your screen saver display program here
+X				nice /usr/games/fireworks </dev/$2 >/dev/$2 &
+X				# this just hangs until a single 
+X				# character is entered, see getkey.c
+X				getkey </dev/$2 >/dev/null
+X				kill -1 $!
+X				screenload -vc </tmp/$$ >/dev/$2
+X				rm /tmp/$$
+X			fi
+X		done	
+X
+X
+X	and add this line to /etc/inittab with a path to the above script:
+X
+X		ss:2:respawn:/bin/sh -c 'exec /usr/lbin/ssaver'
+X
+XAUTHOR
+X	Bruce Momjian, root%candle.uucp@bts.com      Aug 12, 1992
+X	condump version 1.1
+X
+END_OF_FILE
+  if test 2414 -ne `wc -c <'condump.doc'`; then
+    echo shar: \"'condump.doc'\" unpacked with wrong size!
+  fi
+  # end of 'condump.doc'
+fi
+if test -f 'config.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.h'\"
+else
+  echo shar: Extracting \"'config.h'\" \(3588 characters\)
+  sed "s/^X//" >'config.h' <<'END_OF_FILE'
+X/*
+X**
+X**	config.h for shm and condump/restore
+X**
+X*/
+X
+X/* tabs = 4 */
+X
+X/*---------------------------------------------------------------------
+X  	Comment this out if you don't have curses/terminfo, and want to use
+X  	termcap */
+X
+X#define TERMINFO		
+X
+X/*---------------------------------------------------------------------
+X	Uncomment either line if you don't have void. */
+X
+X/*#define void int		/**/
+X/*typedef int void 		/**/
+X
+X/*---------------------------------------------------------------------
+X  	Comment this out if you don't want .profile executed at each
+X	shell startup. If uncommented, your profile should check for $LAYER
+X	and set an appropriate prompt. */
+X
+X#define SHELL_STARTUP	
+X						   
+X/*----------------------------------------------------------------------
+X	Used to change the utmp entry to the proper tty name for use by 'who',
+X	etc. */
+X
+X#define USE_GETUT
+X
+X/*---------------------------------------------------------------------
+X	Define this to be more layer groups than your kernel supports,
+X	which should equal (Number_of_sxt_devices / MAXPCHAN) + 1 */
+X
+X#define	MAX_SXT_GROUPS 10
+X
+X/*---------------------------------------------------------------------
+X	Where are your sxt devices?  If your sxt devices are not in the /dev
+X    directory, but only in the /dev/sxt/ directory, you need to add a slash
+X    at the end of this string, and you may need add the slash to the scripts
+X    contained in the shm.doc file */
+X	
+X#define SXT_DEVICE "/dev/sxt"	
+X
+X/*---------------------------------------------------------------------
+X	Uncomment this and enter a value if your sxt devices are not continuous.
+X	If so, define this to equal the step increment needed to get from the
+X	first member of one sxt grouping to the next. */
+X
+X/*#define SXT_STEP	10 */
+X
+X/*---------------------------------------------------------------------
+X	Comment this if you don't want console screens saved during
+X	layer switches */
+X
+X#define USE_CONDUMP			
+X
+X/*---------------------------------------------------------------------*/
+X/* THESE ARE ALL CONSOLE SCREEN PARAMETERS, USED BY CONDUMP/RESTORE
+X   IF YOU ARE NOT USING THESE OR USE_CONDUMP, YOU MAY STOP HERE        */
+X
+X/*---------------------------------------------------------------------*/
+X
+X
+X#define SCREEN_LINES		25			/* console screen rows */
+X#define SCREEN_COLS 		80			/* console screen columns */
+X
+X/*---------------------------------------------------------------------
+X 	On PC text screens, for each console screen character, there is
+X 	one ASCII byte followed by one attribute byes, hence a value of 2 */
+X
+X#define SCREEN_CHAR_SPACING 2	
+X
+X/*---------------------------------------------------------------------
+X 	if you're not on a PC, try looking in /usr/include/sys/kd.h for
+X 	MONO_BASE or COLOR_BASE */
+X
+X#define SCREEN_START 		0xB0000		/* Mono  - MDA,Mono VGA */
+X/*#define SCREEN_START 		0xB8000		/* Color - CGA,EGA,VGA,SVGA */
+X
+X/*---------------------------------------------------------------------
+X 	This should be a visable character that you rarely see on the screen.
+X	On my screen, it is a trianglular character */
+X
+X#define CURSOR_MARK 		'\177'	
+X
+X/*---------------------------------------------------------------------*/
+X
+X#define CONSOLE_TERM_TYPE	"AT386-M"	
+X#define CONSOLE_DEVICE 		"/dev/console"
+X#define MEMORY_DEVICE		"/dev/mem"		/* real, not virtual memory */
+X
+X/*---------------------------------------------------------------------*/
+X					/* DO NOT EDIT PAST THIS LINE */
+X/*---------------------------------------------------------------------*/
+X/* computed */
+X#define SCREEN_SIZE (SCREEN_LINES * SCREEN_COLS * SCREEN_CHAR_SPACING)
+X
+X
+END_OF_FILE
+  if test 3588 -ne `wc -c <'config.h'`; then
+    echo shar: \"'config.h'\" unpacked with wrong size!
+  fi
+  # end of 'config.h'
+fi
+if test -f 'getkey.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getkey.c'\"
+else
+  echo shar: Extracting \"'getkey.c'\" \(839 characters\)
+  sed "s/^X//" >'getkey.c' <<'END_OF_FILE'
+X/*
+X**
+X**	getkey.c
+X**
+X** 	read a single character from the keyboard and return the ASCII
+X**	value as a return code
+X**
+X**  to compile, type
+X**
+X**		cc -O -c getkey.c
+X**		cc -O -c halt.c
+X**		cc -o getkey getkey.o halt.o  # add any shared libs here
+X**
+X*/
+X
+X#include <fcntl.h>
+X#include <termio.h>
+X
+Xint main()
+X{
+X	int fd, ch;
+X	struct termio savedterm, myterm;
+X	
+X	if (ioctl( 0, TCGETA, &savedterm ) == -1)
+X		halt("PERROR getkey:  Can not get terminal driver settings.\n");
+X
+X	myterm = savedterm;
+X	myterm.c_lflag &= ~(ICANON|ECHO|ISIG);
+X	myterm.c_cc[VMIN] = 1;
+X	myterm.c_cc[VTIME] = 0;
+X
+X	if (ioctl( 0, TCSETA, &myterm ) == -1)
+X		halt("PERROR getkey: Can not set terminal.\n");
+X
+X	if (read(0, &ch, 1) == -1)
+X			ch = -1;
+X	else	write(1, &ch, 1);
+X
+X	if (ioctl( 0, TCSETA, &savedterm ) == -1)
+X		halt("PERROR getkey: Can not set terminal.\n");
+X	return ch;	
+X}
+END_OF_FILE
+  if test 839 -ne `wc -c <'getkey.c'`; then
+    echo shar: \"'getkey.c'\" unpacked with wrong size!
+  fi
+  # end of 'getkey.c'
+fi
+if test -f 'halt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'halt.c'\"
+else
+  echo shar: Extracting \"'halt.c'\" \(1253 characters\)
+  sed "s/^X//" >'halt.c' <<'END_OF_FILE'
+X/*
+X**
+X**	halt.c
+X**
+X**	This is used to print out error messages and exit
+X*/
+X
+X#include <varargs.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <errno.h>
+X
+X
+X/*-------------------------------------------------------------------------
+X**
+X**	halt - print error message, and call clean up routine or exit
+X**
+X**------------------------------------------------------------------------*/
+X
+X/*VARARGS*/
+Xvoid halt(va_alist)
+Xva_dcl
+X{
+X	va_list arg_ptr;
+X	char	*format, *pstr;
+X	void (*sig_func)();
+X
+X	va_start(arg_ptr);
+X	format = va_arg(arg_ptr,char *);
+X	if (strncmp(format,"PERROR", 6) != 0)
+X		vfprintf(stderr,format,arg_ptr);
+X	else
+X	{
+X		for (pstr=format+6; *pstr == ' '; pstr++)
+X			;
+X		vfprintf(stderr,pstr,arg_ptr);
+X		perror("");
+X	}			
+X	va_end(arg_ptr);
+X	fflush(stderr);
+X
+X		/* call one clean up function if defined */
+X	if ( (sig_func = signal(SIGTERM, SIG_DFL)) != SIG_DFL &&
+X	      sig_func != SIG_IGN)
+X		(*sig_func)(0);
+X	else if ( (sig_func = signal(SIGHUP, SIG_DFL)) != SIG_DFL &&
+X	      		sig_func != SIG_IGN)
+X		(*sig_func)(0);
+X	else if ( (sig_func = signal(SIGINT, SIG_DFL)) != SIG_DFL &&
+X	      		sig_func != SIG_IGN)
+X		(*sig_func)(0);
+X	else if ( (sig_func = signal(SIGQUIT, SIG_DFL)) != SIG_DFL &&
+X	      		sig_func != SIG_IGN)
+X		(*sig_func)(0);
+X	exit(1);
+X}
+END_OF_FILE
+  if test 1253 -ne `wc -c <'halt.c'`; then
+    echo shar: \"'halt.c'\" unpacked with wrong size!
+  fi
+  # end of 'halt.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(23 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define PATCHLEVEL 1.1
+END_OF_FILE
+  if test 23 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'shm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shm.c'\"
+else
+  echo shar: Extracting \"'shm.c'\" \(15879 characters\)
+  sed "s/^X//" >'shm.c' <<'END_OF_FILE'
+X/*
+X**
+X**	shm.c
+X**  version 1.1
+X**  Author - root%candle.uucp@bts.com
+X**
+X**	shell layers with sxt devices
+X**
+X*/
+X
+X/* tabs = 4 */
+X
+X#include "config.h"
+X
+X#include <fcntl.h>
+X#include <ctype.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <varargs.h>
+X#include <sys/types.h>
+X#include <sys/tty.h>
+X#include <sys/sxt.h>
+X#include <termio.h>
+X#include <malloc.h>
+X#ifdef USE_GETUT
+X#	include <utmp.h>
+X#endif
+X
+X#ifdef DEBUG
+XFILE *db_file;
+X#define DB			fprintf(db_file,"shm eached line:  %d\n",__LINE__)
+X#else
+X#define DB
+X#endif
+X
+X
+X#ifndef SXT_STEP
+X#define SXT_STEP MAXPCHAN
+X#endif
+X
+X#define USED		1
+X#define FREE		0
+X
+X#define NEXT		1
+X#define PREV		(-1)
+X
+X#define CLRSCR		1	/* define this to be 0 if you don't like your
+X						   screen being cleared when changing layers */
+X#define NOCLRSCR 	0
+X
+X#define NOT_FOUND	(-1)
+X
+X#define PRINT_OPTIONS	fprintf(stderr,"\n\
+XAll commands start with %c%c, then:\n\
+XC,Z                    create\n\
+XD                      delete\n\
+XS                      show layers\n\
+X^Z,N,^N,L,^L,Swt,Ret   next layers\n\
+XP,^P,Bs                previous layer\n\
+X1-%1d                    activate layer #\n\
+XB                      turn off blocking\n\
+XR,Sp                   resume\n\
+XT                      toggle between layers\n\
+XH,?                    help\n\
+XQ,^D                   quit\n",\
+X(iscntrl(layerterm.c_cc[VSWTCH]) ? '^' : ' '),\
+Xlayerterm.c_cc[VSWTCH] + (iscntrl(layerterm.c_cc[VSWTCH]) ? '@' : 0),\
+XMAXPCHAN-1);
+X
+X#define CONTROL(x)	((x) & 0x1f)
+X
+Xstruct {
+X	int 	status;
+X	int		pid;
+X	char 	*screen;
+X}	layer[MAXPCHAN];
+X
+Xstruct termio savedterm, layerterm, cntrlterm;
+X
+X
+Xint sxt_group;			/* active sxt group made up of MAXPCHAN devices */
+Xint cur_slot;			/* active sxt slot within group */
+Xchar clear_str[20];		/* string to clear screen */
+Xint console = 0;
+X
+Xvoid exit_layers();
+Xvoid manage_layer();
+Xvoid layer_died();
+Xvoid halt();
+Xvoid exit();
+X
+X#ifdef USE_GETUT
+Xchar orig_tty[15];		/* original tty in utmp */
+Xstruct utmp my_utmp;
+X#endif 
+X
+X			
+X/*-------------------------------------------------------------------------- 
+X**
+X**	main
+X**
+X**-------------------------------------------------------------------------*/
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int 	errret, args = 1, i;
+X	char 	*clear_ptr,
+X		 	*tty_ptr,
+X			*getenv(),
+X			*ttyname();
+X	char	sxt_file[40];
+X	int 	slot;
+X#ifdef USE_GETUT
+X	struct 	utmp *utmp_ptr,
+X				 *getutline();	
+X#endif
+X
+X#ifdef DEBUG
+Xdb_file = fopen("shm_debug.log","w");
+X#endif
+X
+X#ifdef USE_CONDUMP
+X 	if (strcmp(argv[0], "condump") == 0 ||
+X		strcmp(strrchr(argv[0],'/'), "/condump" ) == 0 ||
+X 	    strcmp(argv[0], "conrestore") == 0 ||
+X		strcmp(strrchr(argv[0],'/'), "/conrestore" ) == 0)
+X		return con_run(argc, argv);
+X
+X	if ( (tty_ptr = ttyname(0)) == NULL)
+X		halt("shm:  Cannot find tty name.\n");
+X	if (strcmp(tty_ptr, CONSOLE_DEVICE) == 0)
+X		console = 1;
+X	if (argc >= 2 && strcmp(argv[1], "-c") == 0)
+X	{
+X		console = 1;
+X		args++;
+X	}
+X	if (argc >= 2 && strcmp(argv[1], "+c") == 0)
+X	{
+X		console = 0;
+X		args++;
+X	}
+X	if (console)
+X		open_mem_fd();
+X#endif
+X	DB;
+X
+X					/* GET UTMP ENTRY */
+X#ifdef USE_GETUT
+X	if ( (tty_ptr = ttyname(0)) == NULL)
+X		halt("shm:  Cannot find tty name.\n");
+X	strcpy(my_utmp.ut_line, strrchr(tty_ptr, '/') + 1);
+X	strcpy(orig_tty, strrchr(tty_ptr, '/') + 1);
+X	if ( (utmp_ptr = getutline(&my_utmp)) == NULL)
+X		halt("shm:  Cannot find utmp entry.\n");
+X	memcpy(&my_utmp, utmp_ptr, sizeof(struct utmp));
+X#endif
+X
+X				/* SET UP TERMINAL CHARACTERISTICS */
+X
+X	if (ioctl( 0, TCGETA, &savedterm ) == -1)
+X		halt("PERROR shm:  Can not get terminal driver settings.\n");
+X
+X	signal(SIGHUP, exit_layers);
+X	signal(SIGINT, SIG_IGN);
+X	signal(SIGQUIT, SIG_IGN);
+X	signal(SIGTERM, exit_layers);
+X	signal(SIGCLD, SIG_DFL);	/* hold dead children until we are ready */
+X	DB;
+X	
+X	cntrlterm = layerterm = savedterm;
+X	if ( layerterm.c_cc[VSWTCH] == 0 ) 	/* stty shows this as ^` */
+X		layerterm.c_cc[VSWTCH] = CONTROL('z');
+X	layerterm.c_cflag |= LOBLK;	/* start layer with blocking on */
+X
+X	/* this allows control process to sleep on read and return immediately
+X	   when one character is entered */
+X	cntrlterm.c_lflag &= ~(ICANON|ECHO|ISIG);
+X	cntrlterm.c_cc[VMIN] = 1;
+X	cntrlterm.c_cc[VTIME] = 0;
+X	cntrlterm.c_cflag &= ~LOBLK;	/* no output blocking */
+X	DB;
+X
+X					/* GET CLEAR SCREEN STRING */
+X
+X#ifdef TERMINFO
+X	if (setupterm(NULL, 2, &errret) == 0 &&  /* 0==OK in curses.h */
+X	   (clear_ptr = (char *)tigetstr("clear")) != NULL &&
+X        clear_ptr != (char *) -1 )
+X#else
+X	if (tgetent(clear_ptr, getenv("TERM")) != -1 &&
+X	   (clear_ptr = (char *)tgetstr("cl", clear_str)) != NULL )
+X#endif
+X        	strcpy(clear_str,clear_ptr);
+X    else
+X			strcpy(clear_str,"");
+X	DB;
+X
+X				/* SET UP INPUT/OUTPUT IN CONTROL LAYER */
+X	
+X	fclose( stdin );
+X	for (sxt_group = 0; sxt_group < MAX_SXT_GROUPS; sxt_group++)
+X		if (open_sxt_device(0) != NOT_FOUND)
+X			break;
+X	if (sxt_group == MAX_SXT_GROUPS)
+X		halt("No available ttys.\n");
+X
+X  	if ( fdopen( 0, "r" ) == NULL )
+X		halt("PERROR child fopen failed\n");
+X
+X	fclose( stdout );
+X	dup( 0 );
+X	if ( fdopen( 1, "w" ) == NULL )
+X		halt("PERROR child fopen stdout\n" );
+X	DB;
+X						/* SET UP LAYERS */
+X		
+X 	if (ioctl(0, SXTIOCLINK, MAXPCHAN) == -1)
+X		halt(
+X	"PERROR shm: Can not allocate layers, perhaps layers already active.\n");
+X
+X						/* get ownership of sxt group files */
+X	for (slot = 0; slot < MAXPCHAN; slot++)	
+X	{
+X		sprintf(sxt_file, "%s%03d", SXT_DEVICE, slot + sxt_group * SXT_STEP );
+X		if ( chown(sxt_file, getuid(), getgid()) == -1)
+X			halt("PERROR shm:  Can not set ownership of sxt files.\n");
+X	}
+X
+X						/* ROOT PRIV ENDS HERE */	
+X
+X	/* needed root priv to do SXTIOCLINK, restore user privs */
+X	setuid(getuid());
+X	DB;
+X	
+X	if ( ioctl(0, SXTIOCSWTCH, 0) == -1)
+X		halt("PERROR shm: Can not switch to controlling layer.\n");
+X	
+X	if (ioctl( 0, TCSETA, &cntrlterm ) == -1)
+X		halt("PERROR shm: Can not set terminal.\n");
+X
+X	fclose( stderr );	/* all errors are done, move stderr */
+X	dup( 0 );
+X	if ( fdopen( 2, "w" ) == NULL )
+X		halt("PERROR child fopen stderr\n" );
+X	setvbuf(stderr, NULL, _IONBF, NULL);	/* stderr not buffered */
+X	DB;
+X	
+X	for (i = 1; args < argc; args++, i++)
+X		(void)create_layer(i, argv[args], NOCLRSCR);
+X		
+X	manage_layer();
+X	/*NOTREACHED*/
+X}
+X
+X/*-------------------------------------------------------------------------
+X**
+X** 	manage_layer	- loop that waits for control activation and does commands
+X**
+X**-------------------------------------------------------------------------*/
+X
+Xvoid manage_layer()
+X{
+X	int		new_slot, tog_slot, i;
+X	char	option;
+X
+X	
+X	if (layer[1].status == FREE)
+X		cur_slot = create_layer(1, NULL, NOCLRSCR);
+X	else
+X		cur_slot = activate_layer(1, 1, NEXT);
+X
+X	if (cur_slot == NOT_FOUND)
+X		halt("shm:  Can not start any layer.\n");
+X
+X	DB;
+X	while (1)
+X	{
+X		signal(SIGCLD, layer_died);
+X		while (read(0,&option,1) <= 0)
+X			;
+X		signal(SIGCLD, SIG_IGN);
+X
+X		new_slot = cur_slot; 	/* layer_died may have changed cur_slot */
+X
+X		if ( layerterm.c_cc[VERASE] == option )	/* they hit back space */
+X			option = 'p';
+X			
+X		if ( layerterm.c_cc[VSWTCH] == option )	/* they hit switch char */
+X			option = 'n';
+X			
+X		switch (tolower(option))
+X		{
+X			case 'z':
+X			case 'c':
+X						new_slot = create_layer(cur_slot, NULL, CLRSCR);
+X						break;
+X			case 'd':
+X						signal(SIGCLD, SIG_DFL);
+X						if (layer[cur_slot].status == USED)
+X							kill(-layer[cur_slot].pid, SIGHUP);
+X						break;
+X			case CONTROL('z'):
+X			case 'n':
+X			case CONTROL('n'):
+X			case 'l':
+X			case CONTROL('l'):
+X			case CONTROL('j'):
+X			case CONTROL('m'):
+X						i = (cur_slot < MAXPCHAN-1 ? cur_slot + 1 : 1);
+X						new_slot = activate_layer(i, cur_slot, NEXT);
+X						break;
+X			case 'p':
+X			case CONTROL('p'):
+X						i = (cur_slot > 1 ? cur_slot - 1 : MAXPCHAN-1);
+X						new_slot = activate_layer(i, cur_slot, PREV);
+X						break;
+X			case 's':
+X						for (i = 1; i < MAXPCHAN; i++)
+X							if (layer[i].status == USED)
+X								fprintf(stderr,"%d ", i);
+X						putc('\n', stderr);
+X						new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X						break;
+X			case '?':
+X			case 'h':	PRINT_OPTIONS;
+X						new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X						break;
+X			case 'b':
+X						if ( ioctl(0, SXTIOCUBLK, cur_slot) == -1)
+X							fprintf(stderr, "shm: Can not turn off blocking.\n");
+X						new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X						break;
+X			case 'r':
+X			case ' ':
+X						new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X						break;
+X			case 't':	
+X						new_slot = activate_layer(tog_slot, cur_slot, NEXT);
+X						break;
+X			case CONTROL('d'):
+X			case 'q':
+X						exit_layers(0);
+X						break;
+X			default :
+X						i = option - '0';
+X						if (i >= 1 && i < MAXPCHAN)
+X						{
+X							if (layer[i].status == USED)
+X								new_slot = activate_layer(i, cur_slot, NEXT);
+X							else
+X								new_slot = create_layer(i, NULL, CLRSCR);
+X						}
+X						else
+X						{
+X							if (isprint(option))
+X								fprintf(stderr,
+X									"shm: '%c' unknown command\n",option);
+X							else
+X								fprintf(stderr, "shm: unknown command\n");
+X							new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X						}
+X						break;
+X		}
+X		if (new_slot != NOT_FOUND && new_slot != cur_slot)
+X		{
+X			tog_slot = cur_slot;
+X			cur_slot = new_slot;
+X		}
+X	DB;
+X	}
+X}
+X		
+X/*---------------------------------------------------------------------------
+X**
+X**	activate_layer - find next used slot, test for validity
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xint activate_layer(slot, old_slot, direct)
+Xint slot,		/* start searching at this slot */
+X	old_slot,	/* slot that was last active */
+X	direct;		/* direction of search NEXT, PREV */
+X{
+X	
+X		/* SCAN USED SLOTS FOR ACTIVE PROCESSES, REMOVE DEAD SLOTS */
+X	while ( (slot = get_slot(slot, USED, direct)) != NOT_FOUND &&
+X		    ( ioctl(0, SXTIOCSWTCH, slot) == -1  ||
+X			  ( kill(layer[slot].pid, 0) == -1 && errno == ESRCH) ) )
+X	{
+X		kill(-layer[slot].pid, SIGHUP);
+X		layer[slot].status = FREE;
+X	}
+X
+X	if (slot != NOT_FOUND)
+X	{
+X#ifdef USE_GETUT
+X		sprintf(my_utmp.ut_line,"%s%03d", strrchr(SXT_DEVICE, '/') + 1,
+X											slot + sxt_group * SXT_STEP);
+X		pututline(&my_utmp);
+X#endif
+X 		if (slot != old_slot)
+X		{
+X#ifdef USE_CONDUMP
+X			if (console)
+X			{
+X				if (layer[old_slot].status == USED)
+X					condump(layer[old_slot].screen, 1, 0, 1, 1);
+X				conrestore(layer[slot].screen, 1, 0, 1, 1);
+X			}
+X			else
+X#endif
+X			{
+X				putp(clear_str );
+X				fflush(stdout);
+X				fprintf(stderr,"[%d] ", slot);
+X				fflush(stderr);
+X			}
+X		}
+X	}
+X	return slot;
+X}
+X
+X/*----------------------------------------------------------------------------
+X**
+X**	create_layer - create new layer using fork()
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xint create_layer( slot, exfile, clrscr )
+Xint slot,		/* slot to start searching for FREE slot */
+X	clrscr;		/* should screen be cleared on activation */
+Xchar *exfile;	/* startup executable, or NULL for shell */
+X{
+X	int pid;
+X	char layerstr[15], execstr[1024], execarg0[25];
+X	int control_fd;
+X	char *getenv();
+X#ifndef SHELL_STARTUP
+X	char ps1str[15];
+X#endif
+X
+X	if ((slot = get_slot(slot, FREE, NEXT)) == NOT_FOUND)
+X	{
+X		fprintf(stderr, "shm:  No more ttys.\n");
+X		return NOT_FOUND;
+X	}
+X	
+X#ifdef USE_CONDUMP
+X	if (console)
+X		if (layer[cur_slot].status == USED)
+X			condump(layer[cur_slot].screen, 1, 0, 1, 1);
+X#endif
+X
+X	if ( (pid=fork()) == 0)
+X	{
+X		signal( SIGINT,  SIG_DFL );
+X		signal( SIGQUIT, SIG_DFL );
+X		signal( SIGHUP,  SIG_DFL );
+X		signal( SIGTERM, SIG_DFL );
+X		signal( SIGCLD,  SIG_DFL );
+X		setpgrp();
+X		
+X#ifdef DEBUG
+Xfclose(db_file);
+X#endif
+X		
+X		control_fd = dup(0);
+X		fclose( stdin );
+X		if (open_sxt_device(slot) == NOT_FOUND)
+X			halt("PERROR shm:  Can not open tty.\n");
+X
+X		if ( exfile == NULL && ioctl(control_fd, SXTIOCSWTCH, slot) == -1)
+X			halt( "PERROR Can not activate slot %d.\n", slot);
+X				
+X		if ( exfile != NULL && ioctl(control_fd, SXTIOCWF, slot) == -1)
+X			halt( "PERROR shm: Can not wait for activation.\n");
+X
+X
+X		if ( ioctl( 0, TCSETA, &layerterm ) == -1)
+X			halt("PERROR shm:  Can not set terminal driver characteristics.\n");
+X
+X		if (clrscr == CLRSCR)
+X			putp(clear_str);
+X
+X		fclose(stdout); dup(0);
+X		fclose(stderr); dup(0);
+X		close(control_fd);
+X#ifdef USE_CONDUMP
+X		if (console)	close_mem_fd();
+X#endif
+X		
+X#ifdef USE_GETUT
+X		sprintf(my_utmp.ut_line,"%s%03d", strrchr(SXT_DEVICE, '/') + 1,
+X											slot + sxt_group * SXT_STEP );
+X		pututline(&my_utmp);
+X		endutent();
+X#endif
+X		setpgrp();
+X		sprintf(layerstr,"LAYER=%d",slot);
+X		putenv(layerstr);
+X		
+X		if (exfile == NULL || *exfile == '\0')
+X		{
+X			if (getenv("ISHELL") != NULL)		/* interactive shell */
+X				strcpy(execstr, getenv("ISHELL"));
+X			else if (getenv("SHELL") != NULL)
+X				strcpy(execstr, getenv("SHELL"));
+X			else strcpy(execstr, "/bin/sh");
+X
+X#ifdef SHELL_STARTUP
+X				/* put dash before command name to signal startup */
+X			strcpy(execarg0,strrchr(execstr, '/'));
+X			execarg0[0] = '-';
+X#else
+X			strcpy(execarg0,strrchr(execstr, '/') + 1);
+X			/* if they don't run their .profile, make a prompt */
+X			sprintf(ps1str,"PS1=(%d) ", slot);
+X			putenv(ps1str);
+X#endif
+X			execl(execstr, execarg0, (char *)0 );
+X			halt("PERROR shm: execl failed.\n");
+X		}
+X		else
+X		{
+X			sprintf(execstr, "exec %s", exfile);
+X			execl("/bin/sh", "sh", "-c", execstr, (char *)0 );
+X			halt("PERROR shm: execl failed.\n");
+X		}
+X		/*NOTREACHED*/
+X	}
+X
+X	if (pid == -1)
+X	{
+X		fprintf(stderr, "shm: fork failed.\n");
+X		return(NOT_FOUND);
+X	}
+X
+X	layer[slot].pid = pid;
+X	layer[slot].status = USED;
+X#ifdef USE_CONDUMP
+X	if (console)
+X		if (layer[slot].screen == 0)
+X			if ( (layer[slot].screen = malloc(SCREEN_SIZE+2)) == NULL)
+X				halt("PERROR shm : can not get more memory.\n");
+X#endif
+X	return slot;
+X}
+X	
+X	
+X/*----------------------------------------------------------------------------
+X**
+X**	get_slot - scan slots, return desired slot number
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xint get_slot( slot, status, direct )
+Xint slot,		/* start searching at this slot */
+X	status,		/* for this type of slot, USED or FREE */
+X	direct;		/* search in this direction, NEXT or PREV */
+X{
+X	int loops = 0;
+X
+X	while (layer[slot].status != status && ++loops < MAXPCHAN)
+X	{
+X		slot += direct;
+X		if (slot == MAXPCHAN)
+X			slot = 1;
+X		if (slot == 0)
+X			slot = MAXPCHAN-1;
+X	}
+X
+X	return (layer[slot].status == status) ? slot : NOT_FOUND;
+X}
+X
+X/*----------------------------------------------------------------------------
+X**
+X**	open_sxt_device - open sxt device
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xint open_sxt_device( slot )
+Xint slot;
+X{
+X	char	sxt_file[40];
+X
+X	sprintf(sxt_file, "%s%03d", SXT_DEVICE, slot + sxt_group * SXT_STEP );
+X	return open(sxt_file, O_RDWR | ((slot == 0) ? O_EXCL : 0) );
+X}
+X
+X/*----------------------------------------------------------------------------
+X**
+X**	layer_died - layer died, change status
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xvoid layer_died(sig)
+Xint sig;
+X{
+X	int new_slot;
+X
+X	signal(SIGCLD, SIG_IGN);	/* discard child */
+X	new_slot = activate_layer(cur_slot, cur_slot, NEXT);
+X	if (new_slot != NOT_FOUND)
+X		cur_slot = new_slot;
+X	else
+X		exit_layers(0);
+X	signal(SIGCLD, layer_died);
+X
+X}
+X	
+X/*----------------------------------------------------------------------------
+X**
+X**	exit_layers - this and halt are the only exit points
+X**
+X**--------------------------------------------------------------------------*/
+X
+Xvoid exit_layers(sig)
+Xint sig;
+X{
+X	int slot;
+X
+X	if (sig != SIGHUP)
+X	{
+X		ioctl(0, SXTIOCSWTCH, 0);
+X		(void)ioctl( 0, TCSETA, &savedterm );
+X		putchar('\n');
+X	}
+X		
+X	signal(SIGHUP,  SIG_IGN );
+X	signal(SIGINT,  SIG_IGN );
+X	signal(SIGQUIT, SIG_IGN );
+X	signal(SIGTERM, SIG_IGN );
+X	signal(SIGCLD,  SIG_IGN );
+X
+X#ifdef USE_GETUT
+X	strcpy(my_utmp.ut_line, orig_tty);
+X	pututline(&my_utmp);
+X	endutent();
+X#endif
+X
+X	for (slot = 1; slot < MAXPCHAN; slot++)
+X		if (layer[slot].status == USED )
+X		{
+X			kill(-layer[slot].pid, (sig != 0) ? sig : SIGHUP );
+X			ioctl(0, SXTIOCSWTCH, slot);	/* activate layer and/or */
+X			ioctl(0, SXTIOCUBLK,  slot);	/* unblock layer */
+X		}
+X
+X	exit(sig);
+X}
+END_OF_FILE
+  if test 15879 -ne `wc -c <'shm.c'`; then
+    echo shar: \"'shm.c'\" unpacked with wrong size!
+  fi
+  # end of 'shm.c'
+fi
+if test -f 'shm.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shm.doc'\"
+else
+  echo shar: Extracting \"'shm.doc'\" \(5740 characters\)
+  sed "s/^X//" >'shm.doc' <<'END_OF_FILE'
+XSHM(1)                     Unix Programmer's Manual                     SHM(1)
+X
+XNAME
+X	shm - shell layer manager
+X
+XSYNOPSYS
+X	shm [ -c | +c ] [ program ... ]
+X
+XDESCRIPTION
+X	shm is a clone of shl which allows a user to interact with
+X	more than one shell from a single terminal.  The user controls
+X	these shells, known as layers, using the key strokes
+X	described below.  shm automatically sets saves the screen 
+X        contents when it is started from the console device.  The -c 
+X        flag forces console saving, the +c flag disables it.
+X
+X        shm differs from shl in five important respects.
+X	
+X	       1) shm allows quicker switching and layer creation, using
+X	          simple key sequence. Each sequence starts with your
+X	          swtch(switch) character, which is usually ^Z, but may 
+X	          be redefined using stty.
+X
+X               2) when run from the console, shm saves the screen
+X                  contents of each layer between switches
+X
+X	       3) shm allows the specification of one or more programs
+X	          to be placed in separate layers upon startup.
+X
+X	       4) shm starts up in a layer, not at an shm prompt.
+X	          In fact, there is no shm prompt, and all commands 
+X	          conclude by re-activating another layer.
+X
+X	       5) shm clears the screen when switching layers, and
+X	          automatically exits when all layers have exited.
+X
+X
+X	The current layer is the layer that can receive input from
+X	the keyboard.  Other layers attempting to read from the
+X	keyboard are blocked. Output from dormant layers causes
+X   	the layer to go to sleep, waiting to become active before
+X	resuming.  This default behavior can be changed by using
+X	stty -loblk in that layer or using an shm command described 
+X	below.
+X
+XCOMMANDS
+X	All shm commands start with your switch character, which we
+X	will assume is ^Z.  The next character may be:
+X
+X	        C, Z                  create a new layer
+X
+X	        D                     delete the current layer
+X
+X	        S                     show existing layers
+X
+X	        ^Z, N, ^N, L, ^L
+X	        Switch, or Return     next layer
+X
+X	        P, ^P, Backspace      previous layer
+X
+X	        1, 2,..max_layers     create/activate layer number 
+X
+X	        R, Space              resume current layer
+X
+X	        B                     turn off output blocking for that layer
+X
+X	        T                     toggle between layers
+X
+X	        H, ?                  help
+X
+X	        Q, ^D                 close all layers and quit shm
+X
+X
+X	Upper/lower case is insignificant, and ^ designates a control 
+X	character.  There are many alternatives for several commands
+X	to suit individual tastes.
+X
+X	Some of my very popular key sequences are:
+X
+X	        ^Z, Z           create new layer
+X
+X	        ^Z, ^Z           go to next layer
+X
+X	        ^Z, ^L, ^L      go to next layer and redisplay
+X 	                        application screen
+X	        ^Z, Return,
+X	        Return          go to next layer and display prompt
+X
+X	        ^Z, 1           go to layer 1
+X
+X	shm will automatically terminate when all its layers have been
+X	exited, so if you have three shells active, ^D, ^D, ^D will cause
+X	shm to exit, and return you to your normal single-layer shell.
+X
+XENVIRONMENT
+X	shm reads several environment variables.
+X
+X	  ISHELL        Users default interactive shell
+X
+X	  SHELL         Shell to invoke if ISHELL is not set
+X
+X	  TERM          Used to get string that clears the screen
+X
+X
+X	shm sets one or two variables.
+X
+X	  LAYER         Equals the layer number
+X
+X	  PS1           Set only if shm is compiled with SHELL_STARTUP
+X	                undefined, this equals $LAYER surrounded by 
+X	                parentheses
+X
+XNOTES
+X	I have found that using 'ps' from within a shell layer displays 
+X	a header but nothing else.  I suppose 'ps' get confused by the
+X	sxt devices.  Try using this as a substitute for 'ps'.  It should
+X	be aliased to 'ps' or placed in your path before the real 'ps'.
+X
+X		:
+X		# ps for shm
+X		# usage ps [-z & usual ps args]
+X		MAXPCHAN=8
+X		if [ $# -eq 0 ] 
+X		then 	SXT_NUM="`expr \`tty\` : '/dev/sxt\(.*\)'`"
+X			exec /bin/ps -t "sxt/$SXT_NUM"
+X		elif [ "`expr \"$1\" : '-.*z.*$'`" -ne 0 ]
+X		then
+X			[ "$1" != "-z" ] &&
+X				ZOPT="`echo $1 | sed 's/\(-.*\)z\(.*\)$/\1\2/'`"
+X			shift
+X			SXT_NUM="`expr \`tty\` : '/dev/sxt\(.*\)'`"
+X			SXT_TERMS="`echo $SXT_NUM $MAXPCHAN | \
+X				awk '{ for (i=0; i<$2; i++) \
+X					printf \"sxt/%03d,\",\
+X					int($1/$2)*$2+i; }'`"
+X			exec /bin/ps $ZOPT $@ -t $SXT_TERMS
+X		else	exec /bin/ps $*
+X		fi
+X		
+X
+X	It is also difficult to find out the name of the tty you logged
+X	in on when you are in a shell layer.  'tty' reports the layer
+X	device, i.e. /dev/sxt001 not /dev/console.  One way to get this 
+X	information is to add a comment to the end of each (uu)getty 
+X	line in /etc/inittab, like this:
+X
+X		co:12345:respawn:/etc/getty console console #console
+X		I00:23:respawn:/etc/uugetty -rt180 tty00 2400 #tty00
+X		I01:23:respawn:/etc/getty tty01 19200 #tty01
+X
+X	You can then use a script like this one to find the login tty:
+X
+X		:
+X		# login tty for shm
+X		TTY_DEV="`expr \`tty\` : '/dev/\(.*\)'`"
+X		set `/bin/who -u | grep "$TTY_DEV"` ; echo $8
+X		
+X	The login tty is often needed in profiles to test for terminal 
+X	types.
+X
+X	When placing programs in certain layers upon invocation of
+X	shm, the programs do not actually start running until the 
+X	layer is activated.  Use the null string('') to start up a
+X	shell in a certain layer, i.e. shm and shm '' do the same
+X	thing, and shm '' '' starts two shells.
+X
+X	I have found that when running shm from the console, if a 
+X	warning message is sent to the console from the kernel, the
+X	message is lost or the /dev/console becomes the active tty, 
+X	causing shm to hang.
+X
+XAUTHOR
+X	Bruce Momjian, root%candle.uucp@bts.com      Sept 13, 1992
+X	shm version 1.1
+END_OF_FILE
+  if test 5740 -ne `wc -c <'shm.doc'`; then
+    echo shar: \"'shm.doc'\" unpacked with wrong size!
+  fi
+  # end of 'shm.doc'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

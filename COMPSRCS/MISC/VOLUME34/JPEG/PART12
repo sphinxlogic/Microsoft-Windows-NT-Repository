@@ -1,0 +1,1611 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i066:  jpeg - JPEG image compression, Part12/18
+Message-ID: <1992Dec17.164919.6583@sparky.imd.sterling.com>
+X-Md4-Signature: 5dd777d877402ce681bf090a3f822fb3
+Date: Thu, 17 Dec 1992 16:49:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 66
+Archive-name: jpeg/part12
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  USAGE jchuff.c jrevdct.c makefile.manx
+# Wrapped by kent@sparky on Wed Dec 16 20:52:29 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 18)."'
+if test -f 'USAGE' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'USAGE'\"
+else
+  echo shar: Extracting \"'USAGE'\" \(14687 characters\)
+  sed "s/^X//" >'USAGE' <<'END_OF_FILE'
+XUSAGE instructions for the Independent JPEG Group's JPEG software
+X=================================================================
+X
+XINTRODUCTION
+X
+XThis distribution contains software to implement JPEG image compression and
+Xdecompression.  JPEG (pronounced "jay-peg") is a standardized compression
+Xmethod for full-color and gray-scale images.  JPEG is designed to handle
+X"real-world" scenes, for example scanned photographs.  Cartoons, line
+Xdrawings, and other non-realistic images are not JPEG's strong suit; on this
+Xsort of material you may get poor image quality and/or little compression.
+X
+XJPEG is lossy, meaning that the output image is not necessarily identical to
+Xthe input image.  Hence you should not use JPEG if you have to have identical
+Xoutput bits.  However, on typical real-world images, very good compression
+Xlevels can be obtained with no visible change, and amazingly high compression
+Xis possible if you can tolerate a low-quality image.  You can trade off image
+Xquality against file size by adjusting the compressor's "quality" setting.
+X
+XThis file describes usage of the standard programs "cjpeg" and "djpeg" that
+Xcan be built directly from the distributed C code.  See the README file for
+Xhints on incorporating the JPEG software into other programs.
+X
+XIf you are on a Unix machine you may prefer to read the Unix-style manual
+Xpages in files cjpeg.1 and djpeg.1.  But also see the HINTS section below,
+Xwhich is not present in either manual page.
+X
+XNOTE: the switch syntax has been redesigned since the v3 release of
+Xcjpeg/djpeg.  Switch names are now words instead of single letters.
+X
+X
+XGENERAL USAGE
+X
+XWe provide two programs, cjpeg to compress an image file into JPEG format,
+Xand djpeg to decompress a JPEG file back into a conventional image format.
+X
+XOn Unix-like systems, you say:
+X	cjpeg [switches] [imagefile] >jpegfile
+Xor
+X	djpeg [switches] [jpegfile]  >imagefile
+XThe programs read the specified input file, or standard input if none is
+Xnamed.  They always write to standard output (with trace/error messages to
+Xstandard error).  These conventions are handy for piping images between
+Xprograms.
+X
+XOn most non-Unix systems, you say:
+X	cjpeg [switches] imagefile jpegfile
+Xor
+X	djpeg [switches] jpegfile  imagefile
+Xi.e., both the input and output files are named on the command line.  This
+Xstyle is a little more foolproof, and it loses no functionality if you don't
+Xhave pipes.  (You can get this style on Unix too, if you prefer, by defining
+XTWO_FILE_COMMANDLINE when you compile the programs; see SETUP.)
+X
+XThe currently supported image file formats are: PPM (PBMPLUS color format),
+XPGM (PBMPLUS gray-scale format), GIF, Targa, and RLE (Utah Raster Toolkit
+Xformat).  (RLE is supported only if the URT library is available.)
+Xcjpeg recognizes the input image format automatically, with the exception
+Xof some Targa-format files.  You have to tell djpeg which format to generate.
+X
+XThe only JPEG file format currently supported is the JFIF format.  Support for
+Xthe TIFF 6.0 JPEG format will probably be added at some future date.
+X
+XAll switch names may be abbreviated; for example, -grayscale may be written
+X-gray or -gr.  Most of the "basic" switches can be abbreviated to as little as
+Xone letter.  Upper and lower case are equivalent (-GIF is the same as -gif).
+XBritish spellings are also accepted (e.g., -greyscale), though for brevity
+Xthese are not mentioned below.
+X
+X
+XCJPEG DETAILS
+X
+XThe basic command line switches for cjpeg are:
+X
+X	-quality N	Scale quantization tables to adjust image quality.
+X			Quality is 0 (worst) to 100 (best); default is 75.
+X			(See below for more info.)
+X
+X	-grayscale	Create monochrome JPEG file from color input.
+X			Be sure to use this switch when compressing a grayscale
+X			GIF file, because cjpeg isn't bright enough to notice
+X			whether a GIF file uses only shades of gray.  By
+X			saying -grayscale, you'll get a smaller JPEG file that
+X			takes less time to process.
+X
+X	-optimize	Perform optimization of entropy encoding parameters.
+X			Without this, default encoding parameters are used.
+X			-optimize usually makes the JPEG file a little smaller,
+X			but cjpeg runs somewhat slower and needs much more
+X			memory.  Image quality and speed of decompression are
+X			unaffected by -optimize.
+X
+X	-targa		Input file is Targa format.  Targa files that contain
+X			an "identification" field will not be automatically
+X			recognized by cjpeg; for such files you must specify
+X			-targa to make cjpeg treat the input as Targa format.
+X
+XThe -quality switch lets you trade off compressed file size against quality of
+Xthe reconstructed image: the higher the quality setting, the larger the JPEG
+Xfile, and the closer the output image will be to the original input.  Normally
+Xyou want to use the lowest quality setting (smallest file) that decompresses
+Xinto something visually indistinguishable from the original image.  For this
+Xpurpose the quality setting should be between 50 and 95; the default of 75 is
+Xoften about right.  If you see defects at -quality 75, then go up 5 or 10
+Xcounts at a time until you are happy with the output image.  (The optimal
+Xsetting will vary from one image to another.)
+X
+X-quality 100 will generate a quantization table of all 1's, eliminating loss
+Xin the quantization step (but there is still information loss in subsampling,
+Xas well as roundoff error).  This setting is mainly of interest for
+Xexperimental purposes.  Quality values above about 95 are NOT recommended for
+Xnormal use; the compressed file size goes up dramatically for hardly any gain
+Xin output image quality.
+X
+XIn the other direction, quality values below 50 will produce very small files
+Xof low image quality.  Settings around 5 to 10 might be useful in preparing an
+Xindex of a large image library, for example.  Try -quality 2 (or so) for some
+Xamusing Cubist effects.  (Note: quality values below about 25 generate 2-byte
+Xquantization tables, which are considered optional in the JPEG standard.
+Xcjpeg emits a warning message when you give such a quality value, because
+Xsome commercial JPEG programs may be unable to decode the resulting file.)
+X
+XSwitches for advanced users:
+X
+X	-maxmemory N	Set limit for amount of memory to use in processing
+X			large images.  Value is in thousands of bytes, or
+X			millions of bytes if "M" is attached to the number.
+X			For example, -max 4m selects 4000000 bytes.  If more
+X			space is needed, temporary files will be used.
+X
+X	-restart N	Emit a JPEG restart marker every N MCU rows, or every
+X			N MCU blocks if "B" is attached to the number.
+X			-restart 0 (the default) means no restart markers.
+X
+X	-smooth N	Smooth the input image to eliminate dithering noise.
+X			N, ranging from 1 to 100, indicates the strength of
+X			smoothing.  0 (the default) means no smoothing.
+X
+X	-verbose	Enable debug printout.  More -v's give more printout.
+X	or  -debug	Also, version information is printed at startup.
+X
+XThe -restart option inserts extra markers that allow a JPEG decoder to
+Xresynchronize after a transmission error.  Without restart markers, any damage
+Xto a compressed file will usually ruin the image from the point of the error
+Xto the end of the image; with restart markers, the damage is usually confined
+Xto the portion of the image up to the next restart marker.  Of course, the
+Xrestart markers occupy extra space.  We recommend -restart 1 for images that
+Xwill be transmitted across unreliable networks such as Usenet.
+X
+XThe -smooth option filters the input to eliminate fine-scale noise.  This is
+Xoften useful when converting GIF files to JPEG: a moderate smoothing factor of
+X10 to 50 gets rid of dithering patterns in the input file, resulting in a
+Xsmaller JPEG file and a better-looking image.  Too large a smoothing factor
+Xwill visibly blur the image, however.
+X
+XSwitches for wizards:
+X
+X	-arithmetic	Use arithmetic coding rather than Huffman coding.
+X			(Not currently supported for legal reasons.)
+X
+X	-nointerleave	Generate noninterleaved JPEG file (not yet supported).
+X
+X	-qtables file	Use the quantization tables given in the specified
+X			file.  The file should contain one to four tables
+X			(64 values each) as plain text.  Comments preceded by
+X			'#' may be included in the file.  The tables are
+X			implicitly numbered 0,1,etc.  If -quality N is also
+X			specified, the values in the file are scaled according
+X			to cjpeg's quality scaling curve.
+X
+X	-sample HxV[,...]	Set JPEG sampling factors.  If you specify
+X			fewer H/V pairs than there are components, the
+X			remaining components are set to 1x1 sampling.  The
+X			default setting is equivalent to "-sample 2x2".
+X
+XThe "wizard" switches are intended for experimentation with JPEG.  If you
+Xdon't know what you are doing, DON'T USE THEM.  You can easily produce files
+Xwith worse image quality and/or poorer compression than you'll get from the
+Xdefault settings.  Furthermore, these switches should not be used when making
+Xfiles intended for general use, because not all JPEG implementations will
+Xsupport unusual JPEG parameter settings.
+X
+X
+XDJPEG DETAILS
+X
+XThe basic command line switches for djpeg are:
+X
+X	-colors N	Reduce image to at most N colors.  This reduces the
+X	or -quantize N	number of colors used in the output image, so that it
+X			can be displayed on a colormapped display or stored in
+X			a colormapped file format.  For example, if you have
+X			an 8-bit display, you'd need to reduce to 256 or fewer
+X			colors.  (-colors is the recommended name, -quantize
+X			is provided only for backwards compatibility.)
+X
+X	-gif		Select GIF output format.  Since GIF does not support
+X			more than 256 colors, -colors 256 is assumed (unless
+X			you specify a smaller number of colors).
+X
+X	-pnm		Select PBMPLUS (PPM/PGM) output format (this is the
+X			default format).  PGM is emitted if the JPEG file is
+X			gray-scale or if -grayscale is specified; otherwise
+X			PPM is emitted.
+X
+X	-rle		Select RLE output format.  (Requires URT library.)
+X
+X	-targa		Select Targa output format.  Gray-scale format is
+X			emitted if the JPEG file is gray-scale or if
+X			-grayscale is specified; otherwise, colormapped format
+X			is emitted if -colors is specified; otherwise, 24-bit
+X			full-color format is emitted.
+X
+XSwitches for advanced users:
+X
+X	-blocksmooth	Perform cross-block smoothing.  This is quite
+X			memory-intensive and only seems to improve the image
+X			at very low quality settings (-quality 10 to 20 or so).
+X			At normal quality settings it may make things worse.
+X
+X	-grayscale	Force gray-scale output even if JPEG file is color.
+X			Useful for viewing on monochrome displays.
+X
+X	-maxmemory N	Set limit for amount of memory to use in processing
+X			large images.  Value is in thousands of bytes, or
+X			millions of bytes if "M" is attached to the number.
+X			For example, -max 4m selects 4000000 bytes.  If more
+X			space is needed, temporary files will be used.
+X
+X	-nodither	Do not use dithering in color quantization.
+X			By default, Floyd-Steinberg dithering is applied when
+X			quantizing colors, but on some images dithering may
+X			result in objectionable "graininess".  If that
+X			happens, you can turn off dithering with -nodither.
+X			-nodither is ignored unless you also say -colors N.
+X
+X	-onepass	Use one-pass instead of two-pass color quantization.
+X			The one-pass method is faster and needs less memory,
+X			but it produces a lower-quality image.  -onepass is
+X			ignored unless you also say -colors N.  Also,
+X			the one-pass method is always used for gray-scale
+X			output (the two-pass method is no improvement then).
+X
+X	-verbose	Enable debug printout.  More -v's give more printout.
+X	or  -debug	Also, version information is printed at startup.
+X
+X
+XHINTS
+X
+XColor GIF files are not the ideal input for JPEG; JPEG is really intended for
+Xcompressing full-color (24-bit) images.  In particular, don't try to convert
+Xcartoons, line drawings, and other images that have only a few distinct
+Xcolors.  GIF works great on these, JPEG does not.  If you want to convert a
+XGIF to JPEG, you should experiment with cjpeg's -quality and -smooth options
+Xto get a satisfactory conversion.  -smooth 10 or so is often helpful.
+X
+XAvoid running an image through a series of JPEG compression/decompression
+Xcycles.  Image quality loss will accumulate; after ten or so cycles the image
+Xmay be noticeably worse than it was after one cycle.  It's best to use a
+Xlossless format while manipulating an image, then convert to JPEG format when
+Xyou are ready to file the image away.
+X
+XThe -optimize option to cjpeg is worth using when you are making a "final"
+Xversion for posting or archiving.  It's also a win when you are using low
+Xquality settings to make very small JPEG files; the percentage improvement
+Xis often a lot more than it is on larger files.
+X
+XWhen making images to be posted on Usenet, we recommend using cjpeg's option
+X-restart 1.  This option limits the damage done to a compressed image by
+Xnetnews transmission errors.
+X
+XThe default memory usage limit (-maxmemory) is set when the software is
+Xcompiled.  If you get an "insufficient memory" error, try specifying a smaller
+X-maxmemory value, even -maxmemory 0 to use the absolute minimum space.  You
+Xmay want to recompile with a smaller default value if this happens often.
+X
+XOn machines that have "environment" variables, you can define the environment
+Xvariable JPEGMEM to set the default memory limit.  The value is specified as
+Xdescribed for the -maxmemory switch.  JPEGMEM overrides the default value
+Xspecified when the program was compiled, and itself is overridden by an
+Xexplicit -maxmemory switch.
+X
+XOn MS-DOS machines, -maxmemory is the amount of main (conventional) memory to
+Xuse.  (Extended or expanded memory is also used if available.)  Most
+XDOS-specific versions of this software do their own memory space estimation
+Xand do not need -maxmemory.
+X
+Xdjpeg with two-pass color quantization requires a good deal of memory; on
+XMS-DOS machines it may run out of memory even with -maxmemory 0.  In that case
+Xyou can still decompress, with some loss of image quality, by specifying
+X-onepass for one-pass quantization.
+X
+XIf more space is needed than will fit in the available main memory (as
+Xdetermined by -maxmemory), temporary files will be used.  (MS-DOS versions
+Xwill try to get extended or expanded memory first.)  The temporary files are
+Xoften rather large: in typical cases they occupy three bytes per pixel, for
+Xexample 3*800*600 = 1.44Mb for an 800x600 image.  If you don't have enough
+Xfree disk space, leave out -optimize (for cjpeg) or specify -onepass (for
+Xdjpeg).  On MS-DOS, the temporary files are created in the directory named by
+Xthe TMP or TEMP environment variable, or in the current directory if neither
+Xof those exist.  Amiga implementations put the temp files in the directory
+Xnamed by JPEGTMP:, so be sure to assign JPEGTMP: to a disk partition with
+Xadequate free space.
+END_OF_FILE
+  if test 14687 -ne `wc -c <'USAGE'`; then
+    echo shar: \"'USAGE'\" unpacked with wrong size!
+  fi
+  # end of 'USAGE'
+fi
+if test -f 'jchuff.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jchuff.c'\"
+else
+  echo shar: Extracting \"'jchuff.c'\" \(20013 characters\)
+  sed "s/^X//" >'jchuff.c' <<'END_OF_FILE'
+X/*
+X * jchuff.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains Huffman entropy encoding routines.
+X * These routines are invoked via the methods entropy_encode,
+X * entropy_encode_init/term, and entropy_optimize.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/* Static variables to avoid passing 'round extra parameters */
+X
+Xstatic compress_info_ptr cinfo;
+X
+Xstatic INT32 huff_put_buffer;	/* current bit-accumulation buffer */
+Xstatic int huff_put_bits;	/* # of bits now in it */
+X
+Xstatic char * output_buffer;	/* output buffer */
+Xstatic int bytes_in_buffer;
+X
+X
+X
+XLOCAL void
+Xfix_huff_tbl (HUFF_TBL * htbl)
+X/* Compute derived values for a Huffman table */
+X{
+X  int p, i, l, lastp, si;
+X  char huffsize[257];
+X  UINT16 huffcode[257];
+X  UINT16 code;
+X  
+X  /* Figure C.1: make table of Huffman code length for each symbol */
+X  /* Note that this is in code-length order. */
+X
+X  p = 0;
+X  for (l = 1; l <= 16; l++) {
+X    for (i = 1; i <= (int) htbl->bits[l]; i++)
+X      huffsize[p++] = (char) l;
+X  }
+X  huffsize[p] = 0;
+X  lastp = p;
+X  
+X  /* Figure C.2: generate the codes themselves */
+X  /* Note that this is in code-length order. */
+X  
+X  code = 0;
+X  si = huffsize[0];
+X  p = 0;
+X  while (huffsize[p]) {
+X    while (((int) huffsize[p]) == si) {
+X      huffcode[p++] = code;
+X      code++;
+X    }
+X    code <<= 1;
+X    si++;
+X  }
+X  
+X  /* Figure C.3: generate encoding tables */
+X  /* These are code and size indexed by symbol value */
+X
+X  /* Set any codeless symbols to have code length 0;
+X   * this allows emit_bits to detect any attempt to emit such symbols.
+X   */
+X  MEMZERO(htbl->ehufsi, SIZEOF(htbl->ehufsi));
+X
+X  for (p = 0; p < lastp; p++) {
+X    htbl->ehufco[htbl->huffval[p]] = huffcode[p];
+X    htbl->ehufsi[htbl->huffval[p]] = huffsize[p];
+X  }
+X  
+X  /* We don't bother to fill in the decoding tables mincode[], maxcode[], */
+X  /* and valptr[], since they are not used for encoding. */
+X}
+X
+X
+X/* Outputting bytes to the file */
+X
+XLOCAL void
+Xflush_bytes (void)
+X{
+X  if (bytes_in_buffer)
+X    (*cinfo->methods->entropy_output) (cinfo, output_buffer, bytes_in_buffer);
+X  bytes_in_buffer = 0;
+X}
+X
+X
+X#define emit_byte(val)  \
+X  MAKESTMT( if (bytes_in_buffer >= JPEG_BUF_SIZE) \
+X	      flush_bytes(); \
+X	    output_buffer[bytes_in_buffer++] = (char) (val); )
+X
+X
+X
+X/* Outputting bits to the file */
+X
+X/* Only the right 24 bits of huff_put_buffer are used; the valid bits are
+X * left-justified in this part.  At most 16 bits can be passed to emit_bits
+X * in one call, and we never retain more than 7 bits in huff_put_buffer
+X * between calls, so 24 bits are sufficient.
+X */
+X
+XINLINE
+XLOCAL void
+Xemit_bits (UINT16 code, int size)
+X{
+X  /* This routine is heavily used, so it's worth coding tightly. */
+X  register INT32 put_buffer = code;
+X  register int put_bits = huff_put_bits;
+X
+X  /* if size is 0, caller used an invalid Huffman table entry */
+X  if (size == 0)
+X    ERREXIT(cinfo->emethods, "Missing Huffman code table entry");
+X
+X  put_buffer &= (((INT32) 1) << size) - 1; /* Mask off any excess bits in code */
+X  
+X  put_bits += size;		/* new number of bits in buffer */
+X  
+X  put_buffer <<= 24 - put_bits; /* align incoming bits */
+X
+X  put_buffer |= huff_put_buffer; /* and merge with old buffer contents */
+X  
+X  while (put_bits >= 8) {
+X    int c = (int) ((put_buffer >> 16) & 0xFF);
+X    
+X    emit_byte(c);
+X    if (c == 0xFF) {		/* need to stuff a zero byte? */
+X      emit_byte(0);
+X    }
+X    put_buffer <<= 8;
+X    put_bits -= 8;
+X  }
+X
+X  huff_put_buffer = put_buffer;	/* Update global variables */
+X  huff_put_bits = put_bits;
+X}
+X
+X
+XLOCAL void
+Xflush_bits (void)
+X{
+X  emit_bits((UINT16) 0x7F, 7);	/* fill any partial byte with ones */
+X  huff_put_buffer = 0;		/* and reset bit-buffer to empty */
+X  huff_put_bits = 0;
+X}
+X
+X
+X
+X/* Encode a single block's worth of coefficients */
+X/* Note that the DC coefficient has already been converted to a difference */
+X
+XLOCAL void
+Xencode_one_block (JBLOCK block, HUFF_TBL *dctbl, HUFF_TBL *actbl)
+X{
+X  register int temp, temp2;
+X  register int nbits;
+X  register int k, r, i;
+X  
+X  /* Encode the DC coefficient difference per section F.1.2.1 */
+X  
+X  temp = temp2 = block[0];
+X
+X  if (temp < 0) {
+X    temp = -temp;		/* temp is abs value of input */
+X    /* For a negative input, want temp2 = bitwise complement of abs(input) */
+X    /* This code assumes we are on a two's complement machine */
+X    temp2--;
+X  }
+X  
+X  /* Find the number of bits needed for the magnitude of the coefficient */
+X  nbits = 0;
+X  while (temp) {
+X    nbits++;
+X    temp >>= 1;
+X  }
+X  
+X  /* Emit the Huffman-coded symbol for the number of bits */
+X  emit_bits(dctbl->ehufco[nbits], dctbl->ehufsi[nbits]);
+X
+X  /* Emit that number of bits of the value, if positive, */
+X  /* or the complement of its magnitude, if negative. */
+X  if (nbits)			/* emit_bits rejects calls with size 0 */
+X    emit_bits((UINT16) temp2, nbits);
+X  
+X  /* Encode the AC coefficients per section F.1.2.2 */
+X  
+X  r = 0;			/* r = run length of zeros */
+X  
+X  for (k = 1; k < DCTSIZE2; k++) {
+X    if ((temp = block[k]) == 0) {
+X      r++;
+X    } else {
+X      /* if run length > 15, must emit special run-length-16 codes (0xF0) */
+X      while (r > 15) {
+X	emit_bits(actbl->ehufco[0xF0], actbl->ehufsi[0xF0]);
+X	r -= 16;
+X      }
+X
+X      temp2 = temp;
+X      if (temp < 0) {
+X	temp = -temp;		/* temp is abs value of input */
+X	/* This code assumes we are on a two's complement machine */
+X	temp2--;
+X      }
+X      
+X      /* Find the number of bits needed for the magnitude of the coefficient */
+X      nbits = 1;		/* there must be at least one 1 bit */
+X      while (temp >>= 1)
+X	nbits++;
+X      
+X      /* Emit Huffman symbol for run length / number of bits */
+X      i = (r << 4) + nbits;
+X      emit_bits(actbl->ehufco[i], actbl->ehufsi[i]);
+X      
+X      /* Emit that number of bits of the value, if positive, */
+X      /* or the complement of its magnitude, if negative. */
+X      emit_bits((UINT16) temp2, nbits);
+X      
+X      r = 0;
+X    }
+X  }
+X
+X  /* If the last coef(s) were zero, emit an end-of-block code */
+X  if (r > 0)
+X    emit_bits(actbl->ehufco[0], actbl->ehufsi[0]);
+X}
+X
+X
+X
+X/*
+X * Initialize for a Huffman-compressed scan.
+X * This is invoked after writing the SOS marker.
+X * The pipeline controller must establish the entropy_output method pointer
+X * before calling this routine.
+X */
+X
+XMETHODDEF void
+Xhuff_init (compress_info_ptr xinfo)
+X{
+X  short ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Initialize static variables */
+X  cinfo = xinfo;
+X  huff_put_buffer = 0;
+X  huff_put_bits = 0;
+X
+X  /* Initialize the output buffer */
+X  output_buffer = (char *) (*cinfo->emethods->alloc_small)
+X				((size_t) JPEG_BUF_SIZE);
+X  bytes_in_buffer = 0;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Make sure requested tables are present */
+X    if (cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no] == NULL ||
+X	cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no] == NULL)
+X      ERREXIT(cinfo->emethods, "Use of undefined Huffman table");
+X    /* Compute derived values for Huffman tables */
+X    /* We may do this more than once for same table, but it's not a big deal */
+X    fix_huff_tbl(cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no]);
+X    fix_huff_tbl(cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X    /* Initialize DC predictions to 0 */
+X    cinfo->last_dc_val[ci] = 0;
+X  }
+X
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num = 0;
+X}
+X
+X
+X/*
+X * Emit a restart marker & resynchronize predictions.
+X */
+X
+XLOCAL void
+Xemit_restart (compress_info_ptr cinfo)
+X{
+X  short ci;
+X
+X  flush_bits();
+X
+X  emit_byte(0xFF);
+X  emit_byte(RST0 + cinfo->next_restart_num);
+X
+X  /* Re-initialize DC predictions to 0 */
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X    cinfo->last_dc_val[ci] = 0;
+X
+X  /* Update restart state */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X  cinfo->next_restart_num++;
+X  cinfo->next_restart_num &= 7;
+X}
+X
+X
+X/*
+X * Encode and output one MCU's worth of Huffman-compressed coefficients.
+X */
+X
+XMETHODDEF void
+Xhuff_encode (compress_info_ptr cinfo, JBLOCK *MCU_data)
+X{
+X  short blkn, ci;
+X  jpeg_component_info * compptr;
+X  JCOEF temp;
+X
+X  /* Account for restart interval, emit restart marker if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0)
+X      emit_restart(cinfo);
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* Convert DC value to difference, update last_dc_val */
+X    temp = MCU_data[blkn][0];
+X    MCU_data[blkn][0] -= cinfo->last_dc_val[ci];
+X    cinfo->last_dc_val[ci] = temp;
+X    encode_one_block(MCU_data[blkn],
+X		     cinfo->dc_huff_tbl_ptrs[compptr->dc_tbl_no],
+X		     cinfo->ac_huff_tbl_ptrs[compptr->ac_tbl_no]);
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of a Huffman-compressed scan.
+X */
+X
+XMETHODDEF void
+Xhuff_term (compress_info_ptr cinfo)
+X{
+X  /* Flush out the last data */
+X  flush_bits();
+X  flush_bytes();
+X  /* Release the I/O buffer */
+X  (*cinfo->emethods->free_small) ((void *) output_buffer);
+X}
+X
+X
+X
+X
+X/*
+X * Huffman coding optimization.
+X *
+X * This actually is optimization, in the sense that we find the best possible
+X * Huffman table(s) for the given data.  We first scan the supplied data and
+X * count the number of uses of each symbol that is to be Huffman-coded.
+X * (This process must agree with the code above.)  Then we build an
+X * optimal Huffman coding tree for the observed counts.
+X */
+X
+X#ifdef ENTROPY_OPT_SUPPORTED
+X
+X
+X/* These are static so htest_one_block can find 'em */
+Xstatic long * dc_count_ptrs[NUM_HUFF_TBLS];
+Xstatic long * ac_count_ptrs[NUM_HUFF_TBLS];
+X
+X
+XLOCAL void
+Xgen_huff_coding (compress_info_ptr cinfo, HUFF_TBL *htbl, long freq[])
+X/* Generate the optimal coding for the given counts */
+X{
+X#define MAX_CLEN 32		/* assumed maximum initial code length */
+X  UINT8 bits[MAX_CLEN+1];	/* bits[k] = # of symbols with code length k */
+X  short codesize[257];		/* codesize[k] = code length of symbol k */
+X  short others[257];		/* next symbol in current branch of tree */
+X  int c1, c2;
+X  int p, i, j;
+X  long v;
+X
+X  /* This algorithm is explained in section K.2 of the JPEG standard */
+X
+X  MEMZERO(bits, SIZEOF(bits));
+X  MEMZERO(codesize, SIZEOF(codesize));
+X  for (i = 0; i < 257; i++)
+X    others[i] = -1;		/* init links to empty */
+X  
+X  freq[256] = 1;		/* make sure there is a nonzero count */
+X  /* including the pseudo-symbol 256 in the Huffman procedure guarantees
+X   * that no real symbol is given code-value of all ones, because 256
+X   * will be placed in the largest codeword category.
+X   */
+X
+X  /* Huffman's basic algorithm to assign optimal code lengths to symbols */
+X
+X  for (;;) {
+X    /* Find the smallest nonzero frequency, set c1 = its symbol */
+X    /* In case of ties, take the larger symbol number */
+X    c1 = -1;
+X    v = 1000000000L;
+X    for (i = 0; i <= 256; i++) {
+X      if (freq[i] && freq[i] <= v) {
+X	v = freq[i];
+X	c1 = i;
+X      }
+X    }
+X
+X    /* Find the next smallest nonzero frequency, set c2 = its symbol */
+X    /* In case of ties, take the larger symbol number */
+X    c2 = -1;
+X    v = 1000000000L;
+X    for (i = 0; i <= 256; i++) {
+X      if (freq[i] && freq[i] <= v && i != c1) {
+X	v = freq[i];
+X	c2 = i;
+X      }
+X    }
+X
+X    /* Done if we've merged everything into one frequency */
+X    if (c2 < 0)
+X      break;
+X    
+X    /* Else merge the two counts/trees */
+X    freq[c1] += freq[c2];
+X    freq[c2] = 0;
+X
+X    /* Increment the codesize of everything in c1's tree branch */
+X    codesize[c1]++;
+X    while (others[c1] >= 0) {
+X      c1 = others[c1];
+X      codesize[c1]++;
+X    }
+X    
+X    others[c1] = c2;		/* chain c2 onto c1's tree branch */
+X    
+X    /* Increment the codesize of everything in c2's tree branch */
+X    codesize[c2]++;
+X    while (others[c2] >= 0) {
+X      c2 = others[c2];
+X      codesize[c2]++;
+X    }
+X  }
+X
+X  /* Now count the number of symbols of each code length */
+X  for (i = 0; i <= 256; i++) {
+X    if (codesize[i]) {
+X      /* The JPEG standard seems to think that this can't happen, */
+X      /* but I'm paranoid... */
+X      if (codesize[i] > MAX_CLEN)
+X	ERREXIT(cinfo->emethods, "Huffman code size table overflow");
+X
+X      bits[codesize[i]]++;
+X    }
+X  }
+X
+X  /* JPEG doesn't allow symbols with code lengths over 16 bits, so if the pure
+X   * Huffman procedure assigned any such lengths, we must adjust the coding.
+X   * Here is what the JPEG spec says about how this next bit works:
+X   * Since symbols are paired for the longest Huffman code, the symbols are
+X   * removed from this length category two at a time.  The prefix for the pair
+X   * (which is one bit shorter) is allocated to one of the pair; then,
+X   * skipping the BITS entry for that prefix length, a code word from the next
+X   * shortest nonzero BITS entry is converted into a prefix for two code words
+X   * one bit longer.
+X   */
+X  
+X  for (i = MAX_CLEN; i > 16; i--) {
+X    while (bits[i] > 0) {
+X      j = i - 2;		/* find length of new prefix to be used */
+X      while (bits[j] == 0)
+X	j--;
+X      
+X      bits[i] -= 2;		/* remove two symbols */
+X      bits[i-1]++;		/* one goes in this length */
+X      bits[j+1] += 2;		/* two new symbols in this length */
+X      bits[j]--;		/* symbol of this length is now a prefix */
+X    }
+X  }
+X
+X  /* Remove the count for the pseudo-symbol 256 from the largest codelength */
+X  while (bits[i] == 0)		/* find largest codelength still in use */
+X    i--;
+X  bits[i]--;
+X  
+X  /* Return final symbol counts (only for lengths 0..16) */
+X  MEMCOPY(htbl->bits, bits, SIZEOF(htbl->bits));
+X  
+X  /* Return a list of the symbols sorted by code length */
+X  /* It's not real clear to me why we don't need to consider the codelength
+X   * changes made above, but the JPEG spec seems to think this works.
+X   */
+X  p = 0;
+X  for (i = 1; i <= MAX_CLEN; i++) {
+X    for (j = 0; j <= 255; j++) {
+X      if (codesize[j] == i) {
+X	htbl->huffval[p] = (UINT8) j;
+X	p++;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Process a single block's worth of coefficients */
+X/* Note that the DC coefficient has already been converted to a difference */
+X
+XLOCAL void
+Xhtest_one_block (JBLOCK block, JCOEF block0,
+X		 long dc_counts[], long ac_counts[])
+X{
+X  register INT32 temp;
+X  register int nbits;
+X  register int k, r;
+X  
+X  /* Encode the DC coefficient difference per section F.1.2.1 */
+X  
+X  /* Find the number of bits needed for the magnitude of the coefficient */
+X  temp = block0;
+X  if (temp < 0) temp = -temp;
+X  
+X  for (nbits = 0; temp; nbits++)
+X    temp >>= 1;
+X  
+X  /* Count the Huffman symbol for the number of bits */
+X  dc_counts[nbits]++;
+X  
+X  /* Encode the AC coefficients per section F.1.2.2 */
+X  
+X  r = 0;			/* r = run length of zeros */
+X  
+X  for (k = 1; k < DCTSIZE2; k++) {
+X    if ((temp = block[k]) == 0) {
+X      r++;
+X    } else {
+X      /* if run length > 15, must emit special run-length-16 codes (0xF0) */
+X      while (r > 15) {
+X	ac_counts[0xF0]++;
+X	r -= 16;
+X      }
+X      
+X      /* Find the number of bits needed for the magnitude of the coefficient */
+X      if (temp < 0) temp = -temp;
+X      
+X      for (nbits = 0; temp; nbits++)
+X	temp >>= 1;
+X      
+X      /* Count Huffman symbol for run length / number of bits */
+X      ac_counts[(r << 4) + nbits]++;
+X      
+X      r = 0;
+X    }
+X  }
+X
+X  /* If the last coef(s) were zero, emit an end-of-block code */
+X  if (r > 0)
+X    ac_counts[0]++;
+X}
+X
+X
+X
+X/*
+X * Trial-encode one MCU's worth of Huffman-compressed coefficients.
+X */
+X
+XLOCAL void
+Xhtest_encode (compress_info_ptr cinfo, JBLOCK *MCU_data)
+X{
+X  short blkn, ci;
+X  jpeg_component_info * compptr;
+X
+X  /* Take care of restart intervals if needed */
+X  if (cinfo->restart_interval) {
+X    if (cinfo->restarts_to_go == 0) {
+X      /* Re-initialize DC predictions to 0 */
+X      for (ci = 0; ci < cinfo->comps_in_scan; ci++)
+X	cinfo->last_dc_val[ci] = 0;
+X      /* Update restart state */
+X      cinfo->restarts_to_go = cinfo->restart_interval;
+X    }
+X    cinfo->restarts_to_go--;
+X  }
+X
+X  for (blkn = 0; blkn < cinfo->blocks_in_MCU; blkn++) {
+X    ci = cinfo->MCU_membership[blkn];
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* NB: unlike the real entropy encoder, we may not change the input data */
+X    htest_one_block(MCU_data[blkn],
+X		    (JCOEF) (MCU_data[blkn][0] - cinfo->last_dc_val[ci]),
+X		    dc_count_ptrs[compptr->dc_tbl_no],
+X		    ac_count_ptrs[compptr->ac_tbl_no]);
+X    cinfo->last_dc_val[ci] = MCU_data[blkn][0];
+X  }
+X}
+X
+X
+X
+X/*
+X * Find the best coding parameters for a Huffman-coded scan.
+X * When called, the scan data has already been converted to a sequence of
+X * MCU groups of quantized coefficients, which are stored in a "big" array.
+X * The source_method knows how to iterate through that array.
+X * On return, the MCU data is unmodified, but the Huffman tables referenced
+X * by the scan components may have been altered.
+X */
+X
+XMETHODDEF void
+Xhuff_optimize (compress_info_ptr cinfo, MCU_output_caller_ptr source_method)
+X/* Optimize Huffman-coding parameters (Huffman symbol table) */
+X{
+X  int i, tbl;
+X  HUFF_TBL **htblptr;
+X
+X  /* Allocate and zero the count tables */
+X  /* Note that gen_huff_coding expects 257 entries in each table! */
+X
+X  for (i = 0; i < NUM_HUFF_TBLS; i++) {
+X    dc_count_ptrs[i] = NULL;
+X    ac_count_ptrs[i] = NULL;
+X  }
+X
+X  for (i = 0; i < cinfo->comps_in_scan; i++) {
+X    /* Create DC table */
+X    tbl = cinfo->cur_comp_info[i]->dc_tbl_no;
+X    if (dc_count_ptrs[tbl] == NULL) {
+X      dc_count_ptrs[tbl] = (long *) (*cinfo->emethods->alloc_small)
+X					(257 * SIZEOF(long));
+X      MEMZERO(dc_count_ptrs[tbl], 257 * SIZEOF(long));
+X    }
+X    /* Create AC table */
+X    tbl = cinfo->cur_comp_info[i]->ac_tbl_no;
+X    if (ac_count_ptrs[tbl] == NULL) {
+X      ac_count_ptrs[tbl] = (long *) (*cinfo->emethods->alloc_small)
+X					(257 * SIZEOF(long));
+X      MEMZERO(ac_count_ptrs[tbl], 257 * SIZEOF(long));
+X    }
+X  }
+X
+X  /* Initialize DC predictions to 0 */
+X  for (i = 0; i < cinfo->comps_in_scan; i++) {
+X    cinfo->last_dc_val[i] = 0;
+X  }
+X  /* Initialize restart stuff */
+X  cinfo->restarts_to_go = cinfo->restart_interval;
+X
+X  /* Scan the MCU data, count symbol uses */
+X  (*source_method) (cinfo, htest_encode);
+X
+X  /* Now generate optimal Huffman tables */
+X  for (tbl = 0; tbl < NUM_HUFF_TBLS; tbl++) {
+X    if (dc_count_ptrs[tbl] != NULL) {
+X      htblptr = & cinfo->dc_huff_tbl_ptrs[tbl];
+X      if (*htblptr == NULL)
+X	*htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X      /* Set sent_table FALSE so updated table will be written to JPEG file. */
+X      (*htblptr)->sent_table = FALSE;
+X      /* Compute the optimal Huffman encoding */
+X      gen_huff_coding(cinfo, *htblptr, dc_count_ptrs[tbl]);
+X      /* Release the count table */
+X      (*cinfo->emethods->free_small) ((void *) dc_count_ptrs[tbl]);
+X    }
+X    if (ac_count_ptrs[tbl] != NULL) {
+X      htblptr = & cinfo->ac_huff_tbl_ptrs[tbl];
+X      if (*htblptr == NULL)
+X	*htblptr = (HUFF_TBL *) (*cinfo->emethods->alloc_small) (SIZEOF(HUFF_TBL));
+X      /* Set sent_table FALSE so updated table will be written to JPEG file. */
+X      (*htblptr)->sent_table = FALSE;
+X      /* Compute the optimal Huffman encoding */
+X      gen_huff_coding(cinfo, *htblptr, ac_count_ptrs[tbl]);
+X      /* Release the count table */
+X      (*cinfo->emethods->free_small) ((void *) ac_count_ptrs[tbl]);
+X    }
+X  }
+X}
+X
+X
+X#endif /* ENTROPY_OPT_SUPPORTED */
+X
+X
+X/*
+X * The method selection routine for Huffman entropy encoding.
+X */
+X
+XGLOBAL void
+Xjselchuffman (compress_info_ptr cinfo)
+X{
+X  if (! cinfo->arith_code) {
+X    cinfo->methods->entropy_encode_init = huff_init;
+X    cinfo->methods->entropy_encode = huff_encode;
+X    cinfo->methods->entropy_encode_term = huff_term;
+X#ifdef ENTROPY_OPT_SUPPORTED
+X    cinfo->methods->entropy_optimize = huff_optimize;
+X    /* The standard Huffman tables are only valid for 8-bit data precision.
+X     * If the precision is higher, force optimization on so that usable
+X     * tables will be computed.  This test can be removed if default tables
+X     * are supplied that are valid for the desired precision.
+X     */
+X    if (cinfo->data_precision > 8)
+X      cinfo->optimize_coding = TRUE;
+X    if (cinfo->optimize_coding)
+X      cinfo->total_passes++;	/* one pass needed for entropy optimization */
+X#endif
+X  }
+X}
+END_OF_FILE
+  if test 20013 -ne `wc -c <'jchuff.c'`; then
+    echo shar: \"'jchuff.c'\" unpacked with wrong size!
+  fi
+  # end of 'jchuff.c'
+fi
+if test -f 'jrevdct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrevdct.c'\"
+else
+  echo shar: Extracting \"'jrevdct.c'\" \(14090 characters\)
+  sed "s/^X//" >'jrevdct.c' <<'END_OF_FILE'
+X/*
+X * jrevdct.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains the basic inverse-DCT transformation subroutine.
+X *
+X * This implementation is based on an algorithm described in
+X *   C. Loeffler, A. Ligtenberg and G. Moschytz, "Practical Fast 1-D DCT
+X *   Algorithms with 11 Multiplications", Proc. Int'l. Conf. on Acoustics,
+X *   Speech, and Signal Processing 1989 (ICASSP '89), pp. 988-991.
+X * The primary algorithm described there uses 11 multiplies and 29 adds.
+X * We use their alternate method with 12 multiplies and 32 adds.
+X * The advantage of this method is that no data path contains more than one
+X * multiplication; this allows a very simple and accurate implementation in
+X * scaled fixed-point arithmetic, with a minimal number of shifts.
+X */
+X
+X#include "jinclude.h"
+X
+X/*
+X * This routine is specialized to the case DCTSIZE = 8.
+X */
+X
+X#if DCTSIZE != 8
+X  Sorry, this code only copes with 8x8 DCTs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * A 2-D IDCT can be done by 1-D IDCT on each row followed by 1-D IDCT
+X * on each column.  Direct algorithms are also available, but they are
+X * much more complex and seem not to be any faster when reduced to code.
+X *
+X * The poop on this scaling stuff is as follows:
+X *
+X * Each 1-D IDCT step produces outputs which are a factor of sqrt(N)
+X * larger than the true IDCT outputs.  The final outputs are therefore
+X * a factor of N larger than desired; since N=8 this can be cured by
+X * a simple right shift at the end of the algorithm.  The advantage of
+X * this arrangement is that we save two multiplications per 1-D IDCT,
+X * because the y0 and y4 inputs need not be divided by sqrt(N).
+X *
+X * We have to do addition and subtraction of the integer inputs, which
+X * is no problem, and multiplication by fractional constants, which is
+X * a problem to do in integer arithmetic.  We multiply all the constants
+X * by CONST_SCALE and convert them to integer constants (thus retaining
+X * CONST_BITS bits of precision in the constants).  After doing a
+X * multiplication we have to divide the product by CONST_SCALE, with proper
+X * rounding, to produce the correct output.  This division can be done
+X * cheaply as a right shift of CONST_BITS bits.  We postpone shifting
+X * as long as possible so that partial sums can be added together with
+X * full fractional precision.
+X *
+X * The outputs of the first pass are scaled up by PASS1_BITS bits so that
+X * they are represented to better-than-integral precision.  These outputs
+X * require BITS_IN_JSAMPLE + PASS1_BITS + 3 bits; this fits in a 16-bit word
+X * with the recommended scaling.  (To scale up 12-bit sample data further, an
+X * intermediate INT32 array would be needed.)
+X *
+X * To avoid overflow of the 32-bit intermediate results in pass 2, we must
+X * have BITS_IN_JSAMPLE + CONST_BITS + PASS1_BITS <= 26.  Error analysis
+X * shows that the values given below are the most effective.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#define CONST_BITS  13
+X#define PASS1_BITS  2
+X#else
+X#define CONST_BITS  13
+X#define PASS1_BITS  1		/* lose a little precision to avoid overflow */
+X#endif
+X
+X#define ONE	((INT32) 1)
+X
+X#define CONST_SCALE (ONE << CONST_BITS)
+X
+X/* Convert a positive real constant to an integer scaled by CONST_SCALE. */
+X
+X#define FIX(x)	((INT32) ((x) * CONST_SCALE + 0.5))
+X
+X/* Some C compilers fail to reduce "FIX(constant)" at compile time, thus
+X * causing a lot of useless floating-point operations at run time.
+X * To get around this we use the following pre-calculated constants.
+X * If you change CONST_BITS you may want to add appropriate values.
+X * (With a reasonable C compiler, you can just rely on the FIX() macro...)
+X */
+X
+X#if CONST_BITS == 13
+X#define FIX_0_298631336  ((INT32)  2446)	/* FIX(0.298631336) */
+X#define FIX_0_390180644  ((INT32)  3196)	/* FIX(0.390180644) */
+X#define FIX_0_541196100  ((INT32)  4433)	/* FIX(0.541196100) */
+X#define FIX_0_765366865  ((INT32)  6270)	/* FIX(0.765366865) */
+X#define FIX_0_899976223  ((INT32)  7373)	/* FIX(0.899976223) */
+X#define FIX_1_175875602  ((INT32)  9633)	/* FIX(1.175875602) */
+X#define FIX_1_501321110  ((INT32)  12299)	/* FIX(1.501321110) */
+X#define FIX_1_847759065  ((INT32)  15137)	/* FIX(1.847759065) */
+X#define FIX_1_961570560  ((INT32)  16069)	/* FIX(1.961570560) */
+X#define FIX_2_053119869  ((INT32)  16819)	/* FIX(2.053119869) */
+X#define FIX_2_562915447  ((INT32)  20995)	/* FIX(2.562915447) */
+X#define FIX_3_072711026  ((INT32)  25172)	/* FIX(3.072711026) */
+X#else
+X#define FIX_0_298631336  FIX(0.298631336)
+X#define FIX_0_390180644  FIX(0.390180644)
+X#define FIX_0_541196100  FIX(0.541196100)
+X#define FIX_0_765366865  FIX(0.765366865)
+X#define FIX_0_899976223  FIX(0.899976223)
+X#define FIX_1_175875602  FIX(1.175875602)
+X#define FIX_1_501321110  FIX(1.501321110)
+X#define FIX_1_847759065  FIX(1.847759065)
+X#define FIX_1_961570560  FIX(1.961570560)
+X#define FIX_2_053119869  FIX(2.053119869)
+X#define FIX_2_562915447  FIX(2.562915447)
+X#define FIX_3_072711026  FIX(3.072711026)
+X#endif
+X
+X
+X/* Descale and correctly round an INT32 value that's scaled by N bits.
+X * We assume RIGHT_SHIFT rounds towards minus infinity, so adding
+X * the fudge factor is correct for either sign of X.
+X */
+X
+X#define DESCALE(x,n)  RIGHT_SHIFT((x) + (ONE << ((n)-1)), n)
+X
+X/* Multiply an INT32 variable by an INT32 constant to yield an INT32 result.
+X * For 8-bit samples with the recommended scaling, all the variable
+X * and constant values involved are no more than 16 bits wide, so a
+X * 16x16->32 bit multiply can be used instead of a full 32x32 multiply;
+X * this provides a useful speedup on many machines.
+X * There is no way to specify a 16x16->32 multiply in portable C, but
+X * some C compilers will do the right thing if you provide the correct
+X * combination of casts.
+X * NB: for 12-bit samples, a full 32-bit multiplication will be needed.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#ifdef SHORTxSHORT_32		/* may work if 'int' is 32 bits */
+X#define MULTIPLY(var,const)  (((INT16) (var)) * ((INT16) (const)))
+X#endif
+X#ifdef SHORTxLCONST_32		/* known to work with Microsoft C 6.0 */
+X#define MULTIPLY(var,const)  (((INT16) (var)) * ((INT32) (const)))
+X#endif
+X#endif
+X
+X#ifndef MULTIPLY		/* default definition */
+X#define MULTIPLY(var,const)  ((var) * (const))
+X#endif
+X
+X
+X/*
+X * Perform the inverse DCT on one block of coefficients.
+X */
+X
+XGLOBAL void
+Xj_rev_dct (DCTBLOCK data)
+X{
+X  INT32 tmp0, tmp1, tmp2, tmp3;
+X  INT32 tmp10, tmp11, tmp12, tmp13;
+X  INT32 z1, z2, z3, z4, z5;
+X  register DCTELEM *dataptr;
+X  int rowctr;
+X  SHIFT_TEMPS
+X
+X  /* Pass 1: process rows. */
+X  /* Note results are scaled up by sqrt(8) compared to a true IDCT; */
+X  /* furthermore, we scale the results by 2**PASS1_BITS. */
+X
+X  dataptr = data;
+X  for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X    /* Due to quantization, we will usually find that many of the input
+X     * coefficients are zero, especially the AC terms.  We can exploit this
+X     * by short-circuiting the IDCT calculation for any row in which all
+X     * the AC terms are zero.  In that case each output is equal to the
+X     * DC coefficient (with scale factor as needed).
+X     * With typical images and quantization tables, half or more of the
+X     * row DCT calculations can be simplified this way.
+X     */
+X
+X    if ((dataptr[1] | dataptr[2] | dataptr[3] | dataptr[4] |
+X	 dataptr[5] | dataptr[6] | dataptr[7]) == 0) {
+X      /* AC terms all zero */
+X      DCTELEM dcval = (DCTELEM) (dataptr[0] << PASS1_BITS);
+X      
+X      dataptr[0] = dcval;
+X      dataptr[1] = dcval;
+X      dataptr[2] = dcval;
+X      dataptr[3] = dcval;
+X      dataptr[4] = dcval;
+X      dataptr[5] = dcval;
+X      dataptr[6] = dcval;
+X      dataptr[7] = dcval;
+X      
+X      dataptr += DCTSIZE;	/* advance pointer to next row */
+X      continue;
+X    }
+X
+X    /* Even part: reverse the even part of the forward DCT. */
+X    /* The rotator is sqrt(2)*c(-6). */
+X
+X    z2 = (INT32) dataptr[2];
+X    z3 = (INT32) dataptr[6];
+X
+X    z1 = MULTIPLY(z2 + z3, FIX_0_541196100);
+X    tmp2 = z1 + MULTIPLY(z3, - FIX_1_847759065);
+X    tmp3 = z1 + MULTIPLY(z2, FIX_0_765366865);
+X
+X    tmp0 = ((INT32) dataptr[0] + (INT32) dataptr[4]) << CONST_BITS;
+X    tmp1 = ((INT32) dataptr[0] - (INT32) dataptr[4]) << CONST_BITS;
+X
+X    tmp10 = tmp0 + tmp3;
+X    tmp13 = tmp0 - tmp3;
+X    tmp11 = tmp1 + tmp2;
+X    tmp12 = tmp1 - tmp2;
+X    
+X    /* Odd part per figure 8; the matrix is unitary and hence its
+X     * transpose is its inverse.  i0..i3 are y7,y5,y3,y1 respectively.
+X     */
+X
+X    tmp0 = (INT32) dataptr[7];
+X    tmp1 = (INT32) dataptr[5];
+X    tmp2 = (INT32) dataptr[3];
+X    tmp3 = (INT32) dataptr[1];
+X
+X    z1 = tmp0 + tmp3;
+X    z2 = tmp1 + tmp2;
+X    z3 = tmp0 + tmp2;
+X    z4 = tmp1 + tmp3;
+X    z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
+X    
+X    tmp0 = MULTIPLY(tmp0, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+X    tmp1 = MULTIPLY(tmp1, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+X    tmp2 = MULTIPLY(tmp2, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+X    tmp3 = MULTIPLY(tmp3, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+X    z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+X    z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+X    z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+X    z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
+X    
+X    z3 += z5;
+X    z4 += z5;
+X    
+X    tmp0 += z1 + z3;
+X    tmp1 += z2 + z4;
+X    tmp2 += z2 + z3;
+X    tmp3 += z1 + z4;
+X
+X    /* Final output stage: inputs are tmp10..tmp13, tmp0..tmp3 */
+X
+X    dataptr[0] = (DCTELEM) DESCALE(tmp10 + tmp3, CONST_BITS-PASS1_BITS);
+X    dataptr[7] = (DCTELEM) DESCALE(tmp10 - tmp3, CONST_BITS-PASS1_BITS);
+X    dataptr[1] = (DCTELEM) DESCALE(tmp11 + tmp2, CONST_BITS-PASS1_BITS);
+X    dataptr[6] = (DCTELEM) DESCALE(tmp11 - tmp2, CONST_BITS-PASS1_BITS);
+X    dataptr[2] = (DCTELEM) DESCALE(tmp12 + tmp1, CONST_BITS-PASS1_BITS);
+X    dataptr[5] = (DCTELEM) DESCALE(tmp12 - tmp1, CONST_BITS-PASS1_BITS);
+X    dataptr[3] = (DCTELEM) DESCALE(tmp13 + tmp0, CONST_BITS-PASS1_BITS);
+X    dataptr[4] = (DCTELEM) DESCALE(tmp13 - tmp0, CONST_BITS-PASS1_BITS);
+X
+X    dataptr += DCTSIZE;		/* advance pointer to next row */
+X  }
+X
+X  /* Pass 2: process columns. */
+X  /* Note that we must descale the results by a factor of 8 == 2**3, */
+X  /* and also undo the PASS1_BITS scaling. */
+X
+X  dataptr = data;
+X  for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X    /* Columns of zeroes can be exploited in the same way as we did with rows.
+X     * However, the row calculation has created many nonzero AC terms, so the
+X     * simplification applies less often (typically 5% to 10% of the time).
+X     * On machines with very fast multiplication, it's possible that the
+X     * test takes more time than it's worth.  In that case this section
+X     * may be commented out.
+X     */
+X
+X#ifndef NO_ZERO_COLUMN_TEST
+X    if ((dataptr[DCTSIZE*1] | dataptr[DCTSIZE*2] | dataptr[DCTSIZE*3] |
+X	 dataptr[DCTSIZE*4] | dataptr[DCTSIZE*5] | dataptr[DCTSIZE*6] |
+X	 dataptr[DCTSIZE*7]) == 0) {
+X      /* AC terms all zero */
+X      DCTELEM dcval = (DCTELEM) DESCALE((INT32) dataptr[0], PASS1_BITS+3);
+X      
+X      dataptr[DCTSIZE*0] = dcval;
+X      dataptr[DCTSIZE*1] = dcval;
+X      dataptr[DCTSIZE*2] = dcval;
+X      dataptr[DCTSIZE*3] = dcval;
+X      dataptr[DCTSIZE*4] = dcval;
+X      dataptr[DCTSIZE*5] = dcval;
+X      dataptr[DCTSIZE*6] = dcval;
+X      dataptr[DCTSIZE*7] = dcval;
+X      
+X      dataptr++;		/* advance pointer to next column */
+X      continue;
+X    }
+X#endif
+X
+X    /* Even part: reverse the even part of the forward DCT. */
+X    /* The rotator is sqrt(2)*c(-6). */
+X
+X    z2 = (INT32) dataptr[DCTSIZE*2];
+X    z3 = (INT32) dataptr[DCTSIZE*6];
+X
+X    z1 = MULTIPLY(z2 + z3, FIX_0_541196100);
+X    tmp2 = z1 + MULTIPLY(z3, - FIX_1_847759065);
+X    tmp3 = z1 + MULTIPLY(z2, FIX_0_765366865);
+X
+X    tmp0 = ((INT32) dataptr[DCTSIZE*0] + (INT32) dataptr[DCTSIZE*4]) << CONST_BITS;
+X    tmp1 = ((INT32) dataptr[DCTSIZE*0] - (INT32) dataptr[DCTSIZE*4]) << CONST_BITS;
+X
+X    tmp10 = tmp0 + tmp3;
+X    tmp13 = tmp0 - tmp3;
+X    tmp11 = tmp1 + tmp2;
+X    tmp12 = tmp1 - tmp2;
+X    
+X    /* Odd part per figure 8; the matrix is unitary and hence its
+X     * transpose is its inverse.  i0..i3 are y7,y5,y3,y1 respectively.
+X     */
+X
+X    tmp0 = (INT32) dataptr[DCTSIZE*7];
+X    tmp1 = (INT32) dataptr[DCTSIZE*5];
+X    tmp2 = (INT32) dataptr[DCTSIZE*3];
+X    tmp3 = (INT32) dataptr[DCTSIZE*1];
+X
+X    z1 = tmp0 + tmp3;
+X    z2 = tmp1 + tmp2;
+X    z3 = tmp0 + tmp2;
+X    z4 = tmp1 + tmp3;
+X    z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
+X    
+X    tmp0 = MULTIPLY(tmp0, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+X    tmp1 = MULTIPLY(tmp1, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+X    tmp2 = MULTIPLY(tmp2, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+X    tmp3 = MULTIPLY(tmp3, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+X    z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+X    z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+X    z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+X    z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
+X    
+X    z3 += z5;
+X    z4 += z5;
+X    
+X    tmp0 += z1 + z3;
+X    tmp1 += z2 + z4;
+X    tmp2 += z2 + z3;
+X    tmp3 += z1 + z4;
+X
+X    /* Final output stage: inputs are tmp10..tmp13, tmp0..tmp3 */
+X
+X    dataptr[DCTSIZE*0] = (DCTELEM) DESCALE(tmp10 + tmp3,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*7] = (DCTELEM) DESCALE(tmp10 - tmp3,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*1] = (DCTELEM) DESCALE(tmp11 + tmp2,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*6] = (DCTELEM) DESCALE(tmp11 - tmp2,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*2] = (DCTELEM) DESCALE(tmp12 + tmp1,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*5] = (DCTELEM) DESCALE(tmp12 - tmp1,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*3] = (DCTELEM) DESCALE(tmp13 + tmp0,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*4] = (DCTELEM) DESCALE(tmp13 - tmp0,
+X					   CONST_BITS+PASS1_BITS+3);
+X    
+X    dataptr++;			/* advance pointer to next column */
+X  }
+X}
+END_OF_FILE
+  if test 14090 -ne `wc -c <'jrevdct.c'`; then
+    echo shar: \"'jrevdct.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrevdct.c'
+fi
+if test -f 'makefile.manx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.manx'\"
+else
+  echo shar: Extracting \"'makefile.manx'\" \(6175 characters\)
+  sed "s/^X//" >'makefile.manx' <<'END_OF_FILE'
+X# Makefile for Independent JPEG Group's software
+X
+X# This makefile is for Amiga systems using Manx Aztec C ver 5.x.
+X# Use jmemname.c as the system-dependent memory manager.
+X# Thanks to D.J. James (djjames@cup.portal.com) for this version.
+X
+X# Read SETUP instructions before saying "make" !!
+X
+X# The name of your C compiler:
+XCC= cc
+X
+X# You may need to adjust these cc options:
+X# uncomment for generic 68000 code (will work on any Amiga)
+XARCHFLAGS= -sn
+X
+X# uncomment for 68020/68030 code (faster, but won't run on 68000 CPU)
+X#ARCHFLAGS= -c2
+X
+XCFLAGS= -MC -MD -DAMIGA -DTWO_FILE_COMMANDLINE -DNEED_SIGNAL_CATCHER \
+X	-Dsignal_catcher=_abort -DSHORTxSHORT_32 $(ARCHFLAGS) -spfam -r4
+X
+X# Link-time cc options:
+XLDFLAGS= -g
+X
+X# To link any special libraries, add the necessary -l commands here.
+XLDLIBS= -lml -lcl
+X
+X# miscellaneous OS-dependent stuff
+X# linker
+XLN= ln
+X# file deletion command
+XRM= delete quiet
+X# library (.lib) file creation command
+XAR= lb
+X
+X
+X# source files (independently compilable files)
+XSOURCES= jbsmooth.c jcarith.c jccolor.c jcdeflts.c jcexpand.c jchuff.c \
+X        jcmain.c jcmaster.c jcmcu.c jcpipe.c jcsample.c jdarith.c jdcolor.c \
+X        jddeflts.c jdhuff.c jdmain.c jdmaster.c jdmcu.c jdpipe.c jdsample.c \
+X        jerror.c jquant1.c jquant2.c jfwddct.c jrevdct.c jutils.c jmemmgr.c \
+X        jrdjfif.c jrdgif.c jrdppm.c jrdrle.c jrdtarga.c jwrjfif.c jwrgif.c \
+X        jwrppm.c jwrrle.c jwrtarga.c
+X# virtual source files (not present in distribution file, see SETUP)
+XVIRTSOURCES= jmemsys.c
+X# system-dependent implementations of virtual source files
+XSYSDEPFILES= jmemansi.c jmemname.c jmemnobs.c jmemdos.c jmemdos.h \
+X        jmemdosa.asm
+X# files included by source files
+XINCLUDES= jinclude.h jconfig.h jpegdata.h jversion.h jmemsys.h
+X# documentation, test, and support files
+XDOCS= README SETUP USAGE CHANGELOG cjpeg.1 djpeg.1 architecture codingrules
+XMAKEFILES= makefile.ansi makefile.unix makefile.manx makefile.sas \
+X        makcjpeg.st makdjpeg.st makljpeg.st makefile.mc5 makefile.mc6 \
+X        makefile.bcc makefile.mms makefile.vms makvms.opt
+XOTHERFILES= ansi2knr.c ckconfig.c example.c
+XTESTFILES= testorig.jpg testimg.ppm testimg.gif testimg.jpg
+XDISTFILES= $(DOCS) $(MAKEFILES) $(SOURCES) $(SYSDEPFILES) $(INCLUDES) \
+X        $(OTHERFILES) $(TESTFILES)
+X# objectfiles common to cjpeg and djpeg
+XCOMOBJECTS= jutils.o jerror.o jmemmgr.o jmemsys.o
+X# compression objectfiles
+XCLIBOBJECTS= jcmaster.o jcdeflts.o jcarith.o jccolor.o jcexpand.o jchuff.o \
+X        jcmcu.o jcpipe.o jcsample.o jfwddct.o jwrjfif.o jrdgif.o jrdppm.o \
+X        jrdrle.o jrdtarga.o
+XCOBJECTS= jcmain.o $(CLIBOBJECTS) $(COMOBJECTS)
+X# decompression objectfiles
+XDLIBOBJECTS= jdmaster.o jddeflts.o jbsmooth.o jdarith.o jdcolor.o jdhuff.o \
+X        jdmcu.o jdpipe.o jdsample.o jquant1.o jquant2.o jrevdct.o jrdjfif.o \
+X        jwrgif.o jwrppm.o jwrrle.o jwrtarga.o
+XDOBJECTS= jdmain.o $(DLIBOBJECTS) $(COMOBJECTS)
+X# These objectfiles are included in libjpeg.lib
+XLIBOBJECTS= $(CLIBOBJECTS) $(DLIBOBJECTS) $(COMOBJECTS)
+X
+X
+Xall: cjpeg djpeg
+X# By default, libjpeg.lib is not built unless you explicitly request it.
+X# You can add libjpeg.lib to the line above if you want it built by default.
+X
+X
+Xcjpeg: $(COBJECTS)
+X	$(LN) $(LDFLAGS) -o cjpeg $(COBJECTS) $(LDLIBS)
+X
+Xdjpeg: $(DOBJECTS)
+X	$(LN) $(LDFLAGS) -o djpeg $(DOBJECTS) $(LDLIBS)
+X
+X# libjpeg.lib is useful if you are including the JPEG software in a larger
+X# program; you'd include it in your link, rather than the individual modules.
+Xlibjpeg.lib: $(LIBOBJECTS)
+X	-$(RM) libjpeg.lib
+X	$(AR) libjpeg.lib  $(LIBOBJECTS)
+X
+Xjmemsys.c:
+X	echo You must select a system-dependent jmemsys.c file.
+X	echo Please read the SETUP directions.
+X	exit 1
+X
+Xclean:
+X	-$(RM) *.o cjpeg djpeg libjpeg.lib core testout.*
+X
+Xdistribute:
+X	-$(RM) jpegsrc.tar*
+X	tar cvf jpegsrc.tar $(DISTFILES)
+X	compress -v jpegsrc.tar
+X
+Xtest: cjpeg djpeg
+X	-$(RM) testout.ppm testout.gif testout.jpg
+X	djpeg testorig.jpg testout.ppm
+X	djpeg -gif testorig.jpg testout.gif
+X	cjpeg testimg.ppm testout.jpg
+X	cmp testimg.ppm testout.ppm
+X	cmp testimg.gif testout.gif
+X	cmp testimg.jpg testout.jpg
+X
+X
+Xjbsmooth.o : jbsmooth.c jinclude.h jconfig.h jpegdata.h 
+Xjcarith.o : jcarith.c jinclude.h jconfig.h jpegdata.h 
+Xjccolor.o : jccolor.c jinclude.h jconfig.h jpegdata.h 
+Xjcdeflts.o : jcdeflts.c jinclude.h jconfig.h jpegdata.h 
+Xjcexpand.o : jcexpand.c jinclude.h jconfig.h jpegdata.h 
+Xjchuff.o : jchuff.c jinclude.h jconfig.h jpegdata.h 
+Xjcmain.o : jcmain.c jinclude.h jconfig.h jpegdata.h jversion.h 
+Xjcmaster.o : jcmaster.c jinclude.h jconfig.h jpegdata.h 
+Xjcmcu.o : jcmcu.c jinclude.h jconfig.h jpegdata.h 
+Xjcpipe.o : jcpipe.c jinclude.h jconfig.h jpegdata.h 
+Xjcsample.o : jcsample.c jinclude.h jconfig.h jpegdata.h 
+Xjdarith.o : jdarith.c jinclude.h jconfig.h jpegdata.h 
+Xjdcolor.o : jdcolor.c jinclude.h jconfig.h jpegdata.h 
+Xjddeflts.o : jddeflts.c jinclude.h jconfig.h jpegdata.h 
+Xjdhuff.o : jdhuff.c jinclude.h jconfig.h jpegdata.h 
+Xjdmain.o : jdmain.c jinclude.h jconfig.h jpegdata.h jversion.h 
+Xjdmaster.o : jdmaster.c jinclude.h jconfig.h jpegdata.h 
+Xjdmcu.o : jdmcu.c jinclude.h jconfig.h jpegdata.h 
+Xjdpipe.o : jdpipe.c jinclude.h jconfig.h jpegdata.h 
+Xjdsample.o : jdsample.c jinclude.h jconfig.h jpegdata.h 
+Xjerror.o : jerror.c jinclude.h jconfig.h jpegdata.h 
+Xjquant1.o : jquant1.c jinclude.h jconfig.h jpegdata.h 
+Xjquant2.o : jquant2.c jinclude.h jconfig.h jpegdata.h 
+Xjfwddct.o : jfwddct.c jinclude.h jconfig.h jpegdata.h 
+Xjrevdct.o : jrevdct.c jinclude.h jconfig.h jpegdata.h 
+Xjutils.o : jutils.c jinclude.h jconfig.h jpegdata.h 
+Xjmemmgr.o : jmemmgr.c jinclude.h jconfig.h jpegdata.h jmemsys.h 
+Xjrdjfif.o : jrdjfif.c jinclude.h jconfig.h jpegdata.h 
+Xjrdgif.o : jrdgif.c jinclude.h jconfig.h jpegdata.h 
+Xjrdppm.o : jrdppm.c jinclude.h jconfig.h jpegdata.h 
+Xjrdrle.o : jrdrle.c jinclude.h jconfig.h jpegdata.h 
+Xjrdtarga.o : jrdtarga.c jinclude.h jconfig.h jpegdata.h 
+Xjwrjfif.o : jwrjfif.c jinclude.h jconfig.h jpegdata.h 
+Xjwrgif.o : jwrgif.c jinclude.h jconfig.h jpegdata.h 
+Xjwrppm.o : jwrppm.c jinclude.h jconfig.h jpegdata.h 
+Xjwrrle.o : jwrrle.c jinclude.h jconfig.h jpegdata.h 
+Xjwrtarga.o : jwrtarga.c jinclude.h jconfig.h jpegdata.h 
+Xjmemsys.o : jmemsys.c jinclude.h jconfig.h jpegdata.h jmemsys.h 
+END_OF_FILE
+  if test 6175 -ne `wc -c <'makefile.manx'`; then
+    echo shar: \"'makefile.manx'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.manx'
+fi
+echo shar: End of archive 12 \(of 18\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

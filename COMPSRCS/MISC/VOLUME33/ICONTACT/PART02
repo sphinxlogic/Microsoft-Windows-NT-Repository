@@ -1,0 +1,1402 @@
+Newsgroups: comp.sources.misc
+From: cs62a12@wind.ucsd.edu (Mark Hanson)
+Subject:  v33i031:  icontact - perl script to create contact sheets of images, v1.3, Part02/02
+Message-ID: <1992Nov2.052209.28075@sparky.imd.sterling.com>
+X-Md4-Signature: bba5fda55f3c883f7f383ca03f67cec7
+Date: Mon, 2 Nov 1992 05:22:09 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cs62a12@wind.ucsd.edu (Mark Hanson)
+Posting-number: Volume 33, Issue 31
+Archive-name: icontact/part02
+Environment: UNIX, perl, pbmplus
+Supersedes: icontact: Volume 30, Issue 77
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  icontact
+# Wrapped by mark@eggman on Sun Oct 25 15:29:45 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'icontact' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'icontact'\"
+else
+echo shar: Extracting \"'icontact'\" \(38651 characters\)
+sed "s/^X//" >'icontact' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X
+X# Copyright (C) 1992 Mark B. Hanson
+X# Permission to use, copy, modify, and distribute this software and its
+X# documentation for any purpose and without fee is hereby granted,
+X# provided that both the above copyright notice and this permission
+X# notice appear in all copies and in supporting documentation.  This
+X# software is provided "as is" without express or implied warranty.
+X
+X$program = 'icontact';
+X$version = '1.3 (25oct92)';
+X$copyright = 'Copyright (C) 1992';
+X$author = 'Mark B. Hanson (cs62a12@wind.ucsd.edu)';
+X
+X
+X#
+X# default values for parameters that correspond to command line switches
+X# (you probably don't want to change these. use a configuration file instead)
+X#
+X
+X$AutoOff = 0;       # boolean,  0 = sheet numbers start with 0
+X                    #           1 = start with next highest number
+X$Auto = 0;          # boolean,  0 = use $Columns and $Rows
+X                    #           1 = dynamically sized to $Xdim, $Ydim
+X$Base = 0;          # boolean,  0 = display whole filename in labels 
+X                    #           1 = display basename of filenames in labels 
+X$Borders = 0;       # boolean,  0 = no spiffy borders around each image
+X                    #           1 = spiffy borders around each image
+X$Ignore = 0;        # boolean,  0 = use configuration file
+X                    #           1 = don't use configuration file
+X$Ident = 0;         # boolean,  0 = don't pad images, just scale them
+X                    #           1 = pad each image to be the same size
+X$Labels = 0;        # boolean,  0 = no labels
+X                    #           1 = labels
+X$Left = 0;          # boolean,  0 = center justify rows
+X                    #           1 = left justify rows
+X$Param = 0;         # boolean,  0 = no parameter files for sheets
+X                    #           1 = generate parameter files for sheets
+X$Silent = 0;        # boolean,  0 = normal output
+X                    #           1 = no output except warnings and errors
+X$Sort = 0;          # boolean,  0 = don't sort filenames
+X                    #           1 = sort filenames
+X$Uniq = 0;          # boolean,  0 = leave duplicates in file list
+X                    #           1 = remove duplicates from file list
+X$Verbose = 0;       # boolean,  0 = normal output
+X                    #           1 = show execution
+X$Xsame = 0;         # boolean,  0 = don't make all the images the same width
+X                    #           1 = make all the images the same width
+X$Ysame = 0;         # boolean,  0 = don't make all the images the same height
+X                    #           1 = make all the images the same height
+X
+X$Columns = 7;       # n > 0,    number of columns in sheets (!auto mode)
+X$Rows = 7;          # n > 0,    number of rows in sheets (!auto mode)
+X
+X$Xdim = 1152;       # n > 0,    width of max sheet size (auto mode)
+X$Ydim = 900;        # n > 0,    height of max sheet size (auto mode)
+X
+X$Width = 100;       # n > 0,    max width of each image
+X$Height = 100;      # n > 0,    max height of each image
+X
+X$Config = '~/.icrc';# string,   name of the configuration file
+X
+X$Dir =  '.';        # string,   directory to put finished sheets in
+X
+X$Prefix = 'ic-';    # string,   prefix for filename of sheets
+X
+X$Offset = 1;        # n > 0,    start at n when numbering the sheets
+X
+X$Tempdir = '/tmp';  # string,   directory to use for temporary files
+X
+X$Font = '';         # string,   name of a file to use as a font with pbmtext
+X                    #           null = use default.
+X
+X$Format = '.ppm.Z'; # string,   the format in which sheets are to be encoded
+X
+X$Namefile = '';     # string,   name of a file from which to get more filenames
+X
+X$Suffix = '.icp';   # string,   suffix of parameter files
+X
+X$Quant = 0;         # n >= 0,   number of colors to be left in sheets
+X                    #           a value of 0 means no quantization
+X
+X$Qprog =            # string,   quantization program that takes the number of
+X    'ppmquant -fs'; #           colors as an argument
+X
+X$DefFmt = '.gif';   # string,   default format to use if image has no suffix.
+X
+X$Stripe =           # string,   list of colors to be used for borders
+X    'black white black';
+X
+X$Text = 'white';    # string,   color of text for labels
+X
+X$Back = 'black';    # string,   default color for background
+X
+X$Pad = $Back;       # string,   color to use for padding area when using -i
+X
+X$Nice = 0;          # n,        nice value for children
+X
+X
+X#
+X# The tables below are filled with common examples that I typed in to save
+X# you some time and to give you a feel for how icontact decides how to
+X# {en,de}code files.  Don't worry if your particular set of favorite programs
+X# and file name extensions is not listed here.  Like it says in the man
+X# page: `icontact is highly configurable.'  Use a configuration file to make
+X# icontact use any set of programs and filename extensions you want.
+X#
+X
+X#
+X# associative array to go from file suffix -> ppm.
+X#
+X
+X%decode = (
+X    'Z',        'trap \'exit 130\' 2; zcat',
+X    'atk',      'atktopbm',
+X    'brush',    'brushtopbm',
+X    'cmuwm',    'cmuwmtopbm',
+X    'fits',     'fitstopgm',
+X    'fs',       'fstopgm',
+X    'g3',       'g3topbm',
+X    'gem',      'gemtopbm',
+X    'gif',      'giftoppm',
+X    'gould',    'gouldtoppm',
+X    'hips',     'hipstopgm',
+X    'icon',     'icontopbm',
+X    'ilbm',     'ilbmtoppm',
+X    'jpg',      'djpeg',
+X    'lispm',    'lispmtopgm',
+X    'macp',     'macptopbm',
+X    'mgr',      'mgrtopbm',
+X    'mtv',      'mtvtoppm',
+X    'pbm',      '',
+X    'pcx',      'pcxtoppm',
+X    'pgm',      '',
+X    'pi1',      'pi1toppm',
+X    'pi3',      'pi3toppm',
+X    'pict',     'picttoppm',
+X    'pj',       'pjtoppm',
+X    'ppm',      '',
+X    'qrt',      'qrttoppm',
+X    'rast',     'rasttopnm',
+X    'spc',      'spctoppm',
+X    'spu',      'sputoppm',
+X    'tga',      'tgatoppm',
+X    'tiff',     'tifftopnm',
+X    'tif',      'tifftopnm',
+X    'xbm',      'xbmtopbm',
+X    'xim',      'ximtoppm',
+X    'xpm',      'xpmtoppm',
+X    'xwd',      'xwdtopnm',
+X    'ybm',      'ybmtopbm',
+X    'yuv',      'yuvtoppm',
+X);
+X
+X
+X#
+X# associative array to go from ppm -> file suffix.
+X#
+X
+X%encode = (
+X    '10x',      'ppmtopgm | pgmtopbm | pbmto10x',
+X    'Z',        '(compress -v -f; exit 0)',
+X    'ascii',    'ppmtopgm | pgmtopbm | pbmtoascii',
+X    'atk',      'ppmtopgm | pgmtopbm | pbmtoatk',
+X    'bbnbg',    'ppmtopgm | pgmtopbm | pbmtobbnbg',
+X    'cmuwm',    'ppmtopgm | pgmtopbm | pbmtocmuwm',
+X    'epson',    'ppmtopgm | pgmtopbm | pbmtoepson',
+X    'fits',     'ppmtopgm | pgmtofits',
+X    'fs',       'ppmtopgm | pgmtofs',
+X    'g3',       'ppmtopgm | pgmtopbm | pbmtog3',
+X    'gem',      'ppmtopgm | pgmtopbm | pbmtogem',
+X    'gif',      'ppmtogif',
+X    'go',       'ppmtopgm | pgmtopbm | pbmtogo',
+X    'icon',     'ppmtopgm | pgmtopbm | pbmtoicon',
+X    'icr',      'ppmtoicr',
+X    'ilbm',     'ppmtoilbm',
+X    'jpg',      'cjpeg -o',
+X    'lispm',    'ppmtopgm | pgmtolispm',
+X    'lj',       'ppmtopgm | pgmtopbm | pbmtolj',
+X    'macp',     'ppmtopgm | pgmtopbm | pbmtomacp',
+X    'mgr',      'ppmtopgm | pgmtopbm | pbmtomgr',
+X    'pbm',      'ppmtopgm | pgmtopbm',
+X    'pcx',      'ppmtopcx',
+X    'pgm',      'ppmtopgm',
+X    'pi1',      'ppmtopi1',
+X    'pi3',      'ppmtopgm | pgmtopbm | pbmtopi3',
+X    'pict',     'ppmtopict',
+X    'pj',       'ppmtopj',
+X    'plot',     'ppmtopgm | pgmtopbm | pbmtoplot',
+X    'ppm',      '',
+X    'ps',       'pnmtops',
+X    'ptx',      'ppmtopgm | pgmtopbm | pbmtoptx',
+X    'puzz',     'ppmtopuzz',
+X    'rast',     'pnmtorast',
+X    'sixel',    'ppmtosixel',
+X    'tga',      'ppmtotga',
+X    'tiff',     'pnmtotiff',
+X    'tif',      'pnmtotiff',
+X    'uil',      'ppmtouil',
+X    'x10bm',    'ppmtopgm | pgmtopbm | pbmtox10bm',
+X    'xbm',      'ppmtopgm | pgmtopbm | pbmtoxbm',
+X    'xpm',      'ppmtoxpm',
+X    'xwd',      'pnmtoxwd',
+X    'ybm',      'ppmtopgm | pgmtopbm | pbmtoybm',
+X    'yuv',      'ppmtoyuv',
+X    'zinc',     'ppmtopgm | pgmtopbm | pbmtozinc',
+X);
+X
+X
+X#
+X# default quantization values based upon output file suffix.
+X# if a format's default quant value is the default for the -q switch
+X# ($Quant), don't bother listing it.
+X#
+X
+X%defquant = (
+X    'gif',      256,
+X);
+X
+X
+X#
+X# mapping from command line switches to internal variable names
+X#
+X
+X%optvar = (
+X    'a', 'Auto',    'B', 'Borders', 'b', 'Base',    'C', 'Back',
+X    'c', 'Columns', 'D', 'DefFmt',  'd', 'Dir',     'F', 'Font',
+X    'f', 'Format',  'g', 'Param',   'h', 'Height',  'I', 'Pad',
+X    'i', 'Ident',   'K', 'Config',  'k', 'Ignore',  'L', 'Left',
+X    'l', 'Labels',  'N', 'Nice',    'n', 'Namefile','O', 'AutoOff',
+X    'o', 'Offset',  'P', 'Suffix',  'p', 'Prefix',  'q', 'Quant',
+X    'Q', 'Qprog',   'r', 'Rows',    'S', 'Sort',    's', 'Silent',
+X    'T', 'Text',    't', 'Tempdir', 'u', 'Uniq',    'v', 'Verbose',
+X    'w', 'Width',   'X', 'Xsame',   'x', 'Xdim',    'Y', 'Ysame',
+X    'y', 'Ydim',    'z', 'Stripe',
+X);
+X
+X
+X#
+X# signal names (anybody got a better way to do this?)
+X#
+X
+Xif (-f '/vmunix') {
+X    # SunOS Release 4.1.2 Sun SPARCstation
+X    @signals = ('IMPOSSIBLE!', 'HUP', 'INT', 'QUIT', 'ILL', 'TRAP',
+X        'IOT', 'EMT', 'FPE', 'KILL', 'BUS', 'SEGV', 'SYS', 'PIPE',
+X        'ALRM', 'TERM', 'URG', 'STOP', 'TSTP', 'CONT', 'CHLD', 'TTIN',
+X        'TTOU', 'IO', 'XCPU', 'XFSZ', 'VTALRM', 'PROF', 'WINCH',
+X        'LOST', 'USR1', 'USR2');
+X
+X} else {
+X    # System V Release 3.2.1 AT&T 3B2 Version 3
+X    @signals = ('IMPOSSIBLE!', 'HUP', 'INT', 'QUIT', 'ILL', 'TRAP',
+X        'IOT', 'EMT', 'FPE', 'KILL', 'BUS', 'SEGV', 'SYS', 'PIPE',
+X        'ALRM', 'TERM', 'USR1', 'USR2', 'CLD', 'PWR', 'WINCH', 'PHONE',
+X        'POLL');
+X}
+X
+X
+X# ---------------------------- end of definitions -----------------------------
+X
+X
+X#
+X# keep track of the default settings for the usage message
+X#
+X
+Xfor (values(%optvar)) {
+X    $d{$_} = eval "\$$_";
+X}
+X
+X
+X#
+X# evaluate command line arguments before processing the 
+X# configuration file to pick up the -k and -K switches
+X#
+X
+X&evalargs(@ARGV);
+X
+X
+X#
+X# process the configuration file
+X#
+X
+Xunless ($Ignore) {
+X    local($home) = $ENV{'HOME'} || $ENV{'LOGDIR'} || (getpwuid($<))[7];
+X
+X    if ($home) {
+X        $home = '' if ($home eq '/');
+X        $Config =~ s|^~|$home|;
+X        if (-f $Config) {
+X            if (-e _) {
+X                if (open(CONFIG, "<$Config")) {
+X                    local($v, $f, $c, $line, @switches);
+X                    for ($line = 1; $_ = <CONFIG>; $line++) {
+X                        next if (/^\s*#/ || /^\s*$/);
+X                        s/#.*$//;
+X                        if (($f, $v) = /^\s*quantize\s+(\S+)\s+(\d+)\s*$/) {
+X                            $f =~ s/^\.//;
+X                            $defquant{$f} = $v;
+X                        } elsif (($f, $c) = /^\s*encode\s+(\S+)\s+(.*)\s*$/) {
+X                            $f =~ s/^\.//;
+X                            $encode{$f} = $c;
+X                        } elsif (($f, $c) = /^\s*decode\s+(\S+)\s+(.*)\s*$/) {
+X                            $f =~ s/^\.//;
+X                            $decode{$f} = $c;
+X                        } elsif (/^\s*switches\s+(.+)\s*$/) {
+X                            @switches = ();
+X                            $tail = $1;
+X                            $quoted = 0;
+X                            while ($tail) {
+X                                ($head, $tail) = split(/"/, $tail , 2);
+X                                push(@switches,
+X                                    $quoted ? $head : split(' ', $head));
+X                                $quoted = !$quoted;
+X                            }
+X                            while (@switches = &evalargs(@switches)) {
+X                                &warning('Ignoring `', shift @switches,
+X                                    "' on line $line of $Config");
+X                            }
+X                        } else {
+X                            &warning(
+X                                "can't understand line $line of `$Config'");
+X                        }
+X                    }
+X                    close CONFIG;
+X                } else {
+X                    &warning("can't open `$Config': $!!");
+X                }
+X            }
+X        } else {
+X            &warning("`$Config' is not a file!  Configuration file ignored.");
+X        }
+X    } else {
+X        &warning('can\'t find your home directory!  ',
+X            'Configuration file not found.');
+X    }
+X}
+X
+X
+X#
+X# evaluate command line arguments again after processing the
+X# configuration file so their values override (yes, this is ugly)
+X#
+X
+X@ARGV = &evalargs(@ARGV);
+X
+X
+X#
+X# tell the public who's responsible for this mess...
+X#
+X
+X&info("$program-$version $copyright $author") if $Verbose;
+X
+X
+X#
+X# assign $Tempdir
+X#
+X
+Xunless ($opt{'t'}) {
+X    if ($ENV{'TMPDIR'} && $ENV{'TEMPDIR'}) {
+X        &warning('both TMPDIR and TEMPDIR are set.  Using TMPDIR.');
+X    }
+X    $Tempdir = $ENV{'TMPDIR'} || $ENV{'TEMPDIR'} || $Tempdir;
+X}
+X
+X
+X#
+X# sanity checks (fatal)
+X#
+X
+X&fatal('no files specified!') unless @ARGV;
+X
+Xforeach $switch ('c', 'h', 'r', 'w', 'x', 'y') {
+X    $num = eval "\$$optvar{$switch}";
+X    if ($num !~ /^\d+$/ || $num < 1) {
+X        &fatal("-$switch argument must be a positive integer!");
+X    }
+X}
+X
+Xforeach $switch ('o', 'q') {
+X    $num = eval "\$$optvar{$switch}";
+X    if ($num !~ /^\d+$/ || $num < 0) {
+X        &fatal("-$switch argument must be non-negative integer!");
+X    }
+X}
+X
+Xif ($Nice) {
+X    unless ($Nice =~ /^-?\d+$/) {
+X        &fatal("your nice value must be an integer!")
+X    }
+X    if (($Nice < 0) && ($< != 0)) {
+X        &fatal("sorry, your nice value must be positive!");
+X    }
+X}
+X
+Xforeach ($Tempdir, $Dir) {
+X    $_ = '/' unless $_;
+X    &fatal("directory `$_' does not exist!") unless -e $_;
+X    &fatal("`$_' is not a directory!") unless -d _;
+X    &fatal("read permission denied on `$_'!") unless -r _;
+X    &fatal("write permission denied on `$_'!") unless -w _;
+X}
+X
+X&fatal("font file `$Font' does not exist!") if ($Font && !-e $Font);
+X&fatal("name file `$Namefile' does not exist!") if ($Namefile && !-e $Namefile);
+X
+X&fatal('-i and -X switches can\'t be used together.') if ($Ident && $Xsame);
+X&fatal('-i and -Y switches can\'t be used together.') if ($Ident && $Ysame);
+X&fatal('-X and -Y switches can\'t be used together.') if ($Xsame && $Ysame);
+X
+X&fatal('-O and -o switches can\'t be used together.')
+X    if ($opt{'o'} && $AutoOff);
+X
+X
+X#
+X# sanity checks (warnings)
+X#
+X
+Xif ($Auto) {
+X    &warning('image width is larger than sheet width!  ', 
+X        '(your sheets will be one image wide)') if ($Width > $Xdim);
+X    &warning('image height is larger than sheet height!  ', 
+X        '(your sheets will be one image high)') if ($Height > $Ydim);
+X    &warning('-r and -a specified!  Ignoring -r.') if $opt{'r'};
+X    &warning('-c and -a specified!  Ignoring -c.') if $opt{'c'};
+X} else {
+X    &warning('-x specified without -a!  Ignoring -x.') if $opt{'x'};
+X    &warning('-y specified without -a!  Ignoring -y.') if $opt{'y'};
+X}
+X
+Xif ($opt{'z'} && !$Borders) {
+X    &warning('-z specified without -B!  Ignoring -z.');
+X}
+X
+Xunless ($Labels) {
+X    &warning('-F specified without -l!  Ignoring -F.') if $Font;
+X    &warning('-b specified without -l!  Ignoring -b.') if $Base;
+X    &warning('-T specified without -l!  Ignoring -T.') if $opt{'T'};
+X}
+X
+X&warning('-I specified without -i!  Ignoring -I.') if ($opt{'I'} && !$Ident);
+X
+X&warning('-X and -h specified!  Ignoring -h.') if ($Xsame && $opt{'h'});
+X&warning('-Y and -w specified!  Ignoring -w.') if ($Ysame && $opt{'w'});
+X
+Xif ($Verbose && $Silent) {
+X    &warning('-v and -s cancel each other out!');
+X    $Silent = $Verbose = 0;
+X}
+X
+X
+X#
+X# strip leading dot from $DefFmt
+X#
+X
+X$DefFmt =~ s/^\.//;
+X
+X
+X#
+X# process output format
+X#
+X
+X$Format =~ s/^\.//;
+X
+X@suffs = split(/\./, $Format);
+X
+Xif (@badext = grep(!defined($encode{$_}), @suffs)) {
+X    &fatal(sprintf('unrecognized extension%s (%s) in output format!',
+X        ((@badext > 1) ? 's' : ''), &cslist(@badext)));
+X}
+X
+X@encodecmd = grep($_, @encode{@suffs});
+X
+X$Quant = $defquant{$Format} if (!$opt{'q'} && $defquant{$Format});
+X
+Xunshift(@encodecmd, "$Qprog $Quant") if $Quant;
+X
+X$encodecmd = @encodecmd ? ('| ' . join(' | ', @encodecmd) . ' ') : '';
+X
+X
+X#
+X# get filenames from named file
+X#
+X
+X@filelist = ();
+X
+Xif ($Namefile) {
+X    open(NAMEFILE, "<$Namefile") ||
+X        &fatal("unable to open `$Namefile' to read filenames: $!!");
+X    chop(@filelist = <NAMEFILE>);
+X    close(NAMEFILE);
+X}
+X
+Xunshift(@filelist, @ARGV);
+X
+X&fatal('no files specified!') unless @filelist;
+X
+Xif ($Xsame) {
+X    $pnmscale = "pnmscale -xsize $Width";
+X} elsif ($Ysame) {
+X    $pnmscale = "pnmscale -ysize $Height";
+X} else {
+X    $pnmscale = "pnmscale -xysize $Width $Height";
+X}
+X
+X
+X#
+X# start up the signal handler.
+X#
+X
+X@tfie = ();
+X
+X$SIG{'HUP'} = $SIG{'INT'} = $SIG{'QUIT'} = $SIG{'TERM'} = 'catcher';
+X
+X
+X#
+X# look for and process parameter files
+X#
+X
+X$Suffix =~ s/^\.//;
+X
+X@newlist = ();
+X$pcount = 1;
+X
+Xforeach $file (@filelist) {
+X    if ($file !~ /\.$Suffix$/) {
+X        push(@newlist, $file);
+X        next;
+X    }
+X
+X    unless (open(PARAM, "<$file")) {
+X        &skip("can't open `$file' for reading: $!!");
+X        next;
+X    }
+X    
+X    local($fn, @xywh, $line);
+X    for ($line = 1; $_ = <PARAM>; $line++) {
+X        next if (/^\s*#/ || /^\s*$/);
+X        s/#.*$//;
+X        if (($fn, @xywh) = /^\s*(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/) {
+X            push(@newlist, $fn);
+X            $esheetname{$fn} = "$Tempdir/icp$pcount-$$";
+X            $parameters{$fn} = "@xywh";
+X            ($sheetname{$fn} = $file) =~ s/\.$Suffix$//;
+X        } else {
+X            &warning("can't understand line $line of `$file'!");
+X        }
+X    }
+X    close(PARAM);
+X    $pcount++;
+X}
+X@filelist = @newlist;
+X
+X
+X#
+X# take the basename's once and for all.
+X#
+X
+Xforeach (@filelist, values(%sheetname)) {
+X    $basename{$_} = (/([^\/]*)$/ ? $1 : $_);
+X}
+X
+X
+X#
+X# uniq filenames
+X#
+X
+Xif ($Uniq) {
+X    local(%seen) = @newlist = ();
+X    foreach (@filelist) {
+X        if ($seen{$Base ? $basename{$_} : $_}++) {
+X            &info("removing duplicate `$_' from file list");
+X            $esheetname{$_} = '';       # use the one that's not shrunk already.
+X        } else {
+X            push(@newlist, $_);
+X        }
+X    }
+X    @filelist = @newlist;
+X}
+X
+X
+X#
+X# sort filenames
+X#
+X
+X@filelist = ($Base ? sort by_basename @filelist : sort @filelist) if $Sort;
+X
+X
+X#
+X# figure out how big a character is in the specified font
+X#
+X
+Xif ($Labels) {
+X    $pbmtext = 'pbmtext' . ($Font ? " -font '$Font'" : '');
+X    open(TEXT, "$pbmtext 'M' | pnmfile |") || 
+X        &fatal("can't open `$pbmtext' to determine font size for labels: $!!");
+X
+X    (<TEXT> =~ /\s+(\d+)\s+by\s+(\d+)\s+/) ||
+X        &fatal("can't understand `$pbmtext 'M' | pnmfile |' output!");
+X
+X    close(TEXT);
+X
+X    $cwidth = int($1 / 3);
+X    $cheight = $2;
+X
+X    if (($Text eq 'black') && ($Back eq 'white')) {
+X        $colorize = '';
+X    } elsif (($Text eq 'white') && ($Back eq 'black')) {
+X        $colorize = " | pnminvert";
+X    } else {
+X        $colorize = " | pnmdepth 255 | pgmtoppm $Text-$Back";
+X    }
+X}
+X
+X
+X#
+X# determine the offset to be used for the first sheet.
+X#
+X
+Xif ($opt{'o'}) {
+X    $scount = $Offset;
+X} elsif ($AutoOff) {
+X    opendir(DESTDIR, $Dir) ||
+X        &fatal("can't open destination directory to find offset: $!!");
+X
+X    local($last) =
+X        reverse sort grep(/^$Prefix([0-9]{3,})\.$Format$/, readdir(DESTDIR));
+X
+X    closedir(DESTDIR);
+X
+X    if ($last) {
+X        $last =~ /^$Prefix([0-9]{3,})\.$Format$/;
+X        $scount = $1 + 1;
+X    } else {
+X        $scount = 1;
+X    }
+X} else {
+X    $scount = 1;
+X}
+X
+X
+X#
+X# figure out what color borders to use
+X#
+X
+X$stripes = @stripe = split(' ', $Stripe) if $Borders;
+X
+X
+X#
+X# a few initializations...
+X#
+X
+X$jl = $Left ? ' -jl' : '';
+X
+X$temp = "$Tempdir/ict-$$";
+X$backtemp = "$Tempdir/icc-$$";
+X
+X$icount = $rcount = 1;
+X
+X$iqwidth = $iqheight = $rqheight = 0;
+X
+X@ipqueue = @fpqueue = @rpqueue = ();
+X
+X
+X#
+X# create one pad file for all the images if $Ident
+X#
+X
+Xif ($Ident) {
+X    $pad = "$Tempdir/ice-$$";
+X
+X    $command = "ppmmake $Pad $Width $Height > $pad";
+X
+X    &shell($command) || &fatal('unable to create pad file!');
+X}
+X
+X
+X#
+X# create one border file for all the images if $Ident && $Borders
+X#
+X
+Xif ($Borders && $Ident) {
+X    $border = "$Tempdir/icb-$$";
+X
+X    local($count) = 2;
+X
+X    $command = sprintf('ppmmake %s %d %d > %s',
+X        $stripe[$[], ($Width + $count), ($Height + $count), $border);
+X
+X    &shell($command) || &fatal('unable to create border file!');
+X
+X    foreach $color (@stripe[$[+1..$#stripe]) {
+X        $count += 2;
+X
+X        $command = sprintf('ppmmake %s %d %d | pnmpaste %s 1 1 > %s',
+X            $color, ($Width + $count), ($Height + $count), $border, $temp);
+X
+X        &shell($command) || &fatal('unable to add a layer to border file!');
+X
+X        &mv($temp, $border);
+X    }
+X}
+X
+X
+X#
+X# process each file
+X#
+X
+XIMAGE: while ($file = shift @filelist) {
+X    $image = "$Tempdir/ici$icount-$$";
+X
+X    if ($sheetname{$file}) {
+X        # file is to be cut from sheet
+X
+X        unless (grep(/^$esheetname{$file}$/, @tfie)) {
+X            &toppm($sheetname{$file}, $esheetname{$file}, 0) || next IMAGE;
+X        }
+X        &cut($file, $image) || next IMAGE;
+X        &rm($esheetname{$file}) unless
+X            grep(/^$esheetname{$file}$/, @esheetname{@filelist});
+X    } else {
+X        # file is an image file
+X
+X        unless (-e $file) {
+X            &skip("`$file' does not exist!");
+X            next IMAGE;
+X        }
+X        unless (-f _) {
+X            &skip("`$file' is not a file!");
+X            next IMAGE;
+X        }
+X        &toppm($file, $image, 1) || next IMAGE;
+X    }
+X
+X    $label = ($Base ? $basename{$file} : $file);
+X
+X    if ($Auto || $Labels || $Borders || $Param || $Ident) {
+X        unless (open(SIZE, "pnmfile $image |")) {
+X            &skip("can't open `pnmfile $image |' for reading: $!!");
+X            &rm($image);
+X            next IMAGE;
+X        }
+X        unless ((($iwidth, $iheight) =
+X            (<SIZE> =~ /\s+(\d+)\s+by\s+(\d+)\s+/))) {
+X            &skip("can't understand `pnmfile $image |' output!");
+X            &rm($image);
+X            close(SIZE);
+X            next IMAGE;
+X        }
+X        close(SIZE);
+X
+X        ($zxoff, $zyoff, $ziwidth, $ziheight) = (0, 0, $iwidth, $iheight)
+X            if $Param;
+X    }
+X
+X    if ($Ident) {
+X        $xpad = int(($Width - $iwidth) / 2);
+X        $ypad = int(($Height - $iheight) / 2);
+X
+X        $command = sprintf('pnmpaste %s %d %d %s > %s', $image, $xpad, $ypad,
+X            $pad, $temp);
+X
+X        unless (&shell($command)) {
+X            &skip("unable to pad `$file' to ${Width}x$Height!");
+X            &rm($image, $temp);
+X            next IMAGE;
+X        }
+X
+X        &mv($temp, $image);
+X
+X        $iwidth = $Width;
+X        $iheight = $Height;
+X
+X        if ($Param) {
+X            $zxoff += $xpad;
+X            $zyoff += $ypad;
+X        }
+X
+X    }
+X
+X    if ($Borders) {
+X        if ($Ident) {
+X            $iwidth += $stripes * 2;
+X            $iheight += $stripes * 2;
+X
+X            $command = sprintf('pnmpaste %s %d %d %s > %s', $image, $stripes,
+X                $stripes, $border, $temp);
+X
+X            unless (&shell($command)) {
+X                &skip("unable to add a border to `$file'!");
+X                &rm($image, $temp);
+X                next IMAGE;
+X            }
+X
+X            &mv($temp, $image);
+X        } else {
+X            foreach $color (@stripe) {
+X                $iwidth += 2;
+X                $iheight += 2;
+X
+X                $command = sprintf('ppmmake %s %d %d | pnmpaste %s 1 1 > %s',
+X                    $color, $iwidth, $iheight, $image, $temp);
+X
+X                unless (&shell($command)) {
+X                    &skip("unable to add a layer of border on `$file'!");
+X                    &rm($image, $temp);
+X                    next IMAGE;
+X                }
+X
+X                &mv($temp, $image);
+X            }
+X        }
+X
+X        if ($Param) {
+X            $zxoff += $stripes;
+X            $zyoff += $stripes;
+X        }
+X    }
+X
+X    if ($Labels) {
+X        $slots = int($iwidth / $cwidth);
+X
+X        if (($Back eq 'black') || ($Back eq 'white')) {
+X            $padlabel = '';
+X            $bg = "-$Back ";
+X        } else {
+X            $command = sprintf('ppmmake %s %s %s > %s', $Back, $iwidth,
+X                $cheight, $backtemp);
+X            unless (&shell($command)) {
+X                &skip("unable to create color label pad for `$file'!");
+X                &rm($image, $backtemp);
+X                next IMAGE;
+X            }
+X            if (($slots - length($label)) >= 2) {
+X                $over = int(($iwidth - $cwidth * (length($label) + 2)) / 2);
+X            } else {
+X                $over = int(($iwidth - $cwidth * $slots) / 2);
+X            }
+X            $padlabel = " | pnmpaste - $over 0 $backtemp";
+X            $bg = '';
+X        }
+X
+X        if (($slots - length($label)) >= 2) {
+X            $command = sprintf('%s \'%s\'%s%s | pnmcat %s-tb %s - > %s',
+X                $pbmtext, $label, $colorize, $padlabel,
+X                $bg, $image, $temp);
+X        } else {
+X            $command = sprintf(
+X                '%s \'%s\'%s | pnmcut %d 0 %d %d%s | pnmcat %s-tb %s - > %s',
+X                $pbmtext, substr($label, 0, $slots), $colorize,
+X                $cwidth, ($cwidth * $slots), $cheight, $padlabel,
+X                $bg, $image, $temp);
+X        }
+X
+X        unless (&shell($command)) {
+X            &skip("unable to attach label to `$file'!");
+X            &rm($image, $temp);
+X            next IMAGE;
+X        }
+X
+X        &mv($temp, $image);
+X
+X        $iheight += $cheight;
+X    }
+X
+X    if ($Auto) {
+X        if ($iqwidth + $iwidth > $Xdim) {
+X            if (@iqueue) {
+X                &image2row;
+X                $rcount++;
+X                $wrheight = $iqheight;
+X                &pushimage;
+X                ($iqwidth, $iqheight) = ($iwidth, $iheight);
+X            } else {
+X                &pushimage;
+X                &image2row;
+X                $rcount++;
+X                $wrheight = $iheight;
+X                $iqwidth = $iqheight = 0;
+X            }
+X            if ($rqheight + $wrheight > $Ydim) {
+X                if (@rqueue) {
+X                    &row2sheet;
+X                    &pushrow;
+X                    $rqheight = $wrheight;
+X                } else {
+X                    &pushrow;
+X                    &row2sheet;
+X                    $rqheight = 0;
+X                }
+X            } else {
+X                &pushrow;
+X                $rqheight += $wrheight;
+X            }
+X        } else {
+X            &pushimage;
+X            $iqwidth += $iwidth;
+X            $iqheight = $iheight if ($iheight > $iqheight);
+X        }
+X    } else {
+X        &pushimage;
+X        if (($icount % $Columns) == 0) {
+X            &image2row;
+X            &pushrow;
+X            &row2sheet if (($rcount % $Rows) == 0);
+X            $rcount++;
+X        }
+X    }
+X
+X    $icount++;
+X}
+X
+Xif (@iqueue) {
+X    &image2row;
+X    &row2sheet if ($Auto && $rqheight + $iqheight > $Ydim);
+X    &pushrow;
+X}
+X&row2sheet if @rqueue;
+X
+X&cleanup;
+X
+Xexit(0);        
+X
+X&catcher('IMPOSSIBLE!');    # just to get rid of the warning...
+X
+X
+X# --------------------------- end of main program -----------------------------
+X
+X
+Xsub by_basename {
+X    $basename{$a} cmp $basename{$b};
+X}
+X
+X
+Xsub by_number {
+X    $a <=> $b;
+X}
+X
+X
+Xsub catcher {
+X    local($name) = @_;
+X    &fatal("caught a SIG$name -- shutting down!");
+X}
+X
+X
+Xsub cleanup {
+X    &rm(@tfie);
+X}
+X
+X
+Xsub cslist {
+X    local($") = ', ';
+X    "@_";
+X}
+X
+X
+Xsub cut {
+X    local($input, $output) = @_;
+X
+X    &info("cutting `$input'");
+X    if (!&shell("pnmcut $parameters{$input} $esheetname{$input} > $output")) {
+X        &skip("can't cut from $esheetname{$input}");
+X        &rm($output);
+X        return 0;
+X    }
+X    return 1;
+X}
+X
+X
+Xsub evalargs {
+X    local(@args) = @_;
+X
+X    while ($_ = $args[0], ($_ && /^[-+]/)) {
+X        shift @args;
+X        last if /^--$/;
+X
+X        if (/^[-+]help$/) {                                 # special case
+X            &usage;
+X        } elsif (/^[-+]([CcDdFfhIKNnoPpQqrTtwxyz])$/) {     # argument
+X            if (@args) {
+X                eval "\$opt{'$1'} = 1; \$$optvar{$1} = shift \@args";
+X            } else {
+X                &fatal("no argument given for -$1 switch!");
+X            }
+X        } elsif (/^([-+])([aBbgikLlOSsuvXY])(.*)$/) {       # no argument
+X            $val = ($1 eq '-');
+X            $backon = length($3) ? "; unshift(\@args, '$1$3')" : '';
+X            eval "\$$optvar{$2} = $val$backon";
+X        } else {                                            # unrecognized
+X            warn "$program: FATAL ERROR: unrecognized switch: `$_'!\n";
+X            &usage;
+X        }
+X    }
+X    @args;
+X}
+X
+X
+Xsub fatal {
+X    &cleanup;
+X    die "$program: FATAL ERROR: ", @_, "\n";
+X}
+X
+X
+Xsub image2row {
+X    $row = "$Tempdir/icr$rcount-$$";
+X    &info("assembling row $rcount");
+X
+X    if ($Back eq 'black' || $Back eq 'white') {
+X        $bg = "-$Back ";
+X    } else {
+X        local($tallest, $h, $w, $i);
+X
+X        $tallest = -1;
+X        foreach (@ipqueue) {
+X            $h = (unpack('A255I7', $_))[3];
+X            $tallest = $h if ($h > $tallest);
+X        }
+X
+X        for($i = 0; $i < @iqueue; $i++) {
+X            ($w, $h) = (unpack('A255I7', $ipqueue[$i]))[2..3];
+X            if ($h < $tallest) {
+X                $command = sprintf('ppmmake %s %d %d | pnmcat -tb - %s > %s',
+X                    $Back, $w, $tallest - $h,
+X                    $iqueue[$i], $backtemp);
+X                if (&shell($command)) {
+X                    &mv($backtemp, $iqueue[$i]);
+X                } else {
+X                    &warning("can't add color padding to $iqueue[$i]!");
+X                    &rm($backtemp);
+X                }
+X            }
+X        }
+X        $bg = '';
+X    }
+X
+X    if (&shell("pnmcat $bg-lr -jb @iqueue > $row")) {
+X        if ($Param) {
+X            push(@fpqueue, @ipqueue);
+X            @ipqueue = ();
+X        }
+X    } else {
+X        &skip("can't assemble row $rcount!");
+X        &rm($row);
+X    }
+X    &rm(@iqueue);
+X    @iqueue = ();
+X}
+X
+X
+Xsub info {
+X    warn "$program: ", @_, "\n" unless $Silent;
+X}
+X
+X
+Xsub mv {
+X    local($src, $dest) = @_;
+X
+X    &info("moving $src to $dest") if $Verbose;
+X
+X    unless (rename($src, $dest)) {
+X        &fatal("unable to move `$src' to `$dest': $!!");
+X    }
+X
+X    &tfdelete($src);
+X    &tfadd($dest);
+X}
+X
+X
+Xsub on {
+X    local($num) = @_;
+X
+X    $num ? 'on' : 'off';
+X}
+X
+X
+Xsub pushimage {
+X    push(@iqueue, $image);
+X    push(@ipqueue, pack('A255I7', $label, $rcount, $iwidth, $iheight,
+X        $zxoff, $zyoff, $ziwidth, $ziheight)) if $Param;
+X}
+X
+X
+Xsub pushrow {
+X    push(@rqueue, $row);
+X    if ($Param) {
+X        push(@rpqueue, @fpqueue);
+X        @fpqueue = ();
+X    }
+X}
+X
+X
+Xsub rm {
+X    local(@tbd) = @_;
+X
+X    &info('unlinking ', &cslist(@tbd)) if (@tbd && $Verbose);
+X
+X    foreach (@tbd) {
+X        &tfdelete($_);
+X        &warning("can't unlink `$_': $!!") unless unlink($_);
+X    }
+X}
+X
+X
+Xsub row2sheet {
+X    local($sheet) = sprintf('%s/%s%03d.%s', $Dir, $Prefix, $scount, $Format);
+X    &info("assembling `$sheet'");
+X
+X    if (($Back eq 'black') || ($Back eq 'white')) {
+X        $bg = "-$Back ";
+X    } else {
+X        local(%width, %height, $widest, $r, $h, $w, $i, $f);
+X
+X        $f = 0;
+X        foreach (@rpqueue) {
+X            ($r, $w, $h) = (unpack('A255I7', $_))[1..3];
+X            $f = $r unless $f;
+X            $width{$r} = $width{$r} ? ($width{$r} + $w) : $w;
+X            $height{$r} = $h if (!$height{$r} || $h > $height{$r});
+X        }
+X        ($widest) = reverse sort by_number values(%width);
+X
+X        for($i = 0; $i < @rqueue; $i++) {
+X            if ($width{$f + $i} < $widest) {
+X                $command = sprintf('ppmmake %s %d %d | pnmpaste %s %d 0 - > %s',
+X                    $Back, $widest, $height{$f + $i},
+X                    $rqueue[$i],
+X                    ($Left ? 0 : int(($widest - $width{$f + $i}) / 2)),
+X                        $backtemp);
+X                if (&shell($command)) {
+X                    &mv($backtemp, $rqueue[$i]);
+X                } else {
+X                    &warning("can't add color padding to $rqueue[$i]!");
+X                    &rm($backtemp);
+X                }
+X            }
+X        }
+X        $bg = '';
+X    }
+X
+X    if (&shell("pnmcat $bg-tb$jl @rqueue $encodecmd> $sheet")) {
+X
+X        &tfdelete($sheet);  # save the sheets!
+X
+X        if ($Param) {
+X            local($pfile) = "$sheet.$Suffix";
+X            &info("creating `$pfile'");
+X            if (open(PARAM, ">$pfile")) {
+X                local(%height, %width, $r, $h, $w, $n, $zx, $zy, $zw, $zh);
+X
+X                foreach (@rpqueue) {
+X                    ($r, $w, $h) = (unpack('A255I7', $_))[1..3];
+X                    $width{$r} = $width{$r} ? ($width{$r} + $w) : $w;
+X                    $height{$r} = $h if (!$height{$r} || $h > $height{$r});
+X                }
+X
+X                local($xoff);
+X                local($yoff) = 0;
+X                local($pastr) = -1;
+X                local($widest) = reverse sort by_number values(%width);
+X
+X                foreach (@rpqueue) {
+X                    ($n, $r, $w, $h, $zx, $zy, $zw, $zh) = unpack('A255I7', $_);
+X                    if ($r != $pastr) {
+X                        $pastr = $r;
+X                        $xoff = 0;
+X                        $yoff += $height{$r};
+X                    }
+X                    printf(PARAM "%-40s %5d %5d %5d %5d\n", $n,
+X                        ($Left ? 0 : int(($widest - $width{$r}) / 2)) +
+X                            $xoff + $zx, $yoff - $h + $zy, $zw, $zh);
+X                    $xoff += $w;
+X                }
+X
+X                @rpqueue = ();
+X                close(PARAM);
+X            } else {
+X                &warning("can't open `$pfile' for writing: $!!");
+X            }
+X        }
+X    } else {
+X        &skip("can't assemble sheet $scount!");
+X        &rm($sheet);
+X    }
+X    $scount++;
+X    &rm(@rqueue);
+X    @rqueue = ();
+X}
+X
+X
+Xsub shell {
+X    local($command) = @_;
+X
+X    &tfadd($1) if ($command =~ /\s+>\s+(\S+)$/);
+X
+X    $command = "nice -$Nice " . $command if $Nice;
+X
+X    if ($Verbose) {
+X        &info($command);
+X    } else {
+X        $command = "($command) 2> /dev/null";
+X    }
+X
+X    system $command;
+X
+X    if ($? & 255) {
+X        &warning("`$command' was killed by a SIG", @signals[$? & 127], '!', 
+X            ($? & 128) ? '  core dumped.' : '');
+X        return 0;
+X    } elsif ($status = ($? >> 8)) {
+X        if ($status & 128) {
+X            local($message) = "`$command' was terminated abnormally by a SIG" .
+X                    @signals[$status & 127] . '!';
+X
+X            # treat SIGINT differently to allow
+X            # the user to stop icontact easily
+X
+X            if (($status & 127) == 2) {
+X                &fatal($message);
+X            } else {
+X                &warning($message);
+X                return 0;
+X            }
+X        } else {
+X            &warning("`$command' terminated with exit status: $status!");
+X            return 0;
+X        }
+X    }
+X    1;
+X}
+X
+X
+Xsub skip {
+X    &warning(@_, '  Skipping.');
+X}
+X
+X
+Xsub tfadd {
+X    local($temporary) = @_;
+X    push(@tfie, $temporary) unless grep(/^$temporary$/, @tfie);
+X}
+X
+X
+Xsub tfdelete {
+X    local($temporary) = @_;
+X    @tfie = grep(!/^$temporary$/, @tfie);
+X}
+X
+X
+Xsub toppm {
+X    local($input, $output, $shrink) = @_;
+X
+X    local(@suffs) = split(/\./, $basename{$input});
+X    shift @suffs;
+X
+X    if (@badext = grep(!defined($decode{$_}), @suffs)) {
+X        &warning(sprintf('unrecognized extension%s (%s) on `%s\'!',
+X            ((@badext > 1) ? 's' : ''), &cslist(@badext), $input));
+X
+X        if (@suffs = grep(defined($decode{$_}), @suffs)) {
+X            &warning(sprintf('Assuming `%s\' is a `.%s\' file.',
+X                $input, join('.', @suffs)));
+X        }
+X    }
+X
+X    unless (@suffs) {
+X        &warning("no extension on `$input'!",
+X            "  Assuming it is a `.$DefFmt' file.");
+X        @suffs = ($DefFmt);
+X    }
+X
+X    local(@decodecmd) = grep($_, reverse @decode{@suffs});
+X
+X    local($init) = (@decodecmd && ($decodecmd[0] =~ tr/|/|/) == 0) ?
+X        (shift @decodecmd) . " '$input'" : "cat '$input'";
+X
+X    local($decodecmd);
+X    if ($shrink) {
+X        $decodecmd = join(' | ', ($init, @decodecmd, "$pnmscale > $output"));
+X        &info("shrinking `$input'");
+X    } else {
+X        $decodecmd = join(' | ', ($init, @decodecmd)) . " > $output";
+X        &info("expanding `$input'");
+X    }
+X
+X    unless (&shell($decodecmd)) {
+X        &skip("can't decode `$input'!");
+X        &rm($output);
+X        return 0;
+X    }
+X    1;
+X}
+X
+X
+Xsub usage {
+X    die "usage: $program [switches] [{image file | parameter file} ...]
+X[switches] consist of:
+X-a, +a\t automatically size sheets to the size of the screen.  default = ",
+X    &on($d{'Auto'}), "
+X-B, +B\t put borders around each image.  default = ", &on($d{'Borders'}), "
+X-b, +b\t take the basename of the filenames.  default = ", &on($d{'Base'}), "
+X-C color color of the background.  default = `$d{'Back'}' 
+X-c #\t number of columns of images in each sheet.  default = $d{'Columns'}
+X-D suff\t use `suff' as the file format if image has no suffix.  default = `",
+X    $d{'DefFmt'}, "'
+X-d dir\t put sheets in `dir'.  default = `$d{'Dir'}'
+X-f suff\t use `suff' as the file format of the sheets.  default = `$d{'Format'}'
+X-F file\t font file for labels.  default = `",
+X    ($d{'Font'} || 'pbmtext\'s internal font'), "'
+X-g, +g\t generate parameter files for sheets.  default = ", &on($d{'Param'}), "
+X-h #\t height of each small image in pixels.  default = $d{'Height'}
+X-I color color of the area around images when using -i.  default = `$d{'Pad'}'
+X-i, +i\t make images the same size.  default = ", &on($d{'Ident'}), "
+X-K file\t use `file' as the configuration file.  default = `$d{'Config'}'
+X-k, +k\t don't reference the configuration file.  default = ",
+X    &on($d{'Ignore'}), "
+X-l, +l\t put labels under the images.  default = ", &on($d{'Labels'}), "
+X-L, +L\t left justify all the rows.  default = ", &on($d{'Left'}), "
+X-N #\t run child processes at this nice value.  default = $d{'Nice'}
+X-n file\t get filenames from `file'.  default = none
+X-O, +O\t find the number for the first sheet automatically.  default = ",
+X    &on($d{'AutoOff'}), "
+X-o #\t start at this number when naming sheets.  default = $d{'Offset'}
+X-P suff\t suffix of parameter files.  default = `$d{'Suffix'}'
+X-p name\t name of the sheets. default = `$d{'Prefix'}'
+X-Q prog\t the quantization program.  default = `$d{'Qprog'}'
+X-q #\t number of colors in each sheet.  default = $d{'Quant'}
+X-r #\t number of rows of images in each sheet.  default = $d{'Rows'}
+X-S, +S\t sort all the filenames.  default = ", &on($d{'Sort'}), "
+X-s, +s\t be silent.  default = ", &on($d{'Silent'}), "
+X-T color color of label text.  default = `$d{'Text'}'
+X-t dir\t use `dir' to hold temporary files.  default = `$d{'Tempdir'}'
+X-u, +u\t remove duplicate file names from file list.  default = ",
+X    &on($d{'Uniq'}), "
+X-v, +v\t be verbose.  default = ", &on($d{'Verbose'}), "
+X-w #\t width of each small image in pixels.  default = $d{'Width'}
+X-X, +X\t make images the same width.  default = ", &on($d{'Ysame'}), "
+X-x #\t screen width in pixels.  default = $d{'Xdim'}
+X-Y, +Y\t make images the same height.  default = ", &on($d{'Ysame'}), "
+X-y #\t screen height in pixels.  default = $d{'Ydim'}
+X-z list\t list of colors for border stripes.  default = `$d{'Stripe'}'
+X";
+X}
+X
+X
+Xsub warning {
+X    warn "$program: WARNING: ", @_, "\n";
+X}
+END_OF_FILE
+if test 38651 -ne `wc -c <'icontact'`; then
+    echo shar: \"'icontact'\" unpacked with wrong size!
+fi
+chmod +x 'icontact'
+# end of 'icontact'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

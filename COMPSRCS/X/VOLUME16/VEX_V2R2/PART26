@@ -1,0 +1,1818 @@
+Path: uunet!think.com!mips!msi!dcmartin
+From: dcc@Athena.MIT.EDU (David Carver)
+Newsgroups: comp.sources.x
+Subject: v16i077: Video Extension for X (v2r2), Part26/29
+Message-ID: <1992Feb6.150017.1208@msi.com>
+Date: 6 Feb 92 15:00:17 GMT
+References: <csx-16i052-vex.v2r2@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1805
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: dcc@Athena.MIT.EDU (David Carver)
+Posting-number: Volume 16, Issue 77
+Archive-name: vex.v2r2/part26
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 26 (of 29)."
+# Contents:  extensions/xv/include/xvrop.h
+#   extensions/xv/man/man3/XvStopVideo.3X
+#   extensions/xv/server/ddx/allrop/xvrop.h server/ddx/cfb32/Imakefile
+#   server/ddx/cfb32/cfb8bit.c server/ddx/cfb32/cfbbstore.c
+#   server/ddx/cfb32/cfbmap.h server/ddx/cfb32/cfbpush8.c
+#   server/ddx/cfb32/cfbrrop.h server/ddx/cfb32/cfbzerarc.c
+#   server/ddx/sun/xfbmisc.c
+# Wrapped by dcmartin@fascet on Thu Feb  6 06:52:50 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'extensions/xv/include/xvrop.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/include/xvrop.h'\"
+else
+echo shar: Extracting \"'extensions/xv/include/xvrop.h'\" \(4283 characters\)
+sed "s/^X//" >'extensions/xv/include/xvrop.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvrop.h --- Xv RasterOps device dependent header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   29.08.91 Carver
+X**     - added support for video in StaticGray windows
+X**     - added field to Port priv to store handle to rop and libpip: prop
+X**
+X**   26.06.91 Carver
+X**     - fixed GC wrappers
+X**
+X**   04.06.91 Carver
+X**     - changed interface to libpip.c, use new libpip.h header file
+X**     - changed assignment of encoding id's
+X**
+X**   31.05.91 Carver
+X**     - made big fixes to occlusion stuff
+X**
+X**   29.05.91 Carver
+X**     - added serialNumber to port private structure.
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   19.03.91 Carver
+X**     - original port for v1r4
+X**
+X**
+X*/
+X#ifndef XVROP_H
+X#define XVROP_H
+X
+X#include "Xvproto.h"
+X#include "region.h"
+X#include "libpip.h"
+X
+X#ifdef GLOBAL
+X#define EXTERNAL
+X#define INIT(i) = {i}
+X#else GLOBAL
+X#define EXTERNAL extern
+X#define INIT(i)
+X#endif
+X
+X#define XVROP_NUM_ADAPTORS 1
+X
+Xtypedef struct _XvropPortRec {
+X  GCPtr pGC;
+X  int vx,vy,dx,dy;
+X  unsigned int vw,vh,dw,dh;
+X  BoxRec enabled_box;
+X  XvEncodingPtr pEncoding;
+X  int hue,saturation,brightness,contrast;
+X  unsigned long serialNumber;
+X  GCFuncs *wrapFuncs;
+X  pointer prop;
+X  Bool gray;
+X} XvropPortRec, *XvropPortPtr;
+X
+Xtypedef struct _XvropScreenRec {
+X  void (* ClipNotify)();
+X  void (* CopyWindow)();
+X  void (* WindowExposures)();
+X  Bool (* UnrealizeWindow)();
+X} XvropScreenRec, *XvropScreenPtr;
+X
+XEXTERNAL int XvropNumEncodings[1] INIT(9);
+XEXTERNAL int XvropNumPorts[1] INIT(1);
+XEXTERNAL int XvropNumFormats[1] INIT(1);
+X
+X/* PIP_xxx SYMBOLS TAKEN FROM libpip.h */
+X
+X#ifdef GLOBAL
+XXvEncodingRec XvropEncodings[1][9] = 
+X{
+X  {
+X    {PIP_COMPOSITE | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-composite", 640, 480, 5994, 100},
+X    {PIP_COMPOSITE | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-composite", 768, 572, 50, 1}, 
+X    {PIP_COMPOSITE | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-composite", 768, 572, 50, 1},
+X    {PIP_SVIDEO | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-svideo", 640, 480, 5994, 100},
+X    {PIP_SVIDEO | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-svideo", 768, 572, 50, 1}, 
+X    {PIP_SVIDEO | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-svideo", 768, 572, 50, 1},
+X    {PIP_RGB | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-rgb", 640, 480, 5994, 100},
+X    {PIP_RGB | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-rgb", 768, 572, 50, 1}, 
+X    {PIP_RGB | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-rgb", 768, 572, 50, 1}
+X  }
+X};
+X#else
+XXvEncodingRec XvropEncodings[1][9];
+X#endif GLOBAL
+X
+X#define ROP_SCREEN_PROLOGUE(pScreen, props, field)\
+X  ((pScreen)->field = props->field)
+X
+X#define ROP_SCREEN_EPILOGUE(pScreen, field, wrapper)\
+X  ((pScreen)->field = wrapper)
+X
+X/* LIST OF RASTEROPS PORT CONTROLS XXX --- MORE LATER */
+X
+XEXTERNAL Atom XvropEncoding;
+XEXTERNAL Atom XvropHue;
+XEXTERNAL Atom XvropSaturation;
+XEXTERNAL Atom XvropBrightness;
+XEXTERNAL Atom XvropContrast;
+X
+XEXTERNAL Atom XvropSlimyHack;
+X
+XEXTERNAL XvPortPtr XvropPorts;
+X
+X#undef EXTERNAL
+X#undef INIT
+X
+X#endif XVROP_H
+X
+X
+END_OF_FILE
+if test 4283 -ne `wc -c <'extensions/xv/include/xvrop.h'`; then
+    echo shar: \"'extensions/xv/include/xvrop.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/include/xvrop.h'
+fi
+if test -f 'extensions/xv/man/man3/XvStopVideo.3X' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/man/man3/XvStopVideo.3X'\"
+else
+echo shar: Extracting \"'extensions/xv/man/man3/XvStopVideo.3X'\" \(1668 characters\)
+sed "s/^X//" >'extensions/xv/man/man3/XvStopVideo.3X' <<'END_OF_FILE'
+X.TH XvStopVideo 3X
+X.SH Name
+XXvStopVideo \- stop active video 
+X.\"
+X.SH Syntax
+X\fB#include <X11/extensions/Xvlib.h>
+X.sp 1l
+X\fBXvStopVideo(\fIdpy, port, draw\fR)
+X.sp 1l
+X\fBDisplay \fI*dpy\fR;
+X.br
+X\fBXvPortID \fIport\fR;
+X.br
+X\fBDrawable \fIdraw\fR;
+X.\"
+X.SH Arguments
+X.\"
+X.\"
+X.IP \fIdpy\fR 15
+XSpecifies the display screen on which the
+XXv Server is to accept requests from Xv clients.  If the
+Xdisplay option is not specified, Xv uses the display screen
+Xspecified by your DISPLAY environment variable.  The display
+Xoption has the format hostname:number.  Using two colons
+X(::) instead of one (:) indicates that DECnet is to be used
+Xfor transport.
+X.IP \fIport\fR 15
+XSpecifies the port for which video is to be stopped.
+X.IP \fIdraw\fR 15
+XSpecifies the drawable associated with the named port.
+X.SH Description
+X.\"
+XXvStopVideo(3X) stops active video for the specified port and
+Xdrawable.  If the port is not processing video, or if it is processing
+Xvideo in a different drawable, the request is ignored.  When video is
+Xstopped a XvVideoNotify(3X) event with detail XvStopped is generated
+Xfor the associated drawable.
+X.\"
+X.SH Examples
+X.EX
+XExample between .EX and .EE will show in monospace
+X.EE
+X.SH Returned Values
+X.IP [Success] 8
+XReturns True if XvStopVideo(3X) completed successfully.
+X.IP [XvBadExtension] 8
+XReturned if the Xv extension is unavailable.
+X.IP [XvBadAlloc] 8
+XReturned if XvStopVideo(3X) failed to allocate memory to process
+Xthe request.
+X.SH Diagnostics
+X.IP [XvBadPort] 8
+XGenerated if the requested port does not exist.
+X.IP [BadDrawable] 8
+XGenerated if the requested drawable does not exist.
+X.\"
+X.SH See Also
+XXvGetVideo(3X), XvPutVideo(3X), XvVideoNotifyEvent(3X)
+X.br
+END_OF_FILE
+if test 1668 -ne `wc -c <'extensions/xv/man/man3/XvStopVideo.3X'`; then
+    echo shar: \"'extensions/xv/man/man3/XvStopVideo.3X'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/man/man3/XvStopVideo.3X'
+fi
+if test -f 'extensions/xv/server/ddx/allrop/xvrop.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extensions/xv/server/ddx/allrop/xvrop.h'\"
+else
+echo shar: Extracting \"'extensions/xv/server/ddx/allrop/xvrop.h'\" \(4514 characters\)
+sed "s/^X//" >'extensions/xv/server/ddx/allrop/xvrop.h' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1991 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X/*
+X** File: 
+X**
+X**   xvrop.h --- Xv RasterOps device dependent header file
+X**
+X** Author: 
+X**
+X**   David Carver (Digital Workstation Engineering/Project Athena)
+X**
+X** Revisions:
+X**
+X**   26.11.91 Carver
+X**     - optimized PutStill to not redraw enable plane between like stills.
+X**       added fields to XvropPortRec to cache info from last request.
+X**
+X**   29.08.91 Carver
+X**     - added support for video in StaticGray windows
+X**     - added field to Port priv to store handle to rop and libpip: prop
+X**
+X**   26.06.91 Carver
+X**     - fixed GC wrappers
+X**
+X**   04.06.91 Carver
+X**     - changed interface to libpip.c, use new libpip.h header file
+X**     - changed assignment of encoding id's
+X**
+X**   31.05.91 Carver
+X**     - made big fixes to occlusion stuff
+X**
+X**   29.05.91 Carver
+X**     - added serialNumber to port private structure.
+X**
+X**   15.05.91 Carver
+X**     - version 2.0 upgrade
+X**
+X**   19.03.91 Carver
+X**     - original port for v1r4
+X**
+X**
+X*/
+X#ifndef XVROP_H
+X#define XVROP_H
+X
+X#include "Xvproto.h"
+X#include "region.h"
+X#include "libpip.h"
+X
+X#ifdef GLOBAL
+X#define EXTERNAL
+X#define INIT(i) = {i}
+X#else GLOBAL
+X#define EXTERNAL extern
+X#define INIT(i)
+X#endif
+X
+X#define XVROP_NUM_ADAPTORS 1
+X
+Xtypedef struct _XvropPortRec {
+X  GCPtr pGC;
+X  int vx,vy,dx,dy;
+X  unsigned int vw,vh,dw,dh;
+X  BoxRec enabled_box;
+X  XvEncodingPtr pEncoding;
+X  int hue,saturation,brightness,contrast;
+X  unsigned long serialNumber;
+X  GCFuncs *wrapFuncs;
+X  pointer prop;
+X  Bool gray;
+X  unsigned int vis;
+X  unsigned int Dx,Dy;
+X  DrawablePtr pDrawStill;
+X  int cvx,cvy,cdx,cdy;
+X  unsigned int cvw,cvh,cdw,cdh;
+X} XvropPortRec, *XvropPortPtr;
+X
+Xtypedef struct _XvropScreenRec {
+X  void (* ClipNotify)();
+X  void (* CopyWindow)();
+X  void (* WindowExposures)();
+X  Bool (* UnrealizeWindow)();
+X} XvropScreenRec, *XvropScreenPtr;
+X
+XEXTERNAL int XvropNumEncodings[1] INIT(9);
+XEXTERNAL int XvropNumPorts[1] INIT(1);
+XEXTERNAL int XvropNumFormats[1] INIT(1);
+X
+X/* PIP_xxx SYMBOLS TAKEN FROM libpip.h */
+X
+X#ifdef GLOBAL
+XXvEncodingRec XvropEncodings[1][9] = 
+X{
+X  {
+X    {PIP_COMPOSITE | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-composite", 640, 480, 5994, 100},
+X    {PIP_COMPOSITE | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-composite", 768, 572, 50, 1}, 
+X    {PIP_COMPOSITE | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-composite", 768, 572, 50, 1},
+X    {PIP_SVIDEO | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-svideo", 640, 480, 5994, 100},
+X    {PIP_SVIDEO | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-svideo", 768, 572, 50, 1}, 
+X    {PIP_SVIDEO | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-svideo", 768, 572, 50, 1},
+X    {PIP_RGB | PIP_NTSC, (ScreenPtr)NULL, 
+X       "ntsc-rgb", 640, 480, 5994, 100},
+X    {PIP_RGB | PIP_PAL, (ScreenPtr)NULL, 
+X       "pal-rgb", 768, 572, 50, 1}, 
+X    {PIP_RGB | PIP_SECAM, (ScreenPtr)NULL, 
+X       "secam-rgb", 768, 572, 50, 1}
+X  }
+X};
+X#else
+XXvEncodingRec XvropEncodings[1][9];
+X#endif GLOBAL
+X
+X#define ROP_SCREEN_PROLOGUE(pScreen, props, field)\
+X  ((pScreen)->field = props->field)
+X
+X#define ROP_SCREEN_EPILOGUE(pScreen, field, wrapper)\
+X  ((pScreen)->field = wrapper)
+X
+X/* LIST OF RASTEROPS PORT CONTROLS XXX --- MORE LATER */
+X
+XEXTERNAL Atom XvropEncoding;
+XEXTERNAL Atom XvropHue;
+XEXTERNAL Atom XvropSaturation;
+XEXTERNAL Atom XvropBrightness;
+XEXTERNAL Atom XvropContrast;
+X
+X#undef EXTERNAL
+X#undef INIT
+X
+X#endif XVROP_H
+X
+X
+END_OF_FILE
+if test 4514 -ne `wc -c <'extensions/xv/server/ddx/allrop/xvrop.h'`; then
+    echo shar: \"'extensions/xv/server/ddx/allrop/xvrop.h'\" unpacked with wrong size!
+fi
+# end of 'extensions/xv/server/ddx/allrop/xvrop.h'
+fi
+if test -f 'server/ddx/cfb32/Imakefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/Imakefile'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/Imakefile'\" \(4506 characters\)
+sed "s/^X//" >'server/ddx/cfb32/Imakefile' <<'END_OF_FILE'
+XXCOMM $XConsortium: Imakefile,v 5.31 91/07/16 22:51:52 gildea Exp $
+X#include <Server.tmpl>
+X
+XSRCS =	 cfbgc.c cfbrrop.c cfbwindow.c \
+X	 cfbpntwin.c cfbmskbits.c cfbpixmap.c cfbbitblt.c \
+X	 cfbfillsp.c cfbsetsp.c cfbscrinit.c \
+X	 cfbgetsp.c cfbfillrct.c \
+X	 cfbsolidC.c cfbsolidX.c cfbsolidG.c \
+X	 cfbtile32C.c cfbtile32G.c \
+X	 cfbtileoddC.c cfbtileoddG.c \
+X	 cfbcmap.c cfbzerarcC.c cfbzerarcX.c cfbzerarcG.c \
+X	 cfbfillarcC.c cfbfillarcG.c \
+X	 cfbtegblt.c cfbbstore.c cfb8cppl.c \
+X	 cfbbltC.c cfbbltX.c cfbbltO.c cfbbltG.c \
+X	 cfb8bit.c cfbteblt8.c cfbglblt8.c cfbglrop8.c cfbigblt8.c \
+X 	 cfbpush8.c cfbrctstp8.c cfbpolypnt.c \
+X	 cfb8lineCO.c cfb8lineX.c cfb8lineG.c cfb8lineCP.c \
+X 	 cfb8segC.c cfb8segX.c cfb8segG.c cfb8segCS.c \
+X	 cfbbres.c cfbline.c cfbhrzvert.c cfbbresd.c cfbimage.c cfbseg.c \
+X	 cfbply1rctC.c cfbply1rctG.c
+X
+X#ifdef MipsArchitecture
+XSTIPPLESRC = stipmips.s stipmipste.s
+XSTIPPLEOBJ = stipmips.o stipmipste.o
+XSTIPPLEDEF = -DHAS_STIPPLE_CODE
+X#endif
+X#ifdef SparcArchitecture
+XSTIPPLESRC = stipsparc.s stipsparcte.s
+XSTIPPLEOBJ = stipsparc.o stipsparcte.o
+XSTIPPLEDEF = -DHAS_STIPPLE_CODE
+X#endif
+X
+XOBJS =   cfbgc.o cfbrrop.o cfbwindow.o \
+X	 cfbgetsp.o cfbfillrct.o \
+X	 cfbsolidC.o cfbsolidX.o cfbsolidG.o \
+X	 cfbtile32C.o cfbtile32G.o \
+X	 cfbtileoddC.o cfbtileoddG.o \
+X	 cfbfillsp.o cfbsetsp.o cfbscrinit.o \
+X	 cfbpntwin.o cfbmskbits.o cfbpixmap.o \
+X	 cfbcmap.o cfbzerarcC.o cfbzerarcX.o cfbzerarcG.o \
+X	 cfbfillarcC.o cfbfillarcG.o \
+X	 cfbtegblt.o cfbbstore.o cfb8cppl.o \
+X	 cfb8bit.o cfbteblt8.o cfbglblt8.o cfbglrop8.o cfbigblt8.o \
+X 	 cfbrctstp8.o cfbpolypnt.o \
+X 	 cfb8segCS.o cfb8segX.o cfb8segG.o cfb8segC.o \
+X	 cfb8lineCO.o cfb8lineX.o cfb8lineG.o cfb8lineCP.o \
+X	 cfbbres.o cfbline.o cfbhrzvert.o cfbbresd.o cfbimage.o cfbseg.o \
+X 	 cfbbitblt.o cfbbltC.o cfbbltX.o cfbbltO.o cfbbltG.o \
+X	 cfbpush8.o cfbply1rctC.o cfbply1rctG.o $(STIPPLEOBJ)
+X
+X   INCLUDES = -I. -I../mfb -I../mi -I../../include -I$(INCLUDESRC) \
+X   	      -I$(FONTSRC)/include
+X   LINTLIBS = ../../dix/llib-ldix.ln ../../os/llib-los.ln \
+X	     ../mfb/llib-lmfb.ln ../mi/llib-lmi.ln
+X   DEFINES = -DPPW=1 -DMULTIDEPTH
+X
+XNormalLibraryObjectRule()
+XNormalLibraryTarget(cfb,$(OBJS))
+XLintLibraryTarget(cfb,$(SRCS))
+X
+XNormalLintTarget($(SRCS))
+X
+X#if HasSaberC
+Xsaber_src:
+X	XCOMM load $(CFLAGS) $(SRCS)
+X#endif
+X
+X#ifdef MipsArchitecture
+Xstipmipste.s: stipmips.s
+X	$(RM) $@
+X	$(LN) stipmips.s stipmipste.s
+Xclean::
+X	$(RM) stipmipste.s
+X
+Xstipmipste.o: stipmipste.s
+X	$(AS) -o $@ -DTETEXT stipmipste.s
+X#endif
+X#ifdef SparcArchitecture
+Xstipsparcte.s: stipsparc.s
+X	$(RM) $@
+X	$(LN) stipsparc.s stipsparcte.s
+Xclean::
+X	$(RM) stipsparcte.s
+X
+Xstipsparc.o: stipsparc.s
+X	$(CPP) stipsparc.s | $(AS) -o $@ -
+X
+Xstipsparcte.o: stipsparcte.s
+X	$(CPP) -DTETEXT stipsparcte.s | $(AS) -o $@ -
+X#endif
+X
+XObjectFromSpecialSource(cfbseg,cfbline,-DPOLYSEGMENT)
+XObjectFromSpecialSource(cfbglrop8,cfbglblt8,-DGLYPHROP)
+XSpecialObjectRule(cfbglblt8.o,$(NOTDEF),$(STIPPLEDEF))
+X
+XObjectFromSpecialSource(cfbfillarcC,cfbfillarc,-DRROP=GXcopy)
+XObjectFromSpecialSource(cfbfillarcG,cfbfillarc,-DRROP=GXset)
+X
+XObjectFromSpecialSource(cfbzerarcC,cfbzerarc,-DRROP=GXcopy)
+XObjectFromSpecialSource(cfbzerarcX,cfbzerarc,-DRROP=GXxor)
+XObjectFromSpecialSource(cfbzerarcG,cfbzerarc,-DRROP=GXset)
+X
+XObjectFromSpecialSource(cfbbltC,cfbblt,-DMROP=Mcopy)
+XObjectFromSpecialSource(cfbbltX,cfbblt,-DMROP=Mxor)
+XObjectFromSpecialSource(cfbbltO,cfbblt,-DMROP=Mor)
+XObjectFromSpecialSource(cfbbltG,cfbblt,-DMROP=0)
+X
+XObjectFromSpecialSource(cfbsolidC,cfbsolid,-DRROP=GXcopy)
+XObjectFromSpecialSource(cfbsolidX,cfbsolid,-DRROP=GXxor)
+XObjectFromSpecialSource(cfbsolidG,cfbsolid,-DRROP=GXset)
+X
+XObjectFromSpecialSource(cfbtile32C,cfbtile32,-DMROP=Mcopy)
+XObjectFromSpecialSource(cfbtile32G,cfbtile32,-DMROP=0)
+X
+XObjectFromSpecialSource(cfbtileoddC,cfbtileodd,-DMROP=Mcopy)
+XObjectFromSpecialSource(cfbtileoddG,cfbtileodd,-DMROP=0)
+X
+XObjectFromSpecialSource(cfb8lineCO,cfb8line,-DRROP=GXcopy)
+XObjectFromSpecialSource(cfb8lineCP,cfb8line,-DRROP=GXcopy -DPREVIOUS)
+XObjectFromSpecialSource(cfb8lineX,cfb8line,-DRROP=GXxor)
+XObjectFromSpecialSource(cfb8lineG,cfb8line,-DRROP=GXset)
+X
+XObjectFromSpecialSource(cfb8segCS,cfb8line,-DRROP=GXcopy -DPOLYSEGMENT -DWIDTH_SHIFT)
+XObjectFromSpecialSource(cfb8segC,cfb8line,-DRROP=GXcopy -DPOLYSEGMENT)
+XObjectFromSpecialSource(cfb8segX,cfb8line,-DRROP=GXxor -DPOLYSEGMENT)
+XObjectFromSpecialSource(cfb8segG,cfb8line,-DRROP=GXset -DPOLYSEGMENT)
+X
+XObjectFromSpecialSource(cfbply1rctC,cfbply1rct,-DRROP=GXcopy)
+XObjectFromSpecialSource(cfbply1rctG,cfbply1rct,-DRROP=GXset)
+X
+XDependTarget()
+END_OF_FILE
+if test 4506 -ne `wc -c <'server/ddx/cfb32/Imakefile'`; then
+    echo shar: \"'server/ddx/cfb32/Imakefile'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/Imakefile'
+fi
+if test -f 'server/ddx/cfb32/cfb8bit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfb8bit.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfb8bit.c'\" \(5507 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfb8bit.c' <<'END_OF_FILE'
+X/*
+X * cfb8bit.c
+X *
+X * 8 bit color frame buffer utility routines
+X */
+X
+X/* $XConsortium: cfb8bit.c,v 1.5 91/01/27 13:02:56 keith Exp $ */
+X
+X#include	"X.h"
+X#include	"Xmd.h"
+X#include	"Xproto.h"
+X#include	"gcstruct.h"
+X#include	"windowstr.h"
+X#include	"scrnintstr.h"
+X#include	"pixmapstr.h"
+X#include	"regionstr.h"
+X#include	"cfb.h"
+X#include	"cfbmskbits.h"
+X#include	"cfb8bit.h"
+X
+X#if (PPW == 4)
+X
+Xunsigned long cfb8StippleMasks[16] = {
+X    0x00000000, 0x000000ff, 0x0000ff00, 0x0000ffff,
+X    0x00ff0000, 0x00ff00ff, 0x00ffff00, 0x00ffffff,
+X    0xff000000, 0xff0000ff, 0xff00ff00, 0xff00ffff,
+X    0xffff0000, 0xffff00ff, 0xffffff00, 0xffffffff,
+X};
+X
+Xint	cfb8StippleMode, cfb8StippleAlu, cfb8StippleRRop;
+Xunsigned long	cfb8StippleFg, cfb8StippleBg, cfb8StipplePm;
+Xunsigned long	cfb8StippleAnd[16], cfb8StippleXor[16];
+X
+Xint
+Xcfb8SetStipple (alu, fg, planemask)
+Xint		alu;
+Xunsigned long	fg, planemask;
+X{
+X    unsigned long   and, xor, rrop;
+X    int	s;
+X    unsigned long   c;
+X
+X    cfb8StippleMode = FillStippled;
+X    cfb8StippleAlu = alu;
+X    cfb8StippleFg = fg & PMSK;
+X    rrop = cfbReduceRasterOp (alu, fg, planemask, &and, &xor);
+X    cfb8StippleRRop = rrop;
+X    /*
+X     * create the appropriate pixel-fill bits for current
+X     * foreground
+X     */
+X    for (s = 0; s < 16; s++)
+X    {
+X	c = cfb8StippleMasks[s];
+X	cfb8StippleAnd[s] = and | ~c;
+X	cfb8StippleXor[s] = xor & c;
+X    }
+X}
+X
+Xint
+Xcfb8SetOpaqueStipple (alu, fg, bg, planemask)
+Xint		alu;
+Xunsigned long	fg, bg, planemask;
+X{
+X    unsigned long   andfg, xorfg, andbg, xorbg, rropfg, rropbg;
+X    int	s;
+X    unsigned long   c;
+X
+X    cfb8StippleMode = FillOpaqueStippled;
+X    cfb8StippleAlu = alu;
+X    cfb8StippleFg = fg & PMSK;
+X    cfb8StippleBg = bg & PMSK;
+X    cfb8StipplePm = planemask & PMSK;
+X    rropfg = cfbReduceRasterOp (alu, cfb8StippleFg, cfb8StipplePm, &andfg, &xorfg);
+X    rropbg = cfbReduceRasterOp (alu, cfb8StippleBg, cfb8StipplePm, &andbg, &xorbg);
+X    if (rropfg == rropbg)
+X	cfb8StippleRRop = rropfg;
+X    else
+X	cfb8StippleRRop = GXset;
+X    /*
+X     * create the appropriate pixel-fill bits for current
+X     * foreground
+X     */
+X    for (s = 0; s < 16; s++)
+X    {
+X	c = cfb8StippleMasks[s];
+X	cfb8StippleAnd[s] = (andfg | ~c) & (andbg | c);
+X	cfb8StippleXor[s] = (xorfg & c) | (xorbg & ~c);
+X    }
+X}
+X
+X/*
+X * a grungy little routine.  This computes clip masks
+X * for partial character blts.  Returns rgnOUT if the
+X * entire character is clipped; returns rgnIN if the entire
+X * character is unclipped; returns rgnPART if a portion of
+X * the character is visible.  Computes clip masks for each
+X * longword of the character -- and those with the
+X * contents of the glyph to compute the visible bits.
+X */
+X
+X#if (BITMAP_BIT_ORDER == MSBFirst)
+Xunsigned long	cfb8BitLenMasks[32] = {
+X    0xffffffff, 0x7fffffff, 0x3fffffff, 0x1fffffff,
+X    0x0fffffff, 0x07ffffff, 0x03ffffff, 0x01ffffff,
+X    0x00ffffff, 0x007fffff, 0x003fffff, 0x001fffff,
+X    0x000fffff, 0x0007ffff, 0x0003ffff, 0x0001ffff,
+X    0x0000ffff, 0x00007fff, 0x00003fff, 0x00001fff,
+X    0x00000fff, 0x000007ff, 0x000003ff, 0x000001ff,
+X    0x000000ff, 0x0000007f, 0x0000003f, 0x0000001f,
+X    0x0000000f, 0x00000007, 0x00000003, 0x00000001,
+X};
+X#else
+Xunsigned long cfb8BitLenMasks[32] = {
+X    0xffffffff, 0xfffffffe, 0xfffffffc, 0xfffffff8,
+X    0xfffffff0, 0xffffffe0, 0xffffffc0, 0xffffff80,
+X    0xffffff00, 0xfffffe00, 0xfffffc00, 0xfffff800,
+X    0xfffff000, 0xffffe000, 0xffffc000, 0xffff8000,
+X    0xffff0000, 0xfffe0000, 0xfffc0000, 0xfff80000,
+X    0xfff00000, 0xffe00000, 0xffc00000, 0xff800000,
+X    0xff000000, 0xfe000000, 0xfc000000, 0xf8000000,
+X    0xf0000000, 0xe0000000, 0xc0000000, 0x80000000,
+X};
+X#endif
+X
+Xint
+Xcfb8ComputeClipMasks32 (pBox, numRects, x, y, w, h, clips)
+X    BoxPtr	pBox;
+X    int		numRects;
+X    int		x, y, w, h;
+X    unsigned long   *clips;
+X{
+X    int	    yBand, yBandBot;
+X    int	    ch;
+X    unsigned long	    clip;
+X    int	    partIN = FALSE, partOUT = FALSE;
+X    int	    result;
+X
+X    if (numRects == 0)
+X	return rgnOUT;
+X    while (numRects && pBox->y2 <= y)
+X    {
+X	--numRects;
+X	++pBox;
+X    }
+X    if (!numRects || pBox->y1 >= y + h)
+X	return rgnOUT;
+X    yBand = pBox->y1;
+X    while (numRects && pBox->y1 == yBand && pBox->x2 <= x)
+X    {
+X	--numRects;
+X	++pBox;
+X    }
+X    if (!numRects || pBox->y1 >= y + h)
+X	return rgnOUT;
+X    if (numRects &&
+X	x >= pBox->x1 &&
+X	x + w <= pBox->x2 &&
+X	y >= pBox->y1 &&
+X	y + h <= pBox->y2)
+X    {
+X	return rgnIN;
+X    }
+X    ch = 0;
+X    while (ch < h && y + ch < pBox->y1)
+X    {
+X	partOUT = TRUE;
+X	clips[ch++] = 0;
+X    }
+X    while (numRects && pBox->y1 < y + h)
+X    {
+X	yBand = pBox->y1;
+X	yBandBot = pBox->y2;
+X    	while (numRects && pBox->y1 == yBand && pBox->x2 <= x)
+X    	{
+X	    --numRects;
+X	    ++pBox;
+X    	}
+X    	if (!numRects)
+X	    break;
+X	clip = 0;
+X    	while (numRects && pBox->y1 == yBand && pBox->x1 < x + w)
+X    	{
+X	    if (x < pBox->x1)
+X		if (pBox->x2 < x + w)
+X		    clip |= cfb8BitLenMasks[pBox->x1 - x] & ~cfb8BitLenMasks[pBox->x2 - x];
+X		else
+X		    clip |= cfb8BitLenMasks[pBox->x1 - x];
+X 	    else
+X		if (pBox->x2 < x + w)
+X		    clip |= ~cfb8BitLenMasks[pBox->x2 - x];
+X		else
+X		    clip = ~0;
+X	    --numRects;
+X	    ++pBox;
+X    	}
+X	if (clip != 0)
+X		partIN = TRUE;
+X	if (clip != ~0)
+X		partOUT = TRUE;
+X	while (ch < h && y + ch < yBandBot)
+X	    clips[ch++] = clip;
+X	while (numRects && pBox->y1 == yBand)
+X	{
+X	    --numRects;
+X	    ++pBox;
+X	}
+X    }
+X    while (ch < h)
+X    {
+X	partOUT = TRUE;
+X	clips[ch++] = 0;
+X    }
+X    result = rgnOUT;
+X    if (partIN)
+X    {
+X	if (partOUT)
+X	    result = rgnPART;
+X	else
+X	    result = rgnIN;
+X    }
+X    return result;
+X}
+X
+X#endif /* PPW == 4 */
+END_OF_FILE
+if test 5507 -ne `wc -c <'server/ddx/cfb32/cfb8bit.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfb8bit.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfb8bit.c'
+fi
+if test -f 'server/ddx/cfb32/cfbbstore.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbbstore.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbbstore.c'\" \(4114 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbbstore.c' <<'END_OF_FILE'
+X/*-
+X * cfbbstore.c --
+X *	Functions required by the backing-store implementation in MI.
+X *
+X * Copyright (c) 1987 by the Regents of the University of California
+X *
+X * Permission to use, copy, modify, and distribute this
+X * software and its documentation for any purpose and without
+X * fee is hereby granted, provided that the above copyright
+X * notice appear in all copies.  The University of California
+X * makes no representations about the suitability of this
+X * software for any purpose.  It is provided "as is" without
+X * express or implied warranty.
+X *
+X *
+X */
+X#ifndef lint
+Xstatic char rcsid[] =
+X"$XConsortium: cfbbstore.c,v 5.5 90/03/10 15:48:40 keith Exp $ SPRITE (Berkeley)";
+X#endif
+X
+X#include    "cfb.h"
+X#include    "X.h"
+X#include    "mibstore.h"
+X#include    "regionstr.h"
+X#include    "scrnintstr.h"
+X#include    "pixmapstr.h"
+X#include    "windowstr.h"
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * cfbSaveAreas --
+X *	Function called by miSaveAreas to actually fetch the areas to be
+X *	saved into the backing pixmap. This is very simple to do, since
+X *	cfbDoBitblt is designed for this very thing. The region to save is
+X *	already destination-relative and we're given the offset to the
+X *	window origin, so we have only to create an array of points of the
+X *	u.l. corners of the boxes in the region translated to the screen
+X *	coordinate system and fetch the screen pixmap out of its devPrivate
+X *	field....
+X *
+X * Results:
+X *	None.
+X *
+X * Side Effects:
+X *	Data are copied from the screen into the pixmap.
+X *
+X *-----------------------------------------------------------------------
+X */
+Xvoid
+XcfbSaveAreas(pPixmap, prgnSave, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnSave; 	/* Region to save (pixmap-relative) */
+X    int	    	  	xorg;	    	/* X origin of region */
+X    int	    	  	yorg;	    	/* Y origin of region */
+X{
+X    register DDXPointPtr pPt;
+X    DDXPointPtr		pPtsInit;
+X    register BoxPtr	pBox;
+X    register int	i;
+X    
+X    i = REGION_NUM_RECTS(prgnSave);
+X    pPtsInit = (DDXPointPtr)ALLOCATE_LOCAL(i * sizeof(DDXPointRec));
+X    if (!pPtsInit)
+X	return;
+X    
+X    pBox = REGION_RECTS(prgnSave);
+X    pPt = pPtsInit;
+X    while (--i >= 0) {
+X	pPt->x = pBox->x1 + xorg;
+X	pPt->y = pBox->y1 + yorg;
+X	pPt++;
+X	pBox++;
+X    }
+X
+X
+X    cfbDoBitbltCopy((DrawablePtr)pPixmap->drawable.pScreen->devPrivate,
+X		(DrawablePtr)pPixmap,
+X		GXcopy,
+X		prgnSave,
+X		pPtsInit, ~0L);
+X
+X    DEALLOCATE_LOCAL (pPtsInit);
+X}
+X
+X/*-
+X *-----------------------------------------------------------------------
+X * cfbRestoreAreas --
+X *	Function called by miRestoreAreas to actually fetch the areas to be
+X *	restored from the backing pixmap. This is very simple to do, since
+X *	cfbDoBitblt is designed for this very thing. The region to restore is
+X *	already destination-relative and we're given the offset to the
+X *	window origin, so we have only to create an array of points of the
+X *	u.l. corners of the boxes in the region translated to the pixmap
+X *	coordinate system and fetch the screen pixmap out of its devPrivate
+X *	field....
+X *
+X * Results:
+X *	None.
+X *
+X * Side Effects:
+X *	Data are copied from the pixmap into the screen.
+X *
+X *-----------------------------------------------------------------------
+X */
+Xvoid
+XcfbRestoreAreas(pPixmap, prgnRestore, xorg, yorg)
+X    PixmapPtr	  	pPixmap;  	/* Backing pixmap */
+X    RegionPtr	  	prgnRestore; 	/* Region to restore (screen-relative)*/
+X    int	    	  	xorg;	    	/* X origin of window */
+X    int	    	  	yorg;	    	/* Y origin of window */
+X{
+X    register DDXPointPtr pPt;
+X    DDXPointPtr		pPtsInit;
+X    register BoxPtr	pBox;
+X    register int	i;
+X    
+X    i = REGION_NUM_RECTS(prgnRestore);
+X    pPtsInit = (DDXPointPtr)ALLOCATE_LOCAL(i*sizeof(DDXPointRec));
+X    if (!pPtsInit)
+X	return;
+X    
+X    pBox = REGION_RECTS(prgnRestore);
+X    pPt = pPtsInit;
+X    while (--i >= 0) {
+X	pPt->x = pBox->x1 - xorg;
+X	pPt->y = pBox->y1 - yorg;
+X	pPt++;
+X	pBox++;
+X    }
+X
+X
+X    cfbDoBitbltCopy((DrawablePtr)pPixmap,
+X		(DrawablePtr)pPixmap->drawable.pScreen->devPrivate,
+X		GXcopy,
+X		prgnRestore,
+X		pPtsInit, ~0L);
+X    DEALLOCATE_LOCAL (pPtsInit);
+X}
+END_OF_FILE
+if test 4114 -ne `wc -c <'server/ddx/cfb32/cfbbstore.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbbstore.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbbstore.c'
+fi
+if test -f 'server/ddx/cfb32/cfbmap.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbmap.h'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbmap.h'\" \(5619 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbmap.h' <<'END_OF_FILE'
+X
+X#if __STDC__ && !defined(UNIXCPP)
+X#define NAME(subname) PREFIXINT()##subname
+X#else
+X#define NAME(subname) PREFIXINT()/**/subname
+X#endif
+X
+X#if PPW == 1
+X#ifdef PREFIX
+X#define PREFIXINT() PREFIX
+X#else
+X#define PREFIXINT() cfb32
+X#endif
+X#endif
+X
+X#if PPW == 2
+X#ifdef PREFIX
+X#define PREFIXINT() PREFIX
+X#else
+X#define PREFIXINT() cfb16
+X#endif
+X#endif
+X
+X#ifdef MULTIDEPTH
+X#define cfbScreenPrivateIndex NAME(ScreenPrivateIndex)
+X#endif MULTIDEPTH
+X
+X#define QuartetBitsTable NAME(QuartetBitsTable)
+X#define QuartetPixelMaskTable NAME(QuartetPixelMaskTable)
+X#define cfbBSFuncRec NAME(BSFuncRec)
+X#define cfbBitBlt NAME(BitBlt)
+X#define cfbBresD NAME(BresD)
+X#define cfbBresS NAME(BresS)
+X#define cfbChangeClip NAME(ChangeClip)
+X#define cfbChangeGC NAME(ChangeGC)
+X#define cfbChangeWindowAttributes NAME(ChangeWindowAttributes)
+X#define cfbClipPoint NAME(ClipPoint)
+X#define cfbCopyArea NAME(CopyArea)
+X#define cfbCopyClip NAME(CopyClip)
+X#define cfbCopyGC NAME(CopyGC)
+X#define cfbCopyImagePlane NAME(CopyImagePlane)
+X#define cfbCopyPixmap NAME(CopyPixmap)
+X#define cfbCopyPlane NAME(CopyPlane)
+X#define cfbCopyRotatePixmap NAME(CopyRotatePixmap)
+X#define cfbCopyWindow NAME(CopyWindow)
+X#define cfbCreateGC NAME(CreateGC)
+X#define cfbCreateOps NAME(CreateOps)
+X#define cfbCreatePixmap NAME(CreatePixmap)
+X#define cfbCreateWindow NAME(CreateWindow)
+X#define cfbDestroyClip NAME(DestroyClip)
+X#define cfbDestroyGC NAME(DestroyGC)
+X#define cfbDestroyOps NAME(DestroyOps)
+X#define cfbDestroyPixmap NAME(DestroyPixmap)
+X#define cfbDestroyWindow NAME(DestroyWindow)
+X#define cfbDoBitblt NAME(DoBitblt)
+X#define cfbDoBitbltCopy NAME(DoBitbltCopy)
+X#define cfbDoBitbltGeneral NAME(DoBitbltGeneral)
+X#define cfbDoBitbltOr NAME(DoBitbltOr)
+X#define cfbDoBitbltXor NAME(DoBitbltXor)
+X#define cfbFillBoxSolid NAME(FillBoxSolid)
+X#define cfbFillBoxTile32 NAME(FillBoxTile32)
+X#define cfbFillBoxTile32sCopy NAME(FillBoxTile32sCopy)
+X#define cfbFillBoxTile32sGeneral NAME(FillBoxTile32sGeneral)
+X#define cfbFillBoxTileOdd NAME(FillBoxTileOdd)
+X#define cfbFillBoxTileOddCopy NAME(FillBoxTileOddCopy)
+X#define cfbFillBoxTileOddGeneral NAME(FillBoxTileOddGeneral)
+X#define cfbFillPoly1RectCopy NAME(FillPoly1RectCopy)
+X#define cfbFillPoly1RectGeneral NAME(FillPoly1RectGeneral)
+X#define cfbFillRectSolidCopy NAME(FillRectSolidCopy)
+X#define cfbFillRectSolidGeneral NAME(FillRectSolidGeneral)
+X#define cfbFillRectSolidXor NAME(FillRectSolidXor)
+X#define cfbFillRectTile32Copy NAME(FillRectTile32Copy)
+X#define cfbFillRectTile32General NAME(FillRectTile32General)
+X#define cfbFillRectTileOdd NAME(FillRectTileOdd)
+X#define cfbFillSpanTile32sCopy NAME(FillSpanTile32sCopy)
+X#define cfbFillSpanTile32sGeneral NAME(FillSpanTile32sGeneral)
+X#define cfbFillSpanTileOddCopy NAME(FillSpanTileOddCopy)
+X#define cfbFillSpanTileOddGeneral NAME(FillSpanTileOddGeneral)
+X#define cfbFinishScreenInit NAME(FinishScreenInit)
+X#define cfbGCFuncs NAME(GCFuncs)
+X#define cfbGetImage NAME(GetImage)
+X#define cfbGetSpans NAME(GetSpans)
+X#define cfbHorzS NAME(HorzS)
+X#define cfbLineSD NAME(LineSD)
+X#define cfbLineSS NAME(LineSS)
+X#define cfbMapWindow NAME(MapWindow)
+X#define cfbMatchCommon NAME(MatchCommon)
+X#define cfbNonTEOps NAME(NonTEOps)
+X#define cfbNonTEOps1Rect NAME(NonTEOps1Rect)
+X#define cfbPadPixmap NAME(PadPixmap)
+X#define cfbPaintWindow NAME(PaintWindow)
+X#define cfbPolyFillArcSolidCopy NAME(PolyFillArcSolidCopy)
+X#define cfbPolyFillArcSolidGeneral NAME(PolyFillArcSolidGeneral)
+X#define cfbPolyFillRect NAME(PolyFillRect)
+X#define cfbPolyPoint NAME(PolyPoint)
+X#define cfbPositionWindow NAME(PositionWindow)
+X#define cfbPutImage NAME(PutImage)
+X#define cfbReduceRasterOp NAME(ReduceRasterOp)
+X#define cfbRestoreAreas NAME(RestoreAreas)
+X#define cfbSaveAreas NAME(SaveAreas)
+X#define cfbScreenInit NAME(ScreenInit)
+X#define cfbSegmentSD NAME(SegmentSD)
+X#define cfbSegmentSS NAME(SegmentSS)
+X#define cfbSetScanline NAME(SetScanline)
+X#define cfbSetSpans NAME(SetSpans)
+X#define cfbSetupScreen NAME(SetupScreen)
+X#define cfbSolidSpansCopy NAME(SolidSpansCopy)
+X#define cfbSolidSpansGeneral NAME(SolidSpansGeneral)
+X#define cfbSolidSpansXor NAME(SolidSpansXor)
+X#define cfbTEGlyphBlt NAME(TEGlyphBlt)
+X#define cfbTEOps NAME(TEOps)
+X#define cfbTEOps1Rect NAME(TEOps1Rect)
+X#define cfbTile32FSCopy NAME(Tile32FSCopy)
+X#define cfbTile32FSGeneral NAME(Tile32FSGeneral)
+X#define cfbUnmapWindow NAME(UnmapWindow)
+X#define cfbUnnaturalStippleFS NAME(UnnaturalStippleFS)
+X#define cfbUnnaturalTileFS NAME(UnnaturalTileFS)
+X#define cfbValidateGC NAME(ValidateGC)
+X#define cfbVertS NAME(VertS)
+X#define cfbXRotatePixmap NAME(XRotatePixmap)
+X#define cfbYRotatePixmap NAME(YRotatePixmap)
+X#define cfbendpartial NAME(endpartial)
+X#define cfbendtab NAME(endtab)
+X#define cfbmask NAME(mask)
+X#define cfbrmask NAME(rmask)
+X#define cfbstartpartial NAME(startpartial)
+X#define cfbstarttab NAME(starttab)
+X#define cfb8LineSS1Rect NAME(LineSS1Rect)
+X#define cfb8SegmentSS1Rect NAME(SegmentSS1Rect)
+X#define cfb8ClippedLineCopy NAME(ClippedLineCopy)
+X#define cfb8ClippedLineXor NAME(ClippedLineXor)
+X#define cfb8ClippedLineGeneral  NAME(ClippedLineGeneral )
+X#define cfb8SegmentSS1RectCopy NAME(SegmentSS1RectCopy)
+X#define cfb8SegmentSS1RectXor NAME(SegmentSS1RectXor)
+X#define cfb8SegmentSS1RectGeneral  NAME(SegmentSS1RectGeneral )
+X#define cfb8SegmentSS1RectShiftCopy NAME(SegmentSS1RectShiftCopy)
+X#define cfb8LineSS1RectCopy NAME(LineSS1RectCopy)
+X#define cfb8LineSS1RectXor NAME(LineSS1RectXor)
+X#define cfb8LineSS1RectGeneral  NAME(LineSS1RectGeneral )
+X#define cfb8LineSS1RectPreviousCopy NAME(LineSS1RectPreviousCopy)
+X#define cfbZeroPolyArcSS8Copy NAME(ZeroPolyArcSSCopy)
+X#define cfbZeroPolyArcSS8Xor NAME(ZeroPolyArcSSXor)
+X#define cfbZeroPolyArcSS8General NAME(ZeroPolyArcSSGeneral)
+END_OF_FILE
+if test 5619 -ne `wc -c <'server/ddx/cfb32/cfbmap.h'`; then
+    echo shar: \"'server/ddx/cfb32/cfbmap.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbmap.h'
+fi
+if test -f 'server/ddx/cfb32/cfbpush8.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbpush8.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbpush8.c'\" \(4261 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbpush8.c' <<'END_OF_FILE'
+X/*
+X * Push Pixels for 8 bit displays.
+X */
+X
+X/*
+XCopyright 1989 by the Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this software and its
+Xdocumentation for any purpose and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation, and that the name of M.I.T. not be used in
+Xadvertising or publicity pertaining to distribution of the software
+Xwithout specific, written prior permission.  M.I.T. makes no
+Xrepresentations about the suitability of this software for any
+Xpurpose.  It is provided "as is" without express or implied warranty.
+X*/
+X/* $XConsortium: cfbpush8.c,v 5.9 91/04/10 11:41:54 keith Exp $ */
+X
+X#include	"X.h"
+X#include	"Xmd.h"
+X#include	"Xproto.h"
+X#include	"gcstruct.h"
+X#include	"windowstr.h"
+X#include	"scrnintstr.h"
+X#include	"pixmapstr.h"
+X#include	"regionstr.h"
+X#include	"cfb.h"
+X#include	"cfbmskbits.h"
+X#include	"cfb8bit.h"
+X
+X#if PPW == 4
+X
+Xextern void mfbPushPixels();
+X
+Xvoid
+XcfbPushPixels8 (pGC, pBitmap, pDrawable, dx, dy, xOrg, yOrg)
+X    GCPtr	pGC;
+X    PixmapPtr	pBitmap;
+X    DrawablePtr	pDrawable;
+X    int		dx, dy, xOrg, yOrg;
+X{
+X    register unsigned long   *src, *dst;
+X    register unsigned long   pixel;
+X    register unsigned long   c, bits;
+X    unsigned long   *pdstLine, *psrcLine;
+X    unsigned long   *pdstBase;
+X    int		    srcWidth;
+X    int		    dstWidth;
+X    int		    xoff;
+X    int		    nBitmapLongs, nPixmapLongs;
+X    int		    nBitmapTmp, nPixmapTmp;
+X    unsigned long   rightMask;
+X    BoxRec	    bbox;
+X    cfbPrivGCPtr    devPriv;
+X
+X    bbox.x1 = xOrg;
+X    bbox.y1 = yOrg;
+X    bbox.x2 = bbox.x1 + dx;
+X    bbox.y2 = bbox.y1 + dy;
+X    devPriv = (cfbPrivGC *)pGC->devPrivates[cfbGCPrivateIndex].ptr;
+X    
+X    switch ((*pGC->pScreen->RectIn)(devPriv->pCompositeClip, &bbox))
+X    {
+X      case rgnPART:
+X	mfbPushPixels(pGC, pBitmap, pDrawable, dx, dy, xOrg, yOrg);
+X      case rgnOUT:
+X	return;
+X    }
+X
+X    cfbGetLongWidthAndPointer (pDrawable, dstWidth, pdstBase)
+X
+X    psrcLine = (unsigned long *) pBitmap->devPrivate.ptr;
+X    srcWidth = (int) pBitmap->devKind >> 2;
+X    
+X    pixel = devPriv->xor;
+X    xoff = xOrg & 03;
+X    nBitmapLongs = (dx + xoff) >> 5;
+X    nPixmapLongs = (dx + 3 + xoff) >> 2;
+X
+X    rightMask = ~cfb8BitLenMasks[((dx + xoff) & 0x1f)];
+X
+X    pdstLine = pdstBase + (yOrg * dstWidth) + (xOrg >> 2);
+X
+X    while (dy--)
+X    {
+X	c = 0;
+X	nPixmapTmp = nPixmapLongs;
+X	nBitmapTmp = nBitmapLongs;
+X	src = psrcLine;
+X	dst = pdstLine;
+X	while (nBitmapTmp--)
+X	{
+X	    bits = *src++;
+X	    c |= BitRight (bits, xoff);
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	    nPixmapTmp -= 8;
+X	    c = 0;
+X	    if (xoff)
+X		c = BitLeft (bits, 32 - xoff);
+X	}
+X	if (BitLeft (rightMask, xoff))
+X	    c |= BitRight (*src, xoff);
+X	c &= rightMask;
+X	switch (nPixmapTmp) {
+X	case 8:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 7:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 6:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 5:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 4:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 3:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 2:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 1:
+X	    WriteFourBits(dst, pixel, GetFourBits(c));
+X	    NextFourBits(c);
+X	    dst++;
+X	case 0:
+X	    break;
+X	}
+X	pdstLine += dstWidth;
+X	psrcLine += srcWidth;
+X    }
+X}
+X
+X#endif
+END_OF_FILE
+if test 4261 -ne `wc -c <'server/ddx/cfb32/cfbpush8.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbpush8.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbpush8.c'
+fi
+if test -f 'server/ddx/cfb32/cfbrrop.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbrrop.h'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbrrop.h'\" \(5592 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbrrop.h' <<'END_OF_FILE'
+X/*
+X * $XConsortium: cfbrrop.h,v 1.6 91/04/10 11:42:06 keith Exp $
+X *
+X * Copyright 1989 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Keith Packard, MIT X Consortium
+X */
+X
+X#ifndef GXcopy
+X#include "X.h"
+X#endif
+X
+X#define RROP_FETCH_GC(gc) \
+X    RROP_FETCH_GCPRIV(((cfbPrivGCPtr)(gc)->devPrivates[cfbGCPrivateIndex].ptr))
+X
+X#ifndef RROP
+X#define RROP GXset
+X#endif
+X
+X#if RROP == GXcopy
+X#define RROP_DECLARE	register unsigned long	rrop_xor;
+X#define RROP_FETCH_GCPRIV(devPriv)  rrop_xor = (devPriv)->xor;
+X#define RROP_SOLID(dst)	    (*(dst) = (rrop_xor))
+X#define RROP_SOLID_MASK(dst,mask) (*(dst) = (*(dst) & ~(mask)) | ((rrop_xor) & (mask)))
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,Copy)
+X#endif
+X
+X#if RROP == GXxor
+X#define RROP_DECLARE	register unsigned long	rrop_xor;
+X#define RROP_FETCH_GCPRIV(devPriv)  rrop_xor = (devPriv)->xor;
+X#define RROP_SOLID(dst)	    (*(dst) ^= (rrop_xor))
+X#define RROP_SOLID_MASK(dst,mask) (*(dst) ^= ((rrop_xor) & (mask)))
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,Xor)
+X#endif
+X
+X#if RROP == GXand
+X#define RROP_DECLARE	register unsigned long	rrop_and;
+X#define RROP_FETCH_GCPRIV(devPriv)  rrop_and = (devPriv)->and;
+X#define RROP_SOLID(dst)	    (*(dst) &= (rrop_and))
+X#define RROP_SOLID_MASK(dst,mask) (*(dst) &= ((rrop_and) | ~(mask)))
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,And)
+X#endif
+X
+X#if RROP == GXor
+X#define RROP_DECLARE	register unsigned long	rrop_or;
+X#define RROP_FETCH_GCPRIV(devPriv)  rrop_or = (devPriv)->xor;
+X#define RROP_SOLID(dst)	    (*(dst) |= (rrop_or))
+X#define RROP_SOLID_MASK(dst,mask) (*(dst) |= ((rrop_or) & (mask)))
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,Or)
+X#endif
+X
+X#if RROP == GXnoop
+X#define RROP_DECLARE
+X#define RROP_FETCH_GCPRIV(devPriv)
+X#define RROP_SOLID(dst)
+X#define RROP_SOLID_MASK(dst,mask)
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,Noop)
+X#endif
+X
+X#if RROP ==  GXset
+X#define RROP_DECLARE	    register unsigned long	rrop_and, rrop_xor;
+X#define RROP_FETCH_GCPRIV(devPriv)  rrop_and = (devPriv)->and; \
+X				    rrop_xor = (devPriv)->xor;
+X#define RROP_SOLID(dst)	    (*(dst) = DoRRop (*(dst), rrop_and, rrop_xor))
+X#define RROP_SOLID_MASK(dst,mask)   (*(dst) = DoMaskRRop (*(dst), rrop_and, rrop_xor, (mask)))
+X#define RROP_NAME(prefix)   RROP_NAME_CAT(prefix,General)
+X#endif
+X
+X#define RROP_UNROLL_CASE1(p,i)    case (i): RROP_SOLID((p) - (i));
+X#define RROP_UNROLL_CASE2(p,i)    RROP_UNROLL_CASE1(p,(i)+1) RROP_UNROLL_CASE1(p,i)
+X#define RROP_UNROLL_CASE4(p,i)    RROP_UNROLL_CASE2(p,(i)+2) RROP_UNROLL_CASE2(p,i)
+X#define RROP_UNROLL_CASE8(p,i)    RROP_UNROLL_CASE4(p,(i)+4) RROP_UNROLL_CASE4(p,i)
+X#define RROP_UNROLL_CASE16(p,i)   RROP_UNROLL_CASE8(p,(i)+8) RROP_UNROLL_CASE8(p,i)
+X#define RROP_UNROLL_CASE3(p)	RROP_UNROLL_CASE2(p,2) RROP_UNROLL_CASE1(p,1)
+X#define RROP_UNROLL_CASE7(p)	RROP_UNROLL_CASE4(p,4) RROP_UNROLL_CASE3(p)
+X#define RROP_UNROLL_CASE15(p)	RROP_UNROLL_CASE8(p,8) RROP_UNROLL_CASE7(p)
+X#define RROP_UNROLL_CASE31(p)	RROP_UNROLL_CASE16(p,16) RROP_UNROLL_CASE15(p)
+X
+X#define RROP_UNROLL_LOOP1(p,i) RROP_SOLID((p) + (i));
+X#define RROP_UNROLL_LOOP2(p,i) RROP_UNROLL_LOOP1(p,(i)) RROP_UNROLL_LOOP1(p,(i)+1)
+X#define RROP_UNROLL_LOOP4(p,i) RROP_UNROLL_LOOP2(p,(i)) RROP_UNROLL_LOOP2(p,(i)+2)
+X#define RROP_UNROLL_LOOP8(p,i) RROP_UNROLL_LOOP4(p,(i)) RROP_UNROLL_LOOP4(p,(i)+4)
+X#define RROP_UNROLL_LOOP16(p,i) RROP_UNROLL_LOOP8(p,(i)) RROP_UNROLL_LOOP8(p,(i)+8)
+X#define RROP_UNROLL_LOOP32(p,i) RROP_UNROLL_LOOP16(p,(i)) RROP_UNROLL_LOOP16(p,(i)+16)
+X
+X#if defined (FAST_CONSTANT_OFFSET_MODE) && defined (SHARED_IDCACHE) && (RROP == GXcopy)
+X
+X#define RROP_UNROLL_SHIFT	5
+X#define RROP_UNROLL		(1<<RROP_UNROLL_SHIFT)
+X#define RROP_UNROLL_MASK	(RROP_UNROLL-1)
+X#define RROP_UNROLL_CASE(p)	RROP_UNROLL_CASE31(p)
+X#define RROP_UNROLL_LOOP(p)	RROP_UNROLL_LOOP32(p,-32)
+X
+X#define RROP_SPAN(pdst,nmiddle) {\
+X    int part = (nmiddle) & RROP_UNROLL_MASK; \
+X    (nmiddle) >>= RROP_UNROLL_SHIFT; \
+X    (pdst) += part * (sizeof (unsigned long) / sizeof (*pdst)); \
+X    switch (part) {\
+X	RROP_UNROLL_CASE((unsigned long *) (pdst)) \
+X    } \
+X    while (--(nmiddle) >= 0) { \
+X	(pdst) += RROP_UNROLL * (sizeof (unsigned long) / sizeof (*pdst)); \
+X	RROP_UNROLL_LOOP((unsigned long *) (pdst)) \
+X    } \
+X}
+X#else
+X#define RROP_SPAN(pdst,nmiddle) \
+X    while (--(nmiddle) >= 0) { \
+X	RROP_SOLID((unsigned long *) (pdst)); \
+X	(pdst) += sizeof (unsigned long) / sizeof (*pdst); \
+X    }
+X#endif
+X
+X#if __STDC__ && !defined(UNIXCPP)
+X#define RROP_NAME_CAT(prefix,suffix)	prefix##suffix
+X#else
+X#define RROP_NAME_CAT(prefix,suffix)	prefix/**/suffix
+X#endif
+END_OF_FILE
+if test 5592 -ne `wc -c <'server/ddx/cfb32/cfbrrop.h'`; then
+    echo shar: \"'server/ddx/cfb32/cfbrrop.h'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbrrop.h'
+fi
+if test -f 'server/ddx/cfb32/cfbzerarc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/cfb32/cfbzerarc.c'\"
+else
+echo shar: Extracting \"'server/ddx/cfb32/cfbzerarc.c'\" \(5296 characters\)
+sed "s/^X//" >'server/ddx/cfb32/cfbzerarc.c' <<'END_OF_FILE'
+X/************************************************************
+XCopyright 1989 by The Massachusetts Institute of Technology
+X
+XPermission to use, copy, modify, and distribute this
+Xsoftware and its documentation for any purpose and without
+Xfee is hereby granted, provided that the above copyright
+Xnotice appear in all copies and that both that copyright
+Xnotice and this permission notice appear in supporting
+Xdocumentation, and that the name of MIT not be used in
+Xadvertising or publicity pertaining to distribution of the
+Xsoftware without specific prior written permission.
+XM.I.T. makes no representation about the suitability of
+Xthis software for any purpose. It is provided "as is"
+Xwithout any express or implied warranty.
+X
+X********************************************************/
+X
+X/* $XConsortium: cfbzerarc.c,v 5.18 91/04/10 11:41:47 keith Exp $ */
+X
+X/* Derived from:
+X * "Algorithm for drawing ellipses or hyperbolae with a digital plotter"
+X * by M. L. V. Pitteway
+X * The Computer Journal, November 1967, Volume 10, Number 3, pp. 282-289
+X */
+X
+X#include "X.h"
+X#include "Xprotostr.h"
+X#include "miscstruct.h"
+X#include "gcstruct.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "mizerarc.h"
+X#include "cfbrrop.h"
+X
+X#ifdef PIXEL_ADDR
+X
+Xextern void miPolyArc(), miZeroPolyArc();
+X
+Xstatic void
+XRROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
+X    DrawablePtr pDraw;
+X    GCPtr pGC;
+X    xArc *arc;
+X{
+X    miZeroArcRec info;
+X    Bool do360;
+X    register int x;
+X    PixelType *addrp;
+X    register PixelType *yorgp, *yorgop;
+X    RROP_DECLARE
+X    register int yoffset;
+X    int npwidth, dyoffset;
+X    register int y, a, b, d, mask;
+X    register int k1, k3, dx, dy;
+X
+X    cfbGetPixelWidthAndPointer(pDraw,npwidth, addrp)
+X
+X    RROP_FETCH_GC (pGC);
+X    do360 = miZeroArcSetup(arc, &info, TRUE);
+X    yorgp = addrp + ((info.yorg + pDraw->y) * npwidth);
+X    yorgop = addrp + ((info.yorgo + pDraw->y) * npwidth);
+X    info.xorg += pDraw->x;
+X    info.xorgo += pDraw->x;
+X    MIARCSETUP();
+X    yoffset = y ? npwidth : 0;
+X    dyoffset = 0;
+X    mask = info.initialMask;
+X    if (!(arc->width & 1))
+X    {
+X	if (mask & 2)
+X	    RROP_SOLID((yorgp + info.xorgo));
+X	if (mask & 8)
+X	    RROP_SOLID((yorgop + info.xorgo));
+X    }
+X    if (!info.end.x || !info.end.y)
+X    {
+X	mask = info.end.mask;
+X	info.end = info.altend;
+X    }
+X    if (do360 && (arc->width == arc->height) && !(arc->width & 1))
+X    {
+X	register int xoffset = npwidth;
+X	PixelType *yorghb = yorgp + (info.h * npwidth) + info.xorg;
+X	PixelType *yorgohb = yorghb - info.h;
+X
+X	yorgp += info.xorg;
+X	yorgop += info.xorg;
+X	yorghb += info.h;
+X	while (1)
+X	{
+X	    RROP_SOLID(yorgp + yoffset + x);
+X	    RROP_SOLID(yorgp + yoffset - x);
+X	    RROP_SOLID(yorgop - yoffset - x);
+X	    RROP_SOLID(yorgop - yoffset + x);
+X	    if (a < 0)
+X		break;
+X	    RROP_SOLID(yorghb - xoffset - y);
+X	    RROP_SOLID(yorgohb - xoffset + y);
+X	    RROP_SOLID(yorgohb + xoffset + y);
+X	    RROP_SOLID(yorghb + xoffset - y);
+X	    xoffset += npwidth;
+X	    MIARCCIRCLESTEP(yoffset += npwidth;);
+X	}
+X	yorgp -= info.xorg;
+X	yorgop -= info.xorg;
+X	x = info.w;
+X	yoffset = info.h * npwidth;
+X    }
+X    else if (do360)
+X    {
+X	while (y < info.h || x < info.w)
+X	{
+X	    MIARCOCTANTSHIFT(dyoffset = npwidth;);
+X	    RROP_SOLID(yorgp + yoffset + info.xorg + x);
+X	    RROP_SOLID(yorgp + yoffset + info.xorgo - x);
+X	    RROP_SOLID(yorgop - yoffset + info.xorgo - x);
+X	    RROP_SOLID(yorgop - yoffset + info.xorg + x);
+X	    MIARCSTEP(yoffset += dyoffset;, yoffset += npwidth;);
+X	}
+X    }
+X    else
+X    {
+X	while (y < info.h || x < info.w)
+X	{
+X	    MIARCOCTANTSHIFT(dyoffset = npwidth;);
+X	    if ((x == info.start.x) || (y == info.start.y))
+X	    {
+X		mask = info.start.mask;
+X		info.start = info.altstart;
+X	    }
+X	    if (mask & 1)
+X		RROP_SOLID(yorgp + yoffset + info.xorg + x);
+X	    if (mask & 2)
+X		RROP_SOLID(yorgp + yoffset + info.xorgo - x);
+X	    if (mask & 4)
+X		RROP_SOLID(yorgop - yoffset + info.xorgo - x);
+X	    if (mask & 8)
+X		RROP_SOLID(yorgop - yoffset + info.xorg + x);
+X	    if ((x == info.end.x) || (y == info.end.y))
+X	    {
+X		mask = info.end.mask;
+X		info.end = info.altend;
+X	    }
+X	    MIARCSTEP(yoffset += dyoffset;, yoffset += npwidth;);
+X	}
+X    }
+X    if ((x == info.start.x) || (y == info.start.y))
+X	mask = info.start.mask;
+X    if (mask & 1)
+X	RROP_SOLID(yorgp + yoffset + info.xorg + x);
+X    if (mask & 4)
+X	RROP_SOLID(yorgop - yoffset + info.xorgo - x);
+X    if (arc->height & 1)
+X    {
+X	if (mask & 2)
+X	    RROP_SOLID(yorgp + yoffset + info.xorgo - x);
+X	if (mask & 8)
+X	    RROP_SOLID(yorgop - yoffset + info.xorg + x);
+X    }
+X}
+X
+Xvoid
+XRROP_NAME (cfbZeroPolyArcSS8) (pDraw, pGC, narcs, parcs)
+X    register DrawablePtr	pDraw;
+X    GCPtr	pGC;
+X    int		narcs;
+X    xArc	*parcs;
+X{
+X    register xArc *arc;
+X    register int i;
+X    BoxRec box;
+X    RegionPtr cclip;
+X
+X    cclip = ((cfbPrivGC *)(pGC->devPrivates[cfbGCPrivateIndex].ptr))->pCompositeClip;
+X    for (arc = parcs, i = narcs; --i >= 0; arc++)
+X    {
+X	if (miCanZeroArc(arc))
+X	{
+X	    box.x1 = arc->x + pDraw->x;
+X	    box.y1 = arc->y + pDraw->y;
+X	    box.x2 = box.x1 + (int)arc->width + 1;
+X	    box.y2 = box.y1 + (int)arc->height + 1;
+X	    if ((*pDraw->pScreen->RectIn)(cclip, &box) == rgnIN)
+X		RROP_NAME (cfbZeroArcSS8) (pDraw, pGC, arc);
+X	    else
+X		miZeroPolyArc(pDraw, pGC, 1, arc);
+X	}
+X	else
+X	    miPolyArc(pDraw, pGC, 1, arc);
+X    }
+X}
+X
+X#endif
+END_OF_FILE
+if test 5296 -ne `wc -c <'server/ddx/cfb32/cfbzerarc.c'`; then
+    echo shar: \"'server/ddx/cfb32/cfbzerarc.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/cfb32/cfbzerarc.c'
+fi
+if test -f 'server/ddx/sun/xfbmisc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'server/ddx/sun/xfbmisc.c'\"
+else
+echo shar: Extracting \"'server/ddx/sun/xfbmisc.c'\" \(4219 characters\)
+sed "s/^X//" >'server/ddx/sun/xfbmisc.c' <<'END_OF_FILE'
+X/***********************************************************
+XCopyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include "X.h"
+X#include "windowstr.h"
+X#include "pixmapstr.h"
+X#include "scrnintstr.h"
+X#include "gcstruct.h"
+X#include "cfb.h"
+X#include "cfbmskbits.h"
+X#include "servermd.h"
+X
+Xvoid
+XxfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine)
+X    DrawablePtr pDrawable;
+X    int		sx, sy, w, h;
+X    unsigned int format;
+X    unsigned long planeMask;
+X    pointer	pdstLine;
+X{
+X    if (pDrawable->depth == 1)
+X	mfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine);
+X    else if (pDrawable->depth == 8)
+X	cfbGetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine);
+X    else
+X	cfb32GetImage(pDrawable, sx, sy, w, h, format, planeMask, pdstLine);
+X}
+X
+Xvoid
+XxfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart)
+X    DrawablePtr		pDrawable;	/* drawable from which to get bits */
+X    int			wMax;		/* largest value of all *pwidths */
+X    register DDXPointPtr ppt;		/* points to start copying from */
+X    int			*pwidth;	/* list of number of bits to copy */
+X    int			nspans;		/* number of scanlines to copy */
+X    unsigned int	*pdstStart;	/* where to put the bits */
+X{
+X    if (pDrawable->depth == 8)
+X	cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X    else if (pDrawable->depth == 8)
+X	cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X    else
+X	cfb32GetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
+X}
+X
+XBool
+XxfbCreateGC(pGC)
+X    register GCPtr      pGC;
+X{
+X    switch (pGC->depth) {
+X    case 1:
+X	return (mfbCreateGC(pGC));
+X    case 8:
+X	return (cfbCreateGC(pGC));
+X    case 24:
+X	return (cfb32CreateGC(pGC));
+X    default:
+X	ErrorF("xfbCreateGC: unsupported depth: %d\n", pGC->depth);
+X	return FALSE;
+X    }
+X}
+X
+XPixmapPtr
+XxfbCreatePixmap(pScreen, width, height, depth)
+X    ScreenPtr	pScreen;
+X    int		width;
+X    int		height;
+X    int		depth;
+X{
+X    register PixmapPtr pPixmap;
+X    int size;
+X
+X    if (depth != 1 && depth != 8 && depth != 24)
+X	return NullPixmap;
+X
+X    /* Big pixmaps are pretty useless and will screw up server.  Probably we
+X       got such large numbers because someone passed in a negative height by
+X       accident, anyway. */
+X    if (width > 32767 || height > 32767)
+X	return NullPixmap;
+X
+X    size = PixmapBytePad(width, depth);
+X    pPixmap = (PixmapPtr)xalloc(sizeof(PixmapRec) + (height * size));
+X    if (!pPixmap)
+X	return NullPixmap;
+X    pPixmap->drawable.type = DRAWABLE_PIXMAP;
+X    pPixmap->drawable.class = 0;
+X    pPixmap->drawable.pScreen = pScreen;
+X    pPixmap->drawable.depth = depth;
+X    pPixmap->drawable.bitsPerPixel = (depth == 24) ? 32 : depth;
+X    pPixmap->drawable.id = 0;
+X    pPixmap->drawable.serialNumber = NEXT_SERIAL_NUMBER;
+X    pPixmap->drawable.x = 0;
+X    pPixmap->drawable.y = 0;
+X    pPixmap->drawable.width = width;
+X    pPixmap->drawable.height = height;
+X    pPixmap->devKind = size;
+X    pPixmap->refcnt = 1;
+X    pPixmap->devPrivate.ptr = (pointer)(pPixmap + 1);
+X    return pPixmap;
+X}
+X
+XBool
+XxfbDestroyPixmap(pPixmap)
+X    PixmapPtr pPixmap;
+X{
+X
+X    if(--pPixmap->refcnt)
+X	return TRUE;
+X    xfree(pPixmap);
+X    return TRUE;
+X}
+X
+END_OF_FILE
+if test 4219 -ne `wc -c <'server/ddx/sun/xfbmisc.c'`; then
+    echo shar: \"'server/ddx/sun/xfbmisc.c'\" unpacked with wrong size!
+fi
+# end of 'server/ddx/sun/xfbmisc.c'
+fi
+echo shar: End of archive 26 \(of 29\).
+cp /dev/null ark26isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 29 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

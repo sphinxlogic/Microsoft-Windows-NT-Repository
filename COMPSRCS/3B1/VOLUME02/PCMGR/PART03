@@ -1,0 +1,819 @@
+Path: comp-sources-3b1
+From: dave@galaxia.network23.com (David H. Brierley)
+Subject:  v02i019:  pcmgr: replacement status and window manager, Part03/03
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 1ee51ee8 84395320 73273a75 e5b35095
+
+Submitted-by: dave@galaxia.network23.com (David H. Brierley)
+Posting-number: Volume 2, Issue 19
+Archive-name: pcmgr/part03
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 3)."
+# Contents:  sysinfo.c
+# Wrapped by dave@galaxia on Tue Jul 14 21:15:55 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'sysinfo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sysinfo.c'\"
+else
+echo shar: Extracting \"'sysinfo.c'\" \(20171 characters\)
+sed "s/^X//" >'sysinfo.c' <<'END_OF_FILE'
+X/*
+X * Module: sysinfo.c
+X *
+X * Primarily based on the sysinfo program by Lenny Tropiano (see below)
+X * but heavily hacked for inclusion in the pcmgr program.
+X *
+X * Various enhancements implememented by Floyd L. Davidson and released
+X * as "sysinfo V4.4" have also been incorporated.  These include displaying
+X * the amount of available swap space and highlighting the values on the
+X * display if they exceed (or drop below) some defined threshhold.
+X *
+X * David H. Brierley (dave@galaxia.network23.com)
+X */
+X
+X/************************************************************************\
+X**                                                                      **
+X** Program name: sysinfo.c (System Info)                                **
+X** Programmer:   Lenny Tropiano            UUCP: ...icus!lenny          **
+X** Organization: ICUS Software Systems     (c)1988, 1989                **
+X** Date:         January 23, 1988                                       **
+X** Version 2.0:  June 27, 1988                                          **
+X** Version 2.1:  Februrary 19, 1989 (Revision Level 4)                  **
+X**                                                                      **
+X** Revision Level: 1  [Updated to switch to current window]             **
+X** Revision Level: 2  [Updated to show load average in the window]      **
+X** Revision Level: 3  [Updated to available main memory in the window]  **
+X** Revision Level: 4  [Updated by David H. Brierley to check the the    **
+X**                     current status of the SLK lines for existing     **
+X**                     information and not display the sysinfo lines    **
+X**                     over those SLK's if in CHGWIND #define'd, good   **
+X**                     for use with the UA and Telephone Manager F-key  **
+X**                     SLK definitions]  -- dave@galaxia.Newport.RI.US  **
+X**                                                                      **
+X**************************************************************************
+X**                                                                      **
+X** Credits:      The idea of displaying the file system information     **
+X**               came from Scott Hazen Mueller's  newmgr, the replace-  **
+X**               ment to the smgr.                                      **
+X**                                                                      **
+X**************************************************************************
+X**                                                                      **
+X** Program use:  Program is run as a info process from your .profile    **
+X**               This program the file system and displays the          **
+X**               pertinent information on the bottom of the screen      **
+X**               where the software labels would normally be displayed. **
+X**               The program also displays the uptime.                  **
+X**                                                                      **
+X**************************************************************************
+X** Permission is granted to distribute this program by any means as     **
+X** long as credit is given for my work.     I would also like to see    **
+X** any modifications or enhancements to this program.                   **
+X\************************************************************************/
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <sys/font.h>
+X#include <sys/window.h>
+X#include <sys/filsys.h>
+X#include <sys/param.h>
+X#include <sys/ipc.h>
+X#include <sys/shm.h>
+X#include <nlist.h>
+X#include <utmp.h>
+X#include <string.h>
+X#include <mnttab.h>
+X#include <sys/map.h>
+X#include <sys/ino.h>
+X#include <sys/user.h>
+X#include <menu.h>
+X#ifdef	DEBUG
+X#include <syslog.h>
+X#endif
+X
+X#ifndef ctob			/* For System V */
+X#include <sys/sysmacros.h>
+X#endif
+X
+X#include "config.h"		/* local config options */
+X#include "pcmgr.h"		/* prototypes for all pcmgr routines */
+X
+X#ifndef	MNTTAB
+X#define MNTTAB		"/etc/mnttab"
+X#endif
+X
+X#define N_SWAPMAP	0
+X#define N_NSWAP		1
+X#define N_FREEMEM	2
+X#define N_MAXMEM	3
+X#define N_PHYSMEM	4
+X
+Xstatic struct nlist unixsym[] = {
+X    {"swapmap", 0, 0, 0, 0, 0},
+X    {"nswap", 0, 0, 0, 0, 0},
+X    {"freemem", 0, 0, 0, 0, 0},
+X    {"maxmem", 0, 0, 0, 0, 0},
+X    {"physmem", 0, 0, 0, 0, 0},
+X    {"", 0, 0, 0, 0, 0},
+X    {NULL}
+X};
+X
+Xstatic char    *LINE_1 = "%-43.43s%-23.23s%14s";
+X#ifdef		SHOW_DISK_TOTALS
+Xstatic char    *LINE_2a = "%ld/%ld blks %s, %ld/%ld inodes %s  ";
+X#else
+Xstatic char    *LINE_2a = "%ld/%.0f%% blks %s, %ld/%.0f%% inodes %s  ";
+X#endif
+X#ifdef		SHOW_DISK_FREE
+Xstatic char    *LINE_2_type = "free";
+X#else
+Xstatic char    *LINE_2_type = "used";
+X#endif
+Xstatic char    *LINE_2b = "Swap: %dK  Mem: %dK";
+Xstatic char    *LINE_2 = "%-10.10s %45.45s %23.23s";
+X
+X#define UNIX	"/unix"
+X#define KMEM	"/dev/kmem"
+X#define	MINUTE	60L
+X#define	HOUR	(60L * 60L)
+X#define	DAY	(24L * 60L * 60L)
+X#define	SLEEP	60		/* Sleep time (interval between) */
+X#define	NICE	5		/* Niceness value		 */
+X#define KILOBYTE 1024
+X#define INOPERBLOCK (512 / sizeof (struct dinode))
+X
+X#define	FILESYS	"/dev/rfp002"
+X#ifndef TRUE
+X#define TRUE	1
+X#endif
+X
+Xstruct user_info {
+X    char            u_name[10];
+X    int             u_flag;	/* 1 == logged in */
+X    int             u_msgs;	/* number of mail messages */
+X    time_t          u_mailtime;	/* time stamp of mail file */
+X    char            u_mailfile[32];	/* name of mailbox */
+X};
+X
+X#ifndef MAX_USERS
+X#define MAX_USERS	32
+X#endif
+X
+Xstatic int      wd;		/* window descriptor		 */
+Xstatic int      kmem;		/* kmem file descriptor		 */
+Xstatic struct utdata utd;	/* Window data structure        */
+Xstatic struct filsys fs;	/* Filesystem superblock struct */
+Xstatic time_t   boottime;	/* system boot time in sec      */
+Xstatic int      shm;
+Xstatic struct user_info user_info[MAX_USERS];
+Xstatic struct mnttab filesys[NMOUNT];	/* mounted file systems */
+Xstatic int      fs_index = 0;	/* index into filesys array */
+Xstatic int      max_fs_index = 0;
+Xstatic time_t   mtab_time = 0;	/* time stamp of mnttab file */
+X
+Xstruct utmp    *getutent (void);
+X
+X/************************************************************************/
+X
+Xvoid
+Xinit_sysinfo (void)
+X{
+X    char           *getenv ();
+X    struct utmp    *utent;
+X    int             n;
+X
+X    setutent ();
+X    while ((utent = getutent ()) != (struct utmp *) NULL) {
+X	if (utent -> ut_type == BOOT_TIME) {
+X	    boottime = utent -> ut_time;
+X	    break;
+X	}
+X    }
+X
+X    while ((shm = shmget (ftok ("/unix", 'a'), 12, 0)) == -1) {
+X	(void) sleep (5);
+X    }
+X
+X    /*
+X     * Look up addresses of variables.
+X     */
+X    if (nlist (UNIX, unixsym) < 0) {
+X	(void) fprintf (stderr, "%s: no namelist.\n", UNIX);
+X	exit (1);
+X    }
+X
+X    /*
+X     * Open kernel memory.
+X     */
+X    if ((kmem = open (KMEM, 0)) < 0) {
+X	perror (KMEM);
+X	exit (1);
+X    }
+X
+X    /*
+X     * initialize the user_info list
+X     */
+X    for (n = 0; n < MAX_USERS; ++n) {
+X	user_info[n].u_name[0] = '\0';
+X	user_info[n].u_flag = -1;
+X    }
+X
+X}
+X
+Xvoid
+Xinfo_process (void)
+X{
+X    long            memory ();
+X    long            free_mem, freepage;
+X    float           pct_disk, pct_ino;
+X    long            tot_blocks, tot_inodes;
+X    long            show_blocks, show_inodes;
+X    int             fs_type;
+X    char            mailbuffer[64], loadbuf[30];
+X    char            user_buf[16], up_buf[16];
+X    char            line2a[80], line2b[80];
+X    char           *lptr;
+X
+X    open_current_window ();
+X
+X    if (slktest () == 0) {
+X	filestatus ();
+X	uptime (up_buf);
+X
+X	/*
+X	 * even tho the number of users is no longer displayed, the call to
+X	 * count_users is needed because it fills in a global structure that
+X	 * is used by mailcheck().
+X	 */
+X	count_users (user_buf);
+X	mailcheck (mailbuffer);
+X	loadaverage (loadbuf);
+X
+X	utd.ut_num = WTXTSLK1;
+X	(void) sprintf (utd.ut_text, LINE_1,
+X			mailbuffer, loadbuf, up_buf);
+X	(void) ioctl (wd, WIOCSETTEXT, &utd);
+X
+X	/* compute free memory and swap space */
+X	free_mem = memory () / KILOBYTE;
+X	freepage = 4 * page ();
+X
+X	/* what kind of a file system are we using */
+X	fs_type = 1;
+X	if (fs.s_magic == FsMAGIC) {
+X	    fs_type = fs.s_type;
+X	}
+X
+X	/* compute blocks used/free and percentage */
+X	tot_blocks = fs.s_fsize * fs_type;
+X#ifdef	SHOW_DISK_FREE
+X	show_blocks = fs.s_tfree * fs_type;
+X#else
+X	show_blocks = tot_blocks - (fs.s_tfree * fs_type);
+X#endif
+X	pct_disk = ((float) show_blocks / (float) tot_blocks) * 100.0;
+X
+X	/* compute inodes used/free and percentage */
+X	tot_inodes = ((fs.s_isize - 2) * fs_type) * INOPERBLOCK;
+X#ifdef	SHOW_DISK_FREE
+X	show_inodes = fs.s_tinode;
+X#else
+X	show_inodes = tot_inodes - fs.s_tinode;
+X#endif
+X	pct_ino = ((float) show_inodes / (float) tot_inodes) * 100.0;
+X
+X	/*
+X	 * fill in the first half of the line, depending on the
+X	 * value of the SHOW_DISK_TOTALS option.
+X	 */
+X#ifdef	SHOW_DISK_TOTALS
+X	(void) sprintf (line2a, LINE_2a,
+X			show_blocks, tot_blocks, LINE_2_type,
+X			show_inodes, tot_inodes, LINE_2_type);
+X#else
+X	(void) sprintf (line2a, LINE_2a,
+X			show_blocks, pct_disk, LINE_2_type,
+X			show_inodes, pct_ino, LINE_2_type);
+X#endif
+X
+X	/*
+X	 * Fill in the second half of the line.
+X	 */
+X	(void) sprintf (line2b, LINE_2b, freepage, free_mem);
+X
+X	/*
+X	 * The checks for minimum space  always use the free space so
+X	 * if we are showing the space used we must reverse the sense
+X	 * of the data
+X	 */
+X#ifndef	SHOW_DISK_FREE
+X	pct_disk = 100.0 - pct_disk;
+X	pct_ino = 100.0 - pct_ino;
+X#endif
+X
+X	/* Check to see if any alarms are needed */
+X	if (pct_disk < MIN_BLK_PCT) {
+X	    highlight (line2a, strchr (line2a, ',') - 1);
+X	}
+X	lptr = strchr (line2a, ',') + 2;
+X	if (pct_ino < MIN_INO_PCT) {
+X	    highlight (lptr, line2a + strlen (line2a));
+X	}
+X	if (freepage < MIN_SWAP) {
+X	    highlight (line2b, strchr (line2b, 'K'));
+X	}
+X	if (free_mem < MIN_FREE) {
+X	    highlight (strchr (line2b, 'M'), line2b + strlen (line2b));
+X	}
+X
+X	/*
+X	 * Display the data.
+X	 */
+X	utd.ut_num = WTXTSLK2;
+X	(void) sprintf (utd.ut_text, LINE_2,
+X			filesys[fs_index].mt_filsys,
+X			line2a, line2b);
+X	(void) ioctl (wd, WIOCSETTEXT, &utd);
+X    }
+X    (void) close (wd);
+X
+X}
+X
+Xvoid
+Xopen_current_window (void)
+X{
+X    int             window;
+X    char            windev[16];
+X
+X    window = ioctl (0, WIOCGCURR, NULL);
+X    (void) sprintf (windev, "/dev/w%d", window);
+X    if ((wd = open (windev, O_RDWR | O_NDELAY)) == -1)
+X	wd = 0;
+X
+X}
+X
+Xvoid
+Xfilestatus (void)
+X{
+X    int             fd;
+X    static char     device[64];
+X    static struct stat sbuf;
+X
+X    if ((stat (MNTTAB, &sbuf) != -1) && (sbuf.st_mtime != mtab_time)) {
+X#ifdef	DEBUG
+X	(void) syslog (LOG_DEBUG, "reading mnttab: st_mtime=%d, mtab_time=%d",
+X		       sbuf.st_mtime, mtab_time);
+X#endif
+X	read_mtab ();
+X	mtab_time = sbuf.st_mtime;
+X    }
+X
+X#ifdef	DEBUG
+X    (void) syslog (LOG_DEBUG, "filestatus: fs_index = %d", fs_index);
+X#endif
+X    (void) sprintf (device, "/dev/r%.10s", filesys[fs_index].mt_dev);
+X    if ((fd = open (device, O_RDONLY)) == -1) {
+X	return;
+X    }
+X
+X    if (lseek (fd, 512, 0) == -1) {
+X	(void) close (fd);
+X	return;
+X    }
+X
+X    if (read (fd, (char *) &fs, sizeof (struct filsys)) == -1) {
+X	(void) close (fd);
+X	return;
+X    }
+X
+X    (void) close (fd);
+X
+X}
+X
+Xvoid
+Xcycle_fs (void)
+X{
+X
+X    if (++fs_index > max_fs_index) {
+X	fs_index = 0;
+X    }
+X
+X}
+X
+Xvoid
+Xread_mtab (void)
+X{
+X    int             fd;
+X    int             len = sizeof (struct mnttab);
+X    struct mnttab  *ptr;
+X
+X    if ((fd = open (MNTTAB, O_RDONLY)) == -1) {
+X	(void) strcpy (filesys[0].mt_dev, "fp002");
+X	(void) strcpy (filesys[0].mt_filsys, "/");
+X	fs_index = 0;
+X	max_fs_index = 0;
+X	return;
+X    }
+X
+X    ptr = filesys;
+X    for (max_fs_index = 0; max_fs_index < NMOUNT; ++max_fs_index) {
+X	if (read (fd, (char *) ptr, len) != len) {
+X	    break;
+X	}
+X	++ptr;
+X    }
+X
+X    max_fs_index--;
+X#ifdef	DEBUG
+X    (void) syslog (LOG_DEBUG, "read_mtab done: max_fs_index=%d", max_fs_index);
+X#endif
+X    (void) close (fd);
+X
+X}
+X
+Xvoid
+Xuptime (char *buf)
+X{
+X    time_t          curtime, bootsec;
+X    int             days;
+X    int             hrs;
+X    int             mins;
+X
+X    (void) time (&curtime);
+X    bootsec = curtime - boottime;
+X
+X    days = bootsec / DAY;
+X    bootsec -= DAY * days;
+X    hrs = bootsec / HOUR;
+X    bootsec -= HOUR * hrs;
+X    mins = bootsec / MINUTE;
+X    bootsec -= MINUTE * mins;
+X
+X    if (days > 0) {
+X	(void) sprintf (buf, "Up: %dd %02d:%02d", days, hrs, mins);
+X    }
+X    else {
+X	(void) sprintf (buf, "Up: %02d:%02d", hrs, mins);
+X    }
+X
+X}
+X
+Xvoid
+Xmailcheck (char *buf)
+X{
+X    FILE           *fp;
+X    char            buffer[BUFSIZ];
+X    char           *bufptr;
+X    struct stat     statbuf;
+X    int             n;
+X
+X    bufptr = buf;
+X    *buf = '\0';
+X    for (n = 0; n < MAX_USERS; ++n) {
+X	if (user_info[n].u_flag != 1) {
+X	    continue;
+X	}
+X	if (access (user_info[n].u_mailfile, 4) == 0) {
+X	    if (stat (user_info[n].u_mailfile, &statbuf) != -1) {
+X		if (statbuf.st_mtime > user_info[n].u_mailtime) {
+X		    user_info[n].u_msgs = 0;
+X		    if ((fp = fopen (user_info[n].u_mailfile, "r")) != NULL) {
+X			while (fgets (buffer, BUFSIZ, fp) != NULL)
+X			    if (strncmp (buffer, "From ", 5) == 0)
+X				user_info[n].u_msgs++;
+X		    }
+X		    (void) fclose (fp);
+X		    user_info[n].u_mailtime = statbuf.st_ctime;
+X		}
+X	    }
+X	}
+X	if (bufptr != buf) {
+X	    *bufptr++ = ' ';
+X	}
+X	(void) sprintf (bufptr, "%s/%d",
+X			user_info[n].u_name, user_info[n].u_msgs);
+X	bufptr += strlen (bufptr);
+X    }
+X}
+X
+Xvoid
+Xloadaverage (char *lbuf)
+X{
+X    double         *shmseg;
+X
+X    shmseg = (double *) shmat (shm, (char *) 0, SHM_RDONLY);
+X    (void) sprintf (lbuf, "Load: %.2f %.2f %.2f",
+X		    shmseg[0], shmseg[1], shmseg[2]);
+X    if (shmseg[0] > MAX_LOAD_AVG) {
+X	highlight (lbuf, lbuf + strlen (lbuf) - 1);
+X    }
+X    (void) shmdt ((char *) shmseg);
+X}
+X
+Xlong
+Xmemory (void)
+X{
+X    int             mem;
+X
+X    /*
+X     * Read variables.
+X     */
+X    (void) lseek (kmem, (long) unixsym[N_FREEMEM].n_value, 0);
+X    (void) read (kmem, (char *) &mem, sizeof (int));
+X
+X    return (ctob (mem));
+X}
+X
+Xint
+Xslktest (void)
+X{
+X
+X#if	!defined(STANDARD_SLK_TEST) && !defined(PICKY_SLK_TEST)
+X    /*
+X     * If no slk tests are desired then simply return 0.
+X     */
+X    return (0);
+X
+X#else
+X
+X    /*
+X     * check the SLK lines for the existence of anything currently there if
+X     * found two blank SLK lines or some remaining sysinfo information,
+X     * denoted by "Filesystem" in the second line, then return 0, else return
+X     * -1 Developed by David H. Brierley (dave@galaxia.Newport.RI.US)
+X     */
+X
+X    int             rvalue;
+X    int             n;
+X    char           *p;
+X
+X    rvalue = 0;
+X    utd.ut_num = WTXTSLK1;
+X    (void) ioctl (wd, WIOCGETTEXT, &utd);
+X    if (utd.ut_text[0] == '\0') {
+X	++rvalue;
+X    }
+X    else {
+X	for (n = 0; n < WTXTLEN; ++n)
+X	    if ((utd.ut_text[n] != '\0') &&
+X		(utd.ut_text[n] != ' '))
+X		break;
+X	if (n == WTXTLEN)
+X	    ++rvalue;
+X    }
+X
+X    utd.ut_num = WTXTSLK2;
+X    (void) ioctl (wd, WIOCGETTEXT, &utd);
+X    if (utd.ut_text[0] == '\0') {
+X	++rvalue;
+X    }
+X    else {
+X	for (n = 0; n < WTXTLEN; ++n)
+X	    if ((utd.ut_text[n] != '\0') &&
+X		(utd.ut_text[n] != ' '))
+X		break;
+X	if (n == WTXTLEN)
+X	    ++rvalue;
+X    }
+X
+X    if (rvalue == 2)		/* two blank lines */
+X	return (0);
+X
+X    /*
+X     * check to see if the text looks line LINE_2.  since the beginning of
+X     * the line is no longer a constant, this is done by checking for the
+X     * various words that comprise LINE_2.  Since the text might contain high
+X     * bits we firts turn them all off.
+X     * 
+X     * Note that this is highly dependant on the exact definition of LINE_2 at
+X     * the beginning of this file.
+X     */
+X
+X    for (n = 0; n < WTXTLEN; ++n) {
+X	utd.ut_text[n] &= 0x7f;
+X    }
+X    /* skip over the file system name */
+X    if ((p = strchr (utd.ut_text, ' ')) == NULL) {
+X	return (-1);
+X    }
+X    /*
+X     * Scan for the first occurence of the letter b on the line and check
+X     * to see if this is the word "blks" surrounded by blanks.
+X     */
+X    if (((p = strchr (p, 'b')) == NULL) || strncmp (p - 1, " blks ", 6)) {
+X	return (-1);
+X    }
+X    /*
+X     * The following test are only done if PICKY_SLK_TEST is defined.  The
+X     * basic idea is that the test for the first letter b on the line being
+X     * the word "blks" surrounded by blanks is probably good enough for most
+X     * cases.  If you want to be gauranteed that the line contains a LINE_2
+X     * info line you can enable any or all of the following tests.  Each
+X     * additional test that is enabled requires a call to strchr and a call
+X     * to strncmp so this can increase execution time.
+X     */
+X#ifdef	PICKY_SLK_TEST
+X    if (((p = strchr (p, 'i')) == NULL) || strncmp (p - 1, " inodes ", 8)) {
+X	return (-1);
+X    }
+X    if (((p = strchr (p, 'S')) == NULL) || strncmp (p - 1, " Swap: ", 7)) {
+X	return (-1);
+X    }
+X    if (((p = strchr (p, 'M')) == NULL) || strncmp (p - 1, " Mem: ", 6)) {
+X	return (-1);
+X    }
+X#endif
+X
+X    /*
+X     * If all of the tests above failed (or succeeded, depending upon your
+X     * point of view), then this must be a LINE_2
+X     */
+X    return (0);
+X#endif
+X
+X}
+X
+Xvoid
+Xcount_users (char *buf)
+X{
+X    int             num;
+X    int             found;
+X    struct utmp    *ut;
+X    int             n;
+X
+X    for (n = 0; n < MAX_USERS; ++n) {
+X	if (user_info[n].u_flag == 1) {
+X	    user_info[n].u_flag = 0;
+X	}
+X    }
+X
+X    setutent ();
+X    num = 0;
+X    while ((ut = getutent ()) != NULL) {
+X	if (ut -> ut_type != USER_PROCESS) {
+X	    continue;
+X	}
+X	++num;
+X	found = 0;
+X	for (n = 0; n < MAX_USERS; ++n) {
+X	    if (strncmp (ut -> ut_user, user_info[n].u_name, 8) == 0) {
+X		user_info[n].u_flag = 1;
+X		found = 1;
+X		break;
+X	    }
+X	    if (user_info[n].u_flag == -1) {
+X		(void) strncpy (user_info[n].u_name, ut -> ut_name, 8);
+X		user_info[n].u_name[8] = '\0';
+X		(void) sprintf (user_info[n].u_mailfile,
+X				"/usr/mail/%s",
+X				user_info[n].u_name);
+X		user_info[n].u_flag = 1;
+X		user_info[n].u_mailtime = 0;
+X		user_info[n].u_msgs = 0;
+X		found = 1;
+X		break;
+X	    }
+X	}
+X	if (found == 0) {
+X	    for (n = 0; n < MAX_USERS; ++n) {
+X		if (user_info[n].u_flag == 0) {
+X		    (void) strncpy (user_info[n].u_name, ut -> ut_name, 8);
+X		    user_info[n].u_name[8] = '\0';
+X		    (void) sprintf (user_info[n].u_mailfile,
+X				    "/usr/mail/%s",
+X				    user_info[n].u_name);
+X		    user_info[n].u_flag = 1;
+X		    user_info[n].u_mailtime = 0;
+X		    user_info[n].u_msgs = 0;
+X		    found = 1;
+X		    break;
+X		}
+X	    }
+X	}
+X    }
+X
+X    (void) sprintf (buf, "%d user%s", num, (num == 1) ? "" : "s");
+X    if (num == 0) {
+X	num = -1;
+X	(void) ioctl (0, WIOCSCR, num);
+X    }
+X
+X}
+X
+X/*
+X * get swap device free block count
+X *
+X * loops through a copy of the swap device allocation map
+X * counting free blocks.  Returns the total number of free blocks.
+X */
+Xlong
+Xpage (void)
+X{
+X    int             total_free = 0;
+X    struct mapent  *smap;
+X    struct mapent  *next_smap;
+X    struct mapent   sentry;
+X    struct map      sheader;
+X    static int      last_size;
+X    int             temp_last;
+X
+X    smap = (struct mapent *) unixsym[N_SWAPMAP].n_value;
+X
+X    if (lseek (kmem, (long) smap, 0) != (long) smap) {
+X	return (0);
+X    }
+X
+X    if (read (kmem, (char *) &sheader, sizeof (struct map *)) != sizeof (struct map *)) {
+X	return (0);
+X    }
+X
+X    for (next_smap = smap + 1; next_smap != sheader.m_limit; ++next_smap) {
+X	if (lseek (kmem, (long) next_smap, 0) != (long) next_smap) {
+X	    return (0);
+X	}
+X	if (read (kmem, (char *) &sentry, sizeof (struct mapent)) != sizeof (struct mapent)) {
+X	    return (0);
+X	}
+X	total_free += sentry.m_size;
+X    }
+X
+X
+X    /*
+X     * There is a bug here somewhere.  Occassional bogus figures (very low
+X     * numbers) show up.  A stupid hack that does not fix it or even stop it,
+X     * but does reduce the number of times it is seen, is implemented.  Low
+X     * values are deleted, by repeating the last size the first time it is
+X     * lower than minimum.  If the value is less than the minimum twice in a
+X     * row it will be displayed.  Sometimes even this is wrong.
+X     */
+X
+X    if (total_free < MIN_SWAP) {
+X	if (last_size >= MIN_SWAP) {
+X	    temp_last = total_free;
+X	    total_free = last_size;
+X	    last_size = temp_last;
+X	}
+X	else {
+X	    last_size = total_free;
+X	}
+X    }
+X    else {
+X	last_size = total_free;
+X    }
+X
+X    return total_free;
+X
+X}
+X
+X/*
+X * set the high bit on characters of an array.
+X */
+Xvoid
+Xhighlight (char *start, char *end)
+X{
+X    if (!start || start >= end) {
+X	return;
+X    }
+X
+X    for (; start <= end && *start; ++start) {
+X	*start |= 0x80;
+X    }
+X}
+END_OF_FILE
+if test 20171 -ne `wc -c <'sysinfo.c'`; then
+    echo shar: \"'sysinfo.c'\" unpacked with wrong size!
+fi
+# end of 'sysinfo.c'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

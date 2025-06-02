@@ -1,0 +1,2106 @@
+Newsgroups: comp.sources.misc
+From: robertd@kauri.vuw.ac.nz (Robert Davies)
+Subject: v34i112:  newmat07 - A matrix package in C++, Part06/08
+Message-ID: <1993Jan11.153248.2533@sparky.imd.sterling.com>
+X-Md4-Signature: 3f21ed05a8e3831ba649693a88b9a6be
+Date: Mon, 11 Jan 1993 15:32:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: robertd@kauri.vuw.ac.nz (Robert Davies)
+Posting-number: Volume 34, Issue 112
+Archive-name: newmat07/part06
+Environment: C++
+Supersedes: newmat06: Volume 34, Issue 7-13
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 8)."
+# Contents:  bandmat.cxx cholesky.cxx evalue.cxx example.txt except.cxx
+#   fft.cxx hholder.cxx jacobi.cxx sort.cxx submat.cxx svd.cxx
+# Wrapped by robert@kea on Sun Jan 10 23:58:19 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'bandmat.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bandmat.cxx'\"
+else
+echo shar: Extracting \"'bandmat.cxx'\" \(10343 characters\)
+sed "s/^X//" >'bandmat.cxx' <<'END_OF_FILE'
+X//$$ bandmat.cxx                     Band matrix definitions
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH                    // include.h will get math fns
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,4); ++ExeCount; }
+X
+X#define REPORT {}
+X
+X//#define REPORT1 { static ExeCounter ExeCount(__LINE__,4); ExeCount++; }
+X
+X// REPORT1 constructors only - doesn't work in turbo and Borland C++
+X
+X#define REPORT1 {}
+X
+X//#define MONITOR(what,storage,store) \
+X//   { cout << what << " " << storage << " at " << (long)store << "\n"; }
+X
+X#define MONITOR(what,store,storage) {}
+X
+XBandMatrix::BandMatrix(const BaseMatrix& M)
+X{
+X   REPORT1 // CheckConversion(M);
+X   MatrixConversionCheck mcc;
+X   GeneralMatrix* gmx=((BaseMatrix&)M).Evaluate(MatrixType::BM);
+X   GetMatrix(gmx); CornerClear();
+X}
+X
+Xvoid BandMatrix::SetParameters(const GeneralMatrix* gmx)
+X{
+X   MatrixBandWidth bw = gmx->BandWidth();
+X   lower = bw.lower; upper = bw.upper;
+X}
+X
+Xvoid BandMatrix::ReDimension(int n, int lb, int ub)
+X{
+X   REPORT
+X   Tracer tr("BandMatrix::ReDimension");
+X   if (lb<0 || ub<0) Throw(ProgramException("Undefined bandwidth"));
+X   lower = (lb<=n) ? lb : n-1; upper = (ub<=n) ? ub : n-1;
+X   GeneralMatrix::ReDimension(n,n,n*(lower+1+upper)); CornerClear();
+X}
+X
+Xvoid BandMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::BM); CornerClear();
+X}
+X
+Xvoid BandMatrix::CornerClear() const
+X{
+X   // set unused parts of BandMatrix to zero
+X   REPORT
+X   int i = lower; Real* s = store; int bw = lower + 1 + upper;
+X   while (i)
+X      { int j = i--; Real* sj = s; s += bw; while (j--) *sj++ = 0.0; }
+X   i = upper; s = store + storage;
+X   while (i)
+X      { int j = i--; Real* sj = s; s -= bw; while (j--) *(--sj) = 0.0; }
+X}
+X
+XMatrixBandWidth MatrixBandWidth::operator+(const MatrixBandWidth& bw) const
+X{
+X   int l = bw.lower; int u = bw.upper;
+X   l = (lower < 0 || l < 0) ? -1 : (lower > l) ? lower : l;
+X   u = (upper < 0 || u < 0) ? -1 : (upper > u) ? upper : u;
+X   return MatrixBandWidth(l,u);
+X}
+X
+XMatrixBandWidth MatrixBandWidth::operator*(const MatrixBandWidth& bw) const
+X{
+X   int l = bw.lower; int u = bw.upper;
+X   l = (lower < 0 || l < 0) ? -1 : lower+l;
+X   u = (upper < 0 || u < 0) ? -1 : upper+u;
+X   return MatrixBandWidth(l,u);
+X}
+X
+XUpperBandMatrix::UpperBandMatrix(const BaseMatrix& M)
+X{
+X   REPORT1 // CheckConversion(M);
+X   MatrixConversionCheck mcc;
+X   GeneralMatrix* gmx=((BaseMatrix&)M).Evaluate(MatrixType::UB);
+X   GetMatrix(gmx); CornerClear();
+X}
+X
+Xvoid UpperBandMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::UB); CornerClear();
+X}
+X
+XLowerBandMatrix::LowerBandMatrix(const BaseMatrix& M)
+X{
+X   REPORT1 // CheckConversion(M);
+X   MatrixConversionCheck mcc;
+X   GeneralMatrix* gmx=((BaseMatrix&)M).Evaluate(MatrixType::LB);
+X   GetMatrix(gmx); CornerClear();
+X}
+X
+Xvoid LowerBandMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::LB); CornerClear();
+X}
+X
+XBandLUMatrix::BandLUMatrix(const BaseMatrix& m)
+X{
+X   REPORT1
+X   Tracer tr("BandLUMatrix");
+X   GeneralMatrix* gm = ((BaseMatrix&)m).Evaluate(MatrixType::BM);
+X   GetMatrix(gm);
+X   m1 = ((BandMatrix*)gm)->lower; m2 = ((BandMatrix*)gm)->upper;
+X   if (nrows!=ncols) Throw(NotSquareException(*this));
+X   d = TRUE; sing = FALSE;
+X   indx = new int [nrows]; MatrixErrorNoSpace(indx);
+X   MONITOR_INT_NEW("Index (BndLUMat)",nrows,indx)
+X   storage2 = nrows * m1;
+X   store2 = new Real [storage2]; MatrixErrorNoSpace(store2);
+X   MONITOR_REAL_NEW("Make (BandLUMat)",storage2,store2)
+X   ludcmp();
+X}
+X
+XBandLUMatrix::~BandLUMatrix()
+X{
+X   MONITOR_INT_DELETE("Index (BndLUMat)",nrows,indx)
+X   MONITOR_REAL_DELETE("Delete (BndLUMt)",storage2,store2)
+X#ifdef Version21
+X   delete [] indx; delete [] store2;
+X#else
+X   delete [nrows] indx; delete [storage2] store2;
+X#endif
+X}
+X
+XMatrixType BandLUMatrix::Type() const { return MatrixType::BC; }
+X
+X
+XLogAndSign BandLUMatrix::LogDeterminant() const
+X{
+X   if (sing) return 0.0;
+X   Real* a = store; int w = m1+1+m2; LogAndSign sum; int i = nrows;
+X   while (i--) { sum *= *a; a += w; }
+X   if (!d) sum.ChangeSign(); return sum;
+X}
+X
+XGeneralMatrix* BandMatrix::MakeSolver()
+X{
+X   REPORT
+X   GeneralMatrix* gm = new BandLUMatrix(*this);
+X   MatrixErrorNoSpace(gm); gm->ReleaseAndDelete(); return gm;
+X}
+X
+X
+Xvoid BandLUMatrix::ludcmp()
+X{
+X   REPORT
+X   Real* a = store;
+X   int i = m1; int j = m2; int k; int n = nrows; int w = m1 + 1 + m2;
+X   while (i)
+X   {
+X      Real* ai = a + i;
+X      k = ++j; while (k--) *a++ = *ai++;
+X      k = i--; while (k--) *a++ = 0.0;
+X   }
+X
+X   a = store; int l = m1;
+X   for (k=0; k<n; k++)
+X   {
+X      Real x = *a; i = k; Real* aj = a;
+X      if (l < n) l++;
+X      for (j=k+1; j<l; j++)
+X         { aj += w; if (fabs(x) < fabs(*aj)) { x = *aj; i = j; } }
+X      indx[k] = i;
+X      if (x==0) { sing = TRUE; return; }
+X      if (i!=k)
+X      {
+X         d = !d; Real* ak = a; Real* ai = store + i * w; j = w;
+X         while (j--) { x = *ak; *ak++ = *ai; *ai++ = x; }
+X      }
+X      aj = a + w; Real* m = store2 + m1 * k;
+X      for (j=k+1; j<l; j++)
+X      {
+X         *m++ = x = *aj / *a; i = w; Real* ak = a;
+X	 while (--i) { Real* aj1 = aj++; *aj1 = *aj - x * *(++ak); }
+X         *aj++ = 0.0;
+X      }
+X      a += w;
+X   }
+X}
+X
+Xvoid BandLUMatrix::lubksb(Real* B, int mini)
+X{
+X   REPORT
+X   Tracer tr("BandLUMatrix::lubksb");
+X   if (sing) Throw(SingularException(*this));
+X   int n = nrows; int l = m1; int w = m1 + 1 + m2;
+X
+X   for (int k=0; k<n; k++)
+X   {
+X      int i = indx[k];
+X      if (i!=k) { Real x=B[k]; B[k]=B[i]; B[i]=x; }
+X      if (l<n) l++;
+X      Real* m = store2 + k*m1; Real* b = B+k; Real* bi = b;
+X      for (i=k+1; i<l; i++)  *(++bi) -= *m++ * *b;
+X   }
+X
+X   l = -m1;
+X   for (int i = n-1; i>=mini; i--)
+X   {
+X      Real* b = B + i; Real* bk = b; Real x = *bk;
+X      Real* a = store + w*i; Real y = *a;
+X      int k = l+m1; while (k--) x -=  *(++a) * *(++bk);
+X      *b = x / y;
+X      if (l < m2) l++;
+X   }
+X}
+X
+Xvoid BandLUMatrix::Solver(MatrixRowCol& mcout, const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* el = mcin.store; int i = mcin.skip;
+X   while (i--) *el++ = 0.0;
+X   el += mcin.storage; i = nrows - mcin.skip - mcin.storage;
+X   while (i--) *el++ = 0.0;
+X   lubksb(mcin.store, mcout.skip);
+X}
+X
+X// Do we need check for entirely zero output?
+X
+X
+Xvoid UpperBandMatrix::Solver(MatrixRowCol& mcout,
+X   const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* elx = mcin.store+mcout.skip; int i = mcin.skip-mcout.skip;
+X   while (i-- > 0) *elx++ = 0.0;
+X   int nr = mcin.skip+mcin.storage; elx = mcin.store+nr; Real* el = elx;
+X   int j = mcout.skip+mcout.storage-nr; i = nr-mcout.skip;
+X   while (j-- > 0) *elx++ = 0.0;
+X
+X   Real* Ael = store + (upper+1)*(i-1)+1; j = 0;
+X   while (i-- > 0)
+X   {
+X      elx = el; Real sum = 0.0; int jx = j;
+X      while (jx--) sum += *(--Ael) * *(--elx);
+X      elx--; *elx = (*elx - sum) / *(--Ael);
+X      if (j<upper) Ael -= upper - (++j); else el--;
+X   }
+X}
+X
+Xvoid LowerBandMatrix::Solver(MatrixRowCol& mcout,
+X   const MatrixRowCol& mcin)
+X{
+X   REPORT
+X   Real* elx = mcin.store+mcout.skip; int i = mcin.skip-mcout.skip;
+X   while (i-- > 0) *elx++ = 0.0;
+X   int nc = mcin.skip; i = nc+mcin.storage; elx = mcin.store+i;
+X   int nr = mcout.skip+mcout.storage; int j = nr-i; i = nr-nc;
+X   while (j-- > 0) *elx++ = 0.0;
+X
+X   Real* el = mcin.store+nc; Real* Ael = store + (lower+1)*nc + lower; j = 0;
+X   while (i-- > 0)
+X   {
+X      elx = el; Real sum = 0.0; int jx = j;
+X      while (jx--) sum += *Ael++ * *elx++;
+X      *elx = (*elx - sum) / *Ael++;
+X      if (j<lower) Ael += lower - (++j); else el++;
+X   }
+X}
+X
+X
+XLogAndSign BandMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   BandLUMatrix C(*this); return C.LogDeterminant();
+X}
+X
+XLogAndSign LowerBandMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   int i = nrows; LogAndSign sum; Real* s = store + lower; int j = lower + 1;
+X   while (i--) { sum *= *s; s += j; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XLogAndSign UpperBandMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   int i = nrows; LogAndSign sum; Real* s = store; int j = upper + 1;
+X   while (i--) { sum *= *s; s += j; }
+X   ((GeneralMatrix&)*this).tDelete(); return sum;
+X}
+X
+XGeneralMatrix* SymmetricBandMatrix::MakeSolver()
+X{
+X   REPORT
+X   GeneralMatrix* gm = new BandLUMatrix(*this);
+X   MatrixErrorNoSpace(gm); gm->ReleaseAndDelete(); return gm;
+X}
+X
+XSymmetricBandMatrix::SymmetricBandMatrix(const BaseMatrix& M)
+X{
+X   REPORT1  // CheckConversion(M);
+X   MatrixConversionCheck mcc;
+X   GeneralMatrix* gmx=((BaseMatrix&)M).Evaluate(MatrixType::SB);
+X   GetMatrix(gmx);
+X}
+X
+XGeneralMatrix* SymmetricBandMatrix::Transpose(TransposedMatrix*, MatrixType mt)
+X{ REPORT  return Evaluate(mt); }
+X
+XLogAndSign SymmetricBandMatrix::LogDeterminant() const
+X{
+X   REPORT
+X   BandLUMatrix C(*this); return C.LogDeterminant();
+X}
+X
+Xvoid SymmetricBandMatrix::SetParameters(const GeneralMatrix* gmx)
+X{ lower = gmx->BandWidth().lower; }
+X
+Xvoid SymmetricBandMatrix::ReDimension(int n, int lb)
+X{
+X   REPORT
+X   Tracer tr("SymmetricBandMatrix::ReDimension");
+X   if (lb<0) Throw(ProgramException("Undefined bandwidth"));
+X   lower = (lb<=n) ? lb : n-1;
+X   GeneralMatrix::ReDimension(n,n,n*(lower+1));
+X}
+X
+Xvoid SymmetricBandMatrix::operator=(const BaseMatrix& X)
+X{
+X   REPORT // CheckConversion(X);
+X   MatrixConversionCheck mcc;
+X   Eq(X,MatrixType::SB);
+X}
+X
+Xvoid SymmetricBandMatrix::CornerClear() const
+X{
+X   // set unused parts of BandMatrix to zero
+X   REPORT
+X   int i = lower; Real* s = store; int bw = lower + 1;
+X   while (i)
+X      { int j = i--; Real* sj = s; s += bw; while (j--) *sj++ = 0.0; }
+X}
+X
+XMatrixBandWidth SymmetricBandMatrix::BandWidth() const
+X   { return MatrixBandWidth(lower,lower); }
+X
+Xinline Real square(Real x) { return x*x; }
+X
+X
+XReal SymmetricBandMatrix::SumSquare() const
+X{
+X   REPORT
+X   CornerClear();
+X   Real sum1=0.0; Real sum2=0.0; Real* s=store; int i=nrows; int l=lower;
+X   while (i--)
+X      { int j = l; while (j--) sum2 += square(*s++); sum1 += square(*s++); }
+X   ((GeneralMatrix&)*this).tDelete(); return sum1 + 2.0 * sum2;
+X}
+X
+XReal SymmetricBandMatrix::SumAbsoluteValue() const
+X{
+X   REPORT
+X   CornerClear();
+X   Real sum1=0.0; Real sum2=0.0; Real* s=store; int i=nrows; int l=lower;
+X   while (i--)
+X      { int j = l; while (j--) sum2 += fabs(*s++); sum1 += fabs(*s++); }
+X   ((GeneralMatrix&)*this).tDelete(); return sum1 + 2.0 * sum2;
+X}
+X
+END_OF_FILE
+if test 10343 -ne `wc -c <'bandmat.cxx'`; then
+    echo shar: \"'bandmat.cxx'\" unpacked with wrong size!
+fi
+# end of 'bandmat.cxx'
+fi
+if test -f 'cholesky.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cholesky.cxx'\"
+else
+echo shar: Extracting \"'cholesky.cxx'\" \(1783 characters\)
+sed "s/^X//" >'cholesky.cxx' <<'END_OF_FILE'
+X//$$ cholesky.cxx                     cholesky decomposition
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X
+X
+X/********* Cholesky decomposition of a positive definite matrix *************/
+X
+X// Suppose S is symmetrix and positive definite. Then there exists a unique
+X// lower triangular matrix L such that L L.t() = S;
+X
+Xstatic Real square(Real x) { return x*x; }
+X
+XReturnMatrix Cholesky(const SymmetricMatrix& S)
+X{
+X   Tracer trace("Cholesky");
+X   int nr = S.Nrows();
+X   LowerTriangularMatrix T(nr);
+X   Real* s = S.Store(); Real* t = T.Store(); Real* ti = t;
+X   for (int i=0; i<nr; i++)
+X   {
+X      Real* tj = t; Real sum; int k;
+X      for (int j=0; j<i; j++)
+X      {
+X	 Real* tk = ti; sum = 0.0; k = j;
+X	 while (k--) { sum += *tj++ * *tk++; }
+X	 *tk = (*s++ - sum) / *tj++;
+X      }
+X      sum = 0.0; k = i;
+X      while (k--) { sum += square(*ti++); }
+X      Real d = *s++ - sum;
+X      if (d<=0.0) Throw(NPDException(S));
+X      *ti++ = sqrt(d);
+X   }
+X   T.Release(); return (ReturnMatrix)T;
+X}
+X
+XReturnMatrix Cholesky(const SymmetricBandMatrix& S)
+X{
+X   Tracer trace("Band-Cholesky");
+X   int nr = S.Nrows(); int m = S.lower;
+X   LowerBandMatrix T(nr,m);
+X   Real* s = S.Store(); Real* t = T.Store(); Real* ti = t;
+X
+X   for (int i=0; i<nr; i++)
+X   {
+X      Real* tj = t; Real sum; int l;
+X      if (i<m) { l = m-i; s += l; ti += l; l = i; }
+X      else { t += (m+1); l = m; }
+X
+X      for (int j=0; j<l; j++)
+X      {
+X	 Real* tk = ti; sum = 0.0; int k = j; tj += (m-j);
+X	 while (k--) { sum += *tj++ * *tk++; }
+X	 *tk = (*s++ - sum) / *tj++;
+X      }
+X      sum = 0.0;
+X      while (l--) { sum += square(*ti++); }
+X      Real d = *s++ - sum;
+X      if (d<=0.0)  Throw(NPDException(S));
+X      *ti++ = sqrt(d);
+X   }
+X
+X   T.Release(); return (ReturnMatrix)T;
+X}
+X
+END_OF_FILE
+if test 1783 -ne `wc -c <'cholesky.cxx'`; then
+    echo shar: \"'cholesky.cxx'\" unpacked with wrong size!
+fi
+# end of 'cholesky.cxx'
+fi
+if test -f 'evalue.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'evalue.cxx'\"
+else
+echo shar: Extracting \"'evalue.cxx'\" \(7813 characters\)
+sed "s/^X//" >'evalue.cxx' <<'END_OF_FILE'
+X//$$evalue.cxx                           eigen-value decomposition
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X#include "newmat.h"
+X#include "newmatrm.h"
+X#include "precisio.h"
+X
+X
+Xstatic void tred2(const SymmetricMatrix& A, DiagonalMatrix& D,
+X   DiagonalMatrix& E, Matrix& Z)
+X{
+X   Tracer et("Evalue(tred2)");
+X   Real tol =
+X      FloatingPointPrecision::Minimum()/FloatingPointPrecision::Epsilon();
+X   int n = A.Nrows(); Z.ReDimension(n,n); Z.Inject(A);
+X   D.ReDimension(n); E.ReDimension(n);
+X   Real* z = Z.Store();
+X
+X   for (int i=n-1; i > 0; i--)                   // i=0 is excluded
+X   {
+X      Real f = Z.element(i,i-1); Real g = 0.0;
+X      int k = i-1; Real* zik = z + i*n;
+X      while (k--) g += square(*zik++);
+X      Real h = g + square(f);
+X      if (g <= tol) { E.element(i) = f; h = 0.0; }
+X      else
+X      {
+X	 g = sign(-sqrt(h), f); E.element(i) = g; h -= f*g;
+X	 Z.element(i,i-1) = f-g; f = 0.0;
+X         Real* zji = z + i; Real* zij = z + i*n; Real* ej = E.Store();
+X	 for (int j=0; j<i; j++)
+X	 {
+X	    *zji = (*zij++)/h; g = 0.0;
+X            Real* zjk = z + j*n; zik = z + i*n;
+X            k = j; while (k--) g += *zjk++ * (*zik++);
+X            k = i-j; while (k--) { g += *zjk * (*zik++); zjk += n; }
+X	    *ej++ = g/h; f += g * (*zji); zji += n;
+X	 }
+X	 Real hh = f / (h + h); zij = z + i*n; ej = E.Store();
+X	 for (j=0; j<i; j++)
+X	 {
+X	    f = *zij++; g = *ej - hh * f; *ej++ = g;
+X            Real* zjk = z + j*n; Real* zik = z + i*n;
+X            Real* ek = E.Store(); k = j+1;
+X            while (k--)  *zjk++ -= ( f*(*ek++) + g*(*zik++) ); 
+X	 }
+X      }
+X      D.element(i) = h;
+X   }
+X
+X   D.element(0) = 0.0; E.element(0) = 0.0;
+X   for (i=0; i<n; i++)
+X   {
+X      if (D.element(i) != 0.0)
+X      {
+X	 for (int j=0; j<i; j++)
+X	 {
+X	    Real g = 0.0;
+X            Real* zik = z + i*n; Real* zkj = z + j;
+X            int k = i; while (k--) { g += *zik++ * (*zkj); zkj += n; }
+X            Real* zki = z + i; zkj = z + j;
+X            k = i; while (k--) { *zkj -= g * (*zki); zkj += n; zki += n; }
+X	 }
+X      }
+X      Real* zij = z + i*n; Real* zji = z + i;
+X      int j = i; while (j--)  { *zij++ = 0.0; *zji = 0.0; zji += n; }
+X      D.element(i) = *zij; *zij = 1.0;
+X   }
+X}
+X
+Xstatic void tql2(DiagonalMatrix& D, DiagonalMatrix& E, Matrix& Z)
+X{
+X   Tracer et("Evalue(tql2)");
+X   Real eps = FloatingPointPrecision::Epsilon();
+X   int n = D.Nrows(); Real* z = Z.Store();
+X   for (int l=1; l<n; l++) E.element(l-1) = E.element(l);
+X   Real b = 0.0; Real f = 0.0; E.element(n-1) = 0.0;
+X   for (l=0; l<n; l++)
+X   {
+X      int i,j;
+X      Real& dl = D.element(l); Real& el = E.element(l);
+X      Real h = eps * ( fabs(dl) + fabs(el) );
+X      if (b < h) b = h;
+X      for (int m=l; m<n; m++) if (fabs(E.element(m)) <= b) break;
+X      Boolean test = FALSE;
+X      for (j=0; j<30; j++)
+X      {
+X	 if (m==l) { test = TRUE; break; }
+X	 Real& dl1 = D.element(l+1);
+X	 Real g = dl; Real p = (dl1-g) / (2.0*el); Real r = sqrt(p*p + 1.0);
+X	 dl = el / (p < 0.0 ? p-r : p+r); Real h = g - dl; f += h;
+X	 Real* dlx = &dl1; i = n-l-1; while (i--) *dlx++ -= h;
+X
+X	 p = D.element(m); Real c = 1.0; Real s = 0.0;
+X	 for (i=m-1; i>=l; i--)
+X	 {
+X	    Real ei = E.element(i); Real di = D.element(i);
+X	    Real& ei1 = E.element(i+1);
+X	    g = c * ei; h = c * p;
+X	    if ( fabs(p) >= fabs(ei))
+X	    {
+X	       c = ei / p; r = sqrt(c*c + 1.0);
+X	       ei1 = s*p*r; s = c/r; c = 1.0/r;
+X	    }
+X	    else
+X	    {
+X	       c = p / ei; r = sqrt(c*c + 1.0);
+X	       ei1 = s * ei * r; s = 1.0/r; c /= r;
+X	    }
+X	    p = c * di - s*g; D.element(i+1) = h + s * (c*g + s*di);
+X
+X	    Real* zki = z + i; Real* zki1 = zki + 1; int k = n;
+X	    while (k--)
+X	    {
+X	       h = *zki1; *zki1 = s*(*zki) + c*h; *zki = c*(*zki) - s*h;
+X	       zki += n; zki1 += n;
+X	    }
+X	 }
+X	 el = s*p; dl = c*p;
+X	 if (fabs(el) <= b) { test = TRUE; break; }
+X      }
+X      if (!test) Throw ( ConvergenceException(D) );
+X      dl += f;
+X   }
+X
+X   for (int i=0; i<n; i++)
+X   {
+X      int k = i; Real p = D.element(i);
+X      for (int j=i+1; j<n; j++)
+X         { if (D.element(j) < p) { k = j; p = D.element(j); } }
+X      if (k != i)
+X      {
+X         D.element(k) = D.element(i); D.element(i) = p; int j = n;
+X	 Real* zji = z + i; Real* zjk = z + k;
+X         while (j--) { p = *zji; *zji = *zjk; *zjk = p; zji += n; zjk += n; }
+X      }
+X   }
+X
+X}
+X
+Xstatic void tred3(const SymmetricMatrix& X, DiagonalMatrix& D,
+X   DiagonalMatrix& E, SymmetricMatrix& A)
+X{
+X   Tracer et("Evalue(tred3)");
+X   Real tol =
+X      FloatingPointPrecision::Minimum()/FloatingPointPrecision::Epsilon();
+X   int n = X.Nrows(); A = X; D.ReDimension(n); E.ReDimension(n);
+X   Real* ei = E.Store() + n;
+X   for (int i = n-1; i >= 0; i--)
+X   {
+X      Real h = 0.0; Real f;
+X      Real* d = D.Store(); Real* a = A.Store() + (i*(i+1))/2; int k = i;
+X      while (k--) { f = *a++; *d++ = f; h += square(f); }
+X      if (h <= tol) { *(--ei) = 0.0; h = 0.0; }
+X      else
+X      {
+X	 Real g = sign(-sqrt(h), f); *(--ei) = g; h -= f*g;
+X         f -= g; *(d-1) = f; *(a-1) = f; f = 0.0;
+X         Real* dj = D.Store(); Real* ej = E.Store();
+X         for (int j = 0; j < i; j++)
+X         {
+X            Real* dk = D.Store(); Real* ak = A.Store()+(j*(j+1))/2;
+X            Real g = 0.0; k = j;
+X            while (k--)  g += *ak++ * *dk++;
+X            k = i-j; int l = j; 
+X            while (k--) { g += *ak * *dk++; ak += ++l; }
+X	    g /= h; *ej++ = g; f += g * *dj++;
+X         }  
+X	 Real hh = f / (2 * h); Real* ak = A.Store();
+X         dj = D.Store(); ej = E.Store();
+X         for (j = 0; j < i; j++)
+X         {
+X	    f = *dj++; g = *ej - hh * f; *ej++ = g;
+X            Real* dk = D.Store(); Real* ek = E.Store(); k = j+1;
+X	    while (k--) { *ak++ -= (f * *ek++ + g * *dk++); }
+X	 }
+X      }
+X      *d = *a; *a = h;
+X   }
+X}
+X
+Xstatic void tql1(DiagonalMatrix& D, DiagonalMatrix& E)
+X{
+X   Tracer et("Evalue(tql1)");
+X   Real eps = FloatingPointPrecision::Epsilon();
+X   int n = D.Nrows();
+X   for (int l=1; l<n; l++) E.element(l-1) = E.element(l);
+X   Real b = 0.0; Real f = 0.0; E.element(n-1) = 0.0;
+X   for (l=0; l<n; l++)
+X   {
+X      int i,j;
+X      Real& dl = D.element(l); Real& el = E.element(l);
+X      Real h = eps * ( fabs(dl) + fabs(el) );
+X      if (b < h) b = h;
+X      for (int m=l; m<n; m++) if (fabs(E.element(m)) <= b) break;
+X      Boolean test = FALSE;
+X      for (j=0; j<30; j++)
+X      {
+X         if (m==l) { test = TRUE; break; }
+X         Real& dl1 = D.element(l+1);
+X	 Real g = dl; Real p = (dl1-g) / (2.0*el); Real r = sqrt(p*p + 1.0);
+X	 dl = el / (p < 0.0 ? p-r : p+r); Real h = g - dl; f += h;
+X         Real* dlx = &dl1; i = n-l-1; while (i--) *dlx++ -= h;
+X
+X	 p = D.element(m); Real c = 1.0; Real s = 0.0;
+X	 for (i=m-1; i>=l; i--)
+X	 {
+X            Real ei = E.element(i); Real di = D.element(i);
+X            Real& ei1 = E.element(i+1);
+X	    g = c * ei; h = c * p;
+X	    if ( fabs(p) >= fabs(ei))
+X	    {
+X	       c = ei / p; r = sqrt(c*c + 1.0); 
+X               ei1 = s*p*r; s = c/r; c = 1.0/r;
+X	    }
+X	    else
+X	    {
+X	       c = p / ei; r = sqrt(c*c + 1.0);
+X	       ei1 = s * ei * r; s = 1.0/r; c /= r;
+X	    }
+X	    p = c * di - s*g; D.element(i+1) = h + s * (c*g + s*di);
+X	 }
+X	 el = s*p; dl = c*p;
+X	 if (fabs(el) <= b) { test = TRUE; break; }
+X      }
+X      if (!test) Throw ( ConvergenceException(D) );
+X      Real p = dl + f;
+X      test = FALSE;
+X      for (i=l; i>0; i--)
+X      {
+X         if (p < D.element(i-1)) D.element(i) = D.element(i-1);
+X         else { test = TRUE; break; }
+X      }
+X      if (!test) i=0;
+X      D.element(i) = p;
+X   }
+X}
+X
+Xvoid EigenValues(const SymmetricMatrix& A, DiagonalMatrix& D, Matrix& Z)
+X{ DiagonalMatrix E; tred2(A, D, E, Z); tql2(D, E, Z); }
+X
+Xvoid EigenValues(const SymmetricMatrix& X, DiagonalMatrix& D)
+X{ DiagonalMatrix E; SymmetricMatrix A; tred3(X,D,E,A); tql1(D,E); }
+X
+Xvoid EigenValues(const SymmetricMatrix& X, DiagonalMatrix& D,
+X   SymmetricMatrix& A)
+X{ DiagonalMatrix E; tred3(X,D,E,A); tql1(D,E); }
+X
+END_OF_FILE
+if test 7813 -ne `wc -c <'evalue.cxx'`; then
+    echo shar: \"'evalue.cxx'\" unpacked with wrong size!
+fi
+# end of 'evalue.cxx'
+fi
+if test -f 'example.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'example.txt'\"
+else
+echo shar: Extracting \"'example.txt'\" \(1834 characters\)
+sed "s/^X//" >'example.txt' <<'END_OF_FILE'
+X
+XDemonstration of Matrix package
+X
+X
+X
+XTest 1 - traditional
+X
+XEstimates and their standard errors
+X
+X1.391655	0.531878
+X1.983103	0.209317
+X0.952208	0.277307
+X
+XObservations, fitted value, residual value, hat value
+X2.4	1.7	8.3	7.769	0.53	0.28
+X1.8	0.9	5.5	5.818	-0.318	0.189
+X2.4	1.6	8	7.674	0.325	0.228
+X3	1.9	8.5	9.15	-0.65	0.445
+X2	0.5	5.7	5.833	-0.133	0.271
+X1.2	0.6	4.4	4.342	0.057	0.479
+X2	1.1	6.3	6.405	-0.105	0.143
+X2.7	1	7.9	7.698	0.201	0.153
+X3.6	0.5	9.1	9.006	0.093	0.807
+X
+X
+X
+X
+XTest 2 - Cholesky
+X
+XEstimates and their standard errors
+X
+X1.391655	0.531878
+X1.983103	0.209317
+X0.952208	0.277307
+X
+XObservations, fitted value, residual value, hat value
+X2.4	1.7	8.3	7.769	0.53	0.28
+X1.8	0.9	5.5	5.818	-0.318	0.189
+X2.4	1.6	8	7.674	0.325	0.228
+X3	1.9	8.5	9.15	-0.65	0.445
+X2	0.5	5.7	5.833	-0.133	0.271
+X1.2	0.6	4.4	4.342	0.057	0.479
+X2	1.1	6.3	6.405	-0.105	0.143
+X2.7	1	7.9	7.698	0.201	0.153
+X3.6	0.5	9.1	9.006	0.093	0.807
+X
+X
+X
+X
+XTest 3 - Householder triangularisation
+X
+XEstimates and their standard errors
+X
+X1.391655	0.531878
+X1.983103	0.209317
+X0.952208	0.277307
+X
+XObservations, fitted value, residual value, hat value
+X2.4	1.7	8.3	7.769	0.53	0.28
+X1.8	0.9	5.5	5.818	-0.318	0.189
+X2.4	1.6	8	7.674	0.325	0.228
+X3	1.9	8.5	9.15	-0.65	0.445
+X2	0.5	5.7	5.833	-0.133	0.271
+X1.2	0.6	4.4	4.342	0.057	0.479
+X2	1.1	6.3	6.405	-0.105	0.143
+X2.7	1	7.9	7.698	0.201	0.153
+X3.6	0.5	9.1	9.006	0.093	0.807
+X
+X
+X
+X
+XTest 4 - singular value
+X
+XEstimates and their standard errors
+X
+X1.391655	0.531878
+X1.983103	0.209317
+X0.952208	0.277307
+X
+XObservations, fitted value, residual value, hat value
+X2.4	1.7	8.3	7.769	0.53	0.28
+X1.8	0.9	5.5	5.818	-0.318	0.189
+X2.4	1.6	8	7.674	0.325	0.228
+X3	1.9	8.5	9.15	-0.65	0.445
+X2	0.5	5.7	5.833	-0.133	0.271
+X1.2	0.6	4.4	4.342	0.057	0.479
+X2	1.1	6.3	6.405	-0.105	0.143
+X2.7	1	7.9	7.698	0.201	0.153
+X3.6	0.5	9.1	9.006	0.093	0.807
+X
+X
+X
+X
+XChecking for lost memory: 587792388 587792388  - ok
+END_OF_FILE
+if test 1834 -ne `wc -c <'example.txt'`; then
+    echo shar: \"'example.txt'\" unpacked with wrong size!
+fi
+# end of 'example.txt'
+fi
+if test -f 'except.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'except.cxx'\"
+else
+echo shar: Extracting \"'except.cxx'\" \(7617 characters\)
+sed "s/^X//" >'except.cxx' <<'END_OF_FILE'
+X//$$except.cxx                        Exception handler
+X
+X
+X
+X#define WANT_STREAM                  // include.h will get stream fns
+X
+X
+X#include "include.h"                 // include standard files
+X#include "boolean.h"
+X
+X
+X#include "except.h"                  // for exception handling
+X
+X//#define REG_DEREG                    // for print out uses of new/delete
+X//#define CLEAN_LIST                   // to print entries being added to
+X                                       // or deleted from cleanup list
+X
+X
+Xvoid Throw()
+X{
+X   for (Janitor* jan = JumpBase::jl->janitor; jan; jan = jan->NextJanitor)
+X      jan->CleanUp();
+X   JumpBase::jl = JumpBase::jl->ji;
+X   if ( ! JumpBase::jl ) Terminate();
+X   Exception::last = JumpBase::jl->trace;
+X   longjmp(JumpBase::jl->env, 1);
+X}
+X
+Xvoid Throw(const Exception& exc) { JumpBase::type = exc.type(); Throw(); }
+X
+X
+Xvoid Exception::PrintTrace(Boolean)
+X{
+X   cout << "\n";
+X   {
+X      for (Tracer* et = last; et; et=et->previous)
+X	 cout << "  * " << et->entry << "\n";
+X   }
+X}
+X
+XException::Exception(int action)
+X{
+X   if (action)
+X   {
+X      cout << "\nAn exception has occurred: call trace follows.";
+X      PrintTrace();
+X      if (action < 0) exit(1);
+X   }
+X}
+X
+XJanitor::Janitor()
+X{
+X   if (do_not_link)
+X   {
+X      do_not_link = FALSE; NextJanitor = 0; OnStack = FALSE;
+X#ifdef CLEAN_LIST
+X      cout << "Not added to clean-list " << (unsigned long)this << "\n";
+X#endif
+X   }
+X   else
+X   {
+X      OnStack = TRUE;
+X#ifdef CLEAN_LIST
+X      cout << "Add to       clean-list " << (unsigned long)this << "\n";
+X#endif
+X      NextJanitor = JumpBase::jl->janitor; JumpBase::jl->janitor=this;
+X   }
+X}
+X
+XJanitor::~Janitor()
+X{
+X   // expect the item to be deleted to be first on list
+X   // but must be prepared to search list
+X   if (OnStack)
+X   {
+X#ifdef CLEAN_LIST
+X      cout << "Delete from  clean-list " << (unsigned long)this << "\n";
+X#endif
+X      Janitor* lastjan = JumpBase::jl->janitor;
+X      if (this == lastjan) JumpBase::jl->janitor = NextJanitor;
+X      else
+X      {
+X	 for (Janitor* jan = lastjan->NextJanitor; jan;
+X	    jan = lastjan->NextJanitor)
+X	 {
+X	    if (jan==this)
+X	       { lastjan->NextJanitor = jan->NextJanitor; return; }
+X	    lastjan=jan;
+X	 }
+X
+X         cout << "\nCannot resolve memory linked list\n";
+X         cout << "See notes in except.cxx for details\n";
+X	 Throw(Exception(-1));
+X/*
+XThis message occurs when a call to ~Janitor() occurs, apparently without a
+Xcorresponding call to Janitor(). This could happen if my way of deciding
+Xwhether a constructor is being called by new fails. Possibly also if
+Xdelete is applied an object on the stack (ie not called by new). Otherwise,
+Xit is a bug in Newmat or your compiler. If you don't #define
+XTEMPS_DESTROYED_QUICKLY you will get this error with Microsoft C 7.0. There
+Xare probably situations where you will get this when you do define
+XTEMPS_DESTROYED_QUICKLY. This is a bug in MSC. Beware of "operator" statements
+Xfor defining conversions; particularly for converting from a Base class to
+Xa Derived class. 
+X
+XYou may get away with simply deleting this error message and Throw statement
+Xif you can't find a better way of overcoming the problem. In any case please
+Xtell me if you get this error message, particularly for compilers apart from
+XMicrosoft C.
+X*/
+X      }
+X   }
+X}
+X
+XJumpItem* JumpBase::jl = 0;
+Xlong JumpBase::type;
+XTracer* Exception::last = 0;
+X
+XBoolean Janitor::do_not_link = FALSE;
+X
+Xstatic JumpItem JI;                  // need JumpItem at head of list
+X
+X
+X
+Xvoid Terminate()
+X{
+X   cout << "\nThere has been an exception with no handler - exiting\n";
+X   exit(1);
+X}
+X
+X
+X
+X
+X
+X
+X#ifdef DO_FREE_CHECK
+X// Routines for tracing whether new and delete calls are balanced
+X
+XFreeCheckLink::FreeCheckLink() : next(FreeCheck::next)
+X   { FreeCheck::next = this; }
+X
+XFCLClass::FCLClass(void* t, char* name) : ClassName(name) { ClassStore=t; }
+X   
+XFCLRealArray::FCLRealArray(void* t, char* o, int s)
+X  : Operation(o), size(s) { ClassStore=t; }
+X
+XFCLIntArray::FCLIntArray(void* t, char* o, int s)
+X  : Operation(o), size(s) { ClassStore=t; }
+X
+XFreeCheckLink* FreeCheck::next = 0;
+X
+Xvoid FCLClass::Report()
+X{ cout << "   " << ClassName << "   " << (unsigned long)ClassStore << "\n"; }
+X
+Xvoid FCLRealArray::Report()
+X{
+X   cout << "   " << Operation << "   " << (unsigned long)ClassStore << 
+X      "   " << size << "\n";
+X}
+X
+Xvoid FCLIntArray::Report()
+X{
+X   cout << "   " << Operation << "   " << (unsigned long)ClassStore << 
+X      "   " << size << "\n";
+X}
+X
+Xvoid FreeCheck::Register(void* t, char* name)
+X{
+X   FCLClass* f = new FCLClass(t,name);
+X   if (!f) { cout << "Out of memory in FreeCheck\n"; exit(1); }
+X#ifdef REG_DEREG
+X   cout << "Registering   " << name << "   " << (unsigned long)t << "\n";
+X#endif
+X}
+X
+Xvoid FreeCheck::RegisterR(void* t, char* o, int s)
+X{
+X   FCLRealArray* f = new FCLRealArray(t,o,s);
+X   if (!f) { cout << "Out of memory in FreeCheck\n"; exit(1); }
+X#ifdef REG_DEREG
+X   cout << o << "   " << s << "   " << (unsigned long)t << "\n";
+X#endif
+X}
+X
+Xvoid FreeCheck::RegisterI(void* t, char* o, int s)
+X{
+X   FCLIntArray* f = new FCLIntArray(t,o,s);
+X   if (!f) { cout << "Out of memory in FreeCheck\n"; exit(1); }
+X#ifdef REG_DEREG
+X   cout << o << "   " << s << "   " << (unsigned long)t << "\n";
+X#endif
+X}
+X
+Xvoid FreeCheck::DeRegister(void* t, char* name)
+X{
+X   FreeCheckLink* last = 0;
+X#ifdef REG_DEREG
+X   cout << "Deregistering " << name << "   " << (unsigned long)t << "\n";
+X#endif
+X   for (FreeCheckLink* fcl = next; fcl; fcl = fcl->next)
+X   {
+X      if (fcl->ClassStore==t)
+X      {
+X	 if (last) last->next = fcl->next; else next = fcl->next;
+X	 delete fcl; return;
+X      }
+X      last = fcl;
+X   }
+X   cout << "\nRequest to delete non-existent object of class and location:\n";
+X   cout << "   " << name << "   " << (unsigned long)t << "\n";
+X   Exception::PrintTrace(TRUE);
+X   cout << "\n";
+X}
+X
+Xvoid FreeCheck::DeRegisterR(void* t, char* o, int s)
+X{
+X   FreeCheckLink* last = 0;
+X#ifdef REG_DEREG
+X   cout << o << "   " << s << "   " << (unsigned long)t << "\n";
+X#endif
+X   for (FreeCheckLink* fcl = next; fcl; fcl = fcl->next)
+X   {
+X      if (fcl->ClassStore==t)
+X      {
+X	 if (last) last->next = fcl->next; else next = fcl->next;
+X	 if (((FCLRealArray*)fcl)->size != s)
+X	 {
+X	    cout << "\nArray sizes don't agree:\n";
+X	    cout << "   " << o << "   " << (unsigned long)t
+X	       << "   " << s << "\n";
+X	    Exception::PrintTrace(TRUE);
+X	    cout << "\n";
+X	 }
+X	 delete fcl; return;
+X      }
+X      last = fcl;
+X   }
+X   cout << "\nRequest to delete non-existent real array:\n";
+X   cout << "   " << o << "   " << (unsigned long)t << "   " << s << "\n";
+X   Exception::PrintTrace(TRUE);
+X   cout << "\n";
+X}
+X
+Xvoid FreeCheck::DeRegisterI(void* t, char* o, int s)
+X{
+X   FreeCheckLink* last = 0;
+X#ifdef REG_DEREG
+X   cout << o << "   " << s << "   " << (unsigned long)t << "\n";
+X#endif
+X   for (FreeCheckLink* fcl = next; fcl; fcl = fcl->next)
+X   {
+X      if (fcl->ClassStore==t)
+X      {
+X	 if (last) last->next = fcl->next; else next = fcl->next;
+X	 if (((FCLIntArray*)fcl)->size != s)
+X	 {
+X	    cout << "\nArray sizes don't agree:\n";
+X	    cout << "   " << o << "   " << (unsigned long)t
+X	       << "   " << s << "\n";
+X	    Exception::PrintTrace(TRUE);
+X	    cout << "\n";
+X	 }
+X	 delete fcl; return;
+X      }
+X      last = fcl;
+X   }
+X   cout << "\nRequest to delete non-existent int array:\n";
+X   cout << "   " << o << "   " << (unsigned long)t << "   " << s << "\n";
+X   Exception::PrintTrace(TRUE);
+X   cout << "\n";
+X}
+X
+Xvoid FreeCheck::Status()
+X{
+X   if (next)
+X   {
+X      cout << "\nObjects of the following classes remain undeleted:\n";
+X      for (FreeCheckLink* fcl = next; fcl; fcl = fcl->next) fcl->Report();
+X      cout << "\n";
+X   }
+X   else cout << "\nNo objects remain undeleted\n";
+X}
+X
+X#endif
+X
+X
+END_OF_FILE
+if test 7617 -ne `wc -c <'except.cxx'`; then
+    echo shar: \"'except.cxx'\" unpacked with wrong size!
+fi
+# end of 'except.cxx'
+fi
+if test -f 'fft.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fft.cxx'\"
+else
+echo shar: Extracting \"'fft.cxx'\" \(7012 characters\)
+sed "s/^X//" >'fft.cxx' <<'END_OF_FILE'
+X//$$ fft.cxx                         Fast fourier transform
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X
+X#include "newmatap.h"
+X
+X
+Xstatic void cossin(int n, int d, Real& c, Real& s)
+X// calculate cos(twopi*n/d) and sin(twopi*n/d)
+X// minimise roundoff error
+X{
+X   long n4 = n * 4; int sector = (int)floor( (Real)n4 / (Real)d + 0.5 );
+X   n4 -= sector * d;
+X   if (sector < 0) sector = 3 - (3 - sector) % 4; else sector %= 4;
+X   Real ratio = 1.5707963267948966192 * (Real)n4 / (Real)d;
+X
+X   switch (sector)
+X   {
+X   case 0: c =  cos(ratio); s =  sin(ratio); break;
+X   case 1: c = -sin(ratio); s =  cos(ratio); break;
+X   case 2: c = -cos(ratio); s = -sin(ratio); break;
+X   case 3: c =  sin(ratio); s = -cos(ratio); break;
+X   }
+X}
+X
+Xstatic void fftstep(ColumnVector& A, ColumnVector& B, ColumnVector& X,
+X   ColumnVector& Y, int after, int now, int before)
+X{
+X   Tracer trace("FFT(step)");
+X   // const Real twopi = 6.2831853071795864769;
+X   const int gamma = after * before;  const int delta = now * after;
+X   // const Real angle = twopi / delta;  Real temp;
+X   // Real r_omega = cos(angle);  Real i_omega = -sin(angle);
+X   Real r_arg = 1.0;  Real i_arg = 0.0;
+X   Real* x = X.Store();  Real* y = Y.Store();   // pointers to array storage
+X   const int m = A.Nrows() - gamma;
+X
+X   for (int j = 0; j < now; j++)
+X   {
+X      Real* a = A.Store(); Real* b = B.Store(); // pointers to array storage
+X      Real* x1 = x; Real* y1 = y; x += after; y += after;
+X      for (int ia = 0; ia < after; ia++)
+X      {
+X	 // generate sins & cosines explicitly rather than iteratively
+X	 // for more accuracy; but slower
+X	 cossin(-(j*after+ia), delta, r_arg, i_arg);
+X
+X	 Real* a1 = a++; Real* b1 = b++; Real* x2 = x1++; Real* y2 = y1++;
+X	 if (now==2)
+X	 {
+X	    int ib = before; while (ib--)
+X	    {
+X	       Real* a2 = m + a1; Real* b2 = m + b1; a1 += after; b1 += after;
+X	       Real r_value = *a2; Real i_value = *b2;
+X	       *x2 = r_value * r_arg - i_value * i_arg + *(a2-gamma);
+X	       *y2 = r_value * i_arg + i_value * r_arg + *(b2-gamma);
+X	       x2 += delta; y2 += delta;
+X	    }
+X	 }
+X	 else
+X	 {
+X	    int ib = before; while (ib--)
+X	    {
+X	       Real* a2 = m + a1; Real* b2 = m + b1; a1 += after; b1 += after;
+X	       Real r_value = *a2; Real i_value = *b2;
+X	       int in = now-1; while (in--)
+X	       {
+X		  // it should be possible to make this faster
+X		  // hand code for now = 2,3,4,5,8
+X		  // use symmetry to halve number of operations
+X		  a2 -= gamma; b2 -= gamma;  Real temp = r_value;
+X		  r_value = r_value * r_arg - i_value * i_arg + *a2;
+X		  i_value = temp    * i_arg + i_value * r_arg + *b2;
+X	       }
+X	       *x2 = r_value; *y2 = i_value;   x2 += delta; y2 += delta;
+X	    }
+X	 }
+X
+X         // temp = r_arg;
+X         // r_arg = r_arg * r_omega - i_arg * i_omega;
+X         // i_arg = temp  * i_omega + i_arg * r_omega;
+X
+X      }
+X   }
+X}
+X
+X
+Xvoid FFT(const ColumnVector& U, const ColumnVector& V,
+X   ColumnVector& X, ColumnVector& Y)
+X{
+X   // from Carl de Boor (1980), Siam J Sci Stat Comput, 1 173-8
+X   Tracer trace("FFT");
+X   const int n = U.Nrows();                     // length of arrays
+X   if (n != V.Nrows() || n == 0)
+X      Throw(ProgramException("Vector lengths unequal or zero", U, V));
+X   ColumnVector A = U; ColumnVector B = V;
+X   X.ReDimension(n); Y.ReDimension(n);
+X   const int nextmx = 8;
+X#ifndef ATandT
+X   int prime[8] = { 2,3,5,7,11,13,17,19 };
+X#else
+X   int prime[8];
+X   prime[0]=2; prime[1]=3; prime[2]=5; prime[3]=7;
+X   prime[4]=11; prime[5]=13; prime[6]=17; prime[7]=19;
+X#endif
+X   int after = 1; int before = n; int next = 0; Boolean inzee = TRUE;
+X
+X   do
+X   {
+X      int now, b1;
+X      for (;;)
+X      {
+X	 if (next < nextmx) now = prime[next];
+X	 b1 = before / now;  if (b1 * now == before) break;
+X	 next++; now += 2;
+X      }
+X      before = b1;
+X
+X      if (inzee) fftstep(A, B, X, Y, after, now, before);
+X      else fftstep(X, Y, A, B, after, now, before);
+X
+X      inzee = !inzee; after *= now;
+X   }
+X   while (before != 1);
+X
+X   if (inzee) { A.Release(); X = A; B.Release(); Y = B; }
+X}
+X
+X
+Xvoid FFTI(const ColumnVector& U, const ColumnVector& V,
+X   ColumnVector& X, ColumnVector& Y)
+X{
+X   // Inverse transform
+X   Tracer trace("FFTI");
+X   FFT(U,-V,X,Y);
+X   const Real n = X.Nrows(); X = X / n; Y = Y / (-n);
+X}
+X
+Xvoid RealFFT(const ColumnVector& U, ColumnVector& X, ColumnVector& Y)
+X{
+X   // Fourier transform of a real series
+X   Tracer trace("RealFFT");
+X   const int n = U.Nrows();                     // length of arrays
+X   const int n2 = n / 2;
+X   if (n != 2 * n2)
+X      Throw(ProgramException("Vector length not multiple of 2", U));
+X   ColumnVector A(n2), B(n2);
+X   Real* a = A.Store(); Real* b = B.Store(); Real* u = U.Store(); int i = n2;
+X   while (i--) { *a++ = *u++; *b++ = *u++; }
+X   FFT(A,B,A,B);
+X   int n21 = n2 + 1;
+X   X.ReDimension(n21); Y.ReDimension(n21);
+X   i = n2 - 1;
+X   a = A.Store(); b = B.Store();              // first els of A and B
+X   Real* an = a + i; Real* bn = b + i;        // last els of A and B
+X   Real* x = X.Store(); Real* y = Y.Store();  // first els of X and Y
+X   Real* xn = x + n2; Real* yn = y + n2;      // last els of X and Y
+X
+X   *x++ = *a + *b; *y++ = 0.0;                // first complex element
+X   *xn-- = *a++ - *b++; *yn-- = 0.0;          // last complex element
+X
+X   int j = -1; i = n2/2;
+X   while (i--)
+X   {
+X      Real c,s; cossin(j--,n,c,s);
+X      Real am = *a - *an; Real ap = *a++ + *an--;
+X      Real bm = *b - *bn; Real bp = *b++ + *bn--;
+X      Real samcbp = s * am + c * bp; Real sbpcam = s * bp - c * am;
+X      *x++  =  0.5 * ( ap + samcbp); *y++  =  0.5 * ( bm + sbpcam);
+X      *xn-- =  0.5 * ( ap - samcbp); *yn-- =  0.5 * (-bm + sbpcam);
+X   }
+X}
+X
+Xvoid RealFFTI(const ColumnVector& A, const ColumnVector& B, ColumnVector& U)
+X{
+X   // inverse of a Fourier transform of a real series
+X   Tracer trace("RealFFTI");
+X   const int n21 = A.Nrows();                     // length of arrays
+X   if (n21 != B.Nrows() || n21 == 0)
+X      Throw(ProgramException("Vector lengths unequal or zero", A, B));
+X   const int n2 = n21 - 1;  const int n = 2 * n2;  int i = n2 - 1;
+X
+X   ColumnVector X(n2), Y(n2);
+X   Real* a = A.Store(); Real* b = B.Store();  // first els of A and B
+X   Real* an = a + n2;   Real* bn = b + n2;    // last els of A and B
+X   Real* x = X.Store(); Real* y = Y.Store();  // first els of X and Y
+X   Real* xn = x + i;    Real* yn = y + i;     // last els of X and Y
+X
+X   Real hn = 0.5 / n2;
+X   *x++  = hn * (*a + *an);  *y++  = - hn * (*a - *an);
+X   a++; an--; b++; bn--;
+X   int j = -1;  i = n2/2;
+X   while (i--)
+X   {
+X      Real c,s; cossin(j--,n,c,s);
+X      Real am = *a - *an; Real ap = *a++ + *an--;
+X      Real bm = *b - *bn; Real bp = *b++ + *bn--;
+X      Real samcbp = s * am - c * bp; Real sbpcam = s * bp + c * am;
+X      *x++  =  hn * ( ap + samcbp); *y++  =  - hn * ( bm + sbpcam);
+X      *xn-- =  hn * ( ap - samcbp); *yn-- =  - hn * (-bm + sbpcam);
+X   }
+X   FFT(X,Y,X,Y);             // have done inverting elsewhere
+X   U.ReDimension(n); i = n2;
+X   x = X.Store(); y = Y.Store(); Real* u = U.Store();
+X   while (i--) { *u++ = *x++; *u++ = - *y++; }
+X}
+X
+END_OF_FILE
+if test 7012 -ne `wc -c <'fft.cxx'`; then
+    echo shar: \"'fft.cxx'\" unpacked with wrong size!
+fi
+# end of 'fft.cxx'
+fi
+if test -f 'hholder.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hholder.cxx'\"
+else
+echo shar: Extracting \"'hholder.cxx'\" \(1555 characters\)
+sed "s/^X//" >'hholder.cxx' <<'END_OF_FILE'
+X//$$ hholder.cxx                       Householder triangularisation
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X
+X#include "newmatap.h"
+X
+X
+X/********************** householder triangularisation *********************/
+X
+Xinline Real square(Real x) { return x*x; }
+X
+Xvoid HHDecompose(Matrix& X, LowerTriangularMatrix& L)
+X{
+X   Tracer et("HHDecompose(1)");
+X   int n = X.Ncols(); int s = X.Nrows(); L.ReDimension(s);
+X   Real* xi = X.Store(); int k;
+X   for (int i=0; i<s; i++)
+X   {
+X      Real sum = 0.0;
+X      Real* xi0=xi; k=n; while(k--) { sum += square(*xi++); }
+X      sum = sqrt(sum);
+X      L.element(i,i) = sum;
+X      if (sum==0.0) Throw(SingularException(L));
+X      Real* xj0=xi0; k=n; while(k--) { *xj0++ /= sum; }
+X      for (int j=i+1; j<s; j++)
+X      {
+X         sum=0.0;
+X	 xi=xi0; Real* xj=xj0; k=n; while(k--) { sum += *xi++ * *xj++; }
+X	 xi=xi0; k=n; while(k--) { *xj0++ -= sum * *xi++; }
+X	 L.element(j,i) = sum;
+X      }
+X   }
+X}
+X
+Xvoid HHDecompose(const Matrix& X, Matrix& Y, Matrix& M)
+X{
+X   Tracer et("HHDecompose(1)");
+X   int n = X.Ncols(); int s = X.Nrows(); int t = Y.Nrows();
+X   if (Y.Ncols() != n)
+X   { Throw(ProgramException("Unequal row lengths",X,Y)); }
+X   M.ReDimension(t,s);
+X   Real* xi = X.Store(); int k;
+X   for (int i=0; i<s; i++)
+X   {
+X      Real* xj0 = Y.Store(); Real* xi0 = xi;
+X      for (int j=0; j<t; j++)
+X      {
+X         Real sum=0.0;
+X         xi=xi0; Real* xj=xj0; k=n; while(k--) { sum += *xi++ * *xj++; }
+X	 xi=xi0; k=n; while(k--) { *xj0++ -= sum * *xi++; }
+X	 M.element(j,i) = sum;
+X      }
+X   }
+X}
+X
+END_OF_FILE
+if test 1555 -ne `wc -c <'hholder.cxx'`; then
+    echo shar: \"'hholder.cxx'\" unpacked with wrong size!
+fi
+# end of 'hholder.cxx'
+fi
+if test -f 'jacobi.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jacobi.cxx'\"
+else
+echo shar: Extracting \"'jacobi.cxx'\" \(2874 characters\)
+sed "s/^X//" >'jacobi.cxx' <<'END_OF_FILE'
+X//$$jacobi.cxx                           jacobi eigenvalue analysis
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X
+X#define WANT_STREAM
+X
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X#include "newmat.h"
+X#include "precisio.h"
+X#include "newmatrm.h"
+X
+X
+X
+Xvoid Jacobi(const SymmetricMatrix& X, DiagonalMatrix& D, SymmetricMatrix& A,
+X   Matrix& V, Boolean eivec)
+X{
+X   Real epsilon = FloatingPointPrecision::Epsilon();
+X   Tracer et("Jacobi");
+X   int n = X.Nrows(); DiagonalMatrix B(n), Z(n); D.ReDimension(n); A = X;
+X   if (eivec) { V.ReDimension(n,n); D = 1.0; V = D; }
+X   B << A; D = B; Z = 0.0; A.Inject(Z);
+X   for (int i=1; i<=50; i++)
+X   {
+X      Real sm=0.0; Real* a = A.Store(); int p = A.Storage();
+X      while (p--) sm += fabs(*a++);            // have previously zeroed diags
+X      if (sm==0.0) return;
+X      Real tresh = (i<4) ? 0.2 * sm / square(n) : 0.0; a = A.Store();
+X      for (p = 0; p < n; p++)
+X      {
+X	 Real* ap1 = a + (p*(p+1))/2;
+X         Real& zp = Z.element(p); Real& dp = D.element(p);
+X	 for (int q = p+1; q < n; q++)
+X	 {
+X	    Real* ap = ap1; Real* aq = a + (q*(q+1))/2;
+X            Real& zq = Z.element(q); Real& dq = D.element(q);
+X            Real& apq = A.element(q,p);
+X            Real g = 100 * fabs(apq); Real adp = fabs(dp); Real adq = fabs(dq);
+X
+X	    if (i>4 && g < epsilon*adp && g < epsilon*adq) apq = 0.0;
+X	    else if (fabs(apq) > tresh)
+X	    {
+X	       Real t; Real h = dq - dp; Real ah = fabs(h);
+X	       if (g < epsilon*ah) t = apq / h;
+X	       else
+X	       {
+X		  Real theta = 0.5 * h / apq;
+X		  t = 1.0 / ( fabs(theta) + sqrt(1.0 + square(theta)) );
+X		  if (theta<0.0) t = -t;
+X	       }
+X	       Real c = 1.0 / sqrt(1.0 + square(t)); Real s = t * c;
+X	       Real tau = s / (1.0 + c); h = t * apq;
+X               zp -= h; zq += h; dp -= h; dq += h; apq = 0.0;
+X	       int j = p;
+X	       while (j--)
+X	       {
+X		  g = *ap; h = *aq;
+X		  *ap++ = g-s*(h+g*tau); *aq++ = h+s*(g-h*tau);
+X	       }
+X	       int ip = p+1; j = q-ip; ap += ip++; aq++;
+X	       while (j--)
+X	       {
+X		  g = *ap; h = *aq;
+X                  *ap = g-s*(h+g*tau); *aq++ = h+s*(g-h*tau);
+X		  ap += ip++;
+X	       }
+X	       int iq = q+1; j = n-iq; ap += ip++; aq += iq++;
+X	       while (j--)
+X	       {
+X		  g = *ap; h = *aq;
+X		  *ap = g-s*(h+g*tau); *aq = h+s*(g-h*tau);
+X		  ap += ip++; aq += iq++;
+X	       }
+X	       if (eivec)
+X	       {
+X                  RectMatrixCol VP(V,p); RectMatrixCol VQ(V,q);
+X                  Rotate(VP, VQ, tau, s);
+X	       }
+X	    }
+X	 }
+X      }
+X      B = B + Z; D = B; Z = 0.0;
+X   }
+X   Throw(ConvergenceException(X));
+X}
+X
+Xvoid Jacobi(const SymmetricMatrix& X, DiagonalMatrix& D)
+X{ SymmetricMatrix A; Matrix V; Jacobi(X,D,A,V,FALSE); }
+X
+Xvoid Jacobi(const SymmetricMatrix& X, DiagonalMatrix& D, SymmetricMatrix& A)
+X{ Matrix V; Jacobi(X,D,A,V,FALSE); }
+X
+Xvoid Jacobi(const SymmetricMatrix& X, DiagonalMatrix& D, Matrix& V)
+X{ SymmetricMatrix A; Jacobi(X,D,A,V,TRUE); }
+X
+X
+END_OF_FILE
+if test 2874 -ne `wc -c <'jacobi.cxx'`; then
+    echo shar: \"'jacobi.cxx'\" unpacked with wrong size!
+fi
+# end of 'jacobi.cxx'
+fi
+if test -f 'sort.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sort.cxx'\"
+else
+echo shar: Extracting \"'sort.cxx'\" \(1370 characters\)
+sed "s/^X//" >'sort.cxx' <<'END_OF_FILE'
+X//$$ sort.cxx                            Sorting
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X
+X#include "newmatap.h"
+X
+X
+X/******************************** Shell sort ********************************/
+X
+Xvoid SortAscending(GeneralMatrix& GM)
+X{
+X   // from numerical recipies in C - Shell sort
+X   Tracer et("Sort-ascending");
+X
+X   const double aln2i = 1.442695022; const double tiny = 1.0e-5;
+X   Real* gm = GM.Store(); int n = GM.Storage(); int m = n;
+X   int lognb2 = (int)(aln2i * log((double)n) + tiny);
+X   while (lognb2--)
+X   {
+X      m >>= 1;
+X      for (int j = m; j<n; j++)
+X      {
+X         Real* gmj = gm+j; int i = j-m; Real* gmi = gmj-m; Real t = *gmj;
+X         while (i>=0 && *gmi>t)  { *gmj = *gmi; gmj = gmi; gmi -= m; i -= m; }
+X         *gmj = t;
+X      }
+X   }
+X}
+X
+Xvoid SortDescending(GeneralMatrix& GM)
+X{
+X   // from numerical recipies in C - Shell sort
+X   Tracer et("Sort-descending");
+X
+X   const double aln2i = 1.442695022; const double tiny = 1.0e-5;
+X   Real* gm = GM.Store(); int n = GM.Storage(); int m = n;
+X   int lognb2 = (int)(aln2i * log((double)n) + tiny);
+X   while (lognb2--)
+X   {
+X      m >>= 1;
+X      for (int j = m; j<n; j++)
+X      {
+X         Real* gmj = gm+j; int i = j-m; Real* gmi = gmj-m; Real t = *gmj;
+X         while (i>=0 && *gmi<t)  { *gmj = *gmi; gmj = gmi; gmi -= m; i -= m; }
+X         *gmj = t;
+X      }
+X   }
+X}
+X
+END_OF_FILE
+if test 1370 -ne `wc -c <'sort.cxx'`; then
+    echo shar: \"'sort.cxx'\" unpacked with wrong size!
+fi
+# end of 'sort.cxx'
+fi
+if test -f 'submat.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'submat.cxx'\"
+else
+echo shar: Extracting \"'submat.cxx'\" \(7581 characters\)
+sed "s/^X//" >'submat.cxx' <<'END_OF_FILE'
+X//$$ submat.cxx                         submatrices
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#include "include.h"
+X
+X#include "newmat.h"
+X#include "newmatrc.h"
+X
+X
+X//#define REPORT { static ExeCounter ExeCount(__LINE__,6); ExeCount++; }
+X
+X#define REPORT {}
+X
+X
+X/****************************** submatrices *********************************/
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::SubMatrix(int first_row, int last_row, int first_col,
+X   int last_col) const
+X#else
+XGetSubMatrix BaseMatrix::SubMatrix(int first_row, int last_row, int first_col,
+X   int last_col) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix");
+X   int a = first_row - 1; int b = last_row - first_row + 1;
+X   int c = first_col - 1; int d = last_col - first_col + 1;
+X   if (a<0 || b<=0 || c<0 || d<=0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, a, b, c, d, FALSE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix(this, a, b, c, d, FALSE);
+X#endif
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::SymSubMatrix(int first_row, int last_row) const
+X#else
+XGetSubMatrix BaseMatrix::SymSubMatrix(int first_row, int last_row) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(symmetric)");
+X   int a = first_row - 1; int b = last_row - first_row + 1;
+X   if (a<0 || b<=0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, a, b, a, b, TRUE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix( this, a, b, a, b, TRUE);
+X#endif
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::Row(int first_row) const
+X#else
+XGetSubMatrix BaseMatrix::Row(int first_row) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(row)");
+X   int a = first_row - 1;
+X   if (a<0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, a, 1, 0, -1, FALSE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix(this, a, 1, 0, -1, FALSE);
+X#endif
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::Rows(int first_row, int last_row) const
+X#else
+XGetSubMatrix BaseMatrix::Rows(int first_row, int last_row) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(rows)");
+X   int a = first_row - 1; int b = last_row - first_row + 1;
+X   if (a<0 || b<=0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, a, b, 0, -1, FALSE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix(this, a, b, 0, -1, FALSE);
+X#endif
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::Column(int first_col) const
+X#else
+XGetSubMatrix BaseMatrix::Column(int first_col) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(column)");
+X   int c = first_col - 1;
+X   if (c<0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, 0, -1, c, 1, FALSE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix(this, 0, -1, c, 1, FALSE);
+X#endif
+X}
+X
+X#ifdef TEMPS_DESTROYED_QUICKLY
+XGetSubMatrix& BaseMatrix::Columns(int first_col, int last_col) const
+X#else
+XGetSubMatrix BaseMatrix::Columns(int first_col, int last_col) const
+X#endif
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(columns)");
+X   int c = first_col - 1; int d = last_col - first_col + 1;
+X   if (c<0 || d<=0) Throw(SubMatrixDimensionException());
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   GetSubMatrix* x = new GetSubMatrix(this, 0, -1, c, d, FALSE);
+X   MatrixErrorNoSpace(x);
+X   return *x;
+X#else
+X   return GetSubMatrix(this, 0, -1, c, d, FALSE);
+X#endif
+X}
+X
+Xvoid GetSubMatrix::SetUpLHS()
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(LHS)");
+X   const BaseMatrix* bm1 = bm;
+X   GeneralMatrix* gm = ((BaseMatrix*&)bm)->Evaluate();
+X   if ((BaseMatrix*)gm!=bm1)
+X      Throw(ProgramException("Invalid LHS"));
+X   if (row_number < 0) row_number = gm->Nrows();
+X   if (col_number < 0) col_number = gm->Ncols();
+X   if (row_skip+row_number > gm->Nrows() || col_skip+col_number > gm->Ncols())
+X      Throw(SubMatrixDimensionException());
+X}
+X
+Xvoid GetSubMatrix::operator<<(const BaseMatrix& bmx)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(<<)"); GeneralMatrix* gmx = 0;
+X   Try
+X   {
+X      SetUpLHS(); gmx = ((BaseMatrix&)bmx).Evaluate();
+X      if (row_number != gmx->Nrows() || col_number != gmx->Ncols())
+X         Throw(IncompatibleDimensionsException());
+X      MatrixRow mrx(gmx, LoadOnEntry); 
+X      MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart, row_skip);
+X                                     // do need LoadOnEntry
+X      MatrixRowCol sub; int i = row_number;
+X      while (i--)
+X      {
+X         mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X         sub.Copy(mrx); mr.Next(); mrx.Next();
+X      }
+X      gmx->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X   }   
+X
+X   CatchAll
+X   {
+X      if (gmx) gmx->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      Throw();
+X   }
+X}
+X
+Xvoid GetSubMatrix::operator=(const BaseMatrix& bmx)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(=)"); GeneralMatrix* gmx = 0;
+X   MatrixConversionCheck mcc;         // Check for loss of info
+X   Try
+X   {
+X      SetUpLHS(); gmx = ((BaseMatrix&)bmx).Evaluate();
+X      if (row_number != gmx->Nrows() || col_number != gmx->Ncols())
+X         Throw(IncompatibleDimensionsException());
+X      MatrixRow mrx(gmx, LoadOnEntry); 
+X      MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart, row_skip);
+X                                     // do need LoadOnEntry
+X      MatrixRowCol sub; int i = row_number;
+X      while (i--)
+X      {
+X         mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X         sub.CopyCheck(mrx); mr.Next(); mrx.Next();
+X      }
+X      gmx->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X   }   
+X
+X   CatchAll
+X   {
+X      if (gmx) gmx->tDelete();
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X      delete this;
+X#endif
+X      Throw();
+X   }
+X}
+X
+Xvoid GetSubMatrix::operator<<(const Real* r)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(<<Real*)");
+X   SetUpLHS();
+X   if (row_skip+row_number > gm->Nrows() || col_skip+col_number > gm->Ncols())
+X      Throw(SubMatrixDimensionException());
+X   MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart, row_skip);
+X                                  // do need LoadOnEntry
+X   MatrixRowCol sub; int i = row_number;
+X   while (i--)
+X   {
+X      mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X      sub.Copy(r); mr.Next();
+X   }
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X}   
+X
+Xvoid GetSubMatrix::operator=(Real r)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(=Real)");
+X   SetUpLHS();
+X   MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart, row_skip);
+X                                  // do need LoadOnEntry
+X   MatrixRowCol sub; int i = row_number;
+X   while (i--)
+X   {
+X      mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X      sub.Copy(r); mr.Next();
+X   }
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X}   
+X
+Xvoid GetSubMatrix::Inject(const GeneralMatrix& gmx)
+X{
+X   REPORT
+X   Tracer tr("SubMatrix(inject)");
+X   SetUpLHS();
+X   if (row_number != gmx.Nrows() || col_number != gmx.Ncols())
+X      Throw(IncompatibleDimensionsException());
+X   MatrixRow mrx((GeneralMatrix*)(&gmx), LoadOnEntry);
+X   MatrixRow mr(gm, LoadOnEntry+StoreOnExit+DirectPart, row_skip);
+X                                  // do need LoadOnEntry
+X   MatrixRowCol sub; int i = row_number;
+X   while (i--)
+X   {
+X      mr.SubRowCol(sub, col_skip, col_number);   // put values in sub
+X      sub.Inject(mrx); mr.Next(); mrx.Next();
+X   }
+X#ifdef TEMPS_DESTROYED_QUICKLY
+X   delete this;
+X#endif
+X}
+X
+END_OF_FILE
+if test 7581 -ne `wc -c <'submat.cxx'`; then
+    echo shar: \"'submat.cxx'\" unpacked with wrong size!
+fi
+# end of 'submat.cxx'
+fi
+if test -f 'svd.cxx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'svd.cxx'\"
+else
+echo shar: Extracting \"'svd.cxx'\" \(4482 characters\)
+sed "s/^X//" >'svd.cxx' <<'END_OF_FILE'
+X//$$svd.cxx                           singular value decomposition
+X
+X// Copyright (C) 1991,2,3: R B Davies
+X
+X#define WANT_MATH
+X
+X#include "include.h"
+X#include "newmat.h"
+X#include "newmatrm.h"
+X#include "precisio.h"
+X
+X
+Xvoid SVD(const Matrix& A, DiagonalMatrix& Q, Matrix& U, Matrix& V,
+X   Boolean withU, Boolean withV)
+X// from Wilkinson and Reinsch: "Handbook of Automatic Computation"
+X{
+X   Tracer trace("SVD");
+X   Real eps = FloatingPointPrecision::Epsilon();
+X   Real tol = FloatingPointPrecision::Minimum()/eps;
+X
+X   int m = A.Nrows(); int n = A.Ncols();
+X   if (m<n) 
+X      Throw(ProgramException("Want no. Rows >= no. Cols", A));
+X
+X   U = A; Real g = 0.0; Real f,h; Real x = 0.0;
+X   RowVector E(n); RectMatrixRow EI(E,0); Q.ReDimension(n);
+X   RectMatrixCol UCI(U,0); RectMatrixRow URI(U,0,1,n-1);
+X
+X   for (int i=0; i<n; i++)
+X   {
+X      EI.First() = g; Real ei = g; EI.Right(); Real s = UCI.SumSquare();
+X      if (s<tol) Q.element(i) = 0.0;
+X      else
+X      {
+X	 f = UCI.First(); g = -sign(sqrt(s), f); h = f*g-s; UCI.First() = f-g;
+X	 Q.element(i) = g; RectMatrixCol UCJ = UCI; int j=n-i;
+X	 while (--j) { UCJ.Right(); UCJ.AddScaled(UCI, (UCI*UCJ)/h); }
+X      }
+X
+X      s = URI.SumSquare();
+X      if (s<tol) g = 0.0;
+X      else
+X      {
+X	 f = URI.First(); g = -sign(sqrt(s), f); URI.First() = f-g;
+X	 EI.Divide(URI,f*g-s); RectMatrixRow URJ = URI; int j=m-i;
+X	 while (--j) { URJ.Down(); URJ.AddScaled(EI, URI*URJ); }
+X      }
+X
+X      Real y = fabs(Q.element(i)) + fabs(ei); if (x<y) x = y;
+X      UCI.DownDiag(); URI.DownDiag();
+X   }
+X
+X   if (withV)
+X   {
+X      V.ReDimension(n,n); V = 0.0; RectMatrixCol VCI(V,n,n,0);
+X      for (i=n-1; i>=0; i--)
+X      {
+X	 URI.UpDiag(); VCI.Left();
+X	 if (g!=0.0)
+X	 {
+X	    VCI.Divide(URI, URI.First()*g); int j = n-i;
+X	    RectMatrixCol VCJ = VCI;
+X	    while (--j) { VCJ.Right(); VCJ.AddScaled( VCI, (URI*VCJ) ); }
+X	 }
+X	 VCI.Zero(); VCI.Up(); VCI.First() = 1.0; g=E.element(i);
+X      }
+X   }
+X
+X   if (withU)
+X   {
+X      for (i=n-1; i>=0; i--)
+X      {
+X	 UCI.UpDiag(); g = Q.element(i); URI.Reset(U,i,i+1,n-i-1); URI.Zero();
+X         if (g!=0.0)
+X         {
+X	    h=UCI.First()*g; int j=n-i; RectMatrixCol UCJ = UCI;
+X	    while (--j)
+X            {
+X	       UCJ.Right(); UCI.Down(); UCJ.Down(); Real s = UCI*UCJ;
+X               UCI.Up(); UCJ.Up(); UCJ.AddScaled(UCI,s/h);
+X            }
+X	    UCI.Divide(g);
+X         }
+X         else UCI.Zero();
+X         UCI.First() += 1.0;
+X      }
+X   }
+X
+X   eps *= x;
+X   for (int k=n-1; k>=0; k--)
+X   {
+X      Real z; Real y; int limit = 50; int l;
+X      while (limit--)
+X      {
+X	 Real c=0.0; Real s=1.0; int i; int l1=k; Boolean tfc=FALSE;
+X	 for (l=k; l>=0; l--)
+X	 {
+X//          if (fabs(E.element(l))<=eps) goto test_f_convergence;
+X	    if (fabs(E.element(l))<=eps) { tfc=TRUE; break; }
+X	    if (fabs(Q.element(l-1))<=eps) { l1=l; break; }
+X	 }
+X         if (!tfc)
+X         {
+X	    l=l1; l1=l-1;
+X	    for (i=l; i<=k; i++)
+X	    {
+X	       f = s * E.element(i); E.element(i) *= c;
+X//             if (fabs(f)<=eps) goto test_f_convergence;
+X	       if (fabs(f)<=eps) break;
+X	       g = Q.element(i); h = sqrt(f*f + g*g); Q.element(i) = h;
+X	       if (withU)
+X	       {
+X	          RectMatrixCol UCI(U,i); RectMatrixCol UCJ(U,l1);
+X	          ComplexScale(UCI, UCJ, g/h, -f/h);
+X               }
+X            }
+X	 }
+X//    test_f_convergence: z = Q.element(k); if (l==k) goto convergence;
+X	 z = Q.element(k);  if (l==k) break;
+X
+X	 x = Q.element(l); y = Q.element(k-1);
+X	 g = E.element(k-1); h = E.element(k);
+X	 f = ((y-z)*(y+z) + (g-h)*(g+h)) / (2*h*y); g = sqrt(f*f + 1);
+X	 f = ((x-z)*(x+z) + h*(y / ((f<0.0) ? f-g : f+g)-h)) / x;
+X
+X	 c = 1.0; s = 1.0;
+X	 for (i=l+1; i<=k; i++)
+X	 {
+X	    g = E.element(i); y = Q.element(i); h = s*g; g *= c;
+X	    z = sqrt(f*f + h*h); E.element(i-1) = z; c = f/z; s = h/z;
+X	    f = x*c + g*s; g = -x*s + g*c; h = y*s; y *= c;
+X	    if (withV)
+X	    {
+X	       RectMatrixCol VCI(V,i); RectMatrixCol VCJ(V,i-1);
+X	       ComplexScale(VCI, VCJ, c, s);
+X	    }
+X	    z = sqrt(f*f + h*h); Q.element(i-1) = z; c = f/z; s = h/z;
+X	    f = c*g + s*y; x = -s*g + c*y;
+X	    if (withU)
+X	    {
+X	       RectMatrixCol UCI(U,i); RectMatrixCol UCJ(U,i-1);
+X	       ComplexScale(UCI, UCJ, c, s);
+X	    }
+X	 }
+X	 E.element(l) = 0.0; E.element(k) = f; Q.element(k) = x;
+X      }
+X      if (l!=k) { Throw(ConvergenceException(A)); }
+X// convergence:
+X      if (z < 0.0)
+X      {
+X	 Q.element(k) = -z;
+X	 if (withV) { RectMatrixCol VCI(V,k); VCI.Negate(); }
+X      }
+X   }
+X}
+X
+Xvoid SVD(const Matrix& A, DiagonalMatrix& D)
+X{ Matrix U; SVD(A, D, U, U, FALSE, FALSE); }
+X
+X
+END_OF_FILE
+if test 4482 -ne `wc -c <'svd.cxx'`; then
+    echo shar: \"'svd.cxx'\" unpacked with wrong size!
+fi
+# end of 'svd.cxx'
+fi
+echo shar: End of archive 6 \(of 8\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

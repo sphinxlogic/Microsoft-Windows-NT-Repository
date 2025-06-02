@@ -1,0 +1,1309 @@
+Newsgroups: comp.sources.misc
+From: tony@sdd.hp.com (Tony Parkhurst)
+Subject:  v30i018:  pclcomp - HP-PCL Compression Filter, Part02/02
+Message-ID: <1992May23.181623.19262@sparky.imd.sterling.com>
+X-Md4-Signature: b1595abd728d7f6e5225722881b29620
+Date: Sat, 23 May 1992 18:16:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@sdd.hp.com (Tony Parkhurst)
+Posting-number: Volume 30, Issue 18
+Archive-name: pclcomp/part02
+Environment: LaserJet
+Supersedes: pclcomp: Volume 25, Issue 10-11
+
+#!/bin/sh
+# this is PP.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file pclcomp.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping pclcomp.c'
+else
+echo 'x - continuing file pclcomp.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'pclcomp.c' &&
+**  fourth plane as <esc>*b0W to terminate the row, instead of the recommended
+**  'W' as the 3rd plane.  This routine handles the extra without disturbing
+**  the mode 3 seed rows.
+**
+**  In the future, this routine could be used to strip out the 4th plane.
+*/
+X
+Process_extra(bytes, terminator)
+int	bytes;
+char	terminator;
+{
+X	int  i;
+X
+X	/* toss any excess data */
+X
+X	for(i = 0; i < bytes; i++)
+X	   getchar();
+X
+X	/* last plane? force move down to next row */
+X
+X	if(terminator == 'W')
+X	{
+X		/* <esc>*b has already been output */
+X		printf("0W");
+X
+X		firstrow = FALSE;		/* not on first row anymore */
+X
+X	}
+X
+}
+X
+/*
+**  ChangeMode() simply outputs the sequence to change compression modes.
+*/
+X
+ChangeMode(newmode)
+int newmode;
+{
+X	/*
+X	**  <esc>*b have already been output.
+X	**  terminator is 'm' instead of 'M' since will be followed by 'W'
+X	*/
+X	printf("%1dm", newmode);
+X	outmode = newmode;
+}
+X
+X
+/*-----------------------------------------------------------------------*\
+X |                                                                       |
+X |  Function Name: Uncompress_0                                       |
+X |                                                                       |
+X |  Description:                                                         |
+X |                                                                       |
+X |  This is the routine that handles a Mode 0 graphics block transfer    |
+X |  to the Formatter Module.                                             |
+X |                                                                       |
+\*-----------------------------------------------------------------------*/
+X
+/* FUNCTION */
+X
+Uncompress_0(input_bytes, output_bytes, address)
+X
+unsigned int
+X   input_bytes,                 /* Count of bytes to be read. */
+X   output_bytes;                /* Count of bytes to be stored. */
+X
+unsigned char
+X   *address;                    /* Pointer to where to store bytes. */
+X
+{
+X   /* LOCAL VARIABLES */
+X
+X   unsigned char
+X      *store_ptr;               /* Pointer to where to store the byte. */
+X
+X   unsigned int
+X      read_bytes,               /* Local copy of input_bytes. */
+X      write_bytes;              /* Local copy of output_bytes. */
+X
+X   /* CODE */
+X
+X   /* Initialize the local variables. */
+X
+X   read_bytes = input_bytes;
+X   write_bytes = output_bytes;
+X   store_ptr = address;
+X   
+X
+X   /* transfer the lesser of available bytes or available room */
+X
+X     Transfer_Block( MIN(write_bytes,read_bytes), store_ptr);
+X
+X   /* now zero fill or throw excess data away */
+X
+X   if ( read_bytes > write_bytes )
+X      Discard_Block(read_bytes - write_bytes);		/* throw excess */
+X   else {
+X      store_ptr += read_bytes;				/* adjust pointer */
+X      write_bytes -= read_bytes;			/* zero fill count */
+X
+X      memset(store_ptr, 0, write_bytes);
+X   }
+X
+X   return ( input_bytes );
+}
+X
+X
+/*-----------------------------------------------------------------------*\
+X |                                                                       |
+X |  Function Name: Uncompress_1                                       |
+X |                                                                       |
+X |  Description:                                                         |
+X |                                                                       |
+X |  This is the routine that handles a Mode 1 graphics block transfer    |
+X |  to the Formatter Module.  Mode 1 graphics is a compacted mode.       |
+X |  The data in Mode 1 is in pairs.  The first byte is a replicate       |
+X |  count and the second byte is the data.  The data byte is stored      |
+X |  then replicated the replicate count.  Therefore a replicate count    |
+X |  of 0 means the data byte is stored once.  The input byte count       |
+X |  must be an even amount for the data to be in byte pairs.             |
+X |                                                                       |
+\*-----------------------------------------------------------------------*/
+X
+/* FUNCTION */
+X
+Uncompress_1(input_bytes, output_bytes, address)
+X
+unsigned int
+X   input_bytes,                 /* Count of bytes to be read. */
+X   output_bytes;                /* Count of bytes to be stored. */
+X
+unsigned char
+X   *address;                    /* Pointer to where to store bytes. */
+X
+{
+X   /* LOCAL VARIABLES */
+X
+X   unsigned char
+X      *store_ptr,               /* Pointer to where to store the byte. */
+X      input_char;               /* Byte to be replicated. */
+X
+X   unsigned int
+X      read_bytes,               /* Local copy of input_bytes. */
+X      write_bytes;              /* Local copy of output_bytes. */
+X
+X   int
+X      replicate_count;          /* Number of times to replicate data. */
+X
+X   /* CODE */
+X
+X   /* Initialize the local variables. */
+X
+X   read_bytes = input_bytes;
+X   write_bytes = output_bytes;
+X   store_ptr = address;
+X   
+X   /* Check for an even input count. */
+X
+X   if ((read_bytes % 2) == 0)
+X   {
+X      /* Even so input data is in pairs as required. So store the data. */
+X   
+X      while ((read_bytes != 0) && (write_bytes != 0))
+X      {
+X         /* First get the replicate count and the byte to store. */
+X
+X         replicate_count = (unsigned char) Get_Character();
+X         input_char = Get_Character();
+X         read_bytes -= 2;
+X      
+X         /* Since write_bytes was 0 there is room to store the byte. */
+X
+X         *store_ptr++ = input_char;
+X         write_bytes--;
+X         
+X         /* Now make sure there is room for the replicated data. */
+X
+X         if (replicate_count > write_bytes)
+X         {
+X            /* Too much so limit to the room available. */
+X
+X            replicate_count = write_bytes;
+X         }
+X            
+X         /* Update the amount to be written. */
+X
+X         write_bytes -= replicate_count;
+X
+X         /* Then replicate it. */
+X
+X         while (replicate_count != 0)
+X         {
+X            /* Store the byte the decrement the count. */
+X
+X            *store_ptr++ = input_char;
+X         
+X            replicate_count--;
+X         }
+X      }
+X
+X   }
+X   /* Discard any left over input. */
+X	/* OR */
+X   /* Discard all of the input data as odd byte count. */
+X
+X   Discard_Block(read_bytes);
+X
+X   read_bytes = store_ptr - address;  /* how much was done? */
+X
+X   /* zero fill if needed */
+X   memset(store_ptr, 0, write_bytes);
+X         
+X   return(read_bytes);
+}
+X
+X
+/*-----------------------------------------------------------------------*\
+X |                                                                       |
+X |  Function Name: Uncompress_2                                       |
+X |                                                                       |
+X |  Description:                                                         |
+X |                                                                       |
+X |  This is the routine that handles a Mode 2 graphics block transfer    |
+X |  to the Formatter Module.  Mode 2 graphics is a compacted mode.       |
+X |  The data in Mode 2 is of one of two types.  The first type is a      |
+X |  class type and the second type is a data type.  The class type is    |
+X |  a single byte which is a combination of replicate count and a sub    |
+X |  mode.  There are two sub modes within mode 2, sub mode 0 and sub     |
+X |  mode 1.  These sub modes are flagged by the MSB of the class type    |
+X |  byte.  If the MSB = 0 then the replicate count is the value of the   |
+X |  class type byte.  In sub mode 0 the replicate count ranges from 1    |
+X |  to 127.  In sub mode 0 the next byte and then the replicate count    |
+X |  of bytes are of the data type and stored.  If the MSB = 1 then the   |
+X |  sub mode is 1 and the replicate count is the negative value of the   |
+X |  class type.  In sub mode 1 the replicate count is stored in 2s       |
+X |  compliment form and ranges from -1 to -127.  In sub mode 1 the       |
+X |  next byte is of the data type and is stored.  That data byte is      |
+X |  then replicated and stored the replicate count.  If the class type   |
+X |  byte is 128 then there is no data type byte.                         |
+X |                                                                       |
+\*-----------------------------------------------------------------------*/
+X
+/* FUNCTION */
+X
+Uncompress_2(input_bytes, output_bytes, address)
+X
+unsigned int
+X   input_bytes,                 /* Count of bytes to be read. */
+X   output_bytes;                /* Count of bytes to be stored. */
+X
+unsigned char
+X   *address;                    /* Pointer to where to store bytes. */
+X
+{
+X   /* LOCAL VARIABLES */
+X
+X   unsigned char
+X      *store_ptr,               /* Pointer to where to store the byte. */
+X      input_char,               /* Byte to be replicated. */
+X      sub_mode;                 /* Flag if sub mode is 0 or 1. */
+X
+X   unsigned int
+X      read_bytes,               /* Local copy of input_bytes. */
+X      write_bytes;              /* Local copy of output_bytes. */
+X
+X   int
+X      replicate_count;          /* Number of times to replicate data. */
+X
+X   /* CODE */
+X
+X   /* Initialize the local variables. */
+X
+X   read_bytes = input_bytes;
+X   write_bytes = output_bytes;
+X   store_ptr = address;
+X   
+X   while ((read_bytes > 1) && (write_bytes != 0))
+X   {
+X      /* First get the class type byte and the first data type byte. */
+X
+X      replicate_count = Get_Character();
+X
+X      /* First check that this not an ignore class type. */
+X
+X      if (replicate_count != 128)
+X      {
+X         /* Not ignore so get the data class byte. */
+X
+X         input_char = Get_Character();
+X         read_bytes -= 2;
+X         
+X        /* Since write_bytes wasn't 0 there is room to store the byte. */
+X
+X         *store_ptr++ = input_char;
+X         write_bytes--;
+X
+X         /* Determine the sub mode. */
+X   
+X         if (replicate_count > 128)
+X         {
+X            /* Sub mode 1. */
+X   
+X            sub_mode = 1;
+X            /* replicate count was unsigned char */
+X            replicate_count = 256 - replicate_count;
+X         }
+X         else
+X         {
+X            /* Sub mode 0. */
+X   
+X            sub_mode = 0;
+X
+X            /* See if there is enoungh input left for the data byte count. */
+X
+X            if (replicate_count > read_bytes)
+X            {
+X               /* Too many data bytes so limit to the input left. */
+X
+X               replicate_count = read_bytes;
+X            }
+X         }
+X            
+X         /* Now make sure there is room for the replicated data. */
+X   
+X         if (replicate_count > write_bytes)
+X         {
+X            /* Too much so limit to the room available. */
+X   
+X            replicate_count = write_bytes;
+X         }
+X               
+X         /* Update the amount to be written. */
+X   
+X         write_bytes -= replicate_count;
+X   
+X         /* Then replicate it. */
+X   
+X         if (sub_mode == 0)
+X         {
+X            /* Sub mode 0 so get the replicate count of data bytes. */
+X   
+X              Transfer_Block(replicate_count, store_ptr);
+X
+X            read_bytes -= replicate_count;
+X            
+X            /* Find the last byte stored. */
+X   
+X            store_ptr += replicate_count;
+X         }
+X         else
+X         {
+X            /* Sub mode 1 so just duplicate the original byte. */
+X   
+X            while (replicate_count != 0)
+X            {
+X               /* Store the byte the decrement the count. */
+X   
+X               *store_ptr++ = input_char;
+X            
+X               replicate_count--;
+X            }
+X         }
+X      }
+X      else
+X      {
+X         /* Ignore class so don't get the data class byte. */
+X
+X         read_bytes--;
+X      }
+X   }
+X
+X   /* Now discard any left over input. */
+X
+X   Discard_Block(read_bytes);
+X
+X   read_bytes = store_ptr - address;
+X
+X   /* zero fill if needed */
+X   memset(store_ptr, 0, write_bytes);
+X         
+X   
+X   return(read_bytes);
+}
+X
+X
+/*-----------------------------------------------------------------------*\
+X |                                                                       |
+X |  Function Name: Uncompress_3                                       |
+X |                                                                       |
+X |  Description:                                                         |
+X |                                                                       |
+X |  This is the routine that handles a Mode 3 graphics block transfer    |
+X |  to the Formatter Module.  Mode 3 graphics is a compacted mode.       |
+X |  Mode 3 data is a difference from one row to the next.  In order to   |
+X |  work, each row must be saved to be a seed for the next.  This        |
+X |  mode is used in conjuction with other compaction modes when the      |
+X |  data remains fairly constant between pairs of rows.                  |
+X |  The data is in the form:                                             |
+X |  <command byte>[<optional offset bytes>]<1 to 8 replacement bytes>    |
+X |  The command byte is in the form:                                     |
+X |    Bits 5-7: Number of bytes to replace (1 - 8)                       |
+X |    Bits 0-4: Relative offset from last byte.                          |
+X |       (If the offset is 31, then add the following bytes for offset   |
+X |       until an offset byte of less then 255 (but inclusive)           |
+X |                                                                       |
+\*-----------------------------------------------------------------------*/
+X
+/* FUNCTION */
+X
+Uncompress_3(input_bytes, output_bytes, address)
+X
+unsigned int
+X   input_bytes,                 /* Count of bytes to be read. */
+X   output_bytes;                /* Count of bytes to be stored. */
+X
+unsigned char
+X   *address;                    /* Pointer to where to store bytes. */
+X
+{
+X	/* LOCAL VARIABLES */
+X
+X	unsigned char
+X	*store_ptr;             /* Pointer to where to store the byte. */
+X
+X	unsigned int
+X	read_bytes,             /* Local copy of input_bytes. */
+X	write_bytes;            /* Local copy of output_bytes. */
+X
+X	unsigned int
+X	replace,		/* number of bytes to replace, 1-8 */
+X	offset;			/* relative offset */
+X
+X	unsigned char	command;
+X
+X	/* CODE */
+X
+X	/* Initialize the local variables. */
+X
+X	read_bytes = input_bytes;
+X	write_bytes = output_bytes;
+X	store_ptr = address;
+X
+X	/* 
+X	**  read_bytes has to be at least 2 to be valid
+X	*/
+X
+X	while ( read_bytes > 1 && write_bytes > 0 )
+X	{
+X
+X		/* start by getting the command byte */
+X
+X		command = Get_Character();
+X
+X			replace = (command >> 5) + 1;
+X			offset = command & 0x1f;
+X
+X		read_bytes--;
+X
+X		/*
+X		**  Sometimes offsets go past the end.  If so, bail.
+X		*/
+X
+X		if ( offset >= write_bytes )
+X			break;
+X
+X		write_bytes -= offset;
+X		store_ptr += offset;
+X
+X		/*
+X		**  If the first offset value is 31, then we must
+X		**  get more offsets until we encounter a byte value
+X		**  less than 255 (even if it's 0).
+X		*/
+X
+X		if ( offset == 31 )		/* get more offsets */
+X
+X			do{
+X				offset = Get_Character();
+X
+X				read_bytes--;
+X
+X				/*
+X				**  Check for pre-mature finish
+X				*/
+X
+X				if ( read_bytes == 0 )
+X					return;
+X
+X				/*
+X				**  Check for excessive offset.
+X				*/
+X
+X				if ( offset >= write_bytes )
+X				{
+X					/*
+X					**  Resetting write_bytes is needed
+X					**  to get out of outer loop so
+X					**  that the call to Discard_Block()
+X					**  is made at the end.
+X					*/
+X
+X					write_bytes = 0;
+X					break;
+X				}
+X
+X				write_bytes -= offset;
+X				store_ptr += offset;
+X
+X			} while (offset == 255);	/* 255 = keep going */
+X
+X		/* now do the byte replacement */
+X
+X		while ( replace-- && write_bytes > 0 && read_bytes > 0 )
+X		{
+X			*store_ptr++ = Get_Character();
+X			read_bytes--;
+X			write_bytes--;
+X		}
+X	}
+X   
+X	/*
+X	**  Don't do any zero fill with mode 3,
+X	**  and discard any leftover input.
+X	*/
+X
+X	Discard_Block(read_bytes);
+X
+X	return;
+}
+X
+X
+Discard_Block(count)
+unsigned int count;
+{
+X	while ( count-- )
+X		getchar();
+}
+X
+Transfer_Block( count, dest )
+unsigned int count;
+unsigned char *dest;
+{
+X	fread(dest, 1, count, stdin);
+}
+X
+X
+/*
+**  Compress_0() does mode 0 compression (which is a no compression).
+*/
+X
+Compress_0(src, dest, count)
+unsigned char *src, *dest;
+int count;
+{
+X	memcpy(dest, src, count);
+X
+X	if ( zerostrip )
+X		while ( count && dest[count-1] == 0 )
+X			count--;
+X
+X	return(count);
+X
+}
+X
+X
+X
+/*
+******************************************************************************
+**
+**       Compress_1() does PCL compression mode 1 on the data. 
+**       This mode is run length encoding.
+**
+**       Given an input byte count of n, then the worst case output size
+**       would be  2 * n.
+**
+******************************************************************************
+*/
+X
+Compress_1(src, dest, count)
+unsigned char *src, *dest;
+register int count;
+{
+X	unsigned char *outptr = dest, *inptr = src;
+X
+X	unsigned char data;		/* data values to match */
+X
+X	unsigned char temp;
+X
+X	int	repcount;		/* repeat count */
+X
+X
+X	/*
+X	**  "count" is the number of bytes in "src" to compress
+X	**  into "dest".
+X	*/
+X
+X	while ( count )
+X	{
+X		data = *inptr++;	/* get value to work with */
+X		count--;
+X
+X		repcount = 0;		/* no repeats yet */
+X
+X		/*
+X		**  Look for successive bytes that match "data".
+X		*/
+X
+X		while ( count && *inptr == data )
+X		{
+X			repcount++;
+X			inptr++;
+X			count--;
+X		}
+X
+X		/*
+X		**  Now if we are out of data (count == 0), then
+X		**  if the repeated byte was zero, then we can ignore it
+X		**  unless the user disabled zero stripping.
+X		*/
+X
+X		if ( count == 0 && data == 0 && zerostrip )
+X			break;					/* done */
+X
+X		/*
+X		**  Now output the repeat count and the value.
+X		**
+X		**  If the repeat count exceeds 255, then we must send
+X		**  more repeat-value pairs.
+X		**
+X		**  Each time thru the loop, repcount needs to be decremented
+X		**  to keep in sync.  That is, if repcount == 256, then the
+X		**  first time thru the loop, <255> <data> are output, then
+X		**  repcount is now 1.  So the next time thru the loop, 
+X		**  repcount needs to be adjusted to 0 so that the next pair
+X		**  is <0> <data>.  Thus, 1 data plus 255 repeats of data
+X		**  plus 1 data + 0 repeats of data ==> 257 total bytes
+X		**  of "data", which is what a repcount of 256 means.
+X		*/ 
+X
+X		do
+X		{
+X			temp = MIN(repcount, 255);
+X
+X			*outptr++ = temp;
+X
+X			repcount -= temp;
+X
+X			*outptr++ = data;
+X
+X		} while ( repcount-- );
+X	}
+X
+X	return ( outptr - dest );	/* size of compressed data */
+}
+X
+X
+/*
+******************************************************************************
+**
+**       Compress_2() does PCL compression mode 2 on the data. 
+**       This mode is a combination of modes 0 and 1.
+**
+**       Given an input byte count of n, then the worst case output size
+**       would be  n + (n + 127)/128.
+**
+******************************************************************************
+*/
+X
+Compress_2(src, dest, count)
+unsigned char *src, *dest;
+register int count;
+{
+X	unsigned char	*outptr, *inptr;
+X	unsigned char	*saveptr;
+X
+X	unsigned char	data;			/* data byte */
+X	unsigned char	lastbyte;		/* last byte */
+X	int		repcount;		/* repeat count */
+X	int		litcount;		/* literal count */
+X
+X	/*
+X	**  src points to the input data.
+X	**  dest points to the output buffer.
+X	**  count is the number of input bytes.
+X	*/
+X
+X	inptr = src;
+X	outptr = dest;
+X
+X	/*
+X	**  Start loop thru data.  Check for possible repeat at beginning.
+X	*/
+X
+X	while ( count )
+X	{
+X		data = *inptr++;	/* get value to work with */
+X		count--;
+X
+X		repcount = 0;		/* no repeat count yet */
+X
+X
+X		/* 
+X		**  Check for repeat, since we are not in the middle
+X		**  of a literal run, it does not have to be more than
+X		**  two bytes of similar data.
+X		*/
+X
+X		while ( count && *inptr == data )
+X		{
+X			repcount++;
+X			inptr++;
+X			count--;
+X		}
+X
+X		/*
+X		**  Now, if we are out of data (count == 0), then
+X		**  if the repeated byte was zero, then ignore it
+X		**  completely (don't bother outputing the trailing zeros).
+X		**
+X		**  To always strip zero's, simply remove the "zerostrip"
+X		**  from the test.
+X		*/
+X
+X		if ( count == 0 && data == 0 && zerostrip)
+X			break;			/* done */
+X
+X
+X		/*
+X		**  If there was a repeat (repcount > 0), then we
+X		**  can output the command here, otherwise, we
+X		**  need to go into literal run mode.
+X		**
+X		**  Note:  This is a while loop because the repeat count
+X		**  may actually be greater than 127.
+X		*/
+X
+X		if ( repcount >= 1 )		/* repeat mode */
+X		{
+X			while (repcount > 127)
+X			{
+X				*outptr++ = 129;		/* count 127 */
+X				*outptr++ = data;		/* value */
+X				repcount-= 128;			/* offset */
+X			}
+X
+X			if (repcount > 0)
+X			{
+X				*outptr++ = 256 - repcount;	/* count */
+X				*outptr++ = data;		/* value */
+X
+X				/*
+X				**  Now pop to the top of the loop 
+X				**  looking for more repeat counts.
+X				*/
+X
+X				continue;			/* top of loop */
+X			}
+X
+X			/*
+X			**  Special case:  If we have arrived at this point,
+X			**  then repcount is now equal to 0.  This means
+X			**  that when we entered this section, repcount
+X			**  was a multiple of 128 (i.e. 128 :-).
+X			**
+X			**  This means that there were 129 identical bytes,
+X			**  so the output does a replicate of 127 which
+X			**  gives 128 bytes, and we now have one byte left
+X			**  over which should NOT be output as a repeat
+X			**  run, rather it should be merged into the following
+X			**  literal run (if it exists).
+X			**
+X			**  So, we will simply fall thru to the next section
+X			**  of code which assumes that we are working on 
+X			**  a literal run.
+X			*/
+X
+X		}
+X
+X		/*
+X		**  Literal run:  At this point, the current data byte
+X		**  does NOT match the following byte.  We will transfer
+X		**  these non-identical bytes until:
+X		**
+X		**       1)  we run out of input data (count == 0).
+X		**       2)  we run out of room in this output block (128)
+X		**       3)  we come across a value which occurs at least
+X		**           three times in a row.  A value occuring only
+X		**           twice in a row does NOT justify dropping
+X		**           out of a literal run.
+X		**
+X		**  Special case:  If we run out of room in the output block
+X		**  (which is 128 bytes), the last two values are the same,
+X		**  AND there is more input, it makes sense to restart
+X		**  the repeat detector in case the following bytes are
+X		**  repeats of the two.  A simple check of the following
+X		**  byte will determine this.
+X		**  (This case falls out with the test for triples below).
+X		**
+X		**  Special case:  If we run out of room in the output block
+X		**  (which is 128 bytes), the last value is the same as
+X		**  the next one on the input, then it is better to let
+X		**  that byte be used in a possible replicate run following
+X		**  the literal run.  If the last byte matches ONLY the
+X		**  following byte, (and not the one after that,) it is
+X		**  a wash, but for best results, we will test the
+X		**  following two bytes.
+X		**
+X		*/
+X
+X		litcount = 0;
+X		saveptr = outptr++;	/* save location of the command byte */
+X
+X		*outptr++ = data;	/* save the first byte. */
+X
+X		lastbyte = data;	/* remember for testing */
+X
+X		while ( count && litcount < 127 )
+X		{
+X			data = *inptr++;
+X			count--;
+X			litcount++;
+X			*outptr++ = data;
+X
+X			/*
+X			**  Test to see if this byte matched the last one.
+X			**  If so, check the next one for a triple.
+X			*/
+X
+X			if ( lastbyte == data && count && *inptr == data )
+X			{
+X				/*
+X				**  We have a triple, adjust accordingly.
+X				**
+X				**  Add two bytes back onto the input.
+X				*/
+X
+X				count += 2;
+X				inptr -= 2;
+X				outptr -= 2;
+X				litcount -= 2;
+X
+X				break;		/* out of loop */
+X			}
+X
+X			lastbyte = data;	/* save data byte */
+X		}
+X
+X		/*
+X		**  Check the special case number 2 above.
+X		*/
+X
+X		if ( litcount == 127  &&  count > 1  &&  data == *inptr
+X		    &&  data == inptr[1] )
+X		{
+X			/*  Restore the last byte to the input stream */
+X
+X			count += 1;
+X			inptr -= 1;
+X			outptr -= 1;
+X			litcount -= 1;
+X		}
+X
+X
+X		/*
+X		**  Save the literal run count.
+X		*/
+X
+X		*saveptr = litcount;
+X
+X		/*
+X		**  Now go back to the top and look for repeats.
+X		*/
+X	}
+X
+X	count = outptr - dest;		/* for return value */
+X
+X	return ( count );
+}
+X
+X
+X
+/*
+******************************************************************************
+**
+**       Compress_3() does PCL compression mode 3 on the data. 
+**       This mode is delta row encoding.
+**
+**       Given an input byte count of n, then the worst case output size
+**       would be  n + (n + 7)/8
+**
+******************************************************************************
+*/
+X
+Compress_3(seed, new, dest, count)
+unsigned char *seed, *new, *dest;
+register int count;
+{
+X	unsigned char *sptr=seed, *nptr=new, *dptr=dest;
+X	unsigned char *saveptr;
+X
+X	int	delta, xfer;
+X	unsigned char	command;
+X
+X
+X	/*
+X	**  "count" is the number of bytes of data in "new" that need to
+X	**  be compressed into "dest" using "seed" as the basis for diffs.
+X	*/
+X
+X	while ( count > 0 )
+X	{
+X		delta = 0;		/* position counter */
+X
+X		/*
+X		**  Hunt through the data until the new data is different
+X		**  from the seed data.
+X		*/
+X
+X		while ( *sptr == *nptr && delta < count )
+X		{
+X			delta++;
+X			sptr++;
+X			nptr++;
+X		}
+X
+X		/*
+X		**  Either a difference has been found, or we ran out of data.
+X		*/
+X
+X		if ( delta >= count )	/* too far */
+X			break;		/* done */
+X
+X		count -= delta;
+X		
+X		/*
+X		**  Now set up the output with the command byte[s].
+X		**  (leaving the actual byte copy count till last.)
+X		*/
+X
+X		/*
+X		**  The first command byte can only hold up to 31.
+X		**  If the delta is larger, then following bytes will
+X		**  be needed.
+X		*/
+X
+X		saveptr = dptr++;	/* save the address for command byte */
+X
+X		command = MIN(delta, 31);
+X
+X		/*
+X		**  Any remaining count follows.
+X		**
+X		**  If count is 31, then a following byte must be given,
+X		**  even if 0.  Same holds if 255 is given in succesive bytes.
+X		*/
+X
+X		if ( command == 31 )
+X		{
+X			delta -= command;	/* adjust for first count */
+X
+X			do {
+X				xfer = MIN(delta,255);
+X
+X				delta -= xfer;
+X
+X				*dptr++ = xfer;
+X
+X			} while ( xfer == 255 );
+X
+X
+X		}
+X
+X
+X		/*
+X		**  Now transfer up to 8 bytes, stopping when the new byte
+X		**  matches the seed byte.  One could make a case for
+X		**  transfering a matching byte too (if stuck in the middle
+X		**  of the 8 bytes), but it does not impact the worst case,
+X		**  and in the long run, the compression will not be as good.
+X		**  Also, we need to make sure that we don't overrun count.
+X		**  ("count" is checked first so we don't reference past the
+X		**  end of the memory block).
+X		*/
+X
+X		for ( xfer = 0; 
+X			count && *sptr != *nptr && xfer < 8;
+X				xfer++)
+X		{
+X			*dptr++ = *nptr++;	/* transfer byte */
+X			sptr++;			/* bump seed pointer too */
+X			count--;
+X		}
+X
+X		/*
+X		**  Now xfer is the number of bytes transfered, but the
+X		**  number range is 3 bits (0-7), so decrement and merge
+X		**  it into the command byte and put it in the data.
+X		*/
+X
+X		command += ((xfer - 1) << 5);
+X
+X		*saveptr = command;
+X
+X	}
+X
+X	return ( dptr - dest );
+}
+X
+X
+/*----------------------------------------------------------------------*\
+X * This is here in case <ESC>*rU is sent after <ESC>*r#A, in which case *
+X * we must deallocate the memory to provide for a different amount of   *
+X * planes when graphics are sent.                                       *
+\*----------------------------------------------------------------------*/
+X
+free_mem()	
+{
+X	int r;
+X
+X
+X	if ( !memflag )
+X		return;		/* no memory to free */
+X
+X	free(new_row);
+X
+X	for(r = MAXMODES -1; r >= 0; r--)
+X		free(out_row[r]);
+X
+X	for(r = num_planes - 1; r >= 0; r--)
+X		free(seed_row[r]);
+X
+X	memflag = FALSE;
+}
+X
+/*
+**  Get_Frac() simply gets the fractional part of a value.  This is here
+**  because scanf() will consume a trailing 'e' or 'E', which is a problem
+**  in PCL.
+*/
+X
+static float	Get_Frac()
+{
+X	float	result = 0.0;
+X	int	c;
+X	float	position = 10.0;
+X
+X	while ( (c = getchar()) != EOF )
+X	{
+X		/*
+X		**  Do we have a digit?
+X		*/
+X
+X		if ( !isdigit(c) )		/* not a digit */
+X		{
+X			ungetc( c, stdin );	/* put it back */
+X			break;			/* quit */
+X		}
+X
+X		result += ((c - '0') / position);
+X
+X		position *= 10.0;
+X	}
+X
+X	return ( result );
+}
+SHAR_EOF
+echo 'File pclcomp.c is complete' &&
+chmod 0444 pclcomp.c ||
+echo 'restore of pclcomp.c failed'
+Wc_c="`wc -c < 'pclcomp.c'`"
+test 70635 -eq "$Wc_c" ||
+	echo 'pclcomp.c: original size 70635, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pclcomp.man ==============
+if test -f 'pclcomp.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping pclcomp.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pclcomp.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pclcomp.man' &&
+X
+X
+X
+X     PCLCOMP(1) 					    PCLCOMP(1)
+X
+X
+X
+X     NAME
+X	  pclcomp - Compress PCL graphics files.
+X
+X     SYNOPSIS
+X	  pclcomp [ -0123drsvxz ] [ -n num ] [ infile [ outfile ]]
+X
+X     DESCRIPTION
+X	  Pclcomp compresses (or decompresses) HP-PCL (Printer Control
+X	  Language) graphics data.  The supported compression modes
+X	  are 0 (uncompressed), 1, 2 and 3.  Pclcomp will read files
+X	  using any of the modes 0 through 3, and will output using
+X	  the modes which will give the best compression.  This
+X	  compressed version of the file may be sent directly to a PCL
+X	  compatible printer, thus reducing I/O bandwidth.  Pictures
+X	  may also be saved in compressed form, reducing disk usage.
+X	  In addition, PCL "imaging" files for the PaintJet XL are
+X	  also supported.
+X
+X	  The options to pclcomp control the compression modes.  By
+X	  default, pclcomp will use modes 0, 2 and 3, but the user may
+X	  restrict which output modes it uses by specifying them on
+X	  the command line with the -0, -1, -2 and -3 options.	To
+X	  decompress a file, simply specify -0 as the only mode to use
+X	  for output.  Mode 0 ( -0 ) should always be allowed since
+X	  modes 1, 2 and 3 cannot be guaranteed to be better than mode
+X	  0 for all types of pictures.
+X
+X	  The -z option disables the zero "strip" feature.  Since most
+X	  printers do zero "filling", pclcomp, by default, "strips"
+X	  the trailing zeros of each row (or plane) of data.  Some
+X	  printers or programs may require that zero "stripping" be
+X	  disabled.
+X
+X	  By default, pclcomp expects the input raster width to be
+X	  2400 pixels (8" at 300 dpi), and if it is different (e.g.
+X	  PaintJet), then the raster width should be specified by the
+X	  Source Raster Width escape sequence (<esc>*r#S). However,
+X	  many applications do not set the width and assume a default,
+X	  therefore, the user may use the -n option to pclcomp to
+X	  specify a new default raster width.  For PaintJet (8" at 180
+X	  dpi), the number should be 1440.  If the PCL file contains
+X	  the Source Raster Width escape sequence, it will override
+X	  this default.  If pclcomp thinks that more data is coming in
+X	  than the specified width, it will generate a warning, and
+X	  continue processing (and perhaps truncating) data.
+X
+X	  The -x option will cause pclcomp to remove any horizontal
+X	  offset sequences from the data.  Only use this option if
+X	  white is defined to be zero (as with LaserJets).  This will
+X	  shrink the data more if modes 2 or 3 are used.
+X
+X	  The -r option causes pclcomp to append a reset sequence
+X
+X
+X
+X				   - 1 -    Formatted:	April 20, 1992
+X
+X
+X
+X
+X
+X
+X     PCLCOMP(1) 					    PCLCOMP(1)
+X
+X
+X
+X	  (<esc>E) to the end of the job.
+X
+X	  Use the -d option to pclcomp if the output is to be sent to
+X	  a DeskJet printer.
+X
+X	  Some applications erroneously send <esc>*rB and <esc>*rA
+X	  sequences between every row of graphics data.  The -s option
+X	  to pclcomp will "strip" all <esc>*rB sequences, and all
+X	  <esc>*rA sequences after the first occurrence of this
+X	  sequence. In addition, text and control characters residing
+X	  between <esc>*rA and <esc>*rB sequences will be discarded.
+X	  While this will work well for many jobs, it may have
+X	  problems on multi-page or complex jobs.
+X
+X	  The -v option simply gives statistics to stderr about which
+X	  compression modes were used.
+X
+X     EXAMPLES
+X	  To compress a PCL file for LaserJet III, use:
+X	       pclcomp infile outfile
+X
+X	  To compress a PCL file for the PaintJet (A size page at 180 dpi), use:
+X	       pclcomp -01 -n 1440 infile outfile
+X
+X	  To compress a PCL file for DeskJet, use:
+X	       pclcomp -d012 infile outfile
+X
+X	  To fully decompress a PCL file, use:
+X	       pclcomp -0z < infile > outfile
+X
+X     WARNINGS
+X	  The -z option can cause the output to be larger than the
+X	  input.
+X
+X	  The -s option is useful, but it can cause erroneous output.
+X
+X	  The -x option can cause black areas on the left side of the
+X	  picture on color printers.
+X
+X     AUTHOR
+X	  Tony Parkhurst, Hewlett-Packard, San Diego Division
+X	  (tony@sdd.hp.com)
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X				   - 2 -    Formatted:	April 20, 1992
+X
+X
+X
+SHAR_EOF
+chmod 0664 pclcomp.man ||
+echo 'restore of pclcomp.man failed'
+Wc_c="`wc -c < 'pclcomp.man'`"
+test 4053 -eq "$Wc_c" ||
+	echo 'pclcomp.man: original size 4053, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= printer.note ==============
+if test -f 'printer.note' -a X"$1" != X"-c"; then
+	echo 'x - skipping printer.note (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting printer.note (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'printer.note' &&
+X
+X
+Here is a list of HP printers and the compression modes they support:
+X
+X
+X
+Printer			Modes
+-------			-----
+X
+LaserJet		0
+LaserJet+		0
+LaserJet 500		0
+LaserJet 2000		0
+LaserJet II		0
+LaserJet IID		0
+LaserJet IIP		0 1 2
+LaserJet III		0 1 2 3
+LaserJet IIID		0 1 2 3
+LaserJet IIISi		0 1 2 3
+LaserJet IIIP		0 1 2 3 5  (Method 5 is not supported by pclcomp)
+X
+DeskJet			0 1 2
+DeskJet+		0 1 2
+DeskJet 500		0 1 2 3
+DeskJet 500 C		0 1 2 3 9  (Method 9 is not supported by pclcomp)
+X
+PaintJet		0 1
+PaintJet XL		0 1 2 3
+X
+X
+Mode 0 is uncompressed graphics data.
+SHAR_EOF
+chmod 0664 printer.note ||
+echo 'restore of printer.note failed'
+Wc_c="`wc -c < 'printer.note'`"
+test 546 -eq "$Wc_c" ||
+	echo 'printer.note: original size 546, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+exit 0 # Just in case...

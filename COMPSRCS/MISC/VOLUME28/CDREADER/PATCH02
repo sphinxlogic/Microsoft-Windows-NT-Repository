@@ -1,0 +1,244 @@
+Newsgroups: comp.sources.misc
+From: pwolfe@blizzard.kai.com (Patrick Wolfe)
+Subject:  v28i119:  cdreader - Audio CD player for SGI's, Patch02
+Message-ID: <1992Mar22.044159.10022@sparky.imd.sterling.com>
+X-Md4-Signature: ef01d4a6d4b498aeaee2a054021b75b8
+Date: Sun, 22 Mar 1992 04:41:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pwolfe@blizzard.kai.com (Patrick Wolfe)
+Posting-number: Volume 28, Issue 119
+Archive-name: cdreader/patch02
+Environment: SGI
+Patch-To: cdreader: Volume 28, Issue 82
+
+Enclosed is a short patch which upgrades my cdreader program from version 1.5
+to verson 1.5.1, fixing a bug in the "shuffle" mode, and improving the
+random-ness of the shuffle mode play list order.  The bug was that cdreader
+always stopped after playing the last track on the disc, but in shuffle mode,
+the last track on the disc was rarely the last track on the play list.  Thank
+you to Brian Love for the bug report.
+
+The most recent version of the source, as well as a pre-compiled executable is
+available for anonymous ftp from ftp.uu.net (137.39.1.9), directory "/tmp",
+file "cdreader-1.5.1.tar.Z".  Remember to use "binary" mode when fetching it.
+
+        Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+        System Programmer/Operations Manager, Kuck & Associates
+
+------------------------------------------------------------------------------
+
+*** ../cdreader-1.5/cdreader.c	Wed Mar 11 20:06:05 1992
+--- cdreader.c	Wed Mar 18 12:37:53 1992
+***************
+*** 9,15 ****
+   *	See the end of this file for the complete copyright notice.
+   */
+  
+! #define VERSION "1.5"
+  
+  #include <stdio.h>
+  #include <stdlib.h>
+--- 9,15 ----
+   *	See the end of this file for the complete copyright notice.
+   */
+  
+! #define VERSION "1.5.1"
+  
+  #include <stdio.h>
+  #include <stdlib.h>
+***************
+*** 20,25 ****
+--- 20,29 ----
+  #include <signal.h>
+  	/* for getopt() */
+  #include <getopt.h>
++ 	/* for [ls]rand48() */
++ #include <math.h>
++ 	/* for time() */
++ #include <time.h>
+  	/* for CD*() routines */
+  #include <cdaudio.h>
+  	/* for AL*() routines */
+***************
+*** 41,46 ****
+--- 45,51 ----
+  #include <Xm/Form.h>
+  #include <Xm/ScrollBar.h>
+  
++ 
+  #ifdef WATCH_ABUF
+  	/* for setitimer */
+  #include <sys/time.h>
+***************
+*** 105,111 ****
+  
+  /* maximum number of tracks to store info for */
+  /* I *have* seen up to 28 tracks on a single CD, but none longer */
+! #define MAX_TRACK_INFO	64
+  
+  	/* audio stuff */
+  ALport audio_port = NULL;
+--- 110,117 ----
+  
+  /* maximum number of tracks to store info for */
+  /* I *have* seen up to 28 tracks on a single CD, but none longer */
+! /* someone told me of a sound effects cd that has over 100 tracks - sigh */
+! #define MAX_TRACK_INFO	128
+  
+  	/* audio stuff */
+  ALport audio_port = NULL;
+***************
+*** 441,447 ****
+  	return;
+  	}
+  
+! m = last_track - 1;
+  
+  /* initialize played array to -1's, indicating track hasn't been selected to play yet */
+  for (i = first_track; i < last_track; i++) {
+--- 447,453 ----
+  	return;
+  	}
+  
+! m = last_track - first_track;
+  
+  /* initialize played array to -1's, indicating track hasn't been selected to play yet */
+  for (i = first_track; i < last_track; i++) {
+***************
+*** 448,463 ****
+  	played[i] = 0;
+  	}
+  
+! /* seed is our process id */
+! srand ((u_int) getpid());
+  
+  for (i = first_track; i < last_track; i++) {
+! 	j = rand( );
+! 	jdb = (double)j / (double)(RAND_MAX + 1);
+! 	j = (int)(jdb * m) + 1;
+  	for (; played[j]; j += d) {
+  		if (j < first_track) {
+! 			j = last_track;
+  			}
+  		else if (j >= last_track) {
+  			j = first_track;
+--- 454,470 ----
+  	played[i] = 0;
+  	}
+  
+! /* set the seed for our random numbers */
+! srand48 (time(0));
+  
+  for (i = first_track; i < last_track; i++) {
+! 	jdb = drand48(); /* returns between 0 and 1 */
+! 	jdb = jdb * m;
+! 	j = (int) jdb;
+! 	j++;
+  	for (; played[j]; j += d) {
+  		if (j < first_track) {
+! 			j = last_track - 1;
+  			}
+  		else if (j >= last_track) {
+  			j = first_track;
+***************
+*** 1219,1225 ****
+  		if (status == PLAYING) {
+  			frames_to_play = CDreadda (cd_device, &cd_buffer[0], cd_readsize);
+  			if (frames_to_play < 1) {	/* end of disc */
+! 				status = STOPPING;
+  				}
+  			}
+  
+--- 1226,1239 ----
+  		if (status == PLAYING) {
+  			frames_to_play = CDreadda (cd_device, &cd_buffer[0], cd_readsize);
+  			if (frames_to_play < 1) {	/* end of disc */
+! 				if ((play_index > -1) && (play_index < last_track)) {	/* shuffling - play next track in the list */
+! 					play_index++;
+! 					current_track = play_list[play_index];
+! 					status = START_TRACK;
+! 					}
+! 				else	{	/* end of disc - stop */
+! 					status = STOPPING;
+! 					}
+  				}
+  			}
+  
+*** ../cdreader-1.5/Readme	Wed Mar 11 19:43:00 1992
+--- Readme	Wed Mar 18 13:07:56 1992
+***************
+*** 3,9 ****
+  
+  Cdreader plays an audio compact disc on Silicon Graphics workstations with an
+  Audio Processor (the SGI Indigo, for example).  Cdreader compiles only under
+! release 4.0.1 (or later) of the Irix operating system.
+  
+  Version 1.5 adds a scrollbar to control the speaker/headphone volume.
+  
+--- 3,10 ----
+  
+  Cdreader plays an audio compact disc on Silicon Graphics workstations with an
+  Audio Processor (the SGI Indigo, for example).  Cdreader compiles only under
+! release 4.0.1 (or later) of the Irix operating system, and you must have the
+! X11, Motif and cdrom development packages installed.
+  
+  Version 1.5 adds a scrollbar to control the speaker/headphone volume.
+  
+***************
+*** 48,53 ****
+--- 49,61 ----
+  
+  ------------------------------------------------------------------------------
+  			RELEASE NOTES:
++ 
++ VERSION 1.5.1:
++ 
++ Fixed a bug in the "shuffle" mode, and improved the random-ness of the play
++ list generator.  The bug was that cdreader always stopped after playing the
++ last track on the disc, but in shuffle mode, the last track on the disc was
++ rarely the last track on the play list.
+  
+  VERSION 1.5:
+  
+*** ../cdreader-1.5/cdreader.1	Wed Mar 11 19:39:36 1992
+--- cdreader.1	Wed Mar 18 13:09:04 1992
+***************
+*** 1,5 ****
+  ...
+! .TH CDREADER 1 "V1.5" "Usenet Software" "Usenet software"
+  
+  .SH NAME
+  cdreader \- play an audio compact disc through the audio processor
+--- 1,5 ----
+  ...
+! .TH CDREADER 1 "V1.5.1" "Usenet Software" "Usenet software"
+  
+  .SH NAME
+  cdreader \- play an audio compact disc through the audio processor
+***************
+*** 77,83 ****
+  displays an online help window
+  
+  .SH "SEE ALSO"
+! cdplayer(1), apanel(1)
+  
+  .SH "AUTHOR"
+  .B Cdreader
+--- 77,83 ----
+  displays an online help window
+  
+  .SH "SEE ALSO"
+! cdplayer(1), apanel(1), cdaudio(3), cdframe(4)
+  
+  .SH "AUTHOR"
+  .B Cdreader
+------------------------------------------------------------------------------
+
+-- 
+
+        Patrick Wolfe  (pwolfe@kai.com, uunet!kailand!pwolfe)
+        System Programmer/Operations Manager, Kuck & Associates
+
+
+exit 0 # Just in case...

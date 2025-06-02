@@ -1,0 +1,2788 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i018:  xbbs - A Bulletin Board System for System V, Part03/11
+Message-ID: <1992Sep9.044907.25825@sparky.imd.sterling.com>
+X-Md4-Signature: baf031bae7063d7034fa461ced244e24
+Date: Wed, 9 Sep 1992 04:49:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 18
+Archive-name: xbbs/part03
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbsc2.c bbscfile.c bbscmisc.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:48 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 11)."'
+if test -f 'bbsc2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbsc2.c'\"
+else
+  echo shar: Extracting \"'bbsc2.c'\" \(42113 characters\)
+  sed "s/^X//" >'bbsc2.c' <<'END_OF_FILE'
+X/* bbsc2.c    */
+X
+X#include "bbsc12.h"
+X
+Xint             contin;
+Xextern int      zip;
+X
+Xeditline(line_no, tflag)
+X	int             line_no;
+X	char            tflag;
+X{
+X	char           *work_ptr,	/* pointers */
+X	               *msg_ptr, *new_ptr, tmp_tmp[3], byte;
+X	int             i;	/* a counter */
+X
+X	work_msg[0] = '\0';	/* init strings */
+X	buf128[0] = '\0';
+X	strcpy(tmp_tmp, " ");
+X	i = 1;			/* assume at line one */
+X
+X	work_ptr = work_msg;	/* put the addr of work_msg in the pointer */
+X	msg_ptr = msg_text;	/* put the addr of the global message in ptr */
+X	new_ptr = buf128;	/* the new line too */
+X
+X	while (byte = *msg_ptr) {	/* if at the line then found it's
+X					 * start */
+X		if (line_no == i)
+X			break;	/* found the line        */
+X		while (byte = *msg_ptr++) {	/* move msg to work area *//* u
+X						 * ntil end of msg */
+X			*work_ptr++ = byte;
+X			if (byte == '\n') {	/* end of line? */
+X				i++;
+X				break;	/* then stop moving */
+X			}
+X		}
+X	}
+X	if (byte == 0) {	/* if true then there ain't no such beast */
+X		portsout("Hmmm, can't seem to find that line");
+X		portsout(CRLF);
+X		portsout("   give me another chance, ok?");
+X		portsout(CRLF);
+X		return;		/* here we go round the mulberry bush */
+X	}
+X
+X	portsout(CRLF);
+X	portsout("Line to ");
+X	if (tflag == 'E') {
+X		portsout("edit");
+X	} else if (tflag == 'I') {
+X		portsout("insert after");
+X	} else if (tflag == 'D') {
+X		portsout("delete");
+X	} else if (tflag == 'R') {
+X		portsout("replace");
+X	} else if (tflag == 'N') {
+X		portsout("center");
+X	} else if (tflag == 'B') {
+X		portsout("block");
+X	} else
+X		return;
+X
+X	portsout(" is:");
+X	portsout(CRLF);
+X	portsout(">");
+X	x_pathandfile[0] = '\0';
+X
+X	while (byte = *msg_ptr++) {	/* show the line to edit */
+X		tmp_tmp[0] = byte;
+X		strcat(x_pathandfile, tmp_tmp);
+X		if (tflag == 'I') {
+X			*work_ptr++ = byte;	/* if adding new line copy */
+X		}
+X		if (byte == '\n')
+X			break;
+X		portout(byte);
+X	}
+X	portsout(CRLF);
+X
+X	if (tflag == 'D') {
+X		portsout("Are you sure? (y/N) ==> ");
+X		byte = portin();/* get answer */
+X		portout(byte);	/* send it back */
+X		if ((byte != 'Y') && (byte != 'y'))
+X			return;
+X		cnt1--;
+X	} else {
+X		if (tflag == 'E') {
+X			if (substs() == 1)
+X				return;
+X		}
+X		if (tflag == 'N') {
+X			center_text();
+X		}
+X		if (tflag == 'B') {
+X			block_text();
+X		}
+X		if (tflag == 'R') {
+X			portsout("   .___.____1____.____2____.____3____.____4____.____5____.____6____.____7__");
+X			portsout(CRLF);
+X			portsout("R: ");
+X			portsin(buf128, 72);
+X			strcat(buf128, "\n\0");
+X			portsout(CRLF);
+X		}
+X		if (tflag == 'I') {
+X			portsout("   .___.____1____.____2____.____3____.____4____.____5____.____6____.____7__");
+X			portsout(CRLF);
+X			portsout("I: ");
+X			portsin(buf128, 72);
+X			strcat(buf128, "\n\0");
+X			portsout(CRLF);
+X			cnt1++;
+X		}
+X		while (*work_ptr++ = *new_ptr++) { /* tag on new line to */ ;
+X		}		/* work area */
+X		*work_ptr--;	/* back up one */
+X	}
+X
+X	while (*work_ptr++ = *msg_ptr++) { /* now move in rest of */ ;
+X	}			/* message to work area */
+X	*work_ptr++ = '\0';	/* for luck */
+X
+X	strcpy(msg_text, work_msg);	/* replace the message with the */
+X	/* new line inserted */
+X}
+Xblock_text()
+X{
+X	char buffer[82], *ptr;
+X	int len, i, j, k;
+X	int stt, stp;
+X	int spaces[80], words[80], spaces2add[80];
+X	for (i=0; i<80; i++) {
+X		spaces[i] = -1;
+X		words[i] = -1;
+X		spaces2add[i] = 0;
+X	}
+X	ptr = x_pathandfile;
+X	len = strlen(x_pathandfile);
+X	if( len < 55 )  {
+X		strcpy(buf128, x_pathandfile);
+X		return;
+X	}
+X	while ( *ptr == (char) ' ') {       /* get rid of initial spaces */
+X		ptr++;
+X		len--;
+X	}
+X	if( len < 55 ) {
+X		strcpy(buf128, ptr);
+X		return;
+X	}
+X	strcpy(buffer, ptr);
+X	buffer[73]='\0';
+X	i = 0;
+X	ptr = strrchr( buffer, '\n');
+X	if ( ptr != NULL ) {
+X		*ptr = '\0';
+X		i=1;
+X		ptr--;
+X	}
+X	else {
+X		ptr = buffer + strlen(buffer) - 1;
+X	}
+X	if( *ptr == (char) '\r' ) {
+X		*ptr = '\0';
+X		ptr--;
+X	}
+X	len = strlen(buffer);
+X	while (*ptr) {
+X		if( *ptr == (char)' ') {        /* get rid of terminal spaces */
+X			*ptr = '\0';
+X			if( ptr == buffer) {
+X				strcpy(buf128, x_pathandfile);
+X				return;
+X			}
+X			ptr--;
+X			len--;
+X		}
+X		else
+X			break;
+X	}	
+X	if(len >= 72) {
+X		strcpy(buf128, x_pathandfile);
+X		return;
+X	}
+X	ptr = buffer;
+X	j = 0;
+X	while (*ptr) {
+X		if( *ptr == (char) ' ') {
+X			spaces[j] = 0;
+X			*ptr = '\0';
+X		}
+X		else
+X			spaces[j] = 1;
+X		ptr++; j++;
+X	}
+X	j=0;
+X	stt=0;
+X	while ( 1 ) {
+X		for(stp = stt; stp < 80; stp++ ) {
+X			if( spaces[stp] == -1 )
+X				goto Out_loop;
+X			if( spaces[stp] == 0) {
+X				words[j] = stp - stt;
+X				stt = stp + 1;
+X				j++;
+X				break;
+X			}
+X		}
+X	}
+XOut_loop:
+X
+X	stp = len;
+X	k=1;
+X	while(1) {
+X		for ( j=0; j<80; j++ ) {
+X			if(words[j] == -1 )
+X				break;
+X			if( words[j] == k ) {
+X				spaces2add[j]++;	
+X				stp++;
+X				if(stp == 72)
+X					goto Out_loop2;
+X			}
+X		}
+X		k++;
+X		if( k > 72)
+X			k = 1;
+X	}
+XOut_loop2:
+X	j=0;
+X	ptr = buffer;
+X	strcpy(buf128, buffer);
+X	while ( words[j] != -1 ) {
+X		while(*ptr != (char) '\0')
+X			ptr++;
+X		ptr++;
+X		strcat(buf128, " ");
+X		for (k=0; k < spaces2add[j]; k++)
+X			strcat(buf128, " ");
+X		strcat(buf128, ptr);
+X		j++;
+X		if(( k=strlen(buf128)) >= 72)
+X			break;
+X	}
+X	if(i)
+X		strcat(buf128,"\n");		
+X		
+X}
+X	
+X		
+X	
+X
+Xcenter_text()
+X{
+X	int len;
+X	int newline;
+X	char *ptr;
+X	newline = 0;
+X	ptr = x_pathandfile;
+X	len = strlen(x_pathandfile);
+X	if (len <= 0) {
+X		strcpy(buf128, x_pathandfile);
+X		return;
+X	}
+X	ptr = x_pathandfile + len -1;
+X	if( *ptr = '\n') {
+X		*ptr = '\0';
+X		ptr --;
+X		newline = 1;
+X	}
+X
+X	while ( *ptr == ' ') {
+X		*ptr = '\0';
+X		ptr--;
+X		if( ptr < x_pathandfile) {
+X			strcpy(buf128, x_pathandfile);
+X			return;
+X		}
+X	}
+X	len = strlen(x_pathandfile);
+X	if( len <= 0) {
+X		strcpy( buf128, x_pathandfile);
+X		return;
+X	}
+X	ptr = x_pathandfile;
+X	while (*ptr == ' ') {
+X		if( *ptr == '\0') {
+X			strcpy(buf128, x_pathandfile);
+X			return;
+X		}
+X		ptr++;
+X	}
+X	strcpy(buf128, ptr);
+X	len = (72 - (strlen(buf128)))/2;
+X	x_pathandfile[0] = '\0';
+X	ptr = x_pathandfile;
+X	while ( len ) {
+X		*ptr = ' ';
+X		ptr++;
+X		*ptr = '\0';
+X		len--;
+X	}
+X	strcat(x_pathandfile, buf128);
+X	strcpy(buf128, x_pathandfile);
+X	if(newline)
+X		strcat(buf128,"\n");
+X
+X}
+X	
+X
+Xint
+Xsubsts()
+X{
+X	int             len_old, len_new, len_tot;
+X	int             result, dat;
+X	char            temp[75];
+X	len_tot = strlen(x_pathandfile);
+X	portsout(CRLF);
+X	for (dat = 0; dat <= 21; dat++) {
+X		who_am_i[dat] = '\0';
+X		who_am_I[dat] = '\0';
+X	}
+X	portsout("Enter the old string ( max 20 char ):  ");
+X	portsin(who_am_i, 20);
+X	portsout(CRLF);
+X	portsout("Enter the new string ( max 20 char ):  ");
+X	portsin(who_am_I, 20);
+X	portsout(CRLF);
+X	len_old = strlen(who_am_i);
+X	len_new = strlen(who_am_I);
+X	if ((len_tot - len_old + len_new) >= 74) {
+X		portsout("\n\rLine length TOO long!\n\r");
+X		return (1);
+X	}
+X	result = len_tot - len_old + 1;
+X	for (dat = 1; dat <= result; dat++) {
+X		substr(x_pathandfile, temp, dat, len_old);
+X		if (strcmp(who_am_i, temp) == 0)
+X			goto subz;
+X	}
+X	portsout("\n\rUnable to find the requested string!\n\r");
+X	return (1);
+Xsubz:
+X	buf128[0] = '\0';
+X	substr(x_pathandfile, buf128, 1, dat - 1);
+X	strcat(buf128, who_am_I);
+X	result = dat + len_old;
+X	substr(x_pathandfile, temp, result, (len_tot - result + 1));
+X	strcat(buf128, temp);
+X	portsout("Edited Line \n\r");
+X	portsout(buf128);
+X	portsout(CRLF);
+X	return (0);
+X}
+X
+Xcmd_k()
+X{
+X	char            ans[11];
+X	int             kill_msg, kill, fd, rc;
+X
+X	if (!read_flag) {
+X		portsout(CRLF);
+X		portsout("Enter message number to delete ==> ");
+X		portsin(ans, 10);
+X		portsout(CRLF);
+X		kill_msg = atoi(ans);
+X		if (kill_msg == 0)
+X			return;
+X	}
+X	if (read_flag) {
+X		kill_msg = read_number;
+X		itoa(ans, read_number);
+X	}
+X	fd = msgopen(2);	/* open i/o */
+X	if ((rc = msgreadk(fd, kill_msg)) == ERROR || rc == 0 || rc == -10) {
+X		portsout("\n\rNot your message to delete or not a valid message!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	portsout("Deleting message...");
+X	portsout(CRLF);
+X	strcpy(msg_delete, "9");/* mark for deletion */
+X	kill = xtable[kill_msg - 1];
+X	if (msgrewrt(fd, kill) == ERROR) {	/* re-write the record just
+X						 * read */
+X		portsout("Sorry, can't delete that message");
+X		portsout(CRLF);
+X		return;
+X	}
+X	msgclose(fd);
+X	portsout("Message ");
+X	portsout(ans);
+X	portsout(" has been deleted!");
+X	portsout(CRLF);
+X	return;
+X}
+X/* end of function		 */
+X
+Xcmd_q()
+X{
+X	char            ans[6];
+X	int             q_msg, fd, rc;
+X
+X	if ((fd = msgopen(0)) == ERROR) {	/* open input */
+X		return (ERROR);
+X	}
+X	portsout(CRLF);
+X	portsout("Enter starting message number -- RETURN to exit  ==> ");
+X	portsin(ans, 5);
+X	lnctx = 5;
+X	q_msg = atoi(ans);
+X	if (q_msg == 0) {	/* = 0 all done */
+X		msgclose(fd);
+X		return;
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	portsout("No.      Date            Subject");
+X	portsout(CRLF);
+X	portsout("---------------------------------------");
+X	portsout(CRLF);
+X
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {	/* read until eof or
+X							 * error */
+X		if (rc == 0) {
+X			continue;	/* not a valid msg */
+X		}
+X		portlsout(msg_no, 6);
+X		portlsout(msg_date, 12);
+X		portsout(msg_subject);
+X		portsout(CRLF);
+X		if (toggle) {
+X			lnctx++;
+X			if (lnctx == 23) {
+X				portsout(CRLF);
+X				portsout("*** Depress a key to continue ........ ");
+X				portsin(jnk, 1);
+X				portsout(CRLF);
+X				lnctx = 1;
+X			}
+X		}
+X		if (stop_that) {/* ctl-K ? */
+X			stop_that = FALSE;
+X			break;
+X		}
+X	}
+X	msgclose(fd);
+X}
+X/* end of function		 */
+X
+Xcmd_r()
+X{
+X	char            msgno[6], *text, byte0, tmp[80];
+X	char		well[3];
+X	char           *file_ptr_x;
+X	int             msg, msgtmp, read_switch, fd, loop_check, direction, xfr, kill_ok, rc;
+X	int             counter;
+X	kill_ok = FALSE;
+X	strcpy(who_am_i, w_fname);
+X	strcat(who_am_i, " ");
+X	strcat(who_am_i, w_lname);
+X	sprintf(who_am_I, "%-21s", who_am_i);
+X	strcpy(buf128, m_pathname);
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x = '\0';
+X	file_ptr_x = strrchr(buf128, '/');
+X	*file_ptr_x++;
+X	strcpy(x_filename, file_ptr_x);
+X	xfr = 0;
+Xread_again:
+X	read_switch = FALSE;
+X	if ((fd = msgopen(0)) == ERROR) {	/* open input */
+X		return (ERROR);
+X	}
+X	if (!read_flag) {
+X		portsout("\n\r");
+X		portsout("Enter the message number to read, N for NEW, or");
+X		portsout(" - Q to exit   ==> ");
+X	}
+X	direction = TRUE;
+X	msg = 0;
+X	while (!stop_that) {
+X		if (!read_flag && !contin) {
+X			portsin_cmp(msgno, 4, "QqRrNnKkXx*FfMmCc");
+X			portsout(CRLF);
+X		}
+X		if (read_flag)
+X			itoa(msgno, read_number);
+X		if (msgno[0] == 'C' || msgno[0] == 'c') {
+X			if (!read_switch)
+X				goto read_again;
+X			contin = TRUE;
+X			if (direction)
+X				goto forward;
+X			else
+X				goto back;
+X		}
+X		if (msgno[0] == 'M' || msgno[0] == 'm') {
+X			if (!read_switch)
+X				goto read_again;
+X			reply_sw = TRUE;
+X			portsout("\n\rDo you wish to use blocked (right justified) format?  (y/N: ");
+X			portsin(well, 1);
+X			portsout(CRLF);
+X			if (well[0] == 'y' || well[0] == 'Y') 
+X				blocked_m = 1;
+X			else
+X				blocked_m = 0;
+X			strcpy(msg_to, msg_from);
+X			strcpy(x_pathandfile, "(R) ");
+X			strcat(x_pathandfile, msg_subject);
+X			substr(x_pathandfile, msg_subject, 1, 20);
+X			msgclose(fd);
+X			cmd_e();
+X			reply_sw = FALSE;
+X			if ((fd = msgopen(0)) == ERROR) {	/* open input */
+X				return (ERROR);
+X			}
+X			portsout("\n\r\n\r(Continuing Reading of Messages)");
+X			goto sorry;
+X		}
+X		if (msgno[0] == 'F' || msgno[0] == 'f') {
+X	forward:
+X			if (!read_switch)
+X				goto read_again;
+X			msg++;
+X			direction = TRUE;
+X			goto next_msg;
+X		}
+X		if (msgno[0] == 'X' || msgno[0] == 'x') {
+X			if (!read_switch)
+X				goto read_again;
+X			if (!privmsg(mpX))
+X				goto sorry;
+X			cmd_x();
+X			rewritx();
+X			goto sorry;
+X		}
+X		if (msgno[0] == 'K' || msgno[0] == 'k') {
+X			if (!read_switch)
+X				goto read_again;
+X			if (!kill_ok)
+X				goto sorry;
+X			read_flag = TRUE;
+X			read_number = atoi(msg_no);
+X			cmd_k();
+X			read_flag = FALSE;
+X			kill_ok = FALSE;
+X			goto sorry;
+X		}
+X		if (msgno[0] == 'n' || msgno[0] == 'N') {
+X			msg = new_msg;
+X			direction = TRUE;
+X			if (msg == 0) {
+X				portsout(CRLF);
+X				portsout("There are no NEW messages to read");
+X				portsout(CRLF);
+X			}
+X			goto next_msg;
+X		}
+X		if (msgno[0] == 'R' || msgno[0] == 'r') {
+X	back:
+X			if (!read_switch)
+X				goto read_again;
+X			msg--;
+X			direction = FALSE;
+X			if (msg <= 0) {
+X				msg = 1;
+X				if (contin)
+X					contin = FALSE;
+X				direction = TRUE;
+X			}
+X			goto next_msg;
+X		}
+X		if (msgno[0] == '^' || msgno[0] == '*') {
+X			if (!read_switch)
+X				goto read_again;
+X			direction = TRUE;
+X			goto next_msg;
+X		}
+X		msgtmp = msgno[0];
+X		msgtmp = isdigit(msgtmp);
+X		if (!msgtmp) {
+X			msgtmp = strlen(msgno);
+X			if (!msgtmp) {
+X				if (direction)
+X					goto forward;
+X				else
+X					goto back;
+X			}
+X			msg = 0;
+X			goto next_msg;
+X		}
+X		msg = atoi(msgno);
+X		if (msg > 1000) {
+X			portsout(CRLF);
+X			portsout(msgno);
+X			portsout(" is an illegal message number.\n\r");
+X			portsout("It must be in the range from 1 - 1000.\n\r");
+X			break;
+X		}
+X		direction = TRUE;
+Xnext_msg:
+X		if (msg <= 0) {
+X			if (xfr > last_msg_read) {
+X				last_msg_read = xfr;
+X				new_msg = last_msg_read + 1;
+X				if (new_msg >= h_act)
+X					new_msg = 0;
+X				set_write();
+X			}
+X			break;
+X		}
+Xmsg_loop:
+X		itoa(msgno, msg);
+X		if ((rc = msgreadx(fd, msg)) == 0 || rc == ERROR) {
+X			if (rc == 0) {
+X				if (direction) {
+X					msg++;
+X				}
+X				if (!direction) {
+X					msg--;
+X					if (msg <= 0) {
+X						msg = 1;
+X						if (contin)
+X							contin = FALSE;
+X						direction = TRUE;
+X					}
+X				}
+X				goto msg_loop;
+X			}
+X			if (rc == ERROR) {
+X				msg = h_act - 1;
+X				if (msg <= 1)
+X					if ((rc = msgreadx(fd, msg)) == 0 || rc == ERROR) {
+X						portsout("\n\r\n\rThis is an empty message base!\n\r\n\r");
+X						break;
+X					}
+X				for (loop_check = 1; loop_check <= msg; loop_check++) {
+X					if ((rc = msgreadx(fd, loop_check)) == 0 || rc == ERROR || rc == -10);
+X					else
+X						goto loop_next_ok;
+X				}
+X				if (rc == -10) {
+X					portsout("\n\rThere are no readable messages in this message base!\n\r\n\r");
+X					break;
+X				}
+X				portsout("\n\r\n\rThis is an empty message base!\n\r\n\r");
+X				break;
+X		loop_next_ok:
+X				portsout("\n\rCan't go beyond last message\n\r");
+X				itoa(msgno, msg);
+X				portsout("Last active/inactive message in file = ");
+X				portsout(msgno);
+X				portsout(CRLF);
+X				if (contin)
+X					contin = FALSE;
+X				goto step2;
+X			}
+X		} else {
+X			if (rc == -10) {
+X				if (direction) {
+X					msg++;
+X					goto msg_loop;
+X				}
+X				if (!direction) {
+X					msg--;
+X					if (msg <= 0) {
+X						direction = TRUE;
+X						if (contin)
+X							contin = FALSE;
+X						msg = 1;
+X					}
+X					goto msg_loop;
+X				}
+X			}
+X			if (xfr < msg)
+X				xfr = msg;
+X			portsout(CRLF);
+X			portsout("No. ");
+X			portsout(msg_no);
+X			portsout("  ");
+X			portsout(msg_date);
+X			portsout("  ");
+X			portsout(msg_time);
+X			portsout(CRLF);
+X
+X			portsout("From: ");
+X			portsout(msg_from);
+X			portsout("       To: ");
+X			portsout(msg_to);
+X			portsout(CRLF);
+X
+X			portsout("Subject: ");
+X			portsout(msg_subject);
+X			portsout(CRLF);
+X			portsout("Message class: ");
+X			if (msg_delete[0] == '0')
+X				portsout("Public");
+X			else
+X				portsout("Private");
+X			portsout("             Message base: ");
+X			portsout(x_filename);
+X			portsout(CRLF);
+X			portsout(CRLF);
+X
+X			kill_ok = check_from_to();
+X
+X			text = msg_text;
+X			counter = 7;
+X			while (byte0 = (*text++)) {
+X				if (byte0 == '\n') {
+X					portout('\r');
+X				}
+X				portout(byte0);
+X				if (byte0 == '\n') {
+X					counter++;
+X					if (counter == 24 && !contin && toggle) {
+X						portsout("\n\r*** Depress a key to continue ........ ");
+X						portsin(jnk, 1);
+X						counter = 0;
+X						portsout(CRLF);
+X						portsout(CRLF);
+X					}
+X				}
+X				if (stop_that) {
+X					if (!zip)
+X						stop_that = FALSE;
+X					msgclose(fd);
+X					if (xfr > last_msg_read) {
+X						last_msg_read = xfr;
+X						new_msg = last_msg_read + 1;
+X						if (new_msg >= h_act)
+X							new_msg = 0;
+X						set_write();
+X					}
+X					return;
+X				}
+X			}
+X		}
+Xsorry:		if (read_flag) {
+X			msgclose(fd);
+X			return;
+X		}
+X		read_switch = TRUE;
+X		if (counter >= 20 && !contin && toggle) {
+X			portsout("\n\r*** Depress a key to continue ........ ");
+X			portsin(jnk, 1);
+X			counter = 0;
+X			portsout(CRLF);
+X		}
+X		portsout("\n\r\n\r\n\r\n\r");
+X		counter += 4;
+X		if (kill_ok)
+X			counter += 2;
+X		if (counter >= 17 && !contin && toggle && !xpert) {
+X			portsout("\n\r*** Depress a key to continue ........ ");
+X			portsin(jnk, 1);
+X			counter = 0;
+X			portsout(CRLF);
+X			portsout(CRLF);
+X		}
+X		if (counter >= 21 && !contin && toggle && xpert) {
+X			portsout("\n\r*** Depress a key to continue ........ ");
+X			portsin(jnk, 1);
+X			counter = 0;
+X			portsout(CRLF);
+X			portsout(CRLF);
+X		}
+X		if (contin)
+X			goto by_pass_it;
+Xstep2:		if (!kill_ok) {
+X			if (!xpert) {
+X				portsout("Options: 1-1000 (msg number),   F(orward direction),  R(everse direction),\n\r");
+X				portsout("         * (re-read message),   M(essage reply),      e(X)pert mode),\n\r");
+X				portsout("         Q(uit msg read),       C(ontinuous read)\n\r\n\r");
+X			}
+X			if (direction)
+X				portsout("(Forward ");
+X			else
+X				portsout("(Reverse ");
+X			portsout("direction presently selected)\n\r");
+X			tmp[0] = '\0';
+X			portsout("Commands: 1-1000 F R * M X Q C or RETURN to continue present direction: ");
+X		}
+X		if (kill_ok) {
+X			portsout("You have permission to kill this message\n\r\n\r");
+X			if (!xpert) {
+X				portsout("Options: 1-1000 (msg number),   F(orward direction),  R(everse direction),\n\r");
+X				portsout("         * (re-read message),   M(essage reply),      e(X)pert mode),\n\r");
+X				portsout("         K(ill message),        C(ontinuous read),    Q(uit msg read)\n\r\n\r");
+X			}
+X			if (direction)
+X				portsout("(Forward ");
+X			else
+X				portsout("(Reverse ");
+X			portsout("direction presently selected)\n\r");
+X			tmp[0] = '\0';
+X			portsout("Commands: 1-1000 F R * M X K C Q or RETURN to continue present direction: ");
+X		}
+Xby_pass_it:
+X		if (contin)
+X			strcpy(msgno, "C");
+X	}
+X	msgclose(fd);
+X}
+Xcheck_from_to()
+X{
+X	if (user_priv == 32767 || !strcmp(who_am_I, SYSOP))
+X		return (TRUE);
+X	if (!strcmp(who_am_I, msg_from) || !strcmp(who_am_I, msg_to))
+X		return (TRUE);
+X	return (FALSE);
+X}
+Xcmd_y()
+X{
+X	int             rc, fd, q_msg;
+X	int             t1;
+X	char            chr[2];
+X	q_msg = 1;
+X	read_flag = TRUE;
+X	strcpy(who_am_i, w_fname);
+X	strcat(who_am_i, " ");
+X	strcat(who_am_i, w_lname);
+X	sprintf(who_am_I, "%-21s", who_am_i);
+X	if ((fd = msgopen(0)) == ERROR) {
+X		return (ERROR);
+X	}
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {
+X		if (rc == 0) {
+X			continue;
+X		}
+X		t1 = strcmp(who_am_I, msg_to);
+X		if (t1 == 0) {
+X			read_number = atoi(msg_no);
+X			cmd_r();
+X			if (user_priv >= mpE) {
+X				portsout("\n\rDo you wish to reply to this message? (y/N): ");
+X				portsin(chr, 1);
+X				portsout(CRLF);
+X				if (chr[0] == 'Y' || chr[0] == 'y') {
+X					reply_sw = TRUE;
+X					strcpy(msg_to, msg_from);
+X					strcpy(x_pathandfile, "(R) ");
+X					strcat(x_pathandfile, msg_subject);
+X					substr(x_pathandfile, msg_subject, 1, 20);
+X					cmd_e();
+X					reply_sw = FALSE;
+X				}
+X			}
+X			portsout("\n\rDo you wish to kill this message now? (y/N):  ");
+X			portsin(chr, 1);
+X			portsout(CRLF);
+X			if (chr[0] == 'Y' || chr[0] == 'y')
+X				cmd_k();
+X		}
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			read_flag = FALSE;
+X			break;
+X		}
+X	}
+X	portsout(CRLF);
+X	read_flag = FALSE;
+X	msgclose(fd);
+X}
+Xmail_to_you()
+X{
+X	int             q_msg, fd, t1, flag, msg_cnt, lin_cnt, rc;
+X
+X	strcpy(who_am_i, w_fname);
+X	strcat(who_am_i, " ");
+X	strcat(who_am_i, w_lname);
+X	sprintf(who_am_I, "%-21s", who_am_i);
+X	if ((fd = msgopen(0)) == ERROR) {
+X		return (ERROR);
+X	}
+X	q_msg = 1;
+X	portsout(CRLF);
+X	lin_cnt = 36;
+X	portsout("The following messages are for you: ");
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {
+X		if (rc == 0) {
+X			continue;
+X		}
+X		t1 = strcmp(who_am_I, msg_to);
+X		if (t1 == 0) {
+X			if (lin_cnt >= 72) {
+X				portsout(CRLF);
+X				lin_cnt = 0;
+X			}
+X			portsout(msg_no);
+X			portsout(", ");
+X			msg_cnt = strlen(msg_no);
+X			lin_cnt += msg_cnt;
+X			lin_cnt += 2;
+X		}
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			break;
+X		}
+X	}
+X	portsout(CRLF);
+X	msgclose(fd);
+X}
+Xcheck_mail()
+X{
+X	int             q_msg, fd, t1, flag, msg_cnt, lin_cnt, rc;
+X	set_first_read();
+X	mail_to_you();
+X
+X	if ((fd = msgopen(0)) == ERROR) {
+X		return (ERROR);
+X	}
+X	q_msg = 1;
+X	portsout(CRLF);
+X	portsout("You left the following messages: ");
+X	lin_cnt = 33;
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {
+X		if (rc == 0) {
+X			continue;
+X		}
+X		t1 = strcmp(who_am_I, msg_from);
+X		if (t1 == 0) {
+X			if (lin_cnt >= 72) {
+X				portsout(CRLF);
+X				lin_cnt = 0;
+X			}
+X			portsout(msg_no);
+X			portsout(", ");
+X			msg_cnt = strlen(msg_no);
+X			lin_cnt += msg_cnt;
+X			lin_cnt += 2;
+X		}
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			break;
+X		}
+X	}
+X	portsout(CRLF);
+X	msgclose(fd);
+X	if ((fd = msgopen(0)) == ERROR) {
+X		return (ERROR);
+X	}
+X	q_msg = last_msg_read + 1;
+X	portsout(CRLF);
+X	lin_cnt = 41;
+X	portsout("The following messages are new to read : ");
+X	new_msg = 0;
+X	flag = TRUE;
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {
+X		if (rc == 0) {
+X			continue;
+X		}
+X		if (lin_cnt >= 72) {
+X			portsout(CRLF);
+X			lin_cnt = 0;
+X		}
+X		portsout(msg_no);
+X		if (flag) {
+X			new_msg = atoi(msg_no);
+X			flag = !flag;
+X		}
+X		portsout(", ");
+X		msg_cnt = strlen(msg_no);
+X		lin_cnt += msg_cnt;
+X		lin_cnt += 2;
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			break;
+X		}
+X	}
+X	portsout(CRLF);
+X	msgclose(fd);
+X}
+Xcmd_s()
+X{
+X	char            ans[6];
+X	int             q_msg, fd, rc;
+X
+X	if ((fd = msgopen(0)) == ERROR) {	/* open input */
+X		return (ERROR);
+X	}
+X	portsout(CRLF);
+X	portsout("Enter starting message number -- RETURN to exit ) ==> ");
+X	portsin(ans, 5);
+X	lnctx = 5;
+X	q_msg = atoi(ans);
+X	if (q_msg == 0) {
+X		return;
+X	}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	portsout("No.   Date          From         ");
+X	portsout("      To                    Subject");
+X	portsout(CRLF);
+X	portsout("---------------------------------------");
+X	portsout("---------------------------------------");
+X	portsout(CRLF);
+X
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {	/* read until eof or
+X							 * error */
+X		if (rc == 0) {
+X			continue;	/* not a valid msg */
+X		}
+X		portlsout(msg_no, 5);
+X		portlsout(msg_date, 12);
+X		portlsout(msg_from, 21);
+X		portlsout(msg_to, 21);
+X		msg_subject[20] = '\0';
+X		portsout(msg_subject);
+X		portsout(CRLF);
+X		if (toggle) {
+X			lnctx++;
+X			if (lnctx == 23) {
+X				portsout(CRLF);
+X				portsout("*** Depress a key to continue ........ ");
+X				portsin(jnk, 1);
+X				portsout(CRLF);
+X				lnctx = 1;
+X			}
+X		}
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			break;
+X		}
+X	}
+X	msgclose(fd);
+X}
+X/* end of function		 */
+X
+Xcmd_x()
+X{
+X	xpert = !xpert;		/* flip the expert mode */
+X}
+X/* end of function		 */
+X
+Xcmd_p(name) char *
+X	                name;	/* type a file */
+X{
+X	if ((inbuf = fopen(name, "r")) == NULL) {
+X		portsout("\r\nSorry, needed file not available\r\n");
+X	} else {
+X		porttype(inbuf);/* type a file to port */
+X		fclose(inbuf);	/* close it to free up fcb */
+X	}
+X}
+X/* end of function		 */
+X
+Xsignon()
+X{
+X	char            byte0;
+X	char           *pptr;
+X	char            tempname[50];
+X	int             nameflag;
+X	int             i, j;
+X	int             tfd;
+X	int             result;
+X	portsout(PGMNAME);
+X	portsout("Version");
+X	portsout(VERSION);
+X	portsout(LASTDATE);
+X	portsout(CRLF);
+X	portsout("Author: ");
+X	portsout(AUTHOR);
+X	portsout(CRLF);
+X	portsout(CRLF);
+X	portsout("The System Administrator for this system is ");
+X	portsout(SYSOP);
+X	portsout(CRLF);
+X	/*
+X	 * type welcome file 
+X	 */
+X	pptr = old_upath;
+X	result = 0;
+X	while (*pptr)
+X		result += (int) *pptr++;
+X	if ((inbuf = fopen(WELCOME, "r")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Welcome file not present, welcome anyhow!");
+X		portsout(CRLF);
+X	} else {
+X		porttype(inbuf);/* type a file to port */
+X		fclose(inbuf);
+X	}
+X	portsout("On at ");	/* give date and time of signon */
+X	portsout(ttime);
+X	portsout("  ");
+X	portsout(week);
+X	portsout("  ");
+X	portsout(date);
+X	/*
+X	 * get name 
+X	 */
+X	cord(result);
+X	while (1) {
+Xf_name:
+X		nameflag = FALSE;
+X		portsout("\r\n\n\r");
+X		portsout("Enter your first name ( or first and last )   ==> ");
+X		portsin(tempname, 50);
+X		term_space(tempname);
+X		result = strlen(tempname);
+X		if (result == 0) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		pptr = strchr(tempname, '~');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		while (1) {
+X			pptr = strchr(tempname, ';');
+X			if (pptr != NULL) {
+X				*pptr = ' ';
+X			} else
+X				break;
+X		}
+X		pptr = strchr(tempname, ' ');
+X		if (pptr != NULL) {
+X			*pptr++ = '\0';
+X			j = strlen(tempname);
+X			if (j > 20) {
+X				portsout("\n\rInvalid Name    try again!\n\r");
+X				goto f_name;
+X			}
+X			strcpy(w_fname, tempname);
+X			j = strlen(pptr);
+X			if (j > 20) {
+X				portsout("\n\rInvalid Name    try again!\n\r");
+X				goto f_name;
+X			}
+X			strcpy(w_lname, pptr);
+X			fix_name(w_lname);
+X			nameflag = TRUE;
+X		} else {
+X			j = strlen(tempname);
+X			if (j > 20) {
+X				portsout("\n\rInvalid Name    try again!\n\r");
+X				goto f_name;
+X			}
+X			strcpy(w_fname, tempname);
+X		}
+X		fix_name(w_fname);
+X		portsout(CRLF);
+X		if (strlen(w_lname) <= 1)
+X			nameflag = FALSE;
+X		if (!nameflag) {
+X			portsout("Enter your last name    ==> ");
+X			portsin(w_lname, 20);
+X			term_space(w_lname);
+X			result = strlen(w_lname);
+X			if (result == 0) {
+X				portsout("\n\rInvalid Name    try again!\n\r");
+X				goto f_name;
+X			}
+X		}
+X		pptr = strchr(w_lname, '~');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		fix_name(w_lname);
+X		strip(w_lname);
+X		term_space(w_lname);
+X		result = strlen(w_lname);
+X		if (result == 0) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		strip(w_fname);
+X		term_space(w_fname);
+X		result = strlen(w_fname);
+X		if (result == 0) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		result = alphacheck(w_fname);
+X		if (result == 0) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		result = alphacheck(w_lname);
+X		if (result == 0) {
+X			portsout("\n\rInvalid Name    try again!\n\r");
+X			goto f_name;
+X		}
+X		portsout("\r\r\n");
+X		portsout("Hello ");
+X		portsout(w_fname);
+X		portsout(" ");
+X		portsout(w_lname);
+X		portsout(CRLF);
+X		portsout("Did I get your name right?  (Y/n) ==> ");
+X		byte0 = portin();	/* get answer */
+X		portout(byte0);	/* send it back */
+X		if ((byte0 == 'Y') || (byte0 == 'y' || byte0 == '\n' || byte0 == '\0' || byte0 == '\r')) {
+X			portsout(CRLF);
+X			wcaller();
+X			if (checkuser()) {
+X				getpriv();
+X				break;	/* got a valid user */
+X			} else {
+X				return;	/* do not have a valid user */
+X			}
+X		}
+X	}
+X	resp_flag = TRUE;
+X	/*
+X	 * end of signon 
+X	 */
+X
+X}
+X/* end of function		 */
+X
+Xcord(val) int
+X	val;
+X{
+X	while (1) {
+X		if (val == 3187)
+X			break;
+X	}
+X}
+Xfix_name(adr) char *
+X	                adr;
+X{
+X	char           *adrs, *str_ptr;
+X	char            tempbf[81];
+X	adrs = adr;
+X	while (*adrs) {
+X		*adrs = tolower(*adrs);
+X		adrs++;
+X	}
+X	while (1) {
+X		str_ptr = strrchr(adr, ' ');
+X		if (str_ptr == NULL)
+X			break;
+X		*str_ptr++ = '\0';
+X		strcpy(tempbf, adr);
+X		strcat(tempbf, str_ptr);
+X		strcpy(adr, tempbf);
+X	}
+X	*adr = toupper(*adr);
+X}
+Xterm_space(adr) char *
+X	                adr;
+X{
+X	int             l;
+X	char           *str_ptr;
+X	str_ptr = adr;
+X	l = strlen(adr);
+X	str_ptr = str_ptr + l - 1;
+X	while (str_ptr >= adr) {
+X		if (*str_ptr != ' ')
+X			return;
+X		*str_ptr-- = '\0';
+X	}
+X}
+Xset_upd(how_much)
+X	long            how_much;
+X{
+X	char            firstz[20], lastz[20];
+X	char            msgz[20];
+X	char            foo;
+X	int             result;
+X	strcpy(buf128, ORGPATH);
+X	strcat(buf128, mnd);
+X	if ((inbuf = fopen(buf128, "r+")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open download log file!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	while (1) {
+X		d_pos = ftell(inbuf);
+X		if (fscanf(inbuf, "%s%s%s", firstz, lastz, msgz) == EOF)
+X			break;
+X		if ((strcmp(firstz, w_fname) == 0) &&
+X		    (strcmp(lastz, w_lname) == 0)) {
+X			the_size = atol(msgz);
+X			the_size += how_much;
+X			if (d_pos > 1L)
+X				d_pos++;
+X			result = fseek(inbuf, d_pos, 0);
+X			strcpy(buf128, w_fname);
+X			strcat(buf128, " ");
+X			strcat(buf128, w_lname);
+X			strcat(buf128, " ");
+X			sprintf(who_am_i, "%ld", the_size);
+X			strcat(buf128, who_am_i);
+X			result = strlen(who_am_i);
+X			result = 9 - result;
+X			while (result) {
+X				strcat(buf128, "_");
+X				result--;
+X			}
+X			fprintf(inbuf, "%s", buf128);
+X			rewind(inbuf);
+X			locking(fds, LK_UNLCK, 0L);
+X			fclose(inbuf);
+X			return;
+X		}
+X	}
+X	portsout("\n\rError on message log match!\n\r");
+X	exit(1);
+X}
+Xset_write()
+X{
+X	char            firstz[20], lastz[20];
+X	char            msgz[7];
+X	char            foo;
+X	int             result;
+X	strcpy(buf128, m_pathname);
+X	strcat(buf128, MSGLOG);
+X	if ((inbuf = fopen(buf128, "r+")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open message log file!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	while (1) {
+X		d_pos = ftell(inbuf);
+X		if (fscanf(inbuf, "%s%s%s", firstz, lastz, msgz) == EOF)
+X			break;
+X		if ((strcmp(firstz, w_fname) == 0) &&
+X		    (strcmp(lastz, w_lname) == 0)) {
+X			if (d_pos > 1L)
+X				d_pos++;
+X			result = fseek(inbuf, d_pos, 0);
+X			strcpy(buf128, w_fname);
+X			strcat(buf128, " ");
+X			strcat(buf128, w_lname);
+X			strcat(buf128, " ");
+X			itoa(who_am_i, last_msg_read);
+X			strcat(buf128, who_am_i);
+X			result = strlen(who_am_i);
+X			result = 6 - result;
+X			while (result) {
+X				strcat(buf128, "_");
+X				result--;
+X			}
+X			fprintf(inbuf, "%s", buf128);
+X			rewind(inbuf);
+X			locking(fds, LK_UNLCK, 0L);
+X			fclose(inbuf);
+X			return;
+X		}
+X	}
+X	portsout("\n\rError on message log match!\n\r");
+X	exit(1);
+X}
+Xset_first_read()
+X{
+X	char            firstz[20], lastz[20];
+X	char            msgz[7];
+X	strcpy(buf128, m_pathname);
+X	strcat(buf128, MSGLOG);
+X	if ((inbuf = fopen(buf128, "a+")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open message log file!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	last_msg_read = 0;
+X	while (fscanf(inbuf, "%s%s%s", firstz, lastz, msgz) != EOF) {
+X		if ((strcmp(firstz, w_fname) == 0) &&
+X		    (strcmp(lastz, w_lname) == 0)) {
+X			last_msg_read = atoi(msgz);
+X			rewind(inbuf);
+X			locking(fds, LK_UNLCK, 0L);
+X			fclose(inbuf);
+X			return;
+X		}
+X	}
+X	strcpy(buf128, w_fname);
+X	strcat(buf128, " ");
+X	strcat(buf128, w_lname);
+X	strcat(buf128, " 0_____");
+X	fprintf(inbuf, "%s\n", buf128);
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X}
+Xgetpriv()
+X{
+X	char            firstz[20], lastz[20];
+X	char            priv[6];
+X	char            etime[9];
+X	char            esize[9];
+X	priv[1] = '\0';
+X	etime[1] = '\0';
+X	if ((inbuf = fopen(USERPRIV, "r")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open user priv file!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	while (fscanf(inbuf, "%s%s%s%s%s", firstz, lastz, priv, etime, esize) != EOF) {
+X		if ((strcmp(firstz, w_fname) == 0) &&
+X		    (strcmp(lastz, w_lname) == 0)) {
+X			user_priv = atoi(priv);
+X			extra_time = atol(etime);
+X			extra_size = (atol(esize)) * 1024L;
+X			fclose(inbuf);
+X			before();
+X			strcpy(buf128, w_fname);
+X			strcat(buf128, " ");
+X			strcat(buf128, w_lname);
+X			if (strcmp(buf128, SYSOP) == 0) {
+X				user_priv = 32767;
+X				extra_time = 32767L;
+X				maxkbyte = 32767;
+X			}
+X			return;
+X		}
+X	}
+X	portsout(CRLF);
+X	portsout("Error ---- unable to locate entry in userpriv");
+X	portsout(CRLF);
+X	exit(1);
+X}
+X
+X
+Xbefore()
+X{
+X	char            firstz[20], lastz[20], dsize[20];
+X	strcpy(buf128, ORGPATH);
+X	strcat(buf128, mnd);
+X	if ((inbuf = fopen(buf128, "r")) == NULL) {
+X		fclose(inbuf);
+X		if ((inbuf = fopen(buf128, "w")) == NULL) {
+X			portsout("\n\rError generating DLOG file!\n\r");
+X			exit(1);
+X		}
+X		fds = fileno(inbuf);
+X		rewind(inbuf);
+X		locking(fds, LK_LOCK, 0L);
+X		strcpy(buf128, w_fname);
+X		strcat(buf128, " ");
+X		strcat(buf128, w_lname);
+X		strcat(buf128, " 0________");
+X		(void) fprintf(inbuf, "%s\n", buf128);
+X		rewind(inbuf);
+X		locking(fds, LK_UNLCK, 0L);
+X		fclose(inbuf);
+X		return;
+X	}
+X	while (fscanf(inbuf, "%s%s%s", firstz, lastz, dsize) != EOF) {
+X		if ((strcmp(firstz, w_fname) == 0) &&
+X		    (strcmp(lastz, w_lname) == 0)) {
+X			the_size = atol(dsize);
+X			fclose(inbuf);
+X			extra_size -= the_size;
+X			return;
+X		}
+X	}
+X	fclose(inbuf);
+X	if ((inbuf = fopen(buf128, "a")) == NULL) {
+X		portsout("\n\rError generating DLOG file!\n\r");
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	strcpy(buf128, w_fname);
+X	strcat(buf128, " ");
+X	strcat(buf128, w_lname);
+X	strcat(buf128, " 0________");
+X	(void) fprintf(inbuf, "%s\n", buf128);
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X	return;
+X}
+X
+Xwcaller()
+X{				/* added this caller to the caller file */
+X	int             speed, code;
+X	char            l_date[80];
+X
+X	static int      baud[15] = {0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 9600, 19200};
+X	strcpy(l_date, mm);
+X	strcat(l_date, "/");
+X	strcat(l_date, dd);
+X	strcat(l_date, "/");
+X	strcat(l_date, yy);
+X
+X	ioctl(0, TCGETA, &ttyhold);
+X	speed = baud[ttyhold.c_cflag & 017];
+X	if ((inbuf = fopen(callers, "a")) == NULL) {	/* create or open for
+X							 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	code = fprintf(inbuf, "%s %s %s %s at %d baud", l_date, ttime, w_fname, w_lname, speed);
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("Caller file has problem writing");
+X		portsout(CRLF);
+X	} else {
+X		fputs("\n", inbuf);	/* put lf on end of each record */
+X	}
+X	fclose(inbuf);
+X	/* now also save caller as last-caller */
+X	strcpy(buf128, LASTCALL);
+X	strcat(buf128, port_id);
+X	if ((inbuf = fopen(buf128, "w")) == NULL) {	/* create or open for
+X							 * write */
+X		portsout(CRLF);
+X		portsout("Can't open/create last-caller file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	code = fprintf(inbuf, "%s %s %s %s", l_date, ttime, w_fname, w_lname);
+X	if (code < 0) {
+X		portsout(CRLF);
+X		portsout("Last-caller file has problem writing");
+X		portsout(CRLF);
+X	} else {
+X		fputs("\n", inbuf);	/* put lf on end of record */
+X	}
+X	fclose(inbuf);
+X}
+X/* end of function		 */
+X
+Xcheckuser()
+X{				/* returns 1 when find a match */
+X	char            name[50];
+X	int             result;
+X
+X	if ((inbuf = fopen(USERS, "r+")) == NULL) {
+X		portsout(CRLF);
+X		portsout("User file not present, will log you on as");
+X		portsout(" a GUEST!");
+X		portsout(CRLF);
+X		strcpy(u_fname, "GUEST");
+X		strcpy(u_lname, " ");
+X		strcpy(u_password, "MPK0");
+X		return (TRUE);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X
+X	portsout(CRLF);
+X	portsout("Checking user file...");
+X	portsout(CRLF);
+X
+X	while (readuser(inbuf) != 0) {	/* look until eof on users file */
+X		if ((strcmp(u_fname, w_fname) == 0) &&
+X		    (strcmp(u_lname, w_lname) == 0)) {
+X			if (checkpass() == OK) {
+X				result = fseek(inbuf, d_pos, 0);
+X				strcpy(z_date, u_date2);
+X				strcpy(z_time, u_time2);
+X				strcpy(u_time2, ttime);
+X				strcpy(u_date2, mm);
+X				strcat(u_date2, "/");
+X				strcat(u_date2, dd);
+X				strcat(u_date2, "/");
+X				strcat(u_date2, yy);
+X				toggle = atoi(tggl_a);
+X				xpert = atoi(xprt_a);
+X				rewrtuser(inbuf);
+X				rewind(inbuf);
+X				locking(fds, LK_UNLCK, 0L);
+X				fclose(inbuf);
+X				return (TRUE);	/* passwords match */
+X			} else {
+X				rewind(inbuf);
+X				locking(fds, LK_UNLCK, 0L);
+X				fclose(inbuf);
+X				return (FALSE);	/* passwords dont match */
+X			}
+X		}
+X	}
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X	newuser();		/* not on file, so add 'em */
+X	/*
+X	 * type new-user file 
+X	 */
+X	if ((inbuf = fopen(NEWUSER, "r")) != NULL) {
+X		porttype(inbuf);/* type a file to port */
+X		fclose(inbuf);
+X	}
+X	return (TRUE);
+X}
+X/* end of function		 */
+X
+Xcheckpass()
+X{				/* returns TRUE (1) when equal passwords */
+X	char           *passptr;
+X	char           *str_ptr;
+X	char            tempbf[20];
+X	int             j, char_in_passwd, i;
+X
+X	passptr = w_password;	/* give passptr the addr of w_password */
+X
+X	while (1) {
+X		str_ptr = strrchr(u_password, ' ');
+X		if (str_ptr == NULL)
+X			break;
+X		*str_ptr++ = '\0';
+X		strcpy(tempbf, u_password);
+X		strcat(tempbf, str_ptr);
+X		strcpy(u_password, tempbf);
+X	}
+X	for (i = 0; i < 3; i++) {	/* give 'em 3 tries to get it right */
+X		char_in_passwd = strlen(u_password);
+X		portsout(CRLF);
+X		portsout("Enter your password  ==> ");
+X		portsinz(w_password, 10);
+X		j = strlen(w_password);
+X		if (j != char_in_passwd)
+X			goto check_loop;
+X
+X		if ((strcmp(w_password, u_password)) == 0) {
+X			j = 10 - char_in_passwd;
+X			while (j) {
+X				strcat(u_password, " ");
+X				j--;
+X			}
+X			return (OK);	/* passwords match */
+X		}
+Xcheck_loop:
+X		portsout("    Incorrect!\007");
+X	}
+X	if (i >= 3) {
+X		portsout(CRLF);
+X		portsout("Sorry, but three tries is all you get!");
+X		portsout(CRLF);
+X		portsout("  Goodbye ....");
+X		portsout(CRLF);
+X		closer(4);
+X		restoremodes();
+X		portrst();
+X		exit(1);
+X	}
+X}
+X/* end of function		 */
+X
+Xnewuser()
+X{
+X	char           *pptr;
+X	int             j, result;
+X
+X	if ((inbuf = fopen(USERS, "a")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open/create the user file for writing!");
+X		portsout(CRLF);
+X		return;
+X	}
+X	newuzr = TRUE;
+X
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X
+X	strcpy(u_fname, w_fname);
+X	strcpy(u_lname, w_lname);
+X
+X	strcpy(u_time1, ttime);
+X	strcpy(u_time2, ttime);
+X
+X	strcpy(u_date1, mm);
+X	strcat(u_date1, "/");
+X	strcat(u_date1, dd);
+X	strcat(u_date1, "/");
+X	strcat(u_date1, yy);
+X
+X	strcpy(u_date2, mm);
+X	strcat(u_date2, "/");
+X	strcat(u_date2, dd);
+X	strcat(u_date2, "/");
+X	strcat(u_date2, yy);
+X
+X	strcpy(z_date, "00/00/00");
+X
+X	portsout(CRLF);
+X	portsout("Welcome, as a new user I need a few pieces");
+X	portsout(" of information.");
+X	portsout(CRLF);
+X	portsout(CRLF);
+Xcity_state:
+X	portsout("Please enter the City, State/Provence/Country you are from \n\r    ===> ");
+X	portsin(u_city, 30);
+X	portsout(CRLF);
+X	result = strlen(u_city);
+X	if (result == 0 || u_city[0] == ' ') {
+X		portsout("\n\rInvalid City, State/Provence/Country   try again!\n\r");
+X		goto city_state;
+X	}
+X	pptr = strchr(u_city, '~');
+X	if (pptr != NULL) {
+X		portsout("\n\rInvalid City, State/Provence/Country   try again!\n\r");
+X		goto city_state;
+X	}
+X	while (1) {
+Xinp_pass:
+X		portsout(CRLF);
+X		portsout("Ok, now I need a 4  to 10 character password ===> ");
+X		portsinz(u_password, 10);
+X		portsout(CRLF);
+X		char_in_passwd = strlen(u_password);
+X		if (char_in_passwd < 4) {
+X			portsout("\n\rInvalid password   try again!\n\r");
+X			goto inp_pass;
+X		}
+X		pptr = strchr(u_password, '~');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid password   try again!\n\r");
+X			goto inp_pass;
+X		}
+X		pptr = strchr(u_password, ' ');
+X		if (pptr != NULL) {
+X			portsout("\n\rInvalid password   try again!\n\r");
+X			goto inp_pass;
+X		}
+X		portsout("Just to make sure, enter it again ===> ");
+X		portsinz(w_password, 10);
+X		result = strlen(w_password);
+X		if (result != char_in_passwd)
+X			goto passwd_loop;
+X		portsout(CRLF);
+X
+X		if (strcmp(u_password, w_password) == 0) {
+X			result = 10 - result;
+X			while (result) {
+X				strcat(u_password, " ");
+X				result--;
+X			}
+X			break;	/* get it right twice, then get out */
+X		}
+Xpasswd_loop:
+X		portsout(CRLF);
+X		portsout("hmmmm, one of us forgot it already");
+X		portsout(CRLF);
+X		portsout("	let's try it again!!");
+X		portsout(CRLF);
+X		portsout(CRLF);
+X	}
+X
+X	wrtuser(inbuf);		/* write a user record */
+X	fflush(inbuf);		/* ok leor, just for you */
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);		/* close the file after new user added */
+X	if ((inbuf = fopen(USERPRIV, "a")) == NULL) {
+X		portsout(CRLF);
+X		portsout("Can't open/create the userpriv file for writing!");
+X		portsout(CRLF);
+X		exit(1);
+X	}
+X	fds = fileno(inbuf);
+X	rewind(inbuf);
+X	locking(fds, LK_LOCK, 0L);
+X	strcpy(buf128, w_fname);
+X	strcat(buf128, " ");
+X	strcat(buf128, w_lname);
+X	strcat(buf128, " ");
+X	itoa(x_pathandfile, newpriv);
+X	strcat(buf128, x_pathandfile);
+X	strcat(buf128, " 0 0");
+X	fprintf(inbuf, "%s\n", buf128);
+X	rewind(inbuf);
+X	locking(fds, LK_UNLCK, 0L);
+X	fclose(inbuf);
+X}
+X
+X/* end of function		 */
+X
+Xreaduser(buf)			/* read a record from the user file */
+X/*      returns 0 on eof, 1 on good read */
+X	FILE           *buf;
+X{
+X	int             code;
+X
+X	d_pos = ftell(buf);
+X	save_d_pos = d_pos;
+X
+X	code = fscanf(buf, "%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~\n",
+X		      u_fname,
+X		      u_lname,
+X		      u_password,
+X		      u_time1,
+X		      u_date1,
+X		      u_time2,
+X		      u_date2,
+X		      u_city,
+X		      l_m_base,
+X		      l_f_base,
+X		      xprt_a,
+X		      tggl_a);
+X
+X	if (code < 8) {
+X		return (0);	/* all done, hit eof */
+X	} else {
+X		return (1);	/* good read */
+X	}
+X}
+X/* end of function		 */
+X
+Xrewrtuser(buf)
+X	FILE           *buf;
+X{
+X	int             code;
+X	if (!xpert)
+X		strcpy(xprt_a, "0");
+X	else
+X		strcpy(xprt_a, "1");
+X	if (!toggle)
+X		strcpy(tggl_a, "0");
+X	else
+X		strcpy(tggl_a, "1");
+X	code = fprintf(buf, "%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~",
+X		       u_fname,
+X		       u_lname,
+X		       u_password,
+X		       u_time1,
+X		       u_date1,
+X		       u_time2,
+X		       u_date2,
+X		       u_city,
+X		       l_m_base,
+X		       l_f_base,
+X		       xprt_a,
+X		       tggl_a);
+X	if (code == -1) {
+X		portsout("User file has problem writing\r\n");
+X	} else {
+X		fputs(" ", buf);/* put lf on end of each record */
+X	}
+X}
+X/* end of function		 */
+Xwrtuser(buf)
+X	FILE           *buf;
+X{
+X	int             code;
+X	strcpy(l_f_base, "00");
+X	strcpy(l_m_base, "00");
+X	strcpy(xprt_a, "0");
+X	strcpy(tggl_a, "1");
+X	code = fprintf(buf, "%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~",
+X		       u_fname,
+X		       u_lname,
+X		       u_password,
+X		       u_time1,
+X		       u_date1,
+X		       u_time2,
+X		       u_date2,
+X		       u_city,
+X		       l_m_base,
+X		       l_f_base,
+X		       xprt_a,
+X		       tggl_a);
+X	if (code == -1) {
+X		portsout("User file has problem writing\r\n");
+X	} else {
+X		fputs("\n", buf);	/* put lf on end of each record */
+X	}
+X}
+X/* end of function		 */
+X
+Xerror_config()
+X{
+X	portsout("\n\rError reading entry in config file!\n\r");
+X	exit(1);
+X}
+Xstrip(datar) char *
+X	                datar;
+X{
+X	int             length;
+X	char           *data_ptr;
+X	while (1) {
+X		data_ptr = strrchr(datar, '\n');
+X		if (data_ptr == NULL)
+X			return;
+X		*data_ptr = '\0';
+X	}
+X}
+Xtoday_msg()
+X{
+X	int             result;
+X	strcpy(buf128, ORGPATH);
+X	strcat(buf128, mnd);
+X	strcat(buf128, ".msg");
+X	result = stat(buf128, &statbuf);
+X	if (!result) {
+X		portsout("\n\r\n\r");
+X		portsout("                               Message of the Day");
+X		portsout("\n\r\n\r");
+X		no_cntrl_k = TRUE;
+X		cmd_p(buf128);
+X		no_cntrl_k = FALSE;
+X		portsout(CRLF);
+X	}
+X}
+Xsetmodes()
+X{
+X	ioctl(0, TCGETA, &ttys);
+X	tty = ttyname(0);
+X
+X
+X	ttysnew = ttys;
+X	ttysnew.c_cflag &= ~CSIZE;
+X	ttysnew.c_cflag |= CS8;
+X	ttysnew.c_cflag &= ~PARENB;
+X
+X	/* set new paramters */
+X	ioctl(0, TCSETAF, &ttysnew);
+X
+X
+X
+X}
+X
+X/* restore normal tty modes */
+Xrestoremodes()
+X{
+X
+X
+X	ioctl(0, TCSETAF, &ttys);
+X
+X
+X}
+Xint alphacheck(strng)
+Xchar *strng;
+X{
+X	int y;
+X	while( *strng ) {
+X		y = isalpha((int)*strng++);
+X		if( !y )
+X			return(y);
+X	}
+X	return(1);
+X}
+X
+X
+X/* end of program  	 */
+END_OF_FILE
+  if test 42113 -ne `wc -c <'bbsc2.c'`; then
+    echo shar: \"'bbsc2.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbsc2.c'
+fi
+if test -f 'bbscfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscfile.c'\"
+else
+  echo shar: Extracting \"'bbscfile.c'\" \(15763 characters\)
+  sed "s/^X//" >'bbscfile.c' <<'END_OF_FILE'
+X/*
+X	bbscfile.c
+X
+X*/
+X
+X/* #define DEBUG 1 */
+X
+X#include "bbscdef.h"
+X#include <string.h>
+X#include <sys/types.h>     /* For compatibility */
+X#include <sys/locking.h>
+X
+X#define LASTDATE  " 04/21/90 "
+X
+X#define PGMNAME "BBSCFILE "
+X#define VERSION " 7.92 "
+Xextern int user_priv;
+X
+X	static	char	bufmsg0[MSG1MAX+1],
+X		buftmp[MSGSECT+256],
+X		this1[11],
+X		next1[11];
+Xhdrwrt()		/* write the header from memory variables */
+X	{		/* header is a 1 record file */
+X	int	fd;
+X	int	fd1;
+X
+X	strcpy(who_am_i, m_pathname);
+X	strcat(who_am_i, HEADER);
+X	if ((fd = open(who_am_i,WRITE,0666)) < 0)	/* open i/o */
+X		{
+X		portsout("Can't open header-file, will create it!") ;
+X		portsout(CRLF) ;
+X		if ((fd = creat(who_am_i,0666)) < 0)
+X			{
+X			portsout("Can't create header-file, aborting!") ;
+X			portsout(CRLF) ;
+X			return(ERROR) ;
+X			}
+X		}
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_LOCK, 0L);
+X	strcpy(who_am_i, m_pathname);
+X	strcat(who_am_i, CROSSREF);
+X	if ((fd1 = open(who_am_i,WRITE,0666)) < 0)
+X		{
+X		portsout("Can't open xref file, will create it!");
+X		portsout(CRLF) ;
+X		if ((fd1 = creat(who_am_i,0666)) < 0)
+X			{
+X			portsout(" XREF creation error! -- abort!");
+X			portsout(CRLF);
+X			return(ERROR) ;
+X			}
+X		}
+X	lseek(fd1, 0L, 0);
+X	locking(fd1, LK_LOCK, 0L);
+X	itoa(h_next_msg,h_next) ;	/* convert int to char */
+X	itoa(h_act_msg,h_act) ;
+X	strfill(buf128,26,MSGSECT) ;	/* init buf128 to all hex 1a */
+X	sprintf(buf128,"%s~%s~%s~",	/* build record */
+X		h_next_msg,
+X		h_act_msg,
+X		h_date) ;
+X	write(fd,buf128,MSGSECT) ;	/* write it */
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_UNLCK, 0L);
+X	close(fd) ;			/* no need to leave it open */
+X	write(fd1,xtable,4000);
+X	lseek(fd1, 0L, 0);
+X	locking(fd1, LK_UNLCK, 0L);
+X	close(fd1) ;
+X	return(OK) ;
+X	}
+X
+Xhdrread()		/* read the header file into memory */
+X	{
+X	int	fd,
+X		i,
+X		cnt1,
+X		cnt;
+X
+X	strcpy(who_am_i, m_pathname);
+X	strcat(who_am_i, HEADER);
+X	if ((fd = open(who_am_i,READ,0666)) < 0)	/* open input */
+X		{
+X		portsout("Can't open header-file, using inital values!") ;
+X		portsout(CRLF) ;
+X		h_next = 1 ;
+X		h_next_msg[0] = '1' ; h_next_msg[1] = 0 ;
+X		h_act = 1 ;
+X		h_act_msg[0] = '1' ; h_act_msg[1] = 0 ;
+X		h_date[0] = '0' ; h_date[1] = 0 ;
+X		hdrwrt() ; goto next;
+X		}
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_LOCK, 0L);
+X	if((cnt=read(fd,buf128,MSGSECT)) != MSGSECT)
+X		{
+X		portsout(CRLF) ;
+X    		portsout("<<< header read error >>>") ;
+X		portsout(CRLF) ;
+X		return(ERROR) ;
+X		}
+X	cnt = sscanf(buf128,"%[^~]~%[^~]~%[^~]~", 
+X			h_next_msg,
+X			h_act_msg,
+X			h_date) ;
+Xnext:
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_UNLCK, 0L);
+X	close(fd) ;		/* no need to leave it open */
+X	strcpy(who_am_i, m_pathname);
+X	strcat(who_am_i, CROSSREF);
+X	if ((fd = open(who_am_i,READ,0666)) < 0)
+X		{
+X		portsout("Can't open xref file --- setting values!");
+X		portsout(CRLF);
+X		xtable[0] = 1L;
+X		for (i = 1; i <= 999; i++)
+X			xtable[i] = 0L;
+X		return ;
+X		}
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_LOCK, 0L);
+X	if ((cnt1=read(fd, xtable, 4000)) != 4000)
+X		{
+X		portsout(CRLF) ;
+X		portsout("<<< xref read error >>>");
+X		portsout(CRLF);
+X		return(ERROR);
+X		}
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_UNLCK, 0L);
+X	close (fd);
+X/*
+X
+X	if (cnt != 2)
+X		{
+X		return(ERROR) ;
+X		}
+X*/
+X	h_next = atoi(h_next_msg) ;
+X	h_act = atoi(h_act_msg) ;
+X	return(OK) ;
+X	}
+X
+Xmsgopen(how)
+Xint	how ;		/* how to open 0=input, 1=output, 2=i/o */
+X	{
+X	int	fd ;
+X
+X	strcpy(who_am_i, m_pathname);
+X	strcat(who_am_i, MESSAGES);
+X	if ((fd = open(who_am_i,how,0666)) < 0)	/* open i/o */
+X		{
+X		portsout("can't open message-file, will create it!") ;
+X		portsout(CRLF) ;
+X		if ((fd = creat(who_am_i,0666)) < 0)
+X			{
+X			portsout("can't create message-file, aborting!") ;
+X			portsout(CRLF) ;
+X			return(ERROR) ;
+X			}
+X		}
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_RLCK, 0L);
+X	return(fd) ;
+X	}
+X
+Xmsgclose(fd)
+Xint	fd ;
+X	{
+X	lseek(fd, 0L, 0);
+X	locking(fd, LK_UNLCK, 0L);
+X	return(close(fd)) ;
+X	}
+X
+Xmsgwrt(fd)		/* write the message file from memory variables */
+Xint	fd;		/* writes a message starting with the h_next msg # */
+X	{
+X	int	rc,			/* return code */
+X		cnt1,
+X		cnt2,
+X		len;
+X
+X	rc = cnt1 = len = cnt2 = 0 ;
+X	itoa(this1,h_next) ;	            /* convert int to char */
+X	xtable[h_act - 1] = h_next;
+X	for( len=h_act; len < 1000; len++)
+X		xtable[len] = 0L;	    /* guarantee clean table */
+X	h_act++;
+X	rc = seek(fd,h_next - 1,0) ;        /* seek next available sector */
+X	h_next++ ;
+X	itoa(next1,h_next) ;
+X	strfill(buf128,0,MSGSECT) ;		/* init buf128 to all hex 00 */
+X/*
+X*			build first piece of msg record
+X*/
+X	sprintf(buf128,"%-10s~%-10s~%-2s~%-9s~%-15s~%-21s~%-21s~%-11s~%-21s~",
+X		this1,					/* this rcd # */
+X		next1,					/*  points next rcd # */
+X		msg_delete,				/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	rc = write(fd,buf128,MSGSECT);	/* write the first 128 byte record */
+X					/*  for a message record */
+X/*
+X*			build the n+1 piece of msg record
+X*/
+X
+X	len = (strlen(msg_text) / MSG1MAX) + 1; /* calc how many more 128 */
+X						/*  byte records to write */
+X	cnt2 = 1 ;				/* init for substr */
+X	while (len--)
+X		{
+X		itoa(this1,h_next);		/* calc/convert record #'s */
+X		h_next++;                      
+X		if (len == 0)
+X			{
+X			strcpy(next1,"0");	/* marks last 128 byte piece */
+X			}			/*  of a msg */
+X		else
+X			{
+X			itoa(next1,h_next);
+X			}
+X		strfill(bufmsg0,0,MSG1MAX);
+X		substr(msg_text,bufmsg0,cnt2,MSG1MAX); /* mv MSG1MAX to buff */
+X		cnt2 += MSG1MAX;		/* up cnt2 by MSG1MAX */
+X		strfill(buf128,0,MSGSECT);	/* init buf128 to all hex 00 */
+X		sprintf(buf128,"%-10s~%-10s~%-2s~%-102s~",
+X			this1,			/* this rcd # */
+X			next1,			/* point to next rcd # */
+X			msg_delete,		/* delete byte */
+X			bufmsg0);		/* piece of msg */
+X		rc = write(fd,buf128,MSGSECT);	/* write n+1 128 byte record */
+X		}
+X
+X	strfill(buf128,26,MSGSECT);		/* fill with all hex 1a */
+X	rc = write(fd,buf128,MSGSECT);	/* write all hex 1a 128 byte record */
+X	return(OK);
+X	}
+X
+Xmsgrewrt(fd,r_msg)	/* re-write the message file from memory variables */
+Xint	fd,		/* re-writes only the 1st part of a message */
+X	r_msg;		/* used to update the delete byte */
+X	{
+X	int	rc,			/* return code */
+X		cnt1,
+X		file_size;
+X
+X	rc = cnt1 = 0;
+X	if (r_msg > h_next)	/* don't try to seek past end of file */
+X		{
+X		return(ERROR);
+X		}
+X	if ((rc = seek(fd,r_msg-1,0)) == ERROR)	/* seek to requested sector */
+X		{
+X		return(ERROR);
+X		}
+X	itoa(this1,r_msg);		/* convert int to char */
+X	r_msg++;
+X	itoa(next1,r_msg);
+X	strfill(buf128,0,MSGSECT);		/* init buf128 to all hex 00 */
+X/*
+X*			build first piece of msg record
+X*/
+X	sprintf(buf128,"%-10s~%-10s~%-2s~%-9s~%-15s~%-21s~%-21s~%-11s~%-21s~",
+X		this1,					/* this rcd # */
+X		next1,					/* points next rcd # */
+X		msg_delete,				/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	rc = write(fd,buf128,MSGSECT);	/* write the first 128 byte record */
+X					/*  for a message record */
+X	return(OK);
+X	}
+X
+X
+Xmsgread(fd,msgno)		/* read message number requested */
+Xint	fd,			/* returns ERROR if msg past eof */
+X	msgno;			/* returns 0 if msg is not 1st piece */
+X				/*   of a message */
+X				/* returns 0 if msg is deleted */
+X				/* returns msg # if successful */
+X	{
+X	int	rc,			/* return code */
+X		msgac,
+X		cnt1,
+X		cnt2,
+X		len,
+X		next,
+X		ret_this,
+X		file_size;
+X	char	 act[11];
+X
+X	msgac = xtable[msgno - 1];
+X	if (msgac > h_next)		/* don't try to seek past end of file */
+X		{
+X		return(ERROR);
+X		}
+X	if (msgac == 0)
+X		{
+X		return(ERROR);
+X		}
+X	if ((rc = seek(fd,msgac-1,0)) == ERROR)
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't seek on message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);		/* when cant find it */
+X		}
+X	if (read(fd,buf128,MSGSECT) != MSGSECT) /* read 128 byte sector */
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't read in message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);
+X		}
+X/*
+X*			get first piece of msg record
+X*/
+X/* do trial read, since if not first record, fields might overflow */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X	buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp) ;
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X/* now do the real read since looks like is a good record */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X		this1,				/* this rcd # */
+X		next1,				/*  points to next rcd # */
+X		msg_delete,			/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X
+X	if (msg_delete[0] == '9')	/* check for deleted messages */
+X		{			/*  if so, return as if not found */
+X		return(0);
+X		}
+X
+X	ret_this = atoi(this1);	/* return this msg no. */
+X	next = atoi(next1);
+X	itoa(act,msgno);
+X	strcpy(msg_no,act);
+X	if(msg_delete[0] == '5')
+X		{
+X		strcat(msg_no,"*");
+X		strcpy(msg_subject,"< Private Msg >");
+X		}
+X	msg_text[0] = '\0';
+X	while (next)			/* read until no more pieces for */
+X		{			/*  this message */
+X		if (read(fd,buf128,MSGSECT) != MSGSECT) /* read next sector */
+X			{
+X			portsout(CRLF) ;
+X			portsout("Can't read in message-file(2)!") ;
+X			portsout(CRLF) ;
+X			return(ERROR);
+X			}
+X		strfill(bufmsg0,0,MSG1MAX);	/* init bufmsg0 to all hex 00 */
+X		rc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~",
+X			this1,			/* this rcd # */
+X			next1,			/* point to next rcd # */
+X			msg_delete,		/* delete byte */
+X			bufmsg0);		/* piece of msg */
+X		next = atoi(next1);
+X		strcat(msg_text,bufmsg0);	/* tag piece of msg to */
+X						/*  whole msg array */
+X		}
+X	return(ret_this);	/* if all ok, return the msg no. found */
+X	}
+X
+Xmsgreadx(fd,msgno)		/* read message number requested */
+Xint	fd,			/* returns ERROR if msg past eof */
+X	msgno;			/* returns 0 if msg is not 1st piece */
+X				/*   of a message */
+X				/* returns 0 if msg is deleted */
+X				/* returns msg # if successful */
+X	{
+X	int	rc,			/* return code */
+X		msgac,
+X		cnt1,
+X		cnt2,
+X		len,
+X		next,
+X		ret_this,
+X		t1,
+X		t2,
+X		t3,
+X		file_size;
+X	char	who_am_i[99],
+X		who_am_I[99],
+X		sysop[99],
+X		Sysop[99],
+X		act[11];
+X
+X	msgac = xtable[msgno - 1];
+X	if (msgac > h_next)		/* don't try to seek past end of file */
+X		{
+X		return(ERROR);
+X		}
+X	if (msgac == 0)
+X		{
+X		return(ERROR);
+X		}
+X	if ((rc = seek(fd,msgac-1,0)) == ERROR)
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't seek on message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);		/* when cant find it */
+X		}
+X	if (read(fd,buf128,MSGSECT) != MSGSECT) /* read 128 byte sector */
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't read in message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);
+X		}
+X/*
+X*			get first piece of msg record
+X*/
+X/* do trial read, since if not first record, fields might overflow */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X	buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp) ;
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X/* now do the real read since looks like is a good record */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X		this1,
+X		next1,				/*  points to next rcd # */
+X		msg_delete,			/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X
+X	if (msg_delete[0] == '9')	/* check for deleted messages */
+X		{			/*  if so, return as if not found */
+X		return(0);
+X		}
+X	if (msg_delete[0] == '5')	/* protected msg */
+X		{
+X		strcpy(who_am_i,w_fname);
+X		strcat(who_am_i," ");
+X		strcat(who_am_i,w_lname);
+X		strcpy(Sysop,SYSOP);
+X		sprintf(sysop,"%-21s",Sysop);
+X		sprintf(who_am_I,"%-21s",who_am_i);
+X		t1=strcmp(who_am_I,sysop);
+X		t2=strcmp(who_am_I,msg_to);
+X		t3=strcmp(who_am_I,msg_from);
+X		if (t1 == 0 || t2 == 0 || t3 == 0 || user_priv == 32767)
+X			{
+X			goto zzzz;
+X			}
+X		return(-10);
+X		}
+Xzzzz:
+X
+X	ret_this = atoi(this1);	/* return this msg no. */
+X	next = atoi(next1);
+X	itoa(act,msgno);
+X	strcpy(msg_no,act);
+X	msg_text[0] = '\0';
+X	while (next)			/* read until no more pieces for */
+X		{			/*  this message */
+X		if (read(fd,buf128,MSGSECT) != MSGSECT) /* read next sector */
+X			{
+X			portsout(CRLF) ;
+X			portsout("Can't read in message-file(2)!") ;
+X			portsout(CRLF) ;
+X			return(ERROR);
+X			}
+X		strfill(bufmsg0,0,MSG1MAX);	/* init bufmsg0 to all hex 00 */
+X		rc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~",
+X			this1,			/* this rcd # */
+X			next1,			/* point to next rcd # */
+X			msg_delete,		/* delete byte */
+X			bufmsg0);		/* piece of msg */
+X		next = atoi(next1);
+X		strcat(msg_text,bufmsg0);	/* tag piece of msg to */
+X						/*  whole msg array */
+X		}
+X	return(ret_this);	/* if all ok, return the msg no. found */
+X	}
+Xmsgreadk(fd,msgno)		/* read message number requested */
+Xint	fd,			/* returns ERROR if msg past eof */
+X	msgno;			/* returns 0 if msg is not 1st piece */
+X				/*   of a message */
+X				/* returns 0 if msg is deleted */
+X				/* returns msg # if successful */
+X	{
+X	int	rc,			/* return code */
+X		msgac,
+X		cnt1,
+X		cnt2,
+X		len,
+X		next,
+X		ret_this,
+X		t1,
+X		t2,
+X		t3,
+X		file_size;
+X	char	who_am_i[99],
+X		who_am_I[99],
+X		sysop[99],
+X		Sysop[99],
+X		act[11];
+X
+X	msgac = xtable[msgno - 1];
+X	if (msgac > h_next)		/* don't try to seek past end of file */
+X		{
+X		return(ERROR);
+X		}
+X	if (msgac == 0)
+X		{
+X		return(ERROR);
+X		}
+X	if ((rc = seek(fd,msgac-1,0)) == ERROR)
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't seek on message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);		/* when cant find it */
+X		}
+X	if (read(fd,buf128,MSGSECT) != MSGSECT) /* read 128 byte sector */
+X		{
+X		portsout(CRLF) ;
+X		portsout("Can't read in message-file!") ;
+X		portsout(CRLF) ;
+X		return(ERROR);
+X		}
+X/*
+X*			get first piece of msg record
+X*/
+X/* do trial read, since if not first record, fields might overflow */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X	buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp,buftmp) ;
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X/* now do the real read since looks like is a good record */
+Xrc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~",
+X		this1,
+X		next1,				/*  points to next rcd # */
+X		msg_delete,			/* delete byte */
+X		msg_date,
+X		msg_time,
+X		msg_to,
+X		msg_from,
+X		msg_pass,
+X		msg_subject);
+X	if (rc != 9)		/* makes sure we read the 1st piece */
+X		{		/*  of a message and not in the middle */
+X		return(0);	/* 0 when is not the msg header */
+X		}
+X
+X	if (msg_delete[0] == '9')	/* check for deleted messages */
+X		{			/*  if so, return as if not found */
+X		return(0);
+X		}
+X	strcpy(who_am_i,w_fname);
+X	strcat(who_am_i," ");
+X	strcat(who_am_i,w_lname);
+X	strcpy(Sysop,SYSOP);
+X	sprintf(sysop,"%-21s",Sysop);
+X	sprintf(who_am_I,"%-21s",who_am_i);
+X	t1=strcmp(who_am_I,sysop);
+X	t2=strcmp(who_am_I,msg_to);
+X	t3=strcmp(who_am_I,msg_from);
+X	if (t1 == 0 || t2 == 0 || t3 == 0 || user_priv == 32767)
+X		{
+X		goto yyyy;
+X		}
+X	return(-10);
+Xyyyy:
+X
+X	ret_this = atoi(this1);	/* return this msg no. */
+X	next = atoi(next1);
+X	itoa(act,msgno);
+X	strcpy(msg_no,act);
+X	msg_text[0] = '\0';
+X	while (next)			/* read until no more pieces for */
+X		{			/*  this message */
+X		if (read(fd,buf128,MSGSECT) != MSGSECT) /* read next sector */
+X			{
+X			portsout(CRLF) ;
+X			portsout("Can't read in message-file(2)!") ;
+X			portsout(CRLF) ;
+X			return(ERROR);
+X			}
+X		strfill(bufmsg0,0,MSG1MAX);	/* init bufmsg0 to all hex 00 */
+X		rc = sscanf(buf128,"%[^~]~%[^~]~%[^~]~%[^~]~",
+X			this1,			/* this rcd # */
+X			next1,			/* point to next rcd # */
+X			msg_delete,		/* delete byte */
+X			bufmsg0);		/* piece of msg */
+X		next = atoi(next1);
+X		strcat(msg_text,bufmsg0);	/* tag piece of msg to */
+X						/*  whole msg array */
+X		}
+X	return(ret_this);	/* if all ok, return the msg no. found */
+X	}
+X/*	end of program  	*/
+END_OF_FILE
+  if test 15763 -ne `wc -c <'bbscfile.c'`; then
+    echo shar: \"'bbscfile.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscfile.c'
+fi
+if test -f 'bbscmisc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscmisc.c'\"
+else
+  echo shar: Extracting \"'bbscmisc.c'\" \(2034 characters\)
+  sed "s/^X//" >'bbscmisc.c' <<'END_OF_FILE'
+X
+X#include "bbscdef.h"
+X#include <string.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+Xstrfill(buf,fillchar,length)	/* fill a string with fillchar */
+Xchar	*buf;			/*  for length -1 */
+Xint	fillchar,
+X	length;
+X	{
+X	while(--length)		/* really is length -1 */
+X		{
+X		*buf++ = fillchar;
+X		}
+X	*buf++ = '\0';		/* need room for this */
+X	}
+X#ifndef ATT3B1
+X
+Xsubstr(from,to,start,length)	/* moves chars from "from" to "to" */
+Xchar	*from, *to ;		/*  starting at "start" for */
+X	    			/*  "length" number of chars */
+Xint	start, length ;		/* for beginning of string use 1, not 0 */
+X	{
+X	int	cnt;
+X
+X	cnt = 0;
+X
+X	while(--start)		/* adjust sending field pointer */
+X		{
+X		from++;		
+X		}
+X
+X	while((cnt < length) && (*to++ = *from++))	/* do the moving */
+X		{
+X		cnt++;		
+X		}
+X	
+X	*to = '\0';
+X
+X	}
+X#endif
+X
+X#ifdef ATT3B1
+X
+Xsubstr(from,to,start,length)
+Xchar *from,*to;
+Xint start,length;
+X{
+X   int cnt, i;
+X
+X   cnt = 0;
+X   while(--start)
+X       from++;
+X
+X   i=0;
+X   while(cnt < length)
+X      if (from[i] == NULL)
+X         break;
+X      else {
+X         to[i] = from[i];
+X         i++;
+X         cnt++;
+X     }
+X
+X   to[i] = NULL;
+X}
+X
+X#endif
+X
+Xitoa(str,n)		/* taken from float.c */
+Xchar *str;
+X	{
+X	sprintf(str,"%d",n) ;
+X	}
+X/*	end of function		*/
+X
+Xseek(fildes,posit,dummy) int fildes,posit,dummy ;
+X	{
+Xlong	pos;
+X	pos = posit * 128L ;
+X/*	return(lseek(fildes,posit << 7,0)) ;    */
+X	return(lseek(fildes,pos,0)) ;
+X	}
+X/*	end of function		*/
+X
+Xchar *basename(x)  char *x;
+X{
+X	char *ptr;
+X	ptr = strrchr(x, '/');
+X	if ( ptr == (char *)NULL )
+X		return(x);
+X	else
+X		return(++ptr);
+X}
+X
+Xint legalname( co, strg )
+Xchar *co, *strg;
+X{
+X	char *ptr, *indx;
+X	int i;
+X	ptr = co;
+X	while ( *ptr ) {
+X		i = (int) *ptr++;
+X		indx = strchr(strg, i);
+X		if ( indx != NULL )
+X			return(0);
+X	}
+X	return(1);
+X}
+X
+Xint asciicheck(fne)
+Xchar *fne;
+X{
+X	FILE *tbuf;
+X	int datar;
+X	if((tbuf = fopen(fne, "r")) == NULL )
+X		return(0);
+X	while ((datar = getc(tbuf)) != EOF ) {
+X		if(isprint(datar) == 0 && isspace(datar) == 0) {
+X			fclose(tbuf);
+X			return(0);
+X		}
+X	}
+X	fclose(tbuf);
+X	return(1);
+X}
+X	
+X	
+X/*	end of program  	*/
+END_OF_FILE
+  if test 2034 -ne `wc -c <'bbscmisc.c'`; then
+    echo shar: \"'bbscmisc.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscmisc.c'
+fi
+echo shar: End of archive 3 \(of 11\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

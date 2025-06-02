@@ -1,0 +1,1926 @@
+Newsgroups: comp.sources.misc
+From: bediger@nugget.rmnug.org (Bruce Allen Ediger)
+Subject: v35i015:  dis - SPARC/SunOS disassembler, Part01/03
+Message-ID: <csm-v35i015=dis.004124@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 196bf31dbe988aa6a74f5966bf4855b3
+Date: Tue, 2 Feb 1993 06:42:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: bediger@nugget.rmnug.org (Bruce Allen Ediger)
+Posting-number: Volume 35, Issue 15
+Archive-name: dis/part01
+Environment: SunOS4.1.x
+
+"dis" is a SPARC opcode disassembler.  It should work on most SunOS 4.1 and
+up executables and relocatable object files (.o).  I worked from "The SPARC
+Architecture Reference Manual", version 8, to define the opcodes.
+
+The entry point to the actual disassembly is in decode.c, "decode_instr()".
+decode.c, arithmetic.c, destination.c, memory.c contain all of the real
+disassembly code.  The other stuff is a driver routine and fluff to do symbol
+table decoding, and debugging info inclusion.
+
+Header files arithmetic.h, branches.h, formats.h, memory.h are included by 
+the actual disassembly code files.
+
+It should be relatively easy to wrap the functions in the 4 .c files listed
+above with other drivers to implement other object file formats.  Compile 
+with NOSYNTHETIC defined to reduce/eliminate any "synthetic" opcodes in 
+disassembly.
+
+Symbol table and relocation info lookup is done with hash table routines I 
+got from CAP 2.0, the Columbia Appletalk Package.  This part of the program 
+is fairly dependant on the BSD "nlist" format of relocation info, and "stabs"
+format of symbol table.  This part of the code does not lint very cleanly.
+
+It's only really been used on Suns, SPARC-clones and NeXT 680x0 boxes.  I 
+have no idea if it's really portable.  After contemplation, I don't believe 
+it will work on "little-endian" machines, and I have no idea how hard it 
+would be to get it to work.  There are an awful lot of assumptions about 
+bit patterns and byte ordering implicit in the structs used to represent 
+the 32-bit instructions.
+
+Bruce
+------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README dis.c hash.3 hash.c
+# Wrapped by kent@sparky on Tue Feb  2 00:31:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(1535 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X"dis" is a SPARC opcode disassembler.  It should work on most SunOS 4.1 and up
+Xexecutables and relocatable object files (.o).  I worked from "The SPARC
+XArchitecture Reference Manual", version 8, to define the opcodes.
+X
+XThe entry point to the actual disassembly is in decode.c, "decode_instr()".
+Xdecode.c, arithmetic.c, destination.c, memory.c contain all of the real
+Xdisassembly code.  The other stuff is a driver routine and fluff to do symbol
+Xtable decoding, and debugging info inclusion.
+X
+XHeadr files arithmetic.h, branches.h, formats.h, memory.h are included by the
+Xactual disassembly code files.
+X
+XIt should be relatively easy to wrap the functions in the 4 .c files listed
+Xabove with other drivers to implement other object file formats.
+X
+XCompile with NOSYNTHETIC defined to reduce/eliminate any
+X"synthetic" opcodes in disassembly.
+X
+XSymbol table and relocation info lookup is done with hash table
+Xroutines I got from CAP 2.0, the Columbia Appletalk Package.
+XThis part of the program is fairly dependant on the BSD "nlist" format
+Xof relocation info, and "stabs" format of symbol table.
+XThis part of the code does not lint very cleanly.
+X
+XIt's only really been used on Suns, SPARC-clones and NeXT 680x0 boxes.
+XI have no idea if it's really portable.  After contemplation, I don't
+Xbelieve it will work on "little-endian" machines, and I have no idea
+Xhow hard it would be to get it to work.  There are an awful lot of
+Xassumptions about bit patterns and byte ordering implicit in the
+Xstructs used to represent the 32-bit instructions.
+X
+END_OF_FILE
+  if test 1535 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'dis.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dis.c'\"
+else
+  echo shar: Extracting \"'dis.c'\" \(8549 characters\)
+  sed "s/^X//" >'dis.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <ctype.h>
+X#include <string.h>
+X#ifdef sparc
+X#include <a.out.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <fcntl.h>
+X#ifndef NeXT
+X#include <values.h>
+X#endif
+X
+X#ifndef sun
+X#ifdef NeXT
+X#include <ansi/m68k/math.h>
+X#endif
+X#include "sparc_stuff.h"
+X#endif
+X
+Xextern char    *optarg;
+Xextern int      optind, opterr;
+X
+Xint             header, symbolic, line, addresses;
+Xint				labels, destinations;
+X
+X/*
+X * main() for SPARC/SunOS 4.1-4.1.2 disassembler
+X */
+X
+Xint
+Xmain(c, v)
+X	int             c;
+X	char          **v;
+X{
+X	struct exec     exhdr;
+X	FILE           *fp_in, *fp_symbol_table;
+X	int             n, line_count, unimps_cnt = 0;
+X	unsigned long   text_size, instruction_count, current_instr;
+X	unsigned long   pc, current_instr_cnt;
+X	unsigned long   data_size, data_offset, data_addr;
+X	char            opcode_buf[BUFSIZ];
+X	char            symbol_name[1024], line_number[1024], *symbol_table_file;
+X	char            dest_name[1024];
+X	int             printed_symbolic;
+X
+X	void            usage();
+X	char           *decode_instr(), *name_at_address(), *destination_of();
+X
+X	if (c < 2)
+X		usage(*v);
+X
+X	line = symbolic = header = 1;
+X	addresses = 1;
+X	labels = destinations = 0;
+X	symbol_table_file = NULL;
+X	pc = 0xffffffff;
+X
+X	while ((n = getopt(c, v, "arnlLdb:t:")) != EOF) {
+X		switch (n) {
+X		case 'r':
+X			header = 0;
+X			line = symbolic = 0;	/* implied */
+X			addresses = 1; labels = 0;
+X			break;
+X		case 'n':
+X			symbolic = 0;
+X			break;
+X		case 'l':
+X			line = 0;
+X			break;
+X		case 'L':
+X			labels = 1;
+X			break;
+X		case 'a':
+X			addresses = 0;
+X			break;
+X		case 'd':
+X			destinations = 1;
+X			break;
+X		case 'b':
+X			/* fill in beginning address for a "raw" disassembly */
+X			pc = (unsigned long)strtol(optarg, (char **)NULL, (int)0x10);
+X			break;
+X		case 't':
+X			/* use file optarg as file for symbol table */
+X			symbol_table_file = optarg;
+X			break;
+X		default:
+X			usage(*v);
+X			break;
+X		}
+X	}
+X
+X	/* open input files */
+X	if (!strcmp(*(v + optind), "-")) {
+X		/* use stdin */
+X		fp_in = stdin;
+X	} else if ((fp_in = fopen(*(v + optind), "r")) == NULL) {
+X		(void) fprintf(stderr, "%s: couldn't open %s for reading \n",
+X			       *v, !strcmp(*(v + optind), "-") ? "stdin" : *(v + optind));
+X		(void) exit(1);
+X	}
+X	if (symbol_table_file) {
+X		if ((fp_symbol_table = fopen(symbol_table_file, "r")) == NULL) {
+X			(void) fprintf(stderr,
+X					"%s: couldn't open %s for reading symbol table\n",
+X					*v, symbol_table_file);
+X			line = symbolic = 0;
+X		}
+X	} else {
+X		if (symbolic)
+X			fp_symbol_table = fp_in;
+X	}
+X
+X	/* read in header, decide on various sizes and stuff */
+X	if (header) {
+X		if (fread((char *) &exhdr, sizeof(struct exec), 1, fp_in) == NULL) {
+X			(void) fprintf(stderr, "%s: couldn't read %s file header\n",
+X			       *v, !strcmp(*(v + optind), "-") ? "stdin" : *(v + optind));
+X			exit(1);
+X		}
+X		if (exhdr.a_machtype != M_SPARC) {
+X			(void) fprintf(stderr, "%s: %s isn't a SPARC binary\n",
+X			       *v, !strcmp(*(v + optind), "-") ? "stdin" : *(v + optind));
+X			exit(2);
+X		}
+X		text_size = exhdr.a_text;
+X		data_size = exhdr.a_data;
+X		data_offset = N_DATOFF(exhdr);
+X		if (exhdr.a_magic == ZMAGIC)
+X			data_addr = N_DATADDR(exhdr);
+X		else if (exhdr.a_magic == OMAGIC)
+X			data_addr = exhdr.a_entry + exhdr.a_text; /* macro don't work */
+X		if (pc == 0xffffffff)
+X			pc = exhdr.a_entry; /* initial program counter */
+X		if (exhdr.a_magic == ZMAGIC)
+X			instruction_count = (text_size - sizeof(struct exec)) / 4;
+X		else
+X			instruction_count = text_size / 4;
+X
+X		/* get ready to use symbol table */
+X		if (symbolic && !initialize_relocation(&exhdr, fp_symbol_table)) {
+X			fprintf(stderr, "failed to initialize relocation info hash table\n");
+X			symbolic = 0;
+X		}
+X		if (line && !initialize_line(&exhdr, fp_in)) {
+X			fprintf(stderr, "failed to initialize line number info hash table\n");
+X			line = 0;
+X		}
+X		if (labels) {
+X			/* need to scan the instructions for references, forward and back */
+X		}
+X		fseek(fp_in,
+X			(long)(N_TXTOFF(exhdr) +
+X			(exhdr.a_magic == ZMAGIC ? sizeof(struct exec) : 0)),
+X			0);
+X	} else {
+X		struct stat     stat_buf;
+X		int             fd;
+X
+X		/*
+X		 * figure out instruction count for "raw" files, files
+X		 * without an a.out exec header
+X		 */
+X		if (!strcmp(*(v + optind), "-")) {
+X			if ((fd = open(*(v + optind), O_RDONLY)) < 0) {
+X				perror("opening input file for fstat()");
+X				exit(3);
+X			}
+X			if (fstat(fd, &stat_buf) < 0) {
+X				perror("fstat() of input file failed");
+X				exit(4);
+X			}
+X			instruction_count = stat_buf.st_size / 4;
+X		} else {
+X			instruction_count = MAXINT;
+X		}
+X		data_size = 0;
+X		if (pc == 0xffffffff) pc = 0;
+X		close(fd);
+X		if (fp_symbol_table != NULL) {
+X			/* despite a "raw" file full of instructions, we have a
+X			 * symbol table from some other file */
+X			if (!initialize_relocation((struct exec *)NULL, fp_symbol_table)) {
+X				fprintf(stderr,
+X					"failed to initialize relocation info hash table\n");
+X				symbolic = 0;
+X			} else symbolic = 1;
+X		}
+X	}
+X
+X	/* loop through all the instructions */
+X	line_count = 40;
+X	for (current_instr_cnt = 1; current_instr_cnt <= instruction_count;
+X	     ++current_instr_cnt) {
+X
+X		if (addresses && line_count == 40) {
+X			printf("\n\n  Address         Instruction       Decoded\n");
+X			line_count = 1;
+X		}
+X		if (fread((char *) &current_instr, sizeof(int), 1, fp_in) == NULL) {
+X			if (fp_in != stdin) {
+X				(void) fprintf(stderr,
+X				   "ran out of file at instruction %d, should be %d instructions\n",
+X					       current_instr_cnt, instruction_count);
+X				(void) fclose(fp_in);
+X				exit(3);
+X			} else
+X				exit(0);	/* reading from stdin: assume raw object file */
+X		}
+X		if ((current_instr & 0xffff0000) == 0) {
+X			if (unimps_cnt > 0) {
+X				++unimps_cnt;
+X				pc += 4;
+X				continue;
+X			} else {
+X				unimps_cnt = 1;
+X			}
+X		} else {
+X			if (unimps_cnt > 0) {
+X				if (unimps_cnt > 1)
+X					printf("... a run of %d UNIMPS\n", unimps_cnt);
+X				unimps_cnt = 0;
+X			}
+X		}
+X		if (line && line_at_address(pc, line_number) != NULL) {
+X			printf("0x%08x   %s\n", pc, line_number);
+X		}
+X/*
+X		NOT IMPLEMENTED YET
+X		if (labels && label_at_address(pc)) {
+X			printf("L0x%x:\n", pc);
+X		}
+X*/
+X		if (addresses)
+X			printf("0x%08x        0x%08x        ", pc, current_instr);
+X		else
+X			putc('\t', stdout);
+X		fputs(decode_instr(current_instr, pc, opcode_buf), stdout);
+X		printed_symbolic = 0;
+X		if (destinations && destination_of(current_instr, pc, dest_name) != NULL) {
+X			if (dest_name[0] != '\0') {
+X				printf("\t\t!  %s", dest_name);
+X				dest_name[0] = '\0';
+X				printed_symbolic = 1;
+X			}
+X		}
+X		if (symbolic && !printed_symbolic && name_at_address(pc, symbol_name) != NULL) {
+X			if (symbol_name[0] != '\0') {
+X				printf("\t\t!  %s", symbol_name);
+X				symbol_name[0] = '\0';
+X			}
+X		}
+X		putc('\n', stdout);
+X		++line_count;
+X		opcode_buf[0] = '\0';
+X
+X		pc += 4;
+X	}
+X	if (unimps_cnt > 1) {
+X		printf("... a run of %d UNIMPS\n", unimps_cnt);
+X	}
+X
+X	if (data_size) {
+X		/* try to decode data segment */
+X		if (fseek(fp_in, (long)data_offset, 0) < 0) {
+X			fprintf(stderr, "couldn't seek to data segment offset %d\n", data_offset);
+X		} else {
+X			int             ch;
+X			void  dump_out(), finish_dumping(), line_break();
+X
+X			/*
+X			 * decode the data segment - make it look like "od's"
+X			 * output, except where it can look like "strings"
+X			 * output
+X			 */
+X
+X			printf("\nData segment deconflation (segment begins at 0x%x)\n\n",
+X				data_addr);
+X
+X			while (data_size && (ch = fgetc(fp_in)) != EOF) {
+X				/* do stuff here - address is current */
+X				if (symbolic && name_at_address(data_addr, symbol_name) != NULL) {
+X					line_break();
+X					if (symbol_name[0] != '\0') {
+X						printf("0x%08x	symbol  %s\n", data_addr, symbol_name);
+X						symbol_name[0] = '\0';
+X					}
+X				}
+X
+X				dump_out(ch, data_addr);
+X				--data_size;
+X				++data_addr;
+X			}
+X			finish_dumping();
+X			putc('\n', stdout);
+X		}
+X	}
+X	(void) fclose(fp_in);
+X
+X	return(0);
+X}
+X
+Xvoid
+Xusage(argv0)
+X	char           *argv0;
+X{
+X	fprintf(stderr, "%s: disassembly of SunOS 4.1 SPARC object code\n", argv0);
+X	fprintf(stderr, "usage: %s [-arnlLd] [-b begin addr] [-t symbol table file] input_file\n", argv0);
+X	fprintf(stderr, "-r  assume that file has no exec header (raw object file)\n");
+X	fprintf(stderr, "-n  make no attempt to discover symbolic names\n");
+X	fprintf(stderr, "-l  make no attempt to discover source file line number info\n");
+X	fprintf(stderr, "-a  print disassembly without memory addresses\n");
+X	fprintf(stderr, "-d  attempt to symbolically indicate branch destinations\n");
+X	fprintf(stderr, "-t  filename: get symbol table from \"filename\"\n");
+X	fprintf(stderr, "-b  hex address: set initial PC address (useful with raw files)\n");
+X
+X	exit(1);
+X}
+END_OF_FILE
+  if test 8549 -ne `wc -c <'dis.c'`; then
+    echo shar: \"'dis.c'\" unpacked with wrong size!
+  fi
+  # end of 'dis.c'
+fi
+if test -f 'hash.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hash.3'\"
+else
+  echo shar: Extracting \"'hash.3'\" \(17620 characters\)
+  sed "s/^X//" >'hash.3' <<'END_OF_FILE'
+X.TH hash 3 
+X.SH NAME
+Xh_new, h_operation, h_free, h_redefine\- manage hash tables
+X.SH SYNTAX
+X.B #include <sys/types.h>
+X.br
+X.B #include <hash.h>
+X.PP
+X.B "caddr_t h_new(policy, htype, M, compare, allocate, compress, \
+Xhash, shash, chainops)"
+X.br
+X.B int policy;
+X.br
+X.B int htype;
+X.br
+X.B int M;
+X.br
+X.B int (\(**compare)();
+X.br
+X.B caddr_t (\(**allocate)();
+X.br
+X.B u_int (\(**compress)();
+X.br
+X.B u_int (\(**hash)();
+X.br
+X.B u_int (\(**shash)();
+X.br
+X.B struct hash_bucket_list_ops \(**chainops;
+X.PP
+X.B "int (\(**compare)(key, data)"
+X.br
+X.B caddr_t key;
+X.br
+X.B caddr_t data;
+X.PP
+X.B "caddr_t (\(**allocate)(p)"
+X.br
+X.B caddr_t p;
+X.PP
+X.B u_int (\(**hash)(M, logM, item);
+X.br 
+X.B int M;
+X.br
+X.B int logM;
+X.br
+X.B caddr_t item;
+X.PP
+X.B u_int (\(**shash)(M, logM, hidx, item);
+X.br
+X.B int M;
+X.br
+X.B int logM;
+X.br
+X.B int hidx;
+X.br
+X.B caddr_t item;
+X.PP
+X.B u_int (\(**compress)(item);
+X.br
+X.B caddr_t item;
+X.PP
+X.B "caddr_t h_operation(operation, hth, key, bkt, dadvance, distance, bucket)"
+X.br
+X.B int operation;
+X.br
+X.B caddr_t hth;
+X.br
+X.B caddr_t key;
+X.br
+X.B int bkt;
+X.br
+X.B int dadvance;
+X.br
+X.B int \(**distance;
+X.br
+X.B int \(**bucket;
+X.PP
+X.B MACRO on h_operation:
+X.br
+X.B h_member(hth,key)
+X.br
+X.B caddr_t hth;
+X.br
+X.B caddr_t key;
+X.PP
+X.B MACRO on h_operation:
+X.br
+X.B h_insert(hth, key)
+X.br
+X.B caddr_t hth;
+X.br
+X.B caddr_t key;
+X.PP
+X.B MACRO on h_operation:
+X.br
+X.B h_delete(hth,key)
+X.br
+X.B caddr_t hth;
+X.br
+X.B caddr_t key;
+X.PP
+X.B "caddr_t h_redefine(hth, policy, htype, M, compare, allocate, \
+Xhash, shash, compress, chainops)"
+X.br
+X.B caddr_t hth;
+X.br
+X.B int policy;
+X.br
+X.B int htype;
+X.br
+X.B int M;
+X.br
+X.B int (\(**compare)();
+X.br
+X.B caddr_t (\(**allocate)();
+X.br
+X.B caddr_t (\(**compress)();
+X.br
+X.B u_int (\(**hash)();
+X.br
+X.B u_int (\(**shash)();
+X.br
+X.B struct hash_bucket_list_ops \(**chainops;
+X.PP
+X.B MACRO on h_redefine:
+X.br
+X.B h_rehash(hth,M)
+X.br
+X.B caddr_t hth;
+X.br
+X.B int M;
+X.PP
+X.B "void h_free(hth, free_func)"
+X.br
+X.B caddr_t hth;
+X.br
+X.B int (\(**free_func)();
+X.PP
+X.B int (\(**free_func)(data);
+X.br
+X.B caddr_t data
+X.PP
+X.B "struct hash_statistics *h_statistics(hth)"
+X.br
+X.B caddr_t hth;
+X.SH DESCRIPTION
+X.I h_new,
+X.I h_redefine,
+X.I h_free,
+Xand
+X.I h_operation
+Xdefine a general purpose hash table manager that is capable of
+Xhandling collision resolution via chaining and open hashing with
+Xlinear probing and double probing.
+X.PP
+X.I h_new
+Xis used to create and define the parameters for a hash table.
+X.I h_redefine
+Xallows you to redefine the hash table parameters.  The
+Xassociated macro
+X.I h_rehash
+Xallows you redefine the size of the table.
+X.I h_free
+Xis used to free a hash table.
+X.PP
+X.I h_operation
+Xprovides "member", "insert", and "delete" functions for a hash table.
+Xh_operation provides a high degree of control to the user.  There are
+Xthree associated macros
+X.I h_insert,
+X.I h_delete,
+Xand
+X.I h_member
+Xthat act as "wrappers" to
+X.I h_operation
+Xfor
+Xsimple operation.
+X.SH Creating hash tables
+X.I h_new
+Xcreates a new hash table and returns a handle that is used to
+Xreference it.  The various arguments to h_new define the hash table
+Xdefinition (e.g. chaining, open hash, etc) and define some general
+Xfunctions necessary for the hashing operations (insert, delete, find).
+X.PP
+X.I policy
+Xdefines how collisions are to be resolved.
+X.I HASH_POLICY_CHAIN
+Xsays that we should chain off the bucket on a collision.
+X.I HASH_POLICY_LINEAR_PROBE
+Xresolves collisions with linear probes (e.g. by searching for the next
+Xempty hash bucket).
+X.I HASH_POLICY_DOUBLE_HASH
+Xis like linear probe, but searches in increments given by a
+Xsecondary hash function.
+XNote that the performance of the non-chain methods degrade severely as
+Xthe number of elements in the hash table approach the hash table size.
+X.PP
+X.I M
+Xdefines the minimum hash table size.  For some hash function types, M may be
+Xincreased to some prime number or power of 2 larger than the passed
+Xvalue.
+X.PP
+X.I htype
+Xdefines the hashing function.  There are a few internally defined
+Xhashing functions that may be specified.
+X.TP 10
+X\fBHASH_TYPE_OWN
+Xsays that you will be supplying a
+X.I hash
+Xfunction and possibly a
+X.I shash
+Xfunction.  M will be taken as given.  See the discussion of
+X.I hash
+Xand
+X.I shash
+Xbelow for more information.
+X.TP 10
+X\fBHASH_TYPE_DIVISION
+Xis the simplest method.  The bucket is choosen on the basis of "key
+Xmodulo M".
+X.I hash_new
+Xresizes the supplied M upwards until it is relatively prime to
+X2,3,5,7,11,13,17,19.  It would be best if M was prime such that M does
+Xnot divide (size of character set)^b plus/minus a where b and a are
+Xsmall numbers; however, choosing M to be relatively prime to the prime
+Xfactors less than 20 should still give decent results.
+XThe secondary hash for
+XHASH_TYPE_DIVISION
+Xassumes
+Xthat M is prime and uses the function 1 + (K modulo (M - 2)).  Things
+Xwill work best if M and M-2 are twin primes like 1021 and 1019.  In
+Xgeneral, this will not be true and you should evaluate the
+Xeffectiveness on your data.
+X(See Knuth, Volume 3 for a full discussion).
+X.TP 10
+X\fBHASH_TYPE_MULTIPLICATIVE
+Xforces up the passed M so that it is a power of 2 (call it 2^r).
+XThe hash function used is AK>>(number of bits in a word - r) where A
+Xis an integer constant relatively prime to 2^32 (for a 32 bit
+Xmachine).
+XA has been chosen to attempt fibonacci
+Xhashing (whether this holds or not is debatable--futher research
+Xrequired).  See A_MULTIPLIER in hash.h.
+XThe secondary hash function takes r higher bits in the product defined
+Xabove and oring in a one (e.g. right shifts number of bits - 2*r).
+X(See Knuth, Volume 3, for a full discussion).
+X.PP
+XThe
+X.I compare
+Xfunction is a required user specified routine to compare a key (key) to a
+Xstored data item (data).
+XIt should return negative, zero, or positive if the comparision is
+Xless than, equal to, or greater than respectively.
+X.PP
+XThe
+X.I allocate
+Xfunction allows one to insert data through
+X.I h_operation
+Xwithout allocating it before hand.
+XIf
+X.I allocate
+Xis not given, it assume that the key is the data.
+X.PP
+X.I hash,
+Xif non-null, defines the primary hash function that is used to compute
+Xthe bucket corresponding to the key.
+X.I shash,
+Xif non-null, defines the secondary hash function used to obtain a
+X"movement" value for collision resolution for the open hash policies.
+XIt is worth noting
+Xthat 
+X.I shash,
+Xif specified, will be used by linear probing.
+XSpecifying linear
+Xprobing versus double probing matters when no secondary hash function
+Xis given.
+XThe arguments to
+X.I hash
+Xare the size of the hash
+Xtable, the log base 2 of the size of the hash table (not the floor
+Xlog2(M), but 2^r s.t. 2^r >= M), and the key K.
+X.I shash
+Xalso takes as a parameter (hidx) the value return by
+X.I hash.
+XSpecification of the hash functions will override any specified by the
+Xhash type argument; however, the passed value of M will still be
+Xresized according to the passed hash type (e.g. for multiplicative,
+XM will be bumped until it is a power of 2).
+X.PP
+X.I compress
+Xis used to compress a coerce a key to an unsigned
+Xinteger for the hash functions and to dereference the data pointed to by
+Xkey (which usually is a pointer).
+XIt is generally required
+Xfor internal hashing
+Xfunctions are used and optional otherwise (though your hash function
+Xwould have to do the compression if you don't supply this routine).
+XAn example of a compress function for an
+Xstring would be:
+X.nf
+X	compress(s) unsigned char *s; 
+X	{
+X	  unsigned int j = 0;
+X	  while (*s) j += *s++;
+X	}
+X.fi
+XIn this case, it is important to note that a simpler function like an
+Xxor across the
+Xdata will make the range too small (unless the table is very small)
+Xbecause you would only be making use of 8 bits for a maximum hash
+Xrange of 256.
+X(Note: this
+Xcompression function is only so-so, it would be better if it rotated
+Xthe data on every turn to ensure that all the bits come fully into
+Xplay--however, this is highly dependent upon the data the hashing
+Xtype).  Note, if you don't supply a compression function (e.g. specify
+Xas NULL), then the key will be used directly.
+XThis will cause
+Xproblems if sizeof(caddr_t) != sizeof(unsigned int), so consider this
+Xcarefully (i.e. don't do it -- pass a pointer to a variable containing
+Xthe key and write a dummy compress function that just returns the value).
+X.PP
+X.I chainops
+Xwill be describe in a later section in full detail.  Essentially, it
+Xallows one to chain off the buckets in an arbritrary fashion (perhaps
+Xwith another hash table).  By default, it is done with an ordered linked
+Xlist.  Of course, it is only meanful when the policy selected is chain.
+X.PP
+X.I h_redefine
+Xtakes the hash table handle as an argument in addition to all the
+Xother arguments of 
+X.I h_new.  
+X.I h_redefine
+Xwill reformat the hash table
+Xaccording to the passed arguments.  It will rehash if the hash table
+Xis valid (so it should not be called lightly).
+X.I WARNING:
+XIf you want to use h_redefine, it is important that the "key" as
+Xpassed to the 
+X.I h_operation
+Xroutines is the same as the data stored in the buckets!  
+XThis is necessary because
+X.I h_redefine
+Xoperates by calling
+X.I h_insert
+Xwith the items in the buckets as the key.
+X.PP
+X.I policy
+Xand 
+X.I type
+Xcan be
+Xspecified as 
+X.I HASH_POLICY_OLD
+Xand
+X.I HASH_TYPE_OLD respectively to retain
+Xthe old policy and type.  For 
+X.I compare, 
+X.I allocate, 
+X.I hash, 
+X.I shash,
+X.I compress, and 
+X.I chainops,
+Xpass NULL unless you wish to change those functions.  Set M
+Xto be zero to retain the old table size (note, if a new hash type is
+Xspecified, the passed M may be resized).  It is expected that the main use
+X.I h_redefine
+Xwill be to increase the hash table size: use the macro 
+X.I h_rehash
+Xfor this.
+X.PP
+X.I h_free
+Xwill free a hash table.  It calls
+X.I free_func
+Xon every item inserted into the table so that data can be released if
+Xnecessary.  If free_func is NULL, then it is assumed that the data
+Xneed not be released.
+X.SH Hash Operations
+X.I h_operation
+Xprovides insert, member, and delete operations on a hash table created
+Xby h_new.  A high degree of control over its operation is provided.
+XThe macros
+X.I h_insert,
+X.I h_delete,
+Xand
+X.I h_member
+Xhide the less commonly used arguments.
+X.PP
+X.I operation 
+Xdefines the operation to be performed.  It best if
+X.I key
+Xis a pointer to data instead of the actual key.
+X.TP 10
+X\fB HASH_OP_MEMBER
+Xfinds an item based upon
+X.I key
+Xand returns it.  If the item is not
+Xin the table, NULL is returned.
+XThe comparision function defined in 
+X.I h_new
+Xis used to determine if the
+Xitem is in the table.
+X.TP 10
+X\fBHASH_OP_INSERT
+Xis like find, but the item is inserted if it wasn't already in the
+Xtable.
+X.I allocate,
+Xif non-null,
+Xas defined in
+X.I h_new
+Xis called to get the data to be stored.  If
+X.I allocate
+Xis NULL, then it assumed that the key is the data.
+XNULL is returned if the item could not be inserted because all the
+Xbuckets were filled or a memory allocation failed.
+X.TP 10
+X\fB HASH_OP_DELETE
+Xwill remove the specified item from the table and return it
+Xif it was in the table.
+XNULL will be returned if the item was not in the
+Xtable.
+X.PP
+X.I hth
+Xis the hash table handle as returned by
+X.I h_new.
+X.PP
+X.I key
+Xis the used to match the data in the table.
+XNormally it is a pointer to some data item.
+X.PP
+X.I bkt,
+Xand
+X.I dadvance
+Xallow you to specify the hash bucket to use and the 
+Xhash advance (default is 1) to use in open hashing collision
+Xresolution respectively.
+XIf
+Xthese are specified as negative numbers, the hash functions
+Xdefined in
+X.I h_new
+Xwill be used.
+X.PP
+X.I bucket
+Xshould be a pointer to an integer into which the primary bucket will
+Xbe returned (e.g. the index returned by primary hash function).
+X.I distance
+Xis set to the number of buckets examined (beyond the first one) before
+Xthe item as added.
+X.SH Chaining off buckets
+XThe default action for chaining off a bucket is to use a linked list
+Xordered largest to smallest (as defined by the comparision function).
+XIt is possible to define an arbitrary method by defining a set of
+Xchain operations.  The functions needed are defined below and should be put 
+Xin a struct hash_bucket_list_ops and passed upon a hash table create.
+X.nf
+X	struct hash_bucket_list_ops {
+X	  caddr_t (*hlo_find)();
+X	  caddr_t (*hlo_insert)();
+X	  int (*hlo_delete)();
+X	  caddr_t (*hlo_get)();	/* get any and remove */
+X	};
+X.fi
+X.PP
+XIn the following discussion, 
+X.I bp
+Xis where information about the "list"
+Xis stored.  "list" is used to mean your storage mechanism.  It could
+Xbe linked list, hash table, array, etc.
+X.I bp
+Xallows you to disambiguate which list--unless your hash table size is
+Xone, you must support more than one list.  An item in the following is
+Xan abstract entity that can be compared against a key by the
+X.I compare
+Xfunction provided in
+X.I h_new.
+X.I hlo_find,
+X.I hlo_insert,
+Xand
+X.I hlo_delete
+Xare matched functions.
+X.I hlo_find
+Xis always called before
+X.I hlo_insert
+Xor
+X.I hlo_delete
+Xand the hash table functions will only call insert or delete if the
+Xitem (defined by the key) is not in the list
+Xand in the list respectively.
+X.PP
+X.nf
+Xcaddr_t (*hlo_find)(bp, key, cmp, distance, hint, hint2)
+Xcaddr_t bp;
+Xcaddr_t key;
+Xint (*cmp)();
+Xint *distance;
+Xcaddr_t *hint;
+Xcaddr_t *hint2;
+X.fi
+X.I hlo_find
+Xis used to see if the specified item is in the list based upon the
+Xkey.  It should return
+Xthe the item stored in the list if there and NULL
+Xotherwise.  If non-null, this is the value that will be returned by
+X.I h_operation.
+XIf the return value will be non-null, then
+X.I distance
+Xshould be set to
+Xsome metric by this function (e.g. distance from head of list on
+Xlinked list).  
+X.I cmp
+Xis a comparision function to use (as passed in h_new).
+X.I hint,
+Xand
+X.I hint2
+Xare places to store hints for
+X.I hlo_insert
+Xand
+X.I hlo_delete.
+X.PP
+X.nf
+Xcaddr_t (*hlo_insert)(bp, key, allocate, distance, hint, hint2)
+Xcaddr_t *bp;
+Xcaddr_t key;
+Xcaddr_t (*allocate)();
+Xint *distance;
+Xcaddr_t hint1;
+Xcaddr_t hint2;
+X.fi
+X.I hlo_insert
+Xshould insert an item onto the list.  It should call
+X.I allocate,
+Xif defined, to create the item based upon the key.  The distance should
+Xbe updated with respect to your metric set.
+X.I hint,
+Xand
+X.I hint2
+Xare passed as set by the
+X.I hlo_find.
+XYou should set the bucket pointer to point to your "list" if the list
+Xwas empty before (e.g. *bp = head_of_list, *bp = hash_table_handle,
+Xetc.).
+X.I hlo_insert
+Xshould return the stored data.  If it cannot insert the
+Xitem it may return NULL
+X.I hlo_insert's
+Xvalue will be the value
+Xreturned by 
+X.I hlo_operation.
+X.PP
+X.nf
+Xint (*hlo_delete)(bp, key, distance, hint, hint2)
+Xcaddr_t *bp;
+Xcaddr_t key;
+Xint *distance;
+Xcaddr_t hint;
+Xcaddr_t hint2;
+X.fi
+X.I hlo_delete
+Xshould remove the specified item from the list.  It should return TRUE
+Xon success and FALSE on failure.  distance should be set to the
+Xdistance of the deleted item with respect to the arbritry metric
+Xdefined for your set of functions.  The bucket pointer should be set
+Xto NULL if there are no longer items in the list (e.g. *bp = NULL).
+X.I hint
+Xand
+X.I hint2
+Xare passed as set by the last 
+X.I hlo_find
+Xoperation.
+X.PP
+X.nf
+Xcaddr_t (*hlo_get)(bp)
+Xcaddr_t *bp;
+X.fi
+X.I hlo_get
+Xis used by the
+X.I h_redefine
+Xand
+X.I h_free
+Xfunctions.
+XIt should unlink an abritrary item from the list and return it.
+X.PP
+XThe following simple set of functions define a hash table with no
+Xcollisions allowed:
+X.nf
+X	none_find(bp, key, cmp, distance, hint, hint2)
+X	caddr_t bp, key, *hint,*hint2;
+X	int (*cmp)(), *distance;
+X	{
+X	  *distance = 0;
+X	  if (bp == NULL)	/* nothing in list */
+X	    return(NULL);
+X	  if ((*cmp)(key,bp) == 0)
+X	    return(*bp);
+X	}
+X
+X	caddr_t none_insert(bp, key, allocate, distance, hint, hint2)
+X	caddr_t *bp, key, *hint,*hint2;
+X	caddr_t (*dup)();
+X	{
+X	  *distance = 0;
+X	  *bp = allocate ? (*allocate)(key) : key;
+X	}
+X
+X	int none_delete(bp, key, distance, hint, hint2)
+X	caddr_t *bp, key, *hint,*hint2;
+X	{
+X	  caddr_t v = *bp;
+X	  *distance = 0;
+X	  return(v != NULL);	/* true if we deleted */
+X	}
+X
+X	caddr_t none_get(bp)
+X	caddr_t *bp;
+X	{
+X	  caddr_t r = *bp;
+X	  *bp = NULL;
+X	  return(r);
+X	}
+X.fi
+X.SH Statisitcs
+X.I h_statistics
+Xreturns a pointer to the following structure:
+X.nf
+X	struct hash_statistics {
+X	  int hs_buckets;	/* number of buckets in table */
+X	  /* describes # of entries in chain */	
+X	  int hs_used;		/* # of buckets filled */
+X	  /* describes table (not accurate for chain policy) */
+X	  int hs_davg;		/* average distance from hash */
+X	  int hs_dsum;		/* sum of distances from hash */
+X	  int hs_dmax;		/* maximum distance from hash */
+X	  /* describes lookup patterns (describes distance into */
+X	  /* linear table if the policy is chain */
+X	  int hs_lnum;		/* remember number of lookups */
+X	  int hs_lsum;		/* sum of lookup distances */
+X	  int hs_lavg;		/* average lookup distance */
+X	  /* cumulative for lookup patterns (describes overall */
+X	  /* efficiency) */
+X	  int hs_clnum;		/* remember number of lookups */
+X	  int hs_clsum;		/* sum of lookup distances */
+X	};
+X.fi
+XThe averages are reported as a fixed point number with two decimal
+Xdigits of precision after the decimal point (e.g. avg/100.avg%100).
+X.PP
+XThe lookup and table statistics are cleared on a
+X.I h_redefine
+Xoperation.
+X.SH NOTES
+XSome analysis of the hashing functions provided should be done to
+Xdetermine how "good" they are.
+X.br
+XAllocate probably should have been called "get_item" in the above.
+X.br
+XPossibly some method for returning the "nth" or "next" item in the
+Xhash table should be provided for times when it is necessary to access
+Xthe items in a linear fashion.  However, it possible to do this
+Xalready using the "allocate" call to put the items on a linked list or
+Xin an array.
+X.SH RESTRICTIONS
+XPerhaps more control over the hashing functions should be provided;
+Xhowever, it is easy enough to replace them.
+X.SH REFERENCES
+XSearching and Sorting, The Art of Computer Programming, Volume 3,
+XDonald E. Knuth.
+X.SH "SEE ALSO"
+Xbsearch(3), lsearch(3), string(3), tsearch(3), hsearch(3)
+X
+X
+END_OF_FILE
+  if test 17620 -ne `wc -c <'hash.3'`; then
+    echo shar: \"'hash.3'\" unpacked with wrong size!
+  fi
+  # end of 'hash.3'
+fi
+if test -f 'hash.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hash.c'\"
+else
+  echo shar: Extracting \"'hash.c'\" \(21202 characters\)
+  sed "s/^X//" >'hash.c' <<'END_OF_FILE'
+Xstatic char rcsid[] = "$Author: djh $ $Date: 91/02/15 23:07:35 $";
+Xstatic char rcsident[] = "$Header: hash.c,v 2.1 91/02/15 23:07:35 djh Rel $";
+Xstatic char revision[] = "$Revision: 2.1 $";
+X
+X/*
+X * hash.h - external definitions for hash.c - generalized hashing function
+X *
+X *  written by Charlie C. Kim
+X *     Academic Networking, Communications and Systems Group
+X *     Center For Computing Activities
+X *     Columbia University
+X *   September 1988
+X *
+X *
+X * Copyright (c) 1988 by The Trustees of Columbia University 
+X *  in the City of New York.
+X *
+X * Permission is granted to any individual or institution to use,
+X * copy, or redistribute this software so long as it is not sold for
+X * profit, provided that this notice and the original copyright
+X * notices are retained.  Columbia University nor the author make no
+X * representations about the suitability of this software for any
+X * purpose.  It is provided "as is" without express or implied
+X * warranty.
+X *
+X *
+X * Edit History:
+X *
+X *  Sept 5, 1988  CCKim Created
+X *  Sept 6, 1988  CCKim Finished: level 0
+X *
+X*/
+X
+Xstatic char columbia_copyright[] = "Copyright (c) 1988 by The Trustees of \
+XColumbia University in the City of New York";
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include "hash.h"
+X
+X#ifndef FALSE
+X# define FALSE 0
+X#endif
+X#ifndef TRUE
+X# define TRUE 1
+X#endif
+X#ifndef PRIVATE
+X# define PRIVATE static
+X#endif
+X
+X
+X/*
+X * holds and describes a hash table
+X *
+X * ht_policy: policy on collisions (cf hash.h)
+X * ht_cfunc: takes (key, data) and returns true if they are equal
+X * ht_afunc: takes a key and returns the item from higher up
+X * ht_cpfunc: should compress the key to a integer -- only required if
+X *    no hash function has been provided
+X * ht_hfunc: takes (M, data) as arguments - returns hash index
+X *    M is the sizeof(int)*8 - log of the table size if the hashing
+X *     type is multiplicative
+X * ht_hfunc2: is the secondary hashing function for double hashing
+X * ht_chainops: chaining function other than linked list
+X * ht_stats: describes performance of hash table
+X * ht_type: hash function type
+X * ht_buckets: pointer to the hash table buckets
+X *
+X*/
+Xtypedef struct htable {
+X  int ht_M;			/* # of hash table buckes */
+X  int ht_logM;			/* M or log M (for certain hash types) */
+X  int ht_policy;		/* hashing policies for collision */
+X  /* alway call with passed key first, data item second */
+X  int (*ht_cfunc)();		/* comparision function */
+X  caddr_t (*ht_afunc)();	/* allocate function */
+X  u_int (*ht_cpfunc)();		/* compression function */
+X  u_int (*ht_hfunc)();		/* hashing function */
+X  u_int (*ht_hfunc2)();		/* secondary hashing function */
+X  struct hash_bucket_list_ops *ht_chainops; /* chain functions */
+X  int ht_type;			/* hash type */
+X  struct hash_statistics ht_stats; /* statisitics */
+X  caddr_t *ht_buckets;		/* actual hash table */
+X} HTABLE;
+X
+X/* some hash functions */
+XPRIVATE u_int hash_multiplicative();
+XPRIVATE u_int hash_division();
+XPRIVATE u_int hash2_multiplicative();
+XPRIVATE u_int hash2_division();
+X
+X/* list operations */
+XPRIVATE caddr_t list_find();
+XPRIVATE caddr_t list_insert();
+XPRIVATE int list_delete();
+XPRIVATE caddr_t list_get();
+X
+X/* basic hash bucket chaining with an ordered link list */
+XPRIVATE struct hash_bucket_list_ops hash_chain_by_list = {
+X  list_find,
+X  list_insert,
+X  list_delete,
+X  list_get
+X};
+X
+X/* table of primary hashfunctions */
+XPRIVATE u_int (*hash_funcs[HASH_TYPE_NUM])() = {
+X  NULL,
+X  hash_division,
+X  hash_multiplicative,
+X};
+X
+X/* table of secondary hash functions */
+XPRIVATE u_int (*hash_funcs2[HASH_TYPE_NUM])() = {
+X  NULL,				/* own */
+X  hash2_division,
+X  hash2_multiplicative,
+X};
+X
+X/* free a hash table - free_func gets called to free data */
+Xvoid
+Xh_free(ht, free_func)
+XHTABLE *ht;
+Xint (*free_func)();
+X{
+X  caddr_t *bt;
+X  caddr_t p;
+X  int M, i, policy;
+X  caddr_t (*get_func)();
+X  
+X  M = ht->ht_M;			/* get # of entries */
+X  bt = ht->ht_buckets;		/* get buckets */
+X  ht->ht_buckets = NULL;	/* just in case... */
+X  if (ht->ht_chainops)
+X    get_func = ht->ht_chainops->hlo_get;
+X  policy = ht->ht_policy;
+X  if (bt == NULL)
+X    return;
+X  for (i = 0; i < M; i++) {
+X    if (bt[i] == NULL)
+X      continue;
+X    switch (policy) {
+X    case HASH_POLICY_CHAIN:
+X      if (get_func == NULL)
+X	break;
+X      while ((p = (*get_func)(&bt[i])))
+X	if (free_func)
+X	  (*free_func)(p);
+X      break;
+X    default:
+X	if (free_func)
+X	  (*free_func)(bt[i]);
+X    }
+X  }
+X  free((caddr_t)bt);			/* free old table */
+X  free((caddr_t)ht);
+X}
+X
+X/* setup a new hash table, returns handle for hash table */
+Xcaddr_t
+Xh_new(policy, hashtype, M, cfunc, afunc, cpfunc, hfunc, hfunc2, chainops)
+Xint policy;
+Xint hashtype;			/* hash type */
+Xint M;
+Xint (*cfunc)();			/* comparision function */
+Xcaddr_t (*afunc)();			/* allocate function */
+Xu_int (*cpfunc)();		/* compression function */
+Xu_int (*hfunc)();		/* hash function */
+Xu_int (*hfunc2)();		/* secondary hash function */
+Xstruct hash_bucket_list_ops *chainops;
+X{
+X  HTABLE *htable;
+X
+X  if (cfunc == NULL) {		/* required! */
+X    fprintf(stderr, "hash table create: no compare function\n");
+X    return(NULL);
+X  }
+X  if (!HASH_TYPE_VALID(hashtype)) {
+X    fprintf(stderr, "hash table create: invalid type %d\n", hashtype);
+X    return(NULL);
+X  }
+X  if (hashtype == HASH_TYPE_OWN && hfunc == NULL) {
+X  fprintf(stderr, "hash table create: must give hash function when own set\n");
+X  return(NULL);
+X  }
+X  if (!HASH_POLICY_VALID(policy)) {
+X    fprintf(stderr, "hash table create: invalid policy %d\n", policy);
+X    return(NULL);
+X  }
+X  if (M <= 0) {
+X    fprintf(stderr, "hash table create: invalid hash table size %d\n", M);
+X    return(NULL);
+X  }
+X  if ((htable = (HTABLE *)malloc(sizeof(HTABLE))) == NULL)
+X    return(NULL);
+X  htable->ht_policy = policy;
+X  htable->ht_cfunc = cfunc;
+X  htable->ht_afunc = afunc;
+X  htable->ht_hfunc = hash_funcs[hashtype];
+X  if (htable->ht_policy == HASH_POLICY_DOUBLE_HASH)
+X    htable->ht_hfunc2 = hash_funcs2[hashtype];
+X  else
+X    htable->ht_hfunc2 = NULL;
+X  /* override std. hash functions if specified */
+X  if (hfunc)
+X    htable->ht_hfunc = hfunc;
+X  if (hfunc2)
+X    htable->ht_hfunc2 = hfunc2;
+X  htable->ht_cpfunc = cpfunc;
+X  htable->ht_chainops = chainops ? chainops : &hash_chain_by_list;
+X  htable->ht_type = hashtype;
+X  bzero(&htable->ht_stats, sizeof(htable->ht_stats));
+X  htable->ht_stats.hs_buckets = M;
+X  htable->ht_M = 0;		/* assume these */
+X  return((caddr_t)h_redefine(htable,HASH_POLICY_OLD,HASH_TYPE_OLD, M,
+X			     NULL, NULL,NULL,NULL, NULL, NULL));
+X}
+X
+X/* redefine an existing hash table, will rehash by creating new set of */
+X/* buckets and killing off old set */
+Xcaddr_t
+Xh_redefine(ht, policy, hashtype, M, cfunc, afunc, cpfunc, hfunc, hfunc2,
+X	   chainops)
+XHTABLE *ht;
+Xint policy;			/* hashing policy */
+Xint hashtype;			/* hashing type */
+Xint M;				/* size */
+Xint (*cfunc)();			/* comparision function */
+Xcaddr_t (*afunc)();		/* allocate function */
+Xu_int (*hfunc)();		/* hash function */
+Xu_int (*hfunc2)();		/* secondary hash function */
+Xu_int (*cpfunc)();		/* compression function */
+Xstruct hash_bucket_list_ops *chainops;
+X{
+X  int logM, oldM, i, oldPolicy;
+X  struct hash_bucket_list_ops *oldChainOps;
+X  caddr_t *bt, *nbt;
+X  caddr_t p;
+X
+X  if (!HASH_TYPE_VALID(hashtype) && hashtype != HASH_TYPE_OLD) {
+X    fprintf(stderr, "hash table create: invalid type %d\n", hashtype);
+X    return(NULL);
+X  }
+X  if (!HASH_POLICY_VALID(policy) && policy != HASH_POLICY_OLD) {
+X    fprintf(stderr, "hash table create: invalid policy %d\n", policy);
+X    return(NULL);
+X  }
+X  if (M <= 0)			/* zero means base on old */
+X    M = ht->ht_M;
+X  if (hashtype == HASH_TYPE_OLD)
+X    hashtype = ht->ht_type;	/* get old */
+X  logM = 0;
+X  switch (hashtype) {
+X  case HASH_TYPE_MULTIPLICATIVE:
+X    i = M >> 1;
+X    M = 1;
+X    logM = 0;
+X    while (i) {			/* while M is still about */
+X      i >>= 1;			/* divide by 2 */
+X      M <<= 1;			/* multiply by 2 */
+X      logM++;
+X    }
+X    break;
+X  case HASH_TYPE_DIVISION:
+X    M += (1 - (M%2));		/* make odd */
+X    /* scale up M so it isn't relatively prime for these small primes */
+X    /* c.f. Fundamental of Data Structures, Horowitz and Sahni, pp. 461 */
+X    while (!((M%3) && (M%5) && (M%7) && (M%11) && (M%13) && (M%17)&&(M%19)))
+X      M+=2;
+X    break;
+X  default:
+X    break;
+X  }
+X  if (M <= ht->ht_M)		/* nothing to do */
+X    return((caddr_t)ht);
+X  if (logM == 0) {		/* no logM?  figure it */
+X    int t = M>>1;		/* get M */
+X    do {
+X      logM++;			/* int log M to 1 */
+X      t >>= 1;			/* divide by 2 */
+X    } while (t);
+X  }
+X  bt = ht->ht_buckets;		/* get buckets */
+X  oldM = ht->ht_M;
+X  oldPolicy = ht->ht_policy;
+X  oldChainOps = ht->ht_chainops;
+X
+X  if ((nbt = (caddr_t *)calloc((u_int)M, sizeof(caddr_t))) == NULL) {
+X    fprintf(stderr, "hash table create: no memory for %d element table\n",M);
+X    return(NULL);		/* return */
+X  }
+X  ht->ht_buckets = nbt;	/* save new bucket table */
+X  ht->ht_M = M;		/* assume these */
+X  ht->ht_logM = logM;
+X  ht->ht_stats.hs_buckets = M; /* mark # of buckets */
+X  ht->ht_policy = (policy == HASH_POLICY_OLD) ? oldPolicy : policy;
+X  if (afunc)
+X    ht->ht_afunc = afunc;
+X  if (cfunc)
+X    ht->ht_cfunc = cfunc;
+X  if (ht->ht_type != hashtype && hashtype != HASH_TYPE_OLD) {
+X    ht->ht_hfunc = hash_funcs[hashtype];
+X    if (ht->ht_policy == HASH_POLICY_DOUBLE_HASH)
+X      ht->ht_hfunc2 = hash_funcs2[hashtype];
+X    else
+X      ht->ht_hfunc2 = NULL;
+X  }
+X  /* always reset if given */
+X  if (hfunc)
+X    ht->ht_hfunc = hfunc;
+X  if (hfunc2)
+X    ht->ht_hfunc2 = hfunc2;
+X  if (cpfunc)
+X    ht->ht_cpfunc = cpfunc;
+X  if (chainops)
+X    ht->ht_chainops = chainops;
+X  ht->ht_type = hashtype;
+X  {
+X    struct hash_statistics *s = &ht->ht_stats;
+X    /* no longer valid */
+X    s->hs_used = s->hs_davg = s->hs_dsum = s->hs_dmax = 0;
+X    /* no longer valid */
+X    s->hs_lnum = s->hs_lsum = s->hs_lavg = 0;
+X    /* cum. statistics stay */
+X  }
+X  /* rehash if new table */
+X  if (bt) {
+X    afunc = ht->ht_afunc;	/* save */
+X    ht->ht_afunc = NULL;		/* turn off for a bit */
+X    for (i = 0; i < oldM; i++) {
+X      if (bt[i]) {
+X	switch (oldPolicy) {
+X	case HASH_POLICY_CHAIN:
+X	  while ((p = (*oldChainOps->hlo_get)(&bt[i])))
+X	    h_insert(ht, p);
+X	  break;
+X	default:
+X	  h_insert(ht, bt[i]);
+X	}
+X      }
+X    }
+X    ht->ht_afunc = afunc;	/* turn back on */
+X    free((caddr_t)bt);		/* free old table */
+X  }
+X  return((caddr_t)ht);
+X}
+X
+X/* update hash TABLE statistics: generally, these are off for chain */
+X/* and when there are deletes done */ 
+XPRIVATE int
+Xupdate_hash_table_stats(s, distance, updown)
+Xstruct hash_statistics *s;
+Xint distance;
+Xint updown;
+X{
+X  if (distance > s->hs_dmax) /* new maximum distance */
+X    s->hs_dmax = distance;
+X  s->hs_dsum += distance;	/* bump sum of distances */
+X  s->hs_used += updown;
+X  if (s->hs_used)
+X    s->hs_davg = (100*s->hs_dsum) / s->hs_used; /* scale it */
+X  else
+X    s->hs_davg = 0;
+X  return(s->hs_davg);
+X}
+X
+X/* update lookup statisitics */
+XPRIVATE int
+Xupdate_hash_lookup_stats(s, distance)
+Xstruct hash_statistics *s;
+Xint distance;
+X{
+X  s->hs_lsum += distance;	/* bump sum of distances */
+X  s->hs_lnum++;			/* bump number of distances */
+X  s->hs_clsum += distance;	/* same for cum. */
+X  s->hs_clnum++;
+X  s->hs_lavg = (100*s->hs_lsum) / s->hs_lnum; /* save 2 decimal points */
+X  return(s->hs_lavg);
+X}
+X
+X/* hash table operation: delete, insert, find */
+Xcaddr_t
+Xh_operation(what, ht, key, idx, idx2, d, b)
+Xint what;
+XHTABLE *ht;
+Xcaddr_t key;
+Xint idx;			/* preliminary index (-1 if none) */
+Xint idx2;			/* secondary index (-1 if none) */
+Xint *d;				/* return distance ? */
+Xint *b;				/* return bucket # */
+X{
+X  int sidx, t;
+X  int distance;
+X  u_int cpkey;			/* compress version of key */
+X  caddr_t *bp;			/* bucket pointer */
+X  caddr_t *pbp = NULL;		/* previous bucket pointer for delete */
+X  caddr_t data = NULL;
+X
+X  /* blather */
+X  if (ht == NULL || HASH_OP_INVALID(what))
+X    return(NULL);
+X  if (idx < 0) {
+X    if (ht->ht_cpfunc) {
+X      cpkey = (*ht->ht_cpfunc)(key);
+X      idx = (*ht->ht_hfunc)(ht->ht_M, ht->ht_logM, cpkey);
+X    } else
+X      idx = (*ht->ht_hfunc)(ht->ht_M, ht->ht_logM, key);
+X  }
+X  sidx = idx;
+X  if (ht->ht_buckets == NULL) {
+X    fprintf(stderr, "No buckets for hash table!  (Possibly using a freed \
+X hash table handle)\n");
+X    return(NULL);
+X  }
+X  bp = &ht->ht_buckets[idx];	/* start */
+X  distance = 0;
+X  if (b)
+X    *b = sidx;
+X
+X  if (ht->ht_policy == HASH_POLICY_CHAIN) {
+X    caddr_t hint, hint2;
+X
+X    /* distance should be updated */
+X    data = (*ht->ht_chainops->hlo_find)(*bp,key,ht->ht_cfunc,
+X					&distance, &hint, &hint2);
+X    switch (what) {
+X    case HASH_OP_DELETE:
+X      if (!data)
+X	break;
+X      /* key */
+X      /* ignore error (should not happen!) */
+X      (void)(*ht->ht_chainops->hlo_delete)(bp, key, &distance, hint, hint2);
+X      update_hash_table_stats(&ht->ht_stats, -distance, -1);
+X      break;
+X    case HASH_OP_MEMBER:
+X      if (data)
+X	t = update_hash_lookup_stats(&ht->ht_stats, distance);
+X      break;
+X    case HASH_OP_INSERT:
+X      if (data) {
+X	t = update_hash_lookup_stats(&ht->ht_stats, distance);
+X	break;
+X      }
+X      data= (*ht->ht_chainops->hlo_insert)(bp,key,ht->ht_afunc,
+X					   &distance, hint,hint2);
+X      update_hash_table_stats(&ht->ht_stats, distance, 1);
+X      break;
+X    }
+X    if (d)
+X      *d = distance;
+X    return(data);
+X  }
+X
+X  do {
+X    if (*bp == NULL) {
+X      switch (what) {
+X      case HASH_OP_DELETE:		/* finished delete */
+X	break;
+X      case HASH_OP_MEMBER:
+X	data = NULL;
+X	break;
+X      case HASH_OP_INSERT:
+X	/* left with insert */
+X	data = ht->ht_afunc ? (*ht->ht_afunc)(key) : key;
+X	*bp = data;
+X	update_hash_table_stats(&ht->ht_stats, distance, 1);
+X	break;
+X      }
+X      if (d)
+X	*d = distance;
+X      return(data);
+X    } else {
+X      switch (what) {
+X      case HASH_OP_DELETE:
+X	/* if we haven't found an key to delete, try to find it */
+X	if (!pbp) {
+X	  if ((*ht->ht_cfunc)(key, *bp) == 0) {
+X	    data = *bp;		/* save return key */
+X	    *bp = NULL;		/* clear out this bucket */
+X	    pbp = bp;		/* remember this bucket */
+X	    update_hash_table_stats(&ht->ht_stats, -distance, -1);
+X	  }
+X	} else {
+X	  /* delete old distance */
+X	  update_hash_table_stats(&ht->ht_stats, -distance, -1);
+X	  /* insert new distance */
+X	  update_hash_table_stats(&ht->ht_stats, distance-1, 1);
+X	  *pbp = *bp;		/* move bucket */
+X	  *bp = NULL;		/* clear out this bucket */
+X	  pbp = bp;		/* remember this bucket */
+X	}
+X      default:
+X	if ((*ht->ht_cfunc)(key, *bp) == 0) {
+X	  t = update_hash_lookup_stats(&ht->ht_stats, distance);
+X	  if (d)
+X	    *d = distance;
+X	  return(*bp);		/* done */
+X	}
+X      }
+X    }
+X    if (idx2 < 0 && ht->ht_hfunc2)
+X      if (ht->ht_cpfunc) 
+X	idx2 = (*ht->ht_hfunc2)(ht->ht_M, ht->ht_logM, idx, cpkey);
+X      else
+X	idx2 = (*ht->ht_hfunc2)(ht->ht_M, ht->ht_logM, idx, key);
+X    distance++;
+X    idx += idx2 > 0 ? idx2 : 1; /* bump index */
+X    bp++;			/* advance bucket pointer */
+X    if (idx >= ht->ht_M) {	/* need to wrap around */
+X      idx %= ht->ht_M;		/* push index about */
+X      bp = &ht->ht_buckets[idx]; /* and reset buckets */
+X    }
+X  } while (sidx != idx);
+X  return(NULL);
+X}
+X
+X/* return hash statistics */
+Xstruct hash_statistics *
+Xh_statistics(h)
+XHTABLE *h;
+X{
+X  return(&h->ht_stats);
+X}
+X
+X
+X/* for linked list */
+Xstruct hash_chain_item {
+X  struct hash_chain_item *hci_next; /* pointer to next item in chain */
+X  caddr_t hci_data;		/* pointer to data */
+X};
+X
+X/*
+X * hint == previous(hint2)
+X *  hint2 is the match node or node whose data is > than current
+X *
+X*/
+XPRIVATE caddr_t
+Xlist_find(h, key, cmp, distance, hint, hint2)
+Xstruct hash_chain_item *h;
+Xcaddr_t key;
+Xint (*cmp)();
+Xint *distance;
+Xstruct hash_chain_item **hint;
+Xstruct hash_chain_item **hint2;
+X{
+X  struct hash_chain_item *hp = NULL;
+X  int d,c;
+X
+X  *distance = 0;		/* no distnace */
+X  *hint = NULL;			/* mark no hint */
+X  *hint2 = NULL;
+X  if (h == NULL)
+X    return(NULL);
+X  for (d = 0 ; h ; h = h->hci_next) {
+X    if ((c = (*cmp)(key, h->hci_data)) >= 0)
+X      break;
+X    d++;
+X    hp = h;
+X  }
+X  if (distance)
+X    *distance = d;
+X  if (hint2)
+X    *hint2 = h;
+X  if (hint)
+X    *hint = hp;
+X  return(c == 0 ? h->hci_data : NULL);
+X}
+X
+X/*
+X * insert item into chain.  hint is from the lookup and helps us insert
+X * distance is from lookup too (we could choose to change)
+X *
+X * hint == previous(hint2)
+X *  hint2 is the match node or node whose data is > than current
+X * return 0 on success, -1 on failure.
+X *
+X */
+X/*ARGSUSED*/
+XPRIVATE caddr_t
+Xlist_insert(head, key, alloc, distance, hint, hint2)
+Xcaddr_t *head;
+Xcaddr_t key;
+Xcaddr_t (*alloc)();
+Xint *distance;
+Xstruct hash_chain_item *hint;
+Xstruct hash_chain_item *hint2;
+X{
+X  struct hash_chain_item *h;
+X
+X  h = (struct hash_chain_item *)malloc(sizeof(struct hash_chain_item));
+X  if (h == NULL)
+X    return(NULL);
+X  h->hci_data = alloc ? (*alloc)(key) : key;
+X  h->hci_next = hint2;
+X  if (hint)
+X    hint->hci_next = h;
+X  else
+X    *head = (caddr_t)h;
+X  return(h->hci_data);
+X}
+X
+X/*
+X * assumes a find has been done, hint is set by find and item exists
+X *  in the list
+X * head - head of list
+X * item - data (unused)
+X * hint - previous node to one that contains item
+X * distance - distance to update (not done) (may be deleted)
+X *
+X*/
+X/*ARGSUSED*/
+XPRIVATE int
+Xlist_delete(head, key, distance, hint, hint2)
+Xcaddr_t *head;
+Xcaddr_t key;
+Xint *distance;			/* not used */
+Xstruct hash_chain_item *hint;
+Xstruct hash_chain_item *hint2;
+X{
+X  /* trust our input: two things could be wrong, first */
+X  /* hint2 == NULL ==> nothing to delete */
+X  /* hint2 != "key" ==> item not in list */
+X  if (hint == NULL) {
+X    *head = (caddr_t)hint2->hci_next;	/* remove */
+X    free((caddr_t)hint2);
+X    return(TRUE);
+X  }
+X  hint->hci_next = hint2->hci_next; /* unlink */
+X  free((caddr_t)hint2);		/* get rid of node */
+X  return(TRUE);
+X}
+X
+X/* gets first item on list and returns data, freeing up node */
+XPRIVATE caddr_t
+Xlist_get(h)
+Xstruct hash_chain_item **h;
+X{
+X  struct hash_chain_item *n;
+X  caddr_t d;
+X
+X  if (h == NULL || *h == NULL)
+X    return(NULL);
+X  n = *h;			/* get item */
+X  *h = n->hci_next;		/* and remove */
+X  d = n->hci_data;
+X  free((caddr_t)n);
+X  return(d);
+X}
+X
+X/* do hash division method */
+X/*ARGSUSED*/
+XPRIVATE u_int
+Xhash_division(M, logM, idx)
+Xint M;
+Xint logM;
+Xu_int idx;
+X{
+X  return(idx % M);
+X}
+X
+X/* will work will with M if M-2,M are twin primes */
+X/*ARGSUSED*/
+XPRIVATE u_int
+Xhash2_division(M, logM, hidx, idx)
+Xint M;
+Xint logM;
+Xu_int hidx;
+Xu_int idx;
+X{
+X  return(1 + (idx % (M-2)));
+X}
+X
+X/* handle multiplicative method - hopefully the multiplier gives us */
+X/* good range */
+X/*ARGSUSED*/
+XPRIVATE u_int
+Xhash_multiplicative(M, logM, idx)
+Xint M;
+Xint logM;
+Xu_int idx;
+X{
+X  return(((u_int)idx*A_MULTIPLIER>>(8*sizeof(int)-logM)));
+X}
+X
+X/* the r more bits -- should be indepdent of the first r bits */
+X/*ARGSUSED*/
+XPRIVATE u_int
+Xhash2_multiplicative(M, logM, hidx, idx)
+Xint M;
+Xint logM;
+Xu_int hidx;
+Xu_int idx;
+X{
+X  return(((u_int)idx*A_MULTIPLIER>>(8*sizeof(int)-logM-logM)|1) );
+X}
+X
+X#ifdef TESTIT
+X/* test program */
+Xu_int
+Xdocomp(data)
+Xchar *data;
+X{
+X  u_int j;
+X  j = 0;
+X  while (*data)
+X    j = ((j + *data++) >> 1) | j<<31;
+X  return(j);
+X}
+X
+Xchar *
+Xalloc_func(p)
+Xchar *p;
+X{
+X  char *d = (caddr_t)malloc(strlen(p) + 1);
+X  strcpy(d, p);
+X  return(d);
+X}
+X
+Xdumpstats(msg, s)
+Xchar *msg;
+Xstruct hash_statistics *s;
+X{
+X  printf("%s\n\t %d bkts used, avg dist = %d.%02d, max dist = %d\n",
+X	 msg,
+X	 s->hs_used, s->hs_davg/100, s->hs_davg % 100,
+X	 s->hs_dmax);
+X}
+X
+Xmain()
+X{
+X  HTABLE *hpc, *hplp, *hpdh;
+X  extern strcmp();
+X  char buf[BUFSIZ];
+X  int b, d, op;
+X  char *p;
+X
+X#define X 16 
+X
+X  hpc = (HTABLE *)h_new(HASH_POLICY_CHAIN, HASH_TYPE_DIVISION, X,
+X			strcmp, alloc_func, docomp, NULL, NULL, NULL);
+X  hplp = (HTABLE *)h_new(HASH_POLICY_LINEAR_PROBE,
+X			 HASH_TYPE_MULTIPLICATIVE, X, strcmp,
+X			 alloc_func, docomp, NULL, NULL, NULL);
+X  hpdh = (HTABLE *)h_new(HASH_POLICY_DOUBLE_HASH,
+X			 HASH_TYPE_MULTIPLICATIVE, X, strcmp,
+X			 alloc_func, docomp, NULL, NULL, NULL);
+X  while (gets(buf) != NULL) {
+X    p = buf+1;
+X    switch (buf[0]) {
+X    case '+':
+X      printf("INSERT %s\n", buf+1);
+X      op = HASH_OP_INSERT;
+X      break;
+X    case '-':
+X      printf("DELETE %s\n", buf+1);
+X      op = HASH_OP_DELETE;
+X      break;
+X    case ' ':
+X      printf("FIND %s\n", buf+1);
+X      op = HASH_OP_MEMBER;
+X      break;
+X    default:
+X      op = HASH_OP_INSERT;
+X      p = buf;
+X    }
+X    if ((h_operation(op, hpc, p, -1, -1, &d, &b)))
+X      printf("chain: %s at distance %d from bucket %d\n", p, d,b);
+X    else
+X      printf("chain hash table overflow or item not in table\n");
+X    if ((h_operation(op, hplp, p, -1, -1, &d, &b)))
+X      printf("linear probe: %s at distance %d from bucket %d\n", p, d,b);
+X    else
+X      printf("linear probe hash table overflow or item not in table\n");
+X    if ((h_operation(op, hpdh, p, -1, -1, &d, &b)))
+X      printf("double hash: %s at distance %d from bucket %d\n", p, d,b);
+X    else
+X      printf("double hash table overflow or item not in table\n");
+X  }
+X  dumpstats("double hash with multiplicative hash", h_statistics(hpdh));
+X  h_redefine(hpdh, HASH_POLICY_CHAIN,HASH_TYPE_DIVISION, X, NULL,
+X	     NULL, NULL, NULL,NULL,NULL);
+X  dumpstats("redefine above as chain with division hash", h_statistics(hpdh));
+X  h_redefine(hpdh, HASH_POLICY_LINEAR_PROBE,HASH_TYPE_MULTIPLICATIVE,
+X	     X, NULL,NULL,NULL,NULL,NULL,NULL);
+X  dumpstats("redefine above as linear probe with multiplicative hash",
+X	    h_statistics(hpdh));
+X  dumpstats("chain with division hash", h_statistics(hpc));
+X  dumpstats("linear probe with multiplicative hash", h_statistics(hplp));
+X  h_free(hpdh, free);
+X}
+X#endif
+END_OF_FILE
+  if test 21202 -ne `wc -c <'hash.c'`; then
+    echo shar: \"'hash.c'\" unpacked with wrong size!
+  fi
+  # end of 'hash.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

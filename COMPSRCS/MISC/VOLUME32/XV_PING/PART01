@@ -1,0 +1,1516 @@
+Newsgroups: comp.sources.misc
+From: gnn@wsl.dec.com (George Neville-Neil)
+Subject:  v32i092:  xv_ping - OpenLook interface to pinging hosts, Part01/01
+Message-ID: <1992Sep26.201446.17252@sparky.imd.sterling.com>
+X-Md4-Signature: 1dbb63e7f4fc306e50607631d9eae4b3
+Date: Sat, 26 Sep 1992 20:14:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: gnn@wsl.dec.com (George Neville-Neil)
+Posting-number: Volume 32, Issue 92
+Archive-name: xv_ping/part01
+Environment: X11, XView3
+
+This is version 1.0 of xv_ping. This program has an Open Look interface 
+for pinging hosts on the net.  It has a list with a glyph to indicate if 
+a host is up or down, the host name, and the timeout for that host.  The 
+program waits for a user specified number of milliseconds for each host 
+to reply to an ICMP echo packet.  Each host may have a different timeout.  
+There is an output window at the bottom that is a continuous stream of 
+host down messages that tells you the time that host was not reachable,
+as well as the host name and the timeout that was used.  The program 
+pings the hosts in the list at a user specified timeout from every 30 
+seconds to once per day.  There are a minute and a second field for 
+this sample frequency.
+
+All of the code is included at the end of this message, including 
+the README, Makefile, man page, source code, and icons.
+
+Please report any and all bugs to gnn@pa.dec.com.
+
+Please read the copyright notice at the head of all of the C program files.
+
+Later,
+George
+
+--- Cut Here --- Cut Here --- Cut Here --- Cut Here ---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile down.icon hping.c hping.h up.icon
+#   xv_ping.8 xv_ping.c xv_ping.icon
+# Wrapped by kent@sparky on Sat Sep 26 15:03:00 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(919 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+Xxv_ping
+X
+XCopyright 1992 George V. Neville-Neil
+X
+XXV_PING is program to continuously check to see if a set of hosts on
+Xthe net is up.  It does this by periodically sending ICMP echo packets
+Xto a set of hosts chosen by the user.
+X
+XBuilding XV_PING:
+X
+XFirst modify the Makefile to point to the correct include and library
+Xdirectories.  You should only have to change the following variables:
+X
+XX11INCLUDE= 
+XXVIEWINCLUDE= 
+XX11LIB= 
+X
+XThis program is written with the XView toolkit version 3, and will
+Xrequire that you have installed this toolkit before building this
+Xapplication.  The toolkit is available for ftp from the export.ai.mit.edu.
+X
+XAll you need to do now is type "make all" and xv_ping should be built.
+X
+XThere is a man page, xv_ping.8, which explains how the program works.
+X
+XNote: This program needs to be setuid root, or run by root
+Xto work.  You cannot set your machine into promiscuous mode
+Xwithout begin root.
+X
+X
+X
+END_OF_FILE
+  if test 919 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(645 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for xv_ping version 1.0 
+X#
+X#
+X
+X#These should point to where your X11 include files and libraries reside.
+X
+XXVIEWINCLUDE= /udir/gnn/include
+XX11LIB= /udir/gnn/lib
+X
+XCFLAGS= -I$(XVIEWINCLUDE) -g
+XLDFLAGS= -L$(X11LIB) 
+XCC= cc
+X
+XSRCS= xv_ping.c hping.c
+X
+XOBJS= xv_ping.o hping.o
+X
+XBINS= xv_ping
+X
+XLIBS= -lxview -lolgx -lX11
+X
+XDOCS= xv_ping.8
+X
+XICONS=xv_ping.icon up.icon down.icon
+X
+Xall: $(OBJS)
+X	$(CC) -o xv_ping $(OBJS) $(LDFLAGS) $(LIBS)
+X
+X.o: $(OBJS)
+X
+X.c: $(SRCS)
+X	$(CC) -c $< $(CFLAGS) 
+X
+Xtar:
+X	tar cvf xv_ping.tar $(SRCS) $(DOCS) $(ICONS) Makefile README
+X	compress xv_ping.tar
+X
+Xclean:
+X	- rm *.o *~ *.BAK
+X
+Xrealclean:
+X	- rm *.o *~ *.BAK $(BINS) 
+END_OF_FILE
+  if test 645 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'down.icon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'down.icon'\"
+else
+  echo shar: Extracting \"'down.icon'\" \(275 characters\)
+  sed "s/^X//" >'down.icon' <<'END_OF_FILE'
+X#define down_width 16
+X#define down_height 16
+Xstatic char down_bits[] = {
+X   0x00, 0x00, 0xc0, 0x07, 0x30, 0x18, 0x08, 0x20, 0x04, 0x40, 0x64, 0x4c,
+X   0x42, 0x84, 0x02, 0x81, 0x02, 0x80, 0x02, 0x80, 0x82, 0x83, 0x44, 0x44,
+X   0x24, 0x48, 0x08, 0x20, 0x30, 0x18, 0xc0, 0x07};
+END_OF_FILE
+  if test 275 -ne `wc -c <'down.icon'`; then
+    echo shar: \"'down.icon'\" unpacked with wrong size!
+  fi
+  # end of 'down.icon'
+fi
+if test -f 'hping.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hping.c'\"
+else
+  echo shar: Extracting \"'hping.c'\" \(10052 characters\)
+  sed "s/^X//" >'hping.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1992 George V. Neville-Neil
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by George V. Neville-Neil
+X * 4. The name, George Neville-Neil may not be used to endorse or promote 
+X *    products derived from this software without specific prior 
+X *    written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR 
+X * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X/* 
+X * File: hping.c
+X *
+X * Authors: Jim Hayes (original)
+X *          George V. Neville-Neil (added features)
+X *
+X * int ping(hostname,tries,timeout,packet_size);
+X *
+X * send a ICMP ECHO packet to "hostname" "tries" times, while waiting
+X * "timeout" micro-seconds for a reply.  Packets are "packet_size" big, 
+X * excluding the 8 byte ip header.
+X *
+X * Returns the number of packets returned.
+X *
+X * Modifications:
+X * 8/26/92 Removed all alarm and signal calls so that this code can work
+X * well with X programs.  Put in a routine to do the sleep using a 
+X * select.  Added code to make the socket non-blocking.
+X */
+X
+Xstatic char rcsid[] = "$Id: hping.c,v 2.0 1992/09/05 18:30:37 gnn Exp gnn $";
+X
+X#include <stdio.h>
+X#include <errno.h>
+X
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/file.h>
+X#include <sys/time.h>
+X
+X#include <netinet/in_systm.h>
+X#include <netinet/in.h>
+X#include <netinet/ip.h>
+X#include <netinet/ip_icmp.h>
+X#include <netdb.h>
+X
+X#include "hping.h"
+X
+Xextern	int errno;
+Xstruct sockaddr *setup_address();
+X
+Xint hping(hostname,ping_quantity,timeout,packet_size)
+Xchar	*hostname;
+Xint	ping_quantity;
+Xint	timeout;
+Xint	packet_size;
+X{	
+X    
+X    u_char	reply_packet[BIGPACKET];	/* The ping reply */
+X    int 	reply_buffer_size = sizeof (reply_packet);
+X    
+X    int	gotback;		/* The number of packets we got back */
+X    
+X    int 	s;			/* Raw socket to send/receive */
+X    
+X    struct sockaddr *whereto;	/* Destination machine */
+X    
+X    struct sockaddr_in from;	/* Reply place holder, not used. */
+X    int from_size = sizeof (from);
+X    
+X    int reply_packet_size;
+X    
+X    int echo_id;
+X    int ping_counter;
+X    
+X    struct protoent *proto;
+X    
+X    extern void xvsleep();
+X
+X    if(ping_quantity < 1) return(PING_COUNT_ERROR);
+X    
+X    if(packet_size > BIGPACKET) 
+X	return(PING_TOO_BIG);
+X    
+X    if(packet_size < SMALLPACKET)
+X	return(PING_TOO_SMALL);
+X    
+X    if(timeout < 1)
+X	return(PING_TOO_SHORT);
+X    
+X    if((whereto = setup_address(hostname)) == NULL) 
+X	return(PING_UNKNOWN_HOST);
+X    
+X    if((proto = getprotobyname("icmp")) == NULL) 
+X	return(PING_ICMP_UNKNOWN);
+X    
+X    if((s = socket(AF_INET, SOCK_RAW, proto->p_proto)) < 0) {
+X	return(PING_BAD_SOCKET);
+X    }
+X    
+X    /* Make a unique identifier from our PID. */
+X
+X    echo_id = getpid() & 0xFFFF;
+X    
+X    gotback=0;
+X    
+X    for (ping_counter = 0; ping_counter < ping_quantity; ping_counter++) {
+X#ifdef PINGDEBUG
+X	fprintf(stderr,"PING! sequence=%d\n",ping_counter);
+X#endif
+X	
+X	if (send_ping(echo_id,ping_counter,packet_size,*whereto,s)<0) {
+X	    close(s);
+X	    return(PING_CANT_SEND);
+X	}
+X	
+X	
+X	xvsleep(timeout);
+X	
+X	if(fcntl(s, F_SETFL, FNDELAY) <0)
+X	{
+X	    fprintf(stderr, "Cannot set non-blocking\n");
+X	    exit(BLOCKING);
+X	}
+X
+X
+X	errno=0;
+X	if((reply_packet_size = recvfrom(s,
+X					 reply_packet,
+X					 reply_buffer_size, 
+X					 0,
+X					 &from,
+X					 &from_size)) < 0) 
+X	    if( errno != EINTR ) {
+X#ifdef PINGDEBUG
+X		perror("ping: recvfrom");
+X#endif
+X		continue;
+X	    }
+X	if (errno != EINTR) 
+X	    if (for_us(reply_packet,reply_packet_size,echo_id)) 
+X		gotback++;
+X    }
+X    close(s);
+X    return(gotback);
+X}
+X
+X/*
+X * Send an ICMP echo packet on the network with an ID of "echo_id", sequence
+X * number "sequence", of "length" bytes down "socket" to "whereto".
+X * [Ugh, that's ugly... ]
+X *
+X * Returns 0 if AOK, <0 if not.
+X */
+X
+Xint send_ping(echo_id,sequence,length,whereto,socket)
+X    int echo_id;
+X    int sequence;
+X    int length;
+X    struct sockaddr whereto;
+X    int socket;
+X{
+X    static u_char 	source_packet[BIGPACKET];	/* Unitialized data */
+X    struct icmp 	*icmp_header = (struct icmp *) source_packet;
+X    
+X    int 		bytes_sent;
+X    int		source_packet_size;
+X    
+X    icmp_header->icmp_type = ICMP_ECHO;
+X    icmp_header->icmp_seq = sequence;
+X    icmp_header->icmp_id = echo_id;
+X    
+X    icmp_header->icmp_cksum = 0; 	/* Must be zero while checksum is 
+X					   computed... */
+X    
+X    source_packet_size = length + 8;	/* skip the ICMP header */
+X    
+X    icmp_header->icmp_cksum = in_cksum( icmp_header, source_packet_size );
+X    
+X    /* Send the packet out */
+X    
+X    bytes_sent = sendto(	socket,
+X			source_packet,
+X			source_packet_size,
+X			0,
+X			&whereto,
+X			sizeof(struct sockaddr) );
+X    
+X    /* Problem?  Don't be specific.  If it fails, it fails. */
+X    
+X    if( bytes_sent < 0 || bytes_sent != source_packet_size ) 
+X	return(-1);
+X    
+X    /* We're here if no local errors were detected. */
+X    
+X    return(0);
+X}
+X
+X/*
+X * Is this icmp message for us?
+X *
+X * Takes an ICMP packet of size "packet_size" in "packet" and checks the 
+X * "echo_id" of the echoed packet.  If they match, 1 is returned.
+X * If they don't 0 is returned.
+X */
+X
+Xint for_us(packet, packet_size, echo_id)
+X    char *packet;
+X    int packet_size;
+X    int echo_id;
+X{
+X    struct ip 		*ip;
+X    register struct icmp 	*icmp_header;
+X    int 			ip_header_size;
+X    
+X    ip = (struct ip *) packet;
+X    
+X#ifdef PINGDEBUG
+X    fprintf(stderr,"Got something..\n");
+X#endif
+X    
+X    /* Extract the header size from the icmp structure. */
+X    
+X    ip_header_size = ip->ip_hl << 2;
+X    
+X    /* If the packet is smaller than the header, something is wrong. */
+X    
+X    if (packet_size < ip_header_size + ICMP_MINLEN) 
+X	return(0);
+X    
+X    /* 
+X     * Compute the resultant packet size by subtracting the size of
+X     * the header
+X     */
+X    
+X    packet_size -= ip_header_size;
+X    
+X    /* Find the ICMP header buried in the packet */
+X    
+X    icmp_header = (struct icmp *)(packet + ip_header_size);
+X    
+X    if( icmp_header->icmp_type != ICMP_ECHOREPLY )  
+X	return(0);			/* Not an echo, return */
+X    
+X    if( icmp_header->icmp_id != echo_id )
+X	return(0);			/* Not our echo. */
+X    
+X#ifdef PINGDEBUG
+X    fprintf(stderr,"ID=%d, sequence=%d\n",icmp_header->icmp_id,
+X	    icmp_header->icmp_seq);
+X#endif
+X    
+X    /* We're here if it was our header, so return "true" */
+X    
+X    return(1);
+X    
+X}
+X
+X/*
+X * setup_address takes a hostname and returns a socket address structure 
+X * for use in future socket "sendto" and "recvfrom" calls.
+X *
+X * The hostname my be dotted decimal or a real hostname.
+X *
+X * The return structure is static and is overwritten with each call.
+X *
+X * If the hostname does not exist, NULL is returned.
+X *
+X */
+X
+Xstruct sockaddr *setup_address(hostname)
+X    char *hostname;
+X{
+X    
+X    static struct sockaddr whereto;
+X    struct sockaddr_in *wheretop;
+X    struct hostent *hp;	/* Pointer to host info */
+X    
+X    wheretop = (struct sockaddr_in *) &whereto;
+X    
+X    bzero( (char *)&whereto, sizeof(struct sockaddr) );
+X    
+X    /*
+X     * Try convertng the dotted decimal number first.  If that fails, try
+X     * using the resolver. 
+X     */
+X    
+X    wheretop->sin_family = AF_INET;
+X    wheretop->sin_addr.s_addr = inet_addr(hostname);
+X    if (wheretop->sin_addr.s_addr == -1) {
+X	hp = gethostbyname(hostname);	/* Use resolver */
+X	if (hp) {
+X	    wheretop->sin_family = hp->h_addrtype;
+X	    bcopy(hp->h_addr, (caddr_t)&wheretop->sin_addr, 
+X		  hp->h_length);
+X	} else {
+X	    /* Unknown host */
+X	    return (NULL);
+X	}
+X    }
+X    return(&whereto);
+X}
+X
+X
+X/*
+X *			I N _ C K S U M
+X *
+X * Checksum routine for Internet Protocol family headers (C Version)
+X *
+X * Stolen unaltered from Mike Muuss' public domain ping package.
+X *
+X */
+Xin_cksum(addr, len)
+X    u_short *addr;
+X    int len;
+X{
+X    register int nleft = len;
+X    register u_short *w = addr;
+X    register u_short answer;
+X    register int sum = 0;
+X    
+X    /*
+X     *  Our algorithm is simple, using a 32 bit accumulator (sum),
+X     *  we add sequential 16 bit words to it, and at the end, fold
+X     *  back all the carry bits from the top 16 bits into the lower
+X     *  16 bits.
+X     */
+X    while( nleft > 1 )  {
+X	sum += *w++;
+X	nleft -= 2;
+X    }
+X    
+X    /* mop up an odd byte, if necessary */
+X    if( nleft == 1 )
+X	sum += *(u_char *)w;
+X    
+X    /*
+X     * add back carry outs from top 16 bits to low 16 bits
+X     */
+X    
+X    sum = (sum >> 16) + (sum & 0xffff);	/* add hi 16 to low 16 */
+X    sum += (sum >> 16);			/* add carry */
+X    answer = ~sum;				/* truncate to 16 bits */
+X    return (answer);
+X}
+X
+Xvoid xvsleep(timeout)
+Xint timeout;
+X{
+X    int oldmask, mask;
+X    struct timeval tv;
+X   
+X    tv.tv_sec = timeout / 1000000;
+X    tv.tv_usec = timeout % 1000000;
+X
+X    mask = sigmask(SIGIO);
+X    mask |= sigmask(SIGALRM);
+X    oldmask = sigblock(mask);
+X    
+X    if((select(0,0,0,0,&tv)) == -1)
+X    {
+X	fprintf(stderr, "Problem with select\n");
+X        perror();
+X    }
+X
+X    sigsetmask(oldmask);
+X
+X}
+X
+X    
+END_OF_FILE
+  if test 10052 -ne `wc -c <'hping.c'`; then
+    echo shar: \"'hping.c'\" unpacked with wrong size!
+  fi
+  # end of 'hping.c'
+fi
+if test -f 'hping.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hping.h'\"
+else
+  echo shar: Extracting \"'hping.h'\" \(464 characters\)
+  sed "s/^X//" >'hping.h' <<'END_OF_FILE'
+X/*
+X * File: hping.h
+X *
+X * Authors: Jim Hayes (original)
+X *          George V. Neville-Neil (added functionality)
+X * 
+X * Function: This is the .h file for the hping routines.
+X *
+X */
+X
+X#define PING_COUNT_ERROR -1
+X#define PING_UNKNOWN_HOST -2
+X#define PING_TOO_BIG -3
+X#define PING_ICMP_UNKNOWN -4
+X#define PING_BAD_SOCKET -5
+X#define PING_CANT_SEND -6
+X#define PING_TOO_SMALL -7
+X#define PING_TOO_SHORT -8
+X#define BLOCKING -9
+X
+X#define BIGPACKET 1024
+X#define SMALLPACKET 56
+END_OF_FILE
+  if test 464 -ne `wc -c <'hping.h'`; then
+    echo shar: \"'hping.h'\" unpacked with wrong size!
+  fi
+  # end of 'hping.h'
+fi
+if test -f 'up.icon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'up.icon'\"
+else
+  echo shar: Extracting \"'up.icon'\" \(269 characters\)
+  sed "s/^X//" >'up.icon' <<'END_OF_FILE'
+X#define up_width 16
+X#define up_height 16
+Xstatic char up_bits[] = {
+X   0x00, 0x00, 0xc0, 0x07, 0x30, 0x18, 0x08, 0x20, 0x04, 0x40, 0x64, 0x4c,
+X   0x42, 0x84, 0x02, 0x81, 0x02, 0x80, 0x02, 0x80, 0x22, 0x88, 0x44, 0x44,
+X   0x84, 0x43, 0x08, 0x20, 0x30, 0x18, 0xc0, 0x07};
+END_OF_FILE
+  if test 269 -ne `wc -c <'up.icon'`; then
+    echo shar: \"'up.icon'\" unpacked with wrong size!
+  fi
+  # end of 'up.icon'
+fi
+if test -f 'xv_ping.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xv_ping.8'\"
+else
+  echo shar: Extracting \"'xv_ping.8'\" \(2273 characters\)
+  sed "s/^X//" >'xv_ping.8' <<'END_OF_FILE'
+X.TH xv_ping 8 "August 31, 1992"
+X.SH xv_ping
+Xxv_ping - an XView program to monitor hosts on the internet using ICMP echoes
+X.SH SYNOPSIS
+XXV_PING maintains a list of hosts on the internet and associates a 
+Xlatency with them.  There is a global clock that can be set from 30 
+Xseconds to one day in one second intervals.  When the time on the clock
+Xruns out the program tries to ping every host in the list  and waits
+Xfor the host to respond until the latency specified with the host.  The 
+Xminimum latency is 10ms, and the maximum is 5000ms.  
+X
+XThis program must be run as root to allow it to send the ICMP
+Xecho packets.
+X
+X.SH DESCRIPTION
+XOnce the program is started you may type in a host name, and either
+Xset, or use the default latency (10ms).  If you press the
+X.I Insert
+Xbutton the host will be inserted into the list.  To the right of the host
+Xname the latency for that host will appear.  If the program cannot
+Xfind the host there will be an error message popped up, and the host
+Xwill not be inserted in the list.  There are two shortcuts to entering
+Xa host .  You may press return in the 
+X.B Host Name
+Xtype in and this will attempt to perform the same operation as an
+Xinsert.
+X
+XTo remove a host from the list select the host name with the left
+Xmouse button.  The host name will be highlighted when it is selected.
+XThen press the
+X.I Delete
+Xbutton.  The host is now removed from the list and will not be pinged
+Xagain.
+X
+XTo change the latency on a host, select the host name with the left
+Xmouse button.  The host name will be inserted into the 
+X.B Host Name
+Xtype in, and it's latency will be placed in the
+X.B Latency 
+Xtype in.  You may now modify the latency and either press the
+X.I Insert
+Xbutton or press return in either of the type ins to put in the edited
+Xentry.
+X
+XWhen a host is up there is a smiley face next to its name in the list,
+Xwhen the host is down there is a frowning face instead.
+X
+XTo quit press the
+X.I Quit
+Xbutton and then press the 
+X.I Quit
+Xbutton in the confirmation popup.  If you did not intend to quit press
+Xthe
+X.I Save My Walrus
+Xbutton in the confirmation popup.
+X
+XThis program adheres to the Open Look GUI spec.
+X.SH SEE ALSO
+Xping(8)
+X
+X.SH AUTHOR
+XGeorge V. Neville-Neil
+X
+XThanks to Jim Hayes of Apple Computer for contributing the original
+Xping routine.
+X
+X.PP
+END_OF_FILE
+  if test 2273 -ne `wc -c <'xv_ping.8'`; then
+    echo shar: \"'xv_ping.8'\" unpacked with wrong size!
+  fi
+  # end of 'xv_ping.8'
+fi
+if test -f 'xv_ping.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xv_ping.c'\"
+else
+  echo shar: Extracting \"'xv_ping.c'\" \(18347 characters\)
+  sed "s/^X//" >'xv_ping.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1992 George V. Neville-Neil
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by George V. Neville-Neil
+X * 4. The name, George Neville-Neil may not be used to endorse or promote 
+X *    products derived from this software without specific prior 
+X *    written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR 
+X * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+X/*
+X *
+X * Program: xv_ping
+X * 
+X * Author: George V. Neville-Neil 
+X *
+X * Date: 8/20/92
+X *
+X * Function: This program will manage a list of network clients and allow
+X * the user to select how often the clients should be "ping"ed.  If a client
+X * does not answer within the user specified time then a dialog will be 
+X * popped up showing this.
+X *
+X */
+X
+Xstatic char rcsid[] = "$Id: xv_ping.c,v 2.0 1992/09/05 18:30:37 gnn Exp gnn $";
+X
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#include <xview/xview.h>
+X#include <xview/frame.h>
+X#include <xview/panel.h>
+X#include <xview/notice.h>
+X#include <xview/icon.h>
+X#include <xview/tty.h>
+X#include <xview/svrimage.h>
+X
+X/* We denote up and down hosts using glyphs supplied here */
+X#include "up.icon"
+X#include "down.icon"
+X
+X/* Our icon */
+Xshort xv_ping_bits[] = 
+X{
+X#include "xv_ping.icon"
+X};
+X
+X#define ULTRIX
+X
+X#define NOT_ROOT -1
+X
+X#define BUF_LEN 1024
+X
+X#define NUM_HOSTS 256
+X
+X#define DEFAULT_MIN 5 
+X#define DEFAULT_SEC 0
+X
+X#define NUM_PINGS 1
+X#define PING_SIZE 56
+X
+X#define MAX_ROWS 15
+X
+X#define MIN_LATENCY 10
+X#define MAX_LATENCY 5000
+X
+XFrame base_frame;
+XPanel base_panel;
+XPanel_item host_list, host_name, sample_min, sample_sec, latency;
+XTty information;
+Xstruct itimerval timer;
+XServer_image icon_image, up_image, down_image;
+XIcon icon;
+XRect image_rect, label_rect;
+X
+Xint hosts[NUM_HOSTS];  /* the list of latencies for hosts based on their
+X			  position in the host_list */
+Xint total_wait;   /* Total time in micro-seconds that we expect to be
+X		     pinging all of the hosts in the list */
+X
+X
+Xvoid
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X
+X    extern Notify_value ping_host();
+X    
+X    int local_error, temp;
+X    
+X    struct stat *statbuf;
+X    
+X    extern char *optarg;
+X    
+X    extern Frame base_frame;
+X    extern Panel base_panel;
+X    extern Panel_item host_list, host_name, sample_min, sample_sec, latency;
+X    extern Tty information;
+X    extern struct itimerval timer;
+X    extern Server_image icon_image, up_image, down_image;
+X    extern Icon icon;
+X    extern Rect image_rect, label_rect;
+X
+X    void quit();
+X    void hostname_modified();
+X    void delete_host();
+X    int list_selected();
+X
+X    extern int total_wait;
+X
+X    /* First check to see if we are root or have root privileges. */
+X    /* If we don't then bail with an error message.  */
+X
+X    if(geteuid() != 0)
+X    {
+X	fprintf(stderr, "This program must be run with root privs.\n");
+X	exit(NOT_ROOT);
+X    }
+X
+X    /* xv_init will parse out all of the X specific arguments on */
+X    /* the command line so that we only have to deal with our */
+X    /* own arguments. */
+X    
+X    local_error = xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, NULL);
+X    
+X    
+X    while((temp = getopt(argc, argv, "")) !=EOF)
+X	switch(temp)
+X	{
+X	}
+X    
+X    base_frame = (Frame) xv_create(NULL, FRAME,
+X				   FRAME_LABEL, argv[0],
+X				   NULL);
+X    
+X    base_panel = (Panel) xv_create(base_frame, PANEL, NULL);
+X    
+X    /* Note: Items are laid out in a panel in the order that */
+X    /* they are created in from left to right and then down */
+X    /* just like Indo-European text.  The following objects */
+X    /* are placed in a specific order.  Some objects have their */
+X    /* X and Y coordinates specifically set to give the "look" */
+X    /* asked for in the program specification. */
+X    
+X    local_error = xv_create(base_panel, PANEL_BUTTON,
+X			    XV_HELP_DATA, "xvdisplay:quit",
+X			    PANEL_LABEL_STRING, "Quit",
+X			    PANEL_NOTIFY_PROC, quit,
+X			    NULL);
+X    
+X    local_error = xv_create(base_panel, PANEL_BUTTON,
+X			    XV_HELP_DATA, "xvdisplay:insert",
+X			    PANEL_LABEL_STRING, "Insert",
+X			    PANEL_NOTIFY_PROC, hostname_modified,
+X			    NULL);
+X    
+X    local_error = xv_create(base_panel, PANEL_BUTTON,
+X			    XV_HELP_DATA, "xvdisplay:delete",
+X			    PANEL_LABEL_STRING, "Delete",
+X			    PANEL_NOTIFY_PROC, delete_host,
+X			    NULL);
+X    
+X    sample_min = (Panel_item)xv_create(base_panel, PANEL_NUMERIC_TEXT,
+X				       PANEL_NEXT_ROW, -1,
+X				       PANEL_MAX_VALUE, 1439,
+X				       PANEL_MIN_VALUE, 0,
+X				       PANEL_VALUE, DEFAULT_MIN,
+X				       XV_HELP_DATA, "xv_ping:sample_min",
+X				       PANEL_LABEL_STRING, "Sample Min:",
+X				       NULL);
+X    
+X    sample_sec = (Panel_item)xv_create(base_panel, PANEL_NUMERIC_TEXT,
+X				       PANEL_MIN_VALUE, 0,
+X				       PANEL_MAX_VALUE, 59,
+X				       PANEL_VALUE, DEFAULT_SEC,
+X				       XV_HELP_DATA, "xv_ping:sample_sec",
+X				       PANEL_LABEL_STRING, "Sec:",
+X				       NULL);
+X    
+X    host_list = (Panel_item)xv_create(base_panel, PANEL_LIST,
+X				      PANEL_LIST_INSERT_DUPLICATE, FALSE,
+X				      PANEL_NEXT_ROW, -1,
+X				      PANEL_LIST_DISPLAY_ROWS, 10,
+X				      PANEL_LIST_WIDTH, 300,
+X				      PANEL_LABEL_STRING, "Hosts",
+X				      PANEL_NOTIFY_PROC, list_selected,
+X				      PANEL_READ_ONLY, TRUE,
+X				      XV_HELP_DATA, "xv_ping:host_list",
+X				      NULL);
+X    
+X    host_name = (Panel_item)xv_create(base_panel, PANEL_TEXT,
+X				      PANEL_NEXT_ROW, -1,
+X				      PANEL_VALUE_DISPLAY_LENGTH, 25,
+X				      PANEL_LABEL_STRING, "Hostname:",
+X				      PANEL_NOTIFY_PROC, hostname_modified,
+X				      PANEL_NOTIFY_STRING,  "\n\r",
+X				      NULL);
+X    
+X    latency = (Panel_item)xv_create(base_panel, PANEL_NUMERIC_TEXT,
+X				    PANEL_NEXT_ROW, -1,
+X				    PANEL_MAX_VALUE, MAX_LATENCY,
+X				    PANEL_MIN_VALUE, MIN_LATENCY,
+X				    XV_HELP_DATA, "xv_ping:latency",
+X				    PANEL_LABEL_STRING, "Latency (ms):",
+X				    NULL);
+X    
+X    window_fit(base_panel);	
+X
+X    information = (Tty)xv_create(base_frame, TTY,
+X				 WIN_BELOW, base_panel,
+X				 WIN_X, 0,
+X				 WIN_ROWS, MAX_ROWS,
+X				 WIN_COLUMNS, 80,
+X				 TTY_ARGV, TTY_ARGV_DO_NOT_FORK,
+X				 NULL);
+X
+X    /* Make our panel as big as our tty output area. */
+X    xv_set(base_panel, WIN_WIDTH, xv_get(information, WIN_WIDTH), NULL);
+X
+X    /* create our up and down glyphs */
+X
+X    down_image = (Server_image)xv_create(NULL, SERVER_IMAGE,
+X					 XV_WIDTH, down_width,
+X					 XV_HEIGHT, down_height,
+X					 SERVER_IMAGE_BITS, down_bits,
+X					 NULL);
+X
+X    up_image = (Server_image)xv_create(NULL, SERVER_IMAGE,
+X					 XV_WIDTH, up_width,
+X					 XV_HEIGHT, up_height,
+X					 SERVER_IMAGE_BITS, up_bits,
+X					 NULL);
+X
+X
+X    /* Create our icon */
+X    icon_image = (Server_image)xv_create(NULL, SERVER_IMAGE,
+X					 XV_WIDTH, 64,
+X					 XV_HEIGHT, 64,
+X					 SERVER_IMAGE_BITS, xv_ping_bits,
+X					 NULL);
+X    
+X    rect_construct(&image_rect, 0, 0, 64, 64);
+X    rect_construct(&label_rect, 0, 69, 64, 20);
+X    
+X    icon = (Icon)xv_create(base_frame, ICON,
+X			   XV_WIDTH, 64,
+X			   XV_HEIGHT, 64 + 25,
+X			   ICON_IMAGE, icon_image,
+X			   XV_LABEL, "xv_ping",
+X			   ICON_LABEL_RECT, &label_rect,
+X			   ICON_IMAGE_RECT, &image_rect,
+X			   NULL);
+X    
+X    xv_set(base_frame, FRAME_ICON, icon, NULL);
+X    
+X    window_fit(base_frame);
+X    
+X    timer.it_value.tv_sec = 60 * DEFAULT_MIN + DEFAULT_SEC;
+X    timer.it_interval.tv_sec = 60 * DEFAULT_MIN + DEFAULT_SEC;
+X    notify_set_itimer_func(base_frame, ping_host, ITIMER_REAL, 
+X			   &timer, NULL);
+X
+X    dup2((int)xv_get(information, TTY_TTY_FD), 0);
+X    dup2((int)xv_get(information, TTY_TTY_FD), 1);
+X
+X    total_wait = 0;
+X
+X    xv_main_loop(base_frame);
+X    
+X    exit(0);
+X    
+X}
+X
+X
+X
+Xvoid quit(item, event)
+XPanel_item item;
+XEvent *event;
+X{
+X    int result;
+X    
+X    result = notice_prompt(base_panel, NULL,
+X			   NOTICE_FOCUS_XY, event_x(event), event_y(event),
+X			   NOTICE_MESSAGE_STRINGS, "WHAT IS IT MAN !?", 
+X			   NULL,
+X			   NOTICE_BUTTON_YES, "Quit",
+X			   NOTICE_BUTTON_NO, "Save My Walrus!",
+X			   NULL);
+X    
+X    if(result == NOTICE_YES)
+X    {
+X	xv_destroy_safe(base_frame);
+X	exit(0);
+X    }
+X    
+X}
+X
+XNotify_value ping_host()
+X{
+X    
+X    extern Frame base_frame;
+X    extern struct itimerval timer;
+X    extern int hosts[];
+X
+X    char host_name[BUF_LEN], new_buf[BUF_LEN], *timebuf, *tmp;
+X    int i, got, num_rows;
+X
+X    time_t tmptime;
+X
+X    num_rows = xv_get(host_list, PANEL_LIST_NROWS);
+X
+X    if(num_rows <=0)
+X	return;
+X
+X    xv_set(base_frame, FRAME_BUSY, TRUE, NULL);
+X
+X    /* turn off the notifier while we are pinging */
+X    notify_set_itimer_func(base_frame, NOTIFY_FUNC_NULL, ITIMER_REAL, 
+X			   NULL, NULL);
+X
+X    for(i = 0; i < num_rows; i++)
+X    {
+X	strcpy(host_name, xv_get(host_list, PANEL_LIST_STRING, i));
+X
+X	tmp = strchr(host_name, ' ');
+X	if(tmp != NULL)
+X	    *tmp = NULL;
+X
+X	got = hping(host_name, NUM_PINGS, hosts[i], PING_SIZE);
+X
+X	if(got == 0)
+X	{
+X	    tmptime =  time(NULL);
+X	    timebuf = (char *)ctime(&tmptime);
+X	    timebuf[strlen(timebuf)-1] = ' ';
+X	    printf("%s: Host  %s did not respond to ping in %d ms.\n", timebuf,
+X		   host_name, hosts[i]/1000);
+X	    xv_set(host_list,
+X		   PANEL_LIST_GLYPH, i, down_image,
+X		   NULL);
+X	}
+X	else
+X	{
+X	    xv_set(host_list,
+X		   PANEL_LIST_GLYPH, i, up_image,
+X		   NULL);
+X	}	    
+X    }
+X    
+X
+X    xv_set(base_frame, FRAME_BUSY, FALSE, NULL);
+X    
+X    timer.it_value.tv_sec = 60 * xv_get(sample_min, PANEL_VALUE) 
+X	+ xv_get(sample_sec, PANEL_VALUE);
+X    timer.it_interval.tv_sec = 60 * xv_get(sample_min, PANEL_VALUE) 
+X	+ xv_get(sample_sec, PANEL_VALUE);
+X    notify_set_itimer_func(base_frame, ping_host, ITIMER_REAL, 
+X			   &timer, NULL);
+X
+X    return NOTIFY_DONE;
+X    
+X
+X}
+X
+Xvoid hostname_modified()
+X{
+X
+X    extern Panel_item host_name, host_list, latency;
+X    extern int hosts[];
+X    extern int total_wait;
+X    extern struct itimerval timer;
+X    extern Server_image up_image, down_image;
+X
+X    char tmp_buf[BUF_LEN], *tmp;
+X
+X    int num_rows, which;
+X
+X    if((total_wait + (1000 * xv_get(latency, PANEL_VALUE))) > 
+X       timer.it_interval.tv_sec * 1000000)
+X    {
+X	error_notice("Your total ping time is more than the inter sample time.");
+X	return;
+X    }
+X
+X    num_rows = xv_get(host_list, PANEL_LIST_NROWS);
+X
+X    which = in_list(host_list, num_rows, xv_get(host_name, PANEL_VALUE));
+X
+X    if(which > -1)
+X    {
+X	/* The value the user gives is ms and has to be converted to usec */
+X	hosts[which] = xv_get(latency, PANEL_VALUE) *1000;
+X	
+X	sprintf(tmp_buf, "%s %d (ms)", xv_get(host_name, PANEL_VALUE),
+X		hosts[which]/1000);
+X
+X	xv_set(host_list, 
+X	       PANEL_LIST_GLYPH, which, up_image,
+X	       PANEL_LIST_STRING, which, tmp_buf,
+X	       NULL);
+X
+X	xv_set(host_name, PANEL_VALUE, "", NULL);
+X	xv_set(latency, PANEL_VALUE, MIN_LATENCY, NULL);
+X	return;
+X    }
+X
+X    if(!valid_host(xv_get(host_name, PANEL_VALUE)))
+X	return;
+X
+X    if(xv_get(latency, PANEL_VALUE) < 10)
+X    {
+X	error_notice("You must set the latency.");
+X	return;
+X    }
+X
+X    /* The value the user gives is ms and has to be converted to usec */
+X    hosts[num_rows] = xv_get(latency, PANEL_VALUE) * 1000;
+X
+X    sprintf(tmp_buf, "%s %d (ms)", xv_get(host_name, PANEL_VALUE),
+X	    hosts[num_rows]/1000);
+X    
+X    xv_set(host_list, 
+X	   PANEL_LIST_INSERT, num_rows,
+X	   PANEL_LIST_STRING, num_rows, tmp_buf,
+X	   PANEL_LIST_GLYPH, num_rows, up_image,
+X	   NULL);
+X
+X    total_wait = total_wait + (1000 * xv_get(latency, PANEL_VALUE));
+X
+X    xv_set(host_name, PANEL_VALUE, "", NULL);
+X    xv_set(latency, PANEL_VALUE, MIN_LATENCY, NULL);
+X
+X}
+X
+Xvoid delete_host()
+X{
+X
+X    extern Panel_item host_list, host_name, latency;
+X
+X    int row, num_rows, count;
+X
+X    num_rows = xv_get(host_list, PANEL_LIST_NROWS);
+X
+X    if(num_rows == 0)
+X	return;
+X
+X    row = xv_get(host_list, PANEL_LIST_FIRST_SELECTED);
+X
+X    xv_set(host_list, PANEL_LIST_DELETE, row, NULL);
+X    
+X    for(count = row; count < num_rows; count++)
+X	hosts[count] = hosts[count+1];
+X
+X    xv_set(host_name, PANEL_VALUE, "", NULL);
+X
+X    xv_set(latency, PANEL_VALUE, MIN_LATENCY, NULL);
+X
+X
+X}
+X
+X
+Xint list_selected(item, host_passed, client_data, op, event, row)
+XPanel_item item;
+Xchar *host_passed;
+XXv_opaque client_data;
+XPanel_list_op op;
+XEvent *event;
+Xint row;
+X{
+X
+X    extern Panel_item latency, host_name;
+X    extern int host[];
+X
+X    char *tmp, tmp_buf[BUF_LEN];
+X
+X    if(op != PANEL_LIST_OP_SELECT)
+X	return XV_OK;
+X
+X    strcpy(tmp_buf, host_passed);
+X
+X    tmp = strchr(tmp_buf, ' ');
+X    if(tmp != NULL)
+X	*tmp = NULL;
+X
+X    xv_set(host_name, PANEL_VALUE, tmp_buf, NULL);
+X    xv_set(latency, PANEL_VALUE, hosts[row]/1000, NULL);
+X
+X    return XV_OK;
+X}
+X
+X
+X
+Xint valid_host(hostname)
+Xchar *hostname;
+X{
+X
+X    char err_buf[BUF_LEN];
+X
+X    if(inet_addr(hostname) == -1)
+X    {
+X	if(gethostbyname(hostname) == NULL)
+X	{
+X	    sprintf(err_buf, "Unknown host: %s.", hostname);
+X	    error_notice(err_buf);
+X	    return FALSE;
+X	}
+X    }
+X
+X    if(strcmp(hostname, "") == 0)
+X    {
+X	error_notice("Cannot insert an empty hostname.");
+X	return FALSE;
+X    }
+X    
+X    if(strchr(hostname, ' ') != NULL)
+X    {
+X	error_notice("Spaces are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '!') != NULL)
+X    {
+X	error_notice("Exclamation points (!) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '@') != NULL)
+X    {
+X	error_notice("At signs (@) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '#') != NULL)
+X    {
+X	error_notice("Pound signs (#) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '$') != NULL)
+X    {
+X	error_notice("Dollar signs ($) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '%') != NULL)
+X    {
+X	error_notice("Percent signs (%) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X 
+X    if(strchr(hostname, '^') != NULL)
+X    {
+X	error_notice("Carets (^) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '&') != NULL)
+X    {
+X	error_notice("And signs (&) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '*') != NULL)
+X    {
+X	error_notice("Asterisks (*) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '(') != NULL)
+X    {
+X	error_notice("Open parenthesis, (, are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, ')') != NULL)
+X    {
+X	error_notice("Close parenthesis, ), are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '_') != NULL)
+X    {
+X	error_notice("Underscores (_) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '+') != NULL)
+X    {
+X	error_notice("Plus signs (+) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '=') != NULL)
+X    {
+X	error_notice("Equal signs (=) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '{') != NULL)
+X    {
+X	error_notice("Open curly bracket symbols, {, are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '}') != NULL)
+X    {
+X	error_notice("Close curly bracket symbols, },  are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '[') != NULL)
+X    {
+X	error_notice("Open square bracket symbols, [,  are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, ']') != NULL)
+X    {
+X	error_notice("Close square bracket symbols, ], are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, ':') != NULL)
+X    {
+X	error_notice("Colons (:) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, ';') != NULL)
+X    {
+X	error_notice("Semi-colons (;) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '"') != NULL)
+X    {
+X	error_notice("Double quotes (\") are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '\'') != NULL)
+X    {
+X	error_notice("Single quotes (') signs are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '\\') != NULL)
+X    {
+X	error_notice("Back slashes (\) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '|') != NULL)
+X    {
+X	error_notice("Vetical bar signs (|) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '?') != NULL)
+X    {
+X	error_notice("Question marks (?) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '/') != NULL)
+X    {
+X	error_notice("Forward slashes (/) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, ',') != NULL)
+X    {
+X	error_notice("Commas (,) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '~') != NULL)
+X    {
+X	error_notice("Tildes (~) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    if(strchr(hostname, '`') != NULL)
+X    {
+X	error_notice("Back quotes (`) are not allowed in hostames.");
+X	return FALSE;
+X    }
+X
+X    return TRUE;
+X}
+X
+Xint
+Xerror_notice(notice_string)
+Xchar *notice_string;
+X{
+X    
+X    notice_prompt(base_panel, NULL,
+X		  NOTICE_MESSAGE_STRINGS,
+X		  notice_string,
+X		  NULL,
+X		  NOTICE_BUTTON_YES, "OK",
+X		  NULL);
+X
+X}
+X
+Xint in_list(list, rows, name)
+XPanel_item list;
+Xint rows;
+Xchar *name;
+X{
+X    int i;
+X    char buf[BUF_LEN], *tmp;
+X
+X    if(rows <=0)
+X	return -1;
+X
+X    for(i = 0; i < rows; i++)
+X    {
+X	strcpy(buf, xv_get(list, PANEL_LIST_STRING, i));
+X	tmp = strchr(buf, ' ');
+X	if(tmp != NULL)
+X	    *tmp = NULL;
+X	if(strcmp(buf, name) == 0)
+X	    return i;
+X    }
+X
+X    return -1;
+X}
+X
+END_OF_FILE
+  if test 18347 -ne `wc -c <'xv_ping.c'`; then
+    echo shar: \"'xv_ping.c'\" unpacked with wrong size!
+  fi
+  # end of 'xv_ping.c'
+fi
+if test -f 'xv_ping.icon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xv_ping.icon'\"
+else
+  echo shar: Extracting \"'xv_ping.icon'\" \(1933 characters\)
+  sed "s/^X//" >'xv_ping.icon' <<'END_OF_FILE'
+X/* Format_version=1, Width=64, Height=64, Depth=1, Valid_bits_per_item=16
+X */
+X	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,
+X	0xffff,0xffff,0xffff,0xffff,0xffff,0xffe0,0x03ff,0xffff,
+X	0xffff,0xfe1f,0xfc3f,0xffff,0xffff,0xf9ff,0xff8f,0xffff,
+X	0xffff,0xe7ff,0xff83,0xffff,0xffff,0x9fff,0xff00,0xffff,
+X	0xfffe,0x7ffc,0x7f01,0x3fff,0xfffd,0xfffc,0x7f03,0xdfff,
+X	0xfffb,0xfffc,0x7e03,0xefff,0xfff7,0xffff,0xfe07,0xf7ff,
+X	0xffef,0xffff,0xfe07,0xfbff,0xffdf,0xffff,0xfc0f,0xfdff,
+X	0xffbf,0xfff0,0x040f,0xfeff,0xff7f,0xff8f,0xf81f,0xff7f,
+X	0xff7f,0xfe7f,0xf83f,0xff7f,0xfeff,0xfdff,0xf81f,0xffbf,
+X	0xfeff,0xf3e3,0xf867,0xffbf,0xfdff,0xefe3,0xf07b,0xffdf,
+X	0xfdff,0xdfe3,0xf0fd,0xffdf,0xfbff,0xdfff,0xf1fd,0xffef,
+X	0xfbff,0xbfff,0xe1fe,0xffef,0xf7ff,0x7ff0,0x03ff,0x7ff7,
+X	0xf7ff,0x7fef,0xe3ff,0x7ff7,0xf7fe,0xffdf,0xc5ff,0xbff7,
+X	0xf7fe,0xffbf,0xc6ff,0xbff7,0xeffe,0xff7f,0xcf7f,0xbffb,
+X	0xeffd,0xff7f,0x9f7f,0xdffb,0xeffd,0xfeff,0x9fbf,0xdffb,
+X	0xeffd,0xfeff,0xbfbf,0xdffb,0xeffd,0xfeff,0x3fbf,0xdffb,
+X	0xeffd,0xfeff,0x7fbf,0xdffb,0xeffd,0xfeff,0xffbf,0xdffb,
+X	0xeffd,0xfeff,0xffbf,0xdffb,0xeffd,0xfeff,0xffbf,0xdffb,
+X	0xeffd,0xff7f,0xff7f,0xdffb,0xeffe,0xff7f,0xff7f,0xbffb,
+X	0xf7fe,0xffbf,0xfeff,0xbff7,0xf7fe,0xffdf,0xfdff,0xbff7,
+X	0xf7ff,0x7fe7,0xf3ff,0x7ff7,0xf7ff,0x7ff8,0x0fff,0x7ff7,
+X	0xfbff,0xbfff,0xfffe,0xffef,0xfbff,0xdfff,0xfffd,0xffef,
+X	0xfdff,0xdfff,0xfffd,0xffdf,0xfdff,0xefff,0xfffb,0xffdf,
+X	0xfeff,0xf3ff,0xffe7,0xffbf,0xfeff,0xfdff,0xffdf,0xffbf,
+X	0xff7f,0xfe7f,0xff3f,0xff7f,0xff7f,0xff8f,0xf8ff,0xff7f,
+X	0xffbf,0xfff0,0x07ff,0xfeff,0xffdf,0xffff,0xffff,0xfdff,
+X	0xffef,0xffff,0xffff,0xfbff,0xfff7,0xffff,0xffff,0xf7ff,
+X	0xfffb,0xffff,0xffff,0xefff,0xfffd,0xffff,0xffff,0xdfff,
+X	0xfffe,0x7fff,0xffff,0x3fff,0xffff,0x9fff,0xfffc,0xffff,
+X	0xffff,0xe7ff,0xfff3,0xffff,0xffff,0xf9ff,0xffcf,0xffff,
+X	0xffff,0xfe1f,0xfc3f,0xffff,0xffff,0xffe0,0x03ff,0xffff,
+X	0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff
+END_OF_FILE
+  if test 1933 -ne `wc -c <'xv_ping.icon'`; then
+    echo shar: \"'xv_ping.icon'\" unpacked with wrong size!
+  fi
+  # end of 'xv_ping.icon'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

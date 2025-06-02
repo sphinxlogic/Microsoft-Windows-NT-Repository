@@ -1,0 +1,4266 @@
+Newsgroups: comp.sources.misc
+From: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Subject: v41i095:  wwfs - WorldWide File System, Part10/22
+Message-ID: <1994Jan17.202204.19804@sparky.sterling.com>
+X-Md4-Signature: b6775569d5a05c8626c91e871778d1ec
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Nara Institute of Science and Technology, Japan
+Date: Mon, 17 Jan 1994 20:22:04 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: youki-k@is.aist-nara.ac.jp (Youki Kadobayashi)
+Posting-number: Volume 41, Issue 95
+Archive-name: wwfs/part10
+Environment: UNIX, inet
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  csd/nfs_start.c doc/beyond.ps.B
+#   mosaic/Mosaic-2.1+wwfs.diff
+# Wrapped by kent@sparky on Sun Jan 16 17:48:33 1994
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 22)."'
+if test -f 'csd/nfs_start.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'csd/nfs_start.c'\"
+else
+  echo shar: Extracting \"'csd/nfs_start.c'\" \(7323 characters\)
+  sed "s/^X//" >'csd/nfs_start.c' <<'END_OF_FILE'
+X/* 
+X * WorldWide File System
+X * Copyright (c) 1992,1993 Youki Kadobayashi
+X * Copyright (c) 1992,1993 Osaka University
+X * All rights reserved.
+X *
+X * Permission to use, copy, modify and distribute this software and its
+X * documentation is hereby granted, provided that the following conditions
+X * are met:
+X * 1. Both the copyright notice and this permission notice appear in
+X *    all copies of the software, derivative works or modified versions,
+X *    and any portions thereof, and that both notices appear in
+X *    supporting documentation.
+X * 2. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *      This product includes software developed by the Osaka University
+X *      and its contributors.
+X * 3. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND OSAKA
+X * UNIVERSITY DISCLAIMS ANY LIABILITY OF ANY KIND FOR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM THE USE OF THIS SOFTWARE.
+X *
+X * Osaka University requests users of this software to return to
+X *
+X *  Youki Kadobayashi
+X *  Department of Information and Computer Sciences
+X *  Osaka University, Toyonaka 560, Osaka, Japan
+X *
+X * any improvements or extensions that they make and grant Osaka
+X * University the rights to redistribute these changes.
+X */
+X/* nonblocking NFS and TCP */
+Xstatic char *AtFSid = "$Header: nfs_start.c[109.0] Wed Nov 24 03:47:14 1993 youki-k@is.aist-nara.ac.jp saved $";
+X
+X#include <sys/types.h>
+X#include <errno.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include "wfs.h"
+X#include "util.h"
+X#include "global.h"
+X
+Xextern jmp_buf select_intr;
+Xextern void nfs_program_2();
+Xextern void cs_program_1();
+X
+XSVCXPRT *nfsxprt;
+XSVCXPRT *csxprt;
+Xfd_set	read_fdset, write_fdset, except_fdset;
+X
+X#define MASKED_SIGS \
+X	(sigmask(SIGINT)|sigmask(SIGTERM)|sigmask(SIGHUP))
+X
+Xextern qelem so_head;
+Xqelem so_head = { &so_head, &so_head };
+X
+Xchar *sobuf[WF_MAX_SO];
+X
+Xtypedef struct soq {
+X	qelem	q;
+X	int	so;
+X	func	funcp;
+X	void	*p;
+X} soq;
+X
+Xsoq soq_ary[WF_MAX_SO];
+X
+Xvoid
+Xso_register(so, flag)
+Xint so;
+Xint flag;
+X{
+X	if (flag & WF_SO_READ)
+X		FD_SET(so, &read_fdset);
+X	if (flag & WF_SO_WRITE)
+X		FD_SET(so, &write_fdset);
+X	if (flag & WF_SO_EXCEPT)
+X		FD_SET(so, &except_fdset);
+X}
+X
+Xvoid
+Xso_unregister(so, flag)
+Xint so;
+Xint flag;
+X{
+X	if (flag & WF_SO_READ)
+X		FD_CLR(so, &read_fdset);
+X	if (flag & WF_SO_WRITE)
+X		FD_CLR(so, &write_fdset);
+X	if (flag & WF_SO_EXCEPT)
+X		FD_CLR(so, &except_fdset);
+X}
+X
+Xvoid
+Xfd_union(destfdp, srcfdp)
+Xfd_set *destfdp, *srcfdp;
+X{
+X	int i;
+X	for (i = 0; i < (sizeof(fd_set) / sizeof(fd_mask)); ++i) {
+X		destfdp->fds_bits[i] |= srcfdp->fds_bits[i];
+X	}
+X}
+X
+Xvoid
+Xso_callback(so, funcp, p)
+Xint so;
+Xfunc funcp;
+Xvoid *p;
+X{
+X	soq *sop = &soq_ary[so];
+X#ifndef PERFECTLY_CORRECT
+X	if (soq_ary[so].so) {
+X		dlog("so_callback: not cleared");
+X		return;
+X	}
+X#endif
+X	sop->so = so;
+X	sop->funcp = funcp;
+X	sop->p = p;
+X	q_insert(&sop->q, LAST(soq, &so_head));
+X}
+X
+Xvoid
+Xso_clear(so)
+Xint so;
+X{
+X	soq *sop = &soq_ary[so];
+X#ifndef PERFECTLY_CORRECT
+X	if (soq_ary[so].so == 0) {
+X		dlog("so_clear: already cleared");
+X		return;
+X	}
+X#endif
+X	soq_ary[so].so = 0;
+X	q_remove(&sop->q);
+X}
+X
+Xchar *
+Xso_getbuf(so)
+Xint so;
+X{
+X	if (! sobuf[so]) {
+X		sobuf[so] = (char *) malloc(NFS_MAXDATA+1);
+X	}
+X	return sobuf[so];
+X}
+X
+Xstatic int
+Xdo_select(smask, fds, readfdp, writefdp, exceptfdp, tvp)
+Xint smask, fds;
+Xfd_set *readfdp, *writefdp, *exceptfdp;
+Xstruct timeval *tvp;
+X{
+X	int sig;
+X	int nsel;
+X	if (sig = setjmp(select_intr)) {
+X		select_intr_valid = 0;
+X		/* Got a signal */
+X		switch (sig) {
+X		case SIGINT:
+X		case SIGTERM:
+X			if (cs_state != Finishing) {
+X				cs_state = Finishing;
+X				/* attempt to terminate other threads */
+X				csd_stop();
+X			}
+X			break;
+X		}
+X		nsel = -1;
+X		errno = EINTR;
+X	} else {
+X		select_intr_valid = 1;
+X		/*
+X		 * Invalidate the current clock value
+X		 */
+X		now = 0;
+X		/*
+X		 * Allow interrupts.
+X		 * If a signal occurs, then it will cause longjump up above.
+X		 */
+X		(void) sigsetmask(smask);
+X		/*
+X		 * Wait for input
+X		 */
+X		nsel = select(fds, readfdp, writefdp, exceptfdp,
+X			      tvp->tv_sec ? tvp : (struct timeval *) 0);
+X	}
+X	(void) sigblock(MASKED_SIGS);		/* Disallow interrupts */
+X	return nsel;
+X}
+X
+Xserv_state
+Xcsd_run()
+X{
+X	fd_set readfds, writefds, exceptfds;
+X	struct timeval tvv;
+X	int nsel;
+X	int smask = sigblock(MASKED_SIGS);
+X
+X	next_softclock = gettime();
+X	cs_state = Run;
+X
+X	while ((int)cs_state <= (int)Finishing) {
+X		/*
+X		 * notify tasks
+X		 */
+X		if (task_notify_todo)
+X			do_task_notify();
+X
+X		/*
+X		 * compute timeout tvv
+X		 */
+X		realtime();
+X		if (next_softclock <= now) {
+X			if (cs_state == Finishing) {
+X				/* XXX */;
+X			}
+X			tvv.tv_sec = softclock();
+X		} else {
+X			tvv.tv_sec = next_softclock - now;
+X		}
+X		tvv.tv_usec = 0;
+X
+X		/*
+X		 * set fd masks
+X		 */
+X		bzero(&readfds, sizeof(readfds));
+X#ifdef RPC_4
+X		bcopy(&svc_fdset, &readfds, sizeof(svc_fdset));
+X#else
+X		bcopy(&svc_fds, &readfds, sizeof(svc_fds));
+X#endif
+X		fd_union(&readfds, &read_fdset);
+X		bcopy(&write_fdset, &writefds, sizeof(writefds));
+X		bcopy(&except_fdset, &exceptfds, sizeof(exceptfds));
+X
+X		/*
+X		 * Wait for events to occur
+X		 */
+X		nsel = do_select(smask, WF_MAX_SO /* XXX */,
+X				 &readfds, &writefds, &exceptfds, &tvv);
+X		switch (nsel) {
+X		case -1:
+X			/*
+X			 * select was interrupted
+X			 */
+X			if (errno != EINTR) {
+X				dlog("select: errno = %d", errno);
+X#if 0
+X				dump_fdset("select readfds", &readfds);
+X				dump_fdset("select writefds", &writefds);
+X#endif
+X			}
+X			break;
+X		case 0:
+X			/*
+X			 * select timeout
+X			 */
+X			/* nothing */;
+X			break;
+X		default:
+X			if ((int)cs_state < (int)Finishing) {
+X				/*
+X				 * process queued socket jobs
+X				 */
+X				soq *sop, *sop2;
+X				ITER2(sop, sop2, soq, &so_head) {
+X					if (FD_ISSET(sop->so, &readfds)
+X					    || FD_ISSET(sop->so, &writefds)
+X					    || FD_ISSET(sop->so, &exceptfds)) {
+X						FD_CLR(sop->so, &readfds);
+X						(*sop->funcp)(sop->p);
+X						--nsel;
+X					}
+X				}
+X			}
+X			/*
+X			 * process RPC jobs
+X			 */
+X			if (nsel) {
+X#ifdef RPC_4
+X				svc_getreqset(&readfds);
+X#else
+X				svc_getreq(readfds.fds_bits[0]);
+X#endif /* RPC_4 */
+X			}
+X			break;
+X		}
+X		if (cs_state == Finishing && conn_count() == 0) {
+X			cs_state = Quit;
+X			break;
+X		}
+X	}
+X	(void) sigsetmask(smask);
+X
+X	if (cs_state == Quit)
+X		cs_state = Done;
+X	return cs_state;
+X}
+X
+Xint
+Xcsd_rpc()
+X{
+X	int so;
+X	int ret;
+X	unsigned short port;
+X
+X	/*
+X	 * create socket
+X	 */
+X	so = socket(AF_INET, SOCK_DGRAM, 0);
+X	if (so < 0) {
+X		perror("Can't create socket");
+X		return 1;
+X	}
+X
+X	/*
+X	 * bind NFS port
+X	 */
+X	ret = bind_resv_port(so, &port);
+X	cs_nfsport = port;
+X	if (ret) {
+X		syslog(LOG_CRIT, "couldn't bind reserved port");
+X		return 1;
+X	}
+X
+X	/*
+X	 * create RPC stub
+X	 */
+X	nfsxprt = svcudp_create(so);
+X	csxprt = svcudp_create(so);
+X	if (nfsxprt == NULL || csxprt == NULL) {
+X		syslog(LOG_CRIT, "cannot create rpc/udp service");
+X		return 2;
+X	}
+X
+X	/*
+X	 * register NFS port
+X	 */
+X	if (! svc_register(nfsxprt, NFS_PROGRAM, NFS_VERSION,
+X			   nfs_program_2, 0)) {
+X		syslog(LOG_CRIT, "unable to register NFS_PROGRAM");
+X		return 3;
+X	}
+X
+X	/*
+X	 * register CS port
+X	 */
+X	pmap_unset(CS_PROGRAM, CS_VERSION);
+X	if (! svc_register(csxprt, CS_PROGRAM, CS_VERSION,
+X			   cs_program_1, IPPROTO_UDP)) {
+X		syslog(LOG_CRIT, "unable to register CS_PROGRAM");
+X		return 3;
+X	}
+X
+X	return 0;
+X}
+X
+END_OF_FILE
+  if test 7323 -ne `wc -c <'csd/nfs_start.c'`; then
+    echo shar: \"'csd/nfs_start.c'\" unpacked with wrong size!
+  fi
+  # end of 'csd/nfs_start.c'
+fi
+if test -f 'doc/beyond.ps.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/beyond.ps.B'\"
+else
+  echo shar: Extracting \"'doc/beyond.ps.B'\" \(46189 characters\)
+  sed "s/^X//" >'doc/beyond.ps.B' <<'END_OF_FILE'
+X10 r (can)s
+X100 1860 p (be)s
+X14 r (delegated)s
+X14 r (to)s
+X15 r (the)s
+X14 r (operating)s
+X14 r (system)s
+X14 r (or)s
+X14 r (a)s
+X15 r (client)s
+X14 r (library)s
+X-3 r (.)s
+X19 r (However)s
+X-2 r (,)s
+X14 r (it)s
+X14 r (is)s
+X14 r (impractical)s
+X14 r (to)s
+X15 r (combine)s
+X14 r (a)s
+X14 r (\256lesystem)s
+X100 1927 p (and)s
+X14 r (the)s
+X14 r (underlying)s
+X14 r (system)s
+X14 r (if)s
+X14 r (great)s
+X13 r (dissimilarity)s
+X14 r (is)s
+X14 r (present)s
+X14 r (between)s
+X14 r (the)s
+X14 r (two.)s
+X19 r (Disguising)s
+X13 r (resource)s
+X14 r (discovery)s
+X100 1993 p (systems)s
+X17 r (or)s
+X16 r (database)s
+X17 r (systems)s
+X17 r (as)s
+X16 r (an)s
+X17 r (NFS)s
+X17 r (server)s
+X16 r (would)s
+X17 r (be)s
+X17 r (impractical)s
+X16 r (since)s
+X17 r (these)s
+X17 r (systems)s
+X16 r (are)s
+X17 r (far)s
+X17 r (different)s
+X100 2060 p (from)s
+X11 r (NFS,)s
+X10 r (while)s
+X11 r (combination)s
+X10 r (of)s
+X11 r (NFS)s
+X10 r (and)s
+X11 r (FTP)s
+X10 r (was)s
+X11 r (possible)s
+X10 r (since)s
+X11 r (the)s
+X10 r (only)s
+X11 r (difference)s
+X9 r (was)s
+X11 r (the)s
+X10 r (possible)s
+X11 r (delay)s
+X100 2126 p (in)s
+X13 r (the)s
+Xf84 SF
+X14 r (open)s
+Xf80 SF
+X13 r (system)s
+X14 r (call.)s
+X18 r (It)s
+X13 r (is)s
+X14 r (possible)s
+X13 r (to)s
+X14 r (interpret)s
+X13 r (pathname)s
+X13 r (as)s
+X14 r (a)s
+X13 r (query)s
+X14 r (expression,)s
+X13 r (as)s
+X14 r (David)s
+X13 r (K.)s
+X13 r (Gifford)s
+X13 r (et.)s
+X100 2192 p (al.)s
+X11 r (did)s
+X11 r (with)s
+X10 r (SFS[5],)s
+X12 r (but)s
+X11 r (it)s
+X10 r (is)s
+X11 r (questionable)s
+X11 r (that)s
+X11 r (such)s
+X11 r (an)s
+X10 r (interface)s
+X11 r (can)s
+X11 r (convey)s
+X11 r (the)s
+X10 r (real)s
+X11 r (intent)s
+X11 r (of)s
+X11 r (server)s
+X11 r (response.)s
+Xf99 SF
+X100 2379 p (5)s
+X80 r (T)s
+X-7 r (oward)s
+X19 r (seamless)s
+X20 r (integration)s
+Xf80 SF
+X100 2502 p (Based)s
+X12 r (on)s
+X13 r (the)s
+X12 r (experience)s
+X12 r (described)s
+X12 r (in)s
+X13 r (the)s
+X12 r (previous)s
+X12 r (section,)s
+X13 r (WWFS)s
+X12 r (Research)s
+X12 r (Group)s
+X12 r (has)s
+X13 r (been)s
+X12 r (enhancing)s
+X12 r (the)s
+X100 2569 p (functionality)s
+X13 r (of)s
+X12 r (WWFS)s
+X13 r (to)s
+X12 r (realize)s
+X13 r (a)s
+X12 r (seamlessly)s
+X13 r (integrated)s
+X12 r (information)s
+X13 r (sharing)s
+X12 r (system.)s
+X18 r (The)s
+X13 r (author)s
+X12 r (has)s
+X13 r (been)s
+X100 2635 p (attempting)s
+X13 r (to)s
+X13 r (provide)s
+X13 r (such)s
+X13 r (a)s
+X13 r (system)s
+X13 r (by)s
+X13 r (amplifying)s
+X13 r (the)s
+X13 r (notion)s
+X13 r (of)s
+X13 r (volume)s
+X13 r (and)s
+X13 r (by)s
+X13 r (extending)s
+X13 r (the)s
+X13 r (protocol)s
+X13 r (set.)s
+Xf95 SF
+X100 2793 p (5.1)s
+X66 r (Integration)s
+X17 r (by)s
+X17 r (volumes)s
+Xf80 SF
+X100 2897 p (As)s
+X18 r (discussed)s
+X19 r (in)s
+X18 r (Section)s
+X18 r (2)s
+X19 r (and)s
+X18 r (3,)s
+X20 r (it)s
+X18 r (is)s
+X18 r (desirable)s
+X19 r (to)s
+X18 r (blend)s
+X18 r (advantageous)s
+X19 r (characteristics)s
+X18 r (of)s
+X18 r (\256lesystems)s
+X19 r (and)s
+X100 2963 p (database)s
+X14 r (systems)s
+X14 r (so)s
+X14 r (that)s
+X13 r (users)s
+X14 r (can)s
+X14 r (easily)s
+X14 r (navigate)s
+X14 r (through)s
+X14 r (vast)s
+X13 r (web)s
+X14 r (of)s
+X14 r (information.)s
+X183 3030 p (I)s
+X9 r (have)s
+X9 r (undertaken)s
+X10 r (some)s
+X9 r (efforts)s
+X8 r (to)s
+X9 r (improve)s
+X10 r (the)s
+X9 r (current)s
+X9 r (annoying)s
+X9 r (situation)s
+X10 r (by)s
+X9 r (introducing)s
+X9 r (\252auto-mounting\272)s
+X100 3096 p (feature)s
+X15 r (and)s
+X15 r (the)s
+X15 r (notion)s
+X15 r (of)s
+X15 r (volume,)s
+X15 r (but)s
+X15 r (it)s
+X15 r (currently)s
+X15 r (do)s
+X14 r (not)s
+X15 r (show)s
+X15 r (substantial)s
+X15 r (improvements)s
+X15 r (over)s
+X15 r (hierarchical)s
+X100 3163 p (naming)s
+X14 r (scheme,)s
+X14 r (primarily)s
+X14 r (because)s
+X13 r (there)s
+X14 r (is)s
+X14 r (no)s
+X14 r (support)s
+X14 r (for)s
+X14 r (volume)s
+X13 r (in)s
+X14 r (the)s
+X14 r (Internet)s
+X14 r (ftp)s
+X14 r (archives.)s
+X183 3229 p (Suppose)s
+X12 r (the)s
+X11 r (notion)s
+X12 r (of)s
+X11 r (volume)s
+X12 r (was)s
+X11 r (rejected)s
+X12 r (by)s
+X11 r (an)s
+X12 r (authoritative)s
+X11 r (body)s
+X-3 r (,)s
+X11 r (what)s
+X12 r (shall)s
+X11 r (be)s
+X12 r (adopted)s
+X11 r (instead?)s
+X18 r (For)s
+X100 3295 p (the)s
+X17 r (three)s
+X17 r (players)s
+X17 r (in)s
+X17 r (the)s
+X17 r (ISS)s
+X17 r (to)s
+X17 r (interoperate,)s
+X17 r (some)s
+X17 r (kind)s
+X17 r (of)s
+X17 r (information)s
+X17 r (must)s
+X17 r (be)s
+X17 r (exchanged)s
+X17 r (between)s
+X17 r (them.)s
+X100 3362 p (Granularity)s
+X12 r (and)s
+X13 r (scalability)s
+X12 r (dominates)s
+X12 r (the)s
+X13 r (choice)s
+X12 r (here.)s
+X18 r (The)s
+X12 r (unit)s
+X12 r (of)s
+X13 r (information)s
+X12 r (exchange)s
+X12 r (can)s
+X13 r (be)s
+X12 r (a)s
+X12 r (\256le)s
+X13 r (and)s
+X12 r (it)s
+X100 3428 p (is)s
+X12 r (the)s
+X13 r (most)s
+X12 r (\257exible)s
+X12 r (choice)s
+X13 r (indeed,)s
+X12 r (but)s
+X12 r (how)s
+X13 r (ef\256ciently)s
+X11 r (\256les)s
+X12 r (can)s
+X13 r (be)s
+X12 r (shared)s
+X12 r (totally)s
+X13 r (independently)s
+X12 r (in)s
+X12 r (the)s
+X13 r (whole)s
+X100 3495 p (Internet?)s
+X19 r (The)s
+X14 r (unit)s
+X15 r (can)s
+X14 r (be)s
+X14 r (a)s
+X14 r (directory)s
+X-3 r (,)s
+X14 r (but)s
+X14 r (how)s
+X14 r (can)s
+X14 r (we)s
+X14 r (give)s
+X14 r (each)s
+X14 r (of)s
+X15 r (them)s
+X14 r (an)s
+X14 r (unique)s
+X14 r (name?)s
+X19 r (Admittedly)s
+X-2 r (,)s
+X13 r (the)s
+X100 3561 p (concept)s
+X12 r (of)s
+X12 r (volume)s
+X12 r (is)s
+X12 r (obscure)s
+X12 r (in)s
+X12 r (that)s
+X12 r (it)s
+X13 r (does)s
+X12 r (not)s
+X12 r (de\256ne)s
+X12 r (any)s
+X12 r (mechanically)s
+X12 r (identi\256ed)s
+X12 r (boundary)s
+X12 r (\(Figure)s
+X12 r (5\),)s
+X13 r (but)s
+X100 3627 p (how)s
+X13 r (clear)s
+X14 r (is)s
+X13 r (the)s
+X14 r (boundary)s
+X13 r (of)s
+X13 r (\252software)s
+X14 r (distribution\272?)s
+X18 r (After)s
+X13 r (all,)s
+X14 r (the)s
+X13 r (boundary)s
+X14 r (of)s
+X13 r (shared)s
+X13 r (information)s
+X14 r (cannot)s
+X100 3694 p (be)s
+X14 r (mechanically)s
+X14 r (de\256ned.)s
+X1261 3946 p (5)s
+XEP
+X
+X%%Page: 6 6
+XBP
+X1042 260 p 1.000 @beginspecial
+X@epsf
+X0.800000 @vscale
+X0.800000 @hscale
+X204.000000 545.000000 309.000000 666.000000 @bbox
+X@setspecial
+X%%BeginDocument: vol_bound.eps
+X%!PS-Adobe-2.0 EPSF-1.2
+X%%DocumentFonts: Helvetica
+X%%BoundingBox: 204 545 309 666
+X%%EndComments
+X
+X50 dict begin
+X
+X/arrowHeight 8 def
+X/arrowWidth 4 def
+X/none null def
+X/numGraphicParameters 17 def
+X/stringLimit 65535 def
+X
+X/Begin {
+Xsave
+XnumGraphicParameters dict begin
+X} def
+X
+X/End {
+Xend
+Xrestore
+X} def
+X
+X/SetB {
+Xdup type /nulltype eq {
+Xpop
+Xfalse /brushRightArrow idef
+Xfalse /brushLeftArrow idef
+Xtrue /brushNone idef
+X} {
+X/brushDashOffset idef
+X/brushDashArray idef
+X0 ne /brushRightArrow idef
+X0 ne /brushLeftArrow idef
+X/brushWidth idef
+Xfalse /brushNone idef
+X} ifelse
+X} def
+X
+X/SetCFg {
+X/fgblue idef
+X/fggreen idef
+X/fgred idef
+X} def
+X
+X/SetCBg {
+X/bgblue idef
+X/bggreen idef
+X/bgred idef
+X} def
+X
+X/SetF {
+X/printSize idef
+X/printFont idef
+X} def
+X
+X/SetP {
+Xdup type /nulltype eq {
+Xpop true /patternNone idef
+X} {
+X/patternGrayLevel idef
+XpatternGrayLevel -1 eq {
+X/patternString idef
+X} if
+Xfalse /patternNone idef
+X} ifelse
+X} def
+X
+X/BSpl {
+X0 begin
+Xstorexyn
+Xnewpath
+Xn 1 gt {
+X0 0 0 0 0 0 1 1 true subspline
+Xn 2 gt {
+X0 0 0 0 1 1 2 2 false subspline
+X1 1 n 3 sub {
+X/i exch def
+Xi 1 sub dup i dup i 1 add dup i 2 add dup false subspline
+X} for
+Xn 3 sub dup n 2 sub dup n 1 sub dup 2 copy false subspline
+X} if
+Xn 2 sub dup n 1 sub dup 2 copy 2 copy false subspline
+XpatternNone not brushLeftArrow not brushRightArrow not and and { ifill } if
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+Xn 2 sub dup n 1 sub dup rightarrow
+X} if
+Xend
+X} dup 0 4 dict put def
+X
+X/Circ {
+Xnewpath
+X0 360 arc
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} def
+X
+X/CBSpl {
+X0 begin
+Xdup 2 gt {
+Xstorexyn
+Xnewpath
+Xn 1 sub dup 0 0 1 1 2 2 true subspline
+X1 1 n 3 sub {
+X/i exch def
+Xi 1 sub dup i dup i 1 add dup i 2 add dup false subspline
+X} for
+Xn 3 sub dup n 2 sub dup n 1 sub dup 0 0 false subspline
+Xn 2 sub dup n 1 sub dup 0 0 1 1 false subspline
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} {
+XPoly
+X} ifelse
+Xend
+X} dup 0 4 dict put def
+X
+X
+X/RRect { CBSpl } def
+X
+X/Elli {
+X0 begin
+Xnewpath
+X4 2 roll
+Xtranslate
+Xscale
+X0 0 1 0 360 arc
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+Xend
+X} dup 0 1 dict put def
+X
+X/Line {
+X0 begin
+X2 storexyn
+Xnewpath
+Xx 0 get y 0 get moveto
+Xx 1 get y 1 get lineto
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+X0 0 1 1 rightarrow
+Xend
+X} dup 0 4 dict put def
+X
+X/MLine {
+X0 begin
+Xstorexyn
+Xnewpath
+Xn 1 gt {
+Xx 0 get y 0 get moveto
+X1 1 n 1 sub {
+X/i exch def
+Xx i get y i get lineto
+X} for
+XpatternNone not brushLeftArrow not brushRightArrow not and and { ifill } if
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+Xn 2 sub dup n 1 sub dup rightarrow
+X} if
+Xend
+X} dup 0 4 dict put def
+X
+X/Poly {
+X3 1 roll
+Xnewpath
+Xmoveto
+X-1 add
+X{ lineto } repeat
+Xclosepath
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} def
+X
+X/Rect {
+X0 begin
+X/t exch def
+X/r exch def
+X/b exch def
+X/l exch def
+Xnewpath
+Xl b moveto
+Xl t lineto
+Xr t lineto
+Xr b lineto
+Xclosepath
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+Xend
+X} dup 0 4 dict put def
+X
+X/WhiteBg 1 def
+X/HollowBg 0 def
+X/Text { ishow } def
+X
+X/idef {
+Xdup where { pop pop pop } { exch def } ifelse
+X} def
+X
+X/ifill {
+X0 begin
+Xgsave
+XpatternGrayLevel -1 ne {
+Xfgred bgred fgred sub patternGrayLevel mul add
+Xfggreen bggreen fggreen sub patternGrayLevel mul add
+Xfgblue bgblue fgblue sub patternGrayLevel mul add setrgbcolor
+Xeofill
+X} {
+Xeoclip
+XoriginalCTM setmatrix
+Xpathbbox /t exch def /r exch def /b exch def /l exch def
+X/w r l sub ceiling cvi def
+X/h t b sub ceiling cvi def
+X/imageByteWidth w 8 div ceiling cvi def
+X/imageHeight h def
+Xbgred bggreen bgblue setrgbcolor
+Xeofill
+Xfgred fggreen fgblue setrgbcolor
+Xw 0 gt h 0 gt and {
+Xl b translate w h scale
+Xw h true [w 0 0 h neg 0 h] { patternproc } imagemask
+X} if
+X} ifelse
+Xgrestore
+Xend
+X} dup 0 8 dict put def
+X
+X/istroke {
+Xgsave
+XbrushDashOffset -1 eq {
+X[] 0 setdash
+X1 setgray
+X} {
+XbrushDashArray brushDashOffset setdash
+Xfgred fggreen fgblue setrgbcolor
+X} ifelse
+XbrushWidth setlinewidth
+XoriginalCTM setmatrix
+Xstroke
+Xgrestore
+X} def
+X
+X/xdescender {
+Xbegin 0
+XFontType 0 eq
+X{ FDepVector dup length 1 sub get xdescender }
+X{ [FontBBox] 1 get } ifelse
+XFontMatrix transform exch pop end
+X} def
+X/ishow {
+X0 begin
+Xgsave
+Xfgred fggreen fgblue setrgbcolor
+XWhiteBg eq /drawBg exch def
+X/fontDict printFont findfont printSize scalefont dup setfont def
+X/descender fontDict xdescender def
+X/vertoffset 0 descender sub printSize sub printFont /Courier ne
+XprintFont /Courier-Bold ne and { 1 add } if def {
+XdrawBg {
+Xnewpath 0 vertoffset descender add moveto
+Xdup stringwidth pop dup 0 rlineto
+X0 printSize rlineto 0 exch sub 0 rlineto
+Xclosepath currentgray 1 setgray fill	setgray } if
+X0 vertoffset moveto show
+X/vertoffset vertoffset printSize sub def
+X} forall
+Xgrestore
+Xend
+X} dup 0 4 dict put def
+X
+X/patternproc {
+X0 begin
+X/patternByteLength patternString length def
+X/patternHeight patternByteLength 8 mul sqrt cvi def
+X/patternWidth patternHeight def
+X/patternByteWidth patternWidth 8 idiv def
+X/imageByteMaxLength imageByteWidth imageHeight mul
+XstringLimit patternByteWidth sub min def
+X/imageMaxHeight imageByteMaxLength imageByteWidth idiv patternHeight idiv
+XpatternHeight mul patternHeight max def
+X/imageHeight imageHeight imageMaxHeight sub store
+X/imageString imageByteWidth imageMaxHeight mul patternByteWidth add string def
+X0 1 imageMaxHeight 1 sub {
+X/y exch def
+X/patternRow y patternByteWidth mul patternByteLength mod def
+X/patternRowString patternString patternRow patternByteWidth getinterval def
+X/imageRow y imageByteWidth mul def
+X0 patternByteWidth imageByteWidth 1 sub {
+X/x exch def
+XimageString imageRow x add patternRowString putinterval
+X} for
+X} for
+XimageString
+Xend
+X} dup 0 12 dict put def
+X
+X/min {
+Xdup 3 2 roll dup 4 3 roll lt { exch } if pop
+X} def
+X
+X/max {
+Xdup 3 2 roll dup 4 3 roll gt { exch } if pop
+X} def
+X
+X/arrowhead {
+X0 begin
+Xtransform originalCTM itransform
+X/taily exch def
+X/tailx exch def
+Xtransform originalCTM itransform
+X/tipy exch def
+X/tipx exch def
+X/dy tipy taily sub def
+X/dx tipx tailx sub def
+X/angle dx 0 ne dy 0 ne or { dy dx atan } { 90 } ifelse def
+Xgsave
+XoriginalCTM setmatrix
+Xtipx tipy translate
+Xangle rotate
+Xnewpath
+X0 0 moveto
+XarrowHeight neg arrowWidth 2 div lineto
+XarrowHeight neg arrowWidth 2 div neg lineto
+Xclosepath
+XpatternNone not {
+XoriginalCTM setmatrix
+X/padtip arrowHeight 2 exp 0.25 arrowWidth 2 exp mul add sqrt brushWidth mul
+XarrowWidth div def
+X/padtail brushWidth 2 div def
+Xtipx tipy translate
+Xangle rotate
+Xpadtip 0 translate
+XarrowHeight padtip add padtail add arrowHeight div dup scale
+Xarrowheadpath
+Xifill
+X} if
+XbrushNone not {
+XoriginalCTM setmatrix
+Xtipx tipy translate
+Xangle rotate
+Xarrowheadpath
+Xistroke
+X} if
+Xgrestore
+Xend
+X} dup 0 9 dict put def
+X
+X/arrowheadpath {
+Xnewpath
+X0 0 moveto
+XarrowHeight neg arrowWidth 2 div lineto
+XarrowHeight neg arrowWidth 2 div neg lineto
+Xclosepath
+X} def
+X
+X/leftarrow {
+X0 begin
+Xy exch get /taily exch def
+Xx exch get /tailx exch def
+Xy exch get /tipy exch def
+Xx exch get /tipx exch def
+XbrushLeftArrow { tipx tipy tailx taily arrowhead } if
+Xend
+X} dup 0 4 dict put def
+X
+X/rightarrow {
+X0 begin
+Xy exch get /tipy exch def
+Xx exch get /tipx exch def
+Xy exch get /taily exch def
+Xx exch get /tailx exch def
+XbrushRightArrow { tipx tipy tailx taily arrowhead } if
+Xend
+X} dup 0 4 dict put def
+X
+X/midpoint {
+X0 begin
+X/y1 exch def
+X/x1 exch def
+X/y0 exch def
+X/x0 exch def
+Xx0 x1 add 2 div
+Xy0 y1 add 2 div
+Xend
+X} dup 0 4 dict put def
+X
+X/thirdpoint {
+X0 begin
+X/y1 exch def
+X/x1 exch def
+X/y0 exch def
+X/x0 exch def
+Xx0 2 mul x1 add 3 div
+Xy0 2 mul y1 add 3 div
+Xend
+X} dup 0 4 dict put def
+X
+X/subspline {
+X0 begin
+X/movetoNeeded exch def
+Xy exch get /y3 exch def
+Xx exch get /x3 exch def
+Xy exch get /y2 exch def
+Xx exch get /x2 exch def
+Xy exch get /y1 exch def
+Xx exch get /x1 exch def
+Xy exch get /y0 exch def
+Xx exch get /x0 exch def
+Xx1 y1 x2 y2 thirdpoint
+X/p1y exch def
+X/p1x exch def
+Xx2 y2 x1 y1 thirdpoint
+X/p2y exch def
+X/p2x exch def
+Xx1 y1 x0 y0 thirdpoint
+Xp1x p1y midpoint
+X/p0y exch def
+X/p0x exch def
+Xx2 y2 x3 y3 thirdpoint
+Xp2x p2y midpoint
+X/p3y exch def
+X/p3x exch def
+XmovetoNeeded { p0x p0y moveto } if
+Xp1x p1y p2x p2y p3x p3y curveto
+Xend
+X} dup 0 17 dict put def
+X
+X/storexyn {
+X/n exch def
+X/y n array def
+X/x n array def
+Xn 1 sub -1 0 {
+X/i exch def
+Xy i 3 2 roll put
+Xx i 3 2 roll put
+X} for
+X} def
+X
+X%%EndProlog
+X
+X%I Idraw 9 Grid 8 
+X
+X
+XBegin
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t
+X[ .8 0 0 .8 0 0 ] concat
+X/originalCTM matrix currentmatrix def
+X
+XBegin %I CBSpl
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 102 188 ] concat
+X%I 6
+X224 643
+X282 513
+X274 506
+X163 506
+X156 514
+X209 643
+X6 CBSpl
+XEnd
+X
+XBegin %I Elli
+X%I b 13107
+X2 0 0 [2 2 2 2 2 2 2 2] 15 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+Xnone SetP %I p n
+X%I t
+X[ 1 0 0 1 102 188 ] concat
+X%I
+X242 519 22 22 Elli
+XEnd
+X
+XBegin %I Elli
+X%I b 13107
+X2 0 0 [2 2 2 2 2 2 2 2] 15 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+Xnone SetP %I p n
+X%I t
+X[ 1 0 0 1 47 187 ] concat
+X%I
+X242 519 22 22 Elli
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 301 759 ] concat
+X%I
+X[
+X(usr.bin)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 276 712 ] concat
+X%I
+X[
+X(make)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 333 711 ] concat
+X%I
+X[
+X(rdist)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 102 188 ] concat
+X%I
+X218 555 235 530 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 102 188 ] concat
+X%I
+X208 556 194 529 Line
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 303 798 ] concat
+X%I
+X[
+X(tahoe)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 98 187 ] concat
+X%I
+X218 597 218 576 Line
+XEnd
+X
+XEnd %I eop
+X
+Xshowpage
+X
+X
+Xend
+X%%EndDocument
+X@endspecial
+Xf80 SF
+X100 975 p (Figure)s
+X19 r (5:)s
+Xf82 SF
+X28 r (The)s
+X19 r (boundary)s
+X19 r (of)s
+X19 r (volume)s
+X19 r (cannot)s
+X18 r (be)s
+X19 r (de\256ned)s
+X19 r (mechanically)s
+X-1 r (.)s
+Xf80 SF
+X32 r (In)s
+X19 r (this)s
+X19 r (example,)s
+X20 r (volume)s
+X19 r (\252tahoe\272)s
+X100 1041 p (contains)s
+X14 r (subdirectories)s
+X14 r (\252make\272)s
+X14 r (and)s
+X13 r (\252rdist\272,)s
+X14 r (which)s
+X14 r (in)s
+X14 r (turn)s
+X14 r (can)s
+X14 r (be)s
+X13 r (de\256ned)s
+X14 r (as)s
+X14 r (new)s
+X14 r (volumes.)s
+X183 1215 p (Based)s
+X17 r (on)s
+X18 r (these)s
+X17 r (considerations,)s
+X18 r (volume)s
+X18 r (will)s
+X17 r (become)s
+X17 r (the)s
+X17 r (common)s
+X18 r (vocabulary)s
+X17 r (exchanged)s
+X17 r (between)s
+X18 r (the)s
+X100 1282 p (resource)s
+X17 r (location,)s
+X17 r (access,)s
+X18 r (and)s
+X17 r (reorganization)s
+X16 r (systems)s
+X17 r (in)s
+X17 r (the)s
+X16 r (WWFS)s
+X17 r (framework.)s
+X28 r (The)s
+X17 r (bene\256t)s
+X16 r (of)s
+X17 r (adopting)s
+X100 1348 p (volume)s
+X14 r (for)s
+X14 r (resource)s
+X14 r (location)s
+X13 r (and)s
+X14 r (access)s
+X14 r (interface)s
+X14 r (has)s
+X14 r (been)s
+X14 r (discussed)s
+X13 r (in)s
+X14 r (my)s
+X14 r (previous)s
+X14 r (paper[3].)s
+X183 1415 p (V)s
+X-6 r (olume)s
+X9 r (can)s
+X10 r (bene\256t)s
+X11 r (\256lesystem)s
+X10 r (and)s
+X10 r (resource)s
+X11 r (reorganization)s
+X9 r (system)s
+X10 r (as)s
+X11 r (well.)s
+X17 r (It)s
+X10 r (would)s
+X10 r (be)s
+X11 r (feasible)s
+X10 r (to)s
+X10 r (collect)s
+X100 1481 p (and)s
+X13 r (summarize)s
+X14 r (feedbacks)s
+X13 r (for)s
+X13 r (each)s
+X13 r (volume,)s
+X14 r (while)s
+X13 r (collecting)s
+X13 r (feedbacks)s
+X14 r (for)s
+X13 r (every)s
+X13 r (\256le)s
+X13 r (would)s
+X14 r (be)s
+X13 r (impractical,)s
+X100 1547 p (since)s
+X14 r (it)s
+X14 r (is)s
+X14 r (dif\256cult)s
+X12 r (to)s
+X14 r (generate)s
+X14 r (meaningful)s
+X14 r (report)s
+X14 r (from)s
+X14 r (meaningless)s
+X13 r (collection)s
+X14 r (of)s
+X14 r (feedbacks.)s
+X183 1614 p (The)s
+X12 r (resulting)s
+X11 r (statistics)s
+X12 r (report)s
+X11 r (can)s
+X12 r (be)s
+X11 r (e-mailed)s
+X12 r (to)s
+X11 r (the)s
+X12 r (responsible)s
+X11 r (archive)s
+X12 r (administrator)s
+X11 r (so)s
+X12 r (that)s
+X11 r (comments)s
+X100 1680 p (from)s
+X17 r (archive)s
+X16 r (users)s
+X17 r (can)s
+X16 r (be)s
+X17 r (re\257ected,)s
+X17 r (different)s
+X16 r (archiving)s
+X17 r (scheme)s
+X16 r (can)s
+X17 r (be)s
+X17 r (compared)s
+X16 r (from)s
+X17 r (objective)s
+X16 r (point)s
+X17 r (of)s
+X100 1747 p (view)s
+X-3 r (,)s
+X13 r (and)s
+X14 r (ultimately)s
+X-3 r (,)s
+X13 r (the)s
+X14 r (quality)s
+X14 r (of)s
+X14 r (electronic)s
+X14 r (archives)s
+X13 r (can)s
+X14 r (be)s
+X14 r (improved)s
+X14 r (easily)s
+X-3 r (.)s
+X183 1813 p (Implementation)s
+X11 r (of)s
+X11 r (\252forti\256ed\272)s
+X11 r (volume,)s
+X11 r (as)s
+X11 r (exhibited)s
+X11 r (in)s
+X11 r (Figures)s
+X10 r (3)s
+X11 r (and)s
+X11 r (4,)s
+X12 r (would)s
+X10 r (make)s
+X11 r (mirroring)s
+X11 r (even)s
+X11 r (more)s
+X100 1880 p (practical)s
+X14 r (way)s
+X14 r (to)s
+X14 r (facilitate)s
+X14 r (archive)s
+X14 r (administration,)s
+X14 r (since)s
+X13 r (it)s
+X14 r (provides)s
+X14 r (ability)s
+X14 r (to)s
+X14 r (manipulate)s
+X14 r (namespaces)s
+X14 r (while)s
+X100 1946 p (automating)s
+X11 r (the)s
+X12 r (management)s
+X11 r (of)s
+X12 r (replicated)s
+X11 r (information.)s
+X18 r (In)s
+X11 r (other)s
+X12 r (words,)s
+X12 r (the)s
+X11 r (forti\256ed)s
+X12 r (volume)s
+X11 r (will)s
+X12 r (enable)s
+X11 r (sep-)s
+X100 2012 p (aration)s
+X13 r (of)s
+X13 r (storage)s
+X14 r (space)s
+X13 r (replication)s
+X13 r (and)s
+X13 r (namespace)s
+X14 r (replication.)s
+X18 r (V)s
+X-5 r (arious)s
+X12 r (experiments)s
+X13 r (with)s
+X13 r (different)s
+X13 r (naming)s
+X100 2079 p (schemes)s
+X14 r (can)s
+X14 r (be)s
+X14 r (evaluated)s
+X13 r (with)s
+X14 r (fairness,)s
+X14 r (thanks)s
+X14 r (to)s
+X14 r (the)s
+X14 r (statistics)s
+X13 r (reports.)s
+Xf95 SF
+X100 2237 p (5.2)s
+X66 r (Integration)s
+X17 r (by)s
+X17 r (pr)s
+X-1 r (otocols)s
+Xf80 SF
+X100 2340 p (The)s
+X19 r (new)s
+X19 r (concepts)s
+X18 r (introduced)s
+X19 r (in)s
+X19 r (the)s
+X19 r (WWFS,)s
+X19 r (such)s
+X19 r (as)s
+X18 r (access)s
+X19 r (policy)s
+X-2 r (,)s
+X19 r (volume,)s
+X20 r (and)s
+X18 r (management)s
+X19 r (of)s
+X19 r (cache,)s
+X100 2407 p (necessitates)s
+X14 r (design)s
+X14 r (and)s
+X14 r (implementation)s
+X13 r (of)s
+X14 r (a)s
+X14 r (new)s
+X14 r (protocol)s
+X14 r (that)s
+X14 r (supports)s
+X13 r (operations)s
+X14 r (for)s
+X14 r (these)s
+X14 r (objects.)s
+X183 2473 p (Also,)s
+X14 r (a)s
+X13 r (new)s
+X14 r (protocol)s
+X14 r (was)s
+X13 r (necessary)s
+X14 r (that)s
+X13 r (can)s
+X14 r (\256ll)s
+X14 r (semantic)s
+X13 r (gap)s
+X14 r (between)s
+X14 r (NFS)s
+X13 r (and)s
+X14 r (FTP)s
+X-5 r (,)s
+X12 r (which)s
+X14 r (enable)s
+X14 r (CS)s
+X100 2540 p (to)s
+X14 r (mimic)s
+X14 r (the)s
+X14 r (normal)s
+X13 r (behavior)s
+X14 r (of)s
+Xf84 SF
+X14 r (open)s
+Xf80 SF
+X14 r (system)s
+X14 r (call)s
+X14 r (with)s
+X13 r (help)s
+X14 r (of)s
+X14 r (client)s
+X14 r (library)s
+X-3 r (.)s
+X183 2606 p (Considering)s
+X15 r (these)s
+X15 r (fundamental)s
+X15 r (need)s
+X14 r (for)s
+X15 r (new)s
+X15 r (protocols)s
+X15 r (and)s
+X15 r (a)s
+X15 r (number)s
+X15 r (of)s
+X15 r (other)s
+X14 r (possible)s
+X15 r (improvements,)s
+X100 2673 p (I)s
+X19 r (have)s
+X18 r (designed)s
+X19 r (a)s
+X18 r (new)s
+X19 r (protocol)s
+X18 r (architecture)s
+X19 r (for)s
+X18 r (WWFS)s
+X19 r (as)s
+X18 r (a)s
+X19 r (whole.)s
+X32 r (Client-CS)s
+X19 r (interaction)s
+X18 r (is)s
+X19 r (performed)s
+X100 2739 p (via)s
+X13 r (user)s
+X13 r (interface)s
+X14 r (protocol)s
+X13 r (\(UIP\),)s
+X13 r (resource)s
+X13 r (access)s
+X13 r (protocol)s
+X14 r (\(RAP\))s
+X13 r (and)s
+X13 r (resource)s
+X13 r (reorganize)s
+X12 r (protocol)s
+X14 r (\(ROP\),)s
+X100 2805 p (whereas)s
+X10 r (CS-CS,)s
+X11 r (CS-\256leserver)s
+X10 r (interaction)s
+X10 r (is)s
+X11 r (performed)s
+X10 r (via)s
+X11 r (resource)s
+X10 r (query)s
+X10 r (protocol)s
+X11 r (\(RQP\),)s
+X10 r (resource)s
+X10 r (transfer)s
+X100 2872 p (protocol)s
+X17 r (\(R)s
+X-2 r (TP\))s
+X16 r (and)s
+X17 r (ROP)s
+X18 r (\(Figure)s
+X17 r (6\).)s
+X28 r (RAP)s
+X17 r (and)s
+X18 r (R)s
+X-3 r (TP)s
+X17 r (can)s
+X17 r (be)s
+X17 r (existing)s
+X17 r (protocols)s
+X17 r (such)s
+X18 r (as)s
+X17 r (NFS)s
+X17 r (and)s
+X17 r (FTP)s
+X-5 r (,)s
+X16 r (but)s
+X100 2938 p (there)s
+X14 r (are)s
+X14 r (much)s
+X14 r (room)s
+X13 r (for)s
+X14 r (improvements)s
+X14 r (in)s
+X14 r (these)s
+X14 r (protocols,)s
+X14 r (as)s
+X13 r (suggested)s
+X14 r (by)s
+X14 r (WWFTP[6].)s
+X183 3005 p (W)s
+X-1 r (ith)s
+X8 r (this)s
+X9 r (protocol)s
+X10 r (architecture,)s
+X10 r (design)s
+X9 r (and)s
+X9 r (implementation)s
+X9 r (of)s
+X10 r (an)s
+X9 r (UIP)s
+X9 r (and)s
+X9 r (an)s
+X10 r (R)s
+X-3 r (TP)s
+X9 r (is)s
+X9 r (in)s
+X9 r (progress.)s
+X17 r (WWFTP)s
+X100 3071 p (is)s
+X12 r (an)s
+X11 r (implementation)s
+X12 r (of)s
+X11 r (R)s
+X-2 r (TP)s
+X-6 r (,)s
+X10 r (which)s
+X12 r (is)s
+X11 r (primarily)s
+X12 r (aimed)s
+X11 r (at)s
+X12 r (seamless)s
+X11 r (integration)s
+X12 r (of)s
+X11 r (distributed)s
+X12 r (\256le)s
+X11 r (system)s
+X12 r (and)s
+X100 3137 p (the)s
+X14 r (Internet)s
+X13 r (ftp)s
+X14 r (archives.)s
+X18 r (WWFTP)s
+X14 r (supports)s
+X14 r (ef\256cient)s
+X12 r (\256le)s
+X14 r (transfer)s
+X14 r (over)s
+X13 r (high-speed)s
+X14 r (networks)s
+X13 r (and)s
+X14 r (long-delay)s
+X100 3204 p (communication)s
+X19 r (lines,)s
+X20 r (archive)s
+X19 r (replication)s
+X18 r (and)s
+X19 r (interaction)s
+X19 r (with)s
+X19 r (multi-stage)s
+X19 r (\256le)s
+X18 r (transfer)s
+X19 r (software.)s
+X34 r (Design)s
+X100 3270 p (and)s
+X14 r (implementation)s
+X13 r (of)s
+X14 r (multi-threaded)s
+X13 r (WWFTP)s
+X14 r (server)s
+X13 r (is)s
+X14 r (in)s
+X14 r (progress.)s
+X18 r (CS)s
+X14 r (will)s
+X13 r (support)s
+X14 r (WWFTP)s
+X13 r (in)s
+X14 r (the)s
+X13 r (next)s
+X100 3337 p (major)s
+X14 r (release.)s
+X183 3403 p (WWUIP)s
+X14 r (is)s
+X15 r (an)s
+X14 r (implementation)s
+X14 r (of)s
+X15 r (UIP)s
+X-6 r (,)s
+X14 r (which)s
+X14 r (complements)s
+X14 r (NFS)s
+X15 r (by)s
+X14 r (providing)s
+X14 r (support)s
+X15 r (for)s
+X14 r (different)s
+X13 r (be-)s
+X100 3470 p (havior)s
+X14 r (resulting)s
+X13 r (from)s
+X14 r (the)s
+X13 r (characteristics)s
+X14 r (of)s
+X14 r (underlying)s
+X13 r (services)s
+X14 r (\(e.g.,)s
+X13 r (ftp)s
+X14 r (archives\))s
+X14 r (and)s
+X13 r (by)s
+X14 r (providing)s
+X13 r (opera-)s
+X100 3536 p (tions)s
+X13 r (for)s
+X12 r (newly)s
+X13 r (introduced)s
+X13 r (objects)s
+X12 r (\(e.g.,)s
+X13 r (access)s
+X13 r (policy)s
+X12 r (and)s
+X13 r (volume\).)s
+X18 r (WWUIP)s
+X13 r (server)s
+X12 r (has)s
+X13 r (been)s
+X13 r (implemented)s
+X100 3602 p (in)s
+X11 r (CS,)s
+X11 r (and)s
+X12 r (has)s
+X11 r (been)s
+X11 r (experimented)s
+X11 r (and)s
+X11 r (used)s
+X12 r (by)s
+X11 r (several)s
+X11 r (WWUIP)s
+X11 r (clients.)s
+X18 r (The)s
+X11 r (development)s
+X11 r (of)s
+X12 r (WWUIP)s
+X11 r (client)s
+X100 3669 p (library)s
+X13 r (is)s
+X14 r (in)s
+X14 r (progress,)s
+X13 r (in)s
+X14 r (parallel)s
+X13 r (with)s
+X14 r (adaptation)s
+X13 r (of)s
+X14 r (usual)s
+X13 r (UNIX)s
+X14 r (commands)s
+X13 r (such)s
+X14 r (as)s
+Xf84 SF
+X13 r (ls)s
+Xf80 SF
+X(,)s
+Xf84 SF
+X14 r (more)s
+Xf80 SF
+X13 r (and)s
+Xf84 SF
+X14 r (tar)s
+Xf80 SF
+X(.)s
+X18 r (A)s
+X100 3735 p (graphical)s
+X14 r (\256lesystem)s
+X14 r (browser)s
+X14 r (for)s
+X13 r (CS)s
+X14 r (has)s
+X14 r (been)s
+X14 r (developed)s
+X14 r (using)s
+X14 r (Tk[7].)s
+X1261 3946 p (6)s
+XEP
+X
+X%%Page: 7 7
+XBP
+X479 260 p 1.000 @beginspecial
+X@epsf
+X0.800000 @vscale
+X0.800000 @hscale
+X79.000000 532.000000 437.000000 645.000000 @bbox
+X@setspecial
+X%%BeginDocument: proto_arch.eps
+X%!PS-Adobe-2.0 EPSF-1.2
+X%%DocumentFonts: Helvetica
+X%%BoundingBox: 79 532 437 645
+X%%EndComments
+X
+X50 dict begin
+X
+X/arrowHeight 8 def
+X/arrowWidth 4 def
+X/none null def
+X/numGraphicParameters 17 def
+X/stringLimit 65535 def
+X
+X/Begin {
+Xsave
+XnumGraphicParameters dict begin
+X} def
+X
+X/End {
+Xend
+Xrestore
+X} def
+X
+X/SetB {
+Xdup type /nulltype eq {
+Xpop
+Xfalse /brushRightArrow idef
+Xfalse /brushLeftArrow idef
+Xtrue /brushNone idef
+X} {
+X/brushDashOffset idef
+X/brushDashArray idef
+X0 ne /brushRightArrow idef
+X0 ne /brushLeftArrow idef
+X/brushWidth idef
+Xfalse /brushNone idef
+X} ifelse
+X} def
+X
+X/SetCFg {
+X/fgblue idef
+X/fggreen idef
+X/fgred idef
+X} def
+X
+X/SetCBg {
+X/bgblue idef
+X/bggreen idef
+X/bgred idef
+X} def
+X
+X/SetF {
+X/printSize idef
+X/printFont idef
+X} def
+X
+X/SetP {
+Xdup type /nulltype eq {
+Xpop true /patternNone idef
+X} {
+X/patternGrayLevel idef
+XpatternGrayLevel -1 eq {
+X/patternString idef
+X} if
+Xfalse /patternNone idef
+X} ifelse
+X} def
+X
+X/BSpl {
+X0 begin
+Xstorexyn
+Xnewpath
+Xn 1 gt {
+X0 0 0 0 0 0 1 1 true subspline
+Xn 2 gt {
+X0 0 0 0 1 1 2 2 false subspline
+X1 1 n 3 sub {
+X/i exch def
+Xi 1 sub dup i dup i 1 add dup i 2 add dup false subspline
+X} for
+Xn 3 sub dup n 2 sub dup n 1 sub dup 2 copy false subspline
+X} if
+Xn 2 sub dup n 1 sub dup 2 copy 2 copy false subspline
+XpatternNone not brushLeftArrow not brushRightArrow not and and { ifill } if
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+Xn 2 sub dup n 1 sub dup rightarrow
+X} if
+Xend
+X} dup 0 4 dict put def
+X
+X/Circ {
+Xnewpath
+X0 360 arc
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} def
+X
+X/CBSpl {
+X0 begin
+Xdup 2 gt {
+Xstorexyn
+Xnewpath
+Xn 1 sub dup 0 0 1 1 2 2 true subspline
+X1 1 n 3 sub {
+X/i exch def
+Xi 1 sub dup i dup i 1 add dup i 2 add dup false subspline
+X} for
+Xn 3 sub dup n 2 sub dup n 1 sub dup 0 0 false subspline
+Xn 2 sub dup n 1 sub dup 0 0 1 1 false subspline
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} {
+XPoly
+X} ifelse
+Xend
+X} dup 0 4 dict put def
+X
+X
+X/RRect { CBSpl } def
+X
+X/Elli {
+X0 begin
+Xnewpath
+X4 2 roll
+Xtranslate
+Xscale
+X0 0 1 0 360 arc
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+Xend
+X} dup 0 1 dict put def
+X
+X/Line {
+X0 begin
+X2 storexyn
+Xnewpath
+Xx 0 get y 0 get moveto
+Xx 1 get y 1 get lineto
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+X0 0 1 1 rightarrow
+Xend
+X} dup 0 4 dict put def
+X
+X/MLine {
+X0 begin
+Xstorexyn
+Xnewpath
+Xn 1 gt {
+Xx 0 get y 0 get moveto
+X1 1 n 1 sub {
+X/i exch def
+Xx i get y i get lineto
+X} for
+XpatternNone not brushLeftArrow not brushRightArrow not and and { ifill } if
+XbrushNone not { istroke } if
+X0 0 1 1 leftarrow
+Xn 2 sub dup n 1 sub dup rightarrow
+X} if
+Xend
+X} dup 0 4 dict put def
+X
+X/Poly {
+X3 1 roll
+Xnewpath
+Xmoveto
+X-1 add
+X{ lineto } repeat
+Xclosepath
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+X} def
+X
+X/Rect {
+X0 begin
+X/t exch def
+X/r exch def
+X/b exch def
+X/l exch def
+Xnewpath
+Xl b moveto
+Xl t lineto
+Xr t lineto
+Xr b lineto
+Xclosepath
+XpatternNone not { ifill } if
+XbrushNone not { istroke } if
+Xend
+X} dup 0 4 dict put def
+X
+X/WhiteBg 1 def
+X/HollowBg 0 def
+X/Text { ishow } def
+X
+X/idef {
+Xdup where { pop pop pop } { exch def } ifelse
+X} def
+X
+X/ifill {
+X0 begin
+Xgsave
+XpatternGrayLevel -1 ne {
+Xfgred bgred fgred sub patternGrayLevel mul add
+Xfggreen bggreen fggreen sub patternGrayLevel mul add
+Xfgblue bgblue fgblue sub patternGrayLevel mul add setrgbcolor
+Xeofill
+X} {
+Xeoclip
+XoriginalCTM setmatrix
+Xpathbbox /t exch def /r exch def /b exch def /l exch def
+X/w r l sub ceiling cvi def
+X/h t b sub ceiling cvi def
+X/imageByteWidth w 8 div ceiling cvi def
+X/imageHeight h def
+Xbgred bggreen bgblue setrgbcolor
+Xeofill
+Xfgred fggreen fgblue setrgbcolor
+Xw 0 gt h 0 gt and {
+Xl b translate w h scale
+Xw h true [w 0 0 h neg 0 h] { patternproc } imagemask
+X} if
+X} ifelse
+Xgrestore
+Xend
+X} dup 0 8 dict put def
+X
+X/istroke {
+Xgsave
+XbrushDashOffset -1 eq {
+X[] 0 setdash
+X1 setgray
+X} {
+XbrushDashArray brushDashOffset setdash
+Xfgred fggreen fgblue setrgbcolor
+X} ifelse
+XbrushWidth setlinewidth
+XoriginalCTM setmatrix
+Xstroke
+Xgrestore
+X} def
+X
+X/xdescender {
+Xbegin 0
+XFontType 0 eq
+X{ FDepVector dup length 1 sub get xdescender }
+X{ [FontBBox] 1 get } ifelse
+XFontMatrix transform exch pop end
+X} def
+X/ishow {
+X0 begin
+Xgsave
+Xfgred fggreen fgblue setrgbcolor
+XWhiteBg eq /drawBg exch def
+X/fontDict printFont findfont printSize scalefont dup setfont def
+X/descender fontDict xdescender def
+X/vertoffset 0 descender sub printSize sub printFont /Courier ne
+XprintFont /Courier-Bold ne and { 1 add } if def {
+XdrawBg {
+Xnewpath 0 vertoffset descender add moveto
+Xdup stringwidth pop dup 0 rlineto
+X0 printSize rlineto 0 exch sub 0 rlineto
+Xclosepath currentgray 1 setgray fill	setgray } if
+X0 vertoffset moveto show
+X/vertoffset vertoffset printSize sub def
+X} forall
+Xgrestore
+Xend
+X} dup 0 4 dict put def
+X
+X/patternproc {
+X0 begin
+X/patternByteLength patternString length def
+X/patternHeight patternByteLength 8 mul sqrt cvi def
+X/patternWidth patternHeight def
+X/patternByteWidth patternWidth 8 idiv def
+X/imageByteMaxLength imageByteWidth imageHeight mul
+XstringLimit patternByteWidth sub min def
+X/imageMaxHeight imageByteMaxLength imageByteWidth idiv patternHeight idiv
+XpatternHeight mul patternHeight max def
+X/imageHeight imageHeight imageMaxHeight sub store
+X/imageString imageByteWidth imageMaxHeight mul patternByteWidth add string def
+X0 1 imageMaxHeight 1 sub {
+X/y exch def
+X/patternRow y patternByteWidth mul patternByteLength mod def
+X/patternRowString patternString patternRow patternByteWidth getinterval def
+X/imageRow y imageByteWidth mul def
+X0 patternByteWidth imageByteWidth 1 sub {
+X/x exch def
+XimageString imageRow x add patternRowString putinterval
+X} for
+X} for
+XimageString
+Xend
+X} dup 0 12 dict put def
+X
+X/min {
+Xdup 3 2 roll dup 4 3 roll lt { exch } if pop
+X} def
+X
+X/max {
+Xdup 3 2 roll dup 4 3 roll gt { exch } if pop
+X} def
+X
+X/arrowhead {
+X0 begin
+Xtransform originalCTM itransform
+X/taily exch def
+X/tailx exch def
+Xtransform originalCTM itransform
+X/tipy exch def
+X/tipx exch def
+X/dy tipy taily sub def
+X/dx tipx tailx sub def
+X/angle dx 0 ne dy 0 ne or { dy dx atan } { 90 } ifelse def
+Xgsave
+XoriginalCTM setmatrix
+Xtipx tipy translate
+Xangle rotate
+Xnewpath
+X0 0 moveto
+XarrowHeight neg arrowWidth 2 div lineto
+XarrowHeight neg arrowWidth 2 div neg lineto
+Xclosepath
+XpatternNone not {
+XoriginalCTM setmatrix
+X/padtip arrowHeight 2 exp 0.25 arrowWidth 2 exp mul add sqrt brushWidth mul
+XarrowWidth div def
+X/padtail brushWidth 2 div def
+Xtipx tipy translate
+Xangle rotate
+Xpadtip 0 translate
+XarrowHeight padtip add padtail add arrowHeight div dup scale
+Xarrowheadpath
+Xifill
+X} if
+XbrushNone not {
+XoriginalCTM setmatrix
+Xtipx tipy translate
+Xangle rotate
+Xarrowheadpath
+Xistroke
+X} if
+Xgrestore
+Xend
+X} dup 0 9 dict put def
+X
+X/arrowheadpath {
+Xnewpath
+X0 0 moveto
+XarrowHeight neg arrowWidth 2 div lineto
+XarrowHeight neg arrowWidth 2 div neg lineto
+Xclosepath
+X} def
+X
+X/leftarrow {
+X0 begin
+Xy exch get /taily exch def
+Xx exch get /tailx exch def
+Xy exch get /tipy exch def
+Xx exch get /tipx exch def
+XbrushLeftArrow { tipx tipy tailx taily arrowhead } if
+Xend
+X} dup 0 4 dict put def
+X
+X/rightarrow {
+X0 begin
+Xy exch get /tipy exch def
+Xx exch get /tipx exch def
+Xy exch get /taily exch def
+Xx exch get /tailx exch def
+XbrushRightArrow { tipx tipy tailx taily arrowhead } if
+Xend
+X} dup 0 4 dict put def
+X
+X/midpoint {
+X0 begin
+X/y1 exch def
+X/x1 exch def
+X/y0 exch def
+X/x0 exch def
+Xx0 x1 add 2 div
+Xy0 y1 add 2 div
+Xend
+X} dup 0 4 dict put def
+X
+X/thirdpoint {
+X0 begin
+X/y1 exch def
+X/x1 exch def
+X/y0 exch def
+X/x0 exch def
+Xx0 2 mul x1 add 3 div
+Xy0 2 mul y1 add 3 div
+Xend
+X} dup 0 4 dict put def
+X
+X/subspline {
+X0 begin
+X/movetoNeeded exch def
+Xy exch get /y3 exch def
+Xx exch get /x3 exch def
+Xy exch get /y2 exch def
+Xx exch get /x2 exch def
+Xy exch get /y1 exch def
+Xx exch get /x1 exch def
+Xy exch get /y0 exch def
+Xx exch get /x0 exch def
+Xx1 y1 x2 y2 thirdpoint
+X/p1y exch def
+X/p1x exch def
+Xx2 y2 x1 y1 thirdpoint
+X/p2y exch def
+X/p2x exch def
+Xx1 y1 x0 y0 thirdpoint
+Xp1x p1y midpoint
+X/p0y exch def
+X/p0x exch def
+Xx2 y2 x3 y3 thirdpoint
+Xp2x p2y midpoint
+X/p3y exch def
+X/p3x exch def
+XmovetoNeeded { p0x p0y moveto } if
+Xp1x p1y p2x p2y p3x p3y curveto
+Xend
+X} dup 0 17 dict put def
+X
+X/storexyn {
+X/n exch def
+X/y n array def
+X/x n array def
+Xn 1 sub -1 0 {
+X/i exch def
+Xy i 3 2 roll put
+Xx i 3 2 roll put
+X} for
+X} def
+X
+X%%EndProlog
+X
+X%I Idraw 9 Grid 8 
+X
+X
+XBegin
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t
+X[ .8 0 0 .8 0 0 ] concat
+X/originalCTM matrix currentmatrix def
+X
+XBegin %I Pict
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t
+X[ 1 0 0 1 -3 11 ] concat
+X
+XBegin %I Elli
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 100.5 286.5 ] concat
+X%I
+X222 440 28 20 Elli
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 305 735 ] concat
+X%I
+X[
+X(Cluster)
+X(Server)
+X] WhiteBg Text
+XEnd
+X
+XEnd %I eop
+X
+XBegin %I Pict
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t u
+X
+XBegin %I Elli
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 104.5 284.5 ] concat
+X%I
+X365 505 76 16 Elli
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 403.5 793 ] concat
+X%I
+X[
+X(Volume location server)
+X] WhiteBg Text
+XEnd
+X
+XEnd %I eop
+X
+XBegin %I Pict
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t u
+X
+XBegin %I Elli
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 104.5 233.5 ] concat
+X%I
+X365 505 76 16 Elli
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 403.5 742 ] concat
+X%I
+X[
+X(File server)
+X] WhiteBg Text
+XEnd
+X
+XEnd %I eop
+X
+XBegin %I Pict
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t u
+X
+XBegin %I Elli
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 104.5 177.5 ] concat
+X%I
+X365 505 76 16 Elli
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 403.5 686 ] concat
+X%I
+X[
+X(Volume statistics server)
+X] WhiteBg Text
+XEnd
+X
+XEnd %I eop
+X
+XBegin %I Pict
+X%I b u
+X%I cfg u
+X%I cbg u
+X%I f u
+X%I k u
+X%I p u
+X%I t
+X[ 1 0 0 1 -25.5 19.5 ] concat
+X
+XBegin %I Rect
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X1 SetP
+X%I t
+X[ 1 0 0 1 102 188 ] concat
+X%I
+X24 493 144 563 Rect
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 137 727 ] concat
+X%I
+X[
+X(Client)
+X(programs)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 198 742 ] concat
+X%I
+X[
+X(Library)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 198 719.5 ] concat
+X%I
+X[
+X(Kernel)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 198 697.5 ] concat
+X%I
+X[
+X(Library)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 159.5 590.5 ] concat
+X%I
+X65 321 65 181 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 160 591 ] concat
+X%I
+X65 274 171 274 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 160 567 ] concat
+X%I
+X65 274 171 274 Line
+XEnd
+X
+XEnd %I eop
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 252 767 ] concat
+X%I
+X[
+X(UIP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 252 748.5 ] concat
+X%I
+X[
+X(RAP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 252 731 ] concat
+X%I
+X[
+X(ROP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 362 715.5 ] concat
+X%I
+X[
+X(ROP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 362 751.5 ] concat
+X%I
+X[
+X(RTP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Text
+X%I cfg Black
+X0 0 0 SetCFg
+X%I f *-helvetica-medium-r-*-120-*
+X/Helvetica 12 SetF
+X%I t
+X[ 1 0 0 1 362 791.5 ] concat
+X%I
+X[
+X(RQP)
+X] WhiteBg Text
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 177 387 ] concat
+X%I
+X215 398 164 367 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 177 387 ] concat
+X%I
+X173 351 215 351 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ 1 0 0 1 177 387 ] concat
+X%I
+X164 334 213 299 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 79.5 553.5 ] concat
+X%I
+X421 369 286 369 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 79.5 553.5 ] concat
+X%I
+X431 344 286 317 Line
+XEnd
+X
+XBegin %I Line
+X%I b 65535
+X1 0 0 [] 0 SetB
+X%I cfg Black
+X0 0 0 SetCFg
+X%I cbg White
+X1 1 1 SetCBg
+X%I p
+X< ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff ffffffff
+X  ffffffff > -1 SetP
+X%I t
+X[ .5 0 0 .5 79.5 553.5 ] concat
+X%I
+X434 395 286 415 Line
+XEnd
+X
+XEnd %I eop
+X
+Xshowpage
+X
+X
+Xend
+X%%EndDocument
+X@endspecial
+Xf80 SF
+X100 939 p (Figure)s
+X19 r (6:)s
+Xf82 SF
+X29 r (WWFS)s
+X19 r (protocol)s
+X19 r (architecture.)s
+Xf80 SF
+X35 r (Client-CS)s
+X19 r (interaction)s
+X19 r (is)s
+X19 r (performed)s
+X19 r (via)s
+X19 r (user)s
+X19 r (interface)s
+X20 r (protocol)s
+X100 1006 p (\(UIP\),)s
+X16 r (resource)s
+X15 r (access)s
+X16 r (protocol)s
+X16 r (\(RAP\))s
+X15 r (and)s
+X16 r (resource)s
+X16 r (reorganize)s
+X15 r (protocol)s
+X15 r (\(ROP\).)s
+X16 r (CS-CS,)s
+X16 r (CS-\256leserver)s
+X15 r (in-)s
+X100 1072 p (teraction)s
+X12 r (is)s
+X12 r (performed)s
+X12 r (via)s
+X12 r (resource)s
+X12 r (query)s
+X12 r (protocol)s
+X12 r (\(RQP\),)s
+X12 r (resource)s
+X12 r (transfer)s
+X12 r (protocol)s
+X12 r (\(R)s
+X-2 r (TP\))s
+X11 r (and)s
+X12 r (ROP)s
+X-6 r (.)s
+X11 r (In)s
+X12 r (the)s
+X100 1139 p (current)s
+X14 r (implementation,)s
+X14 r (NFS)s
+X14 r (is)s
+X13 r (used)s
+X14 r (as)s
+X14 r (an)s
+X14 r (RAP)s
+X14 r (and)s
+X14 r (FTP)s
+X13 r (is)s
+X14 r (used)s
+X14 r (as)s
+X14 r (an)s
+X14 r (R)s
+X-3 r (TP)s
+X-6 r (.)s
+X183 1317 p (Hopefully)s
+X-3 r (,)s
+X10 r (the)s
+X9 r (development)s
+X10 r (of)s
+X9 r (WWUIP)s
+X9 r (and)s
+X10 r (WWFTP)s
+X9 r (will)s
+X10 r (help)s
+X9 r (the)s
+X9 r (seamless)s
+X10 r (integration)s
+X9 r (of)s
+X10 r (client,)s
+X10 r (CS)s
+X9 r (and)s
+X100 1383 p (\256le)s
+X14 r (server)s
+X-2 r (,)s
+X13 r (that)s
+X14 r (eventually)s
+X14 r (will)s
+X13 r (contribute)s
+X14 r (to)s
+X14 r (the)s
+X14 r (integration)s
+X13 r (of)s
+X14 r (resource)s
+X14 r (location,)s
+X13 r (access)s
+X14 r (and)s
+X14 r (reorganization)s
+X100 1450 p (mechanisms.)s
+Xf99 SF
+X100 1636 p (6)s
+X80 r (Conclusion)s
+Xf80 SF
+X100 1759 p (The)s
+X16 r (advent)s
+X17 r (of)s
+X16 r (a)s
+X16 r (worldwide)s
+X16 r (\256le)s
+X17 r (system)s
+X16 r (revealed)s
+X16 r (that)s
+X16 r (the)s
+X17 r (hierarchical)s
+X16 r (naming)s
+X16 r (scheme)s
+X17 r (cannot)s
+X16 r (be)s
+X16 r (straightly)s
+X100 1826 p (expanded)s
+X17 r (over)s
+X16 r (the)s
+X17 r (Internet,)s
+X17 r (and)s
+X16 r (that)s
+X17 r (operational)s
+X17 r (semantics)s
+X16 r (of)s
+X17 r (NFS)s
+X16 r (no)s
+X17 r (longer)s
+X16 r (suf\256ces.)s
+X26 r (For)s
+X16 r (these)s
+X17 r (reasons,)s
+X100 1892 p (a)s
+X18 r (novel)s
+X17 r (and)s
+X18 r (integrated)s
+X18 r (information)s
+X17 r (sharing)s
+X18 r (system)s
+X18 r (has)s
+X18 r (been)s
+X17 r (needed.)s
+X30 r (WWFS)s
+X18 r (can)s
+X18 r (be)s
+X17 r (a)s
+X18 r (solution,)s
+X19 r (with)s
+X17 r (the)s
+X100 1959 p (enhancement)s
+X14 r (to)s
+X14 r (the)s
+X14 r (notion)s
+X13 r (of)s
+X14 r (volume)s
+X14 r (and)s
+X14 r (the)s
+X14 r (extension)s
+X14 r (to)s
+X13 r (the)s
+X14 r (protocol)s
+X14 r (set.)s
+Xf99 SF
+X100 2145 p (7)s
+X80 r (Acknowledgements)s
+Xf80 SF
+X100 2268 p (I)s
+X13 r (would)s
+X13 r (like)s
+X13 r (to)s
+X13 r (thank)s
+X13 r (Akira)s
+X13 r (Kato,)s
+X13 r (Noritoshi)s
+X13 r (Demizu,)s
+X13 r (Hiroyuki)s
+X13 r (Ohno,)s
+X13 r (Kazumasa)s
+X13 r (Utashiro,)s
+X14 r (Motonori)s
+X13 r (Naka-)s
+X100 2335 p (mura,)s
+X14 r (Shuji)s
+X14 r (Ishii,)s
+X14 r (Y)s
+X-5 r (oshitaka)s
+X13 r (T)s
+X-3 r (okugawa)s
+X13 r (and)s
+X14 r (other)s
+X14 r (alpha)s
+X14 r (testers)s
+X14 r (for)s
+X14 r (their)s
+X14 r (helpful)s
+X14 r (comments,)s
+X14 r (bug)s
+X14 r (reports)s
+X13 r (and)s
+X100 2401 p (discussions)s
+X9 r (on)s
+X10 r (the)s
+X9 r (WWFS)s
+X9 r (mailing)s
+X9 r (list.)s
+X17 r (I)s
+X10 r (would)s
+X9 r (like)s
+X9 r (to)s
+X10 r (thank)s
+X9 r (Suguru)s
+X9 r (Y)s
+X-4 r (amaguchi,)s
+X9 r (Hideo)s
+X9 r (Miyahara)s
+X9 r (and)s
+X10 r (WIDE)s
+X100 2468 p (Project)s
+X10 r (for)s
+X11 r (their)s
+X10 r (fundamental)s
+X10 r (support)s
+X11 r (for)s
+X10 r (my)s
+X10 r (research)s
+X10 r (activities.)s
+X18 r (I)s
+X10 r (would)s
+X10 r (also)s
+X11 r (like)s
+X10 r (to)s
+X10 r (thank)s
+X10 r (the)s
+X11 r (administrators)s
+X100 2534 p (of)s
+X14 r (ftp)s
+X14 r (archives)s
+X14 r (in)s
+X13 r (the)s
+X14 r (Internet;)s
+X14 r (especially)s
+X14 r (Japanese)s
+X14 r (archive)s
+X14 r (administrators)s
+X13 r (have)s
+X14 r (been)s
+X14 r (cooperative.)s
+Xf99 SF
+X100 2721 p (References)s
+Xf80 SF
+X100 2844 p ([1])s
+X28 r (Sun)s
+X14 r (Microsystems.)s
+X19 r (NFS:)s
+X14 r (Network)s
+X14 r (File)s
+X14 r (System)s
+X14 r (protocol)s
+X14 r (speci\256cation.)s
+X20 r (RFC)s
+X13 r (1094,)s
+X14 r (March)s
+X14 r (1989.)s
+X100 2955 p ([2])s
+X28 r (Y)s
+X-5 r (ouki)s
+X14 r (Kadobayashi.)s
+Xf81 SF
+X24 r (WWFS)s
+X15 r (Refer)s
+X-1 r (ence)s
+X14 r (Manual)s
+Xf80 SF
+X(.)s
+X23 r (WWFS)s
+X15 r (Research)s
+X15 r (Group,)s
+X16 r (Department)s
+X14 r (of)s
+X15 r (Information)s
+X192 3021 p (&)s
+X14 r (Computer)s
+X14 r (Sciences,)s
+X14 r (Osaka)s
+X14 r (University)s
+X-3 r (,)s
+X13 r (January)s
+X14 r (1993.)s
+X100 3132 p ([3])s
+X28 r (Y)s
+X-5 r (ouki)s
+X14 r (Kadobayashi,)s
+X15 r (Suguru)s
+X15 r (Y)s
+X-4 r (amaguchi,)s
+X14 r (and)s
+X15 r (Hideo)s
+X15 r (Miyahara.)s
+X24 r (WWFS:)s
+X14 r (A)s
+X15 r (framework)s
+X15 r (for)s
+X15 r (distributing)s
+X192 3198 p (information)s
+X15 r (in)s
+X14 r (the)s
+X15 r (Internet)s
+X15 r (environment.)s
+X23 r (In)s
+Xf81 SF
+X14 r (Pr)s
+X-1 r (oceedings)s
+X14 r (of)s
+X14 r (the)s
+X15 r (seventh)s
+X15 r (IEEE)s
+X14 r (Region)s
+X15 r (10)s
+X15 r (International)s
+X192 3265 p (Confer)s
+X-1 r (ence)s
+X13 r (TENCON'92)s
+Xf80 SF
+X(,)s
+X14 r (pages)s
+X14 r (227\261231,)s
+X14 r (November)s
+X13 r (1992.)s
+X100 3375 p ([4])s
+X28 r (Brewster)s
+X19 r (Kahle.)s
+X42 r (Wide)s
+X20 r (Area)s
+X20 r (Information)s
+X20 r (Servers)s
+X19 r (concepts.)s
+X42 r (T)s
+X-3 r (echnical)s
+X19 r (Report)s
+X20 r (TMC-202,)s
+X21 r (Thinking)s
+X192 3442 p (Machines)s
+X14 r (Corporation,)s
+X14 r (November)s
+X14 r (1989.)s
+X100 3552 p ([5])s
+X28 r (David)s
+X12 r (K.)s
+X13 r (Gifford,)s
+X12 r (Pierre)s
+X13 r (Jouvelot,)s
+X13 r (Mark)s
+X13 r (A.)s
+X12 r (Sheldon,)s
+X13 r (and)s
+X13 r (James)s
+X13 r (W)s
+X-4 r (.)s
+X11 r (O'T)s
+X-3 r (oole,)s
+X12 r (Jr)s
+X-2 r (.)s
+X17 r (Semantic)s
+X13 r (\256le)s
+X13 r (systems.)s
+X192 3619 p (In)s
+Xf81 SF
+X15 r (Pr)s
+X-1 r (oceedings)s
+X13 r (of)s
+X14 r (the)s
+X15 r (Thirteenth)s
+X14 r (ACM)s
+X15 r (Symposium)s
+X14 r (on)s
+X14 r (Operating)s
+X15 r (System)s
+X14 r (Principles)s
+Xf80 SF
+X(,)s
+X15 r (pages)s
+X14 r (16\26125,)s
+X15 r (Oc-)s
+X192 3685 p (tober)s
+X14 r (1991.)s
+X1261 3946 p (7)s
+XEP
+X
+X%%Page: 8 8
+XBP
+Xf80 SF
+X100 260 p ([6])s
+X28 r (Y)s
+X-5 r (ouki)s
+X13 r (Kadobayashi.)s
+X21 r (WWFTP:)s
+X14 r (A)s
+X15 r (\256lesystem-oriented)s
+X14 r (\256le)s
+X14 r (transfer)s
+X14 r (protocol.)s
+X21 r (T)s
+X-3 r (echnical)s
+X13 r (Report)s
+X14 r (WWFS-)s
+X192 327 p (TR-93-1,)s
+X16 r (WWFS)s
+X16 r (Research)s
+X16 r (Group,)s
+X16 r (Department)s
+X16 r (of)s
+X16 r (Information)s
+X16 r (&)s
+X15 r (Computer)s
+X16 r (Sciences,)s
+X16 r (Osaka)s
+X16 r (Univer-)s
+X192 393 p (sity)s
+X-2 r (,)s
+X12 r (January)s
+X14 r (1993.)s
+X100 504 p ([7])s
+X28 r (John)s
+X17 r (K.)s
+X17 r (Ousterhout.)s
+X32 r (An)s
+X17 r (X1)s
+X-1 r (1)s
+X17 r (toolkit)s
+X17 r (based)s
+X17 r (on)s
+X17 r (the)s
+X17 r (Tcl)s
+X17 r (language.)s
+X33 r (In)s
+Xf81 SF
+X17 r (Pr)s
+X-1 r (occedings)s
+X16 r (of)s
+X17 r (the)s
+X17 r (Winter)s
+X18 r (1991)s
+X192 570 p (USENIX)s
+X14 r (Confer)s
+X-1 r (ence)s
+Xf80 SF
+X(,)s
+X13 r (Dallas,)s
+X14 r (TX,)s
+X14 r (1991.)s
+X1261 3946 p (8)s
+XEP
+X%%Trailer
+X%%Pages: 8
+XEND
+X%%EOF
+END_OF_FILE
+  if test 46189 -ne `wc -c <'doc/beyond.ps.B'`; then
+    echo shar: \"'doc/beyond.ps.B'\" unpacked with wrong size!
+  elif test -f 'doc/beyond.ps.A'; then
+    echo shar: Combining  \"'doc/beyond.ps'\" \(92615 characters\)
+    cat 'doc/beyond.ps.A' 'doc/beyond.ps.B' > 'doc/beyond.ps'
+    if test 92615 -ne `wc -c <'doc/beyond.ps'`; then
+      echo shar: \"'doc/beyond.ps'\" combined with wrong size!
+    else
+      rm doc/beyond.ps.A doc/beyond.ps.B
+    fi
+  fi
+  # end of 'doc/beyond.ps.B'
+fi
+if test -f 'mosaic/Mosaic-2.1+wwfs.diff' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mosaic/Mosaic-2.1+wwfs.diff'\"
+else
+  echo shar: Extracting \"'mosaic/Mosaic-2.1+wwfs.diff'\" \(32538 characters\)
+  sed "s/^X//" >'mosaic/Mosaic-2.1+wwfs.diff' <<'END_OF_FILE'
+Xdiff -c -r -N Mosaic-2.1/Makefile Mosaic-2.1+wwfs/Makefile
+X*** Mosaic-2.1/Makefile	Fri Dec 10 15:59:29 1993
+X--- Mosaic-2.1+wwfs/Makefile	Tue Dec 21 10:09:38 1993
+X***************
+X*** 141,147 ****
+X--- 141,153 ----
+X  waislibdir = $(waisroot)/bin
+X  waislibs = $(waislibdir)/inv.a $(waislibdir)/wais.a $(waislibdir)/libftw.a -lm
+X  
+X+ #### DIRECT WWFS SUPPORT
+X  
+X+ wwfsroot = /home/is/youki-k/work/wwfs-108.0
+X+ wwfsflags = -I$(wwfsroot)/libww
+X+ wwfslibdir = $(wwfsroot)/libww
+X+ wwfslibs = $(wwfslibdir)/libww.a
+X+ 
+X  #### Customization flags:
+X  #### . If you want Mosaic to come up with monochrome colors by default,
+X  ####   use -DMONO_DEFAULT
+X***************
+X*** 151,156 ****
+X--- 157,170 ----
+X  ####   (should be a URL), set -DDOCS_DIRECTORY_DEFAULT=\\\"url\\\"
+X  #### . Other things you can define are spelled out in src/mosaic.h.
+X  customflags =
+X+ #### Customization flags for WWFS addicts
+X+ # customflags = \
+X+ # -DDOCS_DIRECTORY_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/Docs\\\" \
+X+ # -DDEMO_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/demo.html\\\" \
+X+ # -DHTMLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/General/Internet/WWW/HTMLPrimer.html\\\" \
+X+ # -DURLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/url-primer.html\\\" \
+X+ # -DNETWORK_STARTING_POINTS_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/StartingPoints/NetworkStartingPoints.html\\\" \
+X+ # -DINTERNET_METAINDEX_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/MetaIndex.html\\\"
+X  
+X  
+X  
+X***************
+X*** 203,221 ****
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+X--- 217,235 ----
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags) $(wwfsflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(sockslibs) $(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+Xdiff -c -r -N Mosaic-2.1/Makefile.alpha Mosaic-2.1+wwfs/Makefile.alpha
+X*** Mosaic-2.1/Makefile.alpha	Tue Nov  9 18:21:52 1993
+X--- Mosaic-2.1+wwfs/Makefile.alpha	Tue Dec 21 10:10:59 1993
+X***************
+X*** 139,145 ****
+X--- 139,151 ----
+X  #waislibdir = $(waisroot)/bin
+X  #waislibs = $(waislibdir)/inv.a $(waislibdir)/wais.a $(waislibdir)/libftw.a -lm
+X  
+X+ #### DIRECT WWFS SUPPORT
+X  
+X+ wwfsroot = /home/is/youki-k/work/wwfs-108.0
+X+ wwfsflags = -I$(wwfsroot)/libww
+X+ wwfslibdir = $(wwfsroot)/libww
+X+ wwfslibs = $(wwfslibdir)/libww.a
+X+ 
+X  #### Customization flags:
+X  #### . If you want Mosaic to come up with monochrome colors by default,
+X  ####   use -DMONO_DEFAULT
+X***************
+X*** 149,154 ****
+X--- 155,168 ----
+X  ####   (should be a URL), set -DDOCS_DIRECTORY_DEFAULT=\\\"url\\\"
+X  #### . Other things you can define are spelled out in src/mosaic.h.
+X  customflags =
+X+ #### Customization flags for WWFS addicts
+X+ # customflags = \
+X+ # -DDOCS_DIRECTORY_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/Docs\\\" \
+X+ # -DDEMO_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/demo.html\\\" \
+X+ # -DHTMLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/General/Internet/WWW/HTMLPrimer.html\\\" \
+X+ # -DURLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/url-primer.html\\\" \
+X+ # -DNETWORK_STARTING_POINTS_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/StartingPoints/NetworkStartingPoints.html\\\" \
+X+ # -DINTERNET_METAINDEX_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/MetaIndex.html\\\"
+X  
+X  
+X  # ---------------------- END OF CUSTOMIZABLE OPTIONS -------------------------
+X***************
+X*** 177,195 ****
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+X--- 191,209 ----
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags) $(wwfsflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+Xdiff -c -r -N Mosaic-2.1/Makefile.dec Mosaic-2.1+wwfs/Makefile.dec
+X*** Mosaic-2.1/Makefile.dec	Tue Nov  9 18:38:54 1993
+X--- Mosaic-2.1+wwfs/Makefile.dec	Tue Dec 21 10:11:14 1993
+X***************
+X*** 45,50 ****
+X--- 45,52 ----
+X  # syslibs = -lPW
+X  #### For Sun's and Ultrix and HP and BSD/386:
+X  syslibs =
+X+ #### For DEC Ultrix + JP L10N:
+X+ syslibs = -ljsy -lim
+X  #### For Sun's with no DNS:
+X  # syslibs = -lresolv
+X  #### For SCO ODT:
+X***************
+X*** 116,124 ****
+X  dtmdirs = libdtm libnet
+X  dtmlibs = ../libnet/libnet.a ../libdtm/libdtm.a
+X  dtmflags = -DHAVE_DTM -I.. -I../libnet
+X! hdfdir = /hdf/install/dec
+X! hdflibs = $(hdfdir)/lib/libnetcdf.a $(hdfdir)/lib/libdf.a
+X! hdfflags = -DHAVE_HDF -I$(hdfdir)/include
+X  
+X  
+X  #### DIRECT WAIS SUPPORT
+X--- 118,126 ----
+X  dtmdirs = libdtm libnet
+X  dtmlibs = ../libnet/libnet.a ../libdtm/libdtm.a
+X  dtmflags = -DHAVE_DTM -I.. -I../libnet
+X! # hdfdir = /hdf/install/dec
+X! # hdflibs = $(hdfdir)/lib/libnetcdf.a $(hdfdir)/lib/libdf.a
+X! # hdfflags = -DHAVE_HDF -I$(hdfdir)/include
+X  
+X  
+X  #### DIRECT WAIS SUPPORT
+X***************
+X*** 141,147 ****
+X--- 143,155 ----
+X  #waislibdir = $(waisroot)/bin
+X  #waislibs = $(waislibdir)/inv.a $(waislibdir)/wais.a $(waislibdir)/libftw.a -lm
+X  
+X+ #### DIRECT WWFS SUPPORT
+X  
+X+ wwfsroot = /home/is/youki-k/work/wwfs-108.0
+X+ wwfsflags = -I$(wwfsroot)/libww
+X+ wwfslibdir = $(wwfsroot)/libww
+X+ wwfslibs = $(wwfslibdir)/libww.a
+X+ 
+X  #### Customization flags:
+X  #### . If you want Mosaic to come up with monochrome colors by default,
+X  ####   use -DMONO_DEFAULT
+X***************
+X*** 151,156 ****
+X--- 159,172 ----
+X  ####   (should be a URL), set -DDOCS_DIRECTORY_DEFAULT=\\\"url\\\"
+X  #### . Other things you can define are spelled out in src/mosaic.h.
+X  customflags =
+X+ #### Customization flags for WWFS addicts
+X+ # customflags = \
+X+ # -DDOCS_DIRECTORY_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/Docs\\\" \
+X+ # -DDEMO_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/demo.html\\\" \
+X+ # -DHTMLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/General/Internet/WWW/HTMLPrimer.html\\\" \
+X+ # -DURLPRIMER_PAGE_DEFAULT=\\\"wwfs:/NCSA-web/demoweb/url-primer.html\\\" \
+X+ # -DNETWORK_STARTING_POINTS_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/StartingPoints/NetworkStartingPoints.html\\\" \
+X+ # -DINTERNET_METAINDEX_DEFAULT=\\\"wwfs:/NCSA-web/SDG/Software/Mosaic/MetaIndex.html\\\"
+X  
+X  
+X  # ---------------------- END OF CUSTOMIZABLE OPTIONS -------------------------
+X***************
+X*** 179,197 ****
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+X--- 195,213 ----
+X  
+X  libwww2::
+X  	@echo --- Building libwww2
+X! 	cd libwww2; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(knrflag) $(waisflags) $(wwfsflags)"
+X  
+X  src::
+X  	@echo --- Building src
+X! 	cd src; make CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-purifyd::
+X  	@echo --- Building Purify'd src
+X! 	cd src; make PURIFY=$(PURIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  src-quantifyd::
+X  	@echo --- Building Quantify'd src
+X! 	cd src; make PURIFY=$(QUANTIFY) CC=$(CC) RANLIB=$(RANLIB) CFLAGS="$(CFLAGS) $(customflags) $(xinc) $(dtmflags) $(hdfflags) -I.. -I../libXmx -I../libwww2" AUX_CFLAGS=$(knrflag) X_LIBS="$(xlibs)" SYS_LIBS="$(syslibs)" DTM_LIBS="$(dtmlibs)" HDF_LIBS="$(hdflibs)" WAIS_LIBS="$(waislibs)" WWFS_LIBS="$(wwfslibs)" LIBWWW_DIR=../libwww2
+X  
+X  libnet::
+X  	@echo --- Building libnet
+Xdiff -c -r -N Mosaic-2.1/libwww2/HTAccess.c Mosaic-2.1+wwfs/libwww2/HTAccess.c
+X*** Mosaic-2.1/libwww2/HTAccess.c	Sun Oct 31 07:56:57 1993
+X--- Mosaic-2.1+wwfs/libwww2/HTAccess.c	Tue Dec 21 07:17:30 1993
+X***************
+X*** 79,85 ****
+X  */
+X  PRIVATE void HTAccessInit NOARGS			/* Call me once */
+X  {
+X! extern HTProtocol HTTP, HTFile, HTTelnet, HTTn3270, HTRlogin;
+X  extern HTProtocol HTFTP, HTNews, HTGopher;
+X  #ifdef DIRECT_WAIS
+X  extern HTProtocol HTWAIS;
+X--- 79,85 ----
+X  */
+X  PRIVATE void HTAccessInit NOARGS			/* Call me once */
+X  {
+X! extern HTProtocol HTTP, HTFile, HTWWFS, HTTelnet, HTTn3270, HTRlogin;
+X  extern HTProtocol HTFTP, HTNews, HTGopher;
+X  #ifdef DIRECT_WAIS
+X  extern HTProtocol HTWAIS;
+X***************
+X*** 93,98 ****
+X--- 93,99 ----
+X  
+X      HTRegisterProtocol(&HTTP);
+X      HTRegisterProtocol(&HTFile);
+X+     HTRegisterProtocol(&HTWWFS);
+X      HTRegisterProtocol(&HTTelnet);
+X      HTRegisterProtocol(&HTTn3270);
+X      HTRegisterProtocol(&HTRlogin);
+Xdiff -c -r -N Mosaic-2.1/libwww2/HTParse.c Mosaic-2.1+wwfs/libwww2/HTParse.c
+X*** Mosaic-2.1/libwww2/HTParse.c	Sat Nov  6 16:52:43 1993
+X--- Mosaic-2.1+wwfs/libwww2/HTParse.c	Tue Dec 21 08:52:17 1993
+X***************
+X*** 115,120 ****
+X--- 115,122 ----
+X          parts->relative = (*after_access) ? after_access : 0;	/* zero for "" */
+X      }
+X  
+X+     /* WWFS does not require host part -- youki@wide.ad.jp, Dec 21 1993 */
+X+     if (parts->access && ! strcmp(parts->access, "wwfs")) return;
+X      /* Access specified but no host: the anchor was not really one
+X         e.g. news:j462#36487@foo.bar -- JFG 10/7/92, from bug report */
+X      if (parts->access && ! parts->host && parts->anchor) {
+Xdiff -c -r -N Mosaic-2.1/libwww2/HTWWFS.c Mosaic-2.1+wwfs/libwww2/HTWWFS.c
+X*** Mosaic-2.1/libwww2/HTWWFS.c
+X--- Mosaic-2.1+wwfs/libwww2/HTWWFS.c	Tue Dec 21 07:28:06 1993
+X***************
+X*** 0 ****
+X--- 1,452 ----
+X+ /*			WWFS Access				HTWWFS.c
+X+ **			===========
+X+ **
+X+ **	This is unix-specific code in general.
+X+ **	These are routines for file access used by browsers.
+X+ **
+X+ ** History:
+X+ **	   Feb 91	Written Tim Berners-Lee CERN/CN
+X+ **	   Apr 91	vms-vms access included using DECnet syntax
+X+ **	26 Jun 92 (JFG) When running over DECnet, suppressed FTP.
+X+ **			Fixed access bug for relative names on VMS.
+X+ **	   Nov 93	Derived from HTFile.c; Youki Kadobayashi WIDE
+X+ **			deleted VMS code for simplicity.
+X+ **
+X+ */
+X+ 
+X+ #include "HTFile.h"		/* Implemented here */
+X+ 
+X+ #define MULTI_SUFFIX ".multi"   /* Extension for scanning formats */
+X+ 
+X+ #include <stdio.h>
+X+ #include <sys/param.h>
+X+ #include "HText.h"
+X+ #include "HTUtils.h"
+X+ 
+X+ #include "HTParse.h"
+X+ #include "tcp.h"
+X+ #include "HTTCP.h"
+X+ #include "HTAnchor.h"
+X+ #include "HTAtom.h"
+X+ #include "HTWriter.h"
+X+ #include "HTFWriter.h"
+X+ #include "HTInit.h"
+X+ #include "HTSort.h"
+X+ #include "libww.h"
+X+ 
+X+ /* #define TRACE 1 */
+X+ 
+X+ #ifdef USE_DIRENT		/* Set this for Sys V systems */
+X+ #define STRUCT_DIRENT struct dirent
+X+ #else
+X+ #define STRUCT_DIRENT struct direct
+X+ #endif
+X+ 
+X+ #include "HTML.h"		/* For directory object building */
+X+ 
+X+ /*                   Controlling globals
+X+ **
+X+ */
+X+ 
+X+ extern int HTDirAccess;
+X+ 
+X+ /*	Load a document on WWFS
+X+ **	-----------------------
+X+ **
+X+ ** On entry,
+X+ **	addr		must point to the fully qualified hypertext reference.
+X+ **			This is the physsical address of the file
+X+ **
+X+ ** On exit,
+X+ **	returns		<0		Error has occured.
+X+ **			HTLOADED	OK 
+X+ **
+X+ */
+X+ PUBLIC int HTLoadWWFS ARGS4 (
+X+ 	CONST char *,		addr,
+X+ 	HTParentAnchor *,	anchor,
+X+ 	HTFormat,		format_out,
+X+ 	HTStream *,		sink
+X+ )
+X+ {
+X+     char * filename, * localname;
+X+     HTFormat format;
+X+     int fd = -1;		/* Unix file descriptor number = INVALID */
+X+     char * newname=0;	/* Simplified name of file */
+X+     HTAtom * encoding;	/* @@ not used yet */
+X+     int compressed;
+X+     extern char *HTgeticonname(HTFormat, char *);
+X+     
+X+ /*	Reduce the filename to a basic form (hopefully unique!)
+X+ */
+X+     StrAllocCopy(newname, addr);
+X+     filename=HTParse(newname, "", PARSE_PATH|PARSE_PUNCTUATION);
+X+     free(newname);
+X+     
+X+     format = HTFileFormat(filename, &encoding, WWW_PLAINTEXT, &compressed);
+X+ 
+X+     HTProgress ("Retrieving WWFS file.");
+X+     if (ww_get(filename) < 0) {
+X+ 	    if (TRACE) fprintf(stderr, "HTWWFS: could not retrieve document");
+X+     }
+X+     localname = ww_localpath(filename);
+X+     if (! localname) {
+X+         if (TRACE) fprintf(stderr, "HTWWFS: client not configured properly");
+X+     } else {
+X+ 	struct stat dir_info;
+X+ 	localname = strdup(localname);
+X+ 
+X+ #ifdef GOT_READ_DIR
+X+ 
+X+ /*			  Multiformat handling
+X+ **
+X+ **	If needed, scan directory to find a good file.
+X+ **  Bug:  we don't stat the file to find the length
+X+ */
+X+ 	if ( (strlen(localname) > strlen(MULTI_SUFFIX))
+X+ 	   && (0==strcmp(localname + strlen(localname) - strlen(MULTI_SUFFIX),
+X+ 	                  MULTI_SUFFIX))) {
+X+ 	    DIR *dp;
+X+ 
+X+ 	    STRUCT_DIRENT * dirbuf;
+X+ 	    float best = NO_VALUE_FOUND;	/* So far best is bad */
+X+ 	    HTFormat best_rep = NULL;	/* Set when rep found */
+X+ 	    STRUCT_DIRENT best_dirbuf;	/* Best dir entry so far */
+X+ 
+X+ 	    char * base = strrchr(localname, '/');
+X+ 	    int baselen;
+X+ 
+X+ 	    if (!base || base == localname) goto forget_multi;
+X+ 	    *base++ = 0;		/* Just got directory name */
+X+ 	    baselen = strlen(base)- strlen(MULTI_SUFFIX);
+X+ 	    base[baselen] = 0;	/* Chop off suffix */
+X+ 
+X+ 	    dp = opendir(localname);
+X+ 	    if (!dp) {
+X+ forget_multi:
+X+ 		free(localname);
+X+ 		return HTLoadError(sink, 500,
+X+ 			"Multiformat: directory scan failed.");
+X+ 	    }
+X+ 	    
+X+ 	    while (dirbuf = readdir(dp)) {
+X+ 			/* while there are directory entries to be read */
+X+ 		if (dirbuf->d_ino == 0) continue;
+X+ 				/* if the entry is not being used, skip it */
+X+ 		
+X+ 		if (!strncmp(dirbuf->d_name, base, baselen)) {	
+X+ 		    HTFormat rep = HTFileFormat(dirbuf->d_name, &encoding,
+X+                                                 WWW_PLAINTEXT, &compressed);
+X+ 		    float value = HTStackValue(rep, format_out,
+X+ 		    				HTFileValue(dirbuf->d_name),
+X+ 						0.0  /* @@@@@@ */);
+X+ 		    if (value != NO_VALUE_FOUND) {
+X+ 		        if (TRACE) fprintf(stderr,
+X+ 				"HTWWFS: value of presenting %s is %f\n",
+X+ 				HTAtom_name(rep), value);
+X+ 			if  (value > best) {
+X+ 			    best_rep = rep;
+X+ 			    best = value;
+X+ 			    best_dirbuf = *dirbuf;
+X+ 		       }
+X+ 		    }	/* if best so far */ 		    
+X+ 		 } /* if match */  
+X+ 		    
+X+ 	    } /* end while directory entries left to read */
+X+ 	    closedir(dp);
+X+ 	    
+X+ 	    if (best_rep) {
+X+ 		format = best_rep;
+X+ 		base[-1] = '/';		/* Restore directory name */
+X+ 		base[0] = 0;
+X+ 		StrAllocCat(localname, best_dirbuf.d_name);
+X+ 		goto open_file;
+X+ 		
+X+ 	    } else { 			/* If not found suitable file */
+X+ 		free(localname);
+X+ 		return HTLoadError(sink, 403,	/* List formats? */
+X+ 		   "Could not find suitable representation for transmission.");
+X+ 	    }
+X+ 	    /*NOTREACHED*/
+X+ 	} /* if multi suffix */
+X+ /*
+X+ **	Check to see if the 'localname' is in fact a directory.  If it is
+X+ **	create a new hypertext object containing a list of files and 
+X+ **	subdirectories contained in the directory.  All of these are links
+X+ **      to the directories or files listed.
+X+ **      NB This assumes the existance of a type 'STRUCT_DIRENT', which will
+X+ **      hold the directory entry, and a type 'DIR' which is used to point to
+X+ **      the current directory being read.
+X+ */
+X+ 	
+X+ 	
+X+ 	if (stat(localname,&dir_info) == -1) {     /* get file information */
+X+ 	                               /* if can't read file information */
+X+ 	    if (TRACE) fprintf(stderr, "HTWWFS: can't stat %s\n", localname);
+X+ 
+X+ 	}  else {		/* Stat was OK */
+X+ 		
+X+ 
+X+ 	    if (((dir_info.st_mode) & S_IFMT) == S_IFDIR) {
+X+ 		/* if localname is a directory */	
+X+ 
+X+ /*
+X+ **
+X+ ** Read the localdirectory and present a nicely formatted list to the user
+X+ ** Re-wrote most of the read directory code here, excepting for the checking
+X+ ** access.
+X+ **
+X+ ** Author: Charles Henrich (henrich@crh.cl.msu.edu)   10-09-93
+X+ **
+X+ ** This is still pretty messy, need to go through and clean it up at some point
+X+ **
+X+ */
+X+ 
+X+ /* Define some parameters that everyone should already have */
+X+ 
+X+ #ifndef MAXPATHLEN
+X+ #define MAXPATHLEN 1024
+X+ #endif
+X+ 
+X+ #ifndef BUFSIZ
+X+ #define BUFSIZ 4096
+X+ #endif
+X+ 
+X+                 char filepath[MAXPATHLEN];
+X+                 char buffer[4096];
+X+      
+X+                 char *ptr;
+X+                 char *dataptr;
+X+ 
+X+                 HText * HT;
+X+                 HTFormat format;
+X+                 HTAtom *pencoding;
+X+ 
+X+ 		struct stat statbuf;
+X+ 		STRUCT_DIRENT * dp;
+X+ 		DIR *dfp;
+X+  
+X+                 int cmpr;
+X+                 int count;
+X+ 
+X+ 		if (TRACE)
+X+ 		    fprintf(stderr,"%s is a directory\n",localname);
+X+ 		HTProgress ("Listing directory.");
+X+ 			
+X+ /*	Check directory access.
+X+ **	Selective access means only those directories containing a
+X+ **	marker file can be browsed
+X+ */
+X+ 		if (HTDirAccess == HT_DIR_FORBID) {
+X+ 		    free(localname);
+X+ 		    return HTLoadError(sink, 403,
+X+ 		    "Directory browsing is not allowed.");
+X+ 		}
+X+ 
+X+ 
+X+ 		if (HTDirAccess == HT_DIR_SELECTIVE) {
+X+ 		    char * enable_file_name = 
+X+ 			malloc(strlen(localname)+ 1 +
+X+ 			 strlen(HT_DIR_ENABLE_FILE) + 1);
+X+ 		    strcpy(enable_file_name, localname);
+X+ 		    strcat(enable_file_name, "/");
+X+ 		    strcat(enable_file_name, HT_DIR_ENABLE_FILE);
+X+ 		    if (stat(enable_file_name, &statbuf) != 0) {
+X+ 			free(localname);
+X+ 			return HTLoadError(sink, 403,
+X+ 			"Selective access is not enabled for this directory.");
+X+ 		    }
+X+ 		}
+X+ 
+X+  
+X+ 		dfp = opendir(localname);
+X+ 		if (!dfp) {
+X+ 		    free(localname);
+X+ 		    return HTLoadError(sink, 403, "This directory is not readable.");
+X+ 		}
+X+ 
+X+ /* Suck the directory up into a list to be sorted */
+X+ 
+X+                 HTSortInit();
+X+ 
+X+                 for(dp=readdir(dfp);dp != NULL;dp=readdir(dfp))
+X+                     {
+X+                     ptr = malloc(strlen(dp->d_name)+1);
+X+                     if(ptr == NULL)
+X+                         {
+X+ 		        return HTLoadError(sink, 403, "Ran out of memory in directory read!");
+X+                         }
+X+                     strcpy(ptr,dp->d_name);
+X+                      
+X+                     HTSortAdd(ptr);
+X+                     }
+X+ 
+X+                 closedir(dfp);
+X+ 
+X+ /* Sort the dir list */
+X+ 
+X+                 HTSortSort();
+X+ 
+X+ /* Start a new HTML page */
+X+ 
+X+                 HT = HText_new();
+X+                 HText_beginAppend(HT);
+X+                 HText_appendText(HT, "<H1>WWFS Directory ");
+X+                 HText_appendText(HT, filename);
+X+                 HText_appendText(HT, "</H1>\n");
+X+                 HText_appendText(HT,"<DL>\n"); 
+X+ 
+X+ /* Sort the list and then spit it out in a nice form */
+X+ 
+X+ /* How this for a disgusting loop :) */
+X+ 
+X+                 for(count=0,dataptr=HTSortFetch(count); 
+X+                     dataptr != NULL; 
+X+                     free(dataptr), count++, dataptr=HTSortFetch(count))
+X+                     {
+X+ 
+X+ /* We dont want to see . */
+X+ 
+X+                     if(strcmp(dataptr,".") == 0) continue;
+X+  
+X+ /* If its .. *and* the current directory is / dont show anything, otherwise
+X+ /* print out a nice Parent Directory entry.
+X+ /* */
+X+ 
+X+                     if(strcmp(dataptr,"..") == 0)
+X+                         {
+X+                         if(strcmp(localname,"/") != 0)
+X+                             {
+X+                             strcpy(buffer,filename);
+X+ 
+X+                             ptr = strrchr(buffer, '/');
+X+ 
+X+                             if(ptr != NULL) *ptr='\0'; 
+X+ 
+X+                             if(buffer[0] == '\0') strcpy(buffer,"/");
+X+ 
+X+                             HText_appendText(HT,"<DD><A HREF=\"");
+X+                             HText_appendText(HT, buffer);
+X+ 
+X+                             HText_appendText(HT,"\"><IMG SRC=\"");
+X+                             HText_appendText(HT, HTgeticonname(NULL, "directory"));
+X+ 
+X+                             HText_appendText(HT,"\"> Parent Directory</a>");
+X+                             continue;
+X+                             }
+X+                         else
+X+                             {
+X+                             continue;
+X+                             }
+X+                         }
+X+                       
+X+ /* Get the filesize information from a stat, if we cant stat it, we probably */
+X+ /* cant read it either, so ignore it. */
+X+ 
+X+                     sprintf(filepath,"%s/%s",localname, dataptr);
+X+ 
+X+                     if(stat(filepath, &statbuf) == -1) continue;
+X+      
+X+                     HText_appendText(HT,"<DD><A HREF=\"");
+X+                     HText_appendText (HT, filename);
+X+ 
+X+                     if(localname[strlen(localname)-1] != '/') 
+X+                         {
+X+                         HText_appendText (HT, "/");
+X+                         }
+X+ 
+X+                     HText_appendText (HT, dataptr);
+X+                     HText_appendText (HT, "\">");
+X+ 
+X+ /* If its a directory, dump out a dir icon, dont bother with anything else */
+X+ /* if it is a file try and figure out what type of file it is, and grab    */
+X+ /* the appropriate icon.  If we cant figure it out, call it text.  If its  */
+X+ /* a compressed file, call it binary no matter what                        */
+X+ 
+X+                     if(statbuf.st_mode & S_IFDIR)
+X+                         {
+X+                         sprintf(buffer,"%s",dataptr);
+X+                         HText_appendText(HT, "<IMG SRC=\"");
+X+                         HText_appendText(HT, HTgeticonname(NULL, "directory"));
+X+                         HText_appendText(HT, "\"> ");
+X+                         }
+X+                     else
+X+                         {
+X+                         sprintf(buffer,"%s (%d bytes)", 
+X+                             dataptr, statbuf.st_size);
+X+               
+X+                         format = HTFileFormat(dataptr, &pencoding, 
+X+                                      WWW_SOURCE, &cmpr);
+X+ 
+X+ /* If its executable then call it application, else it might as well be text */
+X+ 
+X+                         if(cmpr == 0)
+X+                             {
+X+                             HText_appendText(HT, "<IMG SRC=\"");
+X+                             if((statbuf.st_mode & S_IXUSR) ||
+X+                                (statbuf.st_mode & S_IXGRP) || 
+X+                                (statbuf.st_mode & S_IXOTH))
+X+                                 {
+X+                                 HText_appendText(HT, 
+X+                                     HTgeticonname(format, "application"));
+X+                                 }
+X+                             else
+X+                                 {
+X+                                 HText_appendText(HT, 
+X+                                     HTgeticonname(format, "text"));
+X+                                 }
+X+                             HText_appendText(HT, "\"> ");
+X+                             }
+X+                         else
+X+                             {
+X+                             HText_appendText(HT, "<IMG SRC=\"");
+X+                             HText_appendText(HT, HTgeticonname(NULL, "application"));
+X+                             HText_appendText(HT, "\"> ");
+X+                             }
+X+                         }
+X+ 
+X+ /* Spit out the anchor */
+X+ 
+X+                     HText_appendText (HT, buffer);
+X+                     HText_appendText (HT, "</A>\n");
+X+                     } 
+X+ 
+X+ /* End of list, clean up and we are done */
+X+ 
+X+             HText_appendText (HT, "</DL>\n");
+X+             HText_endAppend (HT);
+X+             free(localname);
+X+             return HT_LOADED;
+X+ 	    } /* end if localname is directory */
+X+ 	
+X+ 	} /* end if file stat worked */
+X+ 	
+X+ /* End of directory reading section
+X+ */
+X+ #endif
+X+ open_file:
+X+ 	{
+X+ 	    FILE * fp = fopen(localname,"r");
+X+ 	    if(TRACE) fprintf (stderr, "HTWWFS: Opening `%s' gives %p\n",
+X+ 				localname, (void*)fp);
+X+ 	    if (fp) {		/* Good! */
+X+ 		if (HTEditable(localname)) {
+X+ 		    HTAtom * put = HTAtom_for("PUT");
+X+ 		    HTList * methods = HTAnchor_methods(anchor);
+X+ 		    if (HTList_indexOf(methods, put) == (-1)) {
+X+ 			HTList_addObject(methods, put);
+X+ 		    }
+X+ 		}
+X+ 		free(localname);
+X+ 		HTParseFile(format, format_out, anchor, fp, sink, compressed);
+X+ 		fclose(fp);
+X+ 		return HT_LOADED;
+X+ 	    }  /* If succesfull open */
+X+ 	}    /* scope of fp */
+X+     }  /* local unix file system */    
+X+     free(filename);
+X+ }
+X+ 
+X+ /*		Protocol descriptors
+X+ */
+X+ PUBLIC HTProtocol HTWWFS = { "wwfs", HTLoadWWFS, 0 };
+Xdiff -c -r -N Mosaic-2.1/libwww2/Makefile Mosaic-2.1+wwfs/libwww2/Makefile
+X*** Mosaic-2.1/libwww2/Makefile	Mon Nov  1 13:04:46 1993
+X--- Mosaic-2.1+wwfs/libwww2/Makefile	Tue Dec 21 07:17:31 1993
+X***************
+X*** 30,35 ****
+X--- 30,36 ----
+X  HTTelnet.c \
+X  HTWSRC.c \
+X  HTWriter.c \
+X+ HTWWFS.c \
+X  SGML.c \
+X  HTWAIS.c \
+X  HTIcon.c \
+Xdiff -c -r -N Mosaic-2.1/src/Makefile Mosaic-2.1+wwfs/src/Makefile
+X*** Mosaic-2.1/src/Makefile	Sun Nov  7 16:32:05 1993
+X--- Mosaic-2.1+wwfs/src/Makefile	Tue Dec 21 07:17:31 1993
+X***************
+X*** 5,11 ****
+X  LIBXMX_INC = ../libXmx
+X  
+X  PROGRAM_LIBS = $(LIBWWW_DIR)/libwww.a $(LIBHTMLW_DIR)/libhtmlw.a $(LIBXMX_DIR)/libXmx.a
+X! LIBS = $(PROGRAM_LIBS) $(X_LIBS) $(DTM_LIBS) $(HDF_LIBS) $(WAIS_LIBS) $(MATH_LIB) $(SYS_LIBS)
+X  
+X  CFILES = main.c gui.c gui-dialogs.c gui-menubar.c gui-documents.c mo-www.c\
+X    mo-dtm.c hotlist.c whine.c history.c\
+X--- 5,11 ----
+X  LIBXMX_INC = ../libXmx
+X  
+X  PROGRAM_LIBS = $(LIBWWW_DIR)/libwww.a $(LIBHTMLW_DIR)/libhtmlw.a $(LIBXMX_DIR)/libXmx.a
+X! LIBS = $(PROGRAM_LIBS) $(X_LIBS) $(DTM_LIBS) $(HDF_LIBS) $(WAIS_LIBS) $(WWFS_LIBS) $(MATH_LIB) $(SYS_LIBS)
+X  
+X  CFILES = main.c gui.c gui-dialogs.c gui-menubar.c gui-documents.c mo-www.c\
+X    mo-dtm.c hotlist.c whine.c history.c\
+Xdiff -c -r -N Mosaic-2.1/src/history.c Mosaic-2.1+wwfs/src/history.c
+X*** Mosaic-2.1/src/history.c	Sun Dec  5 13:43:49 1993
+X--- Mosaic-2.1+wwfs/src/history.c	Tue Dec 21 07:17:31 1993
+X***************
+X*** 349,354 ****
+X--- 349,365 ----
+X          goto done;
+X        }
+X      }
+X+ 
+X+   if (!strncmp (url, "wwfs:", 5))
+X+     {
+X+           /* It's a WWFS file. */
+X+           foo1 = url + 5;
+X+           
+X+           title = (char *)malloc ((strlen (foo1) + 32) * sizeof (char));
+X+           sprintf (title, "WWFS file %s\0", foo1);
+X+           
+X+           goto done;
+X+     }
+X    
+X    /* Punt... */
+X    title = (char *) malloc ((strlen (url) + 24) * sizeof (char));
+Xdiff -c -r -N Mosaic-2.1/src/mo-www.c Mosaic-2.1+wwfs/src/mo-www.c
+X*** Mosaic-2.1/src/mo-www.c	Sun Dec  5 13:43:56 1993
+X--- Mosaic-2.1+wwfs/src/mo-www.c	Tue Dec 21 07:17:32 1993
+X***************
+X*** 775,781 ****
+X  /* ------------------------------ dumb stuff ------------------------------ */
+X  
+X  /* Grumble grumble... */
+X! #if defined(ultrix) || defined(VMS) || defined(NeXT) || defined(M4310) || defined(vax)
+X  char *strdup (char *str)
+X  {
+X    char *dup;
+X--- 775,784 ----
+X  /* ------------------------------ dumb stuff ------------------------------ */
+X  
+X  /* Grumble grumble... */
+X! /*
+X!  * #if defined(ultrix) || defined(VMS) || defined(NeXT) || defined(M4310) || defined(vax)
+X!  */
+X! #if defined(VMS) || defined(NeXT) || defined(M4310) || defined(vax)
+X  char *strdup (char *str)
+X  {
+X    char *dup;
+END_OF_FILE
+  if test 32538 -ne `wc -c <'mosaic/Mosaic-2.1+wwfs.diff'`; then
+    echo shar: \"'mosaic/Mosaic-2.1+wwfs.diff'\" unpacked with wrong size!
+  fi
+  # end of 'mosaic/Mosaic-2.1+wwfs.diff'
+fi
+echo shar: End of archive 10 \(of 22\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 22 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

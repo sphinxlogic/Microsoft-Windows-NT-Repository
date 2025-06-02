@@ -1,0 +1,1767 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F Haugh II)
+Subject:  v30i093:  shadow - Shadow Login/Password Suite, Patch05
+Message-ID: <1992Jun29.201256.24322@sparky.imd.sterling.com>
+X-Md4-Signature: 71e92577252e5edd5cfaaf4805d2f8bd
+Date: Mon, 29 Jun 1992 20:12:56 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F Haugh II)
+Posting-number: Volume 30, Issue 93
+Archive-name: shadow/patch05
+Environment: UNIX
+Patch-To: shadow: Volume 26, Issue 54-64
+
+Here is the latest patch for the Shadow Password Suite.  After applying
+this patch, your code will be at version 3.2.1.  This patch primarily
+adds a new command "sg", which functions similiarly to "su", except that
+it deals with groups.  It is intended to replace "newgrp", which is a 
+pain since it causes an exec of the command (being a shell builtin and
+so on ...).
+
+You will have to have the code at 3.1.4 in order to apply this patch.  If
+you would prefer to stick with 3.1.4 and forego new features, please send
+me mail and I will see what can be arranged.  There will be bug-fix only
+patches for that level available on a very limited basis (read: they won't
+be posted to the net).
+
+Changes -
+
+Documented where crypt functions can be located.
+Fixed bug in sulogin for termios getting and setting.
+Added support for SYSLOG_SG_ENAB for sg command logging.
+Added code to actually perform sg command functionality.
+Added SYSLOG_SG_ENAB entry to login.defs.
+Fixed typo in groups manpage.
+Added documentation for sg command.
+Added Makefile rules for sg command.
+Fixed problem with open files.
+Fixed signal handling with dialup passwords.
+Fixed error message when changing dialup passwords.
+Added code to clean up lock files for dialup passwords.
+Added syslog support when changing user account information.
+
+Future Directions -
+
+I will be adding code to enable the administrator to select the
+authentication mechanism that will be used.  This will enable you to select
+one time pads, or retinal scanners, or some other system defined means of
+authenticating users.  I will also be adding code to set a limit on the
+total number of user, or the number of times an individual user is able to
+login.  Plus, the user{add,del,mod} commands will begin supporting the
+failure counting and login time features.
+-- 
+Prereq: "3.1.4"
+Index: patchlevel.h
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- patchlevel.h	Tue Jun  9 08:31:13 1992
+***************
+*** 17,24 ****
+   *		Changes for SunOS 4.1.1
+   *	02/08/92	3.1.4	patchlevel 17
+   *		Changes for SVR4, plus bug fixes
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	17
+! #define	VERSION		"3.1.4"
+--- 17,26 ----
+   *		Changes for SunOS 4.1.1
+   *	02/08/92	3.1.4	patchlevel 17
+   *		Changes for SVR4, plus bug fixes
++  *	04/03/92	3.2.1	patchlevel 18
++  *		Minor bug fixes, new baseline
+   */
+  
+  #define	RELEASE		3
+! #define	PATCHLEVEL	18
+! #define	VERSION		"3.2.1"
+Index: README
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- README	Tue Jun  9 08:31:33 1992
+***************
+*** 1,7 ****
+! [	@(#)README	3.8.1.1	20:36:10	3/7/92	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 3/7/92.
+  
+  This software is copyright 1988, 1989, 1990, 1991, 1992, John F. Haugh II.
+  All rights reserved.  Use, duplication and disclosure is permitted according
+--- 1,7 ----
+! [	@(#)README	3.8.1.2	14:48:13	4/28/92	]
+  
+  This is the explanatory document for John F. Haugh II's login replacement,
+! release 3.  This document was last updated 4/28/92.
+  
+  This software is copyright 1988, 1989, 1990, 1991, 1992, John F. Haugh II.
+  All rights reserved.  Use, duplication and disclosure is permitted according
+***************
+*** 77,83 ****
+  fields or #define's until they match.  The same is true for "shadow.h",
+  if you system provides one.  You may want to replace large portions of
+  that file (or the entire file) with your system version.  It is provided
+! for those systems which do NOT provide /usr/include/shadow.h.
+  
+  Login Defaults File -
+  	This option selects the name of the file to read for the
+--- 77,87 ----
+  fields or #define's until they match.  The same is true for "shadow.h",
+  if you system provides one.  You may want to replace large portions of
+  that file (or the entire file) with your system version.  It is provided
+! for those systems which do NOT provide /usr/include/shadow.h.  If you
+! do not have a the crypt() function in your library (perhaps because you
+! are located outside the United States), you may wish to look into the
+! UFC-crypt package which was posted to comp.sources.misc in volume 23,
+! issues 97 and 98.
+  
+  Login Defaults File -
+  	This option selects the name of the file to read for the
+Index: sulogin.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- sulogin.c	Tue Jun  9 08:31:51 1992
+***************
+*** 48,54 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.10	23:56:58	3/7/92";
+  #endif
+  
+  char	name[BUFSIZ];
+--- 48,54 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)sulogin.c	3.11	14:49:03	4/28/92";
+  #endif
+  
+  char	name[BUFSIZ];
+***************
+*** 116,122 ****
+  	ioctl (0, TIOCSETN, &termio);
+  #endif
+  #ifdef	USE_TERMIO
+! 	ioctl (0, TCSETA, &termio);
+  	termio.c_iflag |= (ICRNL|IXON);
+  	termio.c_oflag |= (OPOST|ONLCR);
+  	termio.c_cflag |= (CREAD);
+--- 116,122 ----
+  	ioctl (0, TIOCSETN, &termio);
+  #endif
+  #ifdef	USE_TERMIO
+! 	ioctl (0, TCGETA, &termio);
+  	termio.c_iflag |= (ICRNL|IXON);
+  	termio.c_oflag |= (OPOST|ONLCR);
+  	termio.c_cflag |= (CREAD);
+Index: getdef.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- getdef.c	Tue Jun  9 08:32:08 1992
+***************
+*** 10,16 ****
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.5	21:21:14	3/7/92";
+  #endif
+  
+  #include <stdio.h>
+--- 10,16 ----
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)getdef.c	3.6	14:49:39	4/28/92";
+  #endif
+  
+  #include <stdio.h>
+***************
+*** 74,79 ****
+--- 74,80 ----
+  	{ "QUOTAS_ENAB",		NULL },
+  	{ "SULOG_FILE",			NULL },
+  	{ "SU_NAME",			NULL },
++ 	{ "SYSLOG_SG_ENAB",		NULL },
+  	{ "SYSLOG_SU_ENAB",		NULL },
+  	{ "TTYGROUP",			NULL },
+  	{ "TTYPERM",			NULL },
+Index: newgrp.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- newgrp.c	Tue Jun  9 08:32:26 1992
+***************
+*** 29,35 ****
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)newgrp.c	3.9	20:37:26	3/7/92";
+  #endif
+  
+  #ifdef	NGROUPS
+--- 29,35 ----
+  #endif
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)newgrp.c	3.10	14:50:28	4/28/92";
+  #endif
+  
+  #ifdef	NGROUPS
+***************
+*** 53,58 ****
+--- 53,69 ----
+  struct	sgrp	*sgrp;
+  struct	sgrp	*getsgnam();
+  #endif
++ 
++ #ifdef	USE_SYSLOG
++ #include <syslog.h>
++ 
++ /*VARARGS*/ int syslog();
++ 
++ #ifndef	LOG_WARN
++ #define	LOG_WARN LOG_WARNING
++ #endif	/* !LOG_WARN */
++ #endif	/* USE_SYSLOG */
++ 
+  struct	group	*grp;
+  struct	group	*getgrgid();
+  struct	group	*getgrnam();
+***************
+*** 67,72 ****
+--- 78,84 ----
+  char	*name;
+  char	*group;
+  int	gid;
++ int	cflag;
+  
+  char	*Prog;
+  char	prog[BUFSIZ];
+***************
+*** 89,95 ****
+  
+  usage ()
+  {
+! 	fprintf (stderr, "usage: newgrp [ - ] [ group ]\n");
+  }
+  
+  /*
+--- 101,110 ----
+  
+  usage ()
+  {
+! 	if (strcmp (Prog, "sg") != 0)
+! 		fprintf (stderr, "usage: newgrp [ - ] [ group ]\n");
+! 	else
+! 		fprintf (stderr, "usage: sg group [ command ]\n");
+  }
+  
+  /*
+***************
+*** 105,110 ****
+--- 120,126 ----
+  	int	needspasswd = 0;
+  	int	i;
+  	char	*cp;
++ 	char	*command;
+  
+  	/*
+  	 * save my name for error messages and save my real gid incase
+***************
+*** 114,156 ****
+  	 * command line argument.
+  	 */
+  
+! 	Prog = argv[0];
+! 	gid = getgid ();
+! 	argc--; argv++;
+! 
+! 	/*
+! 	 * let me parse the command line first.  the only recognized
+! 	 * option is a "-", which indicates that the shell is to perform
+! 	 * the same initialization it does at login time.  the next
+! 	 * argument, if present, must be the new group name.  any
+! 	 * remaining arguments will be used to execute a command for
+! 	 * the user as the named group.  if the group name isn't present
+! 	 * i just use the login group id of this user.
+! 	 */
+! 
+! 	if (argc > 0 && argv[0][0] == '-') {
+! 		if (strcmp (argv[0], "-") == 0) {
+! 			initflag = 1;
+! 			argc--; argv++;
+! 		} else {
+! 			usage ();
+! 			goto failure;
+! 		}
+! 	}
+! #ifdef	NGROUPS
+! 
+! 	/*
+! 	 * get the current users groupset.  the new group will be
+! 	 * added to the concurrent groupset if there is room, otherwise
+! 	 * you get a nasty message but at least your real and effective
+! 	 * group id's are set.
+! 	 */
+  
+! 	ngroups = getgroups (groups);
+  #endif
+  
+  	/*
+! 	 * now i get to determine my current name.  i do this to validate
+  	 * my access to the requested group.  the validation works like
+  	 * this -
+  	 *	1) get the name associated with my current user id
+--- 130,149 ----
+  	 * command line argument.
+  	 */
+  
+! 	if (Prog = strrchr (argv[0], '/'))
+! 		Prog++;
+! 	else
+! 		Prog = argv[0];
+  
+! #ifdef	USE_SYSLOG
+! 	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+  #endif
+  
++ 	gid = getgid ();
++ 	argc--; argv++;
++ 
+  	/*
+! 	 * here i get to determine my current name.  i do this to validate
+  	 * my access to the requested group.  the validation works like
+  	 * this -
+  	 *	1) get the name associated with my current user id
+***************
+*** 159,165 ****
+  	 *	4) if they don't match, my name is the name in the
+  	 *	   password file.
+  	 *
+! 	 * this isn't perfect, but it works more often then not.
+  	 */
+  
+  	pwd = getpwuid (getuid ());
+--- 152,160 ----
+  	 *	4) if they don't match, my name is the name in the
+  	 *	   password file.
+  	 *
+! 	 * this isn't perfect, but it works more often then not.  i have
+! 	 * to do this here so i can get the login name to find the
+! 	 * login group.
+  	 */
+  
+  	pwd = getpwuid (getuid ());
+***************
+*** 169,262 ****
+  
+  	if (! (pwd = getpwnam (name))) {
+  		fprintf (stderr, "unknown user: %s\n", name);
+! 		exit (1);
+! 	}
+! 
+  	/*
+! 	 * now we determine the name of the new group which she wishes
+! 	 * to become a member of.  the password file entry for her
+! 	 * current user id has been gotten.  if there is no optional
+! 	 * group argument she will have her real and effective group id
+! 	 * set to the value from her password file entry.  otherwise
+! 	 * we validate her access to the specified group.
+  	 */
+  
+! 	if (argv[0] != (char *) 0) {
+  
+! 		/*
+! 		 * start by getting the entry for the requested group.
+  		 */
+  
+! 		if (! (grp = getgrnam (group = argv[0]))) {
+! 			fprintf (stderr, "unknown group: %s\n", group);
+! 			goto failure;
+! 		}
+! 		argc--; argv++;
+! #ifdef	SHADOWGRP
+! 		sgrp = getsgnam (group);
+  #endif
+  
+  		/*
+! 		 * see if she is a member of this group.
+  		 */
+  
+! 		for (i = 0;grp->gr_mem[i];i++)
+! 			if (strcmp (name, grp->gr_mem[i]) == 0)
+! 				break;
+  
+! 		/*
+! 		 * if she isn't a member, she needs to provide the
+! 		 * group password.  if there is no group password, she
+! 		 * will be denied access anyway.
+! 		 */
+  
+! 		if (grp->gr_mem[i] == (char *) 0)
+! 			needspasswd = 1;
+  
+  #ifdef	SHADOWGRP
+! 		if (sgrp) {
+  
+! 			/*
+! 			 * Do the tests again with the shadow group entry.
+! 			 */
+  
+! 			for (i = 0;sgrp->sg_mem[i];i++)
+! 				if (strcmp (name, sgrp->sg_mem[i]) == 0)
+! 					break;
+  
+! 			needspasswd = sgrp->sg_mem[i] == 0;
+! 		}
+  #endif
+  #ifdef	SHADOWPWD
+  
+! 		/*
+! 		 * if she does not have either a shadowed password,
+! 		 * or a regular password, and the group has a password,
+! 		 * she needs to give the group password.
+! 		 */
+  
+! 		if (spwd = getspnam (name)) {
+! 			if (spwd->sp_pwdp[0] == '\0' && grp->gr_passwd[0])
+! 				needspasswd = 1;
+! #ifdef	SHADOWGRP
+! 			if (spwd->sp_pwdp[0] == '\0' && sgrp != 0)
+! 				needspasswd = sgrp->sg_passwd[0] != '\0';
+! #endif
+! 		} else {
+! 			if (pwd->pw_passwd[0] == '\0' && grp->gr_passwd[0])
+! 				needspasswd = 1;
+  #ifdef	SHADOWGRP
+! 			if (pwd->pw_passwd[0] == '\0' && sgrp != 0)
+! 				needspasswd = sgrp->sg_passwd[0] != '\0';
+  #endif
+! 		}
+! #else
+! 
+! 		/*
+! 		 * if she does not have a regular password she will have
+! 		 * to give the group password, if one exists.
+! 		 */
+! 
+  		if (pwd->pw_passwd[0] == '\0' && grp->gr_passwd[0])
+  			needspasswd = 1;
+  #ifdef	SHADOWGRP
+--- 164,325 ----
+  
+  	if (! (pwd = getpwnam (name))) {
+  		fprintf (stderr, "unknown user: %s\n", name);
+! #ifdef	USE_SYSLOG
+! 		syslog (LOG_WARN, "unknown user `%s', uid `%d'\n",
+! 			name, getuid ());
+! 		closelog ();
+! #endif
+! 		goto failure;
+! 	}
+! 
+  	/*
+! 	 * Parse the command line.  There are two accepted flags.  The
+! 	 * first is "-", which for newgrp means to re-create the entire
+! 	 * environment as though a login had been performed, and "-c",
+! 	 * which for sg causes a command string to be executed.
+! 	 *
+! 	 * The next argument, if present, must be the new group name.
+! 	 * Any remaining remaining arguments will be used to execute a
+! 	 * command as the named group.  If the group name isn't present,
+! 	 * I just use the login group ID of the current user.
+! 	 *
+! 	 * The valid syntax are
+! 	 *	newgrp [ - ] [ groupid ]
+! 	 *	sg [ - ]
+! 	 *	sg [ - ] groupid [ command ]
+  	 */
+  
+! 	if (argc > 0 && argv[0][0] == '-' && argv[0][1] == '\0') {
+! 		argc--; argv++;
+! 		initflag = 1;
+! 	}
+! 	if (strcmp (Prog, "newgrp") != 0) {
+  
+! 		/* 
+! 		 * Do the command line for everything that is
+! 		 * not "newgrp".
+  		 */
+  
+! 		if (argc > 0 && argv[0][0] != '-') {
+! 			group = argv[0];
+! 			argc--; argv++;
+! 		} else {
+! 			usage ();
+! #ifdef	USE_SYSLOG
+! 			closelog ();
+  #endif
++ 			exit (1);
++ 		}
++ 		if (argc > 0) {
++ 			command = argv[1];
++ 			cflag++;
++ 		}
++ 	} else {
+  
+  		/*
+! 		 * Do the command line for "newgrp".  It's just
+! 		 * making sure there aren't any flags and getting
+! 		 * the new group name.
+  		 */
+  
+! 		if (argc > 0 && argv[0][0] == '-') {
+! 			usage ();
+! 			goto failure;
+! 		} else if (argv[0] != (char *) 0) {
+! 			group = argv[0];
+! 		} else {
+  
+! 			/*
+! 			 * get the group file entry for her login group id.
+! 			 * the entry must exist, simply to be annoying.
+! 			 */
+  
+! 			if (! (grp = getgrgid (pwd->pw_gid))) {
+! 				fprintf (stderr, "unknown gid: %d\n",
+! 					pwd->pw_gid);
+! #ifdef	USE_SYSLOG
+! 				syslog (LOG_CRIT, "unknown gid: %d\n",
+! 					pwd->pw_gid);
+! #endif
+! 				goto failure;
+! 			}
+! 		}
+! 	}
+! #ifdef	NGROUPS
+! 
+! 	/*
+! 	 * get the current users groupset.  the new group will be
+! 	 * added to the concurrent groupset if there is room, otherwise
+! 	 * you get a nasty message but at least your real and effective
+! 	 * group id's are set.
+! 	 */
+! 
+! 	ngroups = getgroups (groups);
+! #endif
+! 
+! 	/*
+! 	 * now we put her in the new group.  the password file entry for
+! 	 * her current user id has been gotten.  if there was no optional
+! 	 * group argument she will have her real and effective group id
+! 	 * set to the value from her password file entry.  otherwise
+! 	 * we validate her access to the specified group.
+! 	 */
+  
++ 	if (! (grp = getgrnam (group))) {
++ 		fprintf (stderr, "unknown group: %s\n", group);
++ 		goto failure;
++ 	}
+  #ifdef	SHADOWGRP
+! 	sgrp = getsgnam (group);
+! #endif
+! 
+! 	/*
+! 	 * see if she is a member of this group.
+! 	 */
+  
+! 	for (i = 0;grp->gr_mem[i];i++)
+! 		if (strcmp (name, grp->gr_mem[i]) == 0)
+! 			break;
+  
+! 	/*
+! 	 * if she isn't a member, she needs to provide the
+! 	 * group password.  if there is no group password, she
+! 	 * will be denied access anyway.
+! 	 */
+  
+! 	if (grp->gr_mem[i] == (char *) 0)
+! 		needspasswd = 1;
+! 
+! #ifdef	SHADOWGRP
+! 	if (sgrp) {
+! 
+! 		/*
+! 		 * Do the tests again with the shadow group entry.
+! 		 */
+! 
+! 		for (i = 0;sgrp->sg_mem[i];i++)
+! 			if (strcmp (name, sgrp->sg_mem[i]) == 0)
+! 				break;
+! 
+! 		needspasswd = sgrp->sg_mem[i] == (char *) 0;
+! 	}
+  #endif
+  #ifdef	SHADOWPWD
+  
+! 	/*
+! 	 * if she does not have either a shadowed password,
+! 	 * or a regular password, and the group has a password,
+! 	 * she needs to give the group password.
+! 	 */
+  
+! 	if (spwd = getspnam (name)) {
+! 		if (spwd->sp_pwdp[0] == '\0' && grp->gr_passwd[0])
+! 			needspasswd = 1;
+  #ifdef	SHADOWGRP
+! 		if (spwd->sp_pwdp[0] == '\0' && sgrp != 0)
+! 			needspasswd = sgrp->sg_passwd[0] != '\0';
+  #endif
+! 	} else {
+  		if (pwd->pw_passwd[0] == '\0' && grp->gr_passwd[0])
+  			needspasswd = 1;
+  #ifdef	SHADOWGRP
+***************
+*** 263,281 ****
+  		if (pwd->pw_passwd[0] == '\0' && sgrp != 0)
+  			needspasswd = sgrp->sg_passwd[0] != '\0';
+  #endif
+! #endif
+! 	} else {
+  
+! 		/*
+! 		 * get the group file entry for her login group id.
+! 		 * the entry must exist, simply to be annoying.
+! 		 */
+  
+! 		if (! (grp = getgrgid (pwd->pw_gid))) {
+! 			fprintf (stderr, "unknown gid: %d\n", pwd->pw_gid);
+! 			goto failure;
+! 		}
+! 	}
+  
+  	/*
+  	 * now i see about letting her into the group she requested.
+--- 326,346 ----
+  		if (pwd->pw_passwd[0] == '\0' && sgrp != 0)
+  			needspasswd = sgrp->sg_passwd[0] != '\0';
+  #endif
+! 	}
+! #else
+  
+! 	/*
+! 	 * if she does not have a regular password she will have
+! 	 * to give the group password, if one exists.
+! 	 */
+  
+! 	if (pwd->pw_passwd[0] == '\0' && grp->gr_passwd[0])
+! 		needspasswd = 1;
+! #ifdef	SHADOWGRP
+! 	if (pwd->pw_passwd[0] == '\0' && sgrp != 0)
+! 		needspasswd = sgrp->sg_passwd[0] != '\0';
+! #endif
+! #endif
+  
+  	/*
+  	 * now i see about letting her into the group she requested.
+***************
+*** 331,336 ****
+--- 396,405 ----
+  
+  		if (strcmp (cpasswd, encrypted) != 0) {
+  			fputs ("Sorry\n", stderr);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_INFO, "Invalid password for `%s' from `%s'\n",
++ 			group, name);
++ #endif
+  			goto failure;
+  		}
+  	}
+***************
+*** 341,346 ****
+--- 410,419 ----
+  	 * groupset.
+  	 */
+  
++ #ifdef	USE_SYSLOG
++ 	if (getdef_bool ("SYSLOG_SU_ENAB"))
++ 		syslog (LOG_INFO, "user `%s' switched to group `%s'\n", name, group);
++ #endif
+  	gid = grp->gr_gid;
+  #ifdef	NGROUPS
+  
+***************
+*** 368,385 ****
+  	}
+  #endif
+  
+! 	/*
+! 	 * this is where all failures land.  the group id will not
+! 	 * have been set, so the setgid() below will set me to the
+! 	 * original group id i had when i was invoked.
+! 	 */
+  
+- failure:
+- 
+  	/*
+  	 * i set her group id either to the value she requested, or
+! 	 * to the original value.  i have to go back to the original
+! 	 * because she no longer has a shell running.
+  	 */
+  
+  	if (setgid (gid))
+--- 441,451 ----
+  	}
+  #endif
+  
+! okay:
+  
+  	/*
+  	 * i set her group id either to the value she requested, or
+! 	 * to the original value if the newgrp failed.
+  	 */
+  
+  	if (setgid (gid))
+***************
+*** 389,397 ****
+  		perror ("setuid");
+  
+  	/*
+! 	 * i have to get the pathname of her login shell.  as a favor
+  	 * i'll try her environment for a $SHELL value first, and
+! 	 * then try the password file entry.
+  	 */
+  
+  	if (! initflag && (cp = getenv ("SHELL")))
+--- 455,480 ----
+  		perror ("setuid");
+  
+  	/*
+! 	 * see if the "-c" flag was used.  if it was, i just create a
+! 	 * shell command for her using the argument that followed the
+! 	 * "-c" flag.
+! 	 */
+! 
+! 	if (cflag) {
+! 		execl ("/bin/sh", "sh", "-c", command, (char *) 0);
+! 		perror ("/bin/sh");
+! #ifdef	USE_SYSLOG
+! 		closelog ();
+! #endif
+! 		exit (255);
+! 	}
+! 
+! 	/*
+! 	 * i have to get the pathname of her login shell.  as a favor,
+  	 * i'll try her environment for a $SHELL value first, and
+! 	 * then try the password file entry.  obviously this shouldn't
+! 	 * be in the restricted command directory since it could be
+! 	 * used to leave the restricted environment.
+  	 */
+  
+  	if (! initflag && (cp = getenv ("SHELL")))
+***************
+*** 440,446 ****
+  		while (*envp) {
+  			if (strncmp (*envp, "PATH=", 5) == 0 ||
+  					strncmp (*envp, "HOME=", 5) == 0 ||
+! 					strncmp (*envp, "SHELL=", 6) == 0)
+  				addenv (*envp);
+  
+  			envp++;
+--- 523,530 ----
+  		while (*envp) {
+  			if (strncmp (*envp, "PATH=", 5) == 0 ||
+  					strncmp (*envp, "HOME=", 5) == 0 ||
+! 					strncmp (*envp, "SHELL=", 6) == 0 ||
+! 					strncmp (*envp, "TERM=", 5) == 0)
+  				addenv (*envp);
+  
+  			envp++;
+***************
+*** 458,461 ****
+--- 542,572 ----
+  
+  	shell (prog, base);
+  	/*NOTREACHED*/
++ 
++ failure:
++ 	/*
++ 	 * this is where all failures land.  the group id will not
++ 	 * have been set, so the setgid() below will set me to the
++ 	 * original group id i had when i was invoked.
++ 	 */
++ 
++ 	/*
++ 	 * only newgrp needs to re-exec the user's shell.  that is
++ 	 * because the shell doesn't recognize "sg", so it doesn't
++ 	 * "exec" this command.
++ 	 */
++ 
++ 	if (strcmp (Prog, "newgrp") != 0) {
++ #ifdef	USE_SYSLOG
++ 		closelog ();
++ #endif
++ 		exit (1);
++ 	}
++ 	
++ 	/*
++ 	 * The GID is still set to the old value, so now I can
++ 	 * give the user back her shell.
++ 	 */
++ 
++ 	goto okay;
+  }
+Index: login.defs
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- login.defs	Tue Jun  9 08:32:52 1992
+***************
+*** 1,7 ****
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.4	21:21:25	3/7/92
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+--- 1,7 ----
+  #
+  # /etc/login.defs - Configuration control definitions for the login package.
+  #
+! #	@(#)login.defs	3.5	14:51:26	4/28/92
+  #
+  # Three items must be defined:  MAIL_DIR, ENV_SUPATH, and ENV_PATH.
+  # If unspecified, some arbitrary (and possibly incorrect) value will
+***************
+*** 53,60 ****
+--- 53,62 ----
+  
+  #
+  # Enable "syslog" logging of su activity - in addition to sulog file logging.
++ # SYSLOG_SG_ENAB does the same for newgrp and sg.
+  #
+  SYSLOG_SU_ENAB		no
++ SYSLOG_SG_ENAB		no
+  
+  #
+  # If defined, either full pathname of a file containing device names or
+Index: groups.1
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- groups.1	Tue Jun  9 08:33:12 1992
+***************
+*** 1,4 ****
+! .\" Copyright 1991, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+  .\" Permission is granted to copy and create derivative works for any
+--- 1,4 ----
+! .\" Copyright 1991, 1992, John F. Haugh II
+  .\" All rights reserved.
+  .\"
+  .\" Permission is granted to copy and create derivative works for any
+***************
+*** 7,15 ****
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)groups.1	3.1	08:50:54	11/3/91
+  .\"
+! .TH ID 1
+  .SH NAME
+  groups \- Display current group ID names
+  .SH SYNOPSIS
+--- 7,15 ----
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)groups.1	3.2	14:52:10	4/28/92
+  .\"
+! .TH GROUPS 1
+  .SH NAME
+  groups \- Display current group ID names
+  .SH SYNOPSIS
+***************
+*** 28,35 ****
+  .SH Note
+  Systems which do not support concurrent group sets will have the information
+  from \fB/etc/group\fR reported.
+! The user must use \fInewgrp\fR to change their current real and effective
+! group ID.
+  .SH Files
+  /etc/group \- group information
+  .SH See Also
+--- 28,35 ----
+  .SH Note
+  Systems which do not support concurrent group sets will have the information
+  from \fB/etc/group\fR reported.
+! The user must use \fInewgrp\fR or \fIsg\fR to change their current real and
+! effective group ID.
+  .SH Files
+  /etc/group \- group information
+  .SH See Also
+Index: newgrp.1
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- newgrp.1	Tue Jun  9 08:33:29 1992
+***************
+*** 7,20 ****
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)newgrp.1	3.1	07:47:52	7/13/91
+  .\"
+  .TH NEWGRP 1
+  .SH NAME
+  newgrp \- Change group ID
+  .SH SYNOPSIS
+  .B newgrp
+  [ - ] [ \fIgroup\fR ]
+  .SH DESCRIPTION
+  .I newgrp
+  is used to change the current group ID during a login session.
+--- 7,25 ----
+  .\" and conspicuously displayed on all copies of object code or
+  .\" distribution media.
+  .\"
+! .\"	@(#)newgrp.1	3.2	14:52:37	4/28/92
+  .\"
+  .TH NEWGRP 1
+  .SH NAME
+  newgrp \- Change group ID
++ .br
++ sg \- Execute command as different group ID
+  .SH SYNOPSIS
+  .B newgrp
+  [ - ] [ \fIgroup\fR ]
++ .br
++ .B sg
++ [ - ] [ \fIgroup\fR [ \fB-c\fR \fIcommand\fR ] ]
+  .SH DESCRIPTION
+  .I newgrp
+  is used to change the current group ID during a login session.
+***************
+*** 32,37 ****
+--- 37,52 ----
+  member and the group has a password.
+  The user will be denied access if the group password is empty
+  and the user is not listed as a member.
++ .PP
++ The
++ .I sg
++ command works similiar to \fInewgrp\fR but does not replace the
++ user's shell, so upon exit from a \fIsg\fR command, you are
++ returned to your previous group ID.
++ .I sg
++ also accepts a command.
++ The command will be executed with the Bourne shell and must be
++ enclosed in quotes.
+  .SH CAVEATS
+  .PP
+  This version of \fInewgrp\fR has many compilation options,
+Index: Makefile
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- Makefile	Tue Jun  9 08:33:50 1992
+***************
+*** 8,16 ****
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile	3.25.1.9	10:18:08  - Shadow password system
+  #
+! #	@(#)Makefile	3.25.1.9	10:18:08	3/27/92
+  #
+  SHELL = /bin/sh
+  
+--- 8,16 ----
+  # and conspicuously displayed on all copies of object code or
+  # distribution media.
+  #
+! #	@(#)Makefile	3.25.1.10	14:47:00  - Shadow password system
+  #
+! #	@(#)Makefile	3.25.1.10	14:47:00	4/28/92
+  #
+  SHELL = /bin/sh
+  
+***************
+*** 218,224 ****
+  DOCS2 = $(MAN_5) $(MAN_8)
+  DOCS = $(DOCS1) $(DOCS2)
+  
+! BINS = su login pwconv pwunconv passwd sulogin faillog newgrp gpasswd \
+  	mkpasswd chfn chsh chage chpasswd newusers dpasswd id useradd \
+  	userdel usermod groupadd groupdel groupmod $(SCOLOGIN) logoutd \
+  	groups
+--- 218,224 ----
+  DOCS2 = $(MAN_5) $(MAN_8)
+  DOCS = $(DOCS1) $(DOCS2)
+  
+! BINS = su login pwconv pwunconv passwd sulogin faillog newgrp sg gpasswd \
+  	mkpasswd chfn chsh chage chpasswd newusers dpasswd id useradd \
+  	userdel usermod groupadd groupdel groupmod $(SCOLOGIN) logoutd \
+  	groups
+***************
+*** 262,267 ****
+--- 262,269 ----
+  	cp mkpasswd pwconv pwunconv sulogin chpasswd newusers \
+  		useradd userdel usermod groupadd groupdel groupmod logoutd /etc
+  	cp su passwd gpasswd dpasswd faillog newgrp chfn chsh chage id /bin
++ 	rm -f /bin/sg
++ 	ln /bin/newgrp /bin/sg
+  	cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR)
+  	chown $(RUID) $(LOGINDIR)/login /etc/pwconv /etc/pwunconv /etc/sulogin \
+  		/bin/su /bin/passwd /bin/gpasswd /bin/newgrp /etc/mkpasswd \
+***************
+*** 393,398 ****
+--- 395,406 ----
+  
+  newgrp.lint: $(NGSRCS)
+  	$(LINT) $(LINTFLAGS) $(NGSRCS) > newgrp.lint
++ 
++ sg:	newgrp
++ 	ln newgrp sg
++ 
++ sg.lint: newgrp.lint
++ 	ln newgrp.lint sg.lint
+  
+  chfn:	$(CHFNOBJS) libshadow.a
+  	$(CC) -o chfn $(LDFLAGS) $(CHFNOBJS) libshadow.a $(LIBS)
+Index: smain.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- smain.c	Tue Jun  9 08:34:11 1992
+***************
+*** 13,19 ****
+  #include <stdio.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)smain.c	3.11	21:21:19	3/7/92";
+  #endif
+  
+  /*
+--- 13,19 ----
+  #include <stdio.h>
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)smain.c	3.12	15:26:53	4/28/92";
+  #endif
+  
+  /*
+***************
+*** 411,416 ****
+--- 411,418 ----
+  	}
+  
+  	sulog (1);			/* save SU information */
++ 	endpwent ();
++ 	endspent ();
+  #ifdef	USE_SYSLOG
+  	if ( getdef_bool("SYSLOG_SU_ENAB") )
+  		syslog (LOG_INFO, "+ %s %s-%s\n", tty ? tty:"???",
+Index: dpmain.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- dpmain.c	Tue Jun  9 08:34:34 1992
+***************
+*** 1,5 ****
+  /*
+!  * Copyright 1990, 1991 John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+--- 1,5 ----
+  /*
+!  * Copyright 1990, 1991, 1992 John F. Haugh II
+   * All rights reserved.
+   *
+   * Permission is granted to copy and create derivative works for any
+***************
+*** 21,27 ****
+  #include "dialup.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)dpmain.c	3.4	17:31:55	8/4/91";
+  #endif
+  
+  #ifdef	USG
+--- 21,27 ----
+  #include "dialup.h"
+  
+  #ifndef	lint
+! static	char	sccsid[] = "@(#)dpmain.c	3.6	07:49:11	4/29/92";
+  #endif
+  
+  #ifdef	USG
+***************
+*** 151,156 ****
+--- 151,157 ----
+  	if (! (fp = fdopen (fd, "r+"))) {
+  		sprintf (pass, "%s: can't open %s", Prog, DTMP);
+  		perror (pass);
++ 		unlink (DTMP);
+  		exit (1);
+  	}
+  
+***************
+*** 176,183 ****
+  	 */
+  
+  	if (dflg && ! found) {
+! 		fprintf (stderr, NOMATCH, Prog, shell);
+! 		exit (1);
+  	}
+  	if (aflg)
+  		if (putduent (&dent, fp))
+--- 177,184 ----
+  	 */
+  
+  	if (dflg && ! found) {
+! 		fprintf (stderr, NOFOUND, Prog, shell);
+! 		goto failure;
+  	}
+  	if (aflg)
+  		if (putduent (&dent, fp))
+***************
+*** 207,212 ****
+--- 208,218 ----
+  	 * After this is done the new file will replace the old file.
+  	 */
+  
++ 	signal (SIGINT, SIG_IGN);
++ 	signal (SIGQUIT, SIG_IGN);
++ #ifdef	SIGTSTP
++ 	signal (SIGTSTP, SIG_IGN);
++ #endif
+  	if (! stat (DIALPWD, &sb)) {
+  		chown (DTMP, sb.st_uid, sb.st_gid);
+  		chmod (DTMP, sb.st_mode);
+***************
+*** 215,222 ****
+  		chown (DTMP, 0, 0);
+  		chmod (DTMP, 0400);
+  	}
+! 	link (DTMP, DIALPWD);
+! 	unlink (DTMP);
+  
+  	sync ();
+  	exit (0);
+--- 221,228 ----
+  		chown (DTMP, 0, 0);
+  		chmod (DTMP, 0400);
+  	}
+! 	if (! link (DTMP, DIALPWD))
+! 		unlink (DTMP);
+  
+  	sync ();
+  	exit (0);
+Index: usermod.c
+*** Standard Input	Wed Dec 31 18:00:00 1969
+--- usermod.c	Tue Jun  9 08:34:55 1992
+***************
+*** 10,16 ****
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)usermod.c	3.11	09:26:21	3/27/92";
+  #endif
+  
+  #include <sys/types.h>
+--- 10,16 ----
+   */
+  
+  #ifndef lint
+! static	char	sccsid[] = "@(#)usermod.c	3.12	15:28:40	5/14/92";
+  #endif
+  
+  #include <sys/types.h>
+***************
+*** 30,36 ****
+--- 30,38 ----
+  #endif
+  
+  #include "config.h"
++ #ifdef	SHADOWPWD
+  #include "shadow.h"
++ #endif
+  #include "faillog.h"
+  #include "lastlog.h"
+  
+***************
+*** 473,478 ****
+--- 475,481 ----
+  {
+  	fprintf (stderr,
+  		"usage: %s [-u uid [-o]] [-g group] [-G group,...] \n", Prog);
++ #ifdef	SHADOWPWD
+  	fprintf (stderr,
+  		"\t\t[-d home [-m]] [-s shell] [-c comment] [-l new_name]\n");
+  #ifdef	MDY_DATE
+***************
+*** 487,492 ****
+--- 490,499 ----
+  	fprintf (stderr,
+  		"\t\t[-f inactive ] [-e expire yy/mm/dd ] name\n");
+  #endif
++ #else	/* !SHADOWPWD */
++ 	fprintf (stderr,
++ 		"\t\t[-d home [-m]] [-s shell] [-c comment] [-l new_name] name\n");
++ #endif	/* SHADOWPWD */
+  	exit (2);
+  }
+  
+***************
+*** 541,546 ****
+--- 548,554 ----
+  	}
+  }
+  
++ #ifdef	SHADOWPWD
+  /*
+   * new_spent - initialize the values in a shadow password file entry
+   *
+***************
+*** 570,575 ****
+--- 578,584 ----
+  		spent->sp_expire = user_expire;
+  	}
+  }
++ #endif	/* SHADOWPWD */
+  
+  /*
+   * grp_update - add user to secondary group set
+***************
+*** 597,618 ****
+  
+  	if (! gr_lock ()) {
+  		fprintf (stderr, "%s: error locking group file\n", Prog);
+  		exit (1);
+  	}
+  	if (! gr_open (O_RDWR)) {
+  		fprintf (stderr, "%s: error opening group file\n", Prog);
+  		fail_exit (1);
+  	}
+  #ifdef	SHADOWGRP
+  	if (! sgr_lock ()) {
+  		fprintf (stderr, "%s: error locking shadow group file\n", Prog);
+  		fail_exit (1);
+  	}
+  	if (! sgr_open (O_RDWR)) {
+  		fprintf (stderr, "%s: error opening shadow group file\n", Prog);
+  		fail_exit (1);
+  	}
+! #endif
+  
+  	/*
+  	 * Scan through the entire group file looking for the groups that
+--- 606,639 ----
+  
+  	if (! gr_lock ()) {
+  		fprintf (stderr, "%s: error locking group file\n", Prog);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_ERR, "error locking group file");
++ #endif
+  		exit (1);
+  	}
+  	if (! gr_open (O_RDWR)) {
+  		fprintf (stderr, "%s: error opening group file\n", Prog);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_ERR, "error opening group file");
++ #endif
+  		fail_exit (1);
+  	}
+  #ifdef	SHADOWGRP
+  	if (! sgr_lock ()) {
+  		fprintf (stderr, "%s: error locking shadow group file\n", Prog);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_ERR, "error locking shadow group file");
++ #endif
+  		fail_exit (1);
+  	}
+  	if (! sgr_open (O_RDWR)) {
+  		fprintf (stderr, "%s: error opening shadow group file\n", Prog);
++ #ifdef	USE_SYSLOG
++ 		syslog (LOG_ERR, "error opening shadow group file");
++ #endif
+  		fail_exit (1);
+  	}
+! #endif	/* SHADOWGRP */
+  
+  	/*
+  	 * Scan through the entire group file looking for the groups that
+***************
+*** 672,677 ****
+--- 693,701 ----
+  		if (! gr_update (grp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR, "error adding group entry");
++ #endif
+  			fail_exit (1);
+  		}
+  #ifdef	NDBM
+***************
+*** 682,690 ****
+  		if (! gr_dbm_update (grp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+  			fail_exit (1);
+  		}
+! #endif
+  	}
+  #ifdef NDBM
+  	endgrent ();
+--- 706,717 ----
+  		if (! gr_dbm_update (grp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR, "error adding dbm group entry");
++ #endif
+  			fail_exit (1);
+  		}
+! #endif	/* NDBM */
+  	}
+  #ifdef NDBM
+  	endgrent ();
+***************
+*** 757,763 ****
+  		} else if (was_member >= 0 && Gflg && is_member < 0) {
+  			sgrp->sg_mem = del_list (sgrp->sg_mem, user_name);
+  #ifdef	USE_SYSLOG
+! 			syslog (LOG_INFO, "delete `%s' from shadow group `%s'\n",
+  				user_name, sgrp->sg_name);
+  #endif
+  		} else if (was_member < 0 && Gflg && is_member >= 0) {
+--- 784,791 ----
+  		} else if (was_member >= 0 && Gflg && is_member < 0) {
+  			sgrp->sg_mem = del_list (sgrp->sg_mem, user_name);
+  #ifdef	USE_SYSLOG
+! 			syslog (LOG_INFO,
+! 				"delete `%s' from shadow group `%s'\n",
+  				user_name, sgrp->sg_name);
+  #endif
+  		} else if (was_member < 0 && Gflg && is_member >= 0) {
+***************
+*** 777,782 ****
+--- 805,813 ----
+  		if (! sgr_update (sgrp)) {
+  			fprintf (stderr, "%s: error adding new group entry\n",
+  				Prog);
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR, "error adding shadow group entry\n");
++ #endif
+  			fail_exit (1);
+  		}
+  #ifdef	NDBM
+***************
+*** 787,800 ****
+  		if (! sgr_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
+  			fail_exit (1);
+  		}
+! #endif
+  	}
+  #ifdef NDBM
+  	endsgent ();
+! #endif
+! #endif
+  }
+  
+  /*
+--- 818,835 ----
+  		if (! sgr_dbm_update (sgrp)) {
+  			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+  				Prog);
++ #ifdef	USE_SYSLOG
++ 			syslog (LOG_ERR,
++ 				"error adding dbm shadow group entry\n");
++ #endif
+  			fail_exit (1);
+  		}
+! #endif	/* NDBM */
+  	}
+  #ifdef NDBM
+  	endsgent ();
+! #endif	/* NDBM */
+! #endif	/* SHADOWGRP */
+  }
+  
+  /*
+***************
+*** 864,874 ****
+  	strcpy (user_home, pwd->pw_dir);
+  	strcpy (user_shell, pwd->pw_shell);
+  
+  	if (spwd = getspnam (user_name)) {
+  		user_expire = spwd->sp_expire;
+  		user_inactive = spwd->sp_inact;
+  	}
+! 	while ((arg = getopt (argc, argv, "u:og:G:d:s:c:mf:e:l:")) != EOF) {
+  		switch (arg) {
+  			case 'c':
+  				if (! VALID (optarg)) {
+--- 899,916 ----
+  	strcpy (user_home, pwd->pw_dir);
+  	strcpy (user_shell, pwd->pw_shell);
+  
++ #ifdef	SHADOWPWD
+  	if (spwd = getspnam (user_name)) {
+  		user_expire = spwd->sp_expire;
+  		user_inactive = spwd->sp_inact;
+  	}
+! #endif
+! #ifdef	SHADOWPWD
+! 	while ((arg = getopt (argc, argv, "u:og:G:d:s:c:mf:e:l:")) != EOF)
+! #else
+! 	while ((arg = getopt (argc, argv, "u:og:G:d:s:c:ml:")) != EOF)
+! #endif
+! 	{
+  		switch (arg) {
+  			case 'c':
+  				if (! VALID (optarg)) {
+***************
+*** 877,886 ****
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 				if (strcmp (optarg, user_comment)) {
+! 					cflg++;
+! 					strncpy (user_comment, optarg, BUFSIZ);
+! 				}
+  				break;
+  			case 'd':
+  				if (! VALID (optarg)) {
+--- 919,926 ----
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 				strncpy (user_comment, optarg, BUFSIZ);
+! 				cflg++;
+  				break;
+  			case 'd':
+  				if (! VALID (optarg)) {
+***************
+*** 892,913 ****
+  				dflg++;
+  				strncpy (user_newhome, optarg, BUFSIZ);
+  				break;
+  			case 'e':
+  				l = strtoday (optarg);
+  #ifdef	ITI_AGING
+  				l *= DAY;
+  #endif
+! 				if (l != user_expire) {
+! 					eflg++;
+! 					user_expire = l;
+! 				}
+  				break;
+  			case 'f':
+! 				if (user_inactive != atoi (optarg)) {
+! 					fflg++;
+! 					user_inactive = atoi (optarg);
+! 				}
+  				break;
+  			case 'g':
+  				if (isdigit (optarg[0]))
+  					grp = getgrgid (atoi (optarg));
+--- 932,951 ----
+  				dflg++;
+  				strncpy (user_newhome, optarg, BUFSIZ);
+  				break;
++ #ifdef	SHADOWPWD
+  			case 'e':
+  				l = strtoday (optarg);
+  #ifdef	ITI_AGING
+  				l *= DAY;
+  #endif
+! 				user_expire = l;
+! 				eflg++;
+  				break;
+  			case 'f':
+! 				user_inactive = atoi (optarg);
+! 				fflg++;
+  				break;
++ #endif	/* SHADOWPWD */
+  			case 'g':
+  				if (isdigit (optarg[0]))
+  					grp = getgrgid (atoi (optarg));
+***************
+*** 920,929 ****
+  						Prog, optarg);
+  					exit (1);
+  				}
+! 				if (grp->gr_gid != user_gid) {
+! 					gflg++;
+! 					user_gid = grp->gr_gid;
+! 				}
+  				break;
+  			case 'G':
+  				Gflg++;
+--- 958,965 ----
+  						Prog, optarg);
+  					exit (1);
+  				}
+! 				user_gid = grp->gr_gid;
+! 				gflg++;
+  				break;
+  			case 'G':
+  				Gflg++;
+***************
+*** 938,946 ****
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 				if (strcmp (user_name, optarg)) {
+! 					lflg++;
+  					strcpy (user_newname, optarg);
+  				}
+  				break;
+  			case 'm':
+--- 974,989 ----
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 
+! 				/*
+! 				 * If the name does not really change, we
+! 				 * mustn't set the flag as this will cause
+! 				 * rather serious problems later!
+! 				 */
+! 
+! 				if (strcmp (user_newname, optarg)) {
+  					strcpy (user_newname, optarg);
++ 					lflg++;
+  				}
+  				break;
+  			case 'm':
+***************
+*** 962,971 ****
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 				if (strcmp (user_shell, optarg)) {
+! 					strncpy (user_shell, optarg, BUFSIZ);
+! 					sflg++;
+! 				}
+  				break;
+  			case 'u':
+  				uflg++;
+--- 1005,1012 ----
+  						Prog, optarg);
+  					exit (3);
+  				}
+! 				strncpy (user_shell, optarg, BUFSIZ);
+! 				sflg++;
+  				break;
+  			case 'u':
+  				uflg++;
+***************
+*** 1008,1018 ****
+--- 1049,1061 ----
+  		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+  		fail_exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	if (! spw_close ()) {
+  		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+  			Prog);
+  		fail_exit (1);
+  	}
++ #endif
+  	if (user_ngroups >= 0) {
+  		if (! gr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite group file\n",
+***************
+*** 1019,1036 ****
+  				Prog);
+  			fail_exit (1);
+  		}
+! 		(void) gr_unlock ();
+  #ifdef	SHADOWGRP
+  		if (! sgr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+  				Prog);
+  			fail_exit (1);
+  		}
+- 		(void) sgr_unlock ();
+- #endif
+  	}
+  	(void) spw_unlock ();
+  	(void) pw_unlock ();
+  }
+  
+  /*
+--- 1062,1094 ----
+  				Prog);
+  			fail_exit (1);
+  		}
+! 	}
+! 	(void) gr_unlock ();
+  #ifdef	SHADOWGRP
++ 	if (user_ngroups >= 0) {
+  		if (! sgr_close ()) {
+  			fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+  				Prog);
+  			fail_exit (1);
+  		}
+  	}
++ 	(void) sgr_unlock ();
++ #endif
+  	(void) spw_unlock ();
+  	(void) pw_unlock ();
++ 
++ 	/*
++ 	 * Close the DBM and/or flat files
++ 	 */
++ 
++ 	endpwent ();
++ #ifdef	SHADOWPWD
++ 	endspent ();
++ #endif
++ 	endgrent ();
++ #ifdef	SHADOWGRP
++ 	endsgent ();
++ #endif
+  }
+  
+  /*
+***************
+*** 1049,1054 ****
+--- 1107,1113 ----
+  		fprintf (stderr, "%s: unable to open password file\n", Prog);
+  		fail_exit (1);
+  	}
++ #ifdef	SHADOWPWD
+  	if (! spw_lock ()) {
+  		fprintf (stderr, "%s: cannot lock shadow password file\n",
+  			Prog);
+***************
+*** 1059,1064 ****
+--- 1118,1124 ----
+  			Prog);
+  		fail_exit (1);
+  	}
++ #endif
+  }
+  
+  /*
+***************
+*** 1071,1089 ****
+  usr_update ()
+  {
+  	struct	passwd	pwent;
+- 	struct	spwd	spent;
+  	struct	passwd	*pwd;
+  	struct	spwd	*spwd;
+  
+  	pwd = pw_locate (user_name);
+  	pwent = *pwd;
+  
+  	spwd = spw_locate (user_name);
+  	spent = *spwd;
+- 
+- 	new_pwent (&pwent);
+  	new_spent (&spent);
+! 
+  	if (lflg || uflg || gflg || cflg || dflg || sflg) {
+  		if (! pw_update (&pwent)) {
+  			fprintf (stderr, "%s: error changing password entry\n",
+--- 1131,1151 ----
+  usr_update ()
+  {
+  	struct	passwd	pwent;
+  	struct	passwd	*pwd;
++ #ifdef	SHADOWPWD
++ 	struct	spwd	spent;
+  	struct	spwd	*spwd;
++ #endif
+  
+  	pwd = pw_locate (user_name);
+  	pwent = *pwd;
++ 	new_pwent (&pwent);
+  
++ #ifdef	SHADOWPWD
+  	spwd = spw_locate (user_name);
+  	spent = *spwd;
+  	new_spent (&spent);
+! #endif
+  	if (lflg || uflg || gflg || cflg || dflg || sflg) {
+  		if (! pw_update (&pwent)) {
+  			fprintf (stderr, "%s: error changing password entry\n",
+***************
+*** 1110,1119 ****
+  					Prog);
+  				fail_exit (1);
+  			}
+- 			endpwent ();
+  		}
+  #endif
+  	}
+  	if (lflg || eflg || fflg) {
+  		if (! spw_update (&spent)) {
+  			fprintf (stderr,
+--- 1172,1181 ----
+  					Prog);
+  				fail_exit (1);
+  			}
+  		}
+  #endif
+  	}
++ #ifdef	SHADOWPWD
+  	if (lflg || eflg || fflg) {
+  		if (! spw_update (&spent)) {
+  			fprintf (stderr,
+***************
+*** 1142,1150 ****
+  				Prog);
+  			fail_exit (1);
+  		}
+- 		endspent ();
+  	}
+! #endif
+  	if (Gflg || lflg)
+  		grp_update ();
+  }
+--- 1204,1212 ----
+  				Prog);
+  			fail_exit (1);
+  		}
+  	}
+! #endif	/* NDBM */
+! #endif	/* SHADOWPWD */
+  	if (Gflg || lflg)
+  		grp_update ();
+  }
+***************
+*** 1243,1249 ****
+--- 1305,1313 ----
+  #ifdef	SHADOWGRP
+  	(void) sgr_unlock ();
+  #endif
++ #ifdef	SHADOWPWD
+  	(void) spw_unlock ();
++ #endif
+  	(void) pw_unlock ();
+  	exit (code);
+  }
+***************
+*** 1276,1287 ****
+  
+  #ifdef	NDBM
+  	pw_dbm_mode = O_RDWR;
+  	sp_dbm_mode = O_RDWR;
+  	gr_dbm_mode = O_RDWR;
+  #ifdef	SHADOWGRP
+  	sg_dbm_mode = O_RDWR;
+  #endif
+! #endif
+  	process_flags (argc, argv);
+  
+  	/*
+--- 1340,1353 ----
+  
+  #ifdef	NDBM
+  	pw_dbm_mode = O_RDWR;
++ #ifdef	SHADOWPWD
+  	sp_dbm_mode = O_RDWR;
++ #endif
+  	gr_dbm_mode = O_RDWR;
+  #ifdef	SHADOWGRP
+  	sg_dbm_mode = O_RDWR;
+  #endif
+! #endif	/* NDBM */
+  	process_flags (argc, argv);
+  
+  	/*
+-- 
+John F. Haugh II                   | Vida en La Republica de Tejas:
+Ma Bell: (512) 251-2151            |  A Tejano woman, after spending the rent
+UUCP: ...!cs.utexas.edu!rpp386!jfh |  money on the Tejas Lottery - "I can't go
+Domain: jfh@rpp386.cactus.org      |  home, my husband will beat me up."
+
+exit 0 # Just in case...

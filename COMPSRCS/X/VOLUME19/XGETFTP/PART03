@@ -1,0 +1,1202 @@
+Newsgroups: comp.sources.x
+From: salim@tigger.cs.colorado.edu (Salim Alam)
+Subject: v19i024:  xgetftp - Friendly anonymous ftp tool, Part03/04
+Message-ID: <1993Mar10.164853.21562@sparky.imd.sterling.com>
+X-Md4-Signature: 08e5c8b92b3306b9f05433d7bb7e540c
+Date: Wed, 10 Mar 1993 16:48:53 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: salim@tigger.cs.colorado.edu (Salim Alam)
+Posting-number: Volume 19, Issue 24
+Archive-name: xgetftp/part03
+Environment: X11, OSF/Motif
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  main.c patchlevel.h prefs.c prefs.h
+# Wrapped by salim@anchor on Mon Mar  8 14:06:48 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(18209 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*************************************************************************
+X * PROGRAM:
+X *  xgetftp
+X *
+X * USAGE:
+X *  xgetftp [hostname]
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X *
+X * MODIFICATION LOG:
+X *  93.02.15 S.A. - Mods for new ctrl_delete_cache
+X *  93.02.03 S.A. - Better error-handling: ctrl_start_session,ctrl_down_dir
+X *  93.01.26 S.A. - Now gets local hostname correctly
+X *
+X **************************************************************************/
+X
+X#include <X11/Xos.h>
+X#include <Xm/Xm.h>
+X#include <Xm/PushBG.h>
+X#include <Xm/Text.h>
+X#include <Xm/List.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <signal.h>
+X#include <pwd.h>
+X#include <sys/socket.h>
+X#include <netdb.h>
+X#include "prefs.h"
+X#include "control.h"
+X#include "ui_funcs.h"
+X#include "config.h"
+X#include "patchlevel.h"
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#define FALSE 0
+X#endif
+X
+X
+X/*
+X * Imported vars
+X */
+Xextern int x_data_done;
+Xextern FILE *response_stream;
+X
+X/*
+X * Global variables
+X */
+X#define INBUFSIZE	1024		/* size of data input buffer	*/
+X#define MAX_SELECTIONS 	100		/* max# of user selections	*/
+X
+X
+XXmString * list_items = NULL;		/* list of items in curr. dir. 	*/
+Xint        item_count = 0;		/* count of items in curr dir.  */
+X
+Xint	   curr_sel_cnt = 0;		/* count of selected items	*/
+Xint 	   curr_selections[MAX_SELECTIONS]; /* items selected by user   */
+X
+XPrefs 	   user_prefs;			/* User preferences		*/
+X
+Xint 	   fConnected = FALSE;		/* Flag to indicate server conn */
+X
+Xchar 	   retrieve_dir[255];		/* Directory for file retrieval */
+X
+Xchar	   password[100];		/* User@hostname		*/
+X
+Xvoid set_currdir(void);
+X
+X
+X/************************** directory list functions *********************/
+X
+Xvoid alloc_list_mem(int x)
+X/* 
+X * allocates memory for the list
+X */
+X{
+X    void free_list_mem(XmString *);
+X
+X    if (list_items)
+X	free_list_mem(list_items);
+X
+X    list_items = (XmString *) XtMalloc(x * sizeof(XmString));
+X}
+X
+X
+Xvoid add_list_item(char *str)
+X/*
+X * adds an item to the list
+X */
+X{
+X    list_items[item_count++] = XmStringCreateLtoR(str,XmSTRING_DEFAULT_CHARSET);
+X}
+X
+X
+Xvoid free_list_mem(XmString *list)
+X/*
+X * free all the items in the list
+X */
+X{
+X    int i;
+X
+X    for (i=0; i < item_count; i++)
+X	XmStringFree(list_items[i]);
+X
+X    item_count = 0;
+X}
+X
+X/************************* user preference callback ********************/
+X
+Xvoid userprefCB(Widget w, int item, XmToggleButtonCallbackStruct *cb)
+X{
+X    switch (item)
+X    {
+X      case prefCACHE_VIEW:
+X	user_prefs.cache_view = cb->set;
+X	break;
+X
+X      case prefREUSE_VIEW:
+X	user_prefs.reuse_view = cb->set;
+X	break;
+X
+X      case prefREUSE_DIR:
+X	user_prefs.reuse_dir = cb->set;
+X
+X      case prefAUTOSAVE_DIR:
+X	user_prefs.autosave_dir = cb->set;
+X	break;
+X
+X      case prefCONFIRM:
+X	user_prefs.confirm = cb->set;
+X	break;
+X      
+X      default:
+X	fprintf(stderr, "pref_cb: unknown item '%d'\n", item);
+X    }
+X}
+X
+X
+X/************************* retreive directory callback *****************/
+X
+Xvoid setretrievedirCB(Widget w, caddr_t data, XmSelectionBoxCallbackStruct *cb)
+X{
+X    XmStringContext context;
+X    char *text;
+X    XmStringCharSet charset;
+X    XmStringDirection dir;
+X    Boolean seperator;
+X    int len;
+X    struct stat stat_buf;
+X
+X    XmStringInitContext(&context, cb->value);
+X
+X    /* look only at first segment */
+X    if (XmStringGetNextSegment(context, &text, &charset, &dir,
+X	&seperator))
+X    {
+X	len = strlen(text);
+X	if (text[len-1] == '/')
+X	    text[len-1] = '\0';
+X
+X	if (stat(text, &stat_buf) == 0)    
+X	{
+X	    if (!S_ISDIR(stat_buf.st_mode))
+X	    {
+X		fprintf(stderr, "'%s' not a valid directory.\n", text);
+X		ui_beep(0);
+X	    }
+X	    else
+X	    {
+X		strcpy(retrieve_dir, text);
+X#ifdef DEBUG
+X		fprintf(stderr, "New retreive dir: '%s'\n", retrieve_dir);
+X#endif
+X	    }
+X	}
+X	else
+X	{
+X	    fprintf(stderr, "'%s' not a valid directory.\n", text);
+X	    ui_beep(0);
+X	}
+X    }
+X
+X    XmStringFreeContext(context);
+X}
+X
+X
+X/************************* archie widget function **********************/
+X
+X/*
+X * archie data callback
+X */
+Xvoid get_archie_data(int *ppos, int *fid, XtInputId *id)
+X{
+X    unsigned char buf[INBUFSIZE];
+X    int nbytes;
+X
+X    nbytes = read(*fid, buf, INBUFSIZE);
+X
+X    if (nbytes)
+X    {
+X	int i, len;
+X
+X	/*
+X	 * add text in buffer to text widget, and clear any
+X	 * unwritable characters (just in case this is a binary
+X	 * file.  also get rid of "\r" characters, just in case
+X	 * we got this thru an ASCII connection.
+X	 *
+X	 */
+X	for (i=0, len=0; i < nbytes; i++)
+X	{
+X	    if ( (isprint(buf[i]) || isspace(buf[i])) && (buf[i]!='\r') )
+X		buf[len++] = buf[i];
+X	}
+X	buf[len] = '\0';
+X	XmTextInsert(archietextW, (XmTextPosition)*ppos, buf);
+X	*ppos += len;
+X    }
+X    else
+X    {
+X	char filename[50];
+X
+X	XtRemoveInput(*id);
+X	close (*fid);
+X	ui_set_cursor_normal(toplevelW);
+X   	sprintf(filename, "/tmp/xgetftpARCHIE%ld", getpid());
+X   	unlink(filename);
+X    }
+X}
+X
+X
+X/*
+X * archie search widget callback
+X */
+Xvoid archiefindCB(Widget w, caddr_t call_data, XmPushButtonCallbackStruct *cb)
+X{
+X   char *find_str;
+X   static int pos;
+X   FILE *fp;
+X   char dummy[256];
+X   char filename[50];
+X
+X   ui_set_cursor_busy(archiebbW);
+X
+X   find_str = (char *) XmTextGetString(archiefindtextW);
+X   fprintf(stderr, "Archie find: '%s'\n", find_str);
+X
+X   sprintf(filename, "/tmp/xgetftpARCHIE%ld", getpid());
+X
+X   sprintf(dummy, "%s -server %s %s > %s", ARCHIEBIN, ARCHIESERVER, find_str,
+X	filename);
+X   system(dummy);
+X   XtFree(find_str);
+X
+X   ui_set_cursor_normal(archiebbW);
+X
+X   if ((fp = fopen(filename, "r")) == NULL)
+X   {
+X	fprintf(stderr, "Can't open file '%s' !\n", filename);
+X	return;
+X   }
+X
+X   /* XtUnmanageChild(archietextW); */
+X   XmTextSetString(archietextW, " ");
+X
+X   pos = 0;
+X
+X   ui_set_cursor_busy(toplevelW);
+X   XtAppAddInput(app_context, fileno(fp), (XtPointer) XtInputReadMask,
+X	(XtInputCallbackProc) get_archie_data, (XtPointer) &pos);
+X}
+X
+X
+X/******************************* menu callback *************************/
+X
+X/*
+X * menu button callback
+X */
+Xvoid MenuButtonCB(Widget w, int menuitm, caddr_t call_data)
+X{
+X    switch (menuitm)
+X    {
+X      case menuFILE_ABOUT:
+X	XtManageChild(aboutdialogW);
+X	break;
+X
+X      case menuFILE_SET_PREFS:
+X	XtManageChild(prefdialogW);
+X	break;
+X
+X      case menuFILE_EXIT:
+X	if (fConnected && user_prefs.autosave_dir)
+X	    ctrl_save_cache();
+X	exit(1);
+X	break;
+X
+X
+X
+X      case menuFTP_OPEN:
+X	XtManageChild(opendlgW);
+X	break;
+X
+X      case menuFTP_CLOSE:
+X	if (fConnected)
+X	{
+X	    if (user_prefs.autosave_dir)
+X		ctrl_save_cache();
+X	    ctrl_logout();
+X	    fConnected = FALSE;
+X	    curr_sel_cnt = 0;
+X	    XmListDeleteAllItems(filelistW);
+X	    ui_set_status_line(" ");
+X	    ui_set_currdir(" ");
+X	}
+X	break;
+X
+X      case menuFTP_SET_DIR:
+X	XtManageChild(retrievedirdlgW);
+X	break;
+X
+X
+X
+X      case menuCACHE_PURGE_DIR:
+X	if (fConnected)
+X	{
+X	    curr_sel_cnt = 0;
+X	    XmListDeleteAllItems(filelistW);
+X	    if (!ctrl_delete_cache())
+X	    {
+X	    	ctrl_logout();
+X	    	fConnected = FALSE;
+X	        ui_set_status_line("Unrecoverable Error! Disconnecting.");
+X	    	ui_set_currdir(" ");
+X	    }
+X	    else
+X	    {
+X	    	XmListAddItems(filelistW, list_items, item_count, 0);
+X	    	set_currdir();
+X	    	ui_set_status_line("Directory cache deleted. Now at root.");
+X	    }
+X	}
+X	else
+X	    ui_beep(0);
+X	break;
+X
+X      case menuCACHE_PURGE_VIEW:
+X	if (fConnected)
+X	{
+X	    ctrl_delete_file_cache();
+X	    ui_set_status_line("Viewed file cache deleted.");
+X	}
+X	else
+X	    ui_beep(0);
+X	break;
+X
+X      case menuCACHE_SAVE_DIR:
+X	if (fConnected)
+X	{
+X	    ctrl_save_cache();
+X	    ui_set_status_line("Directory cache saved.");
+X	}
+X	else
+X	    ui_beep(0);
+X	break;
+X
+X
+X
+X      case menuARCHIE_SEARCH:
+X	XtManageChild(archiebbW);
+X	break;
+X
+X      default:
+X	fprintf(stderr, "Unknown menu item: %d\n", menuitm);
+X	break;
+X    }
+X}
+X
+X
+X/************************** file list callbacks ************************/
+X
+Xvoid doubleclickCB(Widget w, caddr_t client_data, XmListCallbackStruct *cb)
+X{
+X    if (!x_data_done)
+X    {
+X	ui_beep(0);
+X	fprintf(stderr,"Data connection busy\n");
+X    };
+X
+X    ui_set_cursor_busy(toplevelW);
+X
+X    if (ctrl_down_dir(cb->item_position-1)==TRUE)
+X    /* successful traversal */
+X    {
+X	XmListDeleteAllItems(w);
+X	XmListAddItems(w, list_items, item_count, 0);
+X	curr_sel_cnt = 0;
+X	set_currdir();
+X    }
+X    else
+X    /* was not a directory, or we had an error! */
+X	ui_beep(0);
+X
+X    ui_set_cursor_normal(toplevelW);
+X}
+X
+X
+Xvoid selectionCB(Widget w, caddr_t client_data, XmListCallbackStruct *cb)
+X{
+X    int i;
+X
+X#ifdef DEBUG
+X    printf("Selected items: ");
+X    for (i=0; i < cb->selected_item_count; i++)
+X	printf("%d ", cb->selected_item_positions[i]);
+X    printf("\n");
+X#endif
+X
+X    curr_sel_cnt = cb->selected_item_count;
+X    for (i=0; i < cb->selected_item_count; i++)
+X	curr_selections[i] = cb->selected_item_positions[i];
+X}
+X
+X
+X/************************** command callbacks **************************/
+X
+Xvoid cd_up(void)
+X{
+X    if (!fConnected) return;
+X
+X    if (ctrl_up_dir()==TRUE)
+X    /* successfully went up */
+X    {
+X	XmListDeleteAllItems(filelistW);
+X	XmListAddItems(filelistW, list_items, item_count, 0);
+X	curr_sel_cnt = 0;
+X	set_currdir();
+X    }
+X    else
+X    /* was already at root */
+X    {
+X	ui_beep(0);
+X    }
+X}
+X
+X
+X/*
+X * retrieve callback
+X */
+Xvoid retrieve_item(void)
+X{
+X    int i;
+X
+X    if (!fConnected) return;
+X
+X    if (!x_data_done)
+X    {
+X	ui_beep(0);
+X	fprintf(stderr,"Data connection busy\n");
+X	return;
+X    }
+X
+X    ui_set_cursor_busy(toplevelW);
+X
+X    for (i=0; i < curr_sel_cnt; i++)
+X    {
+X	char *name;
+X	char line[100];
+X
+X#ifdef DEBUG
+X	printf("Retrieving file index %d into %s\n", curr_selections[i]-1,
+X	    retrieve_dir);
+X#endif
+X	name = ctrl_get_item_name(curr_selections[i]-1);
+X	sprintf(line, "Getting %s", name);
+X	ui_set_status_line(line);
+X	free(name);
+X
+X	if (!ctrl_get_selection(retrieve_dir, curr_selections[i]-1, NULL))
+X	    fprintf(stderr, "Retrieve FAILED!\n");
+X
+X	ui_set_status_line("Selection retrieved.");
+X    }
+X
+X    ui_set_cursor_normal(toplevelW);
+X}
+X
+X
+X/*
+X * view callback
+X */
+Xvoid get_view_data(int *ppos, int *fid, XtInputId *id)
+X{
+X    unsigned char buf[INBUFSIZE];
+X    int nbytes, len;
+X
+X    nbytes = read(*fid, buf, INBUFSIZE);
+X
+X    if (nbytes)
+X    {
+X	int i;
+X
+X	/*
+X	 * add text in buffer to text widget, and clear any
+X	 * unwritable characters (just in case this is a binary
+X	 * file.  also get rid of "\r" characters, just in case
+X	 * we got this thru an ASCII connection.
+X	 *
+X	 */
+X	for (i=0, len=0; i < nbytes; i++)
+X	{
+X	    if ( (isprint(buf[i]) || isspace(buf[i])) && (buf[i]!='\r') )
+X		buf[len++] = buf[i];
+X	}
+X	buf[len] = '\0';
+X	XmTextInsert(viewtextW, (XmTextPosition)*ppos, buf);
+X	*ppos += len;
+X    }
+X    else
+X    {
+X	XtRemoveInput(*id);
+X	close (*fid);
+X	ui_set_cursor_normal(toplevelW);
+X    }
+X}
+X
+X
+Xvoid view_text_file(void)
+X{
+X    static int pos;
+X    int len;
+X    char line[100];
+X    FILE *fp;
+X    void str_to_ascii(char *);
+X
+X    if (!fConnected) return;
+X
+X    if (!x_data_done)
+X    {
+X	ui_beep(0);
+X	fprintf(stderr,"Data connection busy\n");
+X	return;
+X    }
+X
+X    /*
+X     * read in the file
+X     */
+X    if (curr_sel_cnt <= 0)
+X    {
+X	ui_beep(0);
+X	fprintf(stderr, "No file SELECTED!\n");
+X	return;
+X    }
+X
+X    ui_set_cursor_busy(toplevelW);
+X    if ((fp=ctrl_view_file(curr_selections[0]-1)) == NULL)
+X    {
+X	ui_beep(0);
+X	fprintf(stderr, "Error trying to get file!\n");
+X	ui_set_cursor_normal(toplevelW);
+X	return;
+X    }
+X
+X    /*
+X     * pop up the dialog
+X     *
+X     * we need to do this before putting in the text due to a bug
+X     * in Motif 1.1.xxx . This bug has been corrected in later
+X     * versions of Motif.
+X     *
+X     */
+X    XtManageChild(viewbbW);
+X
+X
+X    /*
+X     * Hand over the data getting to X
+X     */
+X    pos = 0;
+X    XmTextSetString(viewtextW, " ");
+X
+X    ui_set_cursor_busy(toplevelW);
+X    XtAppAddInput(app_context, fileno(fp), (XtPointer) XtInputReadMask, 
+X	(XtInputCallbackProc) get_view_data, (XtPointer) &pos);
+X}
+X
+X
+X
+Xvoid commandCB(Widget w, int cmd, XmPushButtonCallbackStruct *cb)
+X{
+X    switch (cmd)
+X    {
+X      case cmdVIEW:
+X	view_text_file();
+X	break;
+X
+X      case cmdRETRIEVE:
+X	retrieve_item();
+X	break;
+X
+X      case cmdCD_UP:
+X	cd_up();
+X	break;
+X
+X      default:
+X	fprintf(stderr, "commandCB: Unknown command '%s'\n", cmd);
+X    }
+X}
+X
+X
+X/************************** command callbacks **************************/
+X
+X/*
+X * type toggle callback
+X */
+Xvoid typetoggleCB(Widget w, int type, XmToggleButtonCallbackStruct *cb)
+X{
+X    if (!fConnected) return;
+X
+X    if ((type==cmdASCII) && (cb->set==True))
+X	ctrl_set_type(typASCII);
+X    else if ((type==cmdIMAGE) && (cb->set==True))
+X	ctrl_set_type(typIMAGE);
+X}
+X
+X
+X/************************** new connection callback ********************/
+X
+X/*
+X * open connection "ok" callback
+X */
+Xvoid openconnokCB(Widget w, caddr_t calldata, XmSelectionBoxCallbackStruct *cb)
+X{
+X    XmStringContext context;
+X    char *text;
+X    XmStringCharSet charset;
+X    XmStringDirection dir;
+X    Boolean seperator;
+X    char *buf = NULL;
+X    char line[100];
+X
+X    XmStringInitContext(&context, cb->value);
+X
+X    /* look only at first segment */
+X    if (XmStringGetNextSegment(context, &text, &charset, &dir,
+X	&seperator))
+X    {
+X#ifdef DEBUG
+X	fprintf(stderr, "Connecting to: %s\n", text);
+X#endif
+X
+X	if (fConnected)
+X	{
+X	    /* TO DO: Add "confirm" requester */
+X    	    if (user_prefs.autosave_dir)
+X		ctrl_save_cache();
+X	    ctrl_logout();
+X	    curr_sel_cnt = 0;
+X	    XmListDeleteAllItems(filelistW);
+X	    ui_set_status_line(" ");
+X	    ui_set_currdir(" ");
+X	    fConnected = FALSE;
+X	}
+X
+X	if (ctrl_login(text, "anonymous", password))
+X	{    
+X	    fConnected = TRUE;
+X	    if (ctrl_start_session(alloc_list_mem, add_list_item))
+X	    {
+X	    	XmListAddItems(filelistW, list_items, item_count, 0);
+X
+X	    	/* Set status line */
+X	    	sprintf(line, "Connected to: %s", text);
+X	    	ui_set_status_line(line);
+X	    	set_currdir();
+X	    }
+X	    else
+X		ui_beep(0);
+X	}
+X	else
+X	    ui_beep(0);
+X    }
+X	
+X    XmStringFreeContext(context);
+X}
+X
+X/************************** misc functions *****************************/
+X
+X
+Xvoid set_currdir(void)
+X{
+X    char *path;
+X
+X    path = ctrl_get_item_name(-1);
+X    ui_set_currdir(path);
+X
+X    free(path);
+X}
+X
+X
+Xvoid str_to_ascii(char *str)
+X{
+X    int i, len;
+X
+X    len = strlen(str);
+X    for (i=0; i < len; i++)
+X    {
+X	if (!isprint(str[i]) && !isspace(str[i])) str[i] = ' ';
+X    }
+X}
+X
+Xvoid handle_sigint(void)
+X{
+X    char filepath[50];
+X
+X    /*
+X     * Save cache, if needed
+X     */
+X    if (user_prefs.autosave_dir && fConnected)
+X	ctrl_save_cache();
+X
+X    /*
+X     * Heinous hack to clean up /tmp.  This stuff should really 
+X     * be done by the control module
+X     */
+X    sprintf(filepath, "/tmp/xgetftpVIEW%ld", getpid());
+X    unlink(filepath);
+X
+X    exit(1);
+X}
+X
+X
+X/************************** main program *******************************/
+X
+Xmain(int argc, char *argv[])
+X{
+X    Arg args[4];
+X    char *hostname = NULL;
+X    struct passwd *pwd;
+X    char myhostname[100];
+X    char mydomainname[100];
+X    char username[50];
+X    struct hostent *hent;
+X
+X    /*
+X     * init toolkit & create toplevel widgets 
+X     */
+X    ui_initialize(&argc, argv);
+X
+X
+X    /*
+X     * Check & get args
+X     */
+X    if (argc == 2)
+X    {
+X	if (strcmp(argv[1], "-q") == 0)
+X	    response_stream = fopen("/dev/null", "w");
+X	else
+X	    hostname = argv[1];
+X    }
+X    else if (argc == 3)
+X    {
+X	if (strcmp(argv[1], "-q") == 0)
+X	    response_stream = fopen("/dev/null", "w");
+X	else
+X	    fprintf(stderr, "usage: %s [-q] [hostname]\n", argv[0]);
+X
+X	hostname = argv[2];
+X    }
+X    else if (argc > 3)
+X    {
+X	fprintf(stderr, "usage: %s [-q] [hostname]\n", argv[0]);
+X	exit(1);
+X    }
+X
+X
+X    /*
+X     * create menus (ie, menubarW)
+X     */
+X    ui_create_menus(mainwindowW, (XtCallbackProc) MenuButtonCB);
+X
+X
+X    /*
+X     * create work window (file list, etc)
+X     */
+X    ui_create_work_window(mainwindowW, (XtCallbackProc) doubleclickCB,
+X	(XtCallbackProc) selectionCB);
+X
+X
+X    /*
+X     * create commands
+X     */
+X    ui_create_commands(mainwindowW, (XtCallbackProc) commandCB,
+X	(XtCallbackProc) typetoggleCB);
+X
+X
+X    /*
+X     * create info window (label)
+X     */
+X    ui_create_status_line(mainwindowW);
+X
+X 
+X    /*
+X     * put together all the components
+X     */
+X    XmMainWindowSetAreas(mainwindowW, menubarW, cmdrowcolW, NULL, NULL,
+X	workframeW);
+X    XtSetArg(args[0], XmNmessageWindow, statuslineW);
+X    XtSetValues(mainwindowW, args, 1);
+X
+X
+X    /*
+X     * create popup text viewing widget
+X     */
+X    ui_create_view_dialog(toplevelW);
+X
+X
+X    /*
+X     * create popup archie widget
+X     */
+X    ui_create_archie_dialog(toplevelW, (XtCallbackProc) archiefindCB);
+X
+X
+X    /*
+X     * create popup "About.." dialog
+X     */
+X    ui_create_about_dialog(toplevelW);			
+X
+X
+X    /*
+X     * create popup host prompt dialog
+X     */
+X    ui_create_open_dialog(toplevelW, (XtCallbackProc) openconnokCB);
+X
+X
+X    /*
+X     * check user preferences
+X     */
+X    user_prefs.cache_view = 1;
+X    user_prefs.reuse_view = 1;
+X    user_prefs.reuse_dir = 1;
+X    user_prefs.autosave_dir = 1;
+X    user_prefs.confirm = 0;
+X
+X    ui_create_pref_dialog(toplevelW, (XtCallbackProc) userprefCB, &user_prefs);
+X
+X
+X    /*
+X     * set retrieve directory
+X     */
+X    if (getcwd(retrieve_dir, 253) == NULL)
+X	retrieve_dir[0] = '\0';
+X
+X    ui_create_retrieve_dir_dialog(toplevelW, (XtCallbackProc) setretrievedirCB,
+X	retrieve_dir);
+X
+X
+X     /*
+X      * Figure out a password for anonymous login
+X      */
+X     if (pwd = getpwuid(getuid()))
+X	strcpy(username, pwd->pw_name);
+X     else
+X	strcpy(username, "nobody");
+X
+X     if (gethostname(myhostname, 100) != 0)
+X	strcpy(myhostname, "unknown");
+X
+X#ifdef NEVER
+X     if (getdomainname(mydomainname, 100) != 0)
+X	strcpy(mydomainname, "unknown");
+X#endif
+X
+X     if ((hent = gethostbyname(myhostname)) == NULL)
+X     	sprintf(password, "%s@%s.%s", username, myhostname);
+X     else
+X	sprintf(password, "%s@%s", username, hent->h_name);
+X
+X#ifdef DEBUG
+X    printf("Anonymous password = %s\n", password);
+X#endif
+X
+X
+X    /*
+X     * connect to ftp server, if needed
+X     *
+X     * WARNING: We _MUST_ have the correct user_preferences before we
+X     *          give any ctrl commands!
+X     */
+X    if (hostname && ctrl_login(hostname, "anonymous", password))
+X    {
+X    	char line[100];
+X
+X	fConnected = TRUE;
+X    	ctrl_start_session(alloc_list_mem, add_list_item);
+X    	XmListAddItems(filelistW, list_items, item_count, 0);
+X	sprintf(line, "Connected to: %s", hostname);
+X	ui_set_status_line(line);
+X	set_currdir();
+X    }
+X    else
+X    {
+X	ui_set_status_line(" ");
+X    }
+X
+X
+X    /*
+X     * Handle ^C
+X     */
+X    signal(SIGINT, handle_sigint);
+X
+X
+X    /*
+X     * get & dispatch events 
+X     */
+X    XtRealizeWidget(toplevelW);
+X    XtAppMainLoop(app_context);
+X}
+X
+END_OF_FILE
+if test 18209 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+# end of 'main.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(40 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X#define VERSION		1
+X#define PATCHLEVEL	0
+END_OF_FILE
+if test 40 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+# end of 'patchlevel.h'
+fi
+if test -f 'prefs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prefs.c'\"
+else
+echo shar: Extracting \"'prefs.c'\" \(3209 characters\)
+sed "s/^X//" >'prefs.c' <<'END_OF_FILE'
+X/**************************************************************************
+X * MODULE:
+X *  prefs
+X *
+X * DESCRIPTION:
+X *  User preference routines
+X *
+X * AUTHOR:
+X *  Salim Alam
+X *  University of Colorado, Boulder
+X *
+X * MODIFICATION LOG:
+X *  92.12.31 S.A. Fixed bug in saving prefs
+X *
+X *************************************************************************/
+X
+X#include <X11/Xos.h>
+X#include <stdlib.h>
+X#include <stdio.h>
+X#include "prefs.h"
+X
+X#define RCFILENAME	".xgetftprc"
+X
+X
+X#ifndef TRUE
+X#define TRUE 1
+X#define FALSE 0
+X#endif
+X
+X
+Xint prefs_save(Prefs prefs)
+X/*
+X * Save the preferences in prefs to $HOME/.xgetftprc
+X *
+X * Returns TRUE if successful, FALSE otherwise.
+X */
+X{
+X    FILE *fp;
+X    char *home_path;
+X    char *complete_name;
+X
+X    if ( (home_path = getenv("HOME")) == NULL )
+X    {
+X	fprintf(stderr, "prefs_save: can't find $HOME.\n");
+X	return FALSE;
+X    }
+X
+X    complete_name = malloc(strlen(home_path) + strlen(RCFILENAME) + 2);
+X
+X    sprintf(complete_name, "%s/%s", home_path, RCFILENAME);
+X
+X    if ( (fp=fopen(complete_name, "w")) == NULL )
+X    {
+X	fprintf(stderr, "prefs_save: can't open file '%s'.\n", complete_name);
+X	free(complete_name);
+X	return FALSE;
+X    }
+X
+X    /*
+X     * Save the preferences strings
+X     */
+X
+X    if (prefs.reuse_dir)
+X	fprintf(fp, "REUSE_DIR\n");
+X    if (prefs.cache_view)
+X	fprintf(fp, "CACHE_VIEW\n");
+X    if (prefs.reuse_view)
+X	fprintf(fp, "REUSE_VIEW\n");
+X    if (prefs.autosave_dir)
+X	fprintf(fp, "AUTOSAVE_DIR\n");
+X    if (prefs.confirm)
+X	fprintf(fp, "CONFIRM\n");
+X
+X
+X    fclose(fp);
+X    free(complete_name);
+X    return TRUE;
+X}
+X
+X
+Xint prefs_load(Prefs *pprefs)
+X/*
+X * Save the preferences in prefs to $HOME/.xgetftprc
+X *
+X * Returns TRUE if successful, FALSE otherwise.
+X */
+X{
+X    FILE *fp;
+X    char *home_path;
+X    char *complete_name;
+X    char pref_str[50];
+X
+X    if ( (home_path = getenv("HOME")) == NULL )
+X    {
+X	fprintf(stderr, "prefs_load: can't find $HOME.\n");
+X	return FALSE;
+X    }
+X
+X    complete_name = malloc(strlen(home_path) + strlen(RCFILENAME) + 2);
+X
+X    sprintf(complete_name, "%s/%s", home_path, RCFILENAME);
+X
+X    if ( (fp=fopen(complete_name, "r")) == NULL )
+X    {
+X	fprintf(stderr, "prefs_load: can't open file '%s'.\n", complete_name);
+X	free(complete_name);
+X	return FALSE;
+X    }
+X
+X    pprefs->reuse_dir = 0;
+X    pprefs->cache_view = 0;
+X    pprefs->reuse_view = 0;
+X    pprefs->autosave_dir = 0;
+X    pprefs->confirm = 0;
+X
+X    while (!feof(fp))
+X    {
+X	if (fgets(pref_str, 48, fp) == NULL)
+X	    break;
+X	
+X	if (strcmp(pref_str, "REUSE_DIR\n") == 0)
+X	    pprefs->reuse_dir = 1;
+X	if (strcmp(pref_str, "CACHE_VIEW\n") == 0)
+X	    pprefs->cache_view = 1;
+X	if (strcmp(pref_str, "REUSE_VIEW\n") == 0)
+X	    pprefs->reuse_view = 1;
+X	if (strcmp(pref_str, "AUTOSAVE_DIR\n") == 0)
+X	    pprefs->autosave_dir = 1;
+X	if (strcmp(pref_str, "CONFIRM\n") == 0)
+X	    pprefs->confirm = 1;
+X    }
+X
+X    fclose(fp);
+X    free(complete_name);
+X    return TRUE;
+X}
+X
+X
+Xvoid prefs_print(Prefs prefs, char *name)
+X{
+X    printf("%s.reuse_dir = %d\n", name, prefs.reuse_dir);
+X    printf("%s.cache_view = %d\n", name, prefs.cache_view);
+X    printf("%s.reuse_view = %d\n", name, prefs.reuse_view);
+X    printf("%s.autosave_dir = %d\n", name, prefs.autosave_dir);
+X    printf("%s.confirm = %d\n\n", name, prefs.confirm);
+X}
+END_OF_FILE
+if test 3209 -ne `wc -c <'prefs.c'`; then
+    echo shar: \"'prefs.c'\" unpacked with wrong size!
+fi
+# end of 'prefs.c'
+fi
+if test -f 'prefs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prefs.h'\"
+else
+echo shar: Extracting \"'prefs.h'\" \(957 characters\)
+sed "s/^X//" >'prefs.h' <<'END_OF_FILE'
+X/*************************************************************************
+X *
+X * HEADER: 
+X *  prefs
+X *
+X **************************************************************************/
+X
+X/*
+X * User Preference ids
+X */
+X#define prefCACHE_VIEW   	1
+X#define prefREUSE_VIEW   	2
+X#define prefREUSE_DIR		3
+X#define prefAUTOSAVE_DIR 	4
+X#define prefCONFIRM      	5
+X
+X
+X/*
+X * User Preference structure
+X */
+Xtypedef struct _pref
+X{
+X    char cache_view;		/* save viewed files or not?	  */
+X    char reuse_view;		/* reuse previous view caches?    */
+X    char reuse_dir;		/* reuse previous dir cache?      */
+X    char autosave_dir;		/* save directory cache upon exit?*/
+X    char confirm;		/* ask user before reusing cache? */
+X    char show_hidden;		/* show hidden files?		  */
+X    char log_session;		/* log ftp session?		  */
+X} Prefs;
+X
+X
+X/*
+X * Exported variables
+X */
+Xextern Prefs 	user_prefs;	/* User preferences 	  	  */
+X
+Xint
+Xprefs_save(Prefs prefs);
+X
+Xint
+Xprefs_load(Prefs *pprefs);
+X
+END_OF_FILE
+if test 957 -ne `wc -c <'prefs.h'`; then
+    echo shar: \"'prefs.h'\" unpacked with wrong size!
+fi
+# end of 'prefs.h'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

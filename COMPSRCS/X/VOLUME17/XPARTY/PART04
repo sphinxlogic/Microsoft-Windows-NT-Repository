@@ -1,0 +1,584 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: peebles@mips.com (Andrew Peebles)
+Subject: v17i047: Xparty - multi-person conference call (MOTIF), Part04/04
+Message-ID: <1992Apr1.144224.4612@msi.com>
+Originator: dcmartin@snoopy
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i044-xparty@uunet.UU.NET>
+Date: Wed, 1 Apr 1992 14:42:24 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: peebles@mips.com (Andrew Peebles)
+Posting-number: Volume 17, Issue 47
+Archive-name: xparty/part04
+
+# this is part.04 (part 4 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xmsg.icon continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 4; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xmsg.icon'
+else
+echo 'x - continuing file xmsg.icon'
+sed 's/^X//' << 'SHAR_EOF' >> 'xmsg.icon' &&
+X   0x30, 0x80, 0x18, 0x00, 0x0c, 0x01, 0x00, 0xd0, 0x40, 0x00, 0x00, 0x00,
+X   0x01, 0x00, 0xb0, 0x20, 0xfe, 0xff, 0x07, 0x01, 0x00, 0xe0, 0x22, 0x00,
+X   0x00, 0x00, 0x01, 0x00, 0xc0, 0x16, 0x00, 0x00, 0x00, 0x01, 0x00, 0x40,
+X   0x0c, 0x00, 0x00, 0x00, 0x01, 0x00, 0xc0, 0x0f, 0x63, 0x06, 0x33, 0x01,
+X   0x00, 0x00, 0x87, 0x73, 0x87, 0x3b, 0x01, 0x00, 0x00, 0x82, 0x31, 0x83,
+X   0x19, 0x03, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x61,
+X   0x8c, 0x01, 0x00, 0x07, 0x00, 0x80, 0x70, 0xce, 0x01, 0x00, 0x07, 0x00,
+X   0x80, 0x30, 0xc6, 0x00, 0x00, 0x07, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00,
+X   0x07, 0x00, 0x20, 0x8c, 0x31, 0x00, 0x00, 0x07, 0x00, 0x20, 0xce, 0x39,
+X   0x00, 0x00, 0x07, 0x00, 0x10, 0xc6, 0x18, 0x00, 0x00, 0x07, 0x00, 0x08,
+X   0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x07,
+X   0x00, 0x08, 0x00, 0x00, 0x00, 0x80, 0x07, 0x00, 0xf8, 0xff, 0xff, 0xff,
+X   0xff, 0x03, 0x00, 0xc0, 0xff, 0xff, 0xff, 0xff, 0x01, 0x00, 0xc0, 0xff,
+X   0xff, 0xff, 0x7f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00};
+SHAR_EOF
+echo 'File xmsg.icon is complete' &&
+chmod 0644 xmsg.icon ||
+echo 'restore of xmsg.icon failed'
+Wc_c="`wc -c < 'xmsg.icon'`"
+test 2264 -eq "$Wc_c" ||
+	echo 'xmsg.icon: original size 2264, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xparty.c ==============
+if test -f 'xparty.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xparty.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xparty.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xparty.c' &&
+#include <stdio.h>
+#include <Xm/Xm.h>
+#include <X11/cursorfont.h>
+X
+#include "xphone.h"
+#include "xmsg.icon";
+#include "list.bg";
+X
+Party	*parties[MAX_PARTIES];
+int	num_parties = 0;
+X
+PersonPtr	*people;
+int	num_people = 0;
+X
+XXtAppContext	xphone;
+X
+Boolean	LIST_WIDGETS = False;
+X
+static void xphone_exit()
+{
+X	exit(0);
+}
+X
+Display	*o_display;
+Widget	o_top, MakeOriginatorDisplay();
+Widget	o_toplevel;
+char	*progname;
+X
+/*
+X * command line and non-widget resources
+X */
+static XrmOptionDescRec cmd_options[] = {
+X  {"-iconic",	".iconic", 	XrmoptionNoArg,		"True"},
+X  {"-response",	".response",	XrmoptionSepArg,	"yes\nno\nget back to you ..."},
+};
+X
+main(argc,argv)
+int	argc;
+char	*argv[];
+{
+X        int i, n;
+X	extern void PassToken();
+X	char title[128];
+X	char *userName = (char*)getenv("USER");
+X	char		**margv;
+X	int		margc;
+X	static XtActionsRec actionsList[] = {
+X		{ "PassToken", PassToken },
+X	};
+X	Pixmap	icon_pixmap;
+X	XWMHints wmhints;
+X	void Errors();
+X	Arg args[5];
+X
+X	progname = argv[0];
+X
+X	if ((argc == 2) && (strcmp(argv[1],"-l") == 0))
+X	  LIST_WIDGETS = True;
+X
+X	margc = argc;
+X	margv = (char **) XtMalloc (margc*sizeof(char *));
+X	for (n=0; n<margc; n++)
+X	  margv[n] = strdup (argv[n]);
+X
+X
+X	XtToolkitInitialize();
+X	xphone = XtCreateApplicationContext();
+X
+X	XSetErrorHandler (Errors);
+X	
+X	XtAppAddActions(xphone, actionsList, XtNumber(actionsList));
+X
+X	o_display = XtOpenDisplay (xphone,
+X				   NULL,
+X				   "xparty",
+X				   "XParty",
+X				   cmd_options, XtNumber(cmd_options),
+X				   &argc, argv);
+X	if (!o_display) {
+X	  fprintf (stderr,"Can't open local display.\n");
+X	  exit (1);
+X	}
+X
+X	CreateAndInstallPixmap (list_bits,
+X				list_width,
+X				list_height,
+X				"list_bg");
+X
+X	o_top = MakeOriginatorDisplay (o_display);
+X
+X	num_parties = 1;
+X
+X	XtPopup (o_top, XtGrabNone); 
+X
+X	/*
+X	 * A new one for me, supply a default icon in case the user doesn't
+X	 */
+X	icon_pixmap = XCreateBitmapFromData (XtDisplay(o_top),
+X					     XtWindow(o_top),
+X					     xmsg_bits, xmsg_width, 
+X					     xmsg_height);
+X	wmhints.icon_pixmap = icon_pixmap;
+X	wmhints.flags = IconPixmapHint;
+X
+X	XSetWMHints (XtDisplay(o_top), XtWindow(o_top), &wmhints);
+X
+X
+X        while(1) {
+X	  XEvent  event;
+X	  XtAppNextEvent(xphone, &event);
+X	  XtDispatchEvent(&event);
+X	}
+}
+X
+X
+void
+Errors (ctx, name, type, class, ddefault, params, num)
+XXtAppContext ctx;
+char	*name, *type, *class, *ddefault, **params;
+int	*num;
+{
+X  /*
+X   * Although very dangerous and perhaps not very
+X   * portable, this routine exists as a sink for
+X   * the mouse cursor problem associated w/ bringing
+X   * widget trees up on another display.  I tried
+X   * to get around it, but I still get a Protocol
+X   * Error, Bad Cursor no matter what I tried.
+X   */
+}
+X
+#ifndef SYSV
+char *strdup (str)
+{
+X  char	*p;
+X
+X  if (!str) return NULL;
+X
+X  p = (char *) malloc (strlen(str) + 1);
+X  strcpy (p, str);
+X  return p;
+}
+#endif
+SHAR_EOF
+chmod 0644 xparty.c ||
+echo 'restore of xparty.c failed'
+Wc_c="`wc -c < 'xparty.c'`"
+test 2811 -eq "$Wc_c" ||
+	echo 'xparty.c: original size 2811, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xparty.man ==============
+if test -f 'xparty.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xparty.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xparty.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xparty.man' &&
+.\";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.\"
+.\" File:         xparty.1
+.\" RCS:          $Header$
+.\" Description:  man page for xparty
+.\" Author:	  Andrew Peebles
+.\" Created:      Jan. 24, 1990
+.\" Modified:
+.\" Language:     Text
+.\" Package:      xparty
+.\"
+.\";;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.TH XPHONE 1 "" "Internal Tools"
+.ad b
+X
+.SH NAME
+xparty \- multi-user/multi-display communication utility
+X
+.SH SYNOPSIS
+.br
+\fBxparty\fP [ \-toolkit options ]
+X
+.SH DESCRIPTION
+\fIxparty\fP is a Motif-based X windows utility that allows multiple
+users on different displays to hold a ``conference call''.  It takes
+after talk and xtalk, but allows more that two people to hold a
+conversation.  It also allows static messages to be sent to remote
+displays.
+X
+When \fIxparty\fP is invoked, the invoking user sees the ``originator''
+screen.  When the originator initiates a conversation, users on the remote
+displays see the ``party'' screen.  Both screen organizations are described
+in this document.
+X
+.SH Originator Screen
+When \fIxparty\fP is invoked, the screen that comes up is the ``originator''
+screen.  The originator has responcibility for initiating conversations
+and has certain powers over the course of the conversation that remote
+users don't have.  The originator can also send static messages (one-way
+calls) to remote displays.
+X
+When \fIxparty\fP comes up, it looks for a file in the calling user's
+$HOME directory called ``.xmsg_hosts''.  This file contains the ``phone
+directory'', a list of name/display pairs to which messages can be sent
+and conversations directed.  If the file does not exist, \fIxparty\fP
+will create one and initialize it with the calling user's user name
+and display name.  The user name is taken from the $USER environment
+variable.  See the \fBPhone List\fP section below for the structure
+of this file.
+X
+The labels contained in the phone list are displayed next to toggle
+buttons on the originator display.  Also on this screen is a set of
+command buttons for initiating calls, hanging up the phone, sending
+messages, and adding to the phone list.  These commands are described
+below.
+X
+There are also two text windows.  The top window displays the text
+that remote users are typing during xparty conversations.  The lower window
+is the window in which you type your side of the conversation.  The
+lower window is also used to compose a static message before sending it
+to a remote user.
+X
+And lastly, there is a buffer that displays people that are ``on the air''
+during interactive conversations.
+X
+.SH Party Screen
+When a conversation is initiated, a remote user who is part of the conversation
+sees the ``party screen''.  This screen is a sub-set of the originator
+screen, and contains only the two text windows for sending and recieving
+text.  It also has a button for hanging up the phone, and one for poping
+up a window that shows who is on the party line.
+X
+.SH Making a Call
+To initiate a conversation, the originator can click on a set of the
+toggle buttons corresponding to people in the phone list.  Each person
+who's button was clicked will have a small window displayed on thier
+screen that has the message:
+.sp
+X	"Collect call from <originator>,
+.br
+X	 will you accept the charges?"
+.br
+X
+and an ``OK'' and ``NO'' button.  If the remote user is not at the display,
+or pushes the ``NO'' button, the originator is informed that that person
+is not answering the phone.  If the remote user pushes the ``OK'' button,
+that person is added to the conversation and thier name appears in the
+``on the air'' buffer in the originator screen.  The remote user is
+then presented with the party screen and the conversation begins.
+X
+.SH Carrying on a Conversation
+\fIXparty\fP organizes the conversation with the use of a ``token ring''.
+One person at a time is assigned the token and can speak.  When that
+person is finished speaking, he or she can pass the token to the next
+person on the line.  The token is passed by hitting the \fItoken\fP key
+on the keyboard.  The \fItoken\fP key is F3 by default, but can be configured
+to be any key or key combination in the user's resource file (see below).
+The token can be directed at a particular person on the
+line by selecting that person's name in the ``on the air'' buffer
+before hitting the token key.  Persons on the remote displays also have this capability
+using the ``line'' popup on thier screens.  This approach was taken
+because of the multi-user capability of xparty.  Any other method would
+quickly lead to confusion.  Each display also contains two status lines,
+the line at the top of the display shows who is currently speaking.  The
+status line at the bottom shows whether or not that person has the token.
+When a conversation begins, the originator starts out with the token.
+X
+.SH Command Buttons
+There are command buttons on both the originator and party screens.  Thier
+use is described here.
+X
+.SS Originator Command Buttons
+.sp
+.B Dial
+.sp
+X	This button is used to initiate a conversation.  First
+X	a set of recipients are selected from the phone list
+X	toggle buttons.  Then the \fBDial\fP button is pressed
+X	to begin.  Each selected person will get the ``collect
+X	call'' screen, and if they answer the phone, the party
+X	screen.
+.br
+.LP
+X
+.B Hangup
+.sp
+X	This button is used when a call is initiated and no
+X	one answers.  When this happens, the phone is ``off
+X	the hook'' and must be placed back on the hook before
+X	any other action is taken.  
+.br
+.LP
+X
+.B Jerk
+.sp
+X	Use this button to grab the token.  Only the originator
+X	has this capability.  When someone is hogging the token
+X	don't hesitate to use the \fBJerk\fP button.  Its only 
+X	fair to others on the line.  The button name has some 
+X	interesting conotations ...
+.br
+.LP
+X
+.B Add R
+.sp
+X	This button is used to add new people to the phone 
+X	list.  A small popup window appears and you are 
+X	prompted to enter a name/display pair.  See \fBPhone List\fP 
+X	section below for the format of this entry.
+.br
+.LP
+X
+.B Quit
+.sp
+X	Exit \fIxparty\fP.  This button can be pressed during
+X	conversations, so don't use it then unless the 
+X	conversation is really getting out of hand.  The remote 
+X	party windows will die as well as the originator 
+X	screen.
+.br
+.LP
+X
+.B Clear
+.sp
+X	This button will clear both the text windows.  Use this
+X	button between conversations to clean up.  Gotta be 
+X	neat ...
+.br
+.LP
+X
+.B One Way
+.sp
+X	This is a toggle button.  When pressed in, the \fBDial\fP
+X	button label is changed to \fBSend\fP and you may compose 
+X	a message in the lower text window to send to remote 
+X	displays.  When pushed out, xparty is ready for multi-
+X	person interactive conversations.
+.br
+.LP
+X
+.SS Party Command Buttons
+.sp
+.B Hangup
+.sp
+X	Push this button when you're finished with the 
+X	conversation.  This will cause the party screen to 
+X	disappear and that person withdrawn from the party 
+X	line.  Anybody else on the line is not effected, except 
+X	they will see you disappear from the ``on the air'' 
+X	buffers.  When the last person on the line hangs up, 
+X	the originator screen automatically goes off the hook.
+.br
+.LP
+X
+.B Line
+.sp
+X	When this button is pressed, a small window is poped
+X	up to display the list of people currently on the line.
+X	The token can be directed by selecting a person from
+X	this list before hitting the F3 token passing key.
+X	When others hang up from the conversation, they
+X	are removed from this list.
+.br
+.LP
+X
+.SH Phone List
+The phone list, or the list of possible recipients for messages
+and conversations, is kept in the user's $HOME/.xmsh_hosts file.
+This file can be edited with normal text editors or created from
+within xparty using the \fBAdd R\fP button.  This file contains
+a single line per recipient, with the following format:
+.sp
+X	<label>@<display>
+.br
+X
+The <label> is arbitrary and is displayed on the originator screen
+next to a toggle button for selection.  The <display> is the X display
+where this person usually does work.  It is a full X display name
+specification:
+.sp
+X	<host>:0  -or-
+.br
+X	<host>:0.0
+.br
+X
+For example, for the user's Andrew Peebles and Mike Dove, at displays
+ling:0 and phred:0 respectivly:
+.sp
+X	Andrew@ling:0
+.br
+X	Mike Dove@phred:0
+.br
+X
+would be the proper lines to have in the phone list file.  This same
+format is used when entering a new recipient in the \fBAdd R\fP popup
+window.
+X
+.SH OPTIONS
+\fIxparty\fP understands the usual X toolkit options.  As you are 
+most likely aware of, Motif applications can contain many widgets,
+each with many possible resources to set.  \fIxparty\fP has a 
+special option to assist you in building interesting resource files.
+If you invoke \fIxparty\fP with a ``-l'' option, it will dump its
+internal widget hierarchy to stdout.  Use this information to
+build your resource files.  (How's this for a unique punt?).
+X
+Also, the token key or key combination can be set with the following
+resource:
+.sp
+X	xparty.tokenKey:	\fIkey translation\fP: PassToken()
+.br
+X
+where \fIkey translation\fP is a legal keyboard translation specification.
+For example, to use Control-t (the control key and `t' key together)
+the resource would look like:
+.sp
+X	xparty.tokenKey:	Ctrl<Key>t: PassToken()
+.br
+X
+The default is `<Key>F3'.
+X
+.SH FILES
+.nf
+.ta \w'/usr/local/bin/prog/config   'u
+$HOME/.xmsg_hosts	The phone list file
+.fi
+X
+.SH BUGS
+Dynamic resizing due to adding new recipients may not always work the
+way you'd like.  If the screen gets wierd, quit and re-invoke xparty
+and the screen will again look normal.  Its those *bleep* forms ...
+X
+.SH AUTHOR
+Andrew Peebles, MIPS Computer Systems.
+X
+SHAR_EOF
+chmod 0644 xparty.man ||
+echo 'restore of xparty.man failed'
+Wc_c="`wc -c < 'xparty.man'`"
+test 9608 -eq "$Wc_c" ||
+	echo 'xparty.man: original size 9608, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xphone.h ==============
+if test -f 'xphone.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xphone.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xphone.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xphone.h' &&
+/*
+X * xphone.h
+X *
+X * Data structures for the parties on the line
+X */
+#include "patchlevel.h"
+X
+#define MAX_PARTIES 10
+X
+typedef struct _party {
+X  Display	*display;	/* the display */
+X  char		*hostname;	/* the hostname of the display */
+X  char		*username;	/* user name on display */
+X  Boolean	token;		/* True if this party has the token */
+X  Boolean	dead;		/* True if hung up */
+X  Widget	top;		/* popup shell for party */
+X  Widget	box;		/* vpaned Widget ID */
+X  Widget	talking;	/* shows person currently talking */
+X  Widget	status;		/* status line on typing window */
+X  Widget	send;		/* Widget ID of this party's send window */
+X  Widget	recv;		/* Widget ID of this party's recieve window */
+X  Widget	list;		/* Widget ID of list of parties on the air */
+X  Boolean	list_posted;	/* true if the list is visible */
+} Party;
+X
+extern Party	*parties[];
+extern int	num_parties;
+extern XtAppContext xphone;
+extern Boolean	LIST_WIDGETS;
+X
+/*
+X * parties[0] will always contain the originator, and will have control
+X * over the token first.  When he `passes the token' the next party in
+X * the array will be talking, and so on.  When a party hangs up, the
+X * token will pass over them.
+X */
+X
+Party *XpCreateParty();
+X
+typedef struct _person {
+X  char	*name;
+X  char	*host;
+X  Widget btn;
+} Person, *PersonPtr;
+X
+extern	PersonPtr	*people;
+extern	int		num_people;
+extern	char		*strtok(), *strdup();
+SHAR_EOF
+chmod 0644 xphone.h ||
+echo 'restore of xphone.h failed'
+Wc_c="`wc -c < 'xphone.h'`"
+test 1373 -eq "$Wc_c" ||
+	echo 'xphone.h: original size 1373, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

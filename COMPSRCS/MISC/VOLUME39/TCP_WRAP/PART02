@@ -1,0 +1,1604 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject: v39i111:  tcp_wrappers - TCP/IP daemon wrappers, v6.0, Part02/04
+Message-ID: <1993Sep29.215745.26201@sparky.sterling.com>
+X-Md4-Signature: 584dda5944e7aac2eaf01e78b9ae654b
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Eindhoven University of Technology, The Netherlands
+Date: Wed, 29 Sep 1993 21:57:45 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 39, Issue 111
+Archive-name: tcp_wrappers/part02
+Environment: UNIX, INET
+Supersedes: log_tcp: Volume 36, Issue 4-6
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 4)."
+# Contents:  Makefile hosts_access.3 hosts_access.5 hosts_access.c
+#   hosts_options.5 patchlevel.h
+# Wrapped by wietse@wzv on Wed Sep 29 18:45:46 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f Makefile -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile\"
+else
+echo shar: Extracting \"Makefile\" \(19084 characters\)
+sed "s/^X//" >Makefile <<'END_OF_Makefile'
+X# @(#) Makefile 1.9 93/09/28 23:39:55
+X
+Xwhat:
+X	@echo
+X	@echo "Usage: edit the REAL_DAEMON_DIR definition in the Makefile then:"
+X	@echo
+X	@echo "	make type-of-system"
+X	@echo
+X	@echo "If you are in a hurry you can try instead:"
+X	@echo
+X	@echo "	make REAL_DAEMON_DIR=/some/where type-of-system"
+X	@echo
+X	@echo "This Makefile knows about the following types of systems:"
+X	@echo
+X	@echo "	sunos4 sunos5 next irix hpux ultrix aix alpha osf"
+X	@echo "	sunos40 {386,net,free}bsd linux sysv4 esix dgux"
+X	@echo
+X	@echo "If none of these match your environment, edit the system"
+X	@echo "dependencies section in the Makefile and do a 'make other'."
+X	@echo
+X
+X#######################################################
+X# Choice between easy and advanced installation recipe.
+X# 
+X# Advanced installation: vendor-provided daemons are left alone, and the
+X# inetd configuration file is edited. In this case, the REAL_DAEMON_DIR
+X# macro should reflect the actual directory with (most of) your
+X# vendor-provided network daemons.  These names can be found in the
+X# inetd.conf file. Usually, the telnet, ftp and finger daemons all live
+X# in the same directory.
+X# 
+X# Uncomment the appropriate line if you are going to edit inetd.conf.
+X#
+X# Ultrix 4.x SunOS 4.x
+X#REAL_DAEMON_DIR=/usr/etc
+X#
+X# SysV.4 Solaris 2.x OSF AIX
+X#REAL_DAEMON_DIR=/usr/sbin
+X#
+X# BSD 4.4
+X#REAL_DAEMON_DIR=/usr/libexec
+X#
+X# HP-UX
+X#REAL_DAEMON_DIR=/etc
+X
+X# Easy installation: vendor-provided network daemons are moved to "some
+X# other" directory, and the tcpd wrapper fills in the "holes". For this
+X# mode of operation, the REAL_DAEMON_DIR macro should be set to the "some
+X# other" directory.  The "..." is here for historical reasons only; you
+X# should probably use some other name. 
+X# 
+X# Uncomment the appropriate line if you are going to move your daemons.
+X#
+X# Ultrix 4.x SunOS 4.x
+X#REAL_DAEMON_DIR=/usr/etc/...
+X#
+X# SysV.4 Solaris 2.x OSF AIX
+X#REAL_DAEMON_DIR=/usr/sbin/...
+X#
+X# BSD 4.4
+X#REAL_DAEMON_DIR=/usr/libexec/...
+X#
+X# HP-UX
+X#REAL_DAEMON_DIR=/etc/...
+X
+X# End of mandatory section
+X##########################
+X
+X##############################################
+X# System dependencies: ready-to-use templates.
+X#
+X# Ready-to-use templates are available for sunos 4.x, sunos 5.x (sysv4),
+X# ultrix, hp-ux, irix 4.x and others. These templates take care of all system
+X# dependencies: after editing the REAL_DAEMON_DIR definition above, just do
+X# a "make sunos4" (or whatever system type is appropriate).
+X#
+X# If your system is not listed (or something that comes close enough), you
+X# will have to edit the system depencies section below and do a "make other".  
+X#
+X# Send templates for other UNIX versions to wietse@wzv.win.tue.nl.
+X
+X# This is good for many BSD+SYSV hybrids with NIS (formerly YP).
+Xsunos4 next aix osf alpha:
+X	@make LIBS= RANLIB=ranlib ARFLAGS=rv AUX_OBJ=setenv.o \
+X	NETGROUP=-DNETGROUP TLI= all
+X
+X# SunOS stopped at release 4.0.x for the 386.
+Xsunos40:
+X	@make LIBS= RANLIB=ranlib ARFLAGS=rv AUX_OBJ="setenv.o strcasecmp.o" \
+X	NETGROUP=-DNETGROUP TLI= all
+X
+X# Ultrix is like sunos4, next, etc., but has miscd, too.
+Xultrix:
+X	@make LIBS= RANLIB=ranlib ARFLAGS=rv AUX_OBJ=setenv.o \
+X	NETGROUP=-DNETGROUP TLI= all miscd
+X
+X# Free bsd and linux have no NIS.
+X386bsd netbsd freebsd:
+X	@make LIBS= RANLIB=ranlib ARFLAGS=rv AUX_OBJ= NETGROUP= TLI= all
+X
+Xlinux:
+X	@make LIBS= RANLIB=ranlib ARFLAGS=rv AUX_OBJ=setenv.o \
+X	NETGROUP= TLI= EXTRA_CFLAGS="-DBROKEN_SO_LINGER" all
+X
+X# This is good for many SYSV+BSD hybrids with NIS, probably also for HP-UX 7.x.
+Xhpux hpux8 hpux9:
+X	@make LIBS= RANLIB=echo ARFLAGS=rv AUX_OBJ=setenv.o \
+X	NETGROUP=-DNETGROUP TLI= all
+X
+X# IRIX 4.0.x has a special ar(1) flag.
+Xirix:
+X	@make LIBS=-lsun RANLIB=echo ARFLAGS=rvs AUX_OBJ=setenv.o \
+X	NETGROUP=-DNETGROUP TLI= all
+X
+X# SunOS 5.x is close enough to generic System V.4
+Xsunos5 esix sysv4:
+X	@make LIBS="-lsocket -lnsl" RANLIB=echo ARFLAGS=rv \
+X	NETGROUP=-DNETGROUP AUX_OBJ=setenv.o TLI=-DTLI all
+X
+X# DG/UX 5.4.1 is like SYSV.4 but slightly different.
+Xdgux:
+X	@make LIBS=-lnsl RANLIB=echo ARFLAGS=rv \
+X	NETGROUP=-DNETGROUP AUX_OBJ=setenv.o TLI=-DTLI \
+X	BUGS="$(BUGS) -DINET_ADDR_BUG" all
+X
+X# Untested templates. The wrapper is known to run on these systems, I just
+X# don't have sufficient time+details to prepare complete makefile templates.
+X
+Xptx:
+X	@echo "Warning: the AUX_OBJ and/or NETGROUP definitions may be wrong."
+X	make LIBS="-lsocket -linet -lnsl -lnfs" RANLIB=echo ARFLAGS=rv \
+X	AUX_OBJ="setenv.o strcasecmp.o" NETGROUP= TLI=-DTLI all
+X
+Xisc:
+X	@echo "Warning: the AUX_OBJ and/or NETGROUP definitions may be wrong."
+X	make LIBS="-linet -lnsl_s -ldbm" RANLIB=echo ARFLAGS=rv \
+X	AUX_OBJ="setenv.o strcasecmp.o" NETGROUP= TLI= all
+X
+Xunicos:
+X	@echo "Warning: some definitions may be wrong."
+X	make LIBS=-lnet RANLIB=echo ARFLAGS=rv \
+X	AUX_OBJ="setenv.o strcasecmp.o" NETGROUP= TLI= all
+X
+X###############################################################
+X# System dependencies: TLI (transport-level interface) support.
+X# 
+X# Uncomment the following macro if your system has System V.4-style TLI
+X# support (/usr/include/sys/timod.h, /etc/netconfig, and the netdir(3)
+X# routines).
+X#
+X#TLI	= -DTLI
+X
+X###############################################################################
+X# System dependencies: differences between ranlib(1) and ar(1) implementations.
+X#
+X# Some C compilers (Ultrix 4.x) insist that ranlib(1) be run on an object
+X# library; some don't care as long as the modules are in the right order;
+X# some systems don't even have a ranlib(1) command. Make your choice.
+X
+XRANLIB	= ranlib	# have ranlib (BSD-ish UNIX)
+X#RANLIB	= echo		# no ranlib (SYSV-ish UNIX)
+X
+XARFLAGS	= rv		# most systems
+X#ARFLAGS= rvs		# IRIX 4.0.x
+X
+X#############################################################################
+X# System dependencies: routines that are not present in the system libraries.
+X# 
+X# If your system library does not have setenv(), strcasecmp() or strtok(),
+X# use the ones provided with this source distribution.
+X
+XAUX_OBJ= setenv.o
+X#AUX_OBJ= setenv.o strcasecmp.o
+X#AUX_OBJ= setenv.o strcasecmp.o strtok.o
+X
+X# Uncomment the following if your C library does not provide the
+X# strchr/strrchr/memcmp routines, but comes with index/rindex/bcmp.  If
+X# that is the case, you probably also do not have strtok() (see above).
+X#
+X#STRINGS= -Dstrchr=index -Dstrrchr=rindex -Dmemcmp=bcmp
+X
+X#################################################################
+X# System dependencies: selection of non-default object libraries.
+X#
+X# Most System V implementations require that you explicitly specify the
+X# networking libraries. There is no general consensus, though.
+X#
+X#LIBS	= -lsocket -lnsl		# SysV.4 Solaris 2.x
+X#LIBS	= -lsun				# IRIX
+X#LIBS	= -lsocket -linet -lnsl -lnfs	# PTX
+X#LIBS	= -linet -lnsl_s -ldbm		# ISC
+X#LIBS	= -lnet				# Unicos
+X#LIBS	= -linet -lsyslog -ldbm
+X#LIBS	= -lsyslog -lsocket -lnsl
+X
+X######################################################
+X# System dependencies: system-specific compiler flags.
+X#
+X# Apollo Domain/OS offers both bsd and sys5 environments, sometimes
+X# on the same machine.  If your Apollo is primarily sys5.3 and also
+X# has bsd4.3, uncomment the following to build under bsd and run under
+X# either environment.
+X#
+X#SYSTYPE= -A run,any -A sys,any
+X
+X# For MIPS RISC/os 4_52.p3, uncomment the following definition.
+X#
+X#SYSTYPE= -sysname bsd43
+X
+X##################################################
+X# System dependencies: working around system bugs.
+X#
+X# -DGETPEERNAME_BUG works around a getpeername(2) bug in some versions of
+X# Apollo or SYSV.4 UNIX:  the wrapper would report that all UDP requests
+X# come from address 0.0.0.0. The workaround does no harm on other systems.
+X#
+X# -DBROKEN_FGETS works around an fgets(3) bug in some System V versions
+X# (IRIX):  fgets() gives up too fast when reading from a network socket.
+X# The workaround does no harm on other systems.
+X#
+X# DG/UX 5.4.1 comes with an inet_ntoa() function that returns a structure
+X# instead of a long integer. Compile with -DINET_ADDR_BUG to work around
+X# this mutant behavour.
+X
+XBUGS = -DGETPEERNAME_BUG -DBROKEN_FGETS
+X#BUGS = -DGETPEERNAME_BUG -DBROKEN_FGETS -DINET_ADDR_BUG
+X
+X##########################################################################
+X# System dependencies: whether or not your system has NIS (or YP) support.
+X#
+X# If your system supports NIS or YP-style netgroups, enable the following
+X# macro definition. Netgroups are used only for host access control.
+X#
+X#NETGROUP= -DNETGROUP
+X
+X# End of the system dependencies.
+X#################################
+X
+X##############################
+X# Start of the optional stuff.
+X
+X###########################################
+X# Optional: Turning on language extensions
+X#
+X# Instead of the default access control language that is documented in
+X# the hosts_access.5 document, the wrappers can be configured to
+X# implement an extensible language documented in the hosts_options.5
+X# document.  This language is implemented by the "options.c" source
+X# module, which also gives hints on how to add your own extensions.
+X# Uncomment the next definition to turn on the language extensions.
+X# 
+X#STYLE	= -DPROCESS_OPTIONS	# Enable language extensions.
+X
+X################################################################
+X# Optional: Changing the default disposition of logfile records
+X#
+X# By default, logfile entries are written to the same file as used for
+X# sendmail transaction logs. See your /etc/syslog.conf file for actual
+X# path names of logfiles. The tutorial section in the README file
+X# gives a brief introduction to the syslog daemon.
+X# 
+X# Change the FACILITY definition below if you disagree with the default
+X# disposition. Some syslog versions (including Ultrix 4.x) do not provide
+X# this flexibility.
+X# 
+X# If nothing shows up on your system, it may be that the syslog records
+X# are sent to a dedicated loghost. It may also be that no syslog daemon
+X# is running at all. The README file gives pointers to surrogate syslog
+X# implementations for systems that have no syslog library routines or
+X# no syslog daemons.
+X#
+X# The LOG_XXX names below are taken from the /usr/include/syslog.h file.
+X
+XFACILITY= LOG_MAIL	# LOG_MAIL is what most sendmail daemons use
+X
+X# The syslog priority at which successful connections are logged.
+X
+XSEVERITY= LOG_INFO	# LOG_INFO is normally not logged to the console
+X
+X##################################################
+X# Optional: Always attempt remote username lookups
+X#
+X# By default, the wrappers look up the remote username only when the
+X# access control rules require them to do so.
+X#
+X# Username lookups require that the remote host runs a daemon that
+X# supports an RFC 931 like protocol.  Remote user name lookups are not
+X# possible for UDP-based connections, and can cause noticeable delays
+X# with connections from non-UNIX PCs.  On some systems, remote username
+X# lookups can trigger a kernel bug, causing loss of service. The README
+X# file describes how to find out if your UNIX kernel has that problem.
+X# 
+X# Uncomment the following definition if the wrappers should always
+X# attempt to get the remote user name. If this is not enabled you can
+X# still do selective username lookups as documented in the hosts_access.5
+X# and hosts_options.5 manual pages (`nroff -man' format).
+X#
+X#AUTH	= -DALWAYS_RFC931
+X#
+X# The default username lookup timeout is 10 seconds. This may not be long
+X# enough for slow hosts or networks, but is enough to irritate PC users.
+X
+XRFC931_TIMEOUT = 10
+X
+X######################################################
+X# Optional: Changing the default file protection mask
+X#
+X# On many systems, network daemons and other system processes are started
+X# with a zero umask value, so that world-writable files may be produced.
+X# It is a good idea to edit your /etc/rc* files so that they begin with
+X# an explicit umask setting.  On our site we use `umask 022' because it
+X# does not break anything yet gives adequate protection against tampering.
+X# 
+X# The following macro specifies the default umask for processes run under
+X# control of the daemon wrappers. Comment it out only if you are certain
+X# that inetd and its children are started with a safe umask value.
+X
+XUMASK	= -DDAEMON_UMASK=022
+X
+X#######################################
+X# Optional: Turning off access control
+X#
+X# By default, host access control is enabled.  To disable host access
+X# control, comment out the following definition.  Host access control
+X# can also be turned off at runtime by providing no or empty access
+X# control tables.
+X
+XACCESS	= -DHOSTS_ACCESS
+X
+X########################################################
+X# Optional: Changing the access control table pathnames
+X#
+X# The HOSTS_ALLOW and HOSTS_DENY macros define where the programs will
+X# look for access control information. Watch out for the quotes and
+X# backslashes when you make changes.
+X
+XTABLES	= -DHOSTS_DENY=\"/etc/hosts.deny\" -DHOSTS_ALLOW=\"/etc/hosts.allow\"
+X
+X###########################################
+X# Optional: Turning off host NAME checking
+X#
+X# By default, the software tries to protect against hosts that claim to
+X# have someone elses host name. This is relevant for network services
+X# whose authentication depends on host names, such as rsh and rlogin.
+X#
+X# With paranoid mode on, connections will be rejected when the host name
+X# does not match the host address. Connections will also be rejected when
+X# the host name is available but cannot be verified.
+X#
+X# Comment out the following definition if you do not need this additional
+X# protection. If paranoid mode is off, and a host name check fails, the
+X# daemon wrappers will use only the host address, but your daemons may
+X# still use the host name.
+X
+XPARANOID= -DPARANOID
+X
+X#############################################
+X# Optional: Turning on host ADDRESS checking
+X#
+X# Optionally, the software tries to protect against hosts that pretend to
+X# have someone elses host address. This is relevant for network services
+X# whose authentication depends on host names, such as rsh and rlogin,
+X# because the network address is used to look up the remote host name.
+X# 
+X# The protection is effective only when the offending host claims to have
+X# a network address that lies outside its own network.
+X#
+X# My site has been running rlogind and rshd daemons that implement this
+X# feature for more than 2 years, and without any ill effects.
+X#
+X# This feature cannot be used with SunOS 4.x because of a kernel bug in
+X# the implementation of the getsockopt() system call. Kernel panics have
+X# been reported for SunOS 4.1.1 and SunOS 4.1.2. Symptoms are "BAD TRAP"
+X# and "Data fault" while executing the tcp_ctloutput() kernel function.
+X#
+X# Uncomment the following macro definition if your getsockopt() is OK.
+X#
+X# KILL_OPT= -DKILL_IP_OPTIONS
+X
+X## End configuration options
+X############################
+X
+X# Protection against weird shells or weird make programs.
+X
+XSHELL	= /bin/sh
+X.c.o:;	$(CC) $(CFLAGS) -c $*.c
+X
+XCFLAGS	= -O -DFACILITY=$(FACILITY) $(ACCESS) $(PARANOID) $(NETGROUP) \
+X	$(BUGS) $(SYSTYPE) $(AUTH) $(UMASK) \
+X	-DREAL_MISCD=\"$(REAL_DAEMON_DIR)/miscd\" \
+X	-DREAL_DAEMON_DIR=\"$(REAL_DAEMON_DIR)\" $(STYLE) $(KILL_OPT) \
+X	-DSEVERITY=$(SEVERITY) -DRFC931_TIMEOUT=$(RFC931_TIMEOUT) \
+X	$(UCHAR) $(TABLES) $(STRINGS) $(TLI) $(EXTRA_CFLAGS)
+X
+XLIB_OBJ= hosts_access.o options.o shell_cmd.o rfc931.o hosts_info.o \
+X	hosts_ctl.o refuse.o percent_x.o clean_exit.o $(AUX_OBJ) \
+X	fromhost.o fix_options.o socket.o tli.o workarounds.o init_client.o \
+X	6compat.o
+X
+XKIT	= README miscd.c tcpd.c fromhost.c hosts_access.c shell_cmd.c \
+X	log_tcp.h try.c refuse.c Makefile hosts_access.5 strcasecmp.c \
+X	BLURB rfc931.c tcpd.8 hosts_info.c hosts_access.3 hosts_ctl.c \
+X	percent_x.c options.c clean_exit.c setenv.c patchlevel.h strtok.c \
+X	fix_options.c workarounds.c socket.c tli.c DISCLAIMER \
+X	fakelog.c safe_finger.c hosts_options.5 options.h CHANGES \
+X	try-from.c init_client.c 6compat.c
+X
+XLIB	= libwrap.a
+X
+Xall other: config-check tcpd try try-from safe_finger
+X
+Xconfig-check:
+X	@set +e; test -n "$(REAL_DAEMON_DIR)" || { \
+X	 echo "" ; \
+X	 echo "Please edit the Makefile to define the REAL_DAEMON_DIR macro,";\
+X	 echo "or build with \`make REAL_DAEMON_DIR=/some/where ....'";\
+X	 echo "" ; \
+X	 exit 1; \
+X	}
+X
+X$(LIB):	$(LIB_OBJ)
+X	rm -f $(LIB)
+X	ar $(ARFLAGS) $(LIB) $(LIB_OBJ)
+X	-$(RANLIB) $(LIB)
+X
+Xtcpd:	tcpd.o fromhost.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ tcpd.o fromhost.o $(LIB) $(LIBS)
+X
+Xmiscd:	miscd.o fromhost.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ miscd.o fromhost.o $(LIB) $(LIBS)
+X
+Xsafe_finger:
+X	$(CC) $(CFLAGS) -o $@ safe_finger.c
+X
+Xtry:	try.o fakelog.o $(LIB)
+X	$(CC) $(CFLAGS) -o $@ try.o fakelog.o $(LIB) $(LIBS)
+X
+Xtry-from: try-from.c fakelog.o log_tcp.h Makefile $(LIB)
+X	$(CC) $(CFLAGS) -DTEST -o $@ try-from.c fakelog.o $(LIB) $(LIBS)
+X
+Xshar:	$(KIT)
+X	@shar $(KIT)
+X
+Xkit:	$(KIT)
+X	@makekit $(KIT)
+X
+Xarchive:
+X	$(ARCHIVE) $(KIT)
+X
+Xclean:
+X	rm -f tcpd miscd safe_finger try try-from *.[oa] core
+X
+X# Enable all bells and whistles for linting.
+X
+Xlint: tcpd_lint miscd_lint try_lint
+X
+Xtcpd_lint:
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DPARANOID -DNETGROUP \
+X	-DGETPEERNAME_BUG -DDAEMON_UMASK=022 -DSEVERITY=$(SEVERITY) \
+X	$(TABLES) -DKILL_IP_OPTIONS -DPROCESS_OPTIONS \
+X	-DRFC931_TIMEOUT=$(RFC931_TIMEOUT) -DALWAYS_RFC931 \
+X	-DREAL_DAEMON_DIR=\"$(REAL_DAEMON_DIR)\" \
+X	tcpd.c fromhost.c socket.c tli.c hosts_access.c shell_cmd.c \
+X	refuse.c rfc931.c hosts_info.c percent_x.c clean_exit.c options.c \
+X	setenv.c fix_options.c workarounds.c init_client.c
+X
+Xmiscd_lint:
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DPARANOID -DNETGROUP \
+X	-DGETPEERNAME_BUG -DDAEMON_UMASK=022 -DSEVERITY=$(SEVERITY) \
+X	$(TABLES) -DKILL_IP_OPTIONS -DPROCESS_OPTIONS \
+X	-DRFC931_TIMEOUT=$(RFC931_TIMEOUT) -DALWAYS_RFC931 \
+X	-DREAL_MISCD=\"$(REAL_DAEMON_DIR)/miscd\" \
+X	miscd.c fromhost.c socket.c tli.c hosts_access.c shell_cmd.c \
+X	refuse.c rfc931.c hosts_info.c percent_x.c clean_exit.c options.c \
+X	setenv.c fix_options.c workarounds.c init_client.c
+X
+Xtry_lint:
+X	lint -DFACILITY=LOG_MAIL -DSEVERITY=$(SEVERITY) -DHOSTS_ACCESS \
+X	$(TABLES) -DNETGROUP -DPROCESS_OPTIONS \
+X	try.c hosts_ctl.c hosts_access.c hosts_info.c percent_x.c options.c \
+X	workarounds.c init_client.c
+X
+Xprintfck:
+X	printfck -f printf.ck tcpd.c fromhost.c socket.c tli.c hosts_access.c shell_cmd.c \
+X	refuse.c rfc931.c hosts_info.c percent_x.c clean_exit.c options.c \
+X	setenv.c fix_options.c workarounds.c init_client.c >aap.c
+X	lint -DFACILITY=LOG_MAIL -DHOSTS_ACCESS -DPARANOID -DNETGROUP \
+X	-DGETPEERNAME_BUG -DDAEMON_UMASK=022 -DSEVERITY=$(SEVERITY) \
+X	$(TABLES) -DKILL_IP_OPTIONS -DPROCESS_OPTIONS \
+X	-DRFC931_TIMEOUT=$(RFC931_TIMEOUT) -DALWAYS_RFC931 \
+X	-DREAL_DAEMON_DIR=\"$(REAL_DAEMON_DIR)\" aap.c
+X	rm -f aap.c
+X
+X# Compilation dependencies.
+X
+Xclean_exit.o: log_tcp.h Makefile
+Xfix_options.o: log_tcp.h Makefile
+Xfromhost.o: log_tcp.h Makefile
+Xhosts_access.o: options.h log_tcp.h Makefile
+Xhosts_ctl.o: log_tcp.h Makefile
+Xhosts_info.o: log_tcp.h Makefile
+Xinit_client.o: log_tcp.h Makefile
+Xmiscd.o: patchlevel.h log_tcp.h Makefile
+Xoptions.o: options.h log_tcp.h Makefile
+Xpercent_x.o: log_tcp.h Makefile
+Xrefuse.o: log_tcp.h Makefile
+Xrfc931.o: log_tcp.h Makefile
+Xshell_cmd.o: log_tcp.h Makefile
+Xsocket.o: log_tcp.h Makefile
+Xtcpd.o: patchlevel.h log_tcp.h Makefile
+Xtli.o: log_tcp.h Makefile
+Xtry-from: log_tcp.h Makefile
+Xtry.o: log_tcp.h Makefile
+Xworkarounds.o: log_tcp.h Makefile
+END_OF_Makefile
+if test 19084 -ne `wc -c <Makefile`; then
+    echo shar: \"Makefile\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f hosts_access.3 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hosts_access.3\"
+else
+echo shar: Extracting \"hosts_access.3\" \(2359 characters\)
+sed "s/^X//" >hosts_access.3 <<'END_OF_hosts_access.3'
+X.TH HOSTS_ACCESS 3
+X.SH
+Xhosts_access, hosts_ctl \- access control library
+X.SH SYNOPSIS
+X.nf
+X#include "log_tcp.h"
+X
+Xextern int allow_severity;
+Xextern int deny_severity;
+X
+Xint hosts_access(daemon, client)
+Xchar *daemon;
+Xstruct client_info *client;
+X
+Xint hosts_ctl(daemon, client_name, client_addr, client_user)
+Xchar *daemon;
+Xchar *client_name;
+Xchar *client_addr;
+Xchar *client_user;
+X.fi
+X.SH DESCRIPTION
+XThe routines described in this document are part of the \fIlibwrap.a\fR
+Xlibrary. They implement a pattern-based access control language with
+Xoptional shell commands that are executed when a pattern fires.
+X.PP
+XIn all cases, the daemon argument should specify a daemon process name
+X(argv[0] value).  The client host address should be a valid address, or
+XFROM_UNKNOWN if address lookup failed. The client host name and user
+Xname should be empty strings if no information is available,
+XFROM_UNKNOWN if lookup failed, or an actual host or user name.
+X.PP
+Xhosts_access() consults the access control tables described in the
+X\fIhosts_access(5)\fR manual page.  hosts_access() returns zero if
+Xaccess should be denied.
+X.PP
+Xhosts_ctl() is a wrapper around the hosts_access() routine with a
+Xperhaps more convenient interface (though it does not pass on enough
+Xinformation to support automated remote username lookups).  hosts_ctl()
+Xreturns zero if access should be denied.
+X.PP
+XThe \fIallow_severity\fR and \fIdeny_severity\fR variables determine
+Xhow accepted and rejected requests may be logged. They must be provided
+Xby the caller and may be modified by rules in the access control
+Xtables.
+X.SH DIAGNOSTICS
+XProblems are reported via the syslog daemon.
+X.SH SEE ALSO
+Xhosts_access(5), format of the access control tables.
+Xhosts_options(5), optional extensions to the base language.
+X.SH FILES
+X/etc/hosts.access, /etc/hosts.deny, access control tables.
+X.SH BUGS
+XThe functions described here do not make copies of their string-valued
+Xarguments.  Beware of data from functions that overwrite their results
+Xupon each call.
+X.sp
+Xhosts_access() uses the strtok() library function. This may interfere
+Xwith other code that relies on strtok().
+X.SH AUTHOR
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl)
+XDepartment of Mathematics and Computing Science
+XEindhoven University of Technology
+XDen Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+X\" @(#) hosts_access.3 1.4 93/09/27 18:59:08
+END_OF_hosts_access.3
+if test 2359 -ne `wc -c <hosts_access.3`; then
+    echo shar: \"hosts_access.3\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f hosts_access.5 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hosts_access.5\"
+else
+echo shar: Extracting \"hosts_access.5\" \(12300 characters\)
+sed "s/^X//" >hosts_access.5 <<'END_OF_hosts_access.5'
+X.TH HOSTS_ACCESS 5
+X.SH NAME
+Xhosts_access \- format of host access control files
+X.SH DESCRIPTION
+XThis manual page describes a simple access control language that is
+Xbased on client (host name/address, user name) and server (process
+Xname) patterns.  Examples are given at the end. The impatient reader
+Xcan skip to the EXAMPLES section for a quick introduction.
+X.PP
+XIn the following text, \fIdaemon\fR is the the process name of a
+Xnetwork daemon process, and \fIclient\fR is the name and/or address of
+Xa host requesting service. Network daemon process names are specified
+Xin the inetd configuration file.
+X.SH ACCESS CONTROL FILES
+XThe access control software consults two files. The search stops
+Xat the first match:
+X.IP \(bu
+XAccess will be granted when a (daemon,client) pair matches an entry in
+Xthe \fI/etc/hosts.allow\fR file.
+X.IP \(bu
+XOtherwise, access will be denied when a (daemon,client) pair matches an
+Xentry in the \fI/etc/hosts.deny\fR file.
+X.IP \(bu
+XOtherwise, access will be granted.
+X.PP
+XA non-existing access control file is treated as if it were an empty
+Xfile. Thus, access control can be turned off by providing no access
+Xcontrol files.
+X.SH ACCESS CONTROL RULES
+XEach access control file consists of zero or more lines of text.  These
+Xlines are processed in order of appearance. The search terminates when a
+Xmatch is found.
+X.IP \(bu
+XA newline character is ignored when it is preceded by a backslash
+Xcharacter.
+X.IP \(bu
+XBlank lines or lines that begin with a `#\' character are ignored.
+X.IP \(bu
+XAll other lines should satisfy the following format, things between []
+Xbeing optional:
+X.sp
+X.ti +3
+Xdaemon_list : client_list [ : shell_command ]
+X.PP
+X\fIdaemon_list\fR is a list of one or more daemon process names
+X(argv[0] values) or wildcards (see below).  
+X.PP
+X\fIclient_list\fR is a list
+Xof one or more host names, host addresses, patterns or wildcards (see
+Xbelow) that will be matched against the remote host name or address.
+X.PP
+XList elements should be separated by blanks and/or commas.  
+X.PP
+XWith the exception of NIS (YP) netgroup lookups, all access control
+Xchecks are case insensitive.
+X.br
+X.ne 4
+X.SH PATTERNS
+XThe access control language implements the following patterns:
+X.IP \(bu
+XA string that begins with a `.\' character.  A client name or address
+Xis matched if its last components match the specified pattern.  For
+Xexample, the pattern `.tue.nl\' matches the host name
+X`wzv.win.tue.nl\'.
+X.IP \(bu
+XA string that ends with a `.\' character.  A client name or address is
+Xmatched if its first fields match the given string.  For example, the
+Xpattern `131.155.\' matches the address of (almost) every host on the
+XEind\%hoven University network (131.155.x.x).
+X.IP \(bu
+XA string that begins with a `@\' character is treated as a netgroup
+Xname.  Netgroups are usually supported on systems with NIS (formerly
+XYP) data bases. A client host name is matched if it is a (host) member
+Xof the specified netgroup.
+X.IP \(bu
+XAn expression of the form `n.n.n.n/m.m.m.m\' is interpreted as a
+X`net/mask\' pair. A client address is matched if `net\' is equal to the
+Xbitwise AND of the address and the `mask\'. For example, the net/mask
+Xpattern `131.155.72.0/255.255.254.0\' matches every address in the
+Xrange `131.155.72.0\' through `131.155.73.255\'.
+X.SH WILDCARDS
+XThe access control language supports explicit wildcards:
+X.IP ALL
+XIf this token appears in a daemon_list, it matches all network daemon
+Xprocess names.  If the ALL token appears in a client_list, it matches
+Xall client names and addresses.
+X.IP LOCAL
+XMatches any string that does not contain a dot character.
+XTypical use is in client_lists.
+X.IP UNKNOWN
+XMatches any host whose name \fIor\fR address are unknown.  Should be
+Xused with care: host names may be unavailable due to temporary name
+Xserver problems. A network address will be unavailable when the
+Xsoftware cannot figure out what type of network it is talking to.
+X.IP KNOWN
+XMatches any host whose name \fIand\fR address are known. Should be used
+Xwith care: host names may be unavailable due to temporary name server
+Xproblems.  A network address will be unavailable when the software
+Xcannot figure out what type of network it is talking to.
+X.IP FAIL
+XLike the ALL wildcard, but causes the software to pretend that the scan
+Xof the current access control table fails. FAIL is being phased out; it
+Xwill become an undocumented feature. The EXCEPT operator (see below) is
+Xa much cleaner alternative.
+X.br
+X.ne 6
+X.SH OPERATORS
+X.IP EXCEPT
+XIntended use is of the form: `list_1 EXCEPT list_2\'; this construct
+Xmatches anything that matches \fIlist_1\fR unless it matches
+X\fIlist_2\fR.  This construct can be used in daemon_lists and in
+Xclient_lists. The EXCEPT operator can be nested: if the control
+Xlanguage would permit the use of parentheses, `a EXCEPT b EXCEPT c\'
+Xwould parse as `(a EXCEPT (b EXCEPT c))\'.
+X.br
+X.ne 6
+X.SH SHELL COMMANDS
+XIf the first-matched access control rule contains a shell command, that
+Xcommand is subjected to the following substitutions:
+X.IP %a
+Xexpands to the remote host address.
+X.IP %c
+Xexpands to client information: user@host, user@address, a host name, or
+Xjust an address, depending on how much information is available.
+X.IP %h
+Xexpands to the remote host name (or address, if the host name is
+Xunavailable).
+X.IP %d
+Xexpands to the daemon process name (argv[0] value).
+X.IP %p
+Xexpands to the daemon process id.
+X.IP %u
+Xexpands to the remote user name (or "unknown").
+X.IP %%
+Xexpands to a single `%\' character.
+X.PP
+XCharacters in % expansions that may confuse the shell are replaced by
+Xunderscores.
+XThe result is executed by a \fI/bin/sh\fR child process with standard
+Xinput, output and error connected to \fI/dev/null\fR.  Specify an `&\'
+Xat the end of the command if you do not want to wait until it has
+Xcompleted.
+X.PP
+XShell commands should not rely on the PATH setting of the inetd.
+XInstead, they should use absolute path names, or they should begin with
+Xan explicit PATH=whatever statement.
+X.SH REMOTE USERNAME LOOKUP
+XWhen the client host supports the RFC 931 protocol or one of its
+Xdescendants (TAP, IDENT) the wrapper programs can retrieve additional
+Xinformation about the owner of a connection. Remote username
+Xinformation, when available, is logged together with the client
+Xhost name, and can be used to match patterns like:
+X.PP
+X.ti +3
+Xdaemon_list : ... user_pattern@host_pattern ...
+X.PP
+XThe daemon wrappers can be configured at compile time to perform
+Xrule-driven username lookups (default) or to always interrogate the
+Xclient host.  In the case of rule-driven username lookups, the above
+Xrule would cause username lookup only when both the \fIdaemon_list\fR
+Xand the \fIhost_pattern\fR match.
+X.PP
+XA user pattern has the same syntax as a daemon process name, host name
+Xor host address pattern, so the same wildcards etc. apply (but netgroup
+Xmembership of users is not supported). One should not get carried away
+Xwith username lookups, though.
+X.IP \(bu
+XThe remote username information cannot be trusted when it is needed
+Xmost, i.e. when the remote system has been compromised.  In general,
+XALL and (UN)KNOWN are the only user name patterns that make sense.
+X.IP \(bu
+XUsername lookups are possible only with TCP-based services, and only
+Xwhen the client host runs a suitable daemon; in all other cases the
+Xresult is "unknown".
+X.IP \(bu
+XA well-known UNIX kernel bug may cause loss of service when username
+Xlookups are blocked by a firewall. The wrapper README document
+Xdescribes a procedure to find out if your kernel has this bug.
+X.IP \(bu
+XUsername lookups cause noticeable delays for PC users.  The default
+Xtimeout for username lookups is 10 seconds: too short to cope with slow
+Xnetworks, but long enough to irritate PC users.
+X.PP
+XSelective username lookups can alleviate the last problem. For example,
+Xa rule like:
+X.PP
+X.ti +3
+Xdaemon_list : @pcnetgroup ALL@ALL
+X.PP
+Xwould match members of the pc netgroup without doing username lookups,
+Xbut would perform username lookups with all other systems.
+X.SH EXAMPLES
+XThe language is flexible enough that different types of access control
+Xpolicy can be expressed with a minimum of fuss. Although the language
+Xuses two access control tables, the most common policies can be
+Ximplemented with one of the tables being trivial or even empty.
+X.PP
+XWhen reading the examples below it is important to realize that the
+Xallow table is scanned before the deny table, that the search
+Xterminates when a match is found, and that access is granted when no
+Xmatch is found at all.
+X.PP
+XThe examples use host and domain names. They can be improved by
+Xincluding address and/or network/netmask information, to reduce the
+Ximpact of temporary name server lookup failures.
+X.SH MOSTLY CLOSED
+XIn this case, access is denied by default. Only explicitly authorized
+Xhosts are permitted access. 
+X.PP
+XThe default policy (no access) is implemented with a trivial deny
+Xfile:
+X.PP
+X.ne 2
+X/etc/hosts.deny: 
+X.in +3
+XALL: ALL
+X.PP
+XThis denies all service to all hosts, unless they are permitted access
+Xby entries in the allow file.
+X.PP
+XThe explicitly authorized hosts are listed in the allow file.
+XFor example:
+X.PP
+X.ne 2
+X/etc/hosts.allow: 
+X.in +3
+XALL: LOCAL @some_netgroup
+X.br
+XALL: .foobar.edu EXCEPT terminalserver.foobar.edu
+X.PP
+XThe first rule permits access to all services from hosts in the local
+Xdomain (no `.\' in the host name) and from members of the
+X\fIsome_netgroup\fP netgroup. The second rule permits access to all
+Xservices from all hosts in the \fI.foobar.edu\fP domain, with the
+Xexception of \fIterminalserver.foobar.edu\fP.
+X.SH MOSTLY OPEN
+XHere, access is granted by default; only explicitly specified hosts are
+Xrefused service. 
+X.PP
+XThe default policy (access granted) makes the allow file redundant so
+Xthat it can be omitted.  The explicitly non-authorized hosts are listed
+Xin the deny file. For example:
+X.PP
+X/etc/hosts.deny:
+X.in +3
+XALL: some.host.name, .some.domain
+X.br
+XALL EXCEPT in.fingerd: other.host.name, .other.domain
+X.PP
+XThe first rule denies some hosts all services; the second rule still
+Xpermits finger requests from other hosts.
+X.SH BOOBY TRAPS
+XThe next example permits tftp requests from hosts in the local domain.
+XRequests from any other hosts are denied. Instead of the requested
+Xfile, a finger probe is sent to the offending host. The result is
+Xmailed to the superuser.
+X.PP
+X.ne 2
+X/etc/hosts.allow:
+X.in +3
+X.nf
+Xin.tftpd: LOCAL, .my.domain
+X.PP
+X.ne 2
+X/etc/hosts.deny:
+X.in +3
+X.nf
+Xin.tftpd: ALL: (/some/where/safe_finger -l @%h | \\
+X	/usr/ucb/mail -s %d-%h root) &
+X.fi
+X.PP
+XThe safe_finger command comes with the tcpd wrapper and should be
+Xinstalled in a suitable place. It limits possible damage from data sent
+Xby the remote finger server.  It gives better protection than the
+Xstandard finger command.
+X.PP
+XThe expansion of the %h (remote host) and %d (service name) sequences
+Xis described in the section on shell commands.
+X.PP
+XWarning: do not booby-trap your finger daemon, unless you are prepared
+Xfor infinite finger loops.
+X.PP
+XOn network firewall systems this trick can be carried even further.
+XThe typical network firewall only provides a limited set of services to
+Xthe outer world. All other services can be "bugged" just like the above
+Xtftp example. The result is an excellent early-warning system.
+X.br
+X.ne 4
+X.SH DIAGNOSTICS
+XAn error is reported when a syntax error is found in a host access
+Xcontrol rule; when the length of an access control rule exceeds the
+Xcapacity of an internal buffer; when an access control rule is not
+Xterminated by a newline character; when the result of %<character>
+Xexpansion would overflow an internal buffer; when a system call fails
+Xthat shouldn\'t.  All problems are reported via the syslog daemon.
+X.SH FILES
+X.na
+X.nf
+X/etc/hosts.allow, (daemon,client) pairs that are granted access.
+X/etc/hosts.deny, (daemon,client) pairs that are denied access.
+X.ad
+X.fi
+X.SH SEE ALSO
+Xtcpd(8) tcp/ip daemon wrapper program.
+X.SH BUGS
+XIf a name server lookup times out, the host name will not be available
+Xto the access control software, even though the host is registered.
+X.PP
+XDomain name server lookups are case insensitive; NIS (formerly YP)
+Xnetgroup lookups are case sensitive.
+X.SH AUTHOR
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl)
+XDepartment of Mathematics and Computing Science
+XEindhoven University of Technology
+XDen Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+X\" @(#) hosts_access.5 1.17 93/09/27 23:40:03
+END_OF_hosts_access.5
+if test 12300 -ne `wc -c <hosts_access.5`; then
+    echo shar: \"hosts_access.5\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f hosts_access.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hosts_access.c\"
+else
+echo shar: Extracting \"hosts_access.c\" \(13236 characters\)
+sed "s/^X//" >hosts_access.c <<'END_OF_hosts_access.c'
+X /*
+X  * This module implements a simple access control language that is based on
+X  * host (or domain) names, NIS netgroup names, IP addresses (or network
+X  * numbers) and daemon process names. When a match is found an optional
+X  * shell command is executed and the search is terminated.
+X  *
+X  * The language supports rule-driven remote username lookup via the RFC931
+X  * protocol. This feature is supported only for the connection-oriented TCP
+X  * protocol, and requires that the caller provides sockaddr_in structures
+X  * that describe both ends of the connection.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Compile with -DNETGROUP if your library provides support for netgroups.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) hosts_access.c 1.15 93/09/27 20:59:49";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <netinet/in.h>
+X#include <arpa/inet.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <ctype.h>
+X#include <errno.h>
+X
+Xextern char *fgets();
+Xextern char *strchr();
+Xextern char *strtok();
+X
+X#ifndef	INADDR_NONE
+X#define	INADDR_NONE	(-1)		/* XXX should be 0xffffffff */
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X#ifdef PROCESS_OPTIONS
+X#include <setjmp.h>
+X#include "options.h"
+X#endif
+X
+X/* Delimiters for lists of daemons or clients. */
+X
+Xstatic char sep[] = ", \t";
+X
+X/* Constants to be used in assignments only, not in comparisons... */
+X
+X#define	YES		1
+X#define	NO		0
+X#define	FAIL		(-1)
+X
+X /*
+X  * These variables are globally visible so that they can be redirected in
+X  * verification mode.
+X  */
+X
+Xchar   *hosts_allow_table = HOSTS_ALLOW;
+Xchar   *hosts_deny_table = HOSTS_DENY;
+X
+X/* These are global so they can be consulted for error reports. */
+X
+Xchar   *hosts_access_file = 0;		/* current access control table */
+Xint     hosts_access_line;		/* current line (approximately) */
+X
+X/* Forward declarations. */
+X
+Xstatic int table_match();
+Xstatic int list_match();
+Xstatic int client_match();
+Xstatic int host_match();
+Xstatic int string_match();
+Xstatic int masked_match();
+Xstatic FILE *xfopen();
+Xstatic char *xgets();
+X
+X/* Size of logical line buffer. */
+X
+X#define	BUFLEN 2048
+X
+X/* hosts_access - host access control facility */
+X
+Xint     hosts_access(daemon, client)
+Xchar   *daemon;
+Xstruct client_info *client;		/* host or user name may be empty */
+X{
+X
+X#ifdef PROCESS_OPTIONS
+X
+X    /*
+X     * After a rule has been matched, the optional language extensions may
+X     * decide to grant or refuse service anyway. This is done by jumping back
+X     * into the hosts_access() routine, bypassing the regular return from the
+X     * table_match() function calls below.
+X     */
+X
+X    switch (setjmp(options_buf)) {
+X    case OPT_ALLOW:
+X	return (YES);
+X    case OPT_DENY:
+X	return (NO);
+X    }
+X#endif /* PROCESS_OPTIONS */
+X
+X    /*
+X     * If the (daemon, client) pair is matched by an entry in the file
+X     * /etc/hosts.allow, access is granted. Otherwise, if the (daemon,
+X     * client) pair is matched by an entry in the file /etc/hosts.deny,
+X     * access is denied. Otherwise, access is granted. A non-existent
+X     * access-control file is treated as an empty file.
+X     */
+X
+X    if (table_match(hosts_allow_table, daemon, client))
+X	return (YES);
+X    if (table_match(hosts_deny_table, daemon, client))
+X	return (NO);
+X    return (YES);
+X}
+X
+X/* table_match - match table entries with (daemon, client) pair */
+X
+Xstatic int table_match(table, daemon, client)
+Xchar   *table;
+Xchar   *daemon;
+Xstruct client_info *client;		/* host or user name may be empty */
+X{
+X    FILE   *fp;
+X    char    sv_list[BUFLEN];		/* becomes list of daemons */
+X    char   *cl_list;			/* becomes list of clients */
+X    char   *sh_cmd;			/* becomes optional shell command */
+X    int     match;
+X    int     end;
+X
+X    /* The following variables should always be tested together. */
+X
+X    int     sv_match = NO;		/* daemon matched */
+X    int     cl_match = NO;		/* client matched */
+X
+X    /*
+X     * Process the table one logical line at a time. Lines that begin with a
+X     * '#' character are ignored. Non-comment lines are broken at the ':'
+X     * character (we complain if there is none). The first field is matched
+X     * against the daemon process name (argv[0]), the second field against
+X     * the host name or address. A non-existing table is treated as if it
+X     * were an empty table. The search terminates at the first matching rule.
+X     * When a match is found an optional shell command is executed.
+X     */
+X
+X    if (fp = xfopen(table, "r")) {
+X	while (!(sv_match && cl_match) && xgets(sv_list, sizeof(sv_list), fp)) {
+X	    if (sv_list[end = strlen(sv_list) - 1] != '\n') {
+X		syslog(LOG_ERR, "error: %s, line %d: missing newline or line too long",
+X		       hosts_access_file, hosts_access_line);
+X		continue;
+X	    }
+X	    if (sv_list[0] == '#')		/* skip comments */
+X		continue;
+X	    while (end > 0 && isspace(sv_list[end - 1]))
+X		end--;
+X	    sv_list[end] = '\0';		/* strip trailing whitespace */
+X	    if (sv_list[0] == 0)		/* skip blank lines */
+X		continue;
+X	    if ((cl_list = strchr(sv_list, ':')) == 0) {
+X		syslog(LOG_ERR, "error: %s, line %d: malformed entry: \"%s\"",
+X		       hosts_access_file, hosts_access_line, sv_list);
+X		continue;
+X	    }
+X	    *cl_list++ = '\0';			/* split 1st and 2nd fields */
+X	    if ((sh_cmd = strchr(cl_list, ':')) != 0)
+X		*sh_cmd++ = '\0';		/* split 2nd and 3rd fields */
+X	    if ((sv_match = list_match(sv_list, daemon, string_match)))
+X		cl_match = list_match(cl_list, (char *) client, client_match);
+X	}
+X	(void) fclose(fp);
+X    } else if (errno != ENOENT) {
+X	syslog(LOG_ERR, "error: cannot open %s: %m", table);
+X    }
+X    match = (sv_match == YES && cl_match == YES);
+X    if (match && sh_cmd)
+X#ifdef PROCESS_OPTIONS
+X	process_options(sh_cmd, daemon, client);
+X#else
+X	shell_cmd(sh_cmd, daemon, client);
+X#endif
+X    return (match);
+X}
+X
+X/* list_match - match an item against a list of tokens with exceptions */
+X
+Xstatic int list_match(list, item, match_fn)
+Xchar   *list;
+Xchar   *item;
+Xint   (*match_fn) ();
+X{
+X    char   *tok;
+X    int     match = NO;
+X
+X    /*
+X     * Process tokens one at a time. We have exhausted all possible matches
+X     * when we reach an "EXCEPT" token or the end of the list. If we do find
+X     * a match, look for an "EXCEPT" list and recurse to determine whether
+X     * the match is affected by any exceptions.
+X     */
+X
+X    for (tok = strtok(list, sep); tok != 0; tok = strtok((char *) 0, sep)) {
+X	if (strcasecmp(tok, "EXCEPT") == 0)	/* EXCEPT: give up */
+X	    break;
+X	if (match = (*match_fn) (tok, item))	/* YES or FAIL */
+X	    break;
+X    }
+X    /* Process exceptions to YES or FAIL matches. */
+X
+X    if (match != NO) {
+X	while ((tok = strtok((char *) 0, sep)) && strcasecmp(tok, "EXCEPT"))
+X	     /* VOID */ ;
+X	if (tok == 0 || list_match((char *) 0, item, match_fn) == NO)
+X	    return (match);
+X    }
+X    return (NO);
+X}
+X
+X/* host_match - match host name and/or address against token */
+X
+Xstatic int host_match(tok, client)
+Xchar   *tok;
+Xstruct client_info *client;
+X{
+X    int     match;
+X
+X    /*
+X     * The KNOWN pattern requires that both name AND address match; all other
+X     * patterns are satisfied when either the name OR the address match.
+X     */
+X
+X    if (strcasecmp(tok, "KNOWN") == 0) {
+X	(match = string_match(tok, client->name))
+X	    && (match = string_match(tok, client->addr));
+X    } else {
+X	(match = string_match(tok, client->name))
+X	    || (match = string_match(tok, client->addr));
+X    }
+X    return (match);
+X}
+X
+X
+X/* client_match - match client information */
+X
+Xstatic int client_match(tok, item)
+Xchar   *tok;
+Xchar   *item;
+X{
+X    struct client_info *client = (struct client_info *) item;
+X    int     match = NO;
+X    char   *at;
+X    int     host_does_match;
+X    int     user_does_match;
+X
+X    /*
+X     * Perform username lookups when we see user_pat@host_pat, but only when
+X     * host_pat matches the remote host, and when no other attempt was done
+X     * to look up the username. Username lookup is possible only with TCP
+X     * clients.
+X     */
+X
+X    if ((at = strchr(tok + 1, '@')) == 0) {	/* host pattern */
+X	match = host_match(tok, client);
+X    } else {					/* user@host */
+X	*at = 0;
+X	if (host_does_match = host_match(at + 1, client)) {
+X	    if (client->user[0] == 0 && RFC931_POSSIBLE(client))
+X		client->user = rfc931(client->rmt_sin, client->our_sin);
+X	    user_does_match = string_match(tok, client->user);
+X	    if (user_does_match == NO || user_does_match == FAIL) {
+X		match = user_does_match;
+X	    } else {
+X		match = host_does_match;
+X	    }
+X	}
+X	*at = '@';
+X    }
+X    return (match);
+X}
+X
+X/* string_match - match string against token */
+X
+Xstatic int string_match(tok, string)
+Xchar   *tok;
+Xchar   *string;
+X{
+X    int     tok_len;
+X    int     str_len;
+X    char   *cut;
+X#ifdef	NETGROUP
+X    static char *mydomain = 0;
+X#endif
+X
+X    /*
+X     * Return YES if a token has the magic value "ALL". Return FAIL if the
+X     * token is "FAIL". If the token starts with a "." (domain name), return
+X     * YES if it matches the last fields of the string. If the token has the
+X     * magic value "LOCAL", return YES if the string does not contain a "."
+X     * character. If the token ends on a "." (network number), return YES if
+X     * it matches the first fields of the string. If the token begins with a
+X     * "@" (netgroup name), return YES if the string is a (host) member of
+X     * the netgroup. Return YES if the token is "KNOWN" and if the string is
+X     * not empty or equal to FROM_UNKNOWN. Return YES if the token fully
+X     * matches the string. If the token is a netnumber/netmask pair, return
+X     * YES if the address is a member of the specified subnet.
+X     */
+X
+X    if (string[0] == 0)				/* no info implies unknown */
+X	string = FROM_UNKNOWN;
+X
+X    if (tok[0] == '.') {			/* domain: match last fields */
+X	if ((str_len = strlen(string)) > (tok_len = strlen(tok))
+X	    && strcasecmp(tok, string + str_len - tok_len) == 0)
+X	    return (YES);
+X    } else if (tok[0] == '@') {			/* netgroup: look it up */
+X#ifdef	NETGROUP
+X	if (mydomain == 0)
+X	    yp_get_default_domain(&mydomain);
+X	if (!isdigit(string[0])
+X	    && innetgr(tok + 1, string, (char *) 0, mydomain))
+X	    return (YES);
+X#else
+X	syslog(LOG_ERR, "error: %s, line %d: netgroup support is not configured",
+X	       hosts_access_file, hosts_access_line);
+X	return (NO);
+X#endif
+X    } else if (strcasecmp(tok, "ALL") == 0) {	/* all: match any */
+X	return (YES);
+X    } else if (strcasecmp(tok, "FAIL") == 0) {	/* fail: match any */
+X	return (FAIL);
+X    } else if (strcasecmp(tok, "LOCAL") == 0) {	/* local: no dots */
+X	if (strchr(string, '.') == 0 && strcasecmp(string, FROM_UNKNOWN) != 0)
+X	    return (YES);
+X    } else if (strcasecmp(tok, "KNOWN") == 0) {	/* not empty or unknown */
+X	if (strcasecmp(string, FROM_UNKNOWN) != 0)
+X	    return (YES);
+X    } else if (!strcasecmp(tok, string)) {	/* match host name or address */
+X	return (YES);
+X    } else if (tok[(tok_len = strlen(tok)) - 1] == '.') {	/* network */
+X	if (strncmp(tok, string, tok_len) == 0)
+X	    return (YES);
+X    } else if ((cut = strchr(tok, '/')) != 0) {	/* netnumber/netmask */
+X	if (isdigit(string[0]) && masked_match(tok, cut, string))
+X	    return (YES);
+X    }
+X    return (NO);
+X}
+X
+X/* is_dotted_quad - determine if string looks like dotted quad */
+X
+Xstatic int is_dotted_quad(str)
+Xchar   *str;
+X{
+X    int     in_run = 0;
+X    int     runs = 0;
+X
+X    /* Count the number of runs of characters between the dots. */
+X
+X    while (*str) {
+X	if (*str == '.') {
+X	    in_run = 0;
+X	} else if (in_run == 0) {
+X	    in_run = 1;
+X	    runs++;
+X	}
+X	str++;
+X    }
+X    return (runs == 4);
+X}
+X
+X/* masked_match - match address against netnumber/netmask */
+X
+Xstatic int masked_match(tok, slash, string)
+Xchar   *tok;
+Xchar   *slash;
+Xchar   *string;
+X{
+X    unsigned long net;
+X    unsigned long mask;
+X    unsigned long addr;
+X
+X    /*
+X     * Disallow forms other than dotted quad: the treatment that inet_addr()
+X     * gives to (<4)-quad forms is not consistent with the access control
+X     * language. John P. Rouillard <rouilj@cs.umb.edu>.
+X     */
+X
+X#define DOT_QUAD_ADDR(s) (is_dotted_quad(s) ? inet_addr(s) : INADDR_NONE)
+X
+X    if ((addr = DOT_QUAD_ADDR(string)) == INADDR_NONE)
+X	return (NO);
+X    *slash = 0;
+X    net = DOT_QUAD_ADDR(tok);
+X    *slash = '/';
+X    if (net == INADDR_NONE || (mask = DOT_QUAD_ADDR(slash + 1)) == INADDR_NONE) {
+X	syslog(LOG_ERR, "error: %s, line %d: bad net/mask access control: %s",
+X	       hosts_access_file, hosts_access_line, tok);
+X	return (NO);
+X    }
+X    return (((addr & mask) == net) ? YES : NO);
+X}
+X
+X/* xfopen - open file and set context for diagnostics */
+X
+Xstatic FILE *xfopen(path, mode)
+Xchar   *path;
+Xchar   *mode;
+X{
+X    FILE   *fp;
+X
+X    if ((fp = fopen(path, mode)) != 0) {
+X	hosts_access_file = path;
+X	hosts_access_line = 0;
+X    }
+X    return (fp);
+X}
+X
+X/* xgets - fgets() with backslash-newline stripping */
+X
+Xstatic char *xgets(buf, len, fp)
+Xchar   *buf;
+Xint     len;
+XFILE   *fp;
+X{
+X    int     got;
+X    char   *start = buf;
+X
+X    for (;;) {
+X	if (fgets(buf, len, fp) == 0)
+X	    return (buf > start ? start : 0);
+X	got = strlen(buf);
+X	if (got >= 1 && buf[got - 1] == '\n')
+X	    hosts_access_line++;		/* XXX */
+X	if (got >= 2 && buf[got - 2] == '\\' && buf[got - 1] == '\n') {
+X	    got -= 2;
+X	    buf += got;
+X	    len -= got;
+X	    buf[0] = 0;
+X	} else {
+X	    return (start);
+X	}
+X    }
+X}
+END_OF_hosts_access.c
+if test 13236 -ne `wc -c <hosts_access.c`; then
+    echo shar: \"hosts_access.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f hosts_options.5 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"hosts_options.5\"
+else
+echo shar: Extracting \"hosts_options.5\" \(5298 characters\)
+sed "s/^X//" >hosts_options.5 <<'END_OF_hosts_options.5'
+X.TH HOSTS_OPTIONS 5
+X.SH NAME
+Xhosts_options \- host access control language extensions
+X.SH DESCRIPTION
+XThis document describes optional extensions to the language described
+Xin the hosts_access(5) document. The extensions are enabled at program
+Xbuild time by editing the Makefile.
+X.PP
+XThe extensible language uses the following format:
+X.sp
+X.ti +3
+Xdaemon_list : client_list : option : option ...
+X.PP
+XThe first two fields are described in the hosts_access(5) manual page.
+XThe remainder of the rules is a list of zero or more options.  Any ":"
+Xcharacters within options should be protected with a backslash.
+X.PP
+XAn option is of the form "keyword" or "keyword = value". Options are
+Xprocessed in the specified order. With some options, the value is
+Xsubjected to %<character> substitutions. 
+X.SH OPTIONS
+X.IP "severity = mail.info"
+XChange the severity level at which the event will be logged. Facility
+Xnames (such as mail) are optional, and are not supported on systems
+Xwith older syslog implementations. This option is useful to emphasize
+Xor to completely ignore specific events.
+X.IP "allow (deny)"
+XGrant (deny) service, even when the matched rule was found in the
+X\fIhosts.deny (hosts.allow)\fR file. These options must appear at the
+Xend of a rule.
+X.PP
+XWith the \fIallow\fR and \fIdeny\fR keywords it is possible to keep all
+Xaccess control rules within a single file, for example in the
+X\fIhosts.allow\fR file. For example,
+X.sp
+X.ne 2
+X.ti +3
+XALL: .friendly.domain: allow
+X.ti +3
+XALL: ALL: deny
+X.sp
+Xpermits access from specific hosts only. On the other hand,
+X.sp
+X.ne 2
+X.ti +3
+XALL: .trouble.makers: deny
+X.ti +3
+XALL: ALL: allow
+X.sp
+Xpermits access from all hosts except a few trouble makers.
+X.IP "twist = shell_command"
+XReplace the current process by an instance of the specified shell
+Xcommand, after performing the %<character> expansions described in the
+Xhosts_access(5) manual page.  Stdin, stdout and stderr are connected to
+Xthe remote client process. This option must appear at the end of a rule.
+X.sp
+X.nf
+X.ti +3
+Xin.ftpd : clients : twist = /bin/echo 421 Some bounce message
+X.fi
+X.sp
+Xsends a customized bounce message to the remote client instead of
+Xrunning the real ftp daemon.
+X.sp
+X.nf
+X.ti +3
+Xin.telnetd : clients : twist = PATH=/some/other; exec in.telnetd
+X.fi
+X.sp
+Xwould run /some/other/in.telnetd without polluting its command-line
+Xarray or its process environment.
+X.sp
+XWarning:  in case of UDP services, do not twist into commands that use
+Xthe standard I/O or the read(2)/write(2) routines to communicate with
+Xthe client process; UDP requires other I/O primitives.
+X.IP "spawn = shell_command"
+XExecute the shell command in a child process, after performing the
+X%<character> expansions described in the hosts_access(5) manual page.
+XThe command is executed with stdin, stdout and stderr connected to the
+Xnull device, so that it won\'t mess up the conversation with the remote
+Xhost. Example:
+X.sp
+X.nf
+X.ti +3
+Xspawn = (/some/where/safe_finger -l @%h | /usr/ucb/mail root) &
+X.fi
+X.sp
+Xexecutes, in a background child process, the shell command "safe_finger
+X-l @%h | mail root" after replacing %h by the name or address of the
+Xremote host.
+X.sp
+XThe example uses the "safe_finger" command instead of the regular
+X"finger" command, to limit possible damage from data sent by the finger
+Xserver. The "safe_finger" command is part of the daemon wrapper
+Xpackage; it is a wrapper around the regular finger command that filters
+Xthe data sent by the remote host.
+X.IP "umask = 022"
+XLike the umask command that is built into the shell. An umask of 022
+Xprevents the creation of files with group and world write permission.
+XThe umask argument should be an octal number.
+X.IP "linger = number_of_seconds"
+XSpecifies how long the kernel will try to deliver not-yet delivered
+Xdata after the server process terminates. 
+X.IP "user = nobody"
+XAssume the privileges of the "nobody" account. This is useful with
+Xinetd implementations that run all services with root privilege. It is
+Xgood practice to run services such as "finger" at a reduced privilege
+Xlevel.
+X.IP "group = tty"
+XAssume the privileges of the "tty" group. This is useful mostly in
+Xcombination with the "user" option.  In order to switch both user and
+Xgroup ids, switch group id before switching user id.
+X.IP "setenv = name value"
+XPlace a (name, value) pair into the process environment. The value is
+Xsubjected to %<character> expansions and may contain whitespace (but
+Xleading and trailing blanks are stripped off).
+X.sp
+XWarning: many network daemons reset their environment before spawning a
+Xlogin or shell process.
+X.IP rfc931
+XLook up the remote user name with the RFC 931 protocol.  This option is
+Xsilently ignored in case of services based on transports other than
+XTCP.  Requires that the remote system runs an RFC 931-compliant daemon,
+Xand may cause noticeable delays with connections from non-UNIX hosts.
+X.SH DIAGNOSTICS
+XAn error is reported when a syntax error is found in a host access
+Xcontrol rule; further options will be ignored, and service is denied.
+X.SH SEE ALSO
+Xhosts_access(5), the default access control language
+X.SH AUTHOR
+X.na
+X.nf
+XWietse Venema (wietse@wzv.win.tue.nl)
+XDepartment of Mathematics and Computing Science
+XEindhoven University of Technology
+XDen Dolech 2, P.O. Box 513, 5600 MB Eindhoven, The Netherlands
+X\" @(#) hosts_options.5 1.7 93/09/27 23:42:15
+END_OF_hosts_options.5
+if test 5298 -ne `wc -c <hosts_options.5`; then
+    echo shar: \"hosts_options.5\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f patchlevel.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"patchlevel.h\"
+else
+echo shar: Extracting \"patchlevel.h\" \(70 characters\)
+sed "s/^X//" >patchlevel.h <<'END_OF_patchlevel.h'
+X#ifndef lint
+Xstatic char patchlevel[] = "@(#) patchlevel 6.0";
+X#endif
+END_OF_patchlevel.h
+if test 70 -ne `wc -c <patchlevel.h`; then
+    echo shar: \"patchlevel.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

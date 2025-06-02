@@ -1,0 +1,1982 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i050:  imagemagick - X11 image processing and display v2.2, Part22/26
+Message-ID: <1992Dec15.035815.22938@sparky.imd.sterling.com>
+X-Md4-Signature: 53d648fcb196c409bfbafa46ed01d323
+Date: Tue, 15 Dec 1992 03:58:15 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 50
+Archive-name: imagemagick/part22
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.22 (part 22 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/alien.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 22; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/alien.c'
+else
+echo 'x - continuing file ImageMagick/alien.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/alien.c' &&
+X              q->length=0;
+X              q++;
+X            }
+X            p++;
+X          }
+X        if ((((image->columns/8)+(image->columns % 8 ? 1 : 0)) % 2) != 0)
+X          p++;
+X      }
+X    else
+X      if (image->class == PseudoClass)
+X        for (y=0; y < image->rows; y++)
+X        {
+X          /*
+X            Convert PseudoColor scanline to runlength-encoded color packets.
+X          */
+X          for (x=0; x < image->columns; x++)
+X          {
+X            index=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            q++;
+X          }
+X          if ((image->columns % 2) != 0)
+X            p++;
+X        }
+X      else
+X        for (y=0; y < image->rows; y++)
+X        {
+X          /*
+X            Convert DirectColor scanline to runlength-encoded color packets.
+X          */
+X          for (x=0; x < image->columns; x++)
+X          {
+X            q->index=(unsigned short) (image->alpha ? (*p++) : 0);
+X            if (sun_header.type == RT_STANDARD)
+X              {
+X                q->blue=(*p++);
+X                q->green=(*p++);
+X                q->red=(*p++);
+X              }
+X            else
+X              {
+X                q->red=(*p++);
+X                q->green=(*p++);
+X                q->blue=(*p++);
+X              }
+X            if (image->colors > 0)
+X              {
+X                q->red=image->colormap[q->red].red;
+X                q->green=image->colormap[q->green].green;
+X                q->blue=image->colormap[q->blue].blue;
+X              }
+X            q->length=0;
+X            q++;
+X          }
+X          if (((image->columns % 2) != 0) && (image->alpha == False))
+X            p++;
+X        }
+X    (void) free((char *) sun_pixels);
+X    if (image->class == PseudoClass)
+X      CompressColormap(image);
+X    /*
+X      Proceed to next image.
+X    */
+X    status=ReadData((char *) &sun_header,1,sizeof(Rasterfile),image->file);
+X    if (status == True)
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("SUN");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u\0",alien_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->last=image;
+X        image=image->next;
+X      }
+X  } while (status == True);
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  CloseImage(image);
+X  return(image);
+}
+X
+#ifdef AlienTIFF
+#include "tiff.h"
+#include "tiffio.h"
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d T I F F I m a g e                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadTIFFImage reads an image file and returns it.  It allocates the
+%  memory necessary for the new Image structure and returns a pointer to the
+%  new image.
+%
+%  The format of the ReadTIFFImage routine is:
+%
+%      image=ReadTIFFImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadTIFFImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadTIFFImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    range;
+X
+X  register int
+X    i,
+X    quantum,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  TIFF
+X    *tiff;
+X
+X  unsigned int
+X    status;
+X
+X  unsigned long
+X    height,
+X    width;
+X
+X  unsigned short
+X    bits_per_sample,
+X    max_sample_value,
+X    min_sample_value,
+X    photometric,
+X    samples_per_pixel;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("TIFF");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open TIFF image tiff.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  tiff=TIFFOpen(image->filename,"r");
+X  if (tiff == (TIFF *) NULL)
+X    {
+X      Warning("unable to open tiff image",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  do
+X  {
+X    if (alien_info->verbose)
+X      TIFFPrintDirectory(tiff,stderr,False);
+X    /*
+X      Allocate memory for the image and pixel buffer.
+X    */
+X    TIFFGetField(tiff,TIFFTAG_IMAGEWIDTH,&width);
+X    TIFFGetField(tiff,TIFFTAG_IMAGELENGTH,&height);
+X    for (quantum=1; quantum <= 16; quantum<<=1)
+X    {
+X      image->columns=width/quantum;
+X      image->rows=height/quantum;
+X      image->packets=image->columns*image->rows;
+X      image->pixels=(RunlengthPacket *)
+X        malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X      if ((image->pixels != (RunlengthPacket *) NULL))
+X        break;
+X    }
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("unable to allocate memory",(char *) NULL);
+X        DestroyImages(image);
+X        TIFFClose(tiff);
+X        return((Image *) NULL);
+X      }
+X    (void) sprintf(image->comments,"\n  Imported from TIFF image %s.\n\0",
+X      image->filename);
+X    TIFFGetFieldDefaulted(tiff,TIFFTAG_BITSPERSAMPLE,&bits_per_sample);
+X    TIFFGetFieldDefaulted(tiff,TIFFTAG_MINSAMPLEVALUE,&min_sample_value);
+X    TIFFGetFieldDefaulted(tiff,TIFFTAG_MAXSAMPLEVALUE,&max_sample_value);
+X    TIFFGetFieldDefaulted(tiff,TIFFTAG_PHOTOMETRIC,&photometric);
+X    TIFFGetFieldDefaulted(tiff,TIFFTAG_SAMPLESPERPIXEL,&samples_per_pixel);
+X    range=max_sample_value-min_sample_value;
+X    if ((bits_per_sample > 8) || (samples_per_pixel > 1) || TIFFIsTiled(tiff))
+X      {
+X        register unsigned long
+X          *p,
+X          *pixels;
+X
+X        /*
+X          Convert TIFF image to DirectClass MIFF image.
+X        */
+X        image->alpha=samples_per_pixel > 3;
+X        pixels=(unsigned long *)
+X          malloc(image->columns*image->rows*sizeof(unsigned long));
+X        if (pixels == (unsigned long *) NULL)
+X          {
+X            Warning("unable to allocate memory",(char *) NULL);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        if (quantum > 1)
+X          Warning("not enough memory","cropping required");
+X        status=TIFFReadRGBAImage(tiff,image->columns,image->rows,pixels,0);
+X        if (status == False)
+X          {
+X            Warning("unable to read TIFF image",(char *) NULL);
+X            (void) free((char *) pixels);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        /*
+X          Convert image to DirectClass runlength-encoded packets.
+X        */
+X        q=image->pixels;
+X        for (y=image->rows-1; y >= 0; y--)
+X        {
+X          p=pixels+y*image->columns;
+X          for (x=0; x < image->columns; x++)
+X          {
+X            q->red=TIFFGetR(*p);
+X            q->green=TIFFGetG(*p);
+X            q->blue=TIFFGetB(*p);
+X            q->index=(unsigned short) (image->alpha ? TIFFGetA(*p) : 0);
+X            q->length=0;
+X            p++;
+X            q++;
+X          }
+X        }
+X        (void) free((char *) pixels);
+X        if (samples_per_pixel == 1)
+X          QuantizeImage(image,(unsigned int) range,8,False,RGBColorspace,True);
+X      }
+X    else
+X      {
+X        unsigned char
+X          *p,
+X          *scanline;
+X
+X        /*
+X          Convert TIFF image to PseudoClass MIFF image.
+X        */
+X        image->class=PseudoClass;
+X        image->colors=range+1;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        scanline=(unsigned char *) malloc(TIFFScanlineSize(tiff));
+X        if ((image->colormap == (ColorPacket *) NULL) ||
+X            (scanline == (unsigned char *) NULL))
+X          {
+X            Warning("unable to allocate memory",(char *) NULL);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        /*
+X          Create colormap.
+X        */
+X        switch (photometric)
+X        {
+X          case PHOTOMETRIC_MINISBLACK:
+X          {
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=(MaxRGB*i)/range;
+X              image->colormap[i].green=(MaxRGB*i)/range;
+X              image->colormap[i].blue=(MaxRGB*i)/range;
+X            }
+X            break;
+X          }
+X          case PHOTOMETRIC_MINISWHITE:
+X          {
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=((range-i)*MaxRGB)/range;
+X              image->colormap[i].green=((range-i)*MaxRGB)/range;
+X              image->colormap[i].blue=((range-i)*MaxRGB)/range;
+X            }
+X            break;
+X          }
+X          case PHOTOMETRIC_PALETTE:
+X          {
+X            unsigned short
+X              *blue_colormap,
+X              *green_colormap,
+X              *red_colormap;
+X
+X            TIFFGetField(tiff,TIFFTAG_COLORMAP,&red_colormap,&green_colormap,
+X              &blue_colormap);
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=((int) red_colormap[i]*MaxRGB)/65535;
+X              image->colormap[i].green=((int) green_colormap[i]*MaxRGB)/65535;
+X              image->colormap[i].blue=((int) blue_colormap[i]*MaxRGB)/65535;
+X            }
+X            break;
+X          }
+X          default:
+X            break;
+X        }
+X        /*
+X          Convert image to PseudoClass runlength-encoded packets.
+X        */
+X        if (quantum > 1)
+X          Warning("not enough memory","subsampling required");
+X        q=image->pixels;
+X        for (y=0; y < image->rows; y++)
+X        {
+X          for (i=0; i < quantum; i++)
+X            TIFFReadScanline(tiff,scanline,y*quantum+i,0);
+X          p=scanline;
+X          switch (photometric)
+X          {
+X            case PHOTOMETRIC_MINISBLACK:
+X            case PHOTOMETRIC_MINISWHITE:
+X            {
+X              switch (bits_per_sample)
+X              {
+X                case 1:
+X                {
+X                  register int
+X                    bit;
+X
+X                  for (x=0; x < (image->columns-7); x+=8)
+X                  {
+X                    for (bit=7; bit >= 0; bit--)
+X                    {
+X                      q->index=((*p) & (0x01 << bit) ? 0x01 : 0x00);
+X                      q->red=image->colormap[q->index].red;
+X                      q->green=image->colormap[q->index].green;
+X                      q->blue=image->colormap[q->index].blue;
+X                      q->length=0;
+X                      q++;
+X                    }
+X                    p+=quantum;
+X                  }
+X                  if ((image->columns % 8) != 0)
+X                    {
+X                      for (bit=7; bit >= (8-(image->columns % 8)); bit--)
+X                      {
+X                        q->index=((*p) & (0x01 << bit) ? 0x00 : 0x01);
+X                        q->red=image->colormap[q->index].red;
+X                        q->green=image->colormap[q->index].green;
+X                        q->blue=image->colormap[q->index].blue;
+X                        q->length=0;
+X                        q++;
+X                      }
+X                      p+=quantum;
+X                    }
+X                  break;
+X                }
+X                case 2:
+X                {
+X                  for (x=0; x < image->columns; x+=4)
+X                  {
+X                    q->index=(*p >> 6) & 0x3;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p >> 4) & 0x3;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p >> 2) & 0x3;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p) & 0x3;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  break;
+X                }
+X                case 4:
+X                {
+X                  for (x=0; x < image->columns; x+=2)
+X                  {
+X                    q->index=(*p >> 4) & 0xf;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p) & 0xf;
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  break;
+X                }
+X                case 8:
+X                {
+X                  for (x=0; x < image->columns; x++)
+X                  {
+X                    q->index=(*p);
+X                    q->red=image->colormap[q->index].red;
+X                    q->green=image->colormap[q->index].green;
+X                    q->blue=image->colormap[q->index].blue;
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  break;
+X                }
+X                default:
+X                  break;
+X              }
+X              break;
+X            }
+X            case PHOTOMETRIC_PALETTE:
+X            {
+X              for (x=0; x < image->columns; x++)
+X              {
+X                q->index=(*p);
+X                q->red=image->colormap[q->index].red;
+X                q->green=image->colormap[q->index].green;
+X                q->blue=image->colormap[q->index].blue;
+X                q->length=0;
+X                q++;
+X                p+=quantum;
+X              }
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        }
+X        (void) free((char *) scanline);
+X        CompressColormap(image);
+X      }
+X    /*
+X      Proceed to next image.
+X    */
+X    status=TIFFReadDirectory(tiff);
+X    if (status == True)
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("TIFF");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u\0",alien_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->last=image;
+X        image=image->next;
+X      }
+X  } while (status == True);
+X  TIFFClose(tiff);
+X  while (image->last != (Image *) NULL)
+X    image=image->last;
+X  return(image);
+}
+#else
+static Image *ReadTIFFImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Warning("TIFF library is not available",alien_info->filename);
+X  return(ReadImage(alien_info->filename));
+}
+#endif
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d Y U V I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadYUVImage reads an image file and returns it.  It allocates the
+%  memory necessary for the new Image structure and returns a pointer to the
+%  new image.  U and V, normally -0.5 through 0.5, are expected to be
+%  normalized to the range 0 through 255 fit withing a byte.
+%
+%  The format of the ReadYUVImage routine is:
+%
+%      image=ReadYUVImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadYUVImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadYUVImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  Image
+X    *image;
+X
+X  int
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *rgb_pixels;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("YUV");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  width=512;
+X  height=512;
+X  if (alien_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(alien_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  rgb_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*3*sizeof(unsigned char));
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if ((rgb_pixels == (unsigned char *) NULL) ||
+X      (image->pixels == (RunlengthPacket *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert raster image to runlength-encoded packets.
+X  */
+X  (void) ReadData((char *) rgb_pixels,3,(int) (image->columns*image->rows),
+X    image->file);
+X  p=rgb_pixels;
+X  q=image->pixels;
+X  for (i=0; i < (image->columns*image->rows); i++)
+X  {
+X    q->red=(*p++);
+X    q->green=(*p++);
+X    q->blue=(*p++);
+X    q->index=0;
+X    q->length=0;
+X    q++;
+X  }
+X  (void) free((char *) rgb_pixels);
+X  TransformRGBImage(image,YUVColorspace);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d X B M I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadXBMImage reads an image file and returns it.  It allocates the
+%  memory necessary for the new Image structure and returns a pointer to the
+%  new image.
+%
+%  The format of the ReadXBMImage routine is:
+%
+%      image=ReadXBMImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadXBMImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadXBMImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+X  char
+X    data[2048];
+X
+X  Image
+X    *image;
+X
+X  register int
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    bit;
+X
+X  unsigned int
+X    byte;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("XBM");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read X bitmap header.
+X  */
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"#define %*32s %u",&image->columns) == 1)
+X      break;
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"#define %*32s %u",&image->rows) == 1)
+X      break;
+X  if ((image->columns == 0) || (image->rows == 0))
+X    {
+X      Warning("XBM file is not in the correct format",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"%*[^#] char"))
+X      break;
+X  if (feof(image->file))
+X    {
+X      Warning("XBM file is not in the correct format",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create colormap.
+X  */
+X  image->class=PseudoClass;
+X  image->colors=2;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  image->colormap[0].red=0;
+X  image->colormap[0].green=0;
+X  image->colormap[0].blue=0;
+X  image->colormap[1].red=255;
+X  image->colormap[1].green=255;
+X  image->colormap[1].blue=255;
+X  /*
+X    Initial image comment.
+X  */
+X  image->comments=(char *) malloc((strlen(image->filename)+2048)*sizeof(char));
+X  if (image->comments == (char *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from X11 bitmap file:  %s\n\0",
+X    image->filename);
+X  /*
+X    Convert X bitmap image to runlength-encoded packets.
+X  */
+X  p=image->pixels;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    bit=0;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (bit == 0)
+X        (void) fscanf(image->file,"%i,",&byte);
+X      p->index=(byte & 0x01) ? 0 : 1;
+X      byte>>=1;
+X      p->red=image->colormap[p->index].red;
+X      p->green=image->colormap[p->index].green;
+X      p->blue=image->colormap[p->index].blue;
+X      p->length=0;
+X      p++;
+X      bit++;
+X      if (bit == 8)
+X        bit=0;
+X    }
+X  }
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e a d V I C A R I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadVICARImage reads an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new image.
+%
+%  The format of the ReadVICARImage routine is:
+%
+%      image=ReadVICARImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image: Function ReadVICARImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or if
+%      the image cannot be read.
+%
+%    o filename: Specifies the name of the image to read.
+%
+%
+*/
+static Image *ReadVICARImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+#define MaxKeywordLength  2048
+X
+X  char
+X    keyword[MaxKeywordLength],
+X    value[MaxKeywordLength];
+X
+X  Image
+X    *image;
+X
+X  long int
+X    count;
+X
+X  register int
+X    c,
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *vicar_pixels;
+X
+X  unsigned int
+X    header_length,
+X    status,
+X    value_expected;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("VICAR");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Decode image header.
+X  */
+X  c=fgetc(image->file);
+X  count=1;
+X  if (c == EOF)
+X    {
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  while (isgraph(c) && ((image->columns*image->rows) == 0))
+X  {
+X    register char
+X      *p;
+X
+X    if (!isalnum(c))
+X      {
+X        c=fgetc(image->file);
+X        count++;
+X      }
+X    else
+X      {
+X        /*
+X          Determine a keyword and its value.
+X        */
+X        p=keyword;
+X        do
+X        {
+X          if ((p-keyword) < (MaxKeywordLength-1))
+X            *p++=(char) c;
+X          c=fgetc(image->file);
+X          count++;
+X        } while (isalnum(c) || (c == '_'));
+X        *p='\0';
+X        value_expected=False;
+X        while (isspace(c) || (c == '='))
+X        {
+X          if (c == '=')
+X            value_expected=True;
+X          c=fgetc(image->file);
+X          count++;
+X        }
+X        if (value_expected == False)
+X          continue;
+X        p=value;
+X        while (isalnum(c))
+X        {
+X          if ((p-value) < (MaxKeywordLength-1))
+X            *p++=(char) c;
+X          c=fgetc(image->file);
+X          count++;
+X        }
+X        *p='\0';
+X        /*
+X          Assign a value to the specified keyword.
+X        */
+X        if (strcmp(keyword,"LABEL_RECORDS") == 0)
+X          header_length=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"LBLSIZE") == 0)
+X          header_length=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"RECORD_BYTES") == 0)
+X          image->columns=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"NS") == 0)
+X          image->columns=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"LINES") == 0)
+X          image->rows=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"NL") == 0)
+X          image->rows=(unsigned int) atoi(value);
+X      }
+X    while (isspace(c))
+X    {
+X      c=fgetc(image->file);
+X      count++;
+X    }
+X  }
+X  /*
+X    Read the rest of the header.
+X  */
+X  while (count < header_length)
+X  {
+X    c=fgetc(image->file);
+X    count++;
+X  }
+X  /*
+X    Verify that required image information is defined.
+X  */
+X  if ((image->columns*image->rows) == 0)
+X    {
+X      Warning("incorrect image header in file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create linear colormap.
+X  */
+X  image->class=PseudoClass;
+X  image->colors=256;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  for (i=0; i < image->colors; i++)
+X  {
+X    image->colormap[i].red=(unsigned char) i;
+X    image->colormap[i].green=(unsigned char) i;
+X    image->colormap[i].blue=(unsigned char) i;
+X  }
+X  /*
+X    Create image.
+X  */
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  image->comments=(char *)
+X    malloc((strlen(image->filename)+2048)*sizeof(char));
+X  vicar_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*sizeof(unsigned char));
+X  if ((image->pixels == (RunlengthPacket *) NULL) ||
+X      (image->comments == (char *) NULL) ||
+X      (vicar_pixels == (unsigned char *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from VICAR image:  %s\n",
+X    image->filename);
+X  /*
+X    Convert vicar pixels to runlength-encoded packets.
+X  */
+X  status=ReadData((char *) vicar_pixels,1,(int) image->packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("insufficient image data in file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert vicar pixels to runlength-encoded packets.
+X  */
+X  p=vicar_pixels;
+X  q=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    q->red=(*p);
+X    q->green=(*p);
+X    q->blue=(*p);
+X    q->index=(unsigned short) *p;
+X    q->length=0;
+X    p++;
+X    q++;
+X  }
+X  (void) free((char *) vicar_pixels);
+X  CompressColormap(image);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d X W D I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadXWDImage reads an image file and returns it.  It allocates the
+%  memory necessary for the new Image structure and returns a pointer to the
+%  new image.
+%
+%  The format of the ReadXWDImage routine is:
+%
+%      image=ReadXWDImage(alien_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadXWDImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o alien_info: Specifies a pointer to an AlienInfo structure.
+%
+%
+*/
+static Image *ReadXWDImage(alien_info)
+AlienInfo
+X  *alien_info;
+{
+#include "XWDFile.h"
+X
+X  char
+X    *window_name;
+X
+X  Display
+X    display;
+X
+X  Image
+X    *image;
+X
+X  int
+X    status,
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned long
+X    pixel;
+X
+X  unsigned long int
+X    lsb_first,
+X    packets;
+X
+X  ScreenFormat
+X    screen_format;
+X
+X  XColor
+X    *colors;
+X
+X  XImage
+X    *ximage;
+X
+X  XWDFileHeader
+X    header;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("XWD");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,alien_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X     Read in header information.
+X  */
+X  status=ReadData((char *) &header,sizeof(header),1,image->file);
+X  if (status == False)
+X    {
+X      Warning("Unable to read dump file header",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Ensure the header byte-order is most-significant byte first.
+X  */
+X  lsb_first=1;
+X  if (*(char *) &lsb_first)
+X    MSBFirstOrderLong((char *) &header,sizeof(header));
+X  /*
+X    Check to see if the dump file is in the proper format.
+X  */
+X  if (header.file_version != XWD_FILE_VERSION)
+X    {
+X      Warning("XWD file format version mismatch",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  if (header.header_size < sizeof(header))
+X    {
+X      Warning("XWD header size is too small",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  packets=(header.header_size-sizeof(header));
+X  window_name=(char *) malloc((unsigned int) packets*sizeof(char));
+X  if (window_name == (char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  status=ReadData((char *) window_name,1,(int) packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("unable to read window name from dump file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize the X image.
+X  */
+X  display.byte_order=header.byte_order;
+X  display.bitmap_unit=header.bitmap_unit;
+X  display.bitmap_bit_order=header.bitmap_bit_order;
+X  display.pixmap_format=(&screen_format);
+X  display.nformats=1;
+X  screen_format.depth=header.pixmap_depth;
+X  screen_format.bits_per_pixel=(int) header.bits_per_pixel;
+X  ximage=XCreateImage(&display,(Visual *) NULL,
+X    (unsigned int) header.pixmap_depth,(int) header.pixmap_format,
+X    (int) header.xoffset,(char *) NULL,(unsigned int) header.pixmap_width,
+X    (unsigned int) header.pixmap_height,(int) header.bitmap_pad,
+X    (int) header.bytes_per_line);
+X  ximage->red_mask=header.red_mask;
+X  ximage->green_mask=header.green_mask;
+X  ximage->blue_mask=header.blue_mask;
+X  /*
+X    Read colormap.
+X  */
+X  if (header.ncolors > 0)
+X    {
+X      colors=(XColor *) malloc((unsigned int) header.ncolors*sizeof(XColor));
+X      if (colors == (XColor *) NULL)
+X        {
+X          Warning("unable to allocate memory",(char *) NULL);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      status=ReadData((char *) colors,sizeof(XColor),(int) header.ncolors,
+X        image->file);
+X      if (status == False)
+X        {
+X          Warning("unable to read color map from dump file",image->filename);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      /*
+X        Ensure the header byte-order is most-significant byte first.
+X      */
+X      lsb_first=1;
+X      if (*(char *) &lsb_first)
+X        for (i=0; i < header.ncolors; i++)
+X        {
+X          MSBFirstOrderLong((char *) &colors[i].pixel,sizeof(unsigned long));
+X          MSBFirstOrderShort((char *) &colors[i].red,3*sizeof(unsigned short));
+X        }
+X    }
+X  /*
+X    Allocate the pixel buffer.
+X  */
+X  if (ximage->format == ZPixmap)
+X    packets=ximage->bytes_per_line*ximage->height;
+X  else
+X    packets=ximage->bytes_per_line*ximage->height*ximage->depth;
+X  ximage->data=(char *) malloc(packets*sizeof(unsigned char));
+X  if (ximage->data == (char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  status=ReadData(ximage->data,1,(int) packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("unable to read dump pixmap",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert image to MIFF format.
+X  */
+X  image->columns=ximage->width;
+X  image->rows=ximage->height;
+X  /*
+X    Initial image comment.
+X  */
+X  if ((ximage->red_mask > 0) || (ximage->green_mask > 0) ||
+X      (ximage->blue_mask > 0))
+X    image->class=DirectClass;
+X  else
+X    image->class=PseudoClass;
+X  image->colors=header.ncolors;
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  image->comments=(char *)
+X    malloc((strlen(image->filename)+2048)*sizeof(char));
+X  if ((image->pixels == (RunlengthPacket *) NULL) ||
+X      (image->comments == (char *) NULL))
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from X11 dump file:  %s\n\0",
+X    image->filename);
+X  p=image->pixels;
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      register unsigned long
+X        color;
+X
+X      unsigned long
+X        blue_mask,
+X        blue_shift,
+X        green_mask,
+X        green_shift,
+X        red_mask,
+X        red_shift;
+X
+X      /*
+X        Determine shift and mask for red, green, and blue.
+X      */
+X      red_mask=ximage->red_mask;
+X      red_shift=0;
+X      while ((red_mask & 0x01) == 0)
+X      {
+X        red_mask>>=1;
+X        red_shift++;
+X      }
+X      green_mask=ximage->green_mask;
+X      green_shift=0;
+X      while ((green_mask & 0x01) == 0)
+X      {
+X        green_mask>>=1;
+X        green_shift++;
+X      }
+X      blue_mask=ximage->blue_mask;
+X      blue_shift=0;
+X      while ((blue_mask & 0x01) == 0)
+X      {
+X        blue_mask>>=1;
+X        blue_shift++;
+X      }
+X      /*
+X        Convert X image to DirectClass packets.
+X      */
+X      if (image->colors > 0)
+X        for (y=0; y < image->rows; y++)
+X        {
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            p->index=(unsigned short) ((pixel >> red_shift) & red_mask);
+X            p->red=(unsigned char) (colors[p->index].red >> 8);
+X            p->index=(unsigned short) ((pixel >> green_shift) & green_mask);
+X            p->green=(unsigned char) (colors[p->index].green >> 8);
+X            p->index=(unsigned short) ((pixel >> blue_shift) & blue_mask);
+X            p->blue=(unsigned char) (colors[p->index].blue >> 8);
+X            p->index=0;
+X            p->length=0;
+X            p++;
+X          }
+X        }
+X      else
+X        for (y=0; y < image->rows; y++)
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            color=(pixel >> red_shift) & red_mask;
+X            p->red=(unsigned char)
+X              ((((unsigned long) color*65535)/red_mask) >> 8);
+X            color=(pixel >> green_shift) & green_mask;
+X            p->green=(unsigned char)
+X              ((((unsigned long) color*65535)/green_mask) >> 8);
+X            color=(pixel >> blue_shift) & blue_mask;
+X            p->blue=(unsigned char)
+X              ((((unsigned long) color*65535)/blue_mask) >> 8);
+X            p->index=0;
+X            p->length=0;
+X            p++;
+X          }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Convert X image to PseudoClass packets.
+X      */
+X      image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X      if (image->colormap == (ColorPacket *) NULL)
+X        {
+X          Warning("unable to allocate memory",(char *) NULL);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      for (i=0; i < image->colors; i++)
+X      {
+X        image->colormap[i].red=colors[i].red >> 8;
+X        image->colormap[i].green=colors[i].green >> 8;
+X        image->colormap[i].blue=colors[i].blue >> 8;
+X      }
+X      for (y=0; y < image->rows; y++)
+X        for (x=0; x < image->columns; x++)
+X        {
+X          pixel=XGetPixel(ximage,x,y);
+X          p->red=(unsigned char) (colors[pixel].red >> 8);
+X          p->green=(unsigned char) (colors[pixel].green >> 8);
+X          p->blue=(unsigned char) (colors[pixel].blue >> 8);
+X          p->index=(unsigned short) pixel;
+X          p->length=0;
+X          p++;
+X        }
+X      CompressColormap(image);
+X      break;
+X    }
+X  }
+X  /*
+X    Free image and colormap.
+X  */
+X  (void) free((char *) window_name);
+X  if (header.ncolors > 0)
+X    (void) free((char *) colors);
+X  XDestroyImage(ximage);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e A V S I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteAVSImage writes an image to a file on disk in AVS rasterfile
+%  format.
+%
+%  The format of the WriteAVSImage routine is:
+%
+%      status=WriteAVSImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteAVSImage(image)
+Image
+X  *image;
+{
+X  typedef struct Raster
+X  {
+X    int
+X      width,
+X      height;
+X  } Raster;
+X
+X  Raster
+X    header;
+X
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *avs_pixels;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Initialize raster file header.
+X  */
+X  header.width=image->columns;
+X  header.height=image->rows;
+X  avs_pixels=(unsigned char *)
+X    malloc(4*image->columns*image->rows*sizeof(unsigned char));
+X  if (avs_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  (void) fwrite((char *) &header,sizeof(header),1,image->file);
+X  p=image->pixels;
+X  q=avs_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= (int) p->length; j++)
+X    {
+X      *q++=(unsigned char) (image->alpha ? p->index : 0);
+X      *q++=p->red;
+X      *q++=p->green;
+X      *q++=p->blue;
+X    }
+X    p++;
+X  }
+X  (void) fwrite((char *) avs_pixels,sizeof(char),(int)
+X    (image->columns*image->rows*4),image->file);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e C M Y K I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteCMYKImage writes an image to a file on disk in red, green,
+%  blue rasterfile format.
+%
+%  The format of the WriteCMYKImage routine is:
+%
+%      status=WriteCMYKImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteCMYKImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    black,
+X    cyan,
+X    magenta,
+X    *pixels,
+X    yellow;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert MIFF to CMYK raster pixels.
+X  */
+X  pixels=(unsigned char *)
+X    malloc(4*image->columns*image->rows*sizeof(unsigned char));
+X  if (pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  q=pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X    {
+X      cyan=MaxRGB-p->red;
+X      magenta=MaxRGB-p->green;
+X      yellow=MaxRGB-p->blue;
+X      black=cyan;
+X      if (magenta < black)
+X        black=magenta;
+X      if (yellow < black)
+X        black=yellow;
+X      *q++=cyan-black;
+X      *q++=magenta-black;
+X      *q++=yellow-black;
+X      *q++=black;
+X    }
+X    p++;
+X  }
+X  (void) fwrite((char *) pixels,sizeof(unsigned char),
+X    (int) (4*image->columns*image->rows),image->file);
+X  (void) free((char *) pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e F A X I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure WriteFAXImage writes an image to a file on disk in 1 dimensional
+%  Huffman encoded format.
+%
+%  The format of the WriteFAXImage routine is:
+%
+%      status=WriteFAXImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteFAXImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteFAXImage(image)
+Image
+X  *image;
+{
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert MIFF to monochrome.
+X  */
+X  QuantizeImage(image,2,8,False,GRAYColorspace,True);
+X  (void) HuffmanEncodeImage(image);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e G I F I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteGIFImage writes an image to a file on disk in the GIF image
+%  format.
+%
+%  The format of the WriteGIFImage routine is:
+%
+%      status=WriteGIFImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteGIFImage(image)
+Image
+X  *image;
+{
+X  int
+X    status;
+X
+X  register int
+X    i;
+X
+X  unsigned char
+X    bits_per_pixel,
+X    buffer[10];
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    GIF colormap must be 256 entries or less.
+X  */
+X  if ((image->class == DirectClass) || (image->colors > 256))
+X    QuantizeImage(image,256,8,False,RGBColorspace,True);
+X  for (bits_per_pixel=1; bits_per_pixel < 8; bits_per_pixel++)
+X    if ((1 << bits_per_pixel) >= image->colors)
+X      break;
+X  /*
+X    Write GIF header.
+X  */
+X  (void) fwrite("GIF87a",1,6,image->file);
+X  buffer[0]=(unsigned char) (image->columns & 0xff);
+X  buffer[1]=(unsigned char) ((image->columns >> 8) & 0xff);
+X  buffer[2]=(unsigned char) (image->rows & 0xff);
+X  buffer[3]=(unsigned char) ((image->rows >> 8) & 0xff);
+X  buffer[4]=0x80;  /* global colormap */
+X  buffer[4]|=(bits_per_pixel-1) << 4;  /* color resolution */
+X  buffer[4]|=(bits_per_pixel-1);   /* size of global colormap */
+X  buffer[5]=0;  /* background color */
+X  buffer[6]=0;  /* aspect ratio */
+X  (void) fwrite((char *) buffer,1,7,image->file);
+X  /*
+X    Write colormap.
+X  */
+X  for (i=0; i < image->colors; i++)
+X  {
+X    (void) fwrite((char *) &image->colormap[i].red,1,1,image->file);
+X    (void) fwrite((char *) &image->colormap[i].green,1,1,image->file);
+X    (void) fwrite((char *) &image->colormap[i].blue,1,1,image->file);
+X  }
+X  buffer[0]=0;
+X  buffer[1]=0;
+X  buffer[2]=0;
+X  for ( ; i < (int) (1 << bits_per_pixel); i++)
+X    (void) fwrite((char *) buffer,1,3,image->file);
+X  (void) fwrite(",",1,1,image->file);  /* separator */
+X  /*
+X    Write the image header.
+X  */
+X  buffer[0]=0;  /* left/top */
+X  buffer[1]=0;
+X  buffer[2]=0;
+X  buffer[3]=0;
+X  buffer[4]=(unsigned char) (image->columns & 0xff);
+X  buffer[5]=(unsigned char) ((image->columns >> 8) & 0xff);
+X  buffer[6]=(unsigned char) (image->rows & 0xff);
+X  buffer[7]=(unsigned char) ((image->rows >> 8) & 0xff);
+X  buffer[8]=0;  /* no interlace */
+X  buffer[9]=Max(bits_per_pixel,2);
+X  (void) fwrite((char *) buffer,1,10,image->file);
+X  status=LZWEncodeImage(image,Max(bits_per_pixel,2)+1);
+X  if (status == False)
+X    {
+X      Warning("unable to write image","memory allocation failed");
+X      DestroyImage(image);
+X      return(False);
+X    }
+X  buffer[0]=0;
+X  (void) fwrite((char *) buffer,1,1,image->file);  /* EOF */
+X  (void) fwrite(";",1,1,image->file);  /* terminator */
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e G R A Y I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteGRAYImage writes an image to a file on disk in red, green,
+%  blue rasterfile format.
+%
+%  The format of the WriteGRAYImage routine is:
+%
+%      status=WriteGRAYImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteGRAYImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *pixels;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert image to gray scale PseudoColor class.
+X  */
+X  pixels=(unsigned char *)
+X    malloc(image->columns*image->rows*sizeof(unsigned char));
+X  if (pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  q=pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X      *q++=Intensity(*p);
+X    p++;
+X  }
+X  (void) fwrite((char *) pixels,sizeof(unsigned char),
+X    (int) (image->columns*image->rows),image->file);
+X  (void) free((char *) pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+#ifdef AlienJPEG
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  W r i t e J P E G I m a g e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteJPEGImage writes an image file and returns it.  It allocates
+%  the memory necessary for the new Image structure and returns a pointer to
+%  the new jpeg_image.
+%
+%  The format of the WriteJPEGImage routine is:
+%
+%      status=WriteJPEGImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status:  Function WriteJPEGImage return True if the image is written.
+%      False is returned is there is of a memory shortage or if the image
+%      file cannot be opened for writing.
+%
+%    o jpeg_image:  A pointer to a Image structure.
+%
+%
+*/
+X
+METHODDEF void JPEGInitializeImage(jpeg_info)
+compress_info_ptr
+X  jpeg_info;
+{
+X  /*
+X    Initialize JPEG image.
+X  */
+X  jpeg_info->image_width=jpeg_image->columns;
+X  jpeg_info->image_height=jpeg_image->rows;
+X  jpeg_info->data_precision=8;
+X  jpeg_info->input_components=3;
+X  jpeg_info->in_color_space=CS_RGB;
+X  if ((jpeg_image->class == PseudoClass) && (jpeg_image->colors <= 256))
+X    {
+X      register int
+X        i;
+X
+X      unsigned int
+X        grayscale;
+X
+X      /*
+X        Determine if jpeg_image is grayscale.
+X      */
+X      grayscale=True;
+X      for (i=0; i < jpeg_image->colors; i++)
+X        if ((jpeg_image->colormap[i].red != jpeg_image->colormap[i].green) ||
+X            (jpeg_image->colormap[i].green != jpeg_image->colormap[i].blue))
+X          {
+X            grayscale=False;
+X            break;
+X          }
+X      if (grayscale)
+X        {
+X          jpeg_info->input_components=1;
+X          jpeg_info->in_color_space=CS_GRAYSCALE;
+X        }
+X    }
+X  jpeg_image->packet=jpeg_image->pixels;
+X  jpeg_image->runlength=jpeg_image->packet->length+1;
+}
+X
+static void JPEGInputTermMethod(jpeg_info)
+compress_info_ptr
+X  jpeg_info;
+{
+}
+X
+static void JPEGWriteGRAY(jpeg_info,pixel_data)
+compress_info_ptr
+X  jpeg_info;
+X
+JSAMPARRAY
+X  pixel_data;
+{
+X  register int
+X    column;
+X
+X  register JSAMPROW
+X    gray;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Convert run-length encoded grayscale MIFF packets to JPEG pixels.
+X  */
+X  gray=pixel_data[0];
+X  p=jpeg_image->packet;
+X  for (column=jpeg_info->image_width; column > 0; column--)
+X  {
+X    if (jpeg_image->runlength > 0)
+X      jpeg_image->runlength--;
+X    else
+X      {
+X        p++;
+X        jpeg_image->runlength=p->length;
+SHAR_EOF
+true || echo 'restore of ImageMagick/alien.c failed'
+fi
+echo 'End of  part 22'
+echo 'File ImageMagick/alien.c is continued in part 23'
+echo 23 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

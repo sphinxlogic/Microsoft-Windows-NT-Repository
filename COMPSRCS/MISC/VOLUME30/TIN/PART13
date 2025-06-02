@@ -1,0 +1,2251 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Subject:  v30i013:  tin - threaded full screen newsreader, Part13/14
+Message-ID: <1992May20.173027.160@sparky.imd.sterling.com>
+X-Md4-Signature: ea90556dc2396504de011f1d8ba61bdc
+Date: Wed, 20 May 1992 17:30:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Posting-number: Volume 30, Issue 13
+Archive-name: tin/part13
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 29, Issue 19-30
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  INSTALL active.c getline.c memory.c nntplib.h signal.c
+# Wrapped by kent@sparky on Tue May 19 13:38:06 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 14)."'
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(8397 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+XCompilation and installation notes for tin - 13-05-92 
+X-----------------------------------------------------
+X
+XTin has been compiled on a wide range of Un*x machines with cc and gcc.
+XA list of these machines can be found at the end of this file.
+X
+XThis file is long (so was the yellow brick road) but please read it all
+Xas it could save you problems later and we don't want an unhappy ending
+Xdo we? :-)  
+X
+XTin can be compiled to read news in any of the following ways:
+X
+X  o  locally from your machines news spool dir (default /usr/spool/news).
+X
+X  o  locally and remotely (rtin or tin -r option) (-DNNTP_ABLE).
+X
+X  o  remotely from another machine via NNTP but creating tin index files
+X     on local machine for each user in $HOME/.tin/.index (-DNNTP_ONLY).
+X
+X  o  remotely from another machine via NNTP and also retreiving tin index
+X     files from remote machine via NNTP (-DNNTP_ONLY -DNNTP_EXTS). This
+X     option requires that MY NNTP XUSER & XINDEX patches be applied to
+X     your NNTP server nntpd. On the NNTP server the index daemon of tin
+X     'tind' needs to be run from cron to update the index files at 
+X     regular inetervals.
+X
+X  o  locally from you machines news spool dir (defult /usr/spool/news)
+X     and via CD-ROM using pseudo NNTP library with XSPOOLDIR command.
+X     (-DCDROM_ABLE) must be defined and tin must be linked with the
+X     pseudo NNTP CD-ROM library libcllib.a.
+X 
+X  o  via CD-ROM only using pseudo NNTP library with XSPOOLDIR command.
+X     (-DCDROM_ONLY) must be defined and tin must be linked with the
+X     pseudo NNTP CD-ROM library libcllib.a.
+X 
+XThe -DNNTP_ABLE or -DNNTP_ONLY define must be added to CFLAGS in 
+XMakefile and the correct libraries need to be linked to produce
+Xan NNTP aware tin.
+X
+XIf -DCDROM_ABLE is defined tin will not work with normal NNTP. This
+Xmay change as the CD-ROM library is further developed.
+X
+XBuilding Tin (Normal & Daemon versions) 
+X---------------------------------------
+X
+XNormal version
+X1)  Type 'make' and a few system types will be displayed.
+X2)  Edit Makefile if you want to add/change -D<defines>.
+X3)  Type 'make <system type>' to compile for your system.
+X4)  Type 'make install' / 'make install_setuid' to install.
+X
+XNote1: If you want to retreive tin index files from your NNTP server
+X      you will have to compile the tind index file daemon so do the
+X      following steps:
+X
+X  1)  Build 'Normal version' of tin as specified by the above 4 points.
+X  2)  The tind index daemon needs to be installed on your NNTP server.
+X  3)  Apply my NNTP XUSER & XINDEX patches to your nntpd server or this
+X      will not work!!!. (If you want tind locally read Note3).  
+X  4)  Edit the Makefile and add -DINDEX_DAEMON to your CFLAGS entry and
+X      remove any -DNNTP_* defines. Also remove any -lcurses screen type
+X      libs as tind does not need to be linked with curses and it will
+X      save a good 30-50K on the size of tind.
+X  5)  Type 'make <system type>' to compile tind daemon for your NNTP server.
+X  6)  Type 'make install_daemon' to install tind daemon on your NNTP server.
+X  7)  Add the following line to your system cron to run tind every 30 mins:
+X        00,30 * * * * su news -c '/usr/lib/news/tind'
+X        
+X  Note2: tind must be run as user 'news' and the normal tin must have 
+X         the correct permissions to read the central index files!
+X  Note3: tind can also be used to update a copy of all index files
+X         centrally so each user does not have duplicate files.
+X 
+X    
+XCompiler flags (-D<name> define directives)
+X-------------------------------------------
+XNews directory structure
+X------------------------
+X
+XLIBDIR
+XDefine if news software is not in /usr/lib/news.
+X
+XINEWSDIR
+XDefine if bnews/cnews program 'inews' is not in LIBDIR.
+X
+XSPOOLDIR
+XDefine if news articles are not in /usr/spool/news.
+X
+X
+XReading/posting news via NNTP
+X----------------------------- 
+X
+XNNTP_ABLE
+XDefine if you wish to read news locally and remotely via an NNTP server.
+X
+XNNTP_ONLY
+XDefine if you [want to | can] ONLY read news remotely via an NNTP server.
+X
+XNNTP_INEWS
+XDefine if you want to use my builtin NNTP POST routine so that you no
+Xlonger have to rely on the mini-inews from NNTP to be installed on each
+Xclient machine. Also check that NNTP_INEWS_GATEWAY & NNTP_INEWS_DOMAIN 
+Xare correctly set to produce correct From: headers for your site.
+X
+XNNTP_INEWS_GATEWAY
+XDefines the name of your news gateway machine. Useful if you don't want 
+Xyour internal network visable to the outside world.
+XExample: I use this define to make all my net postings appear from our news
+Xgateway machine 'anl433' even though I post from my own workstation 'sony01'
+X
+XNNTP_INEWS_DOMAIN
+XDefines the name of your network domain. 
+XExample: I use this define to add our uucp domain '.uucp' to our news 
+Xgateways machine address 'anl433.uucp'.
+X
+XNNTP_SERVER_FILE
+XOnly define if your nntpserver file is other than /etc/nntpserver.
+X
+XNETLIBS
+XContains the networking libraries needed to link with clientlib.o file.
+X
+X
+XReading news via CD-ROM
+X-----------------------
+X
+XCDROM_ABLE
+XDefine if you wish to read news locally and from CD-ROM.
+X
+XCDROM_ONLY
+XDefine if you [want to | can] ONLY read news from CD-ROM.
+X
+X
+XDaemon options
+X--------------
+X
+XINDEX_DAEMON
+XDefine to make an index file updating daemon version of tin. Note that
+Xno -lcurses or screen libraries need to be linked with tin when this
+X#define is specified. If defined this will automatically undefine all
+XNNTP_* defines as the daemon has to be installed on the NNTP server.
+X
+X
+XMiscellaneous options
+X---------------------
+X
+XSIGTYPE=[void | int]
+XDefine only if incorrect pointer type warnings occur during compilition.
+XSIGTYPE is already defined in tin.h for most compilers signal() call.
+XBy defining this you will override the default action in tin.h.
+X 
+XPOSIX_JOB_CONTROL
+XDefine if your machine uses Posix style sigaction() signal handling.
+X
+XUSE_MKDIR
+XDefine if your machine does not have the mkdir() system call.
+X
+XUSE_LONG_FILENAMES
+XDefine if your machines filesystem supports filenames longer than 14
+Xchars (default for BSD type systems).
+X
+XUSE_INVERSE_HACK
+XDefine if you want inverse video and highlighted bar disabled. (default
+Xfor SCO Unix & SysVR4).  Can be toggled in tin by the 'I' command and
+Xhighlight bar by 'M' command.
+X
+XUSE_CLEARSCREEN
+XDefine if the you wish screen to use ClearScreen() and not MoveCursor()
+Xand CleartoEOLN(). This is perhaps faster on slow terminals but I have
+Xnot really run any speed tests recently.
+X
+XSLOW_SCREEN_UPDATE
+XDefine if running over a low speed connection (ie. 2400baud). It stops
+Xthe percentage info being shown at bottom of select and group menus and
+Xstops the groupname being displayed at the bottom of the screen as it is
+Xsubscribed/unsubscribed.
+X
+XSMALL_MEMORY_MACHINE
+XDefine if you are running a machine with little memory (<4MB). Tin will
+Xrun slightly slower but be more efficent in how memory is allocated and
+Xreclaimed.
+X 
+XNO_REGEX
+XDefine if you do not want to use regular expression pattern matching.
+X
+XNO_SHELL_ESCAPE
+XDo not allow shell escapes.
+X
+XNO_POSTING
+XDo not allow posting/followup of articles.
+X
+XNO_RESYNC_ACTIVE_FILE
+XDo not reread active every RESYNC_ACTIVE_SECS.
+X
+XLOG_USER
+XLog username & info to /tmp/.tin_log for usage statistics. If reading via
+XNNTP the NNTP XUSER extended command will log user info to NNTP server.
+XIf -DNNTP_XUSER is defined it will define LOG_USER automatically.
+X
+XDEBUG
+XDefine if you want tin to log debug info. to files in /tmp. Activated
+Xby tin -Dn where n is 1 for NNTP only debug logging and n is 2 for 
+Xlogging all debug info. Debug files written to /tmp are ARTS, ACTIVE,
+XBASE and NNTP.
+X
+X
+XCompiled & installed on the following machines
+X----------------------------------------------
+X
+X1) * 386 PC & Xenix 2.3.2/SCO SysVR3.2/ISC SysVR3.2/ATT SysVr4.0
+X2) * Sony News & NewsOS 4.1
+X3) * SNI MX300/MX500 & Sinix 5.22/5.23/5.24/5.4
+X4) * Sun 3/4/IPC/SS1/SS2 & SunOS 4.0.3/4.1/4.1.1 
+X5) * Dec 5000/Vax & Ultrix 4.1/4.2
+X6) * Vax 11/785 & BSD 4.3
+X7) * DG Aviion 300 & DG-UX 4.30
+X8) * Apollo DN4500 & DomainOS 10.3
+X9)   ICL DRS6000 & SysVR4.0 
+X10)  Apricot VX/FT & SCO 3.2.2
+X11)  DIAB DS90 & D-NIX 5.3
+X12)  Amdahl & SysVR3
+X13)  HP 720/845 & HP-UX 7.0
+X14)  IBM RS/6000 & AIX 3.1.5
+X15)  NCR Tower & SysV
+X16)  Atari STe & Minix 1.5.10.3b
+X17)  Powerbook 140 & MacMinix
+X18)  386 PC & Minix 386
+X19)  Sequent S81 & PTX 1.3 / Dynix
+X20)  Convex C220 & Convex Un*x
+X21)  Harris HCX & CX/UX
+X22)  SGI 4D/35 & IRIX 4.0.1
+X
+X* = compiled, installed and used by author 
+END_OF_FILE
+  if test 8397 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'active.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'active.c'\"
+else
+  echo shar: Extracting \"'active.c'\" \(8546 characters\)
+  sed "s/^X//" >'active.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : active.c
+X *  Author    : I.Lea
+X *  Created   : 16-02-92
+X *  Updated   : 02-05-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xint group_hash[TABLE_SIZE];			/* group name --> active[] */
+Xint reread_active_file = FALSE;
+X
+X
+X/*
+X *  Resync active file when SIGALRM signal received that
+X *  is triggered by alarm (RESYNC_ACTIVE_SECS) call.
+X */
+X
+Xvoid resync_active_file ()
+X{
+X	if (reread_active_file) {
+X		free_active_arrays ();
+X		max_active = DEFAULT_ACTIVE_NUM;
+X		expand_active ();
+X		read_active_file ();
+X		read_newsrc (TRUE);
+X		set_alarm_signal ();
+X		group_selection_page ();
+X	}
+X}
+X
+X/*
+X *  Load the active file into active[] and create copy of active ~/.tin/active
+X */
+X
+Xint read_active_file ()
+X{
+X	FILE *fp;
+X	char *p, *q, *r;
+X	char buf[LEN];
+X	char moderated = 'y';
+X	int created, i;
+X	long h;
+X	
+X	num_active = 0;
+X
+X	if (! update) {
+X		wait_message (txt_reading_active_file);
+X	}
+X
+X	if ((fp = open_active_fp ()) == NULL) {
+X		if (compiled_with_nntp) {
+X			sprintf (msg, txt_cannot_open_active_file, active_file, progname);
+X			wait_message (msg);
+X		} else {
+X			fputc ('\n', stderr);
+X			fprintf (stderr, txt_cannot_open, active_file);
+X			fputc ('\n', stderr);
+X			fflush (stderr);
+X		}
+X		exit (1);
+X	}
+X
+X	for (i = 0; i < TABLE_SIZE; i++) {
+X		group_hash[i] = -1;
+X	}
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		for (p = buf; *p && *p != ' '; p++)
+X			continue;
+X		if (*p != ' ') {
+X			error_message (txt_bad_active_file, buf);
+X			continue;
+X		}
+X		*p++ = '\0';
+X
+X		if (num_active >= max_active) {
+X			debug_nntp ("read_active_file", "EXPANDING active file");
+X			expand_active ();
+X		}
+X
+X		h = hash_groupname (buf);
+X
+X		if (group_hash[h] == -1) {
+X			group_hash[h] = num_active;
+X		} else {				/* hash linked list chaining */
+X			for (i=group_hash[h]; active[i].next >= 0; i=active[i].next) {
+X				if (strcmp(active[i].name, buf) == 0) {
+X					goto read_active_continue;		/* kill dups */
+X				}
+X			}
+X			if (strcmp(active[i].name, buf) == 0)
+X				goto read_active_continue;
+X			active[i].next = num_active;
+X		}
+X
+X		for (q = p; *q && *q != ' '; q++)
+X			continue;
+X		if (*q != ' ') {
+X			error_message (txt_bad_active_file, buf);
+X			continue;
+X		}
+X		*q++ = '\0';
+X
+X		for (r = q; *r && *r != '\n'; r++) {
+X			if (*r == 'y' || *r == 'm') {
+X				moderated = *r;
+X				break;
+X			}
+X		}
+X
+X		/*
+X		 * Group info.
+X		 */
+X		active[num_active].name = str_dup (buf);
+X		active[num_active].max = (long) atol (p);
+X		active[num_active].min = (long) atol (q);
+X		active[num_active].moderated = moderated;
+X		active[num_active].next = -1;			/* hash chaining */
+X		active[num_active].flag = UNSUBSCRIBED;	/* not in my_group[] yet */
+X		/*
+X		 * Per group attributes
+X		 */
+X		active[num_active].attribute.server  = (char *) 0;
+X		active[num_active].attribute.maildir = default_maildir;
+X		active[num_active].attribute.savedir = default_savedir;
+X		active[num_active].attribute.sigfile = default_sigfile;
+X		active[num_active].attribute.read    = FALSE;	/* read/unread */
+X		active[num_active].attribute.showall = show_only_unread;
+X		active[num_active].attribute.thread  = thread_arts;
+X		active[num_active].attribute.sortby  = sort_art_type;
+X		active[num_active].attribute.author  = show_author;
+X		active[num_active].attribute.autosave= save_archive_name;
+X		active[num_active].attribute.process = post_proc_type; 
+X
+X		num_active++;
+X
+Xread_active_continue:;
+X
+X	}
+X	fclose (fp);
+X
+X	/*
+X	 *  exit if active file is empty
+X	 */
+X	if (! num_active) {
+X		error_message (txt_active_file_is_empty, active_file);
+X		exit (1);
+X	}
+X
+X	/*
+X	 *  create backup of LIBDIR/active for use by -n option to notify new groups 
+X	 */
+X	created = backup_active (TRUE);
+X
+X	debug_print_active ();
+X
+X	if (cmd_line && (read_news_via_nntp && update == FALSE)) {
+X		if (! (update && ! verbose)) {
+X			wait_message ("\n");
+X		}
+X	}
+X
+X	return (created);
+X}
+X
+X/*
+X *  create ~/.tin/active from LIBDIR/active if it does not exist 
+X */
+X
+Xint backup_active (create)
+X	int create;
+X{
+X	char buf[LEN];
+X	FILE *fp;
+X	int created = FALSE;
+X	int i;
+X	struct stat sb;
+X	
+X	sprintf (buf, "%s/active", rcdir);
+X	
+X	if (create) {
+X		if (stat (buf, &sb) != -1) {
+X			goto backup_active_done;
+X		}
+X	}
+X	
+X	if ((fp = fopen (buf, "w")) != NULL) {
+X		for (i = 0; i < num_active ; i++) {	/* for each group */
+X			fprintf (fp, "%s\n", active[i].name);
+X		}
+X		fclose (fp);
+X		chmod (buf, 0644);
+X		created = TRUE;
+X	}
+X
+Xbackup_active_done:
+X	return (created);
+X}
+X
+X/*
+X *  Option -n to check for any newly created newsgroups.
+X */
+X
+Xvoid notify_groups ()
+X{
+X	char buf[LEN];
+X	FILE *fp;
+X	int group_not_found;
+X	int index;
+X	int num = 0;
+X	int update_old_active = FALSE;
+X	int max_old_active;
+X	register int i, j;
+X	struct notify_t {
+X		char name[LEN];
+X		int len;
+X		int visited;
+X	} *old_active = (struct notify_t *) 0;
+X	
+X	sprintf (buf, "%s/active", rcdir);
+X	
+X	if ((fp = fopen (buf, "r")) == NULL) {
+X		perror_message (txt_cannot_open, buf);
+X		goto notify_groups_done;
+X	}
+X
+X	Raw (TRUE);
+X	
+X	wait_message (txt_checking_active_file);
+X
+X	max_old_active = num_active;
+X	
+X	old_active = (struct notify_t *) my_malloc ((unsigned) sizeof (struct notify_t) * max_old_active);
+X	if (old_active == (struct notify_t *) 0) {
+X		error_message (txt_out_of_memory, progname);
+X		goto notify_groups_done;
+X	}
+X	
+X	while (fgets (old_active[num].name, sizeof (old_active[num].name), fp) != NULL) {
+X		old_active[num].len = strlen (old_active[num].name)-1;
+X		old_active[num].name[old_active[num].len] = '\0';
+X		old_active[num].visited = FALSE;
+X		num++;
+X		if (num >= max_old_active) {
+X			max_old_active= max_old_active + (max_old_active / 2);
+X			old_active= (struct notify_t*) my_realloc(
+X				(char *) old_active, 
+X				(unsigned) sizeof(struct notify_t) * max_old_active);
+X			if (old_active == (struct notify_t *) 0) {
+X				error_message (txt_out_of_memory, progname);
+X				goto notify_groups_done;
+X			}
+X		}
+X	}
+X
+X	for (i = 0 ; i < num_active ; i++) {	
+X		group_not_found = TRUE;
+X		for (j=0; j < num ; j++) {
+X			if (strcmp (old_active[j].name, active[i].name) == 0) {
+X				group_not_found = FALSE;	/* found it so read in next group */
+X				old_active[j].visited = TRUE;
+X				break;
+X			}
+X		}
+X
+X		if (group_not_found == FALSE) {
+X			continue;
+X		}	
+X
+X		update_old_active = TRUE;
+X		do {
+X			fputc ('\r', stdout);
+X			CleartoEOLN();
+X			printf (txt_subscribe_to_new_group, active[i].name);
+X			fflush (stdout);
+X			buf[0] = ReadCh();
+X		} while (buf[0] != 'y' && buf[0] != 'n');
+X			
+X		if (buf[0] == 'y') {
+X			index = add_group (active[i].name, TRUE);
+X			subscribe (active[my_group[index]].name, ':',
+X				   my_group[index], FALSE);
+X		}
+X		printf ("\r\n%s", txt_checking);
+X		fflush (stdout);
+X	}
+X	fclose (fp);
+X	fputc ('\r', stdout);
+X	fflush (stdout);
+X	CleartoEOLN();
+X
+X	/*
+X	 * Look for bogus groups 
+X	 */
+X	for (j = 0 ; j < num ; j++)  {
+X		if (old_active[j].visited) {
+X			continue;
+X		}
+X		do {	
+X			update_old_active= 1;
+X			fputc ('\r', stdout);
+X			CleartoEOLN ();
+X			printf (txt_delete_bogus_group, old_active[j].name);
+X			fflush (stdout);
+X			buf[0] = ReadCh ();
+X		} while (buf[0] != 'y' && buf[0] != 'n');
+X		if (buf[0] == 'y') {
+X			delete_group (old_active[j].name);
+X		}
+X		printf ("\r\n");
+X	}
+X	
+X	Raw (TRUE);
+X
+X	/*
+X	 *  write active[] to ~/.tin/active
+X	 */
+X	if (update_old_active) {
+X		backup_active (FALSE);
+X	}
+X
+Xnotify_groups_done:
+X	if (old_active != (struct notify_t *) 0) {
+X		free ((char *) old_active);
+X		old_active = (struct notify_t *) 0;
+X	}
+X}
+X
+X/*
+X *  Mark any groups in my_group[] that are in ~/.tin/unthread so they
+X *  will not be threaded
+X */
+X 
+Xvoid mark_unthreaded_groups ()
+X{
+X	FILE *fp;
+X	char buf[LEN];
+X	int i, len;
+X	long h;
+X
+X#ifndef INDEX_DAEMON
+X
+X	if ((fp = fopen (unthreadfile, "r")) == NULL) {
+X		perror_message (txt_cannot_open, unthreadfile);
+X		return;
+X	}
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		buf[strlen (buf)-1] = '\0'; 
+X		h = hash_groupname (buf);
+X		sprintf (msg, "Unthreading %s...\n", buf);
+X		wait_message (msg);
+X		
+X		i = group_hash[h];
+X		
+X		if (active[i].next == -1) {
+X			len = strlen (active[i].name);
+X			if (strncmp (active[i].name, buf, len) == 0) {
+X				active[i].attribute.thread = FALSE;
+X			}
+X		
+X		} else {
+X			for (i=group_hash[h]; active[i].next >= 0; i=active[i].next) {
+X				len = strlen (active[i].name);
+X				if (strncmp (active[i].name, buf, len) == 0) {
+X					active[i].attribute.thread = FALSE;
+X					break;
+X				}
+X			}
+X		}	
+X	}
+X
+X	fclose (fp);
+X#endif /* INDEX_DAEMON */
+X}
+X
+END_OF_FILE
+  if test 8546 -ne `wc -c <'active.c'`; then
+    echo shar: \"'active.c'\" unpacked with wrong size!
+  fi
+  # end of 'active.c'
+fi
+if test -f 'getline.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getline.c'\"
+else
+  echo shar: Extracting \"'getline.c'\" \(11458 characters\)
+  sed "s/^X//" >'getline.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : getline.c
+X *  Author    : Chris Thewalt & Iain Lea 
+X *  Created   : 09-11-91
+X *  Updated   : 29-03-92
+X *  Notes     : emacs style line editing input package.  
+X *  Copyright : (c) Copyright 1991-92 by Chris Thewalt & Iain Lea
+X *              Permission to use, copy, modify, and distribute this
+X *              software for any purpose and without fee is hereby
+X *              granted, provided that the above copyright notices
+X *              appear in all copies and that both the copyright
+X *              notice and this permission notice appear in supporting
+X *              documentation. This software is provided "as is" without
+X *              express or implied warranty.
+X */
+X
+X#include "tin.h"
+X
+Xextern int      isatty ();	
+X
+X#define BUF_SIZE	1024
+X#define SCROLL		30
+X#define TABSIZE		4
+X#ifndef HIST_SIZE
+X#define HIST_SIZE	100
+X#endif
+X
+X#define CTRL_A	'\001'
+X#define CTRL_B	'\002'
+X#define CTRL_D	'\004'
+X#define CTRL_E	'\005'
+X#define CTRL_F	'\006'
+X#define CTRL_H	'\010'
+X#define CTRL_K	'\013'
+X#define CTRL_L	'\014'
+X#define CTRL_R	'\022'
+X#define CTRL_N	'\016'
+X#define CTRL_P	'\020'
+X#define TAB		'\t'
+X#define DEL		'\177'
+X
+Xchar	*hist_buf[HIST_SIZE];
+Xint		hist_pos, hist_last;
+Xstatic char gl_buf[BUF_SIZE];       /* input buffer */
+Xstatic char *gl_prompt;				/* to save the prompt string */
+Xstatic int  gl_init_done = 0;		/* -1 is terminal, 1 is batch  */
+Xstatic int  gl_width = 0;			/* net size available for input */
+Xstatic int  gl_pos, gl_cnt = 0;     /* position and size of input */
+X
+X#if __STDC__
+X
+Xstatic int      gl_tab (char *, int, int *);
+Xstatic void		gl_redraw (void);
+Xstatic void     gl_addchar (int);
+Xstatic void     gl_newline (void);
+Xstatic void     gl_fixup (int, int);
+Xstatic void     gl_del (int);
+Xstatic void     gl_kill (void);
+Xstatic void     hist_add (void);
+Xstatic void     hist_init (void);
+Xstatic void     hist_next (void);
+Xstatic void     hist_prev (void);
+X
+Xint 	(*gl_in_hook)(char *) = 0;
+Xint 	(*gl_out_hook)(char *) = 0;
+Xint 	(*gl_tab_hook)(char *, int, int *) = gl_tab;
+X
+X#else
+X
+Xstatic int      gl_tab ();
+Xstatic void		gl_redraw ();
+Xstatic void     gl_addchar ();
+Xstatic void     gl_newline ();
+Xstatic void     gl_fixup ();
+Xstatic void     gl_del ();
+Xstatic void     gl_kill ();
+Xstatic void     hist_add ();
+Xstatic void     hist_init ();
+Xstatic void     hist_next ();
+Xstatic void     hist_prev ();
+X
+Xint 	(*gl_in_hook)() = 0;
+Xint 	(*gl_out_hook)() = 0;
+Xint 	(*gl_tab_hook)() = gl_tab;
+X
+X#endif
+X
+X
+X#if __STDC__
+Xchar *getline (char *prompt, int number_only, char *str)
+X#else
+Xchar *getline (prompt, number_only, str)
+X	char *prompt;
+X	int number_only;
+X	char *str;
+X#endif
+X{
+X	int c, i, loc, tmp;
+X
+X	if (! gl_init_done) {
+X		gl_init_done = 1;
+X		hist_init ();
+X	}
+X
+X	if (prompt == (char *) 0) {	
+X		prompt = "";
+X	}
+X	gl_buf[0] = 0;		/* used as end of input indicator */
+X	gl_fixup (-1, 0);	/* this resets gl_fixup */
+X	gl_width = COLS - strlen (prompt);
+X	gl_prompt = prompt;
+X	gl_pos = gl_cnt = 0;
+X
+X	fputs (prompt, stdout);
+X	fflush (stdout);
+X	
+X	if (gl_in_hook) {
+X		loc = gl_in_hook (gl_buf);
+X		if (loc >= 0)
+X		    gl_fixup (0, BUF_SIZE);
+X	}
+X	if (str != (char *) 0) {
+X		for (i=0 ; str[i] ; i++) 
+X			gl_addchar (str[i]);
+X	}
+X	while ((c = ReadCh ()) != EOF) {
+X		c &= 0xff;	
+X		if (isprint (c)) {
+X			if (number_only) {
+X				if (isdigit (c) && gl_cnt < 6) {	/* num < 100000 */
+X				    gl_addchar (c);
+X				} else {
+X					ring_bell ();
+X				}
+X			} else {
+X			    gl_addchar (c);
+X			}
+X		} else {
+X			switch (c) {
+X				case ESC: 			/* abort */
+X					return (char *) 0;
+X					break;
+X				case '\n': 			/* newline */
+X				case '\r':
+X					gl_newline ();
+X					return gl_buf;
+X					break;
+X				case CTRL_A:
+X					gl_fixup (-1, 0);
+X					break;
+X				case CTRL_B:
+X					gl_fixup (-1, gl_pos-1);
+X					break;
+X				case CTRL_D:
+X					if (gl_cnt == 0) {
+X					    gl_buf[0] = 0;
+X						fputc ('\n', stdout);
+X						return gl_buf;
+X					} else {
+X						gl_del (0);
+X					}
+X					break;
+X				case CTRL_E:
+X					gl_fixup (-1, gl_cnt);
+X					break;
+X				case CTRL_F:
+X					gl_fixup (-1, gl_pos+1);
+X					break;
+X				case CTRL_H:
+X				case DEL:
+X					gl_del (-1);
+X					break;
+X				case TAB:
+X					if (gl_tab_hook) {
+X						tmp = gl_pos;
+X						loc = gl_tab_hook (gl_buf, strlen (gl_prompt), &tmp);
+X						if (loc >= 0 || tmp != gl_pos)
+X							gl_fixup (loc, tmp);
+X					}
+X					break;
+X				case CTRL_K:
+X					gl_kill ();
+X					break;
+X				case CTRL_L:
+X				case CTRL_R:
+X					gl_redraw ();
+X					break;
+X				case CTRL_N:
+X					hist_next ();
+X					break;
+X				case CTRL_P:
+X					hist_prev ();
+X					break;
+X				default:
+X					ring_bell ();
+X					break;
+X		    }
+X		}
+X	}
+X	return gl_buf;
+X}
+X
+X/*
+X * adds the character c to the input buffer at current location if
+X * the character is in the allowed template of characters
+X */
+X
+X#if __STDC__
+Xstatic void gl_addchar (int c)
+X#else
+Xstatic void gl_addchar (c)
+X	int c;
+X#endif
+X{
+X	int  i;
+X
+X	if (gl_cnt >= BUF_SIZE - 1) {
+X		error_message ("getline: input buffer overflow", "");
+X		exit (1);
+X	}
+X	
+X	for (i=gl_cnt; i >= gl_pos; i--) {
+X		gl_buf[i+1] = gl_buf[i];
+X	}
+X	gl_buf[gl_pos] = c;
+X	gl_fixup (gl_pos, gl_pos+1);
+X}
+X
+X/*
+X * Cleans up entire line before returning to caller. A \n is appended.
+X * If line longer than screen, we redraw starting at beginning
+X */
+X
+Xstatic void gl_newline ()
+X{
+X	int change = gl_cnt;
+X	int len = gl_cnt;
+X	int loc = gl_width - 5;	/* shifts line back to start position */
+X
+X	if (gl_cnt >= BUF_SIZE - 1) {
+X		error_message ("getline: input buffer overflow", "");
+X		exit (1);
+X	}
+X	hist_add ();			/* only adds if nonblank */
+X	if (gl_out_hook) {
+X		change = gl_out_hook (gl_buf);
+X		len = strlen (gl_buf);
+X	} 
+X	if (loc > len)
+X		loc = len;
+X	gl_fixup (change, loc);	/* must do this before appending \n */
+X	gl_buf[len] = '\0';
+X}
+X
+X/*
+X * Delete a character.  The loc variable can be:
+X *    -1 : delete character to left of cursor
+X *     0 : delete character under cursor
+X */
+X
+X#if __STDC__
+Xstatic void gl_del (int loc)
+X#else
+Xstatic void gl_del (loc)
+X	int loc;
+X#endif
+X{
+X	int i;
+X
+X	if ((loc == -1 && gl_pos > 0) || (loc == 0 && gl_pos < gl_cnt)) {
+X		for (i=gl_pos+loc; i < gl_cnt; i++)
+X			gl_buf[i] = gl_buf[i+1];
+X		gl_fixup (gl_pos+loc, gl_pos+loc);
+X	} else {
+X		ring_bell ();
+X	}
+X}
+X
+X/*
+X * delete from current position to the end of line
+X */
+X 
+Xstatic void gl_kill ()
+X{
+X	if (gl_pos < gl_cnt) {
+X		gl_buf[gl_pos] = '\0';
+X		gl_fixup (gl_pos, gl_pos);
+X	} else {
+X		ring_bell ();
+X	}
+X}
+X
+X/*
+X * emit a newline, reset and redraw prompt and current input line
+X */
+X
+Xstatic void gl_redraw ()
+X{
+X	if (gl_init_done == -1) {
+X		fputc ('\n', stdout);
+X		fputs (gl_prompt, stdout);
+X		gl_pos = 0;
+X		gl_fixup (0, BUF_SIZE);
+X    }
+X}
+X
+X/*
+X * This function is used both for redrawing when input changes or for
+X * moving within the input line.  The parameters are:
+X *   change : the index of the start of changes in the input buffer,
+X *            with -1 indicating no changes.
+X *   cursor : the desired location of the cursor after the call.
+X *            A value of BUF_SIZE can be used to indicate the cursor
+X *            should move just past the end of the input line.
+X */
+X
+X#if __STDC__
+Xstatic void gl_fixup (int change, int cursor)
+X#else
+Xstatic void gl_fixup (change, cursor)
+X	int change;
+X	int cursor;
+X#endif
+X{
+X	static int   gl_shift;	/* index of first on screen character */
+X	static int   off_right;	/* true if more text right of screen */
+X	static int   off_left;	/* true if more text left of screen */
+X	int          left = 0, right = -1;		/* bounds for redraw */
+X	int          pad;		/* how much to erase at end of line */
+X	int          backup;        /* how far to backup before fixing */
+X	int          new_shift;     /* value of shift based on cursor */
+X	int          extra;         /* adjusts when shift (scroll) happens */
+X	int          i;
+X
+X	if (change == -1 && cursor == 0 && gl_buf[0] == 0) {   /* reset */
+X		gl_shift = off_right = off_left = 0;
+X		return;
+X	}
+X	pad = (off_right) ? gl_width - 1 : gl_cnt - gl_shift;   /* old length */
+X	backup = gl_pos - gl_shift;
+X	if (change >= 0) {
+X		gl_cnt = strlen (gl_buf);
+X		if (change > gl_cnt)
+X			change = gl_cnt;
+X	}
+X	if (cursor > gl_cnt) {
+X		if (cursor != BUF_SIZE)		/* BUF_SIZE means end of line */
+X			ring_bell ();
+X			cursor = gl_cnt;
+X	}
+X	if (cursor < 0) {
+X		ring_bell ();
+X		cursor = 0;
+X	}
+X	if (off_right || off_left && (cursor < gl_shift + gl_width - SCROLL / 2))
+X		extra = 2;			/* shift the scrolling boundary */
+X	else 
+X		extra = 0;
+X	new_shift = cursor + extra + SCROLL - gl_width;
+X    if (new_shift > 0) {
+X		new_shift /= SCROLL;
+X		new_shift *= SCROLL;
+X    } else
+X		new_shift = 0;
+X    if (new_shift != gl_shift) {	/* scroll occurs */
+X		gl_shift = new_shift;
+X		off_left = (gl_shift) ? 1 : 0;
+X		off_right = (gl_cnt > gl_shift + gl_width - 1)? 1 : 0;
+X        left = gl_shift;
+X		right = (off_right) ? gl_shift + gl_width - 2 : gl_cnt;
+X    } else if (change >= 0) {		/* no scroll, but text changed */
+X		if (change < gl_shift + off_left) {
+X		    left = gl_shift;
+X		} else {
+X		    left = change;
+X		    backup = gl_pos - change;
+X		}
+X		off_right = (gl_cnt > gl_shift + gl_width - 1)? 1 : 0;
+X		right = (off_right) ? gl_shift + gl_width - 2 : gl_cnt;
+X	}
+X	pad -= (off_right) ? gl_width - 1 : gl_cnt - gl_shift;
+X	pad = (pad < 0)? 0 : pad;
+X	if (left <= right) {		/* clean up screen */
+X		for (i=0; i < backup; i++)
+X			fputc ('\b', stdout);
+X		if (left == gl_shift && off_left) {
+X			fputc ('$', stdout);
+X			left++;
+X		}
+X		for (i=left; i < right; i++)
+X			fputc (gl_buf[i], stdout);
+X		if (off_right) {
+X			fputc ('$', stdout);
+X			gl_pos = right + 1;
+X		} else { 
+X			for (i=0; i < pad; i++)	/* erase remains of prev line */
+X				fputc (' ', stdout);
+X			gl_pos = right + pad;
+X		}
+X	}
+X	i = gl_pos - cursor;		/* move to final cursor location */
+X	if (i > 0) {
+X		while (i--)
+X			fputc ('\b', stdout);
+X	} else {
+X		for (i=gl_pos; i < cursor; i++)
+X			fputc (gl_buf[i], stdout);
+X	}
+X	fflush (stdout);
+X	gl_pos = cursor;
+X}
+X	
+X/*
+X * default tab handler, acts like tabstops every TABSIZE cols
+X */
+X
+X#if __STDC__
+Xstatic int gl_tab (char *buf, int offset, int *loc)
+X#else
+Xstatic int gl_tab (buf, offset, loc)
+X	char *buf;
+X	int offset;
+X	int *loc;
+X#endif
+X{
+X	int i, count, len;
+X	
+X	len = strlen (buf);
+X	count = TABSIZE - (offset + *loc) % TABSIZE;
+X	for (i=len; i >= *loc; i--)
+X		buf[i+count] = buf[i];
+X	for (i=0; i < count; i++)
+X		buf[*loc+i] = ' ';
+X	i = *loc;
+X	*loc = i + count;
+X	return i;
+X}
+X
+X/*
+X * History functions
+X */
+X
+Xstatic void hist_init ()
+X{
+X	int i;
+X	
+X	for (i=0; i < HIST_SIZE; i++)
+X		hist_buf[i] = (char *) 0;
+X}
+X
+X
+Xstatic void hist_add ()
+X{
+X	char *p = gl_buf;
+X
+X	while (*p == ' ' || *p == '\t')	/* only save nonblank line */
+X		p++;
+X	if (*p) {
+X		hist_buf[hist_last] = str_dup (gl_buf);
+X		hist_last = (hist_last + 1) % HIST_SIZE;
+X		if (hist_buf[hist_last]) {	/* erase next location */
+X			free(hist_buf[hist_last]);
+X			hist_buf[hist_last] = (char *) 0;
+X		}
+X	}
+X	hist_pos = hist_last;
+X}
+X
+X/*
+X * loads previous hist entry into input buffer, sticks on first
+X */
+X 
+Xstatic void hist_prev ()
+X{
+X	int   next;
+X
+X	next = (hist_pos - 1 + HIST_SIZE) % HIST_SIZE;
+X	if (next != hist_last) {
+X		if (hist_buf[next]) {
+X			hist_pos = next;
+X			strcpy (gl_buf, hist_buf[hist_pos]);
+X		} else {
+X			ring_bell ();
+X		}
+X	} else {
+X		ring_bell ();
+X	}
+X	if (gl_in_hook)
+X		gl_in_hook (gl_buf);
+X	gl_fixup (0, BUF_SIZE);
+X}
+X
+X/*
+X * loads next hist entry into input buffer, clears on last
+X */
+X 
+Xstatic void hist_next ()
+X{
+X	if (hist_pos != hist_last) {
+X		hist_pos = (hist_pos + 1) % HIST_SIZE;
+X		if (hist_buf[hist_pos]) {
+X			strcpy (gl_buf, hist_buf[hist_pos]);
+X		} else {
+X			gl_buf[0] = 0;
+X		}
+X	} else {
+X		ring_bell ();
+X	}
+X	if (gl_in_hook) 
+X		gl_in_hook (gl_buf);
+X	gl_fixup (0, BUF_SIZE);
+X}
+END_OF_FILE
+  if test 11458 -ne `wc -c <'getline.c'`; then
+    echo shar: \"'getline.c'\" unpacked with wrong size!
+  fi
+  # end of 'getline.c'
+fi
+if test -f 'memory.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'memory.c'\"
+else
+  echo shar: Extracting \"'memory.c'\" \(7630 characters\)
+  sed "s/^X//" >'memory.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : memory.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 15-05-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xint *my_group;					/* .newsrc --> active[] */
+Xint *unread;					/* highest art read in group */
+Xlong *base;
+Xstruct group_t *active;			/* active file */
+Xstruct article_t *arts;
+X
+X/*
+X *  Dynamic table management
+X *  These settings are memory conservative:  small initial allocations
+X *  and a 50% expansion on table overflow.  A fast vm system with
+X *  much memory might want to start with higher initial allocations
+X *  and a 100% expansion on overflow, especially for the arts[] array.
+X */
+X
+Xvoid init_alloc ()
+X{
+X	max_active = DEFAULT_ACTIVE_NUM;
+X	max_art = DEFAULT_ARTICLE_NUM;
+X
+X	active = (struct group_t *) my_malloc ((unsigned) sizeof(*active) * max_active);
+X	my_group = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X	unread = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X
+X	arts = (struct article_t *) my_malloc ((unsigned) sizeof(*arts) * max_art);
+X	base = (long *) my_malloc ((unsigned) sizeof(long) * max_art);
+X
+X	max_kill = DEFAULT_KILL_NUM;
+X	
+X	killf = (struct kill_t *) my_malloc ((unsigned) sizeof(*killf) * max_kill);
+X
+X	max_save = DEFAULT_SAVE_NUM;
+X	
+X	save = (struct save_t *) my_malloc ((unsigned) sizeof(*save) * max_save);
+X
+X	screen = (struct screen_t *) 0;
+X}
+X
+X
+Xvoid expand_art()
+X{
+X	max_art += max_art / 2;		/* increase by 50% */
+X
+X	arts = (struct article_t *) my_realloc ((char *) arts, (unsigned) sizeof(*arts) * max_art);
+X	base = (long *) my_realloc ((char *) base, (unsigned) sizeof(long) * max_art);
+X}
+X
+X
+Xvoid expand_active()
+X{
+X	max_active += max_active / 2;		/* increase by 50% */
+X
+X	if (active == (struct group_t *) 0) {
+X		active = (struct group_t *) my_malloc ((unsigned) sizeof(*active) * max_active);
+X		my_group = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X		unread = (int *) my_malloc ((unsigned) sizeof(int) * max_active);
+X	} else {
+X		active = (struct group_t *) my_realloc((char *) active,
+X				 (unsigned) sizeof(*active) * max_active);
+X		my_group = (int *) my_realloc((char *) my_group, (unsigned) sizeof(int) * max_active);
+X		unread = (int *) my_realloc((char *) unread, (unsigned) sizeof(int) * max_active);
+X	}
+X}
+X
+X
+Xvoid expand_kill()
+X{
+X	max_kill += max_kill / 2;		/* increase by 50% */
+X
+X	killf = (struct kill_t *) my_realloc((char *) killf, (unsigned) sizeof(struct kill_t) * max_kill);
+X}
+X
+X
+Xvoid expand_save()
+X{
+X	max_save += max_save / 2;		/* increase by 50% */
+X
+X	save = (struct save_t *) my_realloc((char *) save, (unsigned) sizeof(struct save_t) * max_save);
+X}
+X
+X
+Xvoid init_screen_array (allocate)
+X	int allocate;
+X{
+X	int i;
+X
+X	if (allocate) {
+X		screen = (struct screen_t *) my_malloc(
+X			(unsigned) sizeof(struct screen_t) * LINES+1);
+X
+X		for (i=0 ; i < LINES ; i++) {
+X			screen[i].col = (char *) my_malloc ((unsigned) COLS+2);
+X		}
+X	} else {
+X		if (screen != (struct screen_t *) 0) {
+X			for (i=0 ; i < LINES ; i++) {
+X				if (screen[i].col != (char *) 0) {
+X					free ((char *) screen[i].col);
+X					screen[i].col = (char *) 0;
+X				}
+X			}	
+X
+X			free ((char *) screen);
+X			screen = (struct screen_t *) 0;
+X		}
+X	}
+X}
+X
+X
+Xvoid free_all_arrays ()
+X{
+X	hash_reclaim ();
+X	
+X	init_screen_array (FALSE);
+X
+X	free_art_array ();
+X
+X	if (arts != (struct article_t *) 0) {
+X		free ((char *) arts);
+X		arts = (struct article_t *) 0;
+X	}
+X
+X	free_active_arrays ();
+X
+X	if (base != (long *) 0) {
+X		free ((char *) base);
+X		base = (long *) 0;
+X	}
+X
+X	if (killf != (struct kill_t *) 0) {
+X		free_kill_array ();
+X		if (killf != (struct kill_t *) 0) {
+X			free ((char *) killf);
+X			killf = (struct kill_t *) 0;
+X		}
+X	}
+X
+X	if (save != (struct save_t *) 0) {
+X		free_save_array ();
+X		if (save != (struct save_t *) 0) {
+X			free ((char *) save);
+X			save = (struct save_t *) 0;
+X		}
+X	}
+X}
+X
+X
+Xvoid free_art_array ()
+X{
+X	register int i;
+X
+X	for (i=0 ; i < top ; i++) {
+X		arts[i].artnum = 0L;
+X		arts[i].thread = ART_EXPIRED;
+X		arts[i].inthread = FALSE;
+X		arts[i].unread = ART_UNREAD;
+X		arts[i].killed = FALSE;
+X		arts[i].tagged = FALSE;
+X		arts[i].hot = FALSE;
+X		arts[i].date[0] = '\0';
+X		if (arts[i].part != (char *) 0) {
+X			free ((char *) arts[i].part);
+X			arts[i].part = (char *) 0;
+X		}
+X		if (arts[i].patch != (char *) 0) {
+X			free ((char *) arts[i].patch);
+X			arts[i].patch = (char *) 0;
+X		}
+X	}
+X}
+X
+X
+Xvoid free_active_arrays ()
+X{
+X	register int i;
+X	
+X	if (my_group != (int *) 0) {			/* my_group[] */
+X		free ((char *) my_group);
+X		my_group = (int *) 0;
+X	}
+X
+X	if (unread != (int *) 0) {				/* unread[] */
+X		free ((char *) unread);
+X		unread = (int *) 0;
+X	}
+X
+X	if (active != (struct group_t *) 0) {	/* active[] */
+X		for (i=0 ; i < num_active ; i++) {
+X			if (active[i].name != (char *) 0) {
+X				free ((char *) active[i].name);
+X				active[i].name = (char *) 0;
+X			}
+X			if (active[i].attribute.server != (char *) 0) {
+X				free ((char *) active[i].attribute.server);
+X				active[i].attribute.server = (char *) 0;
+X			}
+X			if (active[i].attribute.maildir != (char *) 0 ||
+X			    active[i].attribute.maildir != default_maildir) {
+X				free ((char *) active[i].attribute.maildir);
+X				active[i].attribute.maildir = (char *) 0;
+X			}
+X			if (active[i].attribute.savedir != (char *) 0 ||
+X			    active[i].attribute.savedir != default_savedir) {
+X				free ((char *) active[i].attribute.savedir);
+X				active[i].attribute.savedir = (char *) 0;
+X			}
+X			if (active[i].attribute.sigfile != (char *) 0 ||
+X			    active[i].attribute.sigfile != default_sigfile) {
+X				free ((char *) active[i].attribute.sigfile);
+X				active[i].attribute.sigfile = (char *) 0;
+X			}
+X		}
+X		if (active != (struct group_t *) 0) {
+X			free ((char *) active);
+X			active = (struct group_t *) 0;
+X		}
+X	}
+X}
+X
+X
+Xvoid free_kill_array ()
+X{
+X	int i;
+X	
+X	for (i=0 ; i < kill_num ; i++) {
+X		if (killf[i].kill_subj != (char *) 0) {
+X			free ((char *) killf[i].kill_subj);
+X			killf[i].kill_subj = (char *) 0;
+X		}
+X		if (killf[i].kill_from != (char *) 0) {
+X			free ((char *) killf[i].kill_from);
+X			killf[i].kill_from = (char *) 0;
+X		}
+X	}
+X}
+X
+X
+X/*
+X *  reset save list array to 0 and free's all its allocated memory
+X */
+X 
+Xvoid free_save_array ()
+X{
+X	int i;
+X	
+X	for (i=0 ; i < save_num ; i++) {
+X		if (save[i].subject != (char *) 0) {
+X			free ((char *) save[i].subject);
+X			save[i].subject = (char *) 0;
+X		}
+X		if (save[i].archive != (char *) 0) {
+X			free ((char *) save[i].archive);
+X			save[i].archive = (char *) 0;
+X		}
+X		if (save[i].dir != (char *) 0) {
+X			free ((char *) save[i].dir);
+X			save[i].dir = (char *) 0;
+X		}
+X		if (save[i].file != (char *) 0) {
+X			free ((char *) save[i].file);
+X			save[i].file = (char *) 0;
+X		}
+X		if (save[i].part != (char *) 0) {
+X			free ((char *) save[i].part);
+X			save[i].part = (char *) 0;
+X		}
+X		if (save[i].patch != (char *) 0) {
+X			free ((char *) save[i].patch);
+X			save[i].patch = (char *) 0;
+X		}
+X		save[i].index   = -1;
+X		save[i].saved   = FALSE;
+X		save[i].is_mailbox = FALSE;
+X	}
+X	
+X	save_num = 0;
+X}
+X
+X
+Xchar *my_malloc (size)
+X	unsigned size;
+X{
+X	char *p;
+X
+X	if ((p = (char *) calloc (1, (int) size)) == NULL) {
+X		error_message (txt_out_of_memory, progname);
+X		tin_done (1);
+X	}
+X	return p;
+X}
+X
+X
+Xchar *my_realloc (p, size)
+X	char *p;
+X	unsigned size;
+X{
+X	if (! p) {
+X		p = (char *) calloc (1, (int) size);
+X	} else {
+X		p = (char *) realloc (p, (int) size);
+X	}
+X
+X	if (! p) {
+X		error_message (txt_out_of_memory, progname);
+X		tin_done (1);
+X	}
+X	return p;
+X}
+END_OF_FILE
+  if test 7630 -ne `wc -c <'memory.c'`; then
+    echo shar: \"'memory.c'\" unpacked with wrong size!
+  fi
+  # end of 'memory.c'
+fi
+if test -f 'nntplib.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nntplib.h'\"
+else
+  echo shar: Extracting \"'nntplib.h'\" \(4658 characters\)
+  sed "s/^X//" >'nntplib.h' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : nntplib.h
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 10-05-92
+X *  Notes     : nntp.h 1.5.11/1.6 with extensions for tin & CD-ROM
+X *  Copyright : You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#ifndef	NNTP_SERVER_FILE
+X#	define	NNTP_SERVER_FILE	"/etc/nntpserver"
+X#endif
+X
+X/*
+X *  External routine declarations
+X */
+X
+Xextern char *getserverbyfile();
+Xextern int server_init();
+Xextern int get_tcp_socket();
+Xextern int handle_server_response();
+Xextern void put_server();
+Xextern int get_server();
+Xextern void close_server();
+X
+X/*
+X *  External file descriptors for the server connection
+X */
+X
+Xextern FILE *ser_wr_fp;
+X
+X/*
+X * Response codes for NNTP server
+X *
+X * @(#)Header: nntp.h,v 1.81 92/03/12 02:08:31 sob Exp $
+X *
+X * First digit:
+X *
+X *	1xx	Informative message
+X *	2xx	Command ok
+X *	3xx	Command ok so far, continue
+X *	4xx	Command was correct, but couldn't be performed
+X *		for some specified reason.
+X *	5xx	Command unimplemented, incorrect, or a
+X *		program error has occured.
+X *
+X * Second digit:
+X *
+X *	x0x	Connection, setup, miscellaneous
+X *	x1x	Newsgroup selection
+X *	x2x	Article selection
+X *	x3x	Distribution
+X *	x4x	Posting
+X */
+X
+X#define	CHAR_INF	'1'
+X#define	CHAR_OK		'2'
+X#define	CHAR_CONT	'3'
+X#define	CHAR_ERR	'4'
+X#define	CHAR_FATAL	'5'
+X
+X#define	INF_HELP		100	/* Help text on way */
+X#define	INF_AUTH		180	/* Authorization capabilities */
+X#define	INF_DEBUG		199	/* Debug output */
+X
+X#define	OK_CANPOST		200	/* Hello; you can post */
+X#define	OK_NOPOST		201	/* Hello; you can't post */
+X#define	OK_SLAVE		202	/* Slave status noted */
+X#define	OK_GOODBYE		205	/* Closing connection */
+X#define	OK_GROUP		211	/* Group selected */
+X#define	OK_GROUPS		215	/* Newsgroups follow */
+X
+X#define OK_XINDEX		218	/* Tin index follows */
+X
+X#define	OK_ARTICLE		220	/* Article (head & body) follows */
+X#define	OK_HEAD			221	/* Head follows */
+X#define	OK_BODY			222	/* Body follows */
+X#define	OK_NOTEXT		223	/* No text sent -- stat, next, last */
+X#define	OK_NEWNEWS		230	/* New articles by message-id follow */
+X#define	OK_NEWGROUPS		231	/* New newsgroups follow */
+X#define	OK_XFERED		235	/* Article transferred successfully */
+X#define	OK_POSTED		240	/* Article posted successfully */
+X#define	OK_AUTHSYS		280	/* Authorization system ok */
+X#define	OK_AUTH			281	/* Authorization (user/pass) ok */
+X#define OK_BIN			282	/* binary data follows */
+X#define OK_SPLIST		283	/* spooldir list follows */
+X#define OK_SPSWITCH		284	/* Switching to a different spooldir */
+X#define OK_SPNOCHANGE		285	/* Still using same spooldir */
+X#define OK_SPLDIRCUR		286	/* Current spooldir */
+X#define OK_SPLDIRAVL		287	/* Available spooldir */
+X#define OK_SPLDIRERR		288	/* Unavailable spooldir or invalid entry */
+X
+X#define CONT_XFER		335	/* Continue to send article */
+X#define	CONT_POST		340	/* Continue to post article */
+X#define	NEED_AUTHINFO		380	/* authorization is required */
+X#define	NEED_AUTHDATA		381	/* <type> authorization data required */
+X
+X#define	ERR_GOODBYE		400	/* Have to hang up for some reason */
+X#define	ERR_NOGROUP		411	/* No such newsgroup */
+X#define	ERR_NCING		412	/* Not currently in newsgroup */
+X
+X#define ERR_XINDEX		418	/* No tin index for this group */
+X
+X#define	ERR_NOCRNT		420	/* No current article selected */
+X#define	ERR_NONEXT		421	/* No next article in this group */
+X#define	ERR_NOPREV		422	/* No previous article in this group */
+X#define	ERR_NOARTIG		423	/* No such article in this group */
+X#define ERR_NOART		430	/* No such article at all */
+X#define ERR_GOTIT		435	/* Already got that article, don't send */
+X#define ERR_XFERFAIL		436	/* Transfer failed */
+X#define	ERR_XFERRJCT		437	/* Article rejected, don't resend */
+X#define	ERR_NOPOST		440	/* Posting not allowed */
+X#define	ERR_POSTFAIL		441	/* Posting failed */
+X#define	ERR_NOAUTH		480	/* authorization required for command */
+X#define	ERR_AUTHSYS		481	/* Authorization system invalid */
+X#define	ERR_AUTHREJ		482	/* Authorization data rejected */
+X#define ERR_INVALIAS		483	/* Invalid alias on spooldir cmd */
+X#define ERR_INVNOSPDIR		484	/* No spooldir file found */
+X
+X#define	ERR_COMMAND		500	/* Command not recognized */
+X#define	ERR_CMDSYN		501	/* Command syntax error */
+X#define	ERR_ACCESS		502	/* Access to server denied */
+X#define ERR_FAULT		503	/* Program fault, command not performed */
+X#define	ERR_AUTHBAD		580	/* Authorization Failed */
+X	
+X/*
+X * RFC 977 defines this; don't change it.
+X */
+X
+X#define	NNTP_STRLEN		512
+X
+END_OF_FILE
+  if test 4658 -ne `wc -c <'nntplib.h'`; then
+    echo shar: \"'nntplib.h'\" unpacked with wrong size!
+  fi
+  # end of 'nntplib.h'
+fi
+if test -f 'signal.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'signal.c'\"
+else
+  echo shar: Extracting \"'signal.c'\" \(8395 characters\)
+  sed "s/^X//" >'signal.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : signal.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 11-05-92
+X *  Notes     : signal handlers for different modes and window resizing
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xextern char *glob_art_group;
+Xextern char *glob_group;
+Xextern char *glob_page_group;
+Xextern int glob_respnum;
+Xextern int reread_active_file;
+X
+X#ifdef SIGTSTP
+Xint do_sigtstp = 0;
+X#endif
+X
+X
+X#ifdef POSIX_JOB_CONTROL
+X
+X/*
+X * for POSIX systems we know SIGTYPE  is void 
+X */
+X 
+Xvoid (*sigdisp(sig, func))()
+X	int sig;
+X	void (*func)();
+X{
+X	struct sigaction sa, osa;
+X
+X	sa.sa_handler = func;
+X	sigemptyset (&sa.sa_mask);
+X	sa.sa_flags = 0;
+X#ifdef SA_RESTART
+X	sa.sa_flags |= SA_RESTART;
+X#endif
+X	if (sigaction (sig, &sa, &osa) < 0) {
+X		return ((void (*)(int))(-1));
+X	}
+X	return (osa.sa_handler);
+X}
+X
+X#else
+X
+Xsigtype_t (*sigdisp(sig, func))()
+X	int sig;
+X	sigtype_t (*func)();
+X{
+X	return (signal (sig, func));
+X}
+X
+X#endif
+X
+Xvoid set_signal_handlers ()
+X{
+X	signal (SIGINT, signal_handler);	/* ctrl-C */
+X	signal (SIGQUIT, signal_handler);	/* ctrl-\ */
+X	signal (SIGILL, signal_handler);
+X	signal (SIGBUS, signal_handler);
+X	signal (SIGSEGV, signal_handler);
+X	signal (SIGPIPE, SIG_IGN);
+X
+X#ifdef SIGWINCH
+X	if (debug == 2) {
+X		wait_message ("SIGWINCH setting signal...");
+X		sleep (2);
+X	}
+X	signal (SIGWINCH, main_resize);
+X#endif
+X
+X#if defined(SIGTSTP) && ! defined(MINIX)
+X	{
+X		sigtype_t (*ptr)();
+X		ptr = signal (SIGTSTP, SIG_DFL);
+X		signal (SIGTSTP, ptr);
+X		if (ptr != SIG_IGN) {
+X			/*
+X			 *  SIGTSTP is ignored when starting from shells
+X			 *  without job-control
+X			 */
+X			do_sigtstp = 1; 
+X			signal (SIGTSTP, main_suspend);
+X		}
+X	}
+X#endif
+X}
+X
+X
+Xvoid set_alarm_signal ()
+X{
+X#ifndef NO_RESYNC_ACTIVE_FILE
+X	/*
+X	 * Only reread active file if news is not static (ie. CD-ROM)
+X	 */
+X	if (strcmp (spooldir_alias, "news") == 0) {
+X		signal (SIGALRM, signal_handler);
+X		alarm (RESYNC_ACTIVE_SECS);
+X	}	
+X	reread_active_file = FALSE;
+X#endif
+X}
+X
+X
+Xvoid signal_handler (sig)
+X	int sig;
+X{
+X	char *sigtext;
+X
+X	switch (sig) {
+X		case SIGINT:
+X			if (update) {
+X				sigtext = "SIGINT ";
+X			} else {
+X				signal (SIGINT, signal_handler);
+X				return;
+X			}
+X			break;
+X		case SIGQUIT:
+X			sigtext = "SIGQUIT ";
+X			break;
+X		case SIGBUS:
+X			sigtext = "SIGBUS ";
+X			break;
+X		case SIGSEGV:
+X			sigtext = "SIGSEGV ";
+X			break;
+X#ifndef NO_RESYNC_ACTIVE_FILE
+X		case SIGALRM:
+X			set_alarm_signal ();
+X			reread_active_file = TRUE;
+X			return;
+X#endif
+X		default:
+X			sigtext = "";
+X			break;
+X	}
+X	Raw (FALSE);
+X	EndWin ();
+X	fprintf (stderr, "\n%s: signal handler caught signal %s(%d).\n",
+X		progname, sigtext, sig);
+X	if (sig != SIGINT && sig != SIGQUIT) {
+X		fprintf (stderr, "%s: send a bug report to %s\n",
+X			progname, BUG_REPORT_ADDRESS);
+X	}
+X	fflush (stderr);
+X	exit (1);
+X}
+X
+X
+Xvoid set_win_size (num_lines, num_cols)
+X	int *num_lines;
+X	int *num_cols;
+X{
+X#ifdef TIOCGSIZE
+X	struct ttysize win;
+X#else
+X#  ifdef TIOCGWINSZ
+X	struct winsize win;
+X#  endif
+X#endif
+X
+X	init_screen_array (FALSE);		/* deallocate screen array */
+X
+X#ifdef TIOCGSIZE
+X	if (ioctl (0, TIOCGSIZE, &win) == 0) {
+X		if (win.ts_lines != 0) {
+X			*num_lines = win.ts_lines - 1;
+X		}
+X		if (win.ts_cols != 0) {
+X			*num_cols = win.ts_cols;
+X		}
+X	}
+X#else
+X#  ifdef TIOCGWINSZ
+X	if (ioctl (0, TIOCGWINSZ, &win) == 0) {
+X		if (win.ws_row != 0) {
+X			*num_lines = win.ws_row - 1;
+X		}
+X		if (win.ws_col != 0) {
+X			*num_cols = win.ws_col;
+X		}
+X	}
+X#  endif
+X#endif
+X
+X	init_screen_array (TRUE);		/* allocate screen array for resize */
+X
+X	set_subj_from_size (*num_cols);
+X	
+X	RIGHT_POS = *num_cols - 20;
+X	MORE_POS  = *num_cols - 15;
+X	NOTESLINES = *num_lines - INDEX_TOP - 1;
+X	if (NOTESLINES <= 0) {
+X		NOTESLINES = 1;
+X	}
+X}
+X
+X
+Xvoid set_signals_art ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, art_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, art_resize);
+X#endif
+X}
+X
+X
+Xvoid set_signals_group ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, group_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, group_resize);
+X#endif
+X}
+X
+X
+Xvoid set_signals_page ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, page_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, page_resize);
+X#endif
+X}
+X
+X
+Xvoid set_signals_select ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, select_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, select_resize);
+X#endif
+X}
+X
+X
+Xvoid set_signals_spooldir ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, spooldir_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, spooldir_resize);
+X#endif
+X}
+X
+X
+Xvoid set_signals_thread ()
+X{
+X#ifdef SIGTSTP
+X	if (do_sigtstp) {
+X		sigdisp (SIGTSTP, thread_suspend);
+X	}
+X#endif
+X
+X#ifdef SIGWINCH
+X	signal (SIGWINCH, thread_resize);
+X#endif
+X}
+X
+X
+X#ifdef SIGTSTP
+X
+X/* ARGSUSED0 */
+Xvoid art_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, art_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X		art_resize (0);		
+X	}
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid main_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, main_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X		main_resize (0);		
+X	}
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid select_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, select_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X
+X	select_resize (0);
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid spooldir_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, spooldir_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X
+X	spooldir_resize (0);
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid group_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, group_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X
+X	group_resize (0);		
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid page_suspend (sig)
+X	int sig;
+X{
+X
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, page_suspend);
+X
+X	mail_setup ();
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X
+X	page_resize (0);		
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid thread_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, thread_suspend);
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X	
+X	thread_resize (0);		
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid rcfile_suspend (sig)
+X	int sig;
+X{
+X	Raw (FALSE);
+X	wait_message (txt_suspended_message);
+X
+X	kill (0, SIGSTOP);
+X
+X	sigdisp (SIGTSTP, rcfile_suspend);
+X
+X	Raw (TRUE);
+X	show_rcfile_menu ();	
+X}
+X
+X#endif /* SIGTSTP */	
+X
+X
+X/* ARGSUSED0 */
+Xvoid art_resize (sig)
+X	int sig;
+X{
+X	char buf[LEN];
+X
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, art_resize);
+X#endif
+X	mail_setup ();
+X	ClearScreen ();
+X	sprintf (buf, txt_group, glob_art_group);
+X	wait_message (buf);
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid main_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, main_resize);
+X#endif
+X	mail_setup ();
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid select_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, select_resize);
+X#endif
+X	
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+X#endif
+X	mail_setup ();
+X	group_selection_page ();
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid spooldir_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, spooldir_resize);
+X#endif
+X	
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+X#endif
+X	mail_setup ();
+X	show_spooldir_page ();
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid group_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, group_resize);
+X#endif
+X	
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+X#endif
+X	mail_setup ();
+X	show_group_page (glob_group);
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid page_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, page_resize);
+X#endif
+X	
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+X#endif
+X	redraw_page (glob_respnum, glob_page_group);
+X}
+X
+X
+X/* ARGSUSED0 */
+Xvoid thread_resize (sig)
+X	int sig;
+X{
+X#ifdef SIGWINCH
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, thread_resize);
+X#endif
+X	
+X#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+X#endif
+X	mail_setup ();
+X	show_thread_page ();
+X}
+END_OF_FILE
+  if test 8395 -ne `wc -c <'signal.c'`; then
+    echo shar: \"'signal.c'\" unpacked with wrong size!
+  fi
+  # end of 'signal.c'
+fi
+echo shar: End of archive 13 \(of 14\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2036 @@
+Newsgroups: comp.sources.misc
+From: durian@advtech.uswest.com (Mike Durian)
+Subject: v37i049:  xdrum - create and edit drum patterns, Part02/02
+Message-ID: <1993May11.173934.1077@sparky.imd.sterling.com>
+X-Md4-Signature: 71dcda33937d43cd59ffa4aaa107a58b
+Date: Tue, 11 May 1993 17:39:34 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: durian@advtech.uswest.com (Mike Durian)
+Posting-number: Volume 37, Issue 49
+Archive-name: xdrum/part02
+Environment: X11, tcl, tk, tclm, BSD/386, Esix SysV, SunOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  xdrum-1.0/tkmGrid.c
+# Wrapped by durian@angeleys on Fri May  7 13:06:26 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xdrum-1.0/tkmGrid.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdrum-1.0/tkmGrid.c'\"
+else
+echo shar: Extracting \"'xdrum-1.0/tkmGrid.c'\" \(54953 characters\)
+sed "s/^X//" >'xdrum-1.0/tkmGrid.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by Michael B. Durian.
+X * 4. The name of the the Author may be used to endorse or promote 
+X *    products derived from this software without specific prior written 
+X *    permission.
+X *
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*
+X * tkmGrid.c,v 1.8 1993/05/07 17:51:22 durian Exp
+X */
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include "tk.h"
+X#include "tkm.h"
+X
+static char cvsid[] = "tkmGrid.c,v 1.8 1993/05/07 17:51:22 durian Exp";
+X
+X
+X/* the volumes of each quanta for a voice */
+typedef struct {
+X	short *volume;
+X} Voice;
+X
+X/* All the data a poor grid widget could ever want */
+typedef struct {
+X	Tk_Window tkwin;
+X	Display *display;
+X	Tcl_Interp *interp;
+X
+X	/* information about the grid */
+X	char **labels;
+X	char *labelStr;
+X	char *pitchStr;
+X	int *pitches;
+X	int numLabels;
+X	int levels;
+X	int oldLevels; /* so we know how many to free on reconfig */
+X	int beats;
+X	int measures;
+X	int quantization;
+X
+X	/* information on how to display the grid */
+X	Tk_3DBorder normalBorder;
+X	int borderWidth;
+X	int relief;
+X	XFontStruct *font;
+X	XColor *lineColor;
+X	XColor *measureColor;
+X	XColor *beatColor;
+X	XColor *fgColor;
+X	Tk_3DBorder *levelsBorder;
+X	GC textGC;
+X	GC lineGC;
+X	GC measureGC;
+X	GC beatGC;
+X	GC *vertLineColors;
+X	XSegment *vertLinePos;
+X	GC *horizLineColors;
+X	XSegment *horizLinePos;
+X	int boxWid;
+X	int boxHt;
+X	int totalBoxWid;
+X	int totalBoxHt;
+X	int lineThickness;
+X	int labelWidth;
+X	int padX;
+X	Voice *voices;
+X	int numHits;
+X	int *leftBearings;
+X	int *rightBearings;
+X	int width;
+X	int height;
+X	int resizedWidth;
+X	int resizedHeight;
+X
+X	/* for scrolling */
+X	int leftHit;
+X	int rightHit;
+X	int topLabel;
+X	int bottomLabel;
+X	char *xScrollCmd;
+X	char *yScrollCmd;
+X
+X	/* misc */
+X	Cursor cursor;
+X	int flags;
+X} DrumGrid;
+X
+static char *className = "DrumGrid";
+X
+X/* possible values for the flags variable */
+X#define REDRAW_PENDING (1 << 0)
+X#define UPDATE_XSCROLL (1 << 1)
+X#define UPDATE_YSCROLL (1 << 2)
+X
+X/* how to parse configuration specs */
+static Tk_ConfigSpec configSpecs[] = {
+X	{TK_CONFIG_COLOR, "-foreground",  "foreground", "Background",
+X	    DEF_GRID_FG_COLOR, Tk_Offset(DrumGrid, fgColor),
+X	    TK_CONFIG_COLOR_ONLY},
+X	{TK_CONFIG_COLOR, "-foreground",  "foreground", "Background",
+X	    DEF_GRID_FG_MONO, Tk_Offset(DrumGrid, fgColor),
+X	    TK_CONFIG_MONO_ONLY},
+X	{TK_CONFIG_SYNONYM, "-fg", "foreground", (char *)NULL,
+X	    (char *)NULL, 0, 0},
+X
+X	{TK_CONFIG_BORDER, "-background",  "background", "Background",
+X	    DEF_GRID_NORMAL_BG_COLOR, Tk_Offset(DrumGrid, normalBorder),
+X	    TK_CONFIG_COLOR_ONLY},
+X	{TK_CONFIG_BORDER, "-background",  "background", "Background",
+X	    DEF_GRID_NORMAL_BG_MONO, Tk_Offset(DrumGrid, normalBorder),
+X	    TK_CONFIG_MONO_ONLY},
+X	{TK_CONFIG_SYNONYM, "-bg", "background", (char *)NULL,
+X	    (char *)NULL, 0, 0},
+X
+X	{TK_CONFIG_PIXELS, "-borderwidth", "borderWidth", "BorderWidth",
+X	    DEF_GRID_BORDER_WIDTH, Tk_Offset(DrumGrid, borderWidth), 0},
+X	{TK_CONFIG_SYNONYM, "-bw", "borderWidth", (char *)NULL,
+X	    (char *)NULL, 0, 0},
+X
+X	{TK_CONFIG_ACTIVE_CURSOR, "-cursor", "cursor", "Cursor",
+X	    DEF_GRID_CURSOR, Tk_Offset(DrumGrid, cursor), TK_CONFIG_NULL_OK},
+X
+X	{TK_CONFIG_FONT, "-font", "font", "Font", DEF_GRID_FONT,
+X	    Tk_Offset(DrumGrid, font), 0},
+X
+X	{TK_CONFIG_INT, "-height", "height", "Height", DEF_GRID_HEIGHT,
+X	    Tk_Offset(DrumGrid, height), 0},
+X
+X	{TK_CONFIG_INT, "-width", "width", "Width", DEF_GRID_WIDTH,
+X	    Tk_Offset(DrumGrid, width), 0},
+X
+X	{TK_CONFIG_RELIEF, "-relief", "relief", "Relief", DEF_GRID_RELIEF,
+X	    Tk_Offset(DrumGrid, relief), 0},
+X
+X	{TK_CONFIG_STRING, "-labels", "labels", "Labels", DEF_GRID_LABELS,
+X	    Tk_Offset(DrumGrid, labelStr), TK_CONFIG_NULL_OK},
+X
+X	{TK_CONFIG_STRING, "-pitches", "pitches", "Pitches", DEF_GRID_PITCHES,
+X	    Tk_Offset(DrumGrid, pitchStr), TK_CONFIG_NULL_OK},
+X
+X	{TK_CONFIG_INT, "-levels", "levels", "Levels", DEF_GRID_LEVELS,
+X	    Tk_Offset(DrumGrid, levels), 0},
+X
+X	{TK_CONFIG_INT, "-beats", "beats", "Beats", DEF_GRID_BEATS,
+X	    Tk_Offset(DrumGrid, beats), 0},
+X
+X	{TK_CONFIG_INT, "-measures", "measures", "Measures", DEF_GRID_MEASURES,
+X	    Tk_Offset(DrumGrid, measures), 0},
+X
+X	{TK_CONFIG_INT, "-quantization", "quantization", "Quantization",
+X	    DEF_GRID_QUANTIZATION, Tk_Offset(DrumGrid, quantization), 0},
+X	{TK_CONFIG_SYNONYM, "-quant", "quantization", (char *)NULL,
+X	    (char *)NULL, 0, 0},
+X
+X	{TK_CONFIG_INT, "-linethickness", "lineThickness", "LineThickness",
+X	    DEF_GRID_LINETHICKNESS, Tk_Offset(DrumGrid, lineThickness), 0},
+X	{TK_CONFIG_SYNONYM, "-lt", "lineThickness", (char *)NULL,
+X	    (char *)NULL, 0, 0},
+X
+X	{TK_CONFIG_INT, "-padx", "padX", "PadX", DEF_GRID_PADX,
+X	    Tk_Offset(DrumGrid, padX), 0},
+X
+X	{TK_CONFIG_INT, "-boxwidth", "boxWidth", "BoxWidth", DEF_GRID_BOXWIDTH,
+X	    Tk_Offset(DrumGrid, boxWid)},
+X	{TK_CONFIG_SYNONYM, "-bw", "boxWidth", (char *)NULL, (char *)NULL, 0,
+X	    0},
+X
+X	{TK_CONFIG_INT, "-boxheight", "boxHeight", "BoxHeight",
+X	    DEF_GRID_BOXHEIGHT, Tk_Offset(DrumGrid, boxHt)},
+X	{TK_CONFIG_SYNONYM, "-bh", "boxHeight", (char *)NULL, (char *)NULL, 0,
+X	    0},
+X
+X	{TK_CONFIG_COLOR, "-linecolor", "lineColor", "LineColor",
+X	    DEF_GRID_LINE_COLOR, Tk_Offset(DrumGrid, lineColor)},
+X	{TK_CONFIG_SYNONYM, "-lc", "lineColor", (char *)NULL, (char *)NULL,
+X	    0, 0},
+X
+X	{TK_CONFIG_COLOR, "-measurecolor", "measureColor", "MeasureColor",
+X	    DEF_GRID_MEASURE_COLOR, Tk_Offset(DrumGrid, measureColor)},
+X	{TK_CONFIG_SYNONYM, "-mc", "measureColor", (char *)NULL, (char *)NULL,
+X	    0, 0},
+X
+X	{TK_CONFIG_COLOR, "-beatcolor", "beatColor", "BeatColor",
+X	    DEF_GRID_BEAT_COLOR, Tk_Offset(DrumGrid, beatColor)},
+X	{TK_CONFIG_SYNONYM, "-bc", "beatColor", (char *)NULL, (char *)NULL,
+X	    0, 0},
+X
+X	{TK_CONFIG_STRING, "-xscrollcommand", "xScrollCommand",
+X	    "ScrollCommand", DEF_GRID_SCROLL_COMMAND, Tk_Offset(DrumGrid,
+X	    xScrollCmd)},
+X	{TK_CONFIG_STRING, "-yscrollcommand", "yScrollCommand",
+X	    "ScrollCommand", DEF_GRID_SCROLL_COMMAND, Tk_Offset(DrumGrid,
+X	    yScrollCmd)},
+X
+X	{TK_CONFIG_END, (char *)NULL, (char *)NULL, (char *)NULL, (char *)NULL,
+X	    0, 0}
+X};
+X
+static char *optString = "configure, down, label add, label remove, \
+label list, pitch get, pitch set, pitch list, up, volume get, volume set, \
+xview, xnearest, yview, ynearest";
+X
+static int AddLabel _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int AllocateGridLines _ANSI_ARGS_((DrumGrid *));
+static void CalculateGridLines _ANSI_ARGS_((DrumGrid *));
+static void ChangeDrumGridLeft _ANSI_ARGS_((DrumGrid *, int));
+static void ChangeDrumGridTop _ANSI_ARGS_((DrumGrid *, int));
+static void ComputeDrumGridGeometry _ANSI_ARGS_((DrumGrid *));
+static int ConfigureDrumGrid _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int,
+X    char **, int));
+static void DecreaseVolume _ANSI_ARGS_((DrumGrid *, int, int));
+static void DestroyDrumGrid  _ANSI_ARGS_((ClientData));
+static void DisplayDrumGrid _ANSI_ARGS_((ClientData));
+static void DrawHit _ANSI_ARGS_((DrumGrid *, Pixmap, int, int, int));
+static void DrawLabels _ANSI_ARGS_((DrumGrid *, Pixmap));
+static void DrumGridEventProc _ANSI_ARGS_((ClientData, XEvent *));
+static int DrumGridWidgetCmd _ANSI_ARGS_((ClientData, Tcl_Interp *, int,
+X    char **));
+static void DrumGridUpdateXScroll _ANSI_ARGS_((DrumGrid *));
+static void DrumGridUpdateYScroll _ANSI_ARGS_((DrumGrid *));
+static void FitSize _ANSI_ARGS_((DrumGrid *));
+static int GetLabels _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int GetPitch _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int GetVolume _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int HitRelief _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **, int));
+static void IncreaseVolume _ANSI_ARGS_((DrumGrid *, int, int));
+static int ListPitches _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static void MakeLabelStr _ANSI_ARGS_((DrumGrid *));
+static void MakePitchStr _ANSI_ARGS_((DrumGrid *));
+static int RemoveLabel _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int SetPitch _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int SetVolume _ANSI_ARGS_((Tcl_Interp *, DrumGrid *, int, char **));
+static int XToGrid _ANSI_ARGS_((DrumGrid *, int));
+static int YToGrid _ANSI_ARGS_((DrumGrid *, int));
+X
+X#ifdef TCL_MEM_DEBUG
+static char *Tclm_DbCkstrdup _ANSI_ARGS_((char *str));
+X#define ckstrdup(str) Tclm_DbCkstrdup(str)
+X#else
+X#define ckstrdup(str) strdup(str)
+X#endif
+X
+int
+Tk_DrumGridCmd(clientData, interp, argc, argv)
+X	ClientData clientData;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	DrumGrid *dgPtr;
+X	Tk_Window tkwin = (Tk_Window) clientData;
+X	Tk_Window new;
+X
+X	if (argc < 2) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    argv[0], " pathName ?options?\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if ((new = Tk_CreateWindowFromPath(interp, tkwin, argv[1],
+X	    (char *)NULL)) == NULL)
+X		return (TCL_ERROR);
+X
+X	if ((dgPtr = (DrumGrid *)ckalloc(sizeof(DrumGrid))) == NULL) {
+X		Tcl_AppendResult(interp, "Out of memory for DrumGrid",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	
+X	dgPtr->tkwin = new;
+X	dgPtr->display = Tk_Display(new);
+X	dgPtr->interp = interp;
+X	dgPtr->labels = NULL;
+X	dgPtr->labelStr = NULL;
+X	dgPtr->pitchStr = NULL;
+X	dgPtr->pitches = NULL;
+X	dgPtr->numLabels = 0;
+X	dgPtr->levels = 0;
+X	dgPtr->oldLevels = 0;
+X	dgPtr->beats = 0;
+X	dgPtr->measures = 0;
+X	dgPtr->quantization = 0;
+X	dgPtr->normalBorder = NULL;
+X	dgPtr->borderWidth = 0;
+X	dgPtr->relief = TK_RELIEF_FLAT;
+X	dgPtr->font = NULL;
+X	dgPtr->lineColor = NULL;
+X	dgPtr->measureColor = NULL;
+X	dgPtr->beatColor = NULL;
+X	dgPtr->levelsBorder = NULL;
+X	dgPtr->fgColor = NULL;
+X	dgPtr->textGC = None;
+X	dgPtr->lineGC = None;
+X	dgPtr->measureGC = None;
+X	dgPtr->beatGC = None;
+X	dgPtr->levelsBorder = NULL;
+X	dgPtr->vertLineColors = NULL;
+X	dgPtr->vertLinePos = NULL;
+X	dgPtr->horizLineColors = NULL;
+X	dgPtr->horizLinePos = NULL;
+X	dgPtr->boxWid = 0;
+X	dgPtr->boxHt = 0;
+X	dgPtr->totalBoxWid = 0;
+X	dgPtr->totalBoxHt = 0;
+X	dgPtr->lineThickness = 0;
+X	dgPtr->labelWidth = 0;
+X	dgPtr->padX = 0;
+X	dgPtr->voices = NULL;
+X	dgPtr->numHits = 0;
+X	dgPtr->leftBearings = NULL;
+X	dgPtr->rightBearings = NULL;
+X	dgPtr->width = 0;
+X	dgPtr->height = 0;
+X	dgPtr->resizedWidth = -1;
+X	dgPtr->resizedHeight = -1;
+X	dgPtr->leftHit = 0;
+X	dgPtr->rightHit = 0;
+X	dgPtr->topLabel = 0;
+X	dgPtr->bottomLabel = 0;
+X	dgPtr->xScrollCmd = NULL;
+X	dgPtr->yScrollCmd = NULL;
+X	dgPtr->cursor = None;
+X	dgPtr->flags = 0;
+X
+X	Tk_SetClass(new, className);
+X
+X	Tk_CreateEventHandler(dgPtr->tkwin, ExposureMask | StructureNotifyMask,
+X	    DrumGridEventProc, (ClientData)dgPtr);
+X
+X	Tcl_CreateCommand(interp, Tk_PathName(dgPtr->tkwin),
+X	    DrumGridWidgetCmd, (ClientData)dgPtr, (void (*)())NULL);
+X
+X	if (ConfigureDrumGrid(interp, dgPtr, argc - 2, argv + 2, 0) !=
+X	    TCL_OK) {
+X		Tk_DestroyWindow(dgPtr->tkwin);
+X		return (TCL_ERROR);
+X	}
+X
+X	interp->result = Tk_PathName(dgPtr->tkwin);
+X	return (TCL_OK);
+X}
+X
+static int
+ConfigureDrumGrid(interp, dgPtr, argc, argv, flags)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X	int flags;
+X{
+X	XGCValues gcValues;
+X	GC newGC;
+X	long background;
+X	char **labels;
+X	char **pitches;
+X	char *chkPtr;
+X	char colorStr[20];
+X	int colorVal;
+X	int i;
+X	int j;
+X	int offset;
+X	int numPitches;
+X
+X	if (Tk_ConfigureWidget(interp, dgPtr->tkwin, configSpecs,
+X	    argc, argv, (char *)dgPtr, flags) != TCL_OK)
+X		return (TCL_ERROR);
+X
+X	/* free anything that might already be here */
+X	if (dgPtr->labels != NULL) {
+X		for (i = 0; i < dgPtr->numLabels; i++)
+X			if (dgPtr->labels[i] != NULL)
+X				ckfree((char *)dgPtr->labels[i]);
+X		ckfree((char *)dgPtr->labels);
+X	}
+X
+X	/* free existing voice data */
+X	if (dgPtr->voices != NULL) {
+X		for (i = 0; i < dgPtr->numLabels; i++)
+X			if (dgPtr->voices[i].volume != NULL)
+X				ckfree(dgPtr->voices[i].volume);
+X		ckfree(dgPtr->voices);
+X		dgPtr->voices = NULL;
+X	}
+X
+X	/* parse out labels string */
+X	if (Tcl_SplitList(interp, dgPtr->labelStr, &dgPtr->numLabels,
+X	    &labels) != TCL_OK)
+X		return (TCL_ERROR);
+X
+X	/* do our own alloction of labels so we can change them easier */
+X	if ((dgPtr->labels = (char **)ckalloc(sizeof(char *) *
+X	    dgPtr->numLabels)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for labels",
+X		    (char *)NULL);
+X		ckfree((char *)labels);
+X		return (TCL_ERROR);
+X	}
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		if ((dgPtr->labels[i] = ckstrdup(labels[i])) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory to ",
+X			   "copy a label", (char *)NULL);
+X			ckfree((char *)labels);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	ckfree((char *)labels);
+X
+X	/* parse out the pitches */
+X	if (dgPtr->pitchStr == NULL)
+X		numPitches = 0;
+X	else {
+X		if (Tcl_SplitList(interp, dgPtr->pitchStr, &numPitches,
+X		    &pitches) != TCL_OK)
+X			return (TCL_ERROR);
+X	}
+X
+X	if (dgPtr->pitches != NULL)
+X		ckfree(dgPtr->pitches);
+X
+X	if ((dgPtr->pitches = (int *)ckalloc(sizeof(int) * dgPtr->numLabels))
+X	    == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for pitch ",
+X		    "values", (char *)NULL);
+X		ckfree((char *)pitches);
+X		return (TCL_ERROR);
+X	}
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		if (i >= numPitches)
+X			dgPtr->pitches[i] = -1;
+X		else {
+X			dgPtr->pitches[i] = (int)strtol(pitches[i], &chkPtr,
+X			    0);
+X			if (chkPtr == pitches[i]) {
+X				Tcl_AppendResult(interp, "Bad pitch value ",
+X				    pitches[i], (char *)NULL);
+X				ckfree((char *)pitches);
+X				return (TCL_ERROR);
+X			}
+X		}
+X	}
+X	ckfree((char *)pitches);
+X
+X	Tk_SetBackgroundFromBorder(dgPtr->tkwin, dgPtr->normalBorder);
+X
+X	background = Tk_3DBorderColor(dgPtr->normalBorder)->pixel;
+X
+X	/* set up text GC */
+X	gcValues.font = dgPtr->font->fid;
+X	gcValues.foreground = dgPtr->fgColor->pixel;
+X	gcValues.background = background;
+X	gcValues.graphics_exposures = False;
+X	newGC = Tk_GetGC(dgPtr->tkwin, GCForeground | GCBackground | GCFont
+X	    | GCGraphicsExposures, &gcValues);
+X	if (dgPtr->textGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->textGC);
+X	dgPtr->textGC = newGC;
+X
+X	/* set up normal line GC */
+X	gcValues.function = GXcopy;
+X	gcValues.foreground = dgPtr->lineColor->pixel;
+X	gcValues.background = background;
+X	gcValues.line_style = LineSolid;
+X	gcValues.line_width = dgPtr->lineThickness;
+X	gcValues.graphics_exposures = False;
+X	newGC = Tk_GetGC(dgPtr->tkwin, GCFunction | GCForeground |
+X	    GCBackground | GCLineStyle | GCLineWidth | GCGraphicsExposures,
+X	    &gcValues);
+X	if (dgPtr->lineGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->lineGC);
+X	dgPtr->lineGC = newGC;
+X
+X	/* set up measure line GC */
+X	gcValues.function = GXcopy;
+X	gcValues.foreground = dgPtr->measureColor->pixel;
+X	gcValues.background = background;
+X	gcValues.line_style = LineSolid;
+X	gcValues.line_width = dgPtr->lineThickness;
+X	gcValues.graphics_exposures = False;
+X	newGC = Tk_GetGC(dgPtr->tkwin, GCFunction | GCForeground |
+X	    GCBackground | GCLineStyle | GCLineWidth | GCGraphicsExposures,
+X	    &gcValues);
+X	if (dgPtr->measureGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->measureGC);
+X	dgPtr->measureGC = newGC;
+X
+X	/* set up beat line GC */
+X	gcValues.function = GXcopy;
+X	gcValues.foreground = dgPtr->beatColor->pixel;
+X	gcValues.background = background;
+X	gcValues.line_style = LineSolid;
+X	gcValues.line_width = dgPtr->lineThickness;
+X	gcValues.graphics_exposures = False;
+X	newGC = Tk_GetGC(dgPtr->tkwin, GCFunction | GCForeground |
+X	    GCBackground | GCLineStyle | GCLineWidth | GCGraphicsExposures,
+X	    &gcValues);
+X	if (dgPtr->beatGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->beatGC);
+X	dgPtr->beatGC = newGC;
+X
+X	if (dgPtr->levelsBorder != NULL) {
+X		for (i = 0; i < dgPtr->oldLevels; i++)
+X			if (dgPtr->levelsBorder[i] != None)
+X				Tk_Free3DBorder(dgPtr->levelsBorder[i]);
+X		ckfree((char *)dgPtr->levelsBorder);
+X	}
+X
+X	if ((dgPtr->levelsBorder = (Tk_3DBorder *)ckalloc(sizeof(Tk_3DBorder)
+X	    * dgPtr->levels)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for level ",
+X		    "Borders's", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X#define LEVEL_MIN 10000
+X	for (i = 0; i < dgPtr->levels; i++) {
+X		colorVal = ((0xffff - LEVEL_MIN) / dgPtr->levels) * i +
+X		    LEVEL_MIN;
+X		sprintf(colorStr, "#%04x%04x%04x", colorVal, colorVal,
+X		    colorVal);
+X
+X		if ((dgPtr->levelsBorder[i] = Tk_Get3DBorder(interp,
+X		    dgPtr->tkwin, None, Tk_GetUid(colorStr))) == NULL) {
+X			Tcl_AppendResult(interp, "Couldn't level Border",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X
+X	dgPtr->oldLevels = dgPtr->levels;
+X
+X	/* fix quantization to be a multiple of 4 */
+X	if ((offset = dgPtr->quantization % 4) < 2)
+X		dgPtr->quantization -= offset;
+X	else
+X		dgPtr->quantization += 4 - offset;
+X
+X	dgPtr->numHits = dgPtr->beats * dgPtr->measures * dgPtr->quantization
+X	    / 4;
+X
+X	/* make the voices */
+X	if (dgPtr->numLabels != 0)
+X	if ((dgPtr->voices = (Voice *)ckalloc(sizeof(Voice) * dgPtr->numLabels))
+X	    == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for voices",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	/* make hits(quanta) inside voices */
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		if ((dgPtr->voices[i].volume = (short *)ckalloc(dgPtr->numHits
+X		     * sizeof(short))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			   "hits in voice", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		for (j = 0; j < dgPtr->numHits; j++)
+X			dgPtr->voices[i].volume[j] = 0;
+X	}
+X
+X	/* decide how the scroll region should look */
+X	dgPtr->leftHit = 0;
+X	dgPtr->topLabel = 0;
+X	if (dgPtr->resizedWidth != -1 && dgPtr->resizedHeight != -1)
+X		FitSize(dgPtr);
+X	else {
+X		if (dgPtr->width == 0)
+X			/* by default do one measure */
+X			dgPtr->rightHit = dgPtr->beats *
+X			    dgPtr->quantization / 4 - 1;
+X		else
+X			dgPtr->rightHit = dgPtr->width - 1;
+X		if (dgPtr->height == 0)
+X			/* by default do them all */
+X			dgPtr->bottomLabel = dgPtr->numLabels - 1;
+X		else
+X			dgPtr->bottomLabel = dgPtr->height - 1;
+X	}
+X
+X	dgPtr->flags |= UPDATE_YSCROLL | UPDATE_XSCROLL;
+X
+X	/* make room for grid lines */
+X	if (AllocateGridLines(dgPtr) != TCL_OK)
+X		return (TCL_ERROR);
+X
+X	/* make room for bearings */
+X	if (dgPtr->leftBearings != NULL)
+X		ckfree(dgPtr->leftBearings);
+X	if ((dgPtr->leftBearings = (int *)ckalloc(sizeof(int) *
+X	    dgPtr->numLabels)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for leftbearings",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (dgPtr->rightBearings != NULL)
+X		ckfree(dgPtr->rightBearings);
+X	if ((dgPtr->rightBearings = (int *)ckalloc(sizeof(int) *
+X	    dgPtr->numLabels)) == NULL) {
+X		Tcl_AppendResult(interp, "Not enough memory for rightbearings",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	/* calculate geometry */
+X	ComputeDrumGridGeometry(dgPtr);
+X
+X	/* display it */
+X	if (Tk_IsMapped(dgPtr->tkwin) && (!dgPtr->flags & REDRAW_PENDING)) {
+X		Tk_DoWhenIdle(DisplayDrumGrid, (ClientData)dgPtr);
+X		dgPtr->flags |= REDRAW_PENDING;
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+static void
+DestroyDrumGrid (clientData)
+X	ClientData clientData;
+X{
+X	DrumGrid *dgPtr = (DrumGrid *)clientData;
+X	int i;
+X
+X	if (dgPtr->labels != NULL) {
+X		for (i = 0; i < dgPtr->numLabels; i++)
+X			if (dgPtr->labels[i] != NULL)
+X				ckfree((char *)dgPtr->labels[i]);
+X		ckfree((char *)dgPtr->labels);
+X	}
+X	if (dgPtr->labelStr != NULL)
+X		ckfree(dgPtr->labelStr);
+X	if (dgPtr->pitches != NULL)
+X		ckfree((char *)dgPtr->pitches);
+X	if (dgPtr->pitchStr != NULL)
+X		ckfree(dgPtr->pitchStr);
+X	if (dgPtr->normalBorder != NULL)
+X		Tk_Free3DBorder(dgPtr->normalBorder);
+X	if (dgPtr->font != NULL)
+X		Tk_FreeFontStruct(dgPtr->font);
+X	if (dgPtr->lineColor != NULL)
+X		Tk_FreeColor(dgPtr->lineColor);
+X	if (dgPtr->measureColor != NULL)
+X		Tk_FreeColor(dgPtr->measureColor);
+X	if (dgPtr->beatColor != NULL)
+X		Tk_FreeColor(dgPtr->beatColor);
+X	if (dgPtr->fgColor != NULL)
+X		Tk_FreeColor(dgPtr->fgColor);
+X	if (dgPtr->textGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->textGC);
+X	if (dgPtr->lineGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->lineGC);
+X	if (dgPtr->measureGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->measureGC);
+X	if (dgPtr->beatGC != None)
+X		Tk_FreeGC(dgPtr->display, dgPtr->beatGC);
+X	if (dgPtr->levelsBorder != NULL) {
+X		for (i = 0; i < dgPtr->oldLevels; i++)
+X			if (dgPtr->levelsBorder[i] != None)
+X				Tk_Free3DBorder(dgPtr->levelsBorder[i]);
+X		ckfree((char *)dgPtr->levelsBorder);
+X	}
+X	if (dgPtr->vertLineColors != NULL)
+X		ckfree((char *)dgPtr->vertLineColors);
+X	if (dgPtr->vertLinePos != NULL)
+X		ckfree((char *)dgPtr->vertLinePos);
+X	if (dgPtr->horizLineColors != NULL)
+X		ckfree((char *)dgPtr->horizLineColors);
+X	if (dgPtr->horizLinePos != NULL)
+X		ckfree((char *)dgPtr->horizLinePos);
+X	if (dgPtr->voices != NULL) {
+X		for (i = 0; i < dgPtr->numLabels; i++)
+X			if (dgPtr->voices[i].volume != NULL)
+X				ckfree((char *)dgPtr->voices[i].volume);
+X		ckfree((char *)dgPtr->voices);
+X	}
+X	if (dgPtr->leftBearings != NULL)
+X		ckfree((char *)dgPtr->leftBearings);
+X	if (dgPtr->rightBearings != NULL)
+X		ckfree((char *)dgPtr->rightBearings);
+X	if (dgPtr->xScrollCmd != NULL)
+X		ckfree(dgPtr->xScrollCmd);
+X	if (dgPtr->yScrollCmd != NULL)
+X		ckfree(dgPtr->yScrollCmd);
+X	if (dgPtr->cursor != None)
+X		Tk_FreeCursor(dgPtr->display, dgPtr->cursor);
+X}
+X
+static void
+DisplayDrumGrid(clientData)
+X	ClientData clientData;
+X{
+X	DrumGrid *dgPtr = (DrumGrid *)clientData;
+X	Tk_Window tkwin = dgPtr->tkwin;
+X	Pixmap pixmap;
+X	Tk_3DBorder border;
+X	int i;
+X	int j;
+X	int x;
+X	int y;
+X
+X	dgPtr->flags &= ~REDRAW_PENDING;
+X	if (dgPtr->flags & UPDATE_XSCROLL)
+X		DrumGridUpdateXScroll(dgPtr);
+X	if (dgPtr->flags & UPDATE_YSCROLL)
+X		DrumGridUpdateYScroll(dgPtr);
+X	dgPtr->flags &= ~(UPDATE_XSCROLL | UPDATE_YSCROLL);
+X	if (tkwin == NULL || !Tk_IsMapped(tkwin))
+X		return;
+X
+X	border = dgPtr->normalBorder;
+X	pixmap = XCreatePixmap(dgPtr->display, Tk_WindowId(tkwin),
+X	    Tk_Width(tkwin), Tk_Height(tkwin),
+X	    DefaultDepthOfScreen(Tk_Screen(tkwin)));
+X	Tk_Fill3DRectangle(dgPtr->display, pixmap, border, 0, 0,
+X	    Tk_Width(tkwin), Tk_Height(tkwin), 0, TK_RELIEF_FLAT);
+X
+X	/* horizontal lines */
+X	for (i = dgPtr->topLabel, j = 0; i <= dgPtr->bottomLabel + 1; i++, j++)
+X		XDrawSegments(dgPtr->display, pixmap,
+X		    dgPtr->horizLineColors[i], &dgPtr->horizLinePos[j], 1);
+X
+X	/* vertical lines */
+X	/* always do line to left of labels */
+X	XDrawSegments(dgPtr->display, pixmap,
+X	    dgPtr->vertLineColors[dgPtr->numHits + 1],
+X	    &dgPtr->vertLinePos[dgPtr->rightHit - dgPtr->leftHit + 2], 1);
+X
+X	for (i = dgPtr->leftHit, j = 0; i <= dgPtr->rightHit + 1; i++, j++)
+X		XDrawSegments(dgPtr->display, pixmap,
+X		    dgPtr->vertLineColors[i], &dgPtr->vertLinePos[j], 1);
+X
+X	DrawLabels(dgPtr, pixmap);
+X
+X	/* draw in hits */
+X	for (x = dgPtr->leftHit; x < dgPtr->rightHit + 1; x++)
+X		for (y = dgPtr->topLabel; y < dgPtr->bottomLabel + 1; y++)
+X			DrawHit(dgPtr, (Pixmap)pixmap, x, y, 0);
+X
+X	/* draw border */
+X	if (dgPtr->relief != TK_RELIEF_FLAT)
+X		Tk_Draw3DRectangle(dgPtr->display, pixmap, border, 0, 0,
+X		    Tk_Width(tkwin), Tk_Height(tkwin), dgPtr->borderWidth,
+X		    dgPtr->relief);
+X
+X	XCopyArea(dgPtr->display, pixmap, Tk_WindowId(tkwin),
+X	    dgPtr->textGC, 0, 0, Tk_Width(tkwin), Tk_Height(tkwin), 0, 0);
+X	XFreePixmap(dgPtr->display, pixmap);
+X}
+X
+static void
+DrawLabels(dgPtr, pixmap)
+X	DrumGrid *dgPtr;
+X	Pixmap pixmap;
+X{
+X	int i;
+X	int top;
+X	int x;
+X	int y;
+X
+X	top = dgPtr->borderWidth;
+X	for (i = dgPtr->topLabel; i < dgPtr->bottomLabel + 1; i++) {
+X		x = dgPtr->borderWidth + dgPtr->padX + dgPtr->leftBearings[i]
+X		    + 1;
+X		y = top + (dgPtr->boxHt + dgPtr->font->ascent -
+X		    dgPtr->font->descent) / 2;
+X		if (dgPtr->relief == TK_RELIEF_RAISED) {
+X			x--;
+X			y--;
+X		} else if (dgPtr->relief == TK_RELIEF_SUNKEN) {
+X			x++;
+X			y++;
+X		}
+X		XDrawString(dgPtr->display, pixmap,
+X		    dgPtr->textGC, x, y, dgPtr->labels[i],
+X		    strlen(dgPtr->labels[i]));
+X		top += dgPtr->boxHt;
+X	}
+X}
+X
+static void
+DrawHit(dgPtr, pixmap, x, y, depressed)
+X	DrumGrid *dgPtr;
+X	Pixmap pixmap;
+X	int x;
+X	int y;
+X	int depressed;
+X{
+X	int x_pos;
+X	int y_pos;
+X	int width;
+X	int height;
+X	int relief;
+X	int volume;
+X
+X	x_pos = dgPtr->labelWidth + dgPtr->borderWidth + (x - dgPtr->leftHit)
+X	    * dgPtr->boxWid + dgPtr->lineThickness / 2;
+X	y_pos = dgPtr->borderWidth + (y - dgPtr->topLabel) * dgPtr->boxHt +
+X	    dgPtr->lineThickness / 2;
+X
+X	width = dgPtr->boxWid - dgPtr->lineThickness;
+X	height = dgPtr->boxHt - dgPtr->lineThickness;
+X	volume = dgPtr->voices[y].volume[x];
+X	if (depressed)
+X		relief = TK_RELIEF_SUNKEN;
+X	else if (volume == 0)
+X		relief = TK_RELIEF_FLAT;
+X	else
+X		relief = TK_RELIEF_RAISED;
+X	Tk_Fill3DRectangle(dgPtr->display, pixmap,
+X	    dgPtr->levelsBorder[volume], x_pos, y_pos, width, height,
+X	    dgPtr->borderWidth, relief);
+X}
+X
+static void
+ComputeDrumGridGeometry(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	XCharStruct bbox;
+X	int foo;
+X	int i;
+X	int width;
+X	int height;
+X	unsigned int labelWidth;
+X
+X	labelWidth = 0;
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		XTextExtents(dgPtr->font, dgPtr->labels[i],
+X		    strlen(dgPtr->labels[i]), &foo, &foo, &foo, &bbox);
+X		dgPtr->leftBearings[i] = bbox.lbearing;
+X		dgPtr->rightBearings[i] = bbox.rbearing;
+X		labelWidth = labelWidth > bbox.lbearing + bbox.rbearing ?
+X		    labelWidth : bbox.lbearing + bbox.rbearing;
+X	}
+X	labelWidth += 2 * dgPtr->padX + 1;
+X	dgPtr->labelWidth = labelWidth;
+X
+X	width = labelWidth + (dgPtr->rightHit - dgPtr->leftHit + 1) *
+X	    dgPtr->boxWid;
+X	height = (dgPtr->bottomLabel - dgPtr->topLabel + 1) * dgPtr->boxHt;
+X
+X	/* set up grid lines */
+X	CalculateGridLines(dgPtr);
+X
+X	Tk_GeometryRequest(dgPtr->tkwin, width + dgPtr->borderWidth * 2 + 2,
+X	    height + dgPtr->borderWidth * 2 + 2);
+X	Tk_SetInternalBorder(dgPtr->tkwin, dgPtr->borderWidth);
+X}
+X
+static void
+CalculateGridLines(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	GC *lineColorPtr;
+X	XSegment *linePosPtr;
+X	int hitsPerMeasure;
+X	int i;
+X
+X	lineColorPtr = dgPtr->vertLineColors;
+X	linePosPtr = dgPtr->vertLinePos;
+X	hitsPerMeasure = dgPtr->beats * dgPtr->quantization / 4;
+X
+X	for (i = 0; i < dgPtr->numHits + 1; i++, lineColorPtr++) {
+X		/* 1st and last lines are normal */
+X		if (i == 0 || i == dgPtr->numHits || i % (dgPtr->quantization
+X		    / 4) != 0)
+X			*lineColorPtr = dgPtr->lineGC;
+X		else if (i % hitsPerMeasure == 0)
+X			*lineColorPtr = dgPtr->measureGC;
+X		else
+X			*lineColorPtr = dgPtr->beatGC;
+X	}
+X	for (i = 0; i <= dgPtr->rightHit - dgPtr->leftHit + 1; i++,
+X	    linePosPtr++) {
+X		linePosPtr->x1 = linePosPtr->x2 = i * dgPtr->boxWid
+X		    + dgPtr->labelWidth + dgPtr->borderWidth;
+X		linePosPtr->y1 = dgPtr->borderWidth;
+X		linePosPtr->y2 = dgPtr->boxHt * (dgPtr->bottomLabel -
+X		    dgPtr->topLabel + 1) + dgPtr->borderWidth;
+X	}
+X
+X	/* line to the left of the labels */
+X	*lineColorPtr = dgPtr->lineGC;
+X	linePosPtr->x1 = linePosPtr->x2 = dgPtr->borderWidth;
+X	linePosPtr->y1 = dgPtr->borderWidth;
+X	linePosPtr->y2 = dgPtr->borderWidth + dgPtr->boxHt *
+X	    (dgPtr->bottomLabel - dgPtr->topLabel + 1);
+X
+X	/* horizontal lines */
+X	lineColorPtr = dgPtr->horizLineColors;
+X	linePosPtr = dgPtr->horizLinePos;
+X	for (i = 0; i < dgPtr->numLabels + 1; i++, lineColorPtr++)
+X		*lineColorPtr = dgPtr->lineGC;
+X
+X	for (i = 0; i <= dgPtr->bottomLabel - dgPtr->topLabel + 1; i++,
+X	    linePosPtr++) {
+X		linePosPtr->x1 = dgPtr->borderWidth;
+X		linePosPtr->x2 = dgPtr->boxWid * (dgPtr->rightHit -
+X		    dgPtr->leftHit + 1) + dgPtr->labelWidth +
+X		    dgPtr->borderWidth;
+X		linePosPtr->y1 = linePosPtr->y2 = i * dgPtr->boxHt
+X		    + dgPtr->borderWidth;
+X	}
+X}
+X
+X
+static void
+DrumGridEventProc(clientData, eventPtr)
+X	ClientData clientData;
+X	XEvent *eventPtr;
+X{
+X	DrumGrid *dgPtr = (DrumGrid *)clientData;
+X	int num_boxes;
+X	int num_labels;
+X
+X	switch (eventPtr->type) {
+X	case Expose:
+X		if (eventPtr->xexpose.count == 0) {
+X			if ((dgPtr->tkwin != NULL) && !(dgPtr->flags &
+X			    REDRAW_PENDING)) {
+X				Tk_DoWhenIdle(DisplayDrumGrid,
+X				    (ClientData)dgPtr);
+X				dgPtr->flags |= REDRAW_PENDING;
+X			}
+X		}
+X		break;
+X	case DestroyNotify:
+X		Tcl_DeleteCommand(dgPtr->interp, Tk_PathName(dgPtr->tkwin));
+X		dgPtr->tkwin = NULL;
+X		if (dgPtr->flags & REDRAW_PENDING)
+X			Tk_CancelIdleCall(DisplayDrumGrid, (ClientData)dgPtr);
+X		Tk_EventuallyFree((ClientData)dgPtr, DestroyDrumGrid);
+X		break;
+X	case ConfigureNotify:
+X		num_boxes = (Tk_Width(dgPtr->tkwin) - 2 -
+X		    2 * dgPtr->borderWidth - dgPtr->labelWidth) /
+X		    dgPtr->boxWid;
+X		num_labels = (Tk_Height(dgPtr->tkwin) - 2 -
+X		    2 * dgPtr->borderWidth) / dgPtr->boxHt;
+X		dgPtr->resizedWidth = num_boxes;
+X		dgPtr->resizedHeight = num_labels;
+X		FitSize(dgPtr);
+X		if (AllocateGridLines(dgPtr) != TCL_OK)
+X			Tk_BackgroundError(dgPtr->interp);
+X		CalculateGridLines(dgPtr);
+X		dgPtr->flags |= UPDATE_XSCROLL | UPDATE_YSCROLL;
+X		break;
+X	}
+X}
+X
+static int
+XXToGrid(dgPtr, x)
+X	DrumGrid *dgPtr;
+X	int x;
+X{
+X	int gridX;
+X
+X	if (x < dgPtr->labelWidth + dgPtr->borderWidth || x > dgPtr->labelWidth
+X	    + (dgPtr->rightHit - dgPtr->leftHit + 1) * dgPtr->boxWid)
+X		return (-1);
+X	gridX = (x - dgPtr->labelWidth - dgPtr->borderWidth) / dgPtr->boxWid;
+X	gridX += dgPtr->leftHit;
+X	return (gridX);
+X}
+X
+static int
+YToGrid(dgPtr, y)
+X	DrumGrid *dgPtr;
+X	int y;
+X{
+X	int gridY;
+X
+X	if (y < dgPtr->borderWidth || y > dgPtr->borderWidth +
+X	    (dgPtr->bottomLabel - dgPtr->topLabel + 1) * dgPtr->boxHt)
+X		return (-1);
+X	gridY = (y - dgPtr->borderWidth) / dgPtr->boxHt;
+X	gridY += dgPtr->topLabel;
+X	return (gridY);
+X}
+X
+X/*
+X * IncreaseVolume and DecreaseVolume are no longer used now that
+X * button bindings are done in the script.
+static void
+IncreaseVolume(dgPtr, x, y)
+X	DrumGrid *dgPtr;
+X	int x;
+X	int y;
+X{
+X
+X	dgPtr->voices[y].volume[x]++;
+X	if (dgPtr->voices[y].volume[x] >= dgPtr->levels)
+X		dgPtr->voices[y].volume[x] = dgPtr->levels - 1;
+X	DrawHit(dgPtr, Tk_WindowId(dgPtr->tkwin), x, y, 0);
+X}
+X
+static void
+DecreaseVolume(dgPtr, x, y)
+X	DrumGrid *dgPtr;
+X	int x;
+X	int y;
+X{
+X
+X	dgPtr->voices[y].volume[x]--;
+X	if (dgPtr->voices[y].volume[x] < 0)
+X		dgPtr->voices[y].volume[x] = 0;
+X	DrawHit(dgPtr, Tk_WindowId(dgPtr->tkwin), x, y, 0);
+X}
+X * end of comment out of IncreaseVolume and DecreaseVolume
+X */
+X
+static int
+DrumGridWidgetCmd(clientData, interp, argc, argv)
+X	ClientData clientData;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	DrumGrid *dgPtr = (DrumGrid *)clientData;
+X	int index;
+X	int result;
+X	int length;
+X	int pos;
+X	char c;
+X
+X	result = TCL_OK;
+X
+X	if (argc < 2) {
+X		Tcl_AppendResult(interp, "Wrong # args: should be \"",
+X		    argv[0], " option ?arg arg ...?\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	Tk_Preserve((ClientData)dgPtr);
+X	c = argv[1][0];
+X	length = strlen(argv[1]);
+X	switch (c) {
+X	case 'c':
+X		if (strncmp(argv[1], "configure", length) == 0) {
+X			if (argc == 2)
+X				result = Tk_ConfigureInfo(interp,
+X				    dgPtr->tkwin, configSpecs, (char *)dgPtr,
+X				    (char *)NULL, 0);
+X			else if (argc == 3)
+X				result = Tk_ConfigureInfo(interp,
+X				    dgPtr->tkwin, configSpecs, (char *)dgPtr,
+X				    argv[2], 0);
+X			else
+X				result = ConfigureDrumGrid(interp, dgPtr,
+X				    argc - 2, argv + 2, TK_CONFIG_ARGV_ONLY);
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'd':
+X		if (strncmp(argv[1], "down", length) == 0) {
+X			if (argc == 4)
+X				result = HitRelief(interp, dgPtr, argc - 2,
+X				    argv + 2, 1);
+X			else {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " up x y\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'l':
+X		if (strncmp(argv[1], "label", length) == 0) {
+X			length = strlen(argv[2]);
+X			if (strncmp(argv[2], "add", length) == 0)
+X				result = AddLabel(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else if (strncmp(argv[2], "remove", length) == 0)
+X				result = RemoveLabel(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else if (strncmp(argv[2], "list", length) == 0)
+X				result = GetLabels(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else {
+X				Tcl_AppendResult(interp, "bad option ",
+X				    argv[2], ": must be add, remove or list",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'p':
+X		if (strncmp(argv[1], "pitch", length) == 0) {
+X			length = strlen(argv[2]);
+X			if (strncmp(argv[2], "get", length) == 0)
+X				result = GetPitch(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else if (strncmp(argv[2], "set", length) == 0)
+X				result = SetPitch(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else if (strncmp(argv[2], "list", length) == 0)
+X				result = ListPitches(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else {
+X				Tcl_AppendResult(interp, "bad option ",
+X				    argv[2], ": must be set, get or list",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'u':
+X		if (strncmp(argv[1], "up", length) == 0) {
+X			if (argc == 4)
+X				result = HitRelief(interp, dgPtr, argc - 2,
+X				    argv + 2, 0);
+X			else {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " up x y\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'v':
+X		if (strncmp(argv[1], "volume", length) == 0) {
+X			length = strlen(argv[2]);
+X			if (strncmp(argv[2], "get", length) == 0)
+X				result = GetVolume(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else if (strncmp(argv[2], "set", length) == 0)
+X				result = SetVolume(interp, dgPtr, argc - 3,
+X				    argv + 3);
+X			else {
+X				Tcl_AppendResult(interp, "bad option ",
+X				    argv[2], ": must be set or get",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'x':
+X		if (strncmp(argv[1], "xview", length) == 0) {
+X			if (argc < 2 || argc > 3) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " xview ?index?\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			} else if (argc == 2) {
+X				sprintf(interp->result, "%d", dgPtr->leftHit);
+X			} else if (argc == 3) {
+X				if (Tcl_GetInt(interp, argv[2], &index)
+X				    != TCL_OK)
+X					result = TCL_ERROR;
+X				else
+X					ChangeDrumGridLeft(dgPtr, index);
+X			}
+X		} else if (strncmp(argv[1], "xnearest", length) == 0) {
+X			if (argc != 3) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " xnearest xpos\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			} else {
+X				if (Tcl_GetInt(interp, argv[2], &pos) !=
+X				    TCL_OK)
+X					result = TCL_ERROR;
+X				else
+X					sprintf(interp->result, "%d",
+X					    XToGrid(dgPtr, pos));
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	case 'y':
+X		if (strncmp(argv[1], "yview", length) == 0) {
+X			if (argc < 2 || argc > 3) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " yview ?index?\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			} else if (argc == 2) {
+X				sprintf(interp->result, "%d", dgPtr->topLabel);
+X			} else {
+X				if (Tcl_GetInt(interp, argv[2], &index)
+X				    != TCL_OK)
+X					result = TCL_ERROR;
+X				else
+X					ChangeDrumGridTop(dgPtr, index);
+X			}
+X		} else if (strncmp(argv[1], "ynearest", length) == 0) {
+X			if (argc != 3) {
+X				Tcl_AppendResult(interp, "wrong # args: ",
+X				    "should be \"", argv[0], " ynearest ypos\"",
+X				    (char *)NULL);
+X				result = TCL_ERROR;
+X			} else {
+X				if (Tcl_GetInt(interp, argv[2], &pos) !=
+X				    TCL_OK)
+X					result = TCL_ERROR;
+X				else
+X					sprintf(interp->result, "%d",
+X					    YToGrid(dgPtr, pos));
+X			}
+X		} else {
+X			Tcl_AppendResult(interp, "bad option ", argv[1],
+X			    ": must be one of ", optString, (char *)NULL);
+X			result = TCL_ERROR;
+X		}
+X		break;
+X	default:
+X		Tcl_AppendResult(interp, "bad option ", argv[1],
+X		    ": must be one of ", optString, (char *)NULL);
+X		result = TCL_ERROR;
+X	}
+X
+X	Tk_Release((ClientData)dgPtr);
+X	return (result);
+X}
+X
+static int
+GetVolume(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	Tcl_Interp *temp_interp;
+X	char foo[10];
+X	int x;
+X	int y;
+X	char *chkPtr;
+X
+X	if (argc < 1 || argc > 2) {
+X		Tcl_AppendResult(interp, "Must specify 'all' or x and y grid ",
+X		    "positions", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (strcmp(argv[0], "all") == 0) {
+X		temp_interp = Tcl_CreateInterp();
+X		for (x = 0; x < dgPtr->numHits; x++) {
+X			for (y = 0; y < dgPtr->numLabels; y++) {
+X				sprintf(foo, "%d", dgPtr->voices[y].volume[x]);
+X				Tcl_AppendElement(temp_interp, foo, 0);
+X			}
+X			Tcl_AppendElement(interp, temp_interp->result, 0);
+X			Tcl_ResetResult(temp_interp);
+X		}
+X		Tcl_DeleteInterp(temp_interp);
+X	} else {
+X		x = (int)strtol(argv[0], &chkPtr, 0);
+X		if (argv[0] == chkPtr || x >= dgPtr->numHits || x < 0) {
+X			Tcl_AppendResult(interp, "Bad x grid position value ",
+X			    argv[0], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X
+X		y = (int)strtol(argv[1], &chkPtr, 0);
+X		if (argv[1] == chkPtr || y >= dgPtr->numLabels || y < 0) {
+X			Tcl_AppendResult(interp, "Bad y grid position value ",
+X			    argv[1], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X
+X		sprintf(interp->result, "%d", dgPtr->voices[y].volume[x]);
+X	}
+X	return (TCL_OK);
+X}
+X
+static int
+SetVolume(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int x;
+X	int y;
+X	int volume;
+X	char *chkPtr;
+X
+X	if (argc != 3) {
+X		Tcl_AppendResult(interp, "Must specify an x and y grid ",
+X		    "positions and a new volume", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	x = (int)strtol(argv[0], &chkPtr, 0);
+X	if (argv[0] == chkPtr || x >= dgPtr->numHits || x < 0) {
+X		Tcl_AppendResult(interp, "Bad x grid position value ",
+X		    argv[0], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	y = (int)strtol(argv[1], &chkPtr, 0);
+X	if (argv[1] == chkPtr || y >= dgPtr->numLabels || y < 0) {
+X		Tcl_AppendResult(interp, "Bad y grid position value ",
+X		    argv[1], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	volume = (int)strtol(argv[2], &chkPtr, 0);
+X	if (argv[2] == chkPtr) {
+X		Tcl_AppendResult(interp, "Bad volume value ",
+X		    argv[2], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (volume < 0)
+X		volume = 0;
+X	if (volume >= dgPtr->levels)
+X		volume = dgPtr->levels - 1;
+X	dgPtr->voices[y].volume[x] = volume;
+X	DrawHit(dgPtr, Tk_WindowId(dgPtr->tkwin), x, y, 0);
+X	sprintf(interp->result, "%d", volume);
+X	return (TCL_OK);
+X}
+X
+static int
+GetPitch(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int y;
+X	char *chkPtr;
+X
+X	if (argc != 1) {
+X		Tcl_AppendResult(interp, "Must specify a y grid ",
+X		    "position", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	y = (int)strtol(argv[0], &chkPtr, 0);
+X	if (argv[0] == chkPtr || y >= dgPtr->numLabels || y < 0) {
+X		Tcl_AppendResult(interp, "Bad y grid position value ",
+X		    argv[0], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	sprintf(interp->result, "%d", dgPtr->pitches[y]);
+X	return (TCL_OK);
+X}
+X
+static int
+SetPitch(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int y;
+X	int pitch;
+X	char *chkPtr;
+X
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "Must specify a y grid ",
+X		    "positions and a new pitch", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	y = (int)strtol(argv[0], &chkPtr, 0);
+X	if (argv[0] == chkPtr || y >= dgPtr->numLabels || y < 0) {
+X		Tcl_AppendResult(interp, "Bad y grid position value ",
+X		    argv[1], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	pitch = (int)strtol(argv[1], &chkPtr, 0);
+X	if (argv[1] == chkPtr) {
+X		Tcl_AppendResult(interp, "Bad pitch value ",
+X		    argv[1], (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	dgPtr->pitches[y] = pitch;
+X	sprintf(interp->result, "%d", pitch);
+X	return (TCL_OK);
+X}
+X
+static int
+HitRelief(interp, dgPtr, argc, argv, depressed)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X	int depressed;
+X{
+X	char *chk_ptr;
+X	int x;
+X	int y;
+X
+X	x = (int)strtol(argv[0], &chk_ptr, 0);
+X	if (chk_ptr == argv[0]) {
+X		Tcl_AppendResult(interp, "Bad x value: ", argv[0],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	y = (int)strtol(argv[1], &chk_ptr, 0);
+X	if (chk_ptr == argv[1]) {
+X		Tcl_AppendResult(interp, "Bad y value: ", argv[1],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if (x < dgPtr->leftHit || x > dgPtr->rightHit) {
+X		Tcl_AppendResult(interp, "bad x value - not on screen",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if (y < dgPtr->topLabel || y > dgPtr->bottomLabel) {
+X		Tcl_AppendResult(interp, "bad y value - not on screen",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	DrawHit(dgPtr, Tk_WindowId(dgPtr->tkwin), x, y, depressed);
+X	return (TCL_OK);
+X}
+X
+static int
+AddLabel(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int height;
+X	int i;
+X	int j;
+X
+X	if (argc != 1) {
+X		Tcl_AppendResult(interp, "Must specify a label name",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (dgPtr->labels == NULL) {
+X		if ((dgPtr->labels = (char **)ckalloc(sizeof(char *) *
+X		    (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			    "for new label", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	} else {
+X		if ((dgPtr->labels = (char **)ckrealloc(dgPtr->labels,
+X		    sizeof(char *) * (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			    "for new label", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	if ((dgPtr->labels[dgPtr->numLabels] = ckstrdup(argv[0])) == NULL) {
+X		Tcl_AppendResult(interp, "Couldn't dup label name",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	/* new Voice */
+X	if (dgPtr->voices == NULL) {
+X		if ((dgPtr->voices = (Voice *)ckalloc(sizeof(Voice) *
+X		    dgPtr->numLabels)) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory ",
+X			    "for voices", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		/* make hits(quanta) inside voices */
+X		for (i = 0; i < dgPtr->numLabels; i++) {
+X			if ((dgPtr->voices[i].volume =
+X			    (short *)ckalloc(dgPtr->numHits * sizeof(short)))
+X			    == NULL) {
+X				Tcl_AppendResult(interp, "Not enough memory ",
+X				    "for hits in voice", (char *)NULL);
+X				return (TCL_ERROR);
+X			}
+X			for (j = 0; j < dgPtr->numHits; j++)
+X				dgPtr->voices[i].volume[j] = 0;
+X		}
+X	} else {
+X		if ((dgPtr->voices = (Voice *)ckrealloc(dgPtr->voices,
+X		    sizeof(Voice) * (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory ",
+X			    "for voices", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		/* make hits(quanta) inside new voice */
+X		if ((dgPtr->voices[dgPtr->numLabels].volume =
+X		    (short *)ckalloc(dgPtr->numHits * sizeof(short))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory ",
+X			    "for hits in voice", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		for (j = 0; j < dgPtr->numHits; j++)
+X			dgPtr->voices[dgPtr->numLabels].volume[j] = 0;
+X	}
+X
+X	/* new pitch */
+X	if (dgPtr->pitches == NULL) {
+X		if ((dgPtr->pitches = (int *)ckalloc(dgPtr->numLabels + 1 *
+X		    sizeof(int))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			    "new pitch", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		for (j = 0; j < dgPtr->numLabels + 1; j++)
+X			dgPtr->pitches[j] = 0;
+X	} else {
+X		if ((dgPtr->pitches = (int *)ckrealloc(dgPtr->pitches,
+X		    sizeof(int) * (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Note enought memory for ",
+X			    "new pitch", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		dgPtr->pitches[dgPtr->numLabels] = 0;
+X	}
+X
+X	/* we also need extra bearings */
+X	if (dgPtr->leftBearings == NULL) {
+X		if ((dgPtr->leftBearings = (int *)ckalloc(dgPtr->numLabels + 1
+X		    * sizeof(int))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			    "leftBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	} else {
+X		if ((dgPtr->leftBearings = (int *)ckrealloc(dgPtr->leftBearings,
+X		    sizeof(int) * (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Note enought memory for ",
+X			    "leftBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	if (dgPtr->rightBearings == NULL) {
+X		if ((dgPtr->rightBearings = (int *)ckalloc(dgPtr->numLabels + 1
+X		    * sizeof(int))) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory for ",
+X			    "rightBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	} else {
+X		if ((dgPtr->rightBearings =
+X		    (int *)ckrealloc(dgPtr->rightBearings, sizeof(int) *
+X		    (dgPtr->numLabels + 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Note enought memory for ",
+X			    "rightBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X
+X	dgPtr->numLabels++;
+X
+X	MakeLabelStr(dgPtr);
+X	MakePitchStr(dgPtr);
+X	if (AllocateGridLines(dgPtr) != TCL_OK)
+X		return (TCL_ERROR);
+X
+X	/* we want to include new label in scrolling region */
+X	height = dgPtr->bottomLabel - dgPtr->topLabel;
+X	dgPtr->bottomLabel = dgPtr->numLabels - 1;
+X	dgPtr->topLabel = dgPtr->bottomLabel - height;
+X	dgPtr->flags |= UPDATE_YSCROLL;
+X
+X	ComputeDrumGridGeometry(dgPtr);
+X
+X	return (TCL_OK);
+X}
+X
+static int
+RemoveLabel(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int height;
+X	int i;
+X	int length;
+X	char *chkPtr;
+X
+X	if (argc != 2) {
+X		Tcl_AppendResult(interp, "Must specify \"label\" or \"index\"",
+X		    " followed by the label name or the index number",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	length = strlen(argv[0]);
+X	if (strncmp(argv[0], "label", length) == 0) {
+X		for (i = 0; i < dgPtr->numLabels; i++)
+X			if (strcmp(dgPtr->labels[i], argv[1]) == 0)
+X				break;
+X		if (i == dgPtr->numLabels) {
+X			Tcl_AppendResult(interp, "No label \"", argv[1],
+X			    "\" found in drum grid", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	} else if (strncmp(argv[0], "index", length) == 0) {
+X		i = (int)strtol(argv[1], &chkPtr, 0);
+X		if (chkPtr == argv[1] || i < 0 || i >= dgPtr->numLabels) {
+X			Tcl_AppendResult(interp, "Bad index number ",
+X			    argv[1], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	} else {
+X		Tcl_AppendResult(interp, "Must specify \"label\" or \"index\".",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	ckfree(dgPtr->labels[i]);
+X	ckfree((char *)dgPtr->voices[i].volume);
+X
+X	/* move everything up one */
+X	for (; i < dgPtr->numLabels - 1; i++) {
+X		dgPtr->labels[i] = dgPtr->labels[i + 1];
+X		dgPtr->voices[i] = dgPtr->voices[i + 1];
+X		dgPtr->pitches[i] = dgPtr->pitches[i + 1];
+X	}
+X
+X	if (dgPtr->numLabels - 1 == 0) {
+X		ckfree((char *)dgPtr->labels);
+X		dgPtr->labels = NULL;
+X	} else {
+X		if ((dgPtr->labels = (char **)ckrealloc(dgPtr->labels,
+X		    sizeof(char *) * (dgPtr->numLabels - 1))) == NULL) {
+X			Tcl_AppendResult(interp, "couldn't realloc label ",
+X			    "space", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X
+X	/* one less voice */
+X	if (dgPtr->numLabels - 1 == 0) {
+X		ckfree((char *)dgPtr->voices);
+X		dgPtr->voices = NULL;
+X	} else {
+X		if ((dgPtr->voices = (Voice *)ckrealloc(dgPtr->voices,
+X		    sizeof(Voice) * (dgPtr->numLabels - 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Couldn't realloc ",
+X			    "voices", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X
+X	/* one less pitch */
+X	if (dgPtr->numLabels - 1 == 0) {
+X		ckfree((char *)dgPtr->pitches);
+X		dgPtr->pitches = NULL;
+X	} else {
+X		if ((dgPtr->pitches = (int *)ckrealloc(dgPtr->pitches,
+X		    sizeof(int) * (dgPtr->numLabels - 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Couldn't realloc ",
+X			    "pitches", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	
+X	/* one less on the bearings */
+X	if (dgPtr->numLabels - 1 == 0) {
+X		ckfree((char *)dgPtr->leftBearings);
+X		dgPtr->leftBearings = NULL;
+X	} else {
+X		if ((dgPtr->leftBearings = (int *)ckrealloc(dgPtr->leftBearings,
+X		    sizeof(int) * (dgPtr->numLabels - 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Couldn't realloc ",
+X			    "leftBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	if (dgPtr->numLabels - 1 == 0) {
+X		ckfree((char *)dgPtr->rightBearings);
+X		dgPtr->rightBearings = NULL;
+X	} else {
+X		if ((dgPtr->rightBearings = (int *)
+X		    ckrealloc(dgPtr->rightBearings, sizeof(int) *
+X		    (dgPtr->numLabels - 1))) == NULL) {
+X			Tcl_AppendResult(interp, "Couldn't realloc ",
+X			    "rightBearings", (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	
+X	dgPtr->numLabels--;
+X
+X	if (AllocateGridLines(dgPtr) != TCL_OK)
+X		return (TCL_ERROR);
+X	MakeLabelStr(dgPtr);
+X	MakePitchStr(dgPtr);
+X
+X	/* make sure we stay in bounds */
+X	if (dgPtr->bottomLabel > dgPtr->numLabels - 1) {
+X		height = dgPtr->bottomLabel - dgPtr->topLabel;
+X		dgPtr->bottomLabel = dgPtr->numLabels - 1;
+X		dgPtr->topLabel = dgPtr->bottomLabel - height;
+X		dgPtr->flags |= UPDATE_YSCROLL;
+X	}
+X
+X	ComputeDrumGridGeometry(dgPtr);
+X
+X	return (TCL_OK);
+X}
+X
+static int
+AllocateGridLines(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	Tcl_Interp *interp = dgPtr->interp;
+X
+X	if (dgPtr->vertLineColors != NULL)
+X		ckfree((char *)dgPtr->vertLineColors);
+X	if (dgPtr->vertLinePos != NULL)
+X		ckfree((char *)dgPtr->vertLinePos);
+X	if (dgPtr->horizLineColors != NULL)
+X		ckfree((char *)dgPtr->horizLineColors);
+X	if (dgPtr->horizLinePos != NULL)
+X		ckfree((char *)dgPtr->horizLinePos);
+X
+X	if ((dgPtr->vertLineColors = (GC *)ckalloc(sizeof(GC) *
+X	    (dgPtr->numHits + 2))) == NULL) {
+X		Tcl_AppendResult(interp,
+X		    "Couldn't allocate new vertLineColors", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((dgPtr->vertLinePos = (XSegment *)ckalloc(sizeof(XSegment) *
+X	    (dgPtr->rightHit - dgPtr->leftHit + 3))) == NULL) {
+X		Tcl_AppendResult(interp, "Couldn't allocate new vertLinePos",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((dgPtr->horizLineColors = (GC *)ckalloc(sizeof(GC) *
+X	    (dgPtr->numLabels + 1))) == NULL) {
+X		Tcl_AppendResult(interp,
+X		    "Couldn't allocate new horizLineColors", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if ((dgPtr->horizLinePos = (XSegment *)ckalloc(sizeof(XSegment) *
+X	    (dgPtr->bottomLabel - dgPtr->topLabel + 2))) == NULL) {
+X		Tcl_AppendResult(interp, "Couldn't allocate new horizLinePos",
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	return (TCL_OK);
+X}
+X
+static void
+XFitSize(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	if (dgPtr->leftHit + dgPtr->resizedWidth <= dgPtr->numHits)
+X		dgPtr->rightHit = dgPtr->leftHit + dgPtr->resizedWidth - 1;
+X	else {
+X		dgPtr->rightHit = dgPtr->numHits - 1;
+X		if ((dgPtr->leftHit = dgPtr->numHits - dgPtr->resizedWidth) < 0)
+X			dgPtr->leftHit = 0;
+X	}
+X	if (dgPtr->topLabel + dgPtr->resizedHeight <= dgPtr->numLabels)
+X		dgPtr->bottomLabel = dgPtr->topLabel + dgPtr->resizedHeight - 1;
+X	else {
+X		dgPtr->bottomLabel = dgPtr->numLabels - 1;
+X		if ((dgPtr->topLabel = dgPtr->numLabels - dgPtr->resizedHeight)
+X		    < 0)
+X			dgPtr->topLabel = 0;
+X	}
+X}
+X
+static void
+ChangeDrumGridLeft(dgPtr, index)
+X	DrumGrid *dgPtr;
+X	int index;
+X{
+X	int width;
+X
+X	width = dgPtr->rightHit - dgPtr->leftHit + 1;
+X
+X	if (index > dgPtr->numHits - width)
+X		index = dgPtr->numHits - width;
+X	if (index < 0)
+X		index = 0;
+X
+X	if (dgPtr->leftHit != index) {
+X		dgPtr->leftHit = index;
+X		dgPtr->rightHit = index + width - 1;
+X		if (!(dgPtr->flags & REDRAW_PENDING)) {
+X			Tk_DoWhenIdle(DisplayDrumGrid, (ClientData)dgPtr);
+X			dgPtr->flags |= REDRAW_PENDING;
+X		}
+X		dgPtr->flags |= UPDATE_XSCROLL;
+X	}
+X}
+X
+static void
+ChangeDrumGridTop(dgPtr, index)
+X	DrumGrid *dgPtr;
+X	int index;
+X{
+X	int height;
+X
+X	height = dgPtr->bottomLabel - dgPtr->topLabel + 1;
+X
+X	if (index > dgPtr->numLabels - height)
+X		index = dgPtr->numLabels - height;
+X	if (index < 0)
+X		index = 0;
+X
+X	if (dgPtr->topLabel != index) {
+X		dgPtr->topLabel = index;
+X		dgPtr->bottomLabel = index + height - 1;
+X		if (!(dgPtr->flags & REDRAW_PENDING)) {
+X			Tk_DoWhenIdle(DisplayDrumGrid, (ClientData)dgPtr);
+X			dgPtr->flags |= REDRAW_PENDING;
+X		}
+X		dgPtr->flags |= UPDATE_YSCROLL;
+X	}
+X}
+X
+static void
+DrumGridUpdateXScroll(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	char string[60];
+X	int num_showing;
+X
+X	if (dgPtr->xScrollCmd == NULL)
+X		return;
+X
+X	num_showing = dgPtr->rightHit - dgPtr->leftHit + 1;
+X	sprintf(string, " %d %d %d %d", dgPtr->numHits, num_showing,
+X	    dgPtr->leftHit, dgPtr->rightHit);
+X
+X	if (Tcl_VarEval(dgPtr->interp, dgPtr->xScrollCmd, string,
+X	    (char *)NULL) != TCL_OK)
+X		Tk_BackgroundError(dgPtr->interp);
+X}
+X
+static void
+DrumGridUpdateYScroll(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	char string[60];
+X	int num_showing;
+X
+X	if (dgPtr->yScrollCmd == NULL)
+X		return;
+X
+X	num_showing = dgPtr->bottomLabel - dgPtr->topLabel + 1;
+X	sprintf(string, " %d %d %d %d", dgPtr->numLabels, num_showing,
+X	    dgPtr->topLabel, dgPtr->bottomLabel);
+X
+X	if (Tcl_VarEval(dgPtr->interp, dgPtr->yScrollCmd, string,
+X	    (char *)NULL) != TCL_OK)
+X		Tk_BackgroundError(dgPtr->interp);
+X}
+X
+static int
+GetLabels(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int i;
+X
+X	for (i = 0; i < dgPtr->numLabels; i++)
+X		Tcl_AppendElement(interp, dgPtr->labels[i], 0);
+X
+X	return (TCL_OK);
+X}
+X
+static int
+ListPitches(interp, dgPtr, argc, argv)
+X	Tcl_Interp *interp;
+X	DrumGrid *dgPtr;
+X	int argc;
+X	char **argv;
+X{
+X	int i;
+X	char dummy[10];
+X
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		sprintf(dummy, "%d", dgPtr->pitches[i]);
+X		Tcl_AppendElement(interp, dummy, 0);
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+static void
+MakeLabelStr(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	Tcl_Interp *temp_interp;
+X	int i;
+X
+X	temp_interp = Tcl_CreateInterp();
+X	for (i = 0; i < dgPtr->numLabels; i++)
+X		Tcl_AppendElement(temp_interp, dgPtr->labels[i], 0);
+X
+X	if (dgPtr->labelStr != NULL)
+X		ckfree(dgPtr->labelStr);
+X	dgPtr->labelStr = ckstrdup(temp_interp->result);
+X
+X	Tcl_DeleteInterp(temp_interp);
+X}
+X
+static void
+MakePitchStr(dgPtr)
+X	DrumGrid *dgPtr;
+X{
+X	Tcl_Interp *temp_interp;
+X	int i;
+X	char dummy[10];
+X
+X	temp_interp = Tcl_CreateInterp();
+X	for (i = 0; i < dgPtr->numLabels; i++) {
+X		sprintf(dummy, "%d", dgPtr->pitches[i]);
+X		Tcl_AppendElement(temp_interp, dummy, 0);
+X	}
+X
+X	if (dgPtr->labelStr != NULL)
+X		ckfree(dgPtr->pitchStr);
+X	dgPtr->pitchStr = ckstrdup(temp_interp->result);
+X
+X	Tcl_DeleteInterp(temp_interp);
+X}
+X
+char *
+Tclm_DbCkstrdup(str)
+X	char *str;
+X{
+X	char *new_str;
+X
+X	if (str == NULL)
+X		return (NULL);
+X	if ((new_str = ckalloc(strlen(str) + 1)) == NULL)
+X		return (NULL);
+X	strcpy(new_str, str);
+X	return (new_str);
+X}
+END_OF_FILE
+if test 54953 -ne `wc -c <'xdrum-1.0/tkmGrid.c'`; then
+    echo shar: \"'xdrum-1.0/tkmGrid.c'\" unpacked with wrong size!
+fi
+# end of 'xdrum-1.0/tkmGrid.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

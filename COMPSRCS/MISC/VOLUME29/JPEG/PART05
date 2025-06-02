@@ -1,0 +1,1642 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i005:  jpeg - JPEG image compression, Part05/18
+Message-ID: <1992Mar24.144353.18159@sparky.imd.sterling.com>
+X-Md4-Signature: 03debc23022cdfd5ce649799bb12abfb
+Date: Tue, 24 Mar 1992 14:43:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 5
+Archive-name: jpeg/part05
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jcarith.c jmemmgr.c jrdtarga.c makvms.opt
+# Wrapped by kent@sparky on Mon Mar 23 16:02:42 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 18)."'
+if test -f 'jcarith.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcarith.c'\"
+else
+  echo shar: Extracting \"'jcarith.c'\" \(1161 characters\)
+  sed "s/^X//" >'jcarith.c' <<'END_OF_FILE'
+X/*
+X * jcarith.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains arithmetic entropy encoding routines.
+X * These routines are invoked via the methods entropy_encode,
+X * entropy_encoder_init/term, and entropy_optimize.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef ARITH_CODING_SUPPORTED
+X
+X
+X/*
+X * The arithmetic coding option of the JPEG standard specifies Q-coding,
+X * which is covered by patents held by IBM (and possibly AT&T and Mitsubishi).
+X * At this time it does not appear to be legal for the Independent JPEG
+X * Group to distribute software that implements arithmetic coding.
+X * We have therefore removed arithmetic coding support from the
+X * distributed source code.
+X *
+X * We're not happy about it either.
+X */
+X
+X
+X/*
+X * The method selection routine for arithmetic entropy encoding.
+X */
+X
+XGLOBAL void
+Xjselcarithmetic (compress_info_ptr cinfo)
+X{
+X  if (cinfo->arith_code) {
+X    ERREXIT(cinfo->emethods, "Sorry, there are legal restrictions on arithmetic coding");
+X  }
+X}
+X
+X#endif /* ARITH_CODING_SUPPORTED */
+END_OF_FILE
+  if test 1161 -ne `wc -c <'jcarith.c'`; then
+    echo shar: \"'jcarith.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcarith.c'
+fi
+if test -f 'jmemmgr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemmgr.c'\"
+else
+  echo shar: Extracting \"'jmemmgr.c'\" \(35862 characters\)
+  sed "s/^X//" >'jmemmgr.c' <<'END_OF_FILE'
+X/*
+X * jmemmgr.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file provides the standard system-independent memory management
+X * routines.  This code is usable across a wide variety of machines; most
+X * of the system dependencies have been isolated in a separate file.
+X * The major functions provided here are:
+X *   * bookkeeping to allow all allocated memory to be freed upon exit;
+X *   * policy decisions about how to divide available memory among the
+X *     various large arrays;
+X *   * control logic for swapping virtual arrays between main memory and
+X *     backing storage.
+X * The separate system-dependent file provides the actual backing-storage
+X * access code, and it contains the policy decision about how much total
+X * main memory to use.
+X * This file is system-dependent in the sense that some of its functions
+X * are unnecessary in some systems.  For example, if there is enough virtual
+X * memory so that backing storage will never be used, much of the big-array
+X * control logic could be removed.  (Of course, if you have that much memory
+X * then you shouldn't care about a little bit of unused code...)
+X *
+X * These routines are invoked via the methods alloc_small, free_small,
+X * alloc_medium, free_medium, alloc_small_sarray, free_small_sarray,
+X * alloc_small_barray, free_small_barray, request_big_sarray,
+X * request_big_barray, alloc_big_arrays, access_big_sarray, access_big_barray,
+X * free_big_sarray, free_big_barray, and free_all.
+X */
+X
+X#define AM_MEMORY_MANAGER	/* we define big_Xarray_control structs */
+X
+X#include "jinclude.h"
+X#include "jmemsys.h"		/* import the system-dependent declarations */
+X
+X
+X/*
+X * On many systems it is not necessary to distinguish alloc_small from
+X * alloc_medium; the main case where they must be distinguished is when
+X * FAR pointers are distinct from regular pointers.  However, you might
+X * want to keep them separate if you have different system-dependent logic
+X * for small and large memory requests (i.e., jget_small and jget_large
+X * do different things).
+X */
+X
+X#ifdef NEED_FAR_POINTERS
+X#define NEED_ALLOC_MEDIUM	/* flags alloc_medium really exists */
+X#endif
+X
+X
+X/*
+X * Some important notes:
+X *   The allocation routines provided here must never return NULL.
+X *   They should exit to error_exit if unsuccessful.
+X *
+X *   It's not a good idea to try to merge the sarray and barray routines,
+X *   even though they are textually almost the same, because samples are
+X *   usually stored as bytes while coefficients are shorts.  Thus, in machines
+X *   where byte pointers have a different representation from word pointers,
+X *   the resulting machine code could not be the same.
+X */
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to error_exit */
+X
+X
+X#ifdef MEM_STATS		/* optional extra stuff for statistics */
+X
+X/* These macros are the assumed overhead per block for malloc().
+X * They don't have to be accurate, but the printed statistics will be
+X * off a little bit if they are not.
+X */
+X#define MALLOC_OVERHEAD  (SIZEOF(void *)) /* overhead for jget_small() */
+X#define MALLOC_FAR_OVERHEAD  (SIZEOF(void FAR *)) /* for jget_large() */
+X
+Xstatic long total_num_small = 0;	/* total # of small objects alloced */
+Xstatic long total_bytes_small = 0;	/* total bytes requested */
+Xstatic long cur_num_small = 0;		/* # currently alloced */
+Xstatic long max_num_small = 0;		/* max simultaneously alloced */
+X
+X#ifdef NEED_ALLOC_MEDIUM
+Xstatic long total_num_medium = 0;	/* total # of medium objects alloced */
+Xstatic long total_bytes_medium = 0;	/* total bytes requested */
+Xstatic long cur_num_medium = 0;		/* # currently alloced */
+Xstatic long max_num_medium = 0;		/* max simultaneously alloced */
+X#endif
+X
+Xstatic long total_num_sarray = 0;	/* total # of sarray objects alloced */
+Xstatic long total_bytes_sarray = 0;	/* total bytes requested */
+Xstatic long cur_num_sarray = 0;		/* # currently alloced */
+Xstatic long max_num_sarray = 0;		/* max simultaneously alloced */
+X
+Xstatic long total_num_barray = 0;	/* total # of barray objects alloced */
+Xstatic long total_bytes_barray = 0;	/* total bytes requested */
+Xstatic long cur_num_barray = 0;		/* # currently alloced */
+Xstatic long max_num_barray = 0;		/* max simultaneously alloced */
+X
+X
+XLOCAL void
+Xprint_mem_stats (void)
+X{
+X  /* since this is only a debugging stub, we can cheat a little on the
+X   * trace message mechanism... helpful 'cuz trace_message can't handle longs.
+X   */
+X  fprintf(stderr, "total_num_small = %ld\n", total_num_small);
+X  fprintf(stderr, "total_bytes_small = %ld\n", total_bytes_small);
+X  if (cur_num_small)
+X    fprintf(stderr, "cur_num_small = %ld\n", cur_num_small);
+X  fprintf(stderr, "max_num_small = %ld\n", max_num_small);
+X  
+X#ifdef NEED_ALLOC_MEDIUM
+X  fprintf(stderr, "total_num_medium = %ld\n", total_num_medium);
+X  fprintf(stderr, "total_bytes_medium = %ld\n", total_bytes_medium);
+X  if (cur_num_medium)
+X    fprintf(stderr, "cur_num_medium = %ld\n", cur_num_medium);
+X  fprintf(stderr, "max_num_medium = %ld\n", max_num_medium);
+X#endif
+X  
+X  fprintf(stderr, "total_num_sarray = %ld\n", total_num_sarray);
+X  fprintf(stderr, "total_bytes_sarray = %ld\n", total_bytes_sarray);
+X  if (cur_num_sarray)
+X    fprintf(stderr, "cur_num_sarray = %ld\n", cur_num_sarray);
+X  fprintf(stderr, "max_num_sarray = %ld\n", max_num_sarray);
+X  
+X  fprintf(stderr, "total_num_barray = %ld\n", total_num_barray);
+X  fprintf(stderr, "total_bytes_barray = %ld\n", total_bytes_barray);
+X  if (cur_num_barray)
+X    fprintf(stderr, "cur_num_barray = %ld\n", cur_num_barray);
+X  fprintf(stderr, "max_num_barray = %ld\n", max_num_barray);
+X}
+X
+X#endif /* MEM_STATS */
+X
+X
+XLOCAL void
+Xout_of_memory (int which)
+X/* Report an out-of-memory error and stop execution */
+X/* If we compiled MEM_STATS support, report alloc requests before dying */
+X{
+X#ifdef MEM_STATS
+X  if (methods->trace_level <= 0) /* don't do it if free_all() will */
+X    print_mem_stats();		/* print optional memory usage statistics */
+X#endif
+X  ERREXIT1(methods, "Insufficient memory (case %d)", which);
+X}
+X
+X
+X/*
+X * Management of "small" objects.
+X * These are all-in-memory, and are in near-heap space on an 80x86.
+X */
+X
+Xtypedef struct small_struct * small_ptr;
+X
+Xtypedef struct small_struct {
+X	small_ptr next;		/* next in list of allocated objects */
+X      } small_hdr;
+X
+Xstatic small_ptr small_list;	/* head of list */
+X
+X
+XMETHODDEF void *
+Xalloc_small (size_t sizeofobject)
+X/* Allocate a "small" object */
+X{
+X  small_ptr result;
+X
+X  sizeofobject += SIZEOF(small_hdr); /* add space for header */
+X
+X#ifdef MEM_STATS
+X  total_num_small++;
+X  total_bytes_small += sizeofobject + MALLOC_OVERHEAD;
+X  cur_num_small++;
+X  if (cur_num_small > max_num_small) max_num_small = cur_num_small;
+X#endif
+X
+X  result = (small_ptr) jget_small(sizeofobject);
+X  if (result == NULL)
+X    out_of_memory(1);
+X
+X  result->next = small_list;
+X  small_list = result;
+X  result++;			/* advance past header */
+X
+X  return (void *) result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small (void *ptr)
+X/* Free a "small" object */
+X{
+X  small_ptr hdr;
+X  small_ptr * llink;
+X
+X  hdr = (small_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  jfree_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_small--;
+X#endif
+X}
+X
+X
+X/*
+X * Management of "medium-size" objects.
+X * These are just like small objects except they are in the FAR heap.
+X */
+X
+X#ifdef NEED_ALLOC_MEDIUM
+X
+Xtypedef struct medium_struct FAR * medium_ptr;
+X
+Xtypedef struct medium_struct {
+X	medium_ptr next;	/* next in list of allocated objects */
+X      } medium_hdr;
+X
+Xstatic medium_ptr medium_list;	/* head of list */
+X
+X
+XMETHODDEF void FAR *
+Xalloc_medium (size_t sizeofobject)
+X/* Allocate a "medium-size" object */
+X{
+X  medium_ptr result;
+X
+X  sizeofobject += SIZEOF(medium_hdr); /* add space for header */
+X
+X#ifdef MEM_STATS
+X  total_num_medium++;
+X  total_bytes_medium += sizeofobject + MALLOC_FAR_OVERHEAD;
+X  cur_num_medium++;
+X  if (cur_num_medium > max_num_medium) max_num_medium = cur_num_medium;
+X#endif
+X
+X  result = (medium_ptr) jget_large(sizeofobject);
+X  if (result == NULL)
+X    out_of_memory(2);
+X
+X  result->next = medium_list;
+X  medium_list = result;
+X  result++;			/* advance past header */
+X
+X  return (void FAR *) result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_medium (void FAR *ptr)
+X/* Free a "medium-size" object */
+X{
+X  medium_ptr hdr;
+X  medium_ptr FAR * llink;
+X
+X  hdr = (medium_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &medium_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_medium request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  jfree_large((void FAR *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_medium--;
+X#endif
+X}
+X
+X#endif /* NEED_ALLOC_MEDIUM */
+X
+X
+X/*
+X * Management of "small" (all-in-memory) 2-D sample arrays.
+X * The pointers are in near heap, the samples themselves in FAR heap.
+X * The header structure is adjacent to the row pointers.
+X * To minimize allocation overhead and to allow I/O of large contiguous
+X * blocks, we allocate the sample rows in groups of as many rows as possible
+X * without exceeding MAX_ALLOC_CHUNK total bytes per allocation request.
+X * Note that the big-array control routines, later in this file, know about
+X * this chunking of rows ... and also how to get the rowsperchunk value!
+X */
+X
+Xtypedef struct small_sarray_struct * small_sarray_ptr;
+X
+Xtypedef struct small_sarray_struct {
+X	small_sarray_ptr next;	/* next in list of allocated sarrays */
+X	long numrows;		/* # of rows in this array */
+X	long rowsperchunk;	/* max # of rows per allocation chunk */
+X      } small_sarray_hdr;
+X
+Xstatic small_sarray_ptr small_sarray_list; /* head of list */
+X
+X
+XMETHODDEF JSAMPARRAY
+Xalloc_small_sarray (long samplesperrow, long numrows)
+X/* Allocate a "small" (all-in-memory) 2-D sample array */
+X{
+X  small_sarray_ptr hdr;
+X  JSAMPARRAY result;
+X  JSAMPROW workspace;
+X  long rowsperchunk, currow, i;
+X
+X#ifdef MEM_STATS
+X  total_num_sarray++;
+X  cur_num_sarray++;
+X  if (cur_num_sarray > max_num_sarray) max_num_sarray = cur_num_sarray;
+X#endif
+X
+X  /* Calculate max # of rows allowed in one allocation chunk */
+X  rowsperchunk = MAX_ALLOC_CHUNK / (samplesperrow * SIZEOF(JSAMPLE));
+X  if (rowsperchunk <= 0)
+X      ERREXIT(methods, "Image too wide for this implementation");
+X
+X  /* Get space for header and row pointers; this is always "near" on 80x86 */
+X  hdr = (small_sarray_ptr) alloc_small((size_t) (numrows * SIZEOF(JSAMPROW)
+X						 + SIZEOF(small_sarray_hdr)));
+X
+X  result = (JSAMPARRAY) (hdr+1); /* advance past header */
+X
+X  /* Insert into list now so free_all does right thing if I fail */
+X  /* after allocating only some of the rows... */
+X  hdr->next = small_sarray_list;
+X  hdr->numrows = 0;
+X  hdr->rowsperchunk = rowsperchunk;
+X  small_sarray_list = hdr;
+X
+X  /* Get the rows themselves; on 80x86 these are "far" */
+X  currow = 0;
+X  while (currow < numrows) {
+X    rowsperchunk = MIN(rowsperchunk, numrows - currow);
+X#ifdef MEM_STATS
+X    total_bytes_sarray += rowsperchunk * samplesperrow * SIZEOF(JSAMPLE)
+X			  + MALLOC_FAR_OVERHEAD;
+X#endif
+X    workspace = (JSAMPROW) jget_large((size_t) (rowsperchunk * samplesperrow
+X						* SIZEOF(JSAMPLE)));
+X    if (workspace == NULL)
+X      out_of_memory(3);
+X    for (i = rowsperchunk; i > 0; i--) {
+X      result[currow++] = workspace;
+X      workspace += samplesperrow;
+X    }
+X    hdr->numrows = currow;
+X  }
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small_sarray (JSAMPARRAY ptr)
+X/* Free a "small" (all-in-memory) 2-D sample array */
+X{
+X  small_sarray_ptr hdr;
+X  small_sarray_ptr * llink;
+X  long i;
+X
+X  hdr = (small_sarray_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_sarray_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small_sarray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  /* Free the rows themselves; on 80x86 these are "far" */
+X  /* Note we only free the row-group headers! */
+X  for (i = 0; i < hdr->numrows; i += hdr->rowsperchunk) {
+X    jfree_large((void FAR *) ptr[i]);
+X  }
+X
+X  /* Free header and row pointers */
+X  free_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_sarray--;
+X#endif
+X}
+X
+X
+X/*
+X * Management of "small" (all-in-memory) 2-D coefficient-block arrays.
+X * This is essentially the same as the code for sample arrays, above.
+X */
+X
+Xtypedef struct small_barray_struct * small_barray_ptr;
+X
+Xtypedef struct small_barray_struct {
+X	small_barray_ptr next;	/* next in list of allocated barrays */
+X	long numrows;		/* # of rows in this array */
+X	long rowsperchunk;	/* max # of rows per allocation chunk */
+X      } small_barray_hdr;
+X
+Xstatic small_barray_ptr small_barray_list; /* head of list */
+X
+X
+XMETHODDEF JBLOCKARRAY
+Xalloc_small_barray (long blocksperrow, long numrows)
+X/* Allocate a "small" (all-in-memory) 2-D coefficient-block array */
+X{
+X  small_barray_ptr hdr;
+X  JBLOCKARRAY result;
+X  JBLOCKROW workspace;
+X  long rowsperchunk, currow, i;
+X
+X#ifdef MEM_STATS
+X  total_num_barray++;
+X  cur_num_barray++;
+X  if (cur_num_barray > max_num_barray) max_num_barray = cur_num_barray;
+X#endif
+X
+X  /* Calculate max # of rows allowed in one allocation chunk */
+X  rowsperchunk = MAX_ALLOC_CHUNK / (blocksperrow * SIZEOF(JBLOCK));
+X  if (rowsperchunk <= 0)
+X      ERREXIT(methods, "Image too wide for this implementation");
+X
+X  /* Get space for header and row pointers; this is always "near" on 80x86 */
+X  hdr = (small_barray_ptr) alloc_small((size_t) (numrows * SIZEOF(JBLOCKROW)
+X						 + SIZEOF(small_barray_hdr)));
+X
+X  result = (JBLOCKARRAY) (hdr+1); /* advance past header */
+X
+X  /* Insert into list now so free_all does right thing if I fail */
+X  /* after allocating only some of the rows... */
+X  hdr->next = small_barray_list;
+X  hdr->numrows = 0;
+X  hdr->rowsperchunk = rowsperchunk;
+X  small_barray_list = hdr;
+X
+X  /* Get the rows themselves; on 80x86 these are "far" */
+X  currow = 0;
+X  while (currow < numrows) {
+X    rowsperchunk = MIN(rowsperchunk, numrows - currow);
+X#ifdef MEM_STATS
+X    total_bytes_barray += rowsperchunk * blocksperrow * SIZEOF(JBLOCK)
+X			  + MALLOC_FAR_OVERHEAD;
+X#endif
+X    workspace = (JBLOCKROW) jget_large((size_t) (rowsperchunk * blocksperrow
+X						 * SIZEOF(JBLOCK)));
+X    if (workspace == NULL)
+X      out_of_memory(4);
+X    for (i = rowsperchunk; i > 0; i--) {
+X      result[currow++] = workspace;
+X      workspace += blocksperrow;
+X    }
+X    hdr->numrows = currow;
+X  }
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small_barray (JBLOCKARRAY ptr)
+X/* Free a "small" (all-in-memory) 2-D coefficient-block array */
+X{
+X  small_barray_ptr hdr;
+X  small_barray_ptr * llink;
+X  long i;
+X
+X  hdr = (small_barray_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_barray_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small_barray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  /* Free the rows themselves; on 80x86 these are "far" */
+X  /* Note we only free the row-group headers! */
+X  for (i = 0; i < hdr->numrows; i += hdr->rowsperchunk) {
+X    jfree_large((void FAR *) ptr[i]);
+X  }
+X
+X  /* Free header and row pointers */
+X  free_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_barray--;
+X#endif
+X}
+X
+X
+X
+X/*
+X * About "big" array management:
+X *
+X * To allow machines with limited memory to handle large images,
+X * all processing in the JPEG system is done a few pixel or block rows
+X * at a time.  The above "small" array routines are only used to allocate
+X * strip buffers (as wide as the image, but just a few rows high).
+X * In some cases multiple passes must be made over the data.  In these
+X * cases the "big" array routines are used.  The array is still accessed
+X * a strip at a time, but the memory manager must save the whole array
+X * for repeated accesses.  The intended implementation is that there is
+X * a strip buffer in memory (as high as is possible given the desired memory
+X * limit), plus a backing file that holds the rest of the array.
+X *
+X * The request_big_array routines are told the total size of the image (in case
+X * it is useful to know the total file size that will be needed).  They are
+X * also given the unit height, which is the number of rows that will be
+X * accessed at once; the in-memory buffer should be made a multiple of
+X * this height for best efficiency.
+X *
+X * The request routines create control blocks (and may open backing files),
+X * but they don't create the in-memory buffers.  This is postponed until
+X * alloc_big_arrays is called.  At that time the total amount of space needed
+X * is known (approximately, anyway), so free memory can be divided up fairly.
+X *
+X * The access_big_array routines are responsible for making a specific strip
+X * area accessible (after reading or writing the backing file, if necessary).
+X * Note that the access routines are told whether the caller intends to modify
+X * the accessed strip; during a read-only pass this saves having to rewrite
+X * data to disk.
+X *
+X * The typical access pattern is one top-to-bottom pass to write the data,
+X * followed by one or more read-only top-to-bottom passes.  However, other
+X * access patterns may occur while reading.  For example, translation of image
+X * formats that use bottom-to-top scan order will require bottom-to-top read
+X * passes.  The memory manager need not support multiple write passes nor
+X * funny write orders (meaning that rearranging rows must be handled while
+X * reading data out of the big array, not while putting it in).
+X *
+X * In current usage, the access requests are always for nonoverlapping strips;
+X * that is, successive access start_row numbers always differ by exactly the
+X * unitheight.  This allows fairly simple buffer dump/reload logic if the
+X * in-memory buffer is made a multiple of the unitheight.  It would be
+X * possible to keep subsampled rather than fullsize data in the "big" arrays,
+X * thus reducing temp file size, if we supported overlapping strip access
+X * (access requests differing by less than the unitheight).  At the moment
+X * I don't believe this is worth the extra complexity.
+X */
+X
+X
+X
+X/* The control blocks for virtual arrays.
+X * System-dependent info for the associated backing store is hidden inside
+X * the backing_store_info struct.
+X */
+X
+Xstruct big_sarray_control {
+X	long rows_in_array;	/* total virtual array height */
+X	long samplesperrow;	/* width of array (and of memory buffer) */
+X	long unitheight;	/* # of rows accessed by access_big_sarray() */
+X	JSAMPARRAY mem_buffer;	/* the in-memory buffer */
+X	long rows_in_mem;	/* height of memory buffer */
+X	long rowsperchunk;	/* allocation chunk size in mem_buffer */
+X	long cur_start_row;	/* first logical row # in the buffer */
+X	boolean dirty;		/* do current buffer contents need written? */
+X	boolean b_s_open;	/* is backing-store data valid? */
+X	big_sarray_ptr next;	/* link to next big sarray control block */
+X	backing_store_info b_s_info; /* System-dependent control info */
+X};
+X
+Xstatic big_sarray_ptr big_sarray_list; /* head of list */
+X
+Xstruct big_barray_control {
+X	long rows_in_array;	/* total virtual array height */
+X	long blocksperrow;	/* width of array (and of memory buffer) */
+X	long unitheight;	/* # of rows accessed by access_big_barray() */
+X	JBLOCKARRAY mem_buffer;	/* the in-memory buffer */
+X	long rows_in_mem;	/* height of memory buffer */
+X	long rowsperchunk;	/* allocation chunk size in mem_buffer */
+X	long cur_start_row;	/* first logical row # in the buffer */
+X	boolean dirty;		/* do current buffer contents need written? */
+X	boolean b_s_open;	/* is backing-store data valid? */
+X	big_barray_ptr next;	/* link to next big barray control block */
+X	backing_store_info b_s_info; /* System-dependent control info */
+X};
+X
+Xstatic big_barray_ptr big_barray_list; /* head of list */
+X
+X
+XMETHODDEF big_sarray_ptr
+Xrequest_big_sarray (long samplesperrow, long numrows, long unitheight)
+X/* Request a "big" (virtual-memory) 2-D sample array */
+X{
+X  big_sarray_ptr result;
+X
+X  /* get control block */
+X  result = (big_sarray_ptr) alloc_small(SIZEOF(struct big_sarray_control));
+X
+X  result->rows_in_array = numrows;
+X  result->samplesperrow = samplesperrow;
+X  result->unitheight = unitheight;
+X  result->mem_buffer = NULL;	/* marks array not yet realized */
+X  result->b_s_open = FALSE;	/* no associated backing-store object */
+X  result->next = big_sarray_list; /* add to list of big arrays */
+X  big_sarray_list = result;
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF big_barray_ptr
+Xrequest_big_barray (long blocksperrow, long numrows, long unitheight)
+X/* Request a "big" (virtual-memory) 2-D coefficient-block array */
+X{
+X  big_barray_ptr result;
+X
+X  /* get control block */
+X  result = (big_barray_ptr) alloc_small(SIZEOF(struct big_barray_control));
+X
+X  result->rows_in_array = numrows;
+X  result->blocksperrow = blocksperrow;
+X  result->unitheight = unitheight;
+X  result->mem_buffer = NULL;	/* marks array not yet realized */
+X  result->b_s_open = FALSE;	/* no associated backing-store object */
+X  result->next = big_barray_list; /* add to list of big arrays */
+X  big_barray_list = result;
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xalloc_big_arrays (long extra_small_samples, long extra_small_blocks,
+X		  long extra_medium_space)
+X/* Allocate the in-memory buffers for any unrealized "big" arrays */
+X/* 'extra' values are upper bounds for total future small-array requests */
+X/* and far-heap requests */
+X{
+X  long total_extra_space = extra_small_samples * SIZEOF(JSAMPLE)
+X			   + extra_small_blocks * SIZEOF(JBLOCK)
+X			   + extra_medium_space;
+X  long space_per_unitheight, maximum_space, avail_mem;
+X  long unitheights, max_unitheights;
+X  big_sarray_ptr sptr;
+X  big_barray_ptr bptr;
+X
+X  /* Compute the minimum space needed (unitheight rows in each buffer)
+X   * and the maximum space needed (full image height in each buffer).
+X   * These may be of use to the system-dependent jmem_available routine.
+X   */
+X  space_per_unitheight = 0;
+X  maximum_space = total_extra_space;
+X  for (sptr = big_sarray_list; sptr != NULL; sptr = sptr->next) {
+X    if (sptr->mem_buffer == NULL) { /* if not realized yet */
+X      space_per_unitheight += sptr->unitheight *
+X			      sptr->samplesperrow * SIZEOF(JSAMPLE);
+X      maximum_space += sptr->rows_in_array *
+X		       sptr->samplesperrow * SIZEOF(JSAMPLE);
+X    }
+X  }
+X  for (bptr = big_barray_list; bptr != NULL; bptr = bptr->next) {
+X    if (bptr->mem_buffer == NULL) { /* if not realized yet */
+X      space_per_unitheight += bptr->unitheight *
+X			      bptr->blocksperrow * SIZEOF(JBLOCK);
+X      maximum_space += bptr->rows_in_array *
+X		       bptr->blocksperrow * SIZEOF(JBLOCK);
+X    }
+X  }
+X
+X  if (space_per_unitheight <= 0)
+X    return;			/* no unrealized arrays, no work */
+X
+X  /* Determine amount of memory to actually use; this is system-dependent. */
+X  avail_mem = jmem_available(space_per_unitheight + total_extra_space,
+X			     maximum_space);
+X
+X  /* If the maximum space needed is available, make all the buffers full
+X   * height; otherwise parcel it out with the same number of unitheights
+X   * in each buffer.
+X   */
+X  if (avail_mem >= maximum_space)
+X    max_unitheights = 1000000000L;
+X  else {
+X    max_unitheights = (avail_mem - total_extra_space) / space_per_unitheight;
+X    /* If there doesn't seem to be enough space, try to get the minimum
+X     * anyway.  This allows a "stub" implementation of jmem_available().
+X     */
+X    if (max_unitheights <= 0)
+X      max_unitheights = 1;
+X  }
+X
+X  /* Allocate the in-memory buffers and initialize backing store as needed. */
+X
+X  for (sptr = big_sarray_list; sptr != NULL; sptr = sptr->next) {
+X    if (sptr->mem_buffer == NULL) { /* if not realized yet */
+X      unitheights = (sptr->rows_in_array + sptr->unitheight - 1L)
+X		    / sptr->unitheight;
+X      if (unitheights <= max_unitheights) {
+X	/* This buffer fits in memory */
+X	sptr->rows_in_mem = sptr->rows_in_array;
+X      } else {
+X	/* It doesn't fit in memory, create backing store. */
+X	sptr->rows_in_mem = max_unitheights * sptr->unitheight;
+X	jopen_backing_store(& sptr->b_s_info,
+X			    sptr->rows_in_array
+X			    * sptr->samplesperrow * SIZEOF(JSAMPLE));
+X	sptr->b_s_open = TRUE;
+X      }
+X      sptr->mem_buffer = alloc_small_sarray(sptr->samplesperrow,
+X					    sptr->rows_in_mem);
+X      /* Reach into the small_sarray header and get the rowsperchunk field.
+X       * Yes, I know, this is horrible coding practice.
+X       */
+X      sptr->rowsperchunk =
+X	((small_sarray_ptr) sptr->mem_buffer)[-1].rowsperchunk;
+X      sptr->cur_start_row = 0;
+X      sptr->dirty = FALSE;
+X    }
+X  }
+X
+X  for (bptr = big_barray_list; bptr != NULL; bptr = bptr->next) {
+X    if (bptr->mem_buffer == NULL) { /* if not realized yet */
+X      unitheights = (bptr->rows_in_array + bptr->unitheight - 1L)
+X		    / bptr->unitheight;
+X      if (unitheights <= max_unitheights) {
+X	/* This buffer fits in memory */
+X	bptr->rows_in_mem = bptr->rows_in_array;
+X      } else {
+X	/* It doesn't fit in memory, create backing store. */
+X	bptr->rows_in_mem = max_unitheights * bptr->unitheight;
+X	jopen_backing_store(& bptr->b_s_info,
+X			    bptr->rows_in_array
+X			    * bptr->blocksperrow * SIZEOF(JBLOCK));
+X	bptr->b_s_open = TRUE;
+X      }
+X      bptr->mem_buffer = alloc_small_barray(bptr->blocksperrow,
+X					    bptr->rows_in_mem);
+X      /* Reach into the small_barray header and get the rowsperchunk field. */
+X      bptr->rowsperchunk =
+X	((small_barray_ptr) bptr->mem_buffer)[-1].rowsperchunk;
+X      bptr->cur_start_row = 0;
+X      bptr->dirty = FALSE;
+X    }
+X  }
+X}
+X
+X
+XLOCAL void
+Xdo_sarray_io (big_sarray_ptr ptr, boolean writing)
+X/* Do backing store read or write of a "big" sample array */
+X{
+X  long bytesperrow, file_offset, byte_count, rows, i;
+X
+X  bytesperrow = ptr->samplesperrow * SIZEOF(JSAMPLE);
+X  file_offset = ptr->cur_start_row * bytesperrow;
+X  /* Loop to read or write each allocation chunk in mem_buffer */
+X  for (i = 0; i < ptr->rows_in_mem; i += ptr->rowsperchunk) {
+X    /* One chunk, but check for short chunk at end of buffer */
+X    rows = MIN(ptr->rowsperchunk, ptr->rows_in_mem - i);
+X    /* Transfer no more than fits in file */
+X    rows = MIN(rows, ptr->rows_in_array - (ptr->cur_start_row + i));
+X    if (rows <= 0)		/* this chunk might be past end of file! */
+X      break;
+X    byte_count = rows * bytesperrow;
+X    if (writing)
+X      (*ptr->b_s_info.write_backing_store) (& ptr->b_s_info,
+X					    (void FAR *) ptr->mem_buffer[i],
+X					    file_offset, byte_count);
+X    else
+X      (*ptr->b_s_info.read_backing_store) (& ptr->b_s_info,
+X					   (void FAR *) ptr->mem_buffer[i],
+X					   file_offset, byte_count);
+X    file_offset += byte_count;
+X  }
+X}
+X
+X
+XLOCAL void
+Xdo_barray_io (big_barray_ptr ptr, boolean writing)
+X/* Do backing store read or write of a "big" coefficient-block array */
+X{
+X  long bytesperrow, file_offset, byte_count, rows, i;
+X
+X  bytesperrow = ptr->blocksperrow * SIZEOF(JBLOCK);
+X  file_offset = ptr->cur_start_row * bytesperrow;
+X  /* Loop to read or write each allocation chunk in mem_buffer */
+X  for (i = 0; i < ptr->rows_in_mem; i += ptr->rowsperchunk) {
+X    /* One chunk, but check for short chunk at end of buffer */
+X    rows = MIN(ptr->rowsperchunk, ptr->rows_in_mem - i);
+X    /* Transfer no more than fits in file */
+X    rows = MIN(rows, ptr->rows_in_array - (ptr->cur_start_row + i));
+X    if (rows <= 0)		/* this chunk might be past end of file! */
+X      break;
+X    byte_count = rows * bytesperrow;
+X    if (writing)
+X      (*ptr->b_s_info.write_backing_store) (& ptr->b_s_info,
+X					    (void FAR *) ptr->mem_buffer[i],
+X					    file_offset, byte_count);
+X    else
+X      (*ptr->b_s_info.read_backing_store) (& ptr->b_s_info,
+X					   (void FAR *) ptr->mem_buffer[i],
+X					   file_offset, byte_count);
+X    file_offset += byte_count;
+X  }
+X}
+X
+X
+XMETHODDEF JSAMPARRAY
+Xaccess_big_sarray (big_sarray_ptr ptr, long start_row, boolean writable)
+X/* Access the part of a "big" sample array starting at start_row */
+X/* and extending for ptr->unitheight rows.  writable is true if  */
+X/* caller intends to modify the accessed area. */
+X{
+X  /* debugging check */
+X  if (start_row < 0 || start_row+ptr->unitheight > ptr->rows_in_array ||
+X      ptr->mem_buffer == NULL)
+X    ERREXIT(methods, "Bogus access_big_sarray request");
+X
+X  /* Make the desired part of the virtual array accessible */
+X  if (start_row < ptr->cur_start_row ||
+X      start_row+ptr->unitheight > ptr->cur_start_row+ptr->rows_in_mem) {
+X    if (! ptr->b_s_open)
+X      ERREXIT(methods, "Virtual array controller messed up");
+X    /* Flush old buffer contents if necessary */
+X    if (ptr->dirty) {
+X      do_sarray_io(ptr, TRUE);
+X      ptr->dirty = FALSE;
+X    }
+X    /* Decide what part of virtual array to access.
+X     * Algorithm: if target address > current window, assume forward scan,
+X     * load starting at target address.  If target address < current window,
+X     * assume backward scan, load so that target address is top of window.
+X     * Note that when switching from forward write to forward read, will have
+X     * start_row = 0, so the limiting case applies and we load from 0 anyway.
+X     */
+X    if (start_row > ptr->cur_start_row) {
+X      ptr->cur_start_row = start_row;
+X    } else {
+X      ptr->cur_start_row = start_row + ptr->unitheight - ptr->rows_in_mem;
+X      if (ptr->cur_start_row < 0)
+X	ptr->cur_start_row = 0;	/* don't fall off front end of file */
+X    }
+X    /* If reading, read in the selected part of the array. 
+X     * If we are writing, we need not pre-read the selected portion,
+X     * since the access sequence constraints ensure it would be garbage.
+X     */
+X    if (! writable) {
+X      do_sarray_io(ptr, FALSE);
+X    }
+X  }
+X  /* Flag the buffer dirty if caller will write in it */
+X  if (writable)
+X    ptr->dirty = TRUE;
+X  /* Return address of proper part of the buffer */
+X  return ptr->mem_buffer + (start_row - ptr->cur_start_row);
+X}
+X
+X
+XMETHODDEF JBLOCKARRAY
+Xaccess_big_barray (big_barray_ptr ptr, long start_row, boolean writable)
+X/* Access the part of a "big" coefficient-block array starting at start_row */
+X/* and extending for ptr->unitheight rows.  writable is true if  */
+X/* caller intends to modify the accessed area. */
+X{
+X  /* debugging check */
+X  if (start_row < 0 || start_row+ptr->unitheight > ptr->rows_in_array ||
+X      ptr->mem_buffer == NULL)
+X    ERREXIT(methods, "Bogus access_big_barray request");
+X
+X  /* Make the desired part of the virtual array accessible */
+X  if (start_row < ptr->cur_start_row ||
+X      start_row+ptr->unitheight > ptr->cur_start_row+ptr->rows_in_mem) {
+X    if (! ptr->b_s_open)
+X      ERREXIT(methods, "Virtual array controller messed up");
+X    /* Flush old buffer contents if necessary */
+X    if (ptr->dirty) {
+X      do_barray_io(ptr, TRUE);
+X      ptr->dirty = FALSE;
+X    }
+X    /* Decide what part of virtual array to access.
+X     * Algorithm: if target address > current window, assume forward scan,
+X     * load starting at target address.  If target address < current window,
+X     * assume backward scan, load so that target address is top of window.
+X     * Note that when switching from forward write to forward read, will have
+X     * start_row = 0, so the limiting case applies and we load from 0 anyway.
+X     */
+X    if (start_row > ptr->cur_start_row) {
+X      ptr->cur_start_row = start_row;
+X    } else {
+X      ptr->cur_start_row = start_row + ptr->unitheight - ptr->rows_in_mem;
+X      if (ptr->cur_start_row < 0)
+X	ptr->cur_start_row = 0;	/* don't fall off front end of file */
+X    }
+X    /* If reading, read in the selected part of the array. 
+X     * If we are writing, we need not pre-read the selected portion,
+X     * since the access sequence constraints ensure it would be garbage.
+X     */
+X    if (! writable) {
+X      do_barray_io(ptr, FALSE);
+X    }
+X  }
+X  /* Flag the buffer dirty if caller will write in it */
+X  if (writable)
+X    ptr->dirty = TRUE;
+X  /* Return address of proper part of the buffer */
+X  return ptr->mem_buffer + (start_row - ptr->cur_start_row);
+X}
+X
+X
+XMETHODDEF void
+Xfree_big_sarray (big_sarray_ptr ptr)
+X/* Free a "big" (virtual-memory) 2-D sample array */
+X{
+X  big_sarray_ptr * llink;
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &big_sarray_list;
+X  while (*llink != ptr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_big_sarray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = ptr->next;
+X
+X  if (ptr->b_s_open)		/* there may be no backing store */
+X    (*ptr->b_s_info.close_backing_store) (& ptr->b_s_info);
+X
+X  if (ptr->mem_buffer != NULL)	/* just in case never realized */
+X    free_small_sarray(ptr->mem_buffer);
+X
+X  free_small((void *) ptr);	/* free the control block too */
+X}
+X
+X
+XMETHODDEF void
+Xfree_big_barray (big_barray_ptr ptr)
+X/* Free a "big" (virtual-memory) 2-D coefficient-block array */
+X{
+X  big_barray_ptr * llink;
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &big_barray_list;
+X  while (*llink != ptr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_big_barray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = ptr->next;
+X
+X  if (ptr->b_s_open)		/* there may be no backing store */
+X    (*ptr->b_s_info.close_backing_store) (& ptr->b_s_info);
+X
+X  if (ptr->mem_buffer != NULL)	/* just in case never realized */
+X    free_small_barray(ptr->mem_buffer);
+X
+X  free_small((void *) ptr);	/* free the control block too */
+X}
+X
+X
+X/*
+X * Cleanup: free anything that's been allocated since jselmemmgr().
+X */
+X
+XMETHODDEF void
+Xfree_all (void)
+X{
+X  /* First free any open "big" arrays -- these may release small arrays */
+X  while (big_sarray_list != NULL)
+X    free_big_sarray(big_sarray_list);
+X  while (big_barray_list != NULL)
+X    free_big_barray(big_barray_list);
+X  /* Free any open small arrays -- these may release small objects */
+X  /* +1's are because we must pass a pointer to the data, not the header */
+X  while (small_sarray_list != NULL)
+X    free_small_sarray((JSAMPARRAY) (small_sarray_list + 1));
+X  while (small_barray_list != NULL)
+X    free_small_barray((JBLOCKARRAY) (small_barray_list + 1));
+X  /* Free any remaining small objects */
+X  while (small_list != NULL)
+X    free_small((void *) (small_list + 1));
+X#ifdef NEED_ALLOC_MEDIUM
+X  while (medium_list != NULL)
+X    free_medium((void FAR *) (medium_list + 1));
+X#endif
+X
+X  jmem_term();			/* system-dependent cleanup */
+X
+X#ifdef MEM_STATS
+X  if (methods->trace_level > 0)
+X    print_mem_stats();		/* print optional memory usage statistics */
+X#endif
+X}
+X
+X
+X/*
+X * The method selection routine for virtual memory systems.
+X * The system-dependent setup routine should call this routine
+X * to install the necessary method pointers in the supplied struct.
+X */
+X
+XGLOBAL void
+Xjselmemmgr (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for error exit access */
+X
+X  emethods->alloc_small = alloc_small;
+X  emethods->free_small = free_small;
+X#ifdef NEED_ALLOC_MEDIUM
+X  emethods->alloc_medium = alloc_medium;
+X  emethods->free_medium = free_medium;
+X#else
+X  emethods->alloc_medium = alloc_small;
+X  emethods->free_medium = free_small;
+X#endif
+X  emethods->alloc_small_sarray = alloc_small_sarray;
+X  emethods->free_small_sarray = free_small_sarray;
+X  emethods->alloc_small_barray = alloc_small_barray;
+X  emethods->free_small_barray = free_small_barray;
+X  emethods->request_big_sarray = request_big_sarray;
+X  emethods->request_big_barray = request_big_barray;
+X  emethods->alloc_big_arrays = alloc_big_arrays;
+X  emethods->access_big_sarray = access_big_sarray;
+X  emethods->access_big_barray = access_big_barray;
+X  emethods->free_big_sarray = free_big_sarray;
+X  emethods->free_big_barray = free_big_barray;
+X  emethods->free_all = free_all;
+X
+X  /* Initialize list headers to empty */
+X  small_list = NULL;
+X#ifdef NEED_ALLOC_MEDIUM
+X  medium_list = NULL;
+X#endif
+X  small_sarray_list = NULL;
+X  small_barray_list = NULL;
+X  big_sarray_list = NULL;
+X  big_barray_list = NULL;
+X
+X  jmem_init(emethods);		/* system-dependent initialization */
+X}
+END_OF_FILE
+  if test 35862 -ne `wc -c <'jmemmgr.c'`; then
+    echo shar: \"'jmemmgr.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmemmgr.c'
+fi
+if test -f 'jrdtarga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdtarga.c'\"
+else
+  echo shar: Extracting \"'jrdtarga.c'\" \(13177 characters\)
+  sed "s/^X//" >'jrdtarga.c' <<'END_OF_FILE'
+X/*
+X * jrdtarga.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in Targa format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed Targa format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X *
+X * Based on code contributed by Lee Daniel Crocker.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef TARGA_SUPPORTED
+X
+X
+X/* Macros to deal with unsigned chars as efficiently as compiler allows */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xtypedef unsigned char U_CHAR;
+X#define UCH(x)	((int) (x))
+X#else /* !HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+Xtypedef char U_CHAR;
+X#define UCH(x)	((int) (x))
+X#else
+Xtypedef char U_CHAR;
+X#define UCH(x)	((int) (x) & 0xFF)
+X#endif
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X
+X#define	ReadOK(file,buffer,len)	(JFREAD(file,buffer,len) == ((size_t) (len)))
+X
+X
+Xstatic JSAMPARRAY colormap;	/* Targa colormap (converted to my format) */
+X
+Xstatic big_sarray_ptr whole_image; /* Needed if funny input row order */
+Xstatic long current_row;	/* Current logical row number to read */
+X
+X/* Pointer to routine to extract next Targa pixel from input file */
+Xstatic void (*read_pixel) PP((compress_info_ptr cinfo));
+X
+X/* Result of read_pixel is delivered here: */
+Xstatic U_CHAR tga_pixel[4];
+X
+Xstatic int pixel_size;		/* Bytes per Targa pixel (1 to 4) */
+X
+X/* State info for reading RLE-coded pixels; both counts must be init to 0 */
+Xstatic int block_count;		/* # of pixels remaining in RLE block */
+Xstatic int dup_pixel_count;	/* # of times to duplicate previous pixel */
+X
+X/* This saves the correct pixel-row-expansion method for preload_image */
+Xstatic void (*get_pixel_row) PP((compress_info_ptr cinfo,
+X				 JSAMPARRAY pixel_row));
+X
+X
+X/* For expanding 5-bit pixel values to 8-bit with best rounding */
+X
+Xstatic const UINT8 c5to8bits[32] = {
+X    0,   8,  16,  24,  32,  41,  49,  57,
+X   65,  74,  82,  90,  98, 106, 115, 123,
+X  131, 139, 148, 156, 164, 172, 180, 189,
+X  197, 205, 213, 222, 230, 238, 246, 255
+X};
+X
+X
+X
+XLOCAL int
+Xread_byte (compress_info_ptr cinfo)
+X/* Read next byte from Targa file */
+X{
+X  register FILE *infile = cinfo->input_file;
+X  register int c;
+X
+X  if ((c = getc(infile)) == EOF)
+X    ERREXIT(cinfo->emethods, "Premature EOF in Targa file");
+X  return c;
+X}
+X
+X
+XLOCAL void
+Xread_colormap (compress_info_ptr cinfo, int cmaplen, int mapentrysize)
+X/* Read the colormap from a Targa file */
+X{
+X  int i;
+X
+X  /* Presently only handles 24-bit BGR format */
+X  if (mapentrysize != 24)
+X    ERREXIT(cinfo->emethods, "Unsupported Targa colormap format");
+X
+X  for (i = 0; i < cmaplen; i++) {
+X    colormap[2][i] = (JSAMPLE) read_byte(cinfo);
+X    colormap[1][i] = (JSAMPLE) read_byte(cinfo);
+X    colormap[0][i] = (JSAMPLE) read_byte(cinfo);
+X  }
+X}
+X
+X
+X/*
+X * read_pixel methods: get a single pixel from Targa file into tga_pixel[]
+X */
+X
+XLOCAL void
+Xread_non_rle_pixel (compress_info_ptr cinfo)
+X/* Read one Targa pixel from the input file; no RLE expansion */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register int i;
+X
+X  for (i = 0; i < pixel_size; i++) {
+X    tga_pixel[i] = (U_CHAR) getc(infile);
+X  }
+X}
+X
+X
+XLOCAL void
+Xread_rle_pixel (compress_info_ptr cinfo)
+X/* Read one Targa pixel from the input file, expanding RLE data as needed */
+X{
+X  register FILE * infile = cinfo->input_file;
+X  register int i;
+X
+X  /* Duplicate previously read pixel? */
+X  if (dup_pixel_count > 0) {
+X    dup_pixel_count--;
+X    return;
+X  }
+X
+X  /* Time to read RLE block header? */
+X  if (--block_count < 0) {	/* decrement pixels remaining in block */
+X    i = read_byte(cinfo);
+X    if (i & 0x80) {		/* Start of duplicate-pixel block? */
+X      dup_pixel_count = i & 0x7F; /* number of duplications after this one */
+X      block_count = 0;		/* then read new block header */
+X    } else {
+X      block_count = i & 0x7F;	/* number of pixels after this one */
+X    }
+X  }
+X
+X  /* Read next pixel */
+X  for (i = 0; i < pixel_size; i++) {
+X    tga_pixel[i] = (U_CHAR) getc(infile);
+X  }
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X *
+X * We provide several different versions depending on input file format.
+X */
+X
+X
+XMETHODDEF void
+Xget_8bit_gray_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 8-bit grayscale pixels */
+X{
+X  register JSAMPROW ptr0;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    *ptr0++ = (JSAMPLE) UCH(tga_pixel[0]);
+X  }
+X}
+X
+XMETHODDEF void
+Xget_8bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 8-bit colormap indexes */
+X{
+X  register int t;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    t = UCH(tga_pixel[0]);
+X    *ptr0++ = colormap[0][t];
+X    *ptr1++ = colormap[1][t];
+X    *ptr2++ = colormap[2][t];
+X  }
+X}
+X
+XMETHODDEF void
+Xget_16bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 16-bit pixels */
+X{
+X  register int t;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    t = UCH(tga_pixel[0]);
+X    t += UCH(tga_pixel[1]) << 8;
+X    /* We expand 5 bit data to 8 bit sample width.
+X     * The format of the 16-bit (LSB first) input word is
+X     *     xRRRRRGGGGGBBBBB
+X     */
+X    *ptr2++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X    t >>= 5;
+X    *ptr1++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X    t >>= 5;
+X    *ptr0++ = (JSAMPLE) c5to8bits[t & 0x1F];
+X  }
+X}
+X
+XMETHODDEF void
+Xget_24bit_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This version is for reading 24-bit pixels */
+X{
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    (*read_pixel) (cinfo);	/* Load next pixel into tga_pixel */
+X    *ptr0++ = (JSAMPLE) UCH(tga_pixel[2]); /* convert BGR to RGB order */
+X    *ptr1++ = (JSAMPLE) UCH(tga_pixel[1]);
+X    *ptr2++ = (JSAMPLE) UCH(tga_pixel[0]);
+X  }
+X}
+X
+X/*
+X * Targa also defines a 32-bit pixel format with order B,G,R,A.
+X * We presently ignore the attribute byte, so the code for reading
+X * these pixels is identical to the 24-bit routine above.
+X * This works because the actual pixel length is only known to read_pixel.
+X */
+X
+X#define get_32bit_row  get_24bit_row
+X
+X
+X/*
+X * This method is for re-reading the input data in standard top-down
+X * row order.  The entire image has already been read into whole_image
+X * with proper conversion of pixel format, but it's in a funny row order.
+X */
+X
+XMETHODDEF void
+Xget_memory_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  long source_row;
+X
+X  /* Compute row of source that maps to current_row of normal order */
+X  /* For now, assume image is bottom-up and not interlaced. */
+X  /* NEEDS WORK to support interlaced images! */
+X  source_row = cinfo->image_height - current_row - 1;
+X
+X  /* Fetch that row from virtual array */
+X  image_ptr = (*cinfo->emethods->access_big_sarray)
+X		(whole_image, source_row * cinfo->input_components, FALSE);
+X
+X  jcopy_sample_rows(image_ptr, 0, pixel_row, 0,
+X		    cinfo->input_components, cinfo->image_width);
+X
+X  current_row++;
+X}
+X
+X
+X/*
+X * This method loads the image into whole_image during the first call on
+X * get_input_row.  The get_input_row pointer is then adjusted to call
+X * get_memory_row on subsequent calls.
+X */
+X
+XMETHODDEF void
+Xpreload_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  JSAMPARRAY image_ptr;
+X  long row;
+X
+X  /* Read the data into a virtual array in input-file row order */
+X  for (row = 0; row < cinfo->image_height; row++) {
+X    (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X    image_ptr = (*cinfo->emethods->access_big_sarray)
+X			(whole_image, row * cinfo->input_components, TRUE);
+X    (*get_pixel_row) (cinfo, image_ptr);
+X  }
+X  cinfo->completed_passes++;
+X
+X  /* Set up to read from the virtual array in unscrambled order */
+X  cinfo->methods->get_input_row = get_memory_row;
+X  current_row = 0;
+X  /* And read the first row */
+X  get_memory_row(cinfo, pixel_row);
+X}
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  U_CHAR targaheader[18];
+X  int idlen, cmaptype, subtype, flags, interlace_type, components;
+X  UINT16 width, height, maplen;
+X  boolean is_bottom_up;
+X
+X#define GET_2B(offset)	((unsigned int) UCH(targaheader[offset]) + \
+X			 (((unsigned int) UCH(targaheader[offset+1])) << 8))
+X  
+X  if (! ReadOK(cinfo->input_file, targaheader, 18))
+X    ERREXIT(cinfo->emethods, "Unexpected end of file");
+X
+X  /* Pretend "15-bit" pixels are 16-bit --- we ignore attribute bit anyway */
+X  if (targaheader[16] == 15)
+X    targaheader[16] = 16;
+X
+X  idlen = UCH(targaheader[0]);
+X  cmaptype = UCH(targaheader[1]);
+X  subtype = UCH(targaheader[2]);
+X  maplen = GET_2B(5);
+X  width = GET_2B(12);
+X  height = GET_2B(14);
+X  pixel_size = UCH(targaheader[16]) >> 3;
+X  flags = UCH(targaheader[17]);	/* Image Descriptor byte */
+X
+X  is_bottom_up = ((flags & 0x20) == 0);	/* bit 5 set => top-down */
+X  interlace_type = flags >> 6;	/* bits 6/7 are interlace code */
+X
+X  if (cmaptype > 1 ||		/* cmaptype must be 0 or 1 */
+X      pixel_size < 1 || pixel_size > 4 ||
+X      (UCH(targaheader[16]) & 7) != 0 || /* bits/pixel must be multiple of 8 */
+X      interlace_type != 0)	/* currently don't allow interlaced image */
+X    ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X  
+X  if (subtype > 8) {
+X    /* It's an RLE-coded file */
+X    read_pixel = read_rle_pixel;
+X    block_count = dup_pixel_count = 0;
+X    subtype -= 8;
+X  } else {
+X    /* Non-RLE file */
+X    read_pixel = read_non_rle_pixel;
+X  }
+X
+X  /* Now should have subtype 1, 2, or 3 */
+X  components = 3;		/* until proven different */
+X  cinfo->in_color_space = CS_RGB;
+X
+X  switch (subtype) {
+X  case 1:			/* colormapped image */
+X    if (pixel_size == 1 && cmaptype == 1)
+X      get_pixel_row = get_8bit_row;
+X    else
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    break;
+X  case 2:			/* RGB image */
+X    switch (pixel_size) {
+X    case 2:
+X      get_pixel_row = get_16bit_row;
+X      break;
+X    case 3:
+X      get_pixel_row = get_24bit_row;
+X      break;
+X    case 4:
+X      get_pixel_row = get_32bit_row;
+X      break;
+X    default:
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X      break;
+X    }
+X    break;
+X  case 3:			/* Grayscale image */
+X    components = 1;
+X    cinfo->in_color_space = CS_GRAYSCALE;
+X    if (pixel_size == 1)
+X      get_pixel_row = get_8bit_gray_row;
+X    else
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    break;
+X  default:
+X    ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    break;
+X  }
+X
+X  if (is_bottom_up) {
+X    whole_image = (*cinfo->emethods->request_big_sarray)
+X			((long) width, (long) height * components,
+X			 (long) components);
+X    cinfo->methods->get_input_row = preload_image;
+X    cinfo->total_passes++;	/* count file reading as separate pass */
+X  } else {
+X    whole_image = NULL;
+X    cinfo->methods->get_input_row = get_pixel_row;
+X  }
+X  
+X  while (idlen--)		/* Throw away ID field */
+X    (void) read_byte(cinfo);
+X
+X  if (maplen > 0) {
+X    if (maplen > 256 || GET_2B(3) != 0)
+X      ERREXIT(cinfo->emethods, "Colormap too large");
+X    /* Allocate space to store the colormap */
+X    colormap = (*cinfo->emethods->alloc_small_sarray)
+X			((long) maplen, 3L);
+X    /* and read it from the file */
+X    read_colormap(cinfo, (int) maplen, UCH(targaheader[7]));
+X  } else {
+X    if (cmaptype)		/* but you promised a cmap! */
+X      ERREXIT(cinfo->emethods, "Invalid or unsupported Targa file");
+X    colormap = NULL;
+X  }
+X
+X  cinfo->input_components = components;
+X  cinfo->image_width = width;
+X  cinfo->image_height = height;
+X  cinfo->data_precision = 8;	/* always, even if 12-bit JSAMPLEs */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for Targa format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrtarga (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init = input_init;
+X  /* cinfo->methods->get_input_row is set by input_init */
+X  cinfo->methods->input_term = input_term;
+X}
+X
+X#endif /* TARGA_SUPPORTED */
+END_OF_FILE
+  if test 13177 -ne `wc -c <'jrdtarga.c'`; then
+    echo shar: \"'jrdtarga.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdtarga.c'
+fi
+if test -f 'makvms.opt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makvms.opt'\"
+else
+  echo shar: Extracting \"'makvms.opt'\" \(142 characters\)
+  sed "s/^X//" >'makvms.opt' <<'END_OF_FILE'
+X! a pointer to the VAX/VMS C Run-Time Shareable Library
+X! This file is needed by makefile.mms and makefile.vms
+XSys$Library:VAXCRTL.EXE /Share
+END_OF_FILE
+  if test 142 -ne `wc -c <'makvms.opt'`; then
+    echo shar: \"'makvms.opt'\" unpacked with wrong size!
+  fi
+  # end of 'makvms.opt'
+fi
+echo shar: End of archive 5 \(of 18\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

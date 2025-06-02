@@ -1,0 +1,701 @@
+Newsgroups: comp.sources.misc
+From: leo@s514.ipmce.su (Leonid A. Broukhis)
+Subject:  v28i083:  freeze - Freeze/melt compression program vers. 2.3, Patch03
+Message-ID: <1992Mar7.184224.22274@sparky.imd.sterling.com>
+X-Md4-Signature: 5820156e3106af3e0cf84cfbf3945438
+Date: Sat, 7 Mar 1992 18:42:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@s514.ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 28, Issue 83
+Archive-name: freeze/patch03
+Environment: ISC, Xenix, SunOS, MS-DOS
+Patch-To: freeze: Volume 25, Issue 12-13
+
+This patch corrects some Xenix/286-dependent bugs (mostly cpp's ones)
+and turns makefile into "system-specific" form. 
+
+------
+*** ../distribution/README	Wed Feb 26 14:40:06 1992
+--- README	Fri Mar  6 12:20:53 1992
+***************
+*** 9,22 ****
+  				reducing to 14 gives some speeddown).
+  	o COMPAT                Turns on backwards compatibility
+  				with Freeze 1.0
+! 	o M_XENIX & M_I286      Makes arrays < 65536 bytes each
+! 	o BSD4_2		Allow long filenames ( > 14 characters) &
+  				Call setlinebuf(stderr)
+  	o INT_SIG               signal is int (*)() unstead of void
+  	o MSDOS                 Turns off some UNIX-dependencies
+  				and MSDOS' ones - vice versa
+  				!!! It's important !!!
+! 				If your MSDOS' C compiler do support
+  				inline functions, define DO_INLINE.
+  				This will cause the main loop to be
+  				replaced with a call of memcmp, which
+--- 9,22 ----
+  				reducing to 14 gives some speeddown).
+  	o COMPAT                Turns on backwards compatibility
+  				with Freeze 1.0
+! 	o M_XENIX & !M_I386     Makes arrays < 65536 bytes each
+! 	o BSD                   Allow long filenames ( > 14 characters) &
+  				Call setlinebuf(stderr)
+  	o INT_SIG               signal is int (*)() unstead of void
+  	o MSDOS                 Turns off some UNIX-dependencies
+  				and MSDOS' ones - vice versa
+  				!!! It's important !!!
+! 				If your MSDOS' C compiler does support
+  				inline functions, define DO_INLINE.
+  				This will cause the main loop to be
+  				replaced with a call of memcmp, which
+***************
+*** 137,155 ****
+  
+  ------------------- LINT ----------------------------
+  
+! Lint complains about MANY `constant in conditional context', but ALL these
+! contexts aren't `conditional', because they are unconditional (!)
+! expressions:
+! 
+! #define BITS 18
+! . . .
+! #define LEN0    (BITS/3 + (BITS%3 != 0))
+! . . .
+! 	... + (key[0] >> LEN0) ....
+! 
+! Do you think about /*CONDITIONAL*/ pseudo-comment for lint?
+! 
+! Other lint's complaints about `used/declared inconsistently' are (in my
+  case) due to inconsistencies of /usr/include/* and /usr/lib/llib*ln. It
+  isn't dangerous.
+  
+--- 137,143 ----
+  
+  ------------------- LINT ----------------------------
+  
+! Some lint's complaints about `used/declared inconsistently' are (in my
+  case) due to inconsistencies of /usr/include/* and /usr/lib/llib*ln. It
+  isn't dangerous.
+  
+*** ../distribution/freeze.c	Wed Feb 26 14:40:07 1992
+--- freeze.c	Thu Feb 27 14:51:28 1992
+***************
+*** 99,110 ****
+  long indc_count, indc_threshold;
+  long file_length = 0;   /* initial length of file */
+  
+! #ifdef INT_SIG
+! int
+! #else
+! void
+! #endif
+! (*bgnd_flag)();
+  
+  void writeerr(), copystat(), version(), tune_table();
+  
+--- 99,105 ----
+  long indc_count, indc_threshold;
+  long file_length = 0;   /* initial length of file */
+  
+! SIGTYPE (*bgnd_flag)();
+  
+  void writeerr(), copystat(), version(), tune_table();
+  
+***************
+*** 180,199 ****
+      char *malloc();
+  #endif
+  
+! #if defined(__TURBOC__) || !defined(INT_SIG)
+!     extern void onintr();
+! #else
+!     extern onintr();
+! #endif
+  
+  #ifdef DOS
+      char *sufp;
+  #else
+! #ifdef INT_SIG
+!     extern oops();
+! #else
+!     extern void oops();
+! #endif
+  #endif
+  
+  #ifndef DOS
+--- 175,186 ----
+      char *malloc();
+  #endif
+  
+!     extern SIGTYPE onintr();
+  
+  #ifdef DOS
+      char *sufp;
+  #else
+!     extern SIGTYPE oops();
+  #endif
+  
+  #ifndef DOS
+***************
+*** 276,285 ****
+  #endif  /* DOS */
+  
+      }
+! #ifdef BSD4_2
+      /* 4.2BSD dependent - take it out if not */
+      setlinebuf( stderr );
+! #endif /* BSD4_2 */
+  
+      /* Argument Processing
+       * All flags are optional.
+--- 263,272 ----
+  #endif  /* DOS */
+  
+      }
+! #ifdef BSD
+      /* 4.2BSD dependent - take it out if not */
+      setlinebuf( stderr );
+! #endif /* BSD */
+  
+      /* Argument Processing
+       * All flags are optional.
+***************
+*** 471,477 ****
+  
+  		/* Generate output filename */
+  		(void) strcpy(ofname, *fileptr);
+! #ifndef BSD4_2		/* Short filenames */
+  		if ((cp = last_sep(ofname)) != NULL) cp++;
+  		else cp = ofname;
+  # ifdef DOS
+--- 458,464 ----
+  
+  		/* Generate output filename */
+  		(void) strcpy(ofname, *fileptr);
+! #ifndef BSD     /* Short filenames */
+  		if ((cp = last_sep(ofname)) != NULL) cp++;
+  		else cp = ofname;
+  # ifdef DOS
+***************
+*** 485,491 ****
+  		    continue;
+  		}
+  # endif /* DOS */
+! #endif	/* BSD4_2		Long filenames allowed */
+  							 
+  #ifdef DOS
+  		/* There is no difference between FOOBAR and FOOBAR. names */
+--- 472,478 ----
+  		    continue;
+  		}
+  # endif /* DOS */
+! #endif  /* BSD               Long filenames allowed */
+  							 
+  #ifdef DOS
+  		/* There is no difference between FOOBAR and FOOBAR. names */
+***************
+*** 567,578 ****
+  		freeze();
+  #ifndef DEBUG
+  	    else
+! 		meltfunc();
+  #else
+  	    else if (debug && verbose)
+  		printcodes(meltfunc == (void(*)()) melt2);
+  	    else
+! 		meltfunc();
+  #endif /* DEBUG */
+  
+  	/* check output status, and close to make sure data is written */
+--- 554,565 ----
+  		freeze();
+  #ifndef DEBUG
+  	    else
+! 		(*meltfunc)();
+  #else
+  	    else if (debug && verbose)
+  		printcodes(meltfunc == (void(*)()) melt2);
+  	    else
+! 		(*meltfunc)();
+  #endif /* DEBUG */
+  
+  	/* check output status, and close to make sure data is written */
+***************
+*** 849,861 ****
+  }
+  #endif
+  
+- #if defined(__TURBOC__) || !defined(INT_SIG)
+- void
+- #endif
+- 
+  /* Exception handler (SIGINT) */
+  
+! onintr ( ) {
+      if (!precious) {            /* topipe == 1 implies precious == 1 */
+  	(void) fclose(stdout);
+  	(void) unlink(ofname);
+--- 836,844 ----
+  }
+  #endif
+  
+  /* Exception handler (SIGINT) */
+  
+! SIGTYPE onintr ( ) {
+      if (!precious) {            /* topipe == 1 implies precious == 1 */
+  	(void) fclose(stdout);
+  	(void) unlink(ofname);
+***************
+*** 863,875 ****
+      exit(1);
+  }
+  
+- #if defined(__TURBOC__) || !defined(INT_SIG)
+- void
+- #endif
+- 
+  /* Exception handler (SIGSEGV) */
+  
+! oops ( )        /* file is corrupt or internal error */
+  {
+      (void) fflush(stdout);
+      fprintf(stderr, "Segmentation violation occured...\n");
+--- 846,854 ----
+      exit(1);
+  }
+  
+  /* Exception handler (SIGSEGV) */
+  
+! SIGTYPE oops ( )        /* file is corrupt or internal error */
+  {
+      (void) fflush(stdout);
+      fprintf(stderr, "Segmentation violation occured...\n");
+***************
+*** 888,895 ****
+  #ifdef DEBUG
+  	fprintf(stderr, "DEBUG, ");
+  #endif
+! #ifdef BSD4_2
+! 	fprintf(stderr, "BSD4_2, ");
+  #endif
+  #ifdef  __XENIX__
+  	fprintf(stderr, "XENIX, ");
+--- 867,874 ----
+  #ifdef DEBUG
+  	fprintf(stderr, "DEBUG, ");
+  #endif
+! #ifdef BSD
+! 	fprintf(stderr, "BSD, ");
+  #endif
+  #ifdef  __XENIX__
+  	fprintf(stderr, "XENIX, ");
+*** ../distribution/freeze.h	Wed Feb 26 14:40:08 1992
+--- freeze.h	Fri Mar  6 12:20:53 1992
+***************
+*** 37,61 ****
+  #include <types.h>
+  #endif
+  
+! #ifndef __TURBOC__
+  #ifdef UTIMES
+  #include <sys/time.h>
+  #else
+  #include <utime.h>      /* Some systems have sys/utime.h instead of this */
+  #endif /* UTIMES */
+! #endif
+  
+! #if defined(BSD42) && !defined(BSD4_2)
+! #define BSD4_2
+  #endif
+  
+  /* for MAXNAMLEN only !!! */
+  #ifdef unix
+! #ifndef BSD4_2
+  #include <dirent.h>
+  #else
+  #include <sys/dir.h>
+! #endif /* BSD4_2 */
+  #endif /* unix */
+  
+  #if !defined(MAXNAMLEN)
+--- 37,66 ----
+  #include <types.h>
+  #endif
+  
+! #if !defined(__TURBOC__) && (!defined(M_XENIX) || defined(M_I386))
+  #ifdef UTIMES
+  #include <sys/time.h>
+  #else
+  #include <utime.h>      /* Some systems have sys/utime.h instead of this */
+  #endif /* UTIMES */
+! #else
+! #ifdef M_XENIX
+! struct utimbuf {
+! 	time_t actime;
+! 	time_t modtime;
+! };
+  
+! extern int utime();
+  #endif
++ #endif
+  
+  /* for MAXNAMLEN only !!! */
+  #ifdef unix
+! #ifndef BSD
+  #include <dirent.h>
+  #else
+  #include <sys/dir.h>
+! #endif /* BSD */
+  #endif /* unix */
+  
+  #if !defined(MAXNAMLEN)
+***************
+*** 82,87 ****
+--- 87,95 ----
+  # else /* TOS */
+  #  include <ext.h>
+  # endif  /* MSDOS */
++ #if !defined(SIGTYPE)
++ #define SIGTYPE void
++ #endif
+  #endif /* __TURBOC__ */
+  
+  typedef unsigned short us_t;
+***************
+*** 162,168 ****
+  	fflush (stderr);\
+  }
+  
+! #ifdef BSD4_2
+  #define strchr index
+  #define strrchr rindex
+  #endif
+--- 170,176 ----
+  	fflush (stderr);\
+  }
+  
+! #ifdef BSD
+  #define strchr index
+  #define strrchr rindex
+  #endif
+*** ../distribution/lz.c	Wed Feb 26 14:39:49 1992
+--- lz.c	Fri Mar  6 12:49:09 1992
+***************
+*** 38,44 ****
+  
+  us_t *next[parts] = {
+  next0, next1
+! #if parts > 2
+  ,next2
+  #endif
+  };
+--- 38,44 ----
+  
+  us_t *next[parts] = {
+  next0, next1
+! #if parts != 2          /* was: parts > 2. Doesn't work on X286 cpp */
+  ,next2
+  #endif
+  };
+***************
+*** 55,61 ****
+  
+  void InitTree ()
+  {
+! 	long i;
+  #ifdef GATHER_STAT
+  	node_steps = node_matches = 0;
+  #endif  /* GATHER_STAT */
+--- 55,61 ----
+  
+  void InitTree ()
+  {
+! 	hash_t i;
+  #ifdef GATHER_STAT
+  	node_steps = node_matches = 0;
+  #endif  /* GATHER_STAT */
+*** ../distribution/lz.h	Wed Feb 26 14:39:49 1992
+--- lz.h	Sat Feb 29 12:53:41 1992
+***************
+*** 27,33 ****
+  
+  #define NIL     N2
+  
+! #if defined(M_XENIX) && defined(I_286) && (BITS > 14)
+  #define __XENIX__
+  #endif
+  
+--- 27,33 ----
+  
+  #define NIL     N2
+  
+! #if defined(M_XENIX) && !defined(M_I386) && (BITS > 14)
+  #define __XENIX__
+  #endif
+  
+***************
+*** 55,61 ****
+  /* We divide the array `next' in `parts' which fit into 286's segment */
+  /* There may be 2 or 3 parts, because BITS <= 16 now */
+  
+! #define parts (array_size/32768 + 1)
+  #define nextof(i)       next[(i) >> 15][(i) & 0x7fff]
+  #if parts == 2
+  extern us_t next0[], next1[];
+--- 55,61 ----
+  /* We divide the array `next' in `parts' which fit into 286's segment */
+  /* There may be 2 or 3 parts, because BITS <= 16 now */
+  
+! #define parts (array_size/32768L + 1)
+  #define nextof(i)       next[(i) >> 15][(i) & 0x7fff]
+  #if parts == 2
+  extern us_t next0[], next1[];
+***************
+*** 161,167 ****
+  #ifdef __STDC__
+  #define LEAVE(num) leave##num
+  #else
+! #define LEAVE(num) leave/**/num
+  #endif
+  
+  #define Get_Next_Match(r,l) {register us_t p=r;register int m;\
+--- 161,168 ----
+  #ifdef __STDC__
+  #define LEAVE(num) leave##num
+  #else
+! #define quote(x)x
+! #define LEAVE(num) quote(leave)num
+  #endif
+  
+  #define Get_Next_Match(r,l) {register us_t p=r;register int m;\
+*** ../distribution/makefile	Wed Feb 26 14:40:08 1992
+--- makefile	Fri Mar  6 12:41:35 1992
+***************
+*** 1,7 ****
+  SHELL         = /bin/sh
+  DEST          = /usr/local/bin
+  MANDEST       = /usr/local/man/man1
+! EXTHDRS	      =
+  HDRS          = bitio.h\
+  		compat.h\
+  		freeze.h\
+--- 1,16 ----
+  SHELL         = /bin/sh
++ 
++ default:
++ 	@echo ''
++ 	@echo 'Please indicate the system to make Freeze for.'
++ 	@echo 'Possible choices are: bsd, sysv, x286, sun4,'
++ 	@echo 'generic.'
++ 	@echo ''
++ 
+  DEST          = /usr/local/bin
+  MANDEST       = /usr/local/man/man1
+! SEC           = 1
+! 
+  HDRS          = bitio.h\
+  		compat.h\
+  		freeze.h\
+***************
+*** 8,22 ****
+  		huf.h\
+  		lz.h\
+  		patchlevel.h
+- LDFLAGS       =
+- LIBS          = -lc_s   # shared library, if it's SysV
+  
+  CC            = gcc -fstrength-reduce
+  # or proprietary compiler, if it's better than that
+  
+! CFLAGS        = -DBITS=16 -O -DCOMPAT -DFAST  # -DBSD42 -DSUN4
+  
+! LINTFLAGS     = -DBITS=15 -DCOMPAT -DDEBUG -DGATHER_STAT -x -DFAST
+  
+  MAKEFILE      = makefile
+  
+--- 17,30 ----
+  		huf.h\
+  		lz.h\
+  		patchlevel.h
+  
+  CC            = gcc -fstrength-reduce
+  # or proprietary compiler, if it's better than that
+  
+! OPTIONS       = -DCOMPAT
+  
+! LINTFLAGS     = -DBITS=15 -DSIGTYPE=void -DCOMPAT -DDEBUG\
+! 		-DGATHER_STAT -x -DFAST
+  
+  MAKEFILE      = makefile
+  
+***************
+*** 49,56 ****
+  .1.man:
+  		nroff -man < $< > $@
+  
+! all:            $(PROGRAM) statist man
+  
+  man:            $(CATMAN)
+  
+  lint:           $(SRCS)
+--- 57,67 ----
+  .1.man:
+  		nroff -man < $< > $@
+  
+! .c.o:
+! 		$(CC) -c $(CFLAGS) $(OPTIONS) $<
+  
++ prog:            $(PROGRAM) statist
++ 
+  man:            $(CATMAN)
+  
+  lint:           $(SRCS)
+***************
+*** 67,73 ****
+  
+  clean:;         rm -f *.o *.b .,* core *.out
+  
+! install:        $(DEST)/$(PROGRAM) $(MANDEST)/freeze.1 $(MANDEST)/statist.1
+  
+  patch:;         rm -f patch.out
+  		-for i in ../distribution/* ; do \
+--- 78,84 ----
+  
+  clean:;         rm -f *.o *.b .,* core *.out
+  
+! install:        $(DEST)/$(PROGRAM) $(DEST)/statist $(MANDEST)/freeze.$(SEC) $(MANDEST)/statist.$(SEC)
+  
+  patch:;         rm -f patch.out
+  		-for i in ../distribution/* ; do \
+***************
+*** 75,95 ****
+  		done
+  
+  $(DEST)/$(PROGRAM): $(PROGRAM)
+! 		-strip $(PROGRAM)
+! 		-mcs -d $(PROGRAM)
+! 		install -m 755 $(PROGRAM) $(DEST)
+  		-ln -f $@ $(DEST)/melt
+  		-ln -f $@ $(DEST)/fcat
+  
+! $(MANDEST)/freeze.1: freeze.man
+! 		cp freeze.man $@
+  		chmod +r $@
+! 		-ln -f $@ $(MANDEST)/melt.1
+! 		-ln -f $@ $(MANDEST)/fcat.1
+  
+! $(MANDEST)/statist.1: statist.man
+! 		cp statist.man $@
+  		chmod +r $@
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+--- 86,135 ----
+  		done
+  
+  $(DEST)/$(PROGRAM): $(PROGRAM)
+! 		cp $(PROGRAM) $@
+! 		chmod 755 $@
+! 		-strip $@
+! 		-mcs -d $@
+  		-ln -f $@ $(DEST)/melt
+  		-ln -f $@ $(DEST)/fcat
+  
+! $(DEST)/statist: statist
+! 		cp statist $@
+! 		chmod 755 $@
+! 		-strip $@
+! 		-mcs -d $@
+! 
+! $(MANDEST)/freeze.$(SEC): freeze.1
+! 		cp freeze.1 $@
+  		chmod +r $@
+! 		-ln -f $@ $(MANDEST)/melt.$(SEC)
+! 		-ln -f $@ $(MANDEST)/fcat.$(SEC)
+  
+! $(MANDEST)/statist.$(SEC): statist.1
+! 		cp statist.1 $@
+  		chmod +r $@
++ 
++ bsd:
++ 		make prog CFLAGS="-O -DBSD -DUTIMES -DBITS=16\
++ 		-DFAST -DSIGTYPE=void"
++ 
++ sysv:
++ 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=void"\
++ 		LIBS="-lc_s"
++ 
++ x286:
++ 		make prog CC=cc CFLAGS="-Ox -Mc2 -DBITS=16 -DFAST\
++ 		-DSIGTYPE=int"
++ 
++ x286install:
++ 		make install MANDEST=/usr/man/man.C SEC=C
++ 
++ generic:
++ 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=int"
++ 
++ sun4:
++ 		make prog CC=cc CFLAGS="-O4 -DBSD -DSUN4 -DSIGTYPE=void\
++ 		-DUTIMES -DBITS=16 -DFAST"
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+*** ../distribution/patchlevel.h	Wed Feb 26 14:40:09 1992
+--- patchlevel.h	Fri Mar  6 12:37:57 1992
+***************
+*** 1,2 ****
+! #define PATCHLEVEL 2
+! #define PATCHDATE "1/30/92"
+--- 1,2 ----
+! #define PATCHLEVEL 3
+! #define PATCHDATE "3/5/92"
+*** ../distribution/statist.c	Wed Feb 26 14:40:09 1992
+--- statist.c	Thu Feb 27 14:51:29 1992
+***************
+*** 26,35 ****
+  
+  void freeze(), StartHuff();
+  
+! #ifndef INT_SIG
+! void
+! #endif
+! giveres();
+  
+  int main(argc, argv) char ** argv; {
+  	argv++;
+--- 26,32 ----
+  
+  void freeze(), StartHuff();
+  
+! SIGTYPE giveres();
+  
+  int main(argc, argv) char ** argv; {
+  	argv++;
+***************
+*** 96,105 ****
+  could improve the compression rate when using them.
+  */
+  
+! #ifndef INT_SIG
+! void
+! #endif
+! giveres() {
+  	us_t c;
+  	register int i, j, k, pr, f, average, sum;
+  	ul_t cumul, sigma2;
+--- 93,99 ----
+  could improve the compression rate when using them.
+  */
+  
+! SIGTYPE giveres() {
+  	us_t c;
+  	register int i, j, k, pr, f, average, sum;
+  	ul_t cumul, sigma2;
+-- 
+Leonid A. Broukhis | 89-1-95 Liberty St. | "BROUKHIS" is Hebrew for
++7 095 494 6241 (h)| Moscow 123481 Russia|       "BENEDICTAE"
++7 095 132 9475 (o)| (leo@s514.ipmce.su) |    { Age: 9060 days }
+
+exit 0 # Just in case...

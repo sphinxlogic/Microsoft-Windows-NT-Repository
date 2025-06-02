@@ -1,0 +1,2077 @@
+From: Adam Bryant <adb@cs.bu.edu>
+Subject: v02i043: cextract - (Ver. 1.7) C prototyper/header file generator, Part05/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Adam Bryant <adb@cs.bu.edu>
+Posting-number: Volume 2, Issue 43
+Archive-name: cextract/part05
+Supersedes: cextract: Volume 1, Issue 4-8
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 5)."
+# Contents:  parse.c
+# Wrapped by adb@csa on Fri Oct 30 16:20:37 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parse.c'\"
+else
+echo shar: Extracting \"'parse.c'\" \(54378 characters\)
+sed "s/^X//" >'parse.c' <<'END_OF_FILE'
+X/*
+X *
+X * main parsing routines for the cextract/cextdoc programs.
+X * Also includes a number of generic routines applicable to both.
+X *
+X * These routines provide the methods used to extract comments,
+X * prototypes and function names from C source files.
+X *
+X * Copyright (c) 1990, 1991, 1992 by Adam Bryant
+X *
+X * The only restrictions on the use of these routines is that they not
+X * be used for monetary gain, and that this copyright notice be left
+X * intact.
+X *
+X * Note:  These programs may be freely used to extract code and/or
+X *        documentation at proprietary/corporate sites, as long as the
+X *        actual source code is not used within any proprietary code.
+X *
+X *        The generated output (header) files are distributable in any
+X *        manner desired as they are based on the scanned source code,
+X *        not my program.
+X */
+X/*
+X * Version history:
+X *
+X * Changes for Version 0.40 of both cextract and cextdoc:
+X *    - implemented new out_char() interface.
+X *    - first comments will not be shown if no functions exist.
+X *    - implemented concatenation of comments.
+X *    - implemented troff output for cextdoc portion.
+X *
+X * Changes for Version 0.41 of both cextract and cextdoc:
+X *    - switched the NO_SETBUFFER to SETBUFFER, making non-use standard.
+X *    - added in the DO_VARARGS code to automatically account for the
+X *      the variable argument setup in parsing.
+X *
+X * Changes for Version 0.42 of both:
+X *    - made the DO_VARARGS code the default.  (removed #ifdefs)
+X *
+X * Changes for Version 0.50 (1/18/91) of both:
+X *    - added the configuration file code.
+X *    - removed much of the DEBUG print statements from stable code.
+X *    - made the bad syntax encounters exit the program.
+X *
+X * Changes for Version 0.51 (1/21/91) of both:
+X *    - implemented code to allow compilation on VAX VMS systems.
+X *
+X * Changes for Version 0.60 (4/15/91) of both:
+X *    - more VMS stuff, and addition of files: patchlevel.h,
+X *      README, and INSTALL.
+X *    - removed all other DEBUG statements.
+X *    - left the SETBUFFER code in place, but removed mention
+X *      of it from the Makefile, since there was no noticable
+X *      speed enhancement through its use.
+X *    - upgraded to version 6.0 for release to comp.sources.reviewed.
+X *
+X * Changes for Version 1.0 (4/17/91-5/3/91) of both:
+X *    - removed most system definitions from cproto.h and replaced
+X *      with more includes of system header files.  But, there are
+X *      still a number of system functions which are not in the header
+X *      files on at least Sun systems.
+X *    - now use the "is_switch()" function to parse the command line
+X *      arguments.  This allowed me to use both '-' and '/' on VMS
+X *      systems to avoid confusion in the manual pages.
+X *    - simplified the Makefile, especially for the "make install".
+X *    - fixed various mispellings/misphrasings in error messages.
+X *    - checked the argument in calls to free() within pop_proto().
+X *    - configuration files will be checked for in the following order:
+X *        system file, home directory, current directory.
+X *      any encountered will be read in.  This will allow overriding
+X *      of customization options in a logical order.
+X *    - implemented switch to control how the config files are read in.
+X *    - redid the manual pages and split out the customization section
+X *      into its own manual page.
+X *    - adjusted the comment capturing code to assure that it doesn't
+X *      misassign comments to the wrong functions.
+X *    - fixed one minor memory leak.
+X *    - adjust system configuration file locations.
+X *    - redid VMS popen() and pclose() to assure unique temporary file.
+X *    - added in an "err_msg()" routine to call perror() if it exits.
+X *    - made sure to check return value of all calls to fputs().
+X *    - merged "cextdoc" into "cextract".
+X *    - added verbose command line options with same format as the
+X *      configuration commands.
+X *    - now use the "+" and "-" switches to indicate on and off.
+X *    - added a number of new options to support the new merged
+X *      programs and to allow displaying of settings.
+X *    - added a -Hstring to indicate replacement of the sequence:
+X *
+X *          #ifndef __CEXTRACT__
+X *            ... output ...
+X *          #endif
+X *
+X *      with:
+X *
+X *          #ifndef string
+X *          #define string
+X *            ... output ...
+X *          #endif
+X *
+X *    - wrote up a VMS help file for cextract.
+X *
+X * Version 1.1: Okay, so there were still more changes needed. :-)
+X *    - fixed more occurances of proceed instead of precede.
+X *    - fixed typos of "it's" instead of "its".
+X *    - removed empty targets from Makefile
+X *    - add sed facility to Makefile to properly configure man pages.
+X *    - wrote a ".so" implementation for cextdoc manual instead of
+X *      prior hard link method.
+X *    - added a MANDIR variable to the Makefile.
+X *    - tweaked the documentation in a few places.
+X *    - allow the "!" or "no-" (Non-VMS) or "no" (VMS) prefix to
+X *      command line options.
+X *    - use "sys$login:" as HOME directory on VMS systems, if HOME
+X *      environment variable is not defined.
+X *    - changed the "sys$system:" to "sys$library".
+X *    - fixed typo of "fclose(*stream)" in the VMS pclose.
+X *    - adjusted the VMS qualifier building to build /define=(a,b,c), etc.
+X *    - added in a "remove-names" option to eliminate variable names
+X *      from the parameter list output.
+X *    - fixed strncmp() bug in the check for the "replace" option.
+X *    - fixed a number of calls to cfg_err() to pass cmd_line parameter.
+X *    - implemented better check for empty or "void" parameter lists.
+X *    - merged the void check and style determination into one routine
+X *      and called it diverge_style().
+X *    - changed a number of routines to use char* math instead of
+X *      array stepping using counters.
+X *    - added a configuration file section to the VMS help file.
+X *    - tweaked the cextract.1 and cextrc.5 manual pages a bit more.
+X *    - edited the README, INSTALL, and INSTALL.VMS files.
+X *    - implemented checks to be sure that the files to be parsed are
+X *      accessible before calling the C preprocessor.
+X *    - renamed the files as:
+X *         cproto.c     =>   parse.c
+X *         cproto.h     =>   xtract.h
+X *         cextract.c   =>   main.c
+X *      this was done to avoid some of the conflict with files
+X *      beginning with the same string of characters.
+X *    - made sure that "make test" tested the version in the current
+X *      directory.
+X *
+X * Version 1.2:  yet another pre-submission fix section.
+X *    - fixed a typo in the comments.
+X *    - separated the INSTALL definition in the Makefile into INSTBIN
+X *      and INSTMAN command to allow those systems without "install"
+X *      to perform installations properly.
+X *    - added "/exe=cextract" to the build.com link operation.
+X *    - fixed the character count in the copy_str() function.
+X *      [This fixes the misread on the "replace" operation].
+X *    - fixed up the "method" description in the README.
+X *    - added ${CEXTRACT} to the "test" (ala "make test") dependency.
+X *    - removed the "make links" and appended it to "make install"
+X *    - changed the "skip-config" command to "read-config".
+X *    - had one more go at the cextrc.5 manual page.
+X *    - tweaked the cextract.1 manual page as well.
+X *    - added check for declaration of array of function pointers.
+X *    - added code to parse structure declarations within function
+X *      parameter lists.  [why anyone would program like this is
+X *      beyond me, but hey, I like to support valid C.]
+X *    - made sure to only test for functions where a brace was
+X *      preceded by a semi-colon or a paranthesis.
+X *    - make sure to clear out the "code_info" array more often.
+X *    - increased the array sizes to allow for larger buffer space.
+X *      [temporary until implement dynamic memory routines.]
+X *    - created a TODO file and removed those items from the bottom
+X *      of the README file.
+X *    - shortened the BUGS section of the cextract.1 manual page.
+X *    - changed the program name check to strncmp() so VMS sites work.
+X *    - created a newbuild.com file and mentioned it in INSTALL.VMS.
+X *    - fixed errors in the newbuild.com file.
+X *    - added a mentioning of the '/' character for VMS options.
+X *    - cleaned up the README, INSTALL and other docs.
+X *
+X * Version 1.3:  first patch after comp.sources.reviewed
+X *    - fixed bug where comments within parameter list could cause a
+X *	function to be skipped.
+X *    - added both the CPP and CPP_COMMENTS flags to the Makefile.
+X *    - added patch from Martin Fouts (fouts@bozeman.clipper.ingr.com)
+X *	to provide simple changes to allow port to the CLIX OS.
+X *    - fixed stupid bug which caused the "-U" flag to not get parsed.
+X *    - changed the "#ifdef __STDC__" to the proper "#if __STDC__".
+X *    - wrote a new command and flag "build-config" to generate the system
+X *	configuration file automatically.  [-B or -b for build]
+X *    - made sure the replace macros do not contain duplicates.
+X *    - prevented the creation of duplicate '-D','-I', or '-U' entries.
+X *    - fixed the "macro_match()" function for all systems. [VMS?]
+X *    - reversed the definitions of CFLAGS and COPTS in the Makefile.
+X *    - made sure to test if substitution already took place in vargs_find().
+X *    - fixed the 'Q' flag so that it properly reads in any numeric.
+X *    - added a dependency for the system configuration file to the
+X *      "install" target, so that it can be automatically generated.
+X *    - fixed the INSTALL, INSTALL.VMS and documentation files to
+X *      properly cover the new configuration file building mechanism.
+X *    - implemented a better method for the NO_OPEN option.  This should
+X *      now work for all systems, not just VMS.
+X *    - fixed bug that the type of the function was not checked for
+X *      replacement.
+X *    - made sure that the subst macros where ordered as they came in.
+X *    - fixed bug with parameters for function pointers getting int
+X *      tagged on unnecessarily.
+X *
+X * Version 1.4:  [2/25/92-4/20/92]  Another iteration of fixes.
+X *    - allow any sort of text inside of brackets and parenthesis
+X *      in the variable declarations.
+X *    - fixed the fprintf formats in the font error messages.
+X *    - made sure to remove the use of register in prototype types.
+X *    - added the +Z option to allow for the compression of the output
+X *      using a macro.  [Also under the "merge-output" option.]
+X *    - separated functions into a third file [io.c] to reduce the
+X *      size of the other files.
+X *
+X * Version 1.5: [4/29/92-5/18/92] Second submission fixes.
+X *    - added ability to exclude all but static functions from search
+X *	to allow for the creation of header files for single files.
+X *    - fixed the documentation to reflex the new "static" feature.
+X *    - fixed some errors in the manual pages.
+X *    - adjusted the Makefile:  make echo, sed, nroff and install
+X *	configurable; had the "make test" command perform the diff
+X *	directly; enhanced the mkdir lines (is it portable?).
+X *    - fixed a bug in the out_str() function where it might have
+X *	accessed invalid data if the parameter str was NULL.
+X *    - for the SGI systems, added a "#define _POSIX_SOURCE" line.
+X *    - allow both "no-" and "no" for turning off options.
+X *    - implemented a "+W" ("+break-after-types") flag to separate
+X *	function type from the function name.
+X *    - implemented a "+w#" ("+wrap-parameters") flag to cause the
+X *	output of the parameter list to wrap after a given number of
+X *	characters.
+X *    - added the two new options to the documentation files.
+X *    - made use of minmatch_str's return value in io.c and cleaned up
+X *	some minor typos.
+X *    - fixed serious bug with the default settings for statics.
+X *	[Thanks to Jon Whellams for catching this.  *sigh*]
+X *    - major rewrite of the options system:
+X *	  +  merged most of the options into a two dimensional array.
+X *	  +  used this two-dimensional array to distinguish between
+X *	     options used in extract mode and doc mode.
+X *	  +  this makes it possible for the generated config files to
+X *	     contain the proper "extract-only " or "doc-only "
+X *	     prefixes.
+X *    - merged the two static flags into one flag with multiple
+X *	options, removing the confusing "-only-statics" flag.
+X *    - fixed the build_rc() routine to properly prefix "doc-only " or
+X *	"extract-only " to the output when appropriate.
+X *    - the mode ("extract", "doc", etc.) will no longer be written
+X *	when a configuration file is generated so "cextdoc" works.
+X *
+X * Version 1.6: [8/28/92] Third submission fixes.
+X *    - added line to set the permissions on the config file during install.
+X *    - regenerated the proto.h file to grab the main.c "parce.c" typo fix.
+X *    - fixed the documentation for the "-w#" flag. ["-w=#" --> "-w#"]
+X *    - for the INSTALL file, I now explicitly mention that installation
+X *	of the configuration file might need root permission.
+X *    - fixed outdated usages of pclose [pclose -> close_input].
+X *    - fixed the wrong usage of "command" in the "open_input" function.
+X *    - allow for alternative return values from system().
+X *    - make sure that multiple replacements can take place.
+X *    - fixed error with "replace" not recognizing "name" selection.
+X *    - made sure an error is printed if a bad "replace" format is seen.
+X *    - added support for // comments to begin future C++ support.
+X *    - provided a "strstr()" function for Xenix sites.
+X *    - expanded the "output-file" argument to support separate output
+X *	files for extraction and documentation modes.
+X *    - added the ability to select the C preprocessor at runtime.
+X *    - updated all of the documentation to reflect the above changes.
+X *    - preserve the doc/extract selection for macros and replace commands.
+X *
+X * Version 1.7: [10/30/92] Hopefully last enhancements before acceptance
+X *    - keep track of line numbers within the file being parsed.
+X *    - any syntax errors will be reported without aborting the file
+X *	parsing.
+X *    - syntax errors will be accurately reported by file and line number.
+X *    - added a check to test for too many left parenthesis.
+X *
+X */
+X#include "xtract.h"
+X
+X/* storage elements */
+XP_PROTO proto_list = NULL, proto_next = NULL;
+XP_MACRO macro_list = NULL, last_macro = NULL;
+XP_SUBST subst_list = NULL, last_subst = NULL;
+XFILE *fpin = NULL;
+Xchar code_info[MAX_SIZE+1], cfg_file[MID_SIZE];
+Xchar dummy_str[MID_SIZE], file_name[MID_SIZE];
+Xint arg_ch_count = 0;
+Xint out_file_flag = 0, comment_len = 0, dont_space = TRUE;
+Xchar start_comment[MAX_SIZE];
+Xchar prog_name[FNAME_SIZE];
+Xchar tmp_str[FNAME_SIZE];
+Xint dont_stop = FALSE;
+Xstatic char last_comment[MAX_SIZE];
+X
+X/* options for the different parsing methods */
+Xint global_opts[2][OPT_NUMBER];
+Xint doc_extract = DOC_NONE, cfg_switch = 7;
+X
+X/* variables for keeping track of things */
+Xchar errout_filename[MID_SIZE];
+Xint start_block = FALSE, files_parsed = 0, total_out = 0;
+Xint line_count = 0;
+X
+X/* default font values */
+Xchar ft_title[3] = "C";
+Xchar ft_comment[3] = "CO";
+Xchar ft_name[3] = "B";
+Xchar ft_plist[3] = "R";
+X
+X/* add a new substitution macro to the substitution list */
+Xvoid
+Xadd_subst(type, select, f_str, t_str)
+X  int type, select;
+X  char *f_str, *t_str;
+X{
+X  P_SUBST subst_tmp;
+X
+X  /* check for duplicates */
+X  for (subst_tmp = subst_list;
+X       subst_tmp != NULL;
+X       subst_tmp = subst_tmp->next) {
+X    if ((subst_tmp->submode == type) &&
+X	(subst_tmp->usewhen == select) &&
+X	(strcmp(subst_tmp->from_str, f_str) == 0)) {
+X
+X      /* can exit routine for complete matches */
+X      if (strcmp(subst_tmp->to_str, t_str) == 0) {
+X	return;
+X      }
+X
+X      /* otherwise just adjust the replacement */
+X      free(subst_tmp->to_str);
+X      if ((subst_tmp->to_str =
+X	   (char *) malloc(sizeof(char) * (1 + strlen(t_str)))) == NULL) {
+X	fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X	exit(1);
+X      }
+X      strcpy(subst_tmp->to_str, t_str);      
+X      return;
+X
+X    }
+X  }
+X
+X  /* allocate the memory space */
+X  if ((subst_tmp = (P_SUBST) malloc(sizeof(S_SUBST))) == NULL) {
+X    fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X    exit(1);
+X  }
+X  if (subst_list == NULL) {
+X    subst_list = subst_tmp;
+X  }
+X  if ((subst_tmp->from_str =
+X       (char *) malloc(sizeof(char) * (1 + strlen(f_str)))) == NULL) {
+X    fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X    exit(1);
+X  }
+X  if ((subst_tmp->to_str =
+X       (char *) malloc(sizeof(char) * (1 + strlen(t_str)))) == NULL) {
+X    fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X    exit(1);
+X  }
+X
+X  /* now record the information */
+X  subst_tmp->submode = type;
+X  subst_tmp->usewhen = select;
+X  strcpy(subst_tmp->from_str, f_str);
+X  strcpy(subst_tmp->to_str, t_str);
+X
+X  /* place the new link at the end of the chain */
+X  subst_tmp->next = NULL;
+X  if (last_subst != NULL) {
+X    last_subst->next = subst_tmp;
+X  }
+X  last_subst = subst_tmp;
+X}
+X
+X/* add a new macro to the macro list */
+Xvoid
+Xadd_macro(select, str)
+X  int select;
+X  char *str;
+X{
+X  P_MACRO macro_tmp;
+X
+X  /* check for duplicate entries */
+X  for (macro_tmp = macro_list;
+X       macro_tmp != NULL;
+X       macro_tmp = macro_tmp->next) {
+X    /* no need to add something already there */
+X    if (strcmp(macro_tmp->m_str, str) == 0) {
+X      /* check for selection change */
+X      if (macro_tmp->usewhen != select) {
+X	macro_tmp->usewhen = 2;
+X      }
+X      return;
+X    }
+X  }
+X
+X  /* allocate the space */
+X  if ((macro_tmp = (P_MACRO) malloc(sizeof(S_MACRO))) == NULL) {
+X    fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X    exit(1);
+X  }
+X  if (macro_list == NULL) {
+X    macro_list = macro_tmp;
+X  }
+X  if ((macro_tmp->m_str =
+X       (char *) malloc(sizeof(char) * (strlen(str) + 1))) == NULL) {
+X    fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X    exit(1);
+X  }
+X  strcpy(macro_tmp->m_str, str);
+X  macro_tmp->usewhen = select;
+X  macro_tmp->next = NULL;
+X  if (last_macro != NULL) {
+X    last_macro->next = macro_tmp;
+X  }
+X  last_macro = macro_tmp;
+X}
+X
+X/* return TRUE if the macro definition is in the string */
+Xstatic int
+Xmacro_match(macro, str)
+X  char *macro, *str;
+X{
+X  static int deflen = -1;
+X  int i, len, hold = FALSE;
+X
+X  /* initialize */
+X  if (deflen == -1) {
+X    deflen = strlen(DEF_LEADER);
+X  }
+X
+X  /* check it */
+X  if (strncmp(macro, DEF_LEADER, deflen) == 0) {
+X    len = strlen(str);
+X    for (i = 0; i < len; i++) {
+X      if (macro[i + deflen] != str[i]) break;
+X    }
+X    if ((i == len) &&
+X	((macro[i + deflen] == '=') ||
+X	 (macro[i + deflen] == '\0'))) {
+X      hold = TRUE;
+X    }
+X  }
+X
+X  return(hold);
+X}
+X
+X/* if the matching definition is in the list, remove it */
+Xint
+Xremoved_macro(select, str)
+X  int select;
+X  char *str;
+X{
+X  P_MACRO macro_ptr, macro_tmp;
+X  int hold = FALSE;
+X
+X  /* go through the list */
+X  if ((macro_ptr = macro_list) != NULL) {
+X
+X    /* check the beginning element */
+X    if (macro_match(macro_ptr->m_str, str)) {
+X      if (macro_ptr->usewhen != select) {
+X	/* just return */
+X	return(FALSE);
+X      } else {
+X	macro_list = macro_list->next;
+X	macro_ptr->next = NULL;
+X	free(macro_ptr->m_str);
+X	free(macro_ptr);
+X	hold = TRUE;
+X      }
+X    }
+X
+X    /* check the rest */
+X    macro_tmp = macro_ptr->next;
+X    while (hold == FALSE && macro_tmp != NULL) {
+X      if (macro_match(macro_tmp->m_str, str)) {
+X	if (macro_ptr->usewhen != select) {
+X	  /* just return */
+X	  return(FALSE);
+X	} else {
+X	  macro_ptr->next = macro_tmp->next;
+X	  macro_tmp->next = NULL;
+X	  free(macro_tmp->m_str);
+X	  free(macro_tmp);
+X	  hold = TRUE;
+X	}
+X      }
+X
+X      /* onto the next */
+X      macro_ptr = macro_tmp;
+X      macro_tmp = macro_tmp->next;
+X    }
+X  }
+X
+X  /* now assign the last_macro value and get back to work */
+X  if (hold == TRUE) {
+X    for (last_macro = macro_list;
+X	 (last_macro != NULL) &&
+X	 (last_macro->next != NULL);
+X	 last_macro = last_macro->next) ;
+X  }
+X  return(hold);
+X}
+X
+X/* compare two strings considering cases the same */
+Xint
+Xstr_test (s1, s2)
+X  char *s1, *s2;
+X{
+X  int ch1, ch2;
+X
+X  for (; *s1 != '\0'; s1++, s2++) {
+X    ch1 = (islower(*s1) ? toupper(*s1) : *s1);
+X    ch2 = (islower(*s2) ? toupper(*s2) : *s2);
+X    if (ch1 != ch2) return(ch1 - ch2);
+X  }
+X  return(*s1 - *s2);
+X}
+X
+X/* sort the list of functions and their prototypes */
+Xvoid
+Xsort_proto()
+X{
+X  P_PROTO p2_ptr;
+X  int done = FALSE;
+X
+X  /* all done? */
+X  if ((proto_list == NULL) || (proto_list->next == NULL)) return;
+X
+X  /* go until done sorting */
+X  while (done == FALSE) {
+X
+X    /* initialize */
+X    proto_next = proto_list;
+X    done = TRUE;
+X
+X    /* test for initial swap */
+X    if ( str_test( proto_next->name, (proto_next->next)->name ) > 0) {
+X      proto_list = proto_next->next;
+X      proto_next->next = proto_list->next;
+X      proto_list->next = proto_next;
+X      proto_next = proto_list;
+X    }
+X    
+X    /* sort remaining linked list */
+X    for (; (proto_next->next)->next != NULL; proto_next = proto_next->next) {
+X      p2_ptr = (proto_next->next)->next;
+X      if ( str_test( (proto_next->next)->name, p2_ptr->name ) > 0) {
+X
+X	/* swap locations in list */
+X	(proto_next->next)->next = p2_ptr->next;
+X	p2_ptr->next = proto_next->next;
+X	proto_next->next = p2_ptr;
+X
+X	/* continue sort */
+X	done = FALSE;
+X      }
+X    }
+X
+X  }
+X}
+X
+X/* remove the top item on the stack */
+Xvoid
+Xpop_proto()
+X{
+X  P_PROTO tmp_proto = proto_list;
+X
+X  /* done? */
+X  if (proto_list == NULL) {
+X    proto_next = NULL;
+X    return;
+X  }
+X  if (proto_list == proto_next) {
+X    proto_next = NULL;
+X  }
+X
+X  /* now do it */
+X  proto_list = proto_list->next;
+X  tmp_proto->next = NULL;
+X  if (tmp_proto->name != NULL) free(tmp_proto->name);
+X  if (tmp_proto->ftype != NULL) free(tmp_proto->ftype);
+X  if (tmp_proto->fname != NULL) free(tmp_proto->fname);
+X  if (tmp_proto->plist != NULL) free(tmp_proto->plist);
+X  if (tmp_proto->comment != NULL) free(tmp_proto->comment);
+X  free(tmp_proto);
+X}
+X
+X/* initialize the page for troff output, if needed */
+Xvoid
+Xinit_roff(omode)
+X  int omode;
+X{
+X  static int init_done = FALSE;
+X
+X  /* perform the initialization */
+X  if (init_done == FALSE) {
+X    out_str(omode, ".sp 0.5i\n");
+X    out_str(omode, ".ps 10\n");
+X    out_str(omode, ".vs 12\n");
+X    out_str(omode, ".fp 1 ");
+X    out_str(omode, ft_title);
+X    out_str(omode, "\n.fp 2 ");
+X    out_str(omode, ft_comment);
+X    out_str(omode, "\n.fp 3 ");
+X    out_str(omode, ft_name);
+X    out_str(omode, "\n.fp 4 ");
+X    out_str(omode, ft_plist);
+X    out_char(omode, '\n');
+X    init_done = TRUE;
+X  }
+X}
+X
+X/* check preprocessor statement for line numbering changes */
+Xint
+Xpreprocessor_check()
+X{
+X  int curr_char = '#';
+X  int i, l, line_value;
+X  char temp_str[MID_SIZE], t2_str[MID_SIZE];
+X
+X  /* get the whole line */
+X  if (fgets(temp_str, MID_SIZE, fpin) != NULL) {
+X    /* first handle the exit */
+X    l = strlen(temp_str);
+X    curr_char = temp_str[l - 1];
+X
+X    /* now parse things */
+X    for (i = 0; i < l; i++) {
+X      if (isdigit(temp_str[i])) {
+X	if (sscanf(&(temp_str[i]), "%d %s", &line_value,
+X		   t2_str) == 2) {
+X	  line_count = line_value;
+X	  l = strlen(t2_str);
+X	  if (t2_str[l - 1] == '"') {
+X	    t2_str[l - 1] = '\0';
+X	  }
+X	  if (t2_str[0] == '"') {
+X	    i = 1;
+X	  } else {
+X	    i = 0;
+X	  }
+X	  strcpy(errout_filename, &(t2_str[i]));
+X	}
+X	break;
+X      } else if (!isspace(temp_str[i])) {
+X	if (strncmp(&(temp_str[i]), "line", 4) != 0) break;
+X	else {
+X	  i += 3;
+X	}
+X      }
+X    }
+X  }
+X  return(curr_char);
+X}
+X
+X/* read and store all characters prior to end comment indicator */
+Xstatic void
+Xget_comment(tagon, head_str, cmt_str)
+X  int tagon;
+X  char head_str[], cmt_str[];
+X{
+X  int curr_ch;
+X  int prev_ch = ' ';
+X
+X  /* keep going until scan is complete */
+X  if (tagon == TRUE) {
+X    if (head_str[0] == '\0') {
+X      /* catenate side by side comments */
+X      comment_len -= 2;
+X    } else {
+X      /* insert intermediary white space and comment */
+X      for (curr_ch = 0;
+X	   head_str[curr_ch] != '\0';
+X	   curr_ch++) {
+X	cmt_str[comment_len++] = head_str[curr_ch];
+X      }
+X      cmt_str[comment_len++] = '/';
+X      cmt_str[comment_len++] = '*';
+X    }
+X  } else {
+X    comment_len = 0;
+X  }
+X  while ((curr_ch = getc(fpin)) != EOF) {
+X
+X    /* test for end of comment */
+X    if ((curr_ch == '/') && (prev_ch == '*')) {
+X      cmt_str[comment_len++] = '/';
+X      break;
+X    }
+X
+X    /* store it */
+X    cmt_str[comment_len++] = prev_ch = curr_ch;
+X    if (curr_ch == '\n') line_count++;
+X  }
+X
+X  /* close storage */
+X  cmt_str[comment_len] = '\0';
+X}
+X
+X/* structure to hold definitions */
+Xtypedef struct s_param {
+X  char *name;		/* the name of the variable */
+X  char *desc;		/* description string */
+X  struct s_param *next;	/* pointer to the next element */
+X} S_PARAM, *P_PARAM;
+XP_PARAM param_list;
+X
+X/* take all of the variables between the parenthesis and break them down */
+Xstatic int
+Xfill_param(str)
+X  char *str;
+X{
+X  int paren_loc, count, i, in_word = 1, len = strlen(str);
+X  P_PARAM last_param = NULL, param_tmp;
+X  char tempc[MID_SIZE];
+X
+X  /* initialize the list */
+X  param_list = NULL;
+X  paren_loc = 0;
+X  count = 0;
+X  tempc[0] = '\0';
+X  for (i = 1; i < len; i++) {
+X
+X    /* check for the end */
+X    if (str[i] == ')') {
+X      paren_loc = i;
+X      break;
+X    }
+X
+X    /* find a variable name; check for separators */
+X    if (str[i] == ',') {
+X
+X      /* check current information */
+X      if (in_word == 1) {
+X	syntax_err("empty variable list encountered");
+X	return(-1);
+X      }
+X      in_word = 1;
+X
+X      /* store the name */
+X      tempc[count] = '\0';
+X      count = 0;
+X      if ((param_tmp = (P_PARAM) malloc(sizeof(S_PARAM))) == NULL) {
+X	fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X	exit(1);
+X      }
+X      if ((param_tmp->name =
+X	   (char *) malloc(sizeof(char) * (strlen(tempc) + 1))) == NULL) {
+X	fprintf(stderr, "Serious Error: Out of memory\n");
+X	exit(1);
+X      }
+X      strcpy(param_tmp->name, tempc);
+X      param_tmp->next = NULL;
+X      param_tmp->desc = NULL;
+X      if (param_list == NULL) {
+X	param_list = param_tmp;
+X	last_param = param_list;
+X      } else {
+X	last_param->next = param_tmp;
+X	last_param = param_tmp;
+X      }
+X
+X    } else if (str[i] == ' ') {
+X      if (in_word == 2) {
+X	in_word = 0;
+X      }
+X    } else if (id_char(str[i])) {
+X      if (in_word == 0) {
+X	syntax_err("invalid parameter list encountered");
+X	return(-1);
+X      }
+X      in_word = 2;
+X      tempc[count++] = str[i];
+X    } else {
+X      syntax_err("unable to parse the complex C code");
+X      return(-1);
+X    }
+X
+X  }
+X
+X  /* now store the last name if any was found */
+X  if (count != 0) {
+X
+X    /* store the name */
+X    tempc[count] = '\0';
+X    if ((param_tmp = (P_PARAM) malloc(sizeof(S_PARAM))) == NULL) {
+X      fprintf(stderr, "Serious Error: Memory Allocation Failure\n");
+X      exit(1);
+X    }
+X    if ((param_tmp->name =
+X	 (char *) malloc(sizeof(char) * (strlen(tempc) + 1))) == NULL) {
+X      fprintf(stderr, "Serious Error: Out of memory\n");
+X      exit(1);
+X    }
+X    strcpy(param_tmp->name, tempc);
+X    param_tmp->desc = NULL;
+X    param_tmp->next = NULL;
+X    if (param_list == NULL) {
+X      param_list = param_tmp;
+X      last_param = param_list;
+X    } else {
+X      last_param->next = param_tmp;
+X      last_param = param_tmp;
+X    }
+X  }
+X  return(paren_loc);
+X}
+X
+X/* remove any preceding and trailing spaces */
+Xvoid
+Xtrim_str(str)
+X  char *str;
+X{
+X  register int i = 0, j = 0;
+X  int last_space = -1;
+X
+X  /* trim leading spaces */
+X  while (isspace(str[i])) i++;
+X
+X  /* shift string */
+X  while (1) {
+X    if ((str[j] = str[i++]) == '\0') {
+X      break;
+X    } else if (isspace(str[j])) {
+X      last_space = j;
+X    } else {
+X      last_space = -1;
+X    }
+X    j++;
+X  }
+X
+X  /* now remove any trailing spaces */
+X  if (last_space != -1) {
+X    str[last_space] = '\0';
+X  }
+X}
+X
+X/* just go through and send out the entire parameter list */
+Xstatic int
+Xoldc_output()
+X{
+X  int count = 0, lcount = 0;
+X  P_PARAM param_tmp;
+X
+X  /* first test for the simple case */
+X  if (param_list == NULL) {
+X    strcpy(dummy_str, "void");
+X    return(4);
+X  }
+X  dummy_str[0] = '\0';
+X
+X  /* go through the list */
+X  while (param_list != NULL) {
+X
+X    /* add in separators */
+X    if (count++ > 0) {
+X
+X      strcat(dummy_str, ", ");
+X      lcount += 2;
+X
+X    }
+X
+X    /* check the type */
+X    if (param_list->desc != NULL) {
+X      trim_str(param_list->desc);
+X      strcat(dummy_str, param_list->desc);
+X      lcount += strlen(param_list->desc);
+X      free(param_list->desc);
+X    } else {
+X      if (get_option(OPT_NONAMES)) {
+X	strcat(dummy_str, "int");
+X	lcount += 3;
+X      } else if (strcmp("int", param_list->name)) {
+X	strcat(dummy_str, "int ");
+X	strcat(dummy_str, param_list->name);
+X	lcount += 4 + strlen(param_list->name);
+X      } else {
+X	strcat(dummy_str, param_list->name);
+X	lcount += strlen(param_list->name);
+X      }
+X    }
+X    free(param_list->name);
+X
+X    /* clean up storage */
+X    param_tmp = param_list;
+X    param_list = param_list->next;
+X    param_tmp->next = NULL;
+X    free(param_tmp);
+X
+X  }
+X
+X  /* finish it up */
+X  return(lcount);
+X}
+X
+X/* return the proper element */
+Xstatic P_PARAM
+Xvar_match(str)
+X  char *str;
+X{
+X  int i, len, len2;
+X  P_PARAM p_hold;
+X
+X  /* go through all of the items and find a match */
+X  len2 = strlen(str);
+X  p_hold = param_list;
+X  while (p_hold != NULL) {
+X
+X    /* check for a match */
+X    len = strlen(p_hold->name);
+X    for (i = 0; i < len2 - len + 1; i++) {
+X      /* check for the match */
+X      if (strncmp(str + i, p_hold->name, len) == 0) {
+X	/* found a match */
+X	if (!id_char(str[i + len])) {
+X	  return(p_hold);
+X	}
+X      } else if (id_char(str[i])) {
+X	/* definite non-match */
+X	i = len2 - len + 1;
+X      }
+X    }
+X
+X    /* go to the next element */
+X    p_hold = p_hold->next;
+X  }
+X
+X  return(p_hold);
+X}
+X
+X/* remove the variable name from the given type and variable combo */
+Xstatic void
+Xkill_variable(str)
+X  char *str;
+X{
+X  register int i;
+X
+X  /* no need to breakdown this baby */
+X  if (strcmp(str, "...") == 0) return;
+X
+X  /* search for the variable name */
+X  trim_str(str);
+X  for (i = strlen(str) - 1; i >= 0; i--) {
+X
+X    /* found it */
+X    if (id_char(str[i])) {
+X
+X      /* clean it up */
+X      while ((i >= 0) &&
+X	     id_char(str[i])) {
+X	str[i--] = ' ';
+X      }
+X      i++;
+X      trim_str(str + i);
+X      if (i == 0) {
+X	strcpy(str, "int");
+X      } else {
+X	trim_str(str);
+X      }
+X      break;
+X
+X    }
+X
+X  }
+X}
+X
+X/* separate and rebuild the ANSI format list */
+Xstatic int
+Xnewc_parse (i_str)
+X  char *i_str;
+X{
+X  char hold_str[MID_SIZE], hold2_str[MID_SIZE];
+X  P_SUBST sub_tmp;
+X  int depth, cnt = 0, len, i;
+X
+X  /* start the process */
+X  dummy_str[0] = '\0';
+X  do {
+X
+X    /* move along the input string */
+X    switch (*i_str) {
+X    case ',':
+X    case '\0':
+X      /* finish off this item */
+X      if (cnt == 0) break;
+X      hold_str[cnt] = '\0';
+X
+X      /* search for matches among the replacement code */
+X      for (sub_tmp = subst_list;
+X	   sub_tmp != NULL;
+X	   sub_tmp = sub_tmp->next) {
+X
+X	/* check for usage */
+X	if ((sub_tmp->usewhen != 2) &&
+X	    (sub_tmp->usewhen != (doc_extract != DOC_NONE))) continue;
+X
+X	/* check it */
+X	len = strlen(sub_tmp->from_str);
+X	switch (sub_tmp->submode) {
+X	case SUBST_FULL:
+X	  /* the full string needs replacing? */
+X	  if (strcmp(hold_str, sub_tmp->from_str) == 0) {
+X	    strcpy(hold_str, sub_tmp->to_str);
+X	  }
+X	  break;
+X	case SUBST_TYPE:
+X	  /* the type only needs replacing? */
+X	  if (strncmp(hold_str, sub_tmp->from_str, len) == 0) {
+X	    strcpy(hold2_str, hold_str + len);
+X	    strcpy(hold_str, sub_tmp->to_str);
+X	    strcat(hold_str, hold2_str);
+X	  }
+X	  break;
+X	case SUBST_NAME:
+X	  /* the variable only needs replacing? WHY!? */
+X	  if ((cnt > len) &&
+X	      (strcmp(hold_str + cnt - len, sub_tmp->from_str) == 0)) {
+X	    hold_str[cnt - len] = '\0';
+X	    strcat(hold_str, sub_tmp->to_str);
+X	  }
+X	  break;
+X	}
+X      }
+X
+X      /* check for removal of register type */
+X      if (strncmp(hold_str, "register ", 9) == 0) {
+X	for (i = 0; i < 9; i++) {
+X	  hold_str[i] = ' ';
+X	}
+X      }
+X
+X      /* do we clean it? */
+X      if (get_option(OPT_NONAMES)) {
+X	kill_variable(hold_str);
+X      } else {
+X	trim_str(hold_str);
+X      }
+X
+X      /* append to output */
+X      if (dummy_str[0] != '\0') {
+X	strcat(dummy_str, ", ");
+X      }
+X      strcat(dummy_str, hold_str);
+X      cnt = 0;
+X      break;
+X    case '{':
+X      /* collect up all of the type declaration */
+X      depth = -1;
+X      do {
+X	hold_str[cnt++] = *i_str;
+X	switch (*i_str) {
+X	case '\0':
+X	  syntax_err("unexpected end of parameters");
+X	  return(-1);
+X	case '{':
+X	  depth++;
+X	  break;
+X	case '}':
+X	  depth--;
+X	  break;
+X	default:
+X	  /* ignore me */
+X	  break;
+X	}
+X	i_str++;
+X      } while ((depth > 0) ||
+X	       (*i_str != '}'));
+X      hold_str[cnt++] = *i_str;
+X      break;
+X    case ' ':
+X      if (cnt == 0) break;
+X    default:
+X      /* just copy it */
+X      hold_str[cnt++] = *i_str;
+X    }
+X
+X  } while (*(i_str++) != '\0');
+X
+X  /* give back the length */
+X  return(strlen(dummy_str));
+X}
+X
+X/* extract all of the parameters using old style format */
+Xstatic int
+Xoldc_parse(str)
+X  char *str;
+X{
+X  int depth = 0, last_char = ')';
+X  int start, count2, in_var;
+X  P_PARAM p_tmp;
+X  P_SUBST sub_tmp;
+X
+X  char type_name[MID_SIZE], var_name[MID_SIZE];
+X  char oldvar_name[MID_SIZE], tempc[MID_SIZE];
+X
+X  /* build the parameter list */
+X  if ((start = fill_param(str)) == -1) {
+X    /* clean up and exit on error */
+X    while (param_list != NULL) {
+X      p_tmp = param_list;
+X      param_list = param_list->next;
+X      p_tmp->next = NULL;
+X      free(p_tmp);
+X    }
+X    return(-1);
+X  }
+X  if (str[start] != ')') {
+X    strcpy(dummy_str, "void");
+X    return(4);
+X  }
+X
+X  /* begin with non-space character */
+X  for (str += start + 1; *str == ' '; str++) ;
+X  count2 = 0;
+X  in_var = FALSE;
+X  type_name[0] = '\0';
+X
+X  /* now go through the entire structure */
+X  for (; *str != '\0'; str++) {
+X
+X    switch (*str) {
+X    case ' ':
+X      /* add on to variable or append to type definition */
+X      if (in_var == TRUE) {
+X	var_name[count2++] = ' ';
+X	break;
+X      }
+X      break;
+X    case '{':
+X      /* must be a struct declaration */
+X      if ((depth != 0) ||
+X	  (in_var == TRUE)) {
+X	syntax_err("unexpected left brace encountered");
+X	return(-1);
+X      }
+X      depth = -1;
+X      if (var_name[count2] != ' ') {
+X	var_name[count2++] = ' ';
+X      }
+X      do {
+X	var_name[count2++] = *str;
+X	switch (*str) {
+X	case '\0':
+X	  syntax_err("unable to parse the complex C structure");
+X	  return(-1);
+X	case '{':
+X	  depth++;
+X	  break;
+X	case '}':
+X	  depth--;
+X	  break;
+X	default:
+X	  /* ignore me */
+X	  break;
+X	}
+X	str++;
+X      } while ((depth > 0) ||
+X	       (*str != '}'));
+X      goto saw_space;
+X      break;
+X    case ',':
+X      /* just add on if between parenthesis */
+X      if (depth != 0) {
+X	var_name[count2++] = ',';
+X	break;
+X      }
+X    case ';':
+X      /* found end of declaration? */
+X      var_name[count2] = '\0';
+X      if ((depth != 0) || (type_name[0] == '\0')) {
+X	syntax_err("unable to parse the complex C structure");
+X	return(-1);
+X      }
+X      if (var_name[0] == '\0') {
+X	syntax_err("unable to parse the complex C structure");
+X	return(-1);
+X      }
+X
+X      /* build the proper string */
+X      trim_str(type_name);
+X      strcpy(tempc, type_name);
+X      strcat(tempc, " ");
+X      trim_str(var_name);
+X      strcpy(oldvar_name, var_name);
+X      strcat(tempc, var_name);
+X
+X      /* search for matches among the replacement code */
+X      for (sub_tmp = subst_list;
+X	   sub_tmp != NULL;
+X	   sub_tmp = sub_tmp->next) {
+X	/* check it */
+X	switch (sub_tmp->submode) {
+X	case SUBST_FULL:
+X	  /* the full string needs replacing? */
+X	  if (strcmp(tempc, sub_tmp->from_str) == 0) {
+X	    strcpy(tempc, sub_tmp->to_str);
+X	  }
+X	  break;
+X	case SUBST_TYPE:
+X	  /* the type only needs replacing? */
+X	  if (strcmp(type_name, sub_tmp->from_str) == 0) {
+X	    strcpy(tempc, sub_tmp->to_str);
+X	    strcpy(type_name, sub_tmp->to_str);
+X	    strcat(tempc, " ");
+X	    strcat(tempc, var_name);
+X	  }
+X	  break;
+X	case SUBST_NAME:
+X	  /* the variable only needs replacing? WHY!? */
+X	  if (strcmp(var_name, sub_tmp->from_str) == 0) {
+X	    strcpy(tempc, type_name);
+X	    strcat(tempc, " ");
+X	    strcat(tempc, sub_tmp->to_str);
+X	    strcpy(var_name, sub_tmp->to_str);
+X	  }
+X	  break;
+X	}
+X      }
+X
+X      /* now find the proper variable name */
+X      if ((p_tmp = var_match(oldvar_name)) == NULL) {
+X	char temp_str[MID_SIZE];
+X	sprintf(temp_str, "could not place variable %s properly",
+X		oldvar_name);
+X	syntax_err(temp_str);
+X	return(-1);
+X      }
+X
+X      /* now check for variable name removal */
+X      if (get_option(OPT_NONAMES)) {
+X	kill_variable(tempc);
+X      }
+X
+X      /* set aside space */
+X      if ((p_tmp->desc =
+X	   (char *) malloc(sizeof(char) * (strlen(tempc) + 1))) == NULL) {
+X	fprintf(stderr, "Serious Memory Allocation Error\n");
+X	exit(1);
+X      }
+X
+X      /* now stow it */
+X      strcpy(p_tmp->desc, tempc);
+X
+X      /* reset properly */
+X      count2 = 0;
+X      var_name[0] = '\0';
+X      if (*str == ';') {
+X	in_var = FALSE;
+X	type_name[0] = '\0';
+X      }
+X      break;
+X    case '*':
+X      /* just append on, must now be in variable */
+X      if ((last_char == ' ') && (in_var == FALSE)) {
+X	in_var = TRUE;
+X	goto saw_space;
+X      } else if (in_var == FALSE) {
+X	/* must push out type properly */
+X	var_name[count2] = '\0';
+X	count2 = 0;
+X	if ((type_name[0] != '\0') &&
+X	    (type_name[strlen(type_name) - 1] != ' '))  {
+X	  strcat(type_name, " ");
+X	}
+X	if ((type_name[0] != '\0') ||
+X	    (strcmp(var_name, "register") != 0)) {
+X	  strcat(type_name, var_name);
+X	}
+X	var_name[0] = '\0';
+X      }
+X      in_var = TRUE;
+X      var_name[count2++] = '*';
+X      break;
+X    case '(':
+X    case '[':
+X      /* count depth, assume balanced for both */
+X      depth++;
+X      if ((last_char == ' ') &&
+X	  (in_var == FALSE)) {
+X	in_var = TRUE;
+X	goto saw_space;
+X      }
+X      in_var = TRUE;
+X      var_name[count2++] = *str;
+X      break;
+X    case ')':
+X    case ']':
+X      /* check depth */
+X      depth--;
+X      if (depth < 0) {
+X	syntax_err("misbalanced parenthesis encountered");
+X	return(-1);
+X      }
+X      if (last_char == ' ') goto saw_space;
+X      var_name[count2++] = *str;
+X      break;
+X    default:
+X      if (!id_char(*str) && (depth == 0)) {
+X	syntax_err("unknown variable structure encountered");
+X	return(-1);
+X      }
+X      /* check for just seeing space */
+X      if (last_char == ' ' && in_var == FALSE) {
+X
+X      saw_space:
+X	var_name[count2] = '\0';
+X	count2 = 0;
+X	if ((type_name[0] != '\0') &&
+X	    (type_name[strlen(type_name) - 1] != ' '))  {
+X	  strcat(type_name, " ");
+X	}
+X	if ((type_name[0] != '\0') ||
+X	    (strcmp(var_name, "register") != 0)) {
+X	  strcat(type_name, var_name);
+X	}
+X	var_name[0] = '\0';
+X
+X      }
+X      var_name[count2++] = *str;
+X      break;
+X    }
+X
+X    /* save the last character */
+X    last_char = *str;
+X  }
+X
+X  /* now send everything out */
+X  return(oldc_output());
+X}
+X
+X/* function to determine if the parameter list is K&R, ANSI or empty */
+Xstatic int
+Xdiverge_style(str, len)
+X  char *str;
+X  int len;
+X{
+X  int void_fnd = FALSE, nspc_fnd = FALSE, in_word = 1;
+X
+X  /* perform the first simple test */
+X  if (str[len - 1] == ';') return(2);
+X
+X  /* should have a right parenthesis now  */
+X  if (str[len - 1] != ')') {
+X    fprintf(stderr, "Expecting right paren in file %s\n", file_name);
+X    return(1);
+X  }
+X
+X  /* now check to see if it only lists all variables */
+X  for (str++; *str != '\0'; str++) {
+X
+X    /* check for separators */
+X    switch (*str) {
+X    case ',':
+X      /* variable separator */
+X      if (in_word == 1) {
+X	fprintf(stderr, "Empty variable list in file %s", file_name);
+X	return(1);
+X      }
+X      nspc_fnd = TRUE;
+X      in_word = 1;
+X      break;
+X    case ' ':
+X      /* word separator */
+X      if (in_word == 2) {
+X	in_word = 0;
+X      }
+X      break;
+X    case ')':
+X      if (*(str + 1) != '\0') {
+X	return(1);
+X      }
+X      break;
+X    default:
+X      /* check for variable name */
+X      if ((void_fnd == FALSE) &&
+X	  (strncmp(str, "void", 4) == 0)) {
+X	void_fnd = TRUE;
+X	str += 3;
+X	in_word = 2;
+X      } else if (id_char(*str)) {
+X	if (in_word == 0) {
+X	  return(1);
+X	}
+X	in_word = 2;
+X	nspc_fnd = TRUE;
+X      } else {
+X	return(1);
+X      }
+X      break;
+X    }
+X  }
+X  return((nspc_fnd == TRUE)? 2 : 0);
+X}
+X
+X/* return length of function name... and store it in space provide */
+Xstatic int
+Xfind_name(out_name, in_desc, desc_len)
+X  char *out_name, *in_desc;
+X  int desc_len;
+X{
+X  int pos, count = 0;
+X
+X  /* find the end of the name */
+X  for (pos = desc_len; pos > 0; pos--) {
+X    if (id_char(in_desc[pos])) break;
+X  }
+X
+X  /* find the length of the name */
+X  while ((pos > 0) &&
+X	 (id_char(in_desc[pos]))) {
+X    count++;
+X    pos--;
+X  }
+X
+X  /* copy it */
+X  if (!id_char(in_desc[pos])) {
+X    pos++;
+X  } else {
+X    count++;
+X  }
+X  strncpy(out_name, in_desc + pos, count);
+X  out_name[count] = '\0';
+X  return(count);
+X}
+X
+X/* function to extract the function prototype from preceding characters */
+Xstatic void
+Xparse_func()
+X{
+X  P_SUBST sub_tmp;
+X  P_PROTO tmp_proto;
+X  int count, valid = TRUE, depth = 0, done = FALSE;
+X  int sep_point = 0, typelen, cmpstt, len, dummy_len = 0;
+X  char *func_declare, *func_list, name_space[MID_SIZE];
+X
+X  /* clean up the input string */
+X  trim_str(code_info);
+X  len = strlen(code_info);
+X
+X  /* now go backwards and find the first occurance */
+X  /* of a right parenthesis without a '[', ',' or ';' after */
+X  for (count = len - 1; done == FALSE && count > 0; count--) {
+X
+X    /* check for a select group of characters */
+X    switch (code_info[count]) {
+X    case ' ':
+X      /* don't change validity for spaces */
+X      break;
+X    case ')':
+X      /* check if it is a good match */
+X      depth++;
+X      if (depth == 1 && valid == TRUE) {
+X	done = TRUE;
+X      }
+X      break;
+X    case '(':
+X      /* keep proper track of depth */
+X      depth--;
+X      if (depth < 0) {
+X	syntax_err("too many left parenthesis encountered");
+X	break;
+X      }
+X
+X      /* watch for function pointers */
+X      valid = FALSE;
+X      break;
+X    case '[':
+X    case ';':
+X    case ',':
+X      /* any paranthesis before this is invalid */
+X      valid = FALSE;
+X      break;
+X    case '=':
+X      /* there should be no equal signs anywhere around this */
+X      valid = FALSE;
+X      count = 0;
+X      break;
+X    default:
+X      /* it can now be a valid parenthesis */
+X      valid = TRUE;
+X      break;
+X    }
+X  }
+X
+X  /* get out if no function type was found */
+X  if (done != TRUE) return;
+X
+X  /* now find the separation point for the function */
+X  done = FALSE;
+X  for (; done == FALSE && count > 0; count--) {
+X    valid = code_info[count];
+X    switch (valid) {
+X    case ' ':
+X      break;
+X    case ')':
+X      /* go deeper */
+X      depth++;
+X      break;
+X    case '(':
+X      /* rise higher */
+X      depth--;
+X      if (depth == 0) {
+X	sep_point = count;
+X	done = TRUE;
+X      }
+X      break;
+X    default:
+X      break;
+X    }
+X  }
+X
+X  /* confirm separation point */
+X  if (done == FALSE) {
+X    syntax_err("too many right parenthesis encountered");
+X    return;
+X  }
+X
+X  /* now find the start of the function declaration */
+X  for (; count > 0; count--) {
+X    if ((code_info[count] == ';') ||
+X	(code_info[count] == '}')) break;
+X    if (code_info[count] == '(') {
+X      syntax_err("unexpected left parenthesis found while parsing parameters");
+X      return;
+X    }
+X  }
+X  if ((code_info[count] == ';') ||
+X      (code_info[count] == '}')) count++;
+X
+X  /* gain space */
+X  if ((func_list = (char *) malloc(sizeof(char) * (len - sep_point + 1)))
+X      == NULL) {
+X    fprintf(stderr, "Serious Error: Malloc failed\n");
+X    exit(1);
+X  }
+X  if ((func_declare =
+X       (char *) malloc(sizeof(char) * (sep_point - count + 1))) == NULL) {
+X    fprintf(stderr, "Serious Error: Malloc failed\n");
+X    exit(1);
+X  }
+X
+X  /* now assign the locations */
+X  strcpy(func_list, &(code_info[sep_point]));
+X  strncpy(func_declare, &(code_info[count]), sep_point - count);
+X  func_declare[sep_point - count] = '\0';
+X  trim_str(func_list);
+X  trim_str(func_declare);
+X
+X  /* find just the function name */
+X  len = strlen(func_declare);
+X  count = find_name(name_space, func_declare, len);
+X
+X  /* just leave if there is no function */
+X  if (count == 0) {
+X    free(func_list);
+X    free(func_declare);
+X    return;
+X  }
+X
+X  /* check for statics which shouldn't be shown */
+X  if (get_option(OPT_STATICMODE) != ANY_STATICS) {
+X    if (!strncmp(func_declare, "static ", 7) ==
+X	(get_option(OPT_STATICMODE) == NO_STATICS)) {
+X      last_comment[0] = '\0';
+X      comment_len = 0;
+X      free(func_list);
+X      free(func_declare);
+X      return;
+X    }
+X  }
+X
+X  /* declare storage space for the function */
+X  if ((tmp_proto = (P_PROTO) malloc(sizeof(S_PROTO))) == NULL) {
+X    fprintf(stderr, "Memory allocation failure\n");
+X    exit(1);
+X  }
+X  tmp_proto->next = NULL;
+X  tmp_proto->name = NULL;
+X  tmp_proto->ftype = NULL;
+X  tmp_proto->fname = NULL;
+X  tmp_proto->plist = NULL;
+X  tmp_proto->comment = NULL;
+X
+X  /* place it in the list */
+X  if ((proto_next == NULL) || (proto_list == NULL)) {
+X    proto_next = proto_list = tmp_proto;
+X  } else {
+X    proto_next->next = tmp_proto;
+X    proto_next = tmp_proto;
+X  }
+X  if ((proto_next->fname =
+X       (char *) malloc(sizeof(char) * (strlen(file_name) + 2))) == NULL) {
+X    fprintf(stderr, "Memory allocation error\n");
+X    exit(1);
+X  }
+X  strcpy(proto_next->fname, file_name);
+X
+X  /* now copy any preceding comments if desired */
+X  if (get_option(OPT_COMMENTS) &&
+X      (last_comment[0] != '\0')) {
+X    if ((proto_next->comment =
+X	 (char *) malloc(sizeof(char) * (comment_len + 5))) == NULL) {
+X      fprintf(stderr, "Memory allocation error\n");
+X      exit(1);
+X    }
+X    strcpy(proto_next->comment, "/*");
+X    strcat(proto_next->comment, last_comment);
+X    last_comment[0] = '\0';
+X    comment_len = 0;
+X  } else {
+X    proto_next->comment = NULL;
+X  }
+X
+X  /* check for the conversion of the type declaration */
+X  if (count != len) {
+X    if (strncmp("extern ", func_declare, 7) == 0) {
+X      cmpstt = 7;
+X    } else {
+X      cmpstt = 0;
+X    }
+X    for (sub_tmp = subst_list;
+X	 sub_tmp != NULL;
+X	 sub_tmp = sub_tmp->next) {
+X      /* check it */
+X      if (sub_tmp->submode == SUBST_TYPE) {
+X
+X	/* compare */
+X	typelen = strlen(sub_tmp->from_str);
+X	if (strncmp(func_declare + cmpstt, sub_tmp->from_str, typelen) == 0) {
+X	  strcpy(tmp_str, sub_tmp->to_str);
+X	  strcat(tmp_str, func_declare + cmpstt + typelen);
+X	  strcpy(func_declare, tmp_str);
+X	  len += (strlen(sub_tmp->to_str) - typelen - cmpstt);
+X	}
+X
+X      }
+X    }
+X  }
+X
+X  /* output extern if desired */
+X  if (get_option(OPT_EXTERNS) &&
+X      strncmp("extern ", func_declare, 7) != 0) {
+X    strcpy(dummy_str, "extern ");
+X    dummy_len = 7;
+X  } else {
+X    dummy_str[0] = '\0';
+X    dummy_len = 0;
+X  }
+X
+X  /* now check if the function type is an integer */
+X  if (count == len) {
+X    strcat(dummy_str, "int ");
+X    strcat(dummy_str, func_declare);
+X    dummy_len += 4 + len;
+X  } else {
+X    strcat(dummy_str, func_declare);
+X    dummy_len += len;
+X  }
+X
+X  /* store the function header */
+X  if ((proto_next->ftype =
+X       (char *) malloc(sizeof(char) * (dummy_len + 2))) == NULL) {
+X    fprintf(stderr, "Memory allocation error\n");
+X    exit(1);
+X  }
+X  strcpy(proto_next->ftype, dummy_str);
+X
+X  /* the function string */
+X  if ((proto_next->name =
+X       (char *) malloc(sizeof(char) * (count + 2))) == NULL) {
+X    fprintf(stderr, "Memory allocation error\n");
+X    exit(1);
+X  }
+X  strcpy(proto_next->name, name_space);
+X
+X  /* now output empty list amount */
+X  len = strlen(func_list);
+X  switch (diverge_style(func_list, len)) {
+X  case 0:
+X    /* empty or "void" parameter list */
+X    strcpy(dummy_str, "void");
+X    dummy_len = 4;
+X    break;
+X  case 1:
+X    /* ANSI C format! -- remove trailing parenthesis */
+X    func_list[--len] = '\0';
+X    if ((dummy_len = newc_parse(func_list + 1)) == -1) {
+X      free(func_list);
+X      free(func_declare);
+X      pop_proto();
+X      return;
+X    }
+X    break;
+X  default:
+X    /* K&R C format */
+X    if ((dummy_len = oldc_parse(func_list)) == -1) {
+X      free(func_list);
+X      free(func_declare);
+X      pop_proto();
+X      return;
+X    }
+X    break;
+X  }
+X
+X  /* store it */
+X  if ((proto_next->plist =
+X       (char *) malloc(sizeof(char) * (dummy_len + 2))) == NULL) {
+X    fprintf(stderr, "Memory allocation error\n");
+X    exit(1);
+X  }
+X  strcpy(proto_next->plist, dummy_str);
+X
+X  /* replace space */
+X  free(func_list);
+X  free(func_declare);
+X}
+X
+X/* go through the file extracting functions */
+Xvoid
+Xparse_file()
+X{
+X  int curr_char, count = 0, was_comment = FALSE, may_flush = FALSE;
+X  int depth = 0, num_comment = 0, temp_count = 0, temp_lines = 0;
+X  char temp_list[MID_SIZE];
+X  int prev_char = '\n', old_prev_real = ' ', prev_real = ' ';
+X
+X  /* go to it */
+X  start_comment[0] = '\0';
+X  last_comment[0] = '\0';
+X  temp_list[0] = '\0';
+X  while ((curr_char = getc(fpin)) != EOF) {
+X
+X    /* check depth first */
+X    if (curr_char == '\n') line_count++;
+X    if (depth == 0) {
+X
+X      /* process the characters */
+X      if (curr_char == '#' && prev_char == '\n') {
+X
+X	/* nuke any preprocessor statements */
+X	was_comment = FALSE;
+X	prev_char = '#';
+X	curr_char = preprocessor_check();
+X
+X      } else if (curr_char == '"') {
+X
+X	/* nuke string quotes -- must be on same line */
+X	prev_char = curr_char;
+X	count = 0;
+X	while (!feof(fpin)) {
+X	  if ((curr_char = getc(fpin)) == '"') {
+X	    break;
+X	  } else if (curr_char == '\n') {
+X	    syntax_err("unexpected newline found in string");
+X	    line_count++;
+X	  } else if (curr_char == '\\') {
+X	    prev_char = curr_char;
+X	    curr_char = getc(fpin);
+X	  }
+X	  prev_char = curr_char;
+X	}
+X
+X      } else if (curr_char == '\'') {
+X
+X	/* nuke character quotes -- must be on same line */
+X	count = 0;
+X	prev_char = curr_char;
+X	while (!feof(fpin)) {
+X	  if ((curr_char = getc(fpin)) == '\'') {
+X	    break;
+X	  } else if (curr_char == '\n') {
+X	    syntax_err("unexpected newline in character constant");
+X	    line_count++;
+X	  } else if (curr_char == '\\') {
+X	    prev_char = curr_char;
+X	    curr_char = getc(fpin);
+X	  }
+X	  prev_char = curr_char;
+X	}
+X
+X      } else if (curr_char == '*' && prev_char == '/') {
+X
+X	/* clear out commments; treat as spaces */
+X	if (count > 0) count--;
+X	if (was_comment == FALSE) {
+X	  num_comment++;
+X	  temp_count = 0;
+X	} else {
+X	  temp_count--;
+X	  if ((get_option(OPT_SINGLECOMMENTS) == TRUE) &&
+X	      (temp_count > 0)) {
+X	    num_comment++;
+X	    was_comment = FALSE;
+X	    temp_count = 0;
+X	  }
+X	}
+X	temp_list[temp_count] = '\0';
+X	curr_char = ' ';
+X	if (get_option(OPT_COMMENTS) ||
+X	    ((num_comment == 1) &&
+X	     get_option(OPT_FIRSTCOMMENT))) {
+X
+X	  /* process it */
+X	  if (num_comment == 1) {
+X	    get_comment(was_comment, temp_list, start_comment);
+X	  } else {
+X	    get_comment(was_comment, temp_list, last_comment);
+X	  }
+X	  was_comment = TRUE;
+X	  temp_lines = 0;
+X	  temp_count = (-1);
+X
+X	} else {
+X
+X	  while ((curr_char = getc(fpin)) != EOF) {
+X
+X	    /* test for end of comment */
+X	    if (curr_char == '\n') line_count++;
+X	    if ((curr_char == '/') && (prev_char == '*')) {
+X	      break;
+X	    }
+X	    prev_char = curr_char;
+X	  }
+X	  curr_char = ' ';
+X
+X	}
+X	prev_real = old_prev_real;
+X
+X      } else if ((curr_char == '/') && (prev_char == '/')) {
+X
+X	/* just yank out any C++ comments */
+X	if (count > 0) count--;
+X	while ((curr_char = getc(fpin)) != EOF) {
+X
+X	  /* test for end of comment */
+X	  if (curr_char == '\n') {
+X	    line_count++;
+X	    break;
+X	  }
+X	  prev_char = curr_char;
+X
+X	}
+X	curr_char = ' ';
+X	prev_real = old_prev_real;
+X
+X      } else if (curr_char == '{') {
+X
+X	/* reset recording process */
+X	was_comment = FALSE;
+X	may_flush = FALSE;
+X	depth++;
+X
+X	/* now check if it is a function */
+X	if ((prev_real == ';') ||
+X	    (prev_real == ')')) {
+X
+X	  /* found end of function, struct, or union definition */
+X	  code_info[count] = '\0';
+X	  parse_func();
+X	  code_info[count = 0] = '\0';
+X
+X	} else {
+X	  code_info[count++] = '{';
+X	}
+X
+X      } else if (curr_char == '}') {
+X
+X	syntax_err("extra right brace encountered");
+X	break;
+X
+X      }
+X
+X      /* tag onto the list */
+X      if (depth == 0) {
+X
+X	/* store the characters for later use */
+X	if (isspace(curr_char) &&
+X	    (count != 0 && code_info[count - 1] != ' ')) {
+X
+X	  /* combine any white space into a single space character */
+X	  code_info[count++] = ' ';
+X
+X	} else if (!isspace(curr_char)) {
+X
+X	  /* store any other type directly */
+X	  if (curr_char != '/') {
+X	    was_comment = FALSE;
+X	    temp_count = 0;
+X	    temp_lines = 0;
+X	  }
+X	  code_info[count++] = curr_char;
+X	  old_prev_real = prev_real;
+X	  prev_real = curr_char;
+X
+X	}
+X
+X	/* count the lead in */
+X	if (was_comment == TRUE) {
+X
+X	  /* no multiple newlines */
+X	  if (curr_char == '\n') {
+X	    if (temp_lines == 0) {
+X	      temp_lines = 1;
+X	    } else {
+X	      temp_lines = 0;
+X	      temp_count = -1;
+X	      was_comment = FALSE;
+X	    }
+X	  }
+X
+X	  /* check beginning */
+X	  if (temp_count >= 0) {
+X	    temp_list[temp_count] = curr_char;
+X	  }
+X	  temp_count++;
+X
+X	}
+X
+X	/* now note what was last encountered */ 
+X	prev_char = curr_char;
+X
+X      }
+X
+X    } else {
+X
+X      /* keep track of depth and got through code otherwise */
+X      if (curr_char == '#' && prev_char == '\n') {
+X
+X	/* nuke any preprocessor statements */
+X	prev_char = '#';
+X	curr_char = preprocessor_check();
+X
+X      } else if (curr_char == '"') {
+X
+X	/* nuke string quotes -- must be on same line */
+X	may_flush = TRUE;
+X	while (!feof(fpin)) {
+X	  prev_char = curr_char;
+X	  if ((curr_char = getc(fpin)) == '\n') {
+X	    syntax_err("unexpected newline found in string");
+X	    line_count++;
+X	  } else if (curr_char == '\\') {
+X	    prev_char = curr_char;
+X	    curr_char = getc(fpin);
+X	    continue;
+X	  } else if (curr_char == '"') {
+X	    break;
+X	  }
+X	};
+X
+X      } else if (curr_char == '\'') {
+X
+X	/* nuke character quotes -- must be on same line */
+X	may_flush = TRUE;
+X	while (!feof(fpin)) {
+X	  prev_char = curr_char;
+X	  if ((curr_char = getc(fpin)) == '\n') {
+X	    syntax_err("unexpected newline in character constant");
+X	    line_count++;
+X	  } else if (curr_char == '\\') {
+X	    prev_char = curr_char;
+X	    curr_char = getc(fpin);
+X	  } else if (curr_char == '\'') {
+X	    break;
+X	  } 
+X	}
+X
+X      } else if (curr_char == '*' && prev_char == '/') {
+X
+X	/* nuke comments */
+X	num_comment++;
+X	while ((curr_char = getc(fpin)) != EOF) {
+X
+X	  /* test for end of comment */
+X	  if (curr_char == '\n') line_count++;
+X	  if ((curr_char == '/') && (prev_char == '*')) {
+X	    break;
+X	  }
+X	  prev_char = curr_char;
+X
+X	}
+X	curr_char = ' ';
+X
+X      } else if (curr_char == '/' && prev_char == '/') {
+X
+X	/* nuke C++ comments (don't count it) */
+X	while ((curr_char = getc(fpin)) != EOF) {
+X
+X	  /* test for end of comment */
+X	  if (curr_char == '\n') {
+X	    line_count++;
+X	    break;
+X	  }
+X	  prev_char = curr_char;
+X
+X	}
+X	curr_char = ' ';
+X
+X      } else if (curr_char == '{') {
+X
+X	depth++;
+X	code_info[count++] = curr_char;
+X
+X      } else if (curr_char == '}') {
+X
+X	--depth;
+X	if (count > 0) code_info[count++] = curr_char;
+X	if (may_flush) {
+X	  if (depth == 0) may_flush = FALSE;
+X	  code_info[count = 0] = '\0';
+X	}
+X
+X      } else {
+X	/* just copy on the off chance */
+X	code_info[count++] = curr_char;
+X      }
+X
+X      /* now note what was last encountered */ 
+X      prev_char = curr_char;
+X
+X    }
+X
+X  }
+X}
+X
+END_OF_FILE
+if test 54378 -ne `wc -c <'parse.c'`; then
+    echo shar: \"'parse.c'\" unpacked with wrong size!
+fi
+# end of 'parse.c'
+fi
+echo shar: End of archive 5 \(of 5\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1713 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject: v18i016: Xmandelbrot, Part02/03
+Message-ID: <1992Jul13.155041.6681@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i015-xmandel@uunet.UU.NET>
+Date: Mon, 13 Jul 1992 15:50:41 GMT
+Approved: dcmartin@msi.com
+Lines: 1700
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 18, Issue 16
+Archive-name: xmandel/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file mainaw.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping mainaw.c'
+else
+echo 'x - continuing file mainaw.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'mainaw.c' &&
+X	if (activeimage == &manparm)
+X		redraw_mandel (NULL);
+X	else
+X		redraw_julia (NULL);
+}
+X
+/************************************************************************
+*	rotateminus			button = -colour	rotate colour negative		*
+************************************************************************/
+X
+static void rotateminus (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	rotate (activeimage,  -activeimage->rotation);
+X	if (activeimage == &manparm)
+X		redraw_mandel (NULL);
+X	else
+X		redraw_julia (NULL);
+}
+X
+X
+/************************************************************************
+*	CancelRotate()		button = colour/ancel	ignore colour rotation	*
+************************************************************************/
+X
+static void CancelRotate (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X    XtPopdown(cshell);
+X    XFlush (display);
+}
+X
+X
+/************************************************************************
+*	rotate()			rotate the image through colours by val offset	*
+************************************************************************/
+X
+static void rotate (parm, val)
+struct imageparm *parm;
+int val;
+{
+X	int		nbits, x, y, im, i, ib;
+X	unsigned char *b;
+X	unsigned int mask[8];
+X	unsigned int v[8];
+X
+X	/*	with a touch of brute force */
+X
+X	parm->totrot += val;
+X	switch (depth)
+X	{
+X	case 8:
+X		nbits = parm->pixheight * parm->pixwidth;
+X		b = parm->pix;
+X		while (nbits--)
+X			*b++ += val;
+X		break;
+X
+X	case 4:
+X		for (i = 0;  i < 2;  i++)
+X		{	mask[i] = (0x0f << i*4);
+X			v[i] = val << i*4;
+X		}
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->pixwidth;  x++)
+X			{	im = (x % 2);
+X				ib = x >> 1;
+X				b[ib] = ((((unsigned int) (b[ib] & mask[im]) + (v[im]) & mask[im])) & mask[im])
+X						| ( b[ib] & ~mask[im]);
+X			}
+X		}
+X		break;
+X
+X	case 2:
+X		for (i = 0;  i < 4;  i++)
+X		{	mask[i] = (0x03 << i*2);
+X			v[i] = val << i*2;
+X		}
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->pixwidth;  x++)
+X			{	im = x % 4;
+X				ib = x >> 2;
+X				b[ib] = ((((unsigned int) (b[ib] & mask[im]) + (v[im]) & mask[im])) & mask[im])
+X						| ( b[ib] & ~mask[im]);
+X			}
+X		}
+X		break;
+X
+X	case 1:
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->bytewidth;  x++)
+X				b[x] = ~b[x];
+X		}
+X		break;
+X	}
+}
+X
+X
+/* actions  */
+X
+/************************************************************************
+*	nothing()			do nothing if <enter> is received in dialogue	*
+************************************************************************/
+X
+static XtActionProc nothing (w, event, params, num_params)
+Widget w;
+XXButtonEvent *event;
+String *params;
+Cardinal *num_params;
+{
+X	String 	s, ss;
+X	Widget	parent;
+X	int		atoi();
+X
+X
+X	parent = w->core.parent;
+X    s = XawDialogGetValueString(parent);
+X	if (s)
+X	{	ss = tidy (s);
+X		if (*ss)
+X		{	if (strcmp (parent->core.name, "fname") == 0)
+X			{	XtPopdown(pshell);
+X			    XFlush (display);
+X				if (activeimage->pix)
+X				{	printf ("%s gif file = %s\n", (activeimage == &manparm ? "Mandelbrot" : "Julia"), s);
+X				    write_gif_image (ss, activeimage);
+X				}
+X			}
+X			else if (strcmp (parent->core.name, "colour") == 0)
+X			{    XtPopdown(cshell);
+X			    XFlush (display);
+X				activeimage->rotation = atoi (ss);
+X				rotate (activeimage,  activeimage->rotation);
+X				if (activeimage == &manparm)
+X					redraw_mandel (NULL);
+X				else
+X					redraw_julia (NULL);
+X			}
+X		}
+X		XtFree (s);
+X	}
+}
+X
+/************************************************************************
+*	reshape_widgets ()		make widgets uniform in size				*
+************************************************************************/
+X
+/*	the following code to reshape a widget set is mangled from xman sources 
+X	full_size widgets are placed on independent lines
+X	small_size widgest are scaled so that all short widgets
+X	           fit into the same total width as the longest widget.
+*/
+X
+static void reshape_widgets(parent, full_size, small_size)
+Widget parent;
+char **full_size, **small_size;
+{
+X	Widget *full_widgets, *half_widgets, *temp, long_widget;
+X	Dimension longest, length, b_width;
+X	int interior_dist;
+X	Arg arglist[2];
+X	int	nhalf;
+X
+X	for (nhalf = 0;	small_size[nhalf];	nhalf++)
+X		;
+X	full_widgets = ConvertNamesToWidgets(parent, full_size);
+X	half_widgets = ConvertNamesToWidgets(parent, small_size);
+X	
+X	long_widget = NULL;
+X	longest = 0;
+X	XtSetArg(arglist[0], XtNwidth, &length);
+X	XtSetArg(arglist[1], XtNborderWidth, &b_width);
+X
+X	/* Find Longest widget. */
+X
+X	for ( temp = full_widgets ; *temp != (Widget) NULL ; temp++) 
+X	{ XtGetValues(*temp, arglist, (Cardinal) 2);
+X		length += 2 * b_width;
+X		if (length > longest) 
+X		{ longest = length;
+X			long_widget = *temp;
+X		}
+X	}
+X
+X	if (long_widget == (Widget) NULL) 
+X	{	printf ("Could not find longest widget, aborting...");
+X		XtFree(full_widgets);
+X		XtFree(half_widgets);
+X		return;
+X	}
+X
+X	/* Set all other full_widgets to this length. */
+X
+X	for ( temp = full_widgets ; *temp != (Widget) NULL ; temp++ )
+X	{	if ( long_widget != *temp) 
+X		{	Dimension width, border_width;
+X
+X			XtSetArg(arglist[0], XtNborderWidth, &border_width);
+X			XtGetValues(*temp, arglist, (Cardinal) 1);
+X		
+X			width = longest - 2 * border_width;
+X			XtSetArg(arglist[0], XtNwidth, width);
+X			XtSetValues(*temp, arglist, (Cardinal) 1);
+X		}
+X	}
+X
+X	/*	Set all the half widgets to the right length. */
+X
+X	XtSetArg(arglist[0], XtNdefaultDistance, &interior_dist);
+X	XtGetValues(parent, arglist, (Cardinal) 1);
+X	
+X	for ( temp = half_widgets ; *temp != (Widget) NULL ; temp++) 
+X	{	Dimension width, border_width;
+X
+X		XtSetArg(arglist[0], XtNwidth, &length);
+X		XtSetArg(arglist[1], XtNborderWidth, &b_width);
+X		XtGetValues(*temp, arglist, (Cardinal) 2);
+X		
+X		XtSetArg(arglist[0], XtNborderWidth, &border_width);
+X		XtGetValues(*temp, arglist, (Cardinal) 1);
+X		
+X		width = (longest - interior_dist)/nhalf - nhalf * border_width;
+X		if (width > b_width)
+X		{	 XtSetArg(arglist[0], XtNwidth, width);
+X			 XtSetValues(*temp, arglist, (Cardinal) 1);
+X		}
+X	}
+X	XtFree(full_widgets);
+X	XtFree(half_widgets);
+}
+X
+/************************************************************************
+*	ConvertNamesToWidgets()		get a widget vector from a name vector	*
+************************************************************************/
+X
+static Widget *
+ConvertNamesToWidgets(parent, names)
+Widget parent;
+char ** names;
+{
+X	char ** temp;
+X	Widget * ids, * temp_ids;
+X	int count;
+X
+X	for (count = 0, temp = names; *temp != NULL ; count++, temp++);
+X
+X	ids = (Widget *) XtMalloc( (count + 1) * sizeof(Widget));
+X
+X	for ( temp_ids = ids; *names != NULL ; names++, temp_ids++) 
+X	{	*temp_ids = XtNameToWidget(parent, *names);
+X		if (*temp_ids == NULL) 
+X		{	printf("Could not find widget named '%s'", *names);
+X			XtFree(ids);
+X			return(NULL);
+X		}
+X	}
+X	*temp_ids = (Widget) NULL;
+X	return(ids);
+}
+X
+/************************************************************************
+*	update_coordinates()	write zoom coordinates to stdout			*
+************************************************************************/
+X
+void update_coordinates (image, lf)
+struct imageparm *image;
+int		lf;
+{
+X	if (lf < 0)
+X		return;
+X	printf ("%s (lx,ly) (ux,uy) = (%11.7lf,%11.7lf) (%11.7lf,%11.7lf)%c",
+X				image == &manparm ? "mandel:" : "julia: ",
+X				image->lx, image->ly, image->ux, image->uy, (lf ? '\n' : '\r'));
+X	fflush (stdout);
+X	XFlush (display);
+}
+X
+/************************************************************************
+*	update_point()			write point coord and colour to stdout		*
+************************************************************************/
+X
+void update_point (image)
+struct imageparm *image;
+{
+X	printf ("point:  (x,y) = (%11.7lf,%11.7lf)  colour = %d  \r",
+X			image->px, image->py, image->pcolour);
+X	fflush (stdout);
+X	XFlush (display);
+X                        
+}
+X
+X
+#ifdef NEEDMEMCPY
+X
+/************************************************************************
+*	memcpy()				slow version of memcpy						*
+************************************************************************/
+X
+memcpy (dest, src, n)
+char *dest, *src;
+int n;
+{
+X	if (n > 0)
+X	{	while (n--)
+X			dest++ = *src++;
+X	}
+}
+X
+#endif
+X
+X
+SHAR_EOF
+echo 'File mainaw.c is complete' &&
+chmod 0644 mainaw.c ||
+echo 'restore of mainaw.c failed'
+Wc_c="`wc -c < 'mainaw.c'`"
+test 27742 -eq "$Wc_c" ||
+	echo 'mainaw.c: original size 27742, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mainmotif.c ==============
+if test -f 'mainmotif.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mainmotif.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mainmotif.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mainmotif.c' &&
+/* ta=4 		tabs set to 4 */
+/************************************************************************
+*			mandebrot and julia set generator							*
+************************************************************************/
+/*
+X * $Id:$
+X * $Log:$
+X *
+*/
+X
+#include <stdio.h>
+X
+#include <X11/X.h>
+#include <X11/Xlib.h>
+#include <X11/IntrinsicP.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
+#ifdef VASIMPLE
+#include <Xm/VaSimple.h>
+#endif
+#include <Xm/Xm.h>
+#include <Xm/PanedW.h>
+#include <Xm/PushB.h>
+#include <Xm/DrawingA.h>
+#include <Xm/BulletinB.h>
+#include <Xm/Text.h>
+X
+#include <Xm/Label.h>
+X
+#include <Xm/LabelG.h>
+#include <Xm/RowColumn.h>
+#include <Xm/ToggleBG.h>
+X
+#include "mandel.h"
+#include "mandel.bit"
+X
+#ifdef __STDC__
+static int make_buttons(struct button_list *button, int text_wide, int text_high, int left_offset, int top_offset);
+static int make_dialogue(Widget w, struct enter_buttons *but, int x, int y, int labelchars, int textchars, int font_wide, int text_high);
+static int make_selector(Widget parent, int xoffset, int nexty, int text_wide, int text_high, int font_wide);
+static void do_mandel(Widget w, caddr_t client_data, caddr_t call_data);
+static void do_julia(Widget w, caddr_t client_data, caddr_t call_data);
+static void do_quit(Widget w, caddr_t client_data, caddr_t call_data);
+static void do_select(Widget w, caddr_t client_data, XmToggleButtonCallbackStruct *call_data);
+static void button_set(Widget w, int how);
+static void set_zoom(Widget w, caddr_t client_data, caddr_t call_data);
+static void recalc(Widget w, caddr_t client_data, caddr_t call_data);
+static void do_remove(Widget w, caddr_t client_data, caddr_t call_data);
+static void generate_gif(Widget w, caddr_t client_data, caddr_t call_data);
+static void rotateplus(Widget w, caddr_t client_data, caddr_t call_data);
+static void rotateminus(Widget w, caddr_t client_data, caddr_t call_data);
+static void rotate(struct imageparm *parm, int val);
+static int current_rotate(void);
+static void save_coord(struct imageparm *image);
+static int check_coord_change(struct imageparm *image);
+static void update_control(struct imageparm *image);
+static void updoubleval(char *name, double x);
+static void upintval(char *name, int x);
+static void font_box_size(Widget w, int *wide, int *high);
+static String tidy(String s);
+static char *anynumber(char *s);
+#else
+static int make_buttons();
+static int make_dialogue();
+static int make_selector();
+static void do_mandel();
+static void do_julia();
+static void do_quit();
+static void do_select();
+static void button_set();
+static void set_zoom();
+static void recalc();
+static void do_remove();
+static void generate_gif();
+static void rotateplus();
+static void rotateminus();
+static void rotate();
+static int current_rotate();
+static void save_coord();
+static int check_coord_change();
+static void update_control();
+static void updoubleval();
+static void upintval();
+static void font_box_size();
+static String tidy();
+static char *anynumber();
+#endif
+X
+extern struct imageparm manparm;
+extern struct imageparm juliaparm;
+X
+char			*progname;
+X
+Display *display;
+Screen	*screen;
+Window root;
+X
+Widget toplevel;
+Widget mandelshell = NULL;
+Widget juliashell  = NULL;
+X
+int depth;
+int dots_per_byte;					/*	pixel dots in a byte		*/
+extern int julia_in_progress;
+extern struct imageparm manparm;
+extern struct imageparm juliaparm;
+struct imageparm *activeimage = &manparm;
+X
+static Widget		bboard;
+static Widget	mandel_select, julia_select, cstep_value;
+static Pixmap 		mandel_pixmap, manim_pixmap, julim_pixmap;
+X
+static Dimension mandel_initial_height;
+X
+struct enter_buttons enter[] =
+{	{ "GIF\nfile:", 0, 0, 	"fname", 30 },
+X	{ "ZOOM COORDINATES", 0, 1, NULL, 0 },
+X	{ "lx:", 0, 2, 		"flx", 15 },
+X	{ "ly:", 1, 2, 		"fly", 15 },
+X	{ "ux:", 0, 3, 		"fux", 15 },
+X	{ "uy:", 1, 3, 		"fuy", 15 },
+X	{ "POINT COORDINATES", 0, 4, NULL, 0 },
+X	{ "x:", 0, 5,  		"px", 15 },
+X	{ "y:", 1, 5,  		"py", 15 },
+X	{ NULL }
+} ;
+X
+struct button_list button[] = 
+{
+X	{ "mandel",		do_mandel	 ,    0,     0 },
+X	{ "julia",		do_julia	 ,    1,     0 },
+X	{ "quit",		do_quit		 ,    2,     0 },
+X	{ NULL,			NULL		 ,    5,     0 }
+};
+X
+struct button_list work[] = 
+{
+X	{ "zoom",		set_zoom	 ,    1,     0 },
+X	{ "unzoom",		do_unzoom	 ,    1,     1 },
+X	{ "+colour",	rotateplus	 ,    2,     0 },
+X	{ "-colour",	rotateminus	 ,    2,     1 },
+X	{ "recalc",		recalc		 ,    3,     0 },
+X	{ NULL,			NULL		 ,    5,     0 }
+};
+X
+/********************************************************************
+*	main ()															*
+********************************************************************/
+X
+main (argc, argv)
+int		argc;
+char	**argv;
+{
+X	Widget		new, prev;
+X	Widget		gifout;
+X	Arg			av[10];
+X	int			i, n;
+X	int			font_high, font_wide;
+X	char		depth_str[10];
+X	Dimension	text_high, text_wide;
+X	short		marg_high, marg_wide, mm;
+X	Position	text_loc;
+X	Position	nexty, y_button1, y_button2, y_selector;
+X	Dimension	ww, bb, hh;
+X	Position	xx, yy;
+X
+X	/*	initialize Xt Intrinsics */
+X	
+X	toplevel = XtInitialize (argv[0], "XMandel", NULL, 0, &argc, argv);
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNallowShellResize, TRUE);		i++;
+X	XtSetValues (toplevel, av, i);
+X
+X	display = XtDisplay(toplevel);
+X	root = RootWindow (display, DefaultScreen(display));
+X	screen  = XtScreen (toplevel);
+X	depth = DefaultDepthOfScreen (XtScreen(toplevel));
+X	switch (depth)
+X	{
+X	case 8:		dots_per_byte = 1;  break;
+X	case 4:		dots_per_byte = 2;  break;
+X	case 2:		dots_per_byte = 4;	break;
+X	case 1:		dots_per_byte = 8;	break;
+X	default:	printf ("Cannot handle %d bit colour\n", depth);
+X				exit (1);
+X	}
+X	sprintf (depth_str, "%d", depth);		/*	default for "colour" button */
+X	manparm.rotation = juliaparm.rotation = depth;
+X
+X	/*	create a resizable container for user buttons and graphics */
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNallowOverlap, True);			i++;
+X	XtSetArg (av[i], XmNresizePolicy, XmRESIZE_ANY);	i++;
+X	XtSetArg (av[i], XmNx, 0);  						i++;
+X	XtSetArg (av[i], XmNy,0);  							i++;
+X	bboard = XmCreateBulletinBoard (toplevel, "name", av, i);
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNmarginHeight, &marg_high);			i++;
+X	XtSetArg (av[i], XmNmarginWidth,  &marg_wide);			i++;
+X	XtGetValues (bboard, av, i);
+X	
+X	font_box_size (bboard, &font_wide, &font_high);
+X	text_wide = font_wide * 10;
+X	text_high = font_high * 2;
+X	text_loc = 0;
+X
+X	/*	top 2 rows of push buttons */
+X	
+X	y_button1 = make_buttons (button, (5 * text_wide) / 3, text_high, marg_wide, marg_high);
+X	y_button2 = nexty = make_buttons (work, text_wide, text_high, marg_wide, y_button1);
+X
+X	/*	radio button and colour step */
+X
+X	y_selector = nexty = make_selector (bboard, marg_wide, y_button1, text_wide, text_high, font_wide);
+X
+X	/*	various x-y coordinate boxes */
+X
+X	nexty = MAX (y_button1, y_button2);
+X	nexty = MAX (nexty, y_selector);
+X	nexty = make_dialogue (bboard, enter, 6, nexty, 6, 15, font_wide, text_high + 6);
+X
+X	/*	disable editing of "point coordinates" */
+X	
+X	i = 0;
+X	XtSetArg(av[i], XmNeditable, False);			i++;
+X	prev = XtNameToWidget(bboard, "px");
+X	XtSetValues(prev, av, i);
+X	prev = XtNameToWidget(bboard, "py");
+X	XtSetValues(prev, av, i);
+X
+X	/*	"save" button for gif file: first get end of "fname" widget */
+X
+X	prev = XtNameToWidget(bboard, "fname");
+X	i = 0;
+X	XtSetArg(av[i], XmNwidth, &ww);					i++;
+X	XtSetArg(av[i], XmNborderWidth, &bb);			i++;
+X	XtSetArg(av[i], XmNx, &xx);						i++;
+X	XtGetValues(prev, av, i);
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNx, 		xx + ww + bb * 2 + 4);	i++;
+X	XtSetArg (av[i], XmNy, 		y_button2 + 3); 	 		i++;
+X	XtSetArg (av[i], XmNwidth,  text_wide);			i++;
+X	XtSetArg (av[i], XmNheight, text_high);			i++;
+X	gifout =  XtCreateManagedWidget ("Save", xmPushButtonWidgetClass, bboard, av, i);
+X	XtAddCallback (gifout, XmNactivateCallback, generate_gif, 0);
+X	XtManageChild (bboard);
+X
+X	manparm.lx = START_LX;
+X	manparm.ly = START_LY;
+X	manparm.ux = START_UX;
+X	manparm.uy = START_UY;
+X	activeimage = &manparm;
+X	update_coordinates (&manparm, 0);
+X	
+X	mandel_pixmap = XCreateBitmapFromData (XtDisplay (toplevel),
+X						RootWindowOfScreen (XtScreen (toplevel)),
+X						mandel_bits,
+X						mandel_width,
+X						mandel_height);
+X	XtSetArg (av[0], XtNiconPixmap, mandel_pixmap);
+X	XtSetValues (toplevel, av, 1);
+X
+X	XtRealizeWidget (toplevel);
+X	XtMainLoop ();
+}
+X
+/***********	button creation routines	*****************/
+X
+/************************************************************************
+*	make_button()  make a set of buttons based on the button table		*
+************************************************************************/
+X
+static int make_buttons (button, text_wide, text_high, left_offset, top_offset)
+struct button_list *button;
+int		text_wide;
+int 	text_high;
+int 	left_offset;
+int 	top_offset;
+{
+X	Arg			av[10];
+X	int			i, n;
+X	Position	nexty;
+X	int			text_loc;
+X	Widget 		prev, new;
+X	
+X	text_loc = 0;
+X	for (prev = NULL, n = 0;  button[n].ident;  n++)
+X	{	i = 0;
+X		XtSetArg (av[i], XmNx, 		button[n].x * (text_wide + 4) + left_offset);  i++;
+X		XtSetArg (av[i], XmNy, 		button[n].y * (text_high + 4) + top_offset);  i++;
+X		XtSetArg (av[i], XmNwidth,   text_wide);					i++;
+X		XtSetArg (av[i], XmNheight,  text_high);					i++;
+X		new =  XtCreateManagedWidget (button[n].ident, xmPushButtonWidgetClass, bboard, av, i);
+X		XtAddCallback (new, XmNactivateCallback, button[n].bcall , 0);
+X		prev = new;
+X		text_loc = MAX (text_loc, button[n].y);
+X	}
+X	nexty = (text_loc+1) * (text_high + 4) + top_offset;
+X	return (nexty);
+}
+X
+/*	routines to make various buttons */
+X
+/************************************************************************
+*	make_dialogue()				make widgets to allow data entry		*
+************************************************************************/
+X
+#define XSEP	6
+#define YSEP	0
+X
+static int make_dialogue (w, but, x, y, labelchars, textchars, font_wide, text_high)
+Widget 		w;
+struct enter_buttons *but;		/*	list of buttons to create 		*/
+int			x;					/*	x-offset in pixels				*/
+int			y;					/*	y-offset in pixels				*/
+int 		labelchars;			/*	labelwidth in characters		*/
+int 		textchars;			/*	textwidth in chars				*/
+int			font_wide;
+int			text_high;
+{
+X	Widget		editor, activate;
+X	int			ncol;
+X	Dimension	labelwide, fieldwide;
+X	Position	labelx[10], fieldx[10];
+X	int			i, n;
+X	Arg			av[10];
+X	Position	thisy, nexty;
+X	XmString	str;
+X
+X	
+X	nexty = y;
+X	labelwide = labelchars;
+X	fieldwide = textchars + 2;
+X	ncol = 0;
+X	for (n = 0;  but[n].button;  n++)
+X	{	ncol  = MAX (ncol, but[n].bx);
+X	}
+X	ncol++;
+X	for (n = 0;  n < ncol;  n++)
+X	{
+X		labelx[n] = ((labelwide + fieldwide) * font_wide + XSEP ) * n + x;
+X		fieldx[n] = labelx[n] + labelwide * font_wide + XSEP;
+X	}
+X	for (n = 0;  but[n].button;  n++)
+X	{
+X		i = 0;
+X		str = XmStringCreateLtoR (but[n].button, XmSTRING_DEFAULT_CHARSET);
+X		XtSetArg (av[i], XmNx, 		labelx[but[n].bx]);  i++;
+X		thisy = but[n].by * (text_high + YSEP) + y;
+X		nexty = MAX (thisy + text_high + YSEP, nexty);
+X		XtSetArg (av[i], XmNy, 		thisy);  i++;
+X		if (but[n].field)
+X		{	XtSetArg (av[i], XmNwidth,  labelwide * font_wide );			i++;
+X		}
+X		else
+X		{	XtSetArg (av[i], XmNwidth,  strlen (but[n].button) * font_wide + XSEP);	i++;
+X		}		
+X		XtSetArg (av[i], XmNheight,  text_high);					i++;
+X		XtSetArg (av[i], XmNlabelString, str);   i++;
+X		XtSetArg (av[i], XmNalignment, XmALIGNMENT_END);			i++;
+X		activate =  XtCreateManagedWidget (but[n].button, xmLabelGadgetClass, w, av, i);
+X
+X		if (but[n].field)
+X		{	i = 0;
+X			XtSetArg (av[i], XmNx, 		fieldx[but[n].bx]);  i++;
+X			XtSetArg (av[i], XmNy, 		but[n].by * (text_high + YSEP) + y);  i++;
+X			XtSetArg (av[i], XmNwidth,  (but[n].fsize + 2) * font_wide);					i++;
+X			XtSetArg (av[i], XmNheight,  text_high);					i++;
+X			editor = XtCreateManagedWidget (but[n].field, xmTextWidgetClass, w, av, i);
+X		}
+X		free (str);
+X	}
+X	return (nexty);
+}
+X
+X
+/************************************************************************
+*	make_selector()			make radio buttons and colour step widgets	*
+************************************************************************/
+X
+static int make_selector (parent, xoffset, nexty, text_wide, text_high, font_wide)
+Widget 		parent;
+int			xoffset;
+int			nexty;
+int			text_wide;
+int			text_high;
+int			font_wide;
+{
+X	int			i;
+X	Arg			av[10];
+X	Widget		row_column;
+X	Widget		activate;
+X	XmString	str;
+X	char		s[100];
+X	Dimension	hh;
+X	Position	yy;
+X	short		mm;
+X	char		*text = "Rotate:";
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNx, 		xoffset);			i++;
+X	XtSetArg (av[i], XmNy, 		nexty); 			i++;
+X	XtSetArg (av[i], XmNorientation, XmVERTICAL);	i++;
+X	XtSetArg (av[i], XmNradioBehavior, True);		i++;
+X	XtSetArg (av[i], XmNradioAlwaysOne, True);		i++;
+X	XtSetArg (av[i], XmNisHomogeneous, 	False);		i++;
+X	row_column = XmCreateRowColumn (parent, "rowcol", av, i);
+X	XtManageChild (row_column);
+X	
+X	i = 0;
+X	XtSetArg (av[i], XmNset, 			 True);  	i++;
+X	XtSetArg (av[i], XmNshadowThickness, 0);  		i++;
+X	XtSetArg (av[i], XmNmarginHeight, 	 0);  		i++;
+X	XtSetArg (av[i], XmNmarginWidth, 	 0);  		i++;
+X	mandel_select =	XmCreateToggleButtonGadget (row_column, "mandel", av, i);
+X	XtManageChild (mandel_select);
+X	XtAddCallback (mandel_select, XmNdisarmCallback, do_select , 0);
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNshadowThickness, 0);  		i++;
+X	XtSetArg (av[i], XmNmarginHeight, 	 0);  		i++;
+X	XtSetArg (av[i], XmNmarginWidth, 	 0);  		i++;
+X	julia_select = 	XmCreateToggleButtonGadget (row_column, "julia", av, i);
+X	XtManageChild (julia_select);
+X	XtAddCallback (julia_select, XmNdisarmCallback, do_select , 0);
+X
+X	button_set (NULL, False);
+X
+X	i = 0;
+X	XtSetArg (av[i], XmNx, 		(text_wide + xoffset) * 3); 	i++;
+X	XtSetArg (av[i], XmNy, 		nexty + text_high + 6);		i++;
+X	str = XmStringCreateLtoR ("Rotate:", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (av[i], XmNlabelString, str);   i++;
+X	activate =  XtCreateManagedWidget ("ctext", xmLabelGadgetClass, parent, av, i);
+X
+X	sprintf (s, "%d", activeimage->rotation);
+X	i = 0;
+X	yy = (text_wide + xoffset) * 3 + font_wide * strlen (text) + xoffset;
+X	XtSetArg (av[i], XmNx, 		yy);				i++;
+X	XtSetArg (av[i], XmNy, 		nexty + text_high);	i++;
+X	XtSetArg (av[i], XmNwidth,  6 * font_wide);		i++;
+X	XtSetArg (av[i], XmNvalue, s);  i++;
+X	cstep_value = XtCreateManagedWidget ("cstep", xmTextWidgetClass, parent, av, i);
+X	XtFree (str);
+X
+X	i = 0;
+X	XtSetArg(av[i], XmNheight, &hh);				i++;
+X	XtSetArg(av[i], XmNy, &yy);						i++;
+X	XtSetArg (av[i], XmNmarginHeight, &mm);			i++;
+X	XtGetValues(row_column, av, i);
+X	return (yy + hh + mm*2);
+}
+X
+/************	callbacks	***************/
+X
+/************************************************************************
+*	do_mandel()		button = mandel:	create/use mandelbrot window	*
+************************************************************************/
+X
+static void do_mandel (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{	Dimension		wide;
+X	double			dx, dy;
+X	int				i;
+X	Arg				av[10];
+X
+X	if (manparm.window == 0)
+X	{	manparm.lx = START_LX;
+X		manparm.ly = START_LY;
+X		manparm.ux = START_UX;
+X		manparm.uy = START_UY;
+X		dx = START_UX - START_LX;
+X		dx = ABS (dx);
+X		dy = START_UY - START_LY;
+X		dy = ABS (dy);
+X		wide = 200;
+X		mandel_initial_height = (double) wide * (dy / dx);
+X
+X		i = 0;
+X		XtSetArg (av[i], XmNwidth,   	wide);					i++;
+X		XtSetArg (av[i], XmNheight,  	mandel_initial_height);	i++;
+X		XtSetArg (av[i], XmNtitle,		"Mandelbrot");			i++;
+X		XtSetArg (av[i], XmNiconName,	"Mandel");				i++;
+X		mandelshell = XtCreateApplicationShell ("Mandelshell", topLevelShellWidgetClass, av, i);
+X		XtAddEventHandler (mandelshell, ExposureMask, FALSE,  expose_mandel, NULL);
+X
+X		manim_pixmap = XCreateBitmapFromData (XtDisplay (mandelshell),
+X						RootWindowOfScreen (XtScreen (mandelshell)),
+X						manim_bits,
+X						manim_width,
+X						manim_height);
+X		XtSetArg (av[0], XtNiconPixmap, manim_pixmap);
+X		XtSetValues (mandelshell, av, 1);
+X
+X		XtRealizeWidget (mandelshell);
+X		manparm.window = XtWindow (mandelshell);
+X	}
+X	activeimage = &manparm;
+X	button_set (mandel_select, True);
+X	update_coordinates (&manparm, 0);
+X	start_mandel ();
+}
+X
+/************************************************************************
+*	do_julia()		button = julia:		create/use julia window			*
+************************************************************************/
+X
+static void do_julia (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{	int		i;
+X	Arg		av[10];
+X	struct imageparm *save;
+X
+X	if (manparm.window == 0)
+X		return;
+X	juliaparm.lx = -1.5;
+X	juliaparm.ly = -1.5;
+X	juliaparm.ux = 1.5;
+X	juliaparm.uy = 1.5;
+X
+X	if (juliashell == NULL)
+X	{	i = 0;
+X		XtSetArg (av[i], XmNwidth,   	mandel_initial_height);		i++;
+X		XtSetArg (av[i], XmNheight,  	mandel_initial_height);		i++;
+X		XtSetArg (av[i], XmNtitle,		"Julia");					i++;
+X		XtSetArg (av[i], XmNiconName,	"Julia");					i++;
+X		juliashell = XtCreateApplicationShell ("Juliashell", topLevelShellWidgetClass, av, i);
+X		XtAddEventHandler (juliashell, ExposureMask, FALSE,  expose_julia, NULL);
+X		XtAddCallback (juliashell, XmNdestroyCallback, do_remove , 0);
+X
+X		julim_pixmap = XCreateBitmapFromData (XtDisplay (juliashell),
+X						RootWindowOfScreen (XtScreen (juliashell)),
+X						julim_bits,
+X						julim_width,
+X						julim_height);
+X		XtSetArg (av[0], XtNiconPixmap, julim_pixmap);
+X		XtSetValues (juliashell, av, 1);
+X
+X		XtRealizeWidget (juliashell);
+X	}
+X	else
+X		XtMapWidget (juliashell);
+X	juliaparm.slx[0] =  juliaparm.sly[0]  =  juliaparm.sux[0]  =  juliaparm.suy[0] = 0;
+X	juliaparm.window = XtWindow (juliashell);
+X	juliaparm.totrot = 0;
+X	save = activeimage;
+X	activeimage = &manparm;
+X	update_control (activeimage);
+X	button_set (mandel_select, True);
+X	start_julia (1, 1);
+X	if (save != activeimage)
+X	{	activeimage = save;
+X		update_control (activeimage);
+X		button_set (julia_select, True);
+X	}
+}
+X
+/************************************************************************
+*	do_quit():		button = quit,   leave xmandel.						*
+************************************************************************/
+X
+static void do_quit (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	exit (0);
+}
+X
+/************************************************************************
+*	do_select	button = mandel/julia		select default set			*
+************************************************************************/
+X
+static void do_select (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+XXmToggleButtonCallbackStruct  *call_data;
+{
+X	if (manparm.window == 0)
+X	{	button_set (NULL, False);
+X		return;
+X	}
+X	if (w == julia_select   &&  juliaparm.window == 0)
+X	{	button_set (mandel_select, True);
+X		activeimage = &manparm;
+X		return;
+X	}
+X	if (w == mandel_select)
+X	{	if (activeimage == &manparm)
+X			return;
+X		activeimage = &manparm;
+X	}
+X	else
+X	{	if (activeimage == &juliaparm)
+X			return;
+X		activeimage = &juliaparm;
+X	}
+X
+X	upintval    ("cstep", activeimage->rotation);
+X
+X	updoubleval ("flx", activeimage->lx);
+X	updoubleval ("fly", activeimage->ly);
+X	updoubleval ("fux", activeimage->ux);
+X	updoubleval ("fuy", activeimage->uy);
+X	updoubleval ("px",  activeimage->px);
+X	updoubleval ("py",  activeimage->py);
+X
+X	XFlush (display);
+}
+X
+static void button_set (w, how)
+Widget w;
+int how;
+{	int		i;
+X	Arg		av[10];
+X	Widget	on, off;
+X
+X	if (w == NULL)
+X	{	/*	set bot to on or off */
+X		i = 0;
+X		XtSetArg (av[i], XmNset, how);	i++;
+X		XtSetValues (mandel_select, av, i);
+X		XtSetValues (julia_select, av, i);
+X	}
+X	else
+X	{	/*	 set one to on, other to off */
+X	
+X		if (w == mandel_select)
+X		{	if (how == True)
+X			{	off = julia_select;
+X				on  = mandel_select;
+X			}
+X			else
+X			{	off = mandel_select;
+X				on  = julia_select;
+X			}
+X		}
+X		else
+X		{	if (how == True)
+X			{	on  = julia_select;
+X				off = mandel_select;
+X			}
+X			else
+X			{	on  = mandel_select;
+X				off = julia_select;
+X			}
+X		}
+X		i = 0;
+X		XtSetArg (av[i], XmNset, False);	i++;
+X		XtSetValues (off, av, i);
+X		i = 0;
+X		XtSetArg (av[i], XmNset, True);	i++;
+X		XtSetValues (on, av, i);
+X	}
+}
+X
+/************************************************************************
+*	set_zoom()		button = zoom: start the zoom						*
+************************************************************************/
+X
+static void set_zoom (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{	struct zoomd *zoomtmp;
+X
+X	if (check_coord_change(activeimage))
+X	{	zoomtmp = (struct zoomd *) malloc (sizeof (struct zoomd));
+X		zoomtmp->zp = activeimage->zoom;		/* push onto stack */
+X		zoomtmp->ux = activeimage->ux;
+X		zoomtmp->lx = activeimage->lx;
+X		zoomtmp->ly = activeimage->ly;
+X		zoomtmp->uy = activeimage->uy;
+X		if (activeimage->zoom == NULL)
+X			zoomtmp->zp = NULL;
+X		activeimage->zoom = zoomtmp;			/* activeimage->zoom is current pointer */
+X		if (activeimage == &manparm)
+X			redo_mandel ();
+X		else
+X			julia (1, 0);
+X	}
+X	else
+X		do_zoom (w, client_data, call_data);	/*	normal zoom with mouse */
+}
+X
+/************************************************************************
+*	recalc()		button = recalc			recompute current image		*
+************************************************************************/
+X
+static void recalc (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X
+X	if (check_coord_change(activeimage))
+X	{	activeimage->zoom->ux = activeimage->ux;
+X		activeimage->zoom->lx = activeimage->lx;
+X		activeimage->zoom->ly = activeimage->ly;
+X		activeimage->zoom->uy = activeimage->uy;
+X	}
+X
+X	if (activeimage == &manparm)
+X		redo_mandel();
+X	else
+X		julia (1, 0);
+}
+X
+X
+/************************************************************************
+*	do_remove():		callback if julia window is closed.				*
+************************************************************************/
+X
+static void do_remove (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	if (julia_in_progress)
+X		return;
+X	juliaparm.window = 0;
+X	juliashell = NULL;
+X	if (activeimage == &juliaparm)
+X	{	activeimage = &manparm;
+X		button_set (mandel_select, True);
+X		update_control (activeimage);
+X	}
+}
+X
+/************************************************************************
+*	generate_gif ()		button = save	   write image to gif file		*
+************************************************************************/
+X
+static void generate_gif (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	char 	*s, *ss;
+X	Widget	answer;
+X
+X	answer = XtNameToWidget(bboard, "fname");
+X	if (answer == NULL)
+X	{	printf ("Cannot find widget 'fname'\n");
+X		exit (1);
+X	}
+X	s = XmTextGetString (answer);
+X	if (s == NULL)
+X		return;	
+X	ss = tidy (s);
+X	if (*ss  && activeimage->pix)
+X	    write_gif_image (ss, activeimage);
+X	XtFree (s);
+}
+X
+/************************************************************************
+*	rotateplus			button = +colour	rotate colour positive		*
+************************************************************************/
+X
+static void rotateplus (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	activeimage->rotation = current_rotate();
+X	rotate (activeimage, activeimage->rotation);
+X	if (activeimage == &manparm)
+X		redraw_mandel (NULL);
+X	else
+X		redraw_julia (NULL);
+}
+X
+/************************************************************************
+*	rotateminus			button = -colour	rotate colour negative		*
+************************************************************************/
+X
+static void rotateminus (w, client_data, call_data)
+Widget w;
+caddr_t client_data;
+caddr_t call_data;
+{
+X	rotate (activeimage, -activeimage->rotation);
+X	if (activeimage == &manparm)
+X		redraw_mandel (NULL);
+X	else
+X		redraw_julia (NULL);
+}
+X
+/************************************************************************
+*	rotate()			rotate the image through colours by val offset	*
+************************************************************************/
+X
+static void rotate (parm, val)
+struct imageparm *parm;			/*	rotate this image		*/
+int val;						/*	by this much.			*/
+{
+X	int		nbits, x, y, im, i, ib;
+X	unsigned char *b;
+X	unsigned int mask[8];
+X	unsigned int v[8];
+X
+X	/*	with a touch of brute force */
+X
+X	parm->totrot += val;
+X	switch (depth)
+X	{
+X	case 8:
+X		nbits = parm->pixheight * parm->pixwidth;
+X		b = parm->pix;
+X		while (nbits--)
+X			*b++ += val;
+X		break;
+X
+X	case 4:
+X		for (i = 0;  i < 2;  i++)
+X		{	mask[i] = (0x0f << i*4);
+X			v[i] = val << i*4;
+X		}
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->pixwidth;  x++)
+X			{	im = (x % 2);
+X				ib = x >> 1;
+X				b[ib] = ((((unsigned int) (b[ib] & mask[im]) + (v[im]) & mask[im])) & mask[im])
+X						| ( b[ib] & ~mask[im]);
+X			}
+X		}
+X		break;
+X
+X	case 2:
+X		for (i = 0;  i < 4;  i++)
+X		{	mask[i] = (0x03 << i*2);
+X			v[i] = val << i*2;
+X		}
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->pixwidth;  x++)
+X			{	im = x % 4;
+X				ib = x >> 2;
+X				b[ib] = ((((unsigned int) (b[ib] & mask[im]) + (v[im]) & mask[im])) & mask[im])
+X						| ( b[ib] & ~mask[im]);
+X			}
+X		}
+X		break;
+X
+X	case 1:
+X		for (y = 0;  y < parm->pixheight;  y++)
+X		{	b = parm->pix + y * parm->bytewidth;
+X			for (x = 0;  x < parm->bytewidth;  x++)
+X				b[x] = ~b[x];
+X		}
+X		break;
+X	}
+}
+X
+X
+/***********	support routines	***********/
+X
+/************************************************************************
+*	current_rotate()		get current colour rotate from dialogue		*
+************************************************************************/
+X
+static int current_rotate ()
+{	Widget 	w;
+X	char	*s;
+X
+X	w = XtNameToWidget(bboard, "cstep");
+X	s = XmTextGetString (w);
+X	return (atoi(s));
+}
+X
+/************************************************************************
+*	save_coord()  save text of usr coords to detect changes				*
+************************************************************************/
+X
+static void save_coord (image)
+struct imageparm *image;
+{	Widget 	w;
+X	char	*s;
+X
+X	XFlush (display);
+X	if (w = XtNameToWidget(bboard, "flx"))
+X	{	if (s = XmTextGetString (w))
+X		{	strncpy (image->slx, s, SAVESIZE);
+X			image->slx[SAVESIZE-1] = 0;
+X			XtFree (s);
+X		}
+X	}
+X	
+X	if (w = XtNameToWidget(bboard, "fux"))
+X	{	if (s = XmTextGetString (w))
+X		{	strncpy (image->sux, s, SAVESIZE);
+X			image->sux[SAVESIZE-1] = 0;
+X			XtFree (s);
+X		}
+X	}
+X
+X	if (w = XtNameToWidget(bboard, "fly"))
+X	{	if (s = XmTextGetString (w))
+X		{	strncpy (image->sly, s, SAVESIZE);
+X			image->sly[SAVESIZE-1] = 0;
+X			XtFree (s);
+X		}
+X	}
+X
+X	if (w = XtNameToWidget(bboard, "fuy"))
+X	{	if (s = XmTextGetString (w))
+X		{	strncpy (image->suy, s, SAVESIZE);
+X			image->suy[SAVESIZE-1] = 0;
+X			XtFree (s);
+X		}
+X	}
+}
+X
+X
+/************************************************************************
+*	check_coord_change()		did the user change the numbers.		*
+************************************************************************/
+X
+#define TinyV 0.000000001
+X
+static int check_coord_change (image)
+struct imageparm *image;
+{	Widget 	w;
+X	char	*s, *ss;
+X	double	val, atof(), xu, yu, xl, yl;
+X	int		changed;
+X	
+X	changed = 0;
+X
+X	if (image->slx[0] ||  image->sly[0]  ||  image->sux[0]  ||  image->suy[0])
+X	{
+X		w = XtNameToWidget(bboard, "flx");
+X		s = XmTextGetString (w);
+X		if (strcmp (image->slx, s))
+X		{	ss = anynumber (s);
+X			image->lx = atof (ss);
+X			changed = 1;
+X		}
+X		XtFree (s);
+X	
+X		w = XtNameToWidget(bboard, "fux");
+X		s = XmTextGetString (w);
+X		if (strcmp (image->sux, s))
+X		{	ss = anynumber (s);
+X			image->ux = atof (ss);
+X			changed = 1;
+X		}
+X		XtFree (s);
+X
+X		w = XtNameToWidget(bboard, "fly");
+X		s = XmTextGetString (w);
+X		if (strcmp (image->sly, s))
+X		{	ss = anynumber (s);
+X			image->ly = atof (ss);
+X			changed = 1;
+X		}
+X		XtFree (s);
+X
+X		w = XtNameToWidget(bboard, "fuy");
+X		s = XmTextGetString (w);
+X		if (strcmp (image->suy, s))
+X		{	ss = anynumber (s);
+X			image->uy = atof (ss);
+X			changed = 1;
+X		}
+X		XtFree (s);
+X		if (changed)
+X		{	/*	ensure user types something that won't cause failure */
+X			xu = MAX (image->ux, image->lx);
+X			xl = MIN (image->ux, image->lx);
+X			yu = MAX (image->uy, image->ly);
+X			yl = MIN (image->uy, image->ly);
+X			if ((xu - xl) < TinyV)
+X				xu = xl + TinyV;
+X			if ((yu - yl) < TinyV)
+X				yu = yl + TinyV;
+X			image->ux = xu;
+X			image->uy = yu;
+X			image->lx = xl;
+X			image->ly = yl;
+X		}
+X	}
+X	return (changed);
+}
+X
+/************************************************************************
+*	up*()				various routines to update data entry fields.	*
+************************************************************************/
+X
+static void update_control (image)
+struct imageparm *image;
+{
+X	update_coordinates (image, 0);
+X	update_point (image);
+}
+X
+void update_coordinates (image, lf)
+struct imageparm *image;
+int		lf;
+{
+X	if (image == activeimage)
+X	{	updoubleval ("flx", image->lx);
+X		updoubleval ("fly", image->ly);
+X		updoubleval ("fux", image->ux);
+X		updoubleval ("fuy", image->uy);
+X		save_coord (image);
+X	}
+}
+X
+void update_point (image)
+struct imageparm *image;
+{
+X	updoubleval ("px", image->px);
+X	updoubleval ("py", image->py);
+}
+X
+static void updoubleval (name, x)
+char *name;
+double x;
+{	int		i;
+X	Arg		av[10];
+X	char	s[100];
+X	Widget	w;
+X
+X	
+X	sprintf (s, "%.8lf", x);
+X	w = XtNameToWidget(bboard, name);
+X	if (w == NULL)
+X	{	printf ("Cannot find set widget [%s] to %s\n", name, s);
+X		exit (1);
+X	}
+X	i = 0;
+X	XtSetArg (av[i], XmNvalue, s);  i++;
+X	XtSetValues (w, av, i);	
+}
+X
+static void upintval (name, x)
+char *name;
+int x;
+{	int		i;
+X	Arg		av[10];
+X	char	s[100];
+X	Widget	w;
+X
+X	
+X	i = 0;
+X	XtSetArg (av[i], XmNvalue, s);  i++;
+X	w = cstep_value;		/*	only this widget uses integers */
+X	sprintf (s, "%d", x);
+X	if (w == NULL)
+X	{	printf ("Cannot find set widget [%s] to %s\n", name, s);
+X		exit (1);
+X	}
+X	XtSetValues (w, av, i);	
+}
+X
+X
+/************************************************************************
+*	font_box_size()				get size of font box for default font	*
+************************************************************************/
+X
+static void font_box_size (w, wide, high)
+Widget w;
+int *wide;			/*	returned font wdith		*/
+int	*high;			/*	returned font height	*/
+{	XFontStruct	*font;
+X	XID			font_id;
+X	int			screen_num;
+X	
+X	screen_num = DefaultScreen(display);
+X	font_id = XGContextFromGC (DefaultGC (display, screen_num));
+X	font = XQueryFont (display, font_id);
+X
+X	*high = font->max_bounds.ascent + font->max_bounds.descent;	
+X	*wide = font->max_bounds.width;
+}
+X
+X
+/************************************************************************
+*	tidy()		return the first non-blank word (ascii dependent!)		*
+************************************************************************/
+X
+static String tidy (s)
+String s;
+{	String cs;
+X
+X	while (*s  &&  *s == ' ')
+X		s++;
+X	cs = s;
+X	while (*s  &&  *s > ' '  &&  *s <= 'z')
+X		s++;
+X	*s = 0;
+X	return (cs);
+}
+X
+X
+X
+/************************************************************************
+*	anynumber()				get a numeric string from s					*
+************************************************************************/
+X
+static char *anynumber (s)
+char *s;
+{
+X	static char numstring[100];
+X	char	*ns;
+X	
+X	ns = numstring;
+X	while (*s  &&  ((*s >= '0'  &&  *s <= '9')  
+X					||  *s == '+'  ||  *s == '-'  ||  *s == '.'))
+X	{	*ns++ = *s++;
+X	}
+X	*ns = 0;
+X	return (numstring);
+}
+X
+X
+#ifdef NEEDMEMCPY
+X
+/************************************************************************
+*	memcpy()				slow version of memcpy						*
+************************************************************************/
+X
+memcpy (dest, src, n)
+char *dest, *src;
+int n;
+{
+X	if (n > 0)
+X	{	while (n--)
+X			dest++ = *src++;
+X	}
+}
+X
+#endif
+X
+X
+SHAR_EOF
+chmod 0644 mainmotif.c ||
+echo 'restore of mainmotif.c failed'
+Wc_c="`wc -c < 'mainmotif.c'`"
+test 30806 -eq "$Wc_c" ||
+	echo 'mainmotif.c: original size 30806, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mandel.bit ==============
+if test -f 'mandel.bit' -a X"$1" != X"-c"; then
+	echo 'x - skipping mandel.bit (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mandel.bit (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mandel.bit' &&
+#define mandel_width 48
+#define mandel_height 48
+static char mandel_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x80, 0x01, 0x0e, 0x00, 0x0e,
+X   0x00, 0xe0, 0x00, 0x07, 0x00, 0x1c, 0x00, 0x80, 0x0f, 0x03, 0x00, 0x58,
+X   0x00, 0xc0, 0x9f, 0x03, 0x00, 0xf8, 0x00, 0xe1, 0xf9, 0x01, 0x00, 0x30,
+X   0x00, 0x6a, 0xe0, 0x00, 0x00, 0x38, 0x00, 0x7c, 0x40, 0x00, 0x00, 0x38,
+X   0x18, 0x26, 0x00, 0x00, 0x00, 0x1c, 0xe7, 0x03, 0x00, 0x00, 0x00, 0x0e,
+X   0x18, 0x26, 0x00, 0x00, 0x00, 0x1c, 0x00, 0x7c, 0x40, 0x00, 0x00, 0x38,
+X   0x00, 0x6a, 0xe0, 0x00, 0x00, 0x38, 0x00, 0xe1, 0xf9, 0x01, 0x00, 0x30,
+X   0x00, 0xc0, 0x9f, 0x03, 0x00, 0xf8, 0x00, 0x80, 0x0f, 0x03, 0x00, 0x58,
+X   0x00, 0xe0, 0x00, 0x07, 0x00, 0x1c, 0x00, 0x80, 0x01, 0x0e, 0x00, 0x0e,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#define manmask_width 48
+#define manmask_height 48
+static char manmask_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f, 0x00,
+X   0x00, 0x00, 0x00, 0xc0, 0x7f, 0x00, 0x00, 0x00, 0x00, 0xc4, 0x7f, 0x00,
+X   0x00, 0x00, 0x00, 0x84, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x1f, 0x04,
+X   0x00, 0x00, 0x80, 0xef, 0xff, 0x1c, 0x00, 0x00, 0x00, 0xff, 0xff, 0x0f,
+X   0x00, 0x80, 0x00, 0xff, 0xff, 0x03, 0x00, 0x80, 0x01, 0xfe, 0xff, 0x07,
+X   0x00, 0xe0, 0x00, 0xfe, 0xff, 0x0f, 0x00, 0x80, 0x1f, 0xff, 0xff, 0x5f,
+X   0x00, 0xc0, 0xbf, 0xff, 0xff, 0xff, 0x00, 0xed, 0xff, 0xff, 0xff, 0x3f,
+X   0x00, 0xfe, 0xff, 0xff, 0xff, 0x3f, 0x00, 0xff, 0xff, 0xff, 0xff, 0x1f,
+X   0x98, 0xff, 0xff, 0xff, 0xff, 0x0f, 0xff, 0xff, 0xff, 0xff, 0xff, 0x07,
+X   0x98, 0xff, 0xff, 0xff, 0xff, 0x0f, 0x00, 0xff, 0xff, 0xff, 0xff, 0x1f,
+X   0x00, 0xfe, 0xff, 0xff, 0xff, 0x3f, 0x00, 0xed, 0xff, 0xff, 0xff, 0x3f,
+X   0x00, 0xc0, 0xbf, 0xff, 0xff, 0xff, 0x00, 0x80, 0x1f, 0xff, 0xff, 0x5f,
+X   0x00, 0xe0, 0x00, 0xfe, 0xff, 0x0f, 0x00, 0x80, 0x01, 0xfe, 0xff, 0x07,
+X   0x00, 0x80, 0x00, 0xff, 0xff, 0x03, 0x00, 0x00, 0x00, 0xff, 0xff, 0x0f,
+X   0x00, 0x00, 0x80, 0xef, 0xff, 0x1c, 0x00, 0x00, 0x00, 0x0c, 0x1f, 0x04,
+X   0x00, 0x00, 0x00, 0x84, 0x3f, 0x00, 0x00, 0x00, 0x00, 0xc4, 0x7f, 0x00,
+X   0x00, 0x00, 0x00, 0xc0, 0x7f, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#ifdef MOTIF
+X
+#define manim_height 48
+#define manim_width  48
+static char manim_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x80, 0x01, 0x0e, 0x00, 0x0e,
+X   0x00, 0xe0, 0x00, 0x47, 0x40, 0x1c, 0x00, 0x80, 0x0f, 0x63, 0xc0, 0x58,
+X   0x00, 0xc0, 0x9f, 0xe3, 0xe0, 0xf8, 0x00, 0xe1, 0xf9, 0xc1, 0x60, 0x30,
+X   0x00, 0x6a, 0xe0, 0xe0, 0xe0, 0x38, 0x00, 0x7c, 0x40, 0xe0, 0xf1, 0x38,
+X   0x18, 0x26, 0x00, 0x40, 0x5b, 0x1c, 0xe7, 0x03, 0x00, 0x40, 0x5f, 0x0e,
+X   0x18, 0x26, 0x00, 0x40, 0x4e, 0x1c, 0x00, 0x7c, 0x40, 0xc0, 0x64, 0x38,
+X   0x00, 0x6a, 0xe0, 0xc0, 0x60, 0x38, 0x00, 0xe1, 0xf9, 0xc1, 0x60, 0x30,
+X   0x00, 0xc0, 0x9f, 0x63, 0xc0, 0xf8, 0x00, 0x80, 0x0f, 0x33, 0x80, 0x59,
+X   0x00, 0xe0, 0x00, 0x07, 0x00, 0x1c, 0x00, 0x80, 0x01, 0x0e, 0x00, 0x0e,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+X
+#endif
+X
+#define julim_width 48
+#define julim_height 48
+static char julim_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x80, 0x01, 0x0e, 0x00, 0x0e,
+X   0x00, 0xe0, 0x00, 0x07, 0x00, 0x1c, 0x00, 0x80, 0x0f, 0x03, 0x80, 0x59,
+X   0x00, 0xc0, 0x9f, 0x83, 0xff, 0xf8, 0x00, 0xe1, 0xf9, 0xc1, 0x7f, 0x30,
+X   0x00, 0x6a, 0xe0, 0x60, 0x18, 0x38, 0x00, 0x7c, 0x40, 0x00, 0x18, 0x38,
+X   0x18, 0x26, 0x00, 0x00, 0x1c, 0x1c, 0xe7, 0x03, 0x00, 0x00, 0x1c, 0x0e,
+X   0x18, 0x26, 0x00, 0x00, 0x3a, 0x1c, 0x00, 0x7c, 0x40, 0x40, 0x1c, 0x38,
+X   0x00, 0x6a, 0xe0, 0xe0, 0x1c, 0x38, 0x00, 0xe1, 0xf9, 0x71, 0x18, 0x30,
+X   0x00, 0xc0, 0x9f, 0x6b, 0x18, 0xf8, 0x00, 0x80, 0x0f, 0xe3, 0x18, 0x58,
+X   0x00, 0xe0, 0x00, 0xc7, 0x1f, 0x1c, 0x00, 0x80, 0x01, 0x8e, 0x0f, 0x0e,
+X   0x00, 0x80, 0x00, 0x1c, 0x00, 0x07, 0x00, 0x00, 0x00, 0xfe, 0xe0, 0x0f,
+X   0x00, 0x00, 0x00, 0xe7, 0xfb, 0x1c, 0x00, 0x00, 0x00, 0x0c, 0x1b, 0x04,
+X   0x00, 0x00, 0x00, 0x84, 0x31, 0x00, 0x00, 0x00, 0x00, 0x80, 0x31, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1b, 0x00,
+X   0x00, 0x00, 0x00, 0x80, 0x11, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+SHAR_EOF
+chmod 0644 mandel.bit ||
+echo 'restore of mandel.bit failed'
+Wc_c="`wc -c < 'mandel.bit'`"
+test 7543 -eq "$Wc_c" ||
+	echo 'mandel.bit: original size 7543, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= mandel.c ==============
+if test -f 'mandel.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mandel.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting mandel.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mandel.c' &&
+/* ta=4 */
+X
+#include <stdio.h>
+#include <X11/Intrinsic.h>
+#include "mandel.h"
+X
+struct imageparm manparm = { 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, NULL, NULL, "\0", "\0", "\0", "\0" };
+X
+extern Display *display;
+extern Screen *screen;
+extern struct imageparm *activeimage;
+X
+static int	scanline = -1;
+X
+static struct zoomd *zoomtmp;
+/*
+char *malloc(), *calloc();
+*/
+extern int depth;				/*	depth of bit plane				*/
+extern int	dots_per_byte;
+int bias = 16;					/* bias into color table */
+X
+static XImage *ximage = NULL;
+static char *image_data = NULL;
+X
+#ifdef __STDC__
+static void mandel();
+#else
+static void mandel();
+#endif
+X
+X
+/************************************************************************
+*	do_mandel()			button: mandel, 	compute mandelbort set		*
+************************************************************************/
+SHAR_EOF
+true || echo 'restore of mandel.c failed'
+fi
+echo 'End of  part 2'
+echo 'File mandel.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

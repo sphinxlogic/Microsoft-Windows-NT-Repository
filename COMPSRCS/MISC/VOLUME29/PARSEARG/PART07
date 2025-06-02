@@ -1,0 +1,1567 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i122:  parseargs - functions to parse command line arguments, Part07/10
+Message-ID: <1992May17.182453.28940@sparky.imd.sterling.com>
+X-Md4-Signature: 0995bf53dac855bf7503a064b6d1dcbd
+Date: Sun, 17 May 1992 18:24:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 122
+Archive-name: parseargs/part07
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 10)."
+# Contents:  strfuncs.c
+# Wrapped by brad@hcx1 on Thu May  7 12:12:26 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'strfuncs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strfuncs.c'\"
+else
+echo shar: Extracting \"'strfuncs.c'\" \(40645 characters\)
+sed "s/^X//" >'strfuncs.c' <<'END_OF_FILE'
+X/**************************************************************************
+X** ^FILE: strfuncs.c - Miscellaneous string functions for parseargs
+X**
+X** ^DESCRIPTION:
+X**    This file implements a wide variety of functions to manipulate
+X**    strings in way way or another. Some of the functions may already
+X**    be included in the standard library of some C compilers.
+X**
+X**    The following functions are implemented:
+X**
+X**       strucpy() -- copy a string and map to uppercase
+X**       strlcpy() -- copy a string and map to lowercase
+X**       strupr() -- convert a string to uppercase
+X**       strlwr() -- convert a string to lowercase
+X**       stricmp() -- case insensitive comparison of strings
+X**       strnicmp() -- case insensitive length-limited comparison of strings
+X**       strdup() -- return a (newly allocated) copy of a string
+X**       strndup() -- return a (newly allocated) copy of a prefix of a string
+X**       strpbrk() -- return first occurrence of character in a set
+X**       strspn() -- return length of initial prefix of a character set
+X**       strcspn() -- return length of initial prefix of a character set
+X**       strltrim() -- trim leftmost (leading) characters in a string
+X**       strrtrim() -- trim rightmost (trailing) characters in a string
+X**       strtrim() -- trim leading and trailing characters in a string
+X**       strsplit() -- split a string up into a vector of tokens
+X**       strjoin() -- join a vector of tokens into a single string
+X**       get_argpfx() -- return the length of the first part of the string
+X**       get_argdesc() -- return the description (second part) of the string
+X**       get_argname() -- return the aname (argument-name) of an argument
+X**       get_kwdname() -- return the sname (keyword-name) of an argument
+X**       match() -- match two keywords (case insensitive) upto a unique prefix
+X**       basename() -- remove the leading directories (and disks) from a path
+X**       indent_para() -- print an indented hanging paragraph
+X**
+X** ^HISTORY:
+X**
+X**    12/16/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - add strndup()
+X**
+X**    11/26/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - added the following to indent_para(). If last arg is 0,
+X**      then the whole length is used.
+X**
+X**    08/27/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - add extra length argument to indent_para().
+X**    - add FORCE_KWDCASE() macro
+X**    - add non-writable strings support to get_argname() and
+X**      get_kwdname()
+X**    - add get_argpfx() and get_argdesc() for non-writable strings
+X**      support
+X**    - allow zero length string for strsplit()
+X**
+X**    01/02/91 	Brad Appleton 	<brad@ssd.csd.harris.com> 	Created
+X**    - changed from file misc.c to this name and added all of the strxxx
+X**      functions (plus got rid of some unused functions).
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>	
+X**
+X**    --/--/--	Eric P. Allman	<eric@Berkeley.EDU> 	Created
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <useful.h>
+X
+X#ifdef vms
+X# include <ssdef.h>
+X#endif
+X
+X#include "strfuncs.h"
+X
+XEXTERN  VOID   syserr  ARGS((const char *, ...));
+X
+Xstatic CONST char WhiteSpace[] = " \t\n\r\v\f";
+X
+X#define c_ARG_SEP '='
+X#if ( defined(unix_style)  ||  defined(ibm_style) )
+X# define  FORCE_KWDCASE(s)       strlwr(s)
+X# define  TO_KWDCASE(c)          TOLOWER(c)
+X# define  KWDCASECOPY(dest,src)  strlcpy(dest,src)
+X#else
+X# define  FORCE_KWDCASE(s)       strupr(s)
+X# define  TO_KWDCASE(c)          TOUPPER(c)
+X# define  KWDCASECOPY(dest,src)  strucpy(dest,src)
+X#endif
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strucpy, strlcpy - copy dest to src, mapping to upper/lower case
+X**
+X** ^SYNOPSIS:
+X**
+X**    char *strucpy( dest, src )
+X**    char *strlcpy( dest, src )
+X**
+X** ^PARAMETERS:
+X**    char *dest;
+X**    -- the address to start copying to
+X**
+X**    char *src;
+X**    -- the address to start copying from
+X**
+X** ^DESCRIPTION:
+X**    Strlcpy (strucpy) copies src into dest (upto and including the
+X**    terminating NUL byte) and all uppercase (lowercase) characters in
+X**    src are mapped to lowercase (uppercase) before being copied into dest.
+X**
+X** ^REQUIREMENTS:
+X**    Dest must be non-null, and large enough to hold the copied result.
+X**
+X** ^SIDE-EFFECTS:
+X**    Dest is (re)written
+X**
+X** ^RETURN-VALUE:
+X**    Address of dest.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *strucpy( char *dest, const char *src )
+X#else
+X   char *strucpy( dest, src )  char *dest, *src;
+X#endif
+X{
+X   register char  *s1 = dest;
+X   register CONST char  *s2 = src;
+X
+X   if ( !s2 )  return  CHARNULL;
+X
+X   for ( ; *s2 ; s1++, s2++ ) {
+X      *s1 = TOUPPER( *s2 );
+X   }
+X   *s1 = '\0';
+X
+X   return   s1;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   char *strlcpy( char *dest, const char *src )
+X#else
+X   char *strlcpy( dest, src )  char *dest, *src;
+X#endif
+X{
+X   register char  *s1 = dest;
+X   register CONST char  *s2 = src;
+X
+X   if ( !s2 )  return  CHARNULL;
+X
+X   for ( ; *s2 ; s1++, s2++ ) {
+X      *s1 = TOLOWER( *s2 );
+X   }
+X   *s1 = '\0';
+X
+X   return   s1;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strupr, strlwr - convert a string to all upper/lower case
+X**
+X** ^SYNOPSIS:
+X**    char *strupr( str )
+X**    char *strlwr( str )
+X**
+X** ^PARAMETERS:
+X**    char *str;
+X**    -- the string to be converted
+X**
+X** ^DESCRIPTION:
+X**    Strupr (strlwr) converts all lowercase (uppercase) characters in <str>
+X**    to uppercase (lowercase) and returns the address of <str>.
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    str is overwritten with the uppercase (lowercase) result.
+X**
+X** ^RETURN-VALUE:
+X**    Address of str.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *strupr( char *str )
+X#else
+X   char *strupr( str )  char *str;
+X#endif
+X{
+X   char *p = str;
+X
+X   for ( ; p && *p ; p++ ) {
+X      if ( islower(*p) )  *p = toupper(*p);
+X   }
+X
+X   return   str;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   char *strlwr( char *str )
+X#else
+X   char *strlwr( str )  char *str;
+X#endif
+X{
+X   char *p = str;
+X
+X   for ( ; p && *p ; p++ ) {
+X      if ( isupper(*p) )  *p = tolower(*p);
+X   }
+X
+X   return   str;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: stricmp, strnicmp - case insensitive string comparison
+X**
+X** ^SYNOPSIS:
+X**    int stricmp( s1, s2 )
+X**    int strnicmp( s1, s2, n )
+X**
+X** ^PARAMETERS:
+X**    char *s1;
+X**    -- first string to compare
+X**
+X**    char *s2;
+X**    -- second string to compare
+X**
+X**    size_t  n;
+X**    -- The number of characters to compare
+X**
+X** ^DESCRIPTION:
+X**    Stricmp (strnicmp) is identical to strcmp (strncmp) except that it
+X**    it performs a case-insensitive comparison of characters.
+X**
+X** ^REQUIREMENTS:
+X**    Both s1 and s2 should be non-null and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    < 0    if s1 < s2
+X**    = 0    if s1 matches s2
+X**    > 0    if s1 > s2
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int stricmp( const char *str1, const char *str2 )
+X#else
+X   int stricmp( str1, str2 ) char *str1, *str2;
+X#endif
+X{
+X   register  CONST char *s1 = str1, *s2 = str2;
+X   register  char  c1, c2;
+X
+X   if ( s1 == s2 )  return   0;
+X   if ( !s1 )       return  -1;
+X   if ( !s2 )       return   1;
+X
+X   for ( ; *s1 && *s2 ; s1++ , s2++ ) {
+X      c1 = TOLOWER( *s1 );
+X      c2 = TOLOWER( *s2 );
+X
+X      if (c1 != c2)  return  (int)(c1 -c2);
+X   }
+X   return   (*s1 == *s2) ? 0 : (int)(*s1 - *s2);
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   int strnicmp( const char *str1, const char *str2, size_t len )
+X#else
+X   int strnicmp( str1, str2, len ) char *str1, *str2; size_t  len;
+X#endif
+X{
+X   register  CONST char *s1 = str1, *s2 = str2;
+X   register  char  c1, c2;
+X
+X   if ( s1 == s2 )  return   0;
+X   if ( !s1 )       return  -1;
+X   if ( !s2 )       return   1;
+X
+X   for ( ; *s1 && *s2 && len ; s1++ , s2++ , len-- ) {
+X      c1 = TOLOWER( *s1 );
+X      c2 = TOLOWER( *s2 );
+X
+X      if (c1 != c2)  return  (int)(c1 -c2);
+X   }
+X   return   (!len  ||  (*s1 == *s2)) ? 0 : (int)(*s1 - *s2);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strdup - copy a string
+X**
+X** ^SYNOPSIS:
+X*/
+X# ifndef __ANSI_C__
+X   char *strdup( str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to replicate
+X*/
+X# endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Strdup allocates storrage and copies the given string into the
+X**    newly acquired space (returning its address). The returned result
+X**    should be deallocated using free().
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    Address of the newly allocated string.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X# ifdef __ANSI_C__
+X   char *strdup( const char *str )
+X# endif
+X{
+X  unsigned len = strlen(str) + 1;
+X  char *p = (char *)malloc( len * sizeof(char) );
+X
+X  if ( !p )  syserr( "malloc failed in strdup()" );
+X  strcpy(p, str);
+X
+X  return p;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strndup - copy a prefix of a string
+X**
+X** ^SYNOPSIS:
+X*/
+X# ifndef __ANSI_C__
+X   char *strndup( str, len )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to replicate
+X*/
+X   unsigned  len;
+X/*    -- the number of characters to be replicated
+X*/
+X# endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Strndup allocates storrage and copies the the first "len" characters
+X**    of the given string into the newly acquired space (returning its
+X**    address). The returned result should be deallocated using free().
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    Address of the newly allocated string.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X# ifdef __ANSI_C__
+X   char *strndup( const char *str, unsigned len )
+X# endif
+X{
+X  char *p = (char *)malloc( (len + 1) * sizeof(char) );
+X
+X  if ( !p )  syserr( "malloc failed in strndup()" );
+X  strncpy(p, str, len);
+X
+X  return p;
+X}
+X
+X
+X#ifdef BSD
+X
+X/***************************************************************************
+X** ^FUNCTION: strpbrk - return the first occurrence of characters in a string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   char *strpbrk( str1, str2 )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str1;
+X/*    -- the string to be searched
+X*/
+X   char *str2;
+X/*    -- the set of characters to be located
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Strpbrk will attempt to locate the first occurence in str1 of any 
+X**    character from str2 and return the address of the first such
+X**    occurrence. If str1 contains NO characters from str2, then NULL
+X**    is returned.
+X**
+X** ^REQUIREMENTS:
+X**    Both str1 and str2 should be non-null and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    A pointer to the first occurence in str1 of any char from str2.
+X**
+X** ^ALGORITHM:
+X**    - foreach char in str1
+X**       - if char is in str2, return the address of char
+X**      end-for
+X**    - if we have reached the end of str1, return NULL
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *strpbrk( const char *str1, const char *str2 )
+X#endif
+X{
+X   register CONST char *s1 =  str1, *s2 = str2;
+X
+X   if ( !s1 || !*s1 || !s2 || !*s2 )  return  CHARNULL;
+X
+X   for ( ; *s1 ; s1++ )  {
+X      if ( strchr(s2, *s1) )  return (char *)s1;
+X   }
+X
+X   return  CHARNULL;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strspn, strcspn - identify leading runs of characters
+X**
+X** ^SYNOPSIS:
+X**    char *strspn( str1, str2 )
+X**    char *strcspn( str1, str2 )
+X**
+X** ^PARAMETERS:
+X**    char *str1;
+X**    -- the string to be searched
+X**
+X**    char *str2;
+X**    -- the string to be searched
+X**
+X** ^DESCRIPTION:
+X**    Strspn (strcspn) attempts to determine the length of the longest
+X**    leading prefix of str1 that consists entirely of character from
+X**    (not from) str2.
+X**
+X** ^REQUIREMENTS:
+X**    Both str1 and str2 should be non-null and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The length of the initial prefix in str1 consisting entirely
+X**    of characters from (not from) str2.
+X**
+X** ^ALGORITHM:
+X**    - length = 0
+X**    - for each char in str1
+X**       - if char is in str2 (for strcspn) or not in str2 (for strcspn)
+X**            then return length
+X**       - else
+X**            add 1 to length
+X**         end-if
+X**      end-for
+X**    - if end-of-string then return length
+X**
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int strspn( const char *str1, const char *str2 )
+X#else
+X   int strspn( str1, str2 )  char *str1, *str2;
+X#endif
+X{
+X   register CONST char  *s1 = str1, *s2 = str2;
+X   int len = 0;
+X
+X   if ( !s1 || !*s1 || !s2 || !*s2 )  return  0;
+X   while ( *s1  &&  strchr(s2, *s1++) )  ++len;
+X   return  len;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   int strcspn( const char *str1, const char *str2 )
+X#else
+X   int strcspn( str1, str2 )  char *str1, *str2;
+X#endif
+X{
+X   register CONST char  *s1 = str1, *s2 = str2;
+X   int len = 0;
+X
+X   if ( !s1 || !*s1 || !s2 || !*s2 )  return  0;
+X   while ( *s1  &&  !strchr(s2, *s1++) )  ++len;
+X   return  len;
+X}
+X
+X#endif  /* BSD */
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strltrim, strrtrim, strtrim - trim leading/trailing characters
+X**
+X** ^SYNOPSIS:
+X**    char *strltrim( str, charset )
+X**    char *strrtrim( str, charset )
+X**    char *strtrim( str, charset )
+X**
+X** ^PARAMETERS:
+X**    char *str;
+X**    -- the string to be trimmed
+X**
+X**    char *charset;
+X**    -- the set of characters to be trimmed
+X**
+X** ^DESCRIPTION:
+X**    Strltrim removes from str, all leftmost (leading) characters occurring
+X**    in charset.
+X**
+X**    Strrtrim removes from str, all rightmost (trailing) characters occurring
+X**    in charset.
+X**
+X**    Strtrim removes from str, all leading and trailing characters occurring
+X**    in charset.
+X**
+X**    For each of these functions, if charset is NULL or empty, then the set
+X**    of whitespace characters (space, tab, newline, carriage-return, form-feed
+X**    and vertical-tab) is assumed.
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null and non-empty.
+X**
+X** ^SIDE-EFFECTS:
+X**    characters may be removed from the beginning and/or end of str.
+X**
+X** ^RETURN-VALUE:
+X**    Address of str.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *strltrim( char *str, const char *charset )
+X#else
+X   char *strltrim( str, charset )  char *str, *charset;
+X#endif
+X{
+X   register   int   i;
+X
+X   if ( !str  ||  !*str )   return   str;
+X      /* if delim-string is NULL, whitespace is used */
+X   if ( !charset )   charset = WhiteSpace;
+X
+X   i = strspn( str, charset );
+X   if ( i > 0 )  strcpy( str, &(str[i]) );
+X
+X   return   str;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   char *strrtrim( char *str, const char *charset )
+X#else
+X   char *strrtrim( str, charset )  char *str, *charset;
+X#endif
+X{
+X   register   int   i;
+X
+X   if ( !str  ||  !*str )   return   str;
+X   if ( !charset )   charset = WhiteSpace;
+X   for ( i = strlen(str) - 1 ;
+X            ( i >= 0 ) && (strchr( charset, str[i] )) ;
+X            i--
+X         ) ;
+X
+X   str[i+1] = '\0';
+X
+X   return   str;
+X}
+X
+X
+X#ifdef __ANSI_C__
+X   char *strtrim( char *str, const char *charset )
+X#else
+X   char *strtrim( str, charset )  char *str, *charset;
+X#endif
+X{
+X   register   int   i;
+X
+X   if ( !str  ||  !*str )   return   str;
+X   if ( !charset )   charset = WhiteSpace;
+X   i = strspn( str, charset );
+X   if ( i > 0 )  strcpy( str, &(str[i]) );
+X
+X   for ( i = strlen(str) - 1 ;
+X            ( i >= 0 ) && (strchr( charset, str[i] )) ;
+X            i--
+X         ) ;
+X
+X   str[i+1] = '\0';
+X
+X   return   str;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strsplit - split a string into tokens
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int  strsplit( vec, token_str, separators )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char **vec[];
+X/*    -- pointer to the string vector to be allocated
+X*/
+X   char token_str[];
+X/*    -- the string to be split up
+X*/
+X   char separators[];
+X/*    -- the delimiters that separate tokens
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Strsplit will split token_str up into  a vector of tokens that are
+X**    separated by one or more characters from <separators>. The number
+X**    of tokens found is returned and storage is allocated for the given
+X**    vector (which may later be deallocated using free()).
+X**
+X**    If <separators> is NULL or empty, then the set of whitespace characters
+X**    is used as the token delimiters.
+X**
+X** ^REQUIREMENTS:
+X**    vec must be non-NULL (it must be a valid address).
+X**    token_str should be non-null
+X**
+X** ^SIDE-EFFECTS:
+X**    All leading and trailing characters from <separators> are removed
+X**    from token_str. Furthermore, all remaining sequences in token_str
+X**    of characters from <separators> are replaced with a single NUL-byte.
+X**
+X**    Token_str holds the actual storage for all the strings in the newly
+X**    created vector.
+X**
+X** ^RETURN-VALUE:
+X**    The number of tokens parsed.
+X**
+X** ^ALGORITHM:
+X**    - count the number of tokens present while at the same time removing
+X**      all leading and trailing delimiters, and replacing all other sequences
+X**      of delimiters with the NUL character.
+X**    - allocate a vector large enough to point to all the token strings.
+X**    - for i in 0 .. (numtokens - 1) do
+X**         - vector[i] = token_str
+X**         - advance token_str to point at the next character past the
+X**           rightmost NUL-byte (which should be the start of the next token).
+X**      end-for
+X**    - vector[numtokens] = NUL
+X**    - return the number of tokens parsed.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int strsplit( char **vec[], char token_str[], const char separators[] )
+X#endif
+X{
+X   register   char c, *pread, *pwrite;
+X   int   i, count = 0;
+X
+X   if ( !token_str )    token_str = "";
+X      /* if delim-string is NULL, whitespace is used */
+X   if ( !separators )   separators = WhiteSpace;
+X
+X      /* trim leading separators */
+X   pread = token_str;
+X   while ( strchr(separators, *pread) )   ++pread;
+X   if ( ! *pread )  return  0;
+X   token_str = pwrite = pread;
+X
+X      /*
+X      ** make first pass through string, counting # of tokens and
+X      ** separating all tokens by a single '\0'
+X      */
+X   for ( c = *pread++ ; c ; ) {
+X      if ( !strchr(separators, c) )   {
+X         do {
+X            *pwrite++ = c;
+X         } while ( (c = *pread++) && !strchr(separators, c) );
+X        *pwrite++ = '\0';
+X        ++count;
+X      }/*if*/
+X      while ( c && strchr(separators, c) )   c = *pread++;
+X   }/*for*/
+X
+X      /* allocate space for the caller's vector (remember NULL at the end) */
+X   (*vec) = (char **)malloc( (1 + count) * sizeof( char * ) );
+X   if ( !*vec )  syserr( "malloc failed in strsplit()" );
+X
+X      /* now go thru token-string again assigning pointers from vector */
+X   pread = token_str;
+X   for ( i = 0 ; i < count ; i++ ) {
+X      (*vec)[i] = pread;   /* assign pointer */
+X      pread += strlen( pread ) + 1;
+X   }/* end-for */
+X
+X      /* set up the trailing pointer to NULL at the end */
+X   (*vec)[ count ] = CHARNULL;
+X   return   count;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: strjoin - join a vector of tokens together
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   char  *strjoin( argv, separator )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *argv[];
+X/*    -- pointer to the string vector to join together
+X*/
+X   char separator[];
+X/*    -- the the string to use to separate tokens (if NULL, " " is used)
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Strjoin will make a single string out of the given vector by copying
+X**    all the tokens from the given vector (in order) to a newly allocated
+X**    string. Tokens will be separated by a single occurence of <separator>.
+X**
+X**    If <separator> is NULL then a single space is used as the separator.
+X**    If <separator> is empty, then no separator is used and the tokens are
+X**    simply concatenated together.
+X**
+X** ^REQUIREMENTS:
+X**    argv must be non-NULL (it must be a valid address), and must be
+X**    terminated by a pointer to NULL (argv[last+1] == NULL).
+X**
+X** ^SIDE-EFFECTS:
+X**    Storage is allocated.
+X**
+X** ^RETURN-VALUE:
+X**    The address of the newly-joined result (which should be deallocated
+X**    using free()). Returns NULL if nothing was joined.
+X**
+X** ^ALGORITHM:
+X**    - count the number of characters to place in the joined-result.
+X**    - allocate a string large-enough to copy the joined-result into.
+X**    - copy each string into the string (with <separator> between tokens).
+X**    - 0 return the result.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *strjoin( const char *argv[], const char separator[] )
+X#endif
+X{
+X   size_t  sz = 0;
+X   register char *p;
+X   register CONST char *a, **av;
+X   register int  seplen;
+X   char *result;
+X
+X      /* if argv is NULL, nothing to do */
+X   if ( !argv )  return  CHARNULL;
+X   if ( !separator )  separator = " ";
+X   seplen = strlen( separator );
+X
+X      /* figure out how much space we need */
+X   for ( av = argv ; *av ; av++ ) {
+X      if ( !**av )  continue;
+X      sz += strlen( *av );
+X      if ( seplen  &&  *(av + 1) )  sz += seplen;
+X   }
+X
+X      /* allocate space */
+X   result = (char *)malloc( (sz + 1) * sizeof(char) );
+X   if ( !result )  syserr( "malloc failed in strjoin()" );
+X
+X      /* join the strings together */
+X   *result = '\0';
+X   for ( av = argv, p = result ; (a = *av) ; av++ ) {
+X      if ( !*a )  continue;
+X      while ( (*p = *a++) ) ++p;  /* copy token */
+X      if ( seplen  &&  *(av + 1) ) {
+X         a = separator;
+X         while ( (*p = *a++) ) ++p;  /* copy separator */
+X      }/*end-if*/
+X   }/*end-for*/
+X
+X   return  result;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_argpfx - get the prefix portion of a string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int get_argpfx( str )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to parse for a description
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_argdesc returns the length of the first portion of the string.
+X**
+X**    Two "portions" must be either separated by whitespace or the second
+X**    portion may be within "(),{},[], or <>" delimiters. The second
+X**    portion is assumed to begin with the first alphabetic following
+X**    separator.
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The length of the first portion.
+X**
+X** ^ALGORITHM:
+X**    - locate the end of the first portion by scanning for whitespace or
+X**      balanced delimiters.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int get_argpfx( const char *str )
+X#endif
+X{
+X   register char  *description;
+X   static CONST char  whitespace[]  = " \t\n\r\f\v";
+X   static CONST char  beg_portion[] = "(<{[";
+X
+X   description = strpbrk( str, whitespace );
+X   if ( !description ) {
+X       description = strpbrk( str, beg_portion );
+X   }
+X
+X   return description ? description - str : strlen(str);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_argdesc - get the description portion of a string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   char *get_argdesc( str, len )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to parse for a description
+X*/
+X   int *len;
+X/*    -- the pointer to the length
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_argdesc returns a pointer to the second portion of the string
+X**    and also indicates how long it is.
+X**
+X**    Two "portions" must be either separated by whitespace or the second
+X**    portion may be within "(),{},[], or <>" delimiters. The second
+X**    portion is assumed to begin with the first alphabetic following
+X**    separator.
+X**
+X** ^REQUIREMENTS:
+X**    str should be non-null and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    The length of the description is written to *len.
+X**
+X** ^RETURN-VALUE:
+X**    Address of the description (or NULL if the string has no description).
+X**
+X** ^ALGORITHM:
+X**    - locate the end of the first portion by scanning for whitespace or
+X**      balanced delimiters.
+X**    - locate the beginning of the second portion by scanning for the first
+X**      alpha-numeric following the end of the first portion.
+X**    - return the address of the description.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *get_argdesc( const char *str, int *len )
+X#endif
+X{
+X   register char  *description = CHARNULL;
+X   BOOL  is_end = FALSE, is_balanced = FALSE;
+X   char  *p;
+X   static CONST char  whitespace[]  = " \t\n\r\f\v";
+X   static CONST char  beg_portion[] = "(<{[";
+X   static CONST char  end_portion[] = ")>}]";
+X
+X   description = strpbrk( str, whitespace );
+X   if ( description ) {
+X      is_end = TRUE;
+X      while ( isspace(*++description) )  continue;  /* trim leading ' ' */
+X      if ( strchr(beg_portion, *description) ) {
+X            is_balanced = TRUE;
+X            ++description;
+X      }
+X   }
+X   else {
+X       description = strpbrk( str, beg_portion );
+X       if ( description ) {  /* skip leading '(' */
+X          is_end = is_balanced = TRUE;
+X          ++description;
+X       }
+X   }
+X
+X   if ( !description ) {
+X      *len = 0;
+X   }
+X   else {
+X      if ( is_balanced ) {  /* remove trailing ')' */
+X         p = description + (strlen( description ) - 1);
+X         if ( !strchr(end_portion, *p) )  ++p;
+X         *len = p - description;
+X      }
+X      else {
+X         while ( !isalnum(*description) )  ++description;
+X         *len = strlen( description );
+X      }
+X   }
+X
+X   return  description;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_argname - return the aname (argument-name) of an argument
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   char  *get_argname( s, buf )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *s;
+X/*    -- the ad_prompt field of an ARGDESC struct
+X*/
+X   char *buf;
+X/*    -- address to which the aname should be copied
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_argname will get the full argument name of the given argument
+X**    (not just the keyword name) and copy it to buf.
+X**
+X** ^REQUIREMENTS:
+X**    Both s and buf must be non-null and non-empty.
+X**    buf must be large enough to hold the result.
+X**
+X** ^SIDE-EFFECTS:
+X**    buf is overwritten.
+X**
+X** ^RETURN-VALUE:
+X**    Address of the buffer containing the name.
+X**
+X** ^ALGORITHM:
+X**    determine the name of an argument from its prompt
+X**    and copy the result in the given buffer
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *get_argname( const char *s, char *buf )
+X#endif
+X{
+X   register CONST char *p2;
+X   int len;
+X
+X      /* see if sname and aname are separated by c_ARG_SEP
+X      ** <buf> must be large enough to hold the result!
+X      */
+X   len = get_argpfx(s);
+X   p2 = strchr( s, c_ARG_SEP );
+X   if ( p2 && p2 < &s[len]) {
+X      ++p2;
+X      strncpy( buf, p2, len-(p2-s) );
+X      buf[len-(p2-s)] = 0;
+X      strlwr(buf);
+X   }
+X   else {
+X      strncpy( buf, s, len );
+X      buf[len] = 0;
+X      strlwr(buf);
+X   }
+X   return   buf;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_kwdname - get the sname (keyword name) of an argument
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   char  *get_kwdname( s, buf )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *s;
+X/*    -- the ad_prompt field of an ARGDESC struct
+X*/
+X   char *buf;
+X/*    -- address to which the sname should be copied
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Get_kwdname will get the keyword name of the given argument
+X**    (not the entire argument name) and copy it to buf.
+X**
+X**    The sname (keyword-name) consists only of all uppercase characters
+X**    from the ad_prompt field (in the order they occur). If the ad_prompt
+X**    field contains NO uppercase characters, than the aname and the sname
+X**    are equivalent (the entire string).
+X**
+X** ^REQUIREMENTS:
+X**    Both s and buf must be non-null and non-empty.
+X**    buf must be large enough to hold the result.
+X**
+X** ^SIDE-EFFECTS:
+X**    buf is overwritten.
+X*
+X** ^RETURN-VALUE:
+X**    Address of the buffer containing the keyword.
+X**
+X** ^ALGORITHM:
+X**    determine the keyword of an argument from its prompt
+X**    and copy the result in the given buffer
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   char *get_kwdname( const char *s, char *buf )
+X#endif
+X{
+X   register char *p1 = (char *)s, *p2, ch;
+X   int len;
+X   BOOL caps = FALSE;
+X
+X   if ( !p1 )  return  CHARNULL;
+X
+X      /* see if sname and aname are separated by c_ARG_SEP */
+X   len = get_argpfx( p1 );
+X   p2 = strchr( p1, c_ARG_SEP );
+X   if ( p2 && p2 < &p1[len]) {
+X      strncpy( buf, p1, p2-p1);
+X      buf[p2-p1] = 0;
+X      FORCE_KWDCASE(buf);
+X      return  buf;
+X   }
+X
+X      /* copy string into buffer and convert it to desired case */
+X      /* <buf> must be large enough to hold the result! */
+X   for ( p2 = buf; *p1 && len != 0; p1++, len-- ) {
+X      if ( isupper(*p1) ) {
+X         if ( !caps ) {
+X            caps = TRUE;
+X            p2 = buf;
+X         }
+X         *p2++ = TO_KWDCASE(*p1);
+X      }
+X      else if ( !caps ) {
+X         *p2++ = TO_KWDCASE(*p1);
+X      }
+X   }
+X   *p2 = '\0';
+X
+X   return   buf;   /* return buffer address */
+X}
+X
+X#ifndef amiga_style
+X
+X/***************************************************************************
+X** ^FUNCTION: match - match a keyword against a prospective argument
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int match( candidate, target )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *candidate;
+X/*    -- the possible keyword argument
+X*/
+X   char *target;
+X/*    -- the keyword to be matched
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Match will attempt to see if the candidate string matches the
+X**    target string (case insensitive). First a match is tried on the
+X**    sname of the keyword, then on the aname.  Candidate may be only
+X**    a partial leading portion of the target as long as it is at least
+X**    two characters long (unless the keyword is 1 character long).
+X**
+X**    No "partial" matching is accepted for AmigaDOS command-lines.
+X**
+X** ^REQUIREMENTS:
+X**    Both candidate and target should be non-null and non-empty.
+X**    target should be the ad_prompt field of an ARGDESC structure.
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X*     < 0  if candidate < target
+X**    = 0  if candidate matches target
+X**    > 0  if candidate > target
+X**
+X** ^ALGORITHM:
+X**    - attempt a partial match against the sname and return 0 if we succeed
+X**    - attempt a partial match against the aname and return 0 if we succeed
+X**    - if both the above fail return non-zero (no match).
+X**    
+X***^^**********************************************************************/
+X
+X/* rewritten 8/20/90 --BDA */
+X#define MINLEN  2     /* minimum # of characters to match */
+X
+X#ifdef __ANSI_C__
+X   int match ( const char *candidate, const char *target )
+X#endif
+X{
+X   int  i, clen, tlen, too_short=0;
+X   char  arg_targ[ 256 ], kwd_targ[ 256 ];
+X
+X
+X      /* make kwd_targ the keyword portion of target */
+X   (VOID) get_kwdname( target, kwd_targ );
+X
+X      /* match at least MINLEN characters if possible */
+X   tlen = strlen( kwd_targ );
+X   clen = strlen( candidate );
+X   if ( (tlen >= MINLEN)   &&   (clen < MINLEN) ) {
+X      ++too_short;      /* not long enough -- no match */
+X   }
+X
+X#ifdef vms_style
+X      /* if first two chars are NO then match at least MINLEN+2 chars */
+X   if ( !strnicmp(kwd_targ, "NO", 2) ) {
+X      if ( (tlen >= (MINLEN + 2))   &&   (clen < (MINLEN + 2)) ) {
+X         ++too_short;      /* not long enough -- no match */
+X      }
+X   }
+X#endif
+X
+X      /* first try to match prefix of the keyword portion */
+X   i = (too_short) ? -1 : strnicmp(kwd_targ, candidate, clen);
+X
+X      /* did we match? */
+X   if ( !i )  return  0;   /* yes! */
+X
+X   /* no! : compare the argument portion
+X   **       match at least MINLEN characters if possible
+X   */
+X      /* make arg_targ the argument portion of target */
+X   (VOID) get_argname( target, arg_targ );
+X
+X   tlen = strlen(arg_targ);
+X   if ( (tlen >= MINLEN)   &&   (clen < MINLEN) ) {
+X      return   -1;      /* not long enough -- no match */
+X   }
+X
+X#ifdef vms_style
+X   /* if first two chars are NO then match at least MINLEN+2 chars */
+X   if ( !strnicmp(arg_targ, "no", 2) ) {
+X      if ( (tlen >= (MINLEN + 2))   &&   (clen < (MINLEN + 2)) ) {
+X         return   -1;      /* not long enough -- no match */
+X      }
+X   }
+X#endif
+X
+X   return  strnicmp(arg_targ, candidate, clen);
+X}
+X
+X
+X/* here is the AmigaDOS version of match() */
+X#else
+X
+X# ifdef __ANSI_C__
+X   int match( const char *candidate, const char *target )
+X# else
+X   int match( candidate, target) char *candidate, *target;
+X# endif
+X{
+X   char kwd_targ[ 256 ], arg_targ[ 256 ];
+X   int rc;
+X
+X   (VOID) get_kwdname( target, kwd_targ );
+X   rc = stricmp( kwd_targ, candidate );
+X
+X   if ( rc == 0 )  return  0;
+X
+X   (VOID) get_argname( target, arg_targ );
+X   rc = stricmp( arg_targ, candidate );
+X
+X   return  rc;
+X}
+X
+X#endif
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: basename - return the last component of a pathname
+X**
+X** ^SYNOPSIS:
+X**    char *basename( path )
+X**
+X** ^PARAMETERS:
+X**    path;
+X**    -- the pathname to be truncated.
+X**
+X** ^DESCRIPTION:
+X**    Basename takes a pathname and strips of all leading components
+X**    (except for the very last one) which refer to directories or
+X**    disk-drives.
+X**
+X** ^REQUIREMENTS:
+X**    path should be non-null, non-empty, and should correspond to a valid
+X**    pathname (absolute or relative).
+X**
+X** ^SIDE-EFFECTS:
+X**    None under Unix and AmigaDOS.
+X**
+X**    Under VMS, the file version is removed and any .COM or .EXE extension
+X**    is also removed.
+X**
+X**    Under MS-DOS, any .EXE, .COM, or .BAT extension is removed.
+X**
+X**    Under OS/2, any .EXE, .COM, or .CMD extension is removed.
+X**    
+X** ^RETURN-VALUE:
+X**    The address of the basename of the path.
+X**
+X** ^ALGORITHM:
+X**    Trivial.
+X***^^**********************************************************************/
+X   /* should use '\\' for MS-DOS & OS/2 and use ']' for VMS */
+X#ifdef vms
+X#define PATH_SEP ']'
+X
+X      /* VAX/VMS version of basename */
+X# ifdef __ANSI_C__
+X   char *basename( char  path[] )
+X# else
+X   char *basename( path ) char  path[];
+X# endif
+X   {
+X      char *base = strrchr( path, PATH_SEP );
+X      char *vers = strrchr( path, ';' );
+X      char *ext  = strrchr( path, '.' );
+X
+X      if ( !base ) {
+X         if ( !(base = strrchr( path, ':' )) ) {
+X            base = path;
+X         }
+X         else {
+X            ++base;
+X         }
+X      }
+X      else {
+X         ++base;
+X      }
+X
+X      if ( vers )  *vers ='\0';
+X      if ( ext  &&  (!stricmp(ext, ".COM") || !stricmp(ext, ".EXE")) ) {
+X          *ext = '\0';
+X      }
+X
+X      return  base;
+X   }
+X
+X#else
+X#ifdef AmigaDOS
+X      /* amiga version of basename() */
+X# ifdef __ANSI_C__
+X   char *basename( char  path[] )
+X# else
+X   char *basename( path ) char  path[];
+X# endif
+X   {
+X      return   path;
+X   }
+X#else
+X#define PATH_SEP  '/'     /* default path-separator character */
+X
+X      /* default version of basename() */
+X# ifdef __ANSI_C__
+X   char *basename( char  path[] )
+X# else
+X   char *basename( path ) char  path[];
+X# endif
+X   {
+X      char *base = strrchr( path, PATH_SEP );
+X
+X#if ( defined(MSDOS) || defined(OS2) )
+X      /* remove the extension from .EXE, .COM, .BAT, and .CMD files */
+X# ifdef OS2
+X      if ( ext  &&  (!stricmp(ext, ".CMD") )  *ext = '\0';
+X# else
+X      if ( ext  &&  (!stricmp(ext, ".BAT") )  *ext = '\0';
+X# endif
+X
+X      if ( ext  &&  (!stricmp(ext, ".COM") || !stricmp(ext, ".EXE")) ) {
+X          ext = '\0';
+X      }
+X#endif
+X
+X      if ( !base ) {
+X#if ( defined(MSDOS) || defined(OS2) )
+X         base = strrchr( path, '\\' );
+X         if ( base )  return  (base + 1);
+X         if ( path[ 1 ] == ':' )  return  (path + 2);  /* just remove drive */
+X         return  (base + 1);
+X#endif
+X         return  path;
+X      }
+X      else {
+X         return  (base + 1);
+X      }
+X   }
+X#endif
+X#endif
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: indent_para - print a hanging indented paragraph
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID indent_para(fp, maxcols, margin, title, indent, text, textlen)
+X/*
+X** ^PARAMETERS:
+X*/
+X   FILE *fp;
+X/*    -- the stream to which output is sent
+X*/
+X   int maxcols;
+X/*    -- the maximum width (in characters) of the output
+X*/
+X   int margin;
+X/*    -- the number of spaces to use as the left margin
+X*/
+X   char *title;
+X/*    -- the paragraph title
+X*/
+X   int indent;
+X/*    -- the distance between the title and the paragraph body
+X*/
+X   char *text;
+X/*    -- the body of the paragraph
+X*/
+X   int textlen;
+X/*    -- the length of the body of the paragraph
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Indent_para will print on fp, a titled, indented paragraph as follows:
+X**
+X**    <----------------------- maxcols --------------------------->
+X**    <--- margin -->     <-- indent -->
+X**                   title              This is the first sentence
+X**                                      of the paragraph. Etc ...
+X**
+X** ^REQUIREMENTS:
+X**    maxcols and indent must be positive numbers with maxcols > indent
+X**
+X** ^SIDE-EFFECTS:
+X**    Output is printed to fp.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    Print the paragraph title and then print the text.
+X**    Lines are automatically adjusted so that each one starts in the
+X**    appropriate column.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void indent_para( FILE *fp, int maxcols, int margin,
+X                     const char *title, int indent, const char *text,
+X                     int textlen )
+X#endif
+X{
+X   register int idx = 0;
+X   BOOL first_line = TRUE;
+X   char ch;
+X
+X   if ( ! textlen )  textlen = strlen( text );
+X
+X   /* print the title */
+X   fprintf( fp, "%*s%-*s", margin, "", indent, title );
+X
+X   idx = maxcols - margin - indent;
+X
+X   if ( textlen <= idx )
+X      fprintf(fp, "%.*s\n", textlen, text);
+X   else
+X      do {
+X               /* backup to end of previous word */
+X         while (idx  &&  !isspace(text[idx]))  --idx;
+X         while (idx  &&  isspace(text[idx]))   --idx;
+X         idx++;
+X
+X            /* print leading whitespace */
+X         if (!first_line)
+X            fprintf(fp, "%*s%-*s", margin, "", indent, "");
+X
+X         fprintf(fp, "%.*s\n", idx, text);
+X
+X         first_line = FALSE;
+X         text = &(text[idx+1]);
+X         textlen -= (idx+1);
+X
+X         while (isspace(*text)) {  /* goto next word */
+X            ++text;
+X            --textlen;
+X         }
+X
+X         idx = maxcols - margin - indent;
+X
+X         if ( textlen <= idx )  /* print-last line */
+X            fprintf(fp, "%*s%-*s%.*s\n", margin, "", indent, "", textlen, text);
+X      } while ( textlen > idx );
+X}
+X
+X
+X#ifdef STRTEST
+X
+X#define WS " \t\n\v\r\f\"'"
+X
+Xstatic char string2[] =  "	  oh what  	a beautiful -	morning!    	";
+X
+Xstatic char string[] =  "\n\
+X\t' ',  ARGREQ,          argStr,   Name,     'Name',\n\
+X\t'n',  ARGOPT|ARGLIST,  listStr,  Groups,   'newsGROUP (newsgroups test)',\n\
+X\t'c',  ARGOPT,          argInt,   RepCount, 'REPcount (number of reps)',\n\
+X\t'd',  ARGOPT,          argStr,   DirName,  'DIRname',\n\
+X\t'x',  ARGOPT,          argBool,  XFlag,    'Xflag (expand in X direction)',\n\
+X\t' ',  ARGOPT|ARGLIST,  listStr,  Argv,     'File',\n\
+X\tENDOFARGS\n\
+X";
+X
+Xstatic char word_str[] = "HELP (print help and quit)";
+X
+Xmain()
+X#ifdef __ANSI_C__
+X#endif
+X{
+X   char **vector;
+X   unsigned i, numtoks;
+X
+X   printf( "test of strtrim() and strsplit():\n\n" );
+X
+X   printf( "unparsed string='%s'\n", string2 );
+X   printf( "ltrimmed string='%s'\n", strltrim( string2, WS ) );
+X   printf( "rtrimmed string='%s'\n", strrtrim( string2, WS ) );
+X
+X   numtoks = strsplit( &vector, string, "," );
+X   printf( "number of tokens=%d\n", numtoks );
+X   for ( i = 0 ; i < numtoks ; i++ ) {
+X      printf( "trimmed token[%d] = '%s'\n", i, strtrim( vector[i], WS ) );
+X   }
+X
+X#ifdef vms
+X   exit( SS$_NORMAL );
+X#else
+X   exit( 0 );
+X#endif
+X
+X}
+X
+X#endif
+END_OF_FILE
+if test 40645 -ne `wc -c <'strfuncs.c'`; then
+    echo shar: \"'strfuncs.c'\" unpacked with wrong size!
+fi
+# end of 'strfuncs.c'
+fi
+echo shar: End of archive 7 \(of 10\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

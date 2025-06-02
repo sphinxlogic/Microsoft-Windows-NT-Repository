@@ -1,0 +1,1243 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i064:  bwbasic - Bywater BASIC interpreter version 2.10, Part13/15
+Message-ID: <1993Oct29.162811.4248@sparky.sterling.com>
+X-Md4-Signature: fa6c56a5979c58f022071e0260b8ca1c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:28:11 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 64
+Archive-name: bwbasic/part13
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_elx.c
+# Wrapped by kent@sparky on Thu Oct 21 10:47:52 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_elx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_elx.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_elx.c'\" \(35745 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_elx.c' <<'END_OF_FILE'
+X/****************************************************************
+X
+X        bwb_elx.c       Parse Elements of Expressions
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X****************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_paren()
+X
+X	DESCRIPTION:    This function interprets a parenthetical
+X			expression, calling bwb_exp() (recursively)
+X			to resolve the internal expression.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_paren( char *expression )
+X#else
+Xint
+Xexp_paren( expression )
+X   char *expression;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   int s_pos;                           /* position in build buffer */
+X   int loop;
+X   int paren_level;
+X
+X   /* find a string enclosed by parentheses */
+X
+X   CURTASK exps[ CURTASK expsc ].pos_adv = 1;       /* start beyond open paren */
+X   s_pos = 0;
+X   loop = TRUE;
+X   paren_level = 1;
+X   CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X
+X   while( loop == TRUE )
+X      {
+X
+X      /* check the current character */
+X
+X      switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X         {
+X
+X         case '\r':				/* these tests added v1.11 */
+X         case '\n':
+X         case '\0':
+X            bwb_error( err_incomplete );
+X            loop = FALSE;
+X            break;
+X
+X         case '(':
+X            ++paren_level;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X            break;
+X
+X         case ')':
+X
+X            --paren_level;
+X            if ( paren_level == 0 )
+X               {
+X               loop = FALSE;
+X               }
+X            else
+X               {
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X                  = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X               ++s_pos;
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '\"':                             /* embedded string constant */
+X            ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X            while ( ( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] != '\"' )
+X               && ( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] != '\0' ) )
+X               {
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X                  = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X               ++s_pos;
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X               ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X               }
+X            break;
+X
+X         default:
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X            break;
+X         }
+X
+X      /* advance the counter */
+X
+X      ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_paren() found internal string <%s>",
+X      CURTASK exps[ CURTASK expsc ].string );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* call bwb_exp() recursively to interpret this expression */
+X
+X   CURTASK exps[ CURTASK expsc ].rec_pos = 0;
+X   e = bwb_exp( CURTASK exps[ CURTASK expsc ].string, FALSE,
+X          &( CURTASK exps[ CURTASK expsc ].rec_pos ) );
+X
+X   /* assign operation and value at this level */
+X
+X   CURTASK exps[ CURTASK expsc ].type = e->type;
+X
+X   switch ( e->type )
+X      {
+X      case STRING:
+X         CURTASK exps[ CURTASK expsc ].operation = CONST_STRING;
+X         str_btob( exp_getsval( &( CURTASK exps[ CURTASK expsc ] )), exp_getsval( e ) );
+X         break;
+X      default:
+X         CURTASK exps[ CURTASK expsc ].operation = NUMBER;
+X         CURTASK exps[ CURTASK expsc ].nval = exp_getnval( e );
+X         break;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   	exp_strconst()
+X
+X        DESCRIPTION:	This function interprets a string
+X			constant.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_strconst( char *expression )
+X#else
+Xint
+Xexp_strconst( expression )
+X   char *expression;
+X#endif
+X   {
+X   int e_pos, s_pos;
+X
+X   /* assign values to structure */
+X
+X   CURTASK exps[ CURTASK expsc ].type = STRING;
+X   CURTASK exps[ CURTASK expsc ].operation = CONST_STRING;
+X
+X   /* set counters */
+X
+X   s_pos = 0;
+X   CURTASK exps[ CURTASK expsc ].pos_adv = e_pos = 1;
+X   CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X
+X   /* read the string up until the next double quotation mark */
+X
+X   while( expression[ e_pos ] != '\"' )
+X      {
+X      CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ e_pos ];
+X      ++e_pos;
+X      ++s_pos;
+X      ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X      CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X      if ( s_pos >= ( MAXSTRINGSIZE - 1 ) )
+X         {
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "string <%s> exceeds maximum size (%d) for string constant.",
+X            expression, MAXSTRINGSIZE );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_overflow );
+X#endif
+X         return OP_NULL;
+X         }
+X      }
+X
+X   /* now write string over to bstring */
+X
+X   str_ctob( &( CURTASK exps[ CURTASK expsc ].sval ), CURTASK exps[ CURTASK expsc ].string );
+X
+X   /* advance past last double quotation mark */
+X
+X   ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:	exp_numconst()
+X
+X        DESCRIPTION:	This function interprets a numerical
+X			constant.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_numconst( char *expression )
+X#else
+Xint
+Xexp_numconst( expression )
+X   char *expression;
+X#endif
+X   {
+X   int base;                            /* numerical base for the constant */
+X   static struct bwb_variable mantissa; /* mantissa of floating-point number */
+X   static int init = FALSE;		/* is mantissa variable initialized? */
+X   int exponent;                        /* exponent for floating point number */
+X   int man_start;                       /* starting point of mantissa */
+X   int s_pos;                           /* position in build string */
+X   int build_loop;
+X   int need_pm;
+X   int i;
+X   bnumber d;
+X#if CHECK_RECURSION
+X   static int in_use = FALSE;                   /* boolean: is function in use? */
+X
+X   /* check recursion status */
+X
+X   if ( in_use == TRUE )
+X      {
+X      sprintf( bwb_ebuf, "Recursion error in bwb_exp.c:exp_findop(): recursion violation." );
+X      bwb_error( bwb_ebuf );
+X      }
+X
+X   /* reset recursion status indicator */
+X
+X   else
+X      {
+X      in_use = TRUE;
+X      }
+X#endif
+X
+X   /* initialize the variable if necessary */
+X
+X#if INTENSIVE_DEBUG
+X   strcpy( mantissa.name, "(mantissa)" );
+X#endif
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &mantissa, NUMBER );
+X      }
+X
+X   /* be sure that the array_pos[ 0 ] for mantissa is set to dim_base;
+X      this is necessary because mantissa might be used before dim_base
+X      is set */
+X
+X   mantissa.array_pos[ 0 ] = dim_base;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_numconst(): received <%s>, eval <%c>",
+X      expression, expression[ 0 ] );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   need_pm = FALSE;
+X   CURTASK exps[ CURTASK expsc ].nval = (bnumber) 0;
+X
+X   /* check the first character(s) to determine numerical base
+X      and starting point of the mantissa */
+X
+X   switch( expression[ 0 ] )
+X      {
+X      case '-':
+X      case '+':
+X      case '0':
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '.':
+X         base = 10;                     /* decimal constant */
+X	 man_start = 0;                 /* starts at position 0 */
+X	 need_pm = FALSE;
+X         break;
+X      case '&':                         /* hex or octal constant */
+X         if ( ( expression[ 1 ] == 'H' ) || ( expression[ 1 ] == 'h' ))
+X            {
+X            base = 16;                  /* hexadecimal constant */
+X            man_start = 2;              /* starts at position 2 */
+X            }
+X         else
+X            {
+X            base = 8;                   /* octal constant */
+X            if ( ( expression[ 1 ] == 'O' ) || ( expression[ 1 ] == 'o' ))
+X               {
+X               man_start = 2;           /* starts at position 2 */
+X               }
+X            else
+X               {
+X               man_start = 1;           /* starts at position 1 */
+X               }
+X            }
+X         break;
+X      default:
+X
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "expression <%s> is not a numerical constant.",
+X            expression );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return OP_NULL;
+X      }
+X
+X   /* now build the mantissa according to the numerical base */
+X
+X   switch( base )
+X      {
+X
+X      case 10:                          /* decimal constant */
+X
+X         /* initialize counters */
+X
+X         CURTASK exps[ CURTASK expsc ].pos_adv = man_start;
+X         CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X         CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X               {
+X               case '-':                        /* prefixed plus or minus */
+X               case '+':
+X
+X                  /* in the first position, a plus or minus sign can
+X                     be added to the beginning of the string to be
+X                     scanned */
+X
+X                  if ( CURTASK exps[ CURTASK expsc ].pos_adv == man_start )
+X                     {
+X                     CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X                     ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                     ++s_pos;
+X                     CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X                     }
+X
+X                  /* but in any other position, the plus or minus sign
+X                     must be taken as an operator and thus as terminating
+X                     the string to be scanned */
+X
+X                  else
+X                     {
+X                     build_loop = FALSE;
+X                     }
+X                  break;
+X               case '.':                        /* note at least single precision */
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X               case '8':
+X               case '9':
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X                  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X	       case '#':                        /* Microsoft-type precision indicator; ignored but terminates */
+X	       case '!':                        /* Microsoft-type precision indicator; ignored but terminates */
+X		  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X		  CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X		  exponent = FALSE;
+X		  build_loop = FALSE;
+X		  break;
+X
+X	       case 'E':                        /* exponential, single precision */
+X               case 'e':
+X                  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                  CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X		  exponent = TRUE;
+X                  build_loop = FALSE;
+X		  break;
+X
+X               case 'D':                        /* exponential, double precision */
+X               case 'd':
+X                  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                  CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X		  exponent = TRUE;
+X                  build_loop = FALSE;
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* assign the value to the mantissa variable */
+X         
+X#if NUMBER_DOUBLE
+X         sscanf( CURTASK exps[ CURTASK expsc ].string, "%lf", 
+X           var_findnval( &mantissa, mantissa.array_pos ));
+X#else
+X         sscanf( CURTASK exps[ CURTASK expsc ].string, "%f", 
+X           var_findnval( &mantissa, mantissa.array_pos ));
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_numconst(): read mantissa, string <%s> val <%lf>",
+X            CURTASK exps[ CURTASK expsc ].string, var_getnval( &mantissa ) );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         /* test if integer bounds have been exceeded */
+X
+X         if ( CURTASK exps[ CURTASK expsc ].type == NUMBER )
+X            {
+X            i = (int) var_getnval( &mantissa );
+X            d = (bnumber) i;
+X            if ( d != var_getnval( &mantissa ))
+X               {
+X               CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf, "in exp_numconst(): integer bounds violated, promote to NUMBER" );
+X               bwb_debug( bwb_ebuf );
+X#endif               
+X               }
+X            }
+X
+X         /* read the exponent if there is one */
+X
+X         if ( exponent == TRUE )
+X            {
+X
+X	    /* allow a plus or minus once at the beginning */
+X
+X	    need_pm = TRUE;
+X
+X	    /* initialize counters */
+X
+X            CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X            s_pos = 0;
+X            build_loop = TRUE;
+X
+X            /* loop to build the string */
+X
+X            while ( build_loop == TRUE )
+X               {
+X               switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X                  {
+X		  case '-':                        /* prefixed plus or minus */
+X                  case '+':
+X
+X		     if ( need_pm == TRUE )        /* only allow once */
+X			{
+X			CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X			++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X			++s_pos;
+X			CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X			}
+X		     else
+X			{
+X			build_loop = FALSE;
+X			}
+X		     break;
+X
+X		  case '0':                        /* or ordinary digit */
+X                  case '1':
+X                  case '2':
+X                  case '3':
+X                  case '4':
+X                  case '5':
+X                  case '6':
+X                  case '7':
+X                  case '8':
+X                  case '9':
+X
+X                     CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X                     ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                     ++s_pos;
+X		     CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X		     need_pm = FALSE;
+X                     break;
+X
+X                  default:                         /* anything else, terminate */
+X                     build_loop = FALSE;
+X                     break;
+X                  }
+X
+X               }                                /* end of build loop for exponent */
+X
+X            /* assign the value to the user variable */
+X
+X#if NUMBER_DOUBLE
+X            sscanf( CURTASK exps[ CURTASK expsc ].string, "%lf",
+X               &( CURTASK exps[ CURTASK expsc ].nval ) );
+X#else
+X            sscanf( CURTASK exps[ CURTASK expsc ].string, "%f",
+X               &( CURTASK exps[ CURTASK expsc ].nval ) );
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in exp_numconst(): exponent is <%d>",
+X               (int) CURTASK exps[ CURTASK expsc ].nval );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            }                           /* end of exponent search */
+X
+X         if ( CURTASK exps[ CURTASK expsc ].nval == (bnumber) 0 )
+X            {
+X            CURTASK exps[ CURTASK expsc ].nval = var_getnval( &mantissa );
+X            }
+X         else
+X            {
+X            CURTASK exps[ CURTASK expsc ].nval = var_getnval( &mantissa )
+X               * pow( (bnumber) 10.0, (bnumber) CURTASK exps[ CURTASK expsc ].nval );
+X            }
+X
+X         break;
+X
+X      case 8:                           /* octal constant */
+X
+X         /* initialize counters */
+X
+X         CURTASK exps[ CURTASK expsc ].pos_adv = man_start;
+X         CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X         CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X               {
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X                  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* now scan the string to determine the number */
+X
+X         sscanf( CURTASK exps[ CURTASK expsc ].string, "%o", &i );
+X         CURTASK exps[ CURTASK expsc ].nval = (bnumber) i;
+X
+X         break;
+X
+X      case 16:                          /* hexadecimal constant */
+X
+X         /* initialize counters */
+X
+X         CURTASK exps[ CURTASK expsc ].pos_adv = man_start;
+X         CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X         CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X         s_pos = 0;
+X         exponent = OP_NULL;
+X         build_loop = TRUE;
+X
+X         /* loop to build the string */
+X
+X         while ( build_loop == TRUE )
+X            {
+X            switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X               {
+X               case '0':                        /* or ordinary digit */
+X               case '1':
+X               case '2':
+X               case '3':
+X               case '4':
+X               case '5':
+X               case '6':
+X               case '7':
+X               case '8':
+X               case '9':
+X               case 'A':
+X               case 'a':
+X               case 'B':
+X               case 'b':
+X               case 'C':
+X               case 'c':
+X               case 'D':
+X               case 'd':
+X               case 'E':
+X               case 'e':
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X
+X                  ++CURTASK exps[ CURTASK expsc ].pos_adv;  /* advance to next character */
+X                  ++s_pos;
+X                  CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X                  break;
+X
+X               default:                         /* anything else, terminate */
+X                  build_loop = FALSE;
+X                  break;
+X               }
+X
+X            }
+X
+X         /* now scan the string to determine the number */
+X
+X         sscanf( CURTASK exps[ CURTASK expsc ].string, "%x", &i );
+X         CURTASK exps[ CURTASK expsc ].nval = (bnumber) i;
+X         break;
+X      }
+X
+X   /* note that the operation at this level is now a determined NUMBER */
+X
+X   CURTASK exps[ CURTASK expsc ].operation = NUMBER;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_numconst(): exit level <%d> precision <%c> value <%lf>",
+X      CURTASK expsc, CURTASK exps[ CURTASK expsc ].type, exp_getnval( &( CURTASK exps[ CURTASK expsc ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X#if CHECK_RECURSION
+X   in_use = FALSE;
+X#endif
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_function()
+X
+X	DESCRIPTION:    This function interprets a function,
+X			calling bwb_exp() (recursively) to resolve any
+X			arguments to the function.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_function( char *expression )
+X#else
+Xint
+Xexp_function( expression )
+X   char *expression;
+X#endif
+X   {
+X   struct exp_ese *e;
+X   int s_pos;                           /* position in build buffer */
+X   int loop;
+X   int paren_level;
+X   int n_args;
+X   struct bwb_variable *v;
+X   struct bwb_variable argv[ MAX_FARGS ];
+X   bstring *b;
+X#if INTENSIVE_DEBUG
+X   char tbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   sprintf( bwb_ebuf, "in exp_function(): entered function, expression <%s>",
+X      expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* assign pointers to argument stack */
+X
+X   /* get the function name */
+X
+X   exp_getvfname( expression, CURTASK exps[ CURTASK expsc ].string );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): name is <%s>.",
+X      CURTASK exps[ CURTASK expsc ].string );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* now find the function itself */
+X
+X   CURTASK exps[ CURTASK expsc ].function = fnc_find( CURTASK exps[ CURTASK expsc ].string );
+X
+X   /* check to see if it is valid */
+X
+X   if ( CURTASK exps[ CURTASK expsc ].function == NULL )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Failed to find function <%s>.",
+X         CURTASK exps[ CURTASK expsc ].string );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_uf  );
+X#endif
+X      return OP_ERROR;
+X      }
+X
+X   /* note that this level is a function */
+X
+X   CURTASK exps[ CURTASK expsc ].operation = FUNCTION;
+X   CURTASK exps[ CURTASK expsc ].pos_adv = strlen( CURTASK exps[ CURTASK expsc ].string );
+X
+X   /* check for begin parenthesis */
+X
+X   loop = TRUE;
+X   while( loop == TRUE )
+X      {
+X      switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X         {
+X
+X         case ' ':                              /* whitespace */
+X         case '\t':
+X            ++CURTASK exps[ CURTASK expsc ].pos_adv;        /* advance */
+X            break;
+X
+X         case '(':                              /* begin paren */
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_function(): found begin parenthesis." );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            ++CURTASK exps[ CURTASK expsc ].pos_adv;        /* advance beyond it */
+X            paren_level = 1;                    /* set paren_level */
+X            loop = FALSE;                       /* and break out */
+X            break;
+X
+X         default:                               /* anything else */
+X            loop = FALSE;
+X            paren_level = 0;                    /* do not look for arguments */
+X            break;
+X         }
+X      }
+X
+X   /* find arguments within parentheses */
+X   /* for each argument, find a string ending with ',' or with end parenthesis */
+X
+X   n_args = 0;
+X   s_pos = 0;
+X   CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X
+X   while( paren_level > 0 )
+X      {
+X
+X      /* check the current character */
+X
+X      switch( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] )
+X         {
+X
+X         case ',':                      /* end of an argument */
+X
+X            if ( paren_level == 1 )     /* ignore ',' within parentheses */
+X               {
+X
+X               /* call bwb_exp() recursively to resolve the argument */
+X
+X               if ( exp_validarg( CURTASK exps[ CURTASK expsc ].string ) == TRUE )
+X                  {
+X#if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): valid argument (not last)." );
+X                  bwb_debug( bwb_ebuf );
+X#endif
+X
+X                  CURTASK exps[ CURTASK expsc ].rec_pos = 0;
+X                  e = bwb_exp( CURTASK exps[ CURTASK expsc ].string, FALSE,
+X                     &( CURTASK exps[ CURTASK expsc ].rec_pos ) );
+X
+X                  /* assign operation and value at this level */
+X
+X                  var_make( &( argv[ n_args ] ), e->type );
+X
+X                  switch( argv[ n_args ].type )
+X                     {
+X                     case NUMBER:
+X                        * var_findnval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getnval( e );
+X                        break;
+X                     case STRING:
+X                        str_btob( var_findsval( &( argv[ n_args ] ),
+X                           argv[ n_args ].array_pos ), exp_getsval( e ) );
+X                        break;
+X                     }
+X
+X                  ++n_args;                /* increment number of arguments */
+X
+X                  }
+X
+X               s_pos = 0;               /* reset counter */
+X               CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X               }
+X
+X            else
+X               {
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X                  = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X               ++s_pos;
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '(':
+X            ++paren_level;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X            break;
+X
+X         case ')':
+X            --paren_level;
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf,
+X               "in exp_function(): hit close parenthesis." );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( paren_level == 0 )
+X               {
+X
+X#if INTENSIVE_DEBUG
+X               sprintf( bwb_ebuf,
+X                  "in exp_function(): paren level 0." );
+X               bwb_debug( bwb_ebuf );
+X#endif
+X
+X               /* call bwb_exp() recursively to resolve the argument */
+X
+X               if ( exp_validarg( CURTASK exps[ CURTASK expsc ].string ) == TRUE )
+X                  {
+X#if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): valid argument (last)." );
+X		  bwb_debug( bwb_ebuf );
+X#endif
+X
+X                  CURTASK exps[ CURTASK expsc ].rec_pos = 0;
+X                  e = bwb_exp( CURTASK exps[ CURTASK expsc ].string, FALSE,
+X                     &( CURTASK exps[ CURTASK expsc ].rec_pos ) );
+X
+X#if INTENSIVE_DEBUG
+X		  sprintf( bwb_ebuf,
+X		     "in exp_function(): return from bwb_exp(), last arg, type <%c> op <%d>",
+X		     e->type, e->operation );
+X		  bwb_debug( bwb_ebuf );
+X#endif
+X
+X                  /* assign operation and value at this level */
+X
+X                  var_make( &( argv[ n_args ] ), e->type );
+X
+X                  switch( argv[ n_args ].type )
+X                     {
+X                     case NUMBER:
+X                        * var_findnval( &( argv[ n_args ] ), argv[ n_args ].array_pos )
+X                            = exp_getnval( e );
+X                        break;
+X                     case STRING:
+X                        str_btob( var_findsval( &( argv[ n_args ] ),
+X                           argv[ n_args ].array_pos ), exp_getsval( e ) );
+X                        break;
+X                     }
+X
+X                  ++n_args;                /* increment number of arguments */
+X
+X                  }
+X
+X               s_pos = 0;               /* reset counter */
+X               CURTASK exps[ CURTASK expsc ].string[ 0 ] = '\0';
+X               }
+X
+X            else
+X               {
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X                  = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X               ++s_pos;
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X               }
+X            break;
+X
+X         case '\"':                             /* embedded string constant */
+X
+X            /* add the initial quotation mark */
+X
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X            ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X
+X            /* add intervening characters */
+X
+X            while ( ( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] != '\"' )
+X               && ( expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] != '\0' ) )
+X               {
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X                  = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X               ++s_pos;
+X               CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X               ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X               }
+X
+X            /* add the concluding quotation mark */
+X
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X            /* the following bracketed out 14 July 1992; since this counter */
+X            /* incremented at the end of the switch statement, this may */
+X            /* increment it past the next character needed */
+X            /* ++CURTASK exps[ CURTASK expsc ].pos_adv; */
+X            break;
+X
+X         default:
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ]
+X               = expression[ CURTASK exps[ CURTASK expsc ].pos_adv ];
+X            ++s_pos;
+X            CURTASK exps[ CURTASK expsc ].string[ s_pos ] = '\0';
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_function(): new char <%d>=<%c>",
+X               expression[ CURTASK exps[ CURTASK expsc ].pos_adv ],
+X               expression[ CURTASK exps[ CURTASK expsc ].pos_adv ] );
+X            bwb_debug( bwb_ebuf );
+X            sprintf( bwb_ebuf, "in exp_function(): building <%s>.",
+X               CURTASK exps[ CURTASK expsc ].string );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            break;
+X         }
+X
+X      /* advance the counter */
+X
+X      ++CURTASK exps[ CURTASK expsc ].pos_adv;
+X
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): ready to call function vector" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* call the function vector */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): calling preset function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   v = CURTASK exps[ CURTASK expsc ].function->vector ( n_args, &( argv[ 0 ] ),
+X      CURTASK exps[ CURTASK expsc ].function->id );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): return from function vector, type <%c>",
+X      v->type );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* assign the value at this level */
+X
+X   CURTASK exps[ CURTASK expsc ].type = (char) v->type;
+X   
+X   switch( v->type )
+X      {
+X      case STRING:
+X         CURTASK exps[ CURTASK expsc ].operation = CONST_STRING;
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_function(): ready to assign STRING" );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         b = var_findsval( v, v->array_pos );
+X         str_btob( exp_getsval( &( CURTASK exps[ CURTASK expsc ] )), b );
+X
+X#if INTENSIVE_DEBUG
+X         str_btoc( tbuf, b );
+X         sprintf( bwb_ebuf, "in exp_function(): string assigned <%s>", tbuf );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         break;
+X
+X      default:
+X         CURTASK exps[ CURTASK expsc ].operation = NUMBER;
+X         CURTASK exps[ CURTASK expsc ].nval = var_getnval( v );
+X         break;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_function(): end of function" );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_variable()
+X
+X	DESCRIPTION:    This function interprets a variable.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_variable( char *expression )
+X#else
+Xint
+Xexp_variable( expression )
+X   char *expression;
+X#endif
+X   {
+X   int pos;
+X   int *pp;
+X   int n_params;
+X   register int n;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   int p;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): entered function." );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* get the variable name */
+X
+X   exp_getvfname( expression, CURTASK exps[ CURTASK expsc ].string );
+X
+X   /* now find the variable itself */
+X
+X   v = CURTASK exps[ CURTASK expsc ].xvar = var_find( CURTASK exps[ CURTASK expsc ].string );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): level <%d>, found variable name <%s>",
+X      CURTASK expsc, CURTASK exps[ CURTASK expsc ].xvar->name );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* note that this level is a variable */
+X
+X   CURTASK exps[ CURTASK expsc ].operation = VARIABLE;
+X
+X   /* read subscripts */
+X
+X   pos = strlen( CURTASK exps[ CURTASK expsc ].string );
+X   if ( ( v->dimensions == 1 ) && ( v->array_sizes[ 0 ] == 1 ))
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_variable(): variable <%s> has 1 dimension",
+X         CURTASK exps[ CURTASK expsc ].xvar->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      pos = strlen( v->name );
+X      n_params = 1;
+X      pp = &p;
+X      pp[ 0 ] = dim_base;
+X      }
+X   else
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_variable(): variable <%s> has > 1 dimensions",
+X         CURTASK exps[ CURTASK expsc ].xvar->name );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      dim_getparams( expression, &pos, &n_params, &pp );
+X      }
+X
+X   CURTASK exps[ CURTASK expsc ].pos_adv = pos;
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      CURTASK exps[ CURTASK expsc ].array_pos[ n ] = v->array_pos[ n ] = pp[ n ];
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   for ( n = 0; n < v->dimensions; ++ n )
+X      {
+X      sprintf( bwb_ebuf, "in exp_variable(): var <%s> array_pos element <%d> is <%d>.",
+X         v->name, n, v->array_pos[ n ] );
+X      bwb_debug( bwb_ebuf );
+X      }
+X#endif
+X
+X   /* assign the type and value at this level */
+X
+X   CURTASK exps[ CURTASK expsc ].type = (char) v->type;
+X   
+X   switch( v->type )
+X      {
+X      case STRING:
+X         b = var_findsval( v, v->array_pos );
+X#if TEST_BSTRING
+X         sprintf( bwb_ebuf, "in exp_variable(): b string name is <%s>",
+X            b->name );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X#if OLDWAY
+X	 CURTASK exps[ CURTASK expsc ].sval.length = b->length;
+X	 CURTASK exps[ CURTASK expsc ].sval.sbuffer = b->sbuffer;
+X#endif
+X	 str_btob( &( CURTASK exps[ CURTASK expsc ].sval ), b );
+X         break;
+X      default:
+X         CURTASK exps[ CURTASK expsc ].nval = var_getnval( v );
+X         break;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_variable(): exit, name <%s>, level <%d>, op <%d>",
+X      v->name, CURTASK expsc, CURTASK exps[ CURTASK expsc ].operation  );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X
+X
+END_OF_FILE
+  if test 35745 -ne `wc -c <'bwbasic-2.10/bwb_elx.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_elx.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_elx.c'
+fi
+echo shar: End of archive 13 \(of 15\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

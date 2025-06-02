@@ -1,0 +1,1226 @@
+Path: uunet!europa.asd.contel.com!emory!dragon.com!cts
+From: cts@dragon.com
+Newsgroups: vmsnet.sources.games
+Subject: Snoopy Calendar Part 01/02
+Message-ID: <1992Mar12.222538.837@dragon.com>
+Date: 13 Mar 92 03:25:38 GMT
+Organization: Computer Projects Unlimited
+Lines: 1217
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On 12-MAR-1992 22:16:59.88   By user CTS 
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 2 PARTS, TO KEEP EACH PART
+$!  BELOW 100 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. AAAREADME.TXT;2
+$!       2. SNPYCAL.FOR;3
+$!       3. SNPYCAL.DAT;2
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+XThis is a source file distribution for the Snoopy Calendar program,
+Xin VAX Fortan.  This hoary old classic came into my hands in my`20
+Xstudent days at Georgia Tech some time around the late 70's.  While
+XI don't know where it originally came from, this program was originally
+Xdeveloped in a punch card environment where 6 characters (most likely
+Xsixbit characters) could be stored in an integer.
+X
+XThe data file contains 18 months worth of data.  The calendar can be
+Xset to start in any month by editing line 99 in the data file.  Note
+Xthat this file is fixed format;  column position matters.
+X
+XEnjoy!
+X
+X  Charles Smith -  cts@dragon.com
+X  12 March 1992`20
+$ CALL UNPACK AAAREADME.TXT;2 419826466
+$ create 'f'
+X      PROGRAM SNPCAL
+X      IMPLICIT INTEGER(A-Z)`20
+XC     PROGRAMMER, WILLIAM MALLGREN                 JANUARY 6, 1970
+XC     ******************************************************************
+XC     *                                                                *
+XC     * PRINTS CALENDAR, ONE MONTH PER PAGE WITH PICTURES OPTIONAL.    *
+XC     *                                                                *
+XC     * BEGINNING MONTH AND YEAR, ENDING MONTH AND YEAR MUST BE PRO-   *
+XC     * VIDED IN 4(I6)  FORMAT ON A CARD IMMEDIATELY FOLLOWING         *
+XC     * CARD 98 OF DECK.                                               *
+XC     *                                                                *
+XC     * IF GRID LINES ARE DESIRED, A 1 MUST APPEAR IN COLUMN 30 OF     *
+XC     * ABOVE CARD.  A BLANK OR ZERO WILL SUPPRESS GRID LINES.         *
+XC     *                                                                *
+XC     * ALL PICTURE DATA DECKS MUST BE TERMINATED WITH CODE -2.        *
+XC     * CONSECUTIVE -2*S WILL RESULT IN NO PICTURE BEING PRINTED       *
+XC     * FOR THAT MONTH.                                                *
+XC     *                                                                *
+XC     * PICTURE FORMAT CODES --                                        *
+XC     *    -1    END OF LINE                                           *
+XC     *    -2    END OF PICTURE                                        *
+XC     *    -3    LIST CARDS, ONE PER LINE, FORMAT 13A6                 *
+XC     *    -4    LIST CARDS, TWO PER LINE, FORMAT 11A6/11A6            *
+XC     *    -5    LIST CARDS, TWO PER LINE, FORMAT 12A6/10A6            *
+XC     *                                                                *
+XC     ******************************************************************
+X      character*6 BLANK,ONE,ALIN1,ALIN2,ALIN3,ALIN4
+X      character*6 AMONTH,ANAM,ANUM,CAL
+X      DIMENSION AMONTH(12,7,13),ANAM(22),ANUM(2,10,5),NODS(12),`20
+X     1    CAL(60,22)
+X      COMMON ISET`20
+X      open(unit=5,file='snpycal.dat',status='old')
+X      open(unit=6,file='snpycal.lis',status='new')
+X      READ (5,1) (((AMONTH(I,J,K),K=1,13),J=1,7),I=1,12)
+X      READ (5,2) (ANAM(I),I=1,22)`20
+X      READ (5,3) (((ANUM(I,J,K),J=1,10),K=1,5),I=1,2)`20
+X      READ (5,4) (NODS(I),I=1,12)`20
+X      READ (5,1) BLANK,ONE,ALIN1,ALIN2,ALIN3,ALIN4
+X      READ (5,4) MF,IYR,MTHLST,IYRLST,LNSW
+X      ISET=25`20
+X      DO 10 I=1,60
+X      DO 10 J=1,22
+X10    CAL(I,J)= BLANK`20
+X      CAL(1,1)= ONE`20
+X      DO 20 J=1,22
+X20    CAL(11,J)=ANAM(J)`20
+X      IF (LNSW) 122,142,122`20
+X122   DO 125 I=20,60,8
+X      DO 125 J=1,22`20
+X125   CAL(I,J)=ALIN2
+X      DO 140 J=4,19,3`20
+X      I=13
+X127   DO 130 L=1,7
+X      CAL(I,J)=ALIN1
+X130   I=I+1`20
+X      IF (I-55) 135,135,140`20
+X135   CAL(I,J)=ALIN3
+X      I=I+1`20
+X      GO TO 127`20
+X140   CONTINUE
+X      DO 141 I=20,60,8
+X141   CAL(I,1)=ALIN4
+X142   IDOW=(IYR-1751)+(IYR-1753)/4-(IYR-1701)/100+(IYR-1601)/400
+X      IDOW=IDOW-7*((IDOW-1)/7)
+X55    IF (IYR-IYRLST) 60,65,100`20
+X60    ML=12`20
+X      GO TO 70
+X65    ML=MTHLST`20
+X70    IY1=IYR/1000
+X      NUMB=IYR-1000*IY1`20
+X      IY2=NUMB/100
+X      NUMB=NUMB-100*IY2`20
+X      IY3=NUMB/10`20
+X      NUMB=NUMB-10*IY3
+X      IY4=NUMB
+X      DO 72 J=1,5`20
+X      CAL(J+3,1)=ANUM(2,IY1+1,J)
+X      CAL(J+1,2)=ANUM(2,IY2+1,J)
+X      CAL(J+1,21)=ANUM(2,IY3+1,J)`20
+X72    CAL(J+3,22)=ANUM(2,IY4+1,J)`20
+X      LPYRSW=0
+X      IF (IYR-4*(IYR/4)) 90,75,90`20
+X75    IF (IYR-100*(IYR/100)) 85,80,85`20
+X80    IF (IYR-400*(IYR/400)) 90,85,90`20
+X85    LPYRSW=1
+X90    NODS(2)=NODS(2)+LPYRSW
+X      IF (MF-1) 100,110,95
+X95    MF=MF-1`20
+X      DO 105 MONTH=1,MF`20
+X105   IDOW=IDOW+NODS(MONTH)`20
+X      IDOW=IDOW-7*((IDOW-1)/7)
+X      MF=MF+1`20
+X110   DO 51 MONTH=MF,ML`20
+X      LSTDAY=NODS(MONTH)
+X      DO 115 I=1,7
+X      DO 115 JM=1,13
+X      J=JM+4
+X115   CAL(I,J)=AMONTH(MONTH,I,JM)`20
+X      IF (IDOW-1) 160,160,120`20
+X120   ID=IDOW-1`20
+X      J=2`20
+X      DO 155 K=1,ID`20
+X      DO 150 I=14,18
+X      CAL (I,J)= BLANK
+X150   CAL(I,J+1)= BLANK`20
+X      J=J+3`20
+X155   CONTINUE
+X160   IDAY=1
+X      II=14`20
+X25    J=3*IDOW-1
+X      N=IDAY/10+1`20
+X      I=II
+X      DO 30 K=1,5`20
+X      CAL(I,J)=ANUM(1,N,K)
+X30    I=I+1`20
+X      N=IDAY-10*N+11
+X      J=J+1`20
+X      I=II
+X      DO 35 K=1,5`20
+X      CAL(I,J)=ANUM(2,N,K)
+X35    I=I+1`20
+X      IDOW=IDOW+1`20
+X      IF (IDOW-7) 45,45,40
+X40    IDOW=1
+X      II=II+8`20
+X45    IDAY=IDAY+1`20
+X      IF (IDAY-LSTDAY) 25,25,50`20
+X50    ID=IDOW`20
+X205   I=II
+X      J=3*ID-1
+X      DO 210 K=1,5
+X      CAL(I,J)= BLANK`20
+X      CAL(I,J+1)= BLANK`20
+X210   I=I+1`20
+X      IF (ID-7) 215,220,220`20
+X215   ID=ID+1`20
+X      GO TO 205`20
+X220   IF (II-54) 225,230,230
+X225   II=54`20
+X      ID=1
+X      GO TO 205`20
+X230   CALL PICTUR`20
+XC     WRITE OUTPUT TAPE 1,5,((CAL(I,J),J=1,22),I=1,60)
+X      WRITE (6,5) ((CAL(I,J),J=1,22),I=1,60)
+X51    CONTINUE
+X      IF (IYR-IYRLST) 235,100,100`20
+X235   NODS(2)=NODS(2)-LPYRSW
+X      IYR=IYR+1`20
+X      MF=1
+X      GO TO 55
+X100   WRITE (6,6)`20
+X      STOP
+X1     FORMAT (13A6)`20
+X2     FORMAT (11A6)`20
+X3     FORMAT (10A6)`20
+X4     FORMAT (12I6)`20
+X5     FORMAT (22A6)`20
+X6     FORMAT (1H1)
+X      END`20
+XC`20
+XC`20
+XC         PROGRAM DIVIDER                    ROSS HERBERT`20
+XC`20
+XC`20
+X      SUBROUTINE PICTUR`20
+X      DIMENSION KRD1(25),CRD2(25),ALIN(132)`20
+X      COMMON I
+X      DATA PLUS,AMPSAN/1H+,1H_/`20
+X11    N=0`20
+X10    I=I+1`20
+X      IF (I-25) 14,14,13
+X13    I=1`20
+X      READ (5,1) ((KRD1(K),CRD2(K)),K=1,25)`20
+X14    M=N+1`20
+X      IF (KRD1(I)) 15,10,16`20
+X15    IF (KRD1(I)+2) 18,35,17`20
+X18    IF (KRD1(I)+4) 55,44,33`20
+X17    N=132`20
+X      GO TO 20
+X16    N=N+KRD1(I)`20
+X20    DO 21 J=M,N`20
+X21    ALIN (J)=CRD2(I)
+X      IF (N-132) 10,31,31`20
+X31    IF (ALIN(1).EQ.AMPSAN) ALIN(1)=PLUS`20
+X      WRITE (6,2) (ALIN(J),J=1,132)`20
+XC31   WRITE OUTPUT TAPE 1,2, (ALIN(J),J=1,132)
+X      GO TO 11
+X33    READ (5,5) (ALIN(J),J=1,13),ICHK
+X      WRITE (6,7) (ALIN(J),J=1,13)
+X      IF (ICHK+2) 77,35,33
+X44    READ (5,3) (ALIN(J),J=1,22),ICHK
+X      WRITE (6,4) (ALIN(J),J=1,22)
+X      IF (ICHK+2) 77,35,44
+X55    READ (5,6) (ALIN(J),J=1,22),ICHK
+X      WRITE (6,4) (ALIN(J),J=1,22)
+X      IF (ICHK+2) 77,35,55
+X77    I=25
+X      GO TO 11
+X35    RETURN
+X1     FORMAT (25(I2,A1))
+X2     FORMAT (132A1)
+X3     FORMAT (11A6/11A6,I2)`20
+X4     FORMAT (22A6)`20
+X5     FORMAT (13A6,I2)
+X6     FORMAT (12A6/10A6,I2)`20
+X7     FORMAT (30X,13A6)`20
+X      END`20
+$ CALL UNPACK SNPYCAL.FOR;3 878302676
+$ create 'f'
+X           JJJJJJJ   AAAAA   N     N  U     U   AAAAA   RRRRRR   Y     Y
+V      01
+X              J     A     A  NN    N  U     U  A     A  R     R   Y   Y
+V       02
+X              J     A     A  N N   N  U     U  A     A  R     R    Y Y
+V        03
+X              J     AAAAAAA  N  N  N  U     U  AAAAAAA  RRRRRR      Y
+V         04
+X              J     A     A  N   N N  U     U  A     A  R   R       Y
+V         05
+X           J  J     A     A  N    NN  U     U  A     A  R    R      Y
+V         06
+X            JJ      A     A  N     N   UUUUU   A     A  R     R     Y
+V         07
+X       FFFFFFF  EEEEEEE  BBBBBB   RRRRRR   U     U   AAAAA   RRRRRR   Y
+V     Y 08
+X       F        E        B     B  R     R  U     U  A     A  R     R   Y   Y
+V  09
+X       F        E        B     B  R     R  U     U  A     A  R     R    Y Y
+V   10
+X       FFFFF    EEEEE    BBBBBB   RRRRRR   U     U  AAAAAAA  RRRRRR      Y
+V    11
+X       F        E        B     B  R   R    U     U  A     A  R   R       Y
+V    12
+X       F        E        B     B  R    R   U     U  A     A  R    R      Y
+V    13
+X       F        EEEEEEE  BBBBBB   R     R   UUUUU   A     A  R     R     Y
+V    14
+X                    M     M   AAAAA   RRRRRR    CCCCC   H     H
+V               15
+X                    MM   MM  A     A  R     R  C     C  H     H
+V               16
+X                    M M M M  A     A  R     R  C        H     H
+V               17
+X                    M  M  M  AAAAAAA  RRRRRR   C        HHHHHHH
+V               18
+X                    M     M  A     A  R   R    C        H     H
+V               19
+X                    M     M  A     A  R    R   C     C  H     H
+V               20
+X                    M     M  A     A  R     R   CCCCC   H     H
+V               21
+X                     AAAAA   PPPPPP   RRRRRR   IIIIIII  L
+V                     22
+X                    A     A  P     P  R     R     I     L
+V                     23
+X                    A     A  P     P  R     R     I     L
+V                     24
+X                    AAAAAAA  PPPPPP   RRRRRR      I     L
+V                     25
+X                    A     A  P        R   R       I     L
+V                     26
+X                    A     A  P        R    R      I     L
+V                     27
+X                    A     A  P        R     R  IIIIIII  LLLLLLL
+V               28
+X                             M     M   AAAAA   Y     Y
+V                        29
+X                             MM   MM  A     A   Y   Y
+V                         30
+X                             M M M M  A     A    Y Y
+V                          31
+X                             M  M  M  AAAAAAA     Y
+V                           32
+X                             M     M  A     A     Y
+V                           33
+X                             M     M  A     A     Y
+V                           34
+X                             M     M  A     A     Y
+V                           35
+X                         JJJJJJJ  U     U  N     N  EEEEEEE
+V                   36
+X                            J     U     U  NN    N  E
+V                         37
+X                            J     U     U  N N   N  E
+V                         38
+X                            J     U     U  N  N  N  EEEEE
+V                     39
+X                            J     U     U  N   N N  E
+V                         40
+X                         J  J     U     U  N    NN  E
+V                         41
+X                          JJ       UUUUU   N     N  EEEEEEE
+V                   42
+X                         JJJJJJJ  U     U  L        Y     Y
+V                   43
+X                            J     U     U  L         Y   Y
+V                    44
+X                            J     U     U  L          Y Y
+V                     45
+X                            J     U     U  L           Y
+V                      46
+X                            J     U     U  L           Y
+V                      47
+X                         J  J     U     U  L           Y
+V                      48
+X                          JJ       UUUUU   LLLLLLL     Y
+V                      49
+X                 AAAAA   U     U   GGGGG   U     U   SSSSS   TTTTTTT
+V          50
+X                A     A  U     U  G     G  U     U  S     S     T
+V             51
+X                A     A  U     U  G        U     U  S           T
+V             52
+X                AAAAAAA  U     U  G   GGG  U     U   SSSSS      T
+V             53
+X                A     A  U     U  G     G  U     U        S     T
+V             54
+X                A     A  U     U  G     G  U     U  S     S     T
+V             55
+X                A     A   UUUUU    GGGGG    UUUUU    SSSSS      T
+V             56
+X SSSSS   EEEEEEE  PPPPPP  TTTTTTT  EEEEEEE  M     M  BBBBBB   EEEEEEE  RRRRR
+VR 57
+XS     S  E        P     P    T     E        MM   MM  B     B  E        R
+V     R58
+XS        E        P     P    T     E        M M M M  B     B  E        R
+V     R59
+X SSSSS   EEEEE    PPPPPP     T     EEEEE    M  M  M  BBBBBB   EEEEE    RRRRR
+VR 60
+X      S  E        P          T     E        M     M  B     B  E        R   R
+V  61
+XS     S  E        P          T     E        M     M  B     B  E        R
+V    R 62
+X SSSSS   EEEEEEE  P          T     EEEEEEE  M     M  BBBBBB   EEEEEEE  R
+V     R63
+X            OOOOO    CCCCC   TTTTTTT   OOOOO   BBBBBB   EEEEEEE  RRRRRR
+V       64
+X           O     O  C     C     T     O     O  B     B  E        R     R
+V      65
+X           O     O  C           T     O     O  B     B  E        R     R
+V      66
+X           O     O  C           T     O     O  BBBBBB   EEEEE    RRRRRR
+V       67
+X           O     O  C           T     O     O  B     B  E        R   R
+V        68
+X           O     O  C     C     T     O     O  B     B  E        R    R
+V       69
+X            OOOOO    CCCCC      T      OOOOO   BBBBBB   EEEEEEE  R     R
+V      70
+X       N     N   OOOOO   V     V  EEEEEEE  M     M  BBBBBB   EEEEEEE  RRRRRR
+V  71
+X       NN    N  O     O  V     V  E        MM   MM  B     B  E        R
+V     R 72
+X       N N   N  O     O  V     V  E        M M M M  B     B  E        R
+V     R 73
+X       N  N  N  O     O  V     V  EEEEE    M  M  M  BBBBBB   EEEEE    RRRRRR
+V  74
+X       N   N N  O     O   V   V   E        M     M  B     B  E        R   R
+V   75
+X       N    NN  O     O    V V    E        M     M  B     B  E        R    R
+V  76
+X       N     N   OOOOO      V     EEEEEEE  M     M  BBBBBB   EEEEEEE  R
+V     R 77
+X       DDDDDD   EEEEEEE   CCCCC   EEEEEEE  M     M  BBBBBB   EEEEEEE  RRRRRR
+V  78
+X       D     D  E        C     C  E        MM   MM  B     B  E        R
+V     R 79
+X       D     D  E        C        E        M M M M  B     B  E        R
+V     R 80
+X       D     D  EEEEE    C        EEEEE    M  M  M  BBBBBB   EEEEE    RRRRRR
+V  81
+X       D     D  E        C        E        M     M  B     B  E        R   R
+V   82
+X       D     D  E        C     C  E        M     M  B     B  E        R    R
+V  83
+X       DDDDDD   EEEEEEE   CCCCC   EEEEEEE  M     M  BBBBBB   EEEEEEE  R
+V     R 84
+X         SUNDAY            MONDAY            TUESDAY          WEDN
+V            85
+XESDAY         THURSDAY           FRIDAY           SATURDAY
+V                    86
+X        1    222  33333    4  55555  666  77777  888   999
+V                    87
+X       11   2   2     3   44  5     6         7 8   8 9   9
+V                   88
+X        1      2    33   4 4  5555  6666     7   888   9999
+V                   89
+X        1    2    3   3 44444     5 6   6   7   8   8     9
+V                   90
+X      11111 22222  333     4  5555   666    7    888   999
+V                    91
+X  000    1    222  33333    4  55555  666  77777  888   999
+V                   92
+X 0   0  11   2   2     3   44  5     6         7 8   8 9   9
+V                  93
+X 0   0   1      2    33   4 4  5555  6666     7   888   9999
+V                  94
+X 0   0   1    2    3   3 44444     5 6   6   7   8   8     9
+V                  95
+X  000  11111 22222  333     4  5555   666    7    888   999
+V                   96
+X    31    28    31    30    31    30    31    31    30    31    30    31
+V      97
+X      1        I  ---------I-- -----
+V                                          98
+X    01  1992    06  1993     1
+X 1B-1  11-1                                                                L
+VHP 0
+X82  1- 6X 1--1 78  4X 8  2X-1 56  5X16  1X15  2X-1 54  2X 5  2X13  1X18  2XL
+VHP 1
+X-1 52  2X 9  3X 9  1X21  2X-1 50  2X10  1* 1- 2  3X 5  1X15  4* 5  2X-1 49 L
+VHP 2
+X 2X 9  1/ 3* 5  5X15  6* 6  1X-1 48  3X 8  1- 2*27  7* 6  1X-1 47  3X40  5*L
+VHP 3
+X 7  1X-1 47  2X18  1/ 1)33  1X-1 46  3X18  1/34  1X-1 46  3X17  1( 1/ 1  1XL
+VHP 4
+X32  1X-1 44  3X 1  1X20  1- 2X29  1X-1 43  4X 1  1X22  9X20  1X-1 42  4X 2 L
+VHP 5
+X 1X28  8X13  2X-1 41  1X 1  3X 1  2X26  2X 8 13X-1 41  4X 1  1X26  2X-1 39 L
+VHP 6
+X 5X 2  2X23  2X-1 39  5X 1  1X 1  2X21  2X-1 38  6X 1  1X 3  2X18  3X-1 37 L
+VHP 7
+X 4X 1  3X 7  1X14  6X-1 37  4X 1  2X10  1X11  1X 2  5X-1 37  4X 1  2X11  1XL
+VHP 8
+X 9  1X 3  5X-1 36  3X 1  4X12  1X 7  1X 5  6X-1 36  3X 1  4X13  1X 6  1X 6 L
+VHP 9
+X 6X-1 36  7X14  1X 6  1X 7  5X-1 36  8X13  1X 6  1X 7  5X-1 37  8X12  1I 6/L
+VHP10
+X 1I 8  5X-1 38  7X12  1I 6/ 1I 8  5X-1 38  8X11  1I 6/ 1I 8  5X-1 39  7X11 L
+VHP11
+X 1X 6  1X 8  5X-1 41  5X11  1X 6  1X 8  5X-1 57  1X 6  1X 8  4X-1 57  1X 6 L
+VHP12
+X 1X 8  3X-1 57  1X 6  1X-1 56  1X 7  1X-1 55  1X 9  1X-1 54  2X 9  1X-1 54 L
+VHP13
+X 1X10  1X-1 53  1X11  1X-1 53  1X11  1X-1 46  6X 1  1X12  1X 2  6X-1 44  3XL
+VHP14
+X 4  2X13  1X 1  2X 5  2X-1 43  2X 7  2X13  1X 8  2X-1 43  1X10  1X11  2X 9 L
+VHP15
+X 1X-1 42  1X11  1X11  1X11  1X-1 42  1X11  1X11  1X11  1X-1 43  1X10  1X11 L
+VHP16
+X 1X11  1X-1 43  1X10  1X11  1X11  1X-1 44  1X 9  2X10  1X10  1X-1 44  2X 8 L
+VHP17
+X 1X11  1X10  1X-1 34  8X 4  1X 7  2X 3  2X 5  1X 9  1X-1 33  2X 7  4X 1  1XL
+VHP18
+X 3  4X 4  2X 5  1X11  7X-1 31  2X 4  2X 7  6X 7  2X 6  2X 6  1X 8  3X-1 31 L
+VHP19
+X 1X 4  2X21  2X 7  1X 6  2X 5  1X 4  1X-1 31  1X 4  1X 5  1X 6  1X 9  2X 8 L
+VHP20
+X 2X 6  1X 4  1X 4  1X-1 31  1X 3  1X 6  1X 5  1X10  2X10  1X 6  2X 3  1X 3 L
+VHP21
+X 1X-1 31 57X-1                                                             L
+VHP22
+X-2                                                                         *
+VEOP*
+X 11      -1O 1 -1O75  9*-1  1+-1O71  4* 7  3*-1  1+74O 7 -1O69  2*14  1*-1 B
+VGL 1
+X 1+70O14 -1O66  2* 3  3*12  1*-1  1+67O 3  3O12 -1O50 15* 3  1* 5  1*12  1*B
+VGL 2
+X-1  1+64O 3  1O 5  1O12 -1O47  3*18  1* 5  1*13  1*-1  1+49O18  1O 5  1O13 B
+VGL 3
+X-1O45  2*20  2* 4  2*13  1*-1  1+46O20  2O 4  2O13 -1O44  1*22  2* 4  2*14 B
+VGL 4
+X 1*-1  1+44O22  2O 4  2O14 -1O43  1*38  6* 2  1*-1  1+43O38  6O 2 -1O42  1*B
+VGL 5
+X12  6*19  9* 1  1*-1  1+42O12  6O19  9O 1 -1O42  1*11  8*17 10* 2  1*-1  1+B
+VGL 6
+X42O11  8O17 10O 2 -1O42  1*12  5*18 12* 1  1*-1  1+42O12  5O18 12O 1 -1O42 B
+VGL 7
+X 1*34 13* 1  1*-1  1+42O34 13O 1 -1O42  1*28  1* 5 13* 1  1*-1  1+42O28  1OB
+VGL 8
+X 5 13O 1 -1O43  1* 7  1*18  1* 1  1* 3 14* 1  1*-1  1+43O 7  1O18  1O 1  1OB
+VGL 9
+X 3 14O 1 -1O44  1* 5  1* 1  1*16  1* 2  1* 3 14* 1  1*-1  1+44O 5  1O 1  1OB
+VGL10
+X16  1O 2  1O 3 14O 1 -1O45  2* 3  1* 2  3*11  2* 1  1* 1  1* 2 15* 1  1*-1 B
+VGL11
+X 1+46O 3  1O 2  3O11  2O 1  1O 1  1O 2 15O 1 -1O47  4* 1  1* 3 12* 3  2* 2 B
+VGL12
+X14* 2  1*-1  1+50O 1  1O 3 12O 3  2O 2 14O 2 -1O51  3* 2  1* 4  1* 2  1* 3 B
+VGL13
+X 3* 4 14* 1  1*-1  1+53O 2  1O 4  1O 2  1O 3  3O 4 14O 1 -1O54 15* 4 15* 1 B
+VGL14
+X 1*-1  1+68O 4 15O 1 -1O62  1* 8  2* 2 12* 2  1*-1  1+62O 8 16O 2 -1O63  1*B
+VGL15
+X 6  1* 5 10* 1  2*-1  1+63O 6 16O 1 -1O61 10* 6 10*-1  1+-1O61 10* 7  6*-1 B
+VGL16
+X 1+-1O59  2* 8  1*-1  1+60O 8 -1O58  1*11  1*-1  1+58O11 -1O56  2* 7  1* 5 B
+VGL17
+X 1*-1  1+57O 7  1O 5 -1O55  2* 8  1* 5  1*-1  1+56O 8  1O 5 -1O54  2* 8  1*B
+VGL18
+X 7  1*-1  1+55O 8  1O 7 -1O53  2* 9  1* 4  1* 2  1*-1  1+54O 9  1O 4  1O 2 B
+VGL19
+X-1O53  1* 9  1* 5  1* 3  1*-1  1+53O 9  1O 5  1O 3 -1O52  1*10  1* 5  1* 3 B
+VGL20
+X 1*-1  1+52O10  1O 5  1O 3 -1O52  1*10  1* 5  1* 3  1*-1  1+52O10  1O 5  1OB
+VGL21
+X 3 -1O52  1*10  1* 4  1* 1  2* 2  1*-1  1+52O10  1O 4  1O 1  2O 2 -1O51  1*B
+VGL22
+X10  1* 5  2* 2  1* 1  1*-1  1+51O10  1O 5  2O 2  1O 1 -1O51  1*10  1* 5  1*B
+VGL23
+X 3  1* 2  1*-1  1+51O10  1O 5  1O 3  1O 2 -1O51  1*10  1* 7  3* 2  1*-1  1+B
+VGL24
+X51O10  1O 7  3O 2 -1O51  1*10  1* 9  1* 3  1*-1  1+51O10  1O 9  1O 3 -1O51 B
+VGL25
+X 1*10  1* 6  1* 1  1* 4  1*-1  1+51O10  1O 6  1O 1  1O 4 -1O52  1*10  1* 5 B
+VGL26
+X 2* 5  1*-1  1+52O10  1O 5  2O 5 -1O52  1*11  5* 7  1* 3  2*-1  1+52O11  5OB
+VGL27
+X 7 -1O53  1*21  1* 3  1* 2  1*-1  1+53O21  5O 2 -1O54  2*18  5* 3  1*-1  1+B
+VGL28
+X55O18  5O 3 -1O56  1*25  1*-1  1+56O25 -1O47  6* 4  2*22  1*-1  1+58O22 -1OB
+VGL29
+X46  1* 6  3* 2  1* 3  9* 9  1*-1  1+46O 6  6O 3  9O 9 -1O46  1* 2  1* 6  1*B
+VGL30
+X 1  1* 3  1* 6  1* 9  1*-1  1+46O 2  1O 6  3O 3  8O 9 -1O47  2* 2  1* 5  1*B
+VGL31
+X 4  1* 5  1* 5  1* 3  1*-1  1+48O 2  1O 5  1O 4  7O 5  1O 3 -1O48  3*11  2*B
+VGL32
+X 4  1* 2  1* 2  1* 1  2*-1  1+50O11  7O 2  1O 2  1O 1 -1O50  2*12  1* 3  1*B
+VGL33
+X 2  1* 2  1*-1  1+51O12  5O 2  1O 2 -1O52  3*10  1* 2  1* 2  3*-1  1+54O10 B
+VGL34
+X 4O 2 -1O55  4* 6  1* 3  2*-1  1+58O 6 -1O59  6*-1  1+-1O             1 -1OB
+VGL35
+X50 32--1  1+-1O33 63--1  1+-1O42 67--1  1+-1O59 44--1  1+-1O 1*-1O         B
+VGL36
+X-2                                                                         *
+VEOP*
+X 11-1                                                                      L
+VNS00
+X58  7*-1 53  4* 8  3*-1 51  2*16  1*-1 50  2* 7  1*10  1* 9  1*-1 49  1*21 L
+VNS 1
+X 2* 3  1* 1  1* 2  1*-1 49  1* 7  1*15  1* 1  2* 5  1*-1 48  1*10  2*13  1*L
+VNS 2
+X 7  1*-1 49  1*23  1* 8  1*-1 48  2* 4  1* 5  3* 4  1* 4  1* 9  1*-1 47  1*L
+VNS 3
+X 1  1* 3  1* 2  20 1  1* 4  20 2  1* 2  1*10  1*-1 47  2* 4  1* 5  1* 8  1*L
+VNS 4
+X 1  1*11  1*-1 47  1* 6  1* 5  2* 5  1* 2  1* 5  2* 4  1*-1 46  1*22  1* 4 L
+VNS 5
+X 3* 1  1* 3  1*-1 46  1* 9  3* 2  2* 6  1* 2  3* 1  1* 1  1* 3  1*-1 46  1*L
+VNS 6
+X 8  2* 1  3* 2  1* 4  1* 2  2* 2  1* 2  1* 2  1*-1 47  1* 6  2* 1  2* 1  1*L
+VNS 7
+X 2  1* 4  1* 2  1* 2  1* 3  1* 2  1*-1 50  1* 3  3* 3  1* 6  1* 3  1* 3  1*L
+VNS 8
+X 1  1* 2  1*-1 49  6* 5  1* 6  1* 2  1* 3  1* 2  1* 1  1*-1 48  1*11  8* 1 L
+VNS 9
+X 1* 5  1* 1  1* 1  1*-1 47  1*11  1* 6X 3* 7  2* 1  1*-1 46  2*11  1* 6X 1*L
+VNS10
+X 1  1* 8  2*-1 45  1* 20 1* 9  1* 70 1* 1  1* 8  1*-1 45  1* 30 1* 7  1* 80L
+VNS11
+X 1* 1  1* 8  1*-1 45  1* 30 1X 7* 8X 1* 2  1* 6  1* 10-1 45  1* 4015X 1* 1 L
+VNS12
+X 1* 1  2* 2  2* 10-1 46  2*170 1* 1  1* 3  1* 30 1*-1 48  1*160 1* 1  1* 3 L
+VNS13
+X 1* 30 1*-1 48  1*160 1* 1  1* 4  1* 10 1*-1 48  1*16X 1* 1  1* 4  1* 1X 1*L
+VNS14
+X-1 48  1*15X 1* 2  1* 4  1* 1X 1*-1 47  1*150 1* 2  1* 4  1* 10 1*-1 46  1*L
+VNS15
+X170 1* 2  1* 4  1* 10 1* 6  2*-1 45  1*18X 1* 2  1* 4  1* 1X 1* 4  1* 3  1*L
+VNS16
+X-1 45  1*18X 1* 2  1* 4  1* 2X 1* 2  1* 4  1*-1 45  1*18= 1* 2  1* 4  1* 2=L
+VNS17
+X 1* 1  1* 4  1*-1 45  1*19= 1* 1  1* 4  1* 1= 1* 1  1* 5  1*-1 45  1*19= 1*L
+VNS18
+X 2  1* 3  1* 1= 2* 2  1* 3  1*-1 45 21* 3  1* 3  2* 2  2* 3  1* 3  5*-1 52 L
+VNS19
+X 1* 7  1* 1  1* 3  1* 2  1* 6  2* 3  1* 1  3* 5  1*-1 52  1* 7  1* 1  1* 3 L
+VNS20
+X 1* 3  1* 4  1* 1  1* 3  2* 7  1* 3  3*-1 52  9* 1  6* 3  1* 2  1* 2  1*11 L
+VNS21
+X 5* 2  5*-1 52  1* 7  1* 1  1* 5  1* 2  1* 2  1* 2  1*23  1*-1 45 25* 2  2*L
+VNS22
+X 2  1*24  1*-1 43  2*11  2*12  1* 2  1* 7  3*14  3*-1 41  2*11  2*15 10* 2 L
+VNS23
+X15*-1 40 34*-1 -1 -1 -1 -1 -1 50  1S 1E 1C 1U 1R 1I 1T 1Y 1  1I 1S 1  1A 1 L
+VNS24
+X 1W 1A 1R 1M 1  1B 1L 1A 1N 1K 1E 1T-1                                     L
+VNS25
+X-2                                                                         *
+VEOP*
+X 1151 10X-1 51 14X-1 49  4X 4  3X 3  3X-1 48  4X 4  1X 2  2X 3  3X-1 47  3XD
+VOC 1
+X15  3X-1 46  2X19  2X-1 45  3X20  2X-1 44  3X22  2X-1 44  3X22  3X-1 44  3XD
+VOC 2
+X14  2X 1  3X 3 11X-1 44  2X12  5X 3  4X 2  5X 3  4X-1 44  2X11  2X24  3X-1 D
+VOC 3
+X44  2X39  2X-1 44  1X41  2X-1 44  1X42  2X-1 43  2X43  2X-1 43  2X 1  1X 2 D
+VOC 4
+X 2X38  2X-1 43  1X 1  2X 1  4X38  2X-1 43  1X 2  2X 1  4X23  5X 9  2X-1 43 D
+VOC 5
+X 1X 2  7X21  8X 8  2X-1 43  1X 2  8X20  8X 8  2X-1 43  1X 2  9X20  6X 9  2XD
+VOC 6
+X-1 43  1X 2 10X33  2X-1 43  1X 2 10X33  2X-1 43  1X 2 10X32  3X-1 43  2X 1 D
+VOC 7
+X10X31  3X-1 44  1X 1  8X 1  1X31  2X-1 44  1X 1  8X 1  2X28  3X-1 44  1X 2 D
+VOC 8
+X 7X 1  3X10 19X-1 45  1X 1  7X 1  4X 8  6X-1 45  1X 2  6X 1  5X 6  2X 2  3XD
+VOC 9
+X-1 46  1X 1  6X 1  2X 2  2X 5  2X 2  3X-1 46  2X 1  5X 1  2X 3  2X 4  2X 2 D
+VOC10
+X 3X-1 48  1X 2  2X 2  1X 5  8X-1 49  2X 3  2X 4 10X-1 50  5X 6  2X 6  2X-1 D
+VOC11
+X52  1X 7  2X 8  1X-1 56  4X 4 10X-1 55  3X 3  6X 3  6X-1 54  2X16  3X 1  1XD
+VOC12
+X-1 36 19X18 24X-1 35  1X17  4X 3  8X 4  3X22  1X-1 34  1X19  7X 5  3X 2  3XD
+VOC13
+X24  1X-1 33  1X34  5X26  1X-1 32  1X67  1X-1 31 71X-1 31  1X69  1X-1 31  1XD
+VOC14
+X52 14X 3  1X-1 31  1X52  1X12  1X 3  1X-1 31  1X 2  4X 2  5X 1  5X 1  5X 1 D
+VOC15
+X 5X 1  4X 4  3X 2  5X 2  1X 1  3X 2  1X 3  1X 1  1X 3  1X-1 31  1X 2  1X 3 D
+VOC16
+X 1X 1  1X 3  1X 1  1X 7  1X 3  1X 3  1X 1  1X 3  1X 4  1X 3  1X 6  1X 2  1XD
+VOC17
+X 3  2X 2  1X 1  1X 3  1X-1 31  1X 2  1X 3  1X 1  1X 3  1X 1  1X 7  1X 3  1XD
+VOC18
+X 3  1X 1  4X 5  1X 3  5X 2  1X 2  1X 3  1X 1  1X 1  1X 1  1X 3  1X-1 31  1XD
+VOC19
+X 2  1X 3  1X 1  1X 3  1X 1  1X 7  1X 3  1X 3  1X 1  1X 1  1X 6  1X 7  1X 2 D
+VOC20
+X 1X 2  1X 3  1X 2  2X 1  1X 3  1X-1 31  1X 2  4X 2  5X 1  5X 3  1X 3  5X 1 D
+VOC21
+X 1X 2  1X 4  3X 2  5X 2  1X 1  3X 2  1X 3  1X 1  1X 3  1X-1 31  1X52  1X12 D
+VOC22
+X 1X 3  1X-1 31  1X52 14X 3  1X-1 31  1X69  1X-1 31  1X69  1X-1 31  1X69  1XD
+VOC23
+X-1                                                                         D
+VOC24
+X-2                                                                         *
+VEOP*
+X 1152  1X 1  1X 1  9X-1 51  5X10  2O-1 50  4X 1  1X 4  2/ 6  2O-1 49  2X 1 S
+VNP 1
+X 1X 5  2/ 9  2O-1 48  4X 5  2/11  2O-1 48  2X 6  2/12  2O-1 47  2$22  2O-1 S
+VNP 2
+X46  3$23  2O-1 45  3$ 1  1$ 9  4* 3  4* 2  2O-1 45  3$ 1  1$ 9  5* 2  5* 2 S
+VNP 3
+X 1O-1 45  3$ 1  1$ 9  5* 2  5* 2  2O-1 44  6$ 9  5* 2  5* 3  5O-1 44  3$ 1 S
+VNP 4
+X 2$ 9  4* 4  4* 8  3O-1 43  4$ 1  2$33  2O-1 43  7$35  2O-1 43  6$37  3O-1 S
+VNP 5
+X43  7$37  3O-1 43  7$38  3O-1 42  6$ 1  2$38  3O-1 42  7$ 1  2$22  7M 8  3OS
+VNP 6
+X-1 42  7$ 1  1$ 1  2O19 11M 5  3O-1 42  7$ 1  1$ 2  2O18 11M 5  3O-1 41  8$S
+VNP 7
+X 1  1$ 3  1O 1  6O14  7M 6  3O-1 41  1$ 1  6$ 1  1$ 4  1O 5  6O21  3O-1 41 S
+VNP 8
+X 1$ 1  6$ 1  1$ 4  2O 7  3O20  3O-1 41  7$ 2  1$ 5  1O 7  1O 2  3O14  4O-1 S
+VNP 9
+X41  1$ 4  2$ 2  1$ 6  1O 6  1O 4 16O-1 41  2$ 3  1$ 1  1$ 8  1O 6  1O 4  1$S
+VNP10
+X 1  1$ 2  2$-1 42  3$ 1  1$ 1  1$ 7 10* 3  1$ 1  1$ 1  3$-1 44  2$11  1O 1 S
+VNP11
+X 5* 1  2O 2  1$ 2  3$-1 44  2$10  2O 7  2O 2  2$ 1  1$ 1  1$-1 55  2O 8  2OS
+VNP12
+X 3  2$ 1  1$-1 56  2O 8  2O-1 55  2O10  2O-1 55  2O11  2O-1 54  2O12  2O-1 S
+VNP13
+X53  2O13  2O-1 51  3O 6  1O 7  2O-1 50  3O 7  1O 7  3O-1 49  3O 2  1O 5  1OS
+VNP14
+X 8  2O-1 48  3O 2  1O 5  2O 8  2O-1 47  3O 3  1O 5  2O 8  2O-1 46  2O 1  3OS
+VNP15
+X 1  1O 5  2O 8  2O-1 45  4O 2  3O 5  2O 8  2O-1 44  3O 5  2O 5  2O 7  2O-1 S
+VNP16
+X44  3O 5  2O 5  2O 7  3O-1 43  2O 7  1O 6  3O 5  2O 1  4O-1 43  2O 7  1O 4 S
+VNP17
+X 8O 1 14O-1 38  6I 3O 5  1O 7  1O 3  7O 9  2O-1 34  4I 1  6I 2O 5  1O17  3OS
+VNP18
+X 8  2O-1 32  3I11  7O12  4O 4  2O 3  1O 3  2O10  6--1 32  7I 3  2I 8  1O15 S
+VNP19
+X 3O 3  2O 3  2O 2  1O 3  8--1 37  3I 3  3I 6  1O10  1O 6  2O 3  1O 4  1O 2 S
+VNP20
+X 1O-1 39  6I 1  4I 2  2O 9  2O 6  2O 2  3O 2  1O 1  2O10  6--1 49  4-13O 5 S
+VNP21
+X 1O 1  2O 1  7O 2 10--1 37  9-17  8O 1  2O-1 -1 -1 49  1L 1O 1V 1E 1  1I 1SS
+VNP22
+X 1  1A 1  1W 1E 1T 1  1P 1U 2P 1Y 1  1D 1O 1G-1                            S
+VNP23
+X-2                                                                         *
+VEOP*
+X 11-1 35  6$ 9  5$-1 33 10$ 5 10$-1 32 12$ 3 13$-1 31 14$ 1 15$-1 30 15$ 1 M
+VAY 1
+X16$-1 30 15$ 1 16$-1 30 15$ 1 16$-1 31 10$ 8 12$-1 32  7$12  8$-1 33  5$14 M
+VAY 2
+X 5$-1 56  8$-1 29  7$18 11$-1 27  9$17 12$-1 26 11$15 13$-1 26 12$13 14$-1 M
+VAY 3
+X26 14$ 1  2$ 5  4$ 1 12$-1 27 12$ 1 13$ 1 10$-1 28  9$ 3 13$ 3  6$-1 30  6$M
+VAY 4
+X 3 14$-1 39 13$ 1  2$-1 40 11$ 2  2$-1 42  9$ 3  2$-1 54  2$-1 55  2$-1 55 M
+VAY 5
+X 2$-1 55  2$-1 55  2$47  1, 3  1.-1 55  2$47  1, 2  1/ 3  1.-1 55  2$ 7  8$M
+VAY 6
+X32  1, 1  1/ 2  1. 1- 2  1.-1 54  2$ 4 14$30  1. 2  1. 1- 2  1. 1--1 53  2$M
+VAY 7
+X 3 16$28  1. 1/ 4  1. 2- 1  3.-1 28  6$18  2$ 2 19$18  1. 8- 1  1* 5  1. 2-M
+VAY 8
+X-1 24 14$13  2$ 1 11$27  1/16  7.-1 23 16$11 12$30  1,17  2.-1 22  8= 1  9$M
+VAY 9
+X 9 10$34  8.11  4--1 21  6$ 7  7$ 6  5$49  1. 8  2- 2.-1 21  2$12  7$ 4  3$M
+VAY10
+X53  1. 2  1. 3- 2. 3  1--1 36  6$ 3  2$55  1. 1  1, 6  1- 1.-1 37  5$ 2  2$M
+VAY11
+X55  1/ 3  1,-1 39  4$ 1  2$54  1/ 1  1, 1  1, 1  1,-1 39  4$ 1  2$53  1, 2 M
+VAY12
+X 1, 1  1, 2  1,-1 40  5$54  1, 2  1, 2  1, 1  1,-1 41  4$54  1, 2  1, 2  1,M
+VAY13
+X 1  1,-1 42  3$54  1, 3  1, 1  1, 1  1,-1 43  2$55  1, 3  1, 2  1,-1 44  1$M
+VAY14
+X56  1- 2. 1, 1.10- 1.-1 44  1$59  1I 3 10--1 44  1$53  9/ 1.-1 -1 -1 -1 -1 M
+VAY15
+X-1 -1 -1 65  1S 1  1I 1  1G 1  1H 2  1. 1  1. 1  1.-1                      M
+VAY16
+X-2                                                                         *
+VEOP*
+X 11            -1O 1+-1  1 -1O 1+63  7$-1  1 -1O 1+59 15$-1  1 -1O 1+57 18$S
+VKP 1
+X-1  1 -1O 1+57 18$-1  1 -1O 1+35  4$20 15$-1  1 37O 1 -1O 1+33  4$ 1  2$28 S
+VKP 2
+X 5$-1  1 36O 1 -1O 1+30  6$ 1  3$26  6$-1  1 35O 1 -1O 1+29  6$ 1  3$24  8$S
+VKP 3
+X-1  1 34O 1 -1O 1+27  7$ 1  3$14  6$ 3  6$ 7 13$-1  1 74O12 -1O 1+26 11$11 S
+VKP 4
+X16$ 8  2$12  4$-1  1 50O12 10O17 -1O 1+25 11$11  2$13 10$17  2$-1  1 26O 1 S
+VKP 5
+X20O 8  2O33 -1O 1+23  3$ 1  8$10  2$ 8  2$33  2$-1  1 25O 1 20O 8  2O35 -1OS
+VKP 6
+X 1+22  3$ 1  8$10  2$ 8  2$35  2$-1  1 25O 1 19O 8  2O21  9O 7 -1O 1+21  4$S
+VKP 7
+X 1  6$11  2$ 8  2$21  9$ 7  2$-1  1 24O 1 19O31 12O 6 -1O 1+20  4$ 1  6$10 S
+VKP 8
+X 3$31 12$ 6  2$-1  1 45O16  2O12 12O 6 -1O 1+20 25$16  2$12 12$ 6  2$-1  1 S
+VKP 9
+X45O16  2O30 -1O 1+20 25$16  2$30  2$-1  1 45O17  2O21  2O 5 -1O 1+21 24$17 S
+VKP10
+X 2$21  2$ 5  2$-1  1 45O18  2O19  2O 5 -1O 1+23 15$ 4  3$18  2$19  2$ 5  2$S
+VKP11
+X-1  1 45O20  2O14  3O 4 -1O 1+43  2$20  2$14  3$ 4  3$-1  1 46O20  2O 4 -1OS
+VKP12
+X 1+44  2$20  2$ 4 16$-1  1 50O17 -1O 1+46  4$17  7$-1  1 54O14 -1O 1+49  5$S
+VKP13
+X14  3$14  4$-1  1 58O10 18O 2 -1O 1+53  5$10  2$14  2$ 2  1$ 3  3$-1  1 60OS
+VKP14
+X 8 18O 2 -1O 1+58  2$ 8  2$14  2$ 2  9$-1  1 61O 7 18O 2  1O 7 -1O 1+59  2$S
+VKP15
+X 7  2$14  2$ 2  1$ 7  3$-1  1 84O11 -1O 1+61 10$11  2$11  4$-1  1 82O14 -1OS
+VKP16
+X 1+48  4$ 9 12$ 6  3$14  3$-1  1 48O 4 28O 7 -1O 1+46  2$ 4  1$ 7 13$ 4  3$S
+VKP17
+X 7 12$-1  1 47O 5 14O 6  6O 6 -1O 1+45  2$ 5  1$ 8  5$ 6  6$ 6  4$ 4  5$-1 S
+VKP18
+X 1 48O 4 14O 8  1O 7 -1O 1+46  2$ 4  2$11  1$ 8  1$ 7  3$-1  1 50O 2 14O12 S
+VKP19
+X-1O 1+48  2$ 2 14$12  4$-1  1 49O30 -1O 1+45  4$30  2$-1  1 45O35 -1O 1+43 S
+VKP20
+X 2$35  2$-1  1 45O 8 14O14 -1O 1+42  3$ 8 14$14  2$-1  1 47O 6 14O15 -1O 1+S
+VKP21
+X42  5$ 6  2$10  2$15  2$-1  1 46O 3  1O 3 14O16 -1O 1+43  3$ 3  1$ 3  1$11 S
+VKP22
+X 2$16  2$-1  1 47O 2 18O17 -1O 1+45  2$ 2  5$11  2$17  2$-1  1 66O19 -1O 1+S
+VKP23
+X47  5$12  2$19  2$-1  1 66O 7  7O 5 -1O 1+64  2$ 7  7$ 5  3$-1  1 66O 5  4OS
+VKP24
+X 4  2O 5 -1O 1+57  3$ 4  2$ 5  4$ 4  2$ 5  2$-1  1 66O 3  2O 8  2O 5 -1O 1+S
+VKP25
+X55  4$ 4  3$ 3  2$ 8  2$ 5  2$-1  1 57O 5O 4O 1  3O 9  2O 5 -1O 1+54  3$ 5 S
+VKP26
+X 4$ 1  3$ 9  2$ 5  2$-1  1 54O 1 13O11  1O 6 -1O 1+53  1$ 1  2$ 5  6$11  1$S
+VKP27
+X 6  7$-1  1 53O 2 11O12  2O 4  3O 4 -1O 1+52  1$ 2  1$ 5  5$12  2$ 4  3$ 4 S
+VKP28
+X 3$-1  1 52O 2 11O12  2O 2  3O 6 -1O 1+51  1$ 2  2$ 5  4$12  2$ 2  3$ 6  3$S
+VKP29
+X-1  1 52O 2 11O11  4O 6 -1O 1+49  3$ 2  2$ 5  4$11  4$ 6  4$-1  1 51O 3 10OS
+VKP30
+X10  5O 3  3O 1 -1O 1+48  3$ 3  2$ 5  3$10  5$ 3  3$ 1  3$-1  1 48O 1  2O 3 S
+VKP31
+X10O 9  3O 7 -1O 1+47  1$ 1  2$ 3  2$ 5  3$ 9  3$ 7  5$-1  1 48O 2  1O 3 10OS
+VKP32
+X 7  3O 6 -1O 1+47  1$ 2  1$ 3  2$ 5  3$ 7  3$ 6 12$-1  1 48O 2  1O 4 10O 3 S
+VKP33
+X 3O 6  5O 6 -1O 1+46  2$ 2  1$ 4 10$ 3  3$ 6  5$ 6  3$-1  1 48O 2  1O 6  8OS
+VKP34
+X 2 13O 4 -1O 1+46  2$ 2  1$ 6  8$ 2 13$ 4  5$-1  1 48O 2 13O 5  6O 6 -1O 1+S
+VKP35
+X46  2$ 2 13$ 5  6$ 6  9$-1  1 49O 7 14O 5  7O 7 -1O 1+47  2$ 7 14$ 5  7$ 7 S
+VKP36
+X 5$-1  1 76O16 -1O 1+48 28$16  3$-1  1 65O10 -1O 1+54  4$ 4  3$10 21$-1  1 S
+VKP37
+X70O 7  1O 7 -1O 1+47 10$ 7  6$ 7  1$ 7  5$-1  1 81O 4 -1O 1+48  8$13 12$ 4 S
+VKP38
+X 6$-1  1 -1O 1+79 11$-1  1*-1O                                             S
+VKP39
+X-2                                                                         *
+VEOP*
+X 1156 20*-1  1+56 20Q-1 54  3*20  3*-1  1+53  3Q20  3Q-1 52  2*26  2*-1  1+Y
+VOY 1
+X51  2Q26  2Q-1 50  2*10 10* 9  1*-1  1+49  2Q10 10Q 9  1Q-1 49  1*22  1* 9 Y
+VOY 2
+X 2*-1  1+48  1Q22  1Q 9  2Q-1 48  1*23  1*11  1*-1  1+47  1Q23  1Q11  1Q-1 Y
+VOY 3
+X46  2* 8  1* 3  2* 8  2*13  1*-1  1+45  2Q 8  1Q 3  2Q 8  2Q13  1Q-1 46  1*Y
+VOY 4
+X10 13*16  2*-1  1+45  1Q10 13Q16  2Q-1 45  1*41  1*-1  1+44  1Q41  1Q-1 45 Y
+VOY 5
+X 1*42  1*-1  1+44  1Q42  1Q-1 45  1*12  3* 3  4* 2  3*15  1*-1  1+44  1Q12 Y
+VOY 6
+X 3Q 3  4Q 2  3Q15  1Q-1 45  1*12  3* 7  1* 1  3*15  1*-1  1+44  1Q12  3Q 7 Y
+VOY 7
+X 1Q 1  3Q15  1Q-1 45  1*22  1*19  1*-1  1+44  1Q22  1Q19  1Q-1 45  1*16  6*Y
+VOY 8
+X20  2*-1  1+44  1Q16  6Q20  2Q-1 43  3*42  1* 1  2*-1  1+42  3Q42  1Q 1  2QY
+VOY 9
+X-1 43  1*33  1*10  1* 1  2*-1  1+42  1Q33  1Q10  1Q 1  2Q-1 43  1*33  3* 8 Y
+VOY10
+X 1* 1  2*-1  1+42  1Q33  3Q 8  1Q 1  2Q-1 43  1*10  3*19  1*10  3*-1  1+42 Y
+VOY11
+X 1Q10  3Q19  1Q10  3Q-1 44  4* 9  1*16  2*11  1*-1  1+43  4Q 9  1Q16  2Q11 Y
+VOY12
+X 1Q-1 48  1* 9 16*12  1*-1  1+47  1Q 9 16Q12  1Q-1 49  1*35  1*-1  1+48  1QY
+VOY13
+X35  1Q-1 50  2*32  1*-1  1+49  2Q32  1Q-1 52  1*29  2*-1  1+51  1Q29  2Q-1 Y
+VOY14
+X53  3*24  2*-1  1+52  3Q24  2Q-1 56  2*18  4*-1  1+55  2Q18  4Q-1 58 18*-1 Y
+VOY15
+X 1+57 18Q-1 58 16*-1  1+57 16Q-1 44  4*10  3*12  3*14  4* 2  2*-1  1+43  4QY
+VOY16
+X10  3Q12  3Q14  4Q 2  2Q-1 39  5* 2  2* 9  1* 3  1*10  1* 3  1*12  1* 4  2*Y
+VOY17
+X 1  3*-1  1+38  5Q 2  2Q 9  1Q 3  1Q10  1Q 3  1Q12  1Q 4  2Q 1  3Q-1 39  2*Y
+VOY18
+X 2  1* 2  4* 6  1* 5 10* 5  1*11  1* 4  2* 1  3*-1  1+38  2Q 2  1Q 2  4Q 6 Y
+VOY19
+X 1Q 5 10Q 5  1Q11  1Q 4  2Q 1  3Q-1 41  3* 2  2* 2  6*22 12* 3  1* 3  4*-1 Y
+VOY20
+X 1+40  3Q 2  2Q 2  6Q22 12Q 3  1Q 3  4Q-1 39  5* 4  1* 3  1*33  2* 4  1* 7 Y
+VOY21
+X 1*-1  1+38  5Q 4  1Q 3  1Q33  2Q 4  1Q 7  1Q-1 37  2* 2  2* 5 42* 7  1*-1 Y
+VOY22
+X 1+36  2Q 2  2Q 5 42Q 7  1Q-1 37  7* 8  1*27  1* 5  2* 9  3*-1  1+36  7Q 8 Y
+VOY23
+X 1Q27  1Q 5  2Q 9  3Q-1 40  4* 8  1*28  1* 4  2* 5  3* 1  1*-1  1+39  4Q 8 Y
+VOY24
+X 1Q28  1Q 4  2Q 5  3Q 1  1Q-1 43  3* 6  1*29  2* 4  1* 4  1* 2  2*-1  1+42 Y
+VOY25
+X 3Q 6  1Q29  2Q 4  1Q 4  1Q 2  2Q-1 43  1* 1  1* 4  2* 2  2*26  2* 5  1* 2 Y
+VOY26
+X 2*-1  1+42  1Q 1  1Q 4  2Q 2  2Q26  2Q 5  1Q 2  2Q-1 43  1* 2  8*28  2* 5 Y
+VOY27
+X 3*-1  1+42  1Q 2  8Q28  2Q 5  3Q-1 43  1* 8  1* 7  1* 7  1* 9  2* 2  7*-1 Y
+VOY28
+X 1+42  1Q 8  1Q 7  1Q 7  1Q 9  2Q 2  7Q-1 43  1* 8  2* 5  4* 4  4* 6  4* 1 Y
+VOY29
+X 4*-1  1+42  1Q 8  2Q 5  4Q 4  4Q 6  4Q 1  4Q-1 43  1* 8  4* 2  6* 2  6* 4 Y
+VOY30
+X10*-1  1+42  1Q 8  4Q 2  6Q 2  6Q 4 10Q-1 43  1* 8  5* 1  7* 1  7* 1 13*-1 Y
+VOY31
+X 1+42  1Q 8  5Q 1  7Q 1  7Q 1 13Q-1 43  1* 8 35*-1  1+42  1Q 8 35Q-1 43  1*Y
+VOY32
+X 8  1* 1  7* 1  7* 1  7* 3  7*-1  1+42  1Q 8  1Q 1  7Q 1  7Q 1  7Q 3  7Q-1 Y
+VOY33
+X40  6* 6  1* 3  4* 4  4* 4  4* 5  4* 1  1*-1  1+39  6Q 6  1Q 3  4Q 4  4Q 4 Y
+VOY34
+X 4Q 5  4Q 1  1Q-1 38  2* 6  2* 4  1* 4  1* 7  1* 7  1* 8  2* 2  1*-1  1+37 Y
+VOY35
+X 2Q 6  2Q 4  1Q 4  1Q 7  1Q 7  1Q 8  2Q 2  1Q-1 37  1*10  1* 3  1*33  1*-1 Y
+VOY36
+X 1+36  1Q10  1Q 3  1Q33  1Q-1 36 14* 2  1*33  1*-1  1+35 14Q 2  1Q33  1Q-1 Y
+VOY37
+X36  1*12  1* 2 35*-1  1+35  1Q12  1Q 2 35Q-1 36 14* 2 35*-1  1+35 14Q 2 35QY
+VOY38
+X-1 36 14* 2 35*-1  1+35 14Q 2 35Q-1 37  1*10  1* 3 35*-1  1+36  1Q10  1Q 3 Y
+VOY39
+X35Q-1 38  2* 6  2* 9  1* 3 17* 3  1*-1  1+37  2Q 6  2Q 9  1Q 3 17Q 3  1Q-1 Y
+VOY40
+X40  6*11  1* 8  2* 4  1* 8  1*-1  1+39  6Q11  1Q 8  2Q 4  1Q 8  1Q-1 57  1*Y
+VOY41
+X 3  7* 2 12*-1  1+56  1Q 3  7Q 2 12Q-1 57 11* 1 21*-1  1+56 11Q 1 21Q-1 54 Y
+VOY42
+X11* 3 17* 5  3*-1  1+53 11Q 3 17Q 5  3Q-1 53  1*23  1*14  1*-1  1+52  1Q23 Y
+VOY43
+X 1Q14  1Q-1 52  1*23 17*-1  1+51  1Q23 17Q-1 53 23*-1  1+52 23Q-1  0  0  0 Y
+VOY44
+X-2                                                                         *
+VEOP*
+X 1152  3*-1 51  6*-1 49  1* 8  1*-1 48  1*10  1*-1 48  1*10  1* 7  5*-1 47 D
+VGH 1
+X 1*11  1* 4  1* 8  1*-1 47  1*10  1* 4  1*10  1* 6  4*-1 47  1*10  2* 2  1*D
+VGH 2
+X12  1* 3  2* 2  1* 1  1*-1 46  1* 1  2O 6  1* 2  2+ 9  1* 3  2* 8  1*-1 45 D
+VGH 3
+X 1* 8  1* 5  2+14  1* 3  2* 3  1*-1 44  1*15  2+15  3* 1  5*-1 44  1*15  2+D
+VGH 4
+X 2  9*12  1*-1 44  1*15  2+11  1*11  1*-1 46  2* 2  3* 7  2+ 7* 5  6* 5  1*D
+VGH 5
+X-1 36 12X 2* 3+ 7* 2+ 7X 1* 2  2* 6X 5*16X-1 36  1X12  5+16  2*28  1X-1 36 D
+VGH 6
+X 1X12  5+46  1X-1 36  1X12  5+46  1X-1 36  1X11  6+46  1X-1 36  1X11  6+46 D
+VGH 7
+X 1X-1 35 13X 6+48X-1 35  1X11  7+47  1X-1 35  1X11  7+47  1X-1 35  1X12  6+D
+VGH 8
+X47  1X-1 35  1X13  4+48  1X-1 35  1X14  2+49  1X-1 35  1X65  1X-1 34 69X-1 D
+VGH 9
+X34  1X67  1X-1 34  1X67  1X-1 34  1X67  1X-1 34  1X67  1X-1 34  1X67  1X-1 D
+VGH10
+X34  1X67  1X-1 34 69X-1 35  1X65  1X-1 35 67X-1 43  1X47  1X-1 43  1X47  1XD
+VGH11
+X-1 43 49X-1 43  1X47  1X-1 43  1X47  1X-1 43  1X47  1X-1 43  1X47  1X-1 43 D
+VGH12
+X 1X47  1X-1 43 49X-1 43  1X47  1X-1 43  1X47  1X-1 43  1X47  1X-1 43  1X47 D
+VGH13
+X 1X-1 43  1X47  1X-1 43 49X-1 43  1X47  1X-1 43 49X-1                      D
+VGH14
+X-2                                                                         *
+VEOP*
+X 11   89 11*-1 87 19*-1 84  4* 4  2* 3  2* 2  2* 2  4*-1 81  3* 9 14* 1  3*P
+VNT 1
+X-1 28  4*47  3*23  2* 3  3*-1 27  2*47  3*28  4* 1  3*-1 26  2*48  3*30  2*P
+VNT 2
+X 3  2*-1 19  4* 3  1*17 12*20  2*33  3* 1  2*-1 16 12*14  4* 7  6*17  2* 3 P
+VNT 3
+X 3*32  2*-1 14  5* 8  4* 1  2* 5  4*15  3*15  3* 3  5*30  2*-1 12  3*14 12*P
+VNT 4
+X20  3* 1  3* 9  3* 6  4*27  3*-1 11  3*18  2*28  7* 9  2* 9  4*25  2*-1 10 P
+VNT 5
+X 2*20  2*28  3* 2  3* 9  2*11  5*21  3*-1  9  2*21  2*29  7* 9  3*14  5*18 P
+VNT 6
+X 2*-1  9  1*23  2*28  7*10  3*17  5*14  2*-1  8  1*53  6*13  3*19  6*10  2*P
+VNT 7
+X-1  8  1*53  2*19  3*22  7* 4  2*-1  7  3*20  6*24  3*21  4*26  3* 2  2*-1 P
+VNT 8
+X 7  3*18 13*16  5*24  4*28  2*-1  7  5*16  2* 8 21*29  4*24  3*-1  7  7*14 P
+VNT 9
+X 2*16  9*36  6*16  4*-1  7  8*13  2*64  7* 7  6*-1  6 11*11  3*69 10*-1  6 P
+VNT10
+X12*11  2*-1  6 14* 9  3*-1  6 15*10  3*-1  6 15*11  5* 8  6*-1  7 15*13 12*P
+VNT11
+X 2  2*-1  7 16*24  3*-1  8 16*16  9*-1  9 16*15  2* 2  2*-1 10 21*10  6* 4 P
+VNT12
+X 9*18  6*-1 11 24* 5 24*13  2* 4  3*-1 12 15* 6 10*19  5*10  2* 5  3*-1 13 P
+VNT13
+X15* 7  5* 8  7*11  3* 8  2* 3  2* 2  2*-1 15 13* 9  1* 5 16* 9  3* 6  2* 8 P
+VNT14
+X 2*-1 17 11* 7  3* 1  5*14  3* 9  2* 6  2* 5  5*-1 20  8* 6  3*23  2* 9  2*P
+VNT15
+X 6  2* 8  2*-1 22  6* 5  2*25  2* 9  3* 7  2* 6  2*-1 24  3* 6  2* 8  8* 3 P
+VNT16
+X 1* 2  1* 3  2* 9  2* 8  2* 5  3*-1 33 10* 1  2* 4  2* 2  1* 2  1* 2  3* 9 P
+VNT17
+X 2* 8  2* 6  2*-1 45  1* 5 11*10 12* 6  2*-1 45  2*25  5* 4  3* 6  2*-1 45 P
+VNT18
+X 2*43  2*-1 46  1*43  2*-1 46  2*42  2*-1 47  2*26  8* 7  2*-1 48  2*24 13*P
+VNT19
+X 2  3*-1 49  2*21  3* 9  6*-1 50  2*18  3*-1 51  4* 6  2* 7  2*-1 53 10* 6 P
+VNT20
+X 2*-1 59  3* 6  2*-1 49 11* 4  9*-1 47  3*22  2*-1 47  2*24  2*-1 48  2*15 P
+VNT21
+X 3* 6  1*-1 49  3* 7  2* 6  3* 2  2*-1 51  4* 5  2* 7  3*-1 54 16*-1       P
+VNT22
+X-2                                                                         *
+VEOP*
+X 1162 10*-1 59  4*10  4*-1 56  3*18  2*-1 54  2* 6  6*11  2*-1 53  1* 6  2*C
+VHB 1
+X19  1*-1 52  1* 6  1*22  1*-1 51  1* 7  1* 6  1* 6  1* 9  1*-1 50  1* 9  2*C
+VHB 2
+X 2  2* 1  2* 2  2*10  1*-1 50  1*11  2* 5  2*12  1*-1 49  1* 6  1*16  2* 9 C
+VHB 3
+X 1*-1 49  1* 5  1* 7  4* 8  1* 8  1*-1 48  1* 5  1* 4  2O 1  1* 5  2O 5  1*C
+VHB 4
+X 8  2*-1 48  1* 5  1* 7  1*11  1* 8  1* 2  1*-1 48  1* 6  1* 7  3*21  1*-1 C
+VHB 5
+X48  1*37  1*-1 49  1*33  3*-1 50  1*32  1*-1 50  1* 7  1I14- 1I 8  1*-1 51 C
+VHB 6
+X 1* 1  1* 2  2*23  1*-1 52  1* 1  2* 2  3*18  2*-1 52  1* 1  1* 2  2* 2  1*C
+VHB 7
+X14  3*-1 52  1* 5  4*10  4*-1 53  1* 5 13* 3  1*-1 54  1* 5  2*12  2*-1 53 C
+VHB 8
+X 2* 5 13* 3+-1 50  2* 8  3* 4+ 4* 7+-1 52  2* 6  4* 2+ 6* 5+-1 49  1*10  1*C
+VHB 9
+X17+-1 48  1*11  1*18+-1 48  1*10  1*20+-1 47  1+ 1* 9  1*21+-1 47  2+ 1* 7 C
+VHB10
+X 1*13+ 1* 8+-1 47  3+ 2* 2  3*14+ 2* 8+-1 48  2+ 1O 1+ 2* 3+ 1O 6+ 1O 6+ 1OC
+VHB11
+X 1* 8+-1 49  3O 4+ 3O 4+ 3O 4+ 2O 1* 8+-1 49  4O 2+ 5O 2+ 5O 2+ 3O 1* 6  1*C
+VHB12
+X 1+-1 49 23O 1* 6  1* 2+-1 49  2+ 6O 1+ 6O 1+ 6O 1+ 1* 6  1* 2+-1 48  4+ 4OC
+VHB13
+X 3+ 4O 3+ 4O 2+ 1* 6  2* 2+-1 48  5+ 2O 5+ 2O 5+ 2O 3+ 1* 1  1* 1  1* 1  4*C
+VHB14
+X 1+-1 48 24+ 1* 1  1* 1  2* 1  1* 3+-1 48 24+ 5* 1+ 1* 4+-1 49 33X-1 49 33XC
+VHB15
+X-1 49 33X-1 57  1* 7  1* 2  1* 8  1*-1 57  9* 2  8*-1 57  1* 7  1* 2  1* 8 C
+VHB16
+X 1*-1 52 28*-1 48  4* 9  4*14  2*-1 46  2*12  2*18  2*-1 45 37*-1 79 -1 54 C
+VHB17
+X 1O 1H 1, 1  1G 2O 1D 1  1G 1R 1I 1E 1F-1                                  C
+VHB18
+X-2                                                                         *
+VEOP*
+X 11-1  1 -1  1 -1 57 13X-1 54  4X11  3X-1 54  1X20  2X-1 53  2X22  2X-1 52 S
+VHR 1
+X 2X26  2X-1 51  2X29  2X-1 50  2X32  2X-1 49  2X34  2X-1 49  2X35  2X-1 49 S
+VHR 2
+X 2X36  2X-1 49  2X16  5X16  2X-1 37 11X 1  2X 9  1X 4  1X 2  3X 2  1X15  2XS
+VHR 3
+X-1 33  4R 8  3X 2  1X 7  2X 4  1X 1  1X 5  1X 1  1X14  2X-1 29  9R 7  5X 1 S
+VHR 4
+X 6X 1  2X 1  2X 1  1X 6  1X 2  1X13  2X-1 26 12R 7  3X17  1X 6  1X 1  1X13 S
+VHR 5
+X 2X-1 24 15R 6  3X23  1X 1  1X12  2X-1 21  1X 4 14R 5  3X21  1X 1  2X11  2XS
+VHR 6
+X-1 19  1X 7 14R 4  7X19  2X 9  2X-1 17  1X10 13R 2  5X 3  1X22  1X 5  2X-1 S
+VHR 7
+X15  2R12  7R 1X 8  3X 4  1X23  1X 4  2X-1 14  4R12  5R 1X 9  2X 5  1X14  2XS
+VHR 8
+X 7  1X 5  2X-1 13  6R12  3R 1X10  1R 1X 6  1X14  2X 6  1X 6  2X-1 12  8R12 S
+VHR 9
+X 2R 1X 7  4R 1X 7  1X15  1X 1  4X 8  2X-1 11 10R12  1R 1X 4  7R 1X 8  1X14 S
+VHR10
+X 2X 3  1X 8  2X-1 10 12R 9  4V 1X10R 1X 9  1X13  1X 4  1X 8  2X-1 10 13R 5 S
+VHR11
+X 9V 8R 2X11  1X 5  2X 4  1X 5  1X 6  2X-1  9 15R 2 13V 4R 3X 1  1X12  1X 1 S
+VHR12
+X 1X 2  1X 4  1X 6  1X 4  2X-1  8  1X 2 13R16V 1R 3X 4  1X17  3X 9  3X-1  8 S
+VHR13
+X 1X 4 10R17V 2X 7  2X-1  7  1X 7  7R18V11  2X-1  7  1X10  3R19V 1X12  1X 5-S
+VHR14
+X-1  6  1X12  1R20V 1  2X12  4- 9  1/-1  6  2R12 20V 3  3X 9  4- 8  1/-1  6 S
+VHR15
+X 4R 9 20V 4  3B 1X 7  4- 8  1/-1  6  6R 6 21V 3  5B 1  4X 2  4- 1 59O-1  6 S
+VHR16
+X 9R 3 20V 3  6B 6  3- 3 59O-1  7 10R20V 3  7B12 59O-1  7 10R20V 1X 1  8B 9 S
+VHR17
+X 1(61O-1  7  1X 2  7R19V 2  9B 8  1(62O-1  8  1X 7 19V 2  9B72O-1  9  1X 6 S
+VHR18
+X18V 3  9B72O-1 10  1X 5 17V 1X 2  9B40O 1/24  3O-1 11  1X 4 16V 2  1X 1  9BS
+VHR19
+X 8  3O54  3O-1 12  1X 3 15V 4  9B 9  3O54  3O-1 13  1X 2 13V 6  8B10  3O54 S
+VHR20
+X 3O-1 14  2X11V 8  7B11  3O54  3O-1 17  7V11  5B12  3O54  3O-1 36  3B-1    S
+VHR21
+X-2                                                                         *
+VEOP*
+X 11-1 54  1/ 4- 1X 6  1/ 4- 1X-1 53  1/ 1  4- 1  1X 4  1/ 1  1/ 2- 1X 1  1XP
+VLT 0
+X-1 52  1/ 1  1/ 4  1X 1  1X 2  1/ 1  1/ 4  1X 1  1X-1 51  1/ 1  1/ 2  1/ 3-P
+VLT 1
+X 1X 1  1I 1- 1I 1  1I 1X 3  1I 1  1I-1 51  1I 1  1I 1  1/-1 51  1I 1  1I 1 P
+VLT 2
+X 1/ 4O 1I 1  1I 1- 1I 1  1I 1O 1X 2  1I 1  1I-1 51  1I 1  1I 1/ 4O 1/ 1  1/P
+VLT 3
+X 3O 1X 1  1X 1O 1X 1  1/ 1  1/-1 51  1I 1  1X 1/ 3O 1/ 1  1/ 1O 1/ 3- 1X 1 P
+VLT 4
+X 1X 1- 1X 1  1/-1 52  1X 1  1X 2- 1/ 1  1/ 1O 1/ 5  1X 3- 1/-1 51  1/ 1S 1XP
+VLT 5
+X 2- 1/ 1- 1X 1O 1/10  1X-1 49  1/ 1X 2S 1/ 5O 1/12  1X-1 48  1/ 2  1X 1/ 5OP
+VLT 6
+X 1/14  1X-1 47  1/ 4  1X 4O 1I 6  2/ 1X 3  2/ 1X 1  1X-1 47  1I 5  1X 3O 1IP
+VLT 7
+X 5  2/ 2  1X 1  2/ 2  1X 1  1X 6- 4+ 3- 1X-1 47  1I 6  1I 2O 1I 6  1( 18 1)P
+VLT 8
+X 3  1( 18 1)17  1X-1 47  1I 2  1+ 3  1I 1O 1( 1/ 1)32  1X-1 47  1I 6  1I 2OP
+VLT 9
+X 1I34  1X-1 47  1X 5  1/ 3O 1I35  1X-1 48  1X 3  1/ 4O 1I36  1X-1 49  1X 1-P
+VLT10
+X 1/ 5O 1X28  1X 1- 1X 5  1)-1 50  1X 7O 1X26  1( 3+ 1) 4  1)-1 51  1X 7O 1XP
+VLT11
+X25  1( 3+ 1) 4  1)-1 52  1X 7O 1X 2- 1X23  1X 1- 1X 5  1)-1 53  1X10O 1X 7 P
+VLT12
+X 3*19  1)-1 54  1X 9- 1X10  1*18  1/-1 63  2X11  1*16  1/-1 65  1X11  1* 2-P
+VLT13
+X 1X11  1/-1 66  1I 7  1/ 3* 3  1X 9- 1/-1 40  1* 1= 1* 1= 1* 1= 1* 7- 1*11 P
+VLT14
+X 1I 6  1/-1 41  1* 1I11  1I 1* 5- 1* 4  1I 6  1I10  2--1 40  1* 1I11  1I 1*P
+VLT15
+X 5  1I 1* 1= 1* 1) 1* 1= 1* 1= 1* 1= 1* 1) 9  1) 2O 1)-1 41  1* 1I11  1I 1*P
+VLT16
+X 3  1* 1= 1* 3  1( 7O 1) 6  1- 2  1( 2O 1)-1 41  1* 1I11  1I 5- 2* 1= 1* 1(P
+VLT17
+X 1* 1= 1* 1= 1* 1= 1* 1) 5+ 1/ 1  2X 1, 5+-1 38  1* 1= 1* 1= 1*11- 1* 3- 1*P
+VLT18
+X 6  1I 7  1I 3+ 2- 1) 6  1( 3  1)-1 64  1/22  1) 1  1(-1 63  1/22  1) 1  1(P
+VLT19
+X-1 62  1/18  1- 4  1) 1  1(-1 61  1/ 1* 9  1/ 3+ 1I 4+ 1/ 1  1/ 2+ 1/ 2+ 1/P
+VLT20
+X-1 60  1/ 2+13  1I 8  2X-1 59  1/ 3+13  1I 1  1/ 3+ 1) 2  2X-1 58  1/ 3+13 P
+VLT21
+X 1/ 3+ 1) 2  1I 2  2X-1 43  1-13  1/ 4+12  1/ 4+ 1I 2  1/ 2  2X-1 45  1-10 P
+VLT22
+X 1/ 4*13  1I 4  1/ 2  1X 2  2X-1 44  1- 1  1- 7  1/ 3*15  1X 4  1X 3  1) 1 P
+VLT23
+X 2X-1 45  1- 3  1- 1  1- 1  1  1(11  1/ 5+ 1X 1  1X 4  1) 2  1I 1  2X-1 47 P
+VLT24
+X 1- 1  4* 1  1(10  1+ 7  1X 5  1I 2  1I 1  2X-1 50  1- 1  1- 1  1- 1X23  1IP
+VLT25
+X 2  1I 1  2X-1 56  1X22  1I 2  1I 1  2X-1 57  1X21  1I 2  1I 1  2X-1 58  1XP
+VLT26
+X 6  1/ 7+ 1X 5  1I 2+ 1) 1/ 2X-1 59  1X 4+ 1/ 9  1X 4+ 1) 2  1/ 2X 1/-1 45 P
+VLT27
+X45X-1 45 45X-1                                                             P
+VLT28
+X-2                                                                         *
+VEOP*
+X 11-1 99 -1 15 19  5X-1 15 18  1X 5  1X-1 15 17  1X 2  3* 2  1X16  5X-1 15 G
+VIT 1
+X16  1X 2  5* 2  1X12  3X 5  2X-1 15 13  4X 1  7* 1  3X 6  4X10  2X 1  5*-1 G
+VIT 2
+X15 11  2X 3  1X 2  5* 2  9X16  2X 5*-1 15  9  2X 6  1X 2  3* 2  1X27  1X 4*G
+VIT 3
+X-1 15  8  1X 9  1X 5  1X27  1X 3*-1  7 15  1X 9  2/ 5X27  1X 2*-1 15  6  1XG
+VIT 4
+X 9  2/ 3  1X27  3X-1 15  6  1X 8  2/ 4  1X10 18X 1/ 8  1. 1  1. 1* 1  1.-1 G
+VIT 5
+X20  1X 4  3X 3/ 4  1X10  1X26  1. 1* 1. 1  1. 1  1.-1 20  1X 3  1X 3  1X 6 G
+VIT 6
+X 1X 9  1X26  1. 2  2. 2  1. 1* 1.-1 20  1X 3  1X 4  1X 5  1X 8  1X27  1* 8>G
+VIT 7
+X 2*-1 21  1X 3  1X 4  1X 4  1X 8  1X20  2X 1; 4- 1\ 8> 1' 1.-1 21  1X 4  1XG
+VIT 8
+X 3  1X 4  1X 8  1X17  3X 2  2X 3> 1; 7  1. 1; 1*-1 22  1X 4  4X 5  1X 8  1XG
+VIT 9
+X15  1X 2  1X 1  1X 2  1X 2  1; 2  1G 5  1; 1.-1 22  1X13  1X 9  1X14  2X 1 G
+VIT10
+X 1X 2  4X 1  1; 3  1I 4  1;-1 23  1X13  1X 9  8X 1' 5  2X 3  2X 2  1X 1  1;G
+VIT12
+X 4  1T 3  1;-1 24  1X 1X12  2X14  1X 5  1X 4  1X 2  2X 2- 1; 8  1;-1 26  2XG
+VIT13
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-

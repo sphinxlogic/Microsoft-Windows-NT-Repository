@@ -1,0 +1,2430 @@
+Newsgroups: comp.sources.misc
+From: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Subject:  v28i020:  screen-3.2 - multiple windows on an ASCII terminal, v3.2, Part03/11
+Message-ID: <1992Feb9.223455.6514@sparky.imd.sterling.com>
+X-Md4-Signature: 0cbde4287dc9ff7f7e7fcbbbebdd1d11
+Date: Sun, 9 Feb 1992 22:34:55 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Posting-number: Volume 28, Issue 20
+Archive-name: screen-3.2/part03
+Environment: UNIX
+
+#!/bin/sh
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file screen3.2/fileio.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping screen3.2/fileio.c'
+else
+echo 'x - continuing file screen3.2/fileio.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'screen3.2/fileio.c' &&
+X	  if (fore && rc_name[0] == '\0')
+X	    Msg(0, "scrollback set to %d", fore->histheight);
+X	}
+X      else
+X	ParseNum(argc, ap, &default_histheight);
+X      return;
+X    case RC_SLOWPASTE:
+X      ParseNum(argc, ap, &slowpaste);
+X      if (fore && rc_name[0] == '\0')
+X	Msg(0, "slowpaste set to %d milliseconds", slowpaste);
+X      return;
+X    case RC_MARKKEYS:
+X      {
+X        char *tmp = NULL;
+X
+X        ParseSaveStr(argc, ap, &tmp, "markkeys");
+X        if (CompileKeys(ap[1], mark_key_tab))
+X	  {
+X	    DeadlyMsg = 0;
+X	    Msg(0, "%s: markkeys: syntax error.", rc_name);
+X	    Free(tmp);
+X	    return;
+X	  }
+X        debug1("markkeys %s\n", ap[1]);
+X        Free(tmp);
+X        return;
+X      }
+#ifdef NETHACK
+X    case RC_NETHACK:
+X      ParseOnOff(argc, ap, &nethackflag);
+X      return;
+#endif
+X    case RC_HARDCOPY_APP:
+X      ParseOnOff(argc, ap, &hardcopy_append);
+X      return;
+X    case RC_VBELL_MSG:
+X    case RC_VISUALBELL_MSG:
+X      ParseSaveStr(argc, ap, &VisualBellString, "vbell_msg");
+X      debug1(" new vbellstr '%s'\n", VisualBellString);
+X      return;
+X    case RC_MODE:
+X      if (argc != 2)
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(0, "%s: mode: one argument required.", rc_name);
+X	  return;
+X	}
+X      if (!IsNum(ap[1], 7))
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(0, "%s: mode: octal number expected.", rc_name);
+X	  return;
+X	}
+X      (void) sscanf(ap[1], "%o", &TtyMode);
+X      return;
+X    case RC_CRLF:
+X      ParseOnOff(argc, ap, &join_with_cr);
+X      return;
+X    case RC_AUTODETACH:
+X      ParseOnOff(argc, ap, &auto_detach);
+X      return;
+X    case RC_STARTUP_MESSAGE:
+X      ParseOnOff(argc, ap, &default_startup);
+X      return;
+#ifdef PASSWORD
+X    case RC_PASSWORD:
+X      CheckPassword = 1;
+X      if (argc >= 2)
+X	{
+X	  strncpy(Password, ap[1], sizeof Password);
+X	  if (!strcmp(Password, "none"))
+X	    CheckPassword = 0;
+X	}
+X      else
+X	{
+X	  char *mstr = 0;
+X	  int msleep = 0, st;
+X          char salt[2];
+X
+#ifdef POSIX
+X	  if (HasWindow)
+X	    {
+X	      Msg(0, "Cannot ask for password on POSIX systems");
+X	      return;
+X	    }
+#endif
+X	  /* there is a clear screen sequence in the buffer. */
+X	  fflush(stdout);
+X	  if (HasWindow)
+X	    {
+X              ClearDisplay();
+X	      SetTTY(0, &OldMode);
+X	    }
+X	  strncpy(Password, getpass("New screen password:"),
+X		  sizeof(Password));
+X	  if (strcmp(Password, getpass("Retype new password:")))
+X	    {
+#ifdef NETHACK
+X              if (nethackflag)
+X	        mstr = "[ Passwords don't match - your armor crumbles away ]";
+X	      else
+#endif
+X	      mstr = "[ Passwords don't match - checking turned off ]";
+X	      msleep = 1;
+X	      CheckPassword = 0;
+X	    }
+X	  if (Password[0] == '\0')
+X	    {
+X	      CheckPassword = 0;
+X	      mstr = "[ No password - no secure ]";
+X	      msleep = 1;
+X	    }
+X	  for (st=0; st<2; st++)
+X            salt[st] = 'A' + (int)((time(0) >> 6*st) % 26);
+X	  strncpy(Password, crypt(Password, salt), sizeof(Password));
+X	  if (CheckPassword)
+X	    {
+#ifdef COPY_PASTE
+X	      if (copybuffer)
+X
+X		Free(copybuffer);
+X	      copylen = strlen(Password);
+X	      if ((copybuffer = (char *) malloc(copylen+1)) == NULL)
+X		{
+X		  Msg_nomem;
+X		  return;
+X		}
+X	      strcpy(copybuffer, Password);
+X	      mstr = "[ Password moved into copybuffer ]";
+X	      msleep = 1;
+#else				/* COPY_PASTE */
+X	      mstr = "[ Crypted password is \"%s\" ]";
+X	      msleep = 5;
+#endif				/* COPY_PASTE */
+X	    }
+X          if (HasWindow)
+X	    {
+X	      SetTTY(0, &NewMode);
+X	      Activate(0); /* Redraw */
+X	      if (mstr)
+X	        {
+X	          Msg(0, mstr, Password);
+X	        }
+X	    }
+X          else
+X	    {
+X	      if (mstr)
+X	        {
+X	          printf(mstr, Password);
+X	          putchar('\n');
+X	          sleep(msleep);
+X	        }
+X              ClearDisplay();
+X	    }
+X	}
+X      debug1("finishrc: our password is: --%s%-- \n", Password);
+X      return;
+#endif				/* PASSWORD */
+X    case RC_ALL:
+X      if (!setflag || !HasWindow || *rc_name)
+X        break;
+X      display_help();
+X      return;
+X    case RC_BIND:
+X      if (setflag)
+X	break;
+X      p = ap[1];
+X      if (argc < 2 || *p == '\0')
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(0, "%s: key expected after bind.", rc_name);
+X	  return;
+X	}
+X      if ((p = ParseChar(p, &key)) == NULL || *p)
+X	{
+X	  DeadlyMsg = 0; 
+X	  Msg(0, "%s: bind: character, ^x, or (octal) \\032 expected.",
+X	      rc_name);
+X	  return;
+X	}
+X      if (ktab[key].type != KEY_IGNORE)
+X	{
+X	  ktab[key].type = KEY_IGNORE;
+X	  if ((pp = ktab[key].args) != NULL)
+X	    {
+X	      for (; *pp; pp++)
+X		Free(*pp);
+X	      Free(ktab[key].args);
+X	    }
+X	}
+X      if (argc > 2)
+X	{
+X	  for (pp = KeyNames; *pp; ++pp)
+X	    if (strcmp(ap[2], *pp) == 0)
+X	      break;
+X	  if (*pp)
+X	    {
+X	      ktab[key].type = (enum keytype) (pp - KeyNames + 1);
+X	      if (argc > 3)
+X		{
+X		  ktab[key].args = SaveArgs(argc - 3, ap + 3);
+X		}
+X	      else
+X		ktab[key].args = NULL;
+X	    }
+X	  else
+X	    {
+X	      ktab[key].type = KEY_CREATE;
+X	      ktab[key].args = SaveArgs(argc - 2, ap + 2);
+X	    }
+X	}
+X      return;
+X    case RC_RCEND:
+X    default:
+X	{
+X	  char ibuf[3];
+X	  /*
+X	   * now we are user-friendly: 
+X	   * if anyone typed a key name like "help" or "next" ...
+X	   * we did not match anything above. so look in the KeyNames table.
+X	   */
+X	  debug1("--ap[0] %s\n", ap[0]);
+X	  for (pp = KeyNames; *pp; ++pp)
+X	    if (strcmp(ap[0], *pp) == 0)
+X		break;
+X	  if (*pp == 0)
+X	    break;
+X
+X	  ibuf[0] = Esc;
+X	  ibuf[1] = pp - KeyNames +1;
+X	  debug1("RcLine: it was a keyname: '%s'\n", *pp);
+X	  q = 2; qq = 0;
+X	  if (HasWindow)
+X	    ProcessInput(ibuf, &q, (char *)0, &qq, 0);
+X	  else
+X	    {
+X	      DeadlyMsg = 0; 
+X	      Msg(0, "%s: Key '%s' has no effect while no window open...\n",
+X	          rc_name, ap[0]);
+X	    }
+X	}
+X      return;
+X    }
+X  DeadlyMsg = 0; 
+X  Msg(0, "%s: unknown %skeyword \"%s\"", rc_name, 
+X      setflag?"'set' ":"", ap[0]);
+}
+X
+static int 
+Parse(buf, args)
+char *buf, **args;
+{
+X  register char *p = buf, **ap = args;
+X  register int delim, argc;
+X
+X  argc = 0;
+X  for (;;)
+X    {
+X      while (*p && (*p == ' ' || *p == '\t'))
+X	++p;
+X      if (*p == '\0' || *p == '#')
+X	{
+X	  *p = '\0';
+X	  return argc;
+X	}
+X      if (argc > MAXARGS - 1)
+X	Msg(0, "%s: too many tokens.", rc_name);
+X      delim = 0;
+X      if (*p == '"' || *p == '\'')
+X	delim = *p++;
+X      argc++;
+X      *ap = p;
+X      *++ap = 0;
+X      while (*p && !(delim ? *p == delim : (*p == ' ' || *p == '\t')))
+X	++p;
+X      if (*p == '\0')
+X	{
+X	  if (delim)
+X	    {
+X	      DeadlyMsg = 0;
+X	      Msg(0, "%s: Missing quote.", rc_name);
+X	      return 0;
+X	}
+X	  return argc;
+X	}
+X      *p++ = '\0';
+X    }
+}
+X
+int 
+ParseEscape(p)
+char *p;
+{
+X  if ((p = ParseChar(p, &Esc)) == NULL ||
+X      (p = ParseChar(p, &MetaEsc)) == NULL || *p)
+X    return 0;
+X  return 1;
+}
+X
+static void
+ParseNum(argc, ap, var)
+int argc;
+char *ap[];
+int *var;
+{
+X  int i;
+X  char *p;
+X
+X  if (argc == 2 && ap[1][0] != '\0')
+X    {
+X      i = 0; 
+X      p = ap[1];
+X      while (*p)
+X	{
+X	  if (*p >= '0' && *p <= '9')
+X	    i = 10 * i + (*p - '0');
+X	  else
+X	    {
+X	      DeadlyMsg = 0;
+X	      Msg(0, "%s: %s: invalid argument. Give numeric argument",
+X		  rc_name, ap[0]);
+X	      return;
+X	    }    
+X	  p++;
+X	}
+X    }
+X  else
+X    {
+X      DeadlyMsg = 0;
+X      Msg(0, "%s: %s: invalid argument. Give one argument",
+X          rc_name, ap[0]);
+X      return;
+X    }
+X  debug1("ParseNum got %d\n", i);
+X  *var = i;
+}
+X
+static void
+ParseSaveStr(argc, ap, var, title)
+int argc;
+char *ap[];
+char **var;
+char *title;
+{
+X  if (argc != 2)
+X    {
+X      DeadlyMsg = 0;
+X      Msg(0, "%s: %s: one argument required.", rc_name, title);
+X      return;
+X    }
+X  if (*var)
+X    Free(*var);
+X  *var = SaveStr(ap[1]);
+X  return;
+}
+X 
+static void
+ParseOnOff(argc, ap, var)
+int argc;
+char *ap[];
+int *var;
+{
+X  register int num = -1;
+X
+X  if (argc == 2 && ap[1][0] == 'o')
+X    {
+X      if (ap[1][1] == 'f')
+X	num = 0;
+X      else if (ap[1][1] == 'n')
+X	num = 1;
+X    }
+X  if (num < 0)
+X    {
+X      DeadlyMsg = 0;
+X      Msg(0, "%s: %s: invalid argument. Give 'on' or 'off'", rc_name, ap[0]);
+X      return;
+X    }
+X  *var = num;
+}
+X
+X
+static int IsNum(s, base)
+register char *s;
+register int base;
+{
+X  for (base += '0'; *s; ++s)
+X    if (*s < '0' || *s > base)
+X      return 0;
+X  return 1;
+}
+X
+static int IsNumColon(s, base, p, psize)
+int base, psize;
+char *s, *p;
+{
+X  char *q;
+X  if ((q = rindex(s, ':')) != NULL)
+X    {
+X      strncpy(p, q + 1, psize - 1);
+X      p[psize - 1] = '\0';
+X      *q = '\0';
+X    }
+X  else
+X    *p = '\0';
+X  return IsNum(s, base);
+}
+X
+void
+SlotToggle(how)
+int how;
+/*
+X * how = 0	real toggle mode
+X * how > 0	do try to set a utmp slot.
+X * how < 0	try to withdraw a utmp slot
+X *
+X * slot = -1    window not logged in.
+X * slot = 0     window not logged in, but should be logged in. 
+X *              (unable to write utmp, or detached).
+X */
+{
+X  debug1("SlotToggle %d\n", how);
+X  if (how == 0)
+X    how = (fore->slot == (slot_t) -1)?(1):(-1);
+X    /* 
+X     * slot 0 or active -> we try to log out.
+X     * slot -1          -> we try to log in.
+X     */
+#ifdef UTMPOK
+X  if (how > 0)
+X    {
+X      debug(" try to log in\n");
+X      if ((fore->slot == (slot_t) -1) || (fore->slot == (slot_t) 0))
+X	{
+#ifdef USRLIMIT
+X          if (CountUsers() >= USRLIMIT)
+X            Msg(0, "User limit reached.");
+X          else
+#endif
+X            {
+X              if (SetUtmp(fore, ForeNum) == 0)
+X                Msg(0, "This window is now logged in.");
+X              else
+X                Msg(0, "This window should now be logged in.");
+X            }
+X	}
+X      else
+X	Msg(0, "This window is already logged in.");
+X    }
+X  else if (how < 0)
+X    {
+X      debug(" try to log out\n");
+X      if (fore->slot == (slot_t) -1)
+X	Msg(0, "This window is already logged out\n");
+X      else if (fore->slot == (slot_t) 0)
+X	{
+X	  debug("What a relief! In fact, it was not logged in\n");
+X	  Msg(0, "This window is not logged in.");
+X	  fore->slot = (slot_t) -1;
+X	}
+X      else
+X	{
+X	  RemoveUtmp(fore);
+X	  if (fore->slot != (slot_t) -1)
+X	    Msg(0, "What? Cannot remove Utmp slot?");
+X	  else
+X	    Msg(0, "This window is no longer logged in.");
+X	}
+X    }
+#else	/* !UTMPOK */
+X  Msg(0, "Unable to modify %s.\n", UTMPFILE);
+#endif
+}
+X
+void
+DoScreen(fn, av)
+char *fn, **av;
+{
+X  register int flowflag, num, lflag = loginflag, aflag = 0;
+X  register char *aka = NULL;
+X  register int histheight = default_histheight;
+X  char buf[20];
+X  char termbuf[25];
+X  char *termp;
+X  char *args[2];
+X
+X  flowflag = default_flow;
+X  termbuf[0] = '\0';
+X  termp = NULL;
+X  while (av && *av && av[0][0] == '-')
+X    {
+X      switch (av[0][1])
+X	{
+X	case 'f':
+X	  switch (av[0][2])
+X	    {
+X	    case 'n':
+X	    case '0':
+X	      flowflag = FLOW_NOW * 0;
+X	      break;
+X	    case 'y':
+X	    case '1':
+X	    case '\0':
+X	      flowflag = FLOW_NOW * 1;
+X	      break;
+X	    case 'a':
+X	      flowflag = FLOW_AUTOFLAG;
+X	      break;
+X	    default:
+X	      break;
+X	    }
+X	  break;
+X	case 'k':
+X	case 't':
+X	  if (av[0][2])
+X	    aka = &av[0][2];
+X	  else if (*++av)
+X	    aka = *av;
+X	  else
+X	    --av;
+X	  break;
+X	case 'T':
+X	  if (av[0][2])
+X	    termp = &av[0][2];
+X	  else if (*++av)
+X	    termp = *av;
+X	  else
+X	    --av;
+X	  break;
+X	case 'h':
+X	  if (av[0][2])
+X	    histheight = atoi(av[0] + 2);
+X	  else if (*++av)
+X	    histheight = atoi(*av);
+X	  else 
+X	    --av;
+X	  break;
+X	case 'l':
+X	  switch (av[0][2])
+X	    {
+X	    case 'n':
+X	    case '0':
+X	      lflag = 0;
+X	      break;
+X	    case 'y':
+X	    case '1':
+X	    case '\0':
+X	      lflag = 1;
+X	      break;
+X	    default:
+X	      break;
+X	    }
+X	  break;
+X	case 'a':
+X	  aflag = 1;
+X	  break;
+X	default:
+X	  Msg(0, "%s: screen: invalid option -%c.", fn, av[0][1]);
+X	  break;
+X	}
+X      ++av;
+X    }
+X  num = 0;
+X  if (av && *av && IsNumColon(*av, 10, buf, sizeof(buf)))
+X    {
+X      if (*buf != '\0')
+X	aka = buf;
+X      num = atoi(*av);
+X      if (num < 0 || num > MAXWIN - 1)
+X	{
+X	  Msg(0, "%s: illegal screen number %d.", fn, num);
+X	  num = 0;
+X	}
+X      ++av;
+X    }
+X  if (!av || !*av)
+X    {
+X      av = args;
+X      av[0] = ShellProg;
+X      av[1] = NULL;
+X      if (!aka)
+X	aka = shellaka;
+X    }
+X  MakeWindow(aka, av, aflag, flowflag, num, (char *) 0, lflag, histheight, termp);
+}
+X
+void
+WriteFile(dump)
+int dump;
+{
+X  /* dump==0:	create .termcap,
+X   * dump==1:	hardcopy,
+X   * #ifdef COPY_PASTE
+X   * dump==2:	BUFFERFILE
+X   * #endif COPY_PASTE 
+X   */
+X  register int i, j, k;
+X  register char *p;
+X  register FILE *f;
+X  char fn[1024];
+X  char *mode = "w";
+X
+X  switch (dump)
+X    {
+X    case DUMP_TERMCAP:
+X      i = SockNamePtr - SockPath;
+X      strncpy(fn, SockPath, i);
+X      strcpy(fn + i, ".termcap");
+X      break;
+X    case DUMP_HARDCOPY:
+X      sprintf(fn, "hardcopy.%d", ForeNum);
+X      if (hardcopy_append && !access(fn, W_OK))
+X	mode = "a";
+X      break;
+X    case DUMP_EXCHANGE:
+X      sprintf(fn, "%s", BufferFile);
+X      umask(0);
+X      break;
+X    }
+X
+X  debug2("WriteFile(%d) %s\n", dump, fn);
+X  if (UserContext() > 0)
+X    {
+X      debug("Writefile: usercontext\n");
+X      if ((f = fopen(fn, mode)) == NULL)
+X	{
+X	  debug2("WriteFile: fopen(%s,\"%s\") failed\n", fn, mode);
+X	  UserReturn(0);
+X	}
+X      else
+X	{
+X	  switch (dump)
+X	    {
+X	    case DUMP_HARDCOPY:
+X	      if (*mode == 'a')
+X		{
+X		  putc('>', f);
+X		  for (j = screenwidth - 2; j > 0; j--)
+X		    putc('=', f);
+X		  fputs("<\n", f);
+X		}
+X	      for (i = 0; i < screenheight; ++i)
+X		{
+X		  p = fore->image[i];
+X		  for (k = screenwidth - 1; k >= 0 && p[k] == ' '; --k)
+X		    ;
+X		  for (j = 0; j <= k; ++j)
+X		    putc(p[j], f);
+X		  putc('\n', f);
+X		}
+X	      break;
+X	    case DUMP_TERMCAP:
+X	      if ((p = index(MakeTermcap(fore->aflag), '=')) != NULL)
+X		{
+X		  fputs(++p, f);
+X		  putc('\n', f);
+X		}
+X	      break;
+#ifdef COPY_PASTE
+X	    case DUMP_EXCHANGE:
+X	      p = copybuffer;
+X	      for (i = 0; i < copylen; i++)
+X		putc(*p++, f);
+X	      break;
+#endif
+X	    }
+X	  (void) fclose(f);
+X	  UserReturn(1);
+X	}
+X    }
+X  if (UserStatus() <= 0)
+X    Msg(0, "Cannot open \"%s\"", fn);
+X  else
+X    {
+X      switch (dump)
+X	{
+X	case DUMP_TERMCAP:
+X	  Msg(0, "Termcap entry written to \"%s\".", fn);
+X	  break;
+X	case DUMP_HARDCOPY:
+X	  Msg(0, "Screen image %s to \"%s\".",
+X	      (*mode == 'a') ? "appended" : "written", fn);
+X	  break;
+#ifdef COPY_PASTE
+X	case DUMP_EXCHANGE:
+X	  Msg(0, "Copybuffer written to \"%s\".", fn);
+#endif
+X	}
+X    }
+}
+X
+#ifdef COPY_PASTE
+X
+void
+ReadFile()
+{
+X  int i, l, size;
+X  char fn[1024], c;
+X  struct stat stb;
+X
+X  sprintf(fn, "%s", BufferFile);
+X  debug1("ReadFile(%s)\n", fn);
+X  if ((i = secopen(fn, O_RDONLY, 0)) < 0)
+X    {
+X      Msg(errno, "no %s -- no slurp", fn);
+X      return;
+X    }
+X  if (fstat(i, &stb))
+X    {
+X      Msg(errno, "no good %s -- no slurp", fn);
+X      close(i);
+X      return;
+X    }
+X  size = stb.st_size;
+X  if (copybuffer)
+X    Free(copybuffer);
+X  copylen = 0;
+X  if ((copybuffer = malloc(size)) == NULL)
+X    {
+X      close(i);
+X      Msg_nomem;
+X      return;
+X    }
+X  errno = 0;
+X  if ((l = read(i, copybuffer, size)) != size)
+X    {
+X      copylen = (l > 0) ? l : 0;
+#ifdef NETHACK
+X      if (nethackflag)
+X        Msg(errno, "You choke on your food: %d bytes", copylen);
+X      else
+#endif
+X      Msg(errno, "Got only %d bytes from %s", copylen, fn);
+X      close(i);
+X      return;
+X    }
+X  copylen = l;
+X  if (read(i, &c, 1) > 0)
+X    Msg(0, "Slurped only %d characters into buffer - try again", copylen);
+X  else
+X    Msg(0, "Slurped %d characters into buffer", copylen);
+X  close(i);
+X  return;
+}
+X
+void
+KillBuffers()
+{
+X  char fn[1024];
+X  sprintf(fn, "%s", BufferFile);
+X  errno = 0;
+X  if (access(fn, W_OK) == -1)
+X    {
+X      Msg(errno, "%s not removed", fn);
+X      return;
+X    }
+X  else
+X    {
+X      unlink(fn);
+X      Msg(errno, "%s removed", fn);
+X    }
+}
+#endif	/* COPY_PASTE */
+X
+#ifdef USRLIMIT
+CountUsers()
+{
+#ifdef GETUTENT
+X  struct utmp *ut, *getutent();
+#else
+X  struct utmp utmpbuf;
+#endif
+X  int UserCount;
+X
+X  debug1("CountUsers() - utmp=%d\n",utmp);
+X  if (!utmp)
+X    return(0);
+X  UserCount = 0;
+#ifdef GETUTENT
+X  setutent();
+X  while (ut = getutent())
+X    if (ut->ut_type == USER_PROCESS)
+X      UserCount++;
+#else
+X  (void) lseek(utmpf, (off_t) 0, 0);
+X  while (read(utmpf, &utmpbuf, sizeof(struct utmp)) > 0)
+X    {
+X      if (utmpbuf.ut_name[0] != '\0')
+X       UserCount++;
+X    }
+#endif
+X  return(UserCount);
+}
+#endif
+X
+#ifdef UTMPOK
+X
+static slot_t loginslot;
+static struct utmp utmp_logintty;
+#ifdef _SEQUENT_
+static char loginhost[100+1];
+#endif
+X
+void
+InitUtmp()
+{
+X  debug("InitUtmp testing...\n");
+X  if ((utmpf = open(UtmpName, O_RDWR)) == -1)
+X    {
+X      if (errno != EACCES)
+X	Msg(errno, UtmpName);
+X      debug("InitUtmp failed.\n");
+X      utmp = 0;
+X      return;
+X    }
+#ifdef GETUTENT
+X  close(utmpf);
+X  utmpf= -1;
+#endif
+#ifdef MIPS
+X  if ((utmpfappend = open(UtmpName, O_APPEND)) == -1) 
+X    {
+X      if (errno != EACCES)
+X	Msg(errno, UtmpName);
+X      return;
+X    }
+#endif
+X  utmp = 1;
+#ifndef apollo
+X  ReInitUtmp();
+#endif
+}
+X
+void
+ReInitUtmp()
+{
+#ifndef apollo
+X  if (!utmp)
+X    {
+X      debug("Reinitutmp: utmp == 0\n");
+X      return;
+X    }
+#endif
+X  debug("(Re)InitUtmp: removing your logintty\n");
+X  loginslot = TtyNameSlot(display_tty);
+X  if (loginslot!=(slot_t)0 && loginslot!=(slot_t)-1)
+X    {
+#ifdef _SEQUENT_
+X      if (p=ut_find_host(loginslot))
+X        strncpy(loginhost, p, 100);
+#endif
+X      RemoveLoginSlot(loginslot, &utmp_logintty);
+X    }
+X  debug1(" slot %d zapped\n", loginslot);
+}
+X
+void
+RestoreLoginSlot()
+{
+X  debug("RestoreLoginSlot()\n");
+#ifdef apollo
+X  InitUtmp();
+#endif
+X  if (utmp && loginslot!=(slot_t)0 && loginslot!=(slot_t)-1)
+X    {
+#ifdef GETUTENT
+# ifdef _SEQUENT_
+X      int fail;
+X      debug1(" logging you in again (slot %s)\n", loginslot);
+/*
+X * We have problems if we add the console and use ut_add_user()
+X * because the id will be 'scon' instead of 'co'. So we
+X * restore it with pututline(). The reason why we don't use
+X * pututline all the time is that we want to set the host field.
+X * Unfortunatelly this can only be done with ut_add_user().
+X */
+X      if (*loginhost)
+X        {
+X          fail = (ut_add_user(LoginName, loginslot, utmp_logintty.ut_pid,
+X                              *loginhost?loginhost:(char *)0) == 0);
+X        }
+X      else
+X        {
+X          setutent();
+X          fail = (pututline(&utmp_logintty) == 0);
+X        }
+X      if (fail)
+# else	/* _SEQUENT_ */
+X      debug1(" logging you in again (slot %s)\n", loginslot);
+X      setutent();
+X      if (pututline(&utmp_logintty)==0)
+# endif	/* _SEQUENT */
+#else	/* GETUTENT */
+X      debug1(" logging you in again (slot %d)\n", loginslot);
+# ifdef sequent
+X      /* call sequent undocumented routine to count logins and add utmp entry if possible */
+X      if (add_utmp(loginslot, &utmp_logintty) == -1)
+# else
+X      (void) lseek(utmpf, (off_t) (loginslot * sizeof(struct utmp)), 0);
+X      if (write(utmpf, (char *) &utmp_logintty, sizeof(struct utmp))
+X	  != sizeof(struct utmp))
+# endif /* sequent */
+#endif	/* GETUTENT */
+X        {
+#ifdef NETHACK
+X          if (nethackflag)
+X            Msg(errno, "%s is too hard to dig in.", UTMPFILE);
+X	  else
+#endif
+X          Msg(errno,"Could not write %s.", UTMPFILE);
+X        }
+X    }
+#ifdef apollo
+X  close(utmpf);
+#endif
+X  loginslot = (slot_t) 0;
+}
+X
+void
+RemoveLoginSlot(slot, up)
+slot_t slot;
+struct utmp *up;
+{
+#ifdef GETUTENT
+X  struct utmp *uu;
+#endif
+X  struct utmp u;
+#ifdef apollo
+X  struct utmp *uq;
+#endif
+X
+#ifdef GETUTENT
+X  debug2("RemoveLoginSlot(%s, %08x)\n", (slot == (slot_t) 0 ||
+X         slot == (slot_t) -1 ) ? "no slot" : slot, up);
+#else
+X  debug2("RemoveLoginSlot(%d, %08x)\n", slot, up);
+#endif
+#ifdef apollo
+X  InitUtmp();
+X  bzero((char *)up, sizeof(struct utmp));
+X  uq = (struct utmp *)malloc(sizeof(struct utmp));
+X  bzero((char *)uq, sizeof(struct utmp));
+#endif /* apollo */
+X  if (!utmp)
+X    return;
+X  if (slot != (slot_t) 0 && slot != (slot_t) -1)
+X    {
+X      bzero((char *) &u, sizeof u);
+#ifdef GETUTENT
+X      setutent();
+X      strncpy(u.ut_line, slot, sizeof(u.ut_line));
+X      if ((uu = getutline(&u)) == 0)
+X        {
+X	  DeadlyMsg = 0;
+X          Msg(0, "Utmp slot not found -> not removed");
+X          return;
+X        }
+X      *up= *uu;
+# ifdef _SEQUENT_
+X      if (ut_delete_user(slot, uu->ut_pid, 0, 0) == 0)
+# else
+X      uu->ut_type = DEAD_PROCESS;
+X      uu->ut_exit.e_termination = 0;
+X      uu->ut_exit.e_exit= 0;
+X      if (pututline(uu) == 0)
+# endif
+#else
+X      (void) lseek(utmpf, (off_t) (slot * sizeof u), 0);
+X      if (read(utmpf, (char *) up, sizeof u) != sizeof u)
+X	{
+X	  DeadlyMsg = 0;
+X	  Msg(errno, "cannot read %s ???", UTMPFILE);
+X	  sleep(1);
+X	}
+X      (void) lseek(utmpf, (off_t) (slot * sizeof u), 0);
+# ifdef apollo
+X      bcopy((char *)up, (char *)uq, sizeof(struct utmp));
+X      bzero(uq->ut_name, sizeof(uq->ut_name));
+X      bzero(uq->ut_host, sizeof(uq->ut_host));
+X      if (write(utmpf, (char *)uq, sizeof(struct utmp)) != sizeof(struct utmp))
+# else
+X      if (write(utmpf, (char *) &u, sizeof u) != sizeof u)
+# endif /* apollo */
+#endif
+X        {
+#ifdef NETHACK
+X          if (nethackflag)
+X	    {
+X	      DeadlyMsg = 0;
+X              Msg(errno, "%s is too hard to dig in.", UTMPFILE); 
+X	    }
+X          else
+#endif
+X	    {
+X	      DeadlyMsg = 0;
+X              Msg(errno, "Could not write %s.", UTMPFILE);
+X	    }
+X        }
+X    }
+X  else 
+X    {
+X      debug1("There is no utmp-slot to be removed(%d)\n", slot);
+X    }
+#ifdef apollo
+X  close(utmpf);
+X  free(uq);
+#endif
+}
+X
+char *
+stripdev(nam)
+char *nam;
+{
+#ifdef apollo
+X  char *p;
+X
+X  if (nam == NULL)
+X    return NULL;
+X  if (p = strstr(nam,"/dev/"))
+X    return p + 5;
+#else
+X  if (nam == NULL)
+X    return NULL;
+X  if (strncmp(nam, "/dev/", 5) == 0)
+X    return nam + 5;
+#endif
+X  return nam;
+}
+X
+static slot_t TtyNameSlot(nam)
+char *nam;
+{
+X  char *name;
+X  register slot_t slot;
+#ifndef GETUTENT
+X  register struct ttyent *tp;
+#endif
+#ifdef apollo
+X  struct utmp *up;
+#endif
+X
+X  debug1("TtyNameSlot(%s)\n", nam);
+#ifdef apollo
+X  InitUtmp();
+#endif
+X  if (!utmp || nam == NULL)
+X    return (slot_t)0;
+X  name = stripdev(nam);
+#ifdef GETUTENT
+X  slot = name;
+#else
+# ifdef apollo
+X  slot = 0;
+X  up = (struct utmp *)malloc(sizeof(struct utmp));
+X  while (1)
+X    {
+X      if ((read(utmpf, (char *)up, sizeof(struct utmp)) ==
+X	   sizeof(struct utmp)) && (strcmp(up->ut_line, name)))
+X	slot++;
+X      else
+X	break;
+X    }
+X  close(utmpf);
+X  free(up);
+# else /* !apollo */
+X  slot = 1;
+X  setttyent();
+X  while ((tp = getttyent()) != NULL && strcmp(name, tp->ty_name) != 0)
+X    {
+X      debug2("'%s' %d, ", tp->ty_name, slot);
+X      ++slot;
+X    }
+X  debug("\n");
+#  ifdef MIPS
+X  if (tp == NULL)
+X    {
+X      slot = CreateUtmp(name);
+X    }
+#  endif /* MIPS */
+# endif /* apollo */
+#endif /* GETUTENT */
+X  return slot;
+}
+X
+int
+SetUtmp(wi, displaynumber)
+struct win *wi;
+int displaynumber;
+{
+X  register char *p;
+X  register slot_t slot;
+X  char *line;
+X  struct utmp u;
+#ifdef UTHOST
+# ifdef _SEQUENT_
+X  char host[100+5];
+# else
+X  char host[sizeof(utmp_logintty.ut_host)+5];
+# endif
+#endif
+X
+X  wi->slot = (slot_t) 0;
+X  if (!utmp)
+X    return -1;
+X  if ((slot = TtyNameSlot(wi->tty)) == (slot_t) NULL)
+X    {
+X      debug1("SetUtmp failed (tty %s).\n",wi->tty);
+X      return -1;
+X    }
+X  debug2("SetUtmp %d will get slot %d...\n", displaynumber, (int)slot);
+#ifdef apollo
+X  InitUtmp();
+#endif
+X
+#ifdef UTHOST
+X  host[sizeof(host)-5] = '\0';
+# ifdef _SEQUENT_
+X  strncpy(host, loginhost, sizeof(host) - 5);
+# else
+X  strncpy(host, utmp_logintty.ut_host, sizeof(host) - 5);
+# endif
+X  if (loginslot != (slot_t)0 && loginslot != (slot_t)-1 && host[0] != '\0')
+X    {
+X      /*
+X       * we want to set our ut_host field to something like
+X       * ":ttyhf:s.0" or
+X       * "faui45:s.0" or
+X       * "132.199.81.4:s.0" (even this may hurt..), but not
+X       * "faui45.informati"......:s.0
+X       */
+X      for (p = host; *p; p++)
+X	{
+X	  if ((*p < '0' || *p > '9') && (*p != '.'))
+X	    break;
+X	}
+X      if (*p)
+X	{
+X	  for (p = host; *p; p++)
+X	    {
+X	      if (*p == '.')
+X		{
+X		  *p = '\0';
+X		  break;
+X		}
+X	    }
+X	}
+X    }
+X  else
+X    {
+X      strncpy(host + 1, stripdev(display_tty), sizeof(host) - 6);
+X      host[0] = ':';
+X    }
+X  debug1("rlogin hostname: '%s'\n", host);
+X  sprintf(host + strlen(host), ":S.%c", '0' + displaynumber);
+X  debug1("rlogin hostname: '%s'\n", host);
+#endif /* UTHOST */
+X
+X  line = stripdev(wi->tty);
+X  bzero((char *) &u, sizeof u);
+X
+#ifdef GETUTENT
+# ifdef _SEQUENT_
+X  if (ut_add_user(LoginName, slot, wi->wpid, host)==0)
+# else
+X  strncpy(u.ut_user, LoginName, sizeof(u.ut_user));
+X  strncpy(u.ut_id, line + strlen(line) - 2, sizeof(u.ut_id));
+X  strncpy(u.ut_line, line, sizeof(u.ut_line));
+X  u.ut_pid = wi->wpid;
+X  u.ut_type = USER_PROCESS;
+#  ifdef SVR4
+X    (void) time(&u.ut_tv.tv_sec);
+X    u.ut_tv.tv_usec=0;
+#  else
+X    (void) time(&u.ut_time);
+#  endif /* SVR4 */
+#  ifdef UTHOST
+X  strncpy(u.ut_host, host, sizeof(u.ut_host));
+#  endif /* UTHOST */
+X  if (pututline(&u) == 0)
+# endif /* _SEQUENT_ */
+#else	/* GETUTENT */
+X  strncpy(u.ut_line, line, sizeof(u.ut_line));
+X  strncpy(u.ut_name, LoginName, sizeof(u.ut_name));
+# ifdef UTHOST
+X  strncpy(u.ut_host, host, sizeof(u.ut_host));
+# endif	/* UTHOST */
+# ifdef MIPS
+X  u.ut_type = 7; /* USER_PROCESS */
+X  strncpy(u.ut_id, line + 3, 4);
+# endif /* MIPS */
+X  (void) time(&u.ut_time);
+# ifdef sequent
+/* call sequent undocumented routine to count logins and add utmp entry if possible */
+X  if (add_utmp(slot, &u) == -1)
+# else
+X  (void) lseek(utmpf, (off_t) (slot * sizeof u), 0);
+X  if (write(utmpf, (char *) &u, sizeof u) != sizeof u)
+# endif /* sequent */
+#endif	/* GETUTENT */
+X
+X    {
+#ifdef NETHACK
+X      if (nethackflag)
+X        Msg(errno, "%s is too hard to dig in.", UTMPFILE);
+X      else
+#endif
+X      Msg(errno,"Could not write %s.", UTMPFILE);
+#ifdef apollo
+X      close(utmpf);
+#endif
+X      return -1;
+X    }
+X  debug("SetUtmp successful\n");
+X  wi->slot = slot;
+#ifdef apollo
+X  close(utmpf);
+#endif
+X  return 0;
+}
+X
+#ifdef MIPS
+X
+#define GETTTYENT
+static int ttyfd = 0;
+X
+static void setttyent()
+{
+X  if (ttyfd)
+X    close(ttyfd);
+X  ttyfd = open(UtmpName, O_RDONLY);
+}
+X
+static struct ttyent *getttyent()
+{
+X  static struct utmp u;
+X  static struct ttyent t;
+X
+X  if (!ttyfd)
+X    return NULL;
+X  
+X  if (read(ttyfd, &u, sizeof u)) 
+X    {
+X      t.ty_name = u.ut_line;
+X      return &t;
+X    }
+X  return NULL;
+}
+X
+CreateUtmp(name)
+char *name;
+{
+X  int slot;
+X  struct utmp u;
+X
+X  strncpy(u.ut_line, name, 8);
+X  strncpy(u.ut_name, LoginName, 8);
+X  u.ut_type = 7; /* USER_PROCESS */
+X  strncpy(u.ut_id, name+3, 4);
+X  (void) time(&u.ut_time);
+X  slot = (lseek(utmpfappend, 0, 2) + 1) / sizeof u;
+X  (void) write(utmpfappend, (char *)&u, sizeof u);
+X  close(utmpfappend);
+X  if ((utmpfappend = open(UtmpName, O_APPEND)) == -1) 
+X    {
+X      if (errno != EACCES)
+X        Msg(errno, UtmpName);
+X      return;
+X    }
+X  return slot;
+}
+#endif /* MIPS */
+X
+/*
+X * if slot could be removed or was 0,  wi->slot = -1;
+X * else not changed.
+X */
+int
+RemoveUtmp(wi)
+struct win *wi;
+{
+#ifdef GETUTENT
+X  struct utmp *uu;
+#endif
+#ifdef apollo
+X  struct utmp *up;
+#endif
+X  struct utmp u;
+X  slot_t slot;
+X
+X  slot = wi->slot;
+#ifdef GETUTENT
+X  debug1("RemoveUtmp(%s)\n", (slot == (slot_t) 0) ?
+X         "no slot (0)":((slot == (slot_t) -1) ? "no slot (-1)" : slot));
+#else
+X  debug1("RemoveUtmp(wi.slot: %d)\n", slot);
+#endif
+#ifdef apollo
+X  InitUtmp();
+X  up = (struct utmp *)malloc(sizeof(struct utmp));
+X  bzero((char *)up, sizeof(struct utmp));
+#endif /* apollo */
+X  if (!utmp)
+X    return -1;
+X  if (slot == (slot_t) 0 || slot == (slot_t) -1)
+X    {
+X      debug1("There is no utmp-slot to be removed(%d)\n", slot);
+X      wi->slot = (slot_t) -1;
+X      return 0;
+X    }
+X  bzero((char *) &u, sizeof u);
+#ifdef GETUTENT
+X  setutent();
+X  strncpy(u.ut_line, slot, sizeof(u.ut_line));
+X  if ((uu = getutline(&u)) == 0)
+X    {
+X      Msg(0, "Utmp slot not found -> not removed");
+X      return -1;
+X    }
+# ifdef _SEQUENT_
+X  if (ut_delete_user(slot, uu->ut_pid, 0, 0) == 0)
+# else
+X  uu->ut_type = DEAD_PROCESS;
+X  uu->ut_exit.e_termination = 0;
+X  uu->ut_exit.e_exit= 0;
+X  if (pututline(uu) == 0)
+# endif
+#else	/* GETUTENT */
+X  (void) lseek(utmpf, (off_t) (slot * sizeof u), 0);
+# ifdef apollo
+X  if (read(utmpf, (char *) up, sizeof u) != sizeof u)
+X    {
+X      DeadlyMsg = 0;
+X      Msg(errno, "cannot read %s?", UTMPFILE);
+X      sleep(1);
+X    }
+X  (void) lseek(utmpf, (off_t) (slot * sizeof u), 0);
+X  bzero(up->ut_name, sizeof(u.ut_name));
+X  bzero(up->ut_host, sizeof(u.ut_host));
+X  if (write(utmpf, (char *)up, sizeof u) != sizeof u)
+# else
+X  if (write(utmpf, (char *) &u, sizeof u) != sizeof u)
+# endif /* apollo */
+#endif
+X    {
+#ifdef NETHACK
+X      if (nethackflag)
+X        Msg(errno, "%s is too hard to dig in.", UTMPFILE);
+X      else
+#endif
+X      Msg(errno,"Could not write %s.", UTMPFILE);
+#ifdef apollo
+X      close(utmpf);
+X      free(up);
+#endif
+X      return -1;
+X    }
+X  debug("RemoveUtmp successfull\n");
+X  wi->slot = (slot_t) -1;
+#ifdef apollo
+X  close(utmpf);
+X  free(up);
+#endif
+X  return 0;
+}
+X
+#endif	/* UTMPOK */
+X
+#if !defined(GETTTYENT) && !defined(GETUTENT)
+X
+static void setttyent()
+{
+X  struct stat s;
+X  register int f;
+X  register char *p, *ep;
+X
+X  if (ttnext)
+X    {
+X      ttnext = tt;
+X      return;
+X    }
+X  if ((f = open(ttys, O_RDONLY)) == -1 || fstat(f, &s) == -1)
+X    Msg(errno, ttys);
+X  if ((tt = malloc((unsigned) s.st_size + 1)) == 0)
+X    Msg_nomem;
+X  if (read(f, tt, s.st_size) != s.st_size)
+X    Msg(errno, ttys);
+X  close(f);
+X  for (p = tt, ep = p + s.st_size; p < ep; ++p)
+X    if (*p == '\n')
+X      *p = '\0';
+X  *p = '\0';
+X  ttnext = tt;
+}
+X
+static struct ttyent *getttyent()
+{
+X  static struct ttyent t;
+X
+X  if (*ttnext == '\0')
+X    return NULL;
+X  t.ty_name = ttnext + 2;
+X  ttnext += strlen(ttnext) + 1;
+X  return &t;
+}
+X
+#endif	/* GETTTYENT */
+X
+#ifdef LOADAV
+# ifdef LOADAV_NEXT
+void
+InitNeXTLoadAvg()
+{
+X  error = processor_set_default(host_self(), &default_set);
+X  if (error != KERN_SUCCESS)
+X    mach_error("Error calling processor_set_default", error);
+X  else
+X    avenrun = 1;
+}
+X
+int
+GetAvenrun()
+{
+X  info_count = PROCESSOR_SET_BASIC_INFO_COUNT;
+X  error = processor_set_info(default_set, PROCESSOR_SET_BASIC_INFO, &host,
+X			     (processor_set_info_t)&info, &info_count);
+X  if (error != KERN_SUCCESS)
+X    {
+X      mach_error("Error calling processor_set_info", error);
+X      return 0;
+X    }
+X  else
+X    {
+X      loadav = (float)info.load_average / LOAD_SCALE;
+X      return 1;
+X    }
+}
+X
+# else /* need kmem for load avg */
+X
+void
+InitKmem()
+{
+X  debug("Init Kmem...\n");
+#  ifndef apollo
+X  if ((kmemf = open(KmemName, O_RDONLY)) == -1)
+X    return;
+X  debug("Kmem opened\n");
+X  nl[0].n_name = AvenrunSym;
+X  debug2("Searching in %s for %s\n", UnixName, nl[0].n_name);
+X  nlist(UnixName, nl);
+X  if (/* nl[0].n_type == 0 || */ nl[0].n_value == 0)
+X    {
+X      close(kmemf);
+X      return;
+X    }
+#   ifdef sgi
+X  nl[0].n_value &= ~(1 << 31); /* clear upper bit */
+#   endif /* sgi */
+X  debug("AvenrunSym found!!\n");
+#  endif /* apollo */
+X  avenrun = 1;
+}
+X
+int
+GetAvenrun()
+{
+# ifdef apollo
+X  int load[3];
+X  register int i;
+X
+X  proc1_$get_loadav(load);
+X  for (i = 0; i < 3; i++)
+X    loadav[i] = (double)load[i] / 65536.0;
+# else
+X  if (lseek(kmemf, (off_t) nl[0].n_value, 0) == (off_t) - 1)
+X    return 0;
+X  if (read(kmemf, (char *) loadav, sizeof loadav) != sizeof loadav)
+X    return 0;
+# endif /* apollo */
+X
+X  return 1;
+}
+X
+# endif /* !NeXT, need kmem for load avg */
+#endif	/* LOADAV */
+X
+/*
+X * (Almost) secure open and fopen... mlschroe.
+X */
+X
+FILE *
+secfopen(name, mode)
+char *name;
+char *mode;
+{
+X  FILE *fi;
+#ifdef NOREUID
+X  int flags, fd;
+#endif
+X
+X  debug2("secfopen(%s, %s)\n", name, mode);
+X  if (eff_uid == real_uid)
+X    return(fopen(name, mode));
+#ifndef NOREUID
+X  setreuid(eff_uid, real_uid);
+X  setregid(eff_gid, real_gid);
+X  fi = fopen(name, mode);
+X  setreuid(real_uid, eff_uid);
+X  setregid(real_gid, eff_gid);
+#else
+X  if (mode[0] && mode[1] == '+')
+X    flags = O_RDWR;
+X  else
+X    flags = (mode[0] == 'r') ? O_RDONLY : O_WRONLY;
+X  if (mode[0] == 'w')
+X    flags |= O_CREAT | O_TRUNC;
+X  else if (mode[0] == 'a')
+X    flags |= O_CREAT | O_APPEND;
+X  else if (mode[0] != 'r')
+X    {
+X      errno = EINVAL;
+X      return(0);
+X    }
+X  if ((fd = secopen(name, flags, 0666)) < 0)
+X    return(0);
+X  if ((fi = fdopen(fd, mode)) == 0)
+X    {
+X      close(fd);
+X      return(0);
+X    }
+#endif
+X  return(fi);
+}
+X
+X
+int
+secopen(name, flags, mode)
+char *name;
+int flags;
+int mode;
+{
+X  int fd;
+#ifdef NOREUID
+X  int q;
+X  struct stat stb;
+#endif
+X
+X  debug3("secopen(%s, 0x%x, 0%03o)\n", name, flags, mode);
+X  if (eff_uid == real_uid)
+X    return(open(name, flags, mode));
+#ifndef NOREUID
+X  setreuid(eff_uid, real_uid);
+X  setregid(eff_gid, real_gid);
+X  fd = open(name, flags, mode);
+X  setreuid(real_uid, eff_uid);
+X  setregid(real_gid, eff_gid);
+#else
+X  /* Truncation/creation is done in UserContext */
+X  if ((flags & O_TRUNC) || ((flags & O_CREAT) && access(name, F_OK)))
+X    {
+X      if (UserContext() > 0)
+X	{
+X          if ((fd = open(name, flags, mode)) >= 0)
+X	    {
+X	      close(fd);
+X	      UserReturn(0);
+X            }
+X	  if (errno == 0)
+X	    errno = EACCES;
+X	  UserReturn(errno);
+X	}
+X      if (q = UserStatus())
+X	{
+X	  if (q > 0)
+X	    errno = q;
+X          return(-1);
+X	}
+X    }
+X  if (access(name, F_OK))
+X    return(-1);
+X  if ((fd = open(name, flags & ~(O_TRUNC | O_CREAT), 0)) < 0)
+X    return(-1);
+X  debug("open successful\n");
+X  if (fstat(fd, &stb))
+X    {
+X      close(fd);
+X      return(-1);
+X    }
+X  debug("fstat successful\n");
+X  if (stb.st_uid != real_uid)
+X    {
+X      switch (flags & (O_RDONLY | O_WRONLY | O_RDWR))
+X        {
+X	case O_RDONLY:
+X	  q = 0004;
+X	  break;
+X	case O_WRONLY:
+X	  q = 0002;
+X	  break;
+X	default:
+X	  q = 0006;
+X	  break;
+X        }
+X      if ((stb.st_mode & q) != q)
+X	{
+X          debug("secopen: permission denied\n");
+X	  close(fd);
+X	  errno = EACCES;
+X	  return(-1);
+X	}
+X    }
+#endif
+X  debug1("secopen ok - returning %d\n", fd);
+X  return(fd);
+}
+X
+#ifdef BUGGYGETLOGIN
+char *
+getlogin()
+{
+X  char *tty;
+#ifdef utmp
+# undef utmp
+#endif
+X  struct utmp u;
+X  static char retbuf[sizeof(u.ut_user)+1];
+X  int fd;
+X
+X  for (fd = 0; fd <= 2 && (tty = ttyname(fd)) == NULL; fd++)
+X    ;
+X  if ((tty == NULL) || ((fd = open(UTMP_FILE, O_RDONLY)) < 0))
+X    return NULL;
+X  tty = stripdev(tty);
+X  retbuf[0] = '\0';
+X  while (read(fd, &u, sizeof(struct utmp)) == sizeof(struct utmp))
+X    {
+X      if (!strncmp(tty, u.ut_line, sizeof(u.ut_line)))
+X	{
+X	  strncpy(retbuf, u.ut_user, sizeof(u.ut_user));
+X	  retbuf[sizeof(u.ut_user)] = '\0';
+X	  if (u.ut_type == USER_PROCESS)
+X	    break;
+X	}
+X    }
+X  close(fd);
+X
+X  return *retbuf ? retbuf : NULL;
+}
+#endif
+SHAR_EOF
+echo 'File screen3.2/fileio.c is complete' &&
+chmod 0444 screen3.2/fileio.c ||
+echo 'restore of screen3.2/fileio.c failed'
+Wc_c="`wc -c < 'screen3.2/fileio.c'`"
+test 54830 -eq "$Wc_c" ||
+	echo 'screen3.2/fileio.c: original size 54830, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/help.c ==============
+if test -f 'screen3.2/help.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/help.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/help.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/help.c' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+#ifndef lint
+X  static char rcs_id[] = "$Id: help.c,v 1.2 92/02/03 02:28:33 jnweiger Exp $ FAU";
+#endif
+X
+#include "config.h"
+#include <stdio.h>
+#include <sys/types.h>
+X
+#ifdef BSDI
+# include <sys/signal.h>
+#endif /* BSDI */
+X
+#include "screen.h"
+#include "ansi.h"
+#include "extern.h"
+#include "patchlevel.h"
+X
+int help_page = 0;
+int command_search, command_bindings = 0;
+extern char Esc, MetaEsc;
+extern char *KeyNames[];
+extern struct key ktab[];
+extern int screenwidth, screenheight;
+extern char *blank, *null, *CE;
+extern struct win *fore;
+X
+static void centerline __P((char *));
+static void HelpRedisplayLine __P((int, int, int, int));
+static void process_help_input __P((char **, int *));
+static void AbortHelp __P((void));
+static void add_key_to_buf __P((char *, int));
+X
+void
+exit_with_usage(myname)
+char *myname;
+{
+X  printf("Use: %s [-opts] [cmd [args]]\n", myname);
+X  printf(" or: %s -r [host.tty]\n\nOptions:\n", myname);
+X  printf("-a           Force all capabilities into each window's termcap\n");
+X  printf("-A -[r|R]    Adapt all windows to the new display width & height\n");
+X  printf("-c file      Read configuration file instead of .screenrc\n");
+#ifdef REMOTE_DETACH
+X  printf("-d (-r)      Detach the elsewhere running screen (and reattach here)\n");
+X  printf("-D (-r)      Detach and logout remote (and reattach here)\n");
+#endif
+X  printf("-e xy        Change command characters\n");
+X  printf("-f           Flow control on, -fn = off, -fa = auto\n");
+X  printf("-h lines     Set the size of the scrollback history buffer\n");
+X  printf("-i           Interrupt output sooner when flow control is on\n");
+X  printf("-l           Login mode on (update %s), -ln = off\n", UTMPFILE);
+X  printf("-list        or -ls. Do nothing, just list our SockDir\n");
+X  printf("-L           Terminal's last character can be safely updated\n");
+X  printf("-O           Choose optimal output rather than exact vt100 emulation\n");
+X  printf("-q           Quiet startup. Sets $status if unsuccessful.\n");
+X  printf("-r           Reattach to a detached screen process\n");
+X  printf("-R           Reattach if possible, otherwise start a new session\n");
+X  printf("-s shell     Shell to execute rather than $SHELL\n");
+X  printf("-T term      Use term as $TERM for windows, rather than \"screen\"\n");
+X  printf("-t title     Set command's a.k.a. (window title)\n");
+X  printf("-wipe        Do nothing, just clean up SockDir\n");
+X  exit(1);
+}
+X
+/* Esc-char is not consumed. All others are. Esc-char, space, and return end */
+static void
+process_help_input(ppbuf, plen)
+char **ppbuf;
+int *plen;
+{
+X  int done = 0;
+X
+X  if (ppbuf == 0)
+X    {
+X      AbortHelp();
+X      return;
+X    }
+X  while (!done && *plen > 0)
+X    {
+X      switch (**ppbuf)
+X	{
+X	case ' ':
+X	  if (display_help() == 0)
+X            break;
+X	  /* FALLTHROUGH */
+X	case '\r':
+X	case '\n':
+X	  done = 1;
+X	  break;
+X	default:
+X	  if (**ppbuf == Esc)
+X	    {
+X	      done = 1;
+X	      continue;
+X	    }
+X	  break;
+X	}
+X      ++*ppbuf;
+X      --*plen;
+X    }
+X  if (done)
+X    AbortHelp();
+}
+X
+static void
+AbortHelp()
+{
+X  help_page = 0;
+X  ExitOverlayPage();
+X  Activate(0);
+}
+X
+static int maxrow, grow, numcols, numrows, num_names;
+static int numskip, numpages;
+X
+int
+display_help()
+{
+X  int col, crow, n, key = 0;
+X  enum keytype typ = ktab[0].type;
+X  char buf[256], Esc_buf[5], cbuf[256];
+X
+X  if (!help_page++)
+X    {
+X      if (screenwidth < 26 || screenheight < 6)
+X        {
+X	  Msg(0, "Window size too small for help page");
+X	  help_page = 0;
+X	  return -1;
+X        }
+X      InitOverlayPage(process_help_input, HelpRedisplayLine, (int (*)())0, 0);
+X
+X      command_bindings = 0;
+X      for (key = 0; key < 256; key++)
+X        if ((typ = ktab[key].type) == KEY_CREATE
+X	    || typ == KEY_SCREEN
+X	    || typ == KEY_SET
+X	    || (typ == KEY_AKA && ktab[key].args))
+X	  command_bindings++;
+X      debug1("help: command_bindings counted: %d\n",command_bindings);
+X      for (n = 0; KeyNames[n] != NULL; n++)
+X	; /* we dont know "sizeof * KeyNames" */
+X      num_names = n - 1;
+X      debug1("help: we find %d named keys (+1).\n", num_names);
+X      command_search = 0;
+X
+X      numcols = screenwidth/26;
+X      if (numcols == 0)
+X        numcols = 1;
+X      numrows = (num_names + numcols -1) / numcols;
+X      debug1("Numrows: %d\n", numrows);
+X      numskip = screenheight-5 - (2 + numrows);
+X      while (numskip < 0)
+X	numskip += screenheight-5;
+X      numskip %= screenheight-5;
+X      debug1("Numskip: %d\n", numskip);
+X      if (numskip > screenheight/3 || numskip > command_bindings)
+X	numskip = 1;
+X      maxrow = 2 + numrows + numskip + command_bindings;
+X      grow = 0;
+X
+X      numpages = (maxrow + screenheight-6) / (screenheight-5);
+X    }
+X
+X  if (grow >= maxrow)
+X    { 
+X      return(-1);
+X    }
+X
+X  /* Clear the help screen */
+X  ClearDisplay();
+X  
+X  sprintf(cbuf,"Screen key bindings, page %d of %d.", help_page, numpages);
+X  centerline(cbuf);
+X  printf("\n");
+X  crow = 2;
+X
+X  *Esc_buf = '\0';
+X  add_key_to_buf(Esc_buf, Esc);
+X  Esc_buf[strlen(Esc_buf) - 1] = '\0';
+X
+X  for (; crow < screenheight - 3; crow++)
+X    {
+X      if (grow < 1)
+X        {
+X   	  *buf = '\0';
+X          add_key_to_buf(buf, MetaEsc);
+X          buf[strlen(buf) - 1] = '\0';
+X          sprintf(cbuf,"Command key:  %s   Literal %s:  %s", Esc_buf, Esc_buf, buf);
+X          centerline(cbuf);
+X	  grow++;
+X        }
+X      else if (grow >= 2 && grow-2 < numrows)
+X	{
+X	  for (col = 0; col < numcols && (n = numrows * col + (grow-2)) < num_names; col++)
+X	    {
+X	      debug1("help: searching key %d\n", n);
+X	      buf[0] = '\0';
+X	      for (key = 0; key < 128; key++)
+X		if (ktab[key].type == (enum keytype) (n + 2)
+X		    && ((enum keytype) (n + 2) != KEY_AKA || !ktab[key].args) )
+X		  add_key_to_buf(buf, key);
+X	      buf[14] = '\0';
+X	      /*
+X	       * Format is up to 10 chars of name, 1 spaces, 14 chars of key
+X	       * bindings, and a space.
+X	       */
+X	      printf("%-10.10s %-14.14s ", KeyNames[n + 1], buf);
+X	    }
+X	  printf("\r\n");
+X          grow++;
+X        }
+X      else if (grow-2-numrows >= numskip 
+X               && grow-2-numrows-numskip < command_bindings)
+X        {
+X          char **pp, *cp;
+X
+X	  while (command_search < 128
+X		 && (typ = ktab[command_search].type) != KEY_CREATE
+X		 && typ != KEY_SCREEN
+X		 && typ != KEY_SET
+X		 && (typ != KEY_AKA || !ktab[command_search].args))
+X	    command_search++;
+X	  buf[0] = '\0';
+X	  add_key_to_buf(buf, command_search);
+X	  printf("%-4s", buf);
+X	  col = 4;
+X	  if (typ != KEY_CREATE)
+X	    {
+X	      col += strlen(KeyNames[(int)typ - 1]) + 1;
+X	      printf("%s ", KeyNames[(int)typ - 1]);
+X	    }
+X	  pp = ktab[command_search++].args;
+X	  while (pp && (cp = *pp) != NULL)
+X	    {
+X	      if (!*cp || (index(cp, ' ') != NULL))
+X		{
+X		  if (index(cp, '\'') != NULL)
+X		    *buf = '"';
+X		  else
+X		    *buf = '\'';
+X		  sprintf(buf + 1, "%s%c", cp, *buf);
+X		  cp = buf;
+X		}
+X	      if ((col += strlen(cp) + 1) >= screenwidth)
+X		{
+X		  col = screenwidth - (col - (strlen(cp) + 1)) - 2;
+X		  if (col >= 0)
+X		    {
+X		      n = cp[col];
+X		      cp[col] = '\0';
+X		      printf("%s$", *pp);
+X		      cp[col] = (char) n;
+X	  	    }
+X	          break;
+X	        }
+X	      printf("%s%c", cp, (screenwidth - col != 1 || !pp[1]) ? ' ' : '$');
+X	      pp++;
+X	    }
+X	  printf("\r\n");
+X	  grow++;
+X	}
+X      else
+X	{
+X          putchar('\n');
+X	  grow++;
+X	}
+X    }
+X  printf("\n");
+X  sprintf(cbuf,"[Press Space %s Return to end; %s to begin a command.]",
+X	 grow < maxrow ? "for next page;" : "or", Esc_buf);
+X  centerline(cbuf);
+X  fflush(stdout);
+X  SetLastPos(0, screenheight-1);
+X  return(0);
+}
+X
+static void
+add_key_to_buf(buf, key)
+char *buf;
+int key;
+{
+X  debug1("help: key found: %c\n", key);
+X  switch (key)
+X    {
+X    case ' ':
+X      strcat(buf, "sp ");
+X      break;
+X    case 0x7f:
+X      strcat(buf, "^? ");
+X      break;
+X    default:
+X      if (key < ' ')
+X	sprintf(buf + strlen(buf), "^%c ", (key | 0x40));
+X      else
+X	sprintf(buf + strlen(buf), "%c ", key);
+X      break;
+X    }
+}
+X
+static void
+centerline(str)
+char *str;
+{
+X  int l;
+X  l = (screenwidth - 1 + strlen(str)) / 2;
+X  if (l > screenwidth - 1)
+X    l = screenwidth - 1;
+X  printf("%*.*s\r\n", l, l, str);
+}
+X
+static void
+HelpRedisplayLine(y, xs, xe, isblank)
+int y, xs, xe, isblank;
+{
+X  if (isblank)
+X    return;
+X  if (CE)
+X    {
+X      GotoPos(xs, y);
+X      PutStr(CE);
+X      return;
+X    }
+X  DisplayLine(null, null, null, blank, null, null, y, xs, xe);
+}
+X
+/*
+X * here all the copyright stuff 
+X */
+X
+X
+static char version[40];
+X
+static char cpmsg[] = "\
+\n\
+iScreen version %v\n\
+\n\
+Copyright (c) 1991\n\
+X    Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)\n\
+X    Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)\n\
+Copyright (c) 1987 Oliver Laumann\n\
+\n\
+This program is free software; you can redistribute it and/or \
+modify it under the terms of the GNU General Public License as published \
+by the Free Software Foundation; either version 1, or (at your option) \
+any later version.\n\
+\n\
+This program is distributed in the hope that it will be useful, \
+but WITHOUT ANY WARRANTY; without even the implied warranty of \
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the \
+GNU General Public License for more details.\n\
+\n\
+You should have received a copy of the GNU General Public License \
+along with this program (see the file COPYING); if not, write to the \
+Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n";
+X
+X
+static void process_copyright_input __P((char **, int *));
+static void AbortCopyright __P((void));
+static void copypage __P((void));
+X
+static char *cps, *savedcps;
+X
+static void
+process_copyright_input(ppbuf, plen)
+char **ppbuf;
+int *plen;
+{
+X  int done = 0;
+X
+X  if (ppbuf == 0)
+X    {
+X      AbortCopyright();
+X      return;
+X    }
+X  while (!done && *plen > 0)
+X    {
+X      switch (**ppbuf)
+X	{
+X	case ' ':
+X          if (*cps)
+X	    {
+X	      copypage();
+X	      break;
+X	    }
+X	  /* FALLTHROUGH */
+X	case '\r':
+X	case '\n':
+X	  AbortCopyright();
+X	  done = 1;
+X	  break;
+X	default:
+X	  break;
+X	}
+X      ++*ppbuf;
+X      --*plen;
+X    }
+}
+X
+static void
+AbortCopyright()
+{
+X  ExitOverlayPage();
+X  Activate(0);
+}
+X
+void
+display_copyright()
+{
+X  if (screenwidth < 10 || screenheight < 5)
+X    {
+X      Msg(0, "Window size too small for copyright page");
+X      return;
+X    }
+X  InitOverlayPage(process_copyright_input, HelpRedisplayLine, (int (*)())0, 0);
+X  sprintf(version, "%d.%.2d.%.2d%s (%s) %s", REV, VERS, PATCHLEVEL, STATE, ORIGIN, DATE);
+X  cps = cpmsg;
+X  savedcps = 0;
+X  copypage();
+}
+X
+X
+static void
+copypage()
+{
+X  char *ws;
+X  int x, y, l;
+X  char cbuf[80];
+X
+X  ClearDisplay();
+X  x = y = 0;
+X  while(*cps)
+X    {
+X      ws = cps;
+X      while (*cps == ' ')
+X	cps++;
+X      if (strncmp(cps, "%v", 2) == 0)
+X	{
+X	  savedcps = cps + 2;
+X	  ws = cps = version;
+X	}
+X      while (*cps && *cps != ' ' && *cps != '\n')
+X	cps++;
+X      l = cps - ws;
+X      cps = ws;
+X      if (l > screenwidth - 1)
+X	l = screenwidth - 1;
+X      if (x && x + l >= screenwidth - 2)
+X	{
+X	  printf("\r\n");
+X	  x = 0;
+X	  if (++y > screenheight - 4)
+X            break;
+X	}
+X      if (x)
+X	{
+X	  putchar(' ');
+X	  x++;
+X	}
+X      if (l)
+X        printf("%*.*s", l, l, ws);
+X      x += l;
+X      cps += l;
+X      if (*cps == 0 && savedcps)
+X	{
+X	  cps = savedcps;
+X	  savedcps = 0;
+X	}
+X      if (*cps == '\n')
+X	{
+X	  printf("\r\n");
+X	  x = 0;
+X	  if (++y > screenheight - 4)
+X            break;
+X	}
+X      if (*cps == ' ' || *cps == '\n')
+X	cps++;
+X    }
+X  while (y++ < screenheight - 2)
+X    printf("\r\n");
+X  sprintf(cbuf,"[Press Space %s Return to end.]",
+X	 *cps ? "for next page;" : "or");
+X  centerline(cbuf);
+X  fflush(stdout);
+X  SetLastPos(0, screenheight-1);
+}
+X  
+SHAR_EOF
+chmod 0444 screen3.2/help.c ||
+echo 'restore of screen3.2/help.c failed'
+Wc_c="`wc -c < 'screen3.2/help.c'`"
+test 12878 -eq "$Wc_c" ||
+	echo 'screen3.2/help.c: original size 12878, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= screen3.2/mark.c ==============
+if test -f 'screen3.2/mark.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping screen3.2/mark.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting screen3.2/mark.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'screen3.2/mark.c' &&
+/* Copyright (c) 1991
+X *      Juergen Weigert (jnweiger@immd4.informatik.uni-erlangen.de)
+X *      Michael Schroeder (mlschroe@immd4.informatik.uni-erlangen.de)
+X * Copyright (c) 1987 Oliver Laumann
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 1, or (at your option)
+X * any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program (see the file COPYING); if not, write to the
+X * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X * Noteworthy contributors to screen's design and implementation:
+X *	Wayne Davison (davison@borland.com)
+X *	Patrick Wolfe (pat@kai.com, kailand!pat)
+X *	Bart Schaefer (schaefer@cse.ogi.edu)
+X *	Nathan Glasser (nathan@brokaw.lcs.mit.edu)
+X *	Larry W. Virden (lwv27%cas.BITNET@CUNYVM.CUNY.Edu)
+X *	Howard Chu (hyc@hanauma.jpl.nasa.gov)
+X *	Tim MacKenzie (tym@dibbler.cs.monash.edu.au)
+X *	Markku Jarvinen (mta@{cc,cs,ee}.tut.fi)
+X *	Marc Boucher (marc@CAM.ORG)
+X *
+X ****************************************************************
+X */
+X
+#ifndef lint
+X  static char rcs_id[] = "$Id: mark.c,v 1.2 92/02/03 02:27:48 jnweiger Exp $ FAU";
+#endif
+X
+#include <sys/types.h>
+X
+#ifdef BSD
+# include <sys/signal.h>
+#endif /* BSDI */
+X
+#include "config.h"
+#include "screen.h"
+#include "ansi.h"	/* here we find A_SO, ASCII, EXPENSIVE */
+#include "extern.h"
+X
+static int is_letter __P((int));
+static void nextword __P((int *, int *, int, int));
+static int linestart __P((int));
+static int lineend __P((int));
+static int rem __P((int, int , int , int , int , char *, int));
+static int eq __P((int, int ));
+static void revto __P((int, int));
+static void revto_line __P((int, int, int));
+static void MarkRedisplayLine __P((int, int, int, int));
+static int MarkRewrite __P((int, int, int, int));
+static void process_mark_input __P((char **, int *));
+static void AbortMarkRoutine __P((void));
+static int MarkScrollDownDisplay __P((int));
+static int MarkScrollUpDisplay __P((int));
+X
+int join_with_cr =  0;
+extern struct win *fore, *wtab[];
+extern int screenwidth, screenheight;
+extern int screentop, screenbot;
+extern char GlobalAttr, GlobalCharset;
+extern int in_ovl;
+extern int HS;
+extern int LP;
+extern char *null, *blank;
+X
+#ifdef NETHACK
+extern nethackflag;
+#endif
+X
+char *copybuffer = NULL;
+int copylen = 0;
+char mark_key_tab[256]; /* this array must be initialised first! */
+X
+static int in_mark;	/* mark routine active */
+static int left_mar, right_mar, nonl;
+static int x1, y1, second; /* y1 is in terms of WIN coordinates, not DISPLAY */
+static int cx, cy;	/* Cursor Position in WIN coords*/
+static rep_cnt;		/* no. of repeats are rep_cnt+1. jw. */
+static int append_mode;	/* shall we overwrite or append to copybuffer */
+static write_buffer;	/* shall we do a KEY_WRITE_EXCHANGE right away? */
+static hist_offset;
+X
+static int is_letter(c)
+char c;
+{
+X  if ((c >= 'a' && c <= 'z') ||
+X      (c >= 'A' && c <= 'Z') ||
+X      (c >= '0' && c <= '9') ||
+X      c == '_' || c == '.' ||
+X      c == '@' || c == ':' ||
+X      c == '%' || c == '!' ||
+X      c == '-' || c == '+')
+X    /* thus we can catch email-addresses as a word :-) */
+X    return 1;
+X  else if (c != ' ')
+X    return 2;
+X  return 0;
+}
+X
+/*
+X * iWIN gives us a reference to line y of the *whole* image 
+X * where line 0 is the oldest line in our history.
+X * y must be in WIN coordinate system, not in display.
+X */
+#define iWIN(y) ((y < fore->histheight) ? fore->ihist[(fore->histidx + y)\
+X		% fore->histheight] : fore->image[y - fore->histheight])
+#define aWIN(y) ((y < fore->histheight) ? fore->ahist[(fore->histidx + y)\
+X		% fore->histheight] : fore->attr[y - fore->histheight])
+#define fWIN(y) ((y < fore->histheight) ? fore->fhist[(fore->histidx + y)\
+X		% fore->histheight] : fore->font[y - fore->histheight])
+/*
+X * hist_offset tells us, how many lines there are on top of the
+X * visible screen.
+X */
+X
+#define W2D(y) ((y)-hist_offset)
+#define D2W(y) ((y)+hist_offset)
+X
+static int
+linestart(y)
+int y;
+{
+X  register int x;
+X  register char *i;
+X
+X  for (x = left_mar, i = iWIN(y) + x; x < screenwidth-1; x++)
+X    if (*i++ != ' ')
+X      break;
+X  if (x == screenwidth-1)
+X    x = left_mar;
+X  return(x);
+}
+X
+static int
+lineend(y)
+int y;
+{
+X  register int x;
+X  register char *i;
+X
+X  for (x = right_mar, i = iWIN(y) + x; x >= 0; x--)
+X    if (*i-- != ' ')
+X      break;
+X  if (x < 0)
+X    x = left_mar;
+X  return(x);
+}
+X
+X
+/*
+X *  nextword calculates the cursor position of the num'th word.
+X *  If the cursor is on a word, it counts as the first.
+X *  NW_BACK:		search backward
+X *  NW_ENDOFWORD:	find the end of the word
+X *  NW_MUSTMOVE:	move even if the position is correct.
+X */
+X
+#define NW_BACK		1
+#define NW_ENDOFWORD	2
+#define NW_MUSTMOVE	4
+X
+static void
+nextword(xp, yp, flags, num)
+int *xp, *yp, flags, num;
+{
+X  int xx = screenwidth, yy = fore->histheight + screenheight;
+X  register int sx, oq, q, x, y;
+X
+X  x = *xp;
+X  y = *yp;
+X  sx = (flags & NW_BACK) ? -1 : 1;
+X  if ((flags & NW_ENDOFWORD) && (flags & NW_MUSTMOVE))
+X    x += sx;
+X  for (oq = -1; ; x += sx, oq = q)
+X    {
+X      if (x >= xx || x < 0)
+X	q = 0;
+X      else
+X        q = is_letter(iWIN(y)[x]);
+X      if (oq >= 0 && oq != q)
+SHAR_EOF
+true || echo 'restore of screen3.2/mark.c failed'
+fi
+echo 'End of  part 3'
+echo 'File screen3.2/mark.c is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

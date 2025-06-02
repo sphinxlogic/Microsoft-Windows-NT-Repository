@@ -1,0 +1,1641 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i125:  mbase - MetalBase 5.0, Portable database engine, Part07/08
+Message-ID: <1992Nov23.233051.9685@sparky.imd.sterling.com>
+X-Md4-Signature: 1aa82636e6b6f8f67fc49580123863d2
+Date: Mon, 23 Nov 1992 23:30:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 125
+Archive-name: mbase/part07
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dox/crypt.dox dox/flow.dox dox/format.dox dox/struct.dox
+#   dox/time.dox sample/bench.c sample/readme sample/sample.frm
+#   sample/sample.s src/blast.c src/cache.c src/makefile
+#   src/makefile.dos src/parse.c src/struct.c
+# Wrapped by kent@sparky on Mon Nov 23 16:33:15 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 8)."'
+if test -f 'dox/crypt.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/crypt.dox'\"
+else
+  echo shar: Extracting \"'dox/crypt.dox'\" \(3346 characters\)
+  sed "s/^X//" >'dox/crypt.dox' <<'END_OF_FILE'
+XEncryption Method                                                 MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X  -- Note: This information is provided for your information alone, and --
+X  -- is sufficient to crack the (rather simple) encryption method.  If  --
+X  --  you are going to be encrypting sensitive data, please delete or   --
+X  --               change the permissions on this file.                 --
+X
+XNote that the encryption is apparently working for ALL supported machines
+Xnow--however, this has always been the hardest part to port between machines.
+XIf necessary (or if you simply want to), compile mbase.c (and vr.c/sample.c/
+Xwhatever) with -DNOENCRYPT, and it'll be turned off.
+X
+X-------------------------------------------------------------------------------
+X
+XIf the user has specifed a nonzero key when calling mb_inc(), the following
+Xencryption operations take place at any necessary time before the next call
+Xto mb_rmv():
+X o  All records to be written are encrypted on a field-by-field basis
+X o  Records being read for return to the user are decrypted
+X o  Records being compared during an internal search are decrypted as needed
+X
+XIn this way, as long as mb_inc() is always called with the same key, programs
+Xwill never see any effect of encryption--records passed to MetalBase routines
+Xare not encrypted by the user, and records returned from these routines are
+Xalready decrypted.  However, the relation's data will be unintelligible if
+Xviewed using either an external file display utility or MetalBase routines
+Xwhich have not passed the proper key to mb_inc().
+X
+XThe key used for encryption is passed as an integer argument to mb_inc(),
+Xalong with the relation name which is to be opened.  If this key is 0, no
+Xencryption will take place for that session (note that already-encrypted
+Xinformation will not be decrypted without the proper key--passing 0 is simply
+Xan alternative to encrypting the relation in the first place).  To facilitate
+Xmatters, MetalBase 4.0 and up include the routine strtokey() to convert a text
+Xstring to a key for mb_inc().
+X
+XEncryption is performed as follows:
+X o During mb_inc(), the key passed in is converted to an 8-bit mask by
+X     shuffling the bits around:
+X        Bits 12345678  become bits  63417825
+X   Okay, so it's not really useful.  So it places limits on portability, and
+X   is generally ugly.  But hey--I always wanted an excuse to do some good
+X   bit-shuffling...
+X
+X o When a record is encrypted or decrypted, each field is handled
+X     individually.  This is because MB 4.0 originally used a memoried
+X     encryption method; i.e., a byte's mask was dependent on that of the byte
+X     before it.  Portability problems with uchars made a change to it before
+X     the original 4.0 release, but the style is still the same.  In the
+X     interests of speed, it is necessary to decrypt only indexed fields
+X     during an internal search; thus, each field must be a starting point for
+X     the algorithm.
+X   To encrypt a field consisting of N bytes (be they for longs, strings,
+X     or whatever):
+X
+X     mask = relation.mask; (set by MetalBase during mb_inc())
+X
+X     if (mask)
+X        for (i=0; i<N; i++)
+X         {
+X           byte[i] ^= mask;
+X           mask     = (mask+1) & (int)0xFF;
+X         }
+X
+X   Decryption uses the exact same routine.
+X
+END_OF_FILE
+  if test 3346 -ne `wc -c <'dox/crypt.dox'`; then
+    echo shar: \"'dox/crypt.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/crypt.dox'
+fi
+if test -f 'dox/flow.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/flow.dox'\"
+else
+  echo shar: Extracting \"'dox/flow.dox'\" \(4341 characters\)
+  sed "s/^X//" >'dox/flow.dox' <<'END_OF_FILE'
+XAVL-Balanced Binary Tree Processes                                MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+XMetalBase 3.2 used straight, unbalanced binary-trees to keep track of data.
+X4.0 and up have migrated to AVL-balancing; the routines for keeping a tree
+Xin balance, and rebalancing it when needed, are below.  I developed these
+Xby hand, just from common sense; if there's a flaw, it hasn't shown up after
+Xhundreds of thousands of uses.
+X
+XAVL balancing means that, at any node in a tree, the number of records to
+Xthe left of a node is almost exactly equal to the number on the right; to
+Xmake it, work, they can be off by 1.  So the following are balanced:
+X
+X                     ___5___           ___4___
+X                   _2_     _8_       _2_     _6_
+X                  1   4   7         1   3   5   7
+X
+XAnd the following aren't (the first is too heavy to the left at 5, the second
+Xis too heavy to the right at 4):
+X
+X                     ___5___           ___4___
+X                   _2_      8                 6_
+X                  1   4                          7
+X
+XThis kind of balancing ensures, in effect, that only the last two levels of
+Xthe tree can ever have any empty nodes... so a tree will always stay as shallow
+Xas possible, providing the following speeds for algorithms:
+X
+X                                Worst-Case      Best-Case
+X                                ------------    ---------
+X               SEARCH...........O(ln(n))........O(1)
+X               ADD..............O(n * ln (n))...O(ln (n))
+X               UPDATE...........O(n * ln (n))...O(ln (n))
+X               DELETE...........O(n * ln (n))...O(ln (n))
+X
+XI'm particularly interested in getting a better rebalancing routine; mine is
+Xthe elegant solution, but I can't believe it's the only, or the fastest.  If
+Xyou have any ideas, lemme know.
+X
+X-------------------------------------------------------------------------------
+X
+X        Note that some names have changed [to protect the innocent?]  :)
+X
+X          (*) indicates a procedure must be called once for each index
+X
+X-------------------------------------------------------------------------------
+X
+Xupdate (rcd) :
+X*  del_preserve (rcd, <index>)
+X   change records instance on disk
+X*  link (rcd, <index>)
+X
+Xdelete (rcd) :
+X*  del_preserve (rcd, <index>)
+X   remove (rcd)
+X
+Xadd (data) :
+X   rcd = append (data)
+X*  link (rcd, <index>)
+X
+Xlink (rcd) :
+X*| drop (rcd, <index>)            (these are called, one after the other,
+X*| check (rcd, top, <index>)       for each index in the relation)
+X
+Xdrop (pos, index) :
+X   for (loc = top; ; )
+X    { dir = compare (rec (loc), rec(pos), index)  -- (-1,0,1)
+X      loc->balance += dir;
+X      if ( loc->child[dir] == 0 )
+X       { loc->child[dir] = rec
+X         rec->parent = loc
+X         break
+X       }
+X    }
+X
+Xcheck (st, ed, index) :
+X   for (loc = st; ; loc=loc->parent)
+X    { if ( rec (loc) ->unbalanced(index) )
+X         balance (loc, index)
+X      if (loc == ed)  break;
+X    };
+X
+Xunlink (loc, index) :
+X   ch=loc->left || loc->right
+X   if (loc->pardir)  loc->parent->right = ch;
+X   else              loc->parent->left  = ch;
+X   if (ch)  ch->parent = loc->parent, ch->pardir = loc->pardir;
+X                     /* DO NOT re-read loc */
+X   for (dir=loc->pardir,tmp=loc->parent;tmp!=0;dir=tmp->pardir,tmp=tmp->parent)
+X      tmp->balance -= (dir == 1) ? 1 : -1;
+X
+Xbalance (loc, index) :
+X   if (! rep = find_seq (loc, rec(loc)->balance) )  ERROR!!! -- bal>0?Next:Prev
+X   rp=rep->parent
+X   unlink (rep, index)
+X   replace (loc, rep, index) -- Replace LOC with REP
+X   drop (loc, index)
+X   if (rp != loc)  check (rp, rep)
+X                    /* re-read loc */
+X   check (loc->parent, rep)
+X
+Xdelete_preserve (bad) :
+X   bp = bad->parent
+X   if (bad->balance != 0)
+X      rep = find_seq (bad, bad->balance)  --bal>0?Next:Prev
+X   else
+X      if (! rep = find_seq (bad, toggle (lastmove)))
+X         rep = find_seq (bad, toggle (lastmove))
+X   if (! rep)
+X      unlink (bad)
+X   else
+X    { rp= rep->parent;
+X      unlink (rep)
+X      replace (bad, rep)
+X      if (rp != bad)  check (rp, bp)
+X    }
+X   check (bp, top)
+X
+Xreplace (old, new) :
+X   new->left_c = old->left_c;
+X   new->right_ = old->right_;
+X   new->parent = old->parent;  par=new->parent;
+X   new->pardir = old->pardir;
+X   par->[pardir]_c = new;
+X   new->left_c->parent = new;
+X   new->right_c->parent = new;
+X
+END_OF_FILE
+  if test 4341 -ne `wc -c <'dox/flow.dox'`; then
+    echo shar: \"'dox/flow.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/flow.dox'
+fi
+if test -f 'dox/format.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/format.dox'\"
+else
+  echo shar: Extracting \"'dox/format.dox'\" \(4400 characters\)
+  sed "s/^X//" >'dox/format.dox' <<'END_OF_FILE'
+XRelation Format                                                   MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X              Number   Enum Name    Storage    Typedef From
+X              ------  -----------  ---------  --------------
+X                 0.....T_CHAR.......char []....
+X                 1.....T_SHORT......short......
+X                 2.....T_USHORT.....ushort.....unsigned short
+X                 3.....T_LONG.......long.......
+X                 4.....T_ULONG......ulong......unsigned long
+X                 5.....T_FLOAT......float......
+X                 6.....T_DOUBLE.....double.....
+X                 7.....T_MONEY......double.....
+X                 8.....T_TIME.......mb_time....long
+X                 9.....T_DATE.......mb_date....long
+X                10.....T_SERIAL.....long.......
+X                11.....T_PHONE......mb_phone...char[20]
+X
+X
+XFIELD DESCRIPTIONS ------------------------------------------------------------
+X
+X
+XBits in time field:
+X   00000000 hhhhhmmm mmmsssss suuuuuuu --h=hour,m=min,s=sec,u=microseconds
+X
+XBits in date field:
+X   00000000 00yyyyyy yyyyyyym mmmddddd --y=year,m=month,d=day
+X
+XMoney:
+X   Money is treated exactly as double, but is rounded to 2 decimal places
+X   before being written.
+X
+XSerial:
+X   Serial fields are automatically filled before an 'add' instruction (not
+X   before updates), by the system--the number starts with 0 (unless specified
+X   otherwise in the schema) and increments on each successive add.  It never
+X   decrements (even if a record is deleted), nor is the same number ever used
+X   twice.
+X
+XPhone:
+X   Phone number fields are stored as pure text; there's only a special field
+X   because scn_phone() and fmt_phone() are there, and it's awfully convenient.
+X
+X
+XRELATION FORMAT ---------------------------------------------------------------
+X
+X
+XPos  #/Bytes   Description
+X
+X  0   1.......(char)50 : 5.0 signature
+X  1   1.......Unused in MB 5.0 (was number of users on the system, 0 == none)
+X  2   2.......Unused in MB 5.0 (was PID of temporary lock, 0 == none)
+X  4   2.......Unused in MB 5.0 (was PID of exclusive lock, 0 == none)
+X  6   4.......Pointer to fields' decriptions  => :A
+X 10   4.......Pointer to indices' decriptions => :B
+X 14   4.......Pointer to record 0             => :C
+X 18   4.......Number of records
+X 22   4.......Next serial field value
+X 26   2.......Number of fields
+X 28   2.......Number of indices
+X 30   4*I.....Pointers to index-heading records (top rcd in each tree)
+X A:   var*F...Fields' descriptions:
+X                 byte    0 : Type (0-10, as listed above)
+X                 bytes 1-2 : Size (short/ used only for char fields)
+X                 bytes 3-? : Name (max len = 20, terminated by '|')
+X B:   var*I...Indices' descriptions:
+X                 byte    0 : Type (0-1, 0==nodups, 1==dups)
+X                 bytes   1 : Number of fields in this index
+X                 bytes 2-? : Name (max len = 20, terminated by ':')
+X                       --- : Each field's sequential # (as short, 0-based)
+X      1.......Separator ('\n')
+X
+X ?:   128.....Unused in 5.0 (reserved space for later MB versions)
+X                (at runtime, this position is pointed to by {rel->hack})
+X
+X C:   var*R...Records:
+X                 13 bytes for each index: Index information
+X                    Bytes  0-3 : Left-child (record #)
+X                    Bytes  4-7 : Right-child (record #)
+X                    Bytes 8-11 : Parent (record #)
+X                    Byte    12 : Balance (';'=-2 '<'=-1 '='=0 '>'=1 '?'=2)
+X                 recsize bytes: Record information (no field separators)
+X                 1 byte separator ('\n')
+X
+X
+XLOCKFILE FORMAT ---------------------------------------------------------------
+X
+X
+XThere is exactly one lockfile for each relation, kept in a common temporary
+Xdirectory.  You can delete the lockfile at any time, as long as you're sure
+Xthere is no one using the relation at the time (this would be a Bad Thing to
+Xdelete if the relation is in use).  Deleting the lockfile will erase any
+Xremaining exclusive lock, and reset the number of users on the relation to
+Xzero.
+X
+XPos  #/Bytes   Description
+X
+X  0   2.......Number of users on relation, 0 == none
+X  2   2.......PID of exclusive lock, 0 == none
+X  4   6.......Three hacklock PIDs (see lock.dox)
+X 10  60.......Thirty temporary-lock queue positions (see lock.dox)
+X 70  30.......Thirty temporary-lock strobes (see lock.dox)
+X
+END_OF_FILE
+  if test 4400 -ne `wc -c <'dox/format.dox'`; then
+    echo shar: \"'dox/format.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/format.dox'
+fi
+if test -f 'dox/struct.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/struct.dox'\"
+else
+  echo shar: Extracting \"'dox/struct.dox'\" \(2763 characters\)
+  sed "s/^X//" >'dox/struct.dox' <<'END_OF_FILE'
+XC-Structure Interface                                             MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+XMetalBase 4.0 and up read and write database information directly from C
+Xstructures, using the following assumptions:
+X
+X            sizeof(long)   = sizeof(ulong)  = 4 bytes
+X            sizeof(short)  = sizeof(ushort) = 2 bytes
+X            sizeof(float)  = 4 bytes
+X            sizeof(double) = 8 bytes
+X
+XIf any of the above are not valid for your system, MetalBase 5.0 will not work
+Xproperly; however, this is the defacto standard, and should produce little
+Xdifficulty in porting.  So far, I have yet to receive even one complaint that
+Xthis assumption has limited a user's use of this package (one Mac user had
+Xto change the defaults for his compiler from a 12-byte double to an 8-byte,
+Xbut it worked fine after that).
+X
+XThe main problem between machines is therefore not type sizes, but byte-
+Xaligning in C structures.  At first, one would expect that the following:
+X   struct
+X    { char   A[3];
+X      long   B;
+X      char   C[5];
+X      char   D[5];
+X      double E;
+X      char   F[2];
+X    }
+Xwould appear like this in memory:
+X      AAABBBBCCCCCDDDDDEEEEEEEEFF
+XUnfortunately, this is not the case for most systems.  On this machine
+X(Sun4 SunOs/cc), structures are aligned comme ca:
+X      AAAxBBBBCCCCCDDDDDxxxxxxEEEEEEEEFFxxxxxx
+XWhile Xenix 2.3.2 would align them as:
+X      AAAxBBBBCCCCCDDDDDxxEEEEEEEEFF
+XWhy?  Because, for the Sun, each field is aligned on 4- or 8- byte boundaries,
+Xdepending on size; shorts, longs and floats to 4-byte boundaries, and doubles
+Xto 8-byte ones.  Essentially, the algorithm is:
+X
+X      start_pos = &base_of_structure;
+X      for (each field)
+X       { if (type != char)
+X            if (sizeof (type) < 8)  align_to_4_byte_boundary (start_pos);
+X            else                    align_to_8_byte_boundary (start_pos);
+X         add_field
+X       }
+X      align_to_8_byte_boundary
+X
+XThe last alignment is to obtain the structure size.
+X
+XAll this crap was discovered through trial and error (yick!)  If anyone
+Xencounters a structure which does not seem to meet the standards shown
+Xby struct.c, please contact me (virtual!richid@owlnet.rice.edu) and describe
+Xthe structure and your machine type.  If you decide to make any necessary
+Xmodifications yourself, you'll find the above algorithm (in essentially that
+Xform) in the routine _fill_info() [mbase.c]--but let me know if you get it
+Xworking, so I can add machine-dependency to the code with #defines.
+X
+XCurrently, there are 4 different version supported, as shown by "make struct".
+XIn general, these conform to Sun, Coherent/Zortec, Xenix, and Mac/Microsoft C
+Xrespectively (definitely not an exhaustive list of compatibility there).
+X
+END_OF_FILE
+  if test 2763 -ne `wc -c <'dox/struct.dox'`; then
+    echo shar: \"'dox/struct.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/struct.dox'
+fi
+if test -f 'dox/time.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/time.dox'\"
+else
+  echo shar: Extracting \"'dox/time.dox'\" \(3925 characters\)
+  sed "s/^X//" >'dox/time.dox' <<'END_OF_FILE'
+XTime/Date Functions                                               MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+XMetalBase handles time and date rather cleanly.  Two new types have been
+Xdefined, mb_time and mb_date ... each is actually a parsed-out long, so they
+Xmay be passed and returned by value as well as by reference.  There are several
+Xfunctions available for use with date and time fields (note that {struct tm *}
+Xis a system-supplied structure, and many many many functions are available for
+Xits use, completely independant of MetalBase):
+X
+X   mb_date tmtodate (struct tm *)
+X      If the argument passed is a valid {struct tm*} pointer, its information
+X      is converted to mb_date format, and the new variable returned.  If the
+X      pointer is NULL, the current date is returned.
+X
+X   mb_time tmtotime (struct tm *)
+X      If the argument passed is a valid {struct tm*} pointer, its information
+X      is converted to mb_time format, and the new variable returned.  If the
+X      pointer is NULL, the current time is returned.
+X
+X   struct tm *datetimetotm (mb_date, mb_time)
+X      If the arguments passed represent valid dates and times, a static local
+X      variable is filled out to conform to {struct tm*} conventions and
+X      returned.  If either component is zero, that component is replaced by
+X      the current date or time.
+X
+XNote that these functions have been #define'd to the following equivalents
+Xas well:
+X
+X      mb_date    curdate();
+X         Returns the current date (assign with "mb_date x = curdate()" or
+X         whatever strikes your fancy).
+X
+X      mb_time    curtime();
+X         Returns the current time.
+X
+X      struct tm *curdatetime();
+X         Returns the curent date and time in a {struct tm *} structure.
+X
+XThere are also two format functions:
+X
+X   char *fmt_date (mb_date, opt)
+X      The date does _not_ default to the current date if it ==0L.  This command
+X      returns a pointer to a static local character array, in which the date
+X      represented will be formated to one of the following conventions:
+X          opt:           format:
+X         default          mm/dd/yyyy
+X           1              mm/dd/yy
+X           2              yymmdd
+X      Note that we're approaching 2000, so I don't suggest using mm/dd/yy or
+X      yymmdd... just a personal peeve.  Not that my code will be around that
+X      long or anything, but it's only what, 8 years away?
+X
+X   char *fmt_time (mb_time, opt)
+X      The time does _not_ default to the current time if it ==0L.  This command
+X      returns a pointer to a static local character array, in which the time
+X      represented will be formated to one of the following conventions:
+X          opt:           format:
+X         default          hh:mm:ss   24-hour
+X           1              hh:mm xx   where "xx" == "am" or "pm"
+X           2              hh:mm      24-hour
+X
+XAnd, accordingly, there are two scanning functions:
+X
+X   mb_date scn_date (char *)
+X      The string must contain a date, which may be in any of the formats
+X      supported by fmt_date, and will be scanned appropriately into an
+X      mb_date structure.  Note that this function assumes the separator
+X      WILL BE '/' ... if you want hyphens as well, you'll have to add
+X      that.
+X
+X   mb_time scn_time (char *)
+X      The string must contain a time, which may be in any of the formats
+X      supported by fmt_time, and will be scanned appropriately into an
+X      mb_time structure.
+X
+XThere is also a function to find the number of seconds that have elapsed since
+Xa given mb_time:
+X   long   elap_t (mb_time)
+XIf you pass it 0L, it will return the number of seconds since midnight.
+X
+XYou can simulate a timer by doing something like this:
+X         mb_time  a;
+X         a = curtime();   /* Start timer */
+X         for (;;)
+X            printf ("It's been %ld seconds\n", elap_t(a));
+XRather useful at times. :)  Ha!  Times!  A pun!  Get it?  Hooo...
+X
+END_OF_FILE
+  if test 3925 -ne `wc -c <'dox/time.dox'`; then
+    echo shar: \"'dox/time.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/time.dox'
+fi
+if test -f 'sample/bench.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/bench.c'\"
+else
+  echo shar: Extracting \"'sample/bench.c'\" \(2552 characters\)
+  sed "s/^X//" >'sample/bench.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#include <mbase.h>
+X#include "bench.h"             /* Created during "% build bench.s"  */
+X
+X#define NUM 10 /* When building chart, each '.' == how many adds? */
+X
+X#ifdef LONGARGS
+X   void  main (int, char **);
+X#else
+X   void  main ();
+X#endif
+X
+Xrelation  *rel;
+X
+Xlong   elaparr[79];
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   int     i, num, x, top;
+X   long    sec;
+X   mb_time start;
+X
+X/*
+X * First, parse the command line, and set {num}.
+X *
+X */
+X
+X   if (argc == 1)
+X      num = 0;
+X   else if (argc == 2)
+X      num = (int)atoi (argv[1]);
+X   else
+X      {
+X      fprintf (stderr, "format: bench [numberofadds]%s", SNGCR);
+X      mb_exit (1);
+X      }
+X   if (num < 0)
+X      {
+X      fprintf (stderr, "You gotta add at least one record, idiot.%s", SNGCR);
+X      mb_exit (1);
+X      }
+X
+X/*
+X * Great.  Now open the database and start it rolling...
+X *
+X */
+X
+X   if ((rel = mb_inc ("bench", 0)) == RNULL)
+X      {
+X      fprintf (stderr, "%s.%s", mb_error, SNGCR);
+X      mb_exit (2);
+X      }
+X
+X   start = curtime();
+X
+X   if (num != 0)
+X      {
+X      printf ("Number of records: %ld%s", mb_num(rel), SNGCR);
+X      printf ("Start time:        %s%s", fmt_time (start, 0), SNGCR);
+X      }
+X
+X   for (x = 0; x < 79; x++)
+X      {
+X      top = num ? num : NUM;
+X      for (i = 0; i < top; i++)
+X         {
+X         if ((mb_add (rel, &bench_rec)) != MB_OKAY)
+X            {
+X            printf ("ADD FAILED: %s%s", mb_error, SNGCR);
+X            mb_exit(3);
+X            }
+X         }
+X      if (! num)
+X         fprintf (stderr, ".");
+X
+X      sec = elap_t (start);
+X
+X      if (num != 0)  break;
+X
+X      elaparr[x] = sec;
+X      }
+X
+X/*
+X * All done.  Print the tally.
+X *
+X */
+X
+X   if (! num)  printf ("\n");
+X   printf ("Number of records: %ld%s", mb_num (rel), SNGCR);
+X   if (num)
+X      {
+X      printf ("End time:          %s%s", fmt_time (curtime(), 0), SNGCR);
+X
+X      if (i != 0)
+X         {
+X         printf ("Seconds per add:   %.2lf%s", (double)sec/(double)i, SNGCR);
+X         }
+X      }
+X   else if (elaparr[78] != 0)
+X      {
+X      printf ("Average seconds per add = %.2lf:\n",
+X              ((double)elaparr[78]/(double)(NUM*79)));
+X      for (x = 19; x >= 0; x--)
+X         {
+X         for (i = 0; i < 79; i++)
+X            {
+X            if ( ((elaparr[i] * 20) / elaparr[78]) >= x )
+X               printf ("X");
+X            else
+X               printf (" ");
+X            }
+X         printf ("\n");
+X         }
+X      }
+X
+X   mb_exit (0);
+X}
+X
+END_OF_FILE
+  if test 2552 -ne `wc -c <'sample/bench.c'`; then
+    echo shar: \"'sample/bench.c'\" unpacked with wrong size!
+  fi
+  # end of 'sample/bench.c'
+fi
+if test -f 'sample/readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/readme'\"
+else
+  echo shar: Extracting \"'sample/readme'\" \(2634 characters\)
+  sed "s/^X//" >'sample/readme' <<'END_OF_FILE'
+XThe makefiles under this directory are (if it's possible) even harder to
+Xdeal with than in ../src --but I guarantee it's all compilable.  :)
+X
+XEventually.
+X
+XThere are two primary toys under here, sample and bench.  Sample is really
+Xjust there for example code; it happens to work, which is nice, but it's
+Xnot doing its intended job unless you look under the hood.  So have at it;
+Xit's ugly code (amazing how you can always look back and say, "God, I
+Xcan't believe I wrote THAT", isn't it?), but, as I said, it does work.
+X                          ^^
+X                          Note that I didn't put the comma inside the
+X                          quotes.  I think that looks really stupid; it's
+X                          not part of the quote.  New standard.  Anyone
+X                          wanna draw up a petition?
+X
+XBench is a benchmark utility.  Run it without any arguments and it'll proceed
+Xto add 790 very simple records, one after another, to bench.rel--each '.' it
+Xprints represents 10.  Then it'll draw a pretty graph that looks like a plot
+Xof any O(n * ln(n)) function (for 5.0 anyway--try it with 4.1a and it looks
+Xpretty!  All kindsa lumps and valleys...) and tell you what the average add
+Xtime is for all 790 records.  Some typical numbers, with the cache at 500
+X(as shipped):
+X
+X                                      Average time per add,  Multiple that
+X Machine   Software                   Versions 5.0 vs 4.1a   it's faster by
+X --------  -------------------------  ---------------------  --------------
+X NeXT      Non-turbo, 25Mhz            .27 sec vs  ???? sec      x ????
+X Sparc 1+  SunOS 4.1 (zzzooooom!!!)    .37 sec vs  1.16 sec      x 3.13
+X 386/25dx  Dos 5, SMARTDRV, DublDisk  1.15 sec vs  3.17 sec      x 2.75
+X 386/16sx  Xenix of some sort         1.27 sec vs  2.67 sec      x 2.10
+X
+XSo basically, the faster your processor, the better 5.0 beats the crap out of
+X4.1a... just what you'd expect, 'cause its primary change is that all tree
+Xbalancing is done cached.  Beware, though; 790 records at even 1 sec per add
+Xis just over 13 minutes; this benchmark will take a bit of time to run.  If you
+Xchange the cache size in the library it'll change the results a good bit; play
+Xwith MAX_CACHE in mbase.h and see.  Optimally you'd want MAX_CACHE to be
+Xexactly as big as the number of records you intend to store; more than that
+Xwould never be used, less than that and it flushes too often.  If you cut the
+Xnumber of records added by the benchmark to around 520, you may be able to see
+Xa bit of a peak in the plot where the cache size is...  if you have no more of
+Xa life than I do, you may wanna give it a whirl.  :|
+X
+END_OF_FILE
+  if test 2634 -ne `wc -c <'sample/readme'`; then
+    echo shar: \"'sample/readme'\" unpacked with wrong size!
+  fi
+  # end of 'sample/readme'
+fi
+if test -f 'sample/sample.frm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/sample.frm'\"
+else
+  echo shar: Extracting \"'sample/sample.frm'\" \(4088 characters\)
+  sed "s/^X//" >'sample/sample.frm' <<'END_OF_FILE'
+X#
+X# This is form sample--designed as a demonstration data-entry form.  It
+X# must be compiled with 'form'; sample_fm.h (built from this by form) is used
+X# in sample.c to control data-entry.
+X#
+X# Released October 1st, 1992 by Huan-Ti [ virtual!root@owlnet.rice.edu ]
+X#                                       [ t-richj@microsoft.com ]
+X#
+X
+XData sample;
+X
+XDefine A credit;    # These names are too long for their DE slots,
+XDefine B temp;      # So they're defined to something shorter.
+XDefine C num
+X
+X#
+X# Oh yeah.  I added the line below for Number Purchased on a whim... you'll
+X# find no mention of it in sample.c; but it works just perfectly, data moving
+X# from data-entry template to the relation and back without any specific
+X# coding at all.  Good example of some hefty flexibility here...
+X#
+X# The "4 2" below are the Y,X coordinates of the upper-left corner of this
+X# data-entry template on the screen.  Just thought I'd mention that.
+X#
+X
+XScreen 2 2
+X{
+X     +--------------------------------------------------------------+
+X     |                                                              |
+X     |  Customer Number...[custnum]   Name...[custname           ]  |
+X     |  Customer Phone....[phone               ]                    |
+X     |                                                              |
+X     |  Current Balance...${balance  }  Accept Credit...[A]..[B    ]  |
+X     |  Number Purchased..[C  ]                                     |
+X     |                                                              |
+X     |  Date Entered......[date_en   ]  Time...[time_en ]           |
+X     |                                                              |
+X     +--------------------------------------------------------------+
+X
+X            Ctrl-U          -  Undo (in this field only)
+X            Ctrl-Q, Ctrl-C  -  Abort a change
+X            Ctrl-A, Ctrl-D  -  Accept transaction; Delete this record
+X            Ctrl-N, Ctrl-P  -  Find next record; Find previous record
+X
+X      Type CTRL-Q (to leave edit mode), then "new" as a customer name
+X            to add a new record.
+X}
+X
+X#
+X# Note the screwed-up right side on the template above.  The braces
+X# surrounding "balance" will be actually -removed- from the display, while
+X# the brackets around the others are simply spaced over.  So the template
+X# looks perfectly rectangular during data-entry.
+X#
+X# I only used braces because I wanted the number for the customer's balance
+X# to buck right up against the dollar sign.  I know--picky picky...
+X#
+X
+XField credit type choice ("Yy" "Nn" "?");
+XField temp   type link to credit ("Yes" "No" "Maybe");
+X
+X#
+X# Ah.  The two lines above create a choice-and-link pair... something I
+X# noticed I'd been writing a lot of hard-coded a while back, and decided to
+X# support.  Without the "Field temp type link to credit..." thing, the
+X# field "sample.credit" would continue to work as you'd expect from a choice
+X# field--it only allows characters from the set "YyNn?" in it.  But, add the
+X# link to credit, and field "temp" is filled in automatically depending on
+X# what "sample.credit" is:  "Yy" maps to "Yes", "Nn" to "No", and "?" to
+X# "Maybe".
+X#
+X# Note that, an alternate setup (if the relation had sample.credit defined
+X# to have a few more characters) might be:
+X#
+X# Field temp   type choice ("Yy" "Nn" "?");
+X# Field credit type link to temp ("Yes" "No" "Maybe");
+X#
+X#    Accept Credit?....[temp]..[credit ]
+X#
+X# That way, the Yes/No/Maybe is stored in the relation, instead of Y/N/?.
+X# Nifty, eh?  Links can only be made to choice fields, and choices need not
+X# have links.  A field can't be both a link and a choice, nor can a single
+X# field be a link to more than one choice field... but a choice field can
+X# have multiple links.  Confused yet?  Play with it.
+X#
+X
+XMode 1 inout  custnum out,   temp out, date_en out, time_en  out; # Add
+XMode 2 out    custnum inout, custname inout;                      # Query
+XMode 3 inout                 temp out, date_en out, time_en  out; # Update
+X
+X#
+X# Mode 1 is for adding new records,
+X# Mode 2 is for finding old records,
+X# Mode 3 is for updating existing records.
+X#
+X
+XEnd
+X
+END_OF_FILE
+  if test 4088 -ne `wc -c <'sample/sample.frm'`; then
+    echo shar: \"'sample/sample.frm'\" unpacked with wrong size!
+  fi
+  # end of 'sample/sample.frm'
+fi
+if test -f 'sample/sample.s' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/sample.s'\"
+else
+  echo shar: Extracting \"'sample/sample.s'\" \(1571 characters\)
+  sed "s/^X//" >'sample/sample.s' <<'END_OF_FILE'
+Xrelation sample
+X
+X#
+X#  Each customer at a store, for example, has one record in this relation--the
+X#  record contains their name and a customer code (assigned by the system, with
+X#  the first customer being 100), their balance and number of purchases made,
+X#  the date and time the record was established, and a 3-character string that
+X#  describes whether or not they're allowed credit at the store.
+X#
+X
+Xfield custname type string length 30; # A fairly short name field, but hey...
+Xfield custnum  type serial start 100; # Assigned automatically (from 100)
+Xfield balance  type money;            # Standard double, to .XX resolution
+Xfield date_en  date;                  # Date customer entered into database
+Xfield time_en  type time;             # Time customer entered into database
+Xfield credit   char * 3;              # "y"/"n"/"?" etc.
+Xfield num      ushort;                # Number of purchases customer has made
+Xfield phone    type phone;            # Phone number of client
+X
+Xindex ix_name    on custname with duplicates;
+Xindex ix_number  on custnum;
+Xindex ix_balance on balance            with duplicates;
+Xindex ix_entered on date_en, time_en   with duplicates;  # DATE_EN FIRST!!!
+X
+X#
+X# Why date_en first?  Because a composite index, like ix_entered, will
+X# sort merrily along the first field you give it... as soon as it finds two
+X# records which have the same first field, it'll sort 'em by the second.  So
+X# ix_entered will sort things by date, and when the date's the same, by time..
+X# if you did it the other way around, it'd be a pretty stupid index.
+X#
+X
+Xend
+X
+END_OF_FILE
+  if test 1571 -ne `wc -c <'sample/sample.s'`; then
+    echo shar: \"'sample/sample.s'\" unpacked with wrong size!
+  fi
+  # end of 'sample/sample.s'
+fi
+if test -f 'src/blast.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/blast.c'\"
+else
+  echo shar: Extracting \"'src/blast.c'\" \(2299 characters\)
+  sed "s/^X//" >'src/blast.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#include "stdinc.h"
+X
+X#ifndef MSDOS
+X#ifdef LONGARGS
+X   extern char *getenv (char _FAR_ *);
+X#else
+X   extern char *getenv();
+X#endif
+X#endif
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   char  buf[128], name[128], *pch;
+X   int   i;
+X
+X   if (argc == 1)
+X      {
+X      fprintf (stderr, "format: blast relation [relation]*\n");
+X      exit (1);
+X      }
+X
+X   for (--argc, argv++; argc; argc--, argv++)
+X      {
+X      if ((*argv)[0] == '-')
+X         {
+X         fprintf (stderr, "blast: unrecognized switch -%c\n", (*argv)[1]);
+X         exit (2);
+X         }
+X
+X      if (access (*argv, 0) == -1)
+X         {
+X         fprintf (stderr, "blast: cannot find relation %s\n", *argv);
+X         continue;
+X         }
+X
+X/*
+X * First, get the basename for the relation (take off the path and/or
+X * extension)--put it in buf:
+X *
+X */
+X
+X      name[0] = 0;
+X
+X      if ((pch = strrchr (*argv, DIRSEP)) == NULL)
+X         pch = *argv;
+X      else
+X         pch++;
+X      strcpy (buf, pch);
+X
+X      if (! strcmp (buf, ".rel") || ! strcmp (buf, ".REL"))
+X         {
+X         *(strrchr (buf, '.')) = 0;
+X         }
+X
+X/*
+X * Great.  Now get the temporary directory where the lockfile will be...
+X *
+X */
+X
+X      if ((pch = getenv ("TMP")) != NULL || (pch = getenv ("TEMP")) != NULL)
+X         {
+X         strcpy (name, pch);  /* If they define a directory, use it. */
+X         }
+X      else                   /* Otherwise, try to guess a default directory. */
+X         {
+X#ifdef UNIX
+X         strcpy (name, "/tmp");
+X#endif
+X         }
+X      if (! name[0])
+X         {
+X         fputs ("blast: you must have a TMP directory defined.\n", stderr);
+X         exit (3);
+X         }
+X      if (name[(i = strlen(name))-1] != DIRSEP)
+X         {
+X         name[i] = DIRSEP;
+X         name[i+1] = 0;
+X         }
+X
+X/*
+X * And attach the filename + .LCK to get a lockfile name.  Then delete the
+X * stupid thing.
+X *
+X */
+X
+X      strcat (name, buf);
+X      strcat (name, ".lck");
+X
+X      if (access (name, 0) == -1)
+X         {
+X         fprintf (stderr, "blast: %s was not locked\n", *argv);
+X         continue;
+X         }
+X
+X      unlink (name);
+X
+X      fprintf (stderr, "%s blasted successfully\n", *argv);
+X      }
+X}
+X
+END_OF_FILE
+  if test 2299 -ne `wc -c <'src/blast.c'`; then
+    echo shar: \"'src/blast.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/blast.c'
+fi
+if test -f 'src/cache.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cache.c'\"
+else
+  echo shar: Extracting \"'src/cache.c'\" \(2960 characters\)
+  sed "s/^X//" >'src/cache.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define UTIL_C
+X#include "mbase.h"
+X#include "internal.h"
+X
+Xcache  mb_cache[MAX_CACHE];
+Xcache  mb_ctop;
+Xint    ncache = 0;
+Xcache *mb_clast = NULL;
+Xlong   mb_nlast = 0L;
+X
+Xcache *mb_hash[MAX_CACHE];  /* Attempted */
+X
+X/****************************************************************************/
+X
+Xcache *
+X_read_cache (rel, rcd, idx)
+Xrelation    *rel;
+Xlong              rcd;
+Xint                    idx;
+X{
+X   cache *ptr, *end;
+X   long   n;
+X
+X   end = &mb_cache[ncache];  /* Can't check when ptr==end */
+X
+X   if (mb_nlast == rcd && mb_clast != NULL)  /* Now in practice, we seem to */
+X      {                                      /* query the same one twice    */
+X      return mb_clast;                       /* in a row a lot, so here's   */
+X      }                                      /* a hack to optimize for it.  */
+X
+X   mb_nlast = rcd;
+X
+X   if (rcd == 0L)
+X      {
+X      if (mb_ctop.num != 0L)
+X         {
+X         return (mb_clast = &mb_ctop);
+X         }
+X
+X      GO_TOP (rel, idx);
+X      readx  (rel->relcode, &(mb_ctop.num), 4);
+X      mb_ctop.changed = 0;
+X      return (mb_clast = &mb_ctop);
+X      }
+X
+X   if ((ptr = mb_hash[ n=(rcd % MAX_CACHE) ]) != NULL && ptr->num == rcd)
+X      {
+X      return (mb_clast = ptr);
+X      }
+X
+X   for (ptr = mb_cache; ptr < end; ptr++)
+X      if (ptr->num == rcd)
+X         {
+X         return (mb_clast = mb_hash[n] = ptr);
+X         }
+X
+X   ptr = _new_cache (rel, idx);
+X
+X   GO_INDEX (rel, rcd, idx);
+X   readx (rel->relcode, &(ptr->left),   4);
+X   readx (rel->relcode, &(ptr->right),  4);
+X   readx (rel->relcode, &(ptr->parent), 4);
+X   readx (rel->relcode, &(ptr->parbal), 1);
+X
+X   ptr->num     = rcd;
+X   ptr->changed = 0;
+X
+X   return (mb_clast = mb_hash[n] = ptr);
+X}
+X
+Xvoid
+X_flush_cache (rel, idx)
+Xrelation     *rel;
+Xint                idx;
+X{
+X   cache *ptr, *end;
+X
+X   if (mb_ctop.changed)
+X      {
+X      GO_TOP (rel, idx);
+X      writx  (rel->relcode, &(mb_ctop.num), 4);
+X      }
+X
+X   end = &mb_cache[ncache];  /* Can't check when ptr==end */
+X
+X   for (ptr = mb_cache; ptr < end; ptr++)
+X      if (ptr->changed)
+X         {
+X         GO_INDEX (rel, ptr->num, idx);
+X         writx (rel->relcode, &(ptr->left),   4);
+X         writx (rel->relcode, &(ptr->right),  4);
+X         writx (rel->relcode, &(ptr->parent), 4);
+X         writx (rel->relcode, &(ptr->parbal), 1);
+X         }
+X
+X   _free_cache ();
+X}
+X
+Xcache *
+X_new_cache (rel, idx)
+Xrelation   *rel;
+Xint              idx;
+X{
+X   if (ncache >= MAX_CACHE) /* If this happens, expand cache for performance */
+X      {
+X      _flush_cache (rel, idx);
+X      }
+X   ncache ++;
+X
+X   return &mb_cache[ncache-1];
+X}
+X
+Xvoid
+X_free_cache ()
+X{
+X   register int  i;
+X   mb_clast = NULL;  /* If we free the cache, it invalidates all cache*'s. */
+X   ncache = 0;
+X   for (i = 0; i < MAX_CACHE; i++)
+X      mb_hash[i] = NULL;
+X   mb_ctop.num = 0L;
+X   mb_ctop.changed = 0;
+X}
+X
+END_OF_FILE
+  if test 2960 -ne `wc -c <'src/cache.c'`; then
+    echo shar: \"'src/cache.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/cache.c'
+fi
+if test -f 'src/makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/makefile'\"
+else
+  echo shar: Extracting \"'src/makefile'\" \(4498 characters\)
+  sed "s/^X//" >'src/makefile' <<'END_OF_FILE'
+X#
+X#  METALBASE 5.0
+X#
+X#  Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X#                                        [ t-richj@microsoft.com ]
+X#
+X#  Generic Makefile for 5.0 Library and Utilities
+X#
+X###############################################################################
+X#
+X# CFLAGS=
+X#    -DSTRUCT_1      -- Read lower for an explanation of these, and how to
+X#    -DSTRUCT_2      --    determine which is appropriate for your system.
+X#    -DSTRUCT_3
+X#    -DSTRUCT_4
+X#    -DLONGARGS      -- To produce ansi-style prototypes ("void fn(int)")
+X#    -DNOSYNC        -- Removes calls to sync() and fsync(), and in-line _asm
+X#    -DNOVOIDPTR     -- To use char* instead of void* (automatic for COHERENT)
+X#    -DNOENCRYPT     -- To remove encryption crap from library and utilities
+X#    -DNEED_USHORT   -- If your compiler doesn't have ushort yet (COH again)
+X#    -DNEED_ULONG    -- If your compiler doesn't have ulong yet (most don't)
+X#    -DUNIX_LOCKS    -- To enable Unix-style locking
+X#    -DSIG_TYPE=void -- void or int; needed only if you define UNIX_LOCKS
+X#    -DVI_EMU        -- To add vi emulation to input.c
+X#    -DMSDOS         -- MS-DOS users should define this if their CC doesn't.
+X#
+X# EXEDIR=            -- Directory where executables should go
+X# INCDIR=            -- Directory where include files should go
+X# LIBDIR=            -- Directory where libmb.a / mbase.lib should go
+X#
+X# LDOPTS=-f          -- To include floating point stuff for printf()
+X#
+X###############################################################################
+X#
+X# All users: Update the flags just below here FIRST (don't worry about
+X#            setting -DSTRUCT_?); then just type "make".  It will compile and
+X#            run struct/struct.exe, which will tell you how to determine how
+X#            -DSTRUCT_? should be set for your system.  Update this in the
+X#            Makefile and type "make install".  You may delete struct/
+X#            struct.exe after you've used it.
+X#
+X# DOS users: Try adding -DMSDOS to CFLAGS=; if you get a compiler error,
+X#            take it back out.  The code expects MSDOS to be defined for all
+X#            DOS compilers--most already set it, but some may not.
+X#
+X# Unix users: set -DUNIX_LOCKS to use flock() for file locking; otherwise,
+X#             MetalBase's inherent system will be used (which MAY cause
+X#             problems with code which does not exit properly, but which is
+X#             operationally identical).
+X#
+X###############################################################################
+X
+XEXEDIR=/usr/bin
+XINCDIR=/usr/include
+XLIBDIR=/usr/lib
+XOBJ=.o
+XEXE=
+XLIB=libmb.a
+XCURSES=-lcurses -lterm
+XCOPY=cp
+XCC=cc
+XLDOPTS=-f
+X
+XCFLAGS=-DSTRUCT_2 -DNEED_ULONG -ML -I$(INCDIR)
+X
+X###############################################################################
+X
+XBLAST   = $(EXEDIR)/blast$(EXE)
+XBUILD   = $(EXEDIR)/build$(EXE)
+XFORM    = $(EXEDIR)/form$(EXE)
+XMBCONV  = $(EXEDIR)/mbconv$(EXE)
+XREPORT  = $(EXEDIR)/report$(EXE)
+XVR      = $(EXEDIR)/vr$(EXE)
+XLIBRARY = $(LIBDIR)/libmb.a
+X
+XHEADERS=$(INCDIR)/stdinc.h $(INCDIR)/mbase.h
+XTARGETS=$(BLAST) $(BUILD) $(FORM) $(MBCONV) $(REPORT) $(SAMPLE) $(VR)
+X
+X###############################################################################
+X
+XARCHIVE = ar rv $(LIBRARY)
+XRANLIB  = ranlib $(LIBRARY)
+X
+X###############################################################################
+X
+Xstruct$(EXE) : struct$(OBJ)
+X	$(CC) -o $@ struct$(OBJ)
+X	@./struct
+X	@echo Now update the Makefile and make install
+X
+Xinstall : all
+X	@mailscr
+X
+Xall : $(HEADERS) $(TARGETS)
+X	
+X
+X$(INCDIR)/mbase.h : mbase.h
+X	$(COPY) mbase.h $(INCDIR)
+X
+X$(INCDIR)/stdinc.h : stdinc.h
+X	$(COPY) stdinc.h $(INCDIR)
+X
+X###############################################################################
+X
+X$(BLAST)   : blast$(OBJ)
+X	$(CC) -o $@ blast$(OBJ)
+X
+X$(BUILD)   : build$(OBJ) $(LIBRARY)
+X	$(CC) $(LDOPTS) -o $@ build$(OBJ) $(LIBRARY)
+X
+X$(FORM)    : form$(OBJ) form_wr$(OBJ) $(LIBRARY)
+X	$(CC) $(LDOPTS) -o $@ form$(OBJ) form_wr$(OBJ) $(LIBRARY)
+X
+X$(MBCONV)  : mbconv$(OBJ) $(LIBRARY)
+X	$(CC) $(LDOPTS) -o $@ mbconv$(OBJ) $(LIBRARY)
+X
+X$(REPORT)  : report$(OBJ) $(LIBRARY)
+X	$(CC) $(LDOPTS) -o $@ report$(OBJ) $(LIBRARY)
+X
+X$(VR)      : vr$(OBJ) $(LIBRARY)
+X	$(CC) $(LDOPTS) -o $@ vr$(OBJ) $(LIBRARY) $(CURSES)
+X
+X$(LIBRARY) : entry$(OBJ) lock$(OBJ) input$(OBJ) mbase$(OBJ) parse$(OBJ) timedate$(OBJ) util1$(OBJ) util2$(OBJ) cache$(OBJ) create$(OBJ)
+X	$(ARCHIVE) entry$(OBJ) lock$(OBJ) input$(OBJ) mbase$(OBJ) parse$(OBJ) timedate$(OBJ) util1$(OBJ) util2$(OBJ) cache$(OBJ) create$(OBJ)
+X	$(RANLIB)
+X
+END_OF_FILE
+  if test 4498 -ne `wc -c <'src/makefile'`; then
+    echo shar: \"'src/makefile'\" unpacked with wrong size!
+  fi
+  # end of 'src/makefile'
+fi
+if test -f 'src/makefile.dos' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/makefile.dos'\"
+else
+  echo shar: Extracting \"'src/makefile.dos'\" \(3856 characters\)
+  sed "s/^X//" >'src/makefile.dos' <<'END_OF_FILE'
+X#
+X#  METALBASE 5.0
+X#
+X#  Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X#                                        [ t-richj@microsoft.com ]
+X#
+X#  Microsoft C6 makefile (for use with NMAKE) for 5.0 library and utilities
+X#
+X###############################################################################
+X#
+X# CFLAGS=
+X#    -DSTRUCT_1      -- Read lower for an explanation of these, and how to
+X#    -DSTRUCT_2      --    determine which is appropriate for your system.
+X#    -DSTRUCT_3
+X#    -DSTRUCT_4
+X#    -DLONGARGS      -- To produce ansi-style prototypes ("void fn(int)")
+X#    -DNOVOIDPTR     -- To use char* instead of void* (automatic for COHERENT)
+X#    -DNOENCRYPT     -- To remove encryption crap from library and utilities
+X#    -DNEED_USHORT   -- If your compiler doesn't have ushort yet (COH again)
+X#    -DNEED_ULONG    -- If your compiler doesn't have ulong yet (most don't)
+X#    -DUNIX_LOCKS    -- To enable Unix-style locking
+X#    -DSIG_TYPE=void -- void or int; needed only if you define UNIX_LOCKS
+X#    -DVI_EMU        -- To add vi emulation to input.c
+X#    -DMSDOS         -- MS-DOS users should define this if their CC doesn't.
+X#
+X# LDOPTS=-f          -- To include floating point stuff for printf()
+X#
+X###############################################################################
+X#
+X# All users: Update the flags just below here FIRST (don't worry about
+X#            setting -DSTRUCT_?); then just type "make".  It will compile and
+X#            run struct/struct.exe, which will tell you how to determine how
+X#            -DSTRUCT_? should be set for your system.  Update this in the
+X#            Makefile and type "make install".  You may delete struct/
+X#            struct.exe after you've used it.
+X#
+X# DOS users: Try adding -DMSDOS to CFLAGS=; if you get a compiler error,
+X#            take it back out.  The code expects MSDOS to be defined for all
+X#            DOS compilers--most already set it, but some may not.
+X#
+X# NOTE: This makefile is set up to use \INCLUDE, \LIB and \UTIL... change the
+X#       names in here or create those directories, as you see fit.
+X#
+X###############################################################################
+X
+XCFLAGS = -nologo -c -W3 -AL -DSTRUCT_4 -DNEED_USHORT -DNEED_ULONG
+X
+XCC     = CL $(CFLAGS)
+X
+X.C.OBJ:
+X	$(CC) $*.c
+X
+X###############################################################################
+X
+Xstruct.exe : struct.obj
+X	@link /nologo struct.obj, struct.exe;
+X	@.\struct
+X	@echo Now update the Makefile and 'make install'
+X
+Xall : \INCLUDE\stdinc.h \INCLUDE\mbase.h blast.exe build.exe form.exe \
+X      mbconv.exe report.exe vr.exe
+X	
+X
+Xinstall : final
+X	@echo MetalBase 5.0 has been installed.
+X
+X###############################################################################
+X
+X\INCLUDE\mbase.h : mbase.h
+X	copy mbase.h \INCLUDE
+X
+X\INCLUDE\stdinc.h : stdinc.h
+X	copy stdinc.h \INCLUDE
+X
+X\LIB\mbase.lib : mbase.lib
+X	copy mbase.lib \LIB
+X
+Xfinal : all
+X	copy *.exe \UTIL
+X
+X###############################################################################
+X
+Xblast.exe   : blast.obj
+X	link/nologo blast.obj, blast.exe;
+X
+Xbuild.exe   : build.obj \LIB\mbase.lib
+X	link/nologo build.obj, build.exe,, mbase.lib;
+X
+Xform.exe    : form.obj form_wr.obj \LIB\mbase.lib
+X	link/nologo form.obj form_wr.obj, form.exe,, mbase.lib;
+X
+Xmbconv.exe  : mbconv.obj \LIB\mbase.lib
+X	link/nologo mbconv.obj, mbconv.exe,, mbase.lib;
+X
+Xreport.exe  : report.obj \LIB\mbase.lib
+X	link/nologo report.obj, report.exe,, mbase.lib;
+X
+Xvr.exe      : vr.obj \LIB\mbase.lib
+X	link/nologo vr.obj, vr.exe,, mbase.lib lcurses.lib;
+X
+Xmbase.lib : entry.obj    lock.obj  input.obj mbase.obj parse.obj \
+X            timedate.obj util1.obj util2.obj cache.obj cache.obj \
+X	    create.obj
+X	lib mbase.lib -+entry.obj  -+parse.obj -+input.obj -+mbase.obj;
+X	lib mbase.lib -+util1.obj  -+cache.obj -+util2.obj -+lock.obj;
+X	lib mbase.lib -+create.obj -+timedate.obj;
+X
+END_OF_FILE
+  if test 3856 -ne `wc -c <'src/makefile.dos'`; then
+    echo shar: \"'src/makefile.dos'\" unpacked with wrong size!
+  fi
+  # end of 'src/makefile.dos'
+fi
+if test -f 'src/parse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/parse.c'\"
+else
+  echo shar: Extracting \"'src/parse.c'\" \(1868 characters\)
+  sed "s/^X//" >'src/parse.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define PARSE_C
+X#include "mbase.h"
+X
+Xlong  _lpos = 0L;
+Xint   quoted = 0;
+X
+Xint
+Xskip (f, s)  /* 0 means didn't skip the word, 1 means we did. */
+Xint   f;
+Xchar    *s;
+X{
+X   int   i;
+X   char  a;
+X
+X   i = 0;
+X   _lpos = lseek (f, 0L, 1);
+X
+X   while (s[i] != 0)
+X    {
+X      if (read (f, &a, 1) != 1)  return -1;
+X
+X      if (i != 0 || (i==0 && !iswhite(a)))
+X       { if (s[i] != tolower(a))
+X          { lseek (f, -1L -(long)i, 1);
+X            break;
+X          }
+X         else
+X            i++;
+X       }
+X    }
+X
+X   return (s[i] == 0);
+X}
+X
+Xchar *
+Xgetword (fle)
+Xint      fle;
+X{
+X   int          okay = 1, go = 0;
+X   static char  buffer[256];
+X   char        *ptr,   a;
+X
+X   while (read (fle, &a, 1) == 1)
+X      if (! iswhite (a))  break;
+X   _lpos = lseek (fle, 0L, 1)-1L;
+X
+X   quoted = 0;
+X
+X   for (ptr = buffer; okay; okay = read (fle, &a, 1))
+X    { if (go == 1 && !quoted && istoken (a))
+X       { lseek (fle, -1L, 1);  /* Backup--we don't want the token yet */
+X         break;
+X       }
+X      if (a == '\"')
+X         if (quoted)  break;
+X         else
+X          { quoted = 1;
+X            continue;
+X          }
+X
+X      if (quoted)  *ptr = a;
+X      else
+X         if (iswhite(a)) break;
+X         else            *ptr = tolower(a);
+X
+X      ptr++; go = 1;
+X      if (! quoted && istoken (a))  break;
+X    }
+X   *ptr = 0;
+X
+X   return buffer;
+X}
+X
+Xvoid
+Xgoeol (fle, str)
+Xint    fle;
+Xchar       *str;
+X{
+X   char  a, *ptr;
+X   char  f;
+X
+X   _lpos = lseek (fle, 0L, 1);
+X
+X   for (ptr = str; read (fle, &a, 1) == 1; )
+X    { if (a == '\n' || a == '\r')  break;
+X      if (ptr != NULL)  { *ptr = a; ptr++; }
+X    }
+X   if (ptr != NULL)  *ptr = 0;
+X
+X   if (read (fle, &f, 1) == 1)
+X      if ((f != '\n' && f != '\r') || f == a)
+X         lseek (fle, -1L, 1);
+X}
+X
+END_OF_FILE
+  if test 1868 -ne `wc -c <'src/parse.c'`; then
+    echo shar: \"'src/parse.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/parse.c'
+fi
+if test -f 'src/struct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/struct.c'\"
+else
+  echo shar: Extracting \"'src/struct.c'\" \(2655 characters\)
+  sed "s/^X//" >'src/struct.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#ifdef MSDOS
+X#include <stdio.h>
+X#include <stdlib.h>
+X#endif
+X
+Xstruct              /* MP_OPTS: -o=str */
+X { char   a[13];
+X   long   b;
+X   char   c[7];
+X   double d;
+X   char   e[3];
+X } test;
+X
+X#define STDPOS(x) x-(char*)&test
+X#define CHRPOS(x) (char *)&x-(char *)&test
+X
+X/*
+X * In general:
+X *
+X * STRUCT_1 -- SunOS 4, DECStation/ULTRIX
+X *
+X * STRUCT_2 -- COHERENT, DOS/Zortec C
+X *
+X * STRUCT_3 -- SunOS 3, Xenix
+X *
+X * STRUCT_4 -- DOS/Microsoft C, Mac Programmers' Workshop
+X *
+X */
+X
+Xint match_1 = 0;  /* Incremented 1 for each that matches */
+Xint match_2 = 0;  /* Incremented 1 for each that matches */
+Xint match_3 = 0;  /* Incremented 1 for each that matches */
+Xint match_4 = 0;  /* Incremented 1 for each that matches */
+X
+Xint array[][4] =
+X   { {  0,    0,    0,    0 },
+X     { 16,   13,   16,   14 },
+X     { 20,   17,   20,   18 },
+X     { 32,   24,   28,   26 },
+X     { 40,   32,   36,   34 },
+X     { 48,   35,   40,   38 }  };
+X
+Xvoid
+Xprintl (s, n, l)
+Xchar   *s;
+Xint        n, l;
+X{
+X   printf ("%-6.6s : %2d -- %2d,   %2d,   %2d,   %2d\n", s, n,
+X            array[l][0], array[l][1], array[l][2], array[l][3]);
+X
+X   if (n == array[l][0])  match_1++;
+X   if (n == array[l][1])  match_2++;
+X   if (n == array[l][2])  match_3++;
+X   if (n == array[l][3])  match_4++;
+X}
+X
+Xvoid
+Xmain ()
+X{
+X   int  n;
+X
+X   printf ("\n");
+X   printf ("        REAL  STR1  STR2  STR3  STR4\n");
+X   printf ("        ----  ----  ----  ----  ----\n");
+X   printl ("test.a", STDPOS(test.a), 0);
+X   printl ("test.b", CHRPOS(test.b), 1);
+X   printl ("test.c", STDPOS(test.c), 2);
+X   printl ("test.d", CHRPOS(test.d), 3);
+X   printl ("test.e", STDPOS(test.e), 4);
+X   printl ("size  ", sizeof(test),   5);
+X   printf ("\n");
+X
+X   n = 0;
+X   if (match_1 == 6)  n |= 0x01;
+X   if (match_2 == 6)  n |= 0x02;
+X   if (match_3 == 6)  n |= 0x04;
+X   if (match_4 == 6)  n |= 0x08;
+X
+X   if (! n || (n != 1 && n != 2 && n != 4 && n != 8))
+X      {
+X      printf ("Your compiler does not match any of the expected values.\n");
+X      printf ("Look in your compiler manuals for any compile-time switches\n");
+X      printf ("which control structure-packing; add such a switch to\n");
+X      printf ("CFLAGS in the makefile, and recompile struct.\n");
+X      n = 0;
+X      }
+X   else
+X      {
+X      if (n == 4)  n = 3;
+X      if (n == 8)  n = 4;
+X
+X      printf("For your compiler, you need to #define STRUCT_%d when\n", n);
+X      printf("compiling the library... do this by setting -DSTRUCT_%d in\n",n);
+X      printf("the makefile.\n");
+X      }
+X   printf ("\n");
+X
+X   exit (0);
+X}
+X
+END_OF_FILE
+  if test 2655 -ne `wc -c <'src/struct.c'`; then
+    echo shar: \"'src/struct.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/struct.c'
+fi
+echo shar: End of archive 7 \(of 8\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1758 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i068:  jpeg - JPEG image compression, Part14/18
+Message-ID: <1992Dec17.165025.6732@sparky.imd.sterling.com>
+X-Md4-Signature: 01119ec83fcad38b2fc2682c428fa68d
+Date: Thu, 17 Dec 1992 16:50:25 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 68
+Archive-name: jpeg/part14
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jconfig.h jfwddct.c jrdrle.c jwrjfif.c makefile.mc6
+# Wrapped by kent@sparky on Wed Dec 16 20:52:30 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 18)."'
+if test -f 'jconfig.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jconfig.h'\"
+else
+  echo shar: Extracting \"'jconfig.h'\" \(12022 characters\)
+  sed "s/^X//" >'jconfig.h' <<'END_OF_FILE'
+X/*
+X * jconfig.h
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains preprocessor declarations that help customize
+X * the JPEG software for a particular application, machine, or compiler.
+X * Edit these declarations as needed (or add -D flags to the Makefile).
+X */
+X
+X
+X/*
+X * These symbols indicate the properties of your machine or compiler.
+X * The conditional definitions given may do the right thing already,
+X * but you'd best look them over closely, especially if your compiler
+X * does not handle full ANSI C.  An ANSI-compliant C compiler should
+X * provide all the necessary features; __STDC__ is supposed to be
+X * predefined by such compilers.
+X */
+X
+X/*
+X * HAVE_STDC is tested below to see whether ANSI features are available.
+X * We avoid testing __STDC__ directly for arcane reasons of portability.
+X * (On some compilers, __STDC__ is only defined if a switch is given,
+X * but the switch also disables machine-specific features we need to get at.
+X * In that case, -DHAVE_STDC in the Makefile is a convenient solution.)
+X */
+X
+X#ifdef __STDC__			/* if compiler claims to be ANSI, believe it */
+X#define HAVE_STDC
+X#endif
+X
+X
+X/* Does your compiler support function prototypes? */
+X/* (If not, you also need to use ansi2knr, see SETUP) */
+X
+X#ifdef HAVE_STDC		/* ANSI C compilers always have prototypes */
+X#define PROTO
+X#else
+X#ifdef __cplusplus		/* So do C++ compilers */
+X#define PROTO
+X#endif
+X#endif
+X
+X/* Does your compiler support the declaration "unsigned char" ? */
+X/* How about "unsigned short" ? */
+X
+X#ifdef HAVE_STDC		/* ANSI C compilers must support both */
+X#define HAVE_UNSIGNED_CHAR
+X#define HAVE_UNSIGNED_SHORT
+X#endif
+X
+X/* Define this if an ordinary "char" type is unsigned.
+X * If you're not sure, leaving it undefined will work at some cost in speed.
+X * If you defined HAVE_UNSIGNED_CHAR then it doesn't matter very much.
+X */
+X
+X/* #define CHAR_IS_UNSIGNED */
+X
+X/* Define this if your compiler implements ">>" on signed values as a logical
+X * (unsigned) shift; leave it undefined if ">>" is a signed (arithmetic) shift,
+X * which is the normal and rational definition.
+X */
+X
+X/* #define RIGHT_SHIFT_IS_UNSIGNED */
+X
+X/* Define "void" as "char" if your compiler doesn't know about type void.
+X * NOTE: be sure to define void such that "void *" represents the most general
+X * pointer type, e.g., that returned by malloc().
+X */
+X
+X/* #define void char */
+X
+X/* Define const as empty if your compiler doesn't know the "const" keyword. */
+X/* (Even if it does, defining const as empty won't break anything.) */
+X
+X#ifndef HAVE_STDC		/* ANSI C and C++ compilers should know it. */
+X#ifndef __cplusplus
+X#define const
+X#endif
+X#endif
+X
+X/* For 80x86 machines, you need to define NEED_FAR_POINTERS,
+X * unless you are using a large-data memory model or 80386 flat-memory mode.
+X * On less brain-damaged CPUs this symbol must not be defined.
+X * (Defining this symbol causes large data structures to be referenced through
+X * "far" pointers and to be allocated with a special version of malloc.)
+X */
+X
+X#ifdef MSDOS
+X#define NEED_FAR_POINTERS
+X#endif
+X
+X
+X/* The next three symbols only affect the system-dependent user interface
+X * modules (jcmain.c, jdmain.c).  You can ignore these if you are supplying
+X * your own user interface code.
+X */
+X
+X/* Define this if you want to name both input and output files on the command
+X * line, rather than using stdout and optionally stdin.  You MUST do this if
+X * your system can't cope with binary I/O to stdin/stdout.  See comments at
+X * head of jcmain.c or jdmain.c.
+X */
+X
+X#ifdef MSDOS			/* two-file style is needed for PCs */
+X#ifndef USE_SETMODE		/* unless you have setmode() */
+X#define TWO_FILE_COMMANDLINE
+X#endif
+X#endif
+X#ifdef THINK_C			/* it's needed for Macintosh too */
+X#define TWO_FILE_COMMANDLINE
+X#endif
+X
+X/* Define this if your system needs explicit cleanup of temporary files.
+X * This is crucial under MS-DOS, where the temporary "files" may be areas
+X * of extended memory; on most other systems it's not as important.
+X */
+X
+X#ifdef MSDOS
+X#define NEED_SIGNAL_CATCHER
+X#endif
+X
+X/* By default, we open image files with fopen(...,"rb") or fopen(...,"wb").
+X * This is necessary on systems that distinguish text files from binary files,
+X * and is harmless on most systems that don't.  If you have one of the rare
+X * systems that complains about the "b" spec, define this symbol.
+X */
+X
+X/* #define DONT_USE_B_MODE */
+X
+X
+X/* If you're getting bored, that's the end of the symbols you HAVE to
+X * worry about.  Go fix the makefile and compile.
+X */
+X
+X
+X/* If your compiler supports inline functions, define INLINE
+X * as the inline keyword; otherwise define it as empty.
+X */
+X
+X#ifdef __GNUC__			/* for instance, GNU C knows about inline */
+X#define INLINE __inline__
+X#endif
+X#ifndef INLINE			/* default is to define it as empty */
+X#define INLINE
+X#endif
+X
+X/* On a few systems, type boolean and/or macros FALSE, TRUE may appear
+X * in standard header files.  Or you may have conflicts with application-
+X * specific header files that you want to include together with these files.
+X * In that case you need only comment out these definitions.
+X */
+X
+Xtypedef int boolean;
+X#undef FALSE			/* in case these macros already exist */
+X#undef TRUE
+X#define FALSE	0		/* values of boolean */
+X#define TRUE	1
+X
+X/* This defines the size of the I/O buffers for entropy compression
+X * and decompression; you could reduce it if memory is tight.
+X */
+X
+X#define JPEG_BUF_SIZE	4096 /* bytes */
+X
+X
+X
+X/* These symbols determine the JPEG functionality supported. */
+X
+X/*
+X * These defines indicate whether to include various optional functions.
+X * Undefining some of these symbols will produce a smaller but less capable
+X * program file.  Note that you can leave certain source files out of the
+X * compilation/linking process if you've #undef'd the corresponding symbols.
+X * (You may HAVE to do that if your compiler doesn't like null source files.)
+X */
+X
+X/* Arithmetic coding is unsupported for legal reasons.  Complaints to IBM. */
+X
+X/* Encoder capability options: */
+X#undef  C_ARITH_CODING_SUPPORTED    /* Arithmetic coding back end? */
+X#undef  C_MULTISCAN_FILES_SUPPORTED /* Multiple-scan JPEG files?  (NYI) */
+X#define ENTROPY_OPT_SUPPORTED	    /* Optimization of entropy coding parms? */
+X#define INPUT_SMOOTHING_SUPPORTED   /* Input image smoothing option? */
+X/* Decoder capability options: */
+X#undef  D_ARITH_CODING_SUPPORTED    /* Arithmetic coding back end? */
+X#define D_MULTISCAN_FILES_SUPPORTED /* Multiple-scan JPEG files? */
+X#define BLOCK_SMOOTHING_SUPPORTED   /* Block smoothing during decoding? */
+X#define QUANT_1PASS_SUPPORTED	/* 1-pass color quantization? */
+X#define QUANT_2PASS_SUPPORTED	/* 2-pass color quantization? */
+X/* these defines indicate which JPEG file formats are allowed */
+X#define JFIF_SUPPORTED		/* JFIF or "raw JPEG" files */
+X#undef  JTIFF_SUPPORTED		/* JPEG-in-TIFF (not yet implemented) */
+X/* these defines indicate which image (non-JPEG) file formats are allowed */
+X#define GIF_SUPPORTED		/* GIF image file format */
+X/* #define RLE_SUPPORTED */	/* RLE image file format (by default, no) */
+X#define PPM_SUPPORTED		/* PPM/PGM image file format */
+X#define TARGA_SUPPORTED		/* Targa image file format */
+X#undef  TIFF_SUPPORTED		/* TIFF image file format (not yet impl.) */
+X
+X/* more capability options later, no doubt */
+X
+X
+X/*
+X * Define exactly one of these three symbols to indicate whether you want
+X * 8-bit, 12-bit, or 16-bit sample (pixel component) values.  8-bit is the
+X * default and is nearly always the right thing to use.  You can use 12-bit if
+X * you need to support image formats with more than 8 bits of resolution in a
+X * color value.  16-bit should only be used for the lossless JPEG mode (not
+X * currently supported).  Note that 12- and 16-bit values take up twice as
+X * much memory as 8-bit!
+X * Note: if you select 12- or 16-bit precision, it is dangerous to turn off
+X * ENTROPY_OPT_SUPPORTED.  The standard Huffman tables are only good for 8-bit
+X * precision, so jchuff.c normally uses entropy optimization to compute
+X * usable tables for higher precision.  If you don't want to do optimization,
+X * you'll have to supply different default Huffman tables.
+X */
+X
+X#define EIGHT_BIT_SAMPLES
+X#undef  TWELVE_BIT_SAMPLES
+X#undef  SIXTEEN_BIT_SAMPLES
+X
+X
+X
+X/*
+X * The remaining definitions don't need to be hand-edited in most cases.
+X * You may need to change these if you have a machine with unusual data
+X * types; for example, "char" not 8 bits, "short" not 16 bits,
+X * or "long" not 32 bits.  We don't care whether "int" is 16 or 32 bits,
+X * but it had better be at least 16.
+X */
+X
+X/* First define the representation of a single pixel element value. */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..255.
+X * You can use a signed char by having GETJSAMPLE mask it with 0xFF.
+X * If you have only signed chars, and you are more worried about speed than
+X * memory usage, it might be a win to make JSAMPLE be short.
+X */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+X
+Xtypedef unsigned char JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+X
+Xtypedef char JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not CHAR_IS_UNSIGNED */
+X
+Xtypedef char JSAMPLE;
+X#define GETJSAMPLE(value)  ((value) & 0xFF)
+X
+X#endif /* CHAR_IS_UNSIGNED */
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X#define BITS_IN_JSAMPLE   8
+X#define MAXJSAMPLE	255
+X#define CENTERJSAMPLE	128
+X
+X#endif /* EIGHT_BIT_SAMPLES */
+X
+X
+X#ifdef TWELVE_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..4095. */
+X/* On nearly all machines "short" will do nicely. */
+X
+Xtypedef short JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#define BITS_IN_JSAMPLE   12
+X#define MAXJSAMPLE	4095
+X#define CENTERJSAMPLE	2048
+X
+X#endif /* TWELVE_BIT_SAMPLES */
+X
+X
+X#ifdef SIXTEEN_BIT_SAMPLES
+X/* JSAMPLE should be the smallest type that will hold the values 0..65535. */
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+X
+Xtypedef unsigned short JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#else /* not HAVE_UNSIGNED_SHORT */
+X
+X/* If int is 32 bits this'll be horrendously inefficient storage-wise.
+X * But since we don't actually support 16-bit samples (ie lossless coding) yet,
+X * I'm not going to worry about making a smarter definition ...
+X */
+Xtypedef unsigned int JSAMPLE;
+X#define GETJSAMPLE(value)  (value)
+X
+X#endif /* HAVE_UNSIGNED_SHORT */
+X
+X#define BITS_IN_JSAMPLE    16
+X#define MAXJSAMPLE	65535
+X#define CENTERJSAMPLE	32768
+X
+X#endif /* SIXTEEN_BIT_SAMPLES */
+X
+X
+X/* Here we define the representation of a DCT frequency coefficient.
+X * This should be a signed 16-bit value; "short" is usually right.
+X * It's important that this be exactly 16 bits, no more and no less;
+X * more will cost you a BIG hit of memory, less will give wrong answers.
+X */
+X
+Xtypedef short JCOEF;
+X
+X
+X/* The remaining typedefs are used for various table entries and so forth.
+X * They must be at least as wide as specified; but making them too big
+X * won't cost a huge amount of memory, so we don't provide special
+X * extraction code like we did for JSAMPLE.  (In other words, these
+X * typedefs live at a different point on the speed/space tradeoff curve.)
+X */
+X
+X/* UINT8 must hold at least the values 0..255. */
+X
+X#ifdef HAVE_UNSIGNED_CHAR
+Xtypedef unsigned char UINT8;
+X#else /* not HAVE_UNSIGNED_CHAR */
+X#ifdef CHAR_IS_UNSIGNED
+Xtypedef char UINT8;
+X#else /* not CHAR_IS_UNSIGNED */
+Xtypedef short UINT8;
+X#endif /* CHAR_IS_UNSIGNED */
+X#endif /* HAVE_UNSIGNED_CHAR */
+X
+X/* UINT16 must hold at least the values 0..65535. */
+X
+X#ifdef HAVE_UNSIGNED_SHORT
+Xtypedef unsigned short UINT16;
+X#else /* not HAVE_UNSIGNED_SHORT */
+Xtypedef unsigned int UINT16;
+X#endif /* HAVE_UNSIGNED_SHORT */
+X
+X/* INT16 must hold at least the values -32768..32767. */
+X
+X#ifndef XMD_H			/* X11/xmd.h correctly defines INT16 */
+Xtypedef short INT16;
+X#endif
+X
+X/* INT32 must hold signed 32-bit values; if your machine happens */
+X/* to have 64-bit longs, you might want to change this. */
+X
+X#ifndef XMD_H			/* X11/xmd.h correctly defines INT32 */
+Xtypedef long INT32;
+X#endif
+END_OF_FILE
+  if test 12022 -ne `wc -c <'jconfig.h'`; then
+    echo shar: \"'jconfig.h'\" unpacked with wrong size!
+  fi
+  # end of 'jconfig.h'
+fi
+if test -f 'jfwddct.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jfwddct.c'\"
+else
+  echo shar: Extracting \"'jfwddct.c'\" \(11760 characters\)
+  sed "s/^X//" >'jfwddct.c' <<'END_OF_FILE'
+X/*
+X * jfwddct.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains the basic DCT (Discrete Cosine Transform)
+X * transformation subroutine.
+X *
+X * This implementation is based on an algorithm described in
+X *   C. Loeffler, A. Ligtenberg and G. Moschytz, "Practical Fast 1-D DCT
+X *   Algorithms with 11 Multiplications", Proc. Int'l. Conf. on Acoustics,
+X *   Speech, and Signal Processing 1989 (ICASSP '89), pp. 988-991.
+X * The primary algorithm described there uses 11 multiplies and 29 adds.
+X * We use their alternate method with 12 multiplies and 32 adds.
+X * The advantage of this method is that no data path contains more than one
+X * multiplication; this allows a very simple and accurate implementation in
+X * scaled fixed-point arithmetic, with a minimal number of shifts.
+X */
+X
+X#include "jinclude.h"
+X
+X/*
+X * This routine is specialized to the case DCTSIZE = 8.
+X */
+X
+X#if DCTSIZE != 8
+X  Sorry, this code only copes with 8x8 DCTs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * A 2-D DCT can be done by 1-D DCT on each row followed by 1-D DCT
+X * on each column.  Direct algorithms are also available, but they are
+X * much more complex and seem not to be any faster when reduced to code.
+X *
+X * The poop on this scaling stuff is as follows:
+X *
+X * Each 1-D DCT step produces outputs which are a factor of sqrt(N)
+X * larger than the true DCT outputs.  The final outputs are therefore
+X * a factor of N larger than desired; since N=8 this can be cured by
+X * a simple right shift at the end of the algorithm.  The advantage of
+X * this arrangement is that we save two multiplications per 1-D DCT,
+X * because the y0 and y4 outputs need not be divided by sqrt(N).
+X *
+X * We have to do addition and subtraction of the integer inputs, which
+X * is no problem, and multiplication by fractional constants, which is
+X * a problem to do in integer arithmetic.  We multiply all the constants
+X * by CONST_SCALE and convert them to integer constants (thus retaining
+X * CONST_BITS bits of precision in the constants).  After doing a
+X * multiplication we have to divide the product by CONST_SCALE, with proper
+X * rounding, to produce the correct output.  This division can be done
+X * cheaply as a right shift of CONST_BITS bits.  We postpone shifting
+X * as long as possible so that partial sums can be added together with
+X * full fractional precision.
+X *
+X * The outputs of the first pass are scaled up by PASS1_BITS bits so that
+X * they are represented to better-than-integral precision.  These outputs
+X * require BITS_IN_JSAMPLE + PASS1_BITS + 3 bits; this fits in a 16-bit word
+X * with the recommended scaling.  (To scale up 12-bit sample data, an
+X * intermediate INT32 array would be needed.)
+X *
+X * To avoid overflow of the 32-bit intermediate results in pass 2, we must
+X * have BITS_IN_JSAMPLE + CONST_BITS + PASS1_BITS <= 25.  Error analysis
+X * shows that the values given below are the most effective.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#define CONST_BITS  13
+X#define PASS1_BITS  2
+X#else
+X#define CONST_BITS  13
+X#define PASS1_BITS  0		/* lose a little precision to avoid overflow */
+X#endif
+X
+X#define ONE	((INT32) 1)
+X
+X#define CONST_SCALE (ONE << CONST_BITS)
+X
+X/* Convert a positive real constant to an integer scaled by CONST_SCALE. */
+X
+X#define FIX(x)	((INT32) ((x) * CONST_SCALE + 0.5))
+X
+X/* Some C compilers fail to reduce "FIX(constant)" at compile time, thus
+X * causing a lot of useless floating-point operations at run time.
+X * To get around this we use the following pre-calculated constants.
+X * If you change CONST_BITS you may want to add appropriate values.
+X * (With a reasonable C compiler, you can just rely on the FIX() macro...)
+X */
+X
+X#if CONST_BITS == 13
+X#define FIX_0_298631336  ((INT32)  2446)	/* FIX(0.298631336) */
+X#define FIX_0_390180644  ((INT32)  3196)	/* FIX(0.390180644) */
+X#define FIX_0_541196100  ((INT32)  4433)	/* FIX(0.541196100) */
+X#define FIX_0_765366865  ((INT32)  6270)	/* FIX(0.765366865) */
+X#define FIX_0_899976223  ((INT32)  7373)	/* FIX(0.899976223) */
+X#define FIX_1_175875602  ((INT32)  9633)	/* FIX(1.175875602) */
+X#define FIX_1_501321110  ((INT32)  12299)	/* FIX(1.501321110) */
+X#define FIX_1_847759065  ((INT32)  15137)	/* FIX(1.847759065) */
+X#define FIX_1_961570560  ((INT32)  16069)	/* FIX(1.961570560) */
+X#define FIX_2_053119869  ((INT32)  16819)	/* FIX(2.053119869) */
+X#define FIX_2_562915447  ((INT32)  20995)	/* FIX(2.562915447) */
+X#define FIX_3_072711026  ((INT32)  25172)	/* FIX(3.072711026) */
+X#else
+X#define FIX_0_298631336  FIX(0.298631336)
+X#define FIX_0_390180644  FIX(0.390180644)
+X#define FIX_0_541196100  FIX(0.541196100)
+X#define FIX_0_765366865  FIX(0.765366865)
+X#define FIX_0_899976223  FIX(0.899976223)
+X#define FIX_1_175875602  FIX(1.175875602)
+X#define FIX_1_501321110  FIX(1.501321110)
+X#define FIX_1_847759065  FIX(1.847759065)
+X#define FIX_1_961570560  FIX(1.961570560)
+X#define FIX_2_053119869  FIX(2.053119869)
+X#define FIX_2_562915447  FIX(2.562915447)
+X#define FIX_3_072711026  FIX(3.072711026)
+X#endif
+X
+X
+X/* Descale and correctly round an INT32 value that's scaled by N bits.
+X * We assume RIGHT_SHIFT rounds towards minus infinity, so adding
+X * the fudge factor is correct for either sign of X.
+X */
+X
+X#define DESCALE(x,n)  RIGHT_SHIFT((x) + (ONE << ((n)-1)), n)
+X
+X/* Multiply an INT32 variable by an INT32 constant to yield an INT32 result.
+X * For 8-bit samples with the recommended scaling, all the variable
+X * and constant values involved are no more than 16 bits wide, so a
+X * 16x16->32 bit multiply can be used instead of a full 32x32 multiply;
+X * this provides a useful speedup on many machines.
+X * There is no way to specify a 16x16->32 multiply in portable C, but
+X * some C compilers will do the right thing if you provide the correct
+X * combination of casts.
+X * NB: for 12-bit samples, a full 32-bit multiplication will be needed.
+X */
+X
+X#ifdef EIGHT_BIT_SAMPLES
+X#ifdef SHORTxSHORT_32		/* may work if 'int' is 32 bits */
+X#define MULTIPLY(var,const)  (((INT16) (var)) * ((INT16) (const)))
+X#endif
+X#ifdef SHORTxLCONST_32		/* known to work with Microsoft C 6.0 */
+X#define MULTIPLY(var,const)  (((INT16) (var)) * ((INT32) (const)))
+X#endif
+X#endif
+X
+X#ifndef MULTIPLY		/* default definition */
+X#define MULTIPLY(var,const)  ((var) * (const))
+X#endif
+X
+X
+X/*
+X * Perform the forward DCT on one block of samples.
+X */
+X
+XGLOBAL void
+Xj_fwd_dct (DCTBLOCK data)
+X{
+X  INT32 tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7;
+X  INT32 tmp10, tmp11, tmp12, tmp13;
+X  INT32 z1, z2, z3, z4, z5;
+X  register DCTELEM *dataptr;
+X  int rowctr;
+X  SHIFT_TEMPS
+X
+X  /* Pass 1: process rows. */
+X  /* Note results are scaled up by sqrt(8) compared to a true DCT; */
+X  /* furthermore, we scale the results by 2**PASS1_BITS. */
+X
+X  dataptr = data;
+X  for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X    tmp0 = dataptr[0] + dataptr[7];
+X    tmp7 = dataptr[0] - dataptr[7];
+X    tmp1 = dataptr[1] + dataptr[6];
+X    tmp6 = dataptr[1] - dataptr[6];
+X    tmp2 = dataptr[2] + dataptr[5];
+X    tmp5 = dataptr[2] - dataptr[5];
+X    tmp3 = dataptr[3] + dataptr[4];
+X    tmp4 = dataptr[3] - dataptr[4];
+X    
+X    /* Even part per LL&M figure 1 --- note that published figure is faulty;
+X     * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
+X     */
+X    
+X    tmp10 = tmp0 + tmp3;
+X    tmp13 = tmp0 - tmp3;
+X    tmp11 = tmp1 + tmp2;
+X    tmp12 = tmp1 - tmp2;
+X    
+X    dataptr[0] = (DCTELEM) ((tmp10 + tmp11) << PASS1_BITS);
+X    dataptr[4] = (DCTELEM) ((tmp10 - tmp11) << PASS1_BITS);
+X    
+X    z1 = MULTIPLY(tmp12 + tmp13, FIX_0_541196100);
+X    dataptr[2] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp13, FIX_0_765366865),
+X				   CONST_BITS-PASS1_BITS);
+X    dataptr[6] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp12, - FIX_1_847759065),
+X				   CONST_BITS-PASS1_BITS);
+X    
+X    /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
+X     * cK represents cos(K*pi/16).
+X     * i0..i3 in the paper are tmp4..tmp7 here.
+X     */
+X    
+X    z1 = tmp4 + tmp7;
+X    z2 = tmp5 + tmp6;
+X    z3 = tmp4 + tmp6;
+X    z4 = tmp5 + tmp7;
+X    z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
+X    
+X    tmp4 = MULTIPLY(tmp4, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+X    tmp5 = MULTIPLY(tmp5, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+X    tmp6 = MULTIPLY(tmp6, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+X    tmp7 = MULTIPLY(tmp7, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+X    z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+X    z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+X    z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+X    z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
+X    
+X    z3 += z5;
+X    z4 += z5;
+X    
+X    dataptr[7] = (DCTELEM) DESCALE(tmp4 + z1 + z3, CONST_BITS-PASS1_BITS);
+X    dataptr[5] = (DCTELEM) DESCALE(tmp5 + z2 + z4, CONST_BITS-PASS1_BITS);
+X    dataptr[3] = (DCTELEM) DESCALE(tmp6 + z2 + z3, CONST_BITS-PASS1_BITS);
+X    dataptr[1] = (DCTELEM) DESCALE(tmp7 + z1 + z4, CONST_BITS-PASS1_BITS);
+X    
+X    dataptr += DCTSIZE;		/* advance pointer to next row */
+X  }
+X
+X  /* Pass 2: process columns. */
+X  /* Note that we must descale the results by a factor of 8 == 2**3, */
+X  /* and also undo the PASS1_BITS scaling. */
+X
+X  dataptr = data;
+X  for (rowctr = DCTSIZE-1; rowctr >= 0; rowctr--) {
+X    tmp0 = dataptr[DCTSIZE*0] + dataptr[DCTSIZE*7];
+X    tmp7 = dataptr[DCTSIZE*0] - dataptr[DCTSIZE*7];
+X    tmp1 = dataptr[DCTSIZE*1] + dataptr[DCTSIZE*6];
+X    tmp6 = dataptr[DCTSIZE*1] - dataptr[DCTSIZE*6];
+X    tmp2 = dataptr[DCTSIZE*2] + dataptr[DCTSIZE*5];
+X    tmp5 = dataptr[DCTSIZE*2] - dataptr[DCTSIZE*5];
+X    tmp3 = dataptr[DCTSIZE*3] + dataptr[DCTSIZE*4];
+X    tmp4 = dataptr[DCTSIZE*3] - dataptr[DCTSIZE*4];
+X    
+X    /* Even part per LL&M figure 1 --- note that published figure is faulty;
+X     * rotator "sqrt(2)*c1" should be "sqrt(2)*c6".
+X     */
+X    
+X    tmp10 = tmp0 + tmp3;
+X    tmp13 = tmp0 - tmp3;
+X    tmp11 = tmp1 + tmp2;
+X    tmp12 = tmp1 - tmp2;
+X    
+X    dataptr[DCTSIZE*0] = (DCTELEM) DESCALE(tmp10 + tmp11, PASS1_BITS+3);
+X    dataptr[DCTSIZE*4] = (DCTELEM) DESCALE(tmp10 - tmp11, PASS1_BITS+3);
+X    
+X    z1 = MULTIPLY(tmp12 + tmp13, FIX_0_541196100);
+X    dataptr[DCTSIZE*2] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp13, FIX_0_765366865),
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*6] = (DCTELEM) DESCALE(z1 + MULTIPLY(tmp12, - FIX_1_847759065),
+X					   CONST_BITS+PASS1_BITS+3);
+X    
+X    /* Odd part per figure 8 --- note paper omits factor of sqrt(2).
+X     * cK represents cos(K*pi/16).
+X     * i0..i3 in the paper are tmp4..tmp7 here.
+X     */
+X    
+X    z1 = tmp4 + tmp7;
+X    z2 = tmp5 + tmp6;
+X    z3 = tmp4 + tmp6;
+X    z4 = tmp5 + tmp7;
+X    z5 = MULTIPLY(z3 + z4, FIX_1_175875602); /* sqrt(2) * c3 */
+X    
+X    tmp4 = MULTIPLY(tmp4, FIX_0_298631336); /* sqrt(2) * (-c1+c3+c5-c7) */
+X    tmp5 = MULTIPLY(tmp5, FIX_2_053119869); /* sqrt(2) * ( c1+c3-c5+c7) */
+X    tmp6 = MULTIPLY(tmp6, FIX_3_072711026); /* sqrt(2) * ( c1+c3+c5-c7) */
+X    tmp7 = MULTIPLY(tmp7, FIX_1_501321110); /* sqrt(2) * ( c1+c3-c5-c7) */
+X    z1 = MULTIPLY(z1, - FIX_0_899976223); /* sqrt(2) * (c7-c3) */
+X    z2 = MULTIPLY(z2, - FIX_2_562915447); /* sqrt(2) * (-c1-c3) */
+X    z3 = MULTIPLY(z3, - FIX_1_961570560); /* sqrt(2) * (-c3-c5) */
+X    z4 = MULTIPLY(z4, - FIX_0_390180644); /* sqrt(2) * (c5-c3) */
+X    
+X    z3 += z5;
+X    z4 += z5;
+X    
+X    dataptr[DCTSIZE*7] = (DCTELEM) DESCALE(tmp4 + z1 + z3,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*5] = (DCTELEM) DESCALE(tmp5 + z2 + z4,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*3] = (DCTELEM) DESCALE(tmp6 + z2 + z3,
+X					   CONST_BITS+PASS1_BITS+3);
+X    dataptr[DCTSIZE*1] = (DCTELEM) DESCALE(tmp7 + z1 + z4,
+X					   CONST_BITS+PASS1_BITS+3);
+X    
+X    dataptr++;			/* advance pointer to next column */
+X  }
+X}
+END_OF_FILE
+  if test 11760 -ne `wc -c <'jfwddct.c'`; then
+    echo shar: \"'jfwddct.c'\" unpacked with wrong size!
+  fi
+  # end of 'jfwddct.c'
+fi
+if test -f 'jrdrle.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jrdrle.c'\"
+else
+  echo shar: Extracting \"'jrdrle.c'\" \(11363 characters\)
+  sed "s/^X//" >'jrdrle.c' <<'END_OF_FILE'
+X/*
+X * jrdrle.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to read input images in Utah RLE format.
+X * The Utah Raster Toolkit library is required (version 3.0).
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume input from
+X * an ordinary stdio stream.  They further assume that reading begins
+X * at the start of the file; input_init may need work if the
+X * user interface has already read some data (e.g., to determine that
+X * the file is indeed RLE format).
+X *
+X * These routines are invoked via the methods get_input_row
+X * and input_init/term.
+X *
+X * Based on code contributed by Mike Lijewski.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef RLE_SUPPORTED
+X
+X/* rle.h is provided by the Utah Raster Toolkit. */
+X
+X#include <rle.h>
+X
+X
+X/*
+X * load_image assumes that JSAMPLE has the same representation as rle_pixel,
+X * to wit, "unsigned char".  Hence we can't cope with 12- or 16-bit samples.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * We support the following types of RLE files:
+X *   
+X *   GRAYSCALE   - 8 bits, no colormap
+X *   PSEUDOCOLOR - 8 bits, colormap
+X *   TRUECOLOR   - 24 bits, colormap
+X *   DIRECTCOLOR - 24 bits, no colormap
+X *
+X * For now, we ignore any alpha channel in the image.
+X */
+X
+Xtypedef enum { GRAYSCALE, PSEUDOCOLOR, TRUECOLOR, DIRECTCOLOR } rle_kind;
+X
+Xstatic rle_kind visual;		/* actual type of input file */
+X
+X/*
+X * Since RLE stores scanlines bottom-to-top, we have to invert the image
+X * to conform to JPEG's top-to-bottom order.  To do this, we read the
+X * incoming image into a virtual array on the first get_input_row call,
+X * then fetch the required row from the virtual array on subsequent calls.
+X */
+X
+Xstatic big_sarray_ptr image;	/* single array for GRAYSCALE/PSEUDOCOLOR */
+Xstatic big_sarray_ptr red_channel; /* three arrays for TRUECOLOR/DIRECTCOLOR */
+Xstatic big_sarray_ptr green_channel;
+Xstatic big_sarray_ptr blue_channel;
+Xstatic long cur_row_number;	/* last row# read from virtual array */
+X
+Xstatic rle_hdr header;		/* Input file information */
+Xstatic rle_map *colormap;	/* RLE colormap, if any */
+X
+X
+X/*
+X * Read the file header; return image size and component count.
+X */
+X
+XMETHODDEF void
+Xinput_init (compress_info_ptr cinfo)
+X{
+X  long width, height;
+X
+X  /* Use RLE library routine to get the header info */
+X  header.rle_file = cinfo->input_file;
+X  switch (rle_get_setup(&header)) {
+X  case RLE_SUCCESS:
+X    /* A-OK */
+X    break;
+X  case RLE_NOT_RLE:
+X    ERREXIT(cinfo->emethods, "Not an RLE file");
+X    break;
+X  case RLE_NO_SPACE:
+X    ERREXIT(cinfo->emethods, "Insufficient memory for RLE header");
+X    break;
+X  case RLE_EMPTY:
+X    ERREXIT(cinfo->emethods, "Empty RLE file");
+X    break;
+X  case RLE_EOF:
+X    ERREXIT(cinfo->emethods, "Premature EOF in RLE header");
+X    break;
+X  default:
+X    ERREXIT(cinfo->emethods, "Bogus RLE error code");
+X    break;
+X  }
+X
+X  /* Figure out what we have, set private vars and return values accordingly */
+X  
+X  width  = header.xmax - header.xmin + 1;
+X  height = header.ymax - header.ymin + 1;
+X  header.xmin = 0;		/* realign horizontally */
+X  header.xmax = width-1;
+X
+X  cinfo->image_width      = width;
+X  cinfo->image_height     = height;
+X  cinfo->data_precision   = 8;  /* we can only handle 8 bit data */
+X
+X  if (header.ncolors == 1 && header.ncmap == 0) {
+X    visual     = GRAYSCALE;
+X    TRACEMS(cinfo->emethods, 1, "Gray-scale RLE file");
+X  } else if (header.ncolors == 1 && header.ncmap == 3) {
+X    visual     = PSEUDOCOLOR;
+X    colormap   = header.cmap;
+X    TRACEMS1(cinfo->emethods, 1, "Colormapped RLE file with map of length %d",
+X	     1 << header.cmaplen);
+X  } else if (header.ncolors == 3 && header.ncmap == 3) {
+X    visual     = TRUECOLOR;
+X    colormap   = header.cmap;
+X    TRACEMS1(cinfo->emethods, 1, "Full-color RLE file with map of length %d",
+X	     1 << header.cmaplen);
+X  } else if (header.ncolors == 3 && header.ncmap == 0) {
+X    visual     = DIRECTCOLOR;
+X    TRACEMS(cinfo->emethods, 1, "Full-color RLE file");
+X  } else
+X    ERREXIT(cinfo->emethods, "Can't handle this RLE setup");
+X  
+X  switch (visual) {
+X  case GRAYSCALE:
+X    /* request one big array to hold the grayscale image */
+X    image = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_GRAYSCALE;
+X    cinfo->input_components = 1;
+X    break;
+X  case PSEUDOCOLOR:
+X    /* request one big array to hold the pseudocolor image */
+X    image = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_RGB;
+X    cinfo->input_components = 3;
+X    break;
+X  case TRUECOLOR:
+X  case DIRECTCOLOR:
+X    /* request three big arrays to hold the RGB channels */
+X    red_channel   = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    green_channel = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    blue_channel  = (*cinfo->emethods->request_big_sarray) (width, height, 1L);
+X    cinfo->in_color_space   = CS_RGB;
+X    cinfo->input_components = 3;
+X    break;
+X  }
+X
+X  cinfo->total_passes++;	/* count file reading as separate pass */
+X}
+X
+X
+X/*
+X * Read one row of pixels.
+X * These are called only after load_image has read the image into
+X * the virtual array(s).
+X */
+X
+X
+XMETHODDEF void
+Xget_grayscale_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for GRAYSCALE images */
+X{
+X  JSAMPROW inputrows[1];	/* a pseudo JSAMPARRAY structure */
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  inputrows[0] = *((*cinfo->emethods->access_big_sarray)
+X			(image, cur_row_number, FALSE));
+X
+X  jcopy_sample_rows(inputrows, 0, pixel_row, 0, 1, cinfo->image_width);
+X}
+X
+X
+XMETHODDEF void
+Xget_pseudocolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for PSEUDOCOLOR images */
+X{
+X  long col;
+X  JSAMPROW image_ptr, ptr0, ptr1, ptr2;
+X  int val;
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  image_ptr = *((*cinfo->emethods->access_big_sarray)
+X		(image, cur_row_number, FALSE));
+X
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    val = GETJSAMPLE(*image_ptr++);
+X    *ptr0++ = colormap[val      ] >> 8;
+X    *ptr1++ = colormap[val + 256] >> 8;
+X    *ptr2++ = colormap[val + 512] >> 8;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_truecolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for TRUECOLOR images */
+X/* The colormap consists of 3 independent lookup tables */
+X{
+X  long col;
+X  JSAMPROW red_ptr, green_ptr, blue_ptr, ptr0, ptr1, ptr2;
+X  
+X  cur_row_number--;		/* work down in array */
+X  
+X  red_ptr   = *((*cinfo->emethods->access_big_sarray)
+X		(red_channel, cur_row_number, FALSE));
+X  green_ptr = *((*cinfo->emethods->access_big_sarray)
+X		(green_channel, cur_row_number, FALSE));
+X  blue_ptr  = *((*cinfo->emethods->access_big_sarray)
+X		(blue_channel, cur_row_number, FALSE));
+X  
+X  ptr0 = pixel_row[0];
+X  ptr1 = pixel_row[1];
+X  ptr2 = pixel_row[2];
+X  
+X  for (col = cinfo->image_width; col > 0; col--) {
+X    *ptr0++ = colormap[GETJSAMPLE(*red_ptr++)        ] >> 8;
+X    *ptr1++ = colormap[GETJSAMPLE(*green_ptr++) + 256] >> 8;
+X    *ptr2++ = colormap[GETJSAMPLE(*blue_ptr++)  + 512] >> 8;
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xget_directcolor_row (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X/* This is used for DIRECTCOLOR images */
+X{
+X  JSAMPROW inputrows[3];	/* a pseudo JSAMPARRAY structure */
+X
+X  cur_row_number--;		/* work down in array */
+X  
+X  inputrows[0] = *((*cinfo->emethods->access_big_sarray)
+X			(red_channel, cur_row_number, FALSE));
+X  inputrows[1] = *((*cinfo->emethods->access_big_sarray)
+X			(green_channel, cur_row_number, FALSE));
+X  inputrows[2] = *((*cinfo->emethods->access_big_sarray)
+X			(blue_channel, cur_row_number, FALSE));
+X
+X  jcopy_sample_rows(inputrows, 0, pixel_row, 0, 3, cinfo->image_width);
+X}
+X
+X
+X/*
+X * Load the color channels into separate arrays.  We have to do
+X * this because RLE files start at the lower left while the JPEG standard
+X * has them starting in the upper left.  This is called the first time
+X * we want to get a row of input.  What we do is load the RLE data into
+X * big arrays and then call the appropriate routine to read one row from
+X * the big arrays.  We also change cinfo->methods->get_input_row so that
+X * subsequent calls go straight to the row-reading routine.
+X */
+X
+XMETHODDEF void
+Xload_image (compress_info_ptr cinfo, JSAMPARRAY pixel_row)
+X{
+X  long row;
+X  rle_pixel *rle_row[3];
+X  
+X  /* Read the RLE data into our virtual array(s).
+X   * We assume here that (a) rle_pixel is represented the same as JSAMPLE,
+X   * and (b) we are not on a machine where FAR pointers differ from regular.
+X   */
+X  RLE_CLR_BIT(header, RLE_ALPHA); /* don't read the alpha channel */
+X
+X  switch (visual) {
+X  case GRAYSCALE:
+X  case PSEUDOCOLOR:
+X    for (row = 0; row < cinfo->image_height; row++) {
+X      (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X      /*
+X       * Read a row of the image directly into our big array.
+X       * Too bad this doesn't seem to return any indication of errors :-(.
+X       */
+X      rle_row[0] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(image, row, TRUE));
+X      rle_getrow(&header, rle_row);
+X    }
+X    break;
+X  case TRUECOLOR:
+X  case DIRECTCOLOR:
+X    for (row = 0; row < cinfo->image_height; row++) {
+X      (*cinfo->methods->progress_monitor) (cinfo, row, cinfo->image_height);
+X      /*
+X       * Read a row of the image directly into our big arrays.
+X       * Too bad this doesn't seem to return any indication of errors :-(.
+X       */
+X      rle_row[0] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(red_channel, row, TRUE));
+X      rle_row[1] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(green_channel, row, TRUE));
+X      rle_row[2] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(blue_channel, row, TRUE));
+X      rle_getrow(&header, rle_row);
+X    }
+X    break;
+X  }
+X  cinfo->completed_passes++;
+X  
+X  /* Set up to call proper row-extraction routine in future */
+X  switch (visual) {
+X  case GRAYSCALE:
+X    cinfo->methods->get_input_row = get_grayscale_row;
+X    break;
+X  case PSEUDOCOLOR:
+X    cinfo->methods->get_input_row = get_pseudocolor_row;
+X    break;
+X  case TRUECOLOR:
+X    cinfo->methods->get_input_row = get_truecolor_row;
+X    break;
+X  case DIRECTCOLOR:
+X    cinfo->methods->get_input_row = get_directcolor_row;
+X    break;
+X  }
+X
+X  /* And fetch the topmost (bottommost) row */
+X  cur_row_number = cinfo->image_height;
+X  (*cinfo->methods->get_input_row) (cinfo, pixel_row);   
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xinput_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for RLE format input.
+X * Note that this must be called by the user interface before calling
+X * jpeg_compress.  If multiple input formats are supported, the
+X * user interface is responsible for discovering the file format and
+X * calling the appropriate method selection routine.
+X */
+X
+XGLOBAL void
+Xjselrrle (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->input_init    = input_init;
+X  cinfo->methods->get_input_row = load_image; /* until first call */
+X  cinfo->methods->input_term    = input_term;
+X}
+X
+X#endif /* RLE_SUPPORTED */
+END_OF_FILE
+  if test 11363 -ne `wc -c <'jrdrle.c'`; then
+    echo shar: \"'jrdrle.c'\" unpacked with wrong size!
+  fi
+  # end of 'jrdrle.c'
+fi
+if test -f 'jwrjfif.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrjfif.c'\"
+else
+  echo shar: Extracting \"'jwrjfif.c'\" \(11967 characters\)
+  sed "s/^X//" >'jwrjfif.c' <<'END_OF_FILE'
+X/*
+X * jwrjfif.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write standard JPEG file headers/markers.
+X * The file format created is a raw JPEG data stream with (optionally) an
+X * APP0 marker per the JFIF spec.  This will handle baseline and
+X * JFIF-convention JPEG files, although there is currently no provision
+X * for inserting a thumbnail image in the JFIF header.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.  However, the changes to write to something
+X * else are localized in the macros appearing just below.
+X *
+X * These routines are invoked via the methods write_file_header,
+X * write_scan_header, write_jpeg_data, write_scan_trailer, and
+X * write_file_trailer.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef JFIF_SUPPORTED
+X
+X
+X/*
+X * To output to something other than a stdio stream, you'd need to redefine
+X * these macros.
+X */
+X
+X/* Write a single byte */
+X#define emit_byte(cinfo,x)  putc((x), cinfo->output_file)
+X
+X/* Write some bytes from a (char *) buffer */
+X#define WRITE_BYTES(cinfo,dataptr,datacount)  \
+X  { if (JFWRITE(cinfo->output_file, dataptr, datacount) \
+X	!= (size_t) (datacount)) \
+X      ERREXIT(cinfo->emethods, "Output file write error"); }
+X
+X/* Clean up and verify successful output */
+X#define CHECK_OUTPUT(cinfo)  \
+X  { fflush(cinfo->output_file); \
+X    if (ferror(cinfo->output_file)) \
+X      ERREXIT(cinfo->emethods, "Output file write error"); }
+X
+X
+X/* End of stdio-specific code. */
+X
+X
+Xtypedef enum {			/* JPEG marker codes */
+X  M_SOF0  = 0xc0,
+X  M_SOF1  = 0xc1,
+X  M_SOF2  = 0xc2,
+X  M_SOF3  = 0xc3,
+X  
+X  M_SOF5  = 0xc5,
+X  M_SOF6  = 0xc6,
+X  M_SOF7  = 0xc7,
+X  
+X  M_JPG   = 0xc8,
+X  M_SOF9  = 0xc9,
+X  M_SOF10 = 0xca,
+X  M_SOF11 = 0xcb,
+X  
+X  M_SOF13 = 0xcd,
+X  M_SOF14 = 0xce,
+X  M_SOF15 = 0xcf,
+X  
+X  M_DHT   = 0xc4,
+X  
+X  M_DAC   = 0xcc,
+X  
+X  M_RST0  = 0xd0,
+X  M_RST1  = 0xd1,
+X  M_RST2  = 0xd2,
+X  M_RST3  = 0xd3,
+X  M_RST4  = 0xd4,
+X  M_RST5  = 0xd5,
+X  M_RST6  = 0xd6,
+X  M_RST7  = 0xd7,
+X  
+X  M_SOI   = 0xd8,
+X  M_EOI   = 0xd9,
+X  M_SOS   = 0xda,
+X  M_DQT   = 0xdb,
+X  M_DNL   = 0xdc,
+X  M_DRI   = 0xdd,
+X  M_DHP   = 0xde,
+X  M_EXP   = 0xdf,
+X  
+X  M_APP0  = 0xe0,
+X  M_APP15 = 0xef,
+X  
+X  M_JPG0  = 0xf0,
+X  M_JPG13 = 0xfd,
+X  M_COM   = 0xfe,
+X  
+X  M_TEM   = 0x01,
+X  
+X  M_ERROR = 0x100
+X} JPEG_MARKER;
+X
+X
+XLOCAL void
+Xemit_marker (compress_info_ptr cinfo, JPEG_MARKER mark)
+X/* Emit a marker code */
+X{
+X  emit_byte(cinfo, 0xFF);
+X  emit_byte(cinfo, mark);
+X}
+X
+X
+XLOCAL void
+Xemit_2bytes (compress_info_ptr cinfo, int value)
+X/* Emit a 2-byte integer; these are always MSB first in JPEG files */
+X{
+X  emit_byte(cinfo, (value >> 8) & 0xFF);
+X  emit_byte(cinfo, value & 0xFF);
+X}
+X
+X
+XLOCAL int
+Xemit_dqt (compress_info_ptr cinfo, int index)
+X/* Emit a DQT marker */
+X/* Returns the precision used (0 = 8bits, 1 = 16bits) for baseline checking */
+X{
+X  QUANT_TBL_PTR data = cinfo->quant_tbl_ptrs[index];
+X  int prec = 0;
+X  int i;
+X  
+X  for (i = 0; i < DCTSIZE2; i++) {
+X    if (data[i] > 255)
+X      prec = 1;
+X  }
+X
+X  emit_marker(cinfo, M_DQT);
+X  
+X  emit_2bytes(cinfo, prec ? DCTSIZE2*2 + 1 + 2 : DCTSIZE2 + 1 + 2);
+X  
+X  emit_byte(cinfo, index + (prec<<4));
+X  
+X  for (i = 0; i < DCTSIZE2; i++) {
+X    if (prec)
+X      emit_byte(cinfo, data[i] >> 8);
+X    emit_byte(cinfo, data[i] & 0xFF);
+X  }
+X
+X  return prec;
+X}
+X
+X
+XLOCAL void
+Xemit_dht (compress_info_ptr cinfo, int index, boolean is_ac)
+X/* Emit a DHT marker */
+X{
+X  HUFF_TBL * htbl;
+X  int length, i;
+X  
+X  if (is_ac) {
+X    htbl = cinfo->ac_huff_tbl_ptrs[index];
+X    index += 0x10;		/* output index has AC bit set */
+X  } else {
+X    htbl = cinfo->dc_huff_tbl_ptrs[index];
+X  }
+X
+X  if (htbl == NULL)
+X    ERREXIT1(cinfo->emethods, "Huffman table 0x%02x was not defined", index);
+X  
+X  if (! htbl->sent_table) {
+X    emit_marker(cinfo, M_DHT);
+X    
+X    length = 0;
+X    for (i = 1; i <= 16; i++)
+X      length += htbl->bits[i];
+X    
+X    emit_2bytes(cinfo, length + 2 + 1 + 16);
+X    emit_byte(cinfo, index);
+X    
+X    for (i = 1; i <= 16; i++)
+X      emit_byte(cinfo, htbl->bits[i]);
+X    
+X    for (i = 0; i < length; i++)
+X      emit_byte(cinfo, htbl->huffval[i]);
+X    
+X    htbl->sent_table = TRUE;
+X  }
+X}
+X
+X
+XLOCAL void
+Xemit_dac (compress_info_ptr cinfo)
+X/* Emit a DAC marker */
+X/* Since the useful info is so small, we want to emit all the tables in */
+X/* one DAC marker.  Therefore this routine does its own scan of the table. */
+X{
+X  char dc_in_use[NUM_ARITH_TBLS];
+X  char ac_in_use[NUM_ARITH_TBLS];
+X  int length, i;
+X  
+X  for (i = 0; i < NUM_ARITH_TBLS; i++)
+X    dc_in_use[i] = ac_in_use[i] = 0;
+X  
+X  for (i = 0; i < cinfo->num_components; i++) {
+X    dc_in_use[cinfo->comp_info[i].dc_tbl_no] = 1;
+X    ac_in_use[cinfo->comp_info[i].ac_tbl_no] = 1;
+X  }
+X  
+X  length = 0;
+X  for (i = 0; i < NUM_ARITH_TBLS; i++)
+X    length += dc_in_use[i] + ac_in_use[i];
+X  
+X  emit_marker(cinfo, M_DAC);
+X  
+X  emit_2bytes(cinfo, length*2 + 2);
+X  
+X  for (i = 0; i < NUM_ARITH_TBLS; i++) {
+X    if (dc_in_use[i]) {
+X      emit_byte(cinfo, i);
+X      emit_byte(cinfo, cinfo->arith_dc_L[i] + (cinfo->arith_dc_U[i]<<4));
+X    }
+X    if (ac_in_use[i]) {
+X      emit_byte(cinfo, i + 0x10);
+X      emit_byte(cinfo, cinfo->arith_ac_K[i]);
+X    }
+X  }
+X}
+X
+X
+XLOCAL void
+Xemit_dri (compress_info_ptr cinfo)
+X/* Emit a DRI marker */
+X{
+X  emit_marker(cinfo, M_DRI);
+X  
+X  emit_2bytes(cinfo, 4);	/* fixed length */
+X
+X  emit_2bytes(cinfo, (int) cinfo->restart_interval);
+X}
+X
+X
+XLOCAL void
+Xemit_sof (compress_info_ptr cinfo, JPEG_MARKER code)
+X/* Emit a SOF marker */
+X{
+X  int i;
+X  
+X  emit_marker(cinfo, code);
+X  
+X  emit_2bytes(cinfo, 3 * cinfo->num_components + 2 + 5 + 1); /* length */
+X
+X  if (cinfo->image_height > 65535L || cinfo->image_width > 65535L)
+X    ERREXIT(cinfo->emethods, "Maximum image dimension for JFIF is 65535 pixels");
+X
+X  emit_byte(cinfo, cinfo->data_precision);
+X  emit_2bytes(cinfo, (int) cinfo->image_height);
+X  emit_2bytes(cinfo, (int) cinfo->image_width);
+X
+X  emit_byte(cinfo, cinfo->num_components);
+X
+X  for (i = 0; i < cinfo->num_components; i++) {
+X    emit_byte(cinfo, cinfo->comp_info[i].component_id);
+X    emit_byte(cinfo, (cinfo->comp_info[i].h_samp_factor << 4)
+X		     + cinfo->comp_info[i].v_samp_factor);
+X    emit_byte(cinfo, cinfo->comp_info[i].quant_tbl_no);
+X  }
+X}
+X
+X
+XLOCAL void
+Xemit_sos (compress_info_ptr cinfo)
+X/* Emit a SOS marker */
+X{
+X  int i;
+X  
+X  emit_marker(cinfo, M_SOS);
+X  
+X  emit_2bytes(cinfo, 2 * cinfo->comps_in_scan + 2 + 1 + 3); /* length */
+X  
+X  emit_byte(cinfo, cinfo->comps_in_scan);
+X  
+X  for (i = 0; i < cinfo->comps_in_scan; i++) {
+X    emit_byte(cinfo, cinfo->cur_comp_info[i]->component_id);
+X    emit_byte(cinfo, (cinfo->cur_comp_info[i]->dc_tbl_no << 4)
+X		     + cinfo->cur_comp_info[i]->ac_tbl_no);
+X  }
+X
+X  emit_byte(cinfo, 0);		/* Spectral selection start */
+X  emit_byte(cinfo, DCTSIZE2-1);	/* Spectral selection end */
+X  emit_byte(cinfo, 0);		/* Successive approximation */
+X}
+X
+X
+XLOCAL void
+Xemit_jfif_app0 (compress_info_ptr cinfo)
+X/* Emit a JFIF-compliant APP0 marker */
+X{
+X  /*
+X   * Length of APP0 block	(2 bytes)
+X   * Block ID			(4 bytes - ASCII "JFIF")
+X   * Zero byte			(1 byte to terminate the ID string)
+X   * Version Major, Minor	(2 bytes - 0x01, 0x01)
+X   * Units			(1 byte - 0x00 = none, 0x01 = inch, 0x02 = cm)
+X   * Xdpu			(2 bytes - dots per unit horizontal)
+X   * Ydpu			(2 bytes - dots per unit vertical)
+X   * Thumbnail X size		(1 byte)
+X   * Thumbnail Y size		(1 byte)
+X   */
+X  
+X  emit_marker(cinfo, M_APP0);
+X  
+X  emit_2bytes(cinfo, 2 + 4 + 1 + 2 + 1 + 2 + 2 + 1 + 1); /* length */
+X
+X  emit_byte(cinfo, 0x4A);	/* Identifier: ASCII "JFIF" */
+X  emit_byte(cinfo, 0x46);
+X  emit_byte(cinfo, 0x49);
+X  emit_byte(cinfo, 0x46);
+X  emit_byte(cinfo, 0);
+X  emit_byte(cinfo, 1);		/* Major version */
+X  emit_byte(cinfo, 1);		/* Minor version */
+X  emit_byte(cinfo, cinfo->density_unit); /* Pixel size information */
+X  emit_2bytes(cinfo, (int) cinfo->X_density);
+X  emit_2bytes(cinfo, (int) cinfo->Y_density);
+X  emit_byte(cinfo, 0);		/* No thumbnail image */
+X  emit_byte(cinfo, 0);
+X}
+X
+X
+X/*
+X * Write the file header.
+X */
+X
+X
+XMETHODDEF void
+Xwrite_file_header (compress_info_ptr cinfo)
+X{
+X  char qt_in_use[NUM_QUANT_TBLS];
+X  int i, prec;
+X  boolean is_baseline;
+X  
+X  emit_marker(cinfo, M_SOI);	/* first the SOI */
+X
+X  if (cinfo->write_JFIF_header)	/* next an optional JFIF APP0 */
+X    emit_jfif_app0(cinfo);
+X
+X  /* Emit DQT for each quantization table. */
+X  /* Note that doing it here means we can't adjust the QTs on-the-fly. */
+X  /* If we did want to do that, we'd have a problem with checking precision */
+X  /* for the is_baseline determination. */
+X
+X  for (i = 0; i < NUM_QUANT_TBLS; i++)
+X    qt_in_use[i] = 0;
+X
+X  for (i = 0; i < cinfo->num_components; i++)
+X    qt_in_use[cinfo->comp_info[i].quant_tbl_no] = 1;
+X
+X  prec = 0;
+X  for (i = 0; i < NUM_QUANT_TBLS; i++) {
+X    if (qt_in_use[i])
+X      prec += emit_dqt(cinfo, i);
+X  }
+X  /* now prec is nonzero iff there are any 16-bit quant tables. */
+X
+X  /* Check for a non-baseline specification. */
+X  /* Note we assume that Huffman table numbers won't be changed later. */
+X  is_baseline = TRUE;
+X  if (cinfo->arith_code || (cinfo->data_precision != 8))
+X    is_baseline = FALSE;
+X  for (i = 0; i < cinfo->num_components; i++) {
+X    if (cinfo->comp_info[i].dc_tbl_no > 1 || cinfo->comp_info[i].ac_tbl_no > 1)
+X      is_baseline = FALSE;
+X  }
+X  if (prec && is_baseline) {
+X    is_baseline = FALSE;
+X    /* If it's baseline except for quantizer size, warn the user */
+X    TRACEMS(cinfo->emethods, 0,
+X	    "Caution: quantization tables are too coarse for baseline JPEG");
+X  }
+X
+X
+X  /* Emit the proper SOF marker */
+X  if (cinfo->arith_code)
+X    emit_sof(cinfo, M_SOF9);	/* SOF code for arithmetic coding */
+X  else if (is_baseline)
+X    emit_sof(cinfo, M_SOF0);	/* SOF code for baseline implementation */
+X  else
+X    emit_sof(cinfo, M_SOF1);	/* SOF code for non-baseline Huffman file */
+X}
+X
+X
+X/*
+X * Write the start of a scan (everything through the SOS marker).
+X */
+X
+XMETHODDEF void
+Xwrite_scan_header (compress_info_ptr cinfo)
+X{
+X  int i;
+X
+X  if (cinfo->arith_code) {
+X    /* Emit arith conditioning info.  We will have some duplication
+X     * if the file has multiple scans, but it's so small it's hardly
+X     * worth worrying about.
+X     */
+X    emit_dac(cinfo);
+X  } else {
+X    /* Emit Huffman tables.  Note that emit_dht takes care of
+X     * suppressing duplicate tables.
+X     */
+X    for (i = 0; i < cinfo->comps_in_scan; i++) {
+X      emit_dht(cinfo, cinfo->cur_comp_info[i]->dc_tbl_no, FALSE);
+X      emit_dht(cinfo, cinfo->cur_comp_info[i]->ac_tbl_no, TRUE);
+X    }
+X  }
+X
+X  /* Emit DRI if required --- note that DRI value could change for each scan.
+X   * If it doesn't, a tiny amount of space is wasted in multiple-scan files.
+X   * We assume DRI will never be nonzero for one scan and zero for a later one.
+X   */
+X  if (cinfo->restart_interval)
+X    emit_dri(cinfo);
+X
+X  emit_sos(cinfo);
+X}
+X
+X
+X/*
+X * Write some bytes of compressed data within a scan.
+X */
+X
+XMETHODDEF void
+Xwrite_jpeg_data (compress_info_ptr cinfo, char *dataptr, int datacount)
+X{
+X  WRITE_BYTES(cinfo, dataptr, datacount);
+X}
+X
+X
+X/*
+X * Finish up after a compressed scan (series of write_jpeg_data calls).
+X */
+X
+XMETHODDEF void
+Xwrite_scan_trailer (compress_info_ptr cinfo)
+X{
+X  /* no work needed in this format */
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xwrite_file_trailer (compress_info_ptr cinfo)
+X{
+X  emit_marker(cinfo, M_EOI);
+X  /* Make sure we wrote the output file OK */
+X  CHECK_OUTPUT(cinfo);
+X}
+X
+X
+X/*
+X * The method selection routine for standard JPEG header writing.
+X * This should be called from c_ui_method_selection if appropriate.
+X */
+X
+XGLOBAL void
+Xjselwjfif (compress_info_ptr cinfo)
+X{
+X  cinfo->methods->write_file_header = write_file_header;
+X  cinfo->methods->write_scan_header = write_scan_header;
+X  cinfo->methods->write_jpeg_data = write_jpeg_data;
+X  cinfo->methods->write_scan_trailer = write_scan_trailer;
+X  cinfo->methods->write_file_trailer = write_file_trailer;
+X}
+X
+X#endif /* JFIF_SUPPORTED */
+END_OF_FILE
+  if test 11967 -ne `wc -c <'jwrjfif.c'`; then
+    echo shar: \"'jwrjfif.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrjfif.c'
+fi
+if test -f 'makefile.mc6' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.mc6'\"
+else
+  echo shar: Extracting \"'makefile.mc6'\" \(7388 characters\)
+  sed "s/^X//" >'makefile.mc6' <<'END_OF_FILE'
+X# Makefile for Independent JPEG Group's software
+X
+X# This makefile is for Microsoft C for MS-DOS, version 6.00A and up.
+X# Use NMAKE, not Microsoft's brain-damaged MAKE.
+X# Thanks to Alan Wright and Chris Turner of Olivetti Research Ltd.
+X
+X# Read SETUP instructions before saying "nmake" !!
+X
+X# compiler flags. -D gives a #define to the sources:
+X#       -AS             small memory model (or use -AM for medium model)
+X#       -Ox             maximum safe optimisation
+X#       -W3             warning level 3
+X#       -Za             ANSI conformance, defines __STDC__ but undefines far
+X#                       and near, so we DON'T use it.
+X#       -DHAVE_STDC     indicate we do have all the ANSI language features
+X#       -DINCLUDES_ARE_ANSI    and all the ANSI include files.
+X#       -DMSDOS         we are on an MSDOS machine
+X#       -DUSE_FMEM      we have _fmemcpy() and _fmemset()
+X#       -DSHORTxLCONST_32      enables compiler-specific multiply optimization
+X#       -DMEM_STATS     enable memory usage statistics (optional)
+X# You might also want to add -G2 if you have an 80286, etc.
+X
+XCFLAGS = -AS -Ox -W3 -DHAVE_STDC -DINCLUDES_ARE_ANSI -DMSDOS -DUSE_FMEM -DSHORTxLCONST_32
+X
+X# need linker response file because file list > 128 chars
+XRFILE = libjpeg.ans
+X
+X
+X# source files (independently compilable files)
+XSOURCES= jbsmooth.c jcarith.c jccolor.c jcdeflts.c jcexpand.c jchuff.c \
+X        jcmain.c jcmaster.c jcmcu.c jcpipe.c jcsample.c jdarith.c jdcolor.c \
+X        jddeflts.c jdhuff.c jdmain.c jdmaster.c jdmcu.c jdpipe.c jdsample.c \
+X        jerror.c jquant1.c jquant2.c jfwddct.c jrevdct.c jutils.c jmemmgr.c \
+X        jrdjfif.c jrdgif.c jrdppm.c jrdrle.c jrdtarga.c jwrjfif.c jwrgif.c \
+X        jwrppm.c jwrrle.c jwrtarga.c
+X# virtual source files (not present in distribution file, see SETUP)
+XVIRTSOURCES= jmemsys.c
+X# system-dependent implementations of virtual source files
+XSYSDEPFILES= jmemansi.c jmemname.c jmemnobs.c jmemdos.c jmemdos.h \
+X        jmemdosa.asm
+X# files included by source files
+XINCLUDES= jinclude.h jconfig.h jpegdata.h jversion.h jmemsys.h
+X# documentation, test, and support files
+XDOCS= README SETUP USAGE CHANGELOG cjpeg.1 djpeg.1 architecture codingrules
+XMAKEFILES= makefile.ansi makefile.unix makefile.manx makefile.sas \
+X        makcjpeg.st makdjpeg.st makljpeg.st makefile.mc5 makefile.mc6 \
+X        makefile.bcc makefile.mms makefile.vms makvms.opt
+XOTHERFILES= ansi2knr.c ckconfig.c example.c
+XTESTFILES= testorig.jpg testimg.ppm testimg.gif testimg.jpg
+XDISTFILES= $(DOCS) $(MAKEFILES) $(SOURCES) $(SYSDEPFILES) $(INCLUDES) \
+X        $(OTHERFILES) $(TESTFILES)
+X# objectfiles common to cjpeg and djpeg
+XCOMOBJECTS= jutils.obj jerror.obj jmemmgr.obj jmemsys.obj jmemdosa.obj
+X# compression objectfiles
+XCLIBOBJECTS= jcmaster.obj jcdeflts.obj jcarith.obj jccolor.obj jcexpand.obj \
+X        jchuff.obj jcmcu.obj jcpipe.obj jcsample.obj jfwddct.obj \
+X        jwrjfif.obj jrdgif.obj jrdppm.obj jrdrle.obj jrdtarga.obj
+XCOBJECTS= jcmain.obj $(CLIBOBJECTS) $(COMOBJECTS)
+X# decompression objectfiles
+XDLIBOBJECTS= jdmaster.obj jddeflts.obj jbsmooth.obj jdarith.obj jdcolor.obj \
+X        jdhuff.obj jdmcu.obj jdpipe.obj jdsample.obj jquant1.obj \
+X        jquant2.obj jrevdct.obj jrdjfif.obj jwrgif.obj jwrppm.obj \
+X        jwrrle.obj jwrtarga.obj
+XDOBJECTS= jdmain.obj $(DLIBOBJECTS) $(COMOBJECTS)
+X# These objectfiles are included in libjpeg.lib
+XLIBOBJECTS= $(CLIBOBJECTS) $(DLIBOBJECTS) $(COMOBJECTS)
+X
+X
+Xall: cjpeg.exe djpeg.exe
+X
+X
+X# libjpeg.lib is useful if you are including the JPEG software in a larger
+X# program; you'd include it in your link, rather than the individual modules.
+Xlibjpeg.lib: $(LIBOBJECTS) $(RFILE)
+X    del libjpeg.lib
+X    lib @$(RFILE) ;
+X
+X# linker response file for same
+X$(RFILE) : Makefile
+X    del $(RFILE)
+X    echo libjpeg.lib >$(RFILE)
+X# silly want-to-create-it prompt:
+X    echo y >>$(RFILE)
+X    echo +jcmaster.obj +jcdeflts.obj +jcarith.obj +jccolor.obj & >>$(RFILE)
+X    echo +jcexpand.obj +jchuff.obj +jcmcu.obj +jcpipe.obj & >>$(RFILE)
+X    echo +jcsample.obj +jfwddct.obj +jwrjfif.obj +jrdgif.obj & >>$(RFILE)
+X    echo +jrdppm.obj +jrdrle.obj +jrdtarga.obj +jdmaster.obj & >>$(RFILE)
+X    echo +jddeflts.obj +jbsmooth.obj +jdarith.obj +jdcolor.obj & >>$(RFILE)
+X    echo +jdhuff.obj +jdmcu.obj +jdpipe.obj +jdsample.obj & >>$(RFILE)
+X    echo +jquant1.obj +jquant2.obj +jrevdct.obj +jrdjfif.obj & >>$(RFILE)
+X    echo +jwrgif.obj +jwrppm.obj +jwrrle.obj +jwrtarga.obj & >>$(RFILE)
+X    echo +jutils.obj +jerror.obj +jmemmgr.obj +jmemsys.obj & >>$(RFILE)
+X    echo +jmemdosa.obj >>$(RFILE)
+X
+Xcjpeg.exe: jcmain.obj libjpeg.lib
+X    link /STACK:4096 /EXEPACK jcmain.obj, cjpeg.exe, , libjpeg.lib, ;
+X
+Xdjpeg.exe: jdmain.obj libjpeg.lib
+X    link /STACK:4096 /EXEPACK jdmain.obj, djpeg.exe, , libjpeg.lib, ;
+X
+Xjmemsys.c:
+X	echo You must select a system-dependent jmemsys.c file.
+X	echo Please read the SETUP directions.
+X	exit 1
+X
+Xclean:
+X	del *.obj
+X	del libjpeg.lib
+X	del cjpeg.exe
+X	del djpeg.exe
+X	del testout.*
+X
+Xtest:
+X        del testout.*
+X        djpeg testorig.jpg testout.ppm
+X        djpeg -gif testorig.jpg testout.gif
+X        cjpeg testimg.ppm testout.jpg
+X        fc testimg.ppm testout.ppm
+X        fc testimg.gif testout.gif
+X        fc testimg.jpg testout.jpg
+X
+X
+Xjbsmooth.obj : jbsmooth.c jinclude.h jconfig.h jpegdata.h
+Xjcarith.obj : jcarith.c jinclude.h jconfig.h jpegdata.h
+Xjccolor.obj : jccolor.c jinclude.h jconfig.h jpegdata.h
+Xjcdeflts.obj : jcdeflts.c jinclude.h jconfig.h jpegdata.h
+Xjcexpand.obj : jcexpand.c jinclude.h jconfig.h jpegdata.h
+Xjchuff.obj : jchuff.c jinclude.h jconfig.h jpegdata.h
+Xjcmain.obj : jcmain.c jinclude.h jconfig.h jpegdata.h jversion.h
+Xjcmaster.obj : jcmaster.c jinclude.h jconfig.h jpegdata.h
+Xjcmcu.obj : jcmcu.c jinclude.h jconfig.h jpegdata.h
+Xjcpipe.obj : jcpipe.c jinclude.h jconfig.h jpegdata.h
+Xjcsample.obj : jcsample.c jinclude.h jconfig.h jpegdata.h
+Xjdarith.obj : jdarith.c jinclude.h jconfig.h jpegdata.h
+Xjdcolor.obj : jdcolor.c jinclude.h jconfig.h jpegdata.h
+Xjddeflts.obj : jddeflts.c jinclude.h jconfig.h jpegdata.h
+Xjdhuff.obj : jdhuff.c jinclude.h jconfig.h jpegdata.h
+Xjdmain.obj : jdmain.c jinclude.h jconfig.h jpegdata.h jversion.h
+Xjdmaster.obj : jdmaster.c jinclude.h jconfig.h jpegdata.h
+Xjdmcu.obj : jdmcu.c jinclude.h jconfig.h jpegdata.h
+Xjdpipe.obj : jdpipe.c jinclude.h jconfig.h jpegdata.h
+Xjdsample.obj : jdsample.c jinclude.h jconfig.h jpegdata.h
+Xjerror.obj : jerror.c jinclude.h jconfig.h jpegdata.h
+Xjquant1.obj : jquant1.c jinclude.h jconfig.h jpegdata.h
+Xjquant2.obj : jquant2.c jinclude.h jconfig.h jpegdata.h
+Xjfwddct.obj : jfwddct.c jinclude.h jconfig.h jpegdata.h
+Xjrevdct.obj : jrevdct.c jinclude.h jconfig.h jpegdata.h
+Xjutils.obj : jutils.c jinclude.h jconfig.h jpegdata.h
+Xjmemmgr.obj : jmemmgr.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+Xjrdjfif.obj : jrdjfif.c jinclude.h jconfig.h jpegdata.h
+Xjrdgif.obj : jrdgif.c jinclude.h jconfig.h jpegdata.h
+Xjrdppm.obj : jrdppm.c jinclude.h jconfig.h jpegdata.h
+Xjrdrle.obj : jrdrle.c jinclude.h jconfig.h jpegdata.h
+Xjrdtarga.obj : jrdtarga.c jinclude.h jconfig.h jpegdata.h
+Xjwrjfif.obj : jwrjfif.c jinclude.h jconfig.h jpegdata.h
+Xjwrgif.obj : jwrgif.c jinclude.h jconfig.h jpegdata.h
+Xjwrppm.obj : jwrppm.c jinclude.h jconfig.h jpegdata.h
+Xjwrrle.obj : jwrrle.c jinclude.h jconfig.h jpegdata.h
+Xjwrtarga.obj : jwrtarga.c jinclude.h jconfig.h jpegdata.h
+Xjmemsys.obj : jmemsys.c jinclude.h jconfig.h jpegdata.h jmemsys.h
+Xjmemdosa.obj : jmemdosa.asm
+X    masm /mx $*;
+END_OF_FILE
+  if test 7388 -ne `wc -c <'makefile.mc6'`; then
+    echo shar: \"'makefile.mc6'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.mc6'
+fi
+echo shar: End of archive 14 \(of 18\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

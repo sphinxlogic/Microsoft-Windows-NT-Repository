@@ -1,0 +1,2246 @@
+Newsgroups: comp.sources.misc
+From: martin@canada.sun.com (Martin Leclerc - Sun Montreal SE)
+Subject: v40i087:  chord - self-descriptive music sheet from text files, Part04/05
+Message-ID: <1993Nov6.171716.8747@sparky.sterling.com>
+X-Md4-Signature: 5c88579f83721a5348fde810a3a60a10
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 6 Nov 1993 17:17:16 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: martin@canada.sun.com (Martin Leclerc - Sun Montreal SE)
+Posting-number: Volume 40, Issue 87
+Archive-name: chord/part04
+Environment: UNIX, DOS, VMS, Amiga
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  chord.c common.c getopt.c
+# Wrapped by kent@sparky on Tue Nov  2 17:49:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 5)."'
+if test -f 'chord.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chord.c'\"
+else
+  echo shar: Extracting \"'chord.c'\" \(32587 characters\)
+  sed "s/^X//" >'chord.c' <<'END_OF_FILE'
+Xstatic char SccsId[] = "@(#)chord.c	3.5\t1 Nov. 1993";
+Xstatic char copyright[] = "Copyright 1991-1993 by Martin Leclerc & Mario Dorion";
+X
+X
+X#include "chord.h"
+X
+Xstatic FILE *source_fd;
+XFILE *toc_file_fd = NULL;		/* optional table of contents file */
+X
+Xchar
+X	text_line[MAXLINE],	/* Lyrics Buffer */
+X	chord[MAXTOKEN],	/* Buffer for the name of the chord */
+X	title1[MAXLINE];	/* Holds the first title line */
+X
+Xchar
+X	source[MAXTOKEN],
+X	directive[MAXLINE];	/* Buffer for the directive */
+X
+Xchar
+X	i_input;		/* Input line pointer */
+X
+Xchar
+X	mesgbuf[MAXTOKEN],
+X	*mesg,
+X	*text_font, *rt_text_font, *rc_text_font, 	/* font for text */
+X	*chord_font, *rt_chord_font, *rc_chord_font, 	/* font for chord */
+X	*mono_font = MONOSPACED_FONT,	/* non-proprotional font for tabs */
+X	*current_file,
+X	*chord_line[MAXLINE],
+X	*toc_file,
+X	*command_name;
+X
+Xint
+X	c,			/* Current character in input file */
+X	i_chord,		/* Index to 'chord' */
+X	i_directive,		/* Index to 'directive' */
+X	i_text, 		/* Index to 'text_line' */
+X	in_chord,		/* Booleans indicating parsing status */
+X	lyrics_only = FALSE,
+X	dump_only = FALSE,
+X	in_tab = FALSE,
+X	postscript_dump = FALSE,
+X	auto_space = FALSE,	/* applies lyrics_only when no chords */
+X	left_foot_even = -1,	 /* 0 for even page numbers on the right */
+X				/* 1 for even page numbers on the left */
+X	number_all = FALSE,	/* number the first page (set with -p 1) */
+X	no_grid, rt_no_grid, rc_no_grid,
+X	page_label = 1,		/* page number for footers and index */
+X	i_chord_ov,		/* Overflow Booleans */
+X	i_directive_ov = FALSE,
+X	i_text_ov = FALSE,
+X	in_directive = FALSE,
+X	in_chordrc = FALSE,
+X	first_time_in_chordrc = TRUE,
+X	in_chorus = FALSE,
+X	has_directive = FALSE,
+X	has_chord = FALSE,
+X	title1_found = FALSE,
+X	debug_mode = FALSE,
+X	need_soc = FALSE,
+X	pagination = 1,		/* virtual pages per physical pages */
+X	transpose = 0,		/* transposition value */
+X	vpos,			/* Current PostScript position, in points */
+X	hpos,
+X	start_of_chorus,	/* Vertical positions of the chorus */
+X	end_of_chorus,
+X	chord_size, rt_chord_size, rc_chord_size,  	/* font size for 'chord_font' */
+X	cur_text_size = 0,
+X	text_size, rt_text_size, rc_text_size,  	/* font size for 'text_font' */
+X	grid_size, rt_grid_size, rc_grid_size,
+X	no_easy_grids = FALSE,
+X	n_pages = 1,		/* total page counter */
+X	v_pages = 1,		/* virtual pages */
+X	n_lines = 1,		/* line number in input file */
+X	song_pages = 1,		/* song page counter */
+X	blank_space = 0;	/* consecutive blank line counter */
+X
+Xfloat
+X	chord_inc,
+X	scale = 1.0,		/* Current scale factor */
+X	rotation = 0.0;		/* Current rotation */
+X
+Xextern int nb_chord, first_ptr;
+Xextern struct chord_struct chordtab[MAX_CHORD];
+X
+Xextern char *optarg;
+Xextern int optind, opterr;
+X
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid ps_fputc(fd, c)
+XFILE *fd;
+Xint c;
+X        {
+X        if (c >128)
+X		{
+X                fprintf (fd, "\\%o", c);
+X		}
+X        else 
+X		{
+X		if ( c == ')' || c == '(' )
+X               		fprintf (fd, "\\%c", c);
+X		else
+X			fprintf (fd, "%c",c);
+X		}
+X        }
+X/* --------------------------------------------------------------------------------*/
+Xvoid ps_fputs(fd, string)
+XFILE *fd;
+Xchar *string;
+X        {
+X        int i;
+X
+X	/* sprintf (mesg, "ps_fputs:%s ",string);
+X	debug(mesg); */
+X
+X        for (i= 0; string[i] != '\0'; i++)
+X                ps_fputc (fd, string[i]);
+X
+X        }
+X
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid ps_puts(string)
+Xchar *string;
+X	{
+X	ps_fputs(stdout, string);
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid set_text_font(size)
+Xint size;
+X	{
+X#define	MONO_SIZE_DECR	2	/* TABsize is smaller by this nb of points */
+X	if (( size != cur_text_size))
+X		{
+X		printf ("/TEXT_FONT { /%s findfont %d scalefont } def\n", text_font, size);
+X		re_encode (text_font);
+X		printf ("/MONO_FONT { /%s findfont %d scalefont } def\n",
+X			mono_font, size - MONO_SIZE_DECR);
+X		re_encode (mono_font);
+X		cur_text_size= size;
+X		/* sprintf(mesg, "Changing text size to %d", size);
+X		debug (mesg); */
+X		}
+X#undef MONO_SIZE_DECR
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid use_text_font()
+X	{
+X	if (! in_tab) printf ("TEXT_FONT setfont\n");
+X	else printf ("MONO_FONT setfont\n");
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid use_mono_font()
+X	{
+X	printf ("MONO_FONT setfont\n");
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_translate(vert, horiz)
+Xfloat vert, horiz;
+X	{
+X	printf ("%f %f translate\n", vert , horiz );
+X	/* debug ("changing translation"); */
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_start_of_page()
+X/*logical page ! */
+X	{
+X	v_pages++;
+X
+X	if (v_pages == 1)
+X		{
+X		n_pages++;
+X		page_label++;
+X		printf ("%%%%Page: \"%d\" %d\n",n_pages, n_pages);
+X		printf ("%%%%BeginPageSetup\n");
+X		printf ("/pgsave save def\n");
+X		printf ("%f %f scale\n", scale, scale);
+X		printf ("%f rotate\n",rotation);
+X		printf ("%%%%EndPageSetup\n");
+X		}
+X
+X	/* Ugly stuff ahead!
+X		The translate factors could be derived from page-size and
+X		page-scale information from chord.h ... 
+X		I did not feel like working out the maths right now!
+X	*/
+X	if (pagination== 4) {
+X#ifdef US
+X		if (v_pages== 1) do_translate(0.0, 850.0);
+X		else if (v_pages== 2) do_translate(600.0, 0.0);
+X		else if (v_pages== 3) do_translate(-600.0, -800.0);
+X		else if (v_pages== 4) do_translate(600.0, 0.0);
+X#else
+X		if (v_pages== 1) do_translate(0.0, 910.0);
+X		else if (v_pages== 2) do_translate(600.0, 0.0);
+X		else if (v_pages== 3) do_translate(-600.0, -870.0);
+X		else if (v_pages== 4) do_translate(600.0, 0.0);
+X#endif
+X	}
+X
+X	if (pagination== 2) {
+X#ifdef US
+X		if (v_pages== 1) do_translate(-40.0, -800.0);
+X		else if (v_pages== 2) do_translate(500.0, 0.0);
+X#else
+X		if (v_pages== 1) do_translate(-40.0, -850.0);
+X		else if (v_pages== 2) do_translate(600.0, 0.0);
+X#endif
+X	}
+X
+X	vpos = TOP;
+X	hpos= L_MARGIN;
+X	song_pages++;
+X	if ( in_chorus )
+X		{
+X		start_of_chorus = vpos;
+X		}
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid build_ps_toc()
+X	{
+X	char line[MAXTOKEN];
+X
+X	/*debug("Debut de build_ps_toc");*/
+X
+X	fclose(toc_file_fd);
+X	toc_file_fd= fopen(toc_file,"r");
+X
+X	strcpy (title1, "Index");
+X
+X	if (v_pages % pagination)
+X		do_end_of_page(TRUE);
+X				
+X	if (pagination == 4) 
+X	{
+X		pagination = 1;
+X		scale = 1.0;
+X	}
+X
+X	v_pages=0;
+X	do_start_of_page();
+X	number_all= FALSE;
+X	song_pages= 0;
+X	set_text_font (text_size+10);
+X	use_text_font();
+X	printf ("(");
+X	ps_puts (&title1[0]);
+X	printf (") dup stringwidth pop 2 div\n");
+X	printf ("%d 2 div exch sub %d moveto\n", WIDTH, vpos);
+X	printf ("show\n");
+X	advance(text_size);
+X
+X	while (fgets(line, MAXTOKEN, toc_file_fd) != NULL)
+X		{
+X		/* sprintf(mesg, "bpt:\"%s\"", line);
+X		debug(mesg); */
+X
+X		if (line[0] == '$')
+X			{
+X			if ( vpos < BOTTOM + 3 * text_size)
+X				{
+X				advance (vpos);
+X				song_pages= 0;
+X				}
+X			advance(text_size+8);
+X			set_text_font(text_size + 5);
+X			use_text_font();
+X			printf("72 %d moveto\n", vpos);
+X			printf("(");
+X			ps_puts(&line[1]);
+X			printf(") show\n");
+X			fgets(line, MAXTOKEN, toc_file_fd);
+X			printf("500 %d moveto\n", vpos);
+X			printf("(%d) show\n", atoi(line));
+X			}
+X		else
+X			{
+X			advance(text_size);
+X			set_text_font(text_size);
+X			use_text_font();
+X			printf ("108 %d moveto\n", vpos);
+X			printf("(");
+X			ps_puts(line);
+X			printf(") show\n");
+X			}
+X		}
+X
+X	vpos = vpos - text_size - 5;
+X	set_text_font (text_size);
+X	unlink (toc_file);
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid use_chord_font()
+X	{
+X	printf ("CHORD_FONT setfont\n");
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid set_chord_font()
+X	{
+X	printf ("/CHORD_FONT { /%s findfont %d scalefont } def\n", chord_font, chord_size);
+X	re_encode (chord_font);
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_help (command) 
+Xchar *command;
+X	{
+X	fprintf (stderr, "Usage: %s [options] file [file ...]\n", command);
+X	fprintf (stderr, "Options:\n");
+X	fprintf (stderr, "	-A                 : About CHORD...\n");
+X	fprintf (stderr, "	-a                 : Automatic single space lines without chords\n");
+X	fprintf (stderr, "	-c n               : Set chord size [9]\n");
+X	fprintf (stderr, "	-C postscript_font : Set chord font\n");
+X	fprintf (stderr, "	-D                 : Dumps chords definitions (PostScript)\n");
+X	fprintf (stderr, "	-d                 : Dumps chords definitions (Text)\n");
+X	fprintf (stderr, "	-G                 : Disable printing of chord grids\n");
+X	fprintf (stderr, "	-g                 : Don't print grids for builtin \"easy\" chords.\n");
+X	fprintf (stderr, "	-h                 : This message\n");
+X	fprintf (stderr, "	-i                 : Generates a table of contents\n");
+X	fprintf (stderr, "	-L                 : Even pages numbers on left\n");
+X	fprintf (stderr, "	-l                 : Only print lyrics\n");
+X	fprintf (stderr, "	-o filename        : Saves the output to file\n");
+X	fprintf (stderr, "	-p n               : Starting page number [1]\n");
+X	fprintf (stderr, "	-s n               : Set chord grid size [30]\n");
+X	fprintf (stderr, "	-t n               : Set text size [12]\n");
+X	fprintf (stderr, "	-T postscript_font : Set text font\n");
+X	fprintf (stderr, "	-V                 : Print version and patchlevel\n");
+X	fprintf (stderr, "	-x n               : Transpose by 'n' half-tones\n");
+X	fprintf (stderr, "	-2                 : 2 pages per sheet\n");
+X	fprintf (stderr, "	-4                 : 4 pages per sheet\n");
+X
+X	exit(0);
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_about ()
+X	{
+X	printf("CHORD: A lyrics and chords formatting program.\n");
+X	printf("===== \n");
+X	printf("\n");;
+X	printf("CHORD will read an ASCII file containing the lyrics of one or many\n");
+X	printf("songs plus chord information. CHORD will then generate a photo-ready,\n");
+X	printf("professional looking, impress-your-friends sheet-music suitable for printing\n");
+X	printf("on your nearest PostScript printer.\n");
+X	printf("\n");
+X	printf("To learn more about CHORD, look for the man page or do \"chord -h\" for\n");
+X	printf("the list of options.\n");
+X	printf("\n");
+X	printf("			--0--\n");
+X	printf("\n");
+X	printf("Copyright (C) 1991-1993 by Martin Leclerc & Mario Dorion\n");
+X	printf("\n");
+X	printf("This program is free software; you can redistribute it and/or modify\n");
+X	printf("it under the terms of the GNU General Public License as published by\n");
+X	printf("the Free Software Foundation; either version 2 of the License, or\n");
+X	printf("(at your option) any later version.\n");
+X	printf("\n");
+X	printf("This program is distributed in the hope that it will be useful,\n");
+X	printf("but WITHOUT ANY WARRANTY; without even the implied warranty of\n");
+X	printf("MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n");
+X	printf("GNU General Public License for more details.\n");
+X	printf("\n");
+X	printf("You should have received a copy of the GNU General Public License\n");
+X	printf("along with this program; if not, write to the Free Software\n");
+X	printf("Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n");
+X	printf("\n");
+X	printf("Send all questions, comments and bug reports to the original authors:\n");
+X
+X		printf("	Martin.Leclerc@Sun.COM and Mario.Dorion@Sun.COM\n");
+X	printf("\n");
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_comment(comment, style)
+Xchar 	*comment;
+Xint	style;
+X	{
+X	for (; *comment == ' '; comment++); /* strip leading blanks */
+X	advance(blank_space);
+X	blank_space = 0;
+X	advance(text_size);
+X	text_line[i_text] = '\0';
+X	use_text_font();
+X
+X	if (style == 1) {
+X		printf (".9  setgray\n");
+X		printf ("%d  setlinewidth\n", text_size);
+X		printf ("newpath\n");
+X		printf ("%d %d moveto\n", hpos - 2, vpos + text_size/2 - 2);
+X		printf ("(");
+X		ps_puts(comment);
+X		printf (" ) stringwidth rlineto\n");
+X		printf ("stroke\n");
+X		printf ("%d %d moveto\n", hpos, vpos);
+X		printf ("0  setgray\n");
+X		printf ("1 setlinewidth\n");
+X		printf ("(");
+X		ps_puts(comment);
+X		printf (") show\n");
+X	}
+X	else if (style == 2) {
+X		printf ("/");
+X		ps_puts (chord_font);
+X		printf (" findfont %d scalefont setfont\n",text_size);
+X		printf ("%d %d moveto\n", hpos, vpos);
+X		printf ("(");
+X		ps_puts(comment);
+X		printf (") show\n");
+X		use_text_font();
+X	}
+X	else if (style == 3) {
+X		printf ("newpath\n");
+X		printf ("%d %d moveto\n",hpos + 2, vpos - 2);
+X		printf ("(");
+X		ps_puts(comment);
+X		printf (") stringwidth /vdelta exch def /hdelta exch def\n");
+X		printf ("hdelta vdelta rlineto 0 %d rlineto hdelta neg 0 rlineto closepath\n",
+X				text_size);
+X		printf ("stroke\n");
+X		printf ("%d %d moveto\n", hpos, vpos);
+X		printf ("0  setgray\n");
+X		printf ("(");
+X		ps_puts(comment);
+X		printf (") show\n");
+X	}
+X	
+X	i_text = 0;
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_chorus_line()
+X	{
+X	printf ("1  setlinewidth\n");
+X	printf ("newpath\n");
+X	printf ("%d %d moveto\n", L_MARGIN - 10, start_of_chorus);
+X	printf ("0 %d rlineto\n", -(start_of_chorus - end_of_chorus));
+X	printf ("closepath\n");
+X	printf ("stroke\n");
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_chord (i_text, chord)
+Xint i_text;
+Xchar *chord;
+X	{
+X	int j;
+X	if ((transpose != 0) && (strcmp(toupper_str(chord), NO_CHORD_STR)))
+X		if (do_transpose (chord) != 0)
+X			{
+X			sprintf (mesg, "Don't know how to transpose [%s]", chord);
+X			error (mesg);
+X			}
+X			
+X	for (j= i_text; chord_line[j] != NULL; j++);
+X		
+X	if (j < MAXLINE)
+X		if (strcmp(toupper_str(chord), NO_CHORD_STR)) 
+X			chord_line[j] = chordtab[add_to_chordtab(chord)].chord_name;
+X		else	chord_line[j] = NO_CHORD_STR;
+X	
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid print_chord_line ()
+X	{
+X	int i, j;		/* Counter */
+X	int min_ascii= -1;
+X	
+X	printf ("/minhpos 0 def\n");
+X
+X	for (j= 0; j<MAXLINE; j++)
+X		{
+X		if (chord_line[j] != NULL )
+X			{
+X			use_text_font();
+X
+X			printf ("(" ); 
+X			for (i= 0; (i<j) && (text_line[i] != '\0');
+X				ps_fputc (stdout,text_line[i++]));
+X
+X			printf (") stringwidth  pop %d add \n", hpos);
+X			printf ("dup minhpos lt\n");
+X			printf ("     {pop minhpos} if\n");
+X			printf ("dup /minhpos exch (");
+X			ps_puts(chord_line[j]);
+X			printf (") stringwidth pop add def\n");
+X			printf ("%d moveto\n",vpos);
+X
+X
+X			use_chord_font();
+X			printf ("(");
+X			ps_puts(chord_line[j]);
+X			printf (") show\n");
+X		
+X			chord_line[j]= NULL;
+X			}
+X		}
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid init_ps()
+X	{
+X	printf ("%%!PS-Adobe-1.0\n");
+X	printf ("%%%%Title: A song\n");
+X	printf ("%%%%Creator: Martin Leclerc & Mario Dorion\n");
+X	printf ("%%%%Pages: (atend)\n");
+X	printf ("%%%%BoundingBox: 5 5 605 787\n");
+X	printf ("%%%%EndComments\n");
+X	printf ("/inch {72 mul } def\n");
+X
+X	print_re_encode();
+X	set_chord_font();
+X	set_text_font(text_size);
+X	do_init_grid_ps();
+X
+X	printf ("%%%%EndProlog\n");
+X
+X	printf ("%%%%Page: \"%d\" %d\n",n_pages, n_pages);
+X	printf ("%%%%BeginPageSetup\n");
+X	printf ("/pgsave save def\n");
+X	printf ("%f %f scale\n", scale, scale);
+X	printf ("%f rotate\n", rotation);
+X	printf ("%%%%EndPageSetup\n");
+X
+X	vpos = TOP;
+X	hpos  = L_MARGIN;
+X
+X#ifdef US
+X	if (pagination== 4) do_translate (0.0,   850.0);
+X	else if (pagination== 2) do_translate (-40.0, -800.0);
+X#else
+X	if (pagination== 4) do_translate (0.0,   910.0);
+X	else if (pagination== 2) do_translate (-40.0, -850.0);
+X#endif
+X
+X	}
+X
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_end_of_phys_page()
+X/* physical */
+X	{
+X
+X	/* Note: Processing of page number in 2-up mode is an UGLY KLUDGE! */
+X	/* 				Mario */
+X	/*debug ("end_of_phys_page");*/
+X
+X	if (pagination != 2)
+X		printf ("pgsave restore\n");
+X
+X	if (number_all)
+X		{
+X		int pnum = (number_all ? page_label : song_pages);
+X		set_text_font(DEF_TEXT_SIZE - 2);
+X		use_text_font();
+X		if (page_label % 2 == left_foot_even) {  /* left side */
+X			printf ("1 inch %d 3 div moveto\n", BOTTOM); 
+X			if (pagination == 2)
+X#ifdef US
+X				printf ("-500 0 rmoveto\n");
+X#else
+X				printf ("-600 0 rmoveto\n");
+X#endif
+X			printf ("(Page %d)\n", pnum);
+X		} else {                                /* right side */
+X			printf ("(Page %d) dup stringwidth pop\n", pnum);
+X			printf ("%d exch sub 1 inch sub %d 3 div moveto\n",
+X				WIDTH, BOTTOM); 
+X		}
+X		if (pagination == 2)
+X			printf ("1 %f div dup scale\n",scale2); 
+X		printf ("show\n");
+X	}
+X
+X	if (pagination == 2)
+X		printf ("pgsave restore\n");
+X
+X
+X	printf ("showpage\n");
+X	printf ("%%%%EndPage: \"%d\" %d\n",n_pages, n_pages);
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_end_of_page(force_physical)
+Xint	force_physical;
+X/* Logical */
+X	{
+X	printf ("1  setlinewidth\n");
+X	printf ("0  setgray\n");
+X	printf ("newpath\n");
+X	printf ("%d %d 10 sub moveto\n", L_MARGIN, BOTTOM); 
+X	printf ("%d 0 rlineto\n", WIDTH - L_MARGIN * 2);
+X	printf ("stroke\n");
+X
+X	if ((song_pages > 1) && (v_pages == 1) && title1_found) 
+X		{
+X		printf ("(");
+X		ps_puts(&title1[0]);
+X		printf (") dup stringwidth pop 2 div\n");
+X		printf ("%d 2 div exch sub %d 3 div moveto\n",
+X			WIDTH, BOTTOM);
+X		printf ("show\n");
+X		set_text_font(text_size);
+X		}
+X
+X	if ( in_chorus )
+X		{
+X		end_of_chorus = vpos;
+X		do_chorus_line();
+X		}
+X
+X	if ((v_pages == pagination) || force_physical) 
+X		{
+X		do_end_of_phys_page();
+X		v_pages = 0;
+X		}
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_end_of_song()
+X{
+X	if ((! lyrics_only && ! no_grid)) draw_chords();
+X	do_end_of_page(FALSE);
+X}
+X		 
+X/* --------------------------------------------------------------------------------*/
+Xvoid set_sys_def()
+X	{
+X	text_size= DEF_TEXT_SIZE;
+X	chord_size= DEF_CHORD_SIZE;
+X	grid_size = DEF_GRID_SIZE;
+X	text_font = DEF_TEXT_FONT;
+X	chord_font = DEF_CHORD_FONT;
+X	text_font = DEF_TEXT_FONT;
+X	no_grid = FALSE;
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid set_rc_def()
+X	{
+X	read_chordrc();
+X	if (rc_text_size != 0) text_size = rc_text_size;
+X	if (rc_chord_size != 0) chord_size =  rc_chord_size;
+X	if (rc_grid_size != 0) grid_size =  rc_grid_size;
+X	if (rc_no_grid != 0) no_grid =  rc_no_grid;
+X	if (rc_text_font != NULL) text_font =  rc_text_font;
+X	if (rc_chord_font != NULL) chord_font =  rc_chord_font;
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid set_rt_def()
+X	{
+X	if (rt_text_size != 0) text_size = rt_text_size;
+X	if (rt_chord_size != 0) chord_size =  rt_chord_size;
+X	if (rt_grid_size != 0) grid_size =  rt_grid_size;
+X	if (rt_no_grid != 0) no_grid =  rt_no_grid;
+X	if (rt_text_font != NULL) text_font =  rt_text_font;
+X	if (rt_chord_font != NULL) chord_font =  rt_chord_font;
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid init_values()
+X	{
+X	set_sys_def();
+X	set_rc_def();
+X	set_rt_def();
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_new_song()
+X	{
+X	do_end_of_song();
+X	nb_chord= first_ptr= 0;
+X	song_pages = 0;
+X	in_tab = FALSE;
+X	strcpy (title1, "");
+X	do_start_of_page();
+X	init_known_chords();
+X
+X	/* reset default */
+X	init_values();
+X
+X	set_text_font(text_size);
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid advance(amount)
+Xint amount;
+X	{
+X	vpos = vpos - amount;     /* Affect text positionning ! */
+X	if (vpos < BOTTOM )
+X		{
+X		do_end_of_page(FALSE);
+X		do_start_of_page();
+X		}
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid print_text_line()
+X	{
+X	int i;
+X
+X	text_line[i_text] = '\0';
+X
+X	for (i= 0; text_line[i] == ' '; i++);
+X
+X	if (!((auto_space || in_tab)  && !has_chord))
+X		{
+X		advance(blank_space);
+X		blank_space = 0;
+X		advance (chord_size + 1);
+X
+X		if ( ( text_line[i] != '\0' )
+X		  && ( vpos - text_size <= BOTTOM))
+X			advance (text_size);
+X
+X		if (need_soc)
+X			{
+X			start_of_chorus = vpos + chord_size;
+X			need_soc = FALSE;
+X			}
+X		if (! lyrics_only)
+X			print_chord_line();
+X		}
+X
+X	if ( text_line[i] == '\0')
+X		{
+X		blank_space += text_size - 2;
+X		}
+X	else
+X		{
+X		advance (blank_space);
+X		blank_space = 0;
+X		advance (text_size - 1);
+X		if (need_soc)
+X			{
+X			start_of_chorus = vpos + text_size;
+X			need_soc = FALSE;
+X			}
+X		use_text_font();
+X		printf ("%d %d moveto\n", hpos, vpos);
+X		printf ("(");
+X		ps_puts(&text_line[0]);
+X		printf (") show\n");
+X		}
+X
+X	i_text = 0;
+X	i_text_ov = FALSE;
+X	hpos = L_MARGIN;
+X	has_chord = FALSE;
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_title(title)
+Xchar	*title;
+X	{
+X
+X	set_text_font (text_size+5);
+X	use_text_font();
+X	printf ("(");
+X	ps_puts(title);
+X	printf (") dup stringwidth pop 2 div\n");
+X	printf ("%d 2 div exch sub %d moveto\n", WIDTH, vpos);
+X	printf ("show\n");
+X	vpos = vpos - text_size - 5;
+X	strcpy (&title1[0], title);
+X	title1_found = TRUE;
+X	set_text_font (text_size);
+X	if (toc_file_fd && song_pages == 1)	/* generate index entry */
+X		fprintf(toc_file_fd, "$%s\n%d\n", title, page_label);
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_subtitle(sub_title)
+Xchar	*sub_title;
+X	{
+X	use_text_font();
+X	printf ("(");
+X	ps_puts(sub_title);
+X	printf (") dup stringwidth pop 2 div\n");
+X	printf ("%d 2 div exch sub %d moveto\n", WIDTH , vpos);
+X	printf ("show\n");
+X	vpos = vpos - text_size ;
+X	if (toc_file_fd && song_pages == 1)	/* generate index entry */
+X		fprintf(toc_file_fd, "%s\n", sub_title);
+X	}
+X	
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_directive(directive)
+Xchar *directive;
+X	{
+X	int   i;
+X	char  *command, *comment;
+X
+X	command= tolower_str(strtok(directive, ": "));
+X
+X	if (!strcmp(command, "start_of_chorus") || !strcmp(command,"soc"))
+X		{
+X		/* start_of_chorus = vpos - blank_space; */
+X		need_soc = TRUE;
+X		in_chorus = TRUE;
+X		}
+X	else if (!strcmp (command, "end_of_chorus") || !strcmp(command, "eoc"))
+X		{
+X		if ( in_chorus )
+X			{
+X			end_of_chorus = vpos;
+X			do_chorus_line();
+X			in_chorus = FALSE;
+X			}
+X		else
+X			error ("Not in a chorus.");
+X		}
+X	else if (!strcmp (command, "textfont") || !strcmp (command, "tf"))
+X		{
+X		if (in_chordrc) rc_text_font = strtok(NULL, ": ");
+X		else		   text_font = strtok(NULL, ": ");
+X		}
+X	else if (!strcmp (command, "chordfont") || !strcmp (command, "cf"))
+X		{
+X		if (in_chordrc) rc_chord_font = strtok(NULL, ": ");
+X		else
+X			{
+X			chord_font = strtok(NULL, ": ");
+X			set_chord_font();
+X			}
+X		}
+X	else if (!strcmp (command, "chordsize") || !strcmp (command, "cs"))
+X		{
+X		i = atoi(strtok(NULL, ": "));
+X		if ( i == 0 )
+X			error ("invalid value for chord_size");
+X		else
+X			if (in_chordrc) rc_chord_size = i;
+X			else
+X				{
+X				chord_size = i;
+X				set_chord_font();
+X				}
+X		}
+X	else if (!strcmp (command, "textsize") || !strcmp (command, "ts"))
+X		{
+X		i = atoi(strtok(NULL, ": "));
+X		if ( i == 0 )
+X			error ("invalid value for text_size");
+X		else
+X			if (in_chordrc) rc_text_size = i;
+X			else
+X				{
+X				text_size = i;
+X				set_text_font (text_size);
+X				}
+X		}
+X	else if (!strcmp (command, "comment") || !strcmp (command, "c"))
+X		{
+X		comment = strtok(NULL, "\0");
+X		do_comment(comment, 1);
+X		}
+X	else if (!strcmp (command, "comment_italic") || !strcmp (command, "ci"))
+X		{
+X		comment = strtok(NULL, "\0");
+X		do_comment(comment, 2);
+X		}
+X	else if (!strcmp (command, "comment_box") || !strcmp (command, "cb"))
+X		{
+X		comment = strtok(NULL, "\0");
+X		do_comment(comment, 3);
+X		}
+X	else if (!strcmp(command, "new_song") || !strcmp(command,"ns"))
+X		{
+X		do_new_song();
+X		}
+X	else if (!strcmp(command, "title") || !strcmp(command,"t"))
+X		{
+X		do_title(strtok(NULL, "\0"));
+X		}  
+X	else if (!strcmp(command, "subtitle") || !strcmp(command,"st"))
+X		{
+X		do_subtitle(strtok(NULL, "\0"));
+X		}  
+X	else if (!strcmp(command, "define") || !strcmp(command,"d"))
+X		{
+X		do_define_chord();
+X		}  
+X	else if (!strcmp(command, "no_grid") || !strcmp(command,"ng"))
+X		{
+X		if (in_chordrc) rc_no_grid = TRUE;
+X		else 		   no_grid = TRUE;
+X		}
+X	else if (!strcmp(command, "grid") || !strcmp(command,"g"))
+X		{
+X		if (in_chordrc) rc_no_grid = FALSE;
+X		else 		   no_grid = FALSE;
+X		}
+X	else if (!strcmp(command, "new_page") || !strcmp(command,"np"))
+X		{
+X		do_end_of_page(FALSE);
+X		do_start_of_page();
+X		}
+X	else if (!strcmp(command, "start_of_tab") || !strcmp(command,"sot"))
+X		{
+X		in_tab = TRUE;
+X		}
+X	else if (!strcmp(command, "end_of_tab") || !strcmp(command,"eot"))
+X		{
+X		in_tab = FALSE;
+X		}
+X	else if (!strcmp(command, "new_physical_page") || !strcmp(command,"npp"))
+X		{
+X		do_end_of_page(TRUE);
+X		do_start_of_page();
+X		}
+X	else
+X		{
+X		sprintf (mesg, "Invalid Directive : [%s]", command);
+X		error(mesg);
+X		has_directive = FALSE;
+X		}
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid put_in_string(array, p_index, c, max_index, p_ov_flag)
+Xchar array[MAXLINE];
+Xint *p_index;
+Xint c;
+Xint max_index;
+Xint *p_ov_flag;
+X	{
+X	if (*p_index < max_index)
+X		array[(*p_index)++] = (char) c;
+X	else
+X		{
+X		if (!*p_ov_flag)
+X			{
+X			error ("Buffer Overflow");
+X			*p_ov_flag = TRUE;
+X			}
+X		}
+X	}
+X/* --------------------------------------------------------------------------------*/
+Xvoid do_eol()
+X{
+Xif ( in_directive )
+X	error ("Line ends while in a directive !"); 
+Xif ( in_chord )
+X	error ("Line ends while in a chord !"); 
+Xif (has_directive == FALSE)
+X	{
+X	if (in_chordrc) {
+X		if (strcmp(text_line, "\0"))
+X			error("line is NOT a directive");
+X			}
+X	else if (! in_tab || ! lyrics_only)
+X			print_text_line();
+X	}
+Xelse
+X	has_directive = FALSE;
+Xn_lines++;
+Xi_input = 0;
+Xin_directive = FALSE;
+Xin_chord = FALSE;
+Xi_text = 0;
+Xi_text_ov = FALSE;
+Xtext_line[0]='\0';
+X}
+X/* --------------------------------------------------------------------------------*/
+Xvoid process_file(source_fd)
+XFILE *source_fd;
+X	{
+X	/*debug("start of process_file");*/
+X
+X	n_lines = 0;
+X
+X	while ( (c= getc(source_fd)) != EOF)
+X		{
+X		i_input++;
+X		switch ((char)c) {
+X
+X		case '[':
+X			if (! in_tab) {
+X				if ( in_chord )
+X					error("Opening a chord within a chord!");
+X				else
+X					in_chord = TRUE;
+X				i_chord = 0;
+X			}
+X			else put_in_string(text_line, &i_text, c, MAXLINE, &i_text_ov);
+X			break;
+X		
+X		case ']':
+X			if (! in_tab) {
+X				if ( in_chord )
+X					{
+X					in_chord = FALSE;
+X					chord[i_chord]= '\0';
+X					do_chord(i_text, &chord[0]);
+X					has_chord = TRUE; 
+X					i_chord = 0;
+X					i_chord_ov = FALSE;
+X					}
+X				else
+X					error("']' found with no matching '['");
+X			}
+X			else put_in_string(text_line, &i_text, c, MAXLINE, &i_text_ov);
+X			break;
+X		
+X		case '{':
+X			in_directive = TRUE;
+X			i_directive = 0;
+X			has_directive = TRUE;
+X			break;
+X
+X		case '}':
+X			if ( in_directive)
+X				{
+X				in_directive = FALSE;
+X				directive[i_directive]= '\0';
+X				for (; (c= getc(source_fd)) != '\n'; );
+X				i_input = 0;
+X				do_directive(&directive[0]);
+X				has_directive = FALSE;
+X				n_lines++;
+X				i_directive = 0;
+X				i_directive_ov = FALSE;
+X				}
+X			else
+X				error("'}' found with no matching '{'");
+X			break;
+X
+X		case '\n':
+X			do_eol();
+X			break;
+X		case '(':
+X		case ')':
+X			if (in_directive)
+X				{
+X				put_in_string(directive, &i_directive, c, MAXTOKEN, &i_directive_ov);
+X				break;
+X				}
+X			else if (in_chord) /* allow parens in chord names */
+X				{
+X				put_in_string (chord, &i_chord, c, MAXLINE, &i_text_ov);
+X				break;
+X				}
+X			else
+X				{
+X				put_in_string (text_line, &i_text, c, MAXLINE, &i_text_ov);
+X				break;
+X				}
+X	
+X	/* This case HAS to be the last before the default statement !!! */
+X
+X		case '#':
+X			if (i_input == 1)
+X				{
+X				for (; (c= getc(source_fd)) != '\n'; );
+X				n_lines++;
+X				i_input = 0;
+X				break;
+X				}
+X
+X		default :
+X			if (in_chord )
+X				{
+X				if ( c != ' ' )
+X					put_in_string(chord, &i_chord, c, MAXTOKEN, &i_text_ov);
+X				}
+X			else if (in_directive)
+X				{
+X				put_in_string(directive, &i_directive, c, MAXTOKEN, &i_directive_ov);
+X				}
+X			else
+X				{
+X				put_in_string(text_line, &i_text, c, MAXLINE, &i_text_ov);
+X				}
+X			break;
+X			}
+X		}
+X	if (i_input != 0 ) do_eol();
+X	if (! in_chordrc) print_text_line();
+X	}
+X
+X/* --------------------------------------------------------------------------------*/
+X/* read the file $HOME/.chordrc as a set of directive */
+Xvoid read_chordrc()
+X	{
+X	char chordrc[MAXTOKEN];
+X	FILE *chordrc_fd;
+X	int n_lines_save;
+X
+X	strcpy (chordrc, getenv ("HOME"));
+X	strcat (chordrc,"/.chordrc\0");
+X	current_file = chordrc;
+X	chordrc_fd = fopen (chordrc, "r");
+X	if (chordrc_fd != NULL)
+X		{
+X		n_lines_save= n_lines;
+X		n_lines= 1;
+X		in_chordrc = TRUE;
+X		process_file(chordrc_fd);
+X		in_chordrc = FALSE;
+X		n_lines= n_lines_save;
+X		fclose(chordrc_fd);
+X		}
+X	current_file = &source[0];
+X	first_time_in_chordrc = FALSE;
+X	}
+X
+X
+X/* --------------------------------------------------------------------------------*/
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X	{
+X	int c,i;
+X
+X	mesg = mesgbuf;
+X/* Option Parsing */
+X
+X	command_name= argv[0];
+X
+X	while ((c = getopt(argc, argv, "aAc:C:dDgGhilLo:p:s:t:T:Vx:24")) != -1)
+X		switch (c) {
+X
+X		case 'h':
+X			do_help(argv[0]);
+X			break;
+X
+X		case 'd':
+X			dump_only = TRUE;
+X			break;
+X
+X		case 'D':
+X			dump_only = TRUE;
+X			postscript_dump = TRUE;
+X			break;
+X
+X		case 'c':
+X			i = atoi (optarg);
+X			if ( i == 0 )
+X				error_rt("invalid value for chord_size");
+X			else
+X				rt_chord_size = i;
+X			break;
+X
+X		case 't':
+X			i = atoi (optarg);
+X			if ( i == 0 )
+X				error_rt("invalid value for text_size");
+X			else
+X				rt_text_size= i;
+X			break;
+X
+X		case 'x':
+X			i = atoi (optarg);
+X			if ( i == 0 )
+X				error_rt("invalid value for transposition");
+X			else
+X				transpose = i;
+X			break;
+X
+X		case 'T':
+X			rt_text_font = optarg;
+X			break;
+X
+X		case 'C':
+X			rt_chord_font = optarg;
+X			break;
+X
+X		case 's':
+X			i = atoi (optarg);
+X			if ( i == 0 )
+X				error_rt("invalid value for grid_size");
+X			else
+X				rt_grid_size = i;
+X			break;
+X
+X		case 'g':
+X			no_easy_grids = TRUE;
+X			break;
+X
+X		case 'G':
+X			rt_no_grid = TRUE;
+X			break;
+X
+X		case 'l':
+X			lyrics_only= TRUE;
+X			break;
+X
+X		case 'V':
+X			print_version();
+X			exit(0);
+X			break;
+X
+X		case '2':
+X			pagination= 2;
+X			scale= scale2;
+X			rotation= 90.0;
+X			break;
+X
+X		case '4':
+X			pagination= 4;
+X			scale= scale4;
+X			break;
+X
+X		case 'i': /* generate in index */
+X
+X			toc_file= tmpnam(NULL);
+X			toc_file_fd = fopen(toc_file, "w");
+X			if (toc_file_fd == NULL) {
+X				error ("unable to create temp file");
+X			}
+X
+X			number_all = TRUE;
+X			break;
+X
+X		case 'a':
+X			auto_space= TRUE;
+X			break;
+X
+X		case 'p':
+X			i = atoi (optarg);
+X			if ( i == 0 )
+X				error_rt("invalid value for initial page number");
+X			else {
+X				page_label = i;
+X				number_all = TRUE;
+X			}
+X			break;
+X
+X		case 'L':
+X			left_foot_even = 0;
+X			number_all= TRUE;
+X			break;
+X
+X        	case 'o':
+X                	if ( freopen(optarg, "w", stdout) == NULL)
+X                        	{
+X                        	fprintf (stderr, "Unable to open \"%s\" for output\n", optarg);
+X                        	exit(1);
+X                        	}
+X	                break;
+X
+X		case 'A':
+X			do_about();
+X			exit(0);
+X			break;
+X
+X		case '?':
+X			do_help(argv[0]);
+X			break;
+X		}
+X
+X/* Is there anything? */
+X
+X	if (argc == 1)
+X		do_help(argv[0]);
+X
+X/* Is there input? */
+X
+X	if ((optind == argc) && isatty(0) && !dump_only)
+X	{
+X		fprintf (stderr, "Error: CHORD does not expect you to type the song on your keyboard.\n");
+X		fprintf (stderr, "Please either specify an input filename on the command line\n");
+X		fprintf (stderr, "or have the input redirected or piped in.\n");
+X		fprintf (stderr, "Exemples:\n");
+X		fprintf (stderr, "   %% chord my_song.cho > myfile.ps\n");
+X		fprintf (stderr, "   %% chord < mysong.cho > myfile.ps\n");
+X		fprintf (stderr, "Do \"chord -h\" to learn about CHORD's options\n");
+X		exit(1);
+X	}
+X
+X/* Is there output? */
+X
+X	if (isatty(1) && (!dump_only || postscript_dump)) /* 1 == stdout */
+X	{
+X		fprintf (stderr, "Error: CHORD will not send PostScript to your terminal.\n");
+X		fprintf (stderr, "Please either redirect (>) or pipe (|) the output.\n");
+X		fprintf (stderr, "Exemples:\n");
+X		fprintf (stderr, "   %% chord my_song.cho > myfile.ps\n");
+X		fprintf (stderr, "   %% chord my_song.cho | lpr\n");
+X		exit(1);
+X	}
+X
+X
+X/* File Processing */
+X
+X	if (dump_only) 
+X	{
+X		dump_chords(postscript_dump);
+X		exit(0);
+X	}
+X
+X	init_known_chords();
+X	init_values();
+X	init_ps();
+X
+X	chord_inc = chord_size * 1.5;
+X
+X	for ( ; optind < argc; optind++ )
+X		{
+X		strcpy(source, argv[optind]);
+X		read_input_file(source, source_fd);
+X		if (optind < argc - 1)
+X			do_new_song();
+X		}
+X
+X
+X	do_end_of_song();
+X	 
+X	if (toc_file_fd)	/* generate index  page */
+X		{
+X		build_ps_toc();
+X		do_end_of_page(FALSE);
+X		}
+X
+X	if (v_pages != 0)
+X		{
+X		do_end_of_phys_page();
+X		}
+X
+X
+X	printf ("%%%%Trailer\n");
+X	printf ("%%%%Pages: %d 1\n", n_pages);
+X	printf ("%%%%EOF\n");
+X
+X	exit (0);	
+X	return(0);
+X	}
+END_OF_FILE
+  if test 32587 -ne `wc -c <'chord.c'`; then
+    echo shar: \"'chord.c'\" unpacked with wrong size!
+  fi
+  # end of 'chord.c'
+fi
+if test -f 'common.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'common.c'\"
+else
+  echo shar: Extracting \"'common.c'\" \(2537 characters\)
+  sed "s/^X//" >'common.c' <<'END_OF_FILE'
+Xstatic char copyright[] = "Copyright 1991-1993 by Martin Leclerc & Mario Dorion";
+X
+X#include <stdio.h>
+X#include "chord.h"
+X
+Xextern char *current_file;
+Xextern char *command_name;
+Xextern char *mesg;
+Xextern int  in_chordrc;
+Xextern int  first_time_in_chordrc;
+X
+X/* --------------------------------------------------------------------------------*/
+Xchar *tolower_str(str)
+Xchar *str;
+X{
+X	static char	temp_str[MAXLINE];
+X	char	*ptr;
+X
+X	strcpy(temp_str, str);
+X	ptr=temp_str;
+X
+X	while (*ptr=(char) tolower((int) *ptr)) 
+X		ptr++;
+X
+X	return(temp_str);
+X}
+X
+X/* --------------------------------------------------------------------------------*/
+Xchar *toupper_str(str)
+Xchar *str;
+X{
+X	static char	temp_str[MAXLINE];
+X	char	*ptr;
+X
+X	strcpy(temp_str, str);
+X	ptr=temp_str;
+X
+X	while (*ptr=(char) toupper((int) *ptr)) 
+X		ptr++;
+X
+X	return(temp_str);
+X}
+X
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid error(err_str)
+Xchar *err_str;
+X{
+X	extern int n_lines;
+X
+X	if (!in_chordrc || first_time_in_chordrc) {
+X       	 	fprintf(stderr, "WARNING: %s\n",err_str);
+X       		fprintf(stderr, "         in file \"%s\", line %d\n\n", current_file,n_lines+1);
+X	}
+X}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid error_rt(err_str)
+Xchar *err_str;
+X{
+X	extern int n_lines;
+X
+X       	 	fprintf(stderr, "WARNING: %s defined as a run-time option\n\n",err_str);
+X}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid debug(dbg_str)
+Xchar *dbg_str;
+X{
+X	extern int debug_mode;
+X
+X        if ( debug_mode )
+X                fprintf (stderr, "Debug: %s\n", dbg_str);
+X}
+X
+X/* --------------------------------------------------------------------------------*/
+Xvoid print_version()
+X{
+X
+X        char *version = VERSION;
+X        char *patch_level = PATCH_LEVEL;
+X        
+X        printf ("%s version %s, patchlevel %s\n", command_name, version, patch_level);
+X}
+X
+X/* --------------------------------------------------------------------------------*/
+X/* read the file passed as argument */
+Xvoid read_input_file(source, source_fd)
+Xchar source[];
+XFILE *source_fd;
+X        {
+X	debug ("start of read_input_file");
+X        current_file = source; 
+X
+X	sprintf (mesg, "Attempting to open file \"%s\"\n", source);
+X	debug (mesg);
+X
+X        source_fd = fopen (source, "r");
+X
+X        if (source_fd == NULL)
+X                {
+X                fprintf(stderr, "Unable to open \"%s\"\n", source);
+X                exit (1);
+X                }
+X
+X        process_file(source_fd);
+X        fclose(source_fd);
+X        }
+X
+END_OF_FILE
+  if test 2537 -ne `wc -c <'common.c'`; then
+    echo shar: \"'common.c'\" unpacked with wrong size!
+  fi
+  # end of 'common.c'
+fi
+if test -f 'getopt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getopt.c'\"
+else
+  echo shar: Extracting \"'getopt.c'\" \(20915 characters\)
+  sed "s/^X//" >'getopt.c' <<'END_OF_FILE'
+X/* Getopt for GNU.
+X   NOTE: getopt is now part of the C library, so if you don't know what
+X   "Keep this file name-space clean" means, talk to roland@gnu.ai.mit.edu
+X   before changing it!
+X
+X   Copyright (C) 1987, 88, 89, 90, 91, 92, 1993
+X   	Free Software Foundation, Inc.
+X
+X   This program is free software; you can redistribute it and/or modify it
+X   under the terms of the GNU General Public License as published by the
+X   Free Software Foundation; either version 2, or (at your option) any
+X   later version.
+X
+X   This program is distributed in the hope that it will be useful,
+X   but WITHOUT ANY WARRANTY; without even the implied warranty of
+X   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X   GNU General Public License for more details.
+X
+X   You should have received a copy of the GNU General Public License
+X   along with this program; if not, write to the Free Software
+X   Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
+X
+X/* NOTE!!!  AIX requires this to be the first thing in the file.
+X   Do not put ANYTHING before it!  */
+X#if !defined (__GNUC__) && defined (_AIX)
+X #pragma alloca
+X#endif
+X
+X#ifdef HAVE_CONFIG_H
+X#include "config.h"
+X#endif
+X
+X#ifdef __GNUC__
+X#define alloca __builtin_alloca
+X#else /* not __GNUC__ */
+X#if defined (HAVE_ALLOCA_H) || (defined(sparc) && (defined(sun) || (!defined(USG) && !defined(SVR4) && !defined(__svr4__)))) || defined(__sgi)
+X#include <alloca.h>
+X#else
+X#ifndef _AIX
+Xchar *alloca ();
+X#endif
+X#endif /* alloca.h */
+X#endif /* not __GNUC__ */
+X
+X/* #if !__STDC__ && !defined(const) && IN_GCC */
+X#if !__STDC__ 
+X#define const
+X#endif
+X
+X/* This tells Alpha OSF/1 not to define a getopt prototype in <stdio.h>.  */
+X#ifndef _NO_PROTO
+X#define _NO_PROTO
+X#endif
+X
+X#include <stdio.h>
+X
+X/* Comment out all this code if we are using the GNU C Library, and are not
+X   actually compiling the library itself.  This code is part of the GNU C
+X   Library, but also included in many other GNU distributions.  Compiling
+X   and linking in this code is a waste when using the GNU C library
+X   (especially if it is a shared library).  Rather than having every GNU
+X   program understand `configure --with-gnu-libc' and omit the object files,
+X   it is simpler to just do this in the source for each such file.  */
+X
+X#if defined (_LIBC) || !defined (__GNU_LIBRARY__)
+X
+X
+X/* This needs to come after some library #include
+X   to get __GNU_LIBRARY__ defined.  */
+X#ifdef	__GNU_LIBRARY__
+X#undef	alloca
+X/* Don't include stdlib.h for non-GNU C libraries because some of them
+X   contain conflicting prototypes for getopt.  */
+X#include <stdlib.h>
+X#else	/* Not GNU C library.  */
+X#define	__alloca	alloca
+X#endif	/* GNU C library.  */
+X
+X/* If GETOPT_COMPAT is defined, `+' as well as `--' can introduce a
+X   long-named option.  Because this is not POSIX.2 compliant, it is
+X   being phased out.  */
+X/* #define GETOPT_COMPAT */
+X
+X/* This version of `getopt' appears to the caller like standard Unix `getopt'
+X   but it behaves differently for the user, since it allows the user
+X   to intersperse the options with the other arguments.
+X
+X   As `getopt' works, it permutes the elements of ARGV so that,
+X   when it is done, all the options precede everything else.  Thus
+X   all application programs are extended to handle flexible argument order.
+X
+X   Setting the environment variable POSIXLY_CORRECT disables permutation.
+X   Then the behavior is completely standard.
+X
+X   GNU application programs can use a third alternative mode in which
+X   they can distinguish the relative order of options and other arguments.  */
+X
+X#include "getopt.h"
+X
+X/* For communication from `getopt' to the caller.
+X   When `getopt' finds an option that takes an argument,
+X   the argument value is returned here.
+X   Also, when `ordering' is RETURN_IN_ORDER,
+X   each non-option ARGV-element is returned here.  */
+X
+Xchar *optarg = 0;
+X
+X/* Index in ARGV of the next element to be scanned.
+X   This is used for communication to and from the caller
+X   and for communication between successive calls to `getopt'.
+X
+X   On entry to `getopt', zero means this is the first call; initialize.
+X
+X   When `getopt' returns EOF, this is the index of the first of the
+X   non-option elements that the caller should itself scan.
+X
+X   Otherwise, `optind' communicates from one call to the next
+X   how much of ARGV has been scanned so far.  */
+X
+X/* XXX 1003.2 says this must be 1 before any call.  */
+Xint optind = 0;
+X
+X/* The next char to be scanned in the option-element
+X   in which the last option character we returned was found.
+X   This allows us to pick up the scan where we left off.
+X
+X   If this is zero, or a null string, it means resume the scan
+X   by advancing to the next ARGV-element.  */
+X
+Xstatic char *nextchar;
+X
+X/* Callers store zero here to inhibit the error message
+X   for unrecognized options.  */
+X
+Xint opterr = 1;
+X
+X/* Set to an option character which was unrecognized.
+X   This must be initialized on some systems to avoid linking in the
+X   system's own getopt implementation.  */
+X
+Xint optopt = '?';
+X
+X/* Describe how to deal with options that follow non-option ARGV-elements.
+X
+X   If the caller did not specify anything,
+X   the default is REQUIRE_ORDER if the environment variable
+X   POSIXLY_CORRECT is defined, PERMUTE otherwise.
+X
+X   REQUIRE_ORDER means don't recognize them as options;
+X   stop option processing when the first non-option is seen.
+X   This is what Unix does.
+X   This mode of operation is selected by either setting the environment
+X   variable POSIXLY_CORRECT, or using `+' as the first character
+X   of the list of option characters.
+X
+X   PERMUTE is the default.  We permute the contents of ARGV as we scan,
+X   so that eventually all the non-options are at the end.  This allows options
+X   to be given in any order, even with programs that were not written to
+X   expect this.
+X
+X   RETURN_IN_ORDER is an option available to programs that were written
+X   to expect options and other ARGV-elements in any order and that care about
+X   the ordering of the two.  We describe each non-option ARGV-element
+X   as if it were the argument of an option with character code 1.
+X   Using `-' as the first character of the list of option characters
+X   selects this mode of operation.
+X
+X   The special argument `--' forces an end of option-scanning regardless
+X   of the value of `ordering'.  In the case of RETURN_IN_ORDER, only
+X   `--' can cause `getopt' to return EOF with `optind' != ARGC.  */
+X
+Xstatic enum
+X{
+X  REQUIRE_ORDER, PERMUTE, RETURN_IN_ORDER
+X} ordering;
+X
+X#ifdef	__GNU_LIBRARY__
+X/* We want to avoid inclusion of string.h with non-GNU libraries
+X   because there are many ways it can cause trouble.
+X   On some systems, it contains special magic macros that don't work
+X   in GCC.  */
+X#include <string.h>
+X#define	my_index	strchr
+X#define	my_bcopy(src, dst, n)	memcpy ((dst), (src), (n))
+X#else
+X
+X/* Avoid depending on library functions or files
+X   whose names are inconsistent.  */
+X
+Xchar *getenv ();
+X
+Xstatic char *
+Xmy_index (str, chr)
+X     const char *str;
+X     int chr;
+X{
+X  while (*str)
+X    {
+X      if (*str == chr)
+X	return (char *) str;
+X      str++;
+X    }
+X  return 0;
+X}
+X
+Xstatic void
+Xmy_bcopy (from, to, size)
+X     const char *from;
+X     char *to;
+X     int size;
+X{
+X  int i;
+X  for (i = 0; i < size; i++)
+X    to[i] = from[i];
+X}
+X#endif				/* GNU C library.  */
+X
+X/* Handle permutation of arguments.  */
+X
+X/* Describe the part of ARGV that contains non-options that have
+X   been skipped.  `first_nonopt' is the index in ARGV of the first of them;
+X   `last_nonopt' is the index after the last of them.  */
+X
+Xstatic int first_nonopt;
+Xstatic int last_nonopt;
+X
+X/* Exchange two adjacent subsequences of ARGV.
+X   One subsequence is elements [first_nonopt,last_nonopt)
+X   which contains all the non-options that have been skipped so far.
+X   The other is elements [last_nonopt,optind), which contains all
+X   the options processed since those non-options were skipped.
+X
+X   `first_nonopt' and `last_nonopt' are relocated so that they describe
+X   the new indices of the non-options in ARGV after they are moved.  */
+X
+Xstatic void
+Xexchange (argv)
+X     char **argv;
+X{
+X  int nonopts_size = (last_nonopt - first_nonopt) * sizeof (char *);
+X  char **temp = (char **) __alloca (nonopts_size);
+X
+X  /* Interchange the two blocks of data in ARGV.  */
+X
+X  my_bcopy ((char *) &argv[first_nonopt], (char *) temp, nonopts_size);
+X  my_bcopy ((char *) &argv[last_nonopt], (char *) &argv[first_nonopt],
+X	    (optind - last_nonopt) * sizeof (char *));
+X  my_bcopy ((char *) temp,
+X	    (char *) &argv[first_nonopt + optind - last_nonopt],
+X	    nonopts_size);
+X
+X  /* Update records for the slots the non-options now occupy.  */
+X
+X  first_nonopt += (optind - last_nonopt);
+X  last_nonopt = optind;
+X}
+X
+X/* Scan elements of ARGV (whose length is ARGC) for option characters
+X   given in OPTSTRING.
+X
+X   If an element of ARGV starts with '-', and is not exactly "-" or "--",
+X   then it is an option element.  The characters of this element
+X   (aside from the initial '-') are option characters.  If `getopt'
+X   is called repeatedly, it returns successively each of the option characters
+X   from each of the option elements.
+X
+X   If `getopt' finds another option character, it returns that character,
+X   updating `optind' and `nextchar' so that the next call to `getopt' can
+X   resume the scan with the following option character or ARGV-element.
+X
+X   If there are no more option characters, `getopt' returns `EOF'.
+X   Then `optind' is the index in ARGV of the first ARGV-element
+X   that is not an option.  (The ARGV-elements have been permuted
+X   so that those that are not options now come last.)
+X
+X   OPTSTRING is a string containing the legitimate option characters.
+X   If an option character is seen that is not listed in OPTSTRING,
+X   return '?' after printing an error message.  If you set `opterr' to
+X   zero, the error message is suppressed but we still return '?'.
+X
+X   If a char in OPTSTRING is followed by a colon, that means it wants an arg,
+X   so the following text in the same ARGV-element, or the text of the following
+X   ARGV-element, is returned in `optarg'.  Two colons mean an option that
+X   wants an optional arg; if there is text in the current ARGV-element,
+X   it is returned in `optarg', otherwise `optarg' is set to zero.
+X
+X   If OPTSTRING starts with `-' or `+', it requests different methods of
+X   handling the non-option ARGV-elements.
+X   See the comments about RETURN_IN_ORDER and REQUIRE_ORDER, above.
+X
+X   Long-named options begin with `--' instead of `-'.
+X   Their names may be abbreviated as long as the abbreviation is unique
+X   or is an exact match for some defined option.  If they have an
+X   argument, it follows the option name in the same ARGV-element, separated
+X   from the option name by a `=', or else the in next ARGV-element.
+X   When `getopt' finds a long-named option, it returns 0 if that option's
+X   `flag' field is nonzero, the value of the option's `val' field
+X   if the `flag' field is zero.
+X
+X   The elements of ARGV aren't really const, because we permute them.
+X   But we pretend they're const in the prototype to be compatible
+X   with other systems.
+X
+X   LONGOPTS is a vector of `struct option' terminated by an
+X   element containing a name which is zero.
+X
+X   LONGIND returns the index in LONGOPT of the long-named option found.
+X   It is only valid when a long-named option has been found by the most
+X   recent call.
+X
+X   If LONG_ONLY is nonzero, '-' as well as '--' can introduce
+X   long-named options.  */
+X
+Xint
+X_getopt_internal (argc, argv, optstring, longopts, longind, long_only)
+X     int argc;
+X     char *const *argv;
+X     const char *optstring;
+X     const struct option *longopts;
+X     int *longind;
+X     int long_only;
+X{
+X  int option_index;
+X
+X  optarg = 0;
+X
+X  /* Initialize the internal data when the first call is made.
+X     Start processing options with ARGV-element 1 (since ARGV-element 0
+X     is the program name); the sequence of previously skipped
+X     non-option ARGV-elements is empty.  */
+X
+X  if (optind == 0)
+X    {
+X      first_nonopt = last_nonopt = optind = 1;
+X
+X      nextchar = NULL;
+X
+X      /* Determine how to handle the ordering of options and nonoptions.  */
+X
+X      if (optstring[0] == '-')
+X	{
+X	  ordering = RETURN_IN_ORDER;
+X	  ++optstring;
+X	}
+X      else if (optstring[0] == '+')
+X	{
+X	  ordering = REQUIRE_ORDER;
+X	  ++optstring;
+X	}
+X      else if (getenv ("POSIXLY_CORRECT") != NULL)
+X	ordering = REQUIRE_ORDER;
+X      else
+X	ordering = PERMUTE;
+X    }
+X
+X  if (nextchar == NULL || *nextchar == '\0')
+X    {
+X      if (ordering == PERMUTE)
+X	{
+X	  /* If we have just processed some options following some non-options,
+X	     exchange them so that the options come first.  */
+X
+X	  if (first_nonopt != last_nonopt && last_nonopt != optind)
+X	    exchange ((char **) argv);
+X	  else if (last_nonopt != optind)
+X	    first_nonopt = optind;
+X
+X	  /* Now skip any additional non-options
+X	     and extend the range of non-options previously skipped.  */
+X
+X	  while (optind < argc
+X		 && (argv[optind][0] != '-' || argv[optind][1] == '\0')
+X#ifdef GETOPT_COMPAT
+X		 && (longopts == NULL
+X		     || argv[optind][0] != '+' || argv[optind][1] == '\0')
+X#endif				/* GETOPT_COMPAT */
+X		 )
+X	    optind++;
+X	  last_nonopt = optind;
+X	}
+X
+X      /* Special ARGV-element `--' means premature end of options.
+X	 Skip it like a null option,
+X	 then exchange with previous non-options as if it were an option,
+X	 then skip everything else like a non-option.  */
+X
+X      if (optind != argc && !strcmp (argv[optind], "--"))
+X	{
+X	  optind++;
+X
+X	  if (first_nonopt != last_nonopt && last_nonopt != optind)
+X	    exchange ((char **) argv);
+X	  else if (first_nonopt == last_nonopt)
+X	    first_nonopt = optind;
+X	  last_nonopt = argc;
+X
+X	  optind = argc;
+X	}
+X
+X      /* If we have done all the ARGV-elements, stop the scan
+X	 and back over any non-options that we skipped and permuted.  */
+X
+X      if (optind == argc)
+X	{
+X	  /* Set the next-arg-index to point at the non-options
+X	     that we previously skipped, so the caller will digest them.  */
+X	  if (first_nonopt != last_nonopt)
+X	    optind = first_nonopt;
+X	  return EOF;
+X	}
+X
+X      /* If we have come to a non-option and did not permute it,
+X	 either stop the scan or describe it to the caller and pass it by.  */
+X
+X      if ((argv[optind][0] != '-' || argv[optind][1] == '\0')
+X#ifdef GETOPT_COMPAT
+X	  && (longopts == NULL
+X	      || argv[optind][0] != '+' || argv[optind][1] == '\0')
+X#endif				/* GETOPT_COMPAT */
+X	  )
+X	{
+X	  if (ordering == REQUIRE_ORDER)
+X	    return EOF;
+X	  optarg = argv[optind++];
+X	  return 1;
+X	}
+X
+X      /* We have found another option-ARGV-element.
+X	 Start decoding its characters.  */
+X
+X      nextchar = (argv[optind] + 1
+X		  + (longopts != NULL && argv[optind][1] == '-'));
+X    }
+X
+X  if (longopts != NULL
+X      && ((argv[optind][0] == '-'
+X	   && (argv[optind][1] == '-' || long_only))
+X#ifdef GETOPT_COMPAT
+X	  || argv[optind][0] == '+'
+X#endif				/* GETOPT_COMPAT */
+X	  ))
+X    {
+X      const struct option *p;
+X      char *s = nextchar;
+X      int exact = 0;
+X      int ambig = 0;
+X      const struct option *pfound = NULL;
+X      int indfound;
+X
+X      while (*s && *s != '=')
+X	s++;
+X
+X      /* Test all options for either exact match or abbreviated matches.  */
+X      for (p = longopts, option_index = 0; p->name;
+X	   p++, option_index++)
+X	if (!strncmp (p->name, nextchar, s - nextchar))
+X	  {
+X	    if (s - nextchar == strlen (p->name))
+X	      {
+X		/* Exact match found.  */
+X		pfound = p;
+X		indfound = option_index;
+X		exact = 1;
+X		break;
+X	      }
+X	    else if (pfound == NULL)
+X	      {
+X		/* First nonexact match found.  */
+X		pfound = p;
+X		indfound = option_index;
+X	      }
+X	    else
+X	      /* Second nonexact match found.  */
+X	      ambig = 1;
+X	  }
+X
+X      if (ambig && !exact)
+X	{
+X	  if (opterr)
+X	    fprintf (stderr, "%s: option `%s' is ambiguous\n",
+X		     argv[0], argv[optind]);
+X	  nextchar += strlen (nextchar);
+X	  optind++;
+X	  return '?';
+X	}
+X
+X      if (pfound != NULL)
+X	{
+X	  option_index = indfound;
+X	  optind++;
+X	  if (*s)
+X	    {
+X	      /* Don't test has_arg with >, because some C compilers don't
+X		 allow it to be used on enums.  */
+X	      if (pfound->has_arg)
+X		optarg = s + 1;
+X	      else
+X		{
+X		  if (opterr)
+X		    {
+X		      if (argv[optind - 1][1] == '-')
+X			/* --option */
+X			fprintf (stderr,
+X				 "%s: option `--%s' doesn't allow an argument\n",
+X				 argv[0], pfound->name);
+X		      else
+X			/* +option or -option */
+X			fprintf (stderr,
+X			     "%s: option `%c%s' doesn't allow an argument\n",
+X			     argv[0], argv[optind - 1][0], pfound->name);
+X		    }
+X		  nextchar += strlen (nextchar);
+X		  return '?';
+X		}
+X	    }
+X	  else if (pfound->has_arg == 1)
+X	    {
+X	      if (optind < argc)
+X		optarg = argv[optind++];
+X	      else
+X		{
+X		  if (opterr)
+X		    fprintf (stderr, "%s: option `%s' requires an argument\n",
+X			     argv[0], argv[optind - 1]);
+X		  nextchar += strlen (nextchar);
+X		  return optstring[0] == ':' ? ':' : '?';
+X		}
+X	    }
+X	  nextchar += strlen (nextchar);
+X	  if (longind != NULL)
+X	    *longind = option_index;
+X	  if (pfound->flag)
+X	    {
+X	      *(pfound->flag) = pfound->val;
+X	      return 0;
+X	    }
+X	  return pfound->val;
+X	}
+X      /* Can't find it as a long option.  If this is not getopt_long_only,
+X	 or the option starts with '--' or is not a valid short
+X	 option, then it's an error.
+X	 Otherwise interpret it as a short option.  */
+X      if (!long_only || argv[optind][1] == '-'
+X#ifdef GETOPT_COMPAT
+X	  || argv[optind][0] == '+'
+X#endif				/* GETOPT_COMPAT */
+X	  || my_index (optstring, *nextchar) == NULL)
+X	{
+X	  if (opterr)
+X	    {
+X	      if (argv[optind][1] == '-')
+X		/* --option */
+X		fprintf (stderr, "%s: unrecognized option `--%s'\n",
+X			 argv[0], nextchar);
+X	      else
+X		/* +option or -option */
+X		fprintf (stderr, "%s: unrecognized option `%c%s'\n",
+X			 argv[0], argv[optind][0], nextchar);
+X	    }
+X	  nextchar = (char *) "";
+X	  optind++;
+X	  return '?';
+X	}
+X    }
+X
+X  /* Look at and handle the next option-character.  */
+X
+X  {
+X    char c = *nextchar++;
+X    char *temp = my_index (optstring, c);
+X
+X    /* Increment `optind' when we start to process its last character.  */
+X    if (*nextchar == '\0')
+X      ++optind;
+X
+X    if (temp == NULL || c == ':')
+X      {
+X	if (opterr)
+X	  {
+X#if 0
+X	    if (c < 040 || c >= 0177)
+X	      fprintf (stderr, "%s: unrecognized option, character code 0%o\n",
+X		       argv[0], c);
+X	    else
+X	      fprintf (stderr, "%s: unrecognized option `-%c'\n", argv[0], c);
+X#else
+X	    /* 1003.2 specifies the format of this message.  */
+X	    fprintf (stderr, "%s: illegal option -- %c\n", argv[0], c);
+X#endif
+X	  }
+X	optopt = c;
+X	return '?';
+X      }
+X    if (temp[1] == ':')
+X      {
+X	if (temp[2] == ':')
+X	  {
+X	    /* This is an option that accepts an argument optionally.  */
+X	    if (*nextchar != '\0')
+X	      {
+X		optarg = nextchar;
+X		optind++;
+X	      }
+X	    else
+X	      optarg = 0;
+X	    nextchar = NULL;
+X	  }
+X	else
+X	  {
+X	    /* This is an option that requires an argument.  */
+X	    if (*nextchar != '\0')
+X	      {
+X		optarg = nextchar;
+X		/* If we end this ARGV-element by taking the rest as an arg,
+X		   we must advance to the next element now.  */
+X		optind++;
+X	      }
+X	    else if (optind == argc)
+X	      {
+X		if (opterr)
+X		  {
+X#if 0
+X		    fprintf (stderr, "%s: option `-%c' requires an argument\n",
+X			     argv[0], c);
+X#else
+X		    /* 1003.2 specifies the format of this message.  */
+X		    fprintf (stderr, "%s: option requires an argument -- %c\n",
+X			     argv[0], c);
+X#endif
+X		  }
+X		optopt = c;
+X		if (optstring[0] == ':')
+X		  c = ':';
+X		else
+X		  c = '?';
+X	      }
+X	    else
+X	      /* We already incremented `optind' once;
+X		 increment it again when taking next ARGV-elt as argument.  */
+X	      optarg = argv[optind++];
+X	    nextchar = NULL;
+X	  }
+X      }
+X    return c;
+X  }
+X}
+X
+Xint
+Xgetopt (argc, argv, optstring)
+X     int argc;
+X     char *const *argv;
+X     const char *optstring;
+X{
+X  return _getopt_internal (argc, argv, optstring,
+X			   (const struct option *) 0,
+X			   (int *) 0,
+X			   0);
+X}
+X
+X#endif	/* _LIBC or not __GNU_LIBRARY__.  */
+X
+X#ifdef TEST
+X
+X/* Compile with -DTEST to make an executable for use in testing
+X   the above definition of `getopt'.  */
+X
+Xint
+Xmain (argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  int c;
+X  int digit_optind = 0;
+X
+X  while (1)
+X    {
+X      int this_option_optind = optind ? optind : 1;
+X
+X      c = getopt (argc, argv, "abc:d:0123456789");
+X      if (c == EOF)
+X	break;
+X
+X      switch (c)
+X	{
+X	case '0':
+X	case '1':
+X	case '2':
+X	case '3':
+X	case '4':
+X	case '5':
+X	case '6':
+X	case '7':
+X	case '8':
+X	case '9':
+X	  if (digit_optind != 0 && digit_optind != this_option_optind)
+X	    printf ("digits occur in two different argv-elements.\n");
+X	  digit_optind = this_option_optind;
+X	  printf ("option %c\n", c);
+X	  break;
+X
+X	case 'a':
+X	  printf ("option a\n");
+X	  break;
+X
+X	case 'b':
+X	  printf ("option b\n");
+X	  break;
+X
+X	case 'c':
+X	  printf ("option c with value `%s'\n", optarg);
+X	  break;
+X
+X	case '?':
+X	  break;
+X
+X	default:
+X	  printf ("?? getopt returned character code 0%o ??\n", c);
+X	}
+X    }
+X
+X  if (optind < argc)
+X    {
+X      printf ("non-option ARGV-elements: ");
+X      while (optind < argc)
+X	printf ("%s ", argv[optind++]);
+X      printf ("\n");
+X    }
+X
+X  exit (0);
+X}
+X
+X#endif /* TEST */
+END_OF_FILE
+  if test 20915 -ne `wc -c <'getopt.c'`; then
+    echo shar: \"'getopt.c'\" unpacked with wrong size!
+  fi
+  # end of 'getopt.c'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1749 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i120:  mbase - MetalBase 5.0, Portable database engine, Part02/08
+Message-ID: <1992Nov23.231211.2333@sparky.imd.sterling.com>
+X-Md4-Signature: 77c922c5af725a12529175b9e9cf65ff
+Date: Mon, 23 Nov 1992 23:12:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 120
+Archive-name: mbase/part02
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dox/lock.dox src/build.c src/report.c
+# Wrapped by kent@sparky on Mon Nov 23 16:33:12 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 8)."'
+if test -f 'dox/lock.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/lock.dox'\"
+else
+  echo shar: Extracting \"'dox/lock.dox'\" \(11453 characters\)
+  sed "s/^X//" >'dox/lock.dox' <<'END_OF_FILE'
+XRelation Locking                                                  MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X
+XBecause MetalBase does not run on a client/server basis (there is no huge
+Xsuperuser-running program which performs queries when requested), processes
+Xmust fight each other for access to relations.  In order to ensure database
+Xintegrity, a system of locking has been implemented which provides a timing
+Xfor enlarging atomic-level operations; those which should be accomplished in
+Xtheir entireity before another process may use the relation.  *nix-style file
+Xlocking is not portable enough to be useful here, much to my dismay... many
+Xsites don't have any such ability through the standard compiler; worse, on
+Xsome systems (Xenix among them), calls succeed when they don't do anything.
+X
+XVersion 5.0 supports two forms of locking, one of which is transparent and
+Xused by the system internally, the other being exposed to the user.  "Temporary
+Xlocks" are placed by the system to enlarge the timescale of atomic operations,
+Xto ensure concurrent querying/updating will not corrupt the database.  These
+Xlocks are placed on the relation automatically, during all operations--adding,
+Xupdating, deleting, and querying the database, as well as in the process of
+Xallowing the user to place the more permanent exclusive locks.
+X
+X
+XTEMPORARY LOCKS ---------------------------------------------------------------
+X
+X
+XTemporary locks are used to give a single process control over a relation for
+X   a short period of time; from a fraction of a second (needed at the beginning
+X   of a service call to ensure no exclusive lock is in place) to a few seconds
+X   or more (for the duration of an index update).  The basic algorithm relies
+X   on the fact that each process has a unique identifier in the range 0-65535;
+X   MetalBase 5.0 uses the process ID for this.  In essence, each relation
+X   stamps its identifier into a specific place in the relation, and reads back
+X   what is there--if it reads its own process ID, it continues with its work,
+X   leaving the stamp (and thus a temporary lock) in place.
+X
+XThat is a far oversimplified version.  In reality, because of the way most
+X   multi-user systems work, a scheme with only one such check will always grant
+X   a lock to any relation; the write-our-PID followed by read-the-byte will
+X   almost always return the PID simply because the write and read are so close
+X   together that they are almost guaranteed to be processed in sequence,
+X   without allowing other processes to vie for the lock.  There is also the
+X   issue of a process having terminated, leaving a temporary lock in place; in
+X   that case, the relation would be useless until such a lock could be cleared.
+X   Moreover, in practice, such a scheme would give control to the same process
+X   over and over, not allowing any other process a chance to work (in
+X   benchmarks, three terminals running the same program to add records
+X   constantly over 30 seconds ended up with results of the form: 1st==500
+X   records, 2nd==2 records, 3rd==0 records).
+X
+XThe first problem is the granting of a temporary lock to one process at any
+X   given time--this is done by iterating the check described above three times:
+X
+X     set_hack(): read the three hack-lock positions (6 bytes)
+X                 if our PID is in any, write a zero there and goto set_hack()
+X                 if all three aren't zeroes, goto set_hack()
+X                 write our PID in the third
+X
+X                 read the three hack-lock positions
+X                 if first and second aren't zeroes, goto set_hack()
+X                 if third isn't our PID, goto set_hack()
+X                 write our PID in the second
+X
+X                 read the three hack-lock positions
+X                 if first isn't zeroes, goto set_hack()
+X                 if second and third aren't our PID, goto set_hack()
+X                 write our PID in the first
+X
+X                 read the three hack-lock positions
+X                 if any of the three aren't our PID, goto set_hack()
+X
+X     clr_hack(): read the three hack-lock positions (6 bytes)
+X                 if all three aren't our PID,
+X                    (error case 1--abort)
+X                 write zeroes in all three
+X
+XIterating the process in this fashion shrinks the window for a race condition
+X   to such an extent that it's negligible... and that solves the first of the
+X   three problems.  The second would be distribution of resources; as the
+X   example above, just letting them take their chances doesn't cut it.  To
+X   more evenly distribute access to a relation, a hack lock, as described
+X   above, is used to gain access to a thirty-position queue, of the form:
+X
+X elcks hacklocks  queue
+X  [ ]   [ | | ]   [ | | | | | | | | | | | | | | | | | | | | | | | | | | | | | ]
+X
+XThe leftmost position in the queue is position #0, indicating a temporary lock
+X   is in place.  Once a relation has gained control via a hack lock, it reads
+X   the 60 bytes of queue and finds the first empty slot (denoted by a 0 PID).
+X   It then places its own PID in that position and clears the hacklock for any
+X   other process to use.  If the position found free is #0, it has just placed
+X   a temporary lock and the process can go about its service.  Otherwise, the
+X   process will enter the following loop:
+X
+X             A: read queue position (CURPOS -1)
+X                if non-zero, go to A
+X                write our PID in position (CURPOS -1)
+X                write zero in position (CURPOS)
+X                CURPOS -= 1
+X                if (CURPOS == 0)  break -- temporary lock is in place
+X                otherwise, goto A
+X
+XThis loop works without placing hacklocks before reading because exactly one
+X   process is guaranteed to be reading a position in the queue at any given
+X   time, and the free space will bubble from the left to right as temporary
+X   locks are freed.  Note that if a position in the queue can't be found to
+X   start with, the system will return MB_BUSY.  This method ensures equal time
+X   for equal requests, for up to thirty processes simultaneously; note that
+X   many more processes can be run at once on a relation, but only thirty
+X   queries will be serviced at any time.  This is an extremely reasonable
+X   restriction.
+X
+XThe third and final problem with regard to locking is the most nerve-wracking;
+X   if a process dies, leaving a lock in place, other processes will wait
+X   forever for the lock to be cleared.  Originally, the BLAST utility was the
+X   only way to remove these locks; pre-release 5.0 was able to detect this
+X   condition under some circumstances, but it was too flaky to rely upon.  In
+X   essence, since inter-process communication is a no-no for portability,
+X   MetalBase needed a way to determine if a process were still active or not...
+X   to that end, the temporary-lock queue has been equipped with a strobe byte
+X   for each position:
+X
+X elcks hacklocks  queue
+X  [ ]   [ | | ]   [ | | | | | | | | | | | | | | | | | | | | | | | | | | | | | ]
+X                  < : : : : : : : : : : : : : : : : : : : : : : : : : : : : : >
+X                  strobes
+X
+XWhenever a process is either waiting in the queue for a turn, or when a process
+X   has a temporary lock in place and is querying or updating the database, it
+X   is constantly incrementing a byte found in the current lock position's
+X   strobe... to be exact, within the queue, the strobe is changed every second;
+X   within a query, whenever the depth is a multiple of 5; within an update,
+X   at various locations initially followed by a call at every _balance() call.
+X   If a process waiting in the queue finds that three seconds go by without
+X   a strobe being changed, it determines itself justified in taking over the
+X   position, under the assumption that the old process is dead.  Note that
+X   this approach will not work well with DOS networks, which often bring long
+X   lag-times which would destroy concurrency... not always, but often enough
+X   to worry about.  IPC would be the best way to improve this, but there is
+X   no standard which does not require superuser access and device drivers on
+X   any *nix platform, and that's unacceptable for MB.
+X
+XWhen jockying for a hacklock, if three seconds elapse without a request being
+X   accepted, a process will erase all three bytes and try again.  If a process
+X   halts with an exclusive lock in place (mb_rmv(), mb_exit() and mb_die()
+X   remove any locks before closing, so that's not a problem--the process must
+X   be halted by a signal or power cycle), the exclusive lock must be removed
+X   with BLAST before the relation will be useful again.
+X
+X
+XEXCLUSIVE (RELATION-WIDE) LOCKS -----------------------------------------------
+X
+X
+XAn exclusive lock is placed by a user using mb_lck(), and removed with mb_unl()
+X   [these two functions were forgotten in the 4.0 release--sorry].  Once an
+X   exclusive lock is placed, any action requested by another process will fail
+X   with the error MB_LOCKED, until the lock is removed.
+X
+XThe flow for mb_lck() and mb_unl() are as follows:
+X
+X   mb_lck():  set temporary lock on relation
+X              read exclusive-lock PID
+X              if (PID == ours)  clear temp lock; stupid--you already locked it
+X              if (PID != 0)     clear temp lock; return MB_LOCKED by another
+X              write our PID in the exclusive-lock byte
+X              clear temp lock; return MB_OKAY
+X
+X   mb_unl():  set temporary lock on relation
+X              read exclusive-lock PID
+X              if (PID == ours)
+X                 write 0 there
+X              clear temp lock; return MB_OKAY
+X
+XThis simple procedure works, because all requests of the relation must pass
+Xthe following check before operating (a temporary lock must be in place before
+Xcalling this routine):
+X
+X   _chk_elck(): check exclusive-lock PID
+X                if (PID != 0 && PID != ours)  return MB_LOCKED
+X                return MB_OKAY
+X
+XThese routines are slightly more complicated in the source, because there is
+Xa bit of duality of information--each relation structure also retains flags
+Xindicating whether the relation is temp-locked and/or exclusive-locked.  There
+Xare more failure conditions because of this, which ensures that locks will
+Xnot be placed when they should not be.
+X
+X
+XEXCLUSIVE (RECORD-LEVEL) LOCKS ------------------------------------------------
+X
+X
+XThere are none in MetalBase 5.0--let me know if you need this, so I'll know
+Xwhat to spend my time on.  It'll be in a later version--just a matter of when.
+X
+X
+XLOCKFILES ---------------------------------------------------------------------
+X
+X
+XThe kind of work described above--all the busyloops and so forth--really,
+Xreally slow down access to a relation... the fewer things a file is doing at
+Xany given time, the more you can get accomplished.  So the locking mechanism
+Xhas been moved off to a separate file, named after the relation (with the
+Xextension replaced with ".LCK") and placed in a temporary directory (see
+Xtrouble.dox, under MB_TMPDIR).  This file is created every time mb_inc() is
+Xcalled, if it does not already exist.
+X
+XThere is exactly one lockfile for each relation, kept in a common temporary
+Xdirectory.  You can delete the lockfile at any time, as long as you're sure
+Xthere is no one using the relation at the time (this would be a Bad Thing to
+Xdelete if the relation is in use).  Deleting the lockfile will erase any
+Xremaining exclusive lock, and reset the number of users on the relation to
+Xzero.
+X
+END_OF_FILE
+  if test 11453 -ne `wc -c <'dox/lock.dox'`; then
+    echo shar: \"'dox/lock.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/lock.dox'
+fi
+if test -f 'src/build.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/build.c'\"
+else
+  echo shar: Extracting \"'src/build.c'\" \(19729 characters\)
+  sed "s/^X//" >'src/build.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X *
+X * Special thanks go to Mike Cuddy (mcuddy@fensende.rational.com) for his
+X * suggestions and code.
+X *
+X */
+X
+X#define BLAST_C  /* I know, I know... */
+X#include "mbase.h"
+X#include "internal.h"
+X
+X#define cr(x) ((x) == 0) ? DUBCR : SNGCR
+X
+X#ifdef MSDOS
+X#define DESCLINE "/*\r\n * This file was created by MetalBase version 5.0 to reflect the structure\r\n * of the relation \"%s\".\r\n *\r\n * MetalBase 5.0 released October 1st, 1992 by richid@owlnet.rice.edu\r\n *\r\n */\r\n\r\ntypedef struct\r\n { "
+X#else
+X#define DESCLINE "/*\n * This file was created by MetalBase version 5.0 to reflect the structure\n * of the relation \"%s\".\n *\n * MetalBase 5.0 released October 1st, 1992 by virtual!richid@owlnet.rice.edu\n *\n */\n\ntypedef struct\n { "
+X#endif
+X
+X#define lineF "Fields______________________________________________________%s"
+X#define lineI "\nIndices_____________________________________________________%s"
+X
+X#define RBC '}'
+X
+X#ifdef LONGARGS
+X   void   strlwrcpy (char *, char *);
+X   void   struprcpy (char *, char *);
+X   void   strmax    (char *, int);
+X   char  *repeat    (char,   int);
+X   void   main      (int,    char **);
+X   void   endoffile (int,    int);
+X   int    get_names (int,    char **);
+X   void   write_it  (int,    int);
+X   int    contains_serial (char *);
+X#else
+X   void   strlwrcpy();
+X   void   struprcpy();
+X   void   strmax();
+X   char  *repeat();
+X   void   main();
+X   void   endoffile();
+X   int    get_names();
+X   void   write_it();
+X   int    contains_serial();
+X#endif
+X
+X#define  Printf   if (!quiet)  printf
+X#define fPrintf   if (!quiet) fprintf
+X
+X#define qt(x) (quiet ? "" : x)
+X
+X#define usage() \
+X   fprintf (stderr, "build: format: build [-q] [-h] schema.s%s", SNGCR);
+X
+X#define fatal() { \
+X                fflush(stdout); \
+X                fprintf(stderr,"Cannot build relation--%s.%s",mb_error,SNGCR); \
+X                break; \
+X                }
+X
+X#define comment() skip(fh,";"); while (skip (fh, "#"))  goeol(fh,NULL);
+X
+X/*
+X ******************************************************************************
+X *
+X */
+X
+Xstatic char *types[] =
+X { "char *", "short", "ushort", "long", "ulong",  "float",
+X   "double", "money", "time",   "date", "serial", "phone"  };
+X
+X/*
+X ******************************************************************************
+X *
+X */
+X
+Xrelation *data;
+X
+Xchar   strname[40] = "";     /* Structure name (set by "typedef") */
+Xchar   rel[128],  hdr[128];  /* Filenames for relation and header */
+Xchar   names[20], nameb[40]; /* Name, and upper-case name         */
+Xint    column=1;             /* Column we're displaying data in   */
+Xint    header=0,  quiet=0;   /* Set by -q and -h on command-line  */
+Xint    num_f=0,   num_i=0;   /* Start with 0 fields and 0 indices */
+Xint    hasser=0;             /* 1 if we encounter a serial field  */
+X
+X
+X/*
+X ******************************************************************************
+X *
+X */
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   int        stage;     /* Processing stage; 1==fields, 2==indices, 3==done */
+X   int        fh;        /* File handle for schema                           */
+X   char       name[20];  /* Field/Index name                                 */
+X   ftype      typ;       /* Field type (or, for indices, 0==nodups, 1==dups) */
+X   int        siz;       /* Field size (for character arrays only)           */ 
+X   int        isExt;     /* TRUE if it's an external type, FALSE if not      */
+X   char       desc[128]; /* Character array of field numbers, for indices    */
+X
+X   long       nexts = 0L;
+X   char       temp[128];
+X   char       t2[128];
+X   int        i;
+X
+X
+X   fh = get_names (argc, argv);  /* fh = file handle of relation */
+X
+X   if ((data = mb_new()) == RNULL)
+X      {
+X      fprintf (stderr, "Cannot build relation--%s.%s", mb_error, SNGCR);
+X      exit(1);
+X      }
+X
+X   for (stage = 1; stage != 3; )
+X      {
+X      strlwrcpy (temp, getword (fh));   /* temp = keyword */
+X
+X      if (! strcmp (temp, "field"))
+X         {
+X         if (stage == 2)  /* Done with fields? */
+X            {
+X            fflush (stdout);
+X            fprintf (stderr, "%s%sField %s declared after indices.%s",
+X                     qt(SNGCR), qt(cr(column)), getword(fh), SNGCR);
+X            break;
+X            }
+X
+X         strlwrcpy (temp, getword (fh));  /* New field?  Obtain, in lower,  */
+X         strmax (temp, 20);            /* its name.  Put it in 'temp' first */
+X         strcpy (name, temp);          /* in case it's really long.         */
+X
+X         if (mb_getname (data, name, 0) != -1)
+X            {
+X            fflush  (stdout);
+X            fprintf (stderr, "%sField %s declared twice.%s", qt(cr(column)),
+X                             name, SNGCR);
+X            break;
+X            }
+X
+X         (void)skip (fh, "type");         /* Got its name, and it's new.  So */
+X         strlwrcpy (temp, getword (fh));  /* get its field type...           */
+X
+X         isExt = 0;
+X         if (! strcmp (temp, "extern") || ! strcmp (temp, "external"))
+X            {
+X            isExt = 1;
+X            strlwrcpy (temp, getword (fh));  /* External?  Get the next word. */
+X            }
+X
+X         typ = (ftype)-1;
+X         if (! strcmp (temp, "char") || ! strcmp (temp, "character") ||
+X             ! strcmp (temp, "string"))
+X            {
+X            typ = T_CHAR;
+X            }
+X         if (! strcmp (temp, "short"))    typ = T_SHORT;
+X         if (! strcmp (temp, "ushort"))   typ = T_USHORT;
+X         if (! strcmp (temp, "long"))     typ = T_LONG;
+X         if (! strcmp (temp, "ulong"))    typ = T_ULONG;
+X         if (! strcmp (temp, "float"))    typ = T_FLOAT;
+X         if (! strcmp (temp, "double"))   typ = T_DOUBLE;
+X         if (! strcmp (temp, "money"))    typ = T_MONEY;
+X         if (! strcmp (temp, "time"))     typ = T_TIME;
+X         if (! strcmp (temp, "date"))     typ = T_DATE;
+X         if (! strcmp (temp, "serial"))   typ = T_SERIAL;
+X         if (! strcmp (temp, "phone"))    typ = T_PHONE;
+X
+X         if (typ == (ftype)-1)
+X            {
+X            fflush  (stdout);
+X            fprintf (stderr, "%sType %s (field %s) undefined.%s",
+X                             qt(cr(column)), temp, name, SNGCR);
+X            break;
+X            }
+X
+X         if (isExt)
+X            {
+X            sprintf (temp, "ix_%s", name);
+X            sprintf (desc, "%d",    num_i);
+X
+X            if (mb_addindex (data, temp, 1, desc) != MB_OKAY)
+X               fatal();
+X
+X            if (typ == T_SERIAL)
+X               typ = T_LONG;
+X            }
+X
+X         if (typ == T_SERIAL)
+X            {
+X            if (hasser)
+X               {
+X               fflush  (stdout);
+X               fprintf (stderr, "%sMore than one serial field specified.%s",
+X                        qt(cr (column)), SNGCR);
+X               break;
+X               }
+X            hasser = 1;
+X
+X            if (skip (fh, "start"))
+X               nexts = atol (getword (fh));
+X            }
+X
+X         switch (typ)
+X            {
+X            case T_CHAR:
+X               (void)skip (fh, "length");
+X               (void)skip (fh, "*");
+X               siz = atoi (getword(fh));
+X               sprintf (temp, "%s [%s%d]", name, types[(int)typ], siz);
+X               mb_addfield (data, name, T_CHAR, siz);
+X               break;
+X
+X            case T_SERIAL:
+X               sprintf (temp, "%s [%s @%ld]", name, types[(int)typ], nexts);
+X               mb_addfield (data, name, T_SERIAL, nexts);
+X               break;
+X
+X            default:
+X               sprintf (temp, "%s [%s]", name, types[(int)typ]);
+X               mb_addfield (data, name, typ, 0);
+X               break;
+X            }
+X
+X         if (mb_errno)
+X            fatal();
+X
+X         if ((column = 1-column) == 0)
+X            { Printf ("%s%-30.30s%s", SUBD, temp, NORM); }
+X         else
+X            { Printf ("%s%s%s%s",     SUBD, temp, NORM, SNGCR); }
+X
+X         num_f ++;
+X
+X         comment();
+X
+X         continue;
+X         }
+X
+X      if (strcmp (temp, "index") == 0)
+X         {
+X         if (stage == 1)
+X            {
+X            if (column == 0)
+X               Printf (SNGCR);
+X
+X            if (num_f == 0)
+X               {
+X               fflush  (stdout);
+X               fprintf (stderr, "%sNo fields declared before indices.%s",
+X                                 qt(SNGCR), SNGCR);
+X               break;
+X               }
+X
+X            Printf (lineI, SNGCR);
+X
+X            stage  = 2;
+X            column = 1;
+X            }
+X
+X         strlwrcpy (temp, getword (fh));  /* New index?  Get the name (in   */
+X         strmax (temp, 20);            /* temp first in case it's long) and */
+X         strcpy (name, temp);          /* make sure it's unique.            */
+X
+X         if (mb_getname (data, name, 1) != -1)
+X            {
+X            fflush  (stdout);
+X            fprintf (stderr, "%sField %s declared twice.%s", qt(cr(column)),
+X                             name, SNGCR);
+X            break;
+X            }
+X
+X         (void)skip (fh, "on");
+X
+X         for (temp[0] = desc[0] = 0; ; )
+X            {
+X            strlwrcpy (t2, getword (fh));
+X
+X            if ((i = mb_getname (data, t2, 0)) == -1)
+X               {
+X               fflush  (stdout);
+X               fprintf (stderr, "%sIndex placed on undeclared field %s.%s",
+X                                qt(cr(column)), t2, SNGCR);
+X               exit (1);
+X               }
+X
+X            strcat  (temp, t2);
+X            sprintf (t2, "%d", i);
+X            strcat  (desc, t2);
+X
+X            if (! skip (fh, ","))
+X               break;
+X
+X            strcat (temp, ",");
+X            strcat (desc, ",");
+X            }
+X
+X         Printf ("%s%s", name, repeat ('.', 15-strlen (name)));
+X         Printf ("%s%s", temp, repeat ('.', 22-strlen (temp)));
+X
+X         typ = (ftype)0;
+X
+X         if (skip (fh, "without"))
+X            {
+X            if (skip (fh, "duplicates") || skip (fh, "dups"))
+X               typ = (ftype)0;
+X            else
+X               typ = (ftype)2;
+X            }
+X         else if (skip (fh, "with"))
+X            {
+X            if (skip (fh, "duplicates") || skip (fh, "dups"))
+X               typ = (ftype)1;
+X            else
+X               typ = (ftype)2;
+X            }
+X         if (typ == (ftype)2)
+X            {
+X            fflush  (stdout);
+X            fprintf (stderr, "?%sIncorrect syntax%s", qt(DUBCR), SNGCR);
+X            exit    (1);
+X            }
+X
+X         if ((int)typ)  { Printf ("Duplicates allowed%s", SNGCR);     }
+X         else           { Printf ("Duplicates not allowed%s", SNGCR); }
+X
+X         if (contains_serial (desc))
+X            typ = (ftype)1;
+X
+X         if (mb_addindex (data, name, (int)typ, desc) != MB_OKAY)
+X            {
+X            fatal();
+X            }
+X
+X         num_i ++;
+X
+X         comment();
+X
+X         continue;
+X         }
+X
+X      if (strcmp (temp, "end") == 0 || temp[0] == 0)
+X         {
+X         Printf ("%s", cr (column));
+X         endoffile (num_f, num_i);
+X         stage = 3;
+X
+X         continue;
+X         }
+X
+X      if (! strcmp (temp, "typedef"))
+X         {
+X         strlwrcpy (strname, getword (fh));
+X         continue;
+X         }
+X
+X      fflush  (stdout);
+X      fprintf (stderr, "%sIdentifier %s%s%s not recognized.%s",
+X                       qt(cr(column)), BOLD, temp, NORM, SNGCR);
+X      exit    (1);
+X      }
+X
+X   if (stage != 3)
+X      {
+X      exit (1);
+X      }
+X
+X   write_it (num_i, num_f);
+X
+X   Printf ("Relation created -- zero entries.%s", SNGCR);
+X
+X   exit (0);
+X}
+X
+Xvoid
+Xwrite_it (num_i, num_f)
+Xint       num_i, num_f;
+X{
+X   char  temp[512], temp2[30];
+X   int   R, H;
+X   int   i, j;
+X
+X
+X   if ((R = openx (rel, OPENMODE)) != -1)
+X      {
+X      if (read (R, temp, 1) != -1)
+X         {
+X         if (temp[0] != 50 && temp[0] != 42)  /* Check for 4.1a or 5.0 sig */
+X            {
+X            fPrintf (stderr, "%s%s%s%32.32s%-28.28s%s%s", SNGCR, SUBD, INVR,
+X                             "*** ERR", "OR ***", NORM, SNGCR);
+X            fprintf (stderr,
+X                     "%s   This relation is not in MetalBase 5.0 format.%s",
+X                     qt(SNGCR), DUBCR);
+X            close (R);
+X            exit (1);
+X            }
+X         }
+X
+X      Printf ("%s%s%32.32s%-28.28s%s%s", SUBD, INVR, "** WARN", "ING **", NORM,
+X                                         SNGCR);
+X      Printf ("%s   The file about to be created already exists under the%s",
+X               SNGCR, SNGCR);
+X      Printf ("         target directory!  This data will be lost!%s", DUBCR);
+X
+X      close (R);
+X      }
+X
+X/*
+X * That was ugly.  Now make sure they wanna continue first...
+X *
+X */
+X
+X   if (! quiet)
+X      {
+X      Printf ("Continue with the creation of the relation [Y/n] ? ");
+X      gets(temp);  i = (int)temp[0];
+X      if (i == 'n' || i == 'N' || i == 'q' || i == 'Q')  exit (0);
+X      }
+X
+X   if (header || quiet)
+X      {
+X      i = (header ? 'y' : 'n');
+X      }
+X   else
+X      {
+X      Printf ("Create header file for this relation       [y/N] ? ");
+X      fflush(stdin);  gets(temp);  i = (int)temp[0];
+X      }
+X   Printf (SNGCR);
+X
+X/*
+X * That was uglier.  At any rate, we now have permission to create the thing:
+X *
+X */
+X
+X   if (mb_create (data, rel, 0) != MB_OKAY)
+X      {
+X      fflush(stdout);
+X      fprintf (stderr, "Cannot build relation--%s%s.", mb_error, SNGCR);
+X      return;
+X      }
+X
+X/*
+X * Now if they want the header created, we've gotta do all kindsa special shit:
+X *
+X */
+X
+X   if (i != 'y' && i != 'Y')
+X      {
+X      return;
+X      }
+X
+X   if ((H = openx (hdr, O_RDWR)) != -1)
+X      {
+X      close  (H);
+X      unlink (hdr);
+X      }
+X   if ((H = creatx (hdr)) == -1)
+X      {
+X      fprintf (stderr, "%sSorry--cannot create header file%s", qt(DUBCR),
+X               SNGCR);
+X      return;
+X      }
+X   modex (hdr, 0666);   /* Make the file   -rw-rw-rw-  */
+X
+X   sprintf (temp, "#ifndef %s_H%s", nameb, SNGCR);
+X   writx   (H, temp, strlen(temp));
+X   sprintf (temp, "#define %s_H%s", nameb, DUBCR);
+X   writx   (H, temp, strlen(temp));
+X   sprintf (temp, DESCLINE, names);
+X   writx   (H, temp, strlen(temp));
+X
+X   for (j = 0; j < data->num_f; j++)
+X      {
+X      switch (data->type[j])
+X         {
+X         case T_CHAR:   sprintf (temp, "char     %s[%d];",
+X                                        data->name[j], data->siz[j]);   break;
+X         case T_SHORT:  sprintf (temp, "short    %s;", data->name[j]);  break;
+X         case T_USHORT: sprintf (temp, "ushort   %s;", data->name[j]);  break;
+X         case T_LONG:   sprintf (temp, "long     %s;", data->name[j]);  break;
+X         case T_ULONG:  sprintf (temp, "ulong    %s;", data->name[j]);  break;
+X         case T_FLOAT:  sprintf (temp, "float    %s;", data->name[j]);  break;
+X         case T_DOUBLE: sprintf (temp, "double   %s;", data->name[j]);  break;
+X         case T_MONEY:  sprintf (temp, "double   %s;", data->name[j]);  break;
+X         case T_TIME:   sprintf (temp, "mb_time  %s;", data->name[j]);  break;
+X         case T_DATE:   sprintf (temp, "mb_date  %s;", data->name[j]);  break;
+X         case T_PHONE:  sprintf (temp, "mb_phone %s;", data->name[j]);  break;
+X         default:       sprintf (temp, "long     %s;", data->name[j]);  break;
+X         }
+X
+X      i = 24;
+X      if (data->type[j] == T_CHAR)
+X         i -= 3 +(data->siz[j] >10) +(data->siz[j] >100) +(data->siz[j] >1000);
+X
+X      strcat (temp, repeat (' ', i-strlen(data->name[j])));
+X
+X      strcat (temp, "/");
+X      strcat (temp, "* field ");
+X      strcat (temp, data->name[j]);
+X      strcat (temp, " type ");
+X
+X      if (data->type[j] != T_CHAR)
+X         {
+X         strcat (temp, types[(int)data->type[j]]);
+X         }
+X      else
+X         {
+X         sprintf (nameb, "string length %d", data->siz[j]);
+X         strcat  (temp, nameb);
+X         }
+X      if (data->type[j] == T_SERIAL && data->serial != 0L)
+X         {
+X         sprintf (nameb, " start %ld", data->serial);
+X         strcat  (temp, nameb);
+X         }
+X      strcat (temp, repeat (' ', 73-strlen (temp)));
+X      strcat (temp, " *");
+X      strcat (temp, "/");
+X      strcat (temp, SNGCR);
+X      strcat (temp, "   ");
+X      writx (H, temp, strlen (temp));
+X      }
+X
+X   if (strname[0])
+X      {
+X      strcpy (temp2, strname);
+X      }
+X   else
+X      {
+X      strcpy (strname, names);
+X      strcat (strname, "_str");
+X      strcpy (temp2,   names);
+X      }
+X
+X   strcat (temp2, "_rec");
+X
+X   sprintf (temp, "%c %s;%s", RBC, strname, DUBCR);
+X   writx   (H, temp, strlen (temp));
+X
+X   sprintf (temp, "#ifndef MODULE%s   %s %s;%s",
+X            SNGCR, strname, temp2, SNGCR);
+X   writx   (H, temp, strlen (temp));
+X
+X   sprintf (temp, "#else%s   extern %s %s;%s#endif%s#endif%s",
+X            SNGCR, strname, temp2, SNGCR, DUBCR, DUBCR);
+X   writx   (H, temp, strlen (temp));
+X
+X   Printf  ("Header file created.%s", SNGCR);
+X   close   (H);
+X}
+X
+Xvoid
+Xendoffile (num_f, num_i)
+Xint        num_f, num_i;
+X{
+X   if (num_f == 0)
+X      {
+X      fprintf (stderr, "No fields declared before end reached%s", SNGCR);
+X      exit    (1);
+X      }
+X   if (num_i == 0)
+X      {
+X      fprintf (stderr, "No indices declared before end reached%s", SNGCR);
+X      exit    (1);
+X      }
+X}
+X
+Xvoid
+Xstrlwrcpy (new, old)
+Xchar      *new,*old;
+X{
+X   register char *a,*b;
+X   if (!new || !old)  return;
+X   for (a=new,b=old; *b; a++,b++)
+X      *a = tolower (*b);
+X   *a=0;
+X}
+X
+Xvoid
+Xstruprcpy (new, old)
+Xchar      *new,*old;
+X{
+X   register char *a,*b;
+X   if (!new || !old)  return;
+X   for (a=new,b=old; *b; a++,b++)
+X      *a = toupper (*b);
+X   *a=0;
+X}
+X
+Xvoid
+Xstrmax (str, siz)
+Xchar   *str;
+Xint          siz;
+X{
+X   register int   i;
+X   register char *a;
+X
+X   for (i=0, a=str; *a; i++, a++)
+X      if (i == siz)
+X         {
+X         *a = 0;
+X         break;
+X         }
+X}
+X
+Xint
+Xget_names (agc, agv)
+Xint        agc;
+Xchar          **agv;
+X{
+X   char  temp[128];
+X   int   i, fh;
+X
+X   while (agc > 1 && agv[1][0] == '-')
+X      {
+X      switch (agv[1][1])
+X         {
+X         case 'q':  quiet  = 1;  break;
+X         case 'h':  header = 1;  break;
+X         default:   fprintf (stderr,"unrecognized option '%s'%s",agv[1],SNGCR);
+X                    usage   ();
+X                    exit    (1);
+X                   break;
+X         }
+X      switch (agv[1][2])
+X         {
+X         case 'q':  quiet  = 1;  break;
+X         case 'h':  header = 1;  break;
+X         }
+X
+X      agc--;  agv++;
+X      }
+X
+X   if (agc != 2)
+X      {
+X      usage ();
+X      exit  (1);
+X      }
+X
+X   strcpy (temp, agv[1]);
+X   if (strcmp (&temp[strlen(temp)-2], ".s"))
+X      strcat (temp, ".s");
+X
+X   strcpy (rel, temp);
+X
+X   for (i = strlen(temp)-1; i > -1 && temp[i] != ':' && temp[i] != DIRSEP; i--)
+X      ;
+X   if (i < 0)  i = 0;
+X
+X   rel[i] = 0;
+X
+X   if ((fh = openx (temp, O_RDONLY)) == -1)
+X      {
+X      fprintf (stderr, "cannot open %s.%s", temp, SNGCR);
+X      exit    (1);
+X      }
+X
+X   comment();
+X
+X   (void)skip (fh, "relation");
+X
+X   strcpy (temp, getword (fh));
+X
+X   if (temp[0] == 0)
+X      {
+X      fprintf (stderr, "file holds no schema definition.%s",SNGCR);
+X      exit    (1);
+X      }
+X
+X   Printf ("%s", CLS);
+X   Printf ("Building relation %s under ", temp);
+X
+X   strlwrcpy (names, temp);
+X   struprcpy (nameb, temp);
+X
+X   if (rel[0] != 0)
+X      {
+X      Printf ("directory %s%s",   rel, DUBCR);
+X      sprintf (hdr, "%s%c%s.h",   rel, DIRSEP, temp);
+X      sprintf (rel, "%s%c%s.rel", rel, DIRSEP, temp);
+X      }
+X   else
+X      {
+X      Printf ("current directory%s", DUBCR);
+X      sprintf (hdr, "%s.h",   temp);
+X      sprintf (rel, "%s.rel", temp);
+X      }
+X
+X   Printf (lineF, SNGCR);
+X
+X   comment();
+X
+X   return fh;
+X}
+X
+Xchar *
+Xrepeat (ch, nm)
+Xchar    ch;
+Xint         nm;
+X{
+X   static char buf[80];
+X
+X   buf[(nm = (nm < 0) ? 0 : nm)] = 0;
+X
+X   for (nm--; nm >= 0; nm--)  buf[nm] = ch;
+X
+X   return buf;
+X}
+X
+Xint
+Xcontains_serial (desc)
+Xchar            *desc;
+X{
+X   char *line, *pch;
+X
+X   for (line = desc; (pch = strchr (line, ',')) != NULL; line = pch+1)
+X      {
+X      *pch = 0;
+X      if (data->type[atoi(line)] == T_SERIAL)
+X         return 1;
+X      }
+X   if (data->type[atoi(line)] == T_SERIAL)
+X      return 1;
+X
+X   return 0;
+X}
+X
+END_OF_FILE
+  if test 19729 -ne `wc -c <'src/build.c'`; then
+    echo shar: \"'src/build.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/build.c'
+fi
+if test -f 'src/report.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/report.c'\"
+else
+  echo shar: Extracting \"'src/report.c'\" \(20824 characters\)
+  sed "s/^X//" >'src/report.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X *
+X * Special thanks go to Bruce Momjian (root@candle.uucp@ls.com) for his
+X * suggestions and code.
+X *
+X */
+X
+X#include "mbase.h"
+X
+X/*
+X * Definitions
+X *
+X */
+X
+X#define usage() fprintf(stderr,"format: report [-k encryption_key] [templatename]%s", SNGCR)
+X#define syntax(x) { fprintf(stderr,"syntax error in template: expected keyword '%s'%s", x, SNGCR);  mb_exit(3); }
+X
+X#define comment() skip(templ,";"); while(skip(templ,"#")) goeol(templ,NULL);
+X#define skipl(x) for (I=0; I<x; I++)  printf(SNGCR);
+X
+X#define MAX_WIDTH  80
+X#define FULL_WIDTH "%-79.79s"
+X
+X#define NONE   0
+X#define BEFORE 1
+X#define DURING 2
+X#define AFTER  4
+X
+X /* CREDIT is displayed as the variable system without "!date" or anything */
+X
+X#define CREDIT "MetalBase 5.0 Report Writer"
+X
+X/*
+X * Prototypes
+X *
+X */
+X
+X#ifdef LONGARGS
+X   void  parse_args (int, char **);
+X   int   get_size   (long);
+X   void  do_prints  (long, int);
+X   int   fill_data  (dataptr, int, char *);
+X#else
+X   void  parse_args();
+X   int   get_size();
+X   void  do_prints();
+X   int   fill_data();
+X#endif
+X
+X/*
+X * Variables
+X *
+X */
+X
+Xextern    long   _lpos;  /* These are from parse.c */
+Xextern    int    quoted; /* Referenced in libmb.a  */
+X
+Xint       templ, I;
+Xlong      lpos = 0L;
+Xchar      key[MAX_WIDTH] = "";
+Xrelation *rel;
+Xlong      l_pos = 0L;
+Xlong      h_pos = 0L;
+Xlong      f_pos = 0L;
+Xlong      o_pos = 0L;
+Xint       keep_l = 0, keep_h = 0, keep_f = 0;
+Xdataptr   rec, buf;
+X
+Xint       num_col = 80;   /* 80-column (std pagesize) paper */
+Xint       num_row = 66;   /* 66-line (std pagesize) paper   */
+Xint       top_mar =  4;   /* 2/3" top margin by default     */
+Xint       bot_mar =  6;   /* 1" bottom margin by default    */
+Xint       lef_mar = 10;   /* 1" left margin by default      */
+Xint       rig_mar = 10;   /* 1" right margin by default     */
+Xint       wid;
+Xint       hgt;
+Xint       pageno  =  1;   /* Start with page 1, obviously   */
+X
+X/*
+X * Main code
+X *
+X */
+X
+Xvoid
+Xmain  (argc, argv)
+Xint    argc;
+Xchar **argv;
+X{
+X   int    act, idx, numlines, lines, stop, dir, i, on_siz;
+X   int    didother, doneone,  badrec;
+X   char   temp[128];
+X
+X   parse_args (argc, argv);
+X
+X   comment();
+X   if (! skip (templ, "data"))  syntax ("data");
+X   strcpy (temp, getword(templ));
+X   comment();
+X
+X   if (! strcmp (&temp[strlen(temp)-4], ".rel"))
+X      temp[strlen(temp)-4] = 0;
+X   if ((rel = mb_inc (temp, strtokey (key))) == RNULL)
+X    { fprintf (stderr, "Cannot open relation '%s' : %s\n", temp, mb_error);
+X      close   (templ);
+X      exit    (4);
+X    }
+X   if ((rec = (dataptr)malloc (2+rel->rec_len)) == NULL)
+X    { fprintf (stderr, "Out of memory\n");
+X      close   (templ);
+X      mb_exit (4);
+X    }
+X   if ((buf = (dataptr)malloc (2+rel->rec_len)) == NULL)
+X    { fprintf (stderr, "Out of memory\n");
+X      free    (rec);
+X      close   (templ);
+X      mb_exit (4);
+X    }
+X
+X   for (didother = 0; ; )
+X    {
+X      if (skip (templ, ";") == -1)  break;
+X      for (;;)
+X       {
+X         if (skip (templ, ";") == -1)  break;
+X         comment();
+X         if (skip (templ, "size"))
+X          {
+X            for (didother = 1; ; )
+X             {
+X               if (skip (templ, ";") == -1)  break;
+X               comment();
+X
+X               strcpy (temp, getword (templ));
+X               if (! strcmp (temp, "columns"))  num_col = atoi(getword(templ));
+X               else
+X               if (! strcmp (temp, "rows"))     num_row = atoi(getword(templ));
+X               else
+X               if (! strcmp (temp, "top"))
+X                { skip (templ, "margin");  top_mar = atoi (getword (templ)); }
+X               else
+X               if (! strcmp (temp, "bottom"))
+X                { skip (templ, "margin");  bot_mar = atoi (getword (templ)); }
+X               else
+X               if (! strcmp (temp, "left"))
+X                { skip (templ, "margin");  lef_mar = atoi (getword (templ)); }
+X               else
+X               if (! strcmp (temp, "right"))
+X                { skip (templ, "margin");  rig_mar = atoi (getword (templ)); }
+X               else
+X               if (!strcmp (temp, "page")   || !strcmp (temp, "newpage") ||
+X                   !strcmp (temp, "header") || !strcmp (temp, "last")    ||
+X                   !strcmp (temp, "on")     || !strcmp (temp, "footer"))
+X                {
+X                  putback(templ);  /* Go back before this word */
+X                  break;
+X                }
+X               else
+X                { fprintf (stderr, "token '%s' unrecognized in Size\n", temp);
+X                  free    (rec);
+X                  free    (buf);
+X                  close   (templ);
+X                  mb_exit (3);
+X                }
+X               continue;
+X             }
+X          }
+X         if (skip (templ, "newpage"))
+X          {
+X            didother = 1;
+X            printf ("\f");
+X            comment();
+X            continue;
+X          }
+X         if (skip (templ, "page"))
+X          {
+X            didother = 1;
+X            pageno = atoi (getword (templ));
+X            comment();
+X            continue;
+X          }
+X         if (skip (templ, "header"))
+X          {
+X            keep_h = skip (templ, "keep");
+X            didother = 2;  /* Ignore errors until next keyword */
+X            comment();
+X            h_pos = lseek (templ, 0L, 1);  (void)getword(templ);
+X            continue;
+X          }
+X         if (skip (templ, "last"))
+X          {
+X            keep_l = skip (templ, "keep");
+X            didother = 2;  /* Ignore errors until next keyword */
+X            comment();
+X            l_pos = lseek (templ, 0L, 1);  (void)getword(templ);
+X            continue;
+X          }
+X         if (skip (templ, "footer"))
+X          {
+X            keep_f = skip (templ, "keep");
+X            didother = 2;  /* Ignore errors until next keyword */
+X            comment();
+X            f_pos = lseek (templ, 0L, 1);  (void)getword(templ);
+X            continue;
+X          }
+X
+X         if (skip (templ, "on"))
+X            break;
+X
+X         if (! didother)
+X          { fprintf (stderr,
+X               "release 5.0 cannot use more than one relation%s", SNGCR);
+X            close (templ);
+X            syntax ("size");
+X          }
+X
+X         if (didother != 2)
+X          { fprintf (stderr, "unexpected keyword '%s'%s",getword(templ),SNGCR);
+X            close   (templ);
+X            free    (rec);
+X            free    (buf);
+X            mb_exit (3);
+X          }
+X         (void)getword(templ);  /* Skip this one--it's in a header or etc */
+X       }
+X
+X      if (skip (templ, ";") == -1)  break;
+X      didother = 1;
+X      wid = num_col - rig_mar - lef_mar;
+X      hgt = num_row - top_mar - bot_mar;
+X
+X/*
+X * Perform ON clause.  We are currently sitting right after the keyword On,
+X * and the following are conditionals on the operation of this clause:
+X *   h_pos:  0L==no header - else, location of first print/skip command
+X *   l_pos:  0L==no last   - else, location of first print/skip command
+X *   f_pos:  0L==no footer - else, location of first print/skip command
+X *
+X */
+X
+X      strcpy (temp, getword (templ));
+X      if ((idx = idxnum (rel, temp)) < 0)
+X       { fprintf (stderr, "invalid index '%s' referenced%s", temp, SNGCR);
+X         free    (rec);
+X         free    (buf);
+X         close   (templ);
+X         mb_exit (5);
+X       }
+X
+X      act = FIRST, stop = NONE;
+X      dir = 0;
+X      if (skip (templ, "<="))  act = FIRST, stop=AFTER;
+X      if (skip (templ, "=<"))  act = FIRST, stop=AFTER;
+X      if (skip (templ, "<"))   act = FIRST, stop=DURING|AFTER;
+X      if (skip (templ, ">="))  act = GTEQ,  stop=NONE;
+X      if (skip (templ, "=>"))  act = GTEQ,  stop=NONE;
+X      if (skip (templ, ">"))   act = GTHAN, stop=NONE;
+X      if (skip (templ, "=="))  act = EQUAL, stop=AFTER;
+X      if (skip (templ, "="))   act = EQUAL, stop=AFTER;
+X
+X      if (act != FIRST || stop != NONE)
+X       { strcpy (temp, getword(templ));
+X         if (!strcmp (temp, "print") || !strcmp (temp, "skip"))
+X          { fprintf (stderr, "query requires comparison value%s", SNGCR);
+X            free    (rec);
+X            free    (buf);
+X            close   (templ);
+X            mb_exit (5);
+X          }
+X
+X         if (fill_data (rec, idx, temp))
+X            fill_data (buf, idx, temp);
+X         else
+X          { act = FIRST;
+X            stop = NONE;
+X          }
+X       }
+X
+X      dir = NEXT;
+X      if (skip (templ, "reverse"))
+X       { dir = PREV;
+X         switch (act)
+X          { case FIRST:  if (stop == NONE)    act = LAST;
+X                         if (stop == AFTER)   act = LTEQ,  stop = NONE;
+X                         if (stop &  DURING)  act = LTHAN, stop = NONE;
+X                        break;
+X            case  GTEQ:  if (stop == NONE)    act = LAST,  stop = BEFORE;
+X            case GTHAN:  if (stop == NONE)    act = LAST,  stop = DURING|BEFORE;
+X          }
+X       }
+X
+X      o_pos    = lseek(templ,0L,1);
+X      on_siz   = get_size(o_pos);
+X      numlines = hgt - get_size(h_pos) - get_size(f_pos);
+X
+X      doneone = 0;
+X      for (lines = 0; ; )
+X       { badrec = 0;
+X         if (mb_sel (rel, idx, rec, act, buf) != MB_OKAY)
+X            if (doneone || mb_errno != MB_NO_SUCH)  break;
+X            else
+X               badrec = 1;
+X         doneone = 1;
+X         if (badrec == 0 && stop != NONE)
+X            if (((i = compare (rel, rec, buf, idx)) < 0 && stop&BEFORE) ||
+X                 (i == 0 && stop&DURING) || (i >  0 && stop&AFTER))
+X               break;
+X         lseek (templ, o_pos, 0);
+X
+X         if (lines+on_siz > numlines-1)
+X           { skipl(numlines-lines);
+X             do_prints(f_pos, 1);
+X             lines=0; skipl(bot_mar); pageno++;
+X           }
+X         if (lines == 0) { skipl(top_mar); do_prints (h_pos, 1); }
+X
+X         do_prints (o_pos, !badrec);
+X         if (badrec)  break;
+X         lines += on_siz;
+X         act = dir;
+X       }
+X
+X      if (mb_errno != MB_NO_SUCH && mb_errno != MB_OKAY)
+X       { fprintf (stderr, "aborted -- %s%s", mb_error, SNGCR);
+X         free    (rec);
+X         free    (buf);
+X         close   (templ);
+X         mb_exit (6);
+X       }
+X
+X      o_pos = lseek (templ, 0L, 1);
+X      skipl (numlines-lines);
+X      do_prints (l_pos ? l_pos : f_pos, 1);
+X      lseek (templ, o_pos, 0);
+X      skipl (bot_mar);  pageno++;
+X
+X   didother = 2;  /* Skip stuff until valid keyword */
+X
+X/*
+X * Done with this clause.  Erase current header/footer/last positions--they
+X * don't carry from one clause to another.  That is, unless they had 'keep'
+X * keywords...
+X *
+X */
+X
+X      if (! keep_l)  l_pos = 0L;
+X      if (! keep_f)  f_pos = 0L;
+X      if (! keep_h)  h_pos = 0L;
+X    }
+X
+X   close   (templ);
+X   free    (rec);
+X   free    (buf);
+X   mb_exit (0);
+X}
+X
+X/*
+X * Utilities
+X *
+X */
+X
+Xvoid
+Xparse_args (agc, agv)
+Xint         agc;
+Xchar           **agv;
+X{
+X   char name[256];
+X
+X   while (agc > 1 && agv[1][0] == '-')
+X      {
+X      switch (agv[1][1])
+X         {
+X         case 'k':  if (agv[1][2])
+X                       strcpy (key, &agv[1][2]);
+X                    else
+X                     { agc--;  agv++;
+X                       strcpy (key, agv[1]);
+X                     }
+X                   break;
+X         default:   fprintf (stderr, "unrecognized option '%s'\n", agv[1]);
+X                    usage   ();
+X                    exit    (1);
+X                   break;
+X         }
+X
+X      agc--;  agv++;
+X      }
+X
+X   if (agc != 2)
+X    { usage ();
+X      exit  (1);
+X    }
+X
+X   strcpy (name, agv[1]);
+X   if (strcmp (&name[strlen(name)-4], ".rpt"))  strcat (name, ".rpt");
+X   if ((templ = openx (name, O_RDONLY)) < 0)
+X    { fprintf (stderr, "cannot open template '%s'\n", name);
+X      exit    (2);
+X    }
+X}
+X
+X/*
+X * get_size() reads from position 'pos' until it doesn't see a print or
+X * skip command--it keeps track of the number of lines used in the section,
+X * and returns it.  It's used to make headers and footers work well with
+X * top and bottom margins.
+X *
+X */
+X
+Xint
+Xget_size (pos)
+Xlong      pos;
+X{
+X   int  num = 0;
+X
+X   for (lseek (templ, pos, 0); ; )
+X    {
+X      if (skip (templ, ";") == -1)  break;
+X      comment();
+X      if (skip (templ, "print"))
+X       {
+X         if (! skip (templ, "continued"))
+X          { if (! strcmp (":", getword(templ)))  num++;
+X            else
+X               if (! skip (templ, "continued"))  num++;
+X          }
+X
+X         for (;;)
+X            if (skip (templ, ";"))  break;
+X            else
+X               (void)getword(templ);
+X       }
+X      else
+X         if (skip (templ, "skip"))
+X          {
+X            num += atoi (getword (templ));
+X            skip (templ, "lines");  skip (templ, "line");
+X          }
+X         else
+X            break;
+X    }
+X
+X   return num;
+X}
+X
+X/*
+X * do_prints() actually performs the printings.  :)
+X *
+X */
+X
+Xvoid
+Xdo_prints (pos, really)
+Xlong       pos;
+Xint             really;
+X{
+X   long    lx;  /* typ == 1 */
+X   double  fx;  /* typ == 2 */
+X   mb_time tx;  /* typ == 3 */
+X   mb_date dx;  /* typ == 4 */
+X   int     cnt, jst, x, w, l, typ, fmt;
+X   char    spc[128], temp[256], t2[128], t3[128], *p;
+X
+X   if (! pos)  return;
+X
+X   sprintf (spc, FULL_WIDTH, "");  spc[lef_mar] = 0;
+X
+X   w = wid;  l = lef_mar;
+X   for (lseek (templ, pos, 0); ; )
+X      {
+X      if (skip (templ, ";") == -1)  break;
+X      comment();
+X
+X      if (skip (templ, "skip"))
+X         {
+X         x = atoi (getword (templ));
+X         skip (templ, "lines");  skip (templ, "line");
+X         skip (templ, ";");
+X         if (really)
+X            for ( ; x > 0; x--)  printf (SNGCR);
+X         continue;
+X         }
+X
+X      if (! skip (templ, "print"))
+X         {
+X         break;
+X         }
+X
+X      cnt = jst = 0;
+X      if (skip (templ, "continued"))  cnt = 1;
+X      if (skip (templ, "centered"))   jst = 1;
+X      if (skip (templ, "continued"))  cnt = 1;
+X      if (skip (templ, "right"))      jst = 2;
+X      if (skip (templ, "continued"))  cnt = 1;
+X
+X      skip (templ, ":");
+X
+X/*
+X * process the print command
+X *
+X */
+X
+X      for (temp[0] = 0; ; )
+X         {
+X         strcpy (t2, getword(templ));
+X         if (! quoted && ! strcmp (t2, ";"))  break;
+X
+X         if (quoted)
+X            {
+X            typ=0;
+X            }
+X         else
+X            {
+X            if (isdigit(t2[0]) || t2[0] == '.')
+X               {
+X               if (strchr (t2, '.'))  typ=2, fx=(double)atof(t2);
+X               else                   typ=1, lx=(long)atol(t2);
+X               }
+X            else
+X               {
+X               if (!strcmp (t2, "column"))
+X                { sprintf (t2, FULL_WIDTH, "");
+X                  x = atoi(getword(templ))-l-strlen(temp);
+X                  if (x < 0)  x = 0;
+X                  t2[x] = 0;  typ = 0;
+X                }
+X               else
+X                  {
+X                  if (!strcmp (t2, ","))
+X                     t2[0] = ' ', typ = 0;
+X                  else
+X                     {
+X
+X/*
+X * It's a variable of some sort; make t2 the name and t3 any modifer.
+X *
+X */
+X
+X                     fmt = 0;
+X                     t3[0] = 0;
+X                     if (p = strchr (t2, '!'))
+X                        {
+X                        strcpy (t3, p+1);
+X                        *p = 0;
+X                        }
+X
+X/*
+X * That done, figure out what type it should be and assign it.
+X *
+X */
+X                     typ = -1;
+X
+X                     if (!strcmp (t2, "system"))
+X                        {
+X                        if (! strcmp (t3, "time"))
+X                         { tx = curtime();  typ = 3; }
+X                        else if (! strcmp (t3, "date"))
+X                         { dx = curdate();  typ = 4; }
+X                        else if (! strcmp (t3, "page"))
+X                         { lx = pageno;     typ = 1; }
+X                        else 
+X                         { strcpy (t2, CREDIT);  typ = 0; }
+X                        }
+X
+X/*
+X* If they use the relation name, trash it...
+X*
+X*/
+X
+X                     if (typ == -1 && (p = strchr (t2, '.')))
+X                        {
+X                        strcpy (spc, 1+p);
+X                        strcpy (t2, spc);
+X                        sprintf (spc, FULL_WIDTH, "");  spc[lef_mar] = 0;
+X                        }
+X
+X                     if (typ == -1)
+X                        {
+X                        for (x=0; x < rel->num_f; x++)
+X                           if (! strcmp (rel->name[x], t2))  break;
+X                        typ = 0;
+X                        if (x != rel->num_f)
+X                           {
+X
+X/*
+X * It's a valid name, so use its data (field # is in x)
+X *
+X */
+X
+X                           if (! t3[0])
+X                              {
+X                              p = (char *)rec + rel->start[x];
+X
+X            switch (rel->type[x])
+X               {
+X               case T_SHORT:   lx = (long) *(short  *)p;  typ = 1;  break;
+X               case T_USHORT:  lx = (long) *(ushort *)p;  typ = 1;  break;
+X               case T_LONG:
+X               case T_SERIAL:  lx = (long) *(long   *)p;  typ = 1;  break;
+X               case T_ULONG:   lx = (long) *(ulong  *)p;  typ = 1;  break;
+X               case T_FLOAT:   fx = (float)*(float  *)p;  typ = 2;  break;
+X               case T_DOUBLE:
+X               case T_MONEY:   fx = (float)*(double *)p;  typ = 2;  break;
+X               case T_TIME:    tx =       *(mb_time *)p;  typ = 3;  break;
+X               case T_DATE:    dx =       *(mb_date *)p;  typ = 4;  break;
+X               default:        strcpy (t2, p);            typ = 0;  break;
+X               }
+X
+X                              }
+X                           }
+X                        }
+X                     }
+X                  }
+X               }
+X            }
+X
+X         if (skip (templ, "using") || skip (templ, "format"))
+X          { if (typ == 3 || typ == 4)
+X               fmt = atoi (getword (templ));
+X            else
+X             { strcpy (t3, getword(templ));
+X               switch (typ)
+X                { case 0:  strcpy  (spc, t2);
+X                           sprintf (t2, t3, spc);  typ = 0;
+X                           sprintf (spc,FULL_WIDTH,"");  spc[lef_mar]=0;
+X                          break;
+X                  case 1:  sprintf (t2, t3, lx);  typ = 0;  break;
+X                  case 2:  sprintf (t2, t3, fx);  typ = 0;  break;
+X                }
+X             }
+X          }
+X
+X         if (typ == 1)  sprintf (t2, "%ld", lx);
+X         if (typ == 2)  sprintf (t2, "%lg", fx);
+X         if (typ == 3)  strcpy  (t2, fmt_time (tx, fmt));
+X         if (typ == 4)  strcpy  (t2, fmt_date (dx, fmt));
+X
+X         if (skip (templ, "to"))
+X          { sprintf (t3, FULL_WIDTH, "");
+X            x = atoi (getword(templ)) - l - strlen (t2) - strlen (temp);
+X            if (x < 0)  x = 0;
+X            t3[x] = 0;
+X            strcat (t2, t3);
+X          }
+X
+X         strcat (temp, t2);
+X         }
+X
+X/*
+X * and actually print it.
+X *
+X */
+X
+X      if (really)
+X         {
+X         switch (jst)
+X            {
+X            case  0:  printf ("%s%s", spc, temp);  break;
+X            case  1:  x = ((w - strlen (temp)) / 2);  x = max (x, 0);
+X                      if (w == wid)  x += l;
+X                      sprintf (t2, FULL_WIDTH, "");  t2[x] = 0;
+X                      printf ("%s%s", t2, temp);   break;
+X            case  2:  x = (w - strlen (temp)); x = max (x, 0);
+X                      if (w == wid)  x += l;
+X                      sprintf (t2, FULL_WIDTH, "");  t2[x] = 0;
+X                      printf ("%s%s", t2, temp);   break;
+X            }
+X         if (! cnt)  w  = wid,           l  = lef_mar;
+X         else        w -= strlen (temp), l += strlen (temp);
+X         if (! cnt)  printf (SNGCR);
+X         }
+X      }
+X}
+X
+Xint
+Xfill_data (ptr, idx, str)
+Xdataptr    ptr;
+Xint             idx;
+Xchar                *str;
+X{
+X   char    temp[128], t2[5];
+X   dataptr x;
+X   long    y;
+X   int     i, j, k, f;
+X
+X   if (idx < 0 || idx >= rel->num_i)  return 0;
+X
+X   i = 0;  /* Left edge of word in str */
+X   for (k = 0; ; k++)
+X      {
+X      if (! str[i])  break;
+X      for (j = i; str[j] && str[j] != ','; j++)
+X         ;
+X      strcpy (temp, &str[i]);  temp[j-i] = 0;  i = j;
+X
+X      strzcpy (t2, &rel->idxs[idx][3*k +3], 3);  f = atoi (t2);
+X
+X      x = (dataptr)((char *)ptr + rel->start[f]);  /* Position of field */
+X
+X      switch (rel->type[f])
+X         {
+X         case T_SHORT:   *(short   *)x = (short) atoi (temp);  break;
+X         case T_USHORT:  *(ushort  *)x = (ushort)atoi (temp);  break;
+X         case T_LONG:    *(long    *)x = (long)  atol (temp);  break;
+X         case T_ULONG:   *(ulong   *)x = (ulong) atol (temp);  break;
+X         case T_FLOAT:   *(float   *)x = (float) atof (temp);  break;
+X         case T_DOUBLE:
+X         case T_MONEY:   *(double  *)x = (double)atof (temp);  break;
+X         case T_TIME:    *(mb_time *)x = scn_time (temp);      break;
+X         case T_DATE:    *(mb_date *)x = scn_date (temp);      break;
+X         case T_SERIAL:  *(long    *)x = (long)  atol (temp);  break;
+X         default:        strcpy (x, temp);                     break;
+X         }
+X
+X      if (rel->type[f] == T_MONEY)
+X         {
+X         y = (long)(100.0 * (double)atof (temp));
+X         *(double *)x = (double)y / 100.0;
+X         }
+X      }
+X   return 1;
+X}
+X
+END_OF_FILE
+  if test 20824 -ne `wc -c <'src/report.c'`; then
+    echo shar: \"'src/report.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/report.c'
+fi
+echo shar: End of archive 2 \(of 8\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

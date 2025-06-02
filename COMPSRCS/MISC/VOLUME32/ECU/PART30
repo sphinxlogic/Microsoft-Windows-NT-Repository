@@ -1,0 +1,1988 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i065:  ecu - ECU Asynchronous Communications v3.20, Part30/40
+Message-ID: <1992Sep14.145042.22461@sparky.imd.sterling.com>
+X-Md4-Signature: 6cecb1b7bfeeabacd4166d4f0d1bd347
+Date: Mon, 14 Sep 1992 14:50:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 65
+Archive-name: ecu/part30
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.30 (part 30 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file gendial/dceUSR24.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 30; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping gendial/dceUSR24.c'
+else
+echo 'x - continuing file gendial/dceUSR24.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'gendial/dceUSR24.c' &&
+Xthis function is usually a no-op.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_abort(sig)
+Xint sig;
+X{
+X	DEBUG(10,"DCE_abort(%d);\n",sig);
+X}	/* end of DCE_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_exit(exitcode) - "last chance for gas" in this incarnation
+X
+XThe independent portion of the dialer program calls this routine in
+Xlieu of exit() in every case except one (see DCE_argv_hook() below).
+XNormally, this function just passes it's argument to exit(), but
+Xany necessary post-processing can be done.  The function must,
+Xhowever, eventually call exit(exitcode);
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_exit(exitcode)
+Xint exitcode;
+X{
+X	DEBUG(10,"DCE_exit(%d);\n",exitcode);
+X	exit(exitcode);
+X}	/* end of DCE_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_argv_hook(argc,argv,optind,unrecognized_switches)
+X
+XThis hook gives DCE-specific code a chance to look over the entire
+Xcommand line, such as for -z Telebit processing.
+X
+Xargc andf argv are the same values passed to main(),
+X
+Xoptind is the value of optind at the end of normal getopt processing.
+X
+Xunrecognized_switches is the count of switches not handled by main().
+XSpecifically, -h and -x are standard switches.
+X
+XNormally, this function should just return RC_FAIL|RCE_ARGS if there are
+Xany unrecognized switches, otherwise zero.  If you keep your nose clean
+Xthough, you can do anything you need to do here and exit the program.
+X
+XNote: only simple switches (with no argument) may be used with this
+Xfacility if the functrion is to return,' since main()'s getopt() will
+Xstop processing switches if it runs into an unrecognized switch with an
+Xargument.
+X
+XIf the function returns a non-zero value, then the value will be passed
+XDIRECTLY to exit() with no further ado.  Thus, a non-zero value must be
+Xof the format expected by dialer program callers, with RC_FAIL set as a
+Xminimum.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_argv_hook(argc,argv,optind,unrecognized_switches)
+Xint argc;
+Xchar **argv;
+Xint optind;
+Xint unrecognized_switches;
+X{
+X	if(unrecognized_switches)
+X		return(RC_FAIL | RCE_ARGS);
+X	return(0);
+X}	/* end of DCE_argv_hook */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+echo 'File gendial/dceUSR24.c is complete' &&
+chmod 0644 gendial/dceUSR24.c ||
+echo 'restore of gendial/dceUSR24.c failed'
+Wc_c="`wc -c < 'gendial/dceUSR24.c'`"
+test 13878 -eq "$Wc_c" ||
+	echo 'gendial/dceUSR24.c: original size 13878, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/dialer.h ==============
+if test -f 'gendial/dialer.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/dialer.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/dialer.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/dialer.h' &&
+X/*+-------------------------------------------------------------------------
+X	dialer.h - SCO UUCP generic dialer program definitions
+X	wht%n4hgf.uucp@emory.mathcs.emory.edu -or- emory!n4hgf!wht
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03/29/92:12:47:49-cma-added <sys/filio.h> */
+X/*:03/29/92:12:30:01-cma-added <sys/time.h> */
+X/*:01-26-1992-15:30-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:03-12-1991-19:11-wht@n4hgf-if ecu dialing, show complete call progress */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <memory.h>
+X#include <sys/types.h>
+X#include <sys/errno.h>
+X#include <sys/stat.h>
+X#include <sys/timeb.h>
+X#include <sys/time.h>
+X#include <termio.h>
+X#include <time.h>
+X#include <pwd.h>
+X
+X#ifdef sun
+X#define BSD
+X#include <sys/filio.h>
+X#endif
+X
+X#define ff fprintf
+X#define se stderr
+X
+Xlong time();
+Xstruct passwd *getpwnam();
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xextern int gargc;					/* global copy of main's argv */
+Xextern char **gargv;				/* global copy of main's argv */
+Xextern char *dce_name;				/* full pathname of ACU device */
+Xextern char *telno;					/* phone number if dial type request */
+Xextern struct termio dce_termio;	/* last termio for device */
+Xextern int Debug;					/* set per -x flag */
+Xextern int dialing;					/* set while dialing in progress */
+Xextern int dce_fd;					/* file descriptor for dce_name */
+Xextern int DialerExitCode; 			/* return code */
+Xextern int status;					/* set on errors */
+Xextern int hangup_flag;				/* set when DCE being hung up */
+Xextern int hiCBAUD;					/* highest permissible baud rate */
+Xextern int loCBAUD;					/* lowest permissible baud rate */
+Xextern struct passwd *passwd;		/* pointer to password entry of invoker */
+Xextern int uid;						/* user id of executor */
+Xextern int uid_uucp;				/* user id of uucp */
+Xextern int secure;					/* non-zero to suppress display of secure
+X									 * DCE traffic
+X									 */
+Xextern int ecu_calling;				/* true if ecu dialing */
+X
+Xunsigned char dialer_codes[26];	/* A-Z embedded phone number codes */
+X/* return codes: these are set up so that an abort signal at any time can */
+X/* set the fail bit and return to the caller with the correct status */
+X#define	SUCCESS		0
+X#define	RC_FAIL		0x80	/* 1 = failed to connect */
+X#define	RC_ENABLED	0x10	/* enabled flag: 1 = ungetty -r required to
+X							 * restore the line
+X							 */
+X#define	RC_BAUD		0x0f	/* CBAUD connected at (0=same as dialed speed) */
+X
+X/* DCE result device independent flag */
+X#define	rfNumeric	0x40000000
+X
+X/* program exit codes */
+X#define	RCE_NULL	0	/* general purpose or unknown error code */
+X#define	RCE_INUSE	1	/* line in use */
+X#define	RCE_SIG		2	/* signal aborted dialer */
+X#define	RCE_ARGS	3	/* invalid arguments */
+X#define	RCE_PHNO	4	/* invalid phone number */
+X#define	RCE_SPEED	5	/* invalid baud rate -or- bad connect baud */
+X#define	RCE_OPEN	6	/* can't open line */
+X#define	RCE_IOCTL	7	/* ioctl error */
+X#define	RCE_TIMOUT	8	/* timeout */
+X#define	RCE_NOTONE	9	/* no dial tone */
+X#define	RCE_HANGUP	10	/* hangup failed */
+X#define RCE_NORESP	11	/* Modem didn't respond. */
+X#define	RCE_BUSY	13	/* phone is busy */
+X#define	RCE_NOCARR	14	/* no carrier */
+X#define	RCE_ANSWER	15	/* no answer */
+X
+X/* ungetty return codes */
+X#define	UG_NOTENAB	0
+X#define	UG_ENAB		1
+X#define	UG_RESTART	1
+X#define	UG_FAIL		2
+X
+X/* size for various buffers */
+X#define MAXLINE		2048
+X
+X/* How many errors allowed before call retry fails */
+X#define	DIAL_ERRORS_MAX	4
+X
+X/* DCE message to code mapping struct ... array DCE_results of these
+X * must be terminated with { (char *)0,0 } */
+Xtypedef struct dce_result
+X{
+X	char *result;
+X	long code;
+X} DCE_RESULT;
+X
+X#define DEBUG(level,fmt,arg) if (Debug >= level) fprintf(stderr,fmt,arg)
+X#if !defined(DBG)
+X#define	DBG	0
+X#endif
+X
+X/*
+X * what the hell does __STDC__ mean in reality?  An __STDC__ compiler is
+X * more nouveau than an older one.  ANSI C (or 'D') just stirred new
+X * food for "standard" readers who went off and did what they wanted
+X * to do.  We use __STDC__ to decide between two opinions of
+X * what constitute "ANSI prototypes."  As of this writing, __STDC__ is
+X * defined by the UNIX (MSC 5) compiler and not by the XENIX (MSC 4)
+X * compiler.  We handle the GNU C compiler too.
+X */
+X#if defined(__STDC__) && !defined(__GNUC__)
+Xint DCE_baud_to_CBAUD(unsigned int );
+Xvoid DCE_hangup(void );
+Xint DCE_dial(char *);
+Xvoid DCE_abort(int );
+Xvoid DCE_exit(int );
+Xint DCE_argv_hook(int ,char **,int ,int );
+Xint get_uucp_uid(void );
+Xint instr(char *,char *);
+Xvoid translate(char *,char *);
+Xint decode_phone_number(char *,char *,int );
+Xchar *make_printable(unsigned char );
+Xchar *RCE_text(int );
+Xvoid myexit(int );
+XSIGTYPE dial_abort(int );
+Xvoid cleanup(int );
+Xint SIGALRM_abort(int );
+XSIGTYPE SIGALRM_alert(int );
+Xint _lread(int ,int );
+Xint lread_ignore(int );
+Xint lread(int );
+Xvoid lflush(void );
+Xvoid _lputc(char );
+Xvoid _lputc_paced(long ,char );
+Xvoid _lputs(char *);
+Xvoid _lputs_paced(long ,char *);
+Xvoid lwrite(char *);
+Xvoid lflash_DTR(void );
+Xint call_ungetty(char );
+Xvoid display_termio(struct termio *,char *);
+Xint open_dce(void );
+Xint main(int ,char **);
+X#else
+Xint DCE_baud_to_CBAUD();
+Xvoid DCE_hangup();
+Xint DCE_dial();
+Xvoid DCE_abort();
+Xvoid DCE_exit();
+Xint DCE_argv_hook();
+Xint get_uucp_uid();
+Xint instr();
+Xvoid translate();
+Xint decode_phone_number();
+Xchar *make_printable();
+Xchar *RCE_text();
+Xvoid myexit();
+XSIGTYPE dial_abort();
+Xvoid cleanup();
+XSIGTYPE SIGALRM_alert();
+Xint SIGALRM_abort();
+Xint _lread();
+Xint lread_ignore();
+Xint lread();
+Xvoid lflush();
+Xvoid _lputc();
+Xvoid _lputc_paced();
+Xvoid _lputs();
+Xvoid _lputs_paced();
+Xvoid lwrite();
+Xvoid lflash_DTR();
+Xint call_ungetty();
+Xvoid display_termio();
+Xint open_dce();
+Xint main();
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of dialer.h */
+SHAR_EOF
+chmod 0644 gendial/dialer.h ||
+echo 'restore of gendial/dialer.h failed'
+Wc_c="`wc -c < 'gendial/dialer.h'`"
+test 6062 -eq "$Wc_c" ||
+	echo 'gendial/dialer.h: original size 6062, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/gendial.c ==============
+if test -f 'gendial/gendial.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/gendial.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/gendial.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/gendial.c' &&
+X/* CHK=0xC086 */
+Xchar *revision = "1.31";
+X/*+-------------------------------------------------------------------------
+X	gendial.c - SCO UUCP dialer program device independent portion
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Configuration symbols:
+X	HDB_UUCP		defined if HDB UUCP used on system, else old Version 2 
+X
+X  Defined functions:
+X	RCE_text(value)
+X	SIGALRM_alert(sig)
+X	_lputc(lchar)
+X	_lputc_paced(pace_msec,lchar)
+X	_lputs(string)
+X	_lputs_paced(pace_msec,string)
+X	_lread(rtime,error_ok)
+X	call_ungetty(call_type)
+X	cleanup(code)
+X	decode_phone_number(userphno,result,resultlen)
+X	dial_abort(sig)
+X	display_termio(ttt,text)
+X	get_uucp_uid()
+X	instr(s1,s2)
+X	lbreak()
+X	lflash_DTR()
+X	lflush()
+X	lread(rtime)
+X	lread_ignore(rtime)
+X	ltd_report()
+X	lwrite(str)
+X	main(argc,argv)
+X	make_printable(ch)
+X	myexit(code)
+X	open_dce()
+X	rdchk(fd)
+X	translate(ttab,str)
+X
+X  Usage:	dial ttyname telnumber speed 
+X			dial -h ttyname speed
+X
+X  ttyname may be of style "ttyxx" or "/dev/ttyxx" (this is not standard)
+X
+X  Returns:
+X		0x80	bit = 1 if connection failed
+X		0x10	bit = 1 if line is also used for dialin #if !defined(OLDUUCP)
+X		0x0f	if msb=1: error code
+X				if msb=0: connected baud rate (0=same as dialed baud)
+X                Note: this dialer always returns 0 in the low nibble
+X                since cu and uucp expect it
+X
+X  Note: getty calls the dialer with -h whenever it starts up on a line
+X  enabled in /etc/ttys and listed in Devices with this dialer.
+X
+X  Error codes are split into two categories:
+X
+X    1) (codes 0-11) Local problems are defined as tty port, or DCE
+X    problems: problems that can be worked around by using a different
+X    device.
+X
+X    2) (codes 12-15) Remote problems are phone busy, no answer, etc.:
+X    attempt to connect to this remote system should be stopped.
+X
+X  Note: This dialer can be used both for the old "Version 2" 
+X  new HoneyDanBer UUCP.  In HDB, uugetty is used and ungetty is not
+X  necessary. Define HDB_UUCP for HDB UUCP.
+X
+X  Note: This version of the dialer will NOT display the telephone number
+X  on the console unless the actual uid is root or ECU is calling as
+X  detected by a parse of argv[0].  Now, if uucico would just suppress
+X  username and password information it emits to debug (some do).
+X
+X  See below for a description of lread() timing debug.
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-03:08-wht@n4hgf-head off another POSIX plot */
+X/*:08-10-1992-04:01-wht@n4hgf-use init_Nap */
+X/*:07-17-1992-18:28-wht@n4hgf-remove Nap() and use common ../nap.o */
+X/*:05-11-1992-17:54-wht@gyro-no naps in lflash_DTR on sun */
+X/*:05-11-1992-16:43-wht@gyro-fix WORKING_SELECT nap once and for all */
+X/*:03-30-1992-14:18-root@n4hgf-add lbreak */
+X/*:03-29-1992-12:30-cma-removed sigint reference in nap */
+X/*:02-02-1992-19:37-root@n4hgf-add ltd */
+X/*:02-02-1992-17:45-root@n4hgf-_lread: allow rtime secs after each character */
+X/*:01-26-1992-15:31-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:08-13-1991-14:36-wht@n4hgf-perror on dce open error */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:05-01-1991-21:28-wht@n4hgf-add dial timing */
+X/*:03-12-1991-19:11-wht@n4hgf-if ecu dialing, show complete call progress */
+X/*:07-19-1990-17:14-root@n4hgf-modify lread fata timeout handler */
+X/*:05-26-1990-02:15-wht@n4hgf-creation */
+X
+X#include "dialer.h"
+X
+X/*
+X * lread() timing debug
+X *
+X * if LTD_DEBUG_LEVEL is defined, it should be set to the DEBUG level
+X * at which a DCE result arrival report should be printed in the event
+X * of a DCE timeout.  This normally would be set at 6, the debugging
+X * level for the timeout report itself.  Sample output:
+X *
+X * Arrival Report for 16 characters (in msec)
+X *      0 A    19624 ^M   19624 ^J   19624 C    19624 O    19624 N    19624 N
+X *  19624 E    19624 C    19624 T    19872      19872 F    19872 A    19872 S
+X *  19888 T    19888 ^M
+X *
+X * comment out the following line for no LTD.
+X */
+X#define LTD_DEBUG_LEVEL 6
+X#if defined(LTD_DEBUG_LEVEL)
+Xstruct ltd {
+X	unsigned char rdchar;
+X	struct timeb timeb;
+X};
+Xstruct ltd ltds[MAXLINE];
+Xint ltd_count = 0;
+Xstruct timeb ltd_initial_timeb;
+X#endif /* LTD_DEBUG_LEVEL */
+X
+X
+X#undef NULL	/* some stdio and param.h define these differently */
+X#include <sys/param.h>
+X#ifndef NULL		/* fake usual sys/param.h value */
+X#define NULL 0
+X#endif
+X
+Xlong Nap();
+X
+X/* must be defined by device dependent module */
+Xextern long DCE_DTR_low_msec;		/* msecs DTR must be low to be recognized */
+Xextern long DCE_DTR_high_msec;		/* msecs for DCE to recover */
+Xextern long DCE_write_pace_msec;	/* msecs between chars written to DCE */
+Xextern DCE_RESULT DCE_results[];	/* DCE result codes */
+Xextern char *DCE_name;				/* name of DCE */
+Xextern char *DCE_revision;			/* DCE-dependent code revision */
+Xextern short DCE_hangup_CBAUD;		/* BXXX DCE hangup baud rate or zero */
+X
+X/* globals available to device dependent module */
+Xint gargc;					/* global copy of main's argv */
+Xchar **gargv;				/* global copy of main's argv */
+Xchar *dce_name;				/* full pathname of ACU device */
+Xchar *telno = (char *)0;	/* phone number if dial type request */
+Xstruct termio dce_termio;	/* last termio for device */
+Xint Debug = DBG;			/* set per -x flag */
+Xint dialing = 0;			/* set while dialing in progress */
+Xint dce_fd = -1;				/* file descriptor for dce_name */
+Xint DialerExitCode = RC_FAIL; /* return code */
+Xint status = 0;				/* set on errors */
+Xint hangup_flag = 0;		/* set when DCE being hung up */
+Xint hiCBAUD;				/* highest permissible baud rate */
+Xint loCBAUD;				/* lowest permissible baud rate */
+Xstruct passwd *passwd;
+Xint uid;					/* user id of executor */
+Xint uid_uucp;				/* user id of uucp */
+Xint secure = 0;				/* non-zero to suppress display of secure
+X							 * DCE traffic
+X							 */
+Xint ecu_calling = 0;		/* true if ecu is dialing */
+Xint sigint = 0;			/* dummy for nap.c */
+X
+Xunsigned char dialer_codes[26];	/* A-Z embedded phone number codes */
+X
+Xjmp_buf	SIGALRM_alert_jmpbuf;
+XDCE_RESULT *last_result;
+X
+X/*+-------------------------------------------------------------------------
+X	get_uucp_uid()
+X--------------------------------------------------------------------------*/
+Xint
+Xget_uucp_uid()
+X{
+X
+X	passwd = getpwnam("uucp");
+X	endpwent();
+X	if(passwd)
+X		return(passwd->pw_uid);
+X	else
+X		return(-1);
+X}	/* end of get_uucp_uid */
+X
+X/*+-------------------------------------------------------------------------
+X	instr(s1,s2)
+X
+X  find s2 in s1; returns 1 if found, 0 if not found
+X--------------------------------------------------------------------------*/
+Xinstr(s1,s2)
+Xregister char *s1;
+Xchar *s2;
+X{
+X	register len = strlen(s2);
+X	while(s1 = strchr(s1,*s2))
+X	{
+X		if(!strncmp(s2,s1,len))
+X			return(1);
+X		s1++;
+X	}
+X	return(0);
+X}	/* end of instr */
+X
+X/*+-------------------------------------------------------------------------
+X	translate(ttab,str)
+X
+X  translate the pairs of characters present in the first string
+X  whenever the first of the pair appears in the second string
+X  (this routine from standard SCO dialer code)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xtranslate(ttab,str)
+Xregister char *ttab;
+Xchar *str;
+X{
+X	register char *cptr;
+X
+X	while(*ttab && *(ttab + 1))
+X	{
+X		for(cptr = str; *cptr; cptr++)
+X		{
+X			if(*ttab == *cptr)
+X				*cptr = *(ttab + 1);
+X		}
+X		ttab += 2;
+X	}
+X}	/* end of translate */
+X
+X/*+-------------------------------------------------------------------------
+X	decode_phone_number(userphno,result,resultlen)
+X
+Xdecode user flags in phone number, returning phone number in
+Xresult, character flags in global dialer_codes[], 'A' or 'a'
+Xresults in dialer_codes[0] being 1, etc.  Only letter codes are
+Xextracted.
+X
+XFor example, if userphno contains "123,D45f", result returned
+X"123,45" and only elements 3 and 5 of dialer_codes set to 1
+X
+XFunction returns 0 if successful, -1 if result buffer too small
+X--------------------------------------------------------------------------*/
+Xint
+Xdecode_phone_number(userphno,result,resultlen)
+Xregister char *userphno;
+Xregister char *result;
+Xint resultlen;
+X{
+Xregister itmp;
+X
+X	for(itmp = 0; itmp < sizeof(dialer_codes); itmp++)
+X		dialer_codes[itmp] = 0;
+X
+X	if(!resultlen)
+X		return(-1);
+X	resultlen--;	/* leave room for null */
+X
+X	while(*userphno)
+X	{
+X		if(isalpha(*userphno))
+X			dialer_codes[*userphno - ((isupper(*userphno)) ? 'A' : 'a')] = 1;
+X		else
+X		{
+X			if(!resultlen--)
+X				return(-1);
+X			*result++ = *userphno;
+X		}
+X		userphno++;
+X	}
+X	*result = 0;
+X	return(0);
+X}	/* end of decode_phone_number */
+X
+X/*+-------------------------------------------------------------------------
+X	make_printable(ch) - make a character "printable"
+X--------------------------------------------------------------------------*/
+Xchar *
+Xmake_printable(ch)
+Xunsigned char ch;
+X{
+Xstatic char buffer[10];
+Xchar *cptr;
+X#define	to_print(x)	((x)<' '?((x)+'@'):'?')
+X
+X	cptr = buffer;
+X	/* if not root or uucp and info needs securing */
+X	if(!ecu_calling && uid && (uid != uid_uucp) && secure)
+X	{
+X		*cptr++ = '?';	/* hide it */
+X		*cptr = 0;
+X		return(buffer);
+X	}
+X
+X	if(iscntrl(ch) || !isprint(ch))
+X	{
+X		if(!isascii(ch))
+X		{			/* Top bit is set */
+X			*cptr++ = 'M';
+X			*cptr++ = '-';
+X			ch = toascii(ch);			/* Strip it */
+X		}
+X		if(iscntrl(ch))
+X		{
+X			*cptr++ = '^';
+X			ch = to_print(ch);			/* Make it printable */
+X		}
+X	}
+X	*cptr++ = ch;
+X	*cptr = 0;
+X	return(buffer);
+X}	/* end of make_printable */
+X
+X/*+-------------------------------------------------------------------------
+X	RCE_text(value)
+X--------------------------------------------------------------------------*/
+Xchar *
+XRCE_text(value)
+Xint value;
+X{
+Xstatic char errant[32];
+X
+X	switch(value & 0x0F)
+X	{
+X		case RCE_NULL: return("unknown or unclassified error");
+X		case RCE_INUSE: return("line in use");
+X		case RCE_SIG: return("killed with signal");
+X		case RCE_ARGS: return("invalid arguments");
+X		case RCE_PHNO: return("invalid phone number");
+X		case RCE_SPEED: return("invalid line speed or bad connect speed");
+X		case RCE_OPEN: return("cannot open line");
+X		case RCE_IOCTL: return("ioctl error");
+X		case RCE_TIMOUT: return("timeout");
+X		case RCE_NOTONE: return("NO DIAL TONE");
+X		case RCE_HANGUP: return("hangup failed\n");
+X		case RCE_NORESP: return("DCE didn't respond.\n");
+X		case RCE_BUSY: return("BUSY");
+X		case RCE_NOCARR: return("NO CARRIER");
+X		case RCE_ANSWER: return("NO ANSWER");
+X	}
+X	sprintf(errant,"code 0x%04x",value);
+X	return(errant);
+X
+X}	/* end of RCE_text */
+X
+X/*+-------------------------------------------------------------------------
+X	myexit(code) - all threads exit() thru here
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmyexit(code)
+Xint code;
+X{
+X	alarm(0);
+X	if(dialing)
+X	{
+X		if(code & RC_FAIL)
+X		{
+X			DEBUG(1,"dial failed: %s\n",RCE_text(code));
+X		}
+X		else
+X		{
+X			DEBUG(1,"dial succeeded\n",0);
+X		}
+X	}
+X	DCE_exit(code);	/* should not return */
+X	exit(code);		/* in case it does */
+X
+X}	/* end of myexit */
+X
+X/*+-------------------------------------------------------------------------
+X	dial_abort(sig)
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+Xdial_abort(sig)
+Xint sig;
+X{
+X	if(sig)
+X	{
+X		DEBUG(1,"\ndialer received signal %d\n\n",sig);
+X	}
+X	else
+X	{
+X		DEBUG(1,"\ndialer aborted, fail status=0x%02x\n",DialerExitCode);
+X	}
+X	DCE_abort(sig);
+X	if(dce_fd != -1)
+X	{
+X		ioctl(dce_fd,TCGETA,&dce_termio);
+X		dce_termio.c_cflag |= HUPCL;		/* make sure DCE hangs up */
+X		ioctl(dce_fd,TCSETA,&dce_termio);
+X		close(dce_fd);
+X	}
+X	if(sig)
+X		DialerExitCode |= (RC_FAIL | RCE_SIG);
+X	myexit(DialerExitCode);
+X}	/* end of dial_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	cleanup(code) - close device and exit
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcleanup(code)
+Xint code;
+X{
+X	if(code & RC_FAIL)
+X	{	/* if we failed, drop DTR (in dial_abort) */
+X		DialerExitCode = code;
+X		dial_abort(0);
+X	}
+X	else 
+X		myexit(code);
+X}	/* end of cleanup */
+X
+X/*+-------------------------------------------------------------------------
+X	SIGALRM_alert(sig) - catch alarm call and do longjmp
+X--------------------------------------------------------------------------*/
+XSIGTYPE
+XSIGALRM_alert(sig)
+Xint sig;
+X{
+X	longjmp(SIGALRM_alert_jmpbuf,1);
+X}	/* end of SIGALRM_alert */
+X
+X/*+-------------------------------------------------------------------------
+X	ltd_report()
+X--------------------------------------------------------------------------*/
+X#if defined(LTD_DEBUG_LEVEL)
+Xvoid
+Xltd_report()
+X{
+Xstruct ltd *l = ltds;
+Xlong msec;
+Xint col = 0;
+X
+X	if(!ltd_count)
+X	{
+X		fputs("DCE was completely silent\n",stderr);
+X		return;
+X	}
+X	fprintf(stderr,"Arrival Report for %d characters (in msec)\n",ltd_count);
+X	while(ltd_count--)
+X	{
+X		msec =  ((l->timeb.time - ltd_initial_timeb.time) * 1000L) +
+X			(l->timeb.millitm - ltd_initial_timeb.millitm);
+X		fprintf(stderr,"%6ld %-3.3s ",msec,make_printable(l->rdchar));
+X		l++;
+X		if(++col > 6)
+X		{
+X			col = 0;
+X			fputs("\n",stderr);
+X		}
+X	}
+X	if(col)
+X		fputs("\n",stderr);
+X	ltd_count = 0;
+X
+X}	/* end of ltd_report */
+X#endif /* LTD_DEBUG_LEVEL */
+X
+X/*+-------------------------------------------------------------------------
+X	_lread(rtime,error_ok)
+X
+X  Common code for lread() and lread_ignore()
+X
+X  Returns DCE_RESULT->code from matching DCE_RESULT->result
+X  or if no match is found and the first digit of the modem
+X  response is numeric, the the numeric value is returned ored
+X  with 0x4000.
+X
+X  If error_ok is true and a timeout occurs, -1 is returned.
+X  If error_ok is false and a timeout occurs,
+X     cleanup(RC_FAIL | RCE_TIMOUT | DialerExitCode);
+X     is called, which results in dial_abort(0) thus DCE_abort(0)
+X     being called.
+X--------------------------------------------------------------------------*/
+Xint
+X_lread(rtime,error_ok)
+Xint rtime;
+Xint error_ok;
+X{
+Xint itmp;
+Xchar rdchar;
+XDCE_RESULT *mr;
+Xchar buf[MAXLINE];
+Xchar *bp;
+Xchar *cptr;
+X
+X#if defined(LTD_DEBUG_LEVEL)
+X	ltd_count = 0;
+X	if(Debug >= LTD_DEBUG_LEVEL)
+X		ftime(&ltd_initial_timeb);
+X#endif /* LTD_DEBUG_LEVEL */
+X
+X	if(error_ok)
+X	{
+X		signal(SIGALRM,SIGALRM_alert);
+X		if(setjmp(SIGALRM_alert_jmpbuf) != 0)
+X		{
+X			DEBUG(6,">>-%s\n","TIMEOUT");
+X#if defined(LTD_DEBUG_LEVEL)
+X			if(Debug >= LTD_DEBUG_LEVEL)
+X				ltd_report();
+X#endif /* LTD_DEBUG_LEVEL */
+X			return(-1);
+X		}
+X	}
+X	else
+X	{
+X		signal(SIGALRM,SIGALRM_alert);
+X		if(setjmp(SIGALRM_alert_jmpbuf) != 0)
+X		{
+X			DEBUG(6,">>-%s\n","TIMEOUT (FATAL)");
+X#if defined(LTD_DEBUG_LEVEL)
+X			if(Debug >= LTD_DEBUG_LEVEL)
+X				ltd_report();
+X#endif /* LTD_DEBUG_LEVEL */
+X			cleanup(RC_FAIL | RCE_TIMOUT | DialerExitCode);
+X		}
+X	}
+X
+X	bp = buf;
+X	alarm(rtime);
+X	DEBUG(6,"DCE returned %s","<<");
+X
+X	while((itmp = read(dce_fd,&rdchar,1)) == 1)
+X	{
+X		alarm(rtime);	/* allow rtime secs after each character */
+X		if(bp >= (buf + MAXLINE))
+X		{
+X			alarm(0);
+X			DEBUG(6,"\n>>-FAIL (%s)\n","BUFFER OVERFLOW");
+X			myexit(RC_FAIL | RCE_NULL);
+X		}
+X		*bp++ = (rdchar &= 0x7F);
+X		*bp = 0;
+X#if defined(LTD_DEBUG_LEVEL)
+X		if(Debug >= LTD_DEBUG_LEVEL)
+X		{
+X			ltds[ltd_count].rdchar = rdchar;
+X			ftime(&ltds[ltd_count++].timeb);
+X		}
+X#endif /* LTD_DEBUG_LEVEL */
+X		DEBUG(6,"%s",make_printable(rdchar));
+X		if(rdchar == 0x0A)
+X			DEBUG(6,"\n",0);
+X		if(rdchar == '\r')
+X		{
+X			cptr = buf;
+X			if(*cptr == 0x0A)
+X				cptr++;
+X			for(mr = DCE_results; mr->result; ++mr)
+X			{
+X				if(instr(buf,mr->result))
+X				{
+X					alarm(0);
+X					DEBUG(6,">>-%s\n","SUCCESS");
+X					if(strcmp(mr->result,"OK"))  /* not so modem independent */
+X						DEBUG(6,"got %s\n",mr->result);
+X					else
+X						DEBUG(8,"got %s\n",mr->result);
+X					last_result = mr;
+X					return(mr->code);
+X				}
+X			}
+X
+X			if(isdigit(*cptr))
+X			{
+X				alarm(0);
+X				itmp = atoi(cptr);
+X				DEBUG(6,">>-SUCCESS (NUMERIC RESULT %d)\n",itmp);
+X				return(rfNumeric | itmp);
+X			}
+X
+X			bp = buf;
+X		}
+X	}
+X
+X	alarm(0);
+X	if(Debug >= 6)
+X	{
+X		ff(se,">>-FAIL (%s %d)",
+X			(itmp < 0) ? "READ ERRNO" : "READ LENGTH",
+X			(itmp < 0) ? errno : 0);
+X	}
+X	DEBUG(4," incomplete or no response\n",0);
+X	return(-1);
+X}	/* end of _lread */
+X
+X/*+-------------------------------------------------------------------------
+X	lread_ignore(rtime)
+X
+X  Reads from the ACU until it finds a valid response (found in
+X  DCE_results), a numeric result code (e.g., S-register value), or times
+X  out after rtime seconds.  The numeric response feature is designed
+X  for Hayes-style DCEs and may not be useful for other DCE types
+X
+X  Returns: DCE_RESULT code, numeric result + 128, or -1 on timeout or error
+X--------------------------------------------------------------------------*/
+Xint
+Xlread_ignore(rtime)
+Xint rtime;
+X{
+X	return(_lread(rtime,1));
+X}	/* end of lread_ignore */
+X
+X/*+-------------------------------------------------------------------------
+X	lread(rtime)
+X
+X  Same as lread_ignore, but does not return on timeout or error
+X--------------------------------------------------------------------------*/
+Xint
+Xlread(rtime)
+Xint rtime;
+X{
+Xint rtn = _lread(rtime,0);
+X	if(rtn < 0)
+X		myexit(RC_FAIL | RCE_TIMOUT);
+X	return(rtn);
+X}	/* end of lread */
+X
+X/*+-------------------------------------------------------------------------
+X	lflush() - flushes input clists for DCE
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlflush()
+X{
+X	ioctl(dce_fd,TCFLSH,0);
+X}	/* end of lflush */
+X
+X/*+-----------------------------------------------------------------------
+X	_lputc(lchar) -- write char to comm line
+X------------------------------------------------------------------------*/
+Xvoid
+X_lputc(lchar)
+Xchar lchar;
+X{
+X	write(dce_fd,&lchar,1);
+X	DEBUG(6,"%s",make_printable(lchar));
+X}	/* end of _lputc */
+X
+X/*+-----------------------------------------------------------------------
+X	_lputc_paced(pace_msec,lchar) -- write char to comm line with pacing
+X------------------------------------------------------------------------*/
+Xvoid
+X_lputc_paced(pace_msec,lchar)
+Xregister long pace_msec;
+Xregister char lchar;
+X{
+X	_lputc(lchar);
+X	if(pace_msec)
+X		Nap(pace_msec);
+X}	/* end of _lputc_paced */
+X
+X/*+-----------------------------------------------------------------------
+X	_lputs(string) -- write string to comm line
+X------------------------------------------------------------------------*/
+Xvoid
+X_lputs(string)
+Xregister char *string;
+X{
+X	while(*string)
+X		_lputc(*string++);
+X}
+X
+X/*+-----------------------------------------------------------------------
+X	_lputs_paced(pace_msec,string) -- write string to comm line
+X  with time between each character 
+X------------------------------------------------------------------------*/
+Xvoid
+X_lputs_paced(pace_msec,string)
+Xregister long pace_msec;
+Xregister char *string;
+X{
+X	while(*string)
+X		_lputc_paced(pace_msec,*string++);
+X
+X}	/* end of _lputs_paced */
+X
+X/*+-------------------------------------------------------------------------
+X	lwrite(str) - output string to dce_name
+X  Returns:	0 on completion, -1 on write errors.
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlwrite(str)
+Xregister char *str;
+X{
+X
+X	Nap(200L);
+X	DEBUG(6,"Sent DCE %s","<<");
+X	_lputs_paced(DCE_write_pace_msec,str);
+X	DEBUG(6,">>-%s\n","SUCCESS");
+X	ioctl(dce_fd,TCSETAW,&dce_termio);	/* wait for I/O to drain */
+X
+X}	/* end of lwrite */
+X
+X/*+-------------------------------------------------------------------------
+X	lbreak()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlbreak()
+X{
+X	DEBUG(6,"Sent BREAK to DCE %s","<<");
+X	ioctl(dce_fd,TCSBRK,(char *)1);
+X	DEBUG(6,">>-%s\n","SUCCESS");
+X}	/* end of lbreak */
+X
+X/*+-------------------------------------------------------------------------
+X	lflash_DTR() - flash DTR
+X
+XDTR is lowered and raised again.  The timing can be modified on a
+Xper-DCE basis.
+X
+XOn SunOS and SVR4, an open/close of the line is required to get DTR back
+Xup. SVR3 does not seem to need this (ISC asy, SCO sio, Uwe Doering's FAS)
+Xbut we do it anyway
+X--------------------------------------------------------------------------*/
+Xvoid
+Xlflash_DTR()
+X{
+X#undef NEED_REOPEN
+X#if defined(sun) || defined(SVR4)
+X#define NEED_REOPEN
+X	int tempfd;
+X#endif
+X	struct termio b0t;
+X
+X	b0t = dce_termio;
+X	b0t.c_cflag &= ~CBAUD;
+X
+X	ioctl(dce_fd,TCSETA,(char *)&b0t);		/* drop DTR */
+X	DEBUG(6,"setting DTR low ... ","");
+X#ifdef NEED_REOPEN
+X	if ((tempfd = open(dce_name,O_NDELAY | O_RDWR,0777)) != -1)
+X		close(tempfd);
+X#else
+X	Nap((DCE_DTR_low_msec) ? DCE_DTR_low_msec : 300L);
+X#endif
+X	ioctl(dce_fd,TCSETA,(char *)&dce_termio);	/* raise DTR */
+X	DEBUG(6,"back to high","");
+X	Nap((DCE_DTR_high_msec) ? DCE_DTR_high_msec : 300L);
+X	DEBUG(6,"\n","");
+X#undef NEED_REOPEN
+X}	/* end of lflash_DTR */
+X
+X/*+-------------------------------------------------------------------------
+X	call_ungetty(call_type)
+X
+Xtype: 'a' - acquire dce_name
+X      't' - test to see if dce_name should be returned
+X      'r' - return dce_name
+X
+XThis function is a no-op in HDB UUCP versions
+X--------------------------------------------------------------------------*/
+Xcall_ungetty(call_type)
+Xchar call_type;
+X{
+X#if defined(HDB_UUCP)
+X	switch(call_type)
+X	{
+X		case 'a': return(UG_NOTENAB);		/* simulate complete success */
+X		case 't': return(UG_RESTART);		/* simulate need for re-setup */
+X		case 'r': return(0);				/* simulate complete success */
+X	}
+X	return(0);
+X#else /* HDB_UUCP */
+Xint itmp;
+Xint pid;
+Xunsigned int wait_status;
+Xstatic char *ungetty = "/usr/lib/uucp/ungetty";
+X
+X	if((pid = fork()) == 0)
+X	{
+X		if(Debug >= 5)
+X			ff(se,"%s: %s %s called\n",*gargv,ungetty,dce_name);
+X		switch(call_type)
+X		{
+X			case 'a':
+X				execl(ungetty,"ungetty",dce_name + 5,(char *)0);
+X				break;
+X			case 't':
+X				execl(ungetty,"ungetty","-t",dce_name + 5,(char *)0);
+X				break;
+X			case 'r':
+X				execl(ungetty,"ungetty","-r",dce_name + 5,(char *)0);
+X				break;
+X		}
+X		ff(se,"%s exec error %d (%s)\n",ungetty,errno,sys_errlist[errno]);
+X		_exit(-1);
+X	}
+X
+X	while(((itmp = wait(&wait_status)) != pid) && itmp != -1)
+X		;
+X
+X	if(Debug >= 6)
+X		ff(se,"%s pid %d exit status 0x%04x\n",ungetty,itmp,wait_status);
+X
+X	return((wait_status >> 8) & 0xFF);
+X#endif /* HDB_UUCP */
+X}	/* end of call_ungetty */
+X
+X/*+-----------------------------------------------------------------------
+X	display_termio(ttt)
+X  display termio 'ttt' on se
+X------------------------------------------------------------------------*/
+Xvoid
+Xdisplay_termio(ttt,text)
+Xstruct termio *ttt;
+Xchar *text;
+X{
+Xregister flag;
+Xregister i_cc;
+Xregister char *cptr;
+Xint dbits;
+Xchar parity;
+X
+X	ff(se,"----->> %s\n",text);
+X
+X	flag = ttt->c_iflag;
+X	ff(se,
+X"iflag: %07o IGNBRK:%d BRKINT:%d IGNPAR:%d PARMRK:%d INPCK:%d ISTRIP:%d\n",
+X				flag,
+X				(flag & IGNBRK) ? 1 : 0,
+X				(flag & BRKINT) ? 1 : 0,
+X				(flag & IGNPAR) ? 1 : 0,
+X				(flag & PARMRK) ? 1 : 0,
+X				(flag & INPCK ) ? 1 : 0,
+X				(flag & ISTRIP) ? 1 : 0);
+X	ff(se,
+X"       INLCR:%d IGNCR:%d ICRNL:%d IUCLC:%d IXON:%d IXANY:%d IXOFF:%d\n",
+X				(flag & INLCR ) ? 1 : 0,
+X				(flag & IGNCR ) ? 1 : 0,
+X				(flag & ICRNL ) ? 1 : 0,
+X				(flag & IUCLC ) ? 1 : 0,
+X				(flag & IXON  ) ? 1 : 0,
+X				(flag & IXANY ) ? 1 : 0,
+X				(flag & IXOFF ) ? 1 : 0);
+X
+X	flag = ttt->c_oflag;
+X	ff(se,
+X"oflag: %07o OPOST:%d OLCUC:%d ONLCR:%d OCRNL:%d ONOCR:%d ONLRET:%d OFDEL:%d\n",
+X				flag,
+X				(flag & OPOST ) ? 1 : 0,
+X				(flag & OLCUC ) ? 1 : 0,
+X				(flag & ONLCR ) ? 1 : 0,
+X				(flag & OCRNL ) ? 1 : 0,
+X				(flag & ONOCR ) ? 1 : 0,
+X				(flag & ONLRET) ? 1 : 0,
+X				(flag & OFDEL ) ? 1 : 0);
+X
+X	flag = ttt->c_cflag;
+X	ff(se,"cflag: %07o ",ttt->c_cflag);
+X	switch(flag & CBAUD)
+X	{
+X		case B0:	cptr = "HUP"; break;
+X		case B50:	cptr = "50"; break;
+X		case B75:	cptr = "75"; break;
+X		case B110:	cptr = "110"; break;
+X		case B134:	cptr = "134.5"; break;
+X		case B150:	cptr = "150"; break;
+X		case B200:	cptr = "200"; break;
+X		case B300:	cptr = "300"; break;
+X		case B600:	cptr = "600"; break;
+X		case B1200:	cptr = "1200"; break;
+X		case B1800:	cptr = "1800"; break;
+X		case B2400:	cptr = "2400"; break;
+X		case B4800:	cptr = "4800"; break;
+X		case B9600:	cptr = "9600"; break;
+X		case EXTA:	cptr = "EXTA(19200?)"; break;
+X		case EXTB:	cptr = "EXTB(38400?)"; break;
+X		default:	cptr = "????"; break;
+X	}
+X	dbits = 5 + ((flag & CSIZE) >> 4);
+X	parity = (flag & PARENB) ? ((flag & PARODD) ? 'O' : 'E') : 'N';
+X	ff(se,"%s-%d-%c-%d ",cptr,dbits,parity,(flag & CSTOPB) ? 2 : 1);
+X	switch(flag & CS8)
+X	{
+X		case CS8: fputs("CS8 ",se); break;
+X		case CS7: fputs("CS7 ",se); break;
+X		case CS6: fputs("CS6 ",se); break;
+X		case CS5: fputs("CS5 ",se); break;
+X	}
+X	ff(se,"CREAD:%d HUPCL:%d CLOCAL:%d",
+X				(flag & CREAD ) ? 1 : 0,
+X				(flag & HUPCL ) ? 1 : 0,
+X				(flag & CLOCAL) ? 1 : 0);
+X#if defined(RTSFLOW)
+X	ff(se," RTSFLOW:%d  CTSFLOW:%d",
+X				(flag & RTSFLOW ) ? 1 : 0,
+X				(flag & CTSFLOW ) ? 1 : 0);
+X#endif
+X	ff(se,"\n");
+X
+X	flag = ttt->c_lflag;
+X	ff(se,"lflag: %07o ISIG:%d ICANON:%d XCASE:%d ECHO:%d ECHOE:%d\n",
+X				flag,
+X				(flag & ISIG  ) ? 1 : 0,
+X				(flag & ICANON) ? 1 : 0,
+X				(flag & XCASE ) ? 1 : 0,
+X				(flag & ECHO  ) ? 1 : 0,
+X				(flag & ECHOE ) ? 1 : 0);
+X	ff(se,"       ECHOK:%d  ECHONL:%d  NOFLSH:%d  \n",
+X				(flag & ECHOK ) ? 1 : 0,
+X				(flag & ECHONL) ? 1 : 0,
+X				(flag & NOFLSH) ? 1 : 0);
+X
+X	ff(se,
+X"           INTR QUIT ERAS KILL EOF  EOL  EOL2 SWTCH VMIN==EOF VTIME==EOL\n");
+X	ff(se,"ctl chars: ");
+X	for(i_cc = 0; i_cc < NCC; i_cc++)
+X		ff(se,"%02x   ",ttt->c_cc[i_cc]);
+X	ff(se,"  (hex)\n");
+X
+X}	/* end of display_termio */
+X
+X/*+-------------------------------------------------------------------------
+X	open_dce() - open the dce_name (DCE)
+Xplugs global 'dce_fd' and returns fd of open DCE line
+X--------------------------------------------------------------------------*/
+Xint
+Xopen_dce()
+X{
+Xint fd1;
+Xint fd2;
+X
+X	/*  open with O_NDELAY set or the open probably will hang */
+X	if((fd1 = open(dce_name,O_RDWR | O_NDELAY)) < 0)
+X	{
+X		ff(se,"%s: Can't open device: ",*gargv);
+X		perror(dce_name);
+X		myexit(RC_FAIL | RCE_OPEN | DialerExitCode);
+X	}
+X
+X	ioctl(fd1,TCGETA,&dce_termio);
+X	dce_termio.c_oflag = 0;
+X	dce_termio.c_iflag = 0;
+X	dce_termio.c_cflag &= ~(CBAUD | HUPCL);
+X	dce_termio.c_cflag |= CLOCAL		|
+X		((hangup_flag) ? HUPCL : 0)		|
+X		((hangup_flag && DCE_hangup_CBAUD) ? DCE_hangup_CBAUD : hiCBAUD);
+X	dce_termio.c_cflag |= CS8;
+X	dce_termio.c_cc[VMIN] = 1;
+X	dce_termio.c_cc[VTIME] = 0;
+X	dce_termio.c_cflag &= ~PARENB;
+X	dce_termio.c_lflag &= ~(ECHO | ICANON);
+X#ifdef IEXTEN
+X	dce_termio.c_lflag &= ~IEXTEN;
+X#endif
+X
+X	if (Debug >= 10)
+X
+X		display_termio(&dce_termio,"setting line termio");
+X
+X	if(status = ioctl(fd1,TCSETA,&dce_termio))
+X	{
+X		DEBUG(1,"%s: ioctl error on %s",dce_name);
+X		DEBUG(1,"%s",dce_name);
+X		DEBUG(1," errno=%d\n",errno);
+X		cleanup(RC_FAIL | RCE_IOCTL | DialerExitCode);
+X	}
+X
+X	/* reopen line without O_NDELAY */
+X	fd2 = fd1;
+X	if((fd1 = open(dce_name,O_RDWR)) < 0)
+X	{
+X		ff(se,"%s: Can't open device w/o O_NDELAY: %s\n",*gargv,dce_name);
+X		myexit(RC_FAIL | RCE_OPEN | DialerExitCode);
+X	}
+X	close(fd2);
+X
+X	ioctl(fd1,TCFLSH,2);		/* flush any residue in clists */
+X	dce_fd = fd1;				/* save fd in global */
+X	return(fd1);
+X
+X}	/* end of open_dce */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+Xint itmp;
+Xint unrecognized_switches = 0;
+Xchar *cptr;
+Xlong startsec;
+Xextern int optind;
+Xextern int opterr;
+Xextern char *optarg;
+X
+X	setbuf(stderr,NULL);
+X	setbuf(stdout,NULL);
+X
+X/* security considerations */
+X	uid = getuid();
+X	uid_uucp = get_uucp_uid();
+X	secure = 0;
+X	if(!strncmp(argv[0],"ECU",3))
+X		ecu_calling = 1;
+X
+X	gargv = argv;
+X	gargc = argc;
+X
+X	signal(SIGILL,dial_abort);
+X	signal(SIGIOT,dial_abort);
+X	signal(SIGEMT,dial_abort);
+X	signal(SIGFPE,dial_abort);
+X	signal(SIGBUS,dial_abort);
+X	signal(SIGSEGV,dial_abort);
+X	signal(SIGSYS,dial_abort);
+X	signal(SIGTERM,dial_abort);
+X	signal(SIGINT,dial_abort);
+X
+X	signal(SIGCLD,SIG_DFL);
+X
+X#if	defined(SIGSTOP)
+X	/*
+X	 * call Roto-Rooter on POSIX plots
+X	 */
+X	signal(SIGSTOP,SIG_IGN);
+X	signal(SIGTSTP,SIG_IGN);
+X	signal(SIGCONT,SIG_IGN);
+X	signal(SIGTTIN,SIG_IGN);
+X	signal(SIGTTOU,SIG_IGN);
+X#endif
+X
+X	opterr = 0;	
+X	while((itmp = getopt(argc,argv,"hx:")) != EOF)
+X	{
+X		switch(itmp)
+X		{
+X			case 'h':
+X				hangup_flag++;
+X				break;
+X			case 'x':
+X				Debug = atoi(optarg);
+X				break;
+X			case '?':	/* dialer-specific code may want to handle these */
+X				unrecognized_switches++;
+X				break;
+X		}
+X	}
+X
+X/* learn tick rate for various timers */
+X	init_Nap();
+X
+X/* announce who we are and our arguments if debugging */
+X	if(Debug > 5)
+X	{
+X		ff(se,"\ngeneric dialer %s (%s %s)\n",revision,
+X			DCE_name,DCE_revision);
+X		if(ecu_calling || !uid)
+X		{
+X			ff(se,"(args ");
+X			for(itmp = 0; itmp < argc; itmp++)
+X				ff(se,"%s ",argv[itmp]);
+X			fputs(")\n",se);
+X		}
+X	}
+X	if(Debug >= 8)
+X		ff(se,"uid = %d  euid=%d\n",uid,geteuid());
+X
+X	chdir(LOCK_DIR_NAME);	/* in case of core dump */
+X
+X	/* give DCE-specific code a chance at the entire command line */
+X	if(status = DCE_argv_hook(argc,argv,optind,unrecognized_switches))
+X	{
+X		DEBUG(1,"dialer failed: %s\n",RCE_text(status));
+X		exit(status);
+X	}
+X
+X/* check argument count */
+X	if(hangup_flag)
+X	{
+X		if((argc - optind) != 2)
+X			status++;
+X	}
+X	else if((argc - optind) != 3)
+X		status++;
+X
+X/* die with usage if argument error */
+X	if(status)
+X	{
+X		if(hangup_flag)
+X			ff(se,"Usage: %s -h devicename speed\n",argv[0]);
+X		else
+X			ff(se,"Usage: %s devicename number speed\n",argv[0]);
+X		myexit(RC_FAIL | RCE_ARGS);
+X	}
+X
+X/* if called with "ttyxx" style ttyname, convert to "/dev/ttyxx" */
+X	cptr = argv[optind++];
+X	if(!strncmp(cptr,"tty",3))
+X	{
+X	char s32[32];
+X		strcpy(s32,"/dev/");
+X		strcat(s32,cptr);
+X		dce_name = strdup(s32);
+X	}
+X	else
+X		dce_name = cptr;
+X
+X/* save phone number */
+X	if(!hangup_flag)
+X		telno = argv[optind++];
+X
+X/* get baud rates (validated by DCE-dependent code) */
+X	loCBAUD = hiCBAUD = DCE_baud_to_CBAUD(atoi(argv[optind]));
+X	if(cptr = strchr(argv[optind],'-'))
+X		hiCBAUD = DCE_baud_to_CBAUD(atoi(++cptr));
+X
+X	(void)open_dce();	/* open the line */
+X
+X/*   H A N G U P     R E Q U E S T   */
+X	if(hangup_flag)
+X	{
+X		if(call_ungetty('t') != UG_RESTART)
+X			cleanup(SUCCESS);
+X		DCE_hangup();
+X		cleanup((call_ungetty('r')) ? RC_FAIL : SUCCESS );
+X	}
+X
+X/*   D I A L    R E Q U E S T    */
+X
+X	switch(call_ungetty('a'))
+X	{
+X		case UG_NOTENAB:	/* line acquired: not enabled */
+X			status = SUCCESS;
+X			break;
+X		case UG_ENAB:		/* line acquired: need ungetty -r when done */
+X			status = RC_ENABLED;
+X			break;
+X		case UG_FAIL:		/* could not acquire line */
+X			myexit(RC_FAIL | RCE_INUSE);
+X		case 255:
+X			myexit(RC_FAIL | RCE_NULL);
+X	}
+X
+X	/*
+X	 * indicate we are dialing
+X	 * record the time and, oh yeah, dial
+X	 */
+X	dialing = 1;
+X	time(&startsec);
+X	status = DCE_dial(telno);		/* if dial succeeded ... */
+X	if(Debug >= 2)
+X	{
+X		ff(se,"connect %s after %ld seconds\n",
+X			(status) ? "FAILED" : "succeeded",
+X			time((long *)0) - startsec);
+X	}
+X
+X	/*
+X	 * success or not
+X	 */
+X	myexit(((status) ? RC_FAIL : 0) | status);
+X}	/* end of main */
+X
+X/*+-------------------------------------------------------------------------
+X	rdchk(fd) - for systems without it but with FIONREAD
+X--------------------------------------------------------------------------*/
+X#if defined(sun)
+Xint
+Xrdchk(fd)
+Xint fd;
+X{
+Xint chars_waiting;
+X
+X	if(ioctl(fd,FIONREAD,&chars_waiting))
+X	{
+X		if(Debug > 2)
+X		{
+X			fprintf(stderr,"!!! fd %d ",fd);
+X			perror("rdchk FIONREAD");
+X		}
+X		return(0);
+X	}
+X	else
+X	{
+X		DEBUG(11,"rdchk-%d\n",chars_waiting);
+X		return(!!chars_waiting);
+X	}
+X}	/* end of rdchk */
+X#endif
+X
+X/* end of gendial.c */
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 gendial/gendial.c ||
+echo 'restore of gendial/gendial.c failed'
+Wc_c="`wc -c < 'gendial/gendial.c'`"
+test 31052 -eq "$Wc_c" ||
+	echo 'gendial/gendial.c: original size 31052, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/tbit.sync.h ==============
+if test -f 'gendial/tbit.sync.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/tbit.sync.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/tbit.sync.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/tbit.sync.h' &&
+X/*+-------------------------------------------------------------------------
+X	sync_Telebit() - sync modem with our DTE speed
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-30-1992-14:18-root@n4hgf-add lbreak before wakeup */
+Xvoid
+Xsync_Telebit()
+X{
+X	register int maxretry = 4;
+X	register int count;
+X	unsigned char rdchar;
+X	long pace_msec_save = DCE_write_pace_msec;
+X
+X	while(--maxretry)
+X	{
+X		lbreak();
+X		Nap(200L);
+X		DCE_write_pace_msec = 50;
+X		lwrite("aaaaaate1\r");
+X		DCE_write_pace_msec = pace_msec_save;
+X		Nap(200L);
+X		lflush();
+X		count = 5;
+X		while(count)	/* wait 120-200 msec for character, depending on HZ */
+X		{
+X			write(dce_fd,"a",1);
+X			ioctl(dce_fd,TCSETAW,&dce_termio);	/* wait for I/O to drain */
+X			Nap(120L);	/* must handle 110 baud */
+X			if(rdchk(dce_fd))
+X				break;
+X			count--;
+X		}
+X		rdchar = 0;
+X		if(count && (read(dce_fd,&rdchar,1) == 1) && ((rdchar & 0x7F) == 'a'))
+X		{
+X			Nap(120L);
+X			lflush();
+X			return;
+X		}
+X		DEBUG(2,"Telebit SYNC failed ... retrying (%02x)\n",rdchar);
+X		lflash_DTR();
+X	}
+X
+X	DEBUG(1,"Telebit SYNC FAILED\n",0);
+X	myexit(RC_FAIL | RCE_TIMOUT);
+X
+X}	/* end of sync_Telebit */
+X
+SHAR_EOF
+chmod 0644 gendial/tbit.sync.h ||
+echo 'restore of gendial/tbit.sync.h failed'
+Wc_c="`wc -c < 'gendial/tbit.sync.h'`"
+test 1263 -eq "$Wc_c" ||
+	echo 'gendial/tbit.sync.h: original size 1263, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= gendial/template.c ==============
+if test -f 'gendial/template.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping gendial/template.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting gendial/template.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'gendial/template.c' &&
+X/*+-------------------------------------------------------------------------
+X	template.c - DCE-specific portion of generic SCO UUCP dialer
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X Necessary DCE switch setting or other configuration:
+X   Switch foo off: enable onhook upon loss of DTR
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:02-02-1992-18:01-root@n4hgf-proper ordering of DCE_result entries */
+X/*:01-26-1992-15:31-wht@n4hgf-gendial 1.2 for ecu 3.20- better hangup */
+X/*:07-25-1991-12:58-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "dialer.h"
+X
+X/*
+X * DCE_DTR_low_msec - milliseconds to hold DTR low to ensure DCE
+X *                    sees the transition; this value may be changed
+X *                    as necessary before each call to lflash_DTR(),
+X * but, generally, a constant value will do.
+X */
+Xlong DCE_DTR_low_msec = 500;
+X
+X/*
+X * DCE_DTR_high_msec - milliseconds DTR must remain high before the
+X *                     DCE may be expected to be ready to be commanded
+X */
+Xlong DCE_DTR_high_msec = 500;
+X
+X/*
+X * DCE_write_pace_msec - milliseconds to pause between each character
+X *                       sent to the DCE (zero if streaming I/O is
+X *                       permitted); this value may be changed as
+X * necessary before each call to lwrite(), but, generally, a constant
+X * value will do.  Note that this value is used to feed a value to Nap(),
+X * which has a granularity of .010 seconds on UNIX/386, .020 on XENIX/286
+X * and .050 seconds on XENIX/86.
+X */
+Xlong DCE_write_pace_msec = 20;
+X
+X/*
+X * DCE_name     - short name for DCE
+X * DCE_revision - revision number for this module
+X */
+Xchar *DCE_name = "Frobozz 9600";
+Xchar *DCE_revision = "1.10";
+X
+X/*
+X * DCE_hangup_CBAUD - baud rate to use for hanging up DCE
+X *                    and readying it for dial in access
+X *                    (BXXX mask); use a value of zero if the speed
+X *                    specified by the invoker is to be used.
+X * This value is useful for DCEs such as the early Hayes 2400
+X * which are so unfortunately compatible with their 1200 predecessor
+X * that they refuse to answer at 2400 baud unless you last spoke to
+X * them at that rate. For such bad boys, use B2400 below.
+X */
+Xint DCE_hangup_CBAUD = 0;
+X/* int DCE_hangup_CBAUD = B2400; */
+X
+X/*
+X * DCE_results - a table of DCE response strings and a token
+X *               code for each; when you call lread() or lread_ignore(),
+X *               if the read routine detects one of the strings,
+X * the appropriate code is returned.  If no string matches, then
+X * lread()/lread_ignore examines the DCE result string for a
+X * numeric value; if one is found, the numeric value or'd with
+X * 0x4000 is returned (in this way, e.g., you can read "modem
+X * S registers."  If nothing agrees with this search, lread()
+X * will abort the program with RC|FAIL|RCE_TIMOUT, lread_ignore()
+X * will return -1.  You may use any value between 0 and 0x3FFFFFFF.
+X * This module is the only consumer  of the codes, although they
+X * are decoded by gendial.c's _lread().
+X *
+X * If one possible result is an "early substring" of another, like
+X * "CONNECT" is of "CONNECT 1200", then put such results later in the
+X * table than the larger result.
+X *
+X */
+X#define rfConnect		0x00400000
+X
+X#define rOk				0
+X#define rNoCarrier		1
+X#define rError			2
+X#define rNoDialTone		3
+X#define rBusy			4
+X#define rNoAnswer		5
+X#define rRring			6
+X#define rConnect300		(7 | rfConnect)
+X#define rConnect1200	(8 | rfConnect)
+X#define rConnect2400	(9 | rfConnect)
+X
+XDCE_RESULT DCE_results[] =
+X{
+X	{ "OK",						rOk,			},
+X	{ "NO CARRIER",				rNoCarrier,		},
+X	{ "ERROR",					rError			},
+X	{ "NO DIALTONE",			rNoDialTone,	},
+X	{ "BUSY",					rBusy			},
+X	{ "NO ANSWER",				rNoAnswer		},
+X	{ "CONNECT 1200",			rConnect120		},
+X	{ "CONNECT 2400",			rConnect2400	},
+X	{ "CONNECT",				rConnect300		},
+X	{ (char *)0,				-1				}		/* end table */
+X};
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_baud_to_CBAUD(baud) - check for valid baud rates supported by DCE
+X
+X  DCE dependent function must validate baud rates supported by DCE
+X  returns baud rate in struct termio c_cflag fashion
+X  or terminates program with error
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_baud_to_CBAUD(baud)
+Xunsigned int baud;
+X{
+X	switch(baud)
+X	{
+X		case 50:   return(B50);		/* delete the ones you dont handle */
+X		case 75:   return(B75);
+X		case 110:  return(B110);
+X		case 134:  return(B134);
+X		case 150:  return(B150);
+X		case 300:  return(B300);
+X		case 1200: return(B1200);
+X		case 2400: return(B2400);
+X		case 4800: return(B4800);
+X		case 9600: return(B9600);
+X
+X#if defined(B19200)
+X		case 19200: return(B19200);
+X#else
+X#ifdef EXTA
+X		case 19200: return(EXTA);
+X#endif
+X#endif
+X
+X#if defined(B38400)
+X		case 38400: return(B38400);
+X#else
+X#ifdef EXTB
+X		case 38400: return(EXTB);
+X#endif
+X#endif
+X
+X	}
+X	myexit(RC_FAIL | RCE_SPEED);
+X#if defined(OPTIMIZE) || defined(__OPTIMIZE__)	/* don't complain */
+X	return(0);	/* keep gcc from complaining about no rtn at end */
+X#endif
+X}	/* end of DCE_baud_to_CBAUD */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_hangup() - issue hangup command to DCE
+X
+XThis function should do whatever is necessary to ensure
+X1) any active connection is terminated
+X2) the DCE is ready to receive an incoming call if DTR is asserted
+X3) the DCE will not accept an incoming call if DTR is false
+X
+XThe function should return when done.
+X
+XAny necessary switch setting or other configuration necessary for this
+Xfunction to succeed should be documented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_hangup()
+X{
+X	DEBUG(3,"--> reseting %s\n",DCE_name);
+X	lflash_DTR();
+X
+X}	/* end of DCE_hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_dial(telno) - dial a remote DCE
+X
+XThis function should connect to the remote DCE and use any success
+Xindication to modify the tty baud rate if necessary before returning.
+X
+XUpon successful connection, return 0.
+X
+XUpon unsuccessful connection, return RC_FAIL or'd with an appropriate
+XRCE_XXX value from dialer.h.
+X
+Xlwrite() is used to write to the DCE.
+X
+Xlread() and lread_ignore() are used to read from the DCE.  Read timeouts
+Xfrom calling lread() will result automatically in the proper error
+Xtermination of the program.  Read timeouts from calling lread_ignore()
+Xreturn -1; you handle the execption here.
+X
+XAny necessary coding of phone numbers, switch settings or other
+Xconfiguration necessary for this function to succeed should be
+Xdocumented at the top of the module.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_dial(telno)
+Xchar *telno;
+X{
+Xchar cmd[80];
+X
+X/* preliminary setup */
+X
+X/* if root, let him see number, otherwise just say "remote system" */
+X	DEBUG(1,"DIALING %s\n", (uid) ? "remote system" : telno);
+X
+X/* indicate non-root should not see DTE->DCE traffic */
+X	secure = 1;
+X
+X/* issue the actual dialing command */
+X
+X/* indicate non-root can see DTE->DCE traffic */
+X	secure = 0;
+X
+X	return(0);		/* succeeded */
+X
+X}	/* end of DCE_dial */
+X
+X/**********************************************************
+X*  You probably do not need to modify the code below here *
+X**********************************************************/
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_abort(sig) - dial attempt aborted
+X
+X sig =  0 if non-signal abort (read timeout, most likely)
+X     != 0 if non-SIGALRM signal caught
+X
+X extern int dialing set  1 if dialing request was active,
+X                    else 0 if hangup request was active
+X
+XThis is a chance for the DCE-specific code to do anything it
+Xneeds to cl,ean up after a failure.  Note that if a dialing
+Xcall fails, it is the responsibility of the higher-level
+Xprogram calling the dialer to call it again with a hangup request, so
+Xthis function is usually a no-op.
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_abort(sig)
+Xint sig;
+X{
+X	DEBUG(10,"DCE_abort(%d);\n",sig);
+X}	/* end of DCE_abort */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_exit(exitcode) - "last chance for gas" in this incarnation
+X
+XThe independent portion of the dialer program calls this routine in
+Xlieu of exit() in every case except one (see DCE_argv_hook() below).
+XNormally, this function just passes it's argument to exit(), but
+Xany necessary post-processing can be done.  The function must,
+Xhowever, eventually call exit(exitcode);
+X--------------------------------------------------------------------------*/
+Xvoid
+XDCE_exit(exitcode)
+Xint exitcode;
+X{
+X	DEBUG(10,"DCE_exit(%d);\n",exitcode);
+X	exit(exitcode);
+X}	/* end of DCE_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	DCE_argv_hook(argc,argv,optind,unrecognized_switches)
+X
+XThis hook gives DCE-specific code a chance to look over the entire
+Xcommand line, such as for -z Telebit processing.
+X
+Xargc andf argv are the same values passed to main(),
+X
+Xoptind is the value of optind at the end of normal getopt processing.
+X
+Xunrecognized_switches is the count of switches not handled by main().
+XSpecifically, -h and -x are standard switches.
+X
+XNormally, this function should just return RC_FAIL|RCE_ARGS if there are
+Xany unrecognized switches, otherwise zero.  If you keep your nose clean
+Xthough, you can do anything you need to do here and exit the program.
+X
+XNote: only simple switches (with no argument) may be used with this
+Xfacility if the functrion is to return,' since main()'s getopt() will
+Xstop processing switches if it runs into an unrecognized switch with an
+Xargument.
+X
+XIf the function returns a non-zero value, then the value will be passed
+XDIRECTLY to exit() with no further ado.  Thus, a non-zero value must be
+Xof the format expected by dialer program callers, with RC_FAIL set as a
+Xminimum.
+X--------------------------------------------------------------------------*/
+Xint
+XDCE_argv_hook(argc,argv,optind,unrecognized_switches)
+Xint argc;
+Xchar **argv;
+Xint optind;
+Xint unrecognized_switches;
+X{
+X	if(unrecognized_switches)
+X		return(RC_FAIL | RCE_ARGS);
+X	return(0);
+X}	/* end of DCE_argv_hook */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+SHAR_EOF
+chmod 0644 gendial/template.c ||
+echo 'restore of gendial/template.c failed'
+Wc_c="`wc -c < 'gendial/template.c'`"
+test 10357 -eq "$Wc_c" ||
+	echo 'gendial/template.c: original size 10357, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= fasi/Makefile ==============
+if test ! -d 'fasi'; then
+    echo 'x - creating directory fasi'
+    mkdir 'fasi'
+fi
+if test -f 'fasi/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping fasi/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting fasi/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'fasi/Makefile' &&
+X# FAS 2.08/FASI 1.00 Makefile for SCO UNIX SYS V/386
+X#+:EDITS:*/
+X#:09-10-1992-13:59-wht@n4hgf-ECU release 3.20
+X#:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA
+X#:01-17-1991-01:38-wht@n4hgf-adapt FAS 2.08 SCO make file
+X
+XSHELL = /bin/sh
+XINCLLOC = /usr/include/local
+XLKDRVRDIR = /etc/conf/pack.d/fas
+XLKSCONFDIR = /etc/conf/sdevice.d
+XLKNCONFDIR = /etc/conf/node.d
+XLKICONFDIR = /etc/conf/init.d
+XLKKCONFDIR = /etc/conf/kconfig.d
+XDRVRNAME = Driver.o
+XCONFNAME = fas
+X
+XCC = rcc
+XCFLAGS = -O -DINKERNEL -DSCO -DNEED_PUT_GETCHAR -DFASI
+X
+XOBJS = fas.o
+X
+Xfas.o: 	fas.c $(INCLLOC)/fas.h $(INCLLOC)/digi-pc8.h Makefile
+X
+XDriver.o: fas.o
+X	rm -rf Driver.o
+X	ln fas.o Driver.o
+X
+Xinstall: Driver.o
+X	sh -v idfasi
+X
+Xinstall2: install
+X	cd /etc/conf/cf.d;./link_unix
+X
+Xspace.c:
+X	@echo "You must copy the proper space-xxxxx file to \`space.c'"
+X	@false
+X	
+Xs_$(CONFNAME):
+X	@echo "You must copy the proper s_$(CONFNAME)-xxxxx file to \`s_$(CONFNAME)'"
+X	@false
+X		
+Xn_$(CONFNAME):
+X	@echo "You must copy the proper n_$(CONFNAME)-xxxxx file to \`n_$(CONFNAME)'"
+X	@false
+X		
+Xi_$(CONFNAME):
+X	@echo "You must copy the proper i_$(CONFNAME)-xxxxx file to \`i_$(CONFNAME)'"
+X	@false
+X		
+X$(INCLLOC)/fas.h: fas.h
+X	-mkdir $(INCLLOC) >/dev/null 2>&1
+X	cp fas.h $(INCLLOC)/fas.h
+X
+X$(INCLLOC)/digi-pc8.h: digi-pc8.h
+SHAR_EOF
+true || echo 'restore of fasi/Makefile failed'
+fi
+echo 'End of ecu320 part 30'
+echo 'File fasi/Makefile is continued in part 31'
+echo 31 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

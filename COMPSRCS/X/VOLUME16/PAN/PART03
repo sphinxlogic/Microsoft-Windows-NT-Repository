@@ -1,0 +1,636 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: jeff@rd1.interlan.com (Jeff Bailey)
+Subject: v16i139: pan - Post A Note (for Open Windows), Part03/06
+Message-ID: <1992Mar6.200338.8230@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i137-pan@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 20:03:38 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: jeff@rd1.interlan.com (Jeff Bailey)
+Posting-number: Volume 16, Issue 139
+Archive-name: pan/part03
+
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is part 03 of a multipart archive
+# ============= note.c ==============
+if test -f 'note.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping note.c (File already exists)'
+else
+echo 'x - extracting note.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'note.c' &&
+/*
+Post A Note V2.4
+Copyright (c) 1992, Jeffrey W. Bailey
+All rights reserved.
+X
+Permission is granted to distribute this program in exact, complete
+source form, which includes this copyright notice, as long as no fee
+other than media and distribution cost is charged.
+X
+This program may not be used in whole, or in part, in any other manner
+without prior written permission from the author.
+X
+This program may not be distributed in modified form without prior
+written permission from the author.  In other words, patches may be
+distributed, but modified source may not be distributed.
+X
+If there are any questions, comments or suggestions, the author may be
+contacted at:
+X
+X    jeff@rd1.interlan.com
+X
+X    or
+X
+X    Jeffrey Bailey
+X    Racal-Datacom, Inc.
+X    Mail Stop E-110
+X    1601 N. Harrison Parkway
+X    Sunrise, FL  33323-2899
+*/
+X
+#include "pan.h"
+X
+#include <X11/X.h>
+#include <X11/Xutil.h>
+X
+extern char *malloc();
+extern char *getenv();
+X
+extern int errno;
+extern char *sys_errlist[];
+X
+/*
+X    Routine called when new note button is selected
+*/
+newnote(menu, mitem)
+X    Menu menu;
+X    Menu_item mitem;
+X    {
+X    Display *dpy;
+X    Xv_Screen screen;
+X    int  screen_num;
+X    int  screen_height;
+X    int  screen_width;
+X    Rect rect;
+X    struct SubDir *sp;
+X    struct Note *np;
+X    char *text;
+X    FILE *fp;
+X    char fname[MAXBUFLEN];
+X
+X    dpy = (Display *) xv_get(main_frame, XV_DISPLAY);
+X    screen = (Xv_Screen) xv_get(main_frame, XV_SCREEN);
+X    screen_num = xv_get(screen, SCREEN_NUMBER);
+X    screen_height = DisplayHeight(dpy, screen_num);
+X    screen_width = DisplayWidth(dpy, screen_num);
+X    frame_get_rect(main_frame, &rect);
+X    rect.r_left += DEFSPACING;
+X    if((rect.r_left + DEFWIDTH) > (screen_width - DEFSPACING))
+X        rect.r_left = screen_width - DEFWIDTH - DEFSPACING;
+X    if((rect.r_top + rect.r_height + 2 * DEFSPACING + DEFHEIGHT) <
+X       screen_height)
+X        rect.r_top += (rect.r_height + DEFSPACING);
+X    else
+X        rect.r_top -= (DEFHEIGHT + 2 * DEFSPACING);
+X
+X    text = (char *) xv_get(mitem, MENU_STRING);
+X    sp = (struct SubDir *)LLM_first(&subdir_rt);
+X    while(sp != NULL)
+X        {
+X        if(strcmp(text, sp->subdir) == 0) break;
+X        sp = (struct SubDir *)LLM_next(&subdir_rt);
+X        }
+X
+X    if(sp == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Internal failure - couldn't find subdir entry",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    np = (struct Note *)add_sorted(&sp->note_rt, NOTITLE);
+X    if(np == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Internal failure - memory allocation failure",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    memset((char *)np, 0, sizeof(struct Note));
+X
+X    sprintf(np->basename, NOTENAM, time(NULL), notecount++);
+X    np->sp = sp;
+X    np->crttime = time(NULL);
+X    np->state = Visible;
+X    np->rect.r_top = rect.r_top;
+X    np->rect.r_left = rect.r_left;
+X    np->rect.r_width = DEFWIDTH;
+X    np->rect.r_height = DEFHEIGHT;
+X    strcpy(np->ntitle, NOTITLE);
+X
+X    /* Make the file with 0 length */
+X    makename(fname, np);
+X    fp = fopen(fname, "w");
+X    if(fp != NULL) fclose(fp);
+X
+X    if(!buildnote(np)) return;
+X    reseticon(np);
+X
+X    updateinfo(np, FORCE);
+X    refresh_popups();
+X    }
+X
+/*
+X    Does the grunt work of setting up internals for the frame for
+X    restorenotes().  Only maps visible notes.
+*/
+setnote(np)
+X    struct Note *np;
+X    {
+X    int  rl, rt, rw, rh;
+X    FILE *fp;
+X    char fname[MAXBUFLEN];
+X    char att[20];
+X    char title[MAXTITLELEN + 1];
+X    char cdate[100];
+X
+X    makeinfoname(fname, np);
+X    np->rect.r_left = 0;
+X    np->rect.r_top = 0;
+X    np->rect.r_width = DEFWIDTH;
+X    np->rect.r_height = DEFHEIGHT;
+X    fp = fopen(fname, "r");
+X    if(fp != NULL)
+X        {
+X        np->state = Visible;
+X
+X        fgets(title, sizeof(title), fp);
+X        (void) sscanf(title, "%d %d %d %d %7s", &rl,
+X            &rt, &rw, &rh, att);
+X        np->rect.r_left = rl;
+X        np->rect.r_top = rt;
+X        np->rect.r_width = rw;
+X        np->rect.r_height = rh;
+X        *title = 0;
+X        fgets(title, sizeof(title), fp);
+X        trim(title);
+X        *cdate = 0;
+X        if(fgets(cdate, sizeof(cdate), fp) != NULL)
+X            np->crttime = atoi(cdate);
+X
+X
+X        strcpy(np->ntitle, title);
+X
+X        if(strncmp(att, "HIDDEN", 6) == 0)
+X            np->state = Hidden;
+X        if(strncmp(att, "VISIBLE", 7) == 0)
+X            np->state = Visible;
+X
+X        if(np->state != Hidden)
+X            {
+X            if(!buildnote(np))
+X                {
+X                (void) fclose(fp);
+X                return;
+X                }
+X            xv_set(np->title, PANEL_VALUE, np->ntitle, NULL);
+X            xv_set(np->frame, XV_LABEL, np->ntitle, NULL);
+X            reseticon(np);
+X            }
+X        else np->mapped = 0;
+X
+X        (void) fclose(fp);
+X        }
+X    else
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't open note geometry file",
+X                fname,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        if(!buildnote(np)) return;
+X        np->state = Visible;
+X        }
+X    }
+X
+/*
+X    Creates the actual Xview frame and items for a note.  Called by newnote()
+X    and restorenotes().
+*/
+buildnote(np)
+X    struct Note *np;
+X    {
+X    Server_image image;
+X    static XClassHint chint;
+X    struct tm *tmptr;
+X    char title[MAXTITLELEN + 1];
+X    char fname[MAXBUFLEN];
+X    char buf [30];
+X
+X    strcpy(title, NOTITLE);
+X
+X    if(get_win(np))
+X        {
+X        frame_set_rect(np->frame, &np->rect);
+X
+X        if(np->crttime != 0)
+X            {
+X            tmptr = localtime(&np->crttime);
+X            sprintf(buf, "Created: %02d/%02d/%02d", tmptr->tm_mon + 1,
+X                tmptr->tm_mday, tmptr->tm_year);
+X            }
+X        else strcpy(buf, "No create time");
+X        xv_set(np->cdate, PANEL_LABEL_STRING, buf, NULL);
+X
+X        if(np->crttime != 0)
+X            {
+X            tmptr = localtime(&np->crttime);
+X            sprintf(buf, "Time:    %02d:%02d:%02d", tmptr->tm_hour,
+X                tmptr->tm_min, tmptr->tm_sec);
+X            }
+X        else *buf = 0;
+X        xv_set(np->ctime, PANEL_LABEL_STRING, buf, NULL);
+X
+X        makename(fname, np);
+X        xv_set(np->textsw, TEXTSW_FILE, fname, TEXTSW_FIRST, 0, NULL);
+X        xv_set(np->frame, XV_LABEL, title, NULL);
+X
+X        xv_set(np->panel, PANEL_CARET_ITEM, np->title, NULL);
+X
+X        xv_set(np->title, PANEL_CLIENT_DATA, np, NULL);
+X        xv_set(np->hide, PANEL_CLIENT_DATA, np, NULL);
+X        xv_set(np->destroy, PANEL_CLIENT_DATA, np, NULL);
+X
+X        xv_set(np->frame, XV_SHOW, TRUE, NULL);
+X        np->mapped = 1;
+X        return(1);
+X        }
+X
+X    np->frame = xv_create(main_frame, FRAME,
+X                              XV_LABEL, title,
+X                              XV_WIDTH, DEFWIDTH,
+X                              XV_HEIGHT, DEFHEIGHT,
+X                              FRAME_DONE_PROC, dismissed,
+X                              NULL);
+X    if(np->frame == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Couldn't create a new frame (internal error)",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return(0);
+X        }
+X
+X    /* Set up the X class since xview doesn't */
+X    chint.res_name = "pannote";
+X    chint.res_class = "PanNote";
+X    XSetClassHint(xv_get(np->frame, XV_DISPLAY), xv_get(np->frame, XV_XID),
+X        &chint);
+X
+X    frame_set_rect(np->frame, &np->rect);
+X
+X    xv_set(np->frame, WIN_EVENT_PROC, frameexit, WIN_CONSUME_EVENTS,
+X        LOC_WINEXIT, NULL,
+X        NULL);
+X
+X    np->panel = (Panel) xv_create(np->frame, PANEL,
+X                     WIN_RETAINED, FALSE, 
+X                     NULL);
+X
+X    if(np->panel == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X
+X    np->title = xv_create(np->panel, PANEL_TEXT,
+X                     PANEL_LABEL_STRING, "Title:",
+X                     PANEL_VALUE, "",
+X                     PANEL_VALUE_DISPLAY_LENGTH, MAXTITLEDISLEN + 1,
+X                     PANEL_VALUE_STORED_LENGTH, MAXTITLELEN,
+X                     PANEL_NOTIFY_PROC, newtitle,
+X                     PANEL_CLIENT_DATA, np,
+X                     NULL);
+X    if(np->title == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X
+X    if(np->crttime != 0)
+X        {
+X        tmptr = localtime(&np->crttime);
+X        sprintf(buf, "Created: %02d/%02d/%02d", tmptr->tm_mon + 1,
+X            tmptr->tm_mday, tmptr->tm_year);
+X        }
+X    else
+X       {
+X       strcpy(buf, "No create time");
+X       }
+X    np->cdate = xv_create(np->panel, PANEL_MESSAGE,
+X                 PANEL_LABEL_STRING, buf,
+X                 NULL);
+X
+X    np->hide = xv_create(np->panel, PANEL_BUTTON,
+X                     PANEL_NEXT_ROW, -1,
+X                     PANEL_LABEL_STRING, "Hide",
+X                     PANEL_NOTIFY_PROC, hidenote, 
+X                     PANEL_CLIENT_DATA, np,
+X                     NULL);
+X    if(np->hide == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X    np->destroy = xv_create(np->panel, PANEL_BUTTON, PANEL_LABEL_STRING, 
+X                     "Destroy", PANEL_NOTIFY_PROC, removenote, 
+X                     PANEL_CLIENT_DATA, np,
+X                     NULL);
+X    if(np->destroy == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X
+X    if(np->crttime != 0)
+X        {
+X        tmptr = localtime(&np->crttime);
+X        sprintf(buf, "Time:    %02d:%02d:%02d", tmptr->tm_hour,
+X            tmptr->tm_min, tmptr->tm_sec);
+X        }
+X    else *buf = 0;
+X    np->ctime = xv_create(np->panel, PANEL_MESSAGE,
+X             PANEL_LABEL_STRING, buf,
+X             NULL);
+X
+X    window_fit_height(np->panel);
+X
+X    np->textsw = xv_create(np->frame, TEXTSW,
+X                     NULL);
+X    if(np->textsw == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X
+X
+X    xv_set(xv_get(np->textsw, OPENWIN_NTH_VIEW, 0), 
+X        WIN_EVENT_PROC, dragdrop,
+X        WIN_CONSUME_EVENTS,
+X            ACTION_DRAG_LOAD|ACTION_GO_PAGE_FORWARD|ACTION_GO_PAGE_BACKWARD,
+X            KBD_DONE,
+X            NULL,
+X        WIN_RETAINED, FALSE,
+X        NULL);
+X
+X    window_fit(np->frame);
+X
+X    image = xv_create(NULL, SERVER_IMAGE, XV_WIDTH, 64, XV_HEIGHT, 64,
+X                      SERVER_IMAGE_BITS, myicon, NULL);
+X    if(image == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X    np->icon = xv_create(NULL, ICON,
+X                     ICON_IMAGE, image,
+X                     ICON_LABEL, title,
+X                     ICON_TRANSPARENT, icontransparent,
+X                     NULL);
+X    if(np->icon == NULL)
+X        {
+X        xv_destroy_safe(np->frame);
+X        return(0);
+X        }
+X    xv_set(np->frame, FRAME_ICON, np->icon, NULL);
+X
+X    makename(fname, np);
+X    xv_set(np->textsw, TEXTSW_FILE, fname, TEXTSW_FIRST, 0, NULL);
+X    xv_set(np->frame, XV_SHOW, TRUE, NULL);
+X    np->mapped = 1;
+X
+X    return(1);
+X    }
+X
+/*
+X    Sets the icon label of a note to its title.
+*/
+reseticon(np)
+X    struct Note *np;
+X    {
+X    char title[MAXTITLELEN + 1];
+X
+X    *title = 0;
+X    strcpy(title, np->ntitle);
+X    if(strlen(title) == 0) strcpy(title, NOTITLE);
+X
+X    xv_set(np->icon, ICON_LABEL, title, NULL);
+X    }
+X
+/*
+X   Called when the user enters a new title for a note.
+*/
+newtitle(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    Xv_Window window;
+X    struct Note *np;
+X    char title[MAXTITLELEN + 1];
+X    char ntitle[MAXBUFLEN];
+X
+X    np = (struct Note *)xv_get(item, PANEL_CLIENT_DATA);
+X
+X    strcpy(title, (char *) xv_get(np->title, PANEL_VALUE));
+X    trim(title);
+X    if(strlen(title))
+X        {
+X        strcpy(ntitle, title);
+X        }
+X    else
+X        {
+X        strcpy(ntitle, NOTITLE);
+X        }
+X    xv_set(np->frame, XV_LABEL, ntitle, NULL);
+X    strcpy(np->ntitle, ntitle);
+X    reseticon(np);
+X    adjust_sorted(np);
+X
+X    xv_set(item, PANEL_INACTIVE, TRUE, NULL);
+X    window = (Xv_Window) xv_get(np->textsw, OPENWIN_NTH_VIEW, 0);
+X    win_set_kbd_focus(window, xv_get(window, XV_XID));
+X    xv_set(item, PANEL_INACTIVE, FALSE, NULL);
+X    updateinfo(np, FORCE);
+X    refresh_popups();
+X    return((int)PANEL_NONE);
+X    }
+X
+/*
+X    Called when the user wants to create a new folder.
+*/
+newfolder(item, event)
+X    Panel_item item;
+X    Event *event;
+X    {
+X    char *cp;
+X    struct SubDir *sp;
+X    Menu_item mi;
+X
+X    char new_dir[MAXBUFLEN];
+X
+X    strcpy(new_dir, (char *) xv_get(folder_item, PANEL_VALUE));
+X    trim(new_dir);
+X    if(xv_get(folder_frame, FRAME_CMD_PUSHPIN_IN) == FALSE)
+X        {
+X        xv_destroy_safe(folder_frame);
+X        (void) xv_set(folder_mitem, MENU_INACTIVE, FALSE, NULL);
+X        }
+X    if(strlen(new_dir) == 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "No folder name entered",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    cp = new_dir;
+X    if(*cp == '.')
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Folder name cannot begin with a '.'",
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X
+X    while(*cp)
+X        {
+X        if(*cp == '/')
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Folder name cannot contain a '/'",
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            return;
+X            }
+X        if(*cp == ' ' || *cp == '\t')
+X            {
+X            notice_prompt(main_frame, NULL,
+X                NOTICE_MESSAGE_STRINGS,
+X                    "Folder name cannot contain spaces or tabs",
+X                    NULL,
+X                NOTICE_BUTTON_YES, "Acknowledge",
+X                NOTICE_NO_BEEPING, noticenobeep,
+X                NULL);
+X            return;
+X            }
+X        cp++;
+X        }
+X
+X    if(mkdir(new_dir, 0700) < 0)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Cannot create the new folder",
+X                new_dir,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    sp = (struct SubDir *) LLM_add(&subdir_rt);
+X    if(sp == NULL)
+X        {
+X        notice_prompt(main_frame, NULL,
+X            NOTICE_MESSAGE_STRINGS,
+X                "Cannot create the new folder",
+X                new_dir,
+X                sys_errlist[errno],
+X                NULL,
+X            NOTICE_BUTTON_YES, "Acknowledge",
+X            NOTICE_NO_BEEPING, noticenobeep,
+X            NULL);
+X        return;
+X        }
+X    memset((char *)sp, 0, sizeof(struct SubDir));
+X    strcpy(sp->subdir, new_dir);
+X    LLM_init(&sp->note_rt, sizeof(struct Note));
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_NOTIFY_PROC, newnote,
+X        NULL);
+X    xv_set(main_newnote, MENU_APPEND_ITEM, mi, NULL);
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_GEN_PULLRIGHT, gen_exposemenu,
+X        NULL);
+X    xv_set(main_expose, MENU_APPEND_ITEM, mi, NULL);
+X    mi = xv_create(NULL, MENUITEM,
+X        MENU_STRING, sp->subdir,
+X        MENU_GEN_PULLRIGHT, gen_prtmenu,
+X        NULL);
+X    xv_set(main_print, MENU_APPEND_ITEM, mi, NULL);
+X
+X    refresh_popups();
+X    }
+X
+/*
+X    Called when the user dismisses the change folder window without applying
+X    a change.
+*/
+folderdone()
+X    {
+X    xv_destroy_safe(folder_frame);
+X    (void) xv_set(folder_mitem, MENU_INACTIVE, FALSE, NULL);
+X    }
+X
+SHAR_EOF
+chmod 0644 note.c ||
+echo 'restore of note.c failed'
+Wc_c="`wc -c < 'note.c'`"
+test 16239 -eq "$Wc_c" ||
+	echo 'note.c: original size 16239, current size' "$Wc_c"
+fi
+true || echo 'restore of pan.c failed'
+echo End of part 3, continue with part 4
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

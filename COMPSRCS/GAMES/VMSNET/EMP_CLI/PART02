@@ -1,0 +1,1739 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: BSD Empire Client for VMS, part 2/8
+Message-ID: <1992Apr12.182111.15244@klaava.Helsinki.FI>
+Date: 12 Apr 92 18:21:11 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1728
+
+Archive-name: empireclient_110/part2
+Author: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Product: Empire Client for VMS
+Version: 1.10
+
+-+-+-+-+-+-+-+-+ START OF PART 2 -+-+-+-+-+-+-+-+
+X`009    if (ptr - buffer < size -1) *ptr++ = c;`032
+X`009    c = fgetc(fp);`032
+X`009`125
+X    `125 while (!feof(fp) && !ferror(fp) &&`032
+X`009    (quote_flag `124`124 (c != ' ' && c != '\t' && c != '\n'
+X`009`009`009    && c != COMMENT)));
+X
+X    *ptr = '\0';
+X    if (feof(fp) `124`124 ferror(fp)) return 1;
+X    ungetc(c,fp);
+X    return 1;
+X`125
+X
+Xstatic int read_integer(FILE *fp, int *result, int silent)
+X`123
+X    char buffer`09120`093,file_name`091ERROR_LEN`093,msg`091ERROR_LEN`093,pm
+Vsg`091ERROR_LEN`093;
+X    if (!fgetname(fp,file_name)) file_name`0910`093 = '\0';
+X    sprintf(pmsg,"Can't read from file: %s",file_name);
+X
+X    if (!read_word(fp,buffer,sizeof(buffer))) `123
+X`009if (ferror(fp)) `123   /* Print that error in allways */
+X`009    write_C_error(pmsg);
+X`009    return 0;
+X`009`125
+X`009if (feof(fp)) `123
+X`009    if(!silent) write_line(
+X`009`009"Read error from file: EOF detected",
+X`009`009E_client,file_name);
+X`009    return 0;
+X`009`125
+X`009if (!silent) write_line(
+X`009    "Read error from file: End of line detected",
+X`009    E_client,file_name);
+X`009return 0;
+X    `125
+X    if (sscanf(buffer,"%d",result) != 1) `123
+X`009sprintf(msg,"Read error from file: Integer expected: \"%s\"",
+X`009    buffer);
+X`009if (!silent) write_line(msg,E_client,file_name);
+X`009return 0;
+X    `125
+X    return 1;
+X`125
+X
+Xint skip_cr(FILE *fp)
+X`123
+X    int c, comment_flag = 0;
+X    while(!feof(fp) && !ferror(fp) &&`032
+X`009((c = getc(fp)) == ' ') `124`124 (c == '\t') `124`124 (c == COMMENT) `12
+V4`124
+X`009    (comment_flag && c != '\n'))`032
+X`009`009if (c == COMMENT) comment_flag = 1;
+X
+X    if (feof(fp) `124`124 ferror(fp)) return 0;
+X    if (c == '\n') return 1;
+X    ungetc(c,fp);
+X    return 0;
+X`125
+X
+Xint write_word(FILE *fp,char *ptr)
+X`123
+X    int c, quote_flag = 0;
+X    while (*ptr && !ferror(fp)) `123
+X`009if ((*ptr == '\n' `124`124 *ptr == ' ' `124`124 *ptr == '\t' `124`124
+X`009    *ptr == COMMENT) && !quote_flag) `123
+X`009    fputc(QUOTE,fp);
+X`009    quote_flag = 1;
+X`009`125
+X`009if (*ptr == QUOTE) fputc(QUOTE,fp);
+X`009fputc(*ptr,fp);
+X`009ptr++;
+X    `125
+X    if (quote_flag) fputc(QUOTE,fp);
+X    fputc(' ',fp);
+X    return !ferror(fp);
+X`125
+X
+X
+Xstatic void add_Service(FILE *fp)
+X`123
+X    struct Service *ptr = malloc(sizeof(struct Service));   `032
+X    if (!ptr) `123
+X`009write_line("Out of memory",E_client,NULL);
+X`009exit(SS$_NORMAL);
+X    `125
+X    ptr -> next = country_list;
+X    read_word(fp,   ptr -> Country, sizeof(ptr -> Country));
+X    read_word(fp,   ptr -> Pass,    sizeof(ptr -> Pass));
+X    read_word(fp,   ptr -> Name,    sizeof(ptr -> Name));
+X    read_word(fp,   ptr -> Port,    sizeof(ptr -> Port));
+X    read_word(fp,   ptr -> ET_file, sizeof(ptr -> ET_file));
+X
+X    country_list = ptr;
+X`125
+X
+Xstatic void read_more(FILE *fp)
+X`123  `032
+X    use_more = 1;
+X
+X    if(!read_integer(fp,&more_page_len,0)) more_page_len = 24;
+X    if (more_page_len < 2) more_page_len = 2;
+X
+X    if (!read_integer(fp,&term_len,0)) term_len = TERM_LEN-1;
+X    if (term_len < 2) term_len = 2;
+X`125
+X
+Xstatic void activate_history(int history_size);
+X
+Xstatic void read_history(FILE *fp)
+X`123   int temp;
+X    if(!read_integer(fp,&temp,0)) temp = 10;
+X    activate_history(temp);
+X`125
+X
+Xstatic void read_timesaver(FILE *fp)
+X`123
+X    char temp`09125`093 = "",temp2`09115`093 = "";
+X    read_word(fp,temp,5);   /* 0 */
+X    read_word(fp,temp2,15); /* 0:00:0 */
+X    strcat(temp," ");
+X    strcat(temp,temp2);
+X    use_timesaver = convert_time(temp,&timesaver_value);
+X`125
+X
+Xstatic void read_moretimer(FILE *fp)
+X`123
+X    char temp`09125`093 = "",temp2`09115`093 = "";
+X    read_word(fp,temp,5);   /* 0 */
+X    read_word(fp,temp2,15); /* 0:00:0 */
+X    strcat(temp," ");
+X    strcat(temp,temp2);
+X    use_moretimer = convert_time(temp,&moretimer_value);
+X`125
+X
+Xstatic int playlimit`09124`093 =
+X`009`123 0 `125;
+Xstatic char playlimit_msg`091ERROR_LEN`093 = "Empiretool disabled";
+X
+Xstatic void read_playlimit(FILE *fp)
+X`123
+X    char temp`09125`093 = "";
+X    int flag;
+X
+X    flag = read_word(fp,temp,sizeof(temp));
+X    while (flag && isdigit(temp`0910`093)) `123
+X`009int t1,t2, i;
+X`009if(sscanf(temp,"%d-%d",&t1,&t2) == 2 &&
+X`009    t1 >= 0 && t1 < 24 && t2 > 0 && t2 <= 24) `123
+X`009`009/* t1 between 0 - 23 , t2 between 1 - 24 */
+X`009`009for (i = t1; i != t2; i++) `123
+X`009`009    if (i == 24) i = 0;
+X`009`009    playlimit`091i`093 = 1;
+X`009`009`125
+X`009`009   `032
+X`009`125 else if (sscanf(temp,"%d",&t1) == 1 &&
+X`009    t1 >= 0 && t1 < 24) playlimit`091t1`093 = 1;
+X`009else write_line("Illegal time in playlimit -entry",E_client,temp);
+X`009flag = read_word(fp,temp,sizeof(temp));
+X    `125
+X    if (flag) playlimit_msg`0910`093 = '\0';
+X    while(flag) `123`009    /* read message */
+X`009strcat(playlimit_msg,temp);
+X`009strcat(playlimit_msg," ");
+X`009flag = read_word(fp,temp,sizeof(temp));
+X    `125   `032
+X`125
+X
+Xstatic void autoset(void)
+X`123
+X    use_more = 1;
+X    if (!use_history) activate_history(10);
+X    use_high = screen_is_ansi;`009/* work, because HIGH_OFF is actually */
+X`009`009`009`009/* all attributes off (ANSI) command */
+X    more_page_len = screen_page_len > 2 ? screen_page_len -1 : 2;
+X    term_len = screen_page_width > 2 ? screen_page_width -1 : 2;
+X`125
+X
+Xstatic void read_init_file(FILE *fp, int is_global)
+X`123
+X    char word`091NAME_LEN`093;
+X    char tmp`091ERROR_LEN`093;
+X    char msg`091ERROR_LEN`093;
+X
+X    while(read_word(fp,word, sizeof(word))) `123
+X`009if (StrEQ(word,"country",1)) add_Service(fp);
+X`009else if (StrEQ(word,"silent",1)) silent_login = 1;
+X`009else if (StrEQ(word,"more",1)) read_more(fp);
+X`009else if (StrEQ(word,"nomore",1)) use_more = 0;
+X`009else if (StrEQ(word,"timesaver",1)) read_timesaver(fp);
+X`009else if (StrEQ(word,"moretimer",1)) read_moretimer(fp);
+X`009else if (StrEQ(word,"boldface",1)) use_high = 1;
+X`009else if (StrEQ(word,"strip",1)) use_high = 0;
+X`009else if (StrEQ(word,"history",1)) read_history(fp);
+X`009else if (StrEQ(word,"nohistory",1)) activate_history(0);
+X`009else if (StrEQ(word,"no_empire_eof",1)) no_empire_eof = 1;
+X`009else if (StrEQ(word,"autoset",1)) autoset();
+X`009/* global only -codes */
+X`009else if (StrEQ(word,"playlimit",1) && is_global) read_playlimit(fp);
+X`009else `123
+X`009    sprintf(msg,"Unknown keyword \"%s\" in init file",word);
+X`009    write_line(msg,E_client,fgetname(fp,tmp));
+X`009`125
+X`009if (!skip_cr(fp)) `123
+X`009    write_line("Extra field in init file",E_client,fgetname(fp,tmp));
+X`009`125
+X    `125
+X    if (!feof(fp)) write_line("Rest of init file ignored",E_client,
+X`009fgetname(fp,tmp));
+X`125
+X
+Xstatic int legalday()`032
+X`009    /* That function is written hyvatti@cc.Helsinki.FI,
+X              but I think that original (Pascal) version is written
+X              leino@cc.Helsinki.FI.
+X            */
+X`123
+X    typedef struct `123
+X`009    unsigned short buffer_length;
+X`009    unsigned short item_code;
+X`009    char *buffer_address;
+X`009    unsigned long *return_length_address;
+X`009    unsigned long itmlst_end;
+X    `125 itmlst_type;
+X
+X    char value`09140`093, value2`09140`093;
+X    unsigned short length, length2;
+X    itmlst_type itmlst = `123
+X`009`009sizeof(value) - 1,
+X`009`009LNM$_STRING,
+X`009`009value,
+X`009`009&length,
+X`009`0090l
+X`009`125;`009`009    /* for daystatus */
+X    itmlst_type itmlst2 = `123
+X`009`009sizeof(value2) - 1,
+X`009`009LNM$_STRING,
+X`009`009value2,
+X`009`009&length2,
+X`009`0090l
+X`009`125;`009`009    /* for systemstatus */
+X    $DESCRIPTOR( system_table, "LNM$SYSTEM_TABLE" );
+X    $DESCRIPTOR( log_daystatus, "$DAYSTATUS" );
+X    $DESCRIPTOR( log_systemstatus, "$SYSTEMSTATUS" );
+X    unsigned long flags = LNM$M_CASE_BLIND;
+X    unsigned char mode = PSL$C_EXEC;`009    /* for daystatus */
+X    unsigned char mode2 = PSL$C_SUPER;`009    /* for systemstatus */
+X    unsigned long status, status2;
+X
+X    status = sys$trnlnm(&flags, &system_table, &log_daystatus, &mode, &itmls
+Vt);
+X    status2 = sys$trnlnm(&flags, &system_table,`032
+X`009&log_systemstatus, &mode2, &itmlst2);
+X
+X    if (status == SS$_NORMAL && status2 == SS$_NORMAL) `123
+X`009value`091 length`093 = '\0';
+X`009value2`091 length2`093 = '\0';
+X `032
+X`009return( !StrEQ("WEEKDAY", value,1)
+X`009     `124`124 !StrEQ("ATTENDED", value2,1) );
+X    `125 else `123
+X`009if (status != SS$_NORMAL)`032
+X`009    write_VMS_error("Can't read value of $DAYSTATUS",status);
+X
+X`009if (status2 != SS$_NORMAL)`032
+X`009    write_VMS_error("Can't read value of $SYSTEMSTATUS",status2);
+X
+X`009return 0;
+X    `125
+X`125
+X
+Xstatic int is_playtime(void)
+X`123
+X    time_t buffer = time(NULL);
+X    tm_t *buffer2 = localtime(&buffer);
+X    int hour = buffer2 -> tm_hour;
+X    return !playlimit`091hour`093 `124`124 legalday();
+X`125
+X
+Xtypedef enum `123 D_country, D_host `125 default_type;
+X
+Xstatic struct Service *search_default(char *Ident,
+X`009default_type def)
+X`123
+X    char *tmp;
+X    struct Service *ptr = country_list;
+X
+X    if (!Ident) return country_list;
+X    while(ptr) `123
+X`009switch(def) `123
+X`009case D_country:
+X`009    if (StrEQ(ptr -> Country,Ident,0)) return ptr;
+X`009break;
+X`009case D_host:
+X`009    if (StrEQ(ptr -> Name,Ident,0)) return ptr;
+X`009    if ((tmp = strstr(ptr -> Name, Ident)) &&`032
+X`009`009/* short cut evaluation */
+X`009`009*(tmp + strlen(Ident)) == '.') return ptr;
+X`009break;
+X`009`125
+X`009ptr = ptr -> next;
+X    `125
+X    return NULL;
+X`125
+X
+X/* CONNECTION ************************************************************ *
+V/
+X
+Xstatic short open_connection (char *Name, char *Port)
+X`123
+X    char temp`091ERROR_LEN`093;
+X    struct sockaddr_in sin;
+X    struct hostent *hp = NULL;
+X    struct servent *sp = NULL;
+X    int s; /* Vms Channel */
+X
+X    unsigned short val;
+X
+X`009bzero((char *) &sin, sizeof(sin));
+X
+X    `009hp = gethostbyname(Name);
+X`009if (hp) `123
+X`009    sin.sin_family = hp->h_addrtype;
+X`009    bcopy(hp->h_addr, &sin.sin_addr, hp->h_length);
+X`009`125 else `123
+X`009`009sin.sin_family = AF_INET;
+X`009`009sin.sin_addr.s_addr = inet_addr(Name);
+X`009`009if (sin.sin_addr.s_addr == -1)  `123
+X`009`009    write_line("Unknown address or syntax error",
+X`009`009`009E_client,Name);
+X`009`009    return -1;
+X`009`009`125
+X`009`125`009   `032
+X  `032
+X
+X`009/*
+X`009 *  Create an IP-family socket on which to make the connection
+X`009 */
+X
+X`009s = socket(sin.sin_family, SOCK_STREAM, 0);
+X`009if (s < 0) `123
+X`009`009write_socket_error("Can't open socket");
+X`009`009return -1;
+X`009`125
+X
+X`009/*
+X`009 *  Get the TCP port number of the server.
+X`009 *
+X`009 */
+X
+X`009if (val=atoi(Port)) `123
+X
+X`009/*
+X`009 *  Create a "sockaddr_in" structure which describes the remote
+X`009 *  IP address we want to connect to (from gethostbyname()) and
+X`009 *  the remote TCP port number.
+X`009 */
+X
+X`009    sin.sin_port = htons(val);
+X
+X`009`125 else `123`009
+X`009    sp = getservbyname(Port, "tcp");
+X`009    if (sp == NULL) `123
+X
+X`009`009sprintf(temp, "%s/tcp: unknown service\n",Port);
+X`009`009write_line(temp,E_client,NULL);
+X
+X`009`009if(socket_close(s)) `123
+X`009`009    write_socket_error("Error closing socket");
+X`009`009`125
+X`009`009return -1;
+X`009    `125
+X
+X`009/*
+X`009 *  Create a "sockaddr_in" structure which describes the remote
+X`009 *  IP address we want to connect to (from gethostbyname()) and
+X`009 *  the remote TCP port number (from getservbyname()).
+X`009 */
+X
+X`009    sin.sin_port = sp->s_port;
+X
+X`009`125
+X
+X
+X`009/*
+X`009 *  Connect to that address...
+X`009 */
+X
+X`009if (connect(s, &sin, sizeof (sin), 0) < 0) `123
+X`009`009write_socket_error("Can't connect to address");
+X`009`009
+X`009`009if(socket_close(s)) `123
+X`009`009    write_socket_error("Error closing socket");
+X`009`009`125
+X`009`009return -1;
+X`009`125
+X`009return s;
+X`125
+X
+Xstatic void close_connection(short s)
+X`123
+X
+X    if(socket_close(s)) `123
+X`009write_socket_error("Can't close socket");
+X    `125
+X
+X`125
+X
+X/* ERROR POOL *********************************************************** */
+X
+Xvolatile int quit_flag = 0;
+X
+X#define EFLG 13`009`009/* General eventflag to wakeup client */
+X
+X#define RING(x,limit) ( (x) + 1 < (limit) ? (x) + 1 : 0 )
+X#define RINGN(x,limit) ( (x) > 0 ? (x) - 1 : (limit) -1 )
+X
+X#define EPOOL_SIZE 50
+X
+Xtypedef enum `123 E_ok, E_error, E_vms `125 E_class;
+X
+Xstruct Error `123
+X    volatile E_class error_class;`032
+X    volatile int vms_code;`009 /* VMS_error_code */
+X    volatile char text`091ERROR_LEN`093;
+X`125;
+X
+Xvolatile int error_head = 0;   /* EMPTY: head == tail    */
+X         int error_tail = 0;   /* FULL:  head+1 == tail  */
+X
+Xvolatile struct Error error_pool`091EPOOL_SIZE`093;
+X
+Xstatic volatile void put_error(E_class class, char *error, int VMS_code)
+X`123
+X    int temp = error_head;
+X    error_head = RING(error_head, EPOOL_SIZE);
+X
+X    error_pool`091temp`093.error_class = class;
+X    error_pool`091temp`093.vms_code = VMS_code;
+X    strcpy(error_pool`091temp`093.text,error);
+X   `032
+X    sys$setef(EFLG);`009/* wakeup client for printing errors */
+X`125
+X
+Xstatic void print_errors(void)
+X`123
+X    for(; error_tail != error_head; error_tail = RING(error_tail, EPOOL_SIZE
+V))`032
+X`009switch(error_pool`091error_tail`093.error_class) `123
+X`009case E_ok:
+X`009    write_line(error_pool`091error_tail`093.text,E_none,NULL);
+X`009break;
+X`009case E_error:
+X`009    write_line(error_pool`091error_tail`093.text,E_client,NULL);
+X`009break;
+X`009case E_vms:
+X`009    write_VMS_error(error_pool`091error_tail`093.text,
+X`009`009error_pool`091error_tail`093.vms_code);
+X`009break;
+X`009defualt:
+X`009    write_line("Internal error (print_errors())",E_client,NULL);
+X`009    quit_flag = 1;
+X`009break;
+X`009`125
+X`125
+X
+X/* PROTOCOL ************************************************************* */
+X
+X/* Empire commands from server to client */
+X#define C_CMDOK         '0'
+X#define C_DATA          '1'
+X#define C_INIT          '2'
+X#define C_EXIT          '3'
+X#define C_FLUSH         '4'
+X#define C_NOECHO        '5'
+X#define C_PROMPT        '6'
+X#define C_ABORT         '7'
+X#define C_REDIR         '8'
+X#define C_PIPE          '9'
+X#define C_CMDERR        'a'
+X#define C_BADCMD        'b'
+X#define C_EXECUTE       'c'
+X
+X#define CLIENTPROTO 2
+X
+X/* empire commands from client to server */
+X#define USER "user"
+X#define COUN "coun"
+X#define QUIT "quit"
+X#define PASS "pass"
+X#define PLAY "play"
+X#define LIST "list"`009    /* where this is in use ? */
+X#define CMD "cmd"`009    /* where this is in use ? */
+X#define CTLD "ctld"
+X
+X#define CTLC "\naborted"    /* That is: \naborted\n */
+X
+X/* READING from server ****************************************************
+V */
+X
+X#define INBUFFER_LEN 1000
+Xstatic volatile char inbuffer`091INBUFFER_LEN`093;
+X
+Xshort channel = -1;
+X
+X#define POOL_SIZE 1000
+X#define MIN_FREE (POOL_SIZE / 10)
+X
+Xstatic volatile int timesaver_launched = 0;
+Xstatic volatile int moretimer_launched = 0;
+Xstatic volatile int updatetimer_launched = 0;
+X
+Xstatic volatile int head = 0;   /* EMPTY: head == tail    */
+Xstatic          int tail = 0;   /* FULL:  head+1 == tail  */
+Xstatic volatile int have_overflow = 0; /* skip partial command */
+Xstatic volatile int have_reading  = 0; /* have read request queued */
+X
+Xstatic volatile unsigned char command_pool`091POOL_SIZE`093`091POOL_LEN`093
+X    = `123 0 `125;
+X
+Xstatic volatile void read_ast (void);
+X
+Xstatic volatile void check_reading(int ast)
+X`123   int status;
+X
+X    int free = tail - head;
+X
+X    if (free <= 0) free += POOL_SIZE;
+X
+X#ifdef POOLDEBUG
+X    fprintf(stderr,"\n%scheck_reading: %d %d -> %d %s\n",
+X`009 ast ? "ast " : "",`032
+X`009 tail,head,free,have_reading ? "reading" : ""); fflush(stderr);
+X#endif`032
+X   `032
+X    if (ast && (free < MIN_FREE) `124`124 have_reading `124`124 channel < 0
+V `124`124
+X`009timesaver_launched `124`124 quit_flag ) return;
+X
+X#ifdef POOLDEBUG
+X    fprintf(stderr,"request\n");    fflush(stderr);
+X#endif`032
+X
+X    status = sys$qio(0, channel, IO$_RECEIVE, &iosb, read_ast, 0,
+X`009inbuffer, sizeof (inbuffer), 0, 0, 0, 0);
+X
+X    if (status != SS$_NORMAL) `123
+X`009put_error(E_vms,"Error butting IO$_RECEIVE qio",status);
+X`009quit_flag = 1;
+X    `125 else have_reading = 1;
+X`125
+X
+Xstatic void start_reading(short s)
+X`123
+X    int status;
+X
+X    channel = s;
+X    quit_flag = 0;
+X    have_reading = 0;
+X
+X    command_pool`091head`093`0910`093 = '\0';
+X
+X    check_reading(0);
+X`125
+X
+Xstatic void stop_reading(void)
+X`123
+X    int status;
+X
+X`009status = sys$cancel(channel);`032
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Error canceling reading from server",status);
+X`009`125
+X`009channel = -1;
+X`125
+X
+Xstatic volatile void read_ast (void)
+X`123
+X    int status;
+X    unsigned char *ptr,*inptr;
+X    char error_text`091ERROR_LEN`093 = "";
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nread_ast\n"); fflush(stderr);
+X#   endif
+X
+X    have_reading = 0;
+X
+X    if (iosb.count < 1) `123
+X`009if (iosb.cond == SS$_NORMAL) `123
+X`009    quit_flag = 1;
+X`009    put_error(E_error,"SERVER EOF",0);
+X`009`125 else if (iosb.cond == SS$_CANCEL &&`032
+X`009`009    (timesaver_launched `124`124 quit_flag)) `123
+X`009    /* ok */
+X`009`125 else `123
+X`009    quit_flag = 1;
+X`009    put_error(E_vms,"Error reading from server",iosb.cond);
+X`009`125
+X    `125 else `123
+X        ptr = command_pool`091head`093 + strlen(command_pool`091head`093);
+X
+X        for (inptr = inbuffer; inptr < inbuffer + iosb.count;
+X`009    inptr++) `123
+X`009`009
+X`009    if (*inptr == '\n') `123   /* split */
+X`009`009int next;
+X
+X`009`009*ptr = '\0';`009    /* finish string */
+X`009`009next = RING(head, POOL_SIZE);
+X
+X`009`009if (have_overflow) `123
+X`009`009    ptr = &command_pool`091head`093`0910`093;
+X`009`009    *ptr = '\0';
+X`009`009    have_overflow = 0;
+X`009`009`125 else if(next == tail) `123`009   `032
+X`009`009    put_error(E_error,
+X`009`009`009      "Overflow - Too many commands from server.",0);
+X`009`009    quit_flag = 1;
+X`009`009    have_overflow = 1;
+X`009`009`125 else `123
+X`009`009    head = next;
+X`009`009    ptr = &command_pool`091head`093`0910`093;
+X`009`009    *ptr = '\0';
+X`009`009    have_overflow = 0;
+X`009`009`125
+X`009    `125`032
+X`009    else `123 /* not overflow handling */
+X`009`009    if(!have_overflow &&`032
+X`009`009`009ptr < &command_pool`091head`093`091POOL_LEN-1`093)`032
+X`009`009`009    *ptr++ = *inptr;
+X`009    `125
+X`009`125
+X`009*ptr = '\0'; /* for next round */
+X
+X`009check_reading(1);
+X    `125`032
+X    sys$setef(EFLG);
+X
+X`125
+X
+X/* READING from user ***************************************************** *
+V/
+X
+X
+Xtypedef /* Itemlist Read Descriptor */
+X    struct IRD `123
+X`009unsigned short len;`009/* buffer length */
+X`009short code;`009`009/* item code */
+X`009unsigned int data;`009/* buffer address or immediate data */
+X`009int  zero;`009`009/* return address, must be zero */
+X    `125 ReadDescriptor;
+X
+Xstatic short keychannel = -1;
+Xstatic volatile char keybfr`091COMMAND_SIZE`093;
+Xstatic volatile int have_ctrld = 0;
+Xstatic volatile int have_ctrlc = 0;
+X
+X#define SPACES "                                                         \
+X                                                                         \
+X                                                                         \
+X                "
+X
+Xstatic void dummy_handler(void)
+X`123
+X    write_line("Internal error: Dymmy command handler called",E_client,NULL)
+V;
+X    quit_flag = 1;
+X`125
+X
+Xvolatile struct  PRM prompts `0914`093 =
+X`009`123 `123 "",`009`009    0, 1,   dummy_handler,`009   "", NULL, 0, NULL`
+V125,`032
+X`009  `123 "Command> ",`009    0, 1,   dummy_handler, "", NULL, 0, NULL`125,
+V`032
+X`009  `123 "Empiretool> ",`009    0, 1,   dummy_handler, "", NULL, 0, NULL`1
+V25,
+X`009  `123 "",`009`009`009    0, 1,   dummy_handler, "", NULL, 0, NULL`125,
+X`009   `125;
+X
+Xstatic void activate_history(int hist)
+X`123   int i,j;
+X    for (i = 0; i < sizeof(prompts) / sizeof(struct PRM); i++) `123
+X`009if (prompts`091i`093.history) free(prompts`091i`093.history);
+X`009prompts`091i`093.history = NULL;
+X    `125
+X    use_history = 0;
+X    if (!hist) return;
+X
+X    for (i = 0; i < sizeof(prompts) / sizeof(struct PRM); i++) `123
+X`009prompts`091i`093.history = malloc(hist*COMMAND_SIZE);
+X
+X`009if (!prompts`091i`093.history) `123
+X`009    write_C_error("Can't allocate memory for history buffer.");
+X`009    return;
+X`009`125
+X`009for(j=0; j < hist; j++) prompts`091i`093.history`091j`093`0910`093 = '\0
+V';
+X`009prompts`091i`093.history_head = 0;
+X`009prompts`091i`093.history_tail = 0;
+X    `125
+X    history_size = hist;
+X    use_history = 1;   `032
+X`125
+X
+Xstatic void next_command(int nolf);
+X
+Xtypedef int FN_handler(prompt_type PT);
+X
+X#define FN_REASK    0
+X#define FN_PROCESS  1
+X#define FN_IGNORE   2
+X#define FN_REPLACE  3
+X
+Xstatic int dummy_FN_handler(prompt_type PT)
+X`123
+X    write_line("Internal error: Dummy key handler called",E_client,NULL);
+X    quit_flag = 1;
+X    return FN_IGNORE;
+X`125
+X
+Xstatic int FN_noterm(prompt_type PT)
+X`123
+X    write_line("Terminator not seen",E_client,NULL);
+X    return FN_REASK;
+X`125
+X
+Xstatic int FN_return(prompt_type PR)
+X`123
+X    return FN_PROCESS;
+X`125
+X
+Xstatic int FN_up(prompt_type PR)`009`009/* History: Up */
+X`123  `032
+X
+X    if (!use_history) return FN_REASK;
+X
+X    prompts`091PR`093.history_tail =`032
+X`009RINGN(prompts`091PR`093.history_tail,history_size);
+X    strcpy(prompts`091PR`093.initial,
+X`009prompts`091PR`093.history`091prompts`091PR`093.history_tail`093);
+X    return FN_REPLACE;
+X`125
+X
+Xstatic int FN_down(prompt_type PR)`009`009/* History: Down */
+X`123  `032
+X    if (!use_history) return FN_REASK;
+X
+X    prompts`091PR`093.history_tail =`032
+X`009RING(prompts`091PR`093.history_tail,history_size);
+X    strcpy(prompts`091PR`093.initial,
+X`009prompts`091PR`093.history`091prompts`091PR`093.history_tail`093);
+X    return FN_REPLACE;
+X`125
+X
+Xstatic int FN_PF1(prompt_type PR);
+Xstatic int FN_PF2(prompt_type PR);
+Xstatic int FN_PF3(prompt_type PR);
+Xstatic int FN_PF4(prompt_type PR);
+Xstatic int FN_Z(prompt_type PR);
+Xstatic int FN_redraw(prompt_type PR);
+X
+Xstatic struct TRM `123
+X    char *terminator;
+X    FN_handler *handler;
+X    screen_key key;
+X    char *info;
+X    `125 keys`091`093 = `123
+X`009`123 "",`009    FN_noterm,`009SK_key,    NULL `125, /* one key in screen
+V mode */
+X`009`123 "\r",`009    FN_return,`009SK_return,  NULL `125,
+X`009`123 "\032",   FN_Z,`009SK_eof,`009    "Ctrl-Z       Client's EOF" `125,
+V /* Ctrl-Z */
+X`009`123 "\027",   FN_redraw,  SK_none,    "Ctrl-W       Redraws screen on s
+Vcreen mode" `125,
+X`009`123 "\033OP", FN_PF1,`009SK_none,    "PF1          Go to command prompt
+V" `125,
+X`009`123 "\217P", FN_PF1,`009SK_none,    NULL `125,
+X`009`123 "\033OQ", FN_PF2,`009SK_none,    "PF2          Function key help" `
+V125,
+X`009`123 "\217Q", FN_PF2,`009SK_none,    NULL `125,
+X`009`123 "\033OR", FN_PF3,`009SK_none,    "PF3          Switch between scree
+Vn mode and empiretool" `125,
+X`009`123 "\217R", FN_PF3,`009SK_none,    NULL `125,
+X`009`123 "\033OS", FN_PF4,`009SK_none,    "PF4          Switch between sessi
+Von and empiretool" `125,
+X`009`123 "\217S", FN_PF4,`009SK_none,    NULL `125,
+X`009`123 "\03321`126",FN_Z,`009SK_eof,`009    "F10          Client's EOF" `1
+V25,
+X`009`123 "\002",   FN_up,`009SK_up,`009    NULL `125,`009      /* Ctrl B */
+X`009/* cursor keys : up and down */
+X`009`123 "\033`091A", FN_up,`009SK_up,`009    NULL `125,
+X`009`123 "\233A", FN_up,`009SK_up,`009    NULL `125,
+X`009`123 "\033OA", FN_up,`009SK_up,`009    NULL `125,
+X`009`123 "\217A", FN_up,`009SK_down,    NULL `125,
+X`009`123 "\033`091B", FN_down,`009SK_down,    NULL `125,
+X`009`123 "\233B", FN_down,`009SK_down,    NULL `125,
+X`009`123 "\033OB", FN_down,`009SK_down,    NULL `125,
+X`009`123 "\217B", FN_down,`009SK_down,    NULL `125,
+X`009/* cursor keys : right and left - only for screen mode */
+X`009`123 "\033`091C", dummy_FN_handler,`009SK_right,   NULL `125,
+X`009`123 "\233C", dummy_FN_handler,`009SK_right,   NULL `125,
+X`009`123 "\033OC", dummy_FN_handler,`009SK_right,   NULL `125,
+X`009`123 "\217C", dummy_FN_handler,`009SK_right,   NULL `125,
+X`009`123 "\033`091D", dummy_FN_handler,`009SK_left,    NULL `125,
+X`009`123 "\233D", dummy_FN_handler,`009SK_left,    NULL `125,
+X`009`123 "\033OD", dummy_FN_handler,`009SK_left,    NULL `125,
+X`009`123 "\217D", dummy_FN_handler,`009SK_left,    NULL `125,
+X `125;
+X`009
+Xstatic void cancel_prompt(void);
+Xstatic void pipe_delay_prompt(void);
+X
+Xstatic void screen_GOTO(int X,int Y);
+Xstatic void flush_buffered(void);
+Xstatic void enter_screen_mode(void);
+X
+X#define SCREEN_GOTO_MASK "\033`091%d;%dH"
+X
+Xstatic int screen_cur_X = 0;
+Xstatic int screen_cur_Y = 0;
+X
+Xstatic void more_update(void);
+Xvolatile int pipe_id = 0;
+X
+Xstatic FILE *C_keyboard_file = NULL;
+Xstatic int have_asked_more = 0;
+Xstatic void activate_prompt(prompt_type P)
+X`123
+X    current_prompt = P;
+X
+X    if (pipe_id) pipe_delay_prompt();
+X    else if (USE_MORE) delay_prompt();
+X    else next_command(0);
+X
+X    prompts`091P`093.prompt_asked = 0; /* is used */
+X`125
+X
+Xstatic void call_handler(void)
+X`123
+X    int i, match = -1;
+X    int res = FN_REASK;
+X
+X    /* for FN_REPLACE */
+X    int len = strlen(prompts`091current_prompt`093.command)+
+X`009strlen(prompts`091current_prompt`093.prompt);
+X    char buffer`091COMMAND_SIZE+PROMPT_SIZE+2`093;
+X    char old_prompt`091PROMPT_SIZE`093;
+X    char tmp2`091sizeof(SPACES)`093;
+X    strcpy(tmp2,SPACES);
+X    tmp2`091len`093 = '\0';
+X
+X    for(i = 0; i < sizeof(keys) / sizeof(struct TRM); i ++) `123
+X`009if (StrEQ(prompts`091current_prompt`093.terminator,
+X`009    keys`091i`093.terminator,0)) match = i;
+X    `125
+X    if (match == -1) `123
+X`009write_line("Unknown function key",E_client,NULL);
+X`009res = FN_REASK;
+X    `125 else if (prompts`091current_prompt`093.screen &&
+X`009keys`091match`093.key != SK_none) `123
+X`009struct screen_data *screen = prompts`091current_prompt`093.screen;
+X`009int fn = -1;
+X
+X`009for (i = 0; i < screen -> keynum; i++)
+X`009    if (screen -> keys`091i`093.key == keys`091match`093.key) fn = i;
+X`009
+X`009if (fn == -1) res = keys`091match`093.handler(current_prompt);
+X`009else `123
+X`009    screen -> keys`091fn`093.handler(screen, current_prompt);
+X`009    res = FN_REASK;
+X`009`125
+X
+X    `125 else res = keys`091match`093.handler(current_prompt);
+X
+X    switch(res) `123
+X`009case FN_REASK:
+X`009    activate_prompt(current_prompt); /* reask it */
+X`009break;
+X`009case FN_PROCESS:
+X`009    if (use_history && prompts`091current_prompt`093.echo_mode) `123`009
+X`009`009/* put entered command to command history */
+X`009`009strcpy(prompts`091current_prompt`093.
+X`009`009`009history`091prompts`091current_prompt`093.history_head`093,
+X`009`009    prompts`091current_prompt`093.command);
+X`009`009prompts`091current_prompt`093.history_head =`032
+X`009`009    RING(prompts`091current_prompt`093.history_head,history_size);
+X`009`009prompts`091current_prompt`093.
+X`009`009    history`091prompts`091current_prompt`093.history_head`093`0910`0
+V93`032
+X`009`009`009= '\0';
+X`009`009prompts`091current_prompt`093.history_tail =
+X`009`009    prompts`091current_prompt`093.history_head;
+X`009    `125
+X`009    prompts`091current_prompt`093.handler();`009   `032
+X`009break;
+X`009case FN_IGNORE:
+X`009    /* don't do anything */
+X`009break;
+X`009case FN_REPLACE: /* replace current text with other */
+X`009    strcpy(buffer,"\r"); /* CR */
+X`009    strcat(buffer,tmp2);
+X`009    strcat(buffer,"\r"); /* CR */
+X`009    put_screen(buffer,1,0); /* raw mode */
+X`009    next_command(1);    /* no LF */
+X`009break;
+X    `125
+X`125
+X
+X#define IS_PROGRESS(P) (current_prompt == P && (have_request `124`124 \
+X`009`009    have_command))  /* NOTICE that have_request and */
+X`009`009`009`009    /* have_command have VOLATILE   */
+X
+Xvoid ask_prompt(prompt_type P, char *Prompt,
+X`009`009  command_handler *handler,
+X`009`009  int echo_mode)
+X`123
+X    if (IS_PROGRESS(P)) `123
+X`009if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009    print_more(length_counter,0,1);
+X`009    clear_more();
+X`009    have_asked_more = 0;
+X`009`125
+X`009cancel_prompt();
+X    `125
+X
+X
+X    if (USE_MORE) more_update(); /* for empiretool and command level */
+X
+X    prompts`091P`093.prompt_asked = 1;
+X    prompts`091P`093.echo_mode = echo_mode;
+X    prompts`091P`093.initial`0910`093= '\0';
+X    if (prompts`091P`093.screen) `123
+X`009sprintf(prompts`091P`093.prompt,SCREEN_GOTO_MASK,
+X`009    prompts`091P`093.screen -> Ypos, prompts`091P`093.screen -> Xpos);
+X    `125 else `123
+X`009prompts`091P`093.prompt`0910`093= '\r';
+X`009strcpy(&prompts`091P`093.prompt`0911`093,Prompt);
+X    `125
+X    prompts`091P`093.handler = handler;
+X
+X    if (current_prompt == P) activate_prompt(P);
+X`125
+X
+Xstatic void suspend_prompt(int dont_flush)
+X`123
+X    if (have_request) `123
+X`009if (USE_MORE && have_asked_more && !dont_flush) `123 /* FLUSH MORE */
+X`009    print_more(length_counter,0,1);
+X`009    clear_more();
+X`009    have_asked_more = 0;
+X`009`125
+X`009cancel_prompt();
+X`009prompts`091current_prompt`093.prompt_asked = 1; /* can used again */
+X    `125
+X`125
+X
+Xvoid change_prompt(prompt_type P)
+X`123
+X    suspend_prompt(0);
+X    current_prompt = P;
+X    if (prompts`091P`093.screen && !have_screen_mode)
+X`009enter_screen_mode();
+X    if (!prompts`091P`093.screen && have_screen_mode)
+X`009leave_screen_mode();
+X
+X    if (prompts`091P`093.prompt_asked) activate_prompt(P);
+X`125
+X
+Xvoid disable_prompt(prompt_type P, int noerror)
+X`123
+X    if (IS_PROGRESS(P)) `123
+X`009if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009    print_more(length_counter,0,1);
+X`009    clear_more();
+X`009    have_asked_more = 0;
+X`009`125
+X`009cancel_prompt();
+X    `125
+X    else if (prompts`091P`093.prompt_asked) prompts`091P`093.prompt_asked =
+V 0;
+X    else if (!noerror) write_line("Internal error: Disabling nonactive promp
+Vt.",
+X`009E_client,NULL);
+X`125
+X
+Xstatic void quit_keyboard(void);
+Xvolatile void ctrld_ast(void);
+Xvolatile void ctrlc_ast(void);
+X
+Xstatic void enable_ctrld(void)
+X`123
+X    int     mask`0911`093;
+X    char buffer`091ERROR_LEN`093;
+X    int status;
+X
+X    if (!keyboard_is_tt) return; /* TT driver required */
+X    if (no_empire_eof) return;
+X
+X`009/* Sets up an out of band ast trap for any control D character */
+X    `032
+X        mask`0910`093 = 0X00000000;`032
+X`009mask`0911`093 = 0X00000010;`009`009`009/* Mask `094D character */
+X        status = sys$qiow(0,keychannel,          /* sets up the ast trap */
+X                IO$_SETMODE`124IO$M_OUTBAND,       /* for `094D characters *
+V/
+X                &iosb11,0,0,ctrld_ast,mask,0,0,0,0);`032
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    write_VMS_error("Error putting IO$_SETMODE`124IO$M_OUTBAND qio",
+X`009`009status);
+X`009    quit_flag = 1;
+X`009`125 else if (iosb11.cond != SS$_NORMAL)  `123
+X`009    write_VMS_error("Error during IO$_SETMODE`124IO$M_OUTBAND qio",
+X`009`009iosb11.cond);
+X`009    quit_flag = 1;
+X`009`125
+X`125
+X
+Xstatic volatile void enable_ctrlc(void)
+X`123
+X    char error_text`091ERROR_LEN`093;
+X    int status;
+X
+X    if (!keyboard_is_tt) return; /* TT driver required */
+X
+X        status = sys$qiow(0,keychannel,          /* set up the ast trap */
+X                IO$_SETMODE`124IO$M_CTRLCAST,       /* for `094C characters
+V */
+X                &iosb11,0,0,ctrlc_ast,0,0,0,0,0);`032
+X
+X`009if (status != SS$_NORMAL) `123
+X`009    put_error(E_vms,"Error putting IO$_SETMODE`124IO$M_CTRLCAST qio",
+X`009`009status);
+X`009    quit_flag = 1;
+X`009`125 else `009if (iosb11.cond != SS$_NORMAL) `123
+X`009    put_error(E_vms,"Error during IO$_SETMODE`124IO$M_CTRLCAST qio",
+X`009`009iosb11.cond);
+X`009    quit_flag = 1;
+X`009`125
+X
+X`125
+X
+Xstatic void init_keyboard(void)
+X`123`032
+X    int status,result;
+X    int item;
+X    prompt_type P;
+X    $DESCRIPTOR(keyboard,"SYS$INPUT");
+X
+X    have_command = 0;
+X    keybfr`0910`093 = '\0';
+X    for ( P = P_server; P <= P_screen; P++) `123
+X`009prompts`091P`093.command`0910`093 = '\0';
+X`009prompts`091P`093.terminator`0910`093 = '\0';
+X`009prompts`091P`093.echo_mode = 1;
+X`009prompts`091P`093.echo_mode = 1;
+X`009prompts`091P`093.screen = NULL;
+X    `125
+X    have_ctrld = 0;
+X
+X    status = sys$assign(&keyboard,&keychannel,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error assigned channel to keyboard.",status);
+X`009keychannel = -1;
+X`009quit_flag = 1;
+X`009return;
+X    `125
+X
+X    item = DVI$_TRM;
+X    status = lib$getdvi(&item,&keychannel,0,&result,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't get device information from SYS$INPUT",
+X`009    status);
+X`009keyboard_is_tt = 0;
+X    `125 else `123
+X`009keyboard_is_tt = result & 1;
+X    `125 `009
+X
+X    item = DVI$_FOD;
+X    status = lib$getdvi(&item,&keychannel,0,&result,0,0);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Can't get device information from SYS$INPUT",
+X`009    status);
+X`009keyboard_is_file = 0;
+X    `125 else `123
+X`009keyboard_is_file = result & 1;
+X    `125 `009
+X
+X    if (keyboard_is_file)`009/* use instead : for BATCH mode */
+X`009C_keyboard_file = open_file("SYS$INPUT",F_NONE);
+X
+X    enable_ctrld();
+X    enable_ctrlc();
+X
+X`125
+X
+Xstatic void quit_keyboard(void)
+X`123
+X    int status;
+X
+X    if (C_keyboard_file) close_file(&C_keyboard_file);
+X
+X    status = sys$dassgn(keychannel);
+X    if (status != SS$_NORMAL) `123
+X`009write_VMS_error("Error deassing keyboard.",status);
+X    `125
+X   `032
+X`125
+X
+Xstatic volatile void ctrld_ast(void)
+X`123
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nctrld_ast\n"); fflush(stderr);
+X#   endif
+X
+X    sys$setef(EFLG);
+X    have_ctrld = 1;
+X`125
+X
+Xstatic volatile void ctrlc_ast(void)
+X`123
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nctrlc_ast\n"); fflush(stderr);
+X#   endif
+X
+X    sys$setef(EFLG);
+X    have_ctrlc = 1;
+X    enable_ctrlc();
+X`125
+X
+Xstatic volatile void key_ast(int CP);
+Xstatic volatile void input_ast(int CP);
+Xstatic volatile void itm_ast(int CP);
+X
+Xstatic void cancel_prompt(void) /* chanceling reading from keyboard */
+X`009`009`009`009/* and reanable `094C and `094D asts`009    */
+X`123
+X    int status;
+X    int was_request = HAVE_FROM_KBD ; /* AST resets this */
+X
+X    status = sys$cancel(keychannel); /* if we want change prompt! */
+X    if (status != SS$_NORMAL) `123      /* or echo mode */
+X`009write_VMS_error("Error canceling reading from keyboard.",status);
+X    `125
+X    else `123  /* enables chanceled asts */
+X`009enable_ctrld();`009/* if these are canceled */
+X`009enable_ctrlc();`009/* if these are canceled */
+X    `125
+X
+X    if (have_command) `123
+X`009have_command = 0;`009/* ignore command */
+X#ifdef`009EVENTDEBUG
+X`009fprintf(stderr,"Entered command iqnored.");
+X#endif
+X    `125
+X
+X    if (was_request && keyboard_is_tt)`032
+X`009put_screen("\r",1,0);   /* put cursor line's begin */
+X`125
+X
+X#define ESC_SIZE 10
+X
+Xvolatile ReadDescriptor ItemList1`091`093 =
+X    `123 `123 0 , TRM$_ESCTRMOVR, ESC_SIZE, 0 `125,`009    /* 0 = size of es
+Vcape */
+X      `123 0 , TRM$_PROMPT, 0, 0 `125,`009    /* 1 = prompt */
+X      `123 0 , TRM$_INISTRNG,  0, 0 `125,`009    /* 2 = start context */
+X      `123 0 , TRM$_MODIFIERS, 0, 0 `125`009    /* 3 = modifiers */
+X
+X    `125;
+X
+Xstatic volatile char itmkeybfr`091COMMAND_SIZE + ESC_SIZE`093;
+Xstatic volatile char itmcharbfr`0912 + ESC_SIZE`093;
+X
+Xstatic void next_command(int nolf)
+X`123
+X    int status;
+X    int plen = strlen(prompts`091current_prompt`093.prompt);
+X    int ilen = strlen(prompts`091current_prompt`093.initial);
+X    int screen_mode = prompts`091current_prompt`093.screen != NULL;
+X
+X    if (have_command) `123
+X`009 /* ugly fix for timing problems */
+X`009 have_command = 0;
+X#ifdef`009EVENTDEBUG
+X`009fprintf(stderr,"Entered command iqnored.");
+X#endif
+X    `125
+X
+X    /* put screen to right mode */
+X    if (screen_mode && !have_screen_mode) enter_screen_mode();
+X    if (!screen_mode && have_screen_mode) leave_screen_mode();
+X
+X    if (have_screen_mode) `123
+X`009/* cursor's current position becomes undefined */
+X`009screen_cur_X = 0;
+X`009screen_cur_Y = 0;
+X    `125
+X
+X    if (C_keyboard_file) `123 /* BATCH mode */
+X`009char buffer`091COMMAND_SIZE`093;
+X`009if (feof(C_keyboard_file)) `123
+X`009    write_line("EOF in INPUT file",E_client,NULL);
+X`009    have_ctrld = 1;`009    /* Empire EOF */
+X`009    quit_flag = 1;
+X
+X`009    strcpy(prompts`091current_prompt`093.command,"");
+X`009    strcpy(prompts`091current_prompt`093.terminator,"\031"); /* FORMAL t
+Verminator */
+X`009    have_command = 1;
+X`009`125
+X`009else if(!fgets(buffer,sizeof(buffer)-1,C_keyboard_file)) `123
+X`009    write_C_error("Error reading from INPUT file");
+X`009    quit_flag = 1;
+X`009`125 else `123
+X`009    char *ptr = strchr(buffer,'\n');
+X`009    if (ptr) `123
+X`009`009strcpy(prompts`091current_prompt`093.terminator,"\r"); /* FORMAL ter
+Vminator */
+X`009`009*ptr = '\0';
+X`009    `125
+X`009    else strcpy(prompts`091current_prompt`093.terminator,"");
+X`009    strcpy(prompts`091current_prompt`093.command,buffer);
+X`009    have_command = 1;`032
+X`009`125
+X`009    `009
+X`009sys$setef(EFLG);`009/* Don't sleep in next wait */
+X
+X`009have_request = 0;
+X    `125 else `123
+X`009if (have_request) `123
+X`009    if (USE_MORE && have_asked_more) `123 /* FLUSH MORE */
+X`009`009print_more(length_counter,0,1);
+X`009`009clear_more();
+X`009`009have_asked_more = 0;
+X`009    `125
+X`009    cancel_prompt();
+X`009`125
+X`009if (keyboard_is_tt && use_history) `123
+X`009    int modify = TRM$M_TM_ESCAPE /* termate reading on escape sequence *
+V/
+X`009`009       `124 TRM$M_TM_NORECALL /* for history buffer */
+X`009`009       `124 (screen_mode ? TRM$M_TM_NOECHO : 0 )
+X`009`009       `124 (screen_mode ? TRM$M_TM_NOEDIT : 0 )
+X`009`009       ;
+X
+X`009    if (screen_mode) `123
+X`009`009screen_GOTO(prompts`091current_prompt`093.screen -> Xpos,
+X`009`009`009    prompts`091current_prompt`093.screen -> Ypos);
+X`009`009flush_buffered();
+X
+X`009    `125 else if (!nolf) put_screen("\n",1,0);`009`009/* LF */
+X
+X`009    if (!prompts`091current_prompt`093.echo_mode) modify `124= TRM$M_TM_
+VNOECHO;
+X`009    else modify `124= TRM$M_TM_TRMNOECHO; /* Don't print terminators (CR
+V) */
+X
+X`009    ItemList1`0911`093.len = plen;
+X`009    ItemList1`0911`093.data = (unsigned int) prompts`091current_prompt`0
+V93.prompt;
+X
+X`009    ItemList1`0912`093.len = ilen;
+X`009    ItemList1`0912`093.data = (unsigned int) prompts`091current_prompt`0
+V93.initial;
+X`009   `032
+X`009    ItemList1`0913`093.data = modify;
+X
+X`009    status = sys$qio(0, keychannel, IO$_READVBLK `124 IO$M_EXTEND,`032
+X`009`009     &iosb8, itm_ast, (int) current_prompt,`032
+X`009`009     screen_mode ? itmcharbfr : itmkeybfr,`032
+X`009`009     screen_mode ? sizeof (itmcharbfr)-1 : sizeof(itmkeybfr)-1,`032
+X`009`009     0, 0,`032
+X`009`009     ItemList1, sizeof(ItemList1));
+X
+X`009    if (status != SS$_NORMAL) `123
+X`009`009write_VMS_error("Error putting IO$READVBLK `124 IO$M_EXTEND qio to k
+Veyboard.",status);
+X`009`009quit_flag = 1;
+X`009    `125 else have_request = 1;
+X
+X`009`125 else if (keyboard_is_tt) `123
+X`009    int modify = IO$M_ESCAPE  /* termate reading on escape sequence */
+X`009`009    `124 (screen_mode ? IO$M_NOECHO : 0 );
+X
+X`009    if (screen_mode) `123
+X`009`009screen_GOTO(prompts`091current_prompt`093.screen -> Xpos,
+X`009`009`009    prompts`091current_prompt`093.screen -> Ypos);
+X`009`009flush_buffered();
+X
+X`009    `125 else if (!nolf) put_screen("\n",1,0);`009`009/* LF */
+X
+X`009    if (!prompts`091current_prompt`093.echo_mode) modify `124= IO$M_NOEC
+VHO;
+X`009    else modify `124= IO$M_TRMNOECHO; /* Don't print terminators (CR) */
+X
+X`009    status = sys$qio(0, keychannel, IO$_READPROMPT `124 modify,`032
+X`009`009     &iosb2, key_ast, (int) current_prompt,`032
+X`009`009     keybfr,`032
+X`009`009     screen_mode ? 1 : sizeof (keybfr)-1,`032
+X`009`009     0, 0,`032
+X`009`009     prompts`091current_prompt`093.prompt, plen);
+X
+X`009    if (status != SS$_NORMAL) `123
+X`009`009write_VMS_error("Error putting IO$READPROMPT qio to keyboard.",statu
+Vs);
+X`009`009quit_flag = 1;
+X`009    `125 else have_request = 1;
+X`009`125 else `123 /* UNKNOW INPUT DEVICE */
+X
+X`009    status = sys$qio(0, keychannel, IO$_READVBLK,`032
+X`009`009     &iosb7, input_ast, (int) current_prompt,`032
+X`009`009     keybfr, sizeof (keybfr)-1, 0, 0, 0, 0);
+X
+X`009    if (status != SS$_NORMAL) `123
+X`009`009write_VMS_error("Error putting IO$READVBLK qio to keyboard.",
+X`009`009status);
+X`009`009quit_flag = 1;
+X`009    `125 else have_request = 1;
+X`009`125
+X    `125
+X    output_printed = 0;`009/* prompt ok */
+X`125
+X
+Xstatic void refresh_prompt(void)
+X`123
+X    int status;
+X    char buffer`091`093 = "\r";   /* CR: for printing someting */
+X   `032
+X    if (!keyboard_is_tt `124`124 !have_request) `123
+X`009output_printed = 0; /* prompt ok */
+X`009return;
+X    `125
+X    status = sys$qiow(0,keychannel,IO$_WRITEVBLK `124 IO$M_REFRESH,&iosb12,0
+V,0,
+X`009`009buffer,strlen(buffer),0,0,0,0);
+X    if (status != SS$_NORMAL)
+X`009write_VMS_error("Error putting IO$_WRITEVBLK `124 IO$M_REFRESH qiow to k
+Veyboard",
+X`009    status);
+X    else if (iosb12.cond != SS$_NORMAL && iosb12.cond != SS$_CONTROLC &&
+X`009iosb12.cond != SS$_CONTROLO && iosb12.cond != SS$_CONTROLY)
+X`009write_VMS_error("Error during IO$_WRITEVBLK `124 IO$M_REFRESH qiow to ke
+Vyboard",
+X`009    iosb12.cond);
+X    else output_printed = 0; /* prompt ok */
+X`125
+X
+Xstatic volatile void key_ast(int CP)
+X`123
+X    char *ptr, *inptr;
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nkey_ast\n"); fflush(stderr);
+X#   endif
+X
+X    have_request = 0;
+X
+X    if (iosb2.cond == SS$_NORMAL `124`124`032
+X`009iosb2.cond == SS$_CONTROLY `124`124`032
+X`009iosb2.cond == SS$_CONTROLC `124`124
+X`009iosb2.cond == SS$_BADESCAPE `124`124
+X`009iosb2.cond == SS$_PARTESCAPE) `123
+X`009if (have_command) `123
+X`009    quit_flag = 1;
+X`009    put_error(E_error,"Internal error - Have already input.",0);
+X`009`125 else `123
+X`009    /* Copy data */
+X`009    ptr = prompts`091CP`093.command;
+X`009    for (inptr = keybfr; inptr < keybfr + iosb2.trmoff; inptr++) `123
+X`009`009*ptr++ = *inptr;
+X`009    `125
+X`009    *ptr = '\0';
+X`009    /* And terminator */
+X`009    ptr = prompts`091CP`093.terminator;
+X`009    for (inptr = keybfr + iosb2.trmoff;`032
+X`009`009inptr < keybfr + iosb2.trmoff + iosb2.trmsize;
+X`009`009inptr++) `123
+X`009`009*ptr++ = *inptr;
+X`009    `125
+X`009    *ptr = '\0';
+X`009    if (iosb2.cond ==  SS$_NORMAL) have_command = 1;
+X`009    else if (iosb2.cond == SS$_BADESCAPE `124`124
+X`009`009     iosb2.cond == SS$_PARTESCAPE) `123
+X`009`009have_command = 2;
+X`009`009put_error(E_vms,"Reading error from keyboard",iosb2.cond);
+X`009    `125 else have_command = 2;
+X`009`125
+X    `125 else if (iosb2.cond == SS$_ABORT) `123
+X`009    /* reading canceled */
+X    `125 else `123
+X`009    quit_flag = 1;
+X`009    put_error(E_vms,"Reading error from user",iosb2.cond);
+X    `125
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic volatile void input_ast(int CP)
+X`123
+X    char *ptr, *inptr;
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\ninput_ast\n"); fflush(stderr);
+X#   endif
+X
+X    have_request = 0;
+X    if (iosb7.cond == SS$_ENDOFFILE) `123
+X`009put_error(E_vms,"Eof in SYS$INPUT",iosb7.cond);
+X`009have_ctrld = 1;`009    /* Empire EOF */
+X`009quit_flag = 1;
+X
+X`009strcpy(prompts`091CP`093.command,"");
+X`009strcpy(prompts`091CP`093.terminator,"\031"); /* FORMAL terminator */
+X`009have_command = 1;
+X
+X    `125 else if (iosb7.cond == SS$_NORMAL) `123
+X`009if (have_command) `123
+X`009    quit_flag = 1;
+X`009    put_error(E_error,"Internal error - Have already input.",0);
+X`009`125 else `123
+X`009    /* Copy data */
+X`009    ptr = prompts`091CP`093.command;
+X`009    for (inptr = keybfr; inptr < keybfr + iosb7.count; inptr++) `123
+X`009`009*ptr++ = *inptr;
+X`009    `125
+X`009    *ptr = '\0';
+X`009    /* And terminator */
+X
+X`009    strcpy(prompts`091CP`093.terminator,"\r"); /* FORMAL terminator */
+X
+X`009    have_command = 1;
+X`009`125
+X    `125 else if (iosb7.cond == SS$_ABORT) `123
+X`009    /* reading canceled */
+X    `125 else `123
+X`009    quit_flag = 1;
+X`009    put_error(E_vms,"Reading error from user",iosb7.cond);
+X    `125
+X    sys$setef(EFLG);
+X`125
+X
+Xstatic volatile void itm_ast(int CP)
+X`123
+X    char *ptr, *inptr;
+X    int screen_mode = prompts`091CP`093.screen != NULL;
+X
+X#   ifdef ASTDEBUG
+X    fprintf(stderr,"\nitm_ast\n"); fflush(stderr);
+X#   endif
+X
+X    have_request = 0;
+X
+X    if (iosb8.cond == SS$_NORMAL `124`124`032
+X`009iosb8.cond == SS$_CONTROLY `124`124`032
+X`009iosb8.cond == SS$_CONTROLC `124`124
+X`009iosb8.cond == SS$_BADESCAPE `124`124
+X`009iosb8.cond == SS$_PARTESCAPE) `123
+X`009if (have_command) `123
+X`009    quit_flag = 1;
+X`009    put_error(E_error,"Internal error - Have already input.",0);
+X`009`125 else `123
+X`009    char *bfr = screen_mode ? itmcharbfr : itmkeybfr;
+X`009    /* Copy data */
+X`009    ptr = prompts`091CP`093.command;
+X`009    for (inptr = bfr; inptr < bfr + iosb8.trmoff; inptr++) `123
+X`009`009*ptr++ = *inptr;
+X`009    `125
+X`009    *ptr = '\0';
+X`009    /* And terminator */
+X`009    ptr = prompts`091CP`093.terminator;
+X`009    for (inptr = bfr + iosb8.trmoff;`032
+X`009`009inptr < bfr + iosb8.trmoff + iosb8.trmsize;
+X`009`009inptr++) `123
+X`009`009*ptr++ = *inptr;
+X`009    `125
+X`009    *ptr = '\0';
+X`009    if (iosb8.cond ==  SS$_NORMAL) have_command = 1;
+X`009    else if (iosb8.cond == SS$_BADESCAPE `124`124
+X`009`009     iosb8.cond == SS$_PARTESCAPE) `123
+X`009`009have_command = 2;
+X`009`009put_error(E_vms,"Reading error from keyboard",iosb8.cond);
+X`009    `125 else have_command = 2;
+X`009`125
+X    `125 else if (iosb8.cond == SS$_ABORT) `123
+X`009    /* reading canceled */
+X    `125 else `123
+X`009    quit_flag = 1;
+X`009    put_error(E_vms,"Reading error from user",iosb8.cond);
+X    `125
+X    sys$setef(EFLG);
+X`125
+X
+X/* SCREEN mode *********************************************************** *
+V/
+X
+Xstatic int screen_Xmax;
+Xstatic int screen_Ymax;
+Xstatic char *screen_display = NULL;  /* Xmax * Ymax array */
+Xstatic char *screen_flags = NULL;    /* Xmax * Ymax array */
+Xstatic int screen_cur_flags = 0;
+X
+Xstatic SCREEN_CLEAR = "\033`0910m\033`0911;1H\033`091J";
+X#define SBUFFER_LEN 250
+Xstatic char screen_buffered`091SBUFFER_LEN+1`093 = "";
+X
+Xstatic void flush_buffered(void)
+X`123
+X    if (screen_buffered`0910`093) put_screen(screen_buffered,1,1);`009/* RAW
+V */
+X    screen_buffered`0910`093 = '\0';
+X`125
+X
+Xstatic write_buffered(char *S)
+X`123
+X    if (strlen(screen_buffered) + strlen(S) > SBUFFER_LEN) flush_buffered();
+X    strcat(screen_buffered,S);
+X`125
+X
+Xstatic void screen_GOTO(int X,int Y)
+X`123
+X    char tmp`09112`093;
+X
+X    if (screen_cur_X == X && screen_cur_Y == Y) return;
+X
+X    if (X == 1 && screen_cur_Y == Y) `123
+X`009write_buffered("\r");`009/* CR */
+X`009screen_cur_X = 1;
+X`009return;
+X    `125
+X
+X#define MOVE_LEFT_MASK "\033`091%dD"
+X#define MOVE_LEFT_ONE  "\033`091D"
+X#define MOVE_RIGHT_MASK "\033`091%dC"
+X#define MOVE_RIGHT_ONE  "\033`091C"
+X#define MOVE_UP_MASK "\033`091%dA"
+X#define MOVE_UP_ONE  "\033`091A"
+X#define MOVE_DOWN_MASK "\033`091%dB"
+X#define MOVE_DOWN_ONE  "\033`091B"
+X
+X    if (X < screen_cur_X  && screen_cur_Y == Y) `123
+X`009int i = screen_cur_X - X;
+X`009if (i == 1) strcpy(tmp,MOVE_LEFT_ONE);
+X`009else sprintf(tmp,MOVE_LEFT_MASK,i);
+X`009write_buffered(tmp);
+X`009screen_cur_X = X;
+X`009return;
+X    `125
+X
+X    if (X > screen_cur_X  && screen_cur_Y == Y) `123
+X`009int i = X - screen_cur_X;
+X`009if (i == 1) strcpy(tmp,MOVE_RIGHT_ONE);
+X`009else sprintf(tmp,MOVE_RIGHT_MASK,i);
+X`009write_buffered(tmp);
+X`009screen_cur_X = X;
+X`009return;
+X    `125
+X
+X    if (Y < screen_cur_Y  && screen_cur_X == X) `123
+X`009int i = screen_cur_Y - Y;
+X`009if (i == 1) strcpy(tmp,MOVE_UP_ONE);
+X`009else sprintf(tmp,MOVE_UP_MASK,i);
+X`009write_buffered(tmp);
+X`009screen_cur_Y = Y;
+X`009return;
+X    `125
+X
+X    if (Y > screen_cur_Y  && screen_cur_X == X) `123
+X`009int i = Y - screen_cur_Y;
+X`009if (i == 1) strcpy(tmp,MOVE_DOWN_ONE);
+X`009else sprintf(tmp,MOVE_DOWN_MASK,i);
+X`009write_buffered(tmp);
+X`009screen_cur_Y = Y;
+X`009return;
+X    `125
+X    sprintf(tmp,SCREEN_GOTO_MASK,Y,X);
+X    write_buffered(tmp);
+X    screen_cur_X = X;
+X    screen_cur_Y = Y;
+X
+X`125
+X
+Xstatic void screen_ATR(int ATR)
+X`123
+X   char tmp`091SBUFFER_LEN`093;
+X
+X   if (screen_cur_flags & `126ATR) `123
+X`009write_buffered("\033`0910m");
+X`009screen_cur_flags = 0;
+X    `125
+X    if (ATR &  `126screen_cur_flags) `123
+X`009static struct AA `123 char flag;
+X`009`009`009char *code;
+X`009`009`009char *off;`032
+X`009`009`009`125 ansi_atributes`091`093 =`032
+X`009`009`009`123 `123 SM_BOLD,`009"1",  "22" `125,
+X`009`009`009  `123 SM_REVERSE, "7",  "27" `125,
+X`009`009`009  `125;
+X`009char tmp1`09120`093;
+X`009int i;
+X
+X`009tmp1`0910`093 = '\0';
+X
+X`009for (i = 0; i < sizeof(ansi_atributes) / sizeof(struct AA); i++) `123
+X`009    if (ansi_atributes`091i`093.flag & ATR & `126screen_cur_flags) `123
+X`009`009if (tmp1`0910`093) strcat(tmp1,";");
+X`009`009strcat(tmp1,ansi_atributes`091i`093.code);
+X`009`009screen_cur_flags `124= ansi_atributes`091i`093.flag;
+X`009    `125
+X`009`125
+X`009if (tmp1`0910`093) `123
+X`009    sprintf(tmp,"\033`091%sm",tmp1);
+X`009    write_buffered(tmp);
+X`009`125
+X
+X   `125
+X
+X
+X`125
+X
+Xstatic void screen_WRITE(int ATR, char *S)
+X`123
+X    char tmp`091SBUFFER_LEN`093;
+X    int len = strlen(S);
+X    int i;
+X
+X    screen_ATR(ATR & `126SM_7BIT);
+X`032
+X    if (len > screen_Xmax - screen_cur_X ) len = screen_Xmax - screen_cur_X;
+X    if (len < 0) return;
+X
+X    strncpy(tmp,S,len); tmp`091len`093 = '\0';
+X    write_buffered(tmp);
+X
+X    for ( i = 0; i < len; i++) `123
+X`009    screen_display `091 screen_cur_X -1 + i + screen_Xmax *`032
+X`009`009(screen_cur_Y -1) `093`032
+X`009`009= tmp`091i`093;
+X`009    screen_flags `091 screen_cur_X -1 + i + screen_Xmax *`032
+X`009`009(screen_cur_Y -1) `093
+X`009       = ATR;
+X    `125
+X
+X    screen_cur_X += len;
+X`125
+X
+Xstatic void screen_update(void)
+X`123
+X    int X,Y;
+X
+X    struct screen_data *screen = prompts`091current_prompt`093.screen;
+X    int mX = screen -> Xmax < screen_Xmax ? screen -> Xmax : screen_Xmax;
+X    int mY = screen -> Ymax < screen_Ymax ? screen -> Ymax : screen_Ymax;
+X
+X    /* THIS KIND UPDATE WILL BE SLOW */
+X    for (Y = 0; Y < mY; Y++)
+X`009for (X = 0; X < mX; X++)`032
+X`009    if (screen_display `091 X + screen_Xmax * Y `093`032
+X`009`009!= screen -> display `091 X + screen -> Xmax * Y `093  `124`124
+X`009`009screen_flags `091 X + screen_Xmax * Y `093`032
+X`009`009!= screen -> flags `091 X + screen -> Xmax * Y `093 ) `123
+X`009`009char tmp`0912`093;
+X
+X`009`009tmp`0910`093 = screen -> display `091 X + screen -> Xmax * Y `093 ;
+X`009`009tmp`0911`093 = '\0';
+X`009`009screen_GOTO(X+1,Y+1);
+X`009`009screen_WRITE(screen -> flags `091 X + screen -> Xmax * Y `093,
+X`009`009`009     tmp);
+X`009    `125
+X
+X    screen_GOTO(screen -> Xpos, screen -> Ypos);
+X    flush_buffered();
+X`125
+X
+Xvoid static screen_scroll(prompt_type P)
+X`123
+X   struct screen_data *screen = prompts`091P`093.screen;
+X   int yes = prompts`091current_prompt`093.screen == screen;
+X   int X,Y;
+X
+X   if(yes && screen -> scroll_area <= screen_Ymax ) `123
+X`009screen_GOTO (1,screen -> scroll_area);
+X`009write_buffered("\033`0911M");   /* delete line */
+X   `125
+X
+X    for (Y = screen -> scroll_area -1; Y < screen -> Ymax -1; Y++)
+X`009for (X = 0; X < screen -> Xmax; X++) `123
+X`009    screen -> display `091 X + screen -> Xmax * Y `093 =
+X`009`009screen -> display `091 X + screen -> Xmax * (Y+1) `093;
+X`009    screen -> flags `091 X + screen -> Xmax * Y `093 =
+X`009`009screen -> flags `091 X + screen -> Xmax * (Y+1) `093;
+X`009`125
+X
+X    if (yes && screen -> Ymax > screen_Ymax) `123
+X`009Y = screen_Ymax -1;
+X`009/* upadete line what now is visisble */
+X`009for (X = 0; X < screen -> Xmax; X++) `123
+X`009    char tmp`0912`093;
+X
+X`009    tmp`0910`093 = screen -> display `091 X + screen -> Xmax * Y `093 ;
+X`009    tmp`0911`093 = '\0';
+X`009    screen_GOTO(X+1,Y+1);
+X`009    screen_WRITE(screen -> flags `091 X + screen -> Xmax * Y `093, tmp);
+X`009`125
+X    `125
+X
+X    if (yes && screen -> Ymax <= screen_Ymax) `123
+X`009screen_GOTO(1,screen -> Ymax);
+X`009screen_WRITE(0,"");
+X`009write_buffered("\033`091K");    /* erase to end of line */
+X
+X`009/* and remember what is erased */
+X`009Y = screen -> Ymax -1;
+X`009for (X = 0; X < screen_Xmax; X++) `123
+X`009    screen_display `091 X + screen_Xmax * Y `093 = ' ';
+X`009    screen_flags `091 X + screen_Xmax * Y `093 = 0;
+X`009`125
+X    `125
+X
+X    Y = screen -> Ymax -1;
+X    for (X = 0; X < screen -> Xmax; X++) `123
++-+-+-+-+-+-+-+-  END  OF PART 2 +-+-+-+-+-+-+-+-

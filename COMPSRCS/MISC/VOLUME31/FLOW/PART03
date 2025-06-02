@@ -1,0 +1,1867 @@
+Newsgroups: comp.sources.misc
+From: julian@vscn08.cern.ch (Julian James Bunn)
+Subject:  v31i066:  flow - Fortran Structure Analysers, Part03/05
+Message-ID: <1992Jul31.052626.375@sparky.imd.sterling.com>
+X-Md4-Signature: a5ef322481671157c0a7209c37805036
+Date: Fri, 31 Jul 1992 05:26:26 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: julian@vscn08.cern.ch (Julian James Bunn)
+Posting-number: Volume 31, Issue 66
+Archive-name: flow/part03
+Environment: fortran, ffccc
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  floppy.f floppy.l flow.exec flowflow.ps procht.for
+#   protre.for rdflop.for unixflow.for
+# Wrapped by kent@sparky on Thu Jul 30 23:38:14 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'floppy.f' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'floppy.f'\"
+else
+  echo shar: Extracting \"'floppy.f'\" \(7665 characters\)
+  sed "s/^X//" >'floppy.f' <<'END_OF_FILE'
+X      PROGRAM FLOPPY
+XC-------------------------------------------------------------------------
+XC Floppy UNIX interface routine.
+XC Sets up various required input files for Floppy.
+XC 
+XC Julian Bunn 1990
+XC-------------------------------------------------------------------------
+X      PARAMETER (MLEN=256,MXLIN=80,maxarg=100)
+X      character*(mxlin) argval
+X      character*1 key,char
+X      CHARACTER*(MLEN)  CFILE,COLD,CFORT,CTEMP,CBAD,CTREE
+X      LOGICAL LOG,fexist,fold,fqold,tidy,tree
+Xc
+Xc get all arguments
+Xc
+X      numargs = iargc()
+X      if(numargs.gt.maxarg) then
+X         write(6,'(A)') ' Floppy --> Too many arguments '
+X         goto 900
+X      endif
+Xc
+Xc get target filename(s)
+Xc
+X      call getarg(numargs,cfile)       
+X      lfile = index(cfile,' ')-1
+X      write(6,'(A)') ' Floppy --> Target file '//cfile(:lfile)
+X      inquire(file=cfile(:lfile),exist=fexist)
+X      if(.not.fexist) then
+X        write(6,'(A)') ' Floppy --> Target file not found !'
+X        goto 900
+X      endif
+Xc
+X      log = .false.                          
+X      fold = .false.  
+X      tidy = .false.
+X      cfort = ' '
+X      ctree = ' '
+X      tree = .false.
+Xc
+X      do 400 iarg=1,numargs-1
+X         call getarg(iarg,argval)
+X         if(argval(:2).eq.'-l') log = .true.
+X         if(argval(:2).eq.'-o') fqold = .true.
+X         if(argval(:2).eq.'-o') cold = argval(3:)
+X  400 continue
+Xc
+X      cbad = 'scratch'
+X      open(7,status='scratch',err=999)
+X      WRITE(7,'(A)') 'LIST,GLOBAL,TYPE;'
+X      WRITE(7,'(A)') 'PRINT,ILLEGAL;'
+X      WRITE(7,'(A)') 'OPTIONS,USER;'
+X      if(fqold) then
+X        if(cold(1:1).eq.' ') cold = cfile(:lfile)//'.flopold'
+X        lold = index(cold,' ')-1
+X        inquire(file=cold(:lold),exist=fold)
+X        if(log) write(6,'(A)') ' Floppy --> Old file: '//cold(:lold)
+X        if(.not.fold) then
+X           write(6,'(A)') ' Floppy --> Old file not found !'
+X           goto 900
+X        endif
+X        cbad = cold
+X        open(15,file=cold,status='old',err=999)
+X  450   read(15,'(A)',end=451,err=999) ctemp      
+X        goto 450
+X  451   continue
+X      else
+X        cold = cfile(:lfile)//'.flopold'     
+X        lold = index(cold,' ')-1
+X        cbad = cold
+X        open(15,file=cold(:lold),status='unknown',err=999)
+X      endif
+Xc
+Xc loop over all qualifiers
+Xc
+X      icheck = 0
+X      do 500 iarg = 1,numargs-1
+X         call getarg(iarg,argval)
+X         larg = index(argval,' ')-1 
+X         key = argval(2:2)
+X         if(key.eq.'l') then
+X           log = .true.
+X         else if(key.eq.'n') then
+X           if(argval(3:3).eq.' ') then
+X              write(6,'(A)') ' Floppy --> Missing value for -n'
+X              goto 900
+X           endif 
+X           cfort = argval(3:)
+X           lfort = index(cfort,' ')-1 
+X           if(log) write(6,'(A)') ' Floppy --> Tidied Fortran: '//
+X     &             cfort(:lfort) 
+X         else if(key.eq.'o') then
+Xc
+X         else if(key.eq.'f') then
+X           if(log) write(6,'(A)') ' Floppy --> List source line numbers'
+X           write(15,'(a)') '*FULL'
+X         else if(key.eq.'i') then
+X           ctemp = argval(3:)
+X   50      iend = index(ctemp,',')
+X           if(iend.ne.0) then
+X             write(15,'(A)') ctemp(:iend-1)
+X             if(log) write(6,'(A)') 
+X     &         ' Floppy --> Ignore: '//ctemp(:iend-1) 
+X             ctemp = ctemp(iend+1:)
+X             goto 50
+X           endif
+X           iend = index(ctemp,' ')
+X           write(15,'(A)') ctemp(:iend)
+X           if(log) write(6,'(A)') ' Floppy --> Ignore: '//ctemp(:iend)
+X         else if(key.eq.'c') then
+X           icheck = 1
+X           ctemp = argval(3:)
+X           if(ctemp.eq.'standard') then
+X             write(15,'(A)') '*CHECK RULE *'
+X             if(log) write(6,'(A)') ' Floppy --> Check Standard rules'
+X           else if(ctemp.eq.' ') then
+X             write(15,'(A)') '*CHECK RULE *'
+X             if(log) write(6,'(A)') ' Floppy --> Check Standard rules'
+X           else if(ctemp.eq.'a') then
+X              write(15,'(A)') '*CHECK RULE 99'
+X              if(log) write(6,'(A)') ' Floppy --> Check all rules'
+X           else if(ctemp.eq.'n') then
+X             write(15,'(A)') '*CHECK RULE -99'
+X              if(log) write(6,'(A)') ' Floppy --> No rule checks'
+X           else 
+X             ctemp = ctemp(:index(ctemp,' ')-1)
+X             if(log) write(6,'(A)') ' Floppy --> Check rules: '//
+X     &               ctemp(:index(ctemp,' ')-1)
+X   51        iend = index(ctemp,',')
+X             if(iend.ne.0) then
+X               write(15,'(A)') '*CHECK RULE '//ctemp(:iend-1)
+X               ctemp = ctemp(iend+1:)
+X               goto 51
+X             endif
+X             write(15,'(A)') '*CHECK RULE '//ctemp
+X           endif 
+X         else if(key.eq.'t') then
+X           write(7,'(A)') 'OPTIONS,TREE;'
+X           ctree = cfile(:lfile)//'.floptre'
+X           ltree = index(ctree,' ')-1
+X           if(log) write(6,'(A)') 
+X     &             ' Floppy --> Produce file for Flow: '//ctree(:ltree)
+X           open(50,file=ctree(:ltree),status='new',
+X     &          form='unformatted',err=999)
+X           tree = .true.
+X         else if(key.eq.'j') then
+X           char = argval(3:3)
+X           if(char.eq.' ') char = '3'
+X           write(7,'(A)') 'OPTIONS,INDENT='//char//';'
+X           if(log) write(6,'(A)') ' Floppy --> Indent clauses by '//char
+X           tidy = .true.
+X         else if(key.eq.'f') then
+X           write(7,'(A)') 'STATEMENTS,SEPARATE;'
+X           if(log) write(6,'(A)') ' Floppy --> Group FORMATs at end'
+X           tidy = .true.
+X         else if(key.eq.'g') then
+X           write(7,'(A)') 'STATEMENTS,GOTO;'
+X           if(log) write(6,'(A)') ' Floppy --> Right align GOTOs'
+X           tidy = .true.
+X         else if(key.eq.'r') then
+X           ctemp = argval(3:)
+X           iend = index(ctemp,',')
+X           if (iend.eq.0) ctemp = ctemp(:index(ctemp,' ')-1)//',10'
+X           write(7,'(A)') 'STATEMENTS,FORMAT='//
+X     &                    ctemp(:index(ctemp,' ')-1)//';'
+X           if(log) write(6,'(A)') ' Floppy --> Renumber FORMATs: '//
+X     &             'start,step '//ctemp(:index(ctemp,' '))
+X           tidy = .true.
+X         else if(key.eq.'s') then
+X           ctemp = argval(3:)
+X           iend = index(ctemp,',')
+X           if (iend.eq.0) ctemp = ctemp(:index(ctemp,' ')-1)//',10'
+X           write(7,'(A)') 'STATEMENTS,NUMBER='//
+X     &                    ctemp(:index(ctemp,' ')-1)//';'
+X           if(log) write(6,'(A)') ' Floppy --> Renumber statements: '//
+X     &             'start,step '//ctemp(:index(ctemp,' '))
+X           tidy = .true.
+X         else 
+X           write(6,'(A)') ' Floppy --> Unrecognized qualifier '//key
+X         endif
+X  500 continue
+Xc
+X      if(tidy) then
+X         write(7,'(A)') 'OUTPUT,FULL,COMPRESS;'
+X         if(cfort(1:1).eq.' ') then
+X           cfort = cfile(:lfile)//'.out'
+X           lfort = index(cfort,' ')-1
+X         endif
+X         cbad = cfort
+X         open(14,file=cfort(:lfort),status='unknown',err=999)
+X      endif 
+Xc
+Xc default action is to check standard rules
+Xc
+X      if(icheck.eq.0.and..not.fqold) then
+X         write(15,'(A)') '*CHECK RULE *'
+X      endif
+X         
+X      write(7,'(A)') 'END;'
+X      if(log) write(6,'(A)') ' Floppy --> Finished parsing command' 
+X      rewind(7)
+X      rewind(15)
+X      cbad = cfile
+X      open(11,file=cfile(:lfile),status='old',err=999)
+X      cbad = 'scratch'
+X      open(99,status='scratch',err=999)
+Xc
+X      call allpro
+Xc
+X      close(11)
+X      if(tidy) close(14)
+X      if(tree) close(50)
+X      close(7)
+X      close(99)
+X      write(6,'(A)') ' Floppy --> has finished'
+X      goto 2000
+XC
+X  999 CONTINUE
+X      WRITE(6,'(A)') ' Floppy --> Error opening '//
+X     &               cbad(:index(cbad,' ')) 
+X  900 write(6,'(A)') ' Floppy aborted'     
+X 2000 CONTINUE
+X      END
+END_OF_FILE
+  if test 7665 -ne `wc -c <'floppy.f'`; then
+    echo shar: \"'floppy.f'\" unpacked with wrong size!
+  fi
+  # end of 'floppy.f'
+fi
+if test -f 'floppy.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'floppy.l'\"
+else
+  echo shar: Extracting \"'floppy.l'\" \(6212 characters\)
+  sed "s/^X//" >'floppy.l' <<'END_OF_FILE'
+X.TH floppy 1 "3rd May 1990"  "CERN"
+X.SH NAME
+Xfloppy \- Fortran coding convention checker and code tidier
+X.SH SYNOPSIS
+X.B floppy 
+X[
+X.B \-l
+X] [
+X.B \-c rules
+X] [
+X.B \-f
+X] [
+X.B \-o old file
+X] [
+X.B \-i names
+X] [
+X.B \-j number
+X] [
+X.B \-F
+X] [
+X.B \-G
+X] [
+X.B \-r start[,step]
+X] [
+X.B \-s start[,step]
+X] [
+X.B \-n new fortran
+X] [
+X.B \-t flow file
+X] [ file ]
+X.SH DESCRIPTION
+X.I Floppy
+Xis a tool which allows a file of Fortran 77 code to be checked against
+Xa set of common coding conventions. Floppy also allows the source Fortran
+Xto be reformatted and tidied in various ways.
+X.PP
+XNote that, before passing code through Floppy, it should have
+Xbeen compiled, preferably with the ANSI compiler flag, to check
+Xfor errors. Otherwise, the results from using Floppy are
+Xunpredictable. Note also that non-standard Fortran statements
+X(such as "include" directives or lower-case) are treated as
+X.B comments
+Xby Floppy, and thus ignored.
+X
+X.SH OPTIONS
+X.IP \fB\-l\fR 12
+XThe
+X.I logging
+Xoption causes Floppy to produce a verbose description of the selected options.
+X.IP \fB\-c\ rules \fR 12
+XThe 
+X.I checks
+Xoption indicates which rules Floppy should check. The checks may be specified as
+Xa series of comma-separated numbers (see below), or as one of the following:
+X.RS 12
+X.IP standard 12
+XThe standard set of rules will be checked (those marked * in the list below).
+X.IP a 12
+XALL rules in the available list will be checked.
+X.IP n 12
+XNO rules will be checked. (Useful when just tidying code.)
+X.PP
+XNote that, if selecting individual rule numbers, 99 is taken to mean ALL
+Xrules, and -99 to mean NO rules. Specifying a negative rule number excludes
+Xthat rule. So to check all rules except 1,5,7 and 31, you can use
+X.br
+X.RS 12
+X.I -c99,-1,-5,-7,-31
+X.RE 12
+X
+X.RE
+X.IP \fB\-f\fR 12
+XThe
+X.I full
+Xqualifier specifies
+Xthat all source code lines should be listed, rather than
+Xjust those in breach of any specified rules.
+X
+X.IP \fB\-o\ old file\fR 12
+XUse a previously-generated file of rule numbers, ignore names etc.
+XThe
+X.I old
+Xtag should be set to the file name, which is generated by 
+Xappending .old to the previous source Fortran file name.
+X
+X.IP \fB\-i\ names\fR 12
+XSpecify a list of Fortran module and variable names to be ignored
+Xwhen the rules are checked. Specify module names by prepending the
+Xname with a # sign. The list of names should be separated by commas.
+XNote also that the names should be uppercase, to conform with the
+XF77 standard. For example,
+X.br
+X.I -i#GOOBAR,FOOBAR
+Xwill cause subroutine GOOBAR to be ignored, and any references to the
+Xvariable FOOBAR.
+X
+X.PP
+X
+XThe following options apply to code tidying:
+X
+X.IP \fB\-j\ [number]\fR 12
+XThe
+X.I indent
+Xoption causes all DO loops and IF...THEN...ENDIF clauses to be
+Xindented by the specified number of spaces to the right. The default
+Xvalue is 3 spaces, the maximum allowed is 5.
+X
+X.IP \fB\-F\fR 12
+XSpecifies that all FORMAT statements be grouped together at the end
+Xof each module.
+X
+X.IP \fB\-G\fR 12
+XSpecifies that all GOTO n clauses are right adjusted to column 72.
+X
+X.IP \fB\-s\ start,[step]\fR 12
+XSpecify that all labelled statements be re-numbered, starting at
+X.I start
+Xand stepping by
+X.I step.
+XThe default value for
+X.I step
+Xis 10.
+X
+X.IP \fB\-r\ start,[step]\fR 12
+XSpecify that all FORMAT statements be re-numbered, starting at
+X.I start
+Xand stepping by
+X.I step.
+XThe default value for
+X.I step
+Xis 10.
+X
+X.IP \fB\-n\ new fortran\fR 12
+XCauses the new Fortran file to be called
+X.I new fortran.
+XIf this option is not given, then the new Fortran file
+Xwill have the name of the source Fortran, appended by
+X.I .out
+X
+X.IP \fB\-t\ Flow file\fR 12
+XThe
+X.I Flow
+Xoption specifies that a binary file be written out that
+Xmay afterwards be processed by the Flow program.
+X
+X.SH CODING CONVENTION LIST
+X
+XThe full list of rules is as follows:
+X.br
+X.(l
+X*  1   Avoid comment lines after end of module
+X.br
+X*  2   End all program modules with the END statement
+X.br
+X*  3   Declared COMMON blocks must be used in the module
+X.br
+X*  4   COMPLEX and DOUBLEPRECISION vars at end of COMMON
+X.br
+X*  5   COMMON block definitions should not change
+X.br
+X*  6   Variable names should be 6 or fewer characters long
+X.br
+X   7   Variables in COMMON should be 6 characters long
+X.br
+X   8   Variables not in COMMON should be <6 characters
+X.br
+X*  9   Integer variables should begin with I to N
+X.br
+X*  10  Variable names should not equal FORTRAN keywords
+X.br
+X*  11  Avoid comment lines before module declaration
+X.br
+X*  12  Module names should not equal intrinsic functions
+X.br
+X*  13  First statement in a module should be declaration
+X.br
+X*  14  Module should begin with at least 3 comment lines
+X.br
+X   15  Comment lines should begin with a C
+X.br
+X*  16  No comment lines between continuations
+X.br
+X*  17  Avoid non-standard variable types eg INTEGER*2
+X.br
+X*  18  Avoid multiple COMMON definitions per line
+X.br
+X*  19  Do not dimension COMMON variables outside COMMON
+X.br
+X*  20  Avoid embedded blanks in variable names
+X.br
+X*  21  Avoid embedded blanks in syntactic entities
+X.br
+X*  22  Avoid the use of PRINT statements (use WRITE)
+X.br
+X   23  Do not give the END statement a label
+X.br
+X*  24  Avoid WRITE(* construction
+X.br
+X   25  Avoid WRITE statement in a FUNCTION
+X.br
+X*  26  Avoid the use of PAUSE statements
+X.br
+X*  27  Statement labels should not begin in column 1
+X.br
+X*  28  Always preceede STOP by a descriptive WRITE
+X.br
+X*  29  Avoid the use of ENTRY in FUNCTIONS
+X.br
+X*  30  Avoid using I/O in FUNCTIONs
+X.br
+X   31  Avoid the use of the alternate RETURN statement
+X.br
+X*  32  COMMON block names should not equal variable names
+X.br
+X*  33  Avoid use of obsolete CERN library routines
+X.br
+X   34  Avoid FUNCTION names the same as intrinsics
+X.br
+X*  35  Local functions should be declared EXTERNAL
+X.br
+X*  36  Module names should all be different
+X.br
+X*  37  Avoid expressions of mixed mode eg A=B/I
+X.br
+X*  38  Length of passed CHARACTER variables should be *
+X.br
+X*  39  Order of statements should conform !
+X.br
+X*  40  Separate Statement Functions by comment lines
+X.br
+X*  41  No names in Statement Function definitions elsewhere
+X.br
+X   42  Use LLT,LGT etc to compare CHARACTER vars. in IFs
+X.br
+X   43  Variables (not COMMON, not PARAMs) <6 characters
+X.br
+X*  44  Passed arguments should be dimensioned * in module
+X.br
+X.)l
+X
+X.SH SEE ALSO
+X.PP
+Xflow(l), f77(1)
+END_OF_FILE
+  if test 6212 -ne `wc -c <'floppy.l'`; then
+    echo shar: \"'floppy.l'\" unpacked with wrong size!
+  fi
+  # end of 'floppy.l'
+fi
+if test -f 'flow.exec' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flow.exec'\"
+else
+  echo shar: Extracting \"'flow.exec'\" \(6065 characters\)
+  sed "s/^X//" >'flow.exec' <<'END_OF_FILE'
+X/***********************************************************************/
+X/* FLOW exec                                                           */
+X/*                                                                     */
+X/* JJB July 1989                                                       */
+X/***********************************************************************/
+Xaddress 'COMMAND'
+Xsignal on novalue
+Xparse source . . execname .
+X 
+Xoptset = "COMMON_TABLE STRUCTURE_CHART GRAPHICS NODE"
+Xsngset = "QUERY EXTERNALS"
+XLOG = 'Y'
+Xerr = ' '
+Xdo i = 1 to words(optset)
+X   interpret word(optset,i) " = ' '"
+Xend
+Xdo i = 1 to words(sngset)
+X   interpret word(sngset,i) " = 'NO'"
+Xend
+X 
+Xinteractive = "YES"
+Xparse upper arg input
+Xparse value input with filename '(' options
+Xif filename = "?" then do; ADDRESS CMS 'HELP 'execname; signal EXIT; end
+Xerr = "Fill in the blank field(s) as required."
+Xcursor = "0001"
+X 
+Xif options ^= ' ' then do
+X   interactive = "NO"
+X   nopts = words(options)
+X   iopt = 0 ; err = " "
+X   do forever
+X      iopt = iopt + 1 ; if iopt > nopts then leave
+X      if find(sngset,word(options,iopt)) ^= 0 then do
+X         interpret word(options,iopt)||'="YES"'
+X         iterate
+X      end
+X      if iopt < nopts then do
+X         val2 = ' ' ; val3 = ' '
+X         key = word(options,iopt) ; val1 = word(options,iopt+1)
+X         if find(optset,key) = 0 then do
+X            err = "Unidentified option on command line: "key
+X            signal EXIT
+X         end
+X         if iopt + 1 < nopts then val2 = word(options,iopt+2)
+X         if iopt + 2 < nopts then val3 = word(options,iopt+3)
+X         if find(optset,val2) ^= 0 | find(sngset,val2) ^= 0 then do
+X            val2 = ' ' ; val3 = ' '
+X         end
+X         if find(optset,val3) ^= 0 | find(sngset,val3)^=0 then val3 = ' '
+X         interpret key "= '"val1 val2 val3"'"
+X         iopt = iopt + words(val1 val2 val3)
+X         iterate
+X      end
+X      if iopt = nopts then do
+X         err = 'Missing value for option 'word(options,iopt)
+X         signal EXIT
+X      end
+X   end
+Xend
+X 
+X/****************/
+X/* GENERAL MODE */
+X/****************/
+X 
+Xif interactive = "NO" then signal CHECK
+Xif ^'QCONSOLE'('GRAPHIC') then do
+X   err = 'Not a full screen device'
+X   signal EXIT
+Xend
+XSTART:
+Xdo forever
+X   signal off error
+X   'IOS3270' execname 'PANEL ;PANEL1 (CLEAR 'cursor
+X/* signal on error    ios3270 gives codes that aren't errors...*/
+X   if IOSK = 'PF03' then do; err = ' '; signal EXIT; end
+X   if IOSK = 'PF02' then do
+X      say "Enter the CMS command :"
+X      parse pull command
+X      signal off error; ADDRESS CMS command; signal on error
+X      say "Continue with "execname" ? [CR=YES]"
+X      parse upper pull answer
+X      if abbrev(answer,"N",1) then signal EXIT
+X      iterate
+X   end
+X   if IOSK = 'PF01' then do
+X      ADDRESS CMS 'HELP 'execname
+X   end
+X   leave
+Xend
+X 
+XCHECK:
+Xerr = ' '
+Xdo i = 1 to words(optset)
+X   interpret "upper "word(optset,i)
+Xend
+Xdo i = 1 to words(sngset)
+X   interpret "upper "word(sngset,i)
+Xend
+X 
+Xintree = filename
+Xif words(intree) = 2 then intree = intree "*"
+Xif words(intree) = 1 then intree = intree "FLOPTRE *"
+X 
+Xif intree ^= " " then do
+X   if ^'FEXIST'(intree) then do
+X      err = "Binary file "intree" does not exist."
+X      cursor = "0001"
+X      if interactive = "YES" then signal START
+X      signal EXIT
+X   end
+Xend
+X 
+Xif words(common_table) = 2 then common_table = common_table "A"
+Xif words(common_table) = 1 then common_table = common_table "COMMONS A"
+X 
+Xif words(structure_chart) = 2 then structure_chart = structure_chart "A"
+Xif words(structure_chart) = 1 then structure_chart = structure_chart "CHART A"
+X 
+Xif words(graphics) = 2 then graphics = graphics "A"
+Xif words(graphics) = 1 then do
+X   graphics = graphics "LISTPS A"
+Xend
+X 
+Xif node ^= ' ' & graphics = ' ' & structure_chart = ' ' then do
+X   err = "You must specify a file name for either graphics or text."
+X   cursor = "0004"
+X   if interactive = "YES" then signal START
+X   signal EXIT
+Xend
+X 
+X 
+Xif graphics = ' ' & query = 'NO' & structure_chart = ' ',
+X   & common_table = ' ' then do
+X   err = "There is nothing for FLOW to do !"
+X   cursor = "0001"
+X   if interactive = "YES" then signal START
+X   signal EXIT
+Xend
+X 
+X'CLRSCRN'
+X 
+X/* Now assign the FILEDEFs */
+X'MAKEBUF'
+Xbufno = rc
+X'SENTRIES'
+Xentries = rc
+X'QFILEDEF ( STACK'
+Xpull dummy
+Xnum_fdefs = 0
+Xdo queued()-entries
+X   num_fdefs = num_fdefs + 1
+X   pull fdef.num_fdefs
+Xend
+X'DROPBUF 'bufno
+X 
+Xcontrol = ' '
+Xsay "FLOW: Input binary file "intree
+X'FILEDEF 50 DISK 'intree' (LRECL 8000 RECFM VS'
+Xif common_table ^= " " then do
+X   say "      COMMON block usage table "common_table
+X   'FILEDEF 60 DISK 'common_table' (LRECL 132 RECFM F'
+X   control = control||' common'
+Xend
+Xif structure_chart ^= " " then do
+X   say "      Text version of chart will be "structure_chart
+X   'FILEDEF 61 DISK 'structure_chart' (LRECL 132 RECFM F'
+X   control = control||' chart'
+Xend
+Xif graphics ^= ' ' then do
+X   say "      Graphics version of chart will be "graphics
+X   'FILEDEF 96 DISK 'graphics' (LRECL 80 RECFM F'
+X   control = control||' graphics'
+Xend
+Xif externals ^= 'NO' then do
+X   say "      External routine names will be displayed"
+X   control = control||' externals'
+Xend
+Xif query ^= 'NO' then do
+X   say "      You will explore the tree interactively"
+X   control = control||' query'
+Xend
+Xif node ^= ' ' then,
+X   say "      The tree will start at node "node
+Xelse node = '$$$$'
+Xcontrol = control||' node '||node
+Xif 'FEXIST'('FLOW$TMP CONTROL A') then 'ERASE FLOW$TMP CONTROL A'
+X'EXECIO 1 DISKW FLOW$TMP CONTROL A 1 F (FINIS STRING 'control
+X'FILEDEF 1 DISK FLOW$TMP CONTROL A '
+X 
+Xsay 'FLOW begins .... '
+X'LOAD CMSFLOW (CLEAR START'
+X'ERASE FLOW$TMP CONTROL A'
+X'FILEDEF 1 CLEAR'
+X'FILEDEF 50 CLEAR'
+Xif graphics ^= ' ' then 'FILEDEF 96 CLEAR'
+Xif common_table ^= ' ' then 'FILEDEF 60 CLEAR'
+Xif structure_chart ^= ' ' then 'FILEDEF 61 CLEAR'
+X 
+X/* Reinstate original FILEDEFs */
+Xdo i = 1 to num_fdefs
+X   fdef.i
+Xend
+Xsay 'FLOW has finished'
+X 
+Xcall EXIT
+X 
+X 
+XNOVALUE:
+Xsay 'Uninitialised variable encountered on line' sigl
+Xcall EXIT
+X 
+XERROR:
+Xsay 'Error on line' sigl
+Xcall EXIT
+X 
+XEXIT:
+Xif err ^= " " then say execname ": " err
+Xexit
+END_OF_FILE
+  if test 6065 -ne `wc -c <'flow.exec'`; then
+    echo shar: \"'flow.exec'\" unpacked with wrong size!
+  fi
+  # end of 'flow.exec'
+fi
+if test -f 'flowflow.ps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'flowflow.ps'\"
+else
+  echo shar: Extracting \"'flowflow.ps'\" \(9117 characters\)
+  sed "s/^X//" >'flowflow.ps' <<'END_OF_FILE'
+X%! PostScript output from FLOW
+X/inch { 72 mul } def
+X /xrel {    30.28572     div inch } def
+X /yrel {    30.28572     div inch } def
+X /Helvetica-Bold findfont 14 scalefont setfont
+X3.2 inch 7.7 inch moveto
+X(Flow for node FLOW) show
+X.1 inch setlinewidth
+X0.5 inch 0.5 inch moveto
+X7.5 inch 0.5 inch lineto
+X7.5 inch 7.5 inch lineto
+X0.5 inch 7.5 inch lineto
+Xclosepath
+Xstroke
+X0.5 inch 0.5 inch translate
+X.01 inch setlinewidth
+X /Helvetica-Bold findfont 8 scalefont setfont
+X   2.500000     xrel    2.500000     yrel moveto
+X   209.5000     xrel    2.500000     yrel lineto
+X   209.5000     xrel    209.5000     yrel lineto
+X   2.500000     xrel    209.5000     yrel lineto
+X closepath
+X stroke
+X   97.00000     xrel    180.7143     yrel moveto
+X   115.0000     xrel    180.7143     yrel lineto
+X   115.0000     xrel    187.7143     yrel lineto
+X   97.00000     xrel    187.7143     yrel lineto
+X closepath
+X stroke
+X   97.72000 xrel  184.21428 yrel moveto
+X (FLOW) show
+X   97.00000     xrel    149.4286     yrel moveto
+X   115.0000     xrel    149.4286     yrel lineto
+X   115.0000     xrel    156.4286     yrel lineto
+X   97.00000     xrel    156.4286     yrel lineto
+X closepath
+X stroke
+X   97.72000 xrel  152.92857 yrel moveto
+X (PRODES) show
+X   28.00000     xrel    118.1429     yrel moveto
+X   46.00000     xrel    118.1429     yrel lineto
+X   46.00000     xrel    125.1429     yrel lineto
+X   28.00000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X   28.72000 xrel  121.64285 yrel moveto
+X (PROTRE) show
+X   51.00000     xrel    118.1429     yrel moveto
+X   69.00000     xrel    118.1429     yrel lineto
+X   69.00000     xrel    125.1429     yrel lineto
+X   51.00000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X   51.72000 xrel  121.64285 yrel moveto
+X (PROCOM) show
+X   74.00000     xrel    118.1429     yrel moveto
+X   92.00000     xrel    118.1429     yrel lineto
+X   92.00000     xrel    125.1429     yrel lineto
+X   74.00000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X   74.72000 xrel  121.64285 yrel moveto
+X (INIARR) show
+X   97.00000     xrel    118.1429     yrel moveto
+X   115.0000     xrel    118.1429     yrel lineto
+X   115.0000     xrel    125.1429     yrel lineto
+X   97.00000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X   97.72000 xrel  121.64285 yrel moveto
+X (EXTERN) show
+X   120.0000     xrel    118.1429     yrel moveto
+X   138.0000     xrel    118.1429     yrel lineto
+X   138.0000     xrel    125.1429     yrel lineto
+X   120.0000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X  120.72000 xrel  121.64285 yrel moveto
+X (PROCHT) show
+X   143.0000     xrel    118.1429     yrel moveto
+X   161.0000     xrel    118.1429     yrel lineto
+X   161.0000     xrel    125.1429     yrel lineto
+X   143.0000     xrel    125.1429     yrel lineto
+X closepath
+X stroke
+X  143.72000 xrel  121.64285 yrel moveto
+X (PROQRY) show
+X   28.00000     xrel    86.85714     yrel moveto
+X   46.00000     xrel    86.85714     yrel lineto
+X   46.00000     xrel    93.85714     yrel lineto
+X   28.00000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X   28.72000 xrel   90.35714 yrel moveto
+X (GRCLOSE) show
+X   51.00000     xrel    86.85714     yrel moveto
+X   69.00000     xrel    86.85714     yrel lineto
+X   69.00000     xrel    93.85714     yrel lineto
+X   51.00000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X   51.72000 xrel   90.35714 yrel moveto
+X (RDFLOP) show
+X   74.00000     xrel    86.85714     yrel moveto
+X   92.00000     xrel    86.85714     yrel lineto
+X   92.00000     xrel    93.85714     yrel lineto
+X   74.00000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X   74.72000 xrel   90.35714 yrel moveto
+X (CHTBOX) show
+X   97.00000     xrel    86.85714     yrel moveto
+X   115.0000     xrel    86.85714     yrel lineto
+X   115.0000     xrel    93.85714     yrel lineto
+X   97.00000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X   97.72000 xrel   90.35714 yrel moveto
+X (CASCHG) show
+X   120.0000     xrel    86.85714     yrel moveto
+X   138.0000     xrel    86.85714     yrel lineto
+X   138.0000     xrel    93.85714     yrel lineto
+X   120.0000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X  120.72000 xrel   90.35714 yrel moveto
+X (CHTLIN) show
+X   143.0000     xrel    86.85714     yrel moveto
+X   161.0000     xrel    86.85714     yrel lineto
+X   161.0000     xrel    93.85714     yrel lineto
+X   143.0000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X  143.72000 xrel   90.35714 yrel moveto
+X (GRINIT) show
+X   166.0000     xrel    86.85714     yrel moveto
+X   184.0000     xrel    86.85714     yrel lineto
+X   184.0000     xrel    93.85714     yrel lineto
+X   166.0000     xrel    93.85714     yrel lineto
+X closepath
+X stroke
+X  166.72000 xrel   90.35714 yrel moveto
+X (GTX) show
+X   97.00000     xrel    55.57143     yrel moveto
+X   115.0000     xrel    55.57143     yrel lineto
+X   115.0000     xrel    62.57143     yrel lineto
+X   97.00000     xrel    62.57143     yrel lineto
+X closepath
+X stroke
+X   97.72000 xrel   59.07143 yrel moveto
+X (TABENT) show
+X   51.00000     xrel    24.28571     yrel moveto
+X   69.00000     xrel    24.28571     yrel lineto
+X   69.00000     xrel    31.28571     yrel lineto
+X   51.00000     xrel    31.28571     yrel lineto
+X closepath
+X stroke
+X   51.72000 xrel   27.78571 yrel moveto
+X (SEARCH) show
+X   74.00000     xrel    24.28571     yrel moveto
+X   92.00000     xrel    24.28571     yrel lineto
+X   92.00000     xrel    31.28571     yrel lineto
+X   74.00000     xrel    31.28571     yrel lineto
+X closepath
+X stroke
+X   74.72000 xrel   27.78571 yrel moveto
+X (LENOCC) show
+X  106.00000 xrel  180.71428 yrel moveto
+X  106.00000 xrel  156.42857 yrel lineto
+X closepath
+X stroke
+X   99.38356 xrel  149.42857 yrel moveto
+X   89.61644 xrel  125.14285 yrel lineto
+X closepath
+X stroke
+X   99.38356 xrel  149.42857 yrel moveto
+X   66.61644 xrel   93.85714 yrel lineto
+X closepath
+X stroke
+X  106.00000 xrel  149.42857 yrel moveto
+X  106.00000 xrel  125.14285 yrel lineto
+X closepath
+X stroke
+X   97.00000 xrel  151.34161 yrel moveto
+X   46.00000 xrel  123.22981 yrel lineto
+X closepath
+X stroke
+X  112.61644 xrel  149.42857 yrel moveto
+X  122.38356 xrel  125.14285 yrel lineto
+X closepath
+X stroke
+X   97.00000 xrel  150.54814 yrel moveto
+X   69.00000 xrel  124.02328 yrel lineto
+X closepath
+X stroke
+X  115.00000 xrel  150.54814 yrel moveto
+X  143.00000 xrel  124.02328 yrel lineto
+X closepath
+X stroke
+X   39.20548 xrel  118.14285 yrel moveto
+X   57.79452 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   41.41096 xrel  118.14285 yrel moveto
+X   78.58904 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   41.41096 xrel  118.14285 yrel moveto
+X   78.58904 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   41.41096 xrel  118.14285 yrel moveto
+X   78.58904 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   41.41096 xrel  118.14285 yrel moveto
+X   78.58904 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   41.41096 xrel  118.14285 yrel moveto
+X   78.58904 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   62.20548 xrel  118.14285 yrel moveto
+X   80.79452 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   62.20548 xrel  118.14285 yrel moveto
+X   80.79452 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   97.00000 xrel  119.26242 yrel moveto
+X   69.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X  122.38356 xrel  118.14285 yrel moveto
+X   66.61644 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X  135.61644 xrel  118.14285 yrel moveto
+X  145.38356 xrel   93.85714 yrel lineto
+X closepath
+X stroke
+X  120.00000 xrel  119.26242 yrel moveto
+X   92.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X  122.38356 xrel  118.14285 yrel moveto
+X   66.61644 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X  120.00000 xrel  119.26242 yrel moveto
+X   92.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X  138.00000 xrel  119.26242 yrel moveto
+X  166.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X  122.38356 xrel  118.14285 yrel moveto
+X   66.61644 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X  129.00000 xrel  118.14285 yrel moveto
+X  129.00000 xrel   93.85714 yrel lineto
+X closepath
+X stroke
+X  120.00000 xrel  120.45264 yrel moveto
+X   46.00000 xrel   91.54736 yrel lineto
+X closepath
+X stroke
+X  143.00000 xrel  119.26242 yrel moveto
+X  115.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X  143.17809 xrel  118.14285 yrel moveto
+X   68.82191 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X  143.00000 xrel  119.26242 yrel moveto
+X  115.00000 xrel   92.73757 yrel lineto
+X closepath
+X stroke
+X   43.61644 xrel   86.85714 yrel moveto
+X   76.38356 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   69.00000 xrel   87.97671 yrel moveto
+X   97.00000 xrel   61.45186 yrel lineto
+X closepath
+X stroke
+X  102.69178 xrel   86.85714 yrel moveto
+X   86.30822 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X  143.00000 xrel   87.18323 yrel moveto
+X   92.00000 xrel   30.95962 yrel lineto
+X closepath
+X stroke
+X  166.00000 xrel   87.97671 yrel moveto
+X   92.00000 xrel   30.16614 yrel lineto
+X closepath
+X stroke
+X   99.38356 xrel   55.57143 yrel moveto
+X   89.61644 xrel   31.28571 yrel lineto
+X closepath
+X stroke
+X   97.00000 xrel   56.69099 yrel moveto
+X   69.00000 xrel   30.16614 yrel lineto
+X closepath
+X stroke
+Xshowpage grestore
+END_OF_FILE
+  if test 9117 -ne `wc -c <'flowflow.ps'`; then
+    echo shar: \"'flowflow.ps'\" unpacked with wrong size!
+  fi
+  # end of 'flowflow.ps'
+fi
+if test -f 'procht.for' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'procht.for'\"
+else
+  echo shar: Extracting \"'procht.for'\" \(7576 characters\)
+  sed "s/^X//" >'procht.for' <<'END_OF_FILE'
+X      SUBROUTINE PROCHT
+XC! Produce the graphics SC
+X      INCLUDE 'params.h'
+X      INCLUDE 'jobcom.h'
+X      INCLUDE 'lunits.h'
+X      INCLUDE 'trecom.h'
+X      INCLUDE 'tables.h'
+X      INCLUDE 'hashnm.h'
+X      INTEGER SEARCH
+X      EXTERNAL SEARCH
+X      LOGICAL OK
+XC
+XC
+X      WRITE(LOUT,'(A)') ' '
+X      WRITE(LOUT,'(A)') ' PROCHT Begins ....'
+X      WRITE(LOUT,'(A)') ' '
+XC
+XC check for first procedure unknown
+XC
+X      IF(CTREE.EQ.'$$$$') THEN
+X        MXCALL = 0
+XC
+XC find all top-level procedures. Select one with max calls
+XC
+X        DO 700 IP=1,NPROC
+X          IF(PROCED_NCALLEDBY(IP).GT.0) GOTO 700
+X          WRITE(LOUT,'(A)') ' Procedure '//PROCED_NAME(IP)//
+X     &                      ' is a top-level node (no callers)'
+X          IF(PROCED_NCALLS(IP).LE.MXCALL) GOTO 700   
+X          MXCALL = PROCED_NCALLS(IP)
+X          CTREE = PROCED_NAME(IP)
+X  700   CONTINUE
+X        WRITE(LOUT,'(/,A,I3,A)') ' Procedure '//CTREE//
+X     &      'selected with the ',MXCALL,' procedures it calls ...'
+X      ENDIF
+XC
+X      IF(.NOT.LEXT) WRITE(LOUT,551)
+X  551 FORMAT(' EXTERNAL procedure names will not appear ',/)
+XC
+X      CNAM = CTREE
+XC
+XC find top node program
+XC
+X      IPNAM = SEARCH(CNAM)
+X      IF(IPNAM.EQ.0) GOTO 900
+X      IF(PROCED_NCALLS(IPNAM).EQ.0) GOTO 950
+XC
+XC initialise all places in the chart
+XC
+X      DO 1 I=0,NXPOS
+X        DO 2 J=1,NYPOS
+X          CPLACE(I,J)(:MXNAM) = ' '
+X          CPLACE(-I,J) = CPLACE(I,J)
+X    2   CONTINUE
+X    1 CONTINUE
+XC
+X      MXLEV = 1
+X      NLEFT = 1
+X      INEXT(1) = IPNAM
+X      NUMBER(ILEV) = 0
+X      PROCED_LEVEL(IPNAM) = 1
+XC
+XC Assign levels to all procedures
+XC
+X   10 CONTINUE
+X      IF(NLEFT.LE.0) GOTO 20
+XC
+XC Take the last in the list
+XC
+X      IPNAM = INEXT(NLEFT)
+X      NLEFT = NLEFT - 1
+X      ILEV = PROCED_LEVEL(IPNAM)     
+X      DO 11 IC=1,PROCED_NCALLS(IPNAM)
+X         IPNAM2 = PROCED_CALLS(IPNAM,IC)
+X         IF(.NOT.LEXT.AND.PROCED_EXTERN(IPNAM2)) GOTO 11
+X         IF(PROCED_LEVEL(IPNAM2).LE.ILEV) THEN
+X            PROCED_LEVEL(IPNAM2) = ILEV + 1
+X            IEXT = 0
+X            IF(PROCED_EXTERN(IPNAM2)) IEXT=1
+X            IF(PROCED_LEVEL(IPNAM2).GT.MXLEV) THEN
+X               IF((IEXT.EQ.1.AND.LEXT).OR.IEXT.EQ.0) THEN
+X                 MXLEV = PROCED_LEVEL(IPNAM2)
+X               ENDIF
+X            ENDIF
+XC
+XC before adding to list, check not already there ....
+XC
+X            DO 12 IL=1,NLEFT
+X               IF(INEXT(IL).EQ.IPNAM2) GOTO 11
+X   12       CONTINUE
+X            IF(NLEFT.GE.MXLFT) GOTO 960
+X            NLEFT = NLEFT + 1
+X            INEXT(NLEFT) = IPNAM2
+X         ENDIF
+X   11 CONTINUE
+X      GOTO 10            
+XC
+XC Start to allocate positions in the chart
+XC The chart has NUMMAX x positions, and MXLEV y positions
+XC
+X   20 CONTINUE
+X      NUMMAX = 0
+X      DO 4 I=1,NYPOS
+X        NUMBER(I) = 0
+X    4 CONTINUE
+X      DO 23 I=1,NPROC
+X        IF(PROCED_LEVEL(I).LE.1) GOTO 23
+X        IF(.NOT.LEXT.AND.PROCED_EXTERN(I)) GOTO 23
+X        N = NUMBER(PROCED_LEVEL(I))+1
+X        NUMBER(PROCED_LEVEL(I)) = N
+X        IF (N.GT.NUMMAX) NUMMAX = N
+X   23 CONTINUE
+X      ITREE = SEARCH(CTREE)
+X      DO 28 I=1,NPROC
+X        PROCED_DONE(I) = .FALSE.
+X   28 CONTINUE
+X      NSTEP = NINT(REAL(NUMMAX+1)*0.5)
+X      IF(NSTEP.GT.NXPOS) GOTO 930
+X      DO 25 I=1,NPROC
+X        IF(PROCED_LEVEL(I).LE.1.AND.I.NE.ITREE) GOTO 25
+X        IF(PROCED_DONE(I)) GOTO 25
+X        IF(.NOT.LEXT.AND.PROCED_EXTERN(I)) GOTO 25
+X        ILEV = PROCED_LEVEL(I)
+X        DO 26 IXP = 0,NSTEP
+X          IF(CPLACE(-IXP,ILEV)(:1).EQ.' ') THEN
+X            CPLACE(-IXP,ILEV) = PROCED_NAME(I)
+X            IXPOS(I) = -IXP
+X            PROCED_DONE(I) = .TRUE.
+X            GOTO 27
+X          ENDIF
+X          IF(CPLACE(IXP,ILEV)(:1).EQ.' ') THEN
+X            CPLACE(IXP,ILEV) = PROCED_NAME(I)
+X            IXPOS(I) = IXP
+X            PROCED_DONE(I) = .TRUE.
+X            GOTO 27
+X          ENDIF
+X   26   CONTINUE
+X   27   CONTINUE
+X        IF(.NOT.PROCED_DONE(I)) GOTO 940
+X        IF(PROCED_NCALLS(I).EQ.0) GOTO 25
+X        IXPOSI = IXPOS(I)
+X        DO 35 ICALLED = 1,PROCED_NCALLS(I)
+X          IOTHER = PROCED_CALLS(I,ICALLED)
+X          IF(PROCED_DONE(IOTHER)) GOTO 35
+X          IF(.NOT.LEXT.AND.PROCED_EXTERN(IOTHER)) GOTO 35
+X          ILEVO = PROCED_LEVEL(IOTHER)
+X          ISTART = MAX(-NSTEP,IXPOSI - ILEVO + ILEV + 1)
+X          DO 36 IPOS=ISTART,-NSTEP,-1
+X            IF(CPLACE(IPOS,ILEVO)(:1).EQ.' ') THEN
+X              PROCED_DONE(IOTHER) = .TRUE.
+X              CPLACE(IPOS,ILEVO) = PROCED_NAME(IOTHER)
+X              IXPOS(IOTHER) = IPOS
+X              GOTO 35
+X            ENDIF
+X   36     CONTINUE
+X          DO 37 IPOS=ISTART,NSTEP
+X            IF(CPLACE(IPOS,ILEVO)(:1).EQ.' ') THEN
+X              PROCED_DONE(IOTHER) = .TRUE.
+X              CPLACE(IPOS,ILEVO) = PROCED_NAME(IOTHER)
+X              IXPOS(IOTHER) = IPOS
+X              GOTO 35
+X            ENDIF
+X   37     CONTINUE
+X   35   CONTINUE
+X   25 CONTINUE
+XC
+XC This is the end of the simple cut at chart positioning
+XC
+XC
+XC Write a text representation of the chart as an indication only
+XC
+X      WRITE(LOUT,'(A)') ' The chart will look roughly like this ...'
+X      WRITE(LOUT,501)
+X      DO 41 IL=1,MXLEV
+X         WRITE(LOUT,*) (CPLACE(IS,IL),IS=-NSTEP,NSTEP)
+X   41 CONTINUE
+X      WRITE(LOUT,501)
+X  501 FORMAT(1X,79('-'))
+XC
+XC begin calculating the sizes of objects for the plot
+XC
+X      WRITE(LOUT,'(A)') ' PROCHT : START CREATING PLOT'
+X      BOXX = 18.
+X      BOXY = 7.
+X      GAPX = 5.
+X      GAPY = 12.
+X      SIZEX = (NUMMAX+2)*BOXX + (NUMMAX+3)*GAPX
+X      SIZEY = MXLEV*BOXY + (MXLEV+1)*GAPY
+X      SIZEX = MAX(SIZEX,SIZEY)
+X      SIZEY = SIZEX
+X      GAPY = MAX(GAPY,(SIZEY-MXLEV*BOXY)/(MXLEV+1))
+X      GAP = MIN(GAPX,GAPY)
+XC
+XC Initialise GRAPHICS
+XC
+X      CALL GRINIT(SIZEX,SIZEY,CTREE)
+XC
+XC Draw inner box around area
+XC
+X      CALL CHTBOX(GAP*0.5,GAP*0.5,SIZEX-GAP*0.5,SIZEY-GAP*0.5)
+XC
+XC Start looping over all modules to plot their positions
+XC
+X      DO 29 J=1,MXLEV
+X        DO 31 I=-NSTEP,NSTEP
+X          IF(CPLACE(I,J)(:1).EQ.' ') GOTO 31
+X          IP = NSTEP+I
+X          XLOW = GAPX + IP*(BOXX+GAPX)
+X          YLOW = SIZEY - J*(GAPY+BOXY)
+X          INUM = SEARCH(CPLACE(I,J))
+X          IF(INUM.EQ.0) GOTO 31
+X          XBOX(INUM) = XLOW+BOXX*0.5
+X          YBOX(INUM) = YLOW+BOXY*0.5
+X          CALL CHTBOX(XLOW,YLOW,XLOW+BOXX,YLOW+BOXY)
+X          CALL GTX(XLOW+BOXX/25.,YLOW+BOXY*0.5,CPLACE(I,J))
+X   31   CONTINUE
+X   29 CONTINUE
+XC
+XC Now loop over all modules to plot their connections
+XC
+X      DO 32 J=1,MXLEV-1
+X         DO 33 I=-NSTEP,NSTEP
+X            IF(CPLACE(I,J)(:1).EQ.' ') GOTO 33
+X            IPNAM = SEARCH(CPLACE(I,J))
+X            IF(PROCED_NCALLS(IPNAM).EQ.0) GOTO 33
+X            X1 = XBOX(IPNAM)
+X            Y1 = YBOX(IPNAM)
+X            DO 34 IC=1,PROCED_NCALLS(IPNAM)
+X               IPNAM2 = PROCED_CALLS(IPNAM,IC)
+X               IF(.NOT.LEXT.AND.PROCED_EXTERN(IPNAM2)) GOTO 34
+X               CALL CHTLIN(X1,Y1,XBOX(IPNAM2),YBOX(IPNAM2),
+X     &                     BOXX,BOXY)
+X   34       CONTINUE
+X   33    CONTINUE
+X   32 CONTINUE
+XC
+XC Close the graphics package
+XC
+X      CALL GRCLOSE
+XC
+XC
+XC finished all trees. home to beddy-bies
+XC
+X      WRITE(LOUT,'(A)') ' PROCHT Finished'
+X      GOTO 999
+XC
+X  900 WRITE(LOUT,901) CNAM
+X  901 FORMAT(1X,'PROCHT : TOPNODE ',A,' NOT FOUND IN PROCEDURE TABLE')
+X      GOTO 999
+X  930 WRITE(LOUT,931) 
+X  931 FORMAT(1X,'PROCHT : NOT ENOUGH SPACE ON THE GRAPH')
+X      GOTO 999
+X  940 WRITE(LOUT,941) PROCED_NAME(I)
+X  941 FORMAT(1X,'PROCHT : NO SPACE FOR ROUTINE ',A)
+X      GOTO 999
+X  950 WRITE(LOUT,951) CNAM
+X  951 FORMAT(1X,'PROCHT : ROUTINE ',A,' CALLS NO OTHER ROUTINES!')
+X      GOTO 999
+X  960 WRITE(LOUT,961) MXLFT
+X  961 FORMAT(1X,'PROCHT : ',I5,' STACK OVERFLOW; TREE TOO COMPLICATED!')
+XC      
+X  999 CONTINUE
+X      END
+END_OF_FILE
+  if test 7576 -ne `wc -c <'procht.for'`; then
+    echo shar: \"'procht.for'\" unpacked with wrong size!
+  fi
+  # end of 'procht.for'
+fi
+if test -f 'protre.for' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'protre.for'\"
+else
+  echo shar: Extracting \"'protre.for'\" \(7771 characters\)
+  sed "s/^X//" >'protre.for' <<'END_OF_FILE'
+X      SUBROUTINE PROTRE
+XC! Produce the FLOW diagram
+X      INCLUDE 'params.h'
+X      INCLUDE 'tables.h'
+X      INCLUDE 'lunits.h'
+X      INCLUDE 'trecom.h'
+X      INCLUDE 'ignore.h'
+XC
+X      CHARACTER*(MXCHR) CLINE,CTITL(MTITL),CLINO
+X      CHARACTER*(MXNAM) CNAM,CNAM2,CNAME(MLEV,MNLEV)
+X      CHARACTER*(LCDOIF) CDF,CDOIF(MLEV,MNLEV)
+X      CHARACTER*1 CHAR
+X      CHARACTER*(MXLIN) CFORM
+X      INTEGER NDONE(MLEV),NMAX(MLEV),SEARCH
+X      EXTERNAL SEARCH
+X      LOGICAL OK
+XC
+XC statement function iposl
+X      IPOSL(IL) = (MXOFF+NDIS)*(IL-1) + 1
+XC
+X      WRITE(LOUT,'(A)') ' '
+X      WRITE(LOUT,'(A)') ' PROTRE Begins ....'
+X      WRITE(LOUT,'(A)') ' '
+XC
+X      DO 5 IC=1,MXCHR
+X        CLINO(IC:IC) = ' '
+X   5  CONTINUE
+XC
+XC check for first procedure unknown
+XC
+X      IF(CTREE.EQ.'$$$$') CTREE = PROCED_NAME(1)
+X      NSUBNM = 1
+X      CSUBNM(1) = CTREE
+X      CDF       = ' '
+XC
+X      IOFF = NDIS+MXOFF/2-2
+XC
+X      WRITE(LOUTRE,550)
+X  550 FORMAT(1X,20('*'),'              ProTre             ',20('*'),
+X     &     /,1X,20(' '),'              ======             ',20(' '),
+X     &   ///,1X,20(' '),' Meaning of Symbols:                     ',
+X     &     /,1X,20(' '),' -------------------                     ',
+X     &    //,1X,20(' '),' .   ==> terminal node in the tree       ',
+X     &     /,1X,20(' '),' *   ==> external procedure              ',
+X     &     /,1X,20(' '),' >   ==> subtree node, expanded below    ',
+X     &     /,1X,20(' '),' +   ==> multiply called terminal node   ',
+X     &     /,1X,20(' '),' ]   ==> procedure calling only externals',
+X     &     /,1X,20('-'),'---------------------------------',20('-'),
+X     &     /,1X,20(' '),' ?   ==> module is in IF clause',
+X     &     /,1X,20(' '),' (   ==> module is in DO loop',
+X     &    //,1X,20('*'),'*********************************',20('*'))
+XC
+X      IF(.NOT.LEXT) WRITE(LOUTRE,551)
+X  551 FORMAT(//,1X,'EXTERNAL procedure names will not appear ',/)
+X      IF(NIGNO.NE.0) THEN
+X         WRITE(LOUTRE,'(A)')
+X     &   ' --------------------------------------------------'
+X         WRITE(LOUTRE,'(1X,I5,A)') NIGNO,' Module(s) will be ignored :'
+X         WRITE(LOUTRE,'(1X,6A8)') (CIGNO(IG),IG=1,NIGNO)
+X         WRITE(LOUTRE,'(A,/)')
+X     &   ' --------------------------------------------------'
+X      ENDIF
+XC
+X  300 CONTINUE
+X      IF(NSUBNM.LE.0) GOTO 40
+X      CNAM = CSUBNM(1)
+XC
+XC IGNORE SPECIFIED MODULES
+XC
+X      DO 301 IG=1,NIGNO
+X         IF(CNAM.EQ.CIGNO(IG)) GOTO 30
+X  301 CONTINUE
+XC
+X      WRITE(LOUTRE,500) CNAM
+X  500 FORMAT(/,1X,'=============',
+X     &       /,1X,'Node name ==> ',A,
+X     &       /,1X,'=============',/)
+XC
+X      DO 10 J=1,MLEV
+X         NDONE(J) = 0
+X         NMAX(J)  = 0
+X         DO 10 I=1,MNLEV
+X            CNAME(J,I) = ' '
+X   10 CONTINUE
+XC
+X      ILEV = 1
+X      INAM = 1
+X      CNAME(ILEV,INAM) = CNAM
+X      CLINE = CLINO
+XC
+XC pseudo-recursive tree search
+XC
+X   20 CONTINUE
+XC
+X      IPNAM = SEARCH(CNAM)
+X      IF(IPNAM.EQ.0) GOTO 910
+XC
+XC compose leading line
+XC
+X      CLINE(:MXCHR) = CLINO(:MXCHR)
+X      LENID = LENOCC(CDF)
+X      DO 55 IL=ILEV,2,-1
+X        IBEG = IPOSL(IL) - IOFF
+X        IF(IL.EQ.ILEV) THEN
+X          CLINE(IBEG:IBEG) = '|'
+X          DO 56 IP=IBEG+1,IBEG+IOFF
+X            IPL=IP-IBEG
+X            IF(IPL.GT.LENID) CHAR = '-'
+X            IF(IPL.LE.LENID) THEN
+X              CHAR = CDF(IPL:IPL)
+X              IF(IP.EQ.IBEG+IOFF) CHAR = '+'
+X            ENDIF
+X            CLINE(IP:IP) = CHAR
+X   56     CONTINUE
+X          GOTO 55
+X        ENDIF
+X        IF(NDONE(IL-1).GE.NMAX(IL-1)) GOTO 55
+X        CLINE(IBEG:IBEG) = '|'
+X   55 CONTINUE
+XC
+X      IF(PROCED_NCALLS(IPNAM).EQ.0) THEN
+XC stub
+X         CHAR = '.'
+X         IF(PROCED_NCALLEDBY(IPNAM).GE.1) CHAR = '+'
+X         IF(PROCED_EXTERN(IPNAM)) CHAR = '*'
+X         CFORM = CLINE(:IPOSL(ILEV))//CNAM//' '//CHAR
+X         LCOM = LENOCC(PROCED_DESCRIP(IPNAM))
+X         LFOR = LENOCC(CFORM)
+X         IF(LFOR.LT.LPSTA) THEN
+X           CFORM(LFOR+1:LPSTA) = ' '
+X           CFORM(LPSTA:LPSTA+1) = ': '
+X           IF(LCOM.NE.0) THEN
+X             CFORM(LPSTA+2:MXLIN) = PROCED_DESCRIP(IPNAM)(:LCOM)
+X           ELSE
+X             CFORM(LPSTA+2:MXLIN) = ' '
+X           ENDIF
+X         ENDIF
+X         WRITE(LOUTRE,'(1X,A)') CFORM
+X         GOTO 45
+X      ELSE IF(PROCED_NCALLS(IPNAM).GT.0) THEN
+XC multiple call (general case)
+X        IOK = 0
+X        DO 73 IC=1,PROCED_NCALLS(IPNAM)
+X           IF(.NOT.PROCED_EXTERN(PROCED_CALLS(IPNAM,IC))) IOK = 1
+X   73   CONTINUE
+X        IF(NDONE(ILEV).EQ.0) THEN
+X          CHAR = ' '
+X          IF(PROCED_NCALLEDBY(IPNAM).GT.1) THEN
+XC
+XC sub tree ... check if this pass is for expansion
+XC
+X            IFOUN = 0
+X            IF(ILEV.EQ.1) THEN
+X              CHAR = ' '
+X              DO 66 IS=1,NSUBNM
+X                IF(CNAM.EQ.CSUBNM(IS)) THEN
+X                  LSUBNM(IS) = .TRUE.
+X                  IFOUN = IS
+X                ENDIF
+X   66         CONTINUE
+X            ELSE
+X              CHAR = '>'
+X            ENDIF
+X          ENDIF
+X          IF(IOK.EQ.0) CHAR = ']'
+X          CFORM = CLINE(:IPOSL(ILEV))//CNAM//' '//CHAR
+X          LCOM = LENOCC(PROCED_DESCRIP(IPNAM))
+X          LFOR = LENOCC(CFORM)
+X          IF(LFOR.LT.LPSTA) THEN
+X             CFORM(LFOR+1:LPSTA) = ' '
+X             CFORM(LPSTA:LPSTA+1) = ': '
+X             IF(LCOM.GT.0) THEN
+X                CFORM(LPSTA+2:MXLIN) = PROCED_DESCRIP(IPNAM)(:LCOM)
+X             ELSE
+X                CFORM(LPSTA+2:MXLIN) = ' '
+X             ENDIF
+X          ENDIF
+X          WRITE(LOUTRE,'(1X,A)') CFORM
+X          IF(PROCED_NCALLEDBY(IPNAM).GT.1.AND.IFOUN.EQ.0) THEN
+XC
+XC sub tree which will be expanded later. add to name list
+XC (but only if not already there).
+XC
+X            DO 67 IS=1,NSUBNM
+X               IF(CNAM.EQ.CSUBNM(IS)) GOTO 45
+X   67       CONTINUE
+X            IF(NSUBNM.GE.MSUBT) THEN
+X               WRITE(LOUT,'(A,I6,A)') ' Max of ',MSUBT,
+X     &                    ' sub-trees exceeded'
+X               GOTO 45
+X            ENDIF
+XC
+XC IGNORE EXTERNALS, IF THAT IS REQUIRED
+XC
+X            IF(.NOT.LEXT.AND.IOK.EQ.0) GOTO 45
+X            NSUBNM = NSUBNM + 1
+X            CSUBNM(NSUBNM) = CNAM
+X            LSUBNM(NSUBNM) = .FALSE.
+X            GOTO 45
+X          ENDIF
+X        ENDIF
+XC
+XC fill all names at this level
+XC
+X        IF(NDONE(ILEV).EQ.0) THEN
+X          NC = 0
+X          DO 36 IN=1,PROCED_NCALLS(IPNAM)
+X             IPNAM2 = PROCED_CALLS(IPNAM,IN)
+XC
+XC IGNORE EXTERNALS IF REQUIRED
+XC
+X             IF(.NOT.LEXT.AND.PROCED_EXTERN(IPNAM2)) GOTO 36
+X             NC = NC + 1
+X             CNAME(ILEV,NC) = PROCED_NAME(IPNAM2)
+X             CDOIF(ILEV,NC)(:LCDOIF) = PROCED_DOIF(IPNAM,IN)(:LCDOIF)
+X   36     CONTINUE
+X          NMAX(ILEV) = NC 
+X        ENDIF
+X        GOTO 46
+X      ENDIF
+X   45 CONTINUE
+XC
+XC end of level. move up one
+XC
+X      ILEV = ILEV - 1
+X      IF(ILEV.EQ.0) GOTO 30
+X   46 CONTINUE
+X      IF(NDONE(ILEV).GE.NMAX(ILEV)) THEN
+X        NDONE(ILEV) = 0
+X        GOTO 45
+X      ENDIF
+X      CNAM = CNAME(ILEV,NDONE(ILEV)+1)
+X      CDF(:LCDOIF)  = CDOIF(ILEV,NDONE(ILEV)+1)(:LCDOIF)
+X      NDONE(ILEV) = NDONE(ILEV) + 1
+X      ILEV = ILEV + 1
+X      GOTO 20
+X   30 CONTINUE
+XC
+XC end of this tree. shift names in sub-tre list and start again
+XC
+X        DO 72 I=1,NSUBNM-1
+X          LSUBNM(I) = LSUBNM(I+1)
+X          CSUBNM(I) = CSUBNM(I+1)
+X  72    CONTINUE
+X        NSUBNM = NSUBNM - 1
+X      IPOIN = 0
+X   35 IPOIN = IPOIN + 1
+X      IF(IPOIN.GT.NSUBNM) GOTO 300
+X      IF(LSUBNM(IPOIN)) THEN
+X        DO 71 I=IPOIN,NSUBNM-1
+X          LSUBNM(I) = LSUBNM(I+1)
+X          CSUBNM(I) = CSUBNM(I+1)
+X  71    CONTINUE
+X        NSUBNM = NSUBNM - 1
+X        IPOIN = IPOIN - 1
+X      ENDIF
+X      GOTO 35
+XC
+X   40 CONTINUE
+XC
+XC finished all trees. home to beddy-bies
+XC
+X      WRITE(LOUT,'(A)') ' PROTRE Finished'
+X      IERROR = 0
+X      GOTO 999
+X  910 WRITE(LOUTRE,911) CNAM
+X      WRITE(LOUT,911) CNAM
+X  911 FORMAT(1X,'PROTRE --> ROUTINE:',A,' NOT FOUND IN PROCEDURE TABLE')
+X      IERROR = 2
+X  999 CONTINUE
+X      END
+END_OF_FILE
+  if test 7771 -ne `wc -c <'protre.for'`; then
+    echo shar: \"'protre.for'\" unpacked with wrong size!
+  fi
+  # end of 'protre.for'
+fi
+if test -f 'rdflop.for' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rdflop.for'\"
+else
+  echo shar: Extracting \"'rdflop.for'\" \(797 characters\)
+  sed "s/^X//" >'rdflop.for' <<'END_OF_FILE'
+X      SUBROUTINE RDFLOP(IPASS)
+XC! Read the data from FLOPPY
+X      INCLUDE 'params.h'
+X      INCLUDE 'lunits.h'
+X      INCLUDE 'floppy.h'
+X      INCLUDE 'jobcom.h'
+XC
+X    1 CONTINUE
+X      READ(LINTRE,END=2,ERR=999) NENT,(CALLER(I),I=1,NENT),
+X     $ (CRABUF(I),I=1,NENT),(TYPE(I),I=1,NENT),
+X     $ KALL,(CALLED(I),I=1,KALL),(CDABUF(I),I=1,KALL),
+X     $ NCOM,(CNAMES(I),I=1,NCOM),
+X     $ (UNUSED(I),I=1,NCOM),
+X     $ CMMNT,
+X     $ NARGS,(CARGNM(I),I=1,NARGS),(CARGTY(I),I=1,NARGS),
+X     $ (NARGDI(I),I=1,NARGS),
+X     $ (((CARGDI(III,II,I),II=1,2),III=1,NARGDI(I)),I=1,NARGS),
+X     $ NKALL,(CKALLN(I),I=1,NKALL),(KALLIF(I),I=1,NKALL),
+X     $ (KALLDO(I),I=1,NKALL)
+X      CALL TABENT(IPASS)
+X      GOTO 1
+X    2 RETURN
+X  999 WRITE(LOUT,'(A)') ' RDFLOP: ERROR READING INPUT BINARY FILE'
+X      STOP 1
+X      END
+END_OF_FILE
+  if test 797 -ne `wc -c <'rdflop.for'`; then
+    echo shar: \"'rdflop.for'\" unpacked with wrong size!
+  fi
+  # end of 'rdflop.for'
+fi
+if test -f 'unixflow.for' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unixflow.for'\"
+else
+  echo shar: Extracting \"'unixflow.for'\" \(5683 characters\)
+  sed "s/^X//" >'unixflow.for' <<'END_OF_FILE'
+X      PROGRAM FLOW
+XC-------------------------------------------------------------------------
+XC Flow UNIX interface routine.
+XC Sets up various required input files and parameters for Flow
+XC 
+XC Julian Bunn 1992
+XC-------------------------------------------------------------------------
+X      INCLUDE 'lunits.h'
+X      INCLUDE 'params.h'
+X      INCLUDE 'jobcom.h'
+X      INCLUDE 'ignore.h'
+X      INCLUDE 'trecom.h'
+X      PARAMETER (MLLEN=255,maxarg=100)
+X      character*(mxlin) argval
+X      character*1 key,char
+X      CHARACTER*(MLLEN)  cfile,clong
+X      LOGICAL LOG,fexist,fold,fqold,tidy
+Xc
+Xc get all arguments
+Xc
+X      numargs = iargc()
+X      if(numargs.gt.maxarg) then
+X         write(6,'(A)') ' Flow --> Too many arguments '
+X         goto 900
+X      endif
+Xc
+Xc get input file from Flow
+Xc
+X      call getarg(numargs,cfile)       
+X      lfile = index(cfile,' ')-1
+X      write(6,'(A)') ' Flow --> Input Floppy file '//cfile(:lfile)
+X      inquire(file=cfile(:lfile),exist=fexist)
+X      if(.not.fexist) then
+X        write(6,'(A)') ' Flow --> Input file not found !'
+X        goto 900
+X      endif
+X      lintre = 50
+X      open(lintre,file=cfile(:lfile),status='old',
+X     &     form='unformatted',err=900)
+Xc
+X      log = .false.      
+X      lext = .true.
+X      lqery = .false.                    
+X      lchrt = .false.
+X      lsubs = .false.
+X      lcomm = .false.
+X      ltree = .false.
+X      loutch = 96
+X      ctree = '$$$$'
+Xc
+Xc Find if -l was given
+Xc
+X      do 400 iarg = 1,numargs-1
+X         call getarg(iarg,argval)
+X         larg = index(argval,' ')-1 
+X         key = argval(2:2)
+X         if(key.eq.'l') then
+X           log = .true.
+X         endif
+X  400 continue
+Xc
+Xc loop over all qualifiers
+Xc
+X      icheck = 0
+X      do 500 iarg = 1,numargs-1
+X         call getarg(iarg,argval)
+X         larg = index(argval,' ')-1 
+X         key = argval(2:2)
+X         if(key.eq.'l') then
+X           log = .true.
+X         else if(key.eq.'q') then
+X           lqery = .true.
+X           if(log) write(6,'(A)') ' Flow --> Queries on the tree'
+X         else if(key.eq.'E') then
+X           lext = .false.
+X           if(log) write(6,'(A)') ' Flow --> Exclude externals'
+X         else if(key.eq.'c') then
+X           if(argval(3:3).eq.' ') then
+X              ccomm = 'procom.dat'
+X              lcmm = 10
+X           else
+X              ccomm = argval(3:)
+X              lcmm = index(ccomm,' ')-1 
+X           endif
+X           inquire(file=ccomm(:lcmm),exist=fexist)
+X           if(fexist) then
+X              open(loutco,file=ccomm(:lcmm),status='old')
+X              close(loutco,status='delete')
+X           endif
+X           if(log) write(6,'(A)') ' Flow --> COMMON Table: '//
+X     &             ccomm(:lcmm) 
+X           lcomm = .true.
+X           loutco = 60
+X           open(loutco,file=ccomm(:lcmm),status='new',err=900)
+X         else if(key.eq.'s') then
+X           if(argval(3:3).eq.' ') then
+X              chart = 'protre.dat'
+X              lchart = 10
+X           else
+X              chart = argval(3:)
+X              lchart = index(chart,' ')-1 
+X           endif
+X           inquire(file=chart(:lchart),exist=fexist)
+X           if(fexist) then
+X              open(loutre,file=chart(:lchart),status='old')
+X              close(loutre,status='delete')
+X           endif
+X           if(log) write(6,'(A)') ' Flow --> Text Structure Chart: '//
+X     &             chart(:lchart) 
+X           ltree = .true.
+X           loutre = 61
+X           open(loutre,file=chart(:lchart),status='new',err=900)
+X         else if(key.eq.'i') then
+X           clong = argval(3:)
+X           llong = lenocc(clong)
+X           if(llong.le.0) then
+X              write(6,'(A)') ' Flow --> No Ignore names given'
+X              goto 900
+X           endif
+X   60      icomma = index(clong,',')
+X           if(icomma.ne.0) then
+X              nigno = nigno + 1
+X              cigno(nigno) = clong(:icomma-1)
+X              ligno(nigno) = icomma-1
+X              clong = clong(icomma+1:)
+X              call caschg(cigno(nigno),cigno(nigno))
+X              goto 60
+X           endif
+X           nigno = nigno + 1
+X           ligno(nigno) = index(clong,' ')-1
+X           cigno(nigno) = clong(:ligno(nigno))
+X           call caschg(cigno(nigno),cigno(nigno))
+X           if(log) write(6,'(A)') ' Flow --> Ignore modules:'
+X           if(log) write(6,'(10x,6a8)') (cigno(i),i=1,nigno)
+X         else if(key.eq.'g') then
+X           if(argval(3:3).eq.' ') then
+X              cgraph = 'flow.ps'
+X              lgraph = 7
+X           else
+X              cgraph = argval(3:)
+X              lgraph = index(cgraph,' ')-1 
+X           endif
+X           inquire(file=cgraph(:lgraph),exist=fexist)
+X           if(fexist) then
+X              open(loutch,file=cgraph(:lgraph),status='old')
+X              close(loutch,status='delete')
+X           endif
+X           if(log) write(6,'(A)') ' Flow --> Graphical Chart: '//
+X     &             cgraph(:lgraph) 
+X           lchrt = .true.
+X           loutre = 96
+X           open(loutre,file=chart(:lchart),status='new',err=900)
+X         else if(key.eq.'n') then
+X           ctree = argval(3:)
+X           ltre = lenocc(ctree)
+X           if(ltre.le.0) then
+X             if(log) write(6,'(A)') ' Flow --> No node name for -n'
+X             goto 900
+X           endif
+X           call caschg(ctree,ctree)
+X           if(log) write(6,'(A)') ' Flow --> Start from node: '//
+X     &             ctree(:ltre)
+X         else 
+X           write(6,'(A)') ' Flow --> Unrecognized qualifier '//key
+X           goto 900
+X         endif
+X  500 continue
+Xc
+Xc Call Flow
+Xc
+X      call prodes
+Xc
+X      if(lcomm) close(loutco)
+X      if(ltree) close(loutre)
+X      if(lchrt) close(loutch)
+X      close(lintre)
+X      goto 2000
+Xc
+X  900 write(6,'(A)') ' Flow aborted'     
+X      stop 1
+X 2000 CONTINUE
+X      END
+END_OF_FILE
+  if test 5683 -ne `wc -c <'unixflow.for'`; then
+    echo shar: \"'unixflow.for'\" unpacked with wrong size!
+  fi
+  # end of 'unixflow.for'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

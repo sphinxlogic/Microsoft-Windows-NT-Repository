@@ -1,0 +1,1383 @@
+Newsgroups: comp.sources.misc
+From: drt@chinet.chi.il.us (Donald Tveter)
+Subject:  v31i131:  backprop - Fast Backpropagation, Part03/04
+Message-ID: <1992Sep2.180724.28109@sparky.imd.sterling.com>
+X-Md4-Signature: ff438e5ac73adaf048e29ff6a68ec60f
+Date: Wed, 2 Sep 1992 18:07:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: drt@chinet.chi.il.us (Donald Tveter)
+Posting-number: Volume 31, Issue 131
+Archive-name: backprop/part03
+Supersedes: backprop: Volume 28, Issue 63-66
+Environment: UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  io.c ibp.h rbp.h makefile makereal makefile.unx
+# Wrapped by drt@chinet on Sat Jun 13 14:57:16 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'io.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'io.c'\"
+else
+echo shar: Extracting \"'io.c'\" \(25359 characters\)
+sed "s/^X//" >'io.c' <<'END_OF_FILE'
+X/* ************************************************** */
+X/* file io.c:  contains most input/output functions   */
+X/*                                                    */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter */
+X/*                                                    */
+X/* ************************************************** */
+X
+X#include <stdio.h>
+X#ifdef INTEGER
+X#include "ibp.h"
+X#else
+X#include "rbp.h"
+X#endif
+X
+X#ifdef UNIX
+X#include <malloc.h>
+X#define WRITEBIN "w"
+X#define READBIN "r"
+X#else
+X#include <stdlib.h>
+X#define WRITEBIN "wb"
+X#define READBIN "rb"
+X#endif
+X
+Xextern char buffer[buffsize], copyflag, *datafilename, echo, outformat;
+Xextern char outstr[OUTSTRSIZE], *wtfile, wtformat;
+Xextern int bufferend, bufferptr, filestackptr, format[maxformat];
+Xextern FILE *data, *filestack[];
+Xextern LAYER *start;
+Xextern int lastsave, pagesize, readerror, readingpattern, totaliter;
+Xextern INT32 lineno;
+Xextern short nlayers;
+Xextern WTTYPE qmark, toler;
+Xextern FILE *copy;
+X
+XWTTYPE error;
+Xint bad;
+X
+X#ifdef INTEGER
+X
+Xshort scale(x)     /* returns x as a scaled 16-bit value */
+XREAL x;
+X{
+X short s;
+X
+Xif (x > 31.999 || x < -32.0)
+X {
+X  sprintf(outstr,"magnitude of %f is too large for the integer",x);
+X  pg(outstr);
+X  pg(" representation\n");
+X  readerror = 1;
+X  if (x > 31.999) return(MAXSHORT); else return(MINSHORT);
+X };
+Xif (x > 0.0) s = x * 1024 + 0.5;
+Xelse s = x * 1024 - 0.5;
+Xif (x != 0.0 && s == 0)
+X {
+X  sprintf(outstr,"warning:  magnitude of %f is too small for",x);
+X  pg(outstr);
+X  pg(" the integer representation\n");
+X  return(0);
+X };
+Xreturn(s);
+X}
+X
+XREAL unscale(x)  /* returns the REAL value of short x */
+Xshort x;
+X{ return((REAL) x / 1024.0); }
+X
+XREAL unscaleint(x)  /* returns the REAL value of INT32 x */
+XINT32 x;
+X{ return((REAL) x / 1024.0); }
+X
+X#endif
+X
+Xint pushfile(filename)
+Xchar *filename;
+X{
+XFILE *file;
+X
+Xbufferptr = 0;
+Xbufferend = 0;
+Xbuffer[0] = '\n';
+Xfile = fopen(filename,"r");
+Xif (file == NULL)
+X {
+X  sprintf(outstr,"cannot open:, %s\n",filename); pg(outstr);
+X  return(0);
+X };
+Xfilestackptr = filestackptr + 1;
+Xif (filestackptr > 3)
+X {
+X  pg("can't stack up any more files\n");
+X  filestackptr = filestackptr - 1;
+X  fclose(file);
+X  return(0);
+X };
+Xfilestack[filestackptr] = file;
+Xdata = file;
+Xreturn(1);
+X} 
+X
+Xvoid popfile()
+X{
+Xbufferptr = 0;
+Xbufferend = 0;
+Xbuffer[0] = '\n';
+Xif (filestackptr > 0)
+X {
+X  fclose(data);
+X  filestackptr = filestackptr - 1;
+X }
+Xelse pg("\nunexpected EOF:  to quit the program, type q\n");
+Xdata = filestack[filestackptr];
+X}
+X
+Xint readch() /* returns the next character in the input buffer */
+X{ 
+X int i, ch2;
+X char smallbuffer[2];
+X
+Xif (bufferptr > bufferend) /* then read next line into buffer */
+X {
+X  ch2 = getc(data);
+X  if (ch2 == EOF) return(ch2);
+X  i = 0;
+X  while(ch2 != '\n' && i < buffsize)
+X   {
+X#ifdef UNIX
+X    if (ch2 == 13) ch2 = ' '; /* turn a ctrl-M into a blank */
+X#endif
+X    buffer[i] = ch2;
+X    i = i + 1;
+X    ch2 = getc(data);
+X   };
+X  if (i == buffsize) pg("line too long\n");
+X  buffer[i] = '\n';
+X  bufferend = i;
+X  bufferptr = 0;
+X  if (echo == '+') for(i = 0; i <= bufferend; i++) putchar(buffer[i]);
+X  if (copy && ((data == stdin) || (echo == '+')))
+X   for (i=0;i<=bufferend;i++) putc(buffer[i],copy);
+X }
+Xch2 = buffer[bufferptr];
+Xbufferptr = bufferptr + 1;
+Xreturn(ch2);
+X}
+X
+Xvoid texterror()
+X{
+Xint ch2;
+Xpg("unexpected text:  ");
+Xpg(&buffer[bufferptr-1]);
+Xbufferptr = buffsize + 1;
+X}
+X
+Xchar *readstr()
+X{
+Xshort i,start,end;
+Xchar *addr, *addr2;
+Xi = bufferptr;
+Xwhile (buffer[i] == ' ') i = i + 1;
+Xstart = i;
+Xwhile (buffer[i] != ' ' && buffer[i] != '\n') i = i + 1;
+Xend = i-1;
+Xaddr = (char *) malloc((int) end-start+2);
+Xaddr2 = addr;
+Xfor (i=start;i<=end;i++) *addr++ = buffer[i];
+Xbufferptr = end + 1;
+X*addr = '\0';
+Xreturn(addr2);
+X}
+X
+Xint scanfordigit()
+X{
+Xint sign, ch2;
+X
+Xsign = 1;
+X
+Xrestart:
+Xdo ch2 = readch(); while (ch2 == ' ' || ch2 == '\n');
+Xif (ch2 >= '0' && ch2 <= '9')
+X {
+X  bufferptr = bufferptr - 1;
+X  return(sign);
+X };
+Xif (ch2 >= 'h' && ch2 <= 'k')
+X {
+X  bufferptr = bufferptr - 1;
+X  return(0);
+X };
+X          switch (ch2) {
+Xcase EOF: readerror = 2;
+X          return(0);
+Xcase '*': while (ch2 != '\n') ch2 = readch();
+X          goto restart;
+Xcase '-': sign = -sign;
+X          goto restart;
+Xcase '?': bufferptr = bufferptr - 1;
+X          return(0);
+Xdefault:  readerror = 1;
+X          return(0);
+X          };
+X}
+X
+Xint readint(min,max,command)
+Xint min, max;
+Xchar command;
+X{
+Xint sign, number, ch2;
+X
+Xreaderror = 0;
+Xsign = scanfordigit();
+Xif (readerror)
+X {
+X  if (readerror == 1) texterror();
+X  return(0);
+X };
+Xnumber = 0;
+Xdo ch2 = readch(); while (ch2 == ' ');
+Xwhile (ch2 >= '0' && ch2 <= '9')
+X {
+X  number = number * 10 + (ch2 - '0');
+X  ch2 = readch();
+X };
+Xbufferptr = bufferptr - 1;
+Xnumber = sign * number;
+Xif (number < min || number > max)
+X {
+X  sprintf(outstr,"out of range value: %d",number); pg(outstr);
+X  if (data == stdin) pg("\n");
+X  else {sprintf(outstr," in %c command\n",command); pg(outstr);};
+X  readerror = 1;
+X };
+Xreturn(number);
+X}
+X
+XREAL readreal(op,min,command)
+Xint op;
+XREAL min;
+Xint command;
+X{
+XREAL number, fractpart, divisor, intpart, sign;
+Xint ch2;
+X
+Xreaderror = 0;
+Xsign = (REAL) scanfordigit();
+Xif (readerror || (sign == 0 && !readingpattern))
+X {
+X  if (readerror == 1) texterror();
+X  return(0);
+X };
+Xch2 = readch();
+Xif (ch2 == 'h' && readingpattern) return(unscale(HCODE));
+Xelse if (ch2 == 'i' && readingpattern && nlayers >= 3)
+X  return(unscale(ICODE));
+Xelse if (ch2 == 'j' && readingpattern && nlayers >= 4)
+X  return(unscale(JCODE));
+Xelse if (ch2 == 'k' && readingpattern && nlayers >= 5)
+X  return(unscale(KCODE));
+Xelse if (ch2 == '?' && readingpattern)
+X  return(unscale(qmark));
+Xintpart = 0.0;
+Xwhile (ch2 >= '0' && ch2 <= '9')
+X {
+X  intpart = 10.0 * intpart + (ch2 - '0');
+X  ch2 = readch();
+X };
+Xfractpart = 0.0;
+Xdivisor = 1.0;
+Xif (ch2 == '.')
+X {
+X  ch2 = readch();
+X  while (ch2 >= '0' && ch2 <= '9')
+X   {
+X    fractpart = fractpart * 10.0 + (ch2 - '0');
+X    divisor = divisor * 10.0;
+X    ch2 = readch();
+X   };
+X };
+Xbufferptr = bufferptr - 1;
+Xnumber = sign * (((REAL) intpart) +
+X                ((REAL) fractpart) / ((REAL) divisor));
+Xif (op == GT && number > min) return(number);
+Xelse if (op == GE && number >= min) return(number);
+Xelse
+X {
+X  sprintf(outstr,"erroneous value: %f",number); pg(outstr);
+X  if (data == stdin) pg("\n");
+X  else {sprintf(outstr," in %c command\n",command); pg(outstr);};
+X  readerror = 1;
+X  return(0.0);
+X };
+X}
+X
+XWTTYPE rdr(op,min,command) /* reads REAL real numbers and converts */
+Xint op;                    /* them to 16-bit integers if necessary */
+XREAL min;
+Xint command;
+X{
+XREAL x;
+XWTTYPE ix;
+X 
+Xx = readreal(op,min,command);
+Xif (readerror) return(0);
+Xix = scale(x);
+Xif (readerror) return(0);
+Xreturn(ix);
+X}
+X
+XREAL readchar()   /* reads data in compressed format */
+X{
+Xint ch2;
+Xreaderror = 0;
+Xch2 = readch();
+Xdo {
+X          switch (ch2) {
+Xcase '\n':
+Xcase ' ': ch2 = readch();
+X          break;
+Xcase '1': return(1.0);
+Xcase '0': return(0.0);
+Xcase '?': return(unscale(qmark));
+Xcase '*': do ch2 = readch(); while(ch2 != '\n');
+X          break;
+Xcase 'h': return(unscale(HCODE));
+Xcase 'i': if (nlayers >= 3) return(unscale(ICODE));
+Xcase 'j': if (nlayers >= 4) return(unscale(JCODE));
+Xcase 'k': if (nlayers >= 5) return(unscale(KCODE));
+Xcase EOF: readerror = 2;
+X          return(0.0);
+Xdefault:  texterror();
+X          readerror = 1;
+X          return(0.0);};
+X} while (0 == 0);
+X}
+X
+Xint pg(str) /* paging and making a copy function */
+Xchar *str;
+X{
+Xchar *ch3,action,cr;
+Xint copying;
+X
+Xcopying = copyflag == '+';
+Xch3 = str;
+Xwhile (*ch3 != '\0')
+X   {
+X     if (*ch3 == '\n')
+X        {
+X          putchar('\n');
+X          if (copying) putc('\n',copy);
+X          lineno = lineno + 1;
+X          if (pagesize && lineno % pagesize == 0)
+X             {
+X               putchar(':');
+X               action = getchar();
+X               if (action == 'q')
+X                  {
+X                    cr = getchar();
+X                    return(action);
+X                  };
+X             }
+X        }
+X     else {putchar(*ch3); if (copying) putc(*ch3,copy); };
+X     ch3++;
+X   };
+Xreturn(0);
+X}
+X
+Xint printoutunits(printing,layer,printerr)  /* prints values of units */
+Xint printing;                               /* and computes errors */
+XLAYER *layer;
+Xint printerr;
+X{
+Xshort unitno, fmtbreaknum, maxval, maxunit;
+XUNIT *u;
+XWTTYPE upper, middle, diff;
+X
+Xif (printing)
+X {
+X  upper = scale(1.0) - toler;
+X  middle = scale(0.5);
+X  unitno = 0;
+X  fmtbreaknum = 1;
+X };
+Xbad = 0;
+Xmaxval = -scale(2.0);
+Xmaxunit = 0;
+Xerror = 0;
+Xu = (UNIT *) layer->units;
+Xwhile (u != NULL)
+X {
+X  diff = u->tj - u->oj;
+X  if (diff < 0) diff = -diff;
+X  if (diff >= toler) bad = 1;
+X  error = error +  diff;
+X  if (printing)
+X   {
+X    unitno = unitno + 1;
+X    if (outformat == 'r')
+X     {
+X      sprintf(outstr,"%6.3f ",unscale(u->oj)); pg(outstr);
+X      if (format[fmtbreaknum] == unitno)
+X       {
+X        if (pg("\n    ")) return(1);
+X        if (fmtbreaknum < maxformat - 1) fmtbreaknum = fmtbreaknum + 1;
+X       }
+X     }
+X    else if (outformat == 'a' && printerr)
+X     {
+X      if (diff < toler) pg("c");
+X      else if (u->oj > upper) pg("1");
+X      else if (u->oj < toler) pg("0");
+X      else if (u->oj > u->tj) pg("^");
+X      else pg("v");
+X      if (format[fmtbreaknum] == unitno)
+X       {
+X        pg(" ");
+X        if (fmtbreaknum < maxformat - 1) fmtbreaknum = fmtbreaknum + 1;
+X       }
+X     }
+X    else 
+X     {
+X      if (u->oj > upper) pg("1");
+X      else if (u->oj > middle) pg("^");
+X      else if (u->oj < toler) pg("0");
+X      else pg("v");
+X      if (format[fmtbreaknum] == unitno)
+X       {
+X        pg(" ");
+X        if (fmtbreaknum < maxformat - 1) fmtbreaknum = fmtbreaknum + 1;
+X       }
+X     }
+X   };
+X  u = u->next;
+X };
+Xif (!printing) return(0);
+Xif (printerr) {sprintf(outstr," (%5.3f)",unscale(error)); pg(outstr);};
+Xif (printerr && !bad) pg(" ok");
+Xif (pg("\n")) return(1); else return(0);
+X}
+X
+Xvoid saveweights()    /* saves weights on the file weights */
+X{
+XUNIT *u;
+XLAYER *layer;
+XWTNODE *w;
+XWTTYPE wvalue, evalue, dvalue, svalue;
+Xint wtsize;
+XFILE *weights;
+X
+Xwtsize = WTSIZE;
+Xweights = fopen(wtfile,WRITEBIN);
+Xif (weights == NULL)
+X {
+X  sprintf(outstr,"cannot open: %s\n",wtfile); pg(outstr);
+X  return;
+X };
+Xfprintf(weights,"%d%c",totaliter,wtformat);
+Xif (wtformat == 'b' || wtformat == 'B') fprintf(weights,"%1d",WTSIZE);
+Xfprintf(weights,"   file = %s\r\n",datafilename);
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X#ifdef SYMMETRIC
+X      wvalue = *(w->weight);
+X      evalue = *(w->eta);
+X      dvalue = *(w->olddw);
+X      svalue = 0; /* not worth having in the symmetric version */
+X#else
+X      wvalue = w->weight;
+X      evalue = w->eta;
+X      dvalue = w->olddw;
+X      svalue = w->slope;
+X#endif
+X      if (wtformat == 'r' || wtformat == 'R')
+X       {
+X        fprintf(weights,"%16.10f",unscale(wvalue));
+X        if (wtformat == 'R')
+X         {
+X          fprintf(weights," %16.10f",unscale(evalue));
+X          fprintf(weights," %16.10f",unscale(dvalue));
+X         };
+X        fprintf(weights,"\r\n");
+X       }
+X      else  /* binary format; uses the least space */
+X       {
+X        fwrite((char *) &wvalue,wtsize,1,weights);
+X        if (wtformat == 'B')
+X         {
+X          fwrite((char *) &evalue,wtsize,1,weights);
+X          fwrite((char *) &dvalue,wtsize,1,weights);
+X         };
+X       };
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->next;
+X };
+Xfflush(weights);
+Xfclose(weights);
+Xlastsave = totaliter;
+X}
+X
+XWTTYPE rdb(wtfile,wtsize) /* read binary and convert between sizes */
+XFILE *wtfile;
+Xint wtsize;
+X{
+Xint i, ch2;
+Xdouble dvalue;
+Xfloat fvalue;
+Xshort ivalue;
+Xunsigned char *charptr;
+X
+Xif (wtsize == 2) charptr = (unsigned char *) &ivalue;
+Xelse if (wtsize == 4) charptr = (unsigned char *) &fvalue;
+Xelse if (wtsize == 8) charptr = (unsigned char *) &dvalue;
+Xelse pg("bad weight size\n");
+Xfor (i=1;i<=wtsize;i++)
+X {
+X  ch2 = fgetc(wtfile);
+X  *charptr = (unsigned char) ch2;
+X  charptr++;
+X };
+Xif (WTSIZE == 2 && wtsize == 2) return(ivalue);
+Xelse if (WTSIZE == 2 && wtsize == 4) return(scale(fvalue));
+Xelse if (WTSIZE == 2 && wtsize == 8) return(scale(dvalue));
+Xelse if (WTSIZE == 4 && wtsize == 2) return(ivalue / 1024.0);
+Xelse if (WTSIZE == 4 && wtsize == 4) return(fvalue);
+Xelse if (WTSIZE == 4 && wtsize == 8) return((float) dvalue);
+Xelse if (WTSIZE == 8 && wtsize == 2) return(ivalue / 1024.0);
+Xelse if (WTSIZE == 8 && wtsize == 4) return((double) fvalue);
+Xelse if (WTSIZE == 8 && wtsize == 8) return(dvalue);
+X}
+X
+Xvoid restoreweights()    /* restore weights from the file weights */
+X{
+XFILE *weights;
+XUNIT *u;
+XLAYER *layer;
+XWTNODE *w;
+Xint ch2, fileformat, wtsize;
+XWTTYPE wvalue, evalue, dvalue, svalue;
+Xdouble temp;
+X
+Xweights = fopen(wtfile,READBIN);
+Xif (weights == NULL)
+X {
+X  pg("cannot open file weights\n");
+X  return;
+X };
+Xfscanf(weights,"%d",&totaliter);
+Xfileformat = getc(weights);
+Xif (fileformat != wtformat) pg("note: weight format mismatch\n");
+Xif (fileformat == 'b' || fileformat == 'B')
+X {
+X  wtsize = getc(weights) - '0';
+X  if (WTSIZE != wtsize) pg("note: weight sizes mismatched\n");
+X }
+Xelse wtsize = WTSIZE;
+Xdo ch2 = getc(weights); while (ch2 != '\n'); /* skip rest of line */
+Xlayer = start->next;
+Xwhile (layer != NULL)
+X {
+X  u = (UNIT *) layer->units;
+X  while (u != NULL)
+X   {
+X    w = (WTNODE *) u->wtlist;
+X    while (w != NULL)
+X     {
+X      if (fileformat == 'r' || fileformat == 'R')
+X       {
+X        fscanf(weights,"%lf",&temp);
+X        wvalue = scale((REAL) temp);
+X        if (fileformat == 'R')
+X         {
+X          fscanf(weights,"%lf",&temp);
+X          evalue = scale((REAL) temp);
+X          fscanf(weights,"%lf",&temp);
+X          dvalue = scale((REAL) temp);
+X         };
+X       }
+X      else
+X       {
+X        wvalue = rdb(weights,wtsize);
+X        if (fileformat == 'B')
+X         {
+X          evalue = rdb(weights,wtsize);
+X          dvalue = rdb(weights,wtsize);
+X         };
+X       };
+X#ifdef SYMMETRIC
+X      *(w->weight) = wvalue;
+X      if (fileformat == 'R' || fileformat == 'B')
+X       {
+X        *(w->olddw) = dvalue;
+X        *(w->eta) = evalue;
+X       }
+X      else *(w->olddw) = 0;
+X#else
+X      w->weight = wvalue;
+X      if (fileformat == 'R' || fileformat == 'B')
+X       {
+X        w->olddw = dvalue;
+X        w->eta = evalue;
+X        w->slope = svalue;
+X       }
+X      else w->olddw = 0;
+X#endif
+X      w = w->next;
+X     };
+X    u = u->next;
+X   };
+X  layer = layer->next;
+X };
+Xfclose(weights);
+X}
+X
+Xvoid printweights(u)   /* print the weights leading into unit u */
+XUNIT *u;
+X
+X{
+XWTNODE *w;
+XUNIT *bunit;
+XWTTYPE value;
+X#ifdef INTEGER
+XINT32 sum, input;
+X#else
+XREAL sum, input;
+X#endif
+X
+Xw = (WTNODE *) u->wtlist;
+Xsum = 0;
+Xpg("layer unit  unit value     weight         input from unit\n");
+Xwhile (w != NULL)
+X {
+X  bunit = (UNIT *) w->backunit;
+X#ifdef SYMMETRIC
+X  value = *(w->weight);
+X#else
+X  value = w->weight;
+X#endif
+X
+X#ifdef INTEGER
+X  input = (INT32) value * bunit->oj;
+X  input = input / 1024;
+X#else
+X  input = value * bunit->oj;
+X#endif
+X  sum = sum + input;
+X  sprintf(outstr,"%3d   ",bunit->layernumber); pg(outstr);
+X  if (bunit->unitnumber == 32767) pg("   t ");
+X  else {sprintf(outstr,"%4d ",bunit->unitnumber); pg(outstr);};
+X  sprintf(outstr,"%10.5f  %10.5f  ",unscale(bunit->oj),unscale(value));
+X  pg(outstr);
+X  sprintf(outstr,"%18.5f\n",unscaleint(input));
+X  if (pg(outstr)) return;
+X  w = w->next;
+X };
+Xpg("                                      ");
+Xsprintf(outstr,"sum = %9.5f\n\n",unscaleint(sum)); pg(outstr);
+X}
+X
+Xvoid help()
+X{
+Xint ch2;
+Xpg("\n");
+Xdo ch2 = readch(); while (ch2 == ' ' && ch2 != '\n');
+X        switch(ch2) {
+X
+Xdefault:
+Xpg("for help type h followed by the letter of the command\n");
+Xif (ch2 == '\n') bufferptr = bufferptr - 1;
+Xbreak;
+X
+Xcase '?':
+Xpg("? prints program status and parameters.\n");
+Xbreak;
+X
+Xcase '*':
+Xpg("* at the beginning of a line makes the line a comment.\n");
+Xbreak;
+X
+Xcase '!':
+Xpg("Enter system commands after the !.\n");
+Xbreak;
+X
+Xcase 'A':
+Xpg("A is used to set details of the algorithm.  One or more of \n");
+Xpg("the following commands can go on the same line as the 'A':\n\n");
+Xpg("a l sets the linear activation function.\n");
+Xpg("a p sets the piecewise linear activation function.\n");
+Xpg("a t sets the piecewise near tanh activation function.\n");
+X#ifndef INTEGER
+Xpg("a s sets the smooth activation function.\n");
+Xpg("a T sets the smooth near tanh activation function.\n");
+X#endif
+Xpg("\n");
+Xpg("b + will backpropagate errors even when a unit is close to ");
+Xpg("its target.\n");
+Xpg("b - will not backpropagate errors when a unit is close to its");
+Xpg(" target.\n\n");
+Xpg("D <real> will set the sharpness of the sigmoid to <real>.\n\n");
+Xpg("d d will use the derivatives from the differential step size");
+Xpg(" algorithm.\n");
+Xpg("d F uses Fahlman's derivative in the output layer.\n");
+Xpg("d f uses Fahlman's derivative in all layers.\n");
+Xpg("d o uses the original derivative.\n\n");
+Xpg("g <int> updates weights after every group of <int> patterns if <int> != 0.\n\n");
+Xpg("s <int> will skip for <int> iterations patterns that have been ");
+Xpg("learned.\n\n");
+Xpg("t <int> will take pattern <int> out of the training process.\n");
+Xpg("   To bring it back in, use t 0.\n\n");
+Xpg("u c gives the continuous update method.\n");
+X#ifndef SYMMETRIC
+Xpg("u d gives the delta-bar-delta update method.\n");
+X#endif
+Xpg("u p gives the periodic update method.\n");
+Xbreak;
+X
+Xcase 'a':
+Xpg("a <real> sets the momentum parameter, alpha, to <real>.\n");
+Xbreak;
+X
+Xcase 'B':
+Xpg("B <options> sets the following benchmarking options:\n\n");
+Xpg("g <int> sets <int> to be the goal for the number of");
+Xpg(" networks to converge.\n\n");
+Xpg("k <real> sets the range of the initial random");
+Xpg(" weights for each network.\n\n");
+Xpg("m <int> sets the maximum number of networks to try.\n\n");
+Xpg("r <int1> <int2> sets <int1> to be the maximum ");
+Xpg("number of iterations to run.\n  <int2>, if present,");
+Xpg(" sets the rate at which to sample the network.\n  ");
+Xpg("Using r in a B command will initiate benchmarking.\n\n");
+Xpg("t <int> will benchmark with pattern <int> removed");
+Xpg(" from the training set\n  and test it at the");
+Xpg(" sample rate given in the r command.\n");
+Xpg("t f <testfile> will test patterns on <testfile> at ");
+Xpg("the interval given for\n   the sample rate.\n");
+Xpg("t 0 turns off either type of testing.\n");
+Xbreak;
+X
+Xcase 'b':
+Xpg("b <int1> <int2> ... <int20> puts a carriage break");
+Xpg(" after each <inti>\nvalues when the output format");
+Xpg(" is real and inserts a blank after each <inti>\n");
+Xpg("value if the format is condensed.\n");
+Xbreak;
+X
+Xcase 'C':
+Xpg("C clears the network and other relevant parameters");
+Xpg(" so the problem can be re-run\nwith different");
+Xpg(" initial weights.  Added hidden units are not removed.\n");
+Xbreak;
+X
+X#ifndef SYMMETRIC
+Xcase 'c':
+Xpg("c <int1> <int2> <int3> <int4>  ");
+Xpg("Adds a connection from layer <int1> unit <int2>\n");
+Xpg("   to layer <int3> unit <int4>.\n");
+Xbreak;
+X#endif
+X
+Xcase 'd':
+Xpg("d is used to set parameters for the delta-bar-delta method.\n");
+Xpg("One or more of the following commands can go on the line:\n\n");
+Xpg("d <real> sets the decay factor to <real>.\n");
+Xpg("e <real> sets the initial eta value to <real>.\n");
+Xpg("k <real> sets kappa to <real>.\n");
+Xpg("m <real> limits the maximum value of each eta to <real>.\n");
+X#ifdef INTEGER
+Xpg("n <real> sets some noise (integer versions only).");
+Xpg("   Try <real> around 0.005.\n");
+X#endif
+Xpg("t <real> sets the theta parameter to <real>.\n");
+Xbreak;
+X
+Xcase 'e':
+Xpg("e <real1> <real2> sets eta, the learning rate for the top layer");
+Xpg(" to <real1>\n   and eta2 for the lower layers to <real2>.  If ");
+Xpg("<real2> is not present,\n   eta2 is set to <real1>.\n");
+Xbreak;
+X
+Xcase 'f':
+Xpg("f is used to set the input and output formats for data.\nOne ");
+Xpg("or more of the following commands can go on the line:\n\n");
+Xpg("b + will ring the bell when learning is complete.\n");
+Xpg("b - will not ring the bell when learning is complete.\n\n");
+Xpg("c + will copy i/o to the file, copy.\n");
+Xpg("c - will stop writing to the file, copy.\n\n");
+Xpg("e + echos the input.\ne - does not echo.\n\n");
+Xpg("i c will read pattern values using compressed format.\n");
+Xpg("i r will read pattern values as reals.\n\n");
+Xpg("o a will write node values as analog compressed.\n");
+Xpg("o c will write node values as compressed.\n");
+Xpg("o r will write node values as real.\n\n");
+Xpg("P <int> sets the page size to <int>; 0 means no paging.\n\n");
+Xpg("p c will read patterns in the classification format and ");
+Xpg("summarize the results\n    when testing.\n");
+Xpg("p C will read patterns in the classification format and ");
+Xpg("print every result\n    when testing.\n");
+Xpg("p g will accept general patterns and summarize results when ");
+Xpg("testing.\n");
+Xpg("p G will accept general patterns and print every result when ");
+Xpg("testing.\n\n");
+Xpg("s + will summarize learning status.\n");
+Xpg("s - will not summarize learning status and will");
+Xpg(" list each pattern.\n\n");
+Xpg("u + will give up-to-date statistics on learning.\n");
+Xpg("u - will give statistics one iteration out of date.\n\n");
+Xpg("w b will write the weights as binary.\n");
+Xpg("w B will write the weights, weight changes and etas as binary.\n");
+Xpg("w r will write the weights as real values.\n");
+Xpg("w R will write the weights, weight changes and etas as real");
+Xpg(" values.\n");
+Xbreak;
+X
+X#ifndef SYMMETRIC
+Xcase 'H':
+Xpg("H <int> <real> adds a hidden unit to layer <int>\n");
+Xpg("Weights are initialized to between -<real> and +<real>.\n");
+Xbreak;
+X#endif
+X
+Xcase 'h':
+Xpg("h <letter> gives help for command <letter>.\n");
+Xbreak;
+X
+Xcase 'i':
+Xpg("i <inputfile> takes commands from the file.\n");
+Xpg("i takes commands from the current input file.\n");
+Xbreak;
+X
+Xcase 'k':
+Xpg("k <real1> <real2> decreases all the weights in the ");
+Xpg("network whose values\nare greater than <real1> by a");
+Xpg(" random amount between 0 and <real2>.\nWeights ");
+Xpg("less than -<real1> are increased by an amount ");
+Xpg("between 0 and <real2>.\nIf <real1> = 0.0, and a ");
+Xpg("weight = 0.0 then the weight is changed to\na ");
+Xpg("random value between -<real2> and +<real2>.\n");
+Xbreak;
+X
+Xcase 'l':
+Xpg("l <int> prints values of nodes on layer <int>.\n");
+Xbreak;
+X
+Xcase 'm':
+Xpg("m <int1> <int2> ... <intn> makes a network with\n");
+Xpg("<int1> units in the first layer, <int2> units in\n");
+Xpg("the second layer, ... , <intn> units in the nth layer.\n");
+Xbreak;
+X
+Xcase 'n':
+Xpg("n <int> <in1> <out1> ... <ini> <outi> ... <inN> <outN>");
+Xpg(" replaces all\n   training patterns with <int> new ones.\n");
+Xpg("n f <trainfile> reads however many patterns there are on");
+Xpg(" the file.\n");
+Xbreak;
+X
+Xcase 'O':
+Xpg("O <int> will give the output targets for pattern, <int>.\n");
+Xbreak;
+X
+Xcase 'o':
+Xpg("o a outputs node values in analog compressed form.");
+Xpg("\no c outputs node values in compressed form.\n");
+Xpg("o r outputs node values as real.\n");
+Xbreak;
+X
+Xcase 'P':
+Xpg("P lists the outputs for all patterns.\n");
+Xpg("P <int> gives the output for pattern <int>.\n");
+Xpg("P0 gives an up-to-date summary of learning.\n");
+Xbreak;
+X
+Xcase 'p':
+Xpg("p <pat> submits the pattern, <pat>, to the input units.\n");
+Xbreak;
+X
+Xcase 'Q':
+Xpg("Q <real> sets the value of ? in input patterns to <real>.\n");
+Xbreak;
+X
+Xcase 'q':
+Xpg("q followed immediately by a cr ends the program.\n\n");
+Xpg("qp is used to set parameters for the quickprop algorithm.\n");
+Xpg("One or more of the following commands can go on the line:\n\n");
+Xpg("d <real> sets the decay to <real> / 1000.\n");
+Xpg("e <real> sets the initial etas to <real>.\n");
+Xpg("m <real> sets mu, the accleration parameter to <real>.\n");
+Xpg("n <real> sets n, the noise (integer version only) to <real>.\n");
+Xpg("s+ adds the slope in to the weight changes (original algorithm).\n");
+Xpg("s- does not add the slope in.\n");
+Xbreak;
+X
+Xcase 'R':
+Xpg("R restores weights from the current weights file\n");
+Xbreak;
+X
+Xcase 'r':
+Xpg("r <int1> <int2> runs <int1> iterations thru the ");
+Xpg("patterns.  If <int2> is\npresent, the patterns are ");
+Xpg("printed (or summarized) every <int2> iterations.\n\n");
+Xpg("rw <filename> reads weights from the file, <filename> and sets ");
+Xpg("<filename>\n             to be the current weights file.\n");
+Xpg("rw reads weights from the current weights file.\n");
+Xbreak;
+X
+Xcase 'S':
+Xpg("S <int> saves the weights on the current weights file every <int>");
+Xpg(" iterations.\nS or S 0 saves the weights immediately.\n");
+Xbreak;
+X
+Xcase 's':
+Xpg("s <int1> <int2> ... <intn> sets the random number seeds.\n\n");
+Xpg("sw <filename> saves weights to the file, <filename> and sets ");
+Xpg("<filename>\n              to be the current weights file.\n");
+Xpg("sw saves weights to the current weights file.\n");
+Xbreak;
+X
+X#ifdef SYMMETRIC
+Xcase 'T':
+Xpg("T <real> freezes all threshold weights at <real>.\n");
+Xbreak;
+X#endif
+X
+Xcase 't':
+Xpg("t <real> sets <real> as the tolerance used in checking for");
+Xpg(" complete learning.\n");
+Xpg("t f <testfile> tests the patterns on the file.\n");
+Xpg("t f tests the patterns on the current test file.\n");
+Xpg("t tests the patterns on the current test file.\n");
+Xbreak;
+X
+X#ifndef SYMMETRIC
+Xcase 'W':
+Xpg("W <real> removes links whose weights are less than ");
+Xpg("the absolute value\nof <real>, except links to ");
+Xpg("threshold units are not removed.\n");
+Xbreak;
+X#endif
+X
+Xcase 'w':
+Xpg("w <int1> <int2>  ");
+Xpg("prints weights into unit <int2> in layer <int1>.\n");
+Xbreak;
+X
+Xcase 'x':
+Xpg("x <int1> <in1> <out1> ... <ini> <outi> ... <inN> <outN>  adds");
+Xpg(" the extra\n   <int1> patterns.\n");
+Xpg("x f <trainfile> adds the extra patterns found on the file.\n");
+Xbreak;
+X     }; /* end switch */
+Xpg("\n");
+X}
+END_OF_FILE
+if test 25359 -ne `wc -c <'io.c'`; then
+    echo shar: \"'io.c'\" unpacked with wrong size!
+fi
+# end of 'io.c'
+fi
+if test -f 'ibp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ibp.h'\"
+else
+echo shar: Extracting \"'ibp.h'\" \(3468 characters\)
+sed "s/^X//" >'ibp.h' <<'END_OF_FILE'
+X/* ****************************************************** */
+X/* file ibp.h: contains definitions for programs that use */
+X/*             16-bit integer weights                     */
+X/*                                                        */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter     */
+X/*                                                        */
+X/* ****************************************************** */
+X
+X#ifdef DOS16
+X#define INT32 long
+X#define MAXINT 32767
+X#else
+X#define INT32 int
+X#define MAXINT 2147483647
+X#endif
+X
+X#define maxformat 21          /* maximum number of format breaks */
+X#define buffsize 257          /* maximum size of an input line */
+X#define WTTYPE short          /* a 16-bit integer */
+X#define WTSIZE 2              /* shorts are two bytes */
+X#define MAXSHORT 32767        /* largest short */
+X#define MINSHORT -32768       /* smallest short */
+X#define OUTSTRSIZE 257        /* max size of output string */
+X#define HCODE -32768          /* code number for a layer h (2) unit */
+X#define ICODE -32767          /* code number for a layer i (3) unit */
+X#define JCODE -32766          /* code number for a layer j (4) unit */
+X#define KCODE -32765          /* code number for a layer k (5) unit */
+X#define GT 0                  /* a symbol meaning > */
+X#define GE 1                  /* a symbol meaning >= */
+X
+X#ifdef FLOAT
+X#define REAL float
+X#else
+X#define REAL double
+X#endif
+X
+Xtypedef struct seednode
+X   {
+X     unsigned val;            /* a seed value */
+X     struct seednode *next;   /* pointer to next node */
+X   } SEEDNODE;
+Xtypedef struct patlist
+X   {
+X     int bypass;              /* number of times to bypass pattern */
+X     WTTYPE *pats;            /* the list of patterns */
+X     struct patlist *next;    /* pointer to the next pattern */
+X   } PATLIST;
+Xtypedef struct unit
+X   {
+X     short layernumber;       /* layer number of the unit */
+X     short unitnumber;        /* position within layer */
+X     INT32 error;             /* to sum error factors */
+X     WTTYPE oj;               /* state of activation of node */
+X     WTTYPE tj;               /* output target of a node */
+X     struct wtnode *wtlist;   /* the list of weights */
+X     struct unit *next;       /* link to next unit in this layer */
+X   } UNIT;
+X
+Xtypedef struct wtnode
+X   {
+X#ifdef SYMMETRIC
+X     WTTYPE *weight;          /* ptr to weight */
+X     WTTYPE *olddw;           /* ptr to delta wji */
+X     WTTYPE *eta;             /* ptr to eta for the DBD method */
+X     INT32 *total;            /* ptr to total of weight changes */
+X     WTTYPE *slope;           /* previous slope */
+X#else
+X     WTTYPE weight;           /* weight from here to backunit */
+X     WTTYPE olddw;            /* delta wji from previous iteration */
+X     WTTYPE eta;              /* the eta for the DBD method */
+X     INT32 total;             /* total weight changes for batch mode */
+X     WTTYPE slope;            /* previous slope */
+X#endif
+X     struct wtnode *next;     /* link to next node */
+X     UNIT *backunit;          /* ptr to unit the weight comes from */
+X   } WTNODE;
+X
+Xtypedef struct layer
+X   {
+X     int unitcount;           /* number of units in this layer */
+X     struct layer *backlayer; /* pointer to previous layer */
+X     struct layer *next;      /* pointer to next layer */
+X     UNIT *units;             /* start of list of units in this layer */
+X     PATLIST *patstart;       /* to the list of patterns */
+X     PATLIST *currentpat;     /* the current pattern */
+X   } LAYER;
+END_OF_FILE
+if test 3468 -ne `wc -c <'ibp.h'`; then
+    echo shar: \"'ibp.h'\" unpacked with wrong size!
+fi
+# end of 'ibp.h'
+fi
+if test -f 'rbp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'rbp.h'\"
+else
+echo shar: Extracting \"'rbp.h'\" \(3493 characters\)
+sed "s/^X//" >'rbp.h' <<'END_OF_FILE'
+X/* ***************************************************** */
+X/* file rbp.h:  contains definitions for the rbp program */
+X/*              that uses 64-bit floating point weights  */
+X/*                                                       */
+X/* Copyright (c) 1990, 1991, 1992 by Donald R. Tveter    */
+X/*                                                       */
+X/* *******************************************************/
+X
+X#define maxformat 21
+X#define buffsize 257
+X
+X#ifdef FLOAT
+X#define WTTYPE float
+X#define WTSIZE 4
+X#define REAL float
+X#else
+X#define WTTYPE double
+X#define WTSIZE 8
+X#define REAL double
+X#endif
+X
+X#ifdef DOS16
+X#define INT32 long
+X#define MAXINT 32767
+X#else
+X#define INT32 int
+X#define MAXINT 2147483647
+X#endif
+X
+X#define HCODE -32768          /* code number for a layer h (2) unit */
+X#define ICODE -32767          /* code number for a layer i (3) unit */
+X#define JCODE -32766          /* code number for a layer j (4) unit */
+X#define KCODE -32765          /* code number for a layer k (5) unit */
+X#define GT 0                  /* a symbol meaning > */
+X#define GE 1                  /* a symbol meaning >= */
+X#define OUTSTRSIZE 257        /* max length of output string */
+X#define scale(x) x            /* scale not used in real version */
+X#define unscale(x) x          /* unscale not used in real version */
+X#define unscaleint(x) x       /* unscaleint not used in real version */
+X
+Xtypedef struct seednode
+X   {
+X     unsigned val;            /* a seed value */
+X     struct seednode *next;   /* pointer to next node */
+X   } SEEDNODE;
+Xtypedef struct patlist
+X   {
+X     int bypass;              /* number of times to bypass pattern */
+X     WTTYPE *pats;            /* the list of patterns */
+X     struct patlist *next;    /* pointer to the next pattern */
+X   } PATLIST;
+Xtypedef struct unit
+X   {
+X     short layernumber;       /* layer number of the unit */
+X     short unitnumber;        /* position within layer */
+X     REAL error;              /* to sum error factors */
+X     WTTYPE oj;               /* state of activation of node */
+X     WTTYPE tj;               /* output target for the node */
+X     struct unit *wtlist;     /* to list of weights to prev layer */
+X     struct unit *next;       /* link to next unit in this layer */
+X   } UNIT;
+X
+Xtypedef struct wtnode
+X   {
+X#ifdef SYMMETRIC
+X     WTTYPE *weight;          /* weight from here to backunit */
+X     WTTYPE *olddw;           /* delta wji from previous iteration */
+X     WTTYPE *total;           /* total of changes for batch updates */
+X     WTTYPE *eta;             /* the eta of the DBD method */
+X     WTTYPE *slope;           /* previous slope */
+X#else
+X     WTTYPE weight;           /* weight from here to backunit */
+X     WTTYPE olddw;            /* delta wji from previous iterataion */
+X     WTTYPE total;            /* total of changes for batch updates */
+X     WTTYPE eta;              /* the eta of the DBD method */
+X     WTTYPE slope;            /* previous slope */
+X#endif
+X     struct wtnode *next;     /* link to next node */
+X     UNIT *backunit;          /* ptr to unit the weight comes from */
+X   } WTNODE;
+X
+Xtypedef struct layer
+X   {
+X     int unitcount;           /* number of units in this layer */
+X     struct layer *backlayer; /* pointer to previous layer */
+X     struct layer *next;      /* pointer to next layer */
+X     UNIT *units;             /* start of list of units in this layer */
+X     PATLIST *patstart;       /* to the list of patterns */
+X     PATLIST *currentpat;     /* the current pattern */
+X   } LAYER;
+END_OF_FILE
+if test 3493 -ne `wc -c <'rbp.h'`; then
+    echo shar: \"'rbp.h'\" unpacked with wrong size!
+fi
+# end of 'rbp.h'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+echo shar: Extracting \"'makefile'\" \(2257 characters\)
+sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X#
+X# This makefile can be used to make all 4 programs but note that
+X# it is designed to make compiling the integer version bp easy
+X# by keeping its object files around.  The other 3 programs erase
+X# their object files.
+X#
+X# Below, where I say 32-bit floating point or 64-bit floating point,
+X# note that the program uses some floating point instructions even the
+X# integer versions, bp and sbp.  In standard UNIX C all floating point
+X# arithmetic is done as double so using double values actually is faster
+X# than using float values (because all the covnersions take time).
+X# To use float rather than double define FLOAT like so:  -DFLOAT
+X#
+X# To get the compiler to use 32-bit DOS settings include: -DDOS32
+X# To get the compiler to use 16-bit DOS settings include: -DDOS16
+X#
+X# Below are the settings I've been using for Zortech 3.0.
+X# The -f flag in the ZORTECH CFLAGS forces hardware floating point
+X# instructions to be generated.  The -o is for optimize, -m is used
+X# to give the memory model.  NOTE that in the following makefile I don't
+X# use the Zortech optimization flag -o in the CFLAGS, instead it is used
+X# in the definitions for bp.obj, misc.obj and int.obj because for
+X# some reason the compiler bombs when it optimizes io.obj.  As its
+X# set up, sbp, srbp and rbp will not be optimized.
+X#
+X# use the following line for DOS/ZORTECH (486)
+X#CFLAGS= -mx -4 -f -DFLOAT -DDOS32
+X# use the following line for DOS/ZORTECH (386)
+X#CFLAGS= -mx -3 -DFLOAT -DDOS32
+X# use the following line for DOS/ZORTECH (286)
+X#CFLAGS= -mz -2 -f -DFLOAT -DDOS16
+X# use the following line for DOS/ZORTECH (8088) large memory model
+XCFLAGS= -ml -f -DFLOAT -DDOS16
+X
+Xbp: bp.obj io.obj misc.obj int.obj makefile ibp.h
+X	ztc $(CFLAGS) bp.obj io.obj misc.obj int.obj -obp.exe
+X
+Xsbp:
+X	ztc -DINTEGER -DSYMMETRIC int.c bp.c io.c misc.c $(CFLAGS) -osbp.exe
+X	erase *.obj
+X
+Xrbp:
+X	ztc real.c bp.c io.c misc.c $(CFLAGS) -orbp.exe
+X	erase *.obj
+X
+Xsrbp:
+X	ztc -DSYMMETRIC real.c bp.c io.c misc.c $(CFLAGS) -osrbp.exe
+X	erase *.obj
+X
+Xbp.obj: bp.c ibp.h makefile
+X	ztc -DINTEGER $(CFLAGS) bp.c -c -o
+X
+Xio.obj: io.c ibp.h makefile
+X	ztc -DINTEGER $(CFLAGS) io.c -c
+X
+Xmisc.obj: misc.c ibp.h makefile
+X	ztc -DINTEGER $(CFLAGS) misc.c -c -o
+X
+Xint.obj: int.c ibp.h makefile
+X	ztc -DINTEGER -DSMART $(CFLAGS) int.c -c -o
+END_OF_FILE
+if test 2257 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+fi
+# end of 'makefile'
+fi
+if test -f 'makereal' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makereal'\"
+else
+echo shar: Extracting \"'makereal'\" \(1677 characters\)
+sed "s/^X//" >'makereal' <<'END_OF_FILE'
+X#
+X# This makefile is designed to make only the rbp program AND TO KEEP
+X# all the .obj files, so you can apply changes to one file without
+X# recompiling all the others.
+X#
+X# Below, where I say 32-bit floating point or 64-bit floating point,
+X# note that all the programs use some floating point instructions even
+X# the integer versions, bp and sbp.  In standard UNIX C all floating
+X# point arithmetic is done as double so using double values actually is
+X# faster than using float values (because all the covnersions take
+X# time).  To use float rather than double define FLOAT like so:  -DFLOAT
+X#
+X# To get the compiler to use 32-bit DOS settings include: -DDOS32
+X# To get the compiler to use 16-bit DOS settings include: -DDOS16
+X#
+X# Below are the settings I've been using for Zortech C 3.0.
+X# The -f flag in the ZORTECH CFLAGS forces hardware floating point
+X# instructions to be generated.  The -o is for optimize, -m is used
+X# to give the memory model, -4 for a 486, -3 for a 386, -2 for a 286.
+X#
+X# use the following line for DOS/ZORTECH (486)
+XCFLAGS= -mx -4 -f -o -DFLOAT -DDOS32
+X# use the following line for DOS/ZORTECH (386)
+X#CFLAGS= -mx -3 -o -DFLOAT -DDOS32
+X# use the following line for DOS/ZORTECH (286)
+X#CFLAGS= -mz -2 -f -o -DFLOAT -DDOS16
+X# use the following line for DOS/ZORTECH (8088) large memory model
+X#CFLAGS= -ml -f -o -DFLOAT -DDOS16
+X
+Xrbp: bp.obj io.obj misc.obj real.obj makereal rbp.h
+X	ztc $(CFLAGS) bp.obj io.obj misc.obj real.obj -orbp.exe
+X
+Xbp.obj: bp.c rbp.h makereal
+X	ztc $(CFLAGS) bp.c -c
+X
+Xio.obj: io.c rbp.h makereal
+X	ztc $(CFLAGS) io.c -c
+X
+Xmisc.obj: misc.c rbp.h makereal
+X	ztc $(CFLAGS) misc.c -c
+X
+Xreal.obj: real.c rbp.h makereal
+X	ztc $(CFLAGS) real.c -c
+END_OF_FILE
+if test 1677 -ne `wc -c <'makereal'`; then
+    echo shar: \"'makereal'\" unpacked with wrong size!
+fi
+# end of 'makereal'
+fi
+if test -f 'makefile.unx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.unx'\"
+else
+echo shar: Extracting \"'makefile.unx'\" \(774 characters\)
+sed "s/^X//" >'makefile.unx' <<'END_OF_FILE'
+X# for 32-bit floating point use the following line:
+X#CFLAGS= -s -O -DFLOAT -DUNIX
+X# for 64-bit floating point use the following line:
+XCFLAGS= -s -O -DUNIX
+X
+Xbp: bp.o io.o misc.o int.o makefile ibp.h
+X	cc $(CFLAGS) bp.o io.o misc.o int.o -o bp
+X
+Xsbp:
+X	cc -DINTEGER -DSYMMETRIC int.c bp.c io.c misc.c $(CFLAGS) -o sbp
+X	rm bp.o io.o int.o misc.o
+X
+Xrbp:
+X	cc real.c bp.c io.c misc.c $(CFLAGS) -lm -o rbp
+X	rm bp.o io.o real.o misc.o
+X
+Xsrbp:
+X	ztc -DSYMMETRIC real.c bp.c io.c misc.c $(CFLAGS) -lm -o srbp
+X	rm bp.o io.o real.o misc.o
+X
+Xbp.o: bp.c ibp.h makefile
+X	cc -DINTEGER $(CFLAGS) bp.c -c
+X
+Xio.o: io.c ibp.h makefile
+X	cc -DINTEGER $(CFLAGS) io.c -c
+X
+Xmisc.o: misc.c ibp.h makefile
+X	cc -DINTEGER $(CFLAGS) misc.c -c
+X
+Xint.o: int.c ibp.h makefile
+X	cc -DINTEGER -DSMART $(CFLAGS) int.c -c
+END_OF_FILE
+if test 774 -ne `wc -c <'makefile.unx'`; then
+    echo shar: \"'makefile.unx'\" unpacked with wrong size!
+fi
+# end of 'makefile.unx'
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

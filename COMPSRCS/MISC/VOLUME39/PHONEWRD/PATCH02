@@ -1,0 +1,116 @@
+Newsgroups: comp.sources.misc
+From: erich@eye.com (Eric Haines)
+Subject: v39i073:  phonewrd - phone number phrase generator, Patch02
+Message-ID: <1993Sep7.132031.2687@sparky.sterling.com>
+X-Md4-Signature: fc809b5312104de877bca2ee2f96a128
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 7 Sep 1993 13:20:31 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: erich@eye.com (Eric Haines)
+Posting-number: Volume 39, Issue 73
+Archive-name: phonewrd/patch02
+Environment: UNIX, DOS
+Patch-To: phonewrd: Volume 38, Issue 56
+
+Here is patch #2 to phonewrd, the phone number phrase searching program.  It
+fixes an infinite loop condition if no match is found, along with a safer/
+less clunky tolower() function.
+
+Eric Haines  erich@eye.com
+
+*** old/patchlevel.h	Wed Sep  1 16:49:51 1993
+--- ./patchlevel.h	Wed Sep  1 17:05:45 1993
+***************
+*** 1,2 ****
+! #define VERSION		"version 2.1"
+! #define PATCHLEVEL	1
+--- 1,2 ----
+! #define VERSION		"version 2.2"
+! #define PATCHLEVEL	2
+*** old/phonewrd.c	Fri Jul 30 10:15:12 1993
+--- ./phonewrd.c	Wed Sep  1 16:58:36 1993
+***************
+*** 3,11 ****
+  	which fit it.  See the man page for details, type "phonewrd -?" for
+  	options.
+  
+!    version 2.1 - 7/16/93
+  
+     (c) copyright 1993, Eric Haines, all rights reserved (erich@eye.com)
+  
+  
+     History:
+--- 3,12 ----
+  	which fit it.  See the man page for details, type "phonewrd -?" for
+  	options.
+  
+!    version 2.2 - 9/1/93
+  
+     (c) copyright 1993, Eric Haines, all rights reserved (erich@eye.com)
++        (distribute and use freely, just don't use inside commercial code)
+  
+  
+     History:
+***************
+*** 14,19 ****
+--- 15,22 ----
+     2.1 - added sftolower for non-ANSI machines, added ctype.h include,
+  	 fixed error msg for GNU dictionary, added function prototypes,
+  	 made some casts explicit.
++    2.2 - fixed infinite loop with "No matches ... trying again", less clunky
++ 	 & dangerous sftolower(), added copyright explanation.
+   */
+  
+  #include <stdlib.h>	/* if you don't have stdlib, use malloc.h instead,
+***************
+*** 25,39 ****
+  /* safe tolower() macro - on some non-ANSI compliant machines, tolower()
+   * only works correctly for uppercase values, i.e. it simply subtracts an
+   * offset from the value passed in.  So, we need to test if the character is
+!  * uppercase before using tolower().  For the following macro, note that no
+!  * incrementing of the character should occur (e.g. sftolower(*str++) will
+!  * work incorrectly).  If your compiler has a tolower() function that works
+!  * correctly for all input (most compilers do) and you want the code to run
+!  * faster, just redefine sftolower as calling tolower, i.e.:
+   * #define	sftolower(c)	tolower((int)(c))
+   */
+! #define	sftolower(c)					\
+! 	(((c) >= 'A' && (c) <= 'Z' ) ? tolower((int)(c)) : (c))
+  
+  
+  /* define USE_STRINGS_H if you use <strings.h> instead of <string.h> */
+--- 28,39 ----
+  /* safe tolower() macro - on some non-ANSI compliant machines, tolower()
+   * only works correctly for uppercase values, i.e. it simply subtracts an
+   * offset from the value passed in.  So, we need to test if the character is
+!  * uppercase before using tolower().  If your compiler has a tolower()
+!  * function that works correctly for all input (most compilers do) and you
+!  * want the code to run faster, just redefine sftolower as calling tolower:
+   * #define	sftolower(c)	tolower((int)(c))
+   */
+! #define sftolower(c)	(isupper((int)(c)) ? tolower((int)(c)) : (c))
+  
+  
+  /* define USE_STRINGS_H if you use <strings.h> instead of <string.h> */
+***************
+*** 420,427 ****
+  	    search_for_match( 0, out_string, out_string, 0 ) ;
+  	    if ( !MatchTot ) {
+  		fprintf( stderr, "No matches with -n %d", NumNumerals ) ;
+! 		if ( NumNumerals < NumDigits ) {
+! 		    NumNumerals++ ;
+  		    fprintf( stderr,
+  			    ", trying again with -n %d\n", NumNumerals ) ;
+  		} else {
+--- 420,426 ----
+  	    search_for_match( 0, out_string, out_string, 0 ) ;
+  	    if ( !MatchTot ) {
+  		fprintf( stderr, "No matches with -n %d", NumNumerals ) ;
+! 		if ( NumNumerals++ < NumDigits ) {
+  		    fprintf( stderr,
+  			    ", trying again with -n %d\n", NumNumerals ) ;
+  		} else {
+
+exit 0 # Just in case...

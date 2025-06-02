@@ -1,0 +1,1602 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i053:  cmdline - C++ Library for parsing command-line arguments, Part06/07
+Message-ID: <1992Jul27.020852.29820@sparky.imd.sterling.com>
+X-Md4-Signature: 3e3a4734168e6b97ec467667ead4e62a
+Date: Mon, 27 Jul 1992 02:08:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 53
+Archive-name: cmdline/part06
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 7)."
+# Contents:  src/cmd/cmdparse.c src/lib/unix.c
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:32 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'src/cmd/cmdparse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/cmd/cmdparse.c'\"
+else
+echo shar: Extracting \"'src/cmd/cmdparse.c'\" \(22245 characters\)
+sed "s/^X//" >'src/cmd/cmdparse.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdparse.c - implementation of the CmdParseCommand
+X//
+X// ^DESCRIPTION:
+X//    This file implements the member functions of the CmdParseCommand
+X//    class.
+X//
+X// ^HISTORY:
+X//    04/26/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <stdlib.h>
+X#include <iostream.h>
+X#include <fstream.h>
+X#include <strstream.h>
+X#include <string.h>
+X#include <ctype.h>
+X
+X#include "argtypes.h"
+X#include "cmdparse.h"
+X#include "syntax.h"
+X#include "quoted.h"
+X
+Xenum { SUCCESS = 0, FAILURE = -1 } ;
+X
+Xenum { MAX_IDENT_LEN = 64, MAX_DESCRIPTION_LEN = 1024 } ;
+X
+X
+Xextern "C" {
+X   int  isatty(int fd);
+X}
+X
+X//------------------------------------------------------------------------ copy
+X
+X//-------------------
+X// ^FUNCTION: copy - copy a string
+X//
+X// ^SYNOPSIS:
+X//    copy(dest, src)
+X//
+X// ^PARAMETERS:
+X//    char * & dest;
+X//    -- where to put the copy we make
+X//
+X//    const char * src;
+X//    -- the string to copy
+X//
+X// ^DESCRIPTION:
+X//    This function duplicates its second parameter to its first parameter.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    "dest" is modified to point to the newly allocated and copied result.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    Trivial.
+X//-^^----------------
+Xstatic  void
+Xcopy(char * & dest, const char * src)
+X{
+X   if (src == NULL)  return ;
+X   dest = new char[::strlen(src) + 1] ;
+X   if (dest)  ::strcpy(dest, src);
+X}
+X
+X//------------------------------------------------------------------ CmdArgVers
+X
+XCmdArgVers::CmdArgVers(char opt, const char * kwd, const char * description)
+X   : CmdArg(opt, kwd, description, CmdArg::isOPT)
+X{
+X}
+X
+XCmdArgVers::~CmdArgVers(void)
+X{
+X}
+X
+Xint
+XCmdArgVers::operator()(const char * & , CmdLine & cmd)
+X{
+X   cerr << cmd.name() << "\trelease " << cmd.release()
+X        << " at patchlevel " << cmd.patchlevel() << endl ;
+X   ::exit(e_VERSION);
+X   return  0;  // shutup the compiler about not returning a value
+X}
+X
+X//------------------------------------------------------------- CmdParseCommand
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::parse_declarations - parse user arguments
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::parse_declarations()
+X//
+X// ^PARAMETERS:
+X//    None.
+X//
+X// ^DESCRIPTION:
+X//    This routine will go through all the input sources that were supplied
+X//    on the command-line. Each of these "input sources" is something that
+X//    contains user argument declarations that need to be parsed.  If no
+X//    input sources were given and cin is not connected to a terminal, then
+X//    we try to read the declarations from cin.
+X//
+X//    If input sources were given, they are parsed in the following order:
+X//       1) from a string
+X//       2) from an environment variable
+X//       3) from a file
+X//
+X//    If more than one input source is specified then they are processed in
+X//    the above order and each argument is appended to the user's CmdLine
+X//    object in the order that it was seen.
+X//
+X// ^REQUIREMENTS:
+X//    This routine should be called by CmdParseCommand::operator() after
+X//    the command-line has been parsed.
+X//
+X// ^SIDE-EFFECTS:
+X//    If input comes from a file, then the file is read (until eof or an
+X//    error condition occurs).
+X//
+X//    Any arguments found are "compiled" and appended to "usr_cmd", the user's
+X//    CmdLine object.
+X//
+X// ^RETURN-VALUE:
+X//    0 upon success, non-zero upon failure.
+X//
+X// ^ALGORITHM:
+X//    Follow along - its pretty straightforward.
+X//-^^----------------
+Xint
+XCmdParseCommand::parse_declarations(void)
+X{
+X   const char * str = input_str ;
+X   const char * varname = input_var ;
+X   const char * filename = input_file ;
+X
+X      // If no "input sources" were specified, try cin.
+X   if ((str == NULL)  &&  (varname == NULL)  &&  (filename == NULL)) {
+X      // Make sure cin is NOT interactive!
+X      int fd = ((filebuf *)(cin.rdbuf()))->fd();
+X      if (::isatty(fd)) {
+X         error() << "Can't read argument declarations from a terminal."
+X                 << endl ;
+X         return  -1;
+X      }
+X      return  parse_declarations(cin);
+X   }
+X
+X   int  rc = 0;
+X
+X      // First - parse from the string
+X   if (str) {
+X      rc += parse_declarations(str);
+X   }
+X
+X      // Second - parse from the environment variable
+X   if (varname) {
+X      const char * contents = ::getenv(varname);
+X      if (contents) {
+X         rc += parse_declarations(contents);
+X      } else {
+X         error() << varname << " is empty or is undefined." << endl ;
+X         return  -1;
+X      }
+X   }
+X
+X      // Third - parse from the file. If the filename is "-" then it
+X      //         means that standard input should be used.
+X      //
+X   if (filename) {
+X      if (::strcmp(filename, "-") == 0) {
+X         rc += parse_declarations(cin);
+X      } else {
+X         ifstream  ifs(filename);
+X         if (ifs) {
+X            rc += parse_declarations(ifs);
+X         } else {
+X            error() << "Unable to read from " << filename << '.' << endl ;
+X            return  -1;
+X         }
+X      }
+X   }
+X
+X   return  rc;
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::usr_append - add a user argument
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::usr_append(type, varname, arg, description)
+X//
+X// ^PARAMETERS:
+X//    const char * type;
+X//    -- the name of the desired argument type (which should correspond
+X//       to either CmdArgUsage, CmdArgDummy, or one of the types defined
+X//       in "argtypes.h").
+X//
+X//    const char * varname;
+X//    -- the name of the shell variable that will be receiving the value
+X//       that was supplied to this argument on the command-line.
+X//
+X//    ArgSyntax & arg;
+X//    -- the argument syntax corresponding to the "syntax-string" supplied
+X//       by the user.
+X//
+X//    const char * description;
+X//    -- the user's description of this argument.
+X//
+X// ^DESCRIPTION:
+X//    This member function will create a corresponding instance of a derived
+X//    class of CmdArg named by "type" and will append it to the user's CmdLine
+X//    object (named usr_cmd).
+X//
+X//    "type" may be one of the following (the leading "CmdArg" prefix may be
+X//    omitted):
+X//
+X//       CmdArgInt, CmdArgFloat, CmdArgChar, CmdArgStr, CmdArgBool,
+X//       CmdArgSet, CmdArgClear, CmdArgToggle, CmdArgUsage, CMdArgDummy
+X//
+X//    It is NOT necessary to use the name of a "List" CmdArg type in order
+X//    to indicate a list, that will have been inferred from the syntax string
+X//    and the appropriate ShellCmdArg<Type> object that we create will know
+X//    how to handle it.
+X//
+X// ^REQUIREMENTS:
+X//    This function should be called after an argument declaration has been
+X//    completely parsed.
+X//
+X// ^SIDE-EFFECTS:
+X//    If "type" is invalid - an error is printed on cerr, otherwise
+X//    we create an appopriate CmdArg<Type> object and append it to usr_cmd.
+X//
+X// ^RETURN-VALUE:
+X//    0 for success; non-zero for failure.
+X//
+X// ^ALGORITHM:
+X//    Trivial - there's just a lot of type-names to check for.
+X//-^^----------------
+Xint
+XCmdParseCommand::usr_append(const char * type,
+X                            const char * varname,
+X                            ArgSyntax  & arg,
+X                            const char * description)
+X{
+X   char * name = NULL ;
+X   char * kwd  = NULL ;
+X   char * val  = NULL ;
+X   char * desc = NULL ;
+X   unsigned  flags = arg.syntax() ;
+X   char  opt = arg.optchar() ;
+X
+X      // Need to make copies of some things because we cant assume they
+X      // will be sticking around.  We assume that ShellCmdArg::~ShellCmdArg
+X      // will deallocate this storage.
+X      //
+X   ::copy(name, varname);
+X   ::copy(kwd,  arg.keyword());
+X   ::copy(val,  arg.value());
+X   ::copy(desc, description);
+X
+X       // Skip any leading "Cmd", "Arg", or "CmdArg" prefix in the type-name.
+X   if (CmdLine::strmatch("Cmd", type, 3) == CmdLine::str_EXACT)  type += 3;
+X   if (CmdLine::strmatch("Arg", type, 3) == CmdLine::str_EXACT)  type += 3;
+X
+X       // Create an argument for the appropriate type and append it
+X       // to usr_cmd.
+X       //
+X   if (CmdLine::strmatch("Usage", type) == CmdLine::str_EXACT) {
+X      delete [] name ;
+X      usr_cmd.append(new CmdArgUsage(opt, kwd, desc)) ;
+X   }
+X   else if (CmdLine::strmatch("Dummy", type) == CmdLine::str_EXACT) {
+X      delete [] name ;
+X      usr_cmd.append(new CmdArgDummy(opt, kwd, val, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Set", type) == CmdLine::str_EXACT) {
+X      usr_cmd.append(new ShellCmdArgBool(name, opt, kwd, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Clear", type) == CmdLine::str_EXACT) {
+X      usr_cmd.append(new ShellCmdArgClear(name, opt, kwd, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Toggle", type) == CmdLine::str_EXACT) {
+X      usr_cmd.append(new ShellCmdArgToggle(name, opt, kwd, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Boolean", type) != CmdLine::str_NONE) {
+X      usr_cmd.append(new ShellCmdArgBool(name, opt, kwd, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Integer", type) != CmdLine::str_NONE) {
+X      usr_cmd.append(new ShellCmdArgInt(name, opt, kwd, val, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Float", type) != CmdLine::str_NONE) {
+X      usr_cmd.append(new ShellCmdArgFloat(name, opt, kwd, val, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("Character", type) != CmdLine::str_NONE) {
+X      usr_cmd.append(new ShellCmdArgChar(name, opt, kwd, val, desc, flags));
+X   }
+X   else if (CmdLine::strmatch("String", type) != CmdLine::str_NONE) {
+X      usr_cmd.append(new ShellCmdArgStr(name, opt, kwd, val, desc, flags));
+X   }
+X   else {
+X      cerr << "Unknown argument type \"" << type << "\"." << endl ;
+X      delete [] kwd ;
+X      delete [] val ;
+X      delete [] desc ;
+X      return  FAILURE ;
+X   }
+X
+X   return  SUCCESS ;
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::parse_declarations - parse from a string
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::parse_declarations(str);
+X//
+X// ^PARAMETERS:
+X//    const char * str;
+X//    -- the string containing the argument declarations.
+X//
+X// ^DESCRIPTION:
+X//    Parse the user's argument declarations from an input string.
+X//
+X// ^REQUIREMENTS:
+X//    This member function should only be called by parse_declarations(void).
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies usr_cmd by appending to it any valid arguments that we parse.
+X//
+X// ^RETURN-VALUE:
+X//    0 for success; non-zero for failure.
+X//
+X// ^ALGORITHM:
+X//    Just turn the string into an instream and parse the instream.
+X//-^^----------------
+Xint
+XCmdParseCommand::parse_declarations(const char * str)
+X{
+X   int  rc = 0;
+X   char * strbuf = new char[::strlen(str) + 1] ;
+X   (void) ::strcpy(strbuf, str);
+X   istrstream  iss(strbuf);
+X   rc = parse_declarations(iss);
+X   delete  strbuf ;
+X   return  rc ;
+X}
+X
+X
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::parse_declarations - parse from an instream
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::parse_declarations(is);
+X//
+X// ^PARAMETERS:
+X//    istream & is;
+X//    -- the instream containing the argument declarations.
+X//
+X// ^DESCRIPTION:
+X//    Parse the user's argument declarations from an input steam.
+X//
+X// ^REQUIREMENTS:
+X//    This member function should only be called by parse_declarations(void).
+X//
+X// ^SIDE-EFFECTS:
+X//    - modifies usr_cmd by appending to it any valid arguments that we parse.
+X//
+X// ^RETURN-VALUE:
+X//    0 for success; non-zero for failure.
+X//
+X// ^ALGORITHM:
+X//    while not eof do
+X//       - read the type
+X//       - read the name
+X//       - read the syntax
+X//       - read the description
+X//       - convert (type, name, syntax, description) into something we can
+X//           append to usr_cmd.
+X//    done
+X//-^^----------------
+Xint
+XCmdParseCommand::parse_declarations(istream & is)
+X{
+X      // Keep track of the number of declarations that we parse.
+X   unsigned  nargs = 0;
+X
+X   if (is.eof())  return  SUCCESS;
+X
+X   char  arg_type[MAX_IDENT_LEN];
+X   char  arg_name[MAX_IDENT_LEN];
+X   QuotedString  arg_description(MAX_DESCRIPTION_LEN);
+X
+X   while (is) {
+X      ++nargs;
+X
+X         // Skip all non-alpha-numerics
+X     int c = is.peek() ;
+X     while ((c != EOF) && (c != '_') && (! isalnum(c))) {
+X        (void) is.get();
+X        c = is.peek();
+X     }
+X  
+X         // First parse the argument type
+X      is.width(sizeof(arg_type) - 1);
+X      is >> arg_type ;
+X      if (! is) {
+X         if (is.eof()) {
+X            return  SUCCESS;  // end of args
+X         } else {
+X            error() << "Unable to extract type for argument #" << nargs
+X                    << '.' << endl ;
+X            return  FAILURE;
+X         }
+X      }
+X
+X         // Now parse the argument name
+X      is.width(sizeof(arg_name) - 1);
+X      is >> arg_name ;
+X      if (! is) {
+X         if (is.eof()) {
+X            error() << "Premature end of input.\n"
+X                    << "\texpecting a name for argument #" << nargs
+X                    << '.' << endl ;
+X         } else {
+X            error() << "Unable to extract name of argument #" << nargs
+X                    << '.' << endl ;
+X         }
+X         return  FAILURE;
+X      }
+X
+X         // Now parse the argument syntax
+X      ArgSyntax  arg;
+X      is >> arg;
+X      if (! is) {
+X         error() << "Unable to get syntax for \"" << arg_name << "\" argument."
+X                 << endl ;
+X         return  FAILURE ;
+X      }
+X
+X         // Now parse the argument description
+X      is >> arg_description ;
+X      if (! is) {
+X         error() << "Unable to get description for \"" << arg_name
+X                 << "\" argument." << endl ;
+X         return  FAILURE ;
+X      }
+X
+X      if (usr_append(arg_type, arg_name, arg, arg_description)) {
+X         error() << "Unable to append \"" << arg_name << "\" argument "
+X                 << "to the list." << endl ;
+X         return  FAILURE;
+X      }
+X   }
+X   return  SUCCESS;
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::set_args - set the user's arguments.
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::set_args(shell)
+X//
+X// ^PARAMETERS:
+X//    UnixShell * shell;
+X//    -- the command-interpreter (shell) that we need to output
+X//       variable settings for.
+X//
+X// ^DESCRIPTION:
+X//    For each argument that was given on the user's command-line, we need to
+X//    output a variable setting using the sepcified shell's syntax to indicate
+X//    the value that was specified.
+X//
+X// ^REQUIREMENTS:
+X//    This member function should only be called by CmdParseCommand::operator()
+X//
+X// ^SIDE-EFFECTS:
+X//    All the variable settings or sent to cout (standard output), the invoking
+X//    user is responsible for evaluating what this member function outputs.
+X//
+X// ^RETURN-VALUE:
+X//    None.
+X//
+X// ^ALGORITHM:
+X//    For each of the user's command-argument objects
+X//       - if the argument is a dummy, then skip it
+X//       - if the argument corresponds to the positional parameters for
+X//           this shell but was not given a value on the command-line then
+X//           unset this shell's positional parameters.
+X//       - if the argument was given then
+X//           - if the argument took a value and no value was given, then
+X//               set the variable <argname>_FLAG to be TRUE.
+X//           - else set the corresponding shell variable.
+X//           endif
+X//       endif
+X//    endfor
+X//-^^----------------
+Xvoid
+XCmdParseCommand::set_args(UnixShell * shell)
+X{
+X   unsigned  flags, syntax;
+X   CmdLineCmdArgIter  iter(usr_cmd);
+X
+X   for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X      flags  = cmdarg->flags();
+X      syntax = cmdarg->syntax();
+X
+X      if (cmdarg->is_dummy())  continue;
+X
+X      ShellCmdArg * sh_cmdarg = (ShellCmdArg *)cmdarg;
+X
+X      if ((syntax & CmdArg::isPOS) && (! (flags & CmdArg::VALGIVEN))) {
+X         // if these are the positional-parameters then unset them!
+X         if (shell->is_positionals(sh_cmdarg->name())) {
+X            shell->unset_args(sh_cmdarg->name());
+X         }
+X      }
+X
+X      if (! (flags & CmdArg::GIVEN))  continue;
+X
+X      if ((syntax & CmdArg::isVALTAKEN) && (! (flags & CmdArg::VALGIVEN))) {
+X         // flag was given without its value - we need to record that
+X         char  var_name[256];
+X         (void) ::strcpy(var_name, sh_cmdarg->name());
+X         (void) ::strcat(var_name, suffix_str);
+X         ShellVariable  sh_var(var_name);
+X         sh_var.set(ShellCmdArgBool::True());
+X         shell->set(sh_var);
+X      } else {
+X         // output the value
+X         if (sh_cmdarg->is_array()) {
+X            shell->set(sh_cmdarg->array(), array_variant);
+X         } else {
+X            shell->set(sh_cmdarg->variable());
+X         }
+X      }
+X   } //for
+X}
+X
+X
+X//-------------------------------------------- CmdParseCommand::CmdParseCommand
+X
+XCmdParseCommand::CmdParseCommand(const char * name)
+X   : CmdLine(name),
+X     anywhere('a', "anywhere",
+X        "Allow options (and keywords) to follow positional parameters."
+X     ),
+X     anycase('i', "ignore-case",
+X        "Ignore character case on options."
+X     ),
+X     no_abort('n', "noabort",
+X        "Dont exit if bad syntax; try to continue parsing."
+X     ),
+X     no_guessing('g', "noguessing",
+X        "Dont \"guess\" for unmatched options/keywords."
+X     ),
+X     prompt('p', "prompt",
+X        "Prompt the user interactively for any missing required arguments."
+X     ),
+X     opts_only('o', "options-only",
+X        "Dont match keywords (long-options)."
+X     ),
+X     kwds_only('k', "keywords-only",
+X        "Dont match options."
+X     ),
+X     quiet('q', "quiet",
+X        "Dont print command-line syntax error messages."
+X     ),
+X     array_variant('A', "arrays",
+X        "Use alternative syntax for arrays."
+X     ),
+X     usage('u', "usage",
+X        "Print command-line usage and exit."
+X     ),
+X     version('v', "version",
+X        "Print version information and exit."
+X     ),
+X     true_str('T', "true", "string",
+X        "The string to use for boolean arguments that are turned ON \
+X(default=\"TRUE\")."
+X     ),
+X     false_str('F', "false", "string",
+X        "The string to use for boolean arguments that are turned OFF \
+X(default=\"\")."
+X     ),
+X     suffix_str('S', "suffix", "string",
+X        "The suffix to use for missing optional values. (default=\"_FLAG\")."
+X     ),
+X     usr_shell('s', "shell", "shellname",
+X
+X        "Set program arguments using the syntax of the given shell \
+X(default=\"sh\")."
+X     ),
+X     input_file('f', "file", "filename",
+X        "The file from which program argument declarations are read."
+X     ),
+X     input_var('e', "env", "varname",
+X        "The environment variable containing the program argument declarations."
+X     ),
+X     input_str('d', "decls", "string",
+X        "The string that contains the program argument declarations."
+X     ),
+X     dummy_arg("--",
+X        "Indicates the end of options/keywords."
+X     ),
+X     usr_prog('N', "name", "program-name",
+X        "The name of the program whose arguments are to be parsed.",
+X        (CmdArg::isPOS | CmdArg::isREQ | CmdArg::isVALREQ)
+X     ),
+X     usr_args("[arguments ...]",
+X        "The program-arguments to be parsed",
+X     )
+X{
+X      // Append options.
+X   (*this) << anywhere << anycase << no_abort << no_guessing << prompt
+X           << opts_only << kwds_only << quiet << array_variant << usage
+X           << version << true_str << false_str << suffix_str << usr_shell
+X           << input_file << input_var << input_str << dummy_arg ;
+X
+X      // Append positional parameters.
+X   (*this) << usr_prog << usr_args ;
+X
+X   set(CmdLine::KWDS_ONLY);
+X
+X      // Set up defaults
+X   usr_shell  = "sh" ;
+X   true_str   = "TRUE" ;
+X   false_str  = "" ;
+X   suffix_str = "_FLAG" ;
+X}
+X
+X//------------------------------------------- CmdParseCommand::~CmdParseCommand
+X
+XCmdParseCommand::~CmdParseCommand(void)
+X{
+X   CmdLineCmdArgIter  iter(usr_cmd);
+X
+X   for (CmdArg * cmdarg = iter() ; cmdarg ; cmdarg = iter()) {
+X      delete  cmdarg ;
+X   }
+X}
+X
+X
+X//-------------------
+X// ^FUNCTION: CmdParseCommand::operator()
+X//
+X// ^SYNOPSIS:
+X//    CmdParseCommand::operator(iter)
+X//
+X// ^PARAMETERS:
+X//    CmdLineArgIter & iter;
+X//    -- an object to iterate over the arguments on the command-line.
+X//
+X// ^DESCRIPTION:
+X//    This member function is the "guts" of a CmdParseCommand object.
+X//    We perform all the actions necessary to read the user's argument
+X//    declaratins, read the user's command-line, and set the corresponding
+X//    shell variables.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    - Modifies all parts of the corresponding CmdParseCommand object.
+X//    - prints variable settings on cout
+X//    - prints usage/error messages on cerr
+X//
+X// ^RETURN-VALUE:
+X//    e_SUCCESS   --  no errors
+X//    e_USAGE     --  no errors - usage printed
+X//    e_VERSION   --  no errors - version printed
+X//    e_CMDSYNTAX --  command-line syntax error
+X//    e_BADSHELL  --  invalid shell specified
+X//    e_BADDECLS  --  invalid declaration(s) given
+X//
+X// ^ALGORITHM:
+X//    It gets complicated so follow along.
+X//-^^----------------
+Xint
+XCmdParseCommand::operator()(CmdLineArgIter & iter)
+X{
+X      // Parse arguments
+X   parse(iter);
+X
+X      // Use the specified shell
+X   UnixShell * shell = new UnixShell(usr_shell);
+X   if (! shell->is_valid()) {
+X      error() << "\"" << usr_shell
+X              << "\" is not a known command interpreter." << endl ;
+X      return  e_BADSHELL ;
+X   }
+X
+X      // Handle "-true" and "-false" options
+X   if (true_str.flags()  & CmdArg::GIVEN)  ShellCmdArgBool::True(true_str);
+X   if (false_str.flags() & CmdArg::GIVEN)  ShellCmdArgBool::False(false_str);
+X
+X      // Intitialize user's command-line
+X   usr_cmd.name(usr_prog);
+X   if (parse_declarations())  return  e_BADDECLS ;
+X
+X      // Set user parsing preferences
+X   if (anywhere)     usr_cmd.clear(CmdLine::OPTS_FIRST);
+X   if (anycase)      usr_cmd.set(CmdLine::ANY_CASE_OPTS);
+X   if (no_abort)     usr_cmd.set(CmdLine::NO_ABORT);
+X   if (no_guessing)  usr_cmd.set(CmdLine::NO_GUESSING);
+X   if (prompt)       usr_cmd.set(CmdLine::PROMPT_USER);
+X   if (opts_only)    usr_cmd.set(CmdLine::OPTS_ONLY);
+X   if (kwds_only)    usr_cmd.set(CmdLine::KWDS_ONLY);
+X   if (quiet)        usr_cmd.set(CmdLine::QUIET);
+X
+X      // Just print usage if thats all that is desired
+X   if (usage) {
+X      usr_cmd.usage(cout);
+X      return  e_USAGE ;
+X   }
+X
+X      // Parse user's command-line
+X   usr_cmd.prologue();
+X   for (int i = 0 ; i < usr_args.count() ; i++) {
+X      usr_cmd.parse_arg(usr_args[i]);
+X   }
+X   usr_cmd.epilogue();
+X
+X      // Set user's variables
+X   set_args(shell);
+X
+X   delete  shell ;
+X   return  0;
+X}
+X
+END_OF_FILE
+if test 22245 -ne `wc -c <'src/cmd/cmdparse.c'`; then
+    echo shar: \"'src/cmd/cmdparse.c'\" unpacked with wrong size!
+fi
+# end of 'src/cmd/cmdparse.c'
+fi
+if test -f 'src/lib/unix.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/unix.c'\"
+else
+echo shar: Extracting \"'src/lib/unix.c'\" \(26093 characters\)
+sed "s/^X//" >'src/lib/unix.c' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: unix.c - implement the unix-specific portions of CmdLine
+X//
+X// ^DESCRIPTION:
+X//     This file implements the public and private CmdLine library functions
+X//  that are specific to the native command-line syntax of Unix.
+X//
+X//  The following functions are implemented:
+X//
+X//     CmdLine::parse_option() -- parse an option
+X//     CmdLine::parse_keyword() -- parse a keyword
+X//     CmdLine::parse_value() -- parse a value
+X//     CmdLine::parse_arg() -- parse a single argument
+X//     CmdLine::arg_error() -- format an argument for error messages
+X//     CmdLine::fmt_arg()   -- format an argument for usage messages
+X//
+X// ^HISTORY:
+X//    01/09/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#include <iostream.h>
+X#include <strstream.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "exits.h"
+X#include "cmdline.h"
+X#include "states.h"
+X
+X  // Prefix string used for short options
+Xstatic const char OPT_PFX[] = "-" ;
+X
+X  // Function to tell us if an argument looks like an option
+Xinline static int
+XisOPTION(const char * s)  {
+X   return  ((*(s) == '-') && ((*((s)+1) != '-')) && ((*((s)+1) != '\0'))) ;
+X}
+X
+X  // Need a prefix string for a long-option and a function to tell us
+X  // if an argument looks like a long-option as well.
+X  //
+X#ifdef  USE_PLUS
+X   static const char KWD_PFX[] = "+" ;
+X
+X   inline static int
+X   isKEYWORD(const char *s) {
+X      return   ((*(s) == '+') && ((*((s)+1) != '\0'))) ;
+X   }
+X#else
+X   static const char KWD_PFX[] = "--" ;
+X
+X   inline static int
+X   isKEYWORD(const char *s) {
+X      return  ((*(s) == '-') && (*((s)+1) == '-')  && (*((s)+2) != '\0')) ;
+X   }
+X#endif
+X
+X   // Need to know when an argument means "end-of-options"
+Xinline static int
+XisENDOPTIONS(const char *s) {
+X   return  ((*(s) == '-') && (*((s)+1) == '-')  && (*((s)+2) == '\0')) ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::parse_option - parse a Unix option
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::parse_option(arg);
+X//
+X// ^PARAMETERS:
+X//    const char * arg;
+X//    -- the command-line argument containing the prospective option
+X//
+X// ^DESCRIPTION:
+X//    This routine will attempt to "handle" all options specified in
+X//    the string "arg". For each option found, its compile-function
+X//    is called and the corresponding state of both the command
+X//    and of the matched option(s) is (are) updated.
+X//
+X// ^REQUIREMENTS:
+X//    "arg" should point past any leading option prefix (such as "-").
+X//
+X// ^SIDE-EFFECTS:
+X//    "cmd" is modified accordingly as each option is parsed (as are its
+X//    constituent arguments). If there are syntax errors then error messages
+X//    are printed if QUIET is NOT set.
+X//
+X// ^RETURN-VALUE:
+X//    NO_ERROR is returned if no errors were encountered. Otherwise the
+X//    return value is a combination of bitmasks of type CmdLine::CmdStatus
+X//    (defined in <cmdline.h>) indicating all the problems that occurred.
+X//
+X// ^ALGORITHM:
+X//    see if we left an option dangling without parsing its value.
+X//    for each option bundled in "arg"
+X//       try to match the option
+X//       if no match issue a message (unless QUIET is set)
+X//       else
+X//          if the option takes NO argument than handle that
+X//          else if the option takes an argument
+X//             if the rest or arg is not empty then
+X//                call the option's compile-function using the rest of
+X//                                                    arg as the value.
+X//                skip past whatever portion of value was used
+X//             else
+X//                update the state of the command to show that we are expecting
+X//                       to see the value for this option as the next argument.
+X//             endif
+X//          endif
+X//          update the state of the argument.
+X//       endif
+X//    endfor
+X//-^^----
+Xunsigned
+XCmdLine::parse_option(const char * arg)
+X{
+X   const  char * save_arg = arg;
+X   unsigned  save_flags = 0, rc = 0 ;
+X   CmdArg * cmdarg = NULL;
+X   int  bad_val;
+X
+X   // see if we left an argument dangling without a value
+X   ck_need_val() ;
+X
+X   do {  // loop over bundled options
+X      cmdarg = opt_match(*arg);
+X      if (cmdarg == NULL) {
+X         // If we were in the middle of a guess - sorry no cigar, otherwise
+X         // guess that maybe this is a keyword and not an keyword.
+X         //
+X         if (cmd_state & cmd_GUESSING) {
+X            if (arg == save_arg)  return  BAD_OPTION;
+X         } else {
+X            if (! (cmd_flags & NO_GUESSING)) {
+X               cmd_state |= cmd_GUESSING;
+X               rc = parse_keyword(arg);
+X               cmd_state &= ~cmd_GUESSING;
+X               if (rc != BAD_KEYWORD)  return  rc;
+X            }
+X         }
+X         if (! (cmd_flags & QUIET)) {
+X            error() << "unknown option \"" << OPT_PFX << char(*arg)
+X                    << "\"." << endl ;
+X         }
+X         rc |= BAD_OPTION ;
+X         ++arg ;  // skip bad option
+X         continue ;
+X      }
+X      ++arg ;  // skip past option character
+X      save_flags = cmdarg->flags() ;
+X      cmdarg->clear();
+X      cmdarg->set(CmdArg::OPTION) ;
+X      if ((! *arg) && (cmdarg->syntax() & CmdArg::isVALTAKEN)) {
+X         // End of string -- value must be in next arg
+X         // Save this cmdarg-pointer for later and set the parse_state to
+X         // indicate that we are expecting a value.
+X         //
+X
+X         if (cmdarg->syntax() & CmdArg::isVALSTICKY) {
+X            // If this argument is sticky we already missed our chance
+X            // at seeing a value.
+X            //
+X            if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X               if (! (cmd_flags & QUIET)) {
+X                  error() << "value required in same argument for "
+X                          << OPT_PFX << char(cmdarg->char_name())
+X                          << " option." << endl;
+X               }
+X               rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X               cmdarg->flags(save_flags);
+X            } else {
+X               // The value is optional - set the GIVEN flag and call
+X               // handle_arg with NULL (and check the result).
+X               //
+X               const char * null_str = NULL;
+X               cmdarg->set(CmdArg::GIVEN) ;
+X               cmd_parse_state = cmd_START_STATE ;
+X               bad_val = handle_arg(cmdarg, null_str);
+X               if (bad_val) {
+X                  if (! (cmd_flags & QUIET)) {
+X                     arg_error("bad value for", cmdarg) << "." << endl ;
+X                  }
+X                  rc |= BAD_VALUE ;
+X                  cmdarg->flags(save_flags);
+X               }
+X            }
+X         } else {
+X            // Wait for the value to show up next time around
+X            cmdarg->set(CmdArg::GIVEN) ;
+X            cmd_matched_arg = cmdarg ;
+X            cmd_parse_state = cmd_WANT_VAL ;
+X            if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X               cmd_parse_state += cmd_TOK_REQUIRED ;
+X            }
+X         }
+X         return  rc ;
+X      }
+X
+X      // If this option is an isVALSEP and "arg" is not-empty then we
+X      // have an error.
+X      //
+X      if ((cmdarg->syntax() & CmdArg::isVALTAKEN) &&
+X          (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X         if (! (cmd_flags & QUIET)) {
+X            error() << "value required in separate argument for "
+X                    << OPT_PFX << char(cmdarg->char_name())
+X                    << " option." << endl;
+X         }
+X         rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X         cmdarg->flags(save_flags);
+X         return  rc;
+X      } else {
+X         // handle the option
+X         const char * save_arg = arg;
+X         bad_val = handle_arg(cmdarg, arg);
+X         if (bad_val) {
+X            if (! (cmd_flags & QUIET)) {
+X               arg_error("bad value for", cmdarg) << "." << endl ;
+X            }
+X            rc |= BAD_VALUE ;
+X            cmdarg->flags(save_flags);
+X         }
+X         cmdarg->set(CmdArg::GIVEN);
+X         if (arg != save_arg)  cmdarg->set(CmdArg::VALGIVEN);
+X      }
+X   } while (arg && *arg) ;
+X
+X   return  rc ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::parse_keyword - parse a Unix keyword
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::parse_keyword(arg);
+X//
+X// ^PARAMETERS:
+X//    const char * arg;
+X//    -- the command-line argument containing the prospective keyword
+X//
+X// ^DESCRIPTION:
+X//    This routine will attempt to "handle" the keyword specified in
+X//    the string "arg". For any keyword found, its compile-function
+X//    is called and the corresponding state of both the command
+X//    and of the matched keyword(s) is (are) updated.
+X//
+X// ^REQUIREMENTS:
+X//    "arg" should point past any leading keyword prefix (such as "--").
+X//
+X// ^SIDE-EFFECTS:
+X//    "cmd" is modified accordingly as the keyword is parsed (as are its
+X//    constituent arguments). If there are syntax errors then error messages
+X//    are printed if QUIET is NOT set.
+X//
+X// ^RETURN-VALUE:
+X//    NO_ERROR is returned if no errors were encountered. Otherwise the
+X//    return value is a combination of bitmasks of type CmdLine::CmdStatus
+X//    (defined in <cmdline.h>) indicating all the problems that occurred.
+X//
+X// ^ALGORITHM:
+X//    see if we left an option dangling without parsing its value.
+X//    look for a possible value for this keyword denoted by ':' or '='
+X//    try to match "arg" as a keyword
+X//    if no match issue a message (unless QUIET is set)
+X//    else
+X//       if the keyword takes NO argument than handle that
+X//       else if the keyword takes an argument
+X//          if a value was found "arg"
+X//             call the keyword's compile-function with the value found.
+X//          else
+X//             update the state of the command to show that we are expecting
+X//                    to see the value for this option as the next argument.
+X//          endif
+X//       endif
+X//       update the state of the argument.
+X//    endif
+X//-^^----
+Xunsigned
+XCmdLine::parse_keyword(const char * arg)
+X{
+X   unsigned  save_flags = 0, rc = 0 ;
+X   CmdArg * cmdarg = NULL ;
+X   int  ambiguous = 0, len = -1, bad_val;
+X   const char * val = NULL ;
+X
+X   // see if we left an argument dangling without a value
+X   ck_need_val() ;
+X
+X   // If there is a value with this argument, get it now!
+X   val = ::strpbrk(arg, ":=") ;
+X   if (val) {
+X      len = val - arg ;
+X      ++val ;
+X   }
+X
+X   cmdarg = kwd_match(arg, len, ambiguous);
+X   if (cmdarg == NULL) {
+X      // If we were in the middle of a guess - sorry no cigar, otherwise
+X      // guess that maybe this is an option and not a keyword.
+X      //
+X      if (cmd_state & cmd_GUESSING) {
+X         return  BAD_KEYWORD;
+X      } else if ((! ambiguous) || (len == 1)) {
+X         if (! (cmd_flags & NO_GUESSING)) {
+X            cmd_state |= cmd_GUESSING;
+X            rc = parse_option(arg);
+X            cmd_state &= ~cmd_GUESSING;
+X            if (rc != BAD_OPTION)  return  rc;
+X         }
+X      }
+X      if (! (cmd_flags & QUIET)) {
+X         error() << ((ambiguous) ? "ambiguous" : "unknown") << " option "
+X                 << "\"" << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                 << arg << "\"." << endl ;
+X      }
+X      rc |= ((ambiguous) ? KWD_AMBIGUOUS : BAD_KEYWORD) ;
+X      return  rc ;
+X   }
+X
+X   save_flags = cmdarg->flags() ;
+X   cmdarg->clear();
+X   cmdarg->set(CmdArg::KEYWORD) ;
+X   if ((cmdarg->syntax() & CmdArg::isVALTAKEN) && (val == NULL)) {
+X      // Value must be in the next argument.
+X      // Save this cmdarg for later and indicate that we are
+X      // expecting a value.
+X      //
+X      if (cmdarg->syntax() & CmdArg::isVALSTICKY) {
+X         // If this argument is sticky we already missed our chance
+X         // at seeing a value.
+X         //
+X         if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X            if (! (cmd_flags & QUIET)) {
+X               error() << "value required in same argument for "
+X                       << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                       << cmdarg->keyword_name() << " option." << endl;
+X            }
+X            rc |= (VAL_MISSING | VAL_NOTSTICKY) ;
+X            cmdarg->flags(save_flags);
+X         } else {
+X            // The value is optional - set the GIVEN flag and call
+X            // handle_arg with NULL (and check the result).
+X            //
+X            const char * null_str = NULL;
+X            cmdarg->set(CmdArg::GIVEN) ;
+X            cmd_parse_state = cmd_START_STATE ;
+X            bad_val = handle_arg(cmdarg, null_str);
+X            if (bad_val) {
+X               if (! (cmd_flags & QUIET)) {
+X                  arg_error("bad value for", cmdarg) << "." << endl ;
+X               }
+X               rc |= BAD_VALUE ;
+X               cmdarg->flags(save_flags);
+X            }
+X         }
+X      } else {
+X         // Wait for the value to show up next time around
+X         cmdarg->set(CmdArg::GIVEN) ;
+X         cmd_matched_arg = cmdarg ;
+X         cmd_parse_state = cmd_WANT_VAL ;
+X         if (cmdarg->syntax() & CmdArg::isVALREQ) {
+X            cmd_parse_state += cmd_TOK_REQUIRED ;
+X         }
+X      }
+X      return  rc ;
+X   }
+X
+X   // If this option is an isVALSEP and "val" is not-NULL then we
+X   // have an error.
+X   //
+X   if (val  &&  (cmdarg->syntax() & CmdArg::isVALTAKEN) &&
+X       (cmdarg->syntax() & CmdArg::isVALSEP)) {
+X      if (! (cmd_flags & QUIET)) {
+X         error() << "value required in separate argument for "
+X                 << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X                 << cmdarg->keyword_name() << " option." << endl;
+X      }
+X      rc |= (VAL_MISSING | VAL_NOTSEP) ;
+X      cmdarg->flags(save_flags);
+X      return  rc;
+X   }
+X   // handle the keyword
+X   bad_val = handle_arg(cmdarg, val);
+X   if (bad_val) {
+X      if (! (cmd_flags & QUIET)) {
+X         arg_error("bad value for", cmdarg) << "." << endl ;
+X      }
+X      rc |= BAD_VALUE ;
+X      cmdarg->flags(save_flags);
+X   }
+X
+X   return  rc ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::parse_value - parse a Unix value
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::parse_value(arg);
+X//
+X// ^PARAMETERS:
+X//    const char * arg;
+X//    -- the command-line argument containing the prospective value
+X//
+X// ^DESCRIPTION:
+X//    This routine will attempt to "handle" the value specified in
+X//    the string "arg". The compile-function of the corresponding
+X//    argument-value is called and the corresponding state of both
+X//    the command and of the matched option(s) is (are) updated.
+X//    If the value corresponds to a multi-valued argument, then that
+X//    is handled here.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    "cmd" is modified accordingly for the value that is parsed (as are its
+X//    constituent arguments). If there are syntax errors then error messages
+X//    are printed if QUIET is NOT set.
+X//
+X// ^RETURN-VALUE:
+X//    NO_ERROR is returned if no errors were encountered. Otherwise the
+X//    return value is a combination of bitmasks of type CmdLine::CmdStatus
+X//    (defined in <cmdline.h>) indicating all the problems that occurred.
+X//
+X// ^ALGORITHM:
+X//    If the command-state says we are waiting for the value of an option
+X//       find the option that we matched last
+X//    else
+X//       match the next positional parameter in "cmd"
+X//       if there isnt one issue a "too many args" message
+X//               (unless cmd_QUIETs is set) and return.
+X//    endif
+X//    handle the given value and update the argument and command states.
+X//-^^----
+Xunsigned
+XCmdLine::parse_value(const char * arg)
+X{
+X   unsigned  save_flags = 0, rc = 0 ;
+X   int  bad_val;
+X   CmdArg * cmdarg = NULL;
+X
+X   if (cmd_parse_state & cmd_WANT_VAL) {
+X      if (cmd_matched_arg == NULL) {
+X         cerr << "*** Internal error in class CmdLine.\n"
+X              << "\tparse-state is inconsistent with last-matched-arg."
+X              << endl ;
+X         ::exit(e_INTERNAL);
+X      }
+X      // get back the cmdarg that we saved for later
+X      // - here is the value it was expecting
+X      //
+X      cmdarg = cmd_matched_arg ;
+X      save_flags = cmdarg->flags() ;
+X   } else {
+X      // argument is positional - find out which one it is
+X      cmdarg = pos_match() ;
+X      if (cmdarg == NULL) {
+X         if (! (cmd_flags & QUIET)) {
+X            error() << "too many arguments given." << endl ;
+X         }
+X         rc |= TOO_MANY_ARGS ;
+X         return  rc ;
+X      }
+X      save_flags = cmdarg->flags() ;
+X      cmdarg->clear();
+X      cmdarg->set(CmdArg::POSITIONAL) ;
+X      if (cmd_flags & OPTS_FIRST) {
+X         cmd_state |= cmd_END_OF_OPTIONS ;
+X      }
+X   }
+X
+X   // handle this value
+X   cmdarg->set(CmdArg::VALSEP) ;
+X   bad_val = handle_arg(cmdarg, arg);
+X   if (bad_val) {
+X      if (! (cmd_flags & QUIET)) {
+X         arg_error("bad value for", cmdarg) << "." << endl ;
+X      }
+X      rc |= BAD_VALUE ;
+X      cmdarg->flags(save_flags);
+X      if (! (cmdarg->syntax() & CmdArg::isLIST)) {
+X         cmd_parse_state = cmd_START_STATE;
+X      }
+X   }
+X
+X   // If the value was okay and we were requiring a value, then
+X   // a value is no longer required.
+X   //
+X   if ((! bad_val) && (cmdarg->syntax() & CmdArg::isLIST)) {
+X      cmd_parse_state &= ~cmd_TOK_REQUIRED ;
+X   }
+X
+X   return  rc ;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::parse_arg - parse an argv[] element unix-style
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::parse_arg(arg)
+X//
+X// ^PARAMETERS:
+X//    const char * arg;
+X//    -- an argument string (argv[] element) from the command-line
+X//
+X// ^DESCRIPTION:
+X//    This routine will determine whether "arg" is an option, a long-option,
+X//    or a value and call the appropriate parse_xxxx function defined above.
+X//
+X// ^REQUIREMENTS:
+X//
+X// ^SIDE-EFFECTS:
+X//    "cmd" is modified accordingly for the string that is parsed (as are its
+X//    constituent arguments). If there are syntax errors then error messages
+X//    are printed if QUIET is NOT set.
+X//
+X// ^RETURN-VALUE:
+X//    NO_ERROR is returned if no errors were encountered. Otherwise the
+X//    return value is a combination of bitmasks of type CmdLine::CmdStatus
+X//    (defined in <cmdline.h>) indicating all the problems that occurred.
+X//
+X// ^ALGORITHM:
+X//    if we are expecting a required value
+X//       call parse_value()
+X//    else if "arg" is an option
+X//       skip past the option prefix
+X//       call parse_option()
+X//    else if "arg" is a keyword
+X//       skip past the kewyord prefix
+X//       call parse_keyword()
+X//    else if "arg" is "--" (meaning end of options)
+X//       see that we didnt leave an option dangling without a value
+X//       indicate end-of-options in the command-state
+X//    else
+X//       call parse_value()
+X//    endif
+X//-^^----
+Xunsigned
+XCmdLine::parse_arg(const char * arg)
+X{
+X   if (arg == NULL)  return  cmd_status ;
+X
+X   if (cmd_parse_state & cmd_TOK_REQUIRED) {
+X      // If a required value is expected, then this argument MUST be
+X      // the value (even if it looks like an option
+X      //
+X      cmd_status |= parse_value(arg) ;
+X   } else if (isOPTION(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X      ++arg ;  // skip '-' option character
+X      if (cmd_flags & KWDS_ONLY) {
+X         cmd_state  |= cmd_KEYWORDS_USED ;
+X         cmd_status |=  parse_keyword(arg) ;
+X      } else {
+X         cmd_state  |= cmd_OPTIONS_USED ;
+X         cmd_status |=  parse_option(arg) ;
+X      }
+X   } else if ((! (cmd_flags & OPTS_ONLY))
+X              && isKEYWORD(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X      cmd_state |= cmd_KEYWORDS_USED ;
+X      ++arg ;  // skip over '+' keyword prefix
+X#ifndef USE_PLUS
+X      ++arg ;  // skip over '--' keyword prefix
+X#endif
+X      cmd_status |= parse_keyword(arg) ;
+X   } else if (isENDOPTIONS(arg) && (! (cmd_state & cmd_END_OF_OPTIONS))) {
+X      cmd_state |= cmd_END_OF_OPTIONS ;
+X      // see if we left an argument dangling without a value
+X      ck_need_val() ;
+X   } else {
+X      cmd_status |= parse_value(arg) ;
+X   }
+X
+X   return  cmd_status ;
+X}
+X
+X//-------
+X// ^FUNCTION: CmdLine::arg_error - format an argument for error messages
+X//
+X// ^SYNOPSIS:
+X//    ostream & arg_error(error_str, cmdarg);
+X//
+X// ^PARAMETERS:
+X//    const char * error_str;
+X//    -- the problem with the argument
+X//
+X//    const CmdArg * cmdarg;
+X//    -- the argument to be formatted
+X//
+X// ^DESCRIPTION:
+X//    This function will write to "os" the argument corresponding to
+X//    "cmdarg" as we would like it to appear in error messages that pertain
+X//    to this argument.
+X//
+X// ^REQUIREMENTS:
+X//    None.
+X//
+X// ^SIDE-EFFECTS:
+X//    writes to "os"
+X//
+X// ^RETURN-VALUE:
+X//    A reference to os.
+X//
+X// ^ALGORITHM:
+X//    Pretty straightforward, just print to os the way we
+X//    want the argument to appear in usage messages.
+X//-^^----
+Xostream &
+XCmdLine::arg_error(const char * error_str, const CmdArg * cmdarg) const
+X{
+X   ostream & os = error() << error_str << char(' ') ;
+X
+X   if (cmdarg->flags() & CmdArg::GIVEN) {
+X       if (cmdarg->flags() & CmdArg::KEYWORD) {
+X          os << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX)
+X             << cmdarg->keyword_name() << " option" ;
+X       } else if (cmdarg->flags() & CmdArg::OPTION) {
+X          os << OPT_PFX << (char)cmdarg->char_name() << " option" ;
+X       } else {
+X          os << cmdarg->value_name() << " argument" ;
+X       }
+X   } else {
+X       if (cmdarg->syntax() & CmdArg::isPOS) {
+X          os << cmdarg->value_name() << " argument" ;
+X       } else {
+X          if (cmd_flags & KWDS_ONLY) {
+X             os << OPT_PFX << cmdarg->keyword_name() << " option" ;
+X          } else {
+X             os << OPT_PFX << (char)cmdarg->char_name() << " option" ;
+X          }
+X       }
+X   }
+X   return  os;
+X}
+X
+X
+X//-------
+X// ^FUNCTION: CmdLine::fmt_arg - format an argument for usage messages
+X//
+X// ^SYNOPSIS:
+X//    unsigned CmdLine::fmt_arg(cmdarg, buf, bufsize, syntax, level);
+X//
+X// ^PARAMETERS:
+X//    const CmdArg * cmdarg;
+X//    -- the argument to be formatted
+X//
+X//    char * buf;
+X//    -- where to print the formatted result
+X//
+X//    unsigned bufsize;
+X//    -- number of bytes allocated for buf.
+X//
+X//    CmdLine::CmdLineSyntax syntax;
+X//    -- the syntax to use (option, long-option, or both).
+X//
+X//    CmdLine::CmdUsageLevel;
+X//    -- the usage-level corresponding to this portion of the
+X//       usage message.
+X//
+X// ^DESCRIPTION:
+X//    This function will write into "buf" the argument corresponding to
+X//    "cmdarg" as we would like it to appear in usage messages.
+X//
+X// ^REQUIREMENTS:
+X//    "buf" must be large enough to hold the result.
+X//
+X// ^SIDE-EFFECTS:
+X//    writes to "buf"
+X//
+X// ^RETURN-VALUE:
+X//    the length of the formatted result.
+X//
+X// ^ALGORITHM:
+X//    Its kind of tedious so follow along.
+X//-^^----
+Xunsigned
+XCmdLine::fmt_arg(const CmdArg           * cmdarg,
+X                 char                   * buf,
+X                 unsigned                 bufsize,
+X                 CmdLine::CmdLineSyntax   syntax,
+X                 CmdLine::CmdUsageLevel   level) const
+X{
+X   ostrstream  oss(buf, bufsize);
+X   *buf = '\0';
+X
+X   char optchar = cmdarg->char_name();
+X   const char * keyword = cmdarg->keyword_name();
+X
+X   // Need to adjust the syntax if optchar or keyword is empty
+X   if ((! (cmdarg->syntax() & CmdArg::isPOS)) &&
+X       ((! optchar) || (keyword == NULL))) {
+X      if (keyword == NULL) {
+X         if ((cmd_flags & KWDS_ONLY) && (cmd_flags & NO_GUESSING)) {
+X            return  0;
+X         } else {
+X            syntax = cmd_OPTS_ONLY;
+X         }
+X      }
+X      if (! optchar) {
+X         if ((cmd_flags & OPTS_ONLY) && (cmd_flags & NO_GUESSING)) {
+X            return  0;
+X         } else {
+X            syntax = cmd_KWDS_ONLY;
+X         }
+X      }
+X   }
+X
+X   // If the argument is optional - print the leading '['
+X   if ((level == VERBOSE_USAGE) && (! (cmdarg->syntax() & CmdArg::isREQ))) {
+X      oss << char('[') ;
+X   }
+X
+X   // If we have a sticky-argument and usage is cmd_BOTH then it gets
+X   // really hairy so we just treat this as a special case right here
+X   // and now.
+X   //
+X   if ((syntax == cmd_BOTH) &&
+X       (! (cmdarg->syntax() & CmdArg::isPOS)) &&
+X       (cmdarg->syntax() & CmdArg::isVALTAKEN) &&
+X       (cmdarg->syntax() & CmdArg::isVALSTICKY))
+X   {
+X      if (cmdarg->syntax() & CmdArg::isVALOPT) {
+X         oss << OPT_PFX << char(optchar) << char('[') << cmdarg->value_name()
+X             << "]|" << KWD_PFX << keyword << "[=" << cmdarg->value_name()
+X             << char(']') ;
+X      } else {
+X         oss << OPT_PFX << optchar << cmdarg->value_name() << char('|')
+X             << KWD_PFX << keyword << char('=') << cmdarg->value_name() ;
+X      }
+X      if ((level == VERBOSE_USAGE) && (cmdarg->syntax() & CmdArg::isLIST)) {
+X         oss << " ..." ;
+X      }
+X      if ((level == VERBOSE_USAGE) && (! (cmdarg->syntax() & CmdArg::isREQ))) {
+X         oss << char(']') ;
+X      }
+X      oss << ends ;
+X      return  (oss.pcount() - 1);
+X   }
+X
+X   if (! (cmdarg->syntax() & CmdArg::isPOS)) {
+X      switch(syntax) {
+X         case cmd_OPTS_ONLY :
+X            oss << OPT_PFX << char(optchar) ;
+X            break ;
+X
+X         case cmd_KWDS_ONLY :
+X            oss << ((cmd_flags & KWDS_ONLY) ? OPT_PFX : KWD_PFX) << keyword ;
+X            break ;
+X
+X         case cmd_BOTH :
+X            oss << OPT_PFX << char(optchar) << char('|')
+X                << KWD_PFX << keyword ;
+X            break ;
+X
+X         default :
+X            cerr << "*** Internal error in class CmdLine.\n"
+X                 << "\tunknown CmdLineSyntax value (" << int(syntax) << ")."
+X                 << endl ;
+X            ::exit(e_INTERNAL);
+X      } //switch
+X      if (cmdarg->syntax() & CmdArg::isVALTAKEN) {
+X         if (! (cmdarg->syntax() & CmdArg::isVALSTICKY)) {
+X            oss << char(' ') ;
+X         }
+X      }
+X   }
+X
+X   // If the argument takes a value then print the value
+X   if (cmdarg->syntax() & CmdArg::isVALTAKEN) {
+X      if ((! (cmdarg->syntax() & CmdArg::isPOS)) &&
+X          (cmdarg->syntax() & CmdArg::isVALOPT))
+X      {
+X         oss << char('[') ;
+X      }
+X      if (cmdarg->syntax() & CmdArg::isVALSTICKY) {
+X         if (syntax == cmd_KWDS_ONLY)  oss << char('=') ;
+X      }
+X      oss << cmdarg->value_name() ;
+X      if ((level == VERBOSE_USAGE) && (cmdarg->syntax() & CmdArg::isLIST)) {
+X         oss << " ..." ;
+X      }
+X      if ((! (cmdarg->syntax() & CmdArg::isPOS)) &&
+X          (cmdarg->syntax() & CmdArg::isVALOPT))
+X      {
+X         oss << char(']') ;
+X      }
+X   }
+X
+X   if ((level == VERBOSE_USAGE) && (! (cmdarg->syntax() & CmdArg::isREQ))) {
+X      oss << char(']') ;
+X   }
+X   oss << ends ;
+X
+X   return  (oss.pcount() - 1) ;
+X}
+X
+END_OF_FILE
+if test 26093 -ne `wc -c <'src/lib/unix.c'`; then
+    echo shar: \"'src/lib/unix.c'\" unpacked with wrong size!
+fi
+# end of 'src/lib/unix.c'
+fi
+echo shar: End of archive 6 \(of 7\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

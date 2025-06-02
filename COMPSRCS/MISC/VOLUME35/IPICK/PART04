@@ -1,0 +1,2483 @@
+Newsgroups: comp.sources.misc
+From: markd@werple.apana.org.au (Mark Delany)
+Subject: v35i120:  ipick - an interactive filter to pick lines, Part04/05
+Message-ID: <1993Mar4.195049.11822@sparky.imd.sterling.com>
+X-Md4-Signature: 84565f428586368be9e3e2080e39ae65
+Date: Thu, 4 Mar 1993 19:50:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: markd@werple.apana.org.au (Mark Delany)
+Posting-number: Volume 35, Issue 120
+Archive-name: ipick/part04
+Environment: UNIX, Curses
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  ipick/rc.c ipick/ipick.1 ipick/config/TEMPLATE
+#   ipick/config/interactive-gcc ipick/config/linux
+#   ipick/config/mtxinu ipick/config/sunos4 ipick/config/sunos4-tcap
+#   ipick/config/svr3 ipick/config/ultrix ipick/config/vanilla
+#   ipick/config/xenix386 ipick/config/xenix386-gcc
+#   ipick/examples/README ipick/examples/ikillps
+#   ipick/examples/ikillpt ipick/examples/ilprm ipick/examples/imenu
+#   ipick/examples/irm ipick/examples/itarx
+# Wrapped by markd@bushwire on Sun Feb 28 10:06:38 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 5)."'
+if test -f 'ipick/rc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/rc.c'\"
+else
+  echo shar: Extracting \"'ipick/rc.c'\" \(12303 characters\)
+  sed "s/^X//" >'ipick/rc.c' <<'END_OF_FILE'
+X/* $Id: rc.c,v 1.1 1993/02/27 21:48:01 markd Exp $
+X *
+X * Handle the decoding of the rc files.
+X *
+X *    Copyright (c) 1993, Mark Delany
+X *
+X *    You may distribute under the terms of either the GNU General Public
+X *    License or the Artistic License, as specified in the README file.
+X *
+X * $Log: rc.c,v $
+X * Revision 1.1  1993/02/27  21:48:01  markd
+X * Initial revision
+X *
+X */
+X
+X#include "ipick.h"
+X
+X/*
+X * Order of load is ~/.ipickrc then SYSTEM_RCFILE.
+X *
+X * Comments are denoted by the # character. Blank lines are ignored.
+X *
+X * Valid commands are:
+X *
+X * bind-key  		function	keysequence	 	[help-text]
+X * bind-terminfo	function	terminfo-capability	[help-text]
+X * bind-termcap		function	termcap-capability	[help-text]
+X * include		includefile
+X *
+X *
+X * Valid functions are those defined cmd_list in keyboard.c
+X *
+X * The keysequence in bind-key has the following escape characters:
+X * 
+X * 	^X	Control X
+X *	\e	Escape
+X *	\n	Linefeed
+X *	\r	Return
+X *	\t	Tab
+X *	\b	Backspace
+X *	\f	Formfeed
+X *	\\	\
+X *	\^	^
+X *	\@	@
+X *	\NNN	Octal
+X *
+X * The includefile can be prefixed by ~ in which case, the tilde will
+X * be converted to $HOME. ~name/... is not supported.
+X */
+X
+X
+X#define	MAX_TOKENS		4
+X#define	MAX_TOKEN_SIZE		50
+X
+X#define	RC_BAD_TILDE		-2	/* ~[name]/ failed */
+X#define	RC_OPEN_FAILED		-1	/* File does not exist */
+X#define	RC_PARSE_BAD		0	/* The parse failed in some way */
+X#define	RC_PARSE_OK		1	/* All Ok */
+X
+X
+X#define	COMMENT_CHAR		'#'
+X#define	SINGLE_QUOTE		'\''
+X#define	DOUBLE_QUOTE		'"'
+X
+X#define	SHELL_CHARS		"!$*`\?[()| "	/* Includes space! */
+X
+X
+X/*
+X * An include file can be opened with either popen of fopen. This has
+X * to be tracked so that it can be closed correctly with pclose or
+X * fclose respectively.
+X */
+X
+Xtypedef	struct	my_file_s {
+X    FILE	*fp;
+X    int		use_pclose;
+X} MY_FILE;
+X
+X
+Xstatic	int	tokenize();
+Xstatic	MY_FILE	*my_fopen();
+Xstatic	int	my_fclose();
+X
+Xstatic	int	load_tilde_file();
+Xstatic	int	load_normal_file();
+Xstatic	int	parse_file();
+Xstatic	char	*bind_key();
+Xstatic	char	*bind_termcap();
+Xstatic	char	*bind_terminfo();
+Xstatic	char	*include();
+X
+Xtypedef struct	{
+X    char	*name;
+X    int		min_args;
+X    int		max_args;
+X    char	*(*handler)();
+X} CMD_MAP;
+X
+Xstatic	CMD_MAP	cmd_map[] = {
+X
+X"bind-key", 3, 4, bind_key,
+X"bind-termcap", 3, 4, bind_termcap,
+X"bind-terminfo", 3, 4, bind_terminfo,
+X"include", 2, 2, include,
+X
+XNULL };
+X
+X
+Xextern	int
+Xrc_init()
+X
+X{
+X
+X/* Order is [internal bindings, termcap, terminfo,] system rc then local rc */
+X
+X#ifdef	SYSTEM_RCFILE
+X
+X    if (*SYSTEM_RCFILE) {
+X	if (load_normal_file(SYSTEM_RCFILE) == 0) return FALSE;
+X    }
+X
+X#endif
+X
+X    if (load_tilde_file(RC_NAME) == 0) return FALSE;
+X
+X    return TRUE;
+X}
+X
+X
+X
+X/*
+X * Load a file that is preceded with ~[logname]/path.
+X *
+X * If ~/ then use $HOME else getpwname() on logname.
+X */
+X 
+Xstatic	int
+Xload_tilde_file(tilde_name)
+X
+X    char	*tilde_name;
+X
+X{
+X
+X    int		res;
+X    int		logname_len;
+X    char	*local_name;
+X    char	*logname;
+X    char	*logdir;
+X    char	*filename;
+X    struct	passwd		*pwp;
+X
+X/* Determine the size of [logname] if any */
+X
+X    for(logname_len=0, filename=tilde_name + 1;
+X	*filename && (*filename != '/');
+X	logname_len++, filename++) 	/* EMPTY LOOP */ ;
+X
+X/* filename points to the "/" in ~[logname]/filename */
+X
+X    if (!*filename) return RC_BAD_TILDE;	/* no "/" after logname */
+X
+X    if (!logname_len) {			/* If ~/, then use $HOME */
+X	logdir = getenv("HOME");
+X	if (!logdir || !*logdir) logdir = ".";
+X	local_name = xmalloc(strlen(logdir) + strlen(filename) + 1,
+X			     "rc:$HOME");
+X	strcpy(local_name, logdir);
+X    }
+X    else {
+X
+X/* There is a logname. Malloc to copy as tilde_name cannot be modified. */
+X
+X	logname = tilde_name + 1;
+X	local_name = xmalloc(logname_len + 1, "rc:~logname");
+X	strncpy(local_name, logname, logname_len);
+X	local_name[logname_len] = '\0';
+X	pwp = getpwnam(local_name);
+X	if (!pwp) {
+X	    xfree(local_name, "rc:tilde");
+X	    return RC_BAD_TILDE;
+X	}
+X
+X	local_name = xrealloc(local_name,
+X			      strlen(filename) + strlen(pwp->pw_dir) + 1,
+X			      "rc:~logname");
+X	strcpy(local_name, pwp->pw_dir);
+X    }
+X
+X/* local_name now has whatever ~[logname] expanded to */
+X
+X    strcat(local_name, filename);
+X    res = load_normal_file(local_name);
+X    xfree(local_name, "rc:tilde");
+X
+X    return res;
+X}
+X
+X
+X/* Load and parse a "normal" filename. */
+X
+Xstatic	int
+Xload_normal_file(filename)
+X
+X    char	*filename;
+X
+X{
+X    MY_FILE	*mfp;
+X    int		res;
+X
+X    mfp = my_fopen(filename);
+X    if (!mfp) return RC_OPEN_FAILED;
+X
+X    res = parse_file(mfp, filename);
+X    my_fclose(mfp);
+X
+X    return res;
+X}
+X
+X
+X
+Xstatic	int
+Xparse_file(mfp, filename)
+X
+X    MY_FILE	*mfp;
+X    char	*filename;
+X
+X{
+X
+X    int		line_number;
+X    int		token_count;
+X    int		tix;
+X    char	lbuf[MAX_TOKEN_SIZE * 6];
+X    char	*tokens[MAX_TOKENS + 1];
+X    CMD_MAP	*cmdp;
+X    char	*err_msg;
+X    char	*cp;
+X
+X    line_number = 0;
+X    while (fgets(lbuf, sizeof(lbuf), mfp->fp)) {
+X
+X	line_number++;
+X
+X/* Check for a blank line prior to tokenizing */
+X
+X	for (cp=lbuf; *cp && isspace(*cp); cp++) /* Empty loop */	;
+X
+X	if (!*cp || *cp == COMMENT_CHAR) continue;	/* Line is empty */
+X
+X/* Line has something on it */
+X
+X	token_count = tokenize(filename, line_number, cp, tokens);
+X
+X	if (token_count <= 0) return RC_PARSE_BAD;	/* Error */
+X
+X/* Search for matching function name */
+X
+X	for (cmdp = cmd_map; cmdp->name; cmdp++) {
+X	    if (strcmp(tokens[0], cmdp->name) == 0) break;
+X	}
+X
+X	if (!cmdp->name) {
+X	    fprintf(stderr, msg_rc[0], filename, line_number);
+X	    fprintf(stderr, msg_rc[1], tokens[0]);
+X	    return RC_PARSE_BAD;
+X	}
+X
+X/* Check for incorrect number of args */
+X
+X	if (token_count < cmdp->min_args) {
+X	    fprintf(stderr, msg_rc[0], filename, line_number);
+X	    fprintf(stderr, msg_rc[2], tokens[0], cmdp->min_args);
+X	    return RC_PARSE_BAD;
+X	}
+X
+X	if (token_count > cmdp->max_args) {
+X	    fprintf(stderr, msg_rc[0], filename, line_number);
+X	    fprintf(stderr, msg_rc[3], tokens[0], cmdp->max_args);
+X	    return RC_PARSE_BAD;
+X	}
+X
+X/* Check for unexpected empty args */
+X
+X	for (tix=0; tix < cmdp->min_args; tix++) {
+X	    if (!*tokens[tix]) {
+X		fprintf(stderr, msg_rc[0], filename, line_number);
+X		fprintf(stderr, msg_rc[4], tix, tokens[0]);
+X		return RC_PARSE_BAD;
+X	    }
+X	}
+X
+X/* Syntaxtically looks ok, dispatch to handler */
+X
+X	err_msg = (*cmdp->handler)(tokens[1], tokens[2], tokens[3], tokens[4]);
+X	if (err_msg) {
+X	    fprintf(stderr, msg_rc[0], filename, line_number);
+X	    fprintf(stderr, msg_rc[5], tokens[0], err_msg);
+X	    return RC_PARSE_BAD;
+X	}
+X    }
+X
+X    return RC_PARSE_OK;
+X}
+X
+X
+X/*
+X * Split the .rc line into separate tokens. A token is whitespace
+X * separated and can be quoted. Max number of tokens and max size of
+X * tokens are checked in this routine. The only real reason for the
+X * max size is for the decode routine - sigh.
+X *
+X * Return zero if tokenizing failed (error message already generated),
+X * otherwise thenumberof tokens found is returned with the tokens[]
+X * array filled in.
+X *
+X * The tokens[] array has NULL if the token was not present, otherwise
+X * a pointer to a \0 terminated string.
+X */
+X
+Xstatic	int
+Xtokenize(filename, line_number, cp, tokens)
+X
+X    char	*filename;
+X    int		line_number;
+X    char	*cp;
+X    char	*tokens[];
+X
+X{
+X    int		tix;
+X    char	quote_char;
+X
+X    for (tix=0; tix < (MAX_TOKENS + 1); tix++) tokens[tix] = NULL;
+X
+X
+X    for (tix=0; tix < (MAX_TOKENS + 1); tix++) {
+X
+X/* Skip whitespace */
+X
+X	while (*cp && isspace(*cp)) cp++;
+X	if (*cp == COMMENT_CHAR) *cp = '\0';
+X
+X	if (!*cp) break;	/* End of string */
+X
+X
+X/* Have start of token. If token starts with a quote skip over and note. */
+X
+X	if ((*cp == SINGLE_QUOTE) || (*cp == DOUBLE_QUOTE)) {
+X	    quote_char = *cp++;
+X	}
+X	else {
+X	    quote_char = '\0';
+X	}
+X
+X	tokens[tix] = cp;	/* Point to start of token */
+X
+X/* Skip over text of token */
+X
+X	if (quote_char) {
+X	    while (*cp && (*cp != quote_char) && (*cp != '\n')) cp++;
+X
+X	    if (*cp != quote_char) {	/* Terminated by quote ? */
+X		fprintf(stderr, msg_rc[0], filename, line_number);
+X		fprintf(stderr, msg_rc[6], tokens[tix]-1);
+X		return 0;
+X	    }
+X
+X/* A trailing quote must be followed by whitespace */
+X
+X	    if (cp[1] && !isspace(cp[1])) {
+X		fprintf(stderr, msg_rc[0], filename, line_number);
+X		fprintf(stderr, msg_rc[7], tokens[tix]-1);
+X		return 0;
+X	    }
+X
+X	    *cp++ = '\0';	/* Terminate token string */
+X	}
+X	else {
+X	    while (*cp && !isspace(*cp) && (*cp != COMMENT_CHAR)) cp++;
+X	    if (*cp) *cp++ = '\0';	/* Terminate if necessary */
+X	}
+X
+X/* Check that length of the token doesn't exceed the max */
+X
+X	if ((int) strlen(tokens[tix]) >= MAX_TOKEN_SIZE) {
+X	    fprintf(stderr, msg_rc[0], filename, line_number);
+X	    fprintf(stderr, msg_rc[8], tokens[tix]);
+X	    return 0;
+X	}
+X
+X    }
+X
+X    return tix;
+X}
+X
+X
+X
+X/*
+X * bind-key   function-name  key-sequence   [Help-text]
+X */
+X
+Xstatic	char	*
+Xbind_key(func, keyseq, help)
+X
+X    char	*func;
+X    char	*keyseq;
+X    char	*help;
+X
+X{
+X    char	buf[MAX_TOKEN_SIZE * 2];
+X    char	*msg;
+X    FUNC_CODE	fc;
+X
+X/* Convert string for ^C \t etc to real stuff */
+X
+X    msg = decode(keyseq, buf);
+X    if (msg) return msg;
+X
+X/* Find the function code corresponding to the name */
+X
+X    fc = kb_findfunc(func);
+X    if (fc == INVALID_COMMAND) return msg_rc[12];	/* Unknown function */
+X
+X    kb_addcode((unsigned char *) buf, fc, help ? help : keyseq);
+X
+X    return NULL;
+X}
+X
+X
+X/*
+X * bind-termcap function-name  capname [Help-text]
+X */
+X
+Xstatic	char	*
+Xbind_termcap(func, termseq, help)
+X
+X    char	*func;
+X    char	*termseq;
+X    char	*help;
+X
+X{
+X    FUNC_CODE	fc;
+X
+X    fc = kb_findfunc(func);
+X    if (fc == INVALID_COMMAND) return msg_rc[12];	/* unknown function */
+X
+X#ifndef	NO_TGETSTR
+X    if (kb_addtcap(termseq, fc, help ? help : termseq) == -1) {
+X	return msg_rc[13];	/* Invalid capability */
+X    }
+X
+X#endif
+X
+X    return NULL;
+X}
+X
+X
+X
+X/*
+X * bind-terminfo function-name	termcapname [Help-text]
+X */
+X
+Xstatic	char	*
+Xbind_terminfo(func, termseq, help)
+X
+X    char	*func;
+X    char	*termseq;
+X    char	*help;
+X
+X{
+X    FUNC_CODE	fc;
+X
+X    fc = kb_findfunc(func);
+X    if (fc == INVALID_COMMAND) return msg_rc[12];	/* unknown function */
+X
+X#ifdef	USE_TIGETSTR
+X    if (kb_addtinfo(termseq, fc, help ? help : termseq) == -1) {
+X	return msg_rc[14];	/* invalid terminfo capability */
+X    }
+X#endif
+X
+X    return NULL;
+X}
+X
+X
+Xstatic	char	*
+Xinclude(filename)
+X
+X    char	*filename;
+X{
+X    int		res;
+X
+X    res = (filename[0] == '~') 	? load_tilde_file(filename)
+X				: load_normal_file(filename);
+X
+X    switch (res) {
+X      case RC_PARSE_BAD:	return msg_rc[9];	/* Previous error */
+X      case RC_OPEN_FAILED:	return msg_rc[10];	/* Open failed */
+X      case RC_BAD_TILDE:	return msg_rc[11];	/* ~expansion failed */
+X    }
+X
+X    return NULL;
+X}
+X
+X/*
+X * To expand the flexibility of the include directive, the filename
+X * can be potentially opened as a pipeline via popen. This means that
+X * the filename can be of the form of:
+X *
+X *	include		"/usr/local/lib/${EDITOR}_ipickrc"
+X *
+X * The file is opened as a pipeline if there are any shell characters
+X * in the filename. If the trailing character is NOT the pipeline
+X * character then the pipeline is constructed with a preceeding "cat"
+X * command.
+X *
+X * If the filename contains no shell characters then it is simply
+X * opened with fopen.
+X *
+X * Examples:
+X *
+X *	"./fred"			fopen("./fred");
+X *	"${EDITOR}_ipick"		popen("cat ${EDITOR}_ipick");
+X *
+X */
+X
+Xstatic	MY_FILE	*
+Xmy_fopen(filename)
+X
+X    char	*filename;
+X
+X{
+X    MY_FILE	*mfp;
+X    char	*popen_filename;
+X
+X    mfp = (MY_FILE *) xmalloc(sizeof(MY_FILE), "rc:MY_FILE");
+X    mfp->use_pclose = FALSE;
+X
+X/* If no shell characters then use the normal fopen */
+X
+X    if (!strpbrk(filename, SHELL_CHARS)) {
+X	mfp->fp = fopen(filename, "r");
+X    }
+X    else {
+X	mfp->use_pclose = TRUE;
+X
+X/* no trailing pipe character means use cat */
+X
+X	popen_filename = xmalloc(strlen(filename) + 6, "rc:popen_filename");
+X
+X	if (filename[strlen(filename)-1] != '|') {	/* Use cat filename? */
+X	    strcpy(popen_filename, "cat ");
+X	    strcat(popen_filename, filename);
+X	}
+X	else {
+X	    strcpy(popen_filename, filename);
+X	    popen_filename[strlen(popen_filename)-1] = '\0';	/* kill | */
+X	}
+X	mfp->fp = popen(popen_filename, "r");
+X	xfree(popen_filename, "rc:popen_filename");
+X    }
+X
+X/* Did the open fail? */
+X
+X    if (!mfp->fp) {
+X	xfree((char *) mfp, "rc:MY_FILE");
+X	mfp = NULL;
+X    }
+X
+X    return mfp;
+X}
+X
+X
+X
+X/* Corresponding close to my_fopen */
+X
+Xstatic	int
+Xmy_fclose(mfp)
+X
+X    MY_FILE	*mfp;
+X
+X{
+X    int		res;
+X
+X    res = mfp->use_pclose ? pclose(mfp->fp) : fclose(mfp->fp);
+X    xfree((char *) mfp, "rc:MY_FILE");
+X
+X    return res;
+X}
+END_OF_FILE
+  if test 12303 -ne `wc -c <'ipick/rc.c'`; then
+    echo shar: \"'ipick/rc.c'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/rc.c'
+fi
+if test -f 'ipick/ipick.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/ipick.1'\"
+else
+  echo shar: Extracting \"'ipick/ipick.1'\" \(24269 characters\)
+  sed "s/^X//" >'ipick/ipick.1' <<'END_OF_FILE'
+X.\ " $Id: ipick.1,v 1.1 1993/02/27 21:53:58 markd Exp $
+X.\ "
+X.TH IPICK 1 "28 February 1993"
+X.\ "
+X.\ " $Log: ipick.1,v $
+X.\ " Revision 1.1  1993/02/27  21:53:58  markd
+X.\ " Initial revision
+X.\ "
+X.\" Had to fix examples using -i to use -v (new invert option)
+X.\" I have no *roff manual so this manpage may well be faulty.
+X.\" Having said that, the good bits of this manpage come care of
+X.\" DaviD W. Sanderson <dws@ssec.wisc.edu>
+X.SH NAME
+Xipick \- A screen-based filter to
+X.IR i nteractively
+X.I pick
+Xlines
+X.SH SYNTAX
+X.B ipick
+X.RB [ \-abdhrRvV ]
+X.RB [ \-m
+X.IR minimum ]
+X.RB [ \-M
+X.IR maximum ]
+X.if n .ti +.6i
+X.RB [ \-t
+X.IR fixed-title-text ]
+X.RB [ \-T
+X.IR stdin-title-lines ]
+X.if n .ti +.6i
+X.RB [ \-X
+X.IR xterm-name-substring ]
+X.RI [ filename ]
+X.SH DESCRIPTION
+X.PP
+X.I ipick
+Xreads lines of text from the standard input or the optional
+X.I filename
+Xand uses
+X.IR curses (3)
+Xto present them as a full-screen selection list.
+X.I ipick
+Xprovides numerous commands
+Xto select, navigate, scroll and search
+Xthrough this list.
+XOn quitting,
+X.I ipick
+Xwrites the selected lines to the standard output.
+X.PP
+XTypically you would use
+X.I ipick
+Xas a final-filter to glue your neat, pre-stored
+Xpipelines and scripts together in a friendly way
+Xso that people other than Unix-o-philes can use them.
+X.\"
+X.\" Make the description brief so that the OPTIONS show up early.
+X.\" For those interested, there is a more details MOTIVATION section.
+X.\"
+X.PP
+XSee
+X.BR MOTIVATION ,
+Xtowards the end, for a more detailed discussion.
+X.SH OPTIONS
+X.PP
+XOptions can appear in any order so long as they
+X.I precede
+Xthe
+X.IR filename .
+X.TP
+X.B \-a
+XAutomatically exit when the number of lines selected is within the
+Xminimum and maximum values allowed
+X(see
+X.B \-m
+Xand
+X.B \-M
+Xoptions).
+X.TP
+X.B \-b
+XActivate the audible alarm on invalid keystroke commands.
+XNot normally needed as
+X.I ipick
+Xalways generates an error message.
+XNormally you would set this option only for inexperienced users.
+X.TP
+X.B \-d
+XDrain the standard input on exit.
+XThis avoids the possibility of upstream processes
+Xreceiving a SIGPIPE.
+XThis is more a nicety than a necessity.
+XFurthermore,
+Xusing this option could prove expensive if the upstream process
+Xis a long way from finishing!
+X.TP
+X.BR \-h , " \-?"
+XPrint an extended help message describing these options.
+X.TP
+X.B \-m
+XMinimum number of lines that the user must select before
+X.I ipick
+Xwill exit.
+X.TP
+X.B \-M
+Xmaximum number of lines that the user may select select before
+X.I ipick
+Xwill exit.
+X.TP
+X\&
+XYou would typically use the minimum and maximum settings
+Xin conjunction with the
+X.B \-a
+Xand/or
+X.B \-r
+Xoptions to ensure an orderly and
+Xpredictable outcome of the picking process.
+X.TP
+X.B \-r
+XRestricted mode.
+XIn this mode the user cannot escape the clutches of
+X.I ipick
+Xexcept as defined by the other command-line options.
+XThis disables the shell and pipe commands.
+XAdditionally, this disables keyboard signals by
+Xsetting the terminal to raw mode instead of cbreak mode.
+XNote that raw mode has other side-effects; see
+X.IR stty (1)
+Xfor more details.
+X.TP
+X.B \-R
+XDo not set terminal input to raw mode.
+XThe main effects of this option
+Xis that the
+X.IR stty (1)
+Xcontrol character sequences remain active and are thus capable of
+Xgenerating
+Xkeyboard signals such as SIGINT and SIGQUIT.
+XNote that
+X.I ipick
+Xhas an abort command that can be bound to your normal ``intr'' or
+X``quit'' characters; see
+X.IR stty (1)
+Xfor more details on raw mode.
+X.TP
+X.BI \-t " fixed-title-text"
+XText to use as a title on the screen.
+X.I ipick
+Xcreates a ``fixed title'' containing the given text
+Xstarting at the top line of the screen.
+X.I ipick
+Xdoes not scroll this part of the title horizontally with the data.
+XIf the
+X.I fixed-title-text
+Xcontains embedded newlines,
+X.I ipick
+Xhandles them correctly.
+X.TP
+X.BI \-T " stdin-title-lines"
+X.I ipick
+Xwill read
+X.I stdin-title-lines
+Xlines from the standard input and use these
+Xas the ``variable title'' which follows the ``fixed title''.
+XThis option is especially useful when the upstream process
+Xgenerates a title line,
+Xsuch as
+X.IR ps (1),
+Xor
+X.IR w (1).
+X.I ipick
+Xscrolls this part of the title horizontally with the data.
+X.TP
+X\&
+XIf the standard input is less than
+X.I stdin-title-lines
+Xlong, then
+X.I ipick
+Xterminates silently.
+X.TP
+X\&
+XIf you define a title with either
+X.B \-t
+Xor
+X.BR \-T ,
+Xthen
+X.I ipick
+Xseparates the title from the data with a line of hyphens.
+X.TP
+X.B \-v
+XInvert the selections.
+XWith this option,
+X.I ipick
+Xwrites the lines the user
+X.I did not
+Xselect to stdout.
+X.TP
+X.B \-V
+XPrint a message containing the version,
+Xcompilation options, location of the system-wide
+Xcustomization file and the obligatory copyright message.
+X.TP
+X.BI \-X " xterm-name-substring"
+X.I ipick
+Xcompares the
+X.I xterm-name-substring
+Xwith the terminal type defined in $TERM.
+XIf it matches,
+X.I ipick
+Xsends the escape sequences needed to enable and disable mouse-tracking.
+XThe default
+X.I xterm-name-substring
+Xis ``xterm'', so real
+X.IR xterm (1)
+Xusers need do nothing.
+XThe comparison is case-sensitive.
+XSee
+X.B "XTERM MOUSE TRACKING"
+Xfor more information.
+X.PP
+XThe
+X.BR \-m ,
+X.B \-M
+Xand
+X.B \-r
+Xoptions allow you to carefully control the actions
+Xand predict the results of a user.
+XFor example, if you use
+X.TP
+X\&
+Xipick \-m 1 \-M 1 \-r
+X.PP
+Xthen you can write the rest of the pipeline assuming that
+X.I ipick
+Xwill produce one and only one line of output.
+X.SH "KEYBOARD COMMANDS"
+X.PP
+X.I ipick
+Xaccepts numerous keyboard commands,
+Xperhaps the most important being
+X.I ?
+Xwhich provides online help.
+X.PP
+X.I ipick
+Xis ecumenical regarding keybindings
+Xas it implements a reasonable set of
+X.IR emacs ,
+X.I vi
+Xand
+X.I more
+Xkeybindings concurrently!
+XAdditionally,
+X.I ipick
+Xbinds all of the commonly used commands to function keys as defined
+Xin the TERMINFO (or the corresponding termcap) definition file.
+XThis means that users can avoid learning the idiosyncratic nature of
+X.I vi
+Xand
+X.I emacs
+Xkeystrokes.
+X.PP
+XFinally,
+X.I ipick
+Xcan be customized
+Xwith both a system wide startup file and
+Xand a user startup file.
+XSee
+X.BR CUSTOMIZATION ,
+Xfor a detailed discussion of these files.
+XFor the purposes of this section it is assumed that
+Xno customization is in effect.
+X.PP
+XThe list of keyboard commands uses the following symbols:
+X.nr n \w'^V, <Space>, K_npage, K_index\0\0'+1n-1/1n
+X.TP \nn
+X^A \(em control-A
+XPress Control and ``A'' together
+XE-A \(em Escape-A
+XPress Escape followed by ``A''
+X.TP
+X.RI K_ tttt
+Xidentifies
+Xthe TERMINFO (or termcap)
+X.RI key_ tttt
+Xused.
+XThis is the ``Variable name'',
+X.I not
+Xthe ``Capname'' in the man page.
+X.PP
+X.I Selection Commands
+X.TP \nn
+X<CR>, K_ent
+XToggle the selection state of the
+Xcurrent line, then move to the next line if present
+X.PD 0
+X.TP
+X0\-9
+XSelect the specific line number
+X.TP
+XS
+XSelect all lines
+X.TP
+XC
+XClear all lines
+X.TP
+X+
+XToggle the state of unread lines
+X.TP
+Xs, K_select
+XSelect the ``line-range'' nominated
+X.TP
+Xc, K_clear
+XClear the ``line-range'' nominated
+X.TP
+Xt
+XToggle the selection state of the ``line-range'' nominated
+X.PD
+X.PP
+XThe ``line-range'' given to the ``s'', ``c'' and ``t'' commands may
+Xconsist of any one of:
+X.PD
+X.TP 4
+X\(bu
+XA number, series of numbers or range of numbers
+X.nf
+X(e.g. 1 5 7\-14 21\-19)
+X.fi
+X.TP
+X\(bu
+XThe string ``visible'' meaning all lines currently visible on the
+Xscreen.
+X.TP
+X\(bu
+XThe string ``all'' meaning all lines.
+X.PD
+X.PP
+XYou may shorten both ``visible'' and ``all'' to just ``v'' and ``a''
+Xrespectively.
+X.I ipick
+Xignores the case of these strings.
+X.PD
+X.PP
+X.I Positioning commands
+X.TP \nn
+X.PD 0
+XT, K_beg
+XTop of File
+X.TP
+XB, K_end
+XBottom of File
+X.TP
+XH, K_home
+XTop of screen
+X.TP
+XL, K_ll
+XBottom of screen
+X.TP
+X^N, j, K_down
+XNext line
+X.TP
+X^P, k, K_up
+XPrevious line
+X.PD
+X.PP
+X.I Vertical scrolling
+X.TP \nn
+X^U
+XUp half the screen
+X.PD 0
+X.TP
+X^D
+XDown half the screen
+X.TP
+XE-v, b, K_ppage, K_rindex
+XUp full screen
+X.TP
+X^V, <Space>, K_npage, K_index
+XDown full screen
+X.PD
+X.PP
+X.I Horizontal scrolling
+X.TP \nn
+X^B, h, K_left
+XScroll left one character
+X.PD 0
+X.TP
+X^F, l, K_right
+XScroll right one character
+X.TP
+X^I (TAB)
+XScroll right one tabstop
+X.TP
+XE-i, K_cbt
+XScroll left one tabstop
+X.TP
+X^A, ^ (circumflex)
+XScroll to beginning of line
+X.TP
+X^E, $
+XScroll to end of line
+X.TP
+X<
+XScroll left half screen
+X.TP
+X>
+XScroll right half screen
+X.PD
+X.PP
+X.I Searching
+X.TP \nn
+X^S, E-s, /, K_find
+XForward search
+X.PD 0
+X.TP
+X^R, E-r, \e
+XReverse search
+X.TP
+Xn
+XRedo forward search
+X.TP
+XN
+XRedo reverse search
+X.TP
+X*, K_next
+XFind next selected line
+X.TP
+X&, K_prev
+XFind previous selected line
+X.PD
+X.PP
+X.I Miscellaneous
+X.TP \nn
+X\&., K_redo
+XRedo last command
+X.PD 0
+X.TP
+Xg, K_move
+XGo to line
+X.TP
+Xq, Q, ^X^C, ZZ, K_exit
+XQuit
+X.TP
+X^C
+XAbort
+X.TP
+X^L, K_refresh
+XRefresh
+X.TP
+X?, K_help
+XProvide online help
+X.TP
+X!
+XShell command
+X.TP
+X|
+XPipe command.
+XPipe the current line into the command
+X.PD
+X.SH CUSTOMIZATION
+X.PP
+XWhen
+X.I ipick
+Xis invoked, it reads initialization commands from the
+Xsite customization
+Xfile (normally /usr/local/lib/ipickrc but see the
+X.B \-V
+Xoption)
+Xand
+Xthen the user's customization file .ipickrc in the
+Xuser's home directory.
+XBoth files are optional.
+XThe file can contain blank lines and comments where comments are
+Xdenoted by the first occurence of the ``#'' character.
+X.PP
+XA command must be completely contained on a single
+Xline as there is no continuation character.
+XEach token can be separated by one or more
+Xwhite-space characters.
+XA token can be quoted if it requires embedded spaces with either a
+Xsingle or double quote.
+X.PP
+X.PD
+X.I Substitution sequences
+X.PP
+XThe following special substitution sequences are recognized:
+X.ft I
+X.nr n \w'^char\0\0\0'+1n/1n
+X.ft
+X.TP \nn
+X.B \eb
+XA backspace character
+X.TP
+X.B \ef
+XA form-feed
+X.TP
+X.B \ee
+XAn escape
+X.TP
+X.B \en
+XThe newline character
+X.TP
+X.B \er
+XA carriage-return
+X.TP
+X.B \es
+XA space
+X.TP
+X.B \et
+XA TAB
+X.TP
+X.B \e\e
+XThe back-slash character
+X.TP
+X.B \eNNN
+XThe character represented by the  octal value of
+X.I NNN
+X.TP
+X.B ^char
+XA control character.
+X.I char
+Xcan be ``A-Z'' or ``@''.
+X.PP
+X.I Customization commands
+X.\" .nr n \w'bind-terminfo'+1n/1n
+X.\" .TP \nn
+X.PP
+X.B bind-key
+X.I function
+X.I keysequence
+X.RI [ helptext ]
+X.TP
+X\&
+XBind a set of keystrokes to a specific function.
+X.PP
+X.B bind-terminfo
+X.I function
+X.I terminfo-capability
+X.RI [ helptext ]
+X.TP
+X\&
+XBind a terminfo capability to a specific
+Xfunction.
+XIf the terminfo functionality has not been built into
+X.I ipick
+Xthen this effectively becomes a no-op.
+X.PP
+X.B bind-termcap
+X.I function
+X.I termcap-capability
+X.RI [ helptext ]
+X.TP
+X\&
+XBind a termcap capability to a specific
+Xfunction.
+XIf the termcap functionality has not been
+Xbuilt into
+X.I ipick
+Xthen this effectively becomes a no-op.
+X.PP
+X.B include
+X.I includefile
+X.PP
+XWhere:
+X.PP
+X.ft I
+X.nr n \w'terminfo-capability\0\0\0'+1n/1n
+X.ft
+X.TP \nn
+X.I function
+Xis a valid
+X.I ipick
+Xfunction; see
+X.BR FUNCTIONS ,
+Xfor a complete list.
+X.TP
+X.I keysequence
+Xis any sequence of keystrokes.
+XThe
+X.I substitution
+Xcharacter will typically be useful for this parameter.
+X.TP
+X.I helptext
+Xis an optional text string that will be displayed as part of the online
+Xhelp screen.
+XIf not present then the keysequence or capability name will be used.
+X.TP
+X.I terminfo-capability
+XA valid terminfo keystroke capability name; see
+X.IR terminfo (5)
+Xfor more details.
+X.TP
+X.I termcap-capability
+XA valid termcap keystroke capability name; see
+X.IR termcap (5)
+Xfor more details.
+X.TP
+X.I includefile
+Xa path of the file to include.
+X.TP
+X\&
+XIf
+X.I includefile
+Xhas a leading tilde ``~'' then
+X.I ipick
+Xperforms the usual tilde expansion.
+XThat is the string between
+Xthe tilde and the first ``/'' character
+Xis treated as a login name whose home directory is substituted.
+XAn empty login name implies $HOME.
+X.TP
+X\&
+XIf
+X.I includefile
+Xcontains any shell characters then
+X.I ipick
+Xassumes that it's a pipeline command
+Xand uses
+X.IR popen (3S)
+Xrather than
+X.IR fopen (3V)
+Xto open the command.
+X.TP
+X\&
+XIf
+X.I includefile
+Xis treated as a pipeline command and there is no trailing pipe character ``|''
+Xthen
+X.I ipick
+Xpreceeds the pipeline string with
+Xthe
+X.IR cat (1)
+Xcommand.
+X.PD
+X.PP
+XThe follow sample
+X.I .ipickrc
+Xfile demostrates most of the functionality
+Xdiscuss in this section.
+X.PP
+X.nf
+X#
+X# This file has some comments in it
+X#
+X
+Xinclude "~fred/.ipickrc"         # Fred has a cool startup file
+Xinclude '/usr/local/lib/ipick_${EDITOR:-EMACS}'
+X
+Xinclude "grep terminfo /usr/local/lib/ipick_wyse |"
+X
+Xinclude "$HOME/env/test_bindings"
+X
+Xbind-key QUIT "\ee\es\e023" "NT250 Exit key"
+X
+X# Bind the begining of line terminal definition
+X
+Xbind-terminfo beginning-of-line kbeg
+Xbind-termcap beginning-of-line @1
+X.fi
+X.SH FUNCTIONS
+XThe follow is a list of available functions.
+X.PP
+X.ft I
+X.nr n \w'scroll-right-screen\0\0\0'+1n/1n
+X.ft
+X.TP \nn
+X.I select-range
+XEnter a range of line numbers to pick
+X.TP
+X.I select-all
+XMark all lines as picked
+X.TP
+X.I clear-range
+XEnter a range of line numbers which are
+Xto have their pick state cleared
+X.TP
+X.I clear-all
+XMark all lines as not picked
+X.TP
+X.I toggle-current
+XToggle the picked state of the current
+Xline and move the cursor to the next line
+X.TP
+X.I toggle-range
+XEnter a range of line numbers which are
+Xto have their pick state toggled
+X.TP
+X.I toggle-unread
+XToggle the picked state of all unread lines
+X.TP
+X.I top-of-screen
+XMove the cursor to the top of the screen
+X.TP
+X.I bottom-of-screen
+XMove the cursor to the bottom of the screen
+X.TP
+X.I previous-line
+XMove the cursor up one line
+X.TP
+X.I next-line
+XMove the cursor down one line
+X.TP
+X.I quit
+XExit and write the pick lines to stdout
+X.TP
+X.I abort
+XExit without writing anything to stdout
+X.TP
+X.I help
+XDisplay the online help screen
+X.TP
+X.I refresh
+XClear and re-display the current screen
+X.TP
+X.I scroll-left-char
+XMove the cursor left one position
+X.TP
+X.I scroll-right-char
+XMove the cursor right one position
+X.TP
+X.I beginning-of-line
+XMove the cursor to the first character position
+X.TP
+X.I end-of-line
+XMove the cursor to the last character position of the current line
+X.TP
+X.I scroll-tab
+XMove the cursor forward one tabstop
+X.TP
+X.I scroll-backtab
+XMove the cursor back one tabstop
+X.TP
+X.I scroll-left-screen
+XMove the cursor left by one half the width of the screen
+X.TP
+X.I scroll-right-screen
+XMove the cursor right by one half the width of the screen
+X.TP
+X.I scroll-up-half
+XMove the cursor up by one half of the height of the screen
+X.TP
+X.I scroll-down-half
+XMove the cursor down by one half of the height of the screen
+X.TP
+X.I scroll-up-full
+XMove the cursor up a full screen
+X.TP
+X.I scroll-down-full
+XMove the cursor down a full screen
+X.TP
+X.I beginning-of-file
+XMove the cursor to the first line
+X.TP
+X.I end-of-file
+XMove the cursor to the end of all
+Xthe input lines.
+XIf data is from an upstream process, ipick will read until
+Xthis process writes end of file
+X.TP
+X.I search-forward
+XEnter the search forward string
+X.TP
+X.I search-backward
+XEnter the reverse search string
+X.TP
+X.I re-search-forward
+XContinue the search forwards
+X.TP
+X.I re-search-backward
+XContinue the search backwards
+X.TP
+X.I next-selected
+XMove the cursor to the next line selected
+X.TP
+X.I previous-selected
+XMove the cursor to the previous line selected
+X.TP
+X.I goto-line
+XEnter a line number to position to
+X.TP
+X.I shell
+XEnter a shell command
+X.TP
+X.I pipe
+XEnter a  command which will have the
+Xcurrent line written to it's stdin
+X.TP
+X.I redo-command
+XRedo the last command
+X.TP
+X.I xterm-mouse
+XDefine the xterm escape prefix.
+XOnly to be used if you really know what you're
+Xdoing (Which I don't when it comes to
+X.IR nroff (1))
+X.TP
+X.I invalid-command
+XTreat as an invalid command and generate an error message
+X.SH "XTERM MOUSE TRACKING"
+X.PP
+X.I ipick
+Xhas limited support for
+X.IR xterm 's
+X``mouse tracking'' capability (the X11
+X``normal tracking mode'' not the X10 compatibility mode).
+X.PP
+XTo enable this facility in a particular
+X.I xterm
+Xyou have to send it a special escape sequence.
+XTo quote from
+X.IR xterm (1),
+X``[mouse tracking] is enabled
+Xby specifying parameter 1000 to DECSET''.
+X.I ipick
+Xdoes this automatically when it detects a terminal type of
+X.IR xterm .
+XIf your
+X.I xterm
+Xclone uses a different name, you can use the
+X.B \-X
+Xoption to tell ipick what it is.
+X.PP
+XWhen you enable this facility, your
+X.I xterm
+Xwill pass any mouse events to
+X.I ipick
+Xin a form that
+X.I ipick
+Xrecognizes.
+XIn all cases, the down event defines the start of a range of lines and
+Xthe up event defines the end of the range \(em so dragging is useful.
+X.PP
+XEach mouse button has the following function:
+X.nr n \w'Button\0\0\0'+1n-1/1n
+X.TP \nn
+X.B Button
+X.B Description
+X.TP
+X1
+XSet the selected status of the range
+X.PD 0
+X.TP
+X2
+XToggle the selected status of the range
+X.TP
+X3
+XClear the selected status of the range
+X.PD
+X.PP
+XNote that
+X.I ipick
+Xignores augmentation of mouse events
+Xwith the Shift, Control and Meta keys.
+X.PP
+XThe
+X.I xterm
+Xfacility is limited in that chording the mouse buttons seems
+Xto be undefined.
+XFurthermore, the release (or mouse-up) doesn't specify the button.
+XAccordingly
+X.I ipick
+Xtakes a conservative approach to mouse-events and tends to discard
+Xanything unexpected.
+X.ne 11
+X.SH DIAGNOSTICS
+XAll error messages should be self-explanatory.
+X.PP
+X.I Exit codes.
+X.TP
+X0
+XNormal termination \(em at least one line selected
+X.TP
+X1
+XNormal termination \(em no lines selected
+X.TP
+X2
+XAbnormal termination
+X.SH NOTES
+X.PP
+XIf no input exists, or if the
+X.B \-T
+Xoption causes
+X.I ipick
+Xto consume all its input, then
+X.I ipick
+Xterminates silently with an exit code of 1.
+X.PP
+XEach Newline terminated string in
+X.I fixed-title-text
+X(see the
+X.B \-t
+Xoption)
+Xbecomes a separate line on the fixed-title section of the screen.
+X.PP
+X.I ipick
+Xonly reads lines from the standard input as needed
+X(and after each keyboard command)
+Xrather than reading all input lines on starting.
+XThis is especially useful if the upstream process generates output lines
+Xslowly as
+X.I ipick
+Xis able to display lines as soon as they become available \(em within
+Xthe constraints of any buffering.
+XIt is also useful if the upstream process has the potential to generate
+Xan enormous number of lines of output prior to completion.
+X.PP
+X.I ipick
+Xprocesses binary files correctly, but it's hard to imagine that
+Xthis capability is especially useful.
+X.PP
+XWhen constructing pipelines, be aware of the fact that many
+Xcommands don't take multiple parameters.
+XIn these cases, use xargs \-l1 if your system has it.
+X.SH RESTRICTIONS
+X.PP
+X.I ipick
+Xis designed to process modest amounts of data.
+XThe data is held in memory and all functions are coded simplistically.
+XIf you ask
+X.I ipick
+Xto handle large amounts of data, it does so sluggishly and
+Xconsumes excessive system resources.
+X.PP
+X.I ipick
+Xtakes a passive approach to ambiguous function key
+Xdefinitions \(em later definitions override earlier definitions.
+X.PP
+XThe search function does not handle regular expressions.
+X.PP
+XBecause of the way in which
+X.I ipick
+Xreads the standard input, using
+X.I ipick
+Xwith data from the keyboard does not work
+Xas you would want (In fact
+X.I ipick
+Xshould probably insist on a pipe or a file as input,
+Xjust as
+X.I more
+Xdoes).
+XThe workaround is to use the ``here document'' capability
+Xof the shell (the ``<<'' redirection).
+X.PP
+X.I ipick
+Xarbitrarily expands tab characters to 8-column tabstops.
+X.SH BUGS
+X.PP
+XThe online help does not display properly if the screen is less than 80
+Xcolumns wide.
+X.PP
+XDirections implied by movement and scrolling commands apply to
+Xthe cursor, not the data.
+X.PP
+X.I ipick
+Xdoes not know when include files opened with
+X.IR popen (1)
+Xfail.
+XThis can sometimes cause
+X.I ipick
+Xto wait for ever depending on the state of the child process.
+X.SH MOTIVATION
+X.PP
+XIt is the very essence of Unix to make useful
+Xcommands with the generic construct:
+X.IP
+Xgenerate_listing |
+X.I FILTER
+X| do_something
+X.PD 0
+X.PP
+Xor
+X.IP
+Xdo_something `generate_listing |
+X.IR FILTER `
+X.PD
+X.PP
+XThe problem is
+X.IR FILTER .
+XGetting it correct for the simplistic case is easy,
+Xmaking it perfect and bullet-proof is not.
+XThis is especially true if the pipeline is being
+Xdeveloped for the user community.
+X.PP
+XThink about how you typically build a pipeline for
+Xthe following requests:
+X.IP
+X``Kill my awk process, it's hung my terminal.''
+X.br
+X``Remove my print job, I've run the wrong report.''
+X.br
+X``Remove that message queue, then re-run the daemon.''
+X.PP
+XEither you construct a nice obscure
+X.I FILTER
+Xusing some
+Xcombination of
+X.IR grep (1),
+X.IR awk (1),
+X.IR perl (1),
+Xor
+X.IR sed (1)
+X\(em usually
+Xafter
+Xyou've had a look at the
+X.I generate_listing
+Xoutput a couple of times to make sure
+Xyou don't zap the wrong thing!
+XAlternatively you run the
+X.I generate_listing
+Xprogram a couple of times until you've memorized the
+Xrelevant identifier (such as pid, job number, queue id), then you
+Xrun the
+X.I do_something
+Xprogram and re-type the relevant identifier
+Xtrying as best you can to avoid mis-typing and mis-remembering.
+X.PP
+XIn other words, tedious and error-prone.
+X.PP
+XOf course, when the
+Xtime comes to give your neat pipeline or script
+Xto the user community, how do you give it an
+Xeasy to use, safe, bullet-proof interface?
+XDo you knock up a quick shell wrapper with
+Xtoken prompts, perfunctory checking and an
+Xinterface that's
+X.I almost
+Xthe same as your last shell wrapper?
+X.PP
+XIf any of these situations sound familiar then
+X.I ipick
+Xmay well be your pipeline panacea!
+X(Well, at least marginally useful.)
+X.PP
+XThis is because
+X.I ipick
+Xmakes the user the final part of the
+X.I FILTER
+Xin a safe, friendly manner, often obviating the need for
+Xshell wrappers and such.
+X.PP
+XThe example of selecting and removing a set of print jobs
+Xis the easiest way to demonstrate
+X.IR ipick .
+XWith the pipeline:
+X.nf
+X.IP
+Xlpq | grep `whoami` | ipick | awk '{ print $3 }' | xargs lprm
+X.fi
+X.PP
+XYou use
+X.I ipick
+Xto select the print jobs to be removed and the
+Xpipeline does the rest, removing only those print jobs
+Xselected with
+X.IR ipick .
+XAnother example:
+X.nf
+X.IP
+Xkill \-9 `ps | ipick \-T1 | awk '{ print $1 }'`
+X.fi
+X.PP
+Xyou simply select the lines with the relevant pids then
+Xexit from
+X.I ipick
+X\(em the pipeline does the rest by killing only those processes
+Xyou selected with
+X.IR ipick .
+X.SH EXAMPLES
+X.PP
+XA few more examples to get you started.
+XNormally you would define each of these
+Xas a function or alias in your shell.
+X(Of course, I present these examples as ideas.
+XThey are not complete, bullet-proof functions.)
+X.PP
+X.I "Pick source files to edit."
+X.nf
+X.IP
+Xvi `ls \-1 *.c | ipick \-m1`
+X.fi
+X.PP
+X.I "Pick a directory to cd to."
+X.nf
+X.IP
+Xcd `ls \-l | grep '^d' | ipick \-m1 \-M1 \-a | cut \-c46\-`
+X.fi
+X.PP
+X.ne 6
+X.I "Pick files to extract from a tar file in the default tape drive."
+X.nf
+X.IP
+Xtar t | ipick | xargs tar xv
+X.fi
+X.PP
+XI find this especially useful when the archive
+Xcontains l-o-o-o-ng filenames.
+X.PP
+XActually, in its current form
+Xthe above example has a number of limitations, so a more complete
+Xsolution to an interactive tar is:
+X.nf
+X.IP
+X.ta \w'\0\0\0\0\0\0\0\0'u
+Xtar tvf ${1:\-/dev/rmt8} | sed \-e 's./$..' | ipick |
+X.br
+X	cut \-c42\- | xargs \-v \-t tar xvf ${1:\-/dev/rmt8} {}
+X.fi
+X.DT
+X.PP
+X.I "Clean up a directory containing many junk files."
+X.PP
+XThe following pipeline does this by letting you select
+Xthe files you want to keep, and deleting the rest.
+X.nf
+X.IP
+X.ta \w'\0\0\0\0\0\0\0\0'u
+Xrm `ls \-l | grep '^\-' | ipick \-v \-t "Which files to keep ?" |
+X.br
+X	cut \-c46\-`
+X.fi
+X.DT
+X.PP
+X.ne 19
+X.I "Part of the login script to set the terminal type"
+X.nf
+X.IP
+X.ta \w'xterm\0\0\0\0'u
+X#! /bin/sh
+X.sp
+X\&...
+X.sp
+Xexport TERM
+XTERM=`ipick \-m1 \-M1 \-r \-a \-T3 <<EOD | cut \-f1 \-d' '
+X.sp
+X	Pick the terminal type that you are logged into
+X.sp
+Xvt100	The old grey terminals in the conference room
+Xxterm	The new fancy terminals in the bosses office
+Xsun	One of the workstations in the sysadmin's office!
+XEOD`
+X.sp
+X\&...
+X.fi
+X.DT
+X.PP
+X.I "Site conventions for predefined files"
+X.PP
+XIf you get really keen, you can have a site convention for
+Xall pre-defined
+X.I ipick
+Xfiles, such as:
+X.TP
+X\(bu
+Xfirst two lines are always header
+X.TP
+X\(bu
+Xfirst space separated field is always the output
+Xselection value
+X.PP
+XThen you can define a generic function or script
+X(let's call it ipickf) such as:
+X.nf
+X.IP
+Xipick \-a \-m1 \-M1 \-r \-T2 $HOME/pickfiles/$1 | cut \-f1 \-d' '
+X.fi
+X.PP
+Xthen use it around the traps as:
+X.nf
+X.IP
+XTERM=`ipickf TERM`
+X.fi
+X.PP
+X.SH VERSION
+X.PP
+X.I ipick
+Xversion 1.1, dated 28 February, 1993.
+X.SH AUTHOR
+X.PP
+XCopyright (c) 1993, Mark Delany <markd@werple.apana.org.au>
+XAll rights reserved.
+X.PP
+XSubstantial man page improvements by DaviD W. Sanderson <dws@ssec.wisc.edu>
+X.PP
+X.I ipick
+Xmay only be copied under the terms of either the Artistic License
+Xor
+Xthe GNU General Public Licence,
+Xwhich may be found in the ipick source kit.
+X.SH "SEE ALSO"
+X.IR stty (1),
+X.IR xargs (1V),
+X.IR xterm (1L),
+X.IR curses (3V),
+X.IR terminfo (5),
+X.IR termcap (5)
+END_OF_FILE
+  if test 24269 -ne `wc -c <'ipick/ipick.1'`; then
+    echo shar: \"'ipick/ipick.1'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/ipick.1'
+fi
+if test -f 'ipick/config/TEMPLATE' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/TEMPLATE'\"
+else
+  echo shar: Extracting \"'ipick/config/TEMPLATE'\" \(3166 characters\)
+  sed "s/^X//" >'ipick/config/TEMPLATE' <<'END_OF_FILE'
+X# This is the template file for ipick. Use this to create a new
+X# template file as needed and send it back to the author with a
+X# precise definition of your system so that others may benefit
+X# from your effort.
+X
+X# The template file becomes part of the makefile so make sure that
+X# the syntax is consistant with what your make expects.
+X
+X# CC		Nominate your C compiler if cc is inappropriate
+X#
+X# Example:	CC = gcc
+X
+X
+X
+X# P_INCLUDE	Define #include search directories, typically with -I
+X#
+X# Example:	P_INCLUDE = -I/usr/5include
+X
+XP_INCLUDE	=
+X
+X
+X
+X# P_LIBS	Define libraries that need to be included to get
+X#		the relevant system libraries. Mostly likely candidates
+X#		are malloc, curses and terminfo/termcap.
+X
+XP_LIBS 		= -lcurses
+X
+X
+X
+X# P_CFLAGS	Flags to give to the C compiler.
+X
+XP_CFLAGS 	= -O
+X
+X
+X
+X# P_LDFLAGS	Flag to give to ld the linker.
+X#
+X# Example:	P_LDFLAGS = -g
+X
+XP_LDFLAGS	=
+X
+X
+X
+X# P_NO_FLAGS	Define the NO_ variables that identify which of the
+X#		following list of system calls, externals and #includes
+X#		which are missing from your particular system.
+X#
+X#
+X# Variable		Why
+X# --------		--------------------------------------------
+X#
+X# NO_BEEP		Your curses hasn't got beep() Use port.c
+X#
+X# NO_NEWTERM		Your curses hasn't got newterm() Use port.c
+X#
+X# NO_PROTOTYPES		Your C compiler doesn't grok prototypes
+X#
+X# NO_SIGWINCH		Your system hasn't got SIGWINCH, or
+X#			ipick doesn't handle it properly...
+X#
+X# NO_STANDOUT		Your curses is so old that it doesn't even
+X#			have standout and standend. This is not
+X#			very important and port.c has null functions.
+X#			Use port.c
+X#
+X# NO_STRDUP		Your C library hasn't got strdup() Use port.c
+X#
+X# NO_STRPBRK		Your C library hasn't got strpbrk() Use port.c
+X#
+X# NO_STRSTR		Your C library hasn't got strstr() Use port.c
+X#
+X# NO_TGETSTR		Your curses hasn't got tgetstr(). Very rare!
+X#			See USE_TIGETSTR.
+X#
+X# --------------------
+X#
+X# Define the include files that are missing from you system. In most
+X# cases, the config.h file simple defines the prototypes for the
+X# relevant missing entries.
+X#
+X# NO_LIMITS_H		No limits.h for CHAR_BIT (defaults to 8)
+X#
+X# NO_MALLOC_H		No malloc.h for malloc() and realloc()
+X#
+X# NO_MEMORY_H		No memory.h with memcpy
+X#
+X# NO_STDLIB_H		stdlib.h pulls in getenv() prototype
+X#
+X# NO_STRING_H		No string.h for strcpy() et al proto's
+X#
+X#
+X#
+X# --------------------
+X#
+X# Define the external variables that are missing from your systems
+X# libraries:
+X#
+X# NO_ERRNO		#include <errno.h> doesn't define errno.
+X#
+X# NO_OPTOPT		Your getopt() doesn't define/use optopt.
+X#
+X#
+X# Example:	P_NO_FLAGS = -DNO_STRDUP -DNO_MALLOC_H -DNO_ERRNO
+X
+X
+X
+X# P_USE_FLAGS	Define the USE_ variables when your system has
+X#		alternatives to the system calls and #includes
+X#		normally used by ipick.
+X#
+X# Variable		Why
+X# --------		--------------------------------------------
+X#
+X# USE_TIGETSTR		If your curses has tigetstr() irregardless of
+X#			of the existance of tgetstr(). If this isn't
+X#			defined and NO_TGETSTR is defined then ipick
+X#			will not look at the terminal definition for
+X#			keybindings.
+X#
+X#
+X# USE_CURSESX_H		Use #include <cursesX.h> rather than <curses.h>
+X#			Decstations need this, maybe others...
+X
+X# Example:	P_USE_FLAGS	= -DUSE_CURSESX_H
+END_OF_FILE
+  if test 3166 -ne `wc -c <'ipick/config/TEMPLATE'`; then
+    echo shar: \"'ipick/config/TEMPLATE'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/TEMPLATE'
+fi
+if test -f 'ipick/config/interactive-gcc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/interactive-gcc'\"
+else
+  echo shar: Extracting \"'ipick/config/interactive-gcc'\" \(202 characters\)
+  sed "s/^X//" >'ipick/config/interactive-gcc' <<'END_OF_FILE'
+X#	For:	Interactive SysVr3 2.2 with gcc.
+X#	From:	Philip Copeland <p_copela@csd.bristol-poly.ac.uk>
+X
+XCC 		= gcc
+XP_CFLAGS	= -O -traditional 
+XP_LIBS		= -lcurses -lcposix
+X
+X# Maybe? P_NO_FLAGS	= -DNO_STRPBRK
+END_OF_FILE
+  if test 202 -ne `wc -c <'ipick/config/interactive-gcc'`; then
+    echo shar: \"'ipick/config/interactive-gcc'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/interactive-gcc'
+fi
+if test -f 'ipick/config/linux' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/linux'\"
+else
+  echo shar: Extracting \"'ipick/config/linux'\" \(224 characters\)
+  sed "s/^X//" >'ipick/config/linux' <<'END_OF_FILE'
+X#	For:	Linux 0.96c
+X#	From:	Matthew Jackson <M.Jackson@unsw.edu.au>
+X
+XCC		= gcc
+XP_LIBS		= -lcurses -ltermcap
+XP_CFLAGS	= -O -g
+XP_LDFLAGS	= -g
+XP_NO_FLAGS	= -DNO_BEEP -DNO_NEWTERM -DNO_LIMITS_H -DNO_OPTOPT
+X
+X# Maybe? -DNO_STRPBRK
+END_OF_FILE
+  if test 224 -ne `wc -c <'ipick/config/linux'`; then
+    echo shar: \"'ipick/config/linux'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/linux'
+fi
+if test -f 'ipick/config/mtxinu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/mtxinu'\"
+else
+  echo shar: Extracting \"'ipick/config/mtxinu'\" \(273 characters\)
+  sed "s/^X//" >'ipick/config/mtxinu' <<'END_OF_FILE'
+X#	For:	mt xinu MORE/bsd
+X#	From:	Marty Olevitch <marty@wuphys.wustl.edu>
+X
+XP_NO_FLAGS	= -DNO_STDLIB_H -DNO_MALLOC_H -DNO_LIMITS_H \
+X-DNO_BEEP -DNO_STRSTR -DNO_STRDUP -DNO_NEWTERM \
+X-DNO_ERRNO -DNO_PROTOTYPES
+X
+X# Maybe? -DNO_STRPBRK
+X
+XP_CFLAGS	= -O
+XP_LIBS		= -lcurses -ltermcap
+END_OF_FILE
+  if test 273 -ne `wc -c <'ipick/config/mtxinu'`; then
+    echo shar: \"'ipick/config/mtxinu'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/mtxinu'
+fi
+if test -f 'ipick/config/sunos4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/sunos4'\"
+else
+  echo shar: Extracting \"'ipick/config/sunos4'\" \(246 characters\)
+  sed "s/^X//" >'ipick/config/sunos4' <<'END_OF_FILE'
+X# SunOS 4.1 and greater. This is the terminfo version. If you prefer
+X# termcap (which is smaller!) try sunos4_tc
+X
+XCC		= /usr/5bin/cc
+XP_CFLAGS	= -O
+XP_LIBS		= -lcurses
+XP_NO_FLAGS	= -DNO_PROTOTYPES -DUSE_TIGETSTR -DNO_TGETSTR
+XLINT		= /usr/5bin/lint
+END_OF_FILE
+  if test 246 -ne `wc -c <'ipick/config/sunos4'`; then
+    echo shar: \"'ipick/config/sunos4'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/sunos4'
+fi
+if test -f 'ipick/config/sunos4-tcap' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/sunos4-tcap'\"
+else
+  echo shar: Extracting \"'ipick/config/sunos4-tcap'\" \(138 characters\)
+  sed "s/^X//" >'ipick/config/sunos4-tcap' <<'END_OF_FILE'
+X# SunOS 4.1>= with termcap
+X
+XP_LIBS		= -lcurses -ltermcap
+XP_NO_FLAGS	= -DNO_PROTOTYPES -DNO_BEEP -DNO_NEWTERM
+XP_CFLAGS	= -g
+XP_LDLFAGS	= -g
+END_OF_FILE
+  if test 138 -ne `wc -c <'ipick/config/sunos4-tcap'`; then
+    echo shar: \"'ipick/config/sunos4-tcap'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/sunos4-tcap'
+fi
+if test -f 'ipick/config/svr3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/svr3'\"
+else
+  echo shar: Extracting \"'ipick/config/svr3'\" \(343 characters\)
+  sed "s/^X//" >'ipick/config/svr3' <<'END_OF_FILE'
+X#
+X# System			Thanks to
+X# ----------------		---------------------------------------
+X# Encore Multimax UMAX V 2.4m	Kevin Stock <kstock@encore.com>
+X# NCR Tower V.3			John Alsop <jalsop@seachg.com>
+X# AT&T Unix Sys V 3.1 (Prime EXL 325)
+X#
+X
+XP_CFLAGS	=
+XP_LIBS		= -lcurses
+XP_NO_FLAGS	= -DNO_STDLIB_H -DNO_PROTOTYPES -DNO_STRSTR
+X
+X# Maybe? -DNO_STRPBRK
+END_OF_FILE
+  if test 343 -ne `wc -c <'ipick/config/svr3'`; then
+    echo shar: \"'ipick/config/svr3'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/svr3'
+fi
+if test -f 'ipick/config/ultrix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/ultrix'\"
+else
+  echo shar: Extracting \"'ipick/config/ultrix'\" \(177 characters\)
+  sed "s/^X//" >'ipick/config/ultrix' <<'END_OF_FILE'
+X#	For:	ULTRIX 4.2 on a Decstation
+X#	From:	David Raz <draz@ee.technion.ac.il>
+X
+XP_LIBS		= -lcursesX
+XP_USE_FLAGS	= -DUSE_CURSESX_H
+X
+XP_NO_FLAGS	= -DNO_STRDUP
+X
+X# Maybe? -DNO_STRPBRK
+END_OF_FILE
+  if test 177 -ne `wc -c <'ipick/config/ultrix'`; then
+    echo shar: \"'ipick/config/ultrix'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/ultrix'
+fi
+if test -f 'ipick/config/vanilla' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/vanilla'\"
+else
+  echo shar: Extracting \"'ipick/config/vanilla'\" \(879 characters\)
+  sed "s/^X//" >'ipick/config/vanilla' <<'END_OF_FILE'
+X# This file should work on many modern breeds of Unix that have a
+X# prototype compiler and includes, etc. If you have an "older" vanilla
+X# Unix, have a look at ./config/svr3 as this works on the standard
+X# AT&T SVR3.
+X
+X# System			Thanks to
+X# ----------------		---------------------------------------
+X# AIX 3.1			Joseph M DeAngelo <wrkgrp!tardis!jmd@uunet.uu.net>
+X# AIX 3.1.5			DaviD W. Sanderson <dws@ssec.wisc.edu>
+X# DG/UX 5.4.1 (Aviion)		Jo Stockley <jo@88open.org>
+X# Motorolla 88k R32V3 (SVR3.2)	Jo Stockley <jo@88open.org>
+X# Motorolla 88k R40V2 (SVR4)	Jo Stockley <jo@88open.org>
+X# OSF/1, Version 1.0.4		Rich Salz <rich@osf.org>
+X# SCO Unix SystemV/386 3.2r2.0
+X#	DevSys: 3.2.0		Petri Wessman <petri@cerebus.inter.fi>
+X# SVR4				UHC 4.0 Version 2.0
+X# ----------------		---------------------------------------
+X
+XP_CFLAGS	= -O
+XP_LIBS		= -lcurses
+X
+X# Maybe? P_NO_FLAGS = -DNO_STRPBRK
+END_OF_FILE
+  if test 879 -ne `wc -c <'ipick/config/vanilla'`; then
+    echo shar: \"'ipick/config/vanilla'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/vanilla'
+fi
+if test -f 'ipick/config/xenix386' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/xenix386'\"
+else
+  echo shar: Extracting \"'ipick/config/xenix386'\" \(1765 characters\)
+  sed "s/^X//" >'ipick/config/xenix386' <<'END_OF_FILE'
+X#  For:	  SCO XENIX 386 (without GNU-CC)
+X#  From:  Peter Funk <pf@artcom0.north.de>
+X
+X#if you have gcc1.40 :
+X#CC		= gcc
+X#P_CFLAGS	= -g -O
+X#else 
+XCC		= cc
+XP_CFLAGS	= -Zi 
+X#endif
+X
+XP_LIBS		= -lcurses -ltinfo
+XP_NO_FLAGS	= -DNO_STDLIB_H -DNO_PROTOTYPES -DNO_STRSTR -DNO_LIMITS_H
+X
+X#  Notes: I will strongly encourage you to use the GNU-C-Compiler because
+X#         the Microsoft-C-Compiler delivered from SCO must be considered
+X#	  absolutely broken under several serious ways.  You may use `cc'
+X#         to compile 'ipick', but it will complain about language.c :
+X#	    warning C4009: string too big, trailing chars truncated 
+X#         There is a complete binary (and of course source too) distribution
+X#         of 'gcc1.40', 'gdb3.5' and 'gas1.38' available for XENIX 386,
+X#         which installs out of box (using /etc/custom) and which 
+X#	  is of production quality and robustness.  This compiler generates
+X#	  OMF-object files, so you are able to use your OMF-XENIX-libs.
+X#  to german inhabitant's only: 
+X#         Ich schicke gcc-Kopien, wenn man mir 4 formatierte 5.25
+X#	  HD-Disketten inclusive Rueck-Adress-Aufkleber und Rueck-Porto
+X#	  zuschickt.  Adresse siehe unten.
+X#  to others: 
+X#         The XENIX-Patches for gcc-1.40, gdb-3.5 and gas-1.38 were 
+X#	  developed by Steve Bleazard (steve@robokar.co.uk), who has
+X#	  has also composed the SCO XENIX GCC binary distribution. 
+X#	  May be, that this stuff is available on a ftp-server in UK.
+X#	  If you can't get it anywhere else, I will make copies on 4 
+X#	  preformated 5.25 HD-floppys, if you are willing to make further 
+X#	  copies for other interested people from your country.
+X#	  Please inlcude a adhesive label with your return-address.
+X#  Peter Funk, Oldenburger Str.86, W-2875 Ganderkesee, Germany
+END_OF_FILE
+  if test 1765 -ne `wc -c <'ipick/config/xenix386'`; then
+    echo shar: \"'ipick/config/xenix386'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/xenix386'
+fi
+if test -f 'ipick/config/xenix386-gcc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/config/xenix386-gcc'\"
+else
+  echo shar: Extracting \"'ipick/config/xenix386-gcc'\" \(1764 characters\)
+  sed "s/^X//" >'ipick/config/xenix386-gcc' <<'END_OF_FILE'
+X#  For:	  SCO XENIX 386 (with GNU-CC)
+X#  From:  Peter Funk <pf@artcom0.north.de>
+X
+X#if you have gcc1.40 :
+XCC		= gcc
+XP_CFLAGS	= -g -O
+X#else 
+X# CC		= cc
+X# P_CFLAGS	= -Zi 
+X#endif
+X
+XP_LIBS		= -lcurses -ltinfo
+XP_NO_FLAGS	= -DNO_STDLIB_H -DNO_PROTOTYPES -DNO_STRSTR -DNO_LIMITS_H
+X
+X#  Notes: I will strongly encourage you to use the GNU-C-Compiler because
+X#         the Microsoft-C-Compiler delivered from SCO must be considered
+X#	  absolutely broken under several serious ways.  You may use `cc'
+X#         to compile 'ipick', but it will complain about language.c :
+X#	    warning C4009: string too big, trailing chars truncated 
+X#         There is a complete binary (and of course source too) distribution
+X#         of 'gcc1.40', 'gdb3.5' and 'gas1.38' available for XENIX 386,
+X#         which installs out of box (using /etc/custom) and which 
+X#	  is of production quality and robustness.  This compiler generates
+X#	  OMF-object files, so you are able to use your OMF-XENIX-libs.
+X#  to german inhabitant's only: 
+X#         Ich schicke gcc-Kopien, wenn man mir 4 formatierte 5.25
+X#	  HD-Disketten inclusive Rueck-Adress-Aufkleber und Rueck-Porto
+X#	  zuschickt.  Adresse siehe unten.
+X#  to others: 
+X#         The XENIX-Patches for gcc-1.40, gdb-3.5 and gas-1.38 were 
+X#	  developed by Steve Bleazard (steve@robokar.co.uk), who has
+X#	  has also composed the SCO XENIX GCC binary distribution. 
+X#	  May be, that this stuff is available on a ftp-server in UK.
+X#	  If you can't get it anywhere else, I will make copies on 4 
+X#	  preformated 5.25 HD-floppys, if you are willing to make further 
+X#	  copies for other interested people from your country.
+X#	  Please inlcude a adhesive label with your return-address.
+X#  Peter Funk, Oldenburger Str.86, W-2875 Ganderkesee, Germany
+END_OF_FILE
+  if test 1764 -ne `wc -c <'ipick/config/xenix386-gcc'`; then
+    echo shar: \"'ipick/config/xenix386-gcc'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/config/xenix386-gcc'
+fi
+if test -f 'ipick/examples/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/README'\"
+else
+  echo shar: Extracting \"'ipick/examples/README'\" \(868 characters\)
+  sed "s/^X//" >'ipick/examples/README' <<'END_OF_FILE'
+XThis directory contains a number of pre-defined bourne shell
+Xfunctions that show ways in which you can use ipick.
+X
+XIn many cases these functions can be used straight "out-of-the-box" in
+Xother cases you may wish to make modifications to suit your needs.
+X
+XAs per usual, if you create new and interesting functions, send them
+Xback to the author and they will be added to the next posting.
+X
+XIn all cases you can define the functions with the bourne shell by
+Xsimply going:
+X
+X. ./*examplename*
+X
+XThis also works for bash and probably for a number of the other newer
+Xshells.
+X
+XThese functions fundamentally rely on the following commands:
+X
+X	o	cut
+X	o	tail
+X	o	awk (as rarely as possible)
+X
+XI prefer cut to awk mainly because on my system cut is 1/10th the size
+Xof awk. However, I have a complaint regarding cut: it doesn't have a
+Xwhitespace delimiter which makes it a bore to use.
+END_OF_FILE
+  if test 868 -ne `wc -c <'ipick/examples/README'`; then
+    echo shar: \"'ipick/examples/README'\" unpacked with wrong size!
+  fi
+  # end of 'ipick/examples/README'
+fi
+if test -f 'ipick/examples/ikillps' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/ikillps'\"
+else
+  echo shar: Extracting \"'ipick/examples/ikillps'\" \(287 characters\)
+  sed "s/^X//" >'ipick/examples/ikillps' <<'END_OF_FILE'
+X
+X# Kill processes based on ps output
+X# Usage: ikillps [-SIG]
+X
+X# Assumption:	PID is in columns 1-6 (including a trailing space)
+X
+X
+Xikillps()
+X{
+X	pidlist=`ps | ipick -T1 -t"\\t\\tSelect pids to kill $1" | cut -c1-6`
+X	if [ "$pidlist" ]; then
+X		cmd="kill $1 $pidlist"
+X		echo $cmd
+X		$cmd
+X	fi
+X}
+END_OF_FILE
+  if test 287 -ne `wc -c <'ipick/examples/ikillps'`; then
+    echo shar: \"'ipick/examples/ikillps'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/ikillps'
+  # end of 'ipick/examples/ikillps'
+fi
+if test -f 'ipick/examples/ikillpt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/ikillpt'\"
+else
+  echo shar: Extracting \"'ipick/examples/ikillpt'\" \(395 characters\)
+  sed "s/^X//" >'ipick/examples/ikillpt' <<'END_OF_FILE'
+X
+X# If you have Tom Christiansen's <tchrist@convex.com> perl script 'pt',
+X# then this is the kill for you.
+X
+X# Kill processes based on pt output
+X# Usage: ikillpt [-SIG]
+X
+X# Assumption:	PID is in colums 10-15 (including a trailing space)
+X
+Xikillpt()
+X{
+X	pidlist=`pt | ipick -T1 -t"\\t\\tSelect pids to kill $1" | cut -c10-15`
+X	if [ "$pidlist" ]; then
+X		cmd="kill $1 $pidlist"
+X		echo $cmd
+X		$cmd
+X	fi
+X}
+END_OF_FILE
+  if test 395 -ne `wc -c <'ipick/examples/ikillpt'`; then
+    echo shar: \"'ipick/examples/ikillpt'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/ikillpt'
+  # end of 'ipick/examples/ikillpt'
+fi
+if test -f 'ipick/examples/ilprm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/ilprm'\"
+else
+  echo shar: Extracting \"'ipick/examples/ilprm'\" \(339 characters\)
+  sed "s/^X//" >'ipick/examples/ilprm' <<'END_OF_FILE'
+X
+X# Remove print jobs from lpd's print queue
+X# Usage: ilprm [lpq-options]
+X
+X# Assumption:	job id is in columns 16-21
+X
+Xilprm()
+X{
+X	jobids=`lpq $1 | grep \`whoami\` | ipick -t"Pick Print jobs to remove"| cut -c16-21`
+X	if [ "$jobids" ]; then
+X		cmd="lprm $jobids"
+X		echo $cmd
+X		$cmd
+X	else
+X		echo There are no print jobs queued for `whoami`
+X	fi
+X}
+END_OF_FILE
+  if test 339 -ne `wc -c <'ipick/examples/ilprm'`; then
+    echo shar: \"'ipick/examples/ilprm'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/ilprm'
+  # end of 'ipick/examples/ilprm'
+fi
+if test -f 'ipick/examples/imenu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/imenu'\"
+else
+  echo shar: Extracting \"'ipick/examples/imenu'\" \(555 characters\)
+  sed "s/^X//" >'ipick/examples/imenu' <<'END_OF_FILE'
+X
+X# Return a selection from a menu list
+X#
+X# The menu list comes from a file nominated on the command line.
+X
+X# The format is that the first line is the title and each subsequent
+X# line has a whitespace delimited field as field one which is returned
+X# as the choice. Eg:
+X#
+X# TITLE
+X# 1	Run prog x
+X# 2	Run prog y
+X# Q	Quit
+X
+X# Exactly one and only one selection is allowed.
+X
+X# Usage:	next=`imenu Menu_Filename`
+X
+Ximenu()
+X
+X{
+X	if [ "$1" = "" ]; then
+X		echo '**ERROR: ichoice requires a filename'
+X		return 1
+X	fi
+X
+X	ipick -a -m 1 -M 1 -r -T1 $1 | awk '{ print $1 }'
+X}
+END_OF_FILE
+  if test 555 -ne `wc -c <'ipick/examples/imenu'`; then
+    echo shar: \"'ipick/examples/imenu'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/imenu'
+  # end of 'ipick/examples/imenu'
+fi
+if test -f 'ipick/examples/irm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/irm'\"
+else
+  echo shar: Extracting \"'ipick/examples/irm'\" \(349 characters\)
+  sed "s/^X//" >'ipick/examples/irm' <<'END_OF_FILE'
+X
+X# Remove files in the current directory
+X
+X# Usage:	irm	[directory]
+X
+X# Assumption:	ls -l produces filenames starting in column 46
+X# 		ls -a generates  the lines: "totals", "." and ".." first
+X
+Xirm()
+X{
+X	files=`ls -la $1 | tail +4 | ipick -t'\t\tSelect files to rm -rf' | cut -c45-`
+X	if [ "$files" ]; then
+X		cmd="rm -rf $files"
+X		echo $cmd
+X		$cmd
+X	fi
+X}
+END_OF_FILE
+  if test 349 -ne `wc -c <'ipick/examples/irm'`; then
+    echo shar: \"'ipick/examples/irm'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/irm'
+  # end of 'ipick/examples/irm'
+fi
+if test -f 'ipick/examples/itarx' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ipick/examples/itarx'\"
+else
+  echo shar: Extracting \"'ipick/examples/itarx'\" \(420 characters\)
+  sed "s/^X//" >'ipick/examples/itarx' <<'END_OF_FILE'
+X
+X# Extract files from a tar file. Change /dev/rst8 to be your default
+X# primary tape/floppy drive. Works well with .tar files on disk.
+X
+X# Usage: itar [tarfile]
+X
+X# Assumption:	tar tf places filenames as column 43 and beyond
+X
+Xitarx()
+X{
+X	tarfile=${1:-/dev/rst8}
+X	files=`tar tvf $tarfile|tail +3|ipick -t'\t\tSelect files to extract'|cut -c42-`
+X	if [ "$files" ]; then
+X		cmd="tar xf $tarfile $files"
+X		echo $cmd
+X		$cmd
+X	fi
+X}
+END_OF_FILE
+  if test 420 -ne `wc -c <'ipick/examples/itarx'`; then
+    echo shar: \"'ipick/examples/itarx'\" unpacked with wrong size!
+  fi
+  chmod +x 'ipick/examples/itarx'
+  # end of 'ipick/examples/itarx'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    echo "Check Makefile then run 'make'"
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

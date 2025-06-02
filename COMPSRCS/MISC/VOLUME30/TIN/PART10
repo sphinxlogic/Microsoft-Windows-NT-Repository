@@ -1,0 +1,2359 @@
+Newsgroups: comp.sources.misc
+From: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Subject:  v30i010:  tin - threaded full screen newsreader, Part10/14
+Message-ID: <1992May20.172801.29797@sparky.imd.sterling.com>
+X-Md4-Signature: eae5d5239ebbb1bd3673b694fc6f423e
+Date: Wed, 20 May 1992 17:28:01 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%anl433.uucp@germany.eu.net (Iain J. Lea)
+Posting-number: Volume 30, Issue 10
+Archive-name: tin/part10
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 29, Issue 19-30
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  feed.c misc.c nntplib.c wildmat.c
+# Wrapped by kent@sparky on Tue May 19 13:38:05 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 14)."'
+if test -f 'feed.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'feed.c'\"
+else
+  echo shar: Extracting \"'feed.c'\" \(14936 characters\)
+  sed "s/^X//" >'feed.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : feed.c
+X *  Author    : I.Lea
+X *  Created   : 31-08-91
+X *  Updated   : 12-05-92
+X *  Notes     : provides same interface to mail,pipe,print and save commands
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xextern char *glob_group;			/* Group name */
+Xextern char note_h_date[LEN];		/* Date:	*/
+Xextern char note_h_newsgroups[LEN];	/* Newsgroups:	*/
+Xextern char note_h_subj[LEN];		/* Subject:	*/
+Xextern FILE *note_fp;				/* the body of the current article */
+Xextern int note_end;				/* end of article ? */
+Xextern int note_page;				/* what page we're on */
+Xextern long note_mark[MAX_PAGES];	/* ftells on beginnings of pages */
+X
+Xchar default_mail_address[LEN];
+Xchar default_pipe_command[LEN];
+Xchar default_save_file[PATH_LEN];
+Xchar default_regex_pattern[LEN];
+Xchar default_crosspost_group[LEN];
+Xchar proc_ch_default;				/* set in change_rcfile () */
+X
+X
+Xvoid feed_articles (function, level, prompt, respnum, group_path)
+X	int function;
+X	int level;
+X	char *prompt;
+X	int respnum;
+X	char *group_path;
+X{
+X#ifndef INDEX_DAEMON
+X
+X	char address[LEN];
+X	char command[LEN];
+X	char filename[PATH_LEN], *p;
+X	char group[LEN];
+X	char mailbox[LEN];
+X	char pattern[LEN];
+X	char ch = 'a', ch_default = 'a';
+X	char proc_ch = proc_ch_default;
+X	FILE *fp = (FILE *) 0;
+X	int b, i, j;
+X	int confirm = TRUE;
+X	int processed_ok = TRUE;
+X	int proceed = FALSE;
+X	int is_mailbox = FALSE;
+X	int orig_note_end = 0;
+X	int orig_note_page = 0;
+X	int processed = 0;
+X	int ret1 = FALSE;
+X	int ret2 = FALSE;
+X	int redraw_screen = FALSE;
+X	
+X	if (level == PAGE_LEVEL) {
+X		orig_note_end = note_end;
+X		orig_note_page = note_page;
+X	}
+X
+X	b = which_thread (respnum);
+X
+X	/*
+X	 * try and work out what default the user wants
+X	 */
+X	if (num_of_tagged_arts) {
+X		ch_default = 'T';
+X	} else if (num_of_hot_arts) {
+X		ch_default = 'h';
+X	} else if (num_of_responses (b)) {
+X		ch_default = 't';
+X	}
+X
+X	if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0) ||
+X		(save_archive_name == TRUE && function != FEED_SAVE) ||
+X		ch_default == 'T') {
+X		do {
+X			sprintf (msg, "%s%s%c", prompt, txt_art_thread_regex_tag, ch_default);
+X			wait_message (msg);
+X			MoveCursor (LINES, (int) strlen (msg)-1);
+X			if ((ch = (char) ReadCh ()) == CR)
+X				ch = ch_default;
+X		} while (ch != ESC && ch != 'a' && ch != 't' && ch != 'T' && 
+X			ch != 'h' && ch != 'p' && ch != 'q');
+X	} else {
+X		filename[0] = '\0';
+X		ch = ch_default;
+X		if (proc_ch != 'n') {
+X			if (str_str (glob_group, "sources", 7)) {
+X				proc_ch = 's';		/* *source* group */ 
+X			} else if (str_str (glob_group, "binaries", 8)) {
+X				proc_ch = 'u';		/* *binaries* group */
+X			} else {
+X				proc_ch = 's';
+X			}
+X		}	
+X	}
+X
+X	if (ch == 'q' || ch == ESC) {	/* exit */
+X		clear_message ();
+X		return;
+X	}
+X	
+X	if (ch == 'p') {
+X		sprintf (msg, txt_feed_pattern, default_regex_pattern);
+X		if (! prompt_string (msg, pattern)) {
+X			clear_message ();
+X			return;
+X		}	
+X		if (strlen (pattern)) {
+X			my_strncpy (default_regex_pattern, pattern, 
+X				sizeof (default_regex_pattern));
+X		} else {
+X			if (default_regex_pattern[0]) {
+X				my_strncpy (pattern, default_regex_pattern, 
+X					sizeof (default_regex_pattern));
+X			} else {
+X				info_message (txt_no_match);
+X				return;
+X			}
+X		}
+X	}
+X
+X	switch (function) {
+X		case FEED_MAIL:
+X			sprintf (msg, txt_mail_art_to, 
+X				COLS-(strlen(txt_mail_art_to)+30), default_mail_address);
+X			if (! prompt_string (msg, address)) {
+X				clear_message ();
+X				return;
+X			}	
+X			if (strlen (address)) {
+X				strcpy (default_mail_address, address);
+X			} else {
+X				if (default_mail_address[0]) {
+X					strcpy (address, default_mail_address);
+X				} else {
+X					info_message (txt_no_mail_address);	
+X					return;
+X				}
+X			}
+X			break;
+X		case FEED_PIPE:
+X			sprintf (msg, txt_pipe_to_command, 
+X				COLS-(strlen(txt_pipe_to_command)+30), default_pipe_command);
+X			if (! prompt_string (msg, command)) {
+X				clear_message ();
+X				return;
+X			}
+X			if (strlen (command)) {
+X				strcpy (default_pipe_command, command);
+X			} else {
+X				if (default_pipe_command[0]) {
+X					strcpy (command, default_pipe_command);
+X				} else {
+X					info_message (txt_no_command);	
+X					return;
+X				}
+X			}
+X
+X			if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X				perror_message (txt_command_failed_s, command);
+X				return;
+X			}
+X			wait_message (txt_piping);
+X			Raw (FALSE);
+X			break;
+X		case FEED_PRINT:	
+X			if (default_printer) {
+X#ifdef sinix
+X					sprintf (command, "%s -dru=%s %s",
+X						printer, get_val ("PRINTER","ps"), redirect_output);
+X#else
+X					sprintf (command, "%s -P%s %s",
+X						printer, get_val ("PRINTER","ps"), redirect_output);
+X#endif
+X			} else {
+X				if (cmd_line_printer[0]) {
+X					sprintf (command, "%s %s",
+X						cmd_line_printer, redirect_output);
+X				} else {
+X					sprintf (command, "%s %s",
+X						printer, redirect_output);
+X				}
+X			}
+X			if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X				perror_message (txt_command_failed_s, command);
+X				return;
+X			}
+X			break;
+X		case FEED_SAVE:		/* ask user for filename */
+X			free_save_array ();
+X			if ((save_archive_name == FALSE || arts[respnum].archive == (char *) 0)) {
+X				sprintf (msg, txt_save_filename, default_save_file);
+X				if (! prompt_string (msg, filename)) {
+X					clear_message ();
+X					return;
+X				}
+X				if (strlen (filename)) {
+X					my_strncpy (default_save_file, filename,
+X						sizeof (default_save_file));
+X				} else {
+X					if (default_save_file[0]) {
+X						my_strncpy (filename, default_save_file,
+X							sizeof (filename));
+X					} else {
+X						info_message (txt_no_filename);	
+X						return;
+X					}
+X				}
+X				for (p = filename; *p && (*p == ' ' || *p == '\t'); p++) {
+X					continue;
+X				}
+X				if (! *p) {
+X					info_message (txt_no_filename);
+X					return;
+X				}
+X				if ((filename[0] == '~' || filename[0] == '+') && strlen (filename) == 1) {
+X					info_message (txt_no_filename);
+X					return;
+X				}
+X				is_mailbox = create_path (filename);
+X				if (is_mailbox) {
+X					if ((int) strlen (filename) > 1) {
+X						my_strncpy (mailbox, filename+1, sizeof (mailbox));		
+X					} else {
+X						my_strncpy (mailbox, glob_group, sizeof (mailbox));
+X						/*
+X						 *  convert 1st letter to uppercase
+X						 */
+X						if (mailbox[0] >= 'a' && mailbox[0] <= 'z') {
+X							mailbox[0] = mailbox[0] - 32;
+X						}
+X					}
+X					my_strncpy (filename, mailbox, sizeof (filename));
+X				} else {		/* ask for post processing type */
+X					do {
+X						sprintf (msg, "%s%c", txt_post_process_type, proc_ch_default);
+X						wait_message (msg);
+X						MoveCursor (LINES, (int) strlen (msg)-1);
+X						if ((proc_ch = (char) ReadCh ()) == CR)
+X							proc_ch = proc_ch_default;
+X					} while (proc_ch != 'n' && proc_ch != 's' &&
+X						 proc_ch != 'u' && proc_ch != 'U');
+X				}
+X			}
+X			clear_message ();
+X			break;
+X		case FEED_XPOST:	/* ask user for newsgroups */
+X			sprintf (msg, txt_crosspost_group, default_crosspost_group);
+X	
+X			if (! prompt_string (msg, group)) {
+X				clear_message ();
+X				return;
+X			}
+X
+X			if (strlen (group)) {
+X				my_strncpy (default_crosspost_group, group,
+X					sizeof (default_crosspost_group));
+X			} else {
+X				if (default_crosspost_group[0]) {
+X					my_strncpy (group, default_crosspost_group, 
+X						sizeof (group));
+X				} else {
+X					info_message (txt_no_group);
+X					return;
+X				}
+X			}
+X			break;
+X	}
+X	
+X	switch (ch) {
+X		case 'a':		/* article */
+X			if (level == GROUP_LEVEL) {
+X				note_page = art_open (arts[respnum].artnum, group_path);	
+X			}
+X			switch (function) {
+X				case FEED_MAIL:
+X					redraw_screen = mail_to_someone (address, TRUE, &processed_ok);
+X					break;
+X				case FEED_PIPE:
+X					fseek (note_fp, 0L, 0);
+X					copy_fp (note_fp, fp, "");
+X					break;
+X				case FEED_PRINT:
+X					processed_ok = print_file (fp, respnum, 1);
+X					pclose (fp);		
+X					break;
+X				case FEED_SAVE:
+X					wait_message (txt_saving);
+X					add_to_save_list (0, &arts[respnum], is_mailbox, filename);
+X					processed_ok = save_art_to_file (respnum, 0, FALSE, "");
+X					break;
+X				case FEED_XPOST:
+X					redraw_screen = crosspost_article (group, respnum);
+X					break;
+X			}
+X			if (processed_ok) {
+X				processed++;
+X			}	
+X			if (mark_saved_read) {
+X				if (processed_ok) {
+X					arts[respnum].unread = ART_READ;
+X				}
+X			}
+X			if (level == GROUP_LEVEL) {
+X				art_close ();
+X			}
+X			break;
+X			
+X		case 't': 		/* thread */
+X			confirm = TRUE;
+X			for (i = (int) base[b]; i >= 0; i = arts[i].thread) {
+X				if (function == FEED_PRINT) {
+X					if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X						perror_message (txt_command_failed_s, command);
+X						return;
+X					}
+X				}
+X				if (level == PAGE_LEVEL) {
+X					art_close ();
+X				}
+X				note_page = art_open (arts[i].artnum, group_path);	
+X				switch (function) {
+X					case FEED_MAIL:
+X						processed_ok = TRUE;	
+X						mail_to_someone (address, confirm, &processed_ok);
+X						confirm = FALSE;
+X						break;
+X					case FEED_PIPE:
+X						fseek (note_fp, 0L, 0);
+X						copy_fp (note_fp, fp, "");
+X						break;
+X					case FEED_PRINT:
+X						processed_ok = print_file (fp, i, processed+1);
+X						pclose (fp);
+X						break;
+X					case FEED_SAVE:
+X						add_to_save_list (i, &arts[i], is_mailbox, filename);
+X						break;
+X					case FEED_XPOST:
+X						redraw_screen = crosspost_article (group, i);
+X						break;
+X				}
+X				if (processed_ok) {
+X					processed++;
+X				}
+X				if (mark_saved_read) {
+X					if (processed_ok) {
+X						arts[i].unread = ART_READ;
+X					}	
+X				}
+X				art_close ();
+X			}
+X			if (function == FEED_SAVE) {
+X				sort_save_list ();
+X				(void) save_thread_to_file (is_mailbox, group_path);
+X			}
+X			break;
+X
+X		case 'T': 		/* tagged articles */
+X			confirm = TRUE;
+X			for (i=1 ; i <= num_of_tagged_arts ; i++) {
+X				for (j=0 ; j < top ; j++) {
+X					if (arts[j].tagged && arts[j].tagged == i) { 
+X
+X						if (function == FEED_PRINT) {
+X							if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X								perror_message (txt_command_failed_s, command);
+X								return;
+X							}
+X						}
+X						if (level == PAGE_LEVEL) {
+X							art_close ();
+X						}
+X						note_page = art_open (arts[j].artnum, group_path);	
+X						switch (function) {
+X							case FEED_MAIL:
+X								processed_ok = TRUE;
+X								mail_to_someone (address, confirm, &processed_ok);
+X								confirm = FALSE;
+X								break;
+X							case FEED_PIPE:
+X								fseek (note_fp, 0L, 0);
+X								copy_fp (note_fp, fp, "");
+X								break;
+X							case FEED_PRINT:
+X								processed_ok = print_file (fp, j, processed+1);
+X								pclose (fp);
+X								break;
+X							case FEED_SAVE:
+X								add_to_save_list (j, &arts[j], is_mailbox, filename);
+X								break;
+X							case FEED_XPOST:
+X								redraw_screen = crosspost_article (group, j);
+X								break;
+X						}
+X						if (processed_ok) {
+X							processed++;
+X						}	
+X						if (mark_saved_read) {
+X							if (processed_ok) {
+X								arts[j].unread = ART_READ;
+X							}	
+X						}
+X						art_close ();
+X					}
+X				}
+X			}
+X			if (function == FEED_SAVE) {				
+X				(void) save_regex_arts (is_mailbox, group_path);
+X			}
+X			untag_all_articles ();
+X			break;
+X
+X		case 'h': 		/* hot (auto-selected) articles */
+X		case 'p': 		/* regex pattern matched articles */
+X			confirm = TRUE;
+X			for (i = 0 ; i < top_base ; i++) {
+X				for (j = (int) base[i]; j >= 0; j = arts[j].thread) {
+X					if (ch == 'p') {
+X						if (STR_MATCH(arts[j].subject, pattern)) {
+X							proceed = TRUE;
+X						}
+X					} else if (arts[j].hot) {
+X						proceed = TRUE;
+X					}				
+X					if (proceed) {
+X						proceed = FALSE;
+X						if (function == FEED_PRINT) {
+X							if ((fp = (FILE *) popen (command, "w")) == NULL) {
+X								perror_message (txt_command_failed_s, command);
+X								return;
+X							}
+X						}
+X						if (level == PAGE_LEVEL) {
+X							art_close ();
+X						}
+X						note_page = art_open (arts[j].artnum, group_path);	
+X						switch (function) {
+X							case FEED_MAIL:
+X								processed_ok = TRUE;
+X								mail_to_someone (address, confirm, &processed_ok);
+X								/* confirm = FALSE; */
+X								break;
+X							case FEED_PIPE:
+X								fseek (note_fp, 0L, 0);
+X								copy_fp (note_fp, fp, "");
+X								break;
+X							case FEED_PRINT:
+X								processed_ok = print_file (fp, j, processed+1);
+X								pclose (fp);
+X								break;
+X							case FEED_SAVE:
+X								sprintf (filename, "%s.%02d", filename, processed+1);
+X								add_to_save_list (0, &arts[j], is_mailbox, filename);
+X								processed_ok = save_art_to_file (respnum, 0, FALSE, "");
+X								break;
+X							case FEED_XPOST:
+X								redraw_screen = crosspost_article (group, j);
+X								break;
+X						}
+X						if (processed_ok) {
+X							processed++;
+X						}	
+X						if (mark_saved_read) {
+X							if (processed_ok) {
+X								arts[j].unread = ART_READ;
+X								if (ch == 'h') {
+X									arts[j].hot = FALSE;
+X									num_of_hot_arts--;
+X								}	
+X							}	
+X						}
+X		 				art_close ();
+X					}
+X				}	
+X			}
+X			break;
+X	}
+X
+X	redraw_screen = mail_check ();	/* in case of sending to oneself */
+X
+X	switch (function) {
+X		case FEED_PIPE:
+X			pclose (fp);		
+X			Raw (TRUE);
+X			continue_prompt ();
+X			redraw_screen = TRUE;
+X			break;
+X		case FEED_SAVE:
+X			if (proc_ch != 'n' && is_mailbox == FALSE) {
+X				ret2 = post_process_files (proc_ch);
+X			}
+X			free_save_array ();
+X			break;
+X	}
+X
+X	if (level == GROUP_LEVEL) {
+X		ret1 = (mark_saved_read ? TRUE : FALSE);
+X	}
+X	if ((ret1 || ret2) && is_mailbox == FALSE) {
+X		redraw_screen = TRUE;
+X	}
+X
+X	if (level == PAGE_LEVEL) {
+X		if (ch != 'a') {
+X			note_page = art_open (arts[respnum].artnum, group_path);
+X		}
+X		note_end = orig_note_end;
+X		note_page = orig_note_page;
+X		fseek (note_fp, note_mark[note_page], 0);
+X		if (redraw_screen) {
+X			if (note_page == 0) {
+X				show_note_page (respnum, glob_group);
+X			} else {
+X				redraw_page (respnum, glob_group);
+X			}
+X		} else {
+X			if (function == FEED_PIPE) {
+X				clear_message ();
+X			}
+X		}
+X	} else {
+X		if (redraw_screen) {
+X			show_group_page (glob_group);
+X		}
+X	}
+X	if (function == FEED_MAIL) {	
+X		sprintf (msg, txt_mailed, processed);
+X		info_message (msg);
+X	} else if (function == FEED_PRINT) {	
+X		sprintf (msg, txt_printed, processed);
+X		info_message (msg);
+X	} else if (function == FEED_SAVE) {	
+X		if (ch == 'a') {
+X			sprintf (msg, txt_saved, processed);
+X			info_message (msg);
+X		}	
+X	}
+X
+X#endif /* INDEX_DAEMON */
+X}
+X
+X
+Xint print_file (fp, respnum, count)
+X	FILE *fp;
+X	int respnum;
+X	int count;
+X{							
+X	sprintf (msg, "%s%d", txt_printing, count);
+X	wait_message (msg);
+X	
+X	if (print_header) {
+X		fseek(note_fp, 0L, 0);
+X	} else {
+X		fprintf (fp, "Newsgroups: %s\n", note_h_newsgroups);
+X		if (arts[respnum].from == arts[respnum].name) {
+X			fprintf (fp, "From: %s\n", arts[respnum].from);
+X		} else {
+X			fprintf (fp, "From: %s (%s)\n",
+X				arts[respnum].from, arts[respnum].name);
+X		}		
+X		fprintf (fp, "Subject: %s\n", note_h_subj);
+X		fprintf (fp, "Date: %s\n\n", note_h_date);
+X		fseek (note_fp, note_mark[0], 0);
+X	}
+X	copy_fp (note_fp, fp, "");
+X
+X	return (TRUE);	/* a hack that will check if file was really checked later */
+X}						
+END_OF_FILE
+  if test 14936 -ne `wc -c <'feed.c'`; then
+    echo shar: \"'feed.c'\" unpacked with wrong size!
+  fi
+  # end of 'feed.c'
+fi
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+  echo shar: Extracting \"'misc.c'\" \(15398 characters\)
+  sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : misc.c
+X *  Author    : I.Lea & R.Skrenta
+X *  Created   : 01-04-91
+X *  Updated   : 10-05-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea & Rich Skrenta
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+X#include	"tin.h"
+X
+Xstatic char *mailbox_name = (char *) 0;
+Xstatic int  mailbox_size;
+X
+X
+Xvoid asfail (file, line, cond)
+X	char	*file;
+X	int	line;
+X	char	*cond;
+X{
+X  	fprintf (stderr, "%s: assertion failure: %s (%d): %s\n",
+X  		progname, file, line, cond);
+X  	fflush (stderr);
+X  	
+X 	/*
+X 	 * create a core dump
+X 	 */
+X#ifdef SIGABRT	
+X	sigdisp(SIGABRT, SIG_DFL);
+X 	kill (process_id, SIGABRT);
+X#else
+X#	ifdef SIGILL
+X		sigdisp(SIGILL, SIG_DFL);
+X 		kill (process_id, SIGILL);
+X#	else
+X#		ifdef SIGIOT
+X			sigdisp(SIGIOT, SIG_DFL);
+X		 	kill (process_id, SIGIOT);
+X#		endif
+X#	endif
+X#endif
+X 
+X	exit(1);
+X}
+X
+X
+Xvoid copy_fp (fp_ip, fp_op, prefix)
+X	FILE *fp_ip;
+X	FILE *fp_op;
+X	char *prefix;
+X{
+X	extern int errno;
+X	char buf[8192];
+X
+X	while (fgets (buf, sizeof (buf), fp_ip) != NULL) {
+X		if (fprintf (fp_op, "%s%s", prefix, buf) == EOF) {
+X			if (errno == EPIPE) {
+X				return;
+X			}
+X			sprintf (msg, "Error: fprintf() failed in copy_fp(). errno=%d", errno);
+X			perror_message (msg, "");
+X		}
+X	}
+X}
+X
+X
+Xchar *get_val (env, def)
+X	char *env;		/* Environment variable we're looking for	*/
+X	char *def;		/* Default value if no environ value found	*/
+X{
+X	char *ptr;
+X
+X	if ((ptr = (char *) getenv(env)) != NULL)
+X		return (ptr);
+X	else
+X		return (def);
+X}
+X
+X
+Xint invoke_editor (nam)
+X	char *nam;
+X{
+X	char buf[LEN];
+X	char *my_editor;
+X	static char editor[LEN];
+X	static int first = TRUE;
+X
+X	if (first) {
+X		my_editor = (char *) getenv ("VISUAL");
+X
+X		strcpy (editor, my_editor != NULL ? my_editor : get_val ("EDITOR", DEFAULT_EDITOR));
+X		first = FALSE;
+X	}
+X
+X	if (start_editor_offset) {
+X		sprintf (buf, "%s +%d %s", editor, start_line_offset, nam);
+X	} else {
+X		sprintf (buf, "%s %s", editor, nam);
+X	}
+X
+X	wait_message (buf);
+X
+X	return invoke_cmd (buf);
+X}
+X
+X
+Xvoid shell_escape ()
+X{
+X	char shell[LEN];
+X	char *p;
+X
+X#ifdef SIGTSTP
+X	sigtype_t (*susp)() = (sigtype_t *) 0;
+X#endif
+X
+X	sprintf (msg, txt_shell_escape, default_shell_command);
+X	
+X	if (! prompt_string (msg, shell))
+X		my_strncpy (shell, get_val ("SHELL", DEFAULT_SHELL), sizeof (shell));
+X
+X	for (p = shell; *p && (*p == ' ' || *p == '\t'); p++)
+X		continue;
+X
+X	if (*p) {
+X		my_strncpy (default_shell_command, p, sizeof (default_shell_command));
+X	} else {
+X		if (default_shell_command[0]) {
+X			my_strncpy (shell, default_shell_command, sizeof (shell));
+X		} else {
+X			my_strncpy (shell, get_val ("SHELL", DEFAULT_SHELL), sizeof (shell));
+X		}
+X		p = shell;
+X	}
+X
+X	ClearScreen ();
+X	sprintf (msg, "Shell Command (%s)", p);
+X	center_line (0, TRUE, msg);
+X	MoveCursor (INDEX_TOP, 0);
+X	
+X	EndWin ();
+X	Raw (FALSE);
+X
+X#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		susp = signal (SIGTSTP, SIG_DFL);
+X#endif
+X
+X	system (p);
+X
+X#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		signal (SIGTSTP, susp);
+X#endif
+X
+X	Raw (TRUE);
+X	InitWin ();
+X
+X	mail_setup ();
+X
+X	continue_prompt ();
+X
+X	if (draw_arrow_mark) {
+X		ClearScreen ();
+X	}
+X}
+X
+X
+Xvoid tin_done (ret)
+X	int ret;
+X{
+X	extern char index_file[PATH_LEN];
+X	char group_path[PATH_LEN], *p;
+X	int ask = TRUE;
+X	register int i, j;
+X	
+X	/*
+X	 * check if any groups were read & ask if they should marked read
+X	 */
+X	if (catchup_read_groups) {
+X		for (i = 0 ; i < group_top ; i++) {
+X			if (active[my_group[i]].attribute.read) {
+X				if (ask) {
+X					if (prompt_yn (LINES, "Catchup all groups entered during this session? (y/n): ", 'n')) {
+X						ask = FALSE;
+X						thread_arts = FALSE;	/* speeds up index loading */
+X					} else {
+X						break;
+X					}
+X				}
+X				sprintf (msg, "Catchup %s...", active[my_group[i]].name);
+X				wait_message (msg);
+X				my_strncpy (group_path, active[my_group[i]].name, sizeof (group_path));
+X				for (p = group_path ; *p ; p++) {
+X					if (*p == '.') {
+X						*p = '/';
+X					}
+X				}
+X				index_group (active[my_group[i]].name, group_path);
+X				for (j = 0; j < top; j++) {
+X					arts[j].unread = ART_READ;
+X				}
+X				update_newsrc (active[my_group[i]].name, my_group[i], FALSE);
+X			}
+X		}
+X	}
+X	nntp_close ();			/* disconnect from NNTP server */
+X	free_all_arrays ();		/* deallocate all arrays */
+X	ClearScreen ();
+X	EndWin ();
+X	Raw (FALSE);
+X
+X	if (read_news_via_nntp && xindex_supported) {
+X		unlink (index_file);
+X	}
+X
+X	exit (ret);
+X}
+X
+X#ifdef USE_MKDIR
+Xmkdir (path, mode)
+X	char *path;
+X	int mode;
+X{
+X	char buf[LEN];
+X	struct stat sb;
+X
+X	sprintf(buf, "mkdir %s", path);
+X	if (stat (path, &sb) == -1) {
+X		system (buf);
+X		chmod (path, mode);
+X	}
+X}
+X#endif
+X
+X/*
+X * hash group name for fast lookup later 
+X */
+X
+Xlong hash_groupname (group)
+X	char *group;
+X{
+X	unsigned long hash_value;
+X	unsigned char *ptr = (unsigned char *) group;
+X
+X	hash_value = *ptr++;
+X
+X	while (*ptr)
+X		hash_value = ((hash_value << 1) ^ *ptr++) % TABLE_SIZE;
+X
+X	return (hash_value);
+X}
+X
+X
+Xvoid rename_file (old_filename, new_filename)
+X	char *old_filename;
+X	char *new_filename;
+X{	
+X	char buf[LEN];
+X	
+X	unlink (new_filename);
+X	
+X	if (link (old_filename, new_filename) == -1) {
+X		sprintf (buf, txt_rename_error, old_filename, new_filename);
+X		perror_message (buf, "ONE");
+X		return;
+X	}
+X	if (unlink (old_filename) == -1) {
+X		sprintf (buf, txt_rename_error, old_filename, new_filename);
+X		perror_message (buf, "TWO");
+X		return;
+X	}
+X}
+X
+X
+Xchar *str_dup (str)
+X	char *str;
+X{
+X	char *dup = (char *) 0;
+X
+X	if (str) {
+X		dup = my_malloc (strlen (str)+1);
+X		strcpy (dup, str);
+X	}
+X	return dup;
+X}
+X
+X
+Xint invoke_cmd (nam)
+X	char *nam;
+X{
+X	int ret;
+X	int time_remaining;
+X	
+X#ifdef SIGTSTP
+X	sigtype_t (*susp)() = (sigtype_t *) 0;
+X#endif
+X#ifndef NO_RESYNC_ACTIVE_FILE
+X	time_remaining = alarm (0);	/* save time remaining on alarm clock */
+X#endif
+X
+X	EndWin ();
+X	Raw (FALSE);
+X
+X#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		susp = signal(SIGTSTP, SIG_DFL);
+X#endif
+X
+X	ret = system (nam);
+X
+X#ifdef SIGTSTP
+X	if (do_sigtstp)
+X		signal (SIGTSTP, susp);
+X#endif
+X
+X	Raw (TRUE);
+X	InitWin ();
+X
+X#ifndef NO_RESYNC_ACTIVE_FILE
+X	alarm (time_remaining);	/* restart resync alarm clock */
+X#endif
+X	
+X	return ret == 0;
+X}
+X
+X
+Xvoid draw_percent_mark (cur_num, max_num)
+X	int cur_num;
+X	int max_num;
+X{
+X	char buf[32];
+X	int percent = 0;
+X
+X	if (NOTESLINES <= 0) {
+X		return;
+X	}
+X
+X	if (cur_num <= 0 && max_num <= 0) {
+X		return;
+X	}
+X		
+X	percent = cur_num * 100 / max_num;
+X	sprintf (buf, "%s(%d%%) [%d/%d]", txt_more, percent, cur_num, max_num);
+X	MoveCursor (LINES, (COLS - (int) strlen (buf))-(1+BLANK_PAGE_COLS));
+X	StartInverse ();	
+X	fputs (buf, stdout);
+X	fflush (stdout);
+X	EndInverse ();
+X}
+X
+Xvoid set_real_uid_gid ()
+X{
+X	if (local_index)
+X		return;
+X
+X	umask (real_umask);
+X	
+X#if defined(BSD) && ! defined(sinix)
+X#ifdef sun
+X	if (seteuid (real_uid) == -1) {
+X		perror_message ("Error setreuid(real) failed", "");
+X	}
+X	if (setegid (real_gid) == -1) {
+X		perror_message ("Error setregid(real) failed", "");
+X	}
+X#else
+X	if (setreuid (tin_uid, real_uid) == -1) {
+X		perror_message ("Error setreuid(real) failed", "");
+X	}
+X	if (setregid (tin_gid, real_gid) == -1) {
+X		perror_message ("Error setregid(real) failed", "");
+X	}
+X#endif	/* sun */	
+X#else
+X	if (setuid (real_uid) == -1) {
+X		perror_message ("Error setuid(real) failed", "");
+X	}
+X	if (setgid (real_gid) == -1) {
+X		perror_message ("Error setgid(real) failed", "");
+X	}
+X#endif
+X}
+X
+X
+Xvoid set_tin_uid_gid ()
+X{
+X	if (local_index)
+X		return;
+X
+X	umask (real_umask);
+X	
+X#if defined(BSD) && ! defined(sinix)
+X#ifdef sun
+X	if (seteuid (tin_uid) == -1) {
+X		perror_message ("Error setreuid(real) failed", "");
+X	}
+X	if (setegid (tin_gid) == -1) {
+X		perror_message ("Error setregid(real) failed", "");
+X	}
+X#else
+X	if (setreuid (real_uid, tin_uid) == -1) {
+X		perror_message ("Error setreuid(tin) failed", "");
+X	}
+X	if (setregid (real_gid, tin_gid) == -1) {
+X		perror_message ("Error setregid(tin) failed", "");
+X	}
+X#endif	/* sun */	
+X#else
+X	if (setuid (tin_uid) == -1) {
+X		perror_message ("Error setuid(tin) failed", "");
+X	}
+X	if (setgid (tin_gid) == -1) {
+X		perror_message ("Error setgid(tin) failed", "");
+X	}
+X#endif
+X}
+X
+X
+Xvoid basename (dirname, program)
+X	char *dirname;		/* argv[0] */
+X	char *program;		/* progname is returned */
+X{
+X	int i;
+X	
+X	strcpy (program, dirname);
+X	
+X	for (i=(int) strlen (dirname)-1 ; i ; i--) {
+X		if (dirname[i] == '/') {
+X			strcpy (program, dirname+(i+1));
+X			break;
+X		}
+X	}
+X}
+X
+X
+X/*
+X *  Record size of mailbox so we can detect if new mail has arrived
+X */
+X
+Xvoid mail_setup ()
+X{
+X	struct stat buf;
+X
+X	mailbox_name = get_val ("MAIL", mailbox);
+X
+X	if (stat (mailbox_name, &buf) >= 0) {
+X		mailbox_size = buf.st_size;
+X	} else {
+X		mailbox_size = 0;
+X	}
+X}
+X
+X/*
+X *  Return TRUE if new mail has arrived
+X */
+X
+Xint mail_check ()
+X{
+X	struct stat buf;
+X
+X	if (mailbox_name != (char *) 0 &&
+X		stat(mailbox_name, &buf) >= 0 &&
+X		mailbox_size < buf.st_size) {
+X		return TRUE;
+X	}
+X
+X	return FALSE;
+X}
+X
+X/*
+X *  Parse various From: lines into the component mail addresses and
+X *  real names
+X */
+X
+Xvoid parse_from (str, addr, name)
+X	char *str;
+X	char *addr;
+X	char *name;
+X{
+X	register int c;
+X	register char *cp, *ncp;
+X	int gotlt, lastsp, level;
+X
+X	gotlt = 0;
+X	lastsp = 0;
+X	cp = addr;
+X	ncp = name;
+X	while (*str == ' ')
+X		++str;
+X	while (c = *str++)
+X		switch (c) {
+X		case '(':
+X			ncp = name;
+X			level = 1;
+X			while (*str != '\0' && level) {
+X				switch (c = *str++) {
+X					case '(':
+X						*ncp++ = c;
+X						level++;
+X						break;
+X					case ')':
+X						level--;
+X						if (level > 0)
+X							*ncp++ = c;
+X						break;
+X					default:
+X						if (c != '"') {	/* IL */
+X							*ncp++ = c;
+X						}	
+X						break;
+X				}
+X			}
+X			if (*str)
+X				str++;
+X			lastsp = 0;
+X			break;
+X		case ' ':
+X			if (str[0] == 'a' && str[1] == 't' && str[2] == ' ')
+X				str += 3, *cp++ = '@';
+X			else if (str[0] == '@' && str[1] == ' ')
+X				str += 2, *cp++ = '@';
+X			else
+X				lastsp = 1;
+X			if (ncp > name)
+X				*ncp++ = ' ';
+X			break;
+X		case '<':
+X			cp = addr;
+X			gotlt++;
+X			lastsp = 0;
+X			break;
+X		case '>':
+X			if (gotlt)
+X				goto done;
+X			/* FALL THROUGH CASE */
+X		default:
+X			if (lastsp) {
+X				lastsp = 0;
+X				*cp++ = ' ';
+X			}
+X			*cp++ = c;
+X			if (! gotlt)
+X				*ncp++ = c;
+X			break;
+X		}
+Xdone:
+X	*cp = 0;
+X	while (ncp>name && ncp[-1]==' ')
+X		--ncp;
+X	*ncp = 0;
+X	if (*addr == '@') {
+X		char buf [512];
+X
+X		strcpy (buf, addr);
+X		strcpy (addr, "root");
+X		strcat (addr, buf);
+X	}
+X}
+X
+X/*
+X *  Convert a string to a long, only look at first n characters
+X */
+X
+Xlong my_atol (s, n)
+X	char *s;
+X	int n;
+X{
+X	long ret = 0;
+X
+X	while (*s && n--) {
+X		if (*s >= '0' && *s <= '9')
+X			ret = ret * 10 + (*s - '0');
+X		else
+X			return -1;
+X		s++;
+X	}
+X
+X	return ret;
+X}
+X
+X/*
+X *  strcmp that ignores case
+X */
+X
+X#define FOLD_TO_UPPER(a)	(islower ((int) (a)) ? toupper ((int) (a)) : (a))
+X
+Xint my_stricmp (p, q)
+X	char *p;
+X	char *q;
+X{
+X	for (; FOLD_TO_UPPER (*p) == FOLD_TO_UPPER (*q); ++p, ++q) {
+X		if (*p == '\0') {
+X			return (0);
+X		}
+X	}		
+X
+X	return (FOLD_TO_UPPER (*p) - FOLD_TO_UPPER (*q));
+X}
+X
+X/*
+X *  Return a pointer into s eliminating any leading Re:'s.  Example:
+X *
+X *	  Re: Reorganization of misc.jobs
+X *	  ^   ^
+X */
+X
+Xchar *eat_re (s)
+X	char *s;
+X{
+X
+X	while (*s == 'r' || *s == 'R') {
+X		if ((*(s+1) == 'e' || *(s+1) == 'E')) {
+X			if (*(s+2) == ':')
+X				s += 3;
+X			else if (*(s+2) == '^' && isdigit(*(s+3)) && *(s+4) == ':')
+X				s += 5;			/* hurray nn */
+X			else
+X				break;
+X		} else
+X			break;
+X		while (*s == ' ')
+X			s++;
+X	}
+X
+X	return s;
+X}
+X
+X/*
+X *  Hash the subjects (after eating the Re's off) for a quicker
+X *  thread search later.  We store the hashes for subjects in the
+X *  index file for speed.
+X */
+X
+Xlong hash_s (s)
+X	char *s;
+X{
+X	long h = 0;
+X	unsigned char *t = (unsigned char *) s;
+X
+X	while (*t)
+X		h = h * 64 + *t++;
+X
+X	return h;
+X}
+X
+X/*
+X *  strncpy that stops at a newline and null terminates
+X */
+X
+Xvoid my_strncpy (p, q, n)
+X	char *p;
+X	char *q;
+X	int n;
+X{
+X	while (n--) {
+X		if (! *q || *q == '\n')
+X			break;
+X		*p++ = *q++;
+X	}
+X	*p = '\0';
+X}
+X
+X
+Xint untag_all_articles ()
+X{
+X	int untagged = FALSE;
+X	register int i;
+X
+X	for (i=0 ; i < top ; i++) {
+X		if (arts[i].tagged) {
+X			arts[i].tagged = FALSE;
+X			untagged = TRUE;
+X		}
+X	}
+X	num_of_tagged_arts = 0;
+X
+X	return (untagged);
+X}
+X
+X
+X/*
+X * ANSI C strstr () - Uses Boyer-Moore algorithm.
+X */
+X 
+Xchar *str_str (text, pattern, patlen)
+X	char *text;
+X	char *pattern;
+X	int patlen;
+X{
+X	register unsigned char *p, *t;
+X	register int i, p1, j, *delta;
+X	int deltaspace[256];
+X	int textlen;
+X
+X	textlen = strlen (text);
+X
+X	/* algorithm fails if pattern is empty */
+X	if ((p1 = patlen) == 0)
+X		return (text);
+X
+X	/* code below fails (whenever i is unsigned) if pattern too long */
+X	if (p1 > textlen)
+X		return (NULL);
+X
+X	/* set up deltas */
+X	delta = deltaspace;
+X	for (i = 0; i <= 255; i++)
+X		delta[i] = p1;
+X	for (p = (unsigned char *) pattern, i = p1; --i > 0;)
+X		delta[*p++] = i;
+X
+X	/*
+X	 * From now on, we want patlen - 1.
+X	 * In the loop below, p points to the end of the pattern,
+X	 * t points to the end of the text to be tested against the
+X	 * pattern, and i counts the amount of text remaining, not
+X	 * including the part to be tested.
+X	 */
+X	p1--;
+X	p = (unsigned char *) pattern + p1;
+X	t = (unsigned char *) text + p1;
+X	i = textlen - patlen;
+X	for (;;) {
+X		if (*p == *t && memcmp ((p - p1), (t - p1), p1) == 0)
+X			return ((char *)t - p1);
+X		j = delta[*t];
+X		if (i < j)
+X			break;
+X		i -= j;
+X		t += j;
+X	}
+X	return (NULL);
+X}
+X
+X
+X
+Xvoid get_author (thread, respnum, str)
+X	int thread;
+X	int respnum;
+X	char *str;
+X{	
+X	extern int threaded_on_subject;
+X	int author;
+X/*
+X	int len_from = max_from;
+X
+X	if (thread) {
+X		if (threaded_on_subject) {
+X			len_from = max_subj+max_from;
+X		} else {
+X			len_from = max_from;
+X		}
+X		author = SHOW_FROM_BOTH;
+X	} else {
+X		author = show_author;
+X	} 
+X*/
+X	if (thread) {
+X		if (threaded_on_subject) {
+X			author = SHOW_FROM_BOTH;
+X		} else {
+X			author = show_author;
+X		}
+X	} else {
+X		author = show_author;
+X	} 
+X	
+X	switch (author) { 
+X		case SHOW_FROM_NONE:
+X			str[0] = '\0';
+X			break;
+X		case SHOW_FROM_ADDR:
+X			strcpy (str, arts[respnum].from);
+X			break;
+X		case SHOW_FROM_NAME:
+X			strcpy (str, arts[respnum].name);
+X			break;
+X		case SHOW_FROM_BOTH:
+X			if (arts[respnum].name != arts[respnum].from) { 
+X				sprintf (str, "%s (%s)", arts[respnum].name, arts[respnum].from);
+X			} else { 
+X				strcpy (str, arts[respnum].from);
+X			}
+X			break;
+X	}
+X}
+X
+X
+Xvoid toggle_inverse_video ()
+X{
+X	inverse_okay = !inverse_okay;
+X	if (inverse_okay) {
+X#ifndef USE_INVERSE_HACK	
+X		draw_arrow_mark = FALSE;
+X#endif		
+X		info_message (txt_inverse_on);
+X	} else {
+X		draw_arrow_mark = TRUE;
+X		info_message (txt_inverse_off);
+X	}
+X}
+X
+X
+Xint get_arrow_key ()
+X{
+X	int ch;
+X	
+X	ch = ReadCh ();
+X	if (ch == '[' || ch == 'O')
+X		ch = ReadCh();
+X	switch (ch) {
+X		case 'A':
+X		case 'D':
+X		case 'i':
+X			return KEYMAP_UP;
+X
+X		case 'B':
+X		case 'C':
+X			return KEYMAP_DOWN;
+X
+X		case 'I':		/* ansi  PgUp */
+X		case 'V':		/* at386 PgUp */
+X		case 'S':		/* 97801 PgUp */
+X		case 'v':		/* emacs style */
+X			return KEYMAP_PAGE_UP;
+X
+X		case 'G':		/* ansi  PgDn */
+X		case 'U':		/* at386 PgDn */
+X		case 'T':		/* 97801 PgDn */
+X			return KEYMAP_PAGE_DOWN;
+X
+X		case 'H':		/* at386  Home */
+X			return KEYMAP_HOME;
+X					
+X		case 'F':		/* ansi   End */
+X		case 'Y':		/* at386  End */
+X			return KEYMAP_END;
+X
+X		case '5':		/* vt200 PgUp */
+X			ch = ReadCh ();	/* eat the ~  */
+X			return KEYMAP_PAGE_UP;
+X
+X		case '6':		/* vt200 PgUp */
+X			ch = ReadCh ();	/* eat the ~  */
+X			return KEYMAP_PAGE_DOWN;
+X
+X		case '1':		/* vt200 PgUp */
+X			ch = ReadCh ();	/* eat the ~  */
+X			return KEYMAP_HOME;
+X					
+X		case '4':		/* vt200 PgUp */
+X			ch = ReadCh ();	/* eat the ~  */
+X			return KEYMAP_END;
+X
+X		default:
+X			return KEYMAP_UNKNOWN;
+X	}
+X}
+END_OF_FILE
+  if test 15398 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+  fi
+  # end of 'misc.c'
+fi
+if test -f 'nntplib.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nntplib.c'\"
+else
+  echo shar: Extracting \"'nntplib.c'\" \(14882 characters\)
+  sed "s/^X//" >'nntplib.c' <<'END_OF_FILE'
+X/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : nntplib.c
+X *  Author    : S.Barber & I.Lea
+X *  Created   : 12-01-91
+X *  Updated   : 06-05-92
+X *  Notes     : NNTP client routines taken from clientlib.c v1.6
+X *              1.5.11 (10 February 1991)
+X *  Copyright : (c) Copyright 1991-92 by Stan Barber & Iain Lea
+X *              Permission is hereby granted to copy, reproduce, redistribute
+X *              or otherwise use this software  as long as: there is no
+X *              monetary  profit  gained  specifically  from the use or
+X *              reproduction or this software, it is not  sold, rented,
+X *              traded or otherwise marketed, and this copyright notice
+X *              is included prominently in any copy made. 
+X */
+X
+X#ifdef NNTP_ONLY
+X#	define	NNTP_ABLE
+X#endif
+X
+X#include <stdio.h>
+X
+X#ifndef CDROM_ABLE
+X
+XFILE	*ser_rd_fp = NULL;
+XFILE	*ser_wr_fp = NULL;
+X
+X#ifdef NNTP_ABLE
+X#	ifdef apollo
+X#		include </bsd4.3/usr/include/sys/types.h>
+X#	else
+X#		include <sys/types.h>
+X#	endif
+X#	include <ctype.h>
+X#	ifdef TLI
+X#		include	<fcntl.h>
+X#		include	<tiuser.h>
+X#		include	<stropts.h>
+X#		include	<sys/socket.h>
+X#		ifdef WIN_TCP
+X#			include	<sys/in.h>
+X#		else
+X#			include	<netinet/in.h>
+X#		endif
+X#		define	IPPORT_NNTP	((unsigned short) 119)
+X#		include 	<netdb.h>	/* All TLI implementations may not have this */
+X#	else
+X#		ifdef apollo
+X#			include </bsd4.3/usr/include/sys/socket.h>
+X#			include </bsd4.3/usr/include/netinet/in.h>
+X#			include </bsd4.3/usr/include/netdb.h>
+X#		else
+X#			include <sys/socket.h>
+X#			include <netinet/in.h>
+X#			ifndef EXCELAN
+X#				include <netdb.h>
+X#			endif
+X#		endif
+X#	endif /* !TLI */
+X
+X#	ifndef BSD
+X#		define	index(a,b)	strchr(a,b)
+X#		define	bcopy(a,b,c)	memcpy(b,a,c)
+X#		define	bzero(a,b)	memset(a,'\0',b)
+X#	endif
+X
+X#	ifdef EXCELAN
+X#		define	IPPORT_NNTP	((unsigned short) 119)
+X#		if __STDC__
+X			int connect (int, struct sockaddr *);
+X			unsigned short htons (unsigned short);
+X			unsigned long rhost (char **);
+X			int rresvport (int);
+X			int socket (int, struct sockproto *, struct sockaddr_in *, int);
+X#		endif
+X#	endif
+X
+X#	ifdef DECNET
+X#		include <netdnet/dn.h>
+X#		include <netdnet/dnetdb.h>
+X#	endif
+X
+X#	include "nntplib.h"
+X
+X
+X#endif /* NNTP_ABLE */
+X
+X/*
+X * getserverbyfile	Get the name of a server from a named file.
+X *			Handle white space and comments.
+X *			Use NNTPSERVER environment variable if set.
+X *
+X *	Parameters:	"file" is the name of the file to read.
+X *
+X *	Returns:	Pointer to static data area containing the
+X *			first non-ws/comment line in the file.
+X *			NULL on error (or lack of entry in file).
+X *
+X *	Side effects:	None.
+X */
+X
+Xchar *getserverbyfile (file)
+X	char	*file;
+X{
+X#ifdef NNTP_ABLE
+X	extern int debug;
+X	register FILE	*fp;
+X	register char	*cp;
+X	static char	buf[256];
+X
+X	if (debug == 1) {
+X		wait_message ("USING BUILTIN NNTP");
+X	}
+X	
+X	if (cp = (char *) getenv ("NNTPSERVER")) {
+X		(void) strcpy (buf, cp);
+X		return (buf);
+X	}
+X
+X	if (file == NULL)
+X		return (NULL);
+X
+X	if ((fp = fopen (file, "r")) == NULL)
+X		return (NULL);
+X
+X	while (fgets (buf, sizeof (buf), fp) != NULL) {
+X		if (*buf == '\n' || *buf == '#') {
+X			continue;
+X		}
+X		cp = (char *) index(buf, '\n');
+X		if (cp) {
+X			*cp = '\0';
+X		}
+X		(void) fclose (fp);
+X		return (buf);
+X	}
+X
+X	(void) fclose (fp);
+X#endif /* NNTP_ABLE */
+X	return (NULL);			 /* No entry */
+X}
+X
+X/*
+X * server_init  Get a connection to the remote news server.
+X *
+X *	Parameters:	"machine" is the machine to connect to.
+X *
+X *	Returns:	-1 on error
+X *			server's initial response code on success.
+X *
+X *	Side effects:	Connects to server.
+X *			"ser_rd_fp" and "ser_wr_fp" are fp's
+X *			for reading and writing to server.
+X */
+X
+Xint server_init (machine)
+X	char	*machine;
+X{
+X#ifdef NNTP_ABLE
+X	int	sockt_rd, sockt_wr;
+X	char	line[256];
+X#ifdef DECNET
+X	char	*cp;
+X
+X	cp = (char *) index(machine, ':');
+X
+X	if (cp && cp[1] == ':') {
+X		*cp = '\0';
+X		sockt_rd = get_dnet_socket (machine);
+X	} else {
+X		sockt_rd = get_tcp_socket (machine);
+X	}
+X#else
+X	sockt_rd = get_tcp_socket (machine);
+X#endif
+X
+X	if (sockt_rd < 0)
+X		return (-1);
+X
+X	/*
+X	 * Now we'll make file pointers (i.e., buffered I/O) out of
+X	 * the socket file descriptor.  Note that we can't just
+X	 * open a fp for reading and writing -- we have to open
+X	 * up two separate fp's, one for reading, one for writing.
+X	 */
+X
+X	if ((ser_rd_fp = (FILE *) fdopen (sockt_rd, "r")) == NULL) {
+X		perror ("server_init: fdopen #1");
+X		return (-1);
+X	}
+X
+X	sockt_wr = dup (sockt_rd);
+X#ifdef TLI
+X	if (t_sync (sockt_rd) < 0) {	/* Sync up new fd with TLI */
+X    		t_error ("server_init: t_sync");
+X		ser_rd_fp = NULL;		/* from above */
+X		return (-1);
+X	}
+X#endif
+X	if ((ser_wr_fp = (FILE *) fdopen (sockt_wr, "w")) == NULL) {
+X		perror ("server_init: fdopen #2");
+X		ser_rd_fp = NULL;		/* from above */
+X		return (-1);
+X	}
+X
+X	/*
+X	 * Now get the server's signon message
+X	 */
+X
+X	(void) get_server (line, sizeof (line));
+X	return (atoi (line));
+X#else
+X	return (-1);
+X#endif /* NNTP_ABLE */
+X}
+X
+X/*
+X * get_tcp_socket -- get us a socket connected to the news server.
+X *
+X *	Parameters:	"machine" is the machine the server is running on.
+X *
+X *	Returns:	Socket connected to the news server if
+X *			all is ok, else -1 on error.
+X *
+X *	Side effects:	Connects to server.
+X *
+X *	Errors:		Printed via perror.
+X */
+X
+Xint get_tcp_socket (machine)
+X	char	*machine;	/* remote host */
+X{
+X#ifdef NNTP_ABLE
+X	int	s = -1;
+X	struct	sockaddr_in sin;
+X#ifdef TLI 
+X	struct	hostent *gethostbyname (), *hp;
+X	struct	t_call	*callptr;
+X
+X	/*
+X	 * Create a TCP transport endpoint.
+X	 */
+X	if ((s = t_open ("/dev/tcp", O_RDWR, (struct t_info*) 0)) < 0){
+X		t_error ("t_open: can't t_open /dev/tcp");
+X		return (-1);
+X	}
+X	if (t_bind (s, (struct t_bind *) 0, (struct t_bind *) 0) < 0) {
+X	   	t_error ("t_bind");
+X		t_close (s);
+X		return (-1);
+X	}
+X	bzero((char *) &sin, sizeof (sin));	
+X	sin.sin_family = AF_INET;
+X	sin.sin_port = htons (IPPORT_NNTP);
+X	if (!isdigit(*machine) ||
+X	    (long)(sin.sin_addr.s_addr = inet_addr (machine)) == -1) {
+X		if((hp = gethostbyname (machine)) == NULL) {
+X			fprintf (stderr, "gethostbyname: %s: host unknown\n", machine);
+X			t_close (s);
+X			return (-1);
+X		}
+X		bcopy(hp->h_addr, (char *) &sin.sin_addr, hp->h_length);
+X	}
+X	
+X	/*
+X	 * Allocate a t_call structure and initialize it.
+X	 * Let t_alloc() initialize the addr structure of the t_call structure.
+X	 */
+X	if ((callptr = (struct t_call *) t_alloc (s,T_CALL,T_ADDR)) == NULL){
+X		t_error ("t_alloc");
+X		t_close (s);
+X		return (-1);
+X	}
+X
+X	callptr->addr.maxlen = sizeof (sin);
+X	callptr->addr.len = sizeof (sin);
+X	callptr->addr.buf = (char *) &sin;
+X	callptr->opt.len = 0;			/* no options */
+X	callptr->udata.len = 0;			/* no user data with connect */
+X
+X	/*
+X	 * Connect to the server.
+X	 */
+X	if (t_connect (s, callptr, (struct t_call *) 0) < 0) {
+X		t_error ("t_connect");
+X		t_close (s);
+X		return (-1);
+X	}
+X
+X	/*
+X	 * Now replace the timod module with the tirdwr module so that
+X	 * standard read() and write() system calls can be used on the
+X	 * descriptor.
+X	 */
+X
+X	if (ioctl (s,  I_POP,  (char *) 0) < 0) {
+X		perror ("I_POP(timod)");
+X		t_close (s);
+X		return (-1);
+X	}
+X
+X	if (ioctl (s,  I_PUSH, "tirdwr") < 0) {
+X		perror ("I_PUSH(tirdwr)");
+X		t_close (s);
+X		return (-1);
+X	}
+X	
+X#else /* !TLI */
+X#ifndef EXCELAN
+X	struct	servent *getservbyname(), *sp;
+X	struct	hostent *gethostbyname(), *hp;
+X#ifdef h_addr
+X	int	x = 0;
+X	register char **cp;
+X	static char *alist[1];
+X#endif /* h_addr */
+X	unsigned long inet_addr();
+X	static struct hostent def;
+X	static struct in_addr defaddr;
+X	static char namebuf[256];
+X
+X	if ((sp = getservbyname ("nntp", "tcp")) ==  NULL) {
+X		fprintf (stderr, "nntp/tcp: Unknown service.\n");
+X		return (-1);
+X	}
+X	/* If not a raw ip address, try nameserver */
+X	if (!isdigit(*machine) ||
+X	    (long)(defaddr.s_addr = inet_addr (machine)) == -1)
+X		hp = gethostbyname (machine);
+X	else {
+X		/* Raw ip address, fake  */
+X		(void) strcpy (namebuf, machine);
+X		def.h_name = namebuf;
+X#ifdef h_addr
+X		def.h_addr_list = alist;
+X#endif
+X		def.h_addr = (char *) &defaddr;
+X		def.h_length = sizeof (struct in_addr);
+X		def.h_addrtype = AF_INET;
+X		def.h_aliases = 0;
+X		hp = &def;
+X	}
+X	if (hp == NULL) {
+X		fprintf (stderr, "%s: Unknown host.\n", machine);
+X		return (-1);
+X	}
+X
+X	bzero((char *) &sin, sizeof (sin));
+X	sin.sin_family = hp->h_addrtype;
+X	sin.sin_port = sp->s_port;
+X#else /* EXCELAN */
+X	bzero((char *) &sin, sizeof (sin));
+X	sin.sin_family = AF_INET;
+X#endif /* EXCELAN */
+X
+X	/*
+X	 * The following is kinda gross.  The name server under 4.3
+X	 * returns a list of addresses, each of which should be tried
+X	 * in turn if the previous one fails.  However, 4.2 hostent
+X	 * structure doesn't have this list of addresses.
+X	 * Under 4.3, h_addr is a #define to h_addr_list[0].
+X	 * We use this to figure out whether to include the NS specific
+X	 * code...
+X	 */
+X
+X#ifdef h_addr
+X	/*
+X	 * get a socket and initiate connection -- use multiple addresses
+X	 */
+X
+X	for (cp = hp->h_addr_list; cp && *cp; cp++) {
+X		s = socket (hp->h_addrtype, SOCK_STREAM, 0);
+X		if (s < 0) {
+X			perror ("socket");
+X			return (-1);
+X		}
+X		bcopy(*cp, (char *) &sin.sin_addr, hp->h_length);
+X		
+X		if (x < 0) {
+X			fprintf (stderr, "trying %s\n", (char *) inet_ntoa (sin.sin_addr));
+X		}
+X		x = connect (s, (struct sockaddr *) &sin, sizeof (sin));
+X		if (x == 0) {
+X			break;
+X		}
+X		fprintf (stderr, "connection to %s: ", (char *) inet_ntoa (sin.sin_addr));
+X		perror ("");
+X		(void) close (s);
+X	}
+X	if (x < 0) {
+X		fprintf (stderr, "giving up...\n");
+X		return (-1);
+X	}
+X#else	/* no name server */
+X#ifdef EXCELAN
+X	if ((s = socket (SOCK_STREAM,(struct sockproto *)NULL,&sin,SO_KEEPALIVE)) < 0) {
+X		/* Get the socket */
+X		perror ("socket");
+X		return (-1);
+X	}
+X	bzero((char *) &sin, sizeof (sin));
+X	sin.sin_family = AF_INET;
+X	sin.sin_port = htons (IPPORT_NNTP);
+X	/* set up addr for the connect */
+X
+X	if ((sin.sin_addr.s_addr = rhost (&machine)) == -1) {
+X		fprintf (stderr, "%s: Unknown host.\n", machine);
+X		return (-1);
+X	}
+X	/* And then connect */
+X
+X	if (connect (s, (struct sockaddr *)&sin) < 0) {
+X		perror ("connect");
+X		(void) close (s);
+X		return (-1);
+X	}
+X#else /* not EXCELAN */
+X	if ((s = socket (AF_INET, SOCK_STREAM, 0)) < 0) {
+X		perror ("socket");
+X		return (-1);
+X	}
+X
+X	/* And then connect */
+X
+X	bcopy (hp->h_addr, (char *) &sin.sin_addr, hp->h_length);
+X	if (connect (s, (struct sockaddr *) &sin, sizeof (sin)) < 0) {
+X		perror ("connect");
+X		(void) close (s);
+X		return (-1);
+X	}
+X
+X#endif /* !EXCELAN */
+X#endif /* !h_addr */
+X#endif /* !TLI */
+X	return (s);
+X#else
+X	return (-1);
+X#endif /* NNTP_ABLE */
+X}
+X
+X#ifdef DECNET
+X/*
+X * get_dnet_socket -- get us a socket connected to the news server.
+X *
+X *	Parameters:	"machine" is the machine the server is running on.
+X *
+X *	Returns:	Socket connected to the news server if
+X *			all is ok, else -1 on error.
+X *
+X *	Side effects:	Connects to server.
+X *
+X *	Errors:		Printed via nerror.
+X */
+X
+Xint get_dnet_socket (machine)
+X	char	*machine;
+X{
+X#ifdef NNTP_ABLE
+X	int	s, area, node;
+X	struct	sockaddr_dn sdn;
+X	struct	nodeent *getnodebyname(), *np;
+X
+X	bzero((char *) &sdn, sizeof (sdn));
+X
+X	switch (s = sscanf (machine, "%d%*[.]%d", &area, &node)) {
+X		case 1: 
+X			node = area;
+X			area = 0;
+X		case 2: 
+X			node += area*1024;
+X			sdn.sdn_add.a_len = 2;
+X			sdn.sdn_family = AF_DECnet;
+X			sdn.sdn_add.a_addr[0] = node % 256;
+X			sdn.sdn_add.a_addr[1] = node / 256;
+X			break;
+X		default:
+X			if ((np = getnodebyname (machine)) == NULL) {
+X				fprintf (stderr, "%s: Unknown host.\n", machine);
+X				return (-1);
+X			} else {
+X				bcopy(np->n_addr, (char *) sdn.sdn_add.a_addr, np->n_length);
+X				sdn.sdn_add.a_len = np->n_length;
+X				sdn.sdn_family = np->n_addrtype;
+X			}
+X			break;
+X	}
+X	sdn.sdn_objnum = 0;
+X	sdn.sdn_flags = 0;
+X	sdn.sdn_objnamel = strlen ("NNTP");
+X	bcopy("NNTP", &sdn.sdn_objname[0], sdn.sdn_objnamel);
+X
+X	if ((s = socket (AF_DECnet, SOCK_STREAM, 0)) < 0) {
+X		nerror ("socket");
+X		return (-1);
+X	}
+X
+X	/* And then connect */
+X
+X	if (connect (s, (struct sockaddr *) &sdn, sizeof (sdn)) < 0) {
+X		nerror ("connect");
+X		close (s);
+X		return (-1);
+X	}
+X
+X	return (s);
+X#else
+X	return (-1);
+X#endif /* NNTP_ABLE */
+X}
+X#endif
+X
+X/*
+X * handle_server_response
+X *
+X *	Print some informative messages based on the server's initial
+X *	response code.  This is here so inews, rn, etc. can share
+X *	the code.
+X *
+X *	Parameters:	"response" is the response code which the
+X *			server sent us, presumably from "server_init",
+X *			above.
+X *			"nntpserver" is the news server we got the
+X *			response code from.
+X *
+X *	Returns:	-1 if the error is fatal (and we should exit).
+X *			0 otherwise.
+X *
+X *	Side effects:	None.
+X */
+X
+Xint handle_server_response (response, nntpserver)
+X	int	response;
+X	char	*nntpserver;
+X{
+X#ifdef NNTP_ABLE
+X	switch (response) {
+X		case OK_NOPOST:		/* fall through */
+X   		 	printf ("NOTE: This machine does not have permission to post articles.\n");
+X			printf ("      Please don't waste your time trying.\n\n");
+X
+X		case OK_CANPOST:
+X			return (0);
+X			break;
+X
+X		case ERR_ACCESS:
+X			printf ("This machine does not have permission to use the %s news server.\n", nntpserver);
+X			return (-1);
+X			break;
+X
+X		default:
+X			printf ("Unexpected response code from %s news server: %d\n",
+X				nntpserver, response);
+X			return (-1);
+X			break;
+X    }
+X	/*NOTREACHED*/
+X#else
+X	return (-1);
+X#endif /* NNTP_ABLE */
+X}
+X
+X/*
+X * put_server -- send a line of text to the server, terminating it
+X * with CR and LF, as per ARPA standard.
+X *
+X *	Parameters:	"string" is the string to be sent to the
+X *			server.
+X *
+X *	Returns:	Nothing.
+X *
+X *	Side effects:	Talks to the server.
+X *
+X *	Note:	This routine flushes the buffer each time
+X *			it is called.  For large transmissions
+X *			(i.e., posting news) don't use it.  Instead,
+X *			do the fprintf's yourself, and then a final
+X *			fflush.
+X */
+X
+Xvoid put_server (string)
+X	char *string;
+X{
+X#ifdef NNTP_ABLE
+X	fprintf (ser_wr_fp, "%s\r\n", string);
+X	(void) fflush (ser_wr_fp);
+X#endif /* NNTP_ABLE */
+X}
+X
+X/*
+X * get_server -- get a line of text from the server.  Strips
+X * CR's and LF's.
+X *
+X *	Parameters:	"string" has the buffer space for the
+X *			line received.
+X *			"size" is the size of the buffer.
+X *
+X *	Returns:	-1 on error, 0 otherwise.
+X *
+X *	Side effects:	Talks to server, changes contents of "string".
+X */
+X
+Xint get_server (string, size)
+X	char	*string;
+X	int	size;
+X{
+X#ifdef NNTP_ABLE
+X	register char *cp;
+X
+X	if (fgets (string, size, ser_rd_fp) == NULL) {
+X		return (-1);
+X	}
+X
+X	if ((cp = (char *) index(string, '\r')) != NULL) {
+X		*cp = '\0';
+X	} else if ((cp = (char *) index(string, '\n')) != NULL) {
+X		*cp = '\0';
+X	}
+X
+X	return (0);
+X#else
+X	return (-1);
+X#endif /* NNTP_ABLE */
+X}
+X
+X/*
+X * close_server -- close the connection to the server, after sending
+X *		the "quit" command.
+X *
+X *	Parameters:	None.
+X *
+X *	Returns:	Nothing.
+X *
+X *	Side effects:	Closes the connection with the server.
+X *			You can't use "put_server" or "get_server"
+X *			after this routine is called.
+X */
+X
+Xvoid close_server ()
+X{
+X#ifdef NNTP_ABLE
+X	char	ser_line[256];
+X
+X	if (ser_wr_fp == NULL || ser_rd_fp == NULL)
+X		return;
+X
+X	put_server ("QUIT");
+X	(void) get_server (ser_line, sizeof (ser_line));
+X
+X	(void) fclose (ser_wr_fp);
+X	(void) fclose (ser_rd_fp);
+X#endif /* NNTP_ABLE */
+X}
+X
+X#endif /* CDROM_ABLE */
+X
+END_OF_FILE
+  if test 14882 -ne `wc -c <'nntplib.c'`; then
+    echo shar: \"'nntplib.c'\" unpacked with wrong size!
+  fi
+  # end of 'nntplib.c'
+fi
+if test -f 'wildmat.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'wildmat.c'\"
+else
+  echo shar: Extracting \"'wildmat.c'\" \(4798 characters\)
+  sed "s/^X//" >'wildmat.c' <<'END_OF_FILE'
+X/*  $Revision: 1.5 $
+X**
+X**  Do shell-style pattern matching for ?, \, [], and * characters.
+X**  Might not be robust in face of malformed patterns; e.g., "foo[a-"
+X**  could cause a segmentation violation.  It is 8bit clean.
+X**
+X**  Written by Rich $alz, mirror!rs, Wed Nov 26 19:03:17 EST 1986.
+X**  Rich $alz is now <rsalz@bbn.com>.
+X**  April, 1991:  Replaced mutually-recursive calls with in-line code
+X**  for the star character.
+X**
+X**  Special thanks to Lars Mathiesen <thorinn@diku.dk> for the ABORT code.
+X**  This can greatly speed up failing wildcard patterns.  For example:
+X**	pattern: -*-*-*-*-*-*-12-*-*-*-m-*-*-*
+X**	text 1:	 -adobe-courier-bold-o-normal--12-120-75-75-m-70-iso8859-1
+X**	text 2:	 -adobe-courier-bold-o-normal--12-120-75-75-X-70-iso8859-1
+X**  Text 1 matches with 51 calls, while text 2 fails with 54 calls.  Without
+X**  the ABORT, then it takes 22310 calls to fail.  Ugh.  The following
+X**  explanation is from Lars:
+X**  The precondition that must be fulfilled is that DoMatch will consume
+X**  at least one character in text.  This is true if *p is neither '*' nor
+X**  '\0'.)  The last return has ABORT instead of FALSE to avoid quadratic
+X**  behaviour in cases like pattern "*a*b*c*d" with text "abcxxxxx".  With
+X**  FALSE, each star-loop has to run to the end of the text; with ABORT
+X**  only the last one does.
+X**
+X**  Once the control of one instance of DoMatch enters the star-loop, that
+X**  instance will return either TRUE or ABORT, and any calling instance
+X**  will therefore return immediately after (without calling recursively
+X**  again).  In effect, only one star-loop is ever active.  It would be
+X**  possible to modify the code to maintain this context explicitly,
+X**  eliminating all recursive calls at the cost of some complication and
+X**  loss of clarity (and the ABORT stuff seems to be unclear enough by
+X**  itself).  I think it would be unwise to try to get this into a
+X**  released version unless you have a good test data base to try it out
+X**  on.
+X*/
+X
+X#define TRUE			1
+X#define FALSE			0
+X#define ABORT			-1
+X
+X
+X    /* What character marks an inverted character class? */
+X#define NEGATE_CLASS		'^'
+X    /* Is "*" a common pattern? */
+X#define OPTIMIZE_JUST_STAR
+X    /* Do tar(1) matching rules, which ignore a trailing slash? */
+X#undef MATCH_TAR_PATTERN
+X
+X
+X/*
+X**  Match text and p, return TRUE, FALSE, or ABORT.
+X*/
+Xstatic int
+XDoMatch(text, p)
+X    register char	*text;
+X    register char	*p;
+X{
+X#ifndef INDEX_DAEMON
+X
+X    register int	last;
+X    register int	matched;
+X    register int	reverse;
+X
+X    for ( ; *p; text++, p++) {
+X	if (*text == '\0' && *p != '*')
+X	    return ABORT;
+X	switch (*p) {
+X	case '\\':
+X	    /* Literal match with following character. */
+X	    p++;
+X	    /* FALLTHROUGH */
+X	default:
+X	    if (*text != *p)
+X		return FALSE;
+X	    continue;
+X	case '?':
+X	    /* Match anything. */
+X	    continue;
+X	case '*':
+X	    while (*++p == '*')
+X		/* Consecutive stars act just like one. */
+X		continue;
+X	    if (*p == '\0')
+X		/* Trailing star matches everything. */
+X		return TRUE;
+X	    while (*text)
+X		if ((matched = DoMatch(text++, p)) != FALSE)
+X		    return matched;
+X	    return ABORT;
+X	case '[':
+X	    reverse = p[1] == NEGATE_CLASS ? TRUE : FALSE;
+X	    if (reverse)
+X		/* Inverted character class. */
+X		p++;
+X	    matched = FALSE;
+X	    if (p[1] == ']' || p[1] == '-')
+X		if (*++p == *text)
+X		    matched = TRUE;
+X	    for (last = *p; *++p && *p != ']'; last = *p)
+X		/* This next line requires a good C compiler. */
+X		if (*p == '-' && p[1] != ']'
+X		    ? *text <= *++p && *text >= last : *text == *p)
+X		    matched = TRUE;
+X	    if (matched == reverse)
+X		return FALSE;
+X	    continue;
+X	}
+X    }
+X
+X#ifdef	MATCH_TAR_PATTERN
+X    if (*text == '/')
+X	return TRUE;
+X#endif	/* MATCH_TAR_ATTERN */
+X    return *text == '\0';
+X
+X#endif	/* INDEX_DAEMON */
+X}
+X
+X
+X/*
+X**  User-level routine.  Returns TRUE or FALSE.
+X*/
+Xint
+Xwildmat(text, p)
+X    char	*text;
+X    char	*p;
+X{
+X#ifdef	OPTIMIZE_JUST_STAR
+X    if (p[0] == '*' && p[1] == '\0')
+X	return TRUE;
+X#endif	/* OPTIMIZE_JUST_STAR */
+X    return DoMatch(text, p) == TRUE;
+X}
+X
+X
+X
+X#ifdef	TEST
+X#include <stdio.h>
+X
+X/* Yes, we use gets not fgets.  Sue me. */
+Xextern char	*gets();
+X
+X
+Xmain()
+X{
+X    char	 p[80];
+X    char	 text[80];
+X
+X    printf("Wildmat tester.  Enter pattern, then strings to test.\n");
+X    printf("A blank line gets prompts for a new pattern; a blank pattern\n");
+X    printf("exits the program.\n");
+X
+X    for ( ; ; ) {
+X	printf("\nEnter pattern:  ");
+X	(void)fflush(stdout);
+X	if (gets(p) == NULL || p[0] == '\0')
+X	    break;
+X	for ( ; ; ) {
+X	    printf("Enter text:  ");
+X	    (void)fflush(stdout);
+X	    if (gets(text) == NULL)
+X		exit(0);
+X	    if (text[0] == '\0')
+X		/* Blank line; go back and get a new pattern. */
+X		break;
+X	    printf("      %s\n", wildmat(text, p) ? "YES" : "NO");
+X	}
+X    }
+X
+X    exit(0);
+X    /* NOTREACHED */
+X}
+X#endif	/* TEST */
+END_OF_FILE
+  if test 4798 -ne `wc -c <'wildmat.c'`; then
+    echo shar: \"'wildmat.c'\" unpacked with wrong size!
+  fi
+  # end of 'wildmat.c'
+fi
+echo shar: End of archive 10 \(of 14\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

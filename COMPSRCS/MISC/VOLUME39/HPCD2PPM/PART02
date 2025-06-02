@@ -1,0 +1,1745 @@
+Newsgroups: comp.sources.misc
+From: danisch@ira.uka.de (Hadmut Danisch)
+Subject: v39i003:  hpcdtoppm - convert Photo-CD file into portable pixmap v0.5pl1, Part02/03
+Message-ID: <1993Aug16.204116.22146@sparky.sterling.com>
+X-Md4-Signature: 9eb24718dfa213dc0029dd2a77ee9aba
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 16 Aug 1993 20:41:16 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: danisch@ira.uka.de (Hadmut Danisch)
+Posting-number: Volume 39, Issue 3
+Archive-name: hpcdtoppm/part02
+Environment: Photo-CD
+Supersedes: hpcdtoppm: Volume 34, Issue 83
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  hpcdtoppm.0.5.pl1/Makefile hpcdtoppm.0.5.pl1/error.c
+#   hpcdtoppm.0.5.pl1/format.c hpcdtoppm.0.5.pl1/hpcdtoppm.man
+#   hpcdtoppm.0.5.pl1/output.c hpcdtoppm.0.5.pl1/pcdindex
+#   hpcdtoppm.0.5.pl1/postscr.c
+# Wrapped by kent@sparky on Mon Aug 16 10:49:23 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'hpcdtoppm.0.5.pl1/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/Makefile'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/Makefile'\" \(472 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/Makefile' <<'END_OF_FILE'
+X#
+X#
+X# Use the hpcdtoppm procedures for writing ppm and pgm
+XVFLAGS= -DOWN_WRITE
+XVLIBS=
+X# Use the pbmplus procedures for writing ppm and pgm
+X#VFLAGS=
+X#VLIBS= libpbm.a libpgm.a libppm.a
+X#
+X#
+XCC=	gcc 
+XCFLAGS=	-O4 -ansi -Wall ${VFLAGS} 
+XINCL=	hpcdtoppm.h config.h
+XOBJ=	main.o output.o color.o format.o tools.o error.o \
+X	ppm.o postscr.o const.o
+XCOMPILE=${CC} ${CFLAGS}  -c
+X#
+Xhpcdtoppm: ${OBJ}
+X	${CC} -o hpcdtoppm ${OBJ} ${VLIBS}
+X#
+X${OBJ}: ${$@:.o=.c} ${INCL}
+X	${COMPILE} ${*}.c
+END_OF_FILE
+  if test 472 -ne `wc -c <'hpcdtoppm.0.5.pl1/Makefile'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/Makefile'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/error.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/error.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/error.c'\" \(8903 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/error.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X#define X(a,b) ((a == b) ? "->" : "  ")
+X
+Xvoid eerror(enum ERRORS e,char *file,int line)
+X {
+X  
+X  switch(e)
+X   {case E_NONE:   return;
+X    case E_IMP:    fprintf(stderr,"Sorry, Not yet implemented. [%s:%d]\n",file,line); break;
+X    case E_READ:   fprintf(stderr,"Error while reading.\n"); break;
+X    case E_WRITE:  fprintf(stderr,"Error while writing.\n"); break;
+X    case E_INTERN: fprintf(stderr,"Internal error. [%s:%d]\n",file,line); break;
+X    case E_ARG:    fprintf(stderr,"Error in Arguments !\n\n"); 
+X#ifdef SHORT_HELP
+X                   fprintf(stderr,"Usage: hpcdtoppm [options] pcd-file [ppm-file]\n");
+X                   fprintf(stderr,"       ( - means stdin )\n");
+X                   fprintf(stderr,"Opts:         [ -> = Default ] \n\n");
+X                   fprintf(stderr,"   [-x] [-s] [-d] [-i] [-m]\n");
+X                   fprintf(stderr,"   [-crop] [-pos] [-rep] [-vert] [-hori] [-S h v]\n");
+X                   fprintf(stderr,"   [-n] [-r] [-l] [-h] [-a]\n");
+X                   fprintf(stderr,"   [-ppm] [-pgm] [-ycc] [-ps] [-eps] [-psg] [-epsg] [-psd] [-epsd]\n");
+X                   fprintf(stderr,"   [-pl f] [-pb f] [-pw f] [-ph f] [-dpi f] [-fak f]\n");
+X                   fprintf(stderr,"   [-c0] [-c-] [-c+]\n");
+X                   fprintf(stderr,"   [-0] [-C d s] [-1] [-2] [-3] [-4] [-5]\n");
+X
+X#endif
+X#ifdef LONG_HELP
+X                   fprintf(stderr,"Usage: hpcdtoppm [options] pcd-file [ppm-file]\n");
+X                   fprintf(stderr,"       ( - means stdin )\n");
+X                   fprintf(stderr,"Opts:         [ -> = Default ] \n\n");
+X
+X                   fprintf(stderr,"     -x     Overskip mode (tries to improve color quality.)\n");
+X                   fprintf(stderr,"     -s     Apply simple sharpness-operator on the Luma-channel.\n");
+X                   fprintf(stderr,"     -d     Show differential picture only.\n");
+X                   fprintf(stderr,"     -i     Give some (buggy) informations from fileheader.\n");
+X                   fprintf(stderr,"     -m     Show the decoding steps to stderr.\n");
+X                   fprintf(stderr,"     -crop  Try to cut off the black frame.\n");
+X                   fprintf(stderr,"     -pos   Print file position of image to stderr.\n");
+X                   fprintf(stderr,"     -rep   Try to jump over defects in the Huffman Code.\n");
+X                   fprintf(stderr,"     -vert  Flip image vert.\n");
+X                   fprintf(stderr,"     -hori  Flip image horiz.\n");
+X                   fprintf(stderr,"     -S h v Decode subrectangle with hori. and vert. boundaries h,v,\n");
+X                   fprintf(stderr,"            h,v of the form a-b or a+b, a and b integer or float [0.0...1.0]\n");
+X                   fprintf(stderr,"\n");
+X
+X                   fprintf(stderr," %s  -n     Don't rotate.\n",                                 X(T_DEFAULT,T_NONE));
+X                   fprintf(stderr," %s  -r     Rotate clockwise for portraits.\n" ,              X(T_DEFAULT,T_RIGHT));
+X                   fprintf(stderr," %s  -l     Rotate counter-clockwise for portraits.\n",       X(T_DEFAULT,T_LEFT));
+X                   fprintf(stderr," %s  -h     Rotate twice, turn on head.\n",                   X(T_DEFAULT,T_HEAD));
+X                   fprintf(stderr," %s  -a     Try to find out orientation automatically.\n",    X(T_DEFAULT,T_AUTO));
+X                   fprintf(stderr,"\n");
+X
+X                   fprintf(stderr," %s  -ppm   output rgb  (ppm-format). \n",                    X(O_DEFAULT,O_PPM));
+X                   fprintf(stderr," %s  -pgm   output gray (pgm-format). \n",                    X(O_DEFAULT,O_PGM));
+X                   fprintf(stderr," %s  -ycc   output ycc  (ppm-format). \n",                    X(O_DEFAULT,O_YCC));
+X                   fprintf(stderr," %s  -ps    output postscript (rgb). \n",                     X(O_DEFAULT,O_PS));
+X                   fprintf(stderr," %s  -eps   output encapsulated postscript (rgb). \n",        X(O_DEFAULT,O_EPS));
+X                   fprintf(stderr," %s  -psg   output postscript (grayscale). \n",               X(O_DEFAULT,O_PSG));
+X                   fprintf(stderr," %s  -epsg  output encapsulated postscript (grayscale). \n",  X(O_DEFAULT,O_EPSG));
+X                   fprintf(stderr," %s  -psd   output postscript (b&w dithered). \n",            X(O_DEFAULT,O_PSG));
+X                   fprintf(stderr," %s  -epsd  output encapsulated postscript (b&w dithered).\n",X(O_DEFAULT,O_EPSG));
+X                   fprintf(stderr,"     -pl  f Postscript paper left position    [ Def:  %8.3f ]\n",DEF_PAPER_LEFT);
+X                   fprintf(stderr,"     -pb  f Postscript paper bottom position  [ Def:  %8.3f ]\n",DEF_PAPER_BOTTOM);
+X                   fprintf(stderr,"     -pw  f Postscript paper width            [ Def:  %8.3f ]\n",DEF_PAPER_WIDTH);
+X                   fprintf(stderr,"     -ph  f Postscript paper height           [ Def:  %8.3f ]\n",DEF_PAPER_HEIGHT);
+X                   fprintf(stderr,"     -dpi f Postscript resolution for dith.   [ Def:  %8.3f ]\n",DEF_DPI);
+X                   fprintf(stderr,"     -fak f Scaling factor for dith.          [ Def:     1.0   ]\n");
+X                   fprintf(stderr,"\n");
+X
+X                   fprintf(stderr," %s  -c0    don't correct (linear).\n", X(C_DEFAULT,C_LINEAR));
+X                   fprintf(stderr," %s  -c-    correct darker.\n",         X(C_DEFAULT,C_DARK));
+X                   fprintf(stderr," %s  -c+    correct brighter.\n",       X(C_DEFAULT,C_BRIGHT));
+X                   fprintf(stderr,"\n");
+X
+X                   fprintf(stderr," %s  -0     Extract thumbnails from Overview file.\n",        X(S_DEFAULT,S_Over));
+X                   fprintf(stderr," %s  -C d s Extract contact sheet from Overview file, d images width,\n",X(S_DEFAULT,S_Contact)); 
+X                   fprintf(stderr,"            with contact sheet orientation s ( one of n l r h).\n");
+X                   fprintf(stderr," %s  -1     Extract  128x192   from Image file.\n",           X(S_DEFAULT,S_Base16));
+X                   fprintf(stderr," %s  -2     Extract  256x384   from Image file.\n",           X(S_DEFAULT,S_Base4));
+X                   fprintf(stderr," %s  -3     Extract  512x768   from Image file.\n",           X(S_DEFAULT,S_Base));
+X                   fprintf(stderr," %s  -4     Extract 1024x1536  from Image file.\n",           X(S_DEFAULT,S_4Base));
+X                   fprintf(stderr," %s  -5     Extract 2048x3072  from Image file.\n",           X(S_DEFAULT,S_16Base));
+X                   fprintf(stderr,"\n");
+X#endif
+X                   break;
+X    case E_OPT:    fprintf(stderr,"These Options are not allowed together.\n");break;
+X    case E_MEM:    fprintf(stderr,"Not enough memory !\n"); break;
+X    case E_HUFF:   fprintf(stderr,"Error in Huffman-Code-Table\n"); break;
+X    case E_SEQ:    fprintf(stderr,"Error in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ1:   fprintf(stderr,"Error1 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ2:   fprintf(stderr,"Error2 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ3:   fprintf(stderr,"Error3 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ4:   fprintf(stderr,"Error4 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ5:   fprintf(stderr,"Error5 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ6:   fprintf(stderr,"Error6 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_SEQ7:   fprintf(stderr,"Error7 in Huffman-Sequence, try option -rep\n"); break;
+X    case E_POS:    fprintf(stderr,"Error in file-position\n"); break;
+X    case E_OVSKIP: fprintf(stderr,"Can't read this resolution in overskip-mode\n"); break;
+X    case E_TAUTO:  fprintf(stderr,"Can't determine the orientation in overview mode\n");break;
+X    case E_SUBR:   fprintf(stderr,"Error in Subrectangle Parameters\n");break;
+X    case E_PRPAR:  fprintf(stderr,"Bad printing parameters\n");break;
+X    case E_CONFIG: fprintf(stderr,"Something is wrong with your configuration [see %s:%d]\n",file,line);
+X                   fprintf(stderr,"Edit the config.h and recompile...\n"); break;
+X    case E_TCANT:  fprintf(stderr,"Sorry, can't determine orientation for this file.\n");
+X                   fprintf(stderr,"Please give orientation parameters. \n");break;
+X    default:       fprintf(stderr,"Unknown error %d ???  [%s:%d]\n",e,file,line);break;
+X   }
+X  close_all();
+X  exit(9);
+X }
+X
+X
+END_OF_FILE
+  if test 8903 -ne `wc -c <'hpcdtoppm.0.5.pl1/error.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/error.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/error.c'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/format.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/format.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/format.c'\" \(11918 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/format.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X
+Xstruct pcdquad { uBYTE len,highseq,lowseq,key;};
+Xstruct pcdhqt  { uBYTE entries; struct pcdquad entry[256];};
+Xstruct myhqt   { uINT seq,mask,len; uBYTE key; };
+X
+Xstatic struct myhqt myhuff0[256],myhuff1[256],myhuff2[256];
+Xstatic sINT          myhufflen0=0,myhufflen1=0,myhufflen2=0;
+X
+X
+X
+X
+Xstatic void readhqtsub(struct pcdhqt *quelle,struct myhqt *ziel,sINT *anzahl)
+X#define E ((uINT) 1)
+X {sINT i;
+X  struct pcdquad *sub;
+X  struct myhqt *help;
+X  *anzahl=(quelle->entries)+1;
+X
+X  for(i=0;i<*anzahl;i++)
+X   {sub = (struct pcdquad *)(((uBYTE *)quelle)+1+i*sizeof(*sub));
+X    help=ziel+i;
+X
+X    help->seq = (((uINT) sub->highseq) << 24) |(((uINT) sub->lowseq) << 16);
+X    help->len = ((uINT) sub->len) +1;
+X    help->key = sub->key;
+X
+X#ifdef DEBUGhuff
+X   fprintf(stderr," Anz: %d A1: %08x  A2: %08x X:%02x %02x %02x %02x Seq:  %08x   Laenge:  %d %d\n",
+X          *anzahl,(uINT)sbuffer,(uINT)sub,
+X          ((uBYTE *)sub)[0],((uBYTE *)sub)[1],((uBYTE *)sub)[2],((uBYTE *)sub)[3],
+X          help->seq,help->len,sizeof(uBYTE));
+X#endif
+X
+X    if(help->len > 16) error(E_HUFF);
+X
+X    help->mask = ~ ( (E << (32-help->len)) -1); 
+X
+X  }
+X#ifdef DEBUG
+X  for(i=0;i<*anzahl;i++)
+X   {help=ziel+i;
+X    fprintf(stderr,"H: %3d  %08lx & %08lx (%2d) = %02x = %5d  %8x\n",
+X        i, help->seq,help->mask,help->len,help->key,(signed char)help->key,
+X        help->seq & (~help->mask));
+X   }
+X#endif
+X
+X#undef E
+X}
+X
+X
+X
+X
+X
+X
+X
+Xvoid readhqt(sINT n)
+X {
+X  uBYTE *ptr;
+X
+X  melde("readhqt\n");
+X  EREADBUF;
+X  ptr = sbuffer;
+X
+X  readhqtsub((struct pcdhqt *)ptr,myhuff0,&myhufflen0);
+X
+X  if(n<2) return;
+X  ptr+= 1 + 4* myhufflen0;
+X  readhqtsub((struct pcdhqt *)ptr,myhuff1,&myhufflen1);
+X
+X  if(n<3) return;
+X  ptr+= 1 + 4* myhufflen1;
+X  readhqtsub((struct pcdhqt *)ptr,myhuff2,&myhufflen2);
+X
+X}
+X
+X
+X
+X
+X
+X
+X
+X#ifdef FASTHUFF
+X
+Xstatic struct myhqt *HTAB0[0x10000],*HTAB1[0x10000],*HTAB2[0x10000];
+X
+Xstatic void inithuff(sINT hlen,struct myhqt *ptr,struct myhqt *TAB[])
+X {sINT i,n;
+X  sINT seq,len;
+X  struct myhqt *help;
+X
+X  for(i=0;i<0x10000;i++) TAB[i]=0;
+X
+X  for(n=0;n<hlen;n++)
+X   {help=ptr+n;
+X    seq=(help->seq)>>16;
+X    len=help->len;
+X
+X    for(i=0;i<(1<<(16-len));i++)
+X      TAB[seq | i] = help;
+X   }
+X }
+X#endif
+X
+X
+X
+X
+Xstatic char *pn[]={"Luma Channel","Chroma1 Channel","Chroma2 Channel"};
+X
+X
+Xvoid decode(sizeinfo *si,int fak,implane *f,implane *f1,implane *f2,sINT autosync)
+X {dim w,h,hoff,hlen,hende,voff,vlen,vende,anfang,ende;
+X  sINT htlen,sum,do_inform,part;
+X  uINT sreg,maxwidth;
+X  uINT inh,n,zeile,segment,ident;
+X  struct myhqt *hp;
+X
+X  uBYTE *nptr;
+X  uBYTE *lptr;
+X
+X#define nextbuf  {  nptr=sbuffer; if(READBUF<1) { if(!do_rep) error(E_READ); \
+X                                                  fprintf(stderr,"Read error\n"); \
+X                                                  return; } }
+X#define checkbuf { if (nptr >= sbuffer + sizeof(sbuffer)) nextbuf; }
+X
+X#ifdef U_TOO_LONG
+X#define shiftreg(n) sreg = (sreg<< n ) & 0xffffffff;
+X#else
+X#define shiftreg(n) sreg<<=n;
+X#endif
+X
+X#define shiftout(n){ shiftreg(n); inh-=n; \
+X                     while (inh<=24) \
+X                      {checkbuf; \
+X                       sreg |= ((uINT)(*(nptr++)))<<(24-inh);\
+X                       inh+=8;\
+X                      }\
+X                    }  
+X#define issync     ((sreg & 0xffffff00) == 0xfffffe00) 
+X#define brutesync  ((sreg & 0x00fff000) == 0x00fff000) 
+X#define seeksync { while (!brutesync) shiftout(8); while (!issync) shiftout(1);}
+X
+X#ifdef FASTHUFF
+X  struct myhqt **HTAB;
+X  HTAB=0;
+X  inithuff(myhufflen0,myhuff0,HTAB0);
+X  inithuff(myhufflen1,myhuff1,HTAB1);
+X  inithuff(myhufflen2,myhuff2,HTAB2);
+X#define SETHUFF0 HTAB=HTAB0;
+X#define SETHUFF1 HTAB=HTAB1;
+X#define SETHUFF2 HTAB=HTAB2;
+X#define FINDHUFF(x) {x=HTAB[sreg>>16];}
+X
+X#else
+X
+X  sINT i;
+X  struct myhqt *htptr;
+X  htptr=0;
+X#define SETHUFF0 { htlen=myhufflen0 ; htptr = myhuff0 ; }
+X#define SETHUFF1 { htlen=myhufflen1 ; htptr = myhuff1 ; }
+X#define SETHUFF2 { htlen=myhufflen2 ; htptr = myhuff2 ; }
+X#define FINDHUFF(x)  {for(i=0, x=htptr;(i<htlen) && ((sreg & x ->mask)!= x->seq); i++,x++); \
+X                      if(i>=htlen) x=0;}
+X#endif
+X
+X  melde("decode\n");
+X  anfang=ende=0;
+X
+X  if(fak >= 0)
+X   {w   =si->w     *fak;
+X    h   =si->h     *fak;
+X    hoff=si->rdhoff*fak;  if(hoff & 1 ) error(E_INTERN);  /* Must be all even */
+X    hlen=si->rdhlen*fak;  if(hlen & 1 ) error(E_INTERN); hende=hlen+hoff;
+X    voff=si->rdvoff*fak;  if(voff & 1 ) error(E_INTERN);
+X    vlen=si->rdvlen*fak;  if(vlen & 1 ) error(E_INTERN); vende=vlen+voff;
+X   }
+X  else
+X   {fak = -fak;
+X    w   =si->w     /fak;
+X    h   =si->h     /fak;
+X    hoff=si->rdhoff/fak;  if(hoff & 1 ) error(E_INTERN);  /* Must be all even */
+X    hlen=si->rdhlen/fak;  if(hlen & 1 ) error(E_INTERN); hende=hlen+hoff; 
+X    voff=si->rdvoff/fak;  if(voff & 1 ) error(E_INTERN);
+X    vlen=si->rdvlen/fak;  if(vlen & 1 ) error(E_INTERN); vende=vlen+voff;
+X   }
+X
+X
+X  if( f  && ((! f->im) || ( f->iheight != vlen  ) ||  (f->iwidth != hlen  ))) error(E_INTERN);
+X  if( f1 && ((!f1->im) || (f1->iheight != vlen/2) || (f1->iwidth != hlen/2))) error(E_INTERN);
+X  if( f2 && ((!f2->im) || (f2->iheight != vlen/2) || (f2->iwidth != hlen/2))) error(E_INTERN);
+X
+X  htlen=sreg=maxwidth=0;
+X  zeile=0;
+X  nextbuf;
+X  inh=32;
+X  lptr=0;
+X  part=do_inform=0;
+X  shiftout(16);
+X  shiftout(16);
+X
+X  if(autosync) seeksync;
+X  
+X  if(!issync)
+X   { if(!do_rep) error(E_SEQ6);
+X     else 
+X      {fprintf(stderr,"Image does not start with synchron mark, seeking...\n");
+X       seeksync;
+X       do_inform=1;
+X      }
+X   }
+X
+X  n=0;
+X
+X  for(;;)
+X   {
+X    if (issync)
+X     {shiftout(24);
+X      ident=sreg>>16;
+X      shiftout(16);
+X
+X      zeile=(ident>>1) & 0x1fff;
+X      segment=ident>>14;
+X      if(do_inform) {fprintf(stderr,"Synchron mark found Line %d\n",zeile);do_inform=0;}
+X#ifdef DEBUG
+X      fprintf(stderr,"Id %4x Zeile: %6d Seg %3d Pix bisher: %5d  Position: %8lx+%5lx=%8x\n",
+X          ident,zeile,segment,n,bufpos,nptr-sbuffer,bufpos+nptr-sbuffer);
+X#endif
+X
+X
+X      if(lptr && (n!=maxwidth)) 
+X       {if(!do_rep)error(E_SEQ1);
+X        else fprintf(stderr,"Line %d in %s : wrong length of last line (%d)\n",zeile,pn[part],n);
+X       }
+X      n=0;
+X
+X      if(zeile==h) {RPRINT; return; }
+X      if(zeile >h) 
+X       { if(!do_rep) error(E_SEQ2);
+X         else 
+X          {fprintf(stderr,"Wrong line number %d, ignoring line\n",zeile);
+X           seeksync;
+X           n=maxwidth;
+X           do_inform=1;
+X          }
+X       }    
+X      else switch(segment)
+X       {
+X        case 1: if(!do_rep) error(E_SEQ3);
+X                fprintf(stderr,"Abnormal line tag in %d, interpreting as Luma tag\n",zeile);
+X        case 0: maxwidth=w;
+X                if((!f) && autosync) {seeksync; n=maxwidth; break;}
+X                if(!f) error(E_SEQ7);
+X                if((zeile<voff) || (zeile >= vende)) {seeksync; n=maxwidth; break;}
+X                anfang=hoff; ende=hende;
+X                lptr=f->im + (zeile-voff)*f->mwidth;
+X                SETHUFF0;
+X                part=0;
+X                break;
+X
+X        case 2: maxwidth=w>>1;
+X                if(!f1) return;
+X                /*if((!f1) && autosync) {seeksync; break;}*/
+X                if((zeile<voff) || (zeile >= vende)) {seeksync; n=maxwidth; break;}
+X                anfang=hoff>>1; ende=hende>>1;
+X                lptr=f1->im + ((zeile-voff)>>1)*f1->mwidth;
+X                SETHUFF1;
+X                part=1;
+X                break;
+X 
+X        case 3: maxwidth=w>>1;
+X                if(!f2) return;
+X                /*if((!f2) && autosync) {seeksync; break;}*/
+X                if((zeile<voff) || (zeile >= vende)) {seeksync; n=maxwidth; break;}
+X                anfang=hoff>>1; ende=hende>>1;
+X                lptr=f2->im + ((zeile-voff)>>1)*f2->mwidth;
+X                SETHUFF2;
+X                part=2;
+X                break;
+X
+X        default:error(E_SEQ3);
+X	}
+X     }
+X    else
+X     {
+X      if(!lptr)      error(E_SEQ6);
+X
+X      if(n>maxwidth) 
+X        {
+X#ifdef DEBUG
+X         fprintf(stderr,"Register: %08lx Pos: %08lx\n",sreg,bufpos+nptr-sbuffer);
+X#endif
+X         if (!do_rep) error(E_SEQ4);
+X         else { fprintf(stderr,"Missing synchron mark in %s line %d\n",pn[part],zeile);
+X                seeksync;
+X                do_inform=1;
+X                n=maxwidth;
+X              }
+X       }
+X      else
+X       {FINDHUFF(hp);
+X        if(!hp)
+X         { if(!do_rep) error(E_SEQ5);
+X           fprintf(stderr,"Unable to decode, ignoring rest of line\n");
+X           seeksync;
+X           n=maxwidth;
+X           do_inform=1;
+X         }
+X        else
+X         {if((n>= anfang) && (n<ende))
+X           {sum=((sINT)(*lptr)) + ((sBYTE)hp->key);
+X            NORM(sum);
+X            *(lptr++) = sum;
+X           }
+X
+X          n++; 
+X          shiftout(hp->len);
+X         }
+X       }
+X     }
+X
+X   }
+X
+X
+X#undef nextbuf  
+X#undef checkbuf 
+X#undef shiftout
+X#undef issync
+X#undef seeksync
+X
+X }
+X
+X
+X
+X
+Xenum ERRORS readplain(sizeinfo *si,int fak,implane *l,implane *c1,implane *c2)
+X {dim i,w,h,hoff,hlen,voff,vlen;
+X  uBYTE *pl=0,*pc1=0,*pc2=0;
+X
+X  melde("readplain\n");
+X
+X#ifdef DEBUG
+X  fprintf(stderr,"readplain %d %d %d %d %d %d %d\n",fak,si->w,si->h,si->rdhoff,si->rdhlen,si->rdvoff,si->rdvlen);
+X#endif
+X
+X  if(fak >= 0)
+X   {w   =si->w     *fak;
+X    h   =si->h     *fak;
+X    hoff=si->rdhoff*fak;  if(hoff & 1 ) error(E_INTERN);  /* Must be all even */
+X    hlen=si->rdhlen*fak;  if(hlen & 1 ) error(E_INTERN);
+X    voff=si->rdvoff*fak;  if(voff & 1 ) error(E_INTERN);
+X    vlen=si->rdvlen*fak;  if(vlen & 1 ) error(E_INTERN);
+X   }
+X  else
+X   {fak = -fak;
+X    w   =si->w     /fak;
+X    h   =si->h     /fak;
+X    hoff=si->rdhoff/fak;  if(hoff & 1 ) error(E_INTERN);  /* Must be all even */
+X    hlen=si->rdhlen/fak;  if(hlen & 1 ) error(E_INTERN);
+X    voff=si->rdvoff/fak;  if(voff & 1 ) error(E_INTERN);
+X    vlen=si->rdvlen/fak;  if(vlen & 1 ) error(E_INTERN);
+X   }
+X
+X
+X    
+X  if(l)
+X   { if ((l->mwidth<hlen) || (l->mheight<vlen) || (!l->im)) error(E_INTERN);
+X     l->iwidth=hlen;
+X     l->iheight=vlen;
+X     pl=l->im;
+X   }
+X
+X  if(c1)
+X   { if ((c1->mwidth<(hlen>>1)) || (c1->mheight<(vlen>>1)) || (!c1->im)) error(E_INTERN);
+X     c1->iwidth=hlen>>1;
+X     c1->iheight=vlen>>1;
+X     pc1=c1->im;
+X   }
+X
+X  if(c2)
+X   { if ((c2->mwidth<(hlen>>1)) || (c2->mheight<(vlen>>1)) || (!c2->im)) error(E_INTERN);
+X     c2->iwidth=hlen>>1;
+X     c2->iheight=vlen>>1;
+X     pc2=c2->im;
+X   }
+X
+X  if(voff) SKIPr(w*3*(voff>>1));
+X
+X  for(i=0;i<vlen>>1;i++)
+X   {
+X    if(pl)
+X     { if(hlen==w)
+X        {if(READ(pl,w)<1) return(E_READ);
+X         pl+= l->mwidth;
+X
+X         if(READ(pl,w)<1) return(E_READ);
+X         pl+= l->mwidth;
+X        }
+X       else
+X        {SKIPr(hoff);
+X
+X         if(READ(pl,hlen)<1) return(E_READ);
+X         pl+= l->mwidth;
+X         
+X         SKIPr(w-hlen);    /* w - hlen - hoff + hoff */ 
+X
+X         if(READ(pl,hlen)<1) return(E_READ);
+X         pl+= l->mwidth;
+X
+X         SKIPr(w-hoff-hlen);         
+X        }
+X     }
+X    else SKIPr(2*w);
+X     
+X    if(pc1)
+X     {
+X       if(hlen==w)
+X        {
+X         if(READ(pc1,w>>1)<1) return(E_READ);
+X         pc1+= c1->mwidth;
+X        }
+X       else
+X        {SKIPr((hoff)>>1);
+X         if(READ(pc1,hlen>>1)<1) return(E_READ);
+X         pc1+= c1->mwidth;
+X         SKIPr((w-hoff-hlen)>>1);
+X        }
+X     }
+X    else SKIPr(w>>1);
+X     
+X    if(pc2)
+X     {
+X       if(hlen==w)
+X        {
+X         if(READ(pc2,w>>1)<1) return(E_READ);
+X         pc2+= c2->mwidth;
+X        }
+X       else
+X        {SKIPr((hoff)>>1);
+X         if(READ(pc2,hlen>>1)<1) return(E_READ);
+X         pc2+= c2->mwidth;
+X         SKIPr((w-hoff-hlen)>>1);
+X        }
+X     }
+X    else SKIPr(w>>1);
+X
+X
+X   }
+X  RPRINT;
+X  return E_NONE;
+X }
+END_OF_FILE
+  if test 11918 -ne `wc -c <'hpcdtoppm.0.5.pl1/format.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/format.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/format.c'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/hpcdtoppm.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/hpcdtoppm.man'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/hpcdtoppm.man'\" \(6820 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/hpcdtoppm.man' <<'END_OF_FILE'
+X.TH hpcdtoppm 1 " 5 Aug 1993"
+X.IX hpcdtoppm
+X.SH NAME
+Xhpcdtoppm v0.5 pl1 - convert a Photo-CD file into a portable pixmap
+X.SH SYNOPSIS
+X.B hpcdtoppm
+X[options] pcd-file [ppm-file]
+X.SH DESCRIPTION
+XDecodes a Photo-CD Image file or Overview file.
+XImage files you can find on the Photo-CD in photo_cd/images, they are named
+Xas "imgnnnn.pcd", where nnnn is a 4-digit-number. The Overview file is at
+Xphoto_cd/overview.pcd . If there is no output filename given, output will be
+Xprinted to stdout. hpcdtoppm stands for "Hadmut's pcdtoppm" to make it
+Xdistinguishable in case someone else is building the same thing and
+Xcalling it pcdtoppm. Call hpcdtoppm without arguments to see the 
+Xdefaults values. If pcd-file is "-", the Photo-CD file is read from
+Xstdin.
+X.IX GIF
+X.SH OPTIONS
+X.TP
+X.B -x
+XOverskip Mode. Works on Base/16, Base/4, Base and 4Base. In Photo-CD
+Ximages the luma channel is stored in full resolution, the two chroma
+Xchannels are stored in half resolution only and have to be interpolated.
+XIn the Overskip Mode the chroma channels of the next higher resolution are
+Xtaken instead of interpolating. To see the difference, generate one ppm with
+Xand one ppm without this flag. Use pnmarith to generate the difference image
+Xof these two images. Call ppmhist for this difference or show it with xv
+X(push the HistEq button in the color editor).
+X.TP
+X.B -s
+XApply simple sharpness-operator on the Luma-channel.
+X.TP
+X.B -d
+XDo not show the complete image, but only the decompressed difference.
+XIt works only on the 4Base and the 16Base resolution. It does not
+Xhave any deeper sense, but it was simple to implement and it shows what
+Xcauses different sizes of image files.
+X.TP
+X.B -i
+XGive some information from the fileheader to stderr. It works only for 
+XImage files. (It is not working correctly, just printing some strings.)
+X.TP
+X.B -m
+XShow the phases of decoding to stderr.
+X.TP
+X.B -crop
+XTry to cut off the black frame which is sometimes scanned
+Xat the image borders. The image size shrinks.
+X.TP
+X.B -pos
+XPrint the file relative start position of the data for
+Xthe current resolution.
+X.TP
+X.B -rep
+XTry to jump over reading errors in Huffman code. 
+X.TP
+X.B -n
+XDon't rotate the image.
+X.TP
+X.B -r
+XRotate the picture clockwise for portraits.
+X.TP
+X.B -l
+XRotate the picture counter-clockwise for portraits.
+X.TP
+X.B -a
+XTry to find out the image orientation byself. This doesn't work
+Xfor overview files yet. It is very experimental and depends on
+Xone byte. Please tell me if it doesn't work.
+X.TP
+X.B -vert
+XVertical flip.
+X.TP
+X.B -hori
+XHorizontal flip.
+X.TP
+X.B -S h v
+XCut out subrectangle with boundaries h (longer side of the image) and
+Xv (shorter side). h and v are of the form a-b ( cut from a to b ) or
+Xa+b ( offset a, length b). a and b are integer (pixels) or float 
+X[0.0 ... 1.0] relative to the length of the side.
+X.TP
+X.B -ppm
+XWrite rgb image in ppm-format.
+X.TP
+X.B -pgm
+XWrite grayscale image in pgm-format.
+X.TP
+X.B -ycc
+XWrite ycc image in ppm-format.
+X.TP
+X.B -ps
+XWrite rgb image in postscript.
+X.TP
+X.B -eps
+XWrite rgb image in encapsulated postscript.
+X.TP
+X.B -psg
+XWrite grayscale image in postscript.
+X.TP
+X.B -epsg
+XWrite grayscale image in encapsulated postscript.
+X.TP
+X.B -psd
+XWrite a Floyd-Steinberg dithered image in postscript.
+XSee the Postscript section below.
+X.TP
+X.B -epsd
+XWrite a Floyd-Steinberg dithered image in encapsulated postscript.
+XSee the Postscript section below.
+X.TP
+X.B -pl f
+XSet left position of Postscript image to f.
+X.TP
+X.B -pb f
+XSet bottom position of Postscript image to f.
+X.TP
+X.B -pw f
+XSet width of Postscript image to f.
+X.TP
+X.B -ph f
+XSet height of Postscript image to f.
+X.TP
+X.B -dpi f
+XSet printer resolution for dithered postscript images. 
+XSee the Postscript section below.
+X.TP
+X.B -fak f
+XSets a scaling factor for dithered postscript images. 
+XSee the Postscript section below.
+X.TP
+X.B -c0
+XDon't correct the image.
+X.TP
+X.B -c-
+XDo a correction (darker). Hardware and taste dependend.
+X.TP
+X.B -c+
+XDo a correction (brighter). Hardware and taste dependend.
+X.TP
+X.B -1 | -Base/16 | -128x192
+XExtract the Base/16 size picture (size 128x192 pixels). Note that you
+Xcan only give one size option.
+X.TP
+X.B -2 | -Base/4 | -256x384
+XExtract the Base/4 size picture.
+X.TP
+X.B -3 | -Base | -512x768
+XExtract the Base size picture.
+X.TP
+X.B -4 | -4Base | -1024x1536
+XExtract the 4Base size picture.
+X.TP
+X.B -5 | -16Base | -2048x3072
+XExtract the 16Base size picture.
+X.TP
+X.B -0 | -Overview | -O
+XExtract all pictures from an Overview file. A ppmfilename must be given. If the
+Xgiven name is "foo", the files are named "foonnnn", where nnnn is a 4-digit number.
+XSince they are stored in Base/16 format, they are extracted in this format.
+X.TP
+X.B -C d s
+XExtract all pictures from an Overview file. A ppmfilename must be given. If the
+Xgiven name is "foo", the files are named "foonnnn", where nnnn is a 4-digit number.
+XSince they are stored in Base/16 format, they are extracted in this format. s is one
+Xof "n", "l" and "r" and determines the orientation of the contact sheet image.
+X
+X
+X.PP
+X
+X.SH POSTSCRIPT OUTPUT
+X
+XFor postscript output ( ps, eps, psg, epsg, psd, epsg ) you
+Xcan choose parameters for the resolution and placement on the paper.
+XThe default values are used if none of the following options is given.
+X
+XThe position of the image within the paper (down left corner) is changed
+Xwith the -pl and -pb option for all resolutions. The unit is 1/72 inch.
+X
+XFor color and grayscale postscript you can change the image size with
+Xthe -pw and -ph option (1/72 inch). Every image pixel is mapped onto one
+Xpostscript pixel.
+X
+XFor dithered postscript (-psd and -epsd) there are three options,
+Xthe image size (-pw and -ph), the printer resolution (-dpi) and
+Xa scaling factor (-fak). Since these values depend from each other,
+Xyou can not give more than two of these options. You should play with
+Xthese options to get the results you like. You will get pretty images
+Xif you use the -dpi and the -pw/-ph options together. Even if you
+Xuse the default values, the result will not be the same as without
+Xoptions. 
+X
+X
+X.PP
+X
+X.SH BUGS
+Xhpcdtoppm seems to ignore the read protection. :-)
+XThe informations i have are quite vague and this program
+Xwas developed by staring at the hex-dumps and the famous 
+Xtrial-and-error-method. If anything
+Xdoesn't work, please send me a report and perhaps you could try to
+Xfind out, why it doesn't work.
+X.SH "SEE ALSO"
+Xppm(5), ppmquant(1), ppmtopgm(1), ppmhist(1), pnmarith(1), ppmtorgb3(1), xv(1)
+X.SH AUTHOR
+XCopyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+XPermission to use and distribute this software and its
+Xdocumentation for noncommercial use and without fee is hereby granted,
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in
+Xsupporting documentation. It is not allowed to sell this software in 
+Xany way. This software is not public domain.
+END_OF_FILE
+  if test 6820 -ne `wc -c <'hpcdtoppm.0.5.pl1/hpcdtoppm.man'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/hpcdtoppm.man'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/hpcdtoppm.man'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/output.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/output.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/output.c'\" \(5153 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/output.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X
+X
+X
+X
+Xstatic void flip_corr(dim w,dim h,uBYTE **ptr,sdim *ystep,sdim *xstep)
+X {if(flvert) 
+X   { (*ptr) += (h-1)* (*ystep);
+X     (*ystep) = -(*ystep);
+X   }
+X
+X  if(flhori)
+X   {(*ptr) += (w-1)* (*xstep);
+X    (*xstep) = -(*xstep);
+X   }
+X }
+X
+X
+X
+X
+Xstatic void call_1plane(OUT1PL proc, FILE *fout,
+X                        dim w,    dim h,uBYTE * ptr,
+X                        sdim zeil, sdim pix) 
+X {
+X  flip_corr(w,h,&ptr,&zeil,&pix);
+X  (*proc)(fout,w,h,ptr,zeil,pix);
+X }
+X
+X
+X
+Xstatic void do_1plane(OUT1PL proc, FILE *fout,
+X                      dim w,dim h,implane *g,enum TURNS t)
+X {
+X   switch(t)
+X    {case T_NONE: call_1plane(proc,fout,w,h,g->im,g->mwidth,1);
+X                  break;
+X     case T_RIGHT:call_1plane(proc,fout,h,w,g->im + g->mwidth * ( g->iheight - 1) , 1 , -(g->mwidth));
+X                  break;
+X     case T_LEFT: call_1plane(proc,fout,h,w,g->im + g->iwidth - 1 , -1 , (g->mwidth));
+X                  break; 
+X     case T_HEAD: call_1plane(proc,fout,w,h,g->im + g->iwidth - 1 + g->mwidth * ( g->iheight - 1)  , -(g->mwidth) , -1);
+X                  break;     
+X     default:error(E_INTERN);
+X    }
+X
+X }
+X
+X
+X
+X
+X
+X
+X
+Xstatic void call_3plane(OUT3PL proc, FILE *fout,  dim w,dim h, 
+X                        uBYTE *rptr,sdim rzeil,sdim rpix,  
+X                        uBYTE *gptr,sdim gzeil,sdim gpix,  
+X                        uBYTE *bptr,sdim bzeil,sdim bpix) 
+X {
+X  flip_corr(w,h,&rptr,&rzeil,&rpix);
+X  flip_corr(w,h,&gptr,&gzeil,&gpix);
+X  flip_corr(w,h,&bptr,&bzeil,&bpix);
+X
+X  (*proc)(fout,w,h,rptr,rzeil,rpix,gptr,gzeil,gpix,bptr,bzeil,bpix );
+X }
+X
+X
+Xstatic void do_3plane(OUT3PL proc,FILE *fout,dim w,dim h,
+X                      implane *r,implane *g,implane *b,
+X                      enum TURNS t)
+X {
+X   switch(t)
+X    {case T_NONE: call_3plane(proc,fout,w,h,r->im,r->mwidth,1,
+X                                            g->im,g->mwidth,1,
+X                                            b->im,b->mwidth,1);
+X                  break;     
+X     case T_RIGHT:call_3plane(proc,fout,h,w,r->im + r->mwidth * ( r->iheight - 1) , 1 , -(r->mwidth),
+X                                            g->im + g->mwidth * ( g->iheight - 1) , 1 , -(g->mwidth),
+X                                            b->im + b->mwidth * ( b->iheight - 1) , 1 , -(b->mwidth));
+X                  break;     
+X     case T_LEFT: call_3plane(proc,fout,h,w,r->im + r->iwidth - 1 , -1 , (r->mwidth),
+X                                            g->im + g->iwidth - 1 , -1 , (g->mwidth),
+X                                            b->im + b->iwidth - 1 , -1 , (b->mwidth));
+X                  break;           
+X     case T_HEAD: call_3plane(proc,fout,w,h,r->im + r->iwidth - 1 + r->mwidth * ( r->iheight - 1)  , -(r->mwidth) , -1,
+X                                            g->im + g->iwidth - 1 + g->mwidth * ( g->iheight - 1)  , -(g->mwidth) , -1,
+X                                            b->im + b->iwidth - 1 + b->mwidth * ( b->iheight - 1)  , -(b->mwidth) , -1);
+X                  break;     
+X     default:error(E_INTERN);
+X    }
+X
+X }
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xvoid writepicture(FILE *fout, sizeinfo *si, 
+X                  implane *r,implane *g,implane *b,
+X                  enum TURNS t)
+X {dim w,h;
+X
+X  w=si->imhlen;
+X  h=si->imvlen;
+X
+X  melde("writepicture\n");
+X     if((!r) || (r->iwidth != w ) || (r->iheight != h) || (!r->im)) error(E_INTERN);
+X  
+X  if(!monochrome)
+X   {
+X     if((!g) || (g->iwidth != w ) || (g->iheight != h) || (!g->im)) error(E_INTERN);
+X     if((!b) || (b->iwidth != w ) || (b->iheight != h) || (!b->im)) error(E_INTERN);
+X   }
+X
+X  switch(outfor)
+X   {case O_YCC:
+X    case O_PPM:  do_3plane(write_ppm     ,fout,w,h,r,g,b,t); break;
+X    case O_PS:   do_3plane(write_psrgb   ,fout,w,h,r,g,b,t); break;
+X    case O_EPS:  do_3plane(write_epsrgb  ,fout,w,h,r,g,b,t); break;
+X
+X    case O_PGM:  do_1plane(write_pgm     ,fout,w,h,r,t);     break;
+X    case O_PSG:  do_1plane(write_psgrey  ,fout,w,h,r,t);     break;
+X    case O_EPSG: do_1plane(write_epsgrey ,fout,w,h,r,t);     break;
+X    case O_PSD:  do_1plane(write_psdith  ,fout,w,h,r,t);     break;
+X    case O_EPSD: do_1plane(write_epsdith ,fout,w,h,r,t);     break;
+X    default: error(E_INTERN);
+X   }
+X
+X
+X }
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xstruct ph1 
+X {char  id1[8];
+X  uBYTE ww1[14];
+X  char  id2[20];
+X  char  id3[4*16+4];
+X  short ww2;
+X  char  id4[20];
+X  uBYTE ww3[2*16+1];
+X  char  id5[4*16];
+X  uBYTE idx[11*16];
+X } ;
+X
+X
+Xvoid druckeid(void)
+X{struct ph1 *d;
+X char ss[100];
+X
+X d=(struct ph1 *)sbuffer;
+X
+X#define dr(feld,kennung)   \
+X     strncpy(ss,feld,sizeof(feld));\
+X     ss[sizeof(feld)]=0;\
+X     fprintf(stderr,"%s: %s \n",kennung,ss);
+X
+X
+Xdr(d->id1,"Id1")
+Xdr(d->id2,"Id2")
+Xdr(d->id3,"Id3")
+Xdr(d->id4,"Id4")
+Xdr(d->id5,"Id5")
+X
+X#undef dr 
+X
+X}
+X
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 5153 -ne `wc -c <'hpcdtoppm.0.5.pl1/output.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/output.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/output.c'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/pcdindex' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/pcdindex'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/pcdindex'\" \(4832 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/pcdindex' <<'END_OF_FILE'
+X#!/bin/csh -f
+X#
+X# pcdindex - generate a single PPM file from a PCD overview file
+X#
+X# This script assumes that the PBMPLUS and hpcdtoppm software
+X# packages are installed, and that /tmp has enough space
+X# (worst case 150Kbyte per image).
+X# Based on pnmindex (PBMPLUS), which was written by Jef Poskanzer,
+X# this script makes also use of hpcdtoppm, written by Hadmut Danisch.
+X#
+X# A similar result can be achieved by using "hpcdtoppm -Overview"
+X# followed by "pnmindex -black" on the generated PPM images.
+X# This shell just makes it more convenient and transparent to
+X# convert from one PCD to one PPM overview file.
+X#
+X# Additional options (compared to pnmindex) are -maxwidth and
+X# -font <font>. See "man pbmtext" on how to create your own font.
+X#
+X# Pieter S. van der Meulen, 1992.
+X
+X# You may want to change the default values in the next 6 lines:
+Xset maxwidth=1152	# maximum width of the index image
+Xset size=192		# make the images about this big
+Xset across=6		# show this many images per row
+Xset colors="noquant"	# maximum amount of colors or noquant (no quantization)
+Xset back="-black"	# default background color
+Xset font=" "		# default font or none (pbmtext's internal font)
+X
+X# Parse the options
+Xwhile ( 1 )
+X    switch ( "$1" )
+X
+X	case -m*:
+X	if ( $#argv < 2 ) goto usage
+X	set maxwidth="$2"
+X	shift
+X	shift
+X	breaksw
+X
+X	case -s*:
+X	if ( $#argv < 2 ) goto usage
+X	set size="$2"
+X	shift
+X	shift
+X	breaksw
+X
+X	case -a*:
+X	if ( $#argv < 2 ) goto usage
+X	set across="$2"
+X	shift
+X	shift
+X	breaksw
+X
+X	case -c*:
+X	set colors="$2"
+X	shift
+X	shift
+X	breaksw
+X
+X	case -f*:
+X	set font="-font $2"
+X	shift
+X	shift
+X	breaksw
+X
+X	case -b*:
+X	set back="-black"
+X	shift
+X	breaksw
+X
+X	case -w*:
+X	set back="-white"
+X	shift
+X	breaksw
+X
+X	case -*:
+X	echo "$0 : Unknown option $1"
+X	echo " "
+X	goto usage
+X	breaksw
+X
+X	default:
+X	break
+X	breaksw
+X
+X    endsw
+Xend
+X
+Xif ( $#argv == 0 ) then
+X    goto usage
+Xendif
+X
+Xset tmpfile=/tmp/pi.tmp.$$
+Xrm -f $tmpfile
+Xtouch /tmp/img0001 # Avoid complaints about non matching
+Xrm -f /tmp/img*
+X
+Xset rowfiles=()
+Xset imagefiles=()
+X@ row = 1
+X@ col = 1
+X@ width = $size
+X
+X# Convert the PCD overview file to many PPM images
+Xif (-f $1) then
+X    hpcdtoppm -Overview $1 /tmp/img
+Xelse
+X    echo "$0 : Could not access $1"
+X    echo " "
+X    goto usage
+Xendif
+X
+Xforeach i ( /tmp/img* )
+X
+Xif (-f $i) then
+X    set description=`pnmfile $i`
+X    if ( $description[4] <= $size && $description[6] <= $size ) then
+X	cat $i > $tmpfile
+X    else
+X	    if ( $colors =~ n* ) then
+X		pnmscale -quiet -xysize $size $size $i > $tmpfile
+X	    else
+X		pnmscale -quiet -xysize $size $size $i | ppmquant -quiet $colors > $tmpfile
+X	    endif
+X    endif
+X    set imagefile=/tmp/pi.${row}.${col}.$$
+X    rm -f $imagefile
+X    set ttext=$i:t
+X    if ( "$back" == "-white" ) then
+X	pbmtext $font "$ttext" | pnmcrop -quiet | pnmmargin -white 2| pnmcat $back -tb $tmpfile - > $imagefile
+X    else
+X	pbmtext $font "$ttext" | pnmcrop -quiet | pnmmargin -white 2 | pnminvert | pnmcat $back -tb $tmpfile - > $imagefile
+X    endif
+X    rm -f $tmpfile
+X    set description=`pnmfile $imagefile`
+X    @ width += $description[4]
+X    set imagefiles=( $imagefiles $imagefile )
+X
+X    if (( $col >= $across ) || ( $width > $maxwidth)) then
+X	set rowfile=/tmp/pi.${row}.$$
+X	rm -f $rowfile
+X	if ( $colors =~ n* ) then
+X	    pnmcat $back -lr -jbottom $imagefiles > $rowfile
+X	else
+X	    pnmcat $back -lr -jbottom $imagefiles | ppmquant -quiet $colors > $rowfile
+X	endif
+X	rm -f $imagefiles
+X	set imagefiles=()
+X	set rowfiles=( $rowfiles $rowfile )
+X	@ col = 1
+X	@ row += 1
+X	@ width = $size
+X    else
+X	@ col += 1
+X    endif
+Xendif
+X
+Xend
+X
+Xif ( $#imagefiles > 0 ) then
+X    set rowfile=/tmp/pi.${row}.$$
+X    rm -f $rowfile
+X    if ( $colors =~ n* ) then
+X	pnmcat $back -lr -jbottom $imagefiles > $rowfile
+X    else
+X	pnmcat $back -lr -jbottom $imagefiles | ppmquant -quiet $colors > $rowfile
+X    endif
+X    rm -f $imagefiles
+X    set rowfiles=( $rowfiles $rowfile )
+Xendif
+X
+Xif ( $#rowfiles == 1 ) then
+X    cat $rowfiles
+Xelse
+X    if ( $colors =~ n* ) then
+X	pnmcat $back -tb $rowfiles
+X    else
+X	pnmcat $back -tb $rowfiles | ppmquant -quiet $colors
+X    endif
+Xendif
+Xrm -f $rowfiles
+Xrm -f /tmp/img*
+X
+Xexit 0
+X
+Xusage:
+X    echo "Usage: $0 [-m W] [-s S] [-a A] [-c N|n] [-f F] [-b|-w] <overview.pcd>"
+X    echo " with"
+X    echo "	W = maximum width of the result image	(default: $maxwidth)"
+X    echo "	S = maximum size of each of the images	(default: $size)"
+X    echo "	A = maximum number of images across	(default: $across)"
+X    echo "	N = maximum number of colors or noquant	(default: $colors)"
+X    echo -n "	F = font to be used for annotation  	(default: "
+X    if ( "$font" == " " ) then
+X	echo "internal font)"
+X    else
+X	echo "$font)"
+X    endif
+X    echo "	-b/-w = black/white background color	(default: $back)"
+X    echo " "
+X    echo " e.g.: $0 -m 768 -s 96 -f smallfont.pbm overview.pcd > overview.ppm"
+X    echo " or  : $0 /cdrom/photo_cd/overview.pcd | cjpeg > overview.jpg"
+Xexit 1
+X
+X
+END_OF_FILE
+  if test 4832 -ne `wc -c <'hpcdtoppm.0.5.pl1/pcdindex'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/pcdindex'\" unpacked with wrong size!
+  fi
+  chmod +x 'hpcdtoppm.0.5.pl1/pcdindex'
+  # end of 'hpcdtoppm.0.5.pl1/pcdindex'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/postscr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/postscr.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/postscr.c'\" \(10071 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/postscr.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X#define DITH_NEUTR 128
+X
+XFLTPT PAPER_LEFT    =DEF_PAPER_LEFT;
+XFLTPT PAPER_BOTTOM  =DEF_PAPER_BOTTOM;
+XFLTPT PAPER_WIDTH   =DEF_PAPER_WIDTH;
+XFLTPT PAPER_HEIGHT  =DEF_PAPER_HEIGHT;
+XFLTPT PRINTER_XDPI  =DEF_DPI;
+XFLTPT PRINTER_YDPI  =DEF_DPI;
+XFLTPT PRINTER_FAK   =1.0;
+XsINT  PSIZE_SET=0,DPI_SET=0,FAK_SET=0;
+X
+X
+Xstatic char pshdr[]="%%Creator: hpcdtoppm v0.5pl1\n";
+Xstatic char hex[]="0123456789ABCDEF";
+X#define HEX(x) {fputc(hex[((x)>>4)&0xf],fout);fputc(hex[(x)&0xf],fout);}
+X
+X
+X/* find an appropriate scaling coefficient and generate a ps header
+X * including a BoundingBox comment and a translate/scale sequence to 
+X * fit the pixw*pixh image into a square on paper with PS user coordinates 
+X * x,y,w,h 
+X */
+Xstatic void size_dependant(FILE *fout,sINT pixw,sINT pixh,
+X                           FLTPT x,FLTPT y,FLTPT w,FLTPT h)
+X{ FLTPT scale=(FLTPT)w/pixw,scaley=(FLTPT)h/pixh;
+X
+X  if(scale>scaley) scale=scaley;
+X  x+=w/2.0;y+=h/2.0;
+X  fprintf(fout,"%%%%BoundingBox: %.8g %.8g %.8g %.8g\n",
+X	 x-scale*pixw/2.0,y-scale*pixh/2.0,
+X	 x+scale*pixw/2.0,y+scale*pixh/2.0);
+X  fprintf(fout,"%s",pshdr);
+X  fputs("%%Pages: 1 1\n",fout);
+X
+X  if(pcdname) fprintf(fout,"%%%%Title: %s\n",pcdname);
+X  fputs("%%EndComments\n\n",fout);
+X
+X  fprintf(fout,"%f %f translate\n",x-scale*pixw/2.0,y-scale*pixh/2.0);
+X  fprintf(fout,"%f %f scale\n",scale*pixw,scale*pixh);
+X}
+X
+X
+X
+Xstatic void end_postscript(FILE *fout)
+X {
+X  fputs("%%EOF\n\n",fout);
+X }
+X
+X
+X
+X
+Xstatic void sub_psgrey(FILE *fout,dim w,dim h, uBYTE *ptr,sdim zeil,sdim pix)
+X{ dim x,y;
+X  register uBYTE *p;
+X  sINT c;
+X
+X  size_dependant(fout,w,h,PAPER_LEFT,PAPER_BOTTOM,PAPER_WIDTH,PAPER_HEIGHT);
+X  fprintf(fout,"%ld string\n",w);
+X  fprintf(fout,"%ld %ld 8\n",w,h);	/* always 8 bit per channel */
+X  fprintf(fout,"[%ld 0 0 %ld 0 %ld]\n",w,-h,h);
+X  fputs("{currentfile 1 index readhexstring pop} image\n",fout);
+X  
+X  c=0;
+X  for(y=0;y<h;y++,ptr+=zeil)
+X    for(p=ptr,x=0;x<w;x++,p+=pix)
+X      {HEX(*p);
+X       if(!(++c % 36)) fputs("\n",fout);
+X      }
+X
+X  fputs("\npop\n\n",fout);
+X}
+X
+X
+X
+X
+X
+X
+X
+Xvoid write_epsgrey(FILE *fout,dim w,dim h, uBYTE *ptr,sdim zeil,sdim pix)
+X{ 
+X  fputs("%!PS-Adobe-2.0 EPSF-2.0\n",fout);
+X  sub_psgrey(fout,w,h, ptr,zeil,pix);
+X  end_postscript(fout);
+X}
+X
+Xvoid write_psgrey(FILE *fout,dim w,dim h, uBYTE *ptr,sdim zeil,sdim pix)
+X{ 
+X  fputs("%!PS-Adobe-2.0\n",fout);
+X  sub_psgrey(fout,w,h, ptr,zeil,pix);
+X  fputs("showpage\n",fout);
+X  end_postscript(fout);
+X}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xstatic void sub_psrgb(FILE *fout,dim w,dim h, 
+X                      uBYTE *rptr,sdim rzeil,sdim rpix,  
+X		      uBYTE *gptr,sdim gzeil,sdim gpix,  
+X		      uBYTE *bptr,sdim bzeil,sdim bpix) 
+X{ dim x,y;
+X  register uBYTE *pr,*pg,*pb;
+X  sINT c;
+X
+X  size_dependant(fout,w,h,PAPER_LEFT,PAPER_BOTTOM,PAPER_WIDTH,PAPER_HEIGHT);
+X  fprintf(fout,"%ld string\n",w*3);
+X  fprintf(fout,"%ld %ld 8\n",w,h);	/* always 8 bit per channel */
+X  fprintf(fout,"[%ld 0 0 %ld 0 %ld]\n",w,-h,h);
+X  fputs("{currentfile 1 index readhexstring pop} false 3 colorimage\n",fout);
+X  
+X  c=0; 
+X  for(y=0;y<h;y++,rptr+=rzeil,gptr+=gzeil,bptr+=bzeil)
+X    for(pr=rptr,pg=gptr,pb=bptr,x=0;x<w;x++,pr+=rpix,pg+=gpix,pb+=bpix)
+X      {HEX(*pr);HEX(*pg);HEX(*pb);
+X       if(!(++c % 12)) fputs("\n",fout);
+X      }
+X
+X  fputs("\npop\n\n",fout);
+X}
+X
+X
+Xvoid write_epsrgb(FILE *fout,dim w,dim h, 
+X                      uBYTE *rptr,sdim rzeil,sdim rpix,  
+X		      uBYTE *gptr,sdim gzeil,sdim gpix,  
+X		      uBYTE *bptr,sdim bzeil,sdim bpix) 
+X{ 
+X  fputs("%!PS-Adobe-2.0 EPSF-2.0\n",fout);
+X  sub_psrgb(fout,w,h, rptr,rzeil,rpix,gptr,gzeil,gpix,bptr,bzeil,bpix);
+X  end_postscript(fout);
+X}
+X
+X
+X
+Xvoid write_psrgb(FILE *fout,dim w,dim h, 
+X                      uBYTE *rptr,sdim rzeil,sdim rpix,  
+X		      uBYTE *gptr,sdim gzeil,sdim gpix,  
+X		      uBYTE *bptr,sdim bzeil,sdim bpix) 
+X{ 
+X  fputs("%!PS-Adobe-2.0\n",fout);
+X  sub_psrgb(fout,w,h, rptr,rzeil,rpix,gptr,gzeil,gpix,bptr,bzeil,bpix);
+X  fputs("showpage\n",fout);
+X  end_postscript(fout);
+X}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xtypedef sINT dt;
+Xextern sINT dithtab[];
+X#define DS 4
+X#define DA (1<<(DS-1))
+X#define DT 127
+X
+Xstatic void fakcopy(dim worig,dim horig, uBYTE *ptr1,sdim zeil,sdim pix,
+X                    sdim wx,sINT zn,dt *dest)
+X {FLTPT owf,ohf,wbruch,hbruch,m1,m2,ha,hb;
+X  dim   owd,ohd,x;
+X  uBYTE *ptr2;
+X  sINT  md;
+X  
+X  ohf=zn/PRINTER_FAK;
+X  ohd=(dim)ohf;
+X  hbruch=ohf-(FLTPT)ohd;
+X  if(ohd>=horig) error(E_INTERN);
+X
+X  ptr1+=zeil*ohd;
+X  ptr2= (ohd < horig - 1) ? ptr1+zeil : ptr1;
+X
+X  dest[-1]=DITH_NEUTR;
+X
+X  for(x=0;x<wx;x++)
+X   {owf=x/PRINTER_FAK;
+X    owd=(dim)owf;
+X    wbruch=owf-(FLTPT)owd;
+X    if(owd>=worig) error(E_INTERN);
+X
+X    if(owd<worig-1)
+X     {ha=(FLTPT)ptr1[owd*pix];
+X      hb=(FLTPT)ptr1[(owd+1)*pix];
+X      m1=ha+wbruch*(hb-ha);
+X
+X      ha=(FLTPT)ptr2[owd*pix];
+X      hb=(FLTPT)ptr2[(owd+1)*pix];
+X      m2=ha+wbruch*(hb-ha);
+X     }
+X    else
+X     { m1=(FLTPT)ptr1[owd*pix];
+X       m2=(FLTPT)ptr2[owd*pix];
+X     }
+X    md=(sINT)(m1+hbruch*(m2-m1));
+X    if(md<0 || md>255) {fprintf(stderr,"md %d\n",md); error(E_INTERN);}
+X    *(dest++)=dithtab[md];
+X
+X   }
+X  
+X  dest[0]=DITH_NEUTR;
+X }
+X
+Xstatic void sub_psdith(FILE *fout,dim worig,dim horig, uBYTE *ptr,sdim zeil,sdim pix)
+X{ register uBYTE *p;
+X  sINT c,i,ii,j,reg,bit;
+X  dt new,diff;
+X  dt *dP1,*dP2,*akt,*nex,*help,*rrun;
+X  dim ww=0,wl=0,wr=0,hh=0,ho=0,hu=0,wx=0,hx=0;
+X  int ccase;
+X  FLTPT PW=0.0,PH=0.0;
+X
+X#define copy(n,d) {if(FAK_SET) fakcopy(worig,horig,ptr,zeil,pix,wx,n,d); \
+X                   else{p=ptr+((n)*zeil); rrun=d;\
+X                        for(ii=0;ii<wx;ii++,p+=pix,rrun++) *rrun = dithtab[*p]; \
+X                        d[-1]=d[wx]=DITH_NEUTR; }}
+X
+X
+X#define pr(x) { reg= (reg<<1) | x; bit++;    \
+X     if(bit==8) {HEX(reg);   \
+X                 if(!(++c % 36)) fputs("\n",fout);\
+X                 bit=reg=0;}}
+X
+X#define flush { while(bit) pr(1); }
+X#define fill pr(1)
+X
+X
+X
+X#define MakeFit(wi,he) {  ww=(wi+7) & (~7);   wl=(ww-wi)/2;  wr=ww-wi-wl; \
+X                          hh=(he+7) & (~7);   ho=(hh-he)/2;  hu=hh-he-ho; }
+X
+X
+X  
+X  ccase=( FAK_SET   ? 4 : 0 ) |
+X        ( DPI_SET   ? 2 : 0 ) |
+X        ( PSIZE_SET ? 1 : 0 ) ;
+X
+X 
+X  switch (ccase)
+X   {case 0: /*  no option or -dpi option */
+X    case 2: hx=horig;
+X            wx=worig;
+X            MakeFit(wx,hx);
+X            PW=ww*72.0/PRINTER_XDPI;
+X            PH=hh*72.0/PRINTER_YDPI;
+X            break;
+X
+X    case 1: /* paper size set with -pw and/or -ph */
+X            hx=horig;
+X            wx=worig;
+X            MakeFit(wx,hx);
+X            PW=PAPER_WIDTH;
+X            PH=PAPER_HEIGHT;
+X            break;
+X
+X    case 6: /* -fak option (and perhaps -dpi) */
+X    case 4: hx=PRINTER_FAK*horig+0.5;
+X            wx=PRINTER_FAK*worig+0.5;
+X            MakeFit(wx,hx);
+X            PW=ww*72.0/PRINTER_XDPI;
+X            PH=hh*72.0/PRINTER_YDPI; 
+X            break;
+X
+X    case 5: /* -fak and papersize */
+X            hx=PRINTER_FAK*horig+0.5;
+X            wx=PRINTER_FAK*worig+0.5;
+X            MakeFit(wx,hx);
+X            PW=PAPER_WIDTH;
+X            PH=PAPER_HEIGHT;
+X            break;
+X
+X    case 3: /* papersize and dpi set, probably the most important case */
+X            PW=PAPER_WIDTH;
+X            PH=PAPER_HEIGHT;
+X
+X            FAK_SET=1;
+X            {FLTPT fw,fh;
+X             fw=PW/72.0*PRINTER_XDPI/worig;
+X             fh=PH/72.0*PRINTER_YDPI/horig;
+X             PRINTER_FAK=MIN(fw,fh);
+X            }
+X            hx=PRINTER_FAK*horig+0.5;
+X            wx=PRINTER_FAK*worig+0.5;
+X            MakeFit(wx,hx);
+X            PW=ww*72.0/PRINTER_XDPI;
+X            PH=hh*72.0/PRINTER_YDPI; 
+X            break;
+X
+X
+X    case 7: /* size, dpi and factor set, this case should have been
+X               cought earlier... */
+X    default: error(E_INTERN);
+X   };
+X
+X  if(FAK_SET && (PRINTER_FAK<=0.0  || PRINTER_FAK >=1000.0)) error(E_PRPAR);
+X  if(PW<=0.0 || PH<=0.0) error(E_PRPAR);
+X
+X  if(wx < 4 || hx < 4) error(E_PRPAR);
+X
+X
+X  if (!(dP1=(dt *)malloc((wx+2)*sizeof(dt)))) error(E_MEM);
+X  if (!(dP2=(dt *)malloc((wx+2)*sizeof(dt)))) error(E_MEM);
+X
+X
+X
+X  size_dependant(fout,ww,hh,PAPER_LEFT,PAPER_BOTTOM,PW,PH);
+X
+X  fprintf(fout,"%ld string\n",ww);
+X  fprintf(fout,"%ld %ld 1\n",ww,hh);	/* always 8 bit per channel */
+X  fprintf(fout,"[%ld 0 0 %ld 0 %ld]\n",ww,-hh,hh);
+X  fputs("{currentfile 1 index readhexstring pop} image\n",fout);
+X  
+X  c=bit=reg=0;
+X  akt=dP1+1;
+X  nex=dP2+1;
+X
+X  for(i=0;i<ho;i++)
+X    for(j=0;j<ww;j++)
+X      fill;
+X
+X  copy(0,nex);
+X  for(i=0;i<hx;i++)
+X   {help=akt; akt=nex; nex=help;
+X    if(i<hx-1) copy(i+1,nex);
+X
+X    if(i&1)
+X      for(j=0;j<wx;j++)
+X       { new=akt[j]>DT ? 255 : 0;
+X         diff = akt[j]-new;
+X         akt[j]=new;
+X         akt[j+1]+=(diff*7 + DA)>>DS;
+X         nex[j+1]+=(diff   + DA)>>DS;
+X         nex[j  ]+=(diff*5 + DA)>>DS;
+X         nex[j-1]+=(diff*3 + DA)>>DS;
+X       }
+X    else
+X      for(j=wx-1;j>=0;j--)
+X       { new=akt[j]>DT ? 255 : 0;
+X         diff = akt[j]-new;
+X         akt[j]=new;
+X         akt[j-1]+=(diff*7 + DA)>>DS;
+X         nex[j-1]+=(diff   + DA)>>DS;
+X         nex[j  ]+=(diff*5 + DA)>>DS;
+X         nex[j+1]+=(diff*3 + DA)>>DS;
+X       }
+X
+X
+X    for(j=0;j<wl;j++) fill;
+X
+X    for(j=0;j<wx;j++)
+X     {if (akt[j]>DT) { pr(1); }
+X      else           { pr(0); }
+X     }
+X
+X    for(j=0;j<wr;j++) fill;
+X
+X    flush;
+X   }
+X
+X  for(i=0;i<hu;i++)
+X    for(j=0;j<ww;j++)
+X      fill;
+X  flush;
+X
+X  fputs("\npop\n\n",fout);
+X  free(dP1);
+X  free(dP2);
+X}
+X
+X
+Xvoid write_epsdith(FILE *fout,dim w,dim h, uBYTE *ptr,sdim zeil,sdim pix)
+X{ 
+X  fputs("%!PS-Adobe-2.0 EPSF-2.0\n",fout);
+X  sub_psdith(fout,w,h, ptr,zeil,pix);
+X  end_postscript(fout);
+X}
+X
+Xvoid write_psdith(FILE *fout,dim w,dim h, uBYTE *ptr,sdim zeil,sdim pix)
+X{ 
+X  fputs("%!PS-Adobe-2.0\n",fout);
+X  sub_psdith(fout,w,h, ptr,zeil,pix);
+X  fputs("showpage\n",fout);
+X  end_postscript(fout);
+X}
+X
+X
+X
+END_OF_FILE
+  if test 10071 -ne `wc -c <'hpcdtoppm.0.5.pl1/postscr.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/postscr.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/postscr.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

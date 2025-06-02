@@ -1,0 +1,1750 @@
+Newsgroups: comp.sources.misc
+From: chip@chinacat.unicom.com (Chip Rosenthal)
+Subject: v39i035: enh-du2 - enhanced du (disk usage) v2.0 + utilities, Part01/02
+Message-ID: <csm-v39i035=enh-du2.202412@sparky.Sterling.COM>
+X-Md4-Signature: 8abf4d4b8760ce29a34d6b5f4a61af50
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Unicom Systems Development, Austin, TX
+Date: Sun, 22 Aug 1993 01:26:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: chip@chinacat.unicom.com (Chip Rosenthal)
+Posting-number: Volume 39, Issue 35
+Archive-name: enh-du2/part01
+Environment: UNIX
+Supersedes: enh-du: Volume 14, Issue 88
+
+>From the README:
+
+    "enh-du2" is a highly-portable, high-performance, POSIX-conformant
+    reimplementation of the "du" command.  It also adds some helpful
+    features your system "du" lacks.  If you find your current system "du"
+    buggy or unacceptably slow, or if you find some of the features in
+    this version appealing, you might want to try it.
+
+    This package includes, in addition to the enhanced "du" command, a
+    couple of handy utilities.  The "dusort" filter formats the output of
+    "du" nicely.  (Even if you aren't interested in the "du" program itself
+    check out this filter.)  The "ngsizes" script produces a summary of
+    disk space used by the usenet news system.  It puts some of the
+    "enh-du2" features to good use.
+----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README du.1 duentry.c fsinfo.c ngsizes.1
+# Wrapped by kent@sparky on Sat Aug 21 19:59:21 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(8723 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X@(#) README 1.15 93/08/18 00:08:57
+X
+X"enh-du2" is a highly-portable, high-performance, POSIX-conformant
+Xreimplementation of the "du" command.  It also adds some helpful
+Xfeatures your system "du" lacks.  If you find your current system "du"
+Xbuggy or unacceptably slow, or if you find some of the features in
+Xthis version appealing, you might want to try it.
+X
+XThis package includes, in addition to the enhanced "du" command, a
+Xcouple of handy utilities.  The "dusort" filter formats the output of
+X"du" nicely.  (Even if you aren't interested in the "du" program itself
+Xcheck out this filter.)  The "ngsizes" script produces a summary of
+Xdisk space used by the usenet news system.  It puts some of the
+X"enh-du2" features to good use.
+X
+X
+X=== Contents =================================================================
+X
+X	- Overview
+X	- Installation
+X	- Credits
+X
+X
+X=== Overview =================================================================
+X
+XWord to the impatient:  Edit "Makefile" and "config.h", then run "make".
+X
+XThis version supercedes the "enh-du" published in comp.sources.misc
+Xvolume 14.  The update is not intended to provide an explosion of
+Xchrome and bloat (aka "gratuitous features").  This release mainly
+Ximproves portability, especially in heterogeneous networked environments.
+X
+XThe original "enh-du" was written to address several problems.  There
+Xwere some things I couldn't do with the vendor-provided "du".  Sometimes,
+Xfor example, I wanted to see usage in 1K blocks instead of 512-byte
+Xblocks, or I wanted to look at disk usage without accumulating
+Xsubdirectory usage into parent directories.  Moreover, I found that
+Xmany vendors shipped versions of "du" that were broken (most common
+Xbug was incorrect indirect block overhead calculations) or sluggish.
+X
+XI think the original release met those goals.  This version addresses
+Xa couple of additional issues.  It is more portable.  It is more
+Xreliable, particularly in networked environments where one or more
+Xvendors don't do stat(2) correctly.  It should not be compatible with
+XPosix 1003.1.  Oh yeah, and it does add a few new features.
+X
+XIn the time since the original "enh-du" was released, many vendors
+Xhave gotten their act together, providing versions of "du" that fixed
+Xthe bugs and improved performance.  None the less, I've found that
+X"enh-du2" performs favorably with respect to every alternative I have
+Xtried -- including both vendor supplied and freely available versions.
+XThis means that if you use "enh-du2" for the added features, you should
+Xnot pay a performance penalty for that choice.
+X
+XTwo new features have been added to this release per the requests of
+Xseveral people.  An "-L" switch has been added to average the usage of
+Xmultiply-linked files across all of the links.  A "-C" switch has
+Xbeen added to display a file count in addition to the disk usage.
+X
+XTo give you a feel for what this program can do, here is the output
+Xof "du -h".  Portions of this message are site dependant, and so your
+Xmileage may vary.
+X
+Xdu - version 2.0
+X    Copyright 1990-1993, Unicom Systems Development, Inc.  All rights reserved.
+XUsage:
+X    du [ options ] [ path ... ]
+XOptions:
+X    -a          Report all entries, i.e. files as well as directories.
+X    -b          Equivalent to "-B 1".
+X    -B n        Report in blocks of "n" bytes (default 512).
+X                  (Use "0" to report in native filesystem blocks.)
+X    -c n,n,...  Breakdown by age, one col for each "n" days or older.
+X    -C          Display file counts as well as disk usage.
+X    -f          Do not cross any filesystem mount points.
+X    -F          Do not cross remote filesystem mount points.
+X    -h          Display this help message.
+X    -i          Do not accumulate subdirectory usages into parent dir.
+X    -k          Equivalent to "-B 1024".
+X    -l          Count multiply linked files each time encountered.
+X    -L          Average usage of multiply linked files across the links.
+X    -s          Only report a total for each argument on command line.
+X    -t          Report a grand total of all items.
+X    -u          Skip (do not count) multiply linked files entirely.
+X    -U user     Report only usage by given user (specify name or id num).
+X
+X
+X=== Installation =============================================================
+X
+Xenh-du2 is distributed ready to go for an SCO Unix 3.2v2 system.  If you
+Xare using something else, you've got a bit of work to do.  Here are the
+Xsteps to bring up the package:
+X
+X  - Customize the "config.h" file for your system.
+X
+X  - Customize the definitions at the top of the "Makefile".
+X
+X  - Run "make".
+X
+X  - Try it.  If you like it run "make install".  You will, however,
+X    need to customize a bunch of definitions in the "Makefile" to
+X    tell the install to do what you want.
+X
+XI have reports that "enh-du2" runs on the following systems:
+X
+X	HP/9000 series 400	HP-UX 8.02
+X	HP/9000 series 800	HP-UX 8.02
+X	IBM RS/6000		AIX3.1
+X	NCR Tower		SysVr3.1 (NCR release 03.00.00)
+X	Sun SPARC		SunOS 4.1.2, Solaris 2.1
+X	AT&T 3B1		SysVr3.2 (ver 3.51m)
+X	AT&T 3B2		SysVr3.1
+X	386			AT&T SysV 3.2.2.3
+X	386			ISC SysVr3.2 versions 2.0.2, 2.2, 3.0.1
+X	386			MicroPort SysV 3.0U3.0e
+X	386			SCO Xenix 2.3.X
+X	386			SCO Unix 3.2v2, 3.2v4
+X	386			BSDI versions 0.9.2, 1.0
+X
+XIf you get stuck configuring "enh-du", some possibly helpful information
+Xfollows.  I'll show you the settings I used when testing the package on
+Xvarious systems.
+X
+XThe following table shows the "config.h" settings.  The distributed
+Xfile is setup for SCO Unix 3.2v2.  A "-" in the table means the item
+Xwas not changed from the distributed setting.  "enab" means the
+Xdefinition was enabled and "disab" means it was commented out.
+X
+X	    distributed
+X	   configuration
+X		 |
+X		 |
+X		\|/
+X		SCO	SCP	SCO	ISC				AT&T 3B2
+X		Unix	Unix	Xenix	Unix	Solaris	SunOS	BSDI	and NCR
+X		3.2v2	3.2v4	2.3.4	2.2,3.0	2.1	4.1.2	1.0	Tower
+X
+XUSE_DIR_xxxx	DIRENT	-	-	-	-	-	-	-
+XUSE_MOUNT_xxxx	MNTTAB	-	-	-	R4MNTTAB MNTENT	FSTAB	-
+XUSE_STATFS_xxxx	SYSV	-	-	-	-	SUN	BSD	-
+XUSE_SYMLINKS	disab	enab	-	-	enab	enab	enab	-
+XUSE_STBLOCKS	disab	-	-	-	enab	enab	enab	-
+XBROKE_STBLOCKS	disab	-	-	-	-	-	-	-
+XUSE_STDARG	enab	-	-	disab	-	disab	-	disab
+XUSE_UNISTD	enab	-	-	-	-	-	-	-
+XUSE_PATHCONF	enab	-	disab	disab	-	-	-	disab
+XPTRTYPE		void	-	-	char	-	-	-	char
+XREPORT_BLKSIZE	512	-	-	-	-	1024	-	-
+X
+XHere are the CDEFS and LIBS settings I used in the "Makefile":
+X
+XSystem				CDEFS =		LIBS =
+X
+XSCO Unix 3.2v2, 3.2v4		(empty)		-lmalloc
+XSCO Xenix 2.3.4			(empty)		-lmalloc -ldir
+XISC Unix 2.2, 3.0		(empty)		-lmalloc
+XSolaris 2.1			(empty)		-lmalloc
+XSunOS 4.1.2			(empty)		(empty)
+XBSDI 1.0			(empty)		(empty)
+XAT&T 3B2 and NCR Tower		-I.		-lmalloc
+X
+X
+X=== Credits ==================================================================
+X
+X
+XMy thanks and gratitude to several folks.  Lars Henrik Mathiesen
+X<thorinn@diku.dk> provided a very nifty algorithm to figure out the
+Xquanta for st_blocks.  Chip Salzenberg <chip@tct.com> enhanced the
+Xportability greatly, and provided the AIX mount table handling code.
+XBill Bunton <wgb@tnt.com> and Bill Kennedy <bill@ssbn.com> gave me
+Xlogins on a bunch of machines.
+X
+XAdditional thanks to the following folks for testing enh-du2 and
+Xproviding suggestions and fixes:
+X
+X    Dave Ratcliffe <compnect!dave@uwm.edu>
+X    afc@shibaya.lonestar.ORG (Augustine Cano)
+X    bill@unixland.natick.ma.us (Bill Heiser)
+X    consult!bob@uunet.uu.net
+X    ole!rwing!pat@cs.washington.edu (Pat Myrto)
+X    pilikia.pegasus.com!art
+X    wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+X    wyman@atherton.com (Wyman Chong)
+X    clive@x.co.uk (Clive Feather)
+X    Kari Sutela <sutela@utu.fi>
+X    graaff@dutiws.TWI.TUDelft.NL (Hans de Graaff)
+X
+XThere were many others -- these names were culled from my email archives.
+XMy apologies if I left your name of the list.
+X
+XWhat I learned from this:  given a choice, I'd probably choose an HP
+Xor IBM computer over a case of the clap, but I'd have to think about
+Xit first.  (On the other hand, as one guy pointed out to me, they've
+Xgot a cure for the clap.)
+X
+XThis program is copyright 1990-1993, Unicom Systems Development, Inc.
+XAll rights reserved.
+X
+XYou are granted a non-exclusive license to use, modify, copy, and
+Xdistribute this software subject to the following conditions.  You
+Xmust ensure all copyright notices and license notices remain intact
+Xin the copies you use or distribute.  Any modifications, other than
+Xthose in the areas clearly reserved for site-specific modifications,
+Xmust be marked as such.  This software is provided "as is".  No
+Xwarranties have been expressed or implied.  Since this license was
+Xprovided to you at no charge, you must assume the entire risk and
+Xliability for all use of this software.
+X
+XComments, suggestions, and bug reports are welcomed to the address below.
+X
+XChip Rosenthal
+X<chip@chinacat.Unicom.COM>
+X
+END_OF_FILE
+  if test 8723 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'du.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'du.1'\"
+else
+  echo shar: Extracting \"'du.1'\" \(9844 characters\)
+  sed "s/^X//" >'du.1' <<'END_OF_FILE'
+X.\" @(#) du.1 1.13 93/08/18 00:08:59
+X.TH DU 1
+X.SH NAME
+Xdu \- Summarizes disk usage.
+X.SH SYNTAX
+X.B du
+X[
+X.B \-abCdfFhiklLstu
+X] [
+X.B \-B
+Xsize ] [
+X.B \-U
+Xuser ] [
+X.B \-c
+Xn,... ] [ name ... ]
+X.SH DESCRIPTION
+X.I du
+Xcalculates the disk usage of each
+X.I name
+Xgive on the command line.
+XIf
+X.I name
+Xis a directory then it is scanned recursively and the accumulated disk
+Xusage of its contents is reported.  If no
+X.I name
+Xis specified on the command line, then
+X.I du
+Xreports the usage at the current directory.
+X.P
+XBy default, the disk usage for a directory includes not only the usage
+Xof everything in that directory, but also the usage of everything
+Xbelow it.  This means, for example, the usage reported for the root
+Xdirectory ``/'' is the disk usage for the entire system.
+X.P
+XBy default, only the disk usage for directories encountered is printed.
+XThe disk usage for other filesystem entries for other filesystem
+Xentries (regular files, etc.) is accumulated but not displayed.  This
+Xmeans that if the
+X.I name
+Xspecified on the command line is not a directory, then no output will
+Xbe produced.  This behavior may be modified with the
+X.B \-a
+Xand
+X.B \-s
+Xoptions.
+X.P
+XThe disk usage is reported as a number of blocks.  The size of these
+Xblocks is site-specific, but is usually either 512 bytes or 1024 bytes.
+XUse the
+X.B \-h
+Xoption to see how your version of
+X.I du
+Xis configured.  There are a number of options that will report results
+Xwith a different block size.
+X.P
+XOne possible source of confusion is that the word ``block'' can mean
+Xseveral different things.  The
+X.I du
+Xprogram reports disk usage in chunks called ``blocks''.  The Unix
+Xfilesystem stores data to disk in chunks also called ``blocks''.  The
+Xsize of the
+X.I du
+Xreporting blocks and the filesystem storage blocks are not necessarily
+Xrelated, and almost always are different.  (Historically this is not
+Xtrue, but it these days.)  Although
+X.I du
+Xperforms all of its internal calculations based upon the physical
+Xfilesystem block size, all values are scaled to a consistent reporting
+Xblock size prior to printing.  If, for example, a 1000 byte file is
+Xstored on a 1K filesystem, it will require one data block.  If you
+Xlook at this file with
+X.I du
+Xset to a 512-byte reporting block size, it will say this file uses
+Xtwo blocks.
+X.P
+XBy default,
+X.I du
+Xwill count the disk usage of a file with multiple (hard) links only
+Xthe first time the file is encountered.  Several options are available
+Xto modify this behavior.
+X.P
+XThe disk usage calculated by
+X.I du
+Xtakes into account the ``indirect block'' overhead of very large files.
+XThe usage for such files will be the space used by the file's data
+Xblocks as well as the overhead from any indirect address blocks.
+X.P
+XThe following options modify the behavior of
+X.IR du :
+X.IP  "\-a" 10
+XThe usage of all items is reported.  Normally
+X.I du
+Xdisplays only the usage at directories.  When this option is specified,
+Xthe usage of all filesystem items (regular files, directories, etc.)
+Xencountered is displayed.
+X.IP "\-b" 10
+XReport disk usage in number of bytes; equivalent to ``\-B 1''.  Note
+Xthat disk usage in bytes is not the same thing as file size.  A one
+Xbyte file residing on a 1K filesystem, for example, has a disk usage
+Xof 1024 bytes and not 1 byte.
+X.IP "\-B \fIsize\fR" 10
+XThe usage is reported in terms of
+X.I size
+Xbyte blocks instead of the default.  (The
+X.B \-h
+Xoption will tell you what this default value is.)  A
+X.I size
+Xof zero means use the physical filesystem disk block size as the
+Xreporting block size.  Note that this value is system dependant, and
+Xcan vary across different filesystems upon the machine.
+X.IP "\-c \fIn\fR,..." 10
+XThe disk usage will be broken down by age and displayed in columns,
+Xone column for each value in the list.  Each column shows the usage
+Xby entries
+X.I n
+Xdays or older.  For example, the command:
+X.sp
+X.ft CW
+X	du \-c 0,7,30
+X.ft 1
+X.sp
+Xdisplays the usage in three columns:  the total usage (zero days or
+Xolder), the usage by entries a week or older, and the usage by entries
+Xa month or older.  The default behavior of
+X.I du
+Xis equivalent to ``\-c 0''.  The age is based upon an entry's time of
+Xlast modification.
+X.IP "\-C" 10
+XDisplays a count of entries as well as the disk usage of those entries.
+XThe count includes only those items that participated in the disk
+Xusage calculation.  If, for example, the
+X.B \-u
+Xoptions (to skip multiply-linked files) is also specified, multiply-linked
+Xfiles will be omitted not only from the usual usage calculations,
+Xbut also the file count requested by the
+X.B \-C
+Xoption.
+X.\" *** The "-d" option is obsolete and unless somebody, somewhere can
+X.\" *** tell me it is useful then it will be removed entirely from a future
+X.\" *** release.
+X.\".IP "\-d" 10
+X.\"This option prevents
+X.\".I du
+X.\"from descending into directories encountered.
+X.\"Rather than recursively
+X.\"report the disk usage for entries in a directory,
+X.\".I du
+X.\"will simply report the space used by the directory itself and ignore
+X.\"the contents of the directory.
+X.IP "\-f" 10
+XThis option will prevent
+X.I du
+Xfrom processing a directory (either scanning its contents or descending
+Xinto it) if that would result in crossing a mount point, i.e. onto a
+Xdifferent filesystem.
+X.IP "\-F" 10
+XThis option will prevent
+X.I du
+Xfrom processing a directory (either scanning its contents or descending
+Xinto it) if that would result in crossing a remote mount point, i.e.
+Xonto a network filesystem.  This differs from the
+X.B \-f
+Xoption in that local filesystem mount points will be traversed when
+X.B \-F
+Xis specified.
+X.IP "\-h" 10
+XDisplays a help summary.  Will also indicate the default size of the
+Xdisk blocks used in reporting.
+X.IP "\-i" 10
+XDo not accumulate subdirectories' usage into the parent directory's
+Xusage.  If, for example, you run:
+X.sp
+X.ft CW
+X	du -i comp/text
+X.ft 1
+X.sp
+Xthen the disk usage for a subdirectory
+X.I comp/text/desktop
+Xwill not be accumulated into the disk usage of
+X.IR comp/text .
+X.IP "\-k" 10
+XReport disk usage in number of kilobytes; equivalent to ``\-B 1024''.
+X.IP "\-l" 10
+XNormally
+X.I du
+Xwill count a file with multiple (hard) links only once.  With this option,
+X.I du
+Xwill count the file each time is is encountered.
+X.IP "\-L" 10
+XCount each instance of a multiply (hard) linked regular file, but average
+Xthe usage over each of the links.  If, for example, a 7 block file is
+Xlinked to the names
+X.IR comp/unix/questions/13 ,
+X.IR comp/unix/programmer/12 ,
+Xand
+X.IR alt/flame/33 ,
+Xthen
+X.I du
+Xwill count the file three times with usages of 3, 2, and 2 blocks,
+Xrespectively.
+X.IP "\-r" 10
+XTraditionally,
+X.I du
+Xdoes it's work silently and will not report any errors, e.g. a
+X.I name
+Xspecified on the command line doesn't exist, you don't have permissions
+Xto check a directory, etc.  This version of
+X.I du
+Xnormally prints these errors to the
+X.I stderr
+Xoutput.  It can be configured, however, to be compatible with the traditional
+Xbehavior and suppress error messages.  If this is done, then the
+X.B \-r
+Xoption will be available to enable these error messages.  The
+X.B \-h
+Xoption will tell you whether or not this option has been enabled.
+X.IP "\-s" 10
+XNormally
+X.I du
+Xreports the disk usage for each directory it encounters.  This
+Xoption suppresses that information and instead reports just a
+Xtotal usage for each of the items specified on the command line.
+X.IP "\-t" 10
+XA grand total of all items specified on the command line will be
+Xaccumulated and displayed.  For example, the command
+X.sp
+X.ft CW
+X	du \-st /usr/man/man*
+X.ft 1
+X.sp
+Xwill show the disk usage of each manual page source directory, plus
+Xa grand total of these directories.
+X.IP "\-u" 10
+XCauses multiply linked files to be skipped entirely and omitted from the
+Xusage statistics.
+X.IP "\-U \fIuser\fR" 10
+XOnly entries owned by the indicated
+X.I user
+Xwill be counted.  Either a username or UID number may be specified.
+X.SH SEE ALSO
+Xdf(1), dusort(1L), ls(1), mount(8), stat(2)
+X.SH BUGS
+XUnless your system provides an
+X.I st_blocks
+Xin the inode,
+X.I du
+Xwill report files with holes in them (sparse files) incorrectly.
+X.P
+XAlthough multiply linked files are normally counted only once, you
+Xcan't be sure under which directory they will be accumulated.  Note
+Xthat unlike some implementations of
+X.IR du ,
+Xthe only limit to the number of linked files that can be handled is
+Xset by available system memory.
+X.P
+XIf the actual filesystem block size is not an integral multiple of the
+Xreporting block size
+X.RB ( \-B )
+Xthen roundoff errors will occur in the translation.
+X.I du
+Xwill round up in this case.
+X.P
+XThe
+X.B \-U
+Xoption can interract with others in strange ways.  For example, when
+Xcombined with
+X.BR \-a ,
+Xall files will be displayed, but ones not owned by the specified
+Xuser will be shown as zero sized.
+X.P
+XIf two or more directory trees specified on the command line are not
+Xdisjoint, then the usage calculations will be corrupted by the presence
+Xof hard links.  If, for example,
+X.I /usr/foo/bar
+Xand
+X.I /usr/foo/baz
+Xare links to the same file, then the command ``du /usr/foo /usr'' will
+Xreport the usage of directory
+X.I /usr/foo
+Xtwice, and the two values will not agree.
+X.SH AUTHOR
+XChip Rosenthal
+X.br
+XUnicom Systems Development, Inc.
+X.br
+X<chip\s-1@\s+1chinacat.Unicom.COM>
+X.P
+X.if t \v'0.3v'\s+4\(co\s-4\v'-0.3v'
+XCopyright 1990-1993, Unicom Systems Development, Inc.  All rights reserved.
+X.P
+XYou are granted a non-exclusive license to use, modify, copy, and
+Xdistribute this software subject to the following conditions.  You
+Xmust ensure all copyright notices and license notices remain intact
+Xin the copies you use or distribute.  Any modifications, other than
+Xthose in the areas clearly reserved for site-specific modifications,
+Xmust be marked as such.  This software is provided "as is".  No
+Xwarranties have been expressed or implied.  Since this license was
+Xprovided to you at no charge, you must assume the entire risk and
+Xliability for all use of this software.
+END_OF_FILE
+  if test 9844 -ne `wc -c <'du.1'`; then
+    echo shar: \"'du.1'\" unpacked with wrong size!
+  fi
+  # end of 'du.1'
+fi
+if test -f 'duentry.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'duentry.c'\"
+else
+  echo shar: Extracting \"'duentry.c'\" \(10292 characters\)
+  sed "s/^X//" >'duentry.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char SCCSID[] = "@(#) duentry.c 1.18 93/08/18 00:09:03";
+X#endif
+X
+X/*
+X * "du" enhanced disk usage summary - version 2.
+X *
+X * Copyright 1990-1993, Unicom Systems Development.  All rights reserved.
+X * See accompanying README file for terms of distribution and use.
+X *
+X * Edit at tabstops=4.
+X */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#ifdef USE_UNISTD
+X# include <unistd.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "du.h"
+X
+X#ifdef USE_DIR_DIRENT
+X#	include <dirent.h>
+X#endif
+X#ifdef USE_DIR_SYSNDIR
+X#	include <sys/ndir.h>
+X#	define dirent direct
+X#endif
+X#ifdef USE_DIR_SYSDIR
+X#	include <sys/dir.h>
+X#	define dirent direct
+X#endif
+X
+X#ifndef USE_SYMLINKS
+X#	define lstat stat
+X#endif
+X
+X
+X/*
+X * Determine maximum pathlength of an entry on the filesystem containing "file".
+X */
+Xint max_path_len(fname)
+Xregister char *fname;
+X{
+X#ifdef USE_PATHCONF
+X	register int len;
+X	if ((len = pathconf(fname, _PC_PATH_MAX)) > 0)
+X		return len;
+X#ifdef notdef
+X	errmssg(ERR_WARN, errno, "could not get max pathname for \"%s\"", fname);
+X#endif
+X#endif
+X
+X/*
+X * If pathconf() is not available or fails, we need to take a stab.  If
+X * the POSIX PATH_MAX parameter is available we will use that.  If not,
+X * we will try to use the MAXNAMLEN that should be in whatever header
+X * file USE_DIR_XXXX pulled in.  If all that fails, we'll just make a
+X * guess of 1024.  Note that we do NOT want to use _POSIX_PATH_MAX.  That
+X * specifies the minimum value that a conformant system must support.
+X */
+X#ifndef PATH_MAX
+X# ifdef MAXNAMLEN
+X#  define PATH_MAX MAXNAMLEN
+X# else
+X#  define PATH_MAX 1024
+X# endif
+X#endif
+X	return PATH_MAX;
+X}
+X
+X
+X/*
+X * du_entry - Initiate a disk usage report for a specified filesystem entry.
+X *
+X * This routine is called once per command line argument to setup a disk
+X * usage scan.  This routine prepares to call "du_dir()" recursively to
+X * scan through a directory to accumulate its usage.
+X */
+Xvoid du_entry(entry, ent_usage)
+Xchar *entry;					/* pathname of the entry to check		*/
+Xstruct dusage *ent_usage;		/* space in which to return disk usage	*/
+X{
+X	struct stat sbuf;
+X	struct fsinfo *fsinfo;
+X	static char *curr_dir = NULL;
+X
+X#ifdef TIMEOUT
+X	alarm(TIMEOUT);
+X#endif
+X
+X	/*
+X	 * Get the information on this entry.
+X	 */
+X	if (lstat(entry, &sbuf) != 0) {
+X		errmssg(ERR_WARN, errno, "could not stat \"%s\"", entry);
+X		return;
+X	}
+X	if ((fsinfo = fs_getinfo(&sbuf)) == NULL) {
+X		errmssg(ERR_WARN, errno,
+X			"could not get filesystem info for \"%s\"", entry);
+X		return;
+X	}
+X
+X	/*
+X	 * If this isn't a directory then simply get its size.  Note that we
+X	 * won't say what size is unless "-s" or "-a" was specified.  Kind of
+X	 * silly, but that's documented behaviour.
+X	 */
+X	if (!S_ISDIR(sbuf.st_mode)) {
+X		set_usage(ent_usage, sbuf.st_mtime, fs_numblocks(fsinfo, &sbuf));
+X		if (Handle_output != PR_DIRS_ONLY)
+X			print_usage(entry, ent_usage);
+X		return;
+X	}
+X
+X#ifdef OBSOLETEOPT
+X	/*
+X	 * If we aren't supposed to descend into directories then just get
+X	 * it's size.
+X	 */
+X	if (!Do_descend_dirs) {
+X		set_usage(ent_usage, sbuf.st_mtime, fs_numblocks(fsinfo, &sbuf));
+X		print_usage(entry, ent_usage);
+X		return;
+X	}
+X#endif
+X
+X	/*
+X	 * We are about to descend down this directory entry.  We need to
+X	 * know where we started out so that we can return when done.
+X	 */
+X	if (curr_dir == NULL) {
+X		int len;
+X		extern char *getcwd();
+X		len = max_path_len(".") + 2; /* getcwd() wants two extra bytes */
+X		curr_dir = (char *) xmalloc((unsigned)len);
+X		if (errno = 0, getcwd(curr_dir, len) == NULL)
+X			errmssg(ERR_ABORT, errno,
+X				"could not get current working directory");
+X	}
+X
+X	/*
+X	 * We need to initiate a recursive search through "du_dir()".  Normally
+X	 * "du_dir()" displays the disk usage of the directory scanned, except
+X	 * when "PR_TOTALS_ONLY" (-s) mode is set.  In that case it won't
+X	 * print anything at all, so we need to do it here.
+X	 */
+X	zero_usage(ent_usage);
+X	if (chdir(entry) != 0) {
+X		errmssg(ERR_WARN, errno, "could not chdir to \"%s\"", entry);
+X		return;
+X	}
+X	if (du_dir(entry, &sbuf, fsinfo, ent_usage) == 0) {
+X		if (Handle_output == PR_TOTALS_ONLY)
+X			print_usage(entry, ent_usage);
+X	}
+X	if (chdir(curr_dir) != 0)
+X		errmssg(ERR_ABORT, errno, "could not chdir back to \"%s\"", curr_dir);
+X
+X}
+X
+X
+X/*
+X * du_dir() - Scan a specified directory and accumulate its disk usage.
+X *
+X * This routine recursively descends a directory tree accumulating and
+X * printing the disk usage.  The current working directory must be set
+X * to the directory to be scanned before this routine is called.  If the
+X * scan is successful, 0 will be returned and the accumlated usage
+X * will be stored in "dir_usage".  If an error occurs which prevents
+X * further processing, a -1 result will be returned and the usage
+X * results should be ignored as bogus.
+X */
+Xint du_dir(dir_name, dir_statp, dir_fsinfo, dir_usage)
+Xchar *dir_name;					/* pathname to the directory to scan	*/
+Xstruct stat	*dir_statp;			/* inode info for this directory		*/
+Xstruct fsinfo *dir_fsinfo;		/* filesys info for this directory		*/
+Xregister struct dusage *dir_usage; /* space in which to accumulate usage*/
+X{
+X	register struct dirent *dp;	/* current dir entry being checked		*/
+X	struct stat ent_stat;		/* inode info for this entry			*/
+X	struct fsinfo *ent_fsinfo;	/* filesys info for this entry			*/
+X	long numblocks;				/* num disk blocks used by this entry	*/
+X	struct dusage ent_usage;	/* disk usage by this entry				*/
+X	char *ent_pathname;			/* full pathname of this entry			*/
+X	register char *ent_basename;/* pointer into "ent_pathname[]"		*/
+X	DIR *dirp;					/* stream for directory being scanned	*/
+X
+X	/*
+X	 * Allocate space to hold the pathname.  If you've got a good malloc
+X	 * this isn't too painful.  I profiled malloc() at 0.4% overhead.
+X	 */
+X	ent_pathname = (char *) xmalloc((unsigned)dir_fsinfo->path_max+1);
+X
+X	/*
+X	 * Initialize the block count with the usage of the directory itself.
+X	 */
+X	numblocks = fs_numblocks(dir_fsinfo, dir_statp);
+X	set_usage(dir_usage, dir_statp->st_mtime, numblocks);
+X
+X	/*
+X	 * Setup a buffer to hold the full pathname of the entry being examined.
+X	 * Unless this directory is the root directory "/", append a slash
+X	 * to the name.  When we need the full pathname, we just need to place
+X	 * the filename at the location pointed to by "ent_basename".
+X	 */
+X	ent_basename = strcpy(ent_pathname, dir_name) + strlen(dir_name);
+X	if (ent_pathname[0] != '/' || ent_pathname[1] != '\0')
+X		*ent_basename++ = '/';
+X
+X	/*
+X	 * Open up the directory so we can scan it.
+X	 */
+X	if ((dirp = opendir(".")) == NULL) {
+X		errmssg(ERR_WARN, errno, "could not open dir \"%s\"", dir_name);
+X		(void) free((PTRTYPE *)ent_pathname);
+X		return -1;
+X	}
+X
+X	/*
+X	 * Go through each entry in the directory.
+X	 */
+X	while ((dp = readdir(dirp)) != NULL) {
+X
+X#ifdef TIMEOUT
+X		alarm(TIMEOUT);
+X#endif
+X
+X		/*
+X		 * Skip the "." and ".." entries.
+X		 */
+X		if (
+X			dp->d_name[0] == '.' && (
+X				dp->d_name[1] == '\0' ||
+X				(dp->d_name[1] == '.' && dp->d_name[2] == '\0')
+X			)
+X		) {
+X			continue;
+X		}
+X
+X		/*
+X		 * Get the information on this entry.
+X		 */
+X		if (lstat(dp->d_name, &ent_stat) != 0) {
+X			errmssg(ERR_WARN, errno,
+X				"could not stat \"%s/%s\"", dir_name, dp->d_name);
+X			continue;
+X		}
+X
+X		/*
+X		 * If it's not a directory then just accumulate its disk usage.
+X		 */
+X		if (!S_ISDIR(ent_stat.st_mode)) {
+X
+X			/*
+X			 * See what to do with entries with multiple links.
+X			 */
+X			if (ent_stat.st_nlink > 1) {
+X				switch (Handle_links) {
+X				case LK_COUNT_FIRST:		/* count only first link */
+X					if (fs_linkdone(dir_fsinfo, &ent_stat))
+X						continue;
+X					break;
+X				case LK_COUNT_ALL:			/* count all hard links */
+X					break;
+X				case LK_COUNT_NONE:			/* skip all hard links */
+X					continue;
+X				case LK_COUNT_AVERAGE:		/* average usage over links */
+X					if (S_ISREG(ent_stat.st_mode)) {
+X						long nb = fs_numblocks(dir_fsinfo, &ent_stat);
+X						numblocks = nb / ent_stat.st_nlink;
+X						if (!fs_linkdone(dir_fsinfo, &ent_stat))
+X							numblocks += (nb % ent_stat.st_nlink);
+X						goto got_numblocks;
+X					}
+X					break;
+X				default:
+X					errmssg(ERR_ABORT, 0,
+X						"internal error - bad \"Handle_links\" value \"%d\"",
+X						Handle_links);
+X				}
+X			}
+X
+X			/*
+X			 * Get the usage of this entry and accumulate into the dir usage.
+X			 */
+X			numblocks = fs_numblocks(dir_fsinfo, &ent_stat);
+Xgot_numblocks:
+X			set_usage(&ent_usage, ent_stat.st_mtime, numblocks);
+X			add_usage(dir_usage, &ent_usage);
+X			if (Handle_output == PR_EVERYTHING) {
+X				(void) strcpy(ent_basename, dp->d_name);
+X				print_usage(ent_pathname, &ent_usage);
+X			}
+X
+X		} else {
+X
+X			/*
+X			 * We are probably going to need the pathname, so fill it out now.
+X			 */
+X			(void) strcpy(ent_basename, dp->d_name);
+X
+X			/*
+X			 * See if we are crossing a mount point -- and if so check if we
+X			 * want to process it.  Furthermore, if we cross a mount point then
+X			 * we need to get the filesystem information on the subdirectory.
+X			 * If we aren't crossing a mount point then the current filesystem
+X			 * info applies.
+X			 */
+X			if (dir_statp->st_dev != ent_stat.st_dev) {
+X				if ((ent_fsinfo = fs_getinfo(&ent_stat)) == NULL) {
+X					errmssg(ERR_WARN, errno,
+X						"could not get filesystem info for \"%s\"",
+X						ent_pathname);
+X					continue;
+X				}
+X				switch (Handle_filesys) {
+X				case FS_ALWAYS_CROSS:		/* cross mount points */
+X					break;
+X				case FS_NEVER_CROSS:		/* do not cross mount points */
+X					continue;
+X				case FS_LOCAL_ONLY:			/* do not cross rmt mount points */
+X					if (ent_fsinfo->remote)
+X						continue;
+X					break;
+X				default:
+X					errmssg(ERR_ABORT, 0,
+X						"internal error - bad \"Handle_filesys\" value \"%d\"",
+X						Handle_filesys);
+X				}
+X			} else {
+X				ent_fsinfo = dir_fsinfo;
+X			}
+X
+X			/*
+X			 * Recursively get the usage on this directory.
+X			 */
+X			if (chdir(ent_basename) != 0) {
+X				errmssg(ERR_WARN, errno,
+X					"could not chdir to \"%s\"", ent_pathname);
+X				continue;
+X			}
+X			if (du_dir(ent_pathname, &ent_stat, ent_fsinfo, &ent_usage) == 0) {
+X				if (Do_accum_subdirs)
+X					add_usage(dir_usage, &ent_usage);
+X			}
+X			if (chdir("..") != 0) {
+X				errmssg(ERR_ABORT, errno,
+X					"could not chdir back to \"%s\"", dir_name);
+X			}
+X
+X		}
+X
+X	}
+X
+X	/*
+X	 * The current directory is complete.
+X	 */
+X	(void) closedir(dirp);
+X	if (Handle_output != PR_TOTALS_ONLY)
+X		print_usage(dir_name, dir_usage);
+X	(void) free((PTRTYPE *)ent_pathname);
+X	return 0;
+X}
+X
+END_OF_FILE
+  if test 10292 -ne `wc -c <'duentry.c'`; then
+    echo shar: \"'duentry.c'\" unpacked with wrong size!
+  fi
+  # end of 'duentry.c'
+fi
+if test -f 'fsinfo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fsinfo.c'\"
+else
+  echo shar: Extracting \"'fsinfo.c'\" \(16998 characters\)
+  sed "s/^X//" >'fsinfo.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char SCCSID[] = "@(#) fsinfo.c 1.25 93/08/18 00:09:06";
+X#endif
+X
+X/*
+X * "du" enhanced disk usage summary - version 2.
+X *
+X * Copyright 1990-1993, Unicom Systems Development.  All rights reserved.
+X * See accompanying README file for terms of distribution and use.
+X *
+X * Edit at tabstops=4.
+X */
+X
+X/*
+X * All of the machine-specific filesystem support should be encapsulated
+X * within this one file.  We maintain the necessary filesystem information
+X * as a dynamically allocated list of (struct fsinfo) records, one record
+X * per mounted filesystem.
+X *
+X * There are four routines for working with filesystem information.
+X *
+X * fs_initinfo() - Initialize the "Fsinfo_list" filesystem information.
+X * fs_getinfo() - Gets filesystem information on a entry.
+X * fs_linkdone() - Determines whether a file has been visited already.
+X * fs_numblocks() - Calculates disk usage of an entry.
+X *
+X * One of the trickiest tasks is discovering what filesystems are mounted.
+X * This is *highly* system specific.  We also provide a set of three
+X * routines -- open_mnttab(), read_mnttab(), and close_mnttab() -- for
+X * fs_initinfo() to use to get this information.
+X */
+X
+X#include "config.h"
+X#include <stdio.h>
+X#include <string.h>
+X#ifdef USE_UNISTD
+X# include <unistd.h>
+X#endif
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include "du.h"
+X
+X/*
+X * Within each filesystem information record, we maintain a dynamically
+X * allocated bit vector that indicates which inodes have been already
+X * visited on the filesystem.  If the system has a working statfs() call
+X * then we can preallocate the bit vector to precisely the right size.
+X * If statfs() is missing (e.g. old SysV) or broken (e.g. the Neurotic
+X * File System) we will instead make a guess and grow the bit vector as
+X * needed.   In this case, the allocation increment will be in chunks of
+X * ITABINCR/8 bytes (since one byte will hold the status of 8 inodes).
+X * Selection of this value is a simple speed vs memory tradeoff.
+X */
+X#define ITABINCR 8192
+X
+X/*
+X * Length of bit vector required for a particular number of inodes.
+X */
+X#define NUMINO_TO_VECLEN(NUMINO) ((NUMINO)/8 + 1)
+X
+X/*
+X * Can you believe this shit?
+X */
+X#ifdef USE_MOUNT_MNTTAB
+X#	include <mnttab.h>
+X#	define mount_struct mnttab
+X#	define mount_device mt_dev
+X#	define mount_point  mt_filsys
+X#endif
+X#ifdef USE_MOUNT_R4MNTTAB
+X#	include <sys/mnttab.h>
+X#	define mount_struct mnttab
+X#	define mount_device mnt_special
+X#	define mount_point  mnt_mountp
+X#endif
+X#ifdef USE_MOUNT_MNTENT
+X#	include <mntent.h>
+X#	define mount_struct mntent
+X#	define mount_device mnt_fsname
+X#	define mount_point  mnt_dir
+X#endif
+X#ifdef USE_MOUNT_FSTAB
+X#	include <fstab.h>
+X#	define mount_struct fstab
+X#	define mount_device fs_spec
+X#	define mount_point  fs_file
+X#endif
+X#ifdef USE_MOUNT_MNTCTL
+X#	include <sys/mntctl.h>
+X#	include <sys/vmount.h>
+X	struct mount_struct {
+X		char *mount_device;
+X		char *mount_point;
+X	};
+X#endif
+X
+X/*
+X * sigh...
+X */
+X#ifdef USE_STATFS_SYSV
+X#	include <sys/statfs.h>
+X#	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+X		statfs(MNT, PTR, PSIZE, FSTYPE)
+X#endif
+X#ifdef USE_STATFS_BSD
+X#	include <sys/mount.h>
+X#	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+X		statfs(MNT, PTR)
+X#endif
+X#ifdef USE_STATFS_SUN
+X#	include <sys/vfs.h>
+X#	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+X		statfs(MNT, PTR, PSIZE, FSTYPE)
+X#endif
+X#ifdef USE_STATFS_HPUX
+X#	include <sys/vfs.h>
+X#	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+X		statfs(MNT, PTR)
+X#endif
+X#ifdef USE_STATFS_NONE
+X#	include <sys/param.h>
+X	struct statfs {
+X		long f_bsize, f_files;
+X	};
+X#	define STATFS(MNT, PTR, PSIZE, FSTYPE) \
+X		((PTR)->f_bsize = BSIZE, (PTR)->f_files = 0, 0)
+X#endif
+X
+X
+X/*
+X * Dynamically allocated list of filesystem information records.
+X */
+Xstruct fsinfo **Fsinfo_list;
+Xint Fsinfo_size;
+X
+X/*
+X * Mount table handling routines.
+X */
+Xint open_mnttab __ARGS((void));
+Xstruct mount_struct *read_mnttab __ARGS((void));
+Xint close_mnttab __ARGS((void));
+X
+X
+X/*
+X * fs_initinfo() - Initialize the "Fsinfo_list" filesystem information.
+X */
+Xvoid fs_initinfo()
+X{
+X	struct fsinfo *fsp;
+X	struct mount_struct *mnt;
+X	struct stat sbuf;
+X	struct statfs fsbuf;
+X	int n;
+X
+X	Fsinfo_list = (struct fsinfo **) xmalloc(sizeof(struct fsinfo *));
+X	Fsinfo_list[0] = NULL;
+X	Fsinfo_size = 0;
+X
+X	/*
+X	 * Open up the mount table.
+X	 */
+X	if (open_mnttab() != 0)
+X		errmssg(ERR_ABORT, errno, "could not open mount table");
+X
+X	/*
+X	 * Initialize a filesystem information record for each mounted filesystem.
+X	 */
+X	while ((mnt = read_mnttab()) != NULL) {
+X
+X		/*
+X		 * Get the information on this filesystem.
+X		 */
+X		if (stat(mnt->mount_point, &sbuf) != 0) {
+X			errmssg(ERR_WARN, errno, "could not stat \"%s\"", mnt->mount_point);
+X			continue;
+X		}
+X		if (STATFS(mnt->mount_point, &fsbuf, sizeof(struct statfs), 0) != 0) {
+X			errmssg(ERR_WARN, errno,
+X				"could not statfs \"%s\"", mnt->mount_point);
+X			continue;
+X		}
+X
+X		/*
+X		 * Allocate and initialize the filesystem information structure.
+X		 * If "f_files" is zero then we take an initial guess at the
+X		 * number of inodes.  This will happen if this system does not
+X		 * have a statfs() call or this is an NFS filesystem.
+X		 */
+X		fsp = (struct fsinfo *) xmalloc(sizeof(struct fsinfo));
+X		fsp->dev = sbuf.st_dev;
+X		fsp->nino = (fsbuf.f_files > 0 ? fsbuf.f_files : ITABINCR);
+X		fsp->bsize = fsbuf.f_bsize;
+X		fsp->nindir = fsp->bsize / sizeof(daddr_t);
+X		fsp->remote = (sbuf.st_dev < 0) ||
+X			(strchr(mnt->mount_device, ':') != NULL);
+X
+X#ifdef BROKE_STBLOCKS
+X		/* very cool algorithm by Lars Henrik Mathiesen <thorinn@diku.dk> */
+X		if (sbuf.st_blocks == 0) {
+X			errmssg(ERR_WARN, 0,
+X				"cannot determine \"%s\" stat blksize - assuming 512",
+X				mnt->mount_device);
+X			fsp->stbsize = 512;
+X		} else {
+X			int round, ratio;
+X			round = (sbuf.st_size + fsbuf.f_bsize - 1) & ~(fsbuf.f_bsize - 1);
+X			ratio = round / sbuf.st_blocks;
+X			for (fsp->stbsize = 512 ; fsp->stbsize < ratio ; fsp->stbsize <<= 1)
+X				;
+X		}
+X#endif
+X
+X		/*
+X		 * Determine how long pathname buffers should be for
+X		 * entries on this filesystem.
+X		 */
+X		fsp->path_max = max_path_len(mnt->mount_point);
+X
+X		/*
+X		 * Create the bit vector that is used by fs_linkdone() to track
+X		 * which inodes have already been encountered.
+X		 */
+X		n = NUMINO_TO_VECLEN(fsp->nino);
+X		fsp->idone = (unsigned char *) xmalloc((unsigned)n);
+X		(void) memset((PTRTYPE *)fsp->idone, 0, n);
+X
+X		/*
+X		 * Attach the filesystem information to the end of the list.
+X		 */
+X		Fsinfo_list = (struct fsinfo **) xrealloc((PTRTYPE *)Fsinfo_list,
+X			(Fsinfo_size+2)*sizeof(struct fsinfo *));
+X		Fsinfo_list[Fsinfo_size++] = fsp;
+X		Fsinfo_list[Fsinfo_size] = NULL;
+X
+X#ifdef DEBUG
+X		Dprintf(stderr, "*** mount_device=\"%s\" mount_point=\"%s\"\n",
+X			mnt->mount_device, mnt->mount_point);
+X		Dprintf(stderr, "  remote=%s dev=%d nino=%d bsize=%d nindir=%d\n",
+X			(fsp->remote ? "TRUE" : "FALSE"),
+X			fsp->dev, fsp->nino, fsp->bsize, fsp->nindir);
+X#ifdef BROKE_STBLOCKS
+X		Dprintf(stderr, "   stbsize=%d", fsp->stbsize);
+X#endif
+X		Dprintf(stderr, "   path_max=%d\n", fsp->path_max);
+X#endif
+X
+X	}
+X
+X	(void) close_mnttab();
+X
+X}
+X
+X
+X/*
+X * fs_getinfo() - Gets filesystem information on a entry.
+X *
+X * Given the inode info for an entry, locate the corresponding filesystem
+X * info record and return a pointer to it.  The most recent result is cached
+X * to reduce the number of list searches.
+X */
+Xstruct fsinfo *fs_getinfo(sbufp)
+Xregister struct stat *sbufp;
+X{
+X	static struct fsinfo *fsp_save = NULL;
+X	register struct fsinfo **fsp;
+X
+X	if (fsp_save != NULL && fsp_save->dev == sbufp->st_dev)
+X		return fsp_save;
+X	for (fsp = Fsinfo_list ; *fsp != NULL ; ++fsp) {
+X		if ((*fsp)->dev == sbufp->st_dev) {
+X			fsp_save = *fsp;
+X			return fsp_save;
+X		}
+X	}
+X	return (struct fsinfo *) NULL;
+X}
+X
+X
+X/*
+X * fs_linkdone() - Determines whether a file has been visited already.
+X *
+X * This procedure implements the logic to avoid recounting of multiply
+X * linked files.  Each (struct fsinfo) contains a bit vector to track
+X * which inodes have already been visited.  The first time this procedure
+X * is called for a particular inode, we return FALSE and mark it in the bit
+X * vector.  TRUE is returned subsequent times this procedure is called for
+X * the same inode.
+X */
+Xint fs_linkdone(fsp, sbufp)
+Xregister struct fsinfo *fsp;
+Xregister struct stat *sbufp;
+X{
+X	register unsigned char *rowp;
+X	int mask;
+X	unsigned old_bytes, new_bytes;
+X
+X	/*
+X	 * Verify we haven't gone off the edge of the bit vector.  This
+X	 * could happen if we had to take an initial guess at the number
+X	 * of inodes.
+X	 */
+X	if (sbufp->st_ino > fsp->nino) {
+X
+X		old_bytes = NUMINO_TO_VECLEN(fsp->nino);
+X#ifdef DEBUG
+X		Dprintf(stderr, "*** growing bit vector for device %d at inode %d\n",
+X			fsp->dev, sbufp->st_ino);
+X		Dprintf(stderr, "  old vector size %d bytes (%d inodes)\n",
+X			old_bytes, fsp->nino);
+X#endif
+X		while (sbufp->st_ino > fsp->nino)
+X			fsp->nino += ITABINCR;
+X		new_bytes = NUMINO_TO_VECLEN(fsp->nino);
+X#ifdef DEBUG
+X		Dprintf(stderr, "  new vector size %d bytes (%d inodes)\n",
+X			new_bytes, fsp->nino);
+X#endif
+X
+X		fsp->idone =
+X			(unsigned char *)xrealloc((PTRTYPE *)fsp->idone, new_bytes);
+X		(void) memset((PTRTYPE *)(fsp->idone+old_bytes),
+X			0, new_bytes-old_bytes);
+X	}
+X
+X	/*
+X	 * Locate the bit within the vector for this inode.
+X	 */
+X	rowp = fsp->idone + (sbufp->st_ino >> 3);
+X	mask = 1 << (sbufp->st_ino & 07);
+X
+X	/*
+X	 * If the bit is set then this link was already done.
+X	 */
+X	if (*rowp & mask)
+X		return TRUE;
+X
+X	/*
+X	 * Set the bit and indicate the link hasn't been done yet.
+X	 */
+X	*rowp |= mask;
+X	return FALSE;
+X}
+X
+X
+X/*
+X * A classic UNIX filesys contains ten data block addresses in the inode.
+X */
+X#define DIRBLKS		10
+X
+X/*
+X * Macro to calculate ceiling(A/B) pretty efficiently.
+X */
+X#define CEIL_DIV(A, B)  (((A)+(B)-1) / (B))
+X
+X/*
+X * fs_numblocks() - Calculates disk usage of an entry.
+X *
+X * This routine is a profiling "hot spot".  It is called for every entry,
+X * and about 15% of the time appears to be spent here.  Unfortunately, the
+X * calculation this routine has to implement is apparently easy to botch given
+X * the number of vendor's du's that get it wrong.  Therefore, I traded a
+X * bit of speed for readability and clarity.  Even still, my benchmarking
+X * tests show that it stands up well to other implementations.
+X */
+Xlong fs_numblocks(fsp, sbufp)
+Xregister struct fsinfo *fsp;
+Xstruct stat *sbufp;
+X{
+X
+X	register long	n_used;		/* num blocks used, incl overhead	*/
+X
+X#ifdef USE_STBLOCKS /*{*/
+X
+X	/*
+X	 * Ignore this entry if we are counting usage for a specific
+X	 * user and that user doesn't own this entry.
+X	 */
+X	if (Selected_user >= 0 && sbufp->st_uid != Selected_user)
+X		return 0L;
+X
+X#ifdef BROKE_STBLOCKS
+X# define STBSIZE(fsp)	((fsp)->stbsize)
+X#else
+X# define STBSIZE(fsp)	(512)
+X#endif
+X
+X	/*
+X	 * This is a piece of cake on systems with "st_blocks".
+X	 */
+X	if (Report_blksize == STBSIZE(fsp))
+X		n_used = sbufp->st_blocks;
+X	else if (Report_blksize == 0)
+X		n_used = CEIL_DIV(sbufp->st_blocks*STBSIZE(fsp), fsp->bsize);
+X	else
+X		n_used = CEIL_DIV(sbufp->st_blocks*STBSIZE(fsp), Report_blksize);
+X
+X#else /*}!USE_STBLOCKS{*/
+X
+X	register long	n_to_place;	/* num data blocks to be placed		*/
+X	long	n_single_ind;	/* scratch single indirect block cntr	*/
+X	long	n_double_ind;	/* scratch double indirect block cntr	*/
+X
+X	/*
+X	 * Ignore this entry if we are counting usage for a specific
+X	 * user and that user doesn't own this entry.
+X	 */
+X	if (Selected_user >= 0 && sbufp->st_uid != Selected_user)
+X		return 0L;
+X
+X	/*
+X	 * Determine the number of data blocks required to store this file.
+X	 */
+X	n_used = CEIL_DIV(sbufp->st_size, fsp->bsize);
+X
+X	/*
+X	 * The first DIRBLKS addresses are stored directly in the inode
+X	 * and thus require no additional overhead.  Figure out how many
+X	 * data blocks remain to be placed through indirect addresses.
+X	 */
+X	n_to_place = n_used - DIRBLKS;
+X
+X	/*
+X	 * If the file has DIRBLKS or less data blocks then the entire
+X	 * file can be stored in direct data blocks, there is no indirect
+X	 * block overhead, and thus we are done.
+X	 */
+X	if (n_to_place <= 0)
+X		goto done;
+X
+X	/*
+X	 * With the single indirect block, we can get another "nindir" blocks.
+X	 */
+X	++n_used;
+X	n_to_place -= fsp->nindir;
+X	if (n_to_place <= 0)
+X		goto done;
+X
+X	/*
+X	 * With the double indirect block, we can get another "nindir" single
+X	 * indirect blocks, for a total of another "nindir**2" data blocks.
+X	 */
+X	n_single_ind = CEIL_DIV(n_to_place, fsp->nindir);
+X	if (n_single_ind > fsp->nindir)
+X		n_single_ind = fsp->nindir;
+X	n_used += 1 + n_single_ind;
+X	n_to_place -= n_single_ind * fsp->nindir ;
+X	if (n_to_place <= 0)
+X		goto done;
+X
+X	/*
+X	 * With the triple indirect block, we can get another "nindir" double
+X	 * indirect blocks, for another "nindir**2" single indirect blocks, for
+X	 * a total of another "nindir**3" data blocks.
+X	 */
+X	n_single_ind = CEIL_DIV(n_to_place, fsp->nindir);
+X	n_double_ind = CEIL_DIV(n_single_ind, fsp->nindir);
+X	n_used += 1 + n_double_ind + n_single_ind;
+X
+Xdone:
+X
+X	/*
+X	 * If required, convert from native blocksize to reporting blocksize.
+X	 */
+X	if (Report_blksize != 0 && Report_blksize != fsp->bsize)
+X		n_used = CEIL_DIV(n_used*fsp->bsize, Report_blksize);
+X
+X#endif /*}!USE_STBLOCKS*/
+X
+X	return n_used;
+X
+X}
+X
+X
+X/*****************************************************************************
+X *
+X * Mount Table Access Routines
+X *
+X * int open_mnttab();
+X *		Initialize for mount table scan.  Return zero on success.
+X *
+X * struct mount_struct *read_mnttab();
+X *		Return information on next mount entry; NULL at end of table.
+X *
+X * int close_mnttab();
+X *		Close the mount table.  Return zero on success, nonzero on error.
+X *
+X ****************************************************************************/
+X
+X
+X#ifdef USE_MOUNT_MNTTAB /*{*/
+X
+X#ifndef MNTTAB
+X#	ifdef PNMNTTAB
+X#		define MNTTAB PNMNTTAB
+X#	else
+X#		define MNTTAB "/etc/mnttab"
+X#	endif
+X#endif
+X
+X#ifndef ISMNTFREE
+X#	define ISMNTFREE(mp)	((mp)->mt_dev[0] == '\0')
+X#endif
+X
+Xstatic FILE *fpmnt;
+X
+Xint open_mnttab()
+X{
+X	return ((fpmnt = fopen(MNTTAB, "r")) != NULL ? 0 : -1);
+X}
+X
+Xstruct mnttab *read_mnttab()
+X{
+X	static struct mnttab mbuf;
+X	while (fread((PTRTYPE *)&mbuf, sizeof(mbuf), 1, fpmnt) == 1) {
+X		if (!ISMNTFREE(&mbuf))
+X			return &mbuf;
+X	}
+X	return (struct mnttab *)NULL;
+X}
+X
+Xint close_mnttab()
+X{
+X	return fclose(fpmnt);
+X}
+X
+X#endif /*} USE_MOUNT_MNTTAB*/
+X
+X
+X/****************************************************************************/
+X
+X
+X#ifdef USE_MOUNT_R4MNTTAB /*{*/
+X
+X#ifndef MNTTAB
+X#	define MNTTAB "/etc/mnttab"
+X#endif
+X
+Xstatic FILE *fpmnt;
+X
+Xint open_mnttab()
+X{
+X	return ((fpmnt = fopen(MNTTAB, "r")) != NULL ? 0 : -1);
+X}
+X
+Xstruct mnttab *read_mnttab()
+X{
+X	static struct mnttab mbuf;
+X	mntnull(&mbuf);
+X	return (getmntent(fpmnt, &mbuf) == 0 ? &mbuf : (struct mnttab *)NULL);
+X}
+X
+Xint close_mnttab()
+X{
+X	return fclose(fpmnt);
+X}
+X
+X#endif /*} USE_MOUNT_R4MNTTAB*/
+X
+X
+X/****************************************************************************/
+X
+X
+X#ifdef USE_MOUNT_MNTENT /*{*/
+X
+X#ifndef MNT_MNTTAB
+X#	define MNT_MNTTAB "/etc/mtab"
+X#endif
+X
+Xstatic FILE *fpmnt;
+X
+Xint open_mnttab()
+X{
+X	return ((fpmnt = setmntent(MNT_MNTTAB, "r")) != NULL ? 0 : -1);
+X}
+X
+Xstruct mntent *read_mnttab()
+X{
+X	return getmntent(fpmnt);
+X}
+X
+Xint close_mnttab()
+X{
+X	return endmntent(fpmnt);
+X}
+X
+X#endif /*}USE_MOUNT_MNTENT*/
+X
+X
+X/****************************************************************************/
+X
+X
+X#ifdef USE_MOUNT_FSTAB /*{*/
+X
+Xint open_mnttab()
+X{
+X	return (setfsent() ? 0 : -1);
+X}
+X
+Xstruct fstab *read_mnttab()
+X{
+X	return getfsent();
+X}
+X
+Xint close_mnttab()
+X{
+X	endfsent();
+X	return 0;
+X}
+X
+X#endif /*}USE_MOUNT_FSTAB*/
+X
+X
+X/****************************************************************************/
+X
+X
+X#ifdef USE_MOUNT_MNTCTL /*{*/
+X
+X/*
+X * Here is a fine example of what happens when you have ivory tower
+X * doctorates instead of experienced system programmers designing stuff.
+X */
+X
+Xstatic char *mntctl_buf;
+Xstatic char *mntctl_entry;
+Xstatic int mntctl_fscount;
+X
+Xint open_mnttab()
+X{
+X	unsigned n;
+X
+X	if (mntctl(MCTL_QUERY, sizeof(n), (char *)&n) != 0)
+X		return -1;
+X	n += 1024;
+X	mntctl_buf = xmalloc(n);
+X	if ((mntctl_fscount = mntctl(MCTL_QUERY, n, mntctl_buf)) == -1)
+X		return -1;
+X	mntctl_entry = mntctl_buf;
+X	return 0;
+X}
+X
+Xstruct mount_struct *read_mnttab()
+X{
+X	struct vmount *v;
+X	unsigned n, m;
+X	static struct mount_struct mbuf = { NULL, NULL };
+X
+X	if (mntctl_fscount <= 0)
+X		return (struct mount_struct *) NULL;
+X
+X	v = (struct vmount *)mntctl_entry;
+X	mntctl_entry += v->vmt_length;
+X	--mntctl_fscount;
+X
+X	if (mbuf.mount_device != NULL)
+X		free(mbuf.mount_device);
+X	if (mbuf.mount_point != NULL)
+X		free(mbuf.mount_point);
+X
+X	n = vmt2datasize(v, VMT_STUB);
+X	mbuf.mount_point = xmalloc(n+1);
+X	(void) strncpy(mbuf.mount_point, vmt2dataptr(v, VMT_STUB), n);
+X	mbuf.mount_point[n] = '\0';
+X
+X	n = vmt2datasize(v, VMT_HOST);
+X	m = vmt2datasize(v, VMT_OBJECT);
+X	mbuf.mount_device = xmalloc(n+sizeof((char)':')+m+1);
+X	if (v->vmt_flags & MNT_REMOTE) {
+X		(void) strncpy(mbuf.mount_device, vmt2dataptr(v, VMT_HOST), n);
+X		mbuf.mount_device[n] = '\0';
+X		n = strlen(mbuf.mount_device);
+X		mbuf.mount_device[n++] = ':';
+X	} else {
+X		n = 0;
+X	}
+X	(void) strncpy(mbuf.mount_device+n, vmt2dataptr(v, VMT_OBJECT), m);
+X	mbuf.mount_device[n+m] = '\0';
+X
+X	return &mbuf;
+X}
+X
+Xint close_mnttab()
+X{
+X	free((PTRTYPE *)mntctl_buf);
+X	return 0;
+X}
+X
+X#endif /*} USE_MOUNT_MNTCTL*/
+X
+END_OF_FILE
+  if test 16998 -ne `wc -c <'fsinfo.c'`; then
+    echo shar: \"'fsinfo.c'\" unpacked with wrong size!
+  fi
+  # end of 'fsinfo.c'
+fi
+if test -f 'ngsizes.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ngsizes.1'\"
+else
+  echo shar: Extracting \"'ngsizes.1'\" \(2420 characters\)
+  sed "s/^X//" >'ngsizes.1' <<'END_OF_FILE'
+X.\" @(#) ngsizes.1 1.4 93/08/18 00:09:11
+X.TH NGSIZES 1
+X.SH NAME
+Xngsizes \- Usenet news disk usage report.
+X.SH SYNTAX
+X.B ngsizes
+X[
+X.B \-b
+Xdays[,days ...] ] [
+X.B \-t
+Xthreshold ]
+X.SH DESCRIPTION
+XThe
+X.I ngsizes
+Xprogram produces a report of disk space used by Usenet news articles.
+XThe report shows the newsgroup name, the number of people who read
+Xthe newsgroup, and the disk usage of that newsgroup broken down by
+Xarticle age.  The distributed defaults are to display all newsgroups
+Xand produce six columns in the age breakdown:  a total usage and usage
+Xfor articles at least 1, 3, 5, 7, and 15 days old.  These defaults may
+Xhave been modified by your system administrator.  The defaults may be
+Xoverridden by the following options:
+X.IP "\-b \fIdays\fR[,...]" 15
+XSpecify the age breakdown for the report.  The default described
+Xabove is equivalent to ``\-b 0,1,3,5,7,15''.
+X.IP "\-t \fIthreshold\fR" 15
+XOnly newsgroups using
+X.I threshold
+Xor more disk blocks will be displayed.  The default described
+Xabove is equivalent to ``\-t 0''.
+X.SH FILES
+XNote:  The file pathnames in the following list are as
+X.I ngsizes
+Xis distributed.  The actual values are almost certainly different on
+Xyour computer.
+X.sp
+X.nf
+X.ta +\w'/usenet/lib/news/active  'u
+X/usenet/spool/news      The Usenet spool directory.  /usenet/lib/news/active
+XList of active Usenet newsgroups.  /local/bin/du   The enhanced \fIdu\fR
+Xutility.  /tmp/ngsz*      Temporary files.
+X.fi
+X.SH SEE ALSO
+Xdu(1L), news(5)
+X.SH BUGS
+XThis utility requires the ``enh-du2'' enhanced
+X.I du
+Xprogram.  Several definitions in the
+X.I ngsizes
+Xscript must be customized for your Usenet installation.
+X.SH AUTHOR
+XChip Rosenthal
+X.br
+XUnicom Systems Development, Inc.
+X.br
+X<chip\s-1@\s+1chinacat.Unicom.COM>
+X.P
+X.if t \v'0.3v'\s+4\(co\s-4\v'-0.3v'
+XCopyright 1990-1993, Unicom Systems Development, Inc.  All rights reserved.
+X.P
+XYou are granted a non-exclusive license to use, modify, copy, and
+Xdistribute this software subject to the following conditions.  You
+Xmust ensure all copyright notices and license notices remain intact
+Xin the copies you use or distribute.  Any modifications, other than
+Xthose in the areas clearly reserved for site-specific modifications,
+Xmust be marked as such.  This software is provided "as is".  No
+Xwarranties have been expressed or implied.  Since this license was
+Xprovided to you at no charge, you must assume the entire risk and
+Xliability for all use of this software.
+END_OF_FILE
+  if test 2420 -ne `wc -c <'ngsizes.1'`; then
+    echo shar: \"'ngsizes.1'\" unpacked with wrong size!
+  fi
+  # end of 'ngsizes.1'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

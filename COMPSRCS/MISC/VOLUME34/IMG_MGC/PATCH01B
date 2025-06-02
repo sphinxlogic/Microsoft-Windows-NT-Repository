@@ -1,0 +1,2483 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject: v34i086: imagemagick - X11 image processing and display v2.2, Patch01b/3
+Message-ID: <1992Dec27.225916.442@sparky.imd.sterling.com>
+X-Md4-Signature: bd903571c5278eafe64940bce737d6a1
+Date: Sun, 27 Dec 1992 22:59:16 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 86
+Archive-name: imagemagick/patch01b
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+Patch-To: imagemagick: Volume 34, Issue 28-54
+
+#!/bin/sh
+# this is magick.02 (part 2 of ImageMagick/patch01)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fix-01 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fix-01'
+else
+echo 'x - continuing file fix-01'
+sed 's/^X//' << 'SHAR_EOF' >> 'fix-01' &&
+!   resource_value=XGetResource(resource_database,client_name,"scene","0");
+X    scene=atoi(resource_value);
+!   resource_value=XGetResource(resource_database,client_name,"verbose","False");
+X    verbose=IsTrue(resource_value);
+!   window_id=
+!     XGetResource(resource_database,client_name,"windowId",(char *) NULL);
+X    /*
+X      Parse command line.
+X    */
+***************
+*** 5659,5665 ****
+X                  Initialize image error attributes.
+X                */
+X                if (image->class == DirectClass)
+!                 image->colors=NumberColors(image);
+X                total_colors=image->colors;
+X              }
+X            if (resource_info.colorspace == GRAYColorspace)
+--- 5660,5666 ----
+X                  Initialize image error attributes.
+X                */
+X                if (image->class == DirectClass)
+!                 image->colors=NumberColors(image,(FILE *) NULL);
+X                total_colors=image->colors;
+X              }
+X            if (resource_info.colorspace == GRAYColorspace)
+diff -r -c ImageMagick/display.h ImageMagick2.2.1/display.h
+*** ImageMagick/display.h	Mon Dec  7 09:23:25 1992
+--- ImageMagick2.2.1/display.h	Fri Dec 18 17:07:29 1992
+***************
+*** 35,41 ****
+X  #define UpShifted(x) ((int) ((x)*(1L << 16)+0.5))
+X  #define Warning(message,qualifier)  \
+X  {  \
+!   (void) fprintf(stderr,"%s: %s",application_name,message);  \
+X    if (qualifier != (char *) NULL)  \
+X      (void) fprintf(stderr," (%s)",qualifier);  \
+X    (void) fprintf(stderr,".\n");  \
+--- 35,41 ----
+X  #define UpShifted(x) ((int) ((x)*(1L << 16)+0.5))
+X  #define Warning(message,qualifier)  \
+X  {  \
+!   (void) fprintf(stderr,"%s: %s",client_name,message);  \
+X    if (qualifier != (char *) NULL)  \
+X      (void) fprintf(stderr," (%s)",qualifier);  \
+X    (void) fprintf(stderr,".\n");  \
+***************
+*** 51,55 ****
+X  */
+X  #ifndef lint
+X  static char 
+!   Version[]="@(#)ImageMagick 2.2 92/12/10 cristy@dupont.com";
+X  #endif
+--- 51,55 ----
+X  */
+X  #ifndef lint
+X  static char 
+!   Version[]="@(#)ImageMagick 2.2.1 92/12/10 cristy@dupont.com";
+X  #endif
+diff -r -c ImageMagick/display.man ImageMagick2.2.1/display.man
+*** ImageMagick/display.man	Mon Dec  7 19:53:00 1992
+--- ImageMagick2.2.1/display.man	Fri Dec 18 17:07:31 1992
+***************
+*** 207,213 ****
+X  tranform image to span the full range of color values.  This is a contrast
+X  enhancement technique.
+X  .TP 5
+! .B "-print \fIfile\fP"
+X  write image as encapsulated Postscript to a file.
+X  
+X  If \fIfile\fP already exists, you will be prompted as to whether
+--- 207,213 ----
+X  tranform image to span the full range of color values.  This is a contrast
+X  enhancement technique.
+X  .TP 5
+! .B "-print \fIfilename\fP"
+X  write image as encapsulated Postscript to a file.
+X  
+X  If \fIfile\fP already exists, you will be prompted as to whether
+***************
+*** 232,237 ****
+--- 232,240 ----
+X  .TP 5
+X  .B "-rotate \fIdegrees\fP"
+X  apply Paeth image rotation to the image.
++ 
++ Empty triangles left over from rotating the image are filled with
++ the color defined by the pixel at location (0,0).
+X  .TP 5
+X  .B "-scale \fI<width factor>x<height factor>\fP"
+X  preferred size factors of the image.
+***************
+*** 242,249 ****
+X  one factor is specified, both the width and height factors assume the
+X  value.
+X  
+! Factors may be fractional.  For example, a factor of 1.5 will increase the
+! image size by one and one-half.
+X  
+X  The equivalent X resource for this option is \fBscaleGeometry\fP
+X  (class \fBScaleGeometry\fP).  See \fBX RESOURCES\fP for details.
+--- 245,253 ----
+X  one factor is specified, both the width and height factors assume the
+X  value.
+X  
+! Factors may be fractional.  To increase the size of an image, use a
+! scale factor greater than 1.0.  To decrease an image's size, use a
+! scale factor less than 1.0.  Default is 1.0.
+X  
+X  The equivalent X resource for this option is \fBscaleGeometry\fP
+X  (class \fBScaleGeometry\fP).  See \fBX RESOURCES\fP for details.
+***************
+*** 311,317 ****
+X  unique colors than the target window colormap allows.  Use
+X  \fB-colors\fP to reduce the number of colors.
+X  .TP 5
+! .B "-write \fIfile\fP"
+X  write image to a file.
+X  
+X  If \fIfile\fP already exists, you will be prompted as to whether
+--- 315,321 ----
+X  unique colors than the target window colormap allows.  Use
+X  \fB-colors\fP to reduce the number of colors.
+X  .TP 5
+! .B "-write \fIfilename\fP"
+X  write image to a file.
+X  
+X  If \fIfile\fP already exists, you will be prompted as to whether
+diff -r -c ImageMagick/image.c ImageMagick2.2.1/image.c
+*** ImageMagick/image.c	Mon Dec  7 09:18:21 1992
+--- ImageMagick2.2.1/image.c	Fri Dec 18 17:07:28 1992
+***************
+*** 59,65 ****
+X    External declarations.
+X  */
+X  extern char
+!   *application_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 59,65 ----
+X    External declarations.
+X  */
+X  extern char
+!   *client_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 4050,4055 ****
+--- 4050,4156 ----
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
++ %   R o l l I m a g e                                                         %
++ %                                                                             %
++ %                                                                             %
++ %                                                                             %
++ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++ %
++ %  Function RollImage rolls an image vertically and horizontally.  It
++ %  allocates the memory necessary for the new Image structure and returns a
++ %  pointer to the new image.
++ %
++ %  The format of the RollImage routine is:
++ %
++ %      rolled_image=RollImage(image,columns,rows)
++ %
++ %  A description of each parameter follows:
++ %
++ %    o rolled_image: Function RollImage returns a pointer to the image after
++ %      rolling.  A null image is returned if there is a memory shortage.
++ %
++ %    o image: The address of a structure of type Image.
++ %
++ %    o x_offset: An integer that specifies the number of columns to roll
++ %      in the horizonal direction.
++ %
++ %    o y_offset: An integer that specifies the number of rows to roll in the
++ %      veritical direction.
++ %
++ %
++ */
++ Image *RollImage(image,x_offset,y_offset)
++ Image
++   *image;
++ 
++ unsigned int
++   x_offset,
++   y_offset;
++ {
++   Image
++     *rolled_image;
++ 
++   register RunlengthPacket
++     *p,
++     *q;
++ 
++   register unsigned int
++     packets,
++     x;
++ 
++   unsigned int
++     y;
++ 
++   /*
++     Initialize rolled image attributes.
++   */
++   rolled_image=CopyImage(image,image->columns,image->rows,False);
++   if (rolled_image == (Image *) NULL)
++     {
++       Warning("unable to roll image","memory allocation failed");
++       return((Image *) NULL);
++     }
++   /*
++     Roll image.
++   */
++   p=image->pixels;
++   image->runlength=p->length+1;
++   packets=image->columns*image->rows;
++   for (y=0; y < image->rows; y++)
++   {
++     /*
++       Transfer scanline.
++     */
++     for (x=0; x < image->columns; x++)
++     {
++       if (image->runlength > 0)
++         image->runlength--;
++       else
++         {
++           p++;
++           image->runlength=p->length;
++         }
++       q=rolled_image->pixels+(y_offset+y)*image->columns+x+x_offset;
++       if (q < rolled_image->pixels)
++         q+=packets;
++       else
++         if (q >= (rolled_image->pixels+packets))
++           q-=packets;
++       q->red=p->red;
++       q->green=p->green;
++       q->blue=p->blue;
++       q->index=p->index;
++       q->length=0;
++     }
++   }
++   return(rolled_image);
++ }
++ 
++ /*
++ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
++ %                                                                             %
++ %                                                                             %
++ %                                                                             %
+X  %   S c a l e I m a g e                                                       %
+X  %                                                                             %
+X  %                                                                             %
+***************
+*** 4477,4483 ****
+X  %      transformed image is returned as this parameter.
+X  %
+X  %    o clip_geometry: Specifies a pointer to a clip geometry string.
+! %      This geometry defined a subregion of the image.
+X  %
+X  %    o image_geometry: Specifies a pointer to a image geometry string.
+X  %      The specified width and height of this geometry string are absolute.
+--- 4578,4584 ----
+X  %      transformed image is returned as this parameter.
+X  %
+X  %    o clip_geometry: Specifies a pointer to a clip geometry string.
+! %      This geometry defines a subregion of the image.
+X  %
+X  %    o image_geometry: Specifies a pointer to a image geometry string.
+X  %      The specified width and height of this geometry string are absolute.
+***************
+*** 4543,4558 ****
+X    if (scale_geometry != (char *) NULL)
+X      {
+X        float
+!         scale_height,
+!         scale_width;
+X  
+!       scale_width=0.0;
+!       scale_height=0.0;
+!       (void) sscanf(scale_geometry,"%fx%f",&scale_width,&scale_height);
+!       if (scale_height == 0.0)
+!         scale_height=scale_width;
+!       width=(unsigned int) (width*scale_width);
+!       height=(unsigned int) (height*scale_height);
+X      }
+X    if (image_geometry != (char *) NULL)
+X      (void) XParseGeometry(image_geometry,&x,&y,&width,&height);
+--- 4644,4659 ----
+X    if (scale_geometry != (char *) NULL)
+X      {
+X        float
+!         height_factor,
+!         width_factor;
+X  
+!       width_factor=0.0;
+!       height_factor=0.0;
+!       (void) sscanf(scale_geometry,"%fx%f",&width_factor,&height_factor);
+!       if (height_factor == 0.0)
+!         height_factor=width_factor;
+!       width=(unsigned int) (width*width_factor);
+!       height=(unsigned int) (height*height_factor);
+X      }
+X    if (image_geometry != (char *) NULL)
+X      (void) XParseGeometry(image_geometry,&x,&y,&width,&height);
+diff -r -c ImageMagick/image.h ImageMagick2.2.1/image.h
+*** ImageMagick/image.h	Mon Dec  7 17:10:46 1992
+--- ImageMagick2.2.1/image.h	Fri Dec 18 17:07:29 1992
+***************
+*** 2,7 ****
+--- 2,8 ----
+X    Image define declarations.
+X  */
+X  #define AbsoluteValue(x)  ((x) < 0 ? -(x) : (x))
++ #define DegreesToRadians(x) ((x)*3.14159265358979323846/180.0)
+X  #define Intensity(color)  (unsigned int)  \
+X    ((unsigned int) ((color).red*77+(color).green*150+(color).blue*29) >> 8)
+X  #define MaxColormapSize  65535
+***************
+*** 147,154 ****
+--- 148,157 ----
+X    *ReadImage _Declare((char *)),
+X    *ReduceImage _Declare((Image *)),
+X    *ReflectImage _Declare((Image *)),
++   *RollImage _Declare((Image *,unsigned int,unsigned int)),
+X    *RotateImage _Declare((Image *,double,int)),
+X    *ScaleImage _Declare((Image *,unsigned int,unsigned int)),
++   *ShearImage _Declare((Image *,double,double,unsigned int)),
+X    *StereoImage _Declare((Image *,Image *)),
+X    *ZoomImage _Declare((Image *));
+X  
+***************
+*** 156,162 ****
+X    ReadDataBlock _Declare((char *,FILE *));
+X  
+X  extern unsigned int
+!   NumberColors _Declare((Image *)),
+X    PackImage _Declare((Image *)),
+X    PrintImage _Declare((Image *,char *)),
+X    ReadData _Declare((char *,int,int,FILE *)),
+--- 159,165 ----
+X    ReadDataBlock _Declare((char *,FILE *));
+X  
+X  extern unsigned int
+!   NumberColors _Declare((Image *,FILE *)),
+X    PackImage _Declare((Image *)),
+X    PrintImage _Declare((Image *,char *)),
+X    ReadData _Declare((char *,int,int,FILE *)),
+Common subdirectories: ImageMagick/images and ImageMagick2.2.1/images
+diff -r -c ImageMagick/import.c ImageMagick2.2.1/import.c
+*** ImageMagick/import.c	Mon Dec  7 09:18:45 1992
+--- ImageMagick2.2.1/import.c	Fri Dec 18 17:07:28 1992
+***************
+*** 90,96 ****
+X    Global declarations.
+X  */
+X  char
+!   *application_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 90,96 ----
+X    Global declarations.
+X  */
+X  char
+!   *client_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 123,129 ****
+X    *message,
+X    *qualifier;
+X  {
+!   (void) fprintf(stderr,"%s: %s",application_name,message);
+X    if (qualifier != (char *) NULL)
+X      (void) fprintf(stderr," (%s)",qualifier);
+X    (void) fprintf(stderr,".\n");
+--- 123,129 ----
+X    *message,
+X    *qualifier;
+X  {
+!   (void) fprintf(stderr,"%s: %s",client_name,message);
+X    if (qualifier != (char *) NULL)
+X      (void) fprintf(stderr," (%s)",qualifier);
+X    (void) fprintf(stderr,".\n");
+***************
+*** 169,175 ****
+X        "-window id       select window with this id or name",
+X        (char *) NULL
+X      };
+!   (void) fprintf(stderr,"Usage: %s [options ...] file\n",application_name);
+X    (void) fprintf(stderr,"\nWhere options include:\n");
+X    for (p=options; *p != (char *) NULL; p++)
+X      (void) fprintf(stderr,"  %s\n",*p);
+--- 169,175 ----
+X        "-window id       select window with this id or name",
+X        (char *) NULL
+X      };
+!   (void) fprintf(stderr,"Usage: %s [options ...] file\n",client_name);
+X    (void) fprintf(stderr,"\nWhere options include:\n");
+X    for (p=options; *p != (char *) NULL; p++)
+X      (void) fprintf(stderr,"  %s\n",*p);
+***************
+*** 247,253 ****
+X    /*
+X      Display usage profile if there are no command line arguments.
+X    */
+!   application_name=(*argv);
+X    if (argc < 2)
+X      Usage();
+X    /*
+--- 247,253 ----
+X    /*
+X      Display usage profile if there are no command line arguments.
+X    */
+!   client_name=(*argv);
+X    if (argc < 2)
+X      Usage();
+X    /*
+***************
+*** 293,319 ****
+X    /*
+X      Get user defaults from X resource database.
+X    */
+!   XGetResourceInfo(resource_database,application_name,&resource_info);
+!   resource_value=XGetResource(resource_database,application_name,"borders",
+!     (char *) NULL,"False");
+X    borders=IsTrue(resource_value);
+!   resource_value=XGetResource(resource_database,application_name,
+!     "compression",(char *) NULL,"Runlength");
+X    if (Latin1Compare("qencoded",resource_value) == 0)
+X      compression=QEncodedCompression;
+X    else
+X      compression=RunlengthEncodedCompression;
+!   resource_value=XGetResource(resource_database,application_name,"frame",
+!     (char *) NULL,"False");
+X    frame=IsTrue(resource_value);
+!   resource_value=XGetResource(resource_database,application_name,"scene",
+!     (char *) NULL,"0");
+X    scene=atoi(resource_value);
+!   resource_value=XGetResource(resource_database,application_name,"screen",
+!     (char *) NULL,"False");
+X    screen=IsTrue(resource_value);
+!   resource_value=XGetResource(resource_database,application_name,"verbose",
+!     (char *) NULL,"False");
+X    verbose=IsTrue(resource_value);
+X    /*
+X      Check command syntax.
+--- 293,314 ----
+X    /*
+X      Get user defaults from X resource database.
+X    */
+!   XGetResourceInfo(resource_database,client_name,&resource_info);
+!   resource_value=XGetResource(resource_database,client_name,"borders","False");
+X    borders=IsTrue(resource_value);
+!   resource_value=
+!     XGetResource(resource_database,client_name,"compression","Runlength");
+X    if (Latin1Compare("qencoded",resource_value) == 0)
+X      compression=QEncodedCompression;
+X    else
+X      compression=RunlengthEncodedCompression;
+!   resource_value=XGetResource(resource_database,client_name,"frame","False");
+X    frame=IsTrue(resource_value);
+!   resource_value=XGetResource(resource_database,client_name,"scene","0");
+X    scene=atoi(resource_value);
+!   resource_value=XGetResource(resource_database,client_name,"screen","False");
+X    screen=IsTrue(resource_value);
+!   resource_value=XGetResource(resource_database,client_name,"verbose","False");
+X    verbose=IsTrue(resource_value);
+X    /*
+X      Check command syntax.
+***************
+*** 457,463 ****
+X          Display detailed info about the image.
+X        */
+X        if (image->class == DirectClass)
+!         image->colors=NumberColors(image);
+X        (void) fprintf(stderr,"[%u] %s %ux%u",image->scene,image->filename,
+X          image->columns,image->rows);
+X        if (image->class == DirectClass)
+--- 452,458 ----
+X          Display detailed info about the image.
+X        */
+X        if (image->class == DirectClass)
+!         image->colors=NumberColors(image,(FILE *) NULL);
+X        (void) fprintf(stderr,"[%u] %s %ux%u",image->scene,image->filename,
+X          image->columns,image->rows);
+X        if (image->class == DirectClass)
+diff -r -c ImageMagick/montage.c ImageMagick2.2.1/montage.c
+*** ImageMagick/montage.c	Wed Dec  9 09:43:25 1992
+--- ImageMagick2.2.1/montage.c	Fri Dec 18 17:07:28 1992
+***************
+*** 129,135 ****
+X    Global declarations.
+X  */
+X  char
+!   *application_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 129,135 ----
+X    Global declarations.
+X  */
+X  char
+!   *client_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 162,168 ****
+X    *message,
+X    *qualifier;
+X  {
+!   (void) fprintf(stderr,"%s: %s",application_name,message);
+X    if (qualifier != (char *) NULL)
+X      (void) fprintf(stderr," (%s)",qualifier);
+X    (void) fprintf(stderr,".\n");
+--- 162,168 ----
+X    *message,
+X    *qualifier;
+X  {
+!   (void) fprintf(stderr,"%s: %s",client_name,message);
+X    if (qualifier != (char *) NULL)
+X      (void) fprintf(stderr," (%s)",qualifier);
+X    (void) fprintf(stderr,".\n");
+***************
+*** 670,676 ****
+X      };
+X    (void) fprintf(stderr,
+X      "Usage: %s [-options ...] file [ [-options ...] file ...] file\n",
+!     application_name);
+X    (void) fprintf(stderr,"\nWhere options include: \n");
+X    for (p=options; *p != (char *) NULL; p++)
+X      (void) fprintf(stderr,"  %s\n",*p);
+--- 670,676 ----
+X      };
+X    (void) fprintf(stderr,
+X      "Usage: %s [-options ...] file [ [-options ...] file ...] file\n",
+!     client_name);
+X    (void) fprintf(stderr,"\nWhere options include: \n");
+X    for (p=options; *p != (char *) NULL; p++)
+X      (void) fprintf(stderr,"  %s\n",*p);
+***************
+*** 762,768 ****
+X    /*
+X      Display usage profile if there are no command line arguments.
+X    */
+!   application_name=(*argv);
+X    if (argc < 3)
+X      Usage();
+X    /*
+--- 762,768 ----
+X    /*
+X      Display usage profile if there are no command line arguments.
+X    */
+!   client_name=(*argv);
+X    if (argc < 3)
+X      Usage();
+X    /*
+***************
+*** 849,877 ****
+X        /*
+X          Get user defaults from X resource database.
+X        */
+!       XGetResourceInfo(resource_database,application_name,&resource_info);
+!       resource_value=XGetResource(resource_database,application_name,
+!         "aspect_ratio",(char *) NULL,"True");
+X        aspect_ratio=IsTrue(resource_value);
+!       clip_geometry=XGetResource(resource_database,application_name,
+!         "clipGeometry","ClipGeometry",(char *) NULL);
+!       resource_value=XGetResource(resource_database,application_name,
+!         "compression",(char *) NULL,"RunlengthEncoded");
+X        if (Latin1Compare("qencoded",resource_value) == 0)
+X          compression=QEncodedCompression;
+X        else
+X          compression=RunlengthEncodedCompression;
+!       resource_value=XGetResource(resource_database,application_name,"gamma",
+!         (char *) NULL,"0.0");
+X        gamma=atof(resource_value);
+!       resource_value=XGetResource(resource_database,application_name,"rotate",
+!         (char *) NULL,"0");
+X        degrees=atoi(resource_value);
+!       resource_value=XGetResource(resource_database,application_name,
+!         "tiles_per_row","TilesPerRow","0");
+X        tiles_per_row=atoi(resource_value);
+!       resource_value=XGetResource(resource_database,application_name,"verbose",
+!         (char *) NULL,"False");
+X        verbose=IsTrue(resource_value);
+X      }
+X    /*
+--- 849,877 ----
+X        /*
+X          Get user defaults from X resource database.
+X        */
+!       XGetResourceInfo(resource_database,client_name,&resource_info);
+!       resource_value=
+!         XGetResource(resource_database,client_name,"aspect_ratio","True");
+X        aspect_ratio=IsTrue(resource_value);
+!       clip_geometry=XGetResource(resource_database,client_name,"clipGeometry",
+!         (char *) NULL);
+!       resource_value=XGetResource(resource_database,client_name,
+!         "compression","RunlengthEncoded");
+X        if (Latin1Compare("qencoded",resource_value) == 0)
+X          compression=QEncodedCompression;
+X        else
+X          compression=RunlengthEncodedCompression;
+!       resource_value=XGetResource(resource_database,client_name,"gamma",
+!         "0.0");
+X        gamma=atof(resource_value);
+!       resource_value=XGetResource(resource_database,client_name,"rotate",
+!         "0");
+X        degrees=atoi(resource_value);
+!       resource_value=XGetResource(resource_database,client_name,
+!         "tiles_per_row","0");
+X        tiles_per_row=atoi(resource_value);
+!       resource_value=
+!         XGetResource(resource_database,client_name,"verbose","False");
+X        verbose=IsTrue(resource_value);
+X      }
+X    /*
+***************
+*** 1410,1416 ****
+X          Display detailed info about the image.
+X        */
+X        if (montage_image->class == DirectClass)
+!         montage_image->colors=NumberColors(montage_image);
+X        (void) fprintf(stderr,"[%u] %s %ux%u",montage_image->scene,
+X          montage_image->filename,montage_image->columns,montage_image->rows);
+X        if (montage_image->class == DirectClass)
+--- 1410,1416 ----
+X          Display detailed info about the image.
+X        */
+X        if (montage_image->class == DirectClass)
+!         montage_image->colors=NumberColors(montage_image,False);
+X        (void) fprintf(stderr,"[%u] %s %ux%u",montage_image->scene,
+X          montage_image->filename,montage_image->columns,montage_image->rows);
+X        if (montage_image->class == DirectClass)
+diff -r -c ImageMagick/montage.man ImageMagick2.2.1/montage.man
+*** ImageMagick/montage.man	Mon Dec  7 19:53:01 1992
+--- ImageMagick2.2.1/montage.man	Fri Dec 18 17:07:31 1992
+***************
+*** 279,284 ****
+--- 279,287 ----
+X  .TP 5
+X  .B "-rotate \fIdegrees\fP"
+X  apply Paeth image rotation to the image.
++ 
++ Empty triangles left over from rotating the image are filled with
++ the color defined by the pixel at location (0,0).
+X  .TP 5
+X  .B "-tiles_per_row \fIvalue\fP"
+X  specifies how many images are to appear in each row of the composite image.
+diff -r -c ImageMagick/quantize.c ImageMagick2.2.1/quantize.c
+*** ImageMagick/quantize.c	Thu Dec 10 12:53:06 1992
+--- ImageMagick2.2.1/quantize.c	Mon Dec 21 11:12:00 1992
+***************
+*** 271,277 ****
+X    External declarations.
+X  */
+X  extern char
+!   *application_name;
+X  
+X  /*
+X    Forward declarations.
+--- 271,277 ----
+X    External declarations.
+X  */
+X  extern char
+!   *client_name;
+X  
+X  /*
+X    Forward declarations.
+***************
+*** 396,402 ****
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+!         do
+X          {
+X            id=(p->red > node->mid_red ? 1 : 0) |
+X              (p->green > node->mid_green ? 1 : 0) << 1 |
+--- 396,402 ----
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+!         for ( ; ; )
+X          {
+X            id=(p->red > node->mid_red ? 1 : 0) |
+X              (p->green > node->mid_green ? 1 : 0) << 1 |
+***************
+*** 404,410 ****
+X            if ((node->children & (1 << id)) == 0)
+X              break;
+X            node=node->child[id];
+!         } while (True);
+X          p->index=(unsigned short) node->color_number;
+X          p++;
+X        }
+--- 404,410 ----
+X            if ((node->children & (1 << id)) == 0)
+X              break;
+X            node=node->child[id];
+!         }
+X          p->index=(unsigned short) node->color_number;
+X          p++;
+X        }
+***************
+*** 415,421 ****
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+!         do
+X          {
+X            id=(p->red > node->mid_red ? 1 : 0) |
+X              (p->green > node->mid_green ? 1 : 0) << 1 |
+--- 415,421 ----
+X            Identify the deepest node containing the pixel's color.
+X          */
+X          node=cube.root;
+!         for ( ; ; )
+X          {
+X            id=(p->red > node->mid_red ? 1 : 0) |
+X              (p->green > node->mid_green ? 1 : 0) << 1 |
+***************
+*** 424,430 ****
+X              break;
+X            node=node->child[id];
+X          }
+-         while (True);
+X          /*
+X            Find closest color among siblings and their children.
+X          */
+--- 424,429 ----
+***************
+*** 902,908 ****
+X              Identify the deepest node containing the pixel's color.
+X            */
+X            node=cube.root;
+!           do
+X            {
+X              id=(q->red > node->mid_red ? 1 : 0) |
+X                (q->green > node->mid_green ? 1 : 0) << 1 |
+--- 901,907 ----
+X              Identify the deepest node containing the pixel's color.
+X            */
+X            node=cube.root;
+!           for ( ; ; )
+X            {
+X              id=(q->red > node->mid_red ? 1 : 0) |
+X                (q->green > node->mid_green ? 1 : 0) << 1 |
+***************
+*** 911,917 ****
+X                break;
+X              node=node->child[id];
+X            }
+-           while (True);
+X            /*
+X              Find closest color among siblings and their children.
+X            */
+--- 910,915 ----
+***************
+*** 1061,1068 ****
+X    /*
+X      Initialize root node.
+X    */
+!   cube.root=
+!     InitializeNode(0,0,(Node *) NULL,MaxRGB >> 1,MaxRGB >> 1,MaxRGB >> 1);
+X    if (cube.root == (Node *) NULL)
+X      {
+X        Warning("unable to quantize image","memory allocation failed");
+--- 1059,1066 ----
+X    /*
+X      Initialize root node.
+X    */
+!   cube.root=InitializeNode(0,0,(Node *) NULL,(MaxRGB+1) >> 1,(MaxRGB+1) >> 1,
+!     (MaxRGB+1) >> 1);
+X    if (cube.root == (Node *) NULL)
+X      {
+X        Warning("unable to quantize image","memory allocation failed");
+***************
+*** 1478,1486 ****
+X    */
+X    *mean_error_per_pixel=(unsigned int) total_error/(image->columns*image->rows);
+X    *normalized_mean_square_error=((double) *mean_error_per_pixel)/
+!     (3.0*MaxRGB*MaxRGB);
+X    *normalized_maximum_square_error=((double) maximum_error_per_pixel)/
+!     (3.0*MaxRGB*MaxRGB);
+X  }
+X  
+X  /*
+--- 1476,1484 ----
+X    */
+X    *mean_error_per_pixel=(unsigned int) total_error/(image->columns*image->rows);
+X    *normalized_mean_square_error=((double) *mean_error_per_pixel)/
+!     (3.0*(MaxRGB+1)*(MaxRGB+1));
+X    *normalized_maximum_square_error=((double) maximum_error_per_pixel)/
+!     (3.0*(MaxRGB+1)*(MaxRGB+1));
+X  }
+X  
+X  /*
+diff -r -c ImageMagick/rotate.c ImageMagick2.2.1/rotate.c
+*** ImageMagick/rotate.c	Mon Dec  7 09:22:11 1992
+--- ImageMagick2.2.1/rotate.c	Sat Dec 19 23:46:26 1992
+***************
+*** 3,22 ****
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %                 RRRR    OOO   TTTTT   AAA   TTTTT   EEEEE                   %
+! %                 R   R  O   O    T    A   A    T     E                       %
+! %                 RRRR   O   O    T    AAAAA    T     EEE                     %
+! %                 R R    O   O    T    A   A    T     E                       %
+! %                 R  R    OOO     T    A   A    T     EEEEE                   %
+X  %                                                                             %
+X  %                                                                             %
+! %                Rotate a raster image by an arbitrary angle.                 %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %                           Software Design                                   %
+! %                             John Cristy                                     %
+! %                              July 1992                                      %
+X  %                                                                             %
+X  %                                                                             %
+X  %  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+--- 3,22 ----
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %                      SSSSS  H   H  EEEEE   AAA    RRRR                      %
+! %                      SS     H   H  E      A   A   R   R                     %
+! %                       SSS   HHHHH  EEE    AAAAA   RRRR                      %
+! %                         SS  H   H  E      A   A   R R                       %
+! %                      SSSSS  H   H  EEEEE  A   A   R  R                      %
+X  %                                                                             %
+X  %                                                                             %
+! %              Shear or rotate a raster image by an arbitrary angle.          %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %                               Software Design                               %
+! %                                 John Cristy                                 %
+! %                                  July 1992                                  %
+X  %                                                                             %
+X  %                                                                             %
+X  %  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+***************
+*** 42,52 ****
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Function RotateImage is based on the paper "A Fast Algorithm for General
+! %  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+! %  routine based on the Paeth paper written by Michael Halle of the Spatial
+! %  Imaging Group, MIT Media Lab.
+X  %
+X  */
+X  
+X  /*
+--- 42,53 ----
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Function RotateImage, XShearImage, and YShearImage is based on the paper
+! %  "A Fast Algorithm for General Raster Rotatation" by Alan W. Paeth.
+! %  RotateImage is adapted from a similiar routine based on the Paeth paper
+! %  written by Michael Halle of the Spatial Imaging Group, MIT Media Lab.
+X  %
++ %
+X  */
+X  
+X  /*
+***************
+*** 59,65 ****
+X    External declarations.
+X  */
+X  extern char
+!   *application_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 60,66 ----
+X    External declarations.
+X  */
+X  extern char
+!   *client_name;
+X  
+X  /*
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 66,298 ****
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   C o l u m n S h e a r                                                     %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Procedure ColumnShear displaces a subcolumn of pixels a specified number of
+! %  pixels.
+X  %
+! %  The format of the ColumnShear routine is:
+X  %
+! %      ColumnShear(source_image,source_columns,column,y,length,displacement,
+! %        background)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o source_image: A pointer to a ColorPacket structure which contains the
+! %      source image.
+X  %
+! %    o source_columns: Specifies the number of columns in the source image.
+X  %
+! %    o column: Specifies which column in the image to move.
+X  %
+- %    o y: Specifies the offset in the source image.
+X  %
+- %    o length: Specifies the number of pixels to move.
+- %
+- %    o displacement: Specifies the number of pixels to displace the column of
+- %      pixels.
+- %
+- %    o background: Specifies the background color.
+- %
+- %
+X  */
+! static void ColumnShear(source_image,source_columns,column,y,length,
+!   displacement,background,range_limit)
+! ColorPacket
+!   *source_image;
+X  
+- register unsigned int
+-   source_columns;
+- 
+- unsigned int
+-   column,
+-   y,
+-   length;
+- 
+X  double
+!   displacement;
+X  
+! ColorPacket
+!   background;
+! 
+! register unsigned char
+!   *range_limit;
+X  {
+!   ColorPacket
+!     last_pixel;
+X  
+!   enum {UP,DOWN}
+!     direction;
+X  
+X    int
+!     blue,
+!     green,
+!     red,
+!     step;
+X  
+!   long int
+!     fractional_step;
+X  
+-   register ColorPacket
+-     *p,
+-     *q;
+- 
+X    register int
+X      i;
+X  
+-   if (displacement == 0.0)
+-     return;
+-   else
+-     if (displacement > 0.0)
+-       direction=DOWN;
+-     else
+-       {
+-         displacement*=(-1.0);
+-         direction=UP;
+-       }
+-   step=(int) floor(displacement);
+-   fractional_step=UpShifted(displacement-(double) step);
+-   if (fractional_step == 0)
+-     {
+-       /*
+-         No fractional displacement-- just copy the pixels.
+-       */
+-       switch (direction)
+-       {
+-         case UP:
+-         {
+-           p=source_image+y*source_columns+column;
+-           q=p-step*source_columns;
+-           for (i=0; i < length; i++)
+-           {
+-             *q=(*p);
+-             q+=source_columns;
+-             p+=source_columns;
+-           }
+-           /*
+-             Set old column to background color.
+-           */
+-           for (i=0; i < step; i++)
+-           {
+-             *q=background;
+-             q+=source_columns;
+-           }
+-           break;
+-         }
+-         case DOWN:
+-         {
+-           p=source_image+(y+length)*source_columns+column;
+-           q=p+step*source_columns;
+-           for (i=0; i < length; i++)
+-           {
+-             q-=source_columns;
+-             p-=source_columns;
+-             *q=(*p);
+-           }
+-           /*
+-             Set old column to background color.
+-           */
+-           for (i=0; i < step; i++)
+-           {
+-             q-=source_columns;
+-             *q=background;
+-           }
+-           break;
+-         }
+-       }
+-       return;
+-     }
+X    /*
+!     Fractional displacment.
+X    */
+!   step++;
+!   last_pixel=background;
+!   switch (direction)
+X    {
+!     case UP:
+X      {
+-       p=source_image+y*source_columns+column;
+-       q=p-step*source_columns;
+-       for (i=0; i < length; i++)
+-       {
+-         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+-           fractional_step);
+-         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+-           fractional_step);
+-         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+-           fractional_step);
+-         last_pixel=(*p);
+-         p+=source_columns;
+-         q->red=range_limit[red];
+-         q->green=range_limit[green];
+-         q->blue=range_limit[blue];
+-         q+=source_columns;
+-       }
+X        /*
+!         Set old column to background color.
+X        */
+!       red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!         background.red*fractional_step);
+!       green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!         background.green*fractional_step);
+!       blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!         background.blue*fractional_step);
+!       q->red=range_limit[red];
+!       q->green=range_limit[green];
+!       q->blue=range_limit[blue];
+!       q+=source_columns;
+!       for (i=0; i < step-1; i++)
+!       {
+!         *q=background;
+!         q+=source_columns;
+!       }
+!       break;
+X      }
+!     case DOWN:
+!     {
+!       p=source_image+(y+length)*source_columns+column;
+!       q=p+step*source_columns;
+!       for (i=0; i < length; i++)
+!       {
+!         p-=source_columns;
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!           fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+!           fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!           fractional_step);
+!         last_pixel=(*p);
+!         q-=source_columns;
+!         q->red=range_limit[red];
+!         q->green=range_limit[green];
+!         q->blue=range_limit[blue];
+!       }
+!       /*
+!         Set old column to background color.
+!       */
+!       red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!         background.red*fractional_step);
+!       green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!         background.green*fractional_step);
+!       blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!         background.blue*fractional_step);
+!       q-=source_columns;
+!       q->red=range_limit[red];
+!       q->green=range_limit[green];
+!       q->blue=range_limit[blue];
+!       for (i=0; i < step-1; i++)
+!       {
+!         q-=source_columns;
+!         *q=background;
+!       }
+!       break;
+!     }
+!   }
+!   return;
+X  }
+X  
+X  /*
+--- 67,188 ----
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   C l i p S h e a r I m a g e                                               %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Function ClipShearImage clips the sheared image as determined by the
+! %  bounding box as defined by width and height and shearing angles.
+X  %
+! %  The format of the ClipShearImage routine is:
+X  %
+! %      ClipShearImage(image,x_shear,y_shear,width,height,clip)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o image: The address of a structure of type Image.
+X  %
+! %    o x_shear, y_shear, width, height: Defines a region of the image to clip.
+X  %
+! %    o clip: A value other than zero clips the corners of the rotated
+! %      image and retains the original image size.
+X  %
+X  %
+X  */
+! static Image *ClipShearImage(image,x_shear,y_shear,width,height,clip)
+! Image
+!   *image;
+X  
+X  double
+!   x_shear,
+!   y_shear;
+X  
+! unsigned int
+!   width,
+!   height,
+!   clip;
+X  {
+!   typedef struct Point
+!   {
+!     double
+!       x,
+!       y;
+!   } Point;
+X  
+!   double
+!     x_max,
+!     x_min,
+!     y_max,
+!     y_min;
+X  
++   Image
++     *clipped_image;
++ 
+X    int
+!     x_offset,
+!     y_offset;
+X  
+!   Point
+!     corners[4];
+X  
+X    register int
+X      i;
+X  
+X    /*
+!     Calculate the rotated image size.
+X    */
+!   corners[0].x=(-((int) width)/2.0);
+!   corners[0].y=(-((int) height)/2.0);
+!   corners[1].x=((int) width)/2.0;
+!   corners[1].y=(-((int) height)/2.0);
+!   corners[2].x=(-((int) width)/2.0);
+!   corners[2].y=((int) height)/2.0;
+!   corners[3].x=((int) width)/2.0;
+!   corners[3].y=((int) height)/2.0;
+!   for (i=0; i < 4; i++)
+X    {
+!     corners[i].x+=x_shear*corners[i].y;
+!     corners[i].y+=y_shear*corners[i].x;
+!     corners[i].x+=x_shear*corners[i].y;
+!     corners[i].x+=(image->columns-1)/2.0;
+!     corners[i].y+=(image->rows-3)/2.0;
+!   }
+!   x_min=corners[0].x;
+!   y_min=corners[0].y;
+!   x_max=corners[0].x;
+!   y_max=corners[0].y;
+!   for (i=1; i < 4; i++)
+!   {
+!     if (x_min > corners[i].x)
+!       x_min=corners[i].x;
+!     if (y_min > corners[i].y)
+!       y_min=corners[i].y;
+!     if (x_max < corners[i].x)
+!       x_max=corners[i].x;
+!     if (y_max < corners[i].y)
+!       y_max=corners[i].y;
+!   }
+!   x_min=floor((double) x_min);
+!   x_max=ceil((double) x_max);
+!   y_min=floor((double) y_min);
+!   y_max=ceil((double) y_max);
+!   if (!clip)
+X      {
+X        /*
+!         Do not clip sheared image.
+X        */
+!       width=(unsigned int) (x_max-x_min);
+!       height=(unsigned int) (y_max-y_min);
+X      }
+!   x_offset=(int) x_min+((int) (x_max-x_min)-width)/2;
+!   y_offset=(int) y_min+((int) (y_max-y_min)-height)/2;
+!   /*
+!     Clip image and return.
+!   */
+!   clipped_image=ClipImage(image,x_offset,y_offset+1,width,height);
+!   return(clipped_image);
+X  }
+X  
+X  /*
+***************
+*** 300,374 ****
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   I n t e g r a l R o t a t i o n                                           %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Function IntegralRotation rotates the source image starting at location
+! %  (x,y) an integral of 90 degrees and copies the result to the rotated image
+! %  buffer.
+X  %
+! %  The format of the IntegralRotation routine is:
+X  %
+! %      IntegralRotation(image,source_columns,source_rows,rotated_image,
+! %        rotated_columns,x,y,rotations)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o source_image: A pointer to a Image structure containing the source
+! %      image.
+X  %
+! %    o source_columns: Specifies the number of columns of pixels in the
+! %      source image.
+X  %
+- %    o source_rows: Specifies the number of rows of pixels in the source
+- %      image.
+- %
+- %    o rotated_image: A pointer to a ColorPacket structure containing the
+- %      rotated image.
+- %
+- %    o rotated_columns: Specifies the number of columns of pixels in the
+- %      rotated image.
+- %
+- %    o x: Specifies the x offset in the source image.
+- %
+- %    o y: Specifies the y offset in the source image.
+- %
+X  %    o rotations: Specifies the number of 90 degree rotations.
+X  %
+X  %
+X  */
+! static void IntegralRotation(image,source_columns,source_rows,rotated_image,
+!   rotated_columns,x,y,rotations)
+X  Image
+X    *image;
+X  
+X  unsigned int
+-   source_columns,
+-   source_rows;
+- 
+- ColorPacket
+-   *rotated_image;
+- 
+- unsigned int
+-   rotated_columns,
+-   x,
+-   y,
+X    rotations;
+X  {
+!   ColorPacket
+!     *q;
+X  
+X    register RunlengthPacket
+!     *p;
+X  
+X    register int
+!     i,
+!     j;
+X  
+X    /*
+X      Expand runlength packets into a rectangular array of pixels.
+X    */
+X    p=image->pixels;
+--- 190,252 ----
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   I n t e g r a l R o t a t e I m a g e                                     %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Function IntegralRotateImage rotates the image an integral of 90 degrees.
+! %  It allocates the memory necessary for the new Image structure and returns
+! %  a pointer to the rotated image.
+X  %
+! %  The format of the IntegralRotateImage routine is:
+X  %
+! %      rotated_image=IntegralRotateImage(image,rotations)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o rotated_image: Function IntegralRotateImage returns a pointer to the
+! %      rotated image.  A null image is returned if there is a a memory shortage.
+X  %
+! %    o image: The address of a structure of type Image.
+X  %
+X  %    o rotations: Specifies the number of 90 degree rotations.
+X  %
+X  %
+X  */
+! static Image *IntegralRotateImage(image,rotations)
+X  Image
+X    *image;
+X  
+X  unsigned int
+X    rotations;
+X  {
+!   Image
+!     *rotated_image;
+X  
+X    register RunlengthPacket
+!     *p,
+!     *q;
+X  
+X    register int
+!     x,
+!     y;
+X  
+X    /*
++     Initialize rotated image attributes.
++   */
++   rotations%=4;
++   if ((rotations == 1) || (rotations == 3))
++     rotated_image=CopyImage(image,image->rows,image->columns,False);
++   else
++     rotated_image=CopyImage(image,image->columns,image->rows,False);
++   if (rotated_image == (Image *) NULL)
++     {
++       Warning("unable to rotate image","memory allocation failed");
++       return((Image *) NULL);
++     }
++   /*
+X      Expand runlength packets into a rectangular array of pixels.
+X    */
+X    p=image->pixels;
+***************
+*** 380,389 ****
+X        /*
+X          Rotate 0 degrees.
+X        */
+!       for (j=0; j < source_rows; j++)
+X        {
+!         q=rotated_image+rotated_columns*(y+j)+x;
+!         for (i=0; i < source_columns; i++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+--- 258,267 ----
+X        /*
+X          Rotate 0 degrees.
+X        */
+!       for (y=0; y < image->rows; y++)
+X        {
+!         q=rotated_image->pixels+rotated_image->columns*y;
+!         for (x=0; x < image->columns; x++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+***************
+*** 396,401 ****
+--- 274,280 ----
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
++           q->length=0;
+X            q++;
+X          }
+X        }
+***************
+*** 406,415 ****
+X        /*
+X          Rotate 90 degrees.
+X        */
+!       for (j=source_columns-1; j >= 0; j--)
+X        {
+!         q=rotated_image+rotated_columns*y+x+j;
+!         for (i=0; i < source_rows; i++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+--- 285,294 ----
+X        /*
+X          Rotate 90 degrees.
+X        */
+!       for (x=0; x < rotated_image->columns; x++)
+X        {
+!         q=rotated_image->pixels+(rotated_image->columns-x-1);
+!         for (y=0; y < rotated_image->rows; y++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+***************
+*** 422,428 ****
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
+!           q+=rotated_columns;
+X          }
+X        }
+X        break;
+--- 301,308 ----
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
+!           q->length=0;
+!           q+=rotated_image->columns;
+X          }
+X        }
+X        break;
+***************
+*** 432,442 ****
+X        /*
+X          Rotate 180 degrees.
+X        */
+!       q=rotated_image;
+!       for (j=source_rows-1; j >= 0; j--)
+X        {
+!         q=rotated_image+rotated_columns*(y+j)+x+source_columns;
+!         for (i=0; i < source_columns; i++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+--- 312,322 ----
+X        /*
+X          Rotate 180 degrees.
+X        */
+!       q=rotated_image->pixels;
+!       for (y=image->rows-1; y >= 0; y--)
+X        {
+!         q=rotated_image->pixels+rotated_image->columns*y+rotated_image->columns;
+!         for (x=0; x < image->columns; x++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+***************
+*** 450,455 ****
+--- 330,336 ----
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
++           q->length=0;
+X          }
+X        }
+X        break;
+***************
+*** 459,468 ****
+X        /*
+X          Rotate 270 degrees.
+X        */
+!       for (j=0; j < source_columns; j++)
+X        {
+!         q=rotated_image+rotated_columns*(y+source_rows)+x+j-rotated_columns;
+!         for (i=0; i < source_rows; i++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+--- 340,350 ----
+X        /*
+X          Rotate 270 degrees.
+X        */
+!       for (x=0; x < rotated_image->columns; x++)
+X        {
+!         q=rotated_image->pixels+(rotated_image->columns*rotated_image->rows)-
+!           (rotated_image->columns-x-1)-1;
+!         for (y=0; y < rotated_image->rows; y++)
+X          {
+X            if (image->runlength > 0)
+X              image->runlength--;
+***************
+*** 475,488 ****
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
+!           q-=rotated_columns;
+X          }
+X        }
+X        break;
+X      }
+-     default:
+-       break;
+X    }
+X  }
+X  
+X  /*
+--- 357,370 ----
+X            q->green=p->green;
+X            q->blue=p->blue;
+X            q->index=p->index;
+!           q->length=0;
+!           q-=rotated_image->columns;
+X          }
+X        }
+X        break;
+X      }
+X    }
++   return(rotated_image);
+X  }
+X  
+X  /*
+***************
+*** 490,541 ****
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   R o w S h e a r                                                           %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Procedure RowShear displaces a subrow of pixels a specified number of
+! %  pixels.
+X  %
+! %  The format of the RowShear routine is:
+X  %
+! %      RowShear(source_image,source_columns,row,y,length,displacement,
+! %        background)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o source_image: A pointer to a ColorPacket structure.
+X  %
+! %    o source_columns: Specifies the number of columns in the source image.
+X  %
+! %    o row: Specifies which row in the image to move.
+X  %
+! %    o y: Specifies the offset in the source image.
+X  %
+- %    o length: Specifies the number of pixels to move.
+X  %
+- %    o displacement: Specifies the number of pixels to displace the row of
+- %      pixels.
+- %
+- %    o background: Specifies the background color.
+- %
+- %
+X  */
+! static void RowShear(source_image,source_columns,row,x,length,displacement,
+!   background,range_limit)
+! ColorPacket
+!   *source_image;
+X  
+X  unsigned int
+!   source_columns,
+!   row,
+!   x,
+!   length;
+X  
+! double
+!   displacement;
+X  
+X  ColorPacket
+X    background;
+--- 372,423 ----
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+! %   X S h e a r I m a g e                                                     %
+X  %                                                                             %
+X  %                                                                             %
+X  %                                                                             %
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+! %  Procedure XShearImage shears the image in the X direction with a shear angle
+! %  of 'degrees'.  Positive angles shear counter-clockwise (right-hand rule),
+! %  and negative angles shear clockwise.  Angles are measured relative to a
+! %  vertical Y-axis.  X shears will widen an image creating 'empty' triangles
+! %  on the left and right sides of the source image.
+X  %
+! %  The format of the XShearImage routine is:
+X  %
+! %      XShearImage(image,degrees,width,height,x_offset,y_offset,background,
+! %        range_limit)
+X  %
+X  %  A description of each parameter follows.
+X  %
+! %    o image: The address of a structure of type Image.
+X  %
+! %    o degrees: A double representing the shearing angle along the X axis.
+X  %
+! %    o width, height, x_offset, y_offset: Defines a region of the image
+! %      to shear.
+X  %
+! %    o background: Specifies a ColorPacket used to fill empty triangles
+! %      left over from shearing.
+X  %
+X  %
+X  */
+! static void XShearImage(image,degrees,width,height,x_offset,y_offset,background,
+!   range_limit)
+! Image
+!   *image;
+X  
++ double
++   degrees;
++ 
+X  unsigned int
+!   width,
+!   height;
+X  
+! int
+!   x_offset,
+!   y_offset;
+X  
+X  ColorPacket
+X    background;
+***************
+*** 543,573 ****
+X  register unsigned char
+X    *range_limit;
+X  {
+!   ColorPacket
+!     last_pixel;
+X  
+X    enum {LEFT,RIGHT}
+X      direction;
+X  
+X    int
+!     blue,
+!     green,
+!     red,
+!     step;
+X  
+X    long int
+X      fractional_step;
+X  
+!   register ColorPacket
+X      *p,
+X      *q;
+X  
+X    register int
+!     i;
+X  
+!   if (displacement == 0.0)
+!     return;
+!   else
+X      if (displacement > 0.0)
+X        direction=RIGHT;
+X      else
+--- 425,463 ----
+X  register unsigned char
+X    *range_limit;
+X  {
+!   double
+!     displacement;
+X  
+X    enum {LEFT,RIGHT}
+X      direction;
+X  
+X    int
+!     step,
+!     y;
+X  
+X    long int
+X      fractional_step;
+X  
+!   register RunlengthPacket
+X      *p,
+X      *q;
+X  
+X    register int
+!     blue,
+!     green,
+!     i,
+!     red;
+X  
+!   RunlengthPacket
+!     last_pixel;
+! 
+!   y_offset--;
+!   for (y=0; y < height; y++)
+!   {
+!     y_offset++;
+!     displacement=degrees*(((double) y)-(height-1)/2.0);
+!     if (displacement == 0.0)
+!       continue;
+X      if (displacement > 0.0)
+X        direction=RIGHT;
+X      else
+***************
+*** 575,723 ****
+X          displacement*=(-1.0);
+X          direction=LEFT;
+X        }
+!   step=(int) floor(displacement);
+!   fractional_step=UpShifted(displacement-(double) step);
+!   if (fractional_step == 0)
+!     {
+!       /*
+!         No fractional displacement-- just copy.
+!       */
+!       switch (direction)
+X        {
+!         case LEFT:
+X          {
+!           p=source_image+row*source_columns+x;
+!           q=p-step;
+!           for (i=0; i < length; i++)
+X            {
+!             *q=(*p);
+!             q++;
+!             p++;
+X            }
+!           /*
+!             Set old row to background color.
+!           */
+!           for (i=0; i < step; i++)
+X            {
+!             *q=background;
+!             q++;
+X            }
+-           break;
+X          }
+!         case RIGHT:
+!         {
+!           /*
+!             Right is the same as left except data is transferred backwards
+!             to prevent deleting data we need later.
+!           */
+!           p=source_image+row*source_columns+x+length;
+!           q=p+step;
+!           for (i=0; i < length; i++)
+!           {
+!             p--;
+!             q--;
+!             *q=(*p);
+!           }
+!           /*
+!             Set old row to background color.
+!           */
+!           for (i=0; i < step; i++)
+!           {
+!             q--;
+!             *q=background;
+!           }
+!           break;
+!         }
+X        }
+!       return;
+!     }
+!   /*
+!     Fractional displacement.
+!   */
+!   step++;
+!   last_pixel=background;
+!   switch (direction)
+!   {
+!     case LEFT:
+X      {
+!       p=source_image+row*source_columns+x;
+!       q=p-step;
+!       for (i=0; i < length; i++)
+X        {
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!           fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+!           fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!           fractional_step);
+!         last_pixel=(*p);
+!         p++;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X          q++;
+X        }
+!       /*
+!         Set old row to background color.
+!       */
+!       red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!         background.red*fractional_step);
+!       green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!         background.green*fractional_step);
+!       blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!         background.blue*fractional_step);
+!       q->red=range_limit[red];
+!       q->green=range_limit[green];
+!       q->blue=range_limit[blue];
+!       q++;
+!       for (i=0; i < step-1; i++)
+X        {
+!         *q=background;
+!         q++;
+X        }
+-       break;
+X      }
+!     case RIGHT:
+X      {
+!       p=source_image+row*source_columns+x+length;
+!       q=p+step;
+!       for (i=0; i < length; i++)
+X        {
+!         p--;
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!           fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+!           fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!           fractional_step);
+!         last_pixel=(*p);
+!         q--;
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X        }
+!       /*
+!         Set old row to background color.
+!       */
+!       red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!         background.red*fractional_step);
+!       green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!         background.green*fractional_step);
+!       blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!         background.blue*fractional_step);
+!       q--;
+!       q->red=range_limit[red];
+!       q->green=range_limit[green];
+!       q->blue=range_limit[blue];
+!       for (i=0; i < step-1; i++)
+X        {
+!         q--;
+!         *q=background;
+X        }
+-       break;
+X      }
+X    }
+-   return;
+X  }
+X  
+X  /*
+--- 465,892 ----
+X          displacement*=(-1.0);
+X          direction=LEFT;
+X        }
+!     step=(int) floor(displacement);
+!     fractional_step=UpShifted(displacement-(double) step);
+!     if (fractional_step == 0)
+X        {
+!         /*
+!           No fractional displacement-- just copy.
+!         */
+!         switch (direction)
+X          {
+!           case LEFT:
+X            {
+!             /*
+!               Transfer pixels left-to-right.
+!             */
+!             p=image->pixels+image->columns*y_offset+x_offset;
+!             q=p-step;
+!             for (i=0; i < width; i++)
+!             {
+!               *q=(*p);
+!               q++;
+!               p++;
+!             }
+!             /*
+!               Set old row to background color.
+!             */
+!             for (i=0; i < step; i++)
+!             {
+!               q->red=background.red;
+!               q->green=background.green;
+!               q->blue=background.blue;
+!               q++;
+!             }
+!             break;
+X            }
+!           case RIGHT:
+X            {
+!             /*
+!               Transfer pixels right-to-left.
+!             */
+!             p=image->pixels+image->columns*y_offset+x_offset+width;
+!             q=p+step;
+!             for (i=0; i < width; i++)
+!             {
+!               p--;
+!               q--;
+!               *q=(*p);
+!             }
+!             /*
+!               Set old row to background color.
+!             */
+!             for (i=0; i < step; i++)
+!             {
+!               q--;
+!               q->red=background.red;
+!               q->green=background.green;
+!               q->blue=background.blue;
+!             }
+!             break;
+X            }
+X          }
+!         continue;
+X        }
+!     /*
+!       Fractional displacement.
+!     */
+!     step++;
+!     last_pixel.red=background.red;
+!     last_pixel.green=background.green;
+!     last_pixel.blue=background.blue;
+!     switch (direction)
+X      {
+!       case LEFT:
+X        {
+!         /*
+!           Transfer pixels left-to-right.
+!         */
+!         p=image->pixels+image->columns*y_offset+x_offset;
+!         q=p-step;
+!         for (i=0; i < width; i++)
+!         {
+!           red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!             fractional_step);
+!           green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!             p->green*fractional_step);
+!           blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!             fractional_step);
+!           last_pixel=(*p);
+!           p++;
+!           q->red=range_limit[red];
+!           q->green=range_limit[green];
+!           q->blue=range_limit[blue];
+!           q++;
+!         }
+!         /*
+!           Set old row to background color.
+!         */
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!           background.red*fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!           background.green*fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!           background.blue*fractional_step);
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
+X          q++;
++         for (i=0; i < step-1; i++)
++         {
++           q->red=background.red;
++           q->green=background.green;
++           q->blue=background.blue;
++           q++;
++         }
++         break;
+X        }
+!       case RIGHT:
+X        {
+!         /*
+!           Transfer pixels right-to-left.
+!         */
+!         p=image->pixels+image->columns*y_offset+x_offset+width;
+!         q=p+step;
+!         for (i=0; i < width; i++)
+!         {
+!           p--;
+!           red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!             fractional_step);
+!           green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!             p->green*fractional_step);
+!           blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!             fractional_step);
+!           last_pixel=(*p);
+!           q--;
+!           q->red=range_limit[red];
+!           q->green=range_limit[green];
+!           q->blue=range_limit[blue];
+!         }
+!         /*
+!           Set old row to background color.
+!         */
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!           background.red*fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!           background.green*fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!           background.blue*fractional_step);
+!         q--;
+!         q->red=range_limit[red];
+!         q->green=range_limit[green];
+!         q->blue=range_limit[blue];
+!         for (i=0; i < step-1; i++)
+!         {
+!           q--;
+!           q->red=background.red;
+!           q->green=background.green;
+!           q->blue=background.blue;
+!         }
+!         break;
+X        }
+X      }
+!   }
+! }
+! 
+! /*
+! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+! %                                                                             %
+! %                                                                             %
+! %                                                                             %
+! %   Y S h e a r I m a g e                                                     %
+! %                                                                             %
+! %                                                                             %
+! %                                                                             %
+! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+! %
+! %  Procedure YShearImage shears the image in the Y direction with a shear
+! %  angle of 'degrees'.  Positive angles shear counter-clockwise (right-hand
+! %  rule), and negative angles shear clockwise.  Angles are measured relative
+! %  to a horizontal X-axis.  Y shears will increase the height of an image
+! %  creating 'empty' triangles on the top and bottom of the source image.
+! %
+! %  The format of the YShearImage routine is:
+! %
+! %      YShearImage(image,degrees,width,height,x_offset,y_offset,background,
+! %        range_limit)
+! %
+! %  A description of each parameter follows.
+! %
+! %    o image: The address of a structure of type Image.
+! %
+! %    o degrees: A double representing the shearing angle along the Y axis.
+! %
+! %    o width, height, x_offset, y_offset: Defines a region of the image
+! %      to shear.
+! %
+! %    o background: Specifies a ColorPacket used to fill empty triangles
+! %      left over from shearing.
+! %
+! %
+! */
+! static void YShearImage(image,degrees,width,height,x_offset,y_offset,background,
+!   range_limit)
+! Image
+!   *image;
+! 
+! double
+!   degrees;
+! 
+! unsigned int
+!   width,
+!   height;
+! 
+! int
+!   x_offset,
+!   y_offset;
+! 
+! ColorPacket
+!   background;
+! 
+! register unsigned char
+!   *range_limit;
+! {
+!   double
+!     displacement;
+! 
+!   enum {UP,DOWN}
+!     direction;
+! 
+!   int
+!     step,
+!     y;
+! 
+!   long int
+!     fractional_step;
+! 
+!   register RunlengthPacket
+!     *p,
+!     *q;
+! 
+!   register int
+!     blue,
+!     green,
+!     i,
+!     red;
+! 
+!   RunlengthPacket
+!     last_pixel;
+! 
+!   x_offset--;
+!   for (y=0; y < width; y++)
+!   {
+!     x_offset++;
+!     displacement=degrees*(((double) y)-(width-1)/2.0);
+!     if (displacement == 0.0)
+!       continue;
+!     if (displacement > 0.0)
+!       direction=DOWN;
+!     else
+!       {
+!         displacement*=(-1.0);
+!         direction=UP;
+!       }
+!     step=(int) floor(displacement);
+!     fractional_step=UpShifted(displacement-(double) step);
+!     if (fractional_step == 0)
+!       {
+!         /*
+!           No fractional displacement-- just copy the pixels.
+!         */
+!         switch (direction)
+!         {
+!           case UP:
+!           {
+!             /*
+!               Transfer pixels top-to-bottom.
+!             */
+!             p=image->pixels+image->columns*y_offset+x_offset;
+!             q=p-step*image->columns;
+!             for (i=0; i < height; i++)
+!             {
+!               *q=(*p);
+!               q+=image->columns;
+!               p+=image->columns;
+!             }
+!             /*
+!               Set old column to background color.
+!             */
+!             for (i=0; i < step; i++)
+!             {
+!               q->red=background.red;
+!               q->green=background.green;
+!               q->blue=background.blue;
+!               q+=image->columns;
+!             }
+!             break;
+!           }
+!           case DOWN:
+!           {
+!             /*
+!               Transfer pixels bottom-to-top.
+!             */
+!             p=image->pixels+image->columns*(y_offset+height)+x_offset;
+!             q=p+step*image->columns;
+!             for (i=0; i < height; i++)
+!             {
+!               q-=image->columns;
+!               p-=image->columns;
+!               *q=(*p);
+!             }
+!             /*
+!               Set old column to background color.
+!             */
+!             for (i=0; i < step; i++)
+!             {
+!               q-=image->columns;
+!               q->red=background.red;
+!               q->green=background.green;
+!               q->blue=background.blue;
+!             }
+!             break;
+!           }
+!         }
+!         continue;
+!       }
+!     /*
+!       Fractional displacment.
+!     */
+!     step++;
+!     last_pixel.red=background.red;
+!     last_pixel.green=background.green;
+!     last_pixel.blue=background.blue;
+!     switch (direction)
+X      {
+!       case UP:
+X        {
+!         /*
+!           Transfer pixels top-to-bottom.
+!         */
+!         p=image->pixels+image->columns*y_offset+x_offset;
+!         q=p-step*image->columns;
+!         for (i=0; i < height; i++)
+!         {
+!           red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!             fractional_step);
+!           green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!             p->green*fractional_step);
+!           blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!             fractional_step);
+!           last_pixel=(*p);
+!           p+=image->columns;
+!           q->red=range_limit[red];
+!           q->green=range_limit[green];
+!           q->blue=range_limit[blue];
+!           q+=image->columns;
+!         }
+!         /*
+!           Set old column to background color.
+!         */
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!           background.red*fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!           background.green*fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!           background.blue*fractional_step);
+X          q->red=range_limit[red];
+X          q->green=range_limit[green];
+X          q->blue=range_limit[blue];
++         q+=image->columns;
++         for (i=0; i < step-1; i++)
++         {
++           q->red=background.red;
++           q->green=background.green;
++           q->blue=background.blue;
++           q+=image->columns;
++         }
++         break;
+X        }
+!       case DOWN:
+X        {
+!         /*
+!           Transfer pixels bottom-to-top.
+!         */
+!         p=image->pixels+image->columns*(y_offset+height)+x_offset;
+!         q=p+step*image->columns;
+!         for (i=0; i < height; i++)
+!         {
+!           p-=image->columns;
+!           red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+!             fractional_step);
+!           green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!             p->green*fractional_step);
+!           blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+!             fractional_step);
+!           last_pixel=(*p);
+!           q-=image->columns;
+!           q->red=range_limit[red];
+!           q->green=range_limit[green];
+!           q->blue=range_limit[blue];
+!         }
+!         /*
+!           Set old column to background color.
+!         */
+!         red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+!           background.red*fractional_step);
+!         green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+!           background.green*fractional_step);
+!         blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+!           background.blue*fractional_step);
+!         q-=image->columns;
+!         q->red=range_limit[red];
+!         q->green=range_limit[green];
+!         q->blue=range_limit[blue];
+!         for (i=0; i < step-1; i++)
+!         {
+!           q-=image->columns;
+!           q->red=background.red;
+!           q->green=background.green;
+!           q->blue=background.blue;
+!         }
+!         break;
+X        }
+X      }
+X    }
+X  }
+X  
+X  /*
+***************
+*** 732,738 ****
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+X  %  Function RotateImage creates a new image that is a rotated copy of an
+! %  existing one.  It allocates the memory necessary for the new Image structure %  and returns a pointer to the new image.
+X  %
+X  %  Function RotateImage is based on the paper "A Fast Algorithm for General
+X  %  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+--- 901,913 ----
+X  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+X  %
+X  %  Function RotateImage creates a new image that is a rotated copy of an
+! %  existing one.  Positive angles rotate counter-clockwise (right-hand rule),
+! %  while negative angles rotate clockwise.  Rotated images are usually larger
+! %  than the originals and have 'empty' triangular corners.  X axis.  Empty
+! %  triangles left over from shearing the image are filled with the color
+! %  defined by the pixel at location (0,0).  RotateImage allocates the memory
+! %  necessary for the new Image structure and returns a pointer to the new
+! %  image.
+X  %
+X  %  Function RotateImage is based on the paper "A Fast Algorithm for General
+X  %  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+***************
+*** 768,778 ****
+X  int
+X    clip;
+X  {
+- #define DegreesToRadians(x) ((x)*3.14159265358979323846/180.0)
+- 
+X    ColorPacket
+!     background,
+!     *rotated_pixels;
+X  
+X    double
+X      x_shear,
+--- 943,950 ----
+X  int
+X    clip;
+X  {
+X    ColorPacket
+!     background;
+X  
+X    double
+X      x_shear,
+***************
+*** 779,803 ****
+X      y_shear;
+X  
+X    Image
+X      *rotated_image;
+X  
+!   register ColorPacket
+!     *p;
+X  
+X    register int
+!     i,
+!     x,
+!     y;
+X  
+!   register RunlengthPacket
+!     *q;
+X  
+X    unsigned int
+!     number_rows,
+!     number_columns,
+X      rotations,
+!     x_offset,
+!     y_offset,
+X      y_width;
+X  
+X    /*
+--- 951,975 ----
+X      y_shear;
+X  
+X    Image
++     *clipped_image,
++     *integral_image,
+X      *rotated_image;
+X  
+!   int
+!     x_offset,
+!     y_offset;
+X  
+X    register int
+!     i;
+X  
+!   unsigned char
+!     *range_limit,
+!     *range_table;
+X  
+X    unsigned int
+!     height,
+X      rotations,
+!     width,
+X      y_width;
+X  
+X    /*
+***************
+*** 817,1042 ****
+X    */
+X    x_shear=(-tan(DegreesToRadians(degrees)/2.0));
+X    y_shear=sin(DegreesToRadians(degrees));
+X    if ((rotations == 1) || (rotations == 3))
+X      {
+!       /*
+!         Invert image size.
+!       */
+!       y_width=image->rows+
+!         (int) ceil(fabs(x_shear)*(double) (image->columns-1));
+!       number_columns=image->rows+2*
+!         (int) ceil(fabs(x_shear)*(double) (image->columns-1));
+!       number_rows=image->columns+
+!         (int) ceil(fabs(y_shear)*(double) (y_width-1));
+!       rotated_image=CopyImage(image,number_columns,number_rows,False);
+!       if (rotated_image == (Image *) NULL)
+!         {
+!           Warning("unable to rotate image","memory allocation failed");
+SHAR_EOF
+true || echo 'restore of fix-01 failed'
+fi
+echo 'End of ImageMagick/patch01 part 2'
+echo 'File fix-01 is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+cristy@dupont.com
+
+exit 0 # Just in case...

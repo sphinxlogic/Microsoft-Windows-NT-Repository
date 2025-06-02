@@ -1,0 +1,2124 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v31i074:  pdksh - Public Domain Korn Shell, Patch06a/2
+Message-ID: <csm-v31i074=pdksh.093459@sparky.IMD.Sterling.COM>
+X-Md4-Signature: b99a1dcb6cb0d5a1262775c4d240a60f
+Date: Fri, 14 Aug 1992 14:41:48 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 31, Issue 74
+Archive-name: pdksh/patch06a
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+This is patch06 (a two part patch). Please apply both parts to complete
+the patch.
+
+This patch fixes a bug in the handling of re-directed loops.  It adds 
+"special" support for variables FCEDIT and COLUMNS.
+
+It also incorporates a significant contribution from Peter Collinson 
+of Hillside Systems/BSDI
+
+I've guessed at the flags in Makefile and sh/Makefile, but you should 
+not have much trouble building this on either BSDI's BSD/386 or Bill 
+and Lyne Jolitz's 386bsd. 
+
+See ChangeLog for other details.
+
+Apply this patch by changing directory to the root of the source tree 
+and using the command:
+
+	patch -p0 < this_file
+
+The following is a complete list of patches to date.
+
+Prereq: 09-Nov-91
+Prereq: 10-Nov-91
+Prereq: 25-Nov-91
+Prereq: 25-Apr-92
+Prereq: 26-Apr-92
+Prereq: 27-Apr-92
+Prereq: 12-May-92
+*** PATCHDATES.old	Tue May 12 13:42:00 1992
+--- PATCHDATES	Mon Aug 10 21:59:12 1992
+***************
+*** 6,8 ****
+--- 6,9 ----
+  26-Apr-92
+  27-Apr-92
+  12-May-92
++ 02-Aug-92
+*** ChangeLog.old	Tue May 12 13:42:00 1992
+--- ChangeLog	Mon Aug 10 21:59:03 1992
+***************
+*** 1,3 ****
+--- 1,12 ----
++ Sat Aug  1 17:11:24 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* Incorporated massive contribution from Peter Collinson
++ 	Refer to Changes.pc
++ 
++ 	* Incorporated Emacs-style completion provided by
++ 	Neil.Smithline@eng.sun.com this a bit nicer than the standard ksh
++ 	file completion.
++ 
+  Sun May  3 17:50:03 1992  Simon J. Gerraty  (sjg@zen)
+  
+  	* Updated MACHINES.
+*** /dev/null	Mon Aug 10 22:06:03 1992
+--- Changes.pc	Mon Aug 10 22:06:01 1992
+***************
+*** 0 ****
+--- 1,28 ----
++ Changes by Peter Collinson - Hillside Systems/BSDI - July 1992
++ 
++ 
++ a)	Add select command - this cannot be ksh without that.
++ 	(It NEEDS typedefs too)
++ b)	Remove all the bcopys from vi.c
++ 	add 
++ 	#define memmove in sh.h for BSD systems
++ c)	Add <Esc>* command to vi mode - expands to a list of files
++ 	using the menu printing routine
++ d)	Add my version of history, that works much like the `proper' ksh
++ 	storing data in a file that is shared between different invocations
++ 	of the shell.
++ e)	Add the ability to redirect to am expansion... ie
++ 
++ 		ls > o*
++ 	if o* is unique then it puts it into the file that matches
++ 	otherwise it puts it to a file called o*... this is current
++ 	behaviour.
++ f)	Add alternations, from Csh.d) This is not part of ksh but is something
++ 	that csh users really miss from the Bourne shell derivatives. The idea
++ 	is that lists inside curly braces expand to arguments. ie.
++ 		exampl{a,b,c,d,e}
++ 	will expand to 5 arguments
++ 		exampla examplb examplc exampld example
++ 	Recursive lists are permitted.
++ g)	Add suspend as a built-in alias.
++ h)	Port to BSD/386 - add _POSIX_TERM and _BSDI as defines.
+*** MACHINES.old	Tue May 12 13:42:00 1992
+--- MACHINES	Mon Aug 10 21:59:08 1992
+***************
+*** 20,26 ****
+  sun3,	SunOS 4.1.1		1,4	{cc,gcc} -ansi -D_BSD -DHAVE_SYS_STDTYPES
+  Bull DPX/2, B.O.S. 2.00.45	1,5	{cc,gcc-2.1} -ansi -D_POSIX_SOURCE
+  Bull XPS-100			1,6	cc -D_SYSV -DUSE_SIGNAL
+! 
+  
+  NOTES:
+  The table above sumarizes the config used.  {cc,gcc} indicates
+--- 20,26 ----
+  sun3,	SunOS 4.1.1		1,4	{cc,gcc} -ansi -D_BSD -DHAVE_SYS_STDTYPES
+  Bull DPX/2, B.O.S. 2.00.45	1,5	{cc,gcc-2.1} -ansi -D_POSIX_SOURCE
+  Bull XPS-100			1,6	cc -D_SYSV -DUSE_SIGNAL
+! i386,	BSDI BSD/386		2
+  
+  NOTES:
+  The table above sumarizes the config used.  {cc,gcc} indicates
+*** MANIFEST.old	Tue May 12 13:42:00 1992
+--- MANIFEST	Mon Aug 10 22:06:04 1992
+***************
+*** 2,7 ****
+--- 2,8 ----
+  -----------------------------------------------------------
+   ChangeLog                 1	Current change history
+   Changes.jrm               1	
++  Changes.pc                1	
+   Changes.mlj               1	
+   INSTALL                   1	Installation notes
+   MACHINES                  1	Systems the shell has been built on
+*** Makefile.old	Tue May 12 13:42:00 1992
+--- Makefile	Mon Aug 10 21:59:10 1992
+***************
+*** 1,5 ****
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.2 1992/04/25 08:17:25 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+--- 1,5 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.3 1992/08/10 11:59:10 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+***************
+*** 10,17 ****
+  CONFIG= -D_BSD 
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  #CONFIG= -D_V7
+! #CONFIG= -D_ST		/* Atari ST */
+! 
+  MANPAGES = ksh.1
+  #MANDIR=/usr/catman/u_man/man1
+  #MANDIR=/usr/man/man1
+--- 10,17 ----
+  CONFIG= -D_BSD 
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+  #CONFIG= -D_V7
+! #CONFIG= -D_ST				# Atari ST
+! #CONFIG= -D_BSDI -D_POSIX_TERM		# BSD/386
+  MANPAGES = ksh.1
+  #MANDIR=/usr/catman/u_man/man1
+  #MANDIR=/usr/man/man1
+*** etc/ksh.kshrc.old	Tue May 12 13:42:00 1992
+--- etc/ksh.kshrc	Mon Aug 10 22:00:08 1992
+***************
+*** 15,22 ****
+  # SEE ALSO:
+  #	$HOME/.kshrc
+  #
+  # RCSid:
+! #	$Id: ksh.kshrc,v 1.2 1992/04/27 07:09:28 sjg Exp $
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+--- 15,24 ----
+  # SEE ALSO:
+  #	$HOME/.kshrc
+  #
++ 
+  # RCSid:
+! #	$Id: ksh.kshrc,v 1.3 1992/08/10 12:00:08 sjg Exp $
+! #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+***************
+*** 40,52 ****
+  	tty=`tty`
+  	tty=`basename $tty`
+  
+! 	set -o ${FCEDIT:-$EDITOR}
+  
+  	# the PD ksh is not 100% compatible
+  	case "$KSH_VERSION" in
+  	*PD*)	# PD ksh
+! 	        bind ^?=delete-char-backward
+!         	bind ^[^?=delete-word-backward
+  		;;
+  	*)	# real ksh ?
+  		;;
+--- 42,64 ----
+  	tty=`tty`
+  	tty=`basename $tty`
+  
+! 	set -o $EDITOR
+  
++ 	alias ls='ls -CF'
++ 	alias h='fc -l | more'
+  	# the PD ksh is not 100% compatible
+  	case "$KSH_VERSION" in
+  	*PD*)	# PD ksh
+! 		case "$TERM" in
+! 		xterm*)
+! 			# bind arrow keys
+! 			bind '^[['=prefix-2
+! 			bind '^XA'=up-history
+! 			bind '^XB'=down-history
+! 			bind '^XC'=forward-char
+! 			bind '^XD'=backward-char
+! 			;;
+! 		esac
+  		;;
+  	*)	# real ksh ?
+  		;;
+***************
+*** 53,60 ****
+--- 65,75 ----
+  	esac
+  	case "$TERM" in
+  	sun*)
++ 		# these are not as neat as their csh equivalents
+  		if [ "$tty" != console ]; then
++ 			# ilabel
+  			ILS='\033]L'; ILE='\033\\'
++ 			# window title bar
+  			WLS='\033]l'; WLE='\033\\'
+  		fi
+  		;;
+***************
+*** 66,72 ****
+  	esac
+  	# do we want window decorations?
+  	if [ "$ILS" ]; then
+! 		wftp () { ilabel "ftp $*"; "ftp" $*; ilabel "$USER@$HOSTNAME"; }
+  		wcd () { "cd" $*; eval stripe; }
+  		ilabel () { print -n "${ILS}$*${ILE}"; }
+  		label () { print -n "${WLS}$*${WLE}"; }
+--- 81,88 ----
+  	esac
+  	# do we want window decorations?
+  	if [ "$ILS" ]; then
+! 		wftp () { ilabel "ftp $*"; "ftp" $*; 
+! 			ilabel "$USER@$HOSTNAME"; }
+  		wcd () { "cd" $*; eval stripe; }
+  		ilabel () { print -n "${ILS}$*${ILE}"; }
+  		label () { print -n "${WLS}$*${WLE}"; }
+***************
+*** 77,84 ****
+  		eval ilabel "$USER@$HOSTNAME"
+  		PS1=$PROMPT
+  	fi
+- 	alias ls='ls -CF'
+- 	alias h='fc -l | more'
+  	alias quit=exit
+  	alias cls=clear
+  	alias logout=exit
+--- 93,98 ----
+*** etc/profile.old	Tue May 12 13:42:00 1992
+--- etc/profile	Mon Aug 10 22:00:11 1992
+***************
+*** 5,18 ****
+  # DESCRIPTION:
+  #	This file is processed during login by /bin/sh
+  #	and /bin/ksh.  It is used to setup the default user
+! #	environment.  It is processed with root privs.
+  #
+  # SEE ALSO:
+  #	$HOME/.profile
+  #	/etc/ksh.kshrc
+! #
+  # RCSid:
+! #	$Id: profile,v 1.3 1992/05/03 08:28:27 sjg Exp $
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+--- 5,19 ----
+  # DESCRIPTION:
+  #	This file is processed during login by /bin/sh
+  #	and /bin/ksh.  It is used to setup the default user
+! #	environment.
+  #
+  # SEE ALSO:
+  #	$HOME/.profile
+  #	/etc/ksh.kshrc
+! 
+  # RCSid:
+! #	$Id: profile,v 1.4 1992/08/10 12:00:11 sjg Exp $
+! #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+***************
+*** 27,36 ****
+  *)	# do these once
+  	_INIT_="$_INIT_"env
+  	export _INIT_
+! 	# sys_config.sh should set ARCH,OS,C,N,HOSTNAME,uname
+! 	# we use these in lots of scripts...
+! 	[ -f /etc/sys_config.sh ] && . /etc/sys_config.sh
+  
+  	# pick one of the following for the default umask
+  	# umask 002	# relaxed	-rwxrwxr-x
+  	umask 022	# cautious	-rwxr-xr-x
+--- 28,56 ----
+  *)	# do these once
+  	_INIT_="$_INIT_"env
+  	export _INIT_
+! 	case `echo -n ""` in
+! 	-n*)
+! 	  _N_=""; _C_="\c";;
+! 	*)
+! 	  _N_="-n"; _C_="";;
+! 	esac
+  
++ 	if [ -f /unix ]; then
++           # System V
++ 	  [ -z "$TZ" -a -f /etc/TIMEZONE ] && . /etc/TIMEZONE
++ 
++   	  set -- `who -r`
++     	  case "$3" in
++ 	      S|5|0)	SINGLE=y;;
++ 	      *)	SINGLE=n;;
++ 	  esac
++   	  # sys_config.sh should set ARCH,OS,C,N,HOSTNAME,uname
++     	  # we use these in lots of scripts...
++       	  [ "$SINGLE" = n -a -f /etc/sys_config.sh ] && . /etc/sys_config.sh
++         else
++           [ -f /etc/sys_config.sh ] && . /etc/sys_config.sh
++           SINGLE=n		# doesn't matter so much
++ 	fi
+  	# pick one of the following for the default umask
+  	# umask 002	# relaxed	-rwxrwxr-x
+  	umask 022	# cautious	-rwxr-xr-x
+***************
+*** 53,69 ****
+  	case $OS in
+  	SunOS)
+  		# On sun's /bin -> /usr/bin so leave it out!
+! 		PATH=.:/usr/bin:/usr/ucb:/usr/5bin
+  		MANPATH=/usr/man
+  		defterm=vt220
+  		;;
+  	SCO-UNIX)
+! 		PATH=.:/bin:/usr/bin:/usr/lbin:/usr/dbin:/usr/ldbin
+  		MANPATH=/usr/man
+  		defterm=ansi
+  		;;
+  	B.O.S.)
+! 		PATH=.:/bin:/usr/bin
+  		if [ -d /usr/ucb ]; then
+  			PATH=$PATH:/usr/ucb
+  		fi
+--- 73,89 ----
+  	case $OS in
+  	SunOS)
+  		# On sun's /bin -> /usr/bin so leave it out!
+! 		PATH=/usr/bin:/usr/ucb:/usr/5bin:.
+  		MANPATH=/usr/man
+  		defterm=vt220
+  		;;
+  	SCO-UNIX)
+! 		PATH=/bin:/usr/bin:/usr/lbin:/usr/dbin:/usr/ldbin:.
+  		MANPATH=/usr/man
+  		defterm=ansi
+  		;;
+  	B.O.S.)
+! 		PATH=/bin:/usr/bin:.
+  		if [ -d /usr/ucb ]; then
+  			PATH=$PATH:/usr/ucb
+  		fi
+***************
+*** 73,79 ****
+  		export SRC_COMPAT
+  		;;
+  	*)
+! 		PATH=.:/bin:/usr/bin
+  		if [ -d /usr/ucb ]; then
+  			PATH=$PATH:/usr/ucb
+  		fi
+--- 93,99 ----
+  		export SRC_COMPAT
+  		;;
+  	*)
+! 		PATH=/bin:/usr/bin:.
+  		if [ -d /usr/ucb ]; then
+  			PATH=$PATH:/usr/ucb
+  		fi
+***************
+*** 84,92 ****
+  	if [ -d ${LOCAL}/bin ]; then
+  		PATH=$PATH:${LOCAL}/bin
+  	fi
+! 	if [ -d $HOME/bin -a "$HOME" != / ]; then
+! 		PATH=$PATH:$HOME/bin
+! 	fi
+  	if [ -d ${LOCAL}/man ]; then
+  		MANPATH=$MANPATH:${LOCAL}/man
+  	fi
+--- 104,121 ----
+  	if [ -d ${LOCAL}/bin ]; then
+  		PATH=$PATH:${LOCAL}/bin
+  	fi
+! 	case "$HOME" in
+! 	/)	;;
+! 	""|/tmp)
+! 		echo "Using /tmp for HOME"
+! 		HOME=/tmp; export HOME
+! 		;;
+! 	*)
+! 		if [ -d $HOME/bin ]; then
+! 			PATH=$PATH:$HOME/bin
+! 		fi
+! 		;;
+! 	esac
+  	if [ -d ${LOCAL}/man ]; then
+  		MANPATH=$MANPATH:${LOCAL}/man
+  	fi
+***************
+*** 94,100 ****
+  	LOGNAME=${LOGNAME:-`logname`}
+  	USER=${USER:-$LOGNAME}
+  
+- 	# this is adapted from my whoami.sh
+  	# we expect id to produce output like:
+  	# uid=100(sjg) gid=10(staff) groups=10(staff),...
+  	S='('
+--- 123,128 ----
+***************
+*** 101,107 ****
+  	E=')'
+  	GROUP=`id | cut -d= -f3 | \
+  		sed -e "s;^[^${S}][^${S}]*${S}\([^${E}][^${E}]*\)${E}.*$;\1;"`
+! 
+  	# set some group specific defaults
+  	case "$GROUP" in
+  	staff)	# staff deal with things that non-staff 
+--- 129,136 ----
+  	E=')'
+  	GROUP=`id | cut -d= -f3 | \
+  		sed -e "s;^[^${S}][^${S}]*${S}\([^${E}][^${E}]*\)${E}.*$;\1;"`
+! 	UID=`id | cut -d= -f2 | \
+!                 sed -e "s;\([^${S}]*\)${S}.*;\1;"`
+  	# set some group specific defaults
+  	case "$GROUP" in
+  	staff)	# staff deal with things that non-staff 
+***************
+*** 120,125 ****
+--- 149,155 ----
+  	export LOCAL TTY PATH LOGNAME USER
+  
+  	if [ -t 1 ]; then
++ 		# we are interactive
+  		TTY=`tty`
+  		TTY=`basename $TTY`
+  		ORGANIZATION=""
+***************
+*** 133,144 ****
+  		PAGER=${PAGER:-more}
+  		export MAIL EMACSDIR MANPATH MAILPATH PAGER
+  
+  		EDITOR=emacs
+! 		FCEDIT=${EDITOR}	
+! 
+! 		PROMPT="<$LOGNAME@$HOSTNAME>$ "
+! 		PUBDIR=/usr/spool/uucppublic
+! 		export PUBDIR 
+  		[ -f /etc/profile.TeX ] && . /etc/profile.TeX
+  	else
+  		TTY=none
+--- 163,181 ----
+  		PAGER=${PAGER:-more}
+  		export MAIL EMACSDIR MANPATH MAILPATH PAGER
+  
++ 		CVSROOT=${LOCAL}/src/master
+  		EDITOR=emacs
+! 		FCEDIT=$EDITOR
+! 		export CVSROOT FCEDIT EDITOR
+! #		EMACSLOADPATH=$EMACSDIR/lisp
+! #		[ -d $LOCAL/lib/lisp ] && EMACSLOADPATH=$LOCAL/lib/lisp:$EMACSLOADPATH
+! #		[ -d $HOME/lisp ] && EMACSLOADPATH=$HOME/lisp:$EMACSLOADPATH
+! 		case $UID in 
+! 		0)	PROMPT="<$LOGNAME@$HOSTNAME># ";;
+! 		*)	PROMPT="<$LOGNAME@$HOSTNAME>$ ";;
+! 		esac
+! #		PUBDIR=/usr/spool/uucppublic
+! #		export PUBDIR EMACSLOADPATH
+  		[ -f /etc/profile.TeX ] && . /etc/profile.TeX
+  	else
+  		TTY=none
+***************
+*** 149,155 ****
+  		# we are Korn shell
+  		SHELL=/bin/ksh
+  		ENV=${HOME%/}/.kshrc
+! 		PROMPT="<$LOGNAME@$HOSTNAME:!>$ "
+  		export HISTSIZE HISTFILE ENV
+  		CDPATH=.:$HOME
+  		if [ "$TMOUT" ]; then
+--- 186,197 ----
+  		# we are Korn shell
+  		SHELL=/bin/ksh
+  		ENV=${HOME%/}/.kshrc
+! 		HISTFILE=${HOME%/}/.ksh_hist
+! 		case $UID in
+! 		0)
+! 			PROMPT="<$LOGNAME@$HOSTNAME:!># ";;
+! 		*)	PROMPT="<$LOGNAME@$HOSTNAME:!>$ ";;
+! 		esac
+  		export HISTSIZE HISTFILE ENV
+  		CDPATH=.:$HOME
+  		if [ "$TMOUT" ]; then
+***************
+*** 159,166 ****
+  		SHELL=/bin/sh
+  	fi
+  	PS1=$PROMPT
+! 	export SHELL PS1 EDITOR PATH PROMPT HOSTNAME CDPATH FCEDIT
+! 
+  ;;
+  esac
+  
+--- 201,207 ----
+  		SHELL=/bin/sh
+  	fi
+  	PS1=$PROMPT
+! 	export SHELL PS1 EDITOR PATH PROMPT HOSTNAME CDPATH
+  ;;
+  esac
+  
+***************
+*** 168,192 ****
+  case "$_INIT_" in
+  *log*) ;;
+  *)	_INIT_="$_INIT_"log
+! 
+! 	if [ $TTY != none -a "$0" != "-su" -a "$LOGNAME" = "`logname`" -a ! -f ~/.hushlogin ]
+  	then
+! 		case $TERM in
+! 		network|unknown|dialup|"") 
+! 			echo $N "Enter terminal type [$defterm]: $C" 1>&2
+! 			read tmpterm
+! 			TERM=${tmpterm:-$defterm}
+  			;;
+  		esac
+! 		# set up desired tty modes
+! 		stty intr '^c'
+  		case $TERM in
+! 		wy50)	stty erase '^h';;
+! 		*)	stty erase '^?';;
+  		esac
+- 		# welcome first time users
+- 		[ -r ${LOCAL}/etc/1stlogin.ann -a ! -f $HOME/... ] && \
+- 			. ${LOCAL}/etc/1stlogin.ann
+  		# not all of the following are appropriate at all sites
+  		# Sun's don't need to cat /etc/motd for instance
+  		case "$OS" in
+--- 209,237 ----
+  case "$_INIT_" in
+  *log*) ;;
+  *)	_INIT_="$_INIT_"log
+! 	case "$SINGLE" in
+! 	y)	;;
+! 	*)
+! 	if [ TTY != none -a "$0" != "-su" -a "$LOGNAME" = "`logname`" -a ! -f ~/.hushlogin ]
+  	then
+! 		case $OS in
+! 		B.O.S.)
+! 			case $TTY in
+! 			ttyp*)	stty sane	# problems with telnetd
+! 				;;
+! 			esac
+  			;;
+  		esac
+! 		# ensure known state
+! 		stty isig icanon intr '^c' erase '^h' kill '^u' eof '^d' 
+! 		mesg y
+  		case $TERM in
+! 		network|unknown|dialup|"") 
+! 		  echo ${_N_} "Enter terminal type [$defterm]: ${_C_}" 1>&2
+! 		  read tmpterm
+! 		  TERM=${tmpterm:-$defterm}
+! 		  ;;
+  		esac
+  		# not all of the following are appropriate at all sites
+  		# Sun's don't need to cat /etc/motd for instance
+  		case "$OS" in
+***************
+*** 211,217 ****
+  			[ -x /usr/bin/news ] && /usr/bin/news -n
+  			;;
+  		esac
+! 		[ -x /usr/games/fortune ] && /usr/games/fortune -a
+  		# remind folk who turned on reply.pl to turn it off.
+  		if [ -f $HOME/.forward ]; then
+  			echo "Your mail is being forwarded to:"
+--- 256,262 ----
+  			[ -x /usr/bin/news ] && /usr/bin/news -n
+  			;;
+  		esac
+! #		[ -x /usr/games/fortune ] && /usr/games/fortune -a
+  		# remind folk who turned on reply.pl to turn it off.
+  		if [ -f $HOME/.forward ]; then
+  			echo "Your mail is being forwarded to:"
+***************
+*** 221,230 ****
+  			fi
+  		fi
+  	fi
+! 	unset tmpterm defterm C N
+! 	TERM=${TERM:-unknown}
+  	export TERM TTY
+  ;;
+  esac
+  # Handle X-terminals if necessary
+! [ -f /etc/profile.X11 ] && . /etc/profile.X11
+--- 266,278 ----
+  			fi
+  		fi
+  	fi
+! 	unset tmpterm defterm C N _C_ _N_
+! 	esac
+! 	case "$TERM" in
+! 	network|unknown|"")	TERM=vt100;;
+! 	esac
+  	export TERM TTY
+  ;;
+  esac
+  # Handle X-terminals if necessary
+! [ "$SINGLE" = n -a -f /etc/profile.X11 ] && . /etc/profile.X11
+*** etc/sys_config.sh.old	Tue May 12 13:42:00 1992
+--- etc/sys_config.sh	Mon Aug 10 22:00:14 1992
+***************
+*** 14,29 ****
+  #
+  # SEE ALSO:
+  #	/etc/profile
+  #
+- # AMENDED:
+- #	91/11/05 22:09:08 (rook)
+- #
+- # RELEASED:
+- #	91/11/05 22:09:09 v1.3
+- #
+- # SCCSID:
+- #	@(#)sys_config.sh 1.3 91/11/05 22:09:08 (rook)
+- #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+--- 14,23 ----
+  #
+  # SEE ALSO:
+  #	/etc/profile
++ 
++ # RCSid:
++ #	$Id: sys_config.sh,v 1.2 1992/08/10 12:00:14 sjg Exp $
+  #
+  #	@(#)Copyright (c) 1991 Simon J. Gerraty
+  #
+  #	This file is provided in the hope that it will
+***************
+*** 57,68 ****
+  OS=${OS:-`eval $uname -s`}
+  HOSTNAME=${HOSTNAME:-`eval $uname -n`}
+  
+! # set which ever is required to not produce a linefeed 
+! # in an echo(1)
+! case $OS in
+! SunOS)	C="\c"; N="";
+! 	;;
+! *)	C="\c"; N=""
+! 	;;
+  esac
+! export OS ARCH HOSTNAME C N uname
+--- 51,60 ----
+  OS=${OS:-`eval $uname -s`}
+  HOSTNAME=${HOSTNAME:-`eval $uname -n`}
+  
+! case `echo -n ""` in
+! -n*)	_C_=""; _N_="-n";;
+! *)	_C_="\c"; _N_="";;
+  esac
+! N="${_N_}"
+! C="${_C_}"
+! export OS ARCH HOSTNAME uname
+*** ksh.1.old	Tue May 12 13:42:00 1992
+--- ksh.1	Mon Aug 10 21:59:15 1992
+***************
+*** 1,10 ****
+! .\" $Id: ksh.1,v 1.1 1992/05/02 13:26:52 sjg Exp $
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+  .ds OK [\|
+  .ds CK \|]
+! .TH KSH 1 "April 1992"
+  .SH NAME
+  ksh \- Bourne / Korn Shell (Public Domain)
+  .SH SYNOPSIS
+--- 1,10 ----
+! .\" $Id: ksh.1,v 1.2 1992/08/10 11:59:15 sjg Exp $
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+  .ds OK [\|
+  .ds CK \|]
+! .TH KSH 1 "July 1992"
+  .SH NAME
+  ksh \- Bourne / Korn Shell (Public Domain)
+  .SH SYNOPSIS
+***************
+*** 43,48 ****
+--- 43,49 ----
+  .S "\fB(\fP list \fB)\fP"
+  .S "\fB{\fP list \fB;\fP \fB}\fP"
+  .S "\fBfor\fP name { \fBin\fP { word }* }? \fBdo\fP list \fB;\fP \fBdone\fP"
++ .S "\fBselect\fP name { \fBin\fP { word }* }? \fBdo\fP list \fB;\fP \fBdone\fP"
+  .S "{ \fBwhile\fP | \fBuntil\fP } list \fB;\fP \fBdo\fP list \fB;\fP \fBdone\fP"
+  .S "\fBif\fP list \fB;\fP \fBthen\fP list \fB;\fP { \fBelif\fP list \fB;\fP \fBthen\fP list \fB;\fP }* { \fBelse\fP list \fB;\fP }?\fBfi\fP"
+  .S "\fBcase\fP name \fBin\fP { \fB(\fP word { \fB|\fP word } \fB)\fP list \fB;;\fP }* \fBesac\fP"
+***************
+*** 64,69 ****
+--- 65,84 ----
+  .S "pipe \fB||\fP cond"
+  .IP pipe:
+  .S "statement { \fB|\fP statement }*"
++ .SS The select statement
++ The \fBselect\fP statement provides an automatic method of presenting the
++ user with a menu selection from several options.
++ The \fIwords\fP given in the list are printed on standard error, each
++ preceded by a number.
++ Typing the number on standard input sets the variable \fIname\fP to the
++ word that was selected.
++ The data that was typed is preserved in a variable called REPLY.
++ The contents of the loop are then executed using the selected value.
++ A new prompt PS3 is used to indicate that a number should be typed in
++ to choose a value from the menu.
++ .LP
++ Menus will continue to be presented until an interrupt is received or
++ end-of-file is typed on input.
+  .SS Alias expansion
+  Alias expansion occurs when the first word of a
+  statement is a defined alias,
+***************
+*** 70,75 ****
+--- 85,99 ----
+  except when that alias is already being expanded.
+  It also occurs after the expansion of an alias whose
+  definition ends with a space.
++ .SS Alternation
++ Csh provides a filename expansion method known as alternation.
++ This has been added into this version of ksh.
++ When performing filename subsitution, you can get the shell to create
++ a set of strings for you. For example, `exampl{a,b,c,d,e}' will expand
++ to ``exampla examplb examplc exampld example''.
++ A comma separated set of strings in curly braces 
++ will be expanded into a set of strings that are passed into the command.
++ The strings are not sorted.
+  .SS Shell variables
+  The following standard special variables exist:
+  \fB!\fP, \fB#\fP, \fB$\fP, \fB\-\fP, \fB?\fP.
+***************
+*** 91,101 ****
+  \fBEDITOR\fP and finally \fBVISUAL\fP to try and determin what
+  command line edit mode to use.  Note that this is not strictly
+  ksh compatible behaviour.
+  .IP IFS
+  \fIInternal field separator\fP,
+  used during substitution and the \fIread\fP command.
+- .IP HOME
+- The default directory for the \fIcd\fP command.
+  .IP MAIL
+  If set, the user will be informed of the arrival of mail
+  in the named file.  This variable is ignored if
+--- 115,134 ----
+  \fBEDITOR\fP and finally \fBVISUAL\fP to try and determin what
+  command line edit mode to use.  Note that this is not strictly
+  ksh compatible behaviour.
++ .IP COLUMNS
++ The width to use for the commandline editing (emacs mode only).
++ .IP HISTFILE
++ The name of the file used to store history.
++ If defined, history will be loaded from this file on startup.
++ Also, several invocations of the shell running on the same machine
++ will share history if their HISTFILE variables all point at the same file.
++ .IP HISTSIZE
++ The number of commands normally stored for history, default 128.
++ .IP HOME
++ The default directory for the \fIcd\fP command.
+  .IP IFS
+  \fIInternal field separator\fP,
+  used during substitution and the \fIread\fP command.
+  .IP MAIL
+  If set, the user will be informed of the arrival of mail
+  in the named file.  This variable is ignored if
+***************
+*** 129,146 ****
+  The number of seconds since the shell timer was started or
+  reset.  Assigning an integer value to this variable resets
+  the timer.
+- .IP COLUMNS
+- The width to use for the commandline editing (emacs mode only).
+- .IP HISTFILE
+- The name of the file to read initial history from.  The default
+- is "\fB$HOME/.pdksh_hist\fP".  When the shell exits it will
+- overwrite this file with its current history.  This behaviour
+- will almost certainly cause grief when multiple shells are being
+- run by the same user.  Making the file read-only will allow each
+- shell to start with a set history and avoid overwriting the
+- file.
+- .IP HISTSIZE
+- The number of history items to save in \fBHISTFILE\fP.
+  .SS Substitution
+  In addition to the System Vr2 substitutions,
+  the following are available.
+--- 162,167 ----
+***************
+*** 495,503 ****
+  .br
+  bind '^XC'=forward-char
+  .br
+! bind '^XC'=backward-char
+  .br
+! will bind the arrow keys on an ANSI terminal.  Of course some escape
+  sequences won't work out quite that nicely.
+  .TP
+  \fBbind -m\fP \*(OK \fIstring\fP \*(CK = \*(OK \fIsubstitute\fP \*(CK
+--- 516,524 ----
+  .br
+  bind '^XC'=forward-char
+  .br
+! bind '^XD'=backward-char
+  .br
+! will bind the arrow keys on an ANSI terminal, or xterm.  Of course some escape
+  sequences won't work out quite that nicely.
+  .TP
+  \fBbind -m\fP \*(OK \fIstring\fP \*(CK = \*(OK \fIsubstitute\fP \*(CK
+***************
+*** 809,819 ****
+  .LP
+  System V and Korn modifications by Eric Gisin,
+  with contributions by
+! Ron Natalie, Arnold Robbins, Doug Gwyn, Erik Baalbergen, 
+! AT&T\ (getopt(3)), John McMillan and Simon Gerraty.
+! 
+  .SH DIFFERENCES FROM AT&T VERSION
+! The \fBselect\fP statement is not implemented.
+  Variable arrays are not implemented.
+  Variable attributes other than integer are not implemented.
+  The \fBERR\fP and \fBEXIT\fP traps are not implemented for functions.
+--- 830,839 ----
+  .LP
+  System V and Korn modifications by Eric Gisin,
+  with contributions by
+! Ron Natalie, Arnold Robbins, Doug Gwyn, Erik Baalbergen, AT&T (getopt(3)),
+! John McMillan, Simon Gerraty and Peter Collinson.
+  .SH DIFFERENCES FROM AT&T VERSION
+! Csh-style alternations are implemented.
+  Variable arrays are not implemented.
+  Variable attributes other than integer are not implemented.
+  The \fBERR\fP and \fBEXIT\fP traps are not implemented for functions.
+*** sh/ChangeLog.old	Tue May 12 13:42:00 1992
+--- sh/ChangeLog	Mon Aug 10 22:02:13 1992
+***************
+*** 1,3 ****
+--- 1,28 ----
++ Mon Aug  3 22:41:17 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* emacs.c: correctly bind <ESC><erase>.
++ 	* var.c: treat COLUMNS and FCEDIT as special.
++ 
++ Sat Aug  1 17:17:02 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* Incorporated massive contribution from Peter Collinson
++ 	includes new features (refer to ../Changes.pc) and support for
++ 	BSDI's BSD/386.
++ 
++ 	* emacs.c: new command complete-list provided by
++ 	Neil.Smithline@eng.sun.com this nicer than the standard ksh
++ 	file completion.  Define COMPLETE_LIST to bind this to <ESC><ESC>
++ 	by default.
++ 
++ Sat May 30 15:44:56 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* added flag XXWHL in tree.h, used by execute() when calling
++ 	exchild() to indicate that stdin should not be invalidated.  This
++ 	corrects handling of:  
++ 		 ls | while read f; do ls -l $f; done
++ 
++ 	Thanks to Bruce Momjian for tracking down the fault.
++ 
+  Tue May 12 19:23:17 1992  Simon J. Gerraty  (sjg@zen)
+  
+  	* Fix bug in init_editmode() if EMACS and VI are not both defined.
+*** sh/Makefile.old	Tue May 12 13:42:00 1992
+--- sh/Makefile	Mon Aug 10 22:02:18 1992
+***************
+*** 1,5 ****
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.2 1992/04/25 08:33:03 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+--- 1,5 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.3 1992/08/10 12:02:18 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+***************
+*** 48,57 ****
+  # XOPTS=
+  # XOBJS=
+  #
+  
+  #CONFIG= -D_SYSV
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+! CONFIG= -D_BSD
+  
+  
+  STD=../std
+--- 48,61 ----
+  # XOPTS=
+  # XOBJS=
+  #
++ # BSD/386
++ # CONFIG= -D_BSDI -D_POSIX_TERM -D_POSIX_SOURCE
++ # XOPTS=
++ # XOBJS=
+  
+  #CONFIG= -D_SYSV
+  #CONFIG= -D_BSD -DHAVE_SYS_STDTYPES
+! CONFIG= -D_BSD -DCOMPLEX_HISTORY
+  
+  
+  STD=../std
+*** sh/config.h.old	Tue May 12 13:42:00 1992
+--- sh/config.h	Mon Aug 10 22:02:20 1992
+***************
+*** 1,7 ****
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * RCSid: $Id: config.h,v 1.3 1992/05/03 08:28:59 sjg Exp $
+   */
+  
+  #ifndef	_CONFIG_H
+--- 1,7 ----
+  /*
+   * Configuration file for the PD ksh
+   *
+!  * RCSid: $Id: config.h,v 1.4 1992/08/10 12:02:20 sjg Exp $
+   */
+  
+  #ifndef	_CONFIG_H
+***************
+*** 49,52 ****
+--- 49,67 ----
+  /* #define	SILLY			/* Game of life in EMACS mode */
+  /* #define	SWTCH			/* Handle SWTCH for shl(1) */
+  
++ #define COMPLETE_LIST			/* default to Emacs style completion */
++ /*
++  * ALTERNATIONS is csh not ksh, but it is such a nice feature...
++  */
++ #define ALTERNATIONS			/* csh {a,b,c} arg expansion */
++ 
++ /* #define COMPLEX_HISTORY			/* Peter Collinson's history */
++ /*
++  * if you don't have mmap() you can't use Peter Collinson's history
++  * mechanism.  If that is the case, then define EASY_HISTORY
++  */
++ #if !defined(COMPLEX_HISTORY) || defined(NO_MMAP)
++ # define EASY_HISTORY			/* sjg's trivial history file */
++ #endif
++   
+  #endif	/* _CONFIG_H */
+*** sh/edit.c.old	Tue May 12 13:42:00 1992
+--- sh/edit.c	Mon Aug 10 22:02:25 1992
+***************
+*** 7,13 ****
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.4 1992/05/12 09:30:31 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+  #if defined(EMACS) || defined(VI)
+  
+  #ifndef lint
+! static char *RCSid = "$Id: edit.c,v 1.5 1992/08/10 12:02:25 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 48,54 ****
+    {
+      setup_done = 42;		/* these get done once only */
+      x_do_init = 1;
+-     x_cols = 80;
+      x_col = 0;
+      ed_erase = -1, ed_kill = -1, ed_werase = -1, ed_intr = -1, ed_quit = -1;
+      x_adj_ok = 1;
+--- 48,53 ----
+***************
+*** 212,219 ****
+--- 211,222 ----
+  #endif
+  #endif
+  #else
++ #ifdef _POSIX_TERM
++ static	struct termios cb, cborig;
++ #else
+  static	struct termio cb, cborig;
+  #endif
++ #endif
+  
+  /* initialize editing mode */
+  void
+***************
+*** 261,267 ****
+--- 264,274 ----
+  #endif
+  #endif
+  #else /* !_BSD */
++ #ifdef _POSIX_TERM
++ 	(void) tcgetattr(ttyfd, &cborig);
++ #else
+  	(void)ioctl(ttyfd, TCGETA, &cborig);
++ #endif
+  	if ((cborig.c_lflag & ECHO) == 0)
+  		x_noecho = 1;
+  	cb = cborig;
+***************
+*** 347,352 ****
+--- 354,362 ----
+  	x_cur_mode = onoff;
+  
+  	if (onoff)  {
++ #ifdef _POSIX_TERM
++ 		(void) tcsetattr(ttyfd, TCSADRAIN, &cb);
++ #else
+  #ifndef TCSETAW				/* e.g. Cray-2 */
+  		/* first wait for output to drain */
+  #ifdef TCSBRK
+***************
+*** 361,368 ****
+--- 371,382 ----
+  #else
+  		(void)ioctl(ttyfd, TCSETAW, &cb);
+  #endif
++ #endif
+  	}
+  	else {
++ #ifdef _POSIX_TERM
++ 		(void) tcsetattr(ttyfd, TCSADRAIN, &cborig);
++ #else
+  #ifndef TCSETAW				/* e.g. Cray-2 */
+  		/* first wait for output to drain */
+  #ifdef TCSBRK
+***************
+*** 378,383 ****
+--- 392,398 ----
+  #else
+  		(void)ioctl(ttyfd, TCSETAW, &cborig);
+  #endif
++ #endif
+  	}
+  	return prev;
+  }
+***************
+*** 436,470 ****
+  {
+    static char *ev[] = { "FCEDIT", "EDITOR", "VISUAL", NULL };
+    register int i;
+!   register char *rcp, *rcp2;
+  
+    for (i = 0; ev[i]; i++)
+    {
+!     if ((rcp = getenv(ev[i])) && *rcp)
+        break;
+    }
+    if (ev[i] && rcp)
+    {
+!     if (rcp2 = strrchr(rcp, '/'))
+!       rcp = ++rcp2;
+  #ifdef EMACS
+!     if (strstr(rcp, "emacs"))
+!     {
+!       flag[FVI] = 0;
+!       flag[FEMACS] = 1;
+!     }
+  #endif
+  #if defined(EMACS) && defined(VI)
+!     else
+  #endif
+  #ifdef VI
+!       if (strstr(rcp, "vi"))
+!       {
+! 	flag[FVI] = 1;
+! 	flag[FEMACS] = 0;
+!       }
+  #endif
+-   }
+-   return 0;
+  }
+  #endif
+--- 451,500 ----
+  {
+    static char *ev[] = { "FCEDIT", "EDITOR", "VISUAL", NULL };
+    register int i;
+!   register char *rcp;
+  
+    for (i = 0; ev[i]; i++)
+    {
+! #ifdef DEBUG
+!     (void) fprintf(stderr, "check %s\n", ev[i]);
+! #endif
+!     if ((rcp = strval(global(ev[i]))) && *rcp)
+        break;
+    }
+    if (ev[i] && rcp)
+    {
+!     set_editmode(rcp);
+!   }
+!   return 0;
+! }
+! 
+! void
+! set_editmode(ed)
+!   char *ed;
+! {
+!   register char *rcp;
+!   
+! #ifdef DEBUG
+!   (void) fprintf(stderr, "set_editmode(%s)\n", ed);
+! #endif
+!   if (rcp = strrchr(ed, '/'))
+!     ed = ++rcp;
+  #ifdef EMACS
+!   if (strstr(ed, "emacs"))
+!   {
+!     flag[FVI] = 0;
+!     flag[FEMACS] = 1;
+!   }
+  #endif
+  #if defined(EMACS) && defined(VI)
+!   else
+  #endif
+  #ifdef VI
+!     if (strstr(ed, "vi"))
+!     {
+!       flag[FVI] = 1;
+!       flag[FEMACS] = 0;
+!     }
+  #endif
+  }
+  #endif
+*** sh/edit.h.old	Tue May 12 13:42:00 1992
+--- sh/edit.h	Mon Aug 10 22:02:28 1992
+***************
+*** 8,14 ****
+   *      
+   *
+   * RCSid:
+!  *      $Id: edit.h,v 1.2 1992/04/25 08:33:28 sjg Exp $
+   *
+   */
+  
+--- 8,14 ----
+   *      
+   *
+   * RCSid:
+!  *      $Id: edit.h,v 1.3 1992/08/10 12:02:28 sjg Exp $
+   *
+   */
+  
+***************
+*** 39,45 ****
+   */
+  EXTERN int	x_adj_done;
+  
+! EXTERN int	x_cols;
+  EXTERN int	x_col;
+  EXTERN int	x_displen;
+  EXTERN int	x_arg;		/* general purpose arg */
+--- 39,45 ----
+   */
+  EXTERN int	x_adj_done;
+  
+! EXTERN int	x_cols _I_(80);	/* default to 80 cols */
+  EXTERN int	x_col;
+  EXTERN int	x_displen;
+  EXTERN int	x_arg;		/* general purpose arg */
+*** sh/emacs.c.old	Tue May 12 13:42:00 1992
+--- sh/emacs.c	Mon Aug 10 22:02:31 1992
+***************
+*** 10,16 ****
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 10,16 ----
+  #ifdef EMACS
+  
+  #ifndef lint
+! static char *RCSid = "$Id: emacs.c,v 1.3 1992/08/10 12:02:31 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 150,155 ****
+--- 150,156 ----
+  static int      x_enumerate ARGS((int c));
+  static int      x_comp_file ARGS((int c));
+  static int      x_list_file ARGS((int c));
++ static int      x_comp_list ARGS((int c));
+  static void     compl_dec   ARGS((int type));
+  static void     compl_file  ARGS((int type));
+  static void     compl_command ARGS((int type));
+***************
+*** 202,208 ****
+--- 203,215 ----
+  	{x_stuff, 	"stuff",		0,	 0,	0 },
+  	{x_transpose,	"transpose-chars",	0, CTRL('T'),	0 },
+  #endif
++ #ifdef COMPLETE_LIST
++ 	{x_complete,	"complete",		1, 	0,	0 },
++  	{x_comp_list,	"complete-list",	1, CTRL('['),	0 },
++ #else
+  	{x_complete,	"complete",		1, CTRL('['),	0 },
++  	{x_comp_list,	"complete-list",	1, 	 0,	0 },
++ #endif
+  	{x_enumerate,	"list",			1,	'?',	0 },
+  	{x_comp_file,	"complete-file",	1, CTRL('X'),	0 },
+  	{x_comp_comm,	"complete-command",	2, CTRL('['),	0 },
+***************
+*** 275,285 ****
+  		x_nextcmdp = NULL;
+  	}
+  
+- 	/* <sjg@sun0> this may not be correct */
+- 	if ((i = atoi(strval(global("COLUMNS")))) > 0)
+- 	  x_cols = i;
+- 	else
+- 	  x_cols = 80;
+  	x_col = promptlen(prompt);
+  	x_adj_ok = 1;
+  	x_displen = x_cols - 2 - x_col;
+--- 282,287 ----
+***************
+*** 1219,1224 ****
+--- 1221,1227 ----
+  	x_tab[0][werase] = xft_werase;
+  	x_tab[0][intr] = xft_intr;
+  	x_tab[0][quit] = xft_quit;
++ 	x_tab[1][erase] = xft_werase;
+  }
+  
+  static int
+***************
+*** 1448,1460 ****
+  	compl_file(0);
+  	return KSTD;
+  }
+  
+! static void
+! compl_dec(type)
+! {
+! 	char	*cp;
+! 	cp = xcp;
+! 
+  	while (cp != xbuf && !iscfs(*cp))
+  		cp--;
+  	if (cp == xbuf && strchr(cp, '/') == NULL)
+--- 1451,1463 ----
+  	compl_file(0);
+  	return KSTD;
+  }
++ static int
++ x_comp_list(c)   {
++ 	compl_dec(2);
++ 	return KSTD;
++ }
+  
+! static void compl_dec(type) { 	char	*cp; 	cp = xcp; 
+  	while (cp != xbuf && !iscfs(*cp))
+  		cp--;
+  	if (cp == xbuf && strchr(cp, '/') == NULL)
+***************
+*** 1478,1483 ****
+--- 1481,1487 ----
+  	int	len;
+  	int	multi = 0;
+  
++ 	/* type == 0 for list, 1 for complete and 2 for complete-list */
+  	str = xcp;
+  	cp = buf;
+  	xp = str;
+***************
+*** 1492,1501 ****
+  		xp++;
+  	while (*xp == '<' || *xp == '>')
+  		xp++;
+! 	if (type)
+  		while (*xcp && !iscfs(*xcp))
+  			x_zotc(*xcp++);
+! 	else {
+  		x_maxlen = 0;
+  		XPinit(words, 16);
+  	}
+--- 1496,1506 ----
+  		xp++;
+  	while (*xp == '<' || *xp == '>')
+  		xp++;
+! 	if (type) {			/* for complete */
+  		while (*xcp && !iscfs(*xcp))
+  			x_zotc(*xcp++);
+! 	}
+! 	if (type != 1) {		/* for list */
+  		x_maxlen = 0;
+  		XPinit(words, 16);
+  	}
+***************
+*** 1526,1534 ****
+  		cp = dp->d_name;
+  		if (cp[0] == '.' &&
+  		    (cp[1] == '\0' || (cp[1] == '.' && cp[2] == '\0')))
+! 			continue; /* always ignore . and .. */
+! 		if (strncmp(lastp, cp, len) == 0)
+! 			if (type)  {
+  				if (loc == -1)  {
+  					(void)strcpy(bug, cp);
+  					loc = strlen(cp);
+--- 1531,1539 ----
+  		cp = dp->d_name;
+  		if (cp[0] == '.' &&
+  		    (cp[1] == '\0' || (cp[1] == '.' && cp[2] == '\0')))
+! 			continue;	/* always ignore . and .. */
+! 		if (strncmp(lastp, cp, len) == 0) {
+! 			if (type	/* for complete */) {
+  				if (loc == -1)  {
+  					(void)strcpy(bug, cp);
+  					loc = strlen(cp);
+***************
+*** 1537,1549 ****
+  					loc = strmatch(bug, cp);
+  					bug[loc] = 0;
+  				}
+! 			} else
+  				add_stash(dirnam, cp);
+  	}
+  	(void)closedir(dirp);
+  
+! 	if (type) {
+! 		if (loc <= 0)  {
+  			x_putc(BEL);
+  			return;
+  		}
+--- 1542,1558 ----
+  					loc = strmatch(bug, cp);
+  					bug[loc] = 0;
+  				}
+! 			}
+! 			if (type != 1) { /* for list */
+  				add_stash(dirnam, cp);
++ 			}
++ 		}
+  	}
+  	(void)closedir(dirp);
+  
+! 	if (type) {			/* for complete */
+! 		if (loc < 0 ||
+! 		    (loc == 0 && type != 2))  {
+  			x_putc(BEL);
+  			return;
+  		}
+***************
+*** 1564,1571 ****
+  			else
+  				x_ins(" ");
+  		}
+! 	} else
+  		list_stash();
+  }
+  
+  static void
+--- 1573,1583 ----
+  			else
+  				x_ins(" ");
+  		}
+! 	}
+! 	if (type == 0 ||		/* if list */
+! 	    (type == 2 && multi)) {	/* or complete-list and ambiguous */
+  		list_stash();
++ 	}
+  }
+  
+  static void
+***************
+*** 1581,1586 ****
+--- 1593,1599 ----
+  	int  multi;
+  	int  loc;
+  
++ 	/* type == 0 for list, 1 for complete and 2 for complete-list */
+  	str = xcp;
+  	cp = buf;
+  	xp = str;
+***************
+*** 1591,1600 ****
+  			break;
+  		}
+  	}
+! 	if (type)
+  		while (*xcp && !iscfs(*xcp))
+  			x_zotc(*xcp++);
+! 	else {
+  		x_maxlen = 0;
+  		XPinit(words, 16);
+  	}
+--- 1604,1613 ----
+  			break;
+  		}
+  	}
+! 	if (type)			/* for complete */
+  		while (*xcp && !iscfs(*xcp))
+  			x_zotc(*xcp++);
+! 	if (type != 1) {		/* for list */
+  		x_maxlen = 0;
+  		XPinit(words, 16);
+  	}
+***************
+*** 1614,1621 ****
+  		klen = strlen(tp->name);
+  		if (klen < len)
+  			continue;
+! 		if (strncmp(buf, tp->name, len) ==0)
+! 			if (type)  {
+  				if (loc == -1)  {
+  					(void)strcpy(bug, tp->name);
+  					loc = klen;
+--- 1627,1634 ----
+  		klen = strlen(tp->name);
+  		if (klen < len)
+  			continue;
+! 		if (strncmp(buf, tp->name, len) ==0) {
+! 			if (type)  {	/* for complete */
+  				if (loc == -1)  {
+  					(void)strcpy(bug, tp->name);
+  					loc = klen;
+***************
+*** 1624,1635 ****
+  					loc = strmatch(bug, tp->name);
+  					bug[loc] = 0;
+  				}
+! 			} else
+  				add_stash((char *)0, tp->name);
+  	}
+  
+! 	if (type)  {
+! 		if (loc <= 0)  {
+  			x_putc(BEL);
+  			return;
+  		}
+--- 1637,1652 ----
+  					loc = strmatch(bug, tp->name);
+  					bug[loc] = 0;
+  				}
+! 			}
+! 			if (type != 1) { /* for list */
+  				add_stash((char *)0, tp->name);
++ 			}
++ 		}
+  	}
+  
+! 	if (type)  {			/* for complete */
+! 		if (loc < 0 ||
+! 		    (loc == 0 && type != 2))  {
+  			x_putc(BEL);
+  			return;
+  		}
+***************
+*** 1637,1644 ****
+  		x_ins(cp);
+  		if (!multi)
+  			x_ins(" ");
+! 	} else
+  		list_stash();
+  }
+  
+  static int
+--- 1654,1667 ----
+  		x_ins(cp);
+  		if (!multi)
+  			x_ins(" ");
+! 		else if (type == 2)	/* complete and list rest */
+! 			list_stash();
+! 	}
+! 
+! 	if (type == 0 ||		/* if list */
+! 	    (type == 2 && multi)) {	/* or complete-list and ambiguous */
+  		list_stash();
++ 	}
+  }
+  
+  static int
+*** sh/eval.c.old	Tue May 12 13:42:00 1992
+--- sh/eval.c	Mon Aug 10 22:02:35 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: eval.c,v 1.3 1992/08/10 12:02:35 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 48,53 ****
+--- 48,58 ----
+  static char *   debunk      ARGS((char *cp));
+  static char *   tilde       ARGS((char *acp));
+  static char *   homedir     ARGS((char *name));
++ #ifdef ALTERNATIONS
++ static	int	alt_expand  ARGS((char *, XPtrV *, int));
++ static	int	alt_count   ARGS((char *));
++ static	int	alt_scan    ARGS((char **, char **, char, 	int));
++ #endif
+  
+  int	ifs0 = ' ';		/* todo: first char of $IFS */
+  
+***************
+*** 112,117 ****
+--- 117,150 ----
+  	return cp;
+  }
+  
++ /*
++  * expand string - return only one component
++  * used from iosetup to expand redirection files
++  */
++ char *
++ evalonestr(cp, f)
++ 	register char *cp;
++ 	int f;
++ {
++ 	XPtrV w;
++ 
++ 	XPinit(w, 1);
++ 	expand(cp, &w, f);
++ 	switch (XPsize(w)) {
++ 	case 0:
++ 		cp = "";
++ 		break;
++ 	case 1:
++ 		cp = (char*) *XPptrv(w);
++ 		break;
++ 	default:
++ 		cp = evalstr(cp, f&~DOGLOB);
++ 		break;
++ 	}
++ 	XPfree(w);
++ 	return cp;
++ }
++ 
+  /* for nested substitution: ${var:=$var2} */
+  typedef struct SubType {
+  	short	type;		/* [=+-?%#] action after expanded word */
+***************
+*** 144,149 ****
+--- 177,196 ----
+  	if (flag[FNOGLOB])
+  		f &= ~ DOGLOB;
+  
++ #ifdef ALTERNATIONS
++ #define NOALT	BIT(8)		/* internal to this file */
++ 				/* prevent endless recursion */
++ 	/* look for '{' in the input word */
++ 	if (((f & NOALT) == 0) && (f & DOGLOB) &&
++ 	    (dp = strchr(cp, '{')) != NULL &&
++ 	    (dp[-1] == CHAR) &&
++     	    !(dp[1] == CHAR && dp[2] == '}')) {
++ 		if (alt_expand(cp, wp, f))
++ 			return;
++ 	}
++ 	f &= ~NOALT;
++ #endif
++ 
+  	Xinit(ds, dp, 128);	/* init dest. string */
+  	type = XBASE;
+  	sp = cp;
+***************
+*** 496,501 ****
+--- 543,748 ----
+  
+  	return str;		/* no match, return string */
+  }
++ 
++ #ifdef ALTERNATIONS
++ /*	(pc@hillside.co.uk)
++  *	I have decided to `fudge' alternations by picking up
++  *	the compiled command tree and working with it recursively
++  *	to generate the set of arguments
++  *	This has the advantage of making a single discrete change
++  *	to the code
++  *
++  *	This routine calls itself recursively
++  *	a)	scan forward looking for { building the output string
++  *		if none found then call expand - and exit
++  *	b)	When { found, scan forward finding the end }
++  *	c)	add first alternate to output string
++  *	d)	scan for the end of the string copying into output
++  *	e)	call routine with new string
++  *	Major complication is quoting
++  */
++ static int
++ alt_expand(cp, wp, f)
++ 	char *cp;		/* input word */
++ 	register XPtrV *wp;	/* output words */
++ 	int f;			/* DO* flags */
++ {
++ 	char *srcp = cp;
++ 	char *left;		/* destination string of left hand side */
++ 	char *leftend;		/* end of left hand side */
++ 	char *alt;		/* start of alterate section */
++ 	char *altend;		/* end of alternate section */
++ 	char *ap;		/* working pointer */
++ 	char *right;		/* right hand side */
++ 	char *rp;		/* used to copy right-hand side */
++ 	int  maxlen;		/* max string length */
++ 
++ 	leftend = left = alloc((maxlen = alt_count(cp)), ATEMP);
++ 	
++ 	if (alt_scan(&srcp, &leftend, '{', 0) == 0) {
++ 		expand(cp, wp, f&NOALT);
++ 		afree(left, ATEMP);
++ 		return;
++ 	}
++ 
++ 	/*
++ 	 *	we have a alternation section
++ 	 */
++ 	alt = altend = alloc(maxlen, ATEMP);
++ 
++ 	srcp += 2;
++ 	if (alt_scan(&srcp, &altend, '}', 1) == 0) {
++ 		afree(left, ATEMP);
++ 		afree(alt, ATEMP);
++ 		errorf("Missing }.\n");
++ 	}
++ 	*altend++ = CHAR;
++ 	*altend++ = ',';
++ 	*altend = EOS;
++ 	/*
++ 	 *	finally we may have a right-hand side
++ 	 */
++ 	right = srcp + 2;
++ 
++ 	/*
++ 	 *	glue the bits together making a new string
++ 	 */
++ 	for (srcp = alt; *srcp != EOS;) {
++ 
++ 		ap = leftend;
++ 
++ 		if (alt_scan(&srcp, &ap, ',', -1) == 0) {
++ 			afree(left, ATEMP);
++ 			afree(alt, ATEMP);
++ 			errorf("Missing comma.\n");
++ 		}
++ 		
++ 		srcp += 2;
++ 
++ 		rp = right;
++ 		(void) alt_scan(&rp, &ap, EOS, 0);
++ 
++ 		alt_expand(left, wp, f);
++ 	}
++ 	afree(left, ATEMP);
++ 	afree(alt, ATEMP);
++ }
++ 
++ /*
++  * see how much space we need to hold this tree
++  */
++ static int
++ alt_count(cp)
++ 	register char *cp;
++ {
++ 	register int sum = 0;
++ 	register char *sp;
++ 
++ 	while (*cp != EOS) {
++ 		switch(*cp) {
++ 		  case CHAR:
++ 		  case QCHAR:
++ 			sum += 2;
++ 			cp += 2;
++ 			break;
++ 		  case OQUOTE:
++ 		  case CQUOTE:
++ 		  case CSUBST:
++ 			sum++;
++ 			cp++;
++ 			break;
++ 		  case COMSUB:
++ 		  case OSUBST:
++ 			sp = cp;
++ 			cp = strchr(sp, 0) + 1;
++ 			sum += cp - sp;
++ 			break;
++ 		}
++ 	}
++ 	return ++sum;
++ }
++ 
++ #ifdef __STDC__
++ static int
++ alt_scan(
++ 	char **cpp,		/* address of source pointer */
++ 	char **dpp,		/* address of destination pointer */
++ 	char endc,		/* last character we are looking for */
++ 	int bal)
++ #else
++ static int
++ alt_scan(cpp, dpp, endc, bal)
++ 	char **cpp;		/* address of source pointer */
++ 	char **dpp;		/* address of destination pointer */
++ 	char endc;		/* last character we are looking for */
++ 	int bal;
++ #endif
++ {
++ 	register char *cp, *dp;
++ 	int quote = 0;
++ 	int balance = 0;
++ 	int usebalance = 0;
++ 
++ 	if (bal)
++ 	{	usebalance = 1;
++ 		balance = (bal < 1) ? 0 : 1;
++ 	}
++ 
++ 	cp = *cpp;
++ 	dp = *dpp;
++ 
++ 	while (*cp != EOS) {
++ 		switch (*cp) {
++ 		  case CHAR:
++ 			if (quote == 1) {
++ 				if (cp[1] == ']')
++ 					quote = 0;
++ 			}
++ 			else
++ 			if (quote == 0) {
++ 				if (cp[1] == '[')
++ 					quote = 1;
++ 				else {
++ 					if (usebalance) {
++ 						if (cp[1] == '{')
++ 							balance++;
++ 						if (cp[1] == '}')
++ 							balance--;
++ 						}
++ 					if (cp[1] == endc && balance == 0) {
++ 						*dp = EOS;
++ 						*dpp = dp;
++ 						*cpp = cp;
++ 						return 1;
++ 						}
++ 				}
++ 			}
++ 		  case QCHAR:
++ 			*dp++ = *cp++;
++ 		  copy:
++ 			*dp++ = *cp++;
++ 			break;
++ 			
++ 		  case OQUOTE:
++ 			quote = 1;
++ 			goto copy;
++ 
++ 		  case CQUOTE:
++ 			quote = 0;
++ 			goto copy;
++ 
++ 		  case COMSUB:
++ 		  case OSUBST:
++ 			while (*dp++ = *cp++);
++ 			break;
++ 		}
++ 	}
++ 	*dp = EOS;
++ 	*cpp = cp;
++ 	*dpp = dp;
++ 	return 0;
++ }
++ #endif	/* ALTERNATIONS */
+  
+  /*
+   * glob
+*** sh/exec.c.old	Tue May 12 13:42:00 1992
+--- sh/exec.c	Mon Aug 10 22:02:38 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: exec.c,v 1.4 1992/08/10 12:02:38 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 14,19 ****
+--- 14,20 ----
+  #include <fcntl.h>
+  #include <sys/stat.h>
+  #include "sh.h"
++ #include "edit.h"
+  
+  static int      comexec     ARGS((struct op *t, char **vp, char **ap, int flags));
+  #ifdef	SHARPBANG
+***************
+*** 22,27 ****
+--- 23,30 ----
+  static void     iosetup     ARGS((struct ioword *iop));
+  static int      herein      ARGS((char *hname, int sub));
+  static void     echo        ARGS((char **vp, char **ap));
++ static	char 	*do_selectargs ARGS((char **ap, char *));
++ static	int	selread	    ARGS((void));
+  
+  
+  /*
+***************
+*** 167,172 ****
+--- 170,192 ----
+  	  Break1:
+  		break;
+  
++ 	  case TSELECT:
++ 		e.type = E_LOOP;
++ 		ap = (t->vars != NULL) ?
++ 			eval(t->vars, DOBLANK|DOGLOB|DOTILDE) : e.loc->argv + 1;
++ 		while ((i = setjmp(e.jbuf)))
++ 			if (i == LBREAK)
++ 				goto Break1;
++ 		signal(SIGINT, trapsig); /* needs change to trapsig */
++ 		cp = NULL;
++ 		for (;;) {
++ 			if ((cp = do_selectargs(ap, cp)) == (char *)1)
++ 				break;
++ 			setstr(global(t->str), cp);
++ 			rv = execute(t->left, 0);
++ 		}
++ 		break;
++ 		
+  	  case TWHILE:
+  	  case TUNTIL:
+  		e.type = E_LOOP;
+***************
+*** 174,180 ****
+  			if (i == LBREAK)
+  				goto Break2;
+  		while ((execute(t->left, 0) == 0) == (t->type == TWHILE))
+! 			rv = execute(t->right, 0);
+  	  Break2:
+  		break;
+  
+--- 194,200 ----
+  			if (i == LBREAK)
+  				goto Break2;
+  		while ((execute(t->left, 0) == 0) == (t->type == TWHILE))
+! 			rv = execute(t->right, XXWHL);
+  	  Break2:
+  		break;
+  
+***************
+*** 655,661 ****
+  	e.savefd[iop->unit] = savefd(iop->unit);
+  
+  	if ((iop->flag&IOTYPE) != IOHERE)
+! 		cp = evalstr(cp, DOTILDE);
+  
+  	switch (iop->flag&IOTYPE) {
+  	  case IOREAD:
+--- 675,681 ----
+  	e.savefd[iop->unit] = savefd(iop->unit);
+  
+  	if ((iop->flag&IOTYPE) != IOHERE)
+! 		cp = evalonestr(cp, DOTILDE|DOGLOB);
+  
+  	switch (iop->flag&IOTYPE) {
+  	  case IOREAD:
+***************
+*** 772,774 ****
+--- 792,948 ----
+  	shellf("\n");
+  }
+  
++ /*
++  *	ksh special - the select command processing section
++  *	print the args in column form - assuming that we can
++  */
++ #define	COLARGS		20
++ 
++ static char *
++ do_selectargs(ap, secondtime)
++ 	register char **ap;
++ 	char	*secondtime;
++ {
++ 	char *rv;
++ 
++ 	register int i, c;
++ 	static char *replybase = NULL;
++ 	static int replymax;
++ 	static int repct;
++ 	static int argct;
++ 	
++ 	/*
++ 	 * deal with REPLY variable
++ 	 */
++ 	if (replybase == NULL) {
++ 		replybase = alloc(64, APERM);
++ 		replymax = 64;
++ 	}
++ 
++ 	if (!secondtime)
++ 		argct = pr_menu(ap, 0);
++ 	
++ 	/*
++ 	 * and now ask for an answer
++ 	 */
++ retry:
++ 	shellf("%s", strval(global("PS3")));
++ 	fflush(shlout);
++ 	repct = 0;
++ 	i = 0;
++ 	rv = NULL;
++ 	while ((c = selread()) != EOF) {
++ 		if (c == -2) {
++ 			shellf("Read error\n");
++ 			rv = (char*)1;
++ 			break;
++ 		}
++ 		if (repct+1 >= replymax)
++ 		{	replymax += 64;
++ 			replybase = aresize(replybase, replymax, APERM);
++ 		}
++ 		if (i >= 0 && c >= '0' && c <= '9') {
++ 			replybase[repct++] = c;
++ 			if (i >= 0)
++ 				i = i*10 + (c - '0');
++ 		}
++ 		else
++ 		if (c == '\n') {
++ 			if (repct == 0) {
++ 				pr_menu(ap, 1);
++ 				goto retry;
++ 			}
++ 				
++ 			if (i >= 1 && i <= argct)
++ 				rv = ap[i-1];
++ 			else	rv = "";
++ 			break;
++ 		} else
++ 			i = -1,	replybase[repct++] = c;
++ 	}
++ 	if (rv == NULL) {
++ 		shellf("\n");
++ 		rv = (char *)1;
++ 	}
++ 	replybase[repct] = '\0';
++ 	setstr(global("REPLY"), replybase);
++ 	return rv;
++ }
++ 
++ /*
++  *	print a select style menu
++  */
++ int
++ pr_menu(ap, usestored)
++ 	register char **ap;
++ 	int usestored;
++ {
++ 	register char **pp;
++ 	register i, j;
++ 	register int ix;
++ 	static int argct;
++ 	static int nwidth;
++ 	static int dwidth;
++ 	static int ncols;
++ 	static int nrows;
++ 
++ 	if (usestored == 0) {
++ 		/*
++ 		 * get dimensions of the list
++ 		 */
++ 		for (argct = 0, nwidth = 0, pp = ap; *pp; argct++, pp++) {
++ 			i = strlen(*pp);
++ 			nwidth = (i > nwidth) ? i : nwidth;
++ 		}
++ 		/*
++ 		 * we will print an index of the form
++ 		 *	%d)
++ 		 * in front of each entry
++ 		 * get the max width of this
++ 		 */
++ 		for (i = argct, dwidth = 1; i >= 10; i /= 10)
++ 			dwidth++;
++ 
++ 		if (argct < COLARGS)
++ 			ncols = 1, nrows = argct;
++ 		else {
++ 			ncols = x_cols/(nwidth+dwidth+3);
++ 			nrows = argct/ncols;
++ 			if (argct%ncols) nrows++;
++ 			if (ncols > nrows)
++ 			i = nrows, nrows = ncols, ncols = 1;
++ 		}
++ 
++ 	}
++ 	/*
++ 	 * display the menu
++ 	 */
++ 	for (i = 0; i < nrows; i++) {
++ 		for (j = 0; j < ncols; j++) {
++ 			ix = j*nrows + i;
++ 			if (ix < argct)
++ 				shellf("%*d) %-*.*s ", dwidth, ix+1, nwidth, nwidth, ap[ix]);
++ 			}
++ 		shellf("\n");
++ 	}
++ 	return argct;
++ }
++ 
++ static int
++ selread()
++ {	char c;
++ 	register int	rv;
++ 	
++ 	switch (read(0, &c, 1)) {
++ 	   case 1:
++ 		rv = c&0xff;
++ 		break;
++ 	   case 0:
++ 		rv = EOF;
++ 		break;
++ 	   case -1:
++ 		rv = -2;
++ 		break;
++ 	}
++ 	return rv;
++ }
+*** sh/getopts.c.old	Tue May 12 13:42:00 1992
+--- sh/getopts.c	Mon Aug 10 22:02:41 1992
+***************
+*** 7,13 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 7,13 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: getopts.c,v 1.3 1992/08/10 12:02:41 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 14,19 ****
+--- 14,24 ----
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
++ 
++ #ifdef _BSDI
++ /* internal getopt conflicts with system getopt prototype */
++ # define getopt	local_getopt
++ #endif
+  
+  /*
+   * The following is derived from getopt() source placed into the public
+
+exit 0 # Just in case...

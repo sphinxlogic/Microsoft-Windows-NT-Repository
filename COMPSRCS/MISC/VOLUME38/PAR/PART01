@@ -1,0 +1,1235 @@
+Newsgroups: comp.sources.misc
+From: amc@wuecl.wustl.edu (Adam Costello)
+Subject: v38i114:  par - paragraph reformatter, v1.20, Part01/03
+Message-ID: <csm-v38i114=par.090444@sparky.Sterling.COM>
+X-Md4-Signature: 73f63789c1b2e30eb07c909f01a2b044
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 12 Aug 1993 14:05:04 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: amc@wuecl.wustl.edu (Adam Costello)
+Posting-number: Volume 38, Issue 114
+Archive-name: par/part01
+Environment: ANSI-C
+
+Par 1.20 is a package containing documentation and ANSI C source code
+for the filter "par".
+
+par is a paragraph reformatter, vaguely similar to fmt, but better.
+
+For example, the command "par 38d", given the input:
+
+    > >   We the people of the United States, in
+    > > order to form a more perfect union,
+    > >   Establish justice, ensure domestic
+    > > tranquility, provide for the common defense,
+    >
+    >   Promote the general welfare, and secure
+    > the blessing of liberty to ourselves and
+    > our posterity,
+    >   Do ordain and establish the Constitution
+    > of the United States of America.
+
+Would produce the output:
+
+    > >   We the people of the United
+    > > States, in order to form a
+    > > more perfect union,
+    > >   Establish justice, ensure
+    > > domestic tranquility, provide
+    > > for the common defense,
+    >
+    >   Promote the general welfare,
+    > and secure the blessing of
+    > liberty to ourselves and our
+    > posterity,
+    >   Do ordain and establish the
+    > Constitution of the United
+    > States of America.
+
+Be sure to read "par.doc".
+
+AMC
+amc@ecl.wustl.edu (Adam M. Costello)
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Par120 Par120/par.doc Par120/buffer.c Par120/buffer.h
+#   Par120/errmsg.c Par120/errmsg.h
+# Wrapped by amc@wuecl on Mon Aug  9 11:00:11 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'Par120' ; then
+    echo shar: Creating directory \"'Par120'\"
+    mkdir 'Par120'
+fi
+if test -f 'Par120/par.doc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par120/par.doc'\"
+else
+echo shar: Extracting \"'Par120/par.doc'\" \(31676 characters\)
+sed "s/^X//" >'Par120/par.doc' <<'END_OF_FILE'
+X  *********************
+X  * par.doc           *
+X  * for Par 1.20      *
+X  * Copyright 1993 by *
+X  * Adam M. Costello  *
+X  *********************
+X
+X
+X    Par 1.20 is a package containing:
+X
+X       + This doc file.
+X       + A man page based on this doc file.
+X       + The ANSI C source for the filter "par".
+X
+X
+XContents
+X
+X    Contents
+X    File List
+X    Rights and Responsibilities
+X    Release Notes
+X    Compilation
+X    Synopsis
+X    Description
+X    Terms
+X    Options
+X    Environment
+X    Details
+X    Diagnostics
+X    Examples
+X    Limitations
+X    Bugs
+X
+X
+XFile List
+X
+X    The Par 1.20 package is always distributed with at least the following
+X    files:
+X
+X        buffer.h
+X        buffer.c
+X        failf.h
+X        failf.c
+X        par.1
+X        par.c
+X        par.doc
+X        protoMakefile
+X        reformat.h
+X        reformat.c
+X
+X    Each file is a text file which identifies itself on the second line, and
+X    identifies the version of Par to which it belongs on the third line,
+X    so you can always tell which file is which even if the files have been
+X    renamed.
+X
+X    The file "par.1" is a man page for the filter par (not to be confused
+X    with the package Par, which contains the source code for par). "par.1"
+X    is based on this doc file, and conveys much (not all) of the same
+X    information, but "par.doc" is the definitive documentation for both par
+X    and Par.
+X
+X
+XRights and Responsibilities
+X
+X    The files listed in the Files List section above are each Copyright 1993
+X    by Adam M. Costello (henceforth "I").
+X
+X    I grant everyone permission to use these files in any way, subject to
+X    the following two restrictions:
+X
+X     1) No one may distribute modifications of any of the files unless I am
+X        the one who modified them.
+X
+X     2) No one may distribute any one of the files unless it is accompanied
+X        by all of the other files.
+X
+X    I cannot disallow the distribution of patches, but I would prefer that
+X    users send me suggestions for changes so that I can incorporate them
+X    into future versions of Par. See the Bugs section for my addresses.
+X
+X    Though I have tried to make sure that Par is free of bugs, I make no
+X    guarantees about its soundness. Therefore, I am not responsible for any
+X    damage resulting from the use of these files.
+X
+X
+XRelease Notes
+X
+X    Each entry below describes changes since the previous version.
+X
+X    Par 1.00 released 25 July 1993
+X        The first release.
+X
+X    Par 1.10 released 2 August 1993
+X        Fixed the following bugs:
+X            In reformat.c I used sprintf() but forgot to #include <stdio.h>.
+X            I forgot to verify that <width> > <prefix> + <suffix>.
+X            The first word of a paragraph was expanded to include initial
+X            white characters, not just spaces, contrary to par.doc.
+X            Some invalid options were not complained about.
+X            NUL characters in the input were not handled.
+X            A pointer foul-up in freelines() in par.c could cause a crash.
+X        Added the following features:
+X            Multiple options may be concatenated into a single argument.
+X            The PARBODY environment variable.
+X            The j option.
+X            The f option.
+X            The t option.
+X        Removed the m option, since its function is better performed by the
+X            f and t options. Normally I would avoid making incompatible
+X            changes, unless I were doing a complete overhaul of the whole
+X            program, in which case I'd make the version number 2.00 to alert
+X            users to possible incompatibilities. However, in this particular
+X            instance I allowed an incompatibility in a minor upgrade because
+X            version 1.00 was distributed to only four people.
+X        Changed the handling of white characters: par now changes all of
+X            them (except newlines) to spaces as they are read. This is
+X            another incompatible change, excused for the same reason.
+X        Made all error messages begin with "par error:".
+X
+X    Par 1.20 released 10 Aug 1993
+X        Since Par 1.10 was distributed to no one, I've made some more
+X          incompatible change in Par 1.20.
+X        Paragraphs are now delimited by vacant rather than blank lines.
+X        <hang> now affects not only <prefix> but also <suffix>.
+X        Added the d[<div>] option.
+X
+X
+XCompilation
+X
+X    To compile par, you need an ANSI C compiler. Copy protoMakefile to
+X    Makefile and edit it, following the instructions in the comments. Then
+X    use make (or the equivalent on your system) to compile par.
+X
+X    If you have no make, compile each .c file into an object file and link
+X    all the object files together by whatever method works on your system.
+X    Then go look for a version of make that works on your system, since it
+X    will come in handy in the future.
+X
+X    If your compiler warns you about a pointer to a constant being converted
+X    to a pointer to a non-constant in line 404 of reformat.c, ignore it.
+X    Your compiler (like mine) is in error. What it thinks is a pointer to
+X    a constant is actually a pointer to a pointer to a constant, which is
+X    something quite different. The conversion is legal, and I don't think a
+X    correct ANSI C compiler would complain.
+X
+X    If your compiler generates any other warnings that you think are
+X    legitimate, please tell me about them (see the Bugs section).
+X
+X    Note that all variables in par are either constant or automatic (or
+X    both), which means that par can be made reentrant (if your compiler
+X    supports it). Given the right operating system, it should be possible
+X    for several par processes to share the same code space in memory.
+X
+X
+XSynopsis
+X
+X    par [version] [h[<hang>]] [p<prefix>] [s<suffix>] [w<width>]
+X        [d[<div>]] [f[<fit>]] [j[<just>]] [l[<last>]] [t[<touch>]]
+X
+X    Things enclosed in [square brackets] are optional. Things enclosed in
+X    <angle brackets> are variables.
+X
+X
+XDescription
+X
+X    par is a filter which copies its input to its output, changing all white
+X    characters (except newlines) to spaces, and reformatting each paragraph.
+X    Paragraphs are delimited by vacant lines, which are lines containing
+X    no more than a prefix, suffix, and intervening spaces (see the Details
+X    section for a precise definition).
+X
+X    Each output paragraph is generated from the corresponding input
+X    paragraph as follows:
+X
+X     1. An optional prefix and/or suffix is removed from each input line.
+X     2. The remainder is divided into words (delimited by spaces).
+X     3. The words are joined into lines to make an eye-pleasing paragraph.
+X     4. The prefixes and suffixes are reattached.
+X
+X     If there are suffixes, spaces are inserted before them so that they all
+X     end in the same column.
+X
+X
+XTerms
+X
+X    body        A member of the set of characters defined by the PARBODY
+X    character   environment variable (see the Environment section).
+X
+X    comprelen   The comprelen of a non-empty set of lines is the length of
+X                the longest string of non-body characters appearing at the
+X                beginning of every line in the set.
+X
+X    comsuflen   Given a non-empty set <S> of lines, let <p> be the comprelen
+X                of <S>. Let <T> be the set of lines which result from
+X                stripping the first <p> characters from each line in <S>.
+X                Let <c> be the longest string of non-body characters
+X                appearing at the end of every line in <T>. Strip <c> of all
+X                initial spaces except the last. The length of <c> is the
+X                comsuflen of <S>.
+X
+X    IP          Input paragraph.
+X
+X    OP          Output paragraph.
+X
+X    white       A space, formfeed, newline, carriage return, tab, or
+X    character   vertical tab.
+X
+X
+XOptions
+X
+X    Any command line argument may begin with one minus sign (-) which is
+X    ignored. Generally, more than one option may appear in a single command
+X    line argument, but there is one exception: the version option must have
+X    a whole argument all to itself.
+X
+X    version     Causes all remaining arguments to be ignored. No input is
+X                read. "par 1.20" is printed on the output. Of course, this
+X                will change in future releases of Par.
+X
+X    All remaining options are used to set values of variables. Values set by
+X    command line options hold for all paragraphs. Unset variables are given
+X    default values. Any unset variables whose default values depend on the
+X    IP are recomputed separately for each paragraph.
+X
+X    The approximate role of each variable is described here. See the Details
+X    section for a much more complete and precise description.
+X
+X    The first four variables, <hang>, <prefix>, <suffix>, and <width>, may
+X    be set to any unsigned decimal integer less than 10000.
+X
+X    h[<hang>]   Mainly affects the default values of <prefix> and <suffix>.
+X                Defaults to 0. If the h option is given without a number,
+X                the value 1 is inferred. (See also the p and s options.)
+X
+X    p<prefix>   The first <prefix> characters of each line of the OP
+X                are copied from the first <prefix> characters of the
+X                corresponding line of the IP. Defaults to 0 if there are
+X                less than <hang> + 2 lines in the IP. Otherwise, defaults to
+X                the comprelen of all the lines in the IP except the first
+X                <hang> of them. (See also the h option.)
+X
+X    s<suffix>   The last <suffix> characters of each line of the OP
+X                are copied from the last <suffix> characters of the
+X                corresponding line of the IP. Defaults to 0 if there are
+X                less than <hang> + 2 lines in the IP. Otherwise, defaults to
+X                the comsuflen of all the lines of the IP except the first
+X                <hang> of them. (See also the h option.)
+X
+X    w<width>    No line in the OP will contain more than <width> characters,
+X                not including the trailing newlines. Defaults to 72.
+X
+X    The remaining five variables, <div>, <fit>, <just>, <last>, and
+X    <touch>, may be set to either 0 or 1. If the number is absent in the
+X    option, the value 1 is inferred.
+X
+X    d[<div>]    If <div> is 1, then each block of text that would normally
+X                count as a paragraph (delimited by vacant lines) will be
+X                further subdivided into paragraphs as follows. Let <p> be
+X                the comprelen of all the lines in the block. Let a line's
+X                status be 1 if its (<p> + 1)st character is a space, 0
+X                otherwise. Every line in the block whose status is the same
+X                as the status of the first line will begin a new paragraph.
+X                Defaults to 0.
+X
+X    f[<fit>]    If <fit> is 1 and <just> is 0, par will try to make the
+X                lines in the OP as nearly the same length as possible, even
+X                if it means making the OP narrower. Defaults to 0. (See also
+X                the j option.)
+X
+X    j[<just>]   If <just> is 1, par justifies the OP, inserting spaces
+X                between words so that all lines in the OP have length
+X                <width> (except the last, if <last> is 0). <fit> has no
+X                effect if <just> is 1. Defaults to 0. (See also the w, l,
+X                and f options.)
+X
+X    l[<last>]   If <last> is 1, par tries to make the last line of the OP
+X                about the same length as the others. Defaults to 0.
+X
+X    t[<touch>]  Has no effect if <suffix> is 0 or <just> is 1. Otherwise,
+X                if <touch> is 0, all lines in the OP have length <width>.
+X                If <touch> is 1, then the length of the lines is decreased
+X                until the suffixes touch the body of the OP. Defaults to the
+X                logical OR of <fit> and <last>. (See also the s, j, w, f,
+X                and l options.)
+X
+X    If the value of any variable is set more than once, the last value
+X    is used. When unset variables are assigned default values, <hang> is
+X    assigned before <prefix>, and <fit> and <last> are assigned before
+X    <touch> (because of the dependencies).
+X
+X    It is an error if <width> <= <prefix> + <suffix>.
+X
+X
+XEnvironment
+X
+X    PARINIT     If set, par will read command line options from PARINIT
+X                before it reads them from the command line.
+X
+X    PARBODY     All and only the characters appearing in the value of
+X                PARBODY count as body characters (which are used for
+X                determining comprelens and comsuflens). The underscore is
+X                an escape character, which may begin the following escape
+X                sequences:
+X
+X                   __ = an underscore
+X                   _s = a space
+X                   _A = all upper case characters
+X                   _a = all lower case characters
+X                   _0 = all decimal digits
+X                 _xhh = the character represented by the two hexadecimal
+X                        digits hh (which may be upper or lower case)
+X
+X                If PARBODY is not set, there are no body characters.
+X
+X                A good value for PARBODY might be "_a_A.", but it depends on
+X                the application.
+X
+X    If a NUL character appears in the value of an environment variable, it
+X    and the rest of the string will not be seen by par.
+X
+X
+XDetails
+X
+X    Every white character in the input (unless it is a newline) is changed
+X    into a space immediately after it has been read. NUL characters in the
+X    input are invisible, just as if they weren't there at all.
+X
+X    Lines are terminated by newline characters, but the newlines are not
+X    considered to be included in the lines. If the last character of the
+X    input is a non-newline, then a newline will be inferred immediately
+X    after it (but if the input is empty, no newline will be inferred; the
+X    number of input lines will be 0). Thus, the input can always be viewed
+X    as a sequence of lines.
+X
+X    Vacant lines in the input are defined recursively by the following
+X    rules:
+X
+X     1) Any line which is empty or contains only spaces is vacant.
+X
+X     2) Suppose <A> and <B> are two vacant lines with at least two lines
+X        between them. Let <p> and <s> be the comprelen and comsuflen of
+X        the intervening lines. Any intervening line which, if stripped of
+X        its first <p> characters and last <s> characters, would be empty,
+X        or would contain only spaces, is vacant.
+X
+X     3) If a line cannot be shown to be vacant by repeated application of
+X        rules 1 and 2, then it is not vacant.
+X
+X    A subsequence of non-vacant lines in the input is called a block if
+X    there is no non-vacant line immediately above or below it (i.e., if it
+X    is maximal). If <div> is 0, then the IPs are exactly the blocks. If
+X    <div> is 1, then the IPs are the subdivisions of the blocks as described
+X    in the Options section in the entry for <div>.
+X
+X    Each vacant line of the input is copied to the output unchanged except
+X    that any trailing spaces are stripped. The remainder of this section
+X    describes the process which is applied independently to each IP to
+X    construct the corresponding OP.
+X
+X    After the values of the variables are determined (see the Options
+X    section), the first <prefix> characters and the last <suffix> characters
+X    of each input line are removed and remembered. It is an error for any
+X    line to contain fewer than <prefix> + <suffix> characters.
+X
+X    The remaining text is treated as a sequence of characters, not lines.
+X    The text is broken into words, which are delimited by spaces. That is, a
+X    word is a maximal sub-sequence of non-spaces. If there is at least one
+X    word, and the first word is preceeded only by spaces, then the first
+X    word is expanded to include those spaces.
+X
+X    Let <L> = <width> - <prefix> - <suffix>.
+X
+X    Every word which contains more than <L> characters is broken, after each
+X    <L>th character, into multiple words.
+X
+X    These words are reassembled, preserving their order, into lines. If
+X    <just> is 0, adjacent words within a line are separated by a single
+X    space, and line breaks are chosen so that the paragraph satisfies the
+X    following properties:
+X
+X         1) No line contains more than <L> characters.
+X
+X         2) If <fit> is 1, the difference between the lengths of the
+X            shortest and longest lines is as small as possible.
+X
+X         3) The shortest line is as long as possible, subject to properties
+X            1 and 2.
+X
+X         4) Let <target> be <L> if <fit> is 0, or the length of the longest
+X            line if <fit> is 1. The sum of the squares of the differences
+X            between <target> and the lengths of the lines is as small as
+X            possible, subject to properties 1, 2, and 3.
+X
+X        If <last> is 0, then the last line does not count as a line for the
+X        purposes of properties 2, 3, and 4 above.
+X
+X        If all the words fit on a single line, then the properties as worded
+X        above don't make much sense. In that case, no line breaks are
+X        inserted.
+X
+X    If <just> is 1, then adjacent words within a line are separated by one
+X    space plus zero or more extra spaces, the value of <fit> is disregarded,
+X    and line breaks are chosen so that the paragraph satisfies the following
+X    properties:
+X
+X         1) Every line contains exactly <L> characters.
+X
+X         2) The largest inter-word gap is as small as possible, subject to
+X            property 1.
+X
+X         3) The sum of the squares of the numbers of extra spaces required
+X            in each inter-word gap is as small as possible, subject to
+X            properties 1 and 2.
+X
+X        If <last> is 0, then the last line does not count as a line for the
+X        purposes of property 1, and it does not require or contain any extra
+X        spaces.
+X
+X        Extra spaces are distributed as uniformly as possible among the
+X        inter-word gaps in each line.
+X
+X        Some paragraphs are impossible to justify, because they contain
+X        words too long relative to <L>. If this is the case, it is
+X        considered an error (see the Diagnostics section).
+X
+X    If the number of lines in the resulting paragraph is less than <hang>,
+X    then empty lines are added at the end to bring the number of lines up to
+X    <hang>.
+X
+X    If <just> is 0 and <touch> is 1, then <L> is changed to be the length of
+X    the longest line.
+X
+X    If <suffix> is not 0, then each line is padded at the end with spaces to
+X    bring its length up to <L>.
+X
+X    To each line is prepended <prefix> characters. Let <n> be the number of
+X    lines in the IP. The characters which are prepended to the <i>th line are
+X    chosen as follows:
+X
+X     1) If <i> <= <n>, then the characters are copied from the ones that
+X        were removed from the beginning of the <n>th input line.
+X
+X     2) If <i> > <n> > <hang>, then the characters are copied from the ones
+X        that were removed from the beginning of the last input line.
+X
+X     3) If <i> > <n> and <n> <= <hang>, then the characters are all spaces.
+X
+X    Then to each line is appended <suffix> characters. The characters which
+X    are appended to the <i>th line are chosen as follows:
+X
+X     1) If <i> <= <n>, then the characters are copied from the ones that
+X        were removed from the end of the nth input line.
+X
+X     2) If <i> > <n> > 0, then the characters are copied from the ones that
+X        were removed from the end of the last input line.
+X
+X     3) If <n> = 0, then the characters are all spaces.
+X
+X    Finally, the lines are printed to the output as the OP.
+X
+X
+XDiagnostics
+X
+X    If there are no errors, par returns EXIT_SUCCESS (see <stdlib.h>).
+X
+X    If there is an error, then an error message will be printed to the
+X    output, and par will return EXIT_FAILURE. If the error is local to a
+X    single paragraph, then the preceeding paragraphs will have been output
+X    before the error was detected. Line numbers in error messages are local
+X    to the IP in which the error occurred. All error messages begin with
+X    "par error:" on a line by itself.
+X
+X    Of course, trying to print an error message would be futile if an error
+X    resulted from an output function, so par doesn't bother doing any error
+X    checking on output functions.
+X
+X
+XExamples
+X
+X    The superiority of par's dynamic programming algorithm over a greedy
+X    algorithm (such as the one used by fmt) can be seen in the following
+X    example:
+X
+X    Original paragraph:
+X
+X        We the people of the United States,
+X        in order to form a more perfect union,
+X        establish justice,
+X        insure domestic tranquility,
+X        provide for the common defense,
+X        promote the general welfare,
+X        and secure the blessing of liberty
+X        to ourselves and our posterity,
+X        do ordain and establish the Constitution
+X        of the United States of America.
+X
+X    After a greedy algorithm with width = 39:
+X
+X        We the people of the United
+X        States, in order to form a more
+X        perfect union, establish
+X        establish justice, insure
+X        domestic tranquility, provide
+X        for the common defense, promote
+X        the general welfare, and secure
+X        the blessing of liberty to
+X        ourselves and our posterity, do
+X        ordain and establish the
+X        Constitution of the United
+X        States of America.
+X
+X    After "par 39":
+X
+X        We the people of the United    
+X        States, in order to form a     
+X        more perfect union, establish  
+X        justice, insure domestic       
+X        tranquility, provide for the   
+X        common defense, promote the    
+X        general welfare, and secure    
+X        the blessing of liberty to     
+X        ourselves and our posterity,   
+X        do ordain and establish the    
+X        Constitution of the United     
+X        States of America.             
+X
+X    The line breaks chosen by par are clearly more eye-pleasing.
+X
+X    par is most useful in conjunction with the text-filtering features of an
+X    editor, such as the ! commands of vi.
+X
+X    The rest of this section is a series of before-and-after pictures
+X    showing some typical uses of par.
+X
+X    Before:
+X
+X        /*   We the people of the United States, */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, */
+X        /* insure domestic tranquility, */
+X        /* provide for the common defense, */
+X        /* promote the general welfare, */
+X        /* and secure the blessing of liberty */
+X        /* to ourselves and our posterity, */
+X        /* do ordain and establish the Constitution */
+X        /* of the United States of America. */
+X
+X    After "par 59":
+X
+X        /*   We the people of the United States, in      */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility, provide */
+X        /* for the common defense, promote the general   */
+X        /* welfare, and secure the blessing of liberty   */
+X        /* to ourselves and our posterity, do ordain     */
+X        /* and establish the Constitution of the United  */
+X        /* States of America.                            */
+X
+X    Or after "par 59f":
+X
+X        /*   We the people of the United States,  */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, insure domestic     */
+X        /* tranquility, provide for the common    */
+X        /* defense, promote the general welfare,  */
+X        /* and secure the blessing of liberty to  */
+X        /* ourselves and our posterity, do ordain */
+X        /* and establish the Constitution of the  */
+X        /* United States of America.              */
+X
+X    Or after "par 59l":
+X
+X        /*   We the people of the United States, in      */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility,         */
+X        /* provide for the common defense, promote       */
+X        /* the general welfare, and secure the           */
+X        /* blessing of liberty to ourselves and our      */
+X        /* posterity, do ordain and establish the        */
+X        /* Constitution of the United States of America. */
+X
+X    Or after "par 59lf":
+X
+X        /*   We the people of the United States,  */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, insure domestic     */
+X        /* tranquility, provide for the common    */
+X        /* defense, promote the general welfare,  */
+X        /* and secure the blessing of liberty     */
+X        /* to ourselves and our posterity, do     */
+X        /* ordain and establish the Constitution  */
+X        /* of the United States of America.       */
+X
+X    Or after "par 59lft0":
+X
+X        /*   We the people of the United States,         */
+X        /* in order to form a more perfect union,        */
+X        /* establish justice, insure domestic            */
+X        /* tranquility, provide for the common           */
+X        /* defense, promote the general welfare,         */
+X        /* and secure the blessing of liberty            */
+X        /* to ourselves and our posterity, do            */
+X        /* ordain and establish the Constitution         */
+X        /* of the United States of America.              */
+X
+X    Or after "par 59j":
+X
+X        /*   We  the people  of  the  United States,  in */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility, provide */
+X        /* for the  common defense, promote  the general */
+X        /* welfare, and  secure the blessing  of liberty */
+X        /* to ourselves and our posterity, do ordain and */
+X        /* establish  the  Constitution  of  the  United */
+X        /* States of America.                            */
+X
+X    Or after "par 59jl":
+X
+X        /*   We  the   people  of  the   United  States, */
+X        /* in   order    to   form   a    more   perfect */
+X        /* union,  establish  justice,  insure  domestic */
+X        /* tranquility, provide for  the common defense, */
+X        /* promote  the  general   welfare,  and  secure */
+X        /* the  blessing  of  liberty to  ourselves  and */
+X        /* our  posterity, do  ordain and  establish the */
+X        /* Constitution of the United States of America. */
+X
+X    Before:
+X
+X        Preamble      We the people of the United States,
+X        to the US     in order to form
+X        Constitution  a more perfect union,
+X                      establish justice,
+X                      insure domestic tranquility,
+X                      provide for the common defense,
+X                      promote the general welfare,
+X                      and secure the blessing of liberty
+X                      to ourselves and our posterity,
+X                      do ordain and establish
+X                      the Constitution
+X                      of the United States of America.
+X
+X    After "par 52h3":
+X
+X        Preamble      We the people of the United
+X        to the US     States, in order to form a
+X        Constitution  more perfect union, establish
+X                      justice, insure domestic
+X                      tranquility, provide for the
+X                      common defense, promote the
+X                      general welfare, and secure
+X                      the blessing of liberty to
+X                      ourselves and our posterity,
+X                      do ordain and establish the
+X                      Constitution of the United
+X                      States of America.
+X
+X    Before:
+X
+X         1  We the people of the United States,
+X         2  in order to form a more perfect union,
+X         3  establish justice,
+X         4  insure domestic tranquility,
+X         5  provide for the common defense,
+X         6  promote the general welfare,
+X         7  and secure the blessing of liberty
+X         8  to ourselves and our posterity,
+X         9  do ordain and establish the Constitution
+X        10  of the United States of America.
+X
+X    After "par 59p12l":
+X
+X         1  We the people of the United States, in order to
+X         2  form a more perfect union, establish justice,
+X         3  insure domestic tranquility, provide for the
+X         4  common defense, promote the general welfare,
+X         5  and secure the blessing of liberty to ourselves
+X         6  and our posterity, do ordain and establish the
+X         7  Constitution of the United States of America.
+X
+X    Before:
+X
+X        > >   We the people of the United States, in
+X        > > order to form a more perfect union,
+X        > >   Establish justice, ensure domestic
+X        > > tranquility, provide for the common defense,
+X        >
+X        >   Promote the general welfare, and secure
+X        > the blessing of liberty to ourselves and
+X        > our posterity,
+X        >   Do ordain and establish the Constitution
+X        > of the United States of America.
+X
+X    After "par 42d":
+X
+X        > >   We the people of the United
+X        > > States, in order to form a
+X        > > more perfect union,
+X        > >   Establish justice, ensure
+X        > > domestic tranquility, provide
+X        > > for the common defense,
+X        >
+X        >   Promote the general welfare,
+X        > and secure the blessing of
+X        > liberty to ourselves and our
+X        > posterity,
+X        >   Do ordain and establish the
+X        > Constitution of the United
+X        > States of America.
+X
+X
+XLimitations
+X
+X    If you like two spaces between sentences, too bad. Differentiating
+X    between periods that end sentences and periods used in abbreviations is
+X    a complex problem beyond the scope of this simple filter. Consider the
+X    following tough case:
+X
+X        I calc'd the approx.
+X        Fermi level to 3 sig. digits.
+X
+X    Suppose that that should be reformatted to:
+X
+X        I calc'd the approx. Fermi
+X        level to three sig. digits.
+X
+X    The program has to decide whether to put 1 or 2 spaces between "approx."
+X    and "Fermi". There is no obvious hint from the original paragraph
+X    because there was a line break between them, and "Fermi" begins with a
+X    capital letter. The program would apparently have to understand English
+X    grammar to determine that the sentence does not end there (and then it
+X    would only work for English text).
+X
+X    If you use tabs, you probably won't like the way par handles (or doesn't
+X    handle) them. It turns them into spaces. I didn't bother trying to
+X    make sense of tabs because they don't make sense to begin with. Not
+X    everyone's terminal has the same tab settings, so text files containing
+X    tabs are sometimes mangled. In fact, almost every text file containing
+X    tabs gets mangled when something is inserted at the beginning of each
+X    line (when quoting e-mail or commenting out a section of a shell script,
+X    for example), making them a pain to edit. In my opinion, the world would
+X    be a nicer place if everyone stopped using tabs (so I'm doing my part by
+X    not supporting them in par.)
+X
+X    There is currently no way for the length of the output prefix to differ
+X    from the length of the input prefix. Ditto for the suffix. I may
+X    consider adding this capability in a future release, but right now I'm
+X    not sure how I'd want it to work.
+X
+X
+XBugs
+X
+X    If I knew of any bugs, I wouldn't release the package. Of course, there
+X    may be bugs that I haven't yet discovered.
+X
+X    If you find any bugs, or if you have any suggestions, please send e-mail
+X    to:
+X
+X        amc@ecl.wustl.edu
+X
+X    or send paper mail to:
+X
+X        Adam M. Costello
+X        Campus Box 1045
+X        Washington University
+X        One Brookings Dr.
+X        St. Louis, MO 63130
+X        USA
+X
+X    Note that both addresses could change anytime after June 1994.
+X
+X    When reporting a bug, please include the exact input and command line
+X    options used, and the version number of par, so that I can reproduce it.
+END_OF_FILE
+if test 31676 -ne `wc -c <'Par120/par.doc'`; then
+    echo shar: \"'Par120/par.doc'\" unpacked with wrong size!
+fi
+# end of 'Par120/par.doc'
+fi
+if test -f 'Par120/buffer.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par120/buffer.c'\"
+else
+echo shar: Extracting \"'Par120/buffer.c'\" \(4696 characters\)
+sed "s/^X//" >'Par120/buffer.c' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.c          */
+X/* for Par 1.20      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* additem(), copyitems(), and nextitem() rely   */
+X/* on the fact that sizeof (char) is 1. See      */
+X/* section A7.4.8 of The C Programming Language, */
+X/* Second Edition, by Kerninghan and Ritchie.    */
+X
+X
+X#include "buffer.h"  /* Makes sure we're consistent with the prototypes. */
+X                     /* Also includes <stddef.h> and "errmsg.h".         */
+X
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#undef NULL
+X#define NULL ((void *) 0)
+X
+X#ifdef DONTFREE
+X#define free(ptr)
+X#endif
+X
+X
+Xstruct buffer {
+X  struct block *firstblk, /* The first block.                    */
+X               *current,  /* The last non-empty block, or        */
+X                          /* firstblk if all are empty.          */
+X               *nextblk;  /* The block containing the item to be */
+X                          /* returned by nextitem(), or NULL.    */
+X  int nextindex;          /* Index of item in nextblock->items.  */
+X  size_t itemsize;        /* The size of an item.                */
+X};
+X
+Xstruct block {
+X  struct block *next;  /* The next block, or NULL if none.              */
+X  void *items;         /* Storage for the items in this block.          */
+X  int maxhere,         /* Number of items that fit in *items.           */
+X      numprevious,     /* Total of numhere for all previous blocks.     */
+X      numhere;         /* The first numhere slots in *items are filled. */
+X};
+X
+X
+Xstruct buffer *newbuffer(size_t itemsize, errmsg_t errmsg)
+X{
+X  struct buffer *buf;
+X  struct block *blk;
+X  void *items;
+X  int maxhere;
+X
+X  maxhere = 124 / itemsize;
+X  if (maxhere < 4) maxhere = 4;
+X
+X  buf = (struct buffer *) malloc(sizeof (struct buffer));
+X  blk = (struct block *) malloc(sizeof (struct block));
+X  items = malloc(maxhere * itemsize);
+X  if (!buf || !blk || !items) {
+X    strcpy(errmsg,outofmem);
+X    goto nberror;
+X  }
+X
+X  buf->itemsize = itemsize;
+X  buf->firstblk = buf->current = buf->nextblk = blk;
+X  buf->nextindex = 0;
+X  blk->next = NULL;
+X  blk->numprevious = blk->numhere = 0;
+X  blk->maxhere = maxhere;
+X  blk->items = items;
+X
+X  *errmsg = '\0';
+X  return buf;
+X
+X  nberror:
+X  if (buf) free(buf);
+X  if (blk) free(blk);
+X  if (items) free(items);
+X  return NULL;
+X}
+X
+X
+Xvoid freebuffer(struct buffer *buf)
+X{
+X  struct block *blk, *tmp;
+X
+X  blk = buf->firstblk;
+X  while (blk) {
+X    tmp = blk;
+X    blk = blk->next;
+X    if (tmp->items) free(tmp->items);
+X    free(tmp);
+X  }
+X
+X  free(buf);
+X}
+X
+X
+Xvoid clearbuffer(struct buffer *buf)
+X{
+X  struct block *blk;
+X
+X  for (blk = buf->firstblk;  blk;  blk = blk->next)
+X    blk->numhere = 0;
+X
+X  buf->current = buf->firstblk;
+X}
+X
+X
+Xvoid additem(struct buffer *buf, const void *item, errmsg_t errmsg)
+X{
+X  struct block *blk, *new;
+X  void *items;
+X  int maxhere;
+X  size_t itemsize = buf->itemsize;
+X
+X  blk = buf->current;
+X
+X  if (blk->numhere == blk->maxhere) {
+X    new = blk->next;
+X    if (!new) {
+X      maxhere = 2 * blk->maxhere;
+X      new = (struct block * ) malloc(sizeof (struct block));
+X      items = malloc(maxhere * itemsize);
+X      if (!new || !items) {
+X        strcpy(errmsg,outofmem);
+X        goto aierror;
+X      }
+X      blk->next = new;
+X      new->next = NULL;
+X      new->maxhere = maxhere;
+X      new->numprevious = blk->numprevious + blk->numhere;
+X      new->numhere = 0;
+X      new->items = items;
+X    }
+X    blk = buf->current = new;
+X  }
+X
+X  memcpy( ((char *) blk->items) + (blk->numhere * itemsize), item, itemsize );
+X
+X  ++blk->numhere;
+X
+X  *errmsg = '\0';
+X  return;
+X
+X  aierror:
+X  if (new) free(new);
+X  if (items) free(items);
+X}
+X
+X
+Xint numitems(struct buffer *buf)
+X{
+X  struct block *blk = buf->current;
+X  return blk->numprevious + blk->numhere;
+X}
+X
+X
+Xvoid *copyitems(struct buffer *buf, errmsg_t errmsg)
+X{
+X  int n;
+X  void *r;
+X  struct block *blk, *b;
+X  size_t itemsize = buf->itemsize;
+X
+X  b = buf->current;
+X  n = b->numprevious + b->numhere;
+X  if (!n) return NULL;
+X
+X  r = malloc(n * itemsize);
+X  if (!r) {
+X    strcpy(errmsg,outofmem);
+X    return NULL;
+X  }
+X
+X  b = b->next;
+X
+X  for (blk = buf->firstblk;  blk != b;  blk = blk->next)
+X    memcpy( ((char *) r) + (blk->numprevious * itemsize),
+X            blk->items, blk->numhere * itemsize);
+X
+X  *errmsg = '\0';
+X  return r;
+X}
+X
+X
+Xvoid rewindbuffer(struct buffer *buf)
+X{
+X  buf->nextblk = buf->firstblk;
+X  buf->nextindex = 0;
+X}
+X
+X
+Xvoid *nextitem(struct buffer *buf)
+X{
+X  void *r;
+X
+X  if (!buf->nextblk || buf->nextindex >= buf->nextblk->numhere)
+X    return NULL;
+X
+X  r = ((char *) buf->nextblk->items) + (buf->nextindex * buf->itemsize);
+X
+X  if (++buf->nextindex >= buf->nextblk->maxhere) {
+X    buf->nextblk = buf->nextblk->next;
+X    buf->nextindex = 0;
+X  }
+X
+X  return r;
+X}
+END_OF_FILE
+if test 4696 -ne `wc -c <'Par120/buffer.c'`; then
+    echo shar: \"'Par120/buffer.c'\" unpacked with wrong size!
+fi
+# end of 'Par120/buffer.c'
+fi
+if test -f 'Par120/buffer.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par120/buffer.h'\"
+else
+echo shar: Extracting \"'Par120/buffer.h'\" \(2367 characters\)
+sed "s/^X//" >'Par120/buffer.h' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.h          */
+X/* for Par 1.20      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* Note: Those functions declared here which do not use errmsg    */
+X/* always succeed, provided that they are passed valid arguments. */
+X
+X
+X#include "errmsg.h"
+X
+X#include <stddef.h>
+X
+X
+Xstruct buffer;
+X
+X
+Xstruct buffer *newbuffer(size_t itemsize, errmsg_t errmsg);
+X
+X  /* newbuffer(itemsize,errmsg) returns a pointer to */
+X  /* a new empty struct buffer which holds items of  */
+X  /* size itemsize. Any struct buffer *buf passed to */
+X  /* any function declared in this header must have  */
+X  /* been obtained from this function. itemsize must */
+X  /* not be 0. Returns NULL on failure.              */
+X
+X
+Xvoid freebuffer(struct buffer *buf);
+X
+X  /* freebuffer(buf) frees the memory associated     */
+X  /* with *buf. buf may not be used after this call. */
+X
+X
+Xvoid clearbuffer(struct buffer *buf);
+X
+X  /* clearbuffer(buf) removes  */
+X  /* all items from *buf, but  */
+X  /* does not free any memory. */
+X
+X
+Xvoid additem(struct buffer *buf, const void *item, errmsg_t errmsg);
+X
+X  /* additem(buf,item,errmsg) copies *item to the end of *buf. */
+X  /* item must point to an object of the proper size for *buf. */
+X
+X
+Xint numitems(struct buffer *buf);
+X
+X  /* numitems(buf) returns the number of items in *buf. */
+X
+X
+Xvoid *copyitems(struct buffer *buf, errmsg_t errmsg);
+X
+X  /* copyitems(buf,errmsg) returns an array of objects of the proper size */
+X  /* for *buf, one for each item in *buf, or (void *) 0 if there are no   */
+X  /* items in buf. The elements of the array are copied from the items in */
+X  /* *buf, in order. The array is allocated with malloc(), so it may be   */
+X  /* freed with free(). Returns NULL on failure.                          */
+X
+X
+Xvoid *nextitem(struct buffer *buf);
+X
+X  /* When buf was created by newbuffer, a pointer associated with buf  */
+X  /* was initialized to point at the first slot in buf. If there is an */
+X  /* item in this slot, nextitem(buf) advances the pointer to the next */
+X  /* slot and returns the old value. If there is no item in the slot,  */
+X  /* nextitem(buf) leaves the pointer where it is and returns NULL.    */
+X
+X
+Xvoid rewindbuffer(struct buffer *buf);
+X
+X  /* rewindbuffer(buf) resets the pointer used by  */
+X  /* nextitem() to point at the first slot in buf. */
+END_OF_FILE
+if test 2367 -ne `wc -c <'Par120/buffer.h'`; then
+    echo shar: \"'Par120/buffer.h'\" unpacked with wrong size!
+fi
+# end of 'Par120/buffer.h'
+fi
+if test -f 'Par120/errmsg.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par120/errmsg.c'\"
+else
+echo shar: Extracting \"'Par120/errmsg.c'\" \(303 characters\)
+sed "s/^X//" >'Par120/errmsg.c' <<'END_OF_FILE'
+X/*********************/
+X/* errmsg.c          */
+X/* for Par 1.20      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#include "errmsg.h"  /* Makes sure we're consistent with the declaration. */
+X
+X
+Xconst char * const outofmem = "Out of memory.\n";
+END_OF_FILE
+if test 303 -ne `wc -c <'Par120/errmsg.c'`; then
+    echo shar: \"'Par120/errmsg.c'\" unpacked with wrong size!
+fi
+# end of 'Par120/errmsg.c'
+fi
+if test -f 'Par120/errmsg.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par120/errmsg.h'\"
+else
+echo shar: Extracting \"'Par120/errmsg.h'\" \(688 characters\)
+sed "s/^X//" >'Par120/errmsg.h' <<'END_OF_FILE'
+X/*********************/
+X/* errmsg.h          */
+X/* for Par 1.20      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X#ifndef ERRMSG_H
+X#define ERRMSG_H
+X
+X
+X#define errmsg_size 163  /* This will never decrease, but may increase. */
+X
+Xtypedef char errmsg_t[errmsg_size];
+X
+X/* Any function which takes the argument errmsg_t errmsg must, before */
+X/* returning, either set errmsg[0] to '\0' (indicating success), or   */
+X/* write an error message string into errmsg, (indicating failure),   */
+X/* being careful not to overrun the space.                            */
+X
+X
+Xextern const char * const outofmem;  /* "Out of memory.\n" */
+X
+X
+X#endif
+END_OF_FILE
+if test 688 -ne `wc -c <'Par120/errmsg.h'`; then
+    echo shar: \"'Par120/errmsg.h'\" unpacked with wrong size!
+fi
+# end of 'Par120/errmsg.h'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

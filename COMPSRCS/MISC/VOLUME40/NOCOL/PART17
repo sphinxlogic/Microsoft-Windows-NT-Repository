@@ -1,0 +1,2171 @@
+Newsgroups: comp.sources.misc
+From: vikas@jvnc.net (Vikas Aggarwal)
+Subject: v40i147:  nocol - Network Monitoring System, Part17/26
+Message-ID: <1993Nov23.212735.21882@sparky.sterling.com>
+X-Md4-Signature: 8afacf19ba73e33cad7941807563d93a
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 21:27:35 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: vikas@jvnc.net (Vikas Aggarwal)
+Posting-number: Volume 40, Issue 147
+Archive-name: nocol/part17
+Environment: INET, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nocol-3.0/src/cmu-snmp/apps/snmptrapd.c
+#   nocol-3.0/src/cmu-snmp/cisco.mib91.D
+#   nocol-3.0/src/cmu-snmp/include/mib.h
+#   nocol-3.0/src/cmu-snmp/include/snmp.c
+#   nocol-3.0/src/cmu-snmp/snmplib/mib.h
+#   nocol-3.0/src/cmu-snmp/snmplib/snmp.c
+#   nocol-3.0/src/support/multiping/multiping.8
+# Wrapped by kent@sparky on Tue Nov  9 22:22:21 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 26)."'
+if test -f 'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c'\" \(5883 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c' <<'END_OF_FILE'
+X/*
+X * snmptrapd.c - receive and log snmp traps
+X *
+X */
+X/***********************************************************
+X	Copyright 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include <errno.h>
+X#include <syslog.h>
+X
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X#include "asn1.h"
+X#include "snmp_api.h"
+X#include "snmp_client.h"
+X
+X#ifndef BSD4_3
+X
+Xtypedef long	fd_mask;
+X#define NFDBITS	(sizeof(fd_mask) * NBBY)	/* bits per mask */
+X
+X#define	FD_SET(n, p)	((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+X#define	FD_CLR(n, p)	((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+X#define	FD_ISSET(n, p)	((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+X#define FD_ZERO(p)	bzero((char *)(p), sizeof(*(p)))
+X#endif
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+Xint Print = 1;                  /* default is to print and not log */
+X
+Xchar *
+Xtrap_description(trap)
+X    int trap;
+X{
+X    switch(trap){
+X	case SNMP_TRAP_COLDSTART:
+X	    return "Cold Start";
+X	case SNMP_TRAP_WARMSTART:
+X	    return "Warm Start";
+X	case SNMP_TRAP_LINKDOWN:
+X	    return "Link Down";
+X	case SNMP_TRAP_LINKUP:
+X	    return "Link Up";
+X	case SNMP_TRAP_AUTHFAIL:
+X	    return "Authentication Failure";
+X	case SNMP_TRAP_EGPNEIGHBORLOSS:
+X	    return "EGP Neighbor Loss";
+X	case SNMP_TRAP_ENTERPRISESPECIFIC:
+X	    return "Enterprise Specific";
+X	default:
+X	    return "Unknown Type";
+X    }
+X}
+X
+Xchar *
+Xuptime_string(timeticks, buf)
+X    register u_long timeticks;
+X    char *buf;
+X{
+X    int	seconds, minutes, hours, days;
+X
+X    timeticks /= 100;
+X    days = timeticks / (60 * 60 * 24);
+X    timeticks %= (60 * 60 * 24);
+X
+X    hours = timeticks / (60 * 60);
+X    timeticks %= (60 * 60);
+X
+X    minutes = timeticks / 60;
+X    seconds = timeticks % 60;
+X
+X    if (days == 0){
+X	sprintf(buf, "%d:%02d:%02d", hours, minutes, seconds);
+X    } else if (days == 1) {
+X	sprintf(buf, "%d day, %d:%02d:%02d", days, hours, minutes, seconds);
+X    } else {
+X	sprintf(buf, "%d days, %d:%02d:%02d", days, hours, minutes, seconds);
+X    }
+X    return buf;
+X}
+X
+Xint snmp_input(op, session, reqid, pdu, magic)
+X    int op;
+X    struct snmp_session *session;
+X    int reqid;
+X    struct snmp_pdu *pdu;
+X    void *magic;
+X{
+X    char buf[64];
+X
+X    if (op == RECEIVED_MESSAGE && pdu->command == TRP_REQ_MSG){
+X	if (Print){
+X	    printf("%s: %s Trap (%d) Uptime: %s\n", inet_ntoa(pdu->agent_addr.sin_addr),
+X		trap_description(pdu->trap_type), pdu->specific_type, uptime_string(pdu->time, buf));
+X	} else {
+X	    syslog(LOG_WARNING, "%s: %s Trap (%d) Uptime: %s\n", inet_ntoa(pdu->agent_addr.sin_addr),
+X		trap_description(pdu->trap_type), pdu->specific_type, uptime_string(pdu->time, buf));
+X	}
+X    } else if (op == TIMED_OUT){
+X	printf("Timeout: This shouldn't happen!\n");
+X    }
+X}
+X
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    struct snmp_session session, *ss;
+X    int	arg;
+X    int count, numfds, block;
+X    fd_set fdset;
+X    struct timeval timeout, *tvp;
+X
+X
+X    init_syslog();
+X    /*
+X     * usage: snmptrapd [-d ] [-l]
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		  case 'l':         /* Log to syslog - default is print */
+X		    Print--;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    printf("Usage: snmptrapd [-d ][-l ]\n");
+X		    exit (-1) ;
+X		    break;
+X	    }
+X	    continue;
+X	}
+X    }
+X
+X    bzero((char *)&session, sizeof(struct snmp_session));
+X    session.peername = NULL;
+X    session.community = NULL;
+X    session.community_len = 0;
+X    session.retries = SNMP_DEFAULT_RETRIES;
+X    session.timeout = SNMP_DEFAULT_TIMEOUT;
+X    session.authenticator = NULL;
+X    session.callback = snmp_input;
+X    session.callback_magic = NULL;
+X    session.local_port = SNMP_TRAP_PORT;
+X    ss = snmp_open(&session);
+X    if (ss == NULL){
+X	printf("Couldn't open snmp\n");
+X	exit(-1);
+X    }
+X
+X    while(1){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	block = 1;
+X	tvp = &timeout;
+X	timerclear(tvp);
+X	snmp_select_info(&numfds, &fdset, tvp, &block);
+X	if (block == 1)
+X	    tvp = NULL;	/* block without timeout */
+X	count = select(numfds, &fdset, 0, 0, tvp);
+X	if (count > 0){
+X		snmp_read(&fdset);
+X	} else switch(count){
+X	    case 0:
+X		snmp_timeout();
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X		return -1;
+X	    default:
+X		printf("select returned %d\n", count);
+X		return -1;
+X	}
+X    }
+X}
+X
+Xinit_syslog(){
+X/*
+X * These definitions handle 4.2 systems without additional syslog facilities.
+X */
+X#ifndef LOG_CONS
+X#define LOG_CONS	0	/* Don't bother if not defined... */
+X#endif
+X#ifndef LOG_LOCAL0
+X#define LOG_LOCAL0	0
+X#endif
+X    /*
+X     * All messages will be logged to the local0 facility and will be sent to
+X     * the console if syslog doesn't work.
+X     */
+X    openlog("snmptrapd", LOG_CONS, LOG_LOCAL0);
+X    syslog(LOG_INFO, "Starting snmptrapd");
+X}
+END_OF_FILE
+  if test 5883 -ne `wc -c <'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/apps/snmptrapd.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/cisco.mib91.D' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/cisco.mib91.D'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/cisco.mib91.D'\" \(10280 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/cisco.mib91.D' <<'END_OF_FILE'
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of NOVELL SAP request
+X                           packets received."
+X                   ::= { novell 14 }
+X
+X               novellSapresin OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of NOVELL SAP response
+X                           packets received."
+X                   ::= { novell 15 }
+X
+X               novellSapout OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of NOVELL SAP request
+X                           packets sent."
+X                   ::= { novell 16 }
+X
+X               novellSapreply OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of NOVELL SAP reply
+X                           packets sent."
+X                   ::= { novell 17 }
+X
+X
+X               -- Temporary Vines Section
+X
+X          -- This group is present in all router based products.
+X
+X               vinesInput OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total input count of number of Vines
+X                           packets."
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 101]
+X--
+X
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   ::= { vines 1 }
+X
+X               vinesOutput OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines output
+X                           packets."
+X                   ::= { vines 2 }
+X
+X               vinesLocaldest OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of Vines input packets for this
+X                           host."
+X                   ::= { vines 3 }
+X
+X               vinesForwarded OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines packets
+X                           forwarded."
+X                   ::= { vines 4 }
+X
+X               vinesBcastin OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines input
+X                           broadcast packets."
+X                   ::= { vines 5 }
+X
+X               vinesBcastout OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines output
+X                           broadcast packets."
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 102]
+X--
+X
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   ::= { vines 6 }
+X
+X               vinesBcastfwd OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines broadcast
+X                           packets forwarded."
+X                   ::= { vines 7 }
+X
+X               vinesNotlan OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines broadcast
+X                           packets not forwarded to all interfaces
+X                           because the LAN ONLY bit was set."
+X                   ::= { vines 8 }
+X
+X               vinesNotgt4800 OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines broadcast
+X                           packets not forwarded to all interfaces
+X                           because the OVER 4800 BPS bit was set."
+X                   ::= { vines 9 }
+X
+X               vinesNocharges OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines broadcast
+X                           packets not forwarded to all interfaces
+X                           because the NO CHARGES only bit was set."
+X                   ::= { vines 10 }
+X
+X               vinesFormaterror OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 103]
+X--
+X
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   DESCRIPTION
+X                           "Total count of number of Vines input packets
+X                           with header errors."
+X                   ::= { vines 11 }
+X
+X               vinesCksumerr OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines input packets
+X                           with checksum erors."
+X                   ::= { vines 12 }
+X
+X               vinesHopcount OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines input packets
+X                           that have exceeded the maximum hop count."
+X                   ::= { vines 13 }
+X
+X               vinesNoroute OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines packets
+X                           dropped due to no route."
+X                   ::= { vines 14 }
+X
+X               vinesEncapsfailed OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines packets
+X                           dropped due to output encapsulation failed."
+X                   ::= { vines 15 }
+X
+X               vinesUnknown OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 104]
+X--
+X
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   DESCRIPTION
+X                           "Total count of number of unknown Vines input
+X                           packets."
+X                   ::= { vines 16 }
+X
+X               vinesIcpIn OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines ICP packets
+X                           received."
+X                   ::= { vines 17 }
+X
+X               vinesIcpOut OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines ICP packets
+X                           generaed."
+X                   ::= { vines 18 }
+X
+X               vinesMetricOut OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines ICP Metric
+X                           Notification packets generated."
+X                   ::= { vines 19 }
+X
+X               vinesMacEchoIn OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines MAC level
+X                           Echo packets received."
+X                   ::= { vines 20 }
+X
+X               vinesMacEchoOut OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 105]
+X--
+X
+X
+X
+X
+X
+X          -- Request for Comments: Draft             cisco Systems, Inc.
+X
+X
+X                   DESCRIPTION
+X                           "Total count of number of Vines MAC level
+X                           Echo packets generated."
+X                   ::= { vines 21 }
+X
+X               vinesEchoIn OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines Echo packets
+X                           received."
+X                   ::= { vines 22 }
+X
+X               vinesEchoOut OBJECT-TYPE
+X                   SYNTAX  INTEGER
+X                   ACCESS  read-only
+X                   STATUS  mandatory
+X                   DESCRIPTION
+X                           "Total count of number of Vines Echo packets
+X                           generated."
+X                   ::= { vines 23 }
+X               END
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X          -- cisco MIB                                        [Page 106]
+X--
+X
+END_OF_FILE
+  if test 10280 -ne `wc -c <'nocol-3.0/src/cmu-snmp/cisco.mib91.D'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/cisco.mib91.D'\" unpacked with wrong size!
+  elif test -f 'nocol-3.0/src/cmu-snmp/cisco.mib91.A' && test -f 'nocol-3.0/src/cmu-snmp/cisco.mib91.B' && test -f 'nocol-3.0/src/cmu-snmp/cisco.mib91.C'; then
+    echo shar: Combining  \"'nocol-3.0/src/cmu-snmp/cisco.mib91'\" \(190589 characters\)
+    cat 'nocol-3.0/src/cmu-snmp/cisco.mib91.A' 'nocol-3.0/src/cmu-snmp/cisco.mib91.B' 'nocol-3.0/src/cmu-snmp/cisco.mib91.C' 'nocol-3.0/src/cmu-snmp/cisco.mib91.D' > 'nocol-3.0/src/cmu-snmp/cisco.mib91'
+    if test 190589 -ne `wc -c <'nocol-3.0/src/cmu-snmp/cisco.mib91'`; then
+      echo shar: \"'nocol-3.0/src/cmu-snmp/cisco.mib91'\" combined with wrong size!
+    else
+      rm nocol-3.0/src/cmu-snmp/cisco.mib91.A nocol-3.0/src/cmu-snmp/cisco.mib91.B nocol-3.0/src/cmu-snmp/cisco.mib91.C nocol-3.0/src/cmu-snmp/cisco.mib91.D
+    fi
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/cisco.mib91.D'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/mib.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/mib.h'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/mib.h'\" \(10793 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/mib.h' <<'END_OF_FILE'
+X/*
+X * Definitions for the variables as defined in the MIB
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+Xstruct	mib_system {
+X    char    sysDescr[32];   /* textual description */
+X    u_char  sysObjectID[16];/* OBJECT IDENTIFIER of system */
+X    u_char  ObjIDLen;	    /* length of sysObjectID */
+X    u_long  sysUpTime;	    /* Uptime in 100/s of a second */    
+X};
+X
+Xstruct mib_interface {
+X    long    ifNumber;	    /* number of interfaces */
+X};
+X
+Xstruct mib_ifEntry {
+X    long    ifIndex;	    /* index of this interface	*/
+X    char    ifDescr[32];    /* english description of interface	*/
+X    long    ifType;	    /* network type of device	*/
+X    long    ifMtu;	    /* size of largest packet in bytes	*/
+X    u_long  ifSpeed;	    /* bandwidth in bits/sec	*/
+X    u_char  ifPhysAddress[11];	/* interface's address */
+X    u_char  PhysAddrLen;    /* length of physAddr */
+X    long    ifAdminStatus;  /* desired state of interface */
+X    long    ifOperStatus;   /* current operational status */
+X    u_long  ifLastChange;   /* value of sysUpTime when current state entered */
+X    u_long  ifInOctets;	    /* number of octets received on interface */
+X    u_long  ifInUcastPkts;  /* number of unicast packets delivered */
+X    u_long  ifInNUcastPkts; /* number of broadcasts or multicasts */
+X    u_long  ifInDiscards;   /* number of packets discarded with no error */
+X    u_long  ifInErrors;	    /* number of packets containing errors */
+X    u_long  ifInUnknownProtos;	/* number of packets with unknown protocol */
+X    u_long  ifOutOctets;    /* number of octets transmitted */
+X    u_long  ifOutUcastPkts; /* number of unicast packets sent */
+X    u_long  ifOutNUcastPkts;/* number of broadcast or multicast pkts */
+X    u_long  ifOutDiscards;  /* number of packets discarded with no error */
+X    u_long  ifOutErrors;    /* number of pkts discarded with an error */
+X    u_long  ifOutQLen;	    /* number of packets in output queue */
+X};
+X
+Xstruct mib_atEntry {
+X    long    atIfIndex;	    /* interface on which this entry maps */
+X    u_char  atPhysAddress[11]; /* physical address of destination */
+X    u_char  PhysAddressLen; /* length of atPhysAddress */
+X    u_long  atNetAddress;   /* IP address of physical address */
+X};
+X
+Xstruct mib_ip {
+X    long    ipForwarding;   /* 1 if gateway, 2 if host */
+X    long    ipDefaultTTL;   /* default TTL for pkts originating here */
+X    u_long  ipInReceives;   /* no. of IP packets received from interfaces */
+X    u_long  ipInHdrErrors;  /* number of pkts discarded due to header errors */
+X    u_long  ipInAddrErrors; /* no. of pkts discarded due to bad address */
+X    u_long  ipForwDatagrams;/* number pf pkts forwarded through this entity */
+X    u_long  ipInUnknownProtos;/* no. of local-addressed pkts w/unknown proto */
+X    u_long  ipInDiscards;   /* number of error-free packets discarded */
+X    u_long  ipInDelivers;   /* number of datagrams delivered to upper level */
+X    u_long  ipOutRequests;  /* number of IP datagrams originating locally */
+X    u_long  ipOutDiscards;  /* number of error-free output IP pkts discarded */
+X    u_long  ipOutNoRoutes;  /* number of IP pkts discarded due to no route */
+X    long    ipReasmTimeout; /* seconds fragment is held awaiting reassembly */
+X    u_long  ipReasmReqds;   /* no. of fragments needing reassembly (here) */
+X    u_long  ipReasmOKs;	    /* number of fragments reassembled */
+X    u_long  ipReasmFails;   /* number of failures in IP reassembly */
+X    u_long  ipFragOKs;	    /* number of datagrams fragmented here */
+X    u_long  ipFragFails;    /* no. pkts unable to be fragmented here */
+X    u_long  ipFragCreates;  /* number of IP fragments created here */
+X};
+X
+Xstruct mib_ipAddrEntry {
+X    u_long  ipAdEntAddr;    /* IP address of this entry */
+X    long    ipAdEntIfIndex; /* IF for this entry */
+X    u_long  ipAdEntNetMask; /* subnet mask of this entry */
+X    long    ipAdEntBcastAddr;/* read the MIB for this one */
+X};
+X
+Xstruct mib_ipRouteEntry {
+X    u_long  ipRouteDest;    /* destination IP addr for this route */
+X    long    ipRouteIfIndex; /* index of local IF for this route */
+X    long    ipRouteMetric1; /* Primary routing metric */
+X    long    ipRouteMetric2; /* Alternate routing metric */
+X    long    ipRouteMetric3; /* Alternate routing metric */
+X    long    ipRouteMetric4; /* Alternate routing metric */
+X    u_long  ipRouteNextHop; /* IP addr of next hop */
+X    long    ipRouteType;    /* Type of this route */
+X    long    ipRouteProto;   /* How this route was learned */
+X    long    ipRouteAge;	    /* No. of seconds since updating this route */
+X};
+X
+Xstruct mib_icmp {
+X    u_long  icmpInMsgs;	    /* Total of ICMP msgs received */
+X    u_long  icmpInErrors;   /* Total of ICMP msgs received with errors */
+X    u_long  icmpInDestUnreachs;
+X    u_long  icmpInTimeExcds;
+X    u_long  icmpInParmProbs;
+X    u_long  icmpInSrcQuenchs;
+X    u_long  icmpInRedirects;
+X    u_long  icmpInEchos;
+X    u_long  icmpInEchoReps;
+X    u_long  icmpInTimestamps;
+X    u_long  icmpInTimestampReps;
+X    u_long  icmpInAddrMasks;
+X    u_long  icmpInAddrMaskReps;
+X    u_long  icmpOutMsgs;
+X    u_long  icmpOutErrors;
+X    u_long  icmpOutDestUnreachs;
+X    u_long  icmpOutTimeExcds;
+X    u_long  icmpOutParmProbs;
+X    u_long  icmpOutSrcQuenchs;
+X    u_long  icmpOutRedirects;
+X    u_long  icmpOutEchos;
+X    u_long  icmpOutEchoReps;
+X    u_long  icmpOutTimestamps;
+X    u_long  icmpOutTimestampReps;
+X    u_long  icmpOutAddrMasks;
+X    u_long  icmpOutAddrMaskReps;
+X};
+X
+Xstruct	mib_tcp {
+X    long    tcpRtoAlgorithm;	/* retransmission timeout algorithm */
+X    long    tcpRtoMin;		/* minimum retransmission timeout (mS) */
+X    long    tcpRtoMax;		/* maximum retransmission timeout (mS) */ 
+X    long    tcpMaxConn;		/* maximum tcp connections possible */
+X    u_long  tcpActiveOpens;	/* number of SYN-SENT -> CLOSED transitions */
+X    u_long  tcpPassiveOpens;	/* number of SYN-RCVD -> LISTEN transitions */
+X    u_long  tcpAttemptFails;/*(SYN-SENT,SYN-RCVD)->CLOSED or SYN-RCVD->LISTEN*/
+X    u_long  tcpEstabResets;	/* (ESTABLISHED,CLOSE-WAIT) -> CLOSED */
+X    u_long  tcpCurrEstab;	/* number in ESTABLISHED or CLOSE-WAIT state */
+X    u_long  tcpInSegs;		/* number of segments received */
+X    u_long  tcpOutSegs;		/* number of segments sent */
+X    u_long  tcpRetransSegs;	/* number of retransmitted segments */
+X};
+X
+Xstruct mib_tcpConnEntry {
+X    long    tcpConnState;	/* State of this connection */
+X    u_long  tcpConnLocalAddress;/* local IP address for this connection */
+X    long    tcpConnLocalPort;	/* local port for this connection */
+X    u_long  tcpConnRemAddress;	/* remote IP address for this connection */
+X    long    tcpConnRemPort;	/* remote port for this connection */
+X};
+X
+Xstruct mib_udp {
+X    u_long  udpInDatagrams; /* No. of UDP datagrams delivered to users */
+X    u_long  udpNoPorts;	    /* No. of UDP datagrams to port with no listener */
+X    u_long  udpInErrors;    /* No. of UDP datagrams unable to be delivered */
+X    u_long  udpOutDatagrams;/* No. of UDP datagrams sent from this entity */
+X};
+X
+Xstruct	mib_egp {
+X    u_long  egpInMsgs;	/* No. of EGP msgs received without error */
+X    u_long  egpInErrors;/* No. of EGP msgs received with error */
+X    u_long  egpOutMsgs;	/* No. of EGP msgs sent */
+X    u_long  egpOutErrors;/* No. of (outgoing) EGP msgs dropped due to error */
+X};
+X
+Xstruct	mib_egpNeighEntry {
+X    long    egpNeighState;  /* local EGP state with this entry's neighbor */
+X    u_long  egpNeighAddr;   /* IP address of this entry's neighbor */
+X};
+X
+X#define MIB 1, 3, 6, 1, 2, 1
+X
+X#define MIB_IFTYPE_OTHER		    1
+X#define MIB_IFTYPE_REGULAR1822		    2
+X#define MIB_IFTYPE_HDH1822		    3
+X#define MIB_IFTYPE_DDNX25		    4
+X#define MIB_IFTYPE_RFC877X25		    5
+X#define MIB_IFTYPE_ETHERNETCSMACD	    6
+X#define MIB_IFTYPE_ISO88023CSMACD	    7
+X#define MIB_IFTYPE_ISO88024TOKENBUS	    8
+X#define MIB_IFTYPE_ISO88025TOKENRING	    9
+X#define MIB_IFTYPE_ISO88026MAN		    10
+X#define MIB_IFTYPE_STARLAN		    11
+X#define MIB_IFTYPE_PROTEON10MBIT	    12
+X#define MIB_IFTYPE_PROTEON80MBIT	    13
+X#define MIB_IFTYPE_HYPERCHANNEL		    14
+X#define MIB_IFTYPE_FDDI			    15
+X#define MIB_IFTYPE_LAPB			    16
+X#define MIB_IFTYPE_SDLC			    17
+X#define MIB_IFTYPE_T1CARRIER		    18
+X#define MIB_IFTYPE_CEPT			    19
+X#define MIB_IFTYPE_BASICISDN		    20
+X#define MIB_IFTYPE_PRIMARYISDN		    21
+X#define MIB_IFTYPE_PROPPOINTTOPOINTSERIAL   22
+X
+X#define MIB_IFSTATUS_UP		1
+X#define MIB_IFSTATUS_DOWN	2
+X#define MIB_IFSTATUS_TESTING	3
+X
+X#define MIB_FORWARD_GATEWAY	1
+X#define MIB_FORWARD_HOST	2
+X
+X#define MIB_IPROUTETYPE_OTHER	1
+X#define MIB_IPROUTETYPE_INVALID	2
+X#define MIB_IPROUTETYPE_DIRECT	3
+X#define MIB_IPROUTETYPE_REMOTE	4
+X
+X#define MIB_IPROUTEPROTO_OTHER	    1
+X#define MIB_IPROUTEPROTO_LOCAL	    2
+X#define MIB_IPROUTEPROTO_NETMGMT    3
+X#define MIB_IPROUTEPROTO_ICMP	    4
+X#define MIB_IPROUTEPROTO_EGP	    5
+X#define MIB_IPROUTEPROTO_GGP	    6
+X#define MIB_IPROUTEPROTO_HELLO	    7
+X#define MIB_IPROUTEPROTO_RIP	    8
+X#define MIB_IPROUTEPROTO_ISIS	    9
+X#define MIB_IPROUTEPROTO_ESIS	    10
+X#define MIB_IPROUTEPROTO_CISCOIGRP  11
+X#define MIB_IPROUTEPROTO_BBNSPFIGP  12
+X#define MIB_IPROUTEPROTO_OIGP	    13
+X
+X#define MIB_TCPRTOALG_OTHER	1
+X#define MIB_TCPRTOALG_CONSTANT	2
+X#define MIB_TCPRTOALG_RSRE	3
+X#define MIB_TCPRTOALG_VANJ	4
+X
+X#define MIB_TCPCONNSTATE_CLOSED		1
+X#define MIB_TCPCONNSTATE_LISTEN		2
+X#define MIB_TCPCONNSTATE_SYNSENT	3
+X#define MIB_TCPCONNSTATE_SYNRECEIVED	4
+X#define MIB_TCPCONNSTATE_ESTABLISHED	5
+X#define MIB_TCPCONNSTATE_FINWAIT1	6
+X#define MIB_TCPCONNSTATE_FINWAIT2	7
+X#define MIB_TCPCONNSTATE_CLOSEWAIT	8
+X#define MIB_TCPCONNSTATE_LASTACK	9
+X#define MIB_TCPCONNSTATE_CLOSING	10
+X#define MIB_TCPCONNSTATE_TIMEWAIT	11
+X
+X#define MIB_EGPNEIGHSTATE_IDLE		1
+X#define MIB_EGPNEIGHSTATE_AQUISITION	2
+X#define MIB_EGPNEIGHSTATE_DOWN		3
+X#define MIB_EGPNEIGHSTATE_UP		4
+X#define MIB_EGPNEIGHSTATE_CEASE		5
+X
+X
+X
+END_OF_FILE
+  if test 10793 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/mib.h'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/mib.h'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/mib.h'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/include/snmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/include/snmp.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/include/snmp.c'\" \(10258 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/include/snmp.c' <<'END_OF_FILE'
+X/*
+X * Simple Network Management Protocol (RFC 1067).
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+X#ifdef KINETICS
+X#include "gw.h"
+X#include "ab.h"
+X#include "inet.h"
+X#include "fp4/cmdmacro.h"
+X#include "fp4/pbuf.h"
+X#include "glob.h"
+X#endif
+X
+X#if (defined(unix) && !defined(KINETICS))
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#endif
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X
+X#include "mib.h"
+X
+X
+Xu_char *
+Xsnmp_parse_var_op(data, var_name, var_name_len, var_val_type, var_val_len, var_val, listlength)
+X    register u_char *data;  /* IN - pointer to the start of object */
+X    oid	    *var_name;	    /* OUT - object id of variable */
+X    int	    *var_name_len;  /* IN/OUT - length of variable name */
+X    u_char  *var_val_type;  /* OUT - type of variable (int or octet string) (one byte) */
+X    int	    *var_val_len;   /* OUT - length of variable */
+X    u_char  **var_val;	    /* OUT - pointer to ASN1 encoded value of variable */
+X    int	    *listlength;    /* IN/OUT - number of valid bytes left in var_op_list */
+X{
+X    u_char	    var_op_type;
+X    int		    var_op_len = *listlength;
+X    u_char	    *var_op_start = data;
+X
+X    data = asn_parse_header(data, &var_op_len, &var_op_type);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    if (var_op_type != (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR))
+X	return NULL;
+X    data = asn_parse_objid(data, &var_op_len, &var_op_type, var_name, var_name_len);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    if (var_op_type != (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID))
+X	return NULL;
+X    *var_val = data;	/* save pointer to this object */
+X    /* find out what type of object this is */
+X    data = asn_parse_header(data, &var_op_len, var_val_type);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    *var_val_len = var_op_len;
+X    data += var_op_len;
+X    *listlength -= (int)(data - var_op_start);
+X    return data;
+X}
+X
+Xshift_array(begin, length, shift_amount)
+X    u_char	    *begin;
+X    register int    length;
+X    int		    shift_amount;
+X{
+X    register u_char	*old, *new;
+X
+X    if (shift_amount >= 0){
+X	old = begin + length - 1;
+X	new = old + shift_amount;
+X
+X	while(length--)
+X	    *new-- = *old--;
+X    } else {
+X	old = begin;
+X	new = begin + shift_amount;
+X
+X	while(length--)
+X	    *new++ = *old++;
+X    }
+X}
+X
+Xu_char *
+Xsnmp_build_var_op(data, var_name, var_name_len, var_val_type, var_val_len, var_val, listlength)
+X    register u_char *data;	/* IN - pointer to the beginning of the output buffer */
+X    oid		*var_name;	/* IN - object id of variable */
+X    int		*var_name_len;	/* IN - length of object id */
+X    u_char	var_val_type;	/* IN - type of variable */
+X    int		var_val_len;	/* IN - length of variable */
+X    u_char	*var_val;	/* IN - value of variable */
+X    register int *listlength;    /* IN/OUT - number of valid bytes left in output buffer */
+X{
+X    int		    dummyLen, headerLen, header_shift;
+X    u_char	    *dataPtr;
+X
+X    dummyLen = *listlength;
+X    dataPtr = data;
+X    data = asn_build_header(data, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), 0);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    headerLen = data - dataPtr;
+X    *listlength -= headerLen;
+X    data = asn_build_objid(data, listlength,
+X	    (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
+X	    var_name, *var_name_len);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    switch(var_val_type){
+X	case ASN_INTEGER:
+X	case GAUGE:
+X	case COUNTER:
+X	case TIMETICKS:
+X	    data = asn_build_int(data, listlength, var_val_type,
+X		    (long *)var_val, var_val_len);
+X	    break;
+X	case ASN_OCTET_STR:
+X	case IPADDRESS:
+X	case OPAQUE:
+X	    data = asn_build_string(data, listlength, var_val_type,
+X		    var_val, var_val_len);
+X	    break;
+X	case ASN_OBJECT_ID:
+X	    data = asn_build_objid(data, listlength, var_val_type,
+X		    (oid *)var_val, var_val_len / sizeof(oid));
+X	    break;
+X	case ASN_NULL:
+X	    data = asn_build_null(data, listlength, var_val_type);
+X	    break;
+X	default:
+X	    ERROR("wrong type");
+X	    return NULL;
+X    }
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    dummyLen = (data - dataPtr) - headerLen;
+X    header_shift = 0;
+X    if (dummyLen >= 0x80){
+X	header_shift++;
+X	if (dummyLen > 0xFF)
+X	    header_shift++;
+X    }
+X    if (header_shift){
+X	/* should check available length here */
+X	shift_array(dataPtr + headerLen, dummyLen, header_shift);
+X	data += header_shift;
+X	headerLen += header_shift;
+X    }
+X
+X    
+X    if (asn_build_header(dataPtr, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), dummyLen) == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    return data;
+X}
+X
+X
+X
+Xint
+Xsnmp_build_trap(out_data, length, sysOid, sysOidLen, myAddr, trapType, specificType, time, varName, varNameLen, varType, varLen, varVal)
+X    register u_char  *out_data;
+X    int	    *length;
+X    oid	    *sysOid;
+X    int	    sysOidLen;
+X    u_long  myAddr;
+X    int	    trapType;
+X    int	    specificType;
+X    u_long  time;
+X    oid	    *varName;
+X    int	    varNameLen;
+X    u_char  varType;
+X    int	    varLen;
+X    u_char  *varVal;
+X{
+X    long    version = SNMP_VERSION_1;
+X    int	    sidLen = strlen("public");
+X    int	    dummyLen;
+X    u_char  *out_auth, *out_header, *out_pdu, *out_varHeader, *out_varlist, *out_end;
+X    int	    auth_shift, pdu_shift, list_shift;
+X    
+X
+X
+X    out_auth = out_data;
+X    out_header = snmp_auth_build(out_data, length, (u_char *)"public", &sidLen, &version, 90);
+X    if (out_header == NULL){
+X	ERROR("auth build failed");
+X	return 0;
+X    }
+X    out_pdu = asn_build_header(out_header, length, (u_char)TRP_REQ_MSG, 90);
+X    if (out_pdu == NULL){
+X	ERROR("header build failed");
+X	return 0;
+X    }
+X    out_data = asn_build_objid(out_pdu, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
+X		(oid *)sysOid, sysOidLen);
+X    if (out_data == NULL){
+X	ERROR("build enterprise failed");
+X	return 0;
+X    }
+X    out_data = asn_build_string(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
+X		(u_char *)&myAddr, sizeof(myAddr));
+X    if (out_data == NULL){
+X	ERROR("build agent_addr failed");
+X	return 0;
+X    }
+X    out_data = asn_build_int(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
+X		(long *)&trapType, sizeof(trapType));
+X    if (out_data == NULL){
+X	ERROR("build trap_type failed");
+X	return 0;
+X    }
+X    out_data = asn_build_int(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
+X		(long *)&specificType, sizeof(specificType));
+X    if (out_data == NULL){
+X	ERROR("build specificType failed");
+X	return 0;
+X    }
+X    out_varHeader = asn_build_int(out_data, length,
+X		(u_char)(TIMETICKS),
+X		(long *)&time, sizeof(time));
+X    if (out_varHeader == NULL){
+X	ERROR("build timestampfailed");
+X	return 0;
+X    }
+X    out_varlist = asn_build_header(out_varHeader,  length, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), 90);
+X    out_end = snmp_build_var_op(out_varlist, varName, &varNameLen, varType, varLen, varVal, length);
+X    if (out_end == NULL){
+X	ERROR("build varop failed");
+X	return 0;
+X    }
+X
+X    /*
+X     * Because of the assumption above that header lengths would be encoded
+X     * in one byte, things need to be fixed, now that the actual lengths are known.
+X     */
+X    list_shift = 0;
+X    *length = out_end - out_varlist;
+X    if (*length >= 0x80){
+X	list_shift++;
+X	if (*length > 0xFF)
+X	    list_shift++;
+X    }
+X    pdu_shift = 0;
+X    *length = (out_end - out_pdu) + list_shift;
+X    if (*length >= 0x80){
+X	pdu_shift++;
+X	if (*length > 0xFF)
+X	    pdu_shift++;
+X    }
+X    auth_shift = 0;
+X    /*  2 below is the size of the assumed asn header in the auth header */
+X    *length = (out_end - out_auth) - 2 + pdu_shift + list_shift;
+X    if (*length >= 0x80){
+X	auth_shift++;
+X	if (*length > 0xFF)
+X	    auth_shift++;
+X    }
+X    if (auth_shift + pdu_shift + list_shift){
+X	/*
+X	 * Shift packet (from start of varlist to end of packet) by the sum of the
+X	 * necessary shift counts.
+X	 */
+X	shift_array(out_varlist, out_end - out_varlist, auth_shift + pdu_shift + list_shift);
+X	/* Now adjust pointers into the packet */
+X	out_end += auth_shift + pdu_shift + list_shift;
+X	out_varlist += auth_shift + pdu_shift + list_shift;
+X	out_varHeader += auth_shift + pdu_shift;
+X    }
+X    /* Now rebuild header with the actual lengths */
+X    dummyLen = out_end - out_varlist;
+X    if (asn_build_header(out_varHeader, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), dummyLen) != out_varlist)
+X	return 0;
+X
+X    if (auth_shift + pdu_shift){
+X	/*
+X	 * Shift packet (from start of varlist to end of packet) by the sum of the
+X	 * necessary shift counts.
+X	 */
+X	shift_array(out_pdu, out_varHeader - out_pdu, auth_shift + pdu_shift);
+X	/* Now adjust pointers into the packet */
+X	out_pdu += auth_shift + pdu_shift;
+X	out_header += auth_shift;
+X    }
+X    /* Now rebuild header with the actual lengths */
+X    dummyLen = out_end - out_pdu;
+X    if (asn_build_header(out_header, &dummyLen, (u_char)TRP_REQ_MSG, dummyLen) != out_pdu)
+X	return 0;
+X
+X    out_data = out_auth;
+X    *length = out_end - out_auth;
+X    out_data = snmp_auth_build(out_data, length, (u_char *)"public", &sidLen, &version, out_end - out_header);
+X    if (out_data != out_header){
+X	ERROR("internal error");
+X	return 0;
+X    }
+X    *length = out_end - out_auth;
+X    return *length;
+X}
+X
+X
+END_OF_FILE
+  if test 10258 -ne `wc -c <'nocol-3.0/src/cmu-snmp/include/snmp.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/include/snmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/include/snmp.c'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/snmplib/mib.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/snmplib/mib.h'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/snmplib/mib.h'\" \(10793 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/snmplib/mib.h' <<'END_OF_FILE'
+X/*
+X * Definitions for the variables as defined in the MIB
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+Xstruct	mib_system {
+X    char    sysDescr[32];   /* textual description */
+X    u_char  sysObjectID[16];/* OBJECT IDENTIFIER of system */
+X    u_char  ObjIDLen;	    /* length of sysObjectID */
+X    u_long  sysUpTime;	    /* Uptime in 100/s of a second */    
+X};
+X
+Xstruct mib_interface {
+X    long    ifNumber;	    /* number of interfaces */
+X};
+X
+Xstruct mib_ifEntry {
+X    long    ifIndex;	    /* index of this interface	*/
+X    char    ifDescr[32];    /* english description of interface	*/
+X    long    ifType;	    /* network type of device	*/
+X    long    ifMtu;	    /* size of largest packet in bytes	*/
+X    u_long  ifSpeed;	    /* bandwidth in bits/sec	*/
+X    u_char  ifPhysAddress[11];	/* interface's address */
+X    u_char  PhysAddrLen;    /* length of physAddr */
+X    long    ifAdminStatus;  /* desired state of interface */
+X    long    ifOperStatus;   /* current operational status */
+X    u_long  ifLastChange;   /* value of sysUpTime when current state entered */
+X    u_long  ifInOctets;	    /* number of octets received on interface */
+X    u_long  ifInUcastPkts;  /* number of unicast packets delivered */
+X    u_long  ifInNUcastPkts; /* number of broadcasts or multicasts */
+X    u_long  ifInDiscards;   /* number of packets discarded with no error */
+X    u_long  ifInErrors;	    /* number of packets containing errors */
+X    u_long  ifInUnknownProtos;	/* number of packets with unknown protocol */
+X    u_long  ifOutOctets;    /* number of octets transmitted */
+X    u_long  ifOutUcastPkts; /* number of unicast packets sent */
+X    u_long  ifOutNUcastPkts;/* number of broadcast or multicast pkts */
+X    u_long  ifOutDiscards;  /* number of packets discarded with no error */
+X    u_long  ifOutErrors;    /* number of pkts discarded with an error */
+X    u_long  ifOutQLen;	    /* number of packets in output queue */
+X};
+X
+Xstruct mib_atEntry {
+X    long    atIfIndex;	    /* interface on which this entry maps */
+X    u_char  atPhysAddress[11]; /* physical address of destination */
+X    u_char  PhysAddressLen; /* length of atPhysAddress */
+X    u_long  atNetAddress;   /* IP address of physical address */
+X};
+X
+Xstruct mib_ip {
+X    long    ipForwarding;   /* 1 if gateway, 2 if host */
+X    long    ipDefaultTTL;   /* default TTL for pkts originating here */
+X    u_long  ipInReceives;   /* no. of IP packets received from interfaces */
+X    u_long  ipInHdrErrors;  /* number of pkts discarded due to header errors */
+X    u_long  ipInAddrErrors; /* no. of pkts discarded due to bad address */
+X    u_long  ipForwDatagrams;/* number pf pkts forwarded through this entity */
+X    u_long  ipInUnknownProtos;/* no. of local-addressed pkts w/unknown proto */
+X    u_long  ipInDiscards;   /* number of error-free packets discarded */
+X    u_long  ipInDelivers;   /* number of datagrams delivered to upper level */
+X    u_long  ipOutRequests;  /* number of IP datagrams originating locally */
+X    u_long  ipOutDiscards;  /* number of error-free output IP pkts discarded */
+X    u_long  ipOutNoRoutes;  /* number of IP pkts discarded due to no route */
+X    long    ipReasmTimeout; /* seconds fragment is held awaiting reassembly */
+X    u_long  ipReasmReqds;   /* no. of fragments needing reassembly (here) */
+X    u_long  ipReasmOKs;	    /* number of fragments reassembled */
+X    u_long  ipReasmFails;   /* number of failures in IP reassembly */
+X    u_long  ipFragOKs;	    /* number of datagrams fragmented here */
+X    u_long  ipFragFails;    /* no. pkts unable to be fragmented here */
+X    u_long  ipFragCreates;  /* number of IP fragments created here */
+X};
+X
+Xstruct mib_ipAddrEntry {
+X    u_long  ipAdEntAddr;    /* IP address of this entry */
+X    long    ipAdEntIfIndex; /* IF for this entry */
+X    u_long  ipAdEntNetMask; /* subnet mask of this entry */
+X    long    ipAdEntBcastAddr;/* read the MIB for this one */
+X};
+X
+Xstruct mib_ipRouteEntry {
+X    u_long  ipRouteDest;    /* destination IP addr for this route */
+X    long    ipRouteIfIndex; /* index of local IF for this route */
+X    long    ipRouteMetric1; /* Primary routing metric */
+X    long    ipRouteMetric2; /* Alternate routing metric */
+X    long    ipRouteMetric3; /* Alternate routing metric */
+X    long    ipRouteMetric4; /* Alternate routing metric */
+X    u_long  ipRouteNextHop; /* IP addr of next hop */
+X    long    ipRouteType;    /* Type of this route */
+X    long    ipRouteProto;   /* How this route was learned */
+X    long    ipRouteAge;	    /* No. of seconds since updating this route */
+X};
+X
+Xstruct mib_icmp {
+X    u_long  icmpInMsgs;	    /* Total of ICMP msgs received */
+X    u_long  icmpInErrors;   /* Total of ICMP msgs received with errors */
+X    u_long  icmpInDestUnreachs;
+X    u_long  icmpInTimeExcds;
+X    u_long  icmpInParmProbs;
+X    u_long  icmpInSrcQuenchs;
+X    u_long  icmpInRedirects;
+X    u_long  icmpInEchos;
+X    u_long  icmpInEchoReps;
+X    u_long  icmpInTimestamps;
+X    u_long  icmpInTimestampReps;
+X    u_long  icmpInAddrMasks;
+X    u_long  icmpInAddrMaskReps;
+X    u_long  icmpOutMsgs;
+X    u_long  icmpOutErrors;
+X    u_long  icmpOutDestUnreachs;
+X    u_long  icmpOutTimeExcds;
+X    u_long  icmpOutParmProbs;
+X    u_long  icmpOutSrcQuenchs;
+X    u_long  icmpOutRedirects;
+X    u_long  icmpOutEchos;
+X    u_long  icmpOutEchoReps;
+X    u_long  icmpOutTimestamps;
+X    u_long  icmpOutTimestampReps;
+X    u_long  icmpOutAddrMasks;
+X    u_long  icmpOutAddrMaskReps;
+X};
+X
+Xstruct	mib_tcp {
+X    long    tcpRtoAlgorithm;	/* retransmission timeout algorithm */
+X    long    tcpRtoMin;		/* minimum retransmission timeout (mS) */
+X    long    tcpRtoMax;		/* maximum retransmission timeout (mS) */ 
+X    long    tcpMaxConn;		/* maximum tcp connections possible */
+X    u_long  tcpActiveOpens;	/* number of SYN-SENT -> CLOSED transitions */
+X    u_long  tcpPassiveOpens;	/* number of SYN-RCVD -> LISTEN transitions */
+X    u_long  tcpAttemptFails;/*(SYN-SENT,SYN-RCVD)->CLOSED or SYN-RCVD->LISTEN*/
+X    u_long  tcpEstabResets;	/* (ESTABLISHED,CLOSE-WAIT) -> CLOSED */
+X    u_long  tcpCurrEstab;	/* number in ESTABLISHED or CLOSE-WAIT state */
+X    u_long  tcpInSegs;		/* number of segments received */
+X    u_long  tcpOutSegs;		/* number of segments sent */
+X    u_long  tcpRetransSegs;	/* number of retransmitted segments */
+X};
+X
+Xstruct mib_tcpConnEntry {
+X    long    tcpConnState;	/* State of this connection */
+X    u_long  tcpConnLocalAddress;/* local IP address for this connection */
+X    long    tcpConnLocalPort;	/* local port for this connection */
+X    u_long  tcpConnRemAddress;	/* remote IP address for this connection */
+X    long    tcpConnRemPort;	/* remote port for this connection */
+X};
+X
+Xstruct mib_udp {
+X    u_long  udpInDatagrams; /* No. of UDP datagrams delivered to users */
+X    u_long  udpNoPorts;	    /* No. of UDP datagrams to port with no listener */
+X    u_long  udpInErrors;    /* No. of UDP datagrams unable to be delivered */
+X    u_long  udpOutDatagrams;/* No. of UDP datagrams sent from this entity */
+X};
+X
+Xstruct	mib_egp {
+X    u_long  egpInMsgs;	/* No. of EGP msgs received without error */
+X    u_long  egpInErrors;/* No. of EGP msgs received with error */
+X    u_long  egpOutMsgs;	/* No. of EGP msgs sent */
+X    u_long  egpOutErrors;/* No. of (outgoing) EGP msgs dropped due to error */
+X};
+X
+Xstruct	mib_egpNeighEntry {
+X    long    egpNeighState;  /* local EGP state with this entry's neighbor */
+X    u_long  egpNeighAddr;   /* IP address of this entry's neighbor */
+X};
+X
+X#define MIB 1, 3, 6, 1, 2, 1
+X
+X#define MIB_IFTYPE_OTHER		    1
+X#define MIB_IFTYPE_REGULAR1822		    2
+X#define MIB_IFTYPE_HDH1822		    3
+X#define MIB_IFTYPE_DDNX25		    4
+X#define MIB_IFTYPE_RFC877X25		    5
+X#define MIB_IFTYPE_ETHERNETCSMACD	    6
+X#define MIB_IFTYPE_ISO88023CSMACD	    7
+X#define MIB_IFTYPE_ISO88024TOKENBUS	    8
+X#define MIB_IFTYPE_ISO88025TOKENRING	    9
+X#define MIB_IFTYPE_ISO88026MAN		    10
+X#define MIB_IFTYPE_STARLAN		    11
+X#define MIB_IFTYPE_PROTEON10MBIT	    12
+X#define MIB_IFTYPE_PROTEON80MBIT	    13
+X#define MIB_IFTYPE_HYPERCHANNEL		    14
+X#define MIB_IFTYPE_FDDI			    15
+X#define MIB_IFTYPE_LAPB			    16
+X#define MIB_IFTYPE_SDLC			    17
+X#define MIB_IFTYPE_T1CARRIER		    18
+X#define MIB_IFTYPE_CEPT			    19
+X#define MIB_IFTYPE_BASICISDN		    20
+X#define MIB_IFTYPE_PRIMARYISDN		    21
+X#define MIB_IFTYPE_PROPPOINTTOPOINTSERIAL   22
+X
+X#define MIB_IFSTATUS_UP		1
+X#define MIB_IFSTATUS_DOWN	2
+X#define MIB_IFSTATUS_TESTING	3
+X
+X#define MIB_FORWARD_GATEWAY	1
+X#define MIB_FORWARD_HOST	2
+X
+X#define MIB_IPROUTETYPE_OTHER	1
+X#define MIB_IPROUTETYPE_INVALID	2
+X#define MIB_IPROUTETYPE_DIRECT	3
+X#define MIB_IPROUTETYPE_REMOTE	4
+X
+X#define MIB_IPROUTEPROTO_OTHER	    1
+X#define MIB_IPROUTEPROTO_LOCAL	    2
+X#define MIB_IPROUTEPROTO_NETMGMT    3
+X#define MIB_IPROUTEPROTO_ICMP	    4
+X#define MIB_IPROUTEPROTO_EGP	    5
+X#define MIB_IPROUTEPROTO_GGP	    6
+X#define MIB_IPROUTEPROTO_HELLO	    7
+X#define MIB_IPROUTEPROTO_RIP	    8
+X#define MIB_IPROUTEPROTO_ISIS	    9
+X#define MIB_IPROUTEPROTO_ESIS	    10
+X#define MIB_IPROUTEPROTO_CISCOIGRP  11
+X#define MIB_IPROUTEPROTO_BBNSPFIGP  12
+X#define MIB_IPROUTEPROTO_OIGP	    13
+X
+X#define MIB_TCPRTOALG_OTHER	1
+X#define MIB_TCPRTOALG_CONSTANT	2
+X#define MIB_TCPRTOALG_RSRE	3
+X#define MIB_TCPRTOALG_VANJ	4
+X
+X#define MIB_TCPCONNSTATE_CLOSED		1
+X#define MIB_TCPCONNSTATE_LISTEN		2
+X#define MIB_TCPCONNSTATE_SYNSENT	3
+X#define MIB_TCPCONNSTATE_SYNRECEIVED	4
+X#define MIB_TCPCONNSTATE_ESTABLISHED	5
+X#define MIB_TCPCONNSTATE_FINWAIT1	6
+X#define MIB_TCPCONNSTATE_FINWAIT2	7
+X#define MIB_TCPCONNSTATE_CLOSEWAIT	8
+X#define MIB_TCPCONNSTATE_LASTACK	9
+X#define MIB_TCPCONNSTATE_CLOSING	10
+X#define MIB_TCPCONNSTATE_TIMEWAIT	11
+X
+X#define MIB_EGPNEIGHSTATE_IDLE		1
+X#define MIB_EGPNEIGHSTATE_AQUISITION	2
+X#define MIB_EGPNEIGHSTATE_DOWN		3
+X#define MIB_EGPNEIGHSTATE_UP		4
+X#define MIB_EGPNEIGHSTATE_CEASE		5
+X
+X
+X
+END_OF_FILE
+  if test 10793 -ne `wc -c <'nocol-3.0/src/cmu-snmp/snmplib/mib.h'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/snmplib/mib.h'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/snmplib/mib.h'
+fi
+if test -f 'nocol-3.0/src/cmu-snmp/snmplib/snmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.c'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.c'\" \(10258 characters\)
+  sed "s/^X//" >'nocol-3.0/src/cmu-snmp/snmplib/snmp.c' <<'END_OF_FILE'
+X/*
+X * Simple Network Management Protocol (RFC 1067).
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X
+X#ifdef KINETICS
+X#include "gw.h"
+X#include "ab.h"
+X#include "inet.h"
+X#include "fp4/cmdmacro.h"
+X#include "fp4/pbuf.h"
+X#include "glob.h"
+X#endif
+X
+X#if (defined(unix) && !defined(KINETICS))
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X#endif
+X
+X#include "asn1.h"
+X#include "snmp.h"
+X#include "snmp_impl.h"
+X
+X#include "mib.h"
+X
+X
+Xu_char *
+Xsnmp_parse_var_op(data, var_name, var_name_len, var_val_type, var_val_len, var_val, listlength)
+X    register u_char *data;  /* IN - pointer to the start of object */
+X    oid	    *var_name;	    /* OUT - object id of variable */
+X    int	    *var_name_len;  /* IN/OUT - length of variable name */
+X    u_char  *var_val_type;  /* OUT - type of variable (int or octet string) (one byte) */
+X    int	    *var_val_len;   /* OUT - length of variable */
+X    u_char  **var_val;	    /* OUT - pointer to ASN1 encoded value of variable */
+X    int	    *listlength;    /* IN/OUT - number of valid bytes left in var_op_list */
+X{
+X    u_char	    var_op_type;
+X    int		    var_op_len = *listlength;
+X    u_char	    *var_op_start = data;
+X
+X    data = asn_parse_header(data, &var_op_len, &var_op_type);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    if (var_op_type != (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR))
+X	return NULL;
+X    data = asn_parse_objid(data, &var_op_len, &var_op_type, var_name, var_name_len);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    if (var_op_type != (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID))
+X	return NULL;
+X    *var_val = data;	/* save pointer to this object */
+X    /* find out what type of object this is */
+X    data = asn_parse_header(data, &var_op_len, var_val_type);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    *var_val_len = var_op_len;
+X    data += var_op_len;
+X    *listlength -= (int)(data - var_op_start);
+X    return data;
+X}
+X
+Xshift_array(begin, length, shift_amount)
+X    u_char	    *begin;
+X    register int    length;
+X    int		    shift_amount;
+X{
+X    register u_char	*old, *new;
+X
+X    if (shift_amount >= 0){
+X	old = begin + length - 1;
+X	new = old + shift_amount;
+X
+X	while(length--)
+X	    *new-- = *old--;
+X    } else {
+X	old = begin;
+X	new = begin + shift_amount;
+X
+X	while(length--)
+X	    *new++ = *old++;
+X    }
+X}
+X
+Xu_char *
+Xsnmp_build_var_op(data, var_name, var_name_len, var_val_type, var_val_len, var_val, listlength)
+X    register u_char *data;	/* IN - pointer to the beginning of the output buffer */
+X    oid		*var_name;	/* IN - object id of variable */
+X    int		*var_name_len;	/* IN - length of object id */
+X    u_char	var_val_type;	/* IN - type of variable */
+X    int		var_val_len;	/* IN - length of variable */
+X    u_char	*var_val;	/* IN - value of variable */
+X    register int *listlength;    /* IN/OUT - number of valid bytes left in output buffer */
+X{
+X    int		    dummyLen, headerLen, header_shift;
+X    u_char	    *dataPtr;
+X
+X    dummyLen = *listlength;
+X    dataPtr = data;
+X    data = asn_build_header(data, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), 0);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    headerLen = data - dataPtr;
+X    *listlength -= headerLen;
+X    data = asn_build_objid(data, listlength,
+X	    (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
+X	    var_name, *var_name_len);
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    switch(var_val_type){
+X	case ASN_INTEGER:
+X	case GAUGE:
+X	case COUNTER:
+X	case TIMETICKS:
+X	    data = asn_build_int(data, listlength, var_val_type,
+X		    (long *)var_val, var_val_len);
+X	    break;
+X	case ASN_OCTET_STR:
+X	case IPADDRESS:
+X	case OPAQUE:
+X	    data = asn_build_string(data, listlength, var_val_type,
+X		    var_val, var_val_len);
+X	    break;
+X	case ASN_OBJECT_ID:
+X	    data = asn_build_objid(data, listlength, var_val_type,
+X		    (oid *)var_val, var_val_len / sizeof(oid));
+X	    break;
+X	case ASN_NULL:
+X	    data = asn_build_null(data, listlength, var_val_type);
+X	    break;
+X	default:
+X	    ERROR("wrong type");
+X	    return NULL;
+X    }
+X    if (data == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    dummyLen = (data - dataPtr) - headerLen;
+X    header_shift = 0;
+X    if (dummyLen >= 0x80){
+X	header_shift++;
+X	if (dummyLen > 0xFF)
+X	    header_shift++;
+X    }
+X    if (header_shift){
+X	/* should check available length here */
+X	shift_array(dataPtr + headerLen, dummyLen, header_shift);
+X	data += header_shift;
+X	headerLen += header_shift;
+X    }
+X
+X    
+X    if (asn_build_header(dataPtr, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), dummyLen) == NULL){
+X	ERROR("");
+X	return NULL;
+X    }
+X    return data;
+X}
+X
+X
+X
+Xint
+Xsnmp_build_trap(out_data, length, sysOid, sysOidLen, myAddr, trapType, specificType, time, varName, varNameLen, varType, varLen, varVal)
+X    register u_char  *out_data;
+X    int	    *length;
+X    oid	    *sysOid;
+X    int	    sysOidLen;
+X    u_long  myAddr;
+X    int	    trapType;
+X    int	    specificType;
+X    u_long  time;
+X    oid	    *varName;
+X    int	    varNameLen;
+X    u_char  varType;
+X    int	    varLen;
+X    u_char  *varVal;
+X{
+X    long    version = SNMP_VERSION_1;
+X    int	    sidLen = strlen("public");
+X    int	    dummyLen;
+X    u_char  *out_auth, *out_header, *out_pdu, *out_varHeader, *out_varlist, *out_end;
+X    int	    auth_shift, pdu_shift, list_shift;
+X    
+X
+X
+X    out_auth = out_data;
+X    out_header = snmp_auth_build(out_data, length, (u_char *)"public", &sidLen, &version, 90);
+X    if (out_header == NULL){
+X	ERROR("auth build failed");
+X	return 0;
+X    }
+X    out_pdu = asn_build_header(out_header, length, (u_char)TRP_REQ_MSG, 90);
+X    if (out_pdu == NULL){
+X	ERROR("header build failed");
+X	return 0;
+X    }
+X    out_data = asn_build_objid(out_pdu, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
+X		(oid *)sysOid, sysOidLen);
+X    if (out_data == NULL){
+X	ERROR("build enterprise failed");
+X	return 0;
+X    }
+X    out_data = asn_build_string(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
+X		(u_char *)&myAddr, sizeof(myAddr));
+X    if (out_data == NULL){
+X	ERROR("build agent_addr failed");
+X	return 0;
+X    }
+X    out_data = asn_build_int(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
+X		(long *)&trapType, sizeof(trapType));
+X    if (out_data == NULL){
+X	ERROR("build trap_type failed");
+X	return 0;
+X    }
+X    out_data = asn_build_int(out_data, length,
+X		(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
+X		(long *)&specificType, sizeof(specificType));
+X    if (out_data == NULL){
+X	ERROR("build specificType failed");
+X	return 0;
+X    }
+X    out_varHeader = asn_build_int(out_data, length,
+X		(u_char)(TIMETICKS),
+X		(long *)&time, sizeof(time));
+X    if (out_varHeader == NULL){
+X	ERROR("build timestampfailed");
+X	return 0;
+X    }
+X    out_varlist = asn_build_header(out_varHeader,  length, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), 90);
+X    out_end = snmp_build_var_op(out_varlist, varName, &varNameLen, varType, varLen, varVal, length);
+X    if (out_end == NULL){
+X	ERROR("build varop failed");
+X	return 0;
+X    }
+X
+X    /*
+X     * Because of the assumption above that header lengths would be encoded
+X     * in one byte, things need to be fixed, now that the actual lengths are known.
+X     */
+X    list_shift = 0;
+X    *length = out_end - out_varlist;
+X    if (*length >= 0x80){
+X	list_shift++;
+X	if (*length > 0xFF)
+X	    list_shift++;
+X    }
+X    pdu_shift = 0;
+X    *length = (out_end - out_pdu) + list_shift;
+X    if (*length >= 0x80){
+X	pdu_shift++;
+X	if (*length > 0xFF)
+X	    pdu_shift++;
+X    }
+X    auth_shift = 0;
+X    /*  2 below is the size of the assumed asn header in the auth header */
+X    *length = (out_end - out_auth) - 2 + pdu_shift + list_shift;
+X    if (*length >= 0x80){
+X	auth_shift++;
+X	if (*length > 0xFF)
+X	    auth_shift++;
+X    }
+X    if (auth_shift + pdu_shift + list_shift){
+X	/*
+X	 * Shift packet (from start of varlist to end of packet) by the sum of the
+X	 * necessary shift counts.
+X	 */
+X	shift_array(out_varlist, out_end - out_varlist, auth_shift + pdu_shift + list_shift);
+X	/* Now adjust pointers into the packet */
+X	out_end += auth_shift + pdu_shift + list_shift;
+X	out_varlist += auth_shift + pdu_shift + list_shift;
+X	out_varHeader += auth_shift + pdu_shift;
+X    }
+X    /* Now rebuild header with the actual lengths */
+X    dummyLen = out_end - out_varlist;
+X    if (asn_build_header(out_varHeader, &dummyLen, (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR), dummyLen) != out_varlist)
+X	return 0;
+X
+X    if (auth_shift + pdu_shift){
+X	/*
+X	 * Shift packet (from start of varlist to end of packet) by the sum of the
+X	 * necessary shift counts.
+X	 */
+X	shift_array(out_pdu, out_varHeader - out_pdu, auth_shift + pdu_shift);
+X	/* Now adjust pointers into the packet */
+X	out_pdu += auth_shift + pdu_shift;
+X	out_header += auth_shift;
+X    }
+X    /* Now rebuild header with the actual lengths */
+X    dummyLen = out_end - out_pdu;
+X    if (asn_build_header(out_header, &dummyLen, (u_char)TRP_REQ_MSG, dummyLen) != out_pdu)
+X	return 0;
+X
+X    out_data = out_auth;
+X    *length = out_end - out_auth;
+X    out_data = snmp_auth_build(out_data, length, (u_char *)"public", &sidLen, &version, out_end - out_header);
+X    if (out_data != out_header){
+X	ERROR("internal error");
+X	return 0;
+X    }
+X    *length = out_end - out_auth;
+X    return *length;
+X}
+X
+X
+END_OF_FILE
+  if test 10258 -ne `wc -c <'nocol-3.0/src/cmu-snmp/snmplib/snmp.c'`; then
+    echo shar: \"'nocol-3.0/src/cmu-snmp/snmplib/snmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/cmu-snmp/snmplib/snmp.c'
+fi
+if test -f 'nocol-3.0/src/support/multiping/multiping.8' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nocol-3.0/src/support/multiping/multiping.8'\"
+else
+  echo shar: Extracting \"'nocol-3.0/src/support/multiping/multiping.8'\" \(11372 characters\)
+  sed "s/^X//" >'nocol-3.0/src/support/multiping/multiping.8' <<'END_OF_FILE'
+X.\" $Header: /nocol/src/support/multiping/RCS/multiping.8,v 1.1 1992/06/10 18:28:24 spencer Exp spencer $
+X.\"
+X.TH MULTIPING 8 "June 9, 1992"
+X.SH NAME
+Xmultiping \- send ICMP ECHO_REQUEST packets to one or more network hosts
+X.SH SYNOPSIS
+X.LP
+X.B multiping
+X[ \fB-dfnqrtvR\fR ] [ \fB-c \fIcount\fR ] [ \fB-i \fIinterval\fR ]
+X.if n .ti +0.25i
+X[ \fB-l \fIpreload\fR ] [ \fB-p \fIpattern\fR ] [ \fB-s \fIpacketsize\fR ]
+X.if n .ti +0.25i
+X.B host\fR [ \fBhost ...\fR ]
+X.SH ATTRIBUTION
+XNote -- since the program, and this man page, are derived in large part
+Xfrom the original versions by Mike Muuss, most of what is said here applies to
+Xthe usual \fBping\fR program as well.  Hereafter, ``\fBping\fR'' should be
+Xunderstood to refer to both programs, \fBmultiping\fR and \fBping\fR, except
+Xwhere specifically noted.  However, since I have seen at least two versions of
+X\fBping\fR with different command line options, if you are using \fBping\fR
+Xyou should obviously consult that man page instead, to be safe.
+X.if n .ti +3.5i
+XS. Spencer Sun, 6/9/92
+X.SH DESCRIPTION
+XThe DARPA Internet is a large and complex aggregation of
+Xnetwork hardware, connected together by gateways.
+XTracking a single-point hardware or software failure
+Xcan often be difficult. \fBping\fR uses the
+XICMP protocol's mandatory ECHO_REQUEST datagram to elicit an
+XICMP ECHO_RESPONSE from a host or gateway.
+XECHO_REQUEST datagrams (``pings'') have an IP and ICMP header,
+Xfollowed by a \fIstruct timeval\fR, and then an arbitrary number
+Xof ``pad'' bytes used to fill out the packet.
+XDefault datagram length is 64 bytes, but this may be changed
+X(see the \fB-s\fR option below).
+X.PP
+XAs you no doubt guessed, \fBmultiping\fR differs from \fBping\fR in that it
+Xcan ping multiple sites simultaneously, using only one process.  Of course,
+Xonce the number of sites starts getting very large, the round-trip times
+Xwill be thrown off slightly due to delays, but for most purposes this probably
+Xwill not present a problem.
+X.PP
+X\fBping\fR has to run with root permissions to access the ICMP socket.
+X.SH OPTIONS
+X.TP 15
+X.B \-c \fIcount\fR
+XStop after receiving \fIcount\fR ECHO_RESPONSE packets from any one host.
+X.TP
+X.B \-d
+XSet the SO_DEBUG option on the socket being used.
+X.TP
+X.B \-f
+XFlood ping.  Outputs packets as fast as they come back or one hundred times
+Xper second, whichever is more.  For every ECHO_REQUEST sent a period `.'
+Xis printed, while for ever ECHO_REPLY received a backspace is printed.
+XThis provides a rapid display of how many packets are being dropped.
+X\fIThis can be very hard on a network and should be used with caution.\fR
+XOnly someone with root permissions can use the \fB-f\fR option.
+X.TP
+X.B \-i \fIinterval\fR
+XWait \fIinterval\fR seconds between sending each packet.
+XThe default is to wait for one second between each packet.
+XThis option is incompatible with the \fB-f\fR option.
+X.TP
+X.B \-l \fIpreload\fR
+XIf run with this option, \fBping\fR will send off \fIpreload\fR
+Xpackets as soon as it starts up, without waiting for responses, before
+Xfalling into its normal mode of behavior.
+X.TP
+X.B \-n
+XNumeric output only.  No attempt will be made to lookup symbolic
+Xnames for host addresses.
+X.TP
+X.B \-p \fIpattern\fR
+XYou may specify up to 16 "pad" bytes to fill out the packet you send.
+XThis is useful for diagnosing data-dependent problems in a network.
+XFor example, running with \fB-p ff\fR will cause the sent packet to be
+Xfilled with all ones.
+X.TP
+X.B \-q
+XQuiet output.  Nothing is displayed except the list of hosts being pinged
+Xat the beginning and the summary lines at the end.
+X.TP
+X.B \-r
+XBypass the normal routing tables and send directly to a host on an attached
+Xnetwork.
+XIf the host is not on a directly-attached network,
+Xan error is returned.
+XThis option can be used to ping a local host through an interface
+Xthat has no route through it (e.g., after the interface was dropped by
+X.B routed(8C)
+X).
+X.TP
+X.B \-s \fIpacketsize\fR
+XSpecifies the number of data bytes to be sent.  
+XThe default is 56, which translates into 64 ICMP data bytes when combined
+Xwith the 8 bytes of ICMP header data.
+X.TP
+X.B \-t
+XTabular output.  Print the results in a nicely-formatted table.  By default
+Xthis option is turned \fIoff\fR and the output looks like multiple instances
+Xof the old-style output.  (Try it both ways with multiple hosts and you'll
+Xsee what I mean).  This option is specific to \fBmultiping\fR.
+X.TP
+X.B \-v
+XVerbose output.  ICMP packets other than ECHO_RESPONSE that are received
+Xare listed.
+X.TP
+X.B \-R
+XRecord Route.  Includes the RECORD_ROUTE option in the ECHO_REQUEST
+Xpacket and displays the route buffer on returned packets.  Note that
+Xthe IP header is only large enough for nine such routes.  Many hosts
+Xignore or discard this option.
+X.PP
+XWhen using \fBping\fR for fault isolation, it should first be run
+Xon the local host, to verify that the local network interface is up and
+Xrunning. Then, hosts and gateways further and further away
+Xshould be pinged.  \fBping\fR sends one datagram per second (or
+Xper \fIinterval\fR seconds), and
+Xprints one line of output for every ECHO_RESPONSE returned.
+XIf an optional \fIcount\fR is given, only that number of requests is sent.
+XRound-trip times and packet loss statistics are computed.
+XIf duplicate packets are received, they are not included in the
+Xpacket loss calculation, although the round trip time of these packets is
+Xused in calculating the minimum/average/maximum round-trip time numbers.
+XWhen all responses have been received or the program times out (with a
+X\fIcount\fR specified), or if the program is terminated with a SIGINT, a brief
+Xsummary is displayed.
+X.PP
+XThis program is intended for use in network testing, measurement
+Xand management.
+XIt should be used primarily for manual fault isolation.
+XBecause of the load it could impose on the network,
+Xit is unwise to use \fBping\fR
+Xduring normal operations or from automated scripts.
+X.SH ICMP Packet Details
+XAn IP header without options is 20 bytes.
+XAn ICMP ECHO_REQUEST packet contains an additional 8 bytes worth
+Xof ICMP header followed by an arbitrary amount of data.  When a
+X.I packetsize
+Xis given, this indicates the size of this extra blob of data (the
+Xdefault is 56).  Thus the amount of data received inside of an IP
+Xpacket of type ICMP ECHO_REPLY will always be 8 bytes more than
+Xthe requested data space (the ICMP header).
+X.PP
+XIf the data space is at least eight bytes large, \fBping\fR
+Xuses the first eight bytes of this space to include a timestamp which
+Xit uses in the computation of round trip times.  This explains why if
+Xless than eight bytes of pad are requested, no round trip times are given.
+X.SH Duplicate and Damaged packets
+X\fBping\fR will report duplicate and damaged packets.
+XDuplicate packets should never occur, and seem to be caused by
+Xinappropriate link-level retransmissions (See also the BUGS section).
+XThe author [MM] has seen duplicates in many situations and has never known them
+Xto be a good thing, although the presence of low levels of
+Xduplicates may not always be cause for alarm.
+XNetwork maintainers ignore them at
+Xtheir own risk as they have been known to be harbingers of severe
+Xnetwork problems.
+X.PP
+XDamaged packets are obviously serious cause for alarm and most likely
+Xindicate broken hardware somewhere in the \fBping\fR packet's path
+X(in the network or in the hosts).
+X.SH Trying Different Data Patterns
+XIt should go without saying that the (inter)network layer 
+X\fIshould\fR never treat packets differently depending on the
+Xdata contained in the data portion.
+XUnfortunately, data-dependent problems have been known to sneak into
+Xnetworks and remain undetected for long periods of time.
+XIn many cases the particular pattern that will have problems is something
+Xthat doesn't have "enough" transitions, such as all ones or all zeros,
+Xor a pattern right at the edge, such as almost all zeros.
+XIt isn't necessarily enough to specify a data pattern of all zeros (for
+Xexample) on the command line (as in \fB-p 00\fR), because the pattern
+Xthat is of interest is at the data link level, and the relationship
+Xbetween what you type and what the controllers transmit can be
+Xcomplicated.
+X.PP
+XThis means that if you have a data-dependent problem you will have
+Xto be prepared to do a lot of testing to find it. 
+XIf you are lucky, you may manage to find a file that either can't be sent
+Xacross your network or that takes much longer to transfer than other
+Xsimilar length files.
+XYou can then examine this file for repeated patterns that you can test
+Xusing the \fB-p\fR option of \fBping\fR.
+X.SH TTL Details
+XThe TTL value of an IP packet represents the maximum number of IP routers
+Xthat the packet can go through before being thrown away.
+XIn current practice you can expect each router in the Internet to decrement the
+XTTL field by exactly one.
+X.PP
+XThe TCP/IP specification says that the TTL field for TCP packets should
+Xbe set to 60, but many systems use smaller values (4.3 BSD uses 30, 4.2 used
+X15).
+X.PP
+XThe maximum possible value of this field is 255, and most Unix systems set
+Xthe TTL field of ICMP ECHO_REQUEST packets to 255.
+XThis is why you will find you can ping some hosts, but not reach them with
+X\fBtelnet\fR or \fBftp\fR.
+X.PP
+XIn normal operation \fBping\fR prints the ttl value from the packet it
+Xreceives.  When a remote system receives a \fBping\fR packet, it can do one
+Xof three things with the TTL field in its response:
+X.TP
+X.B (1)
+XNot change it; this is what Berkeley Unix systems did until 4.3 BSD tahoe
+Xlevel releases.
+XIn this case the TTL value in the received packet will be 255 minus the
+Xnumber of routers in the round-trip path.
+X.TP
+X.B (2)
+XSet it to 255; this is what Berkeley Unix systems have done since the 4.3
+Xtahoe release.
+XIn this case the TTL value in the received packet will be 255 minus the number
+Xof routers in the path \fIfrom\fR the remote system \fIto\fR the
+Xpinging host.
+X.TP
+X.B (3)
+XSet it to some other value.
+XSome machines use the same value for ICMP packets that they use for
+XTCP packets, for example either 30 or 60.
+XOthers may use completely wild values.
+X.SH BUGS
+X.PP
+XIf an IP address (or its corresponding host name) appears more than once on
+Xthe command line, it will receive more than one ECHO_REQUEST and thus will
+Xsend back more than one ECHO_REPLY.  The additional ECHO_REPLY packets will
+Xbe flagged as being duplicates, because currently the means of identifying
+Xa packet are (1) the socket address it came from and (2) the ICMP sequence
+Xnumber, stored in the ICMP header.  Thus, there is no way (for the time
+Xbeing anyway) to distinguish between the two.
+X.PP
+XMany Hosts and Gateways ignore the RECORD_ROUTE option.
+X.PP
+XThe maximum IP header length is too small for options like
+XRECORD_ROUTE to be completely useful.  There's not much that
+Xwe can do about that however.
+X.PP
+XFlood pinging is not recommended in general, and flood pinging the broadcast
+Xaddress should only be done under very controlled conditions.
+X.SH AUTHORS
+XMike Muuss, U. S. Army Ballistic Research Laboratory, December, 1983
+X.PP
+XModified at Uc Berkeley
+X.PP
+XRecord Route and verbose headers - Phil Dykstra, BRL, March 1988.
+X.PP
+Xttl, duplicate detection - Cliff Frost, UCB, April 1989
+X.PP
+XPad pattern - Cliff Frost (from Tom Ferrin, UCSF), April 1989
+X.PP
+XWait for dribbles, option decoding, pkt compare - vjs@sgi.com, May 1989
+X.PP
+XPing multiple sites simultaneously - Spencer Sun, Princeton Univ. '94,
+Xfor JvNCnet
+XJune 1992
+X.SH SEE ALSO
+Xnetstat(1),
+Xifconfig(8C)
+END_OF_FILE
+  if test 11372 -ne `wc -c <'nocol-3.0/src/support/multiping/multiping.8'`; then
+    echo shar: \"'nocol-3.0/src/support/multiping/multiping.8'\" unpacked with wrong size!
+  fi
+  # end of 'nocol-3.0/src/support/multiping/multiping.8'
+fi
+echo shar: End of archive 17 \(of 26\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

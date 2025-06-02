@@ -1,0 +1,2087 @@
+Newsgroups: comp.sources.misc
+From: 0001729221@mcimail.com (Jeffrey Chilton)
+Subject: v36i091:  formes - French verb drill v1.5, Part03/03
+Message-ID: <1993Apr2.022300.20523@sparky.imd.sterling.com>
+X-Md4-Signature: d03805fca728b0daa2e3e3caf1f76c80
+Date: Fri, 2 Apr 1993 02:23:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: 0001729221@mcimail.com (Jeffrey Chilton)
+Posting-number: Volume 36, Issue 91
+Archive-name: formes/part03
+Environment: DOS, SUNOS, ULTRIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 3)."
+# Contents:  verb.c xobjects
+# Wrapped by chiltj@ois on Fri Mar 26 14:21:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'verb.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'verb.c'\"
+else
+echo shar: Extracting \"'verb.c'\" \(11946 characters\)
+sed "s/^X//" >'verb.c' <<'END_OF_FILE'
+X
+X/*
+X *  Copyright (C) 1992-1993 Jeffrey Chilton
+X *
+X *  Permission is granted to anyone to make or distribute copies of
+X *  this program, in any medium, provided that the copyright notice
+X *  and permission notice are preserved, and that the distributor
+X *  grants the recipient permission for further redistribution as
+X *  permitted by this notice.
+X *  
+X *  Author's E-mail address:  172-9221@mcimail.com
+X *  
+X */
+X
+Xstatic char *whatstring = "@(#)verb.c	2.6 JWC";
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#include "class.h"
+X#include "form.h"
+X#include "verb.h"
+X#include "verbset.h"
+X
+Xextern Verb *Avoir;
+Xextern Verb *Etre;
+X
+X#define MOD N_OF_PERSON
+X
+X/* Verb_new - Create an empty verb object */
+X
+XVerb *
+XVerb_new(infinitive)
+Xchar *infinitive;
+X{
+X    int pers;
+X    int plur;
+X    int gender;
+X    Verb *self;
+X
+X    self = (Verb *)malloc(sizeof (Verb));
+X    if (!self)
+X    {
+X	fprintf(stderr, "Verb_new: malloc fails\n");
+X	goto out;
+X    }
+X
+X    self->infinitive = ExtendString_newFromString(infinitive);
+X
+X    for (pers = 0; pers < N_OF_PERSON; pers++)
+X    {
+X	for (plur = 0; plur < N_OF_PLURAL; plur++)
+X	{
+X	    self->presIndEndings[pers][plur] = (ExtendString *)0;
+X	    self->presSubjEndings[pers][plur] = (ExtendString *)0;
+X	    self->imperfectEndings[pers][plur] = (ExtendString *)0;
+X	}
+X    }
+X
+X    self->imperativeEndings[0] = (ExtendString *)0;
+X    self->imperativeEndings[1] = (ExtendString *)0;
+X    self->imperativeEndings[2] = (ExtendString *)0;
+X
+X    self->presIndStem = (ExtendString *)0;
+X    self->presSubjStem = (ExtendString *)0;
+X    self->imperativeStem = (ExtendString *)0;
+X    self->imperfectStem = (ExtendString *)0;
+X    self->futureStem = (ExtendString *)0;
+X    self->presentParticipal = (ExtendString *)0;
+X    self->pastParticipal = (ExtendString *)0;
+X
+X    self->conjugationClass = 0;
+X    self->auxiliary = -1;
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+X/* Verb_newFromFile - read formatted representation from file stream */
+X
+X#define FORMAT " %[^:]: %s %s %s %s %s %s %s "
+X
+X#define ENDS ends[0], ends[1], ends[2], ends[3], ends[4], ends[5]
+X
+XVerb *
+XVerb_newFromFile(infinitive, stream)
+Xchar *infinitive;
+XFILE *stream;
+X{
+X    register int i;
+X    Verb *self;
+X    char oneLine[80];
+X    char conjugate[32];
+X    char ends[6][32];
+X    char stem[32];
+X    Form *form;
+X    ExtendString *t, u;
+X    int count;
+X
+X    self = Verb_new(infinitive);
+X    if (!self)
+X    {
+X	goto out;
+X    }
+X
+X    fgets(oneLine, 80, stream);
+X    while (TRUE)
+X    {
+X	if (oneLine[0] == '\n' || oneLine[0] == '{')
+X	{
+X	    fgets(oneLine, 80, stream);
+X	    continue;
+X	}
+X
+X	if (0 == strcmp(oneLine, "}\n"))
+X	{
+X	    break;
+X	}
+X
+X	count = sscanf(oneLine, FORMAT, conjugate, stem, ENDS);
+X
+X#if XDEBUG
+Xprintf("Verb_newFromFile: %s: ", conjugate);
+Xprintf("%s ", stem);
+Xfor (i = 0; i < count - 2; i++)
+X{
+X    printf("%s ", ends[i]);
+X}
+Xprintf("\n");
+X#endif
+X
+X	if (0 == strcmp(conjugate, "PRES-IND"))
+X	{
+X	    stem[strlen(stem) - 1] = '\0';
+X	    self->presIndStem = ExtendString_newFromString(stem);
+X	    self->thirdPersonOnly = count < 8;
+X	    for (i = 0; i < count - 2; i++)
+X	    {
+X		t = ExtendString_newFromString(ends[i]);
+X		if (self->thirdPersonOnly)
+X		{
+X		    i = PERSON_THIRD;
+X		}
+X	        self->presIndEndings[i % MOD][i / MOD] = t;
+X	    }
+X	}
+X	else if (0 == strcmp(conjugate, "PRES-SUB"))
+X	{
+X	    stem[strlen(stem) - 1] = '\0';
+X	    self->presSubjStem = ExtendString_newFromString(stem);
+X	    for (i = 0; i < count - 2; i++)
+X	    {
+X		t = ExtendString_newFromString(ends[i]);
+X		if (self->thirdPersonOnly)
+X		{
+X		    i = PERSON_THIRD;
+X		}
+X		self->presSubjEndings[i % MOD][i / MOD] = t;
+X	    }
+X	}
+X	else if (0 == strcmp(conjugate, "IMPERFECT"))
+X	{
+X	    stem[strlen(stem) - 1] = '\0';
+X	    self->imperfectStem = ExtendString_newFromString(stem);
+X	    for (i = 0; i < count - 2; i++)
+X	    {
+X		t = ExtendString_newFromString(ends[i]);
+X		if (self->thirdPersonOnly)
+X		{
+X		    i = PERSON_THIRD;
+X		}
+X		self->imperfectEndings[i % MOD][i / MOD] = t;
+X	    }
+X	}
+X	else if (0 == strcmp(conjugate, "IMPERATIVE"))
+X	{
+X	    stem[strlen(stem) - 1] = '\0';
+X	    self->imperativeStem = ExtendString_newFromString(stem);
+X	    for (i = 0; i < count - 2; i++)
+X	    {
+X		t = ExtendString_newFromString(ends[i]);
+X		self->imperativeEndings[i] = t;
+X	    }
+X	}
+X	else if (0 == strcmp(conjugate, "FUTURE"))
+X	{
+X	    stem[strlen(stem) - 1] = '\0';
+X	    self->futureStem = ExtendString_newFromString(stem);
+X	}
+X	else if (0 == strcmp(conjugate, "PRES-PART"))
+X	{
+X	    self->presentParticipal = ExtendString_newFromString(stem);
+X	}
+X	else if (0 == strcmp(conjugate, "PAST-PART"))
+X	{
+X	    self->pastParticipal = ExtendString_newFromString(stem);
+X	}
+X	else if (0 == strcmp(conjugate, "AUXILIARY"))
+X	{
+X	    if (0 == strcmp(stem, "avoir"))
+X	    {
+X		self->auxiliary = AUX_AVOIR;
+X	    }
+X	    else if (0 == strcmp(stem, "e^tre"))
+X	    {
+X		self->auxiliary = AUX_ETRE;
+X	    }
+X	    else
+X	    {
+X		fprintf(stderr, "Verb_newFromFile: unknown: %s\n", stem);
+X		self = (Verb *)0;
+X		goto out;
+X	    }
+X	}
+X	else
+X	{
+X	    fprintf(stderr, "Verb_newFromFile: unknown: %s\n", conjugate);
+X	    self = (Verb *)0;
+X	    goto out;
+X	}
+X
+X	fgets(oneLine, 80, stream);
+X    }
+X
+Xout:
+X
+X    return self;
+X
+X}
+X
+X
+X/* Verb_conjugate - assemble text of any form of a verb */
+X
+XExtendString *ImperfectEndings[N_OF_PERSON][N_OF_PLURAL] =
+X{
+X    (ExtendString *)"ais",
+X    (ExtendString *)"ions",
+X    (ExtendString *)"ais",
+X    (ExtendString *)"iez",
+X    (ExtendString *)"ait",
+X    (ExtendString *)"aient"
+X};
+X
+XExtendString *FutureEndings[N_OF_PERSON][N_OF_PLURAL] =
+X{
+X    (ExtendString *)"ai",
+X    (ExtendString *)"ons",
+X    (ExtendString *)"as",
+X    (ExtendString *)"ez",
+X    (ExtendString *)"a",
+X    (ExtendString *)"ont"
+X};
+X
+XExtendString *AgreementEndings[N_OF_PLURAL][N_OF_GENDER] =
+X{
+X    (ExtendString *)"",
+X    (ExtendString *)"e",
+X    (ExtendString *)"s",
+X    (ExtendString *)"es"
+X};
+X
+XExtendString *
+XVerb_conjugate(self, form, tense)
+XVerb *self;
+XForm *form;
+Xint tense;
+X{
+X    register int i, j;
+X    ExtendString cg[80];
+X    ExtendString *e, *f;
+X    ExtendString *result;
+X
+X    i = form->person;
+X    j = form->plurality;
+X
+X    if (self->thirdPersonOnly && (i != PERSON_THIRD || j != PLURAL_SINGULAR))
+X    {
+X	result = (ExtendString *)0;
+X	goto out;
+X    }
+X
+X    switch (tense)
+X    {
+X	case TENSE_INFINITIVE:
+X
+X	    ExtendString_copy(cg, self->infinitive);
+X	    break;
+X
+X	case TENSE_PRESENT:
+X
+X	    ExtendString_copy(cg, self->presIndStem);
+X	    ExtendString_cat(cg, self->presIndEndings[i][j]);
+X	    break;
+X
+X	case TENSE_IMPERFECT:
+X
+X	    ExtendString_copy(cg, self->imperfectStem);
+X	    e = self->imperfectEndings[i][j];
+X	    f = ImperfectEndings[i][j];
+X	    ExtendString_cat(cg, e ? e : f);
+X	    break;
+X
+X	case TENSE_PASTCOMP:
+X
+X	    if (self->auxiliary == AUX_ETRE)
+X	    {
+X		e = Verb_conjugate(Etre, form, TENSE_PRESENT);
+X		ExtendString_copy(cg, e);
+X		ExtendString_cat(cg, " ");
+X		ExtendString_cat(cg, self->pastParticipal);
+X		ExtendString_cat(cg, AgreementEndings[j][form->gender]);
+X	    }
+X	    else
+X	    {
+X		e = Verb_conjugate(Avoir, form, TENSE_PRESENT);
+X		ExtendString_copy(cg, e);
+X		ExtendString_cat(cg, " ");
+X		ExtendString_cat(cg, self->pastParticipal);
+X	    }
+X	    ExtendString_destroy(e);
+X	    break;
+X
+X	case TENSE_FUTURE:
+X
+X	    ExtendString_copy(cg, self->futureStem);
+X	    ExtendString_cat(cg, FutureEndings[i][j]);
+X	    break;
+X
+X	case TENSE_CONDITION:
+X
+X	    ExtendString_copy(cg, self->futureStem);
+X	    ExtendString_cat(cg, ImperfectEndings[i][j]);
+X	    break;
+X
+X	case TENSE_SUBJUNCT:
+X
+X	    ExtendString_copy(cg, self->presSubjStem);
+X	    ExtendString_cat(cg, self->presSubjEndings[i][j]);
+X	    break;
+X
+X	case TENSE_IMPERATIVE:
+X
+X	    ExtendString_copy(cg, self->imperativeStem);
+X	    ExtendString_cat(cg, self->imperativeEndings[IMPERSUM(i, j)]);
+X	    break;
+X
+X	case TENSE_PLUPERFECT:
+X
+X	    if (self->auxiliary == AUX_ETRE)
+X	    {
+X		e = Verb_conjugate(Etre, form, TENSE_IMPERFECT);
+X		ExtendString_copy(cg, e);
+X		ExtendString_cat(cg, " ");
+X		ExtendString_cat(cg, self->pastParticipal);
+X		ExtendString_cat(cg, AgreementEndings[j][form->gender]);
+X	    }
+X	    else
+X	    {
+X		e = Verb_conjugate(Avoir, form, TENSE_IMPERFECT);
+X		ExtendString_copy(cg, e);
+X		ExtendString_cat(cg, " ");
+X		ExtendString_cat(cg, self->pastParticipal);
+X	    }
+X	    ExtendString_destroy(e);
+X	    break;
+X
+X	case TENSE_PASTSIMP:
+X	case TENSE_IMPSUBJ:
+X	case TENSE_PASTANT:
+X	case TENSE_FUTUREANT:
+X	case TENSE_CONDPERF:
+X	case TENSE_PLUPSUBJ:
+X
+X	    fprintf(stderr, "Verb_conjugate: not implemented: #%d\n", tense);
+X	    break;
+X
+X	default:
+X
+X	    fprintf(stderr, "Verb_conjugate: unknown tense: %d\n", tense);
+X	    break;
+X
+X    }
+X
+X    i = ExtendString_len(cg) + 1;
+X    result = (ExtendString *)malloc(i);
+X    if (!result)
+X    {
+X	fprintf(stderr, "Verb_conjugate: malloc fails\n");
+X	goto out;
+X    }
+X
+X    ExtendString_copy(result, cg);
+X
+X#if XDEBUG
+X    printf("Verb_conjugate: got %s (%s)\n", result, self->infinitive);
+X#endif
+X
+Xout:
+X
+X    return result;
+X
+X}
+X
+Xvoid
+XVerb_destroy(self)
+XVerb *self;
+X{
+X
+X    ExtendString_destroy(self->presentParticipal);
+X    ExtendString_destroy(self->pastParticipal);
+X    ExtendString_destroy(self->imperativeStem);
+X    ExtendString_destroy(self->presSubjStem);
+X    ExtendString_destroy(self->presIndStem);
+X    ExtendString_destroy(self->imperfectStem);
+X    ExtendString_destroy(self->infinitive);
+X
+X    free(self);
+X
+X}
+X
+X#ifndef PRODUCTION
+X
+X/* Verb_printOn - write formatted representation to output file stream */
+X
+Xvoid
+XVerb_printOn(self, stream)
+XVerb *self;
+XFILE *stream;
+X{
+X    register int i, j;
+X    ExtendString *e;
+X    int length;
+X    char *t, *f;
+X
+X    t = ExtendString_externalFormat(self->infinitive);
+X    fprintf(stream, "VERB: %s (%d)\n", t, self->conjugationClass);
+X    fprintf(stream, "{\n");
+X    free(t);
+X
+X    /* Output present indicative line */
+X
+X    t = ExtendString_externalFormat(self->presIndStem);
+X    fprintf(stream, "    PRES-IND: %s- ", t);
+X    free(t);
+X    for (j = 0; j < N_OF_PLURAL; j++)
+X    {
+X	for (i = 0; i < N_OF_PERSON; i++)
+X	{
+X	    e = self->presIndEndings[i][j];
+X	    if (e)
+X	    {
+X		t = ExtendString_externalFormat(e);
+X		fprintf(stream, "%s ", t);
+X		free(t);
+X	    }
+X	}
+X    }
+X    fprintf(stream, "\n");
+X
+X    /* Output present subjunctive line */
+X
+X    t = ExtendString_externalFormat(self->presSubjStem);
+X    fprintf(stream, "    PRES-SUB: %s- ", t);
+X    free(t);
+X    for (j = 0; j < N_OF_PLURAL; j++)
+X    {
+X	for (i = 0; i < N_OF_PERSON; i++)
+X	{
+X	    e = self->presSubjEndings[i][j];
+X	    if (e)
+X	    {
+X		t = ExtendString_externalFormat(e);
+X		fprintf(stream, "%s ", t);
+X		free(t);
+X	    }
+X	}
+X    }
+X    fprintf(stream, "\n");
+X
+X    /* Output imperatives */
+X
+X    e = self->imperativeStem;
+X    if (e)
+X    {
+X	t = ExtendString_externalFormat(e);
+X	fprintf(stream, "    IMPERATIVE: %s- ", t);
+X	free(t);
+X	for (j = 0; j < N_OF_PLURAL + 1; j++)
+X	{
+X	    e = self->imperativeEndings[j];
+X	    t = ExtendString_externalFormat(e);
+X	    fprintf(stream, "%s ", t);
+X	    free(t);
+X	}
+X	fprintf(stream, "\n");
+X    }
+X
+X    /* Output imperfect */
+X
+X    if (self->imperfectStem)
+X    {
+X	t = ExtendString_externalFormat(self->imperfectStem);
+X        fprintf(stream, "    IMPERFECT: %s- ", t);
+X	free(t);
+X	for (j = 0; j < N_OF_PLURAL; j++)
+X	{
+X	    for (i = 0; i < N_OF_PERSON; i++)
+X	    {
+X		e = self->imperfectEndings[i][j];
+X		if (e)
+X		{
+X		    t = ExtendString_externalFormat(e);
+X		    fprintf(stream, "%s ", t);
+X		    free(t);
+X		}
+X	    }
+X	}
+X	fprintf(stream, "\n");
+X    }
+X
+X    /* Output future stem */
+X
+X    if (self->futureStem)
+X    {
+X	t = ExtendString_externalFormat(self->futureStem);
+X        fprintf(stream, "    FUTURE: %s-\n", t);
+X	free(t);
+X    }
+X
+X    /* Output participals */
+X
+X    if (self->presentParticipal)
+X    {
+X	t = ExtendString_externalFormat(self->presentParticipal);
+X	fprintf(stream, "    PRES-PART: %s\n", t);
+X	free(t);
+X    }
+X
+X    if (self->pastParticipal)
+X    {
+X	t = ExtendString_externalFormat(self->pastParticipal);
+X	fprintf(stream, "    PAST-PART: %s\n", t);
+X	free(t);
+X    }
+X
+X    switch (self->auxiliary)
+X    {
+X	case AUX_AVOIR:
+X	    fprintf(stream, "    AUXILIARY: avoir\n");
+X	    break;
+X	case AUX_ETRE:
+X	    fprintf(stream, "    AUXILIARY: e^tre\n");
+X	    break;
+X    }
+X
+X    fprintf(stream, "}\n\n");
+X
+X}
+X
+X#endif
+END_OF_FILE
+if test 11946 -ne `wc -c <'verb.c'`; then
+    echo shar: \"'verb.c'\" unpacked with wrong size!
+fi
+# end of 'verb.c'
+fi
+if test -f 'xobjects' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xobjects'\"
+else
+echo shar: Extracting \"'xobjects'\" \(31532 characters\)
+sed "s/^X//" >'xobjects' <<'END_OF_FILE'
+X
+X#
+X#  Copyright (C) 1992-1993 Jeffrey Chilton
+X#
+X#  Permission is granted to anyone to make or distribute copies of
+X#  this file, in any medium, provided that the copyright notice
+X#  and permission notice are preserved, and that the distributor
+X#  grants the recipient permission for further redistribution as
+X#  permitted by this notice.
+X#  
+X#  Author's E-mail address:  172-9221@mcimail.com
+X#  
+X
+X# static char *whatstring = "@(#)xobjects	2.8 JWC";
+X
+X
+X#  Subjects
+X
+XSUBJECT: 1SM je
+XSUBJECT: 1SM moi, je
+XSUBJECT: 1PM Annick et moi, nous
+X
+X#  Note:  change "M" to "F" on the previous three lines if you're a gurl
+X
+XSUBJECT: 1PM nous
+XSUBJECT: 2PM vous
+XSUBJECT: 2PM vous deux, vous
+X
+X#  Change these three too if you want...
+X
+XSUBJECT: 2SM tu
+XSUBJECT: 2SM tu
+XSUBJECT: 3SM il
+XSUBJECT: 3SF Annick
+XSUBJECT: 3PM Annick et Guy
+XSUBJECT: 3PF elles
+X
+X
+X#  Verbs
+X
+XVERB: accepter (1)
+X{
+X    PRES-IND: accept- e es e ons ez ent 
+X    PRES-SUB: accept- e es e ions iez ent
+X    IMPERATIVE: accept- e ons ez 
+X    IMPERFECT: accept-
+X    FUTURE: accepter-
+X    PRES-PART: acceptant
+X    PAST-PART: accepte'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: acheter (108)
+X{
+X    PRES-IND: ach- e`te e`tes e`te etons etez e`tent 
+X    PRES-SUB: ach- e`te e`tes e`te etions etiez e`tent
+X    IMPERATIVE: ach- e`tes etons etez 
+X    IMPERFECT: achet-
+X    FUTURE: ache`ter-
+X    PRES-PART: achetant
+X    PAST-PART: achete'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: agacer (5) [V15]
+X{
+X    PRES-IND: aga- ce ces ce c,ons cez cent 
+X    PRES-SUB: agac- e es e ions iez ent
+X    IMPERATIVE: aga- ce c,ons cez 
+X    IMPERFECT: aga- c,ais c,ais c,ait cions ciez c,aient
+X    FUTURE: agacer-
+X    PRES-PART: agac,ant
+X    PAST-PART: agace'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: aimer (1)
+X{
+X    PRES-IND: aim- e es e ons ez ent 
+X    PRES-SUB: aim- e es e ions iez ent
+X    IMPERATIVE: aim- e ons ez 
+X    IMPERFECT: aim-
+X    FUTURE: aimer-
+X    PRES-PART: aimant
+X    PAST-PART: aime'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: aller (15)
+X{
+X    PRES-IND: - vais vas va allons allez vont 
+X    PRES-SUB: a- ille illes ille llions lliez illent
+X    IMPERATIVE: - va allons allez 
+X    IMPERFECT: all-
+X    FUTURE: ir-
+X    PRES-PART: allant
+X    PAST-PART: alle'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: amener (5)
+X{
+X    PRES-IND: am- e`ne e`nes e`ne enons enez e`nent
+X    PRES-SUB: am- e`ne e`nes e`ne enions eniez e`nent
+X    IMPERATIVE: am- e`ne enons enez
+X    IMPERFECT: amen-
+X    FUTURE: ame`ner-
+X    PRES-PART: amenant
+X    PAST-PART: amene'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: annoncer (6) [V15]
+X{
+X    PRES-IND: annon- ce ces ce c,ons cez cent 
+X    PRES-SUB: annonc- e es e ions iez ent
+X    IMPERATIVE: annon- ce c,ons cez 
+X    IMPERFECT: annon- c,ais c,ais c,ait cions ciez c,aient
+X    FUTURE: annoncer-
+X    PRES-PART: annonc,ant
+X    PAST-PART: annonce'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: appeler (8)
+X{
+X    PRES-IND: appel- le les le ons ez lent 
+X    PRES-SUB: appel- le les le ions iez lent
+X    IMPERATIVE: appel- le ons ez 
+X    IMPERFECT: appel-
+X    FUTURE: appeller-
+X    PRES-PART: appelant
+X    PAST-PART: appele'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: apparai^tre (74) [V15]
+X{
+X    PRES-IND: appara- is is i^t issons issez issent 
+X    PRES-SUB: apparaiss- e es e ions iez ent
+X    IMPERATIVE: apparai- s ssons ssez 
+X    IMPERFECT: apparaiss-
+X    FUTURE: apparai^tr-
+X    PRES-PART: apparaissant
+X    PAST-PART: apparu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: apprendre (80)
+X{
+X    PRES-IND: appren- ds ds d ons ez nent 
+X    PRES-SUB: appren- ne nes ne ions iez nent
+X    IMPERATIVE: appren- ds ons ez 
+X    IMPERFECT: appren-
+X    FUTURE: apprendr-
+X    PRES-PART: apprenant
+X    PAST-PART: appris
+X    AUXILIARY: avoir
+X}
+X
+XVERB: arriver (1)
+X{
+X    PRES-IND: arriv- e es e ons ez ent 
+X    PRES-SUB: arriv- e es e ions iez ent
+X    IMPERATIVE: arriv- e ons ez 
+X    IMPERFECT: arriv-
+X    FUTURE: arriver-
+X    PRES-PART: arrivant
+X    PAST-PART: arrive'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: asseoir (18)
+X{
+X    PRES-IND: ass- ieds ieds ied eyons eyez eyent 
+X    PRES-SUB: assey- e es e ions iez ent
+X    IMPERATIVE: ass- ieds eyons eyez 
+X    IMPERFECT: assey-
+X    FUTURE: assie'r-
+X    PRES-PART: asseyant
+X    PAST-PART: assis
+X    AUXILIARY: avoir
+X}
+X
+XVERB: attendre (4) [V15]
+X{
+X    PRES-IND: atten- ds ds d dons dez dent 
+X    PRES-SUB: attend- e es e ions iez ent
+X    IMPERATIVE: attend- s ons ez 
+X    IMPERFECT: attend-
+X    FUTURE: attendr-
+X    PRES-PART: attendant
+X    PAST-PART: attendu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: attraper (1)
+X{
+X    PRES-IND: attrap- e es e ons ez ent 
+X    PRES-SUB: attrap- e es e ions iez ent
+X    IMPERATIVE: attrap- e ons ez 
+X    IMPERFECT: attrap-
+X    FUTURE: attraper-
+X    PRES-PART: attrapant
+X    PAST-PART: attrape'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: avoir (19)
+X{
+X    PRES-IND: - ai as a avons avez ont 
+X    PRES-SUB: a- ie ies it yons yez ient
+X    IMPERATIVE: a- ie yons yez
+X    IMPERFECT: av-
+X    FUTURE: aur-
+X    PRES-PART: ayant
+X    PAST-PART: eu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: boire (21)
+X{
+X    PRES-IND: b- ois ois oit uvons uvez oivent 
+X    PRES-SUB: b- oive oives oive uvions uviez iovent
+X    IMPERATIVE: b- ois uvons uvez 
+X    IMPERFECT: buv-
+X    FUTURE: boir-
+X    PRES-PART: buvant
+X    PAST-PART: bu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: choisir (2)
+X{
+X    PRES-IND: choisi- s s t ssons ssez ssent 
+X    PRES-SUB: choisiss- e es e ions iez ent
+X    IMPERATIVE: choisi- s ssons ssez 
+X    IMPERFECT: choisiss-
+X    FUTURE: choisir-
+X    PRES-PART: choisissant
+X    PAST-PART: choisi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: commencer (6)
+X{
+X    PRES-IND: commen- ce ces ce c,ons cez cent 
+X    PRES-SUB: commenc- e es e ions iez ent
+X    IMPERATIVE: commen- ce c,ons cez 
+X    IMPERFECT: commen- c,ais c,ais c,ait cions ciez c,aient
+X    FUTURE: commencer-
+X    PRES-PART: commenc,ant
+X    PAST-PART: commence'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: comprendre (80)
+X{
+X    PRES-IND: compren- ds ds d ons ez nent 
+X    PRES-SUB: compren- ne nes ne ions iez nent
+X    IMPERATIVE: compren- ds ons ez 
+X    IMPERFECT: compren-
+X    FUTURE: comprendr-
+X    PRES-PART: comprenant
+X    PAST-PART: compris
+X    AUXILIARY: avoir
+X}
+X
+XVERB: conduire (85)
+X{
+X    PRES-IND: condui- s s t sons sez sent 
+X    PRES-SUB: conduis- e es e ions iez ent
+X    IMPERATIVE: condui- s sons sez 
+X    IMPERFECT: conduis-
+X    FUTURE: conduir-
+X    PRES-PART: conduisant
+X    PAST-PART: conduit
+X    AUXILIARY: avoir
+X}
+X
+XVERB: connai^tre (74)
+X{
+X    PRES-IND: conna- is is i^t issons issez issent 
+X    PRES-SUB: connaiss- e es e ions iez ent
+X    IMPERATIVE: connai- s ssons ssez 
+X    IMPERFECT: connaiss-
+X    FUTURE: connai^tr-
+X    PRES-PART: connaissant
+X    PAST-PART: connu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: construire (85) [V15]
+X{
+X    PRES-IND: construi- s s t sons sez sent 
+X    PRES-SUB: construis- e es e ions iez ent
+X    IMPERATIVE: construi- s sons sez 
+X    IMPERFECT: construis-
+X    FUTURE: construir-
+X    PRES-PART: construisant
+X    PAST-PART: construit
+X    AUXILIARY: avoir
+X}
+X
+XVERB: continuer (1)
+X{
+X    PRES-IND: continu- e es e ons ez ent 
+X    PRES-SUB: continu- e es e ions iez ent
+X    IMPERATIVE: continu- e ons ez 
+X    IMPERFECT: continu-
+X    FUTURE: continuer-
+X    PRES-PART: continuant
+X    PAST-PART: continue'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: courir (32)
+X{
+X    PRES-IND: cour- s s t ons ez ent 
+X    PRES-SUB: cour- e es e ions iez ent
+X    IMPERATIVE: cour- s ons ez 
+X    IMPERFECT: cour-
+X    FUTURE: courr-
+X    PRES-PART: courant
+X    PAST-PART: couru
+X    AUXILIARY: avoir
+X}
+X
+XVERB: cracher (1)
+X{
+X    PRES-IND: crach- e es e ons ez ent 
+X    PRES-SUB: crach- e es e ions iez ent
+X    IMPERATIVE: crach- e ons ez 
+X    IMPERFECT: crach-
+X    FUTURE: cracher-
+X    PRES-PART: crachant
+X    PAST-PART: crache'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: croire (33)
+X{
+X    PRES-IND: cro- is is it yons yez ient 
+X    PRES-SUB: cro- ie ies ie yions yiez ient
+X    IMPERATIVE: cro- is yons yez 
+X    IMPERFECT: croy-
+X    FUTURE: croir-
+X    PRES-PART: croyant
+X    PAST-PART: cru
+X    AUXILIARY: avoir
+X}
+X
+XVERB: cuire (85) [V15]
+X{
+X    PRES-IND: cui- s s t sons sez sent 
+X    PRES-SUB: cuis- e es e ions iez ent
+X    IMPERATIVE: cui- s sons sez 
+X    IMPERFECT: cuis-
+X    FUTURE: cuir-
+X    PRES-PART: cuisant
+X    PAST-PART: cuit
+X    AUXILIARY: avoir
+X}
+X
+XVERB: de'couvrir (72)
+X{
+X    PRES-IND: de'couvr- e es e ons ez ent 
+X    PRES-SUB: de'couvr- e es e ions iez ent
+X    IMPERATIVE: de'couvr- e ons ez 
+X    IMPERFECT: de'couvr-
+X    FUTURE: de'couvrir-
+X    PRES-PART: de'couvrant
+X    PAST-PART: de'couvert
+X    AUXILIARY: avoir
+X}
+X
+XVERB: de'fendre (4)
+X{
+X    PRES-IND: de'fen- ds ds d dons dez dent 
+X    PRES-SUB: de'fend- e es e ions iez ent
+X    IMPERATIVE: de'fend- s ons ez 
+X    IMPERFECT: de'fend-
+X    FUTURE: de'fendr-
+X    PRES-PART: de'fendant
+X    PAST-PART: de'fendu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: demander (1)
+X{
+X    PRES-IND: demand- e es e ons ez ent 
+X    PRES-SUB: demand- e es e ions iez ent
+X    IMPERATIVE: demand- e ons ez 
+X    IMPERFECT: demand-
+X    FUTURE: demander-
+X    PRES-PART: demandant
+X    PAST-PART: demande'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: de'ranger (7)
+X{
+X    PRES-IND: de'rang- e es e eons ez ent 
+X    PRES-SUB: de'rang- e es e ions iez ent
+X    IMPERATIVE: de'rang- e eons ez 
+X    IMPERFECT: de'rang- eais eais eait ions iez eaient
+X    FUTURE: de'ranger-
+X    PRES-PART: de'rangeant
+X    PAST-PART: de'range'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: descendre (4)
+X{
+X    PRES-IND: descen- ds ds d dons dez dent 
+X    PRES-SUB: descend- e es e ions iez ent
+X    IMPERATIVE: descend- s ons ez 
+X    IMPERFECT: descend-
+X    FUTURE: descendr-
+X    PRES-PART: descendant
+X    PAST-PART: descendu
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: dessiner (1)
+X{
+X    PRES-IND: dessin- e es e ons ez ent 
+X    PRES-SUB: dessin- e es e ions iez ent
+X    IMPERATIVE: dessin- e ons ez 
+X    IMPERFECT: dessin-
+X    FUTURE: dessiner-
+X    PRES-PART: dessinant
+X    PAST-PART: dessine'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: devenir (101)
+X{
+X    PRES-IND: dev- iens iens ient enons enez iennent 
+X    PRES-SUB: dev- ienne iennes ienne enions eniez iennent
+X    IMPERATIVE: dev- iens enons enez 
+X    IMPERFECT: deven-
+X    FUTURE: deviendr-
+X    PRES-PART: devenant
+X    PAST-PART: devenu
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: devoir (39)
+X{
+X    PRES-IND: d- ois ois oit evons evez oivent 
+X    PRES-SUB: d- oive oives oive evions eviez oivent
+X    IMPERATIVE: d- ois evons evez 
+X    IMPERFECT: dev-
+X    FUTURE: devr-
+X    PRES-PART: devant
+X    PAST-PART: du
+X    AUXILIARY: avoir
+X}
+X
+XVERB: dire (40)
+X{
+X    PRES-IND: di- s s t sons tes sent 
+X    PRES-SUB: dis- e es e ions iez ent
+X    IMPERATIVE: di- s sons tes 
+X    IMPERFECT: dis-
+X    FUTURE: dir-
+X    PRES-PART: disant
+X    PAST-PART: dit
+X    AUXILIARY: avoir
+X}
+X
+XVERB: disparai^tre (74) [V15]
+X{
+X    PRES-IND: dispara- is is i^t issons issez issent 
+X    PRES-SUB: disparaiss- e es e ions iez ent
+X    IMPERATIVE: disparai- s ssons ssez 
+X    IMPERFECT: disparaiss-
+X    FUTURE: disparai^tr-
+X    PRES-PART: disparaissant
+X    PAST-PART: disparu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: donner (1)
+X{
+X    PRES-IND: donn- e es e ons ez ent 
+X    PRES-SUB: donn- e es e ions iez ent
+X    IMPERATIVE: donn- e ons ez 
+X    IMPERFECT: donn-
+X    FUTURE: donner-
+X    PRES-PART: donnant
+X    PAST-PART: donne'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: dormir (41) [V15]
+X{
+X    PRES-IND: dor- s s t mons mez ment
+X    PRES-SUB: dorm- e es e ions iez ent
+X    IMPERATIVE: dor- s mons mez 
+X    IMPERFECT: dorm-
+X    FUTURE: dormir-
+X    PRES-PART: dormant
+X    PAST-PART: dormi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: e'couter (1)
+X{
+X    PRES-IND: e'cout- e es e ons ez ent 
+X    PRES-SUB: e'cout- e es e ions iez ent
+X    IMPERATIVE: e'cout- e ons ez 
+X    IMPERFECT: e'cout-
+X    FUTURE: e'couter-
+X    PRES-PART: e'coutant
+X    PAST-PART: e'coute'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: e'crire (44)
+X{
+X    PRES-IND: e'cri- s s t vons vez vent 
+X    PRES-SUB: e'criv- e es e ions iez ent
+X    IMPERATIVE: e'cri- s vons vez 
+X    IMPERFECT: e'criv-
+X    FUTURE: e'crir-
+X    PRES-PART: e'crivant
+X    PAST-PART: e'crit
+X    AUXILIARY: avoir
+X}
+X
+XVERB: ennuyer (109)
+X{
+X    PRES-IND: ennu- ie ies ie yons yez ient 
+X    PRES-SUB: ennu- ie ies ie yions yiez ient
+X    IMPERATIVE: ennu- ie yons yez 
+X    IMPERFECT: ennuy-
+X    FUTURE: ennuier-
+X    PRES-PART: ennuyant
+X    PAST-PART: ennuye'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: entendre (4)
+X{
+X    PRES-IND: enten- ds ds d dons dez dent 
+X    PRES-SUB: entend- e es e ions iez ent
+X    IMPERATIVE: entend- s ons ez 
+X    IMPERFECT: entend-
+X    FUTURE: entendr-
+X    PRES-PART: entendant
+X    PAST-PART: entendu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: entrer (1)
+X{
+X    PRES-IND: entr- e es e ons ez ent 
+X    PRES-SUB: entr- e es e ions iez ent
+X    IMPERATIVE: entr- e ons ez 
+X    IMPERFECT: entr-
+X    FUTURE: entrer-
+X    PRES-PART: entrant
+X    PAST-PART: entre'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: envoyer (46) [V15]
+X{
+X    PRES-IND: envo- ie ies ie yons yez ient 
+X    PRES-SUB: envo- ie ies ie yions yiez ient
+X    IMPERATIVE: envo- ie yons yez 
+X    IMPERFECT: envoy-
+X    FUTURE: enverr-
+X    PRES-PART: envoyant
+X    PAST-PART: envoye'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: essayer (209)
+X{
+X    PRES-IND: essa- ie ies ie yons yez ient 
+X    PRES-SUB: essa- ie ies ie yions yiez ient
+X    IMPERATIVE: essa- ie yons yez 
+X    IMPERFECT: essay-
+X    FUTURE: essaier-
+X    PRES-PART: essayant
+X    PAST-PART: essaye'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: essuyer (109) [V15]
+X{
+X    PRES-IND: essu- ie ies ie yons yez ient 
+X    PRES-SUB: essu- ie ies ie yions yiez ient
+X    IMPERATIVE: essu- ie yons yez 
+X    IMPERFECT: essuy-
+X    FUTURE: essuier-
+X    PRES-PART: essuyant
+X    PAST-PART: essuye'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: e'teindre (59) [V15]
+X{
+X    PRES-IND: e'tei- ns ns nt gnons gnez gnent 
+X    PRES-SUB: e'teign- e es e ions iez ent
+X    IMPERATIVE: e'tei- ns gnons gnez
+X    IMPERFECT: e'teign-
+X    FUTURE: e'teindr-
+X    PRES-PART: e'teignant
+X    PAST-PART: e'teint
+X    AUXILIARY: avoir
+X}
+X
+XVERB: e^tre (48)
+X{
+X    PRES-IND: - suis es est sommes e^tes sont 
+X    PRES-SUB: so- is is it yons yez ient
+X    IMPERATIVE: so- is yons yez
+X    IMPERFECT: e't-
+X    FUTURE: ser-
+X    PRES-PART: e'tant
+X    PAST-PART: e'te'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: e'tudier (1)
+X{
+X    PRES-IND: e'tudi- e es e ons ez ent 
+X    PRES-SUB: e'tudi- e es e ions iez ent
+X    IMPERATIVE: e'tudi- e ons ez 
+X    IMPERFECT: e'tudi-
+X    FUTURE: tudier-
+X    PRES-PART: e'tudiant
+X    PAST-PART: e'tudie'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: faire (50)
+X{
+X    PRES-IND: f- ais ais ait aisons aites ont 
+X    PRES-SUB: fass- e es e ions iez ent
+X    IMPERATIVE: fai- s sons tes 
+X    IMPERFECT: fais-
+X    FUTURE: fer-
+X    PRES-PART: faisant
+X    PAST-PART: fait
+X    AUXILIARY: avoir
+X}
+X
+XVERB: falloir (51)
+X{
+X    PRES-IND: - faut
+X    PRES-SUB: - faille
+X    IMPERFECT: fall-
+X    FUTURE: faudr-
+X    PAST-PART: fallu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: finir (2)
+X{
+X    PRES-IND: fini- s s t ssons ssez ssent 
+X    PRES-SUB: finiss- e es e ions iez ent
+X    IMPERATIVE: fini- s ssons ssez 
+X    IMPERFECT: finiss-
+X    FUTURE: finir-
+X    PRES-PART: finissant
+X    PAST-PART: fini
+X    AUXILIARY: avoir
+X}
+X
+XVERB: gagner (1)
+X{
+X    PRES-IND: gagn- e es e ons ez ent 
+X    PRES-SUB: gagn- e es e ions iez ent
+X    IMPERATIVE: gagn- e ons ez 
+X    IMPERFECT: gagn-
+X    FUTURE: gagner-
+X    PRES-PART: gagnant
+X    PAST-PART: gagne'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: jouer (1)
+X{
+X    PRES-IND: jou- e es e ons ez ent 
+X    PRES-SUB: jou- e es e ions iez ent
+X    IMPERATIVE: jou- e ons ez 
+X    IMPERFECT: jou-
+X    FUTURE: jouer-
+X    PRES-PART: jouant
+X    PAST-PART: joue'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: manger (7)
+X{
+X    PRES-IND: mang- e es e eons ez ent 
+X    PRES-SUB: mang- e es e ions iez ent
+X    IMPERATIVE: mang- e eons ez 
+X    IMPERFECT: mange-
+X    FUTURE: manger-
+X    PRES-PART: mangeant
+X    PAST-PART: mange'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: mener (1)
+X{
+X    PRES-IND: m- e`ne e`nes e`ne enons enez e`nent
+X    PRES-SUB: m- e`ne e`nes e`ne enions eniez e`nent
+X    IMPERATIVE: m- e`ne enons enez
+X    IMPERFECT: me`n-
+X    FUTURE: mener-
+X    PRES-PART: menant
+X    PAST-PART: mene'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: mettre (64)
+X{
+X    PRES-IND: me- ts ts t ttons ttez ttent 
+X    PRES-SUB: mett- e es e ions iez ent
+X    IMPERATIVE: met- s tons tez 
+X    IMPERFECT: mett-
+X    FUTURE: mettr-
+X    PRES-PART: mettant
+X    PAST-PART: mis
+X    AUXILIARY: avoir
+X}
+X
+XVERB: monter (1)
+X{
+X    PRES-IND: mont- e es e ons ez ent 
+X    PRES-SUB: mont- e es e ions iez ent
+X    IMPERATIVE: mont- e ons ez 
+X    IMPERFECT: mont-
+X    FUTURE: monter-
+X    PRES-PART: montant
+X    PAST-PART: monte'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: moquer (1)
+X{
+X    PRES-IND: moqu- e es e ons ez ent 
+X    PRES-SUB: moqu- e es e ions iez ent
+X    IMPERATIVE: moqu- e ons ez 
+X    IMPERFECT: moqu-
+X    FUTURE: moquer-
+X    PRES-PART: moquant
+X    PAST-PART: moque'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: mourir (66)
+X{
+X    PRES-IND: m- eurs eurs eurt ourons ourez eurent 
+X    PRES-SUB: m- eure eures eure ourions ouriez eurent
+X    IMPERATIVE: m- eurs ourons ourez 
+X    IMPERFECT: mour-
+X    FUTURE: mourr-
+X    PRES-PART: mourant
+X    PAST-PART: mort
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: nai^tre (68)
+X{
+X    PRES-IND: na- is is i^t issons issez issent 
+X    PRES-SUB: naiss- e es e ions iez ent
+X    IMPERATIVE: nai- s ssons ssez 
+X    IMPERFECT: naiss-
+X    FUTURE: nai^tr-
+X    PRES-PART: naissant
+X    PAST-PART: ne'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: oser (1) [V15]
+X{
+X    PRES-IND: os- e es e ons ez ent 
+X    PRES-SUB: os- e es e ions iez ent
+X    IMPERATIVE: os- e ons ez 
+X    IMPERFECT: os-
+X    FUTURE: oser-
+X    PRES-PART: osant
+X    PAST-PART: ose'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: ouvrir (72) [V15]
+X{
+X    PRES-IND: ouvr- e es e ons ez ent 
+X    PRES-SUB: ouvr- e es e ions iez ent
+X    IMPERATIVE: ouvr- e ons ez 
+X    IMPERFECT: ouvr-
+X    FUTURE: ouvrir-
+X    PRES-PART: ouvrant
+X    PAST-PART: ouvert
+X    AUXILIARY: avoir
+X}
+X
+XVERB: parai^tre (74) [V15]
+X{
+X    PRES-IND: para- is is i^t issons issez issent 
+X    PRES-SUB: paraiss- e es e ions iez ent
+X    IMPERATIVE: parai- s ssons ssez 
+X    IMPERFECT: paraiss-
+X    FUTURE: parai^tr-
+X    PRES-PART: paraissant
+X    PAST-PART: paru
+X    AUXILIARY: avoir
+X}
+X
+XVERB: parler (1)
+X{
+X    PRES-IND: parl- e es e ons ez ent 
+X    PRES-SUB: parl- e es e ions iez ent
+X    IMPERATIVE: parl- e ons ez 
+X    IMPERFECT: parl-
+X    FUTURE: parler-
+X    PRES-PART: parlant
+X    PAST-PART: parle'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: partir (93)
+X{
+X    PRES-IND: par- s s t tons tez tent 
+X    PRES-SUB: part- e es e ions iez ent
+X    IMPERATIVE: par- s tons tez 
+X    IMPERFECT: part-
+X    FUTURE: partir-
+X    PRES-PART: partant
+X    PAST-PART: parti
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: passer (1)
+X{
+X    PRES-IND: pass- e es e ons ez ent 
+X    PRES-SUB: pass- e es e ions iez ent
+X    IMPERATIVE: pass- e ons ez 
+X    IMPERFECT: pass-
+X    FUTURE: passer-
+X    PRES-PART: passant
+X    PAST-PART: passe'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: payer (209) [V15]
+X{
+X    PRES-IND: pa- ie ies ie yons yez ient 
+X    PRES-SUB: pa- ie ies ie yions yiez ient
+X    IMPERATIVE: pa- ie yons yez 
+X    IMPERFECT: pay-
+X    FUTURE: paier-
+X    PRES-PART: payant
+X    PAST-PART: paye'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: pe^cher (1)
+X{
+X    PRES-IND: pe^ch- e es e ons ez ent 
+X    PRES-SUB: pe^ch- e es e ions iez ent
+X    IMPERATIVE: pe^ch- e ons ez 
+X    IMPERFECT: pe^ch-
+X    FUTURE: pe^cher-
+X    PRES-PART: pe^chant
+X    PAST-PART: pe^che'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: peindre (59) [V15]
+X{
+X    PRES-IND: pei- ns ns nt gnons gnez gnent
+X    PRES-SUB: peign- e es e ions iez ent
+X    IMPERATIVE: pei- ns gnons gnez
+X    IMPERFECT: peign-
+X    FUTURE: peindr-
+X    PRES-PART: peignant
+X    PAST-PART: peint
+X    AUXILIARY: avoir
+X}
+X
+XVERB: plaire (75)
+X{
+X    PRES-IND: pla- is is i^t isons isez isent 
+X    PRES-SUB: plais- e es e ions iez ent
+X    IMPERATIVE: plai- s sons sez 
+X    IMPERFECT: plais-
+X    FUTURE: plair-
+X    PRES-PART: plaisant
+X    PAST-PART: plu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: pleurer (1)
+X{
+X    PRES-IND: pleur- e es e ons ez ent 
+X    PRES-SUB: pleur- e es e ions iez ent
+X    IMPERATIVE: pleur- e ons ez 
+X    IMPERFECT: pleur-
+X    FUTURE: pleurr-
+X    PRES-PART: pleurant
+X    PAST-PART: pleure'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: pleuvoir (76) [V15]
+X{
+X    PRES-IND: - pleut
+X    PRES-SUB: - pleuve
+X    IMPERFECT: pleuv-
+X    FUTURE: pleuvr-
+X    PRES-PART: pleuvant
+X    PAST-PART: plu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: pouvoir (79)
+X{
+X    PRES-IND: p- eux eux eut ouvons ouvez euvent
+X    PRES-SUB: puiss- e es e ions iez ent
+X    IMPERFECT: pouv-
+X    FUTURE: pourr-
+X    PRES-PART: pouvant
+X    PAST-PART: pu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: prendre (80)
+X{
+X    PRES-IND: pren- ds ds d ons ez nent 
+X    PRES-SUB: pren- ne nes ne ions iez nent
+X    IMPERATIVE: pren- ds ons ez 
+X    IMPERFECT: pren-
+X    FUTURE: prendr-
+X    PRES-PART: prenant
+X    PAST-PART: pris
+X    AUXILIARY: avoir
+X}
+X
+XVERB: profiter (1)
+X{
+X    PRES-IND: profit- e es e ons ez ent 
+X    PRES-SUB: profit- e es e ions iez ent
+X    IMPERATIVE: profit- e ons ez 
+X    IMPERFECT: profit-
+X    FUTURE: profiter-
+X    PRES-PART: profitant
+X    PAST-PART: profite'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: promener (1)
+X{
+X    PRES-IND: prom- e`ne e`nes e`ne enons enez e`nent
+X    PRES-SUB: prom- e`ne e`nes e`ne enion eniez e`nent
+X    IMPERATIVE: prom- e`ne enons enez
+X    IMPERFECT: promen-
+X    FUTURE: promener-
+X    PRES-PART: promenant
+X    PAST-PART: promene'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: promettre (64) [V15]
+X{
+X    PRES-IND: prome- ts ts t ttons ttez ttent 
+X    PRES-SUB: promett- e es e ions iez ent
+X    IMPERATIVE: promet- s tons tez 
+X    IMPERFECT: promett-
+X    FUTURE: promettr-
+X    PRES-PART: promettant
+X    PAST-PART: promis
+X    AUXILIARY: avoir
+X}
+X
+XVERB: rappeler (8)
+X{
+X    PRES-IND: rappel- le les le ons ez lent 
+X    PRES-SUB: rappel- le les le ions iez lent
+X    IMPERATIVE: rappel- le ons ez 
+X    IMPERFECT: rappel-
+X    FUTURE: rappeller-
+X    PRES-PART: rappelant
+X    PAST-PART: rappele'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: recevoir (3)
+X{
+X    PRES-IND: re- c,ois c,ois c,oit cevons cevez c,oivent 
+X    PRES-SUB: re- c,oive c,oives c,oive cevions ceviez c,oivent
+X    IMPERATIVE: re- c,ois cevons cevez 
+X    IMPERFECT: recev-
+X    FUTURE: recevr-
+X    PRES-PART: recevant
+X    PAST-PART: rec,u
+X    AUXILIARY: avoir
+X}
+X
+XVERB: redescendre (4)
+X{
+X    PRES-IND: redescen- ds ds d dons dez dent 
+X    PRES-SUB: redescend- e es e ions iez ent
+X    IMPERATIVE: redescend- s ons ez 
+X    IMPERFECT: redescend-
+X    FUTURE: redescendr-
+X    PRES-PART: redescendant
+X    PAST-PART: redescendu
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: re'fle'chir (2)
+X{
+X    PRES-IND: re'fle'chi- s s t ssons ssez ssent 
+X    PRES-SUB: re'fle'chiss- e es e ions iez ent
+X    IMPERATIVE: re'fle'chi- s ssons ssez 
+X    IMPERFECT: re'fle'chiss-
+X    FUTURE: re'fle'chir-
+X    PRES-PART: re'fle'chissant
+X    PAST-PART: re'fle'chi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: regarder (1)
+X{
+X    PRES-IND: regard- e es e ons ez ent 
+X    PRES-SUB: regard- e es e ions iez ent
+X    IMPERATIVE: regard- e ons ez 
+X    IMPERFECT: regard-
+X    FUTURE: regarder-
+X    PRES-PART: regardant
+X    PAST-PART: regarde'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: remarquer (1)
+X{
+X    PRES-IND: remarqu- e es e ons ez ent 
+X    PRES-SUB: remarqu- e es e ions iez ent
+X    IMPERATIVE: remarqu- e ons ez 
+X    IMPERFECT: remarqu-
+X    FUTURE: remarquer-
+X    PRES-PART: remarquant
+X    PAST-PART: remarque'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: remonter (1)
+X{
+X    PRES-IND: remont- e es e ons ez ent 
+X    PRES-SUB: remont- e es e ions iez ent
+X    IMPERATIVE: remont- e ons ez 
+X    IMPERFECT: remont-
+X    FUTURE: remonter-
+X    PRES-PART: remontant
+X    PAST-PART: remonte'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: rencontrer (1)
+X{
+X    PRES-IND: rencontr- e es e ons ez ent 
+X    PRES-SUB: rencontr- e es e ions iez ent
+X    IMPERATIVE: rencontr- e ons ez 
+X    IMPERFECT: rencontr-
+X    FUTURE: rencontrer-
+X    PRES-PART: rencontrant
+X    PAST-PART: rencontre'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: rentrer (1)
+X{
+X    PRES-IND: rentr- e es e ons ez ent 
+X    PRES-SUB: rentr- e es e ions iez ent
+X    IMPERATIVE: rentr- e ons ez 
+X    IMPERFECT: rentr-
+X    FUTURE: rentrer-
+X    PRES-PART: rentrant
+X    PAST-PART: rentre'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: rester (1)
+X{
+X    PRES-IND: rest- e es e ons ez ent 
+X    PRES-SUB: rest- e es e ions iez ent
+X    IMPERATIVE: rest- e ons ez 
+X    IMPERFECT: rest-
+X    FUTURE: rester-
+X    PRES-PART: restant
+X    PAST-PART: reste'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: re'ussir (2)
+X{
+X    PRES-IND: re'ussi- s s t ssons ssez ssent 
+X    PRES-SUB: re'ussiss- e es e ions iez ent
+X    IMPERATIVE: re'ussi- s ssons ssez 
+X    IMPERFECT: re'ussiss-
+X    FUTURE: re'ussir-
+X    PRES-PART: re'ussissant
+X    PAST-PART: re'ussi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: revenir (101)
+X{
+X    PRES-IND: rev- iens iens ient enons enez iennent 
+X    PRES-SUB: revien- ne nes ne ions iez nent
+X    IMPERATIVE: rev- iens enons enez 
+X    IMPERFECT: reven-
+X    FUTURE: reviendr-
+X    PRES-PART: revenant
+X    PAST-PART: revenu
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: rire (89) [V15]
+X{
+X    PRES-IND: ri- s s t ons ez ent 
+X    PRES-SUB: ri- e es e ions iez ent
+X    IMPERATIVE: ri- s ons ez 
+X    IMPERFECT: ri-
+X    FUTURE: rir-
+X    PRES-PART: riant
+X    PAST-PART: ri
+X    AUXILIARY: avoir
+X}
+X
+XVERB: savoir (92)
+X{
+X    PRES-IND: sa- is is it vons vez vent 
+X    PRES-SUB: sach- e es e ions iez ent
+X    IMPERATIVE: sach- e ons ez 
+X    IMPERFECT: sav-
+X    FUTURE: saur-
+X    PRES-PART: sachant
+X    PAST-PART: su
+X    AUXILIARY: avoir
+X}
+X
+XVERB: sembler (1) [V15]
+X{
+X    PRES-IND: - semble
+X    PRES-SUB: - semble
+X    IMPERFECT: - semblait
+X    FUTURE: sembler-
+X    PAST-PART: semble'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: sentir (93)
+X{
+X    PRES-IND: sen- s s t tons tez tent 
+X    PRES-SUB: sent- e es e ions iez ent
+X    IMPERATIVE: sen- s tons tez 
+X    IMPERFECT: sent-
+X    FUTURE: sentir-
+X    PRES-PART: sentant
+X    PAST-PART: senti
+X    AUXILIARY: avoir
+X}
+X
+XVERB: servir (95)
+X{
+X    PRES-IND: ser- s s t vons vez vent 
+X    PRES-SUB: serv- e es e ions iez ent
+X    IMPERATIVE: ser- s vons vez 
+X    IMPERFECT: serv-
+X    FUTURE: servir-
+X    PRES-PART: servant
+X    PAST-PART: servi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: sortir (93)
+X{
+X    PRES-IND: sor- s s t tons tez tent 
+X    PRES-SUB: sort- e es e ions iez ent
+X    IMPERATIVE: sor- s tons tez 
+X    IMPERFECT: sort-
+X    FUTURE: sortir-
+X    PRES-PART: sortant
+X    PAST-PART: sorti
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: sourire (89)
+X{
+X    PRES-IND: souri- s s t ons ez ent 
+X    PRES-SUB: souri- e es e ions iez ent
+X    IMPERATIVE: souri- s ons ez 
+X    IMPERFECT: souri-
+X    FUTURE: sourir-
+X    PRES-PART: souriant
+X    PAST-PART: souri
+X    AUXILIARY: avoir
+X}
+X
+XVERB: suivre (98)
+X{
+X    PRES-IND: sui- s s t vons vez vent 
+X    PRES-SUB: suiv- e es e ions iez ent
+X    IMPERATIVE: sui- s vons vez 
+X    IMPERFECT: suiv-
+X    FUTURE: suivr-
+X    PRES-PART: suivant
+X    PAST-PART: suivi
+X    AUXILIARY: avoir
+X}
+X
+XVERB: supporter (1)
+X{
+X    PRES-IND: support- e es e ons ez ent 
+X    PRES-SUB: support- e es e ions iez ent
+X    IMPERATIVE: support- e ons ez 
+X    IMPERFECT: support-
+X    FUTURE: supporter-
+X    PRES-PART: supportant
+X    PAST-PART: supporte'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: taire (75) [V15]
+X{
+X    PRES-IND: ta- is is i^t isons isez isent 
+X    PRES-SUB: tais- e es e ions iez ent
+X    IMPERATIVE: tai- s sons sez 
+X    IMPERFECT: tais-
+X    FUTURE: tair-
+X    PRES-PART: taisant
+X    PAST-PART: tu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: tenir (101)
+X{
+X    PRES-IND: t- iens iens ient enons enez iennent 
+X    PRES-SUB: t- ienne iennes ienne enions eniez iennent
+X    IMPERATIVE: t- iens enons enez 
+X    IMPERFECT: ten-
+X    FUTURE: tiendr-
+X    PRES-PART: tenant
+X    PAST-PART: tenu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: tomber (1)
+X{
+X    PRES-IND: tomb- e es e ons ez ent 
+X    PRES-SUB: tomb- e es e ions iez ent
+X    IMPERATIVE: tomb- e ons ez 
+X    IMPERFECT: tomb-
+X    FUTURE: tomber-
+X    PRES-PART: tombant
+X    PAST-PART: tombe'
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: trouver (1)
+X{
+X    PRES-IND: trouv- e es e ons ez ent 
+X    PRES-SUB: trouv- e es e ions iez ent
+X    IMPERATIVE: trouv- e ons ez 
+X    IMPERFECT: trouv-
+X    FUTURE: trouver-
+X    PRES-PART: trouvant
+X    PAST-PART: trouve'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: valoir (103)
+X{
+X    PRES-IND: va- ux ux ut lons lez lent
+X    PRES-SUB: va- ille illes ille llions lliez illent
+X    IMPERATIVE: va- ux lons lez
+X    IMPERFECT: val-
+X    FUTURE: vaudr-
+X    PRES-PART: valant
+X    PAST-PART: valu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: venir (101)
+X{
+X    PRES-IND: v- iens iens ient enons enez iennent 
+X    PRES-SUB: v- ienne iennes ienne enions eniez iennent
+X    IMPERATIVE: v- iens enons enez 
+X    IMPERFECT: ven-
+X    FUTURE: viendr-
+X    PRES-PART: venant
+X    PAST-PART: venu
+X    AUXILIARY: e^tre
+X}
+X
+XVERB: vivre (105)
+X{
+X    PRES-IND: vi- s s t vons vez vent 
+X    PRES-SUB: viv- e es e ions iez ent
+X    IMPERATIVE: vi- s vons vez 
+X    IMPERFECT: viv-
+X    FUTURE: vivr-
+X    PRES-PART: vivant
+X    PAST-PART: ve'cu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: voir (106)
+X{
+X    PRES-IND: vo- is is it yons yez ient 
+X    PRES-SUB: vo- ie ies ie yions yiez ient
+X    IMPERATIVE: vo- is yons yez 
+X    IMPERFECT: voy-
+X    FUTURE: verr-
+X    PRES-PART: voyant
+X    PAST-PART: vu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: voler (1) [V15]
+X{
+X    PRES-IND: vol- e es e ons ez ent 
+X    PRES-SUB: vol- e es e ions iez ent
+X    IMPERATIVE: vol- e ons ez 
+X    IMPERFECT: vol-
+X    FUTURE: voler-
+X    PRES-PART: volant
+X    PAST-PART: vole'
+X    AUXILIARY: avoir
+X}
+X
+XVERB: vouloir (107)
+X{
+X    PRES-IND: v- eux eux eut oulons oulez eulent 
+X    PRES-SUB: v- euille euilles euille oulions ouliez euillent
+X    IMPERATIVE: veuill- e ons ez
+X    IMPERFECT: voul-
+X    FUTURE: voudr-
+X    PRES-PART: voulant
+X    PAST-PART: voulu
+X    AUXILIARY: avoir
+X}
+X
+XVERB: voyager (7)
+X{
+X    PRES-IND: voyag- e es e eons ez ent 
+X    PRES-SUB: voyag- e es e ions iez ent
+X    IMPERATIVE: voyag- e eons ez 
+X    IMPERFECT: voyag- eais eais eait ions iez eaient
+X    FUTURE: voyager-
+X    PRES-PART: voyageant
+X    PAST-PART: voyage'
+X    AUXILIARY: avoir
+X}
+X
+X
+X#  Quiz templates
+X#
+X#  These are little programs that direct the generation of the fill-in-the-
+X#  blank questions presented to the student.  The subject pronouns je and il
+X#  and the verb boire have no special significance, they are just being used
+X#  as symbolic names.
+X
+XQUIZ: <Pre'sent indicatif> (1)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Je p1
+X    VERB boire <random>
+X    CONJUGATE Bois boire PRESENT p1 
+X    PERSON p2 <random> p1
+X    TEXT-OF Il p2
+X    CONJUGATE Boit boire PRESENT p2
+X    QUIZ Je< >Bois<.  >Il< >{Boit}< aussi?>
+X    SCORE boire
+X}
+X
+XQUIZ: <Formes du futur> (2)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Je p1
+X    VERB boire <random>
+X    CONJUGATE Bois boire PRESENT p1
+X    CONJUGATE Boirai boire FUTURE p1
+X    QUIZ Je< >Bois<.  Apres-midi, >Je< >{Boirai}< encore.>
+X    SCORE boire
+X}
+X
+XQUIZ: <Passe' compose'> (3)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Je p1
+X    VERB aller aller
+X    CONJUGATE Vais aller PRESENT p1
+X    VERB boire <random>
+X    CONJUGATE Boire boire INFINITIVE
+X    PERSON p2 <random> p1
+X    TEXT-OF Il p2
+X    CONJUGATE A_bu boire PAST p2
+X    QUIZ Je< >Vais< >Boire< mais >Il< >{A_bu}<.>
+X    SCORE boire
+X}
+X
+XQUIZ: <Formes de l'imparfait> (5)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Il p1
+X    VERB boire <random>
+X    CONJUGATE Bois boire PRESENT p1
+X    CONJUGATE Buvait boire IMPERFECT p1
+X    QUIZ Il< >Bois< c,a?  Je croyais que >Il< >{Buvait}< l'autre.>
+X    SCORE boire
+X}
+X
+XQUIZ: <Situations hypothe'tiques - conditionnel> (6)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Il p1
+X    VERB vouloir vouloir
+X    CONJUGATE Voulait vouloir IMPERFECT p1
+X    VERB boire <random>
+X    CONJUGATE Boire boire INFINITIVE
+X    CONJUGATE Buvait boire CONDITIONAL p1
+X    QUIZ <Si >Il< >Voulait< >Boire<, >Il< >{Buvait}<.>
+X    SCORE boire
+X}
+X
+XQUIZ: <Formes du subjonctif> (7)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Il p1
+X    VERB boire <random>
+X    CONJUGATE Boit boire PRESENT p1
+X    CONJUGATE Boive boire SUBJUNCTIVE p1
+X    QUIZ Il< ne >Boit< pas?  ><Il faut que >Il< >{Boive}<!>
+X    SCORE boire
+X}
+X
+XQUIZ: <Le plus-que-parfait> (8)
+X{
+X    PERSON p1 <random>
+X    TEXT-OF Il p1
+X    VERB devoir devoir
+X    CONJUGATE Doit devoir PRESENT p1
+X    VERB boire <random>
+X    CONJUGATE Boire boire INFINITIVE
+X    CONJUGATE Avait_bu boire PLUPERFECT p1
+X    QUIZ Il< >Doit< >Boire<?  Mais Je croyais que >Il< >{Avait_bu}< ce matin!>
+X    SCORE boire
+X}
+X
+END_OF_FILE
+if test 31532 -ne `wc -c <'xobjects'`; then
+    echo shar: \"'xobjects'\" unpacked with wrong size!
+fi
+# end of 'xobjects'
+fi
+echo shar: End of archive 3 \(of 3\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

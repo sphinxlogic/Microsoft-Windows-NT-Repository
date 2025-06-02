@@ -1,0 +1,1830 @@
+Path: comp-sources-3b1
+From: vern@zebra.alphacdc.com (vern)
+Subject:  v02i037:  3B1 Tape processing utilities, Part03/04
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 28d66468 38ad147c 9eb05bd6 579a633a
+
+Submitted-by: vern@zebra.alphacdc.com (vern)
+Posting-number: Volume 2, Issue 37
+Archive-name: tapeops/part03
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  header.sh mk.index.sh params prep.sh rd.tape.sh
+#   src/group.c src/read.vtoc.c utils/convert.sh utils/set_up.sh
+#   utils/trim.sh utils/util.hdr.sh utils/util.prep.sh
+#   utils/util.rd.sh utils/util.sq.sh
+# Wrapped by vern@zebra on Mon Mar  8 08:57:41 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f header.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"header.sh\"
+else
+echo shar: Extracting \"header.sh\" \(2031 characters\)
+sed "s/^X//" >header.sh <<'END_OF_header.sh'
+X
+X# The purpose of this script is to prepare the 'squirrel'ed files
+X# for transfer to tape.  This consists of building a 'contents'
+X# file from the "Subject" line in the posted articles.  The 'contents'
+X# is sorted and similar titles are moved together for easier reference.
+X# The articles are then compressed and moved to the 'savdir' where
+X# they can copied to tape.
+X
+Xexport NEWSDEV=/dev/fp002
+Xexport CMDDIR=/news/.tape.ops		# Where scripts are stored
+Xexport WRKDIR=/news/.tape.ops		# Where collected files are stored
+Xexport SRCDIR=$WRKDIR/src		# Where 'C' code programs are stored
+Xexport ARCDIR=$WRKDIR/arcdir		# Where linkde articles are stored
+Xexport PARAMS=$CMDDIR/params		# Control information
+Xexport LIST=$CMDDIR/save.list		# Directory list to be saved
+Xexport LINKS=$CMDDIR/link.list		# List of saved 'Message ID's
+Xexport KLINKS=$CMDDIR/old.links		# Working file in case of crash
+Xexport GOOFS=$CMDDIR/goofs		# Error log
+Xexport SAVDIR=$WRKDIR/savdir		# Compressed files for taping
+Xexport CONDIR=$WRKDIR/condir		# Another working directory
+Xexport CONFILE=$WRKDIR/contents		# The 'Subject:' lines
+Xexport PNTRS=$WRKDIR/pntrs		# References articles
+Xexport CPNTRS=$WRKDIR/c.pntrs		# Cross reference to articles
+Xexport RPNTRS=$WRKDIR/r.pntrs		# Another cross reference
+Xexport GRP=news				# Group name for permisions
+Xexport OWN=netnews			# News owner for permisions
+Xexport COPY=0				# A flag used when copying tapes
+Xexport TMP=$WRKDIR/tmps			# A temporrary file
+Xexport TMP1=$WRKDIR/tmpp1		# Another temporary file
+Xexport TMP2=$WRKDIR/tmpp2		# And another
+X
+X# These values are more guess work than knowledge.  I have had trouble
+X# resolving the 254 blocks and 6 streams used during tap formatting and
+X# the actual number of blocks I can put on a tape.
+Xexport PERCENT=6200	# This is the last five percent of disk space
+Xexport MAXOFFSET=45384  # or B1FE 512 byte blocks = 23329792 bytes
+X# was 45566
+X# If we add 2 blocks for header, B200 512 byte blocks
+X# or 1DAA blocks per stream???
+X# The MAXOFFSET revised 9-29-92 by experimentation.
+END_OF_header.sh
+if test 2031 -ne `wc -c <header.sh`; then
+    echo shar: \"header.sh\" unpacked with wrong size!
+fi
+chmod +x header.sh
+# end of overwriting check
+fi
+if test -f mk.index.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"mk.index.sh\"
+else
+echo shar: Extracting \"mk.index.sh\" \(2628 characters\)
+sed "s/^X//" >mk.index.sh <<'END_OF_mk.index.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/header.sh
+Xfi
+X
+XINDDIR="$WRKDIR/Indexes"
+X
+X# This should be the start of the program
+X
+Xecho `date +%T`" Starting read operations. "
+X
+Xwhile [ "$ret" != 0 ]
+Xdo
+X	Tgetname -t 2/dev/null
+X	ret=$?
+X	if [ "$ret" != 0 ]
+X	then
+X		echo "Please insert a tape. Q)uit or C)ontinue. \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit
+X		fi
+X		ret=1
+X	else
+X		Tgetname -v > /dev/null 2>/dev/null
+X#		Tgetname -r > /dev/null 2>/dev/null
+X#		ret=$?
+X		set `Tgetname -r | tr -d "'"`
+X		name=$1
+X		offset=$2
+X		if [ $offset = 0 ]
+X		then
+X			echo "\nYou may have inserted the wrong tape.
+XThis tape has no data written to it.  Enter \"g\" when you have
+Xanother tape inserted.  Enter \"q\" to quit."
+X			read -r ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				exit
+X			else
+Xecho "\nWaiting for another tape to be inserted.
+XPress any key to continue. Q)uit \c"
+X				read -r ch
+X				if [ "ch" = "q" -o "$ch" = "Q" ]
+X				then
+X					exit
+X				fi
+X			fi
+X			ret=1
+X		fi
+X	fi
+Xdone
+X
+X# 'read.vtoc -w9' will write all used chapters to standard out in column
+X# format. 
+X
+Xif [ ! -d $INDDIR ]
+Xthen
+X	mkdir $INDDIR
+X	chown netnews $INDDIR
+X	chgrp news $INDDIR
+Xfi
+X
+Xecho \
+X"# The format of entries is <Article Name> <File Number> <Chapter Number>" \
+X> $INDDIR/$name
+Xchown netnews $INDDIR/$name
+Xchgrp news $INDDIR/$name
+Xchmod 0644 $INDDIR/$name
+X 
+Xecho `date +%T`" The contents of tape \""$name"\" are:"
+X$SRCDIR/read.vtoc -w9
+Xbase=$PWD
+Xif [ ! -d $name ]
+Xthen
+X	mkdir $name
+Xfi
+X
+XTgetname +l
+Xfor chap in 1 2 3 4 5 6 7 8 9
+Xdo
+X	cd $base/$name
+X	set -u `$SRCDIR/read.vtoc -r$chap`
+X	if [ "$1" != "$chap" ]
+X	then
+X		continue
+X	fi
+X	offset=$2
+X	blocks=$3
+X	echo `date +%T`" Reading chapter $chap"
+X	if [ $offset -lt 0 -o $blocks -lt 0 ]
+X	then
+X		continue
+X	fi
+X	if [ ! -d $chap ]
+X	then
+X		mkdir $chap
+X	fi
+X	cd $chap
+X
+X	tapecpio -icuxRT32O$offset contents < /dev/rft3 2>/dev/null
+X	ret=$?
+X
+X	if [ $ret != 0 ]
+X	then
+Xecho "\tUnable to read a 'contents' entry in chapter $chap.
+X\tPushing on. Return was $ret"
+X	else
+X		sed -e 's/$/	'$chap'/' contents >> $INDDIR/$name.$$
+X	fi
+Xdone
+X
+Xcd $base
+Xecho `date +%T`" Rewinding tape in background."
+XTgetname -v &		# to rewind the tape
+XTgetname -l
+X
+Xecho `date +%T`" Changing arrangement of the '$name' Index file. "
+Xsort -fd -o $INDDIR/$name.$$ $INDDIR/$name.$$
+X$SRCDIR/group $INDDIR/$name.$$
+X
+Xecho "" >> $INDDIR/$name
+Xcat $INDDIR/$name.$$ >> $INDDIR/$name
+X
+Xecho `date +%T`" Your Index is: $INDDIR/$name."
+X
+Xrm -f $INDDIR/$name.$$
+Xrm -f /tmp/tape.vtoc
+Xrm -f /tmp/ss.osets
+Xrm -f ss.filelist
+Xrm -f c.pntrs
+Xrm -rf $name
+Xexit
+END_OF_mk.index.sh
+if test 2628 -ne `wc -c <mk.index.sh`; then
+    echo shar: \"mk.index.sh\" unpacked with wrong size!
+fi
+chmod +x mk.index.sh
+# end of overwriting check
+fi
+if test -f params -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"params\"
+else
+echo shar: Extracting \"params\" \(235 characters\)
+sed "s/^X//" >params <<'END_OF_params'
+XNext fnum to link:	159
+XNumber of bytes held:	2,261,378
+XDate last squirreled:	93-03-08
+XName of work tape:	Data-002
+XBlocks of offset:	31000
+XDate last taped:	93-03-05
+XBlocks available:	14384
+XNext chapter number:	6
+XCompression factor:	929
+END_OF_params
+if test 235 -ne `wc -c <params`; then
+    echo shar: \"params\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f prep.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"prep.sh\"
+else
+echo shar: Extracting \"prep.sh\" \(2522 characters\)
+sed "s/^X//" >prep.sh <<'END_OF_prep.sh'
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/header.sh
+Xfi
+X
+Xecho `date +%T`" Starting prep routines for transfer to tape."
+X
+Xcurrdir=$PWD
+Xcd $WRKDIR
+X
+X# Clean out any previous effort to generate a 'savdir' etc.  Then
+X# create new ones.
+X
+Xif [ -d $SAVDIR ]
+Xthen
+X	rm -r $SAVDIR
+Xfi
+Xmkdir $SAVDIR
+X
+Xif [ -f $TMP1 ]
+Xthen
+X	rm $TMP1
+Xfi
+Xif [ -f $TMP2 ]
+Xthen
+X	rm $TMP2
+Xfi
+X
+Xif [ -s $PARAMS ]
+Xthen
+X	fnum=`awk - '{ if ( $0 ~ /Last fnum:/ ) print $3 }' $PARAMS`
+Xelse
+X	echo "\t\tWe are in trouble!"
+X	echo "\tThere is no $PARAMS file so the 'squirrel'ed data is"
+X	echo "\tdefective.  Clean it up before proceeding."
+X	read
+X	exit 1
+Xfi
+X
+X> $CONFILE
+Xls -1 $ARCDIR > $PNTRS
+X
+Xecho `date +%T`" Reading 'Subject:' lines from 'arcdir'. "
+X
+X# Go through all the files in 'arcdir' and read the 'Subject: ' line.
+X# Add a tab and the file number to the line and put it in 'contents'.
+Xwhile
+X	read pntr
+Xdo
+X	sed -n '/^Subject:/ {
+X			s/Subject: //
+X			s/$/	'$pntr'/p; q
+X			}' $ARCDIR/$pntr >> $CONFILE
+Xdone <$PNTRS
+X
+Xecho `date +%T`" Changing arrangement of the 'contents' file. "
+X
+X# Sort the 'contents' then run 'group' to place followup articles
+X# following the original.  'Group' also produces 'c.pntrs' which is
+X# a listing of the files in the same order that they appear
+X# in the 'contents'.
+X
+Xsort -fd -o $CONFILE $CONFILE
+X$SRCDIR/group $CONFILE
+X
+Xecho "\nYou should have a destination tape installed in the drive at
+Xthis point.  It will then have completed the retension phase
+Xbefore you need it.\n"
+X
+Xecho `date +%T`" Moving and compressing files to be taped. "
+X# Get the 'arcdir' file names from 'contents' and transfer to 'savdir'
+X# while compressing.  Be careful not to use up the last 5 percent of
+X# disk.
+Xwhile
+X	read pntr
+Xdo
+X	sed '/^Path:/d' $ARCDIR/$pntr | compress > $SAVDIR/$pntr.Z
+X	chgrp $GRP $SAVDIR/$pntr.Z
+X	chown $OWN $SAVDIR/$pntr.Z
+X	set `df $NEWSDEV`
+X	if [ $3 -lt $PERCENT ]
+X	then
+X		total=`cat $PNTRS | wc -l`
+X		lnum=`fgrep -nx $pntr $PNTRS | cut -f1 -d":"`
+X		let needed="$total-$lnum"
+Xecho "You are running low on disk space.  There are only $3 blocks
+Xremaining.  So far, $lnum of $total files have been compressed.
+X	A. Single step through the rest of the list.
+X	B. Open another window and transfer data to floppy disks.
+X	C. Go ahead and put what we have on tape, save the rest.
+X	D. Quit for now.
+XEnter A, B, C, or D. <cr>"
+X		read ans
+X		if [ "$ans" = "d" -o "$ans" = "D" ]
+X		then
+X			cd $currdir
+X			exit 1
+X		elif [ "$ans" = "c" -o "$ans" = "C" ]
+X		then
+X			break
+X		fi
+X	fi
+Xdone < $PNTRS
+X
+Xcp $PNTRS $CPNTRS
+X
+X# Now do the tape operations.
+Xwr.tape.sh
+END_OF_prep.sh
+if test 2522 -ne `wc -c <prep.sh`; then
+    echo shar: \"prep.sh\" unpacked with wrong size!
+fi
+chmod +x prep.sh
+# end of overwriting check
+fi
+if test -f rd.tape.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"rd.tape.sh\"
+else
+echo shar: Extracting \"rd.tape.sh\" \(2364 characters\)
+sed "s/^X//" >rd.tape.sh <<'END_OF_rd.tape.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/header.sh
+Xfi
+X
+X
+X# This should be the start of the program
+X
+Xecho `date +%T`" Starting read operations. "
+X
+Xwhile [ "$ret" != "0" ]
+Xdo
+X	Tgetname -t 2/dev/null
+X	ret=$?
+X	if [ "$ret" != "0" ]
+X	then
+X		echo "$ret, Please insert a tape. Q)uit or C)ontinue. \c"
+X		read -r ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit
+X		fi
+X		ret=1
+X	else
+X# From here on, the tape drive is locked, any 'exit' must perform
+X# 'Tgetname -l' to unlock the drive before leaving.
+X		Tgetname +l
+X		Tgetname -v > /dev/null 2>/dev/null
+X		Tgetname -r > /dev/null 2>/dev/null
+X		ret=$?
+X		set `Tgetname -r | tr -d "'"`
+X		name=$1
+X		offset=$2
+X		if [ $offset = 0 ]
+X		then
+X			echo "\nYou may have inserted the wrong tape.
+XThis tape has no data written to it.  Enter \"g\" when you have
+Xanother tape inserted.  Enter \"q\" to quit."
+X			read -r ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				Tgetname -l
+X				exit
+X			else
+Xecho "\nWaiting for another tape to be inserted.
+XPress any key to continue. Q)uit \c"
+X				read -r ch
+X				if [ "ch" = "q" -o "$ch" = "Q" ]
+X				then
+X					Tgetname -l
+X					exit
+X				fi
+X			fi
+X			ret=1
+X		fi
+X	fi
+Xdone
+X
+X# 'read.vtoc -w9' will write all used chapters to standard out in column
+X# format. 
+X
+Xecho `date +%T`" The contents of tape \""$name"\" are:"
+X		$SRCDIR/read.vtoc -w9
+Xecho "Which chapter do you wish to access? \c"
+Xread chap
+X
+Xif [ "$chap" = "" ]
+Xthen
+X	Tgetname -l
+X	exit
+Xfi
+X
+Xset `$SRCDIR/read.vtoc -r$chap`
+Xoffset=$2
+Xblocks=$3
+X
+Xbase=$PWD
+Xif [ ! -d $name ]
+Xthen
+X	mkdir $name
+Xfi
+Xcd $name
+Xif [ ! -d $chap ]
+Xthen
+X	mkdir $chap
+Xfi
+Xcd $chap
+X
+Xtapecpio -icuxRT32O$offset contents < /dev/rft3 2>/dev/null
+Xret=$?
+Xif [ $ret != 0 ]
+Xthen
+X	echo "ret = "$ret
+X	echo "\tThere was an error during the reading of the source tape.
+X\tBailing out!  Please rerun this program."
+X	Tgetname -l
+X	exit 1
+Xfi
+X$SRCDIR/pick.files
+Xrslt=$?
+Xif [ "$rslt" != 0 ]
+Xthen
+X	echo `date +%T`" Searching for files."
+X	list=`cat r.pntrs`
+X	dbuf -iT124O$offset /dev/rft3 | \
+X	   execStrip tapecpio -icvR"T124" $list 1> /dev/null 2>$WRKDIR/errs
+X
+X	echo `date +%T`" Rewinding tape."
+Xfi
+X
+XTgetname -l
+XTgetname -v &		# to rewind the tape
+Xecho `date +%T`" Your recovered files are in:\n"$PWD
+X
+Xrm -f /tmp/tape.vtoc
+Xrm -f r.pntrs
+Xrm -f ss.filelist
+Xrm -f $PWD/contents
+X
+Xcd $base
+Xexit
+END_OF_rd.tape.sh
+if test 2364 -ne `wc -c <rd.tape.sh`; then
+    echo shar: \"rd.tape.sh\" unpacked with wrong size!
+fi
+chmod +x rd.tape.sh
+# end of overwriting check
+fi
+if test -f src/group.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/group.c\"
+else
+echo shar: Extracting \"src/group.c\" \(4119 characters\)
+sed "s/^X//" >src/group.c <<'END_OF_src/group.c'
+X/* This is a 'c' version of a 'sed/awk' script I first used to group
+X * similar titles together in the contents.  It isn't as fast as some
+X * other algorithm might be but it beats the devil out of the script.
+X * That script took 20 minutes to process 800 titles!!!
+X *
+X * The 'contents' is first read into the memory space allocated to
+X * 'r1'.  'r1' is then scanned to count the number of lines.  Next
+X * 'r2' is allocated of sufficient size to hold 'lncnt' entries  of
+X * 'item' and 'r3' is allocated to hold 'lncnt' pointers to 'item'.
+X * The 'items' in 'r2' are filled in by a second scan of 'r1'.
+X * 'line' contains a pointer into 'r1' to the start of each entry in
+X * the 'contents' listing and 'leng' is the number of characters in
+X * the title.
+X * The top 'item' is then used as pattern for scanning the remainder
+X * of 'r1' for entries which contain the pattern or which are contained
+X * in the pattern.  When a match is found, the '*line' is written to
+X * 'r4' and the 'leng' value in 'r2' is set to zero to indicate to
+X * subsequent searchs that that entry has been "found".  After each
+X * pass, the 'r4' array is sorted to length and the **char's are
+X * added to 'r3'.
+X * After the scan sequence is completed, the data is read out from 'r1'
+X * to the reopened 'contents' in the newly ordered sequence.
+X */
+X
+X#include <fcntl.h>
+X#include <malloc.h>
+X#include <stdio.h>
+X
+X#define CFILE "contents"
+X#define PFILE "c.pntrs"
+X
+Xtypedef struct {
+X	char *line;
+X	int leng;
+X	} item;
+X
+XFILE	*fds1, *fds2;
+Xmain( argc, argv )
+Xint argc;
+Xchar *argv[];
+X{
+X	int i, k, fd, lcnt, done;
+X	int size;
+X	char fname[120];
+X	char *c1, *c2, *c3, *c4;
+X	item *i1, *i2, *i3;
+X	char **l1;
+X	char *r1, *lim_r1;
+X	item *r2, *lim_r2;
+X	char **r3, **lim_r3;
+X	item *r4[200];
+X	char errbuf[80];
+X	
+X	if ( argc == 0 ) strcpy( fname, CFILE );
+X	else strncpy( fname, argv[1], sizeof( fname ) -1 );
+X	if ( access( fname, 04 ))
+X	{
+X		sprintf( errbuf, "No \"%s\" file.", fname );
+X		perror( errbuf );
+X		exit( 1);
+X	}
+X	fd = open( fname, O_RDONLY );
+X	size = lseek( fd, 0, 2 );
+X	lseek( fd, 0, 0 );
+X	r1 = malloc( size );
+X	lim_r1 = r1 + size;
+X	read( fd, r1, size );
+X	close( fd );
+X	for( c1 = r1, lcnt = 0; c1 <= r1 + size ; c1++ )
+X		if ( *c1 == '\n' ) lcnt++;
+X	r2 = (item *)calloc( lcnt, sizeof( item ));
+X	lim_r2 = r2 + lcnt;
+X	r3 = (char **)calloc( lcnt, sizeof( char * ));
+X	lim_r3 = r3 + lcnt;
+X 	for( c1 = r1, i1 = r2; c1 < lim_r1 && i1 < lim_r2; i1++ )
+X	{
+X		i1->line = c1;
+X		c2 = c1;
+X		while( *c1 != '\n' && *c1 != '\t' ) c1++;
+X		if ( *c1 == '\t' ) i1->leng = c1 - c2;
+X		while( *c1 != '\n' ) c1++;
+X		*c1++ = '\0';
+X	}
+X	l1 = r3;
+X	for ( i1 = r2; i1 < lim_r2; i1++ )
+X	{
+X		if ( ! i1->leng ) continue;
+X		i = 0;
+X		r4[i++] = i1;
+X			/* Watch out for jerks who post with only '?' or '.' */
+X		if ( i1->leng > 2 ) for ( i2 = i1+1; i2 < lim_r2; i2++ )
+X		{
+X			if ( i2->leng == 0 ) continue;
+X			if ( i2->leng >= i1->leng )
+X			{
+X				k = i2->leng - i1->leng;
+X				c1 = i1->line;
+X				c2 = i2->line;
+X			}
+X			else
+X			{
+X				k = i1->leng - i2->leng;
+X				c1 = i2->line;
+X				c2 = i1->line;
+X			}
+X					/* Look for shorter string in the longer one. */
+X			while ( k-- >= 0 )
+X			{
+X				c3 = c1;			/* The shorter line */
+X				c4 = c2++;
+X				while ( *c3 == *c4 && *c3 != '\t' ) c3++, c4++;
+X				if ( *c3 == '\t' )
+X				{
+X					r4[i++] = i2;
+X					break;
+X				}
+X			}
+X		}
+X		done = 0;
+X	/* Now reorder the strings to put the shortest first. */
+X		while ( ! done )
+X		{
+X			done = 1;
+X			for ( k = 0; k < i - 1; k++ )
+X			{
+X				if ( r4[k]->leng > r4[k+1]->leng )
+X				{
+X					i3 = r4[k];
+X					r4[k] = r4[k+1];
+X					r4[k+1] = i3;
+X					done = 0;
+X				}
+X			}
+X		}
+X	/* Now move the pointers to the output array */
+X		for ( k = 0; k < i; k++ )
+X		{
+X			*l1++ = r4[k]->line;
+X			r4[k]->leng = 0;
+X	/* leng = 0 says this item already queued for output */
+X		}
+X 	}
+X	if (( fds1 = fopen( fname, "w" )) == 0 )
+X	{
+X		perror( "Opening contents file" );
+X		exit( -1 );
+X	}
+X
+X	if (( fds2 = fopen( PFILE, "w" )) == 0 )
+X	{
+X		perror( "Opening pointers file" );
+X		exit( -1 );
+X	}
+X 	for ( l1 = r3; l1 < lim_r3; l1++ )
+X	{
+X		fprintf( fds1, "%s\n", *l1 );
+X		c1 = *l1;
+X		while ( *c1++ != '\t' );
+X		fprintf( fds2, "%s\n", c1 );
+X	}
+X	fclose( fds1 );
+X	fclose( fds2 );
+X}
+END_OF_src/group.c
+if test 4119 -ne `wc -c <src/group.c`; then
+    echo shar: \"src/group.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/read.vtoc.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/read.vtoc.c\"
+else
+echo shar: Extracting \"src/read.vtoc.c\" \(3713 characters\)
+sed "s/^X//" >src/read.vtoc.c <<'END_OF_src/read.vtoc.c'
+X/* This is one way of getting around that damned 'TdspSSss' program
+X * makes a window that you can't kill. */
+X
+X/* Flags:
+X * 	c	print [num] chapter number and offset, for writing
+X * 	d	debug, prints data about all 9 chapters
+X * 	g	return the size of the larget chapter
+X * 	w	write, print data about all used chapters
+X * 	r	read, print chapter offset and size, only one
+X * 		entry if a number is included.
+X * 	-	ignored
+X * 	[0-9]	select specific chapter data
+X * 		if a chapter number is present with either 'c' or 'w'
+X * 		data relevant to that entry number is written to
+X * 		'/tmp/ss.osets'.
+X *	The return value is the chapter number of the next blank
+X * 	chapter unless [num] is used.  Then it is [num].
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X#include <string.h>
+X
+X#define VTOC "/tmp/tape.vtoc"
+Xstruct names {
+X	char text[46];
+X	short files;
+X	int start;
+X	int bytes;
+X};
+Xint fd, cflag, dflag, gflag, wflag, rflag;
+Xstruct names entry;
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int i, num;
+X	char *p, ch;
+X	i = 1;
+X	cflag = 0;
+X	dflag = 0;
+X	gflag = 0;
+X	rflag = 0;
+X	wflag = 0;
+X	num = -1;
+X	while ( i < argc )
+X	{
+X		p = argv[i];
+X		while ( ch = *p++ ) switch( ch )
+X		{
+X			case '0':
+X			case '1':
+X			case '2':
+X			case '3':
+X			case '4':
+X			case '5':
+X			case '6':
+X			case '7':
+X			case '8':
+X			case '9':num = ch & 0x0f; break;
+X			case 'c':cflag = 1; break;
+X			case 'd':dflag = 1; break;
+X			case 'g':gflag = 1; break;
+X			case 'r':rflag = 1; break;
+X			case 'w':wflag = 1; break;
+X			case '-':
+X			default: break;
+X		}
+X		i++;
+X	}
+X	if (( fd = open( VTOC, O_RDONLY)) == -1 )
+X	{
+X		perror("Can't open /tmp/tape.vtoc");
+X		exit( -1 );
+X	}
+X	lseek( fd, 520, 0 );
+X	if ( wflag | cflag ) i = w_info( num );
+X	else if ( rflag ) i = r_info( num );
+X	else if ( gflag ) i = greatest(fd);
+X	close( fd );
+X	exit( i );
+X}
+X
+Xint w_info( num )
+Xint num;
+X{
+X	int fd2, i, j, k, m, n;
+X	char *p;
+X	char buf1[20];
+X	char name[10];
+X	char id[16];
+X	char comment[26];
+X	if ( num != '\0' ) j = num;
+X	else j = -1;
+X	k = 0;
+X	if ( wflag ) printf(
+X"Chap   Name      Comment                  Files  Offset  Size\n");
+X	for (i=1; i <= 9; i++)
+X	{
+X		read( fd, &entry, sizeof(entry) );
+X 		if ( entry.text[0] < '\0' )
+X		{
+X			if ( dflag ){
+X				entry.text[0] = '\0';
+X				entry.text[8] = '\0';
+X				entry.text[21] = '\0';
+X			}
+X			else
+X			{
+X				if ( cflag ) {
+X					printf( "%d %d", i, k );
+X					return( i++ );
+X				}
+X				j = i;
+X			}
+X		}
+X		if ( wflag && entry.text[0] > '\0' )
+X		{
+X			m = 0;
+X			for ( n=0; n < 8; n++ ) name[n]=entry.text[m++];
+X			name[n]='\0';
+X			for ( n=0; n < 13; n++ ) id[n]=entry.text[m++];
+X			id[n]='\0';
+X			for ( n=0; n < 24; n++ ) comment[n]=entry.text[m++]; 
+X			comment[n]='\0';
+X			printf(
+X					"%3d  %-8s   %-24s   %4d %6d %6d\n", i,
+X					name, comment, entry.files, entry.start,
+X					entry.bytes );
+X		}
+X		if ( i == j )
+X		{
+X 			sprintf( buf1,"%d:%d",
+X				entry.start, entry.bytes );
+X			for ( m = 0, p = buf1; *p; m++, p++ );
+X			*p++=m;
+X			*p = '\0';
+X			fd2 = open( "/tmp/ss.osets",
+X					O_WRONLY | O_CREAT | O_TRUNC, 0666 );
+X			write( fd2, buf1, strlen( buf1 ) );
+X			close( fd2 );
+X			if ( cflag )
+X			{
+X				printf( "%d %d", i, k );
+X				return( i++ );
+X			}
+X			return( i );
+X		}
+X		k = entry.start + entry.bytes;
+X	}
+X	return( i );
+X} 
+X
+Xint r_info( num )
+Xint num;
+X
+X{
+X	int i, k;
+X	k = num;
+X	for ( i = 1; i <= 9 ; i++ )
+X	{
+X		read( fd, &entry, sizeof(entry) );
+X		if ( entry.text[0] < '\0' ) {
+X			printf( "0 0 0" );
+X			break;
+X		}
+X		if ( num == -1 ) k = i;
+X		if ( i == k ) printf( "%d %d %d", i,
+X				entry.start, entry.bytes );
+X	}
+X	return( i );
+X}
+X
+Xint greatest(fd)
+Xint fd;
+X{
+X	int i, j, k;
+X	k = 0;
+X	for ( i = 1; i <= 9 ; i++ )
+X	{
+X		read( fd, &entry, sizeof(entry) );
+X		if ( entry.text[0] < '\0' ) break;
+X		j = entry.bytes;
+X		if ( j > k ) k = j;
+X	}
+X	printf( "%d", k );
+X	return( 0 );
+X}
+END_OF_src/read.vtoc.c
+if test 3713 -ne `wc -c <src/read.vtoc.c`; then
+    echo shar: \"src/read.vtoc.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f utils/convert.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/convert.sh\"
+else
+echo shar: Extracting \"utils/convert.sh\" \(1514 characters\)
+sed "s/^X//" >utils/convert.sh <<'END_OF_utils/convert.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh
+Xfi
+X
+X# This is the start of the program
+X
+Xawk -F"	" - '{ if ( $0 ~ /State of operations:/ ) ok1 = 1
+X		}
+X		END{
+X		if ( ok1 != 1 )	print "State of operations:	1"
+X	}' $RDPARMS >> $RDPARMS
+X
+Xif [ ! -s $PARAMS ]
+Xthen
+X	echo "Next fnum to link:	1" > $PARAMS
+X	echo "Number of bytes held:	0" >> $PARAMS
+X	echo "Date last squirreled:	0" >> $PARAMS
+X	echo "Next chapter number:	1" >> $PARAMS
+X	echo "Blocks of offset:	0" >> $PARAMS
+X	chgrp $GRP $PARAMS
+X	chown $OWN $PARAMS
+Xfi
+X
+Xstate=1
+X
+Xwhile [ 1 ]
+Xdo
+X	state=`sed -n 's/State of operations:\	//p' $RDPARMS`
+X	case $state in
+X		1) util.rd.sh
+X			ret=$?
+X			if [ "$ret" = "0" ]
+X			then
+X				state=2
+X			else
+X				Tgetname -l
+X				exit
+X			fi;;
+X		2) util.sq.sh
+X			ret=$?
+X			case $ret in
+X				0) state=1;;
+X				1) tgetname -l
+X					exit;;
+X				2) state=3;;
+X			esac;;
+X		3) Tgetname -l
+X			util.prep.sh
+X			ret=$?
+X			if [ "$ret" = 0 ]
+X			then
+X				state=4
+X			else
+X				exit
+X			fi;;
+X		4) util.wr.sh
+X			ret=$?
+X			if [ "$ret" = 0 ]
+X			then
+X				state=1
+Xecho `date +%T`" Finished writing to new tape.  Reinsert the source tape.
+X<cr> to continue. Q)uit."
+X				read ch
+X				if [ "$ch" = "q" -o "$ch" = "Q" ]
+X				then
+X					exit
+X				fi
+X			else
+X				exit
+X			fi;;
+X	esac
+Xawk -F"	" - '{ if ( $0 ~ /State of operations:/ ) $2 = "'"$state"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $RDPARMS
+X	mv $TMP1 $RDPARMS
+X	chgrp $GRP $RDPARMS
+X	chown $OWN $RDPARMS
+X
+Xdone
+Xexit
+END_OF_utils/convert.sh
+if test 1514 -ne `wc -c <utils/convert.sh`; then
+    echo shar: \"utils/convert.sh\" unpacked with wrong size!
+fi
+chmod +x utils/convert.sh
+# end of overwriting check
+fi
+if test -f utils/set_up.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/set_up.sh\"
+else
+echo shar: Extracting \"utils/set_up.sh\" \(3149 characters\)
+sed "s/^X//" >utils/set_up.sh <<'END_OF_utils/set_up.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh
+Xfi
+X
+X
+X# This should be the start of the program
+Xecho "This script allows you to select the partially filled chapter and read
+Xit to the 'cache' directory.  It can then be appended to and rewritten
+Xto the same chapter. <cr> \c"
+Xread ch
+X
+Xret=1
+Xwhile [ $ret != 0 ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret != 0 ]
+X	then
+Xecho "Please a target tape. <cr> to continue, Q)uit. \c"
+X		read  ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X		ret=1
+X	fi
+Xdone
+X
+XTgetname -v > /dev/null
+Xset `Tgetname -r | tr -d "'"`
+Xname=$1
+Xfoffset=$2
+X
+Xwhile [ 1 ]
+Xdo
+X	echo "\tThe contents of tape '$name' are:"
+X	$SRCDIR/read.vtoc -w9
+X	echo "Select which chapter to move to 'cache'. \c"
+X	read chap
+X	if [ $cHap -eq 0 -o $chap -gt 9 ]
+X	then
+X		echo "\nTry again, '$chap" is not a legal number."
+X	fi
+X	set `$SRCDIR/read.vtoc -r$chap`
+X	offset=$2
+X	blocks=$3
+X	echo "\tYou have selected to read '$blocks' blocks from chapter '$chap'
+X	starting at offset '$offset'. <y/n> \c"
+X	read ch
+X	if [ "$ch" = "y" -o "$ch" = "Y" ]
+X	then
+X		break
+X	fi
+Xdone
+Xecho `date +%T`" Reading chapter $chap from tape '$name' starting \
+Xat $offset offset."
+Xif [ ! -d $CACHE ]
+Xthen
+X	mkdir $CACHE
+Xfi
+Xcd $CACHE
+Xdbuf -iT248O$offset /dev/rft3 2>/dev/null | \
+X	execStrip tapecpio -icdR"T248" >/dev/null 2>$WRKDIR/errs
+Xret=$?
+Xif [ $ret != 0 ]
+Xthen
+X	echo "ret = "$ret
+X	echo "Whoops.  There was an error during the updating '$name'.
+XBailing out!  Please rerun this program."
+X	exit 1
+Xfi
+Xcd $WRKDIR
+X
+Xif [ ! -s $RDPARMS ]
+Xthen
+X	> $RDPARMS
+Xfi
+Xawk -F"	" - '{	if ( $0 ~ /Number of bytes held:/ ) ok1 = 1
+X		if ( $0 ~ /Next fnum to link:/ ) ok2 = 1
+X		if ( $0 ~ /Name of work tape:/ ) ok3 = 1
+X		if ( $0 ~ /Blocks of offset:/ ) ok4 = 1
+X		if ( $0 ~ /Date last taped:/ ) ok5 = 1
+X		if ( $0 ~ /Blocks available:/ ) ok6 = 1
+X		if ( $0 ~ /Next chapter number:/ ) ok7 = 1
+X		if ( $0 ~ /Compression factor:/ ) ok8 = 1
+X		if ( $0 ~ /Name of source tape:/ ) ok11 = 1
+X		if ( $0 ~ /Next source chapter:/ ) ok9 = 1
+X		if ( $0 ~ /Comment:/ ) ok10 = 1
+X	}
+X	END{	if ( ok1 != 1 ) print "Number of bytes held:	0"
+X		if ( ok2 != 1 ) print "Next fnum to link:	0"
+X		if ( ok3 != 1 ) print "Name of work tape:	blank"
+X		if ( ok4 != 1 ) print "Blocks of offset:	0"
+X		if ( ok5 != 1 ) print "Date last taped:	1-1-1"
+X		if ( ok6 != 1 ) print "Blocks available:	45384"
+X		if ( ok7 != 1 ) print "Next chapter number:	1"
+X		if ( ok8 != 1 ) print "Compression factor:	1024"
+X		if ( ok11 != 1 ) print "Name of source tape:	blank"
+X		if ( ok9 != 1 ) print "Next source chapter:	1"
+X		if ( ok10 != 1 ) print "Comment:	"
+X	}' $RDPARMS >> $RDPARMS
+X(( avail = $MAXOFFSET - $offset ))
+Xawk -F"	" - '{ if ( $0 ~ /Name of work tape:/ ) $2 = "'"$name"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = "'"$chap"'"
+X		if ( $0 ~ /Blocks of offset:/ ) $2 = "'"$offset"'"
+X		if ( $0 ~ /Blocks available:/ ) $2 = "'"$avail"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $RDPARMS
+Xmv $TMP1 $RDPARMS
+X
+XTgetname -b
+Xsafe=$?
+Xif [ $safe = 30 ]
+Xthen
+X	echo "\n\tThis tape has the \"SAFE\" key set.
+X\tYou will need to reset it before trying to write."
+Xfi
+END_OF_utils/set_up.sh
+if test 3149 -ne `wc -c <utils/set_up.sh`; then
+    echo shar: \"utils/set_up.sh\" unpacked with wrong size!
+fi
+chmod +x utils/set_up.sh
+# end of overwriting check
+fi
+if test -f utils/trim.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/trim.sh\"
+else
+echo shar: Extracting \"utils/trim.sh\" \(3621 characters\)
+sed "s/^X//" >utils/trim.sh <<'END_OF_utils/trim.sh'
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh	# Use this for start up
+Xfi
+X
+Xcheck=$1
+Xbad_blocks=0
+X
+Xfunction move_em
+X{
+X	source=$1
+X	target=$2
+X	rm -f $source/contents $source/ss.filelist
+X	ls -l $source | cut -c27-37,51- | sort -nr > $TMP1
+X
+X# Add in 200 bytes for each file, 85 for the cpio header,
+X# 59 for the 'contents' file
+X# size of ss.filelist entry handled by "length $2 + 2", '-' & '\n'
+X	set `awk - 'BEGIN{ source = "'"$source"'"
+X		target = "'"$target"'"
+X		sum = "'"$sum"'" + 0
+X		lim = "'"$hi_lim"'" + 0
+X		fnum = "'"$fnum"'" + 0
+X		max = lim * 512 }
+X		{
+X			if ( $2 == "" ) next
+X			tsum = $1 + sum + 134 + length ( $2 ) + 2
+X			if ( tsum <= max ) {
+X			print source"/"$2" "target"/"fnum".Z" > "'"$TMP2"'"
+X				sum = tsum
+X				fnum++
+X			}
+X		}
+X		END { print sum"	"fnum }' $TMP1`
+X	sum=$1
+X	fnum=$2
+X	
+X	while
+X		read line
+X		[ "$line" != "" ]
+X	do
+X		mv $line
+X	done < $TMP2
+X	rm -f $TMP1 $TMP2
+X	return 0
+X}
+X
+Xif [ "$check" = "test" ]
+Xthen
+X	echo "\tChecking for amount of residual data. \c"
+Xelse
+X	echo `date +%T`" Preparing chapter size. \c"
+Xfi
+X
+Xpoffset=`sed -n 's/Blocks of offset:\	//p' $PARAMS`
+Xpchap=`sed -n 's/Next chapter number:\	//p' $PARAMS`
+X
+X(( hi_lim =  ( MAXOFFSET - poffset ) / ( 10 - pchap ) ))
+X
+X# The '248' value is associated with the size of buffer used to
+X# write to tape.
+X#if [ $pchap -lt 9 ]
+X#then
+X	while
+X		(( hi_lim % 248 ))
+X	do
+X		(( hi_lim = hi_lim + 1 ))
+X	done
+X#fi
+X
+X# Start with 255 bytes. 85 for the cpio header for
+X# 'contents', 'ss.filelist' and 'TRAILER!!!'
+Xsum=255
+Xblks=0
+Xfnum=1
+X
+Xif [ ! -d $CACHE ]
+Xthen
+X	echo "We have 0 blocks on hand."
+X	exit 0
+Xfi
+X
+Xls -l $CACHE | tee $TMP1 | cut -c27-37,51- | sort -nr > $TMP2
+Xa_blks=`cat $TMP1 2>/dev/null | sed -e '1 q' | cut -d' ' -f2`
+Xif [ "$check" = "test" ]
+Xthen
+X# Add in 200 bytes for each file, 85 for the cpio header,
+X# 59 for the 'contents' file and 6 for the 'ss.filest'.
+X	blks=`awk 'BEGIN { sum = "'"$sum"'" }
+X		{ sum = sum + $1 + 134 + length ( $2 ) + 2 }
+X		END { blks = sum / 512; printf "%d\n", blks }' $TMP2`
+X	rm -f $TMP1 $TMP2
+X	if [ $blks -ge $hi_lim ]
+X	then
+X		echo "\nThere are already $blks blocks in the 'cache'.
+X	We won't need to read the next chapter now."
+X		exit 3
+X	else
+X		echo "We have $blks blocks on hand."
+X		exit 0
+X	fi
+Xelse
+X	echo "Size will be $hi_lim blocks."
+Xfi
+X
+Xfor i in $ARCDIR $SAVDIR $CACHE
+Xdo
+X	if [ ! -d $i ]
+X	then
+X		mkdir $i
+X	fi
+Xdone
+X
+Xecho "Chap $pchap, estimate = $hi_lim." >> vch
+Xecho "$hi_lim" > hi_limit
+X
+Xls -l $SAVDIR | tee $TMP1 | cut -c27-37,51- | sort -nr > $TMP2
+Xs_blks=`cat $TMP1 2>/dev/null | sed -e '1 q' | cut -d' ' -f2`
+Xif [ $s_blks -ne 0 ]
+Xthen
+X	fnum=`wc -l $TMP2 | cut -c1-8`
+X	sum=`awk 'BEGIN { sum = 0 }
+X		{ sum = sum + $1 + 82 }
+X		END { print sum }' $TMP2`
+X	rm -f $TMP1 $TMP2
+Xfi
+X
+Xif [ $a_blks -ne 0 ]
+Xthen
+X	echo `date +%T`" Moving residual 'cache' to 'savdir'."
+X	move_em $CACHE $SAVDIR
+Xfi
+X
+Xc_blks=`ls -l $ARCDIR | sed -e '1 q' | cut -d' ' -f2`
+Xif [ $c_blks -ne 0 ]
+Xthen
+X	echo `date +%T`" Moving 'cache' to 'savdir'."
+X	move_em $ARCDIR $SAVDIR
+Xfi
+X
+Xc_blks=`ls -l $ARCDIR | sed -e '1 q' | cut -d' ' -f2`
+Xif [ $c_blks -ne 0 ]
+Xthen
+X	num=`ls -l $CACHE | sed -e '1 q' | cut -d' ' -f2`
+X	(( num = num + 1 ))
+X	echo `date +%T`" Moving residual 'cache' to 'cache'."
+X	ls -1 $ARCDIR > $TMP1
+X	while
+X		read pntr
+X	do
+X		mv $ARCDIR/$pntr $CACHE/$$$num.Z
+X		(( num = num + 1 ))
+X	done < $TMP1
+X	rm $TMP1
+Xfi
+X
+X(( diff = $hi_lim - ( $sum / 512 ) ))
+X
+Xecho "Chap $pchap, difference = $diff." >> vch
+Xecho "$sum" > sum
+Xif [ $diff -gt 1 ]
+Xthen
+X#	$SRCDIR/read.vtoc -w9
+X	echo \
+X"\n\tWe will have $diff empty blocks remaining.
+X\tShall we read another chapter? <y/n> \c"
+X	read ch
+X	if [ "$ch" = "y" -o "$ch" = "Y" ]
+X	then
+X		exit 1
+X	fi
+Xfi
+Xexit 0
+END_OF_utils/trim.sh
+if test 3621 -ne `wc -c <utils/trim.sh`; then
+    echo shar: \"utils/trim.sh\" unpacked with wrong size!
+fi
+chmod +x utils/trim.sh
+# end of overwriting check
+fi
+if test -f utils/util.hdr.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/util.hdr.sh\"
+else
+echo shar: Extracting \"utils/util.hdr.sh\" \(1256 characters\)
+sed "s/^X//" >utils/util.hdr.sh <<'END_OF_utils/util.hdr.sh'
+X
+X# The purpose of this script is to prepare the 'squirrel'ed files
+X# for transfer to tape.  This consists of building a 'contents'
+X# file from the "Subject" line in the posted articles.  The 'contents'
+X# is sorted and similar titles are moved together for easier reference.
+X# The articles are then compressed and moved to the 'savdir' where
+X# they can copied to tape.
+X
+Xexport NEWSDEV=/dev/fp002
+Xexport WRKDIR=/news/.tape.ops/utils
+Xexport CACHE=$WRKDIR/cache
+Xexport ARCDIR=$WRKDIR/arcdir
+Xexport RDPARMS=$WRKDIR/rd.params
+Xexport PARAMS=$WRKDIR/rd.params		# was "wr.params"
+Xexport SAVDIR=$WRKDIR/savdir
+Xexport CONFILE=$WRKDIR/contents
+Xexport SRCDIR=/news/.tape.ops/src
+Xexport PNTRS=$WRKDIR/pntrs
+Xexport CPNTRS=$WRKDIR/c.pntrs
+Xexport LIST=$WRKDIR/save.list		# Directory list to be saved
+Xexport LINKS=$WRKDIR/link.list
+Xexport KLINKS=$WRKDIR/wrk.links
+Xexport GOOFS=$WRKDIR/goofs
+Xexport TMP1=$WRKDIR/tmpp1
+Xexport TMP2=$WRKDIR/tmpp2
+Xexport COPY=0
+Xexport GRP=news
+Xexport OWN=netnews
+Xexport PERCENT=6200	# This is the last five percent of disk space
+Xexport MAXOFFSET=45384  # or B1FE 512 byte blocks = 23329792 bytes
+X# was 45566
+X# If we add 2 blocks for header, B200 512 byte blocks
+X# or 1DAA blocks per stream???
+X# The MAXOFFSET revised 9-29-92 by experimentation.
+END_OF_utils/util.hdr.sh
+if test 1256 -ne `wc -c <utils/util.hdr.sh`; then
+    echo shar: \"utils/util.hdr.sh\" unpacked with wrong size!
+fi
+chmod +x utils/util.hdr.sh
+# end of overwriting check
+fi
+if test -f utils/util.prep.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/util.prep.sh\"
+else
+echo shar: Extracting \"utils/util.prep.sh\" \(2564 characters\)
+sed "s/^X//" >utils/util.prep.sh <<'END_OF_utils/util.prep.sh'
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh	# Use this for start up
+Xfi
+X
+Xecho `date +%T`" Starting prep routines for transfer to tape."
+X
+X# Clean out any previous effort to generate a 'savdir' etc.  Then
+X# create new ones.
+X
+Xif [ -d $SAVDIR ]
+Xthen
+X	rm -r $SAVDIR
+Xfi
+Xmkdir $SAVDIR
+X
+Xif [ -f $TMP1 ]
+Xthen
+X	rm $TMP1
+Xfi
+Xif [ -f $TMP2 ]
+Xthen
+X	rm $TMP2
+Xfi
+X
+Xif [ -s $PARAMS ]
+Xthen
+X	fnum=`awk - '{ if ( $0 ~ /Last fnum:/ ) print $3 }' $PARAMS`
+Xelse
+X	echo "We are in trouble!"
+X	echo "There is no $PARAMS file so the 'squirrel'ed data is"
+X	echo "defective.  Clean it up before proceeding."
+X	read
+X	exit 1
+Xfi
+X
+X> $CONFILE
+Xls -1 $ARCDIR > $PNTRS
+X
+Xecho `date +%T`" Reading 'Subject:' lines from 'arcdir'. "
+X
+X# Go through all the files in 'arcdir' and read the 'Subject: ' line.
+X# Add a tab and the file number to the line and put it in 'contents'.
+Xwhile
+X	read pntr
+Xdo
+X	subj=`sed -n '/^Subject:/ {
+X			s/Subject: //p
+X			q
+X			}' $ARCDIR/$pntr`
+X	if [ -n "$subj" ]
+X	then
+X		echo "$subj""\t"$pntr >> $CONFILE
+X	fi
+Xdone <$PNTRS
+X
+Xecho `date +%T`" Changing arrangement of the 'contents' file. "
+X# Sort the 'contents' then run 'group' to place followup articles
+X# following the original.  'Group' also produces 'c.pntrs' which is
+X# a listing of the files in the same order that they appear
+X# in the 'contents'.
+X
+Xsort -fd -o $CONFILE $CONFILE
+X$SRCDIR/group
+X
+Xecho "\tYou should have a destination tape installed in the drive at
+X\tthis point.  It will then have completed the retension phase
+X\tbefore you need it."
+X
+Xecho `date +%T`" Moving and compressing files to be taped. "
+X# Get the 'arcdir' file names from 'contents' and transfer to 'savdir'
+X# while compressing.  Be careful not to use up the last 5 percent of
+X# disk.  Strip the "Path:" line from the heading in the process.
+X
+Xwhile
+X	read pntr
+Xdo
+X	sed '/^Path:/d' $ARCDIR/$pntr | compress > $SAVDIR/$pntr.Z
+X	chgrp $GRP $SAVDIR/$pntr.Z
+X	chown $OWN $SAVDIR/$pntr.Z
+X	set `df $NEWSDEV`
+X	if [ $3 -lt $PERCENT ]
+X	then
+X		total=`cat $PNTRS | wc -l`
+X		lnum=`fgrep -nx $pntr $PNTRS | cut -f1 -d":"`
+X		let needed="$total-$lnum"
+Xecho "You are running low on disk space.  There are only $3 blocks
+Xremaining.  So far, $lnum of $total files have been compressed.
+X	A. Single step through the rest of the list.
+X	B. Open another window and transfer data to floppy disks.
+X	C. Go ahead and put what we have on tape, save the rest.
+X	D. Quit for now.
+XEnter A, B, C, or D. <cr>"
+X		read ans
+X		if [ "$ans" = "d" -o "$ans" = "D" ]
+X		then
+X			cd $currdir
+X			exit 1
+X		elif [ "$ans" = "c" -o "$ans" = "C" ]
+X		then
+X			break
+X		fi
+X	fi
+Xdone < $CPNTRS
+X
+Xexit 0
+END_OF_utils/util.prep.sh
+if test 2564 -ne `wc -c <utils/util.prep.sh`; then
+    echo shar: \"utils/util.prep.sh\" unpacked with wrong size!
+fi
+chmod +x utils/util.prep.sh
+# end of overwriting check
+fi
+if test -f utils/util.rd.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/util.rd.sh\"
+else
+echo shar: Extracting \"utils/util.rd.sh\" \(3269 characters\)
+sed "s/^X//" >utils/util.rd.sh <<'END_OF_utils/util.rd.sh'
+X# This is the sequence of operations to read articles from a tape
+X# prepared using 'prep' and 'wr.tape'.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.tape.ops/utils/util.hdr.sh
+Xfi
+X
+X
+X# This should be the start of the program
+X
+Xecho `date +%T`" Starting read operations. "
+Xtoday=`date '+%y-%m-%d'`
+Xif [ ! -f $RDPARMS ]
+Xthen
+X	> $RDPARMS
+X	chgrp $GRP $RDPARMS
+X	chown $OWN $RDPARMS
+Xfi
+X
+X# Check that the 'params' file has the proper entries.
+Xawk -F"	" - '{ if ( $0 ~ /Name of work tape:/ ) ok1 = 1
+X		if ( $0 ~ /Date last taped:/ ) ok2 = 1
+X		if ( $0 ~ /Next chapter number:/ ) ok5 = 1
+X		}
+X		END{
+X		if ( ok1 != 1 )	print "Name of work tape:	"
+X		if ( ok2 != 1 )	print "Date last taped:	0"
+X		if ( ok5 != 1 )	print "Next chapter number:	0"
+X	}' $RDPARMS >> $RDPARMS
+X
+Xret=1
+Xch=x
+Xwhile [ $ret != 0 ]
+Xdo
+X	Tgetname -t
+X	ret=$?
+X	if [ $ret != 0 ]
+X	then
+Xecho "Please insert a source tape. <cr> to continue, Q)uit. \c"
+X		read  ch
+X		if [ "$ch" = "q" -o "$ch" = "Q" ]
+X		then
+X			exit 1
+X		fi
+X		ret=1
+X	else
+X# From here on, the tape drive is locked, any 'exit' must perform
+X# 'Tgetname -l' to unlock the drive befor leaving.
+X#		Tgetname +l
+X		Tgetname -v > /dev/null
+X		set `Tgetname -r | tr -d "'"`
+X		name=$1
+X		$SRCDIR/read.vtoc -w9 > this.tape
+X		if [ -f old.tape ]
+X		then
+X			diff this.tape old.tape > /dev/null
+X			ret=$?
+X			if [ $ret != 0 ]
+X			then
+Xecho "This doesn't seen to be the tape that I have been reading.
+XWaiting for another tape to be inserted.
+X<cr> to continue. Q)uit \c"
+X				read ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X				then
+X					Tgetname -l
+X					exit 1
+X				fi
+X			fi
+X		else
+Xecho "There isn't any info about any previous tape.  If this is the beginning
+Xof a tape to be converted, <cr> to continue. Q)uit \c"
+X			Tgetname -l
+X			read ch
+X			if [ "$ch" = "q" -o "$ch" = "Q" ]
+X			then
+X				exit 1
+X			fi
+Xawk -F"	" - '{ if ( $0 ~ /Name of work tape:/ ) $2 = "'"$name"'"
+X		if ( $0 ~ /Date last taped:/ ) $2 = "'"$today"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = "1"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $RDPARMS
+X			mv $TMP1 $RDPARMS
+X			ret=0
+X		fi
+X	fi
+Xdone
+X
+X# Get params
+Xtdate=`sed -n 's/Date last taped:\	//p' $RDPARMS`
+Xchap=`sed -n 's/Next chapter number:\	//p' $RDPARMS`
+X
+Xset `$SRCDIR/read.vtoc -r$chap`
+Xoffset=$2
+Xblocks=$3
+Xcat this.tape
+Xbase=$PWD
+Xif [ -d recover ]
+Xthen
+X	echo `date +%T`" Purging old 'recover' directory. "
+X	rm -r recover
+Xfi
+Xmkdir recover
+Xcd recover
+X
+Xecho `date +%T`" Reading chapter $chap from tape '$name' starting \
+Xat $offset offset."
+Xdbuf -iT248O$offset /dev/rft3 2>/dev/null | \
+X	execStrip tapecpio -icdR"T248" >/dev/null 2>$WRKDIR/errs
+X
+Xret=$?
+Xif [ $ret != 0 ]
+Xthen
+X	echo "ret = "$ret
+X	echo "Whoops.  There was an error during the reading of '$name'.
+XBailing out!  Please rerun this program."
+X	Tgetname -l
+X	exit 1
+Xfi
+Xecho `date +%T`" Rewinding tape."
+Xnohup Tgetname -v >/dev/null 2>/dev/null &		# to rewind the tape
+X
+Xcd $base
+X
+X(( chap=chap+1 ))
+X$SRCDIR/read.vtoc -r$chap > /dev/null
+Xret=$?
+Xif [ $chap -ge $ret ]
+Xthen
+X	rm old.tape
+X	chap=1
+X	echo "This was the last chapter on this tape.  Next time insert \
+Xa different tape."
+X	Tgetname -l
+Xelse
+X	mv this.tape old.tape
+Xfi
+Xawk -F"	" - '{ if ( $0 ~ /Name of work tape:/ ) $2 = "'"$name"'"
+X		if ( $0 ~ /Next chapter number:/ ) $2 = "'"$chap"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $RDPARMS
+X		mv $TMP1 $RDPARMS
+Xrm -f /tmp/tape.vtoc
+Xexit 0
+END_OF_utils/util.rd.sh
+if test 3269 -ne `wc -c <utils/util.rd.sh`; then
+    echo shar: \"utils/util.rd.sh\" unpacked with wrong size!
+fi
+chmod +x utils/util.rd.sh
+# end of overwriting check
+fi
+if test -f utils/util.sq.sh -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"utils/util.sq.sh\"
+else
+echo shar: Extracting \"utils/util.sq.sh\" \(3944 characters\)
+sed "s/^X//" >utils/util.sq.sh <<'END_OF_utils/util.sq.sh'
+X# The purpose of this script is to 'squirrel' away files in the news
+X# files for transfer to tape.  By linking these files to entries in
+X# the 'arcdir', they are protected from 'expire' yet do not use up an
+X# great amount of disk space.
+X
+Xif [ ! "$WRKDIR" ]
+Xthen
+X	. /news/.start/utils/util.hdr.sh
+Xfi
+X
+Xecho `date +%T`" Running 'squirrel' to link files into 'arcdir'. "
+X
+X# To commence, let's find out the status of our files and generate
+X# the directories and file entries which are missing.
+X
+Xif [ ! -d $ARCDIR ]
+Xthen
+X	mkdir $ARCDIR
+X	chmod 755 $ARCDIR
+Xfi
+X
+Xif [ ! -s $PARAMS ]
+Xthen
+X	> $PARAMS
+X	chgrp $GRP $PARAMS
+X	chown $OWN $PARAMS
+X	fnum = 1
+Xelse
+X	fnum=`sed -n 's/Next fnum to link:\	//p' $PARAMS`
+Xfi
+X
+X# Check that the 'params' file has the proper entries.
+Xawk -F"	" - '{ 
+X		if ( $0 ~ /Next fnum to link:/ ) ok1 = 1
+X		if ( $0 ~ /Number of bytes held:/ ) ok2 = 1
+X		if ( $0 ~ /Date last squirreled:/ ) ok3 = 1
+X		if ( $0 ~ /Name of work tape:/ ) ok4 = 1
+X		if ( $0 ~ /Blocks of offset:/ ) ok5 = 1
+X		if ( $0 ~ /Date last taped:/ ) ok6 = 1
+X		if ( $0 ~ /Blocks available:/ ) ok7 = 1
+X		if ( $0 ~ /Next chapter number:/ ) ok8 = 1
+X		if ( $0 ~ /Compression factor:/ ) ok9 = 1
+X		}
+X		END{
+X		if ( ok1 != 1 )	print "Next fnum to link:	0"
+X		if ( ok2 != 1 )	print "Number of bytes held:	0"
+X		if ( ok3 != 1 )	print "Date last squirreled:	0"
+X		if ( ok4 != 1 )	print "Name of work tape:	News-000"
+X		if ( ok5 != 1 )	print "Blocks of offset:	0"
+X		if ( ok6 != 1 )	print "Date last taped:	0"
+X		if ( ok7 != 1 )	print "Blocks available:	45566"
+X		if ( ok8 != 1 )	print "Next chapter number:	0"
+X		if ( ok9 != 1 )	print "Compression factor:	1000"
+X	}' $PARAMS >> $PARAMS
+X
+Xtoday=`date '+%y-%m-%d'`
+X
+X# Check for a link list and either create a new one or copy
+X# the current one to wrk.links for upadating.
+X
+Xif [ -s $LINKS ]
+Xthen
+X	cp $LINKS $KLINKS
+Xelse
+X	> $KLINKS
+Xfi
+X
+Xx=fnum
+Xwhile [ -f $ARCDIR/$x ]
+Xdo
+X	rm -f $ARCDIR/$x
+X	(( x = x + 1 ))
+Xdone
+X
+Xrm -f $WRKDIR/contents
+Xrm -f $GOOFS
+X
+Xfunction recur
+X{
+X	if [ -d $1 -a `du -s $1 | cut -f1` = 1 ]
+X	then
+X		return -1
+X	fi
+X	typeset this next
+X	this=$1
+X	set `ls -1 $1`
+X	while [ $1 ]
+X	do
+X		next=$this/$1
+X		if [ -d $next ]
+X		then
+X			recur $next
+X		fi
+X		if [ -f $next ]
+X		then
+X			id=`sed -n '/^Message-ID:/ {
+X				s/Message-ID: //p
+X				q
+X				}' $next | tr -d "/*?^$\[\]|"`
+X			if [ -n "$id" ]
+X			then
+X				if
+X					[ -z "`sed -n '/'"$id"'/p' $KLINKS`" ]
+X				then
+X					if ln $next $ARCDIR/$fnum
+X					then
+X						let fnum="fnum+1"
+X						echo "$id""\t"$today \
+X							>> $KLINKS
+X					else
+X				echo $next",  "$ARCDIR/$fnum >> $GOOFS
+X					fi
+X				fi
+X			fi
+X		fi
+X		shift
+X	done
+X}
+X
+Xwhile
+X	read fname
+Xdo
+X	dname=`echo $fname | cut -f1 -d"#"`
+X	if [ -n "$dname" ]
+X	then
+X		echo `date +%T`" Squirreling "$dname.
+X		recur $WRKDIR/recover$dname
+X	fi
+Xdone <$LIST
+X
+X# Fudge the sum by 80 bytes for each entry to account fot the 'contents'
+X# file and the 'ss.filelist' which will added to the tape during write
+X# operations.
+Xnbytes=`ls -l $ARCDIR | awk - '{ sum = sum + $5 + 80 }
+X		END{ print sum }' - `
+X
+Xsort -d -o $LINKS $KLINKS
+X
+X> $TMP1
+Xawk -F"	" - '{ if ( $0 ~ /Next fnum to link:/ ) $2 = "'"$fnum"'"
+X		if ( $0 ~ /Number of bytes held:/ ) $2 = "'"$nbytes"'"
+X		if ( $0 ~ /Date last squirreled:/ ) $2 = "'"$today"'"
+X		print $1"	"$2 >> "'$TMP1'"
+X		}' $PARAMS
+Xmv $TMP1 $PARAMS
+Xchgrp $GRP $PARAMS
+Xchown $OWN $PARAMS
+Xchgrp $GRP $LINKS
+Xchown $OWN $LINKS
+Xrm -f $KLINKS
+X
+Xoffset=`sed -n 's/Blocks of offset:\	//p' $PARAMS`
+Xchap=`sed -n 's/Next chapter number:\	//p' $PARAMS`
+Xfactor=`sed -n 's/Compression factor:\	//p' $PARAMS`
+X
+X(( min_size = ( MAXOFFSET - offset ) / (10 - chap) ))  
+X(( this = nbytes/$factor ))	# blocks for this collection
+X
+Xecho `date +%T`" Squirrling completed.
+X	Recommended size of next tape entry:	$min_size
+X	Approximate size of this collection:	$this"
+X
+Xif [ -d recover ]
+Xthen
+X
+X	echo `date +%T`" Purging 'recover' directory."
+X	rm -r recover
+Xfi
+X
+Xif [ "$chap" -lt 9 ]
+Xthen
+X	(( this = this + 100 ))
+Xfi
+X
+Xif [ "$this" -gt "$min_size" ]
+Xthen
+X	exit 2
+Xelse
+X	exit 0
+Xfi
+END_OF_utils/util.sq.sh
+if test 3944 -ne `wc -c <utils/util.sq.sh`; then
+    echo shar: \"utils/util.sq.sh\" unpacked with wrong size!
+fi
+chmod +x utils/util.sq.sh
+# end of overwriting check
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+Vernon C. Hoxie                                {ncar,csn}!scicom!zebra!vern
+3975 W. 29th Ave.                                   vern@zebra.alphacdc.COM
+Denver, Colo., 80212          voice: 303-477-1780        uucp: 303-455-2670
+
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Pardon me Professor, can I be excused, my brain is full. **

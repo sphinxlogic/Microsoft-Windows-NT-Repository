@@ -1,0 +1,694 @@
+Newsgroups: comp.sources.misc
+From: erich@eye.com (Eric Haines)
+Subject: v39i043:  phonewrd - phone number phrase generator, Patch01
+Message-ID: <1993Aug22.015648.147@sparky.sterling.com>
+X-Md4-Signature: fa7f8bf6fdb98a94c29747340b0d14e9
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 22 Aug 1993 01:56:48 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: erich@eye.com (Eric Haines)
+Posting-number: Volume 39, Issue 43
+Archive-name: phonewrd/patch01
+Environment: UNIX, DOS
+Patch-To: phonewrd: Volume 38, Issue 56
+
+This is the first patch to phonewrd, my phone number phrase generator.
+
+It turns out "tolower()" works idiotically on some non ANSI C
+compilers, merrily changing lowercase values to garbage - this patch
+compensates for that and so makes the code more portable, plus some other
+minor fixes and casts.  
+
+Eric Haines
+-----------
+diff -c ../old/README ./README
+*** ../old/README	Fri Jul 30 09:50:02 1993
+--- ./README	Fri Jul 30 09:49:01 1993
+***************
+*** 6,16 ****
+  searching or, better yet, you can get GNU's free ispell dictionaries (see the
+  man page for details) and use these.
+  
+! This beastie should work under UNIX and DOS (and whatever else) under all the
+  flavors of C.  Now that I've said that I've doomed myself to some weird
+! portability problem.  You'll want to define USE_STRINGS_H in the makefile if
+! you use <strings.h> on your system.  Also, you'll almost definitely want to
+! change DICT_PATH in the code to wherever your dictionary resides.
+  
+  Files included in this distribution:
+  	README - what the heck could be in here?
+--- 6,18 ----
+  searching or, better yet, you can get GNU's free ispell dictionaries (see the
+  man page for details) and use these.
+  
+! You'll almost surely want to change DICT_PATH in the code to wherever your
+! dictionary resides.  You'll want to define USE_STRINGS_H in the makefile if
+! you use <strings.h> on your system.  Finally, for speed, you might want to use
+! the commented out sftolower() macro (see the code) if you're using ANSI C.
+! This code should work under UNIX and DOS (and whatever else) under all the
+  flavors of C.  Now that I've said that I've doomed myself to some weird
+! portability problem.
+  
+  Files included in this distribution:
+  	README - what the heck could be in here?
+diff -c ../old/README ./README../old/patchlevel.h ./patchlevel.h
+*** ../old/patchlevel.h	Fri Jul 30 09:50:02 1993
+--- ./patchlevel.h	Fri Jul 30 09:49:13 1993
+***************
+*** 1,2 ****
+! #define VERSION		"version 2.0"
+! #define PATCHLEVEL	0
+--- 1,2 ----
+! #define VERSION		"version 2.1"
+! #define PATCHLEVEL	1
+diff -c ../old/patchlevel.h ./patchlevel.h../old/phonewrd.c ./phonewrd.c
+*** ../old/phonewrd.c	Fri Jul 30 09:50:02 1993
+--- ./phonewrd.c	Fri Jul 30 10:15:12 1993
+***************
+*** 3,9 ****
+  	which fit it.  See the man page for details, type "phonewrd -?" for
+  	options.
+  
+!    version 2.0 - 6/23/93
+  
+     (c) copyright 1993, Eric Haines, all rights reserved (erich@eye.com)
+  
+--- 3,9 ----
+  	which fit it.  See the man page for details, type "phonewrd -?" for
+  	options.
+  
+!    version 2.1 - 7/16/93
+  
+     (c) copyright 1993, Eric Haines, all rights reserved (erich@eye.com)
+  
+***************
+*** 11,21 ****
+     History:
+  
+     2.0 - release for comp.sources.misc
+   */
+  
+! #include <stdlib.h>	/* if you don't have stdlib, use malloc.h instead */
+  #include <stdio.h>
+  
+  /* define USE_STRINGS_H if you use <strings.h> instead of <string.h> */
+  #ifdef USE_STRINGS_H
+      /* BSD string routines. */
+--- 11,41 ----
+     History:
+  
+     2.0 - release for comp.sources.misc
++    2.1 - added sftolower for non-ANSI machines, added ctype.h include,
++ 	 fixed error msg for GNU dictionary, added function prototypes,
++ 	 made some casts explicit.
+   */
+  
+! #include <stdlib.h>	/* if you don't have stdlib, use malloc.h instead,
+! 			 * though you might be able to get by without either */
+  #include <stdio.h>
++ #include <ctype.h>	/* for tolower() */
+  
++ 
++ /* safe tolower() macro - on some non-ANSI compliant machines, tolower()
++  * only works correctly for uppercase values, i.e. it simply subtracts an
++  * offset from the value passed in.  So, we need to test if the character is
++  * uppercase before using tolower().  For the following macro, note that no
++  * incrementing of the character should occur (e.g. sftolower(*str++) will
++  * work incorrectly).  If your compiler has a tolower() function that works
++  * correctly for all input (most compilers do) and you want the code to run
++  * faster, just redefine sftolower as calling tolower, i.e.:
++  * #define	sftolower(c)	tolower((int)(c))
++  */
++ #define	sftolower(c)					\
++ 	(((c) >= 'A' && (c) <= 'Z' ) ? tolower((int)(c)) : (c))
++ 
++ 
+  /* define USE_STRINGS_H if you use <strings.h> instead of <string.h> */
+  #ifdef USE_STRINGS_H
+      /* BSD string routines. */
+***************
+*** 37,45 ****
+  /* path to dictionary */
+  #define	DICT_PATH	"/usr/dict/words"
+  
+- /* number of digits in phone number */
+- #define	NUM_DIGITS	7
+- 
+  /* how many numerals are allowed in our phrase? */
+  #define	NUMERALS_ALLOWED	0
+  
+--- 57,62 ----
+***************
+*** 71,77 ****
+  	 { 2,2,2,3,3,3,4,4,4,5,5,5,6,6,6,7,Q,7,7,8,8,8,9,9,9,Z } ;
+  
+  /* true if a character is a vowel */
+! #define	Vowel(c)	strchr( "aeiou", (c) )
+  
+  /*============= storage space related ===================================== */
+  
+--- 88,94 ----
+  	 { 2,2,2,3,3,3,4,4,4,5,5,5,6,6,6,7,Q,7,7,8,8,8,9,9,9,Z } ;
+  
+  /* true if a character is a vowel */
+! #define	Vowel(c)	strchr( "aeiou", (int)(c) )
+  
+  /*============= storage space related ===================================== */
+  
+***************
+*** 137,157 ****
+  
+  /*============= procedure declarations ==================================== */
+  
+! int phone_check() ;
+! void roll_own() ;
+! void concat_it() ;
+! void concat_letter_out() ;
+! void concat_letter_breaks_out() ;
+! void init_wl() ;
+! int fit_word() ;
+! int permute_word() ;
+! void search_for_match() ;
+! void hold_word() ;
+! int store_word() ;
+! void free_wl() ;
+! int scan_options() ;
+! char *str_duplicate() ;
+  
+  /*============= procedures ================================================ */
+  
+  main(argc,argv)
+--- 154,185 ----
+  
+  /*============= procedure declarations ==================================== */
+  
+! #if __STDC__ || defined(__cplusplus)
+! #define P_(s) s
+! #else
+! #define P_(s) ()
+! #endif
+  
++ /* phonewrd.c */
++ int main P_((int argc, char *argv[]));
++ void usage P_((void));
++ int phone_check P_((char *numeral_string));
++ void roll_own P_((void));
++ void concat_it P_((void));
++ void concat_letter_out P_((int digit, char *full_string));
++ void concat_letter_breaks_out P_((int digit, char *full_string));
++ void init_wl P_((void));
++ int fit_word P_((char *dict_word, int min_length));
++ int permute_word P_((char *dict_word, char *new_word));
++ void hold_word P_((char *word));
++ int store_word P_((char *word, int digit, int length));
++ void search_for_match P_((int digit, char *full_string, char *suffix_loc, int numeral_count));
++ void free_wl P_((void));
++ int scan_options P_((int argc, char *argv[], int *nargc, char *nargv[]));
++ char *str_duplicate P_((char *s));
++ 
++ #undef P_
++ 
+  /*============= procedures ================================================ */
+  
+  main(argc,argv)
+***************
+*** 224,230 ****
+      return( 0 ) ;
+  }
+  
+! usage()
+  {
+      fprintf(stderr, "usage: %s [options] phone#[*...]\n", ProgName);
+      fprintf(stderr, " [*...] - extra *'s at the end mean optional wildcard letters\n");
+--- 252,258 ----
+      return( 0 ) ;
+  }
+  
+! void usage()
+  {
+      fprintf(stderr, "usage: %s [options] phone#[*...]\n", ProgName);
+      fprintf(stderr, " [*...] - extra *'s at the end mean optional wildcard letters\n");
+***************
+*** 278,284 ****
+  	} else if ( ( (tchr >= 'A') && (tchr <= 'Z') ) ||
+  		    ( (tchr >= 'a') && (tchr <= 'z') ) ) {
+  	    PhoneNum[NumDigits] = FIXED_LETTER ;
+! 	    PhoneStr[NumDigits++] = tolower( tchr ) ;
+  	}
+  	tchr = *tstr++ ;
+      }
+--- 306,312 ----
+  	} else if ( ( (tchr >= 'A') && (tchr <= 'Z') ) ||
+  		    ( (tchr >= 'a') && (tchr <= 'z') ) ) {
+  	    PhoneNum[NumDigits] = FIXED_LETTER ;
+! 	    PhoneStr[NumDigits++] = sftolower( tchr ) ;
+  	}
+  	tchr = *tstr++ ;
+      }
+***************
+*** 635,641 ****
+  	    ; i++, wc++ ) {
+  
+  	    /* remove apostrophes, hyphens, etc for matching */
+! 	    tchr = tolower(*wc) ;
+  	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+  		*wv++ = Letter2Numeral[(*lc++ = tchr) -'a'] ;
+  		compare_length++ ;
+--- 663,669 ----
+  	    ; i++, wc++ ) {
+  
+  	    /* remove apostrophes, hyphens, etc for matching */
+! 	    tchr = sftolower(*wc) ;
+  	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+  		*wv++ = Letter2Numeral[(*lc++ = tchr) -'a'] ;
+  		compare_length++ ;
+***************
+*** 648,654 ****
+  	true_length = compare_length ;
+  
+  	while ( *wc ) {
+! 	    tchr = tolower( *wc++ ) ;
+  	    /* get true length of word in valid characters */
+  	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+  		true_length++ ;
+--- 676,683 ----
+  	true_length = compare_length ;
+  
+  	while ( *wc ) {
+! 	    tchr = *wc++ ;
+! 	    tchr = sftolower( tchr ) ;
+  	    /* get true length of word in valid characters */
+  	    if ( ( tchr >= 'a' ) && ( tchr <= 'z' ) ) {
+  		true_length++ ;
+***************
+*** 783,789 ****
+  		    return( 0 ) ;
+  		}
+  		perm_cur_suf_count = perm_suf_count ;
+! 		switch( perm_pre_cmd[--perm_cur_pre_count] ) {
+  		    case 'A':	/* enter -> reenter */
+  			strcpy( perm_pre_word, "re" ) ;
+  			strcat( perm_pre_word, perm_word ) ;
+--- 812,818 ----
+  		    return( 0 ) ;
+  		}
+  		perm_cur_suf_count = perm_suf_count ;
+! 		switch( tchr = perm_pre_cmd[--perm_cur_pre_count] ) {
+  		    case 'A':	/* enter -> reenter */
+  			strcpy( perm_pre_word, "re" ) ;
+  			strcat( perm_pre_word, perm_word ) ;
+***************
+*** 809,819 ****
+  		strcpy( new_word, perm_pre_word ) ;
+  	    } else {
+  		strcpy( new_word, perm_pre_word ) ;
+! 		switch( perm_suf_cmd[--perm_cur_suf_count] ) {
+  		    case 'V':	/* create -> creative */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = tolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'e' ) {
+  				new_word[pre_length-1] = '\0' ;
+  			    }
+--- 838,848 ----
+  		strcpy( new_word, perm_pre_word ) ;
+  	    } else {
+  		strcpy( new_word, perm_pre_word ) ;
+! 		switch( tchr = perm_suf_cmd[--perm_cur_suf_count] ) {
+  		    case 'V':	/* create -> creative */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = sftolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'e' ) {
+  				new_word[pre_length-1] = '\0' ;
+  			    }
+***************
+*** 824,830 ****
+  			}
+  			break ;
+  		    case 'N':	/* create -> creation */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			    strcat( new_word, "ion" ) ;
+--- 853,859 ----
+  			}
+  			break ;
+  		    case 'N':	/* create -> creation */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			    strcat( new_word, "ion" ) ;
+***************
+*** 836,842 ****
+  			}
+  			break ;
+  		    case 'X':	/* create -> creations */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			    strcat( new_word, "ions" ) ;
+--- 865,871 ----
+  			}
+  			break ;
+  		    case 'X':	/* create -> creations */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			    strcat( new_word, "ions" ) ;
+***************
+*** 850,856 ****
+  		    case 'H':	/* twenty -> twentieth */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = tolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'y' ) {
+  				new_word[pre_length-1] = '\0' ;
+  				strcat( new_word, "ieth" ) ;
+--- 879,885 ----
+  		    case 'H':	/* twenty -> twentieth */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = sftolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'y' ) {
+  				new_word[pre_length-1] = '\0' ;
+  				strcat( new_word, "ieth" ) ;
+***************
+*** 866,872 ****
+  			strcat( new_word, "ly" ) ;
+  			break ;
+  		    case 'G':	/* file -> filing */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			}
+--- 895,901 ----
+  			strcat( new_word, "ly" ) ;
+  			break ;
+  		    case 'G':	/* file -> filing */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			}
+***************
+*** 873,879 ****
+  			strcat( new_word, "ing" ) ;
+  			break ;
+  		    case 'J':	/* file -> filings */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			}
+--- 902,908 ----
+  			strcat( new_word, "ing" ) ;
+  			break ;
+  		    case 'J':	/* file -> filings */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    new_word[pre_length-1] = '\0' ;
+  			}
+***************
+*** 880,890 ****
+  			strcat( new_word, "ings" ) ;
+  			break ;
+  		    case 'D':	/* create -> created */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "d" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = tolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ed" ) ;
+  			    } else {
+--- 909,919 ----
+  			strcat( new_word, "ings" ) ;
+  			break ;
+  		    case 'D':	/* create -> created */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "d" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = sftolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ed" ) ;
+  			    } else {
+***************
+*** 898,908 ****
+  		    case 'T':	/* late -> latest */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = tolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'e' ) {
+  				strcat( new_word, "st" ) ;
+  			    } else if ( tchr == 'y' ) {
+! 				ttchr = tolower(new_word[pre_length-2]) ;
+  				if ( Vowel(ttchr) ) {
+  				    strcat( new_word, "est" ) ;
+  				} else {
+--- 927,937 ----
+  		    case 'T':	/* late -> latest */
+  			/* use only when there is no prefix */
+  			if ( perm_cur_pre_count == perm_pre_count ) {
+! 			    tchr = sftolower(new_word[pre_length-1]) ;
+  			    if ( tchr == 'e' ) {
+  				strcat( new_word, "st" ) ;
+  			    } else if ( tchr == 'y' ) {
+! 				ttchr = sftolower(new_word[pre_length-2]) ;
+  				if ( Vowel(ttchr) ) {
+  				    strcat( new_word, "est" ) ;
+  				} else {
+***************
+*** 918,928 ****
+  			}
+  			break ;
+  		    case 'R':	/* late -> later */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "r" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = tolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "er" ) ;
+  			    } else {
+--- 947,957 ----
+  			}
+  			break ;
+  		    case 'R':	/* late -> later */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "r" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = sftolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "er" ) ;
+  			    } else {
+***************
+*** 934,944 ****
+  			}
+  			break ;
+  		    case 'Z':	/* skate ->skaters */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "rs" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = tolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ers" ) ;
+  			    } else {
+--- 963,973 ----
+  			}
+  			break ;
+  		    case 'Z':	/* skate ->skaters */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'e' ) {
+  			    strcat( new_word, "rs" ) ;
+  			} else if ( tchr == 'y' ) {
+! 			    ttchr = sftolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ers" ) ;
+  			    } else {
+***************
+*** 950,958 ****
+  			}
+  			break ;
+  		    case 'S':	/* imply -> implies */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'y' ) {
+! 			    ttchr = tolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "s" ) ;
+  			    } else {
+--- 979,987 ----
+  			}
+  			break ;
+  		    case 'S':	/* imply -> implies */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'y' ) {
+! 			    ttchr = sftolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "s" ) ;
+  			    } else {
+***************
+*** 960,966 ****
+  				strcat( new_word, "ies" ) ;
+  			    }
+  			} else {
+! 			    if ( strchr( "sxzh", tchr ) ) {
+  				strcat( new_word, "es" ) ;
+  			    } else {
+  				strcat( new_word, "s" ) ;
+--- 989,995 ----
+  				strcat( new_word, "ies" ) ;
+  			    }
+  			} else {
+! 			    if ( strchr( "sxzh", (int)tchr ) ) {
+  				strcat( new_word, "es" ) ;
+  			    } else {
+  				strcat( new_word, "s" ) ;
+***************
+*** 968,976 ****
+  			}
+  			break ;
+  		    case 'P':	/* cloudy -> cloudiness */
+! 			tchr = tolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'y' ) {
+! 			    ttchr = tolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ness" ) ;
+  			    } else {
+--- 997,1005 ----
+  			}
+  			break ;
+  		    case 'P':	/* cloudy -> cloudiness */
+! 			tchr = sftolower(new_word[pre_length-1]) ;
+  			if ( tchr == 'y' ) {
+! 			    ttchr = sftolower(new_word[pre_length-2]) ;
+  			    if ( Vowel(ttchr) ) {
+  				strcat( new_word, "ness" ) ;
+  			    } else {
+***************
+*** 994,1000 ****
+  	} while ( search_word ) ;
+      } else {
+  	/* first call, so check if we need to permute */
+! 	if ( wc = strchr( dict_word, '/' ) ) {
+  	    /* GNU ispell format detected, so save word and permutations */
+  	    strncpy( perm_word, dict_word, wc-dict_word ) ;
+  	    perm_word[wc-dict_word] = '\0' ;
+--- 1023,1029 ----
+  	} while ( search_word ) ;
+      } else {
+  	/* first call, so check if we need to permute */
+! 	if ( wc = strchr( dict_word, (int)'/' ) ) {
+  	    /* GNU ispell format detected, so save word and permutations */
+  	    strncpy( perm_word, dict_word, wc-dict_word ) ;
+  	    perm_word[wc-dict_word] = '\0' ;
+***************
+*** 1357,1363 ****
+  {
+  char *ps ;
+  
+!     if ( ps = malloc( strlen( s ) + 1 ) ) {
+  	strcpy( ps, s ) ;
+      }
+      return( ps ) ;
+--- 1386,1392 ----
+  {
+  char *ps ;
+  
+!     if ( ps = (char *)malloc( strlen( s ) + 1 ) ) {
+  	strcpy( ps, s ) ;
+      }
+      return( ps ) ;
+diff -c ../old/phonewrd.c ./phonewrd.c../old/phonewrd.txt ./phonewrd.txt
+*** ../old/phonewrd.txt	Fri Jul 30 09:50:03 1993
+--- ./phonewrd.txt	Fri Jul 30 09:50:17 1993
+***************
+*** 60,66 ****
+  
+  
+  
+! 				    - 1 -	   Formatted:  June 23, 1993
+  
+  
+  
+--- 60,66 ----
+  
+  
+  
+! 				    - 1 -	   Formatted:  July 16, 1993
+  
+  
+  
+***************
+*** 126,132 ****
+  
+  
+  
+! 				    - 2 -	   Formatted:  June 23, 1993
+  
+  
+  
+--- 126,132 ----
+  
+  
+  
+! 				    - 2 -	   Formatted:  July 16, 1993
+  
+  
+  
+***************
+*** 192,198 ****
+  
+  
+  
+! 				    - 3 -	   Formatted:  June 23, 1993
+  
+  
+  
+--- 192,198 ----
+  
+  
+  
+! 				    - 3 -	   Formatted:  July 16, 1993
+  
+  
+  
+***************
+*** 258,264 ****
+  
+  
+  
+! 				    - 4 -	   Formatted:  June 23, 1993
+  
+  
+  
+--- 258,264 ----
+  
+  
+  
+! 				    - 4 -	   Formatted:  July 16, 1993
+  
+  
+  
+***************
+*** 324,330 ****
+  
+  
+  
+! 				    - 5 -	   Formatted:  June 23, 1993
+  
+  
+  
+--- 324,330 ----
+  
+  
+  
+! 				    - 5 -	   Formatted:  July 16, 1993
+  
+  
+  
+
+exit 0 # Just in case...

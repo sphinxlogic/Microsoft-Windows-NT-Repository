@@ -1,0 +1,118 @@
+Newsgroups: comp.sources.misc
+From: seb3@gte.com (Steve Belczyk)
+Subject: v36i070:  uqwk - A QWK "door" for Unix, Patch02
+Message-ID: <1993Mar25.165214.2163@sparky.imd.sterling.com>
+X-Md4-Signature: f4d1370d63524cc7428362f21541b8e1
+Date: Thu, 25 Mar 1993 16:52:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: seb3@gte.com (Steve Belczyk)
+Posting-number: Volume 36, Issue 70
+Archive-name: uqwk/patch02
+Environment: UNIX
+Patch-To: uqwk, Volume 36, Issue 8
+
+This patch updates uqwk 1.1 to uqwk 1.2.  This fixes a pretty nasty
+bug reading some .newsrc files.  Thanks to James Dehnert and Eric J.
+Nihill for helping to track this one down.  Also, I apologize to
+Russell Schulz for misspelling his name in an earlier posting.
+
+cd into the uqwk source directory and "patch -p1 < this-file"
+
+diff -c uqwk1.1/news.c uqwk1.2/news.c
+*** uqwk1.1/news.c	Thu Mar 18 10:28:56 1993
+--- uqwk1.2/news.c	Mon Mar 22 13:59:36 1993
+***************
+*** 49,55 ****
+  {
+  	char group_name[PATH_LEN];
+  	struct nrc_ent *np;
+! 	int n, c;
+  
+  	/* Don't bother if we've alread read it */
+  	if (nrc_list != NULL) return (1);
+--- 49,55 ----
+  {
+  	char group_name[PATH_LEN];
+  	struct nrc_ent *np;
+! 	int i, n, c;
+  
+  	/* Don't bother if we've alread read it */
+  	if (nrc_list != NULL) return (1);
+***************
+*** 68,88 ****
+  		np = (struct nrc_ent *) malloc (sizeof (struct nrc_ent));
+  		if (np == NULL) OutOfMemory();
+  
+  		/* Parse group name */
+  		sscanf (buf, "%s", group_name);
+  		n = strlen (group_name);
+  
+! 		if (group_name[n-1] == ':')
+! 		{
+! 			np->subscribed = 1;
+! 		}
+! 		else
+! 		{
+! 			np->subscribed = 0;
+! 		}
+! 
+! 		group_name[n-1] = 0;
+! 		np->name = (char *) malloc (n);
+  		if (np->name == NULL) OutOfMemory();
+  		strcpy (np->name, group_name);
+  
+--- 68,97 ----
+  		np = (struct nrc_ent *) malloc (sizeof (struct nrc_ent));
+  		if (np == NULL) OutOfMemory();
+  
++ 		/* Assume not subscribed */
++ 		np->subscribed = 0;
++ 
+  		/* Parse group name */
++ 		n = strlen (buf);
++ 		for (i=0; i<n; i++)
++ 		{
++ 			/* Some .newsrc lines don't have a space after the
++ 			   newsgroup name, so we kludge it like this */
++ 			if (buf[i] == ':')
++ 			{
++ 				np->subscribed = 1;
++ 				buf[i] = ' ';
++ 			}
++ 			if (buf[i] == '!')
++ 			{
++ 				np->subscribed = 0;
++ 				buf[i] = ' ';
++ 			}
++ 		}
+  		sscanf (buf, "%s", group_name);
+  		n = strlen (group_name);
+  
+! 		np->name = (char *) malloc (n+1);
+  		if (np->name == NULL) OutOfMemory();
+  		strcpy (np->name, group_name);
+  
+diff -c uqwk1.1/uqwk.h uqwk1.2/uqwk.h
+*** uqwk1.1/uqwk.h	Thu Mar 18 10:37:51 1993
+--- uqwk1.2/uqwk.h	Mon Mar 22 13:53:54 1993
+***************
+*** 2,8 ****
+   *  Header for uqwk
+   */
+  
+! #define UQWK_VERSION	"1.1"
+  
+  #ifdef ALLOCATE
+  #define EXTERN
+--- 2,8 ----
+   *  Header for uqwk
+   */
+  
+! #define UQWK_VERSION	"1.2"
+  
+  #ifdef ALLOCATE
+  #define EXTERN
+
+
+exit 0 # Just in case...

@@ -1,0 +1,2104 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i120:  parseargs - functions to parse command line arguments, Part05/10
+Message-ID: <1992May17.182408.28783@sparky.imd.sterling.com>
+X-Md4-Signature: 2c6176341eb2a2a36383088be53ba8e9
+Date: Sun, 17 May 1992 18:24:08 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 120
+Archive-name: parseargs/part05
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 10)."
+# Contents:  amiga_args.c argtype.c unix_args.c
+# Wrapped by brad@hcx1 on Thu May  7 12:12:24 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'amiga_args.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'amiga_args.c'\"
+else
+echo shar: Extracting \"'amiga_args.c'\" \(18431 characters\)
+sed "s/^X//" >'amiga_args.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: amiga_args.c - parse AmigaDOS argument vectors
+X**
+X** ^DESCRIPTION:
+X**    This file contains the routines used to parse AmigaDOS argument
+X**    vectors and to print AmigaDOS usage messages.
+X**
+X** ^HISTORY:
+X**    27/08/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Use ProgNameLen when accessing ProgName
+X**    - Use get_argdesc() to access description
+X**
+X**    01/02/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - Added structured block comments
+X**    - Added optional arguments to keywords
+X**
+X**    --/--/--  Peter da Silva  <peter@ferranti.com>    Created
+X***^^**********************************************************************/
+X
+X#include <ctype.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X#include "pgopen.h"
+X#include "exit_codes.h"
+X
+X#define PARSEARGS_PRIVATE   /* include private definitions */
+X#include "parseargs.h"
+X
+XEXTERN  VOID  syserr       ARGS((const char *, ...));
+XEXTERN  VOID  usrerr       ARGS((const char *, ...));
+XEXTERN  char *getenv       ARGS((const char *));
+XEXTERN  VOID  get_winsize  ARGS((int, int *, int *));
+X
+XVERSIONID("$Header: parseargs.c,v 2.1 89/12/30 20:59:48 eric Exp $");
+X
+X/***************************************************************************
+X** ^GLOBAL-VARIABLE: Usage_Requested
+X**
+X** ^VISIBILITY:
+X**    static-global (visible to all functions in this file).
+X**
+X** ^DESCRIPTION:
+X**    Indicates whether a usage message was requested by the user
+X**    (as opposed to triggerred by a syntax error).  If the message
+X**    is requested by the user then it is always printed in verbose
+X**    mode and does not return an error-status-code.
+X***^^**********************************************************************/
+Xstatic  BOOL  Usage_Requested = FALSE;
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: amiga_parse - parse Amiga_DOS arg-vectors
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int amiga_parse( argv, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *argv[];
+X/*    -- the vector of string arguments from the command-line
+X*/
+X   ARGDESC argd[];
+X/*    -- the programmer description of the command and its args
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Amiga_parse will parse the arguments in the given vector of strings,
+X**    assign the corresponding values to the command-line arguments specified
+X**    in argd, and check the syntax of the command-line.
+X**
+X** ^REQUIREMENTS:
+X**    The final element in argv must be a NULL pointer.
+X**
+X** ^SIDE-EFFECTS:
+X**    argd is modified according to the command-line description and parameters
+X**
+X** ^RETURN-VALUE:
+X**    pe_SUCCESS (0) if no errors are encountered
+X**    pe_SYSTEM (-1) if a system error is encountered
+X**    pe_SYNTAX if a syntax error is encountered
+X**
+X** ^ALGORITHM:
+X**    - for each command-line argument
+X**       - attempt to match the argument as a keyword
+X**       - if it is a keyword argument
+X**          - record and convert its value (if any)
+X**         else it is a positional parameter
+X**          - record and convert its value (if any)
+X**         else there are too many arguments
+X**          - return pe_SYNTAX
+X**         end-if
+X**       end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int amiga_parse( char **argv, ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *cmd, *args, *ad = ARGDESCNULL;
+X   register char **av;
+X   register char *p = CHARNULL;
+X   argName_t   keyword;
+X   argMask_t   flags;
+X   int  parse_error = pe_SUCCESS;
+X   BOOL is_match = FALSE;
+X
+X   if ( !argd )  return  parse_error;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(argd) )  init_args( argd );
+X   cmd = argd;
+X   cmd_prev(cmd) = ARGDESCNULL;
+X
+X      /* run through the argument vector */
+X   for ( av = argv ; *av ; av++ ) {
+X      char c = '\0';
+X
+X         /* If looking for keywords, see if this is one */
+X      if( !BTEST(cmd_state(cmd), ps_NOFLAGS) ) {
+X         p = strpbrk(*av, s_ARG_SEP);
+X         if ( p ) {
+X            c = *p;
+X            *p++ = '\0';  /* skip past arg-separator character */
+X         }
+X
+X         is_match = FALSE;
+X         for ( args = argd ; args  &&  !is_match ; args = cmd_defargs(args) ) {
+X            for (ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad)) {
+X               if (arg_type(ad) == argDummy)  continue;
+X
+X               if (!ARG_isPOSONLY(ad)  &&  match(*av, arg_sname(ad)) == 0) {
+X                  is_match = TRUE;
+X                  break;
+X               }/*if*/
+X            }
+X         }
+X
+X         if ( !is_match )  ad = ARGDESCNULL;
+X      }/*if !NOFLAGS*/
+X
+X      if (c)  *(p-1) = c;  /* restore the equal sign */
+X
+X         /* If we have a keyword here */
+X      if( !BTEST(cmd_state(cmd), ps_NOFLAGS)  &&  ad) {
+X         if ( cmd_prev(cmd) ) { /* a value may have been given but wasnt */
+X            if ( ARG_isVALOPTIONAL(cmd_prev(cmd)) ) {
+X               BSET( arg_flags(cmd_prev(cmd)), ARGGIVEN );
+X            }
+X            else {  /* value was required */
+X               (VOID)get_kwdname( arg_sname(cmd_prev(cmd)), keyword );
+X               usrerr( "value required for %s keyword", keyword );
+X               parse_error = pe_SYNTAX;
+X            }
+X            cmd_prev(cmd) = ARGDESCNULL;
+X         }
+X
+X         if ( cmd_list(cmd) ) { /* end of list */
+X            cmd_list(cmd) = ARGDESCNULL;
+X         }
+X
+X         flags = arg_flags(ad);    /* save flags */
+X         if ( ARG_isGIVEN(ad) ) {
+X            BCLEAR( arg_flags(ad), ARGVALSEP | ARGKEYWORD );
+X            if ( !ARG_isMULTIVAL(ad) )  BCLEAR( arg_flags(ad), ARGVALGIVEN );
+X         }
+X
+X         if ( p ) { /* matched NAME=VALUE */
+X            if ( ARG_isMULTIVAL(ad) )
+X               cmd_list(cmd) = ad;
+X            else
+X               cmd_list(cmd) = ARGDESCNULL;
+X
+X               /* try to convert the type */
+X            if ( !HANDLE(ad, p, cmd_flags(cmd)) ) {
+X               arg_flags(ad) = flags;  /* restore flags */
+X               parse_error = pe_SYNTAX;
+X            }
+X            else
+X               BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X            ad = ARGDESCNULL;
+X         }
+X         else {
+X            if (arg_type(ad) == argUsage) {
+X               Usage_Requested = TRUE;
+X               usage(argd);
+X               exit(exit_USAGE);
+X            }
+X            else if (arg_type(ad) == argEnd) {
+X               BSET( cmd_state(cmd), ps_NOFLAGS );
+X               BSET( arg_flags(ad), ARGGIVEN );
+X            }
+X            else if ( ARG_isVALTAKEN(ad) ) {
+X               cmd_prev(cmd) = ad;
+X            }
+X            else if ( !HANDLE(ad, CHARNULL, cmd_flags(cmd)) ) {
+X               arg_flags(ad) = flags;  /* restore flags */
+X               parse_error = pe_SYNTAX;
+X            }
+X            else {
+X               BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X            }
+X            ad = ARGDESCNULL;
+X         }/*else*/
+X      }
+X      else if (cmd_prev(cmd)) { /* expecting a vlue from previous arg */
+X         /* reset the argument flags - if this arg was already given, some
+X         ** of its flags may be set to indicate how it was given before.
+X         ** we need to know how it was given now (but save the old ones
+X         ** just in case the new one fails).
+X         */
+X         flags = arg_flags(cmd_prev(cmd));    /* save flags */
+X         if ( ARG_isGIVEN(cmd_prev(cmd)) ) {   /* reset flags */
+X            BCLEAR( arg_flags(cmd_prev(cmd)), ARGVALSEP );
+X            if ( !ARG_isMULTIVAL(ad) )  BCLEAR( arg_flags(ad), ARGVALGIVEN );
+X         }
+X
+X            /* previous value may have required a keyword */
+X         BSET( arg_flags(cmd_prev(cmd)), ARGVALSEP );
+X
+X         if ( ARG_isMULTIVAL(cmd_prev(cmd)) )
+X            cmd_list(cmd) = cmd_prev(cmd);
+X         else
+X            cmd_list(cmd) = ARGDESCNULL;
+X
+X            /* try to convert the type */
+X         if ( !HANDLE(cmd_prev(cmd), *av, cmd_flags(cmd)) ) {
+X            arg_flags(cmd_prev(cmd)) = flags;  /* restore flags */
+X            parse_error = pe_SYNTAX;
+X         }
+X         else
+X            BSET( arg_flags(cmd_prev(cmd)), ARGGIVEN | ARGVALGIVEN );
+X
+X         ad = ARGDESCNULL;
+X         cmd_prev(cmd) = ARGDESCNULL;
+X         continue;
+X      }
+X      else {  /* it's a positional argument or a list item */
+X         if ( cmd_list(cmd) ) { /* its a list item */
+X            /* reset the argument flags - if this arg was already given, some
+X            ** of its flags may be set to indicate how it was given before.
+X            ** we need to know how it was given now (but save the old ones
+X            ** just in case the new one fails).
+X            */
+X            flags = arg_flags(cmd_list(cmd));    /* save flags */
+X            if ( ARG_isGIVEN(cmd_list(cmd)) ) {   /* reset flags */
+X               BCLEAR( arg_flags(cmd_list(cmd)), ARGVALSEP );
+X            }
+X            BSET( arg_flags(cmd_list(cmd)), ARGVALSEP );
+X
+X            if ( !HANDLE(cmd_list(cmd), *av, cmd_flags(cmd)) ) {
+X               arg_flags(cmd_list(cmd)) = flags;  /* restore flags */
+X               parse_error = pe_SYNTAX;
+X            }
+X
+X            BSET( arg_flags(cmd_list(cmd)), ARGGIVEN | ARGVALGIVEN );
+X            continue;
+X         }
+X         else {  /* its a positional argument */
+X
+X            /* if FLAGS1ST is set then first positional marks end-of-flags */
+X            if ( BTEST(cmd_flags(cmd), pa_FLAGS1ST) )
+X               BSET( cmd_state(cmd), ps_NOFLAGS );
+X
+X            is_match = FALSE;
+X            for ( args = argd; args && !is_match; args = cmd_defargs(args) ) {
+X               for (ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad)) {
+X                  if (arg_type(ad) == argDummy)  continue;
+X
+X                  if ( ARG_isPOSITIONAL(ad)  &&
+X                       (!ARG_isGIVEN(ad) || ARG_isMULTIVAL(ad)) ) {
+X                     is_match = TRUE;
+X                     break;
+X                  }/*if*/
+X               }
+X            }
+X
+X            if ( !is_match ) {
+X               usrerr("too many arguments");
+X               parse_error = pe_SYNTAX;
+X               ad = ARGDESCNULL;
+X            }
+X            else {
+X               /* reset the argument flags - if this arg was already given, some
+X               ** of its flags may be set to indicate how it was given before.
+X               ** we need to know how it was given now (but save the old ones
+X               ** just in case the new one fails).
+X               */
+X               flags = arg_flags(ad);    /* save flags */
+X               if ( ARG_isGIVEN(ad) ) {   /* reset flags for this appearance */
+X                  BCLEAR( arg_flags(ad), ARGVALSEP );
+X                  if (! ARG_isMULTIVAL(ad))  BCLEAR(arg_flags(ad), ARGVALGIVEN);
+X               }
+X               BSET( arg_flags(ad), ARGVALSEP );
+X
+X                  /* try to convert */
+X               if ( !HANDLE(ad, *av, cmd_flags(cmd)) ) {
+X                  arg_flags(ad) = flags;  /* restore flags */
+X                  parse_error = pe_SYNTAX;
+X               }
+X               else
+X                  BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X               ad = ARGDESCNULL;
+X            }
+X         }/*else positional*/
+X      }/*else not keyword*/
+X   }/*while*/
+X
+X   /* If last argument was a keyword and required an option
+X   ** then complain about it
+X   */
+X   if ( cmd_prev(cmd) ) { /* a value may have been given but wasnt */
+X      if ( ARG_isVALOPTIONAL(cmd_prev(cmd)) ) {
+X         BSET( arg_flags(cmd_prev(cmd)), ARGGIVEN );
+X      }
+X      else {  /* value was required */
+X         (VOID)get_kwdname( arg_sname(cmd_prev(cmd)), keyword );
+X         usrerr( "value required for %s keyword", keyword );
+X         parse_error = pe_SYNTAX;
+X      }
+X      cmd_prev(cmd) = ARGDESCNULL;
+X   }
+X
+X   return  parse_error;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: fmtarg - format command-argument syntax
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static int fmtarg(ad, buf)
+X/*  
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *ad;
+X/*    -- pointer to the argument to format
+X*/
+X   char *buf;
+X/*    -- character buffer to hold the formatted result
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Fmtarg will determine the proper command-line syntax for the
+X**    given argument and write the result to the given buffer.
+X**
+X** ^REQUIREMENTS:
+X**    buf must be large enough to hold the formatted result (100 characters
+X**    should do the trick).
+X**
+X** ^SIDE-EFFECTS:
+X**    buf is overwritten.
+X**
+X** ^RETURN-VALUE:
+X**    The number of printable characters in the argument-syntax-string
+X**
+X** ^ALGORITHM:
+X**    Print argument usage based on whether or not the argument is
+X**    positional, hidden, multi-valued (list or vector), etc ....
+X**    Optional arguments and values are enclosed in square braces.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static int fmtarg( const ARGDESC *ad, char *buf )
+X#endif
+X{
+X      /* buf must already be large enough */
+X   char * pos;
+X   argName_t  keyword, name;
+X
+X   (VOID) get_argname(arg_sname(ad), name);
+X
+X   if ( ARG_isPOSITIONAL(ad) ) {
+X      sprintf( buf, "<%s>", name );
+X   }
+X   else {
+X      (VOID) get_kwdname(arg_sname(ad), keyword);
+X      (VOID) strcpy( buf, keyword );
+X      pos = buf + strlen(buf);
+X
+X      if ( ARG_isVALTAKEN(ad) && !ARG_isBOOLEAN(ad) && !ARG_isPSEUDOARG(ad) ) {
+X         if ( ARG_isVALOPTIONAL(ad) )
+X            sprintf( pos, " [<%s>]", name );
+X         else
+X            sprintf( pos, " <%s>", name );
+X      }
+X   }/*else*/
+X
+X   return  strlen(buf);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: amiga_usage - print a usage message
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID amiga_usage( argd, usage_flags )
+X/*  
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *argd;
+X/*    -- the command-descriptor array
+X*/
+X   argMask_t usage_flags;
+X/*    -- flags set by $USAGECNTL
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Amiga_usage will print the AmigaDOS command-line usage of the given
+X**    command on standard diagnostic output (stderr). The content of the
+X**    usage message is controlled by the bitmasks in usage_flags which
+X**    correspond to the settings in the user's USAGECNTL variable.
+X**
+X** ^REQUIREMENTS:
+X**    argd should be a non-null command-line argument-descriptor array
+X**
+X** ^SIDE-EFFECTS:
+X**    Prints on stderr.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - if no usage is desired then exit
+X**    - if paging is requested print to the pager instead of stderr
+X**    - print the command-line syntax
+X**    - if the description is requested print it
+X**    - if verbose mode is requested, print the description of each argument
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void amiga_usage( const ARGDESC *argd, argMask_t usage_flags )
+X#endif
+X{
+X   register CONST ARGDESC  *ad, *args, *cmd;
+X   int  max_cols = 80, max_lines  = 24;
+X   int  margin, ll, pl, keywords, longest, positionals;
+X   BOOL first = TRUE;
+X   FILE *fp;
+X
+X   if ( !argd )  return;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(argd) )  init_args( (ARGDESC *)argd );
+X   cmd = argd;
+X
+X      /* force verbose-mode if requested */
+X   if ( Usage_Requested )   BSET( usage_flags, usg_VERBOSE );
+X
+X   if ( BTEST(usage_flags, usg_NONE) )  return;
+X
+X   fp = ( BTEST(usage_flags, usg_PAGED) )
+X      ? pgopen( stderr, getenv("USAGE_PAGER") )
+X      : stderr;
+X
+X      /* get screen size */
+X   get_winsize( fileno(stderr), &max_lines, &max_cols );
+X   fprintf(fp, "Format: %.*s", ProgNameLen, (ProgName) ? ProgName : "");
+X   ll = ProgNameLen + 8;
+X   margin = ll + 1;
+X   longest = 0;
+X
+X   for ( positionals = 0 ; positionals < 2 ; positionals++ ) {
+X      for ( args = argd ; args ; args = cmd_defargs(args) ) {
+X         for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X            argName_t  buf;
+X
+X               /* don't display hidden arguments */
+X            if ( ARG_isHIDDEN(ad) )  continue;
+X            if ( !positionals  &&  ARG_isPOSITIONAL(ad) )  continue;
+X            if ( positionals  &&  !ARG_isPOSITIONAL(ad) )  continue;
+X
+X               /* figure out how wide this parameter is (for printing) */
+X            pl = fmtarg(ad, buf);
+X
+X            if ( pl > longest)  longest = pl;
+X
+X            if ( !ARG_isREQUIRED(ad) ) {
+X               pl += 2;  /* [] */
+X            }
+X            if ( ARG_isMULTIVAL(ad) ) {
+X               strcat( buf, "..." );
+X               pl += 3;
+X            }
+X
+X               /* see if this will fit */
+X            if ( (ll + pl + 1) > (max_cols - first) ) {
+X                  /* no... start a new line */
+X               fprintf(fp, "\n%*s", margin, "");
+X               ll = margin;
+X            }
+X            else {
+X                  /* yes... just throw in a space */
+X               fputc(' ', fp);
+X               ++ll;
+X            }
+X            ll += pl;
+X
+X               /* show the argument */
+X            if ( !ARG_isREQUIRED(ad) )  fputc('[', fp);
+X            fprintf(fp, buf);
+X            if ( !ARG_isREQUIRED(ad) )  fputc(']', fp);
+X
+X            first = FALSE;  /* not first line anymore */
+X         }/*for each ad */
+X      }/* for each argd */
+X   }/* for each parm-type */
+X
+X   fputc('\n', fp);
+X
+X   if ( BTEST(usage_flags, usg_DESCRIPTION) ) {
+X      CONST char *description = cmd_description(cmd);
+X
+X      if ( description  &&  *description ) {
+X         fprintf( fp, "Description:\n" );
+X         indent_para(fp, max_cols, 8, "", 0, description, 0);
+X         fputc( '\n', fp );
+X      }
+X   }/*if*/
+X
+X   if ( !BTEST(usage_flags, usg_VERBOSE) )  {
+X      if ( pgactive(fp) )  (VOID) pgclose( fp );
+X      return;
+X   }
+X
+X   keywords = 0;
+X   for ( positionals = 0 ; positionals < 2 ; positionals++ ) {
+X      for ( args = argd ; args ; args = cmd_defargs(args) ) {
+X         for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X            argName_t  buf;
+X            char  *desc;
+X            int  desclen;
+X
+X               /* don't display hidden arguments */
+X            if ( ARG_isHIDDEN(ad) )  continue;
+X            if ( !positionals  &&  ARG_isPOSITIONAL(ad) )  continue;
+X            if ( positionals  &&  !ARG_isPOSITIONAL(ad) )  continue;
+X
+X            if( !(keywords++) )  fprintf(fp, "Keywords/Arguments:\n");
+X            (VOID) fmtarg(ad, buf);
+X            desc = get_argdesc(arg_description(ad), &desclen);
+X            indent_para(fp, max_cols, 8, buf, longest+2, desc, desclen);
+X         }/*for each ad */
+X      }/* for each argd */
+X   }/* for each parm-type */
+X
+X   if ( pgactive(fp) )  (VOID) pgclose( fp );
+X}
+END_OF_FILE
+if test 18431 -ne `wc -c <'amiga_args.c'`; then
+    echo shar: \"'amiga_args.c'\" unpacked with wrong size!
+fi
+# end of 'amiga_args.c'
+fi
+if test -f 'argtype.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'argtype.c'\"
+else
+echo shar: Extracting \"'argtype.c'\" \(22859 characters\)
+sed "s/^X//" >'argtype.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: argtype.c - argument type definitions for parseargs(3)
+X**
+X** ^DESCRIPTION:
+X**    This file implements the argument conversion functions for
+X**    converting string, character, integer, floating-point,
+X**    boolean, and pseudo-arguments, from command-line strings.
+X**
+X** ^HISTORY:
+X**    01/03/91	Brad Appleton	<brad@ssd.csd.harris.com>
+X**       - Added structured block comments
+X**       - Added argUsage & argDummy dummy-functions
+X**       - Added argSBool, argTBool, and argUBool
+X**       - Added ARGVEC handling to all necessary functions
+X**       - Added argInput & argOutput for VMS
+X**       - put floating-point routines (argFloat & argDouble) into
+X**         this file (they may be excluded by #defining NOFLOAT)
+X**       - changed routines to return negative values (where appropriate)
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>
+X**
+X**    --/--/--	Eric P. Allman	<eric@Berkeley.EDU> 	Created
+X***^^**********************************************************************/
+X
+X#include <ctype.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X
+X#define PARSEARGS_NARGTYPES  /* exclude arg-type externs */
+X#include "parseargs.h"
+X
+X#ifdef __ANSI_C__
+X# define  PARMS(ad,vp,copyf) \
+X	( register ARGDESC *ad,  register char *vp,  BOOL copyf )
+X#else
+X# define  PARMS(ad,vp,copyf) \
+X	( ad, vp, copyf )  register ARGDESC *ad;  register char *vp;  BOOL copyf;
+X#endif
+X
+X#define REALLOC(ptr,size)  (( ! ptr ) ? malloc(size) : realloc(ptr, size) )
+XEXTERN  VOID    syserr  ARGS((const char *, ...));
+XEXTERN  VOID    usrerr  ARGS((const char *, ...));
+X
+X#ifndef __ANSI_C__
+X   EXTERN  long    strtol  ARGS((char *, char **, int));
+X   EXTERN  double  strtod  ARGS((const char *, char **));
+X#endif
+X
+X/***************************************************************************
+X** ^FUNCTION: argtype -- argument translation routines.
+X**
+X** ^SYNOPSIS:
+X**    BOOL  argUsage( ad, vp, copyf )
+X**    BOOL  argEnd( ad, vp, copyf );
+X**    BOOL  argDummy( ad, vp, copyf );
+X**    BOOL  argBool( ad, vp, copyf );
+X**    BOOL  argSBool( ad, vp, copyf );
+X**    BOOL  argUBool( ad, vp, copyf );
+X**    BOOL  argTBool( ad, vp, copyf );
+X**    BOOL  argChar( ad, vp, copyf );
+X**    BOOL  argStr( ad, vp, copyf );
+X**    BOOL  argInt( ad, vp, copyf );
+X**    BOOL  argShort( ad, vp, copyf );
+X**    BOOL  argLong( ad, vp, copyf );
+X**    BOOL  argFloat( ad, vp, copyf );
+X**    BOOL  argDouble( ad, vp, copyf );
+X**    BOOL  argInput( ad, vp, copyf );
+X**    BOOL  argOutput( ad, vp, copyf );
+X**
+X** ^PARAMETERS:
+X**    ARGDESC *ad;
+X**    -- the argument descriptor for this parameter.
+X**
+X**    char *vp;
+X**    -- a pointer to the string input value.
+X**
+X**    BOOL  copyf;
+X**    -- if TRUE, the value will be destroyed later, and so should be copied
+X**       if it will be retained (as for a string).
+X**
+X** ^DESCRIPTION:
+X**    Each of these converts a parameter value to the internal form, includ-
+X**    ing validity checking.  Their parameters and return values all behave
+X**    similarly. One of these routines is called when an argument of that
+X**    particular type is matched by one of the argument parsing function in
+X**    parseargs(3). When such an argument is matched, its argument transla-
+X**    tion routine is invoked and is passed (1) the address of the argument
+X**    descriptor for the matched argument, (2) the possible argument string
+X**    for that matched argument, and (3) a boolean field that is TRUE only
+X**    if the second parameter points to temporary storage (indicating that
+X**    some copying may need to be done instead of just pointing to the same
+X**    object).
+X**
+X**    Once the argument translation routine is invoked, it is responsible
+X**    for converting the argument string to the desired internal form
+X**    (perhaps a number), and assigning the resultant value to the
+X**    arg_valp(ad) field of the argument descriptor (this includes handling
+X**    any necessary (re)allocation if the matched argument has the ARGVEC
+X**    flag enabled). If the argument is an ARGVEC or ARGLIST then the rou-
+X**    tine is responsible for allocating any space, copying the arg-flags to
+X**    the value-specific flags, and setting the ARGCOPYF flag for the value
+X**    if it needs to be allocated as well.
+X**
+X** ^REQUIREMENTS:
+X**    ARGKEYWORD should be set if the argument was matched via its
+X**    string name (as opposed to by its character name).
+X**
+X**    ARGVALSEP should be set is the argument value was in a separate
+X**    argv element from the argument string-name (or character name).
+X**
+X** ^SIDE-EFFECTS:
+X**    The value used should be stored in the location indicated by arg_valp(ad).
+X**
+X** ^RETURN-VALUE:
+X**    TRUE : if the conversion was successful and the entire value was used.
+X**
+X**    FALSE : if the conversion failed.  The reason for failure should be
+X**            diagnosed using usrerr().
+X**
+X**    -N : if the conversion was successful but only N characters of the value
+X**         were used, the remaining characters may still match other arguments.
+X** 
+X** ^ALGORITHM:
+X**    Function-specific, but the basic idea is as follows:
+X**
+X**    - convert the value-string into the desired type
+X**    - if the value is invalid call usrerr and return FALSE
+X**      end-if
+X**    - if this ad is an ARGVEC
+X**        - expand the vector and insert the new item at the end
+X**        - update the item count
+X**    - else 
+X**        - set *ad_valp to the converted value
+X**      end-if
+X**    - return TRUE if we used the whole arg, -N if we only used N-characters
+X***^^**********************************************************************/
+X
+X/* vector types and defines */
+X#define BLOCKSIZE  5    /* number of items to allocate at once */
+X#define VEC_SIZE(vec,el_typ)  ( sizeof(el_typ *) * (BLOCKSIZE + vec->count) )
+Xtypedef ARGVEC_T(char *)  strvec_t;
+Xtypedef ARGVEC_T(char)    charvec_t;
+Xtypedef ARGVEC_T(int)     intvec_t;
+Xtypedef ARGVEC_T(short)   shortvec_t;
+Xtypedef ARGVEC_T(long)    longvec_t;
+Xtypedef ARGVEC_T(float)   floatvec_t;
+Xtypedef ARGVEC_T(double)  doublevec_t;
+X
+X
+X/***************************************************************************
+X** ^SECTION: PSEUDO-TYPES -- argUsage, argEnd, argDummy
+X**    ArgUsage is used to specify an argument that causes the command
+X**    usage to be printed.
+X**
+X**    ArgDummy is used to force an item to show up in usage-messages but
+X**    the item itself is never matched against any arguments from the
+X**    command-line.
+X**
+X**    ArgEnd is used by amiga_args.c and vms_args.c to indicate an argument
+X**    that forces all remaining arguments to be considered positional args.
+X**
+X**    These three are dummy functions. The routines themselves do nothing
+X**    of importance, we just need to have their addresses available for
+X**    identification in the corresponding <os>_args.c file.
+X***^^**********************************************************************/
+X
+X/*ARGSUSED*/
+XBOOL argDummy  PARMS(ad, vp, copyf)
+X{
+X   return   FALSE;
+X}
+X
+X
+X/*ARGSUSED*/
+XBOOL argEnd  PARMS(ad, vp, copyf)
+X{
+X   return (FALSE);
+X}
+X
+X
+X/*ARGSUSED*/
+XBOOL argUsage  PARMS(ad, vp, copyf)
+X{
+X   return   FALSE;
+X}
+X
+X
+X/***************************************************************************
+X** ^SECTION: STRING-TYPES -- argStr
+X**    ArgStr is one of the few argument translation routines that actually
+X**    uses the <copyf> flag. If <copyf> is true then the string is duplicated.
+X**
+X**    ArgStr assigns the given string (or a copy of it) to the value referenced
+X**    by arg_valp(unless the argument is a vector in which case the given string
+X**    is appended to the end).
+X**
+X**    ArgStr ensures that the very last item in a vector of strings (the one
+X**    accessed as vec.array[ vec.count ]) will always be NULL.
+X***^^**********************************************************************/
+X
+X/*ARGSUSED*/
+XBOOL argStr  PARMS(ad, vp, copyf)
+X{
+X   char *cp;
+X   argName_t  argname;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X   if (copyf) {
+X      register int i;
+X
+X      i = strlen(vp) + 1;
+X      cp = (char *) malloc(i * sizeof(char));
+X      if (!cp) {
+X         usrerr("out of memory parsing %s", argname);
+X         return FALSE;
+X      }
+X      memcpy(cp, vp, i);
+X   }
+X   else
+X      cp = vp;
+X
+X   if ( ARG_isVEC(ad) ) {
+X      strvec_t  *vec = (strvec_t *)arg_valp(ad);
+X
+X      if ( (vec->count % BLOCKSIZE) == 0 ) {
+X         vec->array = (char **) REALLOC(vec->array, 1+VEC_SIZE(vec, char *));
+X         if ( !vec->array ) {
+X            if ( copyf )  free(cp);
+X            syserr("out of memory saving arg %s", argname);
+X         }
+X         vec->flags = (argMask_t *) REALLOC(vec->flags, VEC_SIZE(vec, argMask_t));
+X         if ( !vec->flags ) {
+X            syserr("out of memory saving arg %s", argname);
+X         }
+X      }
+X
+X      vec->flags[ vec->count ] = arg_flags(ad);
+X      if ( copyf )  BSET( vec->flags[vec->count], ARGCOPYF );
+X      vec->array[ (vec->count)++ ] = cp;
+X      vec->array[ vec->count ] = (char *)NULL;
+X   }
+X   else
+X      *(char **) arg_valp(ad) = cp;
+X
+X   return (TRUE);
+X}
+X
+X
+X/***************************************************************************
+X** ^SECTION: CHARACTER-TYPES -- argChar
+X**    ArgChar assigns the given character to the value referenced by ad_valp
+X**    (unless the argument is a vector in which case the given character
+X**    is appended to the end).
+X**
+X**    If an argChar argument is matched as a single character option, then
+X**    the immediately following character will be considered its argument
+X**    (but the characters after it may still be processed as option-letters).
+X**
+X**    ArgChar ensures that the very last item in a vector of character (the
+X**    one accessed as vec.array[ vec.count ]) will always be a NUL byte so
+X**    that the resulting vector may also be used as a NULL terminated string.
+X**
+X**    Unlike argStr, argChar will translate character escape sequences such
+X**    as '\n' and '\012'.
+X***^^**********************************************************************/
+X
+X/*ARGSUSED*/
+XBOOL argChar  PARMS(ad, vp, copyf)
+X{
+X   auto char *vpp;
+X   argName_t  argname;
+X   int status = FALSE;
+X   char c;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X   if (!vp || !*vp) {
+X      status = FALSE;
+X   }
+X   if (strlen(vp) == 2 && vp[0]=='^') {
+X      c = vp[1] ^ '@';
+X      status = TRUE;
+X   }
+X   else if (strlen(vp) > 1 && vp[0]=='\\') {
+X      c = (int) strtol(&vp[1], &vpp, 8);
+X      if (*vpp == '\0')
+X         status = TRUE;
+X   }
+X   else if (strlen(vp) == 1) {
+X      c = *vp;
+X      status = TRUE;
+X   }
+X   else if ( !BTEST(arg_flags(ad), ARGVALSEP | ARGKEYWORD) ) {
+X      c = *vp;
+X      status = TRUE;
+X   }
+X
+X   if ( status ) {
+X      if ( ARG_isVEC(ad) ) {
+X         charvec_t  *vec = (charvec_t *)arg_valp(ad);
+X
+X         if ( (vec->count % BLOCKSIZE) == 0 ) {
+X            vec->array = (char *) REALLOC(vec->array, 1+VEC_SIZE(vec, char));
+X            if (!vec->array)  syserr("out of memory saving arg %s", argname);
+X         }
+X         vec->flags = (argMask_t *) REALLOC(vec->flags, VEC_SIZE(vec, argMask_t));
+X         if ( !vec->flags ) {
+X            syserr("out of memory saving arg %s", argname);
+X         }
+X
+X         vec->flags[ vec->count ] = arg_flags(ad);
+X         vec->array[ (vec->count)++ ] = c;
+X         vec->array[ vec->count ] = '\0';
+X      }
+X      else
+X         *(char *) arg_valp(ad) = c;
+X   }
+X   else {
+X      usrerr("invalid character argument '%s' for %s",
+X         vp, argname);
+X   }
+X   return (status) ? (BOOL) -1 : FALSE;
+X}
+X
+X
+X/***************************************************************************
+X** ^SECTION: INTEGER-TYPES -- argInt, argShort, argLong
+X**    Each of these functions converts the given string to the desired
+X**    integral type. The value may be specified as an octal number by
+X**    specifying the first digit to be 0. Similarly, If the first two 
+X**    characters are '0x' then the number is treated as hexadecimal.
+X***^^**********************************************************************/
+X
+X   /*
+X   ** macro to define an integral argtype function
+X   **
+X   ** NOTE : do NOT use a terminating semicolon when invoking this macro!
+X   */
+X#define  INTEGRAL_ARGTYPE(name,num_t,ls_t) \
+XBOOL name  PARMS(ad, vp, copyf) \
+X{ \
+X   auto char *vpp; \
+X   argName_t  argname; \
+X   num_t  value; \
+X \
+X   (VOID) get_argname( arg_sname(ad), argname ); \
+X   value = (num_t) strtol(vp, &vpp, 0); \
+X   if (*vpp != '\0') { \
+X      usrerr("invalid integer argument '%s' for %s", vp, argname); \
+X      return (FALSE); \
+X   } \
+X   else { \
+X      if ( ARG_isVEC(ad) ) { \
+X         ls_t  *vec = (ls_t *)arg_valp(ad); \
+X \
+X         if ( (vec->count % BLOCKSIZE) == 0 ) { \
+X            vec->array = (num_t *) REALLOC(vec->array, VEC_SIZE(vec, num_t)); \
+X            if ( !vec->array ) \
+X               syserr("out of memory saving arg %s", argname); \
+X \
+X            vec->flags = (argMask_t *) REALLOC(vec->flags, VEC_SIZE(vec, argMask_t)); \
+X            if ( !vec->flags ) \
+X               syserr("out of memory saving arg %s", argname); \
+X         } \
+X \
+X         vec->flags[ vec->count ] = arg_flags(ad); \
+X         vec->array[ (vec->count)++ ] = value; \
+X      } \
+X      else \
+X         *(num_t *) arg_valp(ad) = value; \
+X \
+X      return (TRUE); \
+X   } \
+X}
+X
+X
+X/* define argInt() */
+XINTEGRAL_ARGTYPE( argInt, int, intvec_t )
+X
+X/* define argShort() */
+XINTEGRAL_ARGTYPE( argShort, short, shortvec_t )
+X
+X/* define argLong() */
+XINTEGRAL_ARGTYPE( argLong, long, longvec_t )
+X
+X
+X#ifndef NOFLOAT
+X
+X/***************************************************************************
+X** ^SECTION: FLOATING-POINT-TYPES -- argFloat, argDouble
+X**    Each of these functions converts the given string to the desired
+X**    floating-point type.
+X***^^**********************************************************************/
+X
+X   /*
+X   ** macro to define a decimal argtype function
+X   **
+X   ** NOTE : do NOT use a terminating semicolon when invoking this macro!
+X   */
+X#define  DECIMAL_ARGTYPE(name,dec_t,ls_t) \
+XBOOL name  PARMS(ad, vp, copyf) \
+X{ \
+X   auto char *vpp; \
+X   argName_t  argname; \
+X   dec_t  value; \
+X \
+X   (VOID) get_argname( arg_sname(ad), argname ); \
+X   value = (dec_t) strtod(vp, &vpp); \
+X   if (*vpp != '\0') { \
+X      usrerr("invalid decimal argument '%s' for %s", vp, argname); \
+X      return (FALSE); \
+X   } \
+X   else { \
+X      if ( ARG_isVEC(ad) ) { \
+X         ls_t  *vec = (ls_t *)arg_valp(ad); \
+X \
+X         if ( (vec->count % BLOCKSIZE) == 0 ) { \
+X            vec->array = (dec_t *) REALLOC(vec->array, VEC_SIZE(vec, dec_t)); \
+X            if (!vec->array) \
+X               syserr("out of memory saving arg %s", argname); \
+X \
+X            vec->flags = (argMask_t *) REALLOC(vec->flags, VEC_SIZE(vec, argMask_t)); \
+X            if (!vec->flags) \
+X               syserr("out of memory saving arg %s", argname); \
+X         } \
+X \
+X         vec->flags[ vec->count ] = arg_flags(ad); \
+X         vec->array[ (vec->count)++ ] = value; \
+X      } \
+X      else \
+X         *(dec_t *) arg_valp(ad) = value; \
+X \
+X      return (TRUE); \
+X   } \
+X}
+X
+X/* define argFloat */
+XDECIMAL_ARGTYPE( argFloat, float, floatvec_t )
+X
+X/* define argLong */
+XDECIMAL_ARGTYPE( argDouble, double, doublevec_t )
+X
+X#endif  /* NOFLOAT */
+X
+X
+X/*************************************************************************
+X** ^SECTION: BOOLEAN-TYPES -- argBool, argSBool, argUBool, argTBool
+X**    ArgBool and argSBool set a boolean value (if no value is given).
+X**    ArgUBool unsets a boolean value (if no value is given). ArgTBool
+X**    toggles a boolean value (if no value is given). If a value is
+X**    supplied to any of these routines, then the string is looked up
+X**    in a table and assigned the corresponding value.
+X**
+X**    If a value is supplied for an argument that was matched via its
+X**    single character name and is part of the same argv element as the
+X**    argument-name (so that both ARGKEYWORD and ARGVALSEP are not set),
+X**    then only the first character of the value is used (unless it is
+X**    not found in our table, in which case the value is ignored and the
+X**    default action is taken).
+X**
+X**    The only possible arguments for single-character options are the
+X**    following:
+X**
+X**       1, +         set the flag
+X**       0, -         unset the flag
+X**       ^, ~         toggle the flag
+X**
+X**    The possible argument strings for long-options (keywords) are as
+X**    follows (case-insensitive):
+X*/
+X
+X   /* define a structure for an item in our boolean-lookup table */
+Xstruct booltab {
+X   char   *bname;      /* string to match against */
+X   char   bneedmatch;  /* number of characters that must match */
+X   BOOL   bval;        /* value to use */
+X};
+X
+X   /* define the boolean-lookup table */
+XSTATIC struct booltab	_BoolTab[] = {
+X   "1",      1,   TRUE,
+X   "0",      1,   FALSE,
+X   "+",      1,   TRUE,
+X   "-",      1,   FALSE,
+X   "yes",    1,   TRUE,
+X   "no",     1,   FALSE,
+X   "true",   1,   TRUE,
+X   "false",  1,   FALSE,
+X   "on",     2,   TRUE,
+X   "off",    3,   FALSE,
+X   CHARNULL
+X};
+X
+X/**^^**********************************************************************/
+X
+X
+X   /*
+X   ** NOTE: Lists and vectors of Boolean types are not supported!!!
+X   **       (same goes for argEnd, argInput, & argOutput)
+X   */
+X
+X/*ARGSUSED*/
+XBOOL argBool  PARMS(ad, vp, copyf)
+X{
+X   register struct booltab *b;
+X   register char *cp;
+X   argName_t  argname;
+X   int len;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X
+X   /* ARGVECs are not supported for this Boolean arg-types */
+X   if ( ARG_isVEC(ad) )
+X      syserr( "Error in '%s' arg-entry! Boolean argvecs are not supported!",
+X            argname );
+X
+X   /* if vp is NULL, just set to TRUE
+X   **    (needed for backward compatibility)
+X   */
+X   if ( !vp || !*vp ) {
+X      *(BOOL *) arg_valp(ad) = TRUE;
+X      return (TRUE);
+X   }
+X
+X      /* allow single character arguments for non-keywords */
+X   if ( !BTEST(arg_flags(ad), ARGKEYWORD | ARGVALSEP) ) {
+X      if ( *vp == '+' || *vp == '1' ) {
+X         *(BOOL *) arg_valp(ad) = TRUE;
+X         return (BOOL) -1;
+X      }
+X      if ( *vp == '-' || *vp == '0' ) {
+X         *(BOOL *) arg_valp(ad) = FALSE;
+X         return (BOOL) -1;
+X      }
+X      if ( *vp == '~' || *vp == '^' ) {
+X         *(BOOL *) arg_valp(ad) = (*(BOOL *) arg_valp(ad)) ? FALSE : TRUE;
+X         return (BOOL) -1;
+X      }
+X
+X         /* unmatched value, return FALSE for non-argBool (so the caller
+X         ** can use whatever default) and return TRUE for argBool.
+X         */
+X      if ( arg_type(ad) == argBool ) {
+X         *(BOOL *) arg_valp(ad) = TRUE;
+X         return  TRUE;
+X      }
+X      return  FALSE;
+X   }/* if single char option */
+X
+X   /* copy input & convert to lower case */
+X   cp = strlwr( strdup(vp) );
+X   len = strlen( cp );
+X
+X   /* search for a match in the table */
+X   for (b = _BoolTab; b->bname ; b++) {
+X      /* if too short, don't even bother trying */
+X      if (len < b->bneedmatch)
+X         continue;
+X
+X      if ( memcmp(cp, b->bname, len) == 0) {
+X         /* got a match */
+X         *(BOOL *) arg_valp(ad) = b->bval;
+X         free( cp );
+X         return (TRUE);
+X      }
+X   }/*if match*/
+X
+X   free( cp );
+X   usrerr("invalid Boolean argument '%s' for %s", vp, argname);
+X   return (FALSE);
+X}
+X
+X
+X/*ARGSUSED*/
+XBOOL argSBool  PARMS(ad, vp, copyf)
+X{
+X   argName_t  argname;
+X   BOOL  retval;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X
+X   /* ARGVECs are not supported for this Boolean arg-types */
+X   if ( ARG_isVEC(ad) )
+X      syserr( "Error in '%s' arg-entry! Boolean argvecs are not supported!",
+X            argname );
+X
+X   /* if vp is NULL, just set to TRUE */
+X   if ( !vp || !*vp || !(retval = argBool(ad, vp, copyf)) ) {
+X      *(BOOL *) arg_valp(ad) = TRUE;
+X      return (TRUE);
+X   }
+X   else
+X      return  retval;
+X}
+X
+X/*ARGSUSED*/
+XBOOL argUBool  PARMS(ad, vp, copyf)
+X{
+X   argName_t  argname;
+X   BOOL  retval;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X
+X   /* ARGVECs are not supported for this Boolean arg-types */
+X   if ( ARG_isVEC(ad) )
+X      syserr( "Error in '%s' arg-entry! Boolean argvecs are not supported!",
+X            argname );
+X
+X   /* if vp is NULL, just set to FALSE */
+X   if ( !vp || !*vp || !(retval = argBool(ad, vp, copyf)) ) {
+X      *(BOOL *) arg_valp(ad) = FALSE;
+X      return (TRUE);
+X   }
+X   else
+X      return retval;
+X}
+X
+X/*ARGSUSED*/
+XBOOL argTBool  PARMS(ad, vp, copyf)
+X{
+X   argName_t  argname;
+X   BOOL  retval;
+X
+X   (VOID) get_argname( arg_sname(ad), argname );
+X
+X   /* ARGVECs are not supported for this Boolean arg-types */
+X   if ( ARG_isVEC(ad) )
+X      syserr( "Error in '%s' arg-entry! Boolean argvecs are not supported!",
+X            argname );
+X
+X   /* if vp is NULL, just toggle value */
+X   if ( !vp || !*vp || !(retval = argBool(ad, vp, copyf)) ) {
+X      *(BOOL *) arg_valp(ad) = (*(BOOL *) arg_valp(ad)) ? FALSE : TRUE ;
+X      return (TRUE);
+X   }
+X   else
+X      return retval;
+X}
+X
+X
+X#ifdef vms_style
+X
+X/***************************************************************************
+X** ^SECTION: I/O-REDIRECTION-TYPES -- argInput, argOutput
+X**    ArgInput attempts to redirect the file-pointer addressed by ad_valp
+X**    to the file named by the given value. The file is opened for reading.
+X**
+X**    ArgOutput attempts to redirect the file-pointer addressed by ad_valp
+X**    to the file named by the given value. The file is opened for writing.
+X**
+X**    In either case, ad_valp should be of type (FILE **) (a pointer to a
+X**    file pointer) and not a mere file pointer as in (FILE *)!!!
+X**
+X**    If the given files cannot be opened, then an error message is printed
+X**    and the associated input/output streams are closed.
+X***^^**********************************************************************/
+X
+X   /*
+X   ** slight problem here - on VMS, as_valp should be of type FILE **
+X   ** but on Unix (emulating VMS) it needs to be of type FILE *.
+X   ** we get around this using the following:
+X   */
+X# ifdef vms
+X#  define FP *fp
+X# else
+X#  define FP fp
+X# endif
+X
+X/*ARGSUSED*/
+XBOOL argInput  PARMS(ad, vp, copyf)
+X{
+X#ifdef vms
+X   FILE **fp = (FILE **)arg_valp(ad);
+X#else
+X   FILE *fp = (FILE *)arg_valp(ad);
+X#endif
+X   BOOL error = FALSE;
+X
+X   /* redirect file pointer to read from file */
+X   if ( !vp ) {
+X      usrerr( "Error: no file name given" );
+X      error = TRUE;
+X   }
+X
+X   if ( !error  &&  !FP )
+X      error = TRUE;
+X   else if ( !error  &&  !freopen(vp, "r", FP) )
+X      error = TRUE;
+X
+X   if ( error )  {
+X      usrerr( "Error: unable to redirect input to file \"%s.\"", vp );
+X      return  (FALSE);
+X   }
+X   return (TRUE);
+X}
+X
+X
+X/*ARGSUSED*/
+XBOOL argOutput  PARMS(ad, vp, copyf)
+X{
+X#ifdef vms
+X   FILE **fp = (FILE **)arg_valp(ad);
+X#else
+X   FILE *fp = (FILE *)arg_valp(ad);
+X#endif
+X   BOOL error = FALSE;
+X
+X   /* redirect file pointer to write to file */
+X   if ( !vp ) {
+X      usrerr( "Error: no file name given" );
+X      error = TRUE;
+X   }
+X
+X   if ( !error  &&  !FP )
+X      error = TRUE;
+X   else if ( !error  &&  !freopen(vp, "a", FP) )
+X      error = TRUE;
+X
+X   if ( error )  {
+X      usrerr( "Error: unable to redirect output to file \"%s.\"", vp );
+X      return  (FALSE);
+X   }
+X   return (TRUE);
+X}
+X
+X# undef FP
+X#endif  /* vms_style */
+END_OF_FILE
+if test 22859 -ne `wc -c <'argtype.c'`; then
+    echo shar: \"'argtype.c'\" unpacked with wrong size!
+fi
+# end of 'argtype.c'
+fi
+if test -f 'unix_args.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unix_args.c'\"
+else
+echo shar: Extracting \"'unix_args.c'\" \(23539 characters\)
+sed "s/^X//" >'unix_args.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: unix_args.c - parse Unix argument vectors
+X**
+X** ^DESCRIPTION:
+X**    This file contains the routines used to parse Unix argument
+X**    vectors and to print Unix usage messages.
+X**
+X** ^HISTORY:
+X**    12/05/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - added #ifdef POSIX_SOURCE to use "--" instead of "+" as
+X**      GNU conformant prefix for long options.
+X**
+X**    08/27/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Use ProgNameLen when accessing ProgName
+X**    - Use get_argdesc() to access description
+X**
+X**    01/02/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - Added structured block comments
+X**    - Added optional arguments to keywords and options
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>	
+X**
+X**    --/--/--	Eric P. Allman	<eric@Berkeley.EDU> 	Created
+X***^^**********************************************************************/
+X
+X#include <ctype.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X#include "pgopen.h"
+X#include "exit_codes.h"
+X
+X#define PARSEARGS_PRIVATE   /* include private definitions */
+X#include "parseargs.h"
+X
+XEXTERN  VOID  syserr       ARGS((const char *, ...));
+XEXTERN  VOID  usrerr       ARGS((const char *, ...));
+XEXTERN  char *getenv       ARGS((const char *));
+XEXTERN  VOID  get_winsize  ARGS((int, int *, int *));
+X
+XVERSIONID("$Header: parseargs.c,v 2.1 89/12/30 20:59:48 eric Exp $");
+X
+X
+X/***************************************************************************
+X** ^GLOBAL-VARIABLE: Usage_Requested
+X**
+X** ^VISIBILITY:
+X**    static-global (visible to all functions in this file).
+X**
+X** ^DESCRIPTION:
+X**    Indicates whether a usage message was requested by the user
+X**    (as opposed to triggered by a syntax error).  If the message
+X**    is requested by the user then it is always printed in verbose
+X**    mode and does not return an error-status-code.
+X***^^**********************************************************************/
+Xstatic  BOOL  Usage_Requested = (BOOL) FALSE;
+X
+X
+X   /* macros to detect an option/keyword -- watch out for side effects!! */
+X#define isOPT(s)  \
+X   ( !BTEST(cmd_flags(cmd), pa_KWDSONLY)  && \
+X     !BTEST(cmd_state(cmd), ps_NOFLAGS)  && \
+X     (*s == c_OPT_PFX)  &&  *(s+1) \
+X   )
+X
+X#ifndef POSIX_SOURCE
+X#define isKWD(s)  \
+X   ( !BTEST(cmd_flags(cmd), pa_OPTSONLY)  && \
+X     !BTEST(cmd_state(cmd), ps_NOFLAGS)  && \
+X     (*s == c_KWD_PFX)  &&  *(s+1) \
+X   )
+X#else
+X#define isKWD(s)  \
+X   ( !BTEST(cmd_flags(cmd), pa_OPTSONLY)  && \
+X     !BTEST(cmd_state(cmd), ps_NOFLAGS)  && \
+X     (*s == c_OPT_PFX)  &&  (*(s+1) == c_OPT_PFX)  &&  *(s+2) \
+X   )
+X#endif
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: unix_parse - parse Unix arg-vectors
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int unix_parse( argv, argd )
+X/*  
+X** ^PARAMETERS:
+X*/
+X   char *argv[];
+X/*    -- the vector of string arguments from the command-line
+X*/
+X   ARGDESC argd[];
+X/*    -- the programmer description of the command and its args
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Unix_parse will parse the arguments in the given vector of strings,
+X**    assign the corresponding values to the command-line arguments specified
+X**    in argd, and check the syntax of the command-line.
+X**
+X** ^REQUIREMENTS:
+X**    The final element in argv must be a NULL pointer.
+X**
+X** ^SIDE-EFFECTS:
+X**    argd is modified according to the command-line description and parameters
+X**
+X** ^RETURN-VALUE:
+X**    pe_SUCCESS (0) if no errors are encountered
+X**    pe_SYSTEM (-1) if a system error is encountered
+X**    pe_SYNTAX if a syntax error is encountered
+X**
+X** ^ALGORITHM:
+X**    - for each command-line argument
+X**       - attempt to match the argument as a keyword
+X**       - if it is a keyword argument
+X**          - record and convert its value (if any)
+X**         else attempt to match the argument as an option
+X**         if it is an option
+X**          - record and convert its value (if any)
+X**         else it is a positional parameter
+X**          - record and convert its value (if any)
+X**         else there are too many arguments
+X**          - return pe_SYNTAX
+X**         end-if
+X**       end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int unix_parse( char *argv[], ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *ad, *args, *cmd;
+X   register char **av = argv;
+X   register char *p;
+X   argName_t  name;
+X   argMask_t  flags;
+X   int  parse_error = pe_SUCCESS;
+X   BOOL  ad_okay, is_match = FALSE;
+X
+X   if ( !argd )  return  parse_error;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(argd) )  init_args( argd );
+X   cmd = argd;
+X
+X   while ( av  &&  (p = *av++) ) {
+X      if ( isKWD(p) ) {  /* we have a keyword here */
+X         char *s, c = '\0';
+X
+X#ifndef POSIX_SOURCE
+X         /* check for `++' to end flags */
+X         if ( *(p+1) == c_KWD_PFX  &&  !*(p+2) ) {
+X            BSET( cmd_state(cmd), ps_NOFLAGS );
+X            cmd_list(cmd) = ARGDESCNULL;
+X            continue;
+X         }
+X#endif
+X
+X            /* get past prefix and look for possible argument */
+X#ifdef POSIX_SOURCE
+X         ++p;
+X#endif
+X         s = strpbrk(++p, s_ARG_SEP);
+X         if(s) {
+X            c = *s;
+X            *s++ = '\0';
+X         }
+X
+X         is_match = FALSE;
+X         for ( args = argd ; args  &&  !is_match ; args = cmd_defargs(args) ) {
+X            for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X               if ( arg_type(ad) == argDummy )  continue;
+X
+X               if ( !ARG_isPOSONLY(ad)  &&  match(p, arg_sname(ad)) == 0 ) {
+X                  is_match = TRUE;
+X                  break;
+X               }/*if*/
+X            }
+X         }
+X
+X         if ( c )  *(s-1) = c;  /* restore the equal sign */
+X
+X         if ( !is_match ) {
+X#ifndef POSIX_SOURCE
+X            usrerr("option %c%s unknown", c_KWD_PFX, p);
+X#else
+X            usrerr("option %c%c%s unknown", c_OPT_PFX, c_OPT_PFX, p);
+X#endif
+X            parse_error = pe_SYNTAX;
+X            cmd_list(cmd) = ARGDESCNULL;
+X            continue;
+X         }
+X
+X         /* reset the argument flags - if this arg was already given, some
+X         ** of its flags may be set to indicate how it was given before. 
+X         ** we need to know how it was given now (but save the old ones
+X         ** just in case the new one fails).
+X         */
+X         flags = arg_flags(ad);
+X         if ( ARG_isGIVEN(ad) ) {
+X            BCLEAR( arg_flags(ad), ARGVALSEP | ARGKEYWORD );
+X            if ( !ARG_isMULTIVAL(ad) )  BCLEAR( arg_flags(ad), ARGVALGIVEN );
+X         }
+X
+X         BSET( arg_flags(ad), ARGKEYWORD );
+X
+X         if( ARG_isMULTIVAL(ad) ) { /* we matched a list (or a vector) */
+X            cmd_list(cmd) = ad;
+X         }
+X         else {
+X            cmd_list(cmd) = ARGDESCNULL;
+X         }
+X
+X            /* if usage - just print usage and exit */
+X         if ( arg_type(ad) == argUsage ) {
+X            Usage_Requested = TRUE;
+X            usage(argd);
+X            exit(exit_USAGE);
+X         }
+X
+X            /* ARGNOVALs are special, having no value */
+X         if ( ! ARG_isVALTAKEN(ad) ) {
+X            ad_okay = HANDLE(ad, s, cmd_flags(cmd));
+X            if ( !ad_okay ) {
+X               arg_flags(ad) = flags;
+X               parse_error = pe_SYNTAX;
+X            }
+X            else {
+X               BSET( arg_flags(ad), ARGGIVEN );
+X               ad = ARGDESCNULL;
+X            }
+X            continue;
+X         }/*if ARGNOVAL*/
+X
+X            /* now get the real value */
+X         if (!s) {
+X            s = *av++;
+X            if ( !s  ||  isOPT(s)  ||  isKWD(s) ) {
+X               if ( ARG_isVALOPTIONAL(ad) ) {
+X                  BSET( arg_flags(ad), ARGGIVEN );
+X               }
+X               else {
+X                  (VOID) get_kwdname( arg_sname(ad), name );
+X                  usrerr("option %c%s requires an argument", c_KWD_PFX, name);
+X                  arg_flags(ad) = flags;
+X                  parse_error = pe_SYNTAX;
+X               }
+X
+X               av--;
+X               continue;
+X            }/*if arg*/
+X            BSET( arg_flags(ad), ARGVALSEP );
+X         }/*if empty*/
+X
+X            /* try to convert the type */
+X         ad_okay = HANDLE(ad, s, cmd_flags(cmd));
+X         if ( !ad_okay ) {
+X            arg_flags(ad) = flags;
+X            parse_error = pe_SYNTAX;
+X         }
+X         else {
+X            BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X         }
+X
+X         continue;
+X      }/*if keyword*/
+X
+X      else if ( isOPT(p) ) {
+X         p++;  /* skip over option prefix */
+X
+X            /* check for `--' to end flags */
+X         if ( *p == c_OPT_PFX  &&  !*(p+1) ) {
+X            BSET( cmd_state(cmd), ps_NOFLAGS );
+X            cmd_list(cmd) = ARGDESCNULL;
+X            continue;
+X         }
+X
+X         /* We have a flag argument;
+X         ** remember that in the case of single character keywords,
+X         ** the conversion function (ad_type) tells us how many characters
+X         ** were used. We need that information to decide how many 
+X         ** characters to skip before the next iteration of the while loop.
+X         */
+X         while (*p) {
+X
+X               /* find the flag in the list */
+X            is_match = FALSE;
+X            for (args = argd; args  &&  !is_match ; args = cmd_defargs(args)) {
+X               for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X                  register char c1 = arg_cname(ad);
+X                  register char c2 = *p;
+X
+X                  if ( arg_type(ad) == argDummy )   continue;
+X                  if ( ARG_isPOSONLY(ad) )   continue;
+X
+X                  if ( BTEST(cmd_flags(cmd), pa_ANYCASE) ) {
+X                     c1 = TOUPPER( c1 );
+X                     c2 = TOUPPER( c2 );
+X                  }/*if*/
+X
+X                  if ( c1 == c2 ) {
+X                     is_match = TRUE;
+X                     break;
+X                  }/*if*/
+X               }
+X            }
+X            if ( !is_match ) {
+X                  usrerr("option %c%c unknown", c_OPT_PFX, *p++);
+X                  parse_error = pe_SYNTAX;
+X                  cmd_list(cmd) = ARGDESCNULL;
+X                  continue;
+X            }/* if unknown-option */
+X
+X            /* reset the argument flags - if this arg was already given, some
+X            ** of its flags may be set to indicate how it was given before.
+X            ** we need to know how it was given now (but save the old ones
+X            ** just in case the new one fails).
+X            */
+X            flags = arg_flags(ad);
+X            if ( ARG_isGIVEN(ad) ) {
+X               BCLEAR( arg_flags(ad), ARGVALSEP | ARGKEYWORD );
+X               if ( !ARG_isMULTIVAL(ad) )  BCLEAR( arg_flags(ad), ARGVALGIVEN );
+X            }
+X
+X            if( ARG_isMULTIVAL(ad) ) {
+X               cmd_list(cmd) = ad;  /* we matched a list (or a vector) */
+X            }
+X            else {
+X               cmd_list(cmd) = ARGDESCNULL;
+X            }
+X
+X               /* move p up to point to the (possible) value */
+X            p++;
+X
+X            /* if usage - just print usage and exit */
+X            if (arg_type(ad) == argUsage) {
+X               Usage_Requested = TRUE;
+X               usage(argd);
+X               exit(exit_USAGE);
+X            }
+X
+X               /* ARGNOVALs are special, having no value */
+X            if (! ARG_isVALTAKEN(ad)) {
+X               ad_okay = HANDLE(ad, p, cmd_flags(cmd));
+X
+X               if ( !ad_okay ) {
+X                  arg_flags(ad) = flags;
+X                  parse_error = pe_SYNTAX;
+X               }/*if*/
+X               else {
+X                  BSET( arg_flags(ad), ARGGIVEN );
+X                  ad = ARGDESCNULL;
+X                  if ( ad_okay < 0 )  p -= ad_okay;
+X               }/*else*/
+X
+X               continue;
+X            }/*if*/
+X
+X               /* now get the real value */
+X            if ( !(*p) ) {
+X               p = *av++;
+X               if ( !p  ||  isOPT(p)  ||  isKWD(p) ) {
+X                  if ( ARG_isVALOPTIONAL(ad) ) {
+X                     BSET( arg_flags(ad), ARGGIVEN );
+X                  }
+X                  else {
+X                     (VOID) get_argname(arg_sname(ad), name);
+X                     usrerr( "%s required for %c%c flag",
+X                             name, c_OPT_PFX, arg_cname(ad) );
+X                     arg_flags(ad) = flags;
+X                     parse_error = pe_SYNTAX;
+X                  }/*else*/
+X
+X                  av--;
+X                  break;
+X               }/*if arg*/
+X               BSET( arg_flags(ad), ARGVALSEP );
+X            }/*if empty*/
+X
+X               /* try to convert the type */
+X            ad_okay = HANDLE(ad, p, cmd_flags(cmd));
+X            if ( !ad_okay ) {
+X               arg_flags(ad) = flags;
+X               parse_error = pe_SYNTAX;
+X               p += strlen(p);
+X            }/*if*/
+X            else {
+X               BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X               if ( ad_okay < 0  &&  !ARG_isVALSEPARATE(ad) ) {
+X                  p -= ad_okay;
+X               }
+X               else {
+X                  p += strlen(p);
+X               }
+X            }/*else*/
+X
+X         }/*while*/
+X      }/*elif option*/
+X      else {
+X            /* parsing a list of arguments */
+X         if ( cmd_list(cmd) ) {  /* we're in the middle of a list */
+X            ad = cmd_list(cmd);
+X
+X            /* reset the argument flags - if this arg was already given, some
+X            ** of its flags may be set to indicate how it was given before.
+X            ** we need to know how it was given now (but save the old ones
+X            ** just in case the new one fails).
+X            */
+X            flags = arg_flags(ad);
+X            if ( ARG_isGIVEN(ad) ) {
+X               BCLEAR( arg_flags(ad), ARGVALSEP | ARGKEYWORD );
+X            }
+X
+X            BSET( arg_flags(ad), ARGVALSEP );
+X
+X            ad_okay = HANDLE(ad, p, cmd_flags(cmd));
+X            if ( !ad_okay ) {
+X               arg_flags(ad) = flags;
+X               parse_error = pe_SYNTAX;
+X            }
+X
+X            continue;
+X         }
+X            /* positional argument */
+X         is_match = FALSE;
+X         for (args = argd; args  &&  !is_match ; args = cmd_defargs(args)) {
+X            for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X               if (arg_type(ad) == argDummy)  continue;
+X
+X               if ( ARG_isPOSITIONAL(ad)  &&
+X                    (!ARG_isGIVEN(ad) ||  ARG_isMULTIVAL(ad)) ) {
+X                  is_match = TRUE;
+X                  break;
+X               }/*if*/
+X            }
+X         }
+X
+X         if ( !is_match ) {
+X            usrerr("too many arguments");
+X            parse_error = pe_SYNTAX;
+X            continue;
+X         }
+X
+X         /* reset the argument flags - if this arg was already given, some
+X         ** of its flags may be set to indicate how it was given before.
+X         ** we need to know how it was given now (but save the old ones
+X         ** just in case the new one fails).
+X         */
+X         flags = arg_flags(ad);
+X         if ( ARG_isGIVEN(ad) ) {
+X            BCLEAR( arg_flags(ad), ARGVALSEP | ARGKEYWORD );
+X            if ( !ARG_isMULTIVAL(ad) )  BCLEAR( arg_flags(ad), ARGVALGIVEN );
+X         }
+X
+X         if ( ARG_isMULTIVAL(ad) ) {  /* we positionally matched a list */
+X            cmd_list(cmd) = ad;
+X         }
+X
+X         /* if FLAGS1ST is set then first positional marks end-of-flags */
+X         if ( BTEST(cmd_flags(cmd), pa_FLAGS1ST) ) {
+X            BSET( cmd_state(cmd), ps_NOFLAGS );
+X         }
+X
+X         BSET( arg_flags(ad), ARGVALSEP );
+X
+X            /* try to convert */
+X         ad_okay = HANDLE(ad, p, cmd_flags(cmd));
+X         if ( !ad_okay ) {
+X            arg_flags(ad) = flags;
+X            parse_error = pe_SYNTAX;
+X         }
+X         else {
+X            BSET( arg_flags(ad), ARGGIVEN | ARGVALGIVEN );
+X         }
+X      }/*else*/
+X   }/*while*/
+X
+X   return  parse_error;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: fmtarg - format command-argument syntax
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static int fmtarg( ad, buf, usgflags )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *ad;
+X/*    -- pointer to the argument to format
+X*/
+X   char *buf;
+X/*    -- character buffer to hold the formatted result
+X*/
+X   argMask_t usgflags;
+X/*    -- set of bitmasks corresponding to the value of the user's USAGECNTL
+X**       environment variable
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Fmtarg will determine the proper command-line syntax for the
+X**    given argument and write the result to the given buffer.
+X**
+X** ^REQUIREMENTS:
+X**    buf must be large enough to hold the formatted result (100 characters
+X**    should do the trick).
+X**
+X** ^SIDE-EFFECTS:
+X**    buf is overwritten.
+X**
+X** ^RETURN-VALUE:
+X**    The number of printable characters in the argument-syntax-string
+X**
+X** ^ALGORITHM:
+X**    Print argument usage based on whether or not the argument is
+X**    positional, hidden, multi-valued (list or vector), etc ....
+X**    Optional arguments and values are enclosed in square braces.
+X**
+X**    Any syntax biases reflected in usgflags will be used.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static int fmtarg ( const ARGDESC *ad, char *buf, argMask_t usgflags )
+X#endif
+X{
+X   /* buf must already be large enough */
+X   char *pos;
+X   argName_t   name, keyword;
+X
+X   (VOID) get_argname( arg_sname(ad), name );
+X
+X   if (ARG_isPOSITIONAL(ad)) {
+X      sprintf( buf, "<%s>", name );
+X   }
+X   else {
+X      (VOID) get_kwdname( arg_sname(ad), keyword );
+X
+X      if ( isupper(arg_cname(ad))  &&  toupper(*keyword) == arg_cname(ad) ) {
+X         *keyword = toupper(*keyword);
+X      }
+X
+X      if ( !(usgflags & usg_LONGOPTS) ) {
+X         sprintf( buf, "%c%c", c_OPT_PFX, arg_cname(ad) );
+X      }
+X      else if ( !(usgflags & usg_OPTS) ) {
+X#ifndef POSIX_SOURCE
+X         sprintf( buf, "%c%s", c_KWD_PFX, keyword );
+X#else
+X         sprintf( buf, "%c%c%s", c_OPT_PFX, c_OPT_PFX, keyword );
+X#endif
+X      }
+X      else  {  /* use both */
+X#ifndef POSIX_SOURCE
+X         sprintf( buf, "%c%c|%c%s", c_OPT_PFX, arg_cname(ad),
+X                                    c_KWD_PFX, keyword );
+X#else
+X         sprintf( buf, "%c%c|%c%c%s", c_OPT_PFX, arg_cname(ad),
+X                                      c_OPT_PFX, c_OPT_PFX, keyword );
+X#endif
+X      }
+X
+X      pos = buf + strlen(buf);
+X
+X      if ( ARG_isVALTAKEN(ad)  &&  !ARG_isBOOLEAN(ad) &&  !ARG_isPSEUDOARG(ad) )
+X      {
+X         *(pos++) = ' ';
+X
+X         if  (ARG_isVALOPTIONAL(ad)) {
+X            sprintf( pos, "[<%s>]", name);
+X         }
+X         else {
+X            sprintf( pos, "<%s>", name );
+X         }
+X      }/*if*/
+X   }/*else*/
+X
+X   return  strlen(buf);
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: unix_usage - print a usage message
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID unix_usage( argd, usage_flags )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *argd;
+X/*    -- the command-descriptor array
+X*/
+X   argMask_t usage_flags;
+X/*    -- flags set by $USAGECNTL
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Unix_usage will print the Unix command-line usage of the given
+X**    command on standard diagnostic output (stderr). The content of the
+X**    usage message is controlled by the bitmasks in usage_flags which
+X**    correspond to the settings in the user's USAGECNTL variable.
+X**
+X** ^REQUIREMENTS:
+X**    argd should be a non-null command-line argument-descriptor array
+X**
+X** ^SIDE-EFFECTS:
+X**    Prints on stderr.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - if no usage is desired then exit
+X**    - if paging is requested print to the pager instead of stderr
+X**    - print the command-line syntax
+X**    - if the description is requested print it
+X**    - if verbose mode is requested, print the description of each argument
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void unix_usage ( const ARGDESC *argd, argMask_t usage_flags )
+X#endif
+X{
+X   register CONST ARGDESC *ad, *args, *cmd;
+X   int  max_cols = 80, max_lines  = 24;
+X   int  ll, margin, options, longest, positionals;
+X   BOOL first = TRUE;
+X   FILE *fp;
+X
+X   if ( !argd )  return;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(argd) )  init_args( (ARGDESC *)argd );
+X   cmd = argd;
+X
+X      /* force verbose-mode if requested */
+X   if ( Usage_Requested )   BSET( usage_flags, usg_VERBOSE );
+X
+X   if ( BTEST(usage_flags, usg_NONE) )  return;
+X
+X   fp = ( BTEST(usage_flags, usg_PAGED) )
+X      ? pgopen( stderr, getenv("USAGE_PAGER") )
+X      : stderr;
+X
+X      /* get screen size */
+X   get_winsize( fileno(fp), &max_lines, &max_cols );
+X
+X   fprintf(fp, "Usage: %.*s", ProgNameLen, (ProgName) ? ProgName : "");
+X
+X   ll = ProgNameLen + 7;
+X   margin = ll + 1;
+X   longest = 0;
+X
+X      /* print Synopsis */
+X   for ( positionals = 0 ; positionals < 2 ; positionals++ ) {
+X      for ( args = argd ; args ; args = cmd_defargs(args) ) {
+X         for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X            argName_t  buf;
+X            int pl;
+X
+X               /* don't display hidden arguments */
+X            if ( ARG_isHIDDEN(ad) )  continue;
+X            if ( !positionals  &&  ARG_isPOSITIONAL(ad) )  continue;
+X            if ( positionals  &&  !ARG_isPOSITIONAL(ad) )  continue;
+X
+X               /* figure out how wide this parameter is (for printing) */
+X            pl = fmtarg(ad, buf, usage_flags);
+X
+X            if ( pl > longest)  longest = pl;
+X
+X            if  ( ARG_isMULTIVAL(ad) ) {
+X               strcat( buf, "..." );
+X               pl += 3;
+X            }
+X            if ( !ARG_isREQUIRED(ad) ) {
+X               pl += 2;
+X            }
+X
+X            /* see if this will fit */
+X            if ( (ll + pl + 1) > (max_cols - first) ) {
+X                  /* no... start a new line */
+X               fprintf(fp, "\n%*s", margin, "");
+X               ll = margin;
+X            }
+X            else {
+X                  /* yes... just throw in a space */
+X               fputc(' ', fp);
+X               ++ll;
+X            }
+X            ll += pl;
+X
+X               /* show the argument */
+X            if ( !ARG_isREQUIRED(ad) )  fputc('[', fp);
+X            fprintf(fp, buf);
+X            if ( !ARG_isREQUIRED(ad) )  fputc(']', fp);
+X
+X            first = FALSE;  /* not first line anymore */
+X         }/*for each ad */
+X      }/* for each argd */
+X   }/* for each parm-type */
+X
+X   fputc('\n', fp);
+X
+X   if ( BTEST(usage_flags, usg_DESCRIPTION) ) {
+X      CONST char *description = cmd_description(cmd);
+X
+X      if ( description  &&  *description ) {
+X         fprintf( fp, "Description:\n" );
+X         indent_para(fp, max_cols, 8, "", 0, description, 0);
+X         fputc( '\n', fp );
+X      }
+X   }/*if*/
+X
+X   if ( !BTEST(usage_flags, usg_VERBOSE) )  {
+X      if ( pgactive(fp) )  (VOID) pgclose( fp );
+X      return;
+X   }
+X
+X   options = 0;
+X
+X      /* print Argument descriptions */
+X   for ( positionals = 0 ; positionals < 2 ; positionals++ ) {
+X      for ( args = argd ; args ; args = cmd_defargs(args) ) {
+X         for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X            argName_t  buf;
+X            char  *desc;
+X            int  desclen;
+X
+X               /* don't display hidden arguments */
+X            if ( ARG_isHIDDEN(ad) )  continue;
+X            if ( !positionals  &&  ARG_isPOSITIONAL(ad) )  continue;
+X            if ( positionals  &&  !ARG_isPOSITIONAL(ad) )  continue;
+X
+X            if ( !options++ )   fprintf(fp, "Options/Arguments:\n");
+X            fmtarg(ad, buf, usage_flags);
+X            desc = get_argdesc(arg_description(ad), &desclen);
+X            indent_para( fp, max_cols, 8, buf, longest+2, desc, desclen );
+X         }/*for each ad */
+X      }/* for each argd */
+X   }/* for each parm-type */
+X
+X   if ( pgactive(fp) )  (VOID) pgclose( fp );
+X}
+X
+END_OF_FILE
+if test 23539 -ne `wc -c <'unix_args.c'`; then
+    echo shar: \"'unix_args.c'\" unpacked with wrong size!
+fi
+# end of 'unix_args.c'
+fi
+echo shar: End of archive 5 \(of 10\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

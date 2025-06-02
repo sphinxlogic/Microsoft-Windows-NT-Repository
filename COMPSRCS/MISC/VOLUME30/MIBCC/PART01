@@ -1,0 +1,2036 @@
+Newsgroups: comp.sources.misc
+From: wegrzyn@nic.cerf.net (Chuck Wegrzyn)
+Subject:  v30i074:  mibcc - SNMP MIB Compiler, Part01/02
+Message-ID: <csm-v30i074=mibcc.124851@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2b4a834a99d1f6f7285419a11dc44d3c
+Date: Sat, 20 Jun 1992 17:49:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wegrzyn@nic.cerf.net (Chuck Wegrzyn)
+Posting-number: Volume 30, Issue 74
+Archive-name: mibcc/part01
+Environment: UNIX
+
+Here is my MIB compiler; I place it in the public domain.
+Please check the README file for information about making
+it, running it and a little on the "insides."
+
+Please don't put any copyright notices -- or copyleft notices
+on it. I did not place any restrictions on it, and I would
+not like to see any placed on it. Please honor my wishes.
+
+Thanks, and have fun
+Chuck Wegrzyn
+------------------------------ CUT HERE --------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README AssignOBJECT.c AssignTRAP.c AssignTYPE.h main.c
+#   yacc.y
+# Wrapped by kent@sparky on Sat Jun 20 12:45:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(4208 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+XIntroduction
+X------------
+X
+XThis is a MIB compiler that will read and parse MIBs according to
+XRFC-1212, Definition of a Concise MIB. It will also handle trap
+Xdefinitions if they are included (see RFC-1213 for the trap stuff).
+X
+XI release the code with no warranty and copyright -- I place it in
+Xthe public domain. Please honor my intentions by not placing a
+Xrestrictive copyright on it -- specifically the GNU copyleft statement
+Xor any others.
+X
+XLike all software, it probably has bugs in it. I have tried my best
+Xto find them and fix them. This software is a small part of the 
+XMotorola Codex SNMP Mgr. software which I wrote, and has been
+Xoperational for the last year and one-half. The compiler has been
+Xused on just about every MIB placed on venera.isi.edu, and appears
+Xto work. But, that said I am sure that there are bugs in there
+Xsomewhere. If you do find a problem or bug, please send me mail
+Xat
+X
+X		wegrzyn@cerf.net
+X
+Xand I will try my best to fix the problem. If you make any changes
+XI would appreciate receiving any changes. I will integrate them into
+Xthe system and re-issue the software. Of course, you can make any 
+Xchanges you wish and post them as well.
+X
+XBuilding the system
+X-------------------
+XFor some information about building the software. There is a MAKE
+Xfile called Makefile, that can be used to build the system. If you
+Xexamine Makefile you will find that CFLAGS has two possible formats:
+Xone for stdarg.h and the other for using varargs.h ... pick which
+Xever is appropriate. The software has been tested on a number of
+X5.4 systems and works. It has also been ported to HP/UX and works.
+X
+XAfter the program is built, you can call it MIBcompiler or MIBcheck.
+XIf the name MIBcheck is used, it will do a syntax/semantic check of
+Xthe MIB put will not ever call any database routines. If it is called
+XMIBcompiler, it will do the syntax/semantic check and possibly call
+Xthe database routines. A Mib is defined to have an extension of .my, 
+Xbut can really be anything.
+X
+X
+X
+XSome Internal stuff
+X-------------------
+X
+XThere are a number of statements allowed in a MIB. I will discuss each
+Xbriefly and tell you how each statement is processed.
+X
+XThere is an OID definition, that looks something like:
+X
+X               cisco  OBJECT IDENTIFIER ::= { enterprises 9 }
+X
+XThis statement is processed by a routine called ProcessOID() in the
+Xfile AssignOID.c. 
+X
+XAnother file is a TYPE definition, which looks something like:
+X
+X               LIfEntry ::=
+X                   SEQUENCE {
+X                       locIfLastIn
+X                           INTEGER,
+X                       locIfDelay
+X                           INTEGER,
+X                       locIfOutputQueueDrops
+X                           INTEGER
+X                   }
+X
+XThis statement, after parsing, is processed by routine ProcessType()
+Xin file AssignTYPE.c
+X
+XThe actual object definition, of which
+X
+X          ifEntry OBJECT-TYPE
+X              SYNTAX  IfEntry
+X              ACCESS  not-accessible
+X              STATUS  mandatory
+X              DESCRIPTION
+X                      "An interface entry containing objects at the
+X                      subnetwork layer and below for a particular
+X                      interface."
+X              INDEX   { ifIndex }
+X              ::= { ifTable 1 }
+X
+Xis an example, is processed by routine ProcessObject() in file AssignOBJECT.c.
+X
+XFinally, trap statements are processed by routine ProcessTrap() in file
+XAssignTRAP.c. An example of a trap statement is
+X
+X	coldStart TRAP-TYPE
+X		ENTERPRISE {snmp}
+X		DESCRIPTION "Cold start of the machine"
+X		::= {1}
+X
+X
+XThe overall flow is that the system will run in up to two passes: all
+XOIDs and symbols that can be resolved in the first pass are processed 
+Xin the first pass. Anything that requires two passes is processed in
+Xthe second pass. Basically, if you define something before it is used,
+Xthe "thing" that uses it will be processed in the first pass. Something
+Xthat is used before it is defined, will be processed in the second
+Xpass.
+X
+XIn processing OIDs and TYPE statements, a linked list is kept and passed
+Xto the various routines.
+X
+X
+XOne last note -- I have tried to comment the code with meaningful
+Xinformation. I hope that I have succeeded....
+X
+XSincerely, Chuck Wegrzyn
+X
+X
+X
+X
+END_OF_FILE
+  if test 4208 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'AssignOBJECT.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignOBJECT.c'\"
+else
+  echo shar: Extracting \"'AssignOBJECT.c'\" \(17859 characters\)
+  sed "s/^X//" >'AssignOBJECT.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "oid.h"
+X
+X#include "MibCompiler.h"
+X#include "AssignOID.h"
+X#include "AssignOBJECT.h"
+X#include "symbol.h"
+X
+X
+Xextern int debug,bResolveOIDsNeeded,yyErrorCnt,nCheckOnly;
+Xextern int errno;
+X
+X
+XQUEUEOBJ *HeadObj = {0},*TailObj = {0};
+X
+X
+X/*
+X * SaveOID
+X *
+X * Save the compiled OID somewhere...You might want to write things
+X * out to a database, etc....
+X *
+X */
+Xint SaveOID(OIDINFO *pOID)
+X {
+X    int nRc = 0;
+X    /*
+X     * Return the outcome.
+X     */
+X    return(nRc);
+X }
+X
+X
+Xstatic void RegisterAs(char *pName,char *pOID,int type)
+X {
+X    SYMBOL *pSym;
+X    /*
+X     * Allocate space for the symbol.
+X     */
+X    pSym = (SYMBOL *) malloc(sizeof(SYMBOL));
+X    if( pSym )
+X             {
+X                /*
+X                 * Fill it in.
+X                 */
+X                pSym->DefinedLineNo = 0;
+X                pSym->SymbolName = pName;
+X                if( pOID ) pSym->SymbolValue = (LIST *) strdup(pOID);
+X                     else  pSym->SymbolValue = 0;
+X
+X                /*
+X                 * Add it to the symbol table.
+X                 */
+X                AddToSymbolTable(pSym,type);
+X             }
+X        else {
+X                /*
+X                 * Out of memory!
+X                 */
+X                RestoreErrorMsg("Out of memory\n");
+X             }
+X }
+X
+X
+Xstatic int IsArray(char *pName)
+X {
+X    SYMBOL *pSym;
+X    /*
+X     * See if we know about the symbol already.
+X     */
+X    for( pSym = 0; pSym = GetNextSymbol(pSym,ARRAYTABLE); )
+X        {
+X            if( strcmp(pName,pSym->SymbolName) == 0 ) return(1);
+X        }
+X    return(0);
+X }
+X
+X
+Xstatic char *CheckForColumnEntry(char *pOID)
+X {
+X    SYMBOL *pSym;
+X    int n;
+X    /*
+X     * See if we have this OID as a subset of any array.
+X     */
+X    for( pSym = 0; pSym = GetNextSymbol(pSym,ROWTABLE); )
+X        {
+X            if( strstr(pOID,(char *)pSym->SymbolValue) ) return(pSym->SymbolName);
+X        }
+X    return((char *)0);
+X }
+X
+X
+Xstatic OIDTYPE ProcessType(char *pName,TYPE **pT,int nLineNo)
+X {
+X    TYPE *pNewType;
+X    SYMBOL *pSym;
+X    OIDTYPE oidtype,BasicType(char *,TYPE **,int);
+X    /*
+X     * Look up the type in the symbol table -- it must be present.
+X     */
+X    pSym = FindSymbol((*pT)->Data.TypeName,NEWTYPES);
+X    if( pSym )
+X             {
+X                /*
+X                 * We have something, so resolve it into something we can
+X                 * use.
+X                 */
+X                pNewType = (TYPE * )pSym->SymbolValue;
+X                oidtype = BasicType(pSym->SymbolName,&pNewType,pSym->DefinedLineNo);
+X                if( oidtype != NOTYPE ) *pT = pNewType;
+X             }
+X        else {
+X                /*
+X                 * Not present, so kick it out with an error...
+X                 */
+X                oidtype = NOTYPE;
+X                RestoreErrorMsg("Line %d : Illegal SYNTAX type of \"%s\" in OBJECT-TYPE \"%s\"\n",nLineNo,(*pT)->Data.TypeName,pName);
+X                yyErrorCnt++;
+X             }
+X
+X    /*
+X     * Return the outcome...
+X     */
+X    return(oidtype);
+X }
+X
+X
+Xstatic OIDTYPE BasicType(char *pName,TYPE **pT,int nLineNo)
+X {
+X    OIDTYPE type;
+X    /*
+X     * Do normal checking of type...
+X     */
+X    switch((*pT)->Type)
+X        {
+X            case NULLTYPE:
+X                    type = NULLOBJ;
+X                    break;
+X            case TICKTYPE:
+X                    type = TIMETICKS;
+X                    break;
+X            case COUNTERTYPE:
+X                    type = COUNTER;
+X                    break;
+X            case GAUGETYPE:
+X                    type = GAUGE;
+X                    break;
+X            case INTEGERTYPE:
+X            case RANGEINTEGER:
+X            case ENUMINTEGER:
+X                    type = INTEGER;
+X                    break;
+X            case OBJIDTYPE:
+X                    type = OBJECTID;
+X                    break;
+X            case IPADDRTYPE:
+X                    type = IPADDR;
+X                    break;
+X            case NETWORKTYPE:
+X                    type = NETADDR;
+X                    break;
+X            case OCTETTYPE:
+X                    type = OCTETSTRING;
+X                    break;
+X            case STRINGTYPE:
+X                    type = DISPLAYSTRING;
+X                    break;
+X            case SEQOFTYPE:
+X            case ITEMTYPE:
+X            case SEQTYPE:
+X                    type = NOTYPE;
+X                    RestoreErrorMsg("Line %d : Illegal SYNTAX type in OBJECT-TYPE \"%s\"\n",nLineNo,pName);
+X                    yyErrorCnt++;
+X                    break;
+X            case TYPENAME:
+X                    /*
+X                     * We need to resolve this type, to the true thing behind
+X                     * it. Only if we can't resolve things any further do we
+X                     * actually display an error.
+X                     */
+X                    type = ProcessType(pName,pT,nLineNo);
+X                    break;
+X        }
+X    return(type);
+X }
+X
+X
+Xstatic void FillInDetails(OIDINFO *pOI,TYPE *pT)
+X {
+X    LIST *pL;
+X    int i;
+X    /*
+X     * Set the default conditions... no specific sub information!
+X     */
+X    pOI->OIDsubtype = NOSUBTYPE;
+X
+X    /*
+X     * Fill in the other details.
+X     */
+X    switch(pT->Type)
+X        {
+X            case RANGEINTEGER:
+X            case OCTETTYPE:
+X            case STRINGTYPE:
+X                    /*
+X                     * These types can have ranges associated with them. 
+X                     * See if the MIB defined them.
+X                     */
+X                    if( pT->Data.Range.Lower || pT->Data.Range.Upper )
+X                        {
+X                            /*
+X                             * We need to store a range in the array.
+X                             */
+X                            i = pOI->NoElems;
+X                            pOI->OIDsubtype = RANGESET;
+X                            pOI->extra[i].Pair.Lower = pT->Data.Range.Lower;
+X                            pOI->extra[i].Pair.Upper = pT->Data.Range.Upper;
+X                            pOI->NoElems = i+1;
+X                        }
+X                    break;
+X            case ENUMINTEGER:
+X                    /*
+X                     * This one has a lot of data!
+X                     */
+X                    i = pOI->NoElems;
+X                    for( pL = pT->Data.EnumList; pL; pL = (LIST *)pL->Next,i++ )
+X                        {
+X                            /*
+X                             * Store the entry in the 'extra' array.
+X                             */
+X                            pOI->extra[i].EnumData.EnumName = pL->Name;
+X                            pOI->extra[i].EnumData.EnumValue = pL->Number;
+X                        }
+X                    pOI->NoElems = i;
+X                    pOI->OIDsubtype = ENUMSET;
+X                    break;
+X        }
+X }
+X
+X
+Xstatic void FillInArrayDetails(OIDINFO *pOI,LIST *pIndex)
+X {
+X    int i;
+X    /*
+X     * This one has a lot of data!
+X     */
+X    for( i = pOI->NoElems ; pIndex; pIndex = (LIST *)pIndex->Next,i++ )
+X        {
+X            /*
+X             * Store the entry in the 'extra' array.
+X             */
+X            pOI->extra[i].IndexName = pIndex->Name;
+X        }
+X    pOI->NoElems = i;
+X    pOI->OIDsubtype = ENUMSET;
+X }
+X
+X
+X/*
+X * Process the object. We take all the input, process it and place it
+X * in a data structure called OIDINFO.
+X */
+Xstatic void SaveObject(char *pName,TYPE *pSyntax,int Access,int Status,
+X                         char *pDesc,char *pRef,LIST *pIndex,LIST *pDefault,
+X                                                        LIST *pOID,int nLineNo)
+X {
+X    OIDINFO oid;
+X    char *pRowName;
+X    /*
+X     * Do the simple cleanup to initialize the oid structure.
+X     */
+X    memset((char *)&oid,0,sizeof(oid));
+X
+X    /*
+X     * Make sure that the access and status are okay.
+X     */
+X    if( (Access == (int)UNKNOWN) || (Status == (int)UNKNOWN) )
+X        {
+X            RestoreErrorMsg("Line : %d Illegal ACCESS or STATUS in definition \"%s\"\n",nLineNo,pName);
+X            yyErrorCnt++;
+X            return;
+X        }
+X    /*
+X     * Convert the OID to a string for later reference.
+X     */
+X    oid.OIDoid = OIDListToString(pOID);
+X
+X    /*
+X     * Assign the easy things...
+X     */
+X    oid.OIDname = pName;
+X    oid.OIDaccess = (OIDACCESS) Access;
+X    oid.OIDstatus = (OIDSTATUS) Status;
+X    oid.OIDcomments.Comments = pDesc;
+X
+X    /*
+X     * See if this is the "base" of a SEQUENCE OF syntax. If so, then
+X     * this is an array. We should also have a INDEX list as well. If
+X     * not, complain.
+X     */
+X    if( pSyntax->Type == SEQOFTYPE )
+X            {
+X                /*
+X                 * Register this object id as a array for later reference.
+X                 * Remember that the thing on the end of the SEQUENCE OF is
+X                 * an ID!
+X                 */
+X                RegisterAs(((TYPE *)(pSyntax->Data.TypeList))->Data.TypeName,oid.OIDoid,ARRAYTABLE);
+X
+X                /*
+X                 * Assign this as the ARRAYTYPE - it is the base of the array.
+X                 */
+X                oid.OIDflag = ARRAYTYPE;
+X                oid.OIDtype = NOTYPE;
+X                oid.OIDsubtype = NOSUBTYPE;
+X
+X                /*
+X                 * Make sure we don't have an INDEX statement.
+X                 */
+X                if( pIndex )
+X                    {
+X                        RestoreErrorMsg("Line %d : \"%s\" is an OBJECT-TYPE with an INDEX clause; it is probably misplaced\n",nLineNo,pName);
+X                        yyErrorCnt++;
+X                    }
+X            }
+X       else {
+X                /*
+X                 * We have something that isn't an array definition. So
+X                 * see if it is part of a column, a slice or a leaf.
+X                 */
+X                if( (pSyntax->Type == TYPENAME) &&
+X                            IsArray(pSyntax->Data.TypeName) )
+X                         {
+X                            /*
+X                             * This is the "slice" of the array; it has no
+X                             * real type - it is an aggregate for all purposes.
+X                             */
+X                            oid.OIDflag = ROWTYPE;
+X                            oid.OIDtype = AGGREGATE;
+X                            oid.OIDsubtype = NOSUBTYPE;
+X
+X                            /*
+X                             * We need to have an INDEX clause for this definition.
+X                             * Complain if we don't.
+X                             */
+X                            if( pIndex == (LIST *)0 )
+X                                {
+X                                    ErrorMsg("Line %d : \"%s\" is an OBJECT-TYPE without an INDEX clause; it should have one\n",nLineNo,pName);
+X                                    yyErrorCnt++;
+X                                }
+X
+X                            /*
+X                             * Fill in the details we need.
+X                             */
+X                            FillInArrayDetails(&oid,pIndex);
+X
+X                            /*
+X                             * Register this thing for later access.
+X                            */
+X                           RegisterAs(pName,oid.OIDoid,ROWTABLE);
+X                         }
+X                    else {
+X                            /*
+X                             * For these types, we shouldn't have an INDEX
+X                             * field. If so it is probably a misplacement.
+X                             */
+X                            if( pIndex )
+X                                {
+X                                    RestoreErrorMsg("Line %d : \"%s\" is an OBJECT-TYPE with an INDEX clause; it is probably misplaced\n",nLineNo,pName);
+X                                    yyErrorCnt++;
+X                                }
+X
+X                            /*
+X                             * Assign the type necessary.
+X                             */
+X                            oid.OIDtype = BasicType(pName,&pSyntax,nLineNo);
+X                            if( oid.OIDtype == NOTYPE ) return;
+X
+X                            /*
+X                             * We might have a column entry or leaf. Figure
+X                             * out which by looking at the OID numbers.
+X                             */
+X                            if( pRowName = CheckForColumnEntry(oid.OIDoid) )
+X                                     {
+X                                        /*
+X                                         * For a column type, we store the
+X                                         * name of the row in the first
+X                                         * entry in the extra[] array.
+X                                         */
+X                                        oid.extra[0].IndexName = pRowName;
+X                                        oid.NoElems = 1;
+X                                        oid.OIDflag = COLTYPE;
+X                                     }
+X                                else {
+X                                        oid.OIDflag = LEAFTYPE;
+X
+X                                        /*
+X                                         * A leaf always has a 0 at the end
+X                                         * of the OID.
+X                                         */
+X                                        strcat(oid.OIDoid,".0");
+X                                     }
+X
+X                            /*
+X                             * This is the hard part... fill in the
+X                             * oid.NoElems value and the array extra!
+X                             */
+X                            FillInDetails(&oid,pSyntax);
+X
+X                         }
+X            }
+X
+X    /*
+X     * We now have assembled everything, and it has now to be written to
+X     * the database!
+X     */
+X    if( (nCheckOnly == 0) && SaveOID(&oid) )
+X         {
+X             RestoreErrorMsg("Problem with database : couldn't write record for OBJECT-TYPE \"%s\" (errno = %d uerr_cod = %d)\n",pName,errno);
+X         }
+X }
+X
+X
+Xstatic void QueueObject(char *pName,TYPE *pSyntax,int Access,int Status,
+X                          char *pDesc,char *pRef,LIST *pIndex,LIST *pDefault,
+X                                                        LIST *pOID,int nLineNo)
+X{ 
+X    QUEUEOBJ *pQ;
+X    /*
+X     * Allocate a queue structure to store everything...
+X     */
+X    pQ = (QUEUEOBJ *) malloc(sizeof(QUEUEOBJ));
+X    if( pQ )
+X             {
+X                /*
+X                 * Okay, fill in the details.
+X                 */
+X                pQ->Name = pName;
+X                pQ->Syntax = pSyntax;
+X                pQ->Access = Access;
+X                pQ->Status = Status;
+X                pQ->Description = pDesc;
+X                pQ->Reference = pRef;
+X                pQ->Index = pIndex;
+X                pQ->Default = pDefault;
+X                pQ->OID = pOID;
+X                pQ->LineNo = nLineNo;
+X
+X                /*
+X                 * Queue up the thing for later processing. Note that they
+X                 * must be queued in the order they are seen!
+X                 */
+X                if( HeadObj )
+X                         {
+X                            TailObj->Next = (struct qobject *) pQ;
+X                         }
+X                    else {
+X                            HeadObj = pQ;
+X                         }
+X                TailObj = pQ;
+X                pQ->Next = 0;
+X             }
+X        else {
+X                /*
+X                 * Too bad, we couldn't fit everything.
+X                 */
+X                RestoreErrorMsg("Out of memory\n");
+X             }
+X}
+X
+X
+X/*
+X * pName		name of the object being defined.
+X * pSyntax		what type of data is involved.
+X * Access		what type of access is allowed.
+X * Status		what is the status of the object.
+X * pDesc		pointer to description of the object.
+X * pRef			pointer to reference list.
+X * pIndex		pointer to table index list.
+X * pDefault		default value.
+X * pOID			OID of this object.
+X * nLineNo		where, in the MIB file it is defined.
+X * bSaveOID		whether or not the OID and name is to be added
+X *				to the symbol table.
+X */
+Xvoid ProcessObject(char *pName,TYPE *pSyntax,int Access,int Status,
+X                         char *pDesc,char *pRef,LIST *pIndex,LIST *pDefault,
+X                                            LIST *pOID,int nLineNo,int bSaveOID)
+X {
+X    LIST *pNew;
+X    /*
+X     * See if the OID supplied can be converted to only numbers, such as
+X     * 1.3.6
+X     */
+X    *pNew = ResolveSpecificOID(pOID,pName,0);
+X
+X    /*
+X     * We add the passed in OID to the symbol table list. We will use
+X     * the resolved OID if it is available. Otherwise we use the original!
+X     */
+X    if( pNew )
+X          pOID = pNew;
+X     else bResolveOIDsNeeded++;
+X    if( bSaveOID ) AddOIDSymbol(pName,pOID,nLineNo);
+X
+X    /*
+X     * Determine what to do... If we were able to resolve the OID at this 
+X     * time we will add the entry to the database. Otherwise, we create
+X     * a "in-memory" copy and link them altogether for later access.
+X     */
+X    if( pNew == pOID )
+X             {
+X                /*
+X                 * Save it now.
+X                 */
+X                SaveObject(pName,pSyntax,Access,Status,pDesc,pRef,pIndex,
+X                                            pDefault,pOID,nLineNo);
+X             }
+X        else {
+X                /*
+X                 * Save it for later use -- FinishObjectProcessing
+X                 * will deal with it.
+X                 */
+X                QueueObject(pName,pSyntax,Access,Status,pDesc,pRef,pIndex,
+X                                            pDefault,pOID,nLineNo);
+X             }
+X }
+X
+X
+X/*
+X * Do the second pass of the object definitions, just in case there
+X * are some that need to be processed.
+X */
+Xvoid FinishObjectProcessing()
+X {
+X    QUEUEOBJ *pQ;
+X    /*
+X     * See if there is any deferred processing to do...
+X     */
+X    for( pQ = HeadObj; pQ; pQ = (QUEUEOBJ *)pQ->Next )
+X        {
+X            /*
+X             * Process this object definition.
+X             */
+X            ProcessObject(pQ->Name,pQ->Syntax,pQ->Access,pQ->Status,
+X                                pQ->Description,pQ->Reference,pQ->Index,
+X                                           pQ->Default,pQ->OID,pQ->LineNo,0);
+X        }
+X }
+END_OF_FILE
+  if test 17859 -ne `wc -c <'AssignOBJECT.c'`; then
+    echo shar: \"'AssignOBJECT.c'\" unpacked with wrong size!
+  fi
+  # end of 'AssignOBJECT.c'
+fi
+if test -f 'AssignTRAP.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignTRAP.c'\"
+else
+  echo shar: Extracting \"'AssignTRAP.c'\" \(1044 characters\)
+  sed "s/^X//" >'AssignTRAP.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X
+X#include "MibCompiler.h"
+X#include "AssignTRAP.h"
+X
+X
+Xextern int debug,nCheckOnly;
+X
+X
+X/*
+X * pName	name of the trap
+X * pOID		pointer to linked list that is the enterprise OID
+X * pVar		pointer to linked list of variables that are part
+X *			of the trap message
+X * pDescr	pointer to character string that is a description of
+X *			the trap
+X * pRef		pointer to character string that is the reference of
+X *			the trap
+X * TrapNo	trap number
+X * nLineNo	start of definition of trap in .my file.
+X *
+X */
+Xvoid ProcessTrap(char *pName,LIST *pOID,LIST *pVar,
+X                        char *pDescr,char *pRef,int TrapNo,int nLineNo)
+X {
+X    /*
+X     * First, see if we are going to display the trap info.
+X     */
+X    if( debug )
+X        {
+X            printf("Trap name %s (number %d)\n",pName,TrapNo);
+X            printf("\tEnterprise ");PrintList(pOID,0);printf("\n");
+X            printf("\tReference %s\n",pRef);
+X            printf("\tDescription %s\n",pDescr);
+X            printf("\tVariables ");PrintList(pVar,0);printf("\n\n");
+X        }
+X }
+X
+END_OF_FILE
+  if test 1044 -ne `wc -c <'AssignTRAP.c'`; then
+    echo shar: \"'AssignTRAP.c'\" unpacked with wrong size!
+  fi
+  # end of 'AssignTRAP.c'
+fi
+if test -f 'AssignTYPE.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AssignTYPE.h'\"
+else
+  echo shar: Extracting \"'AssignTYPE.h'\" \(147 characters\)
+  sed "s/^X//" >'AssignTYPE.h' <<'END_OF_FILE'
+X#if defined(__STDC__)
+Xvoid ProcessType(char *,TYPE *,int);
+Xvoid AddStandardTypes(void);
+X#else
+Xvoid ProcessType();
+Xvoid AddStandardTypes();
+X#endif
+X
+END_OF_FILE
+  if test 147 -ne `wc -c <'AssignTYPE.h'`; then
+    echo shar: \"'AssignTYPE.h'\" unpacked with wrong size!
+  fi
+  # end of 'AssignTYPE.h'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(6219 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <limits.h>
+X#include <string.h>
+X
+Xextern char getopt(),*optarg,*getenv(),*Version;
+Xextern int debug,optind,bNoStandardOIDs,bDoingTraps;
+Xextern int nCheckOnly,nErrorCount;
+X
+X
+X/*
+X * InitDB
+X *
+X * Do any necessary database initialization.
+X */
+Xvoid InitDB(void)
+X {
+X }
+X
+X
+X/*
+X * SaveMainOIDFiles 
+X *
+X * Save the main database files just in case we need to restore
+X * them later. This happens when the MIB has an error in it, and
+X * the underlying database system isn't capable of dealing with
+X * multiple definitions.
+X */
+Xstatic int SaveMainOIDFiles()
+X {
+X    int nRc = 0;
+X    /*
+X     * Return the results.
+X     */
+X    return(nRc);
+X }
+X
+X
+X/*
+X * RecoverMainOIDFiles
+X *
+X * Restore the main database files. This routine is called whenever one
+X * or more "fatal" errors are uncovered in the MIB.
+X */
+Xstatic void RecoverMainOIDFiles()
+X {
+X }
+X
+X
+X/*
+X * CreateOIDFiles
+X *
+X * Create any necessary database files needed to hold the compiled MIB.
+X */
+Xstatic int CreateOIDFiles(char *pName)
+X {
+X    int nRc = 0;
+X    /*
+X     * Return the results.
+X     */
+X    return(nRc);
+X }
+X
+X
+X/*
+X * CloseOIDFiles 
+X *
+X * Close any necessary database files.
+X */
+Xstatic void CloseOIDFiles(void)
+X {
+X }
+X
+X
+X/*
+X * ProcessRequest
+X *
+X * Compile a MIB definition.
+X */
+Xstatic void ProcessRequest(char *pName)
+X {
+X    int nRc = 0;
+X    static char filename[PATH_MAX];
+X    char *pStr;
+X    /*
+X     * Reset the error count for this mib. This error count is the fatal
+X     * error count; if it is non-zero it will force a call to restore
+X     * the database files.
+X     */
+X    nErrorCount = 0;
+X
+X    /*
+X     * Create a filename for the database. Here we strip off the extension
+X     * and provide a suffix O. For example, a mib called mib2.my, would
+X     * have a database file name of Omib2. We also handle the path
+X     * name part, as well.
+X     */
+X    pStr = strrchr(pName,'/');
+X    if( pStr )
+X             {
+X                /*
+X                 * It has a path part...
+X                 */
+X                strncpy(filename,pName,(pStr - pName + 1));
+X                strcat(filename,"O");
+X                strcat(filename,pStr+1);
+X                pStr = strchr(filename,'.');
+X                if( pStr ) *pStr = '\0';
+X             }
+X        else {
+X                /*
+X                 * It has no path!
+X                 */
+X                strcpy(filename,"O");
+X                strcat(filename,pName);
+X                pStr = strchr(filename,'.');
+X                if( pStr ) *pStr = '\0';
+X             }
+X    pName = filename;
+X    
+X    /*
+X     * Create an appropriate private MIB database file, but only if this
+X     * isn't a check.
+X     */
+X    if( nCheckOnly == 0 )
+X        nRc = CreateOIDFiles(pName);
+X    if( nRc )
+X            {
+X                ErrorMsg("Couldn't create MIB db file %s\n",pName);
+X            }
+X       else {
+X                /*
+X                 * Save the main OID files, just in case.
+X                 */
+X                if( !nCheckOnly && SaveMainOIDFiles() )
+X                    {
+X                        ErrorMsg("Couldn't save main database files\n");
+X                    }
+X
+X                /*
+X                 * Process the input file. If it failed, delete the private
+X                 * MIB file.
+X                 */
+X                if( yyparse() || nErrorCount )
+X                         {
+X                            /*
+X                             * It failed. So close the file out and delete it.
+X                             */
+X                            if( !nCheckOnly )
+X                                {
+X                                    CloseOIDFiles();
+X                                    unlink(pName);
+X
+X                                    /*
+X                                     * We should also recover the main
+X                                     * oid files as well.
+X                                     */
+X                                    RecoverMainOIDFiles();
+X                                    printf("Database recovered.\n");
+X                                }
+X                         }
+X                    else {
+X                            /*
+X                             * It worked!
+X                             */
+X                            if( !nCheckOnly ) CloseOIDFiles();
+X                         }
+X            }
+X }
+X
+X
+Xmain(argc,argv)
+X int argc;
+X char *argv[];
+X {
+X    char c,*pStr;
+X    int nRc;
+X    /*
+X     * If the name of this is MIBcheck, we will only check the mib.
+X     */
+X    pStr = strrchr(argv[0],'/');
+X    if( pStr ) pStr++;
+X          else pStr = argv[0];
+X    if( strcmp(pStr,"MIBcheck") == 0 )
+X        {
+X            nCheckOnly = 1;
+X        }
+X
+X    /*
+X     * Collect any run time flags...
+X     */
+X    while( (c = getopt(argc,argv,"cd:lv")) != -1 )
+X        switch(c)
+X         {
+X            case 'c' :
+X                    /*
+X                     * Check only.
+X                     */
+X                    nCheckOnly = 1;
+X                    break;
+X
+X            case 'd' :
+X                    /*
+X                     * Set debug flag.
+X                     */
+X                    debug = atoi(optarg);
+X                    break;
+X
+X            case 'v' :
+X                    /*
+X                     * Display the current version number.
+X                     */
+X                    printf(Version,pStr);
+X                    break;
+X
+X            default  :
+X                    ErrorMsg("Unknown option -- %c\n",c);
+X		    exit(1);
+X        }
+X
+X    /*
+X     * Do any onetime initialization necessary.
+X     */
+X    if( nCheckOnly ==0 )
+X      {
+X        /*
+X         * Init the database system, as needed.
+X         */
+X        InitDB();
+X      }
+X
+X    /*
+X     * Process all the file names that follow.
+X     */
+X    for( ; optind < argc; optind++ )
+X	{
+X            /*
+X             * This is easy - we take the file name, and open it as
+X             * standard input.
+X             */
+X            if( freopen(argv[optind],"r",stdin) )
+X                     {
+X                        /*
+X                         * Okay. Process the request.
+X                         */
+X                        ProcessRequest(argv[optind]);
+X                     }
+X                else {
+X                        ErrorMsg("Couldn't open file %s\n",argv[optind]);
+X                     }
+X	}
+X
+X    /*
+X     * And exit.
+X     */
+X    exit(0);
+X }
+X
+END_OF_FILE
+  if test 6219 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'yacc.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'yacc.y'\"
+else
+  echo shar: Extracting \"'yacc.y'\" \(24493 characters\)
+  sed "s/^X//" >'yacc.y' <<'END_OF_FILE'
+X%{
+X/*
+X *	Copyright 1992  C. Wegrzyn
+X *
+X */
+X#include <stdio.h>
+X
+X#include "oid.h"
+X
+X#include "MibCompiler.h"
+X#include "AssignOID.h"
+X#include "AssignTRAP.h"
+X#include "AssignOBJECT.h"
+X#include "AssignTYPE.h"
+X
+X
+Xextern char *ShouldBeKeyword(char *);
+X
+Xextern KEYTYPES eNoKeyWords;
+Xextern char yytext[];
+Xextern int yylineno,yyErrorCnt;
+X
+Xint bNoStandardOIDs = {0},bDoingTraps = {0};
+Xint bResolveOIDsNeeded = {0},nLineNoOfDef;
+Xint debug = {0},nCheckOnly = {0};
+X%}
+X
+X%token      ACCESS BGIN COUNTER DEFINITIONS DEFVAL DEPRECATEDOBJECT
+X            DESCRIPTION DOTDOT END ENTERPRISE EXPORTS FROM GAUGE ID 
+X            IDENTIFIER IMPORTS INDEX INTEGER IPADDRESS MANDATORYOBJECT
+X            NETWORKADDRESS NOTACCESSIBLEOBJECT NULLID OCTET OCTSTR OBJECT 
+X            OBJECTTYPE OBSOLETEOBJECT OF OPAQUE OPTIONALOBJECT
+X            READONLYOBJECT READWRITEOBJECT REFERENCE SEQUENCE SIZE
+X            STATUS STRING SYNTAX TIMETICKS TRAPTYPE VARIABLES
+X            WRITEONLYOBJECT NAME CCE SEMICOLON COMMA LITSTRING LBRACE
+X            RBRACE LITNUMBER LPAREN RPAREN ERROR
+X
+X%union 
+X    {
+X        PAIR  yy_pair;
+X        LIST *yy_list;
+X        char *yy_string;
+X        long  yy_number;
+X        TYPE *yy_type;
+X	 int  yy_int;
+X    }
+X
+X%type   <yy_pair>       RangeOfValues OctetSize
+X%type   <yy_list>       OIDSubId OIDList ObjectId OptObjectId Data Default
+X                        IndexList Index IndexElement VarList Variables
+X                        NamedNumber NamedNumberList ModuleName
+X%type   <yy_string>     ReferenceLine DescriptionLine LITSTRING NAME ID
+X%type   <yy_number>     Access AccessLine Status StatusLine LITNUMBER 
+X%type   <yy_type>       NullType TimeTickType CounterType ObjectIdType
+X                        OptionalType GaugeType IpAddressType BuiltInType
+X                        NetworkAddressType IntegerType OctetType
+X                        OptionalTypeList SeqList SequenceType SequenceOfType
+X			Type DefinedType SyntaxLine SyntaxType
+X%type	<yy_int>	TrapType TypeDefinition ObjectIdAssignment ObjectType
+X			$MARK ImportItem
+X
+X%%
+X
+XModuleDefinition
+X        :   
+X                {
+X                    /*
+X                     * Add in the standard stuff from the SMI RFC; we won't
+X                     * do it if told not to.
+X                     */
+X                    if( bNoStandardOIDs == 0 )
+X                        {
+X                            AddStandardOIDS();
+X                            AddStandardTypes();
+X                        }
+X                }
+X                ModuleName DEFINITIONS CCE
+X                BGIN
+X                    Exports
+X                    Imports
+X                    Statements
+X                END
+X                {   
+X                    /*
+X                     * See if we have any syntax errors. If so, we abort
+X                     * the operation to update the database files. Other-
+X                     * wise we continue on.
+X                     */
+X                    if( 0 == yyErrorCnt )
+X                        {
+X                            /*
+X                             * Resolve the OID numbers; any unresolved OID
+X                             * assignments will abort the operation. We do
+X                             * this only if we have found unresolved refs
+X                             * in the course of the operation.
+X                             */
+X                            if( debug ) DumpAllOIDs();
+X                            if( bResolveOIDsNeeded && !AllOIDsResolved() )
+X                                {
+X                                    /*
+X                                     * Too bad, we have things that couldn't
+X                                     * be resolved. So exit now.
+X                                     */
+X                                    exit(1);
+X                                }
+X
+X                            /*
+X                             * Do any final object type output.
+X                             */
+X                            FinishObjectProcessing();
+X                        }
+X                }
+X        ;
+XModuleName
+X        :   ID OptObjectId
+X                {
+X                    $$ = newListElement(NAMEANDOID,$1,0);
+X                    $$->OID = (struct list *)$2;
+X                }
+X        ;
+X
+XImports
+X        :   IMPORTS ImportFromModuleList SEMICOLON
+X        |   IMPORTS SEMICOLON
+X        |   empty
+X        ;
+XImportFromModuleList
+X        :   ImportFromModuleList ImportFromModule
+X        |   ImportFromModule
+X        ;
+XImportFromModule
+X        :   ImportList FROM ID
+X        ;
+XImportList
+X        :   ImportItem
+X        |   ImportList COMMA ImportItem
+X                {
+X                    yyerrok;
+X                }
+X        |   error
+X        |   ImportList error
+X        |   ImportList error ImportItem
+X                {
+X                    yyerrok;
+X                }
+X        |   ImportList COMMA error
+X        ;
+XImportItem
+X        :   NAME
+X            {
+X            }
+X        |   ID
+X            {
+X            }
+X        |   COUNTER
+X            {
+X            }
+X        |   GAUGE
+X            {
+X            }
+X        |   IPADDRESS
+X            {
+X            }
+X        |   NETWORKADDRESS
+X            {
+X            }
+X        |   OBJECTTYPE
+X            {
+X            }
+X        |   TIMETICKS
+X            {
+X            }
+X        |   TRAPTYPE
+X            {
+X            }
+X        |   ERROR
+X                {
+X                    fprintf(stderr,"Line %d : Invalid TYPE \"%s\" -- should be \"%s\"\n",yylineno,yytext,ShouldBeKeyword(yytext));
+X                }
+X        ;
+X
+XExports
+X        :   EXPORTS
+X                {
+X                    /*
+X                     * Indicate we don't want keywords at this point.
+X                     */
+X                    eNoKeyWords = NOKEYWORDS;
+X                }
+X                ExportList
+X                {
+X                    /*
+X                     * At this point turn keyword searching on again.
+X                     */
+X                    eNoKeyWords = ALLKEYWORDS;
+X                }
+X             SEMICOLON
+X        |   EXPORTS SEMICOLON
+X        |   empty
+X        ;
+XExportList
+X        :   ExportItem
+X        |   ExportList COMMA ExportItem
+X                {
+X                    yyerrok;
+X                }
+X        |   error
+X        |   ExportList error
+X        |   ExportList error ExportItem
+X                {
+X                    yyerrok;
+X                }
+X        |   ExportList COMMA error
+X        ;
+XExportItem
+X        :   ID
+X        |   NAME
+X        ;
+X
+XStatements
+X        :   
+X        |   Statements Statement
+X                {
+X                    yyerrok;
+X                }
+X        |   Statements error
+X        ;
+XStatement
+X        :   ObjectIdAssignment
+X        |   ObjectType
+X        |   TrapType
+X        |   TypeDefinition
+X        ;
+X
+X$MARK	:
+X		{
+X                    /*
+X                     * This is performed only to get save the correct
+X                     * line number for an ASN.1 definition.
+X                     */
+X                    nLineNoOfDef = yylineno;
+X		}
+X	;
+X
+XObjectIdAssignment
+X        :   NAME OBJECT $MARK IDENTIFIER CCE ObjectId
+X                {
+X                    /*
+X                     * This assigns a name to an object id; we store it
+X                     * in our database.
+X                     */
+X                    ProcessOID($1,$6,nLineNoOfDef);
+X                }
+X        ;
+X
+XObjectType
+X        :   NAME OBJECTTYPE $MARK
+X                SyntaxLine
+X                AccessLine
+X                StatusLine
+X                DescriptionLine
+X                ReferenceLine
+X                Index
+X                Default
+X                CCE ObjectId
+X                {
+X                    /*
+X                     * Process the object definition.
+X                     */
+X                    ProcessObject($1,$4,$5,$6,$7,$8,$9,$10,$12,nLineNoOfDef,1);
+X
+X                }
+X	;
+X
+XTrapType
+X        :   NAME TRAPTYPE $MARK
+X                ENTERPRISE ObjectId
+X                Variables
+X                DescriptionLine
+X                ReferenceLine
+X                CCE LITNUMBER
+X                    {
+X                        /*
+X                         * If we are doing stuff with traps, emit all the
+X                         * things necessary now.
+X                         */
+X                        ProcessTrap($1,$5,$6,$7,$8,$10,nLineNoOfDef);
+X                    }
+X        ;
+X
+XTypeDefinition
+X        :   ID CCE $MARK Type
+X                {
+X                    /*
+X                     * Process any type definition stuff.
+X                     */
+X                    ProcessType($1,$4,nLineNoOfDef);
+X                }
+X        ;
+X
+XType
+X        :   BuiltInType
+X                {
+X                    $$ = $1;
+X                }
+X        |   DefinedType
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+X
+XDefinedType
+X        :   ID
+X                {
+X                    /*
+X                     * Notice that we don't worry about checking to see if
+X                     * 'ID' is really defined now. We will check it out
+X                     * later on. This will allow a type to be used before
+X                     * it is defined; it means a little more work later on.
+X                     */
+X                    $$ = newTypeElement(TYPENAME,$1);
+X                }
+X        |   ERROR
+X                {
+X                    fprintf(stderr,"Line %d : Invalid TYPE \"%s\" -- should be \"%s\"\n",yylineno,yytext,ShouldBeKeyword(yytext));
+X                    $$ = (TYPE *)0;
+X                }
+X        ;
+X
+XBuiltInType
+X        :   IntegerType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   OctetType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   NullType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   SequenceType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   SequenceOfType
+X                {
+X                    $$ = $1;
+X                }
+X        |   ObjectIdType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   CounterType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   TimeTickType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   GaugeType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   IpAddressType
+X                {
+X                    $$ = $1;
+X                }    
+X        |   NetworkAddressType
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+X
+XNetworkAddressType
+X        :   NETWORKADDRESS
+X                {
+X                    $$ = newTypeElement(NETWORKTYPE,(char *)0);
+X                }
+X        ;
+X
+XIpAddressType
+X        :   IPADDRESS
+X                {
+X                    $$ = newTypeElement(IPADDRTYPE,(char *)0);
+X                }
+X        ;
+X
+XGaugeType
+X        :   GAUGE
+X                {
+X                    $$ = newTypeElement(GAUGETYPE,(char *)0);
+X                }
+X        ;
+X
+XTimeTickType
+X        :   TIMETICKS
+X                {
+X                    $$ = newTypeElement(TICKTYPE,(char *)0);
+X                }
+X        ;
+X
+XCounterType
+X        :   COUNTER
+X                {
+X                    $$ = newTypeElement(COUNTERTYPE,(char *)0);
+X                }
+X        ;
+X
+XOctetType
+X        :   OCTET STRING OctetSize
+X                {
+X                    $$ = newTypeElement(OCTETTYPE,(char *)&($3));
+X                }
+X        |   OCTSTR OctetSize
+X                {
+X                    $$ = newTypeElement(OCTETTYPE,(char *)&($2));
+X                }
+X        ;
+X
+XIntegerType
+X        :   INTEGER
+X                {
+X                    $$ = newTypeElement(INTEGERTYPE,(char *)0);
+X                }
+X        |   INTEGER LBRACE NamedNumberList RBRACE
+X                {
+X                    $$ = newTypeElement(ENUMINTEGER,(char *)$3);
+X                }
+X        |   INTEGER LPAREN RangeOfValues RPAREN
+X                {
+X                    $$ = newTypeElement(RANGEINTEGER,(char *)&($3));
+X                }
+X        ;
+X
+XObjectIdType
+X        :   OBJECT IDENTIFIER
+X                {
+X                    $$ = newTypeElement(OBJIDTYPE,(char *)0);
+X                }
+X        ;
+X
+XNullType
+X        :   NULLID
+X                {
+X                    $$ = newTypeElement(NULLTYPE,(char *)0);
+X                }
+X        ;
+X
+XSequenceOfType
+X        :   SEQUENCE OF Type
+X                {
+X                    $$ = newTypeElement(SEQOFTYPE,(char *)$3);
+X                }
+X        ;
+X
+XSequenceType
+X        :   SEQUENCE LBRACE SeqList RBRACE
+X                {
+X                    $$ = newTypeElement(SEQTYPE,(char *)$3);
+X                }
+X        ;
+XSeqList
+X        :   OptionalTypeList
+X                {
+X                    $$ = $1;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XOptionalTypeList
+X        :   OptionalType
+X                {
+X                    $$ = $1;
+X                }
+X        |   OptionalTypeList COMMA OptionalType
+X                {
+X                    yyerrok;
+X                    $$ = LinkToType($1,$3);
+X                }
+X        |   error
+X                {
+X                    $$ = 0;
+X                }
+X        |   OptionalTypeList error
+X                {
+X                    $$ = $1;
+X                }
+X        |   OptionalTypeList error OptionalType
+X                {
+X                    yyerrok;
+X                    $$ = LinkToType($1,$3);
+X                }
+X        |   OptionalTypeList COMMA error
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+XOptionalType
+X        :   NAME Type
+X                {
+X                    $$ = newTypeElement(ITEMTYPE,(char *)0);
+X                    $$->Data.Names.ItemName = $1;
+X                    $$->Data.Names.ItemType = $2;
+X                }
+X        ;
+X
+XOctetSize
+X        :   LPAREN SIZE LPAREN RangeOfValues RPAREN RPAREN
+X                {
+X                    $$ = $4;
+X                }
+X        |   empty
+X                {
+X                    memset(&($$),0,sizeof(PAIR));
+X                }
+X        ;
+XRangeOfValues
+X        :   LITNUMBER DOTDOT LITNUMBER
+X                {
+X                    /*
+X                     * Make sure that the first integer is less than the
+X                     * second.
+X                     */
+X                    if( $1 > $3 )
+X                             {
+X                                fprintf(stderr,"Line %d : Range of %d..%d is incorrect\n",yylineno,$1,$3);
+X                                $$.Lower = $3;
+X                                $$.Upper = $1;
+X                             }
+X                        else {
+X                                $$.Lower = $1;
+X                                $$.Upper = $3;
+X                             }
+X                }
+X        |   LITNUMBER
+X                {
+X                    $$.Lower = $$.Upper = $1;
+X                }
+X        ;
+X
+XNamedNumberList
+X        :   NamedNumber
+X                {
+X                    $$ = $1;
+X                }
+X        |   NamedNumberList COMMA NamedNumber
+X                {
+X                    $$ = LinkToList($1,$3);
+X                    yyerrok;
+X                }
+X        |   error
+X                {
+X                    $$ = 0;
+X                }
+X        |   NamedNumberList error
+X                {
+X                    $$ = $1;
+X                }
+X        |   NamedNumberList error NamedNumber
+X                {
+X                    $$ = LinkToList($1,$3);
+X                    yyerrok;
+X                }
+X        |   NamedNumberList COMMA error
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+XNamedNumber
+X        :   NAME LPAREN LITNUMBER RPAREN
+X                {
+X                    /*
+X                     * Allocate a new element for the list.
+X                     */
+X                    $$ = newListElement(NAMEANDNUMBER,$1,$3);
+X                }
+X        |   NAME LPAREN error RPAREN
+X                {
+X                    /*
+X                     * Invalid thing in the middle.
+X                     */
+X		    fprintf(stderr,"Line %d : Incorrect NAME - NUMBER pair for name \"%s\"\n",yylineno,$1);
+X                    $$ = newListElement(NAMEANDNUMBER,(char *)0,0);
+X                    yyerrok;
+X                }
+X        ;
+X
+X
+X
+XVariables
+X        :   VARIABLES LBRACE VarList RBRACE
+X                {
+X                    $$ = $3;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XVarList
+X        :   NAME
+X                {
+X                    $$ = newListElement(NAMEONLY,$1,0);
+X                }
+X        |   VarList COMMA NAME
+X                {
+X                    $$ = LinkToList($1,newListElement(NAMEONLY,$3,0));
+X                    yyerrok;
+X                }
+X        |   error
+X                {
+X                    $$ = 0;
+X                }
+X        |   VarList error
+X                {
+X                    $$ = $1;
+X                }
+X        |   VarList error NAME
+X                {
+X                    $$ = LinkToList($1,newListElement(NAMEONLY,$3,0));
+X                    yyerrok;
+X                }
+X        |   VarList COMMA error
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+X
+XStatusLine
+X        :   STATUS Status
+X                {
+X                    $$ = $2;
+X                    yyerrok;
+X                }
+X        |   STATUS error
+X                {
+X                    $$ = UNKNOWN;
+X                }
+X        |   error
+X                {
+X                    $$ = UNKNOWN;
+X                }
+X        ;
+X
+XStatus
+X        :   MANDATORYOBJECT
+X                {
+X                    $$ = (int) MANDATORY;
+X                }
+X        |   OPTIONALOBJECT
+X                {
+X                    $$ = (int) OPTIONAL;
+X                }
+X        |   OBSOLETEOBJECT
+X                {
+X                    $$ = (int) OBSOLETE;
+X                }
+X        |   DEPRECATEDOBJECT
+X                {
+X                    $$ = (int) DEPRECATED;
+X                }
+X        |   error
+X                {
+X                    $$ = (int) UNKNOWN;
+X                }
+X        ;
+X
+XAccessLine
+X        :   ACCESS Access
+X                {
+X                    $$ = $2;
+X                    yyerrok;
+X                }
+X        |   ACCESS error
+X                {
+X                    $$ = (int) UNKNOWN;
+X                }
+X        |   error
+X                {
+X                    $$ = (int) UNKNOWN;
+X                }
+X        ;
+XAccess
+X        :   READONLYOBJECT
+X                {
+X                    $$ = (int) RONLY;
+X                }
+X        |   READWRITEOBJECT
+X                {
+X                    $$ = (int) RWRITE;
+X                }
+X        |   WRITEONLYOBJECT
+X                {
+X                    $$ = (int) WRITEONLY;
+X                }
+X        |   NOTACCESSIBLEOBJECT
+X                {
+X                    $$ = (int) NOACCESS;
+X                }
+X        ;
+X
+XSyntaxLine
+X        :   SYNTAX SyntaxType
+X                {
+X                    yyerrok;
+X                    $$ = $2;
+X                }
+X        |   SYNTAX error
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XSyntaxType
+X        :   IntegerType
+X        |   OctetType
+X        |   NullType
+X        |   ObjectIdType
+X        |   CounterType
+X        |   TimeTickType
+X        |   GaugeType
+X        |   IpAddressType
+X        |   NetworkAddressType
+X        |   SEQUENCE OF ID
+X                {
+X                    $$ = newTypeElement(SEQOFTYPE,
+X                                    (char *)newTypeElement(TYPENAME,$3));
+X                }
+X	|   ID
+X                {
+X                    $$ = newTypeElement(TYPENAME,$1);
+X                }
+X        |   ERROR
+X                {
+X                    fprintf(stderr,"Line %d : Invalid TYPE \"%s\" -- should be \"%s\"\n",yylineno,yytext,ShouldBeKeyword(yytext));
+X                    $$ = (TYPE *)0;
+X                }
+X        ;
+X
+XDescriptionLine
+X        :   DESCRIPTION LITSTRING
+X                {
+X                    $$ = $2;
+X                }
+X        |   DESCRIPTION error
+X                {
+X                    fprintf(stderr,"Line %d : Invalid DESCRIPTION statement\n",yylineno);
+X                    yyclearin;
+X                    yyerrok;
+X                    $$ = 0;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+X
+XReferenceLine
+X        :   REFERENCE LITSTRING
+X                {
+X                    $$ = $2;
+X                }
+X        |   REFERENCE error
+X                {
+X                    fprintf(stderr,"Line %d : Invalid REFERENCE statement\n",yylineno);
+X                    yyclearin;
+X                    yyerrok;
+X                    $$ = 0;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+X
+XIndex
+X        :   INDEX LBRACE IndexList RBRACE
+X                {
+X                    $$ = $3;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XIndexList
+X        :   IndexElement
+X                {
+X                    $$ = $1;   
+X                }
+X        |   IndexList COMMA IndexElement
+X                {
+X                    $$ = LinkToList($1,$3);
+X                    yyerrok;
+X                }
+X        |   error
+X                {
+X                    $$ = 0;
+X                }
+X        |   IndexList error
+X                {
+X                    $$ = $1;
+X                }
+X        |   IndexList error IndexElement
+X                {
+X                    $$ = LinkToList($1,$3);
+X                    yyerrok;
+X                }
+X        |   IndexList COMMA error
+X                {
+X                    $$ = $1;
+X                }    
+X        ;
+XIndexElement
+X	:   NAME
+X                {
+X                    $$ = newListElement(NAMEONLY,$1,0);
+X                }
+X        |   INTEGER
+X                {
+X                    $$ = newListElement(NAMEONLY,"INTEGER",0);
+X                }
+X        |   GAUGE
+X                {
+X                    $$ = newListElement(NAMEONLY,"GAUGE",0);
+X                }
+X        |   COUNTER
+X                {
+X                    $$ = newListElement(NAMEONLY,"COUNTER",0);
+X                }
+X        |   TIMETICKS
+X                {
+X                    $$ = newListElement(NAMEONLY,"TIMETICKS",0);
+X                }
+X        |   NETWORKADDRESS
+X                {
+X                    $$ = newListElement(NAMEONLY,"NETWORKADDRESS",0);
+X                }
+X        |   IPADDRESS
+X                {
+X                    $$ = newListElement(NAMEONLY,"IPADDRESS",0);
+X                }
+X        |   OBJECT IDENTIFIER
+X                {
+X                    $$ = newListElement(NAMEONLY,"OID",0);
+X                }
+X        |   OCTET STRING
+X                {
+X                    $$ = newListElement(NAMEONLY,"STRING",0);
+X                }
+X	;
+X
+XDefault
+X        :   DEFVAL LBRACE Data RBRACE
+X                {
+X                    $$ = $3;
+X                }
+X        |   DEFVAL  error RBRACE
+X                {
+X                    fprintf(stderr,"Line %d : Invalid DEFVAL statement; expected an integer or string type\n",yylineno);
+X                    yyclearin;
+X                    yyerrok;
+X                    $$ = 0;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XData
+X        :   LITNUMBER
+X                {
+X                    $$ = newListElement(NUMBERONLY,(char *)0,$1);
+X                }
+X        |   LITSTRING
+X                {
+X                    $$ = newListElement(STRINGONLY,$1,0);
+X                }
+X        |   NAME
+X                {
+X                    $$ = newListElement(NAMEONLY,$1,0);
+X                }
+X        ;
+X
+XOptObjectId
+X        :   ObjectId
+X                {
+X                    $$ = $1;
+X                }
+X        |   empty
+X                {
+X                    $$ = 0;
+X                }
+X        ;
+XObjectId
+X        :   NAME
+X                {
+X                    $$ = newListElement(NAMEONLY,$1,0);
+X                }
+X        |   LBRACE  OIDList RBRACE
+X                {
+X                    $$ = $2;
+X                }
+X        ;
+XOIDList
+X        :   OIDSubId
+X                {
+X                    $$ = $1;
+X                }
+X        |   OIDList OIDSubId
+X                {
+X                    $$ = LinkToList($1,$2);
+X                    yyerrok;
+X                }
+X        |   OIDList error
+X                {
+X                    $$ = $1;
+X                }
+X        ;
+XOIDSubId
+X        :   LITNUMBER
+X                {
+X                    $$ = newListElement(NUMBERONLY,(char *)0,$1);
+X                }
+X        |   NAME
+X                {
+X                    $$ = newListElement(NAMEONLY,$1,0);
+X                }
+X        |   NAME LPAREN LITNUMBER RPAREN
+X                {
+X                    $$ = newListElement(NAMEANDNUMBER,$1,$3);
+X                }
+X        ;
+X
+Xempty
+X	:
+X	;        
+X%%
+X
+END_OF_FILE
+  if test 24493 -ne `wc -c <'yacc.y'`; then
+    echo shar: \"'yacc.y'\" unpacked with wrong size!
+  fi
+  # end of 'yacc.y'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

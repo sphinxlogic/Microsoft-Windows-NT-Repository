@@ -1,0 +1,2516 @@
+Newsgroups: comp.sources.misc
+From: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Subject:  v28i023:  screen-3.2 - multiple windows on an ASCII terminal, v3.2, Part06/11
+Message-ID: <1992Feb9.223654.6728@sparky.imd.sterling.com>
+X-Md4-Signature: b9ad9b52526f30cb86ba88c5eb712017
+Date: Sun, 9 Feb 1992 22:36:54 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jnweiger@immd4.informatik.uni-erlangen.de (Juergen Weigert)
+Posting-number: Volume 28, Issue 23
+Archive-name: screen-3.2/part06
+Environment: UNIX
+
+#!/bin/sh
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file screen3.2/screen.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping screen3.2/screen.c'
+else
+echo 'x - continuing file screen3.2/screen.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'screen3.2/screen.c' &&
+X	      switch (ap[2])
+X		{
+X		case 'n':
+X		case '0':
+X		  default_flow = FLOW_NOW * 0;
+X		  break;
+X		case 'y':
+X		case '1':
+X		case '\0':
+X		  default_flow = FLOW_NOW * 1;
+X		  break;
+X		case 'a':
+X		  default_flow = FLOW_AUTOFLAG;
+X		  break;
+X		default:
+X		  exit_with_usage(myname);
+X		}
+X	      break;
+X            case 'h':
+X	      if (ap[2])
+X		default_histheight = atoi(ap + 2);
+X	      else
+X		{
+X		  if (--ac == 0)
+X		    exit_with_usage(myname);
+X		  default_histheight = atoi(*++av);
+X		}
+X	      if (default_histheight < 0)
+X		default_histheight = 0;
+X	      break;
+X	    case 'i':
+X	      iflag = 1;
+X	      break;
+X	    case 't': /* title is a synonym for AkA */
+X	    case 'k':
+X	      if (ap[2])
+X		aka = ap + 2;
+X	      else
+X		{
+X		  if (--ac == 0)
+X		    exit_with_usage(myname);
+X		  aka = *++av;
+X		}
+X	      break;
+X	    case 'l':
+X	      switch (ap[2])
+X		{
+X		case 'n':
+X		case '0':
+X		  loginflag = 0;
+X		  break;
+X		case 'y':
+X		case '1':
+X		case '\0':
+X		  loginflag = 1;
+X		  break;
+X		case 's':
+X		case 'i':
+X		  lsflag = 1;
+X		  break;
+X		default:
+X		  exit_with_usage(myname);
+X		}
+X	      break;
+X	    case 'w':
+X	      lsflag = 1;
+X	      wipeflag = 1;
+X	      break;
+X	    case 'L':
+X	      assume_LP = 1;
+X	      break;
+X	    case 'm':
+X	      mflag = 1;
+X	      break;
+X	    case 'O':
+X	      force_vt = 0;
+X	      break;
+X	    case 'T':
+X              if (ap[2])
+X		{
+X		  if (strlen(ap+2) < 20)
+X                    strcpy(screenterm, ap + 2);
+X		}
+X              else
+X                {
+X                  if (--ac == 0)
+X                    exit_with_usage(myname);
+X		  if (strlen(*++av) < 20)
+X                    strcpy(screenterm, *av);
+X                }
+X              break;
+X	    case 'q':
+X	      quietflag = 1;
+X	      break;
+X	    case 'r':
+X	    case 'R':
+X	      if (ap[2])
+X		{
+X		  SockName = ap + 2;
+X		  if (ac != 1)
+X		    exit_with_usage(myname);
+X		}
+X	      else if (ac > 1 && *av[1] != '-')
+X		{
+X		  SockName = *++av;
+X		  ac--;
+X		}
+X	      rflag = (ap[1] == 'r') ? 1 : 2;
+X	      break;
+#ifdef REMOTE_DETACH
+X	    case 'd':
+X	      dflag = 1;
+X	      /* FALLTHRU */
+X	    case 'D':
+X	      if (!dflag)
+X		dflag = 2;
+X	      if (ap[2])
+X		SockName = ap + 2;
+X	      if (ac == 2)
+X		{
+X		  if (*av[1] != '-')
+X		    {
+X		      SockName = *++av;
+X		      ac--;
+X		    }
+X		}
+X	      break;
+#endif
+X	    case 's':
+X	      if (ap[2])
+X		ShellProg = ap + 2;
+X	      else
+X		{
+X		  if (--ac == 0)
+X		    exit_with_usage(myname);
+X		  ShellProg = *++av;
+X		}
+X	      break;
+X	    default:
+X	      exit_with_usage(myname);
+X	    }
+X	}
+X      else
+X	break;
+X    }
+X  real_uid = getuid();
+X  real_gid = getgid();
+X  eff_uid = geteuid();
+X  eff_gid = getegid();
+X  if (eff_uid != real_uid)
+X    {		
+X      /* if running with s-bit, we must install a special signal
+X       * handler routine that resets the s-bit, so that we get a
+X       * core file anyway.
+X       */
+X      signal(SIGBUS, CoreDump);
+X      signal(SIGSEGV, CoreDump);
+X    }
+X  if (!ShellProg && (ShellProg = getenv("SHELL")) == 0)
+X    ShellProg = DefaultShell;
+X  ShellArgs[0] = ShellProg;
+#ifdef NETHACK
+X  nethackflag = (getenv("NETHACKOPTIONS") != NULL);
+#endif
+X  home = getenv("HOME");	/* may or may not return a result. jw. */
+X  if ((LoginName = getlogin()) && LoginName[0] != '\0')
+X    {
+X      if ((ppp = getpwnam(LoginName)) != (struct passwd *) 0)
+X	if (ppp->pw_uid != real_uid)
+X	  ppp = (struct passwd *) 0;
+X    }
+X  if (ppp == 0)
+X    {
+X      if ((ppp = getpwuid(real_uid)) == 0)
+X        {
+#ifdef NETHACK
+X          if (nethackflag)
+X	    Msg(0, "An alarm sounds through the dungeon...\nWarning, the kops are coming.");
+X	  else
+#endif
+X	  Msg(0, "getpwuid() can't identify your account!");
+X	  exit(1);
+X        }
+X      LoginName = ppp->pw_name;
+X    }
+X  if (home == 0 || *home == '\0')
+X    home = ppp->pw_dir;
+X  if (strlen(LoginName) > 20)
+X    Msg(0, "LoginName too long - sorry.");
+X  if (strlen(home) > MAXPATH - 25)
+X    Msg(0, "$HOME too long - sorry.");
+#ifdef PASSWORD
+X  strcpy(Password, ppp->pw_passwd);
+#endif
+X
+X  /* ttyname implies isatty */
+X  if (!(attach_tty = ttyname(0)))
+X    {
+#ifdef NETHACK
+X      if (nethackflag)
+X	Msg(0, "You must play from a terminal.");
+X      else
+#endif
+X      Msg(0, "Must be connected to a terminal.");
+X      exit(1);
+X    }
+X  if (strlen(attach_tty) >= MAXPATH)
+X    Msg(0, "TtyName too long - sorry.");
+X  if ((n = secopen(attach_tty, O_RDWR, 0)) < 0)
+X    Msg(0, "Cannot open '%s' - please check.", attach_tty);
+X  close(n);
+X    
+X  debug1("attach_tty is %s\n", attach_tty);
+X  
+#ifdef _MODE_T
+X  oumask = umask(0);		/* well, unsigned never fails? jw. */
+#else
+X  if ((oumask = umask(0)) == -1)
+X    Msg(errno, "Cannot change umask to zero");
+#endif
+X  if ((SockDir = getenv("ISCREENDIR")) == NULL)
+X    SockDir = getenv("SCREENDIR");
+X  if (SockDir && strlen(SockDir) >= MAXPATH - 1)
+X    Msg(0, "ridiculous long $(I)SCREENDIR - try again.");
+#ifndef SOCKDIR
+X  if (SockDir == 0)
+X    {
+X      sprintf(SockPath, "%s/.iscreen", home);
+X      SockDir = SockPath;
+X    }
+#endif
+X  if (SockDir)
+X    {
+X      if (access(SockDir, F_OK))
+X	{
+X	  if (UserContext() > 0)
+X	    {
+X	      if (mkdir(SockDir, 0700))
+X		UserReturn(0);
+X	      UserReturn(1);
+X	    }
+X	  if (UserStatus() <= 0)
+X	    Msg(0, "Cannot make directory '%s'", SockDir);
+X	}
+X      if (SockDir != SockPath)
+X        strcpy(SockPath, SockDir);
+X    }
+#ifdef SOCKDIR
+X  else
+X    {
+X      SockDir = SOCKDIR;
+X      if (stat(SockDir, &st))
+X	{
+X	  if (mkdir(SockDir, eff_uid ? 0777 : 0755) == -1)
+X	    Msg(errno, "Cannot make directory '%s'", SockDir);
+X	}
+X      else
+X	{
+X          n = eff_uid ? 0777 : 0755;
+X	  if ((st.st_mode & 0777) != n)
+X	    Msg(0, "Directory '%s' must have mode %03o.", SockDir, n);
+X	}
+X      sprintf(SockPath, "%s/S-%s", SockDir, LoginName);
+X      if (access(SockPath, F_OK))
+X	{
+X	  if (mkdir(SockPath, 0700) == -1)
+X	    Msg(errno, "Cannot make directory '%s'", SockPath);
+X	  (void) chown(SockPath, real_uid, real_gid);
+X	}
+X    }
+#endif
+X  if (stat(SockPath, &st) == -1)
+X    {
+X      Msg(errno, "Cannot access %s", SockPath);
+X    }
+X  else
+X    {
+#ifdef _POSIX_SOURCE
+X      if (S_ISDIR(st.st_mode) == 0)
+#else
+X      if ((st.st_mode & S_IFMT) != S_IFDIR)
+#endif
+X	Msg(0, "%s is not a directory.", SockPath);
+X      if (st.st_uid != real_uid)
+X	Msg(0, "You are not the owner of %s.", SockPath);
+X      if ((st.st_mode & 0777) != 0700)
+X	Msg(0, "Directory %s must have mode 700.", SockPath);
+X    }
+X  strcat(SockPath, "/");
+X  SockNamePtr = SockPath + strlen(SockPath);
+X  (void) umask(oumask);
+#if defined(SYSV) && !defined(ISC)
+X  if (uname(&utsnam) == -1)
+X    Msg(0, "uname() failed, errno = %d", errno);
+X  else
+X    {
+X      strncpy(HostName, utsnam.nodename, MAXSTR);
+X      HostName[(sizeof(utsnam.nodename) <= MAXSTR) ? 
+X               sizeof(utsnam.nodename) : MAXSTR] = '\0';
+X    }
+#else
+X  (void) gethostname(HostName, MAXSTR);
+#endif
+X  HostName[MAXSTR - 1] = '\0';
+X  if ((ap = index(HostName, '.')) != NULL)
+X    *ap = '\0';
+X  GetTTY(0, &OldMode);
+#ifdef POSIX
+X  ospeed = (short) cfgetospeed(&OldMode.tio);
+#else
+# ifndef TERMIO
+X  ospeed = (short) OldMode.m_ttyb.sg_ospeed;
+# endif
+#endif
+X  debug1("...setting extern short ospeed = %d\n", ospeed);
+X
+X  if (lsflag)
+X    {
+X      int i;
+X      i = FindSocket(0, (int *)NULL);
+X      /* MakeClientSocket appended the last (Sock)Name there: */
+X      *SockNamePtr = '\0';
+X      if (i == 0)
+X	{
+#ifdef NETHACK
+X          if (nethackflag)
+X	    Msg(0, "This room is empty (%s)\n", SockPath);
+X          else
+#endif /* NETHACK */
+X          Msg(0, "No Sockets found in %s\n", SockPath);
+X        }
+X      else
+X        Msg(0, "%d Socket%s in %s.\n", i, i > 1 ? "s" : "", SockPath);
+X        /* NOTREACHED */
+X    }
+X  if (rflag)
+X    {
+X      debug("screen -r: - is there anybody out there?\n");
+#ifdef SHADOWPW
+X      setspent();  /* open shadow file while we are still root */
+#endif /* SHADOWPW */
+X      if (Attach(MSG_ATTACH))
+X	{
+X	  Attacher();
+X	  /* NOTREACHED */
+X	}
+X      debug("screen -r: backend not responding -- still crying\n");
+X    }
+X  else if (dflag)
+X    {
+X      (void) Attach(MSG_DETACH);
+X      DeadlyMsg = 0;
+X      Msg(0, "[%s %sdetached.]\n", SockName, (dflag > 1 ? "power " : ""));
+X      eexit(0);
+X      /* NOTREACHED */
+X    }
+X  if (!mflag && (SockName = getenv("STY")) != 0 && *SockName != '\0')
+X    {
+X      setuid(real_uid);
+X      setgid(real_gid);
+X      s = MakeClientSocket(1, SockName);
+X      if (ac == 0)
+X	{
+X	  ac = 1;
+X	  av = ShellArgs;
+X	}
+X      av[ac] = aka;
+X      SendCreateMsg(s, ac, av, allflag, default_flow, loginflag, default_histheight,
+X		    screenterm);
+X      close(s);
+X      exit(0);
+X    }
+#if defined(BSDJOBS) && !(defined(POSIX) || defined(SYSV))
+X  if ((DevTty = open("/dev/tty", O_RDWR | O_NDELAY)) == -1)
+X    Msg(errno, "/dev/tty");
+#endif
+X  switch (MasterPid = fork())
+X    {
+X    case -1:
+X      Msg(errno, "fork");
+X      /* NOTREACHED */
+X    case 0:
+X      break;
+X    default:
+X      sprintf(socknamebuf, "%d.%s.%s", MasterPid, stripdev(attach_tty),
+X	      HostName);
+X      for (ap = socknamebuf; *ap; ap++)
+X	if (*ap == '/')
+X	  *ap = '-';
+X      SockName = socknamebuf;
+#ifdef SHADOWPW
+X      setspent();  /* open shadow file while we are still root */
+#endif /* SHADOWPW */
+X      Attacher();
+X      /* NOTREACHED */
+X    }
+#ifdef DEBUG
+X  if (dfp != stderr)
+X    fclose(dfp);
+X  if ((dfp = fopen("/tmp/debug/screen.back", "w")) == NULL)
+X    dfp = stderr;
+X  else
+X    (void) chmod("/tmp/debug/screen.back", 0666);
+#endif
+X  debug("-- screen.back debug started\n");
+X  ap = av0 + strlen(av0) - 1;
+X  while (ap >= av0)
+X    {
+X      if (!strncmp("screen", ap, 6))
+X	{
+X	  strncpy(ap, "SCREEN", 6); /* name this process "SCREEN-BACKEND" */
+X	  break;
+X	}
+X      ap--;
+X    }
+X  if (ap < av0)
+X    *av0 = 'S';
+X
+X  AttacherPid = getppid();
+X  sprintf(socknamebuf, "%d.%s.%s", getpid(), stripdev(attach_tty), HostName);
+X  for (ap = socknamebuf; *ap; ap++)
+X    if (*ap == '/')
+X      *ap = '-';
+X  SockName = socknamebuf;
+X  ServerSocket = s = MakeServerSocket();
+#ifdef ETCSCREENRC
+X  if ((ap = getenv("SYSSCREENRC")) == NULL)
+X    StartRc(ETCSCREENRC);
+X  else
+X    StartRc(ap);
+#endif
+X  StartRc(RcFileName);
+X  InitTermcap();
+X  InitTerm(0);
+X  MakeNewEnv();
+X  strcpy(display_tty, attach_tty);
+#ifdef UTMPOK
+# ifdef apollo
+X  ReInitUtmp();
+# else
+X  InitUtmp();
+# endif /* apollo */
+#endif
+#ifdef LOADAV
+# ifdef NeXT
+X  InitNeXTLoadAvg(); /* NeXT load average */
+# else
+X  InitKmem();
+# endif /* !NeXT */
+#endif /* LOADAV */
+X  signal(SIGHUP, SigHup);
+X  signal(SIGINT, Finit);
+X  signal(SIGQUIT, Finit);
+X  signal(SIGTERM, Finit);
+#ifdef BSDJOBS
+X  signal(SIGTTIN, SIG_IGN);
+X  signal(SIGTTOU, SIG_IGN);
+#endif
+X  InitKeytab();
+#ifdef ETCSCREENRC
+X  if ((ap = getenv("SYSSCREENRC")) == NULL)
+X    FinishRc(ETCSCREENRC);
+X  else
+X    FinishRc(ap);
+#endif
+X  FinishRc(RcFileName);
+X
+X  /* Note: SetMode must be called _after_ FinishRc (flow is set there).
+X   */
+X  SetMode(&OldMode, &NewMode);
+X  SetTTY(0, &NewMode);
+X  if (loginflag == -1)
+X      loginflag = LOGINDEFAULT;
+X  if (ac == 0)
+X    {
+X      ac = 1;
+X      av = ShellArgs;
+X      if (!aka)
+X	aka = shellaka;
+X    }
+X  if (!HasWindow)
+X    {
+X      debug("We open one default window, as screenrc did not specify one.\n");
+X      if (MakeWindow(aka, av, allflag, default_flow, 0, (char *)0, loginflag, -1, (char *)0) == -1)
+X	{
+X	  Finit(1);
+X	  /* NOTREACHED */
+X	}
+X    }
+X  if (default_startup)
+X    display_copyright();
+#ifdef SYSV
+X  signal(SIGCLD, SigChld);
+#else
+X  signal(SIGCHLD, SigChld);
+#endif
+X  signal(SIGINT, SigInt);
+X  tv.tv_usec = 0;
+X  if (rflag == 2)
+X    {
+#ifdef NETHACK
+X      if (nethackflag)
+X        Msg(0, "I can't seem to find a... Hey, wait a minute!  Here comes a screen now.");
+X      else
+#endif
+X      Msg(0, "New screen...");
+X      rflag = 0;
+X    }
+X  brktty();
+X  for (;;)
+X    {
+X      /*
+X       * check to see if message line should be removed
+X       */
+X      if (status)
+X	{
+X	  int time_left;
+X
+X	  debug("checking status...\n");
+X	  time_left = TimeDisplayed + (BellDisplayed ? VBellWait : MsgWait) - time((time_t *)0);
+X	  if (time_left > 0)
+X	    {
+X	      tv.tv_sec = time_left;
+X	      debug(" not yet.\n");
+X	    }
+X	  else
+X	    {
+X	      debug(" removing now.\n");
+X	      RemoveStatus();
+X	    }
+X	}
+X      /*
+X       * check for I/O on all available I/O descriptors
+X       */
+X      FD_ZERO(&r);
+X      FD_ZERO(&w);
+X      FD_ZERO(&e);
+X      if (inbuf_ct > 0)
+X	for (n = 0; n < MAXWIN; n++)
+#ifdef COPY_PASTE		/* wrong here? jw. */
+X	  if (inlen[n] > 0 || (pastelen > 0 && n == ForeNum))
+#else
+X	  if (inlen[n] > 0)
+#endif
+X	    FD_SET(wtab[n]->ptyfd, &w);
+X      if (!Detached)
+X	FD_SET(0, &r);
+X      for (n = WinList; n != -1; n = p->WinLink)
+X	{
+X	  p = wtab[n];
+X	  if (p->active && status && !BellDisplayed && !HS)
+X	    continue;
+X	  if (p->outlen > 0)
+X	    continue;
+X	  if (in_ovl && ovl_blockfore && n == ForeNum)
+X	    continue;
+X	  FD_SET(p->ptyfd, &r);
+X	}
+X      FD_SET(s, &r);
+X      (void) fflush(stdout);
+X      if (GotSignal && !status)
+X	{
+X	  SigHandler();
+X	  continue;
+X	}
+X      if ((nsel = select(FD_SETSIZE, &r, &w, &e, (status) ? &tv : (struct timeval *) 0)) < 0)
+X	{
+X	  debug1("Bad select - errno %d\n", errno);
+X	  if (errno != EINTR)
+X	    {
+X	      perror("select");
+X	      Finit(1);
+X	    }
+X	  else
+X	    {
+X	      errno = 0;
+X	      if ((!GotSignal || status) && !InterruptPlease)
+X	        continue;
+X	    }
+X	}
+X      if (InterruptPlease)
+X	{
+X	  char buf[1];
+X
+X	  debug("Backend received interrupt\n");
+X	  *buf = intrc;
+X	  write(wtab[ForeNum]->ptyfd, buf, 1);
+X	  debug1("Backend wrote interrupt to %d\n", ForeNum);
+X	  InterruptPlease = 0;
+X
+X	  continue;
+X	}
+X      if (GotSignal && !status)
+X	{
+X	  SigHandler();
+X	  continue;
+X	}
+X      /* Process a client connect attempt and message */
+X      if (nsel && FD_ISSET(s, &r))
+X	{
+X          nsel--;
+X	  if (!HS)
+X	    RemoveStatus();
+X	  if (in_ovl)
+X	    {
+X	      SetOvlCurr();
+X	      (*ovl_process)(0, 0); /* We have to abort first!! */
+X	      CheckScreenSize(1); /* Change fore */
+X	      DeadlyMsg = 0;
+#ifdef NETHACK
+X              if (nethackflag)
+X	        Msg(0, "KAABLAMM!!!  You triggered a land mine!");
+X              else
+#endif
+X	      Msg(0, "Aborted because of window change or message.");
+X	    }
+X	  else
+X	    CheckScreenSize(1); /* Change fore */
+X	  ReceiveMsg(s);
+X	  continue;
+X	}
+X      /*
+X       * Write the stored user input to the window descriptors first.
+X       * We do not want to choke, if he types fast.
+X       */
+X      if (nsel && inbuf_ct > 0)
+X	{
+X	  for (n = 0; n < MAXWIN ; n++)
+X	    {
+X	      if (inlen[n] <= 0)
+X		continue;
+X	      tmp = wtab[n]->ptyfd;
+X              if (FD_ISSET(tmp, &w))
+X                {
+X		  if ((len = write(tmp, inbuf[n], inlen[n])) > 0)
+X		    {
+X		      if ((inlen[n] -= len) == 0)
+X		      inbuf_ct--;
+X		      bcopy(inbuf[n] + len, inbuf[n], inlen[n]);
+X		    }
+X		  if (--nsel == 0)
+X		    break;
+X		}
+X	    }
+X	}
+X      /* Read, process, and store the user input */
+X      if (nsel && FD_ISSET(0, &r))
+X	{
+X          nsel--;
+X	  if (!HS)
+X	    RemoveStatus();
+X	  if (ESCseen)
+X	    {
+X	      buf[0] = Esc;
+X	      buflen = read(0, buf + 1, IOSIZE - 1) + 1;
+X	      ESCseen = 0;
+X	    }
+X	  else
+X	    buflen = read(0, buf, IOSIZE);
+X	  if (buflen < 0)
+X	    {
+X	      debug1("Read error: %d - SigHup()ing!\n", errno);
+X	      SigHup(SIGARG);
+X	      continue;
+X	    }
+X	  if (buflen == 0)
+X	    {
+X	      debug("Found EOF - SigHup()ing!\n");
+X	      SigHup(SIGARG);
+X	      continue;
+X	    }
+X	  bufp = buf;
+X          if (in_ovl)
+X	    {
+X	      SetOvlCurr();
+X	      (*ovl_process)(&bufp, &buflen);
+X	    }
+X	  while (buflen > 0)
+X	    {
+X	      n = ForeNum;
+X	      len = inlen[n];
+X	      bufp = ProcessInput(bufp, &buflen, inbuf[n], &inlen[n],
+X				  sizeof *inbuf);
+X	      if (inlen[n] > 0 && len == 0)
+X		inbuf_ct++;
+X	    }
+X	  if (inbuf_ct > 0)
+X	    continue;
+X	}
+X      if (GotSignal && !status)
+X	{
+X	  SigHandler();
+X	  continue;
+X	}
+#ifdef COPY_PASTE
+X      /* Write the copybuffer contents first, if any. jw. */
+X      if (pastelen > 0)
+X	{
+X	  n = ForeNum;
+X	  debug1("writing pastebuffer (%d)\n", pastelen);
+X	  tmp = wtab[n]->ptyfd;
+X	  if (			/* FD_ISSET(tmp, &w) && */
+X	      (len = write(tmp, pastebuffer,
+X			   pastelen > IOSIZE ? IOSIZE : pastelen)) > 0)
+X	    {
+X	      pastebuffer += len;
+X	      pastelen -= len;
+X	      debug1("%d bytes pasted\n", len);
+X	      if (slowpaste > 0)
+X		{
+X		  struct timeval t;
+X
+X                  debug1("slowpaste %d\n", slowpaste);
+X		  t.tv_usec = (long) (slowpaste * 1000);
+X		  t.tv_sec = 0;
+X		  select(0, (fd_set *)0, (fd_set *)0, (fd_set *)0, &t);
+X		}
+X	      else
+X	        continue;
+X	    }
+X	  /* 
+X	   * We could not paste? Let's see if the pty did echo the lot.
+X	   * Then continue by processing some pty output.
+X	   */
+X	}
+#endif
+X      if (GotSignal && !status)
+X	{
+X	  SigHandler();
+X	  continue;
+X	}
+X      /* Read and process the output from the window descriptors */
+X      for (n = WinList; n != -1; n = p->WinLink)
+X	{
+X	  p = wtab[n];
+X	  if (in_ovl && ovl_blockfore && n == ForeNum)
+X	    continue;
+X	  if (p->outlen)
+X	    WriteString(p, p->outbuf, p->outlen);
+X	  else if (nsel && FD_ISSET(p->ptyfd, &r))
+X	    {
+X	      nsel--;
+X	      if ((len = read(p->ptyfd, buf, IOSIZE)) == -1)
+X		{
+#ifdef EWOULDBLOCK
+X		  if (errno == EWOULDBLOCK)
+X		    len = 0;
+#endif
+X		}
+#if defined(TIOCPKT) && !defined(sgi)
+X	      if (buf[0])
+X		{
+X		  debug1("PAKET %x\n", buf[0]);
+X		  if (buf[0] & TIOCPKT_NOSTOP)
+X		    {
+X		      NewAutoFlow(p, 0);
+X		    }
+X		  if (buf[0] & TIOCPKT_DOSTOP)
+X		    {
+X		      NewAutoFlow(p, 1);
+X		    }
+X		}
+X	      if (len > 1)
+X		WriteString(p, buf + 1, len - 1);
+#else /* TIOCPKT && !sgi */
+X	      if (len > 0)
+X		WriteString(p, buf, len);
+#endif /* TIOCPKT && !sgi */
+X	    }
+X	  if (p->bell == BELL_ON)
+X	    {
+X	      p->bell = BELL_DONE;
+X	      Msg(0, MakeWinMsg(BellString, n));
+X	      if (p->monitor == MON_FOUND)
+X		p->monitor = MON_DONE;
+X	    }
+X	  else if (p->bell == BELL_VISUAL)
+X	    {
+X	      if (!BellDisplayed)
+X		{
+X		  p->bell = BELL_DONE;
+X		  Msg(0, VisualBellString);
+X		  BellDisplayed = 1;
+X		}
+X	    }
+X	  else if (p->monitor == MON_FOUND)
+X	    {
+X	      p->monitor = MON_DONE;
+X	      Msg(0, MakeWinMsg(ActivityString, n));
+X	    }
+X	}
+X      if (GotSignal && !status)
+X	SigHandler();
+#ifdef DEBUG
+X      if (nsel)
+X	debug1("Left over nsel: %d\n", nsel);
+#endif
+X    }
+X  /* NOTREACHED */
+}
+X
+static void SigHandler()
+{
+X  struct stat st;
+X  while (GotSignal)
+X    {
+X      GotSignal = 0;
+X      DoWait();
+#ifdef SYSV
+X      signal(SIGCLD, SigChld);
+#endif
+X    }
+X  if (stat(SockPath, &st) == -1)
+X    {
+X      debug1("SigHandler: Yuck! cannot stat '%s'\n", SockPath);
+X      if (!RecoverSocket())
+X	{
+X	  debug("SCREEN cannot recover from corrupt Socket, bye\n");
+X	  Finit(1);
+X	}
+X      else
+X	debug1("'%s' reconstructed\n", SockPath);
+X    }
+X  else
+X    debug2("SigHandler: stat '%s' o.k. (%03o)\n", SockPath, st.st_mode);
+}
+X
+#ifdef DEBUG
+int FEpanic;
+X
+sig_t FEChld(SIGDEFARG)
+{
+X  FEpanic=1;
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+#endif
+X
+static sig_t SigChld(SIGDEFARG)
+{
+X  debug("SigChld()\n");
+X  GotSignal = 1;
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+X
+sig_t SigHup(SIGDEFARG)
+{
+X  debug("SigHup()\n");
+X  if (auto_detach)
+X    Detach(D_DETACH);
+X  else
+X    Finit(0);
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+X
+/*
+X * the frontend's Interrupt handler
+X * we forward SIGINT to the backend
+X */
+static sig_t 
+AttacherSigInt(SIGDEFARG)
+{
+X  Kill(MasterPid, SIGINT);
+X  signal(SIGINT, AttacherSigInt);
+# ifndef SIGVOID
+X  return (sig_t) 0;
+# endif
+}
+X
+X
+/* 
+X * the backend's Interrupt handler
+X * we cannot insert the intrc directly, as we never know
+X * if fore and ForeNum are valid.
+X */
+static sig_t SigInt(SIGDEFARG)
+{
+#if HAZARDOUS
+X  char buf[1];
+X
+X  debug("SigInt()\n");
+X  *buf = (char) intrc;
+X  inlen[ForeNum] = 0;
+X  if (fore && !in_ovl)
+X    write(fore->ptyfd, buf, 1);
+#else
+X  debug("SigInt() careful\n");
+X  InterruptPlease = 1;
+X  signal(SIGINT, SigInt);
+#endif
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+X
+static sig_t CoreDump(sig)
+int sig;
+{
+X  setgid(getgid());
+X  setuid(getuid());
+X  unlink("core");
+X  fprintf(stderr, "\r\n[screen caught signal %d.%s]\r\n", sig,
+#ifdef SHADOWPW
+X          ""
+#else /* SHADOWPW */
+X          " (core dumped)"
+#endif /* SHADOWPW */
+X          );
+X  fflush(stderr);
+X  Kill(AttacherPid, SIG_BYE);
+#ifdef SHADOWPW
+X  eexit(sig);
+#else /* SHADOWPW */
+X  abort();
+#endif /* SHADOWPW */
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+X
+static void DoWait()
+{
+X  register int n, next, pid;
+#ifdef BSDWAIT
+X  union wait wstat;
+#else
+X  int wstat;
+#endif
+X
+#ifdef BSDJOBS
+# ifndef BSDWAIT
+X  while ((pid = waitpid(-1, &wstat, WNOHANG | WUNTRACED)) > 0)
+# else
+X  while ((pid = wait3(&wstat, WNOHANG | WUNTRACED, (struct rusage *) 0)) > 0)
+# endif
+#else	/* BSDJOBS */
+X  while ((pid = wait(&wstat)) < 0)
+X    if (errno != EINTR)
+X      break;
+X  if (pid >= 0)
+#endif	/* BSDJOBS */
+X    {
+X      for (n = WinList; n != -1; n = next)
+X	{
+X	  next = wtab[n]->WinLink;
+X	  if (pid == wtab[n]->wpid)
+X	    {
+#ifdef BSDJOBS
+X	      if (WIFSTOPPED(wstat))
+X		{
+# ifdef NETHACK	
+X                  if (nethackflag)
+X		    Msg(0, "You regain consciousness.");
+X		  else
+# endif /* NETHACK */
+X		  Msg(0, "Child has been stopped, restarting.");
+X		  debug1("WIFSTOPPED: %d SIGCONT\n", wtab[n]->wpid);
+X		  if (killpg(wtab[n]->wpid, SIGCONT))
+X		    kill(wtab[n]->wpid, SIGCONT);
+X		}
+X	      else
+#endif
+X		KillWindow(n);
+X	    }
+X	}
+X    }
+}
+X
+void KillWindow(n)
+int n;
+{
+X  register int i;
+X  /*
+X   * Remove window from linked list.
+X   */
+X  if (n == WinList)	/* WinList = ForeNum */
+X    {
+X      RemoveStatus();
+X      WinList = fore->WinLink;
+X      fore = 0;
+X    }
+X  else
+X    {
+X      i = WinList;
+X      while (wtab[i]->WinLink != n)
+X	i = wtab[i]->WinLink;
+X      wtab[i]->WinLink = wtab[n]->WinLink;
+X    }
+X  FreeWindow(wtab[n]);
+X  wtab[n] = 0;
+X  if (inlen[n] > 0)
+X    {
+X      inlen[n] = 0;
+X      inbuf_ct--;
+X    }
+X  /*
+X   * If the foreground window disappeared check the head of the linked list
+X   * of windows for the most recently used window. If no window is alive at
+X   * all, exit.
+X   */
+X  if (WinList == -1)
+X    Finit(0);
+X  if (!fore)
+X    SwitchWindow(WinList);
+}
+X
+static sig_t Finit(i)
+int i;
+{
+X  register int n, next;
+X
+#ifdef SYSV
+X  signal(SIGCLD, SIG_IGN);
+#else
+X  signal(SIGCHLD, SIG_IGN);
+#endif
+X  signal(SIGHUP, SIG_IGN);
+X  debug1("Finit(%d);\n", i);
+X  for (n = WinList; n != -1; n = next)
+X    {
+X      next = wtab[n]->WinLink;
+X      FreeWindow(wtab[n]);
+X    }
+X  FinitTerm();
+X  SetTTY(0, &OldMode);
+#ifdef UTMPOK
+X  RestoreLoginSlot();
+#endif
+X  printf("\n[screen is terminating]\n");
+X  freetty();
+X  if (ServerSocket != -1)
+X    {
+X      debug1("we unlink(%s)\n", SockPath);
+X      (void) unlink(SockPath);
+X    }
+X  Kill(AttacherPid, SIG_BYE);
+X  exit(i);
+#ifndef SIGVOID
+X  return((sig_t) 0);
+#endif
+}
+X
+void
+eexit(e)
+int e;
+{
+X  if (ServerSocket != -1)
+X    {
+X      debug1("we unlink(%s)\n", SockPath);
+X      (void) unlink(SockPath);
+X    }
+X  exit(e);
+}
+X
+static void InitKeytab()
+{
+X  register unsigned int i;
+X
+X  for (i = 0; i < sizeof(ktab)/sizeof(*ktab); i++)
+X    ktab[i].type = KEY_IGNORE;
+X
+X  ktab['h'].type = ktab[Ctrl('h')].type = KEY_HARDCOPY;
+#ifdef BSDJOBS
+X  ktab['z'].type = ktab[Ctrl('z')].type = KEY_SUSPEND;
+#endif
+X  ktab['c'].type = ktab[Ctrl('c')].type = KEY_SHELL;
+X  ktab[' '].type = ktab[Ctrl(' ')].type =
+X    ktab['n'].type = ktab[Ctrl('n')].type = KEY_NEXT;
+X  ktab['-'].type = ktab['p'].type = ktab[Ctrl('p')].type = KEY_PREV;
+X  ktab['k'].type = ktab[Ctrl('k')].type = KEY_KILL;
+X  ktab['l'].type = ktab[Ctrl('l')].type = KEY_REDISPLAY;
+X  ktab['w'].type = ktab[Ctrl('w')].type = KEY_WINDOWS;
+X  ktab['v'].type = ktab[Ctrl('v')].type = KEY_VERSION;
+X  ktab['q'].type = ktab[Ctrl('q')].type = KEY_XON;
+X  ktab['s'].type = ktab[Ctrl('s')].type = KEY_XOFF;
+X  ktab['t'].type = ktab[Ctrl('t')].type = KEY_TIME;
+X  ktab['i'].type = ktab[Ctrl('i')].type = KEY_INFO;
+X  ktab['m'].type = ktab[Ctrl('m')].type = KEY_LASTMSG;
+X  ktab['A'].type = KEY_AKA, ktab['A'].args = NULL;
+X  ktab['L'].type = KEY_LOGIN;
+X  ktab[','].type = KEY_LICENSE;
+X  ktab['W'].type = KEY_WIDTH;
+X  ktab['.'].type = KEY_TERMCAP;
+X  ktab[Ctrl('\\')].type = KEY_QUIT;
+X  ktab['d'].type = ktab[Ctrl('d')].type = KEY_DETACH;
+X  ktab['r'].type = ktab[Ctrl('r')].type = KEY_WRAP;
+X  ktab['f'].type = ktab[Ctrl('f')].type = KEY_FLOW;
+X  ktab['C'].type = KEY_CLEAR;
+X  ktab['Z'].type = KEY_RESET;
+X  ktab['H'].type = KEY_LOGTOGGLE;
+X  if (Esc != MetaEsc)
+X    ktab[Esc].type = KEY_OTHER;
+X  else
+X    ktab[Esc].type = KEY_IGNORE;
+X  ktab['M'].type = KEY_MONITOR;
+X  ktab['?'].type = KEY_HELP;
+X  for (i = 0; i <= 9; i++)
+X    ktab['0' + i].type = (enum keytype) (i + (int)KEY_0);
+X  ktab[Ctrl('G')].type = KEY_VBELL;
+X  ktab[':'].type = KEY_COLON;
+#ifdef COPY_PASTE
+X  ktab['['].type = ktab[Ctrl('[')].type = KEY_COPY;
+X  ktab[']'].type = ktab[Ctrl(']')].type = KEY_PASTE;
+X  ktab['{'].type = KEY_HISTORY;
+X  ktab['}'].type = KEY_HISTNEXT;
+X  ktab['>'].type = KEY_WRITE_BUFFER;
+X  ktab['<'].type = KEY_READ_BUFFER;
+X  ktab['='].type = KEY_REMOVE_BUFFERS;
+#endif
+#ifdef POW_DETACH
+X  ktab['D'].type = KEY_POW_DETACH;
+#endif
+#ifdef LOCK
+X  ktab['x'].type = ktab[Ctrl('x')].type = KEY_LOCK;
+#endif
+}
+X
+/*
+X * this is a braindamaged hack: if (obuf == NULL) then we provided
+X * a key_type as a second char in ibuf. not a key.
+X */
+char *ProcessInput(ibuf, pilen, obuf, polen, obuf_size)
+char *ibuf, *obuf;
+register int *pilen, *polen, obuf_size;
+{
+X  register int n;
+X  register enum keytype k;
+X  register char *s, *p;
+X  char buf[2];
+X  int newwidth;
+X
+X  if (!obuf)
+X    obuf_size = 0;
+X
+X  for (s = ibuf, p = obuf + *polen; *pilen > 0; --*pilen, s++)
+X    {
+X      if (*s == Esc)
+X	{
+X	  debug2("'%c %c ", s[0], s[1]);
+X	  debug2("%c %c' ", s[2], s[3]);
+X	  if (*pilen > 1)
+X	    {
+X	      --*pilen;
+X	      s++;
+#if defined(GOULD_NP1)
+X	      k = (obuf)?(ktab[*s].type):(enum keytype)(int)(*s);
+#else
+X	      k = (obuf)?(ktab[*s].type):(enum keytype)(*s);
+#endif
+X	      debug2("Processinput C-A %02x '%c' ", k, k);
+X	      debug1("%s\n", (obuf)?"std":"NOOBUF");
+X	      if (*s == MetaEsc)
+X		{
+X		  if (*polen < obuf_size)
+X		    {
+X		      *p++ = Esc;
+X		      ++*polen;
+X		    }
+X		}
+X	      else if ((int)k >= (int)KEY_0 && (int)k <= (int)KEY_9)
+X		SwitchWindow((int)k - (int)KEY_0);
+X	      else
+X		switch (k)
+X		  {
+X		  case KEY_TERMCAP:
+X		    WriteFile(DUMP_TERMCAP);
+X		    break;
+X		  case KEY_HARDCOPY:
+X		    WriteFile(DUMP_HARDCOPY);
+X		    break;
+X		  case KEY_LOGTOGGLE:
+X		    LogToggle();
+X		    break;
+#ifdef BSDJOBS
+X		  case KEY_SUSPEND:
+X		    *pilen = 0;
+X		    Detach(D_STOP);
+X		    break;
+#endif
+X		  case KEY_SHELL:
+X		    debug("calling MakeWindow with shell\n");
+X		    MakeWindow(shellaka, ShellArgs, allflag, default_flow,
+X			       0, (char *) 0, loginflag, -1, (char *)0);
+X		    break;
+X		  case KEY_NEXT:
+X		    if (MoreWindows())
+X		      SwitchWindow(NextWindow());
+X		    break;
+X		  case KEY_PREV:
+X		    if (MoreWindows())
+X		      SwitchWindow(PreviousWindow());
+X		    break;
+X		  case KEY_KILL:
+X		    KillWindow(n = ForeNum);
+#ifdef NETHACK
+X      		    if (nethackflag)
+X		      Msg(0, "You destroy poor window %d", n);
+#endif
+X		    break;
+X		  case KEY_QUIT:
+X		    Finit(0);
+X		    /* NOTREACHED */
+X		  case KEY_DETACH:
+X		    *pilen = 0;
+X		    Detach(D_DETACH);
+X		    break;
+#ifdef POW_DETACH
+X		  case KEY_POW_DETACH:
+X		    *pilen = 0;
+X		    if (obuf)
+X		      {
+X			buf[0] = *s;
+X			buf[1] = '\0';
+X			Msg(0, buf);
+X			read(0, buf, 1);
+X			if (*buf != *s)
+X			  {
+X			    write(1, "\007", 1);
+X			    RemoveStatus();
+#ifdef NETHACK
+X			    if (nethackflag)
+X			       Msg(0, "The blast of disintegration whizzes by you!");
+#endif
+X			    break;
+X			  }
+X		      }
+X		    Detach(D_POWER); /* detach and kill Attacher's
+X				      * parent	 */
+X		    break;
+#endif
+X		  case KEY_REDISPLAY:
+X		    Activate(0);
+X		    break;
+X		  case KEY_WINDOWS:
+X		    ShowWindows();
+X		    break;
+X		  case KEY_VERSION:
+X		    Msg(0, "screen %d.%.2d.%.2d%s (%s) %s", REV, VERS,
+X		        PATCHLEVEL, STATE, ORIGIN, DATE);
+X		    break;
+X		  case KEY_TIME:
+X		    ShowTime();
+X		    break;
+X		  case KEY_INFO:
+X		    ShowInfo();
+X		    break;
+X		  case KEY_OTHER:
+X		    if (MoreWindows())
+X		      SwitchWindow(fore->WinLink);
+X		    break;
+X		  case KEY_XON:
+X		    if (*polen < obuf_size)
+X		      {
+X			*p++ = Ctrl('q');
+X			++*polen;
+X		      }
+X		    break;
+X		  case KEY_XOFF:
+X		    if (*polen < obuf_size)
+X		      {
+X			*p++ = Ctrl('s');
+X			++*polen;
+X		      }
+X		    break;
+#ifdef LOCK
+X		  case KEY_LOCK:
+X		    Detach(D_LOCK); /* do it micha's way */
+X		    break;
+#endif
+X		  case KEY_WIDTH:
+X		    if (Z0 || WS)
+X		      {
+X			if (fore->width == Z0width)
+X			  newwidth = Z1width;
+X			else if (fore->width == Z1width)
+X			  newwidth = Z0width;
+X			else if (fore->width > (Z0width+Z1width)/2)
+X			  newwidth = Z0width;
+X			else
+X			  newwidth = Z1width;
+X			ChangeWindowSize(fore, newwidth, fore->height);
+X			Activate(fore->norefresh);
+X		      }
+X		    else
+X		      Msg(0, "Your termcap does not specify how to change the terminal's width.");
+X		    break;
+X		  case KEY_LOGIN:
+X		    SlotToggle(0);
+X		    break;
+X		  case KEY_AKA:
+X		    if (!ktab[*s].args)
+X		      InputAKA();
+X		    else
+X		      strncpy(fore->cmd + fore->akapos, ktab[*s].args[0], 20);
+X		    break;
+X		  case KEY_COLON:
+X		    InputColon();
+X		    break;
+X		  case KEY_LASTMSG:
+X		    Msg(0, "%s", LastMsg);
+X		    break;
+X		  case KEY_SET:
+X		    DoSet(ktab[*s].args);
+X		    break;
+X		  case KEY_SCREEN:
+X		    debug3("KEY_SCREEN DoSc(, ktab[%d].args(='%s','%s')...)\n",
+X			   *s, ktab[*s].args[0], ktab[*s].args[1]);
+X		    DoScreen("key", ktab[*s].args);
+X		    break;
+X		  case KEY_CREATE:
+X		    debug2("KEY_CREATE MaWi(0, ktab[%d].args(='%s')...)\n",
+X			   *s, ktab[*s].args);
+X		    MakeWindow((char *) 0, ktab[*s].args, allflag, default_flow, 0, (char *) 0, loginflag, -1, (char *)0);
+X		    break;
+X		  case KEY_WRAP:
+X		    fore->wrap = !fore->wrap;
+X		    Msg(0, "%cwrap", fore->wrap ? '+' : '-');
+X		    break;
+X		  case KEY_FLOW:
+X		    if (fore->flow & FLOW_AUTOFLAG)
+X		      fore->flow = (fore->flow & FLOW_AUTO) | FLOW_NOW;
+X		    else if (fore->flow & FLOW_NOW)
+X		      fore->flow &= ~FLOW_NOW;
+X		    else
+X		      fore->flow = fore->flow ? FLOW_AUTOFLAG|FLOW_AUTO|FLOW_NOW : FLOW_AUTOFLAG;
+X		    SetFlow(fore->flow & FLOW_NOW);
+X		    Msg(0, "%cflow%s", (fore->flow & FLOW_NOW) ? '+' : '-',
+X			(fore->flow & FLOW_AUTOFLAG) ? "(auto)" : "");
+X		    break;
+X		  case KEY_CLEAR:
+X		    if (fore->state == LIT)
+X		      WriteString(fore, "\033[H\033[J", 6);
+X		    break;
+X		  case KEY_RESET:
+X		    if (fore->state == LIT)
+X		      WriteString(fore, "\033c", 2);
+X		    break;
+X		  case KEY_MONITOR:
+X		    if (fore->monitor == MON_OFF)
+X		      {
+X			fore->monitor = MON_ON;
+X			Msg(0,
+X			    "Window %d is now being monitored for all activity.",
+X			    ForeNum);
+X		      }
+X		    else
+X		      {
+X			fore->monitor = MON_OFF;
+X			Msg(0,
+X			    "Window %d is no longer being monitored for activity.",
+X			    ForeNum);
+X		      }
+X		    break;
+X		  case KEY_HELP:
+X		    display_help();
+X		    break;
+X		  case KEY_LICENSE:
+X		    display_copyright();
+X		    break;
+#ifdef COPY_PASTE
+X		  case KEY_COPY:
+X		    (void) MarkRoutine(PLAIN);
+X		    break;
+X		  case KEY_HISTNEXT:
+X		    if (MarkRoutine(CRAZY))
+X		      if (copybuffer != NULL)
+X		        {
+X		  	  pastelen = copylen;
+X		  	  pastebuffer = copybuffer;
+X			  debug("histnext\n");
+X		        }
+X		    break;
+X		  case KEY_HISTORY:
+X		    if (MarkRoutine(TRICKY))
+X		      if (copybuffer != NULL)
+X			{
+X			  pastelen = copylen;
+X			  pastebuffer = copybuffer;
+X			  debug1("history new copylen: %d\n", pastelen);
+X			}
+X		    break;
+X		  case KEY_PASTE:
+X		    if (copybuffer == NULL)
+X		      {
+#ifdef NETHACK
+X      			if (nethackflag)
+X			  Msg(0, "Nothing happens.");
+X      			else
+#endif
+X			Msg(0, "empty buffer");
+X			copylen = 0;
+X			break;
+X		      }
+X		    pastelen = copylen;
+X		    pastebuffer = copybuffer;
+X		    break;
+X		  case KEY_WRITE_BUFFER:
+X		    if (copybuffer == NULL)
+X		      {
+#ifdef NETHACK
+X      			if (nethackflag)
+X			  Msg(0, "Nothing happens.");
+X      			else
+#endif
+X			Msg(0, "empty buffer");
+X			copylen = 0;
+X			break;
+X		      }
+X		    WriteFile(DUMP_EXCHANGE);
+X		    break;
+X		  case KEY_READ_BUFFER:
+X		    ReadFile();
+X		    break;
+X		  case KEY_REMOVE_BUFFERS:
+X		    KillBuffers();
+X		    break;
+#endif				/* COPY_PASTE */
+X		  case KEY_VBELL:
+X		    if (visual_bell)
+X		      {
+X			visual_bell = 0;
+X			Msg(0, "switched to audible bell");
+X		      }
+X		    else
+X		      {
+X			visual_bell = 1;
+X			Msg(0, "switched to visual bell");
+X		      }
+X		    break;
+X		   default:
+X		    break;
+X		  }
+X	    }
+X	  else
+X	    ESCseen = 1;
+X	  --*pilen;
+X	  s++;
+X	  break;
+X	}
+X      else if (*polen < obuf_size)
+X	{
+X	  *p++ = *s;
+X	  ++*polen;
+X	}
+X    }
+X  return (s);
+}
+X
+/* Send a terminal report as if it were typed. */ 
+void
+Report(wp, fmt, n1, n2)
+struct win *wp;
+char *fmt;
+int n1, n2;
+{
+X  register int n, len;
+X  char rbuf[40];
+X
+X  sprintf(rbuf, fmt, n1, n2);
+X  len = strlen(rbuf);
+X
+X  for (n = 0; n < MAXWIN; n++)
+X    {
+X      if (wp == wtab[n])
+X	{
+X	  if ((unsigned)(inlen[n] + len) <= sizeof *inbuf)
+X	    {
+X	      bcopy(rbuf, inbuf[n] + inlen[n], len);
+X	      if (inlen[n] == 0)
+X		inbuf_ct++;
+X	      inlen[n] += len;
+X	    }
+X	  break;
+X	}
+X    }/* for */
+}
+X
+void
+SwitchWindow(n)
+int n;
+{
+X  debug1("SwitchWindow %d\n", n);
+X  if (!wtab[n])
+X    {
+X      ShowWindows();
+X      return;
+X    }
+X  if (wtab[n] == fore)
+X    {
+X      Msg(0, "This IS window %d.", n);
+X      return;
+X    }
+X  SetForeWindow(n);
+X  if (!Detached && !in_ovl)
+X    Activate(fore->norefresh);
+}
+X
+static void SetForeWindow(n)
+int n;
+{
+X  /*
+X   * If we come from another window, make it inactive.
+X   */
+X  if (fore)
+X    fore->active = 0;
+X  ForeNum = n;
+X  fore = wtab[n];
+X  if (!Detached && !in_ovl)
+X    fore->active = 1;
+X  /*
+X   * Place the window at the head of the most-recently-used list.
+X   */
+X  if ((n = WinList) != ForeNum)
+X    {
+X      /*
+X       * we had a bug here. we sometimes ran into n = -1; and crashed.
+X       * (this is not the perfect fix. "if (...) break;" inserted. jw.)
+X       */
+X      while (wtab[n]->WinLink != ForeNum)
+X	{
+X	  if (wtab[n]->WinLink == -1)
+X	    break;
+X	  n = wtab[n]->WinLink;
+X	}
+X      wtab[n]->WinLink = fore->WinLink;
+X      fore->WinLink = WinList;
+X      WinList = ForeNum;
+X    }
+}
+X
+static int NextWindow()
+{
+X  register struct win **pp;
+X
+X  for (pp = wtab + ForeNum + 1; pp != wtab + ForeNum; ++pp)
+X    {
+X      if (pp == wtab + MAXWIN)
+X	pp = wtab;
+X      if (*pp)
+X	break;
+X    }
+X  return pp - wtab;
+}
+X
+static int PreviousWindow()
+{
+X  register struct win **pp;
+X
+X  for (pp = wtab + ForeNum - 1; pp != wtab + ForeNum; --pp)
+X    {
+X      if (pp < wtab)
+X	pp = wtab + MAXWIN - 1;
+X      if (*pp)
+X	break;
+X    }
+X  return pp - wtab;
+}
+X
+static int MoreWindows()
+{
+X  if (fore->WinLink != -1)
+X    return 1;
+#ifdef NETHACK
+X  if (nethackflag)
+X    Msg(0, "You cannot escape from window %d!", ForeNum);
+X  else
+#endif
+X  Msg(0, "No other window.");
+X  return 0;
+}
+X
+static void FreeWindow(wp)
+struct win *wp;
+{
+#ifdef UTMPOK
+X  RemoveUtmp(wp);
+#endif
+#ifdef SUIDROOT
+X  (void) chmod(wp->tty, 0666);
+X  (void) chown(wp->tty, 0, 0);
+#endif
+X  close(wp->ptyfd);
+X  if (wp->logfp != NULL)
+X    fclose(wp->logfp);
+X  ChangeWindowSize(wp, 0, 0);
+X  Free(wp);
+}
+X
+int
+MakeWindow(prog, args, aflag, flowflag, StartAt, dir, lflag, histheight, term)
+char *prog, **args, *dir;
+int aflag, flowflag, StartAt, lflag, histheight;
+char *term; /* if term is nonzero we assume it "vt100" or the like.. */
+{
+X  register struct win **pp, *p;
+X  register int n, f;
+X  int tf, tlflag;
+X  char ebuf[10];
+#ifndef TIOCSWINSZ
+X  char libuf[20], cobuf[20];
+#endif
+X  char tebuf[25];
+X
+X  pp = wtab + StartAt;
+X  do
+X    {
+X      if (*pp == 0)
+X	break;
+X      if (++pp == wtab + MAXWIN)
+X	pp = wtab;
+X    } while (pp != wtab + StartAt);
+X  if (*pp)
+X    {
+X      Msg(0, "No more windows.");
+X      return -1;
+X    }
+X
+X   if (((tlflag = lflag) == -1) && ((tlflag = loginflag) == -1))
+X	tlflag = LOGINDEFAULT;
+X
+#ifdef USRLIMIT
+X  /*
+X   * Count current number of users, if logging windows in.
+X   */
+X  if (tlflag == 1 && CountUsers() >= USRLIMIT)
+X    {
+X      Msg(0, "User limit reached.  Window will not be logged in.");
+X      tlflag = 0;
+X    }
+#endif
+X  n = pp - wtab;
+X  debug1("Makewin creating %d\n", n);
+X  if ((f = OpenPTY()) == -1)
+X    {
+X      Msg(0, "No more PTYs.");
+X      return -1;
+X    }
+#ifdef SYSV
+X  (void) fcntl(f, F_SETFL, O_NDELAY);
+#else
+X  (void) fcntl(f, F_SETFL, FNDELAY);
+#endif
+#ifdef TIOCPKT
+X    {
+# ifdef sgi
+X      /*
+X       * on IRIX 3.3, regardless of stream head's read mode (RNORM/RMSGN/RMSGD)
+X       * we loose data in TIOCPKT mode if our buffer is too small (IOSIZE)
+X       * to hold the whole packet at first read().
+X       * (Marc Boucher)
+X       */
+X      int flag = 0;
+# else /* sgi */
+X      int flag = 1;
+# endif /* sgi */
+X
+X      if (ioctl(f, TIOCPKT, &flag))
+X	{
+X	  Msg(errno, "TIOCPKT ioctl");
+X	  close(f);
+X	  return -1;
+X	}
+X    }
+#endif
+X  if ((p = (struct win *) malloc(sizeof(struct win))) == 0)
+X    {
+X      close(f);
+X      Msg_nomem;
+X      return -1;
+X    }
+X  bzero((char *) p, (int) sizeof(struct win));
+X  p->ptyfd = f;
+X  p->aflag = aflag;
+X  if (flowflag < 0)
+X    flowflag = default_flow;
+X  p->flow = flowflag | ((flowflag & FLOW_AUTOFLAG) ? (FLOW_AUTO|FLOW_NOW) : FLOW_AUTO);
+X  if (!prog)
+X    prog = Filename(args[0]);
+X  strncpy(p->cmd, prog, MAXSTR - 1);
+X  if ((prog = rindex(p->cmd, '|')) != NULL)
+X    {
+X      *prog++ = '\0';
+X      prog += strlen(prog);
+X      p->akapos = prog - p->cmd;
+X      p->autoaka = 0;
+X    }
+X  else
+X    p->akapos = 0;
+X  p->monitor = default_monitor;
+X  p->norefresh = 0;
+X  strncpy(p->tty, TtyName, MAXSTR - 1);
+#ifdef SUIDROOT
+X  (void) chown(TtyName, real_uid, real_gid);
+# ifdef UTMPOK
+X  (void) chmod(TtyName, tlflag ? TtyMode : (TtyMode & ~022));
+# else
+X  (void) chmod(TtyName, TtyMode);
+# endif
+#endif
+X
+X  if (histheight < 0)
+X    histheight = default_histheight;
+X  if (ChangeWindowSize(p, default_width, default_height))
+X    {
+X      FreeWindow(p);
+X      return -1;
+X    }
+X  ChangeScrollback(p, histheight, default_width);
+X  ResetScreen(p);
+X  debug("forking...\n");
+X  switch (p->wpid = fork())
+X    {
+X    case -1:
+X      Msg(errno, "fork");
+X      FreeWindow(p);
+X      return -1;
+X    case 0:
+X      signal(SIGHUP, SIG_DFL);
+X      signal(SIGINT, SIG_DFL);
+X      signal(SIGQUIT, SIG_DFL);
+X      signal(SIGTERM, SIG_DFL);
+#ifdef BSDJOBS
+X      signal(SIGTTIN, SIG_DFL);
+X      signal(SIGTTOU, SIG_DFL);
+#endif
+X      setuid(real_uid);
+X      setgid(real_gid);
+X      if (dir && chdir(dir) == -1)
+X	{
+X	  SendErrorMsg("Cannot chdir to %s: %s", dir, sys_errlist[errno]);
+X	  eexit(1);
+X	}
+X
+X      freetty();
+X      if ((tf = open(TtyName, O_RDWR)) == -1)
+X	{
+X	  SendErrorMsg("Cannot open %s: %s", TtyName, sys_errlist[errno]);
+X	  eexit(1);
+X	}
+#ifdef SVR4
+X      if (ioctl(tf, I_PUSH, "ptem"))
+X	{
+X	  SendErrorMsg("Cannot I_PUSH ptem %s %s", TtyName, sys_errlist[errno]);
+X	  eexit(1);
+X	}
+X      if (ioctl(tf, I_PUSH, "ldterm"))
+X	{
+X	  SendErrorMsg("Cannot I_PUSH ldterm %s %s", TtyName, sys_errlist[errno]);
+X	  eexit(1);
+X	}
+X      if (ioctl(tf, I_PUSH, "ttcompat"))
+X	{
+X	  SendErrorMsg("Cannot I_PUSH ttcompat %s %s", TtyName, sys_errlist[errno]);
+X	  eexit(1);
+X	}
+#endif
+X      (void) dup2(tf, 0);
+X      (void) dup2(tf, 1);
+X      (void) dup2(tf, 2);
+#ifdef DEBUG
+X      dfp = stderr;
+#endif
+X      closeallfiles();
+X      fgtty();
+#ifdef TIOCSWINSZ
+X      glwz.ws_col = p->width;
+X      glwz.ws_row = p->height;
+X      (void) ioctl(0, TIOCSWINSZ, &glwz);
+#else
+X      sprintf(libuf, "LINES=%d", p->height);
+X      sprintf(cobuf, "COLUMNS=%d", p->width);
+X      NewEnv[4] = libuf;
+X      NewEnv[5] = cobuf;
+#endif
+X      SetTTY(0, &OldMode);
+X      if (aflag)
+X        NewEnv[2] = MakeTermcap(1);
+X      else
+X        NewEnv[2] = Termcap;
+X      if (term && *term && strcmp(screenterm, term) &&
+X	  (strlen(term) < 20))
+X	{
+X          char *s1, *s2, tl;
+X
+X	  sprintf(tebuf, "TERM=%s", term);
+X	  debug2("Makewindow %d with %s\n", n, tebuf);
+X          tl = strlen(term);
+X	  NewEnv[1] = tebuf;
+X          if (s1 = index(Termcap, '|'))
+X	    {
+X	      if (s2 = index(++s1, '|'))
+X		{
+X		  if (strlen(Termcap) - (s2 - s1) + tl < 1024)
+X		    {
+X		      bcopy(s2, s1 + tl, strlen(s2) + 1);
+X		      bcopy(term, s1, tl);
+X		    }
+X		}
+X            }
+X	}
+X      sprintf(ebuf, "WINDOW=%d", n);
+X      NewEnv[3] = ebuf;
+X
+X      execvpe(*args, args, NewEnv);
+X      SendErrorMsg("Cannot exec %s: %s", *args, sys_errlist[errno]);
+X      exit(1);
+X    } /* end fork switch */
+X  /*
+X   * Place the newly created window at the head of the most-recently-used list.
+X   */
+X  *pp = p;
+X  p->WinLink = WinList;
+X  WinList = n;
+X  HasWindow = 1;
+#ifdef UTMPOK
+X  debug1("MakeWindow will %slog in.\n", tlflag?"":"not ");
+X  if (tlflag == 1)
+X    SetUtmp(p, n);
+X  else
+X    p->slot = (slot_t) -1;
+#endif
+X  SetForeWindow(n);
+X  Activate(0);
+X  return n;
+}
+X
+static void execvpe(prog, args, env)
+char *prog, **args, **env;
+{
+X  register char *path, *p;
+X  char buf[1024];
+X  char *shargs[MAXARGS + 1];
+X  register int i, eaccess = 0;
+X
+X  if (prog[0] == '/')
+X    path = "";
+X  else if ((path = getenv("PATH")) == 0)
+X    path = DefaultPath;
+X  do
+X    {
+X      p = buf;
+X      while (*path && *path != ':')
+X	*p++ = *path++;
+X      if (p > buf)
+X	*p++ = '/';
+X      strcpy(p, prog);
+X      if (*path)
+X	++path;
+X      execve(buf, args, env);
+X      switch (errno)
+X	{
+X	case ENOEXEC:
+X	  shargs[0] = DefaultShell;
+X	  shargs[1] = buf;
+X	  for (i = 1; (shargs[i + 1] = args[i]) != NULL; ++i)
+X	    ;
+X	  execve(DefaultShell, shargs, env);
+X	  return;
+X	case EACCES:
+X	  eaccess = 1;
+X	  break;
+X	case ENOMEM:
+X	case E2BIG:
+X	case ETXTBSY:
+X	  return;
+X	}
+X    } while (*path);
+X  if (eaccess)
+X    errno = EACCES;
+}
+X
+X
+static void LogToggle()
+{
+X  char buf[1024];
+X
+X  sprintf(buf, "screenlog.%d", ForeNum);
+X  if (fore->logfp != NULL)
+X    {
+X      Msg(0, "Logfile \"%s\" closed.", buf);
+X      fclose(fore->logfp);
+X      fore->logfp = NULL;
+X      return;
+X    }
+X  if ((fore->logfp = secfopen(buf, "a")) == NULL)
+X    {
+X      Msg(errno, "Error opening logfile \"%s\"", buf);
+X      return;
+X    }
+X  Msg(0, "%s logfile \"%s\"", ftell(fore->logfp) ? "Appending to" : "Creating", buf);
+}
+X
+#ifdef NOREUID
+static int UserPID;
+static sig_t (*Usersigcld)__P(SIGPROTOARG);
+#endif
+static int UserSTAT;
+X
+int UserContext()
+{
+#ifdef NOREUID
+X  if (eff_uid == real_uid)
+X    return(1);
+# ifdef SYSV
+X  Usersigcld = signal(SIGCLD, SIG_DFL);
+# else
+X  Usersigcld = signal(SIGCHLD, SIG_DFL);
+# endif
+X  debug("UserContext: forking.\n");
+X  switch (UserPID = fork())
+X    {
+X    case -1:
+X      Msg(errno, "fork");
+X      return -1;
+X    case 0:
+X      signal(SIGHUP, SIG_DFL);
+X      signal(SIGINT, SIG_IGN);
+X      signal(SIGQUIT, SIG_DFL);
+X      signal(SIGTERM, SIG_DFL);
+# ifdef BSDJOBS
+X      signal(SIGTTIN, SIG_DFL);
+X      signal(SIGTTOU, SIG_DFL);
+# endif
+X      setuid(real_uid);
+X      setgid(real_gid);
+X      return 1;
+X    default:
+X      return 0;
+X    }
+#else
+X  setreuid(eff_uid, real_uid);
+X  setregid(eff_gid, real_gid);
+X  return 1;
+#endif
+}
+X
+void
+UserReturn(val)
+int val;
+{
+#if defined(NOREUID)
+X  if (eff_uid == real_uid)
+X    UserSTAT = val;
+X  else
+X    exit(val);
+#else
+X  setreuid(real_uid, eff_uid);
+X  setregid(real_gid, eff_gid);
+X  UserSTAT = val;
+#endif
+}
+X
+int UserStatus()
+{
+#ifdef NOREUID
+X  int i;
+# ifdef BSDWAIT
+X  union wait wstat;
+# else
+X  int wstat;
+# endif
+X
+X  if (eff_uid == real_uid)
+X    return UserSTAT;
+X  if (UserPID < 0)
+X    return -1;
+X  while ((errno = 0, i = wait(&wstat)) != UserPID)
+X    if (i < 0 && errno != EINTR)
+X      break;
+# ifdef SYSV
+X  (void) signal(SIGCLD, Usersigcld);
+# else
+X  (void) signal(SIGCHLD, Usersigcld);
+# endif
+X  if (i == -1)
+X    return -1;
+X  return (WEXITSTATUS(wstat));
+#else
+X  return UserSTAT;
+#endif
+}
+X
+static void ShowWindows()
+{
+X  char buf[1024];
+X  register char *s;
+X  register struct win **pp, *p;
+X  register int i, OtherNum = fore->WinLink;
+X  register char *cmd;
+X
+X  for (i = 0, s = buf, pp = wtab; pp < wtab + MAXWIN; ++i, ++pp)
+X    {
+X      if ((p = *pp) == 0)
+X	continue;
+X
+X      if (p->akapos)
+X	{
+X	  if (*(p->cmd + p->akapos) && *(p->cmd + p->akapos - 1) != ':')
+X	    cmd = p->cmd + p->akapos;
+X	  else
+X	    cmd = p->cmd + strlen(p->cmd) + 1;
+X	}
+X      else
+X	cmd = p->cmd;
+X      if (s - buf + 5 + strlen(cmd) > fore->width - 1)
+X	break;
+X      if (s > buf)
+X	{
+X	  *s++ = ' ';
+X	  *s++ = ' ';
+X	}
+X      *s++ = i + '0';
+X      if (i == ForeNum)
+X	*s++ = '*';
+X      else if (i == OtherNum)
+X	*s++ = '-';
+X      if (p->monitor == MON_DONE)
+X	*s++ = '@';
+X      if (p->bell == BELL_DONE)
+X	*s++ = '!';
+#ifdef UTMPOK
+X      if (p->slot != (slot_t) 0 && p->slot != (slot_t) -1)
+X	*s++ = '$';
+#endif
+X      if (p->logfp != NULL)
+X	{
+X	  strcpy(s, "(L)");
+X	  s += 3;
+X	}
+X      *s++ = ' ';
+X      strcpy(s, cmd);
+X      s += strlen(s);
+X      if (i == ForeNum)
+X	{
+X	  /* 
+X	   * this is usually done by Activate(), but when looking
+X	   * on your current window, you may get annoyed, as there is still
+X	   * that temporal '!' and '@' displayed.
+X	   * So we remove that after displaying it once.
+X	   */
+X	  p->bell = BELL_OFF;
+X	  if (p->monitor != MON_OFF)
+X	    p->monitor = MON_ON;
+X	}
+X    }
+X  *s++ = ' ';
+X  *s = '\0';
+X  Msg(0, "%s", buf);
+}
+X
+#ifdef LOADAV_3LONGS
+extern long loadav[3];
+#else
+# ifdef LOADAV_4LONGS
+extern long loadav[4];
+# else
+#  ifdef LOADAV_NEXT
+extern float loadav;
+#  else
+extern double loadav[3];
+#  endif
+# endif
+#endif
+extern avenrun;
+X
+static void ShowTime()
+{
+X  char buf[512];
+#ifdef LOADAV
+X  char *p;
+#endif
+X  struct tm *tp;
+X  time_t now;
+X
+X  (void) time(&now);
+X  tp = localtime(&now);
+X  sprintf(buf, "%2d:%02.2d:%02.2d %s", tp->tm_hour, tp->tm_min, tp->tm_sec,
+X	  HostName);
+#ifdef LOADAV
+X  if (avenrun && GetAvenrun())
+X    {
+X      p = buf + strlen(buf);
+# ifdef LOADAV_3LONGS
+X      sprintf(p, " %2.2f %2.2f %2.2f", (double) loadav[0] / FSCALE,
+X	      (double) loadav[1] / FSCALE, (double) loadav[2] / FSCALE);
+# else
+#  ifdef LOADAV_4LONGS
+X      sprintf(p, " %2.2f %2.2f %2.2f %2.2f", (double) loadav[0] / 100,
+X	      (double) loadav[1] / 100, (double) loadav[2] / 100,
+X	      (double) loadav[3] / 100);
+#  else
+#   ifdef LOADAV_NEXT
+X      sprintf(p, " %2.2f", loadav);
+#   else
+#    ifdef apollo
+X      sprintf(p, " %2.2f %2.2f %2.2f", loadav[0]/65536.0, loadav[1]/65536.0,
+X	      loadav[2]/65536.0);
+#    else
+X      sprintf(p, " %2.2f %2.2f %2.2f", loadav[0], loadav[1], loadav[2]);
+#    endif /* apollo */
+#   endif /* LOADAV_NEXT */
+#  endif /* LOADAV_4LONGS */
+# endif /* LOADAV_3LONGS */
+X    }
+#endif /* LOADAV */
+X  Msg(0, "%s", buf);
+}
+X
+static void ShowInfo()
+{
+X  char buf[512], *p;
+X  register struct win *wp = fore;
+X  register int i;
+X
+X  sprintf(buf, "(%d,%d)/(%d,%d)+%d %c%sflow %cins %corg %cwrap %capp %clog %cmon %cr",
+X	  wp->x + 1, wp->y + 1, wp->width, wp->height,
+X	  wp->histheight,
+X	  (wp->flow & FLOW_NOW) ? '+' : '-',
+X	  (wp->flow & FLOW_AUTOFLAG) ? "" : ((wp->flow & FLOW_AUTO) ? "(+)" : "(-)"),
+X	  wp->insert ? '+' : '-', wp->origin ? '+' : '-',
+X	  wp->wrap ? '+' : '-', wp->keypad ? '+' : '-',
+X	  (wp->logfp != NULL) ? '+' : '-',
+X	  (wp->monitor != MON_OFF) ? '+' : '-',
+X	  wp->norefresh ? '-' : '+');
+X  if (ISO2022)
+X    {
+X      p = buf + strlen(buf);
+X      sprintf(p, " G%1d [", wp->LocalCharset);
+X      for (i = 0; i < 4; i++)
+X	p[i + 5] = wp->charsets[i] ? wp->charsets[i] : 'B';
+X      p[9] = ']';
+X      p[10] = '\0';
+X    }
+X  Msg(0, "%s", buf);
+}
+X
+#if defined(sequent) || defined(_SEQUENT_) || defined(SVR4)
+X
+static int OpenPTY()
+{
+X  char *m, *s;
+X  register int f;
+# ifdef SVR4
+X  char *ptsname();
+X  sig_t (*sigcld)();
+X
+X  if ((f = open("/dev/ptmx", O_RDWR)) == -1)
+X    return(-1);
+X
+X  /*
+X   * SIGCLD set to SIG_DFL for grantpt() because it fork()s and
+X   * exec()s pt_chmod
+X   */
+X  sigcld = signal(SIGCLD, SIG_DFL);
+X       
+X  if ((m = ptsname(f)) == NULL || unlockpt(f) || grantpt(f))
+X    {
+X      signal(SIGCLD, sigcld);
+X      close(f);
+X      return(-1);
+X    } 
+X  signal(SIGCLD, sigcld);
+X  strncpy(TtyName, m, sizeof TtyName);
+# else /* SVR4 */
+X  if ((f = getpseudotty(&s, &m)) < 0)
+X    return(-1);
+X  strncpy(PtyName, m, sizeof PtyName);
+X  strncpy(TtyName, s, sizeof TtyName);
+# endif /* SVR4 */
+# ifdef POSIX
+X  tcflush(f, TCIOFLUSH);
+# else
+X  (void) ioctl(f, TIOCFLUSH, (char *) 0);
+# endif
+# ifdef LOCKPTY
+X  (void) ioctl(f, TIOCEXCL, (char *) 0);
+# endif
+X  return (f);
+}
+X
+#else /* defined(sequent) || defined(_SEQUENT_) || defined(SVR4) */
+# ifdef MIPS
+X
+static int OpenPTY()
+{
+X  register char *p, *l, *d;
+X  register f, tf;
+X  register my_minor;
+X  struct stat buf;
+X   
+X  strcpy(PtyName, PtyProto);
+X  for (p = PtyName; *p != 'X'; ++p)
+X    ;
+X  for (l = "zyxwvutsrqp"; *p = *l; ++l)
+X    {
+X      for (d = "0123456789abcdef"; p[1] = *d; ++d)
+X	{
+X	  if ((f = open(PtyName, O_RDWR)) != -1)
+X	    {
+X	      fstat(f, &buf);
+X	      my_minor = minor(buf.st_rdev);
+X	      sprintf(TtyName, "/dev/ttyq%d", my_minor);
+X	      if ((tf = open(TtyName, O_RDWR)) != -1)
+X		{
+X		  close(tf);
+#ifdef LOCKPTY
+X		  (void) ioctl(f, TIOCEXCL, (char *)0);
+#endif
+X		  return f;
+X		}
+X	      close(f);
+X	    }
+X	}
+X    }
+X  return -1;
+}
+X
+# else  /* MIPS */
+#  ifdef sgi
+X
+static int OpenPTY()
+{
+X  register f;
+X  register my_minor;
+X  struct stat buf;
+X   
+X  strcpy(PtyName, "/dev/ptc");
+X  f = open(PtyName, O_RDWR|O_NDELAY);
+X  if (f >= 0)
+X    {
+X      if (fstat(f, &buf) < 0)
+X	{
+X	  close(f);
+X	  return -1;
+X	}
+X      my_minor = minor(buf.st_rdev);
+X      sprintf(TtyName, "/dev/ttyq%d", my_minor);
+X    }
+X  return f;
+}
+X
+#  else /* sgi */
+#   ifdef _AIX /* RS6000 */
+X
+static int OpenPTY()
+{
+X  register int i, f, tf;
+X
+X  for (i = 0; i < 256; i++)
+X    {
+X      sprintf(PtyName, "/dev/ptc/%d", i);
+X      if ((f = open(PtyName, O_RDWR)) != -1)
+X	{
+X	  sprintf(TtyName, "/dev/pts/%d", i);
+X	  if ((tf = open(TtyName, O_RDWR)) != -1)
+X	    {
+X	      close(tf);
+#ifdef LOCKPTY
+X	      (void) ioctl(f, TIOCEXCL, (char *) 0);
+#endif
+X	      return f;
+X	    }
+X	  close(f);
+X	}
+X    }
+X  return -1;
+}
+X
+#   else /* _AIX, RS6000 */
+X
+static int OpenPTY()
+{
+X  register char *p, *q, *l, *d;
+X  register int f, tf;
+X
+#    if !defined(hpux)
+X  debug("Hello, You are none of: sequent, _SEQUENT_, SVR4, MIPS, sgi, AIX\n");
+X  debug("       This OpenPTY() is for hpux, ... and for you?\n");
+#    endif
+X  strcpy(PtyName, PtyProto);
+X  strcpy(TtyName, TtyProto);
+X  for (p = PtyName; *p != 'X'; ++p)
+X    ;
+X  for (q = TtyName; *q != 'X'; ++q)
+X    ;
+#ifdef sequent
+X  /* why ask for sequent in #else (not sequent) section? jw. */
+X  for (l = "p"; (*p = *l) != '\0'; ++l)
+X    {				/* } */
+X      for (d = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"; (p[1] = *d) != '\0'; ++d)
+X	{			/* } */
+#else
+# ifdef hpux
+X  for (l = "pqrstuvw"; (*p = *l) != '\0'; ++l)
+# else
+X  for (l = "qpr"; (*p = *l) != '\0'; ++l)
+#endif
+X    {
+X      for (d = "0123456789abcdef"; (p[1] = *d) != '\0'; ++d)
+X	{
+#endif
+X	  if ((f = open(PtyName, O_RDWR)) != -1)
+X	    {
+X	      q[0] = *l;
+X	      q[1] = *d;
+X	      if ((tf = open(TtyName, O_RDWR)) != -1)
+X		{
+X		  /* close tf, thus we also get rid of an unwanted
+X		   * controlling terminal! 
+X		   */
+X		  close(tf);
+#ifdef LOCKPTY
+X		  (void) ioctl(f, TIOCEXCL, (char *) 0);
+#endif
+X		  return f;
+X		}
+X	      close(f);
+X	    }
+X	}
+X    }
+X  return -1;
+}
+X
+#   endif /* _AIX, RS6000 */
+#  endif /* sgi */
+# endif /* MIPS */
+#endif
+X
+void 
+SetTTY(fd, mp)
+int fd;
+struct mode *mp;
+{
+X  errno = 0;
+#ifdef POSIX
+X  tcsetattr(fd, TCSADRAIN, &mp->tio);
+# ifdef hpux
+X  ioctl(fd, TIOCSLTC, &mp->m_ltchars);
+# endif
+#else
+# ifdef TERMIO
+X  ioctl(fd, TCSETA, &mp->tio);
+# else
+X  /* ioctl(fd, TIOCSETP, &mp->m_ttyb); */
+X  ioctl(fd, TIOCSETC, &mp->m_tchars);
+X  ioctl(fd, TIOCSLTC, &mp->m_ltchars);
+X  ioctl(fd, TIOCLSET, &mp->m_lmode);
+X  ioctl(fd, TIOCSETD, &mp->m_ldisc);
+X  ioctl(fd, TIOCSETP, &mp->m_ttyb);
+# endif
+#endif
+X  if (errno)
+X    Msg(0, "SetTTY: ioctl failed");
+}
+X
+void
+GetTTY(fd, mp)
+int fd;
+struct mode *mp;
+{
+X  errno = 0;
+#ifdef POSIX
+X  tcgetattr(fd, &mp->tio);
+# ifdef hpux
+X  ioctl(fd, TIOCGLTC, &mp->m_ltchars);
+# endif
+#else
+# ifdef TERMIO
+X  ioctl(fd, TCGETA, &mp->tio);
+# else
+X  ioctl(fd, TIOCGETP, &mp->m_ttyb);
+X  ioctl(fd, TIOCGETC, &mp->m_tchars);
+X  ioctl(fd, TIOCGLTC, &mp->m_ltchars);
+X  ioctl(fd, TIOCLGET, &mp->m_lmode);
+X  ioctl(fd, TIOCGETD, &mp->m_ldisc);
+# endif
+#endif
+X  if (errno)
+X    Msg(0, "GetTTY: ioctl failed");
+}
+X
+void
+SetMode(op, np)
+struct mode *op, *np;
+{
+X  *np = *op;
+X
+#if defined(TERMIO) || defined(POSIX)
+X  np->tio.c_iflag &= ~ICRNL;
+# ifdef ONLCR
+X  np->tio.c_oflag &= ~ONLCR;
+# endif
+X  np->tio.c_lflag &= ~(ICANON | ECHO);
+X
+X  /*
+X   * Unfortunately, the master process never will get SIGINT if the real
+X   * terminal is different from the one on which it was originaly started
+X   * (process group membership has not been restored or the new tty could not
+X   * be made controlling again). In my solution, it is the attacher who
+X   * receives SIGINT (because it is always correctly associated with the real
+X   * tty) and forwards it to the master [kill(MasterPid, SIGINT)]. 
+X   * Marc Boucher (marc@CAM.ORG)
+X   */
+X  np->tio.c_lflag |= ISIG;
+X  /* 
+X   * careful, careful catche monkey..
+X   * never set VMIN and VTIME to zero, if you want blocking io.
+X   */
+X  np->tio.c_cc[VMIN] = 1;
+X  np->tio.c_cc[VTIME] = 0;
+#ifdef VSTART
+X  startc = op->tio.c_cc[VSTART];
+#endif
+#ifdef VSTOP
+X  stopc = op->tio.c_cc[VSTOP];
+#endif
+X  if (iflag)
+X    intrc = op->tio.c_cc[VINTR];
+X  else
+X    intrc = np->tio.c_cc[VINTR] = 0377;
+X  np->tio.c_cc[VQUIT] = 0377;
+X  if (flow == 0)
+X    {
+X      np->tio.c_cc[VINTR] = 0377;
+#ifdef VSTART
+X      np->tio.c_cc[VSTART] = 0377;
+#endif
+#ifdef VSTOP
+X      np->tio.c_cc[VSTOP] = 0377;
+#endif
+X      np->tio.c_iflag &= ~IXON;
+X    }
+#ifdef VDISCARD
+X  np->tio.c_cc[VDISCARD] = 0377;
+#endif
+#ifdef VSUSP
+X  np->tio.c_cc[VSUSP] = 0377;
+#endif
+# ifdef hpux
+X  np->m_ltchars.t_suspc = 0377;
+X  np->m_ltchars.t_dsuspc = 0377;
+X  np->m_ltchars.t_flushc = 0377;
+X  np->m_ltchars.t_lnextc = 0377;
+# else
+#  ifdef VDSUSP
+X  np->tio.c_cc[VDSUSP] = 0377;
+#  endif
+# endif
+#else
+X  startc = op->m_tchars.t_startc;
+X  stopc = op->m_tchars.t_stopc;
+X  if (iflag)
+X    intrc = op->m_tchars.t_intrc;
+X  else
+X    intrc = np->m_tchars.t_intrc = -1;
+X  np->m_ttyb.sg_flags &= ~(CRMOD | ECHO);
+X  np->m_ttyb.sg_flags |= CBREAK;
+X  np->m_tchars.t_quitc = -1;
+X  if (flow == 0)
+X    {
+X      np->m_tchars.t_intrc = -1;
+X      np->m_tchars.t_startc = -1;
+X      np->m_tchars.t_stopc = -1;
+X    }
+X  np->m_ltchars.t_suspc = -1;
+X  np->m_ltchars.t_dsuspc = -1;
+X  np->m_ltchars.t_flushc = -1;
+X  np->m_ltchars.t_lnextc = -1;
+#endif				/* defined(TERMIO) || defined(POSIX) */
+SHAR_EOF
+true || echo 'restore of screen3.2/screen.c failed'
+fi
+echo 'End of  part 6'
+echo 'File screen3.2/screen.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

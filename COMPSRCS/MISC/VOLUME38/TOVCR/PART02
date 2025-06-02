@@ -1,0 +1,2355 @@
+Newsgroups: comp.sources.misc
+From: nuevos@hp400.ccu.uniovi.es (Raul y Quique)
+Subject: v38i058:  tovcr - Record/Display images into the Video Frame, Part02/04
+Message-ID: <1993Jul14.144011.25645@sparky.sterling.com>
+X-Md4-Signature: 83e94ef0571b920c54541ade6a6fce8e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 14:40:11 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nuevos@hp400.ccu.uniovi.es (Raul y Quique)
+Posting-number: Volume 38, Issue 58
+Archive-name: tovcr/part02
+Environment: SGI
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile tovcr.c.B
+# Wrapped by kent@sparky on Sun Jul 11 19:05:24 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 4)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(2104 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Makefile for the 'tovcr' program.
+X#
+X# Author:	Raul Rivero
+X#               Mathematics Dept.
+X#               University of Oviedo
+X# Date:         Mon May 17 1993
+X# Copyright (c) 1993, Raul Rivero
+X#
+X
+X#
+X# The name of ... THE PROGRAM !!!
+X#
+XPRGNAME = tovcr 
+X
+X#
+X# If you have intalled the Spencer W. Thomas' URT define
+X# next variables ( and add -DiRLE to CCOPTIONS ), example:
+X#
+X#	URTINC = -I/remote/caballe/u/nuevos/correo/include/urt
+X#	URTLIB = -lrle
+X#
+X# , or leave undefined if you don't have it.
+X#
+XURTINC = -I/usr/include/rle 
+XURTLIB = -lrle 
+X
+X#
+X# If you have intalled the Sam Leffler's TIFF library define
+X# next variables ( and add -DiTIFF to CCOPTIONS ), example:
+X#
+X#	TIFFINC = -I/remote/caballe/u/nuevos/correo/include/tiff
+X#	TIFFLIB = -ltiff
+X#
+X# , or leave undefined if you don't have it.
+X#
+XTIFFINC = -I/usr/include/tiff 
+XTIFFLIB = -ltiff 
+X
+X#
+X# If you have intalled the Thomas G. Lane's JPEG library define
+X# next variables ( and add -DiJPEG to CCOPTIONS ), example:
+X#
+X#       JPEGINC = -I/remote/caballe/u/nuevos/correo/include/jpeg
+X#       JPEGLIB = -ljpeg
+X#
+X# , or leave undefined if you don't have it.
+X#
+XJPEGINC = -I/usr/include/jpeg 
+XJPEGLIB = -ljpeg 
+X
+X#
+X# Now define where search the libraries, example:
+X#
+X#       LDOPTIONS = -L /remote/caballe/u/nuevos/correo/lib
+X#
+XLDOPTIONS = -L /usr/local/lib 
+X
+X#
+X# Final include and library options ( don't touch ! ).
+X#
+XINCS =  $(URTINC) $(JPEGINC) $(TIFFINC) -I. -I/usr/video/vfr/src/inc -I /usr/include/gl
+XLIBS =  $(URTLIB) $(JPEGLIB) $(TIFFLIB) -limage -lvfr_s -lmalloc -lm 
+X
+X#
+X# Compiler flags.
+X#
+X# See what defines you need:
+X#
+X#       VOID_STAR       BSD     USE_STINGS      USE_STDLIB_H
+X#
+X# and don't forget the defines to turn on the graphic file formats.
+X#
+X# Example:
+X#
+X#       CCFLAGS = -O -DVOID_STAR -DBSD -DiRLE -DiTIFF -DiJPEG
+X#
+XCFLAGS = -O -DVOID_STAR -DBSD -DiRLE -DiTIFF -DiJPEG 
+X
+X#
+X# Object names.
+X#
+XOBJS =	tovcr.o	
+X
+Xall: $(PRGNAME)
+X
+X$(PRGNAME): $(OBJS)
+X	$(CC) -o $(PRGNAME) $(OBJS) $(LDOPTIONS) $(LIBS)
+X
+X.c.o:
+X	$(CC) -c $(CFLAGS) $(INCS) $<
+X
+Xclean:
+X	@ rm -f $(OBJS) core
+X
+Xarchive:
+X	(tar cvf ../tovcr.tar .; compress -v ../tovcr.tar)
+X
+END_OF_FILE
+  if test 2104 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'tovcr.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tovcr.c.B'\"
+else
+  echo shar: Extracting \"'tovcr.c.B'\" \(53392 characters\)
+  sed "s/^X//" >'tovcr.c.B' <<'END_OF_FILE'
+Xread_tga24( handle, r, g, b, tga )
+XFILE *handle;
+Xbyte *r, *g, *b;
+Xtga_hdr *tga;
+X{
+X  register int i, j;
+X  int aux;
+X  byte *ptr;
+X  byte *buffer;
+X  int totalsize;
+X  int count = 0;
+X  byte repeat;
+X  byte rbyte, gbyte, bbyte;
+X  int code;
+X
+X  if ( tga->image_type < 9 ) {
+X    /* No RLE ! */
+X    VPRINTF(stderr, "Reading true color Targa image\n");
+X    buffer = (byte *) Malloc( tga->pixel_size * tga->xsize );
+X    for ( j = 0; j < tga->ysize; j++ ) {
+X#ifdef DEBUG
+X      VPRINTF(stderr, "Reading line %d\r", j); VFLUSH( stderr );
+X#endif
+X      fread( buffer, tga->xsize, tga->pixel_size, handle);
+X      ptr = buffer;
+X      if ( tga->pixel_size < 3 ) {
+X        for ( i = 0 ; i < tga->xsize; i++ ) {
+X          aux = ( ptr[1] << 8 ) | ptr[0];
+X          *r++ = (aux & 0x7c00) >> 7;
+X          *g++ = (aux & 0x03e0) >> 2;
+X          *b++ = (aux & 0x001F) << 3;
+X          ptr += 2;
+X        }
+X      }else {
+X        for ( i = 0 ; i < tga->xsize; i++ ) {
+X          *b++ = *ptr++;
+X          *g++ = *ptr++;
+X          *r++ = *ptr++;
+X          if ( tga->pixel_size == 4 )
+X            ptr++;
+X        }
+X      }
+X    }
+X#ifdef DEBUG
+X    VPRINTF( stderr, "\n" );
+X#endif
+X    Free( buffer );
+X  }else {
+X    VPRINTF(stderr, "Reading true color Targa RLE image\n");
+X    /* RLE */
+X    buffer = (byte *) Malloc( 256 * tga->pixel_size );
+X    totalsize = tga->xsize * tga->ysize;
+X    while ( count < totalsize ) {
+X      Fread( &repeat, 1, 1, handle );
+X      code = (repeat & 127) + 1;
+X      count += code;
+X      if ( (repeat & 128) ) {
+X        Fread( buffer, tga->pixel_size, 1, handle );
+X        if ( tga->pixel_size < 3 ) {
+X          aux = ( buffer[1] << 8 ) | buffer[0];
+X          rbyte = (aux & 0x7c00) >> 7;
+X          gbyte = (aux & 0x03e0) >> 2;
+X          bbyte = (aux & 0x001F) << 3;
+X        }else {
+X          rbyte = buffer[2];
+X          gbyte = buffer[1];
+X          bbyte = buffer[0];
+X        }
+X        memset( r, rbyte, code ); r += code;
+X        memset( g, gbyte, code ); g += code;
+X        memset( b, bbyte, code ); b += code;
+X      }else {
+X        Fread( buffer, tga->pixel_size, code, handle );
+X        ptr = buffer;
+X        while ( code-- ) {
+X          if ( tga->pixel_size < 3 ) {
+X            aux = ( ptr[1] << 8 ) | ptr[0];
+X            *r++ = (aux & 0x7c00) >> 7;
+X            *g++ = (aux & 0x03e0) >> 2;
+X            *b++ = (aux & 0x001F) << 3;
+X            ptr += 2;
+X          }else {
+X            *b++ = *ptr++;
+X            *g++ = *ptr++;
+X            *r++ = *ptr++;
+X            if ( tga->pixel_size == 4 )
+X              ptr++;
+X          }
+X        }
+X      } /* if ( (repeat ... ) ) */
+X    } /* while ( count ... ) */
+X    Free( buffer );
+X  }
+X}
+X
+Xread_tga_to24( handle, r, g, b, tga, cmap )
+XFILE *handle;
+Xbyte *r, *g, *b;
+Xtga_hdr *tga;
+Xbyte *cmap;
+X{
+X  fprintf(stderr, "Converting to 24 planes\n");
+X  error( 99 );
+X}
+X
+Xread_tga8( handle, r, tga, cmap )
+XFILE *handle;
+Xbyte *r;
+Xtga_hdr *tga;
+X{
+X  if ( tga->image_type == 1 ) {
+X    VPRINTF( stderr, "Reading mapped Targa image\n" );
+X    Fread( r, tga->xsize, tga->ysize, handle );
+X  }else {
+X    byte buffer, repeat;
+X    int totalsize = tga->xsize * tga->ysize;
+X    int count = 0;
+X    int code;
+X
+X    VPRINTF( stderr, "Reading mapped RLE Targa image\n" );
+X    /* RLE */
+X    while ( count < totalsize ) {
+X      Fread( &repeat, 1, 1, handle );
+X      code = (repeat & 127) + 1;
+X      count += code;
+X      if ( (repeat & 128) ) {
+X        Fread( &buffer, 1, 1, handle );
+X        memset( r, buffer, code ); r += code;
+X      }else {
+X        Fread( r, code, 1, handle );
+X        r += code;
+X      }
+X    } /* while ( count ... ) */
+X  }
+X}
+X
+Xread_tga_header(handle, tga)
+XFILE *handle;
+Xtga_hdr *tga;
+X{
+X  byte buffer[18];
+X
+X  Fread( buffer, 18, 1, handle );
+X
+X  /*
+X   * Bytes are in reverse order so ...
+X   */
+X  tga->num_id = buffer[0];
+X  tga->cmap_type = buffer[1];
+X  tga->image_type = buffer[2];
+X  tga->cmap_orign = ( buffer[4] << 8 ) | buffer[3];
+X  tga->cmap_length = ( buffer[6] << 8 ) | buffer[5];
+X  tga->cmap_entry_size = buffer[7] / 8;
+X  tga->xorig = ( buffer[9] << 8 ) | buffer[8];
+X  tga->yorig = ( buffer[11] << 8 ) | buffer[10];
+X  tga->xsize = ( buffer[13] << 8 ) | buffer[12];
+X  tga->ysize = ( buffer[15] << 8 ) | buffer[14];
+X  tga->pixel_size = buffer[16] / 8;     /* we'll use it directly */
+X  tga->image_descriptor = buffer[17];
+X
+X  VPRINTF(stderr, "Image type %d\n", tga->image_type);
+X  VPRINTF(stderr, "%s color map\n", (tga->cmap_type ? "With" : "Without"));
+X  VPRINTF(stderr, "Cmap origin: %d\n", tga->cmap_orign );
+X  VPRINTF(stderr, "Cmap length: %d\n", tga->cmap_length );
+X  VPRINTF(stderr, "Cmap entry size: %d\n", tga->cmap_entry_size );
+X  VPRINTF(stderr, "Image size: %dx%d\n", tga->xsize, tga->ysize );
+X  VPRINTF(stderr, "Pixel size: %d\n", tga->pixel_size );
+X  if ( TGAINTERLACED(tga->image_descriptor) )
+X    VPRINTF(stderr, "Interlace image\n");
+X  if ( TGAFLIP(tga->image_descriptor) )
+X    VPRINTF(stderr, "Flipped image\n");
+X
+X  /* Interlaced ? */
+X  if ( TGAINTERLACED(tga->image_descriptor) ) {
+X    fprintf( stderr, "Interlaced image\n");
+X    error( 99 );
+X  }
+X
+X  /*
+X   * Skip the identification.
+X   */
+X  if ( tga->num_id ) {
+X    VPRINTF( stderr, "Image identification: ");
+X    while ( tga->num_id ) {
+X      if ( verbose )
+X        putc( getc(handle), stderr );
+X      else (void) getc( handle );
+X      tga->num_id--;
+X    }
+X    VPRINTF( stderr, "\n" );
+X  }
+X
+X  /*
+X   * Check the image type.
+X   */
+X  switch ( tga->image_type ) {
+X    case TGA_RGB:
+X    case TGA_RLE_RGB:
+X    case TGA_MAPPED:
+X    case TGA_RLE_MAPPED:
+X                break;
+X    default:
+X                fprintf(stderr, "Image type %d\n", tga->image_type);
+X                error( 99 );
+X                break;
+X  }
+X}
+X
+Xread_tga_data( buffer, no_bytes, handle )
+Xbyte *buffer;
+Xint no_bytes;
+XFILE *handle;
+X{
+X  int aux1;
+X  byte aux[4];
+X
+X  Fread( aux, no_bytes, 1, handle );
+X
+X  if ( no_bytes < 3 ) {
+X    aux1 = ( aux[1] << 8 ) | aux[0];
+X    *buffer++ = (aux1 & 0x7c00) >> 7;
+X    *buffer++ = (aux1 & 0x03e0) >> 2;
+X    *buffer++ = (aux1 & 0x001F) << 3;
+X  }else {
+X     *buffer++ = aux[2];
+X     *buffer++ = aux[1];
+X     *buffer++ = aux[0];
+X  }
+X}
+X
+X
+X/**************************************
+X *
+X * GIF interface
+X *
+X */
+Xread_gif_file( name, image )
+Xchar *name;
+Xbitmap_hdr *image;
+X{
+X  FILE *handle;
+X  bitmap_hdr bitmap_8_bits;
+X
+X  /* Reset the ... 'read code position', ok ? */
+X  lug_read_code_position = 0;
+X
+X  /* Open the file */
+X  handle = Fopen( name, "r" );
+X  /* Read it */
+X  read_gif( handle, &bitmap_8_bits );
+X  /* Close it */
+X  Fclose( handle );
+X
+X  /*
+X   * Now we have a 8 bits bitmap, but
+X   * we nedd a TRUE color image.
+X   */
+X  to24( &bitmap_8_bits, image );
+X
+X  /* Free tmp bitmap */
+X  freebitmap( &bitmap_8_bits );
+X}
+X
+Xread_gif( handle, image )
+XFILE *handle;
+Xbitmap_hdr *image;
+X{
+X  int xsize, ysize;
+X  byte *globalcmap, *localcmap;
+X  int mask;
+X  int codesize;
+X  int totalsize;
+X  int globalcolors, localcolors;
+X  int localmask, globalmask;
+X
+X  /*
+X   * Read GIF headers ( we skip many parameters ).
+X   */
+X  read_gif_hdr( handle );
+X  globalcmap = read_gif_screen_hdr( handle, &globalcolors, &globalmask );
+X  localcmap = read_gif_image_hdr( handle, &localcolors, &localmask,
+X                                  &xsize, &ysize );
+X
+X  /*
+X   * We only use one color map.
+X   */
+X  if ( localcolors ) {
+X    mask = localmask;
+X    image->cmap = localcmap;
+X    if ( globalcolors )
+X      Free( globalcmap );
+X  }else
+X    if ( globalcolors ) {
+X      mask = globalmask;
+X      image->cmap = globalcmap;
+X    }else error( 13 );
+X
+X  /*
+X   *  Original ( root ) codesize.
+X   */
+X  codesize= fgetc( handle );
+X
+X  /*
+X   * Fill our header.
+X   */
+X  totalsize = xsize * ysize;
+X  image->magic = LUGUSED;
+X  image->xsize = xsize;
+X  image->ysize = ysize;
+X  image->colors = ( localcolors ? localcolors : globalcolors );
+X  image->depth = no_bits( image->colors ) + 1;
+X  image->r = (byte *) Malloc( totalsize );
+X  uncode_gif( handle, codesize, mask, image );
+X}
+X
+X#define READCODE()      { code = read_code( ptrblocks, datamask,    \
+X                                            &offset, codesize );    \
+X                          ptrblocks += offset; }
+X
+Xuncode_gif( handle, codesize, mask, image )
+XFILE *handle;
+Xint codesize, mask;
+Xbitmap_hdr *image;
+X{
+X  int endblock;
+X  int clearcode;
+X  int offset;
+X  int freecode;
+X  int code;
+X  int current, old;
+X  int datamask;
+X  int codetop;
+X  int orig_codesize;
+X  short *sufix, *prefix;
+X  byte *blocks, *ptrblocks;
+X  int count = 0;
+X  byte *stack;
+X  int k;
+X  int totalsize;
+X  int position;
+X
+X  /*
+X   * Allocate memory for internal buffers.
+X   */
+X  stack  = (byte *) Malloc( 4096 );
+X  sufix  = (short *) Malloc( 4096 * sizeof(short) );
+X  prefix = (short *) Malloc( 4096 * sizeof(short) );
+X
+X  /*
+X   * Compute predefined values for uncompress.
+X   */
+X  clearcode = (1 << codesize);
+X  endblock = clearcode + 1;
+X  freecode = clearcode + 2;
+X  orig_codesize = ++codesize;
+X  codetop = 1 << codesize;
+X  datamask = codetop - 1;
+X
+X  /*
+X   * Unblock the raster information.
+X   */
+X  ptrblocks = blocks = (byte *) unblockgif( handle );
+X
+X  totalsize = image->xsize * image->ysize;
+X
+X  /*
+X   * and now, ... UNPACK !!!.
+X   */
+X  VPRINTF( stderr, "Uncompressing GIF raster information\n" );
+X  READCODE();  /* read first code */
+X  while ( code != endblock ) {
+X    if ( code == clearcode ) {
+X      /*
+X       * Current code is clear so we reinitialize our tables.
+X       */
+X      codesize = orig_codesize;
+X      freecode = clearcode + 2;
+X      codetop = 1 << codesize;
+X      datamask = codetop - 1;
+X      READCODE();
+X      old = current = code;
+X      /* Next code to 'clear' is a root code */
+X      k = code & mask;
+X      position = push_gif( image->r, k );
+X    }else {
+X      /*
+X       * We have a normal code.
+X       */
+X      current = code;
+X      /*
+X       * If it's a new code then we need add the last translation.
+X       */
+X      if( !(code < freecode) ) {
+X        current = old;
+X        stack[count++] = (byte) k;
+X      }
+X
+X      /*
+X       * mask equals to 'last_root_code' so while current
+X       * code greater [than mask] we haven't a root code
+X       * and continue adding values into ioutput.
+X       */
+X      while ( current > mask ) {
+X        stack[count++] = sufix[current];
+X        current = prefix[current];
+X      }
+X      k = current & mask;
+X      stack[count] = k;
+X      for ( ; count >= 0; count-- )
+X        position = push_gif( image->r, (int) stack[count] );
+X      count = 0;
+X      prefix[freecode  ] = old;
+X      sufix [freecode++] = k;
+X      old = code;
+X      /*
+X       * Check if we use all posibles values ( for this
+X       * codesize ).
+X       */
+X      if ( freecode >= codetop && codesize != 12 ) {
+X        codesize++;
+X        codetop = 1 << codesize;
+X        datamask = codetop - 1;
+X      }
+X    }
+X    READCODE();
+X    if ( position > totalsize )
+X      error(6);
+X  }
+X
+X  /*
+X   * Free original GIF raster information and
+X   * internal buffers.
+X   */
+X  Free( blocks );
+X  Free( prefix );
+X  Free( sufix );
+X  Free( stack );
+X}
+X
+Xread_code( buffer, mask, offset, codesize )
+Xbyte *buffer;
+Xint mask;
+Xint *offset;
+Xint codesize;
+X{
+X  int aux = 0;
+X  int moveptr;
+X
+X  aux  = *buffer++;
+X  aux |= ( *buffer++ << 8 );
+X  if ( codesize > 7 )
+X    aux |= ( *buffer++ << 16 );
+X  aux >>= lug_read_code_position;
+X  lug_read_code_position += codesize;
+X  moveptr = lug_read_code_position / 8;
+X  if ( moveptr ) {
+X    *offset = moveptr;
+X    lug_read_code_position %= 8;
+X  }else *offset = 0;
+X
+X  return( aux & mask );
+X}
+X
+Xpush_gif(buffer, indexx)
+Xbyte *buffer;
+Xint indexx;
+X{
+X  static int offset;
+X  static byte *ptr;
+X  static byte *baseptr;
+X
+X  if ( baseptr != buffer ) {
+X    ptr = baseptr = buffer;
+X    offset = 0;
+X  }
+X
+X  *ptr++ = (byte) indexx;
+X  return ++offset;
+X}
+X
+Xread_gif_hdr( handle )
+XFILE *handle;
+X{
+X  char buffer[6];
+X
+X  Fread( buffer, 6, 1, handle);
+X  if ( strncmp( buffer, GIFHEADER, 6 ) )
+X    error( 5 );
+X}
+X
+Xbyte *read_gif_screen_hdr( handle, colors, mask )
+XFILE *handle;
+Xint *colors;
+Xint *mask;
+X{
+X  /* int swidth, sheight; */
+X  byte buffer[7];
+X  byte *cmap;
+X  int cmapflag;
+X  int bitsperpixel;
+X  /* int background; */
+X
+X  VPRINTF( stderr, "Reading GIF header\n" );
+X
+X  Fread( buffer, 7, 1, handle);
+X
+X  /* Screen size */
+X  /* swidth   = (buffer[1] << 8) | buffer[0]; */
+X  /* sheight  = (buffer[3] << 8) | buffer[2]; */
+X
+X  cmapflag = buffer[4] & GIFEXISTCOLOR;
+X  bitsperpixel = (buffer[4] & 7) + 1;
+X  *colors = 1 << bitsperpixel;
+X  *mask = *colors - 1;
+X  /* background= buffer[5]; */
+X
+X  if ( buffer[6] )
+X    error( 6 );
+X
+X  if ( cmapflag ) {
+X    cmap = (byte *) Malloc( 3 * *colors );
+X    Fread( cmap, *colors, 3, handle );
+X  }
+X
+X  return cmap;
+X}
+X
+Xbyte *read_gif_image_hdr( handle, colors, mask, width, height )
+XFILE *handle;
+Xint *colors;
+Xint *mask;
+Xint *width, *height;
+X{
+X  /* int left, right; */
+X  byte buffer[10];
+X  byte *cmap;
+X  int cmapflag;
+X  int interlace;
+X  int bitsperpixel;
+X
+X  VPRINTF( stderr, "Reading GIF image header\n" );
+X
+X  Fread( buffer, 10, 1, handle );
+X
+X  if ( buffer[0] != GIFIMGSEPAR)
+X    error( 5 );
+X
+X  /* left    = (buffer[2] << 8) | buffer[1]; */
+X  /* right   = (buffer[4] << 8) | buffer[3]; */
+X  *width  = (buffer[6] << 8) | buffer[5];
+X  *height = (buffer[8] << 8) | buffer[7];
+X  cmapflag  = buffer[9] & GIFEXISTCOLOR;
+X  interlace = buffer[9] & GIFINTERLAZE;
+X
+X  if ( interlace )
+X    error( 17 );
+X
+X  if ( cmapflag ) {
+X    bitsperpixel = ( buffer[9] & 7 ) + 1;
+X    *colors = 1 << bitsperpixel;
+X    *mask = *colors - 1;
+X    cmap = (byte *) Malloc( 3 * *colors );
+X    Fread( cmap, *colors, 3, handle );
+X  }else *colors = 0;
+X
+X  return cmap;
+X}
+X
+Xbyte *unblockgif( handle )
+XFILE *handle;
+X{
+X  long position;
+X  int totalsize;
+X  byte *out, *ptr;
+X  int size;
+X  int count = 0;
+X
+X  VPRINTF( stderr, "Unblocking GIF file\n" );
+X  /*
+X   * We need read the raster information and strip the block
+X   * size marks. GIF files can store more than one image but
+X   * this is not usually ( so we move handle to the end and
+X   * supose that size ).
+X   */
+X  position = ftell( handle );
+X  fseek( handle, 0L, 2 );
+X  totalsize = ftell( handle ) - position;
+X  fseek( handle, position, 0 );
+X
+X  ptr = out = (byte *) Malloc( totalsize );
+X
+X  /*
+X   * Format is:  <size><...block...><size><...block...>[...]<0>
+X   */
+X  size = fgetc( handle );
+X  while ( size ) {
+X    /* Check if no problems with space */
+X    count += size;
+X    if ( count > totalsize )
+X      error( 7 );
+X    /* No problems => read the block */
+X    Fread( ptr, size, 1, handle );
+X    ptr += size;
+X    size = fgetc( handle );
+X  }
+X
+X  return out;
+X}
+X
+X
+X#ifdef iJPEG
+X
+X/**************************************
+X *
+X * JPEG interface
+X *
+X */
+Xread_jpeg_file( name, bitmap )
+Xchar *name;
+Xbitmap_hdr *bitmap;
+X{
+X  FILE *handle;
+X
+X  /* Open the file descriptor */
+X  if ( name != NULL )
+X    handle = Fopen( name, "r" );
+X  else handle = stdin;
+X
+X  /* Read the bitmap */
+X  read_jpeg( handle, bitmap );
+X
+X  /* Close the file */
+X  Fclose( handle );
+X}
+X
+Xread_jpeg( handle, bitmap )
+XFILE *handle;
+Xbitmap_hdr *bitmap;
+X{
+X  struct Decompress_info_struct cinfo;
+X  struct Decompress_methods_struct dc_methods;
+X  struct External_methods_struct e_methods;
+X
+X  jpeg_image = bitmap;
+X
+X  cinfo.input_file = handle;
+X  cinfo.output_file = NULL;     /* if no actual output file involved */
+X
+X  /* Initialize the system-dependent method pointers. */
+X  cinfo.methods  = &dc_methods;
+X  cinfo.emethods = &e_methods;
+X
+X  /* Select std error/trace message & memory allocation routines */
+X  jselerror( &e_methods );
+X  jselmemmgr( &e_methods );
+X
+X  dc_methods.d_ui_method_selection = d_ui_method_selection;
+X
+X  /* Set up default decompression parameters. */
+X  j_d_defaults( &cinfo, TRUE );
+X
+X  /* Set up to read a JFIF or baseline-JPEG file. */
+X  jselrjfif( &cinfo );
+X
+X  /* Here we go! */
+X  jpeg_decompress( &cinfo );
+X}
+X
+Xvoid
+Xget_jpeg_header( cinfo )
+Xdecompress_info_ptr cinfo;
+X/* This routine should do any setup required */
+X{
+X  int totalsize = cinfo->image_width * cinfo->image_height;
+X
+X  VPRINTF( stderr, "Reading JPEG header\n" );
+X  /* Fill our bitmap header */
+X  jpeg_image->xsize  = cinfo->image_width;
+X  jpeg_image->ysize  = cinfo->image_height;
+X  jpeg_image->depth  = 24;
+X  jpeg_image->colors = ( 1 << jpeg_image->depth );
+X  jpeg_image->magic  = LUGUSED;
+X
+X  /* Alloc memory */
+X  jpeg_r = jpeg_image->r = (byte *) Malloc( totalsize );
+X  jpeg_g = jpeg_image->g = (byte *) Malloc( totalsize );
+X  jpeg_b = jpeg_image->b = (byte *) Malloc( totalsize );
+X}
+X
+Xvoid
+Xget_jpeg_cmap( cinfo, num_colors, colormap )
+Xdecompress_info_ptr cinfo; 
+Xint num_colors; 
+XJSAMPARRAY colormap;
+X/* Write the color map */
+X{
+X  /* You need not provide this routine if you always set cinfo->quantize_colors
+X   * FALSE; but a safer practice is to provide it and have it just print an
+X   * error message, like this:
+X   */
+X  fprintf(stderr, "get_jpeg_camp called: there's a bug here somewhere!\n");
+X}
+X
+Xvoid
+Xget_jpeg_row( cinfo, num_rows, pixel_data )
+Xdecompress_info_ptr cinfo;
+Xint num_rows;
+XJSAMPIMAGE pixel_data;
+X/* Write some rows of output data */
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  register int row;
+X
+X  VPRINTF( stderr, "\rUncoding JPEG ( position %d )",
+X           jpeg_r - jpeg_image->r );
+X  VFLUSH( stderr );
+X  for ( row = 0; row < num_rows; row++ ) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    for ( col = 0; col < cinfo->image_width; col++ ) {
+X      *jpeg_r++ = GETJSAMPLE(*ptr0); ptr0++;    /* red */
+X      *jpeg_g++ = GETJSAMPLE(*ptr1); ptr1++;    /* green */
+X      *jpeg_b++ = GETJSAMPLE(*ptr2); ptr2++;    /* blue */
+X    }
+X  }
+X}
+X
+Xvoid
+Xend_put_jpeg( cinfo )
+Xdecompress_info_ptr cinfo;
+X/* Finish up at the end of the input */
+X{
+X  /* Defined only for compatibility reasons */
+X  VPRINTF( stderr, "\nJPEG process finished\n" );
+X}
+X
+Xvoid
+Xd_ui_method_selection( cinfo )
+Xdecompress_info_ptr cinfo;
+X{
+X  /* if grayscale input, force grayscale output; */
+X  /* else leave the output colorspace as set by main routine. */
+X  if (cinfo->jpeg_color_space == CS_GRAYSCALE)
+X    cinfo->out_color_space = CS_GRAYSCALE;
+X
+X  /* select output routines */
+X  cinfo->methods->output_init = get_jpeg_header;
+X  cinfo->methods->put_color_map = get_jpeg_cmap;
+X  cinfo->methods->put_pixel_rows = get_jpeg_row;
+X  cinfo->methods->output_term = end_put_jpeg;
+X}
+X
+X#endif  /* iJPEG */
+X
+X
+X/**************************************
+X *
+X * PBM/PGM/PPM interface
+X *
+X */
+Xread_pbm_file( name, bitmap )
+Xchar *name;
+Xbitmap_hdr *bitmap;
+X{
+X  FILE *handle;
+X  bitmap_hdr image;
+X
+X  /* Open the file descriptor */
+X  if ( name != NULL )
+X    handle = Fopen( name, "r" );
+X  else handle = stdin;
+X
+X  /* Read the bitmap */
+X  read_pbm( handle, &image );
+X
+X  /* Close the file */
+X  Fclose( handle );
+X
+X  /*
+X   * Now we could have a 8 or 24 bits image, but 'tovcr'
+X   * needs true color images, so check it...
+X   */
+X  if ( image.depth > 8 ){
+X    copy_bitmap( &image, bitmap );
+X  }else {
+X    to24( &image, bitmap );
+X  }
+X
+X  /* Free the tmp bitmap */
+X  freebitmap( &image );
+X}
+X
+Xread_pbm(handle, image)
+XFILE *handle;
+Xbitmap_hdr *image;
+X{
+X  int type;
+X  int totalsize;
+X
+X  /* Is really a PBM file */
+X  if ( fgetc(handle) != 'P' )
+X    error( 5 );
+X
+X  /* Get its type */
+X  switch( type = fgetc(handle) - '0' ) {
+X    case 1:
+X    case 4:
+X                image->depth = 1;
+X                image->cmap = (byte *) Malloc( 6 );
+X                image->cmap[3] = image->cmap[4] = image->cmap[5] = 255;
+X                break;
+X    case 2:
+X    case 5:
+X                image->depth = 8;
+X                image->cmap = create_bw_pallete();
+X                break;
+X    case 3:
+X    case 6:
+X                image->depth = 24;
+X                break;
+X    default:
+X                fprintf( stderr, "Unknow PBM file type (%d)\n", type );
+X                error( 99 );
+X  }
+X
+X  /* Get the sizes and depth */
+X  image->colors = ( 1 << image->depth );
+X  image->magic = LUGUSED;
+X  skip_pbm( handle );
+X  fscanf( handle, "%d", &(image->xsize) );
+X  fscanf( handle, "%d", &(image->ysize) );
+X  totalsize = image->xsize * image->ysize;
+X
+X  /* Ok, we have it all.  Allocate memory */
+X  image->r = (byte *) Malloc( totalsize );
+X  if ( image->depth > 8 ) {
+X    image->g = (byte *) Malloc( totalsize );
+X    image->b = (byte *) Malloc( totalsize );
+X  }
+X
+X  if ( type < 4 ) {
+X    /* An ASCII file */
+X    fprintf( stderr, "The PBM/PGM/PPM ascii file format type is not supported.\n" );
+X    error( 99 );
+X  }else {
+X    register int i, j;
+X    byte *line, *ptr;
+X    byte *rb, *gb, *bb;
+X
+X    switch ( type ) {
+X      case 4:
+X                line = image->r;
+X                ptr  = line + totalsize;
+X                
+X                skip_pbm( handle );
+X                /* One byte has 8 pixels, so ... */
+X                while ( line < ptr ) {
+X                  i = fgetc( handle );
+X                  for ( j = 7; j >= 0; j-- )
+X                    *line++ =  i & ( 1 << j );
+X                }
+X                break;
+X      case 5:
+X                /* Skip the max. value */
+X                fscanf( handle, "%d", &type );
+X                skip_pbm( handle );
+X
+X                /* Read the raw data info */
+X                Fread( image->r, totalsize, 1, handle );
+X                break;
+X      case 6:
+X                /* Skip the max. value */
+X                fscanf( handle, "%d", &type );
+X                skip_pbm( handle );
+X
+X                /* Set pointers */
+X                line = (byte *) Malloc( 3 * image->xsize );
+X                rb = image->r;
+X                gb = image->g;
+X                bb = image->b;
+X                /* Read each line and split RGB */
+X                for ( i = 0; i < image->ysize; i++ ) {
+X                  Fread( line, 3, image->xsize, handle );
+X                  j = image->xsize, ptr = line;
+X                  while ( j-- ) {
+X                    *rb++ = *ptr++;
+X                    *gb++ = *ptr++;
+X                    *bb++ = *ptr++;
+X                  }
+X                }
+X
+X                /* Free memory */
+X        Free( line );
+X                break;
+X    }
+X  }
+X  return 0;
+X}
+X
+X/*
+X * PBM files suport coments, so if a line begin with
+X * a '#' char then ...
+X */
+Xskip_pbm( handle )
+XFILE *handle;
+X{
+X  int c;
+X
+X  while ( !feof( handle ) ) {
+X    /* Skip until next line */
+X    while( fgetc( handle ) != '\n' );
+X    /*
+X     * If the first char is a '#' then we have
+X     * a comment ( so we re-begin ), else return.
+X     */
+X    if ( (c = fgetc( handle )) != '#' ) {
+X      ungetc( c, handle );
+X      return;
+X    }
+X  }
+X
+X  /*
+X   * Hmmm ???, if all the pbm image was comments I suppose
+X   * an error, and you ?.
+X   */
+X  error( 19 );
+X}
+X
+X
+X/**************************************
+X *
+X * ZSoft's PCX interface
+X *
+X */
+Xread_pcx_file( name, bitmap )
+Xchar *name;
+Xbitmap_hdr *bitmap;
+X{
+X  FILE *handle;
+X  bitmap_hdr image;
+X
+X  /* Open the file */
+X  handle = Fopen( name, "r" );
+X  /* Read it */
+X  read_pcx( handle, &image );
+X  /* Close it */
+X  Fclose( handle );
+X
+X  /*
+X   * Now we could have a 8 or 24 bits image, but 'tovcr'
+X   * needs true color images, so check it...
+X   */
+X  if ( image.depth > 8 ){
+X    copy_bitmap( &image, bitmap );
+X  }else {
+X    to24( &image, bitmap );
+X  }
+X
+X  /* Free the tmp bitmap */
+X  freebitmap( &image );
+X}
+X
+Xread_pcx( handle, image )
+XFILE *handle;
+Xbitmap_hdr *image;
+X{
+X  register int i, j, k;
+X  byte header[ PCX_HEADERSIZE ];
+X  int bitsperpixel;
+X  int xsize, ysize;
+X  int xmax, ymax;
+X  int xmin, ymin;
+X  byte version;
+X  int bytesperline;
+X  byte *r, *g, *b;
+X  byte *buffer;
+X  long position;
+X  int mask;
+X  int paletteinfo;
+X  int truecolor = 0;
+X
+X  /*
+X   * Read the header.
+X   */
+X  VPRINTF( stderr, "Reading PCX header\n" );
+X  Fread( header, PCX_HEADERSIZE, 1, handle );
+X  if ( header[0] != PCX_MAGICNUMBER )   /* a PCX file ? */
+X    error( 5 );
+X
+X  /*
+X   * Get some data from this header.
+X   */
+X  version = header[1];
+X  VPRINTF( stderr, "PCX file version: %d\n", version );
+X
+X  if ( header[2] != 1 )         /* file with PCX RLE encode ? */
+X    error( 9 );
+X
+X  bitsperpixel = ( header[3] == 1 ?  header[65] : header[3] );
+X  VPRINTF( stderr, "Bits per pixel: %d\n", bitsperpixel );
+X
+X  xmin = (header[ 5] << 8) | header[ 4];
+X  ymin = (header[ 7] << 8) | header[ 6];
+X  xmax = (header[ 9] << 8) | header[ 8];
+X  ymax = (header[11] << 8) | header[10];
+X  xsize = xmax - xmin + 1;
+X  ysize = ymax - ymin + 1;
+X
+X  bytesperline = (header[67] << 8) | header[66];
+X  paletteinfo = (header[69] << 8) | header[68];
+X  VPRINTF( stderr, "Bytes per line: %d\n", bytesperline );
+X  VPRINTF( stderr, "Palete info: %d\n", paletteinfo );
+X  /*
+X   * Fill our header.
+X   */
+X  image->xsize = xsize;
+X  image->ysize = ysize;
+X  r = image->r = (byte *) Malloc( xsize * ysize );
+X
+X  /*
+X   * Cmap info.
+X   */
+X  image->magic = LUGUSED;
+X  image->depth = bitsperpixel;
+X  image->colors = ( 1 << image->depth );
+X  /*
+X   * Read the cmap tag.
+X   */
+X  if ( version >= 5 && bitsperpixel == 8 ) {
+X    /* We could have 256 colors, check it ! */
+X    position = ftell( handle );
+X    fseek( handle, -769L, 2 );
+X    if ( getc( handle ) == PCX_256COLORS ) {
+X      /* Really, we have 256 colors */
+X      VPRINTF( stderr, "Reading additional color map\n" );
+X      image->cmap = (byte *) Malloc( 3 * 256 );
+X      Fread( image->cmap, 256, 3, handle );
+X    }else {
+X      /* 
+X       * Wow !, we have a true color image. We need
+X       * more memory.
+X       */
+X      truecolor = 1;
+X      g = image->g = (byte *) Malloc( xsize * ysize );
+X      b = image->b = (byte *) Malloc( xsize * ysize );
+X      image->depth = 24;
+X      image->colors = ( 1 << image->depth );
+X    }
+X    /* Go back to the original position */
+X    fseek( handle, position, 0 );
+X  }else {
+X    /* We have (2**bitsperpixel) colors */
+X    image->cmap = (byte *) Malloc( 3 * image->colors );
+X    /*
+X     * This cmap is stored on header space ( and we have
+X     * this header, so we only nedd copy it ).
+X     */
+X    bcopy( &(header[16]), image->cmap, 3*image->colors );
+X  }
+X
+X  /*
+X   * Read the raster information.
+X   */
+X  VPRINTF( stderr, "Unpacking raster information\n");
+X  if ( bitsperpixel > 4 ) {
+X    /*
+X     * Read a 'normal' image, one byte is one pixel.
+X     */
+X    for ( i = 0; i < ysize; i++ ) {
+X      decodePCX( handle, r, bytesperline );
+X      r += image->xsize;
+X      if ( truecolor ) {
+X        decodePCX( handle, g, bytesperline );
+X        g += image->xsize;
+X        decodePCX( handle, b, bytesperline );
+X        b += image->xsize;
+X      }
+X    }
+X  }else {
+X    int totalbytes = bytesperline * bitsperpixel;
+X    /*
+X     * The image was built by planes, so we need
+X     * join all planes ( arrggg ! ).
+X     */
+X    buffer = (byte *) Malloc( totalbytes );
+X
+X    for ( i = 0; i < ysize; i++ ) {
+X      decodePCX( handle, buffer, totalbytes );
+X      for ( j = 0; j < bitsperpixel; j++ ) {
+X        /*
+X         * Glue planes.
+X         */
+X        mask = 1 << j;
+X        for ( k = 0; k < xsize; k++ ) {
+X          if ( buffer[ (k+j*xsize) >> 3 ] & (0x80 >> (k & 0x0007 )) )
+X            r[ k ] |= mask;
+X        }
+X      }
+X      r += image->xsize;
+X    }
+X    Free( buffer );
+X  }
+X}
+X
+XdecodePCX( handle, buffer, linesize )
+XFILE *handle;
+Xbyte *buffer;
+Xint linesize;
+X{
+X  int cin;
+X  int count;
+X
+X  while ( linesize > 0 ) {
+X    cin = getc( handle );
+X    if ( (cin & PCX_COMPRESS) == PCX_COMPRESS ) {
+X      /* A block compressed */
+X      count = cin & 0x3f;       /* 00111111 */
+X      if ( count > linesize )
+X        error( 6 );
+X
+X      /* Get the real data to copy */
+X      cin = getc( handle );
+X      memset( buffer, cin, count );
+X
+X      /* Update pointers */
+X      linesize -= count;
+X      buffer += count;
+X    }else {
+X      /* Only one data */
+X      *buffer++ = cin;
+X      linesize--;
+X    }
+X  }
+X}
+X
+X
+X#ifdef iTIFF
+X
+X/**************************************
+X *
+X * TIFF interface
+X *
+X */
+X
+Xread_tiff_file( name, bitmap )
+Xchar *name;
+Xbitmap_hdr *bitmap;
+X{
+X  register int i, j;
+X  TIFF *handle;
+X  long xsize, ysize;
+X  ushort samplesperpixel;
+X  ushort bitspersample;
+X  ushort photometric;
+X  ushort planarconfig;
+X  ushort *rTIFFcmap, *gTIFFcmap, *bTIFFcmap;
+X  byte *r, *g, *b;
+X  int totalsize;
+X  byte *ptr;
+X  byte *TIFFline;
+X  bitmap_hdr image;
+X
+X  /*
+X   * Open the file.
+X   */
+X  if ( name )
+X    handle = TIFFOpen( name, "r" );
+X  else handle = TIFFFdOpen( 0, "stdin", "r" );
+X  if ( handle == NULL )
+X    error( 1 );
+X
+X  /*
+X   * Get TIFF configuration.
+X   */
+X  GetField( handle, TIFFTAG_IMAGEWIDTH,  &xsize );
+X  GetField( handle, TIFFTAG_IMAGELENGTH, &ysize );
+X  GetField( handle, TIFFTAG_SAMPLESPERPIXEL, &samplesperpixel );
+X  GetField( handle, TIFFTAG_BITSPERSAMPLE, &bitspersample );
+X  GetField( handle, TIFFTAG_PHOTOMETRIC, &photometric );
+X  GetField( handle, TIFFTAG_PLANARCONFIG, &planarconfig );
+X
+X  /*
+X   * ... ok. Fill our header.
+X   */
+X  image.magic = LUGUSED;
+X  image.xsize = (int) xsize;
+X  image.ysize = (int) ysize;
+X  image.depth = ( samplesperpixel < 4 ? samplesperpixel : 3 ) * bitspersample;
+X  image.colors = 1 << image.depth;
+X
+X  /*
+X   * New LIBTIFF library has changed the calling parameters 
+X   * of the TIFFPrintDirectory functions, so ... what version 
+X   * are you using ?.
+X   */
+X  if ( verbose )
+X#if TIFF_VERSION >= 42
+X    TIFFPrintDirectory( handle, stderr,  0L );
+X#else
+X    TIFFPrintDirectory( handle, stderr, 1, 0, 0 );
+X#endif
+X  
+X  /*
+X   * Check if it's one of our supported formats ...
+X   */
+X  if ( bitspersample < 8 ) {
+X    fprintf( stderr, "%d bits per pixel\n", bitspersample );
+X    fprintf( stderr, "This release only support 8 bits per pixel\n");
+X    exit( 99 );
+X  }
+X  switch ( photometric ) {
+X    case PHOTOMETRIC_MINISBLACK :
+X                /* Allocate memory for our cmap and build it */
+X                ptr = image.cmap = (byte *) Malloc( 3 * image.colors );
+X                for ( i = 0; i < image.colors; i++ ) {
+X                  *ptr++ = i;
+X                  *ptr++ = i;
+X                  *ptr++ = i;
+X                }
+X                break;
+X    case PHOTOMETRIC_MINISWHITE :
+X                /* Allocate memory for our cmap and build it */
+X                ptr = image.cmap = (byte *) Malloc( 3 * image.colors );
+X                for ( i = 0; i < image.colors; i++ ) {
+X                  *ptr++ = (byte) (255 - i);
+X                  *ptr++ = (byte) (255 - i);
+X                  *ptr++ = (byte) (255 - i);
+X                }
+X                break;
+X    case PHOTOMETRIC_PALETTE :
+X                /* Read the TIFF cmap */
+X                if ( !TIFFGetField( handle, TIFFTAG_COLORMAP,
+X                                    &rTIFFcmap, &gTIFFcmap, &bTIFFcmap ) )
+X                  error( 9 );
+X                /* Allocate memory for our cmap and get it */
+X               ptr = image.cmap = (byte *) Malloc( 3 * image.colors );
+X               for ( i = 0; i < image.colors; i++ ) {
+X                  *ptr++ = ( rTIFFcmap[i] >> 8 );
+X                  *ptr++ = ( gTIFFcmap[i] >> 8 );
+X                  *ptr++ = ( bTIFFcmap[i] >> 8 );
+X                }
+X                break;
+X    case PHOTOMETRIC_RGB :
+X                break;
+X    default:
+X                fprintf( stderr, "Not supported photometric configuration\n");
+X                error( 99 );
+X  }
+X  if (  image.depth > 8 ) {
+X    switch ( planarconfig ) {
+X      case PLANARCONFIG_CONTIG   :
+X                break;
+X      case PLANARCONFIG_SEPARATE :
+X                fprintf( stderr, "Separate planar configuration is not supported, yet.\n");
+X                error( 99 );
+X                break;
+X      default:
+X                fprintf( stderr, "Unknown planar configuration\n");
+X                error( 99 );
+X    }
+X  }
+X
+X
+X  /*
+X   * Allocate memory for bitmap.
+X   */
+X  totalsize = (int) (xsize * ysize);
+X  r = image.r = (byte *) Malloc( totalsize );
+X  if ( image.depth > 8 ) {
+X    /* A real RGB image */
+X    g = image.g = (byte *) Malloc( totalsize );
+X    b = image.b = (byte *) Malloc( totalsize );
+X  }
+X
+X  /*
+X   * Get TIFF raster lines.
+X   */
+X  TIFFline = (byte *) Malloc( TIFFScanlineSize(handle) );
+X  for ( i = 0; i < ysize; i++ ) {
+X    TIFFReadScanline( handle, TIFFline, i, 0 );
+X    for ( j = 0, ptr = TIFFline; j < xsize; j++ ) {
+X      *r++ = *ptr++;
+X      if ( image.depth > 8 ) {
+X        *g++ = *ptr++;
+X        *b++ = *ptr++;
+X        if ( samplesperpixel == 4 ) {
+X          /* Skip alpha channel */
+X          ptr++;
+X        }
+X      }
+X    }
+X  }
+X
+X  /*
+X   * Free our raster line and close the TIFF file.
+X   */
+X  Free( TIFFline );
+X  TIFFClose( handle );
+X
+X  /*
+X   * Now we could have a 8 or 24 bits image, but 'tovcr'
+X   * needs true color images, so check it...
+X   */
+X  if ( image.depth > 8 ){
+X    copy_bitmap( &image, bitmap );
+X  }else {
+X    to24( &image, bitmap );
+X  }
+X
+X  /* Free the tmp bitmap */
+X  freebitmap( &image );
+X}
+X
+X#endif  /* iTIFF */
+X
+X
+X#ifdef iRLE
+X
+X/**************************************
+X *
+X * Utah's RLE interface.
+X *
+X */
+Xread_rle_file( name, bitmap )
+Xchar *name;
+Xbitmap_hdr *bitmap;
+X{
+X  FILE *handle;
+X  bitmap_hdr image;
+X
+X  /* Open the file descriptor */
+X  if ( name != NULL )
+X    handle = Fopen( name, "r" );
+X  else handle = stdin;
+X
+X  /* Read the bitmap */
+X  read_rle( handle, &image );
+X  /* Close the file */
+X  Fclose( handle );
+X
+X  /*
+X   * Now we could have a 8 or 24 bits image, but 'tovcr'
+X   * needs true color images, so check it...
+X   */
+X  if ( image.depth > 8 ){
+X    copy_bitmap( &image, bitmap );
+X  }else {
+X    to24( &image, bitmap );
+X  }
+X
+X  /* Free the tmp bitmap */
+X  freebitmap( &image );
+X}
+X
+Xread_rle(handle, image)
+XFILE *handle;
+Xbitmap_hdr *image;
+X{
+X  register int i, j;
+X  rle_pixel **row;
+X  byte *r, *g, *b;
+X  int totalsize;
+X  color_map *map;
+X  int type;
+X  int two_lines;
+X  int offset_last;
+X
+X  /*
+X   * Read the file's configuration.
+X   */
+X  rle_dflt_hdr.rle_file = handle;
+X  if ( rle_get_setup( &rle_dflt_hdr ) != RLE_SUCCESS )
+X    error(3);
+X
+X  /*
+X   * Fill our bitmap.
+X   */
+X  image->magic = LUGUSED;
+X  image->xsize = rle_dflt_hdr.xmax - rle_dflt_hdr.xmin + 1;
+X  image->ysize = rle_dflt_hdr.ymax - rle_dflt_hdr.ymin + 1;
+X  image->depth = ( rle_dflt_hdr.ncolors < 3 ? rle_dflt_hdr.cmaplen : 24 );
+X  image->colors = ( 1 << image->depth );
+X  totalsize= image->xsize * image->ysize;
+X  offset_last = totalsize - image->xsize;
+X  two_lines = 2 * image->xsize;
+X  VPRINTF(stderr, "Image size: %dx%d\n", image->xsize, image->ysize);
+X  VPRINTF(stderr, "Image depth: %d\n", image->depth);
+X  VPRINTF(stderr, "%s colormap\n", (rle_dflt_hdr.ncmap ? "With" : "Without"));
+X
+X  /*
+X   * Check the coherence and image type.
+X   */
+X  VPRINTF(stderr, "Image type ");
+X  switch ( rle_dflt_hdr.ncolors ) {
+X    case  1: switch ( rle_dflt_hdr.ncmap ) {
+X               case  0:
+X                    type = GRAYSCALE;       /* 8 planes, no cmap */
+X                    VPRINTF( stderr, "GRAYSCALE\n" );
+X                    break;
+X               case  3:
+X                    type = PSEUDOCOLOR;     /* 8 planes, cmap */
+X                    VPRINTF( stderr, "PSEUDOCOLOR\n" );
+X                    break;
+X               default:
+X                    VPRINTF( stderr, "unkown\n" );
+X                    error( 5 );
+X                    break;
+X             }
+X             break;
+X    case  3: switch ( rle_dflt_hdr.ncmap ) {
+X               case  0:
+X                    type = DIRECTCOLOR;     /* 24 planes, no cmap */
+X                    VPRINTF( stderr, "DIRECTCOLOR\n" );
+X                    break;
+X               case  3:
+X                    type = TRUECOLOR;       /* 24 planes, cmap */
+X                    VPRINTF( stderr, "TRUECOLOR\n" );
+X                    break;
+X               default:
+X                    VPRINTF( stderr, "unkown\n" );
+X                    error(5);
+X                    break;
+X             }
+X
+X             break;
+X    default: VPRINTF(stderr, "unkown\n");
+X             error( 5 );
+X             break;
+X  }
+X
+X  /*
+X   * Allocate some memory.
+X   */
+X  if ( rle_row_alloc(&rle_dflt_hdr, &row) < 0 )
+X    error( 2 );
+X  if ( image->depth > 8 || type == GRAYSCALE ) {
+X    /*
+X     * 24 planes => we need three components
+X     * GRAYSCALE use 8 planes but it's defined like 24 planes
+X     */
+X    r= image->r = (byte *) Malloc( totalsize );
+X    g= image->g = (byte *) Malloc( totalsize );
+X    b= image->b = (byte *) Malloc( totalsize );
+X    if ( type == TRUECOLOR ) {
+X      image->colors = 256;      /* well, a trap to rlecmap_to_bit... */
+X      rlecmap_to_bitmapcmap(&rle_dflt_hdr, image);
+X      map = (color_map *) image->cmap;  /* will be more easy use it */
+X    }
+X  }else {
+X    /* 8 planes => one component and cmap */
+X    r = image->r = (byte *) Malloc( totalsize );
+X    /* Convert rle cmap to bitmap cmap */
+X    rlecmap_to_bitmapcmap( &rle_dflt_hdr, image );
+X    map = (color_map *) image->cmap;    /* will be more easy use it */
+X  }
+X
+X  /*
+X   * Read the input image and convert it to a simple bitmap.
+X   * RLE writes lines in reverse order, so we point to last
+X   * line.
+X   */
+X  VPRINTF( stderr, "Uncompressing RLE file\n" );
+X  r += offset_last;
+X  g += offset_last;
+X  b += offset_last;
+X  for ( j = 0; j < image->ysize; j++ ) {
+X    rle_getrow( &rle_dflt_hdr, row );
+X    switch ( type ) {
+X      case GRAYSCALE:
+X      case DIRECTCOLOR:
+X                for ( i = 0; i< image->xsize; i++ ) {
+X                  *r++ = row[0][i];
+X                  *g++ = row[1][i];
+X                  *b++ = row[2][i];
+X                }
+X                break;
+X      case PSEUDOCOLOR:
+X                for ( i = 0; i<image->xsize; i++ ) {
+X                  *r++ = row[0][i];
+X                }
+X                break;
+X      case TRUECOLOR:
+X                for ( i = 0; i< image->xsize; i++ ) {
+X                  *r++ = map[row[0][i]][0];
+X                  *g++ = map[row[1][i]][1];
+X                  *b++ = map[row[2][i]][i];
+X                }
+X                break;
+X      default:
+X                error( 5 );
+X                break;
+X    }
+X    /*
+X     * Pointers to next byte of current line, so we substract
+X     * two lines.
+X     */
+X    r -= two_lines;
+X    g -= two_lines;
+X    b -= two_lines;
+X  }
+X
+X  /*
+X   * TRUECOLOR has map of colors, but we'll not use it.
+X   */
+X  if ( type == TRUECOLOR )
+X    Free( image->cmap );
+X  rle_row_free( &rle_dflt_hdr, row );
+X}
+X
+Xrlecmap_to_bitmapcmap(rle, bitmap)
+Xrle_hdr *rle;
+Xbitmap_hdr *bitmap;
+X{
+X  register int i;
+X  rle_map *rch, *gch, *bch;
+X  byte *ptr;
+X
+X  /* Allocate memory */
+X  ptr= bitmap->cmap= (byte *) Malloc(bitmap->colors * 3);
+X
+X  /*
+X   * We'll use 3 ptrs, first to R channel, second to G channel, ...
+X   */
+X  rch = rle->cmap;
+X  gch = &(rle->cmap[bitmap->colors]);
+X  bch = &(rle->cmap[2 * bitmap->colors]);
+X  for (i= 0; i< bitmap->colors; i++) {
+X    *ptr++ = (byte) (*rch++ >> 8);
+X    *ptr++ = (byte) (*gch++ >> 8);
+X    *ptr++ = (byte) (*bch++ >> 8);
+X  }
+X}
+X
+Xbitmapcmap_to_rlecmap(bitmap, rle)
+Xbitmap_hdr *bitmap;
+Xrle_hdr *rle;
+X{
+X  register int i;
+X  rle_map *rch, *gch, *bch;
+X  byte *ptr;
+X
+X  /* Allocate memory */
+X  rle->cmap= (rle_map *) Malloc(bitmap->colors * 3 * sizeof(rle_map));
+X
+X  /*
+X   * We'll use 3 ptrs, first to R channel, second to G channel, ...
+X   */
+X  ptr = bitmap->cmap;
+X  rch = rle->cmap;
+X  gch = &(rle->cmap[bitmap->colors]);
+X  bch = &(rle->cmap[2 * bitmap->colors]);
+X  for (i= 0; i< bitmap->colors; i++) {
+X    *rch++ = (*ptr++ << 8);
+X    *gch++ = (*ptr++ << 8);
+X    *bch++ = (*ptr++ << 8);
+X  }
+X}
+X
+X#endif  /* iRLE */
+X
+X
+X/**************************************
+X *
+X * Video FRamer and V-lan interface.
+X *
+X */
+XVFR_DEV *open_video()
+X{
+X  char *video_mode;
+X  VFR_DEV *vfr;
+X  int flag;
+X
+X  /*
+X   * Open the video. It can be reseted ( or not ).
+X   */
+X  video_mode = ( rgbvfr ? OPTIONAL_VFR_BUFFER : DEFAULT_VFR_BUFFER );
+X  flag = ( resetvfr ? VFR_CUSTOM_SETUP : -VFR_CUSTOM_SETUP );
+X  if ( !(vfr = vfr_open( DEFAULT_VFR_ADDR, flag, video_mode )))
+X    error( 9 );
+X
+X  return vfr;
+X}
+X
+Xwrite_vfr( vfr, bitmap )
+XVFR_DEV *vfr;
+Xbitmap_hdr *bitmap;
+X{
+X  register int y, x;
+X  byte *ptr;
+X  int totalsize = bitmap->ysize * bitmap->xsize;
+X  byte *rbase, *gbase, *bbase;
+X  byte *r, *g, *b;
+X  int offset;
+X
+X  /* Really, is an image ? */
+X  if ( bitmap->magic != LUGUSED )
+X    error( 21 );
+X
+X  /*
+X   * This subroutine only supports true color images, use
+X   * 'to24' function if you have a mapped image before.
+X   */
+X  if ( bitmap->depth < 24 )
+X    error( 7 );
+X
+X  /*
+X   * If the we have to perform a blur before download the image
+X   * to the VFR, ok do it!. Else set the pointers.
+X   */
+X  if ( forceblur ) {
+X    r = rbase = blur( bitmap->r, bitmap->xsize, bitmap->ysize );
+X    g = gbase = blur( bitmap->g, bitmap->xsize, bitmap->ysize );
+X    b = bbase = blur( bitmap->b, bitmap->xsize, bitmap->ysize );
+X  }else {
+X    r = bitmap->r;
+X    g = bitmap->g;
+X    b = bitmap->b;
+X  }
+X
+X  /* Pointers to VF's shadow memory */
+X  ptr =  (byte *) VFR_DEVICE_PSHADOW( *vfr );
+X  /* Unused space ( 4 because Alpha-R-G-B ) */
+X  offset = 4 * ( VFR_LINESIZE - bitmap->xsize );
+X
+X  /*
+X   * The VFR memory has the format:
+X   *    1:  ----------line 1----------|----------line 2----------
+X   *    2:  ----------line 3----------|----------line 4 ---------
+X   *    3:  ...
+X   *        [----- VFR lline size----][-----VFR line size ------]
+X   *
+X   * In other words, each VFR line contains two image lines and where
+X   * each pixel is represented with Alpha-G-B-R.
+X   *
+X   * So ...
+X   */
+X  for ( y = 0; y < bitmap->ysize; y += 2 ) {
+X    for ( x = 0; x < bitmap->xsize; x++ ) {
+X      *ptr++ = 0;
+X      *ptr++ = *b++;
+X      *ptr++ = *g++;
+X      *ptr++ = *r++;
+X    }
+X
+X    /* Fill unused VFR line buffer with 0's */
+X    bzero( ptr, offset );
+X    ptr += offset;
+X
+X    for ( x = 0; x < bitmap->xsize; x++ ) {
+X      *ptr++ = 0;
+X      *ptr++ = *b++;
+X      *ptr++ = *g++;
+X      *ptr++ = *r++;
+X    }
+X
+X    /* Fill unused ... */
+X    bzero( ptr, offset );
+X    ptr += offset;
+X  }
+X
+X  /*
+X   * Download.
+X   */
+X  if ( !vfr_convert_from_rgb( vfr, bitmap->xsize ) )
+X    error( 10 );
+X
+X  /*
+X   * If we blured the image then we need free the
+X   * memory used.
+X   */
+X  if ( forceblur ) {
+X    Free( rbase );
+X    Free( gbase );
+X    Free( bbase );
+X  }
+X}
+X
+Xinit_vlan( vfr, inpoint, autoincrement )
+XVFR_DEV *vfr;
+Xchar *inpoint;
+Xint autoincrement;
+X{
+X  int i;
+X  char *status;
+X  char buffer[16];
+X  char outpoint[16];
+X
+X  /* signal( SIGALRM, vfr_not_ready ); */
+X  alarm( 30L );
+X  do {
+X    if ( (i= vfr_vlan_init( vfr, VFR_VLAN_625)) == -1 )
+X      fprintf( stderr, "Error initializaing VFR\nRetrying\n");
+X  }while ( i == -1 );
+X  VPRINTF( stderr, "Video Framer ready\n" );
+X
+X  /* Selects Node 2 */
+X  (void)Vfr_Vlan_Cmd( vfr, "ND2" );
+X  /* Clear all registers */
+X  (void)Vfr_Vlan_Cmd( vfr, "CL" );
+X  /* Track Mode */
+X  (void)Vfr_Vlan_Cmd( vfr, "TSV" );
+X  /* Set pre-roll and post-roll */
+X  sprintf( buffer, "PR%s", PREROLLTIME );
+X  (void)Vfr_Vlan_Cmd( vfr, buffer );
+X  sprintf( buffer, "PT%s", POSTROLLTIME );
+X  (void)Vfr_Vlan_Cmd( vfr, buffer );
+X  /* Sets inpoint */
+X  sprintf( buffer, "SI%s", inpoint );
+X  (void)Vfr_Vlan_Cmd( vfr, buffer );
+X  /*
+X   * VFR's buffer only support 1..99 for
+X   * autoincrement, so if we need more we
+X   * use a trick, an outpoint.
+X   */
+X  if ( autoincrement > 99 ) {
+X    calculate_outpoint( inpoint, outpoint, autoincrement );
+X    /* Sets outpoint */
+X    sprintf( buffer, "SO%s", outpoint );
+X    (void)Vfr_Vlan_Cmd( vfr, buffer );
+X  }else {
+X    /* Sets frame duration */
+X    sprintf( buffer, "SD%d", autoincrement );
+X    (void)Vfr_Vlan_Cmd( vfr, buffer );
+X    /* Sets autoincrement */
+X    sprintf( buffer, "AI%d", autoincrement );
+X    (void)Vfr_Vlan_Cmd( vfr, buffer );
+X  }
+X  /* Goto Preroll position */
+X  (void)Vfr_Vlan_Cmd( vfr, "GP" );
+X
+X  /* signal( SIGALRM, SIG_IGN ); */
+X}
+X
+Xcheck_point( vfr )
+XVFR_DEV *vfr;
+X{
+X  char *status;
+X
+X  /*
+X   * Wait for PAUSE status.
+X   */
+X  do {
+X    status = Vfr_Vlan_Cmd( vfr, "SR" );
+X  }while( !equal( status, "PAUSE" ));
+X}
+X
+Xcheck_status( vfr )
+XVFR_DEV *vfr;
+X{
+X  char *status;
+X  int count = 0;
+X
+X  /*
+X   * Wait for DONE ( performed ) or ABORTED ( ... ).
+X   */
+X  do {
+X    if ( !(count++ % 15) )
+X      putchar('.'), fflush( stdout );
+X    status = Vfr_Vlan_Cmd( vfr, "ES" );
+X  }while ( !equal(status, "ABORTED") && !equal(status, "DONE") );
+X
+X  putchar('\r'), fflush(stdout);
+X
+X  if ( equal(status, "ABORTED") )
+X    error( 11 );
+X}
+X
+Xchar *Vfr_Vlan_Cmd( vfr, string )
+XVFR_DEV *vfr;
+Xchar *string;
+X{
+X  char *status;
+X
+X  status = vfr_vlan_cmd( vfr, string );
+X#ifdef DEBUG
+X  fprintf( stderr, "%s", status );
+X#endif
+X
+X  return status;
+X}
+X
+X
+X/**************************************
+X *
+X * Library functions.
+X *
+X */
+Xerror(code)
+Xint code;
+X{
+X  char *usage = "\
+XIncorrect parameters list\n\n\
+XThree formats: \n\
+X\t  i. %s [flags] <inputfile> [<inputfile> [...]]\n\
+X\t ii. %s [flags] <incode> <number_of_frames> <inputfile> [<inputfile> [...]]\n\
+X\tiii. %s [flags] <incode> <start> <end> <inputfile> [<inputfile> [...]]\n\n\
+XWhere flags are:\n\
+X\t-v --> verbose\n\
+X\t-b --> blur the final image\n\
+X\t-c --> center image, do not adjust to PAL\n\
+X\t-r --> output is configured to rgb_625\n\
+X\t-i --> initialize VFR\n\
+X\t-s --> add the super\n\
+X\t-n --> no blur image\n\
+X\t-t --> input procedure configured to TIFF format\n\
+X\t-j --> ...   ...       ...        .. JPEG format\n\
+X\t-u --> ...   ...       ...        .. Utah's RLE format\n\
+X\t-w --> ...   ...       ...        .. Wavefront's RLA format\n\
+X\t-g --> ...   ...       ...        .. SGI's format\n\
+X\t-a --> ...   ...       ...        .. Targa image format\n\
+X\t-p --> ...   ...       ...        .. PBM/PGM/PPM format\n\
+X\t-f --> ...   ...       ...        .. Compuserve's GIF file format\n\
+X\t-x --> ...   ...       ...        .. ZSoft's PCX format\n\
+X\t-! --> what about this program ?! \n";
+X
+X  fprintf(stderr, "%s: ", MY_NAME);
+X  switch (code) {
+X    case  0: fprintf(stderr, usage, MY_NAME, MY_NAME, MY_NAME );
+X             break;
+X    case  1: fprintf(stderr, "Cannot open file\n");
+X             break;
+X    case  2: fprintf(stderr, "Out of memory\n");
+X             break;
+X    case  3: fprintf(stderr, "Error while reading input file\n");
+X             break;
+X    case  4: fprintf(stderr, "Error while writing output file\n");
+X             break;
+X    case  5: fprintf(stderr, "Input file hasn't the selected format\n");
+X             break;
+X    case  6: fprintf(stderr, "File corrupt ( uncompress too bytes )\n");
+X             break;
+X    case  7: fprintf(stderr, "File is not a RGB image ( no 24 planes )\n");
+X             break;
+X    case  8: fprintf(stderr,
+X                     "Uncompress failed or compressed file don't exist\n");
+X             break;
+X    case  9: fprintf(stderr, "Cannot open Video Framer\n");
+X             break;
+X    case 10: fprintf(stderr, "Error converting internal bitmap to Video Framer format\n");
+X             break;
+X    case 11: fprintf(stderr, "Editing aborted\n");
+X             break;
+X    case 12: fprintf(stderr, "Error returning child process\n");
+X             break;
+X    case 13: fprintf(stderr, "Cannot respawn the child process\n");
+X             break;
+X    case 14: fprintf(stderr, "Incode incorrect\n");
+X             break;
+X    case 15: fprintf(stderr, "VFR transportation timeout. Connected ?\n");
+X             break;
+X    case 16: fprintf(stderr, "It is very posible a core from the child\n");
+X    case 17: fprintf(stderr, "Current image completed ?\n");
+X             break;
+X    case 18: fprintf(stderr, "Cannot get a TAG from TIFF file\n");
+X             break;
+X    case 19: fprintf(stderr, "Ooops, an empty PBM file ?\n");
+X             break;
+X    case 20: fprintf(stderr, "Unexpected end of file\n");
+X             break;
+X    case 21: fprintf(stderr, "Trying to use an unitializated image\n");
+X             break;
+X    case 99: fprintf(stderr, "Not ready\n");
+X             break;
+X    default: fprintf(stderr, "Unknown error code (%d)\n", code);
+X             break;
+X  }
+X
+X  if ( code ) {
+X    /*
+X     * Only if an internal error.
+X     */
+X    kill( (getpid() == parent_pid ? cpid : parent_pid), SIGUSR2 );
+X  }
+X
+X  rm_compress();
+X  exit(1);
+X}
+X
+Xprint_copyright()
+X{
+X  char *msg = "\n\
+Xtovcr ( v.1.1 ) - record images into a VCR using the SGI VFR.\n\
+XDeveloped by Raul Rivero into the Mathematics Dept., University of Oviedo\n\n\
+XWith this program you'll get HIGHER speed recording frames, chroma, center\n\
+Xpaste, resample and others facilities.\n\n\
+XSupported input formats:\n\n\
+X\t* Pix ( Alias )  *** default ***\n\
+X\t* TIFF ( using the Sam Leffler's TIFF library )\n\
+X\t* RLE ( using the Spencer W. Thomas' URT library )\n\
+X\t* RLA ( Wavefront )\n\
+X\t* SGI ( internal Silicon Graphics file format )\n\
+X\t* Targa ( Truevision )\n\
+X\t* GIF ( Compuserve )\n\
+X\t* PCX ( ZSoft )\n\
+X\t* JPEG\n\
+X\t* PBM/PGM/PPM\n\n\
+XThis software is free and you can get a copy via anonymous ftp to\n\
+Xtelva.ccu.uniovi.es ( 156.35.31.31, /uniovi/mathdept/src/tovcr-1.1.shar.Z )\n\
+Xor via E-mail to nuevos@carreras.ccu.uniovi.es.\n\n\
+XAll you get here is a minimal part of the LUG Library ( 'Libreria de\n\
+XUtilidades Graficas', Graphic Utilities Library ). This supports several\n\
+Xgraphic file formats, viewers on the most important architectures and\n\
+Xdigital image manipulation. Also, it's free and you can get a copy from\n\
+Xthe same site ( /uniovi/mathdept/src/liblug-1.0.tar.Z ).\n\n\
+XThis program: (c) 1993, University of Oviedo && Raul Rivero\n\
+XLUG Library:  (c) 1992, Raul Rivero\n\n";
+X
+X fputs( msg, stderr );
+X exit( 1 );
+X}
+X
+Xchar *Malloc(size)
+Xint size;
+X{
+X  char *ptr;
+X
+X  if ((ptr = (char *) malloc(size)) == NULL)
+X    error(2);
+X
+X  /*
+X   * Usually compilers fill buffers with zeros,
+X   * but ...
+X   */
+X  bzero( ptr, size );
+X  return ptr;
+X}
+X
+XFree( ptr )
+Xvoid *ptr;
+X{
+X  if ( ptr != NULL )
+X    free( ptr );
+X}
+X
+XFILE *Fopen(name, mode)
+Xchar *name;
+Xchar *mode;
+X{
+X  FILE *handle;
+X  int len= strlen(name) - 1;
+X  int compress = 0;
+X  char aux[132];
+X  struct stat statbuf;
+X
+X  if ( mode[0] == 'r' ) {
+X    /*
+X     * Asking for reading, we check if file is compressed.
+X     */
+X    /* Is a compressed name ? */
+X    compress = ( name[len] == 'Z' && name[len-1] == '.');
+X
+X    if (compress) {
+X      /*
+X       * File name is compressed.
+X       */
+X      Uncompress(name, aux_file);
+X      if ( (handle = fopen(aux_file, mode)) == NULL) {
+X        fputs( "Uncompress cannot create output file\n", stderr );
+X        error( 1 );
+X      }else {
+X        stat( aux_file, &statbuf );
+X        if ( statbuf.st_size < 1 )
+X          error( 1 );
+X      }
+X    }else {
+X      if ( (handle = fopen(name, mode)) == NULL ) {
+X        /*
+X         * Uncompress file failed, and compress ?
+X         */
+X        sprintf(aux, "%s.Z", name);
+X        return( Fopen(aux, mode) );
+X      }
+X    }
+X  }else {
+X    /*
+X     * Ask for writing ( we don't need check for
+X     * compressed files ).
+X     */
+X    if ( (handle = fopen(name, mode)) == NULL)
+X      error(1);
+X  }
+X
+X  return handle;
+X}
+X
+XFclose( handle )
+XFILE *handle;
+X{
+X  if ( handle != stdout && handle != stdin )
+X    return fclose( handle );
+X  else return 0;
+X}
+X
+XUncompress(name, aux_file)
+Xchar *name, *aux_file;
+X{
+X  int pid, handle;
+X
+X  if ( pid = fork() ) {
+X    /*
+X     * Parent wait until the REAL 'end of days'
+X     * of the child.
+X     */
+X    do{
+X    }while( pid != wait(NULL) );
+X  }else {
+X    handle = creat( aux_file, 0644 );
+X    close( 1 );
+X    dup( handle );
+X    execlp( "compress", "compress", "-dc", name, 0 );
+X  }
+X}
+X
+Xrm_compress()
+X{
+X  if ( access( aux_file, 0 ) == 0 )
+X    unlink( aux_file );
+X}
+X
+Xchar *read_file(handle, bytes)
+XFILE *handle;
+Xint *bytes;
+X{
+X  char *buffer;
+X
+X  /* Get size of file and allocate memory */
+X  *bytes = (int) filelen(handle);
+X  if ( *bytes > 0 ) {		/* Ok, it's a regular file. */
+X    buffer = (char *) Malloc(*bytes);
+X
+X    /* Read it */
+X    Fread(buffer, (int) (*bytes), 1, handle);
+X  }else {			/* Oops!  It's a pipe. */
+X    int n = 0, bufsize = 0;
+X
+X    /* Read in chunks of BUFSIZ. */
+X    buffer = (char *) Malloc( BUFSIZ );
+X    while ( (n = fread( buffer + bufsize, 1, BUFSIZ, handle )) == BUFSIZ ) {
+X      bufsize += BUFSIZ;
+X      buffer = (char *) realloc( buffer, bufsize + BUFSIZ );
+X    }
+X    if ( n >= 0 )
+X      n += bufsize;
+X    else
+X      n = bufsize;
+X    *bytes = n;
+X  }
+X
+X  /* Return the buffer */
+X  return buffer;
+X}
+X
+Xlong filelen(handle)
+XFILE *handle;
+X{
+X  long current_pos;
+X  long len;
+X
+X  /* Save current position */
+X  current_pos= ftell(handle);
+X
+X  /* Get len of file */
+X  fseek(handle, 0, 2);
+X  len= ftell(handle);
+X
+X  /* Restore position */
+X  fseek(handle, current_pos, 0);
+X
+X  return len;
+X}
+X
+Xfreebitmap(image)
+Xbitmap_hdr *image;
+X{
+X
+X  /* Really, is an image ? */
+X  if ( image->magic != LUGUSED )
+X    return 1;
+X
+X  switch ( image->depth ) {
+X    case  8:
+X            Free( image->r );
+X            Free( image->cmap );
+X            break;
+X    case 24:
+X            Free( image->r );
+X            Free( image->g );
+X            Free( image->b );
+X            break;
+X    default:
+X            return 1;          /* an error, unkown depth */
+X  }
+X  return 0;
+X}
+X
+Xcopy_bitmap( inbitmap, outbitmap)
+Xbitmap_hdr *inbitmap, *outbitmap;
+X{
+X  int totalsize = inbitmap->xsize * inbitmap->ysize;
+X
+X  /* Really, is an image ? */
+X  if ( inbitmap->magic != LUGUSED )
+X    error( 21 );
+X
+X  outbitmap->magic = LUGUSED;
+X  outbitmap->xsize = inbitmap->xsize;
+X  outbitmap->ysize = inbitmap->ysize;
+X  outbitmap->depth = inbitmap->depth;
+X  outbitmap->colors = inbitmap->colors;
+X  outbitmap->r = (byte *) Malloc( totalsize );
+X  bcopy( inbitmap->r, outbitmap->r, totalsize );
+X  if ( outbitmap->depth > 8 ) {
+X    outbitmap->g = (byte *) Malloc( totalsize );
+X    bcopy( inbitmap->g, outbitmap->g, totalsize );
+X    outbitmap->b = (byte *) Malloc( totalsize );
+X    bcopy( inbitmap->b, outbitmap->b, totalsize );
+X  }else {
+X    outbitmap->cmap = (byte *) Malloc( 3 * outbitmap->colors );
+X    bcopy( inbitmap->cmap, outbitmap->cmap, 3*outbitmap->colors );
+X  }
+X}
+X
+XAtoi( string )
+Xchar *string;
+X{
+X  int aux = -1234;
+X
+X  sscanf( string, "%d", &aux );
+X  if ( aux == -1234 )
+X    error( 0 );
+X
+X  return aux;
+X}
+X
+Xisnumber( c )
+Xchar *c;
+X{
+X  while ( *c )
+X    if ( !isdigit(*c++) )
+X      return 0;
+X
+X  return 1;
+X}
+X
+Xbyte *shorttobyte( in, out, size )
+Xshort *in;
+Xbyte *out;
+Xint size;
+X{
+X  byte *ptr = out;
+X
+X  /*
+X   * If the output buffer is NULL then we need allocate
+X   * memory, so ...
+X   */
+X  if ( out == NULL ) {
+X    ptr = out = (byte *) Malloc( size );
+X  }
+X
+X  while ( size-- ) {
+X    *ptr++ = *in++;
+X  }
+X
+X  return out;
+X}
+X
+X
+X/*
+X * Return the number of bits ( -1 ) to represent a given
+X * number of colors ( ex: 256 colors => 7 ).
+X */
+Xno_bits( colors )
+Xint colors;
+X{
+X  register int bits= 0;
+X
+X  colors--;
+X  while ( colors >> bits )
+X    bits++;
+X
+X  return (bits-1);
+X}
+X
+END_OF_FILE
+  if test 53392 -ne `wc -c <'tovcr.c.B'`; then
+    echo shar: \"'tovcr.c.B'\" unpacked with wrong size!
+  elif test -f 'tovcr.c.A'; then 
+    echo shar: Combining  \"'tovcr.c'\" \(99170 characters\) 
+    cat 'tovcr.c.A' 'tovcr.c.B' > 'tovcr.c' 
+    if test 99170 -ne `wc -c <'tovcr.c'`; then 
+      echo shar: \"'tovcr.c'\" combined with wrong size! 
+    else 
+      rm tovcr.c.A tovcr.c.B 
+    fi 
+  fi
+  # end of 'tovcr.c.B'
+fi
+echo shar: End of archive 2 \(of 4\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

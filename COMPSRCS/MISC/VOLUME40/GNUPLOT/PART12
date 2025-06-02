@@ -1,0 +1,2391 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i024:  gnuplot - interactive function plotting utility, Part12/33
+Message-ID: <1993Oct21.144602.2174@sparky.sterling.com>
+X-Md4-Signature: 769b306f285bcadc75b0c8ed3ab97410
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 14:46:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 24
+Archive-name: gnuplot/part12
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/buildvms.com gnuplot/contour.c gnuplot/gplt_x11.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:45 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 33)."'
+if test -f 'gnuplot/buildvms.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/buildvms.com'\"
+else
+  echo shar: Extracting \"'gnuplot/buildvms.com'\" \(1534 characters\)
+  sed "s/^X//" >'gnuplot/buildvms.com' <<'END_OF_FILE'
+X$ ! buildvms.com  (Command file to compile/link gnuplot and doc2hlp)
+X$ CFLAGS = "/nowarn/NOOP/define=(NOGAMMA,MEMSET)"
+X$ TERMFLAGS = "/define=(X11,VMS)"
+X$ LINK_OPT=",linkopt.vms/opt"
+X$ IF F$EXTRACT(0, 3, F$GETSYI("HW_NAME")) .NES. "VAX"
+X$ THEN		! Probably Alpha.
+X$	LINK_OPT = ""
+X$	CFLAGS = CFLAGS + "/PREFIX=ALL"
+X$ ENDIF
+X$! For DECwindows:
+X$ DEFINE X11 DECW$INCLUDE
+X$ set verify
+X$ cc 'CFLAGS' binary.c
+X$ cc 'CFLAGS' gnubin.c
+X$ cc 'CFLAGS' specfun.c
+X$ cc 'CFLAGS' bitmap.c
+X$ cc 'CFLAGS' command.c
+X$ cc 'CFLAGS' contour.c
+X$ cc 'CFLAGS' eval.c
+X$ cc 'CFLAGS' graphics.c
+X$ cc 'CFLAGS' graph3d.c
+X$ cc 'CFLAGS' internal.c
+X$ cc 'CFLAGS' 'TERMFLAGS' misc.c
+X$ cc 'CFLAGS' parse.c
+X$ cc 'CFLAGS' plot.c
+X$ cc 'CFLAGS' scanner.c
+X$ cc 'CFLAGS' setshow.c
+X$ cc 'CFLAGS' standard.c
+X$ cc 'CFLAGS' 'TERMFLAGS' term.c
+X$ cc 'CFLAGS' util.c
+X$ cc 'CFLAGS' version.c
+X$ link /exe=gnuplot -
+X   bitmap.obj,command.obj,contour.obj,eval.obj,graphics.obj,graph3d.obj, -
+X   binary,gnubin,specfun, -
+X   internal.obj,misc.obj,parse.obj,plot.obj,scanner.obj,setshow.obj, -
+X   standard.obj,term.obj,util.obj,version.obj 'LINK_OPT'
+X$ cc 'CFLAGS' bf_test.c
+X$ link /exe=bf_test bf_test.obj,binary.obj 'LINK_OPT'
+X$ ren bf_test.exe [.demo]
+X$ CC/nowarn/DEFINE=VMS GPLT_X11
+X$ LINK /exe=GNUPLOT_X11 gplt_x11,SYS$INPUT:/OPT
+XSYS$SHARE:DECW$XLIBSHR/SHARE
+X$ cc [.docs]doc2hlp.c
+X$ link doc2hlp 'LINK_OPT'
+X$ @[.docs]doc2hlp.com
+X$ library/create/help gnuplot.hlb gnuplot.hlp
+X$ run [.demo]bf_test
+X$ write sys$output "%define GNUPLOT_X11 :== $Disk:[directory]GNUPLOT_X11"
+X$ set noverify
+END_OF_FILE
+  if test 1534 -ne `wc -c <'gnuplot/buildvms.com'`; then
+    echo shar: \"'gnuplot/buildvms.com'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/buildvms.com'
+fi
+if test -f 'gnuplot/contour.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/contour.c'\"
+else
+  echo shar: Extracting \"'gnuplot/contour.c'\" \(43000 characters\)
+  sed "s/^X//" >'gnuplot/contour.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: contour.c%v 3.50 1993/07/09 05:35:24 woo Exp $";
+X#endif
+X
+X
+X/* GNUPLOT - contour.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *       Gershon Elber
+X * 
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <stdio.h>
+X#include "plot.h"
+X
+X#define DEFAULT_NUM_OF_ZLEVELS  10  /* Some dflt values (setable via flags). */
+X#define DEFAULT_NUM_APPROX_PTS  5
+X#define DEFAULT_BSPLINE_ORDER  3
+X#define MAX_NUM_OF_ZLEVELS      100 /* Some max. values (setable via flags). */
+X#define MAX_NUM_APPROX_PTS      100
+X#define MAX_BSPLINE_ORDER      10
+X
+X#define INTERP_NOTHING   0            /* Kind of interpolations on contours. */
+X#define INTERP_CUBIC     1                           /* Cubic spline interp. */
+X#define APPROX_BSPLINE   2                         /* Bspline interpolation. */
+X
+X#define LEVELS_AUTO			0		/* How contour levels are set */
+X#define LEVELS_INCREMENTAL	1		/* user specified start & incremnet */
+X#define LEVELS_DISCRETE		2		/* user specified discrete levels */
+X#define ACTIVE   1                    /* Status of edges at certain Z level. */
+X#define INACTIVE 2
+X
+X#define OPEN_CONTOUR     1                                 /* Contour kinds. */
+X#define CLOSED_CONTOUR   2
+X
+X#define EPSILON  1e-5              /* Used to decide if two float are equal. */
+X#define INFINITY 1e10
+X
+X#ifndef TRUE
+X#define TRUE     -1
+X#define FALSE    0
+X#endif
+X
+X#define DEFAULT_NUM_CONTOURS	10
+X#define MAX_POINTS_PER_CNTR 	100
+X#define SHIFT_Z_EPSILON		0.000301060 /* Dec. change of poly bndry hit.*/
+X
+X#define abs(x)  ((x) > 0 ? (x) : (-(x)))
+X#define sqr(x)  ((x) * (x))
+X
+X#ifndef AMIGA_AC_5
+Xextern double sqrt();
+X#endif /* not AMIGA_AC_5 */
+Xtypedef double tri_diag[3];         /* Used to allocate the tri-diag matrix. */
+Xtypedef double table_entry[4];	       /* Cubic spline interpolation 4 coef. */
+X
+Xstruct vrtx_struct {
+X	double X, Y, Z;                       /* The coordinates of this vertex. */
+X	struct vrtx_struct *next;                             /* To chain lists. */
+X};
+X
+Xstruct edge_struct {
+X	struct poly_struct *poly[2];   /* Each edge belongs to up to 2 polygons. */
+X	struct vrtx_struct *vertex[2]; /* The two extreme points of this vertex. */
+X	struct edge_struct *next;                             /* To chain lists. */
+X	int status, /* Status flag to mark edges in scanning at certain Z level. */
+X	boundary;                   /* True if this edge is on the boundary. */
+X};
+X
+Xstruct poly_struct {
+X	struct edge_struct *edge[3];           /* As we do triangolation here... */
+X	struct poly_struct *next;                             /* To chain lists. */
+X};
+X
+Xstruct cntr_struct {	       /* Contours are saved using this struct list. */
+X	double X, Y;                          /* The coordinates of this vertex. */
+X	struct cntr_struct *next;                             /* To chain lists. */
+X};
+X
+Xstatic int test_boundary;    /* If TRUE look for contours on boundary first. */
+Xstatic struct gnuplot_contours *contour_list = NULL;
+Xstatic double crnt_cntr[MAX_POINTS_PER_CNTR * 2];
+Xstatic int crnt_cntr_pt_index = 0;
+Xstatic double contour_level = 0.0;
+Xstatic table_entry *hermit_table = NULL;    /* Hold hermite table constants. */
+Xstatic int num_of_z_levels = DEFAULT_NUM_OF_ZLEVELS;  /* # Z contour levels. */
+Xstatic int num_approx_pts = DEFAULT_NUM_APPROX_PTS;/* # pts per approx/inter.*/
+Xstatic int bspline_order = DEFAULT_BSPLINE_ORDER;   /* Bspline order to use. */
+Xstatic int interp_kind = INTERP_NOTHING;  /* Linear, Cubic interp., Bspline. */
+Xstatic int levels_kind = LEVELS_AUTO;  /* auto, incremental, discrete */
+X
+X
+Xstatic void gen_contours();
+Xstatic int update_all_edges();
+Xstatic struct cntr_struct *gen_one_contour();
+Xstatic struct cntr_struct *trace_contour();
+Xstatic struct cntr_struct *update_cntr_pt();
+Xstatic int fuzzy_equal();
+Xstatic void gen_triangle();
+Xstatic struct vrtx_struct *gen_vertices();
+Xstatic struct edge_struct *gen_edges_middle();
+Xstatic struct edge_struct *gen_edges();
+Xstatic struct poly_struct *gen_polys();
+Xstatic void free_contour();
+Xstatic void put_contour();
+Xstatic put_contour_nothing();
+Xstatic put_contour_cubic();
+Xstatic put_contour_bspline();
+Xstatic calc_tangent();
+Xstatic int count_contour();
+Xstatic complete_spline_interp();
+Xstatic calc_hermit_table();
+Xstatic hermit_interp();
+Xstatic prepare_spline_interp();
+Xstatic int solve_tri_diag();
+Xstatic gen_bspline_approx();
+Xstatic double fetch_knot();
+Xstatic eval_bspline();
+X
+X/*
+X * Entry routine to this whole set of contouring module.
+X */
+Xstruct gnuplot_contours *contour(num_isolines, iso_lines,
+X				 ZLevels, approx_pts, int_kind, order1,
+X				 levels_kind, levels_list)
+Xint num_isolines;
+Xstruct iso_curve *iso_lines;
+Xint ZLevels, approx_pts, int_kind, order1;
+Xint levels_kind;
+Xdouble *levels_list;
+X{
+X	int i;
+X	struct poly_struct *p_polys, *p_poly;
+X	struct edge_struct *p_edges, *p_edge;
+X	struct vrtx_struct *p_vrts, *p_vrtx;
+X	double x_min, y_min, z_min, x_max, y_max, z_max, z, dz;
+X 	struct gnuplot_contours *save_contour_list;
+X
+X	num_of_z_levels = ZLevels;
+X	num_approx_pts = approx_pts;
+X	bspline_order = order1 - 1;
+X	interp_kind = int_kind;
+X
+X	contour_list = NULL;
+X
+X	if (interp_kind == INTERP_CUBIC) calc_hermit_table();
+X
+X	gen_triangle(num_isolines, iso_lines, &p_polys, &p_edges, &p_vrts,
+X		&x_min, &y_min, &z_min, &x_max, &y_max, &z_max);
+X	crnt_cntr_pt_index = 0;
+X
+X	dz = (z_max - z_min) / (num_of_z_levels + 1);
+X	z = z_min;
+X	for (i = 0; i < num_of_z_levels; i++) {
+X		switch(levels_kind) {
+X			case LEVELS_AUTO:
+X				/* Step from z_min+dz upto z_max-dz in num_of_z_levels times. */
+X				z += dz;
+X				break;
+X			case LEVELS_INCREMENTAL:
+X				z = levels_list[0] + i * levels_list[1];
+X				break;
+X			case LEVELS_DISCRETE:
+X				z = levels_list[i];
+X				break;
+X		}
+X		contour_level = z;
+X 		save_contour_list = contour_list;
+X		gen_contours(p_edges, z + dz * SHIFT_Z_EPSILON, x_min, x_max,
+X								y_min, y_max);
+X 		if(contour_list != save_contour_list) {
+X 			contour_list->isNewLevel = 1;
+X 			sprintf(contour_list->label, "%8.3g", z);
+X 		}
+X	}
+X
+X	/* Free all contouring related temporary data. */
+X	while (p_polys) {
+X	p_poly = p_polys -> next;
+X	free (p_polys);
+X	p_polys = p_poly;
+X	}
+X	while (p_edges) {
+X	p_edge = p_edges -> next;
+X	free (p_edges);
+X	p_edges = p_edge;
+X	}
+X	while (p_vrts) {
+X	p_vrtx = p_vrts -> next;
+X	free (p_vrts);
+X	p_vrts = p_vrtx;
+X	}
+X
+X	if (interp_kind == INTERP_CUBIC) free(hermit_table);
+X
+X    return contour_list;
+X}
+X
+X/*
+X * Adds another point to the currently build contour.
+X */
+Xadd_cntr_point(x, y)
+Xdouble x, y;
+X{
+X    int index;
+X
+X    if (crnt_cntr_pt_index >= MAX_POINTS_PER_CNTR-1) {
+X	index = crnt_cntr_pt_index - 1;
+X	end_crnt_cntr();
+X	crnt_cntr[0] = crnt_cntr[index * 2];
+X	crnt_cntr[1] = crnt_cntr[index * 2 + 1];
+X	crnt_cntr_pt_index = 1; /* Keep the last point as first of this one. */
+X    }
+X    crnt_cntr[crnt_cntr_pt_index * 2] = x;
+X    crnt_cntr[crnt_cntr_pt_index * 2 + 1] = y;
+X    crnt_cntr_pt_index++;
+X}
+X
+X/*
+X * Done with current contour - create gnuplot data structure for it.
+X */
+Xend_crnt_cntr()
+X{
+X    int i;
+X    struct gnuplot_contours *cntr = (struct gnuplot_contours *)
+X					alloc((unsigned long)sizeof(struct gnuplot_contours),
+X					      "gnuplot_contour");
+X
+X    cntr->coords = (struct coordinate GPHUGE *) gpfaralloc((unsigned long)sizeof(struct coordinate) *
+X							  ( unsigned long)crnt_cntr_pt_index,
+X					       "contour coords");
+X    for (i=0; i<crnt_cntr_pt_index; i++) {
+X	cntr->coords[i].x = crnt_cntr[i * 2];
+X	cntr->coords[i].y = crnt_cntr[i * 2 + 1];
+X	cntr->coords[i].z = contour_level;
+X    }
+X    cntr->num_pts = crnt_cntr_pt_index;
+X
+X    cntr->next = contour_list;
+X    contour_list = cntr;
+X 	contour_list->isNewLevel = 0;
+X
+X    crnt_cntr_pt_index = 0;
+X}
+X
+X/*
+X * Generates all contours by tracing the intersecting triangles.
+X */
+Xstatic void gen_contours(p_edges, z_level, x_min, x_max, y_min, y_max)
+Xstruct edge_struct *p_edges;
+Xdouble z_level, x_min, x_max, y_min, y_max;
+X{
+X    int num_active,                        /* Number of edges marked ACTIVE. */
+X	contour_kind;                /* One of OPEN_CONTOUR, CLOSED_CONTOUR. */
+X    struct cntr_struct *p_cntr;
+X
+X    num_active = update_all_edges(p_edges, z_level);           /* Do pass 1. */
+X
+X    test_boundary = TRUE;        /* Start to look for contour on boundaries. */
+X
+X    while (num_active > 0) {                                   /* Do Pass 2. */
+X        /* Generate One contour (and update MumActive as needed): */
+X	p_cntr = gen_one_contour(p_edges, z_level, &contour_kind, &num_active);
+X	put_contour(p_cntr, z_level, x_min, x_max, y_min, y_max,
+X			      contour_kind); /* Emit it in requested format. */
+X    }
+X}
+X
+X/*
+X * Does pass 1, or marks the edges which are active (crosses this z_level)
+X * as ACTIVE, and the others as INACTIVE:
+X * Returns number of active edges (marked ACTIVE).
+X */
+Xstatic int update_all_edges(p_edges, z_level)
+Xstruct edge_struct *p_edges;
+Xdouble z_level;
+X{
+X    int count = 0;
+X
+X    while (p_edges) {
+X	if (((p_edges -> vertex[0] -> Z >= z_level) &&
+X	     (p_edges -> vertex[1] -> Z <= z_level)) ||
+X	    ((p_edges -> vertex[1] -> Z >= z_level) &&
+X	     (p_edges -> vertex[0] -> Z <= z_level))) {
+X	    p_edges -> status = ACTIVE;
+X	    count++;
+X	}
+X	else p_edges -> status = INACTIVE;
+X	p_edges = p_edges -> next;
+X    }
+X
+X    return count;
+X}
+X
+X/*
+X * Does pass 2, or find one complete contour out of the triangolation data base:
+X * Returns a pointer to the contour (as linked list), contour_kind is set to
+X * one of OPEN_CONTOUR, CLOSED_CONTOUR, and num_active is updated.
+X */
+Xstatic struct cntr_struct *gen_one_contour(p_edges, z_level, contour_kind,
+X								num_active)
+Xstruct edge_struct *p_edges;
+Xdouble z_level;
+Xint *contour_kind, *num_active;
+X{
+X    struct edge_struct *pe_temp;
+X
+X    if (test_boundary) {    /* Look for something to start with on boundary: */
+X	pe_temp = p_edges;
+X	while (pe_temp) {
+X	    if ((pe_temp -> status == ACTIVE) && (pe_temp -> boundary)) break;
+X	    pe_temp = pe_temp -> next;
+X	}
+X	if (!pe_temp) test_boundary = FALSE;/* No more contours on boundary. */
+X	else {
+X	    *contour_kind = OPEN_CONTOUR;
+X	    return trace_contour(pe_temp, z_level, num_active, *contour_kind);
+X	}
+X    }
+X
+X    if (!test_boundary) {        /* Look for something to start with inside: */
+X	pe_temp = p_edges;
+X	while (pe_temp) {
+X	    if ((pe_temp -> status == ACTIVE) && (!(pe_temp -> boundary)))
+X		break;
+X	    pe_temp = pe_temp -> next;
+X	}
+X	if (!pe_temp) {
+X	    *num_active = 0;
+X	    return NULL;
+X	}
+X	else {
+X	    *contour_kind = CLOSED_CONTOUR;
+X	    return trace_contour(pe_temp, z_level, num_active, *contour_kind);
+X	}
+X    }
+X    return NULL;		     /* We should never be here, but lint... */
+X}
+X
+X/*
+X * Search the data base along a contour starts at the edge pe_start until
+X * a boundary edge is detected or until we close the loop back to pe_start.
+X * Returns a linked list of all the points on the contour
+X * Also decreases num_active by the number of points on contour.
+X */
+Xstatic struct cntr_struct *trace_contour(pe_start, z_level, num_active,
+X								contour_kind)
+Xstruct edge_struct *pe_start;
+Xdouble z_level;
+Xint *num_active, contour_kind;
+X{
+X    int i, in_middle;       /* If TRUE the z_level is in the middle of edge. */
+X    struct cntr_struct *p_cntr, *pc_tail;
+X    struct edge_struct *p_edge = pe_start, *p_next_edge;
+X    struct poly_struct *p_poly, *PLastpoly = NULL;
+X
+X    /* Generate the header of the contour - the point on pe_start. */
+X    if (contour_kind == OPEN_CONTOUR) pe_start -> status = INACTIVE;
+X    (*num_active)--;
+X    p_cntr = pc_tail = update_cntr_pt(pe_start, z_level, &in_middle);
+X    if (!in_middle) {
+X	return NULL;
+X    }
+X
+X    do {
+X	/* Find polygon to continue (Not where we came from - PLastpoly): */
+X	if (p_edge -> poly[0] == PLastpoly) p_poly = p_edge -> poly[1];
+X	else p_poly = p_edge -> poly[0];
+X	p_next_edge = NULL;		  /* In case of error, remains NULL. */
+X	for (i=0; i<3; i++)              /* Test the 3 edges of the polygon: */
+X	    if (p_poly -> edge[i] != p_edge)
+X	        if (p_poly -> edge[i] -> status == ACTIVE)
+X		    p_next_edge = p_poly -> edge[i];
+X	if (!p_next_edge) {
+X	    pc_tail -> next = NULL;
+X	    free_contour(p_cntr);
+X	    return NULL;
+X	}
+X	p_edge = p_next_edge;
+X	PLastpoly = p_poly;
+X	p_edge -> status = INACTIVE;
+X	(*num_active)--;
+X	pc_tail -> next = update_cntr_pt(p_edge, z_level, &in_middle);
+X	if (!in_middle) {
+X	    pc_tail -> next = NULL;
+X	    free_contour(p_cntr);
+X	    return NULL;
+X	}
+X        pc_tail = pc_tail -> next;
+X    }
+X    while ((pe_start != p_edge) && (!p_edge -> boundary));
+X    pc_tail -> next = NULL;
+X
+X    return p_cntr;
+X}
+X
+X/*
+X * Allocates one contour location and update it to to correct position
+X * according to z_level and edge p_edge. if z_level is found to be at
+X * one of the extreme points nothing is allocated (NULL is returned)
+X * and in_middle is set to FALSE.
+X */
+Xstatic struct cntr_struct *update_cntr_pt(p_edge, z_level, in_middle)
+Xstruct edge_struct *p_edge;
+Xdouble z_level;
+Xint *in_middle;
+X{
+X    double t;
+X    struct cntr_struct *p_cntr;
+X
+X    t = (z_level - p_edge -> vertex[0] -> Z) /
+X	(p_edge -> vertex[1] -> Z - p_edge -> vertex[0] -> Z);
+X
+X    if (fuzzy_equal(t, 1.0) || fuzzy_equal(t, 0.0)) {
+X        *in_middle = FALSE;
+X        return NULL;
+X    }
+X    else {
+X	*in_middle = TRUE;
+X	p_cntr = (struct cntr_struct *) alloc((unsigned long)sizeof(struct cntr_struct),
+X							"contour cntr_struct");
+X	p_cntr -> X = p_edge -> vertex[1] -> X * t +
+X		     p_edge -> vertex[0] -> X * (1-t);
+X	p_cntr -> Y = p_edge -> vertex[1] -> Y * t +
+X		     p_edge -> vertex[0] -> Y * (1-t);
+X	return p_cntr;
+X    }
+X}
+X
+X/*
+X * Simple routine to decide if two real values are equal by simply
+X * calculating the relative/absolute error between them (< EPSILON).
+X */
+Xstatic int fuzzy_equal(x, y)
+Xdouble x, y;
+X{
+X    if (abs(x) > EPSILON)			/* Calculate relative error: */
+X        return (abs((x - y) / x) < EPSILON);
+X    else					/* Calculate absolute error: */
+X	return (abs(x - y) < EPSILON);
+X}
+X
+X/*
+X * Generate the triangles.
+X * Returns the lists (vrtxs edges & polys) via pointers to their heads.
+X */
+Xstatic void gen_triangle(num_isolines, iso_lines, p_polys, p_edges,
+X	p_vrts, x_min, y_min, z_min, x_max, y_max, z_max)
+Xint num_isolines;
+Xstruct iso_curve *iso_lines;
+Xstruct poly_struct **p_polys;
+Xstruct edge_struct **p_edges;
+Xstruct vrtx_struct **p_vrts;
+Xdouble *x_min, *y_min, *z_min, *x_max, *y_max, *z_max;
+X{
+X    int i, grid_x_max = iso_lines->p_count;
+X    struct vrtx_struct *p_vrtx1, *p_vrtx2, *pv_temp;
+X    struct edge_struct *p_edge1, *p_edge2, *pe_tail1, *pe_tail2, *pe_temp,
+X		      *p_edge_middle, *pe_m_tail;
+X    struct poly_struct *p_poly, *pp_tail;
+X
+X    *p_polys = NULL;
+X    *p_edges = NULL;
+X    *p_vrts = NULL;
+X    *z_min = INFINITY;
+X    *y_min = INFINITY;
+X    *x_min = INFINITY;
+X    *z_max = -INFINITY;
+X    *y_max = -INFINITY;
+X    *x_max = -INFINITY;
+X
+X    /* Read 1st row. */
+X    p_vrtx1 = gen_vertices(grid_x_max, iso_lines->points,
+X			   x_min, y_min, z_min, x_max, y_max, z_max);
+X    *p_vrts = p_vrtx1;
+X    /* Gen. its edges.*/
+X    pe_temp = p_edge1 = gen_edges(grid_x_max, p_vrtx1, &pe_tail1);
+X    for (i = 1; i < grid_x_max; i++) {/* Mark one side of edges as boundary. */
+X	pe_temp -> poly[1] = NULL;
+X	pe_temp = pe_temp -> next;
+X    }
+X    for (i = 1; i < num_isolines; i++) { /* Read next column and gen. polys. */
+X	iso_lines = iso_lines->next;
+X    	/* Get row into list. */
+X        p_vrtx2 = gen_vertices(grid_x_max, iso_lines->points,
+X			       x_min, y_min, z_min, x_max, y_max, z_max);
+X    	/* Generate its edges. */
+X        p_edge2 = gen_edges(grid_x_max, p_vrtx2, &pe_tail2);
+X	/* Generate edges from one vertex list to the other one: */
+X	p_edge_middle = gen_edges_middle(grid_x_max, p_vrtx1, p_vrtx2,
+X								 &pe_m_tail);
+X
+X	/* Now we can generate the polygons themselves (triangles). */
+X	p_poly = gen_polys(grid_x_max, p_edge1, p_edge_middle, p_edge2,
+X								 &pp_tail);
+X        pe_tail1 -> next = (*p_edges);      /* Chain new edges to main list. */
+X        pe_m_tail -> next = p_edge1;
+X	*p_edges = p_edge_middle;
+X	pe_tail1 = pe_tail2;
+X	p_edge1 = p_edge2;
+X
+X	pv_temp = p_vrtx2;
+X	while (pv_temp -> next) pv_temp = pv_temp -> next;
+X	pv_temp -> next = *p_vrts;
+X	*p_vrts = p_vrtx1 = p_vrtx2;
+X
+X        pp_tail -> next = (*p_polys);       /* Chain new polys to main list. */
+X	*p_polys = p_poly;
+X    }
+X
+X    pe_temp = p_edge1;
+X    for (i = 1; i < grid_x_max; i++) {/* Mark one side of edges as boundary. */
+X	pe_temp -> poly[0] = NULL;
+X	pe_temp = pe_temp -> next;
+X    }
+X
+X    pe_tail1 -> next = (*p_edges);    /* Chain last edges list to main list. */
+X    *p_edges = p_edge1;
+X
+X    /* Update the boundary flag, saved in each edge, and update indexes: */
+X    pe_temp = (*p_edges);
+X    i = 1;
+X
+X    while (pe_temp) {
+X	pe_temp -> boundary = (!(pe_temp -> poly[0])) ||
+X			      (!(pe_temp -> poly[1]));
+X	pe_temp = pe_temp -> next;
+X    }
+X}
+X
+X/*
+X * Handles grid_x_max 3D points (One row) and generate linked list for them.
+X */
+Xstatic struct vrtx_struct *gen_vertices(grid_x_max, points,
+X				      x_min, y_min, z_min, x_max, y_max, z_max)
+Xint grid_x_max;
+Xstruct coordinate GPHUGE *points;
+Xdouble *x_min, *y_min, *z_min, *x_max, *y_max, *z_max;
+X{
+X    int i;
+X    struct vrtx_struct *p_vrtx, *pv_tail, *pv_temp;
+X
+X    for (i=0; i<grid_x_max; i++) {/* Get a point and generate the structure. */
+X        pv_temp = (struct vrtx_struct *) alloc((unsigned long)sizeof(struct vrtx_struct),
+X						"contour vertex");
+X	pv_temp -> X = points[i].x;
+X	pv_temp -> Y = points[i].y;
+X	pv_temp -> Z = points[i].z;
+X
+X	if (pv_temp -> X > *x_max) *x_max = pv_temp -> X; /* Update min/max. */
+X	if (pv_temp -> Y > *y_max) *y_max = pv_temp -> Y;
+X	if (pv_temp -> Z > *z_max) *z_max = pv_temp -> Z;
+X	if (pv_temp -> X < *x_min) *x_min = pv_temp -> X;
+X	if (pv_temp -> Y < *y_min) *y_min = pv_temp -> Y;
+X	if (pv_temp -> Z < *z_min) *z_min = pv_temp -> Z;
+X
+X	if (i == 0)                              /* First vertex in row: */
+X	    p_vrtx = pv_tail = pv_temp;
+X	else {
+X	    pv_tail -> next = pv_temp;   /* Stick new record as last one. */
+X	    pv_tail = pv_tail -> next;    /* And continue to last record. */
+X	}
+X    }
+X    pv_tail -> next = NULL;
+X
+X    return p_vrtx;
+X}
+X
+X/*
+X * Combines N vertices in pair to form N-1 edges.
+X * Returns pointer to the edge list (pe_tail will point on last edge in list).
+X */
+Xstatic struct edge_struct *gen_edges(grid_x_max, p_vrtx, pe_tail)
+Xint grid_x_max;
+Xstruct vrtx_struct *p_vrtx;
+Xstruct edge_struct **pe_tail;
+X{
+X    int i;
+X    struct edge_struct *p_edge, *pe_temp;
+X
+X    for (i=0; i<grid_x_max-1; i++) {         /* Generate grid_x_max-1 edges: */
+X	pe_temp = (struct edge_struct *) alloc((unsigned long)sizeof(struct edge_struct),
+X						"contour edge");
+X	pe_temp -> vertex[0] = p_vrtx;              /* First vertex of edge. */
+X	p_vrtx = p_vrtx -> next;                     /* Skip to next vertex. */
+X	pe_temp -> vertex[1] = p_vrtx;             /* Second vertex of edge. */
+X        if (i == 0)                                    /* First edge in row: */
+X	    p_edge = (*pe_tail) = pe_temp;
+X	else {
+X	    (*pe_tail) -> next = pe_temp;   /* Stick new record as last one. */
+X	    *pe_tail = (*pe_tail) -> next;   /* And continue to last record. */
+X 	}
+X    }
+X    (*pe_tail) -> next = NULL;
+X
+X    return p_edge;
+X}
+X
+X/*
+X * Combines 2 lists of N vertices each into edge list:
+X * The dots (.) are the vertices list, and the              .  .  .  .
+X *  edges generated are alternations of vertical edges      |\ |\ |\ |
+X *  (|) and diagonal ones (\).                              | \| \| \|
+X *  A pointer to edge list (alternate | , \) is returned    .  .  .  .
+X * Note this list will have (2*grid_x_max-1) edges (pe_tail points on last
+X * record).
+X */
+Xstatic struct edge_struct *gen_edges_middle(grid_x_max, p_vrtx1, p_vrtx2,
+X								pe_tail)
+Xint grid_x_max;
+Xstruct vrtx_struct *p_vrtx1, *p_vrtx2;
+Xstruct edge_struct **pe_tail;
+X{
+X    int i;
+X    struct edge_struct *p_edge, *pe_temp;
+X
+X    /* Gen first (|). */
+X    pe_temp = (struct edge_struct *) alloc((unsigned long)sizeof(struct edge_struct),
+X							"contour edge");
+X    pe_temp -> vertex[0] = p_vrtx2;                 /* First vertex of edge. */
+X    pe_temp -> vertex[1] = p_vrtx1;                /* Second vertex of edge. */
+X    p_edge = (*pe_tail) = pe_temp;
+X
+X    /* Advance in vrtx list grid_x_max-1 times, and gen. 2 edges /| for each.*/
+X    for (i=0; i<grid_x_max-1; i++) {
+X	/* The / edge. */
+X	pe_temp = (struct edge_struct *) alloc((unsigned long)sizeof(struct edge_struct),
+X							"contour edge");
+X	pe_temp -> vertex[0] = p_vrtx1;             /* First vertex of edge. */
+X	pe_temp -> vertex[1] = p_vrtx2 -> next;    /* Second vertex of edge. */
+X        (*pe_tail) -> next = pe_temp;       /* Stick new record as last one. */
+X	*pe_tail = (*pe_tail) -> next;       /* And continue to last record. */
+X
+X	/* The | edge. */
+X	pe_temp = (struct edge_struct *) alloc((unsigned long)sizeof(struct edge_struct),
+X							"contour edge");
+X	pe_temp -> vertex[0] = p_vrtx2 -> next;     /* First vertex of edge. */
+X	pe_temp -> vertex[1] = p_vrtx1 -> next;    /* Second vertex of edge. */
+X        (*pe_tail) -> next = pe_temp;       /* Stick new record as last one. */
+X	*pe_tail = (*pe_tail) -> next;       /* And continue to last record. */
+X
+X        p_vrtx1 = p_vrtx1 -> next;   /* Skip to next vertices in both lists. */
+X        p_vrtx2 = p_vrtx2 -> next;
+X    }
+X    (*pe_tail) -> next = NULL;
+X
+X    return p_edge;
+X}
+X
+X/*
+X * Combines 3 lists of edges into triangles:
+X * 1. p_edge1: Top horizontal edge list:        -----------------------
+X * 2. p_edge_middge: middle edge list:         |\  |\  |\  |\  |\  |\  |
+X *                                             |  \|  \|  \|  \|  \|  \|
+X * 3. p_edge2: Bottom horizontal edge list:     -----------------------
+X * Note that p_edge1/2 lists has grid_x_max-1 edges, while p_edge_middle has
+X * (2*grid_x_max-1) edges.
+X * The routine simple scans the two list    Upper 1         Lower
+X * and generate two triangle upper one        ----         | \
+X * and lower one from the lists:             0\   |2      0|   \1
+X * (Nums. are edges order in polys)             \ |         ----
+X * The routine returns a pointer to a                         2
+X * polygon list (pp_tail points on last polygon).          1
+X *                                                   -----------
+X * In addition, the edge lists are updated -        | \   0     |
+X * each edge has two pointers on the two            |   \       |
+X * (one active if boundary) polygons which         0|1   0\1   0|1
+X * uses it. These two pointer to polygons           |       \   |
+X * are named: poly[0], poly[1]. The diagram         |    1    \ |
+X * on the right show how they are used for the       -----------
+X * upper and lower polygons.                             0
+X */
+Xstatic struct poly_struct *gen_polys(grid_x_max, p_edge1, p_edge_middle,
+X							p_edge2, pp_tail)
+Xint grid_x_max;
+Xstruct edge_struct *p_edge1, *p_edge_middle, *p_edge2;
+Xstruct poly_struct **pp_tail;
+X{
+X    int i;
+X    struct poly_struct *p_poly, *pp_temp;
+X
+X    p_edge_middle -> poly[0] = NULL;			    /* Its boundary! */
+X
+X    /* Advance in vrtx list grid_x_max-1 times, and gen. 2 polys for each. */
+X    for (i=0; i<grid_x_max-1; i++) {
+X	/* The Upper. */
+X	pp_temp = (struct poly_struct *) alloc((unsigned long)sizeof(struct poly_struct),
+X							"contour poly");
+X	/* Now update polys about its edges, and edges about the polygon. */
+X	pp_temp -> edge[0] = p_edge_middle -> next;
+X	p_edge_middle -> next -> poly[1] = pp_temp;
+X	pp_temp -> edge[1] = p_edge1;
+X	p_edge1 -> poly[0] = pp_temp;
+X	pp_temp -> edge[2] = p_edge_middle -> next -> next;
+X	p_edge_middle -> next -> next -> poly[0] = pp_temp;
+X	if (i == 0)				   /* Its first one in list: */
+X	    p_poly = (*pp_tail) = pp_temp;
+X	else {
+X	    (*pp_tail) -> next = pp_temp;
+X	    *pp_tail = (*pp_tail) -> next;
+X	}
+X
+X	/* The Lower. */
+X	pp_temp = (struct poly_struct *) alloc((unsigned long)sizeof(struct poly_struct),
+X							"contour poly");
+X	/* Now update polys about its edges, and edges about the polygon. */
+X	pp_temp -> edge[0] = p_edge_middle;
+X	p_edge_middle -> poly[1] = pp_temp;
+X	pp_temp -> edge[1] = p_edge_middle -> next;
+X	p_edge_middle -> next -> poly[0] = pp_temp;
+X	pp_temp -> edge[2] = p_edge2;
+X	p_edge2 -> poly[1] = pp_temp;
+X	(*pp_tail) -> next = pp_temp;
+X	*pp_tail = (*pp_tail) -> next;
+X
+X        p_edge1 = p_edge1 -> next;
+X        p_edge2 = p_edge2 -> next;
+X        p_edge_middle = p_edge_middle -> next -> next;
+X    }
+X    p_edge_middle -> poly[1] = NULL;			    /* Its boundary! */
+X    (*pp_tail) -> next = NULL;
+X
+X    return p_poly;
+X}
+X
+X/*
+X * Calls the (hopefully) desired interpolation/approximation routine.
+X */
+Xstatic void put_contour(p_cntr, z_level, x_min, x_max, y_min, y_max, contr_kind)
+Xstruct cntr_struct *p_cntr;
+Xdouble z_level, x_min, x_max, y_min, y_max;
+Xint contr_kind;
+X{
+X    if (!p_cntr) return;            /* Nothing to do if it is empty contour. */
+X
+X    switch (interp_kind) {
+X	case INTERP_NOTHING:              /* No interpolation/approximation. */
+X	    put_contour_nothing(p_cntr);
+X	    break;
+X	case INTERP_CUBIC:                    /* Cubic spline interpolation. */
+X	    put_contour_cubic(p_cntr, z_level, x_min, x_max, y_min, y_max,
+X								contr_kind);
+X	    break;
+X	case APPROX_BSPLINE:                       /* Bspline approximation. */
+X	    put_contour_bspline(p_cntr, z_level, x_min, x_max, y_min, y_max,
+X    								contr_kind);
+X	    break;
+X    }
+X
+X    free_contour(p_cntr);
+X}
+X
+X/*
+X * Simply puts contour coordinates in order with no interpolation or
+X * approximation.
+X */
+Xstatic put_contour_nothing(p_cntr)
+Xstruct cntr_struct *p_cntr;
+X{
+X    while (p_cntr) {
+X	add_cntr_point(p_cntr -> X, p_cntr -> Y);
+X	p_cntr = p_cntr -> next;
+X    }
+X    end_crnt_cntr();
+X}
+X
+X/*
+X * Find Complete Cubic Spline Interpolation.
+X */
+Xstatic put_contour_cubic(p_cntr, z_level, x_min, x_max, y_min, y_max,
+X								 contr_kind)
+Xstruct cntr_struct *p_cntr;
+Xdouble z_level, x_min, x_max, y_min, y_max;
+Xint contr_kind;
+X{
+X    int num_pts, i;
+X    double tx1, ty1, tx2, ty2;                    /* Tangents at end points. */
+X    struct cntr_struct *pc_temp;
+X
+X    num_pts = count_contour(p_cntr);         /* Number of points in contour. */
+X
+X    if (num_pts > 2) {  /* Take into account 3 points in tangent estimation. */
+X	calc_tangent(3, p_cntr -> X, p_cntr -> next -> X,
+X			p_cntr -> next -> next -> X,
+X			p_cntr -> Y, p_cntr -> next -> Y,
+X			p_cntr -> next -> next -> Y, &tx1, &ty1);
+X	pc_temp = p_cntr;
+X	for (i=3; i<num_pts; i++) pc_temp = pc_temp -> next;/* Go to the end.*/
+X	calc_tangent(3, pc_temp -> next -> next -> X,
+X 			pc_temp -> next -> X, pc_temp -> X,
+X			pc_temp -> next -> next -> Y,
+X			pc_temp -> next -> Y, pc_temp -> Y, &tx2, &ty2);
+X        tx2 = (-tx2);   /* Inverse the vector as we need opposite direction. */
+X        ty2 = (-ty2);
+X    }
+X    /* If following (num_pts > 1) is TRUE then exactly 2 points in contour.  */
+X    else if (num_pts > 1) {/* Take into account 2 points in tangent estimat. */
+X	calc_tangent(2, p_cntr -> X, p_cntr -> next -> X, 0.0,
+X			p_cntr -> Y, p_cntr -> next -> Y, 0.0, &tx1, &ty1);
+X	calc_tangent(2, p_cntr -> next -> X, p_cntr -> X, 0.0,
+X			p_cntr -> next -> Y, p_cntr -> Y, 0.0, &tx2, &ty2);
+X        tx2 = (-tx2);   /* Inverse the vector as we need opposite direction. */
+X        ty2 = (-ty2);
+X    }
+X    else return(0);			/* Only one point (???) - ignore it. */
+X
+X    switch (contr_kind) {
+X	case OPEN_CONTOUR:
+X	    break;
+X	case CLOSED_CONTOUR:
+X	    tx1 = tx2 = (tx1 + tx2) / 2.0;	     /* Make tangents equal. */
+X	    ty1 = ty2 = (ty1 + ty2) / 2.0;
+X	    break;
+X    }
+X    complete_spline_interp(p_cntr, num_pts, 0.0, 1.0, tx1, ty1, tx2, ty2);
+X    end_crnt_cntr();
+X}
+X
+X/*
+X * Find Bspline approximation for this data set.
+X * Uses global variable num_approx_pts to determine number of samples per
+X * interval, where the knot vector intervals are assumed to be uniform, and
+X * Global variable bspline_order for the order of Bspline to use.
+X */
+Xstatic put_contour_bspline(p_cntr, z_level, x_min, x_max, y_min, y_max,
+X								contr_kind)
+Xstruct cntr_struct *p_cntr;
+Xdouble z_level, x_min, x_max,  y_min, y_max;
+Xint contr_kind;
+X{
+X    int num_pts, order = bspline_order;
+X
+X    num_pts = count_contour(p_cntr);         /* Number of points in contour. */
+X    if (num_pts < 2) return(0);     /* Can't do nothing if empty or one points! */
+X    /* Order must be less than number of points in curve - fix it if needed. */
+X    if (order > num_pts - 1) order = num_pts - 1;
+X
+X    gen_bspline_approx(p_cntr, num_pts, order, contr_kind);
+X    end_crnt_cntr();
+X}
+X
+X/*
+X * Estimate the tangents according to the n last points where n might be
+X * 2 or 3 (if 2 onlt x1, x2).
+X */
+Xstatic calc_tangent(n, x1, x2, x3, y1, y2, y3, tx, ty)
+Xint n;
+Xdouble x1, x2, x3, y1, y2, y3, *tx, *ty;
+X{
+X    double v1[2], v2[2], v1_magnitude, v2_magnitude;
+X
+X    switch (n) {
+X	case 2:
+X	    *tx = (x2 - x1) * 0.3;
+X	    *ty = (y2 - y1) * 0.3;
+X	    break;
+X	case 3:
+X	    v1[0] = x2 - x1;   v1[1] = y2 - y1;
+X	    v2[0] = x3 - x2;   v2[1] = y3 - y2;
+X	    v1_magnitude = sqrt(sqr(v1[0]) + sqr(v1[1]));
+X	    v2_magnitude = sqrt(sqr(v2[0]) + sqr(v2[1]));
+X	    *tx = (v1[0] / v1_magnitude) - (v2[0] / v2_magnitude) * 0.1;
+X	    *tx *= v1_magnitude * 0.1;  /* Make tangent less than magnitude. */
+X	    *ty = (v1[1] / v1_magnitude) - (v2[1] / v2_magnitude) * 0.1;
+X	    *ty *= v1_magnitude * 0.1;  /* Make tangent less than magnitude. */
+X	    break;
+X	default:				       /* Should not happen! */
+X	    (*ty) = 0.1;
+X	    *tx = 0.1;
+X	    break;
+X    }
+X}
+X
+X/*
+X * Free all elements in the contour list.
+X */
+Xstatic void free_contour(p_cntr)
+Xstruct cntr_struct *p_cntr;
+X{
+X    struct cntr_struct *pc_temp;
+X
+X    while (p_cntr) {
+X	pc_temp = p_cntr;
+X	p_cntr = p_cntr -> next;
+X	free((char *) pc_temp);
+X    }
+X}
+X
+X/*
+X * Counts number of points in contour.
+X */
+Xstatic int count_contour(p_cntr)
+Xstruct cntr_struct *p_cntr;
+X{
+X    int count = 0;
+X
+X    while (p_cntr) {
+X	count++;
+X	p_cntr = p_cntr -> next;
+X    }
+X    return count;
+X}
+X
+X/*
+X * Interpolate given point list (defined via p_cntr) using Complete
+X * Spline interpolation.
+X */
+Xstatic complete_spline_interp(p_cntr, n, t_min, t_max, tx1, ty1, tx2, ty2)
+Xstruct cntr_struct *p_cntr;
+Xint n;
+Xdouble t_min, t_max, tx1, ty1, tx2, ty2;
+X{
+X    double dt, *tangents_x, *tangents_y;
+X    int i;
+X
+X    tangents_x = (double *) alloc((unsigned long) (sizeof(double) * n),
+X						"contour c_s_intr");
+X    tangents_y = (double *) alloc((unsigned long) (sizeof(double) * n),
+X						"contour c_s_intr");
+X
+X    if (n > 1) prepare_spline_interp(tangents_x, tangents_y, p_cntr, n,
+X					t_min, t_max, tx1, ty1, tx2, ty2);
+X    else {
+X	free((char *) tangents_x);
+X	free((char *) tangents_y);
+X	return(0);
+X    }
+X
+X    dt = (t_max-t_min)/(n-1);
+X
+X    add_cntr_point(p_cntr -> X, p_cntr -> Y);	       /* First point. */
+X
+X    for (i=0; i<n-1; i++) {
+X        hermit_interp(p_cntr -> X, p_cntr -> Y,
+X                     tangents_x[i], tangents_y[i],
+X		     p_cntr -> next -> X, p_cntr -> next -> Y,
+X                     tangents_x[i+1], tangents_y[i+1], dt);
+X
+X        p_cntr = p_cntr -> next;
+X    }
+X
+X    free((char *) tangents_x);
+X    free((char *) tangents_y);
+X}
+X
+X/*
+X * Routine to calculate intermidiate value of the Hermit Blending function:
+X * This routine should be called only ONCE at the beginning of the program.
+X */
+Xstatic calc_hermit_table()
+X{
+X    int i;
+X    double t, dt;
+X
+X    hermit_table = (table_entry *) alloc ((unsigned long) (sizeof(table_entry) *
+X						(num_approx_pts + 1)),
+X						"contour hermit table");
+X    t = 0;
+X    dt = 1.0/num_approx_pts;
+X    for (i=0; i<=num_approx_pts; i++) {
+X        hermit_table[i][0] = (t-1)*(t-1)*(2*t+1);		     /* h00. */
+X        hermit_table[i][1] = t*t*(-2*t+3);			     /* h10. */
+X        hermit_table[i][2] = t*(t-1)*(t-1);			     /* h01. */
+X        hermit_table[i][3] = t*t*(t-1);				     /* h11. */
+X        t = t + dt;
+X    }
+X}
+X
+X/*
+X * Routine to generate an hermit interpolation between two points given as
+X * two InterpStruct structures. Assume hermit_table is already calculated.
+X * Currently the points generated are printed to stdout as two reals (X, Y).
+X */
+Xstatic hermit_interp(x1, y1, tx1, ty1, x2, y2, tx2, ty2, dt)
+Xdouble x1, y1, tx1, ty1, x2, y2, tx2, ty2, dt;
+X{
+X    int i;
+X    double x, y, vec_size, tang_size;
+X
+X    tx1 *= dt;  ty1 *= dt; /* Normalize the tangents according to param. t.  */
+X    tx2 *= dt;  ty2 *= dt;
+X
+X    /* Normalize the tangents so that their magnitude will be 1/3 of the     */
+X    /* segment length. This tumb rule guaranteed no cusps or loops!          */
+X    /* Note that this normalization keeps continuity to be G1 (but not C1).  */
+X    vec_size = sqrt(sqr(x1 - x2) + sqr(y2 - y1));
+X    tang_size = sqrt(sqr(tx1) + sqr(ty1));                  /* Normalize T1. */
+X    if (tang_size * 3 > vec_size) {
+X	tx1 *= vec_size / (tang_size * 3);
+X	ty1 *= vec_size / (tang_size * 3);
+X    }
+X    tang_size = sqrt(sqr(tx2) + sqr(ty2));                  /* Normalize T2. */
+X    if (tang_size * 3 > vec_size) {
+X	tx2 *= vec_size / (tang_size * 3);
+X	ty2 *= vec_size / (tang_size * 3);
+X    }
+X
+X    for (i=1; i<=num_approx_pts; i++) {      /* Note we start from 1 - first */
+X        x = hermit_table[i][0] * x1 +       /* point is not printed as it is */
+X            hermit_table[i][1] * x2 +   /* redundent (last on last section). */
+X            hermit_table[i][2] * tx1 +
+X            hermit_table[i][3] * tx2;
+X        y = hermit_table[i][0] * y1 +
+X            hermit_table[i][1] * y2 +
+X            hermit_table[i][2] * ty1 +
+X            hermit_table[i][3] * ty2;
+X	add_cntr_point(x, y);
+X    }
+X}
+X
+X/*
+X * Routine to Set up the 3*N mat for solve_tri_diag routine used in the
+X * Complete Spline Interpolation. Returns TRUE of calc O.K.
+X * Gets the points list in p_cntr (Of length n) and with tangent vectors tx1,
+X * ty1 at starting point and tx2, ty2 and end point.
+X */
+Xstatic prepare_spline_interp(tangents_x, tangents_y, p_cntr, n, t_min, t_max,
+X			   tx1, ty1, tx2, ty2)
+Xdouble tangents_x[], tangents_y[];
+Xstruct cntr_struct *p_cntr;
+Xint n;
+Xdouble t_min, t_max, tx1, ty1, tx2, ty2;
+X{
+X    int i;
+X    double *r, t, dt;
+X    tri_diag *m;		   /* The tri-diagonal matrix is saved here. */
+X    struct cntr_struct *p;
+X
+X    m = (tri_diag *) alloc((unsigned long) (sizeof(tri_diag) * n),
+X						"contour tri_diag");
+X    r = (double *) alloc((unsigned long) (sizeof(double) * n),
+X						"contour tri_diag2");
+X    n--;
+X
+X    p = p_cntr;
+X    m[0][0] = 0.0;    m[0][1] = 1.0;    m[0][2] = 0.0;
+X    m[n][0] = 0.0;    m[n][1] = 1.0;    m[n][2] = 0.0;
+X    r[0] = tx1;					       /* Set start tangent. */
+X    r[n] = tx2;						 /* Set end tangent. */
+X    t = t_min;
+X    dt = (t_max-t_min)/n;
+X    for (i=1; i<n; i++) {
+X       t = t + dt;
+X       m[i][0] = dt;
+X       m[i][2] = dt;
+X       m[i][1] = 2 * (m[i][0] + m[i][2]);
+X       r[i] = m[i][0] * ((p -> next -> X) - (p -> X)) / m[i][2]
+X            + m[i][2] * ((p -> next -> next -> X) - 
+X                         (p -> next -> X)) / m[i][0];
+X       r[i] *= 3.0;
+X       p = p -> next;
+X    }
+X
+X    if (!solve_tri_diag(m, r, tangents_x, n+1)) { /* Find the X(t) tangents. */
+X    	free((char *) m);
+X    	free((char *) r);
+X	int_error("Cannt interpolate X using complete splines", NO_CARET);
+X    }
+X
+X    p = p_cntr;
+X    m[0][0] = 0.0;    m[0][1] = 1.0;    m[0][2] = 0.0;
+X    m[n][0] = 0.0;    m[n][1] = 1.0;    m[n][2] = 0.0;
+X    r[0] = ty1;					       /* Set start tangent. */
+X    r[n] = ty2;						 /* Set end tangent. */
+X    t = t_min;
+X    dt = (t_max-t_min)/n;
+X    for (i=1; i<n; i++) {
+X       t = t + dt;
+X       m[i][0] = dt;
+X       m[i][2] = dt;
+X       m[i][1] = 2 * (m[i][0] + m[i][2]);
+X       r[i] = m[i][0] * ((p -> next -> Y) - (p -> Y)) / m[i][2]
+X            + m[i][2] * ((p -> next -> next -> Y) -
+X                         (p -> next -> Y)) / m[i][0];
+X       r[i] *= 3.0;
+X       p = p -> next;
+X    }
+X
+X    if (!solve_tri_diag(m, r, tangents_y, n+1)) { /* Find the Y(t) tangents. */
+X    	free((char *) m);
+X    	free((char *) r);
+X	int_error("Cannt interpolate Y using complete splines", NO_CARET);
+X    }
+X    free((char *) m);
+X    free((char *) r);
+X}
+X
+X/*
+X * Solve tri diagonal linear system equation. The tri diagonal matrix is
+X * defined via matrix M, right side is r, and solution X i.e. M * X = R.
+X * Size of system given in n. Return TRUE if solution exist.
+X */
+Xstatic int solve_tri_diag(m, r, x, n)
+Xtri_diag m[];
+Xdouble r[], x[];
+Xint n;
+X{
+X    int i;
+X    double t;
+X
+X    for (i=1; i<n; i++) {   /* Eliminate element m[i][i-1] (lower diagonal). */
+X	if (m[i-1][1] == 0) return FALSE;
+X	t = m[i][0] / m[i-1][1];        /* Find ratio between the two lines. */
+X	m[i][0] = m[i][0] - m[i-1][1] * t;
+X	m[i][1] = m[i][1] - m[i-1][2] * t;
+X	r[i] = r[i] - r[i-1] * t;
+X    }
+X    /* Now do back subtitution - update the solution vector X: */
+X    if (m[n-1][1] == 0) return FALSE;
+X    x[n-1] = r[n-1] / m[n-1][1];		       /* Find last element. */
+X    for (i=n-2; i>=0; i--) {
+X	if (m[i][1] == 0) return FALSE;
+X	x[i] = (r[i] - x[i+1] * m[i][2]) / m[i][1];
+X    }
+X    return TRUE;
+X}
+X
+X/*
+X * Generate a Bspline curve defined by all the points given in linked list p:
+X * Algorithm: using deBoor algorithm
+X * Note: if Curvekind is OPEN_CONTOUR than Open end knot vector is assumed,
+X *       else (CLOSED_CONTOUR) Float end knot vector is assumed.
+X * It is assumed that num_of_points is at list 2, and order of Bspline is less
+X * than num_of_points!
+X */
+Xstatic gen_bspline_approx(p_cntr, num_of_points, order, contour_kind)
+Xstruct cntr_struct *p_cntr;
+Xint num_of_points, order, contour_kind;
+X{
+X    int i, knot_index = 0, pts_count = 1;
+X    double dt, t, next_t, t_min, t_max, x, y;
+X    struct cntr_struct *pc_temp = p_cntr, *pc_tail;
+X
+X    /* If the contour is Closed one we must update few things:               */
+X    /* 1. Make the list temporary circular, so we can close the contour.     */
+X    /* 2. Update num_of_points - increase it by "order-1" so contour will be */
+X    /*    closed. This will evaluate order more sections to close it!        */
+X    if (contour_kind == CLOSED_CONTOUR) {
+X	pc_tail = p_cntr;
+X	while (pc_tail -> next) pc_tail = pc_tail -> next;/* Find last point.*/
+X	pc_tail -> next = p_cntr;   /* Close contour list - make it circular.*/
+X	num_of_points += order;
+X    }
+X
+X    /* Find first (t_min) and last (t_max) t value to eval: */
+X    t = t_min = fetch_knot(contour_kind, num_of_points, order, order);
+X    t_max = fetch_knot(contour_kind, num_of_points, order, num_of_points);
+X    next_t = t_min + 1.0;
+X    knot_index = order;
+X    dt = 1.0/num_approx_pts;            /* Number of points per one section. */
+X
+X
+X    while (t<t_max) {
+X	if (t > next_t) {
+X	    pc_temp = pc_temp -> next;     /* Next order ctrl. pt. to blend. */
+X            knot_index++;
+X	    next_t += 1.0;
+X	}
+X        eval_bspline(t, pc_temp, num_of_points, order, knot_index,
+X    					contour_kind, &x, &y);   /* Next pt. */
+X	add_cntr_point(x, y);
+X	pts_count++;
+X	/* As we might have some real number round off problems we must      */
+X	/* test if we dont produce too many points here...                   */
+X	if (pts_count + 1 == num_approx_pts * (num_of_points - order) + 1)
+X    		break;
+X        t += dt;
+X    }
+X
+X    eval_bspline(t_max - EPSILON, pc_temp, num_of_points, order, knot_index,
+X		contour_kind, &x, &y);
+X    /* If from round off errors we need more than one last point: */
+X    for (i=pts_count; i<num_approx_pts * (num_of_points - order) + 1; i++)
+X	add_cntr_point(x, y);			    /* Complete the contour. */
+X
+X    if (contour_kind == CLOSED_CONTOUR)     /* Update list - un-circular it. */
+X	pc_tail -> next = NULL;
+X}
+X
+X/*
+X * The recursive routine to evaluate the B-spline value at point t using
+X * knot vector PKList, and the control points Pdtemp. Returns x, y after the
+X * division by the weight w. Note that Pdtemp points on the first control
+X * point to blend with. The B-spline is of order order.
+X */
+Xstatic eval_bspline(t, p_cntr, num_of_points, order, j, contour_kind, x, y)
+Xdouble t;
+Xstruct cntr_struct *p_cntr;
+Xint num_of_points, order, j, contour_kind;
+Xdouble *x, *y;
+X{
+X    int i, p;
+X    double ti, tikp, *dx, *dy;      /* Copy p_cntr into it to make it faster. */
+X
+X    dx = (double *) alloc((unsigned long) (sizeof(double) * (order + j)),
+X						"contour b_spline");
+X    dy = (double *) alloc((unsigned long) (sizeof(double) * (order + j)),
+X						"contour b_spline");
+X    /* Set the dx/dy - [0] iteration step, control points (p==0 iterat.): */
+X    for (i=j-order; i<=j; i++) {
+X        dx[i] = p_cntr -> X;
+X        dy[i] = p_cntr -> Y;
+X        p_cntr = p_cntr -> next;
+X    }
+X
+X    for (p=1; p<=order; p++) {        /* Iteration (b-spline level) counter. */
+X	for (i=j; i>=j-order+p; i--) {           /* Control points indexing. */
+X            ti = fetch_knot(contour_kind, num_of_points, order, i);
+X            tikp = fetch_knot(contour_kind, num_of_points, order, i+order+1-p);
+X	    if (ti == tikp) {   /* Should not be a problems but how knows... */
+X	    }
+X	    else {
+X		dx[i] = dx[i] * (t - ti)/(tikp-ti) +         /* Calculate x. */
+X			dx[i-1] * (tikp-t)/(tikp-ti);
+X		dy[i] = dy[i] * (t - ti)/(tikp-ti) +         /* Calculate y. */
+X			dy[i-1] * (tikp-t)/(tikp-ti);
+X	    }
+X	}
+X    }
+X    *x = dx[j]; *y = dy[j];
+X    free((char *) dx);
+X    free((char *) dy);
+X}
+X
+X/*
+X * Routine to get the i knot from uniform knot vector. The knot vector
+X * might be float (Knot(i) = i) or open (where the first and last "order"
+X * knots are equal). contour_kind determines knot kind - OPEN_CONTOUR means
+X * open knot vector, and CLOSED_CONTOUR selects float knot vector.
+X * Note the knot vector is not exist and this routine simulates it existance
+X * Also note the indexes for the knot vector starts from 0.
+X */
+Xstatic double fetch_knot(contour_kind, num_of_points, order, i)
+Xint contour_kind, num_of_points, order, i;
+X{
+X    switch (contour_kind) {
+X	case OPEN_CONTOUR:
+X	    if (i <= order) return 0.0;
+X	    else if (i <= num_of_points) return (double) (i - order);
+X		 else return (double) (num_of_points - order);
+X	case CLOSED_CONTOUR:
+X	    return (double) i;
+X	default: /* Should never happen */
+X	    return 1.0;
+X    }
+X#ifdef sequent
+X	return 1.0;
+X#endif
+X}
+END_OF_FILE
+  if test 43000 -ne `wc -c <'gnuplot/contour.c'`; then
+    echo shar: \"'gnuplot/contour.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/contour.c'
+fi
+if test -f 'gnuplot/gplt_x11.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/gplt_x11.c'\"
+else
+  echo shar: Extracting \"'gnuplot/gplt_x11.c'\" \(30922 characters\)
+  sed "s/^X//" >'gnuplot/gplt_x11.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char *RCSid = "$Id: gplt_x11.c%v 3.50.1.9 1993/08/05 05:38:59 woo Exp $";
+X#endif
+X
+X
+X/*-----------------------------------------------------------------------------
+X *   gnuplot_x11 - X11 outboard terminal driver for gnuplot 3.3
+X *
+X *   Requires installation of companion inboard x11 driver in gnuplot/term.c
+X *
+X *   Acknowledgements: 
+X *      Chris Peterson (MIT)
+X *      Dana Chee (Bellcore) 
+X *      Arthur Smith (Cornell)
+X *      Hendri Hondorp (University of Twente, The Netherlands)
+X *      Bill Kucharski (Solbourne)
+X *      Charlie Kline (University of Illinois)
+X *      Yehavi Bourvine (Hebrew University of Jerusalem, Israel)
+X *      Russell Lang (Monash University, Australia)
+X *      O'Reilly & Associates: X Window System - Volumes 1 & 2
+X *
+X *   This code is provided as is and with no warranties of any kind.
+X *       
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X *---------------------------------------------------------------------------*/
+X
+X#define DEFAULT_X11
+X#if defined(VMS) || defined(CRIPPLED_SELECT)
+X#undef DEFAULT_X11
+X#endif
+X#if defined(VMS) && defined(CRIPPLED_SELECT)
+XError. Incompatible options.
+X#endif
+X
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xresource.h>
+X 
+X#include <stdio.h>
+X#include <signal.h>
+X
+X#ifdef BSD_TYPES
+X#include <sys/bsdtypes.h>
+X#endif /* BSD_TYPES */
+X
+X#if !defined(VMS) && !defined(FD_SET) && !defined(OLD_SELECT)
+X#include <sys/select.h>
+X#endif /* !VMS && !FD_SET && !OLD_SELECT */
+X 
+X#ifndef FD_SET
+X
+X#define FD_SET(n, p)    ((p)->fds_bits[0] |= (1 << ((n) % 32)))
+X#define FD_CLR(n, p)    ((p)->fds_bits[0] &= ~(1 << ((n) % 32)))
+X#define FD_ISSET(n, p)  ((p)->fds_bits[0] & (1 << ((n) % 32)))
+X#define FD_ZERO(p)      bzero((char *)(p), sizeof(*(p)))
+X
+X#endif /* !FD_SET */
+X
+X#ifdef SOLARIS
+X#include <sys/systeminfo.h>
+X#endif /* SOLARIS */
+X
+X
+X#include <errno.h>
+Xextern int errno;
+X
+X#define FallbackFont "fixed"
+X
+X#define Ncolors 13
+Xunsigned long colors[Ncolors];
+X
+X#define Nwidths 10
+Xunsigned int widths[Nwidths] = { 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+X
+X#define Ndashes 10
+Xchar dashes[Ndashes][5];
+X
+XDisplay *dpy; int scr; Window win, root;
+XVisual *vis; GC gc = (GC)0; Pixmap pixmap; XFontStruct *font;
+Xunsigned int W = 640, H = 450; int D, gX = 100, gY = 100;
+Xunsigned int BorderWidth = 2;
+Xunsigned User_Size = 0, User_Position = 0; /* User specified? */
+X
+X
+XBool Mono = 0, Gray = 0, Rv = 0, Clear = 0;
+Xchar Name[64] = "gnuplot";
+Xchar Class[64] = "Gnuplot";
+X
+Xint cx=0, cy=0, vchar, nc = 0, ncalloc = 0;
+Xdouble xscale, yscale, pointsize;
+X#define X(x) (int) (x * xscale)
+X#define Y(y) (int) ((4095-y) * yscale)
+Xenum JUSTIFY { LEFT, CENTRE, RIGHT } jmode;
+X
+X#define Nbuf 1024
+Xchar buf[Nbuf], **commands = (char **)0;
+X
+XFILE *X11_ipc;
+Xchar X11_ipcpath[32];
+X
+X
+X/*-----------------------------------------------------------------------------
+X *   main program 
+X *---------------------------------------------------------------------------*/
+X
+Xmain(argc, argv) int argc; char *argv[]; {
+X
+X   preset(argc, argv);
+X   mainloop();
+X   exit(0);
+X
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   mainloop processing - process X events and input from gnuplot
+X *
+X *   Three different versions of main loop processing are provided to support
+X *   three different platforms.
+X * 
+X *   DEFAULT_X11:     use select() for both X events and input on stdin 
+X *                    from gnuplot inboard driver
+X *
+X *   CRIPPLED_SELECT: use select() to service X events and check during 
+X *                    select timeout for temporary plot file created
+X *                    by inboard driver
+X *
+X *   VMS:             use XNextEvent to service X events and AST to
+X *                    service input from gnuplot inboard driver on stdin 
+X *---------------------------------------------------------------------------*/
+X
+X
+X#ifdef DEFAULT_X11
+X/*-----------------------------------------------------------------------------
+X *    DEFAULT_X11 mainloop
+X *---------------------------------------------------------------------------*/
+X
+Xmainloop() {
+X   int nf, nfds, cn = ConnectionNumber(dpy), in = fileno(stdin);
+X   struct timeval timeout, *timer = (struct timeval *)0;
+X   fd_set rset, tset;
+X   unsigned long all = 0xffffffff;
+X   XEvent xe;
+X
+X   X11_ipc = stdin;
+X
+X   FD_ZERO(&rset);
+X   FD_SET(cn, &rset);
+X
+X   FD_SET(in, &rset);
+X   nfds = (cn > in) ? cn + 1 : in + 1;
+X
+X#ifdef ISC22
+X/* Added by Robert Eckardt, RobertE@beta.TP2.Ruhr-Uni-Bochum.de */
+X   timeout.tv_sec  = 0;		/* select() in ISC2.2 needs timeout */
+X   timeout.tv_usec = 300000;	/* otherwise input from gnuplot is */
+X   timer = &timeout;		/* suspended til next X event. */
+X#endif /* ISC22 	 (0.3s are short enough not to be noticed */
+X
+X   while(1) {
+X      tset = rset;
+X      nf = select(nfds, &tset, (fd_set *)0, (fd_set *)0, timer);
+X      if (nf < 0) {
+X	 if (errno == EINTR) continue;
+X	 fprintf(stderr, "gnuplot: select failed. errno:%d\n", errno);
+X	 exit(1);
+X	 }
+X      nf > 0 && XNoOp(dpy);
+X      if (FD_ISSET(cn, &tset)) {
+X	 while (XCheckMaskEvent(dpy, all, &xe)) {
+X	    (xe.type == ConfigureNotify)  && resize(&xe); 
+X	    }
+X	 }
+X      FD_ISSET(in, &tset) && record();
+X      }
+X   }
+X
+X#endif
+X
+X
+X#ifdef CRIPPLED_SELECT
+X/*-----------------------------------------------------------------------------
+X *    CRIPPLED_SELECT mainloop
+X *---------------------------------------------------------------------------*/
+X
+Xmainloop() {
+X   int nf, nfds, cn = ConnectionNumber(dpy);
+X   struct timeval timeout, *timer;
+X   fd_set rset, tset;
+X   unsigned long all = 0xffffffff;
+X   XEvent xe;
+X
+X   FD_ZERO(&rset);
+X   FD_SET(cn, &rset);
+X
+X   timeout.tv_sec = 1;
+X   timeout.tv_usec = 0;
+X   timer = &timeout;
+X   sprintf(X11_ipcpath, "/tmp/Gnuplot_%d", getppid());
+X   nfds = cn + 1;
+X
+X   while(1) {
+X      tset = rset;
+X      nf = select(nfds, &tset, (fd_set *)0, (fd_set *)0, timer);
+X      if (nf < 0) {
+X	 if (errno == EINTR) continue;
+X	 fprintf(stderr, "gnuplot: select failed. errno:%d\n", errno);
+X	 exit(1);
+X	 }
+X      nf > 0 && XNoOp(dpy);
+X      if (FD_ISSET(cn, &tset)) {
+X	 while (XCheckMaskEvent(dpy, all, &xe)) {
+X	    (xe.type == ConfigureNotify)  && resize(&xe); 
+X	    }
+X	 }
+X      if ((X11_ipc = fopen(X11_ipcpath, "r"))) {
+X	 unlink(X11_ipcpath);
+X	 record();
+X	 fclose(X11_ipc);
+X	 }
+X      }
+X   }
+X#endif /* CRIPPLED_SELECT */
+X
+X
+X#ifdef VMS
+X/*-----------------------------------------------------------------------------
+X *    VMS mainloop - Yehavi Bourvine - YEHAVI@VMS.HUJI.AC.IL
+X *---------------------------------------------------------------------------*/
+X
+X/*  In VMS there is no decent Select(). hence, we have to loop inside
+X *  XGetNextEvent for getting the next X window event. In order to get input
+X *  from the master we assign a channel to SYS$INPUT and use AST's in order to
+X *  receive data. */
+X
+X#include <iodef.h>
+Xchar    STDIIN[] = "SYS$INPUT:";
+Xshort   STDIINchannel, STDIINiosb[4];
+Xstruct  { short size, type; char  *address; } STDIINdesc;
+Xchar    STDIINbuffer[64];
+Xint     status;
+X
+X
+Xmainloop() {
+X   XEvent xe;
+X
+X   STDIINdesc.size = strlen(STDIIN); 
+X   STDIINdesc.type = 0;
+X   STDIINdesc.address = STDIIN;
+X   status = sys$assign(&STDIINdesc, &STDIINchannel, 0, 0, 0);
+X   if((status & 0x1) == 0)  exit(status); 
+X   ast();
+X
+X   for(;;) {
+X      XNextEvent(dpy, &xe);
+X      (xe.type == ConfigureNotify)  && resize(&xe); 
+X      }
+X   }
+X
+Xast() {
+X   int record();
+X   int status = sys$qio(0, STDIINchannel, IO$_READVBLK, STDIINiosb, record,
+X		        0, STDIINbuffer, sizeof(STDIINbuffer) -1,0, 0, 0, 0);
+X   if((status & 0x1) == 0) exit(status);
+X   }
+X#endif /* VMS */
+X
+X
+X#ifndef VMS
+X/*-----------------------------------------------------------------------------
+X *   record - record new plot from gnuplot inboard X11 driver (Unix)
+X *---------------------------------------------------------------------------*/
+X
+Xrecord() {
+X
+X   while (fgets(buf, Nbuf, X11_ipc)) {
+X     if (*buf == 'G') {                           /* enter graphics mode */
+X	 if (commands) {
+X	    int n; for (n=0; n<nc; n++) free(commands[n]);
+X	    free(commands);
+X	    }
+X	 commands = (char **)0; nc = ncalloc = 0;
+X         }
+X      else if (*buf == 'E') { display(); break; } /* leave graphics mode */
+X      else if (*buf == 'R') { exit(0); }          /* leave X11/x11 mode  */
+X      else {                                      /* record command      */
+X	 char *p;
+X	 if (nc >= ncalloc) {
+X	    ncalloc = ncalloc*2 + 1;
+X	    commands = (commands)
+X	       ? (char **)realloc(commands, ncalloc * sizeof(char *))
+X	       : (char **)malloc(sizeof(char *));
+X	    }
+X	 p = (char *)malloc((unsigned)strlen(buf)+1);
+X	 if (!commands || !p) {
+X	    fprintf(stderr, "gnuplot: can't get memory. X11 aborted.\n");
+X	    exit(1);
+X	    }
+X	 commands[nc++] = strcpy(p, buf);
+X	 }
+X      }
+X   if (feof(X11_ipc) || ferror(X11_ipc)) exit(1);
+X   }
+X
+X#else    /* VMS */
+X/*-----------------------------------------------------------------------------
+X *   record - record new plot from gnuplot inboard X11 driver (VMS)
+X *---------------------------------------------------------------------------*/
+X
+Xrecord() {
+X   int	status;
+X
+X   if((STDIINiosb[0] & 0x1) == 0) exit(STDIINiosb[0]);
+X   STDIINbuffer[STDIINiosb[1]] = '\0';
+X   strcpy(buf, STDIINbuffer);
+X
+X   if (*buf == 'G') {                           /* enter graphics mode */
+X      if (commands) {
+X         int n; for (n=0; n<nc; n++) free(commands[n]);
+X         free(commands);
+X         }
+X       commands = (char **)0; nc = ncalloc = 0;
+X       }
+X   else if (*buf == 'E') {                      /* leave graphics mode */
+X      display(); 
+X      }
+X   else if (*buf == 'R') {                      /* leave x11/X11 mode  */
+X       sys$cancel(STDIINchannel);
+X       XCloseDisplay(dpy);
+X       sys$delprc(0,0);	  /* Somehow it doesn't drop itself... */
+X       exit(1); 
+X       }
+X   else {                                       /* record command      */
+X      char *p;
+X      if (nc >= ncalloc) {
+X	 ncalloc = ncalloc*2 + 1;
+X	 commands = (commands)
+X	    ? (char **)realloc(commands, ncalloc * sizeof(char *))
+X	    : (char **)malloc(sizeof(char *));
+X	 }
+X      p = (char *)malloc((unsigned)strlen(buf)+1);
+X      if (!commands || !p) {
+X	 fprintf(stderr, "gnuplot: can't get memory. X11 aborted.\n");
+X	 exit(1);
+X	 }
+X      commands[nc++] = strcpy(p, buf);
+X      }
+X   ast();
+X   }
+X#endif /* VMS */
+X
+X/*-----------------------------------------------------------------------------
+X *   display - display last plot from gnuplot inboard X11 driver
+X *---------------------------------------------------------------------------*/
+X
+Xdisplay() {
+X   int n, x, y, sw, sl, lt, width, type, point, px, py;
+X   char *buf, *str;
+X
+X   if (!nc) return;
+X
+X   /* set scaling factor between internal driver & window geometry */
+X   xscale = (double)W / 4096.;  yscale = (double)H / 4096.;  
+X
+X   /* create new pixmap & GC */
+X   if (gc) { XFreeGC(dpy, gc); XFreePixmap(dpy, pixmap); }
+X   pixmap = XCreatePixmap(dpy, root, W, H, D);
+X   gc = XCreateGC(dpy, pixmap, 0, (XGCValues *)0);
+X   XSetFont(dpy, gc, font->fid);
+X
+X   /* set pixmap background */
+X   XSetForeground(dpy, gc, colors[0]);
+X   XFillRectangle(dpy, pixmap, gc, 0, 0, W, H);
+X   XSetBackground(dpy, gc, colors[0]);
+X
+X   /* set new pixmap as window background */
+X   XSetWindowBackgroundPixmap(dpy, win, pixmap);
+X
+X   /* top the window but don't put keyboard or mouse focus into it. */
+X   XMapRaised(dpy, win);
+X
+X   /* momentarily clear the window first if requested */
+X   if (Clear) {
+X      XClearWindow(dpy, win);
+X      XFlush(dpy);
+X      }
+X
+X   /* loop over accumulated commands from inboard driver */
+X   for (n=0; n<nc; n++) {
+X      buf = commands[n];
+X
+X      /*   X11_vector(x,y) - draw vector  */
+X      if (*buf == 'V') { 
+X	 sscanf(buf, "V%4d%4d", &x, &y);  
+X	 XDrawLine(dpy, pixmap, gc, X(cx), Y(cy), X(x), Y(y));
+X	 cx = x; cy = y;
+X	 }
+X
+X      /*   X11_move(x,y) - move  */
+X      else if (*buf == 'M') 
+X	 sscanf(buf, "M%4d%4d", &cx, &cy);  
+X
+X      /*   X11_put_text(x,y,str) - draw text   */
+X      else if (*buf == 'T') { 
+X	 sscanf(buf, "T%4d%4d", &x, &y);  
+X	 str = buf + 9; sl = strlen(str) - 1;
+X	 sw = XTextWidth(font, str, sl);
+X	 switch(jmode) {
+X	    case LEFT:   sw = 0;     break;
+X	    case CENTRE: sw = -sw/2; break;
+X	    case RIGHT:  sw = -sw;   break;
+X	    }
+X	 XSetForeground(dpy, gc, colors[2]);
+X	 XDrawString(dpy, pixmap, gc, X(x)+sw, Y(y)+vchar/3, str, sl);
+X	 XSetForeground(dpy, gc, colors[lt+3]);
+X	 }
+X
+X      /*   X11_justify_text(mode) - set text justification mode  */
+X      else if (*buf == 'J') 
+X	 sscanf(buf, "J%4d", &jmode);
+X
+X      /*   X11_linetype(type) - set line type  */
+X      else if (*buf == 'L') { 
+X	 sscanf(buf, "L%4d", &lt);
+X	 lt = (lt%8)+2;
+X	 width = widths[lt];
+X	 if (dashes[lt][0]) {
+X	    type = LineOnOffDash;
+X	    XSetDashes(dpy, gc, 0, dashes[lt], strlen(dashes[lt]));
+X	    }
+X	 else {
+X	    type = LineSolid;
+X	    }
+X	 XSetForeground(dpy, gc, colors[lt+3]);
+X	 XSetLineAttributes( dpy,gc, width, type, CapButt, JoinBevel);
+X  	 }
+X
+X      /*   X11_point(number) - draw a point */
+X      else if (*buf == 'P') { 
+X 	 sscanf(buf, "P%1d%4d%4d", &point, &x, &y);  
+X 	 if (point==7) {
+X 	    /* set point size */
+X 	    px = (int) (x * xscale * pointsize);
+X 	    py = (int) (y * yscale * pointsize);
+X 	    }
+X 	 else {
+X	    if (type != LineSolid || width != 0) {  /* select solid line */
+X	       XSetLineAttributes(dpy, gc, 0, LineSolid, CapButt, JoinBevel);
+X	       }
+X	    switch(point) {
+X	       case 0: /* dot */
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y), X(x), Y(y));
+X		   break;
+X	       case 1: /* do diamond */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y), X(x), Y(y)-py);
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)-py, X(x)+px, Y(y));
+X		   XDrawLine(dpy,pixmap,gc, X(x)+px, Y(y), X(x), Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)+py, X(x)-px, Y(y));
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y), X(x), Y(y));
+X		   break;
+X	       case 2: /* do plus */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y), X(x)+px, Y(y));
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)-py, X(x), Y(y)+py);
+X		   break;
+X	       case 3: /* do box */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)-py, X(x)+px, Y(y)-py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)+px, Y(y)-py, X(x)+px, Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)+px, Y(y)+py, X(x)-px, Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)+py, X(x)-px, Y(y)-py);
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y), X(x), Y(y));
+X		   break;
+X	       case 4: /* do X */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)-py, X(x)+px, Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)+py, X(x)+px, Y(y)-py);
+X		   break;
+X	       case 5: /* do triangle */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)-(4*px/3), 
+X			     X(x)-(4*px/3), Y(y)+(2*py/3));
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)-(4*px/3), 
+X			     X(x)+(4*px/3), Y(y)+(2*py/3));
+X		   XDrawLine(dpy,pixmap,gc, X(x)-(4*px/3), Y(y)+(2*py/3), 
+X			     X(x)+(4*px/3), Y(y)+(2*py/3));
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y), X(x), Y(y));
+X		   break;
+X	       case 6: /* do star */ 
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y), X(x)+px, Y(y));
+X		   XDrawLine(dpy,pixmap,gc, X(x), Y(y)-py, X(x), Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)-py, X(x)+px, Y(y)+py);
+X		   XDrawLine(dpy,pixmap,gc, X(x)-px, Y(y)+py, X(x)+px, Y(y)-py);
+X		   break;
+X	       }
+X	    if (type != LineSolid || width != 0) {  /* select solid line */
+X	       XSetLineAttributes(dpy, gc, width, type, CapButt, JoinBevel);
+X	       }
+X	    }
+X	 }
+X      }
+X
+X   /* trigger exposure of background pixmap */
+X   XClearWindow(dpy,win);
+X   XFlush(dpy);
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   resize - rescale last plot if window resized
+X *---------------------------------------------------------------------------*/
+X
+Xresize(xce) XConfigureEvent *xce; {
+X   int w = xce->width, h = xce->height;
+X   
+X   if (w>1 && h>1 && (w != W || h != H)) {
+X      W = w; H = h;
+X      display();
+X      }
+X   }
+X
+X
+X/*-----------------------------------------------------------------------------
+X *   preset - determine options, open display, create window
+X *---------------------------------------------------------------------------*/
+X
+X#define On(v) ( !strcmp(v,"on") || !strcmp(v,"true") || \
+X		!strcmp(v,"On") || !strcmp(v,"True") )
+X
+X#define AppDefDir "/usr/lib/X11/app-defaults"
+X#ifndef MAXHOSTNAMELEN
+X#define MAXHOSTNAMELEN 64
+X#endif
+X
+Xstatic XrmDatabase dbCmd, dbApp, dbDef, dbEnv, db = (XrmDatabase)0;
+X
+Xchar *pr_GetR(), *getenv(), *type[20];
+XXrmValue value;
+X
+X#define Nopt 27
+Xstatic XrmOptionDescRec options[] = {
+X   {"-mono",             ".mono",             XrmoptionNoArg,   "on" },
+X   {"-gray",             ".gray",             XrmoptionNoArg,   "on" },
+X   {"-clear",            ".clear",            XrmoptionNoArg,   "on" },
+X   {"-tvtwm",            ".tvtwm",            XrmoptionNoArg,   "on" },
+X   {"-pointsize",        ".pointsize",        XrmoptionSepArg,  NULL },
+X   {"-display",          ".display",          XrmoptionSepArg,  NULL },
+X   {"-name",             ".name",             XrmoptionSepArg,  NULL },
+X   {"-geometry",         "*geometry",         XrmoptionSepArg,  NULL },
+X   {"-background",       "*background",       XrmoptionSepArg,  NULL },
+X   {"-bg",               "*background",       XrmoptionSepArg,  NULL },
+X   {"-foreground",       "*foreground",       XrmoptionSepArg,  NULL },
+X   {"-fg",               "*foreground",       XrmoptionSepArg,  NULL },
+X   {"-bordercolor",      "*bordercolor",      XrmoptionSepArg,  NULL },
+X   {"-bd",               "*bordercolor",      XrmoptionSepArg,  NULL },
+X   {"-borderwidth",      ".borderwidth",      XrmoptionSepArg,  NULL },
+X   {"-bw",               ".borderwidth",      XrmoptionSepArg,  NULL },
+X   {"-font",             "*font",             XrmoptionSepArg,  NULL },
+X   {"-fn",               "*font",             XrmoptionSepArg,  NULL },
+X   {"-reverse",          "*reverseVideo",     XrmoptionNoArg,   "on" },
+X   {"-rv",               "*reverseVideo",     XrmoptionNoArg,   "on" },
+X   {"+rv",               "*reverseVideo",     XrmoptionNoArg,   "off"},
+X   {"-iconic",           "*iconic",           XrmoptionNoArg,   "on" },
+X   {"-synchronous",      "*synchronous",      XrmoptionNoArg,   "on" },
+X   {"-xnllanguage",      "*xnllanguage",      XrmoptionSepArg,  NULL },
+X   {"-selectionTimeout", "*selectionTimeout", XrmoptionSepArg,  NULL },
+X   {"-title",            ".title",            XrmoptionSepArg,  NULL },
+X   {"-xrm",              NULL,                XrmoptionResArg,  NULL },
+X   };
+X
+Xpreset(argc, argv) int argc; char *argv[]; {
+X   int Argc = argc; char **Argv = argv;
+X
+X#ifdef VMS
+X   char *display = (char *) 0;
+X#else
+X   char *display = getenv("DISPLAY");
+X#endif
+X   char *home = getenv("HOME");
+X   char *server_defaults, *env, buf[256];
+X
+X   /*---set to ignore ^C and ^Z----------------------------------------------*/
+X
+X   signal(SIGINT, SIG_IGN);
+X#ifdef SIGTSTP
+X   signal(SIGTSTP, SIG_IGN);
+X#endif
+X
+X   /*---prescan arguments for "-name"----------------------------------------*/
+X
+X   while(++Argv, --Argc > 0) {
+X      if (!strcmp(*Argv, "-name") && Argc > 1) {
+X	 strncpy(Name, Argv[1], 64);
+X	 strncpy(Class, Argv[1], 64);
+X	 if (Class[0] >= 'a' && Class[0] <= 'z') Class[0] -= 0x20;
+X	 }
+X      }
+X   Argc = argc; Argv = argv;
+X
+X   /*---parse command line---------------------------------------------------*/
+X
+X   XrmInitialize();
+X   XrmParseCommand(&dbCmd, options, Nopt, Name, &Argc, Argv);
+X   if (Argc > 1) {
+X      fprintf(stderr, "\ngnuplot: bad option: %s\n", Argv[1]);
+X      fprintf(stderr, "gnuplot: X11 aborted.\n");
+X      exit(1);
+X      }
+X   if (pr_GetR(dbCmd, ".display")) display = value.addr;
+X
+X   /*---open display---------------------------------------------------------*/
+X
+X   dpy = XOpenDisplay(display); 
+X   if (!dpy) {
+X      fprintf(stderr, "\ngnuplot: unable to open display '%s'\n", display);
+X      fprintf(stderr, "gnuplot: X11 aborted.\n");
+X      exit(1);
+X      }
+X   scr = DefaultScreen(dpy);
+X   vis = DefaultVisual(dpy,scr);
+X   D = DefaultDepth(dpy,scr);
+X   root = DefaultRootWindow(dpy);
+X   server_defaults = XResourceManagerString(dpy);
+X
+X   /*---get application defaults--(subset of Xt processing)------------------*/
+X
+X#ifdef VMS
+X   strcpy (buf, "DECW$USER_DEFAULTS:GNUPLOT_X11.INI");
+X#else
+X   sprintf(buf, "%s/%s", AppDefDir, "Gnuplot");
+X#endif
+X   dbApp = XrmGetFileDatabase(buf);
+X   XrmMergeDatabases(dbApp, &db);
+X
+X   /*---get server or ~/.Xdefaults-------------------------------------------*/
+X
+X   if (server_defaults)
+X      dbDef = XrmGetStringDatabase(server_defaults);
+X   else {
+X#ifdef VMS
+X      strcpy(buf,"DECW$USER_DEFAULTS:DECW$XDEFAULTS.DAT");
+X#else
+X      sprintf(buf, "%s/.Xdefaults", home);
+X#endif
+X      dbDef = XrmGetFileDatabase(buf);
+X      }
+X   XrmMergeDatabases(dbDef, &db);
+X
+X   /*---get XENVIRONMENT or  ~/.Xdefaults-hostname---------------------------*/
+X
+X#ifndef VMS
+X   if (env = getenv("XENVIRONMENT")) 
+X      dbEnv = XrmGetFileDatabase(env);
+X   else {
+X      char *p, host[MAXHOSTNAMELEN];
+X#ifdef SOLARIS
+X      if (sysinfo(SI_HOSTNAME, host, MAXHOSTNAMELEN) < 0) {
+X         fprintf(stderr, "gnuplot: sysinfo failed. X11 aborted.\n");
+X#else
+X      if (gethostname(host, MAXHOSTNAMELEN) < 0) {
+X         fprintf(stderr, "gnuplot: gethostname failed. X11 aborted.\n");
+X#endif /* SOLARIS */
+X	 exit(1);
+X	 }
+X      if (p = index(host, '.')) *p = '\0';
+X      sprintf(buf, "%s/.Xdefaults-%s", home, host);
+X      dbEnv = XrmGetFileDatabase(buf);
+X      }
+X   XrmMergeDatabases(dbEnv, &db);
+X#endif   /* not VMS */
+X
+X   /*---merge command line options-------------------------------------------*/
+X
+X   XrmMergeDatabases(dbCmd, &db);
+X
+X   /*---set geometry, font, colors, line widths, dash styles, point size-----*/
+X
+X   pr_geometry();
+X   pr_font();
+X   pr_color();
+X   pr_width();
+X   pr_dashes();
+X   pr_pointsize();
+X
+X   /*---create window--------------------------------------------------------*/
+X
+X   pr_window();
+X
+X   } 
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_GetR - get resource from database using "-name" option (if any)
+X *---------------------------------------------------------------------------*/
+X
+Xchar *
+Xpr_GetR(db, resource) XrmDatabase db; char *resource; {
+X   char name[128], class[128], *rc;
+X
+X   strcpy(name, Name); strcat(name, resource);
+X   strcpy(class, Class); strcat(class, resource);
+X   rc = XrmGetResource(db, name, class, type, &value)
+X      ? (char *)value.addr 
+X      : (char *)0;
+X   return(rc);
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_color - determine color values
+X *---------------------------------------------------------------------------*/
+X
+Xchar color_keys[Ncolors][30] =   { 
+X   "background", "bordercolor", "text", "border", "axis", 
+X   "line1", "line2", "line3",  "line4", 
+X   "line5", "line6", "line7",  "line8" 
+X   };
+Xchar color_values[Ncolors][30] = { 
+X   "white", "black",  "black",  "black",  "black", 
+X   "red",   "green",  "blue",   "magenta", 
+X   "cyan",  "sienna", "orange", "coral" 
+X   };
+Xchar gray_values[Ncolors][30] = { 
+X   "black",   "white",  "white",  "gray50", "gray50",
+X   "gray100", "gray60", "gray80", "gray40", 
+X   "gray90",  "gray50", "gray70", "gray30" 
+X   };
+X
+Xpr_color() {
+X   unsigned long black = BlackPixel(dpy, scr), white = WhitePixel(dpy,scr);
+X   char option[20], color[30], *v, *type; 
+X   XColor xcolor;
+X   Colormap cmap;
+X   double intensity = -1;
+X   int n;
+X
+X   pr_GetR(db, ".mono")         && On(value.addr) && Mono++;
+X   pr_GetR(db, ".gray")         && On(value.addr) && Gray++;
+X   pr_GetR(db, ".reverseVideo") && On(value.addr) && Rv++;
+X
+X   if (!Gray && (vis->class == GrayScale || vis->class == StaticGray)) Mono++;
+X
+X   if (!Mono) {
+X      cmap = DefaultColormap(dpy, scr);
+X      type = (Gray) ? "Gray" : "Color";
+X
+X      for (n=0; n<Ncolors; n++) {
+X	 strcpy(option, ".");
+X	 strcat(option, color_keys[n]);
+X	 (n > 1) && strcat(option, type);
+X	 v = pr_GetR(db, option) 
+X	     ? value.addr
+X	     : ((Gray) ? gray_values[n] : color_values[n]);
+X
+X	 if (sscanf(v,"%30[^,],%lf", color, &intensity) == 2) {
+X	    if (intensity < 0 || intensity > 1) {
+X	       fprintf(stderr, "\ngnuplot: invalid color intensity in '%s'\n",
+X                       color);
+X	       intensity = 1;
+X	       }
+X	    }
+X	 else { 
+X	    strcpy(color, v);
+X	    intensity = 1;
+X	    }
+X
+X	 if (!XParseColor(dpy, cmap, color, &xcolor)) {
+X	    fprintf(stderr, "\ngnuplot: unable to parse '%s'. Using black.\n",
+X                    color);
+X	    colors[n] = black;
+X	    }
+X	 else {
+X	    xcolor.red *= intensity;
+X	    xcolor.green *= intensity;
+X	    xcolor.blue *= intensity;
+X	    if (XAllocColor(dpy, cmap, &xcolor)) {
+X	       colors[n] = xcolor.pixel;
+X	       }
+X	    else {
+X	       fprintf(stderr, "\ngnuplot: can't allocate '%s'. Using black.\n",
+X                        v);
+X	       colors[n] = black;
+X	       }
+X	    }
+X	 }
+X      }
+X   else {
+X      colors[0] = (Rv) ? black : white ;
+X      for (n=1; n<Ncolors; n++)  colors[n] = (Rv) ? white : black;
+X      }
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_dashes - determine line dash styles 
+X *---------------------------------------------------------------------------*/
+X
+Xchar dash_keys[Ndashes][10] =   { 
+X   "border", "axis",
+X   "line1", "line2", "line3",  "line4", "line5", "line6", "line7",  "line8" 
+X   };
+X
+Xchar dash_mono[Ndashes][10] =   { 
+X   "0", "16",
+X   "0", "42", "13",  "44", "15", "4441", "42",  "13" 
+X   };
+X
+Xchar dash_color[Ndashes][10] =   { 
+X   "0", "16",
+X   "0", "0", "0", "0", "0", "0", "0", "0" 
+X   };
+X
+Xpr_dashes() {
+X   int n, j, l, ok;
+X   char option[20], *v; 
+X   for (n=0; n<Ndashes; n++) {
+X      strcpy(option, ".");
+X      strcat(option, dash_keys[n]);
+X      strcat(option, "Dashes");
+X      v = pr_GetR(db, option) 
+X	  ? value.addr
+X	  : ((Mono) ? dash_mono[n] : dash_color[n]);
+X      l = strlen(v);
+X      if (l == 1 && *v == '0') {
+X	 dashes[n][0] = (unsigned char)0;
+X	 continue;
+X	 }
+X      for (ok=0, j=0; j<l; j++) { v[j] >= '1' && v[j] <= '9' && ok++; }
+X      if (ok != l || (ok != 2 && ok != 4)) {
+X	 fprintf(stderr, "gnuplot: illegal dashes value %s:%s\n", option, v);
+X	 dashes[n][0] = (unsigned char)0;
+X	 continue;
+X	 }
+X      for(j=0; j<l; j++) {
+X	 dashes[n][j] = (unsigned char) (v[j] - '0');
+X	 }
+X      dashes[n][l] = (unsigned char)0;
+X      }
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_font - determine font          
+X *---------------------------------------------------------------------------*/
+X
+Xpr_font() {
+X   char *fontname = pr_GetR(db, ".font");
+X
+X   if (!fontname) fontname = FallbackFont;
+X   font = XLoadQueryFont(dpy, fontname);
+X   if (!font) {
+X      fprintf(stderr, "\ngnuplot: can't load font '%s'\n", fontname);
+X      fprintf(stderr, "gnuplot: using font '%s' instead.\n", FallbackFont);
+X      font = XLoadQueryFont(dpy, FallbackFont);
+X      if (!font) {
+X	 fprintf(stderr, "gnuplot: can't load font '%s'\n", FallbackFont);
+X	 fprintf(stderr, "gnuplot: no useable font - X11 aborted.\n");
+X         exit(1);
+X	 }
+X      }
+X   vchar = font->ascent + font->descent;
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_geometry - determine window geometry      
+X *---------------------------------------------------------------------------*/
+X
+Xpr_geometry() {
+X   char *geometry = pr_GetR(db, ".geometry");
+X   int x, y, flags;
+X   unsigned int w, h; 
+X
+X   if (geometry) {
+X      flags = XParseGeometry(geometry, &x, &y, &w, &h);
+X      if (flags & WidthValue)  User_Size = 1, W = w;
+X      if (flags & HeightValue) User_Size = 1, H = h;
+X      if (flags & XValue) {
+X         if (flags & XNegative)
+X            x += DisplayWidth(dpy,scr) - W - BorderWidth*2;
+X         User_Position = 1, gX = x;
+X         }
+X      if (flags & YValue) {
+X         if (flags & YNegative)
+X            y += DisplayHeight(dpy,scr) - H - BorderWidth*2;
+X         User_Position = 1, gY = y;
+X         }
+X      }
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_pointsize - determine size of points for 'points' plotting style
+X *---------------------------------------------------------------------------*/
+X
+Xpr_pointsize() {
+X   char *p = pr_GetR(db, ".pointsize") ? value.addr : "1.0" ;
+X
+X   if (sscanf(p,"%lf", &pointsize) == 1) {
+X      if (pointsize <= 0 || pointsize > 10) {
+X	 fprintf(stderr, "\ngnuplot: invalid pointsize '%s'\n", p);
+X	 pointsize = 1;
+X	 }
+X      }
+X   else { 
+X      fprintf(stderr, "\ngnuplot: invalid pointsize '%s'\n", p);
+X      pointsize = 1;
+X      }
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_width - determine line width values
+X *---------------------------------------------------------------------------*/
+X
+Xchar width_keys[Nwidths][30] =   { 
+X   "border", "axis",
+X   "line1", "line2", "line3",  "line4", "line5", "line6", "line7",  "line8" 
+X   };
+X
+Xpr_width() {
+X   int n;
+X   char option[20], *v; 
+X   for (n=0; n<Nwidths; n++) {
+X      strcpy(option, ".");
+X      strcat(option, width_keys[n]);
+X      strcat(option, "Width");
+X      if (v = pr_GetR(db, option)) {
+X	 if ( *v < '0' || *v > '4' || strlen(v) > 1)
+X	    fprintf(stderr, "gnuplot: illegal width value %s:%s\n", option, v);
+X	 else 
+X	    widths[n] = (unsigned int)atoi(v);
+X	 }
+X      }
+X   }
+X
+X/*-----------------------------------------------------------------------------
+X *   pr_window - create window 
+X *---------------------------------------------------------------------------*/
+X
+Xpr_window() {
+X   char *title =  pr_GetR(db, ".title");
+X   static XSizeHints hints;
+X   int Tvtwm = 0;
+X
+X   win = XCreateSimpleWindow(dpy, root, gX, gY, W, H, BorderWidth,
+X                             colors[1], colors[0]);
+X
+X   pr_GetR(db, ".clear") && On(value.addr) && Clear++;
+X   pr_GetR(db, ".tvtwm") && On(value.addr) && Tvtwm++;
+X
+X   if (!Tvtwm) {
+X      hints.flags = (User_Position ? USPosition : PPosition);
+X      hints.flags |= (User_Size ? USSize : PSize);
+X      }
+X   else {
+X      hints.flags = PPosition;
+X      }
+X   hints.x = gX; hints.y = gY;        
+X   hints.width = W; hints.height = H;
+X
+X   XSetNormalHints(dpy, win, &hints);
+X
+X   if (pr_GetR(db, ".iconic") && On(value.addr)) {
+X      XWMHints wmh;
+X
+X      wmh.flags = StateHint ;
+X      wmh.initial_state = IconicState;
+X      XSetWMHints(dpy, win, &wmh);
+X      } 
+X
+X   XStoreName(dpy, win, ((title) ? title : Class));
+X
+X   XSelectInput(dpy, win, StructureNotifyMask);
+X   XMapWindow(dpy, win);
+X   
+X   }
+END_OF_FILE
+  if test 30922 -ne `wc -c <'gnuplot/gplt_x11.c'`; then
+    echo shar: \"'gnuplot/gplt_x11.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/gplt_x11.c'
+fi
+echo shar: End of archive 12 \(of 33\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

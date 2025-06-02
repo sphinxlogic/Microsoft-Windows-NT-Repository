@@ -1,0 +1,1777 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i060:  jpeg - JPEG image compression, Part06/18
+Message-ID: <1992Dec17.041729.23463@sparky.imd.sterling.com>
+X-Md4-Signature: 28131414719afba0209e9e66c3532a5d
+Date: Thu, 17 Dec 1992 04:17:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 60
+Archive-name: jpeg/part06
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jmemdos.c jmemmgr.c
+# Wrapped by kent@sparky on Wed Dec 16 20:52:26 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 18)."'
+if test -f 'jmemdos.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemdos.c'\"
+else
+  echo shar: Extracting \"'jmemdos.c'\" \(17557 characters\)
+  sed "s/^X//" >'jmemdos.c' <<'END_OF_FILE'
+X/*
+X * jmemdos.c  (jmemsys.c)
+X *
+X * Copyright (C) 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file provides an MS-DOS-compatible implementation of the system-
+X * dependent portion of the JPEG memory manager.  Temporary data can be
+X * stored in extended or expanded memory as well as in regular DOS files.
+X *
+X * If you use this file, you must be sure that NEED_FAR_POINTERS is defined
+X * if you compile in a small-data memory model; it should NOT be defined if
+X * you use a large-data memory model.  This file is not recommended if you
+X * are using a flat-memory-space 386 environment such as DJGCC or Watcom C.
+X *
+X * Based on code contributed by Ge' Weijers.
+X */
+X
+X/*
+X * If you have both extended and expanded memory, you may want to change the
+X * order in which they are tried in jopen_backing_store.  On a 286 machine
+X * expanded memory is usually faster, since extended memory access involves
+X * an expensive protected-mode-and-back switch.  On 386 and better, extended
+X * memory is usually faster.  As distributed, the code tries extended memory
+X * first (what? not everyone has a 386? :-).
+X *
+X * You can disable use of extended/expanded memory entirely by altering these
+X * definitions or overriding them from the Makefile (eg, -DEMS_SUPPORTED=0).
+X */
+X
+X#ifndef XMS_SUPPORTED
+X#define XMS_SUPPORTED  1
+X#endif
+X#ifndef EMS_SUPPORTED
+X#define EMS_SUPPORTED  1
+X#endif
+X
+X
+X#include "jinclude.h"
+X#include "jmemsys.h"
+X
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare malloc(), free(), getenv() */
+X#else
+Xextern void * malloc PP((size_t size));
+Xextern void free PP((void *ptr));
+Xextern char * getenv PP((const char * name));
+X#endif
+X
+X#ifdef NEED_FAR_POINTERS
+X
+X#ifdef __TURBOC__
+X/* These definitions work for Borland C (Turbo C) */
+X#include <alloc.h>		/* need farmalloc(), farfree() */
+X#define far_malloc(x)	farmalloc(x)
+X#define far_free(x)	farfree(x)
+X#else
+X/* These definitions work for Microsoft C and compatible compilers */
+X#include <malloc.h>		/* need _fmalloc(), _ffree() */
+X#define far_malloc(x)	_fmalloc(x)
+X#define far_free(x)	_ffree(x)
+X#endif
+X
+X#endif
+X
+X#ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */
+X#define READ_BINARY	"r"
+X#else
+X#define READ_BINARY	"rb"
+X#endif
+X
+X
+X/*
+X * Declarations for assembly-language support routines (see jmemdosa.asm).
+X *
+X * The functions are declared "far" as are all pointer arguments;
+X * this ensures the assembly source code will work regardless of the
+X * compiler memory model.  We assume "short" is 16 bits, "long" is 32.
+X */
+X
+Xtypedef void far * XMSDRIVER;	/* actually a pointer to code */
+Xtypedef struct {		/* registers for calling XMS driver */
+X	unsigned short ax, dx, bx;
+X	void far * ds_si;
+X      } XMScontext;
+Xtypedef struct {		/* registers for calling EMS driver */
+X	unsigned short ax, dx, bx;
+X	void far * ds_si;
+X      } EMScontext;
+X
+XEXTERN short far jdos_open PP((short far * handle, char far * filename));
+XEXTERN short far jdos_close PP((short handle));
+XEXTERN short far jdos_seek PP((short handle, long offset));
+XEXTERN short far jdos_read PP((short handle, void far * buffer,
+X			       unsigned short count));
+XEXTERN short far jdos_write PP((short handle, void far * buffer,
+X				unsigned short count));
+XEXTERN void far jxms_getdriver PP((XMSDRIVER far *));
+XEXTERN void far jxms_calldriver PP((XMSDRIVER, XMScontext far *));
+XEXTERN short far jems_available PP((void));
+XEXTERN void far jems_calldriver PP((EMScontext far *));
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to error_exit */
+X
+Xstatic long total_used;		/* total FAR memory requested so far */
+X
+X
+X/*
+X * Selection of a file name for a temporary file.
+X * This is highly system-dependent, and you may want to customize it.
+X */
+X
+Xstatic int next_file_num;	/* to distinguish among several temp files */
+X
+XLOCAL void
+Xselect_file_name (char * fname)
+X{
+X  const char * env;
+X  char * ptr;
+X  FILE * tfile;
+X
+X  /* Keep generating file names till we find one that's not in use */
+X  for (;;) {
+X    /* Get temp directory name from environment TMP or TEMP variable;
+X     * if none, use "."
+X     */
+X    if ((env = (const char *) getenv("TMP")) == NULL)
+X      if ((env = (const char *) getenv("TEMP")) == NULL)
+X	env = ".";
+X    if (*env == '\0')		/* null string means "." */
+X      env = ".";
+X    ptr = fname;		/* copy name to fname */
+X    while (*env != '\0')
+X      *ptr++ = *env++;
+X    if (ptr[-1] != '\\' && ptr[-1] != '/')
+X      *ptr++ = '\\';		/* append backslash if not in env variable */
+X    /* Append a suitable file name */
+X    next_file_num++;		/* advance counter */
+X    sprintf(ptr, "JPG%03d.TMP", next_file_num);
+X    /* Probe to see if file name is already in use */
+X    if ((tfile = fopen(fname, READ_BINARY)) == NULL)
+X      break;
+X    fclose(tfile);		/* oops, it's there; close tfile & try again */
+X  }
+X}
+X
+X
+X/*
+X * Near-memory allocation and freeing are controlled by the regular library
+X * routines malloc() and free().
+X */
+X
+XGLOBAL void *
+Xjget_small (size_t sizeofobject)
+X{
+X  /* near data space is NOT counted in total_used */
+X#ifndef NEED_FAR_POINTERS
+X  total_used += sizeofobject;
+X#endif
+X  return (void *) malloc(sizeofobject);
+X}
+X
+XGLOBAL void
+Xjfree_small (void * object)
+X{
+X  free(object);
+X}
+X
+X
+X/*
+X * Far-memory allocation and freeing
+X */
+X
+X#ifdef NEED_FAR_POINTERS
+X
+XGLOBAL void FAR *
+Xjget_large (size_t sizeofobject)
+X{
+X  total_used += sizeofobject;
+X  return (void FAR *) far_malloc(sizeofobject);
+X}
+X
+XGLOBAL void
+Xjfree_large (void FAR * object)
+X{
+X  far_free(object);
+X}
+X
+X#endif
+X
+X
+X/*
+X * This routine computes the total memory space available for allocation.
+X * It's impossible to do this in a portable way; our current solution is
+X * to make the user tell us (with a default value set at compile time).
+X * If you can actually get the available space, it's a good idea to subtract
+X * a slop factor of 5% or so.
+X */
+X
+X#ifndef DEFAULT_MAX_MEM		/* so can override from makefile */
+X#define DEFAULT_MAX_MEM		300000L /* for total usage about 450K */
+X#endif
+X
+XGLOBAL long
+Xjmem_available (long min_bytes_needed, long max_bytes_needed)
+X{
+X  return methods->max_memory_to_use - total_used;
+X}
+X
+X
+X/*
+X * Backing store (temporary file) management.
+X * Backing store objects are only used when the value returned by
+X * jmem_available is less than the total space needed.  You can dispense
+X * with these routines if you have plenty of virtual memory; see jmemnobs.c.
+X */
+X
+X/*
+X * For MS-DOS we support three types of backing storage:
+X *   1. Conventional DOS files.  We access these by direct DOS calls rather
+X *      than via the stdio package.  This provides a bit better performance,
+X *      but the real reason is that the buffers to be read or written are FAR.
+X *      The stdio library for small-data memory models can't cope with that.
+X *   2. Extended memory, accessed per the XMS V2.0 specification.
+X *   3. Expanded memory, accessed per the LIM/EMS 4.0 specification.
+X * You'll need copies of those specs to make sense of the related code.
+X * The specs are available by Internet FTP from SIMTEL20 and its various
+X * mirror sites; see microsoft/xms20.arc and info/limems41.zip.
+X */
+X
+X
+X/*
+X * Access methods for a DOS file.
+X */
+X
+X
+XMETHODDEF void
+Xread_file_store (backing_store_ptr info, void FAR * buffer_address,
+X		 long file_offset, long byte_count)
+X{
+X  if (jdos_seek(info->handle.file_handle, file_offset))
+X    ERREXIT(methods, "seek failed on temporary file");
+X  /* Since MAX_ALLOC_CHUNK is less than 64K, byte_count will be too. */
+X  if (byte_count > 65535L)	/* safety check */
+X    ERREXIT(methods, "MAX_ALLOC_CHUNK should be less than 64K");
+X  if (jdos_read(info->handle.file_handle, buffer_address,
+X		(unsigned short) byte_count))
+X    ERREXIT(methods, "read failed on temporary file");
+X}
+X
+X
+XMETHODDEF void
+Xwrite_file_store (backing_store_ptr info, void FAR * buffer_address,
+X		  long file_offset, long byte_count)
+X{
+X  if (jdos_seek(info->handle.file_handle, file_offset))
+X    ERREXIT(methods, "seek failed on temporary file");
+X  /* Since MAX_ALLOC_CHUNK is less than 64K, byte_count will be too. */
+X  if (byte_count > 65535L)	/* safety check */
+X    ERREXIT(methods, "MAX_ALLOC_CHUNK should be less than 64K");
+X  if (jdos_write(info->handle.file_handle, buffer_address,
+X		 (unsigned short) byte_count))
+X    ERREXIT(methods, "write failed on temporary file --- out of disk space?");
+X}
+X
+X
+XMETHODDEF void
+Xclose_file_store (backing_store_ptr info)
+X{
+X  jdos_close(info->handle.file_handle);	/* close the file */
+X  remove(info->temp_name);	/* delete the file */
+X/* If your system doesn't have remove(), try unlink() instead.
+X * remove() is the ANSI-standard name for this function, but
+X * unlink() was more common in pre-ANSI systems.
+X */
+X  TRACEMS1(methods, 1, "Closed DOS file %d", info->handle.file_handle);
+X}
+X
+X
+XLOCAL boolean
+Xopen_file_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  short handle;
+X  char tracemsg[TEMP_NAME_LENGTH+40];
+X
+X  select_file_name(info->temp_name);
+X  if (jdos_open((short far *) & handle, (char far *) info->temp_name)) {
+X    /* hack to get around TRACEMS' inability to handle string parameters */
+X    sprintf(tracemsg, "Failed to create temporary file %s", info->temp_name);
+X    ERREXIT(methods, tracemsg);	/* jopen_backing_store will fail anyway */
+X    return FALSE;
+X  }
+X  info->handle.file_handle = handle;
+X  info->read_backing_store = read_file_store;
+X  info->write_backing_store = write_file_store;
+X  info->close_backing_store = close_file_store;
+X  /* hack to get around TRACEMS' inability to handle string parameters */
+X  sprintf(tracemsg, "Opened DOS file %d  %s", handle, info->temp_name);
+X  TRACEMS(methods, 1, tracemsg);
+X  return TRUE;			/* succeeded */
+X}
+X
+X
+X/*
+X * Access methods for extended memory.
+X */
+X
+X#if XMS_SUPPORTED
+X
+Xstatic XMSDRIVER xms_driver;	/* saved address of XMS driver */
+X
+Xtypedef union {			/* either long offset or real-mode pointer */
+X	long offset;
+X	void far * ptr;
+X      } XMSPTR;
+X
+Xtypedef struct {		/* XMS move specification structure */
+X	long length;
+X	XMSH src_handle;
+X	XMSPTR src;
+X	XMSH dst_handle;
+X	XMSPTR dst;
+X      } XMSspec;
+X
+X#define ODD(X)	(((X) & 1L) != 0)
+X
+X
+XMETHODDEF void
+Xread_xms_store (backing_store_ptr info, void FAR * buffer_address,
+X		long file_offset, long byte_count)
+X{
+X  XMScontext ctx;
+X  XMSspec spec;
+X  char endbuffer[2];
+X
+X  /* The XMS driver can't cope with an odd length, so handle the last byte
+X   * specially if byte_count is odd.  We don't expect this to be common.
+X   */
+X
+X  spec.length = byte_count & (~ 1L);
+X  spec.src_handle = info->handle.xms_handle;
+X  spec.src.offset = file_offset;
+X  spec.dst_handle = 0;
+X  spec.dst.ptr = buffer_address;
+X  
+X  ctx.ds_si = (void far *) & spec;
+X  ctx.ax = 0x0b00;		/* EMB move */
+X  jxms_calldriver(xms_driver, (XMScontext far *) & ctx);
+X  if (ctx.ax != 1)
+X    ERREXIT(methods, "read from extended memory failed");
+X
+X  if (ODD(byte_count)) {
+X    read_xms_store(info, (void FAR *) endbuffer,
+X		   file_offset + byte_count - 1L, 2L);
+X    ((char FAR *) buffer_address)[byte_count - 1L] = endbuffer[0];
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xwrite_xms_store (backing_store_ptr info, void FAR * buffer_address,
+X		 long file_offset, long byte_count)
+X{
+X  XMScontext ctx;
+X  XMSspec spec;
+X  char endbuffer[2];
+X
+X  /* The XMS driver can't cope with an odd length, so handle the last byte
+X   * specially if byte_count is odd.  We don't expect this to be common.
+X   */
+X
+X  spec.length = byte_count & (~ 1L);
+X  spec.src_handle = 0;
+X  spec.src.ptr = buffer_address;
+X  spec.dst_handle = info->handle.xms_handle;
+X  spec.dst.offset = file_offset;
+X
+X  ctx.ds_si = (void far *) & spec;
+X  ctx.ax = 0x0b00;		/* EMB move */
+X  jxms_calldriver(xms_driver, (XMScontext far *) & ctx);
+X  if (ctx.ax != 1)
+X    ERREXIT(methods, "write to extended memory failed");
+X
+X  if (ODD(byte_count)) {
+X    read_xms_store(info, (void FAR *) endbuffer,
+X		   file_offset + byte_count - 1L, 2L);
+X    endbuffer[0] = ((char FAR *) buffer_address)[byte_count - 1L];
+X    write_xms_store(info, (void FAR *) endbuffer,
+X		    file_offset + byte_count - 1L, 2L);
+X  }
+X}
+X
+X
+XMETHODDEF void
+Xclose_xms_store (backing_store_ptr info)
+X{
+X  XMScontext ctx;
+X
+X  ctx.dx = info->handle.xms_handle;
+X  ctx.ax = 0x0a00;
+X  jxms_calldriver(xms_driver, (XMScontext far *) & ctx);
+X  TRACEMS1(methods, 1, "Freed XMS handle %u", info->handle.xms_handle);
+X  /* we ignore any error return from the driver */
+X}
+X
+X
+XLOCAL boolean
+Xopen_xms_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  XMScontext ctx;
+X
+X  /* Get address of XMS driver */
+X  jxms_getdriver((XMSDRIVER far *) & xms_driver);
+X  if (xms_driver == NULL)
+X    return FALSE;		/* no driver to be had */
+X
+X  /* Get version number, must be >= 2.00 */
+X  ctx.ax = 0x0000;
+X  jxms_calldriver(xms_driver, (XMScontext far *) & ctx);
+X  if (ctx.ax < (unsigned short) 0x0200)
+X    return FALSE;
+X
+X  /* Try to get space (expressed in kilobytes) */
+X  ctx.dx = (unsigned short) ((total_bytes_needed + 1023L) >> 10);
+X  ctx.ax = 0x0900;
+X  jxms_calldriver(xms_driver, (XMScontext far *) & ctx);
+X  if (ctx.ax != 1)
+X    return FALSE;
+X
+X  /* Succeeded, save the handle and away we go */
+X  info->handle.xms_handle = ctx.dx;
+X  info->read_backing_store = read_xms_store;
+X  info->write_backing_store = write_xms_store;
+X  info->close_backing_store = close_xms_store;
+X  TRACEMS1(methods, 1, "Obtained XMS handle %u", ctx.dx);
+X  return TRUE;			/* succeeded */
+X}
+X
+X#endif /* XMS_SUPPORTED */
+X
+X
+X/*
+X * Access methods for expanded memory.
+X */
+X
+X#if EMS_SUPPORTED
+X
+Xtypedef union {			/* either offset/page or real-mode pointer */
+X	struct { unsigned short offset, page; } ems;
+X	void far * ptr;
+X      } EMSPTR;
+X
+Xtypedef struct {		/* EMS move specification structure */
+X	long length;
+X	char src_type;		/* 1 = EMS, 0 = conventional memory */
+X	EMSH src_handle;	/* use 0 if conventional memory */
+X	EMSPTR src;
+X	char dst_type;
+X	EMSH dst_handle;
+X	EMSPTR dst;
+X      } EMSspec;
+X
+X#define EMSPAGESIZE	16384L	/* gospel, see the EMS specs */
+X
+X#define HIBYTE(W)  (((W) >> 8) & 0xFF)
+X#define LOBYTE(W)  ((W) & 0xFF)
+X
+X
+XMETHODDEF void
+Xread_ems_store (backing_store_ptr info, void FAR * buffer_address,
+X		long file_offset, long byte_count)
+X{
+X  EMScontext ctx;
+X  EMSspec spec;
+X
+X  spec.length = byte_count;
+X  spec.src_type = 1;
+X  spec.src_handle = info->handle.ems_handle;
+X  spec.src.ems.page = (unsigned short) (file_offset / EMSPAGESIZE);
+X  spec.src.ems.offset = (unsigned short) (file_offset % EMSPAGESIZE);
+X  spec.dst_type = 0;
+X  spec.dst_handle = 0;
+X  spec.dst.ptr = buffer_address;
+X  
+X  ctx.ds_si = (void far *) & spec;
+X  ctx.ax = 0x5700;		/* move memory region */
+X  jems_calldriver((EMScontext far *) & ctx);
+X  if (HIBYTE(ctx.ax) != 0)
+X    ERREXIT(methods, "read from expanded memory failed");
+X}
+X
+X
+XMETHODDEF void
+Xwrite_ems_store (backing_store_ptr info, void FAR * buffer_address,
+X		 long file_offset, long byte_count)
+X{
+X  EMScontext ctx;
+X  EMSspec spec;
+X
+X  spec.length = byte_count;
+X  spec.src_type = 0;
+X  spec.src_handle = 0;
+X  spec.src.ptr = buffer_address;
+X  spec.dst_type = 1;
+X  spec.dst_handle = info->handle.ems_handle;
+X  spec.dst.ems.page = (unsigned short) (file_offset / EMSPAGESIZE);
+X  spec.dst.ems.offset = (unsigned short) (file_offset % EMSPAGESIZE);
+X  
+X  ctx.ds_si = (void far *) & spec;
+X  ctx.ax = 0x5700;		/* move memory region */
+X  jems_calldriver((EMScontext far *) & ctx);
+X  if (HIBYTE(ctx.ax) != 0)
+X    ERREXIT(methods, "write to expanded memory failed");
+X}
+X
+X
+XMETHODDEF void
+Xclose_ems_store (backing_store_ptr info)
+X{
+X  EMScontext ctx;
+X
+X  ctx.ax = 0x4500;
+X  ctx.dx = info->handle.ems_handle;
+X  jems_calldriver((EMScontext far *) & ctx);
+X  TRACEMS1(methods, 1, "Freed EMS handle %u", info->handle.ems_handle);
+X  /* we ignore any error return from the driver */
+X}
+X
+X
+XLOCAL boolean
+Xopen_ems_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  EMScontext ctx;
+X
+X  /* Is EMS driver there? */
+X  if (! jems_available())
+X    return FALSE;
+X
+X  /* Get status, make sure EMS is OK */
+X  ctx.ax = 0x4000;
+X  jems_calldriver((EMScontext far *) & ctx);
+X  if (HIBYTE(ctx.ax) != 0)
+X    return FALSE;
+X
+X  /* Get version, must be >= 4.0 */
+X  ctx.ax = 0x4600;
+X  jems_calldriver((EMScontext far *) & ctx);
+X  if (HIBYTE(ctx.ax) != 0 || LOBYTE(ctx.ax) < 0x40)
+X    return FALSE;
+X
+X  /* Try to allocate requested space */
+X  ctx.ax = 0x4300;
+X  ctx.bx = (unsigned short) ((total_bytes_needed + EMSPAGESIZE-1L) / EMSPAGESIZE);
+X  jems_calldriver((EMScontext far *) & ctx);
+X  if (HIBYTE(ctx.ax) != 0)
+X    return FALSE;
+X
+X  /* Succeeded, save the handle and away we go */
+X  info->handle.ems_handle = ctx.dx;
+X  info->read_backing_store = read_ems_store;
+X  info->write_backing_store = write_ems_store;
+X  info->close_backing_store = close_ems_store;
+X  TRACEMS1(methods, 1, "Obtained EMS handle %u", ctx.dx);
+X  return TRUE;			/* succeeded */
+X}
+X
+X#endif /* EMS_SUPPORTED */
+X
+X
+X/*
+X * Initial opening of a backing-store object.
+X */
+X
+XGLOBAL void
+Xjopen_backing_store (backing_store_ptr info, long total_bytes_needed)
+X{
+X  /* Try extended memory, then expanded memory, then regular file. */
+X#if XMS_SUPPORTED
+X  if (open_xms_store(info, total_bytes_needed))
+X    return;
+X#endif
+X#if EMS_SUPPORTED
+X  if (open_ems_store(info, total_bytes_needed))
+X    return;
+X#endif
+X  if (open_file_store(info, total_bytes_needed))
+X    return;
+X  ERREXIT(methods, "Failed to create temporary file");
+X}
+X
+X
+X/*
+X * These routines take care of any system-dependent initialization and
+X * cleanup required.  Keep in mind that jmem_term may be called more than
+X * once.
+X */
+X
+XGLOBAL void
+Xjmem_init (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for error exit access */
+X  emethods->max_memory_to_use = DEFAULT_MAX_MEM;
+X  total_used = 0;
+X  next_file_num = 0;
+X}
+X
+XGLOBAL void
+Xjmem_term (void)
+X{
+X  /* no work */
+X}
+END_OF_FILE
+  if test 17557 -ne `wc -c <'jmemdos.c'`; then
+    echo shar: \"'jmemdos.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmemdos.c'
+fi
+if test -f 'jmemmgr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemmgr.c'\"
+else
+  echo shar: Extracting \"'jmemmgr.c'\" \(37719 characters\)
+  sed "s/^X//" >'jmemmgr.c' <<'END_OF_FILE'
+X/*
+X * jmemmgr.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file provides the standard system-independent memory management
+X * routines.  This code is usable across a wide variety of machines; most
+X * of the system dependencies have been isolated in a separate file.
+X * The major functions provided here are:
+X *   * bookkeeping to allow all allocated memory to be freed upon exit;
+X *   * policy decisions about how to divide available memory among the
+X *     various large arrays;
+X *   * control logic for swapping virtual arrays between main memory and
+X *     backing storage.
+X * The separate system-dependent file provides the actual backing-storage
+X * access code, and it contains the policy decision about how much total
+X * main memory to use.
+X * This file is system-dependent in the sense that some of its functions
+X * are unnecessary in some systems.  For example, if there is enough virtual
+X * memory so that backing storage will never be used, much of the big-array
+X * control logic could be removed.  (Of course, if you have that much memory
+X * then you shouldn't care about a little bit of unused code...)
+X *
+X * These routines are invoked via the methods alloc_small, free_small,
+X * alloc_medium, free_medium, alloc_small_sarray, free_small_sarray,
+X * alloc_small_barray, free_small_barray, request_big_sarray,
+X * request_big_barray, alloc_big_arrays, access_big_sarray, access_big_barray,
+X * free_big_sarray, free_big_barray, and free_all.
+X */
+X
+X#define AM_MEMORY_MANAGER	/* we define big_Xarray_control structs */
+X
+X#include "jinclude.h"
+X#include "jmemsys.h"		/* import the system-dependent declarations */
+X
+X#ifndef NO_GETENV
+X#ifdef INCLUDES_ARE_ANSI
+X#include <stdlib.h>		/* to declare getenv() */
+X#else
+Xextern char * getenv PP((const char * name));
+X#endif
+X#endif
+X
+X
+X/*
+X * On many systems it is not necessary to distinguish alloc_small from
+X * alloc_medium; the main case where they must be distinguished is when
+X * FAR pointers are distinct from regular pointers.  However, you might
+X * want to keep them separate if you have different system-dependent logic
+X * for small and large memory requests (i.e., jget_small and jget_large
+X * do different things).
+X */
+X
+X#ifdef NEED_FAR_POINTERS
+X#define NEED_ALLOC_MEDIUM	/* flags alloc_medium really exists */
+X#endif
+X
+X
+X/*
+X * Many machines require storage alignment: longs must start on 4-byte
+X * boundaries, doubles on 8-byte boundaries, etc.  On such machines, malloc()
+X * always returns pointers that are multiples of the worst-case alignment
+X * requirement, and we had better do so too.  This means the headers that
+X * we tack onto allocated structures had better have length a multiple of
+X * the alignment requirement.
+X * There isn't any really portable way to determine the worst-case alignment
+X * requirement.  In this code we assume that the alignment requirement is
+X * multiples of sizeof(align_type).  Here we define align_type as double;
+X * with this definition, the code will run on all machines known to me.
+X * If your machine has lesser alignment needs, you can save a few bytes
+X * by making align_type smaller.
+X */
+X
+Xtypedef double align_type;
+X
+X
+X/*
+X * Some important notes:
+X *   The allocation routines provided here must never return NULL.
+X *   They should exit to error_exit if unsuccessful.
+X *
+X *   It's not a good idea to try to merge the sarray and barray routines,
+X *   even though they are textually almost the same, because samples are
+X *   usually stored as bytes while coefficients are shorts.  Thus, in machines
+X *   where byte pointers have a different representation from word pointers,
+X *   the resulting machine code could not be the same.
+X */
+X
+X
+Xstatic external_methods_ptr methods; /* saved for access to error_exit */
+X
+X
+X#ifdef MEM_STATS		/* optional extra stuff for statistics */
+X
+X/* These macros are the assumed overhead per block for malloc().
+X * They don't have to be accurate, but the printed statistics will be
+X * off a little bit if they are not.
+X */
+X#define MALLOC_OVERHEAD  (SIZEOF(void *)) /* overhead for jget_small() */
+X#define MALLOC_FAR_OVERHEAD  (SIZEOF(void FAR *)) /* for jget_large() */
+X
+Xstatic long total_num_small = 0;	/* total # of small objects alloced */
+Xstatic long total_bytes_small = 0;	/* total bytes requested */
+Xstatic long cur_num_small = 0;		/* # currently alloced */
+Xstatic long max_num_small = 0;		/* max simultaneously alloced */
+X
+X#ifdef NEED_ALLOC_MEDIUM
+Xstatic long total_num_medium = 0;	/* total # of medium objects alloced */
+Xstatic long total_bytes_medium = 0;	/* total bytes requested */
+Xstatic long cur_num_medium = 0;		/* # currently alloced */
+Xstatic long max_num_medium = 0;		/* max simultaneously alloced */
+X#endif
+X
+Xstatic long total_num_sarray = 0;	/* total # of sarray objects alloced */
+Xstatic long total_bytes_sarray = 0;	/* total bytes requested */
+Xstatic long cur_num_sarray = 0;		/* # currently alloced */
+Xstatic long max_num_sarray = 0;		/* max simultaneously alloced */
+X
+Xstatic long total_num_barray = 0;	/* total # of barray objects alloced */
+Xstatic long total_bytes_barray = 0;	/* total bytes requested */
+Xstatic long cur_num_barray = 0;		/* # currently alloced */
+Xstatic long max_num_barray = 0;		/* max simultaneously alloced */
+X
+X
+XLOCAL void
+Xprint_mem_stats (void)
+X{
+X  /* since this is only a debugging stub, we can cheat a little on the
+X   * trace message mechanism... helpful 'cuz trace_message can't handle longs.
+X   */
+X  fprintf(stderr, "total_num_small = %ld\n", total_num_small);
+X  fprintf(stderr, "total_bytes_small = %ld\n", total_bytes_small);
+X  if (cur_num_small)
+X    fprintf(stderr, "cur_num_small = %ld\n", cur_num_small);
+X  fprintf(stderr, "max_num_small = %ld\n", max_num_small);
+X  
+X#ifdef NEED_ALLOC_MEDIUM
+X  fprintf(stderr, "total_num_medium = %ld\n", total_num_medium);
+X  fprintf(stderr, "total_bytes_medium = %ld\n", total_bytes_medium);
+X  if (cur_num_medium)
+X    fprintf(stderr, "cur_num_medium = %ld\n", cur_num_medium);
+X  fprintf(stderr, "max_num_medium = %ld\n", max_num_medium);
+X#endif
+X  
+X  fprintf(stderr, "total_num_sarray = %ld\n", total_num_sarray);
+X  fprintf(stderr, "total_bytes_sarray = %ld\n", total_bytes_sarray);
+X  if (cur_num_sarray)
+X    fprintf(stderr, "cur_num_sarray = %ld\n", cur_num_sarray);
+X  fprintf(stderr, "max_num_sarray = %ld\n", max_num_sarray);
+X  
+X  fprintf(stderr, "total_num_barray = %ld\n", total_num_barray);
+X  fprintf(stderr, "total_bytes_barray = %ld\n", total_bytes_barray);
+X  if (cur_num_barray)
+X    fprintf(stderr, "cur_num_barray = %ld\n", cur_num_barray);
+X  fprintf(stderr, "max_num_barray = %ld\n", max_num_barray);
+X}
+X
+X#endif /* MEM_STATS */
+X
+X
+XLOCAL void
+Xout_of_memory (int which)
+X/* Report an out-of-memory error and stop execution */
+X/* If we compiled MEM_STATS support, report alloc requests before dying */
+X{
+X#ifdef MEM_STATS
+X  if (methods->trace_level <= 0) /* don't do it if free_all() will */
+X    print_mem_stats();		/* print optional memory usage statistics */
+X#endif
+X  ERREXIT1(methods, "Insufficient memory (case %d)", which);
+X}
+X
+X
+X/*
+X * Management of "small" objects.
+X * These are all-in-memory, and are in near-heap space on an 80x86.
+X */
+X
+Xtypedef union small_struct * small_ptr;
+X
+Xtypedef union small_struct {
+X	small_ptr next;		/* next in list of allocated objects */
+X	align_type dummy;	/* ensures alignment of following storage */
+X      } small_hdr;
+X
+Xstatic small_ptr small_list;	/* head of list */
+X
+X
+XMETHODDEF void *
+Xalloc_small (size_t sizeofobject)
+X/* Allocate a "small" object */
+X{
+X  small_ptr result;
+X
+X  sizeofobject += SIZEOF(small_hdr); /* add space for header */
+X
+X#ifdef MEM_STATS
+X  total_num_small++;
+X  total_bytes_small += sizeofobject + MALLOC_OVERHEAD;
+X  cur_num_small++;
+X  if (cur_num_small > max_num_small) max_num_small = cur_num_small;
+X#endif
+X
+X  result = (small_ptr) jget_small(sizeofobject);
+X  if (result == NULL)
+X    out_of_memory(1);
+X
+X  result->next = small_list;
+X  small_list = result;
+X  result++;			/* advance past header */
+X
+X  return (void *) result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small (void *ptr)
+X/* Free a "small" object */
+X{
+X  small_ptr hdr;
+X  small_ptr * llink;
+X
+X  hdr = (small_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  jfree_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_small--;
+X#endif
+X}
+X
+X
+X/*
+X * Management of "medium-size" objects.
+X * These are just like small objects except they are in the FAR heap.
+X */
+X
+X#ifdef NEED_ALLOC_MEDIUM
+X
+Xtypedef union medium_struct FAR * medium_ptr;
+X
+Xtypedef union medium_struct {
+X	medium_ptr next;	/* next in list of allocated objects */
+X	align_type dummy;	/* ensures alignment of following storage */
+X      } medium_hdr;
+X
+Xstatic medium_ptr medium_list;	/* head of list */
+X
+X
+XMETHODDEF void FAR *
+Xalloc_medium (size_t sizeofobject)
+X/* Allocate a "medium-size" object */
+X{
+X  medium_ptr result;
+X
+X  sizeofobject += SIZEOF(medium_hdr); /* add space for header */
+X
+X#ifdef MEM_STATS
+X  total_num_medium++;
+X  total_bytes_medium += sizeofobject + MALLOC_FAR_OVERHEAD;
+X  cur_num_medium++;
+X  if (cur_num_medium > max_num_medium) max_num_medium = cur_num_medium;
+X#endif
+X
+X  result = (medium_ptr) jget_large(sizeofobject);
+X  if (result == NULL)
+X    out_of_memory(2);
+X
+X  result->next = medium_list;
+X  medium_list = result;
+X  result++;			/* advance past header */
+X
+X  return (void FAR *) result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_medium (void FAR *ptr)
+X/* Free a "medium-size" object */
+X{
+X  medium_ptr hdr;
+X  medium_ptr FAR * llink;
+X
+X  hdr = (medium_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &medium_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_medium request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  jfree_large((void FAR *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_medium--;
+X#endif
+X}
+X
+X#endif /* NEED_ALLOC_MEDIUM */
+X
+X
+X/*
+X * Management of "small" (all-in-memory) 2-D sample arrays.
+X * The pointers are in near heap, the samples themselves in FAR heap.
+X * The header structure is adjacent to the row pointers.
+X * To minimize allocation overhead and to allow I/O of large contiguous
+X * blocks, we allocate the sample rows in groups of as many rows as possible
+X * without exceeding MAX_ALLOC_CHUNK total bytes per allocation request.
+X * Note that the big-array control routines, later in this file, know about
+X * this chunking of rows ... and also how to get the rowsperchunk value!
+X */
+X
+Xtypedef struct small_sarray_struct * small_sarray_ptr;
+X
+Xtypedef struct small_sarray_struct {
+X	small_sarray_ptr next;	/* next in list of allocated sarrays */
+X	long numrows;		/* # of rows in this array */
+X	long rowsperchunk;	/* max # of rows per allocation chunk */
+X	JSAMPROW dummy;		/* ensures alignment of following storage */
+X      } small_sarray_hdr;
+X
+Xstatic small_sarray_ptr small_sarray_list; /* head of list */
+X
+X
+XMETHODDEF JSAMPARRAY
+Xalloc_small_sarray (long samplesperrow, long numrows)
+X/* Allocate a "small" (all-in-memory) 2-D sample array */
+X{
+X  small_sarray_ptr hdr;
+X  JSAMPARRAY result;
+X  JSAMPROW workspace;
+X  long rowsperchunk, currow, i;
+X
+X#ifdef MEM_STATS
+X  total_num_sarray++;
+X  cur_num_sarray++;
+X  if (cur_num_sarray > max_num_sarray) max_num_sarray = cur_num_sarray;
+X#endif
+X
+X  /* Calculate max # of rows allowed in one allocation chunk */
+X  rowsperchunk = MAX_ALLOC_CHUNK / (samplesperrow * SIZEOF(JSAMPLE));
+X  if (rowsperchunk <= 0)
+X      ERREXIT(methods, "Image too wide for this implementation");
+X
+X  /* Get space for header and row pointers; this is always "near" on 80x86 */
+X  hdr = (small_sarray_ptr) alloc_small((size_t) (numrows * SIZEOF(JSAMPROW)
+X						 + SIZEOF(small_sarray_hdr)));
+X
+X  result = (JSAMPARRAY) (hdr+1); /* advance past header */
+X
+X  /* Insert into list now so free_all does right thing if I fail */
+X  /* after allocating only some of the rows... */
+X  hdr->next = small_sarray_list;
+X  hdr->numrows = 0;
+X  hdr->rowsperchunk = rowsperchunk;
+X  small_sarray_list = hdr;
+X
+X  /* Get the rows themselves; on 80x86 these are "far" */
+X  currow = 0;
+X  while (currow < numrows) {
+X    rowsperchunk = MIN(rowsperchunk, numrows - currow);
+X#ifdef MEM_STATS
+X    total_bytes_sarray += rowsperchunk * samplesperrow * SIZEOF(JSAMPLE)
+X			  + MALLOC_FAR_OVERHEAD;
+X#endif
+X    workspace = (JSAMPROW) jget_large((size_t) (rowsperchunk * samplesperrow
+X						* SIZEOF(JSAMPLE)));
+X    if (workspace == NULL)
+X      out_of_memory(3);
+X    for (i = rowsperchunk; i > 0; i--) {
+X      result[currow++] = workspace;
+X      workspace += samplesperrow;
+X    }
+X    hdr->numrows = currow;
+X  }
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small_sarray (JSAMPARRAY ptr)
+X/* Free a "small" (all-in-memory) 2-D sample array */
+X{
+X  small_sarray_ptr hdr;
+X  small_sarray_ptr * llink;
+X  long i;
+X
+X  hdr = (small_sarray_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_sarray_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small_sarray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  /* Free the rows themselves; on 80x86 these are "far" */
+X  /* Note we only free the row-group headers! */
+X  for (i = 0; i < hdr->numrows; i += hdr->rowsperchunk) {
+X    jfree_large((void FAR *) ptr[i]);
+X  }
+X
+X  /* Free header and row pointers */
+X  free_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_sarray--;
+X#endif
+X}
+X
+X
+X/*
+X * Management of "small" (all-in-memory) 2-D coefficient-block arrays.
+X * This is essentially the same as the code for sample arrays, above.
+X */
+X
+Xtypedef struct small_barray_struct * small_barray_ptr;
+X
+Xtypedef struct small_barray_struct {
+X	small_barray_ptr next;	/* next in list of allocated barrays */
+X	long numrows;		/* # of rows in this array */
+X	long rowsperchunk;	/* max # of rows per allocation chunk */
+X	JBLOCKROW dummy;	/* ensures alignment of following storage */
+X      } small_barray_hdr;
+X
+Xstatic small_barray_ptr small_barray_list; /* head of list */
+X
+X
+XMETHODDEF JBLOCKARRAY
+Xalloc_small_barray (long blocksperrow, long numrows)
+X/* Allocate a "small" (all-in-memory) 2-D coefficient-block array */
+X{
+X  small_barray_ptr hdr;
+X  JBLOCKARRAY result;
+X  JBLOCKROW workspace;
+X  long rowsperchunk, currow, i;
+X
+X#ifdef MEM_STATS
+X  total_num_barray++;
+X  cur_num_barray++;
+X  if (cur_num_barray > max_num_barray) max_num_barray = cur_num_barray;
+X#endif
+X
+X  /* Calculate max # of rows allowed in one allocation chunk */
+X  rowsperchunk = MAX_ALLOC_CHUNK / (blocksperrow * SIZEOF(JBLOCK));
+X  if (rowsperchunk <= 0)
+X      ERREXIT(methods, "Image too wide for this implementation");
+X
+X  /* Get space for header and row pointers; this is always "near" on 80x86 */
+X  hdr = (small_barray_ptr) alloc_small((size_t) (numrows * SIZEOF(JBLOCKROW)
+X						 + SIZEOF(small_barray_hdr)));
+X
+X  result = (JBLOCKARRAY) (hdr+1); /* advance past header */
+X
+X  /* Insert into list now so free_all does right thing if I fail */
+X  /* after allocating only some of the rows... */
+X  hdr->next = small_barray_list;
+X  hdr->numrows = 0;
+X  hdr->rowsperchunk = rowsperchunk;
+X  small_barray_list = hdr;
+X
+X  /* Get the rows themselves; on 80x86 these are "far" */
+X  currow = 0;
+X  while (currow < numrows) {
+X    rowsperchunk = MIN(rowsperchunk, numrows - currow);
+X#ifdef MEM_STATS
+X    total_bytes_barray += rowsperchunk * blocksperrow * SIZEOF(JBLOCK)
+X			  + MALLOC_FAR_OVERHEAD;
+X#endif
+X    workspace = (JBLOCKROW) jget_large((size_t) (rowsperchunk * blocksperrow
+X						 * SIZEOF(JBLOCK)));
+X    if (workspace == NULL)
+X      out_of_memory(4);
+X    for (i = rowsperchunk; i > 0; i--) {
+X      result[currow++] = workspace;
+X      workspace += blocksperrow;
+X    }
+X    hdr->numrows = currow;
+X  }
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xfree_small_barray (JBLOCKARRAY ptr)
+X/* Free a "small" (all-in-memory) 2-D coefficient-block array */
+X{
+X  small_barray_ptr hdr;
+X  small_barray_ptr * llink;
+X  long i;
+X
+X  hdr = (small_barray_ptr) ptr;
+X  hdr--;			/* point back to header */
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &small_barray_list;
+X  while (*llink != hdr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_small_barray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = hdr->next;
+X
+X  /* Free the rows themselves; on 80x86 these are "far" */
+X  /* Note we only free the row-group headers! */
+X  for (i = 0; i < hdr->numrows; i += hdr->rowsperchunk) {
+X    jfree_large((void FAR *) ptr[i]);
+X  }
+X
+X  /* Free header and row pointers */
+X  free_small((void *) hdr);
+X
+X#ifdef MEM_STATS
+X  cur_num_barray--;
+X#endif
+X}
+X
+X
+X
+X/*
+X * About "big" array management:
+X *
+X * To allow machines with limited memory to handle large images,
+X * all processing in the JPEG system is done a few pixel or block rows
+X * at a time.  The above "small" array routines are only used to allocate
+X * strip buffers (as wide as the image, but just a few rows high).
+X * In some cases multiple passes must be made over the data.  In these
+X * cases the "big" array routines are used.  The array is still accessed
+X * a strip at a time, but the memory manager must save the whole array
+X * for repeated accesses.  The intended implementation is that there is
+X * a strip buffer in memory (as high as is possible given the desired memory
+X * limit), plus a backing file that holds the rest of the array.
+X *
+X * The request_big_array routines are told the total size of the image (in case
+X * it is useful to know the total file size that will be needed).  They are
+X * also given the unit height, which is the number of rows that will be
+X * accessed at once; the in-memory buffer should be made a multiple of
+X * this height for best efficiency.
+X *
+X * The request routines create control blocks (and may open backing files),
+X * but they don't create the in-memory buffers.  This is postponed until
+X * alloc_big_arrays is called.  At that time the total amount of space needed
+X * is known (approximately, anyway), so free memory can be divided up fairly.
+X *
+X * The access_big_array routines are responsible for making a specific strip
+X * area accessible (after reading or writing the backing file, if necessary).
+X * Note that the access routines are told whether the caller intends to modify
+X * the accessed strip; during a read-only pass this saves having to rewrite
+X * data to disk.
+X *
+X * The typical access pattern is one top-to-bottom pass to write the data,
+X * followed by one or more read-only top-to-bottom passes.  However, other
+X * access patterns may occur while reading.  For example, translation of image
+X * formats that use bottom-to-top scan order will require bottom-to-top read
+X * passes.  The memory manager need not support multiple write passes nor
+X * funny write orders (meaning that rearranging rows must be handled while
+X * reading data out of the big array, not while putting it in).
+X *
+X * In current usage, the access requests are always for nonoverlapping strips;
+X * that is, successive access start_row numbers always differ by exactly the
+X * unitheight.  This allows fairly simple buffer dump/reload logic if the
+X * in-memory buffer is made a multiple of the unitheight.  It would be
+X * possible to keep downsampled rather than fullsize data in the "big" arrays,
+X * thus reducing temp file size, if we supported overlapping strip access
+X * (access requests differing by less than the unitheight).  At the moment
+X * I don't believe this is worth the extra complexity.
+X */
+X
+X
+X
+X/* The control blocks for virtual arrays.
+X * System-dependent info for the associated backing store is hidden inside
+X * the backing_store_info struct.
+X */
+X
+Xstruct big_sarray_control {
+X	long rows_in_array;	/* total virtual array height */
+X	long samplesperrow;	/* width of array (and of memory buffer) */
+X	long unitheight;	/* # of rows accessed by access_big_sarray() */
+X	JSAMPARRAY mem_buffer;	/* the in-memory buffer */
+X	long rows_in_mem;	/* height of memory buffer */
+X	long rowsperchunk;	/* allocation chunk size in mem_buffer */
+X	long cur_start_row;	/* first logical row # in the buffer */
+X	boolean dirty;		/* do current buffer contents need written? */
+X	boolean b_s_open;	/* is backing-store data valid? */
+X	big_sarray_ptr next;	/* link to next big sarray control block */
+X	backing_store_info b_s_info; /* System-dependent control info */
+X};
+X
+Xstatic big_sarray_ptr big_sarray_list; /* head of list */
+X
+Xstruct big_barray_control {
+X	long rows_in_array;	/* total virtual array height */
+X	long blocksperrow;	/* width of array (and of memory buffer) */
+X	long unitheight;	/* # of rows accessed by access_big_barray() */
+X	JBLOCKARRAY mem_buffer;	/* the in-memory buffer */
+X	long rows_in_mem;	/* height of memory buffer */
+X	long rowsperchunk;	/* allocation chunk size in mem_buffer */
+X	long cur_start_row;	/* first logical row # in the buffer */
+X	boolean dirty;		/* do current buffer contents need written? */
+X	boolean b_s_open;	/* is backing-store data valid? */
+X	big_barray_ptr next;	/* link to next big barray control block */
+X	backing_store_info b_s_info; /* System-dependent control info */
+X};
+X
+Xstatic big_barray_ptr big_barray_list; /* head of list */
+X
+X
+XMETHODDEF big_sarray_ptr
+Xrequest_big_sarray (long samplesperrow, long numrows, long unitheight)
+X/* Request a "big" (virtual-memory) 2-D sample array */
+X{
+X  big_sarray_ptr result;
+X
+X  /* get control block */
+X  result = (big_sarray_ptr) alloc_small(SIZEOF(struct big_sarray_control));
+X
+X  result->rows_in_array = numrows;
+X  result->samplesperrow = samplesperrow;
+X  result->unitheight = unitheight;
+X  result->mem_buffer = NULL;	/* marks array not yet realized */
+X  result->b_s_open = FALSE;	/* no associated backing-store object */
+X  result->next = big_sarray_list; /* add to list of big arrays */
+X  big_sarray_list = result;
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF big_barray_ptr
+Xrequest_big_barray (long blocksperrow, long numrows, long unitheight)
+X/* Request a "big" (virtual-memory) 2-D coefficient-block array */
+X{
+X  big_barray_ptr result;
+X
+X  /* get control block */
+X  result = (big_barray_ptr) alloc_small(SIZEOF(struct big_barray_control));
+X
+X  result->rows_in_array = numrows;
+X  result->blocksperrow = blocksperrow;
+X  result->unitheight = unitheight;
+X  result->mem_buffer = NULL;	/* marks array not yet realized */
+X  result->b_s_open = FALSE;	/* no associated backing-store object */
+X  result->next = big_barray_list; /* add to list of big arrays */
+X  big_barray_list = result;
+X
+X  return result;
+X}
+X
+X
+XMETHODDEF void
+Xalloc_big_arrays (long extra_small_samples, long extra_small_blocks,
+X		  long extra_medium_space)
+X/* Allocate the in-memory buffers for any unrealized "big" arrays */
+X/* 'extra' values are upper bounds for total future small-array requests */
+X/* and far-heap requests */
+X{
+X  long total_extra_space = extra_small_samples * SIZEOF(JSAMPLE)
+X			   + extra_small_blocks * SIZEOF(JBLOCK)
+X			   + extra_medium_space;
+X  long space_per_unitheight, maximum_space, avail_mem;
+X  long unitheights, max_unitheights;
+X  big_sarray_ptr sptr;
+X  big_barray_ptr bptr;
+X
+X  /* Compute the minimum space needed (unitheight rows in each buffer)
+X   * and the maximum space needed (full image height in each buffer).
+X   * These may be of use to the system-dependent jmem_available routine.
+X   */
+X  space_per_unitheight = 0;
+X  maximum_space = total_extra_space;
+X  for (sptr = big_sarray_list; sptr != NULL; sptr = sptr->next) {
+X    if (sptr->mem_buffer == NULL) { /* if not realized yet */
+X      space_per_unitheight += sptr->unitheight *
+X			      sptr->samplesperrow * SIZEOF(JSAMPLE);
+X      maximum_space += sptr->rows_in_array *
+X		       sptr->samplesperrow * SIZEOF(JSAMPLE);
+X    }
+X  }
+X  for (bptr = big_barray_list; bptr != NULL; bptr = bptr->next) {
+X    if (bptr->mem_buffer == NULL) { /* if not realized yet */
+X      space_per_unitheight += bptr->unitheight *
+X			      bptr->blocksperrow * SIZEOF(JBLOCK);
+X      maximum_space += bptr->rows_in_array *
+X		       bptr->blocksperrow * SIZEOF(JBLOCK);
+X    }
+X  }
+X
+X  if (space_per_unitheight <= 0)
+X    return;			/* no unrealized arrays, no work */
+X
+X  /* Determine amount of memory to actually use; this is system-dependent. */
+X  avail_mem = jmem_available(space_per_unitheight + total_extra_space,
+X			     maximum_space);
+X
+X  /* If the maximum space needed is available, make all the buffers full
+X   * height; otherwise parcel it out with the same number of unitheights
+X   * in each buffer.
+X   */
+X  if (avail_mem >= maximum_space)
+X    max_unitheights = 1000000000L;
+X  else {
+X    max_unitheights = (avail_mem - total_extra_space) / space_per_unitheight;
+X    /* If there doesn't seem to be enough space, try to get the minimum
+X     * anyway.  This allows a "stub" implementation of jmem_available().
+X     */
+X    if (max_unitheights <= 0)
+X      max_unitheights = 1;
+X  }
+X
+X  /* Allocate the in-memory buffers and initialize backing store as needed. */
+X
+X  for (sptr = big_sarray_list; sptr != NULL; sptr = sptr->next) {
+X    if (sptr->mem_buffer == NULL) { /* if not realized yet */
+X      unitheights = (sptr->rows_in_array + sptr->unitheight - 1L)
+X		    / sptr->unitheight;
+X      if (unitheights <= max_unitheights) {
+X	/* This buffer fits in memory */
+X	sptr->rows_in_mem = sptr->rows_in_array;
+X      } else {
+X	/* It doesn't fit in memory, create backing store. */
+X	sptr->rows_in_mem = max_unitheights * sptr->unitheight;
+X	jopen_backing_store(& sptr->b_s_info,
+X			    (long) (sptr->rows_in_array *
+X				    sptr->samplesperrow * SIZEOF(JSAMPLE)));
+X	sptr->b_s_open = TRUE;
+X      }
+X      sptr->mem_buffer = alloc_small_sarray(sptr->samplesperrow,
+X					    sptr->rows_in_mem);
+X      /* Reach into the small_sarray header and get the rowsperchunk field.
+X       * Yes, I know, this is horrible coding practice.
+X       */
+X      sptr->rowsperchunk =
+X	((small_sarray_ptr) sptr->mem_buffer)[-1].rowsperchunk;
+X      sptr->cur_start_row = 0;
+X      sptr->dirty = FALSE;
+X    }
+X  }
+X
+X  for (bptr = big_barray_list; bptr != NULL; bptr = bptr->next) {
+X    if (bptr->mem_buffer == NULL) { /* if not realized yet */
+X      unitheights = (bptr->rows_in_array + bptr->unitheight - 1L)
+X		    / bptr->unitheight;
+X      if (unitheights <= max_unitheights) {
+X	/* This buffer fits in memory */
+X	bptr->rows_in_mem = bptr->rows_in_array;
+X      } else {
+X	/* It doesn't fit in memory, create backing store. */
+X	bptr->rows_in_mem = max_unitheights * bptr->unitheight;
+X	jopen_backing_store(& bptr->b_s_info,
+X			    (long) (bptr->rows_in_array *
+X				    bptr->blocksperrow * SIZEOF(JBLOCK)));
+X	bptr->b_s_open = TRUE;
+X      }
+X      bptr->mem_buffer = alloc_small_barray(bptr->blocksperrow,
+X					    bptr->rows_in_mem);
+X      /* Reach into the small_barray header and get the rowsperchunk field. */
+X      bptr->rowsperchunk =
+X	((small_barray_ptr) bptr->mem_buffer)[-1].rowsperchunk;
+X      bptr->cur_start_row = 0;
+X      bptr->dirty = FALSE;
+X    }
+X  }
+X}
+X
+X
+XLOCAL void
+Xdo_sarray_io (big_sarray_ptr ptr, boolean writing)
+X/* Do backing store read or write of a "big" sample array */
+X{
+X  long bytesperrow, file_offset, byte_count, rows, i;
+X
+X  bytesperrow = ptr->samplesperrow * SIZEOF(JSAMPLE);
+X  file_offset = ptr->cur_start_row * bytesperrow;
+X  /* Loop to read or write each allocation chunk in mem_buffer */
+X  for (i = 0; i < ptr->rows_in_mem; i += ptr->rowsperchunk) {
+X    /* One chunk, but check for short chunk at end of buffer */
+X    rows = MIN(ptr->rowsperchunk, ptr->rows_in_mem - i);
+X    /* Transfer no more than fits in file */
+X    rows = MIN(rows, ptr->rows_in_array - (ptr->cur_start_row + i));
+X    if (rows <= 0)		/* this chunk might be past end of file! */
+X      break;
+X    byte_count = rows * bytesperrow;
+X    if (writing)
+X      (*ptr->b_s_info.write_backing_store) (& ptr->b_s_info,
+X					    (void FAR *) ptr->mem_buffer[i],
+X					    file_offset, byte_count);
+X    else
+X      (*ptr->b_s_info.read_backing_store) (& ptr->b_s_info,
+X					   (void FAR *) ptr->mem_buffer[i],
+X					   file_offset, byte_count);
+X    file_offset += byte_count;
+X  }
+X}
+X
+X
+XLOCAL void
+Xdo_barray_io (big_barray_ptr ptr, boolean writing)
+X/* Do backing store read or write of a "big" coefficient-block array */
+X{
+X  long bytesperrow, file_offset, byte_count, rows, i;
+X
+X  bytesperrow = ptr->blocksperrow * SIZEOF(JBLOCK);
+X  file_offset = ptr->cur_start_row * bytesperrow;
+X  /* Loop to read or write each allocation chunk in mem_buffer */
+X  for (i = 0; i < ptr->rows_in_mem; i += ptr->rowsperchunk) {
+X    /* One chunk, but check for short chunk at end of buffer */
+X    rows = MIN(ptr->rowsperchunk, ptr->rows_in_mem - i);
+X    /* Transfer no more than fits in file */
+X    rows = MIN(rows, ptr->rows_in_array - (ptr->cur_start_row + i));
+X    if (rows <= 0)		/* this chunk might be past end of file! */
+X      break;
+X    byte_count = rows * bytesperrow;
+X    if (writing)
+X      (*ptr->b_s_info.write_backing_store) (& ptr->b_s_info,
+X					    (void FAR *) ptr->mem_buffer[i],
+X					    file_offset, byte_count);
+X    else
+X      (*ptr->b_s_info.read_backing_store) (& ptr->b_s_info,
+X					   (void FAR *) ptr->mem_buffer[i],
+X					   file_offset, byte_count);
+X    file_offset += byte_count;
+X  }
+X}
+X
+X
+XMETHODDEF JSAMPARRAY
+Xaccess_big_sarray (big_sarray_ptr ptr, long start_row, boolean writable)
+X/* Access the part of a "big" sample array starting at start_row */
+X/* and extending for ptr->unitheight rows.  writable is true if  */
+X/* caller intends to modify the accessed area. */
+X{
+X  /* debugging check */
+X  if (start_row < 0 || start_row+ptr->unitheight > ptr->rows_in_array ||
+X      ptr->mem_buffer == NULL)
+X    ERREXIT(methods, "Bogus access_big_sarray request");
+X
+X  /* Make the desired part of the virtual array accessible */
+X  if (start_row < ptr->cur_start_row ||
+X      start_row+ptr->unitheight > ptr->cur_start_row+ptr->rows_in_mem) {
+X    if (! ptr->b_s_open)
+X      ERREXIT(methods, "Virtual array controller messed up");
+X    /* Flush old buffer contents if necessary */
+X    if (ptr->dirty) {
+X      do_sarray_io(ptr, TRUE);
+X      ptr->dirty = FALSE;
+X    }
+X    /* Decide what part of virtual array to access.
+X     * Algorithm: if target address > current window, assume forward scan,
+X     * load starting at target address.  If target address < current window,
+X     * assume backward scan, load so that target address is top of window.
+X     * Note that when switching from forward write to forward read, will have
+X     * start_row = 0, so the limiting case applies and we load from 0 anyway.
+X     */
+X    if (start_row > ptr->cur_start_row) {
+X      ptr->cur_start_row = start_row;
+X    } else {
+X      ptr->cur_start_row = start_row + ptr->unitheight - ptr->rows_in_mem;
+X      if (ptr->cur_start_row < 0)
+X	ptr->cur_start_row = 0;	/* don't fall off front end of file */
+X    }
+X    /* If reading, read in the selected part of the array. 
+X     * If we are writing, we need not pre-read the selected portion,
+X     * since the access sequence constraints ensure it would be garbage.
+X     */
+X    if (! writable) {
+X      do_sarray_io(ptr, FALSE);
+X    }
+X  }
+X  /* Flag the buffer dirty if caller will write in it */
+X  if (writable)
+X    ptr->dirty = TRUE;
+X  /* Return address of proper part of the buffer */
+X  return ptr->mem_buffer + (start_row - ptr->cur_start_row);
+X}
+X
+X
+XMETHODDEF JBLOCKARRAY
+Xaccess_big_barray (big_barray_ptr ptr, long start_row, boolean writable)
+X/* Access the part of a "big" coefficient-block array starting at start_row */
+X/* and extending for ptr->unitheight rows.  writable is true if  */
+X/* caller intends to modify the accessed area. */
+X{
+X  /* debugging check */
+X  if (start_row < 0 || start_row+ptr->unitheight > ptr->rows_in_array ||
+X      ptr->mem_buffer == NULL)
+X    ERREXIT(methods, "Bogus access_big_barray request");
+X
+X  /* Make the desired part of the virtual array accessible */
+X  if (start_row < ptr->cur_start_row ||
+X      start_row+ptr->unitheight > ptr->cur_start_row+ptr->rows_in_mem) {
+X    if (! ptr->b_s_open)
+X      ERREXIT(methods, "Virtual array controller messed up");
+X    /* Flush old buffer contents if necessary */
+X    if (ptr->dirty) {
+X      do_barray_io(ptr, TRUE);
+X      ptr->dirty = FALSE;
+X    }
+X    /* Decide what part of virtual array to access.
+X     * Algorithm: if target address > current window, assume forward scan,
+X     * load starting at target address.  If target address < current window,
+X     * assume backward scan, load so that target address is top of window.
+X     * Note that when switching from forward write to forward read, will have
+X     * start_row = 0, so the limiting case applies and we load from 0 anyway.
+X     */
+X    if (start_row > ptr->cur_start_row) {
+X      ptr->cur_start_row = start_row;
+X    } else {
+X      ptr->cur_start_row = start_row + ptr->unitheight - ptr->rows_in_mem;
+X      if (ptr->cur_start_row < 0)
+X	ptr->cur_start_row = 0;	/* don't fall off front end of file */
+X    }
+X    /* If reading, read in the selected part of the array. 
+X     * If we are writing, we need not pre-read the selected portion,
+X     * since the access sequence constraints ensure it would be garbage.
+X     */
+X    if (! writable) {
+X      do_barray_io(ptr, FALSE);
+X    }
+X  }
+X  /* Flag the buffer dirty if caller will write in it */
+X  if (writable)
+X    ptr->dirty = TRUE;
+X  /* Return address of proper part of the buffer */
+X  return ptr->mem_buffer + (start_row - ptr->cur_start_row);
+X}
+X
+X
+XMETHODDEF void
+Xfree_big_sarray (big_sarray_ptr ptr)
+X/* Free a "big" (virtual-memory) 2-D sample array */
+X{
+X  big_sarray_ptr * llink;
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &big_sarray_list;
+X  while (*llink != ptr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_big_sarray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = ptr->next;
+X
+X  if (ptr->b_s_open)		/* there may be no backing store */
+X    (*ptr->b_s_info.close_backing_store) (& ptr->b_s_info);
+X
+X  if (ptr->mem_buffer != NULL)	/* just in case never realized */
+X    free_small_sarray(ptr->mem_buffer);
+X
+X  free_small((void *) ptr);	/* free the control block too */
+X}
+X
+X
+XMETHODDEF void
+Xfree_big_barray (big_barray_ptr ptr)
+X/* Free a "big" (virtual-memory) 2-D coefficient-block array */
+X{
+X  big_barray_ptr * llink;
+X
+X  /* Remove item from list -- linear search is fast enough */
+X  llink = &big_barray_list;
+X  while (*llink != ptr) {
+X    if (*llink == NULL)
+X      ERREXIT(methods, "Bogus free_big_barray request");
+X    llink = &( (*llink)->next );
+X  }
+X  *llink = ptr->next;
+X
+X  if (ptr->b_s_open)		/* there may be no backing store */
+X    (*ptr->b_s_info.close_backing_store) (& ptr->b_s_info);
+X
+X  if (ptr->mem_buffer != NULL)	/* just in case never realized */
+X    free_small_barray(ptr->mem_buffer);
+X
+X  free_small((void *) ptr);	/* free the control block too */
+X}
+X
+X
+X/*
+X * Cleanup: free anything that's been allocated since jselmemmgr().
+X */
+X
+XMETHODDEF void
+Xfree_all (void)
+X{
+X  /* First free any open "big" arrays -- these may release small arrays */
+X  while (big_sarray_list != NULL)
+X    free_big_sarray(big_sarray_list);
+X  while (big_barray_list != NULL)
+X    free_big_barray(big_barray_list);
+X  /* Free any open small arrays -- these may release small objects */
+X  /* +1's are because we must pass a pointer to the data, not the header */
+X  while (small_sarray_list != NULL)
+X    free_small_sarray((JSAMPARRAY) (small_sarray_list + 1));
+X  while (small_barray_list != NULL)
+X    free_small_barray((JBLOCKARRAY) (small_barray_list + 1));
+X  /* Free any remaining small objects */
+X  while (small_list != NULL)
+X    free_small((void *) (small_list + 1));
+X#ifdef NEED_ALLOC_MEDIUM
+X  while (medium_list != NULL)
+X    free_medium((void FAR *) (medium_list + 1));
+X#endif
+X
+X  jmem_term();			/* system-dependent cleanup */
+X
+X#ifdef MEM_STATS
+X  if (methods->trace_level > 0)
+X    print_mem_stats();		/* print optional memory usage statistics */
+X#endif
+X}
+X
+X
+X/*
+X * The method selection routine for virtual memory systems.
+X * The system-dependent setup routine should call this routine
+X * to install the necessary method pointers in the supplied struct.
+X */
+X
+XGLOBAL void
+Xjselmemmgr (external_methods_ptr emethods)
+X{
+X  methods = emethods;		/* save struct addr for error exit access */
+X
+X  emethods->alloc_small = alloc_small;
+X  emethods->free_small = free_small;
+X#ifdef NEED_ALLOC_MEDIUM
+X  emethods->alloc_medium = alloc_medium;
+X  emethods->free_medium = free_medium;
+X#else
+X  emethods->alloc_medium = alloc_small;
+X  emethods->free_medium = free_small;
+X#endif
+X  emethods->alloc_small_sarray = alloc_small_sarray;
+X  emethods->free_small_sarray = free_small_sarray;
+X  emethods->alloc_small_barray = alloc_small_barray;
+X  emethods->free_small_barray = free_small_barray;
+X  emethods->request_big_sarray = request_big_sarray;
+X  emethods->request_big_barray = request_big_barray;
+X  emethods->alloc_big_arrays = alloc_big_arrays;
+X  emethods->access_big_sarray = access_big_sarray;
+X  emethods->access_big_barray = access_big_barray;
+X  emethods->free_big_sarray = free_big_sarray;
+X  emethods->free_big_barray = free_big_barray;
+X  emethods->free_all = free_all;
+X
+X  /* Initialize list headers to empty */
+X  small_list = NULL;
+X#ifdef NEED_ALLOC_MEDIUM
+X  medium_list = NULL;
+X#endif
+X  small_sarray_list = NULL;
+X  small_barray_list = NULL;
+X  big_sarray_list = NULL;
+X  big_barray_list = NULL;
+X
+X  jmem_init(emethods);		/* system-dependent initialization */
+X
+X  /* Check for an environment variable JPEGMEM; if found, override the
+X   * default max_memory setting from jmem_init.  Note that a command line
+X   * -m argument may again override this value.
+X   * If your system doesn't support getenv(), define NO_GETENV to disable
+X   * this feature.
+X   */
+X#ifndef NO_GETENV
+X  { char * memenv;
+X
+X    if ((memenv = getenv("JPEGMEM")) != NULL) {
+X      long lval;
+X      char ch = 'x';
+X
+X      if (sscanf(memenv, "%ld%c", &lval, &ch) > 0) {
+X	if (ch == 'm' || ch == 'M')
+X	  lval *= 1000L;
+X	emethods->max_memory_to_use = lval * 1000L;
+X      }
+X    }
+X  }
+X#endif
+X
+X}
+END_OF_FILE
+  if test 37719 -ne `wc -c <'jmemmgr.c'`; then
+    echo shar: \"'jmemmgr.c'\" unpacked with wrong size!
+  fi
+  # end of 'jmemmgr.c'
+fi
+echo shar: End of archive 6 \(of 18\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,411 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 47/47 <- FINALLY!
+Message-ID: <1992Nov20.211158.1@acad2.alaska.edu>
+Lines: 399
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Sat, 21 Nov 1992 01:11:58 GMT
+Xref: uunet vmsnet.sources.games:547
+
+-+-+-+-+-+-+-+-+ START OF PART 47 -+-+-+-+-+-+-+-+
+X    Window wparent;
+X    XSetWindowAttributes attrs;
+X
+X#ifdef DEBUG
+X    printf("New window...\n");
+X#endif
+X    checkGeometry(name, &x, &y, &width, &height);
+X    checkParent(name, &parent);
+X    wparent=W_Void2Window(parent)->window;
+X    attrs.override_redirect=False;
+X    attrs.border_pixel=colortable`091W_White`093.pixelValue;
+X    attrs.event_mask=ResizeRedirectMask`124ExposureMask;
+X    attrs.background_pixel=colortable`091W_Black`093.pixelValue;
+X    attrs.do_not_propagate_mask=ResizeRedirectMask`124ExposureMask;
+X    newwin=newWindow(
+X`009XCreateWindow(W_Display, wparent, x, y,
+X            width*W_Textwidth+WIN_EDGE*2, MENU_PAD*2+height*W_Textheight,`03
+V2
+X`009    border, CopyFromParent, InputOutput, CopyFromParent,
+X`009    CWBackPixel`124CWEventMask`124
+X`009    CWOverrideRedirect`124CWBorderPixel,`032
+X`009    &attrs),
+X        WIN_SCROLL);
+X    XSetClassHint(W_Display, newwin->window, &class_hint);
+X    XSetWMHints(W_Display, newwin->window, &wm_hint);
+X    newwin->name=strdup(name);
+X    newwin->data=NULL;
+X    newwin->width=width;
+X    newwin->height=height;
+X    if (checkMapped(name)) W_MapWindow(W_Window2Void(newwin));
+X#ifdef DEBUG
+X    printf("New scroll window %d, child of %d\n", newwin, parent);
+X#endif
+X    return(W_Window2Void(newwin));
+X`125
+X
+X/* Add a string to the string list of the scrolling window.`032
+X */
+XAddToScrolling(win, color, str, len)
+Xstruct window *win;
+XW_Color color;
+Xchar *str;
+Xint len;
+X`123
+X    struct stringList **strings;
+X    char *newstring;
+X    int count;
+X
+X    strings= (struct stringList **) &(win->data);
+X    count=0;
+X    while ((*strings)!=NULL) `123
+X`009count++;
+X`009strings= &((*strings)->next);
+X    `125
+X    (*strings)=(struct stringList *) malloc(sizeof(struct stringList));
+X    (*strings)->next=NULL;
+X    (*strings)->color=color;
+X    newstring=(char *) malloc(len+1);
+X    strncpy(newstring, str, len);
+X    newstring`091len`093=0;
+X    (*strings)->string=newstring;
+X    if (count >= 100) `123`009`009/* Arbitrary large size. */
+X`009struct stringList *temp;
+X
+X`009temp=(struct stringList *) win->data;
+X`009free(temp->string);
+X`009temp=temp->next;
+X`009free((char *) win->data);
+X`009win->data=(char *) temp;
+X    `125
+X`125
+X
+XredrawScrolling(win)
+Xstruct window *win;
+X`123
+X    int count;
+X    struct stringList *list;
+X    int y;
+X
+X    XClearWindow(W_Display, win->window);
+X    count=0;
+X    list = (struct stringList *) win->data;
+X    while (list != NULL) `123
+X`009list=list->next;
+X`009count++;
+X    `125
+X    list = (struct stringList *) win->data;
+X    while (count > win->height) `123
+X`009list=list->next;
+X`009count--;
+X    `125
+X    y=(win->height-count)*W_Textheight+fonts`0911`093.baseline;
+X    if (count==0) return;
+X    while (list != NULL) `123
+X`009XDrawImageString(W_Display, win->window,`032
+X`009    colortable`091list->color`093.contexts`0911`093,
+X`009    WIN_EDGE, MENU_PAD+y, list->string, strlen(list->string));
+X`009list=list->next;
+X`009y=y+W_Textheight;
+X    `125
+X`125
+X
+XresizeScrolling(win, width, height)
+Xstruct window *win;
+Xint width, height;
+X`123
+X    win->height=(height - MENU_PAD*2)/W_Textheight;
+X    win->width=(width - WIN_EDGE*2)/W_Textwidth;
+X    XResizeWindow(W_Display, win->window, win->width*W_Textwidth+WIN_EDGE*2,
+X`009win->height*W_Textheight+MENU_PAD*2);
+X`125
+X
+XW_Window W_MakeMenu(name,x,y,width,height,parent,border)
+Xchar *name;
+Xint x,y,width,height;
+XW_Window parent;
+Xint border;
+X`123
+X    struct window *newwin;
+X    struct menuItem *items;
+X    Window wparent;
+X    int i;
+X    XSetWindowAttributes attrs;
+X
+X#ifdef DEBUG
+X    printf("New window...\n");
+X#endif
+X    checkGeometry(name, &x, &y, &width, &height);
+X    checkParent(name, &parent);
+X    wparent=W_Void2Window(parent)->window;
+X    attrs.override_redirect=False;
+X    attrs.border_pixel=colortable`091W_White`093.pixelValue;
+X    attrs.event_mask=KeyPressMask`124ButtonPressMask`124ExposureMask;
+X    attrs.background_pixel=colortable`091W_Black`093.pixelValue;
+X    attrs.do_not_propagate_mask=KeyPressMask`124ButtonPressMask`124ExposureM
+Vask;
+X    newwin=newWindow(
+X`009XCreateWindow(W_Display, wparent, x, y,
+X`009    width*W_Textwidth+WIN_EDGE*2,
+X`009    height*(W_Textheight+MENU_PAD*2)+(height-1)*MENU_BAR, border,
+X`009    CopyFromParent, InputOutput, CopyFromParent,
+X`009    CWBackPixel`124CWEventMask`124
+X`009    CWOverrideRedirect`124CWBorderPixel,`032
+X`009    &attrs),
+X        WIN_MENU);
+X    XSetClassHint(W_Display, newwin->window, &class_hint);
+X    XSetWMHints(W_Display, newwin->window, &wm_hint);
+X    newwin->name=strdup(name);
+X    items=(struct menuItem *) malloc(height*sizeof(struct menuItem));
+X    for (i=0; i<height; i++) `123
+X`009items`091i`093.string=NULL;
+X`009items`091i`093.color=W_White;
+X    `125
+X    newwin->data=(char *) items;
+X    newwin->width=width;
+X    newwin->height=height;
+X    if (checkMapped(name)) W_MapWindow(W_Window2Void(newwin));
+X#ifdef DEBUG
+X    printf("New menu window %d, child of %d\n", newwin, parent);
+X#endif
+X    return(W_Window2Void(newwin));
+X`125
+X
+XredrawMenu(win)
+Xstruct window *win;
+X`123
+X    int count;
+X
+X    for (count=1; count<win->height; count++) `123
+X`009XFillRectangle(W_Display, win->window,`032
+X`009    colortable`091W_White`093.contexts`0910`093,`032
+X`009    0, count*(W_Textheight+MENU_PAD*2)+(count-1)*MENU_BAR,
+X`009    win->width*W_Textwidth+WIN_EDGE*2, MENU_BAR);
+X    `125
+X    for (count=0; count<win->height; count++) `123
+X`009redrawMenuItem(win,count);
+X    `125
+X`125
+X
+XredrawMenuItem(win, n)
+Xstruct window *win;
+Xint n;
+X`123
+X    struct menuItem *items;
+X
+X    items=(struct menuItem *) win->data;
+X    XFillRectangle(W_Display, win->window,
+X`009colortable`091W_Black`093.contexts`0910`093,
+X`009WIN_EDGE, n*(W_Textheight+MENU_PAD*2+MENU_BAR)+MENU_PAD,
+X`009win->width*W_Textwidth,W_Textheight);
+X    if (items`091n`093.string) `123
+X`009XDrawImageString(W_Display, win->window,`032
+X`009    colortable`091items`091n`093.color`093.contexts`0911`093,
+X`009    WIN_EDGE, `009
+X`009    n*(W_Textheight+MENU_PAD*2+MENU_BAR)+MENU_PAD+fonts`0911`093.baselin
+Ve,
+X`009    items`091n`093.string, strlen(items`091n`093.string));
+X    `125
+X`125
+X
+XchangeMenuItem(win, n, str, len, color)
+Xstruct window *win;
+Xint n;
+Xchar *str;
+Xint len;
+XW_Color color;
+X`123
+X    struct menuItem *items;
+X    char *news;
+X
+X    items=(struct menuItem *) win->data;
+X    if (items`091n`093.string) `123
+X`009free(items`091n`093.string);
+X    `125
+X    news=malloc(len+1);
+X    strncpy(news,str,len);
+X    news`091len`093=0;
+X    items`091n`093.string=news;
+X    items`091n`093.color=color;
+X    redrawMenuItem(win, n);
+X`125
+X
+Xvoid W_DefineCursor(window,width,height,bits,mask,xhot,yhot)
+XW_Window window;
+Xint width, height, xhot, yhot;
+Xunsigned char *bits, *mask;
+X`123
+X    static unsigned char *oldbits=NULL;
+X    static Cursor curs;
+X    Pixmap cursbits;
+X    Pixmap cursmask;
+X    short *curdata;
+X    short *maskdata;
+X    struct window *win;
+X    XColor whiteCol, blackCol;
+X
+X#ifdef DEBUG
+X    printf("Defining cursor for %d\n", window);
+X#endif
+X    win=W_Void2Window(window);
+X    whiteCol.pixel=colortable`091W_White`093.pixelValue;
+X    XQueryColor(W_Display, W_Colormap, &whiteCol);
+X    blackCol.pixel=colortable`091W_Black`093.pixelValue;
+X    XQueryColor(W_Display, W_Colormap, &blackCol);
+X    if (!oldbits `124`124 oldbits!=bits) `123
+X`009cursbits=XCreateBitmapFromData(W_Display, win->window,
+X`009    bits, width, height);
+X`009cursmask=XCreateBitmapFromData(W_Display, win->window,
+X`009    mask, width, height);
+X`009oldbits=bits;
+X`009curs=XCreatePixmapCursor(W_Display, cursbits, cursmask,`032
+X`009    &whiteCol, &blackCol, xhot, yhot);
+X`009XFreePixmap(W_Display, cursbits);
+X`009XFreePixmap(W_Display, cursmask);
+X    `125
+X    XDefineCursor(W_Display, win->window, curs);
+X`125
+X
+Xvoid W_Beep()
+X`123
+X    XBell(W_Display, 0);
+X`125
+X
+Xint W_WindowWidth(window)
+XW_Window window;
+X`123
+X    return(W_Void2Window(window)->width);
+X`125
+X
+Xint W_WindowHeight(window)
+XW_Window window;
+X`123
+X    return(W_Void2Window(window)->height);
+X`125
+X
+Xint W_Socket()
+X`123
+X    return(ConnectionNumber(W_Display));
+X`125
+X
+Xvoid W_DestroyWindow(window)
+XW_Window window;
+X`123
+X    struct window *win;
+X
+X#ifdef DEBUG
+X    printf("Destroying %d\n", window);
+X#endif
+X    win=W_Void2Window(window);
+X    deleteWindow(win);
+X    XDestroyWindow(W_Display, win->window);
+X    free((char *) win);
+X`125
+X
+XdeleteWindow(window)
+Xstruct window *window;
+X`123
+X    struct windowlist **rm;
+X    struct windowlist *temp;
+X
+X    rm= &hashtable`091hash(window->window)`093;
+X    while (*rm != NULL && (*rm)->window!=window) `123
+X`009rm= &((*rm)->next);
+X    `125
+X    if (*rm==NULL) `123
+X`009printf("Attempt to delete non-existent window!\n");
+X`009return;
+X    `125
+X    temp= *rm;
+X    *rm=temp->next;
+X    free((char *) temp);
+X`125
+X
+Xvoid W_SetIconWindow(main, icon)
+XW_Window main;
+XW_Window icon;
+X`123
+X    XWMHints hints;
+X
+X    hints.flags=IconWindowHint;
+X    hints.icon_window=W_Void2Window(icon)->window;
+X    XSetWMHints(W_Display, W_Void2Window(main)->window, &hints);
+X`125
+X
+XcheckGeometry(name, x, y, width, height)
+Xchar *name;
+Xint *x, *y, *width, *height;
+X`123
+X    char *adefault;
+X    char buf`091100`093;
+X    char *s;
+X
+X    sprintf(buf, "%s.geometry", name);
+X    adefault=getdefault(buf);
+X    if (adefault==NULL) return;
+X    /* geometry should be of the form 502x885+1+1, 502x885, or +1+1 */
+X    s=adefault;
+X    if (*s!='+') `123
+X`009while (*s!='x' && *s!=0) s++;
+X`009*width = atoi(adefault);
+X`009if (*s==0) return;
+X`009s++;
+X`009adefault=s;
+X`009while (*s!='+' && *s!=0) s++;
+X`009*height = atoi(adefault);
+X`009if (*s==0) return;
+X    `125
+X    s++;
+X    adefault=s;
+X    while (*s!='+' && *s!=0) s++;
+X    *x = atoi(adefault);
+X    if (*s==0) return;
+X    s++;
+X    adefault=s;
+X    *y = atoi(adefault);
+X    return;
+X`125
+X
+XcheckParent(name, parent)
+Xchar *name;
+XW_Window *parent;
+X`123
+X    char *adefault;
+X    char buf`091100`093;
+X    int i;
+X    struct windowlist *windows;
+X
+X    sprintf(buf, "%s.parent", name);
+X    adefault=getdefault(buf);
+X    if (adefault==NULL) return;
+X    /* parent must be name of other window or "root" */
+X    if (strcmpi(adefault, "root")==0) `123
+X`009*parent=W_Window2Void(&myroot);
+X`009return;
+X    `125
+X    for (i=0; i<HASHSIZE; i++) `123
+X`009windows=hashtable`091i`093;
+X`009while (windows != NULL) `123
+X`009    if (strcmpi(adefault, windows->window->name)==0) `123
+X`009`009*parent=W_Window2Void(windows->window);
+X`009`009return;
+X`009    `125
+X`009    windows=windows->next;
+X`009`125
+X    `125
+X`125
+X
+XcheckMapped(name)
+Xchar *name;
+X`123
+X    char *adefault;
+X    char buf`091100`093;
+X
+X    sprintf(buf, "%s.mapped", name);
+X    return(booleanDefault(buf, 0));
+X`125
+$ CALL UNPACK X11WINDOW.C;1 1281524238
+$ EXIT

@@ -1,0 +1,2484 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject:  v30i050:  psf3 - Postscript print filter system, Patch03a/4
+Message-ID: <csm-v30i050=psf3.151734@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 9a19de9ac547b782895b878a9158ffe3
+Date: Sun, 14 Jun 1992 20:17:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 30, Issue 50
+Archive-name: psf3/patch03a
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+   PSF is a postscript print filter system designed to give reasonable
+   control over text output to a postscript printer. If desired, psf can
+   be installed as a filter for the lp/lpsched or lpr/lpd spooling systems.
+
+   Printed output may be configured for:
+
+		o  1-up, 2-up or 4-up on a page, landscape/portrait
+		o  fonts/point size
+		o  double sided printing
+		o  pages scaled by row and column count
+		o  lp banner page printing
+		o  reverse order printing
+		o  languages other than English
+		o  optional ISO Latin1 character encoding
+		o  left, right, top, bottom margin sizes
+		o  line clipping or left/right justified line wrap
+		o  page usage accounting
+		o  printing to a pipe for multiple filtering in a spooler
+		   or for printing to an Apple network printer (via papif?)
+
+This is the final set of enhancements to psf.
+As of this version, the following has been added:
+
+     1. ISO-Latin1 encoding supported.
+     
+     2. Page usage accounting added (printcap "af" support)
+     
+     3. Psf can read page statistics from a serial/ethernet printer
+        (printcap "rw" support).
+     
+     4. If the printer supports duplex double sided printing,
+        the feature is invoked with -D
+     
+     5. Printing a ctl/D at eoj is not done unless psf is
+        printing to a printer device.
+     
+     6. the -u option to select alternate printer definition files
+        now works if psf is used as part of the spooler filter system.
+     
+     7. Some printer definitions in ./def have been fixed.
+
+     8. psf can print to a pipe with the -O option.  Hopefully,
+        this allows printing to an apple network.  Usually, this
+        is installed as a print option in psfprint.def (for lpr/lpd).
+FTP
+^^^
+   The current version of psf may be obtained by ftp from the
+   University of Calgary:
+   
+	host:      fsa.cpsc.ucalgary.ca, cpsc.ucalgary.ca or 136.159.2.1
+	login:     anonymous
+	password:  is your mail address, by convention
+	files:     pub/psf/psf3.5.tar.Z
+
+These patches are applied to psf3, at patchlevel 3.  (NOTE: patchlevel 4
+was never posted to the net)
+
+Apply these patch files with:
+
+	patch -p -N < PatchXXX
+	
+
+ --------------------- snip/snip --------------------------
+
+*** net/psf.c	Sun Apr 19 13:33:26 1992
+--- psf.c	Tue Jun  2 02:18:45 1992
+***************
+*** 5,53 ****
+  *	Print text files to postscript printer.									*
+  *																			*
+  *	Tony Field: tony@ajfcal.cuc.ab.ca										*
+  ****************************************************************************/
+  /*
+!  * $Id: psf.c,v 3.3 1992/02/07 15:10:57 ajf Exp ajf $
+  */
+  /*	Three versions of psf can be compiled:
+  
+  		psf:		postscript filter for command line use.
+  			
+  		psffilter:	used with lp/lpsched.  accepts command line argument.
+  					Input on stdin. compile with -DPSFFILTER.
+  
+! 		psflpd:		used with lpr/lpd.  does not accept command line
+! 					arguments.  compile with -DPSFFILTER -DFORLPD
+   */
+  
+  #include <stdio.h>
+  #include <string.h>
+  #include <setjmp.h>
+! #include <math.h>
+! #include <time.h>
+! #include <signal.h>
+! #include "ctp.h"
+! #include "patchlevel.h"
+! #include "psf.h"
+! #include "psfproto.h"
+  
+! #if defined(MSDOS)  ||  defined (__MSDOS__)
+! #ifndef BINDIR
+! #define BINDIR "c:/bin"
+  #endif
+! #ifndef PDEF
+! #define PDEF "c:/lib/psfprint.def"
+  #endif
+  #endif
+- 
+- #ifndef PAPERTYPE
+- #define PAPERTYPE "letter"
+  #endif
+! #ifndef PSFDOUB
+! #define PSFDOUB "psfdoub"
+  #endif
+  
+  /*	set up the mechanism for underline display */
+  
+  #define SHOWU(fp,ps)	fprintf (fp, ") %d showuline\n", ps)
+  
+--- 5,56 ----
+  *	Print text files to postscript printer.									*
+  *																			*
+  *	Tony Field: tony@ajfcal.cuc.ab.ca										*
+  ****************************************************************************/
+  /*
+!  * $Id: psf.c,v 3.5 1992/06/02 08:16:01 ajf Exp ajf $
+  */
+  /*	Three versions of psf can be compiled:
+  
+  		psf:		postscript filter for command line use.
+  			
+  		psffilter:	used with lp/lpsched.  accepts command line argument.
+  					Input on stdin. compile with -DPSFFILTER.
+  
+! 		psflpd:		like psffilter, but for lpr/lpd.
+! 					compile with -DPSFFILTER -DFORLPD
+   */
+  
+  #include <stdio.h>
++ #include <errno.h>
+  #include <string.h>
+  #include <setjmp.h>
+! #include <sys/types.h>
+  
+! #ifdef ISC22
+! #define pid_t short
+  #endif
+! 
+! #if !defined(MSDOS)  &&  !defined(__MSDOS__)
+! #include <sys/wait.h>
+! #ifndef WEXITSTATUS
+! #define WEXITSTATUS(stat_val) ((unsigned)(stat_val) >> 8)
+! #undef WIFEXITED /* Avoid 4.3BSD incompatibility with Posix.  */
+  #endif
++ #ifndef WIFEXITED
++ #define WIFEXITED(stat_val) (!((stat_val) & 255))
+  #endif
+  #endif
+! #include <math.h>
+! #include <time.h>
+! #if defined(MSDOS)  ||  defined(__MSDOS__)
+! #include <process.h>
+  #endif
++ #include <signal.h>
++ #include "ctp.h"
++ #include "patchlevel.h"
++ #include "psf.h"
+  
+  /*	set up the mechanism for underline display */
+  
+  #define SHOWU(fp,ps)	fprintf (fp, ") %d showuline\n", ps)
+  
+***************
+*** 57,76 ****
+  #define NORMAL		0x00		/* bitset for  print_attributes				*/
+  #define ITALICS		0x01
+  #define BOLD		0x02
+  #define UNDERLINE	0x04		/* must be 0x04.  underline is not a font	*/
+  
+  #define CTLD_EOJ	0x04		/* ctl/d is end of postscript job.			*/
+  
+  /*	Paper physical dimensions.
+  	The default paper sizes is for a NEC LC890 and is overridden in
+  	"psfprint.def".
+  */
+  
+  typedef struct		 			/*	measurement in point					*/
+  {	char	paper_name[60];		/*	name of paper size (for command line)	*/
+! 	char	paper_tray[100];	/*	postscript operator to select this tray	*/
+  	int		width;				/*	portrait point width of paper			*/
+  	int		height;				/*	portrait point height of paper			*/
+  	int		lx, ly, ux, uy;
+  	int		left_marg;			/*	margin widths (unprintable area)		*/
+  	int		bot_marg;			/*			"								*/
+--- 60,84 ----
+  #define NORMAL		0x00		/* bitset for  print_attributes				*/
+  #define ITALICS		0x01
+  #define BOLD		0x02
+  #define UNDERLINE	0x04		/* must be 0x04.  underline is not a font	*/
+  
++ #define CTLC_CANCEL 0x03		/*	ctl/c is cancel current job				*/
+  #define CTLD_EOJ	0x04		/* ctl/d is end of postscript job.			*/
++ #define REQUEST_STATUS 	'\024'	/* ^T */
++ char c_CTLC_CANCEL[] = { CTLD_EOJ, CTLC_CANCEL } ;
++ #define READ_ERROR	-2			/*	error cond when read from printer port	*/
++ 
+  
+  /*	Paper physical dimensions.
+  	The default paper sizes is for a NEC LC890 and is overridden in
+  	"psfprint.def".
+  */
+  
+  typedef struct		 			/*	measurement in point					*/
+  {	char	paper_name[60];		/*	name of paper size (for command line)	*/
+! 	char	paper_tray[200];	/*	postscript operator to select this tray	*/
+  	int		width;				/*	portrait point width of paper			*/
+  	int		height;				/*	portrait point height of paper			*/
+  	int		lx, ly, ux, uy;
+  	int		left_marg;			/*	margin widths (unprintable area)		*/
+  	int		bot_marg;			/*			"								*/
+***************
+*** 102,111 ****
+--- 110,120 ----
+  				"",
+  				 0, 0,  0,  0, 0, 0, 0, 0, 0, 0 
+  			}
+  };
+  
++ char	duplex_mode[200] = "\0";
+  char	order_default[20] = "Normal";
+  char	order_normal[100] = "\0";
+  char	order_reverse[100] = "\0";
+  char	*order_command = NULL;
+  
+***************
+*** 122,138 ****
+  int		y_top_offset;			/*	offsets for each frame					*/
+  int		x_left_offset;
+  int		dx_home[4];				/*	page frame home (0,0) translations		*/
+  int		dy_home[4];
+  
+- int		x,y;					/* current x,y coordinate					*/
+  double	scale_x, scale_y;		/* scale factors for 2-up, 4-up printing	*/
+  int		real_width;
+  
+  long	*pg_loc;				/* double side print byte ptr to %%Page:	*/
+  int		npg_loc;				/* number of elements in pg_loc[]			*/
+  
+  int		book 			= 0;	/* book format: double sided				*/
+  int		bookwork		= 0;	/* book format, 2-up print					*/
+  int		lines_on_page 	= 60;	/* user print lines on page					*/
+  int		lines_total 	= 0;	/* total number of lines for scale purposes	*/
+  int		chars_on_line 	= 80;	/* default number of chars on line			*/
+--- 131,147 ----
+  int		y_top_offset;			/*	offsets for each frame					*/
+  int		x_left_offset;
+  int		dx_home[4];				/*	page frame home (0,0) translations		*/
+  int		dy_home[4];
+  
+  double	scale_x, scale_y;		/* scale factors for 2-up, 4-up printing	*/
+  int		real_width;
+  
+  long	*pg_loc;				/* double side print byte ptr to %%Page:	*/
+  int		npg_loc;				/* number of elements in pg_loc[]			*/
+  
++ int		duplex			= 0;	/* duplex mode								*/
+  int		book 			= 0;	/* book format: double sided				*/
+  int		bookwork		= 0;	/* book format, 2-up print					*/
+  int		lines_on_page 	= 60;	/* user print lines on page					*/
+  int		lines_total 	= 0;	/* total number of lines for scale purposes	*/
+  int		chars_on_line 	= 80;	/* default number of chars on line			*/
+***************
+*** 175,184 ****
+--- 184,194 ----
+  int		end_of_file		= 0;	/* end of printing file						*/
+  int		save_point_size ;		/* save original point size for headers		*/
+  int		n_chars;				/*	number of characters on a line			*/
+  int		reverse_order	= 0;	/* 	print in reverse_order					*/
+  int		reverse_requested = 0;	/*	user option for reverse order			*/
++ int		gen_eoj			= 0;	/*	psf: generate ctl/d on end of file		*/
+  char	fname[100];
+  char	now[50];				/* time of day for page headers 			*/
+  
+  #ifdef HOPPER
+  int		hopper_available = 1;
+***************
+*** 216,253 ****
+  	"Helvetica-Condensed",		"Helvetica-Condensed-Oblique", "Helvetica-Condensed-Bold", "Helvetica-Condensed-BoldObl",
+  	"ZapfChancery-MediumItalic","ZapfChancery-MediumItalic","ZapfChancery-MediumItalic","ZapfChancery-MediumItalic"
+  } ;
+  
+  int	fonts_used[NFONTS];
+  int	fonts_have[NFONTS];
+  unsigned char	xlate[256];			/*	translation vector 	*/
+  int		need_xlate = 0;				/*	no default xlate	*/
+  char	copyfile[150];				/*	copy file name from psfprint.def */
+  
+  int	max_frame	= 1;		/* max number of frames in use */
+  int	frame		= -1;		/* current frame in use */
+  
+  FILE	*input_fp, *output_fp;
+  
+  /*	input line and input line pointer */
+  char	*c;
+  char	line[LONG_STR + 1];
+  char	shortline[150];
+  
+  char	*pgmname;
+  
+- void catch();
+  jmp_buf eof_env;
+  
+  char	*defref = NULL;
+  FILE	*pdef = NULL;		/*	psfprint.def file	*/
+  
+  char *ascii_hex = "0123456789abcdefghijklmnopqrstuvwxyz";
+! extern int atoi(), getpid();
+  
+  char *malloc();
+  
+  /****************************************************************************
+  *	main ()																	*
+  ****************************************************************************/
+  
+  main (argc, argv)
+--- 226,292 ----
+  	"Helvetica-Condensed",		"Helvetica-Condensed-Oblique", "Helvetica-Condensed-Bold", "Helvetica-Condensed-BoldObl",
+  	"ZapfChancery-MediumItalic","ZapfChancery-MediumItalic","ZapfChancery-MediumItalic","ZapfChancery-MediumItalic"
+  } ;
+  
+  int	fonts_used[NFONTS];
++ int	fonts_iso[NFONTS];				/*	ioslatin1 encoded	*/
++ 
++ #ifdef ISO
++ int	isolatin = 1;					/*	enable ISOLatin1Encoding by default */
++ #else
++ int	isolatin = 0;					/*	disable ISOLatin1Encoding by default */
++ #endif
++ 
+  int	fonts_have[NFONTS];
+  unsigned char	xlate[256];			/*	translation vector 	*/
+  int		need_xlate = 0;				/*	no default xlate	*/
+  char	copyfile[150];				/*	copy file name from psfprint.def */
+  
+  int	max_frame	= 1;		/* max number of frames in use */
+  int	frame		= -1;		/* current frame in use */
+  
+  FILE	*input_fp, *output_fp;
++ char	*pipe_name;
+  
+  /*	input line and input line pointer */
+  char	*c;
+  char	line[LONG_STR + 1];
+  char	shortline[150];
+  
+  char	*pgmname;
+  
+  jmp_buf eof_env;
+  
+  char	*defref = NULL;
+  FILE	*pdef = NULL;		/*	psfprint.def file	*/
+  
+  char *ascii_hex = "0123456789abcdefghijklmnopqrstuvwxyz";
+! #if !defined(MSDOS)  &&  !defined(__MSDOS__)
+! extern int getpid();
+! #endif
+! extern int atoi();
+  
+  char *malloc();
+  
++ char *account_file_name = NULL;		/*	accounting file name				*/
++ char *host = NULL;					/*	accounting host						*/
++ char *user = NULL;					/*	accounting user						*/
++ int	printfd = 1;					/*	read from stdout					*/
++ int	pid;							/*	pid for accounting					*/
++ int	read_access = 0;				/*	spooler can read from printer, too 	*/
++ long pages_written = 0;				/*	page count if no access to printer	*/
++ 
++ #ifdef __STDC__
++ measure *locate_pagetype(char *desired, int printerr);
++ #else
++ measure *locate_pagetype();
++ #endif
++ 
++ 
++ #include "psfproto.h"
++ 
++ 
+  /****************************************************************************
+  *	main ()																	*
+  ****************************************************************************/
+  
+  main (argc, argv)
+***************
+*** 255,283 ****
+  char	*argv[];
+  {	int		c, i, j, number;
+  	extern char *optarg;
+  	extern int	optind, getopt();
+  	char	bookfile[100];
+- 	char	*env_fname;			/*	environment specified output file */
+  	char	*getenv();
+  	int		narrow2x;
+! 	char	alt_cmd[200];
+  	char	*new_marg;
+  	int		want_stats = 0;
+  
+  	if ((pgmname = strrchr (argv[0], '/'))
+  			|| (pgmname = strrchr (argv[0], '\\'))
+  			|| (pgmname = strrchr (argv[0], ':')))
+  		pgmname++;
+  	else
+  		pgmname = argv[0];
+  
+  	copyfile[0] = 0;
+  	for (i = 0; i < 256;  i++)			/*	initial xlate = no translation */
+  		xlate[i] = i;
+  	for (i = font_count;  i < NFONTS;  i++)
+  		fonts[i] = "N/A";
+  
+  	defref = NULL;
+  	for (i = 0;  i < argc;  i++)		/*	if user sets -u alt.def */
+  	{	if (strncmp (argv[i], "-u", 2) == 0)
+  		{	if (strlen (argv[i]) > 2)
+--- 294,329 ----
+  char	*argv[];
+  {	int		c, i, j, number;
+  	extern char *optarg;
+  	extern int	optind, getopt();
+  	char	bookfile[100];
+  	char	*getenv();
+  	int		narrow2x;
+! 	char	*alt_cmd;
+  	char	*new_marg;
+  	int		want_stats = 0;
++ 	char	alt_def_file[200];
++ 	double	atof();
++ 	int		modified_argv = 0;
++ 
++ 	pid = getpid();
+  
+  	if ((pgmname = strrchr (argv[0], '/'))
+  			|| (pgmname = strrchr (argv[0], '\\'))
+  			|| (pgmname = strrchr (argv[0], ':')))
+  		pgmname++;
+  	else
+  		pgmname = argv[0];
+  
+  	copyfile[0] = 0;
++ 	pipe_name = NULL;
+  	for (i = 0; i < 256;  i++)			/*	initial xlate = no translation */
+  		xlate[i] = i;
+  	for (i = font_count;  i < NFONTS;  i++)
+  		fonts[i] = "N/A";
++ 	for (i = 0;  i < NFONTS;  i++)
++ 		fonts_iso[i] = 0;
+  
+  	defref = NULL;
+  	for (i = 0;  i < argc;  i++)		/*	if user sets -u alt.def */
+  	{	if (strncmp (argv[i], "-u", 2) == 0)
+  		{	if (strlen (argv[i]) > 2)
+***************
+*** 292,302 ****
+  			defref = PDEF;
+  	}
+  
+  	/*	Read the .def file if it exists	*/
+  
+! 	alt_cmd[0] = '\0';
+  	if (access (defref, 0)  &&  defref != PDEF
+  							&&  strchr (defref, '/') == NULL  
+  							&&  strchr (defref, '\\') == NULL)
+  	{	/* see if file is in same directory as PDEF */
+  		char *c, *strrchr();
+--- 338,349 ----
+  			defref = PDEF;
+  	}
+  
+  	/*	Read the .def file if it exists	*/
+  
+! redo_def:
+! 	alt_cmd = malloc (200);
+  	if (access (defref, 0)  &&  defref != PDEF
+  							&&  strchr (defref, '/') == NULL  
+  							&&  strchr (defref, '\\') == NULL)
+  	{	/* see if file is in same directory as PDEF */
+  		char *c, *strrchr();
+***************
+*** 316,354 ****
+  		
+  	if ((pdef = fopen (defref, "r")) != NULL)
+  	{	char	line_type[50];
+  #if defined(FORLPD)
+  		char	*quote, *word;
+! 		int		modified_argv = 0;
+  
+  		/*	read lpd options from psfprint.def.  Format is:
+  				*psflpd argv0name opt1 opt2 opt3...
+  		*/			
+  		while (fgets (alt_cmd, 200, pdef))
+  		{	if (*alt_cmd == '#')
+  				continue;
+  			alt_cmd[199] = '\0';
+  			trim (alt_cmd);
+! 			word = strtok (alt_cmd, " \t");
+  			if (strcmp (word, "*psflpd") == 0)
+! 			{	word = strtok (NULL, " \t");
+  				if (strcmp (word, pgmname) == 0)
+! 				{	argv = (char **) malloc (sizeof (char *) * 50);
+  					argv[0] = word;
+  					modified_argv = 1;
+! 					for (argc = 1;  word = strtok (NULL, " \t");  argc++)
+  					{	if (*word == '#')	/* quite on comments */
+  							break;
+! 						argv[argc] = word;
+  					}
+  					argv[argc] = NULL;
+  					break;
+  				}
+  			}
+  			else if (strcmp (word, "*printer") == 0)
+  				break;
+  		}
+  		if (modified_argv == 0)
+  		{	argc = 1;
+  			argv[1] = NULL;
+  		}
+  
+--- 363,452 ----
+  		
+  	if ((pdef = fopen (defref, "r")) != NULL)
+  	{	char	line_type[50];
+  #if defined(FORLPD)
+  		char	*quote, *word;
+! 		int		want_new_def = 0;
+! 
+! 		/*	get original host, user, and accounting file */
+! 		
+! 		if (modified_argv == 0)
+! 		{
+! 			while ((c = getopt(argc, argv, "cw:l:i:n:h:")) != -1)
+! 			{	switch (c)
+! 				{
+! 				case 'n':	user = optarg;		break;
+! 				case 'h':	host = optarg;		break;
+! 				case 'c':
+! 				case 'w':
+! 				case 'l':
+! 				case 'i':	continue;
+! 				default: ;
+! 				}
+! 			}
+! 			if (optind == argc - 1)
+! 				account_file_name = argv[optind];
+! 			else
+! 				account_file_name = NULL;
+! 		}
+  
+  		/*	read lpd options from psfprint.def.  Format is:
+  				*psflpd argv0name opt1 opt2 opt3...
++ 			If -u is in the options, read the new def file.
+  		*/			
++ 
++ 		optind = 1; 		/* reset getopt for possibly new arg list */
+  		while (fgets (alt_cmd, 200, pdef))
+  		{	if (*alt_cmd == '#')
+  				continue;
+  			alt_cmd[199] = '\0';
+  			trim (alt_cmd);
+! 			word = nexttok (alt_cmd, " \t'\"");
+  			if (strcmp (word, "*psflpd") == 0)
+! 			{	word = nexttok (NULL, " \t'\"");
+  				if (strcmp (word, pgmname) == 0)
+! 				{	/*	create a new argument vector */
+! 					argv = (char **) malloc (sizeof (char *) * 50);
+  					argv[0] = word;
+  					modified_argv = 1;
+! 					argc = 1;
+! 					while (word = nexttok (NULL, " \t'\""))
+  					{	if (*word == '#')	/* quite on comments */
+  							break;
+! 						if (strncmp (word, "-u", 2) == 0)
+! 						{	/*	get another .def file - but keep all
+! 								provided arguments.
+! 							*/
+! 							if (strlen (word) == 2)
+! 							{	word = nexttok (NULL, " \t'\"");
+! 								if (word)
+! 									strcpy (alt_def_file, word);
+! 								else
+! 								{	fprintf (stderr, "%s: invalid -u option\n", pgmname);
+! 									exit (DISCARD_JOB);
+! 								}
+! 							}
+! 							else
+! 								strcpy (alt_def_file, word + 2);
+! 							defref = alt_def_file;
+! 							want_new_def = 1;
+! 						}
+! 						else
+! 							argv[argc++] = word;
+  					}
+  					argv[argc] = NULL;
+  					break;
+  				}
+  			}
+  			else if (strcmp (word, "*printer") == 0)
+  				break;
+  		}
++ 		if (want_new_def)
++ 		{	pdef = NULL;
++ 			fclose (pdef);
++ 			goto redo_def;
++ 		}
+  		if (modified_argv == 0)
+  		{	argc = 1;
+  			argv[1] = NULL;
+  		}
+  
+***************
+*** 445,454 ****
+--- 543,558 ----
+  					strcpy (slots[i], line);
+  					j = i;
+  				}
+  				nslots = j + 1;
+  			}
++ 			else if (strcmp (line_type, "*duplex") == 0)
++ 			{	for (i = 0;  i < number;  i++)
++ 				{	if (fgets (duplex_mode, 200, pdef) == NULL)
++ 						bad_file();
++ 				}
++ 			}
+  
+  			else if (strcmp (line_type, "*eof") == 0)
+  				break;
+  			else
+  				bad_file();
+***************
+*** 459,475 ****
+  	{	for (i = 0;  i < font_count;  i++)
+  			fonts_have[i] = 1;
+  	}
+  
+  #ifdef PAPERTYPE
+! 	for (i = 0;  page_types[i].paper_name[0];  i++)
+! 	{	if (strcmp (page_types[i].paper_name, PAPERTYPE) == 0)
+! 		{	p = &page_types[i];
+! 			break;
+! 		}
+! 	}
+! 	if (page_types[i].paper_name[0] == '\0')
+  		p = &page_types[0];
+  #else
+  	p = &page_types[0];			/* default to letter size paper	*/
+  #endif	/* PAPERTYPE */
+  
+--- 563,574 ----
+  	{	for (i = 0;  i < font_count;  i++)
+  			fonts_have[i] = 1;
+  	}
+  
+  #ifdef PAPERTYPE
+! 	p = locate_pagetype (PAPERTYPE, 1);
+! 	if (p == NULL)
+  		p = &page_types[0];
+  #else
+  	p = &page_types[0];			/* default to letter size paper	*/
+  #endif	/* PAPERTYPE */
+  
+***************
+*** 477,487 ****
+  	if (argc > 1  &&  (strcmp (argv[1], "-") == 0  || strcmp (argv[1], "--") == 0))
+  		usage();
+  
+  	narrow2x = 0;
+  	new_marg = NULL;
+! 	while ((c = getopt(argc, argv, "124Eexhnwdvzsi:m:b:c:g:H:l:L:M:f:t:P:p:r:R:u:-?")) != -1)
+  	{	switch (c)
+  		{
+  		case '1':
+  			max_frame = 1;
+  			break;
+--- 576,586 ----
+  	if (argc > 1  &&  (strcmp (argv[1], "-") == 0  || strcmp (argv[1], "--") == 0))
+  		usage();
+  
+  	narrow2x = 0;
+  	new_marg = NULL;
+! 	while ((c = getopt(argc, argv, "124aEejxhInwDdvzsA:i:m:b:c:g:H:l:L:M:f:t:O:P:p:r:R:u:Y:y:-?")) != -1)
+  	{	switch (c)
+  		{
+  		case '1':
+  			max_frame = 1;
+  			break;
+***************
+*** 493,518 ****
+  			break;
+  		
+  		case '4':
+  			max_frame = 4;
+  			break;
+  			
+  		case 'b':
+  			if ((set_paper_bin = atoi (optarg)) > nslots)
+  			{	if (nslots == 0)
+! 					fprintf (stderr, "%s: no alternate bins permitted\n", nslots);
+  				else
+  					fprintf (stderr, "%s: paper bin greater than %d\n", pgmname, nslots);
+! 				exit (1);
+  			}
+  			break;
+  
+  		case 'c':
+  			chars_on_line = atoi (optarg);
+  			set_char_count = 1;
+  			break;
+  
+  		case 'd':
+  			book = 1;
+  			break;
+  					
+  		case 'e':
+--- 592,633 ----
+  			break;
+  		
+  		case '4':
+  			max_frame = 4;
+  			break;
++ 
++ 		case 'a':
++ 			read_access = 1;
++ 			break;
+  			
++ 		case 'A':
++ 			account_file_name = optarg;		/*	for lpsched's benifit */
++ 			break;
++ 
+  		case 'b':
+  			if ((set_paper_bin = atoi (optarg)) > nslots)
+  			{	if (nslots == 0)
+! 					fprintf (stderr, "%s: no alternate bins permitted\n", pgmname);
+  				else
+  					fprintf (stderr, "%s: paper bin greater than %d\n", pgmname, nslots);
+! 				exit (DISCARD_JOB);
+  			}
+  			break;
+  
+  		case 'c':
+  			chars_on_line = atoi (optarg);
+  			set_char_count = 1;
+  			break;
+  
++ 		case 'D':
++ 			duplex = 1;
++ 			if (duplex_mode[0] == 0)
++ 			{	fprintf (stderr, "%s: duplex mode not available\n", pgmname);
++ 				exit (DISCARD_JOB);
++ 			}
++ 			break;
++ 	
+  		case 'd':
+  			book = 1;
+  			break;
+  					
+  		case 'e':
+***************
+*** 543,561 ****
+  					font_number = 0;
+  			}
+  			break;
+  
+  		case 'g':
+! 			p = NULL;
+! 			for (i = 0;  page_types[i].paper_name[0];  i++)
+! 			{	if (compare (optarg, page_types[i].paper_name) == 0)
+! 				{	p = &page_types[i];
+! 					break;
+! 				}
+! 			}
+  			if (p == NULL)
+! 				usage ();
+  			set_paper_tray = 1;
+  			break;
+  
+  		case 'h':
+  			header = 1;
+--- 658,670 ----
+  					font_number = 0;
+  			}
+  			break;
+  
+  		case 'g':
+! 			p = locate_pagetype (optarg, 1);
+  			if (p == NULL)
+! 				exit (DISCARD_JOB);
+  			set_paper_tray = 1;
+  			break;
+  
+  		case 'h':
+  			header = 1;
+***************
+*** 564,589 ****
+  		case 'H':
+  			header = 2;
+  			strcpy (header_text, optarg);
+  			break;
+  
+  		case 'i':
+! 			x_user_offset = atoi (optarg) * cvt_unit (optarg) + 0.01;
+  			break;
+  
+  		case 'l':
+  			lines_on_page = atoi (optarg);
+  			set_line_count = 1;
+  			break;
+  
+  		case 'L':
+  			lines_total = atoi (optarg);
+  			set_total_count = 1;
+  			break;
+  
+  		case 'm':
+! 			y_user_offset = atoi (optarg) * cvt_unit(optarg) + 0.01;
+  			break;
+  		
+  		case 'M':
+  			new_marg = optarg;
+  			break;
+--- 673,710 ----
+  		case 'H':
+  			header = 2;
+  			strcpy (header_text, optarg);
+  			break;
+  
++ 		case 'I':
++ #ifdef ISO
++ 			isolatin = 0;
++ #else
++ 			isolatin = 1;
++ #endif
++ 			break;
++ 	
+  		case 'i':
+! 			x_user_offset = atof (optarg) * cvt_unit (optarg) + 0.01;
+  			break;
+  
+  		case 'l':
+  			lines_on_page = atoi (optarg);
+  			set_line_count = 1;
+  			break;
+  
++ 		case 'j':
++ 			gen_eoj = 1;
++ 			break;
++ 	
+  		case 'L':
+  			lines_total = atoi (optarg);
+  			set_total_count = 1;
+  			break;
+  
+  		case 'm':
+! 			y_user_offset = atof (optarg) * cvt_unit(optarg) + 0.01;
+  			break;
+  		
+  		case 'M':
+  			new_marg = optarg;
+  			break;
+***************
+*** 591,600 ****
+--- 712,725 ----
+  		case 'n':
+  			landscape = 0;
+  			narrow2x = 1;
+  			break;
+  
++ 		case 'O':
++ 			pipe_name = optarg;
++ 			break;
++ 
+  		case 'p':
+  			point_size = atoi (optarg);
+  			set_point_size = 1;
+  			break;
+  
+***************
+*** 633,650 ****
+--- 758,785 ----
+  			
+  		case 'x':
+  			cross = 1;
+  			break;
+  
++ 		case 'y':
++ 			user = optarg;
++ 			break;
++ 	
++ 		case 'Y':
++ 			host = optarg;
++ 			break;
++ 
+  		case 'z':
+  			print_postscript = 1;
+  			break;
+  
+  		default:	usage ();
+  			break;
+  		}
+  	}
++ 	if (duplex  ||  pipe_name)		/*	cannot support book mode */
++ 		book = 0;
+  
+  	if (strncmp (order_default, "Reverse", 7) == 0)		/*	stacking sequence 		*/
+  		reverse_order = 1;								/*	"Reverse"				*/
+  	else
+  		reverse_order = 0;								/*	"Normal"				*/
+***************
+*** 662,680 ****
+  	nominal_high = p->uy - p->ly + 1;					/* for default row/col scaling */
+  	nominal_wide = p->ux - p->lx + 1;		
+  
+  	if (reverse_requested && book)
+  	{	fprintf (stderr, "Double sided or book in reverse ordered not supported\n");
+! 		exit (1);
+  	}
+  	/*	if -M specified, set the imageable area coordinates to reflect
+  		the deisred margin size.
+  	*/
+  	if (new_marg)
+  	{	char *mc, *v[6];
+  		int	iv;
+! 		double	fact, atof();
+  
+  		mc = new_marg;
+  		iv = 1;
+  		v[0] = mc;
+  		while (*mc  &&  iv < 6)
+--- 797,815 ----
+  	nominal_high = p->uy - p->ly + 1;					/* for default row/col scaling */
+  	nominal_wide = p->ux - p->lx + 1;		
+  
+  	if (reverse_requested && book)
+  	{	fprintf (stderr, "Double sided or book in reverse ordered not supported\n");
+! 		exit (DISCARD_JOB);
+  	}
+  	/*	if -M specified, set the imageable area coordinates to reflect
+  		the deisred margin size.
+  	*/
+  	if (new_marg)
+  	{	char *mc, *v[6];
+  		int	iv;
+! 		double	fact;
+  
+  		mc = new_marg;
+  		iv = 1;
+  		v[0] = mc;
+  		while (*mc  &&  iv < 6)
+***************
+*** 684,694 ****
+  			}
+  			mc++;
+  		}
+  		if (iv < 4)
+  		{	fprintf (stderr, "Must have 4 margin sizes specified\n");
+! 			exit (1);
+  		}
+  		if (iv > 4)
+  			fact = cvt_unit (v[4]);
+  		else
+  			fact = cvt_unit (v[3]);
+--- 819,829 ----
+  			}
+  			mc++;
+  		}
+  		if (iv < 4)
+  		{	fprintf (stderr, "Must have 4 margin sizes specified\n");
+! 			exit (DISCARD_JOB);
+  		}
+  		if (iv > 4)
+  			fact = cvt_unit (v[4]);
+  		else
+  			fact = cvt_unit (v[3]);
+***************
+*** 713,723 ****
+  			if ((iv = atof (v[3]) * fact) > 0)
+  				p->ly = max (p->ly, (iv + 1));
+  		}
+  		if (p->ux - p->lx < 200  ||  p->uy - p->ly < 200)
+  		{	fprintf (stderr, "Margin size is inappropriate\n");
+! 				exit (1);
+  		}
+  	}
+  	for (i = 0;  page_types[i].paper_name[0];  i++)
+  	{	page_types[i].left_marg  = page_types[i].lx;
+  		page_types[i].bot_marg   = page_types[i].ly;
+--- 848,858 ----
+  			if ((iv = atof (v[3]) * fact) > 0)
+  				p->ly = max (p->ly, (iv + 1));
+  		}
+  		if (p->ux - p->lx < 200  ||  p->uy - p->ly < 200)
+  		{	fprintf (stderr, "Margin size is inappropriate\n");
+! 				exit (DISCARD_JOB);
+  		}
+  	}
+  	for (i = 0;  page_types[i].paper_name[0];  i++)
+  	{	page_types[i].left_marg  = page_types[i].lx;
+  		page_types[i].bot_marg   = page_types[i].ly;
+***************
+*** 727,737 ****
+  		page_types[i].x_size = page_types[i].ux - page_types[i].lx + 1;
+  		page_types[i].y_size = page_types[i].uy - page_types[i].ly + 1;
+  	}
+  	if (want_stats)
+  	{	size_display();
+! 		exit (1);
+  	}
+  	if (nslots <= 1)
+  		hopper_available = 0;
+  	if (reverse_order  ||  (book  &&  hopper_available))
+  		sprintf (bookfile, "%s%d.bok", TEMPFILE, getpid());
+--- 862,872 ----
+  		page_types[i].x_size = page_types[i].ux - page_types[i].lx + 1;
+  		page_types[i].y_size = page_types[i].uy - page_types[i].ly + 1;
+  	}
+  	if (want_stats)
+  	{	size_display();
+! 		exit (DISCARD_JOB);
+  	}
+  	if (nslots <= 1)
+  		hopper_available = 0;
+  	if (reverse_order  ||  (book  &&  hopper_available))
+  		sprintf (bookfile, "%s%d.bok", TEMPFILE, getpid());
+***************
+*** 740,787 ****
+  
+  	if (optind >=  argc  &&  header == 1)	/* no file name header on stdin */
+  		header = 0;
+  	save_point_size = point_size;
+  	
+! 	(void)	signal (SIGINT, catch);		/*	for lpd quit */
+  
+  #ifdef PSFFILTER
+  
+! 	output_fp = stdout;
+  	input_fp  = stdin;
+  	if (header == 1)
+  		strcpy (fname, argv[optind]);
+  	else
+  		*fname = 0;	
+  
+  	if (fgets (line, LONG_STR, input_fp) == NULL)
+! 		exit (0);
+! 	if (tscan (line, "%!") >= 0  &&  print_postscript == 0)
+  	{	/*	already postscript  copy to output */
+  		if (fputs (line, output_fp) == EOF)
+! 			output_trouble (2);
+  		while ((i = fgetc (input_fp)) != EOF)
+  		{	if (fputc (i, output_fp) == EOF)
+! 				output_trouble (2);
+  		}
+  	}
+  	else
+  	{	/*	standard postscript conversion for file on stdin */
+! bannerdone:
+  		if (font_number * 4 > font_count)
+  		{	fprintf (stderr,"Font number invalid....\n");
+  			usage ();
+  		}
+  
+  		if (book  ||  reverse_order)
+  		{	if ((output_fp = fopen (bookfile, "w")) == NULL)
+  			{	fprintf (stderr, "%s: cannot create work file\n", pgmname);
+! 				exit (1);
+  			}
+  			if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  			{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 				exit (1);
+  			}
+  			npg_loc = 0;
+  		}
+  
+  		for (i = 0;  i < NFONTS;  i++)
+--- 875,948 ----
+  
+  	if (optind >=  argc  &&  header == 1)	/* no file name header on stdin */
+  		header = 0;
+  	save_point_size = point_size;
+  	
+! 	(void)	signal (SIGINT, catch);			/*	for lpd quit */
+  
+  #ifdef PSFFILTER
+  
+! 	if (pipe_name)
+! 	{	if ((output_fp = popen (pipe_name, "w")) == NULL)
+! 		{	fprintf (stderr, "%s: cannot open pipe to %s\n", pgmname, pipe_name);
+! 			exit (DISCARD_JOB);
+! 		}
+! 		read_access = 0;					/*	can't read from pipe */
+! 	}
+! 	else
+! 		output_fp = stdout;
+  	input_fp  = stdin;
+  	if (header == 1)
+  		strcpy (fname, argv[optind]);
+  	else
+  		*fname = 0;	
+  
+  	if (fgets (line, LONG_STR, input_fp) == NULL)
+! 		exit (JOB_IS_DONE);
+! 	if ((strncmp (line, "%!", 2) == 0  ||  strncmp (line, "%%!", 3) == 0)
+! 			&&  print_postscript == 0)
+  	{	/*	already postscript  copy to output */
++ 		char	last_char;
++ 
++ 		if (read_access)
++ 			create_fork ();
++ 
++ 		/*	attempt to force tray and bin selection */
++ 
++ 		set_bin (set_paper_bin);
++ 		set_tray (set_paper_tray);
++ 		
+  		if (fputs (line, output_fp) == EOF)
+! 			output_trouble (DISCARD_JOB);
+  		while ((i = fgetc (input_fp)) != EOF)
+  		{	if (fputc (i, output_fp) == EOF)
+! 				output_trouble (DISCARD_JOB);
+! 			last_char = i;
+  		}
++ 		if (last_char != CTLD_EOJ)
++ 			fputc (CTLD_EOJ, output_fp);
++ 		pages_written = -1; /* i.e. we don't know */
+  	}
+  	else
+  	{	/*	standard postscript conversion for file on stdin */
+! 
+  		if (font_number * 4 > font_count)
+  		{	fprintf (stderr,"Font number invalid....\n");
+  			usage ();
+  		}
+  
++ 		if (read_access)
++ 			create_fork ();
++ 
+  		if (book  ||  reverse_order)
+  		{	if ((output_fp = fopen (bookfile, "w")) == NULL)
+  			{	fprintf (stderr, "%s: cannot create work file\n", pgmname);
+! 				exit (DISCARD_JOB);
+  			}
+  			if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  			{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 				exit (DISCARD_JOB);
+  			}
+  			npg_loc = 0;
+  		}
+  
+  		for (i = 0;  i < NFONTS;  i++)
+***************
+*** 799,808 ****
+--- 960,971 ----
+  		start_file ();
+  		process_file ();
+  		terminate_printer ();
+  		output_book (bookfile);
+  	}
++ 	if (read_access == 0)
++ 		write_accounting (pages_written, 0);
+  
+  #else	/* not PSFFILTER */
+  
+  	/*	begin normal "psf" code */
+  
+***************
+*** 812,838 ****
+  	}
+  
+  	if (book  ||  reverse_order)
+  	{	if ((output_fp = fopen (bookfile, "w")) == NULL)
+  		{	fprintf (stderr, "%s: cannot create work file\n", pgmname);
+! 			exit (1);
+  		}
+  		if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  		{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 			exit (1);
+  		}
+  		npg_loc = 0;
+  	}
+  	else	
+! 	{	if (env_fname = getenv ("PSFLP"))
+  #if defined(MSDOS)  ||  defined (__MSDOS__)
+  		{	if ((output_fp = fopen (env_fname, "wt")) == NULL)
+  #else
+  		{	if ((output_fp = fopen (env_fname, "w")) == NULL)
+  #endif
+  			{	fprintf (stderr, "Cannot open output file %s\n", env_fname);
+! 				exit (1);
+  			}
+  		}
+  		else
+  		{	output_fp = stdout;
+  		}
+--- 975,1002 ----
+  	}
+  
+  	if (book  ||  reverse_order)
+  	{	if ((output_fp = fopen (bookfile, "w")) == NULL)
+  		{	fprintf (stderr, "%s: cannot create work file\n", pgmname);
+! 			exit (DISCARD_JOB);
+  		}
+  		if ((pg_loc = (long *) malloc (sizeof (long) * MAX_PAGES)) == NULL)
+  		{	fprintf (stderr, "%s: cannot allocate enough memory\n", pgmname);
+! 			exit (DISCARD_JOB);
+  		}
+  		npg_loc = 0;
+  	}
+  	else	
+! 	{	char	*env_fname;			/*	environment specified output file */
+! 		if (env_fname = getenv ("PSFLP"))
+  #if defined(MSDOS)  ||  defined (__MSDOS__)
+  		{	if ((output_fp = fopen (env_fname, "wt")) == NULL)
+  #else
+  		{	if ((output_fp = fopen (env_fname, "w")) == NULL)
+  #endif
+  			{	fprintf (stderr, "Cannot open output file %s\n", env_fname);
+! 				exit (DISCARD_JOB);
+  			}
+  		}
+  		else
+  		{	output_fp = stdout;
+  		}
+***************
+*** 874,886 ****
+  	output_book (bookfile);
+  	/*	end normal psf code */
+  
+  #endif	/* PSFFILTER */
+  
+! 	exit (0);
+  }
+  
+  
+  /****************************************************************************
+  *	cvt_unit ()																*
+  *	Determine the margin offset conversion factor to points.				*
+  ****************************************************************************/
+--- 1038,1327 ----
+  	output_book (bookfile);
+  	/*	end normal psf code */
+  
+  #endif	/* PSFFILTER */
+  
+! 	exit (JOB_IS_DONE);
+! }
+! 
+! #ifdef PSFFILTER
+! 
+! /****************************************************************************
+! *	create_fork ()															*
+! *	fork a child to send to printer.  parent reads from printer				*
+! ****************************************************************************/
+! 
+! void create_fork ()
+! {	int     parent;
+! 	long	pages_printed;
+! 	long	start_count;
+! 	int     status;
+! 	int		log_exit;
+! 	
+! 	request_pagecount (1);
+! 	if ((parent = fork ()) < 0)
+! 		expire ("fork");
+! 	if (parent)
+! 	{	/*	parent: read from printer port until child finishes print */
+! 		start_count = get_page_count ();
+! 		while (wait (&status) == -1)
+! 			if (errno != EINTR)
+! 				expire ("fork wait");
+! 		request_pagecount (0);
+! 		pages_printed = get_page_count () - start_count;
+! 		log_exit = WIFEXITED (status) ? WEXITSTATUS (status) : DISCARD_JOB;
+! 		write_accounting (pages_printed, log_exit);
+! 		fflush (stdout);
+! 		fflush (stderr);
+! 		exit (log_exit);
+! 	}
+! 	/*	child: continue to print the job */
+! 	return;
+! }
+! 
+! /****************************************************************************
+! *	write_accounting ()														*
+! *	send number of printed pages to accounting file. record non-zero exit	*
+! ****************************************************************************/
+! 
+! void write_accounting (pages_printed, log_exit)
+! long	pages_printed;
+! int		log_exit;
+! {	FILE	*accounting;
+! 
+! 	if (account_file_name == NULL)
+! 		return;
+! 
+! 	if ((accounting = fopen (account_file_name, "a")) != NULL)
+! 	{	if (log_exit)
+! 			(void) fprintf(accounting, "%ld\t%s:%s\ttermination:%d\n", pages_printed, host, user, log_exit);
+! 		else
+! 			(void) fprintf(accounting, "%ld\t%s:%s\n", pages_printed, host, user);
+! 		fclose (accounting);
+! 	}
+! 	else 
+! 	{	time_stamp();
+! 		perror(account_file_name);
+! 	}
+! }
+! 
+! /****************************************************************************
+! *	time_stamp ()															*
+! *	record date stamp into error log file									*
+! ****************************************************************************/
+! 
+! void time_stamp()
+! {
+! 	int e = errno;
+! 	time_t clock = time((time_t *)0);
+! 	(void) fprintf (stderr, "%s: %.24s ", pgmname, ctime(&clock));
+! 	errno = e;
+! }
+! 
+! /****************************************************************************
+! *	expire ()																*
+! *	create date-stamp and error message.									*
+! ****************************************************************************/
+! 
+! void expire(s)
+! char *s;
+! {
+! 	time_stamp ();
+! 	perror (s);
+! 	exit (DISCARD_JOB);
+! }
+! 
+! /****************************************************************************
+! *	getc_from_printer ()													*
+! *	read a character from the printer,  return char or ERROR.				*
+! ****************************************************************************/
+! 
+! int getc_from_printer ()
+! {
+! 	char c;
+! 	int r;
+! 	
+! 	r = read (printfd, &c, 1);
+! 	if (r == 0)
+! 		return (EOF);
+! 	if (r == 1)
+! 		return (c);
+! 	return (READ_ERROR);		/* error during read */
+! }
+! 
+! /****************************************************************************
+! *	abort_job ()															*
+! *	Abort the current printer job; don't wait for reply.					*
+! ****************************************************************************/
+! 
+! void abort_job() 
+! {
+! 	(void) fwrite (c_CTLC_CANCEL, 1, sizeof(c_CTLC_CANCEL), output_fp); 
+! 	fflush (output_fp);
+! }
+! 
+! /****************************************************************************
+! *	abort_exit ()															*
+! *	Abort the current printer job and exit. 								*
+! ****************************************************************************/
+! 
+! void abort_exit() 
+! {	abort_job (); 
+! 	exit (DISCARD_JOB);
+! 	_exit (DISCARD_JOB);
+! }
+! 
+! /****************************************************************************
+! *	request_pagecount ()													*
+! *	request page count from printer as a small postscript job.				*
+! ****************************************************************************/
+! 
+! void request_pagecount (cancel)
+! int cancel;
+! {	register int c;
+! 	char	pline[400];
+! 
+! 	if (cancel) {
+! 		/* Cancel any incomplete job and discard its output.  */
+! 		abort_job();
+! 		while ((c = getc_from_printer ()) != CTLD_EOJ)
+! 			if (c < 0)
+! 				expire ("pagecount cancel");
+! 	}
+! 
+! 	sprintf (pline, "([%d] )print\n%s%s%s%s%s%s%s%s%s%c",
+! 				pid,
+! 				"/GetPageCount {\n",
+! 				"	/str 64 string def\n",
+! 				"	statusdict begin\n",
+! 				"		currentdict/pagecount known {\n",
+! 				"			pagecount str cvs print\n",
+! 				"		} if \n",
+! 				"	 end %statusdict\n",
+! 				"} def\n",
+! 				"GetPageCount\n",
+! 				CTLD_EOJ
+! 			);
+! 
+! 	c = strlen (pline);
+! 	if (fwrite (pline, 1, c, output_fp)  !=  c)
+! 		expire ("write pagecount");
+  }
+  
++ /****************************************************************************
++ *	get_page_count ()														*
++ *	get page count from printer.											*
++ *	any other messages from printer are logged to the log file.				*
++ ****************************************************************************/
++ 
++ long get_page_count ()
++ {	long	pc;
++ 	int		c, line_start = 1;
++ 	char	pline[100], *p;
++ 
++ 	(void) sprintf (pline, "[%d].", pid);
++ 	p = pline;
++ 	c = getc_from_printer ();
++ 	do
++ 	{	/* Print any false match from the last time through the loop.  */
++ 		fprintf (stderr, "%.*s", (int)(p - pline), pline);
++ 
++ 		/*	sync on [ */
++ 		for (;  c != '[';  c = getc_from_printer ())
++ 		{	if (c == EOF  ||  c == READ_ERROR)
++ 				expire ("read page count (1)");
++ 			if (c != CTLD_EOJ)
++ 			{	if (line_start)
++ 					{	time_stamp ();
++ 						line_start = 0;
++ 					}
++ 				fputc (c, stderr);
++ 				if (c == '\n')
++ 					line_start = 1;
++ 			}
++ 		}
++ 		
++ 		p = pline + 1;
++ 		while (1)
++ 		{	c = getc_from_printer();
++ 			if (c == READ_ERROR  ||  c == EOF)
++ 				expire ("read page count error (2)");
++ 			if (*p == c)
++ 				p++;
++ 			else
++ 				break;
++ 		}
++ 	
++ 	} while (*p != '.'  ||  c != ' ');
++ 
++ 	if (!line_start)
++ 		fputc ('\n', stderr);
++ 
++ 	/*	at page count number.  get value into pc */
++ 
++ 	pc = 0;
++ 	for (;;)
++ 	{	c = getc_from_printer ();
++ 		if (isdigit (c))
++ 			pc = pc * 10 + (c - '0');
++ 		else if (c == ' ')
++ 			continue;
++ 		else break;
++ 	}
++ 
++ 	wait_for_eoj (c);
++ 	return (pc);
++ }
++ 
++ /****************************************************************************
++ *	wait_for_eoj ())														*
++ *	wait for the expected ctl/d eoj echo from the printer.					*
++ ****************************************************************************/
++ 
++ void wait_for_eoj (c)
++ int		c;
++ {
++ 	for (;  c != CTLD_EOJ;  c = getc_from_printer())
++ 	{	if (c == EOF || c == READ_ERROR)
++ 			expire ("eof not eoj");
++ 		if (isascii (c) == 0)
++ 		{	fprintf (stderr, "non-ascii char = %02x\n", c);
++ 			expire("pagecount cancel");
++ 		}
++ 	}
++ }
++ 
++ #endif /* PSFFILTER */
++ 
++ /****************************************************************************
++ *	locate_pagetype ()														*
++ *	look for paper type in table of available types.						*
++ ****************************************************************************/
++ 
++ measure	*locate_pagetype (desired, printerr)
++ char	*desired;
++ int		printerr;
++ {	int		i;
++ 	measure	*p;
++ 
++ 	p = NULL;
++ 	for (i = 0;  page_types[i].paper_name[0];  i++)
++ 	{	if (compare (page_types[i].paper_name, desired) == 0)
++ 		{	p = &page_types[i];
++ 			break;
++ 		}
++ 	}
++ 	if (!p)
++ 	{	if (printerr)
++ 		{	fprintf (stderr, "Unknown page type %s.  Choose from: ", desired);
++ 			for (i = 0;  page_types[i].paper_name[0];  i++)
++ 				fprintf (stderr, " %s", page_types[i].paper_name);
++ 			fprintf (stderr, "\n");
++ 		}
++ 	}
++ 	return (p);
++ }
+  
+  /****************************************************************************
+  *	cvt_unit ()																*
+  *	Determine the margin offset conversion factor to points.				*
+  ****************************************************************************/
+***************
+*** 890,900 ****
+  {	double	fact;
+  
+  	fact = 1.0;
+  	while (*which)
+  	{
+! 		if (isdigit (*which))
+  		{	which++;
+  			continue;
+  		}
+  		switch (toupper (*which))
+  		{
+--- 1331,1341 ----
+  {	double	fact;
+  
+  	fact = 1.0;
+  	while (*which)
+  	{
+! 		if (*which == '.'  ||  isdigit (*which))
+  		{	which++;
+  			continue;
+  		}
+  		switch (toupper (*which))
+  		{
+***************
+*** 901,911 ****
+  		case 'I':	fact = 72.0;		break;		/* inches 	*/
+  		case 'C':	fact = 72.0 / 2.54;	break;		/* cm	  	*/
+  		case 'P':	fact = 1.0;			break;		/* points	*/
+  		case ',':	break;
+  		default :	fprintf (stderr, "invalid margin unit '%c'\n", *which);
+! 					exit (1);
+  		}
+  		if (*which++ != ',')
+  			break;
+  	}
+  	return (fact);
+--- 1342,1352 ----
+  		case 'I':	fact = 72.0;		break;		/* inches 	*/
+  		case 'C':	fact = 72.0 / 2.54;	break;		/* cm	  	*/
+  		case 'P':	fact = 1.0;			break;		/* points	*/
+  		case ',':	break;
+  		default :	fprintf (stderr, "invalid margin unit '%c'\n", *which);
+! 					exit (DISCARD_JOB);
+  		}
+  		if (*which++ != ',')
+  			break;
+  	}
+  	return (fact);
+***************
+*** 924,934 ****
+  void scale_factors ()
+  {	int	wide;				/*	width needed for char count			*/
+  	int	high;				/*	points needed for line count		*/
+  	int	n_lines;			/*	number of lines on a page			*/
+  	int	i;
+! 	double	char_width, scale;
+  	double	char_sf, line_sf;
+  	
+  	real_width = p->width;		/* for initial axis translate only	*/
+  
+  	if (landscape)
+--- 1365,1375 ----
+  void scale_factors ()
+  {	int	wide;				/*	width needed for char count			*/
+  	int	high;				/*	points needed for line count		*/
+  	int	n_lines;			/*	number of lines on a page			*/
+  	int	i;
+! 	double	char_width;
+  	double	char_sf, line_sf;
+  	
+  	real_width = p->width;		/* for initial axis translate only	*/
+  
+  	if (landscape)
+***************
+*** 1154,1175 ****
+  			"	grestore\n",
+  			"	show\n",
+  			"} def\n",
+  			"/mv {moveto} def\n");
+  
+  	/*	add additional startup prologue code from psfprint.def
+  		probably for non-English language support.
+  	*/
+  	if (pdef)
+  	{
+! #ifdef PSFILTER
+   		char	line[LONG_STR + 1];		/* line already has text stream		   */
+  										/* Jan Fernquist (fer@gorbie.n.tvt.se) */
+  #endif
+  		while (fgets (line, LONG_STR, pdef))
+  		{	if (fputs (line, output_fp) == EOF)
+! 				output_trouble (2);
+  		}
+  		fclose (pdef);
+  		pdef = NULL;
+  	}
+  	
+--- 1595,1643 ----
+  			"	grestore\n",
+  			"	show\n",
+  			"} def\n",
+  			"/mv {moveto} def\n");
+  
++ 	/* iso font encoding
++ 		% Header to convert StandardEncoded fonts to ISOLatin1Encoded fonts.
++ 		% Written by Magnus Hammerin 920226.
++ 		% Copyright (c) 1992 Magnus Hammerin.
++ 		% You may distribute this code freely as long as this note remains intact.
++ 
++ 		% Modification and adaption for usage with psf by Leif H (leif@ifm.liu.se)
++ 		%
++ 		% Test to see if the printer supports ISOLatin1Encoding.
++ 
++ 		/ReEncodeISO { % <newfontname> <oldfontname> ReEncodeISO
++ 	*/
++ 	if (isolatin)
++ 		fprintf (output_fp, "%s%s%s%s%s%s%s%s%s%s%s%s",
++ 			"/ReEncodeISO {\n",
++ 			"  /ISOLatin1Encoding where {\n",
++ 			"    pop\n",
++ 			"    findfont\n",
++ 			"    dup length dict begin\n",
++ 			"      {1 index /FID ne {def} {pop pop} ifelse} forall\n",
++ 			"      /Encoding ISOLatin1Encoding def\n",
++ 			"      currentdict\n",
++ 			"    end\n",
++ 			"    definefont pop\n",
++ 			"  } { pop pop } ifelse\n",
++ 			"} bind def\n");
++ 
+  	/*	add additional startup prologue code from psfprint.def
+  		probably for non-English language support.
+  	*/
+  	if (pdef)
+  	{
+! #ifdef PSFFILTER
+   		char	line[LONG_STR + 1];		/* line already has text stream		   */
+  										/* Jan Fernquist (fer@gorbie.n.tvt.se) */
+  #endif
+  		while (fgets (line, LONG_STR, pdef))
+  		{	if (fputs (line, output_fp) == EOF)
+! 				output_trouble (DISCARD_JOB);
+  		}
+  		fclose (pdef);
+  		pdef = NULL;
+  	}
+  	
+***************
+*** 1180,1203 ****
+  		{	while (1)
+  			{	c = fgetc (fp);
+  				if (feof (fp)  ||  ferror (fp))
+  					break;
+  				if (fputc (c, fp) == EOF)
+! 					output_trouble (2);
+  			}
+  			fclose (fp);
+  		}
+  	}
+  		
+  	fprintf (output_fp, "%%%%EndProlog\n");
+  
+! 	if (set_paper_tray)
+! 		fprintf (output_fp, "%s\n", p->paper_tray);
+  
+  	if (order_command)
+  		fprintf (output_fp, "%s\n", order_command);
+  	else if (set_paper_bin)
+  		fprintf (output_fp, "%s\n", slots[set_paper_bin - 1]);
+  }
+  
+  /****************************************************************************
+  *	showpage ()																*
+--- 1648,1694 ----
+  		{	while (1)
+  			{	c = fgetc (fp);
+  				if (feof (fp)  ||  ferror (fp))
+  					break;
+  				if (fputc (c, fp) == EOF)
+! 					output_trouble (DISCARD_JOB);
+  			}
+  			fclose (fp);
+  		}
+  	}
+  		
+  	fprintf (output_fp, "%%%%EndProlog\n");
+  
+! 	set_tray (set_paper_tray);
+! 	if (duplex)
+! 		fprintf (output_fp, "%s\n", duplex_mode);
+  
+  	if (order_command)
+  		fprintf (output_fp, "%s\n", order_command);
+  	else if (set_paper_bin)
++ 		set_bin (set_paper_bin);
++ }
++ 
++ /****************************************************************************
++ *	set_tray ()																*
++ ****************************************************************************/
++ 
++ void set_tray (set_paper_tray)
++ int		set_paper_tray;
++ {
++ 	if (set_paper_tray)
++ 		fprintf (output_fp, "%s\n", p->paper_tray);
++ }
++ 
++ /****************************************************************************
++ *	set_bin ()																*
++ ****************************************************************************/
++ 
++ void set_bin (set_paper_bin)
++ int		set_paper_bin;
++ {
++ 	if (set_paper_bin)
+  		fprintf (output_fp, "%s\n", slots[set_paper_bin - 1]);
+  }
+  
+  /****************************************************************************
+  *	showpage ()																*
+***************
+*** 1224,1241 ****
+--- 1715,1734 ----
+  			;
+  		if (skipping >= 0)
+  		{	end_of_file = 1;
+  			if (bookwork == 0)				/* psfdoub will re-insert this */
+  				fprintf (output_fp, "showpage pg restore\n");
++ 			pages_written++;
+  			frame = 0;
+  			longjmp (eof_env, 1);
+  		}
+  	}
+  
+  	if (++frame >= max_frame  ||  end_of_file)
+  	{	if (bookwork == 0)					/* psfdoub will re-insert this */
+  			fprintf (output_fp, "showpage pg restore\n");
++ 		pages_written++;
+  		frame = 0;
+  	}
+  	if (!end_of_file)
+  		set_frame ();
+  	
+***************
+*** 1353,1371 ****
+  	/*	psffilter already has a first line,  psf does not */
+  	do
+  #else
+  	while (line_is_wrapped  ||  fgets (line, LONG_STR, input_fp) != NULL)
+  #endif
+! 	{
+! 		if (*line == CTLD_EOJ)		/* printing postscript code: ^D at end	*/
+! 			break;					/* assume it is end of file also		*/
+! 
+! 		if (lcount++ == 0)
+  		{	if ((i = tscan (line, "ta=")) >= 0)
+  			{	tab_size = atoi (line + i + 3);
+  			}
+  		}
+  
+  		if (need_xlate)				/*	translate character set? */
+  		{	xln = (unsigned char *) line;
+  			while (*xln)
+  			{	i = *xln;
+--- 1846,1872 ----
+  	/*	psffilter already has a first line,  psf does not */
+  	do
+  #else
+  	while (line_is_wrapped  ||  fgets (line, LONG_STR, input_fp) != NULL)
+  #endif
+! 	{	if (lcount++ == 0)
+  		{	if ((i = tscan (line, "ta=")) >= 0)
+  			{	tab_size = atoi (line + i + 3);
+  			}
++ 			if (*line == CTLD_EOJ)
++ 			{	/* postscript code may have leading ctl/d.  remove them */
++ 				lc = line;
++ 				while (*lc  && *lc == CTLD_EOJ)
++ 					lc++;
++ 				i = 0;
++ 				do
++ 				{	line[i++] = *lc;
++ 				} while (*lc++);
++ 			}
+  		}
++ 		else if (*line == CTLD_EOJ)	/* printing postscript code: ^D at end	*/
++ 			break;					/* assume it is end of file also		*/
+  
+  		if (need_xlate)				/*	translate character set? */
+  		{	xln = (unsigned char *) line;
+  			while (*xln)
+  			{	i = *xln;
+***************
+*** 1440,1450 ****
+  			moveto (x_coord, y_coord, 1);		/*	do gen moveto		*/
+  
+  		while (*c  && *c != '\n')
+  		{	if (char_type == 0)
+  			{	if (fputc ('(', output_fp) == EOF)
+! 					output_trouble (2);
+  			}
+  			switch ((int) *c)
+  			{
+  			case ESCAPE:
+  				previous_attribute = print_attribute;
+--- 1941,1951 ----
+  			moveto (x_coord, y_coord, 1);		/*	do gen moveto		*/
+  
+  		while (*c  && *c != '\n')
+  		{	if (char_type == 0)
+  			{	if (fputc ('(', output_fp) == EOF)
+! 					output_trouble (DISCARD_JOB);
+  			}
+  			switch ((int) *c)
+  			{
+  			case ESCAPE:
+  				previous_attribute = print_attribute;
+***************
+*** 1459,1469 ****
+  					default:
+  						if (char_type  &&  (previous_attribute & UNDERLINE))
+  							SHOWU (output_fp, point_size);
+  						else
+  						{	if (fputs (")show\n", output_fp) == EOF)
+! 								output_trouble (2);
+  						}
+  						if (esc_type == '+'  ||  esc_type == '-')
+  						{	/*	check for +/- 1/2 line feed		*/
+  							if (esc_type == '+')
+  								y_coord -= ((point_size + extra_space) / 2);
+--- 1960,1970 ----
+  					default:
+  						if (char_type  &&  (previous_attribute & UNDERLINE))
+  							SHOWU (output_fp, point_size);
+  						else
+  						{	if (fputs (")show\n", output_fp) == EOF)
+! 								output_trouble (DISCARD_JOB);
+  						}
+  						if (esc_type == '+'  ||  esc_type == '-')
+  						{	/*	check for +/- 1/2 line feed		*/
+  							if (esc_type == '+')
+  								y_coord -= ((point_size + extra_space) / 2);
+***************
+*** 1472,1482 ****
+  							moveto (x_coord, y_coord, 1);
+  							char_type = -1;
+  							c++;
+  							if (*c != '\n')
+  							{	if (fputc ('(', output_fp) == EOF)
+! 									output_trouble (2);
+  							}
+  							continue;
+  						}
+  						else
+  							findfont ();
+--- 1973,1983 ----
+  							moveto (x_coord, y_coord, 1);
+  							char_type = -1;
+  							c++;
+  							if (*c != '\n')
+  							{	if (fputc ('(', output_fp) == EOF)
+! 									output_trouble (DISCARD_JOB);
+  							}
+  							continue;
+  						}
+  						else
+  							findfont ();
+***************
+*** 1505,1523 ****
+  				}
+  				if (*c == '\t')
+  				{	fputc (' ', output_fp);
+  					while (++char_count % tab_size)
+  					{	if (fputc (' ', output_fp) == EOF)
+! 							output_trouble (2);
+  					}
+  				}
+  				else
+  				{	if (strchr ("\r\b\\()", *c) != NULL)
+  						if (fputc ('\\', output_fp) == EOF)
+! 							output_trouble (2);
+  					if (fputc (*c, output_fp) == EOF)
+! 						output_trouble (2);
+  					char_count++;
+  				}
+  				break;
+  			}
+  			c++;
+--- 2006,2024 ----
+  				}
+  				if (*c == '\t')
+  				{	fputc (' ', output_fp);
+  					while (++char_count % tab_size)
+  					{	if (fputc (' ', output_fp) == EOF)
+! 							output_trouble (DISCARD_JOB);
+  					}
+  				}
+  				else
+  				{	if (strchr ("\r\b\\()", *c) != NULL)
+  						if (fputc ('\\', output_fp) == EOF)
+! 							output_trouble (DISCARD_JOB);
+  					if (fputc (*c, output_fp) == EOF)
+! 						output_trouble (DISCARD_JOB);
+  					char_count++;
+  				}
+  				break;
+  			}
+  			c++;
+***************
+*** 1527,1537 ****
+  		if (char_type == 1)
+  		{	if (print_attribute & UNDERLINE)
+  				SHOWU (output_fp, point_size);
+  			else
+  			{	if (fputs (")show\n", output_fp) == EOF)
+! 					output_trouble (2);
+  			}
+  		}
+  
+  		y_coord -= (point_size + extra_space);
+  		x_coord = 0;
+--- 2028,2038 ----
+  		if (char_type == 1)
+  		{	if (print_attribute & UNDERLINE)
+  				SHOWU (output_fp, point_size);
+  			else
+  			{	if (fputs (")show\n", output_fp) == EOF)
+! 					output_trouble (DISCARD_JOB);
+  			}
+  		}
+  
+  		y_coord -= (point_size + extra_space);
+  		x_coord = 0;
+***************
+*** 1647,1667 ****
+  		fprintf (output_fp, "%d %d mv ", x + x_left_offset, y);
+  }
+  
+  /****************************************************************************
+  *	findfont ()																*
+! *	generate a findfont statement											*
+  ****************************************************************************/
+  
+  void findfont ()
+  {	int	this;
+  
+  	/*	remove reference to UNDERLINE.  Underline is not a font.	*/
+  
+  	this = (font_number * 4) + (print_attribute & 0x03);
+  	fonts_used[this] = 1;
+! 	fprintf (output_fp, "/%s findfont %d scalefont setfont\n", fonts[this], point_size);
+  }
+  
+  /****************************************************************************
+  *	start_file ()															*
+  *	Generate things that are appropriate for beginning of file processing	*
+--- 2148,2183 ----
+  		fprintf (output_fp, "%d %d mv ", x + x_left_offset, y);
+  }
+  
+  /****************************************************************************
+  *	findfont ()																*
+! *	generate a findfont statement. Do ISOLatin1 encoding if desired.		*
+  ****************************************************************************/
+  
+  void findfont ()
+  {	int	this;
++ 	char	new_font_name[100], *fontname;
+  
+  	/*	remove reference to UNDERLINE.  Underline is not a font.	*/
+  
+  	this = (font_number * 4) + (print_attribute & 0x03);
+  	fonts_used[this] = 1;
+! 
+! 	if (isolatin)
+! 	{
+! 		strcpy (new_font_name, fonts[this]);
+! 		strcat (new_font_name, "-ISO");
+! 		if (fonts_iso[this] == 0)
+! 		{	fprintf (output_fp, "/%s /%s ReEncodeISO\n", new_font_name, fonts[this]);
+! 			fonts_iso[this] = 1;
+! 		}
+! 		fontname = new_font_name;
+! 	}
+! 	else
+! 		fontname = fonts[this];
+! 
+! 	fprintf (output_fp, "/%s findfont %d scalefont setfont\n", fontname, point_size);
+  }
+  
+  /****************************************************************************
+  *	start_file ()															*
+  *	Generate things that are appropriate for beginning of file processing	*
+***************
+*** 1723,1733 ****
+--- 2239,2258 ----
+  		for (i = 0;  i < npg_loc-1;  i++)
+  			fprintf (output_fp, "%%PsfPg: %d %d\n",  i, pg_loc[i]);
+  		fprintf (output_fp, "%%PsfPg: 9999 %d\n", pg_loc[npg_loc-1]);
+  		fprintf (output_fp, "%%PsfPtr: %d\n", psfptr);
+  	}
++ #ifdef PSFFILTER
+  	fprintf (output_fp, "%c", CTLD_EOJ);		/* CTL/D = end job */
++ #else
++ 	if (gen_eoj)
++ 		fprintf (output_fp, "%c", CTLD_EOJ);
++ #ifdef CTLDALWAYS
++ 	if (gen_eoj == 0)
++ 		fprintf (output_fp, "%c", CTLD_EOJ);
++ #endif
++ #endif
+  }
+  
+  /****************************************************************************
+  *	draw_cross ()															*
+  *	Draw horizontal and vertical separation lines between pages 2/4-up		*
+***************
+*** 1826,1835 ****
+--- 2351,2421 ----
+  #endif	/* HOPPER */
+  }
+  
+  
+  /************************************************************************
++ *	nexttok()															*
++ *	like strtok() however assumes that quote or apostrophe delimit		*
++ *	multi-word groups.													*
++ ************************************************************************/
++ 
++ char *nexttok (ss, q)
++ char *ss, *q;
++ {
++ 	static char *s;
++ 	char	quote_char, *start, *quote, *apostrophe;
++ 	
++ 	if (ss)
++ 		s = ss;
++ 	if (s  &&  *s)
++ 	{
++ 		/*	use quote or apostrophe delimiting? */
++ 	
++ 		quote = strchr (q, '"');
++ 		apostrophe = strchr (q, '\'');
++ 		
++ 		/*	skip leading quote symbols */
++ 		
++ 		quote_char = *s;
++ 		while (*s)
++ 		{	if ((quote && *s == '"')  ||  (apostrophe  &&  *s == '\''))
++ 			{	quote_char = *s++;
++ 				break;
++ 			}
++ 			if (strchr (q, *s) == NULL)
++ 				break;
++ 			quote_char = *s++;
++ 		}
++ 		
++ 		/*	skip to next quote */
++ 		
++ 		start = s;						/*	beginning of user string */
++ 
++ 		if (quote_char == '"' ||  quote_char == '\'')
++ 		{	while (*s  &&  *s != quote_char)
++ 				s++;
++ 		}
++ 		else
++ 		{	while (*s  &&  strchr (q, *s) == NULL)
++ 				s++;
++ 		}
++ 		
++ 		if (*s)							/*	end of user string		*/
++ 			*s++ = '\0';
++ 		else
++ 			s = NULL;
++ 
++ 	}
++ 	else
++ 	{	s = NULL;
++ 		start = NULL;
++ 	}
++ 	return (start);
++ }
++ 
++ 
++ /************************************************************************
+  *		tscan (s,t)														*		
+  *	look for string t in s. return -1 if t does not exits in s else		*
+  *	return array position of first character match						*
+  ************************************************************************/
+  
+***************
+*** 1847,1860 ****
+  }
+  
+  void get_time (t)				/*	get current time of */
+  char	*t;
+  {
+! 	long	n_time, time ();
+  	char	*x_time, *cc, *strchr();
+  
+! 	n_time = time (0);			/* get time */
+  	x_time = ctime (&n_time);	/* convert ascii */
+  	if ((cc = strchr (x_time, '\n')) != NULL)
+  		*cc = '\0';
+  	strcpy (t, x_time);
+  }
+--- 2433,2446 ----
+  }
+  
+  void get_time (t)				/*	get current time of */
+  char	*t;
+  {
+! 	time_t	n_time, time ();
+  	char	*x_time, *cc, *strchr();
+  
+! 	n_time = time ((time_t *)0);	/* get time */
+  	x_time = ctime (&n_time);	/* convert ascii */
+  	if ((cc = strchr (x_time, '\n')) != NULL)
+  		*cc = '\0';
+  	strcpy (t, x_time);
+  }
+***************
+*** 1883,1921 ****
+  			return (UCCHAR(aa) - UCCHAR(bb));
+  	}
+  	return (0);
+  }
+  
+- int comparen (a,b, n)			/* case insensitive compare with count limit */
+- char	*a, *b;
+- int		n;
+- {	int	aa, bb;
+- 
+- 	while (*a &&  n--)
+- 	{	aa = *a++;
+- 		bb = *b++;
+- 		if (UCCHAR (aa)  !=  UCCHAR (bb))
+- 			return (UCCHAR(aa) - UCCHAR(bb));
+- 	}
+- 	if (n <= 0)
+- 		return (0);
+- 	return (UCCHAR (*a) - UCCHAR (*b));
+- }
+- 
+- int endcompare (a,b)			/* compare end of a with b */
+- char	*a, *b;
+- {
+- 	int	na, nb;
+- 	
+- 	na = strlen (a);
+- 	nb = strlen (b);
+- 	if (na > nb)
+- 		a += na - nb;
+- 	return (strcmp (a,b));
+- }
+- 
+- 
+  void trim (s)					/*	trim trailing blanks  and \n */
+  char	*s;
+  {	int many;
+  
+  	for (many = strlen (s) - 1;  many >= 0;  many--)
+--- 2469,2478 ----
+***************
+*** 1927,1937 ****
+  }
+  
+  void bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (1);
+  }
+  
+  int xtoi (c)					/*	hex character to integer 	*/
+  int c;							/*	any letter is a 'hex' digit */
+  {
+--- 2484,2494 ----
+  }
+  
+  void bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (DISCARD_JOB);
+  }
+  
+  int xtoi (c)					/*	hex character to integer 	*/
+  int c;							/*	any letter is a 'hex' digit */
+  {
+***************
+*** 1957,1968 ****
+  ********************************************************/
+  
+  void catch (signo)
+  int	signo;
+  {
+  		fprintf (output_fp, "%c", CTLD_EOJ);
+! 		exit (0);
+  }
+  
+  void output_trouble (rc)
+  int	rc;
+  {
+--- 2514,2534 ----
+  ********************************************************/
+  
+  void catch (signo)
+  int	signo;
+  {
++ #ifdef PSFFILTER
++ 	abort_exit ();
++ #else
++ 	if (gen_eoj)
++ 		fprintf (output_fp, "%c", CTLD_EOJ);
++ #ifdef CTLDALWAYS
++ 	if (gen_eoj == 0)
+  		fprintf (output_fp, "%c", CTLD_EOJ);
+! #endif
+! #endif
+! 		exit (JOB_IS_DONE);
+  }
+  
+  void output_trouble (rc)
+  int	rc;
+  {
+***************
+*** 2038,2071 ****
+  *	octal to integer														*
+  ****************************************************************************/
+  int	otoi (s)
+  char	*s;
+  {
+! 	int		v, p, quit;
+  
+  	v = 0;
+  	while (*s == ' ')
+  		s++;
+! 	quit = 0;
+! 	while (*s)
+! 	{	switch (*s)
+! 		{
+! 		case '0':	p = 0;  break;
+! 		case '1':	p = 1;  break;
+! 		case '2':	p = 2;  break;
+! 		case '3':	p = 3;  break;
+! 		case '4':	p = 4;  break;
+! 		case '5':	p = 5;  break;
+! 		case '6':	p = 6;  break;
+! 		case '7':	p = 7;  break;
+! 		default:	quit = 1;
+! 		}
+! 		if (quit)
+! 			break;
+! 		v = (v << 3) + p;
+! 		s++;
+! 	}
+  	return (v);
+  }
+  
+  /****************************************************************************
+  *	usage ()																*
+--- 2604,2621 ----
+  *	octal to integer														*
+  ****************************************************************************/
+  int	otoi (s)
+  char	*s;
+  {
+! 	int v;
+! 	unsigned d;
+  
+  	v = 0;
+  	while (*s == ' ')
+  		s++;
+! 	while ((d = *s++ - '0')  <  8)
+! 		v = (v << 3) + d;
+  	return (v);
+  }
+  
+  /****************************************************************************
+  *	usage ()																*
+***************
+*** 2072,2105 ****
+  ****************************************************************************/
+  
+  #ifdef PSFFILTER
+  
+  void usage ()
+! {	exit (1);
+  }
+  void size_display ()
+! {	exit (1);
+  }
+  
+  #else	/* not PSFFILTER */
+  
+  static char *usage_text[] =
+  {
+! 	"Usage: %s [-124dEehnswx] [-b n] [-c n] [-f n] [-g type] [-H txt] [-i n] [-l n]\n",
+! 	"     [-m n] [-M l,r,t,b[,pic]] [-p n] [-P n] [-R n] [-r n] [-t n] [-u f] file..",
+! 	"where:",
+  	"   -1|2|4  print 1,2,4 up (default=1)",
+  	"   -b n    paper bin n",
+  	"   -c n    print columns",
+  	"   -d      double sided",
+  	"   -e      left-justified line wrap",
+  	"   -E      right-justified line wrap",
+  	"   -f n    font number (def=0:Courier)",
+  	"   -g type letter legal a4 b5",
+  	"   -h      file name header",
+  	"   -H text text header",
+  	"   -i n[pic] indent left margin points",
+  	"   -l n    print lines per page",
+  	"   -L n    lines per page",
+  	"   -m n[pic] top margin points",
+  	"   -M xxx  set all margins",
+  	"   -n      portrait (narrow) format",
+--- 2622,2667 ----
+  ****************************************************************************/
+  
+  #ifdef PSFFILTER
+  
+  void usage ()
+! {	exit (DISCARD_JOB);
+  }
+  void size_display ()
+! {	exit (DISCARD_JOB);
+  }
+  
+  #else	/* not PSFFILTER */
+  
+  static char *usage_text[] =
+  {
+! #ifdef CTLDALWAYS
+! 	"Usage: %s [-124DdehIjnswx][-b n][-c n][-f n][-g type][-H txt][-i n][-l n]\n",
+! #else
+! 	"Usage: %s [-124DdEehInswx][-b n][-c n][-f n][-g type][-H txt][-i n][-l n]\n",
+! #endif
+! 	"     [-m n][-M l,r,t,b[,pic]][-p n][-P n][-R n][-r n][-t n][-u f] file..",
+  	"   -1|2|4  print 1,2,4 up (default=1)",
+  	"   -b n    paper bin n",
+  	"   -c n    print columns",
++ 	"   -D      duplex double sided",
+  	"   -d      double sided",
+  	"   -e      left-justified line wrap",
+  	"   -E      right-justified line wrap",
+  	"   -f n    font number (def=0:Courier)",
+  	"   -g type letter legal a4 b5",
+  	"   -h      file name header",
+  	"   -H text text header",
++ #ifdef ISO
++ 	"   -I      disable ISOLatin1 encoding",
++ #else
++ 	"   -I      use ISOLatin1 encoding",
++ #endif
+  	"   -i n[pic] indent left margin points",
++ #ifndef CTLDALWAYS
++ 	"   -j      ctl/d at end of print job",
++ #endif
+  	"   -l n    print lines per page",
+  	"   -L n    lines per page",
+  	"   -m n[pic] top margin points",
+  	"   -M xxx  set all margins",
+  	"   -n      portrait (narrow) format",
+***************
+*** 2116,2126 ****
+  	"   file..  name of files (or stdin)",
+  	"   output: stdout",
+  	""
+  } ;
+  
+! #define TOPCOUNT 3
+  
+  void usage ()
+  {	int		i, many, n, ff;
+  
+  	fprintf (stderr, usage_text[0], pgmname);
+--- 2678,2688 ----
+  	"   file..  name of files (or stdin)",
+  	"   output: stdout",
+  	""
+  } ;
+  
+! #define TOPCOUNT 2
+  
+  void usage ()
+  {	int		i, many, n, ff;
+  
+  	fprintf (stderr, usage_text[0], pgmname);
+***************
+*** 2158,2168 ****
+  		many += n + 3;
+  		fprintf (stderr,"   %s", page_types[i].paper_name);
+  	}
+  	if (ff)
+  		fprintf (stderr, "\n");
+! 	exit (1);
+  }
+  
+  /************************************************************************
+  *	size_display ()														*
+  *	print a table of point size, page size, line count, column count	*
+--- 2720,2730 ----
+  		many += n + 3;
+  		fprintf (stderr,"   %s", page_types[i].paper_name);
+  	}
+  	if (ff)
+  		fprintf (stderr, "\n");
+! 	exit (DISCARD_JOB);
+  }
+  
+  /************************************************************************
+  *	size_display ()														*
+  *	print a table of point size, page size, line count, column count	*
+***************
+*** 2205,2212 ****
+  				fprintf (stderr, " %4d%4d", n_lines, n_chars);
+  			}
+  			fprintf (stderr, "\n");
+  		}
+  	}
+! 	exit (1);
+  }
+  #endif /* PSFFILTER */
+--- 2767,2774 ----
+  				fprintf (stderr, " %4d%4d", n_lines, n_chars);
+  			}
+  			fprintf (stderr, "\n");
+  		}
+  	}
+! 	exit (DISCARD_JOB);
+  }
+  #endif /* PSFFILTER */
+
+exit 0 # Just in case...

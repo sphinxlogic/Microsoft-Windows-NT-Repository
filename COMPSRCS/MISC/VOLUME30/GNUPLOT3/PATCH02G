@@ -1,0 +1,878 @@
+Newsgroups: comp.sources.misc
+From: woo@ra-next.arc.nasa.gov (Alex Woo)
+Subject:  v30i060:  gnuplot3 - interactive function plotting utility, Patch02g/7
+Message-ID: <1992Jun14.214212.8711@sparky.imd.sterling.com>
+X-Md4-Signature: 461918f84995dba0cd2cb370bd047d58
+Date: Sun, 14 Jun 1992 21:42:12 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: woo@ra-next.arc.nasa.gov (Alex Woo)
+Posting-number: Volume 30, Issue 60
+Archive-name: gnuplot3/patch02g
+Environment: UNIX, MS-DOS, VMS
+Patch-To: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  patch.2
+# Wrapped by woo@ra-iris. on Thu May 28 22:44:40 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 7)."'
+if test -f 'patch.2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.2'\"
+else
+  echo shar: Extracting \"'patch.2'\" \(28136 characters\)
+  sed "s/^X//" >'patch.2' <<'END_OF_FILE'
+Xdiff -rc gnuplot/gnuplot_x11.c gnuplot3.2/gnuplot_x11.c
+X*** gnuplot/gnuplot_x11.c	Mon Sep  9 13:13:19 1991
+X--- gnuplot3.2/gnuplot_x11.c	Tue May  5 21:42:20 1992
+X***************
+X*** 1,3 ****
+X--- 1,7 ----
+X+ #ifndef lint
+X+ static char *RCSid = "$Id: gnuplot_x11.c,v 3.26 92/03/24 22:35:52 woo Exp Locker: woo $";
+X+ #endif
+X+ 
+X  /*-----------------------------------------------------------------------------
+X   *   gnuplot_x11 - X11 outboard terminal driver for gnuplot 3
+X   *
+X***************
+X*** 4,130 ****
+X   *   Requires installation of companion inboard x11 driver in gnuplot/term.c
+X   *
+X   *   Acknowledgements: 
+X!  *      Chris Peterson (MIT) - original Xlib gnuplot support (and Xaw examples)
+X!  *      Dana Chee (Bellcore)  - mods to original support for gnuplot 2.0
+X!  *      Arthur Smith (Cornell) - graphical-label-widget idea (xplot)
+X!  *      Hendri Hondorp (University of Twente, The Netherlands) - Motif xgnuplot
+X   *
+X   *   This code is provided as is and with no warranties of any kind.
+X   *       
+X!  *   Ed Kubaitis - Computing Services Office -  University of Illinois, Urbana
+X   *---------------------------------------------------------------------------*/
+X   
+X  #include <stdio.h>
+X  #include <signal.h>
+X- #include <X11/Intrinsic.h>
+X- #include <X11/StringDefs.h>
+X- #include <Label.h>          /* use -Idir for location on your system */
+X- #ifdef MOTIF
+X- #include <Xm.h>             /* use -Idir for location on your system */
+X- #define LabelWC xmLabelWidgetClass
+X- #define LabelBPM XmNbackgroundPixmap
+X- #else
+X- #define LabelWC labelWidgetClass
+X- #define LabelBPM XtNbitmap
+X- #endif
+X  
+X! #define Color (D>1)
+X! #define Ncolors 11
+X  unsigned long colors[Ncolors];
+X- char color_keys[Ncolors][30] =   { "text", "border", "axis", 
+X-    "line1", "line2", "line3", "line4", "line5", "line6", "line7", "line8" };
+X- char color_values[Ncolors][30] = { "black", "black", "black", 
+X-    "red",  "green", "blue",  "magenta", "cyan", "sienna", "orange", "coral" };
+X  
+X  char dashes[10][5] = { {0}, {1,6,0}, 
+X     {0}, {4,2,0}, {1,3,0}, {4,4,0}, {1,5,0}, {4,4,4,1,0}, {4,2,0}, {1,3,0}
+X     };
+X  
+X! Widget w_top, w_label; Window win; Display *dpy;
+X! Pixmap pixmap;  GC gc = (GC)NULL;
+X! Dimension W = 640 , H = 450;  int D;
+X! Arg args[5];
+X! static void gnuplot(), resize();
+X  
+X  int cx=0, cy=0, vchar, nc = 0, ncalloc = 0;
+X  double xscale, yscale;
+X! #define X(x) (Dimension) (x * xscale)
+X! #define Y(y) (Dimension) ((4095-y) * yscale)
+X  enum JUSTIFY { LEFT, CENTRE, RIGHT } jmode;
+X  #define Nbuf 1024
+X! char buf[Nbuf];
+X! String *commands = NULL;
+X  
+X! typedef struct {       /* See "X Toolkit Intrinsics Programming Manual"      */
+X!   XFontStruct *font;   /* Nye and O'Reilly, O'Reilly & Associates, pp. 80-85 */
+X!   unsigned long fg;
+X!   unsigned long bg;
+X!   } RValues, *RVptr; 
+X! RValues rv;
+X  
+X- XtResource resources[] = {
+X-    { XtNfont, XtCFont, XtRFontStruct, sizeof(XFontStruct *), 
+X-      XtOffset(RVptr, font), XtRString, "fixed" },
+X-    { XtNforeground, XtCForeground, XtRPixel, sizeof(Pixel), 
+X-      XtOffset(RVptr, fg), XtRString, XtDefaultForeground },
+X-    { XtNbackground, XtCBackground, XtRPixel, sizeof(Pixel), 
+X-      XtOffset(RVptr, bg), XtRString, XtDefaultBackground },
+X-    };
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   main program - fire up application and callbacks
+X   *---------------------------------------------------------------------------*/
+X  
+X  main(argc, argv) int argc; char *argv[]; {
+X  
+X!    signal(SIGINT, SIG_IGN);
+X! #ifdef SIGTSTP
+X!    signal(SIGTSTP, SIG_IGN);
+X! #endif
+X  
+X!    /* initialize application */
+X!    w_top = XtInitialize("gnuplot", "Gnuplot", NULL, 0, &argc, argv);
+X!    XtSetArg(args[0], XtNwidth, W);
+X!    XtSetArg(args[1], XtNheight, H);
+X!    w_label = XtCreateManagedWidget ("", LabelWC, w_top, args, (Cardinal)2);
+X!    XtRealizeWidget(w_top);
+X  
+X!    /* extract needed information */
+X!    dpy = XtDisplay(w_top); win = XtWindow(w_label);
+X!    D = DisplayPlanes(dpy,DefaultScreen(dpy));
+X!    if (Color) {
+X!       char option[20], *value; 
+X!       XColor used, exact; int n;
+X  
+X!       for(n=0; n<Ncolors; n++) {
+X! 	 strcpy(option, color_keys[n]);
+X! 	 strcat(option, "Color");
+X! 	 value = XGetDefault(dpy, "gnuplot", option);
+X! 	 if (!value) { value = color_values[n]; }
+X! 	 if (XAllocNamedColor(dpy, DefaultColormap(dpy,0), value, &used,&exact))
+X! 	    colors[n] = used.pixel; 
+X! 	 else {
+X! 	    fprintf(stderr, "gnuplot: cannot allocate %s:%s\n", option, value);
+X! 	    fprintf(stderr, "gnuplot: assuming %s:black\n", option);
+X! 	    colors[n] = BlackPixel(dpy,0);
+X  	    }
+X  	 }
+X        }
+X!    XtSetArg(args[0], XtNwidth, &W);
+X!    XtSetArg(args[1], XtNheight,&H);
+X!    XtGetValues(w_label, args, (Cardinal)2);
+X!    XtGetApplicationResources(w_top, &rv, resources, XtNumber(resources),NULL,0);
+X!    vchar = (rv.font->ascent + rv.font->descent);
+X  
+X!    /* add callbacks on input-from-gnuplot-on-stdin & window-resized */
+X!    XtAddInput(0, XtInputReadMask, gnuplot, NULL);
+X!    XtAddEventHandler(w_label, StructureNotifyMask, FALSE, resize, NULL);
+X  
+X!    XtMainLoop();
+X     }
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   display - display accumulated commands from inboard driver
+X   *---------------------------------------------------------------------------*/
+X  
+X  display() {
+X--- 8,186 ----
+X   *   Requires installation of companion inboard x11 driver in gnuplot/term.c
+X   *
+X   *   Acknowledgements: 
+X!  *      Chris Peterson (MIT)
+X!  *      Dana Chee (Bellcore) 
+X!  *      Arthur Smith (Cornell)
+X!  *      Hendri Hondorp (University of Twente, The Netherlands)
+X!  *      Bill Kucharski (Solbourne)
+X!  *      Charlie Kline (University of Illinois)
+X!  *      O'Reilly & Associates: X Window System - Volumes 1 & 2
+X   *
+X   *   This code is provided as is and with no warranties of any kind.
+X   *       
+X!  *   Ed Kubaitis (ejk@uiuc.edu)
+X!  *   Computing & Communications Services Office 
+X!  *   University of Illinois, Urbana
+X   *---------------------------------------------------------------------------*/
+X+ 
+X+ #include <X11/Xos.h>
+X+ #include <X11/Xlib.h>
+X+ #include <X11/Xutil.h>
+X+ #include <X11/Xatom.h>
+X+ #include <X11/Xresource.h>
+X   
+X  #include <stdio.h>
+X  #include <signal.h>
+X  
+X! #ifndef FD_SET
+X! #ifndef OLD_SELECT
+X! #include <sys/select.h>
+X! #else   /* OLD_SELECT */
+X! #define FD_SET(n, p)    ((p)->fds_bits[0] |= (1 << ((n) % 32)))
+X! #define FD_CLR(n, p)    ((p)->fds_bits[0] &= ~(1 << ((n) % 32)))
+X! #define FD_ISSET(n, p)  ((p)->fds_bits[0] & (1 << ((n) % 32)))
+X! #define FD_ZERO(p)      bzero((char *)(p), sizeof(*(p)))
+X! #endif  /* OLD_SELECT */
+X! #endif  /* FD_SET */
+X! 
+X! #include <errno.h>
+X! extern int errno;
+X! 
+X! #define FallbackFont "fixed"
+X! #define Ncolors 13
+X  unsigned long colors[Ncolors];
+X  
+X  char dashes[10][5] = { {0}, {1,6,0}, 
+X     {0}, {4,2,0}, {1,3,0}, {4,4,0}, {1,5,0}, {4,4,4,1,0}, {4,2,0}, {1,3,0}
+X     };
+X  
+X! Display *dpy; int scr; Window win, root;
+X! Visual *vis; GC gc = (GC)0; Pixmap pixmap; XFontStruct *font;
+X! unsigned int W = 640, H = 450; int D, gX = 100, gY = 100;
+X  
+X+ Bool Mono = 0, Gray = 0, Rv = 0, Clear = 0;
+X+ char Name[64] = "gnuplot";
+X+ char Class[64] = "Gnuplot";
+X+ 
+X  int cx=0, cy=0, vchar, nc = 0, ncalloc = 0;
+X  double xscale, yscale;
+X! #define X(x) (int) (x * xscale)
+X! #define Y(y) (int) ((4095-y) * yscale)
+X  enum JUSTIFY { LEFT, CENTRE, RIGHT } jmode;
+X+ 
+X  #define Nbuf 1024
+X! char buf[Nbuf], **commands = (char **)0;
+X  
+X! FILE *X11_ipc = stdin;
+X! char X11_ipcpath[32];
+X  
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   main program 
+X   *---------------------------------------------------------------------------*/
+X  
+X  main(argc, argv) int argc; char *argv[]; {
+X  
+X!    preset(argc, argv);
+X!    mainloop();
+X!    exit(0);
+X  
+X!    }
+X  
+X! /*-----------------------------------------------------------------------------
+X!  *   mainloop - process X events and input from gnuplot
+X!  *
+X!  *   On systems with a fully implemented select(), select is used (without
+X!  *   timeout) to sense both input from the X server network connection and
+X!  *   pipe input from gnuplot. On platforms with an incomplete or faulty 
+X!  *   select(), select (with timeout) is used for the server, and a temporary 
+X!  *   file rather than a pipe is used for gnuplot input.
+X!  *---------------------------------------------------------------------------*/
+X  
+X! mainloop() {
+X!    int nf, nfds, cn = ConnectionNumber(dpy), in = fileno(X11_ipc);
+X!    struct timeval timeout, *timer = (struct timeval *)0;
+X!    fd_set rset, tset;
+X!    unsigned long all = 0xffffffff;
+X!    XEvent xe;
+X! 
+X!    FD_ZERO(&rset);
+X!    FD_SET(cn, &rset);
+X! 
+X! #ifndef CRIPPLED_SELECT
+X!    FD_SET(in, &rset);
+X!    nfds = (cn > in) ? cn + 1 : in + 1;
+X! #else  /* CRIPPLED_SELECT */
+X!    timeout.tv_sec = 1;
+X!    timeout.tv_usec = 0;
+X!    timer = &timeout;
+X!    sprintf(X11_ipcpath, "/tmp/Gnuplot_%d", getppid());
+X!    nfds = cn + 1;
+X! #endif /* CRIPPLED_SELECT */
+X! 
+X!    while(1) {
+X!       tset = rset;
+X!       nf = select(nfds, &tset, (fd_set *)0, (fd_set *)0, timer);
+X!       if (nf < 0) {
+X! 	 if (errno == EINTR) continue;
+X! 	 fprintf(stderr, "gnuplot: select failed. errno:%d\n", errno);
+X! 	 exit(1);
+X! 	 }
+X!       nf > 0 && XNoOp(dpy);
+X!       if (FD_ISSET(cn, &tset)) {
+X! 	 while (XCheckMaskEvent(dpy, all, &xe)) {
+X! 	    (xe.type == ConfigureNotify)  && resize(&xe); 
+X  	    }
+X  	 }
+X+ #ifndef CRIPPLED_SELECT
+X+       FD_ISSET(in, &tset) && accept();
+X+ #else  /* CRIPPLED_SELECT */
+X+       if ((X11_ipc = fopen(X11_ipcpath, "r"))) {
+X+ 	 unlink(X11_ipcpath);
+X+ 	 accept();
+X+ 	 fclose(X11_ipc);
+X+ 	 }
+X+ #endif /* CRIPPLED_SELECT */
+X        }
+X!    }
+X  
+X! /*-----------------------------------------------------------------------------
+X!  *   accept - accept & record new plot from gnuplot inboard X11 driver
+X!  *---------------------------------------------------------------------------*/
+X  
+X! accept() {
+X! 
+X!    while (fgets(buf, Nbuf, X11_ipc)) {
+X!      if (*buf == 'G') {                           /* enter graphics mode */
+X! 	 if (commands) {
+X! 	    int n; for (n=0; n<nc; n++) free(commands[n]);
+X! 	    free(commands);
+X! 	    }
+X! 	 commands = (char **)0; nc = ncalloc = 0;
+X!          }
+X!       else if (*buf == 'E') { display(); break; } /* leave graphics mode */
+X!       else if (*buf == 'R') { exit(0); }          /* leave X11/x11 mode  */
+X!       else {                                      /* record command      */
+X! 	 char *p;
+X! 	 if (nc >= ncalloc) {
+X! 	    ncalloc = ncalloc*2 + 1;
+X! 	    commands = (commands)
+X! 	       ? (char **)realloc(commands, ncalloc * sizeof(char *))
+X! 	       : (char **)malloc(sizeof(char *));
+X! 	    }
+X! 	 p = (char *)malloc((unsigned)strlen(buf)+1);
+X! 	 if (!commands || !p) {
+X! 	    fprintf(stderr, "gnuplot: can't get memory. X11 aborted.\n");
+X! 	    exit(1);
+X! 	    }
+X! 	 commands[nc++] = strcpy(p, buf);
+X! 	 }
+X!       }
+X!    if (feof(X11_ipc) || ferror(X11_ipc)) exit(1);
+X     }
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   display - display last plot from gnuplot inboard X11 driver
+X   *---------------------------------------------------------------------------*/
+X  
+X  display() {
+X***************
+X*** 131,166 ****
+X     int n, x, y, sw, sl, lt, width, type;
+X     char *buf, *str;
+X  
+X     /* set scaling factor between internal driver & window geometry */
+X     xscale = (double)W / 4096.;  yscale = (double)H / 4096.;  
+X  
+X     /* create new pixmap & GC */
+X     if (gc) { XFreeGC(dpy, gc); XFreePixmap(dpy, pixmap); }
+X!    pixmap = XCreatePixmap(dpy, RootWindow(dpy,DefaultScreen(dpy)), W, H, D);
+X!    gc = XCreateGC(dpy, pixmap, 0, NULL);
+X!    XSetFont(dpy, gc, rv.font->fid);
+X  
+X!    /* erase pixmap */
+X! #ifndef MOTIF
+X!    if (Color) { /* Athena needs different erase for color and mono */
+X! #endif
+X!       XSetForeground(dpy, gc, rv.bg);
+X!       XFillRectangle(dpy, pixmap, gc, 0, 0, W, H);
+X!       XSetForeground(dpy, gc, rv.fg);
+X!       XSetBackground(dpy, gc, rv.bg);
+X! #ifndef MOTIF
+X!       }
+X!    else {  
+X!       XSetFunction(dpy, gc, GXxor);
+X!       XCopyArea(dpy, pixmap, pixmap, gc, 0, 0, W, H, 0, 0);
+X!       XSetFunction(dpy, gc, GXcopyInverted);
+X!       }
+X! #endif
+X  
+X!    /* connect new pixmap to label widget */
+X!    XtSetArg(args[0], LabelBPM, pixmap);
+X!    XtSetValues(w_label, args, (Cardinal)1);
+X  
+X     /* loop over accumulated commands from inboard driver */
+X     for (n=0; n<nc; n++) {
+X        buf = commands[n];
+X--- 187,217 ----
+X     int n, x, y, sw, sl, lt, width, type;
+X     char *buf, *str;
+X  
+X+    if (!nc) return;
+X+ 
+X     /* set scaling factor between internal driver & window geometry */
+X     xscale = (double)W / 4096.;  yscale = (double)H / 4096.;  
+X  
+X     /* create new pixmap & GC */
+X     if (gc) { XFreeGC(dpy, gc); XFreePixmap(dpy, pixmap); }
+X!    pixmap = XCreatePixmap(dpy, root, W, H, D);
+X!    gc = XCreateGC(dpy, pixmap, 0, (XGCValues *)0);
+X!    XSetFont(dpy, gc, font->fid);
+X  
+X!    /* set pixmap background */
+X!    XSetForeground(dpy, gc, colors[0]);
+X!    XFillRectangle(dpy, pixmap, gc, 0, 0, W, H);
+X!    XSetBackground(dpy, gc, colors[0]);
+X  
+X!    /* set new pixmap as window background */
+X!    XSetWindowBackgroundPixmap(dpy, win, pixmap);
+X  
+X+    /* momentarily clear the window first if requested */
+X+    if (Clear) {
+X+       XClearWindow(dpy, win);
+X+       XFlush(dpy);
+X+       }
+X+ 
+X     /* loop over accumulated commands from inboard driver */
+X     for (n=0; n<nc; n++) {
+X        buf = commands[n];
+X***************
+X*** 180,198 ****
+X        else if (*buf == 'T') { 
+X  	 sscanf(buf, "T%4d%4d", &x, &y);  
+X  	 str = buf + 9; sl = strlen(str) - 1;
+X! 	 sw = XTextWidth(rv.font, str, sl);
+X  	 switch(jmode) {
+X  	    case LEFT:   sw = 0;     break;
+X  	    case CENTRE: sw = -sw/2; break;
+X  	    case RIGHT:  sw = -sw;   break;
+X  	    }
+X! 	 if (!Color) 
+X! 	    XDrawString(dpy, pixmap, gc, X(x)+sw, Y(y)+vchar/3, str, sl);
+X! 	 else { 
+X! 	    XSetForeground(dpy, gc, colors[0]);
+X! 	    XDrawString(dpy, pixmap, gc, X(x)+sw, Y(y)+vchar/3, str, sl);
+X! 	    XSetForeground(dpy, gc, colors[lt+1]);
+X! 	    }
+X  	 }
+X  
+X        /*   X11_justify_text(mode) - set text justification mode  */
+X--- 231,245 ----
+X        else if (*buf == 'T') { 
+X  	 sscanf(buf, "T%4d%4d", &x, &y);  
+X  	 str = buf + 9; sl = strlen(str) - 1;
+X! 	 sw = XTextWidth(font, str, sl);
+X  	 switch(jmode) {
+X  	    case LEFT:   sw = 0;     break;
+X  	    case CENTRE: sw = -sw/2; break;
+X  	    case RIGHT:  sw = -sw;   break;
+X  	    }
+X! 	 XSetForeground(dpy, gc, colors[2]);
+X! 	 XDrawString(dpy, pixmap, gc, X(x)+sw, Y(y)+vchar/3, str, sl);
+X! 	 XSetForeground(dpy, gc, colors[lt+3]);
+X  	 }
+X  
+X        /*   X11_justify_text(mode) - set text justification mode  */
+X***************
+X*** 204,210 ****
+X  	 sscanf(buf, "L%4d", &lt);
+X  	 lt = (lt%8)+2;
+X  	 width = (lt == 0) ? 2 : 0;
+X! 	 if (Color) {
+X  	    if (lt != 1) 
+X  	       type = LineSolid;
+X  	    else {
+X--- 251,257 ----
+X  	 sscanf(buf, "L%4d", &lt);
+X  	 lt = (lt%8)+2;
+X  	 width = (lt == 0) ? 2 : 0;
+X! 	 if (!Mono) {
+X  	    if (lt != 1) 
+X  	       type = LineSolid;
+X  	    else {
+X***************
+X*** 211,217 ****
+X  	       type = LineOnOffDash;
+X  	       XSetDashes(dpy, gc, 0, dashes[lt], strlen(dashes[lt]));
+X  	       }
+X! 	    XSetForeground(dpy, gc, colors[lt+1]);
+X  	    }
+X  	 else {
+X  	    type  = (lt == 0 || lt == 2) ? LineSolid : LineOnOffDash;
+X--- 258,264 ----
+X  	       type = LineOnOffDash;
+X  	       XSetDashes(dpy, gc, 0, dashes[lt], strlen(dashes[lt]));
+X  	       }
+X! 	    XSetForeground(dpy, gc, colors[lt+3]);
+X  	    }
+X  	 else {
+X  	    type  = (lt == 0 || lt == 2) ? LineSolid : LineOnOffDash;
+X***************
+X*** 222,263 ****
+X  	 }
+X        }
+X  
+X!    /* trigger expose events to display pixmap */
+X!    XClearArea(dpy, win, 0, 0, 0, 0, True);
+X     }
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   gnuplot - Xt callback on input from gnuplot inboard X11 driver
+X!  *   resize - Xt callback when window resized
+X   *---------------------------------------------------------------------------*/
+X  
+X! static void
+X! gnuplot(cd, s, id) char *cd; int *s; XtInputId *id; {
+X  
+X!    while (fgets(buf, Nbuf, stdin)) {
+X!      if (*buf == 'G') {                           /* enter graphics mode */
+X! 	 if (commands) {
+X! 	    int n; for (n=0; n<nc; n++) XtFree(commands[n]);
+X! 	    XtFree(commands);
+X  	    }
+X- 	 commands = NULL; nc = ncalloc = 0;
+X-          }
+X-       else if (*buf == 'E') { display(); break; } /* leave graphics mode */
+X-       else if (*buf == 'R') { exit(0); }          /* leave X11/x11 mode  */
+X-       else {
+X- 	 if (nc >= ncalloc) {
+X- 	    ncalloc = ncalloc*2 + 1;
+X- 	    commands = (String *)XtRealloc(commands, ncalloc * sizeof(String));
+X- 	    }
+X- 	 commands[nc++] = XtNewString(buf);
+X  	 }
+X        }
+X!    if (feof(stdin) || ferror(stdin)) exit(0);
+X     }
+X  
+X! static void
+X! resize(w, cd, e) Widget w; char *cd; XConfigureEvent *e; {
+X!    if (e->type != ConfigureNotify) return;
+X!    W = e->width; H = e->height;
+X!    display(); 
+X     }
+X--- 269,584 ----
+X  	 }
+X        }
+X  
+X!    /* trigger exposure of background pixmap */
+X!    XClearWindow(dpy,win);
+X!    XFlush(dpy);
+X     }
+X  
+X  /*-----------------------------------------------------------------------------
+X!  *   resize - rescale last plot if window resized
+X   *---------------------------------------------------------------------------*/
+X  
+X! Bool init = True;
+X  
+X! resize(xce) XConfigureEvent *xce; {
+X!    if (!init || xce->width != W || xce->height != H) {
+X!       W = xce->width; H = xce->height;
+X!       display();
+X!       init = True;
+X!       }
+X!    }
+X! 
+X! 
+X! /*-----------------------------------------------------------------------------
+X!  *   preset - determine options, open display, create window
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! #define On(v) ( !strcmp(v,"on") || !strcmp(v,"true") || \
+X! 		!strcmp(v,"On") || !strcmp(v,"True") )
+X! 
+X! #define AppDefDir "/usr/lib/X11/app-defaults"
+X! #ifndef MAXHOSTNAMELEN
+X! #define MAXHOSTNAMELEN 64
+X! #endif
+X! 
+X! static XrmDatabase dbCmd, dbApp, dbDef, dbEnv, db = (XrmDatabase)0;
+X! 
+X! char *pr_GetR(), *getenv(), *type[20];
+X! XrmValue value;
+X! 
+X! #define Nopt 25
+X! static XrmOptionDescRec options[] = {
+X!    {"-mono",             ".mono",             XrmoptionNoArg,   "on" },
+X!    {"-gray",             ".gray",             XrmoptionNoArg,   "on" },
+X!    {"-clear",            ".clear",            XrmoptionNoArg,   "on" },
+X!    {"-display",          ".display",          XrmoptionSepArg,  NULL },
+X!    {"-name",             ".name",             XrmoptionSepArg,  NULL },
+X!    {"-geometry",         "*geometry",         XrmoptionSepArg,  NULL },
+X!    {"-background",       "*background",       XrmoptionSepArg,  NULL },
+X!    {"-bg",               "*background",       XrmoptionSepArg,  NULL },
+X!    {"-foreground",       "*foreground",       XrmoptionSepArg,  NULL },
+X!    {"-fg",               "*foreground",       XrmoptionSepArg,  NULL },
+X!    {"-bordercolor",      "*bordercolor",      XrmoptionSepArg,  NULL },
+X!    {"-bd",               "*bordercolor",      XrmoptionSepArg,  NULL },
+X!    {"-borderwidth",      ".borderwidth",      XrmoptionSepArg,  NULL },
+X!    {"-bw",               ".borderwidth",      XrmoptionSepArg,  NULL },
+X!    {"-font",             "*font",             XrmoptionSepArg,  NULL },
+X!    {"-fn",               "*font",             XrmoptionSepArg,  NULL },
+X!    {"-reverse",          "*reverseVideo",     XrmoptionNoArg,   "on" },
+X!    {"-rv",               "*reverseVideo",     XrmoptionNoArg,   "on" },
+X!    {"+rv",               "*reverseVideo",     XrmoptionNoArg,   "off"},
+X!    {"-iconic",           "*iconic",           XrmoptionNoArg,   "on" },
+X!    {"-synchronous",      "*synchronous",      XrmoptionNoArg,   "on" },
+X!    {"-xnllanguage",      "*xnllanguage",      XrmoptionSepArg,  NULL },
+X!    {"-selectionTimeout", "*selectionTimeout", XrmoptionSepArg,  NULL },
+X!    {"-title",            ".title",            XrmoptionSepArg,  NULL },
+X!    {"-xrm",              NULL,                XrmoptionResArg,  NULL },
+X!    };
+X! 
+X! preset(argc, argv) int argc; char *argv[]; {
+X!    int Argc = argc; char **Argv = argv;
+X! 
+X!    char *display = getenv("DISPLAY"),  *home = getenv("HOME");
+X!    char *server_defaults, *env, buf[256];
+X! 
+X!    /*---set to ignore ^C and ^Z----------------------------------------------*/
+X! 
+X!    signal(SIGINT, SIG_IGN);
+X! #ifdef SIGTSTP
+X!    signal(SIGTSTP, SIG_IGN);
+X! #endif
+X! 
+X!    /*---prescan arguments for "-name"----------------------------------------*/
+X! 
+X!    while(++Argv, --Argc > 0) {
+X!       if (!strcmp(*Argv, "-name") && Argc > 1) {
+X! 	 strncpy(Name, Argv[1], 64);
+X! 	 strncpy(Class, Argv[1], 64);
+X! 	 if (Class[0] >= 'a' && Class[0] <= 'z') Class[0] -= 0x20;
+X! 	 }
+X!       }
+X!    Argc = argc; Argv = argv;
+X! 
+X!    /*---parse command line---------------------------------------------------*/
+X! 
+X!    XrmInitialize();
+X!    XrmParseCommand(&dbCmd, options, Nopt, Name, &Argc, Argv);
+X!    if (Argc > 1) {
+X!       fprintf(stderr, "\ngnuplot: bad option: %s\n", Argv[1]);
+X!       fprintf(stderr, "gnuplot: X11 aborted.\n");
+X!       exit(1);
+X!       }
+X!    if (pr_GetR(dbCmd, ".display")) display = value.addr;
+X! 
+X!    /*---open display---------------------------------------------------------*/
+X! 
+X!    dpy = XOpenDisplay(display); 
+X!    if (!dpy) {
+X!       fprintf(stderr, "\ngnuplot: unable to open display '%s'\n", display);
+X!       fprintf(stderr, "gnuplot: X11 aborted.\n");
+X!       exit(1);
+X!       }
+X!    scr = DefaultScreen(dpy);
+X!    vis = DefaultVisual(dpy,scr);
+X!    D = DefaultDepth(dpy,scr);
+X!    root = DefaultRootWindow(dpy);
+X!    server_defaults = XResourceManagerString(dpy);
+X! 
+X!    /*---get application defaults--(subset of Xt processing)------------------*/
+X! 
+X!    sprintf(buf, "%s/%s", AppDefDir, "Gnuplot");
+X!    dbApp = XrmGetFileDatabase(buf);
+X!    XrmMergeDatabases(dbApp, &db);
+X! 
+X!    /*---get server or ~/.Xdefaults-------------------------------------------*/
+X! 
+X!    if (server_defaults)
+X!       dbDef = XrmGetStringDatabase(server_defaults);
+X!    else {
+X!       sprintf(buf, "%s/.Xdefaults", home);
+X!       dbDef = XrmGetFileDatabase(buf);
+X!       }
+X!    XrmMergeDatabases(dbDef, &db);
+X! 
+X!    /*---get XENVIRONMENT or  ~/.Xdefaults-hostname---------------------------*/
+X! 
+X!    if (env = getenv("XENVIRONMENT")) 
+X!       dbEnv = XrmGetFileDatabase(env);
+X!    else {
+X!       char *p, host[MAXHOSTNAMELEN];
+X!       if (gethostname(host, MAXHOSTNAMELEN) < 0) {
+X! 	 fprintf(stderr, "gnuplot: gethostname failed. X11 aborted.\n");
+X! 	 exit(1);
+X! 	 }
+X!       if (p = index(host, '.')) *p = '\0';
+X!       sprintf(buf, "%s/.Xdefaults-%s", home, host);
+X!       dbEnv = XrmGetFileDatabase(buf);
+X!       }
+X!    XrmMergeDatabases(dbEnv, &db);
+X! 
+X!    /*---merge command line options-------------------------------------------*/
+X! 
+X!    XrmMergeDatabases(dbCmd, &db);
+X! 
+X!    /*---determine geometry, font and colors----------------------------------*/
+X! 
+X!    pr_geometry();
+X!    pr_font();
+X!    pr_color();
+X! 
+X!    /*---create window--------------------------------------------------------*/
+X! 
+X!    pr_window();
+X! 
+X!    } 
+X! 
+X! /*-----------------------------------------------------------------------------
+X!  *   pr_GetR - get resource from database using "-name" option (if any)
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! char *
+X! pr_GetR(db, resource) XrmDatabase db; char *resource; {
+X!    char name[128], class[128], *rc;
+X! 
+X!    strcpy(name, Name); strcat(name, resource);
+X!    strcpy(class, Class); strcat(class, resource);
+X!    rc = XrmGetResource(db, name, class, type, &value)
+X!       ? (char *)value.addr 
+X!       : (char *)0;
+X!    return(rc);
+X!    }
+X! 
+X! /*-----------------------------------------------------------------------------
+X!  *   pr_color - determine color values
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! char color_keys[Ncolors][30] =   { 
+X!    "background", "bordercolor", "text", "border", "axis", 
+X!    "line1", "line2", "line3",  "line4", 
+X!    "line5", "line6", "line7",  "line8" 
+X!    };
+X! char color_values[Ncolors][30] = { 
+X!    "white", "black",  "black",  "black",  "black", 
+X!    "red",   "green",  "blue",   "magenta", 
+X!    "cyan",  "sienna", "orange", "coral" 
+X!    };
+X! char gray_values[Ncolors][30] = { 
+X!    "black",   "white",  "white",  "gray50", "gray50",
+X!    "gray100", "gray60", "gray80", "gray40", 
+X!    "gray90",  "gray50", "gray70", "gray30" 
+X!    };
+X! 
+X! pr_color() {
+X!    unsigned long black = BlackPixel(dpy, scr), white = WhitePixel(dpy,scr);
+X!    char option[20], *v, *type = (Gray) ? "Gray" : "Color";
+X!    XColor used, exact;
+X!    Colormap cmap;
+X!    int n;
+X! 
+X!    pr_GetR(db, ".mono")         && On(value.addr) && Mono++;
+X!    pr_GetR(db, ".gray")         && On(value.addr) && Gray++;
+X!    pr_GetR(db, ".reverseVideo") && On(value.addr) && Rv++;
+X! 
+X!    if (!Gray && (vis->class == GrayScale || vis->class == StaticGray)) Mono++;
+X! 
+X!    if (!Mono) {
+X!       cmap = DefaultColormap(dpy, scr);
+X!       for (n=0; n<Ncolors; n++) {
+X! 	 strcpy(option, ".");
+X! 	 strcat(option, color_keys[n]);
+X! 	 (n > 1) && strcat(option, type);
+X! 	 v = pr_GetR(db, option) 
+X! 	     ? value.addr
+X! 	     : ((Gray) ? gray_values[n] : color_values[n]);
+X! 	 if (XAllocNamedColor(dpy, cmap, v, &used, &exact))
+X! 	    colors[n] = used.pixel;
+X! 	 else {
+X! 	    fprintf(stderr, "\ngnuplot: can't allocate %s:%s\n", option, v);
+X! 	    fprintf(stderr, "gnuplot: reverting to monochrome\n");
+X! 	    Mono++; break;
+X  	    }
+X  	 }
+X        }
+X!    if (Mono) {
+X!       colors[0] = (Rv) ? black : white ;
+X!       for (n=1; n<Ncolors; n++)  colors[n] = (Rv) ? white : black;
+X!       }
+X     }
+X  
+X! /*-----------------------------------------------------------------------------
+X!  *   pr_font - determine font          
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! pr_font() {
+X!    char *fontname = pr_GetR(db, ".font");
+X! 
+X!    if (!fontname) fontname = FallbackFont;
+X!    font = XLoadQueryFont(dpy, fontname);
+X!    if (!font) {
+X!       fprintf(stderr, "\ngnuplot: can't load font '%s'\n", fontname);
+X!       fprintf(stderr, "gnuplot: using font '%s' instead.\n", FallbackFont);
+X!       font = XLoadQueryFont(dpy, FallbackFont);
+X!       if (!font) {
+X! 	 fprintf(stderr, "gnuplot: can't load font '%s'\n", FallbackFont);
+X! 	 fprintf(stderr, "gnuplot: no useable font - X11 aborted.\n");
+X!          exit(1);
+X! 	 }
+X!       }
+X!    vchar = font->ascent + font->descent;
+X!    }
+X! 
+X! /*-----------------------------------------------------------------------------
+X!  *   pr_geometry - determine window geometry      
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! pr_geometry() {
+X!    char *geometry = pr_GetR(db, ".geometry");
+X!    int x, y, flags;
+X!    unsigned int w, h; 
+X! 
+X!    if (geometry) {
+X!       flags = XParseGeometry(geometry, &x, &y, &w, &h);
+X! 
+X!       if (flags & WidthValue)  W = w;
+X!       if (flags & HeightValue) H = h;
+X!       if (flags & XValue) {
+X! 	 if (flags & XNegative) x += DisplayWidth(dpy,scr);
+X! 	 gX = x;
+X! 	 }
+X!       if (flags & YValue) {
+X! 	 if (flags & YNegative) y += DisplayHeight(dpy,scr);
+X! 	 gY = y;
+X! 	 }
+X!       }
+X!    }
+X! 
+X! /*-----------------------------------------------------------------------------
+X!  *   pr_window - create window 
+X!  *---------------------------------------------------------------------------*/
+X! 
+X! pr_window() {
+X!    char *title =  pr_GetR(db, ".title");
+X!    XSizeHints hints;
+X! 
+X!    win = XCreateSimpleWindow(dpy, root, gX, gY, W, H, 2, colors[1], colors[0]);
+X! 
+X!    pr_GetR(db, ".clear") && On(value.addr) && Clear++;
+X! 
+X!    hints.flags = PPosition;
+X!    hints.x = gX; hints.y = gY;
+X!    XSetNormalHints(dpy, win, &hints);
+X! 
+X!    if (pr_GetR(db, ".iconic") && On(value.addr)) {
+X!       XWMHints wmh;
+X! 
+X!       wmh.flags = StateHint ;
+X!       wmh.initial_state = IconicState;
+X!       XSetWMHints(dpy, win, &wmh);
+X!       } 
+X! 
+X!    XStoreName(dpy, win, ((title) ? title : Class));
+X! 
+X!    XSelectInput(dpy, win, StructureNotifyMask);
+X!    XMapWindow(dpy, win);
+X!    
+X     }
+END_OF_FILE
+  if test 28136 -ne `wc -c <'patch.2'`; then
+    echo shar: \"'patch.2'\" unpacked with wrong size!
+  fi
+  # end of 'patch.2'
+fi
+echo shar: End of archive 7 \(of 7\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

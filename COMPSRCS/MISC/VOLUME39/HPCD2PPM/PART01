@@ -1,0 +1,1880 @@
+Newsgroups: comp.sources.misc
+From: danisch@ira.uka.de (Hadmut Danisch)
+Subject: v39i002:  hpcdtoppm - convert Photo-CD file into portable pixmap v0.5pl1, Part01/03
+Message-ID: <csm-v39i002=hpcdtoppm.154016@sparky.Sterling.COM>
+X-Md4-Signature: 8c6d1f04799e8a3999ff1c472c9b35d0
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 16 Aug 1993 20:40:40 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: danisch@ira.uka.de (Hadmut Danisch)
+Posting-number: Volume 39, Issue 2
+Archive-name: hpcdtoppm/part01
+Environment: Photo-CD
+Supersedes: hpcdtoppm: Volume 34, Issue 83
+
+This is version v0.5pl1 (Patch-Level 1) of the PhotoCD-Decoder
+hpcdtoppm. It produces output in Portable Pixmap Format (ppm) and
+Postscript. You need an ANSI-C-Compiler and enough memory.
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  hpcdtoppm.0.5.pl1 hpcdtoppm.0.5.pl1/TODO
+#   hpcdtoppm.0.5.pl1/const.c hpcdtoppm.0.5.pl1/main.c
+#   hpcdtoppm.0.5.pl1/tools.c
+# Wrapped by kent@sparky on Mon Aug 16 10:49:22 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test ! -d 'hpcdtoppm.0.5.pl1' ; then
+    echo shar: Creating directory \"'hpcdtoppm.0.5.pl1'\"
+    mkdir 'hpcdtoppm.0.5.pl1'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/TODO' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/TODO'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/TODO'\" \(204 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/TODO' <<'END_OF_FILE'
+XThings i want to do when i find time:
+X
+X- Better gamma correction procedures
+X
+X- Color conversion to YMC and YMCK for printer drivers
+X
+X- Driver for color printers
+X
+X- Better correction of reading errors
+X
+X
+X
+X
+END_OF_FILE
+  if test 204 -ne `wc -c <'hpcdtoppm.0.5.pl1/TODO'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/TODO'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/TODO'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/const.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/const.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/const.c'\" \(14361 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/const.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X
+X
+XsINT RGB_BitSh1=8;
+XsINT RGB_Maximum1=1023;
+X
+X
+XsINT RGB_F_LL=1391;
+XsINT RGB_F_C1=2271;
+XsINT RGB_O_C1=-353784;
+XsINT RGB_F_C2=1865;
+XsINT RGB_O_C2=-255023;
+XsINT RGB_F_G1=-441;
+XsINT RGB_F_G2=-949;
+XsINT RGB_O_G =199313;
+X
+X
+XuBYTE RGB_corr0[]={
+X  0,  0,  0,  0,  1,  1,  1,  1,  2,  2,  2,  2,  3,  3,  3,  3,
+X  4,  4,  4,  4,  5,  5,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,
+X  8,  8,  8,  8,  9,  9,  9,  9, 10, 10, 10, 10, 11, 11, 11, 11,
+X 12, 12, 12, 12, 13, 13, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15,
+X 16, 16, 16, 16, 17, 17, 17, 17, 18, 18, 18, 18, 19, 19, 19, 19,
+X 20, 20, 20, 20, 21, 21, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23,
+X 24, 24, 24, 24, 25, 25, 25, 25, 26, 26, 26, 26, 27, 27, 27, 27,
+X 28, 28, 28, 28, 29, 29, 29, 29, 30, 30, 30, 30, 31, 31, 31, 31,
+X 32, 32, 32, 32, 33, 33, 33, 33, 34, 34, 34, 34, 35, 35, 35, 35,
+X 36, 36, 36, 36, 37, 37, 37, 37, 38, 38, 38, 38, 39, 39, 39, 39,
+X 40, 40, 40, 40, 41, 41, 41, 41, 42, 42, 42, 42, 43, 43, 43, 43,
+X 44, 44, 44, 44, 45, 45, 45, 45, 46, 46, 46, 46, 47, 47, 47, 47,
+X 48, 48, 48, 48, 49, 49, 49, 49, 50, 50, 50, 50, 51, 51, 51, 51,
+X 52, 52, 52, 52, 53, 53, 53, 53, 54, 54, 54, 54, 55, 55, 55, 55,
+X 56, 56, 56, 56, 57, 57, 57, 57, 58, 58, 58, 58, 59, 59, 59, 59,
+X 60, 60, 60, 60, 61, 61, 61, 61, 62, 62, 62, 62, 63, 63, 63, 63,
+X 64, 64, 64, 64, 65, 65, 65, 65, 66, 66, 66, 66, 67, 67, 67, 67,
+X 68, 68, 68, 68, 69, 69, 69, 69, 70, 70, 70, 70, 71, 71, 71, 71,
+X 72, 72, 72, 72, 73, 73, 73, 73, 74, 74, 74, 74, 75, 75, 75, 75,
+X 76, 76, 76, 76, 77, 77, 77, 77, 78, 78, 78, 78, 79, 79, 79, 79,
+X 80, 80, 80, 80, 81, 81, 81, 81, 82, 82, 82, 82, 83, 83, 83, 83,
+X 84, 84, 84, 84, 85, 85, 85, 85, 86, 86, 86, 86, 87, 87, 87, 87,
+X 88, 88, 88, 88, 89, 89, 89, 89, 90, 90, 90, 90, 91, 91, 91, 91,
+X 92, 92, 92, 92, 93, 93, 93, 93, 94, 94, 94, 94, 95, 95, 95, 95,
+X 96, 96, 96, 96, 97, 97, 97, 97, 98, 98, 98, 98, 99, 99, 99, 99,
+X100,100,100,100,101,101,101,101,102,102,102,102,103,103,103,103,
+X104,104,104,104,105,105,105,105,106,106,106,106,107,107,107,107,
+X108,108,108,108,109,109,109,109,110,110,110,110,111,111,111,111,
+X112,112,112,112,113,113,113,113,114,114,114,114,115,115,115,115,
+X116,116,116,116,117,117,117,117,118,118,118,118,119,119,119,119,
+X120,120,120,120,121,121,121,121,122,122,122,122,123,123,123,123,
+X124,124,124,124,125,125,125,125,126,126,126,126,127,127,127,127,
+X128,128,128,128,129,129,129,129,130,130,130,130,131,131,131,131,
+X132,132,132,132,133,133,133,133,134,134,134,134,135,135,135,135,
+X136,136,136,136,137,137,137,137,138,138,138,138,139,139,139,139,
+X140,140,140,140,141,141,141,141,142,142,142,142,143,143,143,143,
+X144,144,144,144,145,145,145,145,146,146,146,146,147,147,147,147,
+X148,148,148,148,149,149,149,149,150,150,150,150,151,151,151,151,
+X152,152,152,152,153,153,153,153,154,154,154,154,155,155,155,155,
+X156,156,156,156,157,157,157,157,158,158,158,158,159,159,159,159,
+X160,160,160,160,161,161,161,161,162,162,162,162,163,163,163,163,
+X164,164,164,164,165,165,165,165,166,166,166,166,167,167,167,167,
+X168,168,168,168,169,169,169,169,170,170,170,170,171,171,171,171,
+X172,172,172,172,173,173,173,173,174,174,174,174,175,175,175,175,
+X176,176,176,176,177,177,177,177,178,178,178,178,179,179,179,179,
+X180,180,180,180,181,181,181,181,182,182,182,182,183,183,183,183,
+X184,184,184,184,185,185,185,185,186,186,186,186,187,187,187,187,
+X188,188,188,188,189,189,189,189,190,190,190,190,191,191,191,191,
+X192,192,192,192,193,193,193,193,194,194,194,194,195,195,195,195,
+X196,196,196,196,197,197,197,197,198,198,198,198,199,199,199,199,
+X200,200,200,200,201,201,201,201,202,202,202,202,203,203,203,203,
+X204,204,204,204,205,205,205,205,206,206,206,206,207,207,207,207,
+X208,208,208,208,209,209,209,209,210,210,210,210,211,211,211,211,
+X212,212,212,212,213,213,213,213,214,214,214,214,215,215,215,215,
+X216,216,216,216,217,217,217,217,218,218,218,218,219,219,219,219,
+X220,220,220,220,221,221,221,221,222,222,222,222,223,223,223,223,
+X224,224,224,224,225,225,225,225,226,226,226,226,227,227,227,227,
+X228,228,228,228,229,229,229,229,230,230,230,230,231,231,231,231,
+X232,232,232,232,233,233,233,233,234,234,234,234,235,235,235,235,
+X236,236,236,236,237,237,237,237,238,238,238,238,239,239,239,239,
+X240,240,240,240,241,241,241,241,242,242,242,242,243,243,243,243,
+X244,244,244,244,245,245,245,245,246,246,246,246,247,247,247,247,
+X248,248,248,248,249,249,249,249,250,250,250,250,251,251,251,251,
+X252,252,252,252,253,253,253,253,254,254,254,254,255,255,255,255
+X};
+X
+X
+XuBYTE RGB_corr1[]={
+X  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+X  0,  0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,
+X  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
+X  2,  2,  2,  2,  2,  2,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,
+X  3,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  4,  4,  4,
+X  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  4,  5,  5,  5,  5,  5,
+X  5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  5,  6,  6,  6,  6,  6,
+X  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  7,  7,  7,  7,  7,  7,
+X  7,  7,  7,  7,  7,  7,  7,  7,  8,  8,  8,  8,  8,  8,  8,  8,
+X  8,  8,  8,  8,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,  9,
+X  9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11,
+X 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+X 12, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14,
+X 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16,
+X 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+X 18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19,
+X 20, 20, 20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21, 21, 21,
+X 22, 22, 22, 22, 22, 22, 22, 23, 23, 23, 23, 23, 23, 23, 23, 24,
+X 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 26, 26, 26,
+X 26, 26, 26, 26, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28,
+X 28, 29, 29, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30, 31, 31,
+X 31, 31, 31, 31, 32, 32, 32, 32, 32, 32, 33, 33, 33, 33, 33, 33,
+X 34, 34, 34, 34, 34, 34, 35, 35, 35, 35, 35, 35, 36, 36, 36, 36,
+X 36, 36, 37, 37, 37, 37, 37, 37, 38, 38, 38, 38, 38, 39, 39, 39,
+X 39, 39, 39, 40, 40, 40, 40, 40, 41, 41, 41, 41, 41, 41, 42, 42,
+X 42, 42, 42, 43, 43, 43, 43, 43, 44, 44, 44, 44, 44, 45, 45, 45,
+X 45, 45, 45, 46, 46, 46, 46, 46, 47, 47, 47, 47, 47, 48, 48, 48,
+X 48, 49, 49, 49, 49, 49, 50, 50, 50, 50, 50, 51, 51, 51, 51, 51,
+X 52, 52, 52, 52, 52, 53, 53, 53, 53, 54, 54, 54, 54, 54, 55, 55,
+X 55, 55, 55, 56, 56, 56, 56, 57, 57, 57, 57, 57, 58, 58, 58, 58,
+X 59, 59, 59, 59, 60, 60, 60, 60, 60, 61, 61, 61, 61, 62, 62, 62,
+X 62, 63, 63, 63, 63, 63, 64, 64, 64, 64, 65, 65, 65, 65, 66, 66,
+X 66, 66, 67, 67, 67, 67, 68, 68, 68, 68, 69, 69, 69, 69, 69, 70,
+X 70, 70, 70, 71, 71, 71, 71, 72, 72, 72, 73, 73, 73, 73, 74, 74,
+X 74, 74, 75, 75, 75, 75, 76, 76, 76, 76, 77, 77, 77, 77, 78, 78,
+X 78, 78, 79, 79, 79, 80, 80, 80, 80, 81, 81, 81, 81, 82, 82, 82,
+X 83, 83, 83, 83, 84, 84, 84, 84, 85, 85, 85, 86, 86, 86, 86, 87,
+X 87, 87, 87, 88, 88, 88, 89, 89, 89, 89, 90, 90, 90, 91, 91, 91,
+X 91, 92, 92, 92, 93, 93, 93, 94, 94, 94, 94, 95, 95, 95, 96, 96,
+X 96, 96, 97, 97, 97, 98, 98, 98, 99, 99, 99, 99,100,100,100,101,
+X101,101,102,102,102,102,103,103,103,104,104,104,105,105,105,106,
+X106,106,107,107,107,107,108,108,108,109,109,109,110,110,110,111,
+X111,111,112,112,112,113,113,113,114,114,114,114,115,115,115,116,
+X116,116,117,117,117,118,118,118,119,119,119,120,120,120,121,121,
+X121,122,122,122,123,123,123,124,124,124,125,125,126,126,126,127,
+X127,127,128,128,128,129,129,129,130,130,130,131,131,131,132,132,
+X132,133,133,134,134,134,135,135,135,136,136,136,137,137,137,138,
+X138,139,139,139,140,140,140,141,141,141,142,142,143,143,143,144,
+X144,144,145,145,146,146,146,147,147,147,148,148,149,149,149,150,
+X150,150,151,151,152,152,152,153,153,153,154,154,155,155,155,156,
+X156,157,157,157,158,158,158,159,159,160,160,160,161,161,162,162,
+X162,163,163,164,164,164,165,165,166,166,166,167,167,168,168,168,
+X169,169,170,170,170,171,171,172,172,172,173,173,174,174,174,175,
+X175,176,176,177,177,177,178,178,179,179,179,180,180,181,181,182,
+X182,182,183,183,184,184,184,185,185,186,186,187,187,187,188,188,
+X189,189,190,190,190,191,191,192,192,193,193,193,194,194,195,195,
+X196,196,197,197,197,198,198,199,199,200,200,200,201,201,202,202,
+X203,203,204,204,204,205,205,206,206,207,207,208,208,209,209,209,
+X210,210,211,211,212,212,213,213,214,214,214,215,215,216,216,217,
+X217,218,218,219,219,220,220,220,221,221,222,222,223,223,224,224,
+X225,225,226,226,227,227,228,228,228,229,229,230,230,231,231,232,
+X232,233,233,234,234,235,235,236,236,237,237,238,238,239,239,240,
+X240,241,241,242,242,243,243,244,244,245,245,245,246,246,247,247,
+X248,248,249,249,250,250,251,251,252,252,253,253,254,254,255,255
+X};
+X
+X
+XuBYTE RGB_corr2[]={
+X  0,  1,  2,  3,  4,  5,  6,  7,  9, 10, 11, 12, 13, 14, 15, 16,
+X 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 32,
+X 33, 34, 35, 36, 37, 37, 38, 39, 40, 40, 41, 42, 42, 43, 44, 45,
+X 45, 46, 46, 47, 48, 48, 49, 50, 50, 51, 51, 52, 53, 53, 54, 54,
+X 55, 56, 56, 57, 57, 58, 58, 59, 59, 60, 60, 61, 61, 62, 63, 63,
+X 64, 64, 65, 65, 66, 66, 66, 67, 67, 68, 68, 69, 69, 70, 70, 71,
+X 71, 72, 72, 73, 73, 73, 74, 74, 75, 75, 76, 76, 76, 77, 77, 78,
+X 78, 79, 79, 79, 80, 80, 81, 81, 81, 82, 82, 83, 83, 83, 84, 84,
+X 85, 85, 85, 86, 86, 86, 87, 87, 88, 88, 88, 89, 89, 89, 90, 90,
+X 91, 91, 91, 92, 92, 92, 93, 93, 93, 94, 94, 95, 95, 95, 96, 96,
+X 96, 97, 97, 97, 98, 98, 98, 99, 99, 99,100,100,100,101,101,101,
+X102,102,102,103,103,103,104,104,104,104,105,105,105,106,106,106,
+X107,107,107,108,108,108,109,109,109,109,110,110,110,111,111,111,
+X112,112,112,112,113,113,113,114,114,114,114,115,115,115,116,116,
+X116,116,117,117,117,118,118,118,118,119,119,119,120,120,120,120,
+X121,121,121,121,122,122,122,123,123,123,123,124,124,124,124,125,
+X125,125,126,126,126,126,127,127,127,127,128,128,128,128,129,129,
+X129,129,130,130,130,130,131,131,131,131,132,132,132,132,133,133,
+X133,133,134,134,134,134,135,135,135,135,136,136,136,136,137,137,
+X137,137,138,138,138,138,139,139,139,139,140,140,140,140,140,141,
+X141,141,141,142,142,142,142,143,143,143,143,143,144,144,144,144,
+X145,145,145,145,146,146,146,146,146,147,147,147,147,148,148,148,
+X148,148,149,149,149,149,150,150,150,150,150,151,151,151,151,152,
+X152,152,152,152,153,153,153,153,153,154,154,154,154,155,155,155,
+X155,155,156,156,156,156,156,157,157,157,157,157,158,158,158,158,
+X159,159,159,159,159,160,160,160,160,160,161,161,161,161,161,162,
+X162,162,162,162,163,163,163,163,163,164,164,164,164,164,165,165,
+X165,165,165,166,166,166,166,166,167,167,167,167,167,168,168,168,
+X168,168,169,169,169,169,169,170,170,170,170,170,171,171,171,171,
+X171,171,172,172,172,172,172,173,173,173,173,173,174,174,174,174,
+X174,174,175,175,175,175,175,176,176,176,176,176,177,177,177,177,
+X177,177,178,178,178,178,178,179,179,179,179,179,179,180,180,180,
+X180,180,181,181,181,181,181,181,182,182,182,182,182,183,183,183,
+X183,183,183,184,184,184,184,184,184,185,185,185,185,185,186,186,
+X186,186,186,186,187,187,187,187,187,187,188,188,188,188,188,189,
+X189,189,189,189,189,190,190,190,190,190,190,191,191,191,191,191,
+X191,192,192,192,192,192,192,193,193,193,193,193,193,194,194,194,
+X194,194,194,195,195,195,195,195,195,196,196,196,196,196,196,197,
+X197,197,197,197,197,198,198,198,198,198,198,199,199,199,199,199,
+X199,200,200,200,200,200,200,201,201,201,201,201,201,201,202,202,
+X202,202,202,202,203,203,203,203,203,203,204,204,204,204,204,204,
+X205,205,205,205,205,205,205,206,206,206,206,206,206,207,207,207,
+X207,207,207,207,208,208,208,208,208,208,209,209,209,209,209,209,
+X210,210,210,210,210,210,210,211,211,211,211,211,211,211,212,212,
+X212,212,212,212,213,213,213,213,213,213,213,214,214,214,214,214,
+X214,215,215,215,215,215,215,215,216,216,216,216,216,216,216,217,
+X217,217,217,217,217,217,218,218,218,218,218,218,219,219,219,219,
+X219,219,219,220,220,220,220,220,220,220,221,221,221,221,221,221,
+X221,222,222,222,222,222,222,222,223,223,223,223,223,223,223,224,
+X224,224,224,224,224,224,225,225,225,225,225,225,225,226,226,226,
+X226,226,226,226,227,227,227,227,227,227,227,228,228,228,228,228,
+X228,228,229,229,229,229,229,229,229,230,230,230,230,230,230,230,
+X231,231,231,231,231,231,231,231,232,232,232,232,232,232,232,233,
+X233,233,233,233,233,233,234,234,234,234,234,234,234,234,235,235,
+X235,235,235,235,235,236,236,236,236,236,236,236,237,237,237,237,
+X237,237,237,237,238,238,238,238,238,238,238,239,239,239,239,239,
+X239,239,239,240,240,240,240,240,240,240,241,241,241,241,241,241,
+X241,241,242,242,242,242,242,242,242,243,243,243,243,243,243,243,
+X243,244,244,244,244,244,244,244,244,245,245,245,245,245,245,245,
+X246,246,246,246,246,246,246,246,247,247,247,247,247,247,247,247,
+X248,248,248,248,248,248,248,248,249,249,249,249,249,249,249,249,
+X250,250,250,250,250,250,250,250,251,251,251,251,251,251,251,252,
+X252,252,252,252,252,252,252,253,253,253,253,253,253,253,253,254,
+X254,254,254,254,254,254,254,255,255,255,255,255,255,255,255,255
+X};
+X
+X
+XsINT dithtab[]={
+X  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+X  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+X  0,  0,  1,  2,  2,  3,  3,  4,  5,  5,  6,  7,  8,  8,  9, 10,
+X 11, 12, 13, 14, 15, 15, 16, 17, 18, 20, 21, 22, 23, 24, 25, 26,
+X 27, 29, 30, 31, 32, 34, 35, 36, 37, 39, 40, 42, 43, 44, 46, 47,
+X 49, 50, 51, 53, 54, 56, 57, 59, 60, 62, 64, 65, 67, 68, 70, 71,
+X 73, 75, 76, 78, 80, 81, 83, 85, 86, 88, 90, 91, 93, 95, 96, 98,
+X100,102,103,105,107,109,110,112,114,116,117,119,121,123,124,126,
+X128,130,131,133,135,137,138,140,142,144,145,147,149,151,152,154,
+X156,157,159,161,163,164,166,168,169,171,173,174,176,178,179,181,
+X183,184,186,187,189,190,192,194,195,197,198,200,201,203,204,206,
+X207,208,210,211,213,214,215,217,218,219,221,222,223,224,226,227,
+X228,229,230,231,233,234,235,236,237,238,239,240,241,242,243,243,
+X244,245,246,247,248,248,249,250,250,251,252,252,253,253,254,255,
+X255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+X255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,
+X};
+X
+X
+END_OF_FILE
+  if test 14361 -ne `wc -c <'hpcdtoppm.0.5.pl1/const.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/const.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/const.c'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/main.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/main.c'\" \(24343 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/main.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X
+X
+XuBYTE sbuffer[SECSIZE];
+X
+Xenum TURNS  turn     = T_UNSPEC;
+Xenum TURNS  contori  = T_UNSPEC;
+Xenum SIZES  size     = S_UNSPEC;
+Xenum OUTFOR outfor   = O_UNSPEC;
+Xenum CORR   corrmode = C_UNSPEC;
+X
+XsINT do_info,do_diff,do_overskip,do_sharp,monochrome,paper;
+XsINT do_melde,do_rep,do_crop;
+XsINT flhori=0,flvert=0;
+XsINT bufpos=0;
+X
+Xchar *pcdname=0,*ppmname=0;
+Xstatic FILE  *fin=0,*fout=0;
+X
+Xstatic char    *suba1=0,*suba2=0;
+Xstatic implane Luma, Chroma1,Chroma2;
+Xstatic implane *PLuma,*PChroma1,*PChroma2;
+Xstatic sINT    contsize=1;
+Xstatic sINT    emulate_seek=0;
+Xstatic sINT    print_pos;
+X
+X
+X#define PrintPos(x) {if(print_pos) fprintf(stderr,"File-Offset: %8d = %8x (hex)\n",(x),(x));}
+X
+Xstatic void checkin(void);
+Xstatic void parseargs(int,char**);
+Xstatic void sizecontrol(sizeinfo *,dim,dim);
+Xstatic void f_1 (dim,dim,sINT,sINT);
+Xstatic void f_3 (dim,dim,sINT);
+Xstatic void f_4 (dim,dim,sINT);
+Xstatic void f_5 (dim,dim);
+Xstatic void f_ov(dim,dim,sINT,sINT);
+Xstatic void f_co(dim,dim,sINT,sINT);
+X
+X
+X
+Xvoid close_all(void)
+X {
+X  if(fin && (fin != stdin)) fclose(fin);
+X
+X  if(fout)
+X   {if(fout==stdout) 
+X      fflush(fout);
+X    else 
+X      fclose(fout);
+X   }
+X }
+X
+X
+X
+X
+X
+X
+X
+X
+Xvoid main(int argc,char **argv)
+X {
+X
+X  typecheck();
+X
+X  do_info=do_diff=do_overskip=do_sharp=monochrome=paper=0;
+X  do_melde=do_rep=do_crop=0;
+X  print_pos=0;
+X
+X
+X  parseargs(argc,argv);
+X
+X  if(size     == S_UNSPEC) size     = S_DEFAULT;
+X  if(outfor   == O_UNSPEC) outfor   = O_DEFAULT;
+X  if(corrmode == C_UNSPEC) corrmode = C_DEFAULT;
+X  if(turn     == T_UNSPEC) turn     = T_DEFAULT;
+X
+X  monochrome=(outfor==O_PGM)||(outfor==O_PSG)||(outfor==O_EPSG)||(outfor==O_PSD)||(outfor==O_EPSD);
+X  paper     =(outfor==O_PS )||(outfor==O_EPS)||(outfor==O_PSG )||(outfor==O_EPSG)||(outfor==O_PSD)||(outfor==O_EPSD);
+X
+X
+X
+X  if((size==S_Over) && (!ppmname)) error(E_ARG);
+X  if((size==S_Contact) && do_crop) error(E_ARG);
+X  if(do_overskip && do_diff)       error(E_OPT);
+X
+X  if(do_diff && (size != S_4Base) && (size != S_16Base)) error(E_OPT);
+X
+X  if(do_overskip && (size != S_Base16) && (size != S_Base4) && (size != S_Base) && (size != S_4Base) ) error(E_OVSKIP);
+X  if(print_pos   && (size != S_Base16) && (size != S_Base4) && (size != S_Base) && (size != S_4Base) ) error(E_OPT);
+X  if(do_info     && (size != S_Base16) && (size != S_Base4) && (size != S_Base) && (size != S_4Base) ) error(E_OPT);
+X  if(monochrome && do_overskip) error(E_OPT);
+X  if((size==S_Contact) &&((contsize<1) || (contsize>100))) error(E_OPT);
+X  if(suba1 && ( size==S_Contact || size==S_Over)) error(E_OPT);
+X  if(suba1 && do_crop) error(E_OPT);
+X
+X  if((!paper) && (PSIZE_SET || DPI_SET || FAK_SET)) error(E_OPT);
+X  if(PSIZE_SET && DPI_SET && FAK_SET) error(E_OPT);
+X  if((DPI_SET || FAK_SET) && (outfor!=O_PSD) && (outfor!=O_EPSD)) error(E_OPT);
+X
+X
+X
+X
+X  if(strcmp(pcdname,"-"))
+X   { if(!(fin=fopen(pcdname,R_OP))) error(E_READ);
+X     emulate_seek=0;
+X   }
+X  else
+X   {pcdname="<stdin>";
+X    emulate_seek=1;
+X#ifdef USE_FDOPEN
+X    fin=fdopen(fileno(stdin),R_OP);
+X    if(!fin) error(E_READ);
+X#else
+X    fin=stdin;
+X#endif
+X   }
+X
+X  bufpos=0;
+X
+X
+X  if((size != S_Over) && (size != S_Contact)) checkin();
+X
+X  PLuma=    &Luma;
+X  PChroma1= monochrome ? 0 : &Chroma1; 
+X  PChroma2= monochrome ? 0 : &Chroma2; 
+X
+X  switch(size)
+X   {
+X    case S_Base16:  f_1(BaseW/4,BaseH/4,L_Head,(L_Head+L_Base16));
+X                    break;
+X
+X    case S_Base4:   f_1(BaseW/2,BaseH/2,(L_Head+L_Base16),(L_Head+L_Base16+L_Base4));
+X                    break;
+X
+X    case S_Base:    f_3(BaseW,BaseH,(L_Head+L_Base16+L_Base4));
+X                    break;
+X
+X    case S_4Base:   f_4(BaseW*2,BaseH*2,(L_Head+L_Base16+L_Base4));
+X                    break;
+X
+X    case S_16Base:  f_5(BaseW*4,BaseH*4);
+X                    break;
+X
+X    case S_Over:    f_ov(BaseW/4,BaseH/4,5,SeBase16);
+X                    break;
+X
+X    case S_Contact: f_co(BaseW/4,BaseH/4,5,SeBase16);
+X                    break;
+X
+X    default: error(E_INTERN); 
+X   }
+X
+X  close_all();
+X  exit(0);
+X
+X }
+X
+X
+X
+X
+X
+X
+Xstatic void openoutput(void)
+X {
+X  if(!ppmname) 
+X   {
+X#ifdef USE_FDOPEN
+X    fout=fdopen(fileno(stdout),W_OP);
+X    if(!fout) error(E_WRITE);
+X#else
+X    fout=stdout;
+X#endif
+X   }
+X  else
+X   {if (!(fout=fopen(ppmname,W_OP))) error(E_WRITE);
+X   }
+X }
+X
+X
+X
+X
+X
+X
+X
+Xstatic void f_1(dim w,dim h,sINT normal,sINT overskip)
+X {sizeinfo si;
+X 
+X  sizecontrol(&si,w,h);
+X
+X                   planealloc(PLuma   ,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma1,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma2,si.rdhlen,si.rdvlen);
+X
+X  PrintPos(normal*SECSIZE);
+X  SEEK(normal+1);                   
+X      
+X  if(!do_overskip)
+X    { error(readplain(&si,1,PLuma,PChroma1,PChroma2));
+X      if (!monochrome) 
+X        {interpolate(PChroma1);
+X         interpolate(PChroma2);
+X        }
+X    }
+X  else
+X    { error(readplain(&si,1,PLuma,nullplane,nullplane));
+X      SEEK(overskip+1);
+X      error(readplain(&si,2,nullplane,PChroma1,PChroma2));
+X    }
+X   
+X
+X  colconvert(&si,PLuma,PChroma1,PChroma2);
+X  /* Now Luma holds red, Chroma1 hold green, Chroma2 holds blue */
+X
+X
+X  openoutput();
+X  writepicture(fout,&si,PLuma,PChroma1,PChroma2,turn);
+X
+X } 
+X
+X
+Xstatic void f_3(dim w,dim h,sINT normal)
+X {sINT cd_offset,cd_offhelp;
+X  sizeinfo si;
+X
+X  sizecontrol(&si,w,h);
+X
+X  PrintPos(normal*SECSIZE);
+X  SEEK(normal+1);
+X
+X  if(!do_overskip)
+X    {                 planealloc(PLuma   ,si.rdhlen,si.rdvlen);
+X     if (!monochrome) planealloc(PChroma1,si.rdhlen,si.rdvlen);
+X     if (!monochrome) planealloc(PChroma2,si.rdhlen,si.rdvlen);
+X
+X     error(readplain(&si,1,PLuma,PChroma1,PChroma2));
+X      if (!monochrome) 
+X        {interpolate(PChroma1);
+X         interpolate(PChroma2);
+X        }
+X    }
+X   else
+X    {planealloc(PLuma   ,  si.rdhlen,  si.rdvlen);
+X     planealloc(PChroma1,2*si.rdhlen,2*si.rdvlen);
+X     planealloc(PChroma2,2*si.rdhlen,2*si.rdvlen);
+X
+X     error(readplain(&si,1,PLuma,PChroma1,PChroma2));
+X     interpolate(PChroma1);
+X     interpolate(PChroma2);
+X     interpolate(PChroma1);
+X     interpolate(PChroma2);
+X
+X     cd_offset=Skip4Base();
+X     SEEK(cd_offset+10);          EREADBUF;    cd_offhelp=(((uINT)sbuffer[2])<<8)|sbuffer[3];
+X     SEEK(cd_offset+12);          readhqt(3);
+X     SEEK(cd_offset+cd_offhelp);  decode(&si,4,nullplane,PChroma1,PChroma2,1);
+X
+X     halve(PChroma1);
+X     halve(PChroma2);
+X    }
+X  colconvert(&si,PLuma,PChroma1,PChroma2);
+X  /* Now Luma holds red, Chroma1 hold green, Chroma2 holds blue */
+X
+X  openoutput();
+X  writepicture(fout,&si,PLuma,PChroma1,PChroma2,turn);
+X
+X
+X }
+X
+X
+X
+Xstatic void f_4(dim w,dim h,sINT normal)
+X {sINT cd_offset,cd_offhelp;
+X  sizeinfo si;
+X  sizecontrol(&si,w,h);
+X
+X                   planealloc(PLuma   ,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma1,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma2,si.rdhlen,si.rdvlen);
+X
+X  PrintPos((L_Head+L_Base16+L_Base4+L_Base)*SECSIZE);
+X
+X  if(!do_overskip)
+X   {SEEK(L_Head+L_Base16+L_Base4+1);
+X    error(readplain(&si,-2,PLuma,PChroma1,PChroma2));
+X    interpolate(PLuma);
+X    if (!monochrome) 
+X     {interpolate(PChroma1);
+X      interpolate(PChroma1);
+X      interpolate(PChroma2);
+X      interpolate(PChroma2);
+X     }
+X
+X    if(do_diff) {clearimpl(PLuma,neutrLum);clearimpl(PChroma1,neutrCh1);clearimpl(PChroma2,neutrCh2);}
+X
+X    cd_offset = L_Head + L_Base16 + L_Base4 + L_Base ;
+X    SEEK(cd_offset + 4);     readhqt(1);
+X    SEEK(cd_offset + 5);     decode(&si,1,PLuma,nullplane,nullplane,0);
+X   }
+X  else
+X   {SEEK(L_Head+L_Base16+L_Base4+1);
+X    error(readplain(&si,-2,PLuma,PChroma1,PChroma2));
+X    interpolate(PLuma);
+X    interpolate(PChroma1);
+X    interpolate(PChroma1);
+X    interpolate(PChroma2);
+X    interpolate(PChroma2);
+X
+X    cd_offset = L_Head + L_Base16 + L_Base4 + L_Base ;
+X    SEEK(cd_offset + 4);     readhqt(1);
+X    SEEK(cd_offset + 5);     decode(&si,1,PLuma,nullplane,nullplane,0);
+X
+X    cd_offset=bufpos;
+X    if(cd_offset % SECSIZE) error(E_POS);
+X    cd_offset/=SECSIZE;
+X    SEEK(cd_offset+10);          EREADBUF;    cd_offhelp=(((uINT)sbuffer[2])<<8)|sbuffer[3];
+X    SEEK(cd_offset+12);          readhqt(3);
+X    SEEK(cd_offset+cd_offhelp);  decode(&si,2,nullplane,PChroma1,PChroma2,1);
+X     
+X   }
+X  colconvert(&si,PLuma,PChroma1,PChroma2);
+X  /* Now Luma holds red, Chroma1 hold green, Chroma2 holds blue */
+X
+X  openoutput();
+X  writepicture(fout,&si,PLuma,PChroma1,PChroma2,turn);
+X
+X }
+X
+X
+X
+Xstatic void f_5(dim w,dim h)
+X {sINT cd_offset;
+X  sizeinfo si;
+X
+X  sizecontrol(&si,w,h);
+X
+X                   planealloc(PLuma   ,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma1,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma2,si.rdhlen,si.rdvlen);
+X
+X  SEEK(L_Head+L_Base16+L_Base4+1);
+X  error(readplain(&si,-4,PLuma,PChroma1,PChroma2));
+X  interpolate(PLuma);
+X  if(!monochrome)
+X   {interpolate(PChroma1);
+X    interpolate(PChroma1);
+X    interpolate(PChroma2);
+X    interpolate(PChroma2);
+X   }
+X
+X  cd_offset = L_Head + L_Base16 + L_Base4 + L_Base ;
+X  SEEK(cd_offset + 4);       readhqt(1);
+X  SEEK(cd_offset + 5);       decode(&si,-2,PLuma,nullplane,nullplane,0);
+X  interpolate(PLuma);
+X
+X  if(do_diff) {clearimpl(PLuma,neutrLum);clearimpl(PChroma1,neutrCh1);clearimpl(PChroma2,neutrCh2);}
+X
+X  cd_offset=bufpos;
+X  if(cd_offset % SECSIZE) error(E_POS);
+X  PrintPos(cd_offset);
+X  cd_offset/=SECSIZE;
+X
+X  SEEK(cd_offset+12);        readhqt(3);
+X  SEEK(cd_offset+14);        decode(&si,1,PLuma,PChroma1,PChroma2,0);
+X
+X  if(!monochrome)
+X   {interpolate(PChroma1);
+X    interpolate(PChroma2);
+X   }
+X
+X  colconvert(&si,PLuma,PChroma1,PChroma2);
+X  /* Now Luma holds red, Chroma1 hold green, Chroma2 holds blue */
+X
+X  openoutput();
+X  writepicture(fout,&si,PLuma,PChroma1,PChroma2,turn);
+X
+X }
+X
+X
+X
+X
+Xstatic void f_ov(dim w,dim h,sINT offset,sINT imsize)
+X {sINT bildnr,bilder;
+X  dim wx,hx;
+X  enum ERRORS eret;
+X  enum TURNS imorient;
+X  char nbuf[100];
+X  uBYTE hbuf[SECSIZE];
+X  sizeinfo si;
+X  
+X  sizecontrol(&si,w,h);
+X
+X  wx=w; hx=h;
+X
+X                   planealloc(PLuma   ,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma1,si.rdhlen,si.rdvlen);
+X  if (!monochrome) planealloc(PChroma2,si.rdhlen,si.rdvlen);
+X
+X 
+X  SEEK(0); 
+X  if(READ(hbuf,sizeof(hbuf))<1) error(E_READ);
+X
+X  bilder=(((sINT) hbuf[10])<<8) | hbuf[11];
+X
+X
+X  for(bildnr=0;bildnr<bilder;bildnr++)
+X   {w=wx;h=hx;
+X    sizecontrol(&si,w,h);
+X    PLuma->im=PLuma->mp;
+X    if(PChroma1) PChroma1->im=PChroma1->mp;
+X    if(PChroma2) PChroma2->im=PChroma2->mp;
+X
+X    SEEK(offset+imsize*bildnr);
+X  
+X    eret=readplain(&si,1,PLuma,PChroma1,PChroma2);
+X    if(eret==E_READ) break;
+X    error(eret);
+X
+X    if(!monochrome)
+X     {interpolate(PChroma1);
+X      interpolate(PChroma2);
+X     }
+X
+X    colconvert(&si,PLuma,PChroma1,PChroma2);
+X  
+X    sprintf(nbuf,"%s%04d",ppmname,bildnr+1);
+X    if (!(fout=fopen(nbuf,W_OP))) error(E_WRITE);
+X     switch(hbuf[12+bildnr] & 3)
+X      {case 0:  imorient=T_NONE;  break;
+X       case 1:  imorient=T_LEFT;  break;
+X       case 2:  imorient=T_HEAD;  break;
+X       case 3:  imorient=T_RIGHT; break;
+X       default: imorient=T_NONE;
+X      }
+X    writepicture(fout,&si,PLuma,PChroma1,PChroma2,turn != T_AUTO ? turn : imorient);
+X    fclose(fout);
+X    fout=0;
+X   }
+X }
+X
+X
+X
+X
+Xstatic void f_co(dim w,dim h,sINT offset,sINT imsize)
+X {sINT bildnr,bilder,cols,rows,xstep,ystep,mw,mh;
+X  enum ERRORS eret;
+X  enum TURNS imorient;
+X  implane mLuma,mChroma1,mChroma2;
+X  implane *pmL,*pmCh1,*pmCh2;
+X  uBYTE hbuf[SECSIZE];
+X  sizeinfo sibig,sismall;
+X
+X  pmL=                    &mLuma;
+X  pmCh1= monochrome ? 0 : &mChroma1; 
+X  pmCh2= monochrome ? 0 : &mChroma2; 
+X
+X
+X  SEEK(0); 
+X  if(READ(hbuf,sizeof(hbuf))<1) error(E_READ);
+X  bilder=(((sINT) hbuf[10])<<8) | hbuf[11];
+X
+X  cols=contsize;
+X  rows=(bilder+cols-1)/cols;
+X
+X  xstep=ystep=0;
+X  switch(turn)
+X   {case T_NONE: 
+X    case T_HEAD: xstep=w;ystep=h; break;
+X    case T_RIGHT:
+X    case T_LEFT: xstep=h;ystep=w; break;
+X    case T_AUTO: xstep=ystep=w;   break;
+X    default: error(E_INTERN);
+X   }
+X
+X  mw=cols*xstep;
+X  mh=rows*ystep;
+X
+X  sizecontrol(&sibig  ,mw,mh);
+X  sizecontrol(&sismall, w, h);
+X
+X  planealloc(PLuma   ,w,h);
+X  if (!monochrome) planealloc(PChroma1,w,h);
+X  if (!monochrome) planealloc(PChroma2,w,h);
+X
+X  planealloc(pmL,mw,mh);
+X  mLuma.iwidth=mw;
+X  mLuma.iheight=mh;
+X  clearimpl(pmL,CONTLUM);
+X
+X  if(!monochrome)
+X   { planealloc(pmCh1,mw,mh);
+X     mChroma1.iwidth=mw;
+X     mChroma1.iheight=mh;
+X     clearimpl(pmCh1,CONTCH1);
+X
+X     planealloc(pmCh2,mw,mh);
+X     mChroma2.iwidth=mw;
+X     mChroma2.iheight=mh;
+X     clearimpl(pmCh2,CONTCH2);
+X   }
+X
+X
+X  for(bildnr=0;bildnr<bilder;bildnr++)
+X   {SEEK(offset+imsize*bildnr);
+X  
+X    eret=readplain(&sismall,1,PLuma,PChroma1,PChroma2);
+X    if(eret==E_READ) break;
+X    error(eret);
+X
+X    if(!monochrome)
+X     {interpolate(PChroma1);
+X      interpolate(PChroma2);
+X     }
+X
+X    switch(hbuf[12+bildnr] & 3)
+X     {case 0:  imorient=T_NONE;  break;
+X      case 1:  imorient=T_LEFT;  break;
+X      case 2:  imorient=T_HEAD;  break;
+X      case 3:  imorient=T_RIGHT; break;
+X      default: imorient=T_NONE;
+X     }
+X    pastein(pmL,(bildnr%cols)*xstep,xstep,(bildnr/cols)*ystep,ystep,PLuma,((turn==T_AUTO)? imorient:turn));
+X    if(!monochrome)
+X     {pastein(pmCh1,(bildnr%cols)*xstep,xstep,(bildnr/cols)*ystep,ystep,PChroma1,((turn==T_AUTO)? imorient:turn));
+X      pastein(pmCh2,(bildnr%cols)*xstep,xstep,(bildnr/cols)*ystep,ystep,PChroma2,((turn==T_AUTO)? imorient:turn));
+X     }
+X   }
+X
+X  colconvert(&sibig,pmL,pmCh1,pmCh2);
+X
+X  openoutput();
+X  writepicture(fout,&sibig,pmL,pmCh1,pmCh2,contori);
+X
+X }
+X
+X
+X
+X
+X
+X
+X
+X
+X#define ASKIP { argc--; argv ++;}
+X
+Xstatic void parseargs(int  argc,char **argv)
+X {
+X  char *opt;
+X
+X  ASKIP;
+X
+X  while((argc>0) && argv[0][0]=='-' && argv[0][1])
+X   {
+X    opt= (*argv)+1;
+X    ASKIP;
+X
+X/**** additional options ****/
+X
+X    if(!strcmp(opt,"x")) 
+X     { if (!do_overskip) do_overskip=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"s")) 
+X     { if (!do_sharp) do_sharp=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"d")) 
+X     { if (!do_diff) do_diff=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"i")) 
+X     { if (!do_info) do_info=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X
+X    if(!strcmp(opt,"m")) 
+X     { if (!do_melde) do_melde=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"crop")) 
+X     { if (!do_crop) do_crop=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"pos")) 
+X     { if (!print_pos) print_pos=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"rep")) 
+X     { if (!do_rep) do_rep=1;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X/****  Orientation options ****/
+X 
+X    if(!strcmp(opt,"n"))
+X     {if (turn == T_UNSPEC) turn=T_NONE;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"r"))
+X     {if (turn == T_UNSPEC) turn=T_RIGHT;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"l"))
+X     {if (turn == T_UNSPEC) turn=T_LEFT;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"h"))
+X     {if (turn == T_UNSPEC) turn=T_HEAD;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"a"))
+X     {if (turn == T_UNSPEC) turn=T_AUTO;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"vert"))
+X     {if (!flvert) flvert=1;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X    if(!strcmp(opt,"hori"))
+X     {if (!flhori) flhori=1;
+X      else error(E_ARG);
+X      continue;
+X     }
+X
+X
+X
+X
+X
+X
+X/**** Output options ****/
+X
+X
+X    if((!strcmp(opt,"ppm")) || (!strcmp(opt,"PPM")))
+X     { if (outfor == O_UNSPEC) outfor=O_PPM;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"pgm")) || (!strcmp(opt,"PGM")))
+X     { if (outfor == O_UNSPEC) outfor=O_PGM;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"ycc")) 
+X     { if (outfor == O_UNSPEC) outfor=O_YCC;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"ps")) || (!strcmp(opt,"PS")))
+X     { if (outfor == O_UNSPEC) outfor=O_PS;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"eps")) || (!strcmp(opt,"EPS")))
+X     { if (outfor == O_UNSPEC) outfor=O_EPS;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"psg")) || (!strcmp(opt,"PSG")))
+X     { if (outfor == O_UNSPEC) outfor=O_PSG;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"epsg")) || (!strcmp(opt,"EPSG")))
+X     { if (outfor == O_UNSPEC) outfor=O_EPSG;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"psd")) || (!strcmp(opt,"PSD")))
+X     { if (outfor == O_UNSPEC) outfor=O_PSD;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"epsd")) || (!strcmp(opt,"EPSD")))
+X     { if (outfor == O_UNSPEC) outfor=O_EPSD;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X
+X
+X
+X
+X    if(!strcmp(opt,"pl" ))
+X     { if(argc<1) error(E_ARG);
+X       if((sscanf(*argv,SSFLTPT,&PAPER_LEFT))!=1) error(E_ARG);
+X       ASKIP;
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"pb" ))
+X     { if(argc<1) error(E_ARG);
+X       if((sscanf(*argv,SSFLTPT,&PAPER_BOTTOM))!=1) error(E_ARG);
+X       ASKIP;
+X       continue;
+X     }
+X
+X
+X    if(!strcmp(opt,"pw" ))
+X     { if(argc<1) error(E_ARG);
+X       PSIZE_SET=1;
+X       if((sscanf(*argv,SSFLTPT,&PAPER_WIDTH))!=1) error(E_ARG);
+X       ASKIP;
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"ph" ))
+X     { if(argc<1) error(E_ARG);
+X       PSIZE_SET=1;
+X       if((sscanf(*argv,SSFLTPT,&PAPER_HEIGHT))!=1) error(E_ARG);
+X       ASKIP;
+X       continue;
+X     }
+X
+X
+X    if(!strcmp(opt,"dpi" ))
+X     { if(argc<1) error(E_ARG);
+X       DPI_SET=1;
+X       if((sscanf(*argv,SSFLTPT,&PRINTER_XDPI))!=1) error(E_ARG);
+X       if(PRINTER_XDPI <= 0.0) error(E_OPT);
+X       PRINTER_YDPI=PRINTER_XDPI;
+X       ASKIP;
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"fak" ))
+X     { if(argc<1) error(E_ARG);
+X       FAK_SET=1;
+X       if((sscanf(*argv,SSFLTPT,&PRINTER_FAK))!=1) error(E_ARG);
+X       if(PRINTER_FAK <= 0.0) error(E_OPT);
+X       if(PRINTER_FAK >  1000.0) error(E_OPT);
+X       ASKIP;
+X       continue;
+X     }
+X
+X
+X
+X/**** Color model options ****/
+X
+X    if(!strcmp(opt,"c0")) 
+X     { if (corrmode == C_UNSPEC) corrmode = C_LINEAR;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"c-")) 
+X     { if (corrmode == C_UNSPEC) corrmode = C_DARK;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if(!strcmp(opt,"c+")) 
+X     { if (corrmode == C_UNSPEC) corrmode = C_BRIGHT;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X   
+X/**** Subrectangel option ****/
+X    
+X    if(!strcmp(opt,"S"))
+X     { if (suba1) error(E_ARG);
+X       if(argc<2) error(E_ARG);
+X       suba1=argv[0];
+X       ASKIP;
+X       suba2=argv[0];
+X       ASKIP;
+X       continue;
+X     }
+X
+X
+X/**** Resolution options ****/
+X   
+X    if((!strcmp(opt,"Base/16")) || (!strcmp(opt,"1"))  || (!strcmp(opt,"128x192")))
+X     { if (size == S_UNSPEC) size = S_Base16;
+X       else error(E_ARG);
+X       continue;
+X     }
+X    if((!strcmp(opt,"Base/4" )) || (!strcmp(opt,"2"))  || (!strcmp(opt,"256x384")))
+X     { if (size == S_UNSPEC) size = S_Base4;
+X       else error(E_ARG);
+X       continue;
+X     }
+X    if((!strcmp(opt,"Base"   )) || (!strcmp(opt,"3"))  || (!strcmp(opt,"512x768")))
+X     { if (size == S_UNSPEC) size = S_Base;
+X       else error(E_ARG);
+X       continue;
+X     }
+X    if((!strcmp(opt,"4Base"  )) || (!strcmp(opt,"4"))  || (!strcmp(opt,"1024x1536")))
+X     { if (size == S_UNSPEC) size = S_4Base;
+X       else error(E_ARG);
+X       continue;
+X     }
+X    if((!strcmp(opt,"16Base" )) || (!strcmp(opt,"5"))  || (!strcmp(opt,"2048x3072")))
+X     { if (size == S_UNSPEC) size = S_16Base;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"Overview" )) || (!strcmp(opt,"0"))  || (!strcmp(opt,"O")))
+X     { if (size == S_UNSPEC) size = S_Over;
+X       else error(E_ARG);
+X       continue;
+X     }
+X
+X    if((!strcmp(opt,"Contact" )) || (!strcmp(opt,"C")))
+X     { if (size == S_UNSPEC) size = S_Contact;
+X       else error(E_ARG);
+X       if(argc<2) error(E_ARG);
+X       if((sscanf(*argv,"%d",&contsize))!=1) error(E_ARG);
+X       ASKIP;
+X       if     (!strcmp(*argv,"n")) contori=T_NONE;
+X       else if(!strcmp(*argv,"r")) contori=T_RIGHT;
+X       else if(!strcmp(*argv,"l")) contori=T_LEFT;
+X       else if(!strcmp(*argv,"h")) contori=T_HEAD;
+X       else error(E_ARG);
+X       ASKIP;
+X
+X       continue;
+X     }
+X
+X   fprintf(stderr,"Unknown option: -%s\n",opt);
+X   error(E_ARG);
+X   }
+X
+X  
+X  if(argc<1) error(E_ARG);
+X  pcdname= *argv;
+X  ASKIP;
+X
+X  if(argc>0) 
+X   {ppmname= *argv;
+X    ASKIP;
+X   }
+X  
+X  if(argc>0) error(E_ARG);
+X
+X
+X }
+X#undef ASKIP
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xvoid checkin(void)
+X { 
+X   if (do_info || (turn==T_AUTO)) 
+X     { SEEK(1);
+X       EREADBUF;
+X     }
+X
+X    if(turn==T_AUTO) 
+X     {
+X      switch(sbuffer[0xe02 & 0x7ff]&0x03)
+X       {case 0x00: turn=T_NONE;  break;
+X        case 0x01: turn=T_LEFT;  break;
+X        case 0x02: turn=T_HEAD;  break;
+X        case 0x03: turn=T_RIGHT; break;
+X        default: error(E_TCANT);
+X       }
+X      }
+X
+X    if(do_info) druckeid();
+X
+X }
+X
+X
+X
+X/************************** file access functions **************/
+X
+Xint READ(uBYTE *ptr,int n)
+X {int d;
+X  if(!n) return 1;
+X  bufpos+=n;
+X  for(;;)
+X   {d=fread((char *)ptr,1,n,fin);
+X    if(d<1) return 0;
+X    n-=d;
+X    if (!n) break;
+X    ptr+=d;
+X   }
+X  return 1;
+X }
+X
+Xstatic int friss(int n)
+X {int d;
+X
+X  while(n>0)
+X   {
+X    d= n>sizeof(sbuffer) ? sizeof(sbuffer) : n;
+X    n-=d;
+X    if(READ(sbuffer,d) !=1) return 1;
+X   }
+X
+X  return 0;
+X }
+X
+X
+Xvoid SEEK(int x)
+X {
+X  x *= SECSIZE;
+X  if(x<bufpos) error(E_INTERN);
+X  if(x==bufpos) return;
+X
+X  if(emulate_seek)
+X   {if(friss(x-bufpos)) error(E_READ);
+X    if(x!=bufpos) error(E_INTERN);
+X   }
+X  else
+X   {bufpos=x;
+X    if (fseek(fin,x,0)) error(E_READ);
+X   }
+X#ifdef DEBUG
+X  fprintf(stderr,"S-Position %x\n",bufpos);
+X#endif
+X
+X }
+X
+X
+X
+Xint SKIPn(int n)
+X {
+X  if(!n) return 0;
+X  if(n<0) error(E_INTERN);
+X    
+X  if(emulate_seek)
+X   {return friss(n);
+X   }
+X  else
+X   {bufpos+=n;
+X    return fseek(fin,(n),1);
+X   }
+X }
+X
+X
+X
+X
+X
+X/************************** size control functions **************/
+X
+X#define ISDIGIT(x) (((x)>='0') && ((x)<='9'))
+X
+Xstatic void number(char **s,char **i,char **f)
+X {char *p;
+X
+X  p= *s;
+X  (*i)=(*f)=0;
+X
+X  if(!ISDIGIT(*p)) error(E_SUBR);
+X  while(ISDIGIT(*p)) p++;
+X  if(*p != '.') 
+X   { *i=*s;
+X     *s=p; 
+X     return;
+X   }
+X  p++;
+X  if(!ISDIGIT(*p)) error(E_SUBR);
+X  while(ISDIGIT(*p)) p++;
+X  *f=*s;
+X  *s=p;  
+X }
+X
+Xstatic sdim makedim(full,i,f)
+X  sdim full;
+X  char *i,*f;
+X {sdim val;
+X  FLTPT fl;
+X
+X  if(i) 
+X   {if(f) error(E_INTERN);
+X    if(sscanf(i,"%u",&val) != 1) error(E_SUBR);
+X    if((val<0) || (val >full)) error(E_SUBR);
+X    return val;
+X   }
+X  else
+X   {if(!f) error(E_INTERN);
+X    if(sscanf(f,SSFLTPT,&fl) != 1) error(E_SUBR);
+X    if((fl < 0.0) || (fl > 1.0)) error(E_SUBR);
+X    val= full * fl + 0.5;
+X    return val;
+X   }
+X }
+X
+X
+X#define sMASK (~7)
+Xstatic void sizealign(char *str,dim full,
+X                      dim *rdoff,dim *rdlen,dim *imoff,dim *imlen)
+X {char *i1,*f1,*tr,*i2,*f2,*ptr;
+X  int vonbis=0;
+X  sdim von,len,rest;
+X
+X  i1=f1=tr=i2=f2=0;
+X
+X  ptr=str;
+X  number(&ptr,&i1,&f1);
+X
+X  if(*ptr == '-') vonbis=1;
+X  else if (*ptr == '+') vonbis=0;
+X  else error(E_SUBR);
+X  ptr++;
+X
+X  number(&ptr,&i2,&f2);
+X  if(*ptr) error(E_SUBR);
+X
+X  von=makedim(full,i1,f1);
+X  len=makedim(full,i2,f2);
+X  if(vonbis) len-=von;
+X  rest=full-von-len;
+X
+X  if((von<0) || (len<1) || (rest<0)) error(E_SUBR);
+X  
+X  *imlen = (dim) len;
+X
+X  *rdoff = (dim) (von & sMASK); 
+X  *rdlen = full - *rdoff - ((dim)( rest & sMASK) );
+X
+X  *imoff = ((dim) von) - *rdoff;
+X
+X }
+X
+X
+Xstatic void sizecontrol(sizeinfo *si,dim w,dim h)
+X {
+X  si->w=w;
+X  si->h=h;
+X
+X  if(!suba1)
+X   {
+X    si->rdhlen=w;
+X    si->rdvlen=h;
+X    si->rdhoff=0;
+X    si->rdvoff=0;
+X    si->imhlen=0;
+X    si->imvlen=0;
+X    si->imhoff=0;
+X    si->imvoff=0;
+X   }
+X  else
+X   {sizealign(suba1,w,&si->rdhoff,&si->rdhlen,&si->imhoff,&si->imhlen);
+X    sizealign(suba2,h,&si->rdvoff,&si->rdvlen,&si->imvoff,&si->imvlen);
+X   }
+X
+X#ifdef DEBUG
+X  fprintf(stderr,"Align: %5d %5d \n",si->w,si->h);
+X  fprintf(stderr,"Align: %5d %5d %5d %5d \n",si->rdhoff,si->rdhlen,si->rdvoff,si->rdvlen);
+X  fprintf(stderr,"Align: %5d %5d %5d %5d \n",si->imhoff,si->imhlen,si->imvoff,si->imvlen);
+X#endif
+X
+X }
+X 
+END_OF_FILE
+  if test 24343 -ne `wc -c <'hpcdtoppm.0.5.pl1/main.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/main.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/main.c'
+fi
+if test -f 'hpcdtoppm.0.5.pl1/tools.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hpcdtoppm.0.5.pl1/tools.c'\"
+else
+  echo shar: Extracting \"'hpcdtoppm.0.5.pl1/tools.c'\" \(8936 characters\)
+  sed "s/^X//" >'hpcdtoppm.0.5.pl1/tools.c' <<'END_OF_FILE'
+X/* hpcdtoppm (Hadmut's pcdtoppm) v0.5pl1
+X*  Copyright (c) 1992, 1993 by Hadmut Danisch (danisch@ira.uka.de).
+X*  Permission to use and distribute this software and its
+X*  documentation for noncommercial use and without fee is hereby granted,
+X*  provided that the above copyright notice appear in all copies and that
+X*  both that copyright notice and this permission notice appear in
+X*  supporting documentation. It is not allowed to sell this software in 
+X*  any way. This software is not public domain.
+X*/
+X
+X#include "hpcdtoppm.h"
+X
+X
+Xvoid clearimpl(implane *l,sINT n)
+X{ dim x,y;
+X  uBYTE *ptr;
+X
+X  ptr=l->im;
+X  for (x=0;x<l->mwidth;x++)
+X    for (y=0; y<l->mheight;y++)
+X      *(ptr++)=n;
+X}
+X
+X
+X
+X
+Xvoid halve(implane *p)
+X {dim w,h,x,y;
+X  uBYTE *optr,*nptr;
+X
+X  melde("halve\n");
+X  if ((!p) || (!p->im)) error(E_INTERN);
+X
+X  w=p->iwidth/=2;      
+X  h=p->iheight/=2;     
+X
+X
+X  for(y=0;y<h;y++)
+X   {
+X    nptr=(p->im) +   y*(p->mwidth);
+X    optr=(p->im) + 2*y*(p->mwidth);
+X
+X    for(x=0;x<w;x++,nptr++,optr+=2)
+X     { *nptr = *optr;
+X     }
+X
+X   }
+X
+X }
+X
+X
+X
+X
+X
+X
+X
+Xvoid interpolate(implane *p)
+X {dim w,h,x,y,yi;
+X  uBYTE *optr,*nptr,*uptr;
+X
+X  melde("interpolate\n");
+X  if ((!p) || (!p->im)) error(E_INTERN);
+X
+X  w=p->iwidth;
+X  h=p->iheight;
+X
+X  if(p->mwidth  < 2*w ) error(E_INTERN);
+X  if(p->mheight < 2*h ) error(E_INTERN);
+X
+X
+X  p->iwidth=2*w;
+X  p->iheight=2*h;
+X
+X
+X  for(y=0;y<h;y++)
+X   {yi=h-1-y;
+X    optr=p->im+  yi*p->mwidth + (w-1);
+X    nptr=p->im+2*yi*p->mwidth + (2*w - 2);
+X
+X    nptr[0]=nptr[1]=optr[0];
+X
+X    for(x=1;x<w;x++)
+X     { optr--; nptr-=2;
+X       nptr[0]=optr[0];
+X       nptr[1]=(((sINT)optr[0])+((sINT)optr[1])+1)>>1;
+X     }
+X    }
+X
+X  for(y=0;y<h-1;y++)
+X   {optr=p->im + 2*y*p->mwidth;
+X    nptr=optr+p->mwidth;
+X    uptr=nptr+p->mwidth;
+X
+X    for(x=0;x<w-1;x++)
+X     {
+X      nptr[0]=(((sINT)optr[0])+((sINT)uptr[0])+1)>>1;
+X      nptr[1]=(((sINT)optr[0])+((sINT)optr[2])+((sINT)uptr[0])+((sINT)uptr[2])+2)>>2;
+X      nptr+=2; optr+=2; uptr+=2;
+X     }
+X    *(nptr++)=(((sINT)*(optr++))+((sINT)*(uptr++))+1)>>1;
+X    *(nptr++)=(((sINT)*(optr++))+((sINT)*(uptr++))+1)>>1;
+X   }
+X
+X
+X  optr=p->im + (2*h-2)*p->mwidth;
+X  nptr=p->im + (2*h-1)*p->mwidth;
+X  for(x=0;x<w;x++)
+X   { *(nptr++) = *(optr++);  *(nptr++) = *(optr++); }
+X
+X }
+X
+X
+X
+X
+Xstatic sINT testbegin(void)
+X {sINT i,j;
+X  for(i=j=0;i<32;i++)
+X    if(sbuffer[i]==0xff) j++;
+X
+X  return (j>30);
+X  
+X }
+X
+X
+XsINT Skip4Base(void)
+X {sINT cd_offset,cd_offhelp;
+X  
+X  cd_offset = L_Head + L_Base16 + L_Base4 + L_Base ;
+X  SEEK(cd_offset+3);          
+X  EREADBUF;    
+X  cd_offhelp=((((sINT)sbuffer[510])<<8)|sbuffer[511]) + 1;
+X
+X  cd_offset+=cd_offhelp;
+X
+X  SEEK(cd_offset);
+X  EREADBUF;
+X  while(!testbegin())
+X   {cd_offset++;
+X    EREADBUF;
+X   }
+X  return cd_offset;
+X }
+X
+X
+X
+X
+X
+Xvoid planealloc(implane *p, dim width, dim height)
+X {melde("planealloc\n");
+X 
+X  p->iwidth=p->iheight=0;
+X  p->mwidth=width;
+X  p->mheight=height;
+X
+X  p->mp = ( p->im = ( uBYTE * ) malloc  (width*height*sizeof(uBYTE)) );
+X  if(!(p->im)) error(E_MEM);
+X }
+X 
+X
+X
+Xstatic void pastequer(implane *gross,dim px,dim py,implane *klein)
+X {dim x,y;
+X  uBYTE *von,*nach;
+X
+X  if(px+klein->iwidth  > gross->iwidth)  error(E_INTERN);
+X  if(py+klein->iheight > gross->iheight) error(E_INTERN);
+X
+X  for(y=0;y<klein->iheight;y++)
+X   { von=klein->im + y * klein->mwidth;
+X     nach=gross->im + (y+py) * gross->mwidth + px;
+X     for(x=0;x<klein->iwidth;x++)
+X        *(nach++)=*(von++);
+X   }
+X }
+X
+X 
+Xstatic void pastehead(implane *gross,dim px,dim py,implane *klein)
+X {dim x,y;
+X  uBYTE *von,*nach;
+X
+X  if(px+klein->iwidth  > gross->iwidth)  error(E_INTERN);
+X  if(py+klein->iheight > gross->iheight) error(E_INTERN);
+X
+X  for(y=0;y<klein->iheight;y++)
+X   { von= klein->im + (klein->iheight-1-y) * klein->mwidth + (klein->iwidth - 1);
+X     nach=gross->im + (y+py) * gross->mwidth + px;
+X     for(x=0;x<klein->iwidth;x++)
+X        *(nach++)=*(von--);
+X   }
+X }
+X
+X 
+Xstatic void pastelinks(implane *gross,dim px,dim py,implane *klein)
+X {dim x,y;
+X  uBYTE *von,*nach;
+X
+X  if(px+klein->iheight > gross->iwidth)  error(E_INTERN);
+X  if(py+klein->iwidth  > gross->iheight) error(E_INTERN);
+X
+X  for(y=0;y<klein->iwidth;y++)
+X   { von=klein->im + klein->iwidth - 1 - y;
+X     nach=gross->im + (y+py) * gross->mwidth + px;
+X     for(x=0;x<klein->iheight;x++,von+=klein->mwidth)
+X        *(nach++)=*(von);
+X   }
+X }
+X 
+Xstatic void pasterechts(implane *gross,dim px,dim py,implane *klein)
+X {dim x,y;
+X  uBYTE *von,*nach;
+X
+X  if(px+klein->iheight > gross->iwidth)  error(E_INTERN);
+X  if(py+klein->iwidth  > gross->iheight) error(E_INTERN);
+X
+X  for(y=0;y<klein->iwidth;y++)
+X   { von=klein->im + (klein->iheight-1)*klein->mwidth + y;
+X     nach=gross->im + (y+py) * gross->mwidth + px;
+X     for(x=0;x<klein->iheight;x++,von-=klein->mwidth)
+X        *(nach++)=*(von);
+X   }
+X }
+X
+X
+Xvoid pastein(implane *gross,
+X             dim xpos,dim xw,
+X             dim ypos,dim yh,
+X             implane *klein, enum TURNS ori)
+X {
+X  switch (ori)
+X   {
+X    case T_NONE: pastequer(gross,xpos+(xw-klein->iwidth)/2,ypos+(yh-klein->iheight)/2,klein);
+X                 break;
+X    case T_LEFT: pastelinks(gross,xpos+(xw-klein->iheight)/2,ypos+(yh-klein->iwidth)/2,klein);
+X                 break;
+X    case T_RIGHT:pasterechts(gross,xpos+(xw-klein->iheight)/2,ypos+(yh-klein->iwidth)/2,klein);
+X                 break;
+X    case T_HEAD: pastehead(gross,xpos+(xw-klein->iwidth)/2,ypos+(yh-klein->iheight)/2,klein);
+X                 break;
+X    case T_AUTO:
+X    default: error(E_INTERN);
+X   }
+X }
+X
+X
+X
+X
+X#define cro(p,d) {if(p) {p->im+=d*p->mwidth; p->iheight-=d;}}
+X#define cru(p,d) {if(p) {p->iheight-=d;}}
+X#define crl(p,d) {if(p) {p->im+=d; p->iwidth-=d;}}
+X#define crr(p,d) {if(p) {p->iwidth-=d;}}
+X
+Xvoid cropit(sizeinfo *si,implane *l,implane *c1,implane *c2)
+X {dim x,y,s,w,h;
+X  sINT nl,nr,no,nu;
+X
+X  uBYTE *ptr;
+X
+X  melde("crop\n");
+X
+X  if(si->imvlen || si->imhlen) error(E_INTERN);
+X  w=si->rdhlen;
+X  h=si->rdvlen;
+X
+X  if((!l) || (l->iwidth != w) || (l->iheight != h)) error(E_INTERN);
+X  
+X  if(!monochrome)
+X   {if((!c1) || (c1->iwidth != w) || (c1->iheight != h)) error(E_INTERN);
+X    if((!c2) || (c2->iwidth != w) || (c2->iheight != h)) error(E_INTERN);
+X   }
+X
+X
+X  for(y=0,no=0;y<h;y++,no++)
+X   {for(x=0,ptr=(l->im)+y*(l->mwidth); x<w && (*ptr)<MAX_BLACK ;x++,ptr++);
+X    if(x<w) break;
+X   }
+X  cro(l ,no);
+X  cro(c1,no);
+X  cro(c2,no);
+X  h-=no;
+X
+X
+X  for(y=h-1,nu=0;y;y--,nu++)
+X   {for(x=0,ptr=(l->im)+y*(l->mwidth); x<w && (*ptr)<MAX_BLACK ;x++,ptr++);
+X    if(x<w) break;
+X   }
+X  cru(l ,nu);
+X  cru(c1,nu);
+X  cru(c2,nu);
+X  h-=nu;
+X
+X
+X  s=l->mwidth;
+X
+X  for(x=0,nl=0;x<w;x++,nl++)
+X   {for(y=0,ptr=(l->im)+x; y<h && (*ptr)<MAX_BLACK ; y++, ptr+=s);
+X    if(y<h) break;
+X   }
+X  crl(l ,nl);
+X  crl(c1,nl);
+X  crl(c2,nl);
+X  w-=nl;
+X  
+X
+X  for(x=w-1,nr=0;x;x--,nr++)
+X   {for(y=0,ptr=(l->im)+x; y<h && (*ptr)<MAX_BLACK ; y++, ptr+=s);
+X    if(y<h) break;
+X   }
+X  crr(l ,nr);
+X  crr(c1,nr);
+X  crr(c2,nr);
+X  w-=nr;
+X  
+X  if (do_melde) 
+X   {
+X    if (no || nu || nr || nl )
+X      fprintf(stderr,"Cut off %d top, %d bottom, %d left, %d right,  new size is %ldx%ld\n",
+X              no,nu,nl,nr,w,h);
+X    else
+X      fprintf(stderr,"Nothing cut off\n");
+X   }
+X
+X  si->imvlen=h;
+X  si->imhlen=w;
+X }
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+Xvoid shrink(sizeinfo *si,implane *l,implane *c1,implane *c2)
+X {dim w,h;
+X
+X  melde("shrink\n");
+X
+X  w=si->rdhlen;
+X  h=si->rdvlen;
+X
+X  if((!l) || (l->iwidth != w) || (l->iheight != h)) error(E_INTERN);
+X  
+X  if(!monochrome)
+X   {if((!c1) || (c1->iwidth != w) || (c1->iheight != h)) error(E_INTERN);
+X    if((!c2) || (c2->iwidth != w) || (c2->iheight != h)) error(E_INTERN);
+X   }
+X
+X  if((!si->imvlen) && (!si->imhlen))  /* no subrectangle given */
+X   {si->imvlen=si->rdvlen;
+X    si->imhlen=si->rdhlen;
+X    return;
+X   }
+X
+X  if (si->imvlen>h || si->imvlen<1 )       error(E_INTERN);
+X  if (si->imvoff> si->rdvlen - si->imvlen) error(E_INTERN);
+X
+X  if (si->imhlen>w || si->imhlen<1 ) error(E_INTERN);
+X  if (si->imhoff> si->rdhlen - si->imhlen) error(E_INTERN);
+X
+X  cro(l ,si->imvoff);
+X  cro(c1,si->imvoff);
+X  cro(c2,si->imvoff);
+X
+X  cru(l ,si->rdvlen - si->imvoff - si->imvlen);
+X  cru(c1,si->rdvlen - si->imvoff - si->imvlen);
+X  cru(c2,si->rdvlen - si->imvoff - si->imvlen);
+X  
+X  crl(l ,si->imhoff);
+X  crl(c1,si->imhoff);
+X  crl(c2,si->imhoff);
+X
+X  crr(l ,si->rdhlen - si->imhoff - si->imhlen);
+X  crr(c1,si->rdhlen - si->imhoff - si->imhlen);
+X  crr(c2,si->rdhlen - si->imhoff - si->imhlen);
+X  
+X
+X }
+X
+X
+X
+X/* Test Data types for their size an whether they 
+X   are signed / unsigned */
+X
+Xvoid typecheck(void)
+X { sBYTE sbyte;
+X   uBYTE ubyte;
+X   sINT  sint;
+X   uINT  uint;
+X
+X
+X   if(sizeof(sBYTE) != 1) error(E_CONFIG);
+X   sbyte=126; sbyte++; sbyte++;
+X   if(sbyte > 126 ) error(E_CONFIG);
+X
+X   if(sizeof(uBYTE) != 1) error(E_CONFIG);
+X   ubyte=126; ubyte++; ubyte++;
+X   if(ubyte < 126 ) error(E_CONFIG);
+X
+X#ifdef U_TOO_LONG
+X   if(sizeof(sINT) < 4) error(E_CONFIG);
+X   if(sizeof(uINT) < 4) error(E_CONFIG);
+X#else
+X   if(sizeof(sINT) != 4) error(E_CONFIG);
+X   if(sizeof(uINT) != 4) error(E_CONFIG);
+X#endif
+X
+X   sint=1; sint--; sint--;
+X   if(sint>1) error(E_CONFIG);
+X
+X   uint=1; uint--; uint--;
+X   if(uint<1) error(E_CONFIG);
+X
+X }
+X
+END_OF_FILE
+  if test 8936 -ne `wc -c <'hpcdtoppm.0.5.pl1/tools.c'`; then
+    echo shar: \"'hpcdtoppm.0.5.pl1/tools.c'\" unpacked with wrong size!
+  fi
+  # end of 'hpcdtoppm.0.5.pl1/tools.c'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

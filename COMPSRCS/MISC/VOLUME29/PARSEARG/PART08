@@ -1,0 +1,1090 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i123:  parseargs - functions to parse command line arguments, Part08/10
+Message-ID: <1992May17.182514.29013@sparky.imd.sterling.com>
+X-Md4-Signature: ef206485408e214e0bfce5f13ef252c6
+Date: Sun, 17 May 1992 18:25:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 123
+Archive-name: parseargs/part08
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 8 (of 10)."
+# Contents:  parseargs.h
+# Wrapped by brad@hcx1 on Thu May  7 12:12:27 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'parseargs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parseargs.h'\"
+else
+echo shar: Extracting \"'parseargs.h'\" \(44214 characters\)
+sed "s/^X//" >'parseargs.h' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: parseargs.h -- definitions for argument parsing library
+X**
+X** ^DESCRIPTION:
+X**    This file contains all the necessary macros, type, and function
+X**    declarations necessary to use the parseargs library. For most purposes,
+X**    no special symbols need be #defined before including this file; however,
+X**    for implementors (and more sophisticated uses), the following symbols
+X**    may be #defined before including this file in order to include/exclude
+X**    various portions of the file:
+X**
+X**    PARSEARGS_PRIVATE
+X**       Include private definitions that are needed to implement/enhance
+X**       various functions in the parseargs library.
+X**
+X**    PARSEARGS_NEXTERNS
+X**       Do NOT include the external function declarations for the members
+X**       of the parseargs library.
+X**
+X**    PARSEARGS_NARGTYPES
+X**       Do NOT include the external function declarations any of the
+X**       pre-defined argument-type (argXxxx) functions.
+X**
+X** ^HISTORY:
+X**    12/03/90	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    - added ps_NOTCMDLINE state-flag for vms_style
+X**
+X**    08/27/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Add ProgNameLen
+X**    - Promote ps_flags_t to unsigned short
+X**    - Add new states ps_USERNAME, ps_USERPURPOSE, ps_FREENAME,
+X**      ps_FREEPURPOSE
+X**    - arg_sdesc() now only returns a raw string --- use get_argdesc()
+X**      to extract the description from it
+X**
+X**    12/03/90	Brad Appleton	<brad@ssd.csd.harris.com>
+X**    - Added all the #ifdef stuff
+X**    - Added public and private macros for getting and setting
+X**      the attributes of an argdesc-array and an argdesc
+X**
+X**    --/--/--	Peter da Silva	<peter@ferranti.com>
+X**
+X**    --/--/--	Eric P. Allman	<eric@Berkeley.EDU> 	Created
+X***^^**********************************************************************/
+X
+X/* $Header: parseargs.h,v 2.0 89/12/24 00:56:29 eric Exp $ */
+X
+X#ifndef PARSEARGS_H
+X#define  PARSEARGS_H
+X
+X#include <useful.h>
+X
+X   /* type definition for argument prompt strings */
+X#define  MAX_ARGNAME  80
+Xtypedef char argName_t[ MAX_ARGNAME ];
+X
+X   /* type definition for bitmasks */
+Xtypedef unsigned short  argMask_t;
+X
+X/**********************************************************************
+X** ^STRUCT: ARGDESC - argument-descriptor
+X**
+X** ^DESCRIPTION:
+X**    The basic type used by the parseargs library is the argument descriptor
+X**    (or "argdesc" for short). An ARGDESC structure is used to describe a
+X**    command-line argument. Each command line argument contains various
+X**    fields which need to be set and/or queried by the programmer. Each
+X**    field is described in further detail below:
+X*/ 
+Xtypedef struct _argdesc {
+X   char ad_name;
+X/*    -- This is a single character which corresponds to the option-letter
+X**       (case-sensitive) from the command-line that matches the argument
+X**       described by this structure. Positional-arguments are denoted by
+X**       putting a a space character in this field.
+X*/ 
+X   argMask_t  ad_flags;
+X/*    -- This field contains the various bitflags that describe the semantics
+X**       of this argument. See the ARGFLAGS section for more information on
+X**       the possible combinations of bitmasks for this field.
+X*/ 
+X   BOOL (*ad_type) ARGS((struct _argdesc *, char *, BOOL));
+X/*    -- This field is a pointer to a type conversion function (such as the
+X**       ones provided in argtype(3)). The type conversion function is respon-
+X**       sible for verifying the validity of the argument, allocating any
+X**       necessary storage for its internal representation, and converting
+X**       the command-line argument into its required internal form. The type
+X**       conversion function used may be one of the pre-defined argtype(3)
+X**       functions. The function is given three parameters: The first is
+X**       a pointer to the ARGDESC struct in question, the second is the
+X**       string-value (if any) supplied on the command-line, and the third
+X**       is a boolean value that is TRUE only if the second parameter points
+X**       to temporary storage (and hence may need to be copied).
+X**       In the case of parseargs(1) this field must correspond to the name
+X**       of one of the argument type functions described in argtype(3).
+X*/ 
+X   ARBPTR ad_valp;
+X/*    -- This field is a generic pointer to the storage used to represent
+X**       the internal value of the command-line argument. It may be a
+X**       pointer to a number, a boolean value, a string, a list, or anything
+X**       else for which there exists a corresponding arg-type function to
+X**       use in the ad_type field. In the case of of parseargs(1) this field
+X**       must be the name of the corresponding shell variable which will
+X**       eventually hold the value of the argument given on the command-line.
+X*/ 
+X   CONST char *ad_prompt;
+X/*    -- This field contains the long-name of the argument and an optional
+X**       description (the description must be separated from the long-name by
+X**       at least one whitespace character and may optionally be enclosed in
+X**       a set of balanced delimiters (such as parentheses, curly-braces,
+X**       square-brackets, or angle-brackets). The longname may be specifed
+X**       in two parts: a keyword name and an argument name. The argument
+X**       name may be separated from the keyword name by a single equal sign
+X**       ('='). No whitespace is allowed before or after the equal sign.
+X**       Alternatatively, the keyword name may be distinguished from the
+X**       argument name by character case: if the long-name contains any
+X**       uppercase characters, then the substring of long-name consisting of
+X**       all uppercase characters is used as the argument keyword and the
+X**       entire long-name is used as the name of the argument (if a value may
+X**       be supplied). The long-name may be matched by supplying a unique
+X**       prefix of either the argument keyword or the argument name.
+X*/ 
+X} ARGDESC;
+X/**^^**********************************************************************/
+X
+X
+X   /* define a NULL pointer to an arg-descriptor */
+X#define ARGDESCNULL   (ARGDESC *)NULL
+X
+X   /* define a pointer to an argtype function */
+Xtypedef BOOL (*argTypePtr_t) ARGS((ARGDESC *, char *, BOOL));
+X
+X
+X/**********************************************************************
+X** ^SECTION: RETURN-CODES
+X**    The XparseXXXX functions in the parseargs library may return any of
+X**    the following return codes (which are #define'd below):
+X*/
+X#define  pe_SYSTEM   -1
+X/*    -- a system error occurred. The global variable errno may indicate
+X**       the problem (then again, it may not).
+X*/
+X#define  pe_SUCCESS   0
+X/*    -- success, no errors encountered.
+X*/
+X#define  pe_SYNTAX    1
+X/*    -- a command-line syntax error was encountered
+X*/
+X#define  pe_DEFARGS   2
+X/*    -- an attempt (using parsecntl()) was made to change the
+X**       default arg-search list of a command to point to an argdesc-array
+X**       which already has the given command on its default arg-search list
+X**       (which would cause an infinite loop when attempting to match an
+X**       unknown command-line argument).
+X*/
+X#define  pe_NOMATCH   3
+X/*    -- unable to match the named argument. This occurs
+X**       when the argument keyword name passed to parsecntl() (using the 
+X**       pc_ARGFLAGS function code) was NOT found in the given argdesc-array
+X**       or in its default-list.
+X*/
+X#define  pe_BADMODE   4
+X/*    -- bad mode for given command in parsecntl(). This occurs when 
+X**       pc_WRITE or pc_RDWR mode is passed to parsecntl() in conjunction
+X**       with the pc_ARGFLAGS functions code. Parsecntl will not modify
+X**       existing arguments.
+X*/
+X#define  pe_BADCNTL   5
+X/*    -- bad command for parsecntl. This occurs if an unknown function-code
+X**       was passed to parsecntl().
+X*/
+X#define  pe_BADOPEN   6
+X/*    -- error opening file
+X*/
+X#define  pe_BADREAD   7
+X/*    -- error reading file
+X*/
+X/**^^**********************************************************************/
+X
+X
+X/**********************************************************************
+X** ^SECTION: ARGUMENT-FLAGS
+X**    These are the possible bitmasks that may be turned ON or OFF in
+X**    the ad_flags field of an ARGDESC structure.
+X*/
+X#define ARGOPT       0x0000
+X/*    -- This flag is actually a dummy flag (i.e. it is the default). This flag
+X**       specifies that the command-line argument is optional (need not appear
+X**       on the command-line). It is only needed if no other flags are used to
+X**       define the given argument.  If other flags are given and ARGREQ is NOT
+X**       one of them, then ARGOPT is always assumed.
+X*/
+X#define ARGREQ       0x0001
+X/*    -- The associated command argument is required on the command-line.
+X*/
+X#define ARGPOS       0x0002
+X/*    -- The associated command argument is positonal. The difference between
+X**       using this flag to indicate a positional argument and between using
+X**       a blank in the ad_name field to indicate a positional arguments is
+X**       the following: If this flag is set but the ad_name of the argument
+X**       is non-blank, then this argument may be matched either positionally
+X**       or by keyword. If the ad_name field is blank, then this argument may
+X**       only be matched positionally.
+X*/
+X#define ARGNOVAL     0x0004
+X/*    -- The associated command argument takes no value (as in "-x value");
+X**       Its mere presence (or lack thereof) on the command-line is sufficient
+X**       to determine the necessary action(s) to take (as in "-x").
+X**
+X**       NOTE: all argBool, and arg[STU]Bool arguments are always forced to be
+X**       ARGNOVAL (as are argUsage arguments).
+X*/
+X#define ARGVALOPT    0x0008
+X/*    -- This flag is used to indicate that the command-line argument takes a
+X**       value (as in "-s string" or "/str=string") but that the value to this
+X**       command-line argument is NOT required (hence simply "-s" or "/str" is
+X**       also permissable).
+X*/
+X#define ARGVALREQ    0x0000
+X/*    -- Another "dummy" flag. Unless ARGNOVAL or ARGVALOPT is specified,
+X**       ARGVALREQ is always assumed. This flag indicates that the value to a
+X**       command-line argument is required (hence "-s string" is okay but just
+X**       "-s" is not).
+X*/
+X#define ARGHIDDEN    0x0010
+X/*    -- Don't display this argument in usage messages but still attempt to
+X**       match it against strings given on the command-line.
+X*/
+X#define ARGLIST      0x0020
+X/*    -- A variable number of values are used for this argument (and hence may
+X**       use more than one or two argv elements from the command-line as in
+X**       "-l val1 val2 ..."). The list of values must be stored in an arglist
+X**       structure (NOT a vector structure), an the corresponding argument-type
+X**       function should be one of the listXxxx functions.
+X*/
+X#define ARGVEC       0x0040
+X/*    -- A variable number of values are used for this argument (and hence may
+X**       use more than one or two argv elements from the command-line as in
+X**       in "-v val1 val2 ..."). The list of values must be stored in a vector
+X**       structure (NOT an arglist structure).
+X*/
+X
+X/*   The following bitmasks may also be present, but, unlike the above masks
+X**   which must be specified by the programmer at initialization time, the
+X**   following masks must only be read (never set) by the programmer:
+X*/
+X#define ARGGIVEN     0x0080
+X/*    -- The argument WAS given on the command-line.
+X*/
+X#define ARGVALGIVEN  0x0100
+X/*    -- The value for this argument was given on the command-line.
+X*/
+X#define ARGVALSEP    0x0200
+X/*    -- The value to this argument was supplied in a separate argv element
+X**       from the argument itself (as in "-x value" as opposed to "-xvalue").
+X*/
+X#define ARGKEYWORD   0x0400
+X/*    -- This argument was matched as a keyword (long-form) on the command-line
+X**       and not as a single character.
+X*/
+X#define ARGDESCRIBED 0x0800
+X/*    -- This argument was given a description by the programmer at
+X**       initialization.
+X*/
+X#define ARGCOPYF     0x1000
+X/*    -- This flag is only used for lists and vectors (multivalued arguments)
+X**       and is used on a per-item basis. If it is set, it means that the
+X**       corresponding value in the vector/list required space to be allocated
+X**       (such as the duplication of a temporary string).
+X*/
+X/**^^**********************************************************************/
+X
+X
+X/**********************************************************************
+X** ^SECTION: ARGDESC-MACROS
+X**    The following macros are used to extract and query the attributes
+X**    of a pointer to a preprocessed arg-descriptor:
+X*/
+X#define  arg_cname(ad)        ((ad) -> ad_name)
+X/*    -- return the single-character name of an argument.
+X*/
+X#define  arg_flags(ad)        ((ad) -> ad_flags)
+X/*    -- return the argument flags of an argument.  The flags themselves
+X**       may be manipulated using the BTEST, BSET, and BCLEAR macros
+X**       #defined in <useful.h>.
+X*/
+X#define  arg_type(ad)         ((ad) -> ad_type)
+X/*    -- return the pointer to the value-translation-routine of an argument.
+X*/
+X#define  arg_valp(ad)         ((ad) -> ad_valp)
+X/*    -- return the pointer to the value of this argument.
+X*/
+X#define  arg_sname(ad)        ((ad) -> ad_prompt)
+X/*    -- return the string name of an argument.
+X*/
+X#define  arg_sdesc(ad)        ( arg_sname(ad) )
+X/*    -- return the description of an argument. If a description was supplied,
+X**       the ARGDESCRIBED flag will be set and the description is available
+X**       by calling get_argdesc().
+X*/
+X#define  ARG_isDESCRIBED(ad)  BTEST( arg_flags(ad), ARGDESCRIBED )
+X/*    -- Evaluates to TRUE only if an argument description was provided.
+X*/
+X#define  arg_description(ad)  ( ARG_isDESCRIBED(ad) ? arg_sdesc(ad) : "" )
+X/*    -- Return the description string (or an empty string if no description
+X**       was given) for this argument.
+X*/
+X#define  ARG_isPOSITIONAL(ad) BTEST( arg_flags(ad), ARGPOS )
+X/*    -- Evaluates to TRUE if this argument may be positionally matched.
+X*/
+X#define  ARG_isPOSONLY(ad) ( arg_cname(ad) == ' ' )
+X/*    -- Evaluates to TRUE if this argument may only be positionally matched.
+X*/
+X#define  ARG_isLIST(ad)       ( BTEST(arg_flags(ad), ARGLIST) )
+X/*    -- Evaluates to TRUE if this argument is an arglist.
+X*/
+X#define  ARG_isVEC(ad)        ( BTEST(arg_flags(ad), ARGVEC) )
+X/*    -- Evaluates to TRUE if this argument is a vector.
+X*/
+X#define  ARG_isMULTIVAL(ad)   ( BTEST(arg_flags(ad), ARGVEC | ARGLIST) )
+X/*    -- Evaluates to TRUE if this argument is an arglist or a vector.
+X*/
+X#define  ARG_isVALTAKEN(ad)      ( ! BTEST(arg_flags(ad), ARGNOVAL) )
+X/*    -- Evaluates to TRUE if this argument does NOT take a value.
+X*/
+X#define  ARG_isGIVEN(ad)      ( BTEST(arg_flags(ad), ARGGIVEN) )
+X/*    -- Evaluates to TRUE if this argument was given on the command-line.
+X*/
+X#define  ARG_isVALGIVEN(ad)      ( BTEST(arg_flags(ad), ARGVALGIVEN) )
+X/*    -- Evaluates to TRUE if the argument value was given on the command-line.
+X*/
+X#define  ARG_isREQUIRED(ad)   ( BTEST(arg_flags(ad), ARGREQ) )
+X/*    -- Evaluates to TRUE if this argument is required.
+X*/
+X#define  ARG_isVALOPTIONAL(ad)   ( BTEST(arg_flags(ad), ARGVALOPT) )
+X/*    -- Evaluates to TRUE if the argument value is optional.
+X*/
+X#define  ARG_isVALSEPARATE(ad)   ( BTEST(arg_flags(ad), ARGVALSEP) )
+X/*    -- Evaluates to TRUE if the argument value is optional.
+X*/
+X#define  ARG_isHIDDEN(ad)     ( BTEST(arg_flags(ad), ARGHIDDEN) )
+X/*    -- Evaluates to TRUE if this argument is omitted from usage messages.
+X*/
+X/**^^**********************************************************************/
+X
+X
+X   /* macro to define a NULL argument-type function */
+X#define argNULL    (argTypePtr_t)NULL
+X
+X   /* macro for an empty argument descriptor */
+X#define ARG_EMPTY   { '\0', 0x0000, argNULL, ARBNULL, CHARNULL }
+X
+X   /*
+X   ** macro to denote start & end of an ARGDESC array declared without
+X   ** the CMD_XXXXXXX macros which follow.
+X   */
+X#define STARTOFARGS  ARG_EMPTY
+X#define ENDOFARGS    ARG_EMPTY, ARG_EMPTY
+X
+X/***************************************************************************
+X** ^SECTION: CMD-MACROS
+X**    Parseargs.h defines a set of macros to allow a more "self documenting"
+X**    approach to declaring argument-descriptor arrays. The "old-style" is
+X**    still accepted (but if used it is recommended that the STARTOFARGS
+X**    macro is used in conjunction with ENDOFARGS).  An example use of these
+X**    macros (which, with one exception, all begin with "CMD") follows:
+X**
+X**         #include <parseargs.h>
+X**    
+X**         static BOOL bflag = FALSE;
+X**         static char *arg1 = CHARNULL;
+X**         static char *arg2 = CHARNULL;
+X**    
+X**         static
+X**         CMD_OBJECT
+X**            MyCmd
+X**
+X**         CMD_NAME
+X**            "mycmd -- one line statement of purpose"
+X**    
+X**         CMD_DESCRIPTION
+X**            "Mycmd will try really really hard to run without errors \
+X**         and do whatever the heck it is supposed to do. If (God forbid) \
+X**         something should actually go wrong it will say so."
+X**    
+X**         CMD_ARGUMENTS
+X**            'b', ARGOPT, argSBool, __ &bflag,
+X**            "bflag -- turn on `b'-mode (whatever that is)",
+X**    
+X**            ' ', ARGREQ, argStr, __ &arg1,
+X**            "arg1 -- first argument to this spiffy program",
+X**    
+X**            ' ', ARGOPT, argStr, __ &arg2,
+X**            "arg2 -- optional second argument to this spiffy program",
+X**    
+X**            END_ARGUMENTS
+X**         CMD_END
+X**    
+X**         main( argc, argv )
+X**            int argc;
+X**            char *argv[];
+X**         {
+X**            (void) parseargs( argv, MyCmd );
+X**            (void) dostuff();
+X**            exit( 0 );
+X**         }
+X***^^**********************************************************************/
+X#define CMD_OBJECT       ARGDESC
+X#define CMD_NAME         [] = { { '\0', (argMask_t)0x0000, (argTypePtr_t)
+X#define CMD_DESCRIPTION  , ARBNULL,
+X#define CMD_ARGUMENTS    },
+X#define START_ARGUMENTS  ARG_EMPTY
+X#define END_ARGUMENTS    ARG_EMPTY
+X#define CMD_END          };
+X
+X   /*
+X   ** shorthand for declaring main program
+X   */
+X#ifdef __ANSI_C__
+X# define MAIN(argc,argv)  int main( int argc, char *argv[] )
+X#else
+X# define MAIN(argc,argv)  int main( argc, argv ) int argc; char *argv[];
+X#endif
+X
+X/***************************************************************************
+X** ^SECTION: MULTI-VALUED_ARGUMENTS
+X**    Parseargs supports two different types of multi-valued arguments:
+X**    linked-lists and vectors. The linked-lists are called argument lists
+X**    (or arg-lists) and are specified by supplying the ARGLIST flag along
+X**    with an associated listXxxx argument-translation routine. The value
+X**    associated with an arg-list should be a list structure of type ArgList.
+X**    The include file <parseargs.h> defines four macros for manipulating
+X**    ArgList structures:  ARGLISTNULL, L_NEXT, L_STRING, and L_FLAGS.
+X**
+X**    ARGLISTNULL is simply the NULL argument-list pointer.  L_NEXT and
+X**    L_STRING each take a pointer to a non-NULL ArgList structure. L_NEXT
+X**    returns the address of the next item in the list and L_STRING returns
+X**    the string-value of the current list-item.  L_FLAGS return the argflags
+X**    for a given item in the list. With non-multivalued arguments, only the
+X**    flags in the argument descriptor are needed; lists and vectors however
+X**    need a set of flags for each item they contain. Once an arg-list has
+X**    been created, it may be deallocated using the function listFree. List-
+X**    Free takes one parameter: the address of the first item in the arg-list.
+X**
+X**    An alternative to argument-lists is argument vectors (or arg-vectors).
+X**    Arg-vectors use the ARGVEC flag instead of the ARGLIST flag and do not
+X**    require a special listXxxx function for each vector-type.  Each of the
+X**    argXxxx functions is responsible for handling vectors of its type
+X**    (although some argXxx functions such as the boolean types do not sup-
+X**    port vectors). An arg-vector is a structure which contains a count, an
+X**    array of elements (i.e. an argc/argv pair), and an array of flags, one
+X**    for each element of argv. There are two macros in defined in
+X**    <parseargs.h> which are used for arg-vectors. ARGVEC_T may be used to
+X**    declare a vector structure or a vector type; ARGVEC_EMPTY may be used
+X**    to initialize the structure.  It is strongly recommended that ARGVEC_T
+X**    be used to declare vector types in a typedef statement (particularly
+X**    if one is using function prototypes) but for those who insist, it may
+X**    be used to directly declare a  structure.  String-vectors will always
+X**    have an extra NULL-pointer at the end such that:
+X**
+X**         ( StrVec.array[ StrVec.count ] == (char *)NULL )
+X**
+X**    is always true, and character-vectors will always have an extra NUL-
+X**    character at the end such that:
+X**
+X**         ( CharVec.array[ CharVec.count ] == '\0' )
+X**
+X**    is always true. Integer and floating point vectors contain no extra
+X**    "null" elements.
+X**
+X**    Once created, arg-vectors may be deallocated by calling the macro vec-
+X**    Free or the macro vecDeepFree and passing it the arg-vector structure.
+X**    The differemce between these two macros is that the latter will also
+X**    free each item in the vector that required space to be allocated (at
+X**    the expense of traversing the vector).  At this writing, the only
+X**    predefined argument-type(s) that would benefit from vecDeepFree is
+X**    argStr vectors.
+X**
+X**    An example use of arg-lists, and of arg-vectors follows:
+X**
+X**         #include <parseargs.h>
+X**
+X**         typedef ARGVEC_T(char *) strvec_t;
+X**
+X**         static ArgList  *StringList = ARGLISTNULL;
+X**         static strvec_t  StringVec = ARGVEC_EMPTY(char *);
+X**         static ARGVEC_T(int)  NumberVec = ARGVEC_EMPTY(int);
+X**
+X**         static
+X**          CMD_OBJECT  Args
+X**          CMD_NAME    "foo -- do whatever foo does"
+X**          CMD_DESCRIPTION  "put a brief paragraph here"
+X**          CMD_ARGUMENTS
+X**            'l', ARGLIST, listStr, __ &StrList, "LiSt {list of strings}",
+X**            's', ARGVEC,  argStr,  __ &StrVec,  "STRing {vector of strings}",
+X**            'i', ARGVEC,  argInt,  __ &NumVec,  "NUMber {vector of numbers}",
+X**            END_ARGUMENTS
+X**          CMD_END
+X**
+X**         main( int argc, char *argv[] )
+X**         {
+X**            int i, *ls;
+X**
+X**            if ( parseargs(argv, Args) )  syserr( "parseargs failed" );
+X**
+X**            for ( ls = StrList, i=1 ; ls ; ls = L_NEXT(ls), i++ )
+X**               printf( "List item %d=%s, flags=%x0\n",
+X**                       i, L_STRING(ls), L_FLAGS(ls) );
+X**
+X**            for ( i = 0 ; i < StrVec.count ; i++ )
+X**               printf( "String[%d]=%s, flags=%x0\n",
+X**                       i, StrVec.array[i], StrVec.flags[i] );
+X**
+X**            for ( i = 0 ; i < NumVec.count ; i++ )
+X**               printf( "Number[%d]=%s, flags=%x0\n",
+X**                       i, NumVec.array[i], NumVec.flags[i] );
+X**
+X**            listFree( StrList );
+X**            StrList = ARGLISTNULL;
+X**
+X**            vecDeepFree( StrVec, char * );
+X**            vecFree( NumVec, int );
+X**
+X**            exit( 0 );
+X**         }
+X**
+X**^^***********************************************************************/
+X
+X   /* definition of an arg-list */
+Xtypedef struct arglist {
+X   struct arglist  *nl_next;  /* pointer to next item */
+X   ARBPTR           nl_val;   /* value of current item */
+X   argMask_t        nl_flags; /* flags for current item */
+X} ArgList;
+X#define ARGLISTNULL  (ArgList *)NULL
+X
+X   /* definition of an arg-list-head (the first two fields MUST exactly
+X   ** overlay with their corresponding elements in an ArgList struct)
+X   */
+Xtypedef struct arglisthead {
+X   ArgList  *nl_next;  /* pointer to next item */
+X   ARBPTR    nl_val;   /* value of current item */
+X   argMask_t nl_flags; /* flags for current item */
+X   ArgList  *nl_tail;  /* pointer to last item */
+X} ArgListHead;
+X#define ARGLISTHEADNULL  (ArgListHead *)NULL
+X
+X   /*
+X   ** macros to manipulate arg-lists
+X   */
+X#define L_STRING(ls)   ((char *)((ls)->nl_val))  /* Item as a string */
+X#define L_NEXT(ls)     ((ls)->nl_next)           /* Next item of list */
+X#define L_ADVANCE(ls)  (ls) = (ArgList *)L_NEXT(ls) /* Advance list ptr */
+X#define L_FLAGS(ls)    ((ls)->nl_flags)          /* flags of current item */
+X
+X   /*
+X   ** macros to declare and initialize arg-vectors
+X   **   (NOTE: this wont work for vectors of function pointers)
+X   */
+X#define ARGVEC_T(type) \
+X	struct { type  *array; unsigned short  count; argMask_t *flags; }
+X#define ARGVEC_EMPTY(type) \
+X	{ (type *) NULL, (unsigned short) 0, (argMask_t *) NULL }
+X
+X
+X/**********************************************************************
+X** ^SECTION: PARSE-FLAGS
+X**    The following bitmasks may be combined in order to modify the
+X**    behavior of the parseargs library. The parse flags for a given
+X**    may be set through the use of the parsecntl() function.
+X*/
+X#define pa_PROMPT    0x0001
+X/*    -- Prompt the user for any missing arguments that are required on the
+X**       command-line. No special escaping or quoting is performed on the
+X**       user input. Required arguments that expect a list of values will
+X**       be repeatedly prompted for (one item per line) until a blank line
+X**       (followed by a carriage return) is entered.
+X*/
+X#define pa_IGNORE    0x0002
+X/*    -- Ignore any unrecognized or improperly specified command-line arguments
+X**       and continue execution of the program. Normally, if a required
+X**       argument is unmatched (or an argument is improperly specified),
+X**       a usage message is printed program execution is terminated.
+X*/
+X#define pa_OPTSONLY  0x0004
+X/*    -- Under UNIX, setting this flag will disable the parsing of long-option
+X**       syntax. This will cause all arguments starting with '+' to always be
+X**       treated as a positional parameter (instead of a long-option).
+X*/
+X#define pa_KWDSONLY  0x0008
+X/*    -- Under UNIX, setting this flag disables the parsing of single-character
+X**       options.  This will cause all arguments starting with '-' to always
+X**       be treated as a positional parameter (instead of an option).
+X*/
+X#define pa_FLAGS1ST  0x0010
+X/*    -- Setting this flag causes the parseargs library to force any and all
+X**       non-positional arguments to be specified before any positional ones.
+X**       As an example, under UNIX, if this flag is SET then parseargs will
+X**       consider the command line "cmd -x arg" to consist of one option and
+X**       one positional argument; however the command line "cmd arg -x" would
+X**       be considered to consist of two positional arguments (the -x option
+X**       will be unmatched).
+X**
+X**       If this flag is UNSET, then both of the previous examples are
+X**       considered to consist of one option and one positional argument.
+X*/
+X#define pa_ANYCASE   0x0020
+X/*    -- Setting this flag cause character-case to be ignored when attempting
+X**       to match single-character argument names (i.e. causes "-i" and "-I"
+X**       to be considered equivalent).
+X*/
+X#define pa_ARGV0     0x0040
+X/*    -- Normally, the parseargs library will assume that the first argument
+X**       on the command-line is the name of the command. Setting this flag
+X**       tells parseargs that this is NOT the case and that the very first
+X**       argument on the command-line is a bona-fide argument to the command.
+X*/
+X#define pa_NOCHECK   0x0080
+X/*    -- Setting this flag will prevent parseargs from checking for any 
+X**       required arguments that were not given on the command-line. This
+X**       is useful when more than one call to the parseargs library is needed
+X**       to parse all the command-line arguments (which could occur if the
+X**       command-line argument came from a file or from two argv-vectors).
+X**       When this flag is set, then each call to parseargs will check for
+X**       missing required arguments (and will prompt the user for them if
+X**       desired).
+X**
+X**       Keeping this flag on until the final set of arguments is parsed will
+X**       cause parseargs to not check for missing arguments until the last set
+X**       of arguments has been parsed (by the final call to one of the
+X**       functions in the parseargs library).
+X*/
+X#define pa_CONTINUE  0x0100
+X/*    -- Setting this flag will cause subsequent calls to the parseargs library
+X**       to NOT reset the current command-state. Hence, all arguments will not
+X**       be initially set to "NOT GIVEN" and other (normal) initializations are
+X**       not be performed.  This is useful in conjunction with the pa_NOCHECK
+X**       when more than one call to parseargs is required to parse all the
+X**       command arguments. In this scenario, pa_CONTINUE should be unset (the
+X**       default setting) for the very first call to parseargs, but should then
+X**       be set before any subsequent calls to parseargs are made.
+X*/
+X#define pa_NOCMDENV  0x0200
+X/*    -- Setting this flag prevents parseargs from checking the <CMD-NAME>_ARGS
+X**       environment variable for any user-defined default command arguments.
+X*/
+X#define pa_COPYF     0x0400
+X/*    -- When this flag is OFF (the default), a value of FALSE is provided as
+X**       the <copyf> argument to all the arg-type (argXxxxx) functions when an
+X**       argument is matched. Setting this flag will cause a value of TRUE to
+X**       be provided as the <copyf> argument to all the arg-type (argXxxxx)
+X**       functions when an argument is matched.
+X*/
+X/**^^**********************************************************************/
+X
+X
+X/**********************************************************************
+X** ^SECTION: PARSE-CNTLS - specify which attributes to get/set
+X**    Each of the following function codes specifies an attribute that
+X**    is to be manipulated by parsecntl(3).  The function code is the
+X**    second parameter to parsecntl(3). With the exception of pc_ARGFLAGS,
+X**    each of the function codes corresponds to a call to parsecntl(3) 
+X**    using four parameters (pc_ARGFLAGS uses 5 parameters). In each case,
+X**    the last parameter is either the address of a buffer to write the
+X**    attribute to, or the actual buffer to read the attribute from 
+X**    (depending upon the mode -- the third parameter to parsecntl).
+X*/
+Xtypedef enum  {
+X   pc_PARSEFLAGS,
+X/*    -- get/set parse flags
+X**
+X**    This function code is used to read and/or modify the existing parsing 
+X**    parsing behavior. The fourth parameter to parsecntl should be a 
+X**    combination of pc_XXXX bitmasks if the parse-flags are only being
+X**    written, otherwise it should be a pointer to an argMask_t variable.
+X*/
+X   pc_ARGFLAGS,
+X/*    -- get/set argument flags
+X**
+X**    This function code may only be used to read the argument-flags of
+X**    a named argument. It is an error to specify a mode that attempts
+X**    to write the argument-flags with this function code. The fourth
+X**    parameter to parsecntl should be the keyword name of the argument
+X**    whose flags are to be read. The fifth (and final) argument should
+X**    be a pointer to the argMask_t variable which will receive the resulting
+X**    argument-flags.
+X*/
+X   pc_DEFARGS,
+X/*    -- get/set the default arguments
+X**
+X**    This function code is used to query or modify the current default
+X**    argument-descriptor list for the given command. The fourth parameter
+X**    to parsecntl should be the argument-descriptor array to assign as the
+X**    new default-list (or the address of an argdesc-array if the default
+X**    list is being retrieved).
+X**
+X**    If a given option/qualifier does not appear to match any items in the
+X**    argdesc-array, a  default argdesc-array is then searched to match the
+X**    option. If it is STILL unmatched then it is flagged as such. The
+X**    default-argdesc array is automatically used by all programmer-defined
+X**    argdesc-array but may be unset or reset using the pc_DEFARGS function
+X**    of parsecntl(3). In such a  manner, a  programmer could specify a dif-
+X**    ferent set of default-arguments to search for. Furthermore, default
+X**    argdesc-arrays may also be assigned default argdesc-arrays, thus
+X**    allowing the programmer to define a whole search-list of default
+X**    argdesc-arrays for a given command.
+X**
+X**    This could prove useful in a situation where a set of commands have a
+X**    few common-options and differ in their remaining ones. If the same
+X**    main() were used for each command, then main could define one common
+X**    argdesc-array and then a set of argdesc-arrays for each command. Main
+X**    could then figure out which argdesc-array to used based on the name in
+X**    argv[0], and set its default argdesc-array to be the common argdesc-
+X**    array, as in the following:
+X**
+X**         #include <parseargs.h>
+X**             .
+X**             . variable declarations
+X**             .
+X**
+X**         static ARGDESC common_args[] = {
+X**            STARTOFARGS,
+X**            'L', ARGOPT, argBool, __ &lflag, "list (list available items)"
+X**            'I', ARGOPT, argStr, __ &item, "item (specify item to use)",
+X**            ENDOFARGS
+X**         };
+X**
+X**         static ARGDESC cmd1_args[] = {
+X**            STARTOFARGS,
+X**            's', ARGOPT, argBool, __ &sflag, "S (set S)",
+X**            't', ARGOPT, argBool, __ &tflag, "T (set T)",
+X**            ENDOFARGS
+X**         };
+X**
+X**         static ARGDESC cmd2_args[] = {
+X**            STARTOFARGS,
+X**            'x', ARGOPT, argBool, __ &xflag, "X (set X)",
+X**            'y', ARGOPT, argBool, __ &yflag, "Y (set Y)",
+X**            ENDOFARGS
+X**         };
+X**
+X**         main( argc, argv ) int argc; char *argv[];
+X**         {
+X**            ARGDESC *cmd = cmd1_args;
+X**            int status;
+X**
+X**            if ( strcmp(*argv, "cmd2") == 0 ) cmd = cmd2_args;
+X**
+X**            if ( parsecntl( cmd, pc_DEFARGS, pc_WRITE, common_args ) != 0 )
+X**               syserr( "unable to set default args" );
+X**
+X**            status = parseargs( argv, cmd );
+X**                   .
+X**                   .
+X**                   .
+X**         }
+X**
+X**    Note that in the above call to parsecntl(3), that zero will be
+X**    returned upon success and non-zero upon failure. If pe_DEFARGS is
+X**    returned, then cmd is already on common_args's list of defaults (and
+X**    would result in an infinite loop while parsing).
+X*/
+X   pc_NAME,
+X/*    -- get/set the command-name
+X*/
+X   pc_PURPOSE,
+X/*    -- get/set the command-purpose
+X*/
+X   pc_DESCRIPTION
+X/*    -- get/set the command-description
+X*/
+X/*    Each of these last three function codes are used to modify or query the
+X**    name, purpose, or description associated with a command. The fourth
+X**    parameter to parsecntl should be the new string to use (or the address
+X**    of the string, a char** variable, to recieve the current value).
+X*/
+X} parsecntl_t;
+X
+X/**^^**********************************************************************/
+X
+X
+X/**********************************************************************
+X** ^SECTION: PARSE-MODES - modes to get/set command attributes.
+X**    Parsecntl may be used to read current command attributes, write/assign
+X**    new command attributes, or both. The mode argument to parsecntl
+X**    determines which of these three alternatives are desired. If the
+X**    programmer merely wishes to assign new attributes, then invoking
+X**    parsecntl in pc_WRITE mode and passing the new attributes will do the
+X**    job. If the programmer wishes simply to query attributes, then
+X**    invoking parsecntl in pc_READ mode and passing a pointer to the
+X**    desired object in which to write the attribute settings will suffice.
+X**
+X**    If the programmer wishes to assign new attributes and at the same time
+X**    find out what the attributes were before making the assignment, then
+X**    programmer must invoke parsecntl for pc_RDWR mode and pass a pointer
+X**    to the object containing the new attribute settings; When parsecntl
+X**    returns, then (assuming it returns 0) the desired attributes will have
+X**    been assigned and the object that contained the new attribute settings
+X**    will now contain the attribute settings that were in effect immediately
+X**    before parsecntl was invoked.
+X*/
+Xtypedef enum  {
+X   pc_READ,
+X/*    -- read-mode: attributes are retrieved
+X*/
+X   pc_WRITE,
+X/*    -- write-mode: attributes are assigned new values
+X*/
+X   pc_RDWR
+X/*    -- read/write-mode: attributes are retrieved and then assigned
+X*/
+X
+X} parsemode_t;
+X/**^^**********************************************************************/
+X
+X
+X   /*
+X   ** private (implementation specific) definitions
+X   */
+X#ifdef PARSEARGS_PRIVATE
+X
+X   /* macros to define command-line style specific character sequences */
+X# ifdef amiga_style
+X#   define  s_ARG_SEP  "=:"  /* AmigaDOS argument separator characters */
+X# endif
+X# ifdef ibm_style
+X#   define  s_ARG_SEP  "="  /* MS-DOS and OS/2 argument separator characters */
+X# endif
+X# ifdef unix_style
+X#   define  c_OPT_PFX  '-'   /* Unix option prefix character */
+X#   define  c_KWD_PFX  '+'   /* Unix keyword prefix character */
+X#   define  s_ARG_SEP  "=:"  /* Unix keyword-value separator characters */
+X# endif
+X# ifdef vms_style
+X#   define  s_KWD_PFX  "/"   /* VMS qualifier prefix character */
+X#   define  s_LSI_SEP  ",+"  /* VMS LiSt Item separator characters */
+X#   define  s_ARG_SEP  "=:"  /* VMS qualifier-value separator characters */
+X# endif
+X
+X
+X   /* call the function to parse the given argument-value string */
+X# define HANDLE(ad,vp,pflags) ((*arg_type(ad))(ad, vp, BTEST(pflags, pa_COPYF)))
+X
+X
+X   /* parse-state flags */
+X# define  ps_OLDSTYLE     0x01  /* force backward compatibility? */
+X# define  ps_NOFLAGS      0x02  /* opt/kwd parsing in effect? */
+X# define  ps_NOCMDENV     0x04  /* <CMD>_ARGS environment-variable parsed? */
+X# define  ps_NOPARSECNTL  0x08  /* PARSECNTL environment-variable parsed? */
+X# define  ps_USERNAME     0x10	/* user supplied name string */
+X# define  ps_FREENAME     0x10	/* free name string space */
+X# define  ps_USERPURPOSE  0x20	/* user supplied purpose string */
+X# define  ps_FREEPURPOSE  0x20	/* free purpose string space */
+X# ifdef vms_style
+X#  define  ps_NOTCMDLINE  0x40  /* argv-array is NOT from the command-line */
+X# endif
+X
+Xtypedef unsigned short   ps_flags_t;
+X
+X
+X   /*
+X   ** structure to hold arg-desc pointers maintained in the command-context
+X   */
+Xtypedef struct {
+X   ARGDESC  *default_argd;   /* pointer to default args */
+X   ARGDESC  *current_list;   /* pointer to ad with arglist (or argvector)
+X                             ** that is currently being appended.
+X                             */
+X# ifdef amiga_style
+X     ARGDESC  *previous_ad;  /* pointer to previously matched ad */
+X# endif
+X} ARGDPTRS;
+X
+X   /*
+X   ** structures to replace the first and last argument descriptor
+X   ** in a command (each field must exactly overlay its counterpart
+X   ** in an ARGDESC struct).
+X   */
+Xtypedef struct  {
+X   char        id;      /* id is ALWAYS '\0' for first and last ad */
+X   ps_flags_t  state_flags;  /* current parse-state */
+X   CONST char *argv0;   /* argv[0] from the command-line */
+X   ARGDPTRS   *argdp;   /* structure with ARGDESC pointers */
+X   CONST char *purpose; /* one-line purpose provided with CMD_NAME */
+X} CTXDESC;  /* the command-context */
+X
+Xtypedef struct  {
+X   char        id;      /* id is ALWAYS '\0' for first and last ad */
+X   argMask_t   parse_flags;  /* current parse-flag bitmasks */
+X   CONST char *name;    /* command-name provided with CMD_NAME */
+X   CTXDESC    *context; /* pointer to command-context */
+X   CONST char *description;  /* description provided with CMD_DESCRIPTION */
+X} CMDDESC; /* the command-descriptor */
+X
+X   /*
+X   ** macros to extract command-line attributes in the command-object
+X   */
+X# define  cmd_desc(cmd)         (CMDDESC *)cmd
+X# define  cmd_id(cmd)           (cmd_desc(cmd)) -> id
+X# define  cmd_flags(cmd)        (cmd_desc(cmd)) -> parse_flags
+X# define  cmd_name(cmd)         (cmd_desc(cmd)) -> name
+X# define  cmd_description(cmd)  (cmd_desc(cmd)) -> description
+X# define  cmd_context(cmd)      (cmd_desc(cmd)) -> context
+X# define  cmd_ctxid(cmd)        (cmd_context(cmd)) -> id
+X# define  cmd_state(cmd)        (cmd_context(cmd)) -> state_flags
+X# define  cmd_argv0(cmd)        (cmd_context(cmd)) -> argv0
+X# define  cmd_purpose(cmd)      (cmd_context(cmd)) -> purpose
+X# define  cmd_ptrs(cmd)         (cmd_context(cmd)) -> argdp
+X# define  cmd_defargs(cmd)      (cmd_ptrs(cmd)) -> default_argd
+X# define  cmd_list(cmd)         (cmd_ptrs(cmd)) -> current_list
+X# ifdef amiga_style
+X#   define  cmd_prev(cmd)  (cmd_ptrs(cmd)) -> previous_ad
+X# endif
+X
+X   /* macro to determine if a command-object has been initialized */
+X# define  CMD_isINIT(cmd)  \
+X   ( !cmd_id(cmd)  &&  cmd_context(cmd) )
+X
+X   /*
+X   ** macros to help ascertain argument type
+X   */
+X# define ARG_isBOOLEAN(ad)   \
+X   ( arg_type(ad) == argBool  || arg_type(ad) == argSBool || \
+X     arg_type(ad) == argUBool || arg_type(ad) == argTBool    \
+X   )
+X# define ARG_isPSEUDOARG(ad) \
+X   ( arg_type(ad) == argEnd   || \
+X     arg_type(ad) == argUsage || \
+X     arg_type(ad) == argDummy    \
+X   )
+X
+X   /*
+X   ** macros to assist in traversing a command-object
+X   */
+X# define  ARG_FIRST(cmd)   ((cmd) + 1)
+X# define  ARG_LAST(cmd)    ( ((ARGDESC *)cmd_context(cmd)) - 1 )
+X# define  ARG_isEND(ad)    ( arg_cname(ad)  ==  '\0' )
+X# define  ARG_ADVANCE(ad)  (ad)++
+X# define  ARG_RETREAT(ad)  (ad)--
+X
+X
+X/**********************************************************************
+X** ^SECTION: USAGECNTL
+X**    Each of the different values in $USAGECNTL corresponds to a
+X**    bitmask as follows:
+X*/
+X# define  usg_NONE         0x0001
+X/*    -- "Quiet", "Silent", and "None" : dont print usage
+X*/
+X# define  usg_VERBOSE      0x0002
+X/*    -- "Verbose", "!Terse" : print argument descriptions
+X*/
+X# define  usg_OPTS         0x0004
+X/*    -- "Options" -- print option syntax
+X*/
+X# define usg_LONGOPTS     0x0008
+X/*    -- "LongOpts", "KeyWords" : print long-option/keyword syntax
+X*/
+X# define  usg_DESCRIPTION  0x0010
+X/*    -- "Description" : print the command description
+X*/
+X# define  usg_PAGED        0x0020
+X/*    -- "Paged" : pipe the usage message through a paging program
+X*/
+X/**^^**********************************************************************/
+X
+X#endif /* PARSEARGS_PRIVATE */
+X
+X   /*
+X   ** pre-defined types available for ad_type
+X   */
+X#ifndef PARSEARGS_NARGTYPES
+X# define  ARGTYPE(name)  EXTERN  BOOL  name ARGS(( ARGDESC *, char *, BOOL ))
+X   ARGTYPE( argUsage );
+X   ARGTYPE( argEnd );
+X   ARGTYPE( argDummy );
+X   ARGTYPE( argBool );
+X   ARGTYPE( argSBool );
+X   ARGTYPE( argUBool );
+X   ARGTYPE( argTBool );
+X   ARGTYPE( argChar );
+X   ARGTYPE( argStr );
+X   ARGTYPE( argInt );
+X   ARGTYPE( argShort );
+X   ARGTYPE( argLong );
+X   ARGTYPE( argFloat );
+X   ARGTYPE( argDouble );
+X   ARGTYPE( listStr );
+X   EXTERN  VOID  listFree ARGS((ArgList *argls));
+X# define vecFree(vec,type)  \
+X	do { \
+X		if ( vec.count > 0 ) { \
+X			if ( vec.array )  free( vec.array ); \
+X			if ( vec.flags )  free( vec.flags ); \
+X		} \
+X        vec.array = (type *)NULL; \
+X        vec.flags = (argMask_t *)NULL; \
+X		vec.count = 0; \
+X	} while ( 0 )
+X# define vecDeepFree(vec,type)  \
+X	do { \
+X		register int i; \
+X \
+X		for ( i = 0 ; i < vec.count ; i++ ) \
+X			if ( BTEST(vec.flags[i], ARGCOPYF) ) \
+X				free( (ARBPTR) vec.array[i] ); \
+X \
+X		if ( vec.count > 0 ) { \
+X			if ( vec.array )  free( vec.array ); \
+X			if ( vec.flags )  free( vec.flags ); \
+X		} \
+X        vec.array = (type *)NULL; \
+X        vec.flags = (argMask_t *)NULL; \
+X		vec.count = 0; \
+X	} while ( 0 )
+X
+X# undef ARGTYPE
+X#endif  /* PARSEARGS_NARGTYPES */
+X
+X   /*
+X   ** parseargs library function-prototypes
+X   */
+X#ifndef  PARSEARGS_NEXTERNS
+X   EXTERN int   fparseargs  ARGS(( FILE *, ARGDESC * ));
+X   EXTERN int   lparseargs  ARGS(( ArgList *, ARGDESC * ));
+X   EXTERN int   sparseargs  ARGS(( char *, ARGDESC * ));
+X   EXTERN int   vparseargs  ARGS(( ARGDESC *, int, ...));
+X   EXTERN int   parseargs   ARGS(( char **, ARGDESC * ));
+X   EXTERN int   parsecntl   ARGS(( ARGDESC *, parsecntl_t, parsemode_t, ...));
+X   EXTERN VOID  usage       ARGS(( const ARGDESC * ));
+X   EXTERN VOID  init_args   ARGS(( ARGDESC * ));
+X   EXTERN CONST char *ProgName;
+X   EXTERN int   ProgNameLen;
+X#endif  /* PARSEARGS_NEXTERNS */
+X
+X#endif  /* PARSEARGS_H */
+END_OF_FILE
+if test 44214 -ne `wc -c <'parseargs.h'`; then
+    echo shar: \"'parseargs.h'\" unpacked with wrong size!
+fi
+# end of 'parseargs.h'
+fi
+echo shar: End of archive 8 \(of 10\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2164 @@
+Newsgroups: comp.sources.misc
+From: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Subject: v37i106:  lout - Lout document formatting system, v2, Part08/30
+Message-ID: <1993Jun1.051802.25549@sparky.imd.sterling.com>
+X-Md4-Signature: 3fffd6449640f77c88ede06baef97105
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Tue, 1 Jun 1993 05:18:02 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jeff@joyce.cs.su.oz.au (Jeff Kingston)
+Posting-number: Volume 37, Issue 106
+Archive-name: lout/part08
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lout/doc/tr.impl/s2.3 lout/include/eq lout/z36.c
+# Wrapped by kent@sparky on Sun May 30 19:43:55 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 30)."'
+if test -f 'lout/doc/tr.impl/s2.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/doc/tr.impl/s2.3'\"
+else
+  echo shar: Extracting \"'lout/doc/tr.impl/s2.3'\" \(12558 characters\)
+  sed "s/^X//" >'lout/doc/tr.impl/s2.3' <<'END_OF_FILE'
+X@SubSection
+X    @Tag { objects }
+X    @Title { Basic structural operators }
+X@Begin
+X@PP
+XA programming language may be considered complete when it attains the
+Xpower of a Turing machine, but no such criterion seems relevant to
+Xdocument formatting.  Instead, as the language develops and new
+Xapplications are attempted, deficiencies are exposed and the operator set is
+Xrevised to overcome them.
+X@PP
+XLout has a repertoire of 23 primitive operators
+X(Figure {@NumberOf primitives}),
+X
+X@Figure
+X   @Caption { The 23 primitive operators of Lout, in order of
+Xincreasing precedence. }
+X   @Tag { primitives }
+X@Tab
+X   vmargin { 0.5vx }
+X   @Fmta { @Col @I A ! @Col B }
+X{
+X@Rowa
+X   A { object  {@Code "/"}gap  object }
+X   B { Vertical concatenation with mark alignment }
+X@Rowa
+X   A { object  {@Code "//"}gap  object }
+X   B { Vertical concatenation with left justification }
+X@Rowa
+X   A { object  {@Code "|"}gap  object }
+X   B { Horizontal concatenation with mark alignment }
+X@Rowa
+X   A { object  {@Code "||"}gap  object }
+X   B { Horizontal concatenation with top-justification }
+X@Rowa
+X   A { object  {@Code "&"}gap  object }
+X   B { Horizontal concatenation within paragraphs }
+X@Rowa
+X   A { {@Code "@OneCol"}  object }
+X   B { Hide all but one column mark of @I object }
+X@Rowa
+X   A { {@Code "@OneRow"}  object }
+X   B { Hide all but one row mark of @I object }
+X@Rowa
+X   A { font  @Code "@Font"  object }
+X   B { Render @I object in nominated font }
+X@Rowa
+X   A { breakstyle  @Code "@Break"  object}
+X   B { Break paragraphs of @I object in nominated style }
+X@Rowa
+X   A { spacestyle  @Code "@Space"  object }
+X   B { Render spaces between words in nominated style }
+X@Rowa
+X   A { length  {@Code "@Wide"}  object }
+X   B { Render @I object to width @I length }
+X@Rowa
+X   A { length  {@Code "@High"}  object }
+X   B { Render @I object to height @I length }
+X@Rowa
+X   A { {@Code "@HExpand"}  object}
+X   B { Expand horizontal gaps to fill available space }
+X@Rowa
+X   A { {@Code "@VExpand"}  object}
+X   B { Expand vertical gaps to fill available space }
+X@Rowa
+X   A { {@Code "@HScale"}  object }
+X   B { Horizontal geometrical scaling to fill available space }
+X@Rowa
+X   A { {@Code "@VScale"}  object }
+X   B { Vertical geometrical scaling to fill available space }
+X@Rowa
+X   A { angle  {@Code "@Rotate"}  object }
+X   B { Rotate @I object by @I angle }
+X@Rowa
+X   A { PostScript  {@Code "@Graphic"}  object }
+X   B { Escape to graphics language }
+X@Rowa
+X   A { @Code "@Next"  object }
+X   B { Add 1 to an object denoting a number }
+X@Rowa
+X   A { object  @Code "@Case"  alternatives }
+X   B { Select from a set of alternative objects }
+X@Rowa
+X   A { identifier  @Code "&&"  object }
+X   B { Cross reference }
+X@Rowa
+X   A { cross-reference  @Code "@Open"  object }
+X   B { Retrieve value from cross reference }
+X@Rowa
+X   A { cross-reference  @Code "@Tagged"  object}
+X   B { Attach cross referencing tag to object }
+X}
+X
+Xwhich has proven adequate for a wide variety of features, including equations,
+Xtables, and page layout, and so seems to be reasonably complete in this
+Xpragmatic sense.  In this section we introduce the eight concatenation and
+Xmark-hiding operators.  To them falls the basic task of assembling complex
+Xobjects from simple ones, and they were the first
+Xto be designed and implemented.
+X@PP
+XMany of the operators of Eqn can be viewed as building small tables.  A
+Xbuilt-up fraction, for example, has one column and three rows
+X(numerator, line, and denominator).  Numerous investigations of this
+Xkind convinced the author that operators capable of assembling the rows
+Xand columns of tables would suffice for building all kinds of objects.
+X@PP
+XThe simplest objects are empty objects and literal words like
+X{@Code metempsychosis}, which have one column mark and one row mark:
+X@ID {
+X@ShowMarks metempsychosis
+X}
+XTo place two arbitrary objects side by side, we use the infix
+Xoperator {@Code "|"}, denoting horizontal concatenation.  For
+Xexample,
+X@ID {
+X@Code "USA  |0.2i  Australia"
+X}
+Xproduces the object
+X@ID {
+X@ShowMarks USA |0.2i @ShowMarks Australia
+X}
+XThe row marks are merged into one, fixing the vertical position of
+Xthe objects relative to each other; their horizontal separation is
+Xdetermined by the @I gap attached to the operator, in this case 0.2
+Xinches.  We think of the gap as part of the operator, although
+Xstrictly it is a third parameter.  It may be omitted, defaulting to
+X{@Code "0i"}.
+X@PP
+X@I {Vertical concatenation} & , denoted by the infix operator {@Code "/"},
+Xis the same apart from the change of direction:
+X@ID {
+X@Code "Australia  /0.1i  USA"
+X}
+Xproduces the object
+X@ID {
+X@ShowMarks Australia /0.1i
+X@ShowMarks USA
+X}
+Xwith column marks merged and a 0.1 inch gap.
+X@PP
+XConsider now what happens when horizontal and vertical are combined:
+X@ID  @Code {
+X             |1m  "{"  USA         |1m  "|0.2i" |1m   Australia  "}"
+X/1vx "/0.1i" |    "{"  Washington  |    "|"     |     Canberra  "}"
+X}
+XThe two parameters of @Code "/" now have two column marks each, and
+Xthey will be merged with the corresponding marks in the other
+Xparameter, yielding the object
+X@ID {
+X      @ShowMarks USA &
+X      { 0 ymark moveto xsize 10 pt add ymark lineto [ 3 pt ] 0 setdash stroke }
+X      @Graphic {1c @Wide }
+X      |0.2i @ShowMarks Australia
+X/0.1i @ShowMarks Washington  |     @ShowMarks Canberra
+X}
+XThe @Code "0.2i" gap separates columns, not individual items in
+Xcolumns, so a gap attached to the second @Code "|" would serve no
+Xpurpose; any such gap is ignored.  If the number of marks to be merged
+Xdiffers, empty columns are added at the right to equalize the number.  The
+Xfour marks protruding from the result are all available for merging
+Xwith neighbouring marks by other concatenation operators.  The precedence
+Xof @Code "|" is higher than the precedence of {@Code "/"}, so the braces
+Xcould be omitted.
+X@PP
+XWhen lines of text are concatenated, it is conventional to measure
+Xtheir separation from baseline to baseline (mark to mark in Lout),
+Xrather than from edge to edge as above.  This idea of different
+Xreference points for measurement evolved over the years into a
+Xsystem of six @I {gap modes} (Figure {@NumberOf gapmodes}), expressed
+Xby appending a letter to the length.  For example, @Code "|0.2i" is
+Xan abbreviation for {@Code "|0.2ie"}, meaning 0.2 inches measured
+Xfrom edge to edge; @Code "|0.3ix"
+Xproduces a 0.3 inch gap measured from mark to mark and widened if
+Xnecessary to prevent overstriking; and @Code "|2.5it" places its right
+Xparameter 2.5 inches from the current left margin, irrespective of
+Xthe position of the left parameter.  There is also a choice of
+Xeleven units of measurement (inches, centimetres, multiples of the
+Xcurrent font size, etc.), the most interesting being
+Xthe @Code r unit:  one @Code r is the column width minus the width of
+Xthe following object, so that @Code "|1rt" produces sufficient space
+Xto right justify the following object, and @Code "|0.5rt" to center
+Xit.  These features implement spacings needed in practice rather
+Xthan suggested by theory.  They work with all five concatenation
+Xoperators, horizontal and vertical.
+X
+X@Figure
+X   @Tag { gapmodes }
+X   @Caption { The six gap modes (@I length is any length).  Hyphenation
+Xmode has an extra property not shown here. }
+X@Fig {
+X{ /2.5vx Edge-to-edge |0.3i   {@Code "|"} &1p {@I length} &1p {@Code e}
+X  /4.2vx Hyphenation    |0.3i   {@Code "|"} &1p {@I length} &1p {@Code h}
+X  /4.2vx Overstrike     |0.3i   {@Code "|"} &1p {@I length} &1p {@Code o}
+X  /4.2vx Mark-to-mark   |0.3i   {@Code "|"} &1p {@I length} &1p {@Code x}
+X  /4.2vx Kerning        |0.3i   {@Code "|"} &1p {@I length} &1p {@Code k}
+X  /4.2vx Tabulation     |0.3i   {@Code "|"} &1p {@I length} &1p {@Code t}
+X}
+X||0.5i
+X@Box margin { 0c } 6c @Wide 13.5c @High 9p @Font
+X{
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 2.2c @Wide 1.4c @High } @Put { @DoubleArrow 1.8c }
+X     @At { 2.2c @Wide 1.6c @High } @Put { 1.8c @Wide { &0.5rt @I length } }
+X  }
+X  //4vx
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 2.2c @Wide 1.4c @High } @Put { @DoubleArrow 1.8c }
+X     @At { 2.2c @Wide 1.6c @High } @Put { 1.8c @Wide { &0.5rt @I length } }
+X  }
+X  //4vx
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 1.2c @Wide 1.5c @High } @Put { @DoubleArrow 3.3c }
+X     @At { 1.2c @Wide 1.7c @High } @Put { 3.3c @Wide { &0.5rt @I length } }
+X  }
+X  //4vx
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 1.2c @Wide 1.5c @High } @Put { @DoubleArrow 3.3c }
+X     @At { 1.2c @Wide 1.7c @High }
+X	@Put 3.3c @Wide { |0.5rt @Eq { max(length, a+b) } }
+X     @At { 1.2c @Wide 0.4c @High } @Put { @DoubleArrow 1.0c }
+X     @At { 1.2c @Wide 0.2c @High } @Put { 1.0c @Wide { &0.5rt @I a } }
+X     @At { 4c   @Wide 0.4c @High } @Put { @DoubleArrow 0.5c }
+X     @At { 4c   @Wide 0.2c @High } @Put { 0.5c @Wide { &0.5rt @I b } }
+X  }
+X  //4.5vx
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 1.2c @Wide 1.5c @High } @Put { @DoubleArrow 3.3c }
+X     @At { 1.2c @Wide 1.7c @High }
+X	@Put { 3.3c @Wide { |0.5rt @Eq { max(length, a, b) } } }
+X     @At { 1.2c @Wide 0.4c @High } @Put { @DoubleArrow 1.0c }
+X     @At { 1.2c @Wide 0.2c @High } @Put { 1.0c @Wide { &0.5rt @I a } }
+X     @At { 4c   @Wide 0.4c @High } @Put { @DoubleArrow 0.5c }
+X     @At { 4c   @Wide 0.2c @High } @Put { 0.5c @Wide { &0.5rt @I b } }
+X  }
+X  //4vx
+X  @OneRow {
+X     @At { 1c   @Wide 0.5c @High } @Put { @LBox 0.2co }
+X     @At { 4c   @Wide 0.5c @High } @Put { @LBox 0.5co }
+X     @At { 0.0c @Wide 1.6c @High } @Put { @DoubleArrow 4.0c }
+X     @At { 2.8c @Wide 1.8c @High } @Put { @I length }
+X  }
+X  //5vx
+X  @DoubleArrow 6c
+X  //0.1c |0.5rt @I { current bound }
+X}
+X}
+X
+X@PP
+XWhen we construct a built-up fraction, the result has three row marks, but
+Xonly the second should be visible outside the object:
+X@ID @Eq { @ShowMarks { X over Y } }
+XThis is a common problem, and accordingly a @Code "@OneRow" operator was
+Xintroduced for hiding all but one of the row marks of its
+Xparameter.  Normally, the first mark is the survivor, but a later mark can
+Xbe chosen by prefixing @Code "^" to the preceding concatenation operator:
+X@ID @Code "@OneRow { X  ^/2p  @HLine  /2p  Y }"
+Xhas the desired result, where {@Code "2p"} is two points and @Code "@HLine"
+Xis an easy combination of Lout's graphics operators.  A similar operator,
+X{@Code "@OneCol"}, hides column marks.
+X@PP
+XA variant of @Code "/" called @Code "//" is provided which performs
+Xvertical concatenation but ignores all column marks and simply
+Xleft-justifies its two parameters:
+X@ID @Code {
+X"Heading  //0.1i"
+X"A  |0.2i  B  /0.1i"
+X"C  |  D"
+X}
+Xhas result
+X@ID { Heading //0.1i  A  |0.2i  B  /0.1i  C  |  D }
+Xshowing that spanning columns in tables motivate the inclusion of this
+Xoperator.  There is an analogous @Code "||" operator.  The author
+Xwould have preferred to leave out these operators, since they
+Xcomplicate the implementation, and it is interesting to examine the
+Xprospects of doing so.
+X@PP
+XThe @Code "//" operator is formally redundant, because in general
+Xthe expression @Code "x // y" can be replaced by
+X@ID @Code {
+X"@OneCol {  |  x  }   /"
+X"@OneCol {  |  y  }"
+X}
+Xfor any objects {@Code x} and {@Code y}.  By concatenating an empty
+Xobject at the left of @Code x and hiding all but that empty object's
+Xcolumn mark, we effectively shift {@Code x}'s column mark to its left
+Xedge.  The same goes for {@Code y}, so the @Code "/" operator has just
+Xone column mark to merge, at the extreme left, and its effect is
+Xindistinguishable from {@Code "//"}.
+X@PP
+XUnfortunately, if @Code y consists of two rows separated by {@Code "/"},
+Xas in the example above, both rows must be placed inside the
+X{@Code "@OneCol"}, and the table cannot be entered in the simple
+Xrow-by-row manner that non-expert users naturally expect.  Another
+Xadvantage of @Code "//" is that its left parameter can be printed
+Xbefore its right parameter is known; this is important when the left
+Xparameter is an entire page.
+X@PP
+XThe fifth and final concatenation operator, {@Code "&"}, is an explicit
+Xversion of the horizontal concatenation operator interpolated when
+Xobjects are separated by white space.  It is formally identical to
+X@Code "|" except for taking higher precedence and being subject to
+Xreplacement by @Code "//1vx" during paragraph breaking
+X(Section {@NumberOf style}).
+X@End @SubSection
+END_OF_FILE
+  if test 12558 -ne `wc -c <'lout/doc/tr.impl/s2.3'`; then
+    echo shar: \"'lout/doc/tr.impl/s2.3'\" unpacked with wrong size!
+  fi
+  # end of 'lout/doc/tr.impl/s2.3'
+fi
+if test -f 'lout/include/eq' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/include/eq'\"
+else
+  echo shar: Extracting \"'lout/include/eq'\" \(35135 characters\)
+  sed "s/^X//" >'lout/include/eq' <<'END_OF_FILE'
+X
+X###############################################################################
+X#                                                                             #
+X#  Lout @Eq package for equation formatting (Version 2.0)                     #
+X#                                                                             #
+X#  Version 1.0 by Jeffrey H. Kingston, December 1990.                         #
+X#  Version 2.0 by Jeffrey H. Kingston, 22 December 1992.                      #
+X#                                                                             #
+X#  See "Eq - a Lout package for typesetting mathematics" for user             #
+X#  information.  Acknowledgement:  the @Eq language is based closely on       #
+X#  the Eqn language of B. W. Kernighan and L. L. Cherry; the spacing rules    #
+X#  are similar to those of the TeX system by D. E. Knuth.                     #
+X#                                                                             #
+X###############################################################################
+X
+Xexport	"`" "``" "```" bin rel punct non vctr big
+X
+X	space exclam universal numbersign existential percent
+X	ampersand suchthat parenleft parenright asteriskmath
+X	plus comma minus period slash zero one two three four
+X	five six seven eight nine colon semicolon less equal
+X	greater question congruent Alpha Beta Chi Delta Epsilon
+X	Phi Gamma Eta Iota thetaone Kappa Lambda Mu Nu Omicron
+X	Pi Theta Rho Sigma Tau Upsilon sigmaone Omega Xi Psi Zeta
+X	bracketleft therefore bracketright perpendicular underscore
+X	radicalex alpha beta chi delta epsilon phi gamma eta iota
+X	phione kappa lambda mu nu omicron pi theta rho sigma tau
+X	upsilon omegaone omega xi psi zeta braceleft bar braceright
+X	similar Upsilonone minute lessequal fraction infinity florin
+X	club diamond heart spade arrowboth arrowleft arrowup
+X	arrowright arrowdown degree plusminus second greaterequal
+X	multiply proportional partialdiff bullet divide notequal
+X	equivalence approxequal ellipsis arrowvertex arrowhorizex
+X	carriagereturn aleph Ifraktur Rfraktur weierstrass
+X	circlemultiply circleplus emptyset intersection union
+X	propersuperset reflexsuperset notsubset propersubset
+X	reflexsubset element notelement angle gradient registerserif
+X	copyrightserif trademarkserif product radical dotmath
+X	logicalnot logicaland logicalor arrowdblboth arrowdblleft
+X	arrowdblup arrowdblright arrowdbldown lozenge angleleft
+X	registersans copyrightsans trademarksans summation parenlefttp
+X	parenleftex parenleftbt bracketlefttp bracketleftex
+X	bracketleftbt bracelefttp braceleftmid braceleftbt braceex
+X	angleright integral integraltp integralex integralbt
+X	parenrighttp parenrightex parenrightbt bracketrighttp
+X	bracketrightex bracketrightbt bracerighttp bracerightmid
+X	bracerightbt
+X
+X	hbar Re Im partial infty prime nabla surd top bot dbar
+X	triangle backslash forall exists neg circle square
+X
+X	"0" "1" "2" "3" "4" "5" "6" "7" "8" "9"
+X
+X	sum prod coprod int oint bcap bcup bvee bwedge bodot botimes
+X	boplus buplus
+X
+X	"+" "-" "+-" "-+" setminus cdot times "*" circ div cap cup uplus
+X	sqcap sqcup triangleleft triangleright wr bigcirc bigtriangleup
+X	bigtriangledown vee wedge oplus ominus otimes oslash odot dagger
+X	daggerdbl amalg
+X
+X	"<" ">" "=" "<=" prec preceq "<<" subset subseteq sqsubseteq
+X	in vdash smile frown ">=" succ succeq ">>" supset supseteq
+X	sqsupseteq ni dashv mid parallel "==" "~" "-~" asymp "~~"
+X	"=~" bowtie propto models doteq perp notsub notin "!=" not
+X	"<->" "<--" "-->" up down "<=>" "<==" "==>" dblup dbldown
+X	":" "::" ":="
+X
+X	lpar blpar rpar brpar lbrack blbrack rbrack brbrack lbrace blbrace
+X	rbrace brbrace lfloor blfloor rfloor brfloor lceil blceil
+X	rceil brceil langle blangle rangle brangle
+X
+X	";" "," col
+X	
+X	"!" "?" "%" "(" ")" "[" "]"
+X
+X	arccos arcsin arctan arg cos cosh cot coth csc deg det dim exp
+X	gcd hom inf ker lg lim liminf limsup ln log max min Pr sec sin
+X	sinh supr tan tanh mod ldots cdots vdots ddots del grad
+X	"..." "'" empty
+X	
+X	sup sub supp on frac half third over from to widefrom wideto
+X	dot dotdot hat tilde vec dyad overbar underbar sqrt root above
+X	labove cabove rabove mabove nextcol matrix
+X
+Xdef @Eq                  
+X   body @Body
+X@Begin
+X
+X   def @SkewGap  { 0.05f  }
+X   def @SupGap   { 0.40fk }
+X   def @ThinGap  { 0.15v  }
+X   def @MedGap   { 0.20v  }
+X   def @ThickGap { 0.25v  }
+X   def @ColGap   { 0.8f   }
+X   def @RowGap   { 0.5f   }
+X   def @FontRed  { 0.7f   }
+X   def @FontInc  { 1.3f   }
+X
+X   def "`"       { &@ThinGap  }
+X   def "``"      { &@MedGap   }
+X   def "```"     { &@ThickGap }
+X
+X   def bin	right x { ``  x ``  }
+X   def rel	right x { ``` x ``` }
+X   def punct	right x {     x `   }
+X   def non	right x { 0c @Break x }
+X   def big	right x { @FontInc @Font 0c @Space @FontInc @Break x }
+X
+X   def @Base    right x { Base @Font x }
+X   def @Smaller right x { @FontRed @Font 0c @Space     0.2f @Break x }
+X   def @Sym     right x { {Symbol Base} @Font x }
+X
+X   def @HLine
+X      named line { "0.05 ft setlinewidth" }
+X   {  
+X      { "0 0 moveto xsize 0 lineto" line "stroke" } @Graphic {}
+X   }
+X
+X   def @VLine
+X   {
+X      "0 0 moveto 0 ysize lineto 0.05 ft setlinewidth stroke" @Graphic {}
+X   }
+X
+X   def vctr
+X      right x
+X   { @OneRow {   -180d @Rotate { /0.5wo 180d @Rotate { / @OneRow @OneCol x  } }
+X	       ^/      @OneRow { /0.5wo      @OneRow { @OneRow @OneCol x ^/ } }
+X	     }
+X   }
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Full names                                                    #
+X   #                                                                 #
+X   #   These symbols and their names are taken directly from the     #
+X   #   Adobe Systems Inc. Symbol font (see PostScript Language       #
+X   #   Reference Manual, pp. 256-257).  The only differences are:    #
+X   #                                                                 #
+X   #      Adobe:  theta1        Eq:  thetaone                        #
+X   #              sigma1             sigmaone                        #
+X   #              phi1               phione                          #
+X   #              omega1             omegaone                        #
+X   #                                                                 #
+X   #   These were needed since Lout identifiers do not have digits.  #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def space           { @Sym "\040"  }
+X   def exclam          { @Sym "\041"  }
+X   def universal       { @Sym "\042"  }
+X   def numbersign      { @Sym "\043"  }
+X   def existential     { @Sym "\044"  }
+X   def percent         { @Sym "\045"  }
+X   def ampersand       { @Sym "\046"  }
+X   def suchthat        { @Sym "\047"  }
+X   def parenleft       { @Sym "\050"  }
+X   def parenright      { @Sym "\051"  }
+X   def asteriskmath    { @Sym "\052"  }
+X   def plus            { @Sym "+"     }
+X   def comma           { @Sym "\054"  }
+X   def minus           { @Sym "-"     }
+X   def period          { @Sym "\056"  }
+X   def slash           { @Sym "\057"  }
+X   def zero            { @Sym "\060"  }
+X   def one             { @Sym "\061"  }
+X   def two             { @Sym "\062"  }
+X   def three           { @Sym "\063"  }
+X   def four            { @Sym "\064"  }
+X   def five            { @Sym "\065"  }
+X   def six             { @Sym "\066"  }
+X   def seven           { @Sym "\067"  }
+X   def eight           { @Sym "\070"  }
+X   def nine            { @Sym "\071"  }
+X   def colon           { @Sym "\072"  }
+X   def semicolon       { @Sym "\073"  }
+X   def less            { @Sym "\074"  }
+X   def equal           { @Sym "\075"  }
+X   def greater         { @Sym "\076"  }
+X   def question        { @Sym "\077"  }
+X   def congruent       { @Sym "\100"  }
+X   def Alpha           { @Sym "\101"  }
+X   def Beta            { @Sym "\102"  }
+X   def Chi             { @Sym "\103"  }
+X   def Delta           { @Sym "\104"  }
+X   def Epsilon         { @Sym "\105"  }
+X   def Phi             { @Sym "\106"  }
+X   def Gamma           { @Sym "\107"  }
+X   def Eta             { @Sym "\110"  }
+X   def Iota            { @Sym "\111"  }
+X   def thetaone        { @Sym "\112"  }
+X   def Kappa           { @Sym "\113"  }
+X
+X   def Lambda          { @Sym "\114"  }
+X   def Mu              { @Sym "\115"  }
+X   def Nu              { @Sym "\116"  }
+X   def Omicron         { @Sym "\117"  }
+X   def Pi              { @Sym "\120"  }
+X   def Theta           { @Sym "\121"  }
+X   def Rho             { @Sym "\122"  }
+X   def Sigma           { @Sym "\123"  }
+X   def Tau             { @Sym "\124"  }
+X   def Upsilon         { @Sym "\125"  }
+X   def sigmaone        { @Sym "\126"  }
+X   def Omega           { @Sym "\127"  }
+X   def Xi              { @Sym "\130"  }
+X   def Psi             { @Sym "\131"  }
+X   def Zeta            { @Sym "\132"  }
+X   def bracketleft     { @Sym "\133"  }
+X   def therefore       { @Sym "\134"  }
+X   def bracketright    { @Sym "\135"  }
+X   def perpendicular   { @Sym "\136"  }
+X   def underscore      { @Sym "\137"  }
+X   def radicalex       { @Sym "\140"  }
+X   def alpha           { @Sym "\141"  }
+X   def beta            { @Sym "\142"  }
+X   def chi             { @Sym "\143"  }
+X   def delta           { @Sym "\144"  }
+X   def epsilon         { @Sym "\145"  }
+X   def phi             { @Sym "\146"  }
+X   def gamma           { @Sym "\147"  }
+X   def eta             { @Sym "\150"  }
+X   def iota            { @Sym "\151"  }
+X   def phione          { @Sym "\152"  }
+X   def kappa           { @Sym "\153"  }
+X   def lambda          { @Sym "\154"  }
+X   def mu              { @Sym "\155"  }
+X   def nu              { @Sym "\156"  }
+X
+X   def omicron         { @Sym "\157"  }
+X   def pi              { @Sym "\160"  }
+X   def theta           { @Sym "\161"  }
+X   def rho             { @Sym "\162"  }
+X   def sigma           { @Sym "\163"  }
+X   def tau             { @Sym "\164"  }
+X   def upsilon         { @Sym "\165"  }
+X   def omegaone        { @Sym "\166"  }
+X   def omega           { @Sym "\167"  }
+X   def xi              { @Sym "\170"  }
+X   def psi             { @Sym "\171"  }
+X   def zeta            { @Sym "\172"  }
+X   def braceleft       { @Sym "\173"  }
+X   def bar             { @Sym "\174"  }
+X   def braceright      { @Sym "\175"  }
+X   def similar         { @Sym "\176"  }
+X   def Upsilonone      { @Sym "\241"  }
+X   def minute          { @Sym "\242"  }
+X   def lessequal       { @Sym "\243"  }
+X   def fraction        { @Sym "\244"  }
+X   def infinity        { @Sym "\245"  }
+X   def florin          { @Sym "\246"  }
+X   def club            { @Sym "\247"  }
+X   def diamond         { @Sym "\250"  }
+X   def heart           { @Sym "\251"  }
+X   def spade           { @Sym "\252"  }
+X   def arrowboth       { @Sym "\253"  }
+X   def arrowleft       { @Sym "\254"  }
+X   def arrowup         { @Sym "\255"  }
+X   def arrowright      { @Sym "\256"  }
+X   def arrowdown       { @Sym "\257"  }
+X   def degree          { @Sym "\260"  }
+X   def plusminus       { @Sym "\261"  }
+X   def second          { @Sym "\262"  }
+X   def greaterequal    { @Sym "\263"  }
+X
+X   def multiply        { @Sym "\264"  }
+X   def proportional    { @Sym "\265"  }
+X   def partialdiff     { @Sym "\266"  }
+X   def bullet          { @Sym "\267"  }
+X   def divide          { @Sym "\270"  }
+X   def notequal        { @Sym "\271"  }
+X   def equivalence     { @Sym "\272"  }
+X   def approxequal     { @Sym "\273"  }
+X   def ellipsis        { @Sym "\274"  }
+X   def arrowvertex     { @Sym "\275"  }
+X   def arrowhorizex    { @Sym "\276"  }
+X   def carriagereturn  { @Sym "\277"  }
+X   def aleph           { @Sym "\300"  }
+X   def Ifraktur        { @Sym "\301"  }
+X   def Rfraktur        { @Sym "\302"  }
+X   def weierstrass     { @Sym "\303"  }
+X   def circlemultiply  { @Sym "\304"  }
+X   def circleplus      { @Sym "\305"  }
+X   def emptyset        { @Sym "\306"  }
+X   def intersection    { @Sym "\307"  }
+X   def union           { @Sym "\310"  }
+X   def propersuperset  { @Sym "\311"  }
+X   def reflexsuperset  { @Sym "\312"  }
+X   def notsubset       { @Sym "\313"  }
+X   def propersubset    { @Sym "\314"  }
+X   def reflexsubset    { @Sym "\315"  }
+X   def element         { @Sym "\316"  }
+X   def notelement      { @Sym "\317"  }
+X   def angle           { @Sym "\320"  }
+X   def gradient        { @Sym "\321"  }
+X   def registerserif   { @Sym "\322"  }
+X   def copyrightserif  { @Sym "\323"  }
+X   def trademarkserif  { @Sym "\324"  }
+X   def product         { @Sym "\325"  }
+X   def radical         { @Sym "\326"  }
+X   def dotmath         { @Sym "\327"  }
+X
+X   def logicalnot      { @Sym "\330"  }
+X   def logicaland      { @Sym "\331"  }
+X   def logicalor       { @Sym "\332"  }
+X   def arrowdblboth    { @Sym "\333"  }
+X   def arrowdblleft    { @Sym "\334"  }
+X   def arrowdblup      { @Sym "\335"  }
+X   def arrowdblright   { @Sym "\336"  }
+X   def arrowdbldown    { @Sym "\337"  }
+X   def lozenge         { @Sym "\340"  }
+X   def angleleft       { @Sym "\341"  }
+X   def registersans    { @Sym "\342"  }
+X   def copyrightsans   { @Sym "\343"  }
+X   def trademarksans   { @Sym "\344"  }
+X   def summation       { @Sym "\345"  }
+X   def parenlefttp     { @Sym "\346"  }
+X   def parenleftex     { @Sym "\347"  }
+X   def parenleftbt     { @Sym "\350"  }
+X   def bracketlefttp   { @Sym "\351"  }
+X   def bracketleftex   { @Sym "\352"  }
+X   def bracketleftbt   { @Sym "\353"  }
+X   def bracelefttp     { @Sym "\354"  }
+X   def braceleftmid    { @Sym "\355"  }
+X   def braceleftbt     { @Sym "\356"  }
+X   def braceex         { @Sym "\357"  }
+X   def angleright      { @Sym "\361"  }
+X   def integral        { @Sym "\362"  }
+X   def integraltp      { @Sym "\363"  }
+X   def integralex      { @Sym "\364"  }
+X   def integralbt      { @Sym "\365"  }
+X   def parenrighttp    { @Sym "\366"  }
+X   def parenrightex    { @Sym "\367"  }
+X   def parenrightbt    { @Sym "\370"  }
+X   def bracketrighttp  { @Sym "\371"  }
+X   def bracketrightex  { @Sym "\372"  }
+X   def bracketrightbt  { @Sym "\373"  }
+X   def bracerighttp    { @Sym "\374"  }
+X   def bracerightmid   { @Sym "\375"  }
+X   def bracerightbt    { @Sym "\376"  }
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Short names                                                   #
+X   #                                                                 #
+X   #   These symbols, their names, and their spacing, are based on   #
+X   #   the list in Appendix F of Donald E. Knuth's The TeXBook.      #
+X   #                                                                 #
+X   #   Group 1 (lowercase Greek letters):  see full names above      #
+X   #   Group 2 (uppercase Greek letters):  see full names above      #
+X   #   Group 3 (calligraphic capitals):    not provided by Eq        #
+X   #                                                                 #
+X   ###################################################################
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 4 (miscellaneous Ord symbols)                           #
+X   #                                                                 #
+X   #   Not all of Knuth's symbols are available.  The four suits     #
+X   #   (heartsuit, etc.), have definitions above.                    #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def hbar         { @OneCol { &0.1f @Base "-" ^/0.25fo h }	}
+X   def Re           { Rfraktur					}
+X   def Im           { Ifraktur					}
+X   def partial      { partialdiff				}
+X   def infty        { infinity					}
+X   def prime        {  minute        				}
+X  #def emptyset     { defined above				}
+X   def nabla        { gradient					}
+X   def surd         { radical					}
+X   def top          { 180d @Rotate perpendicular		}
+X   def bot          { perpendicular				}
+X   def dbar         { @Base "||"                         	}
+X  #def angle        { defined above				}
+X   def backslash    { "\\"					}
+X   def forall       { universal					}
+X   def exists       { existential				}
+X   def neg          { logicalnot				}
+X
+X   def circle       { @HContract @VContract
+X		      { "xsize ysize 2 div moveto"
+X			"xsize 2 div ysize 2 div xsize 2 div 0 360 arc"
+X			"0.04 ft setlinewidth stroke"
+X		      }
+X		      @Graphic { 0.7f @Wide 0.3f @High ^/ 0.3f @High }
+X		    }
+X
+X   def square       { @HContract @VContract
+X		      { "0 0 moveto xsize 0 lineto xsize ysize lineto"
+X			"0 ysize lineto closepath"
+X			"0.04 ft setlinewidth stroke"
+X		      }
+X		      @Graphic { 0.6f @Wide 0.3f @High ^/ 0.3f @High }
+X		    }
+X
+X   def triangle     { @HContract @VContract
+X		      { "0 0 moveto xsize 0 lineto"
+X		        "xsize 2 div ysize lineto closepath"
+X			"0.04 ft setlinewidth stroke"
+X		      }
+X		      @Graphic
+X		      { 0.3f @Wide 0.3f @High ^| ^/
+X		        0.3f @Wide 0.3f @High
+X		      }
+X		    }
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 5 (digits)                                              #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def "0" { zero            }
+X   def "1" { one             }
+X   def "2" { two             }
+X   def "3" { three           }
+X   def "4" { four            }
+X   def "5" { five            }
+X   def "6" { six             }
+X   def "7" { seven           }
+X   def "8" { eight           }
+X   def "9" { nine            }
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 6 ("Large" operators)                                   #
+X   #                                                                 #
+X   #   Knuth's large operators automatically change size depending   #
+X   #   on whether the equation is display or inline.  Eq does not    #
+X   #   do this; instead, the `big' operator must be used.            #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def sum	{ summation					}
+X   def prod	{ product					}
+X   def coprod	{ 180d @Rotate vctr product			}
+X   def int	{ 1.3f @Font vctr integral			}
+X   def oint	{ @OneCol { vctr degree |0.015fo int }		}
+X   def bcap	{ 1.3f @Font intersection			}
+X   def bcup	{ 1.3f @Font union				}
+X   def bvee	{ 1.3f @Font logicalor				}
+X   def bwedge	{ 1.3f @Font logicaland				}
+X   def bodot	{ & 1.3f @Font @HContract { circle /0io &0.5rt dotmath } }
+X   def botimes	{ 1.3f @Font circlemultiply			}
+X   def boplus	{ 1.3f @Font circleplus				}
+X   def buplus	{ & 1.3f @Font @HContract { &0.5rt 0.7f @Font plus ^/0.2fo union } }
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 7 (binary operations)                                   #
+X   #                                                                 #
+X   #   All of Knuth's symbols are available except \star, \diamond   #
+X   #   and \bullet; a few have been given more mnemonic names.       #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def "+"		{ bin plus				}
+X   def "-"		{ bin minus				}
+X   def "+-"		{ bin plusminus				}
+X   def "-+"		{ bin 180d @Rotate plusminus		}
+X   def setminus		{ bin backslash				}
+X   def cdot		{ bin dotmath				}
+X   def times		{ bin multiply				}
+X   def "*"		{ bin asteriskmath			}
+X  #def diamond		{ name used above			}
+X   def circ		{ bin circle				}
+X  #def bullet		{ name used above			}
+X   def div		{ bin divide				}
+X   def cap		{ bin intersection			}
+X   def cup		{ bin union				}
+X   def uplus		{ bin @OneRow @HContract { &0.5rt 0.7f @Font plus ^/0.2fo union}}
+X   def sqcap		{ bin
+X			  { @HContract @VContract
+X			    {	"0 0 moveto 0 ysize lineto xsize ysize lineto"
+X				"xsize 0 lineto"
+X				"0.04 ft setlinewidth stroke"
+X			    }
+X			    @Graphic
+X			    {	0.3f @Wide 0.3f @High ^| ^/
+X				0.3f @Wide 0.3f @High
+X			    }
+X			  }
+X			}
+X   def sqcup		{ 180d @Rotate sqcap			}
+X   def triangleleft	{ bin 90d @Rotate 0.8f @Font triangle	}
+X   def triangleright	{ bin "-90d" @Rotate 0.8f @Font triangle}
+X   def wr		{ bin vctr {90d @Rotate similar}	}
+X   def bigcirc		{ bin 1.2f @Font circle			}
+X   def bigtriangleup	{ bin 1.2f @Font triangle		}
+X   def bigtriangledown	{ bin 180d @Rotate 1.2f @Font triangle	}
+X   def vee		{ bin logicalor				}
+X   def wedge		{ bin logicaland			}
+X   def oplus		{ bin circleplus			}
+X   def ominus		{ bin @OneRow @HContract { circle /0io &0.5rt minus}}
+X   def otimes		{ bin circlemultiply			}
+X   def oslash		{`vctr 60d @Rotate @HContract {circle/0io &0.5rt minus`}}
+X   def odot		{ bin @OneRow @HContract {circle/0io &0.5rt dotmath}}
+X   def dagger		{ bin @Base "\262"			}
+X   def daggerdbl	{ bin @Base "\263"			}
+X   def amalg		{ bin 180d @Rotate vctr product		}
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 8 (relations)                                           #
+X   #                                                                 #
+X   #   All Knuth's operators are available, but many have been       #
+X   #   given different, more mnemonic names.  Also included is       #
+X   #   a not operator for negating the relations.                    #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def "<"		{ rel less				}
+X   def ">"		{ rel greater				}
+X   def "="		{ rel equal				}
+X   def "<="		{ rel lessequal				}
+X   def prec		{ rel { 0.45f @Font "-90d" @Rotate
+X				{ parenrighttp ^| parenlefttp }
+X			      }
+X			}
+X   def preceq		{ rel { @OneRow non prec /0.1f minus }	}
+X   def "<<"		{ rel {less less}			}
+X   def subset		{ rel propersubset			}
+X   def subseteq		{ rel reflexsubset			}
+X   def sqsubseteq	{ rel @HContract @VContract
+X			  {	{ "xsize 0 moveto"
+X				  "0 0 lineto"
+X				  "0 ysize lineto"
+X				  "xsize ysize lineto"
+X				  "0.04 ft setlinewidth stroke"
+X				}
+X				@Graphic
+X				{ 0.5f @Wide 0.25f @High ^/
+X				  0.25f @High
+X				}
+X			    /0.1f minus
+X			  }
+X			}
+X
+X   def in		{ rel element				}
+X   def vdash		{ rel vctr{"-90d" @Rotate perpendicular}}
+X   def smile		{ rel vctr 90d @Rotate parenleft	}
+X   def frown		{ rel vctr 90d @Rotate parenright	}
+X
+X   def ">="		{ rel greaterequal			}
+X   def succ		{ rel { 0.45f @Font 90d @Rotate
+X			        { parenrighttp ^| parenlefttp }
+X			      }
+X			}
+X   def succeq		{ rel { @OneRow non succ /0.1f minus }	}
+X   def ">>"		{ rel {greater greater}			}
+X   def supset		{ rel propersuperset			}
+X   def supseteq		{ rel reflexsuperset			}
+X   def sqsupseteq	{ rel @HContract @VContract
+X			  {	{ "0 0 moveto xsize 0 lineto"
+X				  "xsize ysize lineto"
+X				  "0 ysize lineto"
+X				  "0.04 ft setlinewidth stroke"
+X				}
+X				@Graphic
+X				{ 0.5f @Wide 0.25f @High ^/
+X				  0.25f @High
+X				}
+X			    /0.1f minus
+X			  }
+X			}
+X   def ni		{ rel 180d @Rotate element		}
+X   def dashv		{ rel vctr {90d @Rotate perpendicular}	}
+X   def mid		{ rel @Base "|"				}
+X   def parallel		{ rel @Base "||"			}
+X
+X   def "=="		{ rel equivalence			}
+X   def "~"		{ rel similar				}
+X   def "-~"		{ rel @OneRow{similar^/0.07f/0.07f minus}}
+X   def asymp		{ rel 0.7f @Font @OneRow
+X			      { 90d @Rotate parenleft ^/0.008f
+X			      /0.008f 90d @Rotate parenright }
+X			}
+X   def "~~"		{ rel approxequal			}
+X   def "=~"		{ rel congruent				}
+X   def bowtie		{ rel{non triangleright non triangleleft}}
+X   def propto		{ rel proportional			}
+X   def models		{ rel{@Base vctr "|" &0.05fo vctr equal}}
+X   def doteq		{ rel @OneRow @HContract {&0.5rt dotmath^/0.15f equal}}
+X   def perp		{ rel perpendicular			}
+X
+X   def notsub		{ rel notsubset				}
+X   def notin		{ rel notelement			}
+X   def "!="		{ rel notequal				}
+X
+X   def "<->"		{ rel arrowboth				}
+X   def "<--"		{ rel arrowleft				}
+X   def "-->"		{ rel arrowright			}
+X   def up		{ rel arrowup				}
+X   def down		{ rel arrowdown				}
+X   def "<=>"		{ rel arrowdblboth			}
+X   def "<=="		{ rel arrowdblleft			}
+X   def "==>"		{ rel arrowdblright			}
+X   def dblup		{ rel arrowdblup			}
+X   def dbldown		{ rel arrowdbldown			}
+X
+X   def ":"		{ rel colon				}
+X   def "::"		{ rel @OneCol {colon ` colon}		}
+X   def ":="		{ rel { colon{ //0.05fo equal} }	}
+X
+X   def not right x	{ @HContract {@OneCol x /0co &0.5rt slash}}
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Groups 11 and 12 - openings and closings.                     #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def lpar	{ parenleft		}
+X   def rpar	{ parenright		}
+X   def lbrack	{ bracketleft		}
+X   def rbrack	{ bracketright		}
+X   def lbrace	{ braceleft		}
+X   def rbrace	{ braceright		}
+X   def lfloor	{ bracketleftbt		}
+X   def rfloor	{ bracketrightbt	}
+X   def lceil	{ bracketlefttp		}
+X   def rceil	{ bracketrighttp	}
+X   def langle	{ angleleft		}
+X   def rangle	{ angleright		}
+X
+X   def blpar	{ @OneRow {parenlefttp    ^/ parenleftex    / parenleftbt   } }
+X   def brpar	{ @OneRow {parenrighttp   ^/ parenrightex   / parenrightbt  } }
+X   def blbrack	{ @OneRow {bracketlefttp  ^/ bracketleftex  / bracketleftbt } }
+X   def brbrack	{ @OneRow {bracketrighttp ^/ bracketrightex / bracketrightbt} }
+X   def blbrace	{ @OneRow {bracelefttp    ^/ braceleftmid   / braceleftbt   } }
+X   def brbrace	{ @OneRow {bracerighttp   ^/ bracerightmid  / bracerightbt  } }
+X   def blfloor	{ @OneRow {bracketleftex  ^/ bracketleftex  / bracketleftbt } }
+X   def brfloor	{ @OneRow {bracketrightex ^/ bracketrightex / bracketrightbt} }
+X   def blceil	{ @OneRow {bracketlefttp  ^/ bracketleftex  / bracketleftex } }
+X   def brceil	{ @OneRow {bracketrighttp ^/ bracketrightex / bracketrightex} }
+X   def blangle	{ @HContract @VContract
+X		  { "xsize 0 moveto"
+X		    "0 ysize 2 div lineto"
+X		    "xsize ysize lineto"
+X		    "0.04 ft setlinewidth stroke"
+X	          }
+X	          @Graphic { 0.5f @Wide 2f @High ^/ 2f @High }
+X		}
+X   def brangle	{ @HContract @VContract
+X		  { "0 0 moveto"
+X		    "xsize ysize 2 div lineto"
+X		    "0 ysize lineto"
+X		    "0.04 ft setlinewidth stroke"
+X	          }
+X	          @Graphic { 0.5f @Wide 2f @High ^/ 2f @High }
+X		}
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Group 13 - punctuation.                                       #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def ";"     { punct semicolon     }
+X   def ","     { punct comma         }
+X   def col     { punct colon         }
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Additional short symbols (Knuth p. 132)                       #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def "!" { exclam          }
+X   def "?" { question        }
+X   def "%" { percent         }
+X   def "(" { parenleft       }
+X   def ")" { parenright      }
+X   def "[" { bracketleft     }
+X   def "]" { bracketright    }
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Common mathematical functions (from Knuth p. 162).            #
+X   #   mod is included, since @Rel mod is easily typed if needed.    #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def arccos	{ @Base "arccos"	}
+X   def arcsin	{ @Base "arcsin"	}
+X   def arctan	{ @Base "arctan"	}
+X   def arg	{ @Base "arg"		}
+X   def cos	{ @Base "cos"		}
+X   def cosh	{ @Base "cosh"		}
+X   def cot	{ @Base "cot"		}
+X   def coth	{ @Base "coth"		}
+X   def csc	{ @Base "csc"		}
+X   def deg	{ @Base "deg"		}
+X   def det	{ @Base "det"		}
+X   def dim	{ @Base "dim"		}
+X   def exp	{ @Base "exp"		}
+X   def gcd	{ @Base "gcd"		}
+X   def hom	{ @Base "hom"		}
+X   def inf	{ @Base "inf"		}
+X   def ker	{ @Base "ker"		}
+X   def lg	{ @Base "lg"		}
+X   def lim	{ @Base "lim"		}
+X   def liminf	{ @OneCol { @Base "lim" ` @Base "inf" }	}
+X   def limsup	{ @OneCol { @Base "lim" ` @Base "sup" }	}
+X   def ln	{ @Base "ln"		}
+X   def log	{ @Base "log"		}
+X   def max	{ @Base "max"		}
+X   def min	{ @Base "min"		}
+X   def Pr	{ @Base "Pr"		}
+X   def sec	{ @Base "sec"		}
+X   def sin	{ @Base "sin"		}
+X   def sinh	{ @Base "sinh"		}
+X   def supr	{ @Base "sup"		}
+X   def tan	{ @Base "tan"		}
+X   def tanh	{ @Base "tanh"		}
+X   def mod	{ @Base "mod"		}
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Other symbols taken from TeX.                                 #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def ldots { .       &0.3f .       &0.3f .			}
+X   def cdots { dotmath &0.3f dotmath &0.3f dotmath		}
+X   def vdots { @OneRow { dotmath ^/0.3f dotmath /0.3f dotmath } }
+X   def ddots { @OneCol @OneRow
+X	       {        dotmath
+X	         ^/0.3f |0.3f dotmath
+X                  /0.3f |     |0.3f dotmath
+X	       }
+X	     }
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Symbols taken from eqn (Kernighan and Cherry 1975).           #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def del	{ gradient		}
+X   def grad	{ gradient		}
+X   def "..."	{ ellipsis		}
+X   def ",...,"	{ , ellipsis ``` ,	}
+X   def "'"	{ minute		}
+X   def empty	{ emptyset		}
+X
+X
+X
+X   ###################################################################
+X   #                                                                 #
+X   #   Symbols with parameters.                                      #
+X   #                                                                 #
+X   #   These symbols are essentially those of eqn, with some         #
+X   #   changes and additions.                                        #
+X   #                                                                 #
+X   ###################################################################
+X
+X   def sup
+X      precedence 60
+X      associativity left
+X      left x
+X      named gap { @SupGap }
+X      right y
+X   {  @HContract @VContract
+X      {          | @Smaller y
+X	^/gap  x
+X      }
+X   }
+X
+X   def sub
+X      precedence 60
+X      associativity left
+X      left x
+X      named gap { @SupGap }
+X      right y
+X   {  @HContract @VContract
+X      {
+X	      x
+X	 /gap    |  @Smaller y
+X      }
+X   }
+X
+X   def supp
+X      precedence 60
+X      associativity left
+X      left x
+X      named gap { @SupGap }
+X      right y
+X   {  @HContract @VContract
+X      { { ^/gap x /gap } |  @Smaller y
+X      }
+X   }
+X
+X   def on
+X      precedence 61
+X      associativity left
+X      left x
+X      named gap { @SupGap }
+X      right y
+X   {  x ^/  / y 
+X   }
+X
+X   def frac
+X      precedence 54
+X      associativity left
+X      left x
+X      named gap { 0ik }
+X      right y
+X   {  @HContract @VContract @Smaller
+X      { x ^/gap | fraction /gap | | y }
+X   }
+X
+X   def half { 1 frac 2 }
+X   def third { 1 frac 3 }
+X
+X   def over
+X      precedence 54
+X      associativity left
+X      left x
+X      named gap { 0.2f }
+X      right y
+X   {  
+X      @HContract @VContract
+X      {          |0.5rt @OneCol x
+X	^//gap   @HLine
+X	 //gap   |0.5rt @OneCol y
+X      }
+X   }
+X
+X   def from
+X      precedence 58
+X      associativity left
+X      left x
+X      named gap { @ThinGap  }
+X      named skew { 0c }
+X      right y
+X   {  
+X      @HContract @VContract
+X      {          |0.5rt x
+X	 //gap   |0.5rt &skew @Smaller y
+X      }
+X   }
+X
+X   def to
+X      precedence 58
+X      associativity left
+X      left x
+X      named gap { @ThinGap  }
+X      named skew { 0c }
+X      right y
+X   {
+X      @HContract @VContract
+X      {          |0.5rt &skew @Smaller y
+X	^//gap   |0.5rt x
+X      }
+X   }
+X
+X   def widefrom
+X      precedence 58
+X      associativity left
+X      left x
+X      named gap { @ThinGap  }
+X      right y
+X   {
+X      @HContract @VContract
+X      {  x //gap @HScale y
+X      }
+X   }
+X
+X   def wideto
+X      precedence 58
+X      associativity left
+X      left x
+X      named gap { @ThinGap  }
+X      right y
+X   {
+X      @HContract @VContract
+X      { @HScale y ^//gap x
+X      }
+X   }
+X
+X   def dot
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } .
+X   }
+X
+X   def dotdot
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } ..
+X   }
+X
+X   def hat
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } @Base "^"
+X   }
+X
+X   def tilde
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } @Base "~"
+X   }
+X
+X   def vec
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } arrowright
+X   }
+X
+X   def dyad
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x to gap { gap } skew { @SkewGap } arrowboth
+X   }
+X
+X   def overbar
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x wideto gap { gap } minus
+X   }
+X
+X   def underbar
+X      precedence 62
+X      left x
+X      named gap { @ThinGap }
+X   {  x widefrom gap { gap } minus
+X   }
+X
+X   def sqrt
+X      precedence 56
+X      named gap { @ThinGap }
+X      right x
+X   {
+X      @HContract @VContract
+X      { @VScale surd | @OneRow
+X	{ @HLine line { "0.03 ft setlinewidth 2 setlinecap" }
+X	  ^//gap  |gap  x //gap
+X	}
+X      }
+X   }
+X
+X   def root
+X      precedence 56
+X      left x
+X      right y
+X   { "" sup x &0io sqrt y
+X   }
+X
+X   def above
+X      precedence 52
+X      left x
+X      named gap { @RowGap }
+X      right y
+X   {  |0.5rt x //gap |0.5rt y
+X   }
+X
+X   def labove
+X      precedence 52
+X      left x
+X      named gap { @RowGap }
+X      right y
+X   {  x //gap y
+X   }
+X
+X   def cabove
+X      precedence 52
+X      left x
+X      named gap { @RowGap }
+X      right y
+X   {  |0.5rt x //gap |0.5rt y
+X   }
+X
+X   def rabove
+X      precedence 52
+X      left x
+X      named gap { @RowGap }
+X      right y
+X   {  |1rt x //gap |1rt y
+X   }
+X
+X   def mabove
+X      precedence 52
+X      left x
+X      named gap { @RowGap }
+X      right y
+X   {  x /gap y
+X   }
+X
+X   def nextcol
+X      precedence 50
+X      left x
+X      named gap { @ColGap }
+X      right y
+X   { x |gap y
+X   }
+X
+X   def matrix
+X      precedence 100
+X      named gap { @MedGap }
+X      named atleft {}
+X      named atright {}
+X      right x
+X   { vctr @HContract @VContract
+X     {  @VScale atleft
+X	||@ThinGap  { //gap x //gap } ||@ThinGap
+X	@VScale atright
+X     }
+X   }
+X
+X   Slope @Font 1.2f @Break 0c @Space @Body
+X
+X@End @Eq                  
+END_OF_FILE
+  if test 35135 -ne `wc -c <'lout/include/eq'`; then
+    echo shar: \"'lout/include/eq'\" unpacked with wrong size!
+  fi
+  # end of 'lout/include/eq'
+fi
+if test -f 'lout/z36.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lout/z36.c'\"
+else
+  echo shar: Extracting \"'lout/z36.c'\" \(31731 characters\)
+  sed "s/^X//" >'lout/z36.c' <<'END_OF_FILE'
+X/*@z36.c:Hyphenation: Hyphenate()@********************************************/
+X/*                                                                           */
+X/*  LOUT: A HIGH-LEVEL LANGUAGE FOR DOCUMENT FORMATTING (VERSION 2.03)       */
+X/*  COPYRIGHT (C) 1993 Jeffrey H. Kingston                                   */
+X/*                                                                           */
+X/*  Jeffrey H. Kingston (jeff@cs.su.oz.au)                                   */
+X/*  Basser Department of Computer Science                                    */
+X/*  The University of Sydney 2006                                            */
+X/*  AUSTRALIA                                                                */
+X/*                                                                           */
+X/*  This program is free software; you can redistribute it and/or modify     */
+X/*  it under the terms of the GNU General Public License as published by     */
+X/*  the Free Software Foundation; either version 1, or (at your option)      */
+X/*  any later version.                                                       */
+X/*                                                                           */
+X/*  This program is distributed in the hope that it will be useful,          */
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of           */
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            */
+X/*  GNU General Public License for more details.                             */
+X/*                                                                           */
+X/*  You should have received a copy of the GNU General Public License        */
+X/*  along with this program; if not, write to the Free Software              */
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.                */
+X/*                                                                           */
+X/*  FILE:         z36.c                                                      */
+X/*  MODULE:       Hyphenation                                                */
+X/*  EXTERNS:      Hyphenate()                                                */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "externs"
+X#define MAX_CHAR	256		/* max chars represented in one char */
+X#define TRIE_MAGIC	5361534
+X#define KILL_CLASS	0		/* characters which prevent hyphen'n */
+X#define PUNCT_CLASS	1		/* characters which delimit hyphen'n */
+X
+Xtypedef struct trie_rec
+X{ int	magic;				/* a magic number to make sure ok    */
+X  int	class_count;			/* the number of character classes   */
+X  unsigned char	class[MAX_CHAR];	/* the character classes             */
+X  short	*node_mem;			/* the node memory                   */
+X  int	node_lim;			/* top of node memory                */
+X  int	node_free;			/* first free space in node memory   */
+X  unsigned char	*string_mem;		/* the string memory                 */
+X  int	string_lim;			/* top of string memory              */
+X  int	string_first;			/* the first (last inserted) string  */
+X} *TRIE;
+X
+X
+X#ifdef DEBUG_ON
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  findrep(i, T)     Returns one character whose class in T is i.           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic unsigned char findrep(i, T)
+Xint i;  TRIE T;
+X{ int ch;
+X  for( ch = 0;  ch < MAX_CHAR;  ch++ )  if( T->class[ch] == i )  return ch;
+X  Error(INTERN, no_fpos, "hyph DoTriePrint: findrep failed");
+X} /* end findrep */
+X#endif
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  TRIE T                                                                   */
+X/*                                                                           */
+X/*  The packed hyphenation table, or NULL if not yet read in.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic TRIE	T = (TRIE) NULL;	/* the compressed hyphenation table  */
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  TRIE NewTrie(node_lim, string_lim)                                       */
+X/*                                                                           */
+X/*  Initialize a new trie with the given amount of space for nodes and       */
+X/*  strings.                                                                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic TRIE NewTrie(node_lim, string_lim)
+Xint node_lim, string_lim;
+X{ TRIE T;  int i;  char *malloc();
+X  debug2(DHY, D, "NewTrie(%d, %d)", node_lim, string_lim);
+X  T = (TRIE) malloc( sizeof(struct trie_rec)
+X		     + node_lim*sizeof(short) + string_lim*sizeof(char));
+X  T->magic = TRIE_MAGIC;  T->class_count = 1;
+X  for( i = 0;  i < MAX_CHAR;  i++ )  T->class[i] = 0;
+X  T->node_mem = (short *) ( (char *) T + sizeof(struct trie_rec));
+X  T->node_lim = node_lim;  T->node_free = 0;
+X  T->string_mem = (unsigned char *) &(T->node_mem[node_lim]);
+X  T->string_lim = T->string_first = string_lim;
+X  debug0(DHY, D, "NewTrie returning.");
+X  return T;
+X} /* end NewTrie */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ClassConvert(in, out, T)                                                 */
+X/*                                                                           */
+X/*  Set out[i] to the character class of in[i] in T, for all i.              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define ClassConvert(in, out, T)					\
+X{ int i;								\
+X  for( i = 0;  in[i] != '\0';  i++ )					\
+X    if( T->class[in[i]] != 0 )  out[i] = T->class[in[i]];		\
+X    else Error(INTERN, no_fpos, "hyph: \"%s\" has illegal class", in);	\
+X  out[i] = '\0';							\
+X} /* end ClassConvert */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  short NewTrieString(str, T)                                              */
+X/*                                                                           */
+X/*  Copy a new string into T, and return its offset in string_mem;           */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic short NewTrieString(str, T)
+Xunsigned char *str;  TRIE T;
+X{ int i;  short res = T->string_first - strlen(str) - 1;
+X  if( res < 0 )  Error(INTERN, no_fpos, "hyph: trie string limit exceeded");
+X  T->string_first = res;  strcpy(&(T->string_mem[res]), str);
+X  return res;
+X} /* end NewTrieString */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  int NewTrieNode(T)                                                       */
+X/*                                                                           */
+X/*  Allocate a new empty trie node in T, and return its offset in node_mem.  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic int NewTrieNode(T)
+XTRIE T;
+X{ int i;  int res;
+X  if( T->node_free + T->class_count > T->node_lim )
+X    Error(INTERN, no_fpos, "hyph: trie node limit exceeded");
+X  res = T->node_free;  T->node_free += T->class_count;
+X  for( i = res;  i < T->node_free;  i++ )  T->node_mem[i] = 0;
+X  return res;
+X} /* end NewTrieNode */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  AddClassToTrie(str, T)                                                   */
+X/*                                                                           */
+X/*  Add a new character class, whose members are the characters of str, to   */
+X/*  trie T.  This cannot occur after the first insertion.                    */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic AddClassToTrie(str, T)
+Xunsigned char *str; TRIE T;
+X{ int i;
+X  if( T->string_first != T-> string_lim )
+X    Error(INTERN, no_fpos, "hyph AddClassToTrie after first insertion!");
+X  for( i = 0;  str[i] != '\0';  i++ )
+X    if( T->class[str[i]] == 0 ) T->class[str[i]] = T->class_count;
+X    else Error(INTERN,no_fpos, "hyph: class of %c may not be changed!", str[i]);
+X  T->class_count++;
+X} /* end AddClassToTrie */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  TrieInsert(key, value, T)                                                */
+X/*                                                                           */
+X/*  Insert a new key and value into trie T.                                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XTrieInsert(key, value, T)
+Xunsigned char *key, *value;  TRIE T;
+X{ unsigned char str[MAX_LINE];  int i, curr_node, next_node, pos, ch;
+X  debug2(DHY, D, "TrieInsert(%s, %s, T)", key, value);
+X
+X  /* if first insertion, add one node after making sure class_count is even */
+X  if( T->node_free == 0 )
+X  { T->class_count = 2 * ceiling(T->class_count, 2);
+X    ch = NewTrieNode(T);
+X  }
+X
+X  /* invariant: curr_node is an existing node of T with prefix str[0..i-1] */
+X  ClassConvert(key, str, T);
+X  curr_node = i = 0;
+X  for(;;)
+X  {
+X    /* if str is ended, add value only to string memory */
+X    if( str[i] == '\0' )
+X    { if( T->node_mem[curr_node] != 0 )
+X	Error(INTERN, no_fpos, "hyph string %s already inserted", key);
+X      else T->node_mem[curr_node] = - NewTrieString(value, T);
+X      debug0(DHY, D, "TrieInsert returning (empty suffix).");
+X      return;
+X    }
+X
+X    /* if next position is unoccupied, store remainder of str and value */
+X    next_node = T->node_mem[curr_node + str[i]];
+X    if( next_node == 0 )
+X    { ch = NewTrieString(value, T);
+X      T->node_mem[curr_node + str[i]] = - NewTrieString(&str[i+1], T);
+X      debug0(DHY, D, "TrieInsert returning (non-empty suffix).");
+X      return;
+X    }
+X
+X    /* if next position is occupied by a non-empty string, move that */
+X    /* string down one level and replace it by a trie node           */
+X    if( next_node < 0 )
+X    { pos = - next_node;
+X      ch = T->string_mem[pos];
+X      if( T->string_first == pos )  T->string_first++;
+X      T->node_mem[curr_node + str[i]] = next_node = NewTrieNode(T)/2;
+X      T->node_mem[2*next_node + ch] = -(pos+1);
+X    }
+X
+X    /* now next is the offset of the next node to be searched */
+X    curr_node = 2*next_node;  i++;
+X  }
+X} /* end TrieInsert */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  BeGetChar(fp, pv)                                                        */
+X/*  BePutChar(fp, v)                                                         */
+X/*  BeGetShort(fp, pv)                                                       */
+X/*  BePutShort(fp, v)                                                        */
+X/*  BeGetInt(fp, pv)                                                         */
+X/*  BePutInt(fp, v)                                                          */
+X/*                                                                           */
+X/*  Get char, short, or int pv from file fp, and put char, short, or int     */
+X/*  onto file fp.  These routines are designed so that the file can be       */
+X/*  written or read safely by big-endian and little-endian architectures;    */
+X/*  this is accomplished by reading and writing one byte at a time to and    */
+X/*  from a big-endian format file.  All return 0 on success, -1 on failure.  */
+X/*  Thanks to David W. Sanderson for this code.                              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define BeGetChar(fp, pv)  ( (c = getc(fp)) == EOF ? -1 : (*pv = c & 0xFF, 0) )
+X#define BePutChar(fp, v)   ( putc(v & 0xFF, fp), 0 )
+X
+X#define BeGetShort(fp, pv)						\
+X(  (c = getc(fp)) == EOF ? -1 :						\
+X   (  *pv = (c & 0xFF) << 8,						\
+X      (c = getc(fp)) == EOF ? -1 : (*pv |= c & 0xFF, 0)			\
+X   )									\
+X)
+X
+X#define BePutShort(fp, v)						\
+X( putc((v >> 8) & 0xFF, fp), putc(v & 0xFF, fp), 0 )
+X
+Xint BeGetInt(fp, pv)
+XFILE *fp; int *pv;
+X{ int c;
+X  if ((c = getc(fp)) == EOF) return -1;
+X  *pv = (c & 0xFF) << 24;
+X  if ((c = getc(fp)) == EOF) return -1;
+X  *pv |= (c & 0xFF) << 16;
+X  if ((c = getc(fp)) == EOF) return -1;
+X  *pv |= (c & 0xFF) << 8;
+X  if ((c = getc(fp)) == EOF) return -1;
+X  *pv |= c & 0xFF;
+X  return 0;
+X}
+X
+Xint BePutInt(fp, v)
+XFILE *fp; int v;
+X{
+X  putc((v >> 24) & 0xFF, fp);
+X  putc((v >> 16) & 0xFF, fp);
+X  putc((v >> 8) & 0xFF, fp);
+X  putc(v & 0xFF, fp);
+X  return 0;
+X}
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  TRIE TrieRead()                                                          */
+X/*                                                                           */
+X/*  Read in a packed trie if possible, otherwise pack an unpacked one.       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XTRIE TrieRead()
+X{ TRIE T;  FILE_NUM unpacked_fnum, packed_fnum;
+X  FILE *unpacked_fp, *packed_fp;  int len, prev, i, j, c;
+X  char *malloc();
+X  debug0(DHY, D, "TrieRead()");
+X
+X  /* open file, using name stored in file handler */
+X  packed_fnum = FirstFile(HYPH_PACKED_FILE);
+X  assert( packed_fnum != NO_FILE, "TrieRead: packed_fnum!" );
+X  packed_fp = OpenFile(packed_fnum, FALSE);
+X  if( packed_fp == NULL )
+X  {
+X    /* no packed file, so open unpacked one instead */
+X    unsigned char str[MAX_LINE], key[MAX_LINE], value[MAX_LINE],
+X		  buff[MAX_LINE+10];
+X    unpacked_fnum = FirstFile(HYPH_FILE);
+X    assert( unpacked_fnum != NO_FILE, "TrieRead: unpacked unpacked_fnum!" );
+X    unpacked_fp = OpenFile(unpacked_fnum, FALSE);
+X    if( unpacked_fp == NULL )
+X    { Error(WARN, no_fpos, "cannot open hyphenation file %s",
+X	FileName(unpacked_fnum));
+X      return (TRIE) NULL;
+X    }
+X
+X    /* read in unpacked hyphenation trie from unpacked_fp and compress it */
+X    T = NewTrie(60000, 32767);
+X    while( fgets(str, MAX_LINE, unpacked_fp) != NULL && str[0] != '\n' )
+X    { str[strlen(str)-1] = '\0';
+X      debug1(DHY, D, "adding class %s", str);
+X      AddClassToTrie(str, T);
+X    }
+X    while( fgets(str, MAX_LINE, unpacked_fp) != NULL && str[0] != '\n' )
+X    { prev = '0'; j = 0;
+X      for( i = 0;  str[i] != '\n' && str[i] != '\0';  i++ )
+X      { if( str[i] >= '0' && str[i] <= '9' )  prev = str[i];
+X        else key[j] = str[i], value[j++] = prev, prev = '0';
+X      }
+X      key[j] = '\0';  value[j] = prev;  value[j+1] = '\0';
+X      TrieInsert(key, value, T);
+X    }
+X    fclose(unpacked_fp);
+X    len = CompressTrie(T);
+X
+X    /* write the compressed trie out to the packed file */
+X    strcpy(buff, FileName(unpacked_fnum));
+X    strcat(buff, HYPH_SUFFIX);
+X    packed_fp = fopen(buff, "w");
+X    if( packed_fp == NULL )  Error(FATAL, no_fpos,
+X      "cannot write to hyphenation file %s", buff);
+X    BePutInt(packed_fp, T->magic);
+X    BePutInt(packed_fp, T->class_count);
+X    for( i = 0; i < MAX_CHAR; i++ )  BePutChar(packed_fp, T->class[i]);
+X    BePutInt(packed_fp, 0);  /* placeholder for node_mem */
+X    BePutInt(packed_fp, T->node_lim);
+X    BePutInt(packed_fp, T->node_free);
+X    BePutInt(packed_fp, 0);  /* placeholder for string_mem */
+X    BePutInt(packed_fp, T->string_lim);
+X    BePutInt(packed_fp, T->string_first);
+X    for( i = 0; i < T->node_free; i++ )  BePutShort(packed_fp, T->node_mem[i]);
+X    for( i = 0; i < T->string_lim; i++)  BePutChar(packed_fp, T->string_mem[i]);
+X    fclose(packed_fp);
+X    /***OLD*VERSION*********************************************************
+X    if( fwrite( (char *) T, len, 1, packed_fp) != 1 )  Error(FATAL, no_fpos,
+X      "error on write to hyphenation file %s", buff);
+X    ***********************************************************************/
+X
+X    /* now try again to open packed_fnum, the file just written */
+X    packed_fp = OpenFile(packed_fnum, FALSE);
+X    if( packed_fp == NULL )  Error(FATAL, no_fpos,
+X      "cannot open hyphenation file %s", FileName(packed_fnum));
+X  }
+X
+X  /* now packed hyphenation file is open, read it in */
+X  fseek(packed_fp, 0L, 2);  len = (int) ftell(packed_fp);  rewind(packed_fp);
+X  T = (TRIE) malloc(len);
+X  /***OLD*VERSION**********************************************************
+X  if( fread( (char *) T, len, 1, packed_fp) != 1 )  Error(FATAL, no_fpos,
+X      "error on read of hyphenation file %s", FileName(packed_fnum));
+X  ************************************************************************/
+X  if( BeGetInt(packed_fp, &T->magic) != 0 )  Error(FATAL, no_fpos,
+X      "error on read from packed hyphenation file %s", FileName(packed_fnum));
+X  if( T->magic != TRIE_MAGIC )  Error(FATAL, no_fpos,
+X      "bad magic number in hyphenation file %s", FileName(packed_fnum));
+X  BeGetInt(packed_fp, &T->class_count);
+X  for( i = 0; i < MAX_CHAR; i++ )  BeGetChar(packed_fp, &T->class[i]);
+X  BeGetInt(packed_fp, &i);  /* placeholder for node_mem */
+X  BeGetInt(packed_fp, &T->node_lim);
+X  BeGetInt(packed_fp, &T->node_free);
+X  BeGetInt(packed_fp, &i);  /* placeholder for string_mem */
+X  BeGetInt(packed_fp, &T->string_lim);
+X  BeGetInt(packed_fp, &T->string_first);
+X  T->node_mem = (short *) ( (char *) T + sizeof(struct trie_rec) );
+X  T->string_mem = (unsigned char *) &(T->node_mem[T->node_lim]);
+X  for( i = 0; i < T->node_free; i++ )  BeGetShort(packed_fp, &T->node_mem[i]);
+X  for( i = 0; i < T->string_lim; i++ ) BeGetChar(packed_fp, &T->string_mem[i]);
+X
+X  /* debug and exit */
+X  debug0(DHY, D, "TrieRead returning, T =");
+X  ifdebug(DHY, DD, TriePrint(T, stderr));
+X  return T;
+X} /* end TrieRead */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  int CompressTrie(T)                                                      */
+X/*                                                                           */
+X/*  Compress trie T and return its length in characters.                     */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xint CompressTrie(T)
+XTRIE T;
+X{ unsigned char *p, *q;  int len, i;
+X  debug0(DHY, D, "CompressTrie(T), T =");
+X  ifdebug(DHY, DD, TriePrint(T, stderr));
+X  T->node_lim = T->node_free;
+X  for( i = 0;  i < T->node_lim;  i++ )
+X    if( T->node_mem[i] < 0 )
+X      T->node_mem[i] = - ( -T->node_mem[i] - T->string_first);
+X  p = (unsigned char *) &(T->node_mem[T->node_free]);
+X  q = &(T->string_mem[T->string_first]);
+X  len = T->string_lim - T->string_first;
+X  for( i = 0;  i < len;  i++ )  *p++ = *q++;
+X  T->string_mem = (unsigned char *) &(T->node_mem[T->node_lim]);
+X  T->string_first = 0;
+X  T->string_lim = len;
+X  len = sizeof(struct trie_rec) + T->node_lim * sizeof(short)
+X				+ T->string_lim * sizeof(unsigned char);
+X  debug1(DHY, D, "CompressTrie returning %d, T =", len);
+X  ifdebug(DHY, DD, TriePrint(T, stderr));
+X  return len;
+X} /* end CompressTrie */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  AccumulateRating(x, y)                                                   */
+X/*                                                                           */
+X/*  Accumulate the hyphenation rating string x into y.                       */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+X#define AccumulateRating(x, y)						\
+X{ unsigned char *p = x, *q = y;							\
+X  while( *p )								\
+X  { if( *p > *q )  *q = *p;						\
+X    p++, q++;								\
+X  }									\
+X} /* end AccumulateRating */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  OBJECT Hyphenate(x)                                                      */
+X/*                                                                           */
+X/*  Hyphenate ACAT object x, returning the hyphenated result.                */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XOBJECT Hyphenate(x)
+XOBJECT x;
+X{ OBJECT link, y, z, next_link;
+X  unsigned char str[MAX_LINE+2], rate[MAX_LINE+3],
+X		*class, *key, *ss, *s, *rem, *p, *q;
+X  int start, stop, i, j, curr_node, next_node, pos;
+X  BOOLEAN hyphenated;  static ShowRate();
+X  static BOOLEAN tried_file = FALSE;
+X  assert( type(x) == ACAT, "Hyphenate: type(x) != ACAT!" );
+X  debug1(DHY, DD, "Hyphenate(%s)", EchoObject(null, x));
+X
+X  /* if no trie is present, try to get it from a file */
+X  if( T == (TRIE) NULL )
+X  { if( !tried_file )  T = TrieRead();
+X    tried_file = TRUE;
+X    if( T == (TRIE) NULL )
+X    { debug0(DHY, DD, "Hyphenate returning (no trie).");
+X      return x;
+X    }
+X  }
+X
+X  /* for each word y of x, try to hyphenate it */
+X  for( link = Down(x);  link != x;  link = NextDown(link) )
+X  { Child(y, link);
+X    if( type(y) != WORD )  continue;
+X    debug1(DHY, DD, "Hyphenate() examining %s", EchoObject(null, y));
+X
+X    /* start := index of y's first letter, stop := index following last */
+X    key = string(y);  class = T->class;
+X    for( start = 0;  class[key[start]] == PUNCT_CLASS;  start++ );
+X    for( stop = start;  class[key[stop]] > PUNCT_CLASS;  stop++ );
+X
+X    /* if a - ended the run, hyphenate there only */
+X    if( key[stop] == '-' )
+X    { next_link = NextDown(link);
+X      z = MakeWord(&key[stop+1], &fpos(y));
+X      word_font(z) = word_font(y);
+X      FontAtomSize(z);
+X      Link(NextDown(link), z);
+X      z = New(GAP_OBJ);
+X      SetGap(gap(z), FALSE, TRUE, FIXED_UNIT, HYPH_MODE, 0);
+X      Link(NextDown(link), z);
+X      Link(z, MakeWord("0ch", &fpos(y)));
+X      key[stop + 1] = '\0';
+X      FontAtomSize(y);
+X      link = PrevDown(next_link);
+X      continue;
+X    }
+X
+X    /* don't hyphenate if less than 5 letters, or a kill char is nearby */
+X    if( stop - start < 5 )  continue;
+X    if( key[stop] != '\0' && class[key[stop]] == KILL_CLASS )  continue;
+X
+X    /* let str[] be the converted substring, let rate[] be all '0' */
+X    str[0] = PUNCT_CLASS;  rate[0] = '0';
+X    for( i = 0;  i < stop - start;  i++ )
+X    { str[i+1] = class[key[start + i]];
+X      rate[i+1] = '0';
+X    }
+X    str[i+1] = PUNCT_CLASS;  rate[i+1] = '0';
+X    str[i+2] = '\0';  rate[i+2] = '0';
+X    rate[i+3] = '\0';
+X    ifdebug(DHY, DD, ShowRate(key, start, stop, rate, stderr));
+X
+X    /* for each suffix of str[], accumulate patterns matching its prefixes */
+X    ss = str;
+X    do
+X    {
+X      ifdebug(DHY, DD,
+X	fprintf(stderr, "trying suffix \"");
+X	for( p = ss; *p != 0;  p++ )  fprintf(stderr, "%c", findrep(*p, T));
+X	fprintf(stderr, "\"\n");
+X      );
+X	
+X      /* accumulate all prefixes of ss */
+X      curr_node = 0;  s = ss;
+X      for(;;)
+X      {
+X	/* if curr_node has empty string, that is one prefix */
+X	pos = T->node_mem[curr_node];
+X	if( pos < 0 )
+X	{ AccumulateRating(&T->string_mem[- pos], rate+(ss-str));
+X	  debug1(DHY, DD, " found %s", &(T->string_mem[- pos]));
+X	}
+X
+X	/* if ss is finished, no other prefixes are possible */
+X	if( *s == '\0' )  break;
+X
+X	/* determine next_node and break if empty */
+X	next_node = T->node_mem[curr_node + *s];
+X	if( next_node == 0 )  break;
+X
+X	/* if next_node is a string, check whether it is a prefix of ss */
+X	if( next_node < 0 )
+X	{ rem = &(T->string_mem[-next_node]);
+X	  do
+X	  { if( *rem == '\0' )
+X	    { AccumulateRating(rem+1, rate+(ss-str));
+X	      debug1(DHY, DD, " found %s", rem+1);
+X	      break;
+X	    }
+X	  } while( *++s == *rem++ );
+X	  break;
+X	}
+X
+X	/* otherwise go on to the next trie node */
+X	curr_node = 2*next_node;  s++;
+X      }
+X    } while( *(++ss + 2) != PUNCT_CLASS );
+X    ifdebug(DHY, DD, ShowRate(key, start, stop, rate, stderr));
+X
+X    /* now rate[] has accumulated ratings; use it to perform hyphenations */
+X    hyphenated = FALSE;
+X    /* hyphenate after any concluding - */
+X    /* *** now doing this at start only (see above)
+X    if( key[stop] == '-' )
+X    {
+X      z = MakeWord(&key[stop+1], &fpos(y));
+X      word_font(z) = word_font(y);
+X      FontAtomSize(z);
+X      Link(NextDown(link), z);
+X      z = New(GAP_OBJ);
+X      SetGap(gap(z), FALSE, TRUE, FIXED_UNIT, HYPH_MODE, 0);
+X      Link(NextDown(link), z);
+X      Link(z, MakeWord("0ch", &fpos(y)));
+X      key[stop + 1] = '\0';
+X      hyphenated = TRUE;
+X    }
+X    *** */
+X    next_link = NextDown(link);
+X    for( i = stop - start - 1;  i >= 3;  i-- )
+X    {
+X      /* hyphenate at i if rate[i] is odd */
+X      if( is_odd(rate[i]) )
+X      {	z = MakeWord(&key[start+i-1], &fpos(y));
+X	word_font(z) = word_font(y);
+X	FontAtomSize(z);
+X	Link(NextDown(link), z);
+X	z = New(GAP_OBJ);
+X	SetGap(gap(z), FALSE, TRUE, FIXED_UNIT, HYPH_MODE, 0);
+X	Link(NextDown(link), z);
+X	Link(z, MakeWord("0ch", &fpos(y)));
+X	key[start + i - 1] = '\0';
+X	hyphenated = TRUE;
+X      }
+X    }
+X    if( hyphenated )
+X    { FontAtomSize(y);
+X      link = PrevDown(next_link);
+X    }
+X
+X  } /* end for each word */
+X
+X  debug1(DHY, DD, "Hyphenate returning %s", EchoObject(null, x));
+X  return x;
+X} /* end Hyphenate */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  unsigned char *TrieRetrieve(key, T)                                      */
+X/*                                                                           */
+X/*  Retrieve the value associated with key in T, or NULL if not present.     */
+X/*                                                                           */
+X/*****************************************************************************/
+X#if DEBUG_ON
+X
+Xunsigned char *TrieRetrieve(key, T)
+Xunsigned char *key;  TRIE T;
+X{ unsigned char str[MAX_LINE];  int i, curr_node, next_node, pos;
+X  debug1(DHY, DD, "TrieRetrieve(%s, T)", key);
+X  ClassConvert(key, str, T);
+X
+X  /* invariant: curr_node is an existing node of T with prefix str[0..i-1] */
+X  curr_node = i = 0;
+X  for(;;)
+X  {
+X    /* if next_node is 0, the string was never inserted */
+X    next_node = T->node_mem[curr_node + str[i]];
+X    if( next_node == 0 )  return (unsigned char *) NULL;
+X
+X    /* if next_node < 0 it represents an offset into the string memory */
+X    if( next_node < 0 )
+X    { pos = - next_node;
+X      if( str[i] != '\0' )
+X      {	do
+X	{ if( str[++i] != T->string_mem[pos++] )  return (unsigned char *) NULL;
+X	} while( str[i] != '\0' );
+X      }
+X      return &(T->string_mem[pos]);
+X    }
+X
+X    /* otherwise next_node is the trie node to be searched next */
+X    curr_node = 2*next_node;  i++;
+X  }
+X} /* end TrieRetrieve */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  ShowRate(key, start, stop, rate, fp)                                     */
+X/*                                                                           */
+X/*  Debug print of key[] and rate[] on file fp.                              */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic ShowRate(key, start, stop, rate, fp)
+Xunsigned char *key;  int start, stop;  unsigned char *rate;  FILE *fp;
+X{ int i;
+X  fprintf(fp, "key:    ");
+X  for( i = start;  i < stop;  i++ )  fprintf(fp, " %c", key[i]);
+X  fprintf(fp, "\nrate:");
+X  for( i = 0;  rate[i] != '\0';  i++ )  fprintf(fp, " %c", rate[i]);
+X  fprintf(fp, "\n");
+X} /* end ShowRate */
+X
+X
+X/*@@**************************************************************************/
+X/*                                                                           */
+X/*  DoTriePrint(T, node, len, fp)                                            */
+X/*                                                                           */
+X/*  Print on file fp the subset of the entries of trie T stored in node and  */
+X/*  its descendants.  The node has prefix prefix[0..len-1].                  */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+Xstatic unsigned char prefix[MAX_LINE];
+X
+Xstatic DoTriePrint(T, node, len, fp)
+XTRIE T; int node, len; FILE *fp;
+X{ int i, next_node, pos;
+X  for( i = 0;  i < T->class_count;  i++ )
+X  {
+X    /* if next_node < 0, have string to print */
+X    next_node = T->node_mem[node + i];
+X    if( next_node < 0 )
+X    {
+X      prefix[len] = '\0';
+X      fprintf(fp, "%s", prefix);
+X      pos = - next_node;
+X      if( i != 0 )
+X      {
+X	fprintf(fp, "%c", findrep(i, T));
+X	while( T->string_mem[pos] != '\0' )
+X	{ fprintf(fp, "%c", findrep(T->string_mem[pos], T));
+X	  pos++;
+X	}
+X	pos++;
+X      }
+X      fprintf(fp, " %s\n", &(T->string_mem[pos]));
+X    }
+X
+X    /* else if next_node > 0 have a child node to explore */
+X    else if( next_node > 0 )
+X    { assert( i > 0, "DoTriePrint: i == 0!" );
+X      prefix[len] = findrep(i, T);
+X      prefix[len+1] = '\0';
+X      DoTriePrint(T, 2*next_node, len+1, fp);
+X    }
+X  }
+X} /* end DoTriePrint */
+X
+X
+X/*****************************************************************************/
+X/*                                                                           */
+X/*  TriePrint(T, fp)                                                         */
+X/*                                                                           */
+X/*  Print trie T on file fp.                                                 */
+X/*                                                                           */
+X/*****************************************************************************/
+X
+XTriePrint(T, fp)
+XTRIE T;  FILE *fp;
+X{ int i, j, ch;
+X  assert( T-> magic == TRIE_MAGIC, "TriePrint: magic!" );
+X  fprintf(fp, "Classes:");
+X  for( i = 1;  i < T->class_count;  i++ )
+X  { fprintf(fp, " ");
+X    for( ch = 0;  ch < MAX_CHAR;  ch++ )
+X      if( T->class[ch] == i )  fprintf(fp, "%c", ch);
+X  }
+X  fprintf(fp, "\n");
+X  fprintf(fp, "Node space: %d capacity, %d used\n", T->node_lim, T->node_free);
+X  fprintf(fp, "String space: %d capacity, %d used\n", T->string_lim,
+X	T->string_lim - T->string_first);
+X  prefix[0] = '\0';
+X  DoTriePrint(T, 0, 0, fp);
+X} /* end TriePrint */
+X#endif
+END_OF_FILE
+  if test 31731 -ne `wc -c <'lout/z36.c'`; then
+    echo shar: \"'lout/z36.c'\" unpacked with wrong size!
+  fi
+  # end of 'lout/z36.c'
+fi
+echo shar: End of archive 8 \(of 30\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 30 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

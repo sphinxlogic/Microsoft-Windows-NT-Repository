@@ -1,0 +1,2140 @@
+Newsgroups: comp.sources.misc
+From: cpcahil@vti.com (Conor P. Cahill)
+Subject:  v32i014:  dbmalloc - Debug Malloc Library PL14, Part09/10
+Message-ID: <1992Sep4.152359.13562@sparky.imd.sterling.com>
+X-Md4-Signature: 4ad69faaf2548893877deaf388c97c00
+Date: Fri, 4 Sep 1992 15:23:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cpcahil@vti.com (Conor P. Cahill)
+Posting-number: Volume 32, Issue 14
+Archive-name: dbmalloc/part09
+Environment: C, UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 9 (of 10)."
+# Contents:  string.c testerr.base testmalloc.c tostring.c xheap.c
+#   xmalloc.c
+# Wrapped by cpcahil@virtech on Thu Sep  3 18:39:21 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'string.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'string.c'\"
+else
+echo shar: Extracting \"'string.c'\" \(20827 characters\)
+sed "s/^X//" >'string.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X
+X/*
+X * NOTE: if you have problems compiling this file, the first thing to try is
+X * to take out the include of string.h.  This is due to the fact that some
+X * systems (like ultrix) have conflicting definitions and some (like aix)
+X * even set up some of these functions to be in-lined.
+X */
+X
+X#include <stdio.h>
+X#if ! defined(_IBMR2) && ! defined(ultrix)
+X#include <string.h>
+X#endif
+X
+X#include "mallocin.h"
+X
+X
+X#include <ctype.h>
+X
+X#ifndef CTYPE_SUPPORT
+X#define CTYPE_SUPPORT 1
+X#endif
+X
+X#if CTYPE_SUPPORT == 3
+X
+X#undef islower
+X#undef isascii
+X#undef toupper
+X
+X#endif
+X
+X#if CTYPE_SUPPORT > 1
+X
+X#define isascii(a) 1
+X
+X#endif
+X
+X#if CTYPE_SUPPORT == 2
+X
+X#include <locale.h>
+X
+Xstatic int locale_initialized;
+X
+X#define INIT_CTYPE() (local_initialized ? 0 : \
+X			 local_initialized++, setlocale(LC_CTYPE,"") )
+X
+X#else /* CTYPE_SUPPORT == 2 */
+X
+X#define INIT_CTYPE()
+X
+X#endif /* CTYPE_SUPPORT == 2 */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: string.c,v 1.30 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+Xstatic int	in_string_code;
+X
+X#define CompareUpper(c) ((STRCMPTYPE) \
+X			(isascii((int)(unsigned char)(c)) \
+X				&& islower( (int) (unsigned char)(c)) ? \
+X				toupper((int)(unsigned char)(c)) \
+X			 /* else */ : \
+X				(c)))
+X
+X/*
+X * strcat - concatenate a string onto the end of another string
+X */
+Xchar *
+Xstrcat(str1,str2)
+X	char		* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrcat((char *)NULL,0,str1,str2) );
+X}
+X
+Xchar *
+XDBstrcat(file,line,str1,str2)
+X	CONST char		* file;
+X	int			  line;
+X	register char		* str1;
+X	register CONST char	* str2;
+X{
+X	char			* rtn;
+X	SIZETYPE		  len;
+X
+X	/* 
+X	 * check pointers agains malloc region.  The malloc* functions
+X	 * will properly handle the case where a pointer does not
+X	 * point into malloc space.
+X	 */
+X	in_string_code++;
+X
+X	len = strlen(str2);
+X	malloc_check_str("strcat", file, line, str2);
+X
+X	len += strlen(str1) + 1;
+X	in_string_code--;
+X
+X	malloc_check_data("strcat", file, line, str1, (SIZETYPE)len);
+X
+X	rtn = str1;
+X
+X	while( *str1 )
+X	{
+X		str1++;
+X	}
+X	
+X	while( (*str1 = *str2) != '\0' )
+X	{
+X		str1++;
+X		str2++;
+X	}
+X	
+X	return(rtn);
+X}
+X
+X/*
+X * strdup - duplicate a string
+X */
+Xchar *
+Xstrdup(str1)
+X	CONST char	* str1;
+X{
+X	return( DBstrdup((char *)NULL, 0, str1) );
+X}
+X
+Xchar *
+XDBstrdup(file, line, str1)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X{
+X	char			* rtn;
+X	register char		* str2;
+X
+X	malloc_check_str("strdup", file, line, str1);
+X
+X	in_string_code++;
+X	rtn = str2 = malloc((SIZETYPE)strlen(str1)+1);
+X	in_string_code--;
+X
+X	if( rtn != (char *) 0)
+X	{
+X		while( (*str2 = *str1) != '\0' )
+X		{
+X			str1++;
+X			str2++;
+X		}
+X	}
+X
+X	return(rtn);
+X}
+X
+X/*
+X * strncat - concatenate a string onto the end of another up to a specified len
+X */
+Xchar *
+Xstrncat(str1,str2,len)
+X	char		* str1;
+X	CONST char	* str2;
+X	STRSIZE 	  len;
+X{
+X	return( DBstrncat((char *)NULL, 0, str1, str2, len) );
+X}
+X
+Xchar *
+XDBstrncat(file, line, str1, str2, len)
+X	CONST char		* file;
+X	int			  line;
+X	register char		* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X	STRSIZE 	  len1;
+X	STRSIZE 	  len2;
+X	char		* rtn;
+X
+X	malloc_check_strn("strncat", file, line, str2, len);
+X
+X	in_string_code++;
+X
+X	len2 = strlen(str2) + 1;
+X	len1 = strlen(str1);
+X
+X	in_string_code--;
+X
+X
+X	if( (len+1) < len2 )
+X	{
+X		len1 += len + 1;
+X	}
+X	else
+X	{
+X		len1 += len2;
+X	}
+X	malloc_check_data("strncat", file, line, str1, (SIZETYPE)len1);
+X
+X	rtn = str1;
+X
+X	while( *str1 )
+X	{
+X		str1++;
+X	}
+X
+X	while( len && ((*str1++ = *str2++) != '\0') )
+X	{
+X		len--;
+X	}
+X	
+X	if( ! len )
+X	{
+X		*str1 = '\0';
+X	}
+X
+X	return(rtn);
+X}
+X
+X/*
+X * strcmp - compare two strings
+X */
+Xint
+Xstrcmp(str1,str2)
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	return( DBstrcmp((char *) NULL, 0, str1, str2) );
+X}
+X
+Xint
+XDBstrcmp(file, line, str1, str2)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	malloc_check_str("strcmp", file, line, str1);
+X	malloc_check_str("strcmp", file, line, str2);
+X
+X	while( *str1 && (*str1 == *str2) )
+X	{
+X		str1++;
+X		str2++;
+X	}
+X
+X
+X	/*
+X	 * in order to deal with the case of a negative last char of either
+X	 * string when the other string has a null
+X	 */
+X	if( (*str2 == '\0') && (*str1 == '\0') )
+X	{
+X		return(0);
+X	}
+X	else if( *str2 == '\0' )
+X	{
+X		return(1);
+X	}
+X	else if( *str1 == '\0' )
+X	{
+X		return(-1);
+X	}
+X	
+X	return( *(CONST STRCMPTYPE *)str1 - *(CONST STRCMPTYPE *)str2 );
+X}
+X
+X/*
+X * strncmp - compare two strings up to a specified length
+X */
+Xint
+Xstrncmp(str1,str2,len)
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X	return( DBstrncmp((char *)NULL, 0, str1, str2, len) );
+X}
+X
+Xint
+XDBstrncmp(file, line, str1,str2,len)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X	malloc_check_strn("strncmp", file, line, str1, len);
+X	malloc_check_strn("strncmp", file, line, str2, len);
+X
+X	while( len > 0 && *str1 && (*str1 == *str2) )
+X	{
+X		len--;
+X		str1++;
+X		str2++;
+X	}
+X
+X	if( len == 0 )
+X	{
+X		return(0);
+X	}
+X	/*
+X	 * in order to deal with the case of a negative last char of either
+X	 * string when the other string has a null
+X	 */
+X	if( (*str2 == '\0') && (*str1 == '\0') )
+X	{
+X		return(0);
+X	}
+X	else if( *str2 == '\0' )
+X	{
+X		return(1);
+X	}
+X	else if( *str1 == '\0' )
+X	{
+X		return(-1);
+X	}
+X	
+X	return( *(CONST STRCMPTYPE *)str1 - *(CONST STRCMPTYPE *)str2 );
+X}
+X
+X/*
+X * stricmp - compare two strings
+X */
+Xint
+Xstricmp(str1,str2)
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	return( DBstricmp((char *) NULL, 0, str1, str2) );
+X}
+X
+Xint
+XDBstricmp(file, line, str1, str2)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X
+X	/*
+X	 * Make sure ctype is initialized
+X	 */
+X	INIT_CTYPE();
+X
+X	malloc_check_str("stricmp", file, line, str1);
+X	malloc_check_str("stricmp", file, line, str2);
+X
+X	while( *str1 && (CompareUpper(*str1) == CompareUpper(*str2)) )
+X	{
+X		str1++;
+X		str2++;
+X	}
+X
+X
+X	/*
+X	 * in order to deal with the case of a negative last char of either
+X	 * string when the other string has a null
+X	 */
+X	if( (*str2 == '\0') && (*str1 == '\0') )
+X	{
+X		return(0);
+X	}
+X	else if( *str2 == '\0' )
+X	{
+X		return(1);
+X	}
+X	else if( *str1 == '\0' )
+X	{
+X		return(-1);
+X	}
+X	
+X	return( CompareUpper(*str1) - CompareUpper(*str2) );
+X
+X} /* DBstricmp(... */
+X
+X/*
+X * strincmp - compare two strings up to a specified length, ignoring case
+X */
+Xint
+Xstrincmp(str1,str2,len)
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X	return( DBstrincmp((char *)NULL, 0, str1, str2, len) );
+X}
+X
+Xint
+XDBstrincmp(file, line, str1,str2,len)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X
+X	/*
+X	 * Make sure ctype is initialized
+X	 */
+X	INIT_CTYPE();
+X
+X	malloc_check_strn("strincmp", file, line, str1, len);
+X	malloc_check_strn("strincmp", file, line, str2, len);
+X
+X	while( len > 0 && *str1 && (CompareUpper(*str1)==CompareUpper(*str2)) )
+X	{
+X		len--;
+X		str1++;
+X		str2++;
+X	}
+X
+X	if( len == 0 )
+X	{
+X		return(0);
+X	}
+X	/*
+X	 * in order to deal with the case of a negative last char of either
+X	 * string when the other string has a null
+X	 */
+X	if( (*str2 == '\0') && (*str1 == '\0') )
+X	{
+X		return(0);
+X	}
+X	else if( *str2 == '\0' )
+X	{
+X		return(1);
+X	}
+X	else if( *str1 == '\0' )
+X	{
+X		return(-1);
+X	}
+X	
+X	return( CompareUpper(*str1) - CompareUpper(*str2) );
+X
+X} /* DBstrincmp(... */
+X
+X/*
+X * strcpy - copy a string somewhere else
+X */
+Xchar *
+Xstrcpy(str1,str2)
+X	register char		* str1;
+X	register CONST char	* str2;
+X{
+X	return( DBstrcpy((char *)NULL, 0, str1, str2) );
+X}
+X
+Xchar *
+XDBstrcpy(file, line, str1, str2)
+X	CONST char		* file;
+X	int			  line;
+X	register char		* str1;
+X	register CONST char	* str2;
+X{
+X	char		* rtn;
+X	SIZETYPE	  len;
+X
+X	in_string_code++;
+X	len = strlen(str2) + 1;
+X	in_string_code--;
+X
+X	malloc_check_data("strcpy", file, line, str1, len);
+X	malloc_check_data("strcpy", file, line, str2, len);
+X
+X	rtn = str1;
+X
+X	DataMC(str1, str2, len);
+X
+X	return(rtn);
+X}
+X
+X/*
+X * strncpy - copy a string upto a specified number of chars somewhere else
+X */
+Xchar *
+Xstrncpy(str1,str2,len)
+X	register char		* str1;
+X	register CONST char	* str2;
+X	register STRSIZE 	  len;
+X{
+X	return( DBstrncpy((char *)NULL, 0, str1, str2, len) );
+X}
+X
+Xchar *
+XDBstrncpy(file,line,str1,str2,len)
+X	CONST char		* file;
+X	int			  line;
+X	register char		* str1;
+X	register CONST char	* str2;
+X	STRSIZE		 	  len;
+X{
+X	register SIZETYPE		  i;
+X	char			* rtn = str1;
+X
+X	malloc_check_data("strncpy", file, line, str1, len);
+X
+X	for(i=0; (i < len) && (str2[i] != '\0'); i++)
+X	{
+X		/* do nothing */;
+X	}
+X
+X	malloc_check_data("strncpy", file, line, str2, i);
+X
+X	/*
+X	 * copy the real data
+X	 */
+X	DataMC(str1,str2,i);
+X
+X	/*
+X	 * if there is data left over
+X	 */
+X	if( i < len )
+X	{
+X		/*
+X		 * figure out where and how much is left over
+X		 */
+X		str1 += i;
+X		len  -= i;
+X
+X		/*
+X		 * fill in the rest of the bytes with nulls
+X		 */
+X		DataMS(str1, '\0', len);
+X	}
+X
+X	return(rtn);
+X}
+X
+X/*
+X * strlen - determine length of a string
+X */
+XSTRSIZE 
+Xstrlen(str1)
+X	CONST char	* str1;
+X{
+X	return( DBstrlen((char *) NULL, 0, str1) );
+X}
+X
+XSTRSIZE 
+XDBstrlen(file, line, str1)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X{
+X	register CONST char	* s;
+X
+X	if(! in_string_code )
+X	{
+X		malloc_check_str("strlen", file, line, str1);
+X	}
+X
+X	for( s = str1; *s; s++)
+X	{
+X	}
+X
+X	return( s - str1 );
+X}
+X
+X/*
+X * strchr - find location of a character in a string
+X */
+Xchar *
+Xstrchr(str1,c)
+X	CONST char	* str1;
+X	int		  c;
+X{
+X	return( DBstrchr((char *)NULL,0,str1,c) );
+X}
+X
+Xchar *
+XDBstrchr(file, line, str1,c)
+X	CONST char		* file;
+X	int			  line;
+X	CONST char		* str1;
+X	int			  c;
+X{
+X	return( DBFstrchr("strchr",file,line,str1,c) );
+X}
+X
+Xchar *
+XDBFstrchr(func,file, line, str1,c)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register int		  c;
+X{
+X	malloc_check_str(func, file, line, str1);
+X
+X	while( *str1 && (*str1 != (char) c) )
+X	{
+X		str1++;
+X	}
+X
+X	if(*str1 != (char) c)
+X	{
+X		str1 = (char *) 0;
+X	}
+X
+X	return((char *)str1);
+X}
+X
+X/*
+X * strrchr - find rightmost location of a character in a string
+X */
+X
+Xchar *
+Xstrrchr(str1,c)
+X	CONST char	* str1;
+X	int		  c;
+X{
+X	return( DBstrrchr( (char *)NULL, 0, str1, c) );
+X}
+X
+Xchar *
+XDBstrrchr(file,line,str1,c)
+X	CONST char		* file;
+X	int			  line;
+X	CONST char		* str1;
+X	int			  c;
+X{
+X	return( DBFstrrchr("strchr",file,line,str1,c) );
+X}
+X
+Xchar *
+XDBFstrrchr(func,file,line,str1,c)
+X	CONST char		* func;
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register int		  c;
+X{
+X	char	* rtn = (char *) 0;
+X
+X	malloc_check_str(func, file, line, str1);
+X
+X	while( *str1 )
+X	{
+X		if(*str1 == (char) c )
+X		{
+X			rtn = (char *)str1;
+X		}
+X		str1++;
+X	}
+X
+X	if( *str1 == (char) c)
+X	{
+X		rtn = (char *)str1;
+X	}
+X
+X	return(rtn);
+X}
+X
+X/*
+X * index - find location of character within string
+X */
+Xchar *
+Xindex(str1,c)
+X	CONST char		* str1;
+X	char		  c;
+X{
+X	return( DBindex((char *) NULL, 0, str1, c) );
+X}
+Xchar *
+XDBindex(file, line, str1, c)
+X	CONST char	* file;
+X	int		  line;
+X	CONST char	* str1;
+X	char		  c;
+X{
+X	return( DBFstrchr("index",file,line,str1,c) );
+X}
+X
+X/*
+X * rindex - find rightmost location of character within string
+X */
+Xchar *
+Xrindex(str1,c)
+X	CONST char	* str1;
+X	char		  c;
+X{
+X	return( DBrindex((char *)NULL, 0, str1, c) );
+X}
+X
+Xchar *
+XDBrindex(file, line, str1, c)
+X	CONST char	* file;
+X	int		  line;
+X	CONST char	* str1;
+X	char		  c;
+X{
+X	return( DBFstrrchr("rindex",file,line,str1,c) );
+X}
+X
+X/*
+X * strpbrk - find the first occurance of any character from str2 in str1
+X */
+Xchar *
+Xstrpbrk(str1,str2)
+X	CONST char	* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrpbrk((char *)NULL, 0, str1, str2) );
+X}
+X
+Xchar *
+XDBstrpbrk(file, line, str1,str2)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	register CONST char	* tmp;
+X
+X	malloc_check_str("strpbrk", file, line, str1);
+X	malloc_check_str("strpbrk", file, line, str2);
+X
+X	while(*str1)
+X	{
+X		for( tmp=str2; *tmp && *tmp != *str1; tmp++)
+X		{
+X		}
+X		if( *tmp )
+X		{
+X			break;
+X		}
+X		str1++;
+X	}
+X
+X	if( ! *str1 )
+X	{
+X		str1 = (char *) 0;
+X	}
+X
+X	return( (char *) str1);
+X}
+X
+X/*
+X * strspn - get length of str1 that consists totally of chars from str2
+X */
+XSTRSIZE 
+Xstrspn(str1,str2)
+X	CONST char	* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrspn((char *)NULL, 0, str1, str2) );
+X}
+X
+XSTRSIZE 
+XDBstrspn(file, line, str1,str2)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	register CONST char	* tmp;
+X	CONST char		* orig = str1;
+X
+X	malloc_check_str("strspn", file, line, str1);
+X	malloc_check_str("strspn", file, line, str2);
+X
+X	while(*str1)
+X	{
+X		for( tmp=str2; *tmp && *tmp != *str1; tmp++)
+X		{
+X		}
+X		if(! *tmp )
+X		{
+X			break;
+X		}
+X		str1++;
+X	}
+X
+X	return( (STRSIZE ) (str1 - orig) );
+X}
+X
+X/*
+X * strcspn - get lenght of str1 that consists of no chars from str2
+X */
+XSTRSIZE 
+Xstrcspn(str1,str2)
+X	CONST char	* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrcspn((char *)NULL,0,str1,str2) );
+X}
+X
+XSTRSIZE 
+XDBstrcspn(file, line, str1,str2)
+X	CONST char		* file;
+X	int			  line;
+X	register CONST char	* str1;
+X	register CONST char	* str2;
+X{
+X	register CONST char	* tmp;
+X	CONST char	* orig = str1;
+X
+X	malloc_check_str("strcspn", file, line, str1);
+X	malloc_check_str("strcspn", file, line, str2);
+X
+X	while(*str1)
+X	{
+X		for( tmp=str2; *tmp && *tmp != *str1; tmp++)
+X		{
+X		}
+X		if( *tmp )
+X		{
+X			break;
+X		}
+X		str1++;
+X	}
+X
+X	return( (int) (str1 - orig) );
+X}
+X
+X/*
+X * strstr - locate string within another string
+X */
+Xchar *
+Xstrstr(str1, str2)
+X	CONST char	* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrstr((char *)NULL, 0, str1, str2) );
+X}
+X
+Xchar *
+XDBstrstr(file, line, str1, str2)
+X	CONST char	* file;
+X	int		  line;
+X	CONST char	* str1;
+X	CONST char	* str2;
+X{
+X	register CONST char	* s;
+X	register CONST char	* t;
+X	
+X	malloc_check_str("strstr", file, line, str1);
+X	malloc_check_str("strstr", file, line, str2);
+X
+X	/*
+X	 * until we run out of room in str1
+X	 */
+X	while( *str1 != '\0' )
+X	{
+X		/*
+X		 * get tmp pointers to both strings
+X		 */
+X		s = str2;
+X		t = str1;
+X
+X		/*
+X		 * see if they match
+X		 */
+X		while( *s &&  (*s == *t) )
+X		{
+X			s++;
+X			t++;
+X		}
+X
+X		/*
+X		 * if we ran out of str2, we found the match,
+X		 * so return the pointer within str1.
+X		 */
+X		if( ! *s )
+X		{
+X			return( (char *) str1);
+X		}
+X		str1++;
+X	}
+X
+X	if( *str2 == '\0' )
+X	{
+X		return( (char *) str1);
+X	}
+X	return(NULL);
+X}
+X
+X/*
+X * strtok() source taken from that posted to comp.lang.c by Chris Torek
+X * in Jan 1990.
+X */
+X
+X/*
+X * Copyright (c) 1989 The Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X/*
+X * Get next token from string s (NULL on 2nd, 3rd, etc. calls),
+X * where tokens are nonempty strings separated by runs of
+X * chars from delim.  Writes NULs into s to end tokens.  delim need not
+X * remain CONSTant from call to call.
+X *
+X * Modified by cpc: 	changed variable names to conform with naming
+X *			conventions used in rest of code.  Added malloc pointer
+X *			check calls.
+X */
+X
+Xchar *
+Xstrtok(str1, str2)
+X	char 		* str1;
+X	CONST char	* str2;
+X{
+X	return( DBstrtok( (char *)NULL, 0, str1, str2) );
+X}
+X
+Xchar *
+XDBstrtok(file, line, str1, str2)
+X	CONST char	* file;
+X	int		  line;
+X	char 		* str1;
+X	CONST char	* str2;
+X{
+X	static char 	* last;
+X
+X	if( str1 )
+X	{
+X		malloc_check_str("strtok", file, line, str1);
+X		last = str1;
+X	}
+X	malloc_check_str("strtok", file, line, str2);
+X
+X	return (strtoken(&last, str2, 1));
+X}
+X
+X
+X/*
+X * Get next token from string *stringp, where tokens are (possibly empty)
+X * strings separated by characters from delim.  Tokens are separated
+X * by exactly one delimiter iff the skip parameter is false; otherwise
+X * they are separated by runs of characters from delim, because we
+X * skip over any initial `delim' characters.
+X *
+X * Writes NULs into the string at *stringp to end tokens.
+X * delim will usually, but need not, remain CONSTant from call to call.
+X * On return, *stringp points past the last NUL written (if there might
+X * be further tokens), or is NULL (if there are definitely no more tokens).
+X *
+X * If *stringp is NULL, strtoken returns NULL.
+X */
+Xchar *
+Xstrtoken(stringp, delim, skip)
+X	register char **stringp;
+X	register CONST char *delim;
+X	int skip;
+X{
+X	register char *s;
+X	register CONST char *spanp;
+X	register int c, sc;
+X	char *tok;
+X
+X	if ((s = *stringp) == NULL)
+X		return (NULL);
+X
+X	if (skip) {
+X		/*
+X		 * Skip (span) leading delimiters (s += strspn(s, delim)).
+X		 */
+X	cont:
+X		c = *s;
+X		for (spanp = delim; (sc = *spanp++) != 0;) {
+X			if (c == sc) {
+X				s++;
+X				goto cont;
+X			}
+X		}
+X		if (c == 0) {		/* no token found */
+X			*stringp = NULL;
+X			return (NULL);
+X		}
+X	}
+X
+X	/*
+X	 * Scan token (scan for delimiters: s += strcspn(s, delim), sort of).
+X	 * Note that delim must have one NUL; we stop if we see that, too.
+X	 */
+X	for (tok = s;;) {
+X		c = *s++;
+X		spanp = delim;
+X		do {
+X			if ((sc = *spanp++) == c) {
+X				if (c == 0)
+X					s = NULL;
+X				else
+X					s[-1] = 0;
+X				*stringp = s;
+X				return( (char *) tok );
+X			}
+X		} while (sc != 0);
+X	}
+X	/* NOTREACHED */
+X}
+X
+X/*
+X * $Log: string.c,v $
+X * Revision 1.30  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.29  1992/07/03  00:03:25  cpcahil
+X * more fixes for pl13, several suggestons from Rich Salz.
+X *
+X * Revision 1.28  1992/06/30  13:06:39  cpcahil
+X * added support for aligned allocations
+X *
+X * Revision 1.27  1992/06/27  22:48:48  cpcahil
+X * misc fixes per bug reports from first week of reviews
+X *
+X * Revision 1.26  1992/06/23  11:12:54  cpcahil
+X * fixed bug in case insensitive comparisons.
+X *
+X * Revision 1.25  1992/06/22  23:40:10  cpcahil
+X * many fixes for working on small int systems
+X *
+X * Revision 1.24  1992/05/09  21:27:09  cpcahil
+X * final (hopefully) changes for patch 11
+X *
+X * Revision 1.23  1992/05/09  00:16:16  cpcahil
+X * port to hpux and lots of fixes
+X *
+X * Revision 1.22  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.21  1992/05/08  01:44:11  cpcahil
+X * more performance enhancements
+X *
+X * Revision 1.20  1992/04/20  22:29:14  cpcahil
+X * changes to fix problems introduced by insertion of size_t
+X *
+X * Revision 1.19  1992/04/14  01:15:25  cpcahil
+X * port to RS/6000
+X *
+X * Revision 1.18  1992/04/13  19:08:18  cpcahil
+X * fixed case insensitive stuff
+X *
+X * Revision 1.17  1992/04/13  18:41:18  cpcahil
+X * added case insensitive string comparison routines
+X *
+X * Revision 1.16  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.15  1992/01/30  12:23:06  cpcahil
+X * renamed mallocint.h -> mallocin.h
+X *
+X * Revision 1.14  1991/12/04  09:23:44  cpcahil
+X * several performance enhancements including addition of free list
+X *
+X * Revision 1.13  91/12/02  19:10:14  cpcahil
+X * changes for patch release 5
+X * 
+X * Revision 1.12  91/11/25  14:42:05  cpcahil
+X * Final changes in preparation for patch 4 release
+X * 
+X * Revision 1.11  91/11/24  16:56:43  cpcahil
+X * porting changes for patch level 4
+X * 
+X * Revision 1.10  91/11/24  00:49:32  cpcahil
+X * first cut at patch 4
+X * 
+X * Revision 1.9  91/11/20  11:54:11  cpcahil
+X * interim checkin
+X * 
+X * Revision 1.8  91/05/30  12:07:04  cpcahil
+X * added fix to get the stuff to compile correctly on ultirx and aix systems.
+X * 
+X * Revision 1.7  90/08/29  22:24:19  cpcahil
+X * added new function to check on strings up to a specified length 
+X * and used it within several strn* functions.
+X * 
+X * Revision 1.6  90/07/16  20:06:56  cpcahil
+X * fixed several minor bugs found with Henry Spencer's string/mem function
+X * tester program.
+X * 
+X * Revision 1.5  90/06/10  14:59:49  cpcahil
+X * Fixed a couple of bugs in strncpy & strdup
+X * 
+X * Revision 1.4  90/05/11  00:13:10  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:32  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:40  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/22  23:17:44  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 20827 -ne `wc -c <'string.c'`; then
+    echo shar: \"'string.c'\" unpacked with wrong size!
+fi
+# end of 'string.c'
+fi
+if test -f 'testerr.base' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testerr.base'\"
+else
+echo shar: Extracting \"'testerr.base'\" \(3791 characters\)
+sed "s/^X//" >'testerr.base' <<'END_OF_FILE'
+X-------------------------------------
+XTesting malloc_inuse()...OK
+X-------------------------------------
+XTesting malloc_mark()...OK
+X-------------------------------------
+XTesting malloc_size()...OK
+X-------------------------------------
+XTesting memalign()...OK
+X-------------------------------------
+XError from strcpy() - out of bounds
+XMALLOC Warning from strncpy() (called from testerr.c line 128):
+XPointer within malloc region, but outside of malloc data bounds
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 123.
+X
+X-------------------------------------
+XError from memset() - out of bounds (beyond)
+XMALLOC Warning from memset() (called from testerr.c line 133):
+XPointer within malloc region, but outside of malloc data bounds
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 20 bytes in testerr.c on line 121.
+X
+X-------------------------------------
+XError from free() - overrun
+XMALLOC Warning from free() (called from testerr.c line 138):
+XData has overrun beyond requested number of bytes
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 20 bytes in testerr.c on line 121.
+X
+XMALLOC Warning from free() (called from testerr.c line 138):
+XData has overrun beyond requested number of bytes
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 123.
+X
+X-------------------------------------
+XError from free() - double free
+XMALLOC Warning from free() (called from testerr.c line 143):
+XData area is not in use (can't be freed or realloced, or used)
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 20 bytes in testerr.c on line 121.
+X
+X	in testerr.c on line 138.
+X
+X-------------------------------------
+XNO error from bzero
+X-------------------------------------
+XError from bzero() - out of bounds
+XMALLOC Warning from bzero() (called from testerr.c line 153):
+XPointer within malloc region, but outside of malloc data bounds
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 123.
+X
+X-------------------------------------
+XError from free() - overrun
+XMALLOC Warning from free() (called from testerr.c line 158):
+XData has overrun beyond requested number of bytes
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 123.
+X
+X-------------------------------------
+XError from memset() - out of bounds (before)
+XMALLOC Warning from memset() (called from testerr.c line 165):
+XPointer within malloc region, but outside of malloc data bounds
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 1 bytes in testerr.c on line 160.
+X
+X-------------------------------------
+XError from free() - underrun
+XMALLOC Warning from free() (called from testerr.c line 170):
+XData has written before beginning of requested bytes
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 1 bytes in testerr.c on line 160.
+X
+X-------------------------------------
+XError from memset() - out of bounds
+XMALLOC Warning from memset() (called from testerr.c line 178):
+XPointer within malloc region, but outside of malloc data bounds
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 172.
+X
+X-------------------------------------
+XError from malloc() - chain broken
+XMALLOC Warning from malloc() (called from testerr.c line 184):
+XPointers between this segment and adjoining segments are invalid
+XThis error is *probably* associated with the following allocation:
+X
+X	A call to malloc for 10 bytes in testerr.c on line 172.
+X
+END_OF_FILE
+if test 3791 -ne `wc -c <'testerr.base'`; then
+    echo shar: \"'testerr.base'\" unpacked with wrong size!
+fi
+# end of 'testerr.base'
+fi
+if test -f 'testmalloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testmalloc.c'\"
+else
+echo shar: Extracting \"'testmalloc.c'\" \(5910 characters\)
+sed "s/^X//" >'testmalloc.c' <<'END_OF_FILE'
+X/* NOT copyright by SoftQuad Inc. -- msb, 1988 */
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#ifndef lint
+Xstatic char *SQ_SccsId = "@(#)mtest3.c	1.2 88/08/25";
+X#endif
+X#include <stdio.h>
+X#include <sys/types.h>
+X/*
+X** looptest.c -- intensive allocator tester 
+X**
+X** Usage:  looptest
+X**
+X** History:
+X**	4-Feb-1987 rtech!daveb 
+X*/
+X
+X#ifndef HAS_VADVISE
+X#ifdef random
+X#undef random
+X#endif
+X# define random	rand
+X#else
+X# include <sys/vadvise.h>
+X#endif
+X
+X# include <math.h>
+X# include <stdio.h>
+X# include <signal.h>
+X# include <setjmp.h>
+X
+X#include "malloc.h"
+X
+X# define MAXITER	1000000		/* main loop iterations */
+X# define MAXOBJS	1000		/* objects in pool */
+X# define BIGOBJ		90000		/* max size of a big object */
+X# define TINYOBJ	80		/* max size of a small object */
+X# define BIGMOD		100		/* 1 in BIGMOD is a BIGOBJ */
+X# define STATMOD	10000		/* interation interval for status */
+X
+Xint
+Xmain( argc, argv )
+Xint argc;
+Xchar **argv;
+X{
+X	register int	 **objs;	/* array of objects */
+X	register SIZETYPE *sizes;	/* array of object sizes */
+X	register SIZETYPE n;		/* iteration counter */
+X	register SIZETYPE i;		/* object index */
+X	register SIZETYPE size;		/* object size */
+X	register SIZETYPE r;		/* random number */
+X
+X	SIZETYPE objmax;		/* max size this iteration */
+X	long cnt;			/* number of allocated objects */
+X	long nm = 0;			/* number of mallocs */
+X	long nre = 0;			/* number of reallocs */
+X	long startsize;			/* size at loop start */
+X	long endsize;			/* size at loop exit */
+X	long maxiter = 0;		/* real max # iterations */
+X
+X	double * dblptr;		/* pointer for doubleword test */
+X
+X	extern char end;		/* memory before heap */
+X	char *sbrk();
+X	long atol();
+X	union dbmalloptarg m;
+X
+X#ifdef HAS_VADVISE
+X	/* your milage may vary... */
+X	vadvise( VA_ANOM );
+X#endif
+X
+X	/*
+X	 * test that allocation can be used for doubleword manipulation
+X	 */
+X	dblptr = (double *) malloc(sizeof(double));
+X	if( (dblptr == 0) || ((*dblptr=10.0) != 10.0) )
+X	{
+X		fprintf(stderr,"Doubleword test failed\n");
+X		exit(1);
+X	}
+X	free( (DATATYPE *) dblptr);
+X
+X	if (argc > 1)
+X		maxiter = atol (argv[1]);
+X	if (maxiter <= 0)
+X		maxiter = MAXITER;
+X
+X	printf("MAXITER %ld MAXOBJS %d ", maxiter, MAXOBJS );
+X	printf("BIGOBJ %ld, TINYOBJ %d, nbig/ntiny 1/%d\n",
+X	BIGOBJ, TINYOBJ, BIGMOD );
+X	fflush( stdout );
+X
+X	if( NULL == (objs = (int **)calloc( MAXOBJS, sizeof( *objs ) ) ) )
+X	{
+X		fprintf(stderr, "Can't allocate memory for objs array\n");
+X		exit(1);
+X	}
+X
+X	if( NULL == ( sizes = (SIZETYPE *)calloc( MAXOBJS, sizeof( *sizes ) ) ))
+X	{
+X		fprintf(stderr, "Can't allocate memory for sizes array\n");
+X		exit(1);
+X	}
+X
+X	/* as per recent discussion on net.lang.c, calloc does not 
+X	** necessarily fill in NULL pointers...
+X	*/
+X	for( i = 0; i < MAXOBJS; i++ )
+X		objs[ i ] = NULL;
+X
+X	startsize = sbrk(0) - &end;
+X	printf( "Memory use at start: %ld bytes\n", startsize );
+X	fflush(stdout);
+X
+X	printf("Starting the test...\n");
+X	fflush(stdout);
+X	for( n = 0; n < maxiter ; n++ )
+X	{
+X		if( !(n % STATMOD) )
+X		{
+X			printf("%ld iterations\n", n);
+X			fflush(stdout);
+X		}
+X
+X		/* determine object of interest and its size */
+X
+X		r = random();
+X		objmax = ( r % BIGMOD ) ? TINYOBJ : BIGOBJ;
+X		size = r % objmax;
+X		i = r % (MAXOBJS - 1);
+X
+X		/*
+X		 * make sure size is at least one byte
+X		 */
+X		if( size == 0 )
+X		{
+X			size++;
+X		}
+X		/* either replace the object or get a new one */
+X
+X		if( objs[ i ] == NULL )
+X		{
+X			if( (i % 5) == 0 )
+X			{
+X				objs[ i ] = (int *)memalign(1024, size );
+X			}
+X			else if( (i % 4) == 0 )
+X			{
+X				objs[ i ] = (int *)calloc(1, size );
+X			}
+X			else if( (i%3) == 0 )
+X			{
+X				objs[ i ] = (int *)XtCalloc(1, size );
+X			}
+X			else if( (i%2) == 0 )
+X			{
+X				objs[ i ] = (int *)XtMalloc( size );
+X			}
+X			else
+X			{
+X				objs[ i ] = (int *)malloc( size );
+X			}
+X			nm++;
+X		}
+X		else
+X		{
+X			/* don't keep bigger objects around */
+X			if( size > sizes[ i ] )
+X			{
+X				if( (i & 0x01) == 0 )
+X				{
+X					objs[ i ] = (int *)realloc(
+X					        (DATATYPE *) objs[ i ], size );
+X				}
+X				else
+X				{
+X					objs[ i ] = (int *)XtRealloc(
+X					        (DATATYPE *) objs[ i ], size );
+X				}
+X				nre++;
+X			}
+X			else
+X			{
+X				if( (i & 0x01) == 0 )
+X				{
+X					free( (DATATYPE *) objs[ i ] );
+X				}
+X				else
+X				{
+X					XtFree( (DATATYPE *) objs[ i ] );
+X				}
+X				objs[ i ] = (int *)malloc( size );
+X				nm++;
+X			}
+X		}
+X
+X		sizes[ i ] = size;
+X		if( objs[ i ] == NULL )
+X		{
+X			printf("\nCouldn't allocate %ld byte object!\n", 
+X				size );
+X			break;
+X		}
+X	} /* for() */
+X
+X	printf( "\n" );
+X	cnt = 0;
+X	for( i = 0; i < MAXOBJS; i++ )
+X		if( objs[ i ] )
+X			cnt++;
+X
+X	printf( "Did %ld iterations, %d objects, %d mallocs, %d reallocs\n",
+X		n, cnt, nm, nre );
+X	printf( "Memory use at end: %ld bytes\n", sbrk(0) - &end );
+X	fflush( stdout );
+X
+X	/* free all the objects */
+X	for( i = 0; i < MAXOBJS; i++ )
+X	{
+X		if( objs[ i ] != NULL )
+X		{
+X				if( (i & 0x01) == 0 )
+X				{
+X					free( (DATATYPE *) objs[ i ] );
+X				}
+X				else
+X				{
+X					XtFree( (DATATYPE *) objs[ i ] );
+X				}
+X		}
+X	}
+X
+X	endsize = sbrk(0) - &end;
+X	printf( "Memory use after free: %ld bytes\n", endsize );
+X	fflush( stdout );
+X
+X	if( startsize != endsize )
+X		printf("startsize %ld != endsize %d\n", startsize, endsize );
+X
+X	free( (DATATYPE *) objs );
+X	free( (DATATYPE *) sizes );
+X
+X	/*
+X	 * make sure detail mode is enabled
+X	 */	
+X	m.i = 1;
+X	dbmallopt(MALLOC_DETAIL,&m);
+X
+X	malloc_dump(2);
+X	exit( 0 );
+X	/*NOTREACHED*/
+X}
+X
+X/*
+X * Fake X Windows stuff in order to get xmalloc stuff to link correctly.
+X */
+Xchar * XtCXtToolkitError = "junk string";
+Xint
+XXtErrorMsg()
+X{
+X	return(0);
+X}
+END_OF_FILE
+if test 5910 -ne `wc -c <'testmalloc.c'`; then
+    echo shar: \"'testmalloc.c'\" unpacked with wrong size!
+fi
+# end of 'testmalloc.c'
+fi
+if test -f 'tostring.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tostring.c'\"
+else
+echo shar: Extracting \"'tostring.c'\" \(4106 characters\)
+sed "s/^X//" >'tostring.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#include "tostring.h"
+X#include "mallocin.h"
+X
+X/*
+X * Function:	tostring()
+X *
+X * Purpose:	to convert an integer to an ascii display string
+X *
+X * Arguments:	buf	- place to put the 
+X *		val	- integer to convert
+X *		len	- length of output field (0 if just enough to hold data)
+X *		base	- base for number conversion (only works for base <= 16)
+X *		fill	- fill char when len > # digits
+X *
+X * Returns:	length of string
+X *
+X * Narrative:	IF fill character is non-blank
+X *		    Determine base
+X *		        If base is HEX
+X *		            add "0x" to begining of string
+X *		        IF base is OCTAL
+X *		            add "0" to begining of string
+X *
+X *		While value is greater than zero
+X *		    use val % base as index into xlation str to get cur char
+X *		    divide val by base
+X *
+X *		Determine fill-in length
+X *
+X *		Fill in fill chars
+X *
+X *		Copy in number
+X *		
+X *
+X * Mod History:	
+X *   90/01/24	cpcahil		Initial revision.
+X */
+X
+X#ifndef lint
+Xstatic
+Xchar rcs_hdr[] = "$Id: tostring.c,v 1.9 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X#define T_LEN 15
+X
+Xint
+Xtostring(buf,val,len,base,fill)
+X	char		* buf;
+X	unsigned long	  val;
+X	int		  len;
+X	int		  base;
+X	char		  fill;
+X	
+X{
+X	char		* bufstart = buf;
+X	int		  filled = 0;
+X	int		  i = T_LEN;
+X	CONST char	* xbuf = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+X	char		  tbuf[T_LEN];
+X
+X	/*
+X	 * if we are filling with non-blanks, make sure the
+X	 * proper start string is added
+X	 */
+X	if( fill != ' ' )
+X	{
+X		switch(base)
+X		{
+X			case B_HEX:
+X				if( (len == 0) ||  (len > 2) )
+X				{
+X					filled = 2;
+X					*(buf++) = '0';
+X					*(buf++) = 'x';
+X					if( len )
+X					{
+X						len -= 2;
+X					}
+X				}
+X				break;
+X			case B_OCTAL:
+X				*(buf++) = fill;
+X				if( len )
+X				{
+X					len--;
+X				}
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X
+X	/*
+X	 * convert the value to a string
+X	 */
+X	do
+X	{
+X		tbuf[--i] = xbuf[val % (unsigned long)base];
+X		val = val / (unsigned long)base;
+X	}
+X	while( val > 0 );
+X
+X
+X	if( len )
+X	{
+X		len -= (T_LEN - i);
+X
+X		/*
+X		 * if we are out of room and we already filled in some of the
+X		 * output buffer (usually 0x for hex output), strip the pre-fill
+X		 * so that we get as much data as we can.
+X		 */
+X		if( (len < 0) && filled )
+X		{
+X			len += filled;
+X			buf -= filled;
+X		}
+X
+X		if( len > 0 )
+X		{
+X			while(len-- > 0)
+X			{
+X				*(buf++) = fill;
+X			}
+X		}
+X		else
+X		{
+X			/* 
+X			 * string is too long so we must truncate
+X			 * off some characters.  We do this the easiest
+X			 * way by just incrementing i.  This means the
+X			 * most significant digits are lost.
+X			 */
+X			while( len++ < 0 )
+X			{
+X				i++;
+X			}
+X		}
+X	}
+X
+X	while( i < T_LEN )
+X	{
+X		*(buf++) = tbuf[i++];
+X	}
+X
+X	return( (int) (buf - bufstart) );
+X
+X} /* tostring(... */
+X
+X/*
+X * $Log: tostring.c,v $
+X * Revision 1.9  1992/08/22  16:27:13  cpcahil
+X * final changes for pl14
+X *
+X * Revision 1.8  1992/05/08  02:30:35  cpcahil
+X * minor cleanups from minix/atari port
+X *
+X * Revision 1.7  1992/04/14  02:27:30  cpcahil
+X * adjusted output of pointes so that values that had the high bit
+X * set would print correctly.
+X *
+X * Revision 1.6  1992/04/13  03:06:33  cpcahil
+X * Added Stack support, marking of non-leaks, auto-config, auto-testing
+X *
+X * Revision 1.5  1991/11/25  14:42:06  cpcahil
+X * Final changes in preparation for patch 4 release
+X *
+X * Revision 1.4  90/05/11  00:13:11  cpcahil
+X * added copyright statment
+X * 
+X * Revision 1.3  90/02/24  21:50:33  cpcahil
+X * lots of lint fixes
+X * 
+X * Revision 1.2  90/02/24  17:29:42  cpcahil
+X * changed $Header to $Id so full path wouldnt be included as part of rcs 
+X * id string
+X * 
+X * Revision 1.1  90/02/22  23:17:44  cpcahil
+X * Initial revision
+X * 
+X */
+END_OF_FILE
+if test 4106 -ne `wc -c <'tostring.c'`; then
+    echo shar: \"'tostring.c'\" unpacked with wrong size!
+fi
+# end of 'tostring.c'
+fi
+if test -f 'xheap.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xheap.c'\"
+else
+echo shar: Extracting \"'xheap.c'\" \(3940 characters\)
+sed "s/^X//" >'xheap.c' <<'END_OF_FILE'
+X
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#ifndef lint
+Xstatic char rcs_hdr[] = "$Id: xheap.c,v 1.4 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X/***********************************************************
+XCopyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/*
+X * X Toolkit Memory Allocation Routines
+X *
+X * Uses Xlib memory management, which is spec'd to be re-entrant.
+X */
+X
+X#if FOUND_X_INTRINSIC
+X#include "X11/Intrinsic.h"
+X#endif
+X
+X#include "mallocin.h"
+X
+X#ifndef NULL
+X#define NULL ((char *)0)
+X#endif
+X
+Xvoid _XtHeapInit(heap)
+X    Heap*	heap;
+X{
+X    heap->start = NULL;
+X    heap->bytes_remaining = 0;
+X}
+X
+X#ifndef HEAP_SEGMENT_SIZE
+X#define HEAP_SEGMENT_SIZE 1492
+X#endif
+X
+Xchar* _XtHeapAlloc(heap, bytes)
+X    Heap*	heap;
+X    Cardinal	bytes;
+X{
+X    register char* heap_loc;
+X    if (heap == (Heap *) NULL) return XtMalloc(bytes);
+X    if (heap->bytes_remaining < (int)bytes) {
+X	if ((bytes + sizeof(char*)) >= (HEAP_SEGMENT_SIZE>>1)) {
+X	    /* preserve current segment; insert this one in front */
+X#ifdef _TRACE_HEAP
+X	    printf( "allocating large segment (%d bytes) on heap %#x\n",
+X		    bytes, heap );
+X#endif
+X	    heap_loc = XtMalloc(bytes + sizeof(char*));
+X	    if (heap->start) {
+X		*(char**)heap_loc = *(char**)heap->start;
+X		*(char**)heap->start = heap_loc;
+X	    }
+X	    else {
+X		*(char**)heap_loc = NULL;
+X		heap->start = heap_loc;
+X	    }
+X	    return heap_loc + sizeof(char*);
+X	}
+X	/* else discard remainder of this segment */
+X#ifdef _TRACE_HEAP
+X	printf( "allocating new segment on heap %#x\n", heap );
+X#endif
+X	heap_loc = XtMalloc((unsigned)HEAP_SEGMENT_SIZE);
+X	*(char**)heap_loc = heap->start;
+X	heap->start = heap_loc;
+X	heap->current = heap_loc + sizeof(char*);
+X	heap->bytes_remaining = HEAP_SEGMENT_SIZE - sizeof(char*);
+X    }
+X#ifdef WORD64
+X    /* round to nearest 8-byte boundary */
+X    bytes = (bytes + 7) & (~7);
+X#else
+X    /* round to nearest 4-byte boundary */
+X    bytes = (bytes + 3) & (~3);
+X#endif /* WORD64 */
+X    heap_loc = heap->current;
+X    heap->current += bytes;
+X    heap->bytes_remaining -= bytes; /* can be negative, if rounded */
+X    return heap_loc;
+X}
+X
+Xvoid _XtHeapFree(heap)
+X    Heap*	heap;
+X{
+X    char* segment = heap->start;
+X    while (segment != NULL) {
+X	char* next_segment = *(char**)segment;
+X	XtFree(segment);
+X	segment = next_segment;
+X    }
+X    heap->start = NULL;
+X    heap->bytes_remaining = 0;
+X}
+END_OF_FILE
+if test 3940 -ne `wc -c <'xheap.c'`; then
+    echo shar: \"'xheap.c'\" unpacked with wrong size!
+fi
+# end of 'xheap.c'
+fi
+if test -f 'xmalloc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xmalloc.c'\"
+else
+echo shar: Extracting \"'xmalloc.c'\" \(4617 characters\)
+sed "s/^X//" >'xmalloc.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1990, 1991, 1992 Conor P. Cahill (cpcahil@virtech.vti.com)
+X *
+X * This software may be distributed freely as long as the following conditions
+X * are met:
+X * 		* the distribution, or any derivative thereof, may not be
+X *		  included as part of a commercial product
+X *		* full source code is provided including this copyright
+X *		* there is no charge for the software itself (there may be
+X *		  a minimal charge for the copying or distribution effort)
+X *		* this copyright notice is not modified or removed from any
+X *		  source file
+X */
+X#ifndef lint
+Xstatic char rcs_hdr[] = "$Id: xmalloc.c,v 1.7 1992/08/22 16:27:13 cpcahil Exp $";
+X#endif
+X
+X/* $XConsortium: Alloc.c,v 1.46 91/07/30 11:04:41 rws Exp $ */
+X
+X/***********************************************************
+XCopyright 1987, 1988 by Digital Equipment Corporation, Maynard, Massachusetts,
+Xand the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital or MIT not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X#include <stdio.h>
+X
+X#include "sysdefs.h"
+X
+X#if FOUND_X_INTRINSIC
+X#include "X11/Intrinsic.h"
+X#endif
+X
+X#include "mallocin.h"
+X
+Xvoid _XtAllocError(type)
+X    CONST char * type;
+X{
+X    Cardinal num_params = 1;
+X    extern String XtCXtToolkitError;
+X
+X    if (type == NULL) type = "local memory allocation";
+X    XtErrorMsg("allocError", type, XtCXtToolkitError,
+X	       "Cannot perform %s", &type, &num_params);
+X}
+X
+Xvoid
+X_XtBCopy(b1, b2, length)
+X	char		* b1;
+X	char		* b2;
+X	int		  length;
+X{
+X	DBFmemcpy("_XtBCopy", (char *)NULL, 0, b2, b1, (MEMSIZE)length);
+X}
+X
+Xvoid
+Xdebug_XtBcopy(file, line, b1, b2, length)
+X	char 		* file;
+X	int		  line;
+X	char		* b1;
+X	char		* b2;
+X	int		  length;
+X{
+X	DBFmemcpy("_XtBCopy", file, line, b2, b1, (MEMSIZE) length);
+X}
+X
+Xchar *
+XXtMalloc(size)
+X	unsigned int	  size;
+X{
+X	return( debug_XtMalloc((char *)NULL, 0, size) );
+X}
+X
+Xchar *
+Xdebug_XtMalloc(file,line,size)
+X	CONST char	* file;
+X	int		  line;
+X	unsigned int	  size;
+X{
+X	static IDTYPE	  call_counter;
+X	char		* ptr;
+X
+X	/*
+X	 * increment call counter
+X	 */
+X	call_counter++;
+X
+X	ptr = (char *) DBFmalloc("XtMalloc",M_T_XTMALLOC, call_counter,
+X				  file, line, (SIZETYPE)size);
+X
+X	if( ptr == NULL )
+X	{
+X        	_XtAllocError("malloc");
+X	}
+X
+X	return(ptr);
+X}
+X
+Xchar *
+XXtRealloc(ptr, size)
+X	char		* ptr;
+X	unsigned int	  size;
+X{
+X	return( debug_XtRealloc((char *)NULL,0,ptr,size) );
+X}
+X
+Xchar *
+Xdebug_XtRealloc(file,line,ptr, size)
+X	CONST char	* file;
+X	int		  line;
+X	char   		* ptr;
+X	unsigned int	  size;
+X{
+X	static IDTYPE	  call_counter;
+X
+X	/*
+X	 * increment call counter
+X	 */
+X	call_counter++;
+X	
+X	ptr = (char *) DBFrealloc("XtRealloc",M_T_XTREALLOC, call_counter,
+X				  file,line,ptr,(SIZETYPE)size);
+X
+X	if( ptr == NULL )
+X	{
+X        	_XtAllocError("realloc");
+X	}
+X
+X	return(ptr);
+X}
+X
+Xchar *
+XXtCalloc(num, size)
+X	unsigned int	  num;
+X	unsigned int	  size;
+X{
+X	return( debug_XtCalloc((char *)NULL, 0, num,size) );
+X}
+X
+Xchar *
+Xdebug_XtCalloc(file,line,num,size)
+X	CONST char	* file;
+X	int		  line;
+X	unsigned int	  num;
+X	unsigned int	  size;
+X{
+X	static IDTYPE	  call_counter;
+X	char		* ptr;
+X
+X	/*
+X	 * increment call counter
+X	 */
+X	call_counter++;
+X
+X	ptr = (char *) DBFcalloc("XtCalloc",M_T_XTCALLOC, call_counter,
+X				  file,line,(SIZETYPE)num,(SIZETYPE)size);
+X
+X	if( ptr == NULL )
+X	{
+X        	_XtAllocError("calloc");
+X	}
+X
+X	return(ptr);
+X}
+X
+Xvoid
+XXtFree(ptr)
+X	char	* ptr;
+X{
+X	debug_XtFree( (char *) NULL, 0, ptr);
+X}
+X
+Xvoid
+Xdebug_XtFree(file,line,ptr)
+X	CONST char 	* file;
+X	int		  line;
+X	char		* ptr;
+X{
+X	static IDTYPE	  call_counter;
+X	
+X	/*
+X	 * increment call counter
+X	 */
+X	call_counter++;
+X
+X	DBFfree("XtFree",F_T_XTFREE,call_counter,file,line,ptr);
+X}
+X
+X
+X#ifndef DONT_FORCE_HEAPSTUFF
+X
+Xvoid
+XNeverCalledFunctionFromAnywhere()
+X{
+X	_XtHeapInit(NULL);
+X}
+X
+X#endif
+X
+END_OF_FILE
+if test 4617 -ne `wc -c <'xmalloc.c'`; then
+    echo shar: \"'xmalloc.c'\" unpacked with wrong size!
+fi
+# end of 'xmalloc.c'
+fi
+echo shar: End of archive 9 \(of 10\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+*** SENTINEL(tm) The ultimate Debugging Environment - email for more info ***
+
+Conor P. Cahill              (703)430-9247            cpcahil@virtech.vti.com
+Virtual Technologies, Inc.  46030 Manekin Plaza          Dulles, VA 21066 
+
+exit 0 # Just in case...

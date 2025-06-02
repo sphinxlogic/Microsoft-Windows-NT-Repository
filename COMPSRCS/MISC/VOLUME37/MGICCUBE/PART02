@@ -1,0 +1,2086 @@
+Newsgroups: comp.sources.misc
+From: fleurant@hri.com (P.Fleurant)
+Subject: v37i039:  magiccube - a cube simulator for X11/Motif, Part02/05
+Message-ID: <1993May10.212951.28595@sparky.imd.sterling.com>
+X-Md4-Signature: 11cffb8e3e79fa190532e258f24adf1d
+Date: Mon, 10 May 1993 21:29:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: fleurant@hri.com (P.Fleurant)
+Posting-number: Volume 37, Issue 39
+Archive-name: magiccube/part02
+Environment: X11, Motif, ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  cube/cube.c
+# Wrapped by kent@sparky on Mon May 10 16:15:40 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'cube/cube.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cube/cube.c'\"
+else
+  echo shar: Extracting \"'cube/cube.c'\" \(58594 characters\)
+  sed "s/^X//" >'cube/cube.c' <<'END_OF_FILE'
+X/*
+X * cube.c: This is a cube solver and model of magic cube
+X *The following references were used:
+X   "The X Window System Programming And Applications with Xt
+X   OSF/MOTIF EDITION"
+X   by Douglas A Young 
+X   Prentice-Hall, 1990.
+X   ISBN 0-13-642786-3
+X
+X   "Mastering Rubik's Cube"
+X   by Don Taylor
+X   An Owl Book; Holt, Rinehart and Winston, New York, 1980
+X   ISBN 0-03-059941-5
+X
+X-------------------------------------------------------------------
+XCopyright (C) 1993 by Pierre A. Fleurant
+XPermission is granted to copy and distribute this program
+Xwithout charge, provided this copyright notice is included
+Xin the copy.
+XThis Software is distributed on an as-is basis. There will be
+XABSOLUTELY NO WARRANTY for any part of this software to work
+Xcorrect. In no case will the author be liable to you for damages
+Xcaused by the usage of this software.
+X-------------------------------------------------------------------
+X */
+X
+X#include "cube.h"
+X#include "common.h"
+X
+Xmain(argc, argv)
+X   int   argc;
+X   char *argv[];
+X{
+X  Widget        toplevel, canvas, framework, command, menubar;
+X  Widget        help_button,init_cubik, pristine_button, quit_button;
+X  Widget        solve_it_button, load_file_button;
+X  graphics_data data;
+X  int           n;
+X  Arg           wargs[10];
+X  widget_data   wdata;
+X
+X  /* init toolkit, create application context,
+X   * open display, create shell. This could be replaced 
+X   * by XtInitialize but we need appContext for other functions.
+X   */
+X  XtToolkitInitialize();
+X  appContext = XtCreateApplicationContext();
+X  xDisplay = XtOpenDisplay(appContext, "", argv[0], "MagicCb", NULL,0,
+X			   &argc, argv);
+X  toplevel = XtAppCreateShell(appContext, "MagicCube",
+X			      applicationShellWidgetClass,
+X			      xDisplay,NULL,0);
+X  /* put title into arg list */
+X  /* set title */
+X  n=0;
+X  XtSetArg(wargs[n], XtNtitle,"magicCube"); n++;
+X  XtSetArg(wargs[n], XtNiconName,"magicCube"); n++;
+X  XtSetValues(toplevel,wargs, n);
+X  
+X  /* Create and Manage widgets */
+X  framework = XtCreateManagedWidget("framework", 
+X                                    xmFormWidgetClass, 
+X                                    toplevel, NULL, 0);
+X  /*
+X   * Create the column to hold the commands.
+X   */
+X  command = XtCreateManagedWidget("command", 
+X                                  xmRowColumnWidgetClass, 
+X                                  framework, NULL, 0);
+X  
+X  /* add help button and help callbacks */
+X  help_button = XtCreateManagedWidget("Help",
+X                                      xmPushButtonWidgetClass,
+X                                      command, NULL, 0);
+X  XtAddCallback(help_button, XmNactivateCallback,
+X                xs_help_callback, tophelp_str);
+X  
+X  /* add init_cubik button callback */
+X  init_cubik = XtCreateManagedWidget("Init Cube",
+X                                      xmPushButtonWidgetClass,
+X                                      command, NULL, 0);
+X  XtAddCallback(init_cubik, XmNactivateCallback,
+X                xcube_init_cubik, &wdata);
+X
+X  /*
+X   * Create and manage a menubar.
+X   */
+X  menubar = XmCreateMenuBar(command, "menubar", NULL, 0);
+X  XtManageChild(menubar); 
+X
+X  /* add solve it button and solve it button  callbacks */
+X  solve_it_button = XtCreateManagedWidget("Solve",
+X                                      xmPushButtonWidgetClass,
+X                                      command, NULL, 0);
+X  XtAddCallback(solve_it_button, XmNactivateCallback,
+X                taylor, &wdata);
+X  
+X  /* add load_file_button and load_file_button callbacks */
+X  load_file_button = XtCreateManagedWidget("Load File",
+X                                      xmPushButtonWidgetClass,
+X                                      command, NULL, 0);
+X  XtAddCallback(load_file_button, XmNactivateCallback,
+X                ldfile, &wdata);   /* load  file */
+X  
+X  /* add pristine and quit buttons */
+X  /* This should be the last twoo buttons */
+X  pristine_button = XtCreateManagedWidget("Pristine",
+X					  xmPushButtonWidgetClass,
+X					  command, NULL, 0);
+X  XtAddCallback(pristine_button, XmNactivateCallback,
+X                init_cube, &wdata);
+X  
+X  quit_button = XtCreateManagedWidget("Quit",
+X                                      xmPushButtonWidgetClass,
+X                                      command, NULL, 0);
+X  XtAddCallback(quit_button, XmNactivateCallback,
+X                quit_it, &wdata);
+X  
+X  
+X  /*
+X   * Create the drawing surface
+X   */
+X  canvas = XtCreateManagedWidget("canvas",
+X                                 xmDrawingAreaWidgetClass, 
+X                                 framework, NULL, 0);
+X
+X  XtAddEventHandler(canvas, ButtonPressMask, FALSE,
+X                    init_subplane_pattern, &wdata);
+X  /*
+X   * Create the menu from the description.
+X   */
+X  xss_create_menu_buttons(NULL, menubar, PulldownData,
+X                         XtNumber(PulldownData),&wdata);
+X  /* add the call backs for the canvas */
+X  XtAddCallback(canvas, XmNexposeCallback, refresh_cube, &wdata);
+X
+X  /* specify form */
+X  n = 0;
+X  XtSetArg(wargs[n], XmNtopAttachment,    XmATTACH_FORM);n++;
+X  XtSetArg(wargs[n], XmNbottomAttachment, XmATTACH_FORM);n++;
+X  XtSetArg(wargs[n], XmNleftAttachment,   XmATTACH_FORM);n++;
+X  XtSetValues(command, wargs, n);
+X
+X  n = 0;
+X  XtSetArg(wargs[n], XmNtopAttachment,   XmATTACH_FORM);  n++;
+X  XtSetArg(wargs[n], XmNbottomAttachment,XmATTACH_FORM);  n++;
+X  XtSetArg(wargs[n], XmNleftAttachment,  XmATTACH_WIDGET);n++;
+X  XtSetArg(wargs[n], XmNleftWidget,     command);         n++;
+X  XtSetArg(wargs[n], XmNrightAttachment,  XmATTACH_FORM); n++;
+X  XtSetValues(canvas, wargs, n);
+X
+X  /*
+X   * Initialize the graphics buffer and other data.
+X   */
+X  /* init wdata stuff */
+X  wdata.toplevel = toplevel;
+X  wdata.canvas = canvas;
+X  wdata.graph_pointer = &data;
+X  init_data(canvas, &data, &wdata);
+X
+X  /*
+X   * Register the seed colors as new patterns 
+X   * in preparation for pixmap browser
+X   */
+X  for(n=0; n < XtNumber(seed_color); n++)
+X    xs_register_pattern(toplevel, seed_color[n], fg_bitmap,
+X			fg_width, fg_height);
+X  
+X  XtRealizeWidget(toplevel);
+X  init_cube(canvas, &wdata, NULL);
+X
+X  /*
+X   * Establish a passive grab on the drawing canvas window.
+X   */
+X  XGrabButton(XtDisplay(canvas), AnyButton, AnyModifier, 
+X              XtWindow(canvas), TRUE, 
+X              ButtonPressMask | ButtonMotionMask | 
+X              ButtonReleaseMask,
+X              GrabModeAsync, GrabModeAsync,
+X              XtWindow(canvas), 
+X              XCreateFontCursor(XtDisplay(canvas),
+X                                XC_crosshair));
+X  XtInstallAllAccelerators(canvas,framework);
+X  XtAppMainLoop(appContext);
+X}
+X
+Xinit_data(w, data, wdata)
+X     Widget          w;
+X     graphics_data  *data;
+X     widget_data    *wdata;
+X{
+X  XGCValues       values;
+X  Arg             wargs[5];
+X  int             i,j,n;
+X  XPoint          short_face[NUM_SUBPLANES][5];
+X  double_XPoint   tmp0_face[NUM_SUBPLANES][5];
+X  
+X  /*
+X   * Get the colors the user has set for the widget. 
+X   */
+X  XtSetArg(wargs[0], XtNforeground, &data->foreground);
+X  XtSetArg(wargs[1], XtNbackground, &data->background);
+X  XtGetValues(w, wargs,2);
+X  /*
+X   * Fill in the values structure
+X   */  
+X  values.foreground = data->foreground;
+X  values.background = data->background;
+X  values.fill_style = FillTiled;
+X  /*
+X   * Get the GC used for lines in the cube
+X   */
+X  data->gc_line = XtGetGC(w, 
+X			  GCForeground | GCBackground | GCFillStyle,
+X			  &values);
+X  /* 
+X   * Get a gc for each subface_color. This will be used
+X   * when using XFillPolygon.
+X   */
+X  for(i=0;i<9;i++){
+X    for(j=0;j<6;j++){
+X      values.foreground = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.background = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.fill_style = FillTiled;
+X      wdata->subface_gc[i][j] =	XtGetGC(w,
+X					GCForeground | GCBackground | GCFillStyle,
+X					&values);
+X    }
+X  }
+X  /* init pixmap stuff */
+X  /*
+X   * Get the size of the drawing area.
+X   */
+X  n=0;
+X  XtSetArg(wargs[n], XtNwidth,  &wdata->width); n++;
+X  XtSetArg(wargs[n], XtNheight, &wdata->height); n++;
+X  XtGetValues(w, wargs, n); 
+X  
+X  /*
+X   * Create a default, writable, graphics context.
+X   */
+X  wdata->gc = XCreateGC(XtDisplay(w),
+X			DefaultRootWindow(XtDisplay(w)),
+X			NULL, NULL); 
+X  /*
+X   *  Initialize the pixmap to NULL.
+X   */
+X  wdata->pix = NULL;
+X
+X  /* convert seed_face from CoordModePrevious to CoordModeOrigin */
+X  prev_to_org(seed_face);
+X  facecpy(cubik_face,seed_face); /* init cubik face: prestine */
+X  /* init */
+X  cubikcpy(front,seed_front);
+X  cubikcpy(left,seed_left);
+X  cubikcpy(right,seed_right);
+X  cubikcpy(back,seed_back);
+X  cubikcpy(top,seed_top);
+X  cubikcpy(bottom,seed_bottom);
+X  update_cubik(wdata);
+X
+X  /* The following are used for align_subfaces in init_cubik */
+X  init_cornermap();
+X  init_edgemap(); 
+X
+X  /* init regions for init_subplane_pattern callback */
+X  /* generate a prestine short_face for 
+X  /* values to regular XPoint array */
+X  facecpy(rot_face,seed_face);
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  for(i=0; i<9; i++) 
+X    wdata->init_cubik_region[i] = XPolygonRegion(short_face[i],XtNumber(short_face[i]),WindingRule);
+X}
+X
+Xvoid quit_it(w, client_data, call_data)
+X     Widget   w;
+X     char    *client_data;
+X     caddr_t  call_data;
+X{
+X  XtCloseDisplay(XtDisplay(w));
+X  exit(0);
+X}
+X
+Xvoid clear_draw(w, wdata, call_data)
+X     Widget       w;
+X     widget_data *wdata;
+X     caddr_t      call_data;
+X{
+X  /* Clear the canvas */
+X  XClearArea(XtDisplay(wdata->toplevel), XtWindow(wdata->canvas), 0, 0, 0, 0, FALSE);
+X}
+X
+Xvoid xs_rot_face(rotated_face,src_face,size_rot_face,degrees)
+X     double_XPoint rotated_face[],*src_face;
+X     int size_rot_face;
+X     double degrees; 
+X{
+X  /* rotation of axis with fixed origin 
+X     x' = x cos(r) + y sin(r)
+X     y' = y cos(r) - x sin(r)
+X     
+X     180degree = PI radians
+X
+X     degrees:
+X
+X     /----------
+X     |     ^
+X     |     |
+X     |    /
+X     |   / degrees,      
+X     |  /  
+X     |--         
+X     |         
+X     |         
+X
+X     
+X   */
+X
+X  double_XPoint *tmp_xpoint;
+X  int i;
+X  double radians;
+X
+X  tmp_xpoint = src_face;
+X  radians = degrees * M_PI / 180.0;
+X  for(i=0; i < size_rot_face; i++) {
+X    rotated_face[i].x = (tmp_xpoint->x * cos(radians) + tmp_xpoint->y * sin(radians));
+X    rotated_face[i].y = (tmp_xpoint->y * cos(radians) - tmp_xpoint->x * sin(radians));
+X    rotated_face[i].z =  tmp_xpoint->z; 
+X    tmp_xpoint++;
+X  };
+X
+X}
+X
+Xvoid xs_spin_face(spin_face,src_face,size_spin_face,degrees)
+X     double_XPoint spin_face[],*src_face;
+X     int size_spin_face;
+X     double degrees; 
+X{
+X  /* rotation of z-axis with fixed origin 
+X   */
+X
+X  double_XPoint *tmp_xpoint;
+X  int i;
+X  double radians;
+X
+X  tmp_xpoint = src_face;
+X  radians = degrees * M_PI / 180.0;
+X  for(i=0; i < size_spin_face; i++) {
+X    spin_face[i].x = (tmp_xpoint->x * cos(radians) + tmp_xpoint->z * sin(radians));
+X    spin_face[i].y =  tmp_xpoint->y;
+X    spin_face[i].z = (tmp_xpoint->z * cos(radians) - tmp_xpoint->x * sin(radians));
+X    tmp_xpoint++;
+X  };
+X
+X}
+X
+Xvoid xs_flip_face(flip_face,src_face,size_flip_face,degrees)
+X     double_XPoint flip_face[],*src_face;
+X     int size_flip_face;
+X     double degrees; 
+X{
+X  /* rotation of x-axis with fixed origin 
+X   */
+X
+X  double_XPoint *tmp_xpoint;
+X  int i;
+X  double radians;
+X
+X  tmp_xpoint = src_face;
+X  radians = degrees * M_PI / 180.0;
+X  for(i=0; i < size_flip_face; i++) {
+X    flip_face[i].x =  tmp_xpoint->x;
+X    flip_face[i].y = (tmp_xpoint->y * cos(radians) + tmp_xpoint->z * sin(radians));
+X    flip_face[i].z = (tmp_xpoint->z * cos(radians) - tmp_xpoint->y * sin(radians));
+X    tmp_xpoint++;
+X  };
+X
+X}
+X
+Xvoid norm_face(dest_face)
+X     double_XPoint dest_face[NUM_SUBPLANES][5];
+X{
+X  /*old way: Normalize the 'rotated face' */
+X  /*new: just shift over into 'center' of window */
+X  int i,j;
+X
+X  for (i=0;i<=NUM_SUBPLANES-1;i++)
+X    for(j=0;j<=4;j++){
+X      dest_face[i][j].x += WINDOW_CENTER_X;
+X      dest_face[i][j].y += WINDOW_CENTER_Y;
+X    }
+X  
+X}
+X
+Xvoid facecpy(dest_face,src_face)
+X     double_XPoint dest_face[NUM_SUBPLANES][5],src_face[NUM_SUBPLANES][5];
+X{
+X  int i,j;
+X  
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    for(j=0;j<=4;j++){
+X      dest_face[i][j].x = src_face[i][j].x;
+X      dest_face[i][j].y = src_face[i][j].y;
+X      dest_face[i][j].z = src_face[i][j].z;
+X    }
+X}
+X
+Xvoid cubikcpy(dest_cubik,src_cubik)
+X     int dest_cubik[NUM_CUBIKPLANES],src_cubik[NUM_CUBIKPLANES];
+X{
+X  int i;
+X  
+X  for(i=0;i<=NUM_CUBIKPLANES-1;i++)
+X    dest_cubik[i] = src_cubik[i];
+X}
+X
+Xvoid lefthand_twist(src_cubik)
+X     int src_cubik[NUM_CUBIKPLANES];
+X{
+X  int temp_subplanes[NUM_CUBIKPLANES];
+X
+X  temp_subplanes[0]  = src_cubik[2];
+X  temp_subplanes[1]  = src_cubik[5];
+X  temp_subplanes[2]  = src_cubik[8];
+X  temp_subplanes[3]  = src_cubik[1];
+X  temp_subplanes[4]  = src_cubik[4];
+X  temp_subplanes[5]  = src_cubik[7];
+X  temp_subplanes[6]  = src_cubik[0];
+X  temp_subplanes[7]  = src_cubik[3];
+X  temp_subplanes[8]  = src_cubik[6];
+X  cubikcpy(src_cubik,temp_subplanes); 
+X
+X}
+X
+Xvoid righthand_twist(src_cubik)
+X     int src_cubik[NUM_CUBIKPLANES];
+X{
+X  int temp_subplanes[NUM_CUBIKPLANES];
+X
+X  temp_subplanes[0]  = src_cubik[6];
+X  temp_subplanes[1]  = src_cubik[3];
+X  temp_subplanes[2]  = src_cubik[0];
+X  temp_subplanes[3]  = src_cubik[7];
+X  temp_subplanes[4]  = src_cubik[4];
+X  temp_subplanes[5]  = src_cubik[1];
+X  temp_subplanes[6]  = src_cubik[8];
+X  temp_subplanes[7]  = src_cubik[5];
+X  temp_subplanes[8]  = src_cubik[2];
+X  cubikcpy(src_cubik,temp_subplanes); 
+X
+X}
+X
+Xvoid update_cubik(wdata)
+X     widget_data   *wdata;
+X{
+X  /* This updates xxx[9,10,...20]
+X   * interms of xxx[0,1,...8].
+X   * This is called after cubik() in cubik_xxxx(), and in align_subfaces
+X   *      
+X   */
+X
+X  int i;
+X  
+X  front[9]  = top[0];
+X  front[10] = top[1];
+X  front[11] = top[2];
+X 
+X  front[12] = right[0];
+X  front[13] = right[3];
+X  front[14] = right[6];
+X
+X  front[15] = bottom[0];
+X  front[16] = bottom[1];
+X  front[17] = bottom[2];
+X
+X  front[18] = left[0];
+X  front[19] = left[3];
+X  front[20] = left[6];
+X
+X  
+X  left[9]  = top[0];
+X  left[10] = top[3];
+X  left[11] = top[6];
+X
+X  left[12] = front[0];
+X  left[13] = front[3];
+X  left[14] = front[6];
+X
+X  left[15] = bottom[0];
+X  left[16] = bottom[3];
+X  left[17] = bottom[6];
+X
+X  left[18] = back[0];
+X  left[19] = back[3];
+X  left[20] = back[6];
+X  
+X
+X  right[9]  = top[2];
+X  right[10] = top[5];
+X  right[11] = top[8];
+X
+X  right[12] = front[2];
+X  right[13] = front[5];
+X  right[14] = front[8];
+X
+X  right[15] = bottom[2];
+X  right[16] = bottom[5];
+X  right[17] = bottom[8];
+X
+X  right[18] = back[2];
+X  right[19] = back[5];
+X  right[20] = back[8];
+X  
+X
+X  back[9]  = top[6];
+X  back[10] = top[7];
+X  back[11] = top[8];
+X
+X  back[12] = right[2];
+X  back[13] = right[5];
+X  back[14] = right[8];
+X
+X  back[15] = left[2];
+X  back[16] = left[5];
+X  back[17] = left[8];
+X
+X  back[18] = bottom[6];
+X  back[19] = bottom[7];
+X  back[20] = bottom[8];
+X  
+X
+X  top[9]  = front[0];
+X  top[10] = front[1];
+X  top[11] = front[2];
+X
+X  top[12] = right[0];
+X  top[13] = right[1];
+X  top[14] = right[2];
+X
+X  top[15] = left[0];
+X  top[16] = left[1];
+X  top[17] = left[2];
+X
+X  top[18] = back[0];
+X  top[19] = back[1];
+X  top[20] = back[2];
+X  
+X
+X  bottom[9]  = front[6];
+X  bottom[10] = front[7];
+X  bottom[11] = front[8];
+X
+X  bottom[12] = right[6];
+X  bottom[13] = right[7];
+X  bottom[14] = right[8];
+X
+X  bottom[15] = left[6];
+X  bottom[16] = left[7];
+X  bottom[17] = left[8];
+X
+X  bottom[18] = back[6];
+X  bottom[19] = back[7];
+X  bottom[20] = back[8];
+X
+X  /* update subface_side[][] */
+X  for(i=0; i<9; i++){
+X    wdata->subface_side[i][0] = front[i]    / 9;
+X    wdata->subface_side[i][1] = left[i]     / 9;
+X    wdata->subface_side[i][2] = right[i]    / 9;
+X    wdata->subface_side[i][3] = back[i]     / 9;
+X    wdata->subface_side[i][4] = top[i]      / 9;
+X    wdata->subface_side[i][5] = bottom[i]   / 9;
+X  }
+X}
+X
+Xvoid prev_to_org(seed_data)
+X     double_XPoint seed_data[NUM_SUBPLANES][5];
+X{
+X  double_XPoint tmp_data[NUM_SUBPLANES][5];
+X  int i,j;
+X
+X  for(i=0;i<=NUM_SUBPLANES-1;i++){
+X    tmp_data[i][0].x = seed_data[i][0].x;
+X    tmp_data[i][1].x = seed_data[i][0].x + seed_data[i][1].x;
+X    tmp_data[i][2].x = seed_data[i][0].x + seed_data[i][1].x + seed_data[i][2].x;
+X    tmp_data[i][3].x = seed_data[i][0].x + seed_data[i][1].x + seed_data[i][2].x + seed_data[i][3].x;
+X    tmp_data[i][4].x = seed_data[i][0].x + seed_data[i][1].x + seed_data[i][2].x + seed_data[i][3].x + seed_data[i][4].x;
+X    
+X    tmp_data[i][0].y = seed_data[i][0].y;
+X    tmp_data[i][1].y = seed_data[i][0].y + seed_data[i][1].y;
+X    tmp_data[i][2].y = seed_data[i][0].y + seed_data[i][1].y + seed_data[i][2].y;
+X    tmp_data[i][3].y = seed_data[i][0].y + seed_data[i][1].y + seed_data[i][2].y + seed_data[i][3].y;
+X    tmp_data[i][4].y = seed_data[i][0].y + seed_data[i][1].y + seed_data[i][2].y + seed_data[i][3].y + seed_data[i][4].y;
+X    
+X    tmp_data[i][0].z = seed_data[i][0].z;
+X    tmp_data[i][1].z = seed_data[i][0].z + seed_data[i][1].z;
+X    tmp_data[i][2].z = seed_data[i][0].z + seed_data[i][1].z + seed_data[i][2].z;
+X    tmp_data[i][3].z = seed_data[i][0].z + seed_data[i][1].z + seed_data[i][2].z + seed_data[i][3].z;
+X    tmp_data[i][4].z = seed_data[i][0].z + seed_data[i][1].z + seed_data[i][2].z + seed_data[i][3].z + seed_data[i][4].z;
+X  }
+X  facecpy(seed_data,tmp_data);
+X}
+X  
+Xvoid projface(dest_face,src_face)
+X     double_XPoint dest_face[NUM_SUBPLANES][5];
+X     double_XPoint src_face[NUM_SUBPLANES][5];
+X{
+X  double_XPoint tmp_face[NUM_SUBPLANES][5];
+X  int i,j;
+X  
+X  /* Project src_face onto the z=PROJECTION_DEPTH plane.
+X   */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    for(j=0;j<=4;j++){
+X      /* project onto z=PROJECTION_DEPTH plane */
+X      /* project with cube at origin, then shift back */
+X      dest_face[i][j].x = (src_face[i][j].x-MR_X-FACE0_WIDTH*1.5)/(src_face[i][j].z/PROJECTION_DEPTH +1)
+X                                          +(MR_X+FACE0_WIDTH*1.5);
+X      dest_face[i][j].y = (src_face[i][j].y-MR_Y-FACE0_HEIGHT*1.5)/(src_face[i][j].z/PROJECTION_DEPTH +1)
+X                                          +(MR_Y+FACE0_HEIGHT*1.5);
+X
+X      dest_face[i][j].z = src_face[i][j].z;
+X    }
+X}
+X
+Xvoid shortface(dest_face,src_face)
+X     XPoint dest_face[NUM_SUBPLANES][5];
+X     double_XPoint src_face[NUM_SUBPLANES][5];
+X{
+X  int i,j;
+X  
+X  /* Convert the double_XPoint array to a plain XPoint array.
+X   */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    for(j=0;j<=4;j++){
+X      /* Ignore the z plane */
+X      dest_face[i][j].x = (short) floor(src_face[i][j].x + .5);
+X      dest_face[i][j].y = (short) floor(src_face[i][j].y + .5);
+X    }
+X}
+X
+Xvoid depth_sort(draw_order,src_face)
+X     int draw_order[NUM_SUBPLANES];
+X     double_XPoint src_face[NUM_SUBPLANES][5];
+X{
+X  struct {
+X    double z_value;
+X    int    subplane_number;
+X  } sort_array[NUM_SUBPLANES];
+X  int gap,i,j,subplane_number_temp;
+X  double z_temp;
+X  
+X  /* Depth-sort algorthm for determining which faces are 
+X     to be drawn. 
+X     Draw_order gives the order of how the subplanes are to be drawn,
+X     given the subplane number. 0 is last, NUM_SUBPLANES-1 is first. The 
+X     side with the deepest z value gets drawn first.
+X     
+X     The z value of the center subface of each side is 
+X     sorted into asending order. 
+X     Then draw_order is set accordingly.
+X     */
+X  
+X  /* init sort_array
+X   */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++){
+X    sort_array[i].z_value = (src_face[i][0].z + src_face[i][2].z)/2; /* center point subplane */
+X    sort_array[i].subplane_number = i;
+X  }
+X  
+X  /* use Shell sort method to sort it out */
+X  for(gap = NUM_SUBPLANES/2; gap > 0; gap /= 2)
+X    for(i = gap; i < NUM_SUBPLANES; i++)
+X      for(j = i-gap;j >= 0 && sort_array[j].z_value > sort_array[j+gap].z_value;j -= gap){
+X	/* swap `em */
+X	z_temp = sort_array[j].z_value;
+X	sort_array[j].z_value = sort_array[j+gap].z_value;
+X	sort_array[j+gap].z_value = z_temp;
+X	subplane_number_temp = sort_array[j].subplane_number;
+X	sort_array[j].subplane_number = sort_array[j+gap].subplane_number;
+X	sort_array[j+gap].subplane_number = subplane_number_temp;
+X      }
+X  /* Copy the ascending order into draw_order.
+X   */
+X  for(i=0;i<NUM_SUBPLANES;i++)
+X    draw_order[i]= sort_array[i].subplane_number;
+X}
+X
+Xvoid draw_it(dpy, win, wdata, short_face,draw_order)
+X     Display *dpy;
+X     Window   win;
+X     widget_data *wdata;
+X     XPoint short_face[NUM_SUBPLANES][5];
+X     int draw_order[NUM_SUBPLANES];
+X{
+X  int i,k,l;
+X  Arg wargs[10];
+X
+X  /* process other events first */
+X  check_events();
+X
+X  /*
+X   *  Get the new window size.
+X   */
+X  XtSetArg(wargs[0], XtNwidth,  &wdata->width); 
+X  XtSetArg(wargs[1], XtNheight, &wdata->height);
+X  XtGetValues(wdata->canvas, wargs, 2);
+X
+X  /*
+X   *  Free the old pixmap and create a new pixmap 
+X   *  the size of the window.
+X   */
+X  if(wdata->pix)
+X    XFreePixmap(XtDisplay(wdata->canvas), wdata->pix);
+X  wdata->pix= XCreatePixmap(XtDisplay(wdata->canvas),
+X			    DefaultRootWindow(XtDisplay(wdata->canvas)),
+X			    (Dimension)wdata->width, (Dimension)wdata->height, 
+X			    DefaultDepthOfScreen(XtScreen(wdata->canvas)));
+X  XSetForeground(XtDisplay(wdata->canvas), wdata->gc,
+X                 WhitePixelOfScreen(XtScreen(wdata->canvas)));
+X  XFillRectangle(XtDisplay(wdata->canvas), wdata->pix, wdata->gc, 0, 0, 
+X                 (Dimension)wdata->width,  (Dimension)wdata->height);
+X  /*
+X   * draw the new cube
+X   */
+X  /* Draw all the subplanes in the draw order */
+X  for(i=NUM_SUBPLANES-1;i>=0;i--){
+X    k = draw_order[i] % 9;
+X    l = draw_order[i] / 9;
+X    XFillPolygon(dpy, wdata->pix, wdata->subface_gc[k][l],
+X		 short_face[draw_order[i]], XtNumber(short_face[draw_order[i]]),
+X		 Nonconvex,CoordModeOrigin);
+X    XDrawLines(dpy, wdata->pix, wdata->graph_pointer->gc_line,
+X	       short_face[draw_order[i]], XtNumber(short_face[draw_order[i]]),
+X	       CoordModeOrigin);
+X  }
+X  if(XtIsRealized(wdata->canvas) && Draw_Enable)
+X    XCopyArea(XtDisplay(wdata->canvas), wdata->pix, XtWindow(wdata->canvas), wdata->gc, 
+X	      0, 0, wdata->width, wdata->height, 
+X	      0, 0);
+X}
+X
+Xvoid rot_it(w, wdata, call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  Display *dpy = XtDisplay(wdata->canvas);
+X  Window   win = XtWindow(wdata->canvas);
+X  double_XPoint   tmp0_face[NUM_SUBPLANES][5];
+X  XPoint short_face[NUM_SUBPLANES][5];
+X  int draw_order[NUM_SUBPLANES];
+X  int i;
+X
+X  rot_angle += Delta_Angle;
+X  rot_angle %= 360;
+X/*  printf("rot=%d;  spin=%d;  flip=%d;\n",rot_angle,spin_angle,flip_angle);*/
+X
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  /* NUM_SUBPLANES subplanes  */ 
+X    xs_rot_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),Delta_Angle);
+X  facecpy(rot_face,tmp0_face);
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face); 
+X  depth_sort(draw_order,tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  draw_it(dpy, win, wdata, short_face,draw_order);
+X}
+X
+Xvoid flip_it(w, wdata, call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  Display *dpy = XtDisplay(wdata->canvas);
+X  Window   win = XtWindow(wdata->canvas);
+X  double_XPoint   tmp0_face[NUM_SUBPLANES][5];
+X  XPoint short_face[NUM_SUBPLANES][5];
+X  int draw_order[NUM_SUBPLANES];
+X  int i;
+X
+X  flip_angle += Delta_Angle;
+X  flip_angle %= 360;
+X/*  printf("rot=%d;  spin=%d;  flip=%d;\n",rot_angle,spin_angle,flip_angle);*/
+X
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  /* NUM_SUBPLANES subplanes  */ 
+X    xs_flip_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),Delta_Angle);
+X  facecpy(rot_face,tmp0_face);
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face);
+X  depth_sort(draw_order,tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  draw_it(dpy, win, wdata, short_face,draw_order);
+X}
+X
+Xvoid spin_it(w, wdata, call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  Display *dpy = XtDisplay(wdata->canvas);
+X  Window   win = XtWindow(wdata->canvas);
+X  double_XPoint   tmp0_face[NUM_SUBPLANES][5];
+X  XPoint short_face[NUM_SUBPLANES][5];
+X  int draw_order[NUM_SUBPLANES];
+X  int i;
+X
+X  spin_angle += Delta_Angle;
+X  spin_angle %= 360;
+X/*  printf("rot=%d;  spin=%d;  flip=%d;\n",rot_angle,spin_angle,flip_angle);*/
+X
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  /* NUM_SUBPLANES subplanes  */ 
+X    xs_spin_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),Delta_Angle);
+X  facecpy(rot_face,tmp0_face);
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face);
+X  depth_sort(draw_order,tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  draw_it(dpy, win, wdata, short_face,draw_order);
+X}
+X
+Xvoid init_cube(w, wdata, call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  Display *dpy = XtDisplay(wdata->canvas);
+X  Window   win = XtWindow(wdata->canvas);
+X  XPoint short_face[NUM_SUBPLANES][5];
+X  double_XPoint tmp0_face[NUM_SUBPLANES][5];
+X  int draw_order[NUM_SUBPLANES];
+X  XGCValues       values;
+X  int i,j;
+X  
+X  /* Init subplane_side[][] */
+X  /* This is used for init_cubik. */
+X  for(i=0; i < 6; i++)
+X    for(j=0; j < 9; j++)
+X      wdata->subface_side[j][i] = i;
+X  
+X  /* reset angles */
+X  rot_angle = 0;
+X  spin_angle = 0;
+X  flip_angle = 0;
+X  /* re-init subplanes' gc */
+X  /* 
+X   * Change gc for each subface_color. This will be used
+X   * when using XFillPolygon.
+X   */
+X  for(i=0;i<9;i++){
+X    for(j=0;j<6;j++){
+X      values.foreground = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.background = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.fill_style = FillTiled;
+X      wdata->subface_gc[i][j] = XtGetGC(w, 
+X					GCForeground | GCBackground | GCFillStyle,
+X					&values);
+X    }
+X  }
+X  
+X  /* init cubik face: prestine */
+X  facecpy(cubik_face,seed_face); 
+X  /* init */
+X  cubikcpy(front,seed_front);
+X  cubikcpy(left,seed_left);
+X  cubikcpy(right,seed_right);
+X  cubikcpy(back,seed_back);
+X  cubikcpy(top,seed_top);
+X  cubikcpy(bottom,seed_bottom);
+X  update_cubik(wdata);
+X  /* display the seed face only */
+X  /* values to regular XPoint array */
+X  facecpy(rot_face,seed_face);
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face);
+X  depth_sort(draw_order,tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  draw_it(dpy, win, wdata, short_face,draw_order);
+X}
+X
+Xvoid refresh_cube(w, wdata, call_data)
+X     Widget          w;
+X     widget_data     *wdata;
+X     XmDrawingAreaCallbackStruct    *call_data;
+X{
+X  XExposeEvent  *event = (XExposeEvent *) call_data->event;
+X  /*
+X   * Extract the exposed area from the event and copy
+X   * from the saved pixmap to the window.
+X   */
+X  if(XtIsRealized(wdata->canvas) && Draw_Enable)
+X    XCopyArea(XtDisplay(w), wdata->pix, XtWindow(w), wdata->gc, 
+X	      event->x, event->y, event->width, event->height, 
+X	      event->x, event->y);
+X}
+X
+X/*    cubik_front, cubik_left,...callbacks 
+X *    These operate on the cube to rotate only the
+X *    1/3 of the cube specified. 
+X *    Cubik is called 3 times for 3-30degree turns.
+X */
+Xvoid cubik_front(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,front,xs_rot_face);
+X
+X  /* Now points in plane 0 are in old plane 6,
+X   * points in plane 1, are in old plane 3 etc....
+X   * so the data must be swapped so that another 
+X   * op starts with the correct 'inited' cube.
+X   * Also the ->subface_gc[k][l] graphic contexts 
+X   * must be swapped.
+X   *  Instead of actually moving double_Xpoint and 
+X   * ->subface_gc[k][l] data 
+X   * around, we just transform front,
+X   * left etc.
+X   * After a cubik_front operation, front 
+X   * and the OTHER xxxx_subplane arrays that are affected
+X   * are updated-transformed.
+X   */
+X  lefthand_twist(front);
+X
+X  /* left, top, right, and bottom are affected */
+X  temp[0] = left[0];
+X  temp[3] = left[3];
+X  temp[6] = left[6];
+X
+X  left[0] = top[2];
+X  left[3] = top[1];
+X  left[6] = top[0];
+X
+X  top[0] = right[0]; 
+X  top[1] = right[3];
+X  top[2] = right[6];
+X
+X  right[0] = bottom[2];
+X  right[3] = bottom[1];
+X  right[6] = bottom[0];
+X
+X  bottom[0] = temp[0];
+X  bottom[1] = temp[3];
+X  bottom[2] = temp[6];
+X
+X  update_cubik(wdata);
+X}
+X
+Xvoid cubik_left(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,left,xs_flip_face);
+X  
+X  /* Now points in plane 0 are in old plane 6,
+X   * points in plane 1, are in old plane 3 etc....
+X   */
+X  righthand_twist(left);
+X
+X  /* other planes affected */
+X  temp[0] = front[0];
+X  temp[3] = front[3];
+X  temp[6] = front[6];
+X
+X  front[0] = bottom[0];
+X  front[3] = bottom[3];
+X  front[6] = bottom[6];
+X
+X  bottom[0] = back[6]; 
+X  bottom[3] = back[3];
+X  bottom[6] = back[0];
+X
+X  back[0] = top[0];
+X  back[3] = top[3];
+X  back[6] = top[6];
+X
+X  top[0] = temp[6];
+X  top[3] = temp[3];
+X  top[6] = temp[0];
+X
+X  update_cubik(wdata);
+X
+X}
+X
+Xvoid cubik_right(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,right,xs_flip_face);
+X  righthand_twist(right);
+X  /* other planes affected */
+X  temp[2] = front[2];
+X  temp[5] = front[5];
+X  temp[8] = front[8];
+X
+X  front[2] = bottom[2];
+X  front[5] = bottom[5];
+X  front[8] = bottom[8];
+X
+X  bottom[2] = back[8]; 
+X  bottom[5] = back[5];
+X  bottom[8] = back[2];
+X
+X  back[2] = top[2];
+X  back[5] = top[5];
+X  back[8] = top[8];
+X
+X  top[2] = temp[8];
+X  top[5] = temp[5];
+X  top[8] = temp[2];
+X
+X  update_cubik(wdata);
+X}
+X
+Xvoid cubik_back(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,back,xs_rot_face);
+X  lefthand_twist(back);
+X  /* other planes affected */
+X  temp[2] = right[2];
+X  temp[5] = right[5];
+X  temp[8] = right[8];
+X
+X  right[2] = bottom[8];
+X  right[5] = bottom[7];
+X  right[8] = bottom[6];
+X
+X  bottom[6] = left[2]; 
+X  bottom[7] = left[5];
+X  bottom[8] = left[8];
+X
+X  left[2] = top[8];
+X  left[5] = top[7];
+X  left[8] = top[6];
+X
+X  top[6] = temp[2];
+X  top[7] = temp[5];
+X  top[8] = temp[8];
+X
+X  update_cubik(wdata);
+X}
+X
+Xvoid cubik_top(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,top,xs_spin_face);
+X  lefthand_twist(top);
+X  /* other planes affected */
+X  temp[0] = front[0];
+X  temp[1] = front[1];
+X  temp[2] = front[2];
+X
+X  front[0] = right[0];
+X  front[1] = right[1];
+X  front[2] = right[2];
+X
+X  right[0] = back[2]; 
+X  right[1] = back[1];
+X  right[2] = back[0];
+X
+X  back[0] = left[0];
+X  back[1] = left[1];
+X  back[2] = left[2];
+X
+X  left[0] = temp[2];
+X  left[1] = temp[1];
+X  left[2] = temp[0];
+X
+X  update_cubik(wdata);
+X}
+X
+Xvoid cubik_bottom(w,wdata,call_data)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X{
+X  int i;
+X  int temp[NUM_CUBIKPLANES];
+X
+X  for(i=1;i<=3;i++)
+X    cubik(w,wdata,call_data,bottom,xs_spin_face);
+X  lefthand_twist(bottom);
+X  /* other planes affected */
+X  temp[6] = front[6];
+X  temp[7] = front[7];
+X  temp[8] = front[8];
+X
+X  front[6] = right[6];
+X  front[7] = right[7];
+X  front[8] = right[8];
+X
+X  right[6] = back[8]; 
+X  right[7] = back[7];
+X  right[8] = back[6];
+X
+X  back[6] = left[6];
+X  back[7] = left[7];
+X  back[8] = left[8];
+X
+X  left[6] = temp[8];
+X  left[7] = temp[7];
+X  left[8] = temp[6];
+X
+X  update_cubik(wdata);
+X}
+X
+X
+Xvoid cubik(w, wdata, call_data, subplanes, xs_op_face)
+X     Widget   w;
+X     widget_data *wdata;
+X     caddr_t  call_data;
+X     int subplanes[21];
+X     void   (*xs_op_face)();
+X{
+X  Display *dpy = XtDisplay(wdata->canvas);
+X  Window   win = XtWindow(wdata->canvas);
+X  double_XPoint   tmp0_face[NUM_SUBPLANES][5];
+X  XPoint short_face[NUM_SUBPLANES][5];
+X  int draw_order[NUM_SUBPLANES];
+X  int i,j;
+X
+X  /* Rotate all the planes and normalize, 
+X   * but only copy the xxxx to the
+X   * the rot_face[] array.
+X   * 
+X   *  Start from cubiked face, (cubik was inited to seed_face in init_data).
+X   * Then after cubikking, return to 
+X   * to the latest rot, spin, and flip angles.
+X   * Update cubik with new rot face
+X   */
+X
+X
+X  /* rotate all of cubik */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    xs_op_face(tmp0_face[i],cubik_face[i],XtNumber(tmp0_face[i]),(double)30.0);
+X
+X  /* init rot face back to cubik. This will get roted, spinned, and flipped later */
+X  facecpy(rot_face,cubik_face);
+X  
+X  /* only copy over the planes we want */
+X  for(i=0;i<=NUM_CUBIKPLANES-1;i++) 
+X    for(j=0;j<=4;j++){
+X      rot_face[subplanes[i]][j].x = tmp0_face[subplanes[i]][j].x;
+X      rot_face[subplanes[i]][j].y = tmp0_face[subplanes[i]][j].y;
+X      rot_face[subplanes[i]][j].z = tmp0_face[subplanes[i]][j].z;
+X    }
+X  
+X  /* update cubik */
+X  facecpy(cubik_face,rot_face);
+X
+X
+X  /* now rot, spin, and flip back to the latest angles.
+X   * Note: the order of the rot, spin, and flip angles makes a difference...
+X   * but that info is not available...so cube may not go back to exact position.
+X   */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  
+X    xs_rot_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),(double)rot_angle);
+X  facecpy(rot_face,tmp0_face);
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  
+X    xs_spin_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),(double)spin_angle);
+X  facecpy(rot_face,tmp0_face);
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)  
+X    xs_flip_face(tmp0_face[i],rot_face[i],XtNumber(tmp0_face[i]),(double)flip_angle);
+X  facecpy(rot_face,tmp0_face);    
+X
+X  /* prep to draw, then draw */
+X  facecpy(tmp0_face,rot_face); /* copy it back to tmp0 */
+X  projface(tmp0_face,rot_face);
+X  norm_face(tmp0_face);
+X  depth_sort(draw_order,tmp0_face);
+X  shortface(short_face,tmp0_face);
+X  draw_it(dpy, win, wdata, short_face,draw_order);
+X}
+X
+Xvoid set_fill_pattern(w, data, call_data)
+X     Widget         w;
+X     graphics_data *data;
+X     XmToggleButtonCallbackStruct  *call_data;
+X{
+X  Pixmap    tile;
+X  int       i,j;
+X  XGCValues values;
+X  Arg       wargs[1];
+X  
+X  /* If not called for the right reason, return */
+X  if(call_data->reason != XmCR_VALUE_CHANGED ||
+X     !call_data->set)
+X    return;
+X
+X  /* userData is the index into seed_color;
+X   * index is same as button number.
+X   */
+X  XtSetArg(wargs[0], XmNuserData, &j);
+X  XtGetValues(w, wargs, 1);
+X  data->init_cubik_color = j;
+X  /* indicate that a fill pattern has been chosen */
+X  Fill_Pattern_Chosen = TRUE;
+X  
+X}
+X
+Xvoid set_cube_side(w, wdata, call_data)
+X     Widget         w;
+X     widget_data    *wdata;
+X     XmToggleButtonCallbackStruct  *call_data;
+X{
+X  XmString  xmstr;
+X  int       i;
+X  Arg       wargs[1];
+X  Cardinal  side_number;
+X  
+X  /* If not called for the right reason, return */
+X  if(call_data->reason != XmCR_VALUE_CHANGED || 
+X     !call_data->set)
+X    return;
+X  
+X  XtSetArg(wargs[0], XmNuserData, &side_number);
+X  XtGetValues(w, wargs, 1);
+X  
+X  wdata->graph_pointer->init_cubik_number = side_number;
+X  /* init */
+X  wdata->graph_pointer->init_cubik_mirror = FALSE;
+X  
+X  /* Crack side picked, then rot, spin, or flip accordingly */
+X  /* orient cube */
+X  Draw_Enable = FALSE;
+X   Delta_Angle = -rot_angle;
+X   rot_it(wdata->canvas, wdata, call_data);
+X   Delta_Angle = -spin_angle;
+X   spin_it(wdata->canvas, wdata, call_data);
+X   Delta_Angle = -flip_angle;
+X   flip_it(wdata->canvas, wdata, call_data);
+X  Draw_Enable = TRUE;
+X  switch(side_number){
+X  case 0: 
+X    /* front */
+X    /* oriented already */
+X    Delta_Angle = 0;
+X    spin_it(wdata->canvas, wdata, call_data);
+X    break;
+X  case 1:
+X    /* left */
+X    Delta_Angle = 270;
+X    spin_it(wdata->canvas, wdata, call_data);
+X    wdata->graph_pointer->init_cubik_mirror = TRUE;
+X    break;
+X  case 2:
+X    /* right */
+X    Delta_Angle = 90;
+X    spin_it(wdata->canvas, wdata, call_data);
+X    break;
+X  case 3:
+X    /* back */
+X    Delta_Angle = 180;
+X    spin_it(wdata->canvas, wdata, call_data);
+X    wdata->graph_pointer->init_cubik_mirror = TRUE;
+X    break;
+X  case 4:
+X    /* top */
+X    Draw_Enable = FALSE;
+X    Delta_Angle = 270;
+X    flip_it(wdata->canvas, wdata, call_data);
+X    Draw_Enable = TRUE;
+X    Delta_Angle = 180;
+X    rot_it(wdata->canvas, wdata, call_data);
+X    wdata->graph_pointer->init_cubik_mirror = TRUE;
+X    break;
+X  case 5:
+X    /* bottom */
+X    Delta_Angle = 90;
+X    flip_it(wdata->canvas, wdata, call_data);
+X    break;
+X  }
+X  /* restore */
+X  Delta_Angle = DEFAULT_DELTA_ANGLE;
+X  /* indicate that a side has be chosen */
+X  Cube_Side_Chosen = TRUE;
+X}
+X
+Xvoid init_subplane_pattern(w, wdata, event)
+X     Widget          w;
+X     widget_data     *wdata;
+X     XEvent          *event;
+X{
+X  int i;
+X  XGCValues values;
+X  int mirror[9];
+X  
+X  /* If not called for the right reason, return */
+X  if(!Cube_Side_Chosen ||
+X     !Fill_Pattern_Chosen)
+X    return;
+X  
+X  /* init mirror */
+X  if(wdata->graph_pointer->init_cubik_mirror){
+X    mirror[0]=2;
+X    mirror[1]=1;
+X    mirror[2]=0;
+X    mirror[3]=5;
+X    mirror[4]=4;
+X    mirror[5]=3;
+X    mirror[6]=8;
+X    mirror[7]=7;
+X    mirror[8]=6;
+X  }
+X  else
+X    for(i=0; i<9; i++)
+X      mirror[i]=i;
+X  
+X  for(i=0; i<9; i++){
+X    /* Can't change the center cube (subplane) */
+X    if(i == 4)
+X      continue;
+X    if(XPointInRegion(wdata->init_cubik_region[i],event->xbutton.x,event->xbutton.y)){
+X      /* Note: To change color of a face after a click, we just brute force change the subface_gc[][]
+X       * of the cube. This is effectively just re-initing the gc to a new color for that face.
+X       *    In align_subfaces, when cubik_face is determined the subface_gc[][]'s get re-inited 
+X       * to their original colors.
+X       */
+X      values.foreground = xss_get_pixel_by_name(w,seed_color[wdata->graph_pointer->init_cubik_color]);
+X      values.background = xss_get_pixel_by_name(w,seed_color[wdata->graph_pointer->init_cubik_color]);
+X      values.fill_style = FillTiled;
+X      wdata->subface_gc[mirror[i]][wdata->graph_pointer->init_cubik_number] = 
+X	XtGetGC(w, 
+X		GCForeground | GCBackground | GCFillStyle,
+X		&values);
+X      /* update subface_side */
+X      wdata->subface_side[mirror[i]][wdata->graph_pointer->init_cubik_number] = wdata->graph_pointer->init_cubik_color;
+X      /* dummy draw */
+X      Delta_Angle = 0;
+X      spin_it(wdata->canvas, wdata, NULL);
+X      /* restore */
+X      Delta_Angle = DEFAULT_DELTA_ANGLE;
+X    }
+X  }
+X}
+X
+Xvoid align_subfaces(w, wdata, call_data)
+X     Widget               w; 
+X     widget_data     *wdata;
+X     XmAnyCallbackStruct *call_data; 
+X{
+X  /* This is called by xcic_done_callback in init_cubik.
+X    
+X     Given the updated wdata->subface_side[][] 
+X     the front[], left[], right[], back[].....
+X     arrays must be `aligned'. If a corner cube 
+X     face changes color, then its other 2 faces
+X     may have to change front[], left[], right[], back[].....
+X     values even though it does not change color.
+X   */
+X
+X  /* There are 8 corner cubes that must have 3
+X     different color faces.
+X     Each corner cube is represented by 3 wdata->subface_side[][]
+X     values.
+X      Using the macros we have:
+X             Front(0),Top(0),Left(0)
+X	     Front(2),Top(2),Right(0)
+X	     Front(6),Bottom(0),Left(6)
+X	     Front(8),Bottom(2), Right(6)
+X	     Back(0),Top(6),Left(2)
+X	     Back(2),Top(8),Right(2)
+X	     Back(6),Bottom(6),Left(8)
+X	     Back(8),Bottom(8),Right(8)
+X
+X      These values index to an array which gives the values for the front[], left[]... arrays.
+X
+X     The array is generated in init_data and is called 
+X     struct Corner cornermap[6][6][6]. A warning is printed if values are illegal
+X     (e.g.,  all sides of a corner having the same color.)
+X
+X     cornermap values
+X
+X     indices                      cornermap[][][].
+X     []      []      []          a                b                c
+X     0       0       0           -1(illegal)
+X     0       0       1           -1
+X             .                    .
+X             .                    .
+X             .                    .
+X     FRONT   TOP     LEFT        seed_front[0]    seed_top[0]      seed_left[0]
+X     TOP     FRONT   LEFT        -1
+X     FRONT   LEFT    TOP         -1
+X     TOP     LEFT    FRONT       seed_top[0]      seed_left[0]     seed_front[0]
+X     LEFT    TOP     FRONT       -1
+X     LEFT    FRONT   TOP         seed_left[0]     seed_front[0]    seed_top[0]
+X             .                    .
+X             .                    .
+X             .                    .
+X     BACK    BOTTOM  RIGHT       seed_back[8]     seed_bottom[8]   seed_right[8]
+X             .                    .  
+X             .                    .  
+X             .                    .  
+X
+X     So we can update front[], left[]... arrays in the following manner:
+X
+X          front[0] = cornermap[Front(0)][Top(0)][Left(0)].a
+X	  front[2] = cornermap[Front(2)][Top(2)][Left(0)].a
+X	           .
+X	           .
+X	           .
+X	  top[0]   = cornermap[Front(0)][Top(0)][Left(0)].b
+X
+X     A test is done for cornermap[][][].a == -1 which indicates an illegal
+X     initialization.
+X
+X   */  
+X     
+X  /* There are 12 edge cubes that must have 2
+X     different color faces.
+X     Each edge cube is represented by 2 wdata->subface_side[][]
+X     values.
+X      Using the macros we have:
+X             Front(1),Top(1)
+X	     Front(3),Left(3)
+X	     Front(5),Right(3)
+X	     Front(7),Bottom(1)
+X	     Back(1),Top(7)
+X	     Back(3),Left(5)
+X	     Back(5),Right(5)
+X	     Back(7),Bottom(7)
+X	     Right(1),Top(5)
+X	     Right(7),Bottom(5)
+X	     Bottom(3),Left(7)
+X	     Left(1),Top(3)
+X	     
+X
+X      These values index to an array which gives the values for the front[], left[]... arrays.
+X
+X     The array is generated in init_data and is called 
+X     struct Edge edgemap[6][6]. A warning is printed if values are illegal
+X     (e.g.,  both sides of an edge cube having the same color.)
+X
+X     edgemap values
+X
+X     indices                  edgemap[][].
+X     []      []               a                b
+X     0       0                -1(illegal)
+X     0       0                -1
+X             .                    .
+X             .                    .
+X             .                    .
+X     FRONT   TOP              seed_front[1]    seed_top[1]     
+X     TOP     FRONT            seed_top[1]      seed_front[1]
+X
+X             .                    .
+X     BACK    BOTTOM           seed_back[7]     seed_bottom[7]  
+X             .                    .  
+X             .                    .  
+X             .                    .  
+X
+X     So we can update front[], left[]... arrays in the following manner:
+X
+X          front[1] = edgemap[Front(1)][Top(1)].a
+X	  front[5] = edgemap[Front(5)][Right(3)].a
+X	           .
+X	           .
+X	           .
+X	  top[1]   = edgemap[Front(1)][Top(1)].b
+X
+X     A test is done for edgemap[][].a == -1 which indicates an illegal
+X     initialization.
+X
+X
+X
+X     This takes care of the front[], left[]... arrays. 
+X     Next, we have to fix the 
+X          double_XPoint cubik_face[NUM_SUBPLANES][5] array which has the old 
+X     pristine coordinates. The coordinates of the subplanes that have moved
+X     by initialization must also move. 
+X        Using inverse_funct which is the inverse of the front[], left[]... arrays,
+X     the new coordinates in cubik_face[][] are determinesd by the following.
+X        First make a copy of cubik_face[][].
+X                     facecpy(cubikface_cpy,cubik_face);
+X	Proceed to replace old coordinates.
+X	             cubik_face[0][] = cubikface_cpy[inverse_funct[0]][];
+X	             cubik_face[1][] = cubikface_cpy[inverse_funct[1]][];
+X	             cubik_face[2][] = cubikface_cpy[inverse_funct[2]][];
+X		                     .
+X		                     .
+X		                     .
+X	             cubik_face[53][] = cubikface_cpy[inverse_funct[53][];
+X
+X	Inverse_funct is created as follows:
+X	             First make one large array:
+X		         large_array[0] = front[0]
+X		         large_array[1] = front[1]
+X		         large_array[2] = front[2]
+X		                     .
+X		                     .
+X		                     .
+X		         large_array[9] = front[8]
+X		         large_array[10] = left[0]
+X		         large_array[11] = left[1]
+X		         large_array[12] = left[2]
+X				     .
+X				     .
+X				     .
+X			 large_array[53] = bottom[8]
+X
+X                     Then load inverse_funct with inverse values.
+X		         for(i=0;i<NUM_SUBPLANES-1;i++)
+X			      inverse_funct[large_array[i]] = i; 
+X
+X     Lastly, the subface_gc[][]'s get re-initied.
+X     
+X   */  
+X
+X
+X  int i,j;
+X  XGCValues       values;
+X  double_XPoint cubikface_cpy[NUM_SUBPLANES][5];
+X
+X  int inverse_funct[NUM_SUBPLANES];
+X  int large_array[NUM_SUBPLANES];
+X
+X  /* corners */
+X  
+X  front[0] = cornermap[Front(0)][Top(0)][Left(0)].a;
+X  top[0] =   cornermap[Front(0)][Top(0)][Left(0)].b;
+X  left[0] =  cornermap[Front(0)][Top(0)][Left(0)].c;
+X  
+X  front[2] = cornermap[Front(2)][Top(2)][Right(0)].a;
+X  top[2] =   cornermap[Front(2)][Top(2)][Right(0)].b;
+X  right[0] = cornermap[Front(2)][Top(2)][Right(0)].c;
+X  
+X  
+X  front[6] = cornermap[Front(6)][Bottom(0)][Left(6)].a;
+X  bottom[0]= cornermap[Front(6)][Bottom(0)][Left(6)].b;
+X  left[6] =  cornermap[Front(6)][Bottom(0)][Left(6)].c;
+X  
+X  
+X  front[8] = cornermap[Front(8)][Bottom(2)][Right(6)].a;
+X  bottom[2]= cornermap[Front(8)][Bottom(2)][Right(6)].b;
+X  right[6] = cornermap[Front(8)][Bottom(2)][Right(6)].c;
+X  
+X  
+X  back[0] =  cornermap[Back(0)][Top(6)][Left(2)].a;
+X  top[6] =   cornermap[Back(0)][Top(6)][Left(2)].b;
+X  left[2] =  cornermap[Back(0)][Top(6)][Left(2)].c;
+X  
+X  
+X  back[2] =  cornermap[Back(2)][Top(8)][Right(2)].a;
+X  top[8] =   cornermap[Back(2)][Top(8)][Right(2)].b;
+X  right[2] = cornermap[Back(2)][Top(8)][Right(2)].c;
+X  
+X  
+X  back[6] =  cornermap[Back(6)][Bottom(6)][Left(8)].a;
+X  bottom[6]= cornermap[Back(6)][Bottom(6)][Left(8)].b;
+X  left[8] =  cornermap[Back(6)][Bottom(6)][Left(8)].c;
+X  
+X  
+X  back[8] =  cornermap[Back(8)][Bottom(8)][Right(8)].a;
+X  bottom[8]= cornermap[Back(8)][Bottom(8)][Right(8)].b;
+X  right[8] = cornermap[Back(8)][Bottom(8)][Right(8)].c;
+X
+X
+X  /* edges */
+X
+X  front[1] = edgemap[Front(1)][Top(1)].a;
+X  top[1] =   edgemap[Front(1)][Top(1)].b;
+X  
+X  front[3] = edgemap[Front(3)][Left(3)].a;
+X  left[3] =  edgemap[Front(3)][Left(3)].b;
+X  
+X  front[5] = edgemap[Front(5)][Right(3)].a;
+X  right[3] = edgemap[Front(5)][Right(3)].b;
+X  
+X  front[7] = edgemap[Front(7)][Bottom(1)].a;
+X  bottom[1]= edgemap[Front(7)][Bottom(1)].b;
+X  
+X  back[1] =  edgemap[Back(1)][Top(7)].a;
+X  top[7] =   edgemap[Back(1)][Top(7)].b;
+X  
+X  back[3] =  edgemap[Back(3)][Left(5)].a;
+X  left[5] =  edgemap[Back(3)][Left(5)].b;
+X  
+X  back[5] =  edgemap[Back(5)][Right(5)].a;
+X  right[5] = edgemap[Back(5)][Right(5)].b;
+X  
+X  back[7] =  edgemap[Back(7)][Bottom(7)].a;
+X  bottom[7]= edgemap[Back(7)][Bottom(7)].b;
+X  
+X  right[1] = edgemap[Right(1)][Top(5)].a;
+X  top[5] =   edgemap[Right(1)][Top(5)].b;
+X  
+X  
+X  right[7] = edgemap[Right(7)][Bottom(5)].a;
+X  bottom[5]= edgemap[Right(7)][Bottom(5)].b;
+X  
+X  bottom[3]= edgemap[Bottom(3)][Left(7)].a;
+X  left[7] =  edgemap[Bottom(3)][Left(7)].b;
+X  
+X  left[1] =  edgemap[Left(1)][Top(3)].a;
+X  top[3] =   edgemap[Left(1)][Top(3)].b;
+X
+X  /* check for bad alignment */
+X  for(i=0;i<=8;i++)
+X    if(front[i]  == -1 ||
+X       left[i]   == -1 ||
+X       right[i]  == -1 ||
+X       back[i]   == -1 ||
+X       top[i]    == -1 ||
+X       bottom[i] == -1){
+X      printf("ERROR BAD INITIALED CUBE\nPREPARE FOR STRANGE CUBE\n");
+X      return;
+X    }
+X  update_cubik(wdata);
+X
+X  /* Create large_array fron front[],left[],... array */
+X  for(i=0;i<9;i++){
+X    large_array[i] = front[i];
+X    large_array[i+9] = left[i];
+X    large_array[i+18] = right[i];
+X    large_array[i+27] = back[i];
+X    large_array[i+36] = top[i];
+X    large_array[i+45] = bottom[i];
+X  }
+X  
+X  /* Create the inverse of large array */
+X  /* (This step could be incorporated into the next step but is kept
+X   *  here for clarity.)
+X   */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    inverse_funct[large_array[i]] = i;
+X  
+X  /* save old cubik_face values  */
+X  facecpy(cubikface_cpy,cubik_face);
+X  
+X  /* swap arround the values */
+X  for(i=0;i<=NUM_SUBPLANES-1;i++)
+X    for(j=0;j<5;j++){
+X      cubik_face[i][j].x = cubikface_cpy[inverse_funct[i]][j].x;
+X      cubik_face[i][j].y = cubikface_cpy[inverse_funct[i]][j].y;
+X      cubik_face[i][j].z = cubikface_cpy[inverse_funct[i]][j].z;
+X    }
+X
+X  /* update rot_face  */
+X  facecpy(rot_face,cubik_face);
+X
+X  /* re-init subface_gc's */
+X  /* 
+X   * Get a gc for each subface_color
+X   */
+X  for(i=0;i<9;i++){
+X    for(j=0;j<6;j++){
+X      values.foreground = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.background = xss_get_pixel_by_name(w,seed_color[j]);
+X      values.fill_style = FillTiled;
+X      wdata->subface_gc[i][j] =	XtGetGC(w,
+X					GCForeground | GCBackground | GCFillStyle,
+X					&values);
+X    }
+X  }
+X}
+X
+X
+Xvoid init_cornermap()
+X{
+X  int  i,j,k;
+X  
+X  /* See align_subfaces in cube.c for more info on cornermap[][][] */
+X  /* init all to illegal value */
+X  for(i=0;i<6;i++)
+X    for(j=0;j<6;j++)
+X      for(k=0;k<6;k++)
+X	cornermap[i][j][k].a = -1;
+X	
+X  /* brute force initialization ... ugh! */
+X  /* 1 */
+X  cornermap[FRONT][TOP][LEFT].a = seed_front[0];
+X  cornermap[FRONT][TOP][LEFT].b = seed_top[0];
+X  cornermap[FRONT][TOP][LEFT].c = seed_left[0];
+X
+X  cornermap[TOP][LEFT][FRONT].a = seed_top[0];
+X  cornermap[TOP][LEFT][FRONT].b = seed_left[0];
+X  cornermap[TOP][LEFT][FRONT].c = seed_front[0];
+X
+X  cornermap[LEFT][FRONT][TOP].a = seed_left[0];
+X  cornermap[LEFT][FRONT][TOP].b = seed_front[0];
+X  cornermap[LEFT][FRONT][TOP].c = seed_top[0];
+X
+X
+X  cornermap[FRONT][LEFT][TOP].a = seed_front[0];
+X  cornermap[FRONT][LEFT][TOP].c = seed_top[0];
+X  cornermap[FRONT][LEFT][TOP].b = seed_left[0];
+X
+X  cornermap[TOP][FRONT][LEFT].a = seed_top[0];
+X  cornermap[TOP][FRONT][LEFT].c = seed_left[0];
+X  cornermap[TOP][FRONT][LEFT].b = seed_front[0];
+X
+X  cornermap[LEFT][TOP][FRONT].a = seed_left[0];
+X  cornermap[LEFT][TOP][FRONT].c = seed_front[0];
+X  cornermap[LEFT][TOP][FRONT].b = seed_top[0];
+X
+X  /* 2 */
+X  cornermap[FRONT][TOP][RIGHT].a = seed_front[2];
+X  cornermap[FRONT][TOP][RIGHT].b = seed_top[2];
+X  cornermap[FRONT][TOP][RIGHT].c = seed_right[0];
+X
+X  cornermap[TOP][RIGHT][FRONT].a = seed_top[2];
+X  cornermap[TOP][RIGHT][FRONT].b = seed_right[0];
+X  cornermap[TOP][RIGHT][FRONT].c = seed_front[2];
+X
+X  cornermap[RIGHT][FRONT][TOP].a = seed_right[0];
+X  cornermap[RIGHT][FRONT][TOP].b = seed_front[2];
+X  cornermap[RIGHT][FRONT][TOP].c = seed_top[2];
+X
+X
+X  cornermap[FRONT][RIGHT][TOP].a = seed_front[2];
+X  cornermap[FRONT][RIGHT][TOP].c = seed_top[2];
+X  cornermap[FRONT][RIGHT][TOP].b = seed_right[0];
+X
+X  cornermap[TOP][FRONT][RIGHT].a = seed_top[2];
+X  cornermap[TOP][FRONT][RIGHT].c = seed_right[0];
+X  cornermap[TOP][FRONT][RIGHT].b = seed_front[2];
+X
+X  cornermap[RIGHT][TOP][FRONT].a = seed_right[0];
+X  cornermap[RIGHT][TOP][FRONT].c = seed_front[2];
+X  cornermap[RIGHT][TOP][FRONT].b = seed_top[2];
+X
+X  /* 3 */
+X  cornermap[FRONT][BOTTOM][LEFT].a = seed_front[6];
+X  cornermap[FRONT][BOTTOM][LEFT].b = seed_bottom[0];
+X  cornermap[FRONT][BOTTOM][LEFT].c = seed_left[6];
+X
+X  cornermap[BOTTOM][LEFT][FRONT].a = seed_bottom[0];
+X  cornermap[BOTTOM][LEFT][FRONT].b = seed_left[6];
+X  cornermap[BOTTOM][LEFT][FRONT].c = seed_front[6];
+X
+X  cornermap[LEFT][FRONT][BOTTOM].a = seed_left[6];
+X  cornermap[LEFT][FRONT][BOTTOM].b = seed_front[6];
+X  cornermap[LEFT][FRONT][BOTTOM].c = seed_bottom[0];
+X
+X
+X  cornermap[FRONT][LEFT][BOTTOM].a = seed_front[6];
+X  cornermap[FRONT][LEFT][BOTTOM].c = seed_bottom[0];
+X  cornermap[FRONT][LEFT][BOTTOM].b = seed_left[6];
+X
+X  cornermap[BOTTOM][FRONT][LEFT].a = seed_bottom[0];
+X  cornermap[BOTTOM][FRONT][LEFT].c = seed_left[6];
+X  cornermap[BOTTOM][FRONT][LEFT].b = seed_front[6];
+X
+X  cornermap[LEFT][BOTTOM][FRONT].a = seed_left[6];
+X  cornermap[LEFT][BOTTOM][FRONT].c = seed_front[6];
+X  cornermap[LEFT][BOTTOM][FRONT].b = seed_bottom[0];
+X
+X  /* 4 */
+X  cornermap[FRONT][BOTTOM][RIGHT].a = seed_front[8];
+X  cornermap[FRONT][BOTTOM][RIGHT].b = seed_bottom[2];
+X  cornermap[FRONT][BOTTOM][RIGHT].c = seed_right[6];
+X
+X  cornermap[BOTTOM][RIGHT][FRONT].a = seed_bottom[2];
+X  cornermap[BOTTOM][RIGHT][FRONT].b = seed_right[6];
+X  cornermap[BOTTOM][RIGHT][FRONT].c = seed_front[8];
+X
+X  cornermap[RIGHT][FRONT][BOTTOM].a = seed_right[6];
+X  cornermap[RIGHT][FRONT][BOTTOM].b = seed_front[8];
+X  cornermap[RIGHT][FRONT][BOTTOM].c = seed_bottom[2];
+X
+X
+X  cornermap[FRONT][RIGHT][BOTTOM].a = seed_front[8];
+X  cornermap[FRONT][RIGHT][BOTTOM].c = seed_bottom[2];
+X  cornermap[FRONT][RIGHT][BOTTOM].b = seed_right[6];
+X
+X  cornermap[BOTTOM][FRONT][RIGHT].a = seed_bottom[2];
+X  cornermap[BOTTOM][FRONT][RIGHT].c = seed_right[6];
+X  cornermap[BOTTOM][FRONT][RIGHT].b = seed_front[8];
+X
+X  cornermap[RIGHT][BOTTOM][FRONT].a = seed_right[6];
+X  cornermap[RIGHT][BOTTOM][FRONT].c = seed_front[8];
+X  cornermap[RIGHT][BOTTOM][FRONT].b = seed_bottom[2];
+X
+X
+X  /* 5 */
+X  cornermap[BACK][TOP][LEFT].a = seed_back[0];
+X  cornermap[BACK][TOP][LEFT].b = seed_top[6];
+X  cornermap[BACK][TOP][LEFT].c = seed_left[2];
+X
+X  cornermap[TOP][LEFT][BACK].a = seed_top[6];
+X  cornermap[TOP][LEFT][BACK].b = seed_left[2];
+X  cornermap[TOP][LEFT][BACK].c = seed_back[0];
+X
+X  cornermap[LEFT][BACK][TOP].a = seed_left[2];
+X  cornermap[LEFT][BACK][TOP].b = seed_back[0];
+X  cornermap[LEFT][BACK][TOP].c = seed_top[6];
+X
+X
+X  cornermap[BACK][LEFT][TOP].a = seed_back[0];
+X  cornermap[BACK][LEFT][TOP].c = seed_top[6];
+X  cornermap[BACK][LEFT][TOP].b = seed_left[2];
+X
+X  cornermap[TOP][BACK][LEFT].a = seed_top[6];
+X  cornermap[TOP][BACK][LEFT].c = seed_left[2];
+X  cornermap[TOP][BACK][LEFT].b = seed_back[0];
+X
+X  cornermap[LEFT][TOP][BACK].a = seed_left[2];
+X  cornermap[LEFT][TOP][BACK].c = seed_back[0];
+X  cornermap[LEFT][TOP][BACK].b = seed_top[6];
+X
+X  /* 6 */
+X  cornermap[BACK][TOP][RIGHT].a = seed_back[2];
+X  cornermap[BACK][TOP][RIGHT].b = seed_top[8];
+X  cornermap[BACK][TOP][RIGHT].c = seed_right[2];
+X
+X  cornermap[TOP][RIGHT][BACK].a = seed_top[8];
+X  cornermap[TOP][RIGHT][BACK].b = seed_right[2];
+X  cornermap[TOP][RIGHT][BACK].c = seed_back[2];
+X
+X  cornermap[RIGHT][BACK][TOP].a = seed_right[2];
+X  cornermap[RIGHT][BACK][TOP].b = seed_back[2];
+X  cornermap[RIGHT][BACK][TOP].c = seed_top[8];
+X
+X
+X  cornermap[BACK][RIGHT][TOP].a = seed_back[2];
+X  cornermap[BACK][RIGHT][TOP].c = seed_top[8];
+X  cornermap[BACK][RIGHT][TOP].b = seed_right[2];
+X
+X  cornermap[TOP][BACK][RIGHT].a = seed_top[8];
+X  cornermap[TOP][BACK][RIGHT].c = seed_right[2];
+X  cornermap[TOP][BACK][RIGHT].b = seed_back[2];
+X
+X  cornermap[RIGHT][TOP][BACK].a = seed_right[2];
+X  cornermap[RIGHT][TOP][BACK].c = seed_back[2];
+X  cornermap[RIGHT][TOP][BACK].b = seed_top[8];
+X
+X  /* 7 */
+X  cornermap[BACK][BOTTOM][LEFT].a = seed_back[6];
+X  cornermap[BACK][BOTTOM][LEFT].b = seed_bottom[6];
+X  cornermap[BACK][BOTTOM][LEFT].c = seed_left[8];
+X
+X  cornermap[BOTTOM][LEFT][BACK].a = seed_bottom[6];
+X  cornermap[BOTTOM][LEFT][BACK].b = seed_left[8];
+X  cornermap[BOTTOM][LEFT][BACK].c = seed_back[6];
+X
+X  cornermap[LEFT][BACK][BOTTOM].a = seed_left[8];
+X  cornermap[LEFT][BACK][BOTTOM].b = seed_back[6];
+X  cornermap[LEFT][BACK][BOTTOM].c = seed_bottom[6];
+X
+X
+X  cornermap[BACK][LEFT][BOTTOM].a = seed_back[6];
+X  cornermap[BACK][LEFT][BOTTOM].c = seed_bottom[6];
+X  cornermap[BACK][LEFT][BOTTOM].b = seed_left[8];
+X
+X  cornermap[BOTTOM][BACK][LEFT].a = seed_bottom[6];
+X  cornermap[BOTTOM][BACK][LEFT].c = seed_left[8];
+X  cornermap[BOTTOM][BACK][LEFT].b = seed_back[6];
+X
+X  cornermap[LEFT][BOTTOM][BACK].a = seed_left[8];
+X  cornermap[LEFT][BOTTOM][BACK].c = seed_back[6];
+X  cornermap[LEFT][BOTTOM][BACK].b = seed_bottom[6];
+X
+X  /* 8 */
+X  cornermap[BACK][BOTTOM][RIGHT].a = seed_back[8];
+X  cornermap[BACK][BOTTOM][RIGHT].b = seed_bottom[8];
+X  cornermap[BACK][BOTTOM][RIGHT].c = seed_right[8];
+X
+X  cornermap[BOTTOM][RIGHT][BACK].a = seed_bottom[8];
+X  cornermap[BOTTOM][RIGHT][BACK].b = seed_right[8];
+X  cornermap[BOTTOM][RIGHT][BACK].c = seed_back[8];
+X
+X  cornermap[RIGHT][BACK][BOTTOM].a = seed_right[8];
+X  cornermap[RIGHT][BACK][BOTTOM].b = seed_back[8];
+X  cornermap[RIGHT][BACK][BOTTOM].c = seed_bottom[8];
+X
+X
+X  cornermap[BACK][RIGHT][BOTTOM].a = seed_back[8];
+X  cornermap[BACK][RIGHT][BOTTOM].c = seed_bottom[8];
+X  cornermap[BACK][RIGHT][BOTTOM].b = seed_right[8];
+X
+X  cornermap[BOTTOM][BACK][RIGHT].a = seed_bottom[8];
+X  cornermap[BOTTOM][BACK][RIGHT].c = seed_right[8];
+X  cornermap[BOTTOM][BACK][RIGHT].b = seed_back[8];
+X
+X  cornermap[RIGHT][BOTTOM][BACK].a = seed_right[8];
+X  cornermap[RIGHT][BOTTOM][BACK].c = seed_back[8];
+X  cornermap[RIGHT][BOTTOM][BACK].b = seed_bottom[8];
+X
+X}
+X
+Xvoid init_edgemap()
+X{
+X  int  i,j;
+X  
+X  /* See align_subfaces in cube.c for more info on edgemap[][] */
+X  /* init all to illegal value */
+X  for(i=0;i<6;i++)
+X    for(j=0;j<6;j++)
+X      edgemap[i][j].a = -1;
+X	
+X  /* brute force initialization ... ugh! */
+X  /* 1 */
+X  edgemap[FRONT][TOP].a = seed_front[1];
+X  edgemap[FRONT][TOP].b = seed_top[1];
+X
+X  edgemap[TOP][FRONT].a = seed_top[1];
+X  edgemap[TOP][FRONT].b = seed_front[1];
+X
+X  /* 2 */
+X  edgemap[FRONT][LEFT].a = seed_front[3];
+X  edgemap[FRONT][LEFT].b = seed_left[3];
+X
+X  edgemap[LEFT][FRONT].a = seed_left[3];
+X  edgemap[LEFT][FRONT].b = seed_front[3];
+X
+X  /* 3 */
+X  edgemap[FRONT][RIGHT].a = seed_front[5];
+X  edgemap[FRONT][RIGHT].b = seed_right[3];
+X
+X  edgemap[RIGHT][FRONT].a = seed_right[3];
+X  edgemap[RIGHT][FRONT].b = seed_front[5];
+X
+X  /* 4 */
+X  edgemap[FRONT][BOTTOM].a = seed_front[7];
+X  edgemap[FRONT][BOTTOM].b = seed_bottom[1];
+X
+X  edgemap[BOTTOM][FRONT].a = seed_bottom[1];
+X  edgemap[BOTTOM][FRONT].b = seed_front[7];
+X
+X  /* 5 */
+X  edgemap[BACK][TOP].a = seed_back[1];
+X  edgemap[BACK][TOP].b = seed_top[7];
+X
+X  edgemap[TOP][BACK].a = seed_top[7];
+X  edgemap[TOP][BACK].b = seed_back[1];
+X
+X  /* 6 */
+X  edgemap[BACK][LEFT].a = seed_back[3];
+X  edgemap[BACK][LEFT].b = seed_left[5];
+X
+X  edgemap[LEFT][BACK].a = seed_left[5];
+X  edgemap[LEFT][BACK].b = seed_back[3];
+X
+X  /* 7 */
+X  edgemap[BACK][RIGHT].a = seed_back[5];
+X  edgemap[BACK][RIGHT].b = seed_right[5];
+X
+X  edgemap[RIGHT][BACK].a = seed_right[5];
+X  edgemap[RIGHT][BACK].b = seed_back[5];
+X
+X  /* 8 */
+X  edgemap[BACK][BOTTOM].a = seed_back[7];
+X  edgemap[BACK][BOTTOM].b = seed_bottom[7];
+X
+X  edgemap[BOTTOM][BACK].a = seed_bottom[7];
+X  edgemap[BOTTOM][BACK].b = seed_back[7];
+X
+X  /* 9 */
+X  edgemap[RIGHT][TOP].a = seed_right[1];
+X  edgemap[RIGHT][TOP].b = seed_top[5];
+X
+X  edgemap[TOP][RIGHT].a = seed_top[5];
+X  edgemap[TOP][RIGHT].b = seed_right[1];
+X
+X  /* 10 */
+X  edgemap[RIGHT][BOTTOM].a = seed_right[7];
+X  edgemap[RIGHT][BOTTOM].b = seed_bottom[5];
+X
+X  edgemap[BOTTOM][RIGHT].a = seed_bottom[5];
+X  edgemap[BOTTOM][RIGHT].b = seed_right[7];
+X
+X  /* 11 */
+X  edgemap[LEFT][BOTTOM].a = seed_left[7];
+X  edgemap[LEFT][BOTTOM].b = seed_bottom[3];
+X
+X  edgemap[BOTTOM][LEFT].a = seed_bottom[3];
+X  edgemap[BOTTOM][LEFT].b = seed_left[7];
+X
+X  /* 12 */
+X  edgemap[LEFT][TOP].a = seed_left[1];
+X  edgemap[LEFT][TOP].b = seed_top[3];
+X  
+X  edgemap[TOP][LEFT].a = seed_top[3];
+X  edgemap[TOP][LEFT].b = seed_left[1];
+X  
+X}
+X/* check_events:
+X * This checks for Expose events and processes them.
+X * Check_events is used in draw_it. 
+X * When cube is being solved, expose events are checked for
+X * and processed so that the buttons can be visible after
+X * the the buttons have been 'exposed'. This could happen 
+X * when windows get circulated through a stack during
+X * the time the cube is solved.
+X * 
+X * test_for_event is a predicate procedure used by XCheckIfEvent.
+X */
+X
+XBool test_for_event(display,event,event_type)
+X     Display *display;
+X     XEvent *event;
+X     int    event_type;
+X{
+X  if(event->type == event_type)
+X    return(True);
+X  else
+X    return(False);
+X}
+X
+Xvoid check_events()
+X{
+X  if(XtAppPending(appContext) & XtIMXEvent){
+X    XEvent event;
+X    if(XCheckIfEvent(xDisplay,&event,test_for_event,Expose))
+X      XtDispatchEvent(&event);
+X  }
+X}
+X
+END_OF_FILE
+  if test 58594 -ne `wc -c <'cube/cube.c'`; then
+    echo shar: \"'cube/cube.c'\" unpacked with wrong size!
+  fi
+  # end of 'cube/cube.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

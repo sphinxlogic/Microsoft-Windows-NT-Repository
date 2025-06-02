@@ -1,0 +1,2511 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i055:  ncftp - Alternative User Interface for FTP, v1.5.0, Part03/05
+Message-ID: <1993Aug26.000516.24358@sparky.sterling.com>
+X-Md4-Signature: 5b940d30cc00bfd5d08ecf78481a517d
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Thu, 26 Aug 1993 00:05:16 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 55
+Archive-name: ncftp/part03
+Environment: UNIX, ANSI-C, !SVR4
+Supersedes: ncftp: Volume 35, Issue 4-7
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  copyright.h main.c ncftp.1
+# Wrapped by kent@sparky on Wed Aug 25 18:59:17 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 5)."'
+if test -f 'copyright.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'copyright.h'\"
+else
+  echo shar: Extracting \"'copyright.h'\" \(1048 characters\)
+  sed "s/^X//" >'copyright.h' <<'END_OF_FILE'
+X/* Copyright.h */
+X
+X/*  $RCSfile: copyright.h,v $
+X *  $Revision: 14020.12 $
+X *  $Date: 93/06/02 13:43:03 $
+X */
+X
+X/*
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR IMPLIED
+X * WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+X * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X *
+X * Copyright (c) 1992, 1993 Mike Gleason, NCEMRSoft.
+X * Copyright (c) 1985, 1989 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted provided
+X * that: (1) source distributions retain this entire copyright notice and
+X * comment, and (2) distributions may not be sold for profit on physicaical
+X * media such as disks, tapes, and CD-ROMS, without expressed written
+X * permission.
+X */
+X
+X#ifdef _main_c_
+X#ifndef lint
+Xstatic char copyright[] = "@(#) Copyright (c) 1992, 1993 by NCEMRSoft and Copyright (c) 1985, 1989 Regents of the University of California.\n All rights reserved.\n";
+X#endif /* not lint */
+X#endif /* _main_c_ */
+X
+X/* eof copyright.h */
+END_OF_FILE
+  if test 1048 -ne `wc -c <'copyright.h'`; then
+    echo shar: \"'copyright.h'\" unpacked with wrong size!
+  fi
+  # end of 'copyright.h'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(23284 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/* main.c */
+X
+X/*  $RCSfile: main.c,v $
+X *  $Revision: 14020.15 $
+X *  $Date: 93/07/09 11:50:12 $
+X */
+X
+X#define _main_c_
+X
+X#define FTP_VERSION \
+X"NcFTP 1.5.0 (Aug 22, 1993) by Mike Gleason, NCEMRSoft."
+X
+X/* #define BETA 1 */ /* If defined, it prints a little warning message. */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/stat.h>
+X#include <sys/time.h>
+X#include <arpa/ftp.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <ctype.h>
+X#include <netdb.h>
+X#include <pwd.h>
+X
+X#ifdef SYSLOG
+X#	include <syslog.h>
+X#endif
+X
+X#ifndef NO_UNISTDH
+X#	include <unistd.h>
+X#endif
+X
+X#ifdef CURSES
+X#	undef HZ		/* Collides with HaZeltine ! */
+X#	include <curses.h>
+X#endif	/* CURSES */
+X
+X#include "util.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "open.h"
+X#include "set.h"
+X#include "defaults.h"
+X#include "copyright.h"
+X
+X/* main.c globals */
+Xint					slrflag;
+Xint					fromatty;			/* input is from a terminal */
+Xint					toatty;				/* output is to a terminal */
+Xint					doing_script;		/* is a file being <redirected to me? */
+Xchar				*altarg;			/* argv[1] with no shell-like preprocessing  */
+Xstruct servent		serv;				/* service spec for tcp/ftp */
+Xjmp_buf				toplevel;			/* non-local goto stuff for cmd scanner */
+Xchar				*line;				/* input line buffer */
+Xchar				*stringbase;		/* current scan point in line buffer */
+Xchar				*argbuf;			/* argument storage buffer */
+Xchar				*argbase;			/* current storage point in arg buffer */
+Xint					margc;				/* count of arguments on input line */
+Xchar				*margv[20];			/* args parsed from input line */
+Xstruct userinfo		uinfo;				/* a copy of their pwent really */
+Xint					ansi_escapes;		/* for fancy graphics */
+Xint                             startup_msg = 1;        /* TAR: display message on startup? */
+Xint					ignore_rc;			/* are we supposed to ignore the netrc */
+Xstring				progname;			/* simple filename */
+Xstring				prompt, prompt2;	/* shell prompt string */
+Xstring				anon_password;		/* most likely your email address */
+Xstring				pager;				/* program to browse text files */
+Xstring				version = FTP_VERSION;
+Xlong				eventnumber;		/* number of commands we've done */
+XFILE				*logf = NULL;		/* log user activity */
+Xlongstring			logfname;			/* name of the logfile */
+Xlong				logsize = 4096L;	/* max log size. 0 == no limit */
+Xint					percent_flags;		/* "%" in prompt string? */
+Xint					at_flags;			/* "@" in prompt string? */
+Xstring 				mail_path;			/* your mailbox */
+Xtime_t				mbox_time;			/* last modified time of mbox */
+Xsize_t				epromptlen;			/* length of the last line of the
+X										 * prompt as it will appear on screen,
+X										 * (i.e. no invis escape codes).
+X										 */
+Xchar				*tcap_normal = "\033[0m";	/* Default ANSI escapes */
+Xchar				*tcap_boldface = "\033[1m";
+Xchar				*tcap_underline = "\033[4m";
+Xchar				*tcap_reverse = "\033[7m";
+Xsize_t				tcl_normal = 4,		/* lengths of the above strings. */
+X					tcl_bold = 4,
+X					tcl_uline = 4,
+X					tcl_rev = 4;
+X
+X#ifdef CURSES
+Xstatic char			tcbuf[2048];
+X#endif
+X
+X/* main.c externs */
+Xextern int			debug, verbose, mprompt;
+Xextern int			options, cpend, data, connected, logged_in;
+Xextern int			curtype, macnum, remote_is_unix;
+Xextern FILE			*cout;
+Xextern struct cmd	cmdtab[];
+Xextern str32		curtypename;
+Xextern char			*macbuf;
+Xextern char			*reply_string;
+Xextern char			*short_verbose_msgs[4];
+Xextern string		vstr;
+Xextern Hostname		hostname;
+Xextern longstring	cwd, lcwd, recent_file;
+Xextern int			Optind;
+Xextern char			*Optarg;
+X#ifdef GATEWAY
+Xextern string		gate_login;
+X#endif
+X
+Xvoid main(int argc, char **argv)
+X{
+X	register char		*cp;
+X	int					top, opt, openopts = 0;
+X	string				tmp, oline;
+X	struct servent		*sptr;
+X
+X	if ((cp = rindex(argv[0], '/'))) cp++;
+X	else cp = argv[0];
+X	(void) Strncpy(progname, cp);
+X	
+X	sptr = getservbyname("ftp", "tcp");
+X	if (sptr == 0) fatal("ftp/tcp: unknown service");
+X	serv = *sptr;
+X
+X	if (init_arrays())			/* Reserve large blocks of memory now */
+X		fatal("could not reserve large amounts of memory.");
+X
+X	/*
+X	 * Set up defaults for FTP.
+X	 */
+X	mprompt = dMPROMPT;
+X	debug = dDEBUG;
+X	verbose = dVERBOSE;
+X	(void) Strncpy(vstr, short_verbose_msgs[verbose+1]);
+X
+X	(void) Strncpy(curtypename, dTYPESTR);
+X	curtype = dTYPE;
+X	(void) Strncpy(prompt, dPROMPT);
+X#ifdef GATEWAY
+X	(void) Strncpy(gate_login, dGATEWAY_LOGIN);
+X#endif
+X
+X#ifdef SOCKS
+X	SOCKSinit("ncftp");
+X#endif
+X	
+X	/*	Setup our pager variable, before we run through the rc,
+X		which may change it. */
+X	set_pager(getenv("PAGER"), 0);
+X#ifdef CURSES
+X	ansi_escapes = 1;
+X	termcap_init();
+X#else
+X	ansi_escapes = 0;
+X	if ((cp = getenv("TERM")) != NULL) {
+X		if ((*cp == 'v' && cp[1] == 't')		/* vt100, vt102, ... */
+X			|| (strcmp(cp, "xterm") == 0))
+X			ansi_escapes = 1;
+X	}
+X#endif
+X	(void) getuserinfo();
+X
+X	/* Init the mailbox checking code. */
+X	(void) time(&mbox_time);
+X
+X	(void) Strncpy(anon_password, uinfo.username);
+X	if (getlocalhostname(uinfo.hostname, sizeof(uinfo.hostname)) == 0) {
+X		(void) Strncat(anon_password, "@");
+X		(void) Strncat(anon_password, uinfo.hostname);
+X	}
+X#if dLOGGING
+X	(void) Strncpy(logfname, dLOGNAME);
+X	(void) LocalDotPath(logfname);
+X#else
+X	*logfname = 0;
+X#endif
+X	(void) Strncpy(recent_file, dRECENTF);
+X	(void) LocalDotPath(recent_file);
+X
+X	(void) get_cwd(lcwd, (int) sizeof(lcwd));
+X
+X#ifdef SYSLOG
+X#	ifdef LOG_LOCAL3
+X	openlog ("NcFTP", LOG_PID, LOG_LOCAL3);
+X#	else
+X	openlog ("NcFTP", LOG_PID);
+X#	endif
+X#endif				/* SYSLOG */
+X
+X
+X	ignore_rc = 0;
+X	(void) strcpy(oline, "open ");
+X	while ((opt = Getopt(argc, argv, "D:V:INRHaicmup:rd:g:")) >= 0) {
+X		switch(opt) {
+X			case 'a':
+X			case 'c':
+X			case 'i':
+X			case 'm':
+X			case 'u':
+X			case 'r':
+X				(void) sprintf(tmp, "-%c ", opt);
+X				goto cattmp;
+X
+X			case 'p':
+X			case 'd':
+X			case 'g':
+X				(void) sprintf(tmp, "-%c %s ", opt, Optarg);
+X			cattmp:
+X				(void) strcat(oline, tmp);
+X				openopts++;
+X				break;
+X
+X			case 'D':
+X				debug = atoi(Optarg);
+X				break;
+X			
+X			case 'V':
+X				set_verbose(Optarg, 0);
+X				break;
+X
+X			case 'I':
+X				mprompt = !mprompt;
+X				break;
+X
+X			case 'N':
+X				++ignore_rc;
+X				break;
+X
+X			case 'H':
+X				(void) show_version(0, NULL);
+X				exit (0);
+X
+X			default:
+X			usage:
+X				(void) fprintf(stderr, "Usage: %s [program options] [[open options] site.to.open[:path]]\n\
+XProgram Options:\n\
+X    -D x   : Set debugging level to x (a number).\n\
+X    -H     : Show version and compilation information.\n\
+X    -I     : Toggle interactive (mprompt) mode.\n\
+X    -N     : Toggle reading of the .netrc/.ncftprc.\n\
+X    -V x   : Set verbosity to level x (-1,0,1,2).\n\
+XOpen Options:\n\
+X    -a     : Open anonymously (this is the default).\n\
+X    -u     : Open, specify user/password.\n\
+X    -i     : Ignore machine entry in your .netrc.\n\
+X    -p N   : Use port #N for connection.\n\
+X    -r     : \"Redial\" until connected.\n\
+X    -d N   : Redial, pausing N seconds between tries.\n\
+X    -g N   : Redial, giving up after N tries.\n\
+X    :path  : ``Colon-mode:'' If \"path\" is a file, it opens site, retrieves\n\
+X             file \"path,\" then exits; if \"path\" is a remote directory,\n\
+X             it opens site then starts you in that directory..\n\
+X    -c     : If you're using colon-mode with a file path, this will cat the\n\
+X             file to stdout instead of storing on disk.\n\
+X    -m     : Just like -c, only it pipes the file to your $PAGER.\n\
+XExamples:\n\
+X    ncftp ftp.unl.edu:/pub/README (just fetches README then quits)\n\
+X    ncftp  (just enters ncftp command shell)\n\
+X    ncftp -V -u ftp.unl.edu\n\
+X    ncftp -c ftp.unl.edu:/pub/README (cats README to stdout then quits)\n\
+X    ncftp -D -r -d 120 -g 10 ftp.unl.edu\n", progname);
+X			exit(1);
+X		}
+X	}
+X
+X	cp = argv[Optind];  /* the site to open. */
+X	if (cp == NULL) {
+X		if (openopts)
+X			goto usage;
+X	} else
+X		(void) strcat(oline, cp);
+X
+X	if (ignore_rc <= 0)
+X		(void) thrash_rc();
+X	if (ignore_rc <= 1)
+X		ReadRecentSitesFile();
+X
+X	(void) fix_options();	/* adjust "options" according to "debug"  */
+X	
+X	fromatty = doing_script = isatty(0);
+X	toatty = isatty(1);
+X	(void) UserLoggedIn();	/* Init parent-death detection. */
+X	cpend = 0;  /* no pending replies */
+X	
+X	if (*logfname)
+X		logf = fopen (logfname, "a");
+X
+X
+X	/* The user specified a host, maybe in 'colon-mode', on the command
+X	 * line.  Open it now...
+X	 */
+X	if (argc > 1 && cp) {
+X		if (setjmp(toplevel))
+X			exit(0);
+X		(void) Signal(SIGINT, intr);
+X		(void) Signal(SIGPIPE, lostpeer);
+X		(void) strcpy(line, oline);
+X		makeargv();
+X		/* setpeer uses this to tell if it was called from the cmd-line. */
+X		eventnumber = 0L;
+X		(void) cmdOpen(margc, margv);
+X	}
+X	eventnumber = 1L;
+X
+X	(void) init_prompt();
+X
+X	if (startup_msg) {  /* TAR */
+X	    if (ansi_escapes) {
+X#ifdef BETA
+X#	define BETA_MSG "\n\
+XFor testing purposes only.  Do not re-distribute or subject to novice users."
+X#else
+X#	define BETA_MSG ""
+X#endif
+X
+X#ifndef CURSES
+X		(void) printf("%s%s%s%s\n", 
+X				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+X#else
+X		string vis;
+X		(void) sprintf(vis, "%s%s%s%s\n", 
+X				tcap_boldface, FTP_VERSION, BETA_MSG, tcap_normal);
+X		tcap_put(vis);
+X#endif /* !CURSES */
+X	    }
+X	    else
+X		(void) printf("%s%s\n", FTP_VERSION, BETA_MSG);
+X	}  /* TAR */
+X	if (NOT_VQUIET)
+X		PrintTip();
+X	top = setjmp(toplevel) == 0;
+X	if (top) {
+X		(void) Signal(SIGINT, intr);
+X		(void) Signal(SIGPIPE, lostpeer);
+X	}
+X	for (;;) {
+X		(void) cmdscanner(top);
+X		top = 1;
+X	}
+X}	/* main */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid intr SIG_PARAMS
+X{
+X	dbprintf("intr()\n");
+X	(void) Signal(SIGINT, intr);
+X	(void) longjmp(toplevel, 1);
+X}	/* intr */
+X
+X
+X
+Xint getuserinfo(void)
+X{
+X	register char			*cp;
+X	struct passwd			*pw;
+X	string					str;
+X	extern char				*home;	/* for glob.c */
+X	
+X	pw = getpwuid(getuid());
+X	if (pw != NULL) {
+X		(void) Strncpy(uinfo.username, pw->pw_name);
+X		(void) Strncpy(uinfo.shell, pw->pw_shell);
+X		(void) Strncpy(uinfo.homedir, pw->pw_dir);
+X		uinfo.uid = pw->pw_uid;
+X		home = uinfo.homedir;	/* for glob.c */
+X		cp = getenv("MAIL");
+X		if (cp == NULL)
+X			cp = getenv("mail");
+X		if (cp == NULL)
+X			(void) sprintf(str, "/usr/spool/mail/%s", uinfo.username);
+X		else
+X			(void) Strncpy(str, cp);
+X		cp = str;
+X
+X		/*
+X		 * mbox variable may be like MAIL=(28 /usr/mail/me /usr/mail/you),
+X		 * so try to find the first mail path.
+X		 */
+X		while ((*cp != '/') && (*cp != 0))
+X			cp++;
+X		(void) Strncpy(mail_path, cp);
+X		if ((cp = index(mail_path, ' ')) != NULL)
+X			*cp = '\0';
+X		return (0);
+X	} else {
+X		(void) Strncpy(uinfo.username, "unknown");
+X		(void) Strncpy(uinfo.shell, "/bin/sh");
+X		(void) Strncpy(uinfo.homedir, ".");	/* current directory */
+X		uinfo.uid = 999;
+X		return (-1);
+X	}
+X}	/* getuserinfo */
+X
+X
+X
+X
+Xint init_arrays(void)
+X{
+X	if ((macbuf = (char *) malloc((size_t)(MACBUFLEN))) == NULL)
+X		goto barf;
+X	if ((line = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((argbuf = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((reply_string = (char *) malloc((size_t)(RECEIVEDLINELEN))) == NULL)
+X		goto barf;
+X	
+X	*macbuf = '\0';
+X	init_transfer_buffer();
+X	return (0);
+Xbarf:
+X	return (-1);
+X}	/* init_arrays */
+X
+X
+X
+X#ifndef BUFSIZ
+X#define BUFSIZ 512
+X#endif
+X
+Xvoid init_transfer_buffer(void)
+X{
+X	extern char *xferbuf;
+X	extern size_t xferbufsize;
+X	
+X	/* Make sure we use a multiple of BUFSIZ for efficiency. */
+X	xferbufsize = (MAX_XFER_BUFSIZE / BUFSIZ) * BUFSIZ;
+X	while (1) {
+X		xferbuf = (char *) malloc (xferbufsize);
+X		if (xferbuf != NULL || xferbufsize < 1024)
+X			break;
+X		xferbufsize >>= 2;
+X	}
+X	
+X	if (xferbuf != NULL) return;
+X	fatal("out of memory for transfer buffer.");
+X}	/* init_transfer_buffer */
+X
+X
+X
+X
+Xvoid init_prompt(void)
+X{
+X	register char *cp;
+X	
+X	percent_flags = at_flags = 0;
+X	for (cp = prompt; *cp; cp++) {
+X		if (*cp == '%') percent_flags = 1;
+X		else if (*cp == '@') at_flags = 1;
+X	}
+X}	/* init_prompt */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid lostpeer SIG_PARAMS
+X{
+X	if (connected) {
+X		close_streams(1);
+X		if (data >= 0) {
+X			(void) shutdown(data, 1+1);
+X			(void) close(data);
+X			data = -1;
+X		}
+X		connected = 0;
+X	}
+X	if (connected) {
+X		close_streams(1);
+X		connected = 0;
+X	}
+X	hostname[0] = cwd[0] = 0;
+X	logged_in = macnum = 0;
+X}	/* lostpeer */
+X
+X
+X/*
+X * Command parser.
+X */
+Xvoid cmdscanner(int top)
+X{
+X	register struct cmd *c;
+X#ifdef CURSES
+X	string vis, *vp;
+X#endif
+X
+X	if (!top)
+X		(void) putchar('\n');
+X	for (;;) {
+X		if (!doing_script && !UserLoggedIn())
+X			(void) quit(0, NULL);
+X		if (Gets(strprompt(), line, (size_t)CMDLINELEN) == NULL) {
+X			(void) quit(0, NULL);	/* control-d */
+X		}
+X		eventnumber++;
+X		dbprintf("\"%s\"\n", line);
+X		(void) makeargv();
+X		if (margc == 0) {
+X			continue;	/* blank line... */
+X		}
+X		c = getcmd(margv[0]);
+X		if (c == (struct cmd *) -1) {
+X			(void) printf("?Ambiguous command\n");
+X			continue;
+X		}
+X		if (c == 0) {
+X			if (!implicit_cd(margv[0]))
+X				(void) printf("?Invalid command\n");
+X			continue;
+X		}
+X		if (c->c_conn && !connected) {
+X			(void) printf ("Not connected.\n");
+X			continue;
+X		}
+X		if ((*c->c_handler)(margc, margv) == USAGE)
+X			cmd_usage(c);
+X		if (c->c_handler != help)
+X			break;
+X	}
+X	(void) Signal(SIGINT, intr);
+X	(void) Signal(SIGPIPE, lostpeer);
+X}	/* cmdscanner */
+X
+X
+X
+X
+Xchar *strprompt(void)
+X{
+X	time_t					tyme;
+X	char					eventstr[8];
+X	char					*dname, *lastlinestart;
+X	register char			*p, *q;
+X	string					str;
+X	int						flag;
+X
+X	if (at_flags == 0 && percent_flags == 0) {
+X		epromptlen = strlen(prompt);
+X		return (prompt);	/* But don't overwrite it! */
+X	}
+X	epromptlen = 0;
+X	lastlinestart = prompt2;
+X	if (at_flags) {
+X		for (p = prompt, q = prompt2, *q = 0; (*p); p++) {
+X			if (*p == '@') switch (flag = *++p) {
+X				case '\0':
+X					--p;
+X					break;
+X				case 'M':
+X					if (CheckNewMail() > 0)
+X						q = Strpcpy(q, "(Mail) ");
+X					break;
+X				case 'N':
+X					q = Strpcpy(q, "\n");
+X					lastlinestart = q;
+X					epromptlen = 0;
+X					break;
+X				case 'P':	/* reset to no bold, no uline, no inverse, etc. */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_normal);
+X						epromptlen += tcl_normal;
+X					}
+X					break;
+X				case 'B':	/* toggle boldface */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_boldface);
+X						epromptlen += tcl_bold;
+X					}
+X					break;
+X				case 'U':	/* toggle underline */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_underline);
+X						epromptlen += tcl_uline;
+X					}
+X					break;
+X				case 'R':
+X				case 'I':	/* toggle inverse (reverse) video */
+X					if (ansi_escapes) {
+X						q = Strpcpy(q, tcap_reverse);
+X						epromptlen += tcl_rev;
+X					}
+X					break;
+X				case 'D':	/* insert current directory */
+X				case 'J':
+X					if ((flag == 'J') && (remote_is_unix)) {
+X						/* Not the whole path, just the dir name. */
+X						dname = rindex(cwd, '/');
+X						if (dname == NULL)
+X							dname = cwd;
+X						else if ((dname != cwd) && (dname[1]))
+X							++dname;
+X					} else
+X						dname = cwd;
+X					if (dname[0]) {
+X						q = Strpcpy(q, dname);
+X						q = Strpcpy(q, " ");
+X					}
+X					break;
+X				case 'H':	/* insert name of connected host */
+X					if (logged_in) {
+X						(void) sprintf(str, "%s ", hostname);
+X						q = Strpcpy(q, str);
+X					}
+X					break;
+X				case 'C':  /* Insert host:path (colon-mode format. */
+X					if (logged_in) {
+X						(void) sprintf(str, "%s:%s ", hostname, cwd);
+X						q = Strpcpy(q, str);
+X					} else
+X						q = Strpcpy(q, "(not connected)");
+X					break;
+X				case 'c':
+X					if (logged_in) {
+X						(void) sprintf(str, "%s:%s\n", hostname, cwd);
+X						q = Strpcpy(q, str);
+X						lastlinestart = q;	/* there is a \n at the end. */
+X						epromptlen = 0;
+X					}
+X					break;
+X				case '!':
+X				case 'E':	/* insert event number */
+X					(void) sprintf(eventstr, "%ld", eventnumber);
+X					q = Strpcpy(q, eventstr);
+X					break;
+X				default:
+X					*q++ = *p;	/* just copy it; unknown switch */
+X			} else
+X				*q++ = *p;
+X		}
+X		*q = '\0';
+X	} else 
+X		(void) strcpy(prompt2, prompt);
+X	
+X	if (percent_flags) {
+X		/*	only strftime if the user requested it (with a %something),
+X			otherwise don't waste time doing nothing. */
+X		(void) time(&tyme);
+X		(void) Strncpy(str, prompt2);
+X		(void) strftime(prompt2, sizeof(str), str, localtime(&tyme));
+X	}
+X	epromptlen = (size_t) ((long) strlen(lastlinestart) - (long) epromptlen);
+X	return (prompt2);
+X}	/* strprompt */
+X
+X
+X/*
+X * Slice a string up into argc/argv.
+X */
+X
+Xvoid makeargv(void)
+X{
+X	char **argp;
+X
+X	margc = 0;
+X	argp = margv;
+X	stringbase = line;		/* scan from first of buffer */
+X	argbase = argbuf;		/* store from first of buffer */
+X	slrflag = 0;
+X	while (*argp++ = slurpstring())
+X		margc++;
+X}	/* makeargv */
+X
+X
+X
+X
+X/*
+X * Parse string into argbuf;
+X * implemented with FSM to
+X * handle quoting and strings
+X */
+Xchar *slurpstring(void)
+X{
+X	int got_one = 0;
+X	register char *sb = stringbase;
+X	register char *ap = argbase;
+X	char *tmp = argbase;		/* will return this if token found */
+X
+X	if (*sb == '!' || *sb == '$') {	/* recognize ! as a token for shell */
+X		switch (slrflag) {	/* and $ as token for macro invoke */
+X			case 0:
+X				slrflag++;
+X				stringbase++;
+X				return ((*sb == '!') ? "!" : "$");
+X				/* NOTREACHED */
+X			case 1:
+X				slrflag++;
+X				altarg = stringbase;
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X
+XS0:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X		sb++; goto S0;
+X
+X	default:
+X		switch (slrflag) {
+X			case 0:
+X				slrflag++;
+X				break;
+X			case 1:
+X				slrflag++;
+X				altarg = sb;
+X				break;
+X			default:
+X				break;
+X		}
+X		goto S1;
+X	}
+X
+XS1:
+X	switch (*sb) {
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X	case '\0':
+X		goto OUT;	/* end of token */
+X
+X	case '\\':
+X		sb++; goto S2;	/* slurp next character */
+X
+X	case '"':
+X		sb++; goto S3;	/* slurp quoted string */
+X
+X	default:
+X		*ap++ = *sb++;	/* add character to token */
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS2:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS3:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case '"':
+X		sb++; goto S1;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S3;
+X	}
+X
+XOUT:
+X	if (got_one)
+X		*ap++ = '\0';
+X	argbase = ap;			/* update storage pointer */
+X	stringbase = sb;		/* update scan pointer */
+X	if (got_one) {
+X		return(tmp);
+X	}
+X	switch (slrflag) {
+X		case 0:
+X			slrflag++;
+X			break;
+X		case 1:
+X			slrflag++;
+X			altarg = (char *) 0;
+X			break;
+X		default:
+X			break;
+X	}
+X	return((char *)0);
+X}	/* slurpstring */
+X
+X/*
+X * Help command.
+X * Call each command handler with argc == 0 and argv[0] == name.
+X */
+Xint
+Xhelp(int argc, char **argv)
+X{
+X	register struct cmd		*c;
+X	int						showall = 0, helpall = 0;
+X	char					*arg;
+X	int						i, j, k;
+X	int 					nRows, nCols;
+X	int 					nCmds2Print;
+X	int 					screenColumns;
+X	int 					len, widestName;
+X	char 					*cp, **cmdnames, spec[16];
+X
+X	if (argc == 2) {
+X		showall = (strcmp(argv[1], "showall") == 0);
+X		helpall = (strcmp(argv[1], "helpall") == 0);
+X	}
+X	if (argc == 1 || showall)  {
+X		(void) printf("\
+XCommands may be abbreviated.  'help showall' shows aliases, invisible and\n\
+Xunsupported commands.  'help <command>' gives a brief description of <command>.\n\n");
+X
+X		for (c = cmdtab, nCmds2Print=0; c->c_name != NULL; c++) 
+X			if (!c->c_hidden || showall)
+X				nCmds2Print++;
+X
+X		if ((cmdnames = (char **) malloc(sizeof(char *) * nCmds2Print)) == NULL)
+X			fatal("out of memory!");
+X
+X		for (c = cmdtab, i=0, widestName=0; c->c_name != NULL; c++) {
+X			if (!c->c_hidden || showall) {
+X				cmdnames[i++] = c->c_name;
+X				len = (int) strlen(c->c_name);
+X				if (len > widestName)
+X					widestName = len;
+X			}
+X		}
+X
+X		if ((cp = getenv("COLUMNS")) == NULL)
+X			screenColumns = 80;
+X		else
+X			screenColumns = atoi(cp);
+X
+X		widestName += 2;	/* leave room for white-space in between cols. */
+X		nCols = screenColumns / widestName;
+X		/* if ((screenColumns % widestName) > 0) nCols++; */
+X		nRows = nCmds2Print / nCols;
+X		if ((nCmds2Print % nCols) > 0)
+X			nRows++;
+X
+X		(void) sprintf(spec, "%%-%ds", widestName);
+X		for (i=0; i<nRows; i++) {
+X			for (j=0; j<nCols; j++) {
+X				k = nRows*j + i;
+X				if (k < nCmds2Print)
+X					(void) printf(spec, cmdnames[k]);
+X			}
+X			(void) printf("\n");
+X		}
+X		free(cmdnames);
+X	} else if (helpall) {
+X		/* Really intended to debug the help strings. */
+X		for (c = cmdtab; c->c_name != NULL; c++) {
+X			cmd_help(c);
+X			cmd_usage(c);
+X		}
+X	} else while (--argc > 0) {
+X		arg = *++argv;
+X		c = getcmd(arg);
+X		if (c == (struct cmd *)-1)
+X			(void) printf("?Ambiguous help command %s\n", arg);
+X		else if (c == (struct cmd *)0)
+X			(void) printf("?Invalid help command %s\n", arg);
+X		else {
+X			cmd_help(c);
+X			cmd_usage(c);
+X		}
+X	}
+X	return NOERR;
+X}	/* help */
+X
+X
+X/*
+X * If the user wants to, s/he can specify the maximum size of the log
+X * file, so it doesn't waste too much disk space.  If the log is too
+X * fat, trim the older lines (at the top) until we're under the limit.
+X */
+Xvoid trim_log(void)
+X{
+X	FILE				*new, *old;
+X	struct stat			st;
+X	long				fat;
+X	string				tmplogname, str;
+X
+X	if (logsize <= 0 || *logfname == 0 || stat(logfname, &st) ||
+X		(old = fopen(logfname, "r")) == NULL)
+X		return;	/* never trim, or no log */
+X	fat = st.st_size - logsize;
+X	if (fat <= 0L) return;	/* log too small yet */
+X	while (fat > 0L) {
+X		if (FGets(str, old) == NULL) return;
+X		fat -= (long) strlen(str);
+X	}
+X	/* skip lines until a new site was opened */
+X	while (1) {
+X		if (FGets(str, old) == NULL) {
+X			(void) fclose(old);
+X			(void) unlink(logfname);
+X			return;	/* nothing left, start anew */
+X		}
+X		if (*str != '\t') break;
+X	}
+X	
+X	/* copy the remaining lines in "old" to "new" */
+X	(void) Strncpy(tmplogname, logfname);
+X	tmplogname[strlen(tmplogname) - 1] = 'T';
+X	if ((new = fopen(tmplogname, "w")) == NULL) {
+X		(void) PERROR("trim_log", tmplogname);
+X		return;
+X	}
+X	(void) fputs(str, new);
+X	while (FGets(str, old))
+X		(void) fputs(str, new);
+X	(void) fclose(old); (void) fclose(new);
+X	if (unlink(logfname) < 0)
+X		PERROR("trim_log", logfname);
+X	if (rename(tmplogname, logfname) < 0)
+X		PERROR("trim_log", tmplogname);
+X}	/* trim_log */
+X
+X
+X
+X
+Xint CheckNewMail(void)
+X{
+X	struct stat stbuf;
+X
+X	if (*mail_path == '\0') return 0;
+X	if (stat(mail_path, &stbuf) < 0) {	/* cant find mail_path so we'll */
+X		*mail_path = '\0';				/* never check it again */
+X		return 0;
+X	}
+X
+X	/*
+X	 * Check if the size is non-zero and the access time is less than
+X	 * the modify time -- this indicates unread mail.
+X	 */
+X	if ((stbuf.st_size != 0) && (stbuf.st_atime <= stbuf.st_mtime)) {
+X		if (stbuf.st_mtime > mbox_time) {
+X			(void) printf("%s\n", NEWMAILMESSAGE);
+X			mbox_time = stbuf.st_mtime;
+X		}
+X		return 1;
+X	}
+X
+X	return 0;
+X}	/* CheckNewMail */
+X
+X
+X
+X#ifdef CURSES
+Xvoid termcap_get(char *dest, char *attr)
+X{
+X	static char area[1024];
+X	static char *s = area;
+X	char buf[32];
+X	int foo;
+X
+X	(void) Strncpy(buf, tgetstr(attr, &s));
+X	if (buf[0]) {
+X 		for (foo = 0; (buf[foo] <= '9') && (buf[foo] >= '0'); foo++); 
+X 		if ((dest = (char *)malloc(strlen(&(buf[foo])) + 1)) == NULL) 
+X 			*dest = 0;
+X 		else 
+X 			(void) strcpy(dest, &(buf[foo]));
+X 	} else 
+X 		*dest = 0;
+X}	/* termcap_get */
+X
+X
+X  
+Xvoid termcap_init(void)
+X{
+X	static char area[1024];
+X	static char *s = area;
+X	char *term;
+X
+X	if ((term = getenv("TERM")) == NULL) {
+X		term = "dumb";  /* TAR */
+X		ansi_escapes = 0;
+X	}
+X	if (tgetent(tcbuf,term) != 1) {
+X		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+X	} else {
+X		termcap_get(tcap_normal, "me");
+X		termcap_get(tcap_boldface, "md");
+X		termcap_get(tcap_underline, "us");
+X		termcap_get(tcap_reverse, "so");
+X		tcl_normal = strlen(tcap_normal);
+X		tcl_bold = strlen(tcap_boldface);
+X		tcl_uline = strlen(tcap_underline);
+X		tcl_rev = strlen(tcap_reverse);
+X	}
+X}	/* termcap_init */
+X
+X
+X
+Xstatic int c_output(int c)
+X{
+X	putchar(c);
+X}	/* c_output */
+X
+X
+X
+X
+Xvoid tcap_put(char *cap)
+X{
+X	tputs(cap, 0, c_output);
+X}	/* tcap_put */
+X
+X#endif /* CURSES */
+X
+X/* eof main.c */
+END_OF_FILE
+  if test 23284 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+if test -f 'ncftp.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ncftp.1'\"
+else
+  echo shar: Extracting \"'ncftp.1'\" \(33324 characters\)
+  sed "s/^X//" >'ncftp.1' <<'END_OF_FILE'
+X.\"-------
+X.\" Man page portability notes
+X.\"
+X.\" These are some notes on conventions to maintain for greatest
+X.\" portability of this man page to various other versions of
+X.\" nroff.
+X.\"
+X.\" When you want a \ to appear in the output, use \e in the man page.
+X.\" (NOTE this comes up in the rc grammar, where to print out '\n' the
+X.\" man page must contain '\en'.)
+X.\"
+X.\" Evidently not all versions of nroff allow the omission of the
+X.\" terminal " on a macro argument.  Thus what could be written
+X.\"
+X.\" .Cr "exec >[2] err.out
+X.\"
+X.\" in true nroffs must be written
+X.\"
+X.\" .Cr "exec >[2] err.out"
+X.\"
+X.\" instead.
+X.\"
+X.\" Use symbolic font names (e.g. R, I, B) instead of the standard
+X.\" font positions 1, 2, 3.  Note that for Xf to work the standard
+X.\" font names must be single characters.
+X.\"
+X.\" Note that sentences should end at the end of a line.  nroff and
+X.\" troff will supply the correct intersentence spacing, but only if
+X.\" the sentences end at the end of a line.  Explicit spaces, if given,
+X.\" are apparently honored and the normal intersentence spacing is
+X.\" supressed.
+X.\"
+X.\" DaviD W. Sanderson
+X.\"-------
+X.\" Dd	distance to space vertically before a "display"
+X.\" These are what n/troff use for interparagraph distance
+X.\"-------
+X.if t .nr Dd .4v
+X.if n .nr Dd 1v
+X.\"-------
+X.\" Sp	space down the interparagraph distance
+X.\"-------
+X.de Sp
+X.sp \\n(Ddu
+X..
+X.\"-------
+X.\" Ds	begin a display, indented .5 inches from the surrounding text.
+X.\"
+X.\" Note that uses of Ds and De may NOT be nested.
+X.\"-------
+X.de Ds
+X.Sp
+X.in +0.5i
+X.nf
+X..
+X.\"-------
+X.\" De	end a display (no trailing vertical spacing)
+X.\"-------
+X.de De
+X.fi
+X.in
+X..
+X.TH NcFTP 1 "" NCEMRSoft
+X.\"-------
+X.SH "NAME"
+X.\"-------
+XNcFTP \(em Internet file transfer program
+X.\"-------
+X.SH "SYNOPSIS"
+X.\"-------
+X.B ncftp
+X.RI [ "program options" ]
+X.RI [[ "open options" ]
+X.IR hostname [\c
+X.B :\c
+X.IR pathname ]]
+X.\"-------
+X.SH "DESCRIPTION"
+X.\"-------
+X.I NcFTP
+Xis a user interface to the Internet standard
+X.IR "File Transfer Protocol" .
+XThis program allows a user to transfer files to and from a remote network
+Xsite, and offers additional features that are not found in the standard
+Xinterface,
+X.IR ftp .
+X.\"-------
+X.SH "FEATURES"
+X.\"-------
+XProgram options will be explained later in this document.
+XLet's get down to business and go over the features
+Xthat make this program worthwhile.
+X.PP
+XHere is the list of section headers; I have my $MANPAGER environment
+Xvariable set to use
+X.RB `` "less \-i" ''
+Xso that I can skip to the section I
+Xwant (otherwise,
+X.BI / regex
+Xcommands to the pager won't match the section
+Xheaders because of the formatting codes;
+Xthe
+X.RB `` \-i ''
+Xcan search through the formatting codes)
+X.Ds
+XEstablishing the remote connection
+XFormat of the RC file
+XThe Recent-sites file
+XRedialing a busy remote site
+XSupplying a sitename from your shell's command line
+XUsing Colon-mode
+XUsing FTP-cat and FTP-more mode
+XSupplying a port number with the open command
+XDisplaying and changing program variables
+XProgram variables
+XListing a remote directory
+XViewing a remote directory with your pager
+XRedisplaying the last directory listing
+XFetching files from the remote host
+XViewing a remote file with your pager
+XCreating a message file on the remote host
+XLooking up site names and addresses
+XChecking the configuration of the program
+XUsing the command shell
+XCustomizing the prompt
+XKeeping a log of your file transfers
+XProgram options
+XA sample RC file
+X.De
+X.\"-------
+X.SH "Establishing the remote connection"
+X.\"-------
+XJust opening a connection to a remote server was inconvenient enough in the
+Xstock
+X.I ftp
+Xprogram to justify writing this program.
+XHere at
+X.IR NCEMRSoft ,
+Xwe want to do our business as quickly and painlessly as possible.
+XWe'd
+Xrather save time and wear and tear on our metacarpals than bother typing
+Xentire site names, usernames, and email addresses masquerading as passwords,
+Xand setting binary mode.
+X.PP
+XWe made all connections anonymous by default, and we automatically send our
+Xemail address for the password on those connections.
+XWe allowed for site
+Xnames to be abbreviated.
+X.PP
+XFor each commonly accessed site, you can put an entry in your program
+Xpreferences file (let's call it the ``ncftprc file.''or ``RC file.''for short).
+XTo open the site, from the command shell all you do is type:
+X.Ds
+Xopen wuarchive.wustl.edu
+X.De
+X.PP
+Xor
+X.Ds
+Xo wuarchive.wustl.edu
+X.De
+X.PP
+XAs promised, you can abbreviate that further.
+XJust use any abbreviation that
+Xwould match only the site you had in mind.
+XFor the previous example, you
+Xcould try:
+X.Ds
+Xo wuarc
+Xo wustl
+Xo stl
+Xo wu
+X.De
+X.PP
+XAny of those abbreviations would open wuarchive.wustl.edu anonymously,
+Xsending your anon-password (usually set to your email address) as the
+Xpassword.
+XKeep in mind that the program tries opening the first site
+Xthat matches the abbreviation you supplied.
+XSo:
+X.Ds
+Xo w
+X.De
+X.PP
+Xmight match a site named bowser.nintendo.jp if that site appeared before
+Xyour entry for wuarchive.wustl.edu.
+X.PP
+XMost of the time we open remote sites anonymously, but
+Xthere are times where you need to specifically open a site with an actual
+Xusername and password.
+XLet's say my partner, Phil Dietz, wants to FTP
+Xsomething out of my account.
+XPerhaps he wants to fetch the latest version
+Xof the source code to
+X.I NcFTP
+Xso he can optimize something or add a new feature behind my back.
+XSince the
+Xprogram opens remote sites anonymously by default (actually, you can change
+Xthis behavior; more on that later), he would have to specify a flag to the
+X.I open
+Xcommand so he can supply my username and password.
+XHe would try:
+X.Ds
+Xo \-u sphygmomanometer.unl.edu
+X.De
+X.PP
+Xor, more likely:
+X.Ds
+Xo \-u sph
+X.De
+X.PP
+XThen the program would prompt him for a username (login, whatever) and a
+Xpassword:
+X.Ds
+XLogin Name (pdietz): mgleason
+XPassword: ********
+X.De
+X.PP
+XIf he got it right, he could raid my stuff.
+XIf not, he'd probably drop
+Xme an email asking me to quit changing my password so often.
+X.PP
+XThere are even times where you want to FTP from your own account, like if
+Xyou are debugging an FTP client you wrote.
+XAt this prompt:
+X.Ds
+XLogin Name (mgleason):
+X.De
+X.PP
+XI could just hit return to tell the program that I want ``mgleason.''as my
+Xusername, then I would enter my password.
+X.\"-------
+X.SH "Format of the RC file"
+X.\"-------
+XThis release of the program is somewhat compatible with the stock
+X.I ftp
+Xprogram's
+X.B ".netrc"
+Xfile.
+XHowever, I can promise you that in the near future the program will
+Xuse a new format, so don't invest too much time in it.
+X.PP
+XThe RC file can be named
+X.RB `` ncftprc ,''
+X.RB `` netrc ,''
+Xor
+X.RB `` .ncftprc ,''
+Xbut it is usually named
+X.RB `` .netrc ''
+Xso it can be used with the stock
+X.I ftp
+Xprogram.
+X.I NcFTP
+Xlooks in the current working directory for any of those files, and then in
+Xyour home directory, and after that it gives up (which is OK, because RC
+Xfiles aren't mandatory).
+X.PP
+XThe file usually starts with
+X.I #set
+Xand
+X.I #unset
+Xcommands that do things
+Xto the programs variables.
+XThe reason for the ``#.''is so the stock
+X.I ftp
+Xprogram will think they are comments.
+XYou might have this appearing as
+Xthe first few lines in your RC file (I'll explain later):
+X.Ds
+X#set debug 1
+X#set pager "less \-EMi"
+X#unset startup\-msg
+X.De
+X.PP
+XAfter those, you put in machine entries for each of your favorite sites.
+XLet's put in an entry for wuarchive.wustl.edu.
+XFirst you would put:
+X.Ds
+Xmachine wuarchive.wustl.edu
+X.De
+X.PP
+XThen you could put in your username, password, and account if you like:
+X.Ds
+Xuser anonymous
+Xpassword \-mgleason@cse.unl.edu
+Xaccount wuarc.does.not.use.accounts
+X.De
+X.PP
+XFollowing that, you would add the startup macro that is run
+Xeach time you connect to wuarchive.
+XYou must start it with this line:
+X.Ds
+Xmacdef init
+X.De
+X.PP
+XThen put in the commands you want to do:
+X.Ds
+Xcd /graphics/gif
+Xls \-lt
+X.De
+X.PP
+XAfter that, you end the macro with a blank line (important!).
+XThe finished machine entry would look like the following.
+XTo make the transition to the impending new format less painful,
+XI recommend you adhere to this format:
+X.ta 6m +6m
+X.Ds
+Xmachine wuarchive.wustl.edu
+X	user anonymous
+X	password \-mgleason@cse.unl.edu
+X	account wuarc.does.not.use.accounts
+X	macdef init
+X		cd /graphics/gif
+X		ls \-lt
+X.RI \t( "mandatory blank line to end the macro" )
+X.De
+X.PP
+XOf course, if all you want to do is open wuarchive anonymously, you
+Xneedn't bother with the ``user,.''``password,.''and ``account.''lines.
+XYou may want to put them in if you plan on using the stock
+X.I ftp
+Xprogram, though.
+XTry something like this:
+X.ta 6m +6m
+X.Ds
+Xmachine wuarchive.wustl.edu
+X	macdef init
+X		cd /graphics/gif
+X		ls \-lt
+X.RI \t( "mandatory blank line to end the macro" )
+X.De
+X.PP
+XYou can tell the program to not run the startup macro if you supply
+X.B "\-i"
+Xto the
+X.I open
+Xcommand.
+X.PP
+XReally, you should only bother adding entries for sites that you want to
+Xrun startup macros upon connection.
+XThe next section explains why.
+X.\"-------
+X.SH "The Recent-sites file"
+X.\"-------
+XEach time you open a site, the program saves the name of the site and the
+Xlast directory you were in to the
+X.I recent-sites file
+Xwhich is named
+X.B ".ncrecent"
+Xand placed in your home directory.
+XThe program saves a
+Xpredetermined number of these sites in the file, and when it reaches the
+Xlimit, it discards the oldest entry so it can add a new one.
+X.PP
+XYou can just go ahead and use the name of the site you want with the
+X.I open
+Xcommand if you know it is in the
+X.I recent\-file
+X(and you can abbreviate the
+Xname, just like those in the RC file).
+XBut if you cannot remember what the
+Xname of the site you want, all you do is run the
+X.I open
+Xcommand with
+Xno site parameter:
+X.Ds
+Xopen
+X.De
+X.PP
+XThis will pop up a list of the sites in the
+X.IR "recent-file" ,
+Xand sites in your RC file.
+XAt the open prompt, just type the name (or an
+Xabbreviation of that name) or the number preceding the site name to open
+Xthat site.
+XAfter opening the site you wanted, the program sets the remote
+Xworking directory to the same one you left in the last time you called.
+X.PP
+XIf you don't like the idea of having the sites you called stored on disk,
+Xyou can turn this feature off using an
+X.I unset
+Xcommand, explained later.
+X.\"-------
+X.SH "Redialing a busy remote site"
+X.\"-------
+XSome remote sites limit the number of leeches, er, anonymous connections
+Xat a time to reduce the load on the host computer.
+XYou can use the
+X.I open
+Xcommand's redial feature to keep attempting connections until you get on,
+Xalthough that is not a very polite thing to do.
+XThe simplest way to do
+Xthis would be to just supply the
+X.B \-r
+Xoption:
+X.Ds
+Xopen \-r wuarc
+X.De
+X.PP
+XThere are also options you can use to tweak redial.
+XThe
+X.B \-d
+Xflag sets
+Xthe delay between dials, and the
+X.B \-g
+Xflag sets a limit on how many dials
+Xshould be attempting before giving up.
+XIf you don't supply
+X.B \-g
+Xthe program will dial a day and forever (which my Number Theory professor,
+XDr. Mientka, says is longer than forever and a day)
+Xuntil it connects successfully, or until you get sick of waiting and hit the
+Xinterrupt key (usually ^C).
+X.PP
+XThis example dials wuarchive every ten minutes, giving up after twenty
+Xattempts.
+XNote that the redial delay is specified in seconds:
+X.Ds
+Xopen \-r \-d 600 \-g 20 wuarc
+X.De
+X.PP
+XPlease be considerate when you use redialing, so you won't tax the network.
+XSite administrators can and do get angry when they get flooded with
+Xconnections.
+X.\"-------
+X.SH "Supplying a sitename from your shell's command line"
+X.\"-------
+XWhen you run the program:
+X.Ds
+Xncftp
+X.De
+X.PP
+Xby itself does nothing and waits for you to type commands to the program's
+Xown shell.
+XJust like the stock
+X.I ftp
+Xprogram, you can supply a site name
+Xon the command line:
+X.Ds
+Xncftp wuarchive.wustl.edu
+X.De
+X.PP
+XYou can also use abbreviations as usual:
+X.Ds
+Xncftp wuarc
+X.De
+X.PP
+XThis is equivalent to running the program, then issuing an
+X.I open
+Xcommand to open wuarchive.
+X.\"-------
+X.SH "Using Colon-mode"
+X.\"-------
+XThe
+X.I open
+Xcommand is not a one-trick pony.
+XAnother option is what I call
+X.IR "colon-mode" .
+XThis feature is used (most of the time) from your shell's
+Xcommand line.
+X.PP
+XIn ancient times, way back during the Disco era, you could use a program
+Xcalled
+X.I tftp
+Xto fetch a file using the Internet standard
+X.I Trivial File Transfer Protocol.
+XYou could use that program to do something like this
+Xfrom within its shell:
+X.Ds
+Xget wuarchive.wustl.edu:/graphics/gif/README
+X.De
+X.PP
+Xand that would call wuarchive and fetch the
+X.B README
+Xfile.
+X.PP
+XYou can use this program to do the same thing from your shell's command
+Xline:
+X.Ds
+Xcsh> ncftp wuarchive.wustl.edu:/graphics/gif/README
+Xcsh> head README
+X.De
+X.PP
+XThis tells your shell, in this case the ``c-shell.''to run
+X.IR NcFTP ,
+Xwhich
+Xwould open wuarchive, fetch
+X.B /pub/README
+Xand write the file
+X.B ./README
+Xin the your current working directory, and then exits.
+XThis is nice if you don't
+Xwant to browse around the remote site, and you know exactly want you want.
+XIt would also come in handy in shell scripts, where you don't want to
+Xenter the command shell, and might not want the program to spew output.
+X.PP
+XYou can use
+X.I colon-mode
+Xto set the starting remote working directory also:
+X.Ds
+Xcsh> ncftp wuarchive.wustl.edu:/graphics/gif
+X.De
+X.PP
+XThis would run the program, open wuarchive, and
+X.I cd
+Xto the gif directory, then run the program's command shell so you can
+Xbrowse.
+X.PP
+X.I Colon-mode
+Xis also available from within the program's command shell.
+XAt a prompt you can do stuff like this:
+X.Ds
+Xncftp> open wuarchive.wustl.edu:/graphics/gif/README
+Xncftp> o wuarc:/graphics/gif
+X.De
+X.\"-------
+X.SH "Using FTP-cat and FTP-more mode"
+X.\"-------
+XThere are times where you might not want the program to write a
+X.I colon-mode
+Xfile in the current working directory, or perhaps you want to pipe the
+Xoutput of a remote file into something else.
+X.I Colon-mode
+Xhas options to
+Xdo this.
+XIt was inspired by the guy who wrote the
+X.I ftpcat
+Xperl script.
+XThe
+X.B \-c
+Xoption tells the program to write on the standard
+Xoutput stream.
+XThe
+X.B \-m
+Xoption pipes the file into your pager (like
+X.IR more ")"
+XOf course this won't work if the thing you give
+X.I colon-mode
+Xis a directory!  This example just dumps a remote file to stdout:
+X.Ds
+Xcsh> ncftp \-c wuarc:/graphics/gif/README
+X\&...
+Xcsh>
+X.De
+X.PP
+XThis example redirects a remote file into a different
+Xlocation:
+X.Ds
+Xcsh> ncftp \-c wu:/README > ~pdietz/thesis.tex
+X.De
+X.PP
+XThis one shows how to use a pipeline:
+X.Ds
+Xcsh> ncftp \-c wuarc:/README | tail | wc \-l
+X10
+Xcsh>
+X.De
+X.PP
+XThis shows how to page a remote file:
+X.Ds
+Xcsh> ncftp \-m wuarc:/graphics/gif/README
+X\&...
+Xcsh>
+X.De
+X.\"-------
+X.SH "Supplying a port number with the open command"
+X.\"-------
+XThis option just didn't fit anywhere else, so to finish out the open command,
+X.B \-p
+Xlets you supply a port number if you have to
+X.I ftp
+Xto a site using an nonstandard port number.
+XPersonally, I have yet to use feature, but its
+Xthere for compatibility with the stock
+X.I ftp
+Xprogram.
+X.\"-------
+X.SH "Displaying and changing program variables"
+X.\"-------
+XNow I'll explain the commands unique to
+X.IR NcFTP .
+XThe others should perform the
+Xsame as they would in the stock
+X.I ftp
+Xprogram;
+Xconsult the man page for it if you want those explained,
+Xor use the
+X.I help
+Xcommand for a brief blurb.
+X.PP
+XThe
+X.I show
+Xcommand is used to display program variables and their values.
+X.Ds
+Xshow all
+X.De
+X.PP
+Xor
+X.Ds
+Xshow
+X.De
+X.PP
+Xwould display all the variables with their values.
+X.Ds
+X.RI show " var1 var2 ... varN"
+X.De
+X.PP
+Xwould display each specified variable and its value.
+X.PP
+XThe
+X.I set
+Xcommand changes the value of a program variable.
+XIts syntax is:
+X.Ds
+X.RI set " varname value"
+X.De
+X.PP
+XFor Boolean or Integer variables,
+X.Ds
+X.RI set " varname"
+X.De
+X.PP
+Xwould set the value of the variable
+X.I varname
+Xto
+X.B 1
+X.RB ( true ).
+X.PP
+XThe
+X.I unset
+Xcommand can be used to set the variable to its default value,
+Xor for Boolean and Integer variables, set the value of the variable to
+X.B 0
+X.RB ( false ).
+XFor String variables, you can use this to set the value to an
+Xempty string.
+X.PP
+XYou can use any of those three commands in both the command shell,
+Xor in the RC file with a ``#.''prepended.
+X.\"-------
+X.SH "Program variables"
+X.\"-------
+XEach variable can be one of the following types:
+X.TP
+XBoolean:
+XCan be
+X.RB `` on ''
+Xor
+X.RB `` off ''
+X(you can also use
+X.RB `` 1 ''
+Xor
+X.RB `` 0 .''.
+X.TP
+XInteger:
+XCan be any positive or negative number, or
+X.BR 0 .
+X.TP
+XString:
+XIs a string of characters.
+XIf the string needs to have a space
+Xin it, make sure you surround the whole string with double quotes in a
+X.I set
+Xcommand.
+X.PP
+XVariables follow.
+XSome variables are explained later in the relevant sections.
+X.TP
+X.IR anon\-open " (Boolean)"
+XTells whether the default login mode is anonymous if
+Xon, or if off, will prompt for a username/password.
+XYou can always override this by using either
+X.B \-a
+Xor
+X.B \-u
+Xwith the
+X.I open
+Xcommand.
+X.TP
+X.IR anon\-password " (String)"
+XSends this as the password when you login anonymously.
+XBy default this is your email address.
+X.TP
+X.IR ansi\-escapes " (Boolean)"
+XIf on, the program can use boldface, underline,
+Xand inverse text.
+X.TP
+X.IR auto\-binary " (Boolean)"
+XIf on, sets the transfer type to binary mode
+Ximmediately after connection.
+X.TP
+X.IR debug " (Integer)"
+XSets the debugging level.
+X.TP
+X.IR gateway\-login " (String)"
+XTells which username to use when logging in to
+Xyour firewall gateway host.
+X.TP
+X.IR gateway\-host " (String)"
+XThe site which is acting as your firewall gateway,
+Xor empty if you aren't using one.
+X.TP
+X.IR local\-dir " (String)"
+XThe current local working directory.
+XI like to set this from my RC file,
+Xso all my files go into my download directory.
+X.TP
+X.IR logfile " (String)"
+XThe name of your personal transfer log, or empty
+Xif you aren't using a transfer log.
+X.TP
+X.IR logsize " (Integer)"
+XThe maximum ceiling of your log file, before the program
+Xremoves old entries.
+X.TP
+X.IR mprompt " (Boolean)"
+XIf on, prompts for each remote file expanded from a
+Xwildcard globbing expression.
+X.TP
+X.IR netrc " (String, Read-only)"
+XTells you the name of the RC file in use.
+X.TP
+X.IR pager " (String)"
+XThe pathname and flags of the program used to display
+Xoutput one screenful at a time.
+XThe default is the value of your $PAGER
+Xenvironment variable.
+X.TP
+X.IR prompt " (String)"
+XThe prompt specification that expands into the prompt.
+X.TP
+X.IR progress\-reports " (Integer)"
+XWhich progress meter to use, or 0 if you
+Xdon't want progress reports during file transfers.
+X.TP
+X.IR recent\-list " (Boolean)"
+XIf on, uses and updates the
+X.I recent\-file.
+X.TP
+X.IR remote\-is\-unix " (Boolean)"
+XSet automatically by the program upon connection,
+Xyou may need to use this in a startup macro if the program guessed
+Xthat a remote site was UNIX when it really is not.
+X.TP
+X.IR startup\-msg " (Boolean)"
+XIf on, prints the opening message and tip.
+X.TP
+X.IR tips " (Boolean)"
+XIf on, prints a tip on how to use the program better each
+Xtime you run the program.
+X.TP
+X.IR type " (String)"
+XThe name of the file transfer mode in use,
+Xsuch as
+X.RB `` binary ''
+Xor
+X.RB `` ascii .''
+X.TP
+X.IR verbose " (String/Integer)"
+XControls the amount of output spewed by the program.
+XYou can supply either the first character of the name of the
+Xverbosity level, or its number:
+X.RS
+X.TP
+X.IR "Q" "uiet (\-1)"
+XWon't print any output at all, even if an error occurs.
+X.TP
+X.IR "E" "rrors Only (0)"
+XNo output, except when errors occur.
+X.TP
+X.IR "T" "erse (1)"
+XPrints errors, and useful output from the remote host.
+X.TP
+X.IR "V" "erbose (2)"
+XPrints everything, even junk output from the remote end.
+X.RE
+X.\"-------
+X.SH "Listing a remote directory"
+X.\"-------
+XThe
+X.I ls
+Xand
+X.I dir
+Xcommands perform in a similar manner to those of the
+Xstock
+X.I ftp
+Xprogram.
+X.PP
+XThe
+X.I ls
+Xcommand sends the FTP command ``NLST.''for you.
+XThis command has been set so that it defaults
+Xto always listing files in columns (this is the
+X.B \-C
+Xoption given to the UNIX
+X.I ls
+Xcommand) and appending
+Xmetacharacters to each item name (this is the
+X.B \-F
+Xoption), so you can
+Xsee which items are directories, files, links, etcetera.
+XIf you don't want
+Xyour items columnized, you can try using the
+X.B \-1
+Xoption with
+X.I ls
+Xto print one item per line.
+X.PP
+XThe
+X.I dir
+Xcommand sends the FTP command ``LIST.''for you, which instead
+Xof printing just item names, it prints item sizes, owners, dates, and
+Xpermissions as well.
+XThis command is equivalent to
+X.RB `` "ls \-l" ''
+Xon most remote systems.
+X.PP
+XThe usage for both commands is the same.
+XHere is the one for
+X.IR ls :
+X.PP
+X.RS
+X.B ls
+X.RI [ \-flags ]
+X.RI [ "directory and file names" ]
+X.RI [ redirection ]
+X.RE
+X.PP
+XNote that in this program, you can supply both flags and items to list in
+Xthe same command.
+XThe stock version of
+X.I ftp
+Xdoesn't let you do this:
+X.Ds
+Xls \-lrt /info\-mac/help
+X.De
+X.PP
+XAnother thing that the program does which the others should have done is
+Xlet you supply more than one item:
+X.Ds
+Xls \-lrt /info\-mac/help /pub /info\-mac/README
+X.De
+X.PP
+XYou can also redirect the output into a file, or pipe it into something.
+XThis example shows how to list the contents of the current remote directory,
+Xand save the output into a file in the current local directory:
+X.Ds
+Xls \-t >ls.out
+X.De
+X.PP
+XNote that for this to work, there must be no whitespace between the ``>''
+Xand the filename, unlike your shell command line which allows for extra
+Xwhitespace.
+XThis will be (actually, is) fixed in a future version of the
+Xprogram.
+X.PP
+XThese examples show how to use a pipe:
+X.Ds
+Xls \-t |tail
+Xdir \-t "|less \-CM"
+Xls \-t "|tail | wc"
+X.De
+X.PP
+XLike the redirection example, there must be no whitespace between the first
+Xpipe character and the rest of the stuff.
+XThe trick is that it has to
+Xappear as one argument to the commands.
+XThe second and third examples
+Xillustrate the use of double quotes to squeeze extra parameters in.
+XThe second example can be done without all that typing.
+XSee the descriptions of the
+X.I pdir
+Xand
+X.I pls
+Xcommands below.
+X.\"-------
+X.SH "Viewing a remote directory with your pager"
+X.\"-------
+XDidn't you hate it when you listed a remote directory, only to have most of
+Xthe stuff scrolled off your terminal before you could read it?
+XThe
+X.I pls
+Xand
+X.I pdir
+Xcommands take care of this for you.
+XAs you might have guessed,
+Xthey perform exactly like their regular counterparts,
+Xonly you view them with your pager.
+XThe pager to use is controlled by the
+X.I pager
+Xprogram variable.
+X.\"-------
+X.SH "Redisplaying the last directory listing"
+X.\"-------
+XThe program saves the listing into a local buffer,
+Xso if you need to see it again (probably forgot about
+X.IR pdir )
+Xyou can use the
+X.I redir
+Xand
+X.I predir
+Xcommands for this.
+X.\"-------
+X.SH "Fetching files from the remote host"
+X.\"-------
+XThe
+X.I get
+Xand
+X.I mget
+Xretrieve remote files for you.
+XThe usage for
+X.I get
+Xis:
+X.Ds
+Xget remote\-file [local\-file or redirection]
+X.De
+X.PP
+XTo fetch
+X.B /pub/README
+Xand write it as a file named
+X.BR ./junk/readme ,
+Xtry:
+X.Ds
+Xget /pub/README ./junk/readme
+X.De
+X.PP
+XTo fetch
+X.B /pub/README
+Xand write it as
+X.BR ./README ,
+Xjust do:
+X.Ds
+Xget /pub/README
+X.De
+X.PP
+XThis lets you fetch a file using its whole pathname, and write a copy of
+Xit in the current directory, without having to bother with typing a local
+Xfilename.
+XIn the unlikely event that you have write permission to a
+Xdirectory called
+X.B /pub
+Xon your local machine, it would write
+X.RB `` README ''
+Xin that directory.
+X.PP
+XMost of the time the file you want will be in the current remote directory,
+Xso you can just do these:
+X.Ds
+Xget README
+Xget README ./junk/readme
+X.De
+X.PP
+XYou can also use a redirection for
+X.IR get ,
+Xjust like you can with the
+X.IR ls ", " dir ", and " redir
+Xcommands.
+XAs described earlier, you have
+Xto conform to the format below for this release of the program:
+X.Ds
+Xget README >/dev/null
+Xget README |head
+Xget README "|head \-8"
+Xget README "|less \-EMi"
+X.De
+X.PP
+XThe last example is facilitated by the
+X.I page
+Xcommand described later.
+X.PP
+XThe
+X.I get
+Xcommand can also use a wildcard expression in an attempt to
+Xmatch exactly one remote file.
+XI call it ``Poor Man's File Completion.''
+XIf you've done a remote listing, and you decide you want to download a
+Xfile by the name of
+X.RB `` obnoxiouslylongpackagename.tar.Z ,''
+Xyou can use
+X``PMFC.''to save some keystrokes.
+XChoose an expression that will only
+Xmatch that one file, then use it with
+X.IR get :
+X.Ds
+Xget obn*.Z a.tar.Z
+X.De
+X.PP
+XIf your pattern was unique,
+X.I get
+Xwill fetch that file only.
+XIf the pattern matched more than one file, the program will bitch and moan.
+X.PP
+XThe
+X.I mget
+Xcommand is used to fetch many files at a time.
+XThe difference between
+X.I get
+Xand
+X.I mget
+Xis that
+X.I get
+Xlets you write only one file,
+Xbut you can put it in a different directory, while
+X.I mget
+Xfetches many files,
+Xalways writing them in the current local directory.
+XThis example fetches several remote files at once:
+X.Ds
+Xmget a.file.Z b.file.Z c.tar d.tar.Z
+X.De
+X.PP
+XThe
+X.I mget
+Xcommand, and its ugly sisters,
+X.I mput
+Xand
+X.I mdelete
+Xlet you use wildcard expressions.
+XI could have done the previous example as:
+X.Ds
+Xmget *.Z c.tar
+X.De
+X.PP
+Xinstead.
+XThe ``m.''commands will verify each file,
+Xif you have the program variable
+X.I mprompt
+Xset.
+X.\"-------
+X.SH "Viewing a remote file with your pager"
+X.\"-------
+XIf you would like to read a file on the remote host without saving a copy
+Xof it on your machine, you can use the
+X.I page
+X(or
+X.I more
+Xif you wish) command:
+X.Ds
+Xpage README
+Xpage obn*README
+Xpage README.Z
+X.De
+X.PP
+XThe second example show that you can use ``PMFC.''like you can for
+X.IR get.
+XThe third example will work also, because if the program knows how to
+Xdecompress the file, it will do so before feeding it to your pager.
+XAs stated earlier,
+Xyou can change the program to use to page by setting the program variable
+X.IR pager.
+X.\"-------
+X.SH "Creating a message file on the remote host"
+X.\"-------
+XUse the
+X.I create
+Xan empty file on the remote site.
+XSometimes it is necessary to leave a note if you can't get in touch
+Xwith the remote site's administrator.
+XFor example if a file is corrupted, you could try:
+X.Ds
+Xcreate Foo.tar_is_corrupt
+X.De
+X.PP
+Xin hopes that the original uploader will replace it.
+X.\"-------
+X.SH "Looking up site names and addresses"
+X.\"-------
+XYou can use the program's builtin
+X.RI mini- nslookup
+Xfacility.
+XIf you wanted to know the site's IP number, but only knew the name you
+Xcould do:
+X.Ds
+Xlookup cse.unl.edu
+X.De
+X.PP
+XThis would spit out IP number for that site, in this case ``129.93.1.12.''
+XIf you needed to know what a site's name was, but only knew the IP number,
+Xtry:
+X.Ds
+Xlookup 129.93.1.12
+X.De
+X.PP
+XThis would spit out the name for that site, in this case ``cse.unl.edu.''
+X.\"-------
+X.SH "Checking the configuration of the program"
+X.\"-------
+XUse the
+X.I version
+Xcommand to print version and compilation information about the program.
+XThis will also tell you which optional features are
+Xcompiled into the program, such as logging to the system log and which
+Xcommand line editor (if any) has been installed.
+X.PP
+XThe author's email address is listed, and if you need to report something,
+Xsend the output of this command along with your message.
+X.\"-------
+X.SH "Using the command shell"
+X.\"-------
+XJust like the stock
+X.I ftp
+Xprogram, you type commands to it until you get
+Xbored and hit either ^D or type the
+X.I quit
+Xcommand.
+X.PP
+XThe program supports links to popular command line editing libraries.
+XIf the person who compiled it went to the effort, you will be able to
+Xedit the command line with arrow keys and other editing commands, and also
+Xscroll up and down in the command line history, usually with the up and
+Xdown arrows.
+XYou can check the
+X.I version
+Xcommand to see if either
+X``GETLINE.''or ``READLINE.''are installed.
+X.\"-------
+X.SH "Customizing the prompt"
+X.\"-------
+XYou can set the shell's prompt string to whatever you like.
+XYou can use several metacharacters that expand into something each prompt.
+XThe
+X.RB `` % ''
+Xflags are passed to
+X.IR strftime (3),
+Xso you can put the date or time in the prompt formatted as you like it:
+X.Ds
+Xset prompt "%I:%M ncftp>"
+X.De
+X.PP
+XThat would the current time in the prompt.
+X.PP
+XThe
+X.RB `` @ ''
+Xflags are expanded by the program itself.
+XHere's the list of them.
+X.PP
+XIf you have an ANSI-compatible terminal, or you have the program variable
+X.I ansi\-escapes
+Xset, you can use
+X.BR @B ,
+X.BR @I ,
+Xand
+X.B @U
+Xto turn on boldface,
+Xinverse, and underline text respectively (otherwise they won't insert
+Xanything).
+XYou can also use
+X.B @R
+Xto turn on inverse (reverse) text.
+X.B @P
+Xsets the text back to plain text.
+X.PP
+X.B @D
+XInserts the full path of the current remote directory.
+XThe
+X.B @J
+Xflag is similar except it inserts only the directory name.
+X.PP
+X.B @H
+XInserts the name of the remote host.
+X.B @C
+Xinserts the host and current
+Xdirectory path in
+X.I "colon-mode"
+Xformat, such as
+X``cse.unl.edu:/pub/mgleason,.''or ``(not connected).''
+XThe
+X.B @c
+Xflag is similar, only it will insert ``cse.unl.edu:/pub/mgleason.''and a
+Xnewline if connected, otherwise it prints nothing.
+XThe default prompt uses
+Xthis flag to print a two line prompt when connected and a one line prompt
+Xwhen not connected.
+X.PP
+X.BR @E " or " @!
+Xinserts the event number (how many commands you've typed).
+X.PP
+X.B @M
+Xinserts ``(Mail)\0.''if mail has arrived since running the program.
+X.PP
+X.B @N
+Xinserts a newline character.
+X.\"-------
+X.SH "Keeping a log of your file transfers"
+X.\"-------
+XYou can have the program keep a personal log file.
+XI find it is useful so I can see where I got a certain file,
+Xor what the name of that site was I called two weeks ago.
+X.PP
+XTo use a log, add:
+X.Ds
+X#set logfile ~/.ftplog
+X.De
+X.PP
+X(or whatever you want to name the log) to your RC file.
+XI don't want my log growing too large and using up all my disk space,
+Xso I also have:
+X.Ds
+X#set logsize 10240
+X.De
+X.PP
+Xin my RC file.
+XIf you set the limit on the maximum log size, the program will
+Xkeep the log file at or below that size, discarding old entries.
+X.PP
+XNote that this is different from having SYSLOG appear in the
+X.I version
+Xcommand's output.
+XWhen this is on, your actions are recorded to the system
+Xlog, so your system administrator can make sure you aren't doing anything
+X``bad.''
+X.\"-------
+X.SH "Program options"
+X.\"-------
+XRemember that you can treat the command line like an
+X.I open
+Xcommand,
+Xso all lowercase options are passed to the
+X.I open
+Xcommand, and the
+Xuppercase options are handled by the main program.
+XThe uppercase options
+Xare described below; refer to the
+X.I open
+Xcommand for descriptions of its options.
+X.TP
+X.BI \-D " x"
+Xsets the debugging level to
+X.IR x .
+X.TP
+X.B \-H
+Xruns the
+X.I version
+Xcommand and exits, so you can save the output of
+Xit to use when you need to mail me something.
+X.TP
+X.B \-I
+Xtoggles the mprompt variable; this is provided for compatibility with
+X.RB `` "ftp \-i" .''
+X.TP
+X.B \-N
+Xdisables reading of the RC file;
+Xthis is provided for compatibility with
+X.RB `` "ftp \-n" .''
+X.TP
+X.BI \-V " x"
+Xsets verbosity to level
+X.I x
+X.RB ( \-1 ,
+X.BR 0 ,
+X.BR 1 ,
+X.BR 2 )
+Xor
+X.RB ( quiet ,
+X.BR errs ,
+X.BR terse ,
+X.BR verbose ).
+XSee the description of the
+X.I verbose
+Xprogram variable for more information.
+X.PP
+XHere are some example command lines.
+XAgain, see the description of the
+X.I open
+Xcommand (especially
+X.IR "colon-mode" " and " "FTP\-cat mode" ")"
+Xand all its functions for more information.
+X.PP
+XThis just enters the
+X.I NcFTP
+Xcommand shell:
+X.Ds
+Xcsh> ncftp
+X.De
+X.PP
+XThis fetches
+X.B README
+Xand then quits:
+X.Ds
+Xcsh> ncftp ftp.unl.edu:/pub/README
+X.De
+X.PP
+XSome others examples, with open options and main program options mixed in:
+X.Ds
+Xcsh> ncftp \-V quiet \-u ftp.unl.edu
+Xcsh> ncftp \-c ftp.unl.edu:/pub/README
+Xcsh> ncftp \-D 2 \-r \-d 120 \-g 10 \-N ftp.unl.edu
+X.De
+X.\"-------
+X.SH "A sample RC file"
+X.\"-------
+XHere is a sample RC file:
+X.ta 6m +6m
+X.Ds
+X#set logfile ~/.ftplog
+X#set progress\-reports 2
+X#set local\-dir /usr/tmp/zz
+X#set prompt "@B@E @UNcFTP@P @B@M@D@P \->"
+X.sp
+Xmachine sumex\-aim.stanford.edu
+X	macdef init
+X		cd /info\-mac
+X		get ./help/recent\-files.txt "|grep \-v '.abs' > sumex
+X		!less sumex
+X		pwd
+X.sp
+X# This site is in here just so I can use ``apple''
+X# as an abbreviation.
+Xmachine ftp.apple.com
+X.sp
+X# NcFTP will only ask for your password:
+Xmachine cse.unl.edu
+X	login mgleason
+X.sp
+X# You can supply a login and a password:
+Xmachine fake.machine.unl.edu
+X	login mgleason
+X	password mypass
+X	macdef init
+X	cd ./foo/bar
+X.sp
+X# If an antiquated non-UNIX machine doesn't use
+X# the "SYST" command, you may need to unset
+X# remote\-is\-unix, if the remote host complains
+X# about ``ls \-CF.''
+Xmachine some.vms.unl.edu
+X	macdef init
+X	unset remote\-is\-unix
+X.sp
+X.De
+X.\"-------
+X.SH "AUTHORS"
+X.\"-------
+X.I NcFTP
+Xwas written by Mike Gleason,
+X.I NCEMRSoft
+X(mgleason@cse.unl.edu), and based on code by the authors of the
+X.I ftp
+Xfrom the BSD 4.3 distribution.
+X.I NcFTP
+Xis copyrighted 1992, 1993 by NCEMRSoft
+Xand 1985, 1989 by the Regents of California.
+X.PP
+XIdeas and some code contributed by Phil Dietz,
+X.I NCEMRSoft
+X(pdietz@cse.unl.edu).
+XTesting and debugging done by Phil and
+XKok Hon Yin (hkok@cse.unl.edu).
+X.PP
+XExtensive man page formatting work
+Xby DaviD W. Sanderson (dws@ssec.wisc.edu).
+X.\"-------
+X.SH "BUGS"
+X.\"-------
+XCorrect execution of many commands depends upon proper behavior
+Xby the remote server.
+X.PP
+XThe remote server may drop the connection if you take a long time to
+Xpage remote files.
+X.PP
+XTermcap padding is not correctly displayed.
+X.PP
+XThere are no such sites named
+X.I bowser.nintendo.jp
+Xor
+X.IR sphygmomanometer.unl.edu .
+X.\"-------
+X.SH "SEE ALSO"
+X.\"-------
+X.IR strftime (3),
+X.IR ftpd (8),
+X.IR ftp (1),
+X.IR nslookup (1),
+X.IR compress (1),
+X.IR gzip (1),
+X.IR zcat (1),
+X.IR fsp (1),
+X.IR archie (1),
+X.IR tftp (1).
+END_OF_FILE
+  if test 33324 -ne `wc -c <'ncftp.1'`; then
+    echo shar: \"'ncftp.1'\" unpacked with wrong size!
+  fi
+  # end of 'ncftp.1'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

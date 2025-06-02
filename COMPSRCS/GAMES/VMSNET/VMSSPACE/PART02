@@ -1,0 +1,1299 @@
+Path: uunet!mcsun!chsun!pega!dr_who
+From: dr_who@pegasus.ch (Sysop of PEGASUS)
+Newsgroups: vmsnet.sources.games
+Subject: SPCEMP.C   Part 02/06
+Message-ID: <1993Jun7.093029.123@pegasus.ch>
+Date: 7 Jun 93 09:30:29 +0200
+Organization: Pegasus BBS, Switzerland
+Lines: 1289
+Xref: uunet vmsnet.sources.games:735
+
+----> START OF PART 2 <----
+
+/********************************************************************/
+check_new()
+{
+FILE   *fp;
+char   ostring[80];
+char   s[90];
+time_t current_time;
+double diffsec;
+long   newmoves;
+long   diffhours;
+
+	get_username(player[pn].player);
+	get_username(username);
+	if(check_player(player[pn].player)==TRUE)
+	  get_datas(pn);
+
+        if((check_player(player[pn].player)==TRUE)&&((player[pn].governp > 0) || (player[pn].orep > 0)))
+	  {
+	  current_time = time (&current_time);
+	  diffsec      = difftime(current_time,player[pn].last_time);
+	  diffhours    = diffsec/(60*60);
+
+	  if(diffhours>1000)                    /* in case of a corrupt datafile */
+		diffhours=21;
+
+	  newmoves     = diffhours/4;
+	  player[pn].moves=player[pn].moves+newmoves;
+
+	  printf("\nWelcome back, %s...\n\n",player[pn].player);
+
+	  if(diffhours>1)
+		printf("\n You did not play for %d hours. ( You'll get 1 move for every 4 hours )\n",diffhours); 
+	  if(diffhours>((24*3)-1))
+		{
+		printf("\n You lost your protection because you did not play for more than 3 days.\n\n");
+		player[pn].protection=0;
+		}
+	  if (player[pn].moves==0)
+		{
+		printf("\n Sorry you have no moves left today. \n\n");
+		printf("Do you want to see the Scores ? (Y/n) ");
+		gets(ostring);
+	  	if (toupper(ostring[0])!='N')  
+			display_users();
+		press_return();
+		bye();
+		}
+	  if ((player[pn].moves>25)&&(player[pn].played_moves<=10))
+		{
+		printf("\n Sorry there is a maximum of 25 moves a day.\n");
+		player[pn].moves=25;
+		}
+	  if ((player[pn].moves>10)&&(player[pn].played_moves>10))
+		{
+		printf("\n Sorry there is a maximum of 10 moves a day.\n");
+		player[pn].moves=10;
+		}
+	  if (newmoves>0)
+		printf("\n You get %d new moves. \n",newmoves);
+	  if (player[pn].moves>0)
+		{
+		printf("\n Total moves left:%d \n",player[pn].moves);
+		news(999,"");
+		}
+
+	  player[pn].last_time = time (&player[pn].last_time);
+	  put_datas(pn);
+	  }
+        else
+	  new_user();
+}
+
+/********************************************************************/
+new_user()
+{
+FILE   *fp;
+char   ostring[80];
+
+printf("\nWell...  Here you are.  Just another new emperor with a hoard of cash, some\n");
+
+printf("food, and the massive population your father left you on these three measly\n");
+printf("planets.  What are you waiting for?  Start buying some weapons!  Do what\n");
+printf("nobody in your family has done before!  CONQUER!  DESTROY!  YOU can rule\n");
+printf("the universe if you TRY! \n\n");
+news(50,"");
+get_stddatas();
+put_datas(pn);
+printf("Just a little question : What terminal(emulation) do you use ?\n");
+printf("0=ASCII 1=DEC-ANSI(default) 2=IBM-ANSI : ");
+gets(ostring);
+sscanf(ostring,"%d",&player[pn].terminal);
+points(1);
+sprintf(ostring,"SPCEMP_PLAYERS:MSG_%s.TXT",player[pn].player);
+fp=fopen(ostring,"w");
+fprintf(fp,"%s\n",welcometxt);
+fclose(fp);
+
+player[pn].race=get_race();
+
+}
+
+/********************************************************************/
+get_tradedatas()
+{
+FILE *fp;
+
+char ostring[80];
+
+sprintf(ostring,"SPCEMP_PLAYERS:%s.trade",player[pn].player);
+if (check_file(ostring)==FALSE)
+	return;
+
+fp=fopen(ostring,"r");
+
+fgets(ostring,60,fp);
+sscanf(ostring,"%s",&dummy);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&textiles);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&minerals);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&aloys);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&machines);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&computers);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&silver);
+fgets(ostring,60,fp);
+sscanf(ostring,"%d",&gems);
+
+fclose(fp);
+}
+
+
+/********************************************************************/
+put_tradedatas()
+{
+FILE *fp;
+char ostring[80];
+
+points(1);
+
+sprintf(ostring,"SPCEMP_PLAYERS:%s.trade",player[pn].player);
+delete(ostring);
+fp=fopen(ostring,"w");
+
+fprintf(fp,"%d\n",file_ver);
+fprintf(fp,"%d\n",textiles);
+fprintf(fp,"%d\n",minerals);
+fprintf(fp,"%d\n",aloys);
+fprintf(fp,"%d\n",machines);
+fprintf(fp,"%d\n",computers);
+fprintf(fp,"%d\n",silver);
+fprintf(fp,"%d\n",gems);
+
+fclose(fp);
+}
+
+/********************************************************************/
+/* add_uridium()                 Add a player to the uridium throne */
+/********************************************************************/
+add_uridium(char *uridium_player)
+{
+FILE *fp;
+
+ if(strcmp(lord_name,"Nobody")==0)
+   strcpy(lord_name,uridium_player);
+  else
+   sprintf(lord_name,"%s %s",lord_name,uridium_player);
+ lord_days=0;
+ lord_count++;
+ if(check_file("SPCEMP:EMPIRE.DAT")==TRUE)
+   delete_file("SPCEMP:EMPIRE.DAT");
+
+ fp=fopen("SPCEMP:EMPIRE.DAT","w");
+   fprintf(fp,"%s\n",date);
+   fprintf(fp,"%d\n",lord_count);
+   fprintf(fp,"%d\n",lord_days);
+   fprintf(fp,"%s\n",lord_name);
+ fclose(fp);
+}
+
+/********************************************************************/
+/* rem_uridium()              Remove a player to the uridium throne */
+/********************************************************************/
+rem_uridium(char *uridium_player)
+{
+char old_players[12][6]="";
+FILE *fp;
+int x=0;
+
+ for(x=1;x<7;x++)
+   strcpy(old_players[x]," ");
+ sscanf(lord_name,"%s %s %s %s %s %s",&old_players[1],&old_players[2],&old_players[3],&old_players[4],&old_players[5],&old_players[6]);
+ x=0;
+ for(x=1;x<7;x++)
+  {
+   if(strcmp(uridium_player,old_players[x])==0)
+     strcpy(old_players[x]," ");
+  }
+ strcpy(lord_name," ");
+ sprintf(lord_name,"%s %s %s %s %s %s",&old_players[1],&old_players[2],&old_players[3],&old_players[4],&old_players[5],&old_players[6]);
+ lord_days=0;
+ lord_count--;
+ if(lord_count==0)
+   strcpy(lord_name,"Nobody");
+ if(check_file("SPCEMP:EMPIRE.DAT")==TRUE)
+   delete_file("SPCEMP:EMPIRE.DAT");
+ fp=fopen("SPCEMP:EMPIRE.DAT","w");
+   fprintf(fp,"%s\n",date);
+   fprintf(fp,"%d\n",lord_count);
+   fprintf(fp,"%d\n",lord_days);
+   fprintf(fp,"%s\n",lord_name);
+ fclose(fp);
+}
+
+
+/********************************************************************/
+/* win_uridium()              		      A player win the game */
+/********************************************************************/
+win_uridium()
+{
+char ostring[80],zstring[80];
+FILE *fp;
+
+ /* Get the score */
+ strcpy(player[epn].player,lord_name);
+ get_datas(epn);
+ sprintf(zstring,"SPCEMP:HIGH.SCORES");
+ sprintf(ostring,"%s wins the game!   %d planets   %d points",lord_name,(player[epn].orep+player[epn].foodp+player[epn].defensep+player[epn].tradep+player[epn].tourismp+player[epn].governp),player[epn].score);
+ optlog(ostring,zstring);
+
+ printf("%s\n",ostring);
+ printf("Space Empire will be reseted...\n");
+
+ /* Clear EMPIRE.DAT */
+ lord_days=0;
+ lord_count=0;
+ strcpy(lord_name,"Nobody");
+ if(check_file("SPCEMP:EMPIRE.DAT")==TRUE)
+   delete_file("SPCEMP:EMPIRE.DAT");
+ fp=fopen("SPCEMP:EMPIRE.DAT","w");
+   fprintf(fp,"%s\n",date);
+   fprintf(fp,"%d\n",lord_count);
+   fprintf(fp,"%d\n",lord_days);
+   fprintf(fp,"%s\n",lord_name);
+ fclose(fp);
+
+ /* Delete all user-files */
+ system("DELETE SPCEMP_PLAYERS:*.*;*");
+
+ /* Delete & init Score-file */
+ if(check_file("SPCEMP:PLAYERS.SCORES")==TRUE)
+   system("DELETE SPCEMP:PLAYERS.SCORES;*");
+ fp=fopen("SPCEMP:PLAYERS.SCORES","w");
+   fprintf(fp,"-+-"); 
+ fclose(fp);
+
+ /* Delete Lottery-file */
+ system("DELETE SPCEMP:LOTTERY.*;*");
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+get_datas(int nr)
+{
+FILE *fp;
+
+char ostring[80];
+
+sprintf(ostring,"SPCEMP_PLAYERS:%s.sdat",player[nr].player);
+
+fp=fopen(ostring,"r");
+fread(&player[nr],sizeof(player[nr]),1,fp);
+fclose(fp);
+
+}
+
+/********************************************************************/
+put_datas(int nr)
+{
+FILE *fp;
+char ostring[80];
+
+e_points(1);
+points(1);
+
+if((player[nr].score>=uridium_limit)&&(player[nr].space_lord==FALSE))
+ {
+  if(lord_count<uridium_turn)
+   {
+    player[nr].space_lord=TRUE;
+    printf("%s is now sitting at the uridium throne.\n",player[nr].player);
+    add_uridium(player[nr].player);
+   }
+   else
+    printf("SORRY, no more place for sitting at the uridium throne.\n");
+ }
+if((player[nr].score<uridium_limit)&&(player[nr].space_lord==TRUE)) /* user lost throne */
+ {
+  player[nr].space_lord=FALSE;
+  printf("%s lost the place at the uridium throne.\n",player[nr].player);
+  rem_uridium(player[nr].player);
+ }
+
+sprintf(ostring,"SPCEMP_PLAYERS:%s.sdat",player[nr].player);
+delete(ostring);
+
+fp=fopen(ostring,"w");
+fwrite(&player[nr],sizeof(player[nr]),1,fp);
+fclose(fp);
+
+}
+
+/********************************************************************/
+get_stddatas()
+{
+player[pn].last_time = time (&player[pn].last_time);
+player[pn].credits=100000;
+player[pn].acredits=0;
+player[pn].food=6000;
+player[pn].protection=original_prot;
+player[pn].health=0;
+
+player[pn].population=500;
+
+player[pn].orep=2;
+player[pn].foodp=1;
+player[pn].defensep=0;
+player[pn].tradep=0;
+player[pn].tourismp=0;
+player[pn].supplyp=0;
+player[pn].governp=1;
+
+player[pn].harmony=0;
+player[pn].morale=0;
+player[pn].soldiers=0;
+player[pn].defense=0;
+player[pn].fighters=0;
+player[pn].ywings=0;
+player[pn].starfighters=0;
+player[pn].deathstars=0;
+player[pn].carriers=0;
+player[pn].cruisers=0;
+player[pn].missiledefense=10;
+
+player[pn].pilots=0;
+player[pn].freighters=0;
+
+player[pn].agents=0;
+player[pn].space_lord=FALSE;
+player[pn].team_num=0;
+player[pn].team_apply=0;
+player[pn].team_defense=0;
+player[pn].team_soldiers=0;
+player[pn].team_cruisers=0;
+
+player[pn].score=0;
+player[pn].score_modifier=0;
+player[pn].moves=new_moves;
+player[pn].played_moves=0;
+
+player[pn].tax=10;
+
+strcpy(player[pn].last_game,date);
+
+
+}
+
+/********************************************************************/
+show_stats(int pn)
+{
+ cls();
+ if(player[pn].space_lord==TRUE)
+   printf("%s%s%sLord ",ansi(TT_BACKCYAN),ansi(TT_FORWHITE),ansi(TT_BOLD));
+  else
+   printf("%s%s%s",ansi(TT_BACKCYAN),ansi(TT_FORWHITE),ansi(TT_BOLD));
+ printf("%s's Empire    Score : %ld   Turns : %d/%d   Credits : %d mcr/%d mcr %s\n\n",player[pn].player,player[pn].score,player[pn].moves,player[pn].played_moves,player[pn].credits/1000000,player[pn].acredits/1000000,ansi(TT_RESET));
+ printf("Population:  %d Million (%s)   Health Status: %s\n",player[pn].population,harmony_level(2,player[pn].harmony),harmony_level(3,player[pn].health));
+ printf("Technology:  %s   (%s)\n",harmony_level(4,player[pn].tech_level),race[player[pn].race].name);
+ printf("Food      :  %ld Kilotons\n",player[pn].food);
+ printf("Military  :  [Troops=%ld] [X-Wings=%ld] [Carriers=%ld] [Agents=%ld]\n",player[pn].soldiers,player[pn].fighters,player[pn].carriers,player[pn].agents);
+ printf("          :  [Def. Stations=%ld] ",player[pn].defense);
+ if(player[pn].tech_level>4)
+	printf("[Y-Wings=%ld] ",player[pn].ywings);
+ if(player[pn].tech_level>0)
+	printf("[Cruisers=%ld] \n",player[pn].cruisers);
+ else  printf("\n");
+
+ if(player[pn].tech_level>8)
+	printf("          :  [Missile Defense=%ld] \n",player[pn].missiledefense);
+
+ if(player[pn].tech_level>70-(race[player[pn].race].knowledge*3))
+	printf("          :  [Imperial Starfighters=%ld] ",player[pn].starfighters);
+ if(player[pn].tech_level>80-(race[player[pn].race].knowledge*3))
+	printf("[Death-Stars=%ld]\n",player[pn].deathstars);
+ else
+	printf("\n");
+
+
+ printf("Planets   :  [Agricultural=%ld] [Mining=%ld] [Defense=%ld] \n",player[pn].foodp,player[pn].orep,player[pn].defensep);
+ printf("          :  [Trade=%ld] [Tourism=%ld] [Governing=%ld]\n",player[pn].tradep,player[pn].tourismp,player[pn].governp);
+ printf("Trade     :  [Pilots=%ld] [freighters=%ld] \n",player[pn].pilots,player[pn].freighters);
+ if(player[pn].protection>0) 
+   printf("\nYou have %d turn(s) of protection remaining.\n",player[pn].protection);
+ printf("\n");
+}
+
+/********************************************************************/
+earning(int pn)
+{
+long taxes,mearned,tradecapacity,earned,traded,fgrown,d_built,f_built,c_built,y_built,intrest;
+
+/* Normal earning stage */
+
+	pop_increase=1;
+	taxes=player[pn].population*10*player[pn].tax;
+	mearned=player[pn].orep*22000;
+	earned=(player[pn].tourismp*50000);
+	if ((earned>(player[pn].population*1000))&&(player[pn].harmony<0))
+		earned=0;
+	if ((earned>(player[pn].population*1000))&&(player[pn].harmony>0))
+		earned=player[pn].tourismp*21000;
+	if (earned<0)
+		earned=0;
+	if (player[pn].harmony<0)
+		earned=0;
+	traded=player[pn].tradep*17000;
+	if (player[pn].freighters>player[pn].pilots)
+		tradecapacity=player[pn].pilots;
+	if (player[pn].pilots>player[pn].freighters)
+		tradecapacity=player[pn].freighters;
+	if (player[pn].pilots==player[pn].freighters)
+		tradecapacity=player[pn].freighters;
+	if (tradecapacity>(player[pn].tradep*10))
+		tradecapacity=player[pn].tradep*10;
+	if (player[pn].tradep>0)
+		traded=traded+(tradecapacity*1000);
+	if (player[pn].acredits>10000000)
+	  intrest=player[pn].acredits*zins1;
+         else
+	  if (player[pn].acredits>1000000)
+	    intrest=player[pn].acredits*zins2;
+           else
+	    intrest=player[pn].acredits*zins3;
+	player[pn].acredits=player[pn].acredits+intrest;
+	fgrown=player[pn].foodp*4000;
+	d_built=player[pn].defensep*2;
+	f_built=player[pn].defensep*2;
+	c_built=player[pn].defensep;
+	y_built=player[pn].defensep*1.5;
+	player[pn].credits=player[pn].credits+traded;
+	player[pn].credits=player[pn].credits+earned;
+	player[pn].credits=player[pn].credits+mearned;
+	player[pn].credits=player[pn].credits+taxes;
+	player[pn].food=   player[pn].food+fgrown;
+	player[pn].defense =player[pn].defense+d_built;
+	player[pn].fighters=player[pn].fighters+f_built;
+	player[pn].cruisers=player[pn].cruisers+c_built;
+	player[pn].ywings  =player[pn].ywings+y_built;
+	sol_work=0;
+	cov_work=0;
+
+	show_stats(pn);
+
+	printf(" You earned: %7ld cr. taxes /",taxes);
+	printf(" %7ld cr. mined ",mearned); 	
+	if (player[pn].tradep>0)
+		printf("/ %7ld cr. traded \n",traded); 	
+	else printf("\n");
+	if ((player[pn].tourismp>0)&&(earned>0))
+		printf("             %7ld cr. throug tourism. \n",earned); 	
+	if ((player[pn].tourismp>0)&&(earned==0))
+		printf("             The people are in a bad mood they dont want to travel around ...\n");
+	if (player[pn].acredits>0)
+		printf("             %7ld cr. intrest and \n",intrest); 	
+	printf("             %7ld kilotons of food were grown. \n\n",fgrown);
+
+	if(player[pn].defensep>0)
+		{
+	        printf(" Defense industry turns out : ");
+	        printf(" %d x-wings / ",f_built);
+		if (player[pn].tech_level>4)
+			printf(" %d y-wings \n ",y_built); 
+		else printf("\n");	
+		printf("                              %d defense stations /",d_built);         
+		if (player[pn].tech_level>0)
+			printf(" %d cruisers \n",c_built); 	
+		else printf("\n");	
+		printf("\n");	
+		}
+}
+
+/********************************************************************/
+ruling_stage(int pn)
+{
+unsigned long money;
+unsigned long m2;
+unsigned long m3;
+char ochar[80];
+char ostring[80];
+unsigned long foodgive;
+
+money=(player[pn].orep+player[pn].foodp+player[pn].defensep+player[pn].tradep+player[pn].tourismp)*10000;
+money=money+(player[pn].governp*20000);
+m3=(you_give("planets",money));
+player[pn].credits=(player[pn].credits-m3);
+
+if(m3<money) 
+	{
+	player[pn].harmony = player[pn].harmony - 2;
+	}
+
+if(m3*2<money) 
+	{
+	player[pn].harmony = player[pn].harmony - 1;
+	player[pn].morale = player[pn].morale - 1;
+	}
+
+if(m3*8<money) 
+	{
+	player[pn].harmony = player[pn].harmony - 10;
+	player[pn].morale = player[pn].morale - 3;
+	}
+
+if(m3>money*2) 
+	{
+	player[pn].harmony = player[pn].harmony + 1;
+	player[pn].morale = player[pn].morale + 1;
+	}
+
+if((2*(player[pn].governp*25))<(player[pn].foodp+player[pn].defensep+player[pn].orep+player[pn].tradep+player[pn].tourismp))  
+	{
+	player[pn].harmony = player[pn].harmony - 2;
+	}
+
+money=((player[pn].cruisers)*10)+((player[pn].soldiers)*2)+((player[pn].fighters)*5)+((player[pn].carriers)*4);
+money=money*15;
+if(money>0) 
+	{ 
+	m3=(you_give("armed forces",money));
+	player[pn].credits=(player[pn].credits-m3);
+	if(m3<money) sol_work=1;
+	if((m3*2)<=money) player[pn].morale=player[pn].morale-1;
+	if(m3>=money*3) player[pn].morale=player[pn].morale+1;
+	}
+
+money=((player[pn].agents)*1000);
+if(money>0) 
+	{
+	m3=(you_give("covert agents",money));
+	player[pn].credits=(player[pn].credits-m3);
+	if(m3<money) cov_work=1;
+	}
+
+do
+ {
+  do
+   {
+    printf("\nYou have %ld kilotons of food. ",player[pn].food);
+    printf("(S)ell, (B)uy, or [C]ontinue? ");
+    gets(ochar);
+
+    ochar[0]=toupper(ochar[0]);
+  
+    switch(ochar[0]) {
+	case 'S': printf("");
+		  do
+		   {
+		    printf("Sell how many kilotons at 3 credits each? (Max %ld) ",player[pn].food);
+		    gets(ostring);
+		    sscanf(ostring,"%ld",&m2);
+		   }
+		  while(m2>player[pn].food);
+		  if(m2>0) 
+		  {
+			player[pn].credits = player[pn].credits + (3*m2);
+			player[pn].food = player[pn].food - m2;
+		  }
+		  break;
+	case 'B': printf("");
+		  do
+		   {
+		    m2=0; if(player[pn].credits>0) m2=(player[pn].credits/4);
+		    if(m2==0) 
+                     { 
+		      printf("You don't have enough credits to buy any!\n"); 
+		      break;
+                     }
+		    printf("Buy how many kilotons at 4 credits each? (Max %ld) ",m2);
+		    gets(ostring);
+		    sscanf(ostring,"%ld",&m2);
+		    if((m2*p_food)>player[pn].credits) 
+		      printf("You don't have that much money!\n");
+		   }
+		  while((m2*4)>player[pn].credits);
+		  player[pn].food = player[pn].food + m2;
+		  player[pn].credits = player[pn].credits - (4*m2);
+		  if (player[pn].credits<0)
+			player[pn].credits=0;
+		  break;
+	default : 
+		  ochar[0]='C';
+		  break;
+	}
+
+   }
+  while(ochar[0]!='C');
+  money=(player[pn].population)*(20-race[player[pn].race].dexterity);	/*RACE*/
+  m2 = money;
+  if(m2>player[pn].food) m2=player[pn].food;
+  printf("\nYour hungry mobs require %ld kilotons of food.  You give: [%ld] ",money,m2);
+  strcpy(ostring,"");
+  gets(ostring);
+  if(ostring[0]!=0) 
+     sscanf(ostring,"%ld",&foodgive);
+  else 
+     foodgive = m2;
+  if(foodgive>player[pn].food) 
+   {
+    printf("You don't have that much!\n");
+   }
+ }
+while(foodgive>player[pn].food);
+
+player[pn].food = player[pn].food - foodgive;
+if(foodgive*2<=money) player[pn].harmony = player[pn].harmony - 1;
+if(foodgive*4<=money) player[pn].harmony = player[pn].harmony - 1;
+if(foodgive>=money*2) player[pn].harmony = player[pn].harmony + 1;
+if(foodgive>=money*4) player[pn].harmony = player[pn].harmony + 1;
+
+
+/* health research */
+
+player[pn].harmony=player[pn].harmony+player[pn].health_radioactivity;
+
+money=player[pn].population*(30-race[player[pn].race].perception);  /*RACE*/
+m3=(you_give("health research",money));
+player[pn].credits=(player[pn].credits-m3);
+if(m3<money)      
+	player[pn].health=player[pn].health-1;
+if((m3*2)<=money) 
+	player[pn].health=player[pn].health+1;
+if(m3>=money*3)   
+	player[pn].health=player[pn].health+2;
+
+
+/* technical research */
+
+money=money+(player[pn].governp*(500*(30-(race[player[pn].race].knowledge+race[player[pn].race].technical))));  /*RACE*/
+
+m3=(you_give("Technology research",money));
+player[pn].credits=(player[pn].credits-m3);
+if(m3==0)         
+	player[pn].tech_level=player[pn].tech_level-2;
+if(m3<money)      
+	player[pn].tech_level=player[pn].tech_level-1;
+if((m3*2)<=money) 
+	player[pn].tech_level=player[pn].tech_level+1;
+if(m3>=money*3)   
+	player[pn].tech_level=player[pn].tech_level+2;
+
+}
+
+/***********************************************************************/
+long you_give(mstring,mneed)
+char mstring[80];
+unsigned long mneed;
+{
+char string[80],ostring[80];
+unsigned long tmpn;
+unsigned long mavailable;
+
+mavailable=mneed;
+if(player[pn].credits<mneed) mavailable=player[pn].credits;
+
+getmoney:
+do
+ {
+  printf("Your %s require(s) %ld credits. You give: [%ld] ",mstring,mneed,mavailable);
+  gets(ostring);
+  sscanf(ostring,"%ld",&tmpn);
+  if(ostring[0]==0) tmpn=mavailable;
+
+  if(tmpn>player[pn].credits) 
+	{
+	printf("\nSorry, you only have %ld credits!\n",player[pn].credits);
+	}
+ }
+while(tmpn>player[pn].credits);
+
+return tmpn;
+printf("\n");
+}
+
+/********************************************************************/
+/********************************************************************/
+random_stage(int pn)
+{
+  int x;
+  int x1;
+  x = (rnd(100)+1);
+
+
+  if( x <= 1 )  /* 2 % chance */
+    {
+    if( player[pn].governp > 1 )
+      {
+      printf("A government planet has exploded!\n");
+      player[pn].governp -= 1;
+      }
+    }
+  else if( x > 1 && x <= 6 )  /* 5 % chance */
+    {
+    if(player[pn].credits > 1)
+      {
+      x1 = player[pn].credits / ( 3 + rnd(4) );
+      printf("Space pirates steal %d credits!\n",x1++);
+      player[pn].credits -= x1;
+      };
+    }
+  else if( x > 6 && x <= 9 )  /* 3 % chance */
+    {
+    x1 = player[pn].food / ( 3 + rnd(5) );
+    if( x1 > 0 && player[pn].food > 0)
+      {
+      printf("Rats eat part of your food!\n");
+      player[pn].food -= x1;
+      };
+    }
+  else if( x > 9 && x <= 11 ) /* 2 % chance */
+    {
+    x1 = rnd(10);
+    if( x1 > 0 )
+      {
+      printf("Space exploration yields %d new planet(s)!\n",x1);
+      giveplanets(x1);
+      }
+    else printf("Space exploration finds only dead and uninhabitable planets.\n");
+    }
+  else if( x > 11 && x <= 13 ) /* 2 % chance */
+    {
+    x1 = player[pn].population/( player[pn].orep + player[pn].foodp + player[pn].defensep + player[pn].governp);
+    printf("Deep Core Drilling has cause massive earthquakes and destroyed a");
+    if( player[pn].orep > 0 )
+      {
+      printf("n ore");
+      player[pn].orep--;
+      }
+    else if( player[pn].foodp > 0)
+      {
+      printf(" food");
+      player[pn].foodp--;
+      }
+    else if( player[pn].defensep > 0 )
+      {
+      printf(" defense");
+      player[pn].defensep--;
+      };
+    printf(" planet.\n");
+    printf(" %d million people were lost in the disaster.\n",x1);
+    player[pn].population -= x1;
+    }
+
+  /* IF YOUR TECH LEVEL IS TOO LOW : */
+
+
+  if((player[pn].tech_level<0)&&(x>13)&&(x<23)&&(player[pn].orep>2)) /* 10 % chance */
+      {
+      printf("An ore planet has exploded, because of a lack of technology!\n");
+      player[pn].orep -= 1;     
+      }
+
+  if((player[pn].tech_level>1)&&(x>13)&&(x<15)) /* 2 % chance */
+      {
+      x1=rnd(2);
+      player[pn].tech_level = player[pn].tech_level+x1;     
+      player[pn].harmony=player[pn].harmony+1;
+      printf("Your research institutes have done a good work.\n");
+      printf("Your Techlevel is now : %s.\n",harmony_level(4,player[pn].tech_level));
+      }
+
+ if((player[pn].health<-15)&&(x>13)&&(x<33)) /* 20 % chance */
+      {
+      x1=rnd(player[pn].population/4);
+      printf("There is a new terminal disease. You lost %ld million people !!\n",x1);
+      printf("You really need to spend more money into health research !!\n");
+      printf("Spend at least twice as much as asked for, to cure your people !!\n");
+      player[pn].population=player[pn].population-x1;;     
+      }
+
+/****** THIS HAS NOTHING TO DO WITH RANDOM THINGS PUR FACTS *********/
+
+if(player[pn].health>5) 
+	{
+	player[pn].harmony=player[pn].harmony+1;
+	player[pn].health=player[pn].health-rnd(5);
+	player[pn].health_radioactivity=0;
+	}
+if(player[pn].health<0) 
+	{
+	printf("Health problems doesn't make the population happy...\n");
+	printf("- %d million of your population died on a disease ...\n",(player[pn].population/100)*10);
+	if(player[pn].soldiers>0)
+		printf("- %d of your soldiers died on a disease ...\n",(player[pn].soldiers/100)*10);
+	player[pn].harmony=player[pn].harmony-1;
+	player[pn].population=(player[pn].population/100)*90;
+	if(player[pn].soldiers>0)
+		player[pn].soldiers=(player[pn].soldiers/100)*90;
+	printf("\n");
+	}
+
+
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+trading_menu(int sell)
+{
+
+ if (player[pn].freighters>player[pn].pilots)
+	transport=player[pn].pilots;
+ if (player[pn].freighters<player[pn].pilots)
+	transport=player[pn].freighters;
+ if (player[pn].freighters==player[pn].pilots)
+	transport=player[pn].freighters;
+
+ transport=transport*500;
+
+ if (sell==TRUE)
+  printf("\n\nSELL STUFF \n");
+ else
+  printf("\n\nBUY STUFF \n");
+
+ cls();
+ printf("#   Item               Price       Owned      could buy    could earn\n");
+ printf("----------------------------------------------------------------------\n");
+ printf(" 1) Food ...............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_food,player[pn].food,player[pn].credits/p_food,player[pn].food*p_food);
+ printf(" 2) Textiles............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_textiles,textiles,player[pn].credits/p_textiles,textiles*p_textiles);
+ printf(" 3) Minerals............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_minerals,minerals,player[pn].credits/p_minerals,minerals*p_minerals);
+ printf(" 4) Alloys..............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_aloys,aloys,player[pn].credits/p_aloys,aloys*p_aloys);
+ printf(" 5) Machines............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_machines,machines,player[pn].credits/p_machines,machines*p_machines);
+ printf(" 6) Computers...........%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_computers,computers,player[pn].credits/p_computers,computers*p_computers);
+ printf(" 7) Silver..............%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_silver,silver,player[pn].credits/p_silver,silver*p_silver);
+ printf(" 8) Gems................%3ld cr.  %7ld p.  %7ld p.   %9ld cr.\n",p_gems,gems,player[pn].credits/p_gems,gems*p_gems);
+ printf("---------------------------------------------------------------------\n");
+ printf("Total Transport capacity        :     %9ld kt.\n",transport);
+ printf("Total FREE Transport capacity   :     %9ld kt.\n",transport-usedtransport);
+ printf("You have %ld Credits.\n",player[pn].credits);
+
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+trading_stage()
+{
+char ostring[80];
+long n=0;
+int sell=FALSE;
+
+get_tradedatas();
+trading_menu(sell);
+
+do 
+{
+
+ if(sell==FALSE)
+   printf("Which would you like to buy? [?] for Trade-List [S] for sell ");
+  else
+   printf("Which would you like to sell? [?] for Trade-List [B] for buy ");
+ gets(ostring);
+ sscanf(ostring,"%d",&n);
+ if(strlen(ostring)<1)
+	n=0; 
+
+ if((ostring[0]=='s')||ostring[0]=='S')
+   if(sell==FALSE)
+    {
+     sell=TRUE;
+     n=255;
+     trading_menu(sell);
+    }
+ if((ostring[0]=='b')||ostring[0]=='B')
+   if(sell==TRUE)
+    {
+     sell=FALSE;
+     n=255;
+     trading_menu(sell);
+    }
+
+ if(ostring[0]=='?') 
+        trading_menu(sell);
+
+ if((n>0)&&(n<9)) 
+   if(sell==FALSE)
+     {
+     trade_buyitem(n);
+     n=255;
+     }
+    else
+     {
+     trade_sellitem(n);
+     n=255;
+     }
+} 
+while (n!=0);
+
+
+printf("\n");
+
+put_tradedatas();
+
+}
+
+/********************************************************************/
+trade_buyitem(long n)
+{
+unsigned long price;
+unsigned long amount;
+unsigned long maxval;
+unsigned long val;
+char ostring[80];
+char astring[80];
+unsigned long totalstuff;
+unsigned long maxstuff;
+
+totalstuff=(player[pn].food+textiles+minerals+aloys+machines+computers+silver+gems);
+maxstuff=player[pn].tradep*50000;
+
+	switch(n) {
+		case 1: price=p_food;
+			val=player[pn].food;
+			break;
+		case 2: price=p_textiles;
+			val=textiles;
+			break;
+		case 3: price=p_minerals;
+			val=minerals;
+			break;
+		case 4: price=p_aloys;
+			val=aloys;
+			break;
+		case 5: price=p_machines;
+			val=machines;
+			break;
+		case 6: price=p_computers;
+			val=computers;
+			break;
+		case 7: price=p_silver;
+			val=silver;
+			break;
+		case 8: price=p_gems;
+			val=gems;
+			break;
+	}
+
+	if(price>player[pn].credits) {
+		printf("\nYou don't have enough credits to buy even one!\n");
+		return;
+	}
+
+	do
+	 {
+	  printf("\n");
+	  maxval=(player[pn].credits/price);
+
+	  printf("Max. Stock    :%-8ld kt.\n",maxstuff);
+	  printf("Free Stock    :%-8ld kt.\n",maxstuff-totalstuff);
+	  printf("Total in Stock:%-8ld kt.\n",totalstuff);
+	  printf("Buy how many? Max %ld. [0] :",maxval);
+	  gets(ostring);
+	  if(ostring[0]==0) 
+		return;
+	  sscanf(ostring,"%ld",&amount);
+	  if(strlen(ostring)<1) 
+            amount=0;
+	  if(amount<0) 
+	    amount=0;
+	  else if(amount+val>1000000)
+	    printf("Sorrry, max. stock is 1 mio megatons.\n");
+	  else if((amount*price)>player[pn].credits) 
+	    printf("Sorry, the most you can afford is %ld.\n",(player[pn].credits/price));
+	  else if(amount>transport) 
+	    printf("Sorry, your transport-capacity is max. %ld.\n",transport);
+	  else if(amount>transport-usedtransport) 
+	    {
+	    printf("Sorry, your transport-capacity is max. %ld.\n",transport-usedtransport);
+	    amount=0;
+	    }
+	  else if(amount+totalstuff>maxstuff)
+	    printf("Sorry your stock capacity is max. %ld kilotons\nStill Empty :%ld kt.\n",maxstuff,maxstuff-totalstuff);
+	 }
+	while(((amount*price)>player[pn].credits)||(amount<0)||(amount>transport)||(amount+val>1000000)||(amount+totalstuff>maxstuff));
+
+	player[pn].credits=player[pn].credits-(price*amount);
+
+	switch(n) {
+		case 1: player[pn].food=player[pn].food+amount;
+			break;
+		case 2: textiles=textiles+amount;
+			break;
+		case 3: minerals=minerals+amount;
+			break;
+		case 4: aloys=aloys+amount;
+			break;
+		case 5: machines=machines+amount;
+			break;
+		case 6: computers=computers+amount;
+			break;
+		case 7: silver=silver+amount;
+			break;
+		case 8: gems=gems+amount;
+			break;
+	}
+usedtransport=usedtransport+amount;
+}
+
+/********************************************************************/
+trade_sellitem(long n)
+{
+unsigned long price;
+unsigned long amount;
+unsigned long maxval;
+unsigned long ellig;
+char ostring[80];
+char astring[80];
+
+	switch(n) {
+		case 1: price=p_food;
+			maxval=player[pn].food;
+			break;
+		case 2: price=p_textiles;
+			maxval=textiles;
+			break;
+		case 3: price=p_minerals;
+			maxval=minerals;
+			break;
+		case 4: price=p_aloys;
+			maxval=aloys;
+			break;
+		case 5: price=p_machines;
+			maxval=machines;
+			break;
+		case 6: price=p_computers;
+			maxval=computers;
+			break;
+		case 7: price=p_silver;
+			maxval=silver;
+			break;
+		case 8: price=p_gems;
+			maxval=gems;
+			break;
+	}
+
+	do
+	 {
+	  printf("\n");
+	  printf("Sell how many? Max %ld. [0] ",maxval);
+	  gets(ostring);
+	  if(ostring[0]==0) 
+		return;
+	  sscanf(ostring,"%ld",&amount);
+	  if(strlen(ostring)<1) 
+            amount=0;
+	  if(amount<0) 
+	    printf("Use the buymenu to buy anything...\n");
+	  if(amount>maxval) 
+	    printf("Sorry, the most you could sell is %ld. [Transport max.- %ld kt]\n",maxval,transport);
+	  if(amount>transport) 
+	    printf("Sorry, your transport-capacity is max.- %ld kt.\n",transport);
+	  else if(amount>transport-usedtransport) 
+	    {
+	    printf("Sorry, your transport-capacity is max. %ld.\n",transport-usedtransport);
+	    amount=0;
+	    }
+	 }
+	while((amount<0)||(amount>maxval)||(amount>transport));
+	player[pn].credits=player[pn].credits+(price*amount);
+
+	switch(n) {
+		case 1: player[pn].food=player[pn].food-amount;
+			break;
+		case 2: textiles=textiles-amount;
+			break;
+		case 3: minerals=minerals-amount;
+			break;
+		case 4: aloys=aloys-amount;
+			break;
+		case 5: machines=machines-amount;
+			break;
+		case 6: computers=computers-amount;
+			break;
+		case 7: silver=silver-amount;
+			break;
+		case 8: gems=gems-amount;
+			break;
+	}
+usedtransport=usedtransport+amount;
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+def_menu()
+{
+ int long max=0;
+ int long def_credits=0;
+ int long actual=0;
+
+ cls(); 
+ printf("#   Item                #/turn     Actual\n");
+ printf("-------------------------------------------\n");
+ max = (planet_price*player[pn].defensep)/price_soldiers;
+ actual=(int)max*def_soldiers;
+ printf(" 1) Soldier Troop.......%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_fighters;
+ actual=max*def_fighters;
+ printf(" 2) X-Wing Fighters.....%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_defense;
+ actual=max*def_defense;
+ printf(" 3) Defense station.....%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_cruisers;
+ actual=max*def_cruisers;
+ printf(" 4) Heavy cruiser.......%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_carriers;
+ actual=max*def_carriers;
+ printf(" 5) Carrier.............%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_pilots;
+ actual=max*def_pilots;
+ printf(" 6) freighter pilot.....%6ld   %6ld\n",max,actual);
+ max = (planet_price*player[pn].defensep)/price_freighters;
+ actual=max*def_freighters;
+ printf(" 7) MK-IV freighter.....%6ld   %6ld\n",max,actual);
+ printf("-------------------------------------------\n");
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+def_stage()
+{
+ char ostring[80];
+ long tdef_credits=0;
+ long number=0;
+ float tdef_soldiers=0;
+ float tdef_fighters=0;
+ float tdef_defense=0;
+ float tdef_cruisers=0;
+ float tdef_carriers=0;
+ float tdef_freighters=0;
+ float tdef_pilots=0;
+
+ printf("\n\nYou own %d defense planet(s).\n",player[pn].defensep);
+ printf("Every planet produce utilities for 10000 Credits.\n",player[pn].defensep);
+ def_menu();
+ do
+  {
+   tdef_soldiers=0;
+   tdef_fighters=0;
+   tdef_defense=0;
+   tdef_cruisers=0;
+   tdef_carriers=0;
+   tdef_freighters=0;
+   tdef_pilots=0;
+   tdef_credits=player[pn].defensep*planet_price;
+
+   printf("Build how many soldier troops/turn [%d credits avail.] : ",tdef_credits);
+   gets(ostring);
+   number=0;
+   sscanf(ostring,"%d",&number);
+   tdef_credits=player[pn].defensep*planet_price-number*price_soldiers;
+   tdef_soldiers=number*(price_soldiers/planet_price)/player[pn].defensep;
+
+   printf("Build how many fighters/turn [%d credits avail.] : ",tdef_credits);
+   gets(ostring);
+   number=0;
+   sscanf(ostring,"%d",&number);
+   tdef_credits=player[pn].defensep*planet_price-number*price_fighters;
+   tdef_fighters=(price_fighters*number)/(planet_price*player[pn].defensep);
+
+  }
+ while(tdef_credits<0);
+ def_soldiers=tdef_soldiers;
+ def_fighters=tdef_fighters;
+ def_defense=tdef_defense;
+ def_cruisers=tdef_cruisers;
+ def_carriers=tdef_carriers;
+ def_freighters=tdef_freighters;
+ def_pilots=tdef_pilots;
+ def_menu();
+}
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+buying_menu()
+{
+unsigned long pvalue;
+unsigned long totplanets;
+
+totplanets=player[pn].orep+player[pn].foodp+player[pn].defensep+player[pn].tradep+player[pn].tourismp;
+pvalue=20000+(500*(totplanets));
+if ((player[pn].credits/pvalue)>50)
+	pvalue=player[pn].credits/50;
+
+ cls();
+ printf("\n\nGovernment spending\n");
+ printf("#   Item               Price    Owned     max.Afford\n");
+ printf("----------------------------------------------------\n");
+ printf(" 1) Soldier Troop.......%4ld   %6ld         %6ld\n",price_soldiers,player[pn].soldiers,player[pn].credits/price_soldiers);
+ printf(" 2) freighter pilots....%4ld   %6ld         %6ld\n",price_pilots,player[pn].pilots,player[pn].credits/price_pilots);
+ printf(" 3) Intelligence Agent..%4ld   %6ld         %6ld\n",price_agents,player[pn].agents,player[pn].credits/price_agents);
+ printf("\n");
+ printf(" 4) X-Wing Fighters.....%4ld   %6ld         %6ld\n",price_fighters,player[pn].fighters,player[pn].credits/price_fighters);
+ if(player[pn].tech_level>4)
+	printf(" 5) Y-Wing Fighters.....%4ld   %6ld         %6ld\n",price_ywings,player[pn].ywings,player[pn].credits/price_ywings);
+ if(player[pn].tech_level>0)
+ 	printf(" 6) Heavy cruiser.......%4ld   %6ld         %6ld\n",price_cruisers,player[pn].cruisers,player[pn].credits/price_cruisers);
+ if(player[pn].tech_level>70-(race[player[pn].race].knowledge*3))
+ 	printf(" 7) Imp.Starfighter....%5ld   %6ld         %6ld\n",price_starfighters,player[pn].starfighters,player[pn].credits/price_starfighters);
+ if(player[pn].tech_level>80-(race[player[pn].race].knowledge*3))
+ 	printf(" 8) Death-Star......%8ld   %6ld         %6ld\n",price_deathstars,player[pn].deathstars,player[pn].credits/price_deathstars);
+ printf("10) Carrier............%5ld   %6ld         %6ld\n",price_carriers,player[pn].carriers,player[pn].credits/price_carriers);
+ printf("11) MK-IV freighter....%5ld   %6ld         %6ld\n",price_freighters,player[pn].freighters,player[pn].credits/price_freighters);
+ printf("12) Defense station.....%4ld   %6ld         %6ld\n",price_defense,player[pn].defense,player[pn].credits/price_defense);
+ if(player[pn].tech_level>8)
+ 	printf("13) Missile Defense.....%4ld   %6ld         %6ld\n",price_missiledefense,player[pn].missiledefense,player[pn].credits/price_missiledefense);
+ printf("\n");
+ printf("15) Cultivate planet.%7ld   %6ld         %6ld\n",pvalue,totplanets,player[pn].credits/pvalue);
+ printf("16) Governing planet.%7ld   %6ld         %6ld\n",(pvalue+(pvalue/2)),player[pn].governp,player[pn].credits/(pvalue+(pvalue/2)));
+ printf("----------------------------------------------------\n");
+ printf("You have %ld Credits.\n",player[pn].credits);
+}
+
+
+/********************************************************************/
+/********************************************************************/
+/********************************************************************/
+buying_stage()
+{
+char ostring[80];
+long n=0;
+
+buying_menu();
+
+do 
+{
+ printf("Which would you like to buy? ");
+ gets(ostring);
+ sscanf(ostring,"%d",&n);
+ if(strlen(ostring)<1)
+	n=0; 
+ if(ostring[0]=='?')
+     buying_menu();
+ if((n>0)&&(n<20)) 
+    {
+    if((n!=13)&&(n!=6)&&(n!=5))
+   	buyitem(n);
+    else if((n== 6)&&(player[pn].tech_level>0))
+	buyitem( 6);
+    else if((n== 5)&&(player[pn].tech_level>4))
+	buyitem( 5);
+    else if((n== 7)&&(player[pn].tech_level>70-(race[player[pn].race].knowledge*3)))
+	buyitem( 7);
+    else if((n== 8)&&(player[pn].tech_level>80-(race[player[pn].race].knowledge*3)))
+	buyitem( 8);
+    else if((n==13)&&(player[pn].tech_level>8))
+	buyitem(13);
+    n=255;
+   }
+} while (n!=0);
+
+printf("\n");
+}
+
+----> END OF PART 2 <----
+-- 
+      Internet: Dr_who@pegasus.ch         __
+      Phone   : ++41-71-71 70 42         ///
+      FAX     : ++41-71-71 27 87    __  ///    "I'M THE DOCTORE BECAUSE 
+                                    \\\///      IT'S FUN FUN FUN ! "
+     BBS Phone: ++41-71-71 55 77     \XX/       - TOM BAKER 
+      X.25    : +228 4752 1 2574        

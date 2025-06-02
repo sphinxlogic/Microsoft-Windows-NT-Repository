@@ -1,0 +1,1769 @@
+From: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Subject: v02i035: dired - (Ver. 1.8) directory editor in C++, Part03/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Posting-number: Volume 2, Issue 35
+Archive-name: dired/part03
+Supersedes: dired: Volume 2, Issue 7-12
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 5)."
+# Contents:  command2.C display.h keys.h
+# Wrapped by lijewski@xtesoc2 on Mon Oct  5 14:53:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'command2.C' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'command2.C'\"
+else
+echo shar: Extracting \"'command2.C'\" \(37070 characters\)
+sed "s/^X//" >'command2.C' <<'END_OF_FILE'
+X/*
+X** command2.C - the main command loop and some of the commands themselves.
+X**
+X**               Command1.C and command2.C
+X**               are concatenated during the make into
+X**               commands.C, which consists of the main
+X**               command loop and all commands called from
+X**               within that loop.
+X**
+X** command2.C 1.42   Delta\'d: 09:49:45 9/28/92   Mike Lijewski, CNSF
+X**
+X** Copyright \(c\) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: \(1\) source distributions retain this entire copyright
+X** notice and comment, and \(2\) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University\'\' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS\'\' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X/*
+X** delete_file - delete the current file which is a regular file.
+X**               Update the window appropriately.
+X*/
+X
+Xstatic void delete_file(DirList *dl, const char *file)
+X{
+X    if (unlink(file) != -1)
+X        remove_listing_line(dl, dl->savedYPos());
+X    else
+X    {
+X        message("`deletion' failed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X}
+X
+X/*
+X** delete_directory - delete the current file which is a directory.
+X**                    Update the window appropriately.
+X*/
+X
+Xstatic void delete_directory(DirList *dl, const char *dirname)
+X{
+X    if (rmdir(dirname) != -1)
+X        remove_listing_line(dl, dl->savedYPos());
+X    else
+X    {
+X        message("`deletion' failed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X}
+X
+X/*
+X** delete_current_file - attempt to delete current file.
+X*/
+X
+Xstatic void delete_current_file(DirList *dl)
+X{
+X    const char *file = get_file_name(dl);
+X    
+X    if (strcmp(file, ".")  == 0 || strcmp(file, "..") == 0)
+X    {
+X        message("`deletion' of `.' and `..' is not allowed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X
+X    String msg = String("delete `") + file + "'? (y|n) ";
+X
+X    if (is_directory(file) && yes_or_no(msg))
+X        delete_directory(dl, file);
+X    else if (yes_or_no(msg))
+X        delete_file(dl, file);
+X    else
+X        //
+X        // Don\'t do the delete.
+X        //
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X
+X/*
+X** update_current_line - updates the current line in the listing
+X**                       and it\'s representation on the screen.
+X*/
+X
+Xstatic void update_current_line(DirList *dl, char *new_line)
+X{
+X    if (strlen(new_line) <= columns() && dl->currLine()->length() <= columns())
+X    {
+X        //
+X        // The most common case.
+X        //
+X        update_screen_line(dl->currLine()->line(), new_line, dl->savedYPos());
+X        dl->currLine()->update(&new_line);
+X        dl->saveYXPos(dl->savedYPos(), goal_column(dl));
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    else
+X    {
+X        //
+X        // Either the old or the new line must be shifted.
+X        // Probably not worth trying to use update_screen_line\(\).
+X        //
+X        dl->currLine()->update(&new_line);
+X        dl->saveYXPos(dl->savedYPos(), goal_column(dl));
+X        
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X        {
+X            move_cursor(dl->savedYPos(), 0);
+X            clear_to_end_of_line();
+X            display_string(new_line);
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X        }
+X    }
+X}
+X
+X/*
+X** rename_file - rename src to dest and update window appropriately.
+X*/
+X
+Xstatic void rename_file(DirList *dl, const char *src, const char *dest)
+X{
+X    if (rename(src, dest) != -1)
+X    {
+X        message("`rename' was successful");
+X        if (in_same_directory(dl, dest))
+X        {
+X            //
+X            // The important point to note about the following code
+X            // is that if `dest\' is a directory, we need to add a `d\'
+X            // to the ls command as in
+X            //
+X            //   ls -ld source
+X            //
+X            int is_dir = is_directory(dest);
+X            size_t size = strlen(ls_cmd[the_sort_order()]) + strlen(dest) + 3;
+X
+X            if (is_dir) size++;
+X
+X            String command = ls_cmd[the_sort_order()];
+X            if (is_dir) command += "-d";
+X            command += String("'") + dest + "'";
+X
+X            FILE *fp = popen(command, "r");
+X            if (fp == 0)
+X                error("File %s, line %d: popen(%s) failed",
+X                      __FILE__, __LINE__, (const char *)command);
+X
+X            char *new_line = fgetline(fp);
+X            if (fp == 0)
+X                error("File %s, line %d: fgetline() failed",
+X                      __FILE__, __LINE__);
+X            (void)pclose(fp);
+X
+X            update_current_line(dl, new_line);
+X        }
+X        else
+X            remove_listing_line(dl, dl->savedYPos());
+X    }
+X    else
+X    {
+X        message("`rename' failed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X}
+X
+X/*
+X** rename_current_file - attempt to rename the current file
+X*/
+X
+Xstatic void rename_current_file(DirList *dl)
+X{
+X    const char *from_file = get_file_name(dl);
+X    
+X    if (strcmp(from_file, ".")  == 0 || strcmp(from_file, "..") == 0)
+X    {
+X        message("`renaming' of `.' and `..' is not allowed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    const char *to_file = prompt("Rename to: ");
+X    
+X    if (to_file == 0)
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    else if (*to_file == 0)
+X    {
+X        message("not a valid file name");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X
+X    if (*to_file == '~') to_file = expand_tilde(to_file);
+X    rename_file(dl, from_file, to_file);
+X    synch_display();
+X}
+X
+X/*
+X** compress_file - compress the current file and update the window.
+X*/
+X
+Xstatic void compress_file(DirList *dl, const char *file)
+X{
+X    String cmd = String("compress") + " -f '" + file + "' 1>/dev/null 2>&1";
+X
+X    if (!system(cmd))
+X    {
+X        message("Compressing ... ");
+X
+X        String command = String(ls_cmd[the_sort_order()]) + "'" + file +
+X                         ".Z' 2>/dev/null";
+X
+X        FILE *fp = popen(command, "r");
+X        if (fp == 0)
+X            error("File %s, line %d: popen(%s) failed",
+X                  __FILE__, __LINE__, (const char *)command);
+X
+X        char *new_line = fgetline(fp);
+X        if (new_line)
+X            //
+X            // Only update the line if we were able to read the line.
+X            // Some versions of compress don\'t properly return a failure
+X            // code if they don\'t compress the file.  Hence we probably
+X            // still have the uncompressed file lying around.
+X            //
+X            update_current_line(dl, new_line);
+X        (void)pclose(fp);
+X
+X        message("Compressing ... done");
+X    }
+X    else
+X        message("`compress' failed");
+X}
+X
+X/*
+X** compress_current_file - attempt to compress current file
+X*/
+X
+Xstatic void compress_current_file(DirList *dl)
+X{
+X    const char *file = get_file_name(dl);
+X
+X    //
+X    // Disallow compressing of symbollically linked files.
+X    //
+X    if (strstr(&(dl->currLine()->line())[dl->savedXPos()], " -> "))
+X    {
+X        message("compress'ing symbollically linked files not allowed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    if (file[strlen(file)-1] == 'Z' && file[strlen(file) - 2] == '.')
+X    {
+X        message("file appears to already be compressed");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    if (is_regular_file(file))
+X        compress_file(dl, file);
+X    else
+X        message("can only `compress' regular files");
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** chgrp_file - change the group of the current file.
+X**              Update the window appropriately.
+X*/
+X
+Xstatic void chgrp_file(DirList *dl, const char *file, const char *group)
+X{
+X    const char *chgrp  = "chgrp";
+X    const char *args[4];
+X    args[0] = chgrp; args[1] = group; args[2] = file; args[3] = 0;
+X
+X    if (execute(chgrp, args))
+X    {
+X        String command = ls_cmd[the_sort_order()];
+X        if (is_directory(file)) command += "-d";
+X        command += String("'") + file + "'";
+X
+X        FILE *fp = popen(command, "r");
+X        if (fp == 0)
+X            error("File %s, line %d: popen(%s) failed",
+X                  __FILE__, __LINE__, (const char *)command);
+X
+X        char *new_line = fgetline(fp);
+X        if (fp == 0)
+X            error("File %s, line %d: fgetline() failed", __FILE__, __LINE__);
+X        (void)pclose(fp);
+X
+X        update_current_line(dl, new_line);
+X    }
+X    else
+X        message("`chgrp' failed");
+X}
+X
+X/*
+X** chgrp_current_file - attempt to chgrp current file
+X*/
+X
+Xstatic void chgrp_current_file(DirList *dl)
+X{
+X    const char *file  = get_file_name(dl);
+X    const char *group = prompt("Change to group: ");
+X    
+X    if (group == 0)
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    else if (*group == 0)
+X    {
+X        message("not a valid group");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    chgrp_file(dl, file, group);
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** chmod_file - change the mode of the current file.
+X**              Update the window appropriately.
+X*/
+X
+Xstatic void chmod_file(DirList *dl, const char *file, const char *mode)
+X{
+X    const char *chmod = "chmod";
+X    const char *args[4];
+X    args[0] = chmod; args[1] = mode; args[2] = file; args[3] = 0;
+X
+X    if (execute(chmod, args))
+X    {
+X        String command = ls_cmd[the_sort_order()];
+X        if (is_directory(file)) command += "-d";
+X        command += String("'") + file + "'";
+X
+X        FILE *fp = popen(command, "r");
+X        if (fp == 0)
+X            error("File %s, line %d: popen(%s) failed",
+X                  __FILE__, __LINE__, (const char *)command);
+X
+X        char *new_line = fgetline(fp);
+X        if (fp == 0)
+X            error("File %s, line %d: fgetline() failed", __FILE__, __LINE__);
+X        (void)pclose(fp);
+X
+X        update_current_line(dl, new_line);
+X    }
+X    else
+X        message("`chmod' failed");
+X}
+X
+X/*
+X** chmod_current_file - attempt to chmod the current file
+X*/
+X
+Xstatic void chmod_current_file(DirList *dl)
+X{
+X    const char *file = get_file_name(dl);
+X    const char *mode = prompt("Change to mode: ");
+X    
+X    if (mode == 0)
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    else if (*mode == 0)
+X    {
+X        message("not a valid file mode");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    chmod_file(dl, file, mode);
+X    
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** print_current_file - attempt to print current file
+X*/
+X
+Xstatic void print_current_file(DirList *dl)
+X{
+X    const char *file = get_file_name(dl);
+X    char *printer    = getenv("DIREDPRT");
+X    if (printer == 0) printer = "lpr";
+X    String cmd = String(printer) + " '" + file + "'";
+X    
+X    if (is_regular_file(file))
+X        if (!system(cmd))
+X            message("`%s' printed successfully", file);
+X        else
+X            message("print of `%s' failed", file);
+X    else
+X        message("`%s' isn't a regular file", file);
+X    
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** uncompress_file - uncompress the file at line y in the DirList.
+X**                   Update the window appropriately.
+X*/
+X
+Xstatic void uncompress_file(DirList *dl, const char *file)
+X{
+X    String cmd = String("uncompress") + " '" + file + "' 1>/dev/null 2>&1";
+X
+X    if (!system(cmd))
+X    {
+X        message("Uncompressing ... ");
+X
+X        char *dot = strrchr(file, '.');
+X        *dot = 0;  // remove .Z suffix
+X
+X        String command = String(ls_cmd[the_sort_order()]) + "'" + file +
+X                         "' 2>/dev/null";
+X
+X        FILE *fp = popen(command, "r");
+X        if (fp == 0)
+X           error("File %s, line %d: popen(%s) failed",
+X                  __FILE__, __LINE__, (const char *)command);            
+X
+X        char *new_line = fgetline(fp);
+X        if (new_line)
+X            //
+X            // Only update the line if we were able to read the line.
+X            // Some versions of compress don\'t properly return a failure
+X            // code if they don\'t uncompress the file.  Hence we probably
+X            // still have the .Z file lying around.
+X            //
+X            update_current_line(dl, new_line);
+X        (void)pclose(fp);
+X
+X        message("Uncompressing ... done");
+X    }
+X    else
+X        message("`uncompress' failed");
+X}
+X
+X/*
+X** uncompress_current_file - attempt to uncompress current file
+X*/
+X
+Xstatic void uncompress_current_file(DirList *dl)
+X{
+X    const char *file = get_file_name(dl);
+X    
+X    if (file[strlen(file)-1] != 'Z' && file[strlen(file)-1] != '.')
+X    {
+X        message("can only `uncompress' compressed files");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    uncompress_file(dl, file);
+X
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** search_forward - search forward for file or directory matching string.
+X**                  The search always starts with the file following
+X**                  the current file.  If a match occurs, the cursor
+X**                  is placed on the new current file, with that line
+X**                  placed at the top of the window.
+X*/
+X
+Xstatic void search_forward(DirList *dl)
+X{
+X    const char *str = prompt("Search forward for: ");
+X    if (str == 0)
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }                  
+X    
+X    DirLine *ln = dl->currLine();
+X    if (ln == dl->tail())
+X    {
+X        message("no match");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        return;
+X    }
+X    
+X    int pos = dl->savedYPos()+1;
+X    DirLine *found = search(ln->next(), str, &pos);
+X    if (found)
+X    {
+X        if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X        dl->setCurrLine(found);
+X    }
+X    
+X    if (found && pos < rows()-2)
+X    {
+X        //
+X        // We found a match in our current window.
+X        // Only need to update the cursor position.
+X        //
+X        dl->saveYXPos(pos, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(pos, dl->savedXPos());
+X    }
+X    else if (found)
+X    {
+X        //
+X        // We found a match, but it is out of our current view.
+X        // Place the matched line at the top of the window.
+X        //
+X        ln = found;
+X        dl->setFirst(ln);
+X        cursor_home();
+X        for (int i = 0; i < rows() - 2 && ln; i++, ln = ln->next())
+X        {
+X            clear_to_end_of_line();
+X            display_string(ln->line(), ln->length());
+X        }
+X        move_cursor(i, 0);
+X        for (; i < rows() - 2; i++)
+X        {
+X            clear_to_end_of_line();
+X            cursor_down();
+X        }
+X
+X        ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X        dl->saveYXPos(0, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(0, dl->savedXPos());
+X    }
+X    else
+X    {
+X        message("no match");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    
+X    synch_display();
+X}
+X
+X/*
+X** search_backward - search backward for file or directory matching string.
+X**                   The search always starts with the file following
+X**                   the current file.  If a match occurs, the cursor
+X**                   is placed on the new current file, with that line
+X**                   placed at the top of the window.
+X*/
+X
+Xstatic void search_backward(DirList *dl)
+X{
+X    const char *str = prompt("Search backward for: ");
+X    if (str == 0)
+X    {
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    
+X    DirLine *ln = dl->currLine();
+X    if (ln == dl->head()) return;
+X    
+X    int pos = dl->savedYPos()-1;
+X    DirLine *found = search(ln->prev(), str, &pos, 0);
+X    if (found)
+X    {
+X        if (dl->currLine()->length() > columns()) rightshift_current_line(dl);
+X        dl->setCurrLine(found);
+X    }
+X    
+X    if (found && pos >= 0)
+X    {
+X        //
+X        // We found a match in our current window.
+X        // Only need to update the cursor position.
+X        //
+X        dl->saveYXPos(pos, goal_column(dl));
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(pos, dl->savedXPos());
+X    }
+X    else if (found)
+X    {
+X        //
+X        // We found a match, but it is out of our
+X        // current view.  Place the matched line at the top
+X        // of the window.  Since we\'re searching backwards
+X        // and the match is out of our present window, we
+X        // must have a whole new window to display.
+X        //
+X        dl->setFirst(ln = found);
+X        cursor_home();
+X        for (int i = 0; i < rows() - 2 && ln->next(); i++, ln = ln->next())
+X        {
+X            clear_to_end_of_line();
+X            display_string(ln->line(), ln->length());
+X        }
+X        
+X        dl->setLast(ln->prev());
+X        dl->saveYXPos(0, goal_column(dl));
+X
+X        if (dl->currLine()->length() > columns())
+X            leftshift_current_line(dl);
+X        else
+X            move_cursor(0, dl->savedXPos());
+X    }
+X    else
+X    {
+X        message("no match");
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    }
+X    synch_display();
+X}
+X
+X//
+X// Help message for the message window when displaying help.
+X//
+Xconst char *const HELP_MSG[] = {
+X    "Space scrolls forward.  Other keys quit.",
+X    "Space forward, Backspace backward.  Other keys quit.",
+X    "Backspace scrolls backward.  Other keys quit."
+X};
+X
+X/*
+X** help - give some help.  Deal with SIGWINCH and SIGTSTP.
+X*/
+X
+Xstatic void help(DirList *dl)
+X{
+X    update_modeline("----- HELP");
+X    
+X    int position = 0;
+X    char key;
+X    do
+X    {
+X        cursor_home();
+X        for (int i = 0; i < rows() - 2 && i + position < HELP_FILE_DIM; i++)
+X        {
+X            clear_to_end_of_line();
+X            display_string(help_file[position + i]);
+X        }
+X        move_cursor(i, 0);
+X        for (; i < rows() - 2; i++)
+X        {
+X            clear_to_end_of_line();
+X            cursor_down();
+X        }
+X        clear_message_line();
+X
+X        if (position + rows() -2 >= HELP_FILE_DIM)
+X            //
+X            // The tail of the help message.
+X            //
+X            (void)fputs(HELP_MSG[2], stdout);
+X        else if (position == 0)
+X            //
+X            // The head of the help message.
+X            //
+X            (void)fputs(HELP_MSG[0], stdout);
+X        else
+X            //
+X            // Somewhere in between.
+X            //
+X            (void)fputs(HELP_MSG[1], stdout);
+X
+X        synch_display();
+X
+X        if (read(0, &key, 1) < 0 // assume fails only when errno == EINTR
+X#ifdef SIGWINCH
+X            || win_size_changed
+X#endif
+X            )
+X        {
+X#ifdef SIGWINCH
+X            if (win_size_changed)
+X            {
+X                win_size_changed = 0;
+X                adjust_window();
+X                redisplay();
+X            }
+X#endif
+X        }
+X        else if (key == KEY_SPC)
+X        {
+X            if (position >= HELP_FILE_DIM - 1) goto finished;
+X            position += rows() - 2;
+X        }
+X        else if (key == *BC)
+X        {
+X            if (position == 0) goto finished;
+X            position -= rows() - 2;
+X        }
+X        else 
+X            goto finished;  // return to the listing
+X    }
+X    while (position < HELP_FILE_DIM - 1);
+X
+X  finished:
+X    update_modeline(modeline_prefix, dl->name());
+X    redisplay();
+X}
+X
+X/*
+X** reread_current_directory - reread the current directory and
+X**                            put it up fresh on the screen.  We
+X**                            attempt to put the cursor back onto
+X**                            the previous current file, if that file
+X**                            still exists.
+X*/
+X
+Xstatic void reread_current_directory(DirList * &dlr)
+X{
+X    char *dirname = new char[strlen(dlr->name()) + 1];
+X    (void)strcpy(dirname, dlr->name());
+X    const char *old_current_file = get_file_name(dlr);
+X
+X    int old_pos;  // position in old DirList of old_current_file
+X    DirLine *ln = dlr->head();
+X    for (old_pos = 0; ln != dlr->currLine(); ln = ln->next(), old_pos++) ;
+X
+X    delete dir_stack->pop();
+X    
+X    DirList *dl = get_directory_listing(dirname);
+X    if (dl == 0)
+X        error("File %s, line %d: couldn't read directory `%s'",
+X              __FILE__, __LINE__, dirname);
+X
+X    dlr = dl;  // update dir_list in read_commands\(\)
+X
+X    dir_stack->push(dl);
+X    
+X    ln = dl->head();
+X    int pos = 0;
+X    const char *name;
+X    int namelen = 0;
+X    while (ln)
+X    {
+X
+X#ifndef NO_SYMLINKS
+X        if ((name = strstr(ln->line(), " -> ")) != 0)
+X            // we have a symbolic link
+X            --name;
+X        else
+X#endif
+X            name = ln->line() + ln->length();
+X
+X        for (namelen = 0; isspace(*name) == 0; name--, namelen++) ;
+X
+X        if (strncmp(name + 1, old_current_file, namelen) == 0) break;
+X
+X        ln = ln->next();
+X        pos++;
+X        namelen = 0;
+X    }
+X
+X    if (ln == 0)
+X    {
+X        //
+X        // Update ln and pos to refer to a suitable file on
+X        // which to place cursor.
+X        //
+X        ln = dl->head();
+X        for (pos = 0; pos < old_pos && ln; ln = ln->next(), pos++) ;
+X    }
+X
+X    dl->setCurrLine(ln);
+X
+X    if (pos < rows() - 2)
+X    {
+X        //
+X        // Display starting at the head.
+X        //
+X        dl->setFirst(ln = dl->head());
+X        dl->saveYXPos(pos, goal_column(dl));
+X    }
+X    else
+X    {
+X        //
+X        // Center dl->currLine.
+X        //
+X        ln = dl->currLine();
+X        for (int i = 0; i < (rows() - 1)/2; i++, ln = ln->prev()) ;
+X        dl->setFirst(ln);
+X        dl->saveYXPos((rows() - 1)/2, goal_column(dl));
+X    }
+X
+X    cursor_home();
+X    for (int i = 0; i < rows() - 2 && ln; ln = ln->next(), i++)
+X    {
+X        clear_to_end_of_line();
+X        display_string(ln->line(), ln->length());
+X    }
+X    move_cursor(i, 0);
+X    for (; i < rows() - 2; i++)
+X    {
+X        clear_to_end_of_line();
+X        cursor_down();
+X    }
+X
+X    ln ? dl->setLast(ln->prev()) : dl->setLast(dl->tail());
+X    
+X    if (dl->currLine()->length() > columns())
+X        leftshift_current_line(dl);
+X    else
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X    
+X    synch_display();
+X}
+X
+X/*
+X** expand_percent - expand any percent signs in cmd to file.  The result is
+X**                  stored in volatile storage.
+X*/
+X
+Xstatic const char *expand_percent(const char *cmd, const char *file)
+X{
+X    static char *expanded_cmd;
+X    DELETE expanded_cmd;
+X
+X    if (!strchr(cmd, '%')) return cmd;
+X
+X    expanded_cmd  = new char[strlen(cmd) + 1];
+X    (void)strcpy(expanded_cmd, cmd);
+X    char *pos = strchr(expanded_cmd, '%');
+X
+X    while (pos)
+X    {
+X        char *full_cmd = new char[strlen(expanded_cmd) + strlen(file)];
+X        (void)strncpy(full_cmd, expanded_cmd, pos - expanded_cmd);
+X        full_cmd[pos - expanded_cmd] = '\0';
+X        (void)strcat(full_cmd, file);
+X        (void)strcat(full_cmd, pos + 1);
+X        DELETE expanded_cmd;
+X        expanded_cmd = full_cmd;
+X        pos = strchr(expanded_cmd, '%');
+X    }
+X
+X    return expanded_cmd;
+X}
+X
+X/*
+X** shell_command - execute a shell command.  % is expanded to
+X**                 the current filename.
+X**                 If *cmd == 0, start up a shell.
+X**                 If *cmd == !, reexecute most recent shell command.
+X*/
+X
+Xstatic void shell_command(DirList *dl)
+X{
+X    static String original_cmd;
+X    static String saved_cmd;
+X    static String saved_shell;
+X    const char *file = get_file_name(dl);
+X    const char *cmd  = prompt("!");
+X
+X    if (cmd == 0)
+X    {
+X        //
+X        // command aborted
+X        //
+X        move_cursor(dl->savedYPos(), dl->savedXPos());
+X        synch_display();
+X        return;
+X    }
+X    else if (*cmd == '\0')
+X    {
+X        //
+X        // start up a shell
+X        //
+X        if (saved_shell == "") saved_shell = getenv("SHELL");
+X        if (saved_shell == "") saved_shell = "sh";
+X        saved_cmd = original_cmd = saved_shell;
+X
+X        const char *slash = strrchr(saved_shell, '/');
+X        const char *args[2];
+X        args[0] = slash ? slash + 1 : (const char *)saved_shell;
+X        args[1] = 0;
+X
+X        message("Starting interactive shell ...");
+X
+X        cursor_wrap();
+X        synch_display();
+X        unsetraw();
+X        unset_signals();
+X
+X        execute(saved_shell, args, 0);
+X
+X        set_signals();
+X        setraw();
+X    }
+X    else if (*cmd == '[')
+X    {
+X        //
+X        // Re-expand previous original command, if it contains a %.
+X        // Otherwise, re-execute previous saved command since the original
+X        // and saved will be the same.
+X        //
+X        if (original_cmd != "")
+X        {
+X            //
+X            // expand the `%\'
+X            //
+X            saved_cmd = expand_percent(original_cmd, file);
+X            message(saved_cmd);
+X            cursor_wrap();
+X            synch_display();
+X            exec_with_system(saved_cmd);
+X        }
+X        else
+X        {
+X            message("No Previous Shell Command");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            return;
+X        }
+X    }
+X    else if (*cmd == '!')
+X    {
+X        //
+X        //  re-execute previously saved command
+X        //
+X        if (saved_cmd != "")
+X        {
+X            message(saved_cmd);
+X            cursor_wrap();
+X            synch_display();
+X            exec_with_system(saved_cmd);
+X        }
+X        else
+X        {
+X            message("No Previous Shell Command");
+X            move_cursor(dl->savedYPos(), dl->savedXPos());
+X            synch_display();
+X            return;
+X        }
+X    }
+X    else
+X    {
+X        //
+X        // expand and then execute command
+X        //
+X        original_cmd = cmd;
+X        saved_cmd = expand_percent(original_cmd, file);
+X        message(saved_cmd);
+X        cursor_wrap();
+X        synch_display();
+X        exec_with_system(saved_cmd);
+X    }
+X    redisplay();
+X}
+X
+X/*
+X** change_sort_order - query the user for a new sorting order - expects to
+X**                     read a single character - and change the sort order
+X**                     to that value, if it is a valid value.  Deals with
+X**                     SIGWINCH and SIGTSTP.
+X*/
+X
+Xstatic void change_sort_order(DirList *dl)
+X{
+X    const char *msg = "Set sort order to? [a, c, t, u]: ";
+X    message(msg);
+X
+X    char key;
+X    while (1)
+X        if (read(0, &key, 1) < 0 // assume fails only when errno == EINTR
+X#ifdef SIGWINCH
+X            || win_size_changed
+X#endif
+X            )
+X        {
+X#ifdef SIGWINCH
+X            if (win_size_changed)
+X            {
+X                win_size_changed = 0;
+X                adjust_window();
+X                redisplay();
+X            }
+X#endif
+X            //
+X            // Redisplay the message - termstop\(\) takes care of the rest
+X            // in the case of SIGTSTP.
+X            //
+X            message(msg);
+X        }
+X    else
+X        switch(key)
+X        {
+X          case 'a':
+X            set_sort_order(ALPHABETICALLY);
+X            message("Sorting `alphabetically' now.");
+X            goto end;
+X          case 'c':
+X            set_sort_order(INODE_CHANGE_TIME);
+X            message("Sorting by `inode-change time' now.");
+X            goto end;
+X          case 't':
+X            set_sort_order(MODIFICATION_TIME);
+X            message("Sorting by `modification time' now.");
+X            goto end;
+X          case 'u':
+X            set_sort_order(ACCESS_TIME);
+X            message("Sorting by `access time' now.");
+X            goto end;
+X          default:
+X            message("Sort order not changed.");
+X            goto end;
+X        }
+X  end:
+X    move_cursor(dl->savedYPos(), dl->savedXPos());
+X    synch_display();
+X}
+X
+X/*
+X** read_commands - the command loop
+X*/
+X
+Xvoid read_commands(DirList *dir_list)
+X{
+X    int key;
+X    for (;;)
+X    {
+X        switch (key = get_key(dir_list))
+X        {
+X          case KEY_j         :
+X          case KEY_n         :
+X          case KEY_CTL_N     :
+X          case KEY_SPC       :
+X          case KEY_CR        :
+X          case KEY_ARROW_DOWN:
+X
+X              if (dir_list->atEndOfList()) break;
+X
+X              if (dir_list->currLine()->length() > columns()) 
+X                  rightshift_current_line(dir_list);
+X    
+X              if (dir_list->savedYPos() < rows() - 3)
+X              {
+X                  //
+X                  // There are still more lines below us in the window
+X                  // so we just move the cursor down one line.
+X                  //
+X                  dir_list->setCurrLine(dir_list->currLine()->next());
+X                  int x = goal_column(dir_list);
+X                  if (x == dir_list->savedXPos())
+X                      cursor_down();
+X                  else
+X                      move_cursor(dir_list->savedYPos() + 1, x);
+X                  dir_list->saveYXPos(dir_list->savedYPos() + 1, x);
+X              }
+X              else
+X                  //
+X                  // We are on the last line on the screen and there
+X                  // are more lines to display.  Scroll up one line
+X                  // and leave the cursor on the next logical line.
+X                  //
+X                  scroll_up_one_line(dir_list);
+X
+X              if (dir_list->currLine()->length() > columns())
+X                  leftshift_current_line(dir_list);
+X
+X              synch_display();
+X              break;
+X
+X          case KEY_k       :
+X          case KEY_p       :
+X          case KEY_CTL_P   :
+X          case KEY_CTL_Y   :
+X          case KEY_ARROW_UP:
+X
+X              if (dir_list->atBegOfList()) break;
+X
+X              if (dir_list->currLine()->length() > columns())
+X                  rightshift_current_line(dir_list);
+X
+X              if (dir_list->savedYPos() != 0)
+X              {
+X                  // We aren\'t at the top of the window so can mOve up.
+X                  dir_list->setCurrLine(dir_list->currLine()->prev());
+X                  int x = goal_column(dir_list);
+X                  if (x == dir_list->savedXPos() && UP)
+X                      cursor_up();
+X                  else
+X                      move_cursor(dir_list->savedYPos() - 1, x);
+X                  dir_list->saveYXPos(dir_list->savedYPos() - 1, x);
+X              }
+X              else
+X                  //
+X                  // We are on the first line of the window and there are
+X                  // lines preceding us in the directory listing.
+X                  //
+X                  scroll_down_one_line(dir_list);
+X
+X              if (dir_list->currLine()->length() > columns())
+X                  leftshift_current_line(dir_list);
+X
+X              synch_display();
+X              break;
+X
+X          case KEY_CTL_F:
+X          case KEY_CTL_V:
+X
+X              if (dir_list->lastLine() == dir_list->tail()) break;
+X              scroll_up_full_window(dir_list);
+X
+X              break;
+X          case KEY_b    :
+X          case KEY_CTL_B:
+X
+X              if (dir_list->firstLine() == dir_list->head()) break;
+X              scroll_down_full_window(dir_list);
+X
+X              break;
+X          case KEY_CTL_D:
+X
+X              if (dir_list->lastLine() == dir_list->tail()) break;
+X              scroll_up_half_window(dir_list, dir_list->savedYPos());
+X
+X              break;
+X          case KEY_CTL_U:
+X
+X              if (dir_list->firstLine() == dir_list->head()) break;
+X              scroll_down_half_window(dir_list, dir_list->savedYPos());
+X
+X              break;
+X          case KEY_TOP:
+X
+X              if (dir_list->atBegOfList()) break;
+X              goto_first(dir_list);
+X
+X              break;
+X          case KEY_BOT:
+X
+X              if (dir_list->atEndOfList()) break;
+X              goto_last(dir_list);
+X
+X              break;
+X          case KEY_e:
+X          case KEY_f:
+X
+X              edit_current_file(dir_list); break;
+X
+X          case KEY_m:
+X          case KEY_v:
+X
+X              page_current_file(dir_list); break;
+X
+X          case KEY_c:
+X
+X              copy_current_file(dir_list); break;
+X
+X          case KEY_d:
+X
+X              delete_current_file(dir_list); break;
+X
+X          case KEY_r:
+X
+X              rename_current_file(dir_list); break;
+X
+X          case KEY_C:
+X
+X              compress_current_file(dir_list); break;
+X
+X          case KEY_E:
+X
+X              edit_prompted_for_directory(dir_list); break;
+X
+X          case KEY_G:
+X
+X              chgrp_current_file(dir_list); break;
+X
+X          case KEY_QM:
+X          case KEY_H :
+X
+X              help(dir_list); break;
+X
+X          case KEY_L:
+X
+X              link_current_file(dir_list); break;
+X
+X          case KEY_M:
+X
+X              chmod_current_file(dir_list); break;
+X
+X          case KEY_O:
+X
+X              change_sort_order(dir_list); break;
+X
+X          case KEY_P:
+X
+X              print_current_file(dir_list); break;
+X
+X          case KEY_g:
+X          case KEY_R:
+X
+X              reread_current_directory(dir_list); break;
+X
+X#ifndef NO_SYMLINKS
+X          case KEY_S:
+X
+X              symlink_current_file(dir_list); break;
+X#endif
+X
+X          case KEY_U:
+X
+X              uncompress_current_file(dir_list); break;
+X
+X          case KEY_SLASH:
+X
+X              search_forward(dir_list); break;
+X
+X          case KEY_BKSLASH:
+X
+X              search_backward(dir_list); break;
+X
+X          case KEY_BANG:
+X
+X              shell_command(dir_list); break;
+X
+X          case KEY_V:
+X
+X              message(version);
+X              move_cursor(dir_list->savedYPos(), dir_list->savedXPos());
+X              synch_display();
+X              break;
+X
+X          case KEY_CTL_L:
+X
+X              redisplay(); break;
+X
+X          case KEY_q:
+X
+X              if (dir_stack->nelems() > 1)
+X              {
+X                  delete dir_stack->pop();
+X                  dir_list = dir_stack->top();
+X
+X                  // update our current directory
+X                  if (chdir(dir_list->name()) < 0)
+X                      error("File %s, line %d: couldn't chdir() to `%s'",
+X                            __FILE__, __LINE__, dir_list->name());
+X                  //
+X                  // We track the CWD and PWD variables if they\'re defined,
+X                  // so that applications, such as emacs, which use them
+X                  // will work properly.
+X                  //
+X                  if (getenv("CWD"))
+X                  {
+X                      static String str;
+X                      static String ostr;
+X                      str = String("CWD=") + dir_list->name();
+X                      if (putenv(str) < 0)
+X                          error("File %s, line %d: putenv(%s) failed.",
+X                                __FILE__, __LINE__, dir_list->name());
+X                      ostr = str;
+X                  }
+X                  if (getenv("PWD"))
+X                  {
+X                      static String str;
+X                      static String ostr;
+X                      str = String("PWD=") + dir_list->name();
+X                      if (putenv(str) < 0)
+X                          error("File %s, line %d: putenv(%s) failed.",
+X                                __FILE__, __LINE__, dir_list->name());
+X                      ostr = str;
+X                  }
+X                  
+X                  update_modeline(modeline_prefix, dir_list->name());
+X                  redisplay();
+X              }
+X              else
+X              {
+X                  term_display();
+X                  exit(0);
+X              }
+X              break;
+X
+X          case KEY_ESC:
+X
+X              // some Emacs ESC key bindings
+X
+X              switch(get_key(dir_list))
+X              {
+X                case KEY_v:
+X                  if (dir_list->firstLine() == dir_list->head()) break;
+X                  scroll_down_full_window(dir_list);
+X                  break;
+X                case KEY_TOP:
+X                  if (dir_list->atBegOfList()) break;
+X                  goto_first(dir_list);
+X                  break;
+X                case KEY_BOT:
+X                  if (dir_list->atEndOfList()) break;
+X                  goto_last(dir_list);
+X                  break;
+X                default:
+X                  ding();
+X                  break;
+X              }
+X          break;
+X
+X          case KEY_Q:
+X
+X              term_display(); exit(0); break;
+X
+X          default:
+X
+X              ding(); break;
+X        }
+X    }
+X}
+END_OF_FILE
+if test 37070 -ne `wc -c <'command2.C'`; then
+    echo shar: \"'command2.C'\" unpacked with wrong size!
+fi
+# end of 'command2.C'
+fi
+if test -f 'display.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.h'\"
+else
+echo shar: Extracting \"'display.h'\" \(7825 characters\)
+sed "s/^X//" >'display.h' <<'END_OF_FILE'
+X/*
+X** external definitions needed for interfacing with display.C
+X**
+X** display.h 1.15   Delta'd: 15:10:49 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __DISPLAY_H
+X#define __DISPLAY_H
+X
+X//
+X// termcap capabilities we'll try to use
+X//
+Xextern char *AL;               // insert blank line before cursor
+Xextern char *ALN;              // insert N blank lines before cursor
+Xextern int   AM;               // automatic margins?
+Xextern char *BC;               // backspace, if not BS
+Xextern int   BS;               // ASCII backspace works
+Xextern char *CD;               // clear to end of display
+Xextern char *CE;               // clear to end of line
+Xextern char *CL;               // clear screen
+Xextern int   CO;               // number of columns
+Xextern char *CM;               // cursor motion
+Xextern char *CR;               // cursor beginning of line
+Xextern char *CS;               // set scroll region
+Xextern int   DA;               // backing store off top?
+Xextern int   DB;               // backing store off bottom?
+Xextern char *DC;               // delete character at cursor
+Xextern char *DL;               // delete line cursor is on
+Xextern char *DLN;              // delete N lines at cursor
+Xextern char *DM;               // string to enter delete mode
+Xextern char *DO;               // cursor down
+Xextern char *ED;               // string to end delete mode
+Xextern int   HC;               // hardcopy terminal?
+Xextern char *HO;               // cursor home
+Xextern char *IS;               // initialize terminal
+Xextern char *KD;               // down arrow key
+Xextern char *KE;               // de-initialize keypad
+Xextern char *KS;               // initialize keypad (for arrow keys)
+Xextern char *KU;               // up arrrow key
+Xextern char *LE;               // cursor back one column
+Xextern int   LI;               // number of rows
+Xextern char *LL;               // cursor to lower left
+Xextern int   OS;               // terminal overstrikes?
+Xextern char  PC;               // pad character
+Xextern char *PCstr;            // pad string
+Xextern char *SE;               // end standout mode
+Xextern char *SF;               // scroll screen up one line
+Xextern char *SO;               // enter standout mode
+Xextern char *SR;               // scroll screen down one line
+Xextern char *TE;               // end cursor addressing mode
+Xextern char *TI;               // enter cursor addressing mode
+Xextern char *UP;               // cursor up
+Xextern char *VE;               // end visual mode
+Xextern char *VS;               // enter visual mode
+Xextern char *XN;               // strange wrap behaviour
+X
+X//
+X// termcap routines
+X//
+Xextern "C" {
+X    extern short ospeed;        // terminal speed - needed by tputs()
+X#if !defined(__GNUG__) || __GNUG__ == 2
+X    int    tgetent(const char *buf, const char *name);
+X    int    tgetflag(const char *);
+X    int    tgetnum(const char *);
+X    char  *tgetstr(const char *, char **);
+X    char  *tgoto(const char *, int, int);
+X    int    tputs(const char *, int, int (*)(int));
+X#endif
+X}
+X
+X//
+X// functions defined in display.C
+X//
+X
+Xextern void    clear_display();
+Xextern void    clear_to_end_of_screen(int);
+Xextern void    delete_listing_line(int);
+Xextern void    init_display();
+Xextern void    insert_listing_line(int);
+Xextern int     outputch(int);
+Xextern void    scroll_listing_up_one();
+Xextern void    scroll_listing_down_one();
+Xextern void    scroll_listing_up_N(int);
+Xextern void    scroll_listing_down_N(int);
+Xextern void    scroll_screen_up_one();
+Xextern void    scroll_screen_down_one();
+Xextern void    scroll_screen_up_N(int);
+Xextern void    scroll_screen_down_N(int);
+Xextern void    setraw();
+Xextern void    termcap(const char *);
+Xextern void    term_display();
+Xextern void    termstop(int);
+Xextern void    unsetraw();
+Xextern void    update_screen_line(const char *, const char *, int);
+X
+X/*
+X** output_string_capability - output a string capability from termcap
+X**                             to the terminal. The second argument,
+X**                             which defaults to 1, is the number
+X**                             of rows affected.
+X*/
+X
+Xinline void output_string_capability(const char *capability, int affected = 1)
+X{
+X    if (capability) tputs(capability, affected, outputch);
+X}
+X
+Xinline int rows() { return LI; }
+X
+Xinline int columns() { return CO; }
+X
+Xinline void initialize_terminal() { output_string_capability(IS); }
+X
+Xinline void synch_display() { (void)fflush(stdout); }
+X
+Xinline void enter_cursor_addressing_mode() { output_string_capability(TI); }
+X
+Xinline void enable_keypad() { output_string_capability(KS); }
+X
+Xinline void disable_keypad() { output_string_capability(KE); }
+X
+Xinline void enter_visual_mode() { output_string_capability(VS); }
+X
+Xinline void end_visual_mode() { output_string_capability(VE); }
+X
+Xinline void end_cursor_addressing_mode() { output_string_capability(TE); }
+X
+Xinline void enter_standout_mode() { output_string_capability(SO); }
+X
+Xinline void end_standout_mode() { output_string_capability(SE); }
+X
+Xinline void enter_delete_mode() { output_string_capability(DM); }
+X
+Xinline void end_delete_mode() { output_string_capability(ED); }
+X
+Xinline void move_cursor(int row, int column)
+X{
+X    if (column >= columns()) column = columns()-1;
+X    output_string_capability(tgoto(CM, column, row));
+X}
+X
+Xinline void cursor_home()
+X{
+X    HO ? output_string_capability(HO) : move_cursor(0, 0);
+X}
+X
+Xinline void clear_to_end_of_line() { output_string_capability(CE); }
+X
+Xinline void move_to_modeline() { move_cursor(rows() - 2, 0); }
+X
+Xinline void move_to_message_line()
+X{
+X    if (LL)
+X        output_string_capability(LL);
+X    else
+X        move_cursor(rows()-1, 0); }
+X
+Xinline void clear_modeline() { move_to_modeline(); clear_to_end_of_line(); }
+X
+Xinline void clear_message_line()
+X{
+X    move_to_message_line();
+X    clear_to_end_of_line();
+X}
+X
+Xinline void backspace() {
+X    if (BS)
+X        putchar('\b');
+X    else if (LE)
+X        output_string_capability(LE);
+X    else
+X        output_string_capability(BC);
+X}
+X
+Xinline void cursor_up() { output_string_capability(UP); }
+X
+Xinline void delete_char_at_cursor()
+X{
+X    if (DM) output_string_capability(DM);
+X    output_string_capability(DC);
+X    if (ED) output_string_capability(ED);
+X}
+X
+Xinline void delete_screen_line(int y)
+X{
+X    move_cursor(y, 0);
+X    output_string_capability(DL, rows()-y);
+X}
+X
+Xinline void insert_blank_line(int y)
+X{
+X    move_cursor(y, 0);
+X    output_string_capability(AL, rows()-y);
+X}
+X
+Xinline void cursor_down() { output_string_capability(DO); }
+X
+Xinline void cursor_beginning_of_line() { output_string_capability(CR); } 
+X
+Xinline void cursor_wrap()
+X{
+X    cursor_beginning_of_line();
+X    cursor_down();
+X}
+X
+X/*
+X** immediately ring the bell
+X*/
+X
+Xinline void ding() {
+X    //
+X    // This should be `output('\a')', but some braindead C compilers when
+X    // used as the backend to Cfront, don't recognize '\a' as the BELL.
+X    //
+X    outputch(7);
+X    synch_display();
+X} 
+X
+X#endif
+END_OF_FILE
+if test 7825 -ne `wc -c <'display.h'`; then
+    echo shar: \"'display.h'\" unpacked with wrong size!
+fi
+# end of 'display.h'
+fi
+if test -f 'keys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'keys.h'\"
+else
+echo shar: Extracting \"'keys.h'\" \(4014 characters\)
+sed "s/^X//" >'keys.h' <<'END_OF_FILE'
+X/*
+X** keys.h - contains definitions of all the keyboard keys which
+X**          invoke commands.
+X**
+X** keys.h 1.22   Delta'd: 15:10:54 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __KEYS_H
+X#define __KEYS_H
+X
+Xconst int KEY_q       = 'q';   // pop previous directory off stack
+Xconst int KEY_Q       = 'Q';   // quit
+Xconst int KEY_CTL_D   = 0x4;   // forward half window - ASCII CTL-D
+Xconst int KEY_CTL_U   = 0x15;  // backward half window - ASCII CTL-U
+Xconst int KEY_TOP     = '<';   // go to first file in listing
+Xconst int KEY_BOT     = '>';   // go to last file in listing
+Xconst int KEY_CTL_L   = '\f';  // repaint screen - CTR-L
+Xconst int KEY_TAB     = '\t';  // TAB performs filename completion
+Xconst int KEY_c       = 'c';   // copy current file
+Xconst int KEY_d       = 'd';   // delete current file w/affirmation
+Xconst int KEY_E       = 'E';   // prompt for a directory and edit it
+Xconst int KEY_r       = 'r';   // rename current file
+Xconst int KEY_C       = 'C';   // compress current file
+Xconst int KEY_G       = 'G';   // change group of current file
+Xconst int KEY_L       = 'L';   // link current file to another
+Xconst int KEY_M       = 'M';   // change mode of current file
+Xconst int KEY_P       = 'P';   // print current file
+Xconst int KEY_S       = 'S';   // symbolically link current file to another
+Xconst int KEY_U       = 'U';   // uncompress current file
+Xconst int KEY_V       = 'V';   // print out version string
+Xconst int KEY_BKSP    = '\b';  // backspace works as expected while in a prompt
+Xconst int KEY_SLASH   = '/';   // search forward
+Xconst int KEY_BKSLASH = '\\';  // search backward
+Xconst int KEY_BANG    = '!';   // run shell command
+Xconst int KEY_O       = 'O';   // change sort order
+Xconst int KEY_ESC     = 0x1B;  // for GNU Emacs compatibility - ASCII-ESC
+X
+X// display help
+Xconst int KEY_QM = '?';
+Xconst int KEY_H  = 'H';
+X
+X// forward one line
+Xconst int KEY_j          = 'j';
+Xconst int KEY_n          = 'n';
+Xconst int KEY_CTL_N      = 0xE;   // ASCII CTL-N
+Xconst int KEY_SPC        = ' ';   // a space
+Xconst int KEY_CR         = '\r';  // carriage return
+Xconst int KEY_ARROW_DOWN = 300;
+X
+X// backward one line
+Xconst int KEY_k        = 'k';
+Xconst int KEY_p        = 'p';
+Xconst int KEY_CTL_P    = 0x10; // ASCII CTL-P
+Xconst int KEY_CTL_Y    = 0x19; // ASCII CTL-Y
+Xconst int KEY_ARROW_UP = 301;  // an arbitrary value
+X
+X// forward one window
+Xconst int KEY_CTL_F = 6;    // ASCII CTL-F
+Xconst int KEY_CTL_V = 0x16; // ASCII CTL-V
+X
+X// backward one window
+Xconst int KEY_b     = 'b';
+Xconst int KEY_CTL_B = 0x2;  // ASCII CTL-B
+X
+X// abort from a prompt - CTL-G
+X//
+X// Can't use '\a' here due to some C compilers not recognizing this
+X// as the terminal bell.
+X//
+Xconst int KEY_ABORT = 0x7;
+X
+X// edit current file or directory
+Xconst int KEY_e = 'e';
+Xconst int KEY_f = 'f';
+X
+X// view current file
+Xconst int KEY_m = 'm';
+Xconst int KEY_v = 'v';
+X
+X// reread current directory
+Xconst int KEY_g = 'g';
+Xconst int KEY_R = 'R';
+X
+X// for simulating SIGINT and SIGQUIT
+Xconst int KEY_INT  = 0x3;  // ASCII CTL-C
+Xconst int KEY_QUIT = 0x1C; // ASCII CTL-\
+X
+X#endif /* __KEYS_H */
+END_OF_FILE
+if test 4014 -ne `wc -c <'keys.h'`; then
+    echo shar: \"'keys.h'\" unpacked with wrong size!
+fi
+# end of 'keys.h'
+fi
+echo shar: End of archive 3 \(of 5\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+exit 0 # Just in case...

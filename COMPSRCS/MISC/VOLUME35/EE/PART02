@@ -1,0 +1,2367 @@
+Newsgroups: comp.sources.misc
+From: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Subject: v35i081:  ee - Easy Editor, a simple editor for UNIX, Part02/05
+Message-ID: <1993Feb22.041259.15251@sparky.imd.sterling.com>
+X-Md4-Signature: 4e3f3e5eb3d6578e80dc03b5490bd572
+Date: Mon, 22 Feb 1993 04:12:59 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: hugh@nsmdserv.cnd.hp.com (Hugh F. Mahon)
+Posting-number: Volume 35, Issue 81
+Archive-name: ee/part02
+Environment: SYSV, SunOS, Curses
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ee.c.B
+# Wrapped by kent@sparky on Sat Feb 20 21:31:18 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'ee.c.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ee.c.B'\"
+else
+  echo shar: Extracting \"'ee.c.B'\" \(52272 characters\)
+  sed "s/^X//" >'ee.c.B' <<'END_OF_FILE'
+Xdraw_screen()		/* redraw the screen from current postion	*/
+X{
+X	struct text *temp_line;
+X	char *line_out;
+X	int temp_vert;
+X
+X	temp_line = curr_line;
+X	temp_vert = scr_vert;
+X	wclrtobot(text_win);
+X	while ((temp_line != NULL) && (temp_vert <= last_line))
+X	{
+X		line_out = temp_line->line;
+X		draw_line(temp_vert, 0, line_out, 1, temp_line->line_length);
+X		temp_vert++;
+X		temp_line = temp_line->next_line;
+X	}
+X	wmove(text_win, temp_vert, 0);
+X	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+X}
+X
+Xfinish()	/* prepare to exit edit session	*/
+X{
+X	char *file_name = in_file_name;
+X
+X	/*
+X	 |	changes made here should be reflected in the 'save' 
+X	 |	portion of file_op()
+X	 */
+X
+X	if ((file_name == NULL) || (*file_name == NULL))
+X		file_name = get_string(save_file_name_prompt, TRUE);
+X
+X	if ((file_name == NULL) || (*file_name == NULL))
+X	{
+X		wmove(com_win, 0, 0);
+X		wprintw(com_win, file_not_saved_msg);
+X		wclrtoeol(com_win);
+X		wrefresh(com_win);
+X		clear_com_win = TRUE;
+X		return;
+X	}
+X
+X	tmp_file = resolve_name(file_name);
+X	if (tmp_file != file_name)
+X	{
+X		free(file_name);
+X		file_name = tmp_file;
+X	}
+X
+X	if (write_file(file_name))
+X	{
+X		text_changes = FALSE;
+X		quit(0);
+X	}
+X}
+X
+Xquit(noverify)		/* exit editor			*/
+Xint noverify;
+X{
+X	char *ans;
+X
+X	touchwin(text_win);
+X	wrefresh(text_win);
+X	if ((text_changes) && (!noverify))
+X	{
+X		ans = get_string(changes_made_prompt, TRUE);
+X		if (toupper(*ans) == toupper(*yes_char))
+X			text_changes = FALSE;
+X		else
+X			return;
+X		free(ans);
+X	}
+X	if (top_of_stack == NULL)
+X	{
+X		if (info_window)
+X			wrefresh(info_win);
+X		wrefresh(com_win);
+X		resetty();
+X		endwin();
+X		putchar('\n');
+X		exit(0);
+X	}
+X	else
+X	{
+X		delete_text();
+X		recv_file = TRUE;
+X		input_file = TRUE;
+X		check_fp();
+X	}
+X}
+X
+Xabort()
+X{
+X	wrefresh(com_win);
+X	resetty();
+X	endwin();
+X	putchar('\n');
+X	exit(1);
+X}
+X
+Xdelete_text()
+X{
+X	while (curr_line->next_line != NULL)
+X		curr_line = curr_line->next_line;
+X	while (curr_line != first_line)
+X	{
+X		free(curr_line->line);
+X		curr_line = curr_line->prev_line;
+X		free(curr_line->next_line);
+X	}
+X	curr_line->next_line = NULL;
+X	curr_line->line = NULL;
+X	curr_line->line_length = 1;
+X	curr_line->line_number = 1;
+X	point = curr_line->line;
+X	scr_pos = scr_vert = scr_horz = 0;
+X	position = 1;
+X}
+X
+Xwrite_file(file_name)
+Xchar *file_name;
+X{
+X	char cr;
+X	char *tmp_point;
+X	struct text *out_line;
+X	int lines, charac;
+X	int temp_pos;
+X	int write_flag = TRUE;
+X
+X	charac = lines = 0;
+X	if (strcmp(in_file_name, file_name))
+X	{
+X		if (temp_fp = fopen(file_name, "r"))
+X		{
+X			tmp_point = get_string(file_exists_prompt, TRUE);
+X			if (toupper(*tmp_point) == toupper(*yes_char))
+X				write_flag = TRUE;
+X			else 
+X				write_flag = FALSE;
+X			fclose(temp_fp);
+X			free(tmp_point);
+X		}
+X	}
+X
+X	clear_com_win = TRUE;
+X
+X	if (write_flag)
+X	{
+X		if ((temp_fp = fopen(file_name, "w")) == NULL)
+X		{
+X			clear_com_win = TRUE;
+X			wmove(com_win,0,0);
+X			wclrtoeol(com_win);
+X			wprintw(com_win, create_file_fail_msg, file_name);
+X			wrefresh(com_win);
+X			return(FALSE);
+X		}
+X		else
+X		{
+X			wmove(com_win,0,0);
+X			wclrtoeol(com_win);
+X			wprintw(com_win, writing_file_msg, file_name);
+X			wrefresh(com_win);
+X			cr = '\n';
+X			out_line = first_line;
+X			while (out_line != NULL)
+X			{
+X				temp_pos = 1;
+X				tmp_point= out_line->line;
+X				while (temp_pos < out_line->line_length)
+X				{
+X					putc(*tmp_point, temp_fp);
+X					tmp_point++;
+X					temp_pos++;
+X				}
+X				charac += out_line->line_length;
+X				out_line = out_line->next_line;
+X				putc(cr, temp_fp);
+X				lines++;
+X			}
+X			fclose(temp_fp);
+X			wmove(com_win,0,0);
+X			wclrtoeol(com_win);
+X			wprintw(com_win, file_written_msg, file_name, lines, charac);
+X			wrefresh(com_win);
+X			return(TRUE);
+X		}
+X	}
+X	else
+X		return(FALSE);
+X}
+X
+Xsearch(display_message)		/* search for string in srch_str	*/
+Xint display_message;
+X{
+X	int lines_moved;
+X	int iter;
+X	int found;
+X
+X	if ((srch_str == NULL) || (*srch_str == NULL))
+X		return(FALSE);
+X	if (display_message)
+X	{
+X		wmove(com_win, 0, 0);
+X		wclrtoeol(com_win);
+X		wprintw(com_win, searching_msg);
+X		wrefresh(com_win);
+X		clear_com_win = TRUE;
+X	}
+X	lines_moved = 0;
+X	found = FALSE;
+X	srch_line = curr_line;
+X	srch_1 = point;
+X	if (position < curr_line->line_length)
+X		srch_1++;
+X	iter = position + 1;
+X	while ((!found) && (srch_line != NULL))
+X	{
+X		while ((iter < srch_line->line_length) && (!found))
+X		{
+X			srch_2 = srch_1;
+X			if (case_sen)	/* if case sensitive		*/
+X			{
+X				srch_3 = srch_str;
+X			while ((*srch_2 == *srch_3) && (*srch_3 != NULL))
+X				{
+X					found = TRUE;
+X					srch_2++;
+X					srch_3++;
+X				}	/* end while	*/
+X			}
+X			else		/* if not case sensitive	*/
+X			{
+X				srch_3 = u_srch_str;
+X			while ((toupper(*srch_2) == *srch_3) && (*srch_3 != NULL))
+X				{
+X					found = TRUE;
+X					srch_2++;
+X					srch_3++;
+X				}
+X			}	/* end else	*/
+X			if (!((*srch_3 == NULL) && (found)))
+X			{
+X				found = FALSE;
+X				if (iter < srch_line->line_length)
+X					srch_1++;
+X				iter++;
+X			}
+X		}
+X		if (!found)
+X		{
+X			srch_line = srch_line->next_line;
+X			if (srch_line != NULL)
+X				srch_1 = srch_line->line;
+X			iter = 1;
+X			lines_moved++;
+X		}
+X	}
+X	if (found)
+X	{
+X		if (display_message)
+X		{
+X			wmove(com_win, 0, 0);
+X			wclrtoeol(com_win);
+X			wrefresh(com_win);
+X		}
+X		if (lines_moved == 0)
+X		{
+X			while (position < iter)
+X				right(TRUE);
+X		}
+X		else
+X		{
+X			if (lines_moved < 30)
+X			{
+X				move_rel("d", lines_moved);
+X				while (position < iter)
+X					right(TRUE);
+X			}
+X			else 
+X			{
+X				curr_line = srch_line;
+X				point = srch_1;
+X				position = iter;
+X				scanline(point);
+X				scr_pos = scr_horz;
+X				midscreen((last_line / 2), point);
+X			}
+X		}
+X	}
+X	else
+X	{
+X		if (display_message)
+X		{
+X			wmove(com_win, 0, 0);
+X			wclrtoeol(com_win);
+X			wprintw(com_win, str_not_found_msg, srch_str);
+X			wrefresh(com_win);
+X		}
+X		wmove(text_win, scr_vert,(scr_horz - horiz_offset));
+X	}
+X	return(found);
+X}
+X
+Xsearch_prompt()		/* prompt and read search string (srch_str)	*/
+X{
+X	if (srch_str != NULL)
+X		free(srch_str);
+X	if ((u_srch_str != NULL) && (*u_srch_str != NULL))
+X		free(u_srch_str);
+X	srch_str = get_string(search_prompt_str, FALSE);
+X	gold = FALSE;
+X	srch_3 = srch_str;
+X	srch_1 = u_srch_str = malloc(strlen(srch_str) + 1);
+X	while (*srch_3 != NULL)
+X	{
+X		*srch_1 = toupper(*srch_3);
+X		srch_1++;
+X		srch_3++;
+X	}
+X	*srch_1 = NULL;
+X	search(TRUE);
+X}
+X
+Xdel_char()			/* delete current character	*/
+X{
+X	in = 8;  /* backspace */
+X	if (position < curr_line->line_length)	/* if not end of line	*/
+X	{
+X		position++;
+X		point++;
+X		scanline(point);
+X		delete(TRUE);
+X	}
+X	else
+X	{
+X		right(FALSE);
+X		delete(FALSE);
+X	}
+X}
+X
+Xundel_char()			/* undelete last deleted character	*/
+X{
+X	if (d_char == '\n')	/* insert line if last del_char deleted eol */
+X		insert_line(TRUE);
+X	else
+X	{
+X		in = d_char;
+X		insert(in);
+X	}
+X}
+X
+Xdel_word()			/* delete word in front of cursor	*/
+X{
+X	int tposit;
+X	int difference;
+X	char *d_word2;
+X	char *d_word3;
+X	char tmp_char;
+X
+X	if (d_word != NULL)
+X		free(d_word);
+X	d_word = malloc(curr_line->line_length);
+X	tmp_char = d_char;
+X	d_word3 = point;
+X	d_word2 = d_word;
+X	tposit = position;
+X	while ((tposit < curr_line->line_length) && 
+X				((*d_word3 != ' ') && (*d_word3 != '\t')))
+X	{
+X		tposit++;
+X		*d_word2 = *d_word3;
+X		d_word2++;
+X		d_word3++;
+X	}
+X	while ((tposit < curr_line->line_length) && 
+X				((*d_word3 == ' ') || (*d_word3 == '\t')))
+X	{
+X		tposit++;
+X		*d_word2 = *d_word3;
+X		d_word2++;
+X		d_word3++;
+X	}
+X	*d_word2 = NULL;
+X	d_wrd_len = difference = d_word2 - d_word;
+X	d_word2 = point;
+X	while (tposit < curr_line->line_length)
+X	{
+X		tposit++;
+X		*d_word2 = *d_word3;
+X		d_word2++;
+X		d_word3++;
+X	}
+X	curr_line->line_length -= difference;
+X	*d_word2 = NULL;
+X	draw_line(scr_vert, scr_horz,point,position,curr_line->line_length);
+X	d_char = tmp_char;
+X	text_changes = TRUE;
+X	formatted = FALSE;
+X}
+X
+Xundel_word()		/* undelete last deleted word		*/
+X{
+X	int temp;
+X	int tposit;
+X	char *tmp_old_ptr;
+X	char *tmp_space;
+X	char *tmp_ptr;
+X	char *d_word_ptr;
+X
+X	/*
+X	 |	resize line to handle undeleted word
+X	 */
+X	if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5)
+X		point = resiz_line(d_wrd_len, curr_line, position);
+X	tmp_ptr = tmp_space = malloc(curr_line->line_length + d_wrd_len);
+X	d_word_ptr = d_word;
+X	temp = 1;
+X	/*
+X	 |	copy d_word contents into temp space
+X	 */
+X	while (temp <= d_wrd_len)
+X	{
+X		temp++;
+X		*tmp_ptr = *d_word_ptr;
+X		tmp_ptr++;
+X		d_word_ptr++;
+X	}
+X	tmp_old_ptr = point;
+X	tposit = position;
+X	/*
+X	 |	copy contents of line from curent position to eol into 
+X	 |	temp space
+X	 */
+X	while (tposit < curr_line->line_length)
+X	{
+X		temp++;
+X		tposit++;
+X		*tmp_ptr = *tmp_old_ptr;
+X		tmp_ptr++;
+X		tmp_old_ptr++;
+X	}
+X	curr_line->line_length += d_wrd_len;
+X	tmp_old_ptr = point;
+X	*tmp_ptr = NULL;
+X	tmp_ptr = tmp_space;
+X	tposit = 1;
+X	/*
+X	 |	now copy contents from temp space back to original line
+X	 */
+X	while (tposit < temp)
+X	{
+X		tposit++;
+X		*tmp_old_ptr = *tmp_ptr;
+X		tmp_ptr++;
+X		tmp_old_ptr++;
+X	}
+X	*tmp_old_ptr = NULL;
+X	free(tmp_space);
+X	draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+X}
+X
+Xdel_line()			/* delete from cursor to end of line	*/
+X{
+X	char *dl1;
+X	char *dl2;
+X	int tposit;
+X
+X	if (d_line != NULL)
+X		free(d_line);
+X	d_line = malloc(curr_line->line_length);
+X	dl1 = d_line;
+X	dl2 = point;
+X	tposit = position;
+X	while (tposit < curr_line->line_length)
+X	{
+X		*dl1 = *dl2;
+X		dl1++;
+X		dl2++;
+X		tposit++;
+X	}
+X	dlt_line->line_length = 1 + tposit - position;
+X	*dl1 = NULL;
+X	*point = NULL;
+X	curr_line->line_length = position;
+X	wclrtoeol(text_win);
+X	if (curr_line->next_line != NULL)
+X	{
+X		right(FALSE);
+X		delete(FALSE);
+X	}
+X	text_changes = TRUE;
+X}
+X
+Xundel_line()			/* undelete last deleted line		*/
+X{
+X	char *ud1;
+X	char *ud2;
+X	int tposit;
+X
+X	insert_line(TRUE);
+X	left(TRUE);
+X	point = resiz_line(dlt_line->line_length, curr_line, position);
+X	curr_line->line_length += dlt_line->line_length - 1;
+X	ud1 = point;
+X	ud2 = d_line;
+X	tposit = 1;
+X	while (tposit < dlt_line->line_length)
+X	{
+X		tposit++;
+X		*ud1 = *ud2;
+X		ud1++;
+X		ud2++;
+X	}
+X	*ud1 = NULL;
+X	draw_line(scr_vert, scr_horz,point,position,curr_line->line_length);
+X}
+X
+Xadv_word()			/* advance to next word		*/
+X{
+Xwhile ((position < curr_line->line_length) && ((*point != 32) && (*point != 9)))
+X		right(TRUE);
+Xwhile ((position < curr_line->line_length) && ((*point == 32) || (*point == 9)))
+X		right(TRUE);
+X}
+X
+Xmove_rel(direction, lines)	/* move relative to current line	*/
+Xchar *direction;
+Xint lines;
+X{
+X	int i;
+X	char *tmp;
+X
+X	if (*direction == 'u')
+X	{
+X		scr_pos = 0;
+X		while (position > 1)
+X			left(TRUE);
+X		for (i = 0; i < lines; i++)
+X		{
+X			up();
+X		}
+X		if ((last_line > 5) && ( scr_vert < 4))
+X		{
+X			tmp = point;
+X			tmp_line = curr_line;
+X			for (i= 0;(i<5)&&(curr_line->prev_line != NULL); i++)
+X			{
+X				up();
+X			}
+X			scr_vert = scr_vert + i;
+X			curr_line = tmp_line;
+X			point = tmp;
+X			scanline(point);
+X		}
+X	}
+X	else
+X	{
+X		if ((position != 1) && (curr_line->next_line != NULL))
+X		{
+X			nextline();
+X			scr_pos = scr_horz = 0;
+X			if (horiz_offset)
+X			{
+X				horiz_offset = 0;
+X				midscreen(scr_vert, point);
+X			}
+X		}
+X		else
+X			adv_line();
+X		for (i = 1; i < lines; i++)
+X		{
+X			down();
+X		}
+X		if ((last_line > 10) && (scr_vert > (last_line - 5)))
+X		{
+X			tmp = point;
+X			tmp_line = curr_line;
+X			for (i=0; (i<5) && (curr_line->next_line != NULL); i++)
+X			{
+X				down(TRUE);
+X			}
+X			scr_vert = scr_vert - i;
+X			curr_line = tmp_line;
+X			point = tmp;
+X			scanline(point);
+X		}
+X	}
+X	wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+X}
+X
+Xeol()				/* go to end of line			*/
+X{
+X	if (position < curr_line->line_length)
+X	{
+X		while (position < curr_line->line_length)
+X			right(TRUE);
+X	}
+X	else if (curr_line->next_line != NULL)
+X	{
+X		right(TRUE);
+X		while (position < curr_line->line_length)
+X			right(TRUE);
+X	}
+X}
+X
+Xbol()				/* move to beginning of line	*/
+X{
+X	if (point != curr_line->line)
+X	{
+X		while (point != curr_line->line)
+X			left(TRUE);
+X	}
+X	else if (curr_line->prev_line != NULL)
+X	{
+X		scr_pos = 0;
+X		up(TRUE);
+X	}
+X}
+X
+Xadv_line()	/* advance to beginning of next line	*/
+X{
+X	if ((point != curr_line->line) || (scr_pos > 0))
+X	{
+X		while (position < curr_line->line_length)
+X			right(TRUE);
+X		right(TRUE);
+X	}
+X	else if (curr_line->next_line != NULL)
+X	{
+X		scr_pos = 0;
+X		down(TRUE);
+X	}
+X}
+X
+Xsh_command(string)	/* execute shell command			*/
+Xchar *string;		/* string containing user command		*/
+X{
+X	char *temp_point;
+X	char *last_slash;
+X	char *path;		/* directory path to executable		*/
+X	int parent;		/* zero if child, child's pid if parent	*/
+X	int value;
+X	int return_val;
+X	struct text *line_holder;
+X
+X	if (restrict_mode())
+X	{
+X		return;
+X	}
+X
+X	if (!(path = getenv("SHELL")))
+X		path = "/bin/sh";
+X	last_slash = temp_point = path;
+X	while (*temp_point != NULL)
+X	{
+X		if (*temp_point == '/')
+X			last_slash = ++temp_point;
+X		else
+X			temp_point++;
+X	}
+X	keypad(com_win, FALSE);
+X	keypad(text_win, FALSE);
+X	echo();
+X	noraw();
+X	resetty();
+X
+X#ifndef NCURSE
+X	endwin();
+X#endif
+X
+X	if (in_pipe)
+X	{
+X		pipe(pipe_in);		/* create a pipe	*/
+X		parent = fork();
+X		if (!parent)		/* if the child		*/
+X		{
+X/*
+X |  child process which will fork and exec shell command (if shell output is
+X |  to be read by editor)
+X */
+X			in_pipe = FALSE;
+X/*
+X |  redirect stdout to pipe
+X */
+X			temp_stdout = dup(1);
+X			close(1);
+X			dup(pipe_in[1]);
+X/*
+X |  redirect stderr to pipe
+X */
+X			temp_stderr = dup(2);
+X			close(2);
+X			dup(pipe_in[1]);
+X			close(pipe_in[1]);
+X			/*
+X			 |	child will now continue down 'if (!in_pipe)' 
+X			 |	path below
+X			 */
+X		}
+X		else  /* if the parent	*/
+X		{
+X/*
+X |  prepare editor to read from the pipe
+X */
+X			signal(SIGCHLD, SIG_IGN);
+X			line_holder = curr_line;
+X			tmp_vert = scr_vert;
+X			close(pipe_in[1]);
+X			get_fd = pipe_in[0];
+X			get_file("");
+X			close(pipe_in[0]);
+X			scr_vert = tmp_vert;
+X			scr_horz = scr_pos = 0;
+X			position = 1;
+X			curr_line = line_holder;
+X			point = curr_line->line;
+X			out_pipe = FALSE;
+X			signal(SIGCHLD, SIG_DFL);
+X/*
+X |  since flag "in_pipe" is still TRUE, the path which waits for the child 
+X |  process to die will be avoided.
+X |  (the pipe is closed, no more output can be expected)
+X */
+X		}
+X	}
+X	if (!in_pipe)
+X	{
+X		signal(SIGINT, SIG_IGN);
+X		if (out_pipe)
+X		{
+X			pipe(pipe_out);
+X		}
+X/*
+X |  fork process which will exec command
+X */
+X		parent = fork();   
+X		if (!parent)		/* if the child	*/
+X		{
+X			if (shell_fork)
+X				putchar('\n');
+X			if (out_pipe)
+X			{
+X/*
+X |  prepare the child process (soon to exec a shell command) to read from the 
+X |  pipe (which will be output from the editor's buffer)
+X */
+X				close(0);
+X				dup(pipe_out[0]);
+X				close(pipe_out[0]);
+X				close(pipe_out[1]);
+X			}
+X			for (value = 1; value < 24; value++)
+X				signal(value, SIG_DFL);
+X			execl(path, last_slash, "-c", string, NULL);
+X			printf(exec_err_msg, path);
+X			exit(-1);
+X		}
+X		else	/* if the parent	*/
+X		{
+X			if (out_pipe)
+X			{
+X/*
+X |  output the contents of the buffer to the pipe (to be read by the 
+X |  process forked and exec'd above as stdin)
+X */
+X				close(pipe_out[0]);
+X				line_holder = first_line;
+X				while (line_holder != NULL)
+X				{
+X					write(pipe_out[1], line_holder->line, (line_holder->line_length-1));
+X					write(pipe_out[1], "\n", 1);
+X					line_holder = line_holder->next_line;
+X				}
+X				close(pipe_out[1]);
+X				out_pipe = FALSE;
+X			}
+X			do
+X			{
+X				return_val = wait((int *) 0);
+X			}
+X			while (return_val != parent);
+X/*
+X |  if this process is actually the child of the editor, exit.  Here's how it 
+X |  works:
+X |  The editor forks a process.  If output must be sent to the command to be 
+X |  exec'd another process is forked, and that process (the child's child) 
+X |  will exec the command.  In this case, "shell_fork" will be FALSE.  If no 
+X |  output is to be performed to the shell command, "shell_fork" will be TRUE.
+X |  If this is the editor process, shell_fork will be true, otherwise this is 
+X |  the child of the edit process.
+X */
+X			if (!shell_fork)
+X				exit(0);
+X		}
+X		signal(SIGINT, abort);
+X	}
+X	if (shell_fork)
+X	{
+X		printf(continue_msg);
+X		fflush(stdout);
+X		while ((in = getchar()) != '\n')
+X			;
+X	}
+X
+X#ifdef NCURSE
+X	fixterm();
+X	noecho();
+X	raw();
+X	keypad(text_win, TRUE);
+X	keypad(com_win, TRUE);
+X	if (info_window)
+X		clearok(info_win, TRUE);
+X#else
+X	set_up_term();
+X#endif
+X
+X	redraw();
+X}
+X
+Xset_up_term()		/* set up the terminal for operating with ae	*/
+X{
+X	initscr();
+X	savetty();
+X	noecho();
+X	raw();
+X
+X	if (((LINES > 15) && (COLS >= 80)) && info_window)
+X		last_line = LINES - 8;
+X	else
+X	{
+X		info_window = FALSE;
+X		last_line = LINES - 2;
+X	}
+X
+X	idlok(stdscr, TRUE);
+X	com_win = newwin(1, COLS, (LINES - 1), 0);
+X	keypad(com_win, TRUE);
+X	idlok(com_win, TRUE);
+X	wrefresh(com_win);
+X	if (!info_window)
+X		text_win = newwin((LINES - 1), COLS, 0, 0);
+X	else
+X		text_win = newwin((LINES - 7), COLS, 6, 0);
+X	keypad(text_win, TRUE);
+X	idlok(text_win, TRUE);
+X	wrefresh(text_win);
+X	help_win = newwin((LINES - 1), COLS, 0, 0);
+X	keypad(help_win, TRUE);
+X	idlok(help_win, TRUE);
+X	if (info_window)
+X	{
+X		info_type = CONTROL_KEYS;
+X		info_win = newwin(6, COLS, 0, 0);
+X		werase(info_win);
+X		paint_info_win();
+X	}
+X
+X	last_col = COLS - 1;
+X}
+X
+Xmenu_op(menu_list)
+Xstruct menu_entries menu_list[];
+X{
+X	WINDOW *temp_win;
+X	int max_width, max_height;
+X	int x_off, y_off;
+X	int counter;
+X	int length;
+X	int input;
+X	int list_size;
+X	int top_offset;
+X	int temp_int;
+X	char *cancel_string = menu_cancel_msg;
+X
+X	/*
+X	 |	determine number and width of menu items
+X	 */
+X
+X	list_size = 1;
+X	while (menu_list[list_size + 1].item_string != NULL)
+X		list_size++;
+X	max_width = strlen(cancel_string);
+X	for (counter = 0; counter <= list_size; counter++)
+X	{
+X		if ((length = strlen(menu_list[counter].item_string)) > max_width)
+X			max_width = length;
+X	}
+X	max_width += 6;
+X
+X	/*
+X	 |	make sure that window is large enough to handle menu
+X	 |	if not, print error message and return to calling function
+X	 */
+X
+X	if ((LINES < list_size) || (max_width > COLS))
+X	{
+X		wmove(com_win, 0, 0);
+X		werase(com_win);
+X		wprintw(com_win, menu_size_err_msg);
+X		clear_com_win = TRUE;
+X		return(0);
+X	}
+X
+X	top_offset = 0;
+X	max_height = list_size;
+X
+X	if (LINES >= (list_size + 8))
+X	{
+X		max_height = list_size + 8;
+X		top_offset = 4;
+X	}
+X	x_off = (COLS - max_width) / 2;
+X	y_off = (LINES - max_height - 1) / 2;
+X	temp_win = newwin(max_height, max_width, y_off, x_off);
+X	keypad(temp_win, TRUE);
+X	werase(temp_win);
+X
+X	/*
+X	 |	output top and bottom portions of menu box only if window 
+X	 |	large enough 
+X	 */
+X
+X	if (max_height > list_size)
+X	{
+X		wmove(temp_win, 1, 1);
+X		if (!nohighlight)
+X			wstandout(temp_win);
+X		waddch(temp_win, '+');
+X		for (counter = 0; counter < (max_width - 4); counter++)
+X			waddch(temp_win, '-');
+X		waddch(temp_win, '+');
+X
+X		wmove(temp_win, (max_height - 2), 1);
+X		waddch(temp_win, '+');
+X		for (counter = 0; counter < (max_width - 4); counter++)
+X			waddch(temp_win, '-');
+X		waddch(temp_win, '+');
+X		wstandend(temp_win);
+X		wmove(temp_win, 2, 3);
+X		waddstr(temp_win, menu_list[0].item_string);
+X		wmove(temp_win, (max_height - 3), 3);
+X		waddstr(temp_win, cancel_string);
+X	}
+X	if (!nohighlight)
+X		wstandout(temp_win);
+X	for (counter = 0; counter < (list_size + top_offset); counter++)
+X	{
+X		if (top_offset == 4)
+X		{
+X			temp_int = counter + 2;
+X		}
+X		else
+X			temp_int = counter;
+X
+X		wmove(temp_win, temp_int, 1);
+X		waddch(temp_win, '|');
+X		wmove(temp_win, temp_int, (max_width - 2));
+X		waddch(temp_win, '|');
+X	}
+X	wstandend(temp_win);
+X	for (counter = 1; counter <= list_size; counter++)
+X	{
+X		wmove(temp_win, (top_offset + counter - 1), 3);
+X		waddstr(temp_win, menu_list[counter].item_string);
+X	}
+X	counter = 1;
+X	do
+X	{
+X		wmove(temp_win, (counter + top_offset - 1), 3);
+X		wrefresh(temp_win);
+X		input = wgetch(temp_win);
+X		if (input == -1)
+X			exit(0);
+X		switch (input)
+X		{
+X			case ' ':	/* space	*/
+X			case '\022':	/* ^r, right	*/
+X			case '\004':	/* ^d, down	*/
+X			case KEY_RIGHT:
+X			case KEY_DOWN:
+X				counter++;
+X				if (counter > list_size)
+X					counter = 1;
+X				break;
+X			case '\010':	/* ^h, backspace*/
+X			case '\014':	/* ^l, left	*/
+X			case '\025':	/* ^u, up	*/
+X			case KEY_LEFT:
+X			case KEY_UP:
+X				counter--;
+X				if (counter == 0)
+X					counter = list_size;
+X				break;
+X			case '\033':	/* escape key	*/
+X				counter = 0;
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X	while ((input != '\r') && (input != '\n') && (input != '\033'));
+X
+X	werase(temp_win);
+X	wrefresh(temp_win);
+X	delwin(temp_win);
+X
+X	if (menu_list[counter].procedure != NULL)
+X	{
+X		if (menu_list[counter].argument != -1)
+X			(*menu_list[counter].procedure)(menu_list[counter].argument);
+X		else
+X			(*menu_list[counter].procedure)();
+X	}
+X
+X	if (info_window)
+X		paint_info_win();
+X	midscreen(scr_vert, point);
+X
+X	return(counter);
+X}
+X
+Xhelp()
+X{
+X	int counter;
+X
+X	werase(help_win);
+X	clearok(help_win, TRUE);
+X	for (counter = 0; counter < 22; counter++)
+X	{
+X		wmove(help_win, counter, 0);
+X		wprintw(help_win, "%s", help_text[counter]);
+X	}
+X	wrefresh(help_win);
+X	werase(com_win);
+X	wmove(com_win, 0, 0);
+X	wprintw(com_win, press_any_key_msg);
+X	wrefresh(com_win);
+X	counter = wgetch(com_win);
+X	if (counter == -1)
+X		exit(0);
+X	werase(com_win);
+X	wmove(com_win, 0, 0);
+X	werase(help_win);
+X	wrefresh(help_win);
+X	wrefresh(com_win);
+X	redraw();
+X}
+X
+Xpaint_info_win()
+X{
+X	int counter;
+X
+X	if (!info_window)
+X		return;
+X
+X	werase(info_win);
+X	for (counter = 0; counter < 5; counter++)
+X	{
+X		wmove(info_win, counter, 0);
+X		wclrtoeol(info_win);
+X		if (info_type == CONTROL_KEYS)
+X			waddstr(info_win, control_keys[counter]);
+X		else if (info_type == COMMANDS)
+X			waddstr(info_win, command_strings[counter]);
+X	}
+X	wmove(info_win, 5, 0);
+X	if (!nohighlight)
+X		wstandout(info_win);
+X	waddstr(info_win, "===============================================================================");
+X	wstandend(info_win);
+X	wrefresh(info_win);
+X}
+X
+Xno_info_window()
+X{
+X	if (!info_window)
+X		return;
+X	delwin(info_win);
+X	delwin(text_win);
+X	info_window = FALSE;
+X	last_line = LINES - 2;
+X	text_win = newwin((LINES - 1), COLS, 0, 0);
+X	keypad(text_win, TRUE);
+X	idlok(text_win, TRUE);
+X	clearok(text_win, TRUE);
+X	midscreen(scr_vert, point);
+X	wrefresh(text_win);
+X	clear_com_win = TRUE;
+X}
+X
+Xcreate_info_window()
+X{
+X	if (info_window)
+X		return;
+X	last_line = LINES - 8;
+X	delwin(text_win);
+X	text_win = newwin((LINES - 7), COLS, 6, 0);
+X	keypad(text_win, TRUE);
+X	idlok(text_win, TRUE);
+X	werase(text_win);
+X	wrefresh(text_win);
+X	info_window = TRUE;
+X	info_win = newwin(6, COLS, 0, 0);
+X	werase(info_win);
+X	info_type = CONTROL_KEYS;
+X	midscreen(min(scr_vert, last_line), point);
+X	clearok(info_win, TRUE);
+X	paint_info_win();
+X	clear_com_win = TRUE;
+X}
+X
+Xfile_op(arg)
+Xint arg;
+X{
+X	char *string;
+X	int flag;
+X
+X	if (restrict_mode())
+X	{
+X		return;
+X	}
+X
+X	if (arg == READ_FILE)
+X	{
+X		string = get_string(file_read_prompt_str, TRUE);
+X		recv_file = TRUE;
+X		tmp_file = resolve_name(string);
+X		check_fp();
+X		if (tmp_file != string)
+X			free(tmp_file);
+X		free(string);
+X	}
+X	else if (arg == WRITE_FILE)
+X	{
+X		string = get_string(file_write_prompt_str, TRUE);
+X		tmp_file = resolve_name(string);
+X		write_file(tmp_file);
+X		if (tmp_file != string)
+X			free(tmp_file);
+X		free(string);
+X	}
+X	else if (arg == SAVE_FILE)
+X	{
+X	/*
+X	 |	changes made here should be reflected in finish()
+X	 */
+X
+X		if (in_file_name)
+X			flag = TRUE;
+X		else
+X			flag = FALSE;
+X
+X		string = in_file_name;
+X		if ((string == NULL) || (*string == NULL))
+X			string = get_string(save_file_name_prompt, TRUE);
+X		if ((string == NULL) || (*string == NULL))
+X		{
+X			wmove(com_win, 0, 0);
+X			wprintw(com_win, file_not_saved_msg);
+X			wclrtoeol(com_win);
+X			wrefresh(com_win);
+X			clear_com_win = TRUE;
+X			return;
+X		}
+X		if (!flag)
+X		{
+X			tmp_file = resolve_name(string);
+X			if (tmp_file != string)
+X			{
+X				free(string);
+X				string = tmp_file;
+X			}
+X		}
+X		if (write_file(string))
+X		{
+X			in_file_name = string;
+X			text_changes = FALSE;
+X		}
+X		else if (!flag)
+X			free(string);
+X	}
+X}
+X
+Xshell_op()
+X{
+X	char *string;
+X
+X	if (((string = get_string(shell_prompt, TRUE)) != NULL) && 
+X			(*string != NULL))
+X	{
+X		sh_command(string);
+X		free(string);
+X	}
+X}
+X
+Xleave_op()
+X{
+X	if (text_changes)
+X	{
+X		menu_op(leave_menu);
+X	}
+X	else
+X		quit(TRUE);
+X}
+X
+Xredraw()
+X{
+X	if (info_window)
+X        {
+X                clearok(info_win, TRUE);
+X        	paint_info_win();
+X        }
+X        else
+X		clearok(text_win, TRUE);
+X	midscreen(scr_vert, point);
+X}
+X
+X/*
+X |	The following routines will "format" a paragraph (as defined by a 
+X |	block of text with blank lines before and after the block).
+X */
+X
+XBlank_Line(test_line)	/* test if line has any non-space characters	*/
+Xstruct text *test_line;
+X{
+X	char *line;
+X	int length;
+X	
+X	if (test_line == NULL)
+X		return(TRUE);
+X
+X	length = 1;
+X	line = test_line->line;
+X
+X	/*
+X	 |	To handle troff/nroff documents, consider a line with a 
+X	 |	period ('.') in the first column to be blank.  To handle mail 
+X	 |	messages with included text, consider a line with a '>' blank.
+X	 */
+X
+X	if ((*line == '.') || (*line == '>'))
+X		return(TRUE);
+X
+X	while (((*line == ' ') || (*line == '\t')) && (length < test_line->line_length))
+X	{
+X		length++;
+X		line++;
+X	}
+X	if (length != test_line->line_length)
+X		return(FALSE);
+X	else
+X		return(TRUE);
+X}
+X
+XFormat()	/* format the paragraph according to set margins	*/
+X{
+X	int string_count;
+X	int offset;
+X	int temp_case;
+X	int status;
+X	int tmp_af;
+X	int counter;
+X	char *line;
+X	char *tmp_srchstr;
+X	char *temp1, *temp2;
+X	char *temp_dword;
+X	char temp_d_char = d_char;
+X
+X/*
+X |	if observ_margins is not set, or the current line is blank, 
+X |	do not format the current paragraph
+X */
+X
+X	if ((!observ_margins) || (Blank_Line(curr_line)))
+X		return;
+X
+X/*
+X |	save the currently set flags, and clear them
+X */
+X
+X	wmove(com_win, 0, 0);
+X	wclrtoeol(com_win);
+X	wprintw(com_win, formatting_msg);
+X	wrefresh(com_win);
+X
+X/*
+X |	get current position in paragraph, so after formatting, the cursor 
+X |	will be in the same relative position
+X */
+X
+X	tmp_af = auto_format;
+X	auto_format = FALSE;
+X	offset = position;
+X	if (position != 1)
+X		prev_word();
+X	temp_dword = d_word;
+X	d_word = NULL;
+X	temp_case = case_sen;
+X	case_sen = TRUE;
+X	tmp_srchstr = srch_str;
+X	temp2 = srch_str = (char *) malloc(1 + curr_line->line_length - position);
+X	if ((*point == ' ') || (*point == '\t'))
+X		adv_word();
+X	offset -= position;
+X	counter = position;
+X	line = temp1 = point;
+X	while ((*temp1 != NULL) && (*temp1 != ' ') && (*temp1 != '\t') && (counter < curr_line->line_length))
+X	{
+X		*temp2 = *temp1;
+X		temp2++;
+X		temp1++;
+X		counter++;
+X	}
+X	*temp2 = NULL;
+X	if (position != 1)
+X		bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X	string_count = 0;
+X	status = TRUE;
+X	while ((line != point) && (status))
+X	{
+X		status = search(FALSE);
+X		string_count++;
+X	}
+X
+X	wmove(com_win, 0, 0);
+X	wclrtoeol(com_win);
+X	wprintw(com_win, formatting_msg);
+X	wrefresh(com_win);
+X
+X/*
+X |	now get back to the start of the paragraph to start formatting
+X */
+X
+X	if (position != 1)
+X		bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X
+X	observ_margins = FALSE;
+X
+X/*
+X |	Start going through lines, putting spaces at end of lines if they do 
+X |	not already exist.  Append lines together to get one long line, and 
+X |	eliminate spacing at begin of lines.
+X */
+X
+X	while (!Blank_Line(curr_line->next_line))
+X	{
+X		eol();
+X		left(TRUE);
+X		if (*point != ' ')
+X		{
+X			right(TRUE);
+X			insert(' ');
+X		}
+X		else
+X			right(TRUE);
+X		del_char(FALSE);
+X		if ((*point == ' ') || (*point == '\t'))
+X			del_word(FALSE);
+X	}
+X
+X/*
+X |	Now there is one long line.  Eliminate extra spaces within the line
+X |	after the first word (so as not to blow away any indenting the user 
+X |	may have put in).
+X */
+X
+X	bol();
+X	adv_word();
+X	while (position < curr_line->line_length)
+X	{
+X		if ((*point == ' ') && (*(point + 1) == ' '))
+X			del_char(FALSE);
+X		else
+X			right(TRUE);
+X	}
+X
+X/*
+X |	Now make sure there are two spaces after a '.'.
+X */
+X
+X	bol();
+X	while (position < curr_line->line_length)
+X	{
+X		if ((*point == '.') && (*(point + 1) == ' '))
+X		{
+X			right(TRUE);
+X			insert(' ');
+X			insert(' ');
+X			while (*point == ' ')
+X				del_char(FALSE);
+X		}
+X		right(TRUE);
+X	}
+X
+X	observ_margins = TRUE;
+X	bol();
+X
+X	wmove(com_win, 0, 0);
+X	wclrtoeol(com_win);
+X	wprintw(com_win, formatting_msg);
+X	wrefresh(com_win);
+X
+X/*
+X |	create lines between margins
+X */
+X
+X	while (position < curr_line->line_length)
+X	{
+X		while ((scr_pos < right_margin) && (position < curr_line->line_length))
+X			right(TRUE);
+X		if (position < curr_line->line_length)
+X		{
+X			prev_word();
+X			if (position == 1)
+X				adv_word();
+X			insert_line(TRUE);
+X		}
+X	}
+X
+X/*
+X |	go back to begin of paragraph, put cursor back to original position
+X */
+X
+X	bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X
+X/*
+X |	find word cursor was in
+X */
+X
+X	while ((status) && (string_count > 0))
+X	{
+X		search(FALSE);
+X		string_count--;
+X	}
+X
+X/*
+X |	offset the cursor to where it was before from the start of the word
+X */
+X
+X	while (offset > 0)
+X	{
+X		offset--;
+X		right(TRUE);
+X	}
+X
+X/*
+X |	reset flags and strings to what they were before formatting
+X */
+X
+X	if (d_word != NULL)
+X		free(d_word);
+X	d_word = temp_dword;
+X	case_sen = temp_case;
+X	free(srch_str);
+X	srch_str = tmp_srchstr;
+X	d_char = temp_d_char;
+X	auto_format = tmp_af;
+X
+X	midscreen(scr_vert, point);
+X	werase(com_win);
+X	wrefresh(com_win);
+X}
+X
+Xchar *init_name[3] = {
+X	"/usr/local/lib/init.ee", 
+X	NULL, 
+X	".init.ee"
+X	};
+X
+Xee_init()	/* check for init file and read it if it exists	*/
+X{
+X	FILE *init_file;
+X	char *string;
+X	char *str1;
+X	char *str2;
+X	char *home;
+X	int counter;
+X	int temp_int;
+X
+X	string = getenv("HOME");
+X	str1 = home = malloc(strlen(string)+10);
+X	strcpy(home, string);
+X	strcat(home, "/.init.ee");
+X	init_name[1] = home;
+X	string = malloc(512);
+X
+X	for (counter = 0; counter < 3; counter++)
+X	{
+X		if (!(access(init_name[counter], 4)))
+X		{
+X			init_file = fopen(init_name[counter], "r");
+X			while ((str2 = fgets(string, 512, init_file)) != NULL)
+X			{
+X				if (unique_test(string, init_strings) != 1)
+X					continue;
+X				str1 = str2 = string;
+X				while (*str2 != '\n')
+X					str2++;
+X				*str2 = NULL;
+X				if (compare(str1, CASE, FALSE))
+X					case_sen = TRUE;
+X				else if (compare(str1, NOCASE, FALSE))
+X					case_sen = FALSE;
+X				else if (compare(str1, EXPAND, FALSE))
+X					expand_tabs = TRUE;
+X				else if (compare(str1, NOEXPAND, FALSE))
+X					expand_tabs = FALSE;
+X				else if (compare(str1, INFO, FALSE))
+X					info_window = TRUE;
+X				else if (compare(str1, NOINFO, FALSE))
+X					info_window = FALSE;   
+X				else if (compare(str1, MARGINS, FALSE))
+X					observ_margins = TRUE;
+X				else if (compare(str1, NOMARGINS, FALSE))
+X					observ_margins = FALSE;
+X				else if (compare(str1, AUTOFORMAT, FALSE))
+X				{
+X					auto_format = TRUE;
+X					observ_margins = TRUE;
+X				}
+X				else if (compare(str1, NOAUTOFORMAT, FALSE))
+X					auto_format = FALSE;
+X				else if (compare(str1, Echo, FALSE))
+X				{
+X					str1 = next_word(str1);
+X					if (*str1 != NULL)
+X						echo_string(str1);
+X				}
+X				else if (compare(str1, PRINTCOMMAND, FALSE))
+X				{
+X					str1 = next_word(str1);
+X					print_command = malloc(strlen(str1)+1);
+X					strcpy(print_command, str1);
+X				}
+X				else if (compare(str1, RIGHTMARGIN, FALSE))
+X				{
+X					str1 = next_word(str1);
+X					if ((*str1 >= '0') && (*str1 <= '9'))
+X					{
+X						temp_int = atoi(str1);
+X						if (temp_int > 0)
+X							right_margin = temp_int;
+X					}
+X				}
+X				else if (compare(str1, HIGHLIGHT, FALSE))
+X					nohighlight = FALSE;
+X				else if (compare(str1, NOHIGHLIGHT, FALSE))
+X					nohighlight = TRUE;
+X				else if (compare(str1, EIGHTBIT, FALSE))
+X					eightbit = TRUE;
+X				else if (compare(str1, NOEIGHTBIT, FALSE))
+X					eightbit = FALSE;
+X			}
+X			fclose(init_file);
+X		}
+X	}
+X	free(string);
+X	free(home);
+X}
+X
+Xecho_string(string)	/* echo the given string	*/
+Xchar *string;
+X{
+X	char *temp;
+X	int Counter;
+X
+X		temp = string;
+X		while (*temp != NULL)
+X		{
+X			if (*temp == '\\')
+X			{
+X				temp++;
+X				if (*temp == 'n')
+X					putchar('\n');
+X				else if (*temp == 't')
+X					putchar('\t');
+X				else if (*temp == 'b')
+X					putchar('\b');
+X				else if (*temp == 'r')
+X					putchar('\r');
+X				else if (*temp == 'f')
+X					putchar('\f');
+X				else if ((*temp == 'e') || (*temp == 'E'))
+X					putchar('\033');	/* escape */
+X				else if (*temp == '\\')
+X					putchar('\\');
+X				else if (*temp == '\'')
+X					putchar('\'');
+X				else if ((*temp >= '0') && (*temp <= '9'))
+X				{
+X					Counter = 0;
+X					while ((*temp >= '0') && (*temp <= '9'))
+X					{
+X						Counter = (8 * Counter) + (*temp - '0');
+X						temp++;
+X					}
+X					putchar(Counter);
+X					temp--;
+X				}
+X				temp++;
+X			}
+X			else
+X			{
+X				putchar(*temp);
+X				temp++;
+X			}
+X		}
+X
+X	fflush(stdout);
+X}
+X
+Xspell_op()	/* check spelling of words in the editor	*/
+X{
+X	if (restrict_mode())
+X	{
+X		return;
+X	}
+X	top();			/* go to top of file		*/
+X	insert_line(FALSE);	/* create two blank lines	*/
+X	insert_line(FALSE);
+X	top();
+X	command(shell_echo_msg);
+X	adv_line();
+X	wmove(com_win, 0, 0);
+X	wprintw(com_win, spell_in_prog_msg);
+X	wrefresh(com_win);
+X	command("<>!spell");	/* send contents of buffer to command 'spell' 
+X				   and read the results back into the editor */
+X}
+X
+Xispell_op()
+X{
+X	char name[128];
+X	char string[256];
+X	int pid;
+X
+X	if (restrict_mode())
+X	{
+X		return;
+X	}
+X	pid = getpid();
+X	sprintf(name, "/tmp/ee.%d", pid);
+X	if (write_file(name))
+X	{
+X		sprintf(string, "ispell %s", name);
+X		sh_command(string);
+X		delete_text();
+X		tmp_file = name;
+X		recv_file = TRUE;
+X		check_fp();
+X		unlink(name);
+X	}
+X}
+X
+Xint
+Xfirst_word_len(test_line)
+Xstruct text *test_line;
+X{
+X	int counter;
+X	char *pnt;
+X
+X	pnt = test_line->line;
+X	if ((test_line == NULL) || (pnt == NULL) || (*pnt == NULL) || 
+X	    (*pnt == '.') || (*pnt == '>'))
+X		return(0);
+X
+X	if ((*pnt == ' ') || (*pnt == '\t'))
+X	{
+X		pnt = next_word(pnt);
+X	}
+X
+X	if (*pnt == NULL)
+X		return(0);
+X
+X	counter = 0;
+X	while ((*pnt != NULL) && ((*pnt != ' ') && (*pnt != '\t')))
+X	{
+X		pnt++;
+X		counter++;
+X	}
+X	while ((*pnt != NULL) && ((*pnt == ' ') || (*pnt == '\t')))
+X	{
+X		pnt++;
+X		counter++;
+X	}
+X	return(counter);
+X}
+X
+XAuto_Format()	/* format the paragraph according to set margins	*/
+X{
+X	int string_count;
+X	int offset;
+X	int temp_case;
+X	int word_len;
+X	int temp_dwl;
+X	int tmp_d_line_length;
+X	int leave_loop = FALSE;
+X	int status;
+X	int counter;
+X	char *line;
+X	char *tmp_srchstr;
+X	char *temp1, *temp2;
+X	char *temp_dword;
+X	char temp_d_char = d_char;
+X	char *tmp_d_line;
+X
+X/*
+X |	if observ_margins is not set, or the current line is blank, 
+X |	do not format the current paragraph
+X */
+X
+X	if ((!observ_margins) || (Blank_Line(curr_line)))
+X		return;
+X
+X/*
+X |	get current position in paragraph, so after formatting, the cursor 
+X |	will be in the same relative position
+X */
+X
+X	tmp_d_line = d_line;
+X	tmp_d_line_length = dlt_line->line_length;
+X	d_line = NULL;
+X	auto_format = FALSE;
+X	offset = position;
+X	if ((position != 1) && ((*point == ' ') || (*point == '\t') || (position == curr_line->line_length) || (*point == NULL)))
+X		prev_word();
+X	temp_dword = d_word;
+X	temp_dwl = d_wrd_len;
+X	d_wrd_len = 0;
+X	d_word = NULL;
+X	temp_case = case_sen;
+X	case_sen = TRUE;
+X	tmp_srchstr = srch_str;
+X	temp2 = srch_str = (char *) malloc(1 + curr_line->line_length - position);
+X	if ((*point == ' ') || (*point == '\t'))
+X		adv_word();
+X	offset -= position;
+X	counter = position;
+X	line = temp1 = point;
+X	while ((*temp1 != NULL) && (*temp1 != ' ') && (*temp1 != '\t') && (counter < curr_line->line_length))
+X	{
+X		*temp2 = *temp1;
+X		temp2++;
+X		temp1++;
+X		counter++;
+X	}
+X	*temp2 = NULL;
+X	if (position != 1)
+X		bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X	string_count = 0;
+X	status = TRUE;
+X	while ((line != point) && (status))
+X	{
+X		status = search(FALSE);
+X		string_count++;
+X	}
+X
+X/*
+X |	now get back to the start of the paragraph to start checking
+X */
+X
+X	if (position != 1)
+X		bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X
+X/*
+X |	Start going through lines, putting spaces at end of lines if they do 
+X |	not already exist.  Check line length, and move words to the next line 
+X |	if they cross the margin.  Then get words from the next line if they 
+X |	will fit in before the margin.  
+X */
+X
+X	while (!leave_loop)
+X	{
+X		if (position != curr_line->line_length)
+X			eol();
+X		left(TRUE);
+X		if (*point != ' ')
+X		{
+X			right(TRUE);
+X			insert(' ');
+X		}
+X		else
+X			right(TRUE);
+X
+X		/*
+X		 |	fill line if first word on next line will fit 
+X		 |	in the line without crossing the margin
+X		 */
+X
+X		while (((word_len = first_word_len(curr_line->next_line)) > 0) 
+X			&& ((scr_pos + word_len) < right_margin))
+X		{
+X			adv_line();
+X			if ((*point == ' ') || (*point == '\t'))
+X				adv_word();
+X			del_word();
+X			if (position != 1)
+X				bol();
+X			if (Blank_Line(curr_line))
+X			{
+X				del_line();
+X			}
+X			/*
+X			 |   go to end of previous line
+X			 */
+X			left(TRUE);
+X			undel_word();
+X			eol();
+X			/*
+X			 |   make sure there's a space at the end of the line
+X			 */
+X			left(TRUE);
+X			if (*point != ' ')
+X			{
+X				right(TRUE);
+X				insert(' ');
+X			}
+X			else
+X				right(TRUE);
+X		}
+X
+X		/*
+X		 |	make sure line does not cross right margin
+X		 */
+X
+X		while (right_margin <= scr_pos)
+X		{
+X			prev_word();
+X			if (position != 1)
+X			{
+X				del_word();
+X				if (Blank_Line(curr_line->next_line))
+X					insert_line(TRUE);
+X				else
+X					adv_line();
+X				if ((*point == ' ') || (*point == '\t'))
+X					adv_word();
+X				undel_word();
+X				if (position != 1)
+X					bol();
+X				left(TRUE);
+X			}
+X		}
+X
+X		if (!Blank_Line(curr_line->next_line))
+X			adv_line();
+X		else
+X			leave_loop = TRUE;
+X	}
+X
+X/*
+X |	go back to begin of paragraph, put cursor back to original position
+X */
+X
+X	bol();
+X	while (!Blank_Line(curr_line->prev_line))
+X		bol();
+X
+X/*
+X |	find word cursor was in
+X */
+X
+X	status = TRUE;
+X	while ((status) && (string_count > 0))
+X	{
+X		status = search(FALSE);
+X		string_count--;
+X	}
+X
+X/*
+X |	offset the cursor to where it was before from the start of the word
+X */
+X
+X	while (offset > 0)
+X	{
+X		offset--;
+X		right(TRUE);
+X	}
+X
+X	if ((string_count > 0) && (offset < 0))
+X	{
+X		while (offset < 0)
+X		{
+X			offset++;
+X			left(TRUE);
+X		}
+X	}
+X
+X/*
+X |	reset flags and strings to what they were before formatting
+X */
+X
+X	if (d_word != NULL)
+X		free(d_word);
+X	d_word = temp_dword;
+X	d_wrd_len = temp_dwl;
+X	case_sen = temp_case;
+X	free(srch_str);
+X	srch_str = tmp_srchstr;
+X	d_char = temp_d_char;
+X	auto_format = TRUE;
+X	dlt_line->line_length = tmp_d_line_length;
+X	d_line = tmp_d_line;
+X
+X	formatted = TRUE;
+X	midscreen(scr_vert, point);
+X}
+X
+Xmodes_op()
+X{
+X	int ret_value;
+X	int counter;
+X	char *string;
+X
+X	do
+X	{
+X		sprintf(modes_menu[1].item_string, "%s %s", mode_strings[1], 
+X					(expand_tabs ? ON : OFF));
+X		sprintf(modes_menu[2].item_string, "%s %s", mode_strings[2], 
+X					(case_sen ? ON : OFF));
+X		sprintf(modes_menu[3].item_string, "%s %s", mode_strings[3], 
+X					(observ_margins ? ON : OFF));
+X		sprintf(modes_menu[4].item_string, "%s %s", mode_strings[4], 
+X					(auto_format ? ON : OFF));
+X		sprintf(modes_menu[5].item_string, "%s %s", mode_strings[5], 
+X					(eightbit ? ON : OFF));
+X		sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6], 
+X					(info_window ? ON : OFF));
+X		sprintf(modes_menu[7].item_string, "%s %d", mode_strings[7], 
+X					right_margin);
+X
+X		ret_value = menu_op(modes_menu);
+X
+X		switch (ret_value) 
+X		{
+X			case 1:
+X				expand_tabs = !expand_tabs;
+X				break;
+X			case 2:
+X				case_sen = !case_sen;
+X				break;
+X			case 3:
+X				observ_margins = !observ_margins;
+X				break;
+X			case 4:
+X				auto_format = !auto_format;
+X				if (auto_format)
+X					observ_margins = TRUE;
+X				break;
+X			case 5:
+X				eightbit = !eightbit;
+X				redraw();
+X				wnoutrefresh(text_win);
+X				break;
+X			case 6:
+X				if (info_window)
+X					no_info_window();
+X				else
+X					create_info_window();
+X				break;
+X			case 7:
+X				string = get_string(margin_prompt, TRUE);
+X				if (string != NULL)
+X				{
+X					counter = atoi(string);
+X					if (counter > 0)
+X						right_margin = counter;
+X					free(string);
+X				}
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X	while (ret_value != 0);
+X}
+X
+X/*
+X |	handle names of the form "~/file" or "~user/file"
+X */
+X
+Xchar *
+Xresolve_name(name)
+Xchar *name;
+X{
+X	char *buffer;
+X	char *slash;
+X	int index;
+X	struct passwd *user;
+X
+X	if (name[0] == '~') 
+X	{
+X		if (name[1] == '/')
+X		{
+X			index = getuid();
+X			user = (struct passwd *) getpwuid(index);
+X			slash = name + 1;
+X		}
+X		else
+X		{
+X			slash = strchr(name, '/');
+X			if (slash == NULL) 
+X				return(name);
+X			*slash = NULL;
+X			user = (struct passwd *) getpwnam((name + 1));
+X			*slash = '/';
+X		}
+X		if (user == NULL) 
+X		{
+X			return(name);
+X		}
+X		buffer = malloc(strlen(user->pw_dir) + strlen(slash) + 1);
+X		strcpy(buffer, user->pw_dir);
+X		strcat(buffer, slash);
+X		return(buffer);
+X	}
+X	return(name);
+X}
+X
+Xint
+Xrestrict_mode()
+X{
+X	if (!restricted)
+X		return(FALSE);
+X
+X	wmove(com_win, 0, 0);
+X	wprintw(com_win, restricted_msg);
+X	wclrtoeol(com_win);
+X	wrefresh(com_win);
+X	clear_com_win = TRUE;
+X	return(TRUE);
+X}
+X
+X/*
+X |	The following routine tests the input string against the list of 
+X |	strings, to determine if the string is a unique match with one of the 
+X |	valid values.
+X */
+X
+Xint 
+Xunique_test(string, list)
+Xchar *string;
+Xchar *list[];
+X{
+X	int counter;
+X	int num_match;
+X	int result;
+X
+X	num_match = 0;
+X	counter = 0;
+X	while (list[counter] != NULL)
+X	{
+X		result = compare(string, list[counter], FALSE);
+X		if (result)
+X			num_match++;
+X		counter++;
+X	}
+X	return(num_match);
+X}
+X
+X#ifndef NO_CATGETS
+X/*
+X |	Get the catalog entry, and if it got it from the catalog, 
+X |	make a copy, since the buffer will be overwritten by the 
+X |	next call to catgets().
+X */
+X
+Xchar *
+Xcatgetlocal(number, string)
+Xint number;
+Xchar *string;
+X{
+X	char *temp1;
+X	char *temp2;
+X
+X	temp1 = catgets(catalog, 1, number, string);
+X	if (temp1 != string)
+X	{
+X		temp2 = malloc(strlen(temp1) + 1);
+X		strcpy(temp2, temp1);
+X		temp1 = temp2;
+X	}
+X	return(temp1);
+X}
+X#endif /* NO_CATGETS */
+X
+X/*
+X |	The following is to allow for using message catalogs which allow 
+X |	the software to be 'localized', that is, to use different languages 
+X |	all with the same binary.  For more information, see your system 
+X |	documentation, or the X/Open Internationalization Guide.
+X */
+X
+Xstrings_init()
+X{
+X#ifndef NO_CATGETS
+X	setlocale(LC_ALL, "");
+X	catalog = catopen("ee", 0);
+X#endif /* NO_CATGETS */
+X
+X	modes_menu[0].item_string = catgetlocal( 1, "modes menu");
+X	mode_strings[1]  = catgetlocal( 2, "tabs to spaces       "); 
+X	mode_strings[2]  = catgetlocal( 3, "case sensitive search"); 
+X	mode_strings[3]  = catgetlocal( 4, "margins observed     "); 
+X	mode_strings[4]  = catgetlocal( 5, "auto-paragraph format"); 
+X	mode_strings[5]  = catgetlocal( 6, "eightbit characters  "); 
+X	mode_strings[6]  = catgetlocal( 7, "info window          "); 
+X	mode_strings[7]  = catgetlocal( 8, "right margin         ");
+X	leave_menu[0].item_string  = catgetlocal( 9, "leave menu");
+X	leave_menu[1].item_string  = catgetlocal( 10, "save changes");
+X	leave_menu[2].item_string  = catgetlocal( 11, "no save");
+X	file_menu[0].item_string  = catgetlocal( 12, "file menu");
+X	file_menu[1].item_string  = catgetlocal( 13, "read a file");
+X	file_menu[2].item_string  = catgetlocal( 14, "write a file");
+X	file_menu[3].item_string  = catgetlocal( 15, "save file");
+X	file_menu[4].item_string  = catgetlocal( 16, "print editor contents");
+X	search_menu[0].item_string = catgetlocal( 17, "search menu");
+X	search_menu[1].item_string = catgetlocal( 18, "search for ...");
+X	search_menu[2].item_string = catgetlocal( 19, "search");
+X	spell_menu[0].item_string = catgetlocal( 20, "spell menu");
+X	spell_menu[1].item_string = catgetlocal( 21, "use 'spell'");
+X	spell_menu[2].item_string = catgetlocal( 22, "use 'ispell'");
+X	misc_menu[0].item_string = catgetlocal( 23, "miscellaneous menu");
+X	misc_menu[1].item_string = catgetlocal( 24, "format paragraph");
+X	misc_menu[2].item_string = catgetlocal( 25, "shell command");
+X	misc_menu[3].item_string = catgetlocal( 26, "check spelling");
+X	main_menu[0].item_string  = catgetlocal( 27, "main menu");
+X	main_menu[1].item_string  = catgetlocal( 28, "leave editor");
+X	main_menu[2].item_string  = catgetlocal( 29, "help");
+X	main_menu[3].item_string  = catgetlocal( 30, "file operations");
+X	main_menu[4].item_string  = catgetlocal( 31, "redraw screen");
+X	main_menu[5].item_string  = catgetlocal( 32, "settings");
+X	main_menu[6].item_string  = catgetlocal( 33, "search");
+X	main_menu[7].item_string  = catgetlocal( 34, "miscellaneous");
+X	help_text[0] = catgetlocal( 35, "Control keys:                                                              "); 
+X	help_text[1] = catgetlocal( 36, "^a ascii code           ^i tab                  ^r right                   ");
+X	help_text[2] = catgetlocal( 37, "^b bottom of text       ^j newline              ^t top of text             ");
+X	help_text[3] = catgetlocal( 38, "^c command              ^k delete char          ^u up                      ");
+X	help_text[4] = catgetlocal( 39, "^d down                 ^l left                 ^v undelete word           ");
+X	help_text[5] = catgetlocal( 40, "^e search prompt        ^m newline              ^w delete word             ");
+X	help_text[6] = catgetlocal( 41, "^f undelete char        ^n next page            ^x search                  ");
+X	help_text[7] = catgetlocal( 42, "^g begin of line        ^o end of line          ^y delete line             ");
+X	help_text[8] = catgetlocal( 43, "^h backspace            ^p prev page            ^z undelete line           ");
+X	help_text[9] = catgetlocal( 44, "^[ (escape) menu                                                           ");
+X	help_text[10] = catgetlocal( 45, "                                                                           ");
+X	help_text[11] = catgetlocal( 46, "Commands:                                                                  ");
+X	help_text[12] = catgetlocal( 47, "help    : get this info                 file    : print file name          ");
+X	help_text[13] = catgetlocal( 48, "read    : read a file                   char    : ascii code of char       ");
+X	help_text[14] = catgetlocal( 49, "write   : write a file                  case    : case sensitive search    ");
+X	help_text[15] = catgetlocal( 50, "exit    : leave and save                nocase  : case insensitive search  ");
+X	help_text[16] = catgetlocal( 51, "quit    : leave, no save                !cmd    : execute \"cmd\" in shell   ");
+X	help_text[17] = catgetlocal( 52, "line    : display line #                0-9     : go to line \"#\"           ");
+X	help_text[18] = catgetlocal( 53, "expand  : expand tabs                   noexpand: do not expand tabs         ");
+X	help_text[19] = catgetlocal( 54, "                                                                             ");
+X	help_text[20] = catgetlocal( 55, "  ee [-i] [-e] [-h] [file(s)]                                                 ");
+X	help_text[21] = catgetlocal( 56, "   -i : no information window  -e : do not expand tabs   -h : no highlight ");
+X	control_keys[0] = catgetlocal( 57, "^[ (escape) menu  ^e search prompt  ^y delete line    ^u up     ^p prev page  ");
+X	control_keys[1] = catgetlocal( 58, "^a ascii code     ^x search         ^z undelete line  ^d down   ^n next page  ");
+X	control_keys[2] = catgetlocal( 59, "^b bottom of text ^g begin of line  ^w delete word    ^l left                 ");
+X	control_keys[3] = catgetlocal( 60, "^t top of text    ^o end of line    ^v undelete word  ^r right                ");
+X	control_keys[4] = catgetlocal( 61, "^c command        ^k delete char    ^f undelete char                          ");
+X	command_strings[0] = catgetlocal( 62, "help : get help info  |file  : print file name         |line : print line # ");
+X	command_strings[1] = catgetlocal( 63, "read : read a file    |char  : ascii code of char      |0-9 : go to line \"#\"");
+X	command_strings[2] = catgetlocal( 64, "write: write a file   |case  : case sensitive search   |exit : leave and save ");
+X	command_strings[3] = catgetlocal( 65, "!cmd : shell \"cmd\"    |nocase: ignore case in search   |quit : leave, no save");
+X	command_strings[4] = catgetlocal( 66, "expand: expand tabs   |noexpand: do not expand tabs                           ");
+X	com_win_message = catgetlocal( 67, "    press Escape (^[) for menu");
+X	no_file_string = catgetlocal( 68, "no file");
+X	ascii_code_str = catgetlocal( 69, "ascii code: ");
+X	printer_msg_str = catgetlocal( 70, "sending contents of buffer to \"%s\" ");
+X	command_str = catgetlocal( 71, "command: ");
+X	file_write_prompt_str = catgetlocal( 72, "name of file to write: ");
+X	file_read_prompt_str = catgetlocal( 73, "name of file to read: ");
+X	char_str = catgetlocal( 74, "character = %d");
+X	unkn_cmd_str = catgetlocal( 75, "unknown command \"%s\"");
+X	non_unique_cmd_msg = catgetlocal( 76, "entered command is not unique");
+X	line_num_str = catgetlocal( 77, "line %d  ");
+X	line_len_str = catgetlocal( 78, "length = %d");
+X	current_file_str = catgetlocal( 79, "current file is \"%s\" ");
+X	usage0 = catgetlocal( 80, "usage: %s [-i] [-e] [-h] [file(s)]\n");
+X	usage1 = catgetlocal( 81, "       -i   turn off info window\n");
+X	usage2 = catgetlocal( 82, "       -e   do not convert tabs to spaces\n");
+X	usage3 = catgetlocal( 83, "       -h   do not use highlighting\n");
+X	file_is_dir_msg = catgetlocal( 84, "file \"%s\" is a directory");
+X	new_file_msg = catgetlocal( 85, "new file \"%s\"");
+X	cant_open_msg = catgetlocal( 86, "can't open \"%s\"");
+X	open_file_msg = catgetlocal( 87, "file \"%s\", %d lines");
+X	file_read_fin_msg = catgetlocal( 88, "finished reading file \"%s\"");
+X	reading_file_msg = catgetlocal( 89, "reading file \"%s\"");
+X	read_only_msg = catgetlocal( 90, ", read only");
+X	file_read_lines_msg = catgetlocal( 91, "file \"%s\", %d lines");
+X	save_file_name_prompt = catgetlocal( 92, "enter name of file: ");
+X	file_not_saved_msg = catgetlocal( 93, "no filename entered: file not saved");
+X	changes_made_prompt = catgetlocal( 94, "changes have been made, are you sure? (y/n [n]) ");
+X	yes_char = catgetlocal( 95, "y");
+X	file_exists_prompt = catgetlocal( 96, "file already exists, overwrite? (y/n) [n] ");
+X	create_file_fail_msg = catgetlocal( 97, "unable to create file \"%s\"");
+X	writing_file_msg = catgetlocal( 98, "writing file \"%s\"");
+X	file_written_msg = catgetlocal( 99, "\"%s\" %d lines, %d characters");
+X	searching_msg = catgetlocal( 100, "           ...searching");
+X	str_not_found_msg = catgetlocal( 101, "string \"%s\" not found");
+X	search_prompt_str = catgetlocal( 102, "search for: ");
+X	exec_err_msg = catgetlocal( 103, "could not exec %s\n");
+X	continue_msg = catgetlocal( 104, "press return to continue ");
+X	menu_cancel_msg = catgetlocal( 105, "press Esc to cancel");
+X	menu_size_err_msg = catgetlocal( 106, "menu too large for window");
+X	press_any_key_msg = catgetlocal( 107, "press any key to continue ");
+X	shell_prompt = catgetlocal( 108, "shell command: ");
+X	formatting_msg = catgetlocal( 109, "...formatting paragraph...");
+X	shell_echo_msg = catgetlocal( 110, "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
+X	spell_in_prog_msg = catgetlocal( 111, "sending contents of edit buffer to 'spell'");
+X	margin_prompt = catgetlocal( 112, "right margin is: ");
+X	restricted_msg = catgetlocal( 113, "restricted mode: unable to perform requested operation");
+X	ON = catgetlocal( 114, "ON");
+X	OFF = catgetlocal( 115, "OFF");
+X	HELP = catgetlocal( 116, "HELP");
+X	WRITE = catgetlocal( 117, "WRITE");
+X	READ = catgetlocal( 118, "READ");
+X	LINE = catgetlocal( 119, "LINE");
+X	FILE_str = catgetlocal( 120, "FILE");
+X	CHARACTER = catgetlocal( 121, "CHARACTER");
+X	REDRAW = catgetlocal( 122, "REDRAW");
+X	RESEQUENCE = catgetlocal( 123, "RESEQUENCE");
+X	AUTHOR = catgetlocal( 124, "AUTHOR");
+X	VERSION = catgetlocal( 125, "VERSION");
+X	CASE = catgetlocal( 126, "CASE");
+X	NOCASE = catgetlocal( 127, "NOCASE");
+X	EXPAND = catgetlocal( 128, "EXPAND");
+X	NOEXPAND = catgetlocal( 129, "NOEXPAND");
+X	Exit_string = catgetlocal( 130, "EXIT");
+X	QUIT_string = catgetlocal( 131, "QUIT");
+X	INFO = catgetlocal( 132, "INFO");
+X	NOINFO = catgetlocal( 133, "NOINFO");
+X	MARGINS = catgetlocal( 134, "MARGINS");
+X	NOMARGINS = catgetlocal( 135, "NOMARGINS");
+X	AUTOFORMAT = catgetlocal( 136, "AUTOFORMAT");
+X	NOAUTOFORMAT = catgetlocal( 137, "NOAUTOFORMAT");
+X	Echo = catgetlocal( 138, "ECHO");
+X	PRINTCOMMAND = catgetlocal( 139, "PRINTCOMMAND");
+X	RIGHTMARGIN = catgetlocal( 140, "RIGHTMARGIN");
+X	HIGHLIGHT = catgetlocal( 141, "HIGHLIGHT");
+X	NOHIGHLIGHT = catgetlocal( 142, "NOHIGHLIGHT");
+X	EIGHTBIT = catgetlocal( 143, "EIGHTBIT");
+X	NOEIGHTBIT = catgetlocal( 144, "NOEIGHTBIT");
+X	commands[0] = HELP;
+X	commands[1] = WRITE;
+X	commands[2] = READ;
+X	commands[3] = LINE;
+X	commands[4] = FILE_str;
+X	commands[5] = REDRAW;
+X	commands[6] = RESEQUENCE;
+X	commands[7] = AUTHOR;
+X	commands[8] = VERSION;
+X	commands[9] = CASE;
+X	commands[10] = NOCASE;
+X	commands[11] = EXPAND;
+X	commands[12] = NOEXPAND;
+X	commands[13] = Exit_string;
+X	commands[14] = QUIT_string;
+X	commands[15] = "<";
+X	commands[16] = ">";
+X	commands[17] = "!";
+X	commands[18] = "0";
+X	commands[19] = "1";
+X	commands[20] = "2";
+X	commands[21] = "3";
+X	commands[22] = "4";
+X	commands[23] = "5";
+X	commands[24] = "6";
+X	commands[25] = "7";
+X	commands[26] = "8";
+X	commands[27] = "9";
+X	commands[28] = CHARACTER;
+X	commands[29] = NULL;
+X	init_strings[0] = CASE;
+X	init_strings[1] = NOCASE;
+X	init_strings[2] = EXPAND;
+X	init_strings[3] = NOEXPAND;
+X	init_strings[4] = INFO;
+X	init_strings[5] = NOINFO;
+X	init_strings[6] = MARGINS;
+X	init_strings[7] = NOMARGINS;
+X	init_strings[8] = AUTOFORMAT;
+X	init_strings[9] = NOAUTOFORMAT;
+X	init_strings[10] = Echo;
+X	init_strings[11] = PRINTCOMMAND;
+X	init_strings[12] = RIGHTMARGIN;
+X	init_strings[13] = HIGHLIGHT;
+X	init_strings[14] = NOHIGHLIGHT;
+X	init_strings[15] = EIGHTBIT;
+X	init_strings[16] = NOEIGHTBIT;
+X	init_strings[17] = NULL;
+X
+X#ifndef NO_CATGETS
+X	catclose(catalog);
+X#endif /* NO_CATGETS */
+X}
+X
+END_OF_FILE
+  if test 52272 -ne `wc -c <'ee.c.B'`; then
+    echo shar: \"'ee.c.B'\" unpacked with wrong size!
+  elif test -f 'ee.c.A'; then
+    echo shar: Combining  \"'ee.c'\" \(97591 characters\)
+    cat 'ee.c.A' 'ee.c.B' > 'ee.c'
+    if test 97591 -ne `wc -c <'ee.c'`; then
+      echo shar: \"'ee.c'\" combined with wrong size!
+    else
+      rm ee.c.A ee.c.B
+    fi
+  fi
+  # end of 'ee.c.B'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

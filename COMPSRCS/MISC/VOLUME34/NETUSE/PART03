@@ -1,0 +1,1594 @@
+Newsgroups: comp.sources.misc
+From: amber@engin.umich.edu (Lee Liming)
+Subject: v34i101:  netuse - A Network Host Usage Monitoring System, Part03/06
+Message-ID: <1993Jan11.023724.25434@sparky.imd.sterling.com>
+X-Md4-Signature: ca2824f51af585f7ecb6a82e93f674aa
+Date: Mon, 11 Jan 1993 02:37:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: amber@engin.umich.edu (Lee Liming)
+Posting-number: Volume 34, Issue 101
+Archive-name: netuse/part03
+Environment: UNIX, MS-DOS, OS/2, INET, MSC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netuse/clients/hostinfo.c netuse/clients/libresp3.os2
+#   netuse/daemons/getmodel.c netuse/daemons/wakeup.c
+#   netuse/lib/getlist.c netuse/lib/network.c
+# Wrapped by kent@sparky on Sun Jan 10 20:28:35 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 6)."'
+if test -f 'netuse/clients/hostinfo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/clients/hostinfo.c'\"
+else
+  echo shar: Extracting \"'netuse/clients/hostinfo.c'\" \(4694 characters\)
+  sed "s/^X//" >'netuse/clients/hostinfo.c' <<'END_OF_FILE'
+X/******************************************************************************
+X HOSTINFO.C - Netuse Host Use Monitor Host List Display Utility
+X
+X This utility contacts the NETUSE server and obtains a listing of machines
+X which meet certain criteria.  These criteria currently include only the type
+X of machine and the status (up/down).  The list is sorted by relative use
+X (least-used first).  Only 10 list entries are normally given, but the -all
+X option allows the entire list to be received and displayed.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <netuse.h>
+X
+X
+X#ifdef __STDC__
+Xmain(int argc,char *argv[])
+X#else
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X#endif
+X{
+X     u_char machtype,modeltype,mode;
+X     char buffer[512];
+X     int i;
+X
+X     machtype=0; modeltype=0;
+X     mode=0;
+X     for (i=1; i<argc; i++) {
+X          strcpy(buffer,argv[i]);
+X          stoupper(buffer);
+X          if (!strcmp(buffer,"-SUN")) {
+X               machtype=MACH_SUN;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-IBM")) {
+X               machtype=MACH_IBM_RS6000;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-DEC")) {
+X               machtype=MACH_DEC;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-APOLLO")) {
+X               machtype=MACH_APOLLO;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-HP")) {
+X               machtype=MACH_HP;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-ANY")) {
+X               machtype=0;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-MODEL")) {
+X               ++i;
+X               if (!(modeltype=netStrToModel(argv[i]))) {
+X                    printf("Unknown model specifier (%s,%s).\n",argv[i-1],argv[i]);
+X                    --i;
+X               }
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-ALL")) {
+X               mode=(mode & ~MODE_MASK) | MODE_ALL;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-DOWN")) {
+X               mode=(mode & ~MODE_MASK) | MODE_DOWN;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-MODELS")) {
+X               mode|=MODE_MODELS;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-NET")) {
+X               mode|=MODE_NET;
+X               continue;
+X          }
+X          if (!strcmp(buffer,"-HELP")) {
+X               printf("\nUsage: %s [options]\n\n",argv[0]);
+X               printf("Options: -sun             Only Sun SparcStations\n");
+X               printf("         -dec             Only DECstations\n");
+X               printf("         -ibm             Only IBM RS/6000s\n");
+X               printf("         -apollo          Only Apollos\n");
+X               printf("         -hp              Only HP9000s\n");
+X               printf("         -model <model>   Only machines of model type <model>\n");
+X               printf("         -down            Only down nodes\n");
+X               printf("         -any             Any type of machine\n");
+X               printf("         -all             Unlimited list length\n");
+X               printf("         -models          Show models instead of last report time\n");
+X               printf("         -net             Network server mode\n\n");
+X               exit(0);
+X          }
+X     }
+X     netSetup();
+X     netuseGetList(machtype,modeltype,mode);
+X     netShutdown();
+X}
+END_OF_FILE
+  if test 4694 -ne `wc -c <'netuse/clients/hostinfo.c'`; then
+    echo shar: \"'netuse/clients/hostinfo.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/clients/hostinfo.c'
+fi
+if test -f 'netuse/clients/libresp3.os2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/clients/libresp3.os2'\"
+else
+  echo shar: Extracting \"'netuse/clients/libresp3.os2'\" \(100 characters\)
+  sed "s/^X//" >'netuse/clients/libresp3.os2' <<'END_OF_FILE'
+X/st:6000 /NOE /packcode /f /co netusead
+X
+Xnetusead
+X..\lib\netuse.lib c:\xln\toolkit\lib\slibsock.lib
+END_OF_FILE
+  if test 100 -ne `wc -c <'netuse/clients/libresp3.os2'`; then
+    echo shar: \"'netuse/clients/libresp3.os2'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/clients/libresp3.os2'
+fi
+if test -f 'netuse/daemons/getmodel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/daemons/getmodel.c'\"
+else
+  echo shar: Extracting \"'netuse/daemons/getmodel.c'\" \(10274 characters\)
+  sed "s/^X//" >'netuse/daemons/getmodel.c' <<'END_OF_FILE'
+X/***************************************************************************
+X GETMODEL.C - Routines to determine model types
+X 
+X Written by Lee Liming, 6/6/92
+X 
+X NOTE: The code in this module is based on many heuristics.  It is not 
+X       guaranteed to work forever, and will probably break in the future 
+X       when new OS releases or hardware types are introduced.
+X
+X Copyright (C) 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include "../lib/netuse.h"
+X
+X
+X/* #define TESTING */
+X
+X
+X#ifdef sun
+X
+X/***************************************************************************
+X The following code is derived from the table on page CPU-13 of the Sun
+X Field Engineer Handbook, Technical Volume 1.  At present, it only gives
+X five possible return types: 0 (unknown), MODEL_SUN3 (unspecified Sun 3),
+X MODEL_SUN4 (unspecified Sun 4), MODEL_SUN4_65 (SPARCstation 1+), and 
+X MODEL_SUN4_50 (SPARCstation IPX).
+X***************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X
+X
+X#ifdef __STDC__
+Xu_char modelDetect(void)
+X#else
+Xu_char modelDetect()
+X#endif
+X{
+X     unsigned int hostid;
+X
+X     hostid=gethostid();
+X     if (hostid<0x02000000) return(0);
+X     if (hostid<0x21000000) return(MODEL_SUN3);
+X     if (hostid<0x31000000) return(MODEL_SUN4);
+X     if (hostid<0x41000000) return(0);
+X     if (hostid<0x51000000) return(MODEL_SUN3);
+X     if (hostid<0x53000000) return(MODEL_SUN4);
+X     if (hostid<0x54000000) return(MODEL_SUN4_65);
+X     if (hostid<0x57000000) return(MODEL_SUN4);
+X     if (hostid<0x58000000) return(MODEL_SUN4_50);
+X     if (hostid<0x72000000) return(MODEL_SUN4);
+X     return(0);
+X}
+X
+X
+X#endif
+X#ifdef _AIX
+X
+X/***************************************************************************
+X The following code uses the uname -m command and an unpublished table of
+X values to obtain model information for IBM RS/6000 workstations.  This
+X may prove somewhat less reliable than the Sun method...
+X***************************************************************************/
+X
+X#include <stdio.h>
+X
+X
+X#define UNAME  "/bin/uname -m"
+X
+X
+X#ifdef __STDC__
+Xu_char modelDetect(void)
+X#else
+Xu_char modelDetect()
+X#endif
+X{
+X     char uname[128];
+X     FILE *inf;
+X     int modelnum;
+X
+X     if ((inf=popen(UNAME,"r"))==NULL) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to execute popen() command.\n");
+X#endif
+X          return(0);
+X     }
+X     if (fgets(uname,sizeof(uname),inf)==NULL) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to read uname command's output.\n");
+X#endif
+X          return(0);
+X     }
+X     else if (uname[strlen(uname)-1]=='\n') uname[strlen(uname)-1]='\0';
+X     pclose(inf);
+X     if (strlen(uname)<10) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to get model id from uname command's output.\n");
+X#endif
+X          return(0);
+X     }
+X     modelnum=(uname[8]-'0')*0x10+(uname[9]-'0');
+X#ifdef TESTING
+X     printf("Model number value is %02x.\n",modelnum);
+X#endif
+X     switch (modelnum) {
+X          case 0x10: return(MODEL_RS530);  /* Could also be 730... */
+X          case 0x11:
+X          case 0x14: return(MODEL_RS540);
+X          case 0x18: return(MODEL_RS530H);
+X          case 0x1C: return(MODEL_RS550);
+X          case 0x20: return(MODEL_RS930);
+X          case 0x2E: return(MODEL_RS950);  /* Could also be 950E... */
+X          case 0x30: return(MODEL_RS520);
+X          case 0x31: return(MODEL_RS320);
+X          case 0x35: return(MODEL_RS320H);
+X          case 0x37: return(MODEL_RS340);
+X          case 0x38: return(MODEL_RS350);
+X          case 0x41: return(MODEL_RS220);
+X          case 0x5C: return(MODEL_RS560);
+X     }
+X     return(0);
+X}
+X
+X
+X#endif
+X#if (defined(apollo) || defined(hpux))
+X
+X/***************************************************************************
+X The following code uses the uname -m command to obtain model information
+X for HP/Apollo workstations.
+X***************************************************************************/
+X
+X#include <stdio.h>
+X
+X
+X#ifdef apollo
+X#define UNAME  "/usr/local/bin/uname -m"
+X#else
+X#define UNAME  "/bin/uname -m"
+X#endif
+X
+X
+X#ifdef __STDC__
+Xu_char modelDetect(void)
+X#else
+Xu_char modelDetect()
+X#endif
+X{
+X     char uname[128];
+X     FILE *inf;
+X
+X     if ((inf=popen(UNAME,"r"))==NULL) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to execute popen() command.\n");
+X#endif
+X          return(0);
+X     }
+X     if (fgets(uname,sizeof(uname),inf)==NULL) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to read uname command's output.\n");
+X#endif
+X          return(0);
+X     }
+X     else if (uname[strlen(uname)-1]=='\n') uname[strlen(uname)-1]='\0';
+X     pclose(inf);
+X     if (!strcmp(uname,"DN2500") || !strcmp(uname,"DSP2500"))
+X          return(MODEL_AP2500);
+X     if (!strcmp(uname,"DN3000") || !strcmp(uname,"DSP3000"))
+X          return(MODEL_AP3000);
+X     if (!strcmp(uname,"DN3500") || !strcmp(uname,"DSP3500"))
+X          return(MODEL_AP3500);
+X     if (!strcmp(uname,"DN4000") || !strcmp(uname,"DSP4000"))
+X          return(MODEL_AP4000);
+X     if (!strcmp(uname,"DN4500") || !strcmp(uname,"DSP4500"))
+X          return(MODEL_AP4500);
+X     if (!strcmp(uname,"DN5500") || !strcmp(uname,"DSP5500"))
+X          return(MODEL_AP5500);
+X     if (!strcmp(uname,"DN10010") || !strcmp(uname,"DSP10010"))
+X          return(MODEL_AP10010);
+X     if (!strcmp(uname,"DN10020") || !strcmp(uname,"DSP10020"))
+X          return(MODEL_AP10020);
+X     if (!strcmp(uname,"425T") || !strcmp(uname,"425t")) 
+X          return(MODEL_HP425T);
+X     if (!strcmp(uname,"425E") || !strcmp(uname,"425e")) 
+X          return(MODEL_HP425E);
+X     if (!strcmp(uname,"9000/705")) return(MODEL_HP9000705);
+X     if (!strcmp(uname,"9000/710")) return(MODEL_HP9000710);
+X     if (!strcmp(uname,"9000/720")) return(MODEL_HP9000720);
+X     if (!strcmp(uname,"9000/730")) return(MODEL_HP9000730);
+X     if (!strcmp(uname,"9000/750")) return(MODEL_HP9000750);
+X     return(0);
+X}
+X
+X
+X#endif
+X#ifdef mips
+X
+X/***************************************************************************
+X The following code uses the DEC uerf command to determine the model type
+X of a DECstations based on the processor type.  This is one of our sicker
+X heuristics, and will probably fail more often...
+X***************************************************************************/
+X
+X#include <stdio.h>
+X#include "../lib/parser.h"
+X
+X#define UERF  "/usr/etc/uerf -r 300 -R -H %s"
+X
+X
+Xtypedef struct _procmapping {
+X             char   procname[16];
+X             char   modelname[16];
+X             u_char model;
+X        } PROCMAPPING;
+X
+X
+XPROCMAPPING pmap[]={{"KN01",      "",   MODEL_DS3100},
+X                    {"KN02-BA",   "120",MODEL_DS5000120},
+X                    {"KN02-BA",   "133",MODEL_DS5000133},
+X                    {"KN02/R3000","",   MODEL_DS5000200},
+X                    {"?",         "",   0}};
+X
+X
+X#ifdef __STDC__
+Xu_char modelDetect(void)
+X#else
+Xu_char modelDetect()
+X#endif
+X{
+X     char processor[128],myhostname[128],uerfcommand[128],temp[128],temp2[128];
+X     FILE *inf;
+X     int found=0;
+X     PROCMAPPING *pmptr;
+X
+X#ifdef TESTING
+X     fprintf(stderr,"Entering modelDetect().\n");
+X#endif
+X     gethostname(myhostname,sizeof(myhostname));
+X     myhostname[sizeof(myhostname)-1]='\0';
+X     myhostname[12]='\0';
+X#ifdef TESTING
+X     fprintf(stderr,"myhostname is set.\n");
+X#endif
+X     sprintf(uerfcommand,UERF,myhostname);
+X#ifdef TESTING
+X     fprintf(stderr,"uerfcommand=%s\n",uerfcommand);
+X#endif
+X     if ((inf=popen(uerfcommand,"r"))==NULL) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to execute popen() command.\n");
+X#endif
+X          return(0);
+X     }
+X     while ((found!=2) && (fgets(processor,sizeof(processor),inf)!=NULL)) {
+X          if (processor[strlen(processor)-1]=='\n') 
+X               processor[strlen(processor)-1]='\0';
+X#ifdef TESTING
+X          printf("\"%s\"\n",processor);
+X#endif
+X          if ((found==1) && !strcmp(textparam(processor,0,temp2),"DECstation")) {
+X               if (strlen(textparam(processor,3,temp2))) {
+X                    for (pmptr=pmap; pmptr->model; pmptr++)
+X                         if (!strcmp(pmptr->procname,temp) &&
+X                             !strcmp(pmptr->modelname,temp2)) break;
+X                    found=2;
+X               }
+X               continue;
+X          }
+X          if (!found && !strcmp(textparam(processor,0,temp),"PROCESSOR")) {
+X               if (strlen(textparam(processor,2,temp))) {
+X                    for (pmptr=pmap; 
+X                         pmptr->model && strcmp(pmptr->procname,temp);
+X                         pmptr++)
+X                         ;
+X                    if (strlen(pmptr->modelname)) found=1;
+X                    else found=2;
+X               }
+X               continue;
+X          }
+X     }
+X     if (found!=2) {
+X#ifdef TESTING
+X          fprintf(stderr,"Unable to get processor type from uerf's output.\n");
+X#endif
+X          return(0);
+X     }
+X     pclose(inf);
+X     return(pmptr->model);
+X}
+X
+X
+X#endif
+X#if !(defined(sun) || defined(apollo) || defined(mips) || defined(hpux) || defined(_AIX))
+X
+X#ifdef __STDC__
+Xu_char modelDetect(void)
+X#else
+Xu_char modelDetect()
+X#endif
+X{
+X     return(0);
+X}
+X
+X#endif
+X
+X
+X#ifdef TESTING
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+X     printf("modelDetect() returns %d.\n",modelDetect());
+X}
+X
+X#endif
+END_OF_FILE
+  if test 10274 -ne `wc -c <'netuse/daemons/getmodel.c'`; then
+    echo shar: \"'netuse/daemons/getmodel.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/daemons/getmodel.c'
+fi
+if test -f 'netuse/daemons/wakeup.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/daemons/wakeup.c'\"
+else
+  echo shar: Extracting \"'netuse/daemons/wakeup.c'\" \(9866 characters\)
+  sed "s/^X//" >'netuse/daemons/wakeup.c' <<'END_OF_FILE'
+X/******************************************************************************
+X WAKEUP.C - Wake up a host's netused by sending a datagram to the netused port
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <pwd.h>
+X#include <errno.h>
+X#if (defined(_AIX) || defined(apollo))
+X#include <sys/ioctl.h>
+X#else
+X#include <sys/termios.h>
+X#endif
+X
+X#include "../lib/protocol.h"
+X#include "../lib/netuse.h"
+X#include "../lib/config.h"
+X#include "../lib/variable.h"
+X
+X
+Xextern long lTime;
+Xextern VARTABLE variables;
+X
+Xint sock;
+Xstruct sockaddr_in myname;
+Xjmp_buf jumpTimeout;
+Xlong lastCheck=0,lastSave=0,netuseStartTime;
+X
+X
+X#ifdef __STDC__
+Xint packetSend(USEREC *msg,struct sockaddr_in *dest)
+X#else
+Xint packetSend(msg,dest)
+XUSEREC *msg;
+Xstruct sockaddr_in *dest;
+X#endif
+X{
+X     u_char chk;
+X     int rv,count,i;
+X     PACKET out;
+X
+X     msg->load1=htons(msg->load1);
+X     msg->load2=htons(msg->load2);
+X     msg->load3=htons(msg->load3);
+X     msg->users=htons(msg->users);
+X     msg->console=htons(msg->console);
+X     msg->tmp=htonl(msg->tmp);
+X     msg->uid=htons(msg->uid);
+X     bcopy(msg,out,sizeof(PACKET));
+X     for (chk=0,i=1; i<PACKET_SIZE; i++)
+X          chk=(chk+out[i]) % 0xFF;
+X     out[0]=chk;
+X#ifdef DEBUG
+X     printf("Server sending:\n");
+X     printf("Opcode=%02x Retcode=%02x Ack=%02x Load1=%04x Load2=%04x Load3=%04x\n",
+X            msg->opcode,msg->retcode,msg->ack,ntohs(msg->load1),
+X            ntohs(msg->load2),ntohs(msg->load3));
+X     printf("Users=%04x Console=%04x Tmp=%08x Mach=%2x Model=%02x Chksum=%02x\n",
+X            ntohs(msg->users),ntohs(msg->console),ntohl(msg->tmp),
+X            msg->machine,msg->model,out[0]);
+X     printf("Data:");
+X     for (i=0; i<PACKET_SIZE; i++) {
+X          if (i && !(i % 16)) printf("\n     ");
+X          printf(" %02x",out[i]);
+X     }
+X     printf("\n");
+X#endif
+X     count=0;
+X     do {
+X          rv=sendto(sock,out,PACKET_SIZE,0,dest,sizeof(struct sockaddr_in));
+X          if (rv==(-1)) {
+X               perror("sendto");
+X               if (++count>SEND_RETRIES) return(RV_nBADSEND);
+X          }
+X     } while (rv!=PACKET_SIZE);
+X     return(RV_nOK);
+X}
+X
+X
+X#ifdef __STDC__
+Xint AlarmHandler(int sig)
+X#else
+Xint AlarmHandler(sig)
+Xint sig;
+X#endif
+X{
+X     longjmp(jumpTimeout,1);
+X     return(0);
+X}
+X
+X
+X#ifdef __STDC__
+Xint packetReceiveT(USEREC *msg,struct sockaddr_in *src)
+X#else
+Xint packetReceiveT(msg,src)
+XUSEREC *msg;
+Xstruct sockaddr_in *src;
+X#endif
+X{
+X     u_char chk;
+X     int i;
+X     PACKET in;
+X
+X     do {
+X          signal(SIGALRM,AlarmHandler);
+X          if (setjmp(jumpTimeout)!=0) return(RV_nTIMEOUT);
+X          alarm(TIMEOUT);
+X          i=sizeof(struct sockaddr_in);
+X          if (recvfrom(sock,in,PACKET_SIZE,0,src,&i)==(-1)) {
+X               perror("recvfrom");
+X               return(RV_nBADRECV);
+X          }
+X          alarm(0);
+X          signal(SIGALRM,SIG_DFL);
+X          bcopy(in,msg,sizeof(PACKET));
+X#ifdef DEBUG
+X          printf("Server received:\n");
+X          printf("Opcode=%02x Retcode=%02x Ack=%02x Load1=%04x Load2=%04x Load3=%04x\n",
+X                 msg->opcode,msg->retcode,msg->ack,ntohs(msg->load1),
+X                 ntohs(msg->load2),ntohs(msg->load3));
+X          printf("Users=%04x Console=%04x Tmp=%08x Mach=%02x Model=%02x Chksum=%02x\n",
+X                 ntohs(msg->users),ntohs(msg->console),ntohl(msg->tmp),
+X                 msg->machine,msg->model,in[0]);
+X          printf("Data:");
+X          for (i=0; i<PACKET_SIZE; i++) {
+X               if (i && !(i % 16)) printf("\n     ");
+X               printf(" %02x",in[i]);
+X          }
+X          printf("\n");
+X#endif
+X          for (chk=0,i=1; i<PACKET_SIZE; i++)
+X               chk=(chk+in[i]) % 0xFF;
+X     } while (chk!=msg->chksum);
+X     msg->load1=ntohs(msg->load1);
+X     msg->load2=ntohs(msg->load2);
+X     msg->load3=ntohs(msg->load3);
+X     msg->users=ntohs(msg->users);
+X     msg->console=ntohs(msg->console);
+X     msg->tmp=ntohl(msg->tmp);
+X     msg->uid=ntohs(msg->uid);
+X     return(RV_nOK);
+X}
+X
+X
+X#ifdef __STDC__
+Xint packetReceive(USEREC *msg,struct sockaddr_in *src)
+X#else
+Xint packetReceive(msg,src)
+XUSEREC *msg;
+Xstruct sockaddr_in *src;
+X#endif
+X{
+X     u_char chk;
+X     int i;
+X     PACKET in;
+X
+X     do {
+X          i=sizeof(struct sockaddr_in);
+X          if (recvfrom(sock,in,PACKET_SIZE,0,src,&i)==(-1)) {
+X               perror("recvfrom");
+X               return(RV_nBADRECV);
+X          }
+X          bcopy(in,msg,sizeof(PACKET));
+X#ifdef DEBUG
+X          printf("Server received:\n");
+X          printf("Opcode=%02x Retcode=%02x Ack=%02x Load1=%04x Load2=%04x Load3=%04x\n",
+X                 msg->opcode,msg->retcode,msg->ack,ntohs(msg->load1),
+X                 ntohs(msg->load2),ntohs(msg->load3));
+X          printf("Users=%04x Console=%04x Tmp=%08x Mach=%02x Model=%02x Chksum=%02x\n",
+X                 ntohs(msg->users),ntohs(msg->console),ntohl(msg->tmp),
+X                 msg->machine,msg->model,in[0]);
+X          printf("PACKET_SIZE=%d\n",PACKET_SIZE);
+X          printf("Data:");
+X          for (i=0; i<PACKET_SIZE; i++) {
+X               if (i && !(i % 16)) printf("\n     ");
+X               printf(" %02x",in[i]);
+X          }
+X          printf("\n");
+X#endif
+X          for (chk=0,i=1; i<PACKET_SIZE; i++)
+X               chk=(chk+in[i]) % 0xFF;
+X#ifdef DEBUG
+X          if (chk!=msg->chksum)
+X               printf("Bad checksum! %2x should be %2x\n",msg->chksum,chk);
+X#endif
+X     } while (chk!=msg->chksum);
+X     msg->load1=ntohs(msg->load1);
+X     msg->load2=ntohs(msg->load2);
+X     msg->load3=ntohs(msg->load3);
+X     msg->users=ntohs(msg->users);
+X     msg->console=ntohs(msg->console);
+X     msg->tmp=ntohl(msg->tmp);
+X     msg->uid=ntohs(msg->uid);
+X     return(RV_nOK);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid netSetup(void)
+X#else
+Xvoid netSetup()
+X#endif
+X{
+X     struct servent *servptr;
+X     int portno;
+X
+X     sock=socket(AF_INET,SOCK_DGRAM,0);
+X     if (sock<0) {
+X          perror("Acquiring a socket");
+X          exit(1);
+X     }
+X     myname.sin_family=AF_INET;
+X     myname.sin_addr.s_addr=INADDR_ANY;
+X     myname.sin_port=0;
+X     if (bind(sock,&myname,sizeof(myname))) {
+X          perror("Binding socket");
+X          exit(1);
+X     }
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid netShutdown(void)
+X#else
+Xvoid netShutdown()
+X#endif
+X{
+X     close(sock);
+X}
+X
+X
+X/*****************************************************************************
+X void logit(msg)
+X
+X This function logs a message in the (previously opened) logfile.  Note that
+X fflush() is used to ensure that the message gets logged to disk.
+X*****************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid logit(char *msg)
+X#else
+Xvoid logit(msg)
+Xchar *msg;
+X#endif
+X{
+X     char atime[64];
+X     struct timeval tv;
+X     struct timezone tz;
+X     int retries;
+X     FILE *logf;
+X
+X     gettimeofday(&tv,&tz);
+X     strcpy(atime,asctime(localtime(&(tv.tv_sec))));
+X     atime[strlen(atime)-1]='\0';
+X     for (retries=0; (retries<5) && ((logf=fopen(NETUSELOG,"a"))==NULL); ++retries)
+X          sleep(5);
+X     if (retries==5) {
+X          fprintf(stderr,"Unable to open log file %s for update.\n",NETUSELOG);
+X          return;
+X     }
+X     fprintf(logf,"%s -- %s\n",atime,msg);
+X     fclose(logf);
+X     chmod(NETUSELOG,0644);
+X}
+X
+X
+X#ifdef __STDC__
+Xvoid hostWakeup(char *host)
+X#else
+Xvoid hostWakeup(host)
+Xchar *host;
+X#endif
+X{
+X     struct servent *servptr;
+X     struct sockaddr_in dest;
+X     u_long ip;
+X     char buf[128];
+X
+X     servptr=getservbyname(NETUSED_SERVICE,NULL);
+X     if (servptr==NULL) dest.sin_port=NETUSED_PORT;
+X     else dest.sin_port=servptr->s_port;
+X     dest.sin_family=AF_INET;
+X     if (!(ip=netGetAddress(host))) {
+X          fprintf(stderr,"Unable to get IP address for %s.\n",host);
+X          return;
+X     }
+X     dest.sin_addr.s_addr=ip;
+X     printf("Yo!  (Waking up %s)...\n",host);
+X     if (sendto(sock,"Wakeup!",9,0,&dest,sizeof(dest))==(-1)) {
+X          sprintf(buf,"Error %d from sendto() in WakeTheDead().\n",errno);
+X          logit(buf);
+X     }
+X     close(socket);
+X}
+X
+X
+X#ifdef __STDC__
+Xmain(int argc,char *argv[])
+X#else
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X#endif
+X{
+X     int i;
+X     char buffer[1024];
+X
+X     netSetup();
+X     for (i=1; i<argc; i++) {
+X          strcpy(buffer,argv[i]);
+X          stoupper(buffer);
+X          if (buffer[0]=='-') {
+X               if (!strcmp(buffer,"-HELP")) {
+X                    printf("\nUsage: %s [options] host1 ...\n\n",argv[0]);
+X                    printf("Options: -help            Display usage info\n\n");
+X               }
+X          }
+X          else hostWakeup(buffer);
+X     }
+X     netShutdown();
+X}
+END_OF_FILE
+  if test 9866 -ne `wc -c <'netuse/daemons/wakeup.c'`; then
+    echo shar: \"'netuse/daemons/wakeup.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/daemons/wakeup.c'
+fi
+if test -f 'netuse/lib/getlist.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/getlist.c'\"
+else
+  echo shar: Extracting \"'netuse/lib/getlist.c'\" \(10276 characters\)
+  sed "s/^X//" >'netuse/lib/getlist.c' <<'END_OF_FILE'
+X/******************************************************************************
+X GETLIST.C - NETUSE Client List-receiving Routines
+X
+X The functions defined in this module are used to receive host lists from the
+X NETUSE server.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#ifdef IBMTCPIP
+X#include <types.h>
+X#endif
+X#ifndef MSDOS
+X#include <sys/time.h>
+X#endif
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include "network.h"
+X#include "protocol.h"
+X#include "netuse.h"
+X
+X
+Xextern long netuseTimeout;                                 /* From network.c */
+X
+Xchar buf1[255];
+Xint buf1bytes=0,bufptr=0;
+X
+X
+X/******************************************************************************
+X This function queries the NETUSE server for a host list of a type specified
+X by the machine (vendor type) and mode (listing mode) parameters.  The list is
+X printed directly on stdout (Ok, ok...  So write you're own!).
+X
+X The function uses a UDP packet for the initial request, and includes the port
+X number of a TCP socket which it wants to receive the list at.  The server
+X will send the list in text format to this TCP socket.  If the server never
+X responds, this function will wait until the accept() fails before returning
+X (i.e., there's no timeout on this one).
+X
+X Valid modes and machine and model types are given in netuse.h.
+X******************************************************************************/
+X
+X#ifdef __STDC__
+Xint netuseGetList(u_char machine,u_char model,int mode)
+X#else
+Xint netuseGetList(machine,model,mode)
+Xu_char machine,model;
+Xint mode;
+X#endif
+X{
+X     USEREC msg;
+X     int tcpsock,readsock,i,rv;
+X     struct sockaddr_in newaddr;
+X     FILE *inf;
+X     char buf[132],*ch,eol[3];
+X#ifdef IBMTCPIP
+X     int fdset[2];
+X     long tv;
+X#else
+X     struct fd_set fdset;
+X     struct timeval tv;
+X#endif
+X
+X     tcpsock=socket(AF_INET,SOCK_STREAM,0);
+X     if (tcpsock<0) {
+X          perror("socket");
+X          netShutdown();
+X          return(1);
+X     }
+X     newaddr.sin_family=AF_INET;
+X     newaddr.sin_addr.s_addr=INADDR_ANY;
+X     newaddr.sin_port=0;
+X     if (bind(tcpsock,(struct sockaddr *)&newaddr,sizeof(newaddr))) {
+X          perror("bind");
+X          return(1);
+X     }
+X     rv=listen(tcpsock,2);
+X#ifdef DEBUG
+X     if (rv) printf("listen() returned %d in netuseGetList().\n",rv);
+X#endif
+X     if (mode & MODE_MODELS) {
+X          switch (mode & MODE_MASK) {
+X               case MODE_DISP:
+X                    msg.opcode=OP_DISPMLIST;
+X                    break;
+X               case MODE_ALL:
+X                    msg.opcode=OP_GETMLIST;
+X                    break;
+X               case MODE_DOWN:
+X                    msg.opcode=OP_GETMDOWN;
+X                    break;
+X          }
+X     }
+X     else {
+X          switch (mode & MODE_MASK) {
+X               case MODE_DISP:
+X                    msg.opcode=OP_DISPLIST;
+X                    break;
+X               case MODE_ALL:
+X                    msg.opcode=OP_GETLIST;
+X                    break;
+X               case MODE_DOWN:
+X                    msg.opcode=OP_GETDOWN;
+X                    break;
+X          }
+X     }
+X     msg.machine=machine;
+X     msg.model=model;
+X     i=sizeof(newaddr);
+X     if (rv=getsockname(tcpsock,(struct sockaddr *)&newaddr,&i)) {
+X#ifdef DEBUG
+X          printf("getsockname() returned %d in netuseGetList().\n",rv);
+X#endif
+X          return(-1);
+X     }
+X#ifdef DEBUG
+X     printf("Using port number %04x in netuseGetList().\n",newaddr.sin_port);
+X#endif
+X     msg.portno=ntohs(newaddr.sin_port);
+X#ifdef DEBUG
+X     printf("Sending port number %04x in netuseGetList().\n",msg.portno);
+X#endif
+X#ifdef MSDOS
+X     msg.uid=0;
+X#else
+X     msg.uid=getuid();
+X#endif
+X     if (rv=packetSend(&msg)) {
+X#ifdef DEBUG
+X          printf("packetSend() returned %d in netuseGetList().\n",rv);
+X#endif
+X     }
+X#ifdef IBMTCPIP
+X     fdset[0]=tcpsock;
+X     tv=netuseTimeout*(REQ_RETRIES+1)*1000;
+X#ifdef DEBUG
+X     printf("About to call IBM's lobotomized select() in netuseGetList().\n");
+X     fflush(stdout);
+X#endif
+X     rv=select(fdset,1,0,0,tv);
+X#else /* ! IBMTCPIP */
+X     FD_ZERO(&fdset);
+X     FD_SET(tcpsock,&fdset);
+X     tv.tv_sec=netuseTimeout*(REQ_RETRIES+1);
+X     tv.tv_usec=0;
+X#ifdef DEBUG
+X     printf("About to call select() in netuseGetList().\n");
+X     fflush(stdout);
+X#endif
+X     rv=select(FD_SETSIZE,&fdset,NULL,NULL,&tv);
+X#endif /* !IBMTCPIP */
+X#ifdef DEBUG
+X     printf("Back from select() in netuseGetList().\n");
+X     fflush(stdout);
+X#endif
+X     if (rv<0) {
+X          fprintf(stderr,"netuseGetList(): Error %d from select().\n",rv);
+X#if (defined(MSDOS) || defined(OS2))
+X          soclose(tcpsock);
+X#else
+X          close(tcpsock);
+X#endif
+X          return(RV_nBADRECV);
+X     }
+X#ifdef IBMTCPIP
+X     if (fdset[0]!=(-1)) {
+X#else
+X     if (FD_ISSET(tcpsock,&fdset)) {
+X#endif
+X#ifdef DEBUG
+X          printf("About to call accept() in netuseGetList()...\n");
+X          fflush(stdout);
+X#endif
+X          if ((readsock=accept(tcpsock,(struct sockaddr *)&newaddr,&i))<0) {
+X               perror("accept");
+X#if (defined(MSDOS) || defined(IBMTCPIP))
+X               soclose(tcpsock);
+X#else
+X               close(tcpsock);
+X#endif
+X               return(1);
+X          }
+X#ifdef DEBUG
+X          printf("Successful accept() in netuseGetList().\n");
+X          fflush(stdout);
+X#endif
+X#if (defined(MSDOS) || defined(IBMTCPIP))
+X          soclose(tcpsock);
+X#else
+X          close(tcpsock);
+X#endif
+X     }
+X     else {
+X#if (defined(MSDOS) || defined(IBMTCPIP))
+X          soclose(tcpsock);
+X#else
+X          close(tcpsock);
+X#endif
+X#ifdef DEBUG
+X          printf("select() failed to get a connection in netuseGetList().\n");
+X          fflush(stdout);
+X#endif
+X          return(RV_nTIMEOUT);
+X     }
+X     if (mode & MODE_NET) strcpy(eol,"\r\n");
+X     else strcpy(eol,"\n");
+X     printf("%s",eol);
+X     while (!netuseTCPReceiveMessage(readsock,buf)) {
+X          for (ch=buf; *ch!='\0'; ch++)
+X               if ((*ch=='\n') || (*ch=='\r')) strcpy(ch,ch+1);
+X          printf("%s%s",buf,eol);
+X     }
+X#if (defined(MSDOS) || defined(IBMTCPIP))
+X     soclose(readsock);
+X#else
+X     close(readsock);
+X#endif
+X     return(0);
+X}
+X
+X
+X#ifdef __STDC__
+Xint netuseTCPReceiveMessage(int sock,char *msg)
+X#else
+Xint netuseTCPReceiveMessage(sock,msg)
+Xint sock;
+Xchar *msg;
+X#endif
+X{
+X     int bytesRead,done,rv;
+X     char *bp;
+X#ifdef IBMTCPIP
+X     int fdset[2];
+X     long tv;
+X#else
+X     struct fd_set fdset;
+X     struct timeval tv;
+X#endif
+X
+X#ifdef DEBUG
+X     printf("\nInside netuseTCPReceiveMessage().\n");
+X#endif
+X     done=0; bp=msg;
+X     do {
+X          for ( ; !done && (bufptr<buf1bytes); bufptr++) {
+X               if ((*(bp++)=buf1[bufptr])=='\n') {
+X                    *bp='\0';
+X                    done=1;
+X               }
+X          }
+X          if (!done) {
+X#ifdef IBMTCPIP
+X               fdset[0]=sock;
+X               tv=netuseTimeout*(REQ_RETRIES+1)*1000;
+X#ifdef DEBUG
+X               printf("About to call IBM's lobotomized select() in netuseTCPReceiveMessage().\n");
+X               fflush(stdout);
+X#endif
+X               rv=select(fdset,1,0,0,tv);
+X#else /* ! IBMTCPIP */
+X               FD_ZERO(&fdset);
+X               FD_SET(sock,&fdset);
+X               tv.tv_sec=netuseTimeout*(REQ_RETRIES+1);
+X               tv.tv_usec=0;
+X#ifdef DEBUG
+X               printf("About to call select() in netuseTCPReceiveMessage().\n");
+X               fflush(stdout);
+X#endif
+X               rv=select(FD_SETSIZE,&fdset,NULL,NULL,&tv);
+X#endif /* ! IBMTCPIP */
+X#ifdef DEBUG
+X               printf("select() in netuseTCPReceiveMessage() returns %d.\n",rv);
+X               fflush(stdout);
+X#endif
+X               if (rv==(-1)) {
+X                    fprintf(stderr,"select: Error in netuseTCPReceiveMessage().\n",rv);
+X                    return(RV_nBADRECV);
+X               }
+X#ifdef IBMTCPIP
+X               if (fdset[0]!=(-1)) {
+X#else
+X               if (FD_ISSET(sock,&fdset)) {
+X#endif
+X#ifdef DEBUG
+X                    printf("Calling soread() in netuseTCPReceiveMessage()...\n",rv);
+X#endif
+X#ifdef NOVELL
+X                    if ((buf1bytes=soread(sock,buf1,sizeof(buf1)))<=0) {
+X#else
+X#ifdef IBMTCPIP
+X                    if ((buf1bytes=recv(sock,buf1,sizeof(buf1),0))<=0) {                    
+X#else
+X                    if ((buf1bytes=read(sock,buf1,sizeof(buf1)))<=0) {
+X#endif
+X#endif
+X#ifdef DEBUG
+X                         printf("Connection to NETUSE server was dropped by server.\n");
+X#endif
+X                         return(-2);
+X                    }
+X                    else bufptr=0;
+X#ifdef DEBUG
+X                    printf("soread() success in netuseTCPReceiveMessage()...\n",rv);
+X#endif
+X               }
+X               else {
+X#ifdef DEBUG
+X                    printf("select() timed out in netuseTCPReceiveMessage().\n",rv);
+X#endif
+X                    return(RV_nTIMEOUT);
+X               }
+X          }
+X     } while (!done);
+X     if (strlen(msg) && (msg[strlen(msg)-1]=='\n'))
+X          msg[strlen(msg)-1]='\0';
+X     if (strlen(msg) && (msg[strlen(msg)-1]=='\r'))
+X          msg[strlen(msg)-1]='\0';
+X#ifdef DEBUG
+X     printf("RECV: \"%s\"\n",msg);
+X#endif
+X     return(0);
+X}
+X
+X
+END_OF_FILE
+  if test 10276 -ne `wc -c <'netuse/lib/getlist.c'`; then
+    echo shar: \"'netuse/lib/getlist.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/getlist.c'
+fi
+if test -f 'netuse/lib/network.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netuse/lib/network.c'\"
+else
+  echo shar: Extracting \"'netuse/lib/network.c'\" \(10106 characters\)
+  sed "s/^X//" >'netuse/lib/network.c' <<'END_OF_FILE'
+X/******************************************************************************
+X NETWORK.C - NETUSE Client-side Network Interface
+X
+X This file contains the basic network routines used by the NETUSE clients for
+X sending and receiving data from the server.
+X
+X Lee Liming and Michael Neil, The Computer Aided Engineering Network
+X The University of Michigan
+X
+X Copyright (C) 1990, 1991, 1992 by the Regents of the University of Michigan.
+X
+X User agrees to reproduce said copyright notice on all copies of the software
+X made by the recipient.  
+X
+X All Rights Reserved. Permission is hereby granted for the recipient to make
+X copies and use this software for its own internal purposes only. Recipient of
+X this software may re-distribute this software outside of their own
+X institution. Permission to market this software commercially, to include this
+X product as part of a commercial product, or to make a derivative work for
+X commercial purposes, is explicitly prohibited.  All other uses are also
+X prohibited unless authorized in writing by the Regents of the University of
+X Michigan.
+X
+X This software is offered without warranty. The Regents of the University of
+X Michigan disclaim all warranties, express or implied, including but not
+X limited to the implied warranties of merchantability and fitness for any
+X particular purpose. In no event shall the Regents of the University of
+X Michigan be liable for loss or damage of any kind, including but not limited
+X to incidental, indirect, consequential, or special damages. 
+X******************************************************************************/
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#ifndef MSDOS
+X#include <sys/time.h>
+X#endif
+X#ifdef IBMTCPIP
+X#include <types.h>
+X#endif
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include "protocol.h"
+X
+X
+X/* #define DEBUG */
+X
+X
+Xint sock;                               /* Socket used for UDP send/receives */
+Xstruct sockaddr_in servername,clientname;           /* Server & client names */
+Xjmp_buf jumpTimeout;                              /* Timeout handler address */
+Xlong netuseTimeout=TIMEOUT;                        /* Override timeout value */
+X
+X
+X/******************************************************************************
+X int packetSend(USEREC *msg)
+X
+X This function sends a NETUSE packet to the server.  netSetup() must have been
+X previously called.  Transmit failures are returned (interpreted) to the
+X caller.  All numeric fields in the packet are converted to network order
+X before sending.
+X******************************************************************************/
+X
+X#ifdef __STDC__
+Xint packetSend(USEREC *msg)
+X#else
+Xint packetSend(msg)
+XUSEREC *msg;
+X#endif
+X{
+X     u_char chk;
+X     int rv,count,i;
+X     PACKET out;
+X
+X     msg->load1=htons(msg->load1);
+X     msg->load2=htons(msg->load2);
+X     msg->load3=htons(msg->load3);
+X     msg->users=htons(msg->users);
+X     msg->console=htons(msg->console);
+X     msg->tmp=htonl(msg->tmp);
+X     msg->uid=htons(msg->uid);
+X     bcopy((char *)msg,(char *)out,sizeof(PACKET));
+X     for (chk=0,i=1; i<PACKET_SIZE; i++)
+X          chk=(chk+out[i]) % 0xFF;
+X     out[0]=chk;
+X#ifdef DEBUG
+X     printf("NETUSE Client sending:\n");
+X     printf("Opcode=%02x Retcode=%02x Ack=%02x Load1=%04x Load2=%04x Load3=%04x Users=%04x Console=%04x /tmp=%08x Mach=%02x Model=%02x Chksum=%02x\n",
+X            msg->opcode,msg->retcode,msg->ack,ntohs(msg->load1),
+X            ntohs(msg->load2),ntohs(msg->load3),ntohs(msg->users),
+X            ntohs(msg->console),ntohl(msg->tmp),msg->machine,msg->model,out[0]);
+X     printf("Data:");
+X     for (i=0; i<PACKET_SIZE; i++) {
+X          if (i && !(i % 16)) printf("\n     ");
+X          printf(" %02x",out[i]);
+X     }
+X     printf("\n");
+X#endif
+X     count=0;
+X     do {
+X          rv=sendto(sock,out,PACKET_SIZE,0,
+X                    &servername,sizeof(struct sockaddr));
+X          if (rv==(-1)) {
+X               perror("sendto");
+X               if (++count>SEND_RETRIES) return(RV_nBADSEND);
+X          }
+X     } while (rv!=PACKET_SIZE);
+X     return(RV_nOK);
+X}
+X
+X
+X/******************************************************************************
+X int packetReceive(USEREC *msg)
+X
+X This function receives a packet from the NETUSE server.  If no packet arrives
+X within one timeout period, RV_nTIMEOUT is returned.  Packets with bad
+X checksum fields are ignored.  Otherwise, either a network error is returned,
+X or the msg buffer is filled with the received packet's data (all numeric
+X fields are converted to host format).
+X******************************************************************************/
+X
+X#ifdef __STDC__
+Xint packetReceive(USEREC *msg)
+X#else
+Xint packetReceive(msg)
+XUSEREC *msg;
+X#endif
+X{
+X     u_char chk;
+X     int i,rv;
+X     PACKET in;
+X#ifndef IBMTCPIP
+X     struct fd_set fdset;
+X     struct timeval tv;
+X#else
+X     int fdset[2];
+X     long tv;
+X#endif
+X
+X     do {
+X#ifdef IBMTCPIP
+X          fdset[0]=sock;
+X          tv=netuseTimeout*1000;
+X#ifdef DEBUG
+X          printf("About to call IBM's lobotomized select() in packetReceive().\n");
+X          fflush(stdout);
+X#endif
+X          rv=select(fdset,1,0,0,tv);
+X#else /* !IBMTCPIP */
+X          FD_ZERO(&fdset);
+X          FD_SET(sock,&fdset);
+X          tv.tv_sec=netuseTimeout;
+X          tv.tv_usec=0;
+X#ifdef DEBUG
+X          printf("About to call select() in packetReceive().\n");
+X          fflush(stdout);
+X#endif
+X          rv=select(FD_SETSIZE,&fdset,NULL,NULL,&tv);
+X#endif /* !IBMTCPIP */
+X#ifdef DEBUG
+X          printf("Back from select() in packetReceive().\n");
+X          fflush(stdout);
+X#endif
+X          if (rv==(-1)) {
+X               fprintf(stderr,"packetReceive(): Error %d from select().\n",rv);
+X               return(RV_nBADRECV);
+X          }
+X#ifdef IBMTCPIP
+X               if (fdset[0]!=(-1)) {
+X#else
+X               if (FD_ISSET(sock,&fdset)) {
+X#endif
+X               i=sizeof(struct sockaddr);
+X               if (recvfrom(sock,in,PACKET_SIZE,0,
+X                            &servername,&i)==(-1)) {
+X                    perror("recvfrom");
+X                    return(RV_nBADRECV);
+X               }
+X               bcopy((char *)in,(char *)msg,sizeof(PACKET));
+X          }
+X          else return(RV_nTIMEOUT);
+X#ifdef DEBUG
+X          printf("NETUSE Client received:\n");
+X          printf("Opcode=%02x Retcode=%02x Ack=%02x Load1=%04x Load2=%04x Load3=%04x Users=%04x Console=%04x /tmp=%08x Mach=%02x Model=%02x Chksum=%02x\n",
+X                 msg->opcode,msg->retcode,msg->ack,ntohs(msg->load1),
+X                 ntohs(msg->load2),ntohs(msg->load3),ntohs(msg->users),
+X                 ntohs(msg->console),ntohl(msg->tmp),msg->machine,msg->model,in[0]);
+X          printf("Data:");
+X          for (i=0; i<PACKET_SIZE; i++) {
+X               if (i && !(i % 16)) printf("\n     ");
+X               printf(" %02x",in[i]);
+X          }
+X          printf("\n");
+X#endif
+X          for (chk=0,i=1; i<PACKET_SIZE; i++)
+X               chk=(chk+in[i]) % 0xFF;
+X#ifdef DEBUG
+X          if (chk!=in[0]) printf("Bad checksum!!!\n");
+X#endif
+X     } while (chk!=in[0]);
+X     msg->load1=ntohs(msg->load1);
+X     msg->load2=ntohs(msg->load2);
+X     msg->load3=ntohs(msg->load3);
+X     msg->users=ntohs(msg->users);
+X     msg->console=ntohs(msg->console);
+X     msg->tmp=ntohl(msg->tmp);
+X     msg->uid=ntohs(msg->uid);
+X     return(RV_nOK);
+X}
+X
+X
+X#ifdef __STDC__
+Xchar *textIPAddress(u_long inaddr,char *buf)
+X#else
+Xchar *textIPAddress(inaddr,buf)
+Xu_long inaddr;
+Xchar *buf;
+X#endif
+X{
+X     struct hostent *hp;
+X     u_char ipbytes[4];
+X     char *cp;
+X
+X#if (defined(MSDOS) && defined(NOVELL))
+X     if ((cp=raddr(inaddr))==(char *)(-1)) {
+X          bcopy((char *)&inaddr,ipbytes,sizeof(ipbytes));
+X          sprintf(buf,"%d.%d.%d.%d",ipbytes[0],ipbytes[1],ipbytes[2],ipbytes[3]);
+X     }
+X     else strcpy(buf,cp);
+X#else
+X     hp=gethostbyaddr(&inaddr,sizeof(u_long),AF_INET);
+X     if (hp==NULL) {
+X          bcopy((char *)&inaddr,ipbytes,sizeof(ipbytes));
+X          sprintf(buf,"%d.%d.%d.%d",ipbytes[0],ipbytes[1],ipbytes[2],ipbytes[3])
+X;
+X     }
+X     else strcpy(buf,hp->h_name);
+X#endif
+X     return(buf);
+X}
+X
+X
+X/******************************************************************************
+X void netSetup(void)
+X
+X Set up the client side of a NETUSE session.  Get a socket, fill in the
+X server's adddress, bind to a local port, etc.
+X******************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid netSetup(void)
+X#else
+Xvoid netSetup()
+X#endif
+X{
+X     struct hostent *hp;
+X     char buf[132],*cp,**cpp;
+X     long iaddr;
+X
+X#ifdef DEBUG
+X     printf("Getting a socket...\n");
+X#endif
+X     sock=socket(AF_INET,SOCK_DGRAM,0);
+X     if (sock<0) {
+X          perror("Acquiring a socket");
+X          exit(1);
+X     }
+X     clientname.sin_family=AF_INET;
+X     clientname.sin_addr.s_addr=INADDR_ANY;
+X     clientname.sin_port=0;
+X#ifdef DEBUG
+X     printf("Binding socket...\n");
+X#endif
+X     if (bind(sock,&clientname,sizeof(clientname))) {
+X          perror("Binding socket");
+X          exit(1);
+X     }
+X#ifdef DEBUG
+X     printf("Resolving server IP address...\n");
+X#endif
+X#if (defined(MSDOS) && defined(NOVELL))
+X     cp=NETUSE_SERVER;
+X     cpp=(&cp);
+X     if ((iaddr=rhost(cpp))==(-1)) {
+X          perror("Getting server address");
+X          exit(1);
+X     }
+X     else bcopy((char *)&iaddr,(char *)&servername.sin_addr,sizeof(iaddr));
+X#else
+X     hp=gethostbyname(NETUSE_SERVER);
+X     if (hp==NULL) {
+X          perror("Getting server address");
+X          exit(1);
+X     }
+X     bcopy((char *)hp->h_addr,(char *)&servername.sin_addr,hp->h_length);
+X#endif
+X#ifdef DEBUG
+X     printf("Server address = %s\n",
+X            textIPAddress(servername.sin_addr.s_addr,buf));
+X#endif
+X     servername.sin_family=AF_INET;
+X     servername.sin_port=htons(NETUSE_PORT);
+X}
+X
+X
+X/******************************************************************************
+X void netShutdown(void)
+X
+X Shut down the client side of the NETUSE session.  Close the local socket.
+X******************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid netShutdown(void)
+X#else
+Xvoid netShutdown()
+X#endif
+X{
+X#if (defined(NOVELL) || defined(IBMTCPIP))
+X     soclose(sock);
+X#else
+X     close(sock);
+X#endif
+X}
+END_OF_FILE
+  if test 10106 -ne `wc -c <'netuse/lib/network.c'`; then
+    echo shar: \"'netuse/lib/network.c'\" unpacked with wrong size!
+  fi
+  # end of 'netuse/lib/network.c'
+fi
+echo shar: End of archive 3 \(of 6\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

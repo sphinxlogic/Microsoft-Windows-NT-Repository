@@ -1,0 +1,2043 @@
+Path: comp-sources-3b1
+From: dave@galaxia.newport.ri.us (David H. Brierley)
+Subject:  v02i005:  BSD Compatibility Library for ATT 3B1, Part02/02
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.newport.ri.us
+X-Checksum-Snefru: eebb21bf 36a64c66 0221e8cc a4a16822
+
+Submitted-by: dave@galaxia.newport.ri.us (David H. Brierley)
+Posting-number: Volume 2, Issue 5
+Archive-name: libbsd/part02
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 2)."
+# Contents:  getdate.y mkdir.c random.c strftime.3 strftime.c
+# Wrapped by dave@galaxia on Sat Jun 13 15:23:54 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'getdate.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'getdate.y'\"
+else
+echo shar: Extracting \"'getdate.y'\" \(20818 characters\)
+sed "s/^X//" >'getdate.y' <<'END_OF_FILE'
+X%{
+X/* $Revision: 2.1 $
+X**
+X**  Originally written by Steven M. Bellovin <smb@research.att.com> while
+X**  at the University of North Carolina at Chapel Hill.  Later tweaked by
+X**  a couple of people on Usenet.  Completely overhauled by Rich $alz
+X**  <rsalz@bbn.com> and Jim Berets <jberets@bbn.com> in August, 1990;
+X**  send any email to Rich.
+X**
+X**  This grammar has eight shift/reduce conflicts.
+X**
+X**  This code is in the public domain and has no copyright.
+X*/
+X/* SUPPRESS 287 on yaccpar_sccsid *//* Unusd static variable */
+X/* SUPPRESS 288 on yyerrlab *//* Label unused */
+X#include "defs.h"
+X#include <stdio.h>
+X#include <ctype.h>
+X
+X#if	defined(vms)
+X#include <types.h>
+X#include <time.h>
+X#else
+X#include <sys/types.h>
+X#if	defined(USG)
+X/*
+X**  Uncomment the next line if you need to do a tzset() call to set the
+X**  timezone, and don't have ftime().  Some SystemV releases, I think.
+X*/
+X#define NEED_TZSET
+Xstruct timeb {
+X    time_t		time;		/* Seconds since the epoch	*/
+X    unsigned short	millitm;	/* Field not used		*/
+X    short		timezone;
+X    short		dstflag;	/* Field not used		*/
+X};
+X#else
+X#include <sys/timeb.h>
+X#endif	/* defined(USG) */
+X#if	defined(BSD4_2)
+X#include <sys/time.h>
+X#else
+X#include <time.h>
+X#endif	/* defined(BSD4_2) */
+X#endif	/* defined(vms) */
+X
+X#if	!defined(lint) && !defined(SABER)
+Xstatic char RCS[] =
+X	"$Header: str2date.y,v 2.1 90/09/06 08:15:06 cronan Exp $";
+X#endif	/* !defined(lint) && !defined(SABER) */
+X
+X
+X#define EPOCH		1970
+X#define HOUR(x)		(x * 60)
+X#define SECSPERDAY	(24L * 60L * 60L)
+X
+X
+X/*
+X**  An entry in the lexical lookup table.
+X*/
+Xtypedef struct _TABLE {
+X    char	*name;
+X    int		type;
+X    time_t	value;
+X} TABLE;
+X
+X
+X/*
+X**  Daylight-savings mode:  on, off, or not yet known.
+X*/
+Xtypedef enum _DSTMODE {
+X    DSTon, DSToff, DSTmaybe
+X} DSTMODE;
+X
+X/*
+X**  Meridian:  am, pm, or 24-hour style.
+X*/
+Xtypedef enum _MERIDIAN {
+X    MERam, MERpm, MER24
+X} MERIDIAN;
+X
+X
+X/*
+X**  Global variables.  We could get rid of most of these by using a good
+X**  union as the yacc stack.  (This routine was originally written before
+X**  yacc had the %union construct.)  Maybe someday; right now we only use
+X**  the %union very rarely.
+X*/
+Xstatic char	*yyInput;
+Xstatic DSTMODE	yyDSTmode;
+Xstatic time_t	yyDayOrdinal;
+Xstatic time_t	yyDayNumber;
+Xstatic int	yyHaveDate;
+Xstatic int	yyHaveDay;
+Xstatic int	yyHaveRel;
+Xstatic int	yyHaveTime;
+Xstatic int	yyHaveZone;
+Xstatic time_t	yyTimezone;
+Xstatic time_t	yyDay;
+Xstatic time_t	yyHour;
+Xstatic time_t	yyMinutes;
+Xstatic time_t	yyMonth;
+Xstatic time_t	yySeconds;
+Xstatic time_t	yyYear;
+Xstatic MERIDIAN	yyMeridian;
+Xstatic time_t	yyRelMonth;
+Xstatic time_t	yyRelSeconds;
+X
+X
+Xextern struct tm	*localtime();
+X%}
+X
+X%union {
+X    time_t		Number;
+X    enum _MERIDIAN	Meridian;
+X}
+X
+X%token	tAGO tDAY tDAYZONE tID tMERIDIAN tMINUTE_UNIT tMONTH tMONTH_UNIT
+X%token	tSEC_UNIT tSNUMBER tUNUMBER tZONE
+X
+X%type	<Number>	tDAY tDAYZONE tMINUTE_UNIT tMONTH tMONTH_UNIT
+X%type	<Number>	tSEC_UNIT tSNUMBER tUNUMBER tZONE
+X%type	<Meridian>	tMERIDIAN o_merid
+X
+X%%
+X
+Xspec	: /* NULL */
+X	| spec item
+X	;
+X
+Xitem	: time {
+X	    yyHaveTime++;
+X	}
+X	| zone {
+X	    yyHaveZone++;
+X	}
+X	| date {
+X	    yyHaveDate++;
+X	}
+X	| day {
+X	    yyHaveDay++;
+X	}
+X	| rel {
+X	    yyHaveRel++;
+X	}
+X	| number
+X	;
+X
+Xtime	: tUNUMBER tMERIDIAN {
+X	    yyHour = $1;
+X	    yyMinutes = 0;
+X	    yySeconds = 0;
+X	    yyMeridian = $2;
+X	}
+X	| tUNUMBER ':' tUNUMBER o_merid {
+X	    yyHour = $1;
+X	    yyMinutes = $3;
+X	    yySeconds = 0;
+X	    yyMeridian = $4;
+X	}
+X	| tUNUMBER ':' tUNUMBER tSNUMBER {
+X	    yyHour = $1;
+X	    yyMinutes = $3;
+X	    yyMeridian = MER24;
+X	    yyDSTmode = DSToff;
+X	    yyTimezone = - ($4 % 100 + ($4 / 100) * 60);
+X	}
+X	| tUNUMBER ':' tUNUMBER ':' tUNUMBER o_merid {
+X	    yyHour = $1;
+X	    yyMinutes = $3;
+X	    yySeconds = $5;
+X	    yyMeridian = $6;
+X	}
+X	| tUNUMBER ':' tUNUMBER ':' tUNUMBER tSNUMBER {
+X	    yyHour = $1;
+X	    yyMinutes = $3;
+X	    yySeconds = $5;
+X	    yyMeridian = MER24;
+X	    yyDSTmode = DSToff;
+X	    yyTimezone = - ($6 % 100 + ($6 / 100) * 60);
+X	}
+X	;
+X
+Xzone	: tZONE {
+X	    yyTimezone = $1;
+X	    yyDSTmode = DSToff;
+X	}
+X	| tDAYZONE {
+X	    yyTimezone = $1;
+X	    yyDSTmode = DSTon;
+X	}
+X	;
+X
+Xday	: tDAY {
+X	    yyDayOrdinal = 1;
+X	    yyDayNumber = $1;
+X	}
+X	| tDAY ',' {
+X	    yyDayOrdinal = 1;
+X	    yyDayNumber = $1;
+X	}
+X	| tUNUMBER tDAY {
+X	    yyDayOrdinal = $1;
+X	    yyDayNumber = $2;
+X	}
+X	;
+X
+Xdate	: tUNUMBER '/' tUNUMBER {
+X	    yyMonth = $1;
+X	    yyDay = $3;
+X	}
+X	| tUNUMBER '/' tUNUMBER '/' tUNUMBER {
+X	    yyMonth = $1;
+X	    yyDay = $3;
+X	    yyYear = $5;
+X	}
+X	| tMONTH tUNUMBER {
+X	    yyMonth = $1;
+X	    yyDay = $2;
+X	}
+X	| tMONTH tUNUMBER ',' tUNUMBER {
+X	    yyMonth = $1;
+X	    yyDay = $2;
+X	    yyYear = $4;
+X	}
+X	| tUNUMBER tMONTH {
+X	    yyMonth = $2;
+X	    yyDay = $1;
+X	}
+X	| tUNUMBER tMONTH tUNUMBER {
+X	    yyMonth = $2;
+X	    yyDay = $1;
+X	    yyYear = $3;
+X	}
+X	;
+X
+Xrel	: relunit tAGO {
+X	    yyRelSeconds = -yyRelSeconds;
+X	    yyRelMonth = -yyRelMonth;
+X	}
+X	| relunit
+X	;
+X
+Xrelunit	: tUNUMBER tMINUTE_UNIT {
+X	    yyRelSeconds += $1 * $2 * 60L;
+X	}
+X	| tSNUMBER tMINUTE_UNIT {
+X	    yyRelSeconds += $1 * $2 * 60L;
+X	}
+X	| tMINUTE_UNIT {
+X	    yyRelSeconds += $1 * 60L;
+X	}
+X	| tSNUMBER tSEC_UNIT {
+X	    yyRelSeconds += $1;
+X	}
+X	| tUNUMBER tSEC_UNIT {
+X	    yyRelSeconds += $1;
+X	}
+X	| tSEC_UNIT {
+X	    yyRelSeconds++;
+X	}
+X	| tSNUMBER tMONTH_UNIT {
+X	    yyRelMonth += $1 * $2;
+X	}
+X	| tUNUMBER tMONTH_UNIT {
+X	    yyRelMonth += $1 * $2;
+X	}
+X	| tMONTH_UNIT {
+X	    yyRelMonth += $1;
+X	}
+X	;
+X
+Xnumber	: tUNUMBER {
+X	    if (yyHaveTime && yyHaveDate && !yyHaveRel)
+X		yyYear = $1;
+X	    else {
+X		yyHaveTime++;
+X		if ($1 < 100) {
+X		    yyHour = $1;
+X		    yyMinutes = 0;
+X		}
+X		else {
+X		    yyHour = $1 / 100;
+X		    yyMinutes = $1 % 100;
+X		}
+X		yySeconds = 0;
+X		yyMeridian = MER24;
+X	    }
+X	}
+X	;
+X
+Xo_merid	: /* NULL */ {
+X	    $$ = MER24;
+X	}
+X	| tMERIDIAN {
+X	    $$ = $1;
+X	}
+X	;
+X
+X%%
+X
+X/* Month and day table. */
+Xstatic TABLE	MonthDayTable[] = {
+X    { "january",	tMONTH,  1 },
+X    { "february",	tMONTH,  2 },
+X    { "march",		tMONTH,  3 },
+X    { "april",		tMONTH,  4 },
+X    { "may",		tMONTH,  5 },
+X    { "june",		tMONTH,  6 },
+X    { "july",		tMONTH,  7 },
+X    { "august",		tMONTH,  8 },
+X    { "september",	tMONTH,  9 },
+X    { "sept",		tMONTH,  9 },
+X    { "october",	tMONTH, 10 },
+X    { "november",	tMONTH, 11 },
+X    { "december",	tMONTH, 12 },
+X    { "sunday",		tDAY, 0 },
+X    { "monday",		tDAY, 1 },
+X    { "tuesday",	tDAY, 2 },
+X    { "tues",		tDAY, 2 },
+X    { "wednesday",	tDAY, 3 },
+X    { "wednes",		tDAY, 3 },
+X    { "thursday",	tDAY, 4 },
+X    { "thur",		tDAY, 4 },
+X    { "thurs",		tDAY, 4 },
+X    { "friday",		tDAY, 5 },
+X    { "saturday",	tDAY, 6 },
+X    { NULL }
+X};
+X
+X/* Time units table. */
+Xstatic TABLE	UnitsTable[] = {
+X    { "year",		tMONTH_UNIT,	12 },
+X    { "month",		tMONTH_UNIT,	1 },
+X    { "fortnight",	tMINUTE_UNIT,	14 * 24 * 60 },
+X    { "week",		tMINUTE_UNIT,	7 * 24 * 60 },
+X    { "day",		tMINUTE_UNIT,	1 * 24 * 60 },
+X    { "hour",		tMINUTE_UNIT,	60 },
+X    { "minute",		tMINUTE_UNIT,	1 },
+X    { "min",		tMINUTE_UNIT,	1 },
+X    { "second",		tSEC_UNIT,	1 },
+X    { "sec",		tSEC_UNIT,	1 },
+X    { NULL }
+X};
+X
+X/* Assorted relative-time words. */
+Xstatic TABLE	OtherTable[] = {
+X    { "tomorrow",	tMINUTE_UNIT,	1 * 24 * 60 },
+X    { "yesterday",	tMINUTE_UNIT,	-1 * 24 * 60 },
+X    { "today",		tMINUTE_UNIT,	0 },
+X    { "now",		tMINUTE_UNIT,	0 },
+X    { "last",		tUNUMBER,	-1 },
+X    { "this",		tMINUTE_UNIT,	0 },
+X    { "next",		tUNUMBER,	2 },
+X    { "first",		tUNUMBER,	1 },
+X/*  { "second",		tUNUMBER,	2 }, */
+X    { "third",		tUNUMBER,	3 },
+X    { "fourth",		tUNUMBER,	4 },
+X    { "fifth",		tUNUMBER,	5 },
+X    { "sixth",		tUNUMBER,	6 },
+X    { "seventh",	tUNUMBER,	7 },
+X    { "eighth",		tUNUMBER,	8 },
+X    { "ninth",		tUNUMBER,	9 },
+X    { "tenth",		tUNUMBER,	10 },
+X    { "eleventh",	tUNUMBER,	11 },
+X    { "twelfth",	tUNUMBER,	12 },
+X    { "ago",		tAGO,	1 },
+X    { NULL }
+X};
+X
+X/* The timezone table. */
+Xstatic TABLE	TimezoneTable[] = {
+X    { "gmt",	tZONE,     HOUR( 0) },	/* Greenwich Mean */
+X    { "ut",	tZONE,     HOUR( 0) },	/* Universal (Coordinated) */
+X    { "utc",	tZONE,     HOUR( 0) },
+X    { "wet",	tZONE,     HOUR( 0) },	/* Western European */
+X    { "bst",	tDAYZONE,  HOUR( 0) },	/* British Summer */
+X    { "wat",	tZONE,     HOUR( 1) },	/* West Africa */
+X    { "at",	tZONE,     HOUR( 2) },	/* Azores */
+X#if	0
+X    /* For completeness.  BST is also British Summer, and GST is
+X     * also Guam Standard. */
+X    { "bst",	tZONE,     HOUR( 3) },	/* Brazil Standard */
+X    { "gst",	tZONE,     HOUR( 3) },	/* Greenland Standard */
+X#endif
+X    { "nft",	tZONE,     HOUR(3.5) },	/* Newfoundland */
+X    { "nst",	tZONE,     HOUR(3.5) },	/* Newfoundland Standard */
+X    { "ndt",	tDAYZONE,  HOUR(3.5) },	/* Newfoundland Daylight */
+X    { "ast",	tZONE,     HOUR( 4) },	/* Atlantic Standard */
+X    { "adt",	tDAYZONE,  HOUR( 4) },	/* Atlantic Daylight */
+X    { "est",	tZONE,     HOUR( 5) },	/* Eastern Standard */
+X    { "edt",	tDAYZONE,  HOUR( 5) },	/* Eastern Daylight */
+X    { "cst",	tZONE,     HOUR( 6) },	/* Central Standard */
+X    { "cdt",	tDAYZONE,  HOUR( 6) },	/* Central Daylight */
+X    { "mst",	tZONE,     HOUR( 7) },	/* Mountain Standard */
+X    { "mdt",	tDAYZONE,  HOUR( 7) },	/* Mountain Daylight */
+X    { "pst",	tZONE,     HOUR( 8) },	/* Pacific Standard */
+X    { "pdt",	tDAYZONE,  HOUR( 8) },	/* Pacific Daylight */
+X    { "yst",	tZONE,     HOUR( 9) },	/* Yukon Standard */
+X    { "ydt",	tDAYZONE,  HOUR( 9) },	/* Yukon Daylight */
+X    { "hst",	tZONE,     HOUR(10) },	/* Hawaii Standard */
+X    { "hdt",	tDAYZONE,  HOUR(10) },	/* Hawaii Daylight */
+X    { "cat",	tZONE,     HOUR(10) },	/* Central Alaska */
+X    { "ahst",	tZONE,     HOUR(10) },	/* Alaska-Hawaii Standard */
+X    { "nt",	tZONE,     HOUR(11) },	/* Nome */
+X    { "idlw",	tZONE,     HOUR(12) },	/* International Date Line West */
+X    { "cet",	tZONE,     -HOUR(1) },	/* Central European */
+X    { "met",	tZONE,     -HOUR(1) },	/* Middle European */
+X    { "mewt",	tZONE,     -HOUR(1) },	/* Middle European Winter */
+X    { "mest",	tDAYZONE,  -HOUR(1) },	/* Middle European Summer */
+X    { "swt",	tZONE,     -HOUR(1) },	/* Swedish Winter */
+X    { "sst",	tDAYZONE,  -HOUR(1) },	/* Swedish Summer */
+X    { "fwt",	tZONE,     -HOUR(1) },	/* French Winter */
+X    { "fst",	tDAYZONE,  -HOUR(1) },	/* French Summer */
+X    { "eet",	tZONE,     -HOUR(2) },	/* Eastern Europe, USSR Zone 1 */
+X    { "bt",	tZONE,     -HOUR(3) },	/* Baghdad, USSR Zone 2 */
+X    { "it",	tZONE,     -HOUR(3.5) },/* Iran */
+X    { "zp4",	tZONE,     -HOUR(4) },	/* USSR Zone 3 */
+X    { "zp5",	tZONE,     -HOUR(5) },	/* USSR Zone 4 */
+X    { "ist",	tZONE,     -HOUR(5.5) },/* Indian Standard */
+X    { "zp6",	tZONE,     -HOUR(6) },	/* USSR Zone 5 */
+X#if	0
+X    /* For completeness.  NST is also Newfoundland Stanard, nad SST is
+X     * also Swedish Summer. */
+X    { "nst",	tZONE,     -HOUR(6.5) },/* North Sumatra */
+X    { "sst",	tZONE,     -HOUR(7) },	/* South Sumatra, USSR Zone 6 */
+X#endif	/* 0 */
+X    { "wast",	tZONE,     -HOUR(7) },	/* West Australian Standard */
+X    { "wadt",	tDAYZONE,  -HOUR(7) },	/* West Australian Daylight */
+X    { "jt",	tZONE,     -HOUR(7.5) },/* Java (3pm in Cronusland!) */
+X    { "cct",	tZONE,     -HOUR(8) },	/* China Coast, USSR Zone 7 */
+X    { "jst",	tZONE,     -HOUR(9) },	/* Japan Standard, USSR Zone 8 */
+X    { "cast",	tZONE,     -HOUR(9.5) },/* Central Australian Standard */
+X    { "cadt",	tDAYZONE,  -HOUR(9.5) },/* Central Australian Daylight */
+X    { "east",	tZONE,     -HOUR(10) },	/* Eastern Australian Standard */
+X    { "eadt",	tDAYZONE,  -HOUR(10) },	/* Eastern Australian Daylight */
+X    { "gst",	tZONE,     -HOUR(10) },	/* Guam Standard, USSR Zone 9 */
+X    { "nzt",	tZONE,     -HOUR(12) },	/* New Zealand */
+X    { "nzst",	tZONE,     -HOUR(12) },	/* New Zealand Standard */
+X    { "nzdt",	tDAYZONE,  -HOUR(12) },	/* New Zealand Daylight */
+X    { "idle",	tZONE,     -HOUR(12) },	/* International Date Line East */
+X    {  NULL  }
+X};
+X
+X/* Military timezone table. */
+Xstatic TABLE	MilitaryTable[] = {
+X    { "a",	tZONE,	HOUR(  1) },
+X    { "b",	tZONE,	HOUR(  2) },
+X    { "c",	tZONE,	HOUR(  3) },
+X    { "d",	tZONE,	HOUR(  4) },
+X    { "e",	tZONE,	HOUR(  5) },
+X    { "f",	tZONE,	HOUR(  6) },
+X    { "g",	tZONE,	HOUR(  7) },
+X    { "h",	tZONE,	HOUR(  8) },
+X    { "i",	tZONE,	HOUR(  9) },
+X    { "k",	tZONE,	HOUR( 10) },
+X    { "l",	tZONE,	HOUR( 11) },
+X    { "m",	tZONE,	HOUR( 12) },
+X    { "n",	tZONE,	HOUR(- 1) },
+X    { "o",	tZONE,	HOUR(- 2) },
+X    { "p",	tZONE,	HOUR(- 3) },
+X    { "q",	tZONE,	HOUR(- 4) },
+X    { "r",	tZONE,	HOUR(- 5) },
+X    { "s",	tZONE,	HOUR(- 6) },
+X    { "t",	tZONE,	HOUR(- 7) },
+X    { "u",	tZONE,	HOUR(- 8) },
+X    { "v",	tZONE,	HOUR(- 9) },
+X    { "w",	tZONE,	HOUR(-10) },
+X    { "x",	tZONE,	HOUR(-11) },
+X    { "y",	tZONE,	HOUR(-12) },
+X    { "z",	tZONE,	HOUR(  0) },
+X    { NULL }
+X};
+X
+X
+X
+X
+X/* ARGSUSED */
+Xstatic
+Xyyerror(s)
+X    char	*s;
+X{
+X}
+X
+X
+Xstatic time_t
+XToSeconds(Hours, Minutes, Seconds, Meridian)
+X    time_t	Hours;
+X    time_t	Minutes;
+X    time_t	Seconds;
+X    MERIDIAN	Meridian;
+X{
+X    if (Minutes < 0 || Minutes > 59 || Seconds < 0 || Seconds > 59)
+X	return -1;
+X    switch (Meridian) {
+X    case MER24:
+X	if (Hours < 0 || Hours > 23)
+X	    return -1;
+X	return (Hours * 60L + Minutes) * 60L + Seconds;
+X    case MERam:
+X	if (Hours < 1 || Hours > 12)
+X	    return -1;
+X	return (Hours * 60L + Minutes) * 60L + Seconds;
+X    case MERpm:
+X	if (Hours < 1 || Hours > 12)
+X	    return -1;
+X	return ((Hours + 12) * 60L + Minutes) * 60L + Seconds;
+X    }
+X    /* NOTREACHED */
+X}
+X
+X
+Xstatic time_t
+XConvert(Month, Day, Year, Hours, Minutes, Seconds, Meridian, DSTmode)
+X    time_t	Month;
+X    time_t	Day;
+X    time_t	Year;
+X    time_t	Hours;
+X    time_t	Minutes;
+X    time_t	Seconds;
+X    MERIDIAN	Meridian;
+X    DSTMODE	DSTmode;
+X{
+X    static int	DaysInMonth[12] = {
+X	31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+X    };
+X    time_t	tod;
+X    time_t	Julian;
+X    int		i;
+X
+X    if (Year < 0)
+X	Year = -Year;
+X    if (Year < 100)
+X	Year += 1900;
+X    DaysInMonth[1] = Year % 4 == 0 && (Year % 100 != 0 || Year % 400 == 0)
+X		    ? 29 : 28;
+X    if (Year < EPOCH || Year > 1999
+X     || Month < 1 || Month > 12
+X     /* Lint fluff:  "conversion from long may lose accuracy" */
+X     || Day < 1 || Day > DaysInMonth[(int)--Month])
+X	return -1;
+X
+X    for (Julian = Day - 1, i = 0; i < Month; i++)
+X	Julian += DaysInMonth[i];
+X    for (i = EPOCH; i < Year; i++)
+X	Julian += 365 + (i % 4 == 0);
+X    Julian *= SECSPERDAY;
+X    Julian += yyTimezone * 60L;
+X    if ((tod = ToSeconds(Hours, Minutes, Seconds, Meridian)) < 0)
+X	return -1;
+X    Julian += tod;
+X    if (DSTmode == DSTon
+X     || (DSTmode == DSTmaybe && localtime(&Julian)->tm_isdst))
+X	Julian -= 60 * 60;
+X    return Julian;
+X}
+X
+X
+Xstatic time_t
+XDSTcorrect(Start, Future)
+X    time_t	Start;
+X    time_t	Future;
+X{
+X    time_t	StartDay;
+X    time_t	FutureDay;
+X
+X    StartDay = (localtime(&Start)->tm_hour + 1) % 24;
+X    FutureDay = (localtime(&Future)->tm_hour + 1) % 24;
+X    return (Future - Start) + (StartDay - FutureDay) * 60L * 60L;
+X}
+X
+X
+Xstatic time_t
+XRelativeDate(Start, DayOrdinal, DayNumber)
+X    time_t	Start;
+X    time_t	DayOrdinal;
+X    time_t	DayNumber;
+X{
+X    struct tm	*tm;
+X    time_t	now;
+X
+X    now = Start;
+X    tm = localtime(&now);
+X    now += SECSPERDAY * ((DayNumber - tm->tm_wday + 7) % 7);
+X    now += 7 * SECSPERDAY * (DayOrdinal <= 0 ? DayOrdinal : DayOrdinal - 1);
+X    return DSTcorrect(Start, now);
+X}
+X
+X
+Xstatic time_t
+XRelativeMonth(Start, RelMonth)
+X    time_t	Start;
+X    time_t	RelMonth;
+X{
+X    struct tm	*tm;
+X    time_t	Month;
+X    time_t	Year;
+X
+X    if (RelMonth == 0)
+X	return 0;
+X    tm = localtime(&Start);
+X    Month = 12 * tm->tm_year + tm->tm_mon + RelMonth;
+X    Year = Month / 12;
+X    Month = Month % 12 + 1;
+X    return DSTcorrect(Start,
+X	    Convert(Month, (time_t)tm->tm_mday, Year,
+X		(time_t)tm->tm_hour, (time_t)tm->tm_min, (time_t)tm->tm_sec,
+X		MER24, DSTmaybe));
+X}
+X
+X
+Xstatic int
+XLookupWord(buff)
+X    char		*buff;
+X{
+X    register char	*p;
+X    register char	*q;
+X    register TABLE	*tp;
+X    int			i;
+X    int			abbrev;
+X
+X    /* Make it lowercase. */
+X    for (p = buff; *p; p++)
+X	if (isupper(*p))
+X	    *p = tolower(*p);
+X
+X    if (strcmp(buff, "am") == 0 || strcmp(buff, "a.m.") == 0) {
+X	yylval.Meridian = MERam;
+X	return tMERIDIAN;
+X    }
+X    if (strcmp(buff, "pm") == 0 || strcmp(buff, "p.m.") == 0) {
+X	yylval.Meridian = MERpm;
+X	return tMERIDIAN;
+X    }
+X
+X    /* See if we have an abbreviation for a month. */
+X    if (strlen(buff) == 3)
+X	abbrev = 1;
+X    else if (strlen(buff) == 4 && buff[3] == '.') {
+X	abbrev = 1;
+X	buff[3] = '\0';
+X    }
+X    else
+X	abbrev = 0;
+X
+X    for (tp = MonthDayTable; tp->name; tp++) {
+X	if (abbrev) {
+X	    if (strncmp(buff, tp->name, 3) == 0) {
+X		yylval.Number = tp->value;
+X		return tp->type;
+X	    }
+X	}
+X	else if (strcmp(buff, tp->name) == 0) {
+X	    yylval.Number = tp->value;
+X	    return tp->type;
+X	}
+X    }
+X
+X    for (tp = TimezoneTable; tp->name; tp++)
+X	if (strcmp(buff, tp->name) == 0) {
+X	    yylval.Number = tp->value;
+X	    return tp->type;
+X	}
+X
+X    for (tp = UnitsTable; tp->name; tp++)
+X	if (strcmp(buff, tp->name) == 0) {
+X	    yylval.Number = tp->value;
+X	    return tp->type;
+X	}
+X
+X    /* Strip off any plural and try the units table again. */
+X    i = strlen(buff) - 1;
+X    if (buff[i] == 's') {
+X	buff[i] = '\0';
+X	for (tp = UnitsTable; tp->name; tp++)
+X	    if (strcmp(buff, tp->name) == 0) {
+X		yylval.Number = tp->value;
+X		return tp->type;
+X	    }
+X    }
+X
+X    for (tp = OtherTable; tp->name; tp++)
+X	if (strcmp(buff, tp->name) == 0) {
+X	    yylval.Number = tp->value;
+X	    return tp->type;
+X	}
+X
+X    /* Military timezones. */
+X    if (buff[1] == '\0' && isalpha(*buff)) {
+X	for (tp = MilitaryTable; tp->name; tp++)
+X	    if (strcmp(buff, tp->name) == 0) {
+X		yylval.Number = tp->value;
+X		return tp->type;
+X	    }
+X    }
+X
+X    /* Drop out any periods and try the timezone table again. */
+X    for (i = 0, p = q = buff; *q; q++)
+X	if (*q != '.')
+X	    *p++ = *q;
+X	else
+X	    i++;
+X    *p = '\0';
+X    if (i)
+X	for (tp = TimezoneTable; tp->name; tp++)
+X	    if (strcmp(buff, tp->name) == 0) {
+X		yylval.Number = tp->value;
+X		return tp->type;
+X	    }
+X
+X    return tID;
+X}
+X
+X
+Xstatic int
+Xyylex()
+X{
+X    register char	c;
+X    register char	*p;
+X    char		buff[20];
+X    int			Count;
+X    int			sign;
+X
+X    for ( ; ; ) {
+X	while (isspace(*yyInput))
+X	    yyInput++;
+X
+X	if (isdigit(c = *yyInput) || c == '-' || c == '+') {
+X	    if (c == '-' || c == '+') {
+X		sign = c == '-' ? -1 : 1;
+X		if (!isdigit(*++yyInput))
+X		    /* skip the '-' sign */
+X		    continue;
+X	    }
+X	    else
+X		sign = 0;
+X	    for (yylval.Number = 0; isdigit(c = *yyInput++); )
+X		yylval.Number = 10 * yylval.Number + c - '0';
+X	    yyInput--;
+X	    if (sign < 0)
+X		yylval.Number = -yylval.Number;
+X	    return sign ? tSNUMBER : tUNUMBER;
+X	}
+X	if (isalpha(c)) {
+X	    for (p = buff; isalpha(c = *yyInput++) || c == '.'; )
+X		if (p < &buff[sizeof buff - 1])
+X		    *p++ = c;
+X	    *p = '\0';
+X	    yyInput--;
+X	    return LookupWord(buff);
+X	}
+X	if (c != '(')
+X	    return *yyInput++;
+X	Count = 0;
+X	do {
+X	    c = *yyInput++;
+X	    if (c == '\0')
+X		return c;
+X	    if (c == '(')
+X		Count++;
+X	    else if (c == ')')
+X		Count--;
+X	} while (Count > 0);
+X    }
+X}
+X
+X
+Xtime_t
+Xgetdate(p, now)
+X    char		*p;
+X    struct timeb	*now;
+X{
+X    struct tm		*tm;
+X    struct timeb	ftz;
+X    time_t		Start;
+X    time_t		tod;
+X
+X    yyInput = p;
+X    if (now == NULL) {
+X	now = &ftz;
+X#if	defined(NEED_TZSET)
+X	(void)time(&ftz.time);
+X	/* Set the timezone global. */
+X	tzset();
+X	ftz.timezone = (int) timezone / 60;
+X#else
+X	(void)ftime(&ftz);
+X#endif	/* defined(NEED_TZSET) */
+X    }
+X
+X    tm = localtime(&now->time);
+X    yyYear = tm->tm_year;
+X    yyMonth = tm->tm_mon + 1;
+X    yyDay = tm->tm_mday;
+X    yyTimezone = now->timezone;
+X    yyDSTmode = DSTmaybe;
+X    yyHour = 0;
+X    yyMinutes = 0;
+X    yySeconds = 0;
+X    yyMeridian = MER24;
+X    yyRelSeconds = 0;
+X    yyRelMonth = 0;
+X    yyHaveDate = 0;
+X    yyHaveDay = 0;
+X    yyHaveRel = 0;
+X    yyHaveTime = 0;
+X    yyHaveZone = 0;
+X
+X    if (yyparse()
+X     || yyHaveTime > 1 || yyHaveZone > 1 || yyHaveDate > 1 || yyHaveDay > 1)
+X	return -1;
+X
+X    if (yyHaveDate || yyHaveTime || yyHaveDay) {
+X	Start = Convert(yyMonth, yyDay, yyYear, yyHour, yyMinutes, yySeconds,
+X		    yyMeridian, yyDSTmode);
+X	if (Start < 0)
+X	    return -1;
+X    }
+X    else {
+X	Start = now->time;
+X	if (!yyHaveRel)
+X	    Start -= ((tm->tm_hour * 60L) + tm->tm_min * 60L) + tm->tm_sec;
+X    }
+X
+X    Start += yyRelSeconds;
+X    Start += RelativeMonth(Start, yyRelMonth);
+X
+X    if (yyHaveDay && !yyHaveDate) {
+X	tod = RelativeDate(Start, yyDayOrdinal, yyDayNumber);
+X	Start += tod;
+X    }
+X
+X    /* Have to do *something* with a legitimate -1 so it's distinguishable
+X     * from the error return value.  (Alternately could set errno on error.) */
+X    return Start == -1 ? 0 : Start;
+X}
+X
+X
+X#if	defined(TEST)
+X
+X/* ARGSUSED */
+Xmain(ac, av)
+X    int		ac;
+X    char	*av[];
+X{
+X    char	buff[128];
+X    time_t	d;
+X
+X    (void)printf("Enter date, or blank line to exit.\n\t> ");
+X    (void)fflush(stdout);
+X    while (gets(buff) && buff[0]) {
+X	d = getdate(buff, (struct timeb *)NULL);
+X	if (d == -1)
+X	    (void)printf("Bad format - couldn't convert.\n");
+X	else
+X	    (void)printf("%s", ctime(&d));
+X	(void)printf("\t> ");
+X	(void)fflush(stdout);
+X    }
+X    exit(0);
+X    /* NOTREACHED */
+X}
+X#endif	/* defined(TEST) */
+END_OF_FILE
+if test 20818 -ne `wc -c <'getdate.y'`; then
+    echo shar: \"'getdate.y'\" unpacked with wrong size!
+fi
+# end of 'getdate.y'
+fi
+if test -f 'mkdir.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mkdir.c'\"
+else
+echo shar: Extracting \"'mkdir.c'\" \(4832 characters\)
+sed "s/^X//" >'mkdir.c' <<'END_OF_FILE'
+X/****************************************************************************
+X
+XNAME
+X   mkdir.c -- emulation of BSD/SVr3-style mkdir(2) system call
+X
+XSYNOPSIS
+X   int mkdir(path, perm)    -- make a directory with given permissions
+X   char *path; int perm;
+X
+XDESCRIPTION
+X   The mkdir() function is used for making directories on systems that
+Xdon't have a mkdir(2) call (that is, V7 and USG systems before V.3). It tries
+Xto act as much like mkdir(2) as possible. Due to various bogosities (why, oh
+Xwhy wasn't mknod(2) for a directory made a non-privileged call?) it cannot
+Xcompletely succeed. It returns 0 on success and -1 on failure but
+Xonly detect the following ERRNO conditions; ENOENT, EEXIST, EACCESS, ENOTDIR.
+X
+X   Note: this function emulates the SVr3 behavior (group ID of the directory
+Xis the effective group ID of the calling process) rather than the BSD
+Xbehavior (group ID of the directory is the group ID of the parent directory).
+X
+X   On USG it will succeed if the real or apparent uid of the calling process
+Xhas write privileges in the current directory (the latter case is implemented
+Xby a kluge that tries to set the parent directory's permissions to 0777, 'ware
+Xsecurity holes!). The new directory will be owned by the effective uid.
+X
+X   On V7 (because it restricts the chown(2) call and mkdir(1) makes
+Xdirectories owned by the real ID of its caller) the call will only succeed
+Xif the real ID matches, and the new directory will be owned by the real
+Xuid.
+X
+XREVISED BY
+X   Eric S. Raymond
+X
+X****************************************************************************/
+X/* LINTLIBRARY */
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <errno.h>
+X#include <signal.h>
+X
+Xextern int errno;
+X
+Xstatic int fwait(pid)
+X/* wait on a child process, shielding it from SIGINT and SIGHUP */
+Xregister int pid;
+X{
+X    register int w;
+X    int status;
+X
+X    while ((w = wait(&status)) != pid && w != -1)
+X	continue;
+X    if (w == -1)
+X	status = -1;
+X
+X    return(status);
+X}
+X
+Xint mkdir(path, perm)
+Xchar *path;
+Xint perm;
+X{
+X    int		    status, pid;
+X    int		    uid = getuid(), gid = getgid();
+X#ifndef lint
+X    int		    euid = geteuid();
+X    int		    egid = getegid();
+X#endif /* lint */
+X    struct stat	    pstat, sbuf;
+X    register char   *p;
+X    char	    parent[200];
+X    extern char	    *strrchr();
+X
+X#ifdef MAIN
+X    (void) fprintf(stderr, "Attempting to mkdir %s\n", path);
+X#endif /* MAIN */
+X
+X    errno = 0;
+X
+X    /*
+X     * check that the directory doesn't already exist, so that the
+X     * do loop below must run at least once
+X     */
+X    if (stat(path, &sbuf) == 0)
+X    {
+X	errno = EEXIST;
+X#ifdef MAIN
+X	(void) fprintf(stderr, "Directory %s exists\n", path);
+X#endif /* MAIN */
+X	return(-1);
+X    }
+X
+X    /* construct the parent's name */
+X    if (p = strrchr(path, '/'))
+X    {
+X	*p = '\0';
+X	(void) strcpy(parent, path);
+X	*p = '/';
+X    }
+X    else
+X	(void) strcpy(parent, ".");
+X
+X    if (stat(parent, &pstat) == -1)    /* check that the parent exists */
+X    {
+X	errno = ENOENT;
+X	return(-1);
+X    }
+X    else if (!(pstat.st_mode & S_IFDIR))    /* and that it's a directory */
+X    {
+X	errno = ENOTDIR;
+X	return(-1);
+X    }
+X
+X#ifdef USG
+X    /*
+X     * If the parent directory is 755 (rwxr-xr-x) the mkdir(1) below
+X     * will probably fail because it will get suid'd to our real uid, which
+X     * is random (and thus probably won't match the parent owner's).
+X     * So we have to temporarily chmod the parent to 777 (rwxrwxrwx).
+X     */
+X    if (sbuf.st_uid != uid)
+X    {
+X	if (chmod(parent, 0777) == -1)
+X	{
+X	    errno = EACCES;
+X	    return(-1);
+X	}
+X    }
+X#endif /* USG */
+X
+X    /* now we can make the new directory */
+X    if (pid = fork())	/* parent side */
+X    {
+X	if (pid == -1)
+X	    return(-1);
+X
+X	status = fwait(pid);	/* wait till mkdir child is done */
+X
+X#ifdef USG
+X	/*
+X	 * Spawn another child to set ownership correctly -- we do this so
+X	 * that it gets set to effective ID even if we're running su. This
+X	 * only works where chown(2) can be called to give files away by a
+X	 * non-superuser.
+X	 */
+X	if (pid = fork())
+X	    (void) fwait(pid);
+X	else {
+X#ifndef lint
+X	    int		    oldumask = umask(0777);
+X#endif /* lint */
+X
+X	    (void) stat(".", &pstat);
+X	    (void) setuid(uid);
+X	    (void) setgid(gid);
+X#ifndef lint	    /* USG lints disagree about 2nd argument types */
+X	    (void) chmod(path, (unsigned)(perm & ~oldumask));
+X	    (void) chown(path, euid, egid);
+X	    (void) umask(oldumask);
+X#endif /* lint */
+X	    _exit(0);
+X	}
+X#endif /* USG */
+X    } else {		/* child side */
+X	(void) close(1);	/* stdout */
+X	(void) close(2);	/* stderr */
+X	(void) execlp("mkdir", "mkdir", path, (char *)0);
+X	perror(path);
+X	_exit(1);
+X    }
+X
+X#ifndef lint	/* USG lints disagree about the type of arg 2 */
+X#ifdef USG
+X    if (sbuf.st_uid != uid)
+X	(void) chmod(parent, (unsigned) pstat.st_mode);	/* put it back */
+X#endif /* USG */
+X#endif /* lint */
+X
+X    return(status);
+X}
+X
+X/* mkdir.c ends here */
+END_OF_FILE
+if test 4832 -ne `wc -c <'mkdir.c'`; then
+    echo shar: \"'mkdir.c'\" unpacked with wrong size!
+fi
+# end of 'mkdir.c'
+fi
+if test -f 'random.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'random.c'\"
+else
+echo shar: Extracting \"'random.c'\" \(12793 characters\)
+sed "s/^X//" >'random.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1983 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms are permitted
+X * provided that the above copyright notice and this paragraph are
+X * duplicated in all such forms and that any documentation,
+X * advertising materials, and other materials related to such
+X * distribution and use acknowledge that the software was developed
+X * by the University of California, Berkeley.  The name of the
+X * University may not be used to endorse or promote products derived
+X * from this software without specific prior written permission.
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X * IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X */
+X
+X#if defined(LIBC_SCCS) && !defined(lint)
+Xstatic char sccsid[] = "@(#)random.c	5.5 (Berkeley) 7/6/88";
+X#endif /* LIBC_SCCS and not lint */
+X
+X#include <stdio.h>
+X
+X/*
+X * random.c:
+X * An improved random number generation package.  In addition to the standard
+X * rand()/srand() like interface, this package also has a special state info
+X * interface.  The initstate() routine is called with a seed, an array of
+X * bytes, and a count of how many bytes are being passed in; this array is then
+X * initialized to contain information for random number generation with that
+X * much state information.  Good sizes for the amount of state information are
+X * 32, 64, 128, and 256 bytes.  The state can be switched by calling the
+X * setstate() routine with the same array as was initiallized with initstate().
+X * By default, the package runs with 128 bytes of state information and
+X * generates far better random numbers than a linear congruential generator.
+X * If the amount of state information is less than 32 bytes, a simple linear
+X * congruential R.N.G. is used.
+X * Internally, the state information is treated as an array of longs; the
+X * zeroeth element of the array is the type of R.N.G. being used (small
+X * integer); the remainder of the array is the state information for the
+X * R.N.G.  Thus, 32 bytes of state information will give 7 longs worth of
+X * state information, which will allow a degree seven polynomial.  (Note: the 
+X * zeroeth word of state information also has some other information stored
+X * in it -- see setstate() for details).
+X * The random number generation technique is a linear feedback shift register
+X * approach, employing trinomials (since there are fewer terms to sum up that
+X * way).  In this approach, the least significant bit of all the numbers in
+X * the state table will act as a linear feedback shift register, and will have
+X * period 2^deg - 1 (where deg is the degree of the polynomial being used,
+X * assuming that the polynomial is irreducible and primitive).  The higher
+X * order bits will have longer periods, since their values are also influenced
+X * by pseudo-random carries out of the lower bits.  The total period of the
+X * generator is approximately deg*(2**deg - 1); thus doubling the amount of
+X * state information has a vast influence on the period of the generator.
+X * Note: the deg*(2**deg - 1) is an approximation only good for large deg,
+X * when the period of the shift register is the dominant factor.  With deg
+X * equal to seven, the period is actually much longer than the 7*(2**7 - 1)
+X * predicted by this formula.
+X */
+X
+X
+X
+X/*
+X * For each of the currently supported random number generators, we have a
+X * break value on the amount of state information (you need at least this
+X * many bytes of state info to support this random number generator), a degree
+X * for the polynomial (actually a trinomial) that the R.N.G. is based on, and
+X * the separation between the two lower order coefficients of the trinomial.
+X */
+X
+X#define		TYPE_0		0		/* linear congruential */
+X#define		BREAK_0		8
+X#define		DEG_0		0
+X#define		SEP_0		0
+X
+X#define		TYPE_1		1		/* x**7 + x**3 + 1 */
+X#define		BREAK_1		32
+X#define		DEG_1		7
+X#define		SEP_1		3
+X
+X#define		TYPE_2		2		/* x**15 + x + 1 */
+X#define		BREAK_2		64
+X#define		DEG_2		15
+X#define		SEP_2		1
+X
+X#define		TYPE_3		3		/* x**31 + x**3 + 1 */
+X#define		BREAK_3		128
+X#define		DEG_3		31
+X#define		SEP_3		3
+X
+X#define		TYPE_4		4		/* x**63 + x + 1 */
+X#define		BREAK_4		256
+X#define		DEG_4		63
+X#define		SEP_4		1
+X
+X
+X/*
+X * Array versions of the above information to make code run faster -- relies
+X * on fact that TYPE_i == i.
+X */
+X
+X#define		MAX_TYPES	5		/* max number of types above */
+X
+Xstatic  int		degrees[ MAX_TYPES ]	= { DEG_0, DEG_1, DEG_2,
+X								DEG_3, DEG_4 };
+X
+Xstatic  int		seps[ MAX_TYPES ]	= { SEP_0, SEP_1, SEP_2,
+X								SEP_3, SEP_4 };
+X
+X
+X
+X/*
+X * Initially, everything is set up as if from :
+X *		initstate( 1, &randtbl, 128 );
+X * Note that this initialization takes advantage of the fact that srandom()
+X * advances the front and rear pointers 10*rand_deg times, and hence the
+X * rear pointer which starts at 0 will also end up at zero; thus the zeroeth
+X * element of the state information, which contains info about the current
+X * position of the rear pointer is just
+X *	MAX_TYPES*(rptr - state) + TYPE_3 == TYPE_3.
+X */
+X
+Xstatic  long		randtbl[ DEG_3 + 1 ]	= { TYPE_3,
+X			    0x9a319039, 0x32d9c024, 0x9b663182, 0x5da1f342, 
+X			    0xde3b81e0, 0xdf0a6fb5, 0xf103bc02, 0x48f340fb, 
+X			    0x7449e56b, 0xbeb1dbb0, 0xab5c5918, 0x946554fd, 
+X			    0x8c2e680f, 0xeb3d799f, 0xb11ee0b7, 0x2d436b86, 
+X			    0xda672e2a, 0x1588ca88, 0xe369735d, 0x904f35f7, 
+X			    0xd7158fd6, 0x6fa6f051, 0x616e6b96, 0xac94efdc, 
+X			    0x36413f93, 0xc622c298, 0xf5a42ab8, 0x8a88d77b, 
+X					0xf5ad9d0e, 0x8999220b, 0x27fb47b9 };
+X
+X/*
+X * fptr and rptr are two pointers into the state info, a front and a rear
+X * pointer.  These two pointers are always rand_sep places aparts, as they cycle
+X * cyclically through the state information.  (Yes, this does mean we could get
+X * away with just one pointer, but the code for random() is more efficient this
+X * way).  The pointers are left positioned as they would be from the call
+X *			initstate( 1, randtbl, 128 )
+X * (The position of the rear pointer, rptr, is really 0 (as explained above
+X * in the initialization of randtbl) because the state table pointer is set
+X * to point to randtbl[1] (as explained below).
+X */
+X
+Xstatic  long		*fptr			= &randtbl[ SEP_3 + 1 ];
+Xstatic  long		*rptr			= &randtbl[ 1 ];
+X
+X
+X
+X/*
+X * The following things are the pointer to the state information table,
+X * the type of the current generator, the degree of the current polynomial
+X * being used, and the separation between the two pointers.
+X * Note that for efficiency of random(), we remember the first location of
+X * the state information, not the zeroeth.  Hence it is valid to access
+X * state[-1], which is used to store the type of the R.N.G.
+X * Also, we remember the last location, since this is more efficient than
+X * indexing every time to find the address of the last element to see if
+X * the front and rear pointers have wrapped.
+X */
+X
+Xstatic  long		*state			= &randtbl[ 1 ];
+X
+Xstatic  int		rand_type		= TYPE_3;
+Xstatic  int		rand_deg		= DEG_3;
+Xstatic  int		rand_sep		= SEP_3;
+X
+Xstatic  long		*end_ptr		= &randtbl[ DEG_3 + 1 ];
+X
+X
+X
+X/*
+X * srandom:
+X * Initialize the random number generator based on the given seed.  If the
+X * type is the trivial no-state-information type, just remember the seed.
+X * Otherwise, initializes state[] based on the given "seed" via a linear
+X * congruential generator.  Then, the pointers are set to known locations
+X * that are exactly rand_sep places apart.  Lastly, it cycles the state
+X * information a given number of times to get rid of any initial dependencies
+X * introduced by the L.C.R.N.G.
+X * Note that the initialization of randtbl[] for default usage relies on
+X * values produced by this routine.
+X */
+X
+Xsrandom( x )
+X
+X    unsigned		x;
+X{
+X    	register  int		i, j;
+X	long random();
+X
+X	if(  rand_type  ==  TYPE_0  )  {
+X	    state[ 0 ] = x;
+X	}
+X	else  {
+X	    j = 1;
+X	    state[ 0 ] = x;
+X	    for( i = 1; i < rand_deg; i++ )  {
+X		state[i] = 1103515245*state[i - 1] + 12345;
+X	    }
+X	    fptr = &state[ rand_sep ];
+X	    rptr = &state[ 0 ];
+X	    for( i = 0; i < 10*rand_deg; i++ )  random();
+X	}
+X}
+X
+X
+X
+X/*
+X * initstate:
+X * Initialize the state information in the given array of n bytes for
+X * future random number generation.  Based on the number of bytes we
+X * are given, and the break values for the different R.N.G.'s, we choose
+X * the best (largest) one we can and set things up for it.  srandom() is
+X * then called to initialize the state information.
+X * Note that on return from srandom(), we set state[-1] to be the type
+X * multiplexed with the current value of the rear pointer; this is so
+X * successive calls to initstate() won't lose this information and will
+X * be able to restart with setstate().
+X * Note: the first thing we do is save the current state, if any, just like
+X * setstate() so that it doesn't matter when initstate is called.
+X * Returns a pointer to the old state.
+X */
+X
+Xchar  *
+Xinitstate( seed, arg_state, n )
+X
+X    unsigned		seed;			/* seed for R. N. G. */
+X    char		*arg_state;		/* pointer to state array */
+X    int			n;			/* # bytes of state info */
+X{
+X	register  char		*ostate		= (char *)( &state[ -1 ] );
+X
+X	if(  rand_type  ==  TYPE_0  )  state[ -1 ] = rand_type;
+X	else  state[ -1 ] = MAX_TYPES*(rptr - state) + rand_type;
+X	if(  n  <  BREAK_1  )  {
+X	    if(  n  <  BREAK_0  )  {
+X		fprintf( stderr, "initstate: not enough state (%d bytes) with which to do jack; ignored.\n", n );
+X		return;
+X	    }
+X	    rand_type = TYPE_0;
+X	    rand_deg = DEG_0;
+X	    rand_sep = SEP_0;
+X	}
+X	else  {
+X	    if(  n  <  BREAK_2  )  {
+X		rand_type = TYPE_1;
+X		rand_deg = DEG_1;
+X		rand_sep = SEP_1;
+X	    }
+X	    else  {
+X		if(  n  <  BREAK_3  )  {
+X		    rand_type = TYPE_2;
+X		    rand_deg = DEG_2;
+X		    rand_sep = SEP_2;
+X		}
+X		else  {
+X		    if(  n  <  BREAK_4  )  {
+X			rand_type = TYPE_3;
+X			rand_deg = DEG_3;
+X			rand_sep = SEP_3;
+X		    }
+X		    else  {
+X			rand_type = TYPE_4;
+X			rand_deg = DEG_4;
+X			rand_sep = SEP_4;
+X		    }
+X		}
+X	    }
+X	}
+X	state = &(  ( (long *)arg_state )[1]  );	/* first location */
+X	end_ptr = &state[ rand_deg ];	/* must set end_ptr before srandom */
+X	srandom( seed );
+X	if(  rand_type  ==  TYPE_0  )  state[ -1 ] = rand_type;
+X	else  state[ -1 ] = MAX_TYPES*(rptr - state) + rand_type;
+X	return( ostate );
+X}
+X
+X
+X
+X/*
+X * setstate:
+X * Restore the state from the given state array.
+X * Note: it is important that we also remember the locations of the pointers
+X * in the current state information, and restore the locations of the pointers
+X * from the old state information.  This is done by multiplexing the pointer
+X * location into the zeroeth word of the state information.
+X * Note that due to the order in which things are done, it is OK to call
+X * setstate() with the same state as the current state.
+X * Returns a pointer to the old state information.
+X */
+X
+Xchar  *
+Xsetstate( arg_state )
+X
+X    char		*arg_state;
+X{
+X	register  long		*new_state	= (long *)arg_state;
+X	register  int		type		= new_state[0]%MAX_TYPES;
+X	register  int		rear		= new_state[0]/MAX_TYPES;
+X	char			*ostate		= (char *)( &state[ -1 ] );
+X
+X	if(  rand_type  ==  TYPE_0  )  state[ -1 ] = rand_type;
+X	else  state[ -1 ] = MAX_TYPES*(rptr - state) + rand_type;
+X	switch(  type  )  {
+X	    case  TYPE_0:
+X	    case  TYPE_1:
+X	    case  TYPE_2:
+X	    case  TYPE_3:
+X	    case  TYPE_4:
+X		rand_type = type;
+X		rand_deg = degrees[ type ];
+X		rand_sep = seps[ type ];
+X		break;
+X
+X	    default:
+X		fprintf( stderr, "setstate: state info has been munged; not changed.\n" );
+X	}
+X	state = &new_state[ 1 ];
+X	if(  rand_type  !=  TYPE_0  )  {
+X	    rptr = &state[ rear ];
+X	    fptr = &state[ (rear + rand_sep)%rand_deg ];
+X	}
+X	end_ptr = &state[ rand_deg ];		/* set end_ptr too */
+X	return( ostate );
+X}
+X
+X
+X
+X/*
+X * random:
+X * If we are using the trivial TYPE_0 R.N.G., just do the old linear
+X * congruential bit.  Otherwise, we do our fancy trinomial stuff, which is the
+X * same in all ther other cases due to all the global variables that have been
+X * set up.  The basic operation is to add the number at the rear pointer into
+X * the one at the front pointer.  Then both pointers are advanced to the next
+X * location cyclically in the table.  The value returned is the sum generated,
+X * reduced to 31 bits by throwing away the "least random" low bit.
+X * Note: the code takes advantage of the fact that both the front and
+X * rear pointers can't wrap on the same call by not testing the rear
+X * pointer if the front one has wrapped.
+X * Returns a 31-bit random number.
+X */
+X
+Xlong
+Xrandom()
+X{
+X	long		i;
+X	
+X	if(  rand_type  ==  TYPE_0  )  {
+X	    i = state[0] = ( state[0]*1103515245 + 12345 )&0x7fffffff;
+X	}
+X	else  {
+X	    *fptr += *rptr;
+X	    i = (*fptr >> 1)&0x7fffffff;	/* chucking least random bit */
+X	    if(  ++fptr  >=  end_ptr  )  {
+X		fptr = state;
+X		++rptr;
+X	    }
+X	    else  {
+X		if(  ++rptr  >=  end_ptr  )  rptr = state;
+X	    }
+X	}
+X	return( i );
+X}
+X
+END_OF_FILE
+if test 12793 -ne `wc -c <'random.c'`; then
+    echo shar: \"'random.c'\" unpacked with wrong size!
+fi
+# end of 'random.c'
+fi
+if test -f 'strftime.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strftime.3'\"
+else
+echo shar: Extracting \"'strftime.3'\" \(5331 characters\)
+sed "s/^X//" >'strftime.3' <<'END_OF_FILE'
+X.TH STRFTIME 3
+X.SH NAME
+Xstrftime \- generate formatted time information
+X.SH SYNOPSIS
+X.ft B
+X.nf
+X#include <sys/types.h>
+X#include <time.h>
+X.sp
+Xsize_t strftime(char *s, size_t maxsize, const char *format,
+X	const struct tm *timeptr);
+X.SH DESCRIPTION
+XThe following description is transcribed verbatim from the December 7, 1988
+Xdraft standard for ANSI C.
+XThis draft is essentially identical in technical content
+Xto the final version of the standard.
+X.LP
+XThe
+X.B strftime
+Xfunction places characters into the array pointed to by
+X.B s
+Xas controlled by the string pointed to by
+X.BR format .
+XThe format shall be a multibyte character sequence, beginning and ending in
+Xits initial shift state.
+XThe
+X.B format
+Xstring consists of zero or more conversion specifiers and ordinary
+Xmultibyte characters.  A conversion specifier consists of a
+X.B %
+Xcharacter followed by a character that determines the behavior of the
+Xconversion specifier.
+XAll ordinary multibyte characters (including the terminating null
+Xcharacter) are copied unchanged into the array.
+XIf copying takes place between objects that overlap the behavior is undefined.
+XNo more than
+X.B maxsize
+Xcharacters are placed into the array.
+XEach conversion specifier is replaced by appropriate characters as described
+Xin the following list.
+XThe appropriate characters are determined by the
+X.B LC_TIME
+Xcategory of the current locale and by the values contained in the
+Xstructure pointed to by
+X.BR timeptr .
+X.TP
+X.B %a
+Xis replaced by the locale's abbreviated weekday name.
+X.TP
+X.B %A
+Xis replaced by the locale's full weekday name.
+X.TP
+X.B %b
+Xis replaced by the locale's abbreviated month name.
+X.TP
+X.B %B
+Xis replaced by the locale's full month name.
+X.TP
+X.B %c
+Xis replaced by the locale's appropriate date and time representation.
+X.TP
+X.B %d
+Xis replaced by the day of the month as a decimal number
+X.RB ( 01 - 31 ).
+X.TP
+X.B %H
+Xis replaced by the hour (24-hour clock) as a decimal number
+X.RB ( 00 - 23 ).
+X.TP
+X.B %I
+Xis replaced by the hour (12-hour clock) as a decimal number
+X.RB ( 01 - 12 ).
+X.TP
+X.B %j
+Xis replaced by the day of the year as a decimal number
+X.RB ( 001 - 366 ).
+X.TP
+X.B %m
+Xis replaced by the month as a decimal number
+X.RB ( 01 - 12 ).
+X.TP
+X.B %M
+Xis replaced by the minute as a decimal number
+X.RB ( 00 - 59 ).
+X.TP
+X.B %p
+Xis replaced by the locale's equivalent of the AM/PM designations associated
+Xwith a 12-hour clock.
+X.TP
+X.B %S
+Xis replaced by the second as a decimal number
+X.RB ( 00 - 61 ).
+X.TP
+X.B %U
+Xis replaced by the week number of the year (the first Sunday as the first
+Xday of week 1) as a decimal number
+X.RB ( 00 - 53 ).
+X.TP
+X.B %w
+Xis replaced by the weekday as a decimal number
+X.RB [ "0 " (Sunday)- 6 ].
+X.TP
+X.B %W
+Xis replaced by the week number of the year (the first Monday as the first
+Xday of week 1) as a decimal number
+X.RB ( 00 - 53 ).
+X.TP
+X.B %x
+Xis replaced by the locale's appropriate date representation.
+X.TP
+X.B %X
+Xis replaced by the locale's appropriate time representation.
+X.TP
+X.B %y
+Xis replaced by the year without century as a decimal number
+X.RB ( 00 - 99 ).
+X.TP
+X.B %Y
+Xis replaced by the year with century as a decimal number.
+X.TP
+X.B %Z
+Xis replaced by the time zone name or abbreviation, or by no characters if
+Xno time zone is determinable.
+X.TP
+X.B %%
+Xis replaced by
+X.BR % .
+X.LP
+XIf a conversion specifier is not one of the above, the behavior is
+Xundefined.
+X.SH RETURNS
+XIf the total number of resulting characters including the terminating null
+Xcharacter is not more than
+X.BR maxsize ,
+Xthe
+X.B strftime
+Xfunction returns the number of characters placed into the array pointed to
+Xby
+X.B s
+Xnot including the terminating null character.
+XOtherwise, zero is returned and the contents of the array are indeterminate.
+X.SH NON-ANSI EXTENSIONS
+XIf
+X.B SYSV_EXT
+Xis defined when the routine is compiled, then the following additional
+Xconversions will be available.
+XThese are borrowed from the System V
+X.IR cftime (3)
+Xand
+X.IR ascftime (3)
+Xroutines.
+X.TP
+X.B %D
+Xis equivalent to specifying
+X.BR %m/%d/%y .
+X.TP
+X.B %e
+Xis replaced by the day of the month,
+Xpadded with a blank if it is only one digit.
+X.TP
+X.B %h
+Xis equivalent to
+X.BR %b ,
+Xabove.
+X.TP
+X.B %n
+Xis replaced with a newline character (\s-1ASCII LF\s+1).
+X.TP
+X.B %r
+Xis equivalent to specifying
+X.BR "%I:%M:%S %p" .
+X.TP
+X.B %R
+Xis equivalent to specifying
+X.BR %H:%M: .
+X.TP
+X.B %T
+Xis equivalent to specifying
+X.BR %H:%M:%S .
+X.TP
+X.B %t
+Xis replaced with a \s-1TAB\s+1 character.
+X.SH SEE ALSO
+Xtime(2), ctime(3), localtime(3)
+X.SH BUGS
+XThis version does not handle multibyte characters or pay attention to the
+Xsetting of the
+X.B LC_TIME
+Xenvironment variable.
+X.LP
+XIt is not clear what is ``appropriate'' for the C locale; the values
+Xreturned are a best guess on the author's part.
+X.SH CAVEATS
+XThis implementation calls
+X.IR tzset (3)
+Xexactly once.  If the
+X.B TZ
+Xenvironment variable is changed after
+X.B strftime
+Xhas been called, then
+X.IR tzset (3)
+Xmust be called again, explicitly, in order for the
+Xcorrect timezone information to be available.
+X.SH AUTHOR
+X.nf
+XArnold Robbins
+XAudioFAX, Inc.
+XSuite 200
+X2000 Powers Ferry Road
+XMarietta, GA. 30067
+XU.S.A.
+XINTERNET: arnold@audiofax.com
+XUUCP:     emory!audfax!arnold
+XPhone:    +1 404 933 7600
+XFax-box:  +1 404 618 4581
+X.fi
+X.SH ACKNOWLEDGEMENTS
+XThanks to Geoff Clare <gwc@root.co.uk> for helping debug earlier
+Xversions of this routine.
+XAdditional thanks to Arthur David Olsen <ado@elsie.nci.nih.gov>
+Xfor some code improvements.
+END_OF_FILE
+if test 5331 -ne `wc -c <'strftime.3'`; then
+    echo shar: \"'strftime.3'\" unpacked with wrong size!
+fi
+# end of 'strftime.3'
+fi
+if test -f 'strftime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strftime.c'\"
+else
+echo shar: Extracting \"'strftime.c'\" \(6976 characters\)
+sed "s/^X//" >'strftime.c' <<'END_OF_FILE'
+X/*
+X * strftime.c
+X *
+X * Public-domain relatively quick-and-dirty implemenation of
+X * ANSI library routine for System V Unix systems.
+X *
+X * It's written in old-style C for maximal portability.
+X * However, since I'm used to prototypes, I've included them too.
+X *
+X * If you want stuff in the System V ascftime routine, add the SYSV_EXT define.
+X *
+X * The code for %c, %x, and %X is my best guess as to what's "appropriate".
+X * This version ignores LOCALE information.
+X * It also doesn't worry about multi-byte characters.
+X * So there.
+X *
+X * Arnold Robbins
+X * January, February, 1991
+X *
+X * Fixes from ado@elsie.nci.nih.gov
+X * February 1991
+X */
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#ifndef __STDC__
+X#define const	/**/
+X#endif
+X
+X#ifndef __STDC__
+Xextern void tzset();
+Xextern char *strchr();
+Xstatic int weeknumber();
+X#else
+Xextern void tzset(void);
+Xextern char *strchr(const char *str, int ch);
+Xstatic int weeknumber(const struct tm *timeptr, int firstweekday);
+X#endif
+X
+Xextern char *tzname[2];
+Xextern int daylight;
+X
+X#define SYSV_EXT	1	/* stuff in System V ascftime routine */
+X
+X/* strftime --- produce formatted time */
+X
+X#ifndef __STDC__
+Xsize_t
+Xstrftime(s, maxsize, format, timeptr)
+Xchar *s;
+Xsize_t maxsize;
+Xconst char *format;
+Xconst struct tm *timeptr;
+X#else
+Xsize_t
+Xstrftime(char *s, size_t maxsize, const char *format, const struct tm *timeptr)
+X#endif
+X{
+X	char *endp = s + maxsize;
+X	char *start = s;
+X	char tbuf[100];
+X	int i;
+X	static short first = 1;
+X
+X	/* various tables, useful in North America */
+X	static char *days_a[] = {
+X		"Sun", "Mon", "Tue", "Wed",
+X		"Thu", "Fri", "Sat",
+X	};
+X	static char *days_l[] = {
+X		"Sunday", "Monday", "Tuesday", "Wednesday",
+X		"Thursday", "Friday", "Saturday",
+X	};
+X	static char *months_a[] = {
+X		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+X	};
+X	static char *months_l[] = {
+X		"January", "February", "March", "April",
+X		"May", "June", "July", "August", "September",
+X		"October", "November", "December",
+X	};
+X	static char *ampm[] = { "AM", "PM", };
+X
+X	if (s == NULL || format == NULL || timeptr == NULL || maxsize == 0)
+X		return 0;
+X
+X	if (strchr(format, '%') == NULL && strlen(format) + 1 >= maxsize)
+X		return 0;
+X
+X	if (first) {
+X		tzset();
+X		first = 0;
+X	}
+X
+X	for (; *format && s < endp - 1; format++) {
+X		tbuf[0] = '\0';
+X		if (*format != '%') {
+X			*s++ = *format;
+X			continue;
+X		}
+X		switch (*++format) {
+X		case '\0':
+X			*s++ = '%';
+X			goto out;
+X
+X		case '%':
+X			*s++ = '%';
+X			continue;
+X
+X		case 'a':	/* abbreviated weekday name */
+X			if (timeptr->tm_wday < 0 || timeptr->tm_wday > 6)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, days_a[timeptr->tm_wday]);
+X			break;
+X
+X		case 'A':	/* full weekday name */
+X			if (timeptr->tm_wday < 0 || timeptr->tm_wday > 6)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, days_l[timeptr->tm_wday]);
+X			break;
+X
+X#ifdef SYSV_EXT
+X		case 'h':	/* abbreviated month name */
+X#endif
+X		case 'b':	/* abbreviated month name */
+X			if (timeptr->tm_mon < 0 || timeptr->tm_mon > 11)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, months_a[timeptr->tm_mon]);
+X			break;
+X
+X		case 'B':	/* full month name */
+X			if (timeptr->tm_mon < 0 || timeptr->tm_mon > 11)
+X				strcpy(tbuf, "?");
+X			else
+X				strcpy(tbuf, months_l[timeptr->tm_mon]);
+X			break;
+X
+X		case 'c':	/* appropriate date and time representation */
+X			sprintf(tbuf, "%s %s %2d %02d:%02d:%02d %d",
+X				days_a[timeptr->tm_wday],
+X				months_a[timeptr->tm_mon],
+X				timeptr->tm_mday,
+X				timeptr->tm_hour,
+X				timeptr->tm_min,
+X				timeptr->tm_sec,
+X				timeptr->tm_year + 1900);
+X			break;
+X
+X		case 'd':	/* day of the month, 01 - 31 */
+X			sprintf(tbuf, "%02d", timeptr->tm_mday);
+X			break;
+X
+X		case 'H':	/* hour, 24-hour clock, 00 - 23 */
+X			sprintf(tbuf, "%02d", timeptr->tm_hour);
+X			break;
+X
+X		case 'I':	/* hour, 12-hour clock, 01 - 12 */
+X			i = timeptr->tm_hour;
+X			if (i == 0)
+X				i = 12;
+X			else if (i > 12)
+X				i -= 12;
+X			sprintf(tbuf, "%02d", i);
+X			break;
+X
+X		case 'j':	/* day of the year, 001 - 366 */
+X			sprintf(tbuf, "%03d", timeptr->tm_yday + 1);
+X			break;
+X
+X		case 'm':	/* month, 01 - 12 */
+X			sprintf(tbuf, "%02d", timeptr->tm_mon + 1);
+X			break;
+X
+X		case 'M':	/* minute, 00 - 59 */
+X			sprintf(tbuf, "%02d", timeptr->tm_min);
+X			break;
+X
+X		case 'p':	/* am or pm based on 12-hour clock */
+X			if (timeptr->tm_hour < 12)
+X				strcpy(tbuf, ampm[0]);
+X			else
+X				strcpy(tbuf, ampm[1]);
+X			break;
+X
+X		case 'S':	/* second, 00 - 61 */
+X			sprintf(tbuf, "%02d", timeptr->tm_sec);
+X			break;
+X
+X		case 'U':	/* week of year, Sunday is first day of week */
+X			sprintf(tbuf, "%d", weeknumber(timeptr, 0));
+X			break;
+X
+X		case 'w':	/* weekday, Sunday == 0, 0 - 6 */
+X			sprintf(tbuf, "%d", timeptr->tm_wday);
+X			break;
+X
+X		case 'W':	/* week of year, Monday is first day of week */
+X			sprintf(tbuf, "%d", weeknumber(timeptr, 1));
+X			break;
+X
+X		case 'x':	/* appropriate date representation */
+X			sprintf(tbuf, "%s %s %2d %d",
+X				days_a[timeptr->tm_wday],
+X				months_a[timeptr->tm_mon],
+X				timeptr->tm_mday,
+X				timeptr->tm_year + 1900);
+X			break;
+X
+X		case 'X':	/* appropriate time representation */
+X			sprintf(tbuf, "%02d:%02d:%02d",
+X				timeptr->tm_hour,
+X				timeptr->tm_min,
+X				timeptr->tm_sec);
+X			break;
+X
+X		case 'y':	/* year without a century, 00 - 99 */
+X			i = timeptr->tm_year % 100;
+X			sprintf(tbuf, "%d", i);
+X			break;
+X
+X		case 'Y':	/* year with century */
+X			sprintf(tbuf, "%d", 1900 + timeptr->tm_year);
+X			break;
+X
+X		case 'Z':	/* time zone name or abbrevation */
+X			i = 0;
+X			if (daylight && timeptr->tm_isdst)
+X				i = 1;
+X			strcpy(tbuf, tzname[i]);
+X			break;
+X
+X#ifdef SYSV_EXT
+X		case 'n':	/* same as \n */
+X			tbuf[0] = '\n';
+X			tbuf[1] = '\0';
+X			break;
+X
+X		case 't':	/* same as \t */
+X			tbuf[0] = '\t';
+X			tbuf[1] = '\0';
+X			break;
+X
+X		case 'D':	/* date as %m/%d/%y */
+X			strftime(tbuf, sizeof tbuf, "%m/%d/%y", timeptr);
+X			break;
+X
+X		case 'e':	/* day of month, blank padded */
+X			sprintf(tbuf, "%2d", timeptr->tm_mday);
+X			break;
+X
+X		case 'r':	/* time as %I:%M:%S %p */
+X			strftime(tbuf, sizeof tbuf, "%I:%M:%S %p", timeptr);
+X			break;
+X
+X		case 'R':	/* time as %H:%M */
+X			strftime(tbuf, sizeof tbuf, "%H:%M", timeptr);
+X			break;
+X
+X		case 'T':	/* time as %H:%M:%S */
+X			strftime(tbuf, sizeof tbuf, "%H:%M:%S", timeptr);
+X			break;
+X#endif
+X
+X		default:
+X			tbuf[0] = '%';
+X			tbuf[1] = *format;
+X			tbuf[2] = '\0';
+X			break;
+X		}
+X		i = strlen(tbuf);
+X		if (i)
+X			if (s + i < endp - 1) {
+X				strcpy(s, tbuf);
+X				s += i;
+X			} else
+X				return 0;
+X	}
+Xout:
+X	if (s < endp && *format == '\0') {
+X		*s = '\0';
+X		return (s - start);
+X	} else
+X		return 0;
+X}
+X
+X/* weeknumber --- figure how many weeks into the year */
+X
+X/* With thanks and tip of the hatlo to ado@elsie.nci.nih.gov */
+X
+X#ifndef __STDC__
+Xstatic int
+Xweeknumber(timeptr, firstweekday)
+Xconst struct tm *timeptr;
+Xint firstweekday;
+X#else
+Xstatic int
+Xweeknumber(const struct tm *timeptr, int firstweekday)
+X#endif
+X{
+X	if (firstweekday == 0)
+X		return (timeptr->tm_yday + 7 - timeptr->tm_wday) / 7;
+X	else
+X		return (timeptr->tm_yday + 7 -
+X			(timeptr->tm_wday ? (timeptr->tm_wday - 1) : 6)) / 7;
+X}
+END_OF_FILE
+if test 6976 -ne `wc -c <'strftime.c'`; then
+    echo shar: \"'strftime.c'\" unpacked with wrong size!
+fi
+# end of 'strftime.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+-- 
+David H. Brierley
+Home: dave@galaxia.newport.ri.us; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.newport.ri.us
+%% Can I be excused, my brain is full. **

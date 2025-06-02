@@ -1,0 +1,1774 @@
+Newsgroups: comp.sources.misc
+From: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Subject: v38i048:  ibpag2 - Icon-Based Parser Generator, Part04/05
+Message-ID: <1993Jul13.044448.17225@sparky.sterling.com>
+X-Md4-Signature: f0ed77a9d76435c759a05df8a064b4ab
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: University of Chicago
+Date: Tue, 13 Jul 1993 04:44:48 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: goer@midway.uchicago.edu (Richard L. Goerwitz)
+Posting-number: Volume 38, Issue 48
+Archive-name: ibpag2/part04
+Environment: Icon
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  follow.icn iacc.ibp ibpag2.icn ibutil.icn slritems.icn
+# Wrapped by kent@sparky on Sun Jul 11 18:51:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 5)."'
+if test -f 'follow.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'follow.icn'\"
+else
+  echo shar: Extracting \"'follow.icn'\" \(11190 characters\)
+  sed "s/^X//" >'follow.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 follow.icn
+X#
+X#	Title:	 compute follow sets for grammar
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.15
+X#
+X############################################################################
+X#
+X#  This file contains FIRST(st, symbol...) and FOLLOW(start_symbol,
+X#  st, symbol).  For FIRST(), arg1 is a list of productions.  Arg 2 is
+X#  a string (nonterminal) or an integer (terminal).  FIRST may take
+X#  more than one symbol argument.  FOLLOW takes a string as its first
+X#  argument, a list of productions as its second, and a symbol as its
+X#  third.  There is never any need to call FOLLOW with any more than
+X#  one symbol.  The return values for FIRST() and FOLLOW() may be
+X#  described as follows:
+X#
+X#  FIRST returns the set of all terminal symbols that begin valid
+X#  prefixes of the first symbol argument, or, if this contains
+X#  epsilon, of the first symbol -- <epsilon> ++ the set of terminals
+X#  beginning valid prefixes of the second symbol, etc....  The first
+X#  argument, st, contains the production list over which FIRST is to
+X#  be computed.
+X#
+X#  FOLLOW is similar, except that it accepts only one symbol argument,
+X#  and returns the set of nonterminals that begin valid prefixes of
+X#  symbols that may follow symbol in the grammar defined by the
+X#  productions in st.
+X#
+X#  Both FIRST() and FOLLOW() are optimized.  When called for the first
+X#  time with a specific production list (st), both FIRST() and
+X#  FOLLOW() create the necessary data structures to calculate their
+X#  respective return values.  Once created, these data structures are
+X#  saved, and re-used for subsequent calls with the same st argument.
+X#  The implications for the user are two: 1) The first call to FOLLOW
+X#  or FIRST for a given production list will take a while to return,
+X#  but 2) subsequent calls will return much faster.  Naturally, you
+X#  can call both FIRST() and FOLLOW() with various st arguments
+X#  throughout the life of a given program.
+X#
+X############################################################################
+X#
+X#  Links: none
+X#
+X############################################################################
+X
+X
+X#
+X# FIRST:  list|set x string|integer...   -> set
+X#         (st, symbols...)               -> FIRST_set
+X#
+X#     Where symbols are strings or integers (nonterminal or terminal
+X#     symbols in a production in the list or set of productions, st),
+X#     and where FIRST_set is a set of integers corresponding to
+X#     terminal symbols that begin valid prefixes of symbols[1], or if
+X#     that derives epsilon, of symbols[1] -- epsilon ++ symbols[2],
+X#     unless that derives epsilon, etc...
+X#
+Xprocedure FIRST(st, symbols[])
+X
+X    local   i, result, FIRST_tbl
+X    static  FIRST_tbl_tbl
+X    initial FIRST_tbl_tbl := table()
+X
+X    /FIRST_tbl_tbl[st] := make_FIRST_sets(st)
+X    FIRST_tbl := FIRST_tbl_tbl[st]
+X
+X    result := set()
+X    i := 0
+X    while *symbols >= (i +:= 1) do {
+X	/FIRST_tbl[symbols[i]] & iohno(90, image(symbols[i]))
+X	if not member(FIRST_tbl[symbols[i]], -2) then {
+X	    # We're done if no epsilons.
+X	    result ++:= FIRST_tbl[symbols[i]]
+X	    break
+X	} else {
+X	    # Remove the epsilon & try the next symbol in p.RHS.
+X	    result ++:= FIRST_tbl[symbols[i]] -- FIRST_tbl[-2]
+X	}
+X    }
+X    # If we get to here without finding a symbol that doesn't derive
+X    # epsilon, then give up and insert <epsilon> into result.
+X    if i > *symbols then
+X	result ++:= FIRST_tbl[-2]
+X
+X    return result
+X
+Xend
+X
+X
+X#
+X# FOLLOW: list|set x string|integer -> set
+X#         (st,       symbol)        -> FOLLOW_set
+X#
+Xprocedure FOLLOW(start_symbol, st, symbol)
+X
+X    static  FOLLOW_tbl_tbl
+X    initial FOLLOW_tbl_tbl := table()
+X
+X    /FOLLOW_tbl_tbl[st] := make_slr_FOLLOW_sets(start_symbol, st) 
+X    return FOLLOW_tbl_tbl[st][symbol]
+X
+Xend
+X
+X
+X#
+X#  Below is the procedure make_slr_FOLLOW_sets(start_symbol, st),
+X#  which accepts a string, a set, and a table as its arguments and
+X#  returns another table.  The first argument must contain the start
+X#  symbol for the set (or list) of productions contained in the second
+X#  argument.  Returns a table of FOLLOW sets, where keys = symbols and
+X#  values = follow sets for those symbols.
+X#
+X#  The algorithm - somewhat inefficiently implemented here - works out
+X#  as follows:
+X#
+X#      1. Place $ (internal 0) in FOLLOW_tbl[start_symbol].
+X#      2. Initialize FOLLOW_tbl[symbol] to { } for every other symbol.
+X#      3. For each production A -> aBb do FOLLOW_tbl[B] ++:= FIRST(b) --
+X#         FIRST(<epsilon>).
+X#      4. For each production A -> aBb where FIRST(b) contains
+X#         <epsilon> and for each production A -> aB, do FOLLOW_tbl[B] ++:=
+X#         FOLLOW_tbl[A].
+X#
+X#  Repeat steps 3 and 4 until no FOLLOW set can be expanded, at which
+X#  point return the FOLLOW table.
+X#
+X#  Note that <epsilon> is represented internally by -2.
+X#
+X
+X
+X#
+X# make_slr_FOLLOW_sets: string x set/list  -> table
+X#                       (start_symbol, st) -> FOLLOW_tbl
+X#
+X#     Where start_symbol is the start symbol for the grammar defined
+X#     by the set/list of productions in st, and where FOLLOW_tbl is a
+X#     table of follow sets (keys = symbols, values = follow sets for
+X#     the symbols).
+X#
+Xprocedure make_slr_FOLLOW_sets(start_symbol, st)
+X
+X    local FOLLOW_tbl, k, size, old_size, p, i, j
+X
+X    FOLLOW_tbl := table()
+X    # step 1 above; note that 0 = EOF
+X    FOLLOW_tbl[start_symbol] := set([0])
+X
+X    # step 2
+X    every k := (!st).LHS do
+X	/FOLLOW_tbl[k] := set()
+X
+X    # steps 3 and 4
+X    size := 0
+X    #
+X    # When the old size of the FOLLOW sets equals the new size, we are
+X    # done because nothing was added to the FOLLOW sets on the last
+X    # pass.
+X    #
+X    while old_size ~===:= size do {
+X	size := 0
+X	every p := !st do {
+X	    every i := 1 to *p.RHS-1 do {
+X		type(p.RHS[i]) == "string" | next
+X		/FOLLOW_tbl[p.RHS[i]] & iohno(90, image(p.RHS[i]))
+X		# Go through every RHS symbol until we get a FIRST set
+X		# without an epsilon move.
+X		every j := i+1 to *p.RHS do {
+X		    if member(FIRST(st, p.RHS[j]), -2) then {
+X			FOLLOW_tbl[p.RHS[i]] ++:=
+X			    FIRST(st, p.RHS[j]) -- FIRST(st, -2)
+X		    } else {
+X			FOLLOW_tbl[p.RHS[i]] ++:= FIRST(st, p.RHS[j])
+X			size +:= *FOLLOW_tbl[p.RHS[i]]
+X			break next
+X		    }
+X		}
+X		# If we get past "break next" then b in A -> aBb =>*
+X		# <epsilon>; add FOLLOW_tbl[A] to FOLLOW_tbl[B].
+X		FOLLOW_tbl[p.RHS[i]] ++:= FOLLOW_tbl[p.LHS]
+X		size +:= *FOLLOW_tbl[p.RHS[i]]
+X	    }
+X	    # Add FOLLOW_tbl[A] to FOLLOW_tbl[B] for the last symbol in the
+X	    # RHS of every rule.
+X	    type(p.RHS[*p.RHS]) == "string" | next
+X	    /FOLLOW_tbl[p.RHS[*p.RHS]] & iohno(90, image(p.RHS[*p.RHS]))
+X	    FOLLOW_tbl[p.RHS[*p.RHS]] ++:= FOLLOW_tbl[p.LHS]
+X	    size +:= *FOLLOW_tbl[p.RHS[*p.RHS]]
+X	}
+X    }
+X
+X    # Print human-readable version of FOLLOW_tbl if instructed to do so.
+X    if \DEBUG then
+X	print_follow_sets(FOLLOW_tbl)
+X
+X    # check for useless nonterminal symbols
+X    every k := (!st).LHS do
+X	*FOLLOW_tbl[k] = 0 & iohno(91, k)
+X
+X    return FOLLOW_tbl
+X
+Xend
+X
+X
+X#
+X#  Below is the routine make_FIRST_sets(st), which accepts as its one
+X#  argument a list or set of production records, and which returns a
+X#  table t, where t's keys are symbols from the grammar defined by the
+X#  productions in st, and where the values assocated with each of
+X#  these keys is the FIRST set for that key.
+X#
+X#  Production records are structures where the first two fields, LHS
+X#  and RHS, contain the left-hand and right-hand side of each rule in
+X#  a given grammar.  The right-hand side is a linked list of integers
+X#  (used for terminals) and strings (used for nonterminals). LHS must
+X#  contain a string.  Terminals below 1 are reserved.  Currently three
+X#  are actually used:
+X#
+X#      0    EOF
+X#      -1   error
+X#      -2   epsilon
+X#
+X#  For a description of the FIRST() construction algorithm, see Alfred
+X#  Aho, Ravi Sethi, and Jeffrey D. Ullman _Compilers_ (Reading,
+X#  Massachusetts: Addison & Wesley, 1986), section 4.4, page 189.
+X#  Their algorithm is not strictly suitable, as is, for use here.  I
+X#  thank Dave Schaumann of the University of Arizona at Tuscon for
+X#  explaining to me the iterative construction algorithm that in fact
+X#  *is* suitable.
+X#  
+X#  FIRST is computed on an iterative basis as follows:
+X#
+X#      1. For every terminal symbol a, FIRST(a) = { a }
+X#      2. For every non-terminal symbol A, initialize FIRST(A) = { }
+X#      3. For every production A -> <epsilon>, add <epsilon> to FIRST(A)
+X#      4. For each production of the grammar having the form X -> Y1
+X#         Y2 ... Yn, perform the following procedure:
+X#          i := 1
+X#          while i <= number-of-RHS-symbols do {
+X#              if <epsilon> is not in FIRST(Y[i]) then {
+X#                  FIRST(X) ++:= FIRST(Y[i])
+X#                  break
+X#              } else {
+X#                  FIRST(X) ++:= FIRST(Y[i]) -- FIRST[<epsilon>]
+X#                  i +:= 1
+X#              }
+X#          }
+X#          if i > number-of-RHS-symbols then
+X#              # <epsilon> is in FIRST(Y[i])
+X#              FIRST(X) ++:= FIRST[epsilon]
+X#      5. Repeat step 3 until no new symbols or <epsilon> can be added
+X#         to any FIRST set
+X#
+X
+X
+X#
+X# make_FIRST_sets:  set/list -> table
+X#                   st       -> t
+X#
+X#     Where st is a set or list of production records, and t is a
+X#     table of FIRST sets, where the keys = terminal or nonterminal
+X#     symbols and the values = sets of terminal symbols.
+X#
+X#     Epsilon move is -2; terminals are positive integers;
+X#     nonterminals are strings.  Error is -1; EOF is 0.
+X#
+Xprocedure make_FIRST_sets(st)
+X
+X    local FIRST_tbl, symbol, p, old_size, size, i
+X
+X    FIRST_tbl    := table()
+X    FIRST_tbl[0] := set([0])
+X
+X    # steps 1, 2, and 3 above
+X    every p := !st do {
+X	# check for empty RHS (an error)
+X	*p.RHS = 0 & iohno(11, production_2_string(p))
+X	# step 1
+X	every symbol := !p.RHS do {
+X	    if type(symbol) == "integer"
+X	    then FIRST_tbl[symbol] := set([symbol])
+X	}
+X	# step 2
+X	/FIRST_tbl[p.LHS] := set() &
+X	# step 3
+X	if *p.RHS = 1 then {
+X	    if p.RHS[1] === -2	# -2 is epsilon
+X	    then insert(FIRST_tbl[p.LHS], -2)
+X	}
+X    }
+X
+X    # steps 4 and 5 above
+X    size := 0
+X    #
+X    # When the old size of the FIRST sets equals the new size, we are
+X    # done.  As long as they're unequal, set old_size to size and try
+X    # to add to the FIRST sets.
+X    #
+X    while old_size ~===:= size do {
+X	size := 0
+X	every p := !st do {
+X	    every i := 1 to *p.RHS do {
+X		\FIRST_tbl[p.RHS[i]] | iohno(90, image(p.RHS[i]))
+X		if not member(FIRST_tbl[p.RHS[i]], -2) then {
+X		    # We're done with this pass if no epsilons.
+X		    FIRST_tbl[p.LHS] ++:= FIRST_tbl[p.RHS[i]]
+X		    size +:= *FIRST_tbl[p.LHS]
+X		    break next
+X		} else {
+X		    # Remove the epsilon & try the next symbol in p.RHS.
+X		    FIRST_tbl[p.LHS] ++:= FIRST_tbl[p.RHS[i]] -- FIRST_tbl[-2]
+X		}
+X	    }
+X	    # If we get past the every...do structure without
+X	    # break+next-ing, then we are still finding epsilons.  In
+X	    # this case, add epsilon to FIRST_tbl[p.LHS].
+X	    FIRST_tbl[p.LHS] ++:= FIRST_tbl[-2]
+X	    size +:= *FIRST_tbl[p.LHS]
+X	}
+X    }
+X
+X    # Print human-readable version of FIRST_tbl if instructed to do so.
+X    if \DEBUG then
+X	print_first_sets(FIRST_tbl)
+X
+X    return FIRST_tbl
+X
+Xend
+END_OF_FILE
+  if test 11190 -ne `wc -c <'follow.icn'`; then
+    echo shar: \"'follow.icn'\" unpacked with wrong size!
+  fi
+  # end of 'follow.icn'
+fi
+if test -f 'iacc.ibp' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'iacc.ibp'\"
+else
+  echo shar: Extracting \"'iacc.ibp'\" \(10968 characters\)
+  sed "s/^X//" >'iacc.ibp' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 iacc.ibp
+X#
+X#	Title:	 YACC-like front-end for Ibpag2 (experimental)
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.5
+X#
+X############################################################################
+X#
+X#  Description:
+X#
+X#      YACC-like Ibpag2 preprocessor (very experimental).  Iacc simply
+X#  reads &input (assumed to be a YACC file, but with Icon code in the
+X#  action fields), and wites an Ibpag2 file to &output.
+X#
+X#      Basically, Iacc does six things to the input stream: 1) puts
+X#  commas between tokens and symbols in rules, 2) removes superfluous
+X#  union and type declarations/tags, 3) inserts "epsilon" into the RHS
+X#  of empty rules, 4) turns "$$ = x" into "return x", 5) rewrites
+X#  rules so that all actions appear at the end of a production, and 6)
+X#  strips all comments.
+X#
+X#      Although Iacc is really meant for grammars with Icon action
+X#  code, Iacc can, in fact, accept straight YACC files, with C action
+X#  code.  There isn't much point to using it this way, though, since
+X#  its output is not meant to be human readable.  Rather, it is to be
+X#  passed directly to Ibpag2 for processing.  Iacc is simply a YACCish
+X#  front end.
+X#
+X############################################################################
+X#
+X#  Installation:
+X#
+X#      This file is not an Icon file, but rather an Ibpag2 file.  You
+X#  must have Ibpag2 installed in order to run it.  To create the iacc
+X#  executable, first create iacc.icn by typing "ibpag2 -f iacc.ibp -o
+X#  iacc.icn," then compile iacc.icn as you would any other Icon file
+X#  to create iacc (or on systems without direct execution, iacc.icx).
+X#  Put more simply, iacc.ibp not only outputs Ibpag2 files, but is
+X#  itself generated using Ibpag2 + icon{t,c}.
+X#
+X############################################################################
+X#
+X#  Links: longstr, strings
+X#  See also: ibpag2
+X#
+X############################################################################
+X
+X%{
+X
+Xlink strings, longstr
+Xglobal newrules, lval, symbol_no
+X
+X%}
+X
+X# basic entities
+X%token C_IDENT, IDENT    # identifiers and literals
+X%token NUMBER            # [0-9]+
+X
+X# reserved words:  %type -> TYPE, %left -> LEFT, etc.
+X%token LEFT, RIGHT, NONASSOC, TOKEN, PREC, TYPE, START, UNION
+X
+X# miscellaneous
+X%token MARK   # %%
+X%token LCURL  # %{
+X%token RCURL  # dummy token used to start processing of C code
+X
+X%start yaccf
+X
+X%%
+X
+Xyaccf	: front, back
+Xfront	: defs, MARK		{ write(arg2) }
+Xback	: rules, tail		{
+X				  every write(!\newrules)
+X				  if write(\arg2) then
+X				      every write(!&input)
+X				}
+Xtail	: epsilon		{ return &null }
+X	| MARK			{ return arg1 }
+X
+Xdefs	: epsilon
+X	| defs, def		{ write(\arg2) }
+X	| defs, cdef		{ write(\arg2) }
+X
+Xdef	: START, IDENT		{ return arg1 || " " || arg2 }
+X	| rword, tag, nlist	{
+X				  if arg1 == "%type"
+X				  then return &null
+X				  else return arg1 || " " || arg3
+X				}
+Xcdef	: stuff, RCURL, RCURL	{ return arg1 }
+Xstuff	: UNION			{ get_icon_code("%}"); return &null }
+X	| LCURL			{ return "%{ " || get_icon_code("%}") }
+X
+Xrword	: TOKEN	| LEFT | RIGHT | NONASSOC | TYPE
+X
+Xtag	: epsilon		{ return &null }
+X	| '<', IDENT, '>'	{ return "<" || arg2 || ">" }
+X
+Xnlist	: nmno			{ return arg1 }
+X	| nlist, nmno		{ return arg1 || ", " || arg2 }
+X	| nlist, ',', nmno	{ return arg1 || ", " || arg3 }
+X
+Xnmno	: IDENT			{ return arg1 }
+X	| IDENT, NUMBER		{ return arg1 }
+X	
+Xrules	: LHS, ':', RHS		{ write(arg1, "\t: ", arg3) }
+X	| rules, rule		{ write(arg2) }
+X
+XRHS	: rbody, prec		{ return arg1 || " " || arg2 }
+X
+Xrule	: LHS, '|', RHS		{ return "\t| " || arg3 }
+X	| LHS, ':', RHS		{ return arg1 || "\t: " || arg3 }
+X
+XLHS	: C_IDENT		{ symbol_no := 0 ; return arg1 }
+X	| epsilon		{ symbol_no := 0 }
+X
+Xrbody	: IDENT			{ symbol_no +:= 1; return arg1 }
+X	| act			{ return "epsilon " || arg1 }
+X	| middle, IDENT		{ return arg1 || ", " || arg2 }
+X	| middle, act		{ return arg1 || " "  || arg2 }
+X	| middle, ',', IDENT	{ return arg1 || ", " || arg3 }
+X	| epsilon		{ return "epsilon" }
+X
+Xmiddle	: IDENT			{ symbol_no +:= 1; return arg1 }
+X	| act			{ symbol_no +:= 1; return arg1 }
+X	| middle, IDENT		{ symbol_no +:= 1; return arg1 || ", "||arg2 }
+X	| middle, ',', IDENT	{ symbol_no +:= 1; return arg1 || ", "||arg3 }
+X	| middle, act		{
+X				  local i, l1, l2
+X				  static actno
+X				  initial { actno := 0; newrules := [] }
+X				  actno +:= 1
+X				  l1 := []; l2 := []
+X				  every i := 1 to symbol_no do {
+X				      every put(l1, ("arg"|"$") || i)
+X				      if symbol_no-i = 0 then i := "0"
+X				      else i := "-" || symbol_no - i
+X				      every put(l2, ("$"|"$") || i)
+X				  }
+X				  put(newrules, "ACT_"|| actno ||
+X					"\t: epsilon "|| mapargs(arg2, l1, l2))
+X				  symbol_no +:= 1
+X				  return arg1 || ", " || "ACT_" || actno
+X				}
+X
+Xact	: '{', cstuff, '}', '}'	{ return "{" || arg2 }
+Xcstuff	: epsilon		{ return get_icon_code("}") }
+X
+Xprec	: epsilon		{ return "" }
+X	| PREC, IDENT		{ return arg1 || arg2 }
+X	| PREC, IDENT, act	{ return arg1 || arg2 || arg3 }
+X
+X
+X%%
+X
+X
+Xprocedure iilex()
+X
+X    local t
+X    static last_token, last_lval, colon
+X    initial colon := ord(":")
+X
+X    every t := next_token() do {
+X	iilval := last_lval
+X	if \last_token then {
+X	    if t = colon then {
+X		if last_token = IDENT
+X		then suspend C_IDENT
+X		else suspend last_token
+X	    } else
+X		suspend last_token
+X	}
+X	last_token := t
+X	last_lval := lval
+X    }
+X    iilval := last_lval
+X    suspend \last_token
+X
+Xend
+X
+X
+Xprocedure next_token()
+X
+X    local reserveds, UNreserveds, c, idchars, marks
+X
+X    reserveds := ["break","by","case","create","default","do",
+X		  "else","end","every","fail","global","if",
+X		  "initial","invocable","link","local","next",
+X		  "not","of","procedure","record","repeat",
+X		  "return","static","suspend","then","to","until",
+X		  "while"]
+X
+X    UNreserveds := ["break_","by_","case_","create_","default_","do_",
+X		    "else_","end_","every_","fail_","global_","if_",
+X		    "initial_","invocable_","link_","local_","next_",
+X		    "not_","of_","procedure_","record_","repeat_",
+X		    "return_","static_","suspend_","then_","to_",
+X		    "until_","while_"]
+X
+X    idchars := &letters ++ '._'
+X    marks := 0
+X
+X    c := reads()
+X    repeat {
+X	lval := &null
+X	case c of {
+X	    "#" : { do_icon_comment(); c := reads() | break }
+X	    "<" : { suspend ord(c); c := reads() | break }
+X	    ">" : { suspend ord(c); c := reads() | break }
+X	    ":" : { suspend ord(c); c := reads() | break }
+X	    "|" : { suspend ord(c); c := reads() | break }
+X	    "," : { suspend ord(c); c := reads() | break }
+X	    "{" : { suspend ord(c | "}" | "}"); c := reads() }
+X	    "/" : {
+X		reads() == "*" | stop("unknown YACC operator, \"/\"")
+X		do_c_comment()
+X		c := reads() | break
+X	    }
+X	    "'" : {
+X		lval := "'"
+X		while lval ||:= (c := reads()) do {
+X		    if c == "\\"
+X		    then lval ||:= reads()
+X		    else if c == "'" then {
+X			suspend IDENT
+X			break
+X		    }
+X		}
+X		c := reads() | break
+X	    }
+X	    "%" : {
+X		lval := "%"
+X		while any(&letters, c := reads()) do 
+X		    lval ||:= c
+X		if *lval = 1 then {
+X		    if c == "%" then {
+X			lval := "%%"
+X			suspend MARK
+X			if (marks +:= 1) > 1 then
+X			    fail
+X		    } else {
+X			if c == "{" then {
+X			    lval := "%{"
+X			    suspend LCURL | RCURL | RCURL
+X			}
+X			else stop("malformed %declaration")
+X		    }
+X		    c := reads() | break
+X		} else {
+X		    case lval of {
+X			"%prec"     : suspend PREC
+X			"%left"     : suspend LEFT
+X			"%token"    : suspend TOKEN
+X			"%right"    : suspend RIGHT
+X			"%type"     : suspend TYPE
+X			"%start"    : suspend START
+X			"%union"    : suspend UNION | RCURL | RCURL
+X			"%nonassoc" : suspend NONASSOC
+X			default    : stop("unknown % code in def section")
+X		    }
+X		}
+X	    }
+X	    default : {
+X		if any(&digits, c) then {
+X		    lval := c
+X		    while any(&digits, c := reads()) do
+X			lval ||:= c
+X		    suspend NUMBER
+X		}    
+X		else {
+X		    if any(idchars, c) then {
+X			lval := c
+X			while any(&digits ++ idchars, c := reads()) do
+X			    lval ||:= c
+X			lval := mapargs(lval, reserveds, UNreserveds)
+X			suspend IDENT
+X		    }
+X		    else {
+X			# whitespace
+X			c := reads() | break
+X		    }
+X		}
+X	    }
+X	}
+X    }
+X
+X
+Xend
+X
+X
+Xprocedure get_icon_code(endmark, comment)
+X
+X    local yaccwords, ibpagwords, count, c, c2, s
+X
+X    yaccwords := ["YYDEBUG", "YYACCEPT", "YYERROR", "yyclearin", "yyerrok"]
+X    ibpagwords := ["IIDEBUG", "IIACCEPT", "IIERROR", "iiclearin", "iierrok"]
+X
+X    s := ""
+X    count := 1
+X    c := reads()
+X
+X    repeat {
+X	case c of {
+X	    "\""    :  s ||:= c || do_string()
+X	    "'"     :  s ||:= c || do_charlit()
+X	    "$"     :  {
+X		c2 := reads() | break
+X		if c2 == "$" then {
+X		    until (c := reads()) == "="
+X		    s ||:= "return "
+X		} else {
+X		    s ||:= c
+X		    c := c2
+X		    next
+X		}
+X	    }
+X	    "#"     :  {
+X		if s[-1] == "\n"
+X		then s[-1] := ""
+X		do_icon_comment()
+X	    }
+X	    "/" : {
+X		c := reads() | break
+X		if c == "*" then
+X		    do_c_comment()
+X		else {
+X		    s ||:= c
+X		    next
+X		}
+X	    }
+X	    "{"     :  {
+X		s ||:= c
+X		if endmark == "}" then
+X		    count +:= 1
+X	    }
+X	    "}"     :  {
+X		s ||:= c
+X		if endmark == "}" then {
+X		    count -:= 1
+X		    count = 0 & (return mapargs(s, yaccwords, ibpagwords))
+X		}
+X	    }
+X	    "%"     :  {
+X		s ||:= c
+X		if endmark == "%}" then {
+X		    if (c := reads()) == "}"
+X		    then return mapargs(s || c, yaccwords, ibpagwords)
+X		    else next
+X		}
+X	    }
+X	    default : s ||:= c
+X	}
+X	c := reads() | break
+X    }
+X
+X    # if there is no endmark, just go to EOF
+X    if \endmark
+X    then stop("input file has mis-braced { code }")
+X    else return mapargs(s, yaccwords, ibpagwords)
+X
+Xend
+X
+X
+Xprocedure do_string()
+X
+X    local c, s
+X
+X    s := ""
+X    while c := reads() do {
+X	case c of {
+X	    "\\"    : s ||:= c || reads()
+X	    "\""    : return s || c || reads()
+X	    default : s ||:= c
+X	}
+X    }
+X
+X    stop("malformed string literal")
+X
+Xend
+X
+X
+Xprocedure do_charlit()
+X
+X    local c, s
+X
+X    s := ""
+X    while c := reads() do {
+X	case c of {
+X	    "\\"    : s ||:= c || reads()
+X	    "'"     : return s || c || reads()
+X	    default : s ||:= c
+X	}
+X    }
+X
+X    stop("malformed character literal")
+X
+Xend
+X
+X
+Xprocedure do_c_comment()
+X
+X    local c, s
+X
+X    s := c := reads() |
+X	stop("malformed C-style /* comment */")
+X
+X    repeat {
+X	if c == "*" then {
+X	    s ||:= (c := reads() | break)
+X	    if c == "/" then
+X		return s
+X	}
+X	else s ||:= (c := reads() | break)
+X    }
+X
+X    return s			# EOF okay
+X
+Xend
+X
+X
+Xprocedure do_icon_comment()
+X
+X    local c, s
+X
+X    s := ""
+X    while c := reads() do {
+X	case c of {
+X	    "\\"    : s ||:= c || (reads() | break)
+X	    "\n"    : return s
+X	    default : s ||:= c
+X	}
+X    }
+X
+X    return s			# EOF okay
+X
+Xend
+X
+X
+Xprocedure mapargs(s, l1, l2)
+X
+X    local i, s2
+X    static cs, tbl, last_l1, last_l2
+X
+X    if /l1 | *l1 = 0 then return s
+X
+X    if not (last_l1 === l1, last_l2 === l2) then {
+X	cs := ''
+X	every cs ++:= (!l1)[1]
+X	tbl := table()
+X	every i := 1 to *l1 do
+X	    insert(tbl, l1[i], (\l2)[i] | "")
+X    }
+X
+X    s2 := ""
+X    s ? {
+X	while s2 ||:= tab(upto(cs)) do {
+X	    (s2 <- (s2 || tbl[tab(longstr(l1))]),
+X	        not any(&letters++&digits++'_')) |
+X		    (s2 ||:= move(1))
+X	}
+X	s2 ||:= tab(0)
+X    }
+X
+X    return s2
+X
+Xend
+X
+X
+Xprocedure main()
+X    iiparse()
+Xend
+END_OF_FILE
+  if test 10968 -ne `wc -c <'iacc.ibp'`; then
+    echo shar: \"'iacc.ibp'\" unpacked with wrong size!
+  fi
+  # end of 'iacc.ibp'
+fi
+if test -f 'ibpag2.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ibpag2.icn'\"
+else
+  echo shar: Extracting \"'ibpag2.icn'\" \(11375 characters\)
+  sed "s/^X//" >'ibpag2.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 ibpag2.icn
+X#
+X#	Title:	 Icon-based parser generator (version 2)
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.20
+X#
+X############################################################################
+X#
+X#  The Basics
+X#
+X#      Ibpag2 is a simple tool for generating parsers from grammar
+X#  specifications.  This may sound pretty arcane to those who have
+X#  never used a parser generator.  In fact, though, this kind of tool
+X#  forms the basis of most programming language implementations.
+X#  Parser generators are also used in preprocessors, transducers,
+X#  compilers, interpreters, calculators and in fact for just about any
+X#  situation where some form of structured input needs to be read into
+X#  an internal data structure and/or converted into some form of
+X#  structured output.  This might include something as mundane as
+X#  reading in recepts or mailing addresses from a file, or turning
+X#  dates of one type (e.g. "September 3, 1993") into another
+X#  ("9/3/93").  For more information on how to use it, see the README
+X#  file included with the Ibpag2 distribution.
+X#
+X############################################################################
+X#
+X#  Running Ibpag2:
+X#
+X#      Invoking Ibpag2 is very, very simple.  There are quite a few
+X#  command-line switches, but all are optional:
+X#
+X#      ibpag2 [-f infile] [-m module] [-o outfile] [-p iiparse.lib dir]
+X#              [-a] [-c] [-v] [-y]
+X#
+X#  Where infile is the Ibpag2 source file (default &input), outfile is
+X#  the output file (default &output), module is an optional string
+X#  appended to all global variables and all procedure calls (to allow
+X#  multiple running parsers), and where -v instructs Ibpag2 to write a
+X#  summary of its operations to ibpag2.output.  Normally all of these
+X#  arguments can be ignored.  Ibpag2 can usually be run using simple
+X#  shell redirection symbols (if your OS supports them).  See the next
+X#  paragraph for an explanation of the -p option.  The -c option is
+X#  for compressed tables, and -a is for non-LR or ambiguous grammars.
+X#  See the advanced sections of README file.  -y directs Ibpag2 to
+X#  resolve reduce/reduce conflicts by their order of occurrence in the
+X#  grammar, and to resolve shift/reduce conflicts in favor of shift -
+X#  just like YACC.  Invoking Ibpag with -h causes it to abort with a
+X#  brief help message.
+X#
+X#      Make sure that the iiparse.lib and iiglrpar.lib files are in
+X#  some path listed in your LPATH directory, or else in a data
+X#  directory adjacent to some IPL "procs" directory in your LPATH.
+X#  Basically, LPATH is just a space-separated list of places where
+X#  .icn library source files reside.  If your system does not support
+X#  environment variables, then there are two ways to tell Ibpag2 where
+X#  the .lib files are without using LPATH.  The first is to move into
+X#  the directory that contains these files.  The second is to supply
+X#  the files' location using Ibpag's -p option (e.g. ibpag2 -p
+X#  /usr/local/lib/icon/data).
+X#
+X############################################################################
+X#
+X#  More Technical Details
+X#
+X#      Technically speaking, Ibpag2 is a preprocessor that accepts a
+X#  YACC-like source file containing grammar productions and actions,
+X#  then 1) converts these into parse tables and associated code, 2)
+X#  adds to them an LR parser, and a few debugging tools, and 3) writes
+X#  the combination to the standard output, along with the necessary
+X#  action and goto table construction code.  The user must $include,
+X#  or hard-code into the Ibpag2 source file, a lexical analyzer that
+X#  returns integers via symbolic $defines generated by %token, %right,
+X#  etc. declarations in the Ibpag2 source file.
+X#
+X#      Cycles and epsilon moves are handled correctly (to my
+X#  knowledge).  Shift-reduce conflicts are handled in the normal way
+X#  (i.e. pick the rule with the highest priority, and, in cases where
+X#  the priority is the same, check the associativities) I decided to
+X#  flag reduce/reduce conflicts as errors by default, since these
+X#  often conceal deeper precedence problems.  They are easily enough
+X#  handled, if need be, via dummy precedences.  The -y command-line
+X#  switch turns off this behavior, causing Ibpag2 to resolve
+X#  reduce/reduce conflicts in a YACCish manner (i.e. favoring the rule
+X#  that occurs first in the grammar).  Ibpag2 normally aborts on
+X#  shift/reduce conflicts.  The -y switch makes Ibpag resolve these in
+X#  favor of shift, and to keep on processing - again, just like YACC.
+X#
+X#      For more information, see the README file.
+X#
+X############################################################################
+X#
+X#  Links: ibreader, ibwriter, slrtbls, ibutil, version, options
+X#
+X############################################################################
+X
+X# link ibreader, ibwriter, slrtbls, ibutil, version, options
+Xlink options
+X
+Xglobal DEBUG
+X
+Xprocedure main(a)
+X
+X    local infile, outfile, verbosefile, atbl, gtbl, grammar, opttbl,
+X	module, abort_on_conflict, paths, path, parser_name,
+X	iiparse_file 
+X
+X    # Get command-line options.
+X    opttbl := options(a, "f:o:vdm:p:hcay", bad_arg)
+X
+X    # Abort with help message if -h is supplied.
+X    if \opttbl["h"] then {
+X	write(&errout, ib_version())
+X	return ib_help_()
+X    }
+X
+X    # If an input file was specified, open it.  Otherwise use stdin.
+X    #
+X    if \opttbl["f"] then
+X	infile := open(opttbl["f"], "r") |
+X	    bad_arg("can't open " || opttbl["f"])
+X    else infile := &input
+X
+X    # If an output file was specified, use it.  Otherwise use stdout.
+X    #
+X    if \opttbl["o"] then
+X	outfile := open(opttbl["o"], "w") |
+X	    bad_arg("can't open " || opttbl["o"])
+X    else outfile := &output
+X
+X    # If a module name was specified (-m), then use it.
+X    #
+X    module := opttbl["m"] | ""
+X
+X    # If the debug option was specified, set all verbose output to go
+X    # to errout.
+X    #
+X    if \opttbl["d"] then {
+X	verbosefile := &errout
+X	DEBUG := 1
+X    }
+X
+X    # If the verbose option was specified, send all verbose output to
+X    # "ibpag2.output" (a bit like YACC's yacc.output file).
+X    #
+X    else if \opttbl["v"] then
+X	verbosefile := open("ibpag2.output", "w") |
+X	    bad_arg("can't open " || opttbl["v"])
+X
+X    # Output defines for YACC-like macros.  Output iiisolate and
+X    # iiprune if -a option is specified.  Sorry for the ugly code.
+X    #
+X    write_defines(opttbl, outfile, module)
+X
+X    # Whew!  Now fetch the grammar from the input file.
+X    #
+X    # Emit line directives keyed to actual line numbers in the
+X    # original file.  Pass its name as arg4.  If obttbl["f"] is
+X    # null (and the input file is &input), ibreader will default
+X    # to something else.
+X    #
+X    grammar := ibreader(infile, outfile, module, opttbl["f"])
+X    if \verbosefile then
+X	# grammar contains start symbol, rules, and terminal token table
+X	print_grammar(grammar, verbosefile)
+X
+X    # Fill in parse tables, atbl and gtbl.  Abort if there is a
+X    # conflict caused by an ambiguity in the grammar or by some
+X    # precedence/associativity problem, unless the -a option is
+X    # supplied (telling Ibpag2 that ambiguous tables are okay).
+X    #
+X    if /opttbl["a"] then
+X	abort_on_conflict := "yes"
+X    atbl := table(); gtbl := table()
+X    make_slr_tables(grammar, atbl, gtbl, abort_on_conflict, opttbl["y"])
+X    if \verbosefile then
+X	# grammar.tbl maps integer terminal symbols to human-readable strings
+X	print_action_goto_tables(atbl, gtbl, grammar.tbl, verbosefile)
+X
+X    # If -c was specified on the command line, compress the action and
+X    # goto tables.
+X    #
+X    if \opttbl["c"] then {
+X	write(outfile, "\n$define COMPRESSED_TABLES\n")
+X	if \verbosefile then
+X	    write(verbosefile, "\nNote:  parse tables are compressed")
+X	shrink_tables(grammar, atbl, gtbl)
+X    }
+X
+X    # Try to find the .lib file using LPATH.
+X    #
+X    parser_name := {
+X	if \opttbl["a"] then "iiglrpar.lib"
+X	else "iiparse.lib"
+X    }
+X    
+X    paths := []
+X    put(paths, trim(\opttbl["p"], '/') || "/")
+X    put(paths, "")
+X    (\getenv)("LPATH") ? {
+X	while path := trim(tab(find(" ") | 0), '/') || "/" do {
+X	    tab(many(' '))
+X	    if find("procs", path) then
+X		put(paths, ibreplace(path, "procs", "data"))
+X	    put(paths, path)
+X	    pos(0) & break
+X	}
+X    }
+X    iiparse_file := open(!paths || parser_name, "r") | iohno(2)
+X
+X    # Write .lib file (contains the iiparse() parser routine), along
+X    # with the start symbol, action table, goto table, and a list of
+X    # productions.
+X    #
+X    # grammar contains start symbol, rules, and terminal token table
+X    #
+X    ibwriter(iiparse_file, outfile, grammar, atbl, gtbl, module)
+X
+X    return exit(0)
+X
+Xend
+X
+X
+X#
+X# write_defines
+X# 
+Xprocedure write_defines(opttbl, outfile, module)
+X
+X    # Output defines for YACC-like macros.  Output iiisolate and
+X    # iiprune if -a option is specified.  Sorry for the ugly code.
+X    #
+X    if \opttbl["a"] then {
+X	write(outfile,
+X	      "$define iiisolate (iidirective", module, " := \"isolate\")")
+X	write(outfile,
+X	      "$define iiprune   (iidirective", module, " := \"prune\")")
+X	write(outfile,
+X	      "$define iierrok   (iidirective", module, " := \"errok\")")
+X    } else {
+X	write(outfile,
+X	      "$define iierrok   (recover_shifts", module, " := &null &",
+X	      			  " discards",     module, " := 0)")
+X    }
+X    write(outfile,
+X	  "$define iiclearin (iidirective",    module, " := \"clearin\")")
+X    write(outfile,
+X	  "$define IIERROR   (iidirective",    module, " := \"error\")")
+X    write(outfile,
+X	  "$define IIACCEPT  (iidirective",    module, " := \"accept\")")
+Xend
+X
+X
+X#
+X# bad_arg
+X#
+X#     Simple routine called if command-line arguments are bad.
+X#
+Xprocedure bad_arg(s)
+X
+X    write(&errout, "ibpag2:  ",s)
+X    write(&errout,
+X	  "usage:  ibpag2 [-f inf] [-m str ] [-o outf] _
+X			  [-p dir] [-a] [-c] [-v] [-y]")
+X    write(&errout, "        for help, type \"ibpag2 -h\"")
+X    stop()
+X
+Xend
+X
+X
+X#
+X# ib_help_
+X#
+Xprocedure ib_help_()
+X
+X    write(&errout, "")
+X    write(&errout,
+X	  "usage:  ibpag2 [-f inf] [-m str] [-o outf] [-p dir] _
+X			  [-a] [-c] [-v] [-y]")
+X    write(&errout, "")
+X    write(&errout, "  -f inf........where inf = Ibpag2's input file (default")
+X    write(&errout, "                   &input)")
+X    write(&errout, "  -m str........where str = a string to be appended to")
+X    write(&errout, "                   global identifiers and procedures")
+X    write(&errout, "  -o outf.......where outf = Ibpag2's input file (default")
+X    write(&errout, "                   &output)")
+X    write(&errout, "  -p dir........where dir = directory in which the")
+X    write(&errout, "                   iiparse.lib file resides (mainly for")
+X    write(&errout, "                   systems lacking LPATH support)")
+X    write(&errout, "  -a............permits ambiguous grammars and multiple")
+X    write(&errout, "                   parses (makes iiparse() a generator).")
+X    write(&errout, "  -c............compresses action/goto tables (obstructs")
+X    write(&errout, "                   debugging somewhat).")
+X    write(&errout, "  -v............sends debugging info to ibpag2.output")
+X    write(&errout, "  -y............tells Ibpag2 to resolve reduce/reduce")
+X    write(&errout, "                   conflicts by order of occurrence in")
+X    write(&errout, "                   the grammar, and to resolve shift/")
+X    write(&errout, "                   reduce conflicts in favor of shift")
+X    stop("")
+X    
+Xend
+END_OF_FILE
+  if test 11375 -ne `wc -c <'ibpag2.icn'`; then
+    echo shar: \"'ibpag2.icn'\" unpacked with wrong size!
+  fi
+  # end of 'ibpag2.icn'
+fi
+if test -f 'ibutil.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ibutil.icn'\"
+else
+  echo shar: Extracting \"'ibutil.icn'\" \(8021 characters\)
+  sed "s/^X//" >'ibutil.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 ibutil.icn
+X#
+X#	Title:	 utilities for Ibpag2
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.20
+X#
+X############################################################################
+X#  
+X#  Contains:
+X#
+X#      production_2_string(p)	    makes production or item p human-
+X#				    readable 
+X#
+X#      print_item_list(C, i)        returns human-readable version of
+X#                                   item list C
+X#
+X#      print_grammar(grammar, f)    sends to file f (default &output)
+X#                                   a human-readable printout of a grammar,
+X#                                   as recorded in an ib_grammar structure
+X#
+X#      print_action_goto_tables(atbl, gtbl, ibtoktbl, f)
+X#                                   sends to file f (default (&output)
+X#                                   a human-readable printout of action
+X#                                   table atbl and goto table gtbl
+X#
+X#      print_follow_sets(FOLLOW_table)
+X#                                   returns a human-readable version
+X#                                   of a FOLLOW table (table of sets)
+X#
+X#      print_first_sets(FIRST_table)
+X#                                   returns a human-readable version
+X#                                   of a FIRST table (a table of sets)
+X#
+X#      ibreplace(s1, s2, s3)	    replaces s2 with s3 in s1
+X#
+X#      equivalent_items(i1, i2)     succeeds if item i1 is structurally
+X#				    identical to item i2
+X#
+X#      equivalent_item_lists(l1,l2) same as equivalent_items, but for
+X#                                   lists of items, not individual items
+X#
+X#      sortff(struct, f1...fn)      sorts struct on fields1, then
+X#				    sub-sorts on field f2, ...fn
+X#
+X############################################################################
+X#
+X#  Links: none
+X#
+X############################################################################
+X
+X
+Xrecord production(LHS, RHS, POS, LOOK, no, prec, assoc)
+X
+X#
+X# production_2_string:  production record -> string
+X#                       p                 -> s
+X#
+X#     Stringizes an image of the LHS and RHS of production p in
+X#     human-readable form.
+X#
+Xprocedure production_2_string(p, ibtoktbl)
+X
+X    local s, m, t
+X
+X    s := image(p.LHS) || " -> "
+X    every m := !p.RHS do {
+X	if t := \ (\ibtoktbl)[m]
+X	then s ||:= t || " "
+X	else s ||:= image(m) || " "
+X    }
+X    # if the POS field is nonnull, print it
+X    s ||:= "(POS = " || image(\p.POS) || ") "
+X    # if the LOOK field is nonnull, print it, too
+X    s ||:= "lookahead = " || image(\p.LOOK)
+X
+X    return trim(s)
+X
+Xend
+X
+X
+X#
+X# print_item_list:  makes item list human readable
+X#
+Xprocedure print_item_list(C, i)
+X
+X    write(&errout, "Productions for item list ", i, ":")
+X    every write(&errout, "\t", production_2_string(!C[i]))
+X    write(&errout)
+X    return
+X
+Xend
+X
+X
+X#
+X# print_grammar:  makes entire grammar human readable
+X#
+Xprocedure print_grammar(grammar, f)
+X
+X    local p, i, sl
+X
+X    /f := &errout
+X
+X    write(f, "Start symbol:")
+X    write(f, "\t", grammar.start)
+X    write(f)
+X    write(f, "Rules:")
+X    every p := !grammar.rules do {
+X	writes(f, "\tRule ", right(p.no, 3, " "), "  ")
+X	write(f, production_2_string(p, grammar.tbl))
+X    }
+X    write(f)
+X    write(f, "Tokens:")
+X    sl := sort(grammar.tbl, 3)
+X    every i := 1 to *sl-1 by 2 do
+X	write(f, "\t", left(sl[i], 5, "."), right(sl[i+1], 20, "."))
+X    write(f)
+X    return
+X
+Xend
+X
+X
+X#
+X# print_action_goto_tables
+X#
+X#     Makes action & goto tables human readable.  If a table mapping
+X#     integer (i.e. char) literals to token names is supplied, the
+X#     token names themselves are printed.
+X#
+Xprocedure print_action_goto_tables(atbl, gtbl, ibtoktbl, f)
+X
+X    local TAB, tbl, key_set, size, i, column, k
+X
+X    /f := &errout
+X    TAB := "\t"
+X
+X    every tbl := atbl|gtbl do {
+X
+X	key_set := set(); every insert(key_set, key(tbl))
+X	writes(f, TAB)
+X	every k := !key_set do
+X	    writes(f, \(\ibtoktbl)[k] | k, TAB)
+X	write(f)
+X	
+X	size := 0; every size <:= key(!tbl)
+X	every i := 1 to size do {
+X	    writes(f, i, TAB)
+X	    every column := tbl[!key_set] do {
+X		# action lists may have more than one element
+X		if /column[i] then
+X		    writes(f, "  ", TAB) & next
+X		\column[i] ? {
+X		    if any('asr') then {
+X			while any('asr') do {
+X			    writes(f, ="a") & next
+X			    writes(f, tab(upto('.<')))
+X			    if ="<" then tab(find(">")+1) else ="."
+X			    tab(many(&digits))
+X			}
+X			writes(f, TAB)
+X		    }
+X		    else writes(f, tab(many(&digits)), TAB)
+X		}
+X	    }
+X	    write(f)
+X	}
+X	write(f)
+X    }
+X
+X    return
+X
+Xend
+X
+X
+X#
+X# print_follow_sets:  make FOLLOW table human readable
+X#
+Xprocedure print_follow_sets(FOLLOW_table)
+X
+X    local FOLLOW_sets, i
+X
+X    FOLLOW_sets := sort(FOLLOW_table, 3)
+X    write(&errout, "FOLLOW sets are as follows:")
+X    every i := 1 to *FOLLOW_sets-1 by 2 do {
+X	writes(&errout, "\tFOLLOW(", image(FOLLOW_sets[i]), ") = ")
+X	every writes(&errout, image(! FOLLOW_sets[i+1]), " ")
+X	write(&errout)
+X    }
+X    write(&errout)
+X    return
+X
+Xend
+X
+X
+X#
+X# print_first_sets:  make FIRST table human readable
+X#
+Xprocedure print_first_sets(FIRST_table)
+X
+X    local FIRST_sets, i
+X
+X    FIRST_sets := sort(FIRST_table, 3)
+X    write(&errout, "FIRST sets are as follows:")
+X    every i := 1 to *FIRST_sets-1 by 2 do {
+X	writes(&errout, "\tFIRST(", image(FIRST_sets[i]), ") = ")
+X	every writes(&errout, image(! FIRST_sets[i+1]), " ")
+X	write(&errout)
+X    }
+X    write(&errout)
+X    return
+X
+Xend
+X
+X
+X#
+X# ibreplace: string x string x string -> string
+X#            (s1,     s2,      s3)    -> s4
+X#
+X#     Where s4 is s1, with every instance of s2 stripped out and
+X#     replaced by s3.  E.g. replace("hello there; hello", "hello",
+X#     "hi") yields "hi there; hi".  Taken straight from the IPL.
+X#
+Xprocedure ibreplace(s1,s2,s3)
+X
+X    local result, i
+X
+X    result := ""
+X    i := *s2
+X
+X    s1 ? {
+X	while result ||:= tab(find(s2)) do {
+X	    result ||:= s3
+X	    move(i)
+X	}
+X	return result || tab(0)
+X    }
+X
+Xend
+X
+X    
+X#
+X# equivalent_items:  record x record -> record or failure
+X#                    (item1,  item2) -> item1  or failure
+X#
+X#     Where item1 and item2 are records having LHS, RHS, POS, & LOOK
+X#     fields (and possibly others, though they aren't used).  Returns
+X#     item1 if item1 and item2 are structurally identical as far as
+X#     their LHS, RHS, LOOK, and POS fields are concerned.  For SLR
+X#     table generators, LOOK will always be null.
+X#
+Xprocedure equivalent_items(item1, item2)
+X
+X    local i
+X
+X    item1 === item2 & (return item1)
+X
+X    if item1.LHS == item2.LHS &
+X	item1.POS = item2.POS &
+X	#
+X	# This comparison doesn't have to be recursive, since I take
+X	# care never to alter RHS structures.  Identical RHSs should
+X	# always be *the same underlying structure*.
+X	#
+X	item1.RHS === item2.RHS &
+X	item1.LOOK === item2.LOOK
+X    then
+X	return item1
+X
+Xend
+X
+X
+X#
+X# equivalent_item_lists: list x list -> list or fail
+X#                        (il1,  il2) -> il1
+X#
+X#     Where il1 is one sorted list-of-items (as returned by goto() or
+X#     by closure()), where il2 is another such list.  Returns the
+X#     first list if the LHS, RHS, and POS fields of the constituent
+X#     items are all structurally identical, i.e. if the two lists
+X#     contain the structurally identical items.
+X#
+Xprocedure equivalent_item_lists(il1, il2)
+X
+X    local i
+X
+X    il1 === il2 & (return il1)
+X    if *il1 = *il2
+X    then {
+X	every i := 1 to *il1 do
+X            equivalent_items(il1[i], il2[i]) | fail
+X    }
+X    else fail
+X
+X    return il1
+X
+Xend
+X
+X
+X#
+X# sortff:  like sortf() except takes unlimited no. of field args
+X#
+Xprocedure sortff(arglst[])
+X
+X    local sortfield, i, old_i
+X
+X    *arglst[1] <= 1 | *arglst = 1 & { return arglst[1] }
+X    sortfield := arglst[2]        | { return sortf(arglst[1]) }
+X    arglst[1] := sortf(arglst[1], sortfield)
+X    
+X    old_i := 1
+X    every i := old_i+1 to *arglst[1] do {
+X        if not (arglst[1][old_i][sortfield] === arglst[1][i][sortfield])
+X	then {
+X	    return sortff!(push(arglst[3:0], arglst[1][old_i : i])) |||
+X		   sortff!(push(arglst[2:0], arglst[1][i     : 0]))
+X	}
+X    }
+X    return sortff!(push(arglst[3:0], arglst[1]))
+X
+Xend
+END_OF_FILE
+  if test 8021 -ne `wc -c <'ibutil.icn'`; then
+    echo shar: \"'ibutil.icn'\" unpacked with wrong size!
+  fi
+  # end of 'ibutil.icn'
+fi
+if test -f 'slritems.icn' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'slritems.icn'\"
+else
+  echo shar: Extracting \"'slritems.icn'\" \(8228 characters\)
+  sed "s/^X//" >'slritems.icn' <<'END_OF_FILE'
+X############################################################################
+X#
+X#	Name:	 slritems.icn
+X#
+X#	Title:	 compute item sets for a grammar
+X#
+X#	Author:	 Richard L. Goerwitz
+X#
+X#	Version: 1.10
+X#
+X############################################################################
+X#
+X#  Contains make_slr_item_sets(start_symbol, st), slr_goto(l, symbol,
+X#  st), slr_closure(l, st).  The user need only worry about
+X#  make_slr_item_sets() initially.  The slr_goto() routine may be
+X#  useful later when constructing action and goto tables.
+X#
+X#  Slr_closure(l, st) accepts a list of items as its first argument, a
+X#  list or set of the productions in the grammar as its second, and
+X#  returns the closure of item list l, in the form of another item
+X#  list.
+X#
+X#  Note also that the production record structure (LHS, RHS, POS,
+X#  LOOK...) has a POS field, and therefore can serve also as an item.
+X#  In fact, any structure can be used, as long as its first three
+X#  fields are LHS, RHS, and POS.
+X#
+X#  See the "Dragon Book" (cited in first.icn) p. 222 ff.
+X#
+X#  Slr_goto(l, symbol, st) accepts a list as its first argument, a
+X#  string or integer as its second (string = nonterminal, integer =
+X#  terminal), and a list or set for its third, returning another list.
+X#  Arg 1 must be an item list, as generated either by another call to
+X#  slr_goto() or by closure of the start production of the augmented
+X#  grammar.  Arg 2, symbol, is some terminal or nonterminal symbol.
+X#  Arg 3 is the list or set of all productions in the current grammar.
+X#  The return value is the closure of the set of all items [A -> aX.b]
+X#  such that [A -> a.Xb] is in l (arg 1).
+X#
+X#  make_slr_item_sets(start_sym, st) takes a string, start_sym, as its
+X#  first argument, and a list or set of productions as its second.
+X#  Returns a list of canonical LR(0) item sets or states.  It returns,
+X#  in other words, a list of lists of items.  Items can be any record
+X#  type that has LHS, RHS, and POS as its first three fields.
+X#
+X#  See the "Dragon Book," example 4.35 (p. 224).
+X#
+X############################################################################
+X#
+X#  Links: ibutil
+X#
+X############################################################################
+X
+X# link ibutil
+X
+X#
+X# slr_closure:  list x list/set -> list
+X#               (l2,    st)      -> l2
+X#
+X#     Where l is a list of items, where st is a list/set of all
+X#     productions in the grammar from which l was derived, and where
+X#     l(2) is the SLR closure of l, as constructed using the standard
+X#     SLR closure operation.
+X#
+X#     Ignore the third to fifth arguments, len to added.  They are
+X#     used internally by recursive calls to slr_closure().
+X#
+Xprocedure slr_closure(l, st, len, LHS_tbl, added)
+X
+X    local   p, i, new_p, symbol
+X    static  LHS_tbl_tbl
+X    initial LHS_tbl_tbl := table()
+X
+X    if /LHS_tbl then {
+X	if /LHS_tbl_tbl[st] := table() then {
+X	    # makes looking up all rules with a given LHS easier
+X	    every p := !st do {
+X		/LHS_tbl_tbl[st][p.LHS] := list()
+X		put(LHS_tbl_tbl[st][p.LHS], p)
+X	    }
+X	}
+X	LHS_tbl := LHS_tbl_tbl[st]
+X    }
+X
+X    /len := 0
+X    /added := set()
+X
+X    # Len tells us where the elements in l start that we haven't yet
+X    # tried to generate more items from.  These elements are basically
+X    # the items added on the last recursive call (or the "core," if
+X    # there has not yet been a recursive call).
+X    #
+X    every i := len+1 to *l do {
+X	/l[i].POS := 1
+X	# Fails if dot (i.e. l[i].POS) is at the end of the RHS;
+X	# also fails if the current symbol (i.e. l[i].RHS[l[i].POS])
+X	# is a nonterminal.
+X	symbol := l[i].RHS[l[i].POS]
+X	# No need to add productions having symbol as their LHS if
+X	# we've already done so for this particular l.
+X	member(added, symbol) & next
+X	every p := !\LHS_tbl[symbol] do {
+X	    # Make a copy of p, but with dot set to position 1.
+X	    new_p := copy(p)
+X	    # Set POS to 1 for non-epsilon productions; otherwise to 2.
+X	    if *new_p.RHS = 1 & new_p.RHS[1] === -2 then
+X		new_p.POS := 2
+X	    else new_p.POS := 1
+X	    # if new_p isn't in l, add it to the end of l
+X	    if not equivalent_items(new_p, !l) then
+X		put(l, new_p)
+X	}
+X	insert(added, symbol)
+X    }
+X    return {
+X	# If nothing new has been added, sort the result and return...
+X	if *l = i then sortff(l, 1, 2, 3)
+X	# ...otherwise, try to add more items to l.
+X	else slr_closure(l, st, i, LHS_tbl, added)
+X    }
+X    
+Xend
+X
+X    
+X#
+X# slr_goto: list x string|integer x list|set -> list
+X#           (l,    symbol,          st)      -> l2
+X#
+X#     Where l is an item set previously returned by slr_goto or (for
+X#     the start symbol of the augmented grammar) by slr_closure(),
+X#     where symbol is a string (nonterminal) or integer (terminal),
+X#     where st is a list or set of all productions in the current
+X#     grammar, and where l2 is the SLR closure of the set of all items
+X#     [A -> aX.b] such that [A -> a.Xb] is in l.
+X#
+X#     The idea is just to move the dots for all productions where the
+X#     dots precede "symbol," creating a new item list for the "moved"
+X#     items, and then performing a slr_closure() on that new item list.
+X#     Note that items can be represented by any structure where fields
+X#     1, 2, and 3 are LHS, RHS, and POS.
+X#
+X#     Note that slr_goto(l, symbol, st) may yield a result that's
+X#     structurally equivalent to one already in the sets of items thus
+X#     far generated.  This won't normally happen, because slr_goto()
+X#     saves old results, never re-calcing for the same l x symbol
+X#     combination.  Still, a duplicate result could theoretically
+X#     happen.
+X#
+Xprocedure slr_goto(l, symbol, st)
+X
+X    local    item, item2, l2, iteml_symbol_table
+X    static   iteml_symbol_table_table
+X    initial  iteml_symbol_table_table := table()
+X
+X    # Keep old results for this grammar (st) in a table of tables of
+X    # tables!
+X    #
+X    /iteml_symbol_table_table[st] := table()
+X    iteml_symbol_table := iteml_symbol_table_table[st]
+X
+X    # See if we've already performed this same calculation.
+X    #
+X    if l2 := \(\iteml_symbol_table[l])[symbol]
+X    then return l2
+X
+X    l2 := list()
+X    every item := !l do {
+X	# Subscripting operation fails if the dot's at end.
+X        if item.RHS[item.POS] === symbol
+X	then {
+X	    item2 := copy(item)	# copy is nonrecursive
+X	    item2.POS +:= 1
+X	    put(l2, item2)
+X	}
+X    }
+X    if *l2 = 0 then fail
+X    else l2 := slr_closure(l2, st)
+X    #
+X    # Keep track of item lists and symbols we've already seen.
+X    #
+X    /iteml_symbol_table[l] := table()
+X    /iteml_symbol_table[l][symbol] := l2
+X
+X    if *l2 > 0 then
+X    return l2
+X    else fail
+X
+Xend
+X
+X
+X#
+X# make_slr_item_sets: string x list|set -> list
+X#                     (start_sym, st)   -> l
+X#
+X#     Where start_sym is the start symbol for the grammar defined by
+X#     the productions contained in st, and where l is the list of item
+X#     lists generated by the standard LR(0) set-of-items construction
+X#     algorithm.
+X#
+X#     Ignore the third and fourth arguments.  They are used internally
+X#     by recursive calls.
+X#
+Xprocedure make_slr_item_sets(start_sym, st, C, len)
+X
+X    local i, next_items, item_list, new_list, item, symbol
+X
+X    #
+X    # First extend the old start symbol and use the result as the new
+X    # start symbol for the augmented grammar to which the set-of-items
+X    # construction will be applied.
+X    #
+X    # &trace := -1
+X    /C := [slr_closure(
+X	    [production("`_" || start_sym || "_'", [start_sym], 1)],st)]
+X    /len := 0
+X
+X    # Iterate through C (the list of item-lists), doing gotos, and adding
+X    # new states, until no more states can be added to C.
+X    #
+X    every item_list := C[i := len+1 to *C] do {
+X	if \DEBUG then
+X	    print_item_list(C, i)
+X	# collect all symbols after the dot for the the items in C[i]...
+X	next_items := set()
+X	every item := !item_list do
+X	    insert(next_items, item.RHS[item.POS])
+X	# ...now, try to do a slr_goto() for every collected symbol.
+X	every symbol := !next_items do {
+X	    new_list := slr_goto(item_list, symbol, st) | next
+X	    if not equivalent_item_lists(new_list, !C)
+X	    then put(C, new_list)
+X	}
+X    }
+X    # If nothing has been inserted, return C and quit; otherwise, call
+X    # recursively and try again.
+X    #
+X    return {
+X	if i = *C then C
+X	else make_slr_item_sets(&null, st, C, i)
+X    }
+X
+Xend
+X
+X
+END_OF_FILE
+  if test 8228 -ne `wc -c <'slritems.icn'`; then
+    echo shar: \"'slritems.icn'\" unpacked with wrong size!
+  fi
+  # end of 'slritems.icn'
+fi
+echo shar: End of archive 4 \(of 5\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

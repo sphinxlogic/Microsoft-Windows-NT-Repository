@@ -1,0 +1,1289 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i097:  zip19 - Info-ZIP portable Zip, version 1.9, Part05/11
+Message-ID: <1992Aug23.064651.29195@sparky.imd.sterling.com>
+X-Md4-Signature: f24a52a163a98ace3a9e3abdcc1ead76
+Date: Sun, 23 Aug 1992 06:46:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 97
+Archive-name: zip19/part05
+Supersedes: zip: Volume 23, Issue 88-96
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, XOS, !AMIGA, ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun, PC
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  deflate.c msdos/tcconfig.tc.UU os2/os2zip.c.UU
+# Wrapped by kent@sparky on Sun Aug 23 01:00:44 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 11)."'
+if test -f 'deflate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'deflate.c'\"
+else
+  echo shar: Extracting \"'deflate.c'\" \(26162 characters\)
+  sed "s/^X//" >'deflate.c' <<'END_OF_FILE'
+X/*
+X
+X Copyright (C) 1990-1992 Mark Adler, Richard B. Wales, Jean-loup Gailly,
+X Kai Uwe Rommel and Igor Mandrichenko.
+X Permission is granted to any individual or institution to use, copy, or
+X redistribute this software so long as all of the original files are included
+X unmodified, that it is not sold for profit, and that this copyright notice
+X is retained.
+X
+X*/
+X
+X/*
+X *  deflate.c by Jean-loup Gailly.
+X *
+X *  PURPOSE
+X *
+X *      Identify new text as repetitions of old text within a fixed-
+X *      length sliding window trailing behind the new text.
+X *
+X *  DISCUSSION
+X *
+X *      The "deflation" process depends on being able to identify portions
+X *      of the input text which are identical to earlier input (within a
+X *      sliding window trailing behind the input currently being processed).
+X *
+X *      The most straightforward technique turns out to be the fastest for
+X *      most input files: try all possible matches and select the longest.
+X *      The key feature is of this algorithm is that insertion and deletions
+X *      from the string dictionary are very simple and thus fast. Insertions
+X *      and deletions are performed at each input character, whereas string
+X *      matches are performed only when the previous match ends. So it is
+X *      preferable to spend more time in matches to allow very fast string
+X *      insertions and deletions. The matching algorithm for small strings
+X *      is inspired from that of Rabin & Karp. A brute force approach is
+X *      used to find longer strings when a small match has been found.
+X *      A similar algorithm is used in comic (by Jan-Mark Wams) and freeze
+X *      (by Leonid Broukhis).
+X *         A previous version of this file used a more sophisticated algorithm
+X *      (by Fiala and Greene) which is guaranteed to run in linear amortized
+X *      time, but has a larger average cost and uses more memory. However
+X *      the F&G algorithm may be faster for some highly redundant files if
+X *      the parameter max_chain_length (described below) is too large.
+X *
+X *  ACKNOWLEDGEMENTS
+X *
+X *      The idea of lazy evaluation of matches is due to Jan-Mark Wams, and
+X *      I found it in 'freeze' written by Leonid Broukhis.
+X *      Thanks to many info-zippers for bug reports and testing.
+X *
+X *  REFERENCES
+X *
+X *      APPNOTE.TXT documentation file in PKZIP 2.0 distribution.
+X *
+X *      A description of the Rabin and Karp algorithm is given in the book
+X *         "Algorithms" by R. Sedgewick, Addison-Wesley, p252.
+X *
+X *      Fiala,E.R., and Greene,D.H.
+X *         Data Compression with Finite Windows, Comm.ACM, 32,4 (1989) 490-595
+X *
+X *  INTERFACE
+X *
+X *      void lm_init (int pack_level, ush *flags)
+X *          Initialize the "longest match" routines for a new file
+X *
+X *      ulg deflate (void)
+X *          Processes a new input file and return its compressed length. Sets
+X *          the compressed length, crc, deflate flags and internal file
+X *          attributes.
+X */
+X
+X#include "zip.h"
+X
+X/* ===========================================================================
+X * Configuration parameters
+X */
+X
+X/* Compile with MEDIUM_MEM to reduce the memory requirements or
+X * with SMALL_MEM to use as little memory as possible.
+X * Warning: defining these symbols affects MATCH_BUFSIZE and HASH_BITS
+X * (see below) and thus affects the compression ratio. The compressed output
+X * is still correct, and might even be smaller in some cases.
+X */
+X
+X#ifdef SMALL_MEM
+X#   define HASH_BITS  13  /* Number of bits used to hash strings */
+X#else
+X#ifdef MEDIUM_MEM
+X#   define HASH_BITS  14
+X#else
+X#   define HASH_BITS  15
+X   /* For portability to 16 bit machines, do not use values above 15. */
+X#endif
+X#endif
+X
+X#define HASH_SIZE (unsigned)(1<<HASH_BITS)
+X#define HASH_MASK (HASH_SIZE-1)
+X#define WMASK     (WSIZE-1)
+X/* HASH_SIZE and WSIZE must be powers of two */
+X
+X#define NIL 0
+X/* Tail of hash chains */
+X
+X#define FAST 4
+X#define SLOW 2
+X/* speed options for the general purpose bit flag */
+X
+X#ifndef TOO_FAR
+X#  define TOO_FAR 4096
+X#endif
+X/* Matches of length 3 are discarded if their distance exceeds TOO_FAR */
+X
+X/* ===========================================================================
+X * Local data used by the "longest match" routines.
+X */
+X
+Xtypedef ush Pos;
+Xtypedef unsigned IPos;
+X/* A Pos is an index in the character window. We use short instead of int to
+X * save space in the various tables. IPos is used only for parameter passing.
+X */
+X
+X#ifndef DYN_ALLOC
+X  uch    far window[2L*WSIZE];
+X  /* Sliding window. Input bytes are read into the second half of the window,
+X   * and move to the first half later to keep a dictionary of at least WSIZE
+X   * bytes. With this organization, matches are limited to a distance of
+X   * WSIZE-MAX_MATCH bytes, but this ensures that IO is always
+X   * performed with a length multiple of the block size. Also, it limits
+X   * the window size to 64K, which is quite useful on MSDOS.
+X   * To do: limit the window size to WSIZE+BSZ if SMALL_MEM (the code would
+X   * be less efficient since the data would have to be copied WSIZE/BSZ times)
+X   */
+X  Pos    far prev[WSIZE];
+X  /* Link to older string with same hash index. To limit the size of this
+X   * array to 64K, this link is maintained only for the last 32K strings.
+X   * An index in this array is thus a window index modulo 32K.
+X   */
+X  Pos    far head[HASH_SIZE];
+X  /* Heads of the hash chains or NIL */
+X#else
+X  uch    far * near window = NULL;
+X  Pos    far * near prev   = NULL;
+X  Pos    far * near head;
+X#endif
+X
+Xlong block_start;
+X/* window position at the beginning of the current output block. Gets
+X * negative when the window is moved backwards.
+X */
+X
+Xlocal unsigned near ins_h;  /* hash index of string to be inserted */
+X
+X#define H_SHIFT  ((HASH_BITS+MIN_MATCH-1)/MIN_MATCH)
+X/* Number of bits by which ins_h and del_h must be shifted at each
+X * input step. It must be such that after MIN_MATCH steps, the oldest
+X * byte no longer takes part in the hash key, that is:
+X *   H_SHIFT * MIN_MATCH >= HASH_BITS
+X */
+X
+Xunsigned int near prev_length;
+X/* Length of the best match at previous step. Matches not greater than this
+X * are discarded. This is used in the lazy match evaluation.
+X */
+X
+X      unsigned near strstart;      /* start of string to insert */
+X      unsigned near match_start;   /* start of matching string */
+Xlocal int      near eofile;        /* flag set at end of input file */
+Xlocal unsigned near lookahead;     /* number of valid bytes ahead in window */
+X
+Xunsigned near max_chain_length;
+X/* To speed up deflation, hash chains are never searched beyond this length.
+X * A higher limit improves compression ratio but degrades the speed.
+X */
+X
+Xlocal unsigned int max_lazy_match;
+X/* Attempt to find a better match only when the current match is strictly
+X * smaller than this value.
+X */
+X
+Xint near good_match;
+X/* Use a faster search when the previous match is longer than this */
+X
+X
+X/* Values for max_lazy_match, good_match and max_chain_length, depending on
+X * the desired pack level (0..9). The values given below have been tuned to
+X * exclude worst case performance for pathological files. Better values may be
+X * found for specific files.
+X */
+Xtypedef struct config {
+X   int good_length;
+X   int max_lazy;
+X   unsigned max_chain;
+X   uch flag;
+X} config;
+X
+Xlocal config configuration_table[10] = {
+X/*      good lazy chain flag */
+X/* 0 */ {0,    0,    0,  0},     /* store only */
+X/* 1 */ {4,    4,   16,  FAST},  /* maximum speed  */
+X/* 2 */ {6,    8,   16,  0},
+X/* 3 */ {8,   16,   32,  0},
+X/* 4 */ {8,   32,   64,  0},
+X/* 5 */ {8,   64,  128,  0},
+X/* 6 */ {8,  128,  256,  0},
+X/* 7 */ {8,  128,  512,  0},
+X/* 8 */ {32, 258, 1024,  0},
+X/* 9 */ {32, 258, 4096,  SLOW}}; /* maximum compression */
+X
+X/* Note: the current code requires max_lazy >= MIN_MATCH and max_chain >= 4
+X * but these restrictions can easily be removed at a small cost.
+X */
+X
+X#define EQUAL 0
+X/* result of memcmp for equal strings */
+X
+X/* ===========================================================================
+X *  Prototypes for local functions. Use asm version by default for
+X *  MSDOS but not Unix. However the asm version version is recommended
+X *  for 386 Unix.
+X */
+X#ifdef ATARI_ST
+X#  undef MSDOS /* avoid the processor specific parts */
+X#endif
+X#if defined(MSDOS) && !defined(NO_ASM) && !defined(ASM)
+X#  define ASM
+X#endif
+X
+Xlocal void fill_window   OF((void));
+X      int  longest_match OF((IPos cur_match));
+X#ifdef ASM
+X      void match_init OF((void)); /* asm code initialization */
+X#endif
+X
+X#ifdef DEBUG
+Xlocal  void check_match OF((IPos start, IPos match, int length));
+X#endif
+X
+X#define MIN(a,b) ((a) <= (b) ? (a) : (b))
+X/* The arguments must not have side effects. */
+X
+X/* ===========================================================================
+X * Update a hash value with the given input byte
+X * IN  assertion: all calls to to UPDATE_HASH are made with consecutive
+X *    input characters, so that a running hash key can be computed from the
+X *    previous key instead of complete recalculation each time.
+X */
+X#define UPDATE_HASH(h,c) (h = (((h)<<H_SHIFT) ^ (c)) & HASH_MASK)
+X
+X/* ===========================================================================
+X * Insert string s in the dictionary and set match_head to the previous head
+X * of the hash chain (the most recent string with same hash key). Return
+X * the previous length of the hash chain.
+X * IN  assertion: all calls to to INSERT_STRING are made with consecutive
+X *    input characters and the first MIN_MATCH bytes of s are valid
+X *    (except for the last MIN_MATCH-1 bytes of the input file).
+X */
+X#define INSERT_STRING(s, match_head) \
+X   (UPDATE_HASH(ins_h, window[(s) + MIN_MATCH-1]), \
+X    prev[(s) & WMASK] = match_head = head[ins_h], \
+X    head[ins_h] = (s))
+X
+X/* ===========================================================================
+X * Initialize the "longest match" routines for a new file
+X */
+Xvoid lm_init (pack_level, flags)
+X    int pack_level; /* 0: store, 1: best speed, 9: best compression */
+X    ush *flags;     /* general purpose bit flag */
+X{
+X    register unsigned j;
+X
+X    if (pack_level < 1 || pack_level > 9) error("bad pack level");
+X
+X    /* Use dynamic allocation if compiler does not like big static arrays: */
+X#ifdef DYN_ALLOC
+X    if (window == NULL) {
+X        window = (uch far*) fcalloc(WSIZE,   2*sizeof(uch));
+X        prev   = (Pos far*) fcalloc(WSIZE,     sizeof(Pos));
+X        head   = (Pos far*) fcalloc(HASH_SIZE, sizeof(Pos));
+X
+X        if (window == NULL || prev == NULL || head == NULL) {
+X            err(ZE_MEM, "window allocation");
+X        }
+X    }
+X#endif /* DYN_ALLOC */
+X#ifdef ASM
+X    match_init(); /* initialize the asm code */
+X#endif
+X    /* Initialize the hash table. */
+X    for (j = 0;  j < HASH_SIZE; j++) head[j] = NIL;
+X    /* prev will be initialized on the fly */
+X
+X    /* Set the default configuration parameters:
+X     */
+X    max_lazy_match   = configuration_table[pack_level].max_lazy;
+X    good_match       = configuration_table[pack_level].good_length;
+X    max_chain_length = configuration_table[pack_level].max_chain;
+X    *flags          |= configuration_table[pack_level].flag;
+X    /* ??? reduce max_chain_length for binary files */
+X
+X    strstart = 0;
+X    block_start = 0L;
+X
+X#if defined(MSDOS) && !defined(__32BIT__)
+X    /* Can't read a 64K block under MSDOS */
+X    lookahead = read_buf((char*)window, (unsigned)WSIZE);
+X#else
+X    lookahead = read_buf((char*)window, 2*WSIZE);
+X#endif
+X    if (lookahead == 0 || lookahead == (unsigned)EOF) {
+X       eofile = 1, lookahead = 0;
+X       return;
+X    }
+X    eofile = 0;
+X    /* Make sure that we always have enough lookahead. This is important
+X     * if input comes from a device such as a tty.
+X     */
+X    while (lookahead < MIN_LOOKAHEAD && !eofile) fill_window();
+X
+X    ins_h = 0;
+X    for (j=0; j<MIN_MATCH-1; j++) UPDATE_HASH(ins_h, window[j]);
+X    /* If lookahead < MIN_MATCH, ins_h is garbage, but this is
+X     * not important since only literal bytes will be emitted.
+X     */
+X}
+X
+X/* ===========================================================================
+X * Set match_start to the longest match starting at the given string and
+X * return its length. Matches shorter or equal to prev_length are discarded,
+X * in which case the result is equal to prev_length and match_start is
+X * garbage.
+X * IN assertions: cur_match is the head of the hash chain for the current
+X *   string (strstart) and its distance is <= MAX_DIST, and prev_length >= 1
+X */
+X#ifndef ASM
+X/* For MSDOS, OS/2 and 386 Unix, an optimized version is in match.asm. The code
+X * is functionally equivalent, so you can use the C version if desired.
+X */
+Xint longest_match(cur_match)
+X    IPos cur_match;                             /* current match */
+X{
+X    unsigned chain_length = max_chain_length;   /* max hash chain length */
+X    register uch far *scan = window + strstart; /* current string */
+X    register uch far *match = scan;             /* matched string */
+X    register int len;                           /* length of current match */
+X    int best_len = prev_length;                 /* best match length so far */
+X    IPos limit = strstart > (IPos)MAX_DIST ? strstart - (IPos)MAX_DIST : NIL;
+X    /* Stop when cur_match becomes <= limit. To simplify the code,
+X     * we prevent matches with the string of window index 0.
+X     */
+X#ifdef UNALIGNED_OK
+X    register ush scan_start = *(ush*)scan;
+X    register ush scan_end   = *(ush*)(scan+best_len-1);
+X#else
+X    register uch scan_start = *scan;
+X    register uch scan_end1  = scan[best_len-1];
+X    register uch scan_end   = scan[best_len];
+X#endif
+X
+X    /* Do not waste too much time if we already have a good match: */
+X    if (prev_length >= good_match) {
+X        chain_length >>= 2;
+X    }
+X
+X    do {
+X        Assert(cur_match < strstart, "no future");
+X        match = window + cur_match;
+X
+X        /* Skip to next match if the match length cannot increase
+X         * or if the match length is less than 2:
+X         */
+X#if (defined(UNALIGNED_OK) && HASH_BITS >= 8)
+X        /* This code assumes sizeof(unsigned short) == 2 and
+X         * sizeof(unsigned long) == 4. Do not use UNALIGNED_OK if your
+X         * compiler uses different sizes.
+X         */
+X        if (*(ush*)(match+best_len-1) != scan_end ||
+X            *(ush*)match != scan_start) continue;
+X
+X        len = MIN_MATCH - 4;
+X        /* It is not necessary to compare scan[2] and match[2] since they are
+X         * always equal when the other bytes match, given that the hash keys
+X         * are equal and that HASH_BITS >= 8.
+X         */
+X        do {} while ((len+=4) < MAX_MATCH-3 &&
+X                     *(ulg*)(scan+len) == *(ulg*)(match+len));
+X        /* The funny do {} generates better code for most compilers */
+X
+X        if (*(ush*)(scan+len) == *(ush*)(match+len)) len += 2;
+X        if (scan[len] == match[len]) len++;
+X
+X#else /* UNALIGNED_OK */
+X        if (match[best_len] != scan_end ||
+X            match[best_len-1] != scan_end1 || *match != scan_start)
+X           continue;
+X        /* It is not necessary to compare scan[1] and match[1] since they
+X         * are always equal when the other bytes match, given that
+X         * the hash keys are equal and that h_shift+8 <= HASH_BITS,
+X         * that is, when the last byte is entirely included in the hash key.
+X         * The condition is equivalent to
+X         *       (HASH_BITS+2)/3 + 8 <= HASH_BITS
+X         * or: HASH_BITS >= 13
+X         * Also, we check for a match at best_len-1 to get rid quickly of
+X         * the match with the suffix of the match made at the previous step,
+X         * which is known to fail.
+X         */
+X#if HASH_BITS >= 13
+X        len = 1;
+X#else
+X        len = 0;
+X#endif
+X        do {} while (++len < MAX_MATCH && scan[len] == match[len]);
+X
+X#endif /* UNALIGNED_OK */
+X
+X        if (len > best_len) {
+X            match_start = cur_match;
+X            best_len = len;
+X            if (len == MAX_MATCH) break;
+X#ifdef UNALIGNED_OK
+X            scan_end = *(ush*)(scan+best_len-1);
+X#else
+X            scan_end1  = scan[best_len-1];
+X            scan_end   = scan[best_len];
+X#endif
+X        }
+X    } while (--chain_length != 0 &&
+X             (cur_match = prev[cur_match & WMASK]) > limit);
+X
+X    return best_len;
+X}
+X#endif /* NO_ASM */
+X
+X#ifdef DEBUG
+X/* ===========================================================================
+X * Check that the match at match_start is indeed a match.
+X */
+Xlocal void check_match(start, match, length)
+X    IPos start, match;
+X    int length;
+X{
+X    /* check that the match is indeed a match */
+X    if (memcmp((char*)window + match,
+X                (char*)window + start, length) != EQUAL) {
+X        fprintf(stderr,
+X            " start %d, match %d, length %d\n",
+X            start, match, length);
+X        error("invalid match");
+X    }
+X    if (verbose > 1) {
+X        fprintf(stderr,"\\[%d,%d]", start-match, length);
+X        do { putc(window[start++], stderr); } while (--length != 0);
+X    }
+X}
+X#else
+X#  define check_match(start, match, length)
+X#endif
+X
+X/* ===========================================================================
+X * Fill the window when the lookahead becomes insufficient.
+X * Updates strstart and lookahead, and sets eofile if end of input file.
+X * IN assertion: lookahead < MIN_LOOKAHEAD && strstart + lookahead > 0
+X * OUT assertion: at least one byte has been read, or eofile is set.
+X */
+Xlocal void fill_window()
+X{
+X    register unsigned n, m;
+X    unsigned more = (unsigned)((ulg)2*WSIZE - (ulg)lookahead - (ulg)strstart);
+X    /* Amount of free space at the end of the window. */
+X
+X    /* If the window is full, move the upper half to the lower one to make
+X     * room in the upper half.
+X     */
+X    if (more == 0) {
+X        /* By the IN assertion, the window is not empty so we can't confuse
+X         * more == 0 with more == 64K on a 16 bit machine.
+X         */
+X        memcpy((char*)window, (char*)window+WSIZE, (unsigned)WSIZE);
+X        match_start -= WSIZE;
+X        strstart    -= WSIZE;
+X        /* strstart - WSIZE = WSIZE - lookahead > WSIZE - MIN_LOOKAHEAD
+X         * so we now have strstart > MAX_DIST:
+X         */
+X        Assert (strstart > MAX_DIST, "window slide too early");
+X        block_start -= (long) WSIZE;
+X
+X        for (n = 0; n < HASH_SIZE; n++) {
+X            m = head[n];
+X            head[n] = (Pos)(m >= WSIZE ? m-WSIZE : NIL);
+X        }
+X        for (n = 0; n < WSIZE; n++) {
+X            m = prev[n];
+X            prev[n] = (Pos)(m >= WSIZE ? m-WSIZE : NIL);
+X            /* If n is not on any hash chain, prev[n] is garbage but
+X             * its value will never be used.
+X             */
+X        }
+X        more = WSIZE;
+X        if (verbose) putc('.', stderr);
+X
+X    } else if (more == (unsigned)EOF) {
+X        /* Very unlikely, but possible on 16 bit machine if strstart == 0
+X         * and lookahead == 1 (input done one byte at time)
+X         */
+X        more--;
+X    }
+X    n = read_buf((char*)window+strstart+lookahead, more);
+X    if (n == 0 || n == (unsigned)EOF) {
+X        eofile = 1;
+X    } else {
+X        lookahead += n;
+X    }
+X}
+X
+X/* ===========================================================================
+X * Flush the current block, with given end-of-file flag.
+X * IN assertion: strstart is set to the end of the current match.
+X */
+X#define FLUSH_BLOCK(eof) \
+X   flush_block(block_start >= 0L ? (char*)&window[block_start] : (char*)NULL,\
+X               (long)strstart - block_start, (eof))
+X
+X/* ===========================================================================
+X * Processes a new input file and return its compressed length.
+X */
+X#ifdef NO_LAZY
+Xulg deflate()
+X{
+X    IPos hash_head; /* head of the hash chain */
+X    int flush;      /* set if current block must be flushed */
+X    unsigned match_length = 0;  /* length of best match */
+X
+X    prev_length = MIN_MATCH-1;
+X    while (lookahead != 0) {
+X        /* Insert the string window[strstart .. strstart+2] in the
+X         * dictionary, and set hash_head to the head of the hash chain:
+X         */
+X        INSERT_STRING(strstart, hash_head);
+X
+X        /* Find the longest match, discarding those <= prev_length.
+X         * At this point we have always match_length < MIN_MATCH
+X         */
+X        if (hash_head != NIL && strstart - hash_head <= MAX_DIST) {
+X            /* To simplify the code, we prevent matches with the string
+X             * of window index 0 (in particular we have to avoid a match
+X             * of the string with itself at the start of the input file).
+X             */
+X            match_length = longest_match (hash_head);
+X            /* longest_match() sets match_start */
+X            if (match_length > lookahead) match_length = lookahead;
+X        }
+X        if (match_length >= MIN_MATCH) {
+X            check_match(strstart, match_start, match_length);
+X
+X            flush = ct_tally(strstart-match_start, match_length - MIN_MATCH);
+X
+X            lookahead -= match_length;
+X            match_length--; /* string at strstart already in hash table */
+X            do {
+X                strstart++;
+X                INSERT_STRING(strstart, hash_head);
+X                /* strstart never exceeds WSIZE-MAX_MATCH, so there are
+X                 * always MIN_MATCH bytes ahead. If lookahead < MIN_MATCH
+X                 * these bytes are garbage, but it does not matter since the
+X                 * next lookahead bytes will always be emitted as literals.
+X                 */
+X            } while (--match_length != 0);
+X        } else {
+X            /* No match, output a literal byte */
+X            flush = ct_tally (0, window[strstart]);
+X            lookahead--;
+X        }
+X        strstart++; 
+X        if (flush) FLUSH_BLOCK(0), block_start = strstart;
+X
+X        /* Make sure that we always have enough lookahead, except
+X         * at the end of the input file. We need MAX_MATCH bytes
+X         * for the next match, plus MIN_MATCH bytes to insert the
+X         * string following the next match.
+X         */
+X        while (lookahead < MIN_LOOKAHEAD && !eofile) fill_window();
+X
+X    }
+X    return FLUSH_BLOCK(1); /* eof */
+X}
+X#else /* LAZY */
+X/* ===========================================================================
+X * Same as above, but achieves better compression. We use a lazy
+X * evaluation for matches: a match is finally adopted only if there is
+X * no better match at the next window position.
+X */
+Xulg deflate()
+X{
+X    IPos hash_head;          /* head of hash chain */
+X    IPos prev_match;         /* previous match */
+X    int flush;               /* set if current block must be flushed */
+X    int match_available = 0; /* set if previous match exists */
+X    register unsigned match_length = MIN_MATCH-1; /* length of best match */
+X#ifdef DEBUG
+X    extern ulg isize;        /* byte length of input file, for debug only */
+X#endif
+X
+X    /* Process the input block. */
+X    while (lookahead != 0) {
+X        /* Insert the string window[strstart .. strstart+2] in the
+X         * dictionary, and set hash_head to the head of the hash chain:
+X         */
+X        INSERT_STRING(strstart, hash_head);
+X
+X        /* Find the longest match, discarding those <= prev_length.
+X         */
+X        prev_length = match_length, prev_match = match_start;
+X        match_length = MIN_MATCH-1;
+X
+X        if (hash_head != NIL && prev_length < max_lazy_match &&
+X            strstart - hash_head <= MAX_DIST) {
+X            /* To simplify the code, we prevent matches with the string
+X             * of window index 0 (in particular we have to avoid a match
+X             * of the string with itself at the start of the input file).
+X             */
+X            match_length = longest_match (hash_head);
+X            /* longest_match() sets match_start */
+X            if (match_length > lookahead) match_length = lookahead;
+X            /* Ignore a length 3 match if it is too distant: */
+X            if (match_length == MIN_MATCH && strstart-match_start > TOO_FAR){
+X                /* If prev_match is also MIN_MATCH, match_start is garbage
+X                 * but we will ignore the current match anyway.
+X                 */
+X                match_length--;
+X            }
+X        }
+X        /* If there was a match at the previous step and the current
+X         * match is not better, output the previous match:
+X         */
+X        if (prev_length >= MIN_MATCH && match_length <= prev_length) {
+X
+X            check_match(strstart-1, prev_match, prev_length);
+X
+X            flush = ct_tally(strstart-1-prev_match, prev_length - MIN_MATCH);
+X
+X            /* Insert in hash table all strings up to the end of the match.
+X             * strstart-1 and strstart are already inserted.
+X             */
+X            lookahead -= prev_length-1;
+X            prev_length -= 2;
+X            do {
+X                strstart++;
+X                INSERT_STRING(strstart, hash_head);
+X                /* strstart never exceeds WSIZE-MAX_MATCH, so there are
+X                 * always MIN_MATCH bytes ahead. If lookahead < MIN_MATCH
+X                 * these bytes are garbage, but it does not matter since the
+X                 * next lookahead bytes will always be emitted as literals.
+X                 */
+X            } while (--prev_length != 0);
+X            match_available = 0;
+X            match_length = MIN_MATCH-1;
+X
+X        } else if (match_available) {
+X            /* If there was no match at the previous position, output a
+X             * single literal. If there was a match but the current match
+X             * is longer, truncate the previous match to a single literal.
+X             */
+X            flush = ct_tally (0, window[strstart-1]);
+X            Tracevv((stderr,"%c",window[strstart-1]));
+X            lookahead--;
+X        } else {
+X            /* There is no previous match to compare with, wait for
+X             * the next step to decide.
+X             */
+X            match_available = 1;
+X            flush = 0;
+X            lookahead--;
+X        }
+X        if (flush) FLUSH_BLOCK(0), block_start = strstart;
+X        strstart++;
+X        Assert (strstart <= isize && lookahead <= isize, "a bit too far");
+X
+X        /* Make sure that we always have enough lookahead, except
+X         * at the end of the input file. We need MAX_MATCH bytes
+X         * for the next match, plus MIN_MATCH bytes to insert the
+X         * string following the next match.
+X         */
+X        while (lookahead < MIN_LOOKAHEAD && !eofile) fill_window();
+X    }
+X    if (match_available) ct_tally (0, window[strstart-1]);
+X
+X    return FLUSH_BLOCK(1); /* eof */
+X}
+X#endif /* LAZY */
+END_OF_FILE
+  if test 26162 -ne `wc -c <'deflate.c'`; then
+    echo shar: \"'deflate.c'\" unpacked with wrong size!
+  fi
+  # end of 'deflate.c'
+fi
+if test -f 'msdos/tcconfig.tc.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msdos/tcconfig.tc.UU'\"
+else
+  echo shar: Extracting \"'msdos/tcconfig.tc.UU'\" \(2366 characters\)
+  sed "s/^X//" >'msdos/tcconfig.tc.UU' <<'END_OF_FILE'
+Xbegin 666 msdos/tcconfig.tc
+XM5'5R8F\@0R!#;VYF:6=U<F%T:6]N($9I;&4@&@ !#1(7 1H  @$!  (    "
+XM  (  0 #  (  @ $  $   4  0  !@ !   (  $  PD  @    T  @ !  X 
+XM @   !$  0 ($@ "  $ $P " !D %  "    %0 "  $ %@ "  ( %P "  $ 
+XM&  "    9  !  %E  $  68  0 !9P !  %H  $  6D  0 !:@ !  %K  $ 
+XM &P  0 !;0 !  %N  $  6\  0 !<  !  %Q  $  '(  0 !<P !  !T  $ 
+XM 74  0 !=@ !  %W  $  7@  0 !>0 !  %Z  $  7L  0  ?  !  %]  $ 
+XM 7X  0 !?P !  &   $  ((  0  A  !  &%  $  <@  0  R0 !  '*  $ 
+XM ,L  0  S  !  #-  $  ,X  0 !SP !  #0  $ &=$  0!DT@ ! "#5  $ 
+XM -<  0  V  !  '9  $  =H  0 !VP !  #<  $  =T  0 !W@ !  #?  $ 
+XM .   0  X0 !  #B  $  2P!1                                   
+XM                                                         "T!
+XM@ !#.EQ40UQ)3D-,541%                                        
+XM                                                            
+XM                                                     "X!@ !#
+XM.EQ40UQ,24(                                                 
+XM                                                            
+XM                                                 "\!4 !:25 N
+XM4%)*                                                        
+XM                                         # !!  S,@  ,0$% #(U
+XM    ,@$% #$P,   ,P%_                                        
+XM                                                            
+XM                                                            
+XM           T 1X *@                                      -0$>
+XM "H                                      #8!'@ J            
+XM                           W 1X *@                          
+XM            . $> "H                                      #D!
+XM'@ J                                       Z 1X *@          
+XM                            .P$> "H                         
+XM             #P!'@ J                                       ]
+XM 8                                                          
+XM                                                            
+XM                                                       ^ 00 
+XM.    #\!4                                                   
+XM                                                         $ !
+XM1 !#.EQ40P                                                  
+XM                                 $$!4                       
+XM                                                            
+X9                         /__ @ :    
+X 
+Xend
+END_OF_FILE
+  if test 2366 -ne `wc -c <'msdos/tcconfig.tc.UU'`; then
+    echo shar: \"'msdos/tcconfig.tc.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'msdos/tcconfig.tc'\" \(1690 characters\)
+    cat msdos/tcconfig.tc.UU | uudecode
+    if test 1690 -ne `wc -c <'msdos/tcconfig.tc'`; then
+      echo shar: \"'msdos/tcconfig.tc'\" uudecoded with wrong size!
+    else
+      rm msdos/tcconfig.tc.UU
+    fi
+  fi
+  # end of 'msdos/tcconfig.tc.UU'
+fi
+if test -f 'os2/os2zip.c.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'os2/os2zip.c.UU'\"
+else
+  echo shar: Extracting \"'os2/os2zip.c.UU'\" \(28901 characters\)
+  sed "s/^X//" >'os2/os2zip.c.UU' <<'END_OF_FILE'
+Xbegin 666 os2/os2zip.c
+XM+RH-"B J($ H(RED:7(N8R Q+C0@.#<O,3$O,#8@4'5B;&EC($1O;6%I;BX-
+XM"B J#0H@*B @02!P=6)L:6,@9&]M86EN(&EM<&QE;65N=&%T:6]N(&]F($)3
+XM1"!D:7)E8W1O<GD@<F]U=&EN97,@9F]R#0H@*B @35,M1$]3+B @5W)I='1E
+XM;B!B>2!-:6-H865L(%)E;F1E;&P@*'MU=6YE="QU=&%I?6UI8VAA96Q 9V%R
+XM9FEE;&0I+ T*("H@($%U9W5S=" Q.#DW#0H@*B @4&]R=&5D('1O($]3+S(@
+XM8GD@2V%I(%5W92!2;VUM96P-"B J("!$96-E;6)E<B Q.3@Y+"!&96)R=6%R
+XM>2 Q.3DP#0H@*B @0VAA;F=E(&9O<B!(4$93('-U<'!O<G0L($]C=&]B97(@
+XM,3DY, T*("HO#0H-"B\J(&1O97,@86QS;R!C;VYT86EN($5!(&%C8V5S<R!C
+XM;V1E(&9O<B!U<V4@:6X@6DE0("HO#0H-"@T*(VEF9&5F(%]?14U87U\-"B-D
+XM969I;F4@7U\S,D))5%]?#0HC96YD:68-"@T*(VEN8VQU9&4@(GII<"YH(@T*
+XM#0HC:6YC;'5D92 \<W1D;&EB+F@^#0HC:6YC;'5D92 \=&EM92YH/@T*(VEN
+XM8VQU9&4@/&-T>7!E+F@^#0H-"B-I9F1E9B!?7U=!5$-/34-?7PT*(VEN8VQU
+XM9&4@/&UA;&QO8RYH/@T*=6YS:6=N960@8VAA<B!?7VYE87(@7V]S;6]D92 ]
+XM($]3,E]-3T1%.PT*(V5N9&EF#0H-"B-D969I;F4@24Y#3%].3U!-#0HC9&5F
+XM:6YE($E.0TQ?1$]33DQ3#0HC9&5F:6YE($E.0TQ?1$]315)23U)3#0HC:6YC
+XM;'5D92 \;W,R+F@^#0H-"B-I;F-L=61E(")O<S)Z:7 N:"(-"@T*#0HC9&5F
+XM:6YE($5!240@(" @(#!X,# P.0T*#0H-"B-I9F1E9B!?7S,R0DE47U\-"B-D
+XM969I;F4@1&]S1FEN9$9I<G-T*' Q+"!P,BP@<#,L(' T+"!P-2P@<#8I(%P-
+XM"B @(" @(" @1&]S1FEN9$9I<G-T*' Q+"!P,BP@<#,L(' T+"!P-2P@<#8L
+XM(#$I#0HC96QS90T*(V1E9FEN92!$;W-1=65R>4-U<G)E;G1$:7-K($1O<U%#
+XM=7)$:7-K#0HC9&5F:6YE($1O<U%U97)Y1E-!='1A8V@H<#$L(' R+"!P,RP@
+XM<#0L(' U*2!<#0H@(" @(" @($1O<U%&4T%T=&%C:"AP,2P@<#(L(' S+"!P
+XM-"P@<#4L(# I#0HC9&5F:6YE($1O<U%U97)Y4&%T:$EN9F\H<#$L(' R+"!P
+XM,RP@<#0I(%P-"B @(" @(" @1&]S45!A=&A);F9O*' Q+"!P,BP@<#,L(' T
+XM+" P*0T*(V1E9FEN92!$;W-39710871H26YF;RAP,2P@<#(L(' S+"!P-"P@
+XM<#4I(%P-"B @(" @(" @1&]S4V5T4&%T:$EN9F\H<#$L(' R+"!P,RP@<#0L
+XM(' U+" P*0T*(V1E9FEN92!$;W-%;G5M071T<FEB=71E*' Q+"!P,BP@<#,L
+XM(' T+"!P-2P@<#8L(' W*2!<#0H@(" @(" @($1O<T5N=6U!='1R:6)U=&4H
+XM<#$L(' R+"!P,RP@<#0L(' U+"!P-BP@<#<L(# I#0HC9&5F:6YE($1O<T9I
+XM;F1&:7)S="AP,2P@<#(L(' S+"!P-"P@<#4L(' V*2!<#0H@(" @(" @($1O
+XM<T9I;F1&:7)S="AP,2P@<#(L(' S+"!P-"P@<#4L(' V+" P*0T*(V1E9FEN
+XM92!$;W--87!#87-E($1O<T-A<V5-87 -"B-E;F1I9@T*#0H-"B-I9FYD968@
+XM551)3 T*#0IE>'1E<FX@:6YT(&YO:7-Y.PT*#0HC:69N9&5F(%-?249-5 T*
+XM(V1E9FEN92!37TE&350@,'A&,# P#0HC96YD:68-"@T*<W1A=&EC(&EN="!A
+XM='1R:6)U=&5S(#T@05]$25(@?"!!7TA)1$1%3B!\($%?4UE35$5-.PT*#0IS
+XM=&%T:6,@8VAA<B J9V5T9&ER96YT*&-H87(@*BD[#0IS=&%T:6,@=F]I9"!F
+XM<F5E7V1I<F-O;G1E;G1S*'-T<G5C="!?9&ER8V]N=&5N=',@*BD[#0H-"B-I
+XM9F1E9B!?7S,R0DE47U\-"G-T871I8R!(1$E2(&AD:7([#0IS=&%T:6,@54Q/
+XM3D<@8V]U;G0[#0IS=&%T:6,@1DE,149)3D1"548S(&9I;F0[#0HC96QS90T*
+XM<W1A=&EC($A$25(@:&1I<CL-"G-T871I8R!54TA/4E0@8V]U;G0[#0IS=&%T
+XM:6,@1DE,149)3D1"548@9FEN9#L-"B-E;F1I9@T*#0H-"D1)4B J;W!E;F1I
+XM<BAC:&%R("IN86UE*0T*>PT*("!S=')U8W0@<W1A="!S=&%T8CL-"B @1$E2
+XM("ID:7)P.PT*("!C:&%R(&,[#0H@(&-H87(@*G,[#0H@('-T<G5C="!?9&ER
+XM8V]N=&5N=',@*F1P.PT*("!C:&%R(&YB=69;34%84$%42$Q%3B K(#%=.PT*
+XM("!I;G0@;&5N.PT*#0H@('-T<F-P>2AN8G5F+"!N86UE*3L-"B @;&5N(#T@
+XM<W1R;&5N("AN8G5F*3L-"B @<R ](&YB=68@*R!L96X[#0H-"B @:68@*" H
+XM*&,@/2!N8G5F6W-T<FQE;BAN8G5F*2 M(#%=*2 ]/2 G7%PG('Q\(&,@/3T@
+XM)R\G*2 F)@T*(" @(" @("AS=')L96XH;F)U9BD@/B Q*2 I#0H@('L-"B @
+XM("!N8G5F6W-T<FQE;BAN8G5F*2 M(#%=(#T@,#L-"@T*(" @(&EF("@@;F)U
+XM9EMS=')L96XH;F)U9BD@+2 Q72 ]/2 G.B<@*0T*(" @(" @<W1R8V%T*&YB
+XM=68L(")<7"XB*3L-"B @?0T*("!E;'-E#0H@(" @:68@*"!N8G5F6W-T<FQE
+XM;BAN8G5F*2 M(#%=(#T]("<Z)R I#0H@(" @("!S=')C870H;F)U9BP@(BXB
+XM*3L-"@T*("!I9B H<W1A="AN8G5F+" F<W1A=&(I(#P@,"!\?" H<W1A=&(N
+XM<W1?;6]D92 F(%-?249-5"D@(3T@4U])1D1)4BD-"B @("!R971U<FX@3E5,
+XM3#L-"@T*("!I9B H("AD:7)P(#T@;6%L;&]C*'-I>F5O9BA$25(I*2D@/3T@
+XM3E5,3" I#0H@(" @<F5T=7)N($Y53$P[#0H-"B @:68@*"!N8G5F6W-T<FQE
+XM;BAN8G5F*2 M(#%=(#T]("<N)R I#0H@(" @<W1R8W!Y*&YB=68@*R!S=')L
+XM96XH;F)U9BD@+2 Q+" B*BXJ(BD[#0H@(&5L<V4-"B @("!I9B H("@H8R ]
+XM(&YB=69;<W1R;&5N*&YB=68I("T@,5TI(#T]("=<7"<@?'P@8R ]/2 G+R<I
+XM("8F#0H@(" @(" @(" H<W1R;&5N*&YB=68I(#T](#$I("D-"B @(" @('-T
+XM<F-A="AN8G5F+" B*BXJ(BD[#0H@(" @96QS90T*(" @(" @<W1R8V%T*&YB
+XM=68L(")<7"HN*B(I.PT*#0H@(&1I<G @+3X@9&1?;&]C(#T@,#L-"B @9&ER
+XM<" M/B!D9%]C;VYT96YT<R ](&1I<G @+3X@9&1?8W @/2!.54Q,.PT*#0H@
+XM(&EF("@H<R ](&=E=&1I<F5N="AN8G5F*2D@/3T@3E5,3"D-"B @("!R971U
+XM<FX@9&ER<#L-"@T*("!D;PT*("![#0H@(" @:68@*"@H9' @/2!M86QL;V,H
+XM<VEZ96]F*'-T<G5C="!?9&ER8V]N=&5N=',I*2D@/3T@3E5,3"D@?'P-"B @
+XM(" @(" @*"AD<" M/B!?9%]E;G1R>2 ](&UA;&QO8RAS=')L96XH<RD@*R Q
+XM*2D@/3T@3E5,3"D@(" @(" I#0H@(" @>PT*(" @(" @:68@*&1P*0T*(" @
+XM(" @("!F<F5E*&1P*3L-"B @(" @(&9R965?9&ER8V]N=&5N=',H9&ER<" M
+XM/B!D9%]C;VYT96YT<RD[#0H-"B @(" @(')E='5R;B!.54Q,.PT*(" @('T-
+XM"@T*(" @(&EF("AD:7)P("T^(&1D7V-O;G1E;G1S*0T*(" @('L-"B @(" @
+XM(&1I<G @+3X@9&1?8W @+3X@7V1?;F5X=" ](&1P.PT*(" @(" @9&ER<" M
+XM/B!D9%]C<" ](&1I<G @+3X@9&1?8W @+3X@7V1?;F5X=#L-"B @("!]#0H@
+XM(" @96QS90T*(" @(" @9&ER<" M/B!D9%]C;VYT96YT<R ](&1I<G @+3X@
+XM9&1?8W @/2!D<#L-"@T*(" @('-T<F-P>2AD<" M/B!?9%]E;G1R>2P@<RD[
+XM#0H@(" @9' @+3X@7V1?;F5X=" ]($Y53$P[#0H-"B @("!D<" M/B!?9%]S
+XM:7IE(#T@9FEN9"YC8D9I;&4[#0H@(" @9' @+3X@7V1?;6]D92 ](&9I;F0N
+XM871T<D9I;&4[#0H@(" @9' @+3X@7V1?=&EM92 ]("HH=6YS:6=N960@*BD@
+XM)BAF:6YD+F9T:6UE3&%S=%=R:71E*3L-"B @("!D<" M/B!?9%]D871E(#T@
+XM*BAU;G-I9VYE9" J*2 F*&9I;F0N9F1A=&5,87-T5W)I=&4I.PT*("!]#0H@
+XM('=H:6QE("@H<R ](&=E=&1I<F5N="A.54Q,*2D@(3T@3E5,3"D[#0H-"B @
+XM9&ER<" M/B!D9%]C<" ](&1I<G @+3X@9&1?8V]N=&5N=',[#0H-"B @<F5T
+XM=7)N(&1I<G [#0I]#0H-"@T*=F]I9"!C;&]S961I<BA$25(@*B!D:7)P*0T*
+XM>PT*("!F<F5E7V1I<F-O;G1E;G1S*&1I<G @+3X@9&1?8V]N=&5N=',I.PT*
+XM("!F<F5E*&1I<G I.PT*?0T*#0H-"G-T<G5C="!D:7)E8W0@*G)E861D:7(H
+XM1$E2("H@9&ER<"D-"GL-"B @<W1A=&EC('-T<G5C="!D:7)E8W0@9' [#0H-
+XM"B @:68@*&1I<G @+3X@9&1?8W @/3T@3E5,3"D-"B @("!R971U<FX@3E5,
+XM3#L-"@T*("!D<"YD7VYA;6QE;B ](&1P+F1?<F5C;&5N(#T-"B @("!S=')L
+XM96XH<W1R8W!Y*&1P+F1?;F%M92P@9&ER<" M/B!D9%]C<" M/B!?9%]E;G1R
+XM>2DI.PT*#0H@(&1P+F1?:6YO(#T@,#L-"@T*("!D<"YD7W-I>F4@/2!D:7)P
+XM("T^(&1D7V-P("T^(%]D7W-I>F4[#0H@(&1P+F1?;6]D92 ](&1I<G @+3X@
+XM9&1?8W @+3X@7V1?;6]D93L-"B @9' N9%]T:6UE(#T@9&ER<" M/B!D9%]C
+XM<" M/B!?9%]T:6UE.PT*("!D<"YD7V1A=&4@/2!D:7)P("T^(&1D7V-P("T^
+XM(%]D7V1A=&4[#0H-"B @9&ER<" M/B!D9%]C<" ](&1I<G @+3X@9&1?8W @
+XM+3X@7V1?;F5X=#L-"B @9&ER<" M/B!D9%]L;V,K*SL-"@T*("!R971U<FX@
+XM)F1P.PT*?0T*#0H-"G9O:60@<V5E:V1I<BA$25(@*B!D:7)P+"!L;VYG(&]F
+XM9BD-"GL-"B @;&]N9R!I(#T@;V9F.PT*("!S=')U8W0@7V1I<F-O;G1E;G1S
+XM("ID<#L-"@T*("!I9B H;V9F(#X](# I#0H@('L-"B @("!F;W(@*&1P(#T@
+XM9&ER<" M/B!D9%]C;VYT96YT<SL@+2UI(#X](# @)B8@9' [(&1P(#T@9' @
+XM+3X@7V1?;F5X="D[#0H-"B @("!D:7)P("T^(&1D7VQO8R ](&]F9B M("AI
+XM("L@,2D[#0H@(" @9&ER<" M/B!D9%]C<" ](&1P.PT*("!]#0I]#0H-"@T*
+XM;&]N9R!T96QL9&ER*$1)4B J(&1I<G I#0I[#0H@(')E='5R;B!D:7)P("T^
+XM(&1D7VQO8SL-"GT-"@T*#0IS=&%T:6,@=F]I9"!F<F5E7V1I<F-O;G1E;G1S
+XM*'-T<G5C="!?9&ER8V]N=&5N=',@*B!D<"D-"GL-"B @<W1R=6-T(%]D:7)C
+XM;VYT96YT<R J;V1P.PT*#0H@('=H:6QE("AD<"D-"B @>PT*(" @(&EF("AD
+XM<" M/B!?9%]E;G1R>2D-"B @(" @(&9R964H9' @+3X@7V1?96YT<GDI.PT*
+XM#0H@(" @9' @/2 H;V1P(#T@9' I("T^(%]D7VYE>'0[#0H@(" @9G)E92AO
+XM9' I.PT*("!]#0I]#0H-"@T*<W1A=&EC(&-H87(@*F=E=&1I<F5N="AC:&%R
+XM("ID:7(I#0I[#0H@(&EN="!D;VYE.PT*("!S=&%T:6,@:6YT(&QO=V5R.PT*
+XM#0H@(&EF("AD:7(@(3T@3E5,3"D-"B @>R @(" @(" @(" @(" @(" @(" @
+XM(" @(" @(" @(" @(" @("\J(&=E="!F:7)S="!E;G1R>2 J+PT*(" @(&AD
+XM:7(@/2!(1$E27T-214%413L-"B @("!C;W5N=" ](#$[#0H@(" @9&]N92 ]
+XM($1O<T9I;F1&:7)S="AD:7(L("9H9&ER+"!A='1R:6)U=&5S+" F9FEN9"P@
+XM<VEZ96]F*&9I;F0I+" F8V]U;G0I.PT*(" @(&QO=V5R(#T@27-&:6QE4WES
+XM=&5M1D%4*&1I<BD[#0H@('T-"B @96QS92 @(" @(" @(" @(" @(" @(" @
+XM(" @(" @(" @(" @("\J(&=E="!N97AT(&5N=')Y("HO#0H@(" @9&]N92 ]
+XM($1O<T9I;F1.97AT*&AD:7(L("9F:6YD+"!S:7IE;V8H9FEN9"DL("9C;W5N
+XM="D[#0H-"B @:68@*&1O;F4@/3T@,"D-"B @>PT*(" @(&EF("@@;&]W97(@
+XM*0T*(" @(" @4W1R:6YG3&]W97(H9FEN9"YA8VA.86UE*3L-"B @("!R971U
+XM<FX@9FEN9"YA8VA.86UE.PT*("!]#0H@(&5L<V4-"B @>PT*(" @($1O<T9I
+XM;F1#;&]S92AH9&ER*3L-"B @("!R971U<FX@3E5,3#L-"B @?0T*?0T*#0H-
+XM"B\J($9!5" O($A01E,@9&5T96-T:6]N("HO#0H-"FEN="!)<T9I;&53>7-T
+XM96U&050H8VAA<B J9&ER*0T*>PT*("!S=&%T:6,@55-(3U)4(&Y,87-T1')I
+XM=F4@/2 M,2P@;E)E<W5L=#L-"B @54Q/3D<@;$UA<#L-"B @0EE412!B1&%T
+XM85LV-%TL(&).86UE6S-=.PT*(VEF9&5F(%]?,S)"251?7PT*("!53$].1R!N
+XM1')I=F4L(&-B1&%T83L-"B @4$9344)51D9%4C(@<$1A=&$@/2 H4$9344)5
+XM1D9%4C(I(&)$871A.PT*(V5L<V4-"B @55-(3U)4(&Y$<FEV92P@8V)$871A
+XM.PT*("!01E-10E5&1D52('!$871A(#T@*%!&4U%"549&15(I(&)$871A.PT*
+XM(V5N9&EF#0H-"B @:68@*"!?;W-M;V1E(#T]($1/4U]-3T1%("D-"B @("!R
+XM971U<FX@5%)513L-"B @96QS90T*("![#0H@(" @+RH@5V4@<V5P87)A=&4@
+XM1D%4(&%N9"!(4$93*V]T:&5R(&9I;&4@<WES=&5M<R!H97)E+@T*(" @(" @
+XM(&%T('1H92!M;VUE;G0@22!C;VYS:61E<B!O=&AE<B!S>7-T96US('1O(&)E
+XM('-I;6EL87(@=&\@2%!&4RP-"B @(" @("!I+F4N('-U<'!O<G0@;&]N9R!F
+XM:6QE(&YA;65S(&%N9"!B965I;F<@8V%S92!S96YS:71I=F4@*B\-"@T*(" @
+XM(&EF("@@:7-A;'!H82AD:7);,%TI("8F("AD:7);,5T@/3T@)SHG*2 I#0H@
+XM(" @("!N1')I=F4@/2!T;U]U<"AD:7);,%TI("T@)T G.PT*(" @(&5L<V4-
+XM"B @(" @($1O<U%U97)Y0W5R<F5N=$1I<VLH)FY$<FEV92P@)FQ-87 I.PT*
+XM#0H@(" @:68@*"!N1')I=F4@/3T@;DQA<W1$<FEV92 I#0H@(" @("!R971U
+XM<FX@;E)E<W5L=#L-"@T*(" @(&).86UE6S!=(#T@*&-H87(I("AN1')I=F4@
+XM*R G0"<I.PT*(" @(&).86UE6S%=(#T@)SHG.PT*(" @(&).86UE6S)=(#T@
+XM,#L-"@T*(" @(&Y,87-T1')I=F4@/2!N1')I=F4[#0H@(" @8V)$871A(#T@
+XM<VEZ96]F*&)$871A*3L-"@T*(" @(&EF("@@(41O<U%U97)Y1E-!='1A8V@H
+XM8DYA;64L(# L($9304E,7U%515)93D%-12P@*%!63TE$*2!P1&%T82P@)F-B
+XM1&%T82D@*0T*(" @(" @;E)E<W5L=" ]("%S=')C;7 H<$1A=&$@+3X@<WI&
+XM4T1.86UE("L@<$1A=&$@+3X@8V).86UE+" B1D%4(BD[#0H@(" @96QS90T*
+XM(" @(" @;E)E<W5L=" ]($9!3%-%.PT*#0H@(" @+RH@16YD(&]F('1H:7,@
+XM=6=L>2!C;V1E("HO#0H@(" @<F5T=7)N(&Y297-U;'0[#0H@('T-"GT-"@T*
+XM#0HO*B!A8V-E<W,@;6]D92!B:71S(&%N9"!T:6UE('-T86UP("HO#0H-"FEN
+XM="!'971&:6QE36]D92AC:&%R("IN86UE*0T*>PT*(VEF9&5F(%]?,S)"251?
+XM7PT*("!&24Q%4U1!5%53,R!F<SL-"B @<F5T=7)N($1O<U%U97)Y4&%T:$EN
+XM9F\H;F%M92P@,2P@)F9S+"!S:7IE;V8H9G,I*2 _("TQ(#H@9G,N871T<D9I
+XM;&4[#0HC96QS90T*("!54TA/4E0@;6]D93L-"B @<F5T=7)N($1O<U%&:6QE
+XM36]D92AN86UE+" F;6]D92P@,$PI(#\@+3$@.B!M;V1E.PT*(V5N9&EF#0I]
+XM#0H-"FQO;F<@1V5T1FEL951I;64H8VAA<B J;F%M92D-"GL-"B-I9F1E9B!?
+XM7S,R0DE47U\-"B @1DE,15-405154S,@9G,[#0HC96QS90T*("!&24Q%4U1!
+XM5%53(&9S.PT*(V5N9&EF#0H@(%532$]25"!N1&%T92P@;E1I;64[#0H-"B @
+XM:68@*"!$;W-1=65R>5!A=&A);F9O*&YA;64L(#$L("A00EE412D@)F9S+"!S
+XM:7IE;V8H9G,I*2 I#0H@(" @<F5T=7)N("TQ.PT*#0H@(&Y$871E(#T@*B H
+XM55-(3U)4("HI("9F<RYF9&%T94QA<W17<FET93L-"B @;E1I;64@/2 J("A5
+XM4TA/4E0@*BD@)F9S+F9T:6UE3&%S=%=R:71E.PT*#0H@(')E='5R;B H*%5,
+XM3TY'*2!N1&%T92D@/#P@,38@?"!N5&EM93L-"GT-"@T*=F]I9"!3971&:6QE
+XM5&EM92AC:&%R("IP871H+"!L;VYG('-T86UP*0T*>PT*("!&24Q%4U1!5%53
+XM(&9S.PT*("!54TA/4E0@9F0L(&9T.PT*("!54TA/4E0@;DQE;F=T:#L-"B @
+XM8VAA<B!S>DYA;65;0T-(34%84$%42%T[#0H-"B @:68@*"!$;W-1=65R>5!A
+XM=&A);F9O*'!A=&@L($9)3%]35$%.1$%21"P@*%!"651%*2 F9G,L('-I>F5O
+XM9BAF<RDI("D-"B @("!R971U<FX[#0H-"B @9F0@/2 H55-(3U)4*2 H<W1A
+XM;7 @/CX@,38I.PT*("!F=" ]("A54TA/4E0I('-T86UP.PT*("!F<RYF9&%T
+XM94QA<W17<FET92 ](&9S+F9D871E0W)E871I;VX@/2 J("A&1$%412 J*2 F
+XM9F0[#0H@(&9S+F9T:6UE3&%S=%=R:71E(#T@9G,N9G1I;65#<F5A=&EO;B ]
+XM("H@*$9424U%("HI("9F=#L-"@T*("!$;W-39710871H26YF;RAP871H+"!&
+XM24Q?4U1!3D1!4D0L("A00EE412D@)F9S+"!S:7IE;V8H9G,I+" P*3L-"GT-
+XM"@T*#0HO*B!&050@+R!(4$93(&YA;64@8V]N=F5R<VEO;B!S='5F9B J+PT*
+XM#0II;G0@27-&:6QE3F%M959A;&ED*&-H87(@*FYA;64I#0I[#0H@($A&24Q%
+XM(&AF.PT*(VEF9&5F(%]?,S)"251?7PT*("!53$].1R!U06-T:6]N.PT*(V5L
+XM<V4-"B @55-(3U)4('5!8W1I;VX[#0HC96YD:68-"@T*("!S=VET8V@H($1O
+XM<T]P96XH;F%M92P@)FAF+" F=4%C=&EO;BP@,"P@,"P@1DE,15]/4$5.+ T*
+XM(" @(" @(" @(" @(" @(" @3U!%3E]!0T-%4U-?4D5!1$].3%D@?"!/4$5.
+XM7U-(05)%7T1%3EE.3TY%+" P*2 I#0H@('L-"B @8V%S92!%4E)/4E])3E9!
+XM3$E$7TY!344Z#0H@(&-A<V4@15)23U)?1DE,14Y!345?15A#141?4D%.1T4Z
+XM#0H@(" @<F5T=7)N($9!3%-%.PT*("!C87-E($Y/7T524D]2.@T*(" @($1O
+XM<T-L;W-E*&AF*3L-"B @9&5F875L=#H-"B @("!R971U<FX@5%)513L-"B @
+XM?0T*?0T*#0H-"G9O:60@0VAA;F=E3F%M949O<D9!5"AC:&%R("IN86UE*0T*
+XM>PT*("!C:&%R("IS<F,L("ID<W0L("IN97AT+" J<'1R+" J9&]T+" J<W1A
+XM<G0[#0H@('-T871I8R!C:&%R(&EN=F%L:61;72 ]("(Z.RP]*UPB6UT\/GP@
+XM7'0B.PT*#0H@(&EF("@@:7-A;'!H82AN86UE6S!=*2 F)B H;F%M95LQ72 ]
+XM/2 G.B<I("D-"B @("!S=&%R=" ](&YA;64@*R R.PT*("!E;'-E#0H@(" @
+XM<W1A<G0@/2!N86UE.PT*#0H@('-R8R ](&1S=" ]('-T87)T.PT*("!I9B H
+XM("@J<W)C(#T]("<O)RD@?'P@*"IS<F,@/3T@)UQ<)RD@*0T*(" @('-R8RLK
+XM+"!D<W0K*SL-"@T*("!W:&EL92 H("IS<F,@*0T*("![#0H@(" @9F]R("@@
+XM;F5X=" ]('-R8SL@*FYE>'0@)B8@*"IN97AT("$]("<O)RD@)B8@*"IN97AT
+XM("$]("=<7"<I.R!N97AT*RL@*3L-"@T*(" @(&9O<B H('!T<B ]('-R8RP@
+XM9&]T(#T@3E5,3#L@<'1R(#P@;F5X=#L@<'1R*RL@*0T*(" @(" @:68@*" J
+XM<'1R(#T]("<N)R I#0H@(" @("![#0H@(" @(" @(&1O=" ]('!T<CL@+RH@
+XM<F5M96UB97(@;&%S="!D;W0@*B\-"B @(" @(" @*G!T<B ]("=?)SL-"B @
+XM(" @('T-"@T*(" @(&EF("@@9&]T(#T]($Y53$P@*0T*(" @(" @9F]R("@@
+XM<'1R(#T@<W)C.R!P='(@/"!N97AT.R!P='(K*R I#0H@(" @(" @(&EF("@@
+XM*G!T<B ]/2 G7R<@*0T*(" @(" @(" @(&1O=" ]('!T<CL@+RH@<F5M96UB
+XM97(@;&%S="!?(&%S(&EF(&ET('=E<F4@82!D;W0@*B\-"@T*(" @(&EF("@@
+XM9&]T("8F("AD;W0@/B!S<F,I("8F#0H@(" @(" @(" H*&YE>'0@+2!D;W0@
+XM/#T@-"D@?'P-"B @(" @(" @(" H*&YE>'0@+2!S<F,@/B X*2 F)B H9&]T
+XM("T@<W)C(#X@,RDI*2 I#0H@(" @>PT*(" @(" @:68@*"!D;W0@*0T*(" @
+XM(" @(" J9&]T(#T@)RXG.PT*#0H@(" @("!F;W(@*"!P='(@/2!S<F,[("AP
+XM='(@/"!D;W0I("8F("@H<'1R("T@<W)C*2 \(#@I.R!P='(K*R I#0H@(" @
+XM(" @("ID<W0K*R ]("IP='([#0H-"B @(" @(&9O<B H('!T<B ](&1O=#L@
+XM*'!T<B \(&YE>'0I("8F("@H<'1R("T@9&]T*2 \(#0I.R!P='(K*R I#0H@
+XM(" @(" @("ID<W0K*R ]("IP='([#0H@(" @?0T*(" @(&5L<V4-"B @("![
+XM#0H@(" @("!I9B H(&1O=" F)B H;F5X=" M('-R8R ]/2 Q*2 I#0H@(" @
+XM(" @("ID;W0@/2 G+B<[(" @(" @(" @(" O*B!S<&5C:6%L(&-A<V4Z("(N
+XM(B!A<R!A('!A=&@@8V]M<&]N96YT("HO#0H-"B @(" @(&9O<B H('!T<B ]
+XM('-R8SL@*'!T<B \(&YE>'0I("8F("@H<'1R("T@<W)C*2 \(#@I.R!P='(K
+XM*R I#0H@(" @(" @("ID<W0K*R ]("IP='([#0H@(" @?0T*#0H@(" @*F1S
+XM="LK(#T@*FYE>'0[("\J(&5I=&AE<B G+R<@;W(@," J+PT*#0H@(" @:68@
+XM*" J;F5X=" I#0H@(" @>PT*(" @(" @<W)C(#T@;F5X=" K(#$[#0H-"B @
+XM(" @(&EF("@@*G-R8R ]/2 P("D@+RH@:&%N9&QE('1R86EL:6YG("<O)R!O
+XM;B!D:7)S("$@*B\-"B @(" @(" @*F1S=" ](# [#0H@(" @?0T*(" @(&5L
+XM<V4-"B @(" @(&)R96%K.PT*("!]#0H-"B @9F]R("@@<W)C(#T@<W1A<G0[
+XM("IS<F,@(3T@,#L@*RMS<F,@*0T*(" @(&EF("@@*'-T<F-H<BAI;G9A;&ED
+XM+" J<W)C*2 A/2!.54Q,*2!\?" H*G-R8R ]/2 G("<I("D-"B @(" @("IS
+XM<F,@/2 G7R<[#0I]#0H-"@T*+RH@+DQ/3D=.04U%($5!(&-O9&4@*B\-"@T*
+XM='EP961E9B!S=')U8W0-"GL-"B @54Q/3D<@8V),:7-T.R @(" @(" @(" @
+XM(" @("\J(&QE;F=T:"!O9B!V86QU92 K(#(R("HO#0HC:69D968@7U\S,D))
+XM5%]?#0H@(%5,3TY'(&].97AT.PT*(V5N9&EF#0H@($)95$4@9D5!.R @(" @
+XM(" @(" @(" @(" @(" O*B P("HO#0H@($)95$4@8V).86UE.R @(" @(" @
+XM(" @(" @(" O*B!L96YG=&@@;V8@(BY,3TY'3D%-12(@/2 Y("HO#0H@(%53
+XM2$]25"!C8E9A;'5E.R @(" @(" @(" @(" O*B!L96YG=&@@;V8@=F%L=64@
+XM*R T("HO#0H@($)95$4@<WI.86UE6S$P73L@(" @(" @(" @(" O*B B+DQ/
+XM3D=.04U%(B J+PT*("!54TA/4E0@96%4>7!E.R @(" @(" @(" @(" @+RH@
+XM,'A&1D9$(&9O<B!L96YG=&@M<')E8V5D960@05-#24D@*B\-"B @55-(3U)4
+XM(&5A4VEZ93L@(" @(" @(" @(" @("\J(&QE;F=T:"!O9B!V86QU92 J+PT*
+XM("!"651%('-Z5F%L=65;0T-(34%84$%42%T[#0I]#0I&14%,4U0[#0H-"G1Y
+XM<&5D968@<W1R=6-T#0I[#0H@(%5,3TY'(&-B3&ES=#L-"B-I9F1E9B!?7S,R
+XM0DE47U\-"B @54Q/3D<@;TYE>'0[#0HC96YD:68-"B @0EE412!C8DYA;64[
+XM#0H@($)95$4@<WI.86UE6S$P73L@(" @(" @(" @(" O*B B+DQ/3D=.04U%
+XM(B J+PT*?0T*1T5!3%-4.PT*#0H-"F-H87(@*D=E=$QO;F=.86UE14$H8VAA
+XM<B J;F%M92D-"GL-"B @14%/4"!E86]P.PT*("!'14%,4U0@9V5A;'-T.PT*
+XM("!S=&%T:6,@1D5!3%-4(&9E86QS=#L-"@T*("!I9B H(%]O<VUO9&4@/3T@
+XM1$]37TU/1$4@*0T*(" @(')E='5R;B!.54Q,.PT*#0H@(&5A;W N9G!'14%,
+XM:7-T(#T@*%!'14%,25-4*2 F9V5A;'-T.PT*("!E86]P+F9P1D5!3&ES=" ]
+XM("A01D5!3$E35"D@)F9E86QS=#L-"B @96%O<"YO17)R;W(@/2 P.PT*#0H@
+XM('-T<F-P>2AG96%L<W0N<WI.86UE+" B+DQ/3D=.04U%(BD[#0H@(&=E86QS
+XM="YC8DYA;64@(#T@*$)95$4I('-T<FQE;BAG96%L<W0N<WI.86UE*3L-"B-I
+XM9F1E9B!?7S,R0DE47U\-"B @9V5A;'-T+F].97AT(" @/2 P.PT*(V5N9&EF
+XM#0H-"B @9V5A;'-T+F-B3&ES=" @/2!S:7IE;V8H9V5A;'-T*3L-"B @9F5A
+XM;'-T+F-B3&ES=" @/2!S:7IE;V8H9F5A;'-T*3L-"@T*("!I9B H($1O<U%U
+XM97)Y4&%T:$EN9F\H;F%M92P@1DE,7U%515)914%31E)/34Q)4U0L#0H@(" @
+XM(" @(" @(" @(" @(" @(" @(" H4$)95$4I("9E86]P+"!S:7IE;V8H96%O
+XM<"DI("D-"B @("!R971U<FX@3E5,3#L-"@T*("!I9B H(&9E86QS="YC8E9A
+XM;'5E(#X@-" F)B!F96%L<W0N96%4>7!E(#T](#!X1D9&1" I#0H@('L-"B @
+XM("!F96%L<W0N<WI686QU95MF96%L<W0N96%3:7IE72 ](# [#0H@(" @<F5T
+XM=7)N(&9E86QS="YS>E9A;'5E.PT*("!]#0H-"B @<F5T=7)N($Y53$P[#0I]
+XM#0H-"@T*8VAA<B J1V5T3&]N9U!A=&A%02AC:&%R("IN86UE*0T*>PT*("!S
+XM=&%T:6,@8VAA<B!N8G5F6T-#2$U!6%!!5$@@*R Q73L-"B @8VAA<B J8V]M
+XM<"P@*FYE>'0L("IE82P@<V5P.PT*("!"3T],(&)&;W5N9" ]($9!3%-%.PT*
+XM#0H@(&YB=69;,%T@/2 P.PT*("!N97AT(#T@;F%M93L-"@T*("!W:&EL92 H
+XM("IN97AT("D-"B @>PT*(" @(&-O;7 @/2!N97AT.PT*#0H@(" @=VAI;&4@
+XM*" J;F5X=" A/2 G7%PG("8F("IN97AT("$]("<O)R F)B J;F5X=" A/2 P
+XM("D-"B @(" @(&YE>'0K*SL-"@T*(" @('-E<" ]("IN97AT.PT*(" @("IN
+XM97AT(#T@,#L-"@T*(" @(&5A(#T@1V5T3&]N9TYA;65%02AN86UE*3L-"B @
+XM("!S=')C870H;F)U9BP@96$@/R!E82 Z(&-O;7 I.PT*(" @(&)&;W5N9" ]
+XM(&)&;W5N9"!\?" H96$@(3T@3E5,3"D[#0H-"B @(" J;F5X=" ]('-E<#L-
+XM"@T*(" @(&EF("@@*FYE>'0@*0T*(" @('L-"B @(" @('-T<F-A="AN8G5F
+XM+" B7%PB*3L-"B @(" @(&YE>'0K*SL-"B @("!]#0H@('T-"@T*("!R971U
+XM<FX@;F)U9ELP72 F)B!B1F]U;F0@/R!N8G5F(#H@3E5,3#L-"GT-"@T*#0HO
+XM*B!G96YE<F%L($5!(&-O9&4@*B\-"@T*='EP961E9B!S=')U8W0-"GL-"B @
+XM55-(3U)4(&Y)1#L-"B @55-(3U)4(&Y3:7IE.PT*("!53$].1R!L4VEZ93L-
+XM"GT-"D5!2$5!1$52+" J4$5!2$5!1$52.PT*#0H-"B-I9F1E9B!?7S,R0DE4
+XM7U\-"@T*+RH@4&5R:&%P<R!D=64@=&\@8G5G<R!I;B!T:&4@8W5R<F5N="!/
+XM4R\R(#(N,"!K97)N96PL('1H92!S=6-C97-S(&]R#0H@("!F86EL=7)E(&]F
+XM('1H92!$;W-%;G5M071T<FEB=71E*"D@86YD($1O<U%U97)Y4&%T:$EN9F\H
+XM*2!S>7-T96T@8V%L;',-"B @(&1E<&5N9',@;VX@=&AE(&%R96$@=VAE<F4@
+XM=&AE(')E='5R;B!B=69F97)S(&%R92!A;&QO8V%T960N(%1H:7,-"B @(&1I
+XM9F9E<G,@9F]R('1H92!V87)I;W5S(&-O;7!I;&5R<RP@9F]R('-O;64@86QL
+XM;V-A*"D@=V]R:W,L(&9O<B!S;VUE#0H@("!M86QL;V,H*2!W;W)K<RP@9F]R
+XM('-O;64L(&)O=&@@=V]R:RX@5V4G;&P@:&%V92!T;R!L:79E('=I=&@@=&AA
+XM="X@*B\-"@T*+RH@5&AE('5S92!O9B!M86QL;V,H*2!I<R!N;W0@=F5R>2!C
+XM;VYV96YI96YT+"!B96-A=7-E(&ET(')E<75I<F5S#0H@("!B86-K=')A8VMI
+XM;F<@*&DN92X@9G)E92@I*2!A="!E<G)O<B!R971U<FYS+B!792!D;R!T:&%T
+XM(&9O<B!S>7-T96T-"B @(&-A;&QS('1H870@;6%Y(&9A:6PL(&)U="!N;W0@
+XM9F]R(&UA;&QO8R@I(&-A;&QS+"!B96-A=7-E('1H97D@87)E(%9%4ED-"B @
+XM('5N;&EK96QY('1O(&9A:6PN($EF(&5V97(L('=E(&IU<W0@;&5A=F4@<V]M
+XM92!M96UO<GD@86QL;V-A=&5D("XN+B J+PT*#0HC:68@9&5F:6YE9"A?7T=.
+XM54-?7RD@?'P@9&5F:6YE9"A?7TE"34-?7RD-"B-D969I;F4@86QL;V,@86QL
+XM;V-A#0HC96YD:68-"@T*(VEF9&5F(%]?5T%40T]-0U]?#0HC9&5F:6YE(&%L
+XM;&]C(&UA;&QO8PT*(V1E9FEN92!?7T92145?7PT*(V5N9&EF#0H-"B-I9FYD
+XM968@86QL;V,-"B-E<G)O<B!M96UO<GD@86QL;V-A=&EO;B!T>7!E("AA;&QO
+XM8V$@;W(@;6%L;&]C*2!N;W0@<W!E8VEF:65D#0HC96YD:68-"@T*=F]I9"!'
+XM971%07,H8VAA<B J<&%T:"P@8VAA<B J*F)U9G!T<BP@=6YS:6=N960@*G-I
+XM>F4L#0H@(" @(" @(" @(" @(" @(" @(" @("!C:&%R("HJ8V)U9G!T<BP@
+XM=6YS:6=N960@*F-S:7IE*0T*>PT*("!&24Q%4U1!5%53-"!F<SL-"B @4$1%
+XM3D$R('!$14Y!+"!P1F]U;F0[#0H@($5!3U R(&5A;W [#0H@(%!'14$R('!'
+XM14$[#0H@(%!'14$R3$E35"!P1T5!;&ES=#L-"B @4$9%03),25-4('!&14%L
+XM:7-T.PT*("!014%(14%$15(@<$5!8FQO8VL[#0H@(%5,3TY'('5L071T<FEB
+XM=71E<RP@=6Q-96UO<GE";&]C:SL-"B @54Q/3D<@;DQE;F=T:#L-"B @8VAA
+XM<B!S>DYA;65;0T-(34%84$%42%T[#0H-"B @*G-I>F4@/2 J8W-I>F4@/2 P
+XM.PT*#0H@(&EF("@@7V]S;6]D92 ]/2!$3U-?34]$12 I#0H@(" @<F5T=7)N
+XM.PT*#0H@('-T<F-P>2AS>DYA;64L('!A=&@I.PT*("!N3&5N9W1H(#T@<W1R
+XM;&5N*'-Z3F%M92D[#0H@(&EF("@@<WI.86UE6VY,96YG=&@@+2 Q72 ]/2 G
+XM+R<@*0T*(" @('-Z3F%M95MN3&5N9W1H("T@,5T@/2 P.PT*#0H@(&EF("@@
+XM1&]S475E<GE0871H26YF;RAS>DYA;64L($9)3%]15452645!4TE:12P@*%!"
+XM651%*2 F9G,L('-I>F5O9BAF<RDI#0H@(" @?'P@9G,N8V),:7-T(#P](#(@
+XM*B!S:7IE;V8H54Q/3D<I#0H@(" @?'P@*'!$14Y!(#T@86QL;V,H*'-I>F5?
+XM="D@9G,N8V),:7-T*2D@/3T@3E5,3" I#0H@(" @<F5T=7)N.PT*#0H@('5L
+XM071T<FEB=71E<R ]("TQ.PT*#0H@(&EF("@@1&]S16YU;4%T=')I8G5T92A%
+XM3E5-14%?4D5&5%E015]0051(+"!S>DYA;64L(#$L('!$14Y!+"!F<RYC8DQI
+XM<W0L#0H@(" @(" @(" @(" @(" @(" @(" @(" F=6Q!='1R:6)U=&5S+"!%
+XM3E5-14%?3$5614Q?3D]?5D%,544I#0H@(" @?'P@=6Q!='1R:6)U=&5S(#T]
+XM(# -"B @("!\?" H<$=%06QI<W0@/2!A;&QO8R@H<VEZ95]T*2!F<RYC8DQI
+XM<W0I*2 ]/2!.54Q,("D-"B @>PT*(VEF9&5F(%]?1E)%15]?#0H@(" @9G)E
+XM92AP1$5.02D[#0HC96YD:68-"B @("!R971U<FX[#0H@('T-"@T*("!P1T5!
+XM(#T@<$=%06QI<W0@+3X@;&ES=#L-"B @<$9O=6YD(#T@<$1%3D$[#0H-"B @
+XM=VAI;&4@*"!U;$%T=')I8G5T97,M+2 I#0H@('L-"B @("!I9B H("$H<W1R
+XM8VUP*'!&;W5N9" M/B!S>DYA;64L("(N3$].1TY!344B*2 ]/2 P("8F('5S
+XM95]L;VYG;F%M95]E82D@*0T*(" @('L-"B @(" @('!'14$@+3X@8V).86UE
+XM(#T@<$9O=6YD("T^(&-B3F%M93L-"B @(" @('-T<F-P>2AP1T5!("T^('-Z
+XM3F%M92P@<$9O=6YD("T^('-Z3F%M92D[#0H-"B @(" @(&Y,96YG=&@@/2!S
+XM:7IE;V8H1T5!,BD@*R!S=')L96XH<$=%02 M/B!S>DYA;64I.PT*(" @(" @
+XM;DQE;F=T:" ]("@H;DQE;F=T:" M(#$I("\@<VEZ96]F*%5,3TY'*2 K(#$I
+XM("H@<VEZ96]F*%5,3TY'*3L-"@T*(" @(" @<$=%02 M/B!O3F5X=$5N=')Y
+XM3V9F<V5T(#T@=6Q!='1R:6)U=&5S(#\@;DQE;F=T:" Z(# [#0H@(" @("!P
+XM1T5!(" @/2 H4$=%03(I(" H*%!#2"D@<$=%02 K(&Y,96YG=&@I.PT*(" @
+XM('T-"@T*(" @('!&;W5N9" ]("A01$5.03(I("@H4$-(*2!P1F]U;F0@*R!P
+XM1F]U;F0@+3X@;TYE>'1%;G1R>4]F9G-E="D[#0H@('T-"@T*("!I9B H('!'
+XM14$@/3T@<$=%06QI<W0@+3X@;&ES=" I("\J(&YO(&%T=')I8G5T97,@=&\@
+XM<V%V92 J+PT*("![#0HC:69D968@7U]&4D5%7U\-"B @("!F<F5E*'!$14Y!
+XM*3L-"B @("!F<F5E*'!'14%L:7-T*3L-"B-E;F1I9@T*(" @(')E='5R;CL-
+XM"B @?0T*#0H@('!'14%L:7-T("T^(&-B3&ES=" ]("A00T@I('!'14$@+2 H
+XM4$-(*2!P1T5!;&ES=#L-"@T*("!P1D5!;&ES=" ]("A05D])1"D@<$1%3D$[
+XM(" O*B!R975S92!B=69F97(@*B\-"B @<$9%06QI<W0@+3X@8V),:7-T(#T@
+XM9G,N8V),:7-T.PT*#0H@(&5A;W N9G!'14$R3&ES=" ]('!'14%L:7-T.PT*
+XM("!E86]P+F9P1D5!,DQI<W0@/2!P1D5!;&ES=#L-"B @96%O<"YO17)R;W(@
+XM/2 P.PT*#0H@(&EF("@@1&]S475E<GE0871H26YF;RAS>DYA;64L($9)3%]1
+XM5452645!4T923TU,25-4+ T*(" @(" @(" @(" @(" @(" @(" @(" @*%!"
+XM651%*2 F96%O<"P@<VEZ96]F*&5A;W I*2 I#0H@('L-"B-I9F1E9B!?7T92
+XM145?7PT*(" @(&9R964H<$1%3D$I.PT*(" @(&9R964H<$=%06QI<W0I.PT*
+XM(V5N9&EF#0H@(" @<F5T=7)N.PT*("!]#0H-"B @+RH@5&AE(&UA>&EM=6T@
+XM8V]M<')E<W-E9"!S:7IE(&ES("AI;B!C87-E(&]F(%-43U)%('1Y<&4I('1H
+XM90T*(" @("!U;F-O;7!R97-S960@<VEZ92!P;'5S('1H92!S:7IE(&]F('1H
+XM92!C;VUP<F5S<VEO;B!T>7!E(&9I96QD#0H@(" @('!L=7,@=&AE('-I>F4@
+XM;V8@=&AE($-20R!F:65L9"X@*B\-"@T*("!U;$%T=')I8G5T97,@/2!P1D5!
+XM;&ES=" M/B!C8DQI<W0[#0H@('5L365M;W)Y0FQO8VL@/2!U;$%T=')I8G5T
+XM97,@*R!S:7IE;V8H55-(3U)4*2 K('-I>F5O9BA53$].1RD[#0H@('!%06)L
+XM;V-K(#T@*%!%04A%041%4BD@;6%L;&]C*'-I>F5O9BA%04A%041%4BD@*R!U
+XM;$UE;6]R>4)L;V-K*3L-"@T*("!I9B H('!%06)L;V-K(#T]($Y53$P@*0T*
+XM(" @(')E='5R;CL-"@T*(" J8G5F<'1R(#T@*&-H87(@*BD@<$5!8FQO8VL[
+XM#0H@("IS:7IE(#T@<VEZ96]F*$5!2$5!1$52*3L-"@T*("!P14%B;&]C:R M
+XM/B!N240@/2!%04E$.PT*("!P14%B;&]C:R M/B!N4VEZ92 ]('-I>F5O9BAP
+XM14%B;&]C:R M/B!L4VEZ92D[#0H@('!%06)L;V-K("T^(&Q3:7IE(#T@=6Q!
+XM='1R:6)U=&5S.R O*B!U;F-O;7!R97-S960@<VEZ92 J+PT*#0H@(&Y,96YG
+XM=&@@/2!M96UC;VUP<F5S<R@H8VAA<B J*2 H<$5!8FQO8VL@*R Q*2P@=6Q-
+XM96UO<GE";&]C:RP-"B @(" @(" @(" @(" @(" @(" @(" @("AC:&%R("HI
+XM('!&14%L:7-T+"!U;$%T=')I8G5T97,I.PT*(" J<VEZ92 K/2!N3&5N9W1H
+XM.PT*("!P14%B;&]C:R M/B!N4VEZ92 K/2!N3&5N9W1H.PT*#0H@(&EF("@@
+XM*'!%06)L;V-K(#T@*%!%04A%041%4BD@;6%L;&]C*'-I>F5O9BA%04A%041%
+XM4BDI*2 ]/2!.54Q,("D-"B @("!R971U<FX[#0H-"B @*F-B=69P='(@/2 H
+XM8VAA<B J*2!P14%B;&]C:SL-"B @*F-S:7IE(#T@<VEZ96]F*$5!2$5!1$52
+XM*3L-"@T*("!P14%B;&]C:R M/B!N240@/2!%04E$.PT*("!P14%B;&]C:R M
+XM/B!N4VEZ92 ]('-I>F5O9BAP14%B;&]C:R M/B!L4VEZ92D[#0H@('!%06)L
+XM;V-K("T^(&Q3:7IE(#T@=6Q!='1R:6)U=&5S.PT*#0H@(&EF("@@;F]I<WD@
+XM*0T*(" @('!R:6YT9B@B("@E;&0@8GET97,@14$G<RDB+"!U;$%T=')I8G5T
+XM97,I.PT*?0T*#0HC96QS92 O*B A7U\S,D))5%]?("HO#0H-"G1Y<&5D968@
+XM<W1R=6-T#0I[#0H@(%5,3TY'(&].97AT16YT<GE/9F9S970[#0H@($)95$4@
+XM9D5!.PT*("!"651%(&-B3F%M93L-"B @55-(3U)4(&-B5F%L=64[#0H@($-(
+XM05(@<WI.86UE6S%=.PT*?0T*1D5!,BP@*E!&14$R.PT*#0IT>7!E9&5F('-T
+XM<G5C= T*>PT*("!53$].1R!C8DQI<W0[#0H@($9%03(@;&ES=%LQ73L-"GT-
+XM"D9%03),25-4+" J4$9%03),25-4.PT*#0IV;VED($=E=$5!<RAC:&%R("IP
+XM871H+"!C:&%R("HJ8G5F<'1R+"!U;G-I9VYE9" J<VEZ92P-"B @(" @(" @
+XM(" @(" @(" @(" @(" @(&-H87(@*BIC8G5F<'1R+"!U;G-I9VYE9" J8W-I
+XM>F4I#0I[#0H@($9)3$535$%455,R(&9S.PT*("!01$5.03$@<$1%3D$L('!&
+XM;W5N9#L-"B @14%/4"!E86]P.PT*("!01T5!3$E35"!P1T5!;&ES=#L-"B @
+XM4$=%02!P1T5!.PT*("!01D5!3$E35"!P1D5!;&ES=#L-"B @4$9%02!P1D5!
+XM.PT*("!01D5!,DQ)4U0@<$9%03)L:7-T.PT*("!01D5!,B!P1D5!,CL-"B @
+XM14%(14%$15(@*G!%06)L;V-K.PT*("!53$].1R!U;$%T=')I8G5T97,[#0H@
+XM(%532$]25"!N3&5N9W1H+"!N36%X4VEZ93L-"B @8VAA<B!S>DYA;65;0T-(
+XM34%84$%42%T[#0H-"B @*G-I>F4@/2 J8W-I>F4@/2 P.PT*#0H@(&EF("@@
+XM7V]S;6]D92 ]/2!$3U-?34]$12 I#0H@(" @<F5T=7)N.PT*#0H@('-T<F-P
+XM>2AS>DYA;64L('!A=&@I.PT*("!N3&5N9W1H(#T@<W1R;&5N*'-Z3F%M92D[
+XM#0H@(&EF("@@<WI.86UE6VY,96YG=&@@+2 Q72 ]/2 G+R<@*0T*(" @('-Z
+XM3F%M95MN3&5N9W1H("T@,5T@/2 P.PT*#0H@(&EF("@@1&]S475E<GE0871H
+XM26YF;RAS>DYA;64L($9)3%]15452645!4TE:12P@*%!"651%*2 F9G,L('-I
+XM>F5O9BAF<RDI#0H@(" @?'P@9G,N8V),:7-T(#P](#(@*B!S:7IE;V8H54Q/
+XM3D<I("D-"B @("!R971U<FX[#0H-"B @=6Q!='1R:6)U=&5S(#T@+3$[#0H@
+XM(&Y-87A3:7IE(#T@*%532$]25"D@;6EN*&9S+F-B3&ES=" J(#(L(#8U-3(P
+XM3"D[#0H-"B @:68@*" H<$1%3D$@/2!M86QL;V,H*'-I>F5?="D@;DUA>%-I
+XM>F4I*2 ]/2!.54Q,("D-"B @("!R971U<FX[#0H-"B @:68@*"!$;W-%;G5M
+XM071T<FEB=71E*$5.54U%05]2149465!%7U!!5$@L('-Z3F%M92P@,2P@<$1%
+XM3D$L(&9S+F-B3&ES="P-"B @(" @(" @(" @(" @(" @(" @(" @("9U;$%T
+XM=')I8G5T97,L($5.54U%05],159%3%].3U]604Q512D-"B @("!\?"!U;$%T
+XM=')I8G5T97,@/3T@, T*(" @('Q\("AP1T5!;&ES=" ](&UA;&QO8RAN36%X
+XM4VEZ92DI(#T]($Y53$P@*0T*("![#0H@(" @9G)E92AP1$5.02D[#0H@(" @
+XM<F5T=7)N.PT*("!]#0H-"B @<$=%02 ]('!'14%L:7-T("T^(&QI<W0[#0H@
+XM('!&;W5N9" ]('!$14Y!.PT*#0H@('=H:6QE("@@=6Q!='1R:6)U=&5S+2T@
+XM*0T*("![#0H@(" @;DQE;F=T:" ]('-T<FQE;BAP1F]U;F0@+3X@<WI.86UE
+XM*3L-"@T*(" @(&EF("@@(2AS=')C;7 H<$9O=6YD("T^('-Z3F%M92P@(BY,
+XM3TY'3D%-12(I(#T](# @)B8@=7-E7VQO;F=N86UE7V5A*2 I#0H@(" @>PT*
+XM(" @(" @<$=%02 M/B!C8DYA;64@/2!P1F]U;F0@+3X@8V).86UE.PT*(" @
+XM(" @<W1R8W!Y*'!'14$@+3X@<WI.86UE+"!P1F]U;F0@+3X@<WI.86UE*3L-
+XM"@T*(" @(" @<$=%02 ]("A01T5!*2 H*%!#2"D@*'!'14$K*RD@*R!N3&5N
+XM9W1H*3L-"B @("!]#0H-"B @("!P1F]U;F0@/2 H4$1%3D$Q*2 H*%!#2"D@
+XM*'!&;W5N9"LK*2 K(&Y,96YG=&@I.PT*("!]#0H-"B @:68@*"!P1T5!(#T]
+XM('!'14%L:7-T("T^(&QI<W0@*0T*("![#0H@(" @9G)E92AP1$5.02D[#0H@
+XM(" @9G)E92AP1T5!;&ES="D[#0H@(" @<F5T=7)N.PT*("!]#0H-"B @<$=%
+XM06QI<W0@+3X@8V),:7-T(#T@*%!#2"D@<$=%02 M("A00T@I('!'14%L:7-T
+XM.PT*#0H@('!&14%L:7-T(#T@*%!&14%,25-4*2!P1$5.03L@+RH@<F5U<V4@
+XM8G5F9F5R("HO#0H@('!&14%L:7-T("T^(&-B3&ES=" ](&9S+F-B3&ES=#L-
+XM"B @<$9%02 ]('!&14%L:7-T("T^(&QI<W0[#0H-"B @96%O<"YF<$=%04QI
+XM<W0@/2!P1T5!;&ES=#L-"B @96%O<"YF<$9%04QI<W0@/2!P1D5!;&ES=#L-
+XM"B @96%O<"YO17)R;W(@/2 P.PT*#0H@(&EF("@@1&]S475E<GE0871H26YF
+XM;RAS>DYA;64L($9)3%]15452645!4T923TU,25-4+ T*(" @(" @(" @(" @
+XM(" @(" @(" H4$)95$4I("9E86]P+"!S:7IE;V8H96%O<"DI("D-"B @>PT*
+XM(" @(&9R964H<$1%3D$I.PT*(" @(&9R964H<$=%06QI<W0I.PT*(" @(')E
+XM='5R;CL-"B @?0T*#0H@("\J(&YO=R!C;VYV97)T(&EN=&\@;F5W($]3+S(@
+XM,BXP(#,R+6)I="!F;W)M870@*B\-"@T*("!P1D5!,FQI<W0@/2 H4$9%03),
+XM25-4*2!P1T5!;&ES=#L@("\J(')E=7-E(&)U9F9E<B J+PT*("!P1D5!,B ]
+XM('!&14$R;&ES=" M/B!L:7-T.PT*#0H@('=H:6QE("@@*%!#2"D@<$9%02 M
+XM("A00T@I('!&14%L:7-T(#P@<$9%06QI<W0@+3X@8V),:7-T("D-"B @>PT*
+XM(" @(&Y,96YG=&@@/2!S:7IE;V8H1D5!*2 K('!&14$@+3X@8V).86UE("L@
+XM,2 K('!&14$@+3X@8V)686QU93L-"B @("!M96UC<'DH*%!#2"D@<$9%03(@
+XM*R!S:7IE;V8H<$9%03(@+3X@;TYE>'1%;G1R>4]F9G-E="DL('!&14$L(&Y,
+XM96YG=&@I.PT*(" @(&UE;7-E="@H4$-(*2!P1D5!,B K('-I>F5O9BAP1D5!
+XM,B M/B!O3F5X=$5N=')Y3V9F<V5T*2 K(&Y,96YG=&@L(# L(#,I.PT*(" @
+XM('!&14$@/2 H4$9%02D@*"A00T@I('!&14$@*R!N3&5N9W1H*3L-"@T*(" @
+XM(&Y,96YG=&@@/2!S:7IE;V8H1D5!,BD@*R!P1D5!,B M/B!C8DYA;64@*R Q
+XM("L@<$9%03(@+3X@8V)686QU93L-"B @("!N3&5N9W1H(#T@*"AN3&5N9W1H
+XM("T@,2D@+R!S:7IE;V8H54Q/3D<I("L@,2D@*B!S:7IE;V8H54Q/3D<I.PT*
+XM(" @("\J(')O=6YD960@=7 @=&\@-"UB>71E(&)O=6YD87)Y("HO#0H@(" @
+XM<$9%03(@+3X@;TYE>'1%;G1R>4]F9G-E=" ]#0H@(" @(" H*%!#2"D@<$9%
+XM02 M("A00T@I('!&14%L:7-T(#P@<$9%06QI<W0@+3X@8V),:7-T*2 _(&Y,
+XM96YG=&@@.B P.PT*(" @('!&14$R(#T@*%!&14$R*2 H*%!#2"D@<$9%03(@
+XM*R!N3&5N9W1H*3L-"B @?0T*#0H@('!&14$R;&ES=" M/B!C8DQI<W0@/2 H
+XM4$-(*2!P1D5!,B M("A00T@I('!&14$R;&ES=#L-"B @=6Q!='1R:6)U=&5S
+XM(#T@<$9%03)L:7-T("T^(&-B3&ES=#L-"@T*("!P14%B;&]C:R ]("A014%(
+XM14%$15(I('!$14Y!.R O*B!R975S92!B=69F97(@*B\-"@T*(" J8G5F<'1R
+XM(#T@*&-H87(@*BD@<$5!8FQO8VL[#0H@("IS:7IE(#T@<VEZ96]F*$5!2$5!
+XM1$52*3L-"@T*("!P14%B;&]C:R M/B!N240@/2!%04E$.PT*("!P14%B;&]C
+XM:R M/B!N4VEZ92 ]('-I>F5O9BAP14%B;&]C:R M/B!L4VEZ92D[#0H@('!%
+XM06)L;V-K("T^(&Q3:7IE(#T@=6Q!='1R:6)U=&5S.R O*B!U;F-O;7!R97-S
+XM960@<VEZ92 J+PT*#0H@(&Y,96YG=&@@/2 H55-(3U)4*2!M96UC;VUP<F5S
+XM<R@H8VAA<B J*2 H<$5!8FQO8VL@*R Q*2P-"B @("!N36%X4VEZ92 M('-I
+XM>F5O9BA%04A%041%4BDL("AC:&%R("HI('!&14$R;&ES="P@=6Q!='1R:6)U
+XM=&5S*3L-"@T*(" J<VEZ92 K/2!N3&5N9W1H.PT*("!P14%B;&]C:R M/B!N
+XM4VEZ92 K/2!N3&5N9W1H.PT*#0H@('!%06)L;V-K(#T@*%!%04A%041%4BD@
+XM<$=%06QI<W0[#0H-"B @*F-B=69P='(@/2 H8VAA<B J*2!P14%B;&]C:SL-
+XM"B @*F-S:7IE(#T@<VEZ96]F*$5!2$5!1$52*3L-"@T*("!P14%B;&]C:R M
+XM/B!N240@/2!%04E$.PT*("!P14%B;&]C:R M/B!N4VEZ92 ]('-I>F5O9BAP
+XM14%B;&]C:R M/B!L4VEZ92D[#0H@('!%06)L;V-K("T^(&Q3:7IE(#T@=6Q!
+XM='1R:6)U=&5S.PT*#0H@(&EF("@@;F]I<WD@*0T*(" @('!R:6YT9B@B("@E
+XM;&0@8GET97,@14$G<RDB+"!U;$%T=')I8G5T97,I.PT*?0T*#0HC96YD:68@
+XM+RH@7U\S,D))5%]?("HO#0H-"@T*(V5N9&EF("\J(%5424P@*B\-"@T*#0HO
+XM*B!);FET:6%L:7IE('1H92!T86)L92!O9B!U<'!E<F-A<V4@8VAA<F%C=&5R
+XM<R!I;F-L=61I;F<@:&%N9&QI;F<@;V8-"B @(&-O=6YT<GD@9&5P96YD96YT
+XM(&-H87)A8W1E<G,N("HO#0H-"G9O:60@:6YI=%]U<'!E<B@I#0I[#0H@($-/
+XM54Y44EE#3T1%(&-C.PT*("!U;G-I9VYE9"!N0VYT+"!N53L-"@T*("!F;W(@
+XM*"!N0VYT(#T@,#L@;D-N=" \('-I>F5O9BAU<'!E<BD[(&Y#;G0K*R I#0H@
+XM(" @=7!P97);;D-N=%T@/2!L;W=E<EMN0VYT72 ]("AU;G-I9VYE9"!C:&%R
+XM*2!N0VYT.PT*#0H@(&-C+F-O=6YT<GD@/2!C8RYC;V1E<&%G92 ](# [#0H@
+XM($1O<TUA<$-A<V4H<VEZ96]F*'5P<&5R*2P@)F-C+" H4$-(05(I('5P<&5R
+XM*3L-"@T*("!F;W(@*"!N0VYT(#T@,#L@;D-N=" \(#(U-CL@;D-N="LK("D-
+XM"B @>PT*(" @(&Y5(#T@=7!P97);;D-N=%T[#0H@(" @:68@*&Y5("$](&Y#
+XM;G0@)B8@;&]W97);;E5=(#T]("AU;G-I9VYE9"!C:&%R*2!N52D-"B @(" @
+XM(&QO=V5R6VY572 ]("AU;G-I9VYE9"!C:&%R*2!N0VYT.PT*("!]#0H-"B @
+XM9F]R("@@;D-N=" ]("=!)SL@;D-N=" \/2 G6B<[(&Y#;G0K*R I#0H@(" @
+XM;&]W97);;D-N=%T@/2 H=6YS:6=N960@8VAA<BD@*&Y#;G0@+2 G02<@*R G
+XM82<I.PT*?0T*#0H-"F-H87(@*E-T<FEN9TQO=V5R*&-H87(@*G-Z07)G*0T*
+XM>PT*("!U;G-I9VYE9"!C:&%R("IS>E!T<CL-"B @9F]R("@@<WI0='(@/2!S
+XM>D%R9SL@*G-Z4'1R.R!S>E!T<BLK("D-"B @(" J<WI0='(@/2!L;W=E<ELJ
+X=<WI0=')=.PT*("!R971U<FX@<WI!<F<[#0I]#0HJ
+X 
+Xend
+END_OF_FILE
+ if test 28901 -ne `wc -c <'os2/os2zip.c.UU'`; then
+    echo shar: \"'os2/os2zip.c.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'os2/os2zip.c'\" \(20954 characters\)
+    cat os2/os2zip.c.UU | uudecode
+    if test 20954 -ne `wc -c <'os2/os2zip.c'`; then
+      echo shar: \"'os2/os2zip.c'\" uudecoded with wrong size!
+    else
+      rm os2/os2zip.c.UU
+    fi
+  fi
+  # end of 'os2/os2zip.c.UU'
+fi
+echo shar: End of archive 5 \(of 11\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

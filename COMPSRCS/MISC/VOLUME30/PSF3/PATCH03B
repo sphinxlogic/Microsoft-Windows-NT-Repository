@@ -1,0 +1,1477 @@
+Newsgroups: comp.sources.misc
+From: tony@ajfcal.cuc.ab.ca (Tony Field)
+Subject:  v30i051:  psf3 - Postscript print filter system, Patch03b/4
+Message-ID: <1992Jun14.201822.2224@sparky.imd.sterling.com>
+X-Md4-Signature: 1a7002375e5ded19880076aee40d6b4a
+Date: Sun, 14 Jun 1992 20:18:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tony@ajfcal.cuc.ab.ca (Tony Field)
+Posting-number: Volume 30, Issue 51
+Archive-name: psf3/patch03b
+Environment: ISC, SUNOS, SYSVR3, DOS
+Patch-To: psf3: Volume 27, Issue 91-100
+
+*** net/psf.h	Sun Apr 19 13:32:14 1992
+--- psf.h	Tue Jun  2 02:18:51 1992
+***************
+*** 1,11 ****
+  /* ta=4
+  				p s f . h
+  		general configuration for psf.
+  */
+  /*
+!  * $Id: psf.h,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+  */
+  /**** Configuration information:  if not defined in the makefile *****
+   *
+   *	DOS users:  modify these defaults, no other #defines are necessary
+   * 				for msdos users.
+--- 1,11 ----
+  /* ta=4
+  				p s f . h
+  		general configuration for psf.
+  */
+  /*
+!  * $Id: psf.h,v 3.4 1992/02/24 06:48:59 ajf Exp ajf $
+  */
+  /**** Configuration information:  if not defined in the makefile *****
+   *
+   *	DOS users:  modify these defaults, no other #defines are necessary
+   * 				for msdos users.
+***************
+*** 25,45 ****
+  #else
+  #define BINDIR "/local/bin"
+  #endif
+  #endif
+  
+! /* where is your printer definition file located? */
+! 
+  #ifndef PDEF
+! #if defined(MSDOS) || defined(__MSDOS__)
+! #define PDEF "psfprint.def"
+! #else
+! #define PDEF "/local/lib/psfprint.def"
+  #endif
+  #endif
+  
+  
+  /* if two paper trays are available, and you want to use them for
+   * double sided printing, then make HOPPER defined.
+   */
+  
+  /* #define HOPPER  */
+--- 25,52 ----
+  #else
+  #define BINDIR "/local/bin"
+  #endif
+  #endif
+  
+! /* MSDOS users may wish to always generate CTL/D at end of print job */
+! /* 
+! #define CTLDALWAYS 
+! */
+! #if defined(MSDOS)  ||  defined(__MSDOS__)
+! #ifndef BINDIR
+! #define BINDIR "c:/bin"
+! #endif
+  #ifndef PDEF
+! #define PDEF "c:/lib/psfprint.def"
+  #endif
+  #endif
+  
++ #ifndef PSFDOUB
++ #define PSFDOUB "psfdoub"
++ #endif
+  
++ 
+  /* if two paper trays are available, and you want to use them for
+   * double sided printing, then make HOPPER defined.
+   */
+  
+  /* #define HOPPER  */
+***************
+*** 107,111 ****
+--- 114,125 ----
+  #define MAX_PAGES	1000		/* max pages in a book */
+  #define LONG_STR	1000		/* max bytes in an input text line */
+  
+  #define	NSLOTS		6
+  #define NPAGE		30
++ 
++ /*	exit codes */
++ 
++ #define JOB_IS_DONE 	0
++ #define REPEAT_JOB 		1
++ #define DISCARD_JOB 	2
++ #define ERROR 			-2
+*** net/Changes	Sun Apr 19 13:32:05 1992
+--- Changes	Tue Jun  2 02:19:08 1992
+***************
+*** 1,6 ****
+! 		Psf changes between version 2 and 3
+  
+       1.	Page rotation and scaling has been corrected. In particular,
+  	problems with landscape printing have been fixed.
+  
+       2.	Changes have been made to allow psf to work with the lpr/lpd
+--- 1,34 ----
+! Changes between V3 patchlevel 4 and patchlevel 5  (May 1992)
+! 
+!      1. fixed loss of first line if "language feature" used.
+!      
+!      2. psf can print to a pipe with the -O option.  Hopefully,
+!         this allows printing to an apple network.  Usually, this
+!         is installed as a print option in psfprint.def (for lpr/lpd).
+!      
+! Changes between psf V3 patchlevel 3 and patchlevel 4  (April 1992)
+! 
+!      1. ISO-Latin1 encoding supportd.
+!      
+!      2. Page usage accounting added (printcap "af" support)
+!      
+!      3. Psf can read page statistics from a serial/ethernet printer
+!         (printcap "rw" support).
+!      
+!      4. If the printer supports duplex double sided printing,
+!         the feature is invoked with -D
+!      
+!      5. Printing a ctl/D at eoj is not done unless psf is
+!         printing to a printer device.
+!      
+!      6. the -u option to select alternate printer definition files
+!         now works if psf is used as part of the spooler filter system.
+!      
+!      7. Some printer definitions in ./def have been fixed.
+! 
+! Psf changes between version 2 and 3
+  
+       1.	Page rotation and scaling has been corrected. In particular,
+  	problems with landscape printing have been fixed.
+  
+       2.	Changes have been made to allow psf to work with the lpr/lpd
+*** net/Install.def	Sun Apr 19 13:32:24 1992
+--- Install.def	Tue Jun  2 02:19:02 1992
+***************
+*** 209,218 ****
+--- 209,224 ----
+  Normal					<-- either "Normal" if the pages are
+  						stacked face down, or
+  						"Reverse" if the pages are
+  						stacked face up.
+  					    
++ *duplex 1				<-- marker for duplex command
++ statusdict begin true setduplexmode end	<-- commend to enable duplex mode
++ 					    (If the printer does not support
++ 					     duplex mode, use "duplex 0"
++ 					     or remove both lines )
++ 					  
+  *fonts 10                               <-- marker and count for fonts
+  AvantGarde-Book                         <-- real font names in your printer
+  Bookman-Light
+  Courier                      
+  Helvetica				    fonts available on your printer
+*** net/Install.lpd	Sun Apr 19 13:32:29 1992
+--- Install.lpd	Tue Jun  2 02:19:02 1992
+***************
+*** 6,16 ****
+  		make all
+  		make printer
+  		make scripts
+  		make install
+  
+! 	filters and a suitable /etc/printcap file should be constructed
+  	as outlined below.
+  
+  	The "make install" process set links to psflpd for a few page
+  	layouts. Since the the sample set of links may not be
+  	appropriate, the links may be deleted and/or a new set of links
+--- 6,16 ----
+  		make all
+  		make printer
+  		make scripts
+  		make install
+  
+! 	Filters and a suitable /etc/printcap file should be constructed
+  	as outlined below.
+  
+  	The "make install" process set links to psflpd for a few page
+  	layouts. Since the the sample set of links may not be
+  	appropriate, the links may be deleted and/or a new set of links
+***************
+*** 64,86 ****
+  	
+  		*psflpd <linkname> <opt> <opt> ... #comment
+  	
+  	where  *psflpd     identifies the line for psflpd option selection.
+  	       <linkname>  the name of the link to psflpd
+! 	       <opt>       any psf(1) option  (except that quoted
+! 	       		   options are not allowed. e.g. -H "text line"
+! 	       		   is not permitted)
+  	
+  	A selection of (hopefully) useful link names and option entries
+  	was created by "make printer" and placed in psfprint.def.  The
+  	associated links to lpd were created by "make install"
+  	
+  	Edit psfprint.def, create new links to psflpd, and modify the
+  	print cap entries for different print options.  For example,
+  	If you have a "General Accounting" package that requires special
+  	print formatting, a link to psflpd could be set up with the
+! 	exact options neccesary for the print layout.  Typically,
+  	such reports print 66 lines on a page, 6 of which are used
+  	to emulate a "skip to head of forms".  A suitable set of
+  	print options for such a report would be:
+  	
+  		*psflpd paccount -c132 -l60 -R2 -r6 -w
+--- 64,88 ----
+  	
+  		*psflpd <linkname> <opt> <opt> ... #comment
+  	
+  	where  *psflpd     identifies the line for psflpd option selection.
+  	       <linkname>  the name of the link to psflpd
+! 	       <opt>       any psf(1) option 
+  	
++ 	(NOTE: if a serial printer is used, the "-a" option should be
++ 	specified to process information generated by the printer. The
++ 	printcap "rw" should be used to enable the port for read/write)
++ 
+  	A selection of (hopefully) useful link names and option entries
+  	was created by "make printer" and placed in psfprint.def.  The
+  	associated links to lpd were created by "make install"
+  	
+  	Edit psfprint.def, create new links to psflpd, and modify the
+  	print cap entries for different print options.  For example,
+  	If you have a "General Accounting" package that requires special
+  	print formatting, a link to psflpd could be set up with the
+! 	exact options necessary for the print layout.  Typically,
+  	such reports print 66 lines on a page, 6 of which are used
+  	to emulate a "skip to head of forms".  A suitable set of
+  	print options for such a report would be:
+  	
+  		*psflpd paccount -c132 -l60 -R2 -r6 -w
+***************
+*** 153,173 ****
+  	executed once for a group of files, while the input (if=) filer
+  	is invoked for every file being printed in a group.)
+  
+  	If banner printing IS desired, use psflpd and friends as an "of="
+  	filter. Beware that the banner page will probably be truncated if
+! 	printing is in portrat layout.
+  
+  	If banner printing is NOT desired, use psflpd and friends as an
+  	"if=" or "of=" filter and suppress banners with :sh.
+  
+  	If you are not happy with the banner page layout printed by your
+  	postscript printer, then the only suggestion I have is to modify
+  	the sources for lpd!
+  
+  
+!    5.	PRINTING POSTSCRIPT SOURCE
+     
+  	If Postscript code must be printed, filter the source manually
+  	with psf - otherwise the psflpd will pass the code to the
+  	printer for execution:
+  
+--- 155,221 ----
+  	executed once for a group of files, while the input (if=) filer
+  	is invoked for every file being printed in a group.)
+  
+  	If banner printing IS desired, use psflpd and friends as an "of="
+  	filter. Beware that the banner page will probably be truncated if
+! 	printing is in portrait layout.
+  
+  	If banner printing is NOT desired, use psflpd and friends as an
+  	"if=" or "of=" filter and suppress banners with :sh.
+  
+  	If you are not happy with the banner page layout printed by your
+  	postscript printer, then the only suggestion I have is to modify
+  	the sources for lpd!
+  
++    5.	PRINTING TO A PIPE (for apple networks??)
++    
++    	If the spooler should print to a pipe rather than stdout
++    	(such as printing to the "papif" daemon for apple network
++    	printing), the option "-O pipe-cmd" may be inserted into
++    	the link options:
++    	
++    		*psfprint applepipe -u apple.def -O "papif"
++ 			                         ^^^^^^^^^^
++ 	Rather than passing the filtered output to stdout, the
++ 	"applepipe" link opens a pipe to "papif" to handle the final
++ 	printing. Often, an alternate printer file is specified (-u =
++ 	apple.def) to define the printer configuration for the foreign
++ 	printer.
++ 
++ 	The printcap "lp=/dev/null" should be used if printing
++ 	across a "foreign network" connection.
++ 
++    6.   ACCOUNTING (by page count)
++ 
++ 	If the "af" printcap is used to specify an accounting
++ 	file, page count entries are written in the following
++ 	format:
++ 			<pagecount><tab><host>:<user>
++ 		e.g.
++ 			37      trifid:ajf
++ 
++    7.	SERIAL PRINTER ERROR MESSAGES AND CONTROL CHARACTER ECHOES
++    
++    	The default printcap and psfprint.def files are set up assuming
++    	that a parallel printer is being used.  If a serial or ethernet
++    	printer is used, then some provisions must be made to allow
++    	the various filters to process the printer responses.  Parallel
++    	printers do not send responses back to the filters.
++    	
++    	For serial printers, the "rw" printcap allows the printer
++    	line to be opened for read/write and the "-a" option must
++    	be specified (in psfprint.def) to allow the filters to process
++    	the information generated by the printer.
++    	
++ 	If this is done, the psf filters read (and flush) most control
++ 	echoed characters (such as CTL/C and CTL/D). Any other printer
++ 	messages are written to stderr (which is usually attached to an
++ 	error logging file). If an accounting file is specified, psf
++ 	reads the printer status dictionary to compute the number of
++ 	pages printed. The results are written to the accounting file.
+  
+!    8.	PRINTING POSTSCRIPT SOURCE
+     
+  	If Postscript code must be printed, filter the source manually
+  	with psf - otherwise the psflpd will pass the code to the
+  	printer for execution:
+  
+***************
+*** 180,215 ****
+  	the install process.  Usage:
+  	
+  		lpr -Ppost mycode.ps
+  
+  
+!    6.	MULTIPLE PRINTER SUPPORT
+  
+        	If these filters are to control multiple different postscript
+! 	printers on the same system, then separate editions of psflpd
+! 	and friends should be compiled an placed in different directores:
+! 	one for each different printer.  For example, if you have a
+! 	Nec and and Apple postscript printer, place the binaries and
+! 	psfprint.def files in a directory that reflects each printer:
+! 	
+! 		/usr/lib/lpdfilters/nec/*
+! 	   -and-
+! 	   	/usr/lib/lpdfilters/apple/*
+! 
+! 	Modify the Makefile to compile for each set of directories.
+! 	
+! 	Rename each version of psf (for interactive use) to an
+! 	appropriate unique name (psfn and psfa). An alternative is ask
+! 	the user to use the "-u alt.def" option of psf when selecting
+! 	different printers.
+! 
+! 	The Makefile allows you to change target directories and binary
+! 	programme names. Be careful when you "make install" after
+! 	major changes (use "make -n installbsd" to check things out).
+  
+  
+!     7.  HOW DOES A USER ACCESS THE APPROPRIATE PRINTER?
+     
+  	Any of the printers defined in /etc/printcap may be selected
+  	depending upon the desired page layout! General printing to the
+  	default printer "lp" would be done with:
+  
+--- 228,269 ----
+  	the install process.  Usage:
+  	
+  		lpr -Ppost mycode.ps
+  
+  
+!    9.	MULTIPLE PRINTER SUPPORT
+  
+        	If these filters are to control multiple different postscript
+! 	printers on the same system, entries for each printer and option
+! 	combination must be placed in psfprint.def with appropriate
+! 	link names.   The printer definition associated with the target
+! 	printer is indicated with the -u option.  For example, if
+! 	two different print layouts are desired for three different
+! 	printers, something similar to the following might be
+! 	appropriate:
+! 	
+! 		*psflpd 2upapple -2x -u apple.def
+! 		*psflpd accapple -c132 -l60 -R2 -r6 -w -u apple.def
+! 		*psflpd 2upnec -2x -u nec.def
+! 		*psflpd accnec -c132 -l60 -R2 -r6 -w -u nec.def
+! 		*psflpd 2uphp -2x -u hp.def
+! 		*psflpd acchp -c132 -l60 -R2 -r6 -w -u hp.def
+! 		
+! 	Appropriate printer names in /etc/printcap must call the
+! 	corresponding link as an if or of filter.
+! 	
+! 	Printer definitions for each different printer must be placed in
+! 	the file name specified by the -u option.  Usually, they
+! 	are placed in the same directory that contains psfprint.def.
+! 	
+! 	Since the normal installation process assumes that you have
+! 	only one printer, you will have to manually locate the
+! 	appropriate printer definitions in the ./defs directory
+! 	and copy the file to the directory containing psfprint.def.
+  
+  
+!    10.  HOW DOES A USER ACCESS THE APPROPRIATE PRINTER?
+     
+  	Any of the printers defined in /etc/printcap may be selected
+  	depending upon the desired page layout! General printing to the
+  	default printer "lp" would be done with:
+  
+***************
+*** 247,257 ****
+  	sending to the dos print server:
+  
+  		psf -4xh source.c | lpr -Pdoslpr
+  
+  
+!     8.	PRINTING PROBLEMS
+     
+          The most common problem associated with lpd and postscript
+  	printers is the lack of printed output: files appear to be
+  	printing, however the printer times out and nothing is actually
+  	printed. Generally, this is caused by an invalid set of
+--- 301,311 ----
+  	sending to the dos print server:
+  
+  		psf -4xh source.c | lpr -Pdoslpr
+  
+  
+!    11.	PRINTING PROBLEMS
+     
+          The most common problem associated with lpd and postscript
+  	printers is the lack of printed output: files appear to be
+  	printing, however the printer times out and nothing is actually
+  	printed. Generally, this is caused by an invalid set of
+***************
+*** 277,287 ****
+  	Since it is difficult to properly process lpd-generated banner
+  	pages, the recommended process is to suppress banner printing
+  	with the :sh printcap.
+  
+  
+!     9.  EXAMPLE OF A PSFPRINT.DEF FILE FOR USE WITH LPD
+      
+  	# options for links to psflpd.
+  	#       link  options		comments
+  	#       ----  ----------------  -----------------------------
+  	*psflpd	p2up -2			# 2-up printing, default landscape
+--- 331,341 ----
+  	Since it is difficult to properly process lpd-generated banner
+  	pages, the recommended process is to suppress banner printing
+  	with the :sh printcap.
+  
+  
+!    12.  EXAMPLE OF A PSFPRINT.DEF FILE FOR USE WITH LPD
+      
+  	# options for links to psflpd.
+  	#       link  options		comments
+  	#       ----  ----------------  -----------------------------
+  	*psflpd	p2up -2			# 2-up printing, default landscape
+***************
+*** 290,300 ****
+  	*psflpd psource -2xn		# source listings, 2-up, portrait
+  	*psflpd post -z2xn		# postscript source listings, 2-up
+  	*psflpd plegal -g legal		# standard print, legal paper
+  	*psflpd pspread -g legal -p 8 -w # spreadsheets: legal,8pt,landscape
+  	#
+! 	# printer definition for psf and friends
+  	#
+  	*printer
+  	Sample Postscript Printer
+  	*paper 2
+  	Letter
+--- 344,354 ----
+  	*psflpd psource -2xn		# source listings, 2-up, portrait
+  	*psflpd post -z2xn		# postscript source listings, 2-up
+  	*psflpd plegal -g legal		# standard print, legal paper
+  	*psflpd pspread -g legal -p 8 -w # spreadsheets: legal,8pt,landscape
+  	#
+! 	# default printer definition for psf and friends
+  	#
+  	*printer
+  	Sample Postscript Printer
+  	*paper 2
+  	Letter
+***************
+*** 303,312 ****
+--- 357,367 ----
+  	Legal
+  	statusdict begin legaltray end
+  	  612  1008    18    15   593   993
+  	*order 1
+  	Normal
++ 	*duplex 0
+  	*fonts 4
+  	Courier
+  	Helvetica
+  	Times-Roman
+  	ZapfChancery-MediumItalic
+*** net/Install.unix	Sun Apr 19 13:33:08 1992
+--- Install.unix	Tue Jun  2 02:19:01 1992
+***************
+*** 144,154 ****
+--- 144,234 ----
+  			different names, then different default page
+  			conditions apply (see Install.lpd).
+  	
+  	Only the appropriate binary versions are copied with "make install".
+  
++      CUSTOMIZATION
++      ^^^^^^^^^^^^^
++         The following scripts or control files might be candidates
++         for modification if you do not like the default conditions.
++         Each file has a "prototype" that is edited into a runnable
++         file or script.
++         
++         prototype	install name	edit to change features
++         -------------   --------------  ----------------------------------
++         printcap.ETC	printcap	set up various printer options
++         printcap.NET	not installed	set up various printer options
++         language.PSF	not installed	add non-English language support
++         psfdouble.SH	not installed	sample usage of doublesided print
++         psflpd.DEF	psfprint.def	basic lpd filter options
++         psfman.SH	psfman		change for 2up or 1up printing
++         psfmbox.SH	psfmbox		change for 2up or 4up printing
++         psfnroff.SH	psfnroff	change default man options (-Tlp??)
++         psfunix.LP	psf.model	add accounting support
++         psfxen.ix.LP	psf.model	add accounting support
+  
++         
++      ACCOUNTING (for lp/lpsched)
++      ^^^^^^^^^^
++         Paper usage accounting is not configured by default for
++         lp/lpsched systems.  If this feature is desired, the printer
++         script "psf.model" should be modified to include the
++         options "-A account.fil", "-y user" and "-Y host" options.
++         (Examine psf.model and modify to suit).  Also, see below
++         for use with a serial printer.
++ 
++      SERIAL PRINTER READ/WRITE ACCESS (for lp/lpsched)
++      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++ 	The default setup for psf used as a filter for the lp/lpsched
++ 	spooler assumes that a parallel printer is being used.
++ 
++ 	Serial (and possibly ethernet) postscript printers usually echo
++ 	control characters and information messages to the filter. This
++ 	is not possible on parallel port printers. If you are using a
++ 	serial printer, these messages should be handled by the filter
++ 	with the "-a" option in the printer script.
++ 
++ 	If an accounting file is specified with "-A acct.fil",
++ 	printer-generated page usage is written to the specified file.
++ 	If the "-A" option is not provided, then page usage is ignored.
++ 
++ 	All other "informative" text generated by the printer is written
++ 	to stderr and may be redirected to an error log file.
++ 
++ 	The sample printer model file "psf.model" does not handle any
++ 	information generated by the printer (i.e. it assumes that a
++ 	parallel printer is used). You may wish to add the options "-a",
++ 	"-A acct.fil", "-y user" and "-Y host" to your printer model for
++ 	serial/ethernet printers and redirect stderr to a log file.
++ 	
++ 	If a serial printer is used and accounting is not desired,
++ 	the "-a" option should be used:  -A, -y and -Y are not needed.
++ 	
++ 	A sample setup is illustrated as a comment line in psfunix.LP
++ 	and the generated "psf.model" printer script.
++ 
++ 
++      PRINING TO A PIPE
++      ^^^^^^^^^^^^^^^^^
++    	If the spooler should print to a pipe rather than stdout
++    	(such as printing to the "papif" daemon for apple network
++    	printing), the option "-O pipe-cmd" may be inserted into
++    	the link options:
++    	
++    		-O "nextfilter -a -b -c 'text string' -d"
++ 
++ 	Rather than passing the filtered output to stdout, the output is
++ 	piped to "nextfilter" which may process to a foreigh network
++ 	printing. Often, an alternate printer file is specified (-u =
++ 	apple.def) to define the printer configuration for the foreign
++ 	printer.
++ 	
++ 	If the spooler is lp/lpsched, this option could be
++ 	added to the printer script.  If the spooler is lpr/lpd,
++ 	read Install.lpd for further notes.
++ 
++ 
+       CONFIGURE PRINTER (for lp/lpsched on SysV R3)
+       ^^^^^^^^^^^^^^^^^
+  	The printer model defined for psf is copied during the install
+  	process to:
+  
+***************
+*** 226,236 ****
+  
+  	Copy the new psfprint.def file to it's target location as
+  	set with "DEFFILE" in the Makefile.
+  
+       2.	Edit the file "Testfile" with sed (as below). This file is an
+! 	example of how escape seqeuences can be imbedded in a text file
+  	to allow direct font control within a text editor (See psf.1 for
+  	details).
+  
+  	The "Testfile" should contain many ^E characters (octal \005).
+  	Since mail system may change the ^E character into the text
+--- 306,316 ----
+  
+  	Copy the new psfprint.def file to it's target location as
+  	set with "DEFFILE" in the Makefile.
+  
+       2.	Edit the file "Testfile" with sed (as below). This file is an
+! 	example of how escape sequences can be imbedded in a text file
+  	to allow direct font control within a text editor (See psf.1 for
+  	details).
+  
+  	The "Testfile" should contain many ^E characters (octal \005).
+  	Since mail system may change the ^E character into the text
+***************
+*** 240,250 ****
+  	One easy way to correct this is with sed (Bourne shell only??)
+  
+  		sed 's@005@<CTRL-E>@g' Testfile > example
+  			   +------+
+  				actually type the CTRL-E character
+! 				to generate the octal charcter \005
+  
+  	After editing, do the following:
+  
+  		psf example | lp
+      
+--- 320,330 ----
+  	One easy way to correct this is with sed (Bourne shell only??)
+  
+  		sed 's@005@<CTRL-E>@g' Testfile > example
+  			   +------+
+  				actually type the CTRL-E character
+! 				to generate the octal character \005
+  
+  	After editing, do the following:
+  
+  		psf example | lp
+      
+***************
+*** 304,317 ****
+  	should be used. In any case, each back end printer script used
+  	by lpsched, psnroff or psmbox must reference the appropriate
+  	version of psf or have the -u option set.
+  
+  	See Install.lpd for considerations when using lpr/lpd.
+- 
+- 	Some provisions are in the Makefile to allow changes to the
+- 	target directories or the use of different binary programme
+- 	names.
+  
+       PSF notes.
+       ^^^^^^^^^^ 
+  	The printer definitions in defs/* are derived from the Adobe
+  	".ppd" files. These are available from the Adobe file server via
+--- 384,393 ----
+*** net/Makefile	Sun Apr 19 13:33:26 1992
+--- Makefile	Tue Jun  2 09:02:11 1992
+***************
+*** 1,6 ****
+- # $Id: Makefile.dis,v 3.3 1992/02/07 15:10:57 ajf Exp ajf $
+  #
+  #	Make the psf v3 postscript filter system
+  #	----------------------------------------
+  
+  #	display all "make" options with:
+--- 1,5 ----
+***************
+*** 10,20 ****
+  #		make help
+  
+  SHELL = /bin/sh
+  
+  # - - - - Begin configuration - - - - -
+! #
+  # set compiler, tar and nroff names
+  
+  CC=cc
+  # CC = gcc
+  # CC=lpicc -sys -xid
+--- 9,24 ----
+  #		make help
+  
+  SHELL = /bin/sh
+  
+  # - - - - Begin configuration - - - - -
+! 
+! # peculiar systems setup.
+! # set OS=-DISC22    to get around include file problems with pid_t
+! #                   with Interactive Unix 2.2:  not needed if gcc is used.
+! # OS=-DISC22
+! 
+  # set compiler, tar and nroff names
+  
+  CC=cc
+  # CC = gcc
+  # CC=lpicc -sys -xid
+***************
+*** 35,46 ****
+  # suffix for man pages
+  MANSUF=l
+  # MANSUF=1
+  
+  # If catman/formatted pages should be filtered with col
+! # COL=
+! COL=| col -b 
+  
+  # user print interface
+  UPRINT =lpr
+  # UPRINT =lp
+  
+--- 39,50 ----
+  # suffix for man pages
+  MANSUF=l
+  # MANSUF=1
+  
+  # If catman/formatted pages should be filtered with col
+! COL=
+! # COL=| col -b 
+  
+  # user print interface
+  UPRINT =lpr
+  # UPRINT =lp
+  
+***************
+*** 55,67 ****
+--- 59,84 ----
+  # Location of printer definition file   (for lpr/lpd or lp/lpsched)
+  DEFFILE=/usr/local/lib/psf/psfprint.def
+  # DEFFILE=/local/lib/psf/psfprint.def
+  # DEFFILE=/usr/spool/lp/model/psfprint.def
+  
++ # A CTL/D is sent to the printer at the end of every print job if psf
++ # is used as a spooler filter.  The "psf" binary does not generate
++ # a ctl/d if it is used in shell scripts or at the shell prompt.
++ # Enable CTLDALWAYS if the CTL/D must be generated in all cases.
++ CTLD=
++ # CTLD=-DCTLDALWAYS
++ 
+  # Set the default paper type  (letter, legal, a4, b5, etc.)
+  PSPTYPE = letter
+  
++ # By default, psf uses standard character set encoding and
++ # allows ISO Latin1 encoding with the -I option.  If ISO Latin1
++ # encoding is desired as the default, set ISOLATIN=-DISO
++ ISOLATIN=
++ # ISOLATIN=-DISO
++ 
+  # Psf assumes that the default paper tray is enabled by default
+  # in the printer.  If the default paper tray cannot be set as defined
+  # in PSTYPE above, or to always force tray selection, activate the following:
+  # FORCETYPE=-DFORCETYPE
+  
+***************
+*** 70,80 ****
+  TRAYS=
+  # TRAYS=-DHOPPER
+  
+  # compile and library options
+  LDFLAGS = -lm
+! CFLAGS = -O $(NAMES) $(PAPTYPE) $(TRAYS) $(FORCETYPE) -DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\" 
+  
+  # extra things for SysV or Xenix with lp/lpsched
+  MODEL=/usr/spool/lp/model
+  
+  # if getopt isn't a standard part of your system
+--- 87,97 ----
+  TRAYS=
+  # TRAYS=-DHOPPER
+  
+  # compile and library options
+  LDFLAGS = -lm
+! CFLAGS = -O $(NAMES) $(PAPTYPE) $(TRAYS) $(FORCETYPE) -DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\"  $(CTLD) $(OS) $(ISOLATIN)
+  
+  # extra things for SysV or Xenix with lp/lpsched
+  MODEL=/usr/spool/lp/model
+  
+  # if getopt isn't a standard part of your system
+***************
+*** 87,98 ****
+  PSFDOUB = psfdoub
+  PSFBANNER = psfbanner
+  PSFFILTER = psffilter
+  PSFLPD = psflpd
+  
+! RCSVER = 3.3
+! RCSCOM="psf3, patch 3"
+  
+  # - - - - - end configuration - - - - - - - -
+  #           ^^^^^^^^^^^^^^^^^
+  
+  # psf uses NAMES to find the current name of psfdoub
+--- 104,115 ----
+  PSFDOUB = psfdoub
+  PSFBANNER = psfbanner
+  PSFFILTER = psffilter
+  PSFLPD = psflpd
+  
+! RCSVER = 3.5
+! RCSCOM="psf3, patch 5"
+  
+  # - - - - - end configuration - - - - - - - -
+  #           ^^^^^^^^^^^^^^^^^
+  
+  # psf uses NAMES to find the current name of psfdoub
+***************
+*** 157,176 ****
+  
+  # Compile all sources
+  # ^^^^^^^
+  all:	$(BINARIES) $(LPBIN) $(LPDBIN) $(SUPPORT) getsizes.ps
+  
+! $(PSF):	psf.c psf.h ctp.h $(GETOPT)
+  	$(CC) $(CFLAGS) psf.c $(GETOPT) -o $(PSF) $(LDFLAGS)
+  
+  $(PSFDOUB):	psfdoub.c psf.h $(GETOPT)
+  	$(CC) $(CFLAGS) psfdoub.c $(GETOPT) -o $(PSFDOUB) $(LDFLAGS)
+  
+! $(PSFFILTER):	psf.c psf.h $(GETOPT) ctp.h
+  	$(CC) $(CFLAGS) -DPSFFILTER psf.c $(GETOPT) -o $(PSFFILTER) $(LDFLAGS)
+  
+! $(PSFLPD):	psf.c $(GETOPT) ctp.h psf.h
+  	$(CC) $(CFLAGS) -DFORLPD -DPSFFILTER $(GETOPT) psf.c -o $(PSFLPD) $(LDFLAGS)
+  
+  $(PSFBANNER):	psfbanner.c psf.h ctp.h $(GETOPT)
+  	$(CC) $(CFLAGS) psfbanner.c $(GETOPT) -o $(PSFBANNER) $(LDFLAGS)
+  
+--- 174,193 ----
+  
+  # Compile all sources
+  # ^^^^^^^
+  all:	$(BINARIES) $(LPBIN) $(LPDBIN) $(SUPPORT) getsizes.ps
+  
+! $(PSF):	psf.c psf.h ctp.h $(GETOPT) psfproto.h
+  	$(CC) $(CFLAGS) psf.c $(GETOPT) -o $(PSF) $(LDFLAGS)
+  
+  $(PSFDOUB):	psfdoub.c psf.h $(GETOPT)
+  	$(CC) $(CFLAGS) psfdoub.c $(GETOPT) -o $(PSFDOUB) $(LDFLAGS)
+  
+! $(PSFFILTER):	psf.c psf.h $(GETOPT) ctp.h psfproto.h
+  	$(CC) $(CFLAGS) -DPSFFILTER psf.c $(GETOPT) -o $(PSFFILTER) $(LDFLAGS)
+  
+! $(PSFLPD):	psf.c $(GETOPT) ctp.h psf.h psfproto.h
+  	$(CC) $(CFLAGS) -DFORLPD -DPSFFILTER $(GETOPT) psf.c -o $(PSFLPD) $(LDFLAGS)
+  
+  $(PSFBANNER):	psfbanner.c psf.h ctp.h $(GETOPT)
+  	$(CC) $(CFLAGS) psfbanner.c $(GETOPT) -o $(PSFBANNER) $(LDFLAGS)
+  
+***************
+*** 320,330 ****
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  tar:
+  	$(TAR) cvf /tmp/psf.tar $(SOURCES) man $(OTHERS) defs Makefile.dis Makefile.ajf patchlevel.h
+  
+  shar:
+! 	makekit -m -s59k defs man man/*.1 man/*.doc man/Makefile defs/* $(SOURCES) $(OTHERS) patchlevel.h
+  
+  dostar:
+  	$(TAR) cvf /tmp/psfdos.tar $(DOSSRC) $(DOSMAN) $(DOSDOC) $(DOSOTHER) defs
+  
+  
+--- 337,350 ----
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  tar:
+  	$(TAR) cvf /tmp/psf.tar $(SOURCES) man $(OTHERS) defs Makefile.dis Makefile.ajf patchlevel.h
+  
+  shar:
+! 	makekit -m -s60k defs man man/*.1 man/*.doc man/Makefile defs/* $(SOURCES) $(OTHERS) patchlevel.h
+! 
+! tardis:
+! 	$(TAR) cvf /tmp/psf.tar man/*.1 man/*.doc man/Makefile defs/*.def $(SOURCES) $(OTHERS) patchlevel.h
+  
+  dostar:
+  	$(TAR) cvf /tmp/psfdos.tar $(DOSSRC) $(DOSMAN) $(DOSDOC) $(DOSOTHER) defs
+  
+  
+***************
+*** 337,347 ****
+  # RCS checkin and out
+  # ^^^^^^^^^^^^^^^^^^^
+  
+  ci:
+  	ci -r$(RCSVER) patchlevel.h
+! 	ci -r$(RCSVER) -m$(RCSCOM) $(SOURCES) $(OTHERS) Makefile.dis Makefile.ajf lines.c
+  
+  ciman:
+  	cd man ; make ci RCSVER=$(RCSVER) RCSCOM=$(RCSCOM)
+  	
+  
+--- 357,367 ----
+  # RCS checkin and out
+  # ^^^^^^^^^^^^^^^^^^^
+  
+  ci:
+  	ci -r$(RCSVER) patchlevel.h
+! 	ci -r$(RCSVER) -m$(RCSCOM) $(SOURCES) $(OTHERS) lines.c Makefile.dis Makefile.ajf
+  
+  ciman:
+  	cd man ; make ci RCSVER=$(RCSVER) RCSCOM=$(RCSCOM)
+  	
+  
+*** net/Makefile.dos	Sun Apr 19 13:33:13 1992
+--- Makefile.dos	Tue Jun  2 02:19:08 1992
+***************
+*** 21,32 ****
+  # Loation of psfprint.def:
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  DEFFILE=c:/lib/psfprint.def
+  XCOPYDEF=c:\lib\
+  
+  
+! CFLAGS =-DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\"
+  
+  all:	psf.exe psfdoub.exe selectde.exe psfbs.exe
+  
+  psf.obj:	psf.h psf.c ctp.h
+  psf.exe:	psf.obj getopt.obj
+--- 21,36 ----
+  # Loation of psfprint.def:
+  # ^^^^^^^^^^^^^^^^^^^^^^^
+  DEFFILE=c:/lib/psfprint.def
+  XCOPYDEF=c:\lib\
+  
++ # Enable CTLDALWAYS if the CTL/D must be generated at the end of a print job.
++ CTLD=-DCTLDALWAYS
++ CTLD=
+  
+! 
+! CFLAGS =-DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\" $(CTLD)
+  
+  all:	psf.exe psfdoub.exe selectde.exe psfbs.exe
+  
+  psf.obj:	psf.h psf.c ctp.h
+  psf.exe:	psf.obj getopt.obj
+*** net/README	Sun Apr 19 13:33:14 1992
+--- README	Tue Jun  2 02:18:59 1992
+***************
+*** 11,22 ****
+--- 11,26 ----
+  		o  double sided printing
+  		o  pages scaled by row and column count
+  		o  lp banner page printing
+  		o  reverse order printing
+  		o  languages other than English
++ 		o  optional ISO Latin1 character encoding
+  		o  left, right, top, bottom margin sizes
+  		o  line clipping or left/right justified line wrap
++ 		o  page usage accounting
++ 		o  printing to a pipe for multiple filtering in a spooler
++ 		   or for printing to an Apple network printer (via papif?)
+  
+     If the printer normally stacks output paper "face up", psf
+     automatically reverses the order of the printed pages to ensure
+     manual reordering is not needed.
+  
+***************
+*** 45,55 ****
+     and BSD-type systems using lpr/lpd are described in Install.unix.
+     Installation for SysV r4 may different: you will have to adapt
+     the installation process for such systems.
+    
+  	Install.unix	installation guide
+! 	Install.lpd	additonal information for use with lpr/lpd
+  	Install.def	how to create a printer definition for a
+  			printer not know to psf.
+  	Install.dos	installation notes for MSDOS
+  
+     Installed binaries and scripts should give usage help information
+--- 49,59 ----
+     and BSD-type systems using lpr/lpd are described in Install.unix.
+     Installation for SysV r4 may different: you will have to adapt
+     the installation process for such systems.
+    
+  	Install.unix	installation guide
+! 	Install.lpd	additional information for use with lpr/lpd
+  	Install.def	how to create a printer definition for a
+  			printer not know to psf.
+  	Install.dos	installation notes for MSDOS
+  
+     Installed binaries and scripts should give usage help information
+***************
+*** 85,101 ****
+     If the left or right ends of lines, the top of the first line, or the
+     bottom of the last line on a page are clipped, then try:
+  
+     		psf -M1,1,1,1,c this.file | lp
+  
+  EUROPEAN LANGUAGES and PAPER SIZES
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+!    Rudimentary provision have been made for languages other than
+!    English. An example Scandinavian font setup is provided in file
+!    "language.PSF". This is NOT a working example: it must be modified
+!    for real use.  Any feedback and/or suggestions for modifications
+!    regarding the use of non-English languages would be appreciated.
+  
+     Documentation for this feature is minimal: some postscript knowledge
+     is assumed! Refer to the Blue Book, Postscript Language Tutorial and
+     Cookbook, page 111 (Program 18, Making small changes to encoding
+     vectors). If Interactive Unix is used (and probably AT&T SysV 3.2),
+--- 89,122 ----
+     If the left or right ends of lines, the top of the first line, or the
+     bottom of the last line on a page are clipped, then try:
+  
+     		psf -M1,1,1,1,c this.file | lp
+  
++ CTL/D PROCESSING
++ ^^^^^^^^^^^^^^^^
++    By default, the psf system does not generate a ctl/d at the end
++    of a print job if psf is used from the command line or within
++    a shell script.  A ctl/d is generated by psffilter (for lpsched)
++    or by psflpd (for lpd) spooler usage.
++    
++    If psf should generate a ctl/d in all cases, this may be set up
++    in the Makefile.
++ 
+  EUROPEAN LANGUAGES and PAPER SIZES
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+!    ISO Latin1 font encoding is be invoked automatically by
+!    use of the -I option.  Alternatively, the ISO Latin1 encoding
+!    may be set as a compile-time option in the Makefile.  This
+!    feature may not be honoured by all (possibly old) postscript
+!    printers.
+! 
+!    If ISO Latin1 encoding is insufficient, complete control over
+!    character encoding is provided in an external file. An example
+!    Scandinavian font setup is provided in file "language.PSF". This is
+!    NOT a working example: it must be modified for real use. Any feedback
+!    and/or suggestions for modifications regarding the use of non-English
+!    languages would be appreciated.
+  
+     Documentation for this feature is minimal: some postscript knowledge
+     is assumed! Refer to the Blue Book, Postscript Language Tutorial and
+     Cookbook, page 111 (Program 18, Making small changes to encoding
+     vectors). If Interactive Unix is used (and probably AT&T SysV 3.2),
+***************
+*** 143,153 ****
+  ^^^^^^^^^^^^^^^^^^^^^
+     DOUBLE SIDED PRINTING IS NOT RECOMMEDED UNLESS THE PRINTER
+     IS SPECIFICALLY DESIGNED FOR TO ALLOW DOUBLE SIDE PRINTING.
+  
+     Double sided printing is more convenient on printers with two paper
+!    trays. If two paper trays are avaliable, then psf could be compiled
+     with "-DHOPPER" (see the Makefile).  Double sided printing may be
+     done as part of the lp spooler system by passing the "-d" option. Psf
+     internally calls psfdoub to print double sided. This assumes that the
+     printer has at least two paper hoppers.
+  
+--- 164,174 ----
+  ^^^^^^^^^^^^^^^^^^^^^
+     DOUBLE SIDED PRINTING IS NOT RECOMMEDED UNLESS THE PRINTER
+     IS SPECIFICALLY DESIGNED FOR TO ALLOW DOUBLE SIDE PRINTING.
+  
+     Double sided printing is more convenient on printers with two paper
+!    trays. If two paper trays are available, then psf could be compiled
+     with "-DHOPPER" (see the Makefile).  Double sided printing may be
+     done as part of the lp spooler system by passing the "-d" option. Psf
+     internally calls psfdoub to print double sided. This assumes that the
+     printer has at least two paper hoppers.
+  
+***************
+*** 158,166 ****
+--- 179,205 ----
+     If psf was not compiled with "-DHOPPER", then double sided printing
+     is done as described in psfdoub.1.  
+     
+     This feature should not be used unless the paper tray is essentially
+     reserved for double sided printing.
++ 
++ CREDITS
++ ^^^^^^^
++    The spooler code to read printer-generated responses and echoes from
++    the printer was developed  by  Paul Eggert's (eggert@winsun.com).
++ 
++    The ISO Latin1 Encoding postscript code was developed by Magnus Hammerin 
++    and modified for usage with psf by Leif Hedstrom (leif@ifm.liu.se)
++ 
++ FTP
++ ^^^
++    The current version of psf may be obtained by ftp from the
++    University of Calgary:
++    
++ 	host:      fsa.cpsc.ucalgary.ca, cpsc.ucalgary.ca or 136.159.2.1
++ 	login:     anonymous
++ 	password:  is your mail address, by convention
++ 	files:     pub/psf/psf3.3.tar.Z
+  
+   ------------------------------------------
+     Tony Field: tony@ajfcal.cuc.ab.ca
+  
+*** net/language.PSF	Sun Apr 19 13:33:27 1992
+--- language.PSF	Tue Jun  2 02:19:11 1992
+***************
+*** 1,8 ****
+  %%PsfStart
+  
+! $Id: language.PSF,v 3.3 1992/02/07 15:10:57 ajf Exp ajf $
+  
+  	WARNING: This file must be edited to cause valid selection
+  	=======	 of postscript characters for non-English languages.
+  		 The sample "Scandinavian" translation table is
+  		 used for testing purposes only and will not generate
+--- 1,8 ----
+  %%PsfStart
+  
+! $Id: language.PSF,v 3.5 1992/06/02 08:16:01 ajf Exp ajf $
+  
+  	WARNING: This file must be edited to cause valid selection
+  	=======	 of postscript characters for non-English languages.
+  		 The sample "Scandinavian" translation table is
+  		 used for testing purposes only and will not generate
+***************
+*** 18,51 ****
+  		cat psfprint.old.def language.PSF > psfprint.def
+  	
+  	The comments may remain in the final file, or may be removed as
+  	desired - they are ignored by psf and friends.
+  
+- 	To set this code up for a different language, edit the lines
+- 	prefixed with "%%font" and "%%translate". Then modify the
+- 	section of postscript code following "ENCODE".
+- 
+  	The first section of the code must start with "%%PsfStart" and
+  	terminate with %%PsfEnd. The information within this section
+! 	contains new font defintion and character translation tables.
+  	This section may be empty, however the "%%PsfStart" and
+  	"%%PsfEnd" lines must exist.
+  
+- 	This section is setup information processed by psf and psfbanner.
+- 
+  	Any postscript code following the "%%PsfEnd" marker is copied to
+! 	the printer as part of the postscript prologue.
+  
+  	The key words %%PsfStart, %%fontX %%translate %%copy %%PsfEnd
+  	must start in the first column of this file.
+  
+! 	((( It might be possible to adapt this file to re-encode an
+! 	entire font for a different character set such as EBCDIC. Refer
+! 	to Adobe's Blue Book program #17 for hints on how this might be
+! 	accomplished. Entries for %%fontX would be needed, %%translate
+! 	would not be needed, and the postscript code after %%PsfEnd
+! 	would have to be replaced. )))
+  	--------------------------------------------------------------
+  
+  	Set up new language font names. Fonts in psf are numbered
+  	as 0..9, a..z. The "%%fontX" numbers (where 'X' represents the
+  	font number used by psf) reflect the font to be updated or
+--- 18,59 ----
+  		cat psfprint.old.def language.PSF > psfprint.def
+  	
+  	The comments may remain in the final file, or may be removed as
+  	desired - they are ignored by psf and friends.
+  
+  	The first section of the code must start with "%%PsfStart" and
+  	terminate with %%PsfEnd. The information within this section
+! 	contains new font defintion and character translation tables
+! 	used by psf for internal processing.
+! 	
+  	This section may be empty, however the "%%PsfStart" and
+  	"%%PsfEnd" lines must exist.
+  
+  	Any postscript code following the "%%PsfEnd" marker is copied to
+! 	the printer as part of the postscript prologue.  The actual
+! 	font reencoding is performed in this section.
+  
+  	The key words %%PsfStart, %%fontX %%translate %%copy %%PsfEnd
+  	must start in the first column of this file.
+  
+! 	--------------------------------------------------------------
+! 
+! 	The steps to reencode a font are:
+! 	
+! 		1. Create a new set of font names which will become
+! 		   the names of the reencoded fonts.  This is set up
+! 		   in the "%%fonX" lines below.
+! 		
+! 		2. If any character translation form ascii to printer
+! 		   characters is needed, the translation is provided
+! 		   in "%%translate" lines below.
+! 		
+! 		3. The actual print characters to be selected are
+! 		   set up in the "languagevec".
+! 		
+! 		4. The "ENCODE" postscript code must be set up to
+! 		   perform the font reencoding.
+  	--------------------------------------------------------------
+  
+  	Set up new language font names. Fonts in psf are numbered
+  	as 0..9, a..z. The "%%fontX" numbers (where 'X' represents the
+  	font number used by psf) reflect the font to be updated or
+*** net/patchlevel.h	Sun Apr 19 13:33:27 1992
+--- patchlevel.h	Tue Jun  2 02:19:22 1992
+***************
+*** 1,8 ****
+! /* $Id: patchlevel.h,v 3.3 1992/02/07 15:07:04 ajf Exp ajf $
+   *
+   * $Log: patchlevel.h,v $
+   * Revision 3.3  1992/02/07  15:07:04  ajf
+   * patch 3:
+   *    1. add -e -E -M options for wrap and margins
+   *    2. -i -m are physical page offsets
+   *    3. fixup scaling with pointsize settings
+--- 1,22 ----
+! /* $Id: patchlevel.h,v 3.5 1992/06/02 08:15:01 ajf Exp ajf $
+   *
+   * $Log: patchlevel.h,v $
++  * Revision 3.5  1992/06/02  08:15:01  ajf
++  * Patch 5:
++  *    1. allow printing to a pipe (apple network printer??)
++  *    2. fix problem with first line loss if language file used
++  *
++  * Revision 3.4  1992/02/24  06:40:55  ajf
++  * Patch 4:
++  *    1. force paper tray selection (makefile + user option) added
++  *    2. ctl/d is compile time option
++  *    3. fix problems with def file generation
++  *    4. allow psf to read printer device for responses
++  *    5. paper usage logged to accounting file
++  *    6. new options -a -A -y -Y
++  *
+   * Revision 3.3  1992/02/07  15:07:04  ajf
+   * patch 3:
+   *    1. add -e -E -M options for wrap and margins
+   *    2. -i -m are physical page offsets
+   *    3. fixup scaling with pointsize settings
+***************
+*** 17,22 ****
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 3
+--- 31,36 ----
+   *    3. correct problem with psfbs and underscore order.
+   *    4. remove support for modified lpr/lpd
+   *
+  */
+  
+! #define PATCHLEVEL 5
+*** net/printcap.ETC	Sun Apr 19 13:32:03 1992
+--- printcap.ETC	Tue Jun  2 02:19:09 1992
+***************
+*** 35,39 ****
+--- 35,49 ----
+  	:lf=/usr/adm/lpd-errs:sh:if=LPDFILTERS/plegal
+  
+  sheet|large spreadsheets, legal paper:\
+  	:lp=/dev/lp:sd=/usr/spool/lpd/lp:sf:\
+  	:lf=/usr/adm/lpd-errs:sh:if=LPDFILTERS/pspread
++ 
++ # sample serial printer using Interactive Unix 3.2 lpr/lpd
++ # with printcaps "rw" for read/write on stdout and "af"
++ # for accounting information
++ 
++ # serial|standard serial postscript printer:\
++ #	:lp=/dev/cui1c:sd=/usr/spool/lpd/lp:sf:\
++ #	:tt=B19200+CS7+PARENB+IXON+IXOFF+CREAD+CLOCAL\
++ #	:af=/usr/adm/lpd-acct:sh:rw:\
++ #	:lf=/usr/adm/lpd-errs:sh:if=LPDFILTERS/serial
+*** net/psfbanner.c	Sun Apr 19 13:32:29 1992
+--- psfbanner.c	Tue Jun  2 02:18:48 1992
+***************
+*** 8,18 ****
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  
+  /*
+!  * $Id: psfbanner.c,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+   *
+  */
+  
+  #include <stdio.h>
+  #include <string.h>
+--- 8,18 ----
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  
+  /*
+!  * $Id: psfbanner.c,v 3.4 1992/02/24 06:48:59 ajf Exp ajf $
+   *
+  */
+  
+  #include <stdio.h>
+  #include <string.h>
+***************
+*** 213,223 ****
+  		switch (c)
+  		{
+  		case 'b':
+  			if ((set_paper_bin = atoi (argv[i+1])) > nslots)
+  			{	fprintf (stderr, "paper bin greater than %d\n", nslots);
+! 				exit (1);
+  			}
+  			i++;
+  			break;
+  
+  		case 'g':
+--- 213,223 ----
+  		switch (c)
+  		{
+  		case 'b':
+  			if ((set_paper_bin = atoi (argv[i+1])) > nslots)
+  			{	fprintf (stderr, "paper bin greater than %d\n", nslots);
+! 				exit (DISCARD_JOB);
+  			}
+  			i++;
+  			break;
+  
+  		case 'g':
+***************
+*** 228,238 ****
+  					break;
+  				}
+  			}
+  			if (page_types[set_paper_tray].paper_name[0] == '\0')
+  			{	fprintf (stderr, "Invalid paper size\n");
+! 				exit (1);
+  			}
+  			i++;
+  			break;
+  
+  		case 'u':			/* already processed */
+--- 228,238 ----
+  					break;
+  				}
+  			}
+  			if (page_types[set_paper_tray].paper_name[0] == '\0')
+  			{	fprintf (stderr, "Invalid paper size\n");
+! 				exit (DISCARD_JOB);
+  			}
+  			i++;
+  			break;
+  
+  		case 'u':			/* already processed */
+***************
+*** 343,353 ****
+  	sendnormal ("Machine:    ");
+  	sendbold (Machineid);
+  
+  	send ("showpage pg restore\n");
+  	send ("%%Trailer\n");	
+! 	exit (0);
+  }
+  
+  
+  /****************************************************************************
+  *	send font selection information and text.								*
+--- 343,353 ----
+  	sendnormal ("Machine:    ");
+  	sendbold (Machineid);
+  
+  	send ("showpage pg restore\n");
+  	send ("%%Trailer\n");	
+! 	exit (JOB_IS_DONE);
+  }
+  
+  
+  /****************************************************************************
+  *	send font selection information and text.								*
+***************
+*** 400,410 ****
+  ****************************************************************************/
+  
+  bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (1);
+  }
+  
+  /****************************************************************************
+  *	compare ()																*
+  *	partial compare of two strings.											*
+--- 400,410 ----
+  ****************************************************************************/
+  
+  bad_file()
+  {
+  	fprintf (stderr, "Bad %s file\n", defref);
+! 	exit (DISCARD_JOB);
+  }
+  
+  /****************************************************************************
+  *	compare ()																*
+  *	partial compare of two strings.											*
+***************
+*** 527,533 ****
+  	fprintf (stderr, "                   Machineid Title [-b n] [-g size] [-u f.def]\n");
+  	fprintf (stderr, "        where:   Userid, Name, etc are passed by lpsched\n");
+  	fprintf (stderr, "                 -b n    = select paper bin n\n");
+  	fprintf (stderr, "                 -g size = select paper size (letter, b5, etc)\n");
+  	fprintf (stderr, "                -u f.def = use this printer definition file\n");	
+! 	exit (1);
+  }		
+--- 527,533 ----
+  	fprintf (stderr, "                   Machineid Title [-b n] [-g size] [-u f.def]\n");
+  	fprintf (stderr, "        where:   Userid, Name, etc are passed by lpsched\n");
+  	fprintf (stderr, "                 -b n    = select paper bin n\n");
+  	fprintf (stderr, "                 -g size = select paper size (letter, b5, etc)\n");
+  	fprintf (stderr, "                -u f.def = use this printer definition file\n");	
+! 	exit (DISCARD_JOB);
+  }		
+*** net/psfbs.c	Sun Apr 19 13:32:22 1992
+--- psfbs.c	Tue Jun  2 02:18:46 1992
+***************
+*** 8,18 ****
+  *	for psf usage															*
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  /*
+!  * $Id: psfbs.c,v 3.2 1992/01/19 05:50:33 ajf Exp ajf $
+   *
+   */
+  
+  /*	For each line in of input text, scan for backspaces.  Determine if
+  	the operation is an underline (i.e. the preceeding character is
+--- 8,18 ----
+  *	for psf usage															*
+  *																			*
+  *	Tony Field.       tony@ajfcal.cuc.ab.ca									*
+  ****************************************************************************/
+  /*
+!  * $Id: psfbs.c,v 3.4 1992/02/24 06:48:59 ajf Exp ajf $
+   *
+   */
+  
+  /*	For each line in of input text, scan for backspaces.  Determine if
+  	the operation is an underline (i.e. the preceeding character is
+***************
+*** 64,74 ****
+  	outfp = stdout;
+  	pgmname = argv[0];
+  	underline_on  = BEGIN_UNDERLINE;
+  	underline_off = END_UNDERLINE;
+  
+! 	if (strcmp (argv[1], "-") == 0)
+  		usage();
+  	while ((c = getopt(argc, argv, "ifr:l:-")) != -1)
+  	{	switch (c)
+  		{
+  		case 'i':
+--- 64,74 ----
+  	outfp = stdout;
+  	pgmname = argv[0];
+  	underline_on  = BEGIN_UNDERLINE;
+  	underline_off = END_UNDERLINE;
+  
+! 	if (argc > 1  &&  strcmp (argv[1], "-") == 0)
+  		usage();
+  	while ((c = getopt(argc, argv, "ifr:l:-")) != -1)
+  	{	switch (c)
+  		{
+  		case 'i':
+
+exit 0 # Just in case...

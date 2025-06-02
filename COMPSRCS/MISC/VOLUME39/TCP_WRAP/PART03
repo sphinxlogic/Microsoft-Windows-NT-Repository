@@ -1,0 +1,2106 @@
+Newsgroups: comp.sources.misc
+From: wietse@wzv.win.tue.nl (Wietse Venema)
+Subject: v39i112:  tcp_wrappers - TCP/IP daemon wrappers, v6.0, Part03/04
+Message-ID: <1993Sep29.215945.26356@sparky.sterling.com>
+X-Md4-Signature: 51d73d0d1f75a978181c2636f38a9909
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Eindhoven University of Technology, The Netherlands
+Date: Wed, 29 Sep 1993 21:59:45 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: wietse@wzv.win.tue.nl (Wietse Venema)
+Posting-number: Volume 39, Issue 112
+Archive-name: tcp_wrappers/part03
+Environment: UNIX, INET
+Supersedes: log_tcp: Volume 36, Issue 4-6
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 4)."
+# Contents:  init_client.c log_tcp.h miscd.c options.c options.h
+#   percent_x.c refuse.c rfc931.c safe_finger.c setenv.c shell_cmd.c
+#   socket.c try-from.c
+# Wrapped by wietse@wzv on Wed Sep 29 18:45:47 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f init_client.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"init_client.c\"
+else
+echo shar: Extracting \"init_client.c\" \(796 characters\)
+sed "s/^X//" >init_client.c <<'END_OF_init_client.c'
+X /*
+X  * init_client(struct client_info *) initializes its client argument to
+X  * suitable default values. All members are initialized to zeros, except
+X  * for: hostname and address (which become "unknown"), and the remote
+X  * username (which becomes a zero-length string).
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) init_client.c 1.1 93/09/24 19:49:01";
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* init_client - initialize client info to suitable default values */
+X
+Xvoid    init_client(client)
+Xstruct client_info *client;
+X{
+X    static struct client_info default_info = {
+X	FROM_UNKNOWN,
+X	FROM_UNKNOWN,
+X	"",
+X    };
+X
+X    *client = default_info;
+X}
+END_OF_init_client.c
+if test 796 -ne `wc -c <init_client.c`; then
+    echo shar: \"init_client.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f log_tcp.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"log_tcp.h\"
+else
+echo shar: Extracting \"log_tcp.h\" \(2541 characters\)
+sed "s/^X//" >log_tcp.h <<'END_OF_log_tcp.h'
+X/* @(#) log_tcp.h 1.10 93/09/27 18:59:13 */
+X
+X/* Structure filled in by the fromhost() routine. */
+X
+Xstruct client_info {
+X    char   *name;			/* host name */
+X    char   *addr;			/* host address */
+X    char   *user;			/* user name ("" if not looked up) */
+X    int     fd;				/* socket handle */
+X    struct sockaddr_in *rmt_sin;	/* their side of the link */
+X    struct sockaddr_in *our_sin;	/* our side of the link */
+X    void  (*sink)();			/* datagram sink function */
+X};
+X
+X#define from_host client_info		/* backwards compatibility */
+X
+X#define FROM_UNKNOWN	"unknown"	/* name or address lookup failed */
+X#define FROM_HOST(f) \
+X    (((f)->name[0] && strcmp((f)->name, FROM_UNKNOWN)) ? (f)->name : \
+X	(f)->addr[0] ? (f)->addr : FROM_UNKNOWN)
+X
+X/* The following are to be used in assignment context, not in comparisons. */
+X
+X#define FROM_GOOD	1		/* AIX pre-empts GOOD */
+X#define FROM_BAD	0		/* AIX pre-empts BAD */
+X
+X/* Global functions. */
+X
+X#ifndef TLI
+X#define fromhost sock_host
+X#endif
+X
+Xextern int fromhost();			/* get/validate remote host info */
+Xextern int hosts_access();		/* access control */
+Xextern void refuse();			/* refuse request */
+Xextern void shell_cmd();		/* execute shell command */
+Xextern void percent_x();		/* do %<char> expansion */
+Xextern char *rfc931();			/* remote name from RFC 931 daemon */
+Xextern char *hosts_info();		/* show origin of connection */
+Xextern void clean_exit();		/* clean up and exit */
+Xextern void init_client();		/* init a client_info structure */
+X
+X#define RFC931_POSSIBLE(f) ((f)->sink == 0 && (f)->rmt_sin && (f)->our_sin)
+X
+X/* Global variables. */
+X
+Xextern int allow_severity;		/* for connection logging */
+Xextern int deny_severity;		/* for connection logging */
+Xextern char *hosts_allow_table;		/* for verification mode redirection */
+Xextern char *hosts_deny_table;		/* for verification mode redirection */
+Xextern char *hosts_access_file;		/* for diagnostics */
+Xextern int hosts_access_line;		/* for diagnostics */
+X
+X/* Bug workarounds. */
+X
+X#ifdef INET_ADDR_BUG			/* inet_addr() returns struct */
+X#define inet_addr fix_inet_addr
+Xextern long fix_inet_addr();
+X#endif 	/* INET_ADDR_BUG */
+X
+X#ifdef BROKEN_FGETS			/* partial reads from sockets */
+X#define fgets fix_fgets
+Xextern char *fix_fgets();
+X#endif 	/* BROKEN_FGETS */
+X
+X#ifdef RECVFROM_BUG			/* no address family info */
+X#define recvfrom fix_recvfrom
+Xextern int fix_recvfrom();
+X#endif 	/* RECVFROM_BUG */
+X
+X#ifdef GETPEERNAME_BUG			/* claims success with UDP */
+X#define getpeername     fix_getpeername
+Xextern int fix_getpeername();
+X#endif 	/* GETPEERNAME_BUG */
+END_OF_log_tcp.h
+if test 2541 -ne `wc -c <log_tcp.h`; then
+    echo shar: \"log_tcp.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f miscd.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"miscd.c\"
+else
+echo shar: Extracting \"miscd.c\" \(2715 characters\)
+sed "s/^X//" >miscd.c <<'END_OF_miscd.c'
+X /*
+X  * Front end to the ULTRIX miscd service. The front end logs the remote host
+X  * name and then invokes the real miscd daemon. Install as "/usr/etc/miscd",
+X  * after renaming the real miscd daemon to the name defined with the
+X  * REAL_MISCD macro.
+X  * 
+X  * Connections and diagnostics are logged through syslog(3).
+X  * 
+X  * The Ultrix miscd program implements (among others) the systat service, which
+X  * pipes the output from who(1) to stdout. This information is potentially
+X  * useful to systems crackers.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) miscd.c 1.8 93/09/27 18:59:15";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/stat.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+X/* Local stuff. */
+X
+X#include "patchlevel.h"
+X#include "log_tcp.h"
+X
+Xint     allow_severity = SEVERITY;	/* run-time adjustable */
+Xint     deny_severity = LOG_WARNING;	/* ditto */
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct client_info client;
+X    int     from_stat;
+X
+X    /* Attempt to prevent the creation of world-writable files. */
+X
+X#ifdef DAEMON_UMASK
+X    umask(DAEMON_UMASK);
+X#endif
+X
+X    /*
+X     * Open a channel to the syslog daemon. Older versions of openlog()
+X     * require only two arguments.
+X     */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    (void) openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * Find out and verify the remote host name. Sites concerned with
+X     * security may choose to refuse connections from hosts that pretend to
+X     * have someone elses host name.
+X     */
+X
+X    from_stat = fromhost(&client);
+X#ifdef PARANOID
+X    if (from_stat == -1)
+X	refuse(&client);
+X#endif
+X
+X    /*
+X     * The BSD rlogin and rsh daemons that came out after 4.3 BSD disallow
+X     * socket options at the IP level. They do so for a good reason.
+X     * Unfortunately, we cannot use this with SunOS 4.1.x because the
+X     * getsockopt() system call can panic the system.
+X     */
+X
+X#ifdef KILL_IP_OPTIONS
+X    fix_options(&client);
+X#endif
+X
+X    /*
+X     * Check whether this host can access the service in argv[0]. The
+X     * access-control code invokes optional shell commands as specified in
+X     * the access-control tables.
+X     */
+X
+X#ifdef HOSTS_ACCESS
+X    if (!hosts_access(argv[0], &client))
+X	refuse(&client);
+X#endif
+X
+X    /* Report remote client and invoke the real daemon program. */
+X
+X    syslog(allow_severity, "connect from %s", hosts_info(&client));
+X    (void) execv(REAL_MISCD, argv);
+X    syslog(LOG_ERR, "error: cannot execute %s: %m", REAL_MISCD);
+X    clean_exit(&client);
+X    /* NOTREACHED */
+X}
+END_OF_miscd.c
+if test 2715 -ne `wc -c <miscd.c`; then
+    echo shar: \"miscd.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f options.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"options.c\"
+else
+echo shar: Extracting \"options.c\" \(17019 characters\)
+sed "s/^X//" >options.c <<'END_OF_options.c'
+X /*
+X  * General skeleton for adding options to the access control language. The
+X  * features offered by this module are documented in the hosts_options(5)
+X  * manual page (source file: hosts_options.5, "nroff -man" format).
+X  * 
+X  * Notes and warnings for those who want to add features:
+X  * 
+X  * In case of errors, abort options processing and deny access. There are too
+X  * many irreversible side effects to make error recovery feasible. For example,
+X  * it makes no sense to continue after we have already changed the userid.
+X  * 
+X  * In case of errors, do not terminate the process: the routines might be
+X  * called from a long-running daemon that should run forever.
+X  * 
+X  * In case of fatal errors, use clean_exit() instead of directly calling
+X  * exit(), or the inetd may loop on an UDP request.
+X  * 
+X  * In verification mode (for example, with the "try" command) the "dry_run"
+X  * flag is set. In this mode, an option function should just "say" what it
+X  * is going to do instead of really doing it.
+X  * 
+X  * Some option functions do not return (for example, the twist option passes
+X  * control to another program). In verification mode (dry_run flag is set)
+X  * such options should clear the "dry_run" flag to inform the caller of this
+X  * course of action.
+X  */
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/stat.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <pwd.h>
+X#include <grp.h>
+X#include <ctype.h>
+X#include <setjmp.h>
+X
+Xextern char *strchr();
+Xextern void closelog();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X#include "options.h"
+X
+Xint     dry_run = 0;			/* flag set in verification mode */
+Xjmp_buf options_buf;			/* quick way back to hosts_access() */
+X
+X/* List of functions that implement the options. Add yours here. */
+X
+Xstatic void user_option();		/* execute "user=name" option */
+Xstatic void group_option();		/* execute "group=name" option */
+Xstatic void umask_option();		/* execute "umask=mask" option */
+Xstatic void linger_option();		/* execute "linger=time" option */
+Xstatic void spawn_option();		/* execute "spawn=command" option */
+Xstatic void twist_option();		/* execute "twist=command" option */
+Xstatic void rfc931_option();		/* execute "rfc931" option */
+Xstatic void setenv_option();		/* execute "setenv=name value" */
+Xstatic void severity_option();		/* execute "severity=value" */
+Xstatic void allow_option();		/* execute "allow" option */
+Xstatic void deny_option();		/* execute "deny" option */
+X
+Xstatic char *get_field();		/* chew :-delimited field off string */
+Xstatic char *chop_string();		/* strip leading and trailing blanks */
+X
+X/* Structure of the options table. */
+X
+Xstruct option {
+X    char   *name;			/* keyword name, case is ignored */
+X    void  (*func) ();			/* function that does the real work */
+X    int     flags;			/* see below... */
+X};
+X
+X#define NEED_ARG	(1<<1)		/* option requires argument */
+X#define USE_LAST	(1<<2)		/* option must be last */
+X
+X#define need_arg(o)	((o)->flags & NEED_ARG)
+X#define use_last(o)	((o)->flags & USE_LAST)
+X
+X/* List of known keywords. Add yours here. */
+X
+Xstatic struct option option_table[] = {
+X    "user", user_option, NEED_ARG,	/* switch user id */
+X    "group", group_option, NEED_ARG,	/* switch group id */
+X    "umask", umask_option, NEED_ARG,	/* change umask */
+X    "linger", linger_option, NEED_ARG,	/* change socket linger time */
+X    "spawn", spawn_option, NEED_ARG,	/* spawn shell command */
+X    "twist", twist_option, NEED_ARG | USE_LAST,	/* replace current process */
+X    "rfc931", rfc931_option, 0,		/* do RFC 931 lookup */
+X    "setenv", setenv_option, NEED_ARG,	/* update environment */
+X    "severity", severity_option, NEED_ARG,	/* adjust logging level */
+X    "allow", allow_option, USE_LAST,	/* grant access */
+X    "deny", deny_option, USE_LAST,	/* deny access */
+X    0,
+X};
+X
+Xstatic char whitespace[] = " \t\r\n";
+X
+X/* process_options - process access control options */
+X
+Xvoid    process_options(options, daemon, client)
+Xchar   *options;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char   *key;
+X    char   *value;
+X    char   *curr_opt;
+X    char   *next_opt;
+X    struct option *op;
+X
+X    /*
+X     * Light-weight parser. Being easy to comprehend is more important than
+X     * being smart.
+X     */
+X
+X    for (curr_opt = get_field(options); curr_opt; curr_opt = next_opt) {
+X	next_opt = get_field((char *) 0);
+X
+X	/*
+X	 * Separate the option into name and value parts.
+X	 */
+X
+X	if (value = strchr(curr_opt, '=')) {	/* name=value */
+X	    *value++ = 0;
+X	    value = chop_string(value);		/* strip blanks around value */
+X	    if (*value == 0)
+X		value = 0;			/* no value left */
+X	}
+X	key = chop_string(curr_opt);		/* strip blanks around key */
+X
+X	/*
+X	 * Disallow missing option names (and empty option fields).
+X	 */
+X
+X	if (*key == 0) {
+X	    syslog(LOG_ERR, "error: %s, line %d: missing option name",
+X		   hosts_access_file, hosts_access_line);
+X	    longjmp(options_buf, OPT_DENY);
+X	}
+X
+X	/*
+X	 * Lookup the option-specific info and do some common error checks.
+X	 * Delegate option-specific processing to the specific fuctions.
+X	 */
+X
+X	for (op = option_table; op->name; op++)	/* find keyword */
+X	    if (strcasecmp(op->name, key) == 0)
+X		break;
+X	if (op->name == 0) {
+X	    syslog(LOG_ERR, "error: %s, line %d: bad option name or syntax: \"%s\"",
+X		   hosts_access_file, hosts_access_line, key);
+X	    longjmp(options_buf, OPT_DENY);
+X	} else if (!value && need_arg(op)) {
+X	    syslog(LOG_ERR, "error: %s, line %d: option \"%s\" requires value",
+X		   hosts_access_file, hosts_access_line, key);
+X	    longjmp(options_buf, OPT_DENY);
+X	} else if (value && !need_arg(op)) {
+X	    syslog(LOG_ERR, "error: %s, line %d: option \"%s\" cannot have value",
+X		   hosts_access_file, hosts_access_line, key);
+X	    longjmp(options_buf, OPT_DENY);
+X	} else if (next_opt && use_last(op)) {
+X	    syslog(LOG_ERR, "error: %s, line %d: option \"%s\" must be last option",
+X		   hosts_access_file, hosts_access_line, key);
+X	    longjmp(options_buf, OPT_DENY);
+X	} else {
+X	    (*(op->func)) (value, daemon, client);
+X	}
+X    }
+X}
+X
+X/* allow_option - grant access */
+X
+X/* ARGSUSED */
+X
+Xstatic void allow_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    if (dry_run)
+X	syslog(LOG_DEBUG, "option: allow");
+X    longjmp(options_buf, OPT_ALLOW);
+X}
+X
+X/* deny_option - deny access */
+X
+X/* ARGSUSED */
+X
+Xstatic void deny_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    if (dry_run)
+X	syslog(LOG_DEBUG, "option: deny");
+X    longjmp(options_buf, OPT_DENY);
+X}
+X
+X/* user_option - switch user id */
+X
+X/* ARGSUSED */
+X
+Xstatic void user_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    struct passwd *pwd;
+X    struct passwd *getpwnam();
+X
+X    if ((pwd = getpwnam(value)) == 0) {
+X	syslog(LOG_ERR, "error: %s, line %d: unknown user: \"%s\"",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X    endpwent();
+X
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: user = %s", value);
+X	return;
+X    }
+X    if (setuid(pwd->pw_uid)) {
+X	syslog(LOG_ERR, "error: %s, line %d: setuid(%s): %m",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X}
+X
+X/* group_option - switch group id */
+X
+X/* ARGSUSED */
+X
+Xstatic void group_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    struct group *grp;
+X    struct group *getgrnam();
+X
+X    if ((grp = getgrnam(value)) == 0) {
+X	syslog(LOG_ERR, "error: %s, line %d: unknown group: \"%s\"",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X    endgrent();
+X
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: group = %s", value);
+X	return;
+X    }
+X    if (setgid(grp->gr_gid)) {
+X	syslog(LOG_ERR, "error: %s, line %d: setgid(%s): %m",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X}
+X
+X/* umask_option - set file creation mask */
+X
+X/* ARGSUSED */
+X
+Xstatic void umask_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    unsigned mask;
+X    char    junk;
+X
+X    if (sscanf(value, "%o%c", &mask, &junk) != 1 || (mask & 0777) != mask) {
+X	syslog(LOG_ERR, "error: %s, line %d: bad umask value: \"%s\"",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: umask = %o", mask);
+X	return;
+X    }
+X    (void) umask(mask);
+X}
+X
+X/* spawn_option - spawn a shell command and wait */
+X
+Xstatic void spawn_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X
+X    if (dry_run) {
+X	percent_x(buf, sizeof(buf), value, daemon, client, pid);
+X	syslog(LOG_DEBUG, "option: spawn = %s", buf);
+X	return;
+X    }
+X    shell_cmd(value, daemon, client);
+X}
+X
+X/* linger_option - set the socket linger time (Marc Boucher <marc@cam.org>) */
+X
+X/* ARGSUSED */
+X
+Xstatic void linger_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X#if defined(SO_LINGER) && !defined(BROKEN_SO_LINGER)	/* broken linux */
+X    struct linger linger;
+X    char    junk;
+X
+X    if (sscanf(value, "%d%c", &linger.l_linger, &junk) != 1
+X	|| linger.l_linger < 0) {
+X	syslog(LOG_ERR, "error: %s, line %d: bad linger value: \"%s\"",
+X	       hosts_access_file, hosts_access_line, value);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: linger = %d", linger.l_linger);
+X	return;
+X    }
+X    linger.l_onoff = (linger.l_linger != 0);
+X    if (setsockopt(0, SOL_SOCKET, SO_LINGER, (char *) &linger, sizeof(linger))
+X	< 0) {
+X	syslog(LOG_ERR, "error: %s, line %d: setsockopt SO_LINGER %d: %m",
+X	       hosts_access_file, hosts_access_line, linger.l_linger);
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X#else
+X    syslog(LOG_ERR, "error: %s, line %d: SO_LINGER not supported",
+X	   hosts_access_file, hosts_access_line);
+X    longjmp(options_buf, OPT_DENY);
+X#endif
+X}
+X
+X/* twist_option - replace process by shell command */
+X
+Xstatic void twist_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char    buf[BUFSIZ];
+X    int     pid = getpid();
+X    char   *error;
+X
+X    percent_x(buf, sizeof(buf), value, daemon, client, pid);
+X
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: twist = %s", buf);
+X	dry_run = 0;
+X	return;
+X    }
+X    syslog(deny_severity, "twist %s to %s", hosts_info(client), buf);
+X    closelog();
+X
+X    /*
+X     * Before switching to the shell, set up stdout and stderr in case the
+X     * Ultrix inetd didn't.
+X     */
+X
+X    (void) close(1);
+X    (void) close(2);
+X    if (dup(0) != 1 || dup(0) != 2) {
+X	error = "twist_option: dup: %m";
+X    } else {
+X	(void) execl("/bin/sh", "sh", "-c", buf, (char *) 0);
+X	error = "twist_option: /bin/sh: %m";
+X    }
+X
+X    /* Can get here only in case of errors. */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(daemon, LOG_PID, FACILITY);
+X#else
+X    (void) openlog(daemon, LOG_PID);
+X#endif
+X    syslog(LOG_ERR, error);
+X
+X    /* We MUST terminate the process. */
+X
+X    clean_exit(client);
+X}
+X
+X/* rfc931_option - look up remote user name */
+X
+X/* ARGSUSED */
+X
+Xstatic void rfc931_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: rfc931");
+X	return;
+X    }
+X    if (client->user[0] == 0 && RFC931_POSSIBLE(client))
+X	client->user = rfc931(client->rmt_sin, client->our_sin);
+X}
+X
+X/* setenv_option - set environment variable */
+X
+X/* ARGSUSED */
+X
+Xstatic void setenv_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char   *var_name;
+X    char   *var_value;
+X    char    buf[BUFSIZ];
+X    int     pid;
+X
+X    /*
+X     * Separate the argument into a name and value part.
+X     */
+X
+X    var_value = value + strcspn(value, whitespace);
+X
+X    if (*var_value == 0) {			/* just a name, that's all */
+X	var_name = value;
+X    } else {					/* expand %stuff in value */
+X	*var_value++ = 0;
+X	var_name = chop_string(value);
+X	pid = getpid();
+X	percent_x(buf, sizeof(buf), var_value, daemon, client, pid);
+X	var_value = chop_string(buf);
+X    }
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: setenv = %s %s", var_name, var_value);
+X	return;
+X    }
+X    if (setenv(var_name, var_value, 1)) {
+X	syslog(LOG_ERR, "setenv_option: memory allocation failure");
+X	longjmp(options_buf, OPT_DENY);
+X    }
+X}
+X
+X/* get_field - return pointer to next field in string */
+X
+Xstatic char *get_field(string)
+Xchar   *string;
+X{
+X    static char *last = "";
+X    char   *src;
+X    char   *dst;
+X    char   *ret;
+X
+X    /*
+X     * This function returns pointers to successive fields within a given
+X     * string. ":" is the field separator; warn if the rule ends in one. It
+X     * replaces a "\:" sequence by ":", without treating the result of
+X     * substitution as field terminator. A null argument means resume search
+X     * where the previous call terminated. This function destroys its
+X     * argument.
+X     */
+X
+X    /*
+X     * Work from explicit source or from memory.
+X     */
+X
+X    if (string == 0)
+X	string = last;
+X    if (string[0] == 0)
+X	return (0);
+X
+X    /*
+X     * While processing \: we overwrite the input. This way we do not have to
+X     * maintain buffers for copies of input fields.
+X     */
+X
+X    src = dst = ret = string;
+X
+X    for (;;) {
+X	switch (*src) {
+X	case '\\':				/* handle escape */
+X	    switch (src[1]) {
+X	    case ':':				/* convert \: to : */
+X		src++;
+X		/* FALLTHROUGH */
+X	    case '\0':				/* don't run off end */
+X		*dst++ = *src++;
+X		break;
+X	    default:				/* copy \other verbatim */
+X		*dst++ = *src++, *dst++ = *src++;
+X		break;
+X	    }
+X	    break;
+X	case ':':				/* field separator */
+X	    src++;
+X	    if (*src == 0)
+X		syslog(LOG_WARNING, "warning: %s, line %d: rule ends in \":\"",
+X		       hosts_access_file, hosts_access_line);
+X	    /* FALLTHROUGH */
+X	case '\0':				/* end of string */
+X	    last = src;
+X	    *dst = 0;
+X	    return (ret);
+X	default:				/* anything else */
+X	    *dst++ = *src++;
+X	    break;
+X	}
+X    }
+X}
+X
+X/* chop_string - strip leading and trailing blanks from string */
+X
+Xstatic char *chop_string(start)
+Xregister char *start;
+X{
+X    register char *end;
+X
+X    while (*start && isspace(*start))
+X	start++;
+X
+X    for (end = start + strlen(start); end > start && isspace(end[-1]); end--)
+X	 /* void */ ;
+X    *end = 0;
+X
+X    return (start);
+X}
+X
+X /*
+X  * The severity option goes last because it comes with a huge amount of ugly
+X  * #ifdefs and tables.
+X  */
+X
+Xstruct syslog_names {
+X    char   *name;
+X    int     value;
+X};
+X
+Xstatic struct syslog_names log_facilities[] = {
+X#ifdef LOG_KERN
+X    "kern", LOG_KERN,
+X#endif
+X#ifdef LOG_USER
+X    "user", LOG_USER,
+X#endif
+X#ifdef LOG_MAIL
+X    "mail", LOG_MAIL,
+X#endif
+X#ifdef LOG_DAEMON
+X    "daemon", LOG_DAEMON,
+X#endif
+X#ifdef LOG_AUTH
+X    "auth", LOG_AUTH,
+X#endif
+X#ifdef LOG_LPR
+X    "lpr", LOG_LPR,
+X#endif
+X#ifdef LOG_NEWS
+X    "news", LOG_NEWS,
+X#endif
+X#ifdef LOG_UUCP
+X    "uucp", LOG_UUCP,
+X#endif
+X#ifdef LOG_CRON
+X    "cron", LOG_CRON,
+X#endif
+X#ifdef LOG_LOCAL0
+X    "local0", LOG_LOCAL0,
+X#endif
+X#ifdef LOG_LOCAL1
+X    "local1", LOG_LOCAL1,
+X#endif
+X#ifdef LOG_LOCAL2
+X    "local2", LOG_LOCAL2,
+X#endif
+X#ifdef LOG_LOCAL3
+X    "local3", LOG_LOCAL3,
+X#endif
+X#ifdef LOG_LOCAL4
+X    "local4", LOG_LOCAL4,
+X#endif
+X#ifdef LOG_LOCAL5
+X    "local5", LOG_LOCAL5,
+X#endif
+X#ifdef LOG_LOCAL6
+X    "local6", LOG_LOCAL6,
+X#endif
+X#ifdef LOG_LOCAL7
+X    "local7", LOG_LOCAL7,
+X#endif
+X    0,
+X};
+X
+Xstatic struct syslog_names log_severities[] = {
+X#ifdef LOG_EMERG
+X    "emerg", LOG_EMERG,
+X#endif
+X#ifdef LOG_ALERT
+X    "alert", LOG_ALERT,
+X#endif
+X#ifdef LOG_CRIT
+X    "crit", LOG_CRIT,
+X#endif
+X#ifdef LOG_ERR
+X    "err", LOG_ERR,
+X#endif
+X#ifdef LOG_WARNING
+X    "warning", LOG_WARNING,
+X#endif
+X#ifdef LOG_NOTICE
+X    "notice", LOG_NOTICE,
+X#endif
+X#ifdef LOG_INFO
+X    "info", LOG_INFO,
+X#endif
+X#ifdef LOG_DEBUG
+X    "debug", LOG_DEBUG,
+X#endif
+X    0,
+X};
+X
+X/* severity_map - lookup facility or severity value */
+X
+Xstatic int severity_map(table, name)
+Xstruct syslog_names *table;
+Xchar   *name;
+X{
+X    struct syslog_names *t;
+X
+X    for (t = table; t->name; t++) {
+X	if (strcasecmp(t->name, name) == 0)
+X	    return (t->value);
+X    }
+X    syslog(LOG_ERR,
+X	   "error: %s, line %d: bad syslog facility or severity: \"%s\"",
+X	   hosts_access_file, hosts_access_line, name);
+X    longjmp(options_buf, OPT_DENY);
+X    /* NOTREACHED */
+X}
+X
+X/* severity_option - change logging severity for this event (Dave Mitchell) */
+X
+X/* ARGSUSED */
+X
+Xstatic void severity_option(value, daemon, client)
+Xchar   *value;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    int     new_severity;
+X    char   *dot;
+X
+X    if (dot = strchr(value, '.')) {		/* facility.level */
+X	*dot = 0;
+X	new_severity = severity_map(log_facilities, chop_string(value))
+X	    | severity_map(log_severities, chop_string(dot + 1));
+X	*dot = '.';
+X    } else {					/* no facility, just level */
+X	new_severity = severity_map(log_severities, chop_string(value));
+X    }
+X    if (dry_run) {
+X	syslog(LOG_DEBUG, "option: severity = %s", value);
+X	return;
+X    }
+X    allow_severity = deny_severity = new_severity;
+X}
+END_OF_options.c
+if test 17019 -ne `wc -c <options.c`; then
+    echo shar: \"options.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f options.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"options.h\"
+else
+echo shar: Extracting \"options.h\" \(812 characters\)
+sed "s/^X//" >options.h <<'END_OF_options.h'
+X/* @(#) options.h 1.1 93/08/26 23:49:36 */
+X
+X /*
+X  * Unusual returns from the options module are done by jumping back into the
+X  * hosts_access() routine. This is cleaner than checking te return value of
+X  * each and every silly little function.
+X  */
+X
+Xextern jmp_buf options_buf;
+X
+X /*
+X  * In verification mode an option function should just say what it would do,
+X  * instead of really doing it. An option function that would not return
+X  * should clear the dry_run flag to inform the caller of this unusual
+X  * behavior.
+X  */
+X
+Xextern int dry_run;
+X
+X /*
+X  * Information that is passed on when jumping back into hosts_access(). The
+X  * value 0 cannot be used because it is already taken by setjmp().
+X  */
+X
+X#define	OPT_ALLOW	2		/* grant access */
+X#define	OPT_DENY	3		/* deny access */
+X
+Xextern void process_options();
+END_OF_options.h
+if test 812 -ne `wc -c <options.h`; then
+    echo shar: \"options.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f percent_x.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"percent_x.c\"
+else
+echo shar: Extracting \"percent_x.c\" \(2605 characters\)
+sed "s/^X//" >percent_x.c <<'END_OF_percent_x.c'
+X /*
+X  * percent_x() takes a string and performs %a (host address), %c (client
+X  * info), %h (host name or address), %d (daemon name), %p (process id) and
+X  * %u (user name) substitutions. It aborts the program when the result of
+X  * expansion would overflow the output buffer. Because the result of %<char>
+X  * expansion is typically passed on to a shell process, characters that may
+X  * confuse the shell are replaced by underscores.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) percent_x.c 1.3 93/09/11 20:45:38";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strncpy();
+Xextern char *strchr();
+Xextern void exit();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* percent_x - do %<char> expansion, abort if result buffer is too small */
+X
+Xvoid    percent_x(result, result_len, str, daemon, client, pid)
+Xchar   *result;
+Xint     result_len;
+Xchar   *str;
+Xchar   *daemon;
+Xstruct client_info *client;
+Xint     pid;
+X{
+X    char   *end = result + result_len - 1;	/* end of result buffer */
+X    char   *expansion;
+X    int     expansion_len;
+X    char    pid_buf[10];
+X    static char ok_chars[] = "1234567890!@%-_=+\\:,./\
+Xabcdefghijklmnopqrstuvwxyz\
+XABCDEFGHIJKLMNOPQRSTUVWXYZ";
+X    char   *cp;
+X
+X    /*
+X     * %a becomes the client address; %c all user and host information we
+X     * have about the client; %d the daemon process name; %h the client host
+X     * name or address; %p the daemon process id; %u the remote user name; %%
+X     * becomes a %, and %other is ignored. We terminate with a diagnostic if
+X     * we would overflow the result buffer. Characters that may confuse the
+X     * shell are mapped to underscores.
+X     */
+X
+X    while (*str) {
+X	if (*str == '%') {
+X	    str++;
+X	    expansion =
+X		*str == 'a' ? (str++, client->addr) :
+X		*str == 'c' ? (str++, hosts_info(client)) :
+X		*str == 'd' ? (str++, daemon) :
+X		*str == 'h' ? (str++, FROM_HOST(client)) :
+X		*str == 'p' ? (str++, sprintf(pid_buf, "%d", pid), pid_buf) :
+X		*str == 'u' ? (str++, client->user) :
+X		*str == '%' ? (str++, "%") :
+X		*str == 0 ? "" : (str++, "");
+X	    expansion_len = strlen(expansion);
+X	    for (cp = expansion; *cp; cp++)
+X		if (strchr(ok_chars, *cp) == 0)
+X		    *cp = '_';
+X	} else {
+X	    expansion = str++;
+X	    expansion_len = 1;
+X	}
+X	if (result + expansion_len >= end) {
+X	    syslog(LOG_ERR, "shell command too long: %30s...", result);
+X	    exit(0);
+X	}
+X	strncpy(result, expansion, expansion_len);
+X	result += expansion_len;
+X    }
+X    *result = 0;
+X}
+END_OF_percent_x.c
+if test 2605 -ne `wc -c <percent_x.c`; then
+    echo shar: \"percent_x.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f refuse.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"refuse.c\"
+else
+echo shar: Extracting \"refuse.c\" \(741 characters\)
+sed "s/^X//" >refuse.c <<'END_OF_refuse.c'
+X /*
+X  * refuse() reports a refused connection, and takes the consequences: in
+X  * case of a datagram-oriented service, the unread datagram is taken from
+X  * the input queue (or inetd would see the same datagram again and again);
+X  * the program is terminated.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) refuse.c 1.4 93/09/11 20:45:19";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <syslog.h>
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* refuse - refuse request from bad host */
+X
+Xvoid    refuse(client)
+Xstruct client_info *client;
+X{
+X    syslog(deny_severity, "refused connect from %s", hosts_info(client));
+X    clean_exit(client);
+X    /* NOTREACHED */
+X}
+END_OF_refuse.c
+if test 741 -ne `wc -c <refuse.c`; then
+    echo shar: \"refuse.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f rfc931.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"rfc931.c\"
+else
+echo shar: Extracting \"rfc931.c\" \(5595 characters\)
+sed "s/^X//" >rfc931.c <<'END_OF_rfc931.c'
+X /*
+X  * rfc931() speaks a common subset of the RFC 931, AUTH, TAP and IDENT
+X  * protocols. The code queries an RFC 931 etc. compatible daemon on a remote
+X  * host to look up the owner of a connection. The information should not be
+X  * used for authentication purposes. This routine intercepts alarm signals.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) rfc931.c 1.7 93/09/11 20:45:30";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X
+Xextern char *strchr();
+Xextern char *inet_ntoa();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X#define	RFC931_PORT	113		/* Semi-well-known port */
+X#define	ANY_PORT	0		/* Any old port will do */
+X
+Xstatic jmp_buf timebuf;
+X
+Xtypedef struct {
+X    FILE   *ifp;
+X    FILE   *ofp;
+X} FILE_PAIR;
+X
+X/* fdup - duplicate a stdio stream */
+X
+Xstatic FILE *fdup(stream, mode)
+XFILE   *stream;
+Xchar   *mode;
+X{
+X    int     fd;
+X    FILE   *fp = 0;
+X
+X    if ((fd = dup(fileno(stream))) < 0) {
+X	syslog(LOG_ERR, "dup: %m");
+X    } else if ((fp = fdopen(fd, mode)) == 0) {
+X	syslog(LOG_ERR, "fdopen: %m");
+X	close(fd);
+X    }
+X    return (fp);
+X}
+X
+X/* fsocket - open stdio stream on top of socket */
+X
+Xstatic FILE *fsocket(domain, type, protocol, mode)
+Xint     domain;
+Xint     type;
+Xint     protocol;
+Xchar   *mode;
+X{
+X    int     s;
+X    FILE   *fp = 0;
+X
+X    if ((s = socket(domain, type, protocol)) < 0) {
+X	syslog(LOG_ERR, "socket: %m");
+X    } else if ((fp = fdopen(s, mode)) == 0) {
+X	syslog(LOG_ERR, "fdopen: %m");
+X	close(s);
+X    }
+X    return (fp);
+X}
+X
+X/* ffsocket - open stdio stream pair on top of socket */
+X
+Xstatic FILE_PAIR *ffsocket(domain, type, protocol)
+Xint     domain;
+Xint     type;
+Xint     protocol;
+X{
+X    static FILE_PAIR ffp;
+X
+X    if ((ffp.ifp = fsocket(domain, type, protocol, "r")) != 0) {
+X	if ((ffp.ofp = fdup(ffp.ifp, "w")) != 0)
+X	    return (&ffp);
+X	fclose(ffp.ifp);
+X    }
+X    return (0);
+X}
+X
+X/* ffclose - close stdio stream pair */
+X
+Xstatic int ffclose(ffp)
+XFILE_PAIR *ffp;
+X{
+X    int     ret;
+X
+X    ret = fclose(ffp->ifp);
+X    return (fclose(ffp->ofp) || ret);
+X}
+X
+X/* bind_connect - bind both ends of a socket */
+X
+Xint     bind_connect(s, local, remote, length)
+Xint     s;
+Xstruct sockaddr *local;
+Xstruct sockaddr *remote;
+Xint     length;
+X{
+X    if (bind(s, local, length) < 0) {
+X	syslog(LOG_ERR, "bind: %m");
+X	return (-1);
+X    } else {
+X	return (connect(s, remote, length));
+X    }
+X}
+X
+X/* timeout - handle timeouts */
+X
+Xstatic void timeout(sig)
+Xint     sig;
+X{
+X    longjmp(timebuf, sig);
+X}
+X
+X/* rfc931 - return remote user name, given socket structures */
+X
+Xchar   *rfc931(rmt_sin, our_sin)
+Xstruct sockaddr_in *rmt_sin;
+Xstruct sockaddr_in *our_sin;
+X{
+X    unsigned rmt_port;
+X    unsigned our_port;
+X    struct sockaddr_in rmt_query_sin;
+X    struct sockaddr_in our_query_sin;
+X    static char user[256];		/* XXX */
+X    char    buffer[512];		/* XXX */
+X    char   *cp;
+X    char   *result = FROM_UNKNOWN;	/* XXX */
+X    FILE_PAIR *ffp;
+X
+X    /*
+X     * Use separate stdio streams for writing to and for reading from the
+X     * RFC931 etc. server. This is done because of a bug in the SunOS 4.1.x
+X     * stdio library. The bug may live in other stdio implementations, too.
+X     * When we use a single bidirectional stdio stream ("r+" or "w+" mode) we
+X     * read our own output. Such behaviour would make sense with resources
+X     * that support random-access operations, but not with sockets.
+X     */
+X
+X    if ((ffp = ffsocket(AF_INET, SOCK_STREAM, 0)) != 0) {
+X
+X	/*
+X	 * Set up a timer so we won't get stuck while waiting for the server.
+X	 */
+X
+X	if (setjmp(timebuf) == 0) {
+X	    signal(SIGALRM, timeout);
+X	    alarm(RFC931_TIMEOUT);
+X
+X	    /*
+X	     * Bind the local and remote ends of the query socket to the same
+X	     * IP addresses as the connection under investigation. We go
+X	     * through all this trouble because the local or remote system
+X	     * might have more than one network address. The RFC931 etc.
+X	     * client sends only port numbers; the server takes the IP
+X	     * addresses from the query socket.
+X	     */
+X
+X	    our_query_sin = *our_sin;
+X	    our_query_sin.sin_port = htons(ANY_PORT);
+X	    rmt_query_sin = *rmt_sin;
+X	    rmt_query_sin.sin_port = htons(RFC931_PORT);
+X
+X	    if (bind_connect(fileno(ffp->ifp),
+X			     (struct sockaddr *) & our_query_sin,
+X			     (struct sockaddr *) & rmt_query_sin,
+X			     sizeof(our_query_sin)) >= 0) {
+X
+X		/*
+X		 * Send query to server. Neglect the risk that a 13-byte
+X		 * write would have to be fragmented by the local system and
+X		 * cause trouble with buggy System V stdio libraries.
+X		 */
+X
+X		fprintf(ffp->ofp, "%u,%u\r\n",
+X			ntohs(rmt_sin->sin_port),
+X			ntohs(our_sin->sin_port));
+X		fflush(ffp->ofp);
+X
+X		/*
+X		 * Read response from server. Use fgets()/sscanf() so we can
+X		 * work around System V stdio libraries that incorrectly
+X		 * assume EOF when a read from a socket returns less than
+X		 * requested.
+X		 */
+X
+X		if (fgets(buffer, sizeof(buffer), ffp->ifp) != 0
+X		    && ferror(ffp->ifp) == 0 && feof(ffp->ifp) == 0
+X		    && sscanf(buffer, "%u , %u : USERID :%*[^:]:%255s",
+X			      &rmt_port, &our_port, user) == 3
+X		    && ntohs(rmt_sin->sin_port) == rmt_port
+X		    && ntohs(our_sin->sin_port) == our_port) {
+X
+X		    /*
+X		     * Strip trailing carriage return. It is part of the
+X		     * protocol, not part of the data.
+X		     */
+X
+X		    if (cp = strchr(user, '\r'))
+X			*cp = 0;
+X		    result = user;
+X		}
+X	    }
+X	    alarm(0);
+X	}
+X	ffclose(ffp);
+X    }
+X    return (result);
+X}
+END_OF_rfc931.c
+if test 5595 -ne `wc -c <rfc931.c`; then
+    echo shar: \"rfc931.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f safe_finger.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"safe_finger.c\"
+else
+echo shar: Extracting \"safe_finger.c\" \(4712 characters\)
+sed "s/^X//" >safe_finger.c <<'END_OF_safe_finger.c'
+X /*
+X  * safe_finger - finger client wrapper that protects against nasty stuff
+X  * from finger servers. Use this program for automatic reverse finger
+X  * probes, not the raw finger command.
+X  * 
+X  * Build with: cc -o safe_finger safe_finger.c
+X  * 
+X  * The problem: some programs may react to stuff in the first column. Other
+X  * programs may get upset by thrash anywhere on a line. File systems may
+X  * fill up as the finger server keeps sending data. Text editors may bomb
+X  * out on extremely long lines. The code below takes care of all this
+X  * badness.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) safe_finger.c 1.2 93/08/26 23:49:40";
+X#endif
+X
+X/* System libraries */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <pwd.h>
+X
+Xextern void exit();
+X
+X/* Local stuff */
+X
+Xchar    path[] = "PATH=/bin:/usr/bin:/usr/ucb:/etc:/usr/etc:/usr/sbin";
+X
+X#define	INPUT_LENGTH	100000		/* Do not keep listinging forever */
+X#define	LINE_LENGTH	128		/* Editors can choke on long lines */
+X#define	FINGER_PROGRAM	"finger"	/* Most, if not all, UNIX systems */
+X#define	UNPRIV_NAME	"nobody"	/* Preferred privilege level */
+X#define	UNPRIV_UGID	32767		/* Default uid and gid */
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    int     c;
+X    int     line_length = 0;
+X    int     finger_status;
+X    int     wait_pid;
+X    int     finger_pid;
+X    int     input_count = 0;
+X    struct passwd *pwd;
+X
+X    /*
+X     * First of all, let's don't run with superuser privileges.
+X     */
+X    if (getuid() == 0 || geteuid() == 0) {
+X	if ((pwd = getpwnam(UNPRIV_NAME)) && pwd->pw_uid > 0) {
+X	    setgid(pwd->pw_gid);
+X	    setuid(pwd->pw_uid);
+X	} else {
+X	    setgid(UNPRIV_UGID);
+X	    setuid(UNPRIV_UGID);
+X	}
+X    }
+X
+X    /*
+X     * Redirect our standard input through the raw finger command.
+X     */
+X    if (putenv(path)) {
+X	fprintf(stderr, "putenv: out of memory");
+X	exit(1);
+X    }
+X    argv[0] = FINGER_PROGRAM;
+X    finger_pid = pipe_stdin(argv);
+X
+X    /*
+X     * Main filter loop.
+X     */
+X    while ((c = getchar()) != EOF) {
+X	if (input_count++ >= INPUT_LENGTH) {	/* don't listen forever */
+X	    fclose(stdin);
+X	    printf("\n\n Input truncated to %d bytes...\n", input_count - 1);
+X	    break;
+X	}
+X	if (c == '\n') {			/* good: end of line */
+X	    putchar(c);
+X	    line_length = 0;
+X	} else {
+X	    if (line_length >= LINE_LENGTH) {	/* force end of line */
+X		printf("\\\n");
+X		line_length = 0;
+X	    }
+X	    if (line_length == 0) {		/* protect left margin */
+X		putchar(' ');
+X		line_length++;
+X	    }
+X	    if (isascii(c) && (isprint(c) || isspace(c))) {	/* text */
+X		if (c == '\\') {
+X		    putchar(c);
+X		    line_length++;
+X		}
+X		putchar(c);
+X		line_length++;
+X	    } else {				/* quote all other thash */
+X		printf("\\%03o", c & 0377);
+X		line_length += 4;
+X	    }
+X	}
+X    }
+X
+X    /*
+X     * Wait until the finger child process has terminated and account for its
+X     * exit status. Which will always be zero on most systems.
+X     */
+X    while ((wait_pid = wait(&finger_status)) != -1 && wait_pid != finger_pid)
+X	 /* void */ ;
+X    return (wait_pid != finger_pid || finger_status != 0);
+X}
+X
+X/* perror_exit - report system error text and terminate */
+X
+Xvoid    perror_exit(text)
+Xchar   *text;
+X{
+X    perror(text);
+X    exit(1);
+X}
+X
+X/* pipe_stdin - pipe stdin through program (from my ANSI to OLD C converter) */
+X
+Xint     pipe_stdin(argv)
+Xchar  **argv;
+X{
+X    int     pipefds[2];
+X    int     pid;
+X    int     i;
+X    struct stat st;
+X
+X    /*
+X     * The code that sets up the pipe requires that file descriptors 0,1,2
+X     * are already open. All kinds of mysterious things will happen if that
+X     * is not the case. The following loops makes sure that descriptors 0,1,2
+X     * are set up properly.
+X     */
+X
+X    for (i = 0; i < 3; i++) {
+X	if (fstat(i, &st) == -1 && open("/dev/null", 2) != i)
+X	    perror_exit("open /dev/null");
+X    }
+X
+X    /*
+X     * Set up the pipe that interposes the command into our standard input
+X     * stream.
+X     */
+X
+X    if (pipe(pipefds))
+X	perror_exit("pipe");
+X
+X    switch (pid = fork()) {
+X    case -1:					/* error */
+X	perror_exit("fork");
+X	/* NOTREACHED */
+X    case 0:					/* child */
+X	(void) close(pipefds[0]);		/* close reading end */
+X	(void) close(1);			/* connect stdout to pipe */
+X	if (dup(pipefds[1]) != 1)
+X	    perror_exit("dup");
+X	(void) close(pipefds[1]);		/* close redundant fd */
+X	(void) execvp(argv[0], argv);
+X	perror_exit(argv[0]);
+X	/* NOTREACHED */
+X    default:					/* parent */
+X	(void) close(pipefds[1]);		/* close writing end */
+X	(void) close(0);			/* connect stdin to pipe */
+X	if (dup(pipefds[0]) != 0)
+X	    perror_exit("dup");
+X	(void) close(pipefds[0]);		/* close redundant fd */
+X	return (pid);
+X    }
+X}
+END_OF_safe_finger.c
+if test 4712 -ne `wc -c <safe_finger.c`; then
+    echo shar: \"safe_finger.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f setenv.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"setenv.c\"
+else
+echo shar: Extracting \"setenv.c\" \(931 characters\)
+sed "s/^X//" >setenv.c <<'END_OF_setenv.c'
+X /*
+X  * Some systems do not have setenv(). This one is modeled after 4.4 BSD, but
+X  * is implemented in terms of portable primitives only: getenv(), putenv()
+X  * and malloc(). It should therefore be safe to use on every UNIX system.
+X  * 
+X  * If clobber == 0, do not overwrite an existing variable.
+X  * 
+X  * Returns nonzero if memory allocation fails.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) setenv.c 1.1 93/03/07 22:47:58";
+X#endif
+X
+X/* setenv - update or insert environment (name,value) pair */
+X
+Xint     setenv(name, value, clobber)
+Xchar   *name;
+Xchar   *value;
+Xint     clobber;
+X{
+X    char   *malloc();
+X    char   *getenv();
+X    char   *cp;
+X
+X    if (clobber == 0 && getenv(name) != 0)
+X	return (0);
+X    if ((cp = malloc(strlen(name) + strlen(value) + 2)) == 0)
+X	return (1);
+X    sprintf(cp, "%s=%s", name, value);
+X    return (putenv(cp));
+X}
+END_OF_setenv.c
+if test 931 -ne `wc -c <setenv.c`; then
+    echo shar: \"setenv.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f shell_cmd.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"shell_cmd.c\"
+else
+echo shar: Extracting \"shell_cmd.c\" \(2885 characters\)
+sed "s/^X//" >shell_cmd.c <<'END_OF_shell_cmd.c'
+X /*
+X  * shell_cmd() takes a shell command template and performs %a (host
+X  * address), %c (client info), %h (host name or address), %d (daemon name),
+X  * %p (process id) and %u (user name) substitutions. The result is executed
+X  * by a /bin/sh child process, with standard input, standard output and
+X  * standard error connected to /dev/null.
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) shell_cmd.c 1.4 93/09/11 20:45:12";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+Xextern char *strncpy();
+Xextern void closelog();
+Xextern void exit();
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* Forward declarations. */
+X
+Xstatic void do_child();
+X
+X/* shell_cmd - expand %<char> sequences and execute shell command */
+X
+Xvoid    shell_cmd(string, daemon, client)
+Xchar   *string;
+Xchar   *daemon;
+Xstruct client_info *client;
+X{
+X    char    cmd[BUFSIZ];
+X    int     child_pid;
+X    int     wait_pid;
+X    int     daemon_pid = getpid();
+X
+X    /*
+X     * Most of the work is done within the child process, to minimize the
+X     * risk of damage to the parent.
+X     */
+X
+X    switch (child_pid = fork()) {
+X    case -1:					/* error */
+X	syslog(LOG_ERR, "fork: %m");
+X	break;
+X    case 00:					/* child */
+X	percent_x(cmd, sizeof(cmd), string, daemon, client, daemon_pid);
+X	do_child(daemon, cmd);
+X	/* NOTREACHED */
+X    default:					/* parent */
+X	while ((wait_pid = wait((int *) 0)) != -1 && wait_pid != child_pid)
+X	     /* void */ ;
+X    }
+X}
+X
+X/* do_child - exec command with { stdin, stdout, stderr } to /dev/null */
+X
+Xstatic void do_child(myname, command)
+Xchar   *myname;
+Xchar   *command;
+X{
+X    char   *error = 0;
+X    int     tmp_fd;
+X
+X    /*
+X     * SunOS 4.x may send a SIGHUP to grandchildren if the child exits first.
+X     * Sessions and process groups make old and grown-up programmers tear out
+X     * what little hair is left and run away crying.
+X     */
+X
+X    signal(SIGHUP, SIG_IGN);
+X
+X    /*
+X     * Close a bunch of file descriptors. The Ultrix inetd only passes stdin,
+X     * but other inetd implementations set up stdout as well. Ignore errors.
+X     */
+X
+X    closelog();
+X    for (tmp_fd = 0; tmp_fd < 10; tmp_fd++)
+X	(void) close(tmp_fd);
+X
+X    /* Set up new stdin, stdout, stderr, and exec the shell command. */
+X
+X    if (open("/dev/null", 2) != 0) {
+X	error = "open /dev/null: %m";
+X    } else if (dup(0) != 1 || dup(0) != 2) {
+X	error = "dup: %m";
+X    } else {
+X	(void) execl("/bin/sh", "sh", "-c", command, (char *) 0);
+X	error = "execl /bin/sh: %m";
+X    }
+X
+X    /* We can reach the following code only if there was an error. */
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(myname, LOG_PID, FACILITY);
+X#else
+X    (void) openlog(myname, LOG_PID);
+X#endif
+X    syslog(LOG_ERR, error);
+X    exit(0);
+X}
+END_OF_shell_cmd.c
+if test 2885 -ne `wc -c <shell_cmd.c`; then
+    echo shar: \"shell_cmd.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f socket.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"socket.c\"
+else
+echo shar: Extracting \"socket.c\" \(7488 characters\)
+sed "s/^X//" >socket.c <<'END_OF_socket.c'
+X /*
+X  * sock_host() determines the type of socket (datagram, stream), the name
+X  * and address of the host at the other end of a socket, the local socket
+X  * address and port, and the remote username if username lookups are done
+X  * irrespective of client. All results are in static memory and will be
+X  * overwritten upon the next call.
+X  * 
+X  * The return status is (-1) if the remote host pretends to have someone elses
+X  * name, or if the remote host name is available but could not be verified;
+X  * in either case the hostname will be ignored. The return status is zero in
+X  * all other cases (the hostname is unavailable, or the host name double
+X  * check succeeds).
+X  * 
+X  * Diagnostics are reported through syslog(3).
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) socket.c 1.7 93/09/27 18:59:20";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X#include <errno.h>
+X
+Xextern char *inet_ntoa();
+Xextern char *strncpy();
+Xextern char *strcpy();
+X
+X /*
+X  * Some AIX versions advertise a too small MAXHOSTNAMELEN value (32).
+X  * Result: long hostnames would be truncated, and connections would be
+X  * dropped because of host name verification failures. Adrian van Bloois
+X  * (A.vanBloois@info.nic.surfnet.nl) figured out what was the problem.
+X  */
+X
+X#if (MAXHOSTNAMELEN < 64)
+X#undef MAXHOSTNAMELEN
+X#endif
+X
+X/* In case not defined in <sys/param.h>. */
+X
+X#ifndef MAXHOSTNAMELEN
+X#define MAXHOSTNAMELEN	256		/* storage for host name */
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+X/* Forward declarations. */
+X
+Xstatic int sock_match_hostname();
+Xstatic void sock_sink();
+X
+X/* sock_host - determine endpoint info */
+X
+Xint     sock_host(client)
+Xstruct client_info *client;
+X{
+X    static struct sockaddr rmt_sa;
+X    static struct sockaddr our_sa;
+X    int     len;
+X    char    buf[BUFSIZ];
+X
+X    /*
+X     * Initialize the result with suitable defaults.
+X     */
+X
+X    init_client(client);
+X
+X    /*
+X     * Look up the remote host address. Hal R. Brand <BRAND@addvax.llnl.gov>
+X     * suggested how to get the remote host info in case of UDP connections:
+X     * peek at the first message without actually looking at its contents.
+X     */
+X
+X    len = sizeof(rmt_sa);
+X    if (getpeername(client->fd, &rmt_sa, &len) < 0) {
+X	len = sizeof(rmt_sa);
+X	if (recvfrom(client->fd, buf, sizeof(buf), MSG_PEEK, &rmt_sa, &len) < 0) {
+X	    syslog(LOG_ERR, "error: can't get client address: %m");
+X	    return (0);				/* address and name unknown */
+X	}
+X#ifdef really_paranoid
+X	memset(buf, 0 sizeof(buf));
+X#endif
+X	client->sink = sock_sink;
+X    }
+X    client->rmt_sin = (struct sockaddr_in *) & rmt_sa;
+X
+X    /*
+X     * Determine the local binding. Right now this information is used only
+X     * for remote username lookups, but it may become useful to map the local
+X     * port number to an internet service name, so that services handled by
+X     * the same daemon program (same argv[0] value) can still be
+X     * distinguished.
+X     */
+X
+X    len = sizeof(our_sa);
+X    if (getsockname(client->fd, &our_sa, &len) < 0) {
+X	syslog(LOG_ERR, "error: getsockname: %m");
+X    } else {
+X	client->our_sin = (struct sockaddr_in *) & our_sa;
+X    }
+X    return (sock_names(client));
+X}
+X
+X/* sock_names - map IP address info to readable address and name */
+X
+Xint     sock_names(client)
+Xstruct client_info *client;
+X{
+X    static char addr_buf[MAXHOSTNAMELEN];
+X    static char name_buf[MAXHOSTNAMELEN];
+X    struct hostent *hp;
+X    struct in_addr addr;
+X
+X    /*
+X     * Some stupid compilers can do struct assignment but cannot do structure
+X     * initialization.
+X     */
+X
+X    addr = client->rmt_sin->sin_addr;
+X
+X    /*
+X     * Do username lookups if we do lookups irrespective of client. In a
+X     * future release we should perhaps use asynchronous I/O so that the
+X     * handshake with the rfc931 server can proceed while hostname lookups
+X     * are going on.
+X     */
+X
+X#ifdef ALWAYS_RFC931
+X    if (RFC931_POSSIBLE(client))
+X	client->user = rfc931(client->rmt_sin, client->our_sin);
+X#endif
+X
+X    /*
+X     * Map the address to human-readable form.
+X     */
+X
+X#define STRNCP(d,s,l) { strncpy((d),(s),(l)); ((d)[(l)-1] = 0); }
+X
+X    STRNCP(addr_buf, inet_ntoa(addr), sizeof(addr_buf));
+X    client->addr = addr_buf;
+X
+X    /*
+X     * Look up the remote host name. Verify that the host name does not
+X     * belong to someone else. Ignore the hostname if verification fails or
+X     * if verification is not possible.
+X     */
+X
+X    if ((hp = gethostbyaddr((char *) &addr, sizeof(addr), AF_INET)) == 0)
+X	return (0);				/* hostname unknown */
+X    STRNCP(name_buf, hp->h_name, sizeof(name_buf));
+X    if (sock_match_hostname(name_buf, addr)) {
+X	client->name = name_buf;
+X	return (0);				/* hostname verified ok */
+X    } else {
+X	return (-1);				/* bad or unverified name */
+X    }
+X}
+X
+X/* sock_match_hostname - determine if host name matches IP address */
+X
+Xstatic int sock_match_hostname(remotehost, addr)
+Xchar   *remotehost;
+Xstruct in_addr addr;
+X{
+X    struct hostent *hp;
+X    int     i;
+X
+X    /*
+X     * Verify that the client address is a member of the address list
+X     * returned by gethostbyname(remotehost).
+X     * 
+X     * Verify also that gethostbyaddr() and gethostbyname() return the same
+X     * hostname, or rshd and rlogind may still end up being spoofed.
+X     * 
+X     * On some sites, gethostbyname("localhost") returns "localhost.my.domain".
+X     * This is a DNS artefact. We treat it as a special case. When we can't
+X     * believe the address list from gethostbyname("localhost") we're in big
+X     * trouble anyway.
+X     */
+X
+X    if ((hp = gethostbyname(remotehost)) == 0) {
+X
+X	/*
+X	 * Unable to verify that the host name matches the address. This may
+X	 * be a transient problem or a botched name server setup.
+X	 */
+X
+X	syslog(LOG_ERR,
+X	       "warning: can't verify hostname: gethostbyname(%s) failed",
+X	       remotehost);
+X	return (FROM_BAD);
+X
+X    } else if (strcasecmp(remotehost, hp->h_name)
+X	       && strcasecmp(remotehost, "localhost")) {
+X
+X	/*
+X	 * The gethostbyaddr() and gethostbyname() calls did not return the
+X	 * same hostname. This could be a nameserver configuration problem.
+X	 * It could also be that someone is trying to spoof us.
+X	 */
+X
+X	syslog(LOG_ERR, "warning: host name/name mismatch: %s != %s",
+X	       remotehost, hp->h_name);
+X	return (FROM_BAD);
+X
+X    } else {
+X
+X	/*
+X	 * The client address should be a member of the address list returned
+X	 * by gethostbyname(). We should first verify that the h_addrtype
+X	 * field is AF_INET, but this program has already caused too much
+X	 * grief on systems with broken library code.
+X	 */
+X
+X	for (i = 0; hp->h_addr_list[i]; i++) {
+X	    if (memcmp(hp->h_addr_list[i], (caddr_t) & addr, sizeof(addr)) == 0)
+X		return (FROM_GOOD);
+X	}
+X
+X	/*
+X	 * The host name does not map to the initial client address. Perhaps
+X	 * someone has messed up. Perhaps someone compromised a name server.
+X	 */
+X
+X	syslog(LOG_ERR, "warning: host name/address mismatch: %s != %s",
+X	       inet_ntoa(addr), hp->h_name);
+X	return (FROM_BAD);
+X    }
+X}
+X
+X/* sock_sink - absorb unreceived IP datagram */
+X
+Xstatic void sock_sink(fd)
+Xint     fd;
+X
+X{
+X    char    buf[BUFSIZ];
+X    struct sockaddr sa;
+X    int     size = sizeof(sa);
+X
+X    /*
+X     * Eat up the not-yet received datagram. Some systems insist on a
+X     * non-zero source address argument in the recvfrom() call below.
+X     */
+X
+X    (void) recvfrom(fd, buf, sizeof(buf), 0, &sa, &size);
+X}
+END_OF_socket.c
+if test 7488 -ne `wc -c <socket.c`; then
+    echo shar: \"socket.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f try-from.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"try-from.c\"
+else
+echo shar: Extracting \"try-from.c\" \(1770 characters\)
+sed "s/^X//" >try-from.c <<'END_OF_try-from.c'
+X /*
+X  * This program can be called via a remote shell command to find out if the
+X  * hostname and address are properly recognized, if username lookup works,
+X  * and (SysV only) if the TLI on top of IP heuristics work.
+X  * 
+X  * Example: "rsh host /some/where/try-from".
+X  * 
+X  * Diagnostics are reported through syslog(3) and redirected to stderr.
+X  * 
+X  * Author: Wietse Venema, Eindhoven University of Technology, The Netherlands.
+X  */
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#) try-from.c 1.1 93/09/23 22:03:07";
+X#endif
+X
+X/* System libraries. */
+X
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <syslog.h>
+X
+X#ifdef TLI
+X#include <sys/tiuser.h>
+X#include <stropts.h>
+X#endif
+X
+X/* Local stuff. */
+X
+X#include "log_tcp.h"
+X
+Xmain(argc, argv)
+Xint     argc;
+Xchar  **argv;
+X{
+X    struct client_info client;
+X    char    buf[BUFSIZ];
+X
+X#ifdef LOG_MAIL
+X    (void) openlog(argv[0], LOG_PID, FACILITY);
+X#else
+X    (void) openlog(argv[0], LOG_PID);
+X#endif
+X
+X    /*
+X     * Turn on the "IP-underneath-TLI" detection heuristics.
+X     */
+X#ifdef TLI
+X    if (ioctl(0, I_FIND, "timod") == 0)
+X	ioctl(0, I_PUSH, "timod");
+X#endif						/* TLI */
+X
+X    /*
+X     * Look up the remote hostname and address.
+X     */
+X    (void) fromhost(&client);
+X
+X    /*
+X     * Perform remote username lookups when possible.
+X     */
+X    if (client.user[0] == 0 && RFC931_POSSIBLE(&client))
+X	client.user = rfc931(client.rmt_sin, client.our_sin);
+X
+X    /*
+X     * Show some results.
+X     */
+X
+X#define EXPAND_X(str) \
+X	(percent_x(buf, sizeof(buf), str, (char *) 0, &client, 0), buf)
+X
+X    printf("%s %s\n", "address  (%a):", EXPAND_X("%a"));
+X    printf("%s %s\n", "hostname (%h):", EXPAND_X("%h"));
+X    printf("%s %s\n", "username (%u):", EXPAND_X("%u"));
+X    printf("%s %s\n", "hostsinfo(%c):", EXPAND_X("%c"));
+X
+X    return (0);
+X}
+END_OF_try-from.c
+if test 1770 -ne `wc -c <try-from.c`; then
+    echo shar: \"try-from.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 3 \(of 4\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 4 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

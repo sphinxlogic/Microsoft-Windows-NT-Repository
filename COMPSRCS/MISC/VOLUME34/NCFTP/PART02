@@ -1,0 +1,2307 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject:  v34i015:  ncftp - Alternative User Interface for FTP, Part02/03
+Message-ID: <1992Dec7.211051.3958@sparky.imd.sterling.com>
+X-Md4-Signature: fc92f158a15b813b8210a82015ff7ebf
+Date: Mon, 7 Dec 1992 21:10:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 34, Issue 15
+Archive-name: ncftp/part02
+Environment: UNIX, ANSI-C, getopt
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  cmdtab.c ftp.c ftprc.h main.c
+# Wrapped by kent@sparky on Mon Dec  7 15:06:54 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'cmdtab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cmdtab.c'\"
+else
+  echo shar: Extracting \"'cmdtab.c'\" \(5796 characters\)
+  sed "s/^X//" >'cmdtab.c' <<'END_OF_FILE'
+X/* cmdtab.c */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <stdio.h>
+X#include <sys/time.h>
+X#include "ftpdefs.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "glob.h"
+X#include "copyright.h"
+X
+Xchar	asciihelp[] = 	"transfer as text files";
+Xchar	binaryhelp[] =	"transfer as binary files";
+Xchar	cdhelp[] =		"change remote working directory";
+Xchar	cduphelp[] = 	"change remote working directory to parent directory";
+Xchar	createhelp[] =	"create an empty file on the remote host";
+Xchar	deletehelp[] =	"delete remote file";
+Xchar	debughelp[] =	"toggle/set debugging mode";
+Xchar	dirhelp[] =		"list contents of remote directory";
+Xchar	disconhelp[] =	"terminate ftp session";
+Xchar	domachelp[] = 	"execute macro";
+Xchar	helphelp[] =	"print local help information";
+Xchar	lcdhelp[] =		"change local working directory";
+Xchar	lshelp[] =		"list contents of remote directory";
+Xchar	lookuphelp[] =	"print IP addr given name, or name given IP";
+Xchar	macdefhelp[] =  "define a macro";
+Xchar	mdeletehelp[] =	"delete multiple files";
+Xchar	mdirhelp[] =	"list contents of multiple remote directories";
+Xchar	mgethelp[] =	"get multiple files";
+Xchar	mkdirhelp[] =	"make directory on the remote machine";
+Xchar	mlshelp[] =		"nlist contents of multiple remote directories";
+Xchar	modtimehelp[] = "show last modification time of remote file";
+Xchar	mputhelp[] =	"send multiple files";
+Xchar	openhelp[] =	"connect to remote ftp server (type 'open' for usage)";
+Xchar	pagehelp[] =	"display a remote file on your terminal";
+Xchar	plshelp[] =     "view contents of remote directory using your PAGER";
+Xchar	prompthelp[] =	"force interactive prompting on multiple commands";
+Xchar	pwdhelp[] =		"print working directory on remote machine";
+Xchar	quithelp[] =	"terminate ftp session and exit";
+Xchar	quotehelp[] =	"send arbitrary ftp command";
+Xchar	receivehelp[] =	"receive file";
+X#ifdef REDIR
+Xchar	predirhelp[] =	"view last ls, dir, list, or nlist with your PAGER";
+Xchar 	redirhelp[] = 	"re-show last ls, dir, list, or nlist.";
+X#endif
+Xchar	remotehelp[] =	"get help from remote server";
+Xchar	renamehelp[] =	"rename file";
+Xchar	rmdirhelp[] =	"remove directory on the remote machine";
+Xchar	rmtstatushelp[]="show status of remote machine";
+Xchar	sendhelp[] =	"send one file";
+Xchar	sethelp[] =		"set a variable's value; set alone shows all variables";
+Xchar	shellhelp[] =	"escape to the shell";
+Xchar	sizecmdhelp[] = "show size of remote file";
+Xchar	systemhelp[] =  "show remote system type";
+Xchar	typehelp[] =	"specify how to transfer files (ascii/binary)";
+Xchar	unsethelp[] =	"undefine a variable's value";
+Xchar	userhelp[] =	"send new user information";
+Xchar	verbosehelp[] =	"toggle verbose mode";
+Xchar	versionhelp[] =	"shows version information";
+X
+Xstruct cmd cmdtab[] = {
+X	/* name ; help ; bell-when-done ; must-be-connected ; proxy can ; hidden */
+X	{ "!",			shellhelp,			0,	0,	0,	0,	shell },
+X	{ "$",			domachelp,			1,	0,	0,	0,	domacro },
+X	{ "ascii",		asciihelp,			0,	1,	0,	1,	setascii },
+X	{ "binary",		binaryhelp,			0,	1,	0,	1,	setbinary },
+X	{ "bye",		quithelp,			0,	0,	0,	1,	quit },
+X	{ "cd",			cdhelp,				0,	1,	1,	0,	cd },
+X	{ "cdup",		cduphelp,			0,	1,	1,	0,	cdup },
+X	{ "chdir",		cdhelp,				0,	1,	1,	1,	cd },
+X	{ "close",		disconhelp,			0,	1,	1,	1,	disconnect },
+X	{ "connect",	openhelp,			0,	0,	1,	1,	setpeer },
+X	{ "create",		createhelp,			0,	1,	0,	0,	create },
+X	{ "delete",		deletehelp,			0,	1,	1,	0,	do_delete },
+X	{ "debug",		debughelp,			0,	0,	0,	1,	setdebug },
+X	{ "erase",		deletehelp,			0,	1,	1,	1,	do_delete },
+X	{ "exit",		quithelp,			0,	0,	0,	1,	quit },
+X	{ "dir",		dirhelp,			1,	1,	1,	0,	ls },
+X	{ "get",		receivehelp,		1,	1,	1,	0,	get },
+X	{ "help",		helphelp,			0,	0,	1,	0,	help },
+X	{ "image",		binaryhelp,			0,	1,	0,	1,	setbinary },
+X	{ "lcd",		lcdhelp,			0,	0,	0,	0,	lcd },
+X	{ "lookup", 	lookuphelp, 		0,	0,	0,	0,  lookup },
+X	{ "ls",			lshelp,				1,	1,	1,	0,	ls },
+X	{ "macdef",		macdefhelp,			0,	0,	0,	0,	macdef },
+X	{ "mdelete",	mdeletehelp,		1,	1,	1,	0,	mdelete },
+X	{ "mdir",		mdirhelp,			1,	1,	1,	0,	mls },
+X	{ "mget",		mgethelp,			1,	1,	1,	0,	mget },
+X	{ "mkdir",		mkdirhelp,			0,	1,	1,	0,	makedir },
+X	{ "mls",		mlshelp,			1,	1,	1,	0,	mls },
+X	{ "modtime",	modtimehelp,		0,	1,	1,	0,	modtime },
+X	{ "more",       pagehelp,           1,  1,  1,  1,  get },
+X	{ "mput",		mputhelp,			1,	1,	1,	0,	mput },
+X	{ "nlist",		lshelp,				1,	1,	1,	1,	ls },
+X	{ "open",		openhelp,			0,	0,	1,	0,	setpeer },
+X	{ "page",		pagehelp,			1,	1,	1,	0,	get },
+X	{ "pdir",		plshelp,			1,	1,	1,	0,	ls },
+X	{ "pls",		plshelp,			1,	1,	1,	0,	ls },
+X#ifdef REDIR
+X	{ "predir",  	predirhelp,  		0, 	1, 	0,	0,	showlsbuffer },
+X#endif
+X	{ "prompt",		prompthelp,			0,	0,	0,	1,	setprompt },
+X	{ "put",		sendhelp,			1,	1,	1,	0,	put },
+X	{ "pwd",		pwdhelp,			0,	1,	1,	0,	pwd },
+X	{ "quit",		quithelp,			0,	0,	0,	0,	quit },
+X	{ "quote",		quotehelp,			1,	1,	1,	0,	quote },
+X#ifdef REDIR
+X	{ "redir",  	redirhelp,  		0, 	1, 	0,	0,	showlsbuffer },
+X#endif
+X	{ "remotehelp",	remotehelp,			0,	1,	1,	0,	rmthelp },
+X	{ "rm",			deletehelp,			0,	1,	1,	1,	do_delete },
+X	{ "rstatus",	rmtstatushelp,		0,	1,	1,	0,	rmtstatus },
+X	{ "rhelp",		remotehelp,			0,	1,	1,	0,	rmthelp },
+X	{ "rename",		renamehelp,			0,	1,	1,	0,	renamefile },
+X	{ "rmdir",		rmdirhelp,			0,	1,	1,	0,	removedir },
+X	{ "send",		sendhelp,			1,	1,	1,	1,	put },
+X	{ "set",		sethelp,			0,	0,	0,	0,	set },
+X	{ "size",		sizecmdhelp,		1,	1,	1,	0,	sizecmd },
+X	{ "system",		systemhelp,			0,	1,	1,	0,	syst },
+X	{ "unset",		unsethelp,			0,	0,	0,	0,	set },
+X	{ "user",		userhelp,			0,	1,	1,	0,	do_user },
+X	{ "type",		typehelp,			0,	1,	0,	0,	settype },
+X	{ "verbose",	verbosehelp,		0,	0,	0,	0,	setverbose },
+X	{ "version",	versionhelp,		0,	0,	0,	0,	show_version },
+X	{ "?",			helphelp,			0,	0,	1,	0,	help },
+X	{ NULL,			NULL,				0,	0,	0,	0,	NULL }
+X};
+X
+Xint	NCMDS = (sizeof (cmdtab) / sizeof (cmdtab[0])) - 1;
+X
+X/* eof cmdtab.c */
+END_OF_FILE
+  if test 5796 -ne `wc -c <'cmdtab.c'`; then
+    echo shar: \"'cmdtab.c'\" unpacked with wrong size!
+  fi
+  # end of 'cmdtab.c'
+fi
+if test -f 'ftp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.c'\"
+else
+  echo shar: Extracting \"'ftp.c'\" \(26888 characters\)
+  sed "s/^X//" >'ftp.c' <<'END_OF_FILE'
+X/* ftp.c */
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <setjmp.h>
+X#include <sys/stat.h>
+X#include <sys/ioctl.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <sys/file.h>
+X
+X/* You may need this for declarations of fd_set, etc. */
+X#ifdef SYSSELECTH
+X#   include <sys/select.h>
+X#endif
+X
+X#include <netinet/in.h>
+X#include <arpa/ftp.h>
+X#include <arpa/inet.h>
+X#include <arpa/telnet.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <stdlib.h>
+X#include <signal.h>
+X#include <errno.h>
+X#include <netdb.h>
+X#include <fcntl.h>
+X#include <pwd.h>
+X#include <ctype.h>
+X#include "ftpdefs.h"
+X#include "defaults.h"
+X#include "ftp.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "copyright.h"
+X
+X/* ftp.c globals */
+Xstruct				sockaddr_in hisctladdr;
+Xstruct				sockaddr_in data_addr;
+Xint					data = -1;
+Xint					abrtflag = 0;
+Xint					connected;			/* connected to server */
+Xstruct sockaddr_in	myctladdr;
+XFILE				*cin = NULL, *cout = NULL;
+Xchar				*reply_string = NULL;
+Xjmp_buf				sendabort, recvabort;
+Xint					want_progress = 1;
+Xint					sendport = -1;		/* use PORT cmd for each data connection */
+Xint					code;				/* return/reply code for ftp command */
+Xstring				hostname;			/* name of host connected to */
+Xint     			cpend;				/* flag: if != 0, then pending server reply */
+Xchar				*xferbuf;			/* buffer for local and remote I/O */
+Xsize_t				xferbufsize;		/* size in bytes, of the transfer buffer. */
+Xlong				next_report;
+Xlong				bytes;
+Xlong				now_sec;
+Xlong				remote_size;
+Xstruct timeval		start, stop;
+X
+X
+X/* ftp.c externs */
+Xextern FILE					*logf;
+Xextern string				hostname, cwd, anon_password;
+Xextern int					verbose, debug, macnum, margc;
+Xextern int					curtype, creating;
+Xextern int					options, activemcmd, paging;
+Xextern char					*line, *margv[];
+Xextern struct userinfo		uinfo;
+Xextern struct macel			macros[];
+X#ifdef REDIR
+Xextern struct lslist		*lshead, *lstail;
+Xextern int					is_ls;
+X#endif
+X
+X
+X
+Xint hookup(char *host, int port)
+X{
+X	register struct hostent *hp = 0;
+X	int s, len, hErr = -1;
+X
+X	bzero((char *)&hisctladdr, sizeof (hisctladdr));
+X	hisctladdr.sin_addr.s_addr = inet_addr(host);
+X	if (hisctladdr.sin_addr.s_addr != -1) {
+X		hisctladdr.sin_family = AF_INET;
+X		(void) Strncpy(hostname, host);
+X	} else {
+X		hp = gethostbyname(host);
+X		if (hp == NULL) {
+X#ifdef HERROR
+X			extern int h_errno;
+X			if (h_errno == HOST_NOT_FOUND)
+X				(void) printf("%s: unknown host\n", host);
+X			else (void) fprintf(stderr, "%s: gethostbyname herror (%d):  ",
+X				host, h_errno);
+X			herror(NULL);
+X#else
+X			(void) printf("%s: unknown host\n", host);
+X#endif
+X			goto done;
+X		}
+X		hisctladdr.sin_family = hp->h_addrtype;
+X		bcopy(hp->h_addr_list[0],
+X		    (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X		(void) Strncpy(hostname, hp->h_name);
+X	}
+X	s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X	if (s < 0) {
+X		Perror("socket");
+X		goto done;
+X	}
+X	hisctladdr.sin_port = port;
+X	while (connect(s, (struct sockaddr *) &hisctladdr, (int) sizeof (hisctladdr)) < 0) {
+X		if (hp && hp->h_addr_list[1]) {
+X			int oerrno = errno;
+X
+X			(void) fprintf(stderr, "NcFTP: connect error (%d) to address %s: ",
+X				errno, inet_ntoa(hisctladdr.sin_addr));
+X			errno = oerrno;
+X			Perror((char *) 0);
+X			hp->h_addr_list++;
+X			bcopy(hp->h_addr_list[0],
+X			     (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X			(void) fprintf(stdout, "Trying %s...\n",
+X				inet_ntoa(hisctladdr.sin_addr));
+X			(void) close(s);
+X			s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X			if (s < 0) {
+X				Perror("socket");
+X				goto done;
+X			}
+X			continue;
+X		}
+X		Perror("connect");
+X		switch (errno) {
+X			case ENETDOWN:
+X			case ENETUNREACH:
+X			case ECONNABORTED:
+X			case ETIMEDOUT:
+X			case ECONNREFUSED:
+X			case EHOSTDOWN:
+X				hErr = -2;	/* we can re-try later. */
+X		}
+X		goto bad;
+X	}
+X	len = sizeof (myctladdr);
+X	if (getsockname(s, (char *)&myctladdr, &len) < 0) {
+X		Perror("getsockname");
+X		goto bad;
+X	}
+X	cin = fdopen(s, "r");
+X	cout = fdopen(s, "w");
+X	if (cin == NULL || cout == NULL) {
+X		(void) fprintf(stderr, "ftp: fdopen failed.\n");
+X		close_streams(0);
+X		goto bad;
+X	}
+X	if (IS_VVERBOSE)
+X		(void) printf("Connected to %s.\n", hostname);
+X	if (getreply(0) > 2) { 	/* read startup message from server */
+X		close_streams(0);
+X		goto bad;
+X	}
+X#ifdef SO_OOBINLINE
+X	{
+X	int on = 1;
+X
+X	if (setsockopt(s, SOL_SOCKET, SO_OOBINLINE, (char *) &on, sizeof(on))
+X		< 0 && debug) {
+X			Perror("setsockopt");
+X		}
+X	}
+X#endif /* SO_OOBINLINE */
+X
+X	hErr = 0;
+X	goto done;
+X
+Xbad:
+X	(void) close(s);
+Xdone:
+X	code = hErr;
+X	return (hErr);
+X}	/* hookup */
+X
+X
+X
+X
+Xint login(char *host, int openmode, int ignore_rc)
+X{
+X	string				tmp, str;
+X	char				*username, *pass, *acct;
+X	int					n, aflag = 0, prompted_login;
+X	int					user_in_rc, tmpverbose;
+X
+X	username = pass = acct = NULL;
+X	if (!ignore_rc) {
+X		if ((ruserpass2(host, &username, &pass, &acct)) < 0) {
+X			/*NOTREACHED */
+X			code = -1;
+X			return(0);
+X		}
+X	}
+X
+X	user_in_rc = 1;
+X	prompted_login = 0;
+X	if (username == NULL) {
+X		user_in_rc = 0;
+X		prompted_login = 1;
+X	} 
+X
+X	if (!user_in_rc) {
+X		/* There was no username in the rc. */
+X		if (openmode == OPEN_A) {
+X			username = "anonymous";
+X			prompted_login = 0;
+X		} else { /* openmode == OPEN_U */
+X			/* Prompt for a username. */
+X			(void) printf("Name (%s:%s): ", host, uinfo.username);
+X			(void) FGets(tmp, stdin);
+X			tmp[strlen(tmp) - 1] = '\0';
+X			/*
+X			 *	User can hit return if he wants to enter his username
+X			 *	automatically.
+X			 */
+X			if (*tmp == '\0')
+X				username = uinfo.username;
+X			else
+X				username = tmp;
+X		}
+X	}
+X	(void) sprintf(str, "USER %s", username);
+X	n = command(str);
+X	if (n == CONTINUE) {
+X		if (pass == NULL) {
+X			if (strcmp("anonymous", username) == 0)
+X				pass = anon_password;
+X			else
+X				pass = getpass2("Password:");
+X		}
+X		(void) sprintf(str, "PASS %s", pass);
+X		n = command(str);
+X	}
+X	if (n == CONTINUE) {
+X		aflag++;
+X		acct = getpass2("Account:");
+X		(void) sprintf(str, "ACCT %s", acct);
+X		n = command(str);
+X	}
+X	if (n != COMPLETE) {
+XnoLogin:
+X		(void) fprintf(stderr, "Login failed.\n");
+X		return (0);
+X	}
+X	if (!aflag && acct != NULL) {
+X		(void) sprintf(str, "ACCT %s", acct);
+X		(void) command(str);
+X	}
+X
+X	/* See if remote host dropped connection. */
+X	tmpverbose = verbose;
+X	verbose = V_QUIET;
+X	n = command("NOOP");
+X	verbose = tmpverbose;
+X	if (n == 4)
+X		goto noLogin;
+X
+X	if (NOT_VQUIET && !prompted_login)
+X		(void) printf("Logged into %s.\n", host);
+X	if (!ignore_rc)
+X		for (n = 0; n < macnum; ++n) {
+X			if (!strcmp("init", macros[n].mac_name)) {
+X				(void) strcpy(line, "$init");
+X				makeargv();
+X				domacro(margc, margv);
+X				break;
+X			}
+X		}
+X	return (1);
+X}	/* login */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid cmdabort(int unused)
+X{
+X	(void) printf("\n");
+X	(void) fflush(stdout);
+X	abrtflag++;
+X}	/* cmdabort */
+X
+X
+X
+X
+Xcommand(char *cmd)
+X{
+X	int r;
+X	void (*oldintr)(int);
+X	string str;
+X
+X	abrtflag = 0;
+X	if (debug) {
+X		(void) printf("---> %s\n", cmd);
+X	}
+X	if (cout == NULL) {
+X		(void) sprintf(str, "%s: No control connection for command", cmd);
+X		Perror(str);
+X		code = -1;
+X		return (0);
+X	}
+X	oldintr = signal(SIGINT, /* cmdabort */ SIG_IGN);
+X#ifndef SCO324
+X	if (cout != NULL)
+X		(void) fprintf(cout, "%s\r\n", cmd);
+X#else
+X	{
+X		/*
+X		 * The fprintf() above gives me a core-dump in memcpy()...
+X		 * This does the trick though...
+X		 */
+X
+X		char *p = cmd;
+X		while (*p)
+X			fputc(*p++, cout);
+X		fputc('\r', cout);
+X		fputc('\n', cout);
+X	}
+X#endif /* !SCO324 */
+X	(void) fflush(cout);
+X	cpend = 1;
+X	r = getreply(strcmp(cmd, "QUIT") == 0);
+X	if (abrtflag && oldintr != SIG_IGN && oldintr != NULL)
+X		(*oldintr)(0);
+X	(void) signal(SIGINT, oldintr);
+X	return(r);
+X}	/* command */
+X
+X
+X
+X
+Xgetreply(int expecteof)
+X{
+X	register int c, n;
+X	int dig;
+X	char *cp, *end, *dp;
+X	int thiscode, originalcode = 0, continuation = 0;
+X	void (*oldintr)(int);
+X
+X	if (cin == NULL)
+X		return (-1);
+X	oldintr = signal(SIGINT, /* cmdabort */ SIG_IGN);
+X	end = reply_string + RECEIVEDLINELEN - 2;
+X	for (;;) {
+X		dig = n = code = 0;
+X		cp = reply_string;
+X		for (;;) {
+X			c = getc(cin);
+X			if (c == IAC) {     /* handle telnet commands */
+X				switch (c = getc(cin)) {
+X				case WILL:
+X				case WONT:
+X					c = getc(cin);
+X					(void) fprintf(cout, "%c%c%c",IAC,DONT,c);
+X					(void) fflush(cout);
+X					break;
+X				case DO:
+X				case DONT:
+X					c = getc(cin);
+X					(void) fprintf(cout, "%c%c%c",IAC,WONT,c);
+X					(void) fflush(cout);
+X					break;
+X				default:
+X					break;
+X				}
+X				continue;
+X			}
+X			dig++;
+X			if (c == EOF) {
+X				if (expecteof) {
+X					(void) signal(SIGINT,oldintr);
+X					code = 221;
+X					return (0);
+X				}
+X				lostpeer(0);
+X				if (NOT_VQUIET) {
+X					(void) printf("421 Service not available, remote server has closed connection\n");
+X					(void) fflush(stdout);
+X				}
+X				code = 421;
+X				return(4);
+X			}
+X			if (cp < end && c != '\r')
+X				*cp++ = c;
+X
+X			if (c == '\n')
+X				break;
+X			if (dig < 4 && isdigit(c))
+X				code = thiscode = code * 10 + (c - '0');
+X			else if (dig == 4 && c == '-') {
+X				if (continuation)
+X					code = 0;
+X				continuation++;
+X			}
+X			if (n == 0)
+X				n = c;
+X		}	/* end for(;;) #2 */
+X		
+X		*cp = '\0';
+X		switch (verbose) {
+X			case V_QUIET:
+X				/* Don't print anything. */
+X				break;
+X			case V_ERRS:
+X				if (n == '5') {
+X					dp = reply_string;
+X					goto stripCode;
+X				}
+X				break;	
+X			case V_TERSE:
+X				dp = NULL;
+X				if (n == '5')
+X					dp = reply_string;
+X				else if (n == '2') {
+X					switch (thiscode) {
+X						case 230:
+X						case 214:
+X						case 332:
+X							dp = reply_string;
+X							break;
+X						case 220:
+X							/*
+X							 * Skip the foo FTP server ready line.
+X							 */
+X							if (strstr(reply_string, "ready.") == NULL)
+X								dp = reply_string;
+X							break;
+X						case 250:
+X							/*
+X							 * Print 250 lines if they aren't
+X							 * "250 CWD command successful."
+X							 */
+X							if (strncmp(reply_string + 4, "CWD ", (size_t) 4))
+X								dp = reply_string;
+X					}
+X				}
+X				if (dp == NULL) break;			
+XstripCode:
+X				/* Try to strip out the code numbers, etc. */
+X				if (isdigit(*dp++) && isdigit(*dp++) && isdigit(*dp++)) {
+X					if (*dp == ' ' || *dp == '-') {
+X						dp++;
+X						if (*dp == ' ') dp++;
+X					} else dp = reply_string;			
+X				} else {
+X					int spaces;
+X					dp = reply_string;
+X					for (spaces = 0; spaces < 4; ++spaces)
+X						if (dp[spaces] != ' ')
+X							break;
+X					if (spaces == 4)
+X						dp += spaces;
+X				}					
+X				goto printLine;
+X			case V_VERBOSE:
+X				dp = reply_string;
+XprintLine:		(void) fputs(dp, stdout);
+X		}	/* end switch */
+X
+X		if (continuation && code != originalcode) {
+X			if (originalcode == 0)
+X				originalcode = code;
+X			continue;
+X		}
+X		if (n != '1')
+X			cpend = 0;
+X		(void) signal(SIGINT,oldintr);
+X		if (code == 421 || originalcode == 421)
+X			lostpeer(0);
+X		if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN && oldintr)
+X			(*oldintr)(0);
+X		return (n - '0');
+X	}	/* end for(;;) #1 */
+X}	/* getreply */
+X
+X
+X
+X
+Xstatic int empty(struct fd_set *mask, int sec)
+X{
+X	struct timeval t;
+X
+X	t.tv_sec = (long) sec;
+X	t.tv_usec = 0;
+X	return(select(32, (int *) mask, (int *) 0, (int *) 0, &t));
+X}	/* empty */
+X
+X
+X
+Xvoid progress_report(void)
+X{
+X	next_report += xferbufsize;
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (stop.tv_sec > now_sec) {
+X		(void) printf("\b\b\b\b\b\b%3ld%%  ", 100L * bytes / remote_size);
+X		(void) fflush(stdout);
+X		now_sec = stop.tv_sec;
+X	}
+X}	/* progress_report */
+X
+X
+X
+Xvoid close_file(FILE **fin, int filetype)
+X{
+X	if (*fin != NULL) {
+X		if (filetype == IS_FILE) {
+X			(void) fclose(*fin);
+X			*fin = NULL;
+X		} else if (filetype == IS_PIPE) {
+X			(void) pclose(*fin);
+X			*fin = NULL;
+X		}
+X	}
+X}	/* close_file */
+X
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid abortsend(int unused)
+X{
+X	activemcmd = 0;
+X	abrtflag = 0;
+X	(void) printf("\nSend aborted.\n");
+X	(void) fflush(stdout);
+X	longjmp(sendabort, 1);
+X}	/* abortsend */
+X
+X
+X
+Xvoid sendrequest(char *cmd, char *local, char *remote)
+X{
+X	FILE					*fin, *dout = NULL;
+X	void					(*oldintr)(int), (*oldintp)(int);
+X	string					str;
+X	register int			c, d;
+X	struct stat				st;
+X	int						filetype;
+X	int						do_reports = 0;
+X	char					*mode;
+X	register char			*bufp;
+X
+X	oldintr = NULL;
+X	oldintp = NULL;
+X	mode = "w";
+X	bytes = 0;
+X	if (setjmp(sendabort)) {
+X		while (cpend) {
+X			(void) getreply(0);
+X		}
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		if (oldintr)
+X			(void) signal(SIGINT,oldintr);
+X		if (oldintp)
+X			(void) signal(SIGPIPE,oldintp);
+X		code = -1;
+X		return;
+X	}
+X	oldintr = signal(SIGINT, abortsend);
+X	if (strcmp(local, "-") == 0)  {
+X		fin = stdin;
+X		filetype = IS_STREAM;
+X	} else if (*local == '|') {
+X		filetype = IS_PIPE;
+X		oldintp = signal(SIGPIPE,SIG_IGN);
+X		fin = popen(local + 1, "r");
+X		if (fin == NULL) {
+X			Perror(local + 1);
+X			(void) signal(SIGINT, oldintr);
+X			(void) signal(SIGPIPE, oldintp);
+X			code = -1;
+X			return;
+X		}
+X	} else {
+X		filetype = IS_FILE;
+X		fin = fopen(local, "r");
+X		if (fin == NULL) {
+X			Perror(local);
+X			(void) signal(SIGINT, oldintr);
+X			code = -1;
+X			return;
+X		}
+X		if (fstat(fileno(fin), &st) < 0 ||
+X		    (st.st_mode&S_IFMT) != S_IFREG) {
+X			(void) fprintf(stdout, "%s: not a plain file.\n", local);
+X			(void) signal(SIGINT, oldintr);
+X			(void) fclose(fin);
+X			code = -1;
+X			return;
+X		}
+X	}
+X	if (initconn()) {
+X		(void) signal(SIGINT, oldintr);
+X		if (oldintp)
+X			(void) signal(SIGPIPE, oldintp);
+X		code = -1;
+X		close_file(&fin, filetype);
+X		return;
+X	}
+X	if (setjmp(sendabort))
+X		goto Abort;
+X
+X	if (remote) {
+X		(void) sprintf(str, "%s %s", cmd, remote);
+X		if (command(str) != PRELIM) {
+X			(void) signal(SIGINT, oldintr);
+X			if (oldintp)
+X				(void) signal(SIGPIPE, oldintp);
+X			close_file(&fin, filetype);
+X			return;
+X		}
+X	} else
+X		if (command(cmd) != PRELIM) {
+X			(void) signal(SIGINT, oldintr);
+X			if (oldintp)
+X				(void) signal(SIGPIPE, oldintp);
+X			close_file(&fin, filetype);
+X			return;
+X		}
+X	dout = dataconn(mode);
+X	if (dout == NULL)
+X		goto Abort;
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	oldintp = signal(SIGPIPE, SIG_IGN);
+X	if (filetype == IS_FILE && NOT_VQUIET) {
+X		now_sec = start.tv_sec;
+X		do_reports = want_progress;
+X		(void) printf("%s:       ", local);
+X		(void) fflush(stdout);
+X	}
+X
+X	switch (curtype) {
+X
+X	case TYPE_I:
+X	case TYPE_L:
+X		errno = d = 0;
+X		while ((c = read(fileno(fin), xferbuf, (int)xferbufsize)) > 0) {
+X			bytes += c;
+X			for (bufp = xferbuf; c > 0; c -= d, bufp += d)
+X				if ((d = write(fileno(dout), bufp, c)) <= 0)
+X					break;
+X			/* Print progress indicator. */
+X			if (do_reports)
+X				progress_report();
+X		}
+X		if (c < 0)
+X			Perror(local);
+X		if (d <= 0) {
+X			if (d == 0 && !creating)
+X				(void) fprintf(stderr, "netout: write returned 0?\n");
+X			else if (errno != EPIPE) 
+X				Perror("netout");
+X			bytes = -1;
+X		}
+X		break;
+X
+X	case TYPE_A:
+X		next_report = xferbufsize;
+X		while ((c = getc(fin)) != EOF) {
+X			if (c == '\n') {
+X				if (ferror(dout))
+X					break;
+X				(void) putc('\r', dout);
+X				bytes++;
+X			}
+X			(void) putc(c, dout);
+X			bytes++;
+X
+X			/* Print progress indicator. */
+X			if (do_reports && bytes > next_report)
+X				progress_report();
+X		}
+X		if (ferror(fin))
+X			Perror(local);
+X		if (ferror(dout)) {
+X			if (errno != EPIPE)
+X				Perror("netout");
+X			bytes = -1;
+X		}
+X		break;
+X	}
+XDone:
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	close_file(&fin, filetype);
+X	if (dout)
+X		(void) fclose(dout);
+X	(void) getreply(0);
+X	(void) signal(SIGINT, oldintr);
+X	if (oldintp)
+X		(void) signal(SIGPIPE, oldintp);
+X    if (bytes > 0)
+X        ptransfer("sent", bytes, &start, &stop, local, remote);
+X	return;
+XAbort:
+X	code = -1;
+X	if (!cpend)
+X		return;
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	goto Done;
+X}	/* sendrequest */
+X
+X
+X
+Xlong get_remote_size(char *remote, int filetype)
+X{
+X	int oldverbose;
+X	long rmt_size;
+X	string str;
+X
+X	rmt_size = -1;				/*
+X								 * Return -1 if we could't get it. 
+X								 * Not all sites support SIZE.
+X								 */
+X	
+X	if (filetype == IS_FILE) {
+X		/* Won't make sense for a pipe or stream. */
+X		(void) sprintf(str, "SIZE %s", remote);
+X		*reply_string = 0;
+X		oldverbose = verbose;
+X		verbose = V_QUIET;
+X		(void) command(str);
+X		verbose = oldverbose;
+X		if (*reply_string != 5)		/* 5xx is an error. */
+X			(void) sscanf(reply_string, "%*d %ld", &rmt_size);	
+X	}
+X	return rmt_size;
+X}	/* get_remote_size */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid abortrecv(int unused)
+X{
+X	activemcmd = 0;
+X	abrtflag = 0;
+X	(void) printf("(abort)\n");
+X	(void) fflush(stdout);
+X	longjmp(recvabort, 1);
+X}	/* abortrecv */
+X
+X
+X
+Xvoid recvrequest(char *cmd, char *local, char *remote, char *mode)
+X{
+X	FILE						*fout, *din;
+X	void						(*oldintr)(int), (*oldintp)(int); 
+X	int							oldverbose, oldtype = 0, is_retr;
+X	int							tcrflag, nfnd;
+X	char						msg;
+X	string						str;
+X	struct fd_set				mask;
+X	int							c, d;
+X	int							filetype, do_reports = 0;
+X#ifdef REDIR
+X	char						*linePtr;
+X	int							nchars;
+X	string						str2;
+X#endif
+X
+X	bytes = 0;
+X	is_retr = strcmp(cmd, "RETR") == 0;
+X	oldintr = NULL;
+X	oldintp = NULL;
+X	tcrflag = /* !crflag && */ is_retr;
+X	if (setjmp(recvabort)) {
+X		while (cpend) {
+X			(void) getreply(0);
+X		}
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		if (oldintr)
+X			(void) signal(SIGINT, oldintr);
+X		code = -1;
+X		return;
+X	}
+X	oldintr = signal(SIGINT, abortrecv);
+X
+X	if (strcmp(local, "-") == 0)
+X		filetype = IS_STREAM;
+X	else if (*local == '|')
+X		filetype = IS_PIPE;
+X	else {
+X		filetype = IS_FILE;  /* is_retr ? IS_FILE : IS_STREAM; */
+X		if (access(local, 2) < 0) {
+X			char *dir = rindex(local, '/');
+X
+X			if (errno != ENOENT && errno != EACCES) {
+X				Perror(local);
+X				(void) signal(SIGINT, oldintr);
+X				code = -1;
+X				return;
+X			}
+X			/* See if we have write permission on this directory. */
+X			if (dir != NULL) {
+X				/* Special case: /filename. */
+X				if (dir != local)
+X					*dir = 0;
+X				if (access(dir == local ? "/" : local, 2) < 0) {
+X					/*
+X					 *	We have a big long pathname, like /a/b/c/d,
+X					 *	but see if we can write into the current
+X					 *	directory and call the file ./d.
+X					 */
+X					if (access(".", 2) < 0) {
+X						(void) strcpy(local, " and .");
+X						goto noaccess;
+X					}
+X					(void) strcpy(local, dir + 1);	/* use simple filename. */
+X				} else
+X					*dir = '/';
+X			} else {
+X				/* We have a simple path name (file name only). */
+X				if (access(".", 2) < 0) {
+Xnoaccess:			Perror(local);
+X					(void) signal(SIGINT, oldintr);
+X					code = -1;
+X					return;
+X				}
+X			}
+X		}
+X	}
+X	if (initconn()) {
+X		(void) signal(SIGINT, oldintr);
+X		code = -1;
+X		return;
+X	}
+X	if (!is_retr) {
+X		if (curtype != TYPE_A) {
+X			oldtype = curtype;
+X			oldverbose = verbose;
+X			if (!debug)
+X				verbose = V_QUIET;
+X			setascii(0, NULL);
+X			verbose = oldverbose;
+X		}
+X	}
+X
+X	remote_size = get_remote_size(remote, filetype);
+X	if (remote) {
+X		(void) sprintf(str, "%s %s", cmd, remote);
+X		if (command(str) != PRELIM) 
+X			goto nevrmind;
+X	} else {
+X		if (command(cmd) != PRELIM) {
+Xnevrmind:	(void) signal(SIGINT, oldintr);
+X			if (oldtype) {
+X				if (!debug)
+X					verbose = V_QUIET;
+X				if (oldtype == TYPE_I)
+X					setbinary(0, NULL);
+X				verbose = oldverbose;
+X			}
+X			return;
+X		}
+X	}
+X	din = dataconn("r");
+X	if (din == NULL)
+X		goto Abort;
+X	if (filetype == IS_STREAM) {
+X		fout = stdout;
+X	} else if (filetype == IS_PIPE) {
+X		oldintp = signal(SIGPIPE, SIG_IGN);
+X		fout = popen(local + 1, "w");
+X		if (fout == NULL) {
+X			Perror(local+1);
+X			goto Abort;
+X		}
+X	} else {
+X		fout = fopen(local, mode);
+X		if (fout == NULL) {
+X			Perror(local);
+X			goto Abort;
+X		}
+X	}
+X
+X	(void) gettimeofday(&start, (struct timezone *)0);
+X	do_reports = want_progress && (remote_size > 0) && !paging;
+X	if (filetype == IS_FILE && NOT_VQUIET && do_reports) {
+X		now_sec = start.tv_sec;
+X		(void) printf("%s:       ", local);
+X		(void) fflush(stdout);
+X	}
+X
+X	if (setjmp(recvabort))
+X		goto Abort;
+X
+X	switch (curtype) {
+X
+X	case TYPE_I:
+X	case TYPE_L:
+X		errno = d = 0;
+X		while ((c = read(fileno(din), xferbuf, (int)xferbufsize)) > 0) {
+X			if ((d = write(fileno(fout), xferbuf, c)) != c)
+X				break;
+X			bytes += c;
+X
+X			/* Print progress indicator. */
+X			if (do_reports)
+X				progress_report();
+X		}
+X		if (c < 0) {
+X			if (errno != EPIPE)
+X				Perror("netin");
+X			bytes = -1;
+X		}
+X		if (d < c) {
+X			if (d < 0) {
+X				if (errno != EPIPE)
+X					Perror(local);
+X			} else
+X				(void) fprintf(stderr, "%s: short write\n", local);
+X		}
+X		break;
+X
+X	case TYPE_A:
+X#ifdef REDIR
+X		nchars = 0;
+X		linePtr = str2;
+X#endif
+X		next_report = xferbufsize;
+X		while ((c = getc(din)) != EOF) {
+X			while (c == '\r') {
+X				bytes++;
+X				if ((c = getc(din)) != '\n' || tcrflag) {
+X					if (ferror(fout))
+X						goto break2;
+X					(void) putc('\r', fout);
+X					if (c == '\0') {
+X						bytes++;
+X						goto contin2;
+X					}
+X					if (c == EOF)
+X						goto contin2;
+X				}
+X			}
+X			(void) putc(c, fout);
+X			bytes++;
+X			
+X			/* Print progress indicator. */
+X			if (do_reports && bytes > next_report)
+X				progress_report();
+X#ifdef REDIR
+X			if (nchars < sizeof(str2) - 1) {		/* No seg violations, please */
+X         		*linePtr++ = c;  /* build redir string */
+X         		nchars++;
+X         	}
+X#endif
+X   contin2:
+X#ifdef REDIR
+X			/* Save the input line in the buffer for recall later. */
+X	         if (c=='\n' && is_ls) {
+X	            register struct lslist *new;
+X	
+X				*--linePtr = '\0';
+X				nchars--;
+X				new = (struct lslist *) malloc((size_t) sizeof(struct lslist));
+X				if (new != NULL) {
+X					if (new->string = malloc(strlen(str2) + 1))
+X						(void) strcpy(new->string, str2);
+X		   			new->next = NULL;
+X	   				if (lshead == NULL)
+X	   					lshead = lstail = new;
+X	  				else {
+X	  					lstail->next = new;
+X	  					lstail = new;
+X			      	}
+X		      	}
+X		      	/* reset line buffer */
+X				linePtr = str2;
+X				nchars = 0;
+X			}	/* ls mode & last char is a newline */
+X#else
+X			;
+X#endif
+X		}	/* while ((c = getc(din)) != EOF) */
+Xbreak2:
+X		if (ferror(din)) {
+X			if (errno != EPIPE)
+X				Perror("netin");
+X			bytes = -1;
+X		}
+X		if (ferror(fout)) {
+X			if (errno != EPIPE)
+X				Perror(local);
+X		}
+X		break;
+X	}	/* end switch (curtype) */
+X	
+X	close_file(&fout, filetype);
+X	(void) signal(SIGINT, oldintr);
+X	if (oldintp)
+X		(void) signal(SIGPIPE, oldintp);
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (din)
+X		(void) fclose(din);
+X	(void) getreply(0);
+X	if (bytes > 0 && is_retr && !paging)
+X		ptransfer("received", bytes, &start, &stop, local, remote);
+X	if (oldtype) {
+X		if (!debug)
+X			verbose = V_QUIET;
+X			if (oldtype == TYPE_I)
+X				setbinary(0, NULL);
+X		verbose = oldverbose;
+X	}
+X	return;
+XAbort:
+X
+X/* Abort using RFC959 recommended IP,SYNC sequence  */
+X
+X	(void) gettimeofday(&stop, (struct timezone *)0);
+X	if (oldintp)
+X		(void) signal(SIGPIPE, oldintr);
+X	(void) signal(SIGINT,SIG_IGN);
+X	if (oldtype) {
+X		if (!debug)
+X			verbose = V_QUIET;
+X			if (oldtype == TYPE_I)
+X				setbinary(0, NULL);
+X		verbose = oldverbose;
+X	}
+X	if (!cpend) {
+X		code = -1;
+X		(void) signal(SIGINT,oldintr);
+X		return;
+X	}
+X
+X	if (!cout) return;
+X	(void) fprintf(cout,"%c%c",IAC,IP);
+X	(void) fflush(cout); 
+X	msg = IAC;
+X/* send IAC in urgent mode instead of DM because UNIX places oob mark */
+X/* after urgent byte rather than before as now is protocol            */
+X	if (send(fileno(cout),&msg,1,MSG_OOB) != 1) {
+X		Perror("abort");
+X	}
+X	(void) fprintf(cout,"%cABOR\r\n",DM);
+X	(void) fflush(cout);
+X	FD_ZERO(&mask);
+X	FD_SET(fileno(cin), &mask);
+X	if (din) { 
+X		FD_SET(fileno(din), &mask);
+X	}
+X	if ((nfnd = empty(&mask,10)) <= 0) {
+X		if (nfnd < 0) {
+X			Perror("abort");
+X		}
+X		code = -1;
+X		lostpeer(0);
+X	}
+X	if (din && FD_ISSET(fileno(din), &mask)) {
+X		while ((c = read(fileno(din), xferbuf, xferbufsize)) > 0)
+X			;
+X	}
+X	if ((c = getreply(0)) == ERROR && code == 552) { /* needed for nic style abort */
+X		if (data >= 0) {
+X			(void) close(data);
+X			data = -1;
+X		}
+X		(void) getreply(0);
+X	}
+X	(void) getreply(0);
+X	code = -1;
+X	if (data >= 0) {
+X		(void) close(data);
+X		data = -1;
+X	}
+X	close_file(&fout, filetype);
+X	if (din)
+X		(void) fclose(din);
+X	if (bytes > 0)
+X		ptransfer("received", bytes, &start, &stop, local, remote);
+X	(void) signal(SIGINT,oldintr);
+X}	/* recvrequest */
+X
+X
+X
+X
+X/*
+X * Need to start a listen on the data channel
+X * before we send the command, otherwise the
+X * server's connect may fail.
+X */
+X
+Xinitconn(void)
+X{
+X	register char		*p, *a;
+X	int					result, len, tmpno = 0;
+X	int					on = 1, rval;
+X	string				str;
+X	void				(*oldintr)(int);
+X
+X	oldintr = signal(SIGINT, SIG_IGN);
+Xnoport:
+X	data_addr = myctladdr;
+X	if (sendport)
+X		data_addr.sin_port = 0;	/* let system pick one */ 
+X	if (data != -1)
+X		(void) close (data);
+X	data = socket(AF_INET, SOCK_STREAM, 0);
+X	if (data < 0) {
+X		Perror("socket");
+X		if (tmpno)
+X			sendport = 1;
+X		rval = 1;  goto Return;
+X	}
+X	if (!sendport)
+X		if (setsockopt(data, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof (on)) < 0) {
+X			Perror("setsockopt (reuse address)");
+X			goto bad;
+X		}
+X	if (bind(data, (struct sockaddr *)&data_addr, sizeof (data_addr)) < 0) {
+X		Perror("bind");
+X		goto bad;
+X	}
+X	if (options & SO_DEBUG &&
+X	    setsockopt(data, SOL_SOCKET, SO_DEBUG, (char *)&on, sizeof (on)) < 0)
+X		Perror("setsockopt (ignored)");
+X	len = sizeof (data_addr);
+X	if (getsockname(data, (char *)&data_addr, &len) < 0) {
+X		Perror("getsockname");
+X		goto bad;
+X	}
+X	if (listen(data, 1) < 0)
+X		Perror("listen");
+X	if (sendport) {
+X		a = (char *)&data_addr.sin_addr;
+X		p = (char *)&data_addr.sin_port;
+X#define UC(x) (int) (((int) x) & 0xff)
+X		(void) sprintf(str, "PORT %d,%d,%d,%d,%d,%d",
+X			UC(a[0]), UC(a[1]), UC(a[2]), UC(a[3]), UC(p[0]), UC(p[1]));
+X        result = command(str);
+X		if (result == ERROR && sendport == -1) {
+X			sendport = 0;
+X			tmpno = 1;
+X			goto noport;
+X		}
+X		rval = (result != COMPLETE);  goto Return;
+X	}
+X	if (tmpno)
+X		sendport = 1;
+X	rval = 0;  goto Return;
+Xbad:
+X	(void) close(data), data = -1;
+X	if (tmpno)
+X		sendport = 1;
+X	rval = 1;
+XReturn:
+X	(void) signal(SIGINT, oldintr);
+X	return (rval);
+X}	/* initconn */
+X
+X
+X
+X
+XFILE *
+Xdataconn(char *mode)
+X{
+X	struct sockaddr_in from;
+X	FILE *fp;
+X	int s, fromlen = sizeof (from);
+X
+X	s = accept(data, (struct sockaddr *) &from, &fromlen);
+X	if (s < 0) {
+X		Perror("accept");
+X		(void) close(data), data = -1;
+X		fp = NULL;
+X	} else {
+X		(void) close(data);
+X		data = s;
+X		fp = fdopen(data, mode);
+X	}
+X	return (fp);
+X}	/* dataconn */
+X
+X
+X
+Xstatic void tvsub(struct timeval *tdiff, struct timeval *t1, struct timeval *t0)
+X{
+X	tdiff->tv_sec = t1->tv_sec - t0->tv_sec;
+X	tdiff->tv_usec = t1->tv_usec - t0->tv_usec;
+X	if (tdiff->tv_usec < 0)
+X		tdiff->tv_sec--, tdiff->tv_usec += 1000000;
+X}	/* tvsub */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid ptransfer(char *direction, long nbytes, struct timeval *t0, struct timeval *t1, char *local, char *remote)
+X{
+X    struct timeval			td;
+X    float					s, bs;
+X    char					*cp;
+X	string					str;
+X
+X    if (NOT_VQUIET || (logf != NULL)) {
+X        tvsub(&td, t1, t0);
+X        s = td.tv_sec + (td.tv_usec / 1000000.0);
+X        if (s != 0.0)
+X            bs = nbytes / s;
+X        (void) printf("\b\b\b\b\b\b%ld bytes %s in %.2f seconds, ",
+X            nbytes, direction, s);
+X        if (logf != NULL) {
+X            /* if a simple path is given, try to log the full path */
+X            if (rindex(remote, '/') == NULL && cwd != NULL) {
+X            	(void) sprintf(str, "%s/%s", cwd, remote);
+X                cp = str;
+X            } else
+X            	cp = remote;
+X            (void) fprintf(logf, "\t-> \"%s\" %s, ", cp, direction);
+X        }
+X        if (bs > 1024.0) {
+X            bs /= 1024.0;
+X            cp = "%.2f K/s.\n";
+X        } else cp = "%.2f Bytes/s.\n";
+X        if (NOT_VQUIET) (void) printf(cp, bs);
+X        if (logf != NULL)
+X        	(void) fprintf(logf, cp, bs);
+X    } 
+X}   /* ptransfer */
+X
+X/* eof ftp.c */
+END_OF_FILE
+  if test 26888 -ne `wc -c <'ftp.c'`; then
+    echo shar: \"'ftp.c'\" unpacked with wrong size!
+  fi
+  # end of 'ftp.c'
+fi
+if test -f 'ftprc.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftprc.h'\"
+else
+  echo shar: Extracting \"'ftprc.h'\" \(423 characters\)
+  sed "s/^X//" >'ftprc.h' <<'END_OF_FILE'
+X/* ftprc.h */
+X
+X#ifndef _ftprc_h_
+X#define _ftprc_h_
+X
+X#ifndef RCNAME
+X#define RCNAME "netrc"
+X#endif
+X
+X#define RC_DELIM " \n\t,"
+X
+Xtypedef struct site *siteptr;
+Xtypedef struct site {
+X	char *name;			/* name (or IP address) of site */
+X	siteptr next;
+X} site;
+X
+Xint thrash_rc(void);
+Xvoid AddNewSitePtr(char *word);
+Xint ruserpass2(char *host, char **user, char **pass, char **acct);
+Xvoid GetFullSiteName(char *host);
+X
+X#endif
+X/* eof */
+END_OF_FILE
+  if test 423 -ne `wc -c <'ftprc.h'`; then
+    echo shar: \"'ftprc.h'\" unpacked with wrong size!
+  fi
+  # end of 'ftprc.h'
+fi
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+  echo shar: Extracting \"'main.c'\" \(17355 characters\)
+  sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/* main.c */
+X
+X#define _main_c_
+X
+X#include "sys.h"
+X#include <sys/types.h>
+X#include <sys/param.h>
+X#include <sys/socket.h>
+X#include <sys/ioctl.h>
+X#include <sys/stat.h>
+X#include <sys/time.h>
+X#include <arpa/ftp.h>
+X#include <setjmp.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <ctype.h>
+X#include <netdb.h>
+X#include <unistd.h>
+X#include <pwd.h>
+X#ifdef TCAP
+X#	undef HZ		/* Collides with HaZeltine ! */
+X#	include <tcap.h>
+X#endif	/* TCAP */
+X#include "ftpdefs.h"
+X#include "defaults.h"
+X#include "cmds.h"
+X#include "main.h"
+X#include "ftp.h"
+X#include "ftprc.h"
+X#include "copyright.h"
+X
+X/* main.c globals */
+Xint					slrflag;
+Xint					fromatty;			/* input is from a terminal */
+Xchar				*altarg;			/* argv[1] with no shell-like preprocessing  */
+Xstruct	servent		*sp;				/* service spec for tcp/ftp */
+Xjmp_buf				toplevel;			/* non-local goto stuff for cmd scanner */
+Xchar				*line;				/* input line buffer */
+Xchar				*stringbase;		/* current scan point in line buffer */
+Xchar				*argbuf;			/* argument storage buffer */
+Xchar				*argbase;			/* current storage point in arg buffer */
+Xint					margc;				/* count of arguments on input line */
+Xchar				*margv[20];			/* args parsed from input line */
+Xstruct userinfo		uinfo;				/* a copy of their pwent really */
+Xint					ansi_escapes;		/* for fancy graphics */
+Xint					ignore_rc;			/* are we supposed to ignore the netrc */
+Xstring				progname;			/* simple filename */
+Xstring				prompt, prompt2;	/* shell prompt string */
+Xstring				anon_password;		/* most likely your email address */
+Xstring				pager;				/* program to browse text files */
+Xstring				version = FTP_VERSION;
+Xlong				eventnumber;		/* number of commands we've done */
+XFILE				*logf = NULL;		/* log user activity */
+Xstring				logfname;			/* name of the logfile */
+Xlong				logsize = 4096L;	/* max log size. 0 == no limit */
+Xint					percent_flags;		/* "%" in prompt string? */
+Xint					at_flags;			/* "@" in prompt string? */
+Xstring 				mail_path;			/* your mailbox */
+Xint					newmail;			/* how many new letters you have */
+Xtime_t				mbox_time;			/* last modified time of mbox */
+X
+Xstatic char			*tcap_normal = "\033[0m";	/* Default ANSI escapes */
+Xstatic char			*tcap_boldface = "\033[1m";
+Xstatic char			*tcap_underline = "\033[4m";
+Xstatic char			*tcap_reverse = "\033[7m";
+X
+X#ifdef TCAP
+Xstatic char			tcbuf[2048];
+X#endif
+X
+X/* main.c externs */
+Xextern int			debug, verbose, mprompt;
+Xextern int			options, cpend, data, connected;
+Xextern int			curtype, macnum;
+Xextern FILE			*cout;
+Xextern struct cmd	cmdtab[];
+Xextern str32		curtypename;
+Xextern char			*macbuf;
+Xextern char			*reply_string;
+Xextern string		hostname, cwd, lcwd;
+Xextern int			optind;
+Xextern char			*optarg;
+X
+Xmain(int argc, char **argv)
+X{
+X	register char		*cp;
+X	int					top, opt;
+X
+X	if ((cp = rindex(argv[0], '/'))) cp++;
+X	else cp = argv[0];
+X	(void) Strncpy(progname, cp);
+X	
+X	sp = getservbyname("ftp", "tcp");
+X	if (sp == 0) fatal("ftp/tcp: unknown service");
+X
+X	if (init_arrays())			/* Reserve large blocks of memory now */
+X		fatal("could not reserve large amounts of memory.");
+X
+X	/*
+X	 * Set up defaults for FTP.
+X	 */
+X	mprompt = dMPROMPT;
+X	verbose = dVERBOSE;
+X	debug = dDEBUG;
+X
+X	(void) Strncpy(curtypename, dTYPESTR);
+X	curtype = dTYPE;
+X	(void) Strncpy(prompt, dPROMPT);
+X	
+X	/*	Setup our pager variable, before we run through the rc,
+X		which may change it. */
+X	set_pager(getenv("PAGER"), 0);
+X
+X	ansi_escapes = 0;
+X	if ((cp = getenv("TERM")) != NULL && *cp++ == 'v' && *cp++ == 't')
+X		ansi_escapes = 1;	/* only if a vt100ish terminal */
+X	(void) getuserinfo();
+X	newmail = 0;
+X	(void) time(&mbox_time);
+X	(void) Strncpy(anon_password, uinfo.username);
+X	if (getlocalhostname(uinfo.hostname, sizeof(uinfo.hostname)) == 0) {
+X		(void) Strncat(anon_password, "@");
+X		(void) Strncat(anon_password, uinfo.hostname);
+X	}
+X#if dLOGGING
+X	(void) sprintf(logfname, "%s/%s", uinfo.homedir, dLOGNAME);
+X#else
+X	*logfname = 0;
+X#endif
+X	(void) get_cwd(lcwd, (int) sizeof(lcwd));
+X
+X	ignore_rc = 0;
+X
+X	while ((opt = getopt(argc, argv, "dvinr0hH")) >= 0) {
+X		switch(opt) {
+X			case 'd':
+X				/* options |= SO_DEBUG; done below... */
+X				debug++;
+X				break;
+X			
+X			case 'v':
+X				verbose++;
+X				break;
+X
+X			case 'i':
+X				mprompt = !mprompt;
+X				break;
+X
+X			case 'n':
+X			case 'r':
+X			case '0':
+X				ignore_rc = !ignore_rc;
+X				break;
+X
+X			case 'H':
+X			case 'h':
+X				show_version(0, NULL);
+X				exit (0);
+X
+X			default:
+X				(void) fprintf(stderr,
+X				  "%s: unknown option \"%c\"\n", progname, (int) *cp);
+X		}
+X	}
+X
+X	if (ignore_rc == 0)
+X		(void) thrash_rc();
+X
+X	(void) fix_options();	/* adjust "options" according to "debug"  */
+X	
+X	fromatty = isatty(fileno(stdin));
+X	cpend = 0;  /* no pending replies */
+X	
+X	if (*logfname)
+X		logf = fopen (logfname, "a");
+X
+X	eventnumber = 0L;
+X	cp = argv[optind];
+X	/* The user specified a host on the command line.  Open it now... */
+X	if (argc > 1 && cp) {
+X		if (setjmp(toplevel))
+X			exit(0);
+X		(void) signal(SIGINT, intr);
+X		(void) signal(SIGPIPE, lostpeer);
+X		(void) strcpy(line, "open ");
+X		(void) strcat(line, cp);
+X		makeargv();
+X		(void) setpeer(margc, margv);
+X	}
+X
+X	(void) init_prompt();
+X
+X	eventnumber = 1L;
+X	if (ansi_escapes) {
+X#ifndef TCAP
+X		(void) printf("%s%s Ready.%s\n", 
+X				tcap_boldface, FTP_VERSION, tcap_normal);
+X#else
+X		char vis[BUFSIZ];
+X		(void) sprintf(vis, "%s%s Ready.%s\n", 
+X				tcap_boldface, FTP_VERSION, tcap_normal);
+X		tcap_put(vis);
+X#endif /* !TCAP */
+X	}
+X	else
+X		(void) printf("%s Ready.\n", FTP_VERSION);
+X	top = setjmp(toplevel) == 0;
+X	if (top) {
+X		(void) signal(SIGINT, intr);
+X		(void) signal(SIGPIPE, lostpeer);
+X	}
+X	for (;;) {
+X		(void) cmdscanner(top);
+X		top = 1;
+X	}
+X}	/* main */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid intr(int unused)
+X{
+X	(void) longjmp(toplevel, 1);
+X}	/* intr */
+X
+X
+X
+Xint getuserinfo(void)
+X{
+X	register char			*cp;
+X	struct passwd			*pw = NULL;
+X	string					str;
+X	extern char				*home;	/* for glob.c */
+X	
+X	cp = getlogin();
+X	if (cp != NULL)
+X		pw = getpwnam(cp);
+X	if (pw == NULL)
+X		pw = getpwuid(getuid());
+X	if (pw != NULL) {
+X		(void) Strncpy(uinfo.username, pw->pw_name);
+X		(void) Strncpy(uinfo.shell, pw->pw_shell);
+X		(void) Strncpy(uinfo.homedir, pw->pw_dir);
+X		uinfo.uid = pw->pw_uid;
+X		home = uinfo.homedir;	/* for glob.c */
+X		if (((cp = getenv("MAIL")) == NULL) && ((cp = getenv("mail")) == NULL)) {
+X			(void) sprintf(str, "/usr/spool/mail/%s", uinfo.username);
+X			cp = str;
+X		}
+X		/*	mbox variable may be like MAIL=(28 /usr/mail/me /usr/mail/you),
+X			so try to find the first mail path.  */
+X		while (*cp != '/')
+X			cp++;
+X		(void) Strncpy(mail_path, cp);
+X		if ((cp = index(mail_path, ' ')) != NULL)
+X			*cp = '\0';
+X		return (0);
+X	} else {
+X		(void) Strncpy(uinfo.username, "unknown");
+X		(void) Strncpy(uinfo.shell, "/bin/sh");
+X		(void) Strncpy(uinfo.homedir, ".");	/* current directory */
+X		uinfo.uid = 999;
+X		return (-1);
+X	}
+X}	/* getuserinfo */
+X
+X
+X
+X
+Xint init_arrays(void)
+X{
+X	if ((macbuf = (char *) malloc((size_t)(MACBUFLEN))) == NULL)
+X		goto barf;
+X	if ((line = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((argbuf = (char *) malloc((size_t)(CMDLINELEN))) == NULL)
+X		goto barf;
+X	if ((reply_string = (char *) malloc((size_t)(RECEIVEDLINELEN))) == NULL)
+X		goto barf;
+X	
+X	*macbuf = '\0';
+X	init_transfer_buffer();
+X	return (0);
+Xbarf:
+X	return (-1);
+X}	/* init_arrays */
+X
+X
+X
+Xvoid init_transfer_buffer(void)
+X{
+X	extern char *xferbuf;
+X	extern size_t xferbufsize;
+X	
+X	xferbufsize = MAX_XFER_BUFSIZE;
+X	while (1) {
+X		xferbuf = (char *) malloc (xferbufsize);
+X		if (xferbuf != NULL || xferbufsize < 1024)
+X			break;
+X		xferbufsize >>= 2;
+X	}
+X	
+X	if (xferbuf != NULL) return;
+X	fatal("out of memory for transfer buffer.");
+X}	/* init_transfer_buffer */
+X
+X
+X
+X
+Xvoid init_prompt(void)
+X{
+X	register char *cp;
+X	
+X	percent_flags = at_flags = 0;
+X	for (cp = prompt; *cp; cp++) {
+X		if (*cp == '%') percent_flags = 1;
+X		else if (*cp == '@') at_flags = 1;
+X	}
+X}	/* init_prompt */
+X
+X
+X
+X/*ARGSUSED*/
+Xvoid lostpeer(int unused)
+X{
+X	if (connected) {
+X		close_streams(1);
+X		if (data >= 0) {
+X			(void) shutdown(data, 1+1);
+X			(void) close(data);
+X			data = -1;
+X		}
+X		connected = 0;
+X	}
+X	if (connected) {
+X		close_streams(1);
+X		connected = 0;
+X	}
+X	hostname[0] = cwd[0] = 0;
+X	macnum = 0;
+X}	/* lostpeer */
+X
+X
+X
+X/*
+X * Command parser.
+X */
+Xvoid cmdscanner(int top)
+X{
+X	register struct cmd *c;
+X#ifdef TCAP
+X	char vis[BUFSIZ], *vp;
+X#endif
+X
+X	if (!top)
+X		(void) putchar('\n');
+X	for (;;) {
+X		if (fromatty) {
+X#ifndef TCAP
+X			(void) printf(strprompt());
+X#else
+X			(void) sprintf(vis, "%s", strprompt());
+X			tcap_put(vis);
+X
+X#endif /* !TCAP */
+X			(void) fflush(stdout);
+X		}
+X		if (gets(line) == 0) {
+X			if (feof(stdin) || ferror(stdin))
+X				(void) quit(0, NULL);	/* control-d */
+X			break;
+X		}
+X		if (line[0] == 0)	/* blank line */
+X			break;
+X		eventnumber++;
+X		if (debug > 1)
+X			(void) printf("---> \"%s\"\n", line);
+X		(void) makeargv();
+X		if (margc == 0) {
+X			continue;	/* blank line... */
+X		}
+X		c = getcmd(margv[0]);
+X		if (c == (struct cmd *) -1) {
+X			(void) printf("?Ambiguous command\n");
+X			continue;
+X		}
+X		if (c == 0) {
+X			if (!implicit_cd(margv[0]))
+X				(void) printf("?Invalid command\n");
+X			continue;
+X		}
+X		if (c->c_conn && !connected) {
+X			(void) printf ("Not connected.\n");
+X			continue;
+X		}
+X		(*c->c_handler)(margc, margv);
+X		if (c->c_handler != help)
+X			break;
+X	}
+X	(void) signal(SIGINT, intr);
+X	(void) signal(SIGPIPE, lostpeer);
+X}	/* cmdscanner */
+X
+X
+X
+X
+Xchar *strprompt(void)
+X{
+X	time_t					tyme;
+X	char					eventstr[8];
+X	register char			*p, *q;
+X	string					str;
+X	extern int				percent_flags, at_flags;
+X#ifdef TCAP
+X	static int 				virgin = 0;
+X
+X	if (!virgin++ && ansi_escapes)
+X		termcap_init();
+X#endif /* TCAP */
+X
+X
+X	if (at_flags == 0 && percent_flags == 0)
+X		return (prompt);	/* But don't overwrite it! */
+X
+X	if (at_flags) {
+X		for (p = prompt, q = prompt2, *q = 0; (*p); p++)
+X			if (*p == '@') switch ((toupper(*++p))) {
+X				case '\0':
+X					--p;
+X					break;
+X				case 'M':
+X					if (CheckNewMail() > 0)
+X						q = Strpcpy(q, "(Mail) ");
+X					break;
+X				case 'P':	/* reset to no bold, no uline, no inverse, etc. */
+X					if (ansi_escapes)
+X						q = Strpcpy(q, tcap_normal);
+X					break;
+X				case 'B':	/* toggle boldface */
+X					if (ansi_escapes)
+X						q = Strpcpy(q, tcap_boldface);
+X					break;
+X				case 'U':	/* toggle underline */
+X					if (ansi_escapes)
+X						q = Strpcpy(q, tcap_underline);
+X					break;
+X				case 'R':
+X				case 'I':	/* toggle inverse (reverse) video */
+X					if (ansi_escapes)
+X						q = Strpcpy(q, tcap_reverse);
+X					break;
+X				case 'D':	/* insert current directory */
+X					if (cwd != NULL)
+X						q = Strpcpy(q, cwd);
+X					break;
+X				case 'H':	/* insert name of connected host */
+X					if (hostname != NULL)
+X						q = Strpcpy(q, hostname);
+X					break;
+X				case '!':
+X				case 'E':	/* insert event number */
+X					(void) sprintf(eventstr, "%ld", eventnumber);
+X					q = Strpcpy(q, eventstr);
+X					break;
+X				default:
+X					*q++ = *p;	/* just copy it; unknown switch */
+X			} else
+X				*q++ = *p;
+X		*q = '\0';
+X	} else 
+X		(void) strcpy(prompt2, prompt);
+X	
+X	if (percent_flags) {
+X		/*	only strftime if the user requested it (with a %something),
+X			otherwise don't waste time doing nothing. */
+X		(void) time(&tyme);
+X		(void) Strncpy(str, prompt2);
+X		(void) strftime(prompt2, sizeof(str), str, localtime(&tyme));
+X	}		
+X	return (prompt2);
+X}	/* strprompt */
+X
+X
+X
+Xchar *Strpcpy(char *dst, char *src)
+X{
+X	while (*dst++ = *src++)
+X		;
+X	return (--dst);	/* return current value of dst, NOT original value! */
+X}	/* Strpcpy */
+X
+X
+X
+X
+Xstruct cmd *getcmd(char *name)
+X{
+X	register char *p, *q;
+X	register struct cmd *c, *found;
+X	register int nmatches, longest;
+X
+X	if (name == NULL)
+X		return (NULL);
+X	longest = 0;
+X	nmatches = 0;
+X	found = 0;
+X	for (c = cmdtab; p = c->c_name; c++) {
+X		for (q = name; *q == *p++; q++)
+X			if (*q == 0)		/* exact match? */
+X				return (c);
+X		if (!*q) {			/* the name was a prefix */
+X			if (q - name > longest) {
+X				longest = q - name;
+X				nmatches = 1;
+X				found = c;
+X			} else if (q - name == longest)
+X				nmatches++;
+X		}
+X	}
+X	if (nmatches > 1)
+X		return ((struct cmd *)-1);
+X	return (found);
+X}	/* getcmd */
+X
+X
+X
+X
+X/*
+X * Slice a string up into argc/argv.
+X */
+X
+Xvoid makeargv(void)
+X{
+X	char **argp;
+X
+X	margc = 0;
+X	argp = margv;
+X	stringbase = line;		/* scan from first of buffer */
+X	argbase = argbuf;		/* store from first of buffer */
+X	slrflag = 0;
+X	while (*argp++ = slurpstring())
+X		margc++;
+X}	/* makeargv */
+X
+X
+X
+X
+X/*
+X * Parse string into argbuf;
+X * implemented with FSM to
+X * handle quoting and strings
+X */
+Xchar *slurpstring(void)
+X{
+X	int got_one = 0;
+X	register char *sb = stringbase;
+X	register char *ap = argbase;
+X	char *tmp = argbase;		/* will return this if token found */
+X
+X	if (*sb == '!' || *sb == '$') {	/* recognize ! as a token for shell */
+X		switch (slrflag) {	/* and $ as token for macro invoke */
+X			case 0:
+X				slrflag++;
+X				stringbase++;
+X				return ((*sb == '!') ? "!" : "$");
+X				/* NOTREACHED */
+X			case 1:
+X				slrflag++;
+X				altarg = stringbase;
+X				break;
+X			default:
+X				break;
+X		}
+X	}
+X
+XS0:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X		sb++; goto S0;
+X
+X	default:
+X		switch (slrflag) {
+X			case 0:
+X				slrflag++;
+X				break;
+X			case 1:
+X				slrflag++;
+X				altarg = sb;
+X				break;
+X			default:
+X				break;
+X		}
+X		goto S1;
+X	}
+X
+XS1:
+X	switch (*sb) {
+X
+X	case ' ':
+X	case '\t':
+X	case '\n':
+X	case '=':
+X	case '\0':
+X		goto OUT;	/* end of token */
+X
+X	case '\\':
+X		sb++; goto S2;	/* slurp next character */
+X
+X	case '"':
+X		sb++; goto S3;	/* slurp quoted string */
+X
+X	default:
+X		*ap++ = *sb++;	/* add character to token */
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS2:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S1;
+X	}
+X
+XS3:
+X	switch (*sb) {
+X
+X	case '\0':
+X		goto OUT;
+X
+X	case '"':
+X		sb++; goto S1;
+X
+X	default:
+X		*ap++ = *sb++;
+X		got_one = 1;
+X		goto S3;
+X	}
+X
+XOUT:
+X	if (got_one)
+X		*ap++ = '\0';
+X	argbase = ap;			/* update storage pointer */
+X	stringbase = sb;		/* update scan pointer */
+X	if (got_one) {
+X		return(tmp);
+X	}
+X	switch (slrflag) {
+X		case 0:
+X			slrflag++;
+X			break;
+X		case 1:
+X			slrflag++;
+X			altarg = (char *) 0;
+X			break;
+X		default:
+X			break;
+X	}
+X	return((char *)0);
+X}	/* slurpstring */
+X
+X
+X
+X
+X#define HELPINDENT (sizeof ("directory"))
+X
+X/*
+X * Help command.
+X * Call each command handler with argc == 0 and argv[0] == name.
+X */
+Xhelp(int argc, char **argv)
+X{
+X	register struct cmd		*c;
+X	int						i, showall = 0;
+X	char					*arg;
+X
+X	if (argc == 2)
+X		showall = strcmp(argv[1], "all") == 0;
+X	if (argc == 1 || showall)  {
+X		(void) printf("Commands may be abbreviated.  'help all' shows aliases,\ninvisible and unsupported commands.  'help <command>' \ngives a brief description of <command>.  Commands are:\n");
+X		for (c = cmdtab, i=0; c->c_name != NULL; c++) {
+X			if (c->c_hidden && !showall) continue;
+X			(void) printf("%-13s", c->c_name);
+X			if (++i == 6) {
+X				i = 0;
+X				putchar('\n');
+X			}
+X		}
+X		if (i < 6)
+X			putchar('\n');
+X	} else while (--argc > 0) {
+X		arg = *++argv;
+X		c = getcmd(arg);
+X		if (c == (struct cmd *)-1)
+X			(void) printf("?Ambiguous help command %s\n", arg);
+X		else if (c == (struct cmd *)0)
+X			(void) printf("?Invalid help command %s\n", arg);
+X		else
+X			(void) printf("%-*s\t%s\n", HELPINDENT,
+X				c->c_name, c->c_help);
+X	}
+X}	/* help */
+X
+X
+X/*
+X * If the user wants to, s/he can specify the maximum size of the log
+X * file, so it doesn't waste too much disk space.  If the log is too
+X * fat, trim the older lines (at the top) until we're under the limit.
+X */
+Xvoid trim_log(void)
+X{
+X	FILE				*new, *old;
+X	struct stat			st;
+X	long				fat;
+X	string				tmplogname, str;
+X
+X	if (logsize <= 0 || *logfname == 0 || stat(logfname, &st) ||
+X		(old = fopen(logfname, "r")) == NULL)
+X		return;	/* never trim, or no log */
+X	fat = st.st_size - logsize;
+X	if (fat <= 0L) return;	/* log too small yet */
+X	while (fat > 0L) {
+X		if (FGets(str, old) == NULL) return;
+X		fat -= (long) strlen(str);
+X	}
+X	/* skip lines until a new site was opened */
+X	while (1) {
+X		if (FGets(str, old) == NULL) {
+X			(void) fclose(old);
+X			(void) unlink(logfname);
+X			return;	/* nothing left, start anew */
+X		}
+X		if (*str != '\t') break;
+X	}
+X	
+X	/* copy the remaining lines in "old" to "new" */
+X	(void) Strncpy(tmplogname, logfname);
+X	tmplogname[strlen(tmplogname) - 1] = 'T';
+X	if ((new = fopen(tmplogname, "w")) == NULL) {
+X		(void) Perror(tmplogname);
+X		return;
+X	}
+X	(void) fputs(str, new);
+X	while (FGets(str, old))
+X		(void) fputs(str, new);
+X	(void) fclose(old); (void) fclose(new);
+X	if (unlink(logfname) < 0)
+X		Perror(logfname);
+X	if (rename(tmplogname, logfname) < 0)
+X		Perror(tmplogname);
+X}	/* trim_log */
+X
+X
+X
+X
+Xint CheckNewMail(void)
+X{
+X	struct stat stbuf;
+X
+X	if (*mail_path == '\0') return 0;
+X	if (stat(mail_path, &stbuf) < 0) {	/* cant find mail_path so we'll */
+X		*mail_path = '\0';				/* never check it again */
+X		return 0;
+X	}
+X
+X	if (stbuf.st_mtime > mbox_time) {
+X		newmail++;
+X		(void) printf("%s\n", NEWMAILMESSAGE);
+X		(void) time(&mbox_time);				/* only notify once. */
+X	}
+X	
+X	return newmail;
+X}	/* CheckNewMail */
+X
+X
+X#ifdef TCAP
+Xtermcap_init()
+X{
+X	static char area[1024];
+X	static char *s = area;
+X	char *getenv(), *tgetstr();
+X	char *term;
+X
+X	if (tgetent(tcbuf,(term = getenv("TERM"))) != 1)
+X	{
+X		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+X		return (0);
+X	}
+X
+X	if (!(tcap_normal = tgetstr("se", &s)))
+X		tcap_normal = "";
+X	if (!(tcap_boldface = tgetstr("md", &s)))
+X		tcap_boldface = "";
+X	if (!(tcap_underline = tgetstr("us", &s)))
+X		tcap_underline = "";
+X	if (!(tcap_reverse = tgetstr("so", &s)))
+X		tcap_reverse = "";
+X}
+X
+Xstatic int c_output(c)
+Xint c;
+X{
+X	putchar(c);
+X}
+X
+Xtcap_put(cap)
+Xchar *cap;
+X{
+X	tputs(cap, 0, c_output);
+X}
+X
+X#endif /* TCAP */
+X/* eof main.c */
+END_OF_FILE
+  if test 17355 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+  fi
+  # end of 'main.c'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

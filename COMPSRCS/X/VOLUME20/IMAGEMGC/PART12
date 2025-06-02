@@ -1,0 +1,1732 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i068:  imagemagic - X11 image processing and display, Part12/38
+Message-ID: <1993Jul14.175551.1375@sparky.sterling.com>
+X-Md4-Signature: 2c3eb1f129d769cf8c3761064a436ff6
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:55:51 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 68
+Archive-name: imagemagic/part12
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.12 (part 12 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/X.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 12; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/X.c'
+else
+echo 'x - continuing file ImageMagick/X.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/X.c' &&
+X            {
+X              key_symbol=XK_Delete;
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        switch (key_symbol)
+X        {
+X          case XK_BackSpace:
+X          {
+X            /*
+X              Erase one character.
+X            */
+X            if (p == reply)
+X              break;
+X            p--;
+X            x-=XTextWidth(font_info,p,1);
+X            XClearArea(display,window->id,x,y-font_info->ascent,
+X              (unsigned int) font_info->max_bounds.width,height,False);
+X            break;
+X          }
+X          case XK_Escape:
+X          {
+X            /*
+X              Return null response.
+X            */
+X            *reply='\0';
+X            state|=ExitState;
+X          }
+X          case XK_Delete:
+X          {
+X            /*
+X              Erase the entire line of text.
+X            */
+X            while (p != reply)
+X            {
+X              p--;
+X              x-=XTextWidth(font_info,p,1);
+X              XClearArea(display,window->id,x,y-font_info->ascent,
+X                (unsigned int) font_info->max_bounds.width,height,False);
+X            }
+X            break;
+X          }
+X          case XK_Return:
+X          {
+X            /*
+X              Commit to current response.
+X            */
+X            state|=ExitState;
+X            break;
+X          }
+X          default:
+X          {
+X            /*
+X              Draw a single character on the popup window.
+X            */
+X            if (*command == '\0')
+X              break;
+X            *p=(*command);
+X            XDrawString(display,window->id,graphic_context,x,y,p,1);
+X            x+=XTextWidth(font_info,p,1);
+X            p++;
+X            break;
+X          }
+X        }
+X        break;
+X      }
+X      case KeyRelease:
+X      {
+X        static char
+X          command[2048];
+X
+X        static KeySym
+X          key_symbol;
+X
+X        /*
+X          Respond to a user key release.
+X        */
+X        *command='\0';
+X        XLookupString((XKeyEvent *) &event.xkey,command,sizeof(command),
+X          &key_symbol,(XComposeStatus *) NULL);
+X        if (key_symbol == XK_Control_L)
+X          state&=(~ControlState);
+X        break;
+X      }
+X      case VisibilityNotify:
+X      {
+X        XMapRaised(display,window->id);
+X        break;
+X      }
+X      default:
+X        break;
+X    }
+X  } while (!(state & ExitState));
+X  XDefineCursor(display,window->id,window->cursor);
+X  XFreeCursor(display,cursor);
+X  XWithdrawWindow(display,window->id,window->screen);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X R e f r e s h W i n d o w                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XRefreshWindow refreshes an image in a X window.
+%
+%  The format of the XRefreshWindow routine is:
+%
+%      XRefreshWindow(display,window,event)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o event: Specifies a pointer to a XEvent structure.  If it is NULL,
+%      the entire image is refreshed.
+%
+%
+*/
+void XRefreshWindow(display,window,event)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+XXEvent
+X  *event;
+{
+X  int
+X    x,
+X    y;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  if (event != (XEvent *) NULL)
+X    {
+X      /*
+X        Determine geometry from expose event.
+X      */
+X      x=event->xexpose.x;
+X      y=event->xexpose.y;
+X      width=event->xexpose.width;
+X      height=event->xexpose.height;
+X    }
+X  else
+X    {
+X      XEvent
+X        discard_event;
+X
+X      /*
+X        Refresh entire window; discard outstanding expose events.
+X      */
+X      x=0;
+X      y=0;
+X      width=window->width;
+X      height=window->height;
+X      XSync(display,False);
+X      while (XCheckTypedWindowEvent(display,window->id,Expose,&discard_event));
+X    }
+X  /*
+X    Check boundary conditions.
+X  */
+X  if ((window->ximage->width-(x+window->x)) < width)
+X    width=window->ximage->width-(x+window->x);
+X  if ((window->ximage->height-(y+window->y)) < height)
+X    height=window->ximage->height-(y+window->y);
+X  /*
+X    Refresh image.
+X  */
+X  if (window->pixmap != (Pixmap) NULL)
+X    {
+X      if (window->depth > 1)
+X        XCopyArea(display,window->pixmap,window->id,window->graphic_context,
+X          x+window->x,y+window->y,width,height,x,y);
+X      else
+X        XCopyPlane(display,window->pixmap,window->id,window->highlight_context,
+X          x+window->x,y+window->y,width,height,x,y,1L);
+X    }
+X  else
+X    XPutImage(display,window->id,window->graphic_context,window->ximage,
+X      x+window->x,y+window->y,x,y,width,height);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X S e l e c t W i n d o w                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XSelectWindow allows a user to select a window using the mouse.  If
+%  the mouse moves, a clipping rectangle is drawn and the extents of the
+%  rectangle is returned in the clip_info structure.
+%
+%  The format of the XSelectWindow function is:
+%
+%      target_window=XSelectWindow(display,clip_info)
+%
+%  A description of each parameter follows:
+%
+%    o window: XSelectWindow returns the window id.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o clip_info: Specifies a pointer to a RectangleInfo structure.  It
+%      contains the extents of any clipping rectangle.
+%
+%
+*/
+static Window XSelectWindow(display,clip_info)
+Display
+X  *display;
+X
+RectangleInfo
+X  *clip_info;
+{
+#define MinimumClipArea  (unsigned int) 9
+X
+X  Cursor
+X    target_cursor;
+X
+X  GC
+X    graphic_context;
+X
+X  int
+X    presses,
+X    status,
+X    x_offset,
+X    y_offset;
+X
+X  Window
+X    root_window,
+X    target_window;
+X
+X  XEvent
+X    event;
+X
+X  XGCValues
+X    graphic_context_value;
+X
+X  /*
+X    Initialize graphic context.
+X  */
+X  root_window=XRootWindow(display,XDefaultScreen(display));
+X  graphic_context_value.function=GXinvert;
+X  graphic_context_value.line_width=WindowBorderWidth;
+X  graphic_context_value.subwindow_mode=IncludeInferiors;
+X  graphic_context=XCreateGC(display,root_window,GCFunction | GCLineWidth |
+X    GCSubwindowMode,&graphic_context_value);
+X  if (graphic_context == (GC) NULL)
+X    return(False);
+X  /*
+X    Make the target cursor.
+X  */
+X  target_cursor=XCreateFontCursor(display,XC_tcross);
+X  /*
+X    Grab the pointer using target cursor.
+X  */
+X  status=XGrabPointer(display,root_window,False,(unsigned int)
+X    (ButtonPressMask | ButtonReleaseMask | ButtonMotionMask),GrabModeSync,
+X    GrabModeAsync,root_window,target_cursor,CurrentTime);
+X  if (status != GrabSuccess)
+X    Error("unable to grab the mouse",(char *) NULL);
+X  /*
+X    Select a window.
+X  */
+X  clip_info->width=0;
+X  clip_info->height=0;
+X  presses=0;
+X  target_window=(Window) NULL;
+X  x_offset=0;
+X  y_offset=0;
+X  do
+X  {
+X    if ((clip_info->width*clip_info->height) >= MinimumClipArea)
+X      XDrawRectangle(display,root_window,graphic_context,clip_info->x,
+X        clip_info->y,clip_info->width-1,clip_info->height-1);
+X    /*
+X      Allow another event.
+X    */
+X    XAllowEvents(display,SyncPointer,CurrentTime);
+X    XWindowEvent(display,root_window,ButtonPressMask | ButtonReleaseMask |
+X      ButtonMotionMask,&event);
+X    if ((clip_info->width*clip_info->height) >= MinimumClipArea)
+X      XDrawRectangle(display,root_window,graphic_context,clip_info->x,
+X        clip_info->y,clip_info->width-1,clip_info->height-1);
+X    switch (event.type)
+X    {
+X      case ButtonPress:
+X      {
+X        if (target_window == (Window) NULL)
+X          {
+X            target_window=event.xbutton.subwindow;
+X            if (target_window == (Window) NULL)
+X              target_window=root_window;
+X          }
+X        x_offset=event.xbutton.x_root;
+X        y_offset=event.xbutton.y_root;
+X        clip_info->x=x_offset;
+X        clip_info->y=y_offset;
+X        clip_info->width=0;
+X        clip_info->height=0;
+X        presses++;
+X        break;
+X      }
+X      case ButtonRelease:
+X      {
+X        presses--;
+X        break;
+X      }
+X      case MotionNotify:
+X      {
+X        /*
+X          Discard pending button motion events.
+X        */
+X        while (XCheckMaskEvent(display,ButtonMotionMask,&event));
+X        clip_info->x=event.xmotion.x;
+X        clip_info->y=event.xmotion.y;
+X        /*
+X          Check boundary conditions.
+X        */
+X        if (clip_info->x < x_offset)
+X          clip_info->width=(unsigned int) (x_offset-clip_info->x);
+X        else
+X          {
+X            clip_info->width=(unsigned int) (clip_info->x-x_offset);
+X            clip_info->x=x_offset;
+X          }
+X        if (clip_info->y < y_offset)
+X          clip_info->height=(unsigned int) (y_offset-clip_info->y);
+X        else
+X          {
+X            clip_info->height=(unsigned int) (clip_info->y-y_offset);
+X            clip_info->y=y_offset;
+X          }
+X      }
+X      default:
+X        break;
+X    }
+X  }
+X  while ((target_window == (Window) NULL) || (presses > 0));
+X  XUngrabPointer(display,CurrentTime);
+X  XFreeCursor(display,target_cursor);
+X  XFreeGC(display,graphic_context);
+X  if ((clip_info->width*clip_info->height) < MinimumClipArea)
+X    {
+X      clip_info->width=0;
+X      clip_info->height=0;
+X    }
+X  if ((clip_info->width != 0) && (clip_info->height != 0))
+X    target_window=root_window;
+X  return(target_window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X S e t W i n d o w E x t e n t s                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XSetWindowExtents resizes the window to a size determined by the
+%  text and the font size.
+%
+%  The format of the XSetWindowExtents function is:
+%
+%      XSetWindowExtents(display,window,text)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindowInfo structure.
+%
+%    o text: Specifies a pointer to a text string.
+%
+%
+*/
+void XSetWindowExtents(display,window,text)
+Display
+X  *display;
+X
+XXWindowInfo
+X  *window;
+X
+char
+X  *text;
+{
+X  unsigned int
+X    height;
+X
+X  window->width=XTextWidth(window->font_info,text,strlen(text))+
+X    3*window->font_info->max_bounds.width;
+X  height=window->font_info->ascent+window->font_info->descent;
+X  window->height=height+(height >> 1);
+X  XResizeWindow(display,window->id,window->width,window->height);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X V i s u a l C l a s s N a m e                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XVisualClassName returns the visual class name as a character
+%  string.
+%
+%  The format of the XVisualClassName routine is:
+%
+%      visual_type=XVisualClassName(visual_info)
+%
+%  A description of each parameter follows:
+%
+%    o visual_type: XVisualClassName returns the visual class as a character
+%      string.
+%
+%    o visual_info: Specifies a pointer to a X11 XVisualInfo structure;
+%      returned from XGetVisualInfo.
+%
+%
+*/
+char *XVisualClassName(visual_info)
+XXVisualInfo
+X  *visual_info;
+{
+X  if (visual_info == (XVisualInfo *) NULL)
+X    return((char *) NULL);
+X  switch (visual_info->class)
+X  {
+X    case StaticGray: return("StaticGray");
+X    case GrayScale: return("GrayScale");
+X    case StaticColor: return("StaticColor");
+X    case PseudoColor: return("PseudoColor");
+X    case TrueColor: return("TrueColor");
+X    case DirectColor: return("DirectColor");
+X  }
+X  return("unknown visual class");
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W i n d o w B y I D                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWindowByID locates a child window with a given ID.  If not window
+%  with the given name is found, 0 is returned.   Only the window specified
+%  and its subwindows are searched.
+%
+%  The format of the XWindowByID function is:
+%
+%      child=XWindowByID(display,window,id)
+%
+%  A description of each parameter follows:
+%
+%    o child: XWindowByID returns the window with the specified
+%      id.  If no windows are found, XWindowByID returns 0.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o id: Specifies the id of the window to locate.
+%
+%
+*/
+Window XWindowByID(display,root_window,id)
+Display
+X  *display;
+X
+Window
+X  root_window;
+X
+unsigned long
+X  id;
+{
+X  register int
+X    i;
+X
+X  unsigned int
+X    number_children;
+X
+X  Window
+X    child,
+X    *children,
+X    window;
+X
+X  if (root_window == id)
+X    return(id);
+X  if (!XQueryTree(display,root_window,&child,&child,&children,&number_children))
+X    return((Window) NULL);
+X  window=(Window) NULL;
+X  for (i=0; i < number_children; i++)
+X  {
+X    /*
+X      Search each child and their children.
+X    */
+X    window=XWindowByID(display,children[i],id);
+X    if (window != (Window) NULL)
+X      break;
+X  }
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W i n d o w B y N a m e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWindowByName locates a window with a given name on a display.
+%  If no window with the given name is found, 0 is returned. If more than
+%  one window has the given name, the first one is returned.  Only root and
+%  its children are searched.
+%
+%  The format of the XWindowByName function is:
+%
+%      window=XWindowByName(display,root_window,name)
+%
+%  A description of each parameter follows:
+%
+%    o window: XWindowByName returns the window id.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o root_window: Specifies the id of the root window.
+%
+%    o name: Specifies the name of the window to locate.
+%
+%
+*/
+Window XWindowByName(display,root_window,name)
+Display
+X  *display;
+X
+Window
+X  root_window;
+X
+char
+X  *name;
+{
+X  register int
+X    i;
+X
+X  unsigned int
+X    number_children;
+X
+X  Window
+X    *children,
+X    child,
+X    window;
+X
+X  XTextProperty
+X    window_name;
+X
+X  if (XGetWMName(display,root_window,&window_name) != 0)
+X    if (strcmp((char *) window_name.value,name) == 0)
+X      return(root_window);
+X  if (!XQueryTree(display,root_window,&child,&child,&children,&number_children))
+X    return((Window) NULL);
+X  window=(Window) NULL;
+X  for (i=0; i < number_children; i++)
+X  {
+X    /*
+X      Search each child and their children.
+X    */
+X    window=XWindowByName(display,children[i],name);
+X    if (window != (Window) NULL)
+X      break;
+X  }
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(window);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W i n d o w B y P r o p e r y                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWindowByProperty locates a child window with a given property.
+%  If no window with the given name is found, 0 is returned.  If more than
+%  one window has the given property, the first one is returned.  Only the
+%  window specified and its subwindows are searched.
+%
+%  The format of the XWindowByProperty function is:
+%
+%      child=XWindowByProperty(display,window,property)
+%
+%  A description of each parameter follows:
+%
+%    o child: XWindowByProperty returns the window id with the specified
+%      property.  If no windows are found, XWindowByProperty returns 0.
+%
+%    o display: Specifies a pointer to the Display structure;  returned from
+%      XOpenDisplay.
+%
+%    o property: Specifies the property of the window to locate.
+%
+%
+*/
+static Window XWindowByProperty(display,window,property)
+Display
+X  *display;
+X
+Window
+X  window;
+X
+Atom
+X  property;
+{
+X  Atom
+X    type;
+X
+X  int
+X    format,
+X    status;
+X
+X  unsigned char
+X    *data;
+X
+X  unsigned int
+X    i,
+X    number_children;
+X
+X  unsigned long
+X    after,
+X    number_items;
+X
+X  Window
+X    *children,
+X    child,
+X    parent,
+X    root;
+X
+X  status=XQueryTree(display,window,&root,&parent,&children,&number_children);
+X  if (status == 0)
+X    return((Window) NULL);
+X  type=(Atom) NULL;
+X  child=(Window) NULL;
+X  for (i=0; (i < number_children) && (child == (Window) NULL); i++)
+X  {
+X    status=XGetWindowProperty(display,children[i],property,0L,0L,False,
+X      (Atom) AnyPropertyType,&type,&format,&number_items,&after,&data);
+X    if ((status == Success) && (type != (Atom) NULL))
+X      child=children[i];
+X  }
+X  for (i=0; (i < number_children) && (child == (Window) NULL); i++)
+X    child=XWindowByProperty(display,children[i],property);
+X  if (children != (Window *) NULL)
+X    XFree((void *) children);
+X  return(child);
+}
+SHAR_EOF
+echo 'File ImageMagick/X.c is complete' &&
+chmod 0644 ImageMagick/X.c ||
+echo 'restore of ImageMagick/X.c failed'
+Wc_c="`wc -c < 'ImageMagick/X.c'`"
+test 187033 -eq "$Wc_c" ||
+	echo 'ImageMagick/X.c: original size 187033, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/X.h ==============
+if test -f 'ImageMagick/X.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/X.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/X.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/X.h' &&
+#undef False
+#undef True
+#define XLIB_ILLEGAL_ACCESS  1
+#include <X11/Xos.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <X11/Xresource.h>
+#include <X11/Xproto.h>
+#include <X11/Xatom.h>
+#include <X11/cursorfont.h>
+#include <X11/keysym.h>
+#undef index
+#ifdef hpux
+#undef SYSV
+#endif
+X
+/*
+X  Colormap declarations.
+*/
+#define UndefinedColormap  0
+#define PrivateColormap  1
+#define SharedColormap  2
+/*
+X  Define declarations.
+*/
+#define MaxNumberFonts  9
+#define MaxNumberPens  9
+#define WindowBorderWidth  2
+#define XStandardPixel(map,color,shift)  (unsigned long) (map->base_pixel+  \
+X  ((color.red*map->red_max+(1 << (shift-1))) >> shift)*map->red_mult+  \
+X  ((color.green*map->green_max+(1 << (shift-1))) >> shift)*map->green_mult+  \
+X  ((color.blue*map->blue_max+(1 << (shift-1))) >> shift)*map->blue_mult)
+X
+/*
+X  Typedef declarations.
+*/
+typedef struct _DiversityPacket
+{
+X  unsigned char
+X    red,
+X    green,
+X    blue;
+X
+X  unsigned short
+X    index;
+X
+X  unsigned long
+X    count;
+} DiversityPacket;
+X
+typedef struct _XAnnotateInfo
+{
+X  int
+X    x,
+X    y;
+X
+X  unsigned int
+X    width,
+X    height;
+X
+X  double
+X    degrees;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  char
+X    *text,
+X    geometry[2048];
+X
+X  struct _XAnnotateInfo
+X    *previous,
+X    *next;
+} XAnnotateInfo;
+X
+typedef struct _XPixelInfo
+{
+X  GC
+X   graphic_context,
+X   highlight_context;
+X
+X  unsigned int
+X    colors;
+X
+X  unsigned long
+X    *pixels;
+X
+X  XColor
+X    background_color,
+X    border_color,
+X    foreground_color,
+X    highlight_color,
+X    pen_color[MaxNumberPens],
+X    annotate_color;
+X
+X  unsigned short
+X    background_index,
+X    annotate_index;
+} XPixelInfo;
+X
+typedef struct _XResourceInfo
+{
+X  ImageInfo
+X    *image_info;
+X
+X  unsigned int
+X    backdrop;
+X
+X  char
+X    *background_color,
+X    *border_color;
+X
+X  unsigned int
+X    border_width,
+X    colormap,
+X    colorspace,
+X    debug,
+X    delay;
+X
+X  unsigned int
+X    dither;
+X
+X  char
+X    *font,
+X    *font_name[MaxNumberFonts],
+X    *foreground_color;
+X
+X  int
+X    gravity;
+X
+X  char
+X    *highlight_color,
+X    *icon_geometry;
+X
+X  unsigned int
+X    iconic;
+X
+X  char
+X    *image_geometry;
+X
+X  unsigned int
+X    magnify;
+X
+X  char
+X    *map_type;
+X
+X  unsigned int
+X    monochrome;
+X
+X  char
+X    *name;
+X
+X  unsigned int
+X    number_colors;
+X
+X  char
+X    *pen_color[MaxNumberPens],
+X    *server_name,
+X    *title;
+X
+X  unsigned int
+X    tree_depth,
+X    update,
+X    use_pixmap;
+X
+X  char
+X    *visual_type,
+X    *write_filename;
+} XResourceInfo;
+X
+typedef struct _XWindowInfo
+{
+X  Window
+X    id;
+X
+X  int
+X    screen;
+X
+X  unsigned int
+X    depth;
+X
+X  XVisualInfo
+X    *visual_info;
+X
+X  XStandardColormap
+X    *map_info;
+X
+X  XPixelInfo
+X    *pixel_info;
+X
+X  XFontStruct
+X    *font_info;
+X
+X  GC
+X    graphic_context,
+X    highlight_context;
+X
+X  Cursor
+X    cursor,
+X    busy_cursor;
+X
+X  char
+X    *name,
+X    *geometry,
+X    *icon_name,
+X    *icon_geometry,
+X    *clip_geometry;
+X
+X  unsigned long
+X    flags;
+X
+X  int
+X    x,
+X    y;
+X
+X  unsigned int
+X    width,
+X    height,
+X    min_width,
+X    min_height,
+X    width_inc,
+X    height_inc,
+X    border_width,
+X    immutable;
+X
+X  XImage
+X    *ximage;
+X
+X  Pixmap
+X    pixmap,
+X    *pixmaps;
+X
+X  int
+X    mask;
+X
+X  XSetWindowAttributes
+X    attributes;
+} XWindowInfo;
+X
+typedef struct _XWindows
+{
+X  XWindowInfo
+X    context,
+X    backdrop,
+X    icon,
+X    info,
+X    image,
+X    magnify,
+X    pan,
+X    popup;
+} XWindows;
+X
+/*
+X  X utilities routines.
+*/
+extern char
+X  *XGetResource _Declare((XrmDatabase,char *,char *,char *)),
+X  *XVisualClassName _Declare((XVisualInfo *));
+X
+extern Cursor
+X  XMakeInvisibleCursor _Declare((Display *,Window));
+X
+extern Image
+X  *ReadXImage _Declare((char *,char *,unsigned int,unsigned int,unsigned int,
+X    unsigned int));
+X
+extern int
+X  Latin1Compare _Declare((char *,char *)),
+X  XError _Declare((Display *,XErrorEvent *)),
+X  XPopupMenu _Declare((Display *,XWindowInfo *,int,int,char *,char **,
+X    unsigned int,char *));
+X
+extern unsigned int
+X  IsTrue _Declare((char *)),
+X  XAnnotateImage _Declare((Display *,XWindowInfo *,XAnnotateInfo *,
+X    unsigned int,Image *)),
+X  XMakeImage _Declare((Display *,XResourceInfo *,XWindowInfo *,Image *,
+X    unsigned int,unsigned int)),
+X  XMakePixmap _Declare((Display *,XResourceInfo *,XWindowInfo *));
+X
+extern XVisualInfo
+X  *XBestVisualInfo _Declare((Display *,char *,char *,XStandardColormap *));
+X
+extern void
+X  XBestIconSize _Declare((Display *,XWindowInfo *,Image *)),
+X  XDisplayInfoString _Declare((Display *,XWindowInfo *,char *)),
+X  XFreeStandardColormap _Declare((Display *,XVisualInfo *,XPixelInfo *,
+X    XStandardColormap *)),
+X  XGetAnnotateInfo _Declare((XAnnotateInfo *)),
+X  XGetPixelInfo _Declare((Display *,XVisualInfo *,XStandardColormap *,
+X    XResourceInfo *,Image *,XPixelInfo *)),
+X  XGetResourceInfo _Declare((XrmDatabase,char *,XResourceInfo *)),
+X  XGetWindowInfo _Declare((Display *,XVisualInfo *,XStandardColormap *,
+X    XPixelInfo *,XFontStruct *,XResourceInfo *,XWindowInfo *)),
+X  XMakeStandardColormap _Declare((Display *,XVisualInfo *,XResourceInfo *,
+X    XPixelInfo *,Image *,XStandardColormap *)),
+X  XMakeWindow _Declare((Display *,Window,char **,int,XClassHint *,XWMHints *,
+X    Atom,XWindowInfo *)),
+X  XPopupAlert _Declare((Display *,XWindowInfo *,char *,char *)),
+X  XPopupQuery _Declare((Display *,XWindowInfo *,char *,char *)),
+X  XSetWindowExtents _Declare((Display *,XWindowInfo *,char *)),
+X  XRefreshWindow _Declare((Display *,XWindowInfo *,XEvent *));
+X
+extern Window
+X  XWindowByID _Declare((Display *,Window,unsigned long)),
+X  XWindowByName _Declare((Display *,Window,char *));
+X
+extern XFontStruct
+X  *XBestFont _Declare((Display *,XResourceInfo *,char *,unsigned int));
+X
+/*
+X  Invoke pre-X11R5 ICCCM routines if XlibSpecificationRelease is not defined.
+*/
+#ifndef XlibSpecificationRelease
+#define PRE_R5_ICCCM
+#endif
+/*
+X  Invoke pre-X11R4 ICCCM routines if PWinGravity is not defined.
+*/
+#ifndef PWinGravity
+#define PRE_R4_ICCCM
+#endif
+#include "PreRvIcccm.h"
+SHAR_EOF
+chmod 0644 ImageMagick/X.h ||
+echo 'restore of ImageMagick/X.h failed'
+Wc_c="`wc -c < 'ImageMagick/X.h'`"
+test 5805 -eq "$Wc_c" ||
+	echo 'ImageMagick/X.h: original size 5805, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/XWDFile.h ==============
+if test -f 'ImageMagick/XWDFile.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/XWDFile.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/XWDFile.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/XWDFile.h' &&
+/* Copyright 1985, 1986, Massachusetts Institute of Technology */
+X
+/* $XConsortium: XWDFile.h,v 1.12 89/10/08 16:33:57 rws Exp $ */
+/*
+X * XWDFile.h	MIT Project Athena, X Window system window raster
+X *		image dumper, dump file format header file.
+X *
+X *  Author:	Tony Della Fera, DEC
+X *		27-Jun-85
+X * 
+X * Modifier:    William F. Wyatt, SAO
+X *              18-Nov-86  - version 6 for saving/restoring color maps
+X */
+X
+X
+/*
+X * This is not portable between machines of differing word sizes.  To make
+X * it portable, do the following things:
+X *
+X *     o  #include <X11/Xmd.h>
+X *     o  remove the typedef for xwdval
+X *     o  replace all instances of xwdval with the appropriate CARD32 ... B32
+X *     o  make sure that XWDFileHeader is padded to quadword boundaries
+X *     o  make sure the window name is written out quadword aligned
+X *     o  create an XWDColor structure that contains the same fields as XColor
+X *        but which is defined in terms of CARD32 B32, CARD16 B16, and CARD8
+X *     o  convert XColor structures to XWDColor structures in xwd
+X *     o  remove all xwdval casts from xwd
+X *     o  pack image data before writing out if necessary
+X *     o  replace casts from xwdval objects in xwud with cvtINT macros
+X *     o  convert XWDColor structures to XColor structures
+X *     o  unpack data after reading in if necessary
+X */
+X
+X
+#include <X11/Xmd.h>
+X
+#define XWD_FILE_VERSION 7
+#ifdef WORD64
+#define sz_XWDheader 104
+#else
+#define sz_XWDheader 100
+#endif
+#define sz_XWDColor 12
+X
+typedef CARD32 xwdval;		/* for old broken programs */
+X
+typedef struct _xwd_file_header {
+X	CARD32 header_size B32;  /* Size of the entire file header (bytes). */
+X	CARD32 file_version B32;	/* XWD_FILE_VERSION */
+X	CARD32 pixmap_format B32;	/* Pixmap format */
+X	CARD32 pixmap_depth B32;	/* Pixmap depth */
+X	CARD32 pixmap_width B32;	/* Pixmap width */
+X	CARD32 pixmap_height B32;	/* Pixmap height */
+X	CARD32 xoffset B32;		/* Bitmap x offset */
+X	CARD32 byte_order B32;		/* MSBFirst, LSBFirst */
+X	CARD32 bitmap_unit B32;		/* Bitmap unit */
+X	CARD32 bitmap_bit_order B32;	/* MSBFirst, LSBFirst */
+X	CARD32 bitmap_pad B32;		/* Bitmap scanline pad */
+X	CARD32 bits_per_pixel B32;	/* Bits per pixel */
+X	CARD32 bytes_per_line B32;	/* Bytes per scanline */
+X	CARD32 visual_class B32;	/* Class of colormap */
+X	CARD32 red_mask B32;		/* Z red mask */
+X	CARD32 green_mask B32;		/* Z green mask */
+X	CARD32 blue_mask B32;		/* Z blue mask */
+X	CARD32 bits_per_rgb B32;	/* Log2 of distinct color values */
+X	CARD32 colormap_entries B32;	/* Number of entries in colormap */
+X	CARD32 ncolors B32;		/* Number of Color structures */
+X	CARD32 window_width B32;	/* Window width */
+X	CARD32 window_height B32;	/* Window height */
+X	CARD32 window_x B32;		/* Window upper left X coordinate */
+X	CARD32 window_y B32;		/* Window upper left Y coordinate */
+X	CARD32 window_bdrwidth B32;	/* Window border width */
+#ifdef WORD64
+X	CARD32 header_end B32;		/* Pad to fill out word */
+#endif
+} XWDFileHeader;
+X
+struct {
+X        CARD32	pixel B32;
+X        CARD16	red B16;
+X	CARD16	green B16;
+X	CARD16	blue B16;
+X        CARD8	flags;
+X        CARD8	pad;
+} XWDColor;
+SHAR_EOF
+chmod 0644 ImageMagick/XWDFile.h ||
+echo 'restore of ImageMagick/XWDFile.h failed'
+Wc_c="`wc -c < 'ImageMagick/XWDFile.h'`"
+test 3092 -eq "$Wc_c" ||
+	echo 'ImageMagick/XWDFile.h: original size 3092, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/colors.c ==============
+if test -f 'ImageMagick/colors.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/colors.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/colors.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/colors.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                  CCCC   OOO   L       OOO   RRRR    SSSSS                   %
+%                 C      O   O  L      O   O  R   R   SS                      %
+%                 C      O   O  L      O   O  RRRR     SSS                    %
+%                 C      O   O  L      O   O  R R        SS                   %
+%                  CCCC   OOO   LLLLL   OOO   R  R    SSSSS                   %
+%                                                                             %
+%                                                                             %
+%                       Count the Colors in an Image                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+/*
+X  Define declarations.
+*/
+#define MaxTreeDepth  8  /* Log2(MaxRGB) */
+#define NodesInAList  2048
+X
+/*
+X  Structures.
+*/
+typedef struct _Node
+{
+X  struct _Node
+X    *child[8];
+X
+X  unsigned char
+X    level,
+X    mid_red,
+X    mid_green,
+X    mid_blue;
+X
+X  unsigned long
+X    number_colors;
+} Node;
+X
+typedef struct _Nodes
+{
+X  Node
+X    nodes[NodesInAList];
+X
+X  struct _Nodes
+X    *next;
+} Nodes;
+X
+typedef struct _Cube
+{
+X  Node
+X    *root;
+X
+X  unsigned int
+X    colors;
+X
+X  unsigned int
+X    free_nodes;
+X
+X  Node
+X    *node;
+X
+X  Nodes
+X    *node_list;
+} Cube;
+X
+/*
+X  Global variables.
+*/
+static Cube
+X  cube;
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *client_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  H i s t o g r a m                                                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Histogram traverses the color cube tree and produces a list of
+%  unique pixel field values and the number of times each occurs in the image.
+%
+%  The format of the Histogram routine is:
+%
+%      Histogram(node,file)
+%
+%  A description of each parameter follows.
+%
+%    o node: The address of a structure of type Node which points to a
+%      node in the color cube tree that is to be pruned.
+%
+%
+*/
+static void Histogram(node,file)
+register Node
+X  *node;
+X
+FILE
+X  *file;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  for (id=0; id < 8; id++)
+X    if (node->child[id] != (Node *) NULL)
+X      Histogram(node->child[id],file);
+X  if (node->level == MaxTreeDepth)
+X    (void) fprintf(file,"%8lu\t%d\t%d\t%d\n",node->number_colors,
+X      node->mid_red,node->mid_green,node->mid_blue);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e N o d e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeNode allocates memory for a new node in the color cube
+%  tree and presets all fields to zero.
+%
+%  The format of the InitializeNode routine is:
+%
+%      node=InitializeNode(level,mid_red,mid_green,mid_blue)
+%
+%  A description of each parameter follows.
+%
+%    o level: Specifies the level in the classification the node resides.
+%
+%    o mid_red: Specifies the mid point of the red axis for this node.
+%
+%    o mid_green: Specifies the mid point of the green axis for this node.
+%
+%    o mid_blue: Specifies the mid point of the blue axis for this node.
+%
+%
+*/
+static Node *InitializeNode(level,mid_red,mid_green,mid_blue)
+unsigned int
+X  level,
+X  mid_red,
+X  mid_green,
+X  mid_blue;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  if (cube.free_nodes == 0)
+X    {
+X      register Nodes
+X        *nodes;
+X
+X      /*
+X        Allocate a new nodes of nodes.
+X      */
+X      nodes=(Nodes *) malloc(sizeof(Nodes));
+X      if (nodes == (Nodes *) NULL)
+X        return((Node *) NULL);
+X      nodes->next=cube.node_list;
+X      cube.node_list=nodes;
+X      cube.node=nodes->nodes;
+X      cube.free_nodes=NodesInAList;
+X    }
+X  cube.free_nodes--;
+X  node=cube.node++;
+X  for (i=0; i < 8; i++)
+X    node->child[i]=(Node *) NULL;
+X  node->level=level;
+X  node->mid_red=mid_red;
+X  node->mid_green=mid_green;
+X  node->mid_blue=mid_blue;
+X  node->number_colors=0;
+X  return(node);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  N u m b e r C o l o r s                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function NumberColors returns the number of unique colors in an image.
+%
+%  The format of the NumberColors routine is:
+%
+%      number_colors=NumberColors(image,file)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a byte (8 bits) array of run-length
+%      encoded pixel data of your source image.  The sum of the
+%      run-length counts in the source image must be equal to or exceed
+%      the number of pixels.
+%
+%    o file:  An pointer to a FILE.  If it is non-null a list of unique pixel
+%      field values and the number of times each occurs in the image is
+%      written to the file.
+%
+%
+%
+*/
+unsigned int NumberColors(image,file)
+Image
+X  *image;
+X
+FILE
+X  *file;
+{
+X  Nodes
+X    *nodes;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  register unsigned int
+X    count,
+X    id,
+X    level;
+X
+X  unsigned int
+X    bisect;
+X
+X  /*
+X    Initialize color description tree.
+X  */
+X  cube.node_list=(Nodes *) NULL;
+X  cube.colors=0;
+X  cube.free_nodes=0;
+X  cube.root=InitializeNode(0,(MaxRGB+1) >> 1,(MaxRGB+1) >> 1,(MaxRGB+1) >> 1);
+X  if (cube.root == (Node *) NULL)
+X    {
+X      Warning("unable to count colors","memory allocation failed");
+X      return(0);
+X    }
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    /*
+X      Start at the root and proceed level by level.
+X    */
+X    count=p->length+1;
+X    node=cube.root;
+X    for (level=1; level <= MaxTreeDepth; level++)
+X    {
+X      id=(p->red >= node->mid_red ? 1 : 0) |
+X        (p->green >= node->mid_green ? 1 : 0) << 1 |
+X        (p->blue >= node->mid_blue ? 1 : 0) << 2;
+X      if (node->child[id] == (Node *) NULL)
+X        {
+X          if (level == MaxTreeDepth)
+X            {
+X              node->child[id]=InitializeNode(level,p->red,p->green,p->blue);
+X              cube.colors++;
+X            }
+X          else
+X            {
+X              bisect=(unsigned int) (1 << (MaxTreeDepth-level)) >> 1;
+X              node->child[id]=InitializeNode(level,
+X                node->mid_red+(id & 1 ? bisect : -bisect),
+X                node->mid_green+(id & 2 ? bisect : -bisect),
+X                node->mid_blue+(id & 4 ? bisect : -bisect));
+X            }
+X          if (node->child[id] == (Node *) NULL)
+X            {
+X              Warning("unable to count colors","memory allocation failed");
+X              return(0);
+X            }
+X        }
+X      node=node->child[id];
+X    }
+X    node->number_colors+=count;
+X    p++;
+X  }
+X  if (file != (FILE *) NULL)
+X    Histogram(cube.root,file);
+X  /*
+X    Release color cube tree storage.
+X  */
+X  do
+X  {
+X    nodes=cube.node_list->next;
+X    (void) free((char *) cube.node_list);
+X    cube.node_list=nodes;
+X  }
+X  while (cube.node_list != (Nodes *) NULL);
+X  return(cube.colors);
+}
+SHAR_EOF
+chmod 0644 ImageMagick/colors.c ||
+echo 'restore of ImageMagick/colors.c failed'
+Wc_c="`wc -c < 'ImageMagick/colors.c'`"
+test 11194 -eq "$Wc_c" ||
+	echo 'ImageMagick/colors.c: original size 11194, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/shear.c ==============
+if test -f 'ImageMagick/shear.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/shear.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/shear.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/shear.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                      SSSSS  H   H  EEEEE   AAA    RRRR                      %
+%                      SS     H   H  E      A   A   R   R                     %
+%                       SSS   HHHHH  EEE    AAAAA   RRRR                      %
+%                         SS  H   H  E      A   A   R R                       %
+%                      SSSSS  H   H  EEEEE  A   A   R  R                      %
+%                                                                             %
+%                                                                             %
+%              Shear or rotate a raster image by an arbitrary angle.          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                               Software Design                               %
+%                                 John Cristy                                 %
+%                                  July 1992                                  %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RotateImage, XShearImage, and YShearImage is based on the paper
+%  "A Fast Algorithm for General Raster Rotatation" by Alan W. Paeth,
+%  Graphics Interface '86 (Vancouver).  RotateImage is adapted from a similiar
+%  routine based on the Paeth paper written by Michael Halle of the Spatial
+%  Imaging Group, MIT Media Lab.
+%
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *client_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   C l i p S h e a r I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ClipShearImage clips the sheared image as determined by the
+%  bounding box as defined by width and height and shearing angles.
+%
+%  The format of the ClipShearImage routine is:
+%
+%      ClipShearImage(image,x_shear,y_shear,width,height,clip)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a structure of type Image.
+%
+%    o x_shear, y_shear, width, height: Defines a region of the image to clip.
+%
+%    o clip: A value other than zero clips the corners of the rotated
+%      image and retains the original image size.
+%
+%
+*/
+static Image *ClipShearImage(image,x_shear,y_shear,width,height,clip)
+Image
+X  *image;
+X
+double
+X  x_shear,
+X  y_shear;
+X
+unsigned int
+X  width,
+X  height,
+X  clip;
+{
+X  typedef struct Point
+X  {
+X    double
+X      x,
+X      y;
+X  } Point;
+X
+X  double
+X    x_max,
+X    x_min,
+X    y_max,
+X    y_min;
+X
+X  Image
+X    *clipped_image;
+X
+X  Point
+X    corners[4];
+X
+X  RectangleInfo
+X    clip_info;
+X
+X  register int
+X    i;
+X
+X  /*
+X    Calculate the rotated image size.
+X  */
+X  clip_info.width=width;
+X  clip_info.height=height;
+X  corners[0].x=(-((int) clip_info.width)/2.0);
+X  corners[0].y=(-((int) clip_info.height)/2.0);
+X  corners[1].x=((int) clip_info.width)/2.0;
+X  corners[1].y=(-((int) clip_info.height)/2.0);
+X  corners[2].x=(-((int) clip_info.width)/2.0);
+X  corners[2].y=((int) clip_info.height)/2.0;
+X  corners[3].x=((int) clip_info.width)/2.0;
+X  corners[3].y=((int) clip_info.height)/2.0;
+X  for (i=0; i < 4; i++)
+X  {
+X    corners[i].x+=x_shear*corners[i].y;
+X    corners[i].y+=y_shear*corners[i].x;
+X    corners[i].x+=x_shear*corners[i].y;
+X    corners[i].x+=(image->columns-1)/2.0;
+SHAR_EOF
+true || echo 'restore of ImageMagick/shear.c failed'
+fi
+echo 'End of ImageMagick part 12'
+echo 'File ImageMagick/shear.c is continued in part 13'
+echo 13 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

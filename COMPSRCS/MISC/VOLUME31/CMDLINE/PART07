@@ -1,0 +1,1851 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v31i054:  cmdline - C++ Library for parsing command-line arguments, Part07/07
+Message-ID: <1992Jul27.020933.29895@sparky.imd.sterling.com>
+X-Md4-Signature: b6f56ee0f7111828ee70cfe954cf4419
+Date: Mon, 27 Jul 1992 02:09:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 31, Issue 54
+Archive-name: cmdline/part07
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 7 (of 7)."
+# Contents:  src/lib/cmdargs.h src/lib/cmdline.h
+# Wrapped by brad@hcx1 on Mon Jul 20 10:41:33 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'src/lib/cmdargs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdargs.h'\"
+else
+echo shar: Extracting \"'src/lib/cmdargs.h'\" \(30824 characters\)
+sed "s/^X//" >'src/lib/cmdargs.h' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdargs.h - define the most commonly used argument types
+X//
+X// ^DESCRIPTION:
+X//    This file defines classes for the most commonly used types of
+X//    command-line arguments.  Most command-line arguments are either
+X//    boolean-flags, a number, a character, or a string (or a list of
+X//    numbers or strings).  In each of these cases, the call operator
+X//    (operator()) of the argument just compiles the value given into
+X//    some internal value and waits for the programmer to query the
+X//    value at some later time.
+X//
+X//    I call these types of arguments "ArgCompilers". For each of the
+X//    most common argument types, a corresponding abstract ArgCompiler
+X//    class is declared.  All that this class does is to add a member
+X//    function named "compile" to the class.  The "compile()" function
+X//    looks exactly like the call operator but it takes an additional
+X//    parameter: a reference to the value to be modified by compiling
+X//    the argument value.  In all other respects, the "compile()" member
+X//    function behaves exactly like the call operator.  In fact, most
+X//    of the call-operator member functions simply call the ArgCompiler's
+X//    "compile()" member function with the appropriate value and return
+X//    whatever the compile function returned.
+X//
+X//    Once all of these ArgCompilers are declared, it is a simple matter
+X//    to declare a class that holds a single item, or a list of items,
+X//    by deriving it from the corresponding ArgCompiler type.
+X//
+X//    For derived classes of these ArgCompilers that hold a single item,
+X//    The derived class implements some operators (such as operator=
+X//    and an appropriate cast operator) to treat the argument as if it
+X//    were simply an item (instead of an argument that contains an item).
+X//    The output operator (ostream & operator<<) is also defined.
+X//
+X//    For derived classes of ArgCompilers that hold a list of items,
+X//    the subscript operator[] is defined in order to treat the argument
+X//    as if it were simply an array of items and not an argument that
+X//    contains a list of items.
+X//
+X//    *NOTE*
+X//    ======
+X//    It is important to remember that each subclass of CmdArg MUST be able
+X//    to handle NULL as the first argument to the call-operator (and it
+X//    should NOT be considered an error).  This is because NULL will be
+X//    passed if the argument takes no value, or if it takes an optional
+X//    value that was NOT provided on the command-line.  Whenever an
+X//    argument is correctly specified on the command-line, its call
+X//    operator is always invoked (regardless of whether or not there
+X//    is a corresponding value from the command-line).
+X//
+X// ^HISTORY:
+X//    03/25/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#ifndef _usr_include_cmdargs_h
+X#define _usr_include_cmdargs_h
+X
+X#include <cmdline.h>
+X
+X//-------------------------------------------------------------- Dummy Argument
+X
+X   // A Dummy argument is one that is used only for its appearance in
+X   // usage messages. It is completely ignored by the CmdLine object
+X   // when parsing the command-line.
+X   //
+X   // Examples:
+X   //     CmdArgDummy  dummy1('c', "keyword", "value", "dummy argument # 1");
+X   //     CmdArgDummy  dummy2("value", "dummy argument # 2");
+X   //
+Xclass CmdArgDummy : public CmdArg {
+Xpublic:
+X   CmdArgDummy(char         optchar,
+X               const char * keyword,
+X               const char * value,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+X   CmdArgDummy(char         optchar,
+X               const char * keyword,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArg(optchar, keyword, description, syntax_flags) {}
+X
+X   CmdArgDummy(const char * value,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArg(value, description, syntax_flags) {}
+X
+X   CmdArgDummy(const CmdArgDummy & cp) : CmdArg(cp) {}
+X
+X   CmdArgDummy(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgDummy(void);
+X
+X   virtual  int
+X   is_dummy(void);   // return non-zero
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);  // NO-OP
+X} ;
+X
+X//-------------------------------------------------------------- Usage Argument
+X
+X   // The sole purpose of a usage argument is to immediately print the
+X   // program usage (as soon as it is matched) and to exit.
+X   //
+X   // There is a default usage argument in every CmdLine object.
+X   //
+X   // Example:
+X   //    CmdArgUsage  usage_arg('?', "help", "print usage and exit");
+X   //
+Xclass  CmdArgUsage : public CmdArg {
+Xpublic:
+X   CmdArgUsage(char         optchar,
+X               const char * keyword,
+X               const char * description)
+X      : CmdArg(optchar, keyword, description, CmdArg::isOPT) {}
+X
+X   CmdArgUsage(const CmdArgUsage & cp) : CmdArg(cp) {}
+X
+X   CmdArgUsage(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgUsage(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X//----------------------------------------------------------- Integer Arguments
+X
+X   // Look under "List Arguments" for a CmdArg that is a list of ints
+X
+X   // CmdArgIntCompiler is the base class for all arguments need to
+X   // convert the string given on the command-line into an integer.
+X   //
+Xclass  CmdArgIntCompiler : public CmdArg {
+Xpublic:
+X   CmdArgIntCompiler(char         optchar,
+X                     const char * keyword,
+X                     const char * value,
+X                     const char * description,
+X                     unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+X   CmdArgIntCompiler(const char * value,
+X                     const char * description,
+X                     unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArg(value, description, syntax_flags) {}
+X
+X   CmdArgIntCompiler(const CmdArgIntCompiler & cp) : CmdArg(cp) {}
+X
+X   CmdArgIntCompiler(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgIntCompiler(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X   int
+X   compile(const char * & arg, CmdLine & cmd, int & value);
+X} ;
+X
+X
+X   // CmdArgInt - an argument that contains a single integer.
+X   //
+X   // The following member functions are provided to treat
+X   // a CmdArgInt as if it were an integer:
+X   //
+X   //    operator=(int);
+X   //    operator int(void);
+X   //    operator<<(os, CmdArgInt);
+X   //
+X   // The integer value is initialized to zero by the constructor.
+X   //
+X   // Examples:
+X   //     CmdArgInt  count('c', "count", "number", "# of copies to print");
+X   //     CmdArgInt  nlines("lines", "number of lines to print);
+X   //
+X   //     count = 1;
+X   //     nlines = 0;
+X   //
+X   //     if (count > 1) { ... }
+X   //     cout << "number of lines is " << nlines << endl ;
+X   //
+Xclass  CmdArgInt : public CmdArgIntCompiler {
+Xpublic:
+X   CmdArgInt(char         optchar,
+X             const char * keyword,
+X             const char * value,
+X             const char * description,
+X             unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArgIntCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgInt(const char * value,
+X             const char * description,
+X             unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArgIntCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgInt(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   CmdArgInt(const CmdArgInt & cp) : CmdArgIntCompiler(cp), val(cp.val) {}
+X
+X   CmdArgInt(const CmdArg & cp) : CmdArgIntCompiler(cp), val(0) {}
+X
+X   CmdArgInt &
+X   operator=(const CmdArgInt & cp)  { val = cp.val; return  *this; }
+X
+X   CmdArgInt &
+X   operator=(int cp)  { val = cp; return  *this; }
+X
+X   operator int(void)  const { return  val; }
+X
+Xprivate:
+X   int   val;
+X} ;
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgInt & int_arg);
+X
+X//---------------------------------------------------- Floating-point Arguments
+X
+X   // Look under "List Arguments" for a CmdArg that is a list of floats
+X
+X   // CmdArgFloatCompiler is the base class for all arguments
+X   // need to convert the string given on the command-line into
+X   // a floating-point value.
+X   //
+Xclass  CmdArgFloatCompiler : public CmdArg {
+Xpublic:
+X   CmdArgFloatCompiler(char         optchar,
+X                       const char * keyword,
+X                       const char * value,
+X                       const char * description,
+X                       unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+X   CmdArgFloatCompiler(const char * value,
+X                       const char * description,
+X                       unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArg(value, description, syntax_flags) {}
+X
+X   CmdArgFloatCompiler(const CmdArgFloatCompiler & cp) : CmdArg(cp) {}
+X
+X   CmdArgFloatCompiler(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgFloatCompiler(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X   int
+X   compile(const char * & arg, CmdLine & cmd, float & value);
+X} ;
+X
+X
+X   // CmdArgFloat - an argument that contains a single floating-point value.
+X   //
+X   // The following member functions are provided to treat
+X   // a CmdArgFloat as if it were a float:
+X   //
+X   //    operator=(float);
+X   //    operator float(void);
+X   //    operator<<(os, CmdArgFloat);
+X   //
+X   // The floating-point value is initialized to zero by the constructor.
+X   //
+X   // Examples:
+X   //     CmdArgFloat  major('m', "major", "#", "major radius of ellipse");
+X   //     CmdArgFloat  minor("minor", "minor radius of ellipse");
+X   //
+X   //     major = 2.71828;
+X   //     minor = 3.14159;
+X   //
+X   //     if (minor > major)  {  /* swap major and minor */ }
+X   //
+X   //     cout << "major radius is " << major << endl ;
+X   //
+Xclass  CmdArgFloat : public CmdArgFloatCompiler {
+Xpublic:
+X   CmdArgFloat(char         optchar,
+X               const char * keyword,
+X               const char * value,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArgFloatCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgFloat(const char * value,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArgFloatCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgFloat(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   CmdArgFloat(const CmdArgFloat & cp)
+X      : CmdArgFloatCompiler(cp), val(cp.val) {}
+X
+X   CmdArgFloat(const CmdArg & cp)
+X      : CmdArgFloatCompiler(cp), val(0) {}
+X
+X   CmdArgFloat &
+X   operator=(const CmdArgFloat & cp)  { val = cp.val; return  *this; }
+X
+X   CmdArgFloat &
+X   operator=(float cp)  { val = cp; return  *this; }
+X
+X   operator float(void)  const  { return  val; }
+X
+Xprivate:
+X   float   val;
+X} ;
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgFloat & float_arg);
+X
+X
+X//--------------------------------------------------------- Character Arguments
+X
+X   // CmdArgCharCompiler is the base class for all arguments need to
+X   // convert the string given on the command-line into a character.
+X   //
+Xclass  CmdArgCharCompiler : public CmdArg {
+Xpublic:
+X   CmdArgCharCompiler(char         optchar,
+X                      const char * keyword,
+X                      const char * value,
+X                      const char * description,
+X                      unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+X   CmdArgCharCompiler(const char * value,
+X                      const char * description,
+X                      unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArg(value, description, syntax_flags) {}
+X
+X   CmdArgCharCompiler(const CmdArgCharCompiler & cp) : CmdArg(cp) {}
+X
+X   CmdArgCharCompiler(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgCharCompiler(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X   int
+X   compile(const char * & arg, CmdLine & cmd, char & value);
+X} ;
+X
+X
+X   // CmdArgChar - an argument that contains a single character.
+X   //
+X   // The following member functions are provided to treat
+X   // a CmdArgChar as if it were a character:
+X   //
+X   //    operator=(char);
+X   //    operator char(void);
+X   //    operator<<(os, CmdArgChar);
+X   //
+X   // The character value is initialized to '\0' by the constructor.
+X   //
+X   // Examples:
+X   //     CmdArgChar  ignore('i', "ignore", "character to ignore);
+X   //     CmdArgChar  sep("field-separator");
+X   //
+X   //     ignore = ' ';
+X   //     sep = ',';
+X   //
+X   //     if (sep == '\0') { /* error */ }
+X   //
+X   //     cout << "ignore character is '" << ignore << "'" << endl ;
+X   //
+Xclass  CmdArgChar : public CmdArgCharCompiler {
+Xpublic:
+X   CmdArgChar(char         optchar,
+X              const char * keyword,
+X              const char * value,
+X              const char * description,
+X              unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArgCharCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgChar(const char * value,
+X              const char * description,
+X              unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArgCharCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgChar(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   CmdArgChar(const CmdArgChar & cp) : CmdArgCharCompiler(cp), val(cp.val) {}
+X
+X   CmdArgChar(const CmdArg & cp) : CmdArgCharCompiler(cp), val(0) {}
+X
+X   CmdArgChar &
+X   operator=(const CmdArgChar & cp)  { val = cp.val; return  *this; }
+X
+X   CmdArgChar &
+X   operator=(char cp)  { val = cp; return  *this; }
+X
+X   operator char(void)  const  { return  val; }
+X
+Xprivate:
+X   char   val;
+X} ;
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgChar & char_arg);
+X
+X//------------------------------------------------------------ String Arguments
+X
+X   // Look under "List Arguments" for a CmdArg that is a list of strings
+X
+X   // CmdArgIntCompiler is the base class for all arguments need to
+X   // convert the string given on the command-line into a string.
+X   //
+Xclass  CmdArgStrCompiler : public CmdArg {
+Xpublic:
+X   // We need an internal string type here because sometimes we need
+X   // to allocate new space for the string, and sometimes we dont.
+X   // We need a string type that knows how it was allocated and
+X   // to behave accordingly.
+X   //
+X   // Since the programmer, will be seeing our string type instead of
+X   // a "char *" we need to provide some operators for our string
+X   // type that make it unnecessary to know the difference between
+X   // it and a "char *" (in most cases).
+X   //
+X   struct  string {
+X      unsigned     is_alloc : 1 ;
+X      const char * str ;
+X
+X      string(void) : is_alloc(0), str(0) {}
+X
+X      string(const char * s) : is_alloc(0), str(s) {}
+X
+X      void
+X      copy(unsigned  is_temporary, const char * s);
+X
+X      string(unsigned  is_temporary, const char * s)
+X         : is_alloc(0), str(0) { copy(is_temporary, s); }
+X
+X      string(const string & cp)
+X         : is_alloc(0), str(0) { copy(cp.is_alloc, cp.str); }
+X
+X      string &
+X      operator=(const string & cp)
+X         { copy(cp.is_alloc, cp.str); return *this; }
+X
+X      string &
+X      operator=(const char * cp) { copy(0, cp); return *this; }
+X
+X      operator const char*(void)  const { return  str; }
+X
+X      virtual ~string(void);
+X   } ;
+X
+X   CmdArgStrCompiler(char         optchar,
+X                     const char * keyword,
+X                     const char * value,
+X                     const char * description,
+X                     unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArg(optchar, keyword, value, description, syntax_flags) {}
+X
+X   CmdArgStrCompiler(const char * value,
+X                     const char * description,
+X                     unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArg(value, description, syntax_flags) {}
+X
+X   CmdArgStrCompiler(const CmdArgStrCompiler & cp) : CmdArg(cp) {}
+X
+X   CmdArgStrCompiler(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgStrCompiler(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X   int
+X   compile(const char * & arg, CmdLine & cmd, string & value) ;
+X} ;
+X
+X
+X   // CmdArgStr - an argument that holds a single string
+X   //
+X   // The following member functions are provided to treat
+X   // a CmdArgStr as if it were a string:
+X   //
+X   //    operator=(char*);
+X   //    operator char*(void);
+X   //    operator<<(os, CmdArgStr);
+X   // 
+X   // The string value is initialized to NULL by the constructor.
+X   //
+X   // Examples:
+X   //     CmdArgStr  input('i', "input", "filename", "file to read");
+X   //     CmdArgStr  output("output-file", "file to write);
+X   //
+X   //     input = "/usr/input" ;
+X   //     output = "/usr/output" ;
+X   //
+X   //     if (strcmp(input, output) == 0) {
+X   //        cerr << "input and output are the same file: " << input << endl ;
+X   //     }
+X   //
+Xclass  CmdArgStr : public CmdArgStrCompiler {
+Xpublic:
+X   CmdArgStr(char         optchar,
+X             const char * keyword,
+X             const char * value,
+X             const char * description,
+X             unsigned     syntax_flags =CmdArg::isOPTVALREQ)
+X      : CmdArgStrCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgStr(const char * value,
+X             const char * description,
+X             unsigned     syntax_flags =CmdArg::isPOSVALREQ)
+X      : CmdArgStrCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgStr(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   CmdArgStr(const CmdArgStr & cp) : CmdArgStrCompiler(cp), val(cp.val) {}
+X
+X   CmdArgStr(const CmdArg & cp) : CmdArgStrCompiler(cp), val(0) {}
+X
+X   CmdArgStr &
+X   operator=(const CmdArgStr & cp)  { val = cp.val; return  *this; }
+X
+X   CmdArgStr &
+X   operator=(const CmdArgStrCompiler::string & cp)
+X      { val = cp; return  *this; }
+X
+X   CmdArgStr &
+X   operator=(const char * cp)  { val = cp; return  *this; }
+X
+X   operator CmdArgStrCompiler::string(void)  { return  val; }
+X
+X   operator const char*(void)  const { return  val.str; }
+X
+Xprivate:
+X   CmdArgStrCompiler::string  val;
+X} ;
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgStrCompiler::string & str);
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgStr & str_arg);
+X
+X//-------------------------------------------------------------- List Arguments
+X
+X   // For each of the list argument types:
+X   //    The list is initially empty. The only way to add to the list
+X   //    is with operator(). The number of items in the list may
+X   //    be obtained by the "count()" member function and a given
+X   //    item may be obtained by treating the list as an array and
+X   //    using operator[] to index into the list.
+X   //
+X
+X
+X   // CmdArgIntList - an argument that holds a list of integers
+X   //
+X   // Example:
+X   //     CmdArgIntList ints('i', "ints", "numbers ...", "a list of integers");
+X   //     CmdArgIntList ints("numbers ...", "a positional list of integers");
+X   //
+X   //     for (int i = 0 ; i < ints.count() ; i++) {
+X   //        cout << "integer #" << i << " is " << ints[i] << endl ;
+X   //     }
+X   //
+Xstruct CmdArgIntListPrivate;
+Xclass  CmdArgIntList : public CmdArgIntCompiler {
+Xpublic:
+X   CmdArgIntList(char    optchar,
+X            const char * keyword,
+X            const char * value,
+X            const char * description,
+X            unsigned   syntax_flags =(CmdArg::isOPTVALREQ + CmdArg::isLIST))
+X      : CmdArgIntCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgIntList(const char * value,
+X            const char * description,
+X            unsigned   syntax_flags =(CmdArg::isPOSVALREQ + CmdArg::isLIST))
+X      : CmdArgIntCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgIntList(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   unsigned
+X   count(void) const;
+X
+X   int &
+X   operator[](unsigned  index);
+X
+Xprivate:
+X   CmdArgIntList(const CmdArgInt & cp);
+X
+X   CmdArgIntList &
+X   operator=(const CmdArgInt & cp);
+X
+X   CmdArgIntListPrivate * val;
+X} ;
+X
+X
+X   // CmdArgFloatList - an argument that holds a list of floats
+X   //
+X   // Example:
+X   //     CmdArgFloatList flts('f', "flts", "numbers ...", "a list of floats");
+X   //     CmdArgFloatList flts("numbers ...", "a positional list of floats");
+X   //
+X   //     for (int i = 0 ; i < flts.count() ; i++) {
+X   //        cout << "Float #" << i << " is " << flts[i] << endl ;
+X   //     }
+X   //
+Xstruct CmdArgFloatListPrivate;
+Xclass  CmdArgFloatList : public CmdArgFloatCompiler {
+Xpublic:
+X   CmdArgFloatList(char    optchar,
+X              const char * keyword,
+X              const char * value,
+X              const char * description,
+X              unsigned   syntax_flags =(CmdArg::isOPTVALREQ + CmdArg::isLIST))
+X      : CmdArgFloatCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgFloatList(const char * value,
+X              const char * description,
+X              unsigned   syntax_flags =(CmdArg::isPOSVALREQ + CmdArg::isLIST))
+X      : CmdArgFloatCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgFloatList(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   unsigned
+X   count(void) const;
+X
+X   float &
+X   operator[](unsigned  index);
+X
+Xprivate:
+X   CmdArgFloatList(const CmdArgFloat & cp);
+X
+X   CmdArgFloatList &
+X   operator=(const CmdArgFloat & cp);
+X
+X   CmdArgFloatListPrivate * val;
+X} ;
+X
+X
+X   // CmdArgStrList - an argument that holds a list of strings
+X   //
+X   // Example:
+X   //     CmdArgStrList strs('s', "strs", "strings ...", "a list of strings");
+X   //     CmdArgStrList strs("strings ...", "a positional list of strings");
+X   //
+X   //     for (int i = 0 ; i < strs.count() ; i++) {
+X   //        cout << "String #" << i << " is " << strs[i] << endl ;
+X   //     }
+X   //
+Xstruct CmdArgStrListPrivate;
+Xclass  CmdArgStrList : public CmdArgStrCompiler {
+Xpublic:
+X   CmdArgStrList(char    optchar,
+X            const char * keyword,
+X            const char * value,
+X            const char * description,
+X            unsigned   syntax_flags =(CmdArg::isOPTVALREQ + CmdArg::isLIST))
+X      : CmdArgStrCompiler(optchar, keyword, value, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgStrList(const char * value,
+X            const char * description,
+X            unsigned   syntax_flags =(CmdArg::isPOSVALREQ + CmdArg::isLIST))
+X      : CmdArgStrCompiler(value, description, syntax_flags), val(0) {}
+X
+X   virtual ~CmdArgStrList(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+X   unsigned
+X   count(void) const;
+X
+X   CmdArgStrCompiler::string &
+X   operator[](unsigned  index);
+X
+Xprivate:
+X   CmdArgStrList(const CmdArgStr & cp);
+X
+X   CmdArgStrList &
+X   operator=(const CmdArgStr & cp);
+X
+X   CmdArgStrListPrivate * val;
+X} ;
+X
+X//----------------------------------------------------------- Boolean Arguments
+X
+X   // Boolean arguments are a bit tricky, first of all - we have three
+X   // different kinds:
+X   //
+X   //    1) An argument whose presence SETS a value
+X   //
+X   //    2) An argument whose presence UNSETS a value
+X   //
+X   //    3) An argument whose presence TOGGLES a value
+X   //
+X   // Furthermore, it is not uncommon (especially in VAX/VMS) to have
+X   // one argument that SETS and value, and another argument that
+X   // UNSETS the SAME value.
+X   //
+X
+X   // CmdArgBoolCompiler is a special type of ArgCompiler, not only does
+X   // its "compile" member function take a reference to the boolean value,
+X   // but it also needs to know what default-value to use if no explicit
+X   // value (such as '0', '1', "ON" or "FALSE") was given.
+X   //
+Xclass CmdArgBoolCompiler : public CmdArg {
+Xpublic:
+X   CmdArgBoolCompiler(char         optchar,
+X                      const char * keyword,
+X                      const char * description,
+X                      unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArg(optchar, keyword, description, syntax_flags) {}
+X
+X   CmdArgBoolCompiler(const CmdArgBoolCompiler & cp) : CmdArg(cp) {}
+X
+X   CmdArgBoolCompiler(const CmdArg & cp) : CmdArg(cp) {}
+X
+X   virtual ~CmdArgBoolCompiler(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X   int
+X   compile(const char * & arg,
+X           CmdLine      & cmd,
+X           unsigned     & value,
+X           unsigned       default_value =1);
+X} ;
+X
+X
+X   // CmdArgBool is a boolean ArgCompiler that holds a single
+X   // boolean value, it has three subclasses:
+X   //
+X   //   1) CmdArgSet (which is just an alias for CmdArgBool)
+X   //      -- This argument SETS a boolean value.
+X   //         The initial value is 0 (OFF).
+X   //
+X   //   2) CmdArgClear
+X   //      -- This argument CLEARS a boolean value
+X   //         The initial value is 1 (ON).
+X   //
+X   //   3) CmdArgToggle
+X   //      -- This argument TOGGLES a boolean value
+X   //         The initial value is 0 (OFF).
+X   //
+X   // All of these classes have the following member functions
+X   // to help make it easier to treat a Boolean Argument as
+X   // a Boolean Value:
+X   //
+X   //   operator=(int);
+X   //   operator int(void);
+X   //
+X   // Examples:
+X   //    CmdArgBool    xflag('x', "xmode", "turn on xmode);
+X   //    CmdArgClear   yflag('y', "ymode", "turn on ymode);
+X   //    CmdArgToggle  zflag('z', "zmode", "turn on zmode);
+X   //
+X   //    cout << "xmode is " << (xflag ? "ON" : "OFF") << endl ;
+X   //
+Xclass CmdArgBool : public CmdArgBoolCompiler {
+Xpublic:
+X   CmdArgBool(char         optchar,
+X              const char * keyword,
+X              const char * description,
+X              unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArgBoolCompiler(optchar, keyword, description, syntax_flags),
+X        val(0) {}
+X
+X   CmdArgBool(const CmdArgBool & cp) : CmdArgBoolCompiler(cp), val(cp.val) {}
+X
+X   CmdArgBool(const CmdArg & cp) : CmdArgBoolCompiler(cp), val(0) {}
+X
+X   virtual ~CmdArgBool(void);
+X
+X   CmdArgBool &
+X   operator=(const CmdArgBool & cp)
+X      { val = cp.val; return  *this; }
+X
+X   CmdArgBool &
+X   operator=(int new_value)
+X      { val = (new_value) ? 1 : 0; return *this; }
+X
+X   operator int(void) const { return  val; }
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+Xprotected:
+X   unsigned  val : 1;
+X} ;
+X
+Xostream &
+Xoperator<<(ostream & os, const CmdArgBool & bool_arg);
+X
+Xtypedef  CmdArgBool  CmdArgSet ;
+X
+Xclass CmdArgClear : public CmdArgBool {
+Xpublic:
+X   CmdArgClear(char         optchar,
+X               const char * keyword,
+X               const char * description,
+X               unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArgBool(optchar, keyword, description, syntax_flags) { val = 1; }
+X
+X   CmdArgClear(const CmdArgClear & cp) : CmdArgBool(cp) {}
+X
+X   CmdArgClear(const CmdArg & cp) : CmdArgBool(cp) { val = 1; }
+X
+X   virtual ~CmdArgClear(void);
+X
+X   CmdArgClear &
+X   operator=(const CmdArgClear & cp)
+X      { val = cp.val; return  *this; }
+X
+X   CmdArgClear &
+X   operator=(int new_value)
+X      { val = (new_value) ? 1 : 0; return *this; }
+X
+X   operator int(void) const { return  val; }
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+Xclass CmdArgToggle : public CmdArgBool {
+Xpublic:
+X   CmdArgToggle(char         optchar,
+X                const char * keyword,
+X                const char * description,
+X                unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArgBool(optchar, keyword, description, syntax_flags) {}
+X
+X   CmdArgToggle(const CmdArgToggle & cp) : CmdArgBool(cp) {}
+X
+X   CmdArgToggle(const CmdArg & cp) : CmdArgBool(cp) {}
+X
+X   virtual ~CmdArgToggle(void);
+X
+X   CmdArgToggle &
+X   operator=(const CmdArgToggle & cp)
+X      { val = cp.val; return  *this; }
+X
+X   CmdArgToggle &
+X   operator=(int new_value)
+X      { val = (new_value) ? 1 : 0; return *this; }
+X
+X   operator int(void) const { return  val; }
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X} ;
+X
+X
+X   // Now we come to the Reference Boolean arguments, these are boolean
+X   // arguments that reference the very same value as some other boolean
+X   // argument. The constructors for Reference Boolean arguments require
+X   // a reference to the boolean argument whose value they are referencing.
+X   //
+X   // The boolean reference classes are as follows:
+X   //
+X   //   1) CmdArgBoolRef and CmdArgSetRef
+X   //      -- SET the boolean value referenced by a CmdArgBool
+X   //
+X   //   2) CmdArgClearRef
+X   //      -- CLEAR the boolean value referenced by a CmdArgBool
+X   //
+X   //   3) CmdArgToggleRef
+X   //      -- TOGGLE the boolean value referenced by a CmdArgBool
+X   //
+X   // Examples:
+X   //    CmdArgBool    xflag('x', "xmode", "turn on xmode");
+X   //    CmdArgClear   yflag('Y', "noymode", "turn off ymode");
+X   //    CmdArgToggle  zflag('z', "zmode", "toggle zmode");
+X   //
+X   //    CmdArgClearRef x_off(xflag, 'X', "noxmode", "turn off xmode");
+X   //    CmdArgBoolRef  y_on(yflag, 'Y', "ymode", "turn on ymode");
+X   //
+X   //    cout << "xmode is " << (xflag ? "ON" : "OFF") << endl ;
+X   //
+Xclass CmdArgBoolRef : public CmdArg {
+Xpublic:
+X   CmdArgBoolRef(CmdArgBool & bool_arg,
+X                 char         optchar,
+X                 const char * keyword,
+X                 const char * description,
+X                 unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArg(optchar, keyword, description, syntax_flags), ref(bool_arg) {}
+X
+X   virtual  ~CmdArgBoolRef(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+Xprotected:
+X   CmdArgBool & ref;
+X} ;
+X
+Xtypedef CmdArgBoolRef  CmdArgSetRef ;
+X
+Xclass CmdArgClearRef : public CmdArg {
+Xpublic:
+X   CmdArgClearRef(CmdArgBool & bool_arg,
+X                  char         optchar,
+X                  const char * keyword,
+X                  const char * description,
+X                  unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArg(optchar, keyword, description, syntax_flags), ref(bool_arg) {}
+X
+X   virtual  ~CmdArgClearRef(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+Xprotected:
+X   CmdArgBool & ref;
+X} ;
+X
+Xclass CmdArgToggleRef : public CmdArg {
+Xpublic:
+X   CmdArgToggleRef(CmdArgBool & bool_arg,
+X                  char         optchar,
+X                  const char * keyword,
+X                  const char * description,
+X                  unsigned     syntax_flags =CmdArg::isOPT)
+X      : CmdArg(optchar, keyword, description, syntax_flags), ref(bool_arg) {}
+X
+X   virtual  ~CmdArgToggleRef(void);
+X
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd);
+X
+Xprotected:
+X   CmdArgBool & ref;
+X} ;
+X
+X#endif /* _usr_include_cmdargs_h */
+END_OF_FILE
+if test 30824 -ne `wc -c <'src/lib/cmdargs.h'`; then
+    echo shar: \"'src/lib/cmdargs.h'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdargs.h'
+fi
+if test -f 'src/lib/cmdline.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/lib/cmdline.h'\"
+else
+echo shar: Extracting \"'src/lib/cmdline.h'\" \(26959 characters\)
+sed "s/^X//" >'src/lib/cmdline.h' <<'END_OF_FILE'
+X//------------------------------------------------------------------------
+X// ^FILE: cmdline.h - declare the basic classes used in the CmdLine library
+X//
+X// ^DESCRIPTION:
+X//    This file declares the three basic classes used in the CmdLine library.
+X//    These three classes are "CmdArg" (a command-argument object),
+X//    "CmdLineArgIter" (an object to iterate over a set of arguments),
+X//    and "CmdLine" (the command-line object itself).
+X//
+X// ^HISTORY:
+X//    03/19/92	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X//-^^---------------------------------------------------------------------
+X
+X#ifndef _usr_include_cmdline_h
+X#define _usr_include_cmdline_h
+X
+Xclass  ostream ;
+Xclass  istream ;
+Xclass  CmdLine ;
+Xclass  CmdArgListIter ;
+Xclass  CmdArgListList ;
+X
+X//-----------------------------------------------------------------------------
+X
+X   // A CmdArg is an abstract command-line argument.
+X   // At this level (being the base class), all a command argument
+X   // contains is the "interface" (on the command-line) of the
+X   // argument, and some information (after the command-line has
+X   // been parsed) that says "how" the argument appeared (if it did).
+X   //
+X   // The interface of a CmdArg consists of 6 things:
+X   //    1) a character name
+X   //    2) a keyword name
+X   //    3) a value name (if the argument takes a value)
+X   //    4) an argument description
+X   //    5) a set of flags describing the syntax of the argument.
+X   //    6) a set of flags to record how (and if) the argument
+X   //         appeared on the command-line.
+X   //
+X   // When constructing a CmdArg, the most common syntax-flags can be
+X   // inferred from the syntax used in the argument description,
+X   // and the argument value name.  If the first non-white character
+X   // of the argument description is ';', then the argument is considered
+X   // to be "secret" and is NOT printed in usage messages.
+X   //
+X   // When specifiying a value, one may enclose the value name between
+X   // '[' and ']' to indicate the value is optional. Also, one may follow
+X   // the actual value name with "..." to indicate that the value corresponds
+X   // to a LIST of values.
+X   //
+X   // Hence, the only time you really need to explicitly specify any syntax
+X   // flags is when you want a value to be "strictly sticky" or "strictly
+X   // separate"  and/or you want an argument to be able to be matched both
+X   // positionally AND by (long or short) keyword.
+X   //
+Xclass  CmdArg {
+Xpublic:
+X   friend class CmdLine ;
+X
+X      // Flags that define the argument syntax
+X   enum  CmdArgSyntax {
+X      isOPT       = 0x00,  // argument is optional
+X      isREQ       = 0x01,  // argument is required
+X      isVALOPT    = 0x02,  // argument value is optional
+X      isVALREQ    = 0x04,  // argument value is required
+X      isVALSEP    = 0x08,  // argument value must be in a separate token
+X      isVALSTICKY = 0x10,  // argument value must be in the same token
+X      isLIST      = 0x20,  // argument is a list
+X      isPOS       = 0x40,  // argument is positional
+X      isHIDDEN    = 0x80,  // argument is not to be printed in usage
+X      isVALTAKEN  = (isVALREQ | isVALOPT),    // argument takes a value
+X      isOPTVALOPT = (isOPT | isVALOPT),
+X      isOPTVALREQ = (isOPT | isVALREQ),
+X      isPOSVALOPT = (isPOS | isVALOPT),
+X      isPOSVALREQ = (isPOS | isVALREQ),
+X   } ;
+X
+X     // Flags that say how the argument was specied on the command-line
+X   enum  CmdArgFlags {
+X      GIVEN      = 0x01,  // argument was given
+X      VALGIVEN   = 0x02,  // argument value was given
+X      OPTION     = 0x04,  // item was matched as an option
+X      KEYWORD    = 0x08,  // item was matched as a keyword
+X      POSITIONAL = 0x10,  // item was matched as a positional argument
+X      VALSEP     = 0x20,  // value was in a separate token
+X   } ;
+X
+X      // Create an option that takes a value.
+X      //
+X      // The default flags are to assume that the argument is optional
+X      // and that the value is required.
+X      //
+X      // Some examples:
+X      //
+X      //    CmdArg('c', "count", "number", "specify the # of copies to use);
+X      //
+X      //    CmdArg('d', "debug", "[level]". "turn on debugging and optionally"
+X      //                                    "specify the debug level");
+X      //
+X      //    CmdArg('l', "list", "items ...", "specify a list of items.");
+X      //
+X   CmdArg(char         optchar,
+X          const char * keyword,
+X          const char * value,
+X          const char * description,
+X          unsigned     syntax_flags =isOPTVALREQ);
+X
+X      // Create an option that takes no value.
+X      //
+X      // The default flags are to assume that the argument is optional.
+X      //
+X      // Some examples:
+X      //
+X      //    CmdArg('m', "mode", "turn on this mode");
+X      //
+X   CmdArg(char         optchar,
+X          const char * keyword,
+X          const char * description,
+X          unsigned     syntax_flags =isOPT);
+X
+X      // Create a positional argument.
+X      //
+X      // The default flags are to assume that the argument is positional
+X      // and that the argument value is required.
+X      //
+X      // Some examples:
+X      //
+X      //    CmdArg("file", "file to read");
+X      //
+X      //    CmdArg("[file]", "optional file to read");
+X      //
+X      //    CmdArg("file ...", "list of files to read");
+X      //
+X      //    CmdArg("[file ...]", "optional list of files to read");
+X      //
+X   CmdArg(const char * value,
+X          const char * description,
+X          unsigned     syntax_flags =isPOSVALREQ);
+X
+X
+X   CmdArg(const CmdArg & cp);
+X
+X   virtual ~CmdArg(void);
+X
+X      // over-ride this function to return a non-zero value if you
+X      // wish the argument to be ignored (except for usage messages).
+X      //
+X   virtual  int
+X   is_dummy(void);
+X
+X      // Here is the "primary" function that makes everything work ...
+X      //
+X      // Whenever we actually "match" an argument on the command-line,
+X      // we need to tell the argument it was matched (and how), and
+X      // give it the string value (if there is one) to associate with it.
+X      //
+X      // At this point, the argument object is then responsible for
+X      // performing whatever "magic" is to be done. This might be going
+X      // off and reading a file, performing some other actions, or just
+X      // "compiling" the argument into some internal value (specified
+X      // by the derived class) to be queried at a later time.
+X      //
+X      // The parameters to this function are as follows:
+X      //
+X      //   PARAMETER 1: arg
+X      //      The string value on the command-line to associate with this
+X      //      argument. If this argument does not take a value, or the
+X      //      value is optional and was NOT supplied, then NULL is passed.
+X      //      This parameter is a reference parameter and before returning,
+X      //      "arg" should either be set to NULL (to indicate that the entire
+X      //      argument was used) or should point to the first unused character
+X      //      of "arg".
+X      //
+X      //   PARAMETER 2: cmd
+X      //      A reference to the command-line object that is currently being
+X      //      parsed.  There are parts of this object that may be helpful in
+X      //      determining what to do. In particular, we may want to look at
+X      //      the "flags" of the command.  If the QUIET flag is set, then
+X      //      this routine should suppress the printing of any error messages.
+X      //      If the TEMP flag is set, then "arg" (the first parameter) points
+X      //      to storage that may not be around for much longer and we may
+X      //      want to make a copy of it.
+X      //
+X      // Before, this function is called, the CmdLine object that is parsing
+X      // the arguments has already set the "flags()" of this argument to tell
+X      // us how we appeared on the command-line this time around (were we
+X      // specified as an option or positionally? Is "arg" in a separate argv[]
+X      // element?).
+X      //
+X      // After we have done our "magic" and set the reference parameter
+X      // "arg", this function should return a value of 0 if everything
+X      // is A-OK and "arg" was a correctly specified value for this type of
+X      // of argument. If something went wrong (like a syntax error in "arg"),
+X      // then we should return a non-zero value.
+X      //
+X   virtual  int
+X   operator()(const char * & arg, CmdLine & cmd) = 0;
+X
+X      // Retrieve the syntax flags for this argument.
+X   unsigned
+X   syntax(void) const  { return  arg_syntax; }
+X
+X      // Get the flags that say how this argument was specified.
+X   unsigned
+X   flags(void) const  { return  arg_flags; }
+X
+X      // Get the character (short-option) name of this argument.
+X      // Returns '\0' if there isnt one.
+X   char
+X   char_name(void) const  { return  arg_char_name; }
+X
+X      // Get the keyword (long-option) name of this argument
+X      // Returns NULL if there isnt one.
+X   const char *
+X   keyword_name(void) const  { return  arg_keyword_name; }
+X
+X      // Get the value name of this argument.
+X      // Returns NULL if this argument takes no value.
+X   const char *
+X   value_name(void) const  { return  arg_value_name; }
+X
+X      // Get the description (help-message) of this argument.
+X   const char *
+X   description(void) const  { return  arg_description; }
+X
+X      // If we were compiled for dubugging, then dump this argument
+X   virtual  void
+X   dump(ostream & os, unsigned level =0) const;
+X
+Xprivate:
+X   // Member functions for internal use
+X
+X   void
+X   adjust_syntax(void);
+X
+X   void
+X   parse_description(void);
+X
+X   void
+X   parse_value(void);
+X
+X   void
+X   flags(unsigned newflags)  { arg_flags = newflags; }
+X
+X   void
+X   set(unsigned flags)  { arg_flags |= flags; }
+X
+X   void
+X   clear(unsigned flags =~0)  { arg_flags &= ~flags; }
+X
+X
+X   // Private data members
+X
+X   unsigned     alloc_value_name : 1 ;
+X
+X   unsigned     arg_flags : 8 ;
+X   unsigned     arg_syntax : 8 ;
+X
+X   char         arg_char_name;
+X   const char * arg_keyword_name;
+X   const char * arg_value_name;
+X   const char * arg_description;
+X} ;
+X
+X//-----------------------------------------------------------------------------
+X
+X   // In order to parse arguments, we need to have an input source where
+X   // the arguments are coming from.  CmdLineArgIter is an abstract
+X   // iterator class for cycling through all the command-line arguments
+X   // from an arbitrary input source.
+X   //
+Xclass  CmdLineArgIter {
+Xpublic:
+X   CmdLineArgIter(void);
+X
+X   virtual ~CmdLineArgIter(void);
+X
+X      // Return the current argument and advance to the next one.
+X      // Returns NULL if we are already at the end of the arguments
+X      //
+X   virtual const char *
+X   operator()(void) = 0;
+X
+X      // Are the args returned by operator() pointing to temporary storage?
+X   virtual int
+X   is_temporary(void) const = 0;
+X
+Xprivate:
+X   CmdLineArgIter(const CmdLineArgIter &) ;
+X
+X   CmdLineArgIter &
+X   operator=(const CmdLineArgIter &) ;
+X} ;
+X
+X
+X   // CmdArgvIter is a class used to iterate through command arguments
+X   // that come from an array of strings (like argv[] from main()).
+X   //
+Xclass  CmdArgvIter : public CmdLineArgIter {
+Xpublic:
+X   CmdArgvIter(int argc, const char * const argv[])
+X      : count(argc), array(argv), index(0) {}
+X
+X   CmdArgvIter(const char * const argv[])
+X      : array(argv), index(0), count(-1) {}
+X
+X   virtual ~CmdArgvIter(void);
+X
+X   virtual const char *
+X   operator()(void);
+X
+X   virtual int
+X   is_temporary(void) const;
+X
+X      // Restart using a different string array.
+X   void
+X   reset(int argc, const char * const argv[])
+X      { count = argc; array = argv; index = 0; }
+X
+X   void
+X   reset(const char * const argv[])
+X      { array = argv; index = 0; count = -1; }
+X
+Xprivate:
+X   CmdArgvIter(const CmdArgvIter &) ;
+X
+X   CmdArgvIter &
+X   operator=(const CmdArgvIter &) ;
+X
+X   int   count;
+X   int   index;
+X   const char * const *  array;
+X} ;
+X
+X
+X   // CmdStrTok iterator is a class for iterating over arguments that
+X   // are specified in a string of tokens that are delimited by a
+X   // particular set of characters.  The strtok(3C) library function
+X   // is used to extract tokens from the string.
+X   //
+X   // If NULL is given as the delimiter-set, then whitespace is assumed.
+X   //
+Xclass  CmdStrTokIter : public CmdLineArgIter {
+Xpublic:
+X   CmdStrTokIter(const char * tokens, const char * delimiters =0);
+X
+X   virtual ~CmdStrTokIter(void);
+X
+X   virtual const char *
+X   operator()(void);
+X
+X      // Reset using a new token-string and delimiter set.
+X   void
+X   reset(const char * tokens, const char * delimiters =0);
+X
+X      // Get the current delimiter set
+X   const char *
+X   delimiters(void) const { return  seps; }
+X
+X      // Change the current delimiter set
+X   void
+X   delimiters(const char * new_delimiters)  { seps = new_delimiters; }
+X
+X   virtual int
+X   is_temporary(void) const;
+X
+Xprivate:
+X   CmdStrTokIter(const CmdStrTokIter &) ;
+X
+X   CmdStrTokIter &
+X   operator=(const CmdStrTokIter &) ;
+X
+X   char       * tokstr;
+X   const char * seps;
+X   const char * token;
+X} ;
+X
+X
+X   // CmdIstreamIter is a class for iterating over arguments that come
+X   // from an input stream. Each line of the input stream is considered
+X   // to be a set of white-space separated tokens. If the the first
+X   // non-white character on a line is '#' ('!' for VMS systems) then
+X   // the line is considered a comment and is ignored.
+X   //
+X   // *Note:: If a line is more than 1022 characters in length then we
+X   // treat it as if it were several lines of length 1022 or less.
+X   //
+Xclass  CmdIstreamIter : public CmdLineArgIter {
+Xpublic:
+X   CmdIstreamIter(istream & input);
+X
+X   virtual ~CmdIstreamIter(void);
+X
+X   virtual const char *
+X   operator()(void);
+X
+X   virtual int
+X   is_temporary(void) const;
+X
+Xprivate:
+X   istream & is ;
+X   CmdStrTokIter * tok_iter ;
+X} ;
+X
+X//-----------------------------------------------------------------------------
+X
+X   // Here is the class that represents a command-line object. A command
+X   // line object is a parsing machine (with machine states), whose parsing
+X   // behavior may be configured at run-time by specifying various CmdFlags
+X   // (defined below). A command-line object also contains a command-name
+X   // and a list of CmdArg objects that correspond to the various arguments
+X   // that are allowed to occur on the command line.
+X   //
+Xclass  CmdLine {
+Xpublic:
+X   friend class CmdLineCmdArgIter;
+X
+X      // Flags that define parsing behavior
+X      //   The default flags (for Unix) are OPTS_FIRST.
+X   enum CmdFlags {
+X      ANY_CASE_OPTS = 0x001, // Ignore character-case for short-options
+X      PROMPT_USER   = 0x002, // Prompt the user for missing required args
+X      NO_ABORT      = 0x004, // Dont exit upon syntax error
+X      OPTS_FIRST    = 0x008, // No options after positional parameters
+X      OPTS_ONLY     = 0x010, // Dont accept short-options
+X      KWDS_ONLY     = 0x020, // Dont accept long-options
+X      TEMP          = 0x040, // Assume all arg-strings are temporary
+X      QUIET         = 0x080, // Dont print syntax error messages
+X      NO_GUESSING   = 0x100, // Dont guess if cant match an option. 
+X                                // Unless this flag is given, then
+X                                // when we see an unmatched option,
+X                                // we will try to see if it matches
+X                                // a keyword (and vice-versa).
+X   } ;
+X
+X      // Flags to convey parsing-status
+X   enum CmdStatus {
+X      NO_ERROR      = 0x000,  // No problems
+X      ARG_MISSING   = 0x001,  // A required argument was not specified
+X      VAL_MISSING   = 0x002,  // A required argument value was not specified
+X      VAL_NOTSTICKY = 0x004,  // Value needs to be in same token
+X      VAL_NOTSEP    = 0x008,  // Value needs to be in separate token
+X      KWD_AMBIGUOUS = 0x010,  // An ambiguous keyword prefix was specified
+X      BAD_OPTION    = 0x020,  // An invalid option was specified
+X      BAD_KEYWORD   = 0x040,  // An invalid keyword was specified
+X      BAD_VALUE     = 0x080,  // An invalid value was specified for an arg
+X      TOO_MANY_ARGS = 0x100,  // Too many positional args were specified
+X   } ;
+X
+X      // Contructors and Destructors ...
+X      //
+X      //   It is not necessary to supply a command-name at construction
+X      //   time, but one SHOULD be specified before parsing a command-line
+X      //   or printing a usage message.
+X      //
+X      //   Similarly, CmdArgs are not required at construction time and may
+X      //   even be added on the fly. All desired arguments should be added
+X      //   before any parsing happens and before printing usage.
+X      //
+X      //   The order in which CmdArgs are added to a CmdLine is important
+X      //   because for positional parameters, this specifies the order in
+X      //   which they are expected to appear on the command-line.
+X      //
+X   CmdLine(const char * name =0);
+X
+X   CmdLine(const char * name, CmdArg * ...);   // last arg should be NULL
+X
+X   CmdLine(CmdArg * cmdarg, CmdArg * ...);     // last arg should be NULL
+X
+X   virtual ~CmdLine(void);
+X
+X      // Get the command name.
+X   const char *
+X   name(void)  const  { return  cmd_name; }
+X
+X      // Specify a command name.
+X   void
+X   name(const char * progname);
+X
+X      // Append an argument
+X   CmdLine &
+X   append(CmdArg * cmdarg);
+X
+X   CmdLine &
+X   append(CmdArg & cmdarg)  { return  append(& cmdarg); }
+X
+X      // The insertion operator (operator<<) is merely a convenient
+X      // shorthand for the append() member function.
+X      //
+X   CmdLine &
+X   operator<<(CmdArg * cmdarg)  { return  append(cmdarg) ; }
+X
+X   CmdLine &
+X   operator<<(CmdArg & cmdarg)  { return  append(& cmdarg) ; }
+X
+X   //
+X   // Messages and Status
+X   //
+X
+X      // Specify the verboseness of usage messages
+X   enum CmdUsageLevel {
+X      NO_USAGE      = 0,  // Dont print usage at all.
+X      TERSE_USAGE   = 1,  // Just print command-line syntax.
+X      VERBOSE_USAGE = 2,  // Print command-line syntax & argument-descriptions.
+X      DEFAULT_USAGE = 3,  // Read the $USAGE_LEVEL environment variable for
+X                             // the usage-level: 0=none, 1=terse, 2=verbose.
+X                             // if $USAGE_LEVEL is empty or is not 0, 1, or 2
+X                             // then VERBOSE_USAGE is used.
+X   } ;
+X
+X      // Print usage on the given output stream using the given verboseness
+X   ostream &
+X   usage(ostream & os, CmdUsageLevel level =DEFAULT_USAGE) const ;
+X
+X      // Print usage on the CmdLine's error-outstream
+X   ostream &
+X   usage(CmdUsageLevel level =DEFAULT_USAGE) const ;
+X
+X      // Obtain the current status of the command. The status will be
+X      // zero if everything is alright; otherwise it will correspond
+X      // to a combination of CmdStatus bitmasks telling us precisely
+X      // what went wrong.
+X      //
+X   unsigned
+X   status(void)  const  { return  cmd_status; }
+X
+X      // Print an error message prefix on the error output stream
+X      // associated with this command. The prefix printed is the
+X      // basename of the command followed by a ':'.
+X      //
+X      // Hence error messages associated with this command may be
+X      // printed as follows:
+X      //
+X      //    my_cmd.error() << "This is what went wrong!" << endl;
+X      //
+X      // If NOPRINT is given as a parameter, then nothing
+X      // is printed.
+X      //
+X   enum { NOPRINT = 0, PRINT = 1 } ;
+X
+X   ostream &
+X   error(int  print =PRINT) const;
+X
+X      // If the QUIET-flag is not set, then we need to know where
+X      // to print any error messages (the default is cerr).
+X      //
+X      // Use this member function to specify the desired output stream
+X      // for error messages.
+X      //
+X   void
+X   error(ostream & os) { cmd_err = &os; }
+X
+X   //
+X   // Get & set the command-parsing-flags
+X   //
+X
+X      // Get the current set of command-flags
+X   unsigned
+X   flags(void) const  { return  cmd_flags; }
+X
+X      // Specify a new set of command-flags
+X   void
+X   flags(unsigned newflags)  { cmd_flags = newflags; }
+X
+X      // Set only the given command-flags
+X   void
+X   set(unsigned flags)  { cmd_flags |= flags; }
+X
+X      // Clear only the given command-flags
+X   void
+X   clear(unsigned flags =~0)  { cmd_flags &= ~flags; }
+X
+X   //
+X   // We are somewhat flexible in the way we parse arguments.
+X   // Before any parsing can occur, some preprocessing needs to
+X   // be done. After we have parsed all the arguments, some
+X   // post-processing needs to be done.  If you use the "parse()"
+X   // member function, then this pre- and post- processing is
+X   // automatically performed for you UNLESS you specify a second
+X   // parameter of NO_PROCESSING.  If you have arguments that are
+X   // coming from more then one input source, you will have to
+X   // manually activate pre-processing (by calling prologue()),
+X   // then parse all your arguments (using parse() with NO_PROCESSING
+X   // and/or using arg_parse()), and then manually activate
+X   // post-processing (by calling epilogue()).
+X   //
+X
+X      // Parse a set of arguments (pre- and post- processing is
+X      // automatically performed UNLESS "NO_PROCESSING" is given
+X      // as the second argument).
+X      //
+X      // Return the resultant command status.
+X      //
+X   enum { NO_PROCESSING = 0, AUTO_PROCESSING = 1 } ;
+X
+X   unsigned
+X   parse(CmdLineArgIter & arg_iter, int  processing =AUTO_PROCESSING) ;
+X
+X      // Perform the necessary pre-processing.
+X      // Return the resultant command status.
+X      //
+X   unsigned
+X   prologue(void) ;
+X
+X      // Parse a single argument (pre- and post- processing is
+X      // NOT performed).
+X      //
+X   unsigned
+X   parse_arg(const char * arg) ;
+X
+X      // Perform the necessary post-processing.
+X      // Return the resultant command status.
+X      //
+X   unsigned
+X   epilogue(void) ;
+X
+X   //
+X   // Retrieve a specific argument
+X   //
+X
+X      // Retrieve an argument based on its character-name.
+X      // Returns NULL if no argument matches the given character.
+X      //
+X   CmdArg *
+X   operator[](char optchar) const { return  opt_match(optchar); }
+X
+X      // Retrieve an argument based on its keyword-name.
+X      // (if an argument has no keyword-name then we try to match its
+X      // value name instead).
+X      //
+X      // Returns NULL if no argument matches the given keyword or
+X      // the keyword is ambiguous.
+X      //
+X   CmdArg *
+X   operator[](const char * keyword) const
+X      { int ambig = 0;  return  kwd_match(keyword, -1, ambig, 1); }
+X
+X   //
+X   // Version specific information
+X   //
+X
+X      // get the release number
+X   static  unsigned
+X   release(void);
+X
+X      // get the patchlevel number
+X   static  unsigned
+X   patchlevel(void);
+X
+X      // get the SCCS identifier string
+X   static  const char *
+X   ident(void);
+X
+X   //
+X   // These next few functions are used internally but are general
+X   // enough in purpose as to possibly be useful to others.
+X   //
+X
+X      // return type for an attempted keyword match
+X   enum strmatch_t { str_NONE, str_PARTIAL, str_EXACT } ;
+X
+X      // Try to match "attempt" against "src", if len is 0 then
+X      // only the first "len" characters are compared.
+X      //
+X      // Returns str_EXACT for an exact-match str_PARTIAL for a
+X      // partial-match, and str_NONE otherwise.
+X      //
+X   static  strmatch_t
+X   strmatch(const char * src, const char * attempt, unsigned  len =0);
+X
+X      // Print a hanging indented paragraph on an outstream. Long lines
+X      // are broken at word boundaries and are warpped to line up with
+X      // the rest of the paragraph.  The format looks like the following
+X      // (text starts on a new line is the strlen(title) >= indent):
+X      //
+X      // <------------------------- maxcols ------------------------------->
+X      // <--- margin ---><--- indent --->
+X      //                 title           This is the first sentence.  This
+X      //                                 is the second sentence. etc ...
+X      //
+X   static  void
+X   strindent(ostream    & os,
+X             unsigned     maxcols,
+X             unsigned     margin,
+X             const char * title,
+X             unsigned     indent,
+X             const char * text);
+X
+X   //
+X   // Debugging stuff ...
+X   //
+X
+X      // If we were compiled for dubugging, then dump this command
+X   virtual  void
+X   dump(ostream & os, unsigned level =0) const;
+X
+X      // If we were compiled for dubugging, then dump the argument list
+X   virtual  void
+X   dump_args(ostream & os, unsigned level =0) const;
+X
+Xprivate:
+X      // Private data members
+X   unsigned          cmd_parse_state : 8 ;
+X   unsigned          cmd_state  : 8 ;
+X   unsigned          cmd_flags  : 16 ;
+X   unsigned          cmd_status : 16 ;
+X   const char      * cmd_name ;
+X   CmdArg          * cmd_matched_arg ;
+X   CmdArgListList  * cmd_args ;
+X   ostream         * cmd_err ;
+X
+X      // Disallow copying and assignment
+X   CmdLine(const CmdLine & );
+X
+X   CmdLine &
+X   operator=(const CmdLine & );
+X
+X   //
+X   // Member functions for internal use
+X   //
+X
+X      // Specify the command syntax to use for usage messages
+X   enum CmdLineSyntax { cmd_OPTS_ONLY = 0, cmd_KWDS_ONLY = 1, cmd_BOTH = 2 } ;
+X
+X   int
+X   handle_arg(CmdArg * cmdarg, const char * & arg);
+X
+X   void
+X   ck_need_val(void);
+X
+X   CmdLineSyntax
+X   syntax(void) const;
+X
+X   unsigned
+X   prompt_user(CmdArg * cmdarg);
+X
+X   unsigned
+X   missing_args(void);
+X
+X   CmdArg *
+X   opt_match(char optchar) const;
+X
+X   CmdArg *
+X   kwd_match(const char * kwd,
+X             int          len,
+X             int &        is_ambiguous,
+X             int          match_value =0) const;
+X
+X   CmdArg *
+X   pos_match(void) const;
+X
+X   unsigned
+X   parse_option(const char * arg);
+X
+X   unsigned
+X   parse_keyword(const char * arg);
+X
+X   unsigned
+X   parse_value(const char * arg);
+X
+X   ostream &
+X   arg_error(const char * error_str, const CmdArg * cmdarg) const;
+X
+X   unsigned
+X   fmt_arg(const CmdArg * cmdarg,
+X           char         * buf,
+X           unsigned       bufsize,
+X           CmdLineSyntax  syntax,
+X           CmdUsageLevel  level) const;
+X
+X   static  CmdUsageLevel
+X   get_usage_level(void);
+X
+X   unsigned
+X   print_synopsis(CmdLineSyntax syntax,
+X                  ostream     & os,
+X                  int           cols) const;
+X
+X   void
+X   print_descriptions(CmdLineSyntax   syntax,
+X                      ostream       & os,
+X                      int             cols,
+X                      unsigned        longest) const;
+X
+X} ;
+X
+X
+X   // "os << cmd" is equivalent to "cmd.usage(os)"
+Xinline ostream &
+Xoperator <<(ostream & os, CmdLine & cmd)  { return  cmd.usage(os); }
+X
+X
+X//-----------------------------------------------------------------------------
+X
+X   // We want to provide the user with a means to iterate over all the
+X   // arguments in the argument list of a command-line.  We will provide
+X   // a class named "CmdLineCmdArgIter" to do this.
+X
+Xclass  CmdLineCmdArgIter {
+Xpublic:
+X   CmdLineCmdArgIter(CmdLine & cmd);
+X
+X   CmdLineCmdArgIter(CmdLine * cmd);
+X
+X   virtual ~CmdLineCmdArgIter(void);
+X
+X      // Return the current argument and advance to the next one.
+X      // Returns NULL if we are already at the end of the list.
+X      //
+X   CmdArg *
+X   operator()(void);
+X
+Xprivate:
+X   CmdLineCmdArgIter(const CmdLineCmdArgIter &);
+X
+X   CmdLineCmdArgIter &
+X   operator=(const CmdLineCmdArgIter &);
+X
+X   CmdArgListIter * iter;
+X} ;
+X
+X#endif /* _usr_include_cmdline_h */
+END_OF_FILE
+if test 26959 -ne `wc -c <'src/lib/cmdline.h'`; then
+    echo shar: \"'src/lib/cmdline.h'\" unpacked with wrong size!
+fi
+# end of 'src/lib/cmdline.h'
+fi
+echo shar: End of archive 7 \(of 7\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

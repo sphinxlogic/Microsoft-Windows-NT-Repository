@@ -1,0 +1,2046 @@
+Newsgroups: comp.sources.misc
+From: cruiser1@u.washington.edu (Walter D. Pullen)
+Subject:  v30i063:  astrolog - Generation of astrology charts v2.25, Part02/08
+Message-ID: <1992Jun18.185551.12470@sparky.imd.sterling.com>
+X-Md4-Signature: a8d52b30afe591645eb0aaabdb5f1aa9
+Date: Thu, 18 Jun 1992 18:55:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cruiser1@u.washington.edu (Walter D. Pullen)
+Posting-number: Volume 30, Issue 63
+Archive-name: astrolog/part02
+Environment: UNIX, VMS
+Supersedes: astrolog: Volume 28, Issue 104-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 8)."
+# Contents:  formulas.c charts.c options.c
+# Wrapped by cruiser1@milton.u.washington.edu on Thu Jun 11 21:53:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'formulas.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'formulas.c'\"
+else
+echo shar: Extracting \"'formulas.c'\" \(18125 characters\)
+sed "s/^X//" >'formulas.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: formulas.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X*/
+X
+X#include "astrolog.h"
+X
+Xdouble MC, Asc, Vtx, OB,
+X  A, R, B, Q, L, G, O, RA, R1, R2, AZ, FF, LO, OA,
+X  S, S1, S2, AP, IN, AN, XX, YY, ZZ, NU, BR, AB, C, P, T0[4];
+X
+Xdouble geo[TOTAL+1], geoalt[TOTAL+1], georet[TOTAL+1],
+X  helio[TOTAL+1], helioalt[TOTAL+1], helioret[TOTAL+1],
+X  planet1[TOTAL+1], planet2[TOTAL+1], planetalt1[TOTAL+1], planetalt2[TOTAL+1],
+X  house1[SIGNS+1], house2[SIGNS+1], ret1[TOTAL+1], ret2[TOTAL+1];
+X
+X
+X/*
+X*******************************************************************************
+X** Specific calculations
+X*******************************************************************************
+X*/
+X
+Xvoid juliantomdy(JD, mon, day, yea)
+Xdouble JD, *mon, *day, *yea;
+X{
+X  double L, N, IT, JT, K, IK;
+X  L  = floor(JD+0.5)+68569.0;
+X  N  = floor(4.0*L/146097.0);
+X  L  = L-floor((146097.0*N+3.0)/4.0);
+X  IT = floor(4000.0*(L+1.0)/1461001.0);
+X  L  = L-floor(1461.0*IT/4.0)+31.0;
+X  JT = floor(80.0*L/2447.0);
+X  K  = L-floor(2447.0*JT/80.0);
+X  L  = floor(JT/11.0);
+X  JT = JT+2.0-12.0*L;
+X  IK = 100.0*(N-49.0)+IT+L;
+X  *mon = JT; *day = K; *yea = IK;
+X}
+X
+Xdouble mdytojulian(mon, day, yea)
+Xdouble mon, day, yea;
+X{
+X  double im, j;
+X  im = 12.0*(yea+4800.0)+mon-3.0;
+X  j = (2.0*(im-floor(im/12.0)*12.0)+7.0+365.0*im)/12.0;
+X  j = floor(j)+day+floor(im/48.0)-32083.0;
+X  if (j > 2299171.0)
+X    j += floor(im/4800.0)-floor(im/1200.0)+38.0;
+X  return j;
+X}
+X
+Xdouble processinput(var)
+Xint var;
+X{
+X  double Off, Ln;
+X  F = sgn(F)*floor(dabs(F))+(dabs(F)-floor(dabs(F)))*100.0/60.0+dectodeg(X);
+X  L5 = dectodeg(L5);
+X  LA = DTOR(dectodeg(LA));
+X  if (var) {
+X    JD = mdytojulian(M, D+Delta, Y);
+X    if (!progress)
+X      T = ((JD-2415020.0)+F/24.0-0.5)/36525.0;
+X    else
+X      T = (((Jdp-JD)/progday+JD)-2415020.0+F/24.0-0.5)/36525.0;
+X  }
+X  OB = DTOR(23.452294-0.0130125*T);
+X  Ln = mod((933060-6962911*T+7.5*T*T)/3600.0);
+X  Off = (259205536.0*T+2013816.0)/3600.0;
+X  Off = 17.23*sin(DTOR(Ln))+1.27*sin(DTOR(Off))-(5025.64+1.11*T)*T;
+X  Off = (Off-84038.27)/3600.0;
+X  SD = siderial ? Off : 0.0;
+X  return Off;
+X}
+X
+Xpoltorec(A, R, X, Y)
+Xdouble A, R, *X, *Y;
+X{
+X  if (A == 0.0)
+X    A = 1.7453E-09;
+X  *X = R*cos(A);
+X  *Y = R*sin(A);
+X}
+X
+Xrectopol(X, Y, A, R)
+Xdouble X, Y, *A, *R;
+X{
+X  if (Y == 0.0)
+X    Y = 1.7453E-09;
+X  *R = sqrt(X*X+Y*Y);
+X  *A = atan(Y/X);
+X  if (*A < 0.0)
+X    *A += PI;
+X  if (Y < 0.0)
+X    *A += PI;
+X}
+X
+Xrectosph()
+X{
+X  A = B; R = 1.0;
+X  poltorec(A, R, &X, &Y);
+X  Q = Y; R = X; A = L;
+X  poltorec(A, R, &X, &Y);
+X  G = X; X = Y; Y = Q;
+X  rectopol(X, Y, &A, &R);
+X  A += O;
+X  poltorec(A, R, &X, &Y);
+X  Q = ASIN(Y);
+X  Y = X; X = G;
+X  rectopol(X, Y, &A, &R);
+X  if (A < 0.0)
+X    A += 2*PI;
+X  G = A;
+X}
+X
+Xvoid coorxform(azi, alt, tilt)
+Xdouble *azi, *alt, tilt;
+X{
+X  double x, y, a1, l1;
+X  x = cos(*alt)*sin(*azi)*cos(tilt);
+X  y = sin(*alt)*sin(tilt);
+X  x -= y;
+X  a1 = cos(*alt);
+X  y = cos(*alt)*cos(*azi);
+X  l1 = atan(x/y);
+X  if (l1 < 0.0)
+X    l1 += PI;
+X  if (x < 0.0)
+X    l1 += PI;
+X  a1 = ASIN(a1*sin(*azi)*sin(tilt)+sin(*alt)*cos(tilt));
+X  *azi = l1; *alt = a1;
+X}
+X
+Xcomputevariables()
+X{
+X  RA = DTOR(mod((6.6460656+2400.0513*T+2.58E-5*T*T+F)*15.0-L5));
+X  R2 = RA; O = -OB; B = LA; A = R2; R = 1.0;
+X  poltorec(A, R, &X, &Y);
+X  X *= cos(O);
+X  rectopol(X, Y, &A, &R);
+X  MC = mod(SD+RTOD(A));
+X  L = R2;
+X  rectosph();
+X  AZ = mod(SD+mod(G+PI/2.0));
+X  L= R2+PI; B = PI/2.0-dabs(B);
+X  if (LA < 0.0)
+X    B = -B;
+X  rectosph();
+X  Vtx = mod(SD+RTOD(G+PI/2.0));
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** House cusp calculations
+X*******************************************************************************
+X*/
+X
+Xint inhouseplace(point)
+Xdouble point;
+X{
+X  int i = 0;
+X  do {
+X    i++;
+X  } while (!(i >= SIGNS ||
+X	     (point >= house[i] && point < house[mod12(i+1)]) ||
+X	     (house[i] > house[mod12(i+1)] &&
+X	      (point >= house[i] || point < house[mod12(i+1)]))));
+X  return i;
+X}
+X
+Xvoid houseplace()
+X{
+X  int i;
+X  for (i = 1; i <= total; i++)
+X    inhouse[i] = inhouseplace(planet[i]);
+X}
+X
+Xdouble midheaven()
+X{
+X  double MC;
+X  MC = atan(tan(RA)/cos(OB));
+X  if (MC < 0.0)
+X    MC += PI;
+X  if (RA > PI)
+X    MC += PI;
+X  return mod(RTOD(MC)+SD);
+X}
+X
+Xdouble ascendant()
+X{
+X  double Asc;
+X  Asc = atan(cos(RA)/(-sin(RA)*cos(OB)-tan(LA)*sin(OB)));
+X  if (Asc < 0.0)
+X    Asc += PI;
+X  if (cos(RA) < 0.0)
+X    Asc += PI;
+X  return mod(RTOD(Asc)+SD);
+X}
+X
+Xplacidus_cusp()
+X{
+X  int i;
+X  X = -1.0;
+X  if (Y == 1.0)
+X    X = 1.0;
+X  for (i = 1; i <= 10; i++) {
+X    XX = ACOS(X*sin(R1)*tan(OB)*tan(LA));
+X    if (XX < 0.0)
+X      XX += PI;
+X    R2 = RA+(XX/FF);
+X    if (Y == 1.0)
+X      R2 = RA+PI-(XX/FF);
+X    R1 = R2;
+X  }
+X  LO = atan(tan(R1)/cos(OB));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(R1) < 0.0)
+X    LO += PI;
+X  LO = RTOD(LO);
+X}
+X
+Xplacidus()
+X{
+X  int i;
+X  Y = 0.0;
+X  house[4] = mod(MC+180.0-SD);
+X  house[1] = mod(Asc-SD);
+X  R1 = RA+DTOR(30.0);  FF=3.0; placidus_cusp(); house[5]=mod(LO+180.0);
+X  R1 = RA+DTOR(60.0);  FF=1.5; placidus_cusp(); house[6]=mod(LO+180.0);
+X  R1 = RA+DTOR(120.0); Y=1.0;  placidus_cusp(); house[2]=LO;
+X  R1 = RA+DTOR(150.0); FF=3.0; placidus_cusp(); house[3]=LO;
+X  for (i = 1; i <= SIGNS; i++) {
+X    house[i] = mod(house[i]+SD);
+X    if (i > 6)
+X      house[i] = mod(house[i-6]+180.0);
+X  }
+X}
+X
+Xkoch()
+X{
+X  double A1, A2, A3, KN;
+X  int i;
+X  A1 = ASIN(sin(RA)*tan(LA)*tan(OB));
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = mod(60.0+30.0*(double)i);
+X    A2 = D/90.0-1.0; KN = 1.0;
+X    if (D >= 180.0) {
+X      KN = -1.0;
+X      A2 = D/90.0-3.0;
+X    }
+X    A3 = DTOR(mod(RTOD(RA)+D+A2*RTOD(A1)));
+X    X = atan(sin(A3)/(cos(A3)*cos(OB)-KN*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (sin(A3) < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xequal()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    house[i] = mod(Asc-30.0+30.0*(double)i);
+X  }
+X}
+X
+Xcampanus()
+X{
+X  double KO, DN;
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    KO = DTOR(60.000001+30.0*(double)i);
+X    DN = atan(tan(KO)*cos(LA));
+X    if (DN < 0.0)
+X      DN += PI;
+X    if (sin(KO) < 0.0)
+X      DN += PI;
+X    Y = sin(RA+DN);
+X    X = cos(RA+DN)*cos(OB)-sin(DN)*tan(LA)*sin(OB);
+X    X = atan(Y/X);
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xmeridian()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(double)i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xregiomontanus()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*i);
+X    Y = sin(RA+D);
+X    X = atan(Y/(cos(RA+D)*cos(OB)-sin(D)*tan(LA)*sin(OB)));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xporphyry()
+X{
+X  int i;
+X  X = Asc-MC;
+X  if (X < 0.0)
+X    X += 360;
+X  Y = X/3.0;
+X  for (i = 1; i <= 2; i++)
+X    house[i+4] = mod(180.0+MC+i*Y);
+X  X = mod(180.0+MC)-Asc;
+X  if (X < 0.0)
+X    X += 360;
+X  house[1]=Asc;
+X  Y = X/3.0;
+X  for (i = 1; i <= 3; i++)
+X    house[i+1] = mod(Asc+i*Y);
+X  for (i = 1; i <= 6; i++)
+X    house[i+6] = mod(house[i]+180.0);
+X}
+X
+Xmorinus()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++) {
+X    D = DTOR(60.0+30.0*(double)i);
+X    Y = sin(RA+D)*cos(OB);
+X    X = atan(Y/cos(RA+D));
+X    if (X < 0.0)
+X      X += PI;
+X    if (Y < 0.0)
+X      X += PI;
+X    house[i] = mod(RTOD(X)+SD);
+X  }
+X}
+X
+Xtopocentric_cusp()
+X{
+X  X = atan(tan(LA)/cos(OA));
+X  Y = X+OB;
+X  LO = atan(cos(X)*tan(OA)/cos(Y));
+X  if (LO < 0.0)
+X    LO += PI;
+X  if (sin(OA) < 0.0)
+X    LO += PI;
+X}
+X
+Xtopocentric()
+X{
+X  double TL, P1, P2, LT;
+X  int i;
+X  modulus = 2.0*PI;
+X  house[4] = mod(DTOR(MC+180.0-SD));
+X  TL = tan(LA); P1 = atan(TL/3.0); P2 = atan(TL/1.5); LT = LA;
+X  LA = P1; OA = mod(RA+DTOR(30.0)); topocentric_cusp(); house[5] = mod(LO+PI);
+X  LA = P2; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[6] = mod(LO+PI);
+X  LA = LT; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[1] = LO;
+X  LA = P2; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[2] = LO;
+X  LA = P1; OA = mod(OA+DTOR(30.0)); topocentric_cusp(); house[3] = LO;
+X  LA = LT; modulus = DEGREES;
+X  for (i = 1; i <= 6; i++) {
+X    house[i] = mod(RTOD(house[i])+SD);
+X    house[i+6] = mod(house[i]+180.0);
+X  }
+X}
+X
+Xnull()
+X{
+X  int i;
+X  for (i = 1; i <= SIGNS; i++)
+X    house[i] = mod((double)(i-1)*30.0+SD);
+X}
+X
+Xhouses(housesystem)
+Xint housesystem;
+X{
+X  switch (housesystem) {
+X  case  1: koch();          break;
+X  case  2: equal();         break;
+X  case  3: campanus();      break;
+X  case  4: meridian();      break;
+X  case  5: regiomontanus(); break;
+X  case  6: porphyry();      break;
+X  case  7: morinus();       break;
+X  case  8: topocentric();   break;
+X  case  9: null();          break;
+X  default: placidus();
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Planetary position calculations
+X*******************************************************************************
+X*/
+X
+Xdouble readthree()
+X{
+X  S = readplanetdata(FALSE); S1 = readplanetdata(FALSE);
+X  S2 = readplanetdata(FALSE);
+X  return S = DTOR(S+S1*T+S2*T*T);
+X}
+X
+Xrectosph2()
+X{
+X  rectopol(X, Y, &A, &R); A += AP; poltorec(A, R, &X, &Y);
+X  D = X; X = Y; Y = 0.0; rectopol(X, Y, &A, &R);
+X  A += IN; poltorec(A, R, &X, &Y);
+X  G = Y; Y = X; X = D; rectopol(X, Y, &A, &R); A += AN;
+X  if (A < 0.0)
+X    A += 2.0*PI;
+X  poltorec(A, R, &X, &Y);
+X}
+X
+Xerrorcorrect(ind)
+Xint ind;
+X{
+X  double U, V, W;
+X  int IK, IJ, errorindex;
+X  errorindex = errorcount[ind];
+X  for (IK = 1; IK <= 3; IK++) {
+X    if (ind == 6 && IK == 3) {
+X      T0[3]=0;
+X      return;
+X    }
+X    if (IK == 3)
+X      errorindex--;
+X    readthree(); A = 0.0;
+X    for (IJ = 1; IJ <= errorindex; IJ++) {
+X      U = readplanetdata(FALSE); V = readplanetdata(FALSE);
+X      W = readplanetdata(FALSE);
+X      A = A+DTOR(U)*cos((V*T+W)*PI/180.0);
+X    }
+X    T0[IK] = RTOD(S+A);
+X  }
+X}
+X
+Xprocessplanet(ind)
+Xint ind;
+X{
+X  X = XX; Y = YY; rectopol(X, Y, &A, &R);
+X  C = RTOD(A)+NU-BR;
+X  if (ind == 1 && AB == 1.0)
+X    C = mod(C+180.0);
+X  C = mod(C+SD); Y = ZZ; X = R; rectopol(X, Y, &A, &R);
+X  P = RTOD(A);
+X}
+X
+Xplanets()
+X{
+X  double AU, E, EA, E1, XK, XW, YW, XH[BASE+1], YH[BASE+1], ZH[BASE+1];
+X  int ind, i;
+X  readplanetdata(TRUE);
+X  for (ind = 1; ind <= (uranian ? BASE : PLANETS+1);
+X       ind += (ind == 1 ? 2 : (ind != PLANETS+1 ? 1 : 10))) {
+X    modulus = 2.0*PI;
+X    EA = M = mod(readthree());
+X    E = RTOD(readthree());
+X    for (i = 1; i <= 5; i++)
+X      EA = M+E*sin(EA);
+X    AU = readplanetdata(FALSE);
+X    E1 = 0.01720209/(pow(AU,1.5)*(1.0-E*cos(EA)));
+X    XW = -AU*E1*sin(EA);
+X    YW = AU*E1*pow(1.0-E*E,0.5)*cos(EA);
+X    AP = readthree(); AN = readthree(); IN = readthree();
+X    X = XW; Y = YW; rectosph2();
+X    XH[ind] = X; YH[ind] = Y; ZH[ind] = G;
+X    modulus = DEGREES;
+X    if (ind > 1) {
+X      XW = XH[ind]-XH[1]; YW = YH[ind]-YH[1];
+X    }
+X    X = AU*(cos(EA)-E); Y = AU*sin(EA)*pow(1.0-E*E,0.5); rectosph2();
+X    XX = X; YY = Y; ZZ = G;
+X    if (ind >= 6 && ind <= 10) {
+X      errorcorrect(ind); XX += T0[2]; YY += T0[1]; ZZ += T0[3];
+X    }
+X    helioret[ind] = XK = (XX*YH[ind]-YY*XH[ind])/(XX*XX+YY*YY);
+X    spacex[ind] = XX; spacey[ind] = YY; spacez[ind] = ZZ;
+X    BR = 0.0; processplanet(ind); helio[ind] = C; helioalt[ind] = P; AB = 1.0;
+X    if (ind > 1) {
+X      XX -= spacex[1]; YY -= spacey[1]; ZZ -= spacez[1];
+X      XK = (XX*YW-YY*XW)/(XX*XX+YY*YY);
+X    }
+X    BR = 0.0057756*sqrt(XX*XX+YY*YY+ZZ*ZZ)*RTOD(XK);
+X    georet[ind] = XK; processplanet(ind); geo[ind] = C; geoalt[ind] = P;
+X    if (!centerplanet) {
+X      planet[ind] = helio[ind]; planetalt[ind] = helioalt[ind];
+X      ret[ind] = helioret[ind];
+X    } else {
+X      planet[ind] = geo[ind]; planetalt[ind] = geoalt[ind];
+X      ret[ind] = georet[ind];
+X    }
+X    if (todisplay & 32768)
+X      ret[ind] = DTOR(ret[ind]/helioret[ind]);
+X  }
+X  spacex[0] = spacey[0] = spacez[0] = 0.0;
+X  ind = centerplanet;
+X  if (ind) {
+X    for (i = 0; i <= BASE; i++) if (i != 2 && i != ind) {
+X      spacex[i] -= spacex[ind]; spacey[i] -= spacey[ind];
+X      spacez[i] -= spacez[ind];
+X    }
+X    spacex[ind] = spacey[ind] = spacez[ind] = 0.0;
+X    swapdoub(&spacex[0], &spacex[ind]);
+X    swapdoub(&spacey[0], &spacey[ind]);
+X    swapdoub(&spacez[0], &spacez[ind]);
+X    swapdoub(&spacex[1], &spacex[ind]);
+X    swapdoub(&spacey[1], &spacey[ind]);
+X    swapdoub(&spacez[1], &spacez[ind]);
+X  }
+X  if (ind > 2)
+X    for (i = 1; i <= (uranian ? BASE : PLANETS+1);
+X	 i += (i == 1 ? 2 : (i != PLANETS+1 ? 1 : 10))) {
+X      XX = spacex[i]; YY = spacey[i]; ZZ = spacez[i];
+X      AB = 0.0; BR = 0.0; processplanet(i);
+X      planet[i] = C; planetalt[i] = P;
+X      ret[i] = (XX*(YH[i]-YH[ind])-YY*(XH[i]-XH[ind]))/(XX*XX+YY*YY);
+X    }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Lunar position calculations
+X*******************************************************************************
+X*/
+X
+Xlunar(moonlo, moonla, nodelo, nodela)
+Xdouble *moonlo, *moonla, *nodelo, *nodela;
+X{
+X  double LL, G, N, G1, D, L, ML, L1, MB, TN, M = 3600.0;
+X  LL = 973563.0+1732564379.0*T-4.0*T*T;
+X  G = 1012395.0+6189.0*T;
+X  N = 933060.0-6962911.0*T+7.5*T*T;
+X  G1 = 1203586.0+14648523.0*T-37.0*T*T;
+X  D = 1262655.0+1602961611.0*T-5.0*T*T;
+X  L = (LL-G1)/M; L1 = ((LL-D)-G)/M; F = (LL-N)/M; D = D/M; Y = 2.0*D;
+X  ML = 22639.6*SIND(L)-4586.4*SIND(L-Y)+2369.9*SIND(Y)+769.0*SIND(2.0*L)-
+X    669.0*SIND(L1)-411.6*SIND(2.0*F)-212.0*SIND(2.0*L-Y)-206.0*SIND(L+L1-Y);
+X  ML += 192.0*SIND(L+Y)-165.0*SIND(L1-Y)+148.0*SIND(L-L1)-125.0*SIND(D)-
+X    110.0*SIND(L+L1)-55.0*SIND(2.0*F-Y)-45.0*SIND(L+2.0*F)+ 40.0*SIND(L-2.0*F);
+X  *moonlo = G = mod((LL+ML)/M+SD);
+X  MB = 18461.5*SIND(F)+1010.0*SIND(L+F)-999.0*SIND(F-L)-624.0*SIND(F-Y)+
+X    199.0*SIND(F+Y-L)-167.0*SIND(L+F-Y);
+X  MB += 117.0*SIND(F+Y)+62.0*SIND(2.0*L+F)-
+X    33.0*SIND(F-Y-L)-32.0*SIND(F-2.0*L)-30.0*SIND(L1+F-Y);
+X  *moonla = MB =
+X    sgn(MB)*((dabs(MB)/M)/DEGREES-floor((dabs(MB)/M)/DEGREES))*DEGREES;
+X  /*TN = N+5392.0*SIND(2.0*F-Y)-541.0*SIND(L1)-442.0*SIND(Y)+423.0*SIND(2.0*F)-
+X    291.0*SIND(2.0*L-2.0*F);
+X  TN = mod(TN/M);*/
+X  *nodelo = N = mod(N/M+SD);
+X  *nodela = 0.0;
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Star position calculations
+X*******************************************************************************
+X*/
+X
+Xint strcmp(s1, s2)
+Xchar *s1, *s2;
+X{
+X  int i = 0;
+X  while (s1[i] == s2[i] && s1[i] != 0)
+X    i++;
+X  return (s1[i] == s2[i] ? 0 : (s1[i] > s2[i] ? 1 : -1));
+X}
+X
+Xvoid caststar(SD)
+Xdouble SD;
+X{
+X  int i, j;
+X  double x, y, z;
+X  readstardata(TRUE);
+X  for (i = 1; i <= stars; i++) {
+X    x = readstardata(FALSE); y = readstardata(FALSE); z = readstardata(FALSE);
+X    planet[BASE+i] = DTOR(mod(x*DEGREES/24.0+y*15.0/60.0+z*0.25/60.0-SD));
+X    x = readstardata(FALSE); y = readstardata(FALSE); z = readstardata(FALSE);
+X    planetalt[BASE+i] = DTOR(x+y/60.0+z/60.0/60.0);
+X    equtoecl(&planet[BASE+i], &planetalt[BASE+i]);
+X    planet[BASE+i] = RTOD(planet[BASE+i]);
+X    planetalt[BASE+i] = RTOD(planetalt[BASE+i]);
+X    starname[i] = i;
+X  }
+X  if (universe > 1) for (i = 2; i <= stars; i++) {
+X    j = i-1;
+X    if (universe == 'n') while (j > 0 &&
+X      strcmp(objectname[BASE+starname[j]],
+X	     objectname[BASE+starname[j+1]]) > 0) {
+X      swapint(&starname[j], &starname[j+1]);
+X      j--;
+X    } else if (universe == 'b') while (j > 0 &&
+X      starbright[starname[j]] > starbright[starname[j+1]]) {
+X      swapint(&starname[j], &starname[j+1]);
+X      j--;
+X    } else if (universe == 'z') while (j > 0 &&
+X      planet[BASE+starname[j]] > planet[BASE+starname[j+1]]) {
+X      swapint(&starname[j], &starname[j+1]);
+X      j--;
+X    } else if (universe == 'l') while (j > 0 &&
+X      planetalt[BASE+starname[j]] < planetalt[BASE+starname[j+1]]) {
+X      swapint(&starname[j], &starname[j+1]);
+X      j--;
+X    }
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Calculate chart for specific time
+X*******************************************************************************
+X*/
+X
+Xdouble castchart(var)
+Xint var;
+X{
+X  int i, k;
+X  double housetemp[SIGNS+1], Off = 0.0, j;
+X  if (M == -1.0) {
+X    MC = planet[18]; Asc = planet[19]; Vtx = planet[20];
+X  } else {
+X    Off = processinput(var); computevariables();
+X    if (geodetic)
+X      RA = DTOR(mod(-L5));
+X    MC = midheaven(); Asc = ascendant();
+X    houses(housesystem);
+X    for (i = 1; i <= total; i++)
+X      ret[i] = 1.0;
+X    planets();
+X    lunar(&planet[2], &planetalt[2], &planet[16], &planetalt[16]);
+X    ret[16] = -1.0;
+X    j = planet[2]-planet[1]; j = dabs(j) < 90.0 ? j : j - sgn(j)*DEGREES;
+X    planet[17] = mod(j+Asc);
+X    planet[18] = MC; planet[19] = Asc; planet[20] = Vtx;
+X    planet[21] = house[11]; planet[22] = house[12];
+X    planet[23] = house[2];  planet[24] = house[3];
+X  }
+X  if (universe)
+X    caststar(siderial ? 0.0 : Off);
+X  if (multiplyfactor > 1)
+X    for (i = 1; i <= total; i++)
+X      planet[i] = mod(planet[i] * (double)multiplyfactor);
+X  if (onasc) {
+X    j = planet[onasc]-Asc;
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = mod(house[i]+j);
+X  }
+X  houseplace();
+X  if (flip) {
+X    for (i = 1; i <= total; i++) {
+X      k = inhouse[i];
+X      inhouse[i] = (int) (planet[i]/30.0)+1;
+X      planet[i] = (double)(k-1)*30.0+mindistance(house[k], planet[i])/
+X	mindistance(house[k], house[mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++) {
+X      k = inhouseplace((double) (i-1)*30.0);
+X      housetemp[i] = (double)(k-1)*30.0+mindistance(house[k],
+X        (double) (i-1)*30.0)/mindistance(house[k], house[mod12(k+1)])*30.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = housetemp[i];
+X  }
+X  if (decan)
+X    for (i = 1; i <= total; i++) {
+X      k = (int) (planet[i]/30.0)+1;
+X      j = planet[i] - (double)((k-1)*30);
+X      k = mod12(k + 4*((int)floor(j/10.0)));
+X      j = (j - floor(j/10.0)*10.0)*3.0;
+X      planet[i] = (double)(k-1)*30.0+j;
+X      houseplace();
+X    }
+X  return T;
+X}
+X
+X/**/
+END_OF_FILE
+if test 18125 -ne `wc -c <'formulas.c'`; then
+    echo shar: \"'formulas.c'\" unpacked with wrong size!
+fi
+# end of 'formulas.c'
+fi
+if test -f 'charts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'charts.c'\"
+else
+echo shar: Extracting \"'charts.c'\" \(20844 characters\)
+sed "s/^X//" >'charts.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: charts.c
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X*/
+X
+X#include "astrolog.h"
+X
+Xint wheel[SIGNS][WHEELROWS];
+X
+X/*
+X*******************************************************************************
+X** Display subprograms
+X*******************************************************************************
+X*/
+X
+Xvoid chartlocation()
+X{
+X  int i, j, k;
+X  int count = 0, elemode[4][3], elem[4], mo[3], pos = 0, abo = 0, lef = 0;
+X  for (i = 0; i < 4; i++)
+X    elem[i] = 0;
+X  for (j = 0; j < 3; j++)
+X    mo[j] = 0;
+X  for (i = 0; i < 4; i++)
+X    for (j = 0; j < 3; j++)
+X      elemode[i][j] = 0;
+X  for (i = 1; i <= total; i++) if (!ignore[i]) {
+X    count++;
+X    j = (int) (planet[i]/30.0) + 1;
+X    elemode[(j-1)%4][(j-1)%3]++;
+X    elem[(j-1)%4]++; mo[(j-1)%3]++;
+X    pos += (j & 1);
+X    j = inhouse[i];
+X    abo += (j >= 7);
+X    lef += (j < 4 || j >= 10);
+X  }
+X  printf("Astrolog (%s) chart ", VERSION);
+X  if (Mon == -1)
+X    printf("(no time or space)\n");
+X  else if (relation == 2)
+X    printf("(composite)\n");
+X  else {
+X    i = (int) ((dabs(Tim)-floor(dabs(Tim)))*100.0+0.5);
+X    j = (int) ((dabs(Zon)-floor(dabs(Zon)))*100.0+0.5);
+X    printf("for %d %s %d %.0f:%d%d (%c%.0f:%d%d GMT) ",
+X	   (int) Day, monthname[(int) Mon], (int) Yea, floor(Tim), 
+X	   i/10, i%10, Zon > 0.0 ? '-' : '+', dabs(Zon), j/10, j%10);
+X    printf("%s\n", stringlocation(Lon, Lat, 100.0));
+X  }
+X  printf("Body  Locat. Ret. Decl. Rul.      House  Rul. Veloc.    ");
+X  printf("%s Houses.\n\n", systemname[housesystem]);
+X  for (i = 1; i <= BASE; i++)
+X    if (i <= objects || (i > objects+4 && !ignore[i])) {
+X    printf("%c%c%c%c: ", OBJNAM(i), objectname[i][3] ? objectname[i][3] : ' ');
+X    printminute(planet[i]);
+X    printf(" %c ", ret[i] >= 0.0 ? ' ' : 'R');
+X    printaltitude(planetalt[i]);
+X    printf(" (%c)", dignify(i, (int) (planet[i]/30.0)+1));
+X    j = inhouse[i];
+X    printf(" [%2d%c%c house]", j, post[j][0], post[j][1]);
+X    printf(" [%c]", dignify(i, j));
+X    if (i != 2 && i < THINGS || i > objects+4)
+X      printf(" %c%5.3f", ret[i] < 0.0 ? '-' : '+', RTOD(dabs(ret[i])));
+X    else
+X      printf(" ______");
+X    if (i <= SIGNS) {
+X      printf("  -  House cusp %2d: ", i);
+X      printminute(house[i]);
+X    }
+X    if (i == SIGNS+2)
+X      printf("     Car Fix Mut TOT");
+X    else if (i > SIGNS+2 && i < SIGNS+7) {
+X      j = i-(SIGNS+2)-1;
+X      printf("  %c%c%c%3d %3d %3d %3d",
+X	     element[j][0], element[j][1], element[j][2],
+X	     elemode[j][0], elemode[j][1], elemode[j][2], elem[j]);
+X    } else if (i == SIGNS+7)
+X      printf("  TOT %2d %3d %3d %3d", mo[0], mo[1], mo[2], count);
+X    else if (i > objects)
+X      printf("  Uranian #%d", i-objects-4);
+X    switch (i-SIGNS-1) {
+X    case 1: printf("   +:%2d", pos);       break;
+X    case 2: printf("   -:%2d", count-pos); break;
+X    case 3: printf("   M:%2d", abo);       break;
+X    case 4: printf("   N:%2d", count-abo); break;
+X    case 5: printf("   A:%2d", lef);       break;
+X    case 6: printf("   D:%2d", count-lef); break;
+X    }
+X    putchar('\n');
+X  }
+X  if (universe) for (i = BASE+1; i <= total; i++) if (!ignore[i]) {
+X    j = BASE+starname[i-BASE];
+X    printf("%c%c%c%c: ", OBJNAM(j), objectname[j][3]);
+X    printminute(planet[j]);
+X    printf("   ");
+X    printaltitude(planetalt[j]);
+X    k = inhouse[j];
+X    printf("     [%2d%c%c house]", k, post[k][0], post[k][1]);
+X    printf("     ______  Star #%2d: %5.2f\n", i-BASE, starbright[j-BASE]);
+X  }
+X}
+X
+Xvoid chartgrid()
+X{
+X  int i, j, k, temp;
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (k = 1; k <= 3; k++) {
+X      for (i = 1; i <= total; i++) if (!ignore[i]) {
+X	if (i > 1 && j+k > 2)
+X	  putchar('|');
+X	if (k > 1) {
+X	  if (i < j) {
+X	    if (k < 3)
+X	      printf("%s", aspectabbrev[gridname[i][j]]);
+X	    else {
+X	      if (gridname[i][j]) {
+X		if (grid[i][j] < 100)
+X		  printf("%d%c%d", abs(grid[i][j])/10,
+X			 grid[i][j] < 0 ? ',' : '.', abs(grid[i][j])%10);
+X		else if (grid[i][j] < 1000)
+X		  printf("%2d%c", abs(grid[i][j])/10,
+X			 grid[i][j] < 0 ? ',' : '.');
+X		else
+X		  printf("%3d", abs(grid[i][j])/10);
+X	      } else
+X		printf("   ");
+X	    }
+X	  } else if (i > j) {
+X	    if (k < 3)
+X	      printf("%d%d'", grid[i][j]/10, grid[i][j]%10);
+X	    else {
+X	      temp = gridname[i][j];
+X	      printf("%c%c%c", SIGNAM(temp));
+X	    }
+X	  } else {
+X	    if (k < 3)
+X	      printf("%c%c%c", OBJNAM(j));
+X	    else
+X	      printf("###");
+X	  }
+X	} else
+X	  if (j > 1)
+X	    printf("---");
+X      }
+X      if (j+k > 2)
+X	putchar('\n');
+X    }
+X}
+X
+Xprintgrand(nam, i1, i2, i3, i4)
+Xchar nam;
+Xint i1, i2, i3, i4;
+X{
+X  switch (nam) {
+X  case '.': printf("Stellium   "); break;
+X  case 't': printf("Grand Trine"); break;
+X  case 's': printf("T-Square   "); break;
+X  case 'y': printf("Yod        "); break;
+X  case 'g': printf("Grand Cross"); break;
+X  case 'c': printf("Cradle     "); break;
+X  default: ;
+X  }
+X  printf(" %s ", nam == '.' || nam == 't' || nam == 'g' ? "with" : "from");
+X  printf("%c%c%c: ", OBJNAM(i1));
+X  printminute(planet[i1]);
+X  printf(" %s %c%c%c: ", nam == '.' || nam == 't' ? "and" : "to ", OBJNAM(i2));
+X  printminute(planet[i2]);
+X  printf(" %s %c%c%c: ", nam == 'g' || nam == 'c' ? "to " : "and", OBJNAM(i3));
+X  printminute(planet[i3]);
+X  if (nam == 'g' || nam == 'c') {
+X    printf(" to %c%c%c: ", OBJNAM(i4));
+X    printminute(planet[i4]);
+X  }
+X  printf("\n");
+X}
+X
+Xvoid displaygrands()
+X{
+X  int count = 0, i, j, k, l;
+X  for (i = 1; i <= objects; i++) if (!ignore[i])
+X    for (j = 1; j <= objects; j++) if (j != i && !ignore[j])
+X      for (k = 1; k <= objects; k++) if (k != i && k != j && !ignore[k]) {
+X	if (i < j && j < k && gridname[i][j] == 1 &&
+X	    gridname[i][k] == 1 && gridname[j][k] == 1) {
+X	  count++;
+X	  printgrand('.', i, j, k, l);
+X	} else if (i < j && j < k && gridname[i][j] == 4 &&
+X	    gridname[i][k] == 4 && gridname[j][k] == 4) {
+X	  count++;
+X	  printgrand('t', i, j, k, l);
+X	} else if (j < k && gridname[j][k] == 2 &&
+X	    gridname[MIN(i, j)][MAX(i, j)] == 3 &&
+X	    gridname[MIN(i, k)][MAX(i, k)] == 3) {
+X	  count++;
+X	  printgrand('s', i, j, k, l);
+X	} else if (j < k && gridname[j][k] == 5 &&
+X	    gridname[MIN(i, j)][MAX(i, j)] == 6 &&
+X	    gridname[MIN(i, k)][MAX(i, k)] == 6) {
+X	  count++;
+X	  printgrand('y', i, j, k, l);
+X	}
+X	for (l = 1; l <= objects; l++) if (!ignore[l]) {
+X	  if (i < j && i < k && i < l && j < l && gridname[i][j] == 3 &&
+X	      gridname[MIN(j, k)][MAX(j, k)] == 3 &&
+X	      gridname[MIN(k, l)][MAX(k, l)] == 3 &&
+X	      gridname[i][l] == 3 && mindistance(planet[i], planet[k]) > 150.0
+X	      && mindistance(planet[j], planet[l]) > 150.0) {
+X	    count++;
+X	    printgrand('g', i, j, k, l);
+X	  } else if (i < l && gridname[MIN(i, j)][MAX(i, j)] == 5 &&
+X	      gridname[MIN(j, k)][MAX(j, k)] == 5 &&
+X	      gridname[MIN(k, l)][MAX(k, l)] == 5 &&
+X	      mindistance(planet[i], planet[l]) > 150.0) {
+X	    count++;
+X	    printgrand('c', i, j, k, l);
+X	  }
+X	}
+X      }
+X  if (!count)
+X    printf("No major configurations in aspect grid.\n");
+X}
+X
+Xprinttab(chr, count)
+Xchar chr;
+Xint count;
+X{
+X  int i;
+X  for (i = 0; i < count; i++)
+X    putchar(chr);
+X}
+X
+Xprintwheelslot(house, row)
+Xint house, row;
+X{
+X  int i;
+X  i = wheel[house-1][row];
+X  if (i) {
+X    printf(" %c%c%c ", OBJNAM(i));
+X    printminute(planet[i]);
+X    printf("%c ", ret[i] < 0.0 ? 'r' : ' ');
+X    printtab(' ', WHEELCOLS-14-1);
+X  } else
+X    printtab(' ', WHEELCOLS-1);
+X}
+X
+Xvoid chartwheel()
+X{
+X  int i, j, k, l, count = 0;
+X  for (i = 0; i < SIGNS; i++)
+X    for (j = 0; j < WHEELROWS; j++)
+X      wheel[i][j] = 0;
+X  for (i = 1; i <= total && count < 26; i++) {
+X    if (!ignore[i] && (i < 18 || i == 20 || i > objects+4))
+X      for (j = inhouse[i]-1; j < SIGNS; j = j < SIGNS ? (j+1)%SIGNS : j) {
+X	l = house[j+1] > house[mod12(j+2)];
+X	for (k = 0; k < WHEELROWS && wheel[j][k] > 0 &&
+X	     (planet[i] >= planet[wheel[j][k]] ||
+X	      (l && planet[i] < 180.0 && planet[wheel[j][k]] > 180.0)) &&
+X	     !(l && planet[i] > 180.0 && planet[wheel[j][k]] < 180.0); k++)
+X	  ;
+X	count++;
+X	if (wheel[j][k] <= 0) {
+X	  wheel[j][k] = i;
+X	  j = SIGNS;
+X	} else if (k < WHEELROWS && wheel[j][WHEELROWS-1] <= 0) {
+X	  for (l = WHEELROWS-1; l > k; l--)
+X	    wheel[j][l] = wheel[j][l-1];
+X	  wheel[j][k] = i;
+X	  j = SIGNS;
+X	}
+X      }
+X  }
+X  if (!(todisplay & 2048))
+X    for (i = 3; i < 9; i++)
+X      for (j = 0; j < WHEELROWS/2; j++) {
+X	k = WHEELROWS-1-j;
+X	l = wheel[i][j]; wheel[i][j] = wheel[i][k]; wheel[i][k] = l;
+X      }
+X  putchar('+'); printtab('-', WHEELCOLS-8); printf("<11>");
+X  printminute(house[11]); printtab('-', WHEELCOLS-11); printf("<10>");
+X  printminute(house[10]); printtab('-', WHEELCOLS-10); printf("<9>");
+X  printminute(house[9]); printtab('-', WHEELCOLS-4); printf("+\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    for (j = 11; j >= 8; j--) {
+X      putchar('|'); printwheelslot(j, i);
+X    }
+X    printf("|\n");
+X  }
+X  printf("<12>"); printminute(house[12]); printtab('-', WHEELCOLS-11);
+X  putchar('|'); printtab('-', WHEELCOLS*2-1); putchar('|');
+X  printtab('-', WHEELCOLS-10); printminute(house[8]); printf("<8>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    putchar('|'); printwheelslot(12, i); putchar('|');
+X    if (i) {
+X      printtab(' ', WHEELCOLS-11);
+X      if (i == 1)
+X	printf("Astrolog (%s) chart", VERSION);
+X      else if (i == 2) {
+X	j = (int) Mon;
+X	printf("%2d %c%c%c ", (int) Day,
+X	       monthname[j][0], monthname[j][1], monthname[j][2]);
+X	k = (int) ((dabs(Tim)-floor(dabs(Tim)))*100.0+0.5);
+X	printf("%4d     %2.0f:%d%d", (int) Yea, floor(Tim), k/10, k%10);
+X      } else {
+X	printf("%c%d%d:", Zon > 0.0 ? '-' : '+',
+X	       (int)dabs(Zon)/10, (int)dabs(Zon)%10);
+X	j = (int) ((dabs(Zon)-floor(dabs(Zon)))*100.0+0.5);
+X	printf("%d%d %s", j/10, j%10, stringlocation(Lon, Lat, 100.0));
+X      }
+X      printtab(' ', WHEELCOLS-11);
+X    } else
+X      printtab(' ', WHEELCOLS*2-1);
+X    putchar('|'); printwheelslot(7, i); printf("|\n");
+X  }
+X  printf("<1>"); printminute(house[1]); printtab('-', WHEELCOLS-10);
+X  putchar('|'); printtab(' ', WHEELCOLS-11);
+X  printf("%s", systemname[housesystem]);
+X  printtab(' ', 14-stringlen(systemname[housesystem]));
+X  printf("Houses."); printtab(' ', WHEELCOLS-11); putchar('|');
+X  printtab('-', WHEELCOLS-10); printminute(house[7]); printf("<7>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    putchar('|'); printwheelslot(1, i); putchar('|');
+X    printtab(' ', WHEELCOLS*2-1); putchar('|'); printwheelslot(6, i);
+X    printf("|\n");
+X  }
+X  printf("<2>"); printminute(house[2]); printtab('-', WHEELCOLS-10);
+X  putchar('|'); printtab('-', WHEELCOLS*2-1); putchar('|');
+X  printtab('-', WHEELCOLS-10); printminute(house[6]); printf("<6>\n");
+X  for (i = 0; i < WHEELROWS; i++) {
+X    for (j = 2; j <= 5; j++) {
+X      putchar('|'); printwheelslot(j, i);
+X    }
+X    printf("|\n");
+X  }
+X  printf("+"); printtab('-', WHEELCOLS-4); printminute(house[3]);
+X  printf("<3>"); printtab('-', WHEELCOLS-10); printminute(house[4]);
+X  printf("<4>"); printtab('-', WHEELCOLS-10); printminute(house[5]);
+X  printf("<5>"); printtab('-', WHEELCOLS-7); printf("+\n");
+X}
+X
+Xvoid charthorizon()
+X{
+X  double lon, lat, sx, sy, vx, vy,
+X    lonz[TOTAL+1], latz[TOTAL+1], azi[TOTAL+1], alt[TOTAL+1];
+X  int i, j, k;
+X  lon = DTOR(mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= total; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= total; i++) if (i != 18) {
+X    lonz[i] = DTOR(mod(RTOD(lonz[18]-lonz[i]+lon)));
+X    lonz[i] = DTOR(mod(RTOD(lonz[i]-lon+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X  }
+X  printf("Body Altitude Azimuth  Azi. Vector   %s Vector    Moon Vector\n\n",
+X	 centerplanet ? " Sun" : " Earth");
+X  for (k = 1; k <= total; k++) {
+X    i = k <= BASE ? k : BASE+starname[k-BASE];
+X    if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X      printf("%c%c%c%c: ", OBJNAM(i),
+X	     objectname[i][3] ? objectname[i][3] : ' ');
+X      printaltitude(alt[i]);
+X      j = (int) ((azi[i]-floor(azi[i]))*60.0);
+X      printf(" %3d %d%d'", (int) azi[i], j/10, j%10);
+X      sx = cos(DTOR(azi[i])); sy = sin(DTOR(azi[i]));
+X      if (dabs(sx) < dabs(sy)) {
+X	vx = dabs(sx / sy); vy = 1.0;
+X      } else {
+X	vy = dabs(sy / sx); vx = 1.0;
+X      }
+X      printf(" (%.2f%c %.2f%c)",
+X	     vy, sy < 0.0 ? 's' : 'n', vx, sx > 0.0 ? 'e' : 'w');
+X      vx = azi[1]-azi[i]; vy = azi[2]-azi[i];
+X      printf(" [%6.1f%6.1f] [%6.1f%6.1f]\n",
+X        dabs(vx) < 180.0 ? vx : sgn(vx)*(DEGREES-dabs(vx)), alt[1]-alt[i],
+X	dabs(vy) < 180.0 ? vy : sgn(vy)*(DEGREES-dabs(vy)), alt[2]-alt[i]);
+X    }
+X  }
+X}
+X
+Xvoid chartspace()
+X{
+X  double x, y, z;
+X  int i;
+X  printf("Body     Angle    X axis    Y axis    Z axis    Length\n");
+X  for (i = 0; i <= BASE; i++)
+X    if (!ignore[i] && i != 2 && (i < THINGS || i > objects+4)) {
+X      printf("%c%c%c%c: ", OBJNAM(i),
+X	     objectname[i][3] ? objectname[i][3] : ' ');
+X      x = spacex[i]; y = spacey[i]; z = spacez[i];
+X      printf("[%7.2f] [%7.2f] [%7.3f] [%7.3f] [%7.3f]",
+X	     planet[i], x, y, z, sqrt(x*x+y*y+z*z));
+X      printf("\n");
+X    }
+X}
+X
+Xdouble objectinf[] = {0, 30, 25, 10, 10, 10, 10, 10, 10, 10, 10,
+X		      5, 5, 5, 5, 5, 5, 5, 15, 20, 5};
+Xdouble houseinf[]  = {0, 20, 0, 0, 10, 0, 0, 5, 0, 0, 15, 0, 0};
+Xdouble aspectinf[] = {0.0, 1.0, 0.8, 0.8, 0.6, 0.6, 0.4, 0.4, 0.2, 0.2,
+X		      0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1};
+Xint rules[SIGNS+1] = {0, 5, 4, 3, 2, 1, 3, 4, 10, 6, 7, 8, 9};
+X
+Xsortrank(value, rank)
+Xdouble *value;
+Xint *rank;
+X{
+X  int h, i, j, k;
+X  value[0] = -1.0;
+X  for (i = 1; i <= THINGS; i++)
+X    rank[i] = -1;
+X  for (h = 1, i = 0; h <= THINGS; h++) if (!ignore[h]) {
+X    i++;
+X    k = 0;
+X    for (j = 1; j <= THINGS; j++) if (!ignore[j])
+X      if (value[j] > value[k] && rank[j] < 0)
+X	k = j;
+X    rank[k] = i;
+X  }
+X}
+X
+Xvoid chartinfluence()
+X{
+X  double power[OBJECTS+1], power1[OBJECTS+1], power2[OBJECTS+1],
+X    total, total1, total2, x;
+X  int rank[OBJECTS+1], rank1[OBJECTS+1], rank2[OBJECTS+1], i, j, k, l;
+X  char c;
+X  for (i = 1; i <= objects; i++) {
+X    power1[i] = power2[i] = 0.0;
+X  }
+X  total = total1 = total2 = 0.0;
+X  for (i = 1; i <= THINGS; i++) {
+X    j = (int) (planet[i]/30.0)+1;
+X    power1[i] += objectinf[i];
+X    power1[i] += houseinf[inhouse[i]];
+X    c = dignify(i, j);
+X    switch (c) {
+X    case 'R': x = 20.0; break;
+X    case 'e': x = 10.0; break;
+X    default:  x =  0.0;
+X    }
+X    power1[i] += x;
+X    c = dignify(i, inhouse[i]);
+X    switch (c) {
+X    case 'R': x = 15.0; break;
+X    case 'e': x =  5.0; break;
+X    default:  x =  0.0;
+X    }
+X    power1[i] += x;
+X    if (i != rules[j])
+X      power1[rules[j]] += objectinf[i]/2.0;
+X    if (i != (j = rules[inhouse[i]]))
+X      power1[j] += objectinf[i]/2.0;
+X  }
+X  for (i = 1; i <= SIGNS; i++) {
+X    j = (int)(house[i]/30.0)+1;
+X    power1[rules[j]] += houseinf[i];
+X  }
+X  creategrid(TRUE);
+X  for (j = 1; j <= objects; j++) if (!ignore[j])
+X    for (i = 1; i <= objects; i++) if (!ignore[i] && i != j) {
+X      k = gridname[MIN(i, j)][MAX(i, j)];
+X      if (k) {
+X	l = grid[MIN(i, j)][MAX(i, j)];
+X	power2[j] += aspectinf[k]*objectinf[i]*
+X	  (1.0-dabs((double)l)/60.0/aspectorb[k]);
+X      }
+X    }
+X  for (i = 1; i <= THINGS; i++) if (!ignore[i]) {
+X    power[i] = power1[i]+power2[i]; total1 += power1[i]; total2 += power2[i];
+X  }
+X  total = total1+total2;
+X  sortrank(power1, rank1); sortrank(power2, rank2); sortrank(power, rank);
+X  printf("Name:    Position     Aspects     Total       Percent\n");
+X  for (i = 1; i <= THINGS; i++) if (!ignore[i]) {
+X    printf("%c%c%c%c: ", OBJNAM(i),
+X	   objectname[i][3] ? objectname[i][3] : ' ');
+X    printf("%6.1f (%2d) +%6.1f (%2d) =%7.1f (%2d) /%6.1f%%\n",
+X	   power1[i], rank1[i], power2[i], rank2[i],
+X	   power[i], rank[i], power[i]/total*100.0);
+X  }
+X  printf("Tot : %6.1f      +%6.1f      =%7.1f      / 100.0%%\n",
+X	 total1, total2, total);
+X}
+X
+Xvoid chartastrograph()
+X{
+X  double planet1[TOTAL+1], planet2[TOTAL+1], lat[MAXCROSS], lon[MAXCROSS],
+X    mc[TOTAL+1], ic[TOTAL+1], as[TOTAL+1], ds[TOTAL+1], as1[TOTAL+1],
+X    ds1[TOTAL+1], lo = Lon, longm, w, x, y, z, ad, oa, am, od, dm;
+X  int obj1[MAXCROSS], obj2[MAXCROSS], occurcount = 0, i, j, k, l, m, n;
+X  for (i = 1; i <= TOTAL; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X  printf("Object :");
+X  for (i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > objects+4))
+X      printf(" %c%c%c", OBJNAM(i));
+X  printf("\n------ :");
+X  for (i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > objects+4))
+X      printf(" ###");
+X  printf("\nMidheav: ");
+X  if (lo < 0.0)
+X    lo += DEGREES;
+X  for (i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X    x = planet1[18]-planet1[i];
+X    if (x < 0.0)
+X      x += 2.0*PI;
+X    if (x > PI)
+X      x -= 2.0*PI;
+X    z = lo+RTOD(x);
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    mc[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  printf("\nNadir  : ");
+X  for (i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X    z = mc[i] + 180.0;
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    ic[i] = z;
+X    printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X  }
+X  printf("\nZenith : ");
+X  for (i = 1; i <= total; i++)
+X    if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X      y = RTOD(planet2[i]);
+X      printf("%3.0f%c", dabs(y), y < 0.0 ? 's' : 'n');
+X      as[i] = ds[i] = as1[i] = ds1[i] = 1000.0;
+X    }
+X  printf("\n\n");
+X  longm = DTOR(mod(RTOD(planet1[18])+lo));
+X  for (j = 80; j >= -80; j -= graphstep) {
+X    printf("Asc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= total; i++)
+X      if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X      ad = tan(planet2[i])*tan(DTOR(j));
+X      if (ad*ad > 1.0) {
+X	printf(" -- ");
+X	as1[i] = ds1[i] = ret2[i] = 1000.0;
+X      } else {
+X	ad = ASIN(ad);
+X	oa = planet1[i]-ad;
+X	if (oa < 0.0)
+X	  oa += 2.0*PI;
+X	am = oa-PI/2.0;
+X	if (am < 0.0)
+X	  am += 2.0*PI;
+X	z = longm-am;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	as1[i] = as[i];
+X 	as[i] = z = RTOD(z);
+X	ret2[i] = ad;
+X	printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X    printf("\nDsc@%2d%c: ", j >= 0 ? j : -j, j < 0 ? 's' : 'n');
+X    for (i = 1; i <= total; i++)
+X      if (!ignore[i] && (i <= THINGS || i > objects+4)) {
+X      ad = ret2[i];
+X      if (ad == 1000.0)
+X	printf(" -- ");
+X      else {
+X	od = planet1[i]+ad;
+X	dm = od+PI/2.0;
+X	z = longm-dm;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	ds1[i] = ds[i];
+X	ds[i] = z = RTOD(z);
+X	printf("%3.0f%c", dabs(z), z < 0.0 ? 'e' : 'w');
+X      }
+X    }
+X    putchar('\n');
+X    if (todisplay & 16384)
+X      for (l = 1; l <= total; l++)
+X	if (!ignore[l] && (l <= THINGS || l > objects+4))
+X	for (k = 1; k <= total; k++)
+X	  if (!ignore[k] && (k <= THINGS || k > objects+4))
+X	  for (n = 0; n <= 1; n++) {
+X	    x = n ? ds1[l] : as1[l];
+X	    y = n ? ds[l] : as[l];
+X	    for (m = 0; m <= 1; m++) {
+X	      z = m ? ic[k] : mc[k];
+X	      if (occurcount < MAXCROSS &&
+X		  dabs(x-y) < 180.0 && sgn(z-x) != sgn(z-y)) {
+X		obj1[occurcount] = n ? -l : l;
+X		obj2[occurcount] = m ? -k : k;
+X		lat[occurcount] = (double)j+5.0*dabs(z-y)/dabs(x-y);
+X		lon[occurcount] = z;
+X		occurcount++;
+X	      }
+X	      w = m ? ds1[k] : as1[k];
+X	      z = m ? ds[k] : as[k];
+X	      if (occurcount < MAXCROSS && k > l &&
+X		  dabs(x-y)+dabs(w-z) < 180.0 && sgn(w-x) != sgn(z-y)) {
+X		obj1[occurcount] = n ? -l : l;
+X		obj2[occurcount] = 100+(m ? -k : k);
+X		lat[occurcount] = (double)j+5.0*
+X		  dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X		lon[occurcount] = MIN(x, y)+dabs(x-y)*
+X		  dabs(y-z)/(dabs(x-w)+dabs(y-z));
+X		occurcount++;
+X	      }
+X	    }
+X	  }
+X  }
+X  if ((todisplay & 16384) == 0)
+X    return;
+X  putchar('\n');
+X  for (i = 1; i < occurcount; i++) {
+X    j = i-1;
+X    while (j >= 0 && lat[j] < lat[j+1]) {
+X      swapint(&obj1[j], &obj1[j+1]); swapint(&obj2[j], &obj2[j+1]);
+X      swapdoub(&lat[j], &lat[j+1]); swapdoub(&lon[j], &lon[j+1]);
+X      j--;
+X    }
+X  }
+X  for (i = 1; i < occurcount; i++) {
+X    j = abs(obj1[i]);
+X    printf("%c%c%c %s crosses ", OBJNAM(j),
+X	   obj1[i] > 0 ? "Ascendant " : "Descendant");
+X    j = abs(obj2[i] - (obj2[i] < 50 ? 0 : 100));
+X    printf("%c%c%c %s at ", OBJNAM(j),
+X	   obj2[i] < 50 ? (obj2[i] > 0 ? "Midheaven " :
+X	   "Nadir     ") : (obj2[i] > 100 ? "Ascendant " : "Descendant"));
+X    j = (int) ((dabs(lon[i])-floor(dabs(lon[i])))*60.0);
+X    printf("%3d %d%d'%c, ", (int) dabs(lon[i]),
+X	   j/10, j%10, lon[i] < 0.0 ? 'E' : 'W');
+X    j = (int) ((dabs(lat[i])-floor(dabs(lat[i])))*60.0);
+X    printf("%2d %d%d'%c\n", (int) dabs(lat[i]),
+X	   j/10, j%10, lat[i] < 0.0 ? 'S' : 'N');
+X  }
+X  if (!occurcount)
+X    printf("No latitude crossings.\n");
+X}
+X
+X/**/
+END_OF_FILE
+if test 20844 -ne `wc -c <'charts.c'`; then
+    echo shar: \"'charts.c'\" unpacked with wrong size!
+fi
+# end of 'charts.c'
+fi
+if test -f 'options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'options.c'\"
+else
+echo shar: Extracting \"'options.c'\" \(17587 characters\)
+sed "s/^X//" >'options.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: options.c
+X*/
+X
+X#include "astrolog.h"
+X
+X/*
+X*******************************************************************************
+X** Calculation subprograms
+X*******************************************************************************
+X*/
+X
+Xgetaspect(planet1, planet2, i, j, acc)
+Xdouble *planet1, *planet2;
+Xint i, j, acc;
+X{
+X  int k;
+X  double l, m, n;
+X  gridname[i][j] = grid[i][j] = 0;
+X  l = mindistance(planet2[i], planet1[j]);
+X  for (k = aspects; k >= 1; k--) {
+X    m = l-aspectangle[k];
+X    if (dabs(m) < orb(i, j, k)) {
+X      gridname[i][j] = k;
+X      if (todisplay & 65536)
+X	m = sgn(ret[j]-ret[i])*sgn(planet1[j]-planet2[i])*
+X	  (dabs(planet1[j]-planet2[i])>180.0 ? -1.0 : 1.0)*sgn(m)*dabs(m);
+X      grid[i][j] = (int) (m*(!acc ? 10.0 : 60.0));
+X    }
+X  }
+X}
+X
+Xvoid creategrid(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  double l;
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (i = 1; i <= total; i++) if (!ignore[i])
+X      if (acc < 2 ? i < j : i > j)
+X	getaspect(planet, planet, i, j, acc);
+X      else if (acc < 2 ? i > j : i < j) {
+X	l = mod(midpoint(planet[i], planet[j])); k = (int) l;
+X	gridname[i][j] = k/30+1;
+X	grid[i][j] = !acc ? k%30 : (int)((l-(double)(k/30)*30.0)*60.0);
+X      } else {
+X	gridname[i][j] = (int)planet[j]/30+1;
+X	grid[i][j] = (int)(planet[j]-(double)(gridname[i][j]-1)*30.0);
+X      }
+X}
+X
+Xcreaterelationgrid(acc)
+Xint acc;
+X{
+X  int i, j, k;
+X  double l;
+X  for (j = 1; j <= total; j++) if (!ignore[j])
+X    for (i = 1; i <= total; i++) if (!ignore[i])
+X      if (acc < 2)
+X	getaspect(planet1, planet2, i, j, acc);
+X      else {
+X	l = mod(midpoint(planet2[i], planet1[j])); k = (int) l;
+X	gridname[i][j] = k/30+1;
+X	grid[i][j] = (int)((l-(double)(k/30)*30.0)*60.0);
+X      }
+X}
+X
+Xdisplayrelationgrid()
+X{
+X  int i, j, k, temp;
+X  printf("AB>");
+X  for (i = 1; i < total; i++) if (!ignore[i])
+X    printf("|%c%c%c", OBJNAM(i));
+X  printf("\nV  ");
+X  for (i = 1; i < total; i++) if (!ignore[i])
+X    printf("|###");
+X  putchar('\n');
+X  for (j = 1; j < total; j++) if (!ignore[j])
+X    for (k = 1; k <= 3; k++) {
+X      if (k < 2)
+X	printf("---");
+X      else if (k == 2)
+X	printf("%c%c%c", OBJNAM(j));
+X      else
+X	printf("###");
+X      for (i = 1; i < total; i++) if (!ignore[i]) {
+X	putchar('|');
+X        if (k < 2)
+X	  printf("---");
+X	else if (k == 2) {
+X	  temp = gridname[i][j];
+X	  if (todisplay & 8192)
+X	    printf("%c%c%c", SIGNAM(temp));
+X	  else
+X	    printf("%s", aspectabbrev[temp]);
+X	} else
+X	  if (todisplay & 8192) {
+X	    temp = grid[i][j] / 60;
+X	    printf("%d%d'", temp/10, temp%10);
+X	  } else
+X	    if (gridname[i][j]) {
+X	      temp = grid[i][j];
+X	      if (temp < 100)
+X		printf("%d%c%d", abs(temp)/10,
+X		       temp < 0 ? ',' : '.', abs(temp)%10);
+X	      else if (temp < 1000)
+X		printf("%2d%c", abs(temp)/10, temp < 0 ? ',' : '.');
+X	      else
+X		printf("%3d", abs(temp)/10);
+X	    } else
+X	      printf("   ");
+X      }
+X      putchar('\n');
+X    }
+X}
+X
+X#define degtodec(A) sgn(A)*(floor(dabs(A))+(dabs(A)-floor(dabs(A)))*60/100.0)
+X
+Xvoid castrelation()
+X{
+X  double zon, lon, lat, t1, t2, t;
+X  int i;
+X  inputdata(filename);
+X  zon = X; lon = L5; lat = LA;
+X  t1 = castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house1[i] = house[i];
+X    inhouse1[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = planet[i];
+X    planetalt1[i] = planetalt[i];
+X    ret1[i] = ret[i];
+X  }
+X  inputdata(filename2);
+X  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X  t2 = castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++) {
+X    house2[i] = house[i];
+X    inhouse2[i] = inhouse[i];
+X  }
+X  for (i = 1; i <= total; i++) {
+X    planet2[i] = planet[i];
+X    planetalt2[i] = planetalt[i];
+X    ret2[i] = ret[i];
+X  }
+X  if (relation <= 1)
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = house1[i];
+X  else if (relation == 2) {   
+X    for (i = 1; i <= total; i++) {
+X      planet[i] = midpoint(planet1[i], planet2[i]);
+X      planetalt[i] = (planetalt1[i]+planetalt2[i])/2.0;
+X      ret[i] = (ret1[i]+ret2[i])/2.0;
+X    }
+X    for (i = 1; i <= SIGNS; i++)
+X      house[i] = midpoint(house1[i], house2[i]);
+X    for (i = 1; i <= SIGNS; i++)
+X      if (mindistance(house[10], mod(house[i]-(double)(i+2)*30.0)) > 90.0)
+X	house[i] = mod(house[i]+180.0);
+X  } else if (relation == 3) {
+X    T = (t1+t2)/2.0;
+X    t = (T*36525.0)+0.5; JD = floor(t)+2415020.0; F = (t-floor(t))*24.0;
+X    X = (dectodeg(zon)+dectodeg(Zon))/2.0; X = degtodec(X);
+X    F = dectodeg(F)-dectodeg(X); F = degtodec(F);
+X    if (F < 0.0) {
+X      F = dectodeg(F)+24.0; F = degtodec(F); JD -= 1.0;
+X    }
+X    juliantomdy(JD, &M, &D, &Y);
+X    L5 = (dectodeg(lon)+dectodeg(Lon))/2.0; L5 = degtodec(L5);
+X    LA = (dectodeg(lat)+dectodeg(Lat))/2.0; LA = degtodec(LA);
+X    Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X    castchart(FALSE);
+X  }
+X  houseplace();
+X}
+X
+Xprintfield(string, field)
+Xchar *string;
+Xint field;
+X{
+X  int i, j;
+X  j = stringlen(string);
+X  printtab(' ', field-j);
+X  for (i = 0; i < j && i < field; i++)
+X    putchar(string[i]);
+X}
+X
+Xdisplayinday(prog)
+Xint prog;
+X{
+X  int time[MAXINDAY], source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY],
+X    sign1[MAXINDAY], sign2[MAXINDAY], occurcount, divisions, div,
+X    i, j, k, s1, s2;
+X  double Day2, D1, D2, divsiz, d1, d2, e1, e2, f1, f2, g;
+X  divisions = prog ? 1 : DIVISIONS;
+X  divsiz = 24.0/ (double) divisions*60.0;
+X  if (todisplay & 256) {
+X    D1 = 1.0;
+X    if (prog && Mon2 == 0.0) {
+X      Mon2 = 1.0; D2 = 365.0-28.0+(double)dayinmonth(2, (int) Yea2);
+X    } else D2 = (double)
+X      dayinmonth((int) (prog ? Mon2 : Mon), (int) (prog ? Yea2 : Yea));
+X  } else
+X    D1 = D2 = Day;
+X  for (Day2 = D1; Day2 <= D2; Day2 += 1.0) {
+X    occurcount = 0;
+X    M = Mon; D = Day2; Y = Yea; F = 0.0; X = Zon; L5 = Lon; LA = Lat;
+X    if (progress = prog) {
+X      Jdp = mdytojulian(Mon2, D, Yea2);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    castchart(TRUE);
+X    for (i = 1; i <= SIGNS; i++) {
+X      house2[i] = house[i];
+X      inhouse2[i] = inhouse[i];
+X    }
+X    for (i = 1; i <= total; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X    for (div = 1; div <= divisions; div++) {
+X      M = Mon; D = Day2; Y = Yea; X = Zon; L5 = Lon; LA = Lat;
+X      F = 24.0*div/ (double) divisions;
+X      if (prog) {
+X	Jdp = mdytojulian(Mon2, D+1.0, Yea2);
+X	M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      castchart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X	house1[i] = house2[i]; inhouse1[i] = inhouse2[i];
+X	house2[i] = house[i];  inhouse2[i] = inhouse[i];
+X      }
+X      for (i = 1; i <= total; i++) {
+X	planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X	planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X      for (i = 1; i <= total; i++) if (!ignore[i] &&
+X	(prog || i <= THINGS || i > objects+4)) {
+X	s1 = (int) floor(planet1[i] / 30.0);
+X	s2 = (int) floor(planet2[i] / 30.0);
+X	if (!ignore[i] && s1 != s2) {
+X	  source[occurcount] = i;
+X	  aspect[occurcount] = -1;
+X	  dest[occurcount] = s2+1;
+X	  time[occurcount] = (int) (mindistance(planet1[i],
+X            (double) (ret1[i] >= 0.0 ? s2 : s1) * 30.0) /
+X            mindistance(planet1[i], planet2[i])*divsiz) +
+X	    (int) ((double) (div-1)*divsiz);
+X	  sign1[occurcount] = sign2[occurcount] = s1+1;
+X	  occurcount++;
+X	}
+X	if (!ignore[i] && (ret1[i] < 0.0) != (ret2[i] < 0.0)) {
+X	  source[occurcount] = i;
+X	  aspect[occurcount] = -2;
+X	  dest[occurcount] = ret2[i] < 0.0;
+X	  time[occurcount] = (int) (dabs(ret1[i])/(dabs(ret1[i])+dabs(ret2[i]))
+X	    *divsiz) + (int) ((double) (div-1)*divsiz);
+X	  sign1[occurcount] = sign2[occurcount] = s1+1;
+X	  occurcount++;
+X	}
+X	for (j = i+1; j <= total; j++) if (!ignore[j] &&
+X	  (prog || j <= THINGS || j > objects+4))
+X	  for (k = 1; k <= aspects; k++) {
+X	    d1 = planet1[i]; d2 = planet2[i];
+X	    e1 = planet1[j]; e2 = planet2[j];
+X	    if (mindistance(d1, d2) < mindistance(e1, e2)) {
+X	      swapdoub(&d1, &e1);
+X	      swapdoub(&d2, &e2);
+X	    }
+X	    if (mindistance(e1, mod(d1-aspectangle[k])) <
+X		mindistance(e2, mod(d2+aspectangle[k]))) {
+X	      e1 = mod(e1+aspectangle[k]);
+X	      e2 = mod(e2+aspectangle[k]);
+X	    } else {
+X	      e1 = mod(e1-aspectangle[k]);
+X	      e2 = mod(e2-aspectangle[k]);
+X	    }
+X	    f1 = e1-d1;
+X	    if (dabs(f1) > 180.0)
+X	      f1 -= sgn(f1)*DEGREES;
+X	    f2 = e2-d2;
+X	    if (dabs(f2) > 180.0)
+X	      f2 -= sgn(f2)*DEGREES;
+X	    if (mindistance(midpoint(d1, d2), midpoint(e1, e2)) < 90.0 &&
+X		sgn(f1) != sgn(f2)) {
+X	      source[occurcount] = i;
+X	      aspect[occurcount] = k;
+X	      dest[occurcount] = j;
+X	      f1 = d2-d1;
+X	      if (dabs(f1) > 180.0)
+X		f1 -= sgn(f1)*DEGREES;
+X	      f2 = e2-e1;
+X	      if (dabs(f2) > 180.0)
+X		f2 -= sgn(f2)*DEGREES;
+X	      g = (dabs(d1-e1) > 180.0 ?
+X		   (d1-e1)-sgn(d1-e1)*DEGREES : d1-e1)/(f2-f1);
+X	      time[occurcount] = (int) (g*divsiz) +
+X		(int) ((double) (div-1)*divsiz);
+X	      sign1[occurcount] = (int) (mod(planet1[i]+
+X		sgn(planet2[i]-planet1[i])*
+X		(dabs(planet2[i]-planet1[i]) > 180.0 ? -1 : 1)*
+X		dabs(g)*mindistance(planet1[i], planet2[i]))/30.0)+1;
+X	      sign2[occurcount] = (int) (mod(planet1[j]+
+X		sgn(planet2[j]-planet1[j])*
+X		(dabs(planet2[j]-planet1[j]) > 180.0 ? -1 : 1)*
+X		dabs(g)*mindistance(planet1[j], planet2[j]))/30.0)+1;
+X	      occurcount++;
+X	    }
+X	  }
+X      }
+X    }
+X    for (i = 1; i < occurcount; i++) {
+X      j = i-1;
+X      while (j >= 0 && time[j] > time[j+1]) {
+X	swapint(&source[j], &source[j+1]);
+X	swapint(&aspect[j], &aspect[j+1]);
+X	swapint(&dest[j], &dest[j+1]);
+X	swapint(&time[j], &time[j+1]);
+X	swapint(&sign1[j], &sign1[j+1]); swapint(&sign2[j], &sign2[j+1]);
+X	j--;
+X      }
+X    }
+X    for (i = 0; i < occurcount; i++) {
+X      s1 = time[i]/60;
+X      s2 = time[i]-s1*60;
+X      s1 = mod12(s1);
+X      j = (int) Day2;
+X      if (prog) {
+X	g = Mon2;
+X	while (j > (k = dayinmonth((int) g, (int) Yea2))) {
+X	  j -= k;
+X	  g += 1.0;
+X	}
+X      }
+X      printf("%2.0f/%d%d/%4.0f ",
+X	     prog ? g : Mon, j/10, j%10, prog ? Yea2 : Yea);
+X      printf("%2d:%d%d%cm - ",
+X	     s1, s2/10, s2%10, time[i] < 12*60 ? 'a' : 'p');
+X      if (prog)
+X	printf("progr ");
+X      printfield(objectname[source[i]], 7);
+X      j = (ret1[source[i]] < 0.0)+(ret2[source[i]] < 0.0);
+X      printf(" %c%c%c%c%c", j < 1 ? '(' : (j > 1 ? '[' : '<'),
+X	     SIGNAM(sign1[i]), j < 1 ? ')' : (j > 1 ? ']' : '>'));
+X      if (aspect[i] == -1)
+X	printf(" --> ");
+X      else if (aspect[i] == -2)
+X	printf(" S/%c", dest[i] ? 'R' : 'D');
+X      else
+X	printf(" %s ", aspectabbrev[aspect[i]]);
+X      if (aspect[i] == -1) {
+X	printf("%s", signname[dest[i]]);
+X	if (source[i] == 1) {
+X	  if (dest[i] == 1)
+X	    printf(" (Vernal Equinox)");
+X	  else if (dest[i] == 4)
+X	    printf(" (Summer Solstice)");
+X	  else if (dest[i] == 7)
+X	    printf(" (Autumnal Equinox)");
+X	  else if (dest[i] == 10)
+X	    printf(" (Winter Solstice)");
+X	}
+X      } else if (aspect[i] > 0) {
+X	j = (ret1[dest[i]] < 0.0)+(ret2[dest[i]] < 0.0);
+X	printf("%c%c%c%c%c %s",
+X	       j < 1 ? '(' : (j > 1 ? '[' : '<'), SIGNAM(sign2[i]),
+X	       j < 1 ? ')' : (j > 1 ? ']' : '>'), objectname[dest[i]]);
+X	if (source[i] == 1 && dest[i] == 2) {
+X	  if (aspect[i] == 1)
+X	    printf(" (New Moon)");
+X	  else if (aspect[i] == 2)
+X	    printf(" (Full Moon)");
+X	  else if (aspect[i] == 3)
+X	    printf(" (Half Moon)");
+X	}
+X      }
+X      putchar('\n');
+X    }
+X  }
+X}
+X
+Xvoid printtransit(prog)
+Xint prog;
+X{
+X  double planet3[TOTAL+1], house3[SIGNS+1], ret3[TOTAL+1];
+X  int time[MAXINDAY], source[MAXINDAY], aspect[MAXINDAY], dest[MAXINDAY],
+X    sign[MAXINDAY], isret[MAXINDAY], occurcount, div, i, j, k, s1, s2, s3;
+X  double M1, M2, divsiz, daysiz, d, e1, e2, f1, f2;
+X  inputdata(filename);
+X  Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X  castchart(TRUE);
+X  for (i = 1; i <= SIGNS; i++)
+X    house3[i] = house[i];
+X  for (i = 1; i <= total; i++) {
+X    planet3[i] = planet[i];
+X    ret3[i] = ret[i];
+X  }
+X  if (Mon2 == 0.0) {
+X    M1 = 1.0; M2 = 12.0;
+X  } else
+X    M1 = M2 = Mon2;
+X  for (Mon2 = M1; Mon2 <= M2; Mon2 += 1.0) {
+X    daysiz = (double) dayinmonth((int) Mon2, (int) Yea2)*24.0*60.0;
+X    divsiz = daysiz/ (double) DIVISIONS;
+X    M = Mon2; D = 1.0; Y = Yea2; F = 0.0;
+X    X = defzone; L5 = deflong; LA = deflat;
+X    if (progress = prog) {
+X      Jdp = mdytojulian(M, D, Y);
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X    }
+X    castchart(TRUE);
+X    for (i = 1; i <= SIGNS; i++)
+X      house2[i] = house[i];
+X    for (i = 1; i <= objects; i++) {
+X      planet2[i] = planet[i];
+X      ret2[i] = ret[i];
+X    }
+X    for (div = 1; div <= DIVISIONS; div++) {
+X      occurcount = 0;
+X      M = Mon2; Y = Yea2; F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      D = 1.0+(daysiz/24.0/60.0)*div/ (double) DIVISIONS;
+X      if (prog) {
+X	Jdp = mdytojulian(M, D, Y);
+X	M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      }
+X      castchart(TRUE);
+X      for (i = 1; i <= SIGNS; i++) {
+X	house1[i] = house2[i]; house2[i] = house[i];
+X      }
+X      for (i = 1; i <= objects; i++) {
+X	planet1[i] = planet2[i]; ret1[i] = ret2[i];
+X	planet2[i] = planet[i];  ret2[i] = ret[i];
+X      }
+X      for (i = 1; i <= total; i++) if (!ignore[i])
+X	for (j = 1; j <= BASE; j++) if (!ignore[j] &&
+X	  (j != 2 || (j == 2 && (todisplay & 512) > 0)) &&
+X	  (prog || j <= THINGS || j > objects+4))
+X	  for (k = 1; k <= aspects; k++) {
+X	    d = planet3[i]; e1 = planet1[j]; e2 = planet2[j];
+X	    if (mindistance(e1, mod(d-aspectangle[k])) <
+X		mindistance(e2, mod(d+aspectangle[k]))) {
+X	      e1 = mod(e1+aspectangle[k]);
+X	      e2 = mod(e2+aspectangle[k]);
+X	    } else {
+X	      e1 = mod(e1-aspectangle[k]);
+X	      e2 = mod(e2-aspectangle[k]);
+X	    }
+X	    f1 = e1-d;
+X	    if (dabs(f1) > 180.0)
+X	      f1 -= sgn(f1)*DEGREES;
+X	    f2 = e2-d;
+X	    if (dabs(f2) > 180.0)
+X	      f2 -= sgn(f2)*DEGREES;
+X	    if (mindistance(d, midpoint(e1, e2)) < 90.0 &&
+X		sgn(f1) != sgn(f2) && occurcount < MAXINDAY) {
+X	      source[occurcount] = j;
+X	      aspect[occurcount] = k;
+X	      dest[occurcount] = i;
+X	      time[occurcount] = (int) (dabs(f1)/(dabs(f1)+dabs(f2))*divsiz) +
+X		(int) ((double) (div-1)*divsiz);
+X	      sign[occurcount] = (int) (mod(
+X		mindistance(planet1[j], mod(d-aspectangle[k])) <
+X		mindistance(planet2[j], mod(d+aspectangle[k])) ?
+X		d-aspectangle[k] : d+aspectangle[k])/30.0)+1;
+X	      isret[occurcount] = (ret1[j] < 0.0)+(ret2[j] < 0.0);
+X	      occurcount++;
+X	    }
+X	  }
+X      for (i = 1; i < occurcount; i++) {
+X	j = i-1;
+X	while (j >= 0 && time[j] > time[j+1]) {
+X	  swapint(&source[j], &source[j+1]);
+X	  swapint(&aspect[j], &aspect[j+1]);
+X	  swapint(&dest[j], &dest[j+1]);
+X	  swapint(&time[j], &time[j+1]);
+X	  swapint(&sign[j], &sign[j+1]);
+X	  swapint(&isret[j], &isret[j+1]);
+X	  j--;
+X	}
+X      }
+X      for (i = 0; i < occurcount; i++) {
+X	s1 = time[i]/24/60;
+X	s3 = time[i]-s1*24*60;
+X	s2 = s3/60;
+X	s3 = s3-s2*60;
+X	printf("%2.0f/%d%d/%4.0f %2d:%d%d%cm - %s ",
+X	       Mon2, (s1+1)/10, (s1+1)%10, Yea2, mod12(s2),
+X	       s3/10, s3%10, s2 < 12 ? 'a' : 'p', !prog ? "trans" : "progr");
+X	printfield(objectname[source[i]], 7);
+X	j = (int) (planet3[dest[i]]/30.0)+1;
+X	printf(" %c%c%c%c%c ",
+X	       isret[i] < 1 ? '(' : (isret[i] > 1 ? '[' : '<'),
+X	       SIGNAM(sign[i]),
+X	       isret[i] < 1 ? ')' : (isret[i] > 1 ? ']' : '>'));
+X	printf("%s natal %c%c%c%c%c %s", aspectabbrev[aspect[i]],
+X	       ret3[dest[i]] >= 0.0 ? '(' : '[', SIGNAM(j),
+X	       ret3[dest[i]] >= 0.0 ? ')' : ']', objectname[dest[i]]);
+X	if (source[i] == 1 && aspect[i] == 1 && dest[i] == 1)
+X	  printf(" (Solar Return)");
+X	else if (source[i] == 2 && aspect[i] == 1 && dest[i] == 2)
+X	  printf(" (Lunar Return)");
+X	putchar('\n');
+X      }
+X    }
+X  }
+X}
+X
+Xvoid printephemeris()
+X{
+X  double M1, M2;
+X  int daysiz, i, j, k, s, d, m;
+X  k = todisplay & 1024 ? BASE : 10;
+X  if (Mon2 == 0.0) {
+X    M1 = 1.0; M2 = 12.0;
+X  } else
+X    M1 = M2 = Mon2;
+X  for (Mon2 = M1; Mon2 <= M2; Mon2 += 1.0) {
+X    daysiz = dayinmonth((int) Mon2, (int) Yea2);
+X    printf("Mo/Dy/Yr");
+X    for (j = 1; j <= k; j++) {
+X      if (!ignore[j] && (j <= THINGS || j > objects+4))
+X	printf("  %c%c%c%c ", OBJNAM(j), objectname[j][3] != 0 ?
+X	       objectname[j][3] : ' ');
+X    }
+X    putchar('\n');
+X    for (i = 1; i <= daysiz; i++) {
+X      M = Mon2; D = (double) i; Y = Yea2;
+X      F = 0.0; X = defzone; L5 = deflong; LA = deflat;
+X      castchart(TRUE);
+X      printf("%2d/%2d/%2d ", (int) Mon2, i, ((int) Yea2) % 100);
+X      for (j = 1; j <= k; j++)
+X	if (!ignore[j] && (j <= THINGS || j > objects+4)) {
+X	  s = (int) (planet[j]/30.0) + 1;
+X	  d = (int) planet[j] - (s-1)*30;
+X	  m = (int) ((planet[j]-floor(planet[j]))*60.0);
+X	  printf("%d%d%s%d%d%c", d/10, d%10, signabbrev[s], m/10, m%10,
+X		 ret[j] >= 0.0 ? ' ' : '.');
+X	}
+X      putchar('\n');
+X    }
+X    if (Mon2 < M2)
+X      putchar('\n');
+X  }
+X}
+X
+Xvoid printchart(prog)
+X{
+X  int todisp;
+X  todisp = todisplay & 255;
+X  if (todisp == 0)
+X    todisp = todisplay = todisplay | 1;
+X  if (todisp & 1) {
+X    chartlocation();
+X    if (todisp - (todisp & 1))
+X      printf("\n\n");
+X  }
+X  if (todisp & 2) {
+X    chartwheel();
+X    if (todisp - (todisp & 3))
+X      printf("\n\n");
+X  }
+X  if (todisp & 4) {
+X    if (relation != -1) {
+X      creategrid(FALSE);
+X      chartgrid();
+X      if (todisplay & 8192) {
+X	printf("\n");
+X	displaygrands();
+X      }
+X    } else {
+X      createrelationgrid(todisplay & 8192 ? 2 : FALSE);
+X      displayrelationgrid();
+X    }
+X    if (todisp - (todisp & 7))
+X      printf("\n\n");
+X  }
+X  if (todisp & 8) {
+X    charthorizon();
+X    if (todisp - (todisp & 15))
+X      printf("\n\n");
+X  }
+X  if (todisp & 16) {
+X    chartspace();
+X    if (todisp - (todisp & 31))
+X      printf("\n\n");
+X  }
+X  if (todisp & 32) {
+X    chartinfluence();
+X    if (todisp - (todisp & 63))
+X      printf("\n\n");
+X  }
+X  if (todisp & 64) {
+X    chartastrograph();
+X    if (todisp - (todisp & 127))
+X      printf("\n\n");
+X  }
+X  if (todisp & 128)
+X    displayinday(prog);
+X}
+X
+X/**/
+END_OF_FILE
+if test 17587 -ne `wc -c <'options.c'`; then
+    echo shar: \"'options.c'\" unpacked with wrong size!
+fi
+# end of 'options.c'
+fi
+echo shar: End of archive 2 \(of 8\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    echo "See the README file for further instructions."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

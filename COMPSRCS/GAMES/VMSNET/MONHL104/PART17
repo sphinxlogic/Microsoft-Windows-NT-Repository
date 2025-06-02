@@ -1,0 +1,1289 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 17/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.041851.9940@klaava.Helsinki.FI>
+Date: 14 Jun 92 04:18:51 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1277
+
+Archieve-name: monster_helsinki_104/part17
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 17/32
+
+-+-+-+-+-+-+-+-+ START OF PART 17 -+-+-+-+-+-+-+-+
+X
+X`009`009`009end else
+X`009`009`009`009ok := false;
+X`009`009end;
+X`009`009putroom;
+X`009`009if ok then begin
+X`009`009`009log_event(myslot,E_REFUSE,0,0);
+X`009`009`009writeln('Exits ',direct`091dir`093,' will be refused.');
+X`009`009end else
+X`009`009`009writeln('Exits were not being accepted there.');
+X`009end else
+X`009`009writeln('To undo an Accept, type REFUSE <direction>.');
+X    exit_label:
+Xend;
+X
+X`123 function systime moved to module CUSTOM `125
+X
+X`123 substitute a parameter string for the # sign in the source string `125
+Xfunction subs_parm(s,parm: string): mega_string;
+Xvar
+X`009right,left: mega_string;
+X`009i: integer;`009`009`123 i is point to break at `125
+Xbegin
+X`009i := index(s,'#');
+X`009if (i > 0) and ((length(s) + length(parm))`032
+X`009    <= terminal_line_len) then begin
+X`009`009if i >= length(s) then begin
+X`009`009`009right := '';
+X`009`009`009left := s;
+X`009`009end else if i < 1 then begin
+X`009`009`009right := s;
+X`009`009`009left := '';
+X`009`009end else begin
+X`009`009`009right := substr(s,i+1,length(s)-i);
+X`009`009`009left := substr(s,1,i);
+X`009`009end;
+X`009`009if length(left) <= 1 then
+X`009`009`009left := ''
+X`009`009else
+X`009`009`009left := substr(left,1,length(left)-1);
+X
+X`009`009subs_parm := left + parm + right;
+X`009end else begin
+X`009`009subs_parm := s;
+X`009end;
+Xend;
+X
+X`123 function level moved to database module `125
+X
+Xprocedure time_health;
+Xvar tmp: objectrec;
+X    tmp2: intrec;
+X    mylevel,good,rel: integer;
+Xbegin
+X`009mylevel:=level(myexperience);
+X`009good := leveltable`091mylevel`093.health * 7 div 10;
+X`009if healthcycle > 0 then begin`009`009`123 how quickly they heal `125
+X`009`009if myhealth < good then begin`009`123 heal a little bit `125
+X`009`009`009myhealth := myhealth + (good div 10) +1;
+X
+X`009`009`009if mywield > 0 then begin
+X`009`009`009`009tmp := obj;
+X`009`009`009`009getobj(mywield);
+X`009`009`009`009freeobj;
+X`009`009`009`009if (obj.kind = O_HEALTH_RING) and
+X`009`009`009`009   (myhealth < leveltable`091mylevel`093.health) then
+X`009`009`009`009`009myhealth := myhealth + good div 5;
+X`009`009`009`009obj := tmp;
+X`009`009`009end;
+X
+X`009`009`009getroom;
+X`009`009`009here.people`091myslot`093.health := myhealth;
+X`009`009`009putroom;
+X
+X`009`009`009tmp2 := anint;
+X`009`009`009getint(N_HEALTH);`009`123 hurtta@finuh `125
+X`009`009`009anint.int`091mylog`093 := myhealth;
+X`009`009`009putint;
+X`009`009`009anint := tmp2;
+X
+X`009`009`009`123show new health rating `125
+X`009`009`009rel := myhealth * 10 div leveltable`091mylevel`093.health;
+X`009`009`009if rel > 9 then rel := 9;
+X                if myhealth = 0 then writeln('You are still dead.')
+X`009`009else case rel of
+X`009`009`0099: writeln('You are now in exceptional health.');
+X`009`009`0098: writeln('You feel much stronger.  You are in better than aver
+Vage condition.');
+X`009`009`0097: writeln('You are now in perfect health.');
+X`009`009`0096: writeln('You only feel a little bit dazed now.');
+X`009`009`0095: begin
+X`009`009`009`009writeln('You only have some minor cuts and abrasions now.  M
+Vost of your serious wounds');
+X`009`009`009`009writeln('have healed.');
+X`009`009`009   end;
+X`009`009`0094: writeln('You are only suffering from some minor wounds now.')
+V;
+X`009`009`0093: writeln('Your most serious wounds have healed, but you are st
+Vill in bad shape.');
+X`009`009`0092: writeln('You have healed somewhat, but are still very badly w
+Vounded.');
+X`009`009`0090,1: writeln('You are in critical condition, but there may be ho
+Vpe.');
+X`009`009`009otherwise writeln('You don''t seem to be in any condition at all
+V.');
+X`009`009end;
+X
+X`009`009reprint_grab;
+X
+X`009`009end;
+X`009`009healthcycle := 0;
+X`009end else
+X`009`009healthcycle := healthcycle + 1;
+Xend;
+X
+X
+Xprocedure time_noises;
+Xvar
+X`009n: integer;
+X
+Xbegin
+X`009if rnd100 <= 2 then begin
+X`009`009n := rnd100;
+X`009`009if n in `0910..40`093 then
+X`009`009`009log_event(0,E_NOISES,rnd100,0)
+X`009`009else if n in `09141..60`093 then
+X`009`009`009log_event(0,E_ALTNOISE,rnd100,0);
+X`009end;
+Xend;
+X
+Xprocedure time_trapdoor(silent: boolean);
+Xvar fall: boolean;
+Xbegin                  `032
+X`009if (rnd100-1) < here.trapchance then begin
+X`009`009`009`123 trapdoor fires! `125
+X`009`009if here.trapto > 0 then begin
+X`009`009`009`009`123 logged action should cover (protected) `125
+X`009`009`009if (protected) or (logged_act) then
+X`009`009`009`009fall := false
+X`009`009`009else if here.magicobj = 0 then
+X`009`009`009`009fall := true
+X`009`009`009else if obj_hold(here.magicobj) then
+X`009`009`009`009fall := false
+X`009`009`009else
+X`009`009`009`009fall := true;
+X`009`009end else
+X`009`009`009fall := false;
+X
+X`009  `009if fall then begin
+X`009`009`009do_exit(here.trapto);
+X`009`009`009if not(silent) then
+X`009`009`009    reprint_grab;
+X`009`009end;
+X`009end;
+Xend;
+X
+Xprocedure time_teleport;
+Xvar`009tmp: objectrec;
+X`009target,i: integer;
+Xbegin
+X`009tmp := obj;
+X`009if mywield > 0 then begin
+X`009`009getobj(mywield);
+X`009`009freeobj;
+X`009`009if (obj.kind = O_TELEPORT_RING) and not protected then begin
+X`009`009`009target := location;
+X`009`009`009getindex(I_ROOM);
+X`009`009`009freeindex;
+X`009`009`009for i := 1 to indx.top do if not indx.free`091i`093 then
+X`009`009`009`009if rnd100 < 30 then target := i;
+X`009`009`009if location <> target then begin
+X`009`009`009`009if obj.d1 > 0 then print_desc(obj.d1);
+X`009`009`009`009xpoof(target);
+X`009`009`009`009reprint_grab;
+X`009`009`009end;
+X`009`009end;
+X`009end;
+X`009obj := tmp;
+Xend;
+X
+Xprocedure time_midnight;
+Xbegin
+X  if systime = '12:00am' then log_event(0,E_MIDNIGHT,rnd100,0);
+Xend;
+X
+X`123 cause random events to occurr (ha ha ha) `125
+X
+Xprocedure rnd_event(silent: boolean := false);
+Xvar n: integer;
+Xbegin
+X`009if rndcycle >= RANDOM_EVENT_CYCLE then begin `123 inside here 6 times/mi
+Vn `125
+X`009`009time_noises;
+X`009`009time_health;
+X`009`009time_trapdoor(silent);        `032
+X`009`009time_midnight;
+X`009`009time_teleport;
+X
+X`009`009rndcycle := 0;
+X`009end else
+X`009`009rndcycle := rndcycle + 1;
+Xend;
+X
+X`123 handle levels `125
+X
+Xfunction droplevel(score: integer): integer;
+Xvar cur: integer;
+Xbegin
+X   cur := level(score);
+X   if (cur > 1) and (not leveltable`091cur`093.hidden) then cur := cur -1;
+X   droplevel := leveltable`091cur`093.exp;
+X   if score >= protect_exp then droplevel := score;
+X      `123 works even though we show Manager levels `125
+Xend;
+X
+X`123 function lookup_level moved to module CUSTOM `125
+X
+Xprocedure do_die (killer : integer := 0);
+Xvar
+X`009some: boolean;
+X`009tmp: intrec;
+X`009oldlevel,newlevel: integer;
+X
+Xbegin
+X        if killer > 0 then log_event (myslot,E_ADDEXPERIENCE,killer,
+X                                      (myexperience div 6) + 1);
+X
+X        oldlevel := level(myexperience);
+X`009writeln;
+X`009writeln('        *** You are dead ***');
+X`009writeln;
+X`009some := drop_everything;
+X`009`123 changes by hurtta@finuh `125
+X
+X        tmp := anint;
+X        myexperience := droplevel(myexperience);
+X`009newlevel := level(myexperience);
+X        getint(N_EXPERIENCE);
+X        anint.int`091mylog`093 := myexperience;
+X        putint;`032
+X        if newlevel < oldlevel then prevlevel(oldlevel,newlevel);
+X`009anint := tmp;
+X
+X`009take_token(myslot,location);
+X`009log_event(0,E_DIED,0,0,log_name);
+X`009if put_token(2,myslot) then begin
+X`009`009location := 2;
+X`009`009inmem := false;
+X`009`009setevent;
+X`123 log entry to death loc `125
+X`123 perhaps turn off refs to other people `125
+X`009end else begin
+X`009`009writeln('The Monster universe regrets to inform you that you cannot
+V be ressurected at');
+X`009`009writeln('the moment.');
+X`009`009finish_interpreter;
+X`009`009halt;
+X`009end;
+Xend;
+X
+Xprocedure poor_health(p: integer; killer : integer := 0);
+Xvar
+X`009some: boolean;
+X`009tmp: intrec;
+X`009rel,mylevel: integer;
+X
+Xbegin
+X`009mylevel := level(myexperience);
+X`009if myhealth > p then begin
+X`009`009myhealth := myhealth - 1;
+X`009`009getroom;
+X`009`009here.people`091myslot`093.health := myhealth;
+X`009`009putroom;
+X
+X`009`009tmp := anint;
+X`009`009getint(N_HEALTH);
+X`009`009anint.int`091mylog`093 := myhealth;
+X`009`009putint;
+X`009`009anint := tmp;
+X
+X`009`009log_event(myslot,E_WEAKER,myhealth,0);
+X
+X`009`009`123 show new health rating `125
+X`009`009rel := myhealth * 10 div leveltable`091mylevel`093.health;
+X`009`009if rel > 9 then rel := 9;
+X`009`009write('You ');
+X                if myhealth = 0 then writeln('are dead.')
+X                else if myhealth = 1 then writeln('will be die.')
+X`009`009else case rel of
+X`009`009`0099: writeln('are still in exceptional health.');
+X`009`009`0098: writeln('feel weaker, but are in better than average conditio
+Vn.');
+X`009`009`0097: writeln('are somewhat weaker, but are in perfect health.');
+X`009`009`0096: writeln('feel a little bit dazed.');
+X`009`009`0095: writeln('have some minor cuts and abrasions.');
+X`009`009`0094: writeln('have some wounds, but are still fairly strong.');
+X`009`009`0093: writeln('are suffering from some serious wounds.');
+X`009`009`0092: writeln('are very badly wounded.');
+X`009`009`0090,1: writeln('have many serious wounds, and are near death.');
+X`009`009`009otherwise writeln('don''t seem to be in any condition at all.');
+X`009`009end;
+X`009end else begin `123 they died `125
+X`009`009do_die (killer);
+X`009end;
+Xend;
+X
+X`123 count objects here `125
+X
+Xfunction find_numobjs: integer;
+Xvar
+X`009sum,i: integer;
+Xbegin
+X`009sum := 0;
+X`009for i := 1 to maxobjs do
+X`009`009if here.objs`091i`093 <> 0 then
+X`009`009`009sum := sum + 1;
+X`009find_numobjs := sum;
+Xend;
+X
+X`123 optional parameter is slot of player's objects to count `125
+X
+Xfunction find_numhold(player: integer := 0): integer;
+Xvar sum,i: integer;
+Xbegin
+X`009if player = 0 then player := myslot;
+X
+X`009sum := 0;
+X`009for i := 1 to maxhold do
+X`009`009if here.people`091player`093.holding`091i`093 <> 0 then
+X`009`009`009sum := sum + 1;
+X`009find_numhold := sum;
+Xend;
+X
+Xprocedure take_hit(p: integer; killer : integer := 0 );
+Xvar                          `032
+X`009i: integer;
+X`009objtemp: objectrec;
+X`009pro: integer;
+X
+Xbegin       `032
+X`009if protected then p := 0              `032
+X`009else if mywear > 0 then begin
+X`009`009objtemp := obj; `123 is this necessary ? `125
+X
+X`009`009getobj (mywear);`032
+X`009`009freeobj;        `032
+X                    `032
+X`009`009pro := trunc(obj.ap*random);`009`123 He he He `125
+X`009`009p := p - pro;
+X`009`009if p < 0 then p := 0;
+X
+X`009`009obj := objtemp;
+X`009end;
+X
+X`009if p > 0 then begin
+X`009`009if rnd100 < (55 + (p-1) * 30) then `123 chance that they're hit `125
+X`009`009`009poor_health(p, killer);
+X
+X`009`009if find_numobjs < maxobjs + 1 then begin
+X`009`009`009`123 maybe they drop something if they're hit `125
+X`009`009`009for i := 1 to p do
+X`009`009`009`009maybe_drop;
+X`009`009end;
+X`009end;
+Xend;
+X
+Xfunction punch_force(sock: integer): integer;
+Xvar
+X`009p: integer;
+X
+Xbegin
+X`009if sock in `0912,3,6,7,8,11,12`093 then`009`123 no punch or a graze `125
+X`009`009p := 0
+X`009else if sock in `0914,9,10`093 then`009`123 hard punches `125
+X`009`009p := 2
+X`009else`009`123 1,5,13,14,15 `125
+X`009`009p := 1;`009`009`123 all others are medium punches `125
+X`009punch_force := p;
+Xend;
+X
+Xprocedure put_punch(sock: integer;s: string);
+Xbegin
+X`009case sock of
+X`009`0091: writeln('You deliver a quick jab to ',s,'''s jaw.');
+X`009`0092: writeln('You swing at ',s,' and miss.');
+X`009`0093: writeln('A quick punch, but it only grazes ',s,'.');
+X`009`0094: writeln(s,' doubles over after your jab to the stomach.');
+X`009`0095: writeln('Your punch lands square on ',s,'''s face!');
+X`009`0096: writeln('You swing wild and miss.');
+X`009`0097: writeln('A good swing, but it misses ',s,' by a mile!');
+X`009`0098: writeln('Your punch is blocked by ',s,'.');
+X`009`0099: writeln('Your roundhouse blow sends ',s,' reeling.');
+X`009`00910:writeln('You land a solid uppercut on ',s,'''s chin.');
+X`009`00911:writeln(s,' fends off your blow.');
+X`009`00912:writeln(s,' ducks and avoids your punch.');
+X`009`00913:writeln('You thump ',s,' in the ribs.');
+X`009`00914:writeln('You catch ',s,'''s face on your elbow.');
+X`009`00915:writeln('You knock the wind out of ',s,' with a punch to the ches
+Vt.');
+X`009end;
+Xend;
+X
+Xprocedure get_punch(sock: integer;s: string);
+Xbegin
+X`009case sock of
+X`009`0091: writeln(s,' delivers a quick jab to your jaw!');
+X`009`0092: writeln(s,' swings at you but misses.');
+X`009`0093: writeln(s,'''s fist grazes you.');
+X`009`0094: writeln('You double over after ',s,' lands a mean jab to your sto
+Vmach!');
+X`009`0095: writeln('You see stars as ',s,' bashes you in the face.');
+X`009`0096: writeln('You only feel the breeze as ',s,' swings wildly.');
+X`009`0097: writeln(s,'''s swing misses you by a yard.');
+X`009`0098: writeln('With lightning reflexes you block ',s,'''s punch.');
+X`009`0099: writeln(s,'''s blow sends you reeling.');
+X`009`00910:writeln('Your head snaps back from ',s,'''s uppercut!');
+X`009`00911:writeln('You parry ',s,'''s attack.');
+X`009`00912:writeln('You duck in time to avoid ',s,'''s punch.');
+X`009`00913:writeln(s,' thumps you hard in the ribs.');
+X`009`00914:writeln('Your vision blurs as ',s,' elbows you in the head.');
+X`009`00915:writeln(s,' knocks the wind out of you with a punch to your chest
+V.');
+X`009end;
+Xend;
+X
+Xprocedure view_punch(a,b: string;p: integer);
+Xbegin
+X`009case p of
+X`009`0091: writeln(a,' jabs ',b,' in the jaw.');
+X`009`0092: writeln(a,' throws a wild punch at the air.');
+X`009`0093: writeln(a,'''s fist barely grazes ',b,'.');
+X`009`0094: writeln(b,' doubles over in pain with ',a,'''s punch');
+X`009`0095: writeln(a,' bashes ',b,' in the face.');
+X`009`0096: writeln(a,' takes a wild swing at ',b,' and misses.');
+X`009`0097: writeln(a,' swings at ',b,' and misses by a yard.');
+X`009`0098: writeln(b,'''s punch is blocked by ',a,'''s quick reflexes.');
+X`009`0099: writeln(b,' is sent reeling from a punch by ',a,'.');
+X`009`00910:writeln(a,' lands an uppercut on ',b,'''s head.');
+X`009`00911:writeln(b,' parrys ',a,'''s attack.');
+X`009`00912:writeln(b,' ducks to avoid ',a,'''s punch.');
+X`009`00913:writeln(a,' thumps ',b,' hard in the ribs.');
+X`009`00914:writeln(a,'''s elbow connects with ',b,'''s head.');
+X`009`00915:writeln(a,' knocks the wind out of ',b,'.');
+X`009end;
+Xend;
+X
+Xprocedure desc_health(n: integer;header:shortstring := '');
+Xvar tmp: objectrec;
+X    hide : boolean;
+X    wear,lev,rel: integer;
+Xbegin
+X`009lev := level(here.people`091n`093.experience);
+X
+X`009if header = '' then begin
+X`009`009hide := false;
+X`009`009wear := here.people`091n`093.wearing;
+X`009`009if wear > 0 then begin
+X`009`009`009tmp := obj;
+X
+X`009`009`009getobj(wear);
+X`009`009`009freeobj;
+X`009`009`009if obj.kind = O_DISGUISE then hide := true;
+X
+X`009`009`009obj := tmp;
+X`009`009end;
+X`009`009if hide then write ('Someone ')
+X`009`009else write(here.people`091n`093.name,' ')
+X`009end else
+X`009`009write(header);
+X
+X`009rel := here.people`091n`093.health * 10 div leveltable`091lev`093.health
+V;
+X`009if rel > 9 then rel := 9;
+X        if here.people`091n`093.health = 0 then writeln('is dead.')
+X`009else case rel of
+X`009`0099: writeln('is in exceptional health, and looks very strong.');
+X`009`0098: writeln('is in better than average condition.');
+X`009`0097: writeln('is in perfect health.');
+X`009`0096: writeln('looks a little dazed.');
+X`009`0095: writeln('has some minor cuts and abrasions.');
+X`009`0094: writeln('has some minor wounds.');
+X`009`0093: writeln('is suffering from some serious wounds.');
+X`009`0092: writeln('is very badly wounded.');
+X`009`0090,1: writeln('has many serious wounds, and is near death.');
+X`009`009otherwise writeln('doesn''t seem to be in any condition at all.');
+X`009end;
+Xend;
+X
+X
+Xfunction obj_part(objnum: integer;doread: boolean := TRUE): string;
+Xvar
+X`009s: string;
+X
+Xbegin
+X`009if doread then begin
+X`009`009getobj(objnum);
+X`009`009freeobj;
+X`009end;
+X`009s := obj.oname;
+X`009case obj.particle of
+X`009`0090:;
+X`009`0091: s := 'a ' + s;
+X`009`0092: s := 'an ' + s;
+X`009`0093: s := 'some ' + s;
+X`009`0094: s := 'the ' + s;
+X`009end;
+X`009obj_part := s;
+Xend;
+X
+X
+Xprocedure print_subs(n: integer;s: string);
+X
+Xbegin
+X`009if (n > 0) and (n <> DEFAULT_LINE) then begin
+X`009`009getline(n);
+X`009`009freeline;
+X`009`009writeln(subs_parm(oneliner.theline,s));
+X`009end else if n = DEFAULT_LINE then
+X`009`009writeln('%<default line> in print_subs');
+Xend;
+X
+X`123 print out a (up to) 10 line description block, substituting string s fo
+Vr
+X  up to one occurance of # per line `125
+X
+Xprocedure block_subs(n: integer;s: string);
+Xvar
+X`009p,i: integer;
+X`009len: integer;
+Xbegin
+X`009if n < 0 then
+X`009`009print_subs(abs(n),s)
+X`009else if (n > 0) and (n <> DEFAULT_LINE) then begin
+X`009`009getblock(n);
+X`009`009freeblock;
+X`009`009i := 1;
+X`009`009len := 0;
+X`009`009while i <= block.desclen do begin
+X`009`009`009p := index(block.lines`091i`093,'#');
+X`009`009`009if (p > 0) then
+X`009`009`009    if terminal_line_len < 80 then
+X`009`009`009`009print_short(subs_parm(block.lines`091i`093,s),
+X`009`009`009`009    i = block.desclen,len)
+X`009`009`009    else
+X`009`009`009`009writeln(subs_parm(block.lines`091i`093,s))
+X`009`009`009else
+X`009`009`009    if terminal_line_len < 80 then
+X`009`009`009`009print_short(block.lines`091i`093,
+X`009`009`009`009    i = block.desclen,len)
+X`009`009`009    else
+X`009`009`009`009writeln(block.lines`091i`093);
+X`009`009`009i := i + 1;
+X`009`009end;
+X`009end;
+Xend;
+X
+X`123 list_privileges moved to PARSER.PAS `125
+X
+X`123  function custom_privileges moved to module CUSTOM `125
+X
+Xprocedure newlevel `123 (oldlev,newlev: integer) `125;
+Xvar newpriv,oldpriv,sum: unsigned;
+X    tmp: intrec;
+X    i: integer;
+Xbegin
+X  tmp := anint;
+X  writeln ('You are now ',leveltable`091newlev`093.name,'.');
+X  log_event(myslot,E_NEWLEVEL,,,leveltable`091newlev`093.name);
+X
+X  `123 health `125
+X  myhealth := leveltable`091newlev`093.health * 7 div 10;
+X  getint(N_HEALTH);`009
+X  anint.int`091mylog`093 := myhealth;
+X  putint;`009
+X  getroom;
+X  here.people`091myslot`093.health := myhealth;
+X  putroom;
+X
+X  `123 privileges `125
+X  getint(N_PRIVILEGES);
+X  freeint;
+X  oldpriv := anint.int`091mylog`093;
+X
+X  sum := 0;
+X  for i := oldlev+1 to newlev do sum := uor(sum,leveltable`091i`093.priv);
+X  newpriv := uor(oldpriv,sum);
+X  getint(N_PRIVILEGES);
+X  anint.int`091mylog`093 :=  int(newpriv);
+X  putint;
+X
+X  if newpriv > oldpriv then begin
+X     write ('You have now follow privileges: ');
+X     list_privileges(newpriv);
+X     set_auth_priv(newpriv);
+X     set_cur_priv(newpriv);
+X  end;
+X
+X  anint := tmp;
+Xend; `123 newlevel `125
+X
+Xprocedure prevlevel `123 (oldlev,newlev: integer) `125;
+Xvar newpriv,oldpriv: unsigned;
+X    tmp: intrec;
+X    sum: unsigned;
+X    i: integer;
+Xbegin
+X  tmp := anint;
+X  writeln ('You are now only ',leveltable`091newlev`093.name,'.');
+X
+X  `123 health `125
+X  myhealth := leveltable`091newlev`093.health * 7 div 10;
+X  getint(N_HEALTH);`009
+X  anint.int`091mylog`093 := myhealth;
+X  putint;`009
+X  getroom;
+X  here.people`091myslot`093.health := myhealth;
+X  putroom;
+X
+X  `123 privileges `125
+X  getint(N_PRIVILEGES);
+X  freeint;
+X  oldpriv := anint.int`091mylog`093;
+X
+X  sum := 0;
+X  for i := newlev+1 to oldlev do sum := uor(sum,leveltable`091i`093.priv);
+X  newpriv := uand(oldpriv,unot(sum));
+X  getint(N_PRIVILEGES);
+X  anint.int`091mylog`093 := int(newpriv);
+X  putint;
+X
+X  if newpriv < oldpriv then begin
+X     writeln('You have lost some privileges.');
+X     set_auth_priv(newpriv);
+X  end;
+X  anint := tmp;
+Xend; `123 prevlevel `125
+X
+Xprocedure show_noises(n: integer);
+Xbegin
+X`009if n < 33 then
+X`009`009writeln('There are strange noises coming from behind you.')
+X`009else if n < 66 then
+X`009`009writeln('You hear strange rustling noises behind you.')
+X`009else
+X`009`009writeln('There are faint noises coming from behind you.');
+Xend;
+X
+X
+Xprocedure show_altnoise(n: integer);
+Xbegin
+X`009if n < 33 then
+X`009`009writeln('A chill wind blows, ruffling your clothes and chilling your
+V bones.')
+X`009else if n < 66 then
+X`009`009writeln('Muffled scuffling sounds can be heard behind you.')
+X`009else
+X`009`009writeln('A loud crash can be heard in the distance.');
+Xend;
+X
+Xprocedure show_midnight(n: integer;var printed: boolean);
+Xbegin
+X`009if midnight_notyet then begin
+X`009`009if n < 50 then begin
+X`009`009`009writeln('A voice booms out of the air from all around you!');
+X`009`009`009writeln('The voice says,  " It is now midnight. "');
+X`009`009end else begin
+X`009`009`009writeln('You hear a clock chiming in the distance.');
+X`009`009`009writeln('It rings twelve times for midnight.');
+X`009`009end;
+X`009`009midnight_notyet := false;
+X`009end else
+X`009`009printed := false;
+Xend;
+X
+Xprocedure low_experience (amount: integer);
+Xvar prev,nlevel: integer;
+X    tmp: intrec;
+XBegin
+X  prev := level(myexperience);
+X  if myexperience >= protect_exp then `123 Protected `125
+X  else if myexperience - amount > 0 then
+X     myexperience := myexperience - amount
+X  else myexperience := 0;
+X  tmp := anint;
+X  getint (N_EXPERIENCE);
+X  anint.int`091mylog`093 := myexperience;
+X  putint;
+X  anint := tmp;
+X
+X  getroom;`009`009`123 write experience also to here `125
+X  here.people`091myslot`093.experience := myexperience;
+X  putroom;
+X  inmem := true;`009`123 right 'here' IS in memory `125
+X
+X  nlevel := level(myexperience);
+X  if nlevel < prev then prevlevel(prev,nlevel);
+XEnd;    `032
+X
+XProcedure add_experience (amount: integer); `123 hurtta@finuh `125
+Xvar prev,nlevel: integer;
+X    tmp: intrec;
+XBegin
+X  prev := level(myexperience);
+X  if myexperience > maxexperience then `123 Monster Manager `125
+X  else if myexperience + amount < maxexperience then
+X     myexperience := myexperience + amount
+X  else myexperience := maxexperience;
+X  tmp := anint;
+X  getint (N_EXPERIENCE);
+X  anint.int`091mylog`093 := myexperience;
+X  putint;
+X  anint := tmp;
+X
+X  getroom;`009`009`123 write experience also to here `125
+X  here.people`091myslot`093.experience := myexperience;
+X  putroom;
+X  inmem := true;`009`123 right 'here' IS in memory `125
+X
+X  nlevel := level(myexperience);
+X  if nlevel > prev then newlevel(prev,nlevel);
+XEnd;    `032
+X
+XProcedure p_getattack (att: String; mess: Integer);
+Xbegin
+X  if (mess = 0) or (mess = DEFAULT_LINE) Then
+X    WriteLn (Att,' attacks you.')
+X  else block_subs(mess,att)
+Xend;
+X
+XProcedure p_viewattack (att: String; mess: Integer);
+Xbegin                        `032
+X  if (mess = 0) or (mess = DEFAULT_LINE) Then
+X    WriteLn (Att,' attacks someone.')
+X  else block_subs(mess,att)
+Xend;
+X
+XProcedure get_hideattack (attacker,victim,weapon:integer);
+Xvar objtemp: objectrec;
+X    ath: string;`032
+X    power: Integer;
+Xbegin`032
+X  objtemp := obj; `123 is this necessary ? `125
+X
+X  getobj (weapon);`032
+X  freeobj;        `032
+X `032
+X  if here.people`091attacker`093.experience > (rnd100 * 3) then           `0
+V32
+X    power := obj.ap + 3    `123 <<<<< `125
+X  else power := obj.ap +1; `123 Ha Ha `125
+X
+X  ath := here.people`091attacker`093.name; `032
+X  if victim = myslot then begin `123 oh `125
+X`009Writeln (ath,' jumps from shadows and ...');
+X`009p_getattack (ath,obj.d1);
+X        take_hit (power,attacker);
+X  end else begin
+X`009Writeln (ath,' jumps from shadow and ...');
+X`009p_viewattack(ath,obj.d2);
+X  end;  `032
+X                `032
+X`123 relic, but not harmful `125`009`009ping_answered := true;
+X`009`009`009`009`009healthcycle := 0;
+X
+X  obj := objtemp;
+Xend;
+X
+XProcedure get_attack (attacker,victim,weapon:integer);
+Xvar objtemp: objectrec;
+X    ath: string;`032
+X    power: Integer;
+Xbegin    `032
+X  objtemp := obj; `123 is this necessary ? `125
+X
+X  getobj (weapon);`032
+X  freeobj;       `032
+X `032
+X  if here.people`091attacker`093.experience > (rnd100 * 10) then
+X    power := obj.ap + 1
+X  else power := obj.ap;
+X  ath := here.people`091attacker`093.name;
+X  if victim = myslot then begin `123 oh `125
+X`009p_getattack (ath,obj.d1);
+X        take_hit (power ,attacker);
+X  end else begin
+X`009p_viewattack(ath,obj.d2);
+X  end;  `032
+X                    `032
+X`123 relic, but not harmful `125`009`009ping_answered := true;
+X`009`009`009`009`009healthcycle := 0;
+X
+X  obj := objtemp;`032
+Xend;
+X
+Xprocedure see_trap (victim,message: integer; object: string);
+Xvar`009name: string;                                     `032
+Xbegin
+X`009name := here.people`091victim`093.name;
+X`009if message <> 0 then
+X`009`009if message = DEFAULT_LINE then
+X`009`009`009Writeln (name,' tries to get ',object,', but ',object,
+X`009`009`009`009' bites ',name,' !')
+X`009`009else block_subs (message,name);
+Xend;
+X`009
+Xprocedure handle_event(var printed: boolean);
+Xvar
+X`009n,send,act,targ,p: integer;
+X`009s: string;
+X`009sendname: string;
+X`009tmp: objectrec;
+X`009tmp2: intrec;
+X`009wear: integer;
+Xbegin
+X`009`123 WARNING ! myslot (and sometimes mylog ) is 0 during log_ping
+X`009    and login password `125
+X
+X`009printed := true;
+X`009if debug then
+X`009`009writeln('%handling event ',myevent);
+X`009with event.evnt`091myevent`093 do begin
+X`009`009send := sender;
+X`009`009act := action;
+X                targ := target;
+X`009`009p := parm;
+X`009`009s := msg;
+X`009end;
+X`009if ((send <> 0) and`032
+X`009    ( not ((act=E_DIED) or (act=E_ANNOUNCE)
+X`009`009 or (act=E_GLOBAL_CHANGE)))) then begin
+X`009`009tmp := obj;
+X`009`009sendname := here.people`091send`093.name;
+X`009`009wear := here.people`091send`093.wearing;
+X`009`009if wear > 0 then begin
+X`009`009`009getobj(wear);
+X`009`009`009freeobj;
+X`009`009`009if obj.kind = O_DISGUISE then sendname := 'Someone';
+X`009`009end;
+X`009`009obj := tmp;
+X`009end else
+X`009`009sendname := 'Unknown';
+X
+X
+X`009case act of
+X`009`009E_SUMMON: begin
+X`009`009`009    if (send > 0) and (targ = myslot) then begin
+X`009`009`009`009tmp2 := anint; `123 is this necessary ? `125
+X`009`009`009`009getint(N_SPELL);
+X`009`009`009`009freeint;
+X`009`009`009`009getspell_name;
+X`009`009`009`009freespell_name;
+X`009`009`009`009writeln(sendname,' summons ',
+X`009`009`009`009    spell_name.idents`091p`093,' to you.');
+X`009`009`009`009printed := run_monster('',anint.int`091p`093,
+X`009`009`009`009    'summon', '','',
+X`009`009`009`009    sysdate + ' ' + systime,
+X`009`009`009`009    spell_name.idents`091p`093,
+X`009`009`009`009    here.people`091send`093.name);
+X`009`009`009`009anint := tmp2;
+X`009`009`009    end else begin
+X`009`009`009`009getspell_name;
+X`009`009`009`009freespell_name;
+X`009`009`009`009writeln(sendname,' summons ',
+X`009`009`009`009    spell_name.idents`091p`093,' to someone.');
+X`009`009`009`009end;
+X`009`009`009end;
+X                E_SUBMIT: begin
+X`009`009`009`009get_submit(targ,s,p);
+X`009`009`009`009printed := false;
+X`009`009`009end;
+X`009`009E_EXIT: begin
+X`009`009`009`009if here.exits`091targ`093.goin = DEFAULT_LINE then
+X`009`009`009`009`009writeln(s,' has gone ',direct`091targ`093,'.')
+X`009`009`009`009else if (here.exits`091targ`093.goin <> 0) and
+X`009`009`009`009(here.exits`091targ`093.goin <> DEFAULT_LINE) then begin
+X`009`009`009`009`009block_subs(here.exits`091targ`093.goin,s);
+X`009`009`009`009end else
+X`009`009`009`009`009printed := false;
+X`009`009`009end;
+X`009`009E_ENTER: begin
+X`009`009`009`009if here.exits`091targ`093.comeout = DEFAULT_LINE then
+X`009`009`009`009`009writeln(s,' has come into the room from: ',direct`091tar
+Vg`093)
+X`009`009`009`009else if (here.exits`091targ`093.comeout <> 0) and
+X`009`009`009`009(here.exits`091targ`093.comeout <> DEFAULT_LINE) then begin
+X`009`009`009`009`009block_subs(here.exits`091targ`093.comeout,s);
+X`009`009`009`009end else
+X`009`009`009`009`009printed := false;
+X`009`009`009end;
+X`009`009E_BEGIN:writeln(s,' appears in a brilliant burst of multicolored lig
+Vht.');
+X`009`009E_QUIT:writeln(s,' vanishes in a brilliant burst of multicolored lig
+Vht.');
+X`009`009E_SAY: begin
+X`009`009`009if length(s) + length(sendname) > 73 then begin
+X`009`009`009`009writeln(sendname,' says,');
+X`009`009`009`009writeln('"',s,'"');
+X`009`009`009end else begin
+X`009`009`009`009if (rnd100 < 50) or (length(s) > 50) then
+X`009`009`009`009`009writeln(sendname,': "',s,'"')
+X`009`009`009`009else
+X`009`009`009`009`009writeln(sendname,' says, "',s,'"');
+X`009`009`009end;
+X`009`009       end;
+X`009`009E_HIDESAY: begin
+X`009`009`009`009writeln('An unidentified voice speaks to you:');
+X`009`009`009`009writeln('"',s,'"');
+X`009`009`009   end;
+X`009`009E_SETNAM: writeln(s);
+X`009`009E_POOFIN: writeln('In an explosion of orange smoke ',s,' poofs into
+V the room.');
+X`009`009E_POOFOUT: writeln(s,' vanishes from the room in a cloud of orange s
+Vmoke.');
+X`009`009E_DETACH: begin
+X`009`009`009`009writeln(s,' has destroyed the exit ',direct`091targ`093,'.')
+V;
+X`009`009`009  end;
+X`009`009E_EDITDONE:begin
+X`009`009`009`009writeln(sendname,' is done editing the room description.');
+X`009`009`009   end;
+X`009`009E_NEWEXIT: begin
+X`009`009`009`009writeln(s,' has created an exit here.');
+X`009`009`009   end;
+X`009`009E_CUSTDONE:begin
+X`009`009`009`009writeln(sendname,' is done customizing an exit here.');
+X`009`009`009   end;
+X`009`009E_SEARCH: writeln(sendname,' seems to be looking for something.');
+X`009`009E_FOUND: writeln(sendname,' appears to have found something.');
+X`009`009E_DONEDET:begin
+X`009`009`009`009writeln(sendname,' is done adding details to the room.');
+X`009`009`009  end;
+X`009`009E_ROOMDONE: begin
+X`009`009`009`009writeln(sendname,' is finished customizing this room.');
+X`009`009`009    end;
+X`009`009E_OBJDONE: begin
+X`009`009`009`009writeln(sendname,' is finished customizing an object.');
+X`009`009`009   end;
+X`009`009E_UNHIDE:writeln(sendname,' has stepped out of the shadows.');
+X`009`009E_FOUNDYOU: begin
+X`009`009`009`009if targ = myslot then begin `123 found me! `125
+X`009`009`009`009`009writeln('You''ve been discovered by ',sendname,'!');
+X`009`009`009`009`009hiding := false;
+X`009`009`009`009`009getroom;
+X`123 they're not hidden anymore `125`009`009here.people`091myslot`093.hiding
+V := 0;
+X`009`009`009`009`009putroom;
+X`009`009`009`009end else
+X`009`009`009`009`009writeln(sendname,' has found ',here.people`091targ`093.n
+Vame,' hiding in the shadows!');
+X`009`009`009    end;
+X`009`009E_PUNCH: begin
+X`009`009`009`009if targ = myslot then begin `123 punched me! `125
+X`009`009`009`009`009get_punch(p,sendname);
+X`009`009`009`009`009take_hit( punch_force(p),send );
+X`123 relic, but not harmful `125`009`009ping_answered := true;
+X`009`009`009`009`009healthcycle := 0;
+X`009`009`009`009end else
+X`009`009`009`009`009view_punch(sendname,here.people`091targ`093.name,p);
+X`009`009`009 end;
+X`009`009E_MADEOBJ: writeln(s);
+X`009`009E_GET: writeln(s);
+X`009`009E_DROP: begin
+X`009`009`009`009writeln(s);
+X`009`009`009`009if here.objdesc <> 0 then
+X`009`009`009`009`009print_subs(here.objdesc,obj_part(p));
+X`009`009`009end;
+X`009`009E_BOUNCEDIN: begin
+X`009`009`009`009if (targ = 0) or (targ = DEFAULT_LINE) then
+X`009`009`009`009`009writeln(obj_part(p),' has bounced into the room.')
+X`009`009`009`009else begin
+X`009`009`009`009`009print_subs(targ,obj_part(p));
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009E_DROPALL: writeln('Some objects drop to the ground.');
+X`009`009E_EXAMINE: writeln(s);
+X`009`009E_IHID: writeln(sendname,' has hidden in the shadows.');
+X`009`009E_NOISES: begin
+X`009`009`009`009if (here.rndmsg = 0) or
+X`009`009`009`009   (here.rndmsg = DEFAULT_LINE) then begin
+X`009`009`009`009`009show_noises(rnd100);
+X`009`009`009`009end else
+X`009`009`009`009`009print_line(here.rndmsg);
+X`009`009`009  end;
+X`009`009E_ALTNOISE: begin
+X`009`009`009`009if (here.xmsg2 = 0) or
+X`009`009`009`009   (here.xmsg2 = DEFAULT_LINE) then
+X`009`009`009`009`009show_altnoise(rnd100)
+X`009`009`009`009else
+X`009`009`009`009`009block_subs(here.xmsg2,myname);
+X`009`009`009    end;
+X`009`009E_REALNOISE: show_noises(rnd100);
+X`009`009E_HIDOBJ: writeln(sendname,' has hidden the ',s,'.');
+X`009`009E_PING: begin
+X`009`009`009`009if targ = myslot then begin
+X`009`009`009`009`009writeln(sendname,' is trying to ping you.');
+X`009`009`009`009`009log_event(myslot,E_PONG,send,0);
+X`009`009`009`009end else
+X`009`009`009`009`009writeln(sendname,' is pinging ',here.people`091targ`093.
+Vname,'.');
+X`009`009`009end;
+X`009`009E_PONG: begin
+X`009`009`009`009ping_answered := true;
+X`009`009`009end;
+X`009`009E_HIDEPUNCH: begin
+X`009`009`009`009if targ = myslot then begin
+X`009`009`009`009`009writeln(sendname,' pounces on you from the shadows!');
+X`009`009`009`009`009take_hit(2,send);
+X`009`009`009`009end else begin
+X`009`009`009`009`009writeln(sendname,' jumps out of the shadows and attacks
+V ',here.people`091targ`093.name,'.');
+X`009`009`009`009end;
+X`009`009`009     end;
+X`009`009E_SLIPPED: begin
+X`009`009`009`009writeln('The ',s,' has slipped from ',
+X`009`009`009`009`009sendname,'''s hands.');
+X`009`009`009   end;
+X`009`009E_HPOOFOUT:begin
+X`009`009`009`009if rnd100 > 50 then
+X`009`009`009`009`009writeln('Great wisps of orange smoke drift out of the sh
+Vadows.')
+X`009`009`009`009else
+X`009`009`009`009`009printed := false;
+X`009`009`009   end;
+X`009`009E_HPOOFIN:begin
+X`009`009`009`009if rnd100 > 50 then
+X`009`009`009`009`009writeln('Some wisps of orange smoke drift about in the s
+Vhadows.')
+X`009`009`009`009else
+X`009`009`009`009`009printed := false;
+X`009`009`009  end;
+X`009`009E_FAILGO: begin
+X`009`009`009`009if targ > 0 then begin
+X`009`009`009`009`009write(sendname,' has failed to go ');
+X`009`009`009`009`009writeln(direct`091targ`093,'.');
+X`009`009`009`009end;
+X`009`009`009  end;
+X`009`009E_TRYPUNCH: begin
+X`009`009`009`009if targ = myslot then
+X`009`009`009`009`009writeln(sendname,' fails to punch you.')
+X`009`009`009`009else
+X`009`009`009`009`009writeln(sendname,' fails to punch ',here.people`091targ`
+V093.name,'.');
+X`009`009`009    end;
+X`009`009E_PINGONE:begin
+X`009`009`009`009if targ = myslot then begin `123 ohoh---pinged away `125
+X`009`009`009`009`009writeln('The Monster program regrets to inform you that
+V a destructive ping has');
+X`009`009`009`009`009writeln('destroyed your existence.  Please accept our ap
+Vologies.');
+X`009`009`009`009`009finish_interpreter;
+X`009`009`009`009`009halt; `123 uggg `125
+X`009`009`009`009end else
+X`009`009`009`009`009writeln(s,' shimmers and vanishes from sight.');
+X`009`009`009  end;
+X`009`009E_CLAIM: writeln(sendname,' has claimed this room.');
+X`009`009E_DISOWN: writeln(sendname,' has disowned this room.');
+X`009`009E_WEAKER: begin
+X`123`009`009`009`009inmem := false;
+X`009`009`009`009gethere;`009`009`125
+X
+X`009`009`009`009here.people`091send`093.health := targ;
+X
+X`123 This is a hack for efficiency so we don't read the room record twice;
+X  we need the current data now for desc_health, but checkevents, our caller,
+X  is about to re-read it anyway; we make an incremental fix here so desc_hea
+Vlth
+X  is happy, then checkevents will do the real read later `125
+X
+X`009`009`009`009desc_health(send);
+X`009`009`009  end;
+X`009`009E_SCAN: writeln(sendname,' scans some object from universe.');
+X`009`009E_RESET: writeln(sendname,' has moved ',s,' to home position.');
+X`009`009E_OBJCLAIM: writeln(sendname,' is now the owner of the ',s,'.');
+X`009`009E_OBJDISOWN: writeln(sendname,' has disowned the ',s,'.');
+X`009`009E_SELFDONE: writeln(sendname,'''s self-description is finished.');
+X`009`009E_WHISPER: begin
+X`009`009`009`009if targ = myslot then begin
+X`009`009`009`009`009if length(s) < 39 then
+X`009`009`009`009`009`009writeln(sendname,' whispers to you, "',s,'"')
+X`009`009`009`009`009else begin
+X`009`009`009`009`009`009writeln(sendname,' whispers something to you:');
+X`009`009`009`009`009`009write(sendname,' whispers, ');
+X`009`009`009`009`009`009if length(s) > 50 then
+X`009`009`009`009`009`009`009writeln;
+X`009`009`009`009`009`009writeln('"',s,'"');
+X`009`009`009`009`009end;
+X`009`009`009`009end else if (manager_priv) or (rnd100 > 85) then begin `123
+V minor change by leino@finuha `125
+X`009`009`009`009`009writeln('You overhear ',sendname,' whispering to ',here.
+Vpeople`091targ`093.name,'!');
+X`009`009`009`009`009write(sendname,' whispers, ');
+X`009`009`009`009`009if length(s) > 50 then
+X`009`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln('"',s,'"');
+X`009`009`009`009end else
+X`009`009`009`009`009writeln(sendname,' is whispering to ',here.people`091tar
+Vg`093.name,'.');
+X`009`009`009   end;
+X`009`009E_WIELD: writeln(sendname,' is now wielding the ',s,'.');
+X`009`009E_UNWIELD: writeln(sendname,' is no longer wielding the ',s,'.');
+X`009`009E_WEAR: writeln(sendname,' is now wearing the ',s,'.');
+X`009`009E_UNWEAR: writeln(sendname,' has taken off the ',s,'.');
+X`009`009E_DONECRYSTALUSE: begin
+X`009`009`009`009`009writeln(sendname,' emerges from the glow of the crystal.
+V');
+X`009`009`009`009`009writeln('The orb becomes dark.');
+X`009`009`009`009  end;
+X`009`009E_DESTROY: writeln(s);
+X`009`009E_OBJPUBLIC: writeln('The ',s,' is now public.');
+X`009`009E_SYSDONE: writeln(sendname,' is no longer in system maintenance mod
+Ve.');
+X`009`009E_UNMAKE: writeln(sendname,' has unmade ',s,'.');
+X`009`009E_LOOKDETAIL: writeln(sendname,' is looking at the ',s,'.');
+X`009`009E_LOOKAROUND: writeln(sendname,' is looking around here.');
+X`009`009E_NEWLEVEL: writeln(sendname,' is now ',s,'.');
+X`009`009E_ACCEPT: writeln(sendname,' has accepted an exit here.');
+X`009`009E_REFUSE: writeln(sendname,' has refused an Accept here.');
+X`009`009E_DIED: writeln(s,' expires and vanishes in a cloud of greasy black
+V smoke.');
+X`009`009E_LOOKYOU: begin
+X`009`009`009`009if targ = myslot then begin
+X`009`009`009`009`009writeln(sendname,' is looking at you.')
+X`009`009`009`009end else
+X`009`009`009`009`009writeln(sendname,' looks at ',here.people`091targ`093.na
+Vme,'.');
+X`009`009`009   end;
+X`009`009E_LOOKSELF: writeln(sendname,' is making a self-appraisal.');
+X`009`009E_FAILGET: writeln(sendname,' fails to get ',obj_part(targ),'.');
+X`009`009E_FAILUSE: writeln(sendname,' fails to use ',obj_part(targ),'.');
+X`009`009E_CHILL: if (targ = 0) or (targ = DEFAULT_LINE) then
+X`009`009`009`009writeln('A chill wind blows over you.')
+X`009`009`009 else
+X`009`009`009`009print_desc(targ);
+X`009`009E_NOISE2:begin
+X`009`009`009`009case targ of
+X`009`009`009`009`0091: writeln('Strange, guttural noises sound from everywhe
+Vre.');
+X`009`009`009`009`0092: writeln('A chill wind blows past you, almost whisperi
+Vng as it ruffles your clothes.');
+X`009`009`009`009`0093: writeln('Muffled voices speak to you from the air!');
+X`009`009`009`009`0094: writeln('The air vibrates with a chill shudder.');
+X`009`009`009`009`009otherwise begin
+X`009`009`009`009`009`009writeln('An unidentified voice speaks to you:');
+X`009`009`009`009`009`009writeln('"',s,'"');
+X`009`009`009`009`009   end;
+X`009`009`009`009end;
+X`009`009`009 end;
+X`009`009E_INVENT: writeln(sendname,' is taking inventory.');
+X`009`009E_POOFYOU: begin
+X`009`009`009`009if targ = myslot then begin
+X`009`009`009`009`009writeln;
+X`009`009`009`009`009writeln(sendname,' directs a firey burst of bluish energ
+Vy at you!');
+X`009`009`009`009`009writeln('Suddenly, you find yourself hurtling downwards
+V through misty orange clouds.');
+X`009`009`009`009`009writeln('Your descent slows, the smoke clears, and you f
+Vind yourself in a new place...');
+X`009`009`009`009`009xpoof(p);
+X`009`009`009`009`009writeln;
+X`009`009`009`009end else begin
+X`009`009`009`009`009writeln(sendname,' directs a firey burst of energy at ',
+Vhere.people`091targ`093.name,'!');
+X`009`009`009`009`009writeln('A thick burst of orange smoke results, and when
+V it clears, you see');
+X`009`009`009`009`009writeln('that ',here.people`091targ`093.name,' is gone.'
+V);
+X`009`009`009`009end;
+X`009`009`009   end;
+X`009`009E_WHO: begin
+X`009`009`009case p of
+X`009`009`009`0090: writeln(sendname,' produces a "who" list and reads it.');
+X`009`009`009`0091: writeln(sendname,' is seeing who''s playing Monster.');
+X`009`009`009`009otherwise writeln(sendname,' checks the "who" list.');
+X`009`009`009end;
+X`009`009       end;
+X`009`009E_PLAYERS:begin
+X`009`009`009`009writeln(sendname,' checks the "players" list.');
+X`009`009`009  end;
+X`009`009E_VIEWSELF: writeln(sendname,' is reading ',s,'''s self-description.
+V');
+X`009  `009E_MIDNIGHT: show_midnight(targ,printed);
+X                E_DCLDONE: writeln(sendname,' is no longer in dcl-level.');
+X                E_ADDEXPERIENCE: begin
+X                                   if targ = myslot then add_experience(p)
+X                                   else `123 some message ? `125
+X                                 end;
+X                E_HATTACK: get_hideattack (send,targ,p);
+X`009`009E_ATTACK: get_attack (send,targ,p);
+X`009`009E_TRAP: see_trap (send,p,s);
+X                E_ERASE: writeln (sendname,' is destroying monster here.');
+X                E_MONSTERDONE: writeln(sendname,' is done customizing monste
+Vr.');
+X                E_SPELLDONE: writeln(sendname,' is done customizing spell.')
+V;
+X`009`009E_BROADCAST: writeln(s); `123 NPC broadcasting `125
+X
+X`009`009E_ATMOSPHERE: writeln(s); `123 s.c. atmosphere command `125
+X
+X
+X`009`009E_ACTION:writeln(sendname,' is',desc_action(p,targ));
+X
+X`009`009`123 in that events targ is player's log - NOT player's slot `125
+X`009`009E_KICK_OUT: begin
+X`009`009    if targ = mylog then begin
+X`009`009`009if s > '' then writeln(s)
+X`009`009`009else writeln('System throw you out from Monster.');
+X`009`009`009quit_monster; `123 generate eof `125
+X`009`009    end else begin
+X`009`009`009getpers;
+X`009`009`009freepers;
+X`009`009`009writeln('System throw ',pers.idents`091targ`093,
+X`009`009`009    ' out from Monster.');
+X`009`009    end;
+X`009`009end;
+X`009`009E_ANNOUNCE: if (((targ=0) and (p=0)) `123For all`125 or
+X`009`009`009`009(targ=mylog) `123For me`125`032
+X`009`009`009`009`123or (p=md_grp)`125 )  `123My group`125
+X`009`009`009    then writeln(s)
+X`009`009`009    else printed:=false;
+X`009`009E_SHUTDOWN: if manager_priv then writeln('SHUTDOWN: ',s)
+X`009`009`009    else begin
+X`009`009`009`009writeln('MONSTER SHUTDOWN: ',s);
+X`009`009`009`009quit_monster;
+X`009`009`009    end;
+X`009`009E_GLOBAL_CHANGE: begin
+X`009`009    if s <> '' then writeln(s)
+X`009`009    else if manager_priv then writeln
+X`009`009`009('Global flags are changed.')
+X`009`009    else printed := false;
+X`009`009    read_global := true; `123 need read `125
+X`009`009end;
+X
+X`009`009otherwise writeln('*** Bad Event ***');
+X`009end;
+Xend;
+X
+X
+X`091global`093
+Xprocedure checkevents(silent: boolean := false);
+Xvar
+X`009gotone: boolean;
+X`009tmp,printed: boolean;
+X
+Xbegin
+X`123 if not starting then begin `125
+X`009getevent;
+X`009freeevent;
+X
+X`009event := eventfile`094;
+X`009gotone := false;
+X`009printed := false;
+X`009while myevent <> event.point do begin
+X`009`009myevent := myevent + 1;
+X`009`009if myevent > maxevent then
+X`009`009`009myevent := 1;
+X
+X`009`009if debug then begin
+X`009`009`009writeln('%checking event ',myevent);
+X`009`009`009if event.evnt`091myevent`093.loc = location then
+X`009`009`009`009writeln('  - event here')
+X`009`009`009else
+X`009`009`009`009writeln('  - event elsewhere');
+X`009`009`009writeln('  - event number = ',event.evnt`091myevent`093.action:1
+V);
+X`009`009end;
+X
+X`009`009if (event.evnt`091myevent`093.loc = location) or
+X`009`009   (event.evnt`091myevent`093.action = E_ANNOUNCE) or
+X`009`009   (event.evnt`091myevent`093.action = E_SHUTDOWN) or`032
++-+-+-+-+-+-+-+-  END  OF PART 17 +-+-+-+-+-+-+-+-

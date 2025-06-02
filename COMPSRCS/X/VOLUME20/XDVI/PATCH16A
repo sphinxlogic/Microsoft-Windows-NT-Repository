@@ -1,0 +1,1766 @@
+Newsgroups: comp.sources.x
+From: vojta@math.berkeley.edu (Paul Vojta)
+Subject: v20i053:  xdvi - dvi previewer, Patch16a/2
+Message-ID: <csx-v20i053=xdvi.093038@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 2e9f9b1321c7f368d2f1d7b9a4b0bee5
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Mon, 28 Jun 1993 14:31:14 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: vojta@math.berkeley.edu (Paul Vojta)
+Posting-number: Volume 20, Issue 53
+Archive-name: xdvi/patch16a
+Environment: X10, X11
+Patch-To: xdvi: Volume 17, Issue 23-25,27,40-41,53,106-107
+
+This patch actually has been around since last September.  However, due
+to disruptions in comp.sources.x, it has not appeared here.  It:
+
+   o	Improves much of the code for greyscale anti-aliasing.  In particular,
+	instead of assuming that the foreground is black and the background
+	is white, it interpolates between the foreground and background colors.
+	It also allocates part of the colormap for itself, allowing it to use
+	GXor operations when writing to the screen.  This fixes overstrike
+	characters.  Many thanks to Lee Hetherington
+	(ilh@goldilocks.LCS.MIT.EDU) for help with this one.
+
+   o	Compiles correctly on a Convex, thanks to patches supplied by
+	Randy Wright (rwright@convex.com).
+
+   o	Allows you to set the default value for the -p option.  (See the BDPI
+	option in the README file.)
+
+--Paul Vojta, vojta@math.berkeley.edu
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xdvi.p16.2
+# Wrapped by chris@sparky on Mon Jun 28 08:49:45 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'xdvi.p16.2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi.p16.2'\"
+else
+  echo shar: Extracting \"'xdvi.p16.2'\" \(47834 characters\)
+  sed "s/^X//" >'xdvi.p16.2' <<'END_OF_FILE'
+Xdiff -cr xdvi_old/gf.c xdvi_new/gf.c
+X*** xdvi_old/gf.c	Sun Jan 19 14:24:17 1992
+X--- xdvi_new/gf.c	Tue Jul 21 10:42:47 1992
+X***************
+X*** 84,90 ****
+X  		case XXX2:
+X  		case XXX3:
+X  		case XXX4:
+X! 		    Fseek(GF_file, (long) num(GF_file, cmnd - XXX1 + 1), 1);
+X  		    continue;
+X  		case YYY:
+X  		    (void) four(GF_file);
+X--- 84,91 ----
+X  		case XXX2:
+X  		case XXX3:
+X  		case XXX4:
+X! 		    Fseek(GF_file, (long) num(GF_file,
+X! 			WIDEARG(,(int)) cmnd - XXX1 + 1), 1);
+X  		    continue;
+X  		case YYY:
+X  		    (void) four(GF_file);
+X***************
+X*** 142,148 ****
+X  		case PAINT1:
+X  		case PAINT2:
+X  		case PAINT3:
+X! 		    count = num(GF_file, cmnd - PAINT1 + 1);
+X  		    break;
+X  		case EOC:
+X  		    if (cp >= ADD(basep, bytes_wide)) too_many_bits(ch);
+X--- 143,149 ----
+X  		case PAINT1:
+X  		case PAINT2:
+X  		case PAINT3:
+X! 		    count = num(GF_file, WIDEARG(,(int)) cmnd - PAINT1 + 1);
+X  		    break;
+X  		case EOC:
+X  		    if (cp >= ADD(basep, bytes_wide)) too_many_bits(ch);
+X***************
+X*** 151,157 ****
+X  		case SKIP2:
+X  		case SKIP3:
+X  		    *((char **) &basep) +=
+X! 			num(GF_file, cmnd - SKIP0) * bytes_wide;
+X  		case SKIP0:
+X  		    new_row = True;
+X  		    paint_switch = White;
+X--- 152,158 ----
+X  		case SKIP2:
+X  		case SKIP3:
+X  		    *((char **) &basep) +=
+X! 			num(GF_file, WIDEARG(,(int)) cmnd - SKIP0) * bytes_wide;
+X  		case SKIP0:
+X  		    new_row = True;
+X  		    paint_switch = White;
+X***************
+X*** 160,166 ****
+X  		case XXX2:
+X  		case XXX3:
+X  		case XXX4:
+X! 		    Fseek(GF_file, (long) num(GF_file, cmnd - XXX1 + 1), 1);
+X  		    break;
+X  		case YYY:
+X  		    (void) four(GF_file);
+X--- 161,168 ----
+X  		case XXX2:
+X  		case XXX3:
+X  		case XXX4:
+X! 		    Fseek(GF_file, (long) num(GF_file,
+X! 			WIDEARG(,(int)) cmnd - XXX1 + 1), 1);
+X  		    break;
+X  		case YYY:
+X  		    (void) four(GF_file);
+Xdiff -cr xdvi_old/pk.c xdvi_new/pk.c
+X*** xdvi_old/pk.c	Thu Apr  9 12:57:16 1992
+X--- xdvi_new/pk.c	Fri Jul 24 14:29:03 1992
+X***************
+X*** 110,116 ****
+X  	ubyte	ch;
+X  {
+X  	int	i, j;
+X! 	ubyte	n;
+X  	int	row_bit_pos;
+X  	Boolean	paint_switch;
+X  	BMUNIT	*cp;
+X--- 110,116 ----
+X  	ubyte	ch;
+X  {
+X  	int	i, j;
+X! 	int	n;
+X  	int	row_bit_pos;
+X  	Boolean	paint_switch;
+X  	BMUNIT	*cp;
+X***************
+X*** 158,164 ****
+X  
+X  	if (debug & DBG_PK) {
+X  	    if (g->bitmap.w != 0)
+X! 		Printf(", size=%dx%d, dvi_adv=%d", g->bitmap.w, g->bitmap.h,
+X  		    g->dvi_adv);
+X  	    Putchar('\n');
+X  	}
+X--- 158,164 ----
+X  
+X  	if (debug & DBG_PK) {
+X  	    if (g->bitmap.w != 0)
+X! 		Printf(", size=%dx%d, dvi_adv=%ld", g->bitmap.w, g->bitmap.h,
+X  		    g->dvi_adv);
+X  	    Putchar('\n');
+X  	}
+X***************
+X*** 318,324 ****
+X  	    fontp->glyph[ch].x2 = PK_flag_byte;
+X  	    Fseek(fontp->file, (long) bytes_left, 1);
+X  	    if (debug & DBG_PK)
+X! 		Printf("Scanning pk char %d, at %d.\n", ch,
+X  		    fontp->glyph[ch].addr);
+X  	}
+X  }
+X--- 318,324 ----
+X  	    fontp->glyph[ch].x2 = PK_flag_byte;
+X  	    Fseek(fontp->file, (long) bytes_left, 1);
+X  	    if (debug & DBG_PK)
+X! 		Printf("Scanning pk char %u, at %ld.\n", ch,
+X  		    fontp->glyph[ch].addr);
+X  	}
+X  }
+Xdiff -cr xdvi_old/pxl.c xdvi_new/pxl.c
+X*** xdvi_old/pxl.c	Mon Jun  1 16:26:54 1992
+X--- xdvi_new/pxl.c	Sat Jul 25 15:26:51 1992
+X***************
+X*** 96,102 ****
+X  {
+X  	register FILE *fp	= fontp->file;
+X  	register struct glyph *g;
+X! 	long font_dir_ptr;
+X  
+X  	if (debug & DBG_PK)
+X  	    Printf("Reading PXL file %s\n", fontp->filename);
+X--- 96,103 ----
+X  {
+X  	register FILE *fp	= fontp->file;
+X  	register struct glyph *g;
+X! 	long	font_dir_ptr;
+X! 	long	trailer_ptr;
+X  
+X  	if (debug & DBG_PK)
+X  	    Printf("Reading PXL file %s\n", fontp->filename);
+X***************
+X*** 106,111 ****
+X--- 107,113 ----
+X  	while (four(fp) != 1001)
+X  	    Fseek(fp, (long) -5, 1);
+X  	Fseek(fp, (long) -5 * 4, 1);
+X+ 	trailer_ptr = ftell(fp);
+X  	(void) four(fp);	/* checksum */
+X  	(void) four(fp);	/* magnify */
+X  	(void) four(fp);	/* design size */
+X***************
+X*** 113,122 ****
+X  	(void) four(fp);	/* pxl id word */
+X  	/* seek to font directory */
+X  	Fseek(fp, font_dir_ptr, 0);
+X! 	maxchar = 127;
+X! 	fontp->glyph = (struct glyph *) xmalloc(128 * sizeof(struct glyph),
+X! 	    "glyph array");
+X! 	for (g = fontp->glyph; g < fontp->glyph + 128; ++g) {
+X  	    g->bitmap.bits = NULL;
+X  	    g->bitmap2.bits = NULL;
+X  #ifdef	GREY
+X--- 115,124 ----
+X  	(void) four(fp);	/* pxl id word */
+X  	/* seek to font directory */
+X  	Fseek(fp, font_dir_ptr, 0);
+X! 	maxchar = (trailer_ptr - font_dir_ptr) / 16 - 1;
+X! 	fontp->glyph = (struct glyph *)
+X! 		xmalloc((maxchar + 1) * sizeof(struct glyph), "glyph array");
+X! 	for (g = fontp->glyph; g <= fontp->glyph + maxchar; ++g) {
+X  	    g->bitmap.bits = NULL;
+X  	    g->bitmap2.bits = NULL;
+X  #ifdef	GREY
+Xdiff -cr xdvi_old/tpic.c xdvi_new/tpic.c
+X*** xdvi_old/tpic.c	Thu Jun 11 14:45:50 1992
+X--- xdvi_new/tpic.c	Sat Jul 25 15:39:01 1992
+X***************
+X*** 282,287 ****
+X--- 282,288 ----
+X  	im_fdraw(xcenter + xradius * cos(start_angle),
+X  	    ycenter + yradius * sin(start_angle));
+X  	angle = start_angle + theta;
+X+ 	if (end_angle < angle) end_angle += TWOPI;
+X  	while (angle < end_angle) {
+X  	    im_fdraw(xcenter + xradius * cos(angle),
+X  		ycenter + yradius * sin(angle));
+X***************
+X*** 307,314 ****
+X  {
+X  	int	xp, yp;
+X  	int	N;
+X! 	int	lastx	= -1;
+X! 	int	lasty;
+X  	int	t1, t2, t3;
+X  	int	steps;
+X  	int	j;
+X--- 308,314 ----
+X  {
+X  	int	xp, yp;
+X  	int	N;
+X! 	int	lastx, lasty;
+X  	int	t1, t2, t3;
+X  	int	steps;
+X  	int	j;
+X***************
+X*** 315,321 ****
+X  	register int i, w;
+X  
+X  #ifdef	lint
+X! 	lasty = -1;
+X  #endif
+X  	N = path_len + 1;
+X  	xx[0] = xx[1];
+X--- 315,321 ----
+X  	register int i, w;
+X  
+X  #ifdef	lint
+X! 	lastx = lasty = -1;
+X  #endif
+X  	N = path_len + 1;
+X  	xx[0] = xx[1];
+X***************
+X*** 334,340 ****
+X  		t3 = w * w / 20;
+X  		xp = (t1*xx[i+2] + t2*xx[i+1] + t3*xx[i] + 50000) / 100000;
+X  		yp = (t1*yy[i+2] + t2*yy[i+1] + t3*yy[i] + 50000) / 100000;
+X! 		if (lastx > -1) line_btw(lastx, lasty, xp, yp);
+X  		lastx = xp;
+X  		lasty = yp;
+X  	    }
+X--- 334,340 ----
+X  		t3 = w * w / 20;
+X  		xp = (t1*xx[i+2] + t2*xx[i+1] + t3*xx[i] + 50000) / 100000;
+X  		yp = (t1*yy[i+2] + t2*yy[i+1] + t3*yy[i] + 50000) / 100000;
+X! 		if (i != 0 || j != 0) line_btw(lastx, lasty, xp, yp);
+X  		lastx = xp;
+X  		lasty = yp;
+X  	    }
+Xdiff -cr xdvi_old/util.c xdvi_new/util.c
+X*** xdvi_old/util.c	Wed Jun 10 18:47:23 1992
+X--- xdvi_new/util.c	Mon Aug 24 18:45:15 1992
+X***************
+X*** 6,19 ****
+X   * Code derived from dvi-imagen.c.
+X   *
+X   * Modification history:
+X!  * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X!  * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X   * 12/1988	Added 'R' option, toolkit, magnifying glass
+X!  *			--Paul Vojta, UC Berkeley.
+X   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X!  * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+X   *
+X   *	Compilation options:
+X   *	SYSV	compile for System V
+X--- 6,21 ----
+X   * Code derived from dvi-imagen.c.
+X   *
+X   * Modification history:
+X!  * 1/1986	Modified for X.10	--Bob Scheifler, MIT LCS.
+X!  * 7/1988	Modified for X.11	--Mark Eichin, MIT
+X   * 12/1988	Added 'R' option, toolkit, magnifying glass
+X!  *					--Paul Vojta, UC Berkeley.
+X   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X!  * 4/1989	Modified for System V	--Donald Richardson, Clarkson Univ.
+X   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+X+  * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+X+  *					  and Lee Hetherington, MIT
+X   *
+X   *	Compilation options:
+X   *	SYSV	compile for System V
+X***************
+X*** 65,75 ****
+X   */
+X  
+X  #if	NeedVarargsPrototypes
+X! volatile void
+X  oops(_Xconst char *message, ...)
+X  #else
+X  /* VARARGS */
+X! volatile void
+X  oops(va_alist)
+X  	va_dcl
+X  #endif
+X--- 67,77 ----
+X   */
+X  
+X  #if	NeedVarargsPrototypes
+X! NORETURN void
+X  oops(_Xconst char *message, ...)
+X  #else
+X  /* VARARGS */
+X! NORETURN void
+X  oops(va_alist)
+X  	va_dcl
+X  #endif
+X***************
+X*** 185,191 ****
+X  unsigned long
+X  num(fp, size)
+X  	register FILE *fp;
+X! 	register WIDEARG(ubyte, int) size;
+X  {
+X  	register long x = 0;
+X  
+X--- 187,193 ----
+X  unsigned long
+X  num(fp, size)
+X  	register FILE *fp;
+X! 	register int size;
+X  {
+X  	register long x = 0;
+X  
+X***************
+X*** 196,202 ****
+X  long
+X  snum(fp, size)
+X  	register FILE *fp;
+X! 	register WIDEARG(ubyte, int) size;
+X  {
+X  	register long x;
+X  
+X--- 198,204 ----
+X  long
+X  snum(fp, size)
+X  	register FILE *fp;
+X! 	register int size;
+X  {
+X  	register long x;
+X  
+Xdiff -cr xdvi_old/vf.c xdvi_new/vf.c
+X*** xdvi_old/vf.c	Wed Apr 15 17:46:25 1992
+X--- xdvi_new/vf.c	Fri Jul 24 14:29:10 1992
+X***************
+X*** 82,88 ****
+X  		width = four(VF_file);
+X  		if (cc >= 256) {
+X  		    Fprintf(stderr,
+X! 			"Virtual character %d in font %s ignored.\n",
+X  			cc, fontp->fontname);
+X  		    Fseek(VF_file, (long) len, 1);
+X  		    continue;
+X--- 82,88 ----
+X  		width = four(VF_file);
+X  		if (cc >= 256) {
+X  		    Fprintf(stderr,
+X! 			"Virtual character %lu in font %s ignored.\n",
+X  			cc, fontp->fontname);
+X  		    Fseek(VF_file, (long) len, 1);
+X  		    continue;
+X***************
+X*** 115,121 ****
+X  		m->end = m->pos + len;
+X  	    }
+X  	    if (debug & DBG_PK)
+X! 		Printf("Read VF macro for character %d; dy = %d, length = %d\n",
+X  			cc, m->dvi_adv, len);
+X  	}
+X  	if (cmnd != POST)
+X--- 115,121 ----
+X  		m->end = m->pos + len;
+X  	    }
+X  	    if (debug & DBG_PK)
+X! 		Printf("Read VF macro for character %lu; dy = %ld, length = %d\n",
+X  			cc, m->dvi_adv, len);
+X  	}
+X  	if (cmnd != POST)
+Xdiff -cr xdvi_old/xdvi.c xdvi_new/xdvi.c
+X*** xdvi_old/xdvi.c	Tue Jun 16 14:29:07 1992
+X--- xdvi_new/xdvi.c	Sat Sep 12 15:25:42 1992
+X***************
+X*** 6,20 ****
+X   * Code derived from dvi-imagen.c.
+X   *
+X   * Modification history:
+X!  * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X!  * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X   * 12/1988	Added 'R' option, toolkit, magnifying glass
+X!  *			--Paul Vojta, UC Berkeley.
+X   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X!  * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+X   * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+X   *
+X   *	Compilation options:
+X   *	SYSV	compile for System V
+X--- 6,21 ----
+X   * Code derived from dvi-imagen.c.
+X   *
+X   * Modification history:
+X!  * 1/1986	Modified for X.10	--Bob Scheifler, MIT LCS.
+X!  * 7/1988	Modified for X.11	--Mark Eichin, MIT
+X   * 12/1988	Added 'R' option, toolkit, magnifying glass
+X!  *					--Paul Vojta, UC Berkeley.
+X   * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X!  * 4/1989	Modified for System V	--Donald Richardson, Clarkson Univ.
+X   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
+X   * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+X+  *					  and Lee Hetherington, MIT
+X   *
+X   *	Compilation options:
+X   *	SYSV	compile for System V
+X***************
+X*** 60,71 ****
+X  #include "xdvi.h"
+X  
+X  #include "patchlevel.h"
+X! static	struct {_Xconst char	a[36], b, c, d;}
+X  #ifndef X10
+X! 	header = {"$Header: xdvi.c (X11), patchlevel = ", '0' + PATCHLEVEL / 10,
+X  		'0' + PATCHLEVEL % 10, 0};
+X  #else
+X! 	header = {"$Header: xdvi.c (X10), patchlevel = ", '0' + PATCHLEVEL / 10,
+X  		'0' + PATCHLEVEL % 10, 0};
+X  #endif
+X  
+X--- 61,72 ----
+X  #include "xdvi.h"
+X  
+X  #include "patchlevel.h"
+X! static	struct {_Xconst char	a[33], b, c, d;}
+X  #ifndef X10
+X! 	version = {"This is xdvi for X11, patchlevel ", '0' + PATCHLEVEL / 10,
+X  		'0' + PATCHLEVEL % 10, 0};
+X  #else
+X! 	version = {"This is xdvi for X10, patchlevel ", '0' + PATCHLEVEL / 10,
+X  		'0' + PATCHLEVEL % 10, 0};
+X  #endif
+X  
+X***************
+X*** 92,98 ****
+X  #include <X11/Shell.h>	/* needed for def. of XtNiconX */
+X  #ifndef	XtSpecificationRelease
+X  #define	XtSpecificationRelease	0
+X- #define	XtPointer caddr_t
+X  #endif
+X  #if	XtSpecificationRelease >= 4
+X  #include <X11/Xaw/Viewport.h>
+X--- 93,98 ----
+X***************
+X*** 111,117 ****
+X  typedef	int		Position;
+X  typedef	unsigned int	Dimension;
+X  #ifndef X10
+X! typedef	unsigned int	Pixel;
+X  #define	XtPending()	XPending(DISP)
+X  #else
+X  #define	XtPending	XPending
+X--- 111,117 ----
+X  typedef	int		Position;
+X  typedef	unsigned int	Dimension;
+X  #ifndef X10
+X! typedef	unsigned long	Pixel;
+X  #define	XtPending()	XPending(DISP)
+X  #else
+X  #define	XtPending	XPending
+X***************
+X*** 201,206 ****
+X--- 201,209 ----
+X  	char	*debug_arg;
+X  	int	_shrink_factor;
+X  	int	density;
+X+ #ifdef	GREY
+X+ 	float	gamma;
+X+ #endif
+X  	int	pixels_per_inch;
+X  	char	*sidemargin;
+X  	char	*topmargin;
+X***************
+X*** 227,233 ****
+X  	char	*copy_arg;
+X  	Boolean	copy;
+X  	Boolean	thorough;
+X! 	Boolean	version;
+X  #ifdef	BUTTONS
+X  	Boolean	expert;
+X  #endif
+X--- 230,236 ----
+X  	char	*copy_arg;
+X  	Boolean	copy;
+X  	Boolean	thorough;
+X! 	Boolean	version_flag;
+X  #ifdef	BUTTONS
+X  	Boolean	expert;
+X  #endif
+X***************
+X*** 241,246 ****
+X--- 244,252 ----
+X  
+X  #define	RESOURCE(x)	x
+X  static	char	*debug_arg;
+X+ #ifdef	GREY
+X+ static	float	gamma	= 1.0;
+X+ #endif
+X  static	char	*sidemargin, *topmargin;
+X  static	char	*xoffset, *yoffset;
+X  static	_Xconst	char	*paper		= DEFAULT_PAPER;
+X***************
+X*** 252,259 ****
+X  static	Boolean	copy	= 2;
+X  static	Boolean	thorough;
+X  #endif	/* X10 */
+X! static	Boolean	version		= False;
+X! static	int	mg_size[5] = {200, 350, 600, 900, 1200};
+X  
+X  #endif	/* TOOLKIT */
+X  
+X--- 258,265 ----
+X  static	Boolean	copy	= 2;
+X  static	Boolean	thorough;
+X  #endif	/* X10 */
+X! static	Boolean	version_flag	= False;
+X! static	int	mg_size[5]	= {200, 350, 600, 900, 1200};
+X  
+X  #endif	/* TOOLKIT */
+X  
+X***************
+X*** 300,309 ****
+X  static	int	home_x, home_y;
+X  static	int	min_x, max_x, min_y, max_y;
+X  
+X! struct WindowRec mane	= {NULL, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X! struct WindowRec alt	= {NULL, 1, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X  /*	currwin is temporary storage except for within redraw() */
+X! struct WindowRec currwin = {NULL, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X  
+X  #ifdef	TOOLKIT
+X  static	Widget	top_level, vport_widget, draw_widget, clip_widget;
+X--- 306,315 ----
+X  static	int	home_x, home_y;
+X  static	int	min_x, max_x, min_y, max_y;
+X  
+X! struct WindowRec mane	= {(Window) 0, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X! struct WindowRec alt	= {(Window) 0, 1, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X  /*	currwin is temporary storage except for within redraw() */
+X! struct WindowRec currwin = {(Window) 0, 3, 0, 0, 0, 0, MAXDIM, 0, MAXDIM, 0};
+X  
+X  #ifdef	TOOLKIT
+X  static	Widget	top_level, vport_widget, draw_widget, clip_widget;
+X***************
+X*** 391,397 ****
+X  };
+X  
+X  static	Arg	command_args[] = {
+X! 	{XtNlabel,	NULL},
+X  	{XtNx,		(XtArgVal) 6},
+X  	{XtNy,		(XtArgVal) 0},
+X  	{XtNwidth,	(XtArgVal) 64},
+X--- 397,403 ----
+X  };
+X  
+X  static	Arg	command_args[] = {
+X! 	{XtNlabel,	(XtArgVal) NULL},
+X  	{XtNx,		(XtArgVal) 6},
+X  	{XtNy,		(XtArgVal) 0},
+X  	{XtNwidth,	(XtArgVal) 64},
+X***************
+X*** 515,522 ****
+X  
+X  static	Boolean	canit		= False,
+X  		has_arg		= False;
+X! static	short	event_counter	= 0,
+X! 		event_freq	= 70;
+X  static	int	number		= 0,
+X  		sign		= 1;
+X  static	jmp_buf	canit_env;
+X--- 521,528 ----
+X  
+X  static	Boolean	canit		= False,
+X  		has_arg		= False;
+X! static	VOLATILE short	event_counter	= 0;
+X! static	VOLATILE short	event_freq	= 70;
+X  static	int	number		= 0,
+X  		sign		= 1;
+X  static	jmp_buf	canit_env;
+X***************
+X*** 541,579 ****
+X  
+X  #ifdef	GREY
+X  static	void
+X! make_one_pixel_map(pixel, hi)
+X! 	long pixel[];
+X! 	int hi;
+X  {
+X! 	int i;
+X! 	int level;
+X! 	XColor color;
+X  
+X! 	for (i = 0; i <= hi; i++) {
+X! 	    level = (hi - i) * 65535 / hi;
+X! 	    color.red = color.green = color.blue = level;
+X! 	    color.flags = DoRed | DoGreen | DoBlue;
+X! 	    if (XAllocColor(DISP, DefaultColormapOfScreen(SCRN), &color) == 0)
+X! 		pixel[i] = (level >= 32768) ? BlackPixelOfScreen(SCRN)
+X! 					    : WhitePixelOfScreen(SCRN);
+X! 	    else
+X! 		pixel[i] = color.pixel;
+X! 	}
+X! }
+X  
+X! static	void
+X! init_pix()
+X! {
+X! 	static	Boolean	pixels_allocated = False;
+X  
+X! 	if (pixels_allocated)
+X! 	    return;
+X  
+X! 	make_one_pixel_map(pixel2, 2*2);
+X! 	make_one_pixel_map(pixel3, 3*3);
+X! 	make_one_pixel_map(pixel4, 4*4);
+X  
+X! 	pixels_allocated = True;
+X  }
+X  #endif	/* GREY */
+X  
+X--- 547,644 ----
+X  
+X  #ifdef	GREY
+X  static	void
+X! init_pix(warn)
+X! 	Boolean	warn;
+X  {
+X! 	static	int	shrink_allocated_for = 0;
+X! 	static	Boolean	colors_allocated = False;
+X! 	int	i;
+X  
+X! 	if (!colors_allocated)
+X! 	{
+X! 	    Pixel plane_masks[4];
+X! 	    Pixel pixel;
+X! 	    XColor color, fc, bc;
+X! 	    XGCValues	values;
+X! 	    int i;
+X  
+X! 	    if (RESOURCE(gamma) == 0.0) RESOURCE(gamma) = 1.0;
+X  
+X! 	    if (!RESOURCE(copy))
+X! 		/* allocate 4 color planes for 16 colors (for GXor drawing) */
+X! 		if (!XAllocColorCells(DISP, DefaultColormapOfScreen(SCRN),
+X! 					  False, plane_masks, 4, &pixel, 1))
+X! 		    RESOURCE(copy) = warn = True;
+X  
+X! 	    /* get foreground and background RGB values for interpolating */
+X! 	    fc.pixel = RESOURCE(fore_Pixel);
+X! 	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &fc);
+X! 	    bc.pixel = RESOURCE(back_Pixel);
+X! 	    XQueryColor(DISP, DefaultColormapOfScreen(SCRN), &bc);
+X  
+X! 	    for (i = 0; i < 16; ++i) {
+X! 		double	pow();
+X! 		double	frac = RESOURCE(gamma) > 0 ?
+X! 		    pow((double) i / 15, 1 / RESOURCE(gamma))
+X! 		    : 1 - pow((double) (15 - i) / 15, -RESOURCE(gamma));
+X! 
+X! 		color.red = frac * ((double) fc.red - bc.red) + bc.red;
+X! 		color.green = frac * ((double) fc.green - bc.green) + bc.green;
+X! 		color.blue = frac * ((double) fc.blue - bc.blue) + bc.blue;
+X! 
+X! 		color.pixel = pixel;
+X! 		color.flags = DoRed | DoGreen | DoBlue;
+X! 
+X! 		if (!RESOURCE(copy)) {
+X! 		    if (i & 1) color.pixel |= plane_masks[0];
+X! 		    if (i & 2) color.pixel |= plane_masks[1];
+X! 		    if (i & 4) color.pixel |= plane_masks[2];
+X! 		    if (i & 8) color.pixel |= plane_masks[3];
+X! 		    XStoreColor(DISP, DefaultColormapOfScreen(SCRN), &color);
+X! 		    palette[i] = color.pixel;
+X! 		}
+X! 		else {
+X! 		    if (!XAllocColor(DISP, DefaultColormapOfScreen(SCRN),
+X! 			&color))
+X! 			palette[i] = (i * 100 >= density * 15)
+X! 			    ? RESOURCE(fore_Pixel) : RESOURCE(back_Pixel);
+X! 		    else
+X! 			palette[i] = color.pixel;
+X! 		}
+X! 	    }
+X! 
+X! 	    /* Make sure fore_ and back_Pixel are a part of the palette */
+X! 	    RESOURCE(fore_Pixel) = palette[15];
+X! 	    RESOURCE(back_Pixel) = palette[0];
+X! 
+X! #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+X! 		values.background=bg,\
+X! 		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+X! 			GCFunction|GCForeground|GCBackground, &values))
+X! 
+X! 	    foreGC = ruleGC = MakeGC(RESOURCE(copy) ? GXcopy : GXor,
+X! 		RESOURCE(fore_Pixel), RESOURCE(back_Pixel));
+X! 
+X! 	    colors_allocated = True;
+X! 	    if (RESOURCE(copy) && warn)
+X! 		Puts("Note:  overstrike characters may be incorrect.");
+X! 	}
+X! #undef	MakeGC
+X! 
+X! 	if (mane.shrinkfactor == 1) return;
+X! 
+X! 	if (shrink_allocated_for < mane.shrinkfactor) {
+X! 	    if (pixeltbl != NULL) free((char *) pixeltbl);
+X! 	    pixeltbl = (Pixel *) xmalloc((unsigned)
+X! 		(mane.shrinkfactor * mane.shrinkfactor + 1) * sizeof(Pixel),
+X! 		"pixel table");
+X! 	    shrink_allocated_for = mane.shrinkfactor;
+X! 	}
+X! 
+X! 	for (i = 0; i <= mane.shrinkfactor * mane.shrinkfactor; ++i)
+X! 	    pixeltbl[i] =
+X! 		palette[(i * 30 + mane.shrinkfactor * mane.shrinkfactor)
+X! 		    / (2 * mane.shrinkfactor * mane.shrinkfactor)];
+X  }
+X  #endif	/* GREY */
+X  
+X***************
+X*** 916,922 ****
+X  static	void
+X  handle_key(widget, junk, event, cont)
+X  	Widget	widget;
+X! 	caddr_t	junk;
+X  	XEvent	*event;
+X  	Boolean	*cont;		/* unused */
+X  {
+X--- 981,987 ----
+X  static	void
+X  handle_key(widget, junk, event, cont)
+X  	Widget	widget;
+X! 	XtPointer junk;
+X  	XEvent	*event;
+X  	Boolean	*cont;		/* unused */
+X  {
+X***************
+X*** 927,933 ****
+X  static	void
+X  handle_resize(widget, junk, event, cont)
+X  	Widget	widget;
+X! 	caddr_t	junk;
+X  	XEvent	*event;
+X  	Boolean	*cont;		/* unused */
+X  {
+X--- 992,998 ----
+X  static	void
+X  handle_resize(widget, junk, event, cont)
+X  	Widget	widget;
+X! 	XtPointer junk;
+X  	XEvent	*event;
+X  	Boolean	*cont;		/* unused */
+X  {
+X***************
+X*** 939,949 ****
+X  static	void
+X  handle_command(widget, client_data, call_data)
+X  	Widget	widget;
+X! 	caddr_t	client_data;
+X! 	caddr_t	call_data;
+X  {
+X! 	keystroke(((int) client_data) & 0xff, ((int) client_data) >> 8,
+X! 		(((int) client_data) >> 8) != 0, (XEvent *) NULL);
+X  }
+X  #endif	/* BUTTONS */
+X  
+X--- 1004,1016 ----
+X  static	void
+X  handle_command(widget, client_data, call_data)
+X  	Widget	widget;
+X! 	XtPointer client_data;
+X! 	XtPointer call_data;
+X  {
+X! 	int	int_client_data	= (int) client_data;	/* Apollo cc bug */
+X! 
+X! 	keystroke((int_client_data) & 0xff, (int_client_data) >> 8,
+X! 		((int_client_data) >> 8) != 0, (XEvent *) NULL);
+X  }
+X  #endif	/* BUTTONS */
+X  
+X***************
+X*** 1198,1204 ****
+X  static	void
+X  handle_button(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	caddr_t	junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xbutton))
+X  	Boolean	*cont;		/* unused */
+X--- 1265,1271 ----
+X  static	void
+X  handle_button(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	XtPointer junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xbutton))
+X  	Boolean	*cont;		/* unused */
+X***************
+X*** 1210,1227 ****
+X  {
+X  	int	x, y;
+X  #ifndef X10
+X  	XSetWindowAttributes attr;
+X- 
+X- 	alt.width = alt.height = RESOURCE(mg_size[event->button - 1]);
+X  #else
+X! 	alt.width = alt.height =
+X! 	    RESOURCE(mg_size[2 - (event->detail & ValueMask)]);
+X  #endif
+X! 	if (alt.win != NULL || mane.shrinkfactor == 1 || alt.width <= 0)
+X  	    XBell(DISP, 20);
+X  	else {
+X  	    mag_x = event->x;
+X  	    mag_y = event->y;
+X  #ifndef X10
+X  	    main_x = event->x_root - mag_x;
+X  	    main_y = event->y_root - mag_y;
+X--- 1277,1294 ----
+X  {
+X  	int	x, y;
+X  #ifndef X10
+X+ 	int	w	= RESOURCE(mg_size[event->button - 1]);
+X  	XSetWindowAttributes attr;
+X  #else
+X! 	int	w	= RESOURCE(mg_size[2 - (event->detail & ValueMask)]);
+X  #endif
+X! 
+X! 	if (alt.win != (Window) 0 || mane.shrinkfactor == 1 || w <= 0)
+X  	    XBell(DISP, 20);
+X  	else {
+X  	    mag_x = event->x;
+X  	    mag_y = event->y;
+X+ 	    alt.width = alt.height = w;
+X  #ifndef X10
+X  	    main_x = event->x_root - mag_x;
+X  	    main_y = event->y_root - mag_y;
+X***************
+X*** 1261,1267 ****
+X  static	void
+X  handle_motion(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	caddr_t	junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xmotion))
+X  	Boolean	*cont;		/* unused */
+X--- 1328,1334 ----
+X  static	void
+X  handle_motion(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	XtPointer junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xmotion))
+X  	Boolean	*cont;		/* unused */
+X***************
+X*** 1296,1302 ****
+X  static	void
+X  handle_release(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	caddr_t	junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xbutton))
+X  	Boolean	*cont;		/* unused */
+X--- 1363,1369 ----
+X  static	void
+X  handle_release(widget, junk, ev, cont)
+X  	Widget	widget;
+X! 	XtPointer junk;
+X  	XEvent *ev;
+X  #define	event	(&(ev->xbutton))
+X  	Boolean	*cont;		/* unused */
+X***************
+X*** 1310,1316 ****
+X  	    else {
+X  		XDestroyWindow(DPY WINDOW(alt));
+X  		if (currwin.win == alt.win) alt_canit = True;
+X! 		alt.win = NULL;
+X  		mag_moved = False;
+X  		can_exposures(&alt);
+X  	    }
+X--- 1377,1383 ----
+X  	    else {
+X  		XDestroyWindow(DPY WINDOW(alt));
+X  		if (currwin.win == alt.win) alt_canit = True;
+X! 		alt.win = (Window) 0;
+X  		mag_moved = False;
+X  		can_exposures(&alt);
+X  	    }
+X***************
+X*** 1321,1333 ****
+X  
+X  	/*ARGSUSED*/
+X  static	void
+X! handle_exp(widget, windowrec, ev, cont)
+X  	Widget	widget;
+X! 	struct WindowRec *windowrec;
+X  	register XEvent *ev;
+X  #define	event	(&(ev->xexpose))
+X  	Boolean	*cont;		/* unused */
+X  {
+X  	if (windowrec == &alt)
+X  	    if (alt_stat < 0) {	/* destroy upon exposure */
+X  		alt_stat = 0;
+X--- 1388,1402 ----
+X  
+X  	/*ARGSUSED*/
+X  static	void
+X! handle_exp(widget, closure, ev, cont)
+X  	Widget	widget;
+X! 	XtPointer closure;
+X  	register XEvent *ev;
+X  #define	event	(&(ev->xexpose))
+X  	Boolean	*cont;		/* unused */
+X  {
+X+ 	struct WindowRec *windowrec = (struct WindowRec *) closure;
+X+ 
+X  	if (windowrec == &alt)
+X  	    if (alt_stat < 0) {	/* destroy upon exposure */
+X  		alt_stat = 0;
+X***************
+X*** 1533,1538 ****
+X--- 1602,1610 ----
+X  		init_page();
+X  		if (number0 != 1 && number0 != bak_shrink) {
+X  		    bak_shrink = number0;
+X+ #ifdef	GREY
+X+ 		    if (use_grey) init_pix(False);
+X+ #endif
+X  		    reset_fonts();
+X  		}
+X  #ifdef	TOOLKIT
+X***************
+X*** 1557,1563 ****
+X  #ifdef GREY
+X  	    case 'G':
+X  		use_grey = (arg0 ? number0 : !use_grey);
+X! 		if (use_grey) init_pix();
+X  		reset_fonts();
+X  		break;
+X  #endif
+X--- 1629,1635 ----
+X  #ifdef GREY
+X  	    case 'G':
+X  		use_grey = (arg0 ? number0 : !use_grey);
+X! 		if (use_grey) init_pix(False);
+X  		reset_fonts();
+X  		break;
+X  #endif
+X***************
+X*** 1622,1628 ****
+X  	    if (resized) get_geom();
+X  	    if (event.xany.window == WINDOW(alt) &&
+X  		    event.type == Expose) {
+X! 		handle_exp((Widget) NULL, &alt, &event, (Boolean *) NULL);
+X  		continue;
+X  	    }
+X  	    if (event.type != KeyPress) {
+X--- 1694,1701 ----
+X  	    if (resized) get_geom();
+X  	    if (event.xany.window == WINDOW(alt) &&
+X  		    event.type == Expose) {
+X! 		handle_exp((Widget) NULL, (XtPointer) &alt, &event,
+X! 		    (Boolean *) NULL);
+X  		continue;
+X  	    }
+X  	    if (event.type != KeyPress) {
+X***************
+X*** 1897,1903 ****
+X  enable_intr() {
+X  	int	socket	= ConnectionNumber(DISP);
+X  	if (!isatty(0)) {
+X! 	    puts("trying...");
+X  	    if (dup2(socket, 0) == -1) perror(prog);
+X  	    socket = 0;
+X  	}
+X--- 1970,1976 ----
+X  enable_intr() {
+X  	int	socket	= ConnectionNumber(DISP);
+X  	if (!isatty(0)) {
+X! 	    Puts("trying...");
+X  	    if (dup2(socket, 0) == -1) perror(prog);
+X  	    socket = 0;
+X  	}
+X***************
+X*** 1925,1931 ****
+X--- 1998,2010 ----
+X  #ifdef	HAS_SIGIO
+X  	    enable_intr();
+X  #endif
+X+ #ifdef	__convex__
+X+ 	    /* convex C turns off optimization for the entire function
+X+ 	       if setjmp return value is discarded.*/
+X+ 	    if (setjmp(canit_env))	/*optimize me*/;
+X+ #else
+X  	    (void) setjmp(canit_env);
+X+ #endif
+X  	    for (;;) {
+X  		if (mane.win) SetCursor(ready_cursor);
+X  		read_events(True);
+X***************
+X*** 1936,1942 ****
+X  		    redraw_page();
+X  		}
+X  		else if (mag_moved) {
+X! 		    if (alt.win == NULL) mag_moved = False;
+X  		    else if (abs(new_mag_x - mag_x) >
+X  			2 * abs(new_mag_y - mag_y))
+X  			    movemag(new_mag_x, mag_y);
+X--- 2015,2021 ----
+X  		    redraw_page();
+X  		}
+X  		else if (mag_moved) {
+X! 		    if (alt.win == (Window) 0) mag_moved = False;
+X  		    else if (abs(new_mag_x - mag_x) >
+X  			2 * abs(new_mag_y - mag_y))
+X  			    movemag(new_mag_x, mag_y);
+X***************
+X*** 1952,1958 ****
+X  	}
+X  }
+X  
+X! static	volatile void
+X  usage() {
+X  #ifndef X10
+X  #ifndef	VMS
+X--- 2031,2037 ----
+X  	}
+X  }
+X  
+X! static	NORETURN void
+X  usage() {
+X  #ifndef X10
+X  #ifndef	VMS
+X***************
+X*** 1962,1968 ****
+X  	[-expert] [-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X--- 2041,2048 ----
+X  	[-expert] [-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-gamma <g>] \
+X! [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X***************
+X*** 1974,1980 ****
+X  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X--- 2054,2061 ----
+X  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+X  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-gamma <g>] \
+X! [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X***************
+X*** 1989,1995 ****
+X  \n", stderr);
+X  	Fputs("\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X--- 2070,2077 ----
+X  \n", stderr);
+X  	Fputs("\
+X  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+X! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-gamma <g>] \
+X! [-version]\n\
+X  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+X  [-cr <color>]\n\
+X  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+X***************
+X*** 2034,2039 ****
+X--- 2116,2124 ----
+X  {"-S",		".densityPercent", XrmoptionSepArg,	(caddr_t) NULL},
+X  #endif
+X  {"-density",	".densityPercent", XrmoptionSepArg,	(caddr_t) NULL},
+X+ #ifdef	GREY
+X+ {"-gamma",	".gamma",	XrmoptionSepArg,	(caddr_t) NULL},
+X+ #endif
+X  {"-p",		".pixelsPerInch", XrmoptionSepArg,	(caddr_t) NULL},
+X  {"-margins",	".Margin",	XrmoptionSepArg,	(caddr_t) NULL},
+X  {"-sidemargin",	".sideMargin",	XrmoptionSepArg,	(caddr_t) NULL},
+X***************
+X*** 2084,2089 ****
+X--- 2169,2176 ----
+X  
+X  #define	offset(field)	XtOffsetOf(struct _resource, field)
+X  
+X+ static	int	basedpi	= BDPI;		/* default value for -p option */
+X+ 
+X  static	XtResource	application_resources[] = {
+X  {"debugLevel", "DebugLevel", XtRString, sizeof(char *),
+X    offset(debug_arg), XtRString, (caddr_t) NULL},
+X***************
+X*** 2091,2098 ****
+X    offset(_shrink_factor), XtRString, "3"},
+X  {"densityPercent", "DensityPercent", XtRInt, sizeof(int),
+X    offset(density), XtRString, "40"},
+X  {"pixelsPerInch", "PixelsPerInch", XtRInt, sizeof(int),
+X!   offset(pixels_per_inch), XtRString, "300"},
+X  {"sideMargin", "Margin", XtRString, sizeof(char *),
+X    offset(sidemargin), XtRString, (caddr_t) NULL},
+X  {"topMargin", "Margin", XtRString, sizeof(char *),
+X--- 2178,2189 ----
+X    offset(_shrink_factor), XtRString, "3"},
+X  {"densityPercent", "DensityPercent", XtRInt, sizeof(int),
+X    offset(density), XtRString, "40"},
+X+ #ifdef	GREY
+X+ {"gamma", "Gamma", XtRFloat, sizeof(float),
+X+   offset(gamma), XtRString, "1"},
+X+ #endif
+X  {"pixelsPerInch", "PixelsPerInch", XtRInt, sizeof(int),
+X!   offset(pixels_per_inch), XtRInt, (caddr_t) &basedpi},
+X  {"sideMargin", "Margin", XtRString, sizeof(char *),
+X    offset(sidemargin), XtRString, (caddr_t) NULL},
+X  {"topMargin", "Margin", XtRString, sizeof(char *),
+X***************
+X*** 2144,2150 ****
+X  {"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+X    offset(thorough), XtRString, "false"},
+X  {"version", "Version", XtRBoolean, sizeof(Boolean),
+X!   offset(version), XtRString, "false"},
+X  #ifdef	BUTTONS
+X  {"expert", "Expert", XtRBoolean, sizeof(Boolean),
+X    offset(expert), XtRString, "false"},
+X--- 2235,2241 ----
+X  {"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+X    offset(thorough), XtRString, "false"},
+X  {"version", "Version", XtRBoolean, sizeof(Boolean),
+X!   offset(version_flag), XtRString, "false"},
+X  #ifdef	BUTTONS
+X  {"expert", "Expert", XtRBoolean, sizeof(Boolean),
+X    offset(expert), XtRString, "false"},
+X***************
+X*** 2230,2236 ****
+X  	_Xconst	char	*name;
+X  	_Xconst	char	*resource;
+X  	enum	{FalseArg, TrueArg, StickyArg, SepArg} argclass;
+X! 	enum	{BooleanArg, StringArg, NumberArg} argtype;
+X  	int	classcount;
+X  	caddr_t	address;
+X  }	options[] = {
+X--- 2321,2327 ----
+X  	_Xconst	char	*name;
+X  	_Xconst	char	*resource;
+X  	enum	{FalseArg, TrueArg, StickyArg, SepArg} argclass;
+X! 	enum	{BooleanArg, StringArg, NumberArg, FloatArg} argtype;
+X  	int	classcount;
+X  	caddr_t	address;
+X  }	options[] = {
+X***************
+X*** 2241,2246 ****
+X--- 2332,2340 ----
+X  {"-s",		"shrinkFactor", SepArg, NumberArg, 1,	(caddr_t) &shrink_factor},
+X  {"-S",		NULL,		SepArg, NumberArg, 2,	(caddr_t) &density},
+X  {"-density",	"densityPercent", SepArg, NumberArg, 1,	(caddr_t) &density},
+X+ #ifdef	GREY
+X+ {"-gamma",	"gamma",	SepArg,	FloatArg, 1,	(caddr_t) &gamma},
+X+ #endif
+X  {"-p",		"pixelsPerInch", SepArg, NumberArg, 1,	(caddr_t) &pixels_per_inch},
+X  {"-margins",	"Margin",	SepArg,	StringArg, 3,	(caddr_t) &margins},
+X  {"-sidemargin",	"sideMargin",	SepArg,	StringArg, 1,	(caddr_t) &sidemargin},
+X***************
+X*** 2284,2291 ****
+X  {"+copy",	"copy",		FalseArg, BooleanArg, 1,(caddr_t) &copy},
+X  {"-thorough",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &thorough},
+X  {"+thorough",	"thorough",	FalseArg, BooleanArg, 1,(caddr_t) &thorough},
+X! {"-version",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &version},
+X! {"+version",	"version",	FalseArg, BooleanArg, 1,(caddr_t) &version},
+X  #endif	/* X10 */
+X  {"-mgs",	NULL,		SepArg, NumberArg, 2,	(caddr_t) &mg_size[0]},
+X  {"-mgs1",	"magnifierSize1",SepArg, NumberArg, 1,	(caddr_t) &mg_size[0]},
+X--- 2378,2385 ----
+X  {"+copy",	"copy",		FalseArg, BooleanArg, 1,(caddr_t) &copy},
+X  {"-thorough",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &thorough},
+X  {"+thorough",	"thorough",	FalseArg, BooleanArg, 1,(caddr_t) &thorough},
+X! {"-version",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t)&version_flag},
+X! {"+version",	"version",	FalseArg, BooleanArg, 1,(caddr_t)&version_flag},
+X  #endif	/* X10 */
+X  {"-mgs",	NULL,		SepArg, NumberArg, 2,	(caddr_t) &mg_size[0]},
+X  {"-mgs1",	"magnifierSize1",SepArg, NumberArg, 1,	(caddr_t) &mg_size[0]},
+X***************
+X*** 2379,2384 ****
+X--- 2473,2479 ----
+X  	    switch (candidate->argtype) {
+X  		case StringArg:	*((char **) addr) = optstring; break;
+X  		case NumberArg:	*((int *) addr) = atoi(optstring); break;
+X+ 		case FloatArg:  *((float *) addr) = atof(optstring); break;
+X  		default:  ;
+X  	    }
+X  	}
+X***************
+X*** 2403,2408 ****
+X--- 2498,2507 ----
+X  			    case NumberArg:
+X  				*((int *) candidate->address) = *((int *) addr);
+X  				break;
+X+ 			    case FloatArg:
+X+ 				*((float *) candidate->address) =
+X+ 				    *((float *) addr);
+X+ 				break;
+X  			}
+X  			candidate->resource = NULL;
+X  		    }
+X***************
+X*** 2432,2437 ****
+X--- 2531,2540 ----
+X  		    lastopt = opt + opt->classcount;
+X  		    for (candidate = opt; candidate < lastopt; ++candidate)
+X  			if (candidate->resource != NULL) switch (opt->argtype) {
+X+ 			    case BooleanArg:
+X+ 				*((Boolean *) candidate->address) =
+X+ 				    (strcmp(optstring, "on") == 0);
+X+ 				break;
+X  			    case StringArg:
+X  				*((char **) candidate->address) = optstring;
+X  				break;
+X***************
+X*** 2438,2446 ****
+X  			    case NumberArg:
+X  				*((int *) candidate->address) = atoi(optstring);
+X  				break;
+X! 			    case BooleanArg:
+X! 				*((Boolean *) candidate->address) =
+X! 				    (strcmp(optstring, "on") == 0);
+X  			}
+X  		}
+X  }
+X--- 2541,2549 ----
+X  			    case NumberArg:
+X  				*((int *) candidate->address) = atoi(optstring);
+X  				break;
+X! 			    case FloatArg:
+X! 				*((float *) candidate->address) =
+X! 				    atof(optstring);
+X  			}
+X  		}
+X  }
+X***************
+X*** 2634,2648 ****
+X  		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+X  		if (current_page < 0 || current_page >= total_pages) usage();
+X  	}
+X! 	if (RESOURCE(version)) puts((_Xconst char *) &header);
+X  
+X- #ifdef	GREY
+X- 	if (DefaultDepthOfScreen(SCRN) == 1)
+X- 	    use_grey = False;
+X- 	if (use_grey)
+X- 	    init_pix();
+X- #endif
+X- 
+X  #ifndef X10
+X  
+X  	/*
+X--- 2737,2744 ----
+X  		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+X  		if (current_page < 0 || current_page >= total_pages) usage();
+X  	}
+X! 	if (RESOURCE(version_flag)) Puts((_Xconst char *) &version);
+X  
+X  #ifndef X10
+X  
+X  	/*
+X***************
+X*** 2655,2661 ****
+X  	    if (!RESOURCE(back_color))
+X  		RESOURCE(back_Pixel) = BlackPixelOfScreen(SCRN);
+X  	    /* Set them nonzero */
+X! 	    RESOURCE(fore_color) = RESOURCE(back_color) = (char *) &header;
+X  	} else {
+X  	    if (!RESOURCE(fore_color))
+X  		RESOURCE(fore_Pixel) = BlackPixelOfScreen(SCRN);
+X--- 2751,2757 ----
+X  	    if (!RESOURCE(back_color))
+X  		RESOURCE(back_Pixel) = BlackPixelOfScreen(SCRN);
+X  	    /* Set them nonzero */
+X! 	    RESOURCE(fore_color) = RESOURCE(back_color) = (char *) &version;
+X  	} else {
+X  	    if (!RESOURCE(fore_color))
+X  		RESOURCE(fore_Pixel) = BlackPixelOfScreen(SCRN);
+X***************
+X*** 2662,2668 ****
+X  	    if (!RESOURCE(back_color))
+X  		RESOURCE(back_Pixel) = WhitePixelOfScreen(SCRN);
+X  	}
+X! 	if (!RESOURCE(brdr_color)) RESOURCE(brdr_Pixel) = RESOURCE(fore_Pixel);
+X  	{
+X  	    XGCValues	values;
+X  	    Pixel	set_bits = (Pixel)
+X--- 2758,2787 ----
+X  	    if (!RESOURCE(back_color))
+X  		RESOURCE(back_Pixel) = WhitePixelOfScreen(SCRN);
+X  	}
+X! 
+X! #ifdef	GREY
+X! 	if (DefaultDepthOfScreen(SCRN) == 1)
+X! 	    use_grey = False;
+X! #endif
+X! 
+X! #ifdef	TOOLKIT
+X! 	if (resource.copy_arg)
+X! #else
+X! 	if (copy == 2)
+X! #endif
+X! #ifdef	GREY
+X! 	    RESOURCE(copy) = (!RESOURCE(thorough) && !use_grey
+X! 		&& DefaultDepthOfScreen(SCRN) > 1);
+X! #else
+X! 	    RESOURCE(copy) = (!RESOURCE(thorough)
+X! 		&& DefaultDepthOfScreen(SCRN) > 1);
+X! #endif
+X! 
+X! #ifdef	GREY
+X! 	if (use_grey)
+X! 	    init_pix(True);
+X! 	else
+X! #endif
+X  	{
+X  	    XGCValues	values;
+X  	    Pixel	set_bits = (Pixel)
+X***************
+X*** 2669,2685 ****
+X  				(RESOURCE(fore_Pixel) & ~RESOURCE(back_Pixel));
+X  	    Pixel	clr_bits = (Pixel)
+X  				(RESOURCE(back_Pixel) & ~RESOURCE(fore_Pixel));
+X  #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+X  		values.background=bg,\
+X  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+X  			GCFunction|GCForeground|GCBackground, &values))
+X  
+X- #ifdef	TOOLKIT
+X- 	    if (resource.copy_arg)
+X- #else
+X- 	    if (copy == 2)
+X- #endif
+X- 		RESOURCE(copy) = (DefaultDepthOfScreen(SCRN) > 1);
+X  	    if (RESOURCE(copy) || (set_bits && clr_bits))
+X  		ruleGC = MakeGC(GXcopy,
+X  		    RESOURCE(fore_Pixel), RESOURCE(back_Pixel));
+X--- 2788,2799 ----
+X  				(RESOURCE(fore_Pixel) & ~RESOURCE(back_Pixel));
+X  	    Pixel	clr_bits = (Pixel)
+X  				(RESOURCE(back_Pixel) & ~RESOURCE(fore_Pixel));
+X+ 
+X  #define	MakeGC(fcn, fg, bg)	(values.function = fcn, values.foreground=fg,\
+X  		values.background=bg,\
+X  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+X  			GCFunction|GCForeground|GCBackground, &values))
+X  
+X  	    if (RESOURCE(copy) || (set_bits && clr_bits))
+X  		ruleGC = MakeGC(GXcopy,
+X  		    RESOURCE(fore_Pixel), RESOURCE(back_Pixel));
+X***************
+X*** 2686,2692 ****
+X  	    if (RESOURCE(copy)) foreGC = ruleGC;
+X  	    else if (!RESOURCE(thorough) && ruleGC) {
+X  		foreGC = ruleGC;
+X! 		puts("Note:  overstrike characters may be incorrect.");
+X  	    }
+X  	    else {
+X  		if (set_bits) foreGC = MakeGC(GXor, set_bits, 0);
+X--- 2800,2806 ----
+X  	    if (RESOURCE(copy)) foreGC = ruleGC;
+X  	    else if (!RESOURCE(thorough) && ruleGC) {
+X  		foreGC = ruleGC;
+X! 		Puts("Note:  overstrike characters may be incorrect.");
+X  	    }
+X  	    else {
+X  		if (set_bits) foreGC = MakeGC(GXor, set_bits, 0);
+X***************
+X*** 2695,2700 ****
+X--- 2809,2819 ----
+X  			MakeGC(GXandInverted, clr_bits, 0);
+X  		if (!ruleGC) ruleGC = foreGC;
+X  	    }
+X+ 	}
+X+ 
+X+ 	{
+X+ 	    XGCValues	values;
+X+ 
+X  	    highGC = ruleGC;
+X  	    if (RESOURCE(high_color))
+X  		highGC = MakeGC(GXcopy,
+X***************
+X*** 2701,2706 ****
+X--- 2820,2827 ----
+X  		    RESOURCE(hl_Pixel), RESOURCE(back_Pixel));
+X  	}
+X  
+X+ 	if (!RESOURCE(brdr_color)) RESOURCE(brdr_Pixel) = RESOURCE(fore_Pixel);
+X+ 
+X  #ifndef	VMS
+X  	ready_cursor = XCreateFontCursor(DISP, XC_cross);
+X  	redraw_cursor = XCreateFontCursor(DISP, XC_watch);
+X***************
+X*** 2752,2758 ****
+X  	}
+X  		/* Set icon pixmap */
+X  	XtGetValues(top_level, temp_args3, XtNumber(temp_args3));
+X! 	if (icon_pm == NULL) {
+X  	    temp_args3[0].value = (XtArgVal) (XCreateBitmapFromData(DISP,
+X  				RootWindowOfScreen(SCRN),
+X  				xdvi_bits, xdvi_width, xdvi_height));
+X--- 2873,2879 ----
+X  	}
+X  		/* Set icon pixmap */
+X  	XtGetValues(top_level, temp_args3, XtNumber(temp_args3));
+X! 	if (icon_pm == (Pixmap) 0) {
+X  	    temp_args3[0].value = (XtArgVal) (XCreateBitmapFromData(DISP,
+X  				RootWindowOfScreen(SCRN),
+X  				xdvi_bits, xdvi_width, xdvi_height));
+Xdiff -cr xdvi_old/xdvi.h xdvi_new/xdvi.h
+X*** xdvi_old/xdvi.h	Tue Jun 16 14:18:59 1992
+X--- xdvi_new/xdvi.h	Mon Jul 27 10:41:53 1992
+X***************
+X*** 24,29 ****
+X--- 24,37 ----
+X  #include <sys/file.h>
+X  #endif	/* X10 */
+X  
+X+ #ifndef	XlibSpecificationRelease
+X+ #define	XlibSpecificationRelease 0
+X+ #endif
+X+ 
+X+ #if	XlibSpecificationRelease >= 5
+X+ #include <X11/Xfuncs.h>
+X+ #endif
+X+ 
+X  #ifdef	VMS
+X  #include <string.h>
+X  #define	index	strchr
+X***************
+X*** 84,94 ****
+X  #endif	/* STDC */
+X  #endif	/* _Xconst */
+X  
+X! #ifndef	__GNUC__
+X! #define	volatile
+X  #endif
+X  
+X  #define	Printf	(void) printf
+X  #define	Fprintf	(void) fprintf
+X  #define	Sprintf	(void) sprintf
+X  #define	Fseek	(void) fseek
+X--- 92,115 ----
+X  #endif	/* STDC */
+X  #endif	/* _Xconst */
+X  
+X! #ifndef	VOLATILE
+X! #if	defined(__STDC__) || (defined(__stdc__) && defined(__convex__))
+X! #define	VOLATILE	volatile
+X! #else
+X! #define	VOLATILE	/* nothing */
+X  #endif
+X+ #endif
+X  
+X+ #ifndef	NORETURN
+X+ #ifdef	__GNUC__
+X+ #define	NORETURN	volatile
+X+ #else
+X+ #define	NORETURN	/* nothing */
+X+ #endif
+X+ #endif
+X+ 
+X  #define	Printf	(void) printf
+X+ #define	Puts	(void) puts
+X  #define	Fprintf	(void) fprintf
+X  #define	Sprintf	(void) sprintf
+X  #define	Fseek	(void) fseek
+X***************
+X*** 278,283 ****
+X--- 299,306 ----
+X   * We then change the sizes to SPELL units (unshrunk pixel / 2^16).
+X   */
+X  
+X+ #define	NOMAGSTP (-29999)
+X+ 
+X  #if	NeedFunctionPrototypes
+X  typedef	void (*read_char_proc)(struct font *, WIDEARG(ubyte, int));
+X  #else
+X***************
+X*** 288,293 ****
+X--- 311,317 ----
+X  	struct font *next;		/* link to next font info block */
+X  	char *fontname;			/* name of font */
+X  	float fsize;			/* size information (dots per inch) */
+X+ 	int magstepval;			/* magstep number * two, or NOMAGSTP */
+X  	FILE *file;			/* open font file or NULL */
+X  	char *filename;			/* name of font file */
+X  	unsigned short timestamp;	/* for LRU management of fonts */
+X***************
+X*** 337,343 ****
+X  
+X  EXTERN	Boolean	list_fonts	NTINIT(False);
+X  
+X! EXTERN	int	pixels_per_inch	NTINIT(300);
+X  EXTERN	int	offset_x, offset_y;
+X  EXTERN	int	unshrunk_paper_w, unshrunk_paper_h;
+X  EXTERN	int	unshrunk_page_w, unshrunk_page_h;
+X--- 361,371 ----
+X  
+X  EXTERN	Boolean	list_fonts	NTINIT(False);
+X  
+X! #ifndef	BDPI
+X! #define	BDPI	300
+X! #endif
+X! 
+X! EXTERN	int	pixels_per_inch	NTINIT(BDPI);
+X  EXTERN	int	offset_x, offset_y;
+X  EXTERN	int	unshrunk_paper_w, unshrunk_paper_h;
+X  EXTERN	int	unshrunk_page_w, unshrunk_page_h;
+X***************
+X*** 368,376 ****
+X  #ifndef	X10
+X  EXTERN	Display	*DISP;
+X  EXTERN	Screen	*SCRN;
+X! EXTERN	long	pixel4[17];
+X! EXTERN	long	pixel3[10];
+X! EXTERN	long	pixel2[5];
+X  EXTERN	Boolean	use_grey	NTINIT(True);
+X  #else	/* Sorry - GREY works only with X11 */
+X  #undef	GREY
+X--- 396,403 ----
+X  #ifndef	X10
+X  EXTERN	Display	*DISP;
+X  EXTERN	Screen	*SCRN;
+X! EXTERN	unsigned long	palette[17];
+X! EXTERN	unsigned long	*pixeltbl;
+X  EXTERN	Boolean	use_grey	NTINIT(True);
+X  #else	/* Sorry - GREY works only with X11 */
+X  #undef	GREY
+X***************
+X*** 394,408 ****
+X  extern	void	put_rectangle(int, int, int, int, WIDEARG(Boolean, int));
+X  extern	void	redraw_page(void);
+X  #if	NeedVarargsPrototypes
+X! extern	volatile void	oops(_Xconst char *, ...);
+X  #else
+X! extern	volatile void	oops();
+X  #endif
+X  extern	char	*xmalloc(unsigned, _Xconst char *);
+X  extern	void	alloc_bitmap(struct bitmap *);
+X  extern	FILE	*xfopen(_Xconst char *);
+X! extern	unsigned long	num(FILE *, WIDEARG(ubyte, int));
+X! extern	long	snum(FILE *, WIDEARG(ubyte, int));
+X  extern	void	reset_fonts(void);
+X  extern	void	realloc_font(struct font *, WIDEARG(ubyte, int));
+X  extern	void	realloc_virtual_font(struct font *, WIDEARG(ubyte, int));
+X--- 421,435 ----
+X  extern	void	put_rectangle(int, int, int, int, WIDEARG(Boolean, int));
+X  extern	void	redraw_page(void);
+X  #if	NeedVarargsPrototypes
+X! extern	NORETURN void	oops(_Xconst char *, ...);
+X  #else
+X! extern	NORETURN void	oops();
+X  #endif
+X  extern	char	*xmalloc(unsigned, _Xconst char *);
+X  extern	void	alloc_bitmap(struct bitmap *);
+X  extern	FILE	*xfopen(_Xconst char *);
+X! extern	unsigned long	num(FILE *, int);
+X! extern	long	snum(FILE *, int);
+X  extern	void	reset_fonts(void);
+X  extern	void	realloc_font(struct font *, WIDEARG(ubyte, int));
+X  extern	void	realloc_virtual_font(struct font *, WIDEARG(ubyte, int));
+X***************
+X*** 422,428 ****
+X  extern	void	draw_page(void);
+X  extern	void	init_font_open(void);
+X  extern	FILE	*font_open(_Xconst char *, char **,
+X! 			WIDEARG(float, double), int *, char **);
+X  extern	void	applicationDoSpecial(char *);
+X  extern	void	read_PK_index(struct font *);
+X  extern	void	read_GF_index(struct font *);
+X--- 449,455 ----
+X  extern	void	draw_page(void);
+X  extern	void	init_font_open(void);
+X  extern	FILE	*font_open(_Xconst char *, char **,
+X! 			WIDEARG(float, double), int *, int, char **);
+X  extern	void	applicationDoSpecial(char *);
+X  extern	void	read_PK_index(struct font *);
+X  extern	void	read_GF_index(struct font *);
+X***************
+X*** 440,446 ****
+X  #endif
+X  extern	void	put_rectangle();
+X  extern	void	redraw_page();
+X! extern	volatile void	oops();
+X  extern	char	*xmalloc();
+X  extern	void	alloc_bitmap();
+X  extern	FILE	*xfopen();
+X--- 467,473 ----
+X  #endif
+X  extern	void	put_rectangle();
+X  extern	void	redraw_page();
+X! extern	NORETURN void	oops();
+X  extern	char	*xmalloc();
+X  extern	void	alloc_bitmap();
+X  extern	FILE	*xfopen();
+Xdiff -cr xdvi_old/xdvi_man.sed xdvi_new/xdvi_man.sed
+X*** xdvi_old/xdvi_man.sed	Fri Jun 19 12:51:18 1992
+X--- xdvi_new/xdvi_man.sed	Sat Sep 12 15:31:34 1992
+X***************
+X*** 19,24 ****
+X--- 19,27 ----
+X  [\-geometry \fIgeometry\fP] [\-icongeometry \fIgeometry\fP] [\-iconic]
+X  [\-display \fIdisplay\fP] [\-copy] [\-thorough]
+X  #endif
+X+ #ifgrey
+X+ [\-nogrey] [\-gamma \fIgamma\fP]
+X+ #endif
+X  #ifbuttons
+X  [\-expert]
+X  #endif
+X***************
+X*** 52,58 ****
+X  #endif
+X  .SH OPTIONS
+X  In addition to specifying the .\fPdvi\fR file (with or without the .\fPdvi\fR),
+X! \fIXdvi\fR supports the following command line options.
+X  If the option begins with a
+X  .RB ` + '
+X  instead of a
+X--- 55,61 ----
+X  #endif
+X  .SH OPTIONS
+X  In addition to specifying the .\fPdvi\fR file (with or without the .\fPdvi\fR),
+X! \fIxdvi\fR supports the following command line options.
+X  If the option begins with a
+X  .RB ` + '
+X  instead of a
+X***************
+X*** 170,176 ****
+X--- 173,183 ----
+X  Always use the \fIcopy\fR operation when writing characters to the display.
+X  This option may be necessary for correct operation on a color display, but
+X  overstrike characters will be incorrect.
+X+ #ifgrey
+X+ If greyscale anti-aliasing is in use, the \fIcopy\fR operation will disable
+X+ the use of colorplanes and make overstrikes come out incorrectly.
+X  #endif
+X+ #endif
+X  .TP
+X  .B \-keep
+X  (%%dot%%keepPosition)
+X***************
+X*** 245,250 ****
+X--- 252,265 ----
+X  (In this case, the logic of the corresponding resource is the reverse:
+X  -nogrey corresponds to grey:off; +nogrey to grey:on.)
+X  See also the `G' keystroke.
+X+ .TP
+X+ .BI \-gamma " gamma"
+X+ (.gamma)
+X+ Controls the interpolation of colors in the greyscale anti-aliasing color
+X+ palette.  Default value is 1.0.  For 0 < \fIgamma\fR < 1, the fonts will
+X+ be lighter (more like the background), and for \fIgamma\fR > 1, the fonts
+X+ will be darker (more like the foreground).  Negative values behave the
+X+ same way, but use a slightly different algorithm.
+X  #endif
+X  .TP
+X  #ifx11
+X
+X
+END_OF_FILE
+  if test 47834 -ne `wc -c <'xdvi.p16.2'`; then
+    echo shar: \"'xdvi.p16.2'\" unpacked with wrong size!
+  fi
+  # end of 'xdvi.p16.2'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

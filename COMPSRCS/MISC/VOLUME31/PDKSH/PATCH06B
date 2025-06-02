@@ -1,0 +1,2100 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v31i075:  pdksh - Public Domain Korn Shell, Patch06b/2
+Message-ID: <1992Aug14.144322.21706@sparky.imd.sterling.com>
+X-Md4-Signature: f152eb945962077c781d4f85dc9ac548
+Date: Fri, 14 Aug 1992 14:43:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 31, Issue 75
+Archive-name: pdksh/patch06b
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+This is the second part of patch06.
+
+Apply this patch by changing directory to the root
+of the source tree and using the command:
+
+	patch -p0 < this_file
+
+*** sh/history.c.old	Tue May 12 13:42:00 1992
+--- sh/history.c	Mon Aug 10 22:02:44 1992
+***************
+*** 5,12 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+  #include <errno.h>
+--- 5,23 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: history.c,v 1.3 1992/08/10 12:02:44 sjg Exp $";
+  #endif
++ /*
++  *	This file contains
++  *	a)	the original in-memory history  mechanism
++  *	b)	a simple file saving history mechanism done by  sjg@zen
++  *		define EASY_HISTORY to get this
++  *	c)	a more complicated mechanism done by  pc@hillside.co.uk
++  *		that more closely follows the real ksh way of doing
++  *		things. You need to have the mmap system call for this
++  *		to work on your system
++  */
++ #ifdef EASY_HISTORY
+  
+  #include "stdh.h"
+  #include <errno.h>
+***************
+*** 13,22 ****
+  #include <setjmp.h>
+  #include "sh.h"
+  
+- char   *histrpl();
+- char  **current;
+- int	curpos;
+- 
+  static FILE *hist_fh = NULL;
+  static FILE *hist_open ARGS((char *mode));
+  #ifndef HISTFILE
+--- 24,29 ----
+***************
+*** 23,29 ****
+--- 30,80 ----
+  # define HISTFILE ".pdksh_hist"
+  #endif
+  
++ #else
++ /*	Defines and includes for the complicated case */
++ 
++ #include "stdh.h"
++ #include <sys/types.h>
++ #include <sys/stat.h>
++ #include <sys/file.h>
++ #include <sys/mman.h>
++ #include <errno.h>
++ #include <setjmp.h>
++ #include "sh.h"
++ 
++ int	histsize = HISTORY;	/* size of saved history */
++ char   **history;		/* saved commands */
++ char  **histptr;		/* last history item */
++ int	histpush;		/* number of pushed fc commands */
++ /*
++  *	variables for handling the data file
++  */
++ static char	*hname;
++ static int	histfd;
++ static int	hsize;
++ static int	hstarted;
++ 
++ static int hist_count_lines ARGS((unsigned char *, int));
++ static int hist_shrink ARGS((unsigned char *, int));
++ static unsigned char *hist_skip_back ARGS((unsigned char *,int *,int));
++ static void histload ARGS((Source *, unsigned char *, int));
++ static void histinsert ARGS((Source *, int, unsigned char *));
++ static void writehistfile ARGS((int, char *));
++ static int sprinkle ARGS((int));
++ 
++ #ifdef MAP_FILE
++ #define	MAP_FLAGS	MAP_FILE|MAP_PRIVATE
++ #else
++ #define	MAP_FLAGS	MAP_PRIVATE
++ #endif
++ 
++ #endif	/* of EASY_HISTORY */
++ 
+    
++ char   *histrpl();
++ char  **current;
++ int	curpos;
++ 
+  c_fc(wp)
+  	register char **wp;
+  {
+***************
+*** 93,99 ****
+--- 144,154 ----
+  		else
+  			histrpl(*hp, pat, rep, gflag);
+  		histbackup();
++ #ifdef EASY_HISTORY
+  		histsave(line); 
++ #else
++ 		histsave(source->line+1, line, 1);
++ #endif
+  		histpush--; 
+  		line[0] = '\0';
+  		return 0;
+***************
+*** 155,161 ****
+--- 210,220 ----
+  	setvbuf(f, (char *)NULL, _IOFBF, BUFSIZ);
+  	/* we push the editted lines onto the history list */
+  	while (fgets(line, sizeof(line), f) != NULL) {
++ #ifdef EASY_HISTORY
+  		histsave(line); 
++ #else
++ 		histsave(source->line, line, 1); 
++ #endif
+  		histpush--; 
+  	}
+  	line[0] = '\0';
+***************
+*** 181,207 ****
+  }
+  
+  /*
+-  * save command in history
+-  */
+- void
+- histsave(cmd)
+- 	char *cmd;
+- {
+- 	register char **hp = histptr;
+- 	char *cp;
+- 
+- 	if (++hp >= history + HISTORY) { /* remove oldest command */
+- 		afree((void*)*history, APERM);
+- 		for (hp = history; hp < history + HISTORY - 1; hp++)
+- 			hp[0] = hp[1];
+- 	}
+- 	*hp = strsave(cmd, APERM);
+- 	if ((cp = strchr(*hp, '\n')) != NULL)
+- 		*cp = '\0';
+- 	histptr = hp;
+- }
+- 
+- /*
+   * get pointer to history given pattern
+   * pattern is a number or string
+   */
+--- 240,245 ----
+***************
+*** 260,265 ****
+--- 298,397 ----
+  }
+  
+  /*
++  * Return the current position.
++  */
++ char **
++ histpos()
++ {
++ 	return current;
++ }
++ 
++ int
++ histN()
++ {
++ 	return curpos;
++ }
++ 
++ int
++ histnum(n)
++ {
++ 	int	last = histptr - history;
++ 
++ 	if (n < 0 || n >= last) {
++ 		current = histptr;
++ 		curpos = last;
++ 		return last;
++ 	}  else {
++ 		current = &history[n];
++ 		curpos = n;
++ 		return n;
++ 	}
++ }
++ 
++ /*
++  * This will become unecessary if histget is modified to allow
++  * searching from positions other than the end, and in either 
++  * direction.
++  */
++ char *
++ findhist(start, fwd, str)
++ 	int	start;
++ 	int	fwd;
++ 	char 	*str;
++ {
++ 	int	 pos = start;
++ 	char	 *line, *last;
++ 
++ 	/* XXX check that we are valid after this */
++ 	if (fwd)
++ 		pos++;
++ 	else
++ 		pos--;
++ 	histnum(pos);
++ 	line = *histpos();
++ 	do {
++ 		last = line;
++ 		if (strstr(line, str) != 0) {
++ 			/* keep position current */
++ 			return (line);
++ 		}
++ 		if (fwd)
++ 			pos++;
++ 		else
++ 			pos--;
++ 		histnum(pos);
++ 		line = *histpos();
++ 	} while (line && *line && line != last && pos>0);
++ 
++ 	histnum(start);
++ 	if (pos <= 0)
++ 		return (char*)-1; /* TODO */
++ 	return NULL;
++ }
++ 
++ #ifdef EASY_HISTORY
++ /*
++  * save command in history
++  */
++ void
++ histsave(cmd)
++ 	char *cmd;
++ {
++ 	register char **hp = histptr;
++ 	char *cp;
++ 
++ 	if (++hp >= history + HISTORY) { /* remove oldest command */
++ 		afree((void*)*history, APERM);
++ 		for (hp = history; hp < history + HISTORY - 1; hp++)
++ 			hp[0] = hp[1];
++ 	}
++ 	*hp = strsave(cmd, APERM);
++ 	if ((cp = strchr(*hp, '\n')) != NULL)
++ 		*cp = '\0';
++ 	histptr = hp;
++ }
++ 
++ /*
+   * 92-04-25 <sjg@zen>
+   * A simple history file implementation.
+   * At present we only save the history when we exit.
+***************
+*** 293,298 ****
+--- 425,433 ----
+    
+  }
+  
++ void
++ init_histvec()
++ {	;	}
+  
+  /*
+   * save our history.
+***************
+*** 351,426 ****
+    return fopen(rcp, mode);
+  }
+  
+  
+  
+  /*
+!  * Return the current position.
+   */
+! char **
+! histpos()
+  {
+! 	return current;
+  }
+  
+! int
+! histN()
+  {
+! 	return curpos;
+  }
+  
+! int
+! histnum(n)
+  {
+! 	int	last = histptr - history;
+  
+! 	if (n < 0 || n >= last) {
+! 		current = histptr;
+! 		curpos = last;
+! 		return last;
+! 	}  else {
+! 		current = &history[n];
+! 		curpos = n;
+! 		return n;
+  	}
+  }
+  
+  /*
+!  * This will become unecessary if histget is modified to allow
+!  * searching from positions other than the end, and in either 
+!  * direction.
+   */
+! char *
+! findhist(start, fwd, str)
+! 	int	start;
+! 	int	fwd;
+! 	char 	*str;
+  {
+! 	int	 pos = start;
+! 	char	 *line, *last;
+  
+! 	/* XXX check that we are valid after this */
+! 	if (fwd)
+! 		pos++;
+! 	else
+! 		pos--;
+! 	histnum(pos);
+! 	line = *histpos();
+! 	do {
+! 		last = line;
+! 		if (strstr(line, str) != 0) {
+! 			/* keep position current */
+! 			return (line);
+  		}
+! 		if (fwd)
+! 			pos++;
+! 		else
+! 			pos--;
+! 		histnum(pos);
+! 		line = *histpos();
+! 	} while (line && *line && line != last && pos>0);
+  
+! 	histnum(start);
+! 	if (pos <= 0)
+! 		return (char*)-1; /* TODO */
+  	return NULL;
+  }
+--- 486,974 ----
+    return fopen(rcp, mode);
+  }
+  
++ #else /* EASY_HISTORY */
+  
++ /*
++  *	Routines added by Peter Collinson BSDI(Europe)/Hillside Systems to
++  *	a) permit HISTSIZE to control number of lines of history stored
++  *	b) maintain a physical history file
++  *
++  *	It turns out that there is a lot of ghastly hackery here
++  */
+  
++ 
+  /*
+!  * save command in history
+   */
+! void
+! histsave(lno, cmd, dowrite)
+! 	int lno;
+! 	char *cmd;
+! 	int dowrite;
+  {
+! 	register char **hp;
+! 	char *cp;
+! 
+! 	cmd = strsave(cmd, APERM);
+! 	if ((cp = strchr(cmd, '\n')) != NULL)
+! 		*cp = '\0';
+! 
+! 	if (histfd && dowrite)
+! 		writehistfile(lno, cmd);
+! 
+! 	hp = histptr;
+! 		
+! 	if (++hp >= history + histsize) { /* remove oldest command */
+! 		afree((void*)*history, APERM);
+! 		for (hp = history; hp < history + histsize - 1; hp++)
+! 			hp[0] = hp[1];
+! 	}
+! 	*hp = cmd;
+! 	histptr = hp;
+  }
+  
+! /*
+!  *	set history
+!  *	this means reallocating the dataspace
+!  */
+! void
+! sethistsize(n)
+! 	int n;
+  {
+! 	int	offset;
+! 	
+! 	if (n != histsize) {
+! 		offset = histptr - history;
+! 		history = (char **)aresize(history, n*sizeof(char *), APERM);
+! 
+! 		if (n < histsize && offset > histsize)
+! 			offset = histsize;
+! 
+! 		histsize = n;
+! 		histptr = history + offset;
+! 	}
+  }
+  
+! /*
+!  *	set history file
+!  *	This can mean reloading/resetting/starting history file
+!  *	maintenance
+!  */
+! void
+! sethistfile(name)
+! 	char *name;
+  {
+! 	/* if not started then nothing to do */
+! 	if (hstarted == 0)
+! 		return;
+  
+! 	/* if the name is the same as the name we have */
+! 	if (hname && strcmp(hname, name) == 0)
+! 		return;
+! 
+! 	/*
+! 	 * its a new name - possibly
+! 	 */
+! 	if (histfd) {
+! 		/* yes the file is open */
+! 		(void) close(histfd);
+! 		histfd = 0;
+! 		hsize = 0;
+! 		afree(hname, APERM);
+! 		hname = NULL;
+! 		/* let's reset the history */
+! 		histptr = history - 1;
+! 		source->line = 0;
+  	}
++ 
++ 	hist_init(source);
+  }
+  
+  /*
+!  *	initialise the history vector
+   */
+! void
+! init_histvec()
+  {
+! 	if (history == (char **)NULL) {
+! 		history = (char **)alloc(histsize*sizeof (char *), APERM);
+! 		histptr = history-1;
+! 	}
+! }
+! 	
+! /*
+!  *	Write history data to a file nominated by HISTFILE
+!  *	if HISTFILE is unset then history still happens, but
+!  *	the data is not written to a file
+!  *	All copies of ksh looking at the file will maintain the
+!  *	same history. This is ksh behaviour.
+!  *
+!  *	This stuff uses mmap()
+!  *	if your system ain't got it - then you'll have to undef HISTORYFILE
+!  */
+! 	
+! /*
+!  *	Open a history file
+!  *	Format is:
+!  *	Bytes 1, 2: HMAGIC - just to check that we are dealing with
+!  *		    the correct object
+!  *	Then follows a number of stored commands
+!  *	Each command is
+!  *	<command byte><command number(4 bytes)><bytes><null>
+!  */
+! #define HMAGIC1		0xab
+! #define HMAGIC2		0xcd
+! #define COMMAND		0xff
+  
+! void
+! hist_init(s)
+! 	Source *s;
+! {
+! 	unsigned char	*base;
+! 	int	lines;
+! 	int	bytes;
+! 	
+! 	hstarted = 1;
+! 	
+! 	if (flag[FTALKING] == 0)
+! 		return;
+! 
+! 	hname = strval(global("HISTFILE"));
+! 	if (hname == NULL)
+! 		return;
+! 	hname = strsave(hname, APERM);
+! 
+!   retry:
+! 	/* we have a file and are interactive */
+! 	if ((histfd = open(hname, O_RDWR|O_CREAT|O_APPEND, 0600)) < 0)
+! 		return;
+! 
+! 	histfd = fcntl(histfd, F_DUPFD, FDBASE);
+! 	
+! 	(void) fcntl(histfd, F_SETFD, 1); /* close on exec */
+! 	
+! 	(void) flock(histfd, LOCK_EX);
+! 
+! 	hsize = lseek(histfd, 0L, L_XTND);
+! 
+! 	if (hsize == 0) {
+! 		/* add magic */
+! 		if (sprinkle(histfd)) {
+! 			hist_finish();
+! 			return;
+  		}
+! 	}
+! 	else if (hsize > 0) {
+! 		/*
+! 		 * we have some data
+! 		 */
+! 		base = (unsigned char *)mmap(0, hsize, PROT_READ, MAP_FLAGS, histfd, 0);
+! 		/*
+! 		 * check on its validity
+! 		 */
+! 		if ((int)base == -1 || *base != HMAGIC1 || base[1] != HMAGIC2) {
+! 			if ((int)base !=  -1)
+! 				munmap((caddr_t)base, hsize);
+! 			hist_finish();
+! 			unlink(hname);
+! 			goto retry;
+! 		}
+! 		if (hsize > 2) {
+! 			lines = hist_count_lines(base+2, hsize-2);
+! 			if (lines > histsize) {
+! 				/* we need to make the file smaller */
+! 				if (hist_shrink(base, hsize))
+! 					unlink(hname);
+! 				munmap((caddr_t)base, hsize);
+! 				hist_finish();
+! 				goto retry;
+! 			}
+! 		}
+! 		histload(s, base+2, hsize-2);
+! 		munmap((caddr_t)base, hsize);
+! 	}
+! 	(void) flock(histfd, LOCK_UN);
+! 	hsize = lseek(histfd, 0L, L_XTND);
+! }
+  
+! typedef enum state {
+! 	shdr,		/* expecting a header */
+! 	sline,		/* looking for a null byte to end the line */
+! 	sn1,		/* bytes 1 to 4 of a line no */
+! 	sn2, sn3, sn4,
+! } State;
+! 
+! static int
+! hist_count_lines(base, bytes)
+! 	register unsigned char *base;
+! 	register int bytes;
+! {
+! 	State state = shdr;
+! 	register lines = 0;
+! 	
+! 	while (bytes--) {
+! 		switch (state)
+! 		{
+! 		case shdr:
+! 			if (*base == COMMAND)
+! 				state = sn1;
+! 			break;
+! 		case sn1:
+! 			state = sn2; break;
+! 		case sn2:
+! 			state = sn3; break;
+! 		case sn3:
+! 			state = sn4; break;
+! 		case sn4:
+! 			state = sline; break;
+! 		case sline:
+! 			if (*base == '\0')
+! 				lines++, state = shdr;
+! 		}
+! 		base++;
+! 	}
+! 	return lines;
+! }
+! 
+! /*
+!  *	Shrink the history file to histsize lines
+!  */
+! static int
+! hist_shrink(oldbase, oldbytes)
+! 	unsigned char *oldbase;
+! 	int oldbytes;
+! {
+! 	int fd;
+! 	char	nfile[1024];
+! 	struct	stat statb;
+! 	unsigned char *nbase = oldbase;
+! 	int nbytes = oldbytes;
+! 
+! 	nbase = hist_skip_back(nbase, &nbytes, histsize);
+! 	if (nbase == NULL)
+! 		return 1;
+! 	if (nbase == oldbase)
+! 		return 0;
+! 	
+! 	/*
+! 	 *	create temp file
+! 	 */
+! 	(void) sprintf(nfile, "%s.%d", hname, getpid());
+! 	if ((fd = creat(nfile, 0600)) < 0)
+! 		return 1;
+! 
+! 	if (sprinkle(fd)) {
+! 		close(fd);
+! 		unlink(nfile);
+! 		return 1;
+! 	}
+! 	if (write(fd, nbase, nbytes) != nbytes) {
+! 		close(fd);
+! 		unlink(nfile);
+! 		return 1;
+! 	}
+! 	/*
+! 	 *	worry about who owns this file
+! 	 */
+! 	if (fstat(histfd, &statb) >= 0)
+! 		fchown(fd, statb.st_uid, statb.st_gid);
+! 	close(fd);
+! 	
+! 	/*
+! 	 *	rename
+! 	 */
+! 	if (rename(nfile, hname) < 0)
+! 		return 1;
+! 	return 0;
+! }
+! 	
+! 
+! /*
+!  *	find a pointer to the data `no' back from the end of the file
+!  *	return the pointer and the number of bytes left
+!  */
+! static unsigned char *
+! hist_skip_back(base, bytes, no)
+! 	unsigned char *base;
+! 	int *bytes;
+! 	int no;
+! {
+! 	register int lines = 0;
+! 	register unsigned char *ep;
+! 
+! 	
+! 
+! 	for (ep = base + *bytes; ep > base; ep--)
+! 	{
+! 		while (*ep != COMMAND) {
+! 			if (--ep == base)
+! 				break;
+! 		}
+! 		if (++lines == no) {
+! 			*bytes = *bytes - ((char *)ep - (char *)base);
+! 			return ep;
+! 		}
+! 	}
+! 	if (ep > base)
+! 		return base;
+  	return NULL;
+  }
++ 
++ /*
++  *	load the history structure from the stored data
++  */
++ static void
++ histload(s, base, bytes)
++ 	Source *s;
++ 	register unsigned char *base;
++ 	register int bytes;
++ {
++ 	State state;
++ 	int	lno;
++ 	unsigned char	*line;
++ 	
++ 	for (state = shdr; bytes-- > 0; base++) {
++ 		switch (state) {
++ 		case shdr:
++ 			if (*base == COMMAND)
++ 				state = sn1;
++ 			break;
++ 		case sn1:
++ 			lno = (((*base)&0xff)<<24);
++ 			state = sn2;
++ 			break;
++ 		case sn2:
++ 			lno |= (((*base)&0xff)<<16);
++ 			state = sn3;
++ 			break;
++ 		case sn3:
++ 			lno |= (((*base)&0xff)<<8);
++ 			state = sn4;
++ 			break;
++ 		case sn4:
++ 			lno |= (*base)&0xff;
++ 			line = base+1;
++ 			state = sline;
++ 			break;
++ 		case sline:
++ 			if (*base == '\0') {
++ 				/* worry about line numbers */
++ 				if (histptr >= history && lno-1 != s->line) {
++ 					/* a replacement ? */
++ 					histinsert(s, lno, line);
++ 				}
++ 				else {
++ 					s->line = lno;
++ 					histsave(lno, (char *)line, 0);
++ 				}
++ 				state = shdr;
++ 			}
++ 		}
++ 	}
++ }
++ 				
++ /*
++  *	Insert a line into the history at a specified number
++  */
++ static void
++ histinsert(s, lno, line)
++ 	Source *s;
++ 	int lno;
++ 	unsigned char *line;
++ {
++ 	register char **hp;
++ 	
++ 	if (lno >= s->line-(histptr-history) && lno <= s->line) {
++ 		hp = &histptr[lno-s->line];
++ 		if (*hp)
++ 			afree((void*)*hp, APERM);
++ 		*hp = strsave((char *)line, APERM);
++ 	}
++ }
++ 
++ /*
++  *	write a command to the end of the history file
++  *	This *MAY* seem easy but it's also necessary to check
++  *	that the history file has not changed in size.
++  *	If it has - then some other shell has written to it
++  *	and we should read those commands to update our history
++  */
++ static void
++ writehistfile(lno, cmd)
++ 	int lno;
++ 	char *cmd;
++ {
++ 	int	sizenow;
++ 	unsigned char	*base;
++ 	unsigned char	*new;
++ 	int	bytes;
++ 	char	hdr[5];
++ 	
++ 	(void) flock(histfd, LOCK_EX);
++ 	sizenow = lseek(histfd, 0L, L_XTND);
++ 	if (sizenow != hsize) {
++ 		/*
++ 		 *	Things have changed
++ 		 */
++ 		if (sizenow > hsize) {
++ 			/* someone has added some lines */
++ 			bytes = sizenow - hsize;
++ 			base = (unsigned char *)mmap(0, sizenow, PROT_READ, MAP_FLAGS, histfd, 0);
++ 			if ((int)base == -1)
++ 				goto bad;
++ 			new = base + hsize;
++ 			if (*new != COMMAND) {
++ 				munmap((caddr_t)base, sizenow);
++ 				goto bad;
++ 			}
++ 			source->line--;
++ 			histload(source, new, bytes);
++ 			source->line++;
++ 			lno = source->line;
++ 			munmap((caddr_t)base, sizenow);
++ 			hsize = sizenow;
++ 		} else {
++ 			/* it has shrunk */
++ 			/* but to what? */
++ 			/* we'll give up for now */
++ 			goto bad;
++ 		}
++ 	}
++ 	/*
++ 	 *	we can write our bit now
++ 	 */
++ 	hdr[0] = COMMAND;
++ 	hdr[1] = (lno>>24)&0xff;
++ 	hdr[2] = (lno>>16)&0xff;
++ 	hdr[3] = (lno>>8)&0xff;
++ 	hdr[4] = lno&0xff;
++ 	(void) write(histfd, hdr, 5);
++ 	(void) write(histfd, cmd, strlen(cmd)+1);
++ 	hsize = lseek(histfd, 0L, L_XTND);
++ 	(void) flock(histfd, LOCK_UN);
++ 	return;
++ bad:
++ 	hist_finish();
++ }
++ 
++ void
++ hist_finish()
++ {
++ 	(void) flock(histfd, LOCK_UN);
++ 	(void) close(histfd);
++ 	histfd = 0;
++ }
++ 
++ /*
++  *	add magic to the history file
++  */
++ static int
++ sprinkle(fd)
++ 	int fd;
++ {
++ 	static char mag[] = { HMAGIC1, HMAGIC2 };
++ 
++ 	return(write(fd, mag, 2) != 2);
++ }
++ 
++ #endif
+*** sh/io.c.old	Tue May 12 13:42:00 1992
+--- sh/io.c	Mon Aug 10 22:02:49 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: io.c,v 1.3 1992/08/10 12:02:49 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 99,109 ****
+--- 99,114 ----
+  	if (shf[fd] != NULL)
+  		return;
+  	if (fd <= 2)
++ #ifndef _BSDI
+  #ifdef _MINIX
+  		/* ? */;
+  #else
+  		_iob[fd]._flag = 0; /* re-use stdin, stdout, stderr */
+  #endif
++ #else
++ 		/* Chris Torek's stdio replacement */
++ 		__sF[fd]._flags = 0;
++ #endif
+  	shf[fd] = fdopen(fd, "r+");
+  	if (shf[fd] == NULL)
+  		return;
+***************
+*** 117,123 ****
+--- 122,131 ----
+  	int fd;
+  {
+  	if (shf[fd] != NULL) {
++ #ifndef _BSDI
++ 		/* Chris Torek's stdio replacement */
+  		fseek(shf[fd], 0L, 1); /* V7 derived */
++ #endif
+  		fflush(shf[fd]);	/* standard C */
+  	}
+  }
+*** sh/jobs.c.old	Tue May 12 13:42:00 1992
+--- sh/jobs.c	Mon Aug 10 22:02:52 1992
+***************
+*** 2,8 ****
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 1.4 1992/04/27 07:14:26 sjg Exp $";
+  #endif
+  
+  /*
+--- 2,8 ----
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 1.5 1992/08/10 12:02:52 sjg Exp $";
+  #endif
+  
+  /*
+***************
+*** 14,23 ****
+   *	make %+ be jobs, %- be jobs->next.
+   *	do not JFREE members of pipeline.
+   *	consider procs[] related critical sections.
+-  *	signal(SIGCHLD, j_sigchld) should be
+-  *	sigaction(SIGCHLD, sigchld, NULL),
+-  *	with sigchld.sa_flags = SA_RESTART.
+-  *	There is a simple work-around if there is no SA_RESTART.
+   */
+  
+  #include "stdh.h"
+--- 14,19 ----
+***************
+*** 29,34 ****
+--- 25,34 ----
+  #include <sys/wait.h>
+  #include "sh.h"
+  #ifdef JOBS
++ #ifdef _BSDI
++ #define _BSD
++ #define WIFCORED(x) WCOREDUMP(x)
++ #endif
+  #ifdef _BSD
+  #include <sys/ioctl.h>
+  #else
+***************
+*** 101,107 ****
+--- 101,111 ----
+  #else
+  #define WAIT_T int
+  #endif
++ #ifdef _BSDI
++ #undef WAIT_T
++ #define WAIT_T int
+  #endif
++ #endif
+  #ifndef SA_RESTART
+  #define SA_RESTART	0
+  #endif
+***************
+*** 313,319 ****
+  	j->state = JRUN;
+  
+  	/* stdio buffer must be flushed and invalidated */
+! 	for (i = 0; i < NUFILE; i++)
+  		flushshf(i);
+  
+  	/* create child process */
+--- 317,323 ----
+  	j->state = JRUN;
+  
+  	/* stdio buffer must be flushed and invalidated */
+! 	for (i = (flags&XXWHL) ? 1 : 0; i < NUFILE; i++)
+  		flushshf(i);
+  
+  	/* create child process */
+*** sh/lex.c.old	Tue May 12 13:42:00 1992
+--- sh/lex.c	Mon Aug 10 22:02:55 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 1.3 1992/08/10 12:02:55 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 15,23 ****
+--- 15,25 ----
+  #include "expand.h"
+  
+  	int	ttyfd = -1;		/* tty fd for edit and jobs */
++ #ifdef EASY_HISTORY
+  	char   *history[HISTORY];	/* saved commands */
+  	char  **histptr = history - 1;	/* last history item */
+  	int	histpush;		/* number of pushed fc commands */
++ #endif
+  
+  /* we set s->str to NULLSTR instead of "", so that ungetsc() works */
+  static	char	nullstr [] = {0, 0};
+***************
+*** 561,567 ****
+--- 563,573 ----
+  					s->line--;
+  				} else {
+  					s->str = &line[c];
++ #ifdef EASY_HISTORY
+  					histsave(s->str);
++ #else
++ 					histsave(s->line, s->str, 1);
++ #endif
+  				}
+  			}
+  			break;
+*** sh/lex.h.old	Tue May 12 13:42:00 1992
+--- sh/lex.h	Mon Aug 10 22:02:58 1992
+***************
+*** 2,8 ****
+   * Source input, lexer and parser
+   */
+  
+! /* $Id: lex.h,v 1.2 1992/04/25 08:33:28 sjg Exp $ */
+  
+  #define	IDENT	64
+  
+--- 2,8 ----
+   * Source input, lexer and parser
+   */
+  
+! /* $Id: lex.h,v 1.3 1992/08/10 12:02:58 sjg Exp $ */
+  
+  #define	IDENT	64
+  
+***************
+*** 79,84 ****
+--- 79,85 ----
+  #define	REDIR	275
+  #define	MPAREN	276		/* () */
+  #define	MDPAREN	277		/* (( )) */
++ #define SELECT	278		/* ksh */
+  #define	YYERRCODE 300
+  
+  /* flags to yylex */
+***************
+*** 103,109 ****
+--- 104,115 ----
+  
+  #define	HISTORY	100		/* size of saved history */
+  
++ #ifdef EASY_HISTORY
+  extern	char   *history [HISTORY];	/* saved commands */
++ #else
++ extern	int	histsize;	/* history size */
++ extern	char  **history;	/* saved commands */
++ #endif
+  extern	char  **histptr;	/* last history item */
+  extern	int	histpush;	/* number of pushed fc commands */
+  
+*** sh/main.c.old	Tue May 12 13:42:00 1992
+--- sh/main.c	Mon Aug 10 22:03:00 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 1.4 1992/04/29 06:25:47 sjg Exp $";
+  #endif
+  
+  #define	Extern				/* define Externs in sh.h */
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 1.5 1992/08/10 12:03:00 sjg Exp $";
+  #endif
+  
+  #define	Extern				/* define Externs in sh.h */
+***************
+*** 37,45 ****
+  
+  static	const	char   initsubs [] = 
+  #ifdef sun				/* sun's don't have a real /bin */
+!   "${SHELL:=/bin/sh} ${PATH:=/usr/bin:/usr/ucb:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #else
+!   "${SHELL:=/bin/sh} ${PATH:=/bin:/usr/bin:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #endif
+  
+  static	const	char *initcoms [] = {
+--- 37,45 ----
+  
+  static	const	char   initsubs [] = 
+  #ifdef sun				/* sun's don't have a real /bin */
+!   "${SHELL:=/bin/sh} ${PATH:=/usr/bin:/usr/ucb:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${PS3:=#? } ${MAILCHECK:=600}";
+  #else
+!   "${SHELL:=/bin/sh} ${PATH:=/bin:/usr/bin:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${PS3:=#? } ${MAILCHECK:=600}";
+  #endif
+  
+  static	const	char *initcoms [] = {
+***************
+*** 52,58 ****
+  	  "history=fc -l", "r=fc -e -", "nohup=nohup ",
+  	  "login=exec login", "newgrp=exec newgrp",
+  	  "type=whence -v", "functions=typeset -f",
+! 	  "echo=print", "true=:", "false=let", "[=\\[", NULL,
+  	NULL
+  };
+  
+--- 52,64 ----
+  	  "history=fc -l", "r=fc -e -", "nohup=nohup ",
+  	  "login=exec login", "newgrp=exec newgrp",
+  	  "type=whence -v", "functions=typeset -f",
+! 	  "echo=print", "true=:", "false=let", "[=\\[",
+! #ifdef JOBS
+! 	  "suspend=kill -STOP $$",
+! #endif
+! 	  NULL,
+! 
+! 	
+  	NULL
+  };
+  
+***************
+*** 135,140 ****
+--- 141,148 ----
+  	tinit(&lexicals, APERM);
+  	tinit(&homedirs, APERM);
+  
++ 	init_histvec();
++ 	
+  	/* import enviroment */
+  	if (envp != NULL)
+  		for (wp = envp; *wp != NULL; wp++)
+***************
+*** 236,242 ****
+  		(void) fd_clexec(ttyfd);
+  #endif
+  #ifdef EMACS
+! 		x_init_emacs();
+  #endif
+  	}
+  
+--- 244,250 ----
+  		(void) fd_clexec(ttyfd);
+  #endif
+  #ifdef EMACS
+! 	  	x_init_emacs();
+  #endif
+  	}
+  
+*** sh/patchlevel.h.old	Tue May 12 13:42:00 1992
+--- sh/patchlevel.h	Mon Aug 10 22:03:03 1992
+***************
+*** 1,6 ****
+  /*
+   * PD KSH
+!  * $Id: patchlevel.h,v 4.5 1992/05/12 09:30:34 sjg Exp $
+   */
+  #define VERSION		4
+! #define PATCHLEVEL	5
+--- 1,6 ----
+  /*
+   * PD KSH
+!  * $Id: patchlevel.h,v 4.6 1992/08/10 12:03:03 sjg Exp $
+   */
+  #define VERSION		4
+! #define PATCHLEVEL	6
+*** sh/proto.h.old	Tue May 12 13:42:00 1992
+--- sh/proto.h	Mon Aug 10 22:03:05 1992
+***************
+*** 1,7 ****
+  /*
+   * prototypes for PD-KSH
+   * originally generated using "cproto.c 3.5 92/04/11 19:28:01 cthuang "
+!  * $Id: proto.h,v 1.1 1992/04/25 08:29:02 sjg Exp $
+   */
+  #ifndef ARGS
+  #if defined(__STDC__) || defined(__cplusplus)
+--- 1,7 ----
+  /*
+   * prototypes for PD-KSH
+   * originally generated using "cproto.c 3.5 92/04/11 19:28:01 cthuang "
+!  * $Id: proto.h,v 1.2 1992/08/10 12:03:05 sjg Exp $
+   */
+  #ifndef ARGS
+  #if defined(__STDC__) || defined(__cplusplus)
+***************
+*** 74,79 ****
+--- 74,80 ----
+  bool_t 	x_mode		 ARGS((bool_t onoff));
+  int 	promptlen	 ARGS((char *cp));
+  int 	init_editmode	 ARGS((void));
++ void 	set_editmode	 ARGS((char *ed));
+  /* emacs.c */
+  int 	x_emacs		 ARGS((char *buf, size_t len));
+  void 	x_redraw	 ARGS((int limit));
+***************
+*** 85,90 ****
+--- 86,92 ----
+  char *	substitute	 ARGS((char const *cp, int f));
+  char **	eval		 ARGS((char **ap, int f));
+  char *	evalstr		 ARGS((char *cp, int f));
++ char *	evalonestr	 ARGS((char *cp, int f));
+  /* exec.c */
+  int 	execute		 ARGS((struct op *t, volatile int flags));
+  int 	shcomexec	 ARGS((char **wp));
+***************
+*** 93,98 ****
+--- 95,101 ----
+  struct tbl *	findcom	 ARGS((char *name, int insert));
+  int 	flushcom	 ARGS((int all));
+  char *	search		 ARGS((char *name, char *path, int mode));
++ int	pr_menu		 ARGS((char **ap, int usestored));
+  /* expr.c */
+  void 	evalerr		 ARGS((char *err));
+  long 	evaluate	 ARGS((const char *expr));
+***************
+*** 102,108 ****
+--- 105,117 ----
+  /* history.c */
+  int 	c_fc	 	 ARGS((register char **wp));
+  void 	histbackup	 ARGS((void));
++ #ifdef EASY_HISTORY
+  void 	histsave	 ARGS((char *cmd));
++ #else
++ void	sethistsize	 ARGS((int n));
++ void	sethistfile	 ARGS((char *name));
++ void	histsave	 ARGS((int lno, char *cmd, int dowrite));
++ #endif
+  char **	histget	 	 ARGS((char *str));
+  char *	histrpl	 	 ARGS((char *s, char *pat, char *rep, int global));
+  void 	hist_init	 ARGS((Source *s));
+*** sh/sh.h.old	Tue May 12 13:42:00 1992
+--- sh/sh.h	Mon Aug 10 22:03:08 1992
+***************
+*** 2,8 ****
+   * Public Domain Bourne/Korn shell
+   */
+  
+! /* $Id: sh.h,v 1.3 1992/04/25 08:29:52 sjg Exp $ */
+  
+  #include "config.h"
+  
+--- 2,8 ----
+   * Public Domain Bourne/Korn shell
+   */
+  
+! /* $Id: sh.h,v 1.4 1992/08/10 12:03:08 sjg Exp $ */
+  
+  #include "config.h"
+  
+***************
+*** 15,20 ****
+--- 15,24 ----
+  #define	SHELL	"/bin/sh"	/* shell to exec scripts */
+  #endif
+  
++ #ifdef _BSD
++ #define memmove(dst, src, n)	bcopy((src), (dst), (n))
++ #endif
++ 
+  /* some people object to this use of __STDC__ */
+  #ifdef __STDC__
+  #define	ARGS(args)	args	/* prototype declaration */
+***************
+*** 143,148 ****
+--- 147,153 ----
+  void	resetopts();
+  void	histsave();
+  void	histlist();
++ int	pr_menu ARGS((char **, int));
+  
+  void	j_init ARGS((void));
+  void	j_exit ARGS((void));
+*** sh/syn.c.old	Tue May 12 13:42:00 1992
+--- sh/syn.c	Mon Aug 10 22:03:10 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: syn.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: syn.c,v 1.3 1992/08/10 12:03:10 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 258,264 ****
+  		break;
+  
+  	  case FOR:
+! 		t = newtp(TFOR);
+  		musthave(LWORD, 0);
+  		t->str = strsave(ident, ATEMP);
+  		multiline++;
+--- 258,265 ----
+  		break;
+  
+  	  case FOR:
+! 	  case SELECT:
+! 		t = newtp((c == FOR) ? TFOR: TSELECT);
+  		musthave(LWORD, 0);
+  		t->str = strsave(ident, ATEMP);
+  		multiline++;
+***************
+*** 505,510 ****
+--- 506,512 ----
+  	int	val;
+  } restab[] = {
+  	"for",		FOR,
++ 	"select",	SELECT,
+  	"case",		CASE,
+  	"esac",		ESAC,
+  	"while",	WHILE,
+*** sh/table.h.old	Tue May 12 13:42:00 1992
+--- sh/table.h	Mon Aug 10 22:03:13 1992
+***************
+*** 1,4 ****
+! /* $Id: table.h,v 1.2 1992/04/25 08:33:28 sjg Exp $ */
+  
+  /*
+   * generic hashed associative table for commands and variables.
+--- 1,4 ----
+! /* $Id: table.h,v 1.3 1992/08/10 12:03:13 sjg Exp $ */
+  
+  /*
+   * generic hashed associative table for commands and variables.
+***************
+*** 94,99 ****
+--- 94,105 ----
+  #define	V_MAIL	5
+  #define	V_MAILPATH 6
+  #define	V_RANDOM 7
++ #ifndef EASY_HISTORY
++ #define V_HISTSIZE 8
++ #define V_HISTFILE 9
++ #endif
++ #define V_FCEDIT 10
++ #define V_COLUMNS 11
+  
+  Extern	Area   *lastarea;	/* area of last variable/function looked up */
+  Extern	char   *path;		/* PATH value */
+*** sh/trap.c.old	Tue May 12 13:42:00 1992
+--- sh/trap.c	Mon Aug 10 22:03:15 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 1.2 1992/04/24 12:01:38 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 1.3 1992/08/10 12:03:15 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 101,107 ****
+  	int i;
+  {
+  	trap = sigtraps[i].set = 1;
+! 	if (i == SIGINT && e.type == E_PARSE)
+  		/* dangerous but necessary to deal with BSD silly signals */
+  		longjmp(e.jbuf, 1);
+  #ifdef USE_SIGACT
+--- 101,107 ----
+  	int i;
+  {
+  	trap = sigtraps[i].set = 1;
+! 	if (i == SIGINT && (e.type == E_PARSE || e.type == E_LOOP))
+  		/* dangerous but necessary to deal with BSD silly signals */
+  		longjmp(e.jbuf, 1);
+  #ifdef USE_SIGACT
+*** sh/tree.h.old	Tue May 12 13:42:00 1992
+--- sh/tree.h	Mon Aug 10 22:03:18 1992
+***************
+*** 2,8 ****
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 1.2 1992/04/25 08:33:28 sjg Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+--- 2,8 ----
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 1.3 1992/08/10 12:03:18 sjg Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+***************
+*** 40,45 ****
+--- 40,46 ----
+  #define	TFUNCT	17		/* function name { command; } */
+  #define	TTIME	18		/* time pipeline */
+  #define	TEXEC	19		/* fork/exec eval'd TCOM */
++ #define TSELECT	20		/* select */
+  
+  /*
+   * prefix codes for words in command tree
+***************
+*** 86,91 ****
+--- 87,93 ----
+  #define	XPIPEO	BIT(3)		/* output is pipe */
+  #define	XPIPE	(XPIPEI|XPIPEO)	/* member of pipe */
+  #define	XXCOM	BIT(4)		/* dup2 xcomfd to 1 */
++ #define XXWHL	BIT(6)		/* don't flush stdin before fork */
+  
+  /*
+   * flags to control expansion of words
+*** sh/tty.h.old	Tue May 12 13:42:00 1992
+--- sh/tty.h	Mon Aug 10 22:03:23 1992
+***************
+*** 28,34 ****
+  #include <sys/ioctl.h>
+  #endif
+  #else
+! #ifdef	mips
+  #include <termios.h>
+  #else
+  #include <termio.h>
+--- 28,34 ----
+  #include <sys/ioctl.h>
+  #endif
+  #else
+! #ifdef	_POSIX_TERM
+  #include <termios.h>
+  #else
+  #include <termio.h>
+*** sh/do_ulimit.c.old	Tue May 12 13:42:00 1992
+--- sh/do_ulimit.c	Mon Aug 10 22:02:23 1992
+***************
+*** 13,19 ****
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: do_ulimit.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 13,23 ----
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: do_ulimit.c,v 1.3 1992/08/10 12:02:23 sjg Exp $";
+! #endif
+! 
+! #ifdef _BSDI
+! #define _BSD	1
+  #endif
+  
+  #include "stdh.h"
+*** sh/var.c.old	Tue May 12 13:42:00 1992
+--- sh/var.c	Mon Aug 10 22:03:25 1992
+***************
+*** 1,5 ****
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 1.3 1992/08/10 12:03:25 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 491,515 ****
+  /*
+   * handle special variables with side effects - PATH, SECONDS.
+   */
+! 
+  static int
+  special(name)
+  	register char * name;
+  {
+! 	if (strcmp("PATH", name) == 0)
+  		return V_PATH;
+! 	if (strcmp("IFS", name) == 0)
+  		return V_IFS;
+! 	if (strcmp("SECONDS", name) == 0)
+  		return V_SECONDS;
+! 	if (strcmp("OPTIND", name) == 0)
+  		return V_OPTIND;
+! 	if (strcmp("MAIL", name) == 0)
+  		return V_MAIL;
+! 	if (strcmp("MAILPATH", name) == 0)
+  		return V_MAILPATH;
+! 	if (strcmp("RANDOM", name) == 0)
+  		return V_RANDOM;
+  	return V_NONE;
+  }
+  
+--- 491,525 ----
+  /*
+   * handle special variables with side effects - PATH, SECONDS.
+   */
+! #define STREQ(a, b) ((*a) == (*b) && strcmp((a), (b)) == 0)
+  static int
+  special(name)
+  	register char * name;
+  {
+! 	if (STREQ("PATH", name))
+  		return V_PATH;
+! 	if (STREQ("IFS", name))
+  		return V_IFS;
+! 	if (STREQ("SECONDS", name))
+  		return V_SECONDS;
+! 	if (STREQ("OPTIND", name))
+  		return V_OPTIND;
+! 	if (STREQ("MAIL", name))
+  		return V_MAIL;
+! 	if (STREQ("MAILPATH", name))
+  		return V_MAILPATH;
+! 	if (STREQ("RANDOM", name))
+  		return V_RANDOM;
++ #ifndef EASY_HISTORY
++ 	if (STREQ("HISTSIZE", name))
++ 		return V_HISTSIZE;
++ 	if (STREQ("HISTFILE", name))
++ 		return V_HISTFILE;
++ #endif
++ 	if (STREQ("FCEDIT", name))
++ 		return V_FCEDIT;
++ 	if (STREQ("COLUMNS", name))
++ 		return V_COLUMNS;
+  	return V_NONE;
+  }
+  
+***************
+*** 535,540 ****
+--- 545,557 ----
+  		setint(vp, (rand() & 0x7fff));
+  		vp->flag |= SPECIAL;
+  		break;
++ #ifndef EASY_HISTORY
++ 	case V_HISTSIZE:
++ 		vp->flag &= ~ SPECIAL;
++ 		setint(vp, histsize);
++ 		vp->flag |= SPECIAL;
++ 		break;
++ #endif
+  	}
+  }
+  
+***************
+*** 569,574 ****
+--- 586,608 ----
+  		vp->flag &= ~ SPECIAL;
+  		srand((unsigned int)intval(vp));
+  		vp->flag |= SPECIAL;
++ 		break;
++ #ifndef EASY_HISTORY
++ 	  case V_HISTSIZE:
++ 		vp->flag &= ~ SPECIAL;
++ 		sethistsize(intval(vp));
++ 		vp->flag |= SPECIAL;
++ 		break;
++ 	  case V_HISTFILE:
++ 		sethistfile(strval(vp));
++ 		break;
++ #endif
++ 	  case V_FCEDIT:
++ 		set_editmode(strval(vp));
++ 		break;
++ 	  case V_COLUMNS:
++ 		if ((x_cols = intval(vp)) <= 0)
++ 		  x_cols=80;
+  		break;
+  	}
+  }
+*** sh/version.c.old	Tue May 12 13:42:00 1992
+--- sh/version.c	Mon Aug 10 22:03:29 1992
+***************
+*** 3,9 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.4 1992/05/12 09:30:37 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.5 1992/08/10 12:03:29 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 12,21 ****
+  #include "patchlevel.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.5 92/05/12";
+  
+  /***
+  $Log: version.c,v $
+   * Revision 1.4  1992/05/12  09:30:37  sjg
+   * see ChangeLog
+   *
+--- 12,25 ----
+  #include "patchlevel.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.6 92/08/10";
+  
+  /***
+  $Log: version.c,v $
++  * Revision 1.5  1992/08/10  12:03:29  sjg
++  * Update for patch06.
++  * Contributions from Peter Collinson, Neil Smithline and sjg
++  *
+   * Revision 1.4  1992/05/12  09:30:37  sjg
+   * see ChangeLog
+   *
+*** sh/vi.c.old	Tue May 12 13:42:00 1992
+--- sh/vi.c	Mon Aug 10 22:03:31 1992
+***************
+*** 9,15 ****
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+--- 9,15 ----
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 1.3 1992/08/10 12:03:31 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 25,31 ****
+  
+  #define CMDLEN		256
+  #define Ctrl(c)		(c&0x1f)
+- #define	bcopy(src, dst, len)	memmove(dst, src, len)
+  extern	int	histN();
+  
+  static int      nextstate   ARGS((int ch));
+--- 25,30 ----
+***************
+*** 90,96 ****
+  #endif
+  	0,	0,	C_,	C_,	M_,	C_,	0,	C_|S_,
+  	M_,	0,	0,	0,	0,	0,	0,	0,
+! 	0,	0,	0,	M_,	0,	0,	0,	C_|S_,
+  	0,	C_,	M_,	C_,	C_,	M_,	M_|X_,	C_,
+  	0,	C_,	0,	0,	0,	0,	C_,	0,
+  	C_,	0,	C_,	C_,	M_|X_,	0,	0,	M_,
+--- 89,95 ----
+  #endif
+  	0,	0,	C_,	C_,	M_,	C_,	0,	C_|S_,
+  	M_,	0,	0,	0,	0,	0,	0,	0,
+! 	0,	0,	0,	M_,	0,	C_,	0,	C_|S_,
+  	0,	C_,	M_,	C_,	C_,	M_,	M_|X_,	C_,
+  	0,	C_,	0,	0,	0,	0,	C_,	0,
+  	C_,	0,	C_,	C_,	M_|X_,	0,	0,	M_,
+***************
+*** 478,485 ****
+  				inslen--;
+  			es->cursor--;
+  			if (insert != REPLACE) {
+! 				bcopy(&es->cbuf[es->cursor+1],
+! 						&es->cbuf[es->cursor],
+  						es->linelen - es->cursor);
+  				es->linelen--;
+  			}
+--- 477,484 ----
+  				inslen--;
+  			es->cursor--;
+  			if (insert != REPLACE) {
+! 				memmove(&es->cbuf[es->cursor],
+! 						&es->cbuf[es->cursor+1],
+  						es->linelen - es->cursor);
+  				es->linelen--;
+  			}
+***************
+*** 489,495 ****
+  	case Ctrl('U'):
+  		if (es->cursor != 0) {
+  			inslen = 0;
+! 			bcopy(&es->cbuf[es->cursor], es->cbuf,
+  						es->linelen - es->cursor);
+  			es->linelen -= es->cursor;
+  			es->cursor = 0;
+--- 488,494 ----
+  	case Ctrl('U'):
+  		if (es->cursor != 0) {
+  			inslen = 0;
+! 			memmove(es->cbuf, &es->cbuf[es->cursor],
+  						es->linelen - es->cursor);
+  			es->linelen -= es->cursor;
+  			es->cursor = 0;
+***************
+*** 499,505 ****
+  	case Ctrl('W'):
+  		if (es->cursor != 0) {
+  			tcursor = backword(1);
+! 			bcopy(&es->cbuf[es->cursor], &es->cbuf[tcursor],
+  						es->linelen - es->cursor);
+  			es->linelen -= es->cursor - tcursor;
+  			if (inslen < es->cursor - tcursor)
+--- 498,504 ----
+  	case Ctrl('W'):
+  		if (es->cursor != 0) {
+  			tcursor = backword(1);
+! 			memmove(&es->cbuf[tcursor], &es->cbuf[es->cursor],
+  						es->linelen - es->cursor);
+  			es->linelen -= es->cursor - tcursor;
+  			if (inslen < es->cursor - tcursor)
+***************
+*** 515,521 ****
+  			return -1;
+  		ibuf[inslen++] = ch;
+  		if (insert == INSERT) {
+! 			bcopy(&es->cbuf[es->cursor], &es->cbuf[es->cursor+1],
+  					es->linelen - es->cursor);
+  			es->linelen++;
+  		}
+--- 514,520 ----
+  			return -1;
+  		ibuf[inslen++] = ch;
+  		if (insert == INSERT) {
+! 			memmove(&es->cbuf[es->cursor+1], &es->cbuf[es->cursor],
+  					es->linelen - es->cursor);
+  			es->linelen++;
+  		}
+***************
+*** 553,563 ****
+  	} else {
+  		if (isundoable(*cmd)) {
+  			undo->winleft = es->winleft;
+! 			bcopy(es->cbuf, undo->cbuf, es->linelen);
+  			undo->linelen = es->linelen;
+  			undo->cursor = es->cursor;
+  			lastac = argcnt;
+! 			bcopy(cmd, lastcmd, MAXVICMD);
+  		}
+  		switch (*cmd) {
+  
+--- 552,562 ----
+  	} else {
+  		if (isundoable(*cmd)) {
+  			undo->winleft = es->winleft;
+! 			memmove(undo->cbuf, es->cbuf, es->linelen);
+  			undo->linelen = es->linelen;
+  			undo->cursor = es->cursor;
+  			lastac = argcnt;
+! 			memmove(lastcmd, cmd, MAXVICMD);
+  		}
+  		switch (*cmd) {
+  
+***************
+*** 849,855 ****
+  				return -1;
+  			return 1;
+  
+! 		case '*': {
+  			int	rval = 0;
+  			int	start, end;
+  			char	*toglob = undo->cbuf;
+--- 848,855 ----
+  				return -1;
+  			return 1;
+  
+! 		case '*':
+! 		case '=': {
+  			int	rval = 0;
+  			int	start, end;
+  			char	*toglob = undo->cbuf;
+***************
+*** 867,874 ****
+  			while (end < es->linelen && !isspace(es->cbuf[end]))
+  				end++;
+  			/* use undo buffer to build word up in */
+! 			bcopy(&es->cbuf[start], toglob, end-start);
+! 			if (*toglob != '~' && toglob[end-start-1] != '*') {
+  				toglob[end-start] = '*';
+  				toglob[end-start+1] = '\0';
+  			} else
+--- 867,874 ----
+  			while (end < es->linelen && !isspace(es->cbuf[end]))
+  				end++;
+  			/* use undo buffer to build word up in */
+! 			memmove(toglob, &es->cbuf[start], end-start);
+! 			if (toglob[end-start-1] != '*') {
+  				toglob[end-start] = '*';
+  				toglob[end-start+1] = '\0';
+  			} else
+***************
+*** 878,913 ****
+  			if (strcmp(ap[0], toglob) == 0 && ap[1] == (char *) 0)
+  				rval = -1;
+  			/* restore undo buffer that we used temporarily */
+! 			bcopy(es->cbuf, toglob, es->linelen);
+  			if (rval < 0)
+  				return rval;
+! 			del_range(start, end);
+! 			es->cursor = start;
+! 			while (1) {
+! 				if (putbuf(*ap, strlen(*ap), 0) != 0) {
+! 					rval = -1;
+! 					break;
+  				}
+- 				if (*++ap == (char *) 0)
+- 					break;
+- 				if (putbuf(" ", 1, 0) != 0) {
+- 					rval = -1;
+- 					break;
+- 				}
+- 			}
+  #if 0
+! 			/*
+! 			 * this is definitely wrong
+! 			 */
+! 			for (ap = ap2; *ap; ap++)
+! 			    free(*ap);
+  
+! 			free(ap2);
+  #endif
+  
+! 			modified = 1;
+! 			insert = INSERT;
+! 			refresh(0);
+  			if (rval != 0)
+  				return rval;
+  			}
+--- 878,926 ----
+  			if (strcmp(ap[0], toglob) == 0 && ap[1] == (char *) 0)
+  				rval = -1;
+  			/* restore undo buffer that we used temporarily */
+! 			memmove(toglob, es->cbuf, es->linelen);
+  			if (rval < 0)
+  				return rval;
+! 			if (*cmd == '=') {
+! 				fputc('\n', shlout);
+! 				pr_menu(ap2, 0);
+! 				fflush(shlout);
+! 				if (es->linelen != 0)
+! 					es->cursor++;
+! 				redraw_line();
+! 				insert = INSERT;
+! 				state = VNORMAL;
+! 				return 0;
+! 			} else {
+! 				del_range(start, end);
+! 				es->cursor = start;
+! 				while (1) {
+! 					if (putbuf(*ap, strlen(*ap), 0) != 0) {
+! 						rval = -1;
+! 						break;
+! 					}
+! 					if (*++ap == (char *) 0)
+! 						break;
+! 					if (putbuf(" ", 1, 0) != 0) {
+! 						rval = -1;
+! 						break;
+! 					}
+! 
+  				}
+  #if 0
+! 				/*
+! 				 * this is definitely wrong
+! 				 */
+! 				for (ap = ap2; *ap; ap++)
+! 					free(*ap);
+  
+! 				free(ap2);
+  #endif
+  
+! 				modified = 1;
+! 				insert = INSERT;
+! 				refresh(0);
+! 			}
+  			if (rval != 0)
+  				return rval;
+  			}
+***************
+*** 1081,1087 ****
+  {
+  	yanklen = b - a;
+  	if (yanklen != 0)
+! 		bcopy(&es->cbuf[a], ybuf, yanklen);
+  }
+  
+  static int
+--- 1094,1100 ----
+  {
+  	yanklen = b - a;
+  	if (yanklen != 0)
+! 		memmove(ybuf, &es->cbuf[a], yanklen);
+  }
+  
+  static int
+***************
+*** 1130,1136 ****
+  
+  save_cbuf()
+  {
+! 	bcopy(es->cbuf, holdbuf, es->linelen);
+  	holdlen = es->linelen;
+  	holdbuf[holdlen] = '\0';
+  }
+--- 1143,1149 ----
+  
+  save_cbuf()
+  {
+! 	memmove(holdbuf, es->cbuf, es->linelen);
+  	holdlen = es->linelen;
+  	holdbuf[holdlen] = '\0';
+  }
+***************
+*** 1139,1145 ****
+  {
+  	es->cursor = 0;
+  	es->linelen = holdlen;
+! 	bcopy(holdbuf, es->cbuf, holdlen);
+  }
+  
+  static
+--- 1152,1158 ----
+  {
+  	es->cursor = 0;
+  	es->linelen = holdlen;
+! 	memmove(es->cbuf, holdbuf, holdlen);
+  }
+  
+  static
+***************
+*** 1184,1194 ****
+  	} else {
+  		if (es->linelen + len >= es->cbufsize - 1)
+  			return -1;
+! 		bcopy(&es->cbuf[es->cursor], &es->cbuf[es->cursor + len],
+  			es->linelen - es->cursor);
+  		es->linelen += len;
+  	}
+! 	bcopy(buf, &es->cbuf[es->cursor], len);
+  	es->cursor += len;
+  	return 0;
+  }
+--- 1197,1207 ----
+  	} else {
+  		if (es->linelen + len >= es->cbufsize - 1)
+  			return -1;
+! 		memmove(&es->cbuf[es->cursor + len], &es->cbuf[es->cursor],
+  			es->linelen - es->cursor);
+  		es->linelen += len;
+  	}
+! 	memmove(&es->cbuf[es->cursor], buf, len);
+  	es->cursor += len;
+  	return 0;
+  }
+***************
+*** 1209,1215 ****
+  	int	a, b;
+  {
+  	if (es->linelen != b)
+! 		bcopy(&es->cbuf[b], &es->cbuf[a], es->linelen - b);
+  	es->linelen -= b - a;
+  }
+  
+--- 1222,1228 ----
+  	int	a, b;
+  {
+  	if (es->linelen != b)
+! 		memmove(&es->cbuf[a], &es->cbuf[b], es->linelen - b);
+  	es->linelen -= b - a;
+  }
+  
+***************
+*** 1396,1402 ****
+  	if (save)
+  		save_cbuf();
+  	es->linelen = strlen(hptr);
+! 	bcopy(hptr, es->cbuf, es->linelen);
+  	es->cursor = 0;
+  	return 0;
+  }
+--- 1409,1415 ----
+  	if (save)
+  		save_cbuf();
+  	es->linelen = strlen(hptr);
+! 	memmove(es->cbuf, hptr, es->linelen);
+  	es->cursor = 0;
+  	return 0;
+  }
+***************
+*** 1423,1429 ****
+  	if (save)
+  		save_cbuf();
+  	es->linelen = strlen(hptr);
+! 	bcopy(hptr, es->cbuf, es->linelen);
+  	es->cursor = 0;
+  	return histN();
+  }
+--- 1436,1442 ----
+  	if (save)
+  		save_cbuf();
+  	es->linelen = strlen(hptr);
+! 	memmove(es->cbuf, hptr, es->linelen);
+  	es->cursor = 0;
+  	return histN();
+  }
+***************
+*** 1435,1441 ****
+  	x_putc('\n');
+  	x_flush();
+  	pprompt(prompt);
+! 	cur_col = 2;
+  	morec = ' ';
+  }
+  
+--- 1448,1454 ----
+  	x_putc('\n');
+  	x_flush();
+  	pprompt(prompt);
+! 	cur_col = pwidth;
+  	morec = ' ';
+  }
+  
+***************
+*** 1640,1646 ****
+  		return -1;
+  
+  	if (es->cbuf != buf) {
+! 		bcopy(es->cbuf, buf, es->linelen);
+  		buf[es->linelen] = '\n';
+  	} else
+  		es->cbuf[es->linelen] = '\n';
+--- 1653,1659 ----
+  		return -1;
+  
+  	if (es->cbuf != buf) {
+! 		memmove(buf, es->cbuf, es->linelen);
+  		buf[es->linelen] = '\n';
+  	} else
+  		es->cbuf[es->linelen] = '\n';
+*** /tmp/pdksh/bug-report	Tue May 12 13:42:00 1992
+--- bug-report	Mon Aug 10 22:59:11 1992
+***************
+*** 2,8 ****
+  Subject: [area]: [synopsis]   [replace with actual area and short description]
+  
+  VERSION:
+!     PD KSH: 4.5 12-May-1992
+      [Official patches will edit this line to indicate the patch level]
+  
+  MACHINE and OPERATING SYSTEM:
+--- 2,8 ----
+  Subject: [area]: [synopsis]   [replace with actual area and short description]
+  
+  VERSION:
+!     PD KSH: 4.6 02-Aug-92
+      [Official patches will edit this line to indicate the patch level]
+  
+  MACHINE and OPERATING SYSTEM:
+
+exit 0 # Just in case...

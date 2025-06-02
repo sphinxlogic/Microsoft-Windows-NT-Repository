@@ -1,0 +1,2408 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i124:  parseargs - functions to parse command line arguments, Part09/10
+Message-ID: <1992May17.182540.29086@sparky.imd.sterling.com>
+X-Md4-Signature: 291b96e1994335992598e3a066160c9e
+Date: Sun, 17 May 1992 18:25:40 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 124
+Archive-name: parseargs/part09
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 9 (of 10)."
+# Contents:  xparse.c
+# Wrapped by brad@hcx1 on Thu May  7 12:12:29 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xparse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xparse.c'\"
+else
+echo shar: Extracting \"'xparse.c'\" \(75200 characters\)
+sed "s/^X//" >'xparse.c' <<'END_OF_FILE'
+X/*************************************************************************
+X** ^FILE: xparse.c - library functions for the parsargs(3) package
+X**
+X** ^DESCRIPTION:
+X**    This file implements the following functions in the parseargs library:
+X**
+X**       init_args()  -- constructor for a command-object
+X**       usage()      -- pretty-print the command-usage
+X**       parsecntl()  -- control parsing, get/set command-attributes
+X**       parseargs()  -- parse arguments from a string vector
+X**       fparseargs() -- parse arguments from a file pointer
+X**       lparseargs() -- parse arguments from an arglist
+X**       sparseargs() -- parse arguyments in a string
+X**       vparseargs() -- parse arguments from a variable argument list
+X**
+X**    It should be noted that sparseargs() splits the given string up into
+X**    a whitespace separated series of tokens, whereas vparseargs assumes
+X**    that each parameter is already a single token (hence performs no
+X**    token splitting).
+X**
+X**    Each of these functions returns 0 upon success and non-zero otherwise
+X**    (except for usage() & init_args, which have no return value).
+X**
+X** ^SIDE-EFFECTS:
+X**    Each of the functions in the parseargs library will set the external
+X**    character string ProgName to be the name of the last command that was
+X**    operated upon by any of the library routines.
+X**
+X**    When an argument-descriptor array is first encountered by any of the
+X**    parseargs library routines, it is initially compiled into an inter-
+X**    mediate form that is more convenient to manipulate. As a direct
+X**    result, it is not advisable to attempt to index directly into the
+X**    array to manipulate one of the argument descriptors (because the
+X**    argdesc that you thought was there may actually be somewhere else).
+X**    After the array has been given its initial value(s), only parsecntl(3)
+X**    should be used to manipulate or query the attributes of an argument
+X**    descriptor.
+X**
+X** ^FILES:
+X**    <useful.h>
+X**    <parseargs.h>
+X**
+X** ^SEE_ALSO:
+X**    argtype(3), parseargs(1), parseargs(3)
+X**
+X** ^CAVEATS:
+X**    Because of the way argument parsing is implemented under UNIX, MS-DOS
+X**    and OS/2, option arguments which contain a leading dash (`-') (or
+X**    whatever the option prefix character is defined to be) may not be
+X**    specified as a separate argument on the command line, it must be part
+X**    of the same argument.  That is to say that if a program has a -f option
+X**    that requires a string argument, then the following:
+X**          -f-arg
+X**
+X**    will properly assign the string "-arg" to the option whereas the
+X**    following:
+X**          -f -arg
+X**
+X**    will be interpreted by parseargs as two option strings: the first of
+X**    which ("-f") is missing a required argument and the second of which
+X**    ("-arg") will most likely be flagged as an invalid option.
+X**
+X**    Similarly, if the user requires an ARGLIST option to take multiple
+X**    arguments with leading dashes then the following method must be used:
+X**    It is a "feature" of parseargs that ARGLIST arguments are always
+X**    appended to the current list of arguments for the given option. Thus,
+X**    if "-f" is an option taking a list of arguments, then the following
+X**    are all equivalent:
+X**          -farg1 arg2
+X**          -f arg1 arg2
+X**          -farg1 -farg2
+X**          -f arg1 -f arg2
+X**
+X**     Hence multiple "leading dash" arguments may specified as follows:
+X**          -f-dash_arg1 -f-dash_arg2  ...
+X**
+X** ^BUGS:
+X**    When a non-multivalued argument appears more than once on the
+X**    command-line then only the last value supplied is used. A problem
+X**    occurs however in the following scenario: suppose `-s' is an option
+X**    that takes an optional string argument (and suppose `-x' is some
+X**    boolean flag). Then if the following command-line is issued:
+X**
+X**         command  -s string  -x  -s
+X**
+X**    then, the argument flags will properly correspond to the second
+X**    instance of the `-s' option (namely ARGGIVEN will be set but ARGVAL-
+X**    GIVEN will be unset) but the value associated with the option will be
+X**    "string" (because the first instance overwrote the default).
+X**    Because of this, it may be safest to reassign the default value if
+X**    ARGGIVEN is set but ARGVALGIVEN is unset.
+X**
+X** ^HISTORY:
+X**    01/02/91 	Brad Appleton 	<brad@ssd.csd.harris.com> 	Created
+X**
+X**    04/03/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - fixed bug in [fvsl]parseargs() and parseargs().
+X**      previous parse-flags should not be reset until AFTER required
+X**      arguments are checked for, otherwise we may forget to prompt
+X**      for them if $PARSECNTL asked us to do so.
+X**
+X**    08/27/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - split out get_description().
+X**    - add ProgNameLen
+X**    - support for non-writable strings
+X**    - allow sparseargs() to parse empty strings like parseargs()
+X**
+X**    04/03/91 	Brad Appleton 	<brad@ssd.csd.harris.com>
+X**    - changed vms_style stuff to use ps_NOTCMDLINE
+X***^^**********************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <useful.h>
+X#include "strfuncs.h"
+X#include "exit_codes.h"
+X
+X#define PARSEARGS_PRIVATE   /* include private definitions */
+X#define PARSEARGS_NEXTERNS  /* exclude external declarations */
+X#include "parseargs.h"
+X
+X#ifdef amiga_style
+X#  define  pa_DEFAULTS  0x000
+X#  define  parse_argv_style   amiga_parse
+X#  define  print_usage_style  amiga_usage
+X   EXTERN  int   amiga_parse  ARGS(( char **, ARGDESC * ));
+X   EXTERN  VOID  amiga_usage  ARGS(( const ARGDESC *, argMask_t ));
+X#endif
+X#ifdef ibm_style
+X#  define  pa_DEFAULTS  pa_ANYCASE
+X#  define  parse_argv_style   ibm_parse
+X#  define  print_usage_style  ibm_usage
+X   EXTERN  int   ibm_parse  ARGS(( char **, ARGDESC * ));
+X   EXTERN  VOID  ibm_usage  ARGS(( const ARGDESC *, argMask_t ));
+X#endif
+X#ifdef unix_style
+X#  define  pa_DEFAULTS  pa_FLAGS1ST
+X#  define  parse_argv_style   unix_parse
+X#  define  print_usage_style  unix_usage
+X   EXTERN  int   unix_parse   ARGS(( char **, ARGDESC * ));
+X   EXTERN  VOID  unix_usage   ARGS(( const ARGDESC *, argMask_t ));
+X#endif
+X#ifdef vms_style
+X#  define  pa_DEFAULTS  pa_PROMPT
+X#  define  parse_argv_style   vms_parse
+X#  define  print_usage_style  vms_usage
+X   EXTERN  int   vms_parse    ARGS(( char **, ARGDESC * ));
+X   EXTERN  VOID  vms_usage    ARGS(( const ARGDESC *, argMask_t ));
+X#endif
+X
+X
+X#ifdef vms
+X#  define  USER_VARIABLE "symbol"
+X#else
+X#  define  USER_VARIABLE "environment variable"
+X#endif
+X
+X
+X/***************************************************************************
+X** ^MACRO: SYNTAX_ERROR -  check for syntax errors & missing required arguments
+X**
+X** ^SYNOPSIS:
+X**    SYNTAX_ERROR(status, argd)
+X**
+X** ^PARAMETERS:
+X**    status
+X**    -- current parsing status returned by last xparsexxx() call
+X**
+X**    argd
+X**    --argdesc-array
+X**
+X** ^RETURN-VALUE:
+X**    Evaluates to TRUE if need to exit, FALSE otherwise
+X**
+X** ^ALGORITHM:
+X**    - if (!pa_NOCHECK) and (verify_argreqs == error) then return TRUE
+X**    - else return FALSE
+X***^^**********************************************************************/
+X#define  SYNTAX_ERROR(status, argd)  ( !verify_argreqs(argd, &status) )
+X
+X
+X/***************************************************************************
+X** ^GLOBAL-VARIABLE: ProgName, ProgNameLen
+X**
+X** ^VISIBILITY:
+X**    external global (visible to functions in all files)
+X**
+X** ^DESCRIPTION:
+X**    ProgName (which is initially NULL) will be used to point to the
+X**    command-name (specified on the command-line) of the command that
+X**    has most recently invoked a function in the parseargs library.
+X**    ProgNameLen will be set to the length of the string.
+X***^^**********************************************************************/
+XCONST char *ProgName = CHARNULL;
+Xint ProgNameLen = 0;
+X
+XEXTERN  VOID  syserr   ARGS((const char *, ...));
+XEXTERN  VOID  usrerr   ARGS((const char *, ...));
+XEXTERN  VOID  eprintf  ARGS((const char *, ...));
+X
+X#ifdef vms_style
+X   EXTERN BOOL argInput        ARGS((ARGDESC *, char *, BOOL));
+X   EXTERN BOOL argOutput       ARGS((ARGDESC *, char *, BOOL));
+X#endif
+X
+X#define  MAXLINE  256
+X
+X
+X/* override argument descriptor, if none given by user */
+Xstatic ARGDESC  Empty_ArgDesc[] = { START_ARGUMENTS, END_ARGUMENTS };
+X
+X/***************************************************************************
+X** ^SECTION: DEFAULT-ARGUMENTS
+X**    Each argdesc-array has an initial default argument list (which may be
+X**    reset using the pc_DEFARGS function code with parsecntl). This initial
+X**    default argument-list contains `?' and `H' which may be used as single
+X**    character keywords to display command-usage for all command-line
+X**    styles.  Similarly, "?", "H", and "Help" may be used as long-keywords
+X**    to display command-usage for all command-line styles.  In Addition,
+X**    for VMS style commands, the qualifiers /INPUT=file, /OUTPUT=file, and
+X**    /ERROR=file, may be used to redirect stdin, stdout, and stderr
+X**    (respectively) to a file.  For AmigaDOS style commands, the keyword
+X**    "ENDKWDS" may be used to disable parsing for any more keywords on
+X**    the command-line.
+X***^^**********************************************************************/
+Xstatic  ARGDESC  Default_ArgDesc[] = {
+X   START_ARGUMENTS,
+X
+X/* <name> <flags>    <type>     <valp>         <prompt>      */
+X   { '?', ARGHIDDEN, argUsage, __ NULL,    "? (print usage and exit)" },
+X   { 'H', ARGHIDDEN, argUsage, __ NULL,    "Help (print usage and exit)" },
+X
+X#ifdef amiga_style
+X   { '-', ARGHIDDEN, argEnd,   __ NULL,    "ENDKeyWorDS" },
+X#endif
+X
+X#ifdef vms_style
+X# ifdef vms
+X   { '<', ARGHIDDEN, argInput, __ &stdin,   "sysINPUT (redirect SYS$INPUT)" },
+X   { '>', ARGHIDDEN, argOutput, __ &stdout, "sysOUTPUT (redirect SYS$OUTPUT)" },
+X   { '%', ARGHIDDEN, argOutput, __ &stderr, "sysERROR (redirect SYS$ERROR)" },
+X# else
+X   { '<', ARGHIDDEN, argInput, __ stdin,   "sysINPUT (redirect SYS$INPUT)" },
+X   { '>', ARGHIDDEN, argOutput, __ stdout, "sysOUTPUT (redirect SYS$OUTPUT)" },
+X   { '%', ARGHIDDEN, argOutput, __ stderr, "sysERROR (redirect SYS$ERROR)" },
+X# endif
+X#endif
+X
+X   END_ARGUMENTS
+X};
+X
+X
+X#ifdef AmigaDOS
+X#  define  getenv(s)   CHARNULL
+X#  define  envfree(s)  s = CHARNULL
+X#endif
+X
+X#if ( defined(MSDOS) || defined(OS2) )
+X   EXTERN  char *getenv ARGS(( const char * ));
+X#  define  envfree(s)  s = CHARNULL
+X#endif
+X
+X#ifdef unix
+X   EXTERN  char *getenv ARGS(( const char * ));
+X#  define  envfree(s)  s = CHARNULL
+X#endif
+X
+X#ifdef vms
+X#  define  getenv(s)   get_symbol(s)
+X#  define  envfree(s)  (s) = ( !(s) ) ? CHARNULL : (free(s), CHARNULL)
+X#  include <descrip.h>
+X#  include <libdef.h>
+X
+X#  define  MAXLEN 255
+X
+X   /***************************************************************************
+X   ** ^FUNCTION: get_symbol - retrieve the value of a VMS symbol
+X   **
+X   ** ^SYNOPSIS:
+X   */
+X#  ifndef __ANSI_C__
+X      char *get_symbol( sym_name )
+X   /*
+X   ** ^PARAMETERS:
+X   */
+X      char *sym_name;
+X   /*    -- name of the symbol to retrieve
+X   */
+X#  endif  /* !__ANSI_C__ */
+X
+X   /* ^DESCRIPTION:
+X   **    Get_symbol will lookup the named symbol and return its value
+X   **    as a string.
+X   **
+X   ** ^REQUIREMENTS:
+X   **    sym_name should correspond to the name of a pre-defined symbol.
+X   **
+X   ** ^SIDE-EFFECTS:
+X   **    None.
+X   **
+X   ** ^RETURN-VALUE:
+X   **    NULL if the symbol is not found, otherwise it copies the symbol
+X   **    value and returns the address of the copy (which may later be
+X   **    deallocated using free()).
+X   **
+X   ** ^ACKNOWLEDGEMENTS:
+X   **    Thanx to Jim Barbour for writing most of this code. --BDA
+X   **
+X   ** ^ALGORITHM:
+X   **    Trivial - just use the LIB$GET_SYMBOL system service.
+X   ***^^**********************************************************************/
+X#  ifdef __ANSI_C__
+X      char *get_symbol( const char *sym_name )
+X#  endif
+X   {
+X      unsigned long stat, lib$get_symbol();
+X      unsigned short buflen;
+X      char sym_value[ MAXLEN ];
+X      $DESCRIPTOR( sym_name_d, sym_name );
+X      $DESCRIPTOR( sym_value_d, sym_value );
+X
+X      sym_value_d.dsc$w_length =  MAXLEN;
+X      sym_name_d.dsc$w_length = strlen( sym_name );
+X      stat = lib$get_symbol( &sym_name_d, &sym_value_d, &buflen, (void *)0 );
+X      if ( stat == LIB$_NOSUCHSYM ) {
+X         return  CHARNULL;
+X      }
+X      else if ( ! (stat & 1) ) {
+X         exit(stat);
+X      }
+X      sym_value[ buflen ] = '\0';
+X      return  strdup( sym_value );
+X   }
+X#endif /* vms */
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: is_interactive - determine if a stream is "interactive"
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static BOOL is_interactive( fd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   int fd;
+X/*    -- file descriptor associated with the input stream
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Is_interactive determines whether or not the given i/o stream is
+X**    associated with a terminal.
+X**
+X** ^REQUIREMENTS:
+X**    Fd must correspond to a valid, open, file-descriptor.
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    TRUE if fd is associated with a terminal, FALSE otherwise.
+X**
+X** ^ALGORITHM:
+X**    Trivial - just use isatty and restore errno if necessary
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static BOOL is_interactive( int fd )
+X#endif
+X{
+X#ifdef unix
+X   EXTERN int isatty  ARGS((int));
+X   extern int errno;
+X   int saverr = errno;  /* save errno */
+X
+X   if ( isatty(fd) )
+X      return  TRUE;
+X   else {
+X      errno = saverr;
+X      return  FALSE;
+X   }
+X#else
+X#ifdef vms
+X   EXTERN int isatty  ARGS((int));
+X   int ret = isatty( fd );
+X
+X   if ( ret == -1 ) /* error with fd */
+X      syserr( "error on file descriptor #%d", fd );
+X   else if ( ret )
+X      return  TRUE;
+X   else
+X      return  FALSE;
+X#else
+X   return  TRUE;
+X#endif
+X#endif
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: init_args - Initialize the command object
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID init_args( argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC argd[];
+X/*    -- the array of command-arguments to initialize.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Init_args performs all the actions that are required to prepare an
+X**    argdesc-array for use by any of the parseargs functions. Storrage
+X**    is allocated and initialized and argument descriptions are compiled.
+X**
+X** ^REQUIREMENTS:
+X**    <argd> must point to an array that has been declared using the CMD_XXXX
+X**    macros, or using the ENDOFARGS (and optionally STARTOFARGS) macro.
+X**
+X** ^SIDE-EFFECTS:
+X**    The argd is initialized for use.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - compile the command name, purpose, and description if they were given
+X**    - if ENDOFARGS was used without STARTOFARGS, then shift each item in
+X**      the array down by one position.
+X**    - initialize the parse-flags to the default settings
+X**    - initialize the default argument search-list
+X**    - allocate and initialize the command-context
+X**    - for each command-line argument in argd
+X**      - compile the ad_prompt field and set the default initial ARGXXX flags
+X**      end-for
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void init_args( ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *ad, *anchor;
+X   int  ad_count = 0;
+X   BOOL old_style = FALSE;
+X   char *description = CHARNULL, *purpose = CHARNULL;
+X   int  desclen;
+X
+X   if ( !argd )  return;
+X
+X      /* dont initialize if its already been done */
+X   if ( CMD_isINIT(argd) )  return;
+X
+X   if ( !ARG_isEND(argd) )  old_style = TRUE;
+X
+X      /* determine the argument count and preprocess each ad-entry */
+X   anchor = ( old_style ) ? argd : ARG_FIRST(argd);
+X   for ( ad = anchor ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) )  {
+X      ad_count++;
+X
+X         /* set-up any positional args that we know of */
+X      if ( ARG_isPOSONLY(ad) )  BSET( arg_flags(ad), ARGPOS );
+X
+X         /* set-up any default ARGNOVALs that we know of */
+X      if (ARG_isBOOLEAN(ad) || ARG_isPSEUDOARG(ad))
+X         BSET( arg_flags(ad), ARGNOVAL );
+X
+X      if ( get_argdesc( (char *)arg_sname(ad), &desclen ) )
+X         BSET(arg_flags(ad), ARGDESCRIBED);
+X   }
+X
+X      /* shift all the entries down one to make room for a new 1st-entry
+X      ** It would've been nice to just swap the 1st and last entries but
+X      ** I have to preserve the order that all positional parameters are
+X      ** given in.
+X      */
+X   if ( old_style  &&  ad_count > 0 ) {
+X      anchor = ad + 1;  /* save this position */
+X      for ( ; ad > argd ; ARG_RETREAT(ad) ) {
+X         memcpy( (ARBPTR)ad, (ARBPTR)(ad - 1), sizeof(ARGDESC) );
+X      }/*for*/
+X      memcpy( (ARBPTR)argd, (ARBPTR)anchor, sizeof(ARGDESC) );
+X   }
+X   else  anchor = ad;
+X
+X     /* set default parse-flags */
+X#ifndef ibm_style
+X   cmd_flags(argd) = pa_DEFAULTS;
+X#else
+X   {
+X      char *pfx = getenv( "SWITCHAR" );
+X      if ( pfx  &&  *pfx == '-' )
+X         cmd_flags(argd) = pa_FLAGS1ST;
+X      else
+X         cmd_flags(argd) = pa_DEFAULTS;
+X   }
+X#endif
+X
+X   if ( cmd_name(argd) )  cmd_name(argd) = strdup( cmd_name(argd) );
+X     /* if new-style, get the purpose from the command name */
+X   if ( !old_style  &&  cmd_name(argd) ) {
+X      purpose = cmd_name(argd);
+X   }
+X
+X      /* set the program name */
+X   if ( ProgName  &&  *ProgName  &&  !cmd_name(argd) ) {
+X      cmd_name(argd) = ProgName;
+X   }
+X
+X      /* set context */
+X   if ( !cmd_context(argd) )  {
+X      cmd_context(argd)  = (CTXDESC *) anchor;
+X      cmd_state(argd)    = ( old_style ) ? ps_OLDSTYLE : (ps_flags_t) 0;
+X      cmd_argv0(argd)    = cmd_name(argd);
+X      cmd_purpose(argd)  = purpose;
+X      cmd_ptrs(argd) = (ARGDPTRS *)malloc( sizeof(ARGDPTRS) );
+X      if ( !cmd_ptrs(argd) ) {
+X         syserr( "malloc failed in init_args()" );
+X      }
+X      if ( argd == Default_ArgDesc ) {
+X         cmd_defargs(argd)  = ARGDESCNULL;
+X      }
+X      else {
+X         if ( !CMD_isINIT(Default_ArgDesc) )  init_args( Default_ArgDesc );
+X         cmd_defargs(argd)  = Default_ArgDesc;
+X      }
+X      cmd_list(argd) = ARGDESCNULL;
+X#ifdef amiga_style
+X      cmd_prev(argd) = ARGDESCNULL;
+X#endif
+X   }
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: reset_args - (re)set a command for parsing
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID reset_args( argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC argd[];
+X/*    -- array or command-line arguments to be reset
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Reset_args will prepare a command for parsing. The command-state is
+X**    initialized and each argument is reset to "unmatched".
+X**
+X** ^REQUIREMENTS:
+X**    <argd> must point to an array that has been declared using the CMD_XXXX
+X**    macros, or using the ENDOFARGS (and optionally STARTOFARGS) macro.
+X**
+X** ^SIDE-EFFECTS:
+X**    resets the ARG flags of each argument and the command-state of argd.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - reset the command-context to be (as of yet) unparsed
+X**    - reset the ARG flags of the programmer & default argument descriptors
+X***^^**********************************************************************/
+X
+X   /* arg-flags to be reset before parsing a new command-line */
+X#define  ARGDEFAULTS  ( ARGGIVEN | ARGVALGIVEN | ARGKEYWORD | ARGVALSEP )
+X
+X#ifdef __ANSI_C__
+X   static void reset_args( ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *args, *ad;
+X
+X   if ( !CMD_isINIT(argd) )  init_args(argd);
+X
+X      /* reset the command context */
+X   BCLEAR( cmd_state(argd), (ps_NOFLAGS|ps_NOCMDENV|ps_NOPARSECNTL) );
+X   cmd_list(argd) = ARGDESCNULL;
+X#ifdef amiga_style
+X   cmd_prev(argd) = ARGDESCNULL; /* No argument requested */
+X#endif
+X
+X      /* clear out any cruft in the argument descriptors */
+X   for ( args = argd ; args ; args = cmd_defargs(args) ) {
+X      for ( ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad) ) {
+X         BCLEAR( arg_flags(ad), ARGDEFAULTS );
+X
+X#if ( defined(vms_style)  ||  defined(amiga_style) )
+X            /* vms and amiga use keywords only */
+X         BSET( arg_flags(ad), ARGKEYWORD );
+X#endif
+X      }/*for*/
+X   }/*for*/
+X}
+X
+X#undef ARGDEFAULTS
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: prompt_user - prompt the user for a missing argument
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static BOOL prompt_user( ad, argname )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *ad;
+X/*    -- pointer to the argument to be supplied by the user
+X*/
+X   char *argname;
+X/*    -- name of the argument to be supplied by the user
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Prompt_user will attempt to prompt the user to supply (on standard input)
+X**    the value for the given argument. If the argument is a list, then each
+X**    item of the list should be given on a separate line (with a blank line
+X**    terminating the list).
+X**
+X**    No special "escaping" or translation is performed on the resulting user
+X**    input, hence any whitespace ro quotes will be considered as part of the
+X**    argument value.
+X**
+X**    If stdin is NOT associated with a terminal then no prompting is performed
+X**    and FALSE is returned.  If the user enters in invalid value for the
+X**    argument then the value is discarded and FALSE is returned (so you
+X**    better get it right the first time).
+X**
+X** ^REQUIREMENTS:
+X**    Only the first 255 characters of user input is used.
+X**
+X** ^SIDE-EFFECTS:
+X**    Modifies <ad> accordingly.
+X**
+X** ^RETURN-VALUE:
+X**    FALSE if there is an error, TRUE otherwise.
+X**
+X** ^ALGORITHM:
+X**    - if stdin is not connected to a terminal return FALSE
+X**    - if argument is not a list then
+X**      - get string from user
+X**      - attempt to convert the string
+X**      - return TRUE upon success and FALSE upon failure
+X**    - else (the argument is a list)
+X**      - while (user has not entered a blank line) do
+X**        - get string from user
+X**        - attempt to convert the string
+X**        - return FALSE upon failure (otherwise continue to loop)
+X**        end-while
+X**      end-if
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static BOOL prompt_user( ARGDESC *ad, const char *argname )
+X#endif
+X{
+X   BOOL  error = FALSE, first = TRUE;
+X   int   end;
+X   char  buf[ MAXLINE ];
+X
+X   if ( !is_interactive(STDIN) )  return  FALSE;
+X
+X   if ( ARG_isMULTIVAL(ad) ) {
+X      fprintf(stderr, "Enter one %s per-line ", argname);
+X      fprintf(stderr, "(enter a blank line to stop).\n");
+X   }
+X
+X   do {  /* need repeated prompting for an ARGLIST or an ARGVEC */
+X      /* get argument from user */
+X      *buf='\0';
+X#ifdef vms_style
+X      fprintf(stderr, "\r%s> ", argname);
+X#else
+X      fprintf(stderr, "\rEnter %s: ", argname);
+X#endif
+X      fflush( stderr );
+X      if ( !fgets(buf, MAXLINE, stdin) )  *buf = '\0';
+X
+X      /* discard the newline */
+X      end = strlen(buf) - 1;
+X      if ( end >= 0  &&  buf[end] == '\n' )
+X         buf[ end ] = '\0';
+X
+X      /* make sure we read something! */
+X      if ( *buf == '\0' ) {
+X         if ( first ) {
+X            usrerr( "error - no %s given", argname );
+X            error = TRUE;
+X         }
+X         continue;
+X      }
+X
+X      /* try to convert what we read (remember - buf is transient) */
+X      if (  (*arg_type(ad))(ad, buf, TRUE) )
+X         BSET(arg_flags(ad), ARGGIVEN | ARGVALGIVEN);
+X      else
+X         error = TRUE;
+X
+X      first = FALSE;
+X   } while ( !error &&  ARG_isMULTIVAL(ad)  &&  *buf );
+X
+X   return  (error) ? FALSE : TRUE;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: verify_argreqs - check for any missing required arguments
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static BOOL verify_argreqs( cmd, parse_status )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *cmd;
+X/*    -- the argdesc-array of command-line arguments.
+X*/
+X   int *parse_status;
+X/*    -- address of current parse_status
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Verify_argreqs will reset parse_status to a success-value if it 
+X**    previously indicated a syntax error but pa_IGNORE is set to ignore
+X**    syntax error.  Verify_argreqs will then verify that any required
+X**    command-line arguments have been supplied (if they were not and
+X**    pa_PROMPT is set, then the missing values will be prompted for).
+X**
+X** ^REQUIREMENTS:
+X**    <cmd> must point to an array that has been declared using the CMD_XXXX
+X**    macros, or using the ENDOFARGS (and optionally STARTOFARGS) macro.
+X**
+X**    parse_status should be a pointer to the result of a previous call to
+X**    {f,l,s,v,}parseargs.
+X**
+X** ^SIDE-EFFECTS:
+X**    The arg-descs for missing arguments may be modified by prompt_user.
+X**    parse_status will be modified to indicate whether or not a syntax
+X**    error really has occurred (it will be pe_SUCCESS if all is hunky-dory).
+X**
+X** ^RETURN-VALUE:
+X**    FALSE if there is an error, TRUE otherwise.
+X**
+X** ^ALGORITHM:
+X**    - if parse_status is a syntax error but pa_IGNORE is set
+X**      - ignore the error by resetting the status to pe_SUCCESS
+X**      end-if
+X**    - if pa_NOCHECK is not set then check for any missing required
+X**      arguments (using prompt_user to get the values if pa_PROMPT is set).
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static BOOL verify_argreqs( ARGDESC *cmd, int *parse_status )
+X#endif
+X{
+X   register ARGDESC *ad;
+X   BOOL error;
+X   argName_t  s;
+X
+X   if ( !CMD_isINIT(cmd) )  init_args(cmd);
+X
+X   if ( *parse_status == pe_SYNTAX  &&  BTEST(cmd_flags(cmd), pa_IGNORE) ) {
+X      *parse_status = pe_SUCCESS;
+X   }
+X   error = ( *parse_status != pe_SUCCESS ) ? TRUE : FALSE;
+X
+X   if ( !BTEST(cmd_flags(cmd), pa_NOCHECK) ) {
+X      for (ad = ARG_FIRST(cmd) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad)) {
+X         if (arg_type(ad) == argDummy)  continue;
+X
+X         if ( ARG_isREQUIRED(ad)  &&  !ARG_isGIVEN(ad) ) {
+X               /* still didn't get a value... sigh */
+X            if ( ARG_isPOSITIONAL(ad) ) {
+X               (VOID) get_argname( arg_sname(ad), s );
+X               usrerr("%s required", s);
+X            }
+X            else {
+X#ifdef amiga_style
+X               (VOID) get_kwdname( arg_sname(ad), s );
+X               usrerr("argument required for %s keyword", s);
+X#endif
+X#ifdef ibm_style
+X               (VOID) get_argname( arg_sname(ad), s );
+X               {
+X                  char c, *pfx = getenv( "SWITCHAR" );
+X                  c = ( pfx &&  *pfx ) ? *pfx : '/';
+X                  usrerr("%s required for %c%c switch", s, c, arg_cname(ad));
+X               }
+X#endif
+X#ifdef unix_style
+X               (VOID) get_argname( arg_sname(ad), s );
+X               usrerr("%s required for %c%c flag", s, c_OPT_PFX, arg_cname(ad));
+X#endif
+X#ifdef vms_style
+X               (VOID) get_kwdname( arg_sname(ad), s );
+X               usrerr("value required for %c%s qualifier", *s_KWD_PFX, s);
+X#endif
+X            }
+X
+X            if ( !error  &&  BTEST(cmd_flags(cmd), pa_PROMPT) ) {
+X               if ( !prompt_user(ad, s) )  error = TRUE;
+X            }
+X            else if ( !error ) {
+X               error = TRUE;
+X            }
+X         }/*if*/
+X      }/*for*/
+X   }/*if*/
+X
+X   return  (error) ? FALSE : TRUE;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: read_flags - read bitmask-flags in a string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static argMask_t read_flags( str, c_tbl, m_tbl )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char *str;
+X/*    -- the string to parse
+X*/
+X   char c_tbl[];
+X/*    -- a (NUL-terminated) array of alpha-numeric characters Each character
+X**    is the first letter/number of a token.  If the character is lowercase,
+X**    then the corresponding mask is set, if it is uppercase, the corresponding
+X**    mask is cleared.
+X*/
+X   argMask_t m_tbl[];
+X/*    -- a table of bitmasks for the given character-table. The mask to use
+X**       for c_tbl[i] is m_tbl[i].
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Read_flags will parse the given string for any flags present in c_tbl[].
+X**    When a flag is matched, its corresponding entry in m_tbl[] is set (or
+X**    cleared) in the currently matched set of flags.
+X**
+X**    When the given string has been completely scanned, the resulting
+X**    combination of masks that were matched is returned.
+X**
+X** ^REQUIREMENTS:
+X**    A '\0' or a ';' indicates the end of parsing. A token/mask may be negated
+X**    by preceding it with one of '!', '^', or '~'. Tokens must be separated by
+X**    one or more non-alphanumerics (other than '!', '~', and '^').
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The combination of bitmasks indicated by the given string.
+X**
+X** ^ALGORITHM:
+X**    - set masks = 0
+X**    - for each "token" in str
+X**      - if token doesnt match any entries in c_tbl then continue
+X**      - let i = index of matched token in c_tbl
+X**      - if c_tbl[i] is lowercase then OR masks with m_tbl[i]
+X**      - if c_tbl[i] is uppercase then AND masks with NOT(m_tbl[i])
+X**      end-for
+X**    - return masks
+X***^^**********************************************************************/
+X
+X      /* macros for parsing flags */
+X#define  IS_NEGCHAR(c)  ( c == '!' || c == '^' || c == '~' )
+X#define  SKIP_TOK(s)    while ( isalnum(*s) || *s == '_' || *s == '-' ) s++
+X#define  SKIP_SEP(s)    while ( *s && !IS_NEGCHAR(*s) && !isalnum(*s) ) s++
+X#define  NEXT_TOK(s)    SKIP_TOK(s) ; SKIP_SEP(s)
+X#define  TOGGLE(x)      x = (x) ? FALSE : TRUE
+X
+X#ifdef __ANSI_C__
+X   static argMask_t read_flags(
+X      const char *str, const char c_tbl[], const argMask_t m_tbl[]
+X   )
+X#endif
+X{
+X   char *pos = CHARNULL;
+X   BOOL  negated = FALSE;
+X   argMask_t  mask = 0, flags = 0;
+X
+X   while ( *str  &&  *str != ';' ) {
+X      mask = 0;
+X      negated = FALSE;
+X
+X      while ( IS_NEGCHAR(*str) ) {
+X         TOGGLE(negated);
+X         ++str;
+X         SKIP_SEP(str);
+X      }
+X
+X      if ( (pos = strchr( c_tbl, TOLOWER(*str) )) != CHARNULL ) {
+X         mask = m_tbl[ (int)(pos - (char *)c_tbl) ];
+X      }
+X      else if ( (pos = strchr( c_tbl, TOUPPER(*str) )) != CHARNULL ) {
+X         TOGGLE(negated);
+X         mask = m_tbl[ (int)(pos - (char *)c_tbl) ];
+X      }
+X      else {
+X         negated = FALSE;
+X      }
+X
+X      NEXT_TOK(str);
+X
+X      if ( mask || negated ) {
+X         if   (   negated  )  BCLEAR(flags, mask);
+X         else /* !negated */  BSET(flags, mask);
+X      }/*if*/
+X   }/*while*/
+X
+X   return  flags;
+X}
+X
+X#undef  IS_NEGCHAR
+X#undef  SKIP_TOK
+X#undef  SKIP_SEP
+X#undef  NEXT_TOK
+X#undef  TOGGLE
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: get_usage_flags - determine user-defined usage-message format
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static argMask_t get_usage_flags( cmd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *cmd;
+X/*    -- command-structure to determine usage-flags for
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Through the use of an environment variable (or a VMS symbol), the user
+X**    may control the syntax and the verbosity of the command-usage messages
+X**    that are printed by parseargs. The desired level of verbosity may be
+X**    set by defining the environment variable "USAGECNTL" to be a com-
+X**    bination of strings (case insensitive). The value of each string con-
+X**    trols one of three different "modes" of behavior in the displaying
+X**    of usage messages:  The first "mode" is "verbose" mode, which con-
+X**    trols whether or not a detailed description of each argument should
+X**    accompany the usual command-line sysnopsis. If verbose mode is
+X**    "off", then only a command-line synopsis is printed (this is also
+X**    refferred to as "terse" mode). The other two "modes" control the
+X**    displaying of option syntax and long-option syntax. A mode may be
+X**    explicitly disabled by preceding its corresponding string with the `!'
+X**    or `-' character. The "modes" which correspond to the possible values of
+X**    the "USAGECNTL" environment variable are given by the following table.
+X**
+X**    "Quiet"
+X**       No usage message of any kind is displayed.
+X**
+X**    "Silent"
+X**       Same as Quiet.
+X**
+X**    "Paged"
+X**       The usage message is piped to a pager. The pager used is named by
+X**       the "USAGE_PAGER" environment variable. If this variable is unset
+X**       or empty (or is not the name of an executable program), the pager
+X**       named by the "PAGER" environment variable us used.  If this variable
+X**       is unset or empty (or is not the name of an executable program) then
+X**       the program "/usr/ucb/more" is used.
+X**
+X**    "Description"
+X**       The command description is printed.
+X**
+X**    "Terse"
+X**       Terse mode, just print command-line synopsis.
+X**
+X**    "Verbose"
+X**       Verbose mode, print descriptions for each argument
+X**
+X**    "Options"
+X**       Option syntax is displayed.
+X**
+X**    "LongOpts"
+X**       Long-option syntax is displayed.
+X**
+X**    "KeyWords"
+X**       Same as "LongOpts".
+X**
+X**    If the environment variable "USAGECNTL" is empty or undefined, then
+X**    the default usage level (which is presently "Verbose + Options")
+X**    will be used.
+X**
+X** ^REQUIREMENTS:
+X**    <cmd> must point to an array that has been declared using the CMD_XXXX
+X**    macros, or using the ENDOFARGS (and optionally STARTOFARGS) macro.
+X**
+X** ^SIDE-EFFECTS:
+X**    None.
+X**
+X** ^RETURN-VALUE:
+X**    The usage-flags corresponding to the value of $USAGECNTL
+X**
+X** ^ALGORITHM:
+X**    - If $USAGECNTL is NULL or empty, return the default flags
+X**    - get the value of $USAGECNTL and call read_flags to parse it.
+X**    - return the resulting flags.
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static argMask_t get_usage_flags( const ARGDESC *cmd )
+X#endif
+X{
+X   register  char  *usage_env;
+X   argMask_t  usg_ctl = 0;
+X   static CONST char  usage_tokens[] = {
+X      'n', 'q', 's',
+X      'T', 'v',
+X      'o',
+X      'l', 'k',
+X      'd',
+X      'p',
+X      '\0'
+X   };
+X   static CONST argMask_t  usage_masks[] = {
+X      usg_NONE,     usg_NONE,     usg_NONE,
+X      usg_VERBOSE,  usg_VERBOSE,
+X      usg_OPTS,
+X      usg_LONGOPTS, usg_LONGOPTS,
+X      usg_DESCRIPTION,
+X      usg_PAGED
+X   };
+X
+X   usage_env = getenv("USAGECNTL");
+X   if ( !usage_env ) {
+X      usg_ctl = usg_VERBOSE;
+X   }
+X   else {
+X      usg_ctl = read_flags( usage_env, usage_tokens, usage_masks );
+X   }
+X
+X   envfree( usage_env );
+X
+X#ifdef unix_style
+X      /* make sure we print at least one of options/keywords */
+X   if ( !BTEST(usg_ctl, usg_OPTS|usg_LONGOPTS) ) {
+X      if ( BTEST(cmd_flags(cmd), pa_KWDSONLY) ) {
+X         BSET(usg_ctl, usg_LONGOPTS);
+X      }
+X      else {
+X         BSET(usg_ctl, usg_OPTS);
+X      }
+X   }
+X#endif /* unix_style */
+X
+X   return  usg_ctl;
+X}
+X
+X
+X#ifndef LITE
+X
+X/***************************************************************************
+X** ^FUNCTION: get_parse_flags - determine user-defined parsing behavior
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID get_parse_flags( cmd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *cmd;
+X/*    -- command-structure to determine parse-flags for
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    The programmer may control parsing behavior through the use of
+X**    parsecntl(3). The user may set this behavior through the use of the
+X**    PARSECNTL environment variable.  By indicating any number of flags
+X**    (possibly negated) the user will directly modify the behavior of the
+X**    parseargs library. Flags may be combined by placing a `+' or `|'
+X**    character in between flags. A switch is negated by immediately preceding
+X**    it with a `!' or `-' character.  The possible "flags" are given by
+X**    the following table. Flags are case-insensitive.
+X**
+X**    "Prompt"
+X**       Prompt the user for any missing arguments that are required on the
+X**       command-line. No special escaping or quoting is performed on the
+X**       user input. Required arguments that expect a list of values will
+X**       be repeatedly prompted for (one item per line) until a blank line
+X**       (followed by a carriage return) is entered.
+X**
+X**    "Ignore"
+X**       Ignore any unrecognized or improperly specified command-line arguments
+X**       and continue execution of the program. Normally, if a required
+X**       argument is unmatched (or an argument is improperly specified), a
+X**       usage message is printed and program execution is terminated.
+X**
+X**    "OptsOnly"
+X**       Under UNIX, setting this flag will disable the parsing of long-option
+X**       syntax. This will cause all arguments starting with '+' to always be
+X**       treated as a positional parameter (instead of a long-option).
+X**
+X**    "KwdsOnly"
+X**       Under UNIX, setting this flag disables the parsing of single-character
+X**       options.  This will cause all arguments starting with '-' to always be
+X**       treated as a positional parameter (instead of an option).
+X**
+X**    "LoptsOnly"
+X**       Same as KwdsOnly.
+X**
+X**    "Flags1st"
+X**       Setting this flag causes the parseargs library to force any and all
+X**       non-positional arguments to be specified before any positional ones.
+X**       As an example, under UNIX, if this flag is SET then parseargs will
+X**       consider the command line "cmd -x arg" to consist of one option and
+X**       one positional argument; however the command line "cmd arg -x" would
+X**       be considered to consist of two positional arguments (the -x option
+X**       will be unmatched).
+X**
+X**       If this flag is UNSET, then both of the previous examples are
+X**       considered to consist of one option and one positional argument.
+X**
+X**    "CaseIgnore"
+X**       Setting this flag causes character-case to be ignored when attempting
+X**       to match single-character argument names (i.e. causes "-i" and "-I"
+X**       will be considered equivalent).
+X**
+X**    If the environment variable "PARSECNTL" is empty or undefined, then the
+X**    parsing behavior set by the programmer is used.  If the programmer has
+X**    not explicitly used parsecntl(3) to modify the parsing behavior, then
+X**    the default behavior will be "Flags1st" for Unix Systems,
+X**    "!Prompt + !Ignore" for AmigaDOS systems, "Prompt" for VMS systems,
+X**    and "CaseIgnore" for MS-DOS and OS/2 systems.
+X**
+X** ^REQUIREMENTS:
+X**    <cmd> must point to an array that has been declared using the CMD_XXXX
+X**    macros, or using the ENDOFARGS (and optionally STARTOFARGS) macro.
+X**
+X** ^SIDE-EFFECTS:
+X**    Modifies the parse-flags of <cmd> is $PARSECNTL is non-null & non-empty.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - If $PARSECNTL is NULL or empty, return
+X**    - Else turn off all flags that may be set by $PARSECNTL
+X**    - get the value of $PARSECNTL and call read_flags to parse it.
+X**    - set the returned flags in the cmd-structure.
+X**    - return the resulting flags.
+X***^^**********************************************************************/
+X
+X   /* the combination of parse-flags that may be set via $PARSECNTL */
+X#define  pa_USRFLAGS \
+X   (pa_PROMPT|pa_IGNORE|pa_ANYCASE|pa_OPTSONLY|pa_KWDSONLY|pa_FLAGS1ST)
+X
+X#ifdef __ANSI_C__
+X   static void get_parse_flags( ARGDESC *cmd )
+X#endif
+X{
+X   register argMask_t  flags = 0;
+X   char *parse_env;
+X   static CONST char  parse_tokens[] = {
+X      'c',
+X      'd',
+X      'f',
+X      'i',
+X      'p',
+X      'o',
+X      'l','k',
+X      '\0'
+X   };
+X   static CONST argMask_t  parse_masks[] = {
+X      pa_ANYCASE,
+X      pa_DEFAULTS,
+X      pa_FLAGS1ST,
+X      pa_IGNORE,
+X      pa_PROMPT,
+X      pa_OPTSONLY,
+X      pa_KWDSONLY, pa_KWDSONLY
+X   };
+X
+X   if ( !CMD_isINIT(cmd) )  init_args( cmd );
+X
+X   if ( (parse_env = getenv("PARSECNTL"))  &&  *parse_env ) {
+X      flags = read_flags( parse_env, parse_tokens, parse_masks );
+X
+X         /*
+X         ** mask off all the flags that may be set by $PARSECNTL
+X         ** (including any default flags).
+X         */
+X      BCLEAR( cmd_flags(cmd), pa_USRFLAGS );
+X
+X      cmd_flags(cmd) |= flags;
+X   }/*if*/
+X
+X   envfree( parse_env );
+X}
+X
+X#undef  pa_USRFLAGS
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: parse_user_defaults - parse user-supplied default arguments
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static VOID parse_user_defaults( cmd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *cmd;
+X/*    -- the command-line object to parse
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Programs that use parseargs may be given default arguments under
+X**    Unix and PCs through the use of environment variables (symbols
+X**    are used for VMS systems). If a  C-program or shell-script uses
+X**    parseargs to implement a command named "cmd" then the environment
+X**    variable CMD_ARGS will be parsed for any "default" arguments before
+X**    the command-line is parsed.  The command-line will over-ride any
+X**    options that are specified in this environment variable (except that
+X**    ARGLISTs and ARGVECs set in "CMD_ARGS" will be appended from the
+X**    command-line if they are selected).
+X**
+X**    It is important to note that the contents of the CMD_ARGS environ-
+X**    ment variable are NOT expanded by the shell and hence any special
+X**    characters (such as quotes or back-slashes) will NOT be escaped or
+X**    removed by parseargs. Furthermore, it will not be possible to try and
+X**    use a tab, space, or newline character in the environment variable as
+X**    anything other than an argument separator.
+X**
+X**    Lastly, parts of an option specification in CMD_ARGS may NOT be
+X**    continued on the command-line. As an example, if -f requires an
+X**    argument and CMD_ARGS="-f", then the command-line "cmd  bah" will
+X**    NOT assign "bah" as the argument to -f but will instead complain
+X**    about a missing argument for -f. Similarly, if -l takes a list of
+X**    arguments and CMD_ARGS="-l item1 item2", then the command-line
+X**    "cmd  bah", will NOT assign "bah" to the end of the list containing
+X**    "item1" and "item2" but will instead treat "bah" as the first
+X**    positional parameter on the command-line.
+X**
+X** ^REQUIREMENTS:
+X**    <cmd> should be an array of ARGDESCs declared using the CMD_XXXX macros
+X**    or with the ENDOFARGS (and possible STARTOFARGS) macros.
+X**
+X** ^SIDE-EFFECTS:
+X**    Any matched arguments have their ARGDESCs modified accordingly.
+X**    Also, the command-state is changed to reflect the fact that the
+X**    environment variable has been parsed. Also, after parsing the
+X**    variable, the command is partially parsed. Hence the pa_CONTINUE
+X**    is set to prevent arguments from being reset when the actual command
+X**    line is parsed.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - Get the value of the environment variable
+X**    - if the variable is null or empty then return.
+X**    - turn OFF the VARIABLE-NOT-YET-PARSED flag
+X**    - turn on the NOCHECK flag so we dont check for missing required
+X**      arguments in the variable (there may be more on the command-line).
+X**    - parse the string and convert any arguments matched
+X**    - set the NOCHECK flag back to its previous setting
+X**    - set the CONTINUE flag since the command-line is now partially parsed.
+X**    - return
+X***^^**********************************************************************/
+X
+X#define  ENV_SUFFIX  "_ARGS"  /* suffix for env-variable with default args */
+X
+X#ifdef __ANSI_C__
+X   static VOID parse_user_defaults( ARGDESC *cmd )
+X#endif
+X{
+X   int  rc;
+X   char      *env_args;
+X   argName_t  env_name;
+X   VOID usage();
+X
+X   if ( !CMD_isINIT(cmd) )  init_args( cmd );
+X
+X      /* if ignoring the <CMD>_ARGS variable then just return */
+X   if ( BTEST(cmd_state(cmd), ps_NOCMDENV) )  return;
+X
+X      /* build the name of the environment variable */
+X   strncpy( env_name, ProgName, ProgNameLen );
+X   env_name[ProgNameLen] = 0;
+X   (VOID) strupr( env_name );
+X   strcat( env_name, ENV_SUFFIX );
+X
+X      /* get the value of the environment variable,
+X      ** split it up into tokens, and parse it.
+X      */
+X   env_args = getenv(env_name);
+X   if ( env_args ) {
+X      char **argv = (char **)NULL;
+X      char *env_val = strdup( env_args );
+X      argMask_t  saveflags = cmd_flags(cmd);
+X
+X      BSET( cmd_flags(cmd), pa_NOCHECK | pa_ARGV0 | pa_COPYF );
+X      BSET( cmd_state(cmd), ps_NOCMDENV );
+X
+X          /* split line up into whitespace separated tokens */
+X      if ( !strsplit( &argv, env_val, CHARNULL ) ) {
+X         free( argv );
+X         return;
+X      }
+X
+X#ifdef vms_style
+X      BSET( cmd_state(cmd), ps_NOTCMDLINE );
+X#endif
+X
+X      rc = parse_argv_style( argv, cmd );
+X      free( argv );
+X      cmd_list(cmd) = ARGDESCNULL;  /* dont allow lists to continue on */
+X#ifdef amiga_style
+X      cmd_prev(cmd) = ARGDESCNULL;
+X#endif
+X
+X#ifdef vms_style
+X      BCLEAR( cmd_state(cmd), ps_NOTCMDLINE );
+X#endif
+X
+X         /* check for errors */
+X      if ( rc  &&  !BTEST(cmd_flags(cmd), pa_IGNORE) ) {
+X         eprintf( "%.*s: syntax-error in %s \"%s\".\n",
+X                  ProgNameLen, ProgName, USER_VARIABLE, env_name );
+X         eprintf( "\t%s = \"%s\"\n\n", env_name, env_args );
+X         free( env_val );
+X         usage( cmd );
+X         exit( exit_SYNTAX );
+X      }
+X
+X      free( env_val );
+X      cmd_flags(cmd) = (saveflags | pa_CONTINUE);
+X   }
+X
+X   envfree( env_args );
+X}
+X
+X#undef ENV_SUFFIX
+X
+X#endif /* ! LITE */
+X
+X/***************************************************************************
+X** ^FUNCTION: parse_init -- initialize an ARGDESC for parsing
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   static ARGDESC *parse_init( argdp )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *argdp[];
+X/*    -- pointer to the argument descriptor array.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Parse_init will perform the usual pre-parsing actions such as checking
+X**    $PARSECNTL, parsing $<NAME>_ARGS, and resetting the command-line.
+X**
+X** ^REQUIREMENTS:
+X**    <argdp> should point to an array of ARGDESCs declared using the CMD_XXXX
+X**    macros or with the ENDOFARGS (and possible STARTOFARGS) macros.
+X**
+X** ^SIDE-EFFECTS:
+X**    Initialize argd and parses any default arguments.
+X**
+X** ^RETURN-VALUE:
+X**    pointer to the arg-descriptors
+X**
+X** ^ALGORITHM:
+X**    - check for a NULL argdesc-array
+X**    - initialize the command-object if necessary
+X**    - set ProgName
+X**    - read $PARSECNTL
+X**    - reset the command-line if necessary (and parse $<NAME>_ARGS)
+X**    - return the command-object
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   static ARGDESC *parse_init( ARGDESC *argdp[] )
+X#endif
+X{
+X   register ARGDESC *cmd;
+X   BOOL  unnamed = FALSE;
+X
+X      /* allow null argument descriptor */
+X   if ( !(*argdp) )  *argdp = Empty_ArgDesc;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(*argdp) )  init_args( *argdp );
+X   cmd = *argdp;
+X
+X      /* save the name of this program (for error messages) */
+X   if ( cmd_argv0(cmd)  &&  *(cmd_argv0(cmd)) ) {
+X      ProgName = cmd_argv0(cmd);
+X      ProgNameLen = get_argpfx(ProgName);
+X   }
+X   else if ( cmd_name(cmd)  &&  *(cmd_name(cmd)) ) {
+X      ProgName = cmd_name(cmd);
+X      ProgNameLen = get_argpfx(ProgName);
+X   }
+X   else {
+X      unnamed = TRUE;
+X   }
+X
+X#ifndef LITE
+X      /* read PARSECNTL environment variable */
+X   if ( !BTEST(cmd_state(cmd), ps_NOPARSECNTL) ) {
+X      get_parse_flags(*argdp);
+X   }
+X#endif
+X
+X      /* reset argd if necessary */
+X   if ( !BTEST(cmd_flags(cmd), pa_CONTINUE) )  {
+X      reset_args( *argdp );
+X
+X#ifndef LITE
+X         /* get any options from <CMDNAME>_ARGS environment variable */
+X      if ( !BTEST(cmd_flags(cmd), pa_NOCMDENV)  &&  !unnamed )  {
+X         parse_user_defaults( *argdp );
+X      }
+X#endif
+X   }
+X
+X   return  *argdp;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: usage -- print a usage message
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   VOID usage( argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC argd[];
+X/*    -- the description of expected arguments.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Given an argdesc array, usage will print the usage for the given
+X**    command in the format specified by the user's USAGECNTL environment
+X**    variable.
+X**
+X** ^REQUIREMENTS:
+X**    <argd> should be an array of ARGDESCs declared using the CMD_XXXX macros
+X**    or with the ENDOFARGS (and possible STARTOFARGS) macros.
+X**
+X** ^SIDE-EFFECTS:
+X**    Prints on stderr.
+X**
+X** ^RETURN-VALUE:
+X**    None.
+X**
+X** ^ALGORITHM:
+X**    - initialize the command-object
+X**    - set ProgName
+X**    - read $USAGECNTL
+X**    - call <os>_usage()
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   void usage( const ARGDESC argd[] )
+X#endif
+X{
+X   register CONST ARGDESC *cmd;
+X   argMask_t  usg_ctl = 0;
+X
+X      /* allow null argument descriptor */
+X   if ( !argd )  argd = Empty_ArgDesc;
+X
+X   if ( !CMD_isINIT(argd) )   init_args( (ARGDESC *)argd );
+X   cmd = argd;
+X
+X   if ( cmd_argv0(cmd) && *(cmd_argv0(cmd)) ) {
+X      ProgName = cmd_argv0(cmd);
+X      ProgNameLen = get_argpfx(ProgName);
+X   }
+X   else if ( cmd_name(cmd) && *(cmd_name(cmd)) ) {
+X      ProgName = cmd_name(cmd);
+X      ProgNameLen = get_argpfx(ProgName);
+X   }
+X
+X   usg_ctl = get_usage_flags(cmd);
+X   if ( !BTEST(usg_ctl, usg_NONE) )  print_usage_style( argd, usg_ctl );
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: parsecntl - control various aspects of command-line parsing
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int  parsecntl( argd, cntl, mode, va_alist )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC *argd;
+X/*    --  The command-object to operate upon
+X*/
+X   parsecntl_t cntl;
+X/*    --  The control-code corresponding to the desired operation
+X*/
+X   parsemode_t mode;
+X/*    --  The mode of the operation (read, write, or both)
+X*/
+X   va_dcl
+X/*    -- any further args followed by the item to be read/written
+X*/
+X#endif  /* !__ANSI_C__ */
+X  
+X/* ^DESCRIPTION:
+X**    Parsecntl will read and/or write the desired attributes of the given
+X**    command-object. The attributes to be operated upon are specified by
+X**    the second parameter to parsecntl. The desired mode (read, write, or
+X**    both) are specified by the third parameter to parsecntl. If the
+X**    operation to be performed is pc_ARGFLAGS, then the fourth argument to
+X**    parsecntl should be the keyword name of the argument whose flags are to
+X**    be retrieved.  The last parameter to parsecntl is always the object to
+X**    contain the attribute(s) to be read/written.  If the attribute(s) are
+X**    to be read (regardless of whether or not they are also being changed)
+X**    then the last argument should be a pointer to an object, otherwise the
+X**    last argument should be the object itself.
+X**
+X**    If mode is pc_READ, then the desired attributes are copied into the
+X**    object pointed to by the last parameter. If the mode is pc_WRITE, then
+X**    the attributes from the last parameter are copied to the command-
+X**    object. If mode is pc_RDWR, then the attributes pointed to by the last
+X**    parameter are copied to the command-object, and then the previous
+X**    value of these attributes (before they were overwritten) is copied
+X**    into the object pointed to by the last parameter.
+X**
+X**    If cntl is pc_ARGFLAGS, then the only valid mode pc_READ. All other
+X**    attributes may be written or read by parsecntl.
+X**
+X** ^REQUIREMENTS:
+X**    If mode is READ or READ+WRITE then the last argument should be the
+X**    address of the desired object, otherwise it should be the object itself.
+X**
+X** ^SIDE-EFFECTS:
+X**    None if the mode is READ, otherwise, the desired attibutes are (re)set
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_DEFARGS
+X**       -- an attempt (using parsecntl()) was made to change the
+X**          default arg-search list of a command to point to an argdesc-array
+X**          which already has the given command on its default arg-search list
+X**          (which would cause an infinite loop when attempting to match an
+X**          unknown command-line argument).
+X** 
+X**    pe_NOMATCH
+X**       -- unable to match the named argument for the pc_ARGFLAGS cntl
+X** 
+X**    pe_BADMODE
+X**       -- bad mode for given command in parsecntl()
+X** 
+X**    pe_BADCNTL
+X**       -- bad command for parsecntl
+X**
+X** ^ALGORITHM:
+X**    - if cntl is pc_ARGFLAGS
+X**      - if mode is pc_WRITE or pc_RDWR then return pe_BADMODE
+X**      - get the argument name and try to match it.
+X**      - if no match, then return pe_NOMATCH
+X**      - copy the flags for the matched argument
+X**      - return pe_SUCCESS
+X**    - else if cntl is pc_PARSEFLAGS
+X**      - save the current parseflags.
+X**      - if requested, (re)set the current flags
+X**      - if requested, copy the old flags
+X**      - return pe_SUCCESS
+X**    - else if cntl is pc_DEFARGS
+X**      - save the current default-args
+X**      - make sure the given default-args does not already contain argd
+X**      - if the above assertion failed, return pe_DEFARGS
+X**      - if requested, (re)set the default-args
+X**      - if requested, copy the old default-args
+X**      - return pe_SUCCESS
+X**    - else ( cntl must be in {pc_NAME, pc_PURPOSE, pc_DESCRIPTION} )
+X**      - save the current setting of the attribute-string
+X**      - if requested, (re)set the current attribute-string
+X**      - if requested, copy the old attribute-string
+X**      - return pe_SUCCESS
+X**      endif
+X***^^**********************************************************************/
+X
+X   /*
+X   ** define some convenience macros to determine if we are
+X   ** reading/writing from/to the argdesc-array.
+X   */
+X#define isREADING(pmode)  (pmode == pc_READ  || pmode == pc_RDWR)
+X#define isWRITING(pmode)  (pmode == pc_WRITE || pmode == pc_RDWR)
+X
+X#ifdef __ANSI_C__
+X   int parsecntl( ARGDESC *argd, parsecntl_t cntl, parsemode_t mode, ... )
+X#endif
+X{
+X   register ARGDESC  *cmd;
+X   register int  rc = pe_SUCCESS;
+X   va_list   ap;
+X
+X   if ( !argd )   return   rc;
+X   if ( !CMD_isINIT(argd) )   init_args(argd);
+X   cmd = argd;
+X   VA_START( ap, mode );   /* get argument to match */
+X
+X      /* now figure out what to do and go do it! */
+X   switch( cntl ) {
+X      case  pc_ARGFLAGS :  /* get/set arg-flags */
+X         {
+X            register ARGDESC *ad, *args;
+X            char *name = VA_ARG( ap, char * );
+X            argMask_t  *argflags;
+X            BOOL  is_match = FALSE;
+X
+X               /* first we have to find the argument whose flags we need */
+X            for (args = argd ; args  &&  !is_match ; args = cmd_defargs(args)) {
+X               for (ad = ARG_FIRST(args) ; !ARG_isEND(ad) ; ARG_ADVANCE(ad)) {
+X                  if ( arg_type(ad) == argDummy )  continue;
+X
+X                  if ( match(name, arg_sname(ad)) == 0 ) {
+X                     is_match = TRUE;
+X                     break;
+X                  }/*if*/
+X               }/*foreach arg*/
+X            }/*foreach argdesc*/
+X
+X            if ( !is_match ) {
+X               VA_END(ap);
+X               return  pe_NOMATCH;
+X            }
+X
+X               /* now that we found it - retrieve the argument flags */
+X            if ( isREADING(mode) ) {
+X              argflags = VA_ARG( ap, argMask_t * );
+X              *argflags = arg_flags(ad);
+X            }
+X            else {
+X              rc = pe_BADMODE;  /* parsecntl() wont set ARGFLAGS */
+X            }
+X         }/*block*/
+X         break;
+X
+X      case  pc_PARSEFLAGS : /* get/set the parse-flags */
+X         {
+X            argMask_t *pflags, flags;
+X
+X               /* get value from call-stack (dependent on the mode) */
+X            if ( isREADING(mode) ) {
+X              pflags = VA_ARG( ap, argMask_t * );
+X              flags = cmd_flags(cmd);
+X            }
+X            else {
+X              flags = (argMask_t) VA_ARG( ap, int );
+X              pflags = &flags;
+X            }
+X
+X               /* perform the desired action(s) */
+X            if ( isWRITING(mode) )  cmd_flags(cmd) = *pflags;
+X            if ( isREADING(mode) )  *pflags = flags;
+X         }/*block*/
+X         break;
+X
+X      case  pc_DEFARGS : /* get/set the default arguments */
+X         {
+X            ARGDESC **pdefargd, *defargd;
+X
+X               /* get value from call-stack (dependent on the mode) */
+X            if ( isREADING(mode) ) {
+X               pdefargd = VA_ARG( ap, ARGDESC ** );
+X               defargd = cmd_defargs(cmd);
+X            }
+X            else {
+X               defargd = VA_ARG( ap, ARGDESC * );
+X               pdefargd = &defargd;
+X            }
+X
+X            if ( isWRITING(mode) ) {
+X               ARGDESC *args;
+X
+X               if ( !CMD_isINIT(*pdefargd) )  init_args( *pdefargd );
+X
+X                  /* make sure we are not on the default-argdesc's
+X                  ** default-argument hierarchy (or an infinite loop
+X                  ** will result).
+X                  */
+X               for ( args = *pdefargd; rc && args; args = cmd_defargs(args) ) {
+X                  if ( args == cmd )  rc = pe_DEFARGS;
+X               }
+X               if ( !rc )  cmd_defargs(cmd) = *pdefargd;  /* set new defaults */
+X            }/*if*/
+X
+X            if ( isREADING(mode) )  *pdefargd = defargd;
+X         }
+X         break;
+X
+X      case  pc_NAME :  /* get/set name */
+X      case  pc_PURPOSE :  /* get/set purpose */
+X      case  pc_DESCRIPTION :  /* get/set description */
+X         {
+X            CONST char *str, **pstr;
+X
+X               /* get value from call-stack (dependent on the mode) */
+X            if ( isREADING(mode) ) {
+X               pstr = VA_ARG( ap, CONST char ** );
+X               if      ( cntl == pc_NAME ) {
+X                  if ( !BTEST(cmd_state(cmd), ps_USERNAME|ps_FREENAME) ) {
+X                     if ( cmd_name(argd) ) {
+X                        int  n;
+X                        char  *p;
+X
+X                        n = get_argpfx( (char *)cmd_name(argd) );
+X                        p = (char *)malloc( n+1 );
+X                        if ( !p ) {
+X                           syserr( "malloc failed in parsecntl()" );
+X                        }
+X                        strncpy(p, (char *)cmd_name(argd), n);
+X                        p[n] = 0;
+X                        cmd_name(argd) = p;
+X                        BSET(cmd_state(cmd), ps_FREENAME);
+X                     }
+X                  }
+X                  str = cmd_name(cmd);
+X               }
+X               else if ( cntl == pc_PURPOSE ) {
+X                  if ( !BTEST(cmd_state(cmd), ps_USERPURPOSE|ps_FREEPURPOSE) ) {
+X                     if ( cmd_purpose(argd) ) {
+X                        int  n;
+X                        char  *p, *q;
+X
+X                        p = get_argdesc( (char *)cmd_purpose(argd), &n );
+X                        if ( p ) {
+X                           q = (char *)malloc( n+1 );
+X                           if ( !q ) {
+X                              syserr( "malloc failed in parsecntl()" );
+X                           }
+X                           strncpy(q, p, n);
+X                           q[n] = 0;
+X                           p = q;
+X                           BSET(cmd_state(cmd), ps_FREEPURPOSE);
+X                        }
+X                        cmd_purpose(cmd) = p;
+X                     }
+X                  }
+X                  str = cmd_purpose(cmd);
+X               }
+X               else /* cntl == pc_DESCRIPTION */  str = cmd_description(cmd);
+X            }
+X            else {
+X               str = VA_ARG( ap, CONST char * );
+X               pstr = &str;
+X            }
+X
+X               /* perform the desired action(s) */
+X            if ( isWRITING(mode) )  {
+X               if ( cntl == pc_NAME ) {
+X                  if ( BTEST(cmd_state(cmd), ps_FREENAME) )
+X                     free( cmd_name(cmd) );
+X                     BCLEAR( cmd_state(cmd), ps_FREENAME );
+X                     BSET( cmd_state(cmd), ps_USERNAME );
+X                     cmd_name(cmd) = *pstr;
+X                  }
+X               else if ( cntl == pc_PURPOSE ) {
+X                  if ( BTEST(cmd_state(cmd), ps_FREEPURPOSE) ) {
+X                     free( cmd_purpose(cmd) );
+X                  }
+X                  BCLEAR( cmd_state(cmd), ps_FREEPURPOSE );
+X                  BSET( cmd_state(cmd), ps_USERPURPOSE );
+X                  cmd_purpose(cmd) = *pstr;
+X               }
+X               else /* cntl == pc_DESCRIPTION */  cmd_description(cmd) = *pstr;
+X            }
+X            if ( isREADING(mode) )  *pstr = str;
+X         }/*block*/
+X         break;
+X
+X      default :
+X         rc = pe_BADCNTL;
+X         break;
+X   }/*switch*/
+X
+X   VA_END( ap );
+X   return   rc;
+X}
+X
+X#undef  isREADING
+X#undef  isWRITING
+X
+X
+X#ifndef LITE
+X
+X/***************************************************************************
+X** ^FUNCTION: sparseargs - parse arguments in a string
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int sparseargs( str, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char    *str;
+X/*    -- string to parse
+X*/
+X   ARGDESC *argd;
+X/*    -- pointer to argument descriptor table
+X*/
+X#endif  /* !__ANSI_C__ */
+X  
+X/* ^DESCRIPTION:
+X**    Given a single string and an argdesc array, sparseargs will parse
+X**    arguments from a string in the same manner as parseargs.
+X**    Sparseargs will split the given string up into a vector of whitespace
+X**    separated tokens and then attempt to parse the resultant vector as if
+X**    it were given as argv[] on the command-line.  NO special treatment is
+X**    given to characters such as single-quotes, double-quotes, or anything
+X**    else. Sparseargs will always assume that any whitespace characters are
+X**    intended as argument separators.
+X**
+X** ^REQUIREMENTS:
+X**    <str> should be non-NULL and non-empty
+X**
+X** ^SIDE-EFFECTS:
+X**    <str> is modified by strsplit().
+X**    <argd> is modified accordingly as arguments are matched.
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_SYNTAX
+X**       -- If a syntax error occurs in <str>
+X**
+X** ^ALGORITHM:
+X**    - save current parse-flags
+X**    - add pa_ARGV0 to current parse-flags
+X**    - split string up into a vector of tokens
+X**    - call parse init and then parse the arguments
+X**    - if syntax-error, print usage and exit
+X**    - restore parse-flags
+X**    - return the status from parsing the vector
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int sparseargs( char *str, ARGDESC *argd )
+X#endif
+X{
+X   argMask_t  saveflags;
+X   char **argv;
+X   int  rc = 0;
+X
+X   if ( !argd )  return  pe_SUCCESS;
+X
+X   if ( !CMD_isINIT(argd) )  init_args(argd);
+X
+X      /* save old flags & initialize set parse flags */
+X   saveflags = cmd_flags(argd);
+X   BSET(cmd_flags(argd), pa_ARGV0);
+X
+X      /* split line up into whitespace separated tokens */
+X   (void) strsplit( &argv, str, CHARNULL );
+X
+X#ifdef vms_style
+X   BSET( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X   rc = parse_argv_style( argv, parse_init( &argd ) );
+X   free( argv );
+X
+X#ifdef vms_style
+X   BCLEAR( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X      /* scan for missing required arguments */
+X   if ( SYNTAX_ERROR(rc, argd) ) {
+X      fputc( '\n', stderr );
+X      usage( argd );
+X      exit( exit_SYNTAX );
+X   }
+X
+X      /* reset previous parse flags */
+X   cmd_flags(argd)  =  saveflags;
+X
+X   return  rc;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: fparseargs - parse arguments from a file
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int fparseargs( fp, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   FILE    *fp;
+X/*    -- pointer to file to read (must already be open)
+X*/
+X   ARGDESC *argd;
+X/*    -- pointer to argument descriptor table
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Given a readable input stream and an argdesc array, fparseargs will
+X**    parse arguments in a file in the same manner as parseargs.  A
+X**    maximum-line length of 255 characters is imposed.  NO "escaping" of
+X**    any kind is performed. Comments of a limited form are permitted: if
+X**    the first non-whitespace character on a line is a '#' (or '!' for VMS)
+X**    then that entire line is considered a comment and is ignored.  If a
+X**    value is provided for an argument that is NOT a list or a vector, then
+X**    the value MUST be on the same line as the argument (in other words,
+X**    "-v val" is fine but "-v\nval" is a not).
+X**
+X** ^REQUIREMENTS:
+X**    <fp> should be non-NULL, already opened-for-reading, file-pointer
+X**
+X** ^SIDE-EFFECTS:
+X**    <argd> is modified accordingly as arguments are matched.
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_SYNTAX
+X**       -- if a syntax error occurs in the file
+X**
+X** ^ALGORITHM:
+X**    - save current parse-flags
+X**    - add pa_ARGV0 to current parse-flags
+X**    - add pa_NOCHECK to current parse-flags (dont check until eof)
+X**    - call parse init
+X**    - parse the first line of the file
+X**    - add pa_CONTINUE to current parse-flags
+X**    - parse the rest of the file
+X**    - restore parse-flags
+X**    - now check for missing args if required
+X**    - if syntax-error, print usage and exit
+X**    - return
+X***^^**********************************************************************/
+X
+X#ifdef vms_style
+X#  define  c_COMMENT  '!'
+X#else
+X#  define  c_COMMENT  '#'
+X#endif
+X
+X#ifdef __ANSI_C__
+X   int fparseargs( FILE *fp, ARGDESC *argd )
+X#endif
+X{
+X   int  rc;
+X   char  text[ MAXLINE ];
+X   argMask_t  saveflags;
+X
+X   if ( !argd )  return  0;
+X
+X   if ( !CMD_isINIT(argd) )  init_args(argd);
+X
+X      /* We want the following scenario for the various calls to sparseargs():
+X      ** assume there are N lines in the input file. Then there will be N
+X      ** calls to sparseargs(). For all calls, we want pa_ARGV0 and pa_COPYF
+X      ** to be ON. Then for the ALL but the very last call, we want pa_NOCHECK
+X      ** to be off. For all but the very first call - we want pa_CONTINUE to
+X      ** be turned ON. So we have the following table:
+X      **
+X      **     Parse     ||           invocation of sparseargs
+X      **      Flag     ||   0    |     1     |     2 .. N-1    |     N
+X      **   ============++========+===========+=================+=============== 
+X      **      ARGV0    ||   on   |    on     |       on        |     on
+X      **   ------------++--------+-----------+-----------------+--------------- 
+X      **      COPYF    ||   on   |    on     |       on        |     on
+X      **   ------------++--------+-----------+-----------------+--------------- 
+X      **      NOCHECK  ||   on   |    on     |       on        |     OFF
+X      **   ------------++--------+-----------+-----------------+--------------- 
+X      **      CONTINUE ||   OFF  |    on     |       on        |     on
+X      **   ============++========+===========+=================+=============== 
+X      */
+X      
+X      /* save old flags & initialize parse flags for first call */
+X   saveflags = cmd_flags(argd);
+X   BSET(cmd_flags(argd), pa_ARGV0 | pa_NOCHECK | pa_COPYF);
+X
+X   while ( !feof( fp ) ) {
+X      if ( !fgets( text, MAXLINE, fp ) ) {
+X         if ( ferror( fp ) )  {
+X            cmd_flags(argd)  =  saveflags;
+X            return  pe_SYSTEM;
+X         }
+X      }/*if*/
+X
+X         /* trim leading and trailing whitespace and check for comments */
+X      (VOID) strtrim( text, CHARNULL );
+X      if ( !text  ||  !(*text)  ||  *text == c_COMMENT )  continue;
+X
+X      rc = sparseargs( text, argd );
+X
+X         /* set up parseflags for next call */
+X      if ( !BTEST(cmd_flags(argd), pa_CONTINUE) ) {
+X         BSET(cmd_flags(argd), pa_CONTINUE);
+X      }
+X   }/*while !EOF*/
+X
+X   if ( !BTEST(saveflags, pa_NOCHECK) )  BCLEAR(cmd_flags(argd), pa_NOCHECK);
+X
+X      /* scan for missing required args */
+X   if ( SYNTAX_ERROR(rc, argd) ) {
+X      fputc('\n', stderr);
+X      usage( argd );
+X      exit( exit_SYNTAX );
+X   }
+X
+X      /* reset previous parse flags */
+X   cmd_flags(argd)  =  saveflags;
+X
+X   return  rc;
+X}
+X
+X#undef  c_COMMENT
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: lparseargs - parse arguments from a list
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int lparseargs( argls, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ArgList *argls;
+X/*    -- linked list of args to parse
+X*/
+X   ARGDESC *argd;
+X/*    -- pointer to argument descriptor table
+X*/
+X#endif  /* !__ANSI_C__ */
+X  
+X/* ^DESCRIPTION:
+X**    Given an ArgList and an argdesc array, lparseargs will parse arguments
+X**    in an ArgList in the same manner as parseargs.
+X**
+X** ^REQUIREMENTS:
+X**    <argls> should be an ArgList of strings
+X**
+X** ^SIDE-EFFECTS:
+X**    <argd> is modified accordingly as arguments are matched.
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_SYNTAX
+X**       -- if a syntax error occurs
+X**
+X** ^ALGORITHM:
+X**    - save current parse-flags
+X**    - add pa_ARGV0 to current parse-flags
+X**    - make a vector out of the ArgList
+X**    - call parse init
+X**    - restore parse-flags
+X**    - if syntax-error, print usage and exit
+X**    - return
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int lparseargs( ArgList *argls, ARGDESC *argd )
+X#endif
+X{
+X   int   i, argc = 0, rc = 0;
+X   char **argv = (char **)NULL;
+X   argMask_t   saveflags;
+X   register    ArgList *ls;
+X
+X   if ( !argd )  return  0;
+X   if ( !CMD_isINIT(argd) )   init_args(argd);
+X
+X      /* make 1st pass to count the args */
+X   for ( ls = argls; ls ; ls = L_NEXT(ls) ) {
+X      argc++;
+X   }
+X
+X      /* allocate a NULL terminated arg-vector */
+X   argv = (char **)malloc( (argc + 1) * sizeof(char *) );
+X   if ( !argv )  return  pe_SYSTEM;
+X   argv[ argc ] = CHARNULL;
+X
+X      /* make 2nd pass to assign the elements of the vector */
+X   for ( ls = argls, i = 0 ; ls ; ls = L_NEXT(ls), i++ ) {
+X      argv[i] = L_STRING(ls);
+X   }
+X
+X#ifdef vms_style
+X   BSET( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X      /* parse the list */
+X   saveflags = cmd_flags(argd);
+X   BSET(cmd_flags(argd), pa_ARGV0);
+X   rc = parse_argv_style( argv, parse_init( &argd ) );
+X   free( argv );
+X
+X#ifdef vms_style
+X   BCLEAR( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X      /* scan for missing required arguments */
+X   if ( SYNTAX_ERROR(rc, argd) ) {
+X      fputc( '\n', stderr );
+X      usage( argd );
+X      exit( exit_SYNTAX );
+X   }
+X
+X      /* reset previous parse-flags */
+X   cmd_flags(argd) = saveflags;
+X
+X   return   rc;
+X}
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: vparseargs - parse a variable-argument list
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int vparseargs( argd, argc, va_alist )
+X/*
+X** ^PARAMETERS:
+X*/
+X   ARGDESC  *argd;
+X/*    -- 
+X*/
+X   int  argc;
+X/*    -- number of arguments to parse
+X*/
+X   va_dcl
+X/*    -- the variable-list of arguments to parse
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Vparseargs takes an argdesc array, the number of arguments to parse,
+X**    and a (possibly NULL terminated) list of argument-strings and parses
+X**    them in the same manner as parseargs.  Unlike sparseargs,
+X**    vparseargs assumes that all parameters are already split up into
+X**    tokens, hence any whitespace characters contained in any of the
+X**    string-parameters are used as is (and will be considered a part of
+X**    an argument name or value).
+X**
+X**
+X** ^REQUIREMENTS:
+X**    argc must contain the number of arguments to be parsed (NOT including
+X**    any terminating NULL pointer).  If a NULL pointer is given as one of
+X**    the arguments, and this NULL pointer appears before argc indicated
+X**    the last argument would appear, then the NULL pointer will end the
+X**    the list of arguments and argc is ignored.
+X**    
+X** ^SIDE-EFFECTS:
+X**    <argd> is modified accordingly as arguments are matched.
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_SYNTAX
+X**       -- if a syntax error occurs
+X**
+X** ^ALGORITHM:
+X**    - save current parse-flags
+X**    - add pa_ARGV0 to current parse-flags
+X**    - make a vector out of the variable list
+X**    - call parse init
+X**    - restore parse-flags
+X**    - if syntax-error, print usage and exit
+X**    - return
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int vparseargs( ARGDESC *argd, int argc, ... )
+X#endif
+X{
+X   register char   *arg;
+X   int   i, rc = 0;
+X   argMask_t   saveflags;
+X   char **argv = (char **)NULL;
+X   va_list   ap;
+X
+X   if ( !argd )   return   0;
+X   if ( !CMD_isINIT(argd) )   init_args(argd);
+X
+X   saveflags = cmd_flags(argd);
+X   BSET(cmd_flags(argd), pa_ARGV0 | pa_COPYF);
+X
+X      /* allocate a NULL terminated arg-vector */
+X   argv = (char **) malloc( (argc + 1) * sizeof(char *) );
+X   if ( !argv )  return  pe_SYSTEM;
+X   argv[ argc ] = CHARNULL;
+X
+X      /* assign the string into the array */
+X   VA_START(ap, argc);
+X   for ( i = 0; i < argc  &&  (arg = VA_ARG(ap, char *)) ; i++ ) {
+X      argv[i] = arg;
+X   }
+X   VA_END(ap);
+X
+X#ifdef vms_style
+X   BSET( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X      /* parse the arguments */
+X   rc = parse_argv_style( argv, parse_init( &argd ) );
+X   free( argv );
+X
+X#ifdef vms_style
+X   BCLEAR( cmd_state(argd), ps_NOTCMDLINE );
+X#endif
+X
+X      /* scan for missing required arguments */
+X   if ( SYNTAX_ERROR(rc, argd) ) {
+X      fputc( '\n', stderr );
+X      usage( argd );
+X      exit( exit_SYNTAX );
+X   }
+X
+X      /* reset previous parse-flags */
+X   cmd_flags(argd) = saveflags;
+X
+X   return   rc;
+X}
+X
+X#endif /* ! LITE */
+X
+X
+X/***************************************************************************
+X** ^FUNCTION: parseargs -- parse an argument vector
+X**
+X** ^SYNOPSIS:
+X*/
+X#ifndef __ANSI_C__
+X   int parseargs( argv, argd )
+X/*
+X** ^PARAMETERS:
+X*/
+X   char  *argv[];
+X/*    -- pointer to the argument vector as passed to main().
+X*/
+X  ARGDESC argd[];
+X/*    -- the argument descriptor array.
+X*/
+X#endif  /* !__ANSI_C__ */
+X
+X/* ^DESCRIPTION:
+X**    Given a vector of string-valued arguments such as that passed to main
+X**    and a vector describing the possible arguments, parseargs matches
+X**    actual arguments to possible arguments, converts values to the
+X**    desired type, and diagnoses problems such as missing arguments, extra
+X**    arguments, and argument values that are syntactically incorrect.
+X**
+X** ^REQUIREMENTS:
+X**    <argv> must be non-NULL and have a NULL pointer as its last item.
+X**
+X** ^SIDE-EFFECTS:
+X**    <argd> is modified accordingly as arguments are matched.
+X**
+X** ^RETURN-VALUE:
+X**    pe_SYSTEM
+X**       -- If a system error occurred
+X** 
+X**    pe_SUCCESS
+X**       -- success, no errors encountered.
+X** 
+X**    pe_SYNTAX
+X**       -- if a syntax error occurs
+X**
+X** ^ALGORITHM:
+X**    - call parse init
+X**    - if syntax-error, print usage and exit
+X**    - return
+X***^^**********************************************************************/
+X#ifdef __ANSI_C__
+X   int parseargs( char *argv[], ARGDESC argd[] )
+X#endif
+X{
+X   register ARGDESC *cmd;
+X   register char **av = argv;
+X   int rc = pe_SUCCESS;
+X   argMask_t  saveflags;
+X
+X      /* allow null argument descriptor */
+X   if ( !argd )  argd = Empty_ArgDesc;
+X
+X      /* initialize command-structure */
+X   if ( !CMD_isINIT(argd) )  init_args( argd );
+X   cmd = argd;
+X   saveflags = cmd_flags(cmd);
+X
+X   if ( argv  &&  !BTEST(pa_ARGV0, cmd_flags(cmd)) ) {
+X      cmd_argv0(cmd) = basename( *av++ );
+X   }/*if*/
+X
+X   rc = parse_argv_style( av, parse_init( &argd ) );
+X
+X      /* scan for missing required arguments */
+X   if ( SYNTAX_ERROR(rc, argd) ) {
+X      fputc( '\n', stderr );
+X      usage( argd );
+X      exit( exit_SYNTAX );
+X   }
+X
+X      /* reset previous parse-flags */
+X   cmd_flags(cmd) = saveflags;
+X
+X   return  rc;
+X}
+END_OF_FILE
+if test 75200 -ne `wc -c <'xparse.c'`; then
+    echo shar: \"'xparse.c'\" unpacked with wrong size!
+fi
+# end of 'xparse.c'
+fi
+echo shar: End of archive 9 \(of 10\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

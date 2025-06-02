@@ -1,0 +1,2093 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: peebles@mips.com (Andrew Peebles)
+Subject: v17i046: Xparty - multi-person conference call (MOTIF), Part03/04
+Message-ID: <1992Apr1.135417.444@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i044-xparty@uunet.UU.NET>
+Date: Wed, 1 Apr 1992 13:54:17 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: peebles@mips.com (Andrew Peebles)
+Posting-number: Volume 17, Issue 46
+Archive-name: xparty/part03
+
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file message.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping message.c'
+else
+echo 'x - continuing file message.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'message.c' &&
+X		       args, n);
+X  XtManageChild (form);
+X
+X  sprintf (title,"Message from %s",(char *) getenv ("USER"));
+X  n = SetArgs (args,
+X	       XmNlabelString, XmStringCreateLtoR (title,
+X						   XmSTRING_DEFAULT_CHARSET),
+X	       XmNtopAttachment, XmATTACH_FORM,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       NULL);
+X  label = XmCreateLabel (form,
+X			 "message_label",
+X			 args, n);
+X  XtManageChild (label);
+X
+X  minfo = (msg_info *) XtMalloc (sizeof(msg_info));
+X  minfo->shell = top;
+X  minfo->name  = user_name;
+X  minfo->display = display;
+X  minfo->context = toplevel;
+X  label2 = CreateResponseOptions (label, form, minfo, defaults.response);
+X
+X  n = SetArgs (args,
+X	       XmNeditable, False,
+X               XmNeditMode, XmMULTI_LINE_EDIT,
+X               XmNwordWrap, True,
+X               XmNautoShowCursorPosition, True,
+X               XmNcursorPositionVisible, True,
+X               XmNscrollHorizontal, False,
+X	       XmNrows, 12,
+X	       XmNcolumns, 40,
+X	       NULL);
+X  text = XmCreateScrolledText (form,
+X			       "message_text",
+X			       args, n);
+X  XtManageChild (text);
+X  XmTextSetString (text, message);
+X  n = SetArgs (args,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, label2,
+X	       NULL);
+X  XtSetValues (XtParent (text), args, n);
+X
+X  /*
+X   * realize the widget tree, then get the size of the mess 
+X   * and calculate where it should go on the center of the remote
+X   * display.
+X   */
+X  XtRealizeWidget (top);
+X  if (LIST_WIDGETS)
+X    ListWidgetNames (top);
+X
+X  n = SetArgs (args,
+X	       XmNwidth, &shell_width,
+X	       XmNheight, &shell_height,
+X	       NULL);
+X  XtGetValues (top, args, n);
+X
+X  shell_x = (DisplayWidth (display, screen) - shell_width) / 2;
+X  shell_y = (DisplayHeight(display, screen) - shell_height) / 2;
+X
+X  wm_hints.x = shell_x;
+X  wm_hints.y = shell_y;
+X  wm_hints.flags = PPosition | USPosition;
+X
+X  XSetNormalHints (display,
+X		   XtWindow (top),
+X		   &wm_hints);
+X
+X  XtPopup (top, XtGrabNone);
+X
+X  return (True);
+}
+X
+X
+void
+message_popdown (w, shelli, call)
+Widget	w;
+msg_info *shelli;
+caddr_t	call;
+{
+X  char *resp;
+X  char mes[128];
+X  XtPopdown (shelli->shell);
+/**
+X  XtDestroyWidget (shelli->context);
+X  XtCloseDisplay (shelli->display);
+**/
+X
+X  resp = shelli->responce;
+X  sprintf (mes,"Message confirmed\nResponse: %s",resp);
+X
+X  XpWarning (shelli->name, mes);
+X  XtFree (shelli);
+}
+X
+X
+Widget
+CreateResponseOptions (ref, parent, minfo, rstring)
+Widget	ref, parent;
+msg_info *minfo;
+char	*rstring;
+{
+X  Widget	*options;
+X  int		num_options = 0;
+X  char		*opts[50];
+X  char		*tok;
+X  Widget	menu, top;
+X  Arg		args[10];
+X  int		n;
+X  int		i;
+X  msg_info	*mi;
+X
+X  /*
+X   * get all of the options out of rstring
+X   */
+X  tok = strtok (rstring, "\n\0");
+X  do {
+X    opts[num_options++] = strdup(tok);
+X  } while ((tok = strtok (NULL, "\n\0")) != NULL);
+X
+X  options = (Widget *) XtMalloc (num_options * sizeof (Widget));
+X
+X  /*
+X   * begin the creation of the option menu
+X   */
+X  n = 0;
+X  menu = XmCreatePulldownMenu (parent,
+X			       "Response",
+X			       args, n);
+X  for (i=0; i<num_options; i++) {
+X    n = SetArgs (args,
+X		 XmNlabelString, xmstr(opts[i]),
+X		 NULL);
+X    options[i] = XmCreatePushButtonGadget (menu,
+X					   "responseOption",
+X					   args, n);
+X    mi = (msg_info *) XtMalloc (sizeof(msg_info));
+X    mi->shell = minfo->shell;
+X    mi->context = minfo->context;
+X    mi->name = strdup(minfo->name);
+X    mi->display = minfo->display;
+X    mi->responce = strdup(opts[i]);
+X    XtAddCallback (options[i],XmNactivateCallback,message_popdown,mi);
+X  }
+X
+X  free(minfo);
+X
+X  XtManageChildren (options, num_options);
+X
+X  n = SetArgs (args,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, ref,
+X               XmNwhichButton, 1,
+X               XmNsubMenuId, menu,
+X               XmNmenuHistory, options[0],
+X               XmNlabelString, xmstr("Response"),
+X	       NULL);
+X  top = XmCreateOptionMenu (parent,
+X			    "optionMenu",
+X			    args, n);
+X  XtManageChild(top);
+X  return(top);
+}
+SHAR_EOF
+echo 'File message.c is complete' &&
+chmod 0644 message.c ||
+echo 'restore of message.c failed'
+Wc_c="`wc -c < 'message.c'`"
+test 6476 -eq "$Wc_c" ||
+	echo 'message.c: original size 6476, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= operator.c ==============
+if test -f 'operator.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping operator.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting operator.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'operator.c' &&
+/***************************************************************************
+X *
+X * FILE NAME		: operator.c
+X *
+X * AUTHOR		: Andrew Peebles
+X *
+X * DESCRIPTION		: These routines take care of "dialing" a remote
+X *			  display, providing timeouts when there is no
+X *			  answer, and logging in a new party when there
+X *			  is an answer.
+X *
+X * VERSIONS		: %W%
+X *
+X ***************************************************************************/
+X
+/*
+X * standard includes
+X */
+#include <stdio.h>
+X
+#include <Xm/Form.h>
+#include <Xm/Label.h>
+#include <Xm/Separator.h>
+#include <Xm/PushB.h>
+#include <X11/Shell.h>
+X
+#include "xphone.h"
+X
+typedef struct _msg_info {
+X  Widget        shell;
+X  XtIntervalId	tid;
+X  Person	*person;
+X  Display	*display;
+} msg_info;
+X
+Operator (person)
+Person *person;
+{
+X  Widget	toplevel, top, form, label, sep, yes, no;
+X  Arg		args[10];
+X  int		n;
+X  char		*display_name;
+X
+X  int		shell_x, shell_y, shell_width, shell_height;
+X  XSizeHints	wm_hints;
+X  Display	*display;
+X  int		screen;
+X
+X  char		title[128];
+X
+X  void		yes_cb(), no_cb(), op_timeout();
+X
+X  int           ac = 1;
+X  char          *av[1];
+X
+X  msg_info      *minfo;
+X
+X  av[0] = "xparty";
+X  display_name = person->host;
+X
+X  display = XtOpenDisplay (xphone,
+X                           display_name,
+X                           "xparty",
+X                           "XParty",
+X                           NULL, 0,
+X                           &ac, av);
+X  if (!display) {
+X    XpWarning (display_name, "Couldn't open display");
+X    return (False);
+X  }
+X
+X  screen = DefaultScreen (display);
+X
+X  toplevel = XtAppCreateShell ("xparty", "XParty",
+X                               applicationShellWidgetClass,
+X                               display, NULL, 0);
+X
+X  n = 0;
+X  top = XtCreatePopupShell ("xparty",
+X                            topLevelShellWidgetClass,
+X                            toplevel, args, n);
+X
+X  n = 0;
+X  form = XmCreateForm (top,
+X                       "message_form",
+X                       args, n);
+X  XtManageChild (form);
+X
+X  sprintf (title,"Collect call from %s,\nwill you accept the charges?",
+X	   (char *) getenv ("USER"));
+X  
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_FORM,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNlabelString, XmStringCreateLtoR(title,
+X						  XmSTRING_DEFAULT_CHARSET),
+X	       NULL);
+X  label = XmCreateLabel (form,
+X			 "operator_label",
+X			 args, n);
+X  XtManageChild (label);
+X
+X  n = SetArgs (args,
+X	       XmNorientation, XmHORIZONTAL,
+X	       XmNrightAttachment, XmATTACH_FORM,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, label,
+X	       NULL);
+X  sep = XmCreateSeparator (form,
+X			   "separator",
+X			   args, n);
+X  XtManageChild (sep);
+X
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, sep,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       NULL);
+X  yes = XmCreatePushButton (form,
+X			    "Yes",
+X			    args, n);
+X  XtManageChild (yes);
+X
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, sep,
+X	       XmNrightAttachment, XmATTACH_FORM,
+X	       NULL);
+X  no = XmCreatePushButton (form,
+X			    "No",
+X			    args, n);
+X  XtManageChild (no);
+X
+X  minfo = (msg_info *) XtMalloc (sizeof(msg_info));
+X  minfo->shell = top;
+X  minfo->person = person;
+X  minfo->display = display;
+X
+X  XtAddCallback (yes, XmNactivateCallback, yes_cb, minfo);
+X  XtAddCallback (no, XmNactivateCallback, no_cb, minfo);
+X
+X  /*
+X   * realize the widget tree, then get the size of the mess
+X   * and calculate where it should go on the center of the remote
+X   * display.
+X   */
+X  XtRealizeWidget (top);
+X  if (LIST_WIDGETS)
+X    ListWidgetNames (top);
+X
+X  n = SetArgs (args,
+X               XmNwidth, &shell_width,
+X               XmNheight, &shell_height,
+X               NULL);
+X  XtGetValues (top, args, n);
+X
+X  shell_x = (DisplayWidth (display, screen) - shell_width) / 2;
+X  shell_y = (DisplayHeight(display, screen) - shell_height) / 2;
+X
+X  wm_hints.x = shell_x;
+X  wm_hints.y = shell_y;
+X  wm_hints.flags = PPosition | USPosition;
+X
+X  XSetNormalHints (display,
+X                   XtWindow (top),
+X                   &wm_hints);
+X
+X  /*
+X   * and add a 10 second timeout for the remote user to respond to.
+X   * when the timeout expires, the operator window will go away and
+X   * the remote user will not be included in the session.
+X   */
+X  minfo->tid = 
+X  XtAppAddTimeOut (xphone, 10000, op_timeout, minfo);
+X
+X  /*
+X   * and beep em to get thier attension
+X   */
+X  XBell (display, 100);
+X
+X  XtPopup (top, XtGrabNone);
+X
+}
+X
+void
+op_timeout (shelli, id)
+msg_info	*shelli;
+int		*id;
+{
+X  XtPopdown (shelli->shell);
+X  XpWarning (shelli->person->name,"No answer ...");
+}
+X
+void
+no_cb (w, shelli, call)
+Widget	w;
+msg_info *shelli;
+caddr_t	call;
+{
+X  XtPopdown (shelli->shell);
+X  XtCloseDisplay (shelli->display);
+}
+X
+void
+yes_cb (w, shelli, call)
+Widget	w;
+msg_info *shelli;
+caddr_t	call;
+/*
+X * Try to find a vancant spot in the parties chain.  If one exists,
+X * put the new party there, else add it to the end of the token ring.
+X */
+{
+X  int	n, i;
+X  Boolean found = False;
+X
+X  XtRemoveTimeOut (shelli->tid);
+X  XtPopdown (shelli->shell);
+X
+X  XpOnTheAir (shelli->person->name);
+X
+X  for (i=1; i<num_parties; i++) {
+X    if (parties[i]->dead) {
+X      found = True;
+X      break;
+X    }
+X  }
+X
+X  if (found) {
+X    XtFree (parties[i]);
+X    parties[i] = XpCreateParty (shelli->person->host,
+X				(char *) getenv ("USER"),
+X				shelli->person->name,
+X				shelli->display);
+X  }
+X  else {
+X    XtFree (parties[num_parties+1]);
+X    parties[num_parties++] = XpCreateParty (shelli->person->host,
+X					    (char *) getenv ("USER"),
+X					    shelli->person->name,
+X					    shelli->display);
+X  }
+}
+X
+SHAR_EOF
+chmod 0644 operator.c ||
+echo 'restore of operator.c failed'
+Wc_c="`wc -c < 'operator.c'`"
+test 5643 -eq "$Wc_c" ||
+	echo 'operator.c: original size 5643, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= orig_disp.c ==============
+if test -f 'orig_disp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping orig_disp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting orig_disp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'orig_disp.c' &&
+/***************************************************************************
+X *
+X * FILE NAME		: orig_disp.c
+X *
+X * AUTHOR		: Andrew Peebles
+X *
+X * DESCRIPTION		: Creates the originator display widgets and
+X *			  ties them into parties[0].
+X *
+X * VERSIONS		: %W%
+X *
+X ***************************************************************************/
+X
+/*
+X * standard includes
+X */
+#include <stdio.h>
+X
+#include <Xm/Form.h>
+#include <Xm/PushB.h>
+#include <Xm/Text.h>
+#include <Xm/RowColumn.h>
+#include <Xm/Label.h>
+#include <Xm/ToggleB.h>
+#include <Xm/Separator.h>
+#include <Xm/List.h>
+#include <Xm/PanedW.h>
+#include <X11/Shell.h>
+#include "Table.h"
+X
+#include "xphone.h"
+X
+char	*CURRENTLY_SPEAKING;
+X
+static XtTranslations  trans;
+static char trans_string[] = "<Key>F3: PassToken()";
+void PassToken();
+static XtActionsRec actionsList[] = {
+X  { "PassToken", PassToken },
+};
+X
+void LocalModify();
+static XtCallbackRec LocalModifyCB[] = {
+X  {LocalModify, NULL},
+X  {NULL,        NULL},
+};
+X
+X
+Boolean	ONE_WAY = False;
+extern	Widget	o_toplevel, o_top;
+extern	char *progname;
+X
+Widget	O_DIAL, O_QUIT, O_JERK, O_HANGUP, O_AIR, O_CLEAR;
+Widget	O_RC, O_FORM, O_SEP1;
+X
+/*
+X * command line and non-widget resources
+X */
+typedef struct _res {
+X  Boolean	iconic;
+X  char		*response;
+} res, *resPtr;
+res defaults;
+X
+static XtResource resource_struct[] = {
+X  {"iconic", "Iconic",
+X     XmRBoolean, sizeof(Boolean),
+X     XtOffset (resPtr,iconic),
+X     XmRString, "False"},
+X  {"response", "Response",
+X     XmRString, sizeof(char *),
+X     XtOffset (resPtr,response),
+X     XmRString, "yes\nno\nget back to you ..."}
+};
+X
+static char	main_layout[] = "\
+left      	0 0 1 1 ;\
+right     	1 0 1 1 ;";
+X
+static char 	left_layout[] = "\
+Recipients	0 0 1 1 hH  ;\
+rc		0 1 1 1     ;\
+listlab		0 2 1 1 hH  ;\
+list		0 3 1 1 hH  ;\
+btns		0 4 1 1 hH  ;";
+X
+static char	right_layout[] = "\
+speaking	0 0 1 1 hH  ;\
+vpane		0 1 1 1     ;\
+btns		0 2 1 1 hH  ;";
+X
+static char	left_btn_layout[] = "\
+Dial		0 0 1 1 ;\
+hangup		1 0 1 1 ;\
+jerk		2 0 1 1 ;\
+AddR		3 0 1 1 ;\
+Quit		4 0 1 1 ;";
+X
+static char	right_btn_layout[] = "\
+one-way		0 0 1 1 ;\
+clear		1 0 1 1 ;\
+status		2 0 1 1 ;";
+X
+Widget
+MakeOriginatorDisplay (display)
+Display	*display;
+{
+X  Widget	toplevel,
+X                top,
+X                form, rc, list, vpane, recv, send, talking, status,
+X                quit, hang, one_way, go, sep1, sep2, clear, jerk,
+X                lab1, lab2, addr;
+X  Widget	right, left, right_btns, left_btns;
+X  Arg		args[20];
+X  int		n;
+X  int		qw, rcw, qx, rcx;
+X  char		*res_string;
+X  void		quit_cb(), clear_cb(), one_way_cb(), dial_cb();
+X  void		o_hangup_cb(), o_jerk_cb();
+X  void		o_addR_cb();
+X
+X  o_toplevel = 
+X  toplevel = XtAppCreateShell("xparty", "XParty",
+X			      applicationShellWidgetClass,
+X			      display, NULL, 0);
+X
+X  XtGetApplicationResources (o_toplevel,
+X			     &defaults,
+X			     resource_struct,
+X			     XtNumber(resource_struct),
+X			     NULL,0);
+X
+X  n = SetArgs (args,
+X	       XmNiconic, defaults.iconic,
+X	       NULL);
+X  top = XtCreatePopupShell ("xparty", 
+X			    topLevelShellWidgetClass,
+X			    toplevel, args, n);
+X
+X  n = SetArgs (args,
+X	       XtNlayout, XtTblParseLayout(main_layout),
+X	       NULL);
+X  O_FORM =
+X  form = XtCreateTable (top,
+X			 "form",
+X			 args, n);
+X  XtManageChild (form);
+X
+X  n = SetArgs (args,
+X	       XtNlayout, XtTblParseLayout(left_layout),
+X	       NULL);
+X  left = XtCreateTable (form,
+X			 "left",
+X			 args, n);
+X  XtManageChild (left);
+X
+X  n = SetArgs (args,
+X	       XtNlayout, XtTblParseLayout(right_layout),
+X	       NULL);
+X  right = XtCreateTable (form,
+X			 "right",
+X			 args, n);
+X  XtManageChild (right);
+X
+X  n = 0;
+X  lab1 = XmCreateLabel (left,
+X			"Recipients",
+X			args, n);
+X  XtManageChild (lab1);
+X
+X  n = 0;
+X  O_RC = 
+X  rc = XmCreateRowColumn (left,
+X			  "rc",
+X			  args, n);
+X  XtManageChild (rc);
+X
+X  AddPeople (rc);
+X
+X  n = SetArgs (args,	
+X	       XmNlabelString, XmStringCreateLtoR ("on the air",
+X						   XmSTRING_DEFAULT_CHARSET),
+X	       NULL);
+X  lab2 = XmCreateLabel (left,
+X			"listlab",
+X			args, n);
+X  XtManageChild (lab2);
+X
+X  n = SetArgs (args,
+X	       XmNvisibleItemCount, 10,
+X	       XmNitemCount, 0,
+X	       NULL);
+X  list = XmCreateList (left,
+X		       "list",
+X		       args, n);
+X  XtManageChild (list);
+X
+X  n = SetArgs (args,
+X	       XmNbackgroundPixmap, (Pixmap) GetPixmap (list, "list_bg"),
+X	       NULL);
+X  XtSetValues (list, args, n);
+X
+X
+X  n = SetArgs (args,
+X	       XtNlayout, XtTblParseLayout(right_btn_layout),
+X	       NULL);
+X  right_btns = XtCreateTable (right,
+X			 "btns",
+X			 args, n);
+X  XtManageChild (right_btns);
+X
+X  n = SetArgs (args,
+X	       XtNlayout, XtTblParseLayout(left_btn_layout),
+X	       NULL);
+X  left_btns = XtCreateTable (left,
+X			 "btns",
+X			 args, n);
+X  XtManageChild (left_btns);
+X  
+X  n = 0;
+X  O_DIAL = 
+X  go = XmCreatePushButton (left_btns,
+X			   "Dial",
+X			   args, n);
+X  XtManageChild (go);
+X
+X  n = 0;
+X  O_HANGUP = 
+X  hang = XmCreatePushButton (left_btns,
+X			     "hangup",
+X			     args, n);
+X  XtManageChild (hang); 
+X
+X  n = 0;
+X  O_JERK = 
+X  jerk = XmCreatePushButton (left_btns,
+X			     "jerk",
+X			     args, n);
+X  XtManageChild (jerk);
+X
+X  n = 0;
+X  addr = XmCreatePushButton (left_btns,
+X			     "AddR",
+X			     args, n);
+X  XtManageChild (addr);
+X
+X  n = 0;
+X  O_QUIT = 
+X  quit = XmCreatePushButton (left_btns,
+X			     "Quit",
+X			     args, n);
+X  XtManageChild (quit);
+X
+X  /********************************************************************/
+X
+X  n = SetArgs (args,
+X	       XmNalignment, XmALIGNMENT_BEGINNING,
+X	       NULL);
+X  talking = XmCreateLabel (right,
+X			   "speaking",
+X			   args, n);
+X  XtManageChild (talking);
+X 
+X  n = 0;
+X  vpane = XmCreatePanedWindow (right,
+X			       "vpane",
+X			       args, n);
+X  XtManageChild (vpane);
+X
+X  n = SetArgs (args,
+X               XmNeditable, False,
+X               XmNeditMode, XmMULTI_LINE_EDIT,
+X               XmNwordWrap, True,
+X               XmNautoShowCursorPosition, True,
+X               XmNcursorPositionVisible, True,
+X	       XmNscrollHorizontal, False,
+X               NULL);
+X  recv = XmCreateScrolledText (vpane,
+X			       "remote",
+X			       args, n);
+X  XtManageChild (recv);
+X
+X  n = SetArgs (args,
+X               XmNeditable, False,
+X               XmNeditMode, XmMULTI_LINE_EDIT,
+X               XmNwordWrap, True,
+X               XmNautoShowCursorPosition, True,
+X               XmNcursorPositionVisible, True,
+X	       XmNscrollHorizontal, False,
+X
+X               XmNmodifyVerifyCallback, LocalModifyCB,
+X               NULL);
+X  send = XmCreateScrolledText (vpane,
+X			       "local",
+X			       args, n);
+X  XtManageChild (send);
+X  XmAddTabGroup (send);
+#if 0
+X  XmAddTabGroup(recv);
+#endif
+X  n = 0;
+X  O_AIR = 
+X  one_way = XmCreateToggleButton (right_btns,
+X				  "one-way",
+X				  args, n);
+X  XtManageChild (one_way);
+X
+X  n = 0;
+X  O_CLEAR = 
+X  clear = XmCreatePushButton (right_btns,
+X			      "clear",
+X			      args, n);
+X  XtManageChild (clear);
+X
+X  n = 0;
+X  status = XmCreateLabel (right_btns,
+X			  "status",
+X			  args, n);
+X  XtManageChild (status);
+X
+X  XtAddCallback (go, XmNactivateCallback, dial_cb, NULL);
+X  XtAddCallback (hang, XmNactivateCallback, o_hangup_cb, NULL);
+X  XtAddCallback (jerk, XmNactivateCallback, o_jerk_cb, NULL);
+X  XtAddCallback (addr, XmNactivateCallback, o_addR_cb, NULL);
+X  XtAddCallback (quit, XmNactivateCallback, quit_cb, NULL);
+X  XtAddCallback (clear, XmNactivateCallback, clear_cb, parties[0]);
+X  XtAddCallback (one_way, XmNarmCallback, one_way_cb, go);
+X
+X  XtRealizeWidget (top); 
+X  if (LIST_WIDGETS)
+X    ListWidgetNames (top);
+X
+X  if ((res_string = XGetDefault(XtDisplay(form),
+X				progname,
+X				"tokenKey")))
+X    trans = XtParseTranslationTable(res_string);
+X  else
+X    trans = XtParseTranslationTable(trans_string);
+X  XtOverrideTranslations(send, trans);
+X
+X  parties[0] = (Party *) XtMalloc (sizeof(Party));
+X  parties[0]->display = display;
+X  parties[0]->hostname = DisplayString (parties[0]->display);
+X  parties[0]->username = (char *) getenv ("USER");
+X  parties[0]->token = False;
+X  parties[0]->dead = False;
+X  parties[0]->top = top;
+X  parties[0]->box = vpane;
+X  parties[0]->talking = talking;
+X  parties[0]->status = status;
+X  parties[0]->send = send;
+X  parties[0]->recv = recv;
+X  parties[0]->list = list;
+X  parties[0]->list_posted = True;
+X
+X  InitPartyList();
+X  InitOriginator();
+X
+X  return (top);
+}
+X
+X
+InitPartyList()
+{
+X  int	i;
+X  for (i=1; i<MAX_PARTIES; i++) {
+X    parties[i] = (Party *) XtMalloc (sizeof(Party));
+X    parties[i]->dead = True;
+X    parties[i]->token = False;
+X  }
+X  num_parties = 1;
+}
+X
+/*
+X * This routine is called once when the originator screen is first
+X * created, and then every time the on_the_air list becomes empty.
+X * Any of the command buttons that where made insensitive are made
+X * sensitive again, and the talking and status fields get initial
+X * values.
+X */
+InitOriginator()
+{
+X  char	*speaking_f = "Dial Tone";
+X  char	*status_f   = "Off the Hook";
+X  Arg	args[5];
+X  int	i;
+X
+X  XtSetArg (args[0], XmNlabelString, XmStringCreateLtoR (speaking_f,
+X							 XmSTRING_DEFAULT_CHARSET));
+X  XtSetValues (parties[0]->talking, args, 1);
+X  XtSetArg (args[0], XmNlabelString, XmStringCreateLtoR (status_f,
+X							 XmSTRING_DEFAULT_CHARSET));
+X  XtSetValues (parties[0]->status, args, 1);
+X  
+X  XtSetSensitive (O_DIAL, True);
+X  XtSetSensitive (O_QUIT, True);
+X  XtSetSensitive (O_JERK, False);
+X  XtSetSensitive (O_HANGUP, False); 
+X  XtSetSensitive (O_AIR, True);
+X  XtSetSensitive (O_CLEAR, True);
+X
+X  XmTextSetEditable (parties[0]->send, False);
+X  parties[0]->token = False;
+X  XFlush (XtDisplay(parties[0]->box));
+X
+X  for (i=1; i<MAX_PARTIES; i++)
+X    parties[i]->dead = True;
+X  num_parties = 1;
+}
+X
+X
+/*
+X * utils
+X */
+X
+static char NO_PEOPLE[] = "\
+This program is a message sender, and expects to have a list of recipients\n\
+to which messages can be sent.  Such a list is kept in $HOME/.xmsg_hosts, \n\
+which couldn't be found.  Please create this file and try again.\n\
+\n\
+The format of the file is a list of hostnames, one name per line, of the\n\
+machines you expect to send messages to.  Each line can optionally contain\n\
+the user's name on that machine, i.e. peebles@ling.\n\
+\n\
+An example:\n\
+\tpeebles@ling\n\
+\tmike@phred\n\
+\tjeeves\n\
+\n\
+Where the first two lines contain person@host, and the last is only host.\n\
+";
+X
+/*
+X * this routine adds the people to the recipient list
+X */
+AddPeople (w)
+Widget	w;
+{
+X  int	lim;
+X  FILE	*fp, *fopen();
+X  char	*home = (char *) getenv ("HOME");
+X  char	*filename;
+X  char	host[80];
+X  char	*n, *h;
+X
+X  filename = (char *) malloc (strlen(home) +
+X			      strlen(".xmsg_hosts") + 3);
+X  sprintf (filename,"%s/.xmsg_hosts",home);
+X
+X  if ((fp = fopen (filename,"r")) == NULL) {
+X    /*
+X     * It doesn't exist, lets make one and initialize it w/
+X     * the host display information and user name.
+X     */
+X    if ((fp = fopen (filename,"w")) == NULL) {
+X      fprintf (stderr,"Can't open %s to read recipient list\n",filename);
+X      fprintf (stderr,"%s\n",NO_PEOPLE);
+X      exit(1);
+X    }
+X    fprintf (fp, "Me@%s\n",DisplayString(XtDisplay(w)));
+X    fclose (fp);
+X    fp = fopen (filename,"r");
+X  }
+X
+X  num_people = 0;
+X  people = (PersonPtr *) malloc (10*(sizeof(PersonPtr)));
+X  lim = 10;
+X  while (fgets (host,80,fp) != NULL) {
+X    char *label;
+X    
+X    if (host[0] == '\n') continue;
+X
+X    people[num_people] = (Person *) malloc (sizeof(Person));
+X
+X    n = strtok (host,"@\n");
+X    h = strtok (NULL," \n");
+X
+X    if (h == NULL) {
+X      people[num_people]->name = NULL;
+X      people[num_people]->host = strdup(n);
+X      label = n;
+X    }
+X    else {
+X      people[num_people]->name = strdup(n);
+X      people[num_people]->host = strdup(h);
+X      label = n;
+X    }
+X
+X    people[num_people]->btn = XmCreateToggleButton (w,
+X						    label,
+X						    NULL, 0);
+X    XtManageChild (people[num_people++]->btn);
+X    if (num_people == lim) {
+X      lim += 10;
+X      people = (PersonPtr *) XtRealloc (people,
+X					lim*(sizeof(PersonPtr)));
+X    }	
+X  }
+X  fclose (fp);
+}
+X
+/*
+X * for posting one-way messages
+X */
+Post (cmd, args)
+char *cmd;
+char **args;
+{
+X
+X  if (fork() == 0) {  
+X    int	 status, i;
+X    int	 out;
+X
+X    /*
+X     * close open file discriptors
+X     */
+X    close(0);
+X    close(1);
+X    out = dup (stderr);
+X
+X    for (i=3; i<getdtablesize(); i++)
+X      close (i);
+X    
+X    status = execvp (cmd, args); 
+X    fprintf (out,"Exec failed\n");
+X  } 
+X  
+}
+X
+/*
+X * Button callbacks for originator window
+X */
+void
+dial_cb (w, client, call)
+Widget	w;
+caddr_t	client, call;
+{
+X  if (ONE_WAY)
+X    SendMessages();
+X  else
+X    DialRemotes();
+}
+X
+void 
+quit_cb()
+{
+X  exit (0);
+}
+X
+void 
+clear_cb (w, client, call)
+Widget	w;
+caddr_t client;
+caddr_t	call;
+{
+X  XmTextSetString (parties[0]->send,"");
+X  XmTextSetString (parties[0]->recv,"");
+}
+X
+void
+one_way_cb (w, dial, call)
+Widget	w, dial;
+caddr_t	call;
+{
+X  Arg	args[2];
+X
+X  if (ONE_WAY) {
+X    ONE_WAY = False;
+X    XtSetArg (args[0], XmNlabelString,
+X	      XmStringCreateLtoR ("Dial", XmSTRING_DEFAULT_CHARSET));
+X    XtSetValues (dial, args, 1);
+X    XmTextSetString (parties[0]->send,"");
+X    XmTextSetEditable (parties[0]->send, False);
+X    parties[0]->token = False;
+X  }
+X  else {
+X    ONE_WAY = True;
+X    XtSetArg (args[0], XmNlabelString,
+X	      XmStringCreateLtoR ("Send", XmSTRING_DEFAULT_CHARSET));
+X    XtSetValues (dial, args, 1);
+X    XmTextSetEditable (parties[0]->send, True);
+X    parties[0]->token = True;
+X  }
+}
+X
+void 
+o_jerk_cb (w, client, call)
+Widget	w;
+caddr_t	client, call;
+{
+X  StealToken();
+}
+X
+void 
+o_hangup_cb (w, client, call)
+Widget	w;
+caddr_t	client, call;
+/*
+X * Only needs to be called when a no one answers a "dial".  Under these
+X * circumstances, this is the only way to get the originator back into
+X * a useable state.  We'll not allow the originator to hang up if there
+X * are people on the line.
+X */
+{
+X  Arg	args[5];
+X  int	icount = 0;
+X
+/**
+X  XmListDeleteItem (parties[0]->list,
+X		    XmStringCreateLtoR ((char *)getenv("USER"),
+X					XmSTRING_DEFAULT_CHARSET));
+**/
+X  XtSetArg (args[0], XmNitemCount, &icount);
+X  XtGetValues (parties[0]->list, args, 1);
+X  if (icount != 0) {
+X    XpWarning ("Hangup","There are people on the line!");
+X    return;
+X  }
+X  InitOriginator();
+}
+X
+/************************************************************************/
+X
+/*
+X * SendMessages
+X *
+X *	Send a message contained in the originator's send buffer
+X *	to the selected people.
+X */
+SendMessages()
+{
+X  int	i;
+X  char	*message;
+X  int	set;
+X  Arg	args[2];
+X  Arg	args2[2];
+X
+X  message = XmTextGetString (parties[0]->send);
+X  if ((!message) || (strlen(message) == 0)) {
+X    XpWarning ("Send", "No message to send");
+X    return (False);
+X  }
+X  XtSetArg (args[0], XmNset, &set);
+X  XtSetArg (args2[0], XmNset, False);
+X
+X  for (i=0; i<num_people; i++) {
+X    set = False;
+X    XtGetValues (people[i]->btn, args, 1);
+X    if (!set) continue;
+X    PostMessage (people[i]->host, people[i]->name, message);
+X    XtSetValues (people[i]->btn, args2, 1);
+X  }
+X
+X  XtFree (message);
+X
+}
+X
+/*
+X * DialRemotes()
+X *
+X *	Have the operator dial the remote displays.  The operator
+X *	takes care of the client connection to the current session.
+X */
+DialRemotes()
+{
+X  int	i;
+X  int	set;
+X  Arg	args[2];
+X  Arg	args2[2];
+X  int	count = 0;
+X  char	buf[80];
+X
+X
+X  XtSetSensitive (O_DIAL, True);
+X  XtSetSensitive (O_QUIT, True);
+X  XtSetSensitive (O_JERK, True);
+X  XtSetSensitive (O_HANGUP, True); 
+X  XtSetSensitive (O_AIR, False);
+X  XtSetSensitive (O_CLEAR, False);
+X
+X  /*
+X   * set up the originator for speaking
+X   */
+X  if (num_parties == 1) {
+X    CURRENTLY_SPEAKING = (char *) getenv ("USER");
+X    bzero (buf,80);
+X    sprintf (buf,"Speaking: You");
+X    XtSetArg (args[0], XmNlabelString, XmStringCreateLtoR(buf,
+X				       XmSTRING_DEFAULT_CHARSET));
+X    XtSetValues (parties[0]->talking, args, 1);
+X
+X    bzero(buf,80);
+X    sprintf (buf,"GO!");
+X    XtSetArg (args[0], XmNlabelString, XmStringCreateLtoR(buf,
+X				       XmSTRING_DEFAULT_CHARSET));
+X    XtSetValues (parties[0]->status, args, 1);
+X
+X    parties[0]->token = True;
+X    XmTextSetEditable (parties[0]->send, True);
+X  }
+X
+X  XtSetArg (args[0], XmNset, &set);
+X  XtSetArg (args2[0], XmNset, False);
+X
+X  for (i=0; i<num_people; i++) {
+X    set = False;
+X    XtGetValues (people[i]->btn, args, 1);
+X    if (!set) continue;
+X    XtSetValues (people[i]->btn, args2, 1);
+X    if ((count++) >= MAX_PARTIES)
+X      continue;
+X    Operator (people[i]);
+X  }
+X
+}
+X
+X
+void
+o_addR_cb (w, client, call)
+Widget	w;
+caddr_t	client, call;
+{
+X  void NewPerson();
+X  PromptForString (o_top,
+X		   "<label>@<display> :",
+X		   "",
+X		   NewPerson, NULL);
+}
+X
+void 
+NewPerson (w, info, call)
+Widget	w;
+caddr_t info;
+XXmSelectionBoxCallbackStruct *call;
+{
+X  FILE	*fp, *fopen();
+X  char	*home = (char *) getenv ("HOME");
+X  char	*filename;
+X  char	*host;
+X  char	*n, *h;
+X  char	*save_host;
+X  char	*label;
+X  Arg	args[10];
+X  int	nn, qw, rcw, qx, rcx;
+X
+X  XmStringGetLtoR (call->value,
+X		   XmSTRING_DEFAULT_CHARSET,
+X		   &host);
+X
+X  if ((!host) || (strlen(host) == 0))
+X    return;
+X
+X  save_host = strdup (host);
+X
+X  people = (PersonPtr *) XtRealloc (people,
+X				 (num_people+1)*sizeof(PersonPtr));
+X
+X  people[num_people] = (Person *) malloc (sizeof(Person));
+X
+X  n = strtok (host,"@\n");
+X  h = strtok (NULL," \n");
+X
+X  if (h == NULL) {
+X    people[num_people]->name = NULL;
+X    people[num_people]->host = strdup(n);
+X    label = n;
+X  }
+X  else {
+X    people[num_people]->name = strdup(n);
+X    people[num_people]->host = strdup(h);
+X    label = n;
+X  }
+X
+X  XtUnmanageChild (O_RC);
+X
+X  people[num_people]->btn = XmCreateToggleButton (O_RC,
+X						  label,
+X						  NULL, 0);
+X  XtManageChild (people[num_people++]->btn);
+X
+X  XtManageChild (O_RC);
+X
+X  filename = (char *) malloc (strlen(home) +
+X			      strlen(".xmsg_hosts") + 3);
+X  sprintf (filename,"%s/.xmsg_hosts",home);
+X  if ((fp = fopen (filename,"a")) == NULL) {
+X    XpWarning (filename, "Couldn't update w/ new recipient.");
+X    return;
+X  }
+X  fprintf (fp, "%s\n",save_host);
+X  fclose (fp);
+}
+SHAR_EOF
+chmod 0644 orig_disp.c ||
+echo 'restore of orig_disp.c failed'
+Wc_c="`wc -c < 'orig_disp.c'`"
+test 17617 -eq "$Wc_c" ||
+	echo 'orig_disp.c: original size 17617, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= patchlevel.h ==============
+if test -f 'patchlevel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping patchlevel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting patchlevel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patchlevel.h' &&
+/* Andrew Peebles */
+/* $Header$ */
+X
+X
+#define PATCHLEVEL	0
+SHAR_EOF
+chmod 0644 patchlevel.h ||
+echo 'restore of patchlevel.h failed'
+Wc_c="`wc -c < 'patchlevel.h'`"
+test 59 -eq "$Wc_c" ||
+	echo 'patchlevel.h: original size 59, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= utils.c ==============
+if test -f 'utils.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping utils.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting utils.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'utils.c' &&
+/***************************************************************************
+X *
+X * FILE NAME		: utils.c
+X *
+X * AUTHOR		: Andrew Peebles
+X *
+X * DESCRIPTION		: Utility functions for xphone
+X *
+X * VERSIONS		: %W%
+X *
+X ***************************************************************************/
+X
+/*
+X * standard includes
+X */
+#include <stdio.h>
+#include <string.h>
+#include <Xm/Text.h>
+#include <Xm/PanedW.h>
+#include <Xm/RowColumn.h>
+#include <Xm/Label.h>
+#include <Xm/PushB.h>
+#include <Xm/Form.h>
+#include <X11/Shell.h>
+#include <Xm/SelectioB.h>
+#include <X11/cursorfont.h>
+X
+#include "xphone.h"
+#include "xmsg.icon"
+X
+extern	Display *o_display;
+X
+XXtTranslations  trans;
+static char trans_string[] = "<Key>F3: PassToken()";
+void PassToken();
+static XtActionsRec actionsList[] = {
+X  { "PassToken", PassToken },
+};
+X
+void LocalModify();
+static XtCallbackRec LocalModifyCB[] = {
+X  {LocalModify, NULL},
+X  {NULL,        NULL},
+};
+X
+extern char *CURRENTLY_SPEAKING;
+extern char *progname;
+Widget	C_VPANE;
+X
+Party *
+XXpCreateParty (display_name,
+X	       originator,
+X	       username,
+X	       rdisplay)
+char	*display_name;
+char	*originator;
+char	*username;
+Display	*rdisplay;
+/*
+X * Create and display a party on a remote display
+X */
+{
+X  int		n;
+X  Arg		args[20];
+X  Widget	toplevel, top;
+X  Party		*party;
+X  char		title[128];
+X  Cursor	cursor;
+X  char		*av[1];
+X  int		ac = 1;
+X  Pixmap  	icon_pixmap;
+X  XWMHints 	wmhints;
+X  char		*res_string;
+X
+X  av[0] = "xparty";
+X
+X  party = (Party *) XtMalloc (sizeof(Party));
+X
+/***
+X
+X  party->display = XtOpenDisplay (xphone,
+X				  display_name,
+X				  "xparty",
+X				  "XParty",
+X				  NULL, 0,
+X				  &ac, av);
+X
+***/
+X  party->display = rdisplay;
+X
+X  if (!party->display) {
+X    XpWarning (display_name, "Couldn't open display");
+X    party->dead = True;
+X    return (party);
+X  }
+X
+X  toplevel = XtAppCreateShell("xparty", "XParty",
+X			      applicationShellWidgetClass,
+X			      party->display, NULL, 0);
+X  
+X  sprintf (title, "xphone call from %s", originator);
+X  n = SetArgs (args, XmNtitle, title, NULL);
+X
+X  party->top = 
+X  top = XtCreatePopupShell ("xphone",
+X			    topLevelShellWidgetClass,
+X			    toplevel, args, n);
+X
+X  party->token = False;
+X  party->dead = False;
+X  party->hostname = DisplayString (party->display);
+X  party->username = username;
+X  party->list_posted = False;
+X
+X  XpMakeDialog (top, party, originator, username);
+X
+X  XtRealizeWidget (top);
+X  if (LIST_WIDGETS)
+X    ListWidgetNames (top);
+X
+X  XtUnmanageChild (party->box);
+X  n = SetArgs (args,
+X	       XmNrightAttachment, XmATTACH_FORM,
+X	       NULL);
+X  XtSetValues (C_VPANE, args, n);
+X  XtManageChild (party->box);
+X
+X  if ((res_string = XGetDefault(XtDisplay(top),
+X				progname,
+X				"tokenKey")))
+X    trans = XtParseTranslationTable(res_string);
+X  else
+X    trans = XtParseTranslationTable(trans_string);
+X  XtOverrideTranslations(party->send, trans);
+X  
+X  if ((cursor = XCreateFontCursor(party->display, XC_left_ptr)) == -1)
+X    perror ("Screwed up cursor");
+X
+X  /*
+X   * There is some kind of protocol problem with cursors and
+X   * remote displays.  This bit of code seems to help a little.
+X   */
+X  XDefineCursor (party->display, XtWindow (top), cursor);
+X  XDefineCursor (party->display, XtWindow (party->box), None);
+X  XDefineCursor (party->display, XtWindow (party->send), None);
+X  XDefineCursor (party->display, XtWindow (party->recv), None);
+X
+X  XtPopup (top, XtGrabNone);
+X
+X        /*
+X         * A new one for me, supply a default icon in case the user doesn't
+X         */
+X        icon_pixmap = XCreateBitmapFromData (XtDisplay(top),
+X                                             XtWindow(top),
+X                                             xmsg_bits, xmsg_width,
+X                                             xmsg_height);
+X        wmhints.icon_pixmap = icon_pixmap;
+X        wmhints.flags = IconPixmapHint;
+X
+X        XSetWMHints (XtDisplay(top), XtWindow(top), &wmhints);
+X
+X  return (party);
+}
+X
+XXpMakeDialog (top, party, caller, username)
+Widget top;
+Party  *party;
+char   *caller;
+char   *username;
+{
+X  int   n;
+X  Arg   args[20];
+X  Widget btn, rc, vpane, help, post, pop, ota;
+X  void	hangup_cb(), help_cb(), pop_ota();
+X  char	*buf[80];
+X  Widget CreateOTA();
+X
+X  n = 0;
+X  party->box = XmCreateForm (top,
+X			     "form",
+X			     args, n);
+X  XtManageChild (party->box);
+X
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_FORM,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNalignment, XmALIGNMENT_BEGINNING,
+X	       NULL);
+X  party->talking = XmCreateLabel (party->box,
+X				  "speaking",
+X				  args, n);
+X  XtManageChild (party->talking);
+X
+X  sprintf (buf,"Speaking: %s",CURRENTLY_SPEAKING);
+X  n = SetArgs (args,
+X	       XmNlabelString, XmStringCreateLtoR(buf,
+X						  XmSTRING_DEFAULT_CHARSET),
+X	       NULL);
+X  XtSetValues (party->talking, args, n);
+X  
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, party->talking,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       NULL);
+X  C_VPANE = 
+X  vpane = XmCreatePanedWindow (party->box,
+X			       "vpane",
+X			       args, n);
+X  XtManageChild (vpane);
+X
+X  n = SetArgs (args,
+X               XmNeditable, False,
+X               XmNeditMode, XmMULTI_LINE_EDIT,
+X               XmNwordWrap, True,
+X               XmNautoShowCursorPosition, True,
+X               XmNcursorPositionVisible, True,
+X	       XmNscrollHorizontal, False,
+X	       XmNrows,	15,
+X	       XmNcolumns, 40,
+X	       XmNvalue, "",
+X               NULL);
+X  party->recv = XmCreateScrolledText (vpane,
+X                       "remote",
+X                       args, n);
+X  XtManageChild (party->recv);
+X
+X  bzero (buf,80);
+X  sprintf (buf,"\n%s: ",CURRENTLY_SPEAKING);
+X  XmTextSetString (party->recv, buf);
+X
+X  n = SetArgs (args,
+X               XmNeditable, False,
+X               XmNeditMode, XmMULTI_LINE_EDIT,
+X               XmNwordWrap, True,
+X               XmNautoShowCursorPosition, True,
+X               XmNcursorPositionVisible, True,
+X	       XmNscrollHorizontal, False,
+X	       XmNrows,	15,
+X	       XmNcolumns, 40,
+X	       XmNvalue, "",
+X
+X               XmNmodifyVerifyCallback, LocalModifyCB,
+X               NULL);
+X  party->send = XmCreateScrolledText (vpane,
+X                       "local",
+X                       args, n);
+X  XtManageChild (party->send);
+X  XmAddTabGroup (party->send);
+X
+X  n = SetArgs (args,
+X	       XmNleftAttachment, XmATTACH_FORM,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, vpane,
+X	       NULL);
+X  btn = XmCreatePushButton (party->box,
+X			    "hangup",
+X			    args, n);
+X  XtManageChild (btn);
+X
+X  XtAddCallback (btn, XmNactivateCallback, hangup_cb, party);
+X
+X  n = SetArgs (args,
+X	       XmNalignment, XmALIGNMENT_CENTER,
+X	       XmNleftAttachment, XmATTACH_WIDGET,
+X	       XmNleftWidget, btn,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, vpane,
+X	       NULL);
+X  party->status = XmCreateLabel (party->box,
+X				 "status",
+X				 args, n);
+X  XtManageChild (party->status);
+X
+X  sprintf (buf,"WAIT ...");
+X  n = SetArgs (args,
+X	       XmNlabelString, XmStringCreateLtoR(buf,
+X						  XmSTRING_DEFAULT_CHARSET),
+X	       NULL);
+X  XtSetValues (party->status, args, n);
+X
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, vpane,
+X	       XmNrightAttachment, XmATTACH_FORM,
+X	       NULL);
+X  help = XmCreatePushButton (party->box,
+X			     "help",
+X			     args, n);
+X  XtManageChild (help);
+X  XtAddCallback (help, XmNactivateCallback, help_cb, party->box);
+X
+X  n = SetArgs (args,
+X	       XmNtopAttachment, XmATTACH_WIDGET,
+X	       XmNtopWidget, vpane,
+X	       XmNrightAttachment, XmATTACH_WIDGET,
+X	       XmNrightWidget, help,
+X	       NULL);
+X  pop = XmCreatePushButton (party->box,
+X			    "line",
+X			    args, n);
+X  XtManageChild (pop);
+X
+X  ota = CreateOTA (top, party, caller, username);
+X  XtAddCallback (pop, XmNactivateCallback, pop_ota, ota);
+}
+X
+X
+XXpNewPartyStart (party)
+char	*party;
+/*
+X * put the party name into the "text" widget.  This routine is used
+X * when the token gets passed to a new party, this routine is called
+X * for each OTHER party on the line.
+X */
+{
+X  char	*buf;
+X  int	size;
+X  int	i;
+X  Arg	args[5];
+X  Arg	args2[5];
+X  char	title[80];
+X  char	title2[80];
+X
+X  CURRENTLY_SPEAKING = party;
+X
+X  sprintf (title,"Speaking: %s",party);
+X  sprintf (title2,"Speaking: YOU");
+X
+X  SetArgs (args,
+X	   XmNlabelString, XmStringCreateLtoR (title,
+X					       XmSTRING_DEFAULT_CHARSET),
+X	   NULL);
+X  SetArgs (args2,
+X	   XmNlabelString, XmStringCreateLtoR (title2,
+X					       XmSTRING_DEFAULT_CHARSET),
+X	   NULL);
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->token) {
+X      XtSetValues (parties[i]->talking, args2, 1);
+X      continue;
+X    }
+X    if (parties[i]->dead)
+X      continue;
+X
+X    buf = XmTextGetString (parties[i]->recv);
+X    size = strlen (buf);
+X
+X    XtFree (buf);
+X  
+X    buf = (char *) XtMalloc (strlen(party) + 5);
+X    sprintf (buf,"\n%s: ",party);
+X
+X    XmTextReplace (parties[i]->recv, size, size, "\n");
+X    ++size;
+X    XmTextReplace (parties[i]->recv, size, size, party);
+X    size += strlen(party);
+X    XmTextReplace (parties[i]->recv, size, size, ":");
+X    ++size;
+X    XmTextReplace (parties[i]->recv, size, size, " ");
+X
+X    XtSetValues (parties[i]->talking, args, 1);
+X  }
+}
+X
+X
+void
+LocalModify(w, call, info)
+Widget  w;
+caddr_t call;
+XXmTextVerifyCallbackStruct *info;
+{
+X  char  *buf;
+X  int   size;
+X  int	i;
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->token)
+X      continue;
+X    if (parties[i]->dead)
+X      continue;
+X    buf = XmTextGetString (parties[i]->recv);
+X    size = strlen (buf);
+X    if (info->text->ptr == NULL) {
+X      buf[size-1] = '\0';
+X      XmTextReplace (parties[i]->recv,size-1,size,"\0");
+X      XmTextSetInsertionPosition (parties[i]->recv,
+X				  (strlen(buf)));
+X    }
+X    else {
+X      info->text->ptr[info->text->length] = '\0';
+X      XmTextReplace (parties[i]->recv,size,size,info->text->ptr);
+X      XmTextSetInsertionPosition (parties[i]->recv,
+X				  (size+info->text->length));
+X    }
+X    XtFree (buf);
+X  }
+}
+X
+static int first = True;
+void
+PassToken (w, call, client)
+Widget	w;
+caddr_t	call;
+caddr_t client;
+/*
+X * The party w/ the token has just decided to pass it along to the
+X * next party.  We'll search the parties array until we find the 
+X * token owner, then perform the junk to pass it along.  We'll check
+X * the passing party's list widget to see if they've selected a
+X * person to pass the token to.
+X */
+{
+X  int	i;
+X  Party *new_party, *FindParty();
+X  int	n;
+X  Arg	args1[5], args2[5], args[5];
+X  char	*go = "GO!";
+X  char	*wait = "WAIT ...";
+X  Boolean found;
+X  int	index;
+X  XmString *selection;
+X  int	   num_selection;
+X  char	   *sperson;
+X  
+X  XtSetArg (args1[0],
+X	    XmNlabelString,
+X	    XmStringCreateLtoR(wait,XmSTRING_DEFAULT_CHARSET));
+X  XtSetArg (args2[0],
+X	    XmNlabelString,
+X	    XmStringCreateLtoR(go,XmSTRING_DEFAULT_CHARSET));
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->send == w) {
+X      if (parties[i]->token == False) {
+X	XBell (parties[i]->display, 100);
+X	first = False;
+X	return;
+X      }
+X      parties[i]->token = False;
+X      XtSetValues (parties[i]->status, args1, 1);
+X      XmTextSetEditable (parties[i]->send, False);
+X
+X      n = SetArgs (args,
+X		   XmNselectedItemCount, &num_selection,
+X		   XmNselectedItems, &selection,
+X		   NULL);
+X      XtGetValues (parties[i]->list, args, n);
+X
+X      if (num_selection == 1) {
+X	XmStringGetLtoR (selection[0],
+X			 XmSTRING_DEFAULT_CHARSET,
+X			 &sperson);
+X	if ((new_party = FindParty (sperson)) == NULL) {
+X	  if (i == (num_parties-1)) {
+X	    index = 0;
+X	    new_party = parties[0];
+X	  }
+X	  else {
+X	    index = i+1;
+X	    new_party = parties[i+1];
+X	  }
+X	}
+X	XmListDeselectAllItems (parties[i]->list);
+X      }
+X      else {
+X	if (i == (num_parties-1)) {
+X	  index = 0;
+X	  new_party = parties[0];
+X	}
+X	else {
+X	  index = i+1;
+X	  new_party = parties[i+1];
+X	}
+X      }
+X
+X      found = False;
+X      while (!found) {
+X	if (new_party->send == parties[i]->send) {
+X	  Warning (parties[i]->top, "No one left on the line.");
+X	  return;
+X	}
+X	if (new_party->dead) {
+X	  if (index == num_parties-1) {
+X	    index = 0;
+X	    new_party = parties[index];
+X	  }
+X	  else {
+X	    ++index;
+X	    new_party = parties[index];
+X	  }
+X	}
+X	else {
+X	  found = True;
+X	}
+X      }
+X
+X      new_party->token = True;
+X      XtSetValues (new_party->status, args2, 1);
+X      XBell (new_party->display, 100);
+X      XmTextSetEditable (new_party->send, True);
+X      XpNewPartyStart (new_party->username);
+X      first = False;
+X      return;
+X    }
+X    else if (first) {
+X      XtSetValues (parties[i]->status, args1, 1);
+X    }
+X  }
+X  first = False;
+X
+X  /*
+X   * if we get here, the token was lost.  we'll give it to the 
+X   * originator.
+X   */
+X  XpWarning (parties[0]->hostname, "TOKEN INHERITED");
+X  parties[0]->token = True;
+X  XmTextSetEditable (parties[0]->send, True);
+X  XpNewPartyStart (parties[0]->username);
+}
+X
+Party *
+FindParty (name)
+char	*name;
+{
+X  int 	i;
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (strcmp(parties[i]->username,name) == 0) 
+X      return (parties[i]);
+X  }
+X  return (NULL);
+}
+X
+StealToken ()
+/*
+X * The originator wants the token, we'll rip it from under the guy
+X * who's currently got it and give it to the originator, and update
+X * everybody's displays.
+X */
+{
+X  int	i;
+X  Party *new_party;
+X  int	n;
+X  Arg	args1[5], args2[5];
+X  char	*go = "GO!";
+X  char	*wait = "WAIT ...";
+X  Boolean found;
+X  int	index;
+X
+X  XtSetArg (args1[0],
+X	    XmNlabelString,
+X	    XmStringCreateLtoR(wait,XmSTRING_DEFAULT_CHARSET));
+X  XtSetArg (args2[0],
+X	    XmNlabelString,
+X	    XmStringCreateLtoR(go,XmSTRING_DEFAULT_CHARSET));
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->token == False) {
+X      continue;
+X    }
+X
+X    parties[i]->token = False;
+X    XtSetValues (parties[i]->status, args1, 1);
+X    XmTextSetEditable (parties[i]->send, False);
+X    break;
+X  }
+X  new_party = parties[0];
+X
+X  new_party->token = True;
+X  XtSetValues (new_party->status, args2, 1);
+X  XBell (new_party->display, 100);
+X  XmTextSetEditable (new_party->send, True);
+X  XpNewPartyStart (new_party->username);
+}
+X      
+XXpSetInitialStatus()
+{
+X  int	i;
+X  Arg	args[5];
+X  char	*wait = "WAIT ...";
+X
+X  XtSetArg (args[0],
+X	    XmNlabelString,
+X	    XmStringCreateLtoR(wait,XmSTRING_DEFAULT_CHARSET));
+X
+X  for (i=1; i<num_parties; i++)
+X    XtSetValues (parties[i]->status, args, 1);
+}
+X
+XXpWarning (dis, err)
+char	*dis, *err;
+{
+X  extern	Widget o_top;
+X  char		msg[128];
+X
+X  sprintf (msg,"%s : %s",dis, err);
+X  Warning (o_top, msg);
+}
+X
+void
+hangup_cb (w, party, client)
+Widget	w;
+Party	*party;
+caddr_t	client;
+{
+X  XtPopdown (party->top);
+X  party->dead = True;
+X  if (party->token)
+X    PassToken (party->send, NULL, NULL);
+X  XpRemoveFromAir (party->username);
+/**
+X  XtDestroyWidget (party->top);
+X  if (strcmp (o_display->display_name, party->display->display_name) != 0)
+X    XtCloseDisplay (party->display); 
+**/
+}
+X
+XXpRemoveFromAir (user)
+char	*user;
+{
+X  int	i;
+X  Arg	args[5];
+X  int	icount;
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->dead) 
+X      continue;
+X    if (!parties[i]->list_posted)
+X      continue;
+X    XmListDeleteItem (parties[i]->list,
+X		      XmStringCreateLtoR(user,XmSTRING_DEFAULT_CHARSET));
+X  }
+X  /*
+X   * Check the originator list, if its empty, then set the originator
+X   * display back to default.
+X   */
+X  XtSetArg (args[0], XmNitemCount, &icount);
+X  XtGetValues (parties[0]->list, args, 1);
+X  if (icount == 0)
+X    InitOriginator();
+}
+X
+XXpOnTheAir (user)
+char	*user;
+{
+X  int i;
+X  extern Widget O_HANGUP;
+X
+X  for (i=0; i<num_parties; i++) {
+X    if (parties[i]->dead)
+X      continue;
+X    if (!parties[i]->list_posted) 
+X      continue;
+X    XmListAddItem (parties[i]->list,
+X		   XmStringCreateLtoR(user,XmSTRING_DEFAULT_CHARSET),
+X		   0);
+X  }
+X  XtSetSensitive (O_HANGUP, False);
+}
+X
+/*
+X * Called when the help button gets pressed.  
+X */
+static char HELP_STR[] = "\
+You are on a `party line' where you may exchange messages with others\n\
+on the line.  Only one person can speak at a time, and is shown in the\n\
+top of the display.  You may speak when you get the `token', and the status\n\
+line says \"GO!\" by typing in the lower text window.  When you are done\n\
+speaking, hit the F3 key to pass the token on to the next person on the line.\n\
+\n\
+Push the `hangup' button when you wish to leave the conversation.";
+X
+void
+help_cb (w, ref, call)
+Widget	w, ref;
+caddr_t call;
+{
+X  Warning (ref, HELP_STR);
+}
+X
+X
+/*
+X * Routines for the on_the_air popup
+X */
+void 
+pop_ota (w, shell, call)
+Widget	w, shell;
+caddr_t	call;
+{
+X  XtManageChild (shell);
+}
+X
+Widget
+CreateOTA (ref, party, caller, user)
+Widget ref;
+Party *party;
+char  *caller;
+char  *user;
+{
+X  Widget	top, tmp;
+X  XmStringCharSet char_set = (XmStringCharSet) XmSTRING_DEFAULT_CHARSET;
+X  Arg   args[10];
+X  int   n;
+X  XmString     *sl;
+X  int	       sc;
+X
+X  n = SetArgs (args,
+X	       XmNitems, &sl,
+X	       XmNitemCount, &sc,
+X	       NULL);
+X  XtGetValues (parties[0]->list, args, n);
+X
+X  n = SetArgs (args,
+X               XmNselectionLabelString, XmStringLtoRCreate ("On The Air",
+X							    char_set),
+X	       XmNcancelLabelString, XmStringCreateLtoR ("Hide",
+X							 char_set),
+X	       XmNlistItems, sl,
+X	       XmNlistItemCount, sc,
+X	       NULL);
+X  top = XmCreateSelectionDialog (ref,
+X				    "ota",
+X				    args, n);
+X  tmp = XmSelectionBoxGetChild (top, XmDIALOG_OK_BUTTON);
+X  XtUnmanageChild (tmp);
+X  tmp = XmSelectionBoxGetChild (top, XmDIALOG_HELP_BUTTON);
+X  XtUnmanageChild (tmp);
+X  tmp = XmSelectionBoxGetChild (top, XmDIALOG_LIST);
+X
+X  XmListAddItem (tmp, XmStringCreateLtoR (caller, char_set), 0);
+X  XmListDeleteItem (tmp, XmStringCreateLtoR (user, char_set));
+X
+X  party->list = tmp;
+X  party->list_posted = True;
+X  return (top);
+}
+SHAR_EOF
+chmod 0644 utils.c ||
+echo 'restore of utils.c failed'
+Wc_c="`wc -c < 'utils.c'`"
+test 17408 -eq "$Wc_c" ||
+	echo 'utils.c: original size 17408, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xmsg.icon ==============
+if test -f 'xmsg.icon' -a X"$1" != X"-c"; then
+	echo 'x - skipping xmsg.icon (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xmsg.icon (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xmsg.icon' &&
+#define xmsg_width 50
+#define xmsg_height 50
+static char xmsg_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+X   0xf0, 0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x1c, 0xc6, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x80, 0x01, 0x04, 0x00,
+X   0x00, 0x00, 0x00, 0xe0, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00,
+X   0xc6, 0x01, 0x00, 0x10, 0x00, 0x1c, 0xfe, 0x03, 0x06, 0x00, 0x10, 0x00,
+X   0x87, 0x03, 0x10, 0x0c, 0x00, 0x20, 0xc0, 0xe1, 0x00, 0x31, 0x00, 0x00,
+X   0x20, 0x70, 0x30, 0x00, 0x21, 0x00, 0x00, 0x20, 0x1c, 0x18, 0x80, 0x20,
+X   0x00, 0x00, 0x06, 0x06, 0x0e, 0x40, 0x00, 0x00, 0x00, 0x84, 0xc3, 0x03,
+X   0x60, 0x00, 0x00, 0x00, 0xc0, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30,
+X   0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x20, 0xc0, 0x00, 0x60, 0x00,
+X   0x00, 0x10, 0x20, 0xa0, 0x00, 0x50, 0x00, 0x00, 0x17, 0x30, 0x90, 0xfe,
+X   0x49, 0x00, 0x00, 0x30, 0x18, 0x8a, 0x00, 0x44, 0x01, 0x00, 0xe0, 0x0f,
+X   0x49, 0x00, 0x24, 0x01, 0x00, 0x60, 0x80, 0x28, 0x00, 0x14, 0x01, 0x00,
+SHAR_EOF
+true || echo 'restore of xmsg.icon failed'
+fi
+echo 'End of  part 3'
+echo 'File xmsg.icon is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

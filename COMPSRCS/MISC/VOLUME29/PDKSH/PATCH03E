@@ -1,0 +1,863 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v29i087:  pdksh - Public Domain Korn Shell, v4, Patch03e/5
+Message-ID: <1992Apr26.041637.22464@sparky.imd.sterling.com>
+X-Md4-Signature: cea4d9a6305a182e181ba89082307ef9
+Date: Sun, 26 Apr 1992 04:16:37 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 29, Issue 87
+Archive-name: pdksh/patch03e
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+*** sh/trap.c.old	Sat Apr 25 17:44:36 1992
+--- sh/trap.c	Sat Apr 25 18:32:36 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 3.2 89/03/27 15:52:06 egisin Exp $";
+! static char *sccs_id = "@(#)trap.c	1.2 91/11/22 22:54:00 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: trap.c,v 1.2 1992/04/24 12:01:38 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 28,44 ****
+--- 27,62 ----
+  	{SIGEMT, "EMT", "EMT trap"},
+  	{SIGFPE, "FPE", "Floating exception"},
+  	{SIGKILL, "KILL", "Killed"},
++ #ifdef _MINIX
++ 	{SIGUSR1, "USR1", "User defined signal 1"},
++ 	{SIGSEGV, "SEGV", "Memory fault"},
++ 	{SIGUSR2, "USR2", "User defined signal 2"},
++ #else
+  	{SIGBUS, "BUS", "Bus error"},
+  	{SIGSEGV, "SEGV", "Memory fault"},
+  	{SIGSYS, "SYS", "Bad system call"},
++ #endif
+  	{SIGPIPE, "PIPE", "Broken pipe"},
+  	{SIGALRM, "ALRM", "Alarm clock"},
+  	{SIGTERM, "TERM", "Terminated"},
++ #ifdef _MINIX
++ 	{SIGSTKFLT, "STKFLT", "Stack fault"},
++ #endif
+  #ifdef _SYSV
+  	{SIGUSR1, "USR1", "User defined signal 1"},
+  	{SIGUSR2, "USR2", "User defined signal 2"},
+  	{SIGCLD, "CLD", "Death of a child"},
+  	{SIGPWR, "PWR", "Power-fail restart"},
++ #ifdef JOBS			/* todo: need to be more portable */
++ 	{SIGTSTP, "TSTP", "Stop"},
++ 	{SIGTTIN, "TTIN", "Stop (tty input)"},
++ #ifdef SIGPOLL
++ 	{SIGPOLL, "POLL", "Pollable event occured"},
++ #endif
++ 	{SIGSTOP, "STOP", "Stop (signal)"},
++ 	{SIGTTOU, "TTOU", "Stop (tty output)"},
++ 	{SIGCONT, "CONT", "Continue"},
++ #endif
+  #else
+  #ifdef JOBS			/* todo: need to be more portable */
+  	{SIGURG, "URG", "Urgent condition"}, /* BSDism */
+***************
+*** 86,92 ****
+  	if (i == SIGINT && e.type == E_PARSE)
+  		/* dangerous but necessary to deal with BSD silly signals */
+  		longjmp(e.jbuf, 1);
+! 	(void) signal(i, trapsig); /* todo: use sigact */
+  }
+  
+  /*
+--- 104,114 ----
+  	if (i == SIGINT && e.type == E_PARSE)
+  		/* dangerous but necessary to deal with BSD silly signals */
+  		longjmp(e.jbuf, 1);
+! #ifdef USE_SIGACT
+! 	sigaction(i, &Sigact_trap, NULL);
+! #else
+! 	(void) signal(i, trapsig);
+! #endif
+  }
+  
+  /*
+***************
+*** 126,138 ****
+  	register Trap *p;
+  
+  	if ((p = sigtraps)->trap != NULL) {	/* Maybe put in exchild() */
+! 		afree((Void *)p->trap,APERM);	/* Necessary? */
+  		p->trap = NULL;
+  	}
+  	for (i = SIGNALS, p = sigtraps; --i >= 0; p++) {
+  		p->set = 0;
+  		if (p->ourtrap && signal(p->signal, SIG_IGN) != SIG_IGN)
+  			(void) signal(p->signal, SIG_DFL);
+  	}
+  }
+  
+--- 148,169 ----
+  	register Trap *p;
+  
+  	if ((p = sigtraps)->trap != NULL) {	/* Maybe put in exchild() */
+! 		afree((void *)p->trap,APERM);	/* Necessary? */
+  		p->trap = NULL;
+  	}
+  	for (i = SIGNALS, p = sigtraps; --i >= 0; p++) {
+  		p->set = 0;
++ #ifdef USE_SIGACT
++ 		if (p->ourtrap)
++ 		{
++ 		  sigaction(p->signal, &Sigact_ign, &Sigact);
++ 		  if (Sigact.sa_handler != SIG_IGN)
++ 		    sigaction(p->signal, &Sigact_dfl, NULL);
++ 		}
++ #else
+  		if (p->ourtrap && signal(p->signal, SIG_IGN) != SIG_IGN)
+  			(void) signal(p->signal, SIG_DFL);
++ #endif
+  	}
+  }
+  
+***************
+*** 139,146 ****
+  ignoresig(i)
+  	int i;
+  {
+! 	if (signal(i, SIG_IGN) != SIG_IGN)
+! 		sigtraps[i].sig_dfl = 1;
+  }
+  
+  restoresigs()
+--- 170,186 ----
+  ignoresig(i)
+  	int i;
+  {
+! #ifdef USE_SIGACT
+!   sigaction(i, &Sigact_ign, &Sigact);
+!   sigemptyset(&Sigact.sa_mask);
+!   Sigact.sa_flags = 0;
+! 
+!   if (Sigact.sa_handler != SIG_IGN)
+!     sigtraps[i].sig_dfl = 1;
+! #else
+!   if (signal(i, SIG_IGN) != SIG_IGN)
+!     sigtraps[i].sig_dfl = 1;
+! #endif
+  }
+  
+  restoresigs()
+***************
+*** 151,157 ****
+--- 191,201 ----
+  	for (p = sigtraps, i = SIGNALS; --i >= 0; p++)
+  		if (p->sig_dfl) {
+  			p->sig_dfl = 0;
++ #ifdef USE_SIGACT
++ 			sigaction(p->signal, &Sigact_dfl, NULL);
++ #else
+  			(void) signal(p->signal, SIG_DFL);
++ #endif
+  		}
+  }
+  
+*** sh/tree.c.old	Sat Apr 25 17:44:36 1992
+--- sh/tree.c	Sat Apr 25 18:37:49 1992
+***************
+*** 3,24 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: tree.c,v 3.2 89/03/27 15:52:13 egisin Exp $";
+! static char *sccs_id = "@(#)tree.c	1.2 91/11/22 22:54:02 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+  #include <errno.h>
+  #include <setjmp.h>
+! #include <varargs.h>			/* TODO: use stdarg */
+  #include "sh.h"
+- #include "tree.h"
+  
+  #define	FSTRING	(FILE*)NULL
+  
+! static	int	tputc ARGS((int c, FILE *f));
+! static	void	tputC ARGS((int c, FILE *f));
+! static	void	tputS ARGS((char *wp, FILE *f));
+  
+  /*
+   * print a command tree
+--- 3,29 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: tree.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+  #include <errno.h>
+  #include <setjmp.h>
+! 
+! #ifdef __STDC__
+! # include <stdarg.h>
+! #else
+! # include <varargs.h>
+! #endif
+  #include "sh.h"
+  
+  #define	FSTRING	(FILE*)NULL
+  
+! static int      tputc       ARGS((int c, FILE *f));
+! static void     tputC       ARGS((int c, FILE *f));
+! static void     tputS       ARGS((char *wp, FILE *f));
+! static struct ioword **iocopy ARGS((struct ioword **iow, Area *ap));
+! static void     iofree      ARGS((struct ioword **iow, Area *ap));
+  
+  /*
+   * print a command tree
+***************
+*** 205,211 ****
+  {
+  	if ((c&0x60) == 0) {		/* C0|C1 */
+  		tputc((c&0x80) ? '$' : '^', f);
+! 		tputc((c&0x7F|0x40), f);
+  	} else if ((c&0x7F) == 0x7F) {	/* DEL */
+  		tputc((c&0x80) ? '$' : '^', f);
+  		tputc('?', f);
+--- 210,216 ----
+  {
+  	if ((c&0x60) == 0) {		/* C0|C1 */
+  		tputc((c&0x80) ? '$' : '^', f);
+! 		tputc(((c&0x7F)|0x40), f);
+  	} else if ((c&0x7F) == 0x7F) {	/* DEL */
+  		tputc((c&0x80) ? '$' : '^', f);
+  		tputc('?', f);
+***************
+*** 261,300 ****
+  		}
+  }
+  
+! /* TODO: use varargs properly */
+! 
+  /* VARARGS */ int
+! fptreef(f, va_alist) va_dcl
+! 	register FILE *f;
+  {
+! 	va_list va;
+! 	char *fmt;
+  
+! 	va_start(va);
+! 	fmt = va_arg(va, char *);
+! 	vfptreef(f, fmt, va);
+! 	va_end(va);
+! 	return 0;
+  }
+  
+  /* VARARGS */ int
+! snptreef(s, n, va_alist) va_dcl
+! 	char *s;
+! 	int n;
+  {
+! 	va_list va;
+! 	char *fmt;
+  
+! 	snpf_s = s;
+! 	snpf_n = n;
+! 	va_start(va);
+! 	fmt = va_arg(va, char *);
+! 	vfptreef(FSTRING, fmt, va);
+! 	tputc('\0', FSTRING);
+! 	va_end(va);
+! 	return 0;
+  }
+  
+  vfptreef(f, fmt, va)
+  	register FILE *f;
+  	register char *fmt;
+--- 266,333 ----
+  		}
+  }
+  
+! /*
+!  * this is the _only_ way to reliably handle
+!  * variable args with an ANSI compiler
+!  */
+! #ifdef __STDC__
+  /* VARARGS */ int
+! fptreef(FILE *f, char *fmt, ...)
+  {
+! #else
+! fptreef(va_alist) 
+!   va_dcl
+! {
+!   FILE *f;
+!   char *fmt;
+! #endif
+!   va_list	va;
+  
+! #ifdef __STDC__
+!   va_start(va, fmt);
+! #else
+!   va_start(va);
+!   f = va_arg(va, FILE *);
+!   fmt = va_arg(va, char *);
+! #endif
+!   
+!   vfptreef(f, fmt, va);
+!   va_end(va);
+!   return 0;
+  }
+  
+  /* VARARGS */ int
+! #ifdef __STDC__
+! snptreef(char *s, int n, char *fmt, ...)
+  {
+! #else
+! snptreef(va_alist)
+!   va_dcl
+! {
+!   char *s;
+!   int n;
+!   char *fmt;
+! #endif
+!   va_list va;
+  
+! #ifdef __STDC__
+!   va_start(va, fmt);
+! #else
+!   va_start(va);
+!   s = va_arg(va, char *);
+!   n = va_arg(va, int);
+!   fmt = va_arg(va, char *);
+! #endif
+! 
+!   snpf_s = s;
+!   snpf_n = n;
+!   vfptreef(FSTRING, fmt, va);
+!   tputc('\0', FSTRING);
+!   va_end(va);
+!   return 0;
+  }
+  
++ 
+  vfptreef(f, fmt, va)
+  	register FILE *f;
+  	register char *fmt;
+***************
+*** 493,510 ****
+  		return;
+  
+  	if (t->str != NULL)
+! 		afree((Void*)t->str, ap);
+  
+  	if (t->vars != NULL) {
+  		for (w = t->vars; *w != NULL; w++)
+! 			afree((Void*)*w, ap);
+! 		afree((Void*)t->vars, ap);
+  	}
+  
+  	if (t->args != NULL) {
+  		for (w = t->args; *w != NULL; w++)
+! 			afree((Void*)*w, ap);
+! 		afree((Void*)t->args, ap);
+  	}
+  
+  	if (t->ioact != NULL)
+--- 526,543 ----
+  		return;
+  
+  	if (t->str != NULL)
+! 		afree((void*)t->str, ap);
+  
+  	if (t->vars != NULL) {
+  		for (w = t->vars; *w != NULL; w++)
+! 			afree((void*)*w, ap);
+! 		afree((void*)t->vars, ap);
+  	}
+  
+  	if (t->args != NULL) {
+  		for (w = t->args; *w != NULL; w++)
+! 			afree((void*)*w, ap);
+! 		afree((void*)t->args, ap);
+  	}
+  
+  	if (t->ioact != NULL)
+***************
+*** 513,519 ****
+  	tfree(t->left, ap);
+  	tfree(t->right, ap);
+  
+! 	afree((Void*)t, ap);
+  }
+  
+  static	void
+--- 546,552 ----
+  	tfree(t->left, ap);
+  	tfree(t->right, ap);
+  
+! 	afree((void*)t, ap);
+  }
+  
+  static	void
+***************
+*** 526,533 ****
+  
+  	for (iop = iow; (p = *iop++) != NULL; ) {
+  		if (p->name != NULL)
+! 			afree((Void*)p->name, ap);
+! 		afree((Void*)p, ap);
+  	}
+  }
+  
+--- 559,566 ----
+  
+  	for (iop = iow; (p = *iop++) != NULL; ) {
+  		if (p->name != NULL)
+! 			afree((void*)p->name, ap);
+! 		afree((void*)p, ap);
+  	}
+  }
+  
+*** sh/tree.h.old	Sat Apr 25 17:41:40 1992
+--- sh/tree.h	Sat Apr 25 18:37:51 1992
+***************
+*** 2,8 ****
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 3.3 89/03/27 15:46:57 egisin Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+--- 2,8 ----
+   * command trees for compile/execute
+   */
+  
+! /* $Id: tree.h,v 1.2 1992/04/25 08:33:28 sjg Exp $ */
+  
+  #define	NOBLOCK	((struct op *)NULL)
+  #define	NOWORD	((char *)NULL)
+***************
+*** 95,100 ****
+--- 95,101 ----
+  #define	DOPAT	BIT(3)		/* quote *?[ */
+  #define	DOTILDE	BIT(5)		/* expand ~ */
+  
++ #if 0
+  /* job.c: job control primatives */
+  int	execute ARGS((struct op *, int flags));	/* execute tree */
+  int	exchild ARGS((struct op *, int flags));	/* execute tree as child */
+***************
+*** 104,110 ****
+  /* eval.c: word expansion */
+  char  **eval ARGS((char **wv, int flag)); 	/* expand words */
+  char   *evalstr ARGS((char *wp, int flags));	/* expand word */
+! char   *substitute ARGS((Const char *s, int flags)); /* compile and expand string */
+  
+  /* tree.c: command trees */
+  void	ptree ARGS((struct op *t, FILE *f));	/* print tree */
+--- 105,111 ----
+  /* eval.c: word expansion */
+  char  **eval ARGS((char **wv, int flag)); 	/* expand words */
+  char   *evalstr ARGS((char *wp, int flags));	/* expand word */
+! char   *substitute ARGS((const char *s, int flags)); /* compile and expand string */
+  
+  /* tree.c: command trees */
+  void	ptree ARGS((struct op *t, FILE *f));	/* print tree */
+***************
+*** 112,115 ****
+  char   *wdcopy ARGS((char *wp, Area *));	/* copy word */
+  struct op *tcopy ARGS((struct op *t, Area *));	/* copy tree */
+  void	tfree ARGS((struct op *t, Area *));	/* free tree */
+! 
+--- 113,116 ----
+  char   *wdcopy ARGS((char *wp, Area *));	/* copy word */
+  struct op *tcopy ARGS((struct op *t, Area *));	/* copy tree */
+  void	tfree ARGS((struct op *t, Area *));	/* free tree */
+! #endif
+*** sh/tty.h.old	Sat Apr 25 17:41:48 1992
+--- sh/tty.h	Sun Apr 19 19:21:46 1992
+***************
+*** 21,28 ****
+--- 21,37 ----
+  #endif
+  #else	/* !_BSD_SYSV */
+  #if _BSD
++ #ifdef _MINIX
++ #include <sgtty.h>
++ #define TIOCSETN	TIOCSETP
++ #else
+  #include <sys/ioctl.h>
++ #endif
+  #else
++ #ifdef	mips
++ #include <termios.h>
++ #else
+  #include <termio.h>
++ #endif
+  #endif
+  #endif	/* _BSD_SYSV */
+*** sh/do_ulimit.c.old	Sat Apr 25 17:44:37 1992
+--- sh/do_ulimit.c	Sat Apr 25 18:35:05 1992
+***************
+*** 13,20 ****
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: ulimit.c,v 3.2 89/03/27 15:52:19 egisin Exp $";
+! static char *sccs_id = "@(#)ulimit.c	1.2 91/11/22 22:54:04 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 13,19 ----
+  */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: do_ulimit.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+*** sh/var.c.old	Sat Apr 25 17:44:38 1992
+--- sh/var.c	Sat Apr 25 18:37:59 1992
+***************
+*** 1,6 ****
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 3.2 89/03/27 15:52:21 egisin Exp $";
+! static char *sccs_id = "@(#)var.c	1.4 91/11/22 22:53:13 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 1,5 ----
+  #ifndef lint
+! static char *RCSid = "$Id: var.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 8,14 ****
+  #include <setjmp.h>
+  #include <time.h>
+  #include "sh.h"
+- #include "table.h"
+  #include "expand.h"
+  
+  /*
+--- 7,12 ----
+***************
+*** 22,30 ****
+   */
+  char	null []	= "";
+  static	struct tbl vtemp;
+! static	void getspec(), setspec();
+! static	void export ARGS((struct tbl *, char *val));
+! static	int special ARGS ((char *name));
+  
+  /*
+   * create a new block for function calls and simple commands
+--- 20,29 ----
+   */
+  char	null []	= "";
+  static	struct tbl vtemp;
+! static void     export      ARGS((struct tbl *vp, char *val));
+! static int      special     ARGS((char *name));
+! static void     getspec     ARGS((struct tbl *vp));
+! static void     setspec     ARGS((struct tbl *vp));
+  
+  /*
+   * create a new block for function calls and simple commands
+***************
+*** 219,225 ****
+  {
+  	if (!(vq->flag&INTEGER)) { /* string dest */
+  		if ((vq->flag&ALLOC))
+! 			afree((Void*)vq->val.s, lastarea);
+  		vq->flag &= ~ (ISSET|ALLOC);
+  		vq->type = 0;
+  		if ((vq->flag&EXPORT))
+--- 218,224 ----
+  {
+  	if (!(vq->flag&INTEGER)) { /* string dest */
+  		if ((vq->flag&ALLOC))
+! 			afree((void*)vq->val.s, lastarea);
+  		vq->flag &= ~ (ISSET|ALLOC);
+  		vq->type = 0;
+  		if ((vq->flag&EXPORT))
+***************
+*** 348,354 ****
+  	for (cp = val; (*xp++ = *cp++) != '\0'; )
+  		;
+  	if (op != NULL)
+! 		afree((Void*)op, lastarea);
+  }
+  
+  /*
+--- 347,353 ----
+  	for (cp = val; (*xp++ = *cp++) != '\0'; )
+  		;
+  	if (op != NULL)
+! 		afree((void*)op, lastarea);
+  }
+  
+  /*
+***************
+*** 385,391 ****
+  		*val++ = '=';
+  
+  	if (!(vp->flag&ISSET))
+! 		vp->flag = vp->flag & ~clr | set;
+  	else
+  	    if (!(vp->flag&INTEGER) && (set&INTEGER)) {
+  		/* string to integer */
+--- 384,390 ----
+  		*val++ = '=';
+  
+  	if (!(vp->flag&ISSET))
+! 		vp->flag = (vp->flag & ~clr) | set;
+  	else
+  	    if (!(vp->flag&INTEGER) && (set&INTEGER)) {
+  		/* string to integer */
+***************
+*** 393,399 ****
+  		vtemp.type = 0;
+  		vtemp.val.s = vp->val.s + vp->type;
+  		if ((vp->flag&ALLOC))
+! 			afree((Void*)vp->val.s, lastarea); /* dangerous, used later */
+  		vp->flag &= ~ ALLOC;
+  		vp->flag |= INTEGER;
+  		vp->type = 0;
+--- 392,398 ----
+  		vtemp.type = 0;
+  		vtemp.val.s = vp->val.s + vp->type;
+  		if ((vp->flag&ALLOC))
+! 			afree((void*)vp->val.s, lastarea); /* dangerous, used later */
+  		vp->flag &= ~ ALLOC;
+  		vp->flag |= INTEGER;
+  		vp->type = 0;
+***************
+*** 409,415 ****
+  		setstr(vp, vtemp.val.s);
+  	    }
+  
+! 	vp->flag = vp->flag & ~clr | set;
+  
+  	if (val != NULL) {
+  		if ((vp->flag&RDONLY))
+--- 408,414 ----
+  		setstr(vp, vtemp.val.s);
+  	    }
+  
+! 	vp->flag = (vp->flag & ~clr) | set;
+  
+  	if (val != NULL) {
+  		if ((vp->flag&RDONLY))
+***************
+*** 432,438 ****
+  	register struct tbl *vp;
+  {
+  	if ((vp->flag&ALLOC))
+! 		afree((Void*)vp->val.s, lastarea);
+  	vp->flag &= SPECIAL;	/* Should ``unspecial'' some vars */
+  }
+  
+--- 431,437 ----
+  	register struct tbl *vp;
+  {
+  	if ((vp->flag&ALLOC))
+! 		afree((void*)vp->val.s, lastarea);
+  	vp->flag &= SPECIAL;	/* Should ``unspecial'' some vars */
+  }
+  
+*** sh/version.c.old	Sat Apr 25 17:44:38 1992
+--- sh/version.c	Sat Apr 25 18:38:04 1992
+***************
+*** 3,21 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 3.3 89/03/27 15:52:29 egisin Exp $";
+! static char *sccs_id = "@(#)version.c	4.2 91/11/22 22:53:29 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+  #include <setjmp.h>
+  #include "sh.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.2 91/11/22 22:53:29";
+  
+  /***
+! $Log:	version.c,v $
+  Version  4.0  91/11/09  sjg
+  distribution
+  Revision 3.3  89/03/27  15:52:29  egisin
+--- 3,27 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: version.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+  #include <setjmp.h>
+  #include "sh.h"
++ #include "patchlevel.h"
+  
+  char ksh_version [] =
+! 	"KSH_VERSION=@(#)PD KSH v4.3 92/04/25";
+  
+  /***
+! $Log: version.c,v $
+!  * Revision 1.2  1992/04/25  08:33:28  sjg
+!  * Added RCS key.
+!  *
+!  * Revision 1.1  1992/04/18  05:51:48  sjg
+!  * Initial revision
+!  *
+  Version  4.0  91/11/09  sjg
+  distribution
+  Revision 3.3  89/03/27  15:52:29  egisin
+*** sh/vi.c.old	Sat Apr 25 17:44:39 1992
+--- sh/vi.c	Sat Apr 25 18:38:09 1992
+***************
+*** 9,16 ****
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 3.1 89/01/28 15:29:20 egisin Exp $";
+! static char *sccs_id = "@(#)vi.c	1.4 91/11/22 22:53:02 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 9,15 ----
+  #ifdef VI
+  
+  #ifndef lint
+! static char *RCSid = "$Id: vi.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 21,29 ****
+  #include <errno.h>
+  #include <setjmp.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"		/* DOTILDE */
+- #include "table.h"
+  #include "expand.h"
+  #include "edit.h"
+  
+--- 20,25 ----
+***************
+*** 32,65 ****
+  #define	bcopy(src, dst, len)	memmove(dst, src, len)
+  extern	int	histN();
+  
+! static int	nextstate();
+! static int	vi_insert();
+! static int	vi_cmd();
+! static int	domove();
+! static int	redo_insert();
+! static		yank_range();
+! static int	bracktype();
+! static		edit_prompt();
+! static		edit_reset();
+! static int	putbuf();
+! static		stripblanks();
+! static		del_range();
+! static int	findch();
+! static int	forwword();
+! static int	backword();
+! static int	endword();
+! static int	Forwword();
+! static int	Backword();
+! static int	Endword();
+! static int	grabhist();
+! static int	grabsearch();
+! static		redraw_line();
+! static		refresh();
+! static int	outofwin();
+! static		rewindow();
+! static int	newcol();
+! static		display();
+! static		ed_mov_opt();
+  
+  #define C_	0x1
+  #define M_	0x2
+--- 28,60 ----
+  #define	bcopy(src, dst, len)	memmove(dst, src, len)
+  extern	int	histN();
+  
+! static int      nextstate   ARGS((int ch));
+! static int      vi_insert   ARGS((int ch));
+! static int      vi_cmd      ARGS((int argcnt, char *cmd));
+! static int      domove      ARGS((int argcnt, char *cmd, int sub));
+! static int      redo_insert ARGS((int count));
+! static          yank_range  ARGS((int a, int b));
+! static int      bracktype   ARGS((int ch));
+! static          edit_reset  ARGS((char *buf, int len));
+! static int      putbuf      ARGS((char *buf, int len, int repl));
+! static          stripblanks ARGS((void));
+! static          del_range   ARGS((int a, int b));
+! static int      findch      ARGS((int ch, int cnt, int forw, int incl));
+! static int      forwword    ARGS((int argcnt));
+! static int      backword    ARGS((int argcnt));
+! static int      endword     ARGS((int argcnt));
+! static int      Forwword    ARGS((int argcnt));
+! static int      Backword    ARGS((int argcnt));
+! static int      Endword     ARGS((int argcnt));
+! static int      grabhist    ARGS((int save, int n));
+! static int      grabsearch  ARGS((int save, int start, int fwd, char *pat));
+! static          redraw_line ARGS((void));
+! static          refresh     ARGS((int leftside));
+! static int      outofwin    ARGS((void));
+! static          rewindow    ARGS((void));
+! static int      newcol      ARGS((int ch, int col));
+! static          display     ARGS((char *wb1, char *wb2, int leftside));
+! static          ed_mov_opt  ARGS((int col, char *wb));
+  
+  #define C_	0x1
+  #define M_	0x2
+***************
+*** 196,202 ****
+  	static char	locpat[SRCHLEN];
+  	static int	cmdlen;
+  	static int	argc1, argc2;
+- 	int		i;
+  
+  	if (state != VSEARCH && (ch == '\r' || ch == '\n')) {
+  		x_putc('\r');
+--- 191,196 ----
+***************
+*** 539,545 ****
+  {
+  	int		ncursor;
+  	int		cur, c1, c2, c3 = 0;
+- 	char		pos[10];
+  	struct edstate	*t;
+  
+  
+--- 533,538 ----
+***************
+*** 1388,1394 ****
+  	int	n;
+  {
+  	char	*hptr;
+- 	char	pos[10];
+  
+  	if (n < 0 || n > hlast)
+  		return -1;
+--- 1381,1386 ----
+
+exit 0 # Just in case...

@@ -1,0 +1,1170 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i003:  mailagent - Flexible mail filtering and processing package, v3.0, Part03/26
+Message-ID: <1993Dec2.133530.17946@sparky.sterling.com>
+X-Md4-Signature: 4a3517124d4c3cd0fdefa3611e0589b8
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:35:30 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 3
+Archive-name: mailagent/part03
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/files/proglist agent/man/mailagent.SH.03
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:54 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 26)."'
+if test -f 'agent/files/proglist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/files/proglist'\"
+else
+  echo shar: Extracting \"'agent/files/proglist'\" \(2060 characters\)
+  sed "s/^X//" >'agent/files/proglist' <<'END_OF_FILE'
+X# Small descriptions for programs
+X
+X* cshar
+XThe useful shell-archive maker. I modified the original
+Xslightly to add a Configure script.
+X---
+X
+X* kit
+XA simple binary tarmailer. This is used by the mail agent when
+Xmailing big sets of files. You presently need cshar (from
+XRich Salz) to use kit.
+X---
+X
+X* dist
+XLarry Wall's dist package, modified. It contains:
+X    - metaconfig, a Configure script generator
+X    - a patch generator
+X    - a distribution maker
+XIt comes from version Larry's dist 2.0 PL 2 package, but has
+Xquite a few extensions (I worked especially on the patch
+Xgenerating tools and metaconfig itself). The units used by
+Xmetaconfig have been manually ripped off from some recently
+Xposted Configure scripts (elm 2.3, perl 3.0).
+X---
+X
+X* matrix
+XAn object-oriented matrix library. It is a beta-test release.
+X---
+X
+X* file
+XThe file(1) command with lots of /etc/magic entries. Useful
+Xwhen you work with NFS on different architectures as you
+Xcan have your own magic file.
+X---
+X
+X* rcs
+XGNU Revision Control System. You need RCS to use Larry's
+Xdist package (patch generating tools).
+X---
+X
+X* cops
+XSecurity analysis tools. May be useful to find holes in
+Xyour system.
+X---
+X
+X* xfmt
+XSimple text formatter. You need flex to compile it.
+XIt looks like SUN-OS fmt program.
+X---
+X
+X* less
+XThe pager that is more than more(1).
+X---
+X
+X* flex
+XFast lex. Needed for the xfmt package, because lex is not
+Xpowerful enough.
+X---
+X
+X* et
+XError table compiler (from MIT).
+X---
+X
+X* undel
+XReplacement for rm(1). Marks files for deletion instead of
+Xremoving them. You need the et package for version 2.0 to
+Xcompile.
+X---
+X
+X* dither
+XDisplays a color image on a two-level display (White and black).
+XUses a non-standard picture format in input and output
+X(that's mine ! :-)).
+X---
+X
+X* perl
+XLarry Wall's Practical Extraction and Report Language. It
+Xcombines the best features of C, awk, sed and sh.
+XYou need it to use the dist package.
+X---
+X
+X* patch
+XThe useful utility to apply diff files on a distribution. You could
+Xof course apply them by hand, but it may well be a long procedure !
+XWritten by Larry Wall.
+X---
+END_OF_FILE
+  if test 2060 -ne `wc -c <'agent/files/proglist'`; then
+    echo shar: \"'agent/files/proglist'\" unpacked with wrong size!
+  fi
+  # end of 'agent/files/proglist'
+fi
+if test -f 'agent/man/mailagent.SH.03' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/man/mailagent.SH.03'\"
+else
+  echo shar: Extracting \"'agent/man/mailagent.SH.03'\" \(49980 characters\)
+  sed "s/^X//" >'agent/man/mailagent.SH.03' <<'END_OF_FILE'
+Xsee who runs my mailagent program and who doesn't...
+X.PP
+XThe \fIsendmail\fR program usually implements such a feature via a
+XReturn-Receipt-To: header line, which sends the whole header back upon
+Xsuccessful delivery. However, this is not implemented on all mail transport
+Xagents, and @RR is a good alternative :-).
+X.SH "NOTA BENE"
+XThroughout this manual page, I have always written header fields with the first
+Xletter of each word uppercased, as in \fIReturn-Receipt-To\fR. But RFC-822 does
+Xnot impose this spelling convention, and a mailer could legally rewrite the
+Xprevious field as \fIreturn-receipt-to\fR (and in fact so does \fIsendmail\fR
+Xin its own private mail queue files).
+X.PP
+XHowever, you must always specify the headers in what could be called a
+X\fInormalized\fR case (for headers anyway). The mailagent will correctly
+Xrecognize \fIcc:\fR, \fICC:\fR or \fICc:\fR in a mail message and will allow
+Xyou to select those fields via the normalized \fICc:\fR selector. In fact, it
+Xoperates the normalization for you, and a \fIcc:\fR selector would not be
+Xrecognized as such. Of course, no physical alteration is ever made on the
+Xheader itself.
+X.PP
+XThis is also true for headers specified in the STRIP or KEEP command. If you
+Xwrite \fISTRIP Cc\fR, it will correctly remove any \fIcc:\fR line. Likewise,
+Xif you use regular expressions to specify a selector, \fIRe.*:\fR would match
+Xboth original \fIreceived:\fR and \fIReturn-path:\fR fields, internally known
+Xthrough their normalized representation.
+X.SH "MAIL HOOKS"
+XThe mail hooks allow the mailagent to transparently invoke some scripts or
+Xperform further processing on the message. Those hooks are activated via
+Xthe SAVE, STORE or LEAVE commands. Namely, saving in a folder whose executable
+Xbit is set will raise a special processing. By default, the folder is taken
+Xas a program where the mail should be piped to. If the "folder" program
+Xreturns a zero status, then the message is considered \fIsaved\fR by the
+Xmailagent. Otherwise, all the processing attached to failed save commands is
+Xstarted (including emergency saving attempts). Executable folders provide a
+Xtransparent way (from the rule file point of view) to deal with special
+Xkind of messages.
+X.PP
+XIn fact, five different types of hooks are available. The first one is the
+Xplain executable folder we have just spoken about. But in fact, here is what
+Xreally happens when a saving command detects an executable folder: the
+Xmailagent scans the first line of the
+Xfolder (in fact, the first 128 bytes) and looks for something starting with
+X#: and followed by a single word, describing a special kind of hook. This is
+Xsimilar in the way the kernel deals with the #! hook in executable programs.
+XIf no #: is found or #: is followed by some garbage, then \fImailagent\fR
+Xdecides
+Xit is a simple program and feeds the mail message to this program. End of the
+Xstory.
+X.PP
+XBut if the #: token is followed (spaces allowed, case is irrelevant) by one of
+Xthe following words, then special actions are taken:
+X.PD
+X.TP 10
+X.I rules
+XThe file holds a set of mailagent rules which are to be applied. A new mailagent
+Xprocess is created to actually deal with those and the exit status is
+Xpropagated back to the original mailagent.
+X.TP
+X.I audit
+XThis is similar in spirit to what Martin Streicher's audit.pl package does,
+Xhence the name of this hook. The special variables which are set up by the
+XPERL filter commands are initialized and the script is loaded in the special
+X\fImailhook\fR package name space, which also gives you an interface to the
+Xmailagent's own routines.
+XYou may safely use the \fIexit\fR function here, since
+Xan extra \fIfork\fR is done. This is the only difference between an \fIaudit\fR
+Xand a \fIperl\fR hook.
+X.TP
+X.I deliver
+XSame thing as for the \fIaudit\fR hook, but the standard output of your script
+Xis monitored by \fImailagent\fR and understood as mailagent filtering commands.
+XUpon successful return, a mailagent process will be invoked to actually execute
+Xthose commands on the message. Again, this is similar in spirit to Chip
+XSalzenberg's \fIdeliver\fR package and gave the name of this hook.
+X.TP
+X.I perl
+XThis hook is the same as \fIaudit\fR but it is executed without forking a
+Xnew mailagent, and
+Xyou have the perl interface to the mailagent's filtering commands. There is
+Xno difference with the PERL command, because it is implemented that way, by
+Xcalling a mailagent and forcing the PERL command to be executed. This is
+Xsimilar in spirit to Larry Wall's famous \fIperl\fR language and it is
+Xresponsible for the name of this hook :-).
+X.PP
+XAs mentioned earlier in this manual page, the hook is invoked from with the
+X\fIhome\fR directory specified in your ~/.mailagent (which may differ from
+Xyour real home directory, as far as \fImailagent\fR or \fImailhook\fR are
+Xconcerned).
+X.PP
+XFor those hooks which are finally ran by perl, the special @INC array has
+Xthe mailagent's own private library path prepended to it, so that \fIrequire\fR
+Xfirst looks in this place.
+X.SH "FOLDERS"
+XA folder is a file or a directory which can be the target of a delivery by the
+Xmailagent, that is to say the argument of SAVE-like commands.
+X'''
+X.SS "Folder Format"
+X.PP
+XBy default, mails are written into folders according to the standard UNIX-style
+Xmailbox format: each mail starts with a leading \fIFrom\fR line bearing the
+Xsender's address and the date. However, by setting the \fImmdf\fR parameter
+Xfrom the \fI~/.mailagent\fR to ON, the \fImailagent\fR will be able to save
+Xmessages in MMDF format: each message is sandwiched between two lines of four
+Xctrl-A characters (ASCII code 1) and the leading \fIFrom\fR line is removed.
+X.PP
+XWhen MMDF mode is activated, each folder will be scanned to see if it is a
+XUNIX-style or MMDF-style mailbox and the message will be saved accordingly.
+XWhen saving to a new folder, the default is to create a UNIX-style mailbox,
+Xunless the \fImmdfbox\fR configuration variable was set to ON, in which case
+Xthe MMDF format prevails.
+X.PP
+XNote that the MMDF format is also the standard for MH packed folders, so by
+Xenabling the MMDF mode, you can actually deliver directly to those packed
+Xfolders. The MH command \fIinc\fR is able to incorporate mail from either
+Xform anyway, i.e. it does not matter whether the folder is in UNIX format
+X(also called UUCP-style) or in MMDF format.
+X.PP
+XMH-style folders are also supported. It is mainly a directory in which messages
+Xare stored in individual files. To save directly into an MH folder, simply
+Xprefix the folder name with '+', just as you would do with MH commands.
+XThe unseen sequences specified in your MH profile (the \fImhprofile\fR
+Xparameter in your \fI~/.mailagent\fR, default is \fI~/.mh_profile\fR)
+Xwill be correctly updated, as \fIrcvstore\fR would.
+X.PP
+XWhen the target folder is a directory, mailagent attempts the delivery in
+Xan individual numbered file. If a prefix file is present
+X(config parameter \fImsgprefix\fR, default is \fI.msg_prefix\fR), its first
+Xline is used to specify the base name of the message, then a number is
+Xappended to give the name of the message file to use. That is, if there is
+Xno such file, the folder will look like an MH one, without any MH sequence
+Xfile though.
+X'''
+X.SS "Folder Compression"
+X.PP
+XIf you have \fIcompress\fR in your PATH (as set up by \fI~/.mailagent\fR), then
+Xyou may wish to use folder compression to save some disk space, especially when
+Xyou are away for some time and do not want to see your mail fill-up the
+Xfilesystem.
+X.PP
+XTo achieve folder compression, you have to set up a file, referred to by the
+X\fIcompress\fR configuration variable. This file must list folder names, one
+Xper line, with blank lines ignored and shell-style (#) comments allowed. You
+Xmay use shell-style patterns to specify the folders, and the match will be
+Xattempted on the full pathname of the folder (~ substitution occurs). If you
+Xdo not specify a pattern starting with a leading '/' character, then the match
+Xwill be attempted on the basename of the folder (i.e. the last component of
+Xthe folder path). If you want to compress all your folders, then simply put
+Xa single '*' inside this file.
+X.PP
+XWhen attempting delivery, the mailagent will check the folder name against
+Xthe list of patterns in the compress file. If there is a match, the folder is
+Xflagged as compressed. Then the mailagent attempts decompression if there
+Xis already a compressed form (a .Z file) and if no uncompressed form is present.
+XDelivery is then made to the uncompressed folder. However, re-compression is not
+Xdone immediately, since it is still possible to get messages to that folder in
+Xa single batch delivery. Should disk space become so tight that decompression
+Xof other folders is impossible, the mailagent will re-compress the folders
+Xit has already uncompressed. Otherwise, it waits until the last moment.
+X.PP
+XIf for some reason there is a .Z compressed folder which cannot be decompressed,
+Xthe mailagent will deliver the mail to the plain folder. Further delivery
+Xto that folder will be faced with both a compressed and a plain version of the
+Xfolder, and that will get you a warning in the log file, but delivery will be
+Xmade automatically to the plain file.
+X'''
+X''' E x t e n d i n g   F i l t e r i n g   C o m m a n d s
+X'''
+X.SH EXTENDING FILTERING COMMANDS
+XOnce you've reached the \fIexpert\fR level, and provided you have a fair
+Xknowledge of \fIperl\fR, you may feel the need for more advanced commands
+Xwhich are not part of the standard set. This section explains how you
+Xcan achieve this dynamically, without the need of diving deep inside the
+Xsource code.
+X.PP
+XOnce you have extended the filtering command set, you may use those commands
+Xinside the rule file as if they were built-in. You may even choose to redefine
+Xthe standard commands if they do not suit you (however, if you wish to do
+Xthat, you should know exactly what you are doing, or you may start loosing
+Xsome mail or get an unexpected behavior -- this also voids your warranty :-).
+X.PP
+XThe ability to provide external commands without actually modifying the main
+Xsource code is, I believe, a strong point in favor of having a program written
+Xin an interpreted language like \fIperl\fR. This of course once you have
+Xconvinced yourself that it is a Good Thing to customize and extend a program
+Xin the same language as the one used for the core, meaning usually a fairly
+Xlow-level language with fewer user-friendly hooks.
+X'''
+X.SS Overview
+X.PP
+XIn order to implement a new command, say FOLD, you will need to do the
+Xfollowing:
+X.IP \(bu 5
+XWrite a perl subroutine to implement the FOLD action and put that into
+Xan external file. Say we write the subroutine \fIfold\fR and we store
+Xthat in a \fIfold.pl\fR file. This is naturally the difficult part, where
+Xyou need to know some basic things about the mailagent internals.
+X.IP \(bu
+XChoose where you want to store your \fIfold.pl\fR file. Then check the
+Xsyntax with \fIperl \-c\fR, just to be sure...
+X.IP \(bu
+XEdit the \fInewcmd\fR file (as given by the configuration file) to record
+Xyour new command. Then make sure this file is tightly protected. You must
+Xown it, and it should not be writable by any other individual but you.
+X.IP \(bu
+XAdditionally, you may want to specify whether FOLD is to modify the existing
+Xexecution status and whether or not it will be allowed within the special
+X_SEEN_ mode.
+X.IP \(bu
+XWrite some rules using the new FOLD command. This is the \fIeasy\fR part!
+XNote that your command may also be used within perl hooks as if it were
+Xa builtin command (this means there is an interface function built for
+Xyou within the \fImailhook\fR package).
+X.PP
+XIn the following sections, we're going to describe the syntax of the
+X\fInewcmd\fR file, and we'll then present some low-level internal variables
+Xwhich may be used when implementing new commands.
+X'''
+X.SS New Command File Format
+X.PP
+XThe \fInewcmd\fR file consists of a series of lines, each line describing
+Xone command. Blank lines are ignored and shell-style comments introduced by
+Xthe sharp (#) character are allowed.
+X.PP
+XEach line is formed by 3 principal fields and 2 optional ones; fields are
+Xseparated by spaces or tabs. Here is a skeleton:
+X.Ex
+X<cmd_name> <path> <function> <status_flag> <seen_flag>
+X.Ef
+XThe \fIcmd_name\fR is the name of the command you wish to add. In our
+Xprevious example, it would be FOLD. The next field, \fIpath\fR, tells
+Xthe mailagent where the file containing the command implementation is
+Xlocated. Say we store it in \fI~/mail/cmds/fold.pl\fR. The \fIfunction\fR
+Xfield is the name of the \fIperl\fR function implementing FOLD, which may
+Xbe found in \fIfold.pl\fR. Here, we named our function \fIfold\fR. Note that
+Xif your function has its name within the \fInewcmd\fR package, which is the
+Xdefault behavior if you do not specify any, then there is no need to prefix
+Xthe function name with the package. Otherwise, you must use a fully qualified
+Xname.
+X.PP
+XThe last two fields are optional, and are boolean values which may be
+Xspecified by \fItrue\fR or \fIyes\fR to express truth, and \fIfalse\fR
+Xor \fIno\fR to express falsehood. If \fIstatus_flag\fR is set to
+Xtrue, then the command will modify the last execution status variable.
+XIf \fIseen_flag\fR is true, then the command may be used when the filter
+Xis in _SEEN_ mode. The default values are respectively \fItrue\fR and
+X\fIfalse\fR.
+X.PP
+XSo in our example, we would have written:
+X.Ex
+XFOLD  ~/mail/cmds/fold.pl  fold  no  yes
+X.Ef
+Xto allow FOLD even in _SEEN_ mode and have it executed without modifying
+Xthe current value of the \fIlast-command-status\fR variable.
+X'''
+X.SS Writing An Implementation
+X.PP
+XYour perl function will be loaded when needed into the special package
+X\fInewcmd\fR, so that its own name-space is protected and does not accidentally
+Xconflict with other mailagent routines or variables. When you need to call the
+Xperl interface of some common mailagent functions, you will have to remember
+Xto use the fully qualified routine name, for instance \fI&mailhook'leave\fR
+Xto actually execute the LEAVE command.
+X.PP
+X(Normally, in PERL hooks, there is no need for this prefixing since the perl
+Xscript is loaded in the \fImailhook\fR package. When you are extending your
+Xmailagent, you should be extra careful however, and it does not really hurt
+Xto use this prefixing. You are free to use the perl \fIpackage\fR directive
+Xwithin your function, hence switching to the \fImailhook\fR package in
+Xthe body of the routine but leaving its name in the \fInewcmd\fR package.)
+X.PP
+XSince the mailagent will dynamically load the implementation of your command
+Xthe first time it is run, by loading the specified perl script into memory
+Xand evaluating it, I suggest you put each command implementation in a separate
+Xfile, to avoid storing potentially unneeded code in memory.
+X.PP
+XEach command is called with one argument, namely the full command string as
+Xread from the filter rules. Additionally, the special \fI@ARGV\fR array is
+Xset by performing a shell-style parsing of the command line (which will fail
+Xif quotes are mismatched, but then you can do the parsing by yourself since you
+Xget the command line).
+XAt the end of your routine, you must return a failure status, i.e.
+X\fB0\fR for success and \fB1\fR to signal failure.
+X.PP
+XThose are your only requirements. You are free to do whatever you want inside
+Xthe routine. To ease your task however, some variables are pre-computed for
+Xyou, the same ones that are made available within mail hooks, only they are
+Xdefined within the \fInewcmd\fR package this time. There are also a few
+Xspecial variables which you need to know about, and a set of standard routines
+Xyou may want to call. Please avoid calling something which is not documented
+Xhere, since it may change without prior notice. If you would like to use one
+Xroutine and it is not documented in this manual page, please let me know.
+X.PP
+XEach command is called from within an \fIeval\fR construct, so you may
+Xsafely use \fIdie\fR or call external library routines that use \fIdie\fR.
+XIf you use \fIrequire\fR, be aware that the mailagent is setting up a special
+X\fI@INC\fR array by putting its private library path first, so you may place
+Xall your \fImailagent\fR-related library files in this place.
+X'''
+X.SS Special Variables
+X.PP
+XThe following special variables (some of them marked read-only, meaning you
+Xshouldn't modify them, and indeed you can't) made available directly
+Xwithin the \fInewcmd\fR package, are pre-set by the filter
+Xautomaton, and are used to control the filtering process:
+X.sp
+X.TP 15
+X.I \$mfile
+XThe base name of the mail file being processed. This variable is read-only.
+XIt is mainly used in log messages, as in [\$mfile] to tag each log, since a
+Xsingle mailagent process may deal with multiple messages.
+X.TP
+X.I \$ever_saved
+XThis is a boolean, which should be \fIset\fR to \fB1\fR once a successful
+Xsaving operation has been completed. If at the end of the filtering, this
+Xvariable is still \fB0\fR, then the default LEAVE will be executed.
+X.TP
+X.I \$vacation
+XThis is a boolean, which when \fIset\fR to \fB1\fR will allow vacation messages.
+XIt is mainly used by the VACATION command, but if you wish to re-implement that
+Xcommand you will need access to this variable.
+X.TP
+X.I \$cont
+XThis is the continuation status, a variable of the utmost importance when
+Xdealing with the control flow. Four constants from the \fImain\fR package
+Xcan be used to specify whether we should continue with the current rule
+X(\$FT_CONT), abandon current rule (\$FT_REJECT), restart filtering from the
+Xbeginning (\$FT_RESTART) or simply abort processing (\$FT_ABORT). More on
+Xthis later.
+X.TP
+X.I \$lastcmd
+XThe last failure status recorded by the last command (among those which do
+Xmodify the execution status). You should not have to update this by yourself
+Xunless you are implementing some encapsulation for other commands, like BACK
+Xor ONCE, since by default \fI\$lastcmd\fR will be set to the value you return
+Xat the end of the command.
+X.TP
+X.I \$wmode
+XThis records the current state of the filter automaton (working mode), in a
+Xliteral string form, typically modified by the BEGIN command or as a side
+Xeffect, as in REJECT for instance.
+X.PP
+XOther variables you might have a need for are configuration parameters, held
+Xin the \fI~/.mailagent\fR configuration file. Well, the rule is simple. The
+Xvalue of each parameter \fIparam\fR from the configuration file is held in
+Xvariable \fI\$cf'param\fR. Variable \fI\$main'loglvl\fR is the copy of
+X\fI\$cf'level\fR, since it's always shorter to type in \fI\$'loglvl\fR after
+Xeach call to the logging routine \fI&add_log\fR.
+X.PP
+XThere is one more variable worth knowing about: \$main'FILTER, which is the
+Xsuitable X-Filter line that should be appended in \fBall\fR the mails you
+Xsend via the mailagent, in order to avoid loops. Also when you save mails
+Xto a folder, it's wise adding this line in case a problem arises: you may
+Xthen identify the culprit.
+X'''
+X.SS Altering Control Flow
+X.PP
+XWhen you want to alter control flow to perform a REJECT, a RESTART or an
+XABORT, you have three choices. If you wish to control that action via an
+Xoption, the same way the standard UNIQUE does (with \fB\-c\fR, \fB\-r\fR or
+X\fB\-a\fR), you may call \fI&main'alter_execution(option, mode)\fR giving it
+Xtwo parameters: the option letter and the mode you wish to change to before
+Xaltering the control flow.
+X.PP
+XYou may also want to directly alter the \fI\$wmode\fR and \fI\$cont\fR variables,
+Xbut then you'll have to do your own logging if you want some. Or you may
+Xcall low-level routines \fI&main'do_reject\fR, \fI&main'do_restart\fR and
+X\fI&main'do_abort\fR to perform the corresponding operation (with logging).
+X.PP
+XRemember that the mode _SEEN_ is special and directly handled at the
+Xfilter level, and the the filter begins in the INITIAL mode. The default
+Xaction is to continue with the current rule, which is why there is no
+Xroutine to perform this task.
+X.PP
+XThe preferred way is to invoke the \fImailhook\fR interface functions,
+X\fI&mailhook'begin\fR, \fI&mailhook'reject\fR, etc..., and that will work
+Xeven if you redefine those functions yourself. Besides, that's the only
+Xinterface which is likely not to be changed by new versions.
+X'''
+X.SS General Purpose Routines
+X.PP
+XThe following is a list of all the general routines you may wish to call when
+Xperforming some low-level tasks. Note that this information is
+Xversion-dependent. Since I document them, I'll try to keep them in new
+Xversions, but I cannot guarantee I will not have to slightly change some
+Xof their semantics. There is a good chance you will never have to worry about
+Xthat anyway.
+X.sp
+X.TP 10
+X.I &header'format(rfc822-field)
+XReturn a formatted RFC822 field to fit in 78 columns, with proper
+Xcontinuations introduced by eight spaces.
+X.TP
+X.I &header'normalize(rfc822-header-name)
+XNormalize case in RFC822 header and return the new header name with every
+Xfirst letter uppercased.
+X.TP
+X.I &header'reset
+XThis is part of an RFC822 header validation, mainly used when splitting a
+Xdigest. This resets the recognition automaton (see &header'valid).
+X.TP
+X.I &header'valid(line)
+XReturns a boolean status, indicating if all the lines given so far to this
+Xfunction since the last &header'reset are part of a valid RFC822 header.
+XThe function understands the first From line which is part of UNIX mails.
+XAt any time, the variable \fI\$header'maybe\fR may be checked to see if
+Xso far we have found at least one essential mail header field.
+X.TP
+X.I &main'acs_rqst(file)
+XPerform a .lock locking on the file, returning 0 on success and -1 on failure.
+XIf an old lock was present, it is removed (time limit set to one hour). Use
+X\fI&main'free_file\fR to release the lock.
+X.TP
+X.I &main'add_log(string)
+XAdd the \fIstring\fR to the logfile. The usual idiom is to postfix that call
+Xwith the \fIif \$'loglvl > value\fR, where \fIvalue\fR is the logging
+Xlevel you wish to have before emitting that kind of log (\fI$'loglvl\fR is
+Xa short form for \fI\$main'loglvl\fR).
+X.TP
+X.I &main'free_file(file)
+XRemove a .lock on a file, obtained by \fI&main'acs_rqst\fR. It returns 0 if
+Xthe lock was successfully removed, -1 if it was a stale lock (obtained by someone
+Xelse).
+X.TP
+X.I &main'header_found(file)
+XScan the head of a file and try to determine whether there is a mail header
+Xat the beginning or not. Return true if a header was found.
+X.TP
+X.I &main'history_record
+XRecord the message ID of the current message and return 0 if the message had
+Xnot been previously seen, 1 if it is a duplicate.
+X.TP
+X.I &main'hostname
+XReturn the value of the hostname, lowercased, with possible domain name
+Xappended to it.
+XThe hostname is cached, since its value must initially be obtained by forking.
+X(see also \fI&main'myhostname\fR)
+X.TP
+X.I &main'internet_info(email-address)
+XParse an e-mail internet address and return a three-element array containing
+Xthe host, the domain and the country part of the internet host. For instance,
+Xif the address is \fIuser@d.c.b.a\fR, it will return \fI(c, b, a)\fR.
+X.TP
+X.I &main'login_name(email-address)
+XParse the e-mail internet address and return the login name.
+X.TP
+X.I &main'macros_subst(*line)
+XPerform in-place macro substitution (line passed as a type glob) using
+Xthe information currently held in the \fI%main'Header\fR array. Do \fInot\fR
+Xpass \fI*_\fR as a parameter, since internally \fImacros_subst\fR uses a local
+Xvariable bearing that name to perform the substitutions and you would end up
+Xwith an unmodified version. If you really want to pass \fI*_\fR, then you must
+Xuse the returned value from \fImacros_subst\fR which is the substituted text,
+Xbut that's less efficient than having it modified in place.
+X.TP
+X.I &main'makedir(pathname, mode)
+XMake directory, creating all the intermediate directories needed to make
+X\fIpathname\fR a valid directory. Has no effect if the directory already
+Xexists. The mode parameter is optional, 0700 is used (octal number) if not
+Xspecified.
+X.TP
+X.I &main'myhostname
+XReturns the hostname of the current machine, without any domain name.
+XThe hostname is cached, since its value must initially be obtained by forking.
+X.TP
+X.I &main'run_command(filter-command)
+XExecute the single filter command specified and return the continuation
+Xstatus, which should normally be affected to the \fI\$cont\fR variable. You
+Xwill need this routine when trying to implement commands which encapsulate
+Xother commands, like ONCE or SELECT.
+X.TP
+X.I &main'seconds_in_period(period)
+XReturn the number of seconds in the period specified. See section \fISpecifying
+XA Period\fR to get valid period strings.
+X.TP
+X.I &main'shell_command(program, input, feedback)
+XRun a shell command and return a failure status (0 for OK). The input parameter
+Xmay be one of the following constants (defined in the \fImain\fR package):
+X\$NO_INPUT to close standard input, \$BODY_INPUT to pipe the body of the
+Xcurrent message, \$MAIL_INPUT to pipe the whole mail and \$HEADER_INPUT to
+Xpipe the message header. The feedback parameter may be one of \$FEEDBACK or
+X\$NO_FEEDBACK depending whether or not you wish to use the standard output
+Xto alter the corresponding part of the message. If no feedback is wanted, the
+Xoutput of the command is mailed back to the user.
+X.TP
+X.I &main'parse_address(rfc822-address)
+XParse an RFC822 e-mail address and return a two-elements array containing the
+Xinternet address and the comment part of that address.
+X.TP
+X.I &main'xeqte(filter-actions)
+XExecute a series of actions separated by the ';' character, calling
+X\fIrun_command\fR to actually perform the job. Return the continuation status.
+XNote that \$FT_ABORT will \fInever\fR be returned, since the mailagent
+Xusually stops after having executed one set of actions, only continuing
+Xif it saw an RESTART or a REJECT. What ABORT does is skipping the remaining
+Xcommands on the line and exiting as if all the commands had been run. You
+Xcould say \fIxeqte\fR is the equivalent of the \fIeval\fR function in perl,
+Xsince it interprets a little filter script and returns control to the caller
+Xonce finished, and ABORT is perl's \fIdie\fR.
+X.PP
+XYou may also use the three functions from the \fIextern\fR package which
+Xmanipulate persistent variables (already documented in the section dealing
+Xwith variables) as well as the user-defined macro routines.
+X'''
+X.SS Example
+X.PP
+XWriting your own commands is not easy, since it requires some basic knowledge
+Xregarding the mailagent internals. However, once you are familiar with that,
+Xit should be relatively straightforward.
+X.PP
+XHere is a small example. We want to write a command to bounce back a mail
+Xmessage to the original sender, the way sendmail does, with some leading
+Xtext to explain what happened. The command would have the following syntax:
+X.Ex
+XSENDBACK \fIreason\fR
+X.Ef
+Xand we would like that command to modify the existing status, returning
+Xa failure if the mail cannot be bounced back. Since this command actually
+Xsends something back, we do not want it to be executed in _SEEN_ mode.
+XHere is my implementation (untested):
+X.Ex
+Xsub sendback {
+X	local(\$cmd_line) = @_;
+X	local(\$reason) = join(' ', @ARGV[1..\$#ARGV]);
+X	unless (open(MAILER, "|/usr/lib/sendmail -odq -t")) {
+X		&'add_log("ERROR cannot run sendmail to send message")
+X			if \$'loglvl;
+X		return 1;
+X	}
+X	print MAILER <<EOF;
+XFrom: mailagent
+XTo: \$header{'Sender'}
+XSubject: Returned mail: Mailagent failure
+X\$main'FILTER
+X
+X  --- Transcript Of Session
+X
+X\$reason
+X
+X  --- Unsent Message Follows
+X
+X\$header{'All'}
+XEOF
+X	close MAILER;
+X	\$ever_saved = 1;	# Don't want it in mailbox
+X	\$? == 0 ? 0 : 1;	# Failure status
+X}
+X.Ef
+XAssuming this command is put into ~/mail/cmds/sendback.pl, the line
+Xdescribing it in the \fInewcmd\fR file would be:
+X.Ex
+XSENDBACK  ~/mail/cmds/sendback.pl  sendback  yes  no
+X.Ef
+XNow this command may be used freely in any rule, and will be logged
+Xas a user-defined command by the command dispatcher. Who said it was
+Xnot easy to do? :-)
+X.PP
+XNote the use of the \$ever_saved variable to mark the mail as saved once
+Xit has been bounced. Indeed, should the SENDBACK action be the only one
+Xaction to be run, we do not want the mailagent to LEAVE the mail in the
+Xmailbox because it has never been saved (this default behavior being
+Xa precaution only -- better safe than sorry).
+X'''
+X.SS Conclusion
+X.PP
+XIf along the way you imagine some useful commands which could be made
+Xpart of the standard command set, please e-mail them to me and I'll
+Xconsider integrating them. In the future, I would also like to provide
+Xa standard library of perl scripts to implement some weird commands which
+Xcould be needed in special cases.
+X.PP
+XNote that you may also use the information presented here inside the
+Xperl escape scripts. Via the \fIrequire\fR operator, it is easy to get
+Xthe new command implementation into your script and perform the same task.
+XYou will maybe need to set up @ARGV by yourself if you rely on that
+Xfeature in your command implementation.
+X.PP
+XCommand extension can also be viewed as a way to reuse some other perl
+Xcode, the mailagent providing a fixed and reliable frame and the external
+Xprogram providing the service. One immediate extension would be mailing
+Xlist handling, using this mechanism to interface with some mailing list
+Xmanagement software written in perl.
+X'''
+X''' G e n e r i c   M a i l   S e r v e r
+X'''
+X.SH GENERIC MAIL SERVER
+X.PP
+XOne nice thing about mailagent is that it provides you with the basic tools to
+Ximplement a generic mail server. Indeed, via the SERVER command, you can
+Xprocess a mail message, extract and then execute some predefined commands.
+XFor instance, you may implement an archive server, or a mailing list
+Xmanager, etc...
+X.PP
+XThe major limitation currently is that only plain commands are accepted,
+Xor commands taking some additional info as \fIstandard input\fR or
+Xequivalent. There is no notion of modes, with separate command sets for
+Xeach mode or limited name-space visibility, at least for now, so it is not
+Xeasy (albeit possible) to implement an ftpmail server, for instance, since
+Xthis implies the notion of mode.
+X'''
+X.SS Overview
+XIn order to implement a mail server command (say send \fIfile\fR, which
+Xwould send an arbitrary file from the file system in a separate mail message),
+Xyou need to do the following:
+X.IP \(bu 5
+XThink about the command from a security point of view. Here, the command we
+Xwant to implement is a potentially dangerous one since it can give access
+Xto any file on the machine the individual running \fImailagent\fR has access to.
+XSo we want to restrict that command to a limited number of trusted people,
+Xwho will be granted the \fIpower\fR to run this command. More on this later.
+X.IP \(bu
+XChoose whether you want to implement the command in perl or in another
+Xprogramming language. If you do the latter, your command will be known as
+Xa \fIshell\fR command (i.e. a command runnable directly from a shell), while
+Xin the former case, you have the choice of making it appear as a \fIshell\fR
+Xcommand, or have it hooked to the \fImailagent\fR in which case it is known
+Xas a \fIperl\fR command. In that last case, your command will be dynamically
+Xloaded into mailagent with all the advantages that brings you. Here, we are
+Xgoing to write our command as a shell script.
+X.IP \(bu
+XWrite the command itself. That's the most difficult part in this scheme.
+XLater on, we will see a straightforward implementation of the \fIsend\fR
+Xcommand.
+X.IP \(bu
+XEdit the \fIcomserver\fR file (defined in your \fI~/.mailagent\fR) to
+Xrecord your new command. Then make sure this file is tightly protected.
+XYou must own it, and be the only one allowed to modify it.
+X.IP \(bu
+XAdditionally, you may want to hide some of the arguments in the session
+Xtranscript (more on this later), allow the command to take a flow of
+Xdata as its \fIstandard input\fR, assign a path to the command, etc...
+XAll those parameters take place in your \fIcomserver\fR file.
+X.IP \(bu
+XStart using the command... which of course is the nicest part in this scheme!
+X.PP
+XIn the following sections, we'll learn about the syntax of the \fIcomserver\fR
+Xfile, what \fIpowers\fR are, how the session transcript is built, what the
+Xcommand environment is, etc...
+X'''
+X.SS Builtin Commands Overview
+X.PP
+XThe mail server has a limited set of builtin commands, dealing with user
+Xauthentication and command environment settings. User authentication
+Xis password based and is not extremely strong since passwords are specified
+Xin clear within the mail message itself, which could be easily intercepted.
+X.PP
+XThe server maintains the notion of \fIpowers\fR. One user may have more
+Xthan one power at a time, each power granting only a limited access to
+Xsome sensitive area. A few powers are hardwired in the server, but the
+Xuser may create new ones when necessary. Those powers are software-enforced,
+Xmeaning the command must check for itself whether is has the necessary
+Xpower(s) to perform correctly.
+X.PP
+XPowers are protected by a password and a clearance file. Having the good
+Xpassword is not enough, you have to be cleared in order to (ab)use it. The
+Xclearance file is a list of e-mail address patterns, using the shell
+Xmetacharacters scheme, someone being cleared
+Xif and only if his e-mail address matches at least one of the patterns from
+Xthe clearance file. The more use you will make of metacharacters, the weaker
+Xthis clearance scheme will be, so be careful.
+X.PP
+XYour commands and the output resulting from their execution is normally
+Xmailed back to you as a session transcript. For security reasons, passwords
+Xare hidden from the command line. Likewise, failure to get a power will not
+Xindicate whether you lacked authorization or whether your password was bad.
+X.PP
+XA user with the \fIsystem\fR power is allowed to create new powers, delete
+Xother powers, change power passwords, and list, remove or change power
+Xclearances. This is somehow an important power which should be detained by
+Xa small number of users with very strict clearance (no meta-characters in
+Xthe address, if possible). A good password should also protect that power.
+X.PP
+XHowever, a user with the \fIsystem\fR power is not allowed to directly get
+Xanother power without specifying its password and being allowed to do so by the
+Xassociated clearance file. But it would be possible to achieve that indirectly
+Xby removing the power and creating a new one bearing the same name. In order
+Xto control people with the \fIsystem\fR power and also for some tricky
+Xsituation, there is another more god-like power: the \fIroot\fR power.
+X.PP
+XA user with the \fIroot\fR power can do virtually anything, since it
+Xinstantly grants that individual \fIall\fR the powers available on the
+Xserver (but \fIsecurity\fR). The only limitation is that \fIroot\fR
+Xcannot remove the \fIroot\fR
+Xpower alone. One needs to specify the \fIsecurity\fR password (another
+Xhardwired power) in order to proceed. Needless to say, only \fBone\fR
+Xindividual should have both \fIroot\fR and \fIsecurity\fR clearance, and
+Xonly one individual should know the \fIsecurity\fR password and be listed
+Xin the clearance file. The \fIsystem\fR power cannot harm any of those
+Xtwo powers. Eventually, more than one user could have the \fIroot\fR power,
+Xbut do not grant that lightly...
+X.PP
+XGetting the \fIroot\fR power is necessary when \fIsystem\fR has messed with
+Xthe system configuration in an hopeless way, or when a long atomic sequence
+Xof commands has to be issued: \fIroot\fR is not subject to the maximum
+Xnumber of command that can be issued in one single message.
+X.PP
+XIn case you think this \fImailagent\fR feature is dangerous for your account,
+Xdo not create the \fIroot\fR and \fIsecurity\fR powers, and do not write
+Xany sensitive commands.
+X'''
+X.SS Builtin Commands Definition
+X.PP
+XNow let's have a look at those builtin commands. Passwords of sensitive
+Xcommands will be concealed in the session transcript. Some commands accept
+Xinput by reading the mail message up to the \fIEOF\fR marker, which is a
+Xsimple EOF string on a line by itself (analogous with shell's \fIhere
+Xdocuments\fR).
+X.sp
+X.TP 10
+X.I addauth power password
+XAdd users to clearance file for \fIpower\fR. If the power password is given,
+Xno special power is needed, otherwise the \fIsystem\fR power is required.
+XFor \fIroot\fR or \fIsecurity\fR powers, the corresponding power is
+Xrequired, or the
+X\fIpassword\fR must be specified. The command reads the standard input
+Xup to the EOF marker to get the new users.
+X.TP
+X.I approve password command
+XRecords the password in the command environment, then executes the command.
+XIf a power is required and not yet obtained, the command will look for the
+Xpassword in the environment and try to get the relevant power using that
+Xpassword. Hence, approved command (with proper password)
+Xwill transparently execute without the hassle of requesting the power,
+Xissuing the command and then releasing the power. It is up to the command
+Xto perform the \fIapprove\fR password test by looking at the \fIapprove\fR
+Xvariable in the command environment (see below). Since clearance checks
+X(such as those performed when requesting a power) are not performed, no
+Xsensitive command should ever deal with the \fIapprove\fR construct.
+X.TP
+X.I delpower power password [security]
+XDelete a power from the system, and its associated clearance list. The
+X\fIsystem\fR power is required to delete most powers except \fIroot\fR and
+X\fIsecurity\fR. The \fIsecurity\fR power may only be deleted by itself and
+Xthe \fIroot\fR power may only be deleted when the \fIsecurity\fR password
+Xis also specified.
+X.TP
+X.I getauth power password
+XGet current clearance file for a given power. No special power required if
+Xthe password is given or the power is already detained. Otherwise, the system
+Xpower is needed for all powers but \fIroot\fR or \fIsecurity\fR where the
+Xcorresponding power is mandatory.
+X.TP
+X.I newpower power password [alias]
+XAdd a new power to the system. The command then reads the standard mail input
+Xuntil the EOF marker to get the power clearance list. The \fIsystem\fR power
+Xis required to create a new power, unless it's \fIroot\fR or \fIsecurity\fR:
+XThe \fIsecurity\fR power is required to create \fIroot\fR and the \fIroot\fR
+Xpower is required to create \fIsecurity\fR.
+X.TP
+X.I passwd power old new
+XChange power password. It does not matter if you already hold the corresponding
+Xpower, you must give the proper old password. See also the \fIpassword\fR
+Xcommand.
+X.TP
+X.I password power new
+XChange power password. The corresponding power is required, or you have to get
+Xthe \fIsystem\fR power. To change the \fIroot\fR or \fIsecurity\fR passwords,
+Xyou need the corresponding power.
+X.TP
+X.I power name password
+XAsk for a new power. Of course, \fIroot\fR does not need to request for any
+Xother power but \fIsecurity\fR, less give any password. This command is not
+Xhonored when the server is not in trusted mode, unbeknownst to the user:
+Xthe error message in the transcript file is no different from the one
+Xobtained with an invalid password.
+X.TP
+X.I powers regexp
+XList all the powers matching the perl regular expression, along with their
+Xrespective clearance file. The \fIsystem\fR power is required to get the list.
+XThe \fIroot\fR or \fIsecurity\fR power are required to get access to the
+X\fIroot\fR or \fIsecurity\fR information, respectively.
+XIf no arguments are given, all the powers are listed.
+X.TP
+X.I release power
+XGet rid of some power.
+X.TP
+X.I remauth power password
+XRemove users from clearance file, getting the list by reading the standard
+Xmail input until the EOF marker. This command does not require any special
+Xpower if the proper password is given or if the power is already detained.
+XOtherwise, the \fIsystem\fR power is needed. For \fIroot\fR and \fIsecurity\fR
+Xclearance, the corresponding power is needed as well.
+X.TP
+X.I set variable value
+XSet the variable to the corresponding value. Useful to alter internal
+Xvariables like the EOF marker value, or change some command environment.
+XThe user may define his own variables for his commands.
+XFor \fIflag\fR-type variable, a value of \fIon\fR, \fIyes\fR or \fItrue\fR sets
+Xthe variable to \fI1\fR, any other string sets it to \fI0\fR (false).
+X.TP
+X.I setauth power password
+XReplace power clearance file with one obtained from standard mail input up to
+Xthe EOF mark. The \fIsystem\fR power is needed unless you specify the proper
+Xpassword or the power is already yours. As usual, \fIroot\fR or \fIsecurity\fR
+Xclearances can only be changed when the power is detained.
+X.TP
+X.I user [e-mail [command]]
+XExecute command by assuming the e-mail identity specified. Powers are lost
+Xwhile executing the command. The e-mail identity may be checked by the
+Xcommand itself, which may impose further restrictions on the execution, like
+Xgetting user-defined powers. Note that this command only modifies the global
+Xenvironment, and that it's up to the \fIcommand\fR implementation to make
+Xuse of that information. If no command is specified, the new identity is
+Xassumed until changed by another \fIuser\fR command and all the powers
+Xcurrently held by the user are released. If no \fIe-mail\fR address
+Xis given, the original user ID is restored.
+X'''
+X.SS Command Environment
+X.PP
+XThere are six types of commands and variables that can be specified in server
+Xmode. Two of them, \fIend\fR and \fIhelp\fR types are special and handled
+Xseparately. Two types \fIvar\fR and \fIflag\fR refer to variables and the last
+Xtwo types \fIperl\fR and \fIshell\fR refer to commands.
+X.PP
+XWhenever mailagent fires a server command, it sets up an environment for that
+Xcommand: if it is a \fIperl\fR-type command, then a set of perl variables are
+Xset before loading the command; if it is a \fIshell\fR-type command, some
+Xenvironment variables are initialized and file descriptor #3 is set up to
+Xpoint directly to the mailagent session transcript.
+X.PP
+XA \fIshell\fR-type command is forked, whilst a \fIperl\fR-type command is
+Xloaded directly in \fImailagent\fR within the \fIcmdenv\fR package. This
+Xoperates much like the PERL filtering command, only the target package differs
+Xand a distinct set of variables is preset.
+X.PP
+XSome commands collect additional data up to an end-of-file marker (by default
+Xthe string \fBEOF\fR on a line by itself) and those data are fed to shell
+Xcommands via \fIstdin\fR and to perl commands via the \fI@buffer\fR variable
+Xset up in the environment package named \fIcmdenv\fR (in which the command is
+Xloaded and run).
+X..PP
+XIf you define your own variables (types \fIvar\fR or \fIflag\fR), you may
+Xuse the builtin \fIset\fR command to modify their values. Note that no default
+Xvalue can be provided when defining your variable. A suitable default value
+Xmust be set within commands making use of them, with the advantage that
+Xdifferent default values may be used by different commands.
+X.PP
+XThe following \fIenvironment\fR variables are defined. Most are read-only,
+Xunless notified otherwise, in which case the builtin \fIset\fR command may
+Xbe used on them.
+X.TP 10
+X.I approve
+XThe approve password for \fIapprove\fR commands, empty if not within a
+Xbuiltin \fIapprove\fR construct.
+X.TP
+X.I auth
+XA flag set to true when a valid envelope was found in the mail message.
+XWhen this flag is false, the server cannot be put in trusted mode.
+X.TP
+X.I cmd
+XThe command line, as written in the message.
+X.TP
+X.I collect
+XInternal flag set to true while collecting input from a here-document.
+XIt is normally reset to false before calling the command.
+X.TP
+X.I debug
+XTrue when debug mode is activated (may be set).
+X.TP
+X.I disabled
+XA comma separated list of disabled commands, with no space between them.
+XThis is initialized when the SERVER command is invoked and the \fB\-d\fR
+Xoption is used.
+X.TP
+X.I eof
+XThe current end-of-file marker for here-document commands. By default set
+Xto 'EOF' (may be changed).
+X.TP
+X.I errors
+XNumber of errors so far.
+X.TP
+X.I jobnum
+XThe job number assigned to the current mailagent.
+X.TP
+X.I log
+XWhat was logged in the transcript, with some args possibly concealed.
+X.TP
+X.I name
+XThe command name.
+X.TP
+X.I pack
+XPacking mode for file sending (may be set).
+X.TP
+X.I path
+XDestination address for file sending or notification (may be set).
+X.TP
+X.I powers
+XA colon (:) separated list of powers the user currently has successfully
+Xrequested and got.
+X.TP
+X.I requests
+XNumber of requests processed so far.
+X.TP
+X.I trace
+XTrue when shell commands want to be traced in transcript (may be set).
+X.TP
+X.I trusted
+XTrue when server is in trust mode, where powers may be gained. This
+Xis activated by the \fB\-t\fR option of the SERVER command, provided a
+Xvalid mail envelope was found.
+X.TP
+X.I uid
+XAddress of the sender of the message, where transcript is to be sent. By
+Xextension, the real user ID for the server, which is the base of the power
+Xclearance mechanism.
+X.TP
+X.I user
+XThe effective user ID, originally the same as the uid, but may be changed
+Xvia the \fIuser\fR builtin command.
+X'''
+X.SS Session Transcript
+X.PP
+XA session transcript is mailed back automatically to the user who requested
+Xa server access. This transcript shows the commands ran by the user and their
+Xstatus: \fIOK\fR or \fIFAILED\fR. Between those two lines, the transcript show
+Xany output explicitly made by the command to the transcript. Typically, the
+Xtranscript may be use to forward error message back to the user, but even
+Xcommands executing correctly may want to issue an explicit message, stating
+Xwhat has just been done.
+X.PP
+XA perl command may access the transcript via the \fIMAILER\fR file handle,
+Xdefined in the \fIcmdenv\fR package, whilst a shell command may access it via
+Xits file descriptor #3.
+X.PP
+XNote that the session transcript is mailed to the \fIsender\fR of the message,
+Xi.e. whoever the envelope header line says it is. As
+Xfar as the server is concerned, this e-mail address is used as the user ID,
+Xjust like a plain login name can be thought of as the user id. For sensitive
+Xcommands, authentication based on that information is really weak. A more
+X"secure" authentication is provided by the server powers, which is
+Xpassword-based. Unfortunately, the clear password has to be transmitted in the
+Xmessage itself and could be eavesdropped.
+X'''
+X.SS Recording New Commands and Variables
+X.PP
+XServer commands and variables are defined in the \fIcomserver\fR file defined
+Xin your \fI~/.mailagent\fR. The format of the file is that of a table with
+Xitems on a row separated by tabs characters. Each line defines one command
+Xor variable. Any irrelevant field may be entered as a single '-' (minus)
+Xcharacter. The format allows for shell-style (#) comments.
+X.PP
+XEach row has the following fields:
+X.Ex
+X\fIname type hide collect-data path extra\fR
+X.Ef
+Xwhere:
+X.TP 15
+X.I name
+Xis the name of the command or variable as recognized by the server.
+X.TP
+X.I type
+Xis one of \fIperl\fR, \fIshell\fR, \fIvar\fR, \fIflag\fR, \fIhelp\fR
+Xor \fIend\fR.
+X.TP
+X.I hide
+Xindicates which arguments in the command are to be hidden (the command name
+Xbeing argument zero) in the session transcript. Use '-' if no arguments
+Xneed to be hidden. Typically, this is used to hide clear passwords in commands.
+XIf more than one argument has to be hidden, then a list of numbers separated
+Xby a ',' (comma) may be specified, with \fBno spaces\fR between them. For
+Xinstance '2,4' would hide arguments 2 and 4 in the transcript.
+X.TP
+X.I collect-data
+Xis a flag (specify as either 'y' or 'n', but you may use complete words 'yes'
+Xor 'no') indicating whether the command collects additional data in a
+Xhere-document until the EOF marker. Alternatively, you may specify '-' in place
+Xof 'n'.
+X.TP
+X.I path
+Xspecifies the path of the command (~name substitution allowed). If not relevant
+X(e.g. when defining a variable) or when you want to leave it blank, use '-'.
+XIf a blank path is specified for a \fIperl\fR or \fIshell\fR command, then
+Xthe implementation of that command is expected to be found in \fIservdir\fR,
+Xas defined in \fI~/.mailagent\fR. If the command name is \fIcmd\fR for instance,
+Xthen perl command are expected there in a file named \fIcmd\fR of \fIcmd.pl\fR,
+Xwhereas shell commands are expected to be found in a \fIcmd\fR of \fIcmd.sh\fR
+Xfile. Note that a command is disabled if it cannot be located at the time
+Xthe \fIcomserver\fR file is parsed.
+X.TP
+X.I extra
+Xis any extra parameter needed for the command. Unlike other fields, this
+Xshould be left blank if not needed. Anything up to the end of the line is
+Xgrabbed by this field. Perl commands should specify the name of the perl
+Xfunction to call to execute the command; if none is specified, the name of
+Xthe command itself is called. Shell commands may use that field to supply
+Xadditional options, which will be inserted right after the command name and
+Xbefore any other user-supplied arguments. Others should leave this alone.
+X'''
+X.SS Special Command Types
+X.PP
+XThere are currently two special command types.
+X.PP
+XThe simplest is the \fIend\fR type. This is used to specify commands which may
+Xend the server processing. By default, processing continues until the end
+Xof the file is reached or a signature delimiter '--' is found. For instance,
+Xyou may wish to define the command \fIquit\fR and give it the \fIend\fR type.
+XAs soon as the server reaches that command, it aborts processing and discards
+Xthe remaining of the message.
+X.PP
+XThe \fIhelp\fR type is usually attached to an \fIhelp\fR command and prints
+Xhelp on a command basis, help for each command being stored under the
+X\fIhelpdir\fR variable (defined in your ~/.mailagent) in a file bearing the
+Xsame name as the command itself. For example, assuming a command \fIshoot\fR,
+Xits help file would be expected in \fIhelpdir/shoot\fR. If no file is found
+Xthere, mailagent looks in its public library ($privlibexp) for an help file.
+XHelp is provided only when the help file exists and is not zero-sized.
+X'''
+X.SS Creating the Root Power
+X.PP
+XIn order to bootstrap the server, you need to create the root power. All the
+Xother powers may then be created by using the server interface, which ensures
+Xconsistency and logs your actions. If you don't plan using powers at all, you
+Xmay skip that section.
+X.PP
+XFirst, you need to pick up a good password for the \fIroot\fR power. Someone
+Xwith the \fIroot\fR power can do virtually anything with the server, so be
+END_OF_FILE
+  if test 49980 -ne `wc -c <'agent/man/mailagent.SH.03'`; then
+    echo shar: \"'agent/man/mailagent.SH.03'\" unpacked with wrong size!
+  fi
+  # end of 'agent/man/mailagent.SH.03'
+fi
+echo shar: End of archive 3 \(of 26\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1823 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Subject: v16i117: xephem - astronomical ephemeris program., Part06/24
+Message-ID: <1992Mar6.135318.2170@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-16i112-xephem@uunet.UU.NET>
+Date: Fri, 6 Mar 1992 13:53:18 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: e_downey@hwking.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 16, Issue 117
+Archive-name: xephem/part06
+
+# this is part.06 (part 6 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file obj.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 6; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping obj.c'
+else
+echo 'x - continuing file obj.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'obj.c' &&
+#define	E_M2		18
+#define	E_SIZE		19
+X
+#define	H_NAME		20
+#define	H_EP		21
+#define	H_INC		22
+#define	H_LAN		23
+#define	H_AOP		24
+#define	H_E		25
+#define	H_QP		26
+#define	H_EPOCH		27
+#define	H_G		28
+#define	H_K		29
+#define	H_SIZE		30
+X
+#define	P_NAME		31
+#define	P_EP		32
+#define	P_INC		33
+#define	P_AOP		34
+#define	P_QP		35
+#define	P_LAN		36
+#define	P_EPOCH		37
+#define	P_G		38
+#define	P_K		39
+#define	P_SIZE		40
+X
+static Widget objform_w;
+static Widget objsl_w;
+static Widget objf_w, obje_w, objh_w, objp_w;
+X
+static char *dbfile;                    /* !0 if set by -d option */
+static char dbfdef[] = "ephem.db";      /* default database file name */
+X
+/* client codes for the bottom control buttons */
+#define	APPLY	1
+#define	LOOKUP	2
+#define	CLOSE	3
+X
+/* structures to describe objects of various types.
+X */
+#define	MAXNM		16	/* longest allowed object name, inc \0 */
+typedef struct {
+X    double m_m1, m_m2;	/* either g/k or H/G, depending on... */
+X    int m_whichm;	/* one of MAG_gk or MAG_HG */
+} Mag;
+typedef struct {
+X    double f_ra;	/* ra, rads, at given epoch */
+X    double f_dec;	/* dec, rads, at given epoch */
+X    double f_mag;	/* visual magnitude */
+X    double f_siz;	/* angular size, in arc seconds */
+X    double f_epoch;	/* the given epoch, as an mjd */
+X    char   f_name[MAXNM]; /* name */
+} ObjF;			/* fixed object */
+typedef struct {
+X    double e_inc;	/* inclination, degrees */
+X    double e_Om;	/* longitude of ascending node, degrees */
+X    double e_om;	/* argument of perihelion, degress */
+X    double e_a;		/* mean distance, aka, semi-maj axis, in AU */
+X    double e_n;		/* daily motion, degrees/day */
+X    double e_e;		/* eccentricity */
+X    double e_M;		/* mean anomaly, ie, degrees from perihelion at... */
+X    double e_cepoch;	/* epoch date (M reference), as an mjd */
+X    double e_epoch;	/* equinox year (inc/Om/om reference), as an mjd */
+X    Mag    e_mag;	/* magnitude */
+X    double e_siz;	/* angular size, in arc seconds at 1 AU */
+X    char   e_name[MAXNM]; /* name */
+} ObjE;			/* object in heliocentric elliptical orbit */
+typedef struct {
+X    double h_ep;	/* epoch of perihelion, as an mjd */
+X    double h_inc;	/* inclination, degs */
+X    double h_Om;	/* longitude of ascending node, degs */
+X    double h_om;	/* argument of perihelion, degs. */
+X    double h_e;		/* eccentricity */
+X    double h_qp;	/* perihelion distance, AU */
+X    double h_epoch;	/* equinox year (inc/Om/om reference), as an mjd */
+X    double h_g, h_k;	/* magnitude model coefficients */
+X    double h_siz;	/* angular size, in arc seconds at 1 AU */
+X    char   h_name[MAXNM]; /* name */
+} ObjH;			/* object in heliocentric parabolic trajectory */
+typedef struct {
+X    double p_ep;	/* epoch of perihelion, as an mjd */
+X    double p_inc;	/* inclination, degs */
+X    double p_qp;	/* perihelion distance, AU */
+X    double p_om;	/* argument of perihelion, degs. */
+X    double p_Om;	/* longitude of ascending node, degs */
+X    double p_epoch;	/* reference epoch, as an mjd */
+X    double p_g, p_k;	/* magnitude model coefficients */
+X    double p_siz;	/* angular size, in arc seconds at 1 AU */
+X    char   p_name[MAXNM]; /* name */
+} ObjP;			/* object in heliocentric parabolic trajectory */
+X
+typedef struct {
+X    int  o_type;        /* current object type; see flags, below */
+X    int  o_on;          /* !=0 once object is defined */
+X    ObjF o_f;           /* the fixed object */
+X    ObjE o_e;           /* the elliptical orbit object */
+X    ObjH o_h;           /* the hyperbolic orbit object */
+X    ObjP o_p;           /* the parabolic orbit object */
+} Obj;
+X
+/* o_type */
+#define	FIXED		1
+#define	ELLIPTICAL	2
+#define	HYPERBOLIC	3
+#define	PARABOLIC	4
+X
+/* m_whichm */
+#define MAG_HG          0       /* using 0 makes HG the initial default */
+#define MAG_gk          1
+X
+/* table of fields for the object definitions.
+X * the id field is NOT a row/col loc; that is fixed sequentially.
+X * instead, the id holds a code for each structure member.
+X * N.B. these must be in pairs: label then button (CHG). see create_buttons().
+X */
+#define	type	width
+static FieldMap obj_field_map[] = {
+X    {F_NAME, 0, FIXED, "Name:"},
+X    {F_NAME, CHG, FIXED, "Object name:"},
+X    {F_RA, 0, FIXED, "RA:"},
+X    {F_RA, CHG, FIXED, "RA (h:m:s):"},
+X    {F_DEC, 0, FIXED, "Dec:"},
+X    {F_DEC, CHG, FIXED, "Dec (d:m:s):"},
+X    {F_MAG, 0, FIXED, "Mag:"},
+X    {F_MAG, CHG, FIXED, "Magnitude:"},
+X    {F_EPOCH, 0, FIXED, "Epoch:"},
+X    {F_EPOCH, CHG, FIXED, "Reference epoch (UT Date, m/d.d/y or year.d):"},
+X    {F_SIZE, 0, FIXED, "Size:"},
+X    {F_SIZE, CHG, FIXED, "Angular Size (arc secs):"},
+X
+X    {E_NAME, 0, ELLIPTICAL, "Name:"},
+X    {E_NAME, CHG, ELLIPTICAL, "Object name:"},
+X    {E_INC, 0, ELLIPTICAL, "Inclination:"},
+X    {E_INC, CHG, ELLIPTICAL, "Inclination (degs):"},
+X    {E_LAN, 0, ELLIPTICAL, "Long of Asc Nod:"},
+X    {E_LAN, CHG, ELLIPTICAL, "Longitude of ascending node (degs):"},
+X    {E_AOP, 0, ELLIPTICAL, "Arg of Peri:"},
+X    {E_AOP, CHG, ELLIPTICAL, "Argument of Perihelion (degs):"},
+X    {E_A, 0, ELLIPTICAL, "Mean Dist:"},
+X    {E_A, CHG, ELLIPTICAL, "Mean distance (AU):"},
+X    {E_N, 0, ELLIPTICAL, "Daily Motion:"},
+X    {E_N, CHG, ELLIPTICAL, "Daily motion (degs/day):"},
+X    {E_E, 0, ELLIPTICAL, "Eccentricity:"},
+X    {E_E, CHG, ELLIPTICAL, "Eccentricty (<1):"},
+X    {E_M, 0, ELLIPTICAL, "Mean Anomaly:"},
+X    {E_M, CHG, ELLIPTICAL, "Mean Anomaly (degs):"},
+X    {E_CEPOCH, 0, ELLIPTICAL, "C Epoch:"},
+X    {E_CEPOCH, CHG, ELLIPTICAL, "Epoch date (UT Date, m/d.d/y or year.d):"},
+X    {E_EPOCH, 0, ELLIPTICAL, "Epoch:"},
+X    {E_EPOCH, CHG, ELLIPTICAL, "Equinox year (UT Date, m/d.d/y or year.d):"},
+X    {E_M1, 0, ELLIPTICAL, "Mag coeff 1:"},
+X    {E_M1, CHG, ELLIPTICAL, "Magnitude coefficient 1 (g#, H# or just #):"},
+X    {E_M2, 0, ELLIPTICAL, "Mag coeff 2:"},
+X    {E_M2, CHG, ELLIPTICAL, "Magnitude coefficient 2 (k#, G# or just #):"},
+X    {E_SIZE, 0, ELLIPTICAL, "Size:"},
+X    {E_SIZE, CHG, ELLIPTICAL, "Angular Size @ 1 AU (arc secs):"},
+X
+X    {H_NAME, 0, HYPERBOLIC, "Name:"},
+X    {H_NAME, CHG, HYPERBOLIC, "Object name:"},
+X    {H_EP, 0, HYPERBOLIC, "Ep of Peri:"},
+X    {H_EP,CHG, HYPERBOLIC, "Epoch of perihelion (UT Date, m/d.d/y or year.d):"},
+X    {H_INC, 0, HYPERBOLIC, "Inclination:"},
+X    {H_INC, CHG, HYPERBOLIC, "Inclination (degs):"},
+X    {H_LAN, 0, HYPERBOLIC, "Long of Asc Nod:"},
+X    {H_LAN, CHG, HYPERBOLIC, "Longitude of ascending node (degs):"},
+X    {H_AOP, 0, HYPERBOLIC, "Arg of Peri:"},
+X    {H_AOP, CHG, HYPERBOLIC, "Argument of perihelion (degs):"},
+X    {H_E, 0, HYPERBOLIC, "Eccentricity:"},
+X    {H_E, CHG, HYPERBOLIC, "Eccentricity (>1):"},
+X    {H_QP, 0, HYPERBOLIC, "Peri Dist:"},
+X    {H_QP, CHG, HYPERBOLIC, "Perihelion distance (AU):"},
+X    {H_EPOCH, 0, HYPERBOLIC, "Epoch:"},
+X    {H_EPOCH, CHG, HYPERBOLIC, "Reference epoch (UT Date, m/d.d/y or year.d):"},
+X    {H_G, 0, HYPERBOLIC, "g:"},
+X    {H_G, CHG, HYPERBOLIC, "g, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {H_K, 0, HYPERBOLIC, "k:"},
+X    {H_K, CHG, HYPERBOLIC, "k, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {H_SIZE, 0, HYPERBOLIC, "Size:"},
+X    {H_SIZE, CHG, HYPERBOLIC, "Angular Size @ 1 AU (arc secs):"},
+X
+X    {P_NAME, 0, PARABOLIC, "Name:"},
+X    {P_NAME, CHG, PARABOLIC, "Object name:"},
+X    {P_EP, 0, PARABOLIC, "Ep of Peri:"},
+X    {P_EP, CHG, PARABOLIC, "Epoch of perihelion (UT Date, m/d.d/y or year.d):"},
+X    {P_INC, 0, PARABOLIC, "Inclination:"},
+X    {P_INC, CHG, PARABOLIC, "Inclination (degs):"},
+X    {P_AOP, 0, PARABOLIC, "Arg of Peri:"},
+X    {P_AOP, CHG, PARABOLIC, "Argument of perihelion (degs):"},
+X    {P_QP, 0, PARABOLIC, "Peri Dist:"},
+X    {P_QP, CHG, PARABOLIC, "Perihelion distance (AU):"},
+X    {P_LAN, 0, PARABOLIC, "Long of Asc Nod:"},
+X    {P_LAN, CHG, PARABOLIC, "Longitude of ascending node (degs):"},
+X    {P_EPOCH, 0, PARABOLIC, "Epoch:"},
+X    {P_EPOCH, CHG, PARABOLIC, "Reference epoch (UT Date, m/d.d/y or year.d):"},
+X    {P_G, 0, PARABOLIC, "g:"},
+X    {P_G, CHG, PARABOLIC, "g, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {P_K, 0, PARABOLIC, "k:"},
+X    {P_K, CHG, PARABOLIC, "k, as in m = g + 5*log(delta) + 2.5*k*log(r):"},
+X    {P_SIZE, 0, PARABOLIC, "Size:"},
+X    {P_SIZE, CHG, PARABOLIC, "Angular Size @ 1 AU (arc secs):"},
+};
+#define	ASIZ(a)	(sizeof(a)/sizeof(a[0]))
+#define	NFM	ASIZ(obj_field_map)
+#define	LFM	(&obj_field_map[NFM])
+X
+static Obj objx;
+static Obj objy;
+static Obj *objp;
+X
+X
+/* return true if object is now on, else 0.
+X */
+obj_ison(p)
+int p;
+{
+X	return ((p == OBJX) ? objx.o_on : objy.o_on);
+}
+X
+/* set an alternate database file name.
+X * N.B. we assume the storage pointed to by name is permanent.
+X */
+obj_setdbfilename (name)
+char *name;
+{
+X	dbfile = name;
+}
+X
+/* retrive the name of OBJX or Y */
+char *
+obj_getname (p)
+int p;
+{
+X	Obj *op = (p == OBJX) ? &objx : &objy;
+X
+X	switch (op->o_type) {
+X	case FIXED: return (op->o_f.f_name);
+X	case ELLIPTICAL: return (op->o_e.e_name);
+X	case HYPERBOLIC: return (op->o_h.h_name);
+X	case PARABOLIC: return (op->o_p.p_name);
+X	}
+X	return (0);
+}
+X
+X
+/* called by the main menu pick.
+X * create the main form, if this is the first time we've been called.
+X * then we toggle each time.
+X */
+obj_manage()
+{
+X	if (!objform_w) {
+X	    objp = &objx;	/* must agree with way button is initialized */
+X	    obj_create_form();
+X	    obj_create_buttons();
+X	    obj_set_all_buttons();
+X	    obj_set_type_radiobox ();
+X	}
+X	
+X	if (XtIsManaged(objform_w))
+X	    XtUnmanageChild (objform_w);
+X	else
+X	    XtManageChild (objform_w);
+}
+X
+/* set object p (OBJX or OBJY) to name */
+obj_filelookup (p, name)
+int p;
+char *name;
+{
+X	FILE *obj_opendb();
+X	char buf[MAXDBLINE];
+X	int nl;
+X	FILE *fp;
+X
+X	fp = obj_opendb();
+X	if (!fp) 
+X	    return;
+X
+X	/* search for first entry with a matching name */
+X	nl = strlen (name);
+X	while (nxt_db(buf, sizeof(buf), fp) == 0 && strncmp(buf, name, nl))
+X	    continue;
+X
+X	if (feof(fp)) {
+X	    (void) sprintf (buf, "Object %s not found", name);
+X	    f_msg (buf, 0);
+X	} else {
+X	    objp = (p == OBJX) ? &objx : &objy;
+X	    (void) obj_crack_dbline (buf);
+X	}
+X
+X	(void) fclose (fp);
+}
+X
+/* called once to build the basic form.
+X */
+static
+obj_create_form ()
+{
+X	Arg args[20];
+X	void obj_xy_cb();
+X	void obj_type_cb();
+X	void obj_lookup_cb();
+X	void obj_select_cb();
+X	void obj_close_cb();
+X	void obj_help_cb();
+X	Widget rb_w, cl_w, lkup_w, help_w, w;
+X	XmString str;
+X	int n;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 1000); n++;
+X	XtSetArg (args[n], XmNheight, NR*char_height()); n++;
+X	XtSetArg (args[n], XmNwidth, NC*char_width()); n++;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNallowOverlap, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	objform_w = XmCreateFormDialog (toplevel_w, "Obj", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem ObjX/Y Menu"); n++;
+X	XtSetValues (XtParent(objform_w), args, n);
+X
+X	/* make the help button */
+X	str = XmStringCreate("Help", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	help_w = XmCreatePushButtonGadget (objform_w, "ObjHelp", args, n);
+X	XtAddCallback (help_w, XmNactivateCallback, obj_help_cb, 0);
+X	XtManageChild (help_w);
+X	XmStringFree (str);
+X
+X	/* make the "lookup" button */
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, help_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftOffset, TBLW*char_width()); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	lkup_w = XmCreatePushButtonGadget (objform_w, "Lookup", args, n);
+X	XtAddCallback(lkup_w, XmNarmCallback, obj_lookup_cb, 0);
+X	XtManageChild (lkup_w);
+X
+X	/* create the lookup scrolled list widget */
+X	n = 0;
+X	XtSetArg (args[n], XmNselectionPolicy, XmSINGLE_SELECT); n++;
+X	XtSetArg (args[n], XmNvisibleItemCount, NR-3); n++;
+X	XtSetArg (args[n], XmNlistSizePolicy, XmRESIZE_IF_POSSIBLE); n++;
+X	objsl_w = XmCreateScrolledList (objform_w, "ScrolledList", args, n);
+X	XtAddCallback(objsl_w, XmNsingleSelectionCallback, obj_select_cb, 0);
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, lkup_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_OPPOSITE_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, lkup_w); n++;
+X	XtSetArg (args[n], XmNleftOffset, 0); n++; /* override hSep */
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetValues (XtParent(objsl_w), args, n);
+X	XtManageChild (objsl_w);
+X
+X	/* make the x/y selection radio box */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, XtParent(objsl_w)); n++;
+X	XtSetArg (args[n], XmNrightOffset, char_width()); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	rb_w = XmCreateRadioBox (objform_w, "ObjXYRadioBox", args, n);
+X	XtManageChild (rb_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNset, True); n++;	/* ObjX is initial default */
+X	w = XmCreateToggleButtonGadget (rb_w, "ObjX", args, n);
+X	XtAddCallback (w, XmNvalueChangedCallback, obj_xy_cb, OBJX);
+X	XtManageChild (w);
+X
+X	n = 0;
+X	w = XmCreateToggleButtonGadget (rb_w, "ObjY", args, n);
+X	XtAddCallback (w, XmNvalueChangedCallback, obj_xy_cb, OBJY);
+X	XtManageChild (w);
+X
+X	/* make the type control radio box.
+X	 * we save the widget ids so we can force the type to be what
+X	 * was selected from the database.
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	rb_w = XmCreateRadioBox (objform_w, "ObjTypeRadioBox", args, n);
+X	XtManageChild (rb_w);
+X
+X	n = 0;
+X	objf_w = XmCreateToggleButtonGadget (rb_w, "Fixed", args, n);
+X	XtAddCallback (objf_w, XmNvalueChangedCallback, obj_type_cb, FIXED);
+X	XtManageChild (objf_w);
+X
+X	n = 0;
+X	obje_w = XmCreateToggleButtonGadget (rb_w, "Elliptical", args, n);
+X	XtAddCallback(obje_w,XmNvalueChangedCallback,obj_type_cb,ELLIPTICAL);
+X	XtManageChild (obje_w);
+X
+X	n = 0;
+X	objh_w = XmCreateToggleButtonGadget (rb_w, "Hyperbolic", args, n);
+X	XtAddCallback(objh_w,XmNvalueChangedCallback,obj_type_cb,HYPERBOLIC);
+X	XtManageChild (objh_w);
+X
+X	n = 0;
+X	objp_w = XmCreateToggleButtonGadget (rb_w, "Parabolic", args, n);
+X	XtAddCallback (objp_w, XmNvalueChangedCallback,obj_type_cb,PARABOLIC);
+X	XtManageChild (objp_w);
+X
+X	/* make the close button */
+X	str = XmStringCreate("Close", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	cl_w = XmCreatePushButtonGadget (objform_w, "ObjClose", args, n);
+X	XtAddCallback (cl_w, XmNactivateCallback, obj_close_cb, 0);
+X	XtManageChild (cl_w);
+X	XmStringFree (str);
+}
+X
+/* add the labels and buttons to the form for the current object type. */
+static
+obj_create_buttons()
+{
+X	void obj_activate_cb();
+X	Arg args[20];
+X	FieldMap *fp;
+X	int r;
+X	int t;
+X	int n;
+X
+X	r = FIRST_ROW;
+X	t = objp->o_type;
+X	for (fp = obj_field_map; fp < LFM; fp++) {
+X	    if (fp->type == t) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNtopPosition, r2ypos(r)); n++;
+X		if (fp->how) {
+X		    /* pushbutton */
+X		    XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET);n++;
+X		    XtSetArg (args[n], XmNrightWidget, XtParent(objsl_w)); n++;
+X		    XtSetArg (args[n], XmNrightOffset, char_width()); n++;
+X		    XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X		    fp->w = XtCreateManagedWidget ("ObjButton",
+X				xmPushButtonGadgetClass, objform_w, args, n);
+X		    XtAddCallback(fp->w,XmNactivateCallback,obj_activate_cb,fp);
+X		    r++;   /* here's why buttons come after labels in map */
+X		} else {
+X		    /* label */
+X		    XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X		    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING);n++;
+X		    fp->w = XtCreateManagedWidget (fp->prompt,
+X				    xmLabelGadgetClass, objform_w, args, n);
+X		}
+X	    }
+X	}
+}
+X
+/* destroy the buttons and labels for the current object type
+X * N.B. we know ALL existing widgets should be destroyed. if we needed to
+X *   know the exact ones based on type for example, it would mean obj_select_cb
+X *   and its use of this would need to be changed because of how obj_crack_
+X *   dbline changes objp->o_type on the fly.
+X */
+static
+obj_destroy_buttons()
+{
+X	FieldMap *fp;
+X
+X	for (fp = obj_field_map; fp < LFM; fp++)
+X	    if (fp->w) {
+X		XtDestroyWidget (fp->w);
+X		fp->w = 0;
+X	    }
+}
+X
+/* callback from any of the obj menu buttons being activated.  */
+void
+obj_activate_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X	prompt (fp);
+}
+X
+/* callback from the Close button. */
+void
+obj_close_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XtUnmanageChild (objform_w);
+}
+X
+/* callback from the Help button. */
+void
+obj_help_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static char *msg[] = {
+"Object X and Object Y may be set to any of four types of objects: fixed or in",
+"heliocentric elliptical, hyperbolic or parabolic orbits. Give the location or",
+"orbital elements are necessary.",
+"",
+"The object may also be loaded from a database, if available. The database",
+"filename is ephem.db by default, or set from the EPHEMDB environ variable."
+};
+X
+X	switch (objp->o_type) {
+X	case FIXED:
+X	    hlp_dialog ("Fixed Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case ELLIPTICAL:
+X	    hlp_dialog ("Elliptical Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case HYPERBOLIC:
+X	    hlp_dialog ("Hyperbolic Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	case PARABOLIC:
+X	    hlp_dialog ("Parabolic Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	default:
+X	    hlp_dialog ("Object", msg, sizeof(msg)/sizeof(msg[0]));
+X	    break;
+X	}
+}
+X
+/* callback for which object (x or y) toggle. */
+void
+obj_xy_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int xy = (int)client;
+X
+X	if (t->set && objp != (xy == OBJX ? &objx : &objy)) {
+X	    obj_destroy_buttons();
+X	    objp = xy == OBJX ? &objx : &objy;
+X	    obj_create_buttons();
+X	    obj_set_all_buttons();
+X	    obj_set_type_radiobox ();
+X	}
+}
+X
+/* callback for what type of object toggles */
+void
+obj_type_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int type = (int)client;
+X
+X	if (t->set && objp->o_type != type) {
+X	    obj_destroy_buttons();
+X	    objp->o_type = type;
+X	    obj_create_buttons();
+X	    obj_set_all_buttons();
+X	}
+}
+X
+/* callback for the Lookup button 
+X * open the database, and stick everything with current type into the list.
+X * put up watch cursor because it can take a while.
+X */
+void
+obj_lookup_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	static Cursor wc;
+X
+X	if (!wc)
+X	    wc = XCreateFontCursor (XtDisplay(objform_w), XC_watch);
+X
+X	XDefineCursor (XtDisplay(objform_w), XtWindow(objform_w), wc);
+X
+X	/* it looks better if we do it while it's unmanaged, IMHO. */
+X	XtUnmanageChild (objsl_w);
+X
+X	obj_reset_list();
+X	obj_load_list();
+X
+X	XtManageChild (objsl_w);
+X
+X	XUndefineCursor (XtDisplay(objform_w), XtWindow(objform_w));
+}
+X
+/* callback when an item is selected from the scrolled list.
+X */
+void
+obj_select_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	XmListCallbackStruct *l = (XmListCallbackStruct *) call;
+X	char *text;
+X
+X	XmStringGetLtoR (l->item, XmSTRING_DEFAULT_CHARSET, &text);
+X	if (obj_crack_dbline (text) == 0) {
+X	    /* reset up all the buttons, push the right type
+X	     * and update the other menus too.
+X	     */
+X	    obj_destroy_buttons(); /* doesn't need the previous type */
+X	    obj_create_buttons();
+X	    obj_set_all_buttons();
+X	    obj_set_type_radiobox();
+X	    redraw_screen (0);
+X	}
+X
+X	/* XmStringGetLtoR man pages doesn't mention XtFreeing text...
+X	XtFree (text);
+X	*/
+}
+X
+/* set the type radio to reflect the type of objp
+X * if o_type is undefined, well then all buttons should be released.
+X */
+static
+obj_set_type_radiobox ()
+{
+X	Widget tw = 0;
+X
+X	switch (objp->o_type) {
+X	case FIXED: tw = objf_w; break;
+X	case ELLIPTICAL: tw = obje_w; break;
+X	case HYPERBOLIC: tw = objh_w; break;
+X	case PARABOLIC: tw = objp_w; break;
+X	}
+X
+X	set_something (objf_w, XmNset, tw == objf_w);
+X	set_something (obje_w, XmNset, tw == obje_w);
+X	set_something (objh_w, XmNset, tw == objh_w);
+X	set_something (objp_w, XmNset, tw == objp_w);
+}
+X
+/* using the data in the current object, set all the buttons.
+X * N.B. we assume the buttons are already made for the current type.
+X */
+static
+obj_set_all_buttons()
+{
+X	FieldMap *fp;
+X
+X	for (fp = obj_field_map; fp < LFM; fp++)
+X	    if (fp->w && fp->how == CHG)
+X		obj_set_button (fp);
+}
+X
+/* define current objp based on the ephem.db line, s.
+X * format: name,type,[other fields, as per corresponding ObjX typedef]
+X * return 0 if ok else print reason why not with f_msg() and return -1.
+X * N.B. we set objp->o_type on the fly. this means trouble if caller needs
+X *    to do something with the old type.
+X */
+static
+obj_crack_dbline (s)
+char *s;
+{
+#define	MAXARGS	20
+X	static char zero[] = "0";
+X	char *av[MAXARGS];	/* point to each field for easy reference */
+X	char scopy[MAXDBLINE];
+X	char ebuf[MAXDBLINE+100];
+X	char *s_sav = s;
+X	int ac;
+X	char c;
+X	int i;
+X
+X	/* we replace ',' with '\0' in place, so copy s into scopy then
+X	 * point s back at scopy.
+X	 */
+X	strncpy (scopy, s, sizeof(scopy));
+X	scopy[sizeof(scopy)-1] = '\0';
+X	s = scopy;
+X
+X	/* parse into comma separated fields */
+X	ac = 0;
+X	av[0] = scopy;
+X	do {
+X	    c = *s++;
+X	    if (c == ',' || c == '\0') {
+X		s[-1] = '\0';
+X		av[++ac] = s;
+X	    }
+X	} while (c);
+X
+X	if (ac < 2) {
+X	    (void) sprintf (ebuf, "Too few fields in Database line: %s", s_sav);
+X	    f_msg (ebuf, 1);
+X	    return (-1);
+X	}
+X
+X	/* switch out on type of object - the second field */
+X	switch (av[1][0]) {
+X	case 'f': {
+X	    static int ids[] = {F_RA, F_DEC, F_MAG, F_EPOCH};
+X	    if (ac != 6 && ac != 7) {
+X		(void) sprintf(ebuf,
+X		    "Need ra,dec,mag,D[,siz] for fixed object %s", av[0]);
+X		f_msg (ebuf, 1);
+X		return (-1);
+X	    }
+X	    objp->o_type = FIXED;
+X	    obj_set_field (av[0], F_NAME);
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		obj_set_field (av[i], ids[i-2]);
+X	    obj_set_field (ac == 7 ? av[6] : zero, F_SIZE);
+X	    break;
+X	}
+X
+X	case 'e': {
+X	    static int ids[] = {E_INC, E_LAN, E_AOP, E_A, E_N, E_E, E_M,
+X						E_CEPOCH, E_EPOCH, E_M1, E_M2
+X	    };
+X	    if (ac != 13 && ac != 14) {
+X		(void) sprintf (ebuf,
+X		"Need i,O,o,a,n,e,M,E,D,H/g,G/k[,siz] for elliptical object %s",
+X									av[0]);
+X		f_msg (ebuf, 1);
+X		return (-1);
+X	    }
+X	    objp->o_type = ELLIPTICAL;
+X	    obj_set_field (av[0], E_NAME);
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		obj_set_field (av[i], ids[i-2]);
+X	    obj_set_field (ac == 14 ? av[13] : zero, E_SIZE);
+X	    break;
+X	}
+X
+X	case 'h': {
+X	    static int ids[]= {H_EP,H_INC,H_LAN,H_AOP,H_E,H_QP,H_EPOCH,H_G,H_K};
+X	    if (ac != 11 && ac != 12) {
+X		(void) sprintf (ebuf,
+X		"Need T,i,O,o,e,q,D,g,k[,siz] for hyperbolic object %s", av[0]);
+X		f_msg (ebuf, 1);
+X		return (-1);
+X	    }
+X	    objp->o_type = HYPERBOLIC;
+X	    obj_set_field (av[0], H_NAME);
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		obj_set_field (av[i], ids[i-2]);
+X	    obj_set_field (ac == 12 ? av[11] : zero, H_SIZE);
+X	    break;
+X	}
+X
+X	case 'p': {
+X	    static int ids[] = {P_EP,P_INC,P_AOP,P_QP,P_LAN,P_EPOCH,P_G,P_K};
+X	    if (ac != 10 && ac != 11) {
+X		(void) sprintf (ebuf,
+X		    "Need T,i,o,q,O,D,g,k[,siz] for parabolic object %s", av[0]);
+X		f_msg (ebuf, 1);
+X		return (-1);
+X	    }
+X	    objp->o_type = PARABOLIC;
+X	    obj_set_field (av[0], P_NAME);
+X	    for (i = 2; i < ASIZ(ids)+2; i++)
+X		obj_set_field (av[i], ids[i-2]);
+X	    obj_set_field (ac == 11 ? av[10] : zero, P_SIZE);
+X	    break;
+X	}
+X
+X	default:
+X	    (void) sprintf (ebuf, "Unknown type for Object %s: %s",
+X							    av[0], av[1]);
+X	    f_msg (ebuf, 1);
+X	    return (-1);
+X	}
+X
+X	return (0);
+}
+X
+/* reset the scrolled list.
+X */
+static
+obj_reset_list()
+{
+X	XmListDeleteAllItems(objsl_w);
+}
+X
+/* read all objects from the database file into the scrolled list.
+X * if -d was used use it; else if EPHEMDB env set use it, else use default.
+X */
+static
+obj_load_list ()
+{
+X	FILE *obj_opendb();
+X	FILE *fp;
+X	char buf[MAXDBLINE];
+X
+X	fp = obj_opendb();
+X	if (!fp)
+X	    return;
+X
+X	while (nxt_db (buf, sizeof(buf), fp) == 0) {
+X	    XmString str;
+X	    str = XmStringCreate (buf, XmSTRING_DEFAULT_CHARSET);
+X	    XmListAddItemUnselected (objsl_w, str, 0);
+X	    XmStringFree(str);
+X	}
+X
+X	(void) fclose (fp);
+}
+X
+/* open the database file and return a FILE * */
+static FILE *
+obj_opendb()
+{
+X	char *fn;
+X	FILE *fp;
+X
+X	if (dbfile)
+X	    fn = dbfile;
+X	else {
+X	    fn = getenv ("EPHEMDB");
+X	    if (!fn)
+X		fn = dbfdef;
+X	}
+X
+X	fp = fopen (fn, "r");
+X	if (!fp) {
+X	    char buf[100];
+X	    (void) sprintf (buf, "Can not open database file %s", fn);
+X	    f_msg(buf, 1);
+X	}
+X	return (fp);
+}
+X
+/* read database file fp and put next valid entry (sans trailing \n) into buf.
+X * return 0 if ok, else -1
+X */
+static
+nxt_db (buf, blen, fp)
+char buf[];
+int blen;
+FILE *fp;
+{
+X	char s;
+X
+X	while (1) {
+X	    if (fgets (buf, blen, fp) == 0)
+X		return (-1);
+X	    s = buf[0];
+X	    if (isalpha(s) || isdigit(s)) {
+X		buf[strlen(buf)-1] = '\0';
+X		return (0);
+X	    }
+X	}
+}
+X
+/* user typed OK to a prompt for fp. get his new value and use it */
+static void
+prompt_ok_cb (w, client, call)
+Widget w;
+caddr_t client;
+caddr_t call;
+{
+X	FieldMap *fp = (FieldMap *)client;
+X	char *text;
+X	
+X	get_xmstring(w, XmNtextString, &text);
+X	obj_set_field (text, fp->id);
+X	obj_set_button (fp);
+X	XtDestroyWidget (w);
+X	XtFree (text);
+}
+X
+/* put up a prompt dialog to ask about fp */
+static
+prompt (fp)
+FieldMap *fp;
+{
+X	Widget w, dw;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X	
+X	n = 0;
+X	str = XmStringCreate (fp->prompt, XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg(args[n], XmNselectionLabelString, str);  n++;
+X	dw = XmCreatePromptDialog(toplevel_w, "xephem Prompt", args, n);
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_HELP_BUTTON);
+X	XtUnmanageChild (w);
+X	XmStringFree (str);
+X	XtAddCallback (dw, XmNokCallback, prompt_ok_cb, fp);
+X	XtManageChild (dw);
+X	w = XmSelectionBoxGetChild (dw, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+}
+X
+/* format the button for fp */
+static
+obj_set_button (fp)
+FieldMap *fp;
+{
+X	static char me[] = "obj_set_button";
+X	Widget w = fp->w;
+X
+X	switch (fp->id) {
+X	case F_NAME:
+X	    f_string (w, objp->o_f.f_name);
+X	    break;
+X	case F_RA:
+X	    f_ra (w, objp->o_f.f_ra);
+X	    break;
+X	case F_DEC:
+X	    f_gangle (w, objp->o_f.f_dec);
+X	    break;
+X	case F_MAG:
+X	    f_double (w, "%g", objp->o_f.f_mag);
+X	    break;
+X	case F_EPOCH:
+X	    epoch_as_decimal (w, objp->o_f.f_epoch);
+X	    break;
+X	case F_SIZE:
+X	    f_double (w, "%g", objp->o_f.f_siz);
+X	    break;
+X
+X	case E_NAME:
+X	    f_string (w, objp->o_e.e_name);
+X	    break;
+X	case E_INC:
+X	    f_double (w, "%g", objp->o_e.e_inc);
+X	    break;
+X	case E_LAN:
+X	    f_double (w, "%g", objp->o_e.e_Om);
+X	    break;
+X	case E_AOP:
+X	    f_double (w, "%g", objp->o_e.e_om);
+X	    break;
+X	case E_A:
+X	    f_double (w, "%g", objp->o_e.e_a);
+X	    break;
+X	case E_N:
+X	    f_double (w, "%g", objp->o_e.e_n);
+X	    break;
+X	case E_E:
+X	    f_double (w, "%g", objp->o_e.e_e);
+X	    break;
+X	case E_M:
+X	    f_double (w, "%g", objp->o_e.e_M);
+X	    break;
+X	case E_CEPOCH:
+X	    epoch_as_mdy (w, objp->o_e.e_cepoch);
+X	    break;
+X	case E_EPOCH:
+X	    epoch_as_decimal (w, objp->o_e.e_epoch);
+X	    break;
+X	case E_M1: {
+X	    char buf[64];
+X	    (void) sprintf (buf, "%c%g",
+X			    objp->o_e.e_mag.m_whichm == MAG_HG ? 'H' : 'g',
+X			    objp->o_e.e_mag.m_m1);
+X	    f_string (w, buf);
+X	    break;
+X	}
+X	case E_M2: {
+X	    char buf[64];
+X	    (void) sprintf (buf, "%c%g",
+X			    objp->o_e.e_mag.m_whichm == MAG_HG ? 'G' : 'k',
+X			    objp->o_e.e_mag.m_m2);
+X	    f_string (w, buf);
+X	    break;
+X	}
+X	case E_SIZE:
+X	    f_double (w, "%g", objp->o_e.e_siz);
+X	    break;
+X
+X	case H_NAME:
+X	    f_string (w, objp->o_h.h_name);
+X	    break;
+X	case H_EP:
+X	    epoch_as_mdy (w, objp->o_h.h_ep);
+X	    break;
+X	case H_INC:
+X	    f_double (w, "%g", objp->o_h.h_inc);
+X	    break;
+X	case H_LAN:
+X	    f_double (w, "%g", objp->o_h.h_Om);
+X	    break;
+X	case H_AOP:
+X	    f_double (w, "%g", objp->o_h.h_om);
+X	    break;
+X	case H_E:
+X	    f_double (w, "%g", objp->o_h.h_e);
+X	    break;
+X	case H_QP:
+X	    f_double (w, "%g", objp->o_h.h_qp);
+X	    break;
+X	case H_EPOCH:
+X	    epoch_as_decimal (w, objp->o_h.h_epoch);
+X	    break;
+X	case H_G:
+X	    f_double (w, "%g", objp->o_h.h_g);
+X	    break;
+X	case H_K:
+X	    f_double (w, "%g", objp->o_h.h_k);
+X	    break;
+X	case H_SIZE:
+X	    f_double (w, "%g", objp->o_h.h_siz);
+X	    break;
+X
+X	case P_NAME:
+X	    f_string (w, objp->o_p.p_name);
+X	    break;
+X	case P_EP:
+X	    epoch_as_mdy (w, objp->o_p.p_ep);
+X	    break;
+X	case P_INC:
+X	    f_double (w, "%g", objp->o_p.p_inc);
+X	    break;
+X	case P_AOP:
+X	    f_double (w, "%g", objp->o_p.p_om);
+X	    break;
+X	case P_QP:
+X	    f_double (w, "%g", objp->o_p.p_qp);
+X	    break;
+X	case P_LAN:
+X	    f_double (w, "%g", objp->o_p.p_Om);
+X	    break;
+X	case P_EPOCH:
+X	    epoch_as_decimal (w, objp->o_p.p_epoch);
+X	    break;
+X	case P_G:
+X	    f_double (w, "%g", objp->o_p.p_g);
+X	    break;
+X	case P_K:
+X	    f_double (w, "%g", objp->o_p.p_k);
+X	    break;
+X	case P_SIZE:
+X	    f_double (w, "%g", objp->o_p.p_siz);
+X	    break;
+X	default:
+X	    printf ("%s: bad parabolic id: %d\n", me, fp->id);
+X	    exit (1);
+X	}
+}
+X
+static
+epoch_as_decimal (w, e)
+Widget w;
+double e;
+{
+X	double y;
+X	mjd_year (e, &y);
+X	f_double (w, "%g", y);
+}
+X
+static
+epoch_as_mdy (w, e)
+Widget w;
+double e;
+{
+X	int m, y;
+X	double d;
+X	char buf[100];
+X
+X	mjd_cal (e, &m, &d, &y);
+X	(void) sprintf (buf, "%d/%g/%d", m, d, y);
+X	f_string (w, buf);
+}
+X
+/* given a text buffer and a field id, set the corresponding member in objp. */
+static
+obj_set_field (bp, id)
+char bp[];
+int id;
+{
+X	/* object is "on" once it has a field set */
+X	objp->o_on = 1;
+X
+X	switch (id) {
+X	case F_NAME:
+X	    strncpy (objp->o_f.f_name, bp, sizeof(objp->o_f.f_name)-1);
+X	    break;
+X	case F_RA: {
+X	    int h, m, s;
+X	    f_dec_sexsign (radhr(objp->o_f.f_ra), &h, &m, &s);
+X	    f_sscansex (bp, &h, &m, &s);
+X	    sex_dec (h, m, s, &objp->o_f.f_ra);
+X	    objp->o_f.f_ra = hrrad(objp->o_f.f_ra);
+X	    break;
+X	}
+X	case F_DEC: {
+X	    int dg, m, s;
+X	    f_dec_sexsign (raddeg(objp->o_f.f_dec), &dg, &m, &s);
+X	    f_sscansex (bp, &dg, &m, &s);
+X	    sex_dec (dg, m, s, &objp->o_f.f_dec);
+X	    objp->o_f.f_dec = degrad(objp->o_f.f_dec);
+X	    break;
+X	}
+X	case F_MAG:
+X	    objp->o_f.f_mag = atof (bp);
+X	    break;
+X	case F_EPOCH:
+X	    crack_year (bp, &objp->o_f.f_epoch);
+X	    break;
+X	case F_SIZE:
+X	    objp->o_f.f_siz = atof (bp);
+X	    break;
+X
+X	case E_NAME:
+X	    strncpy (objp->o_e.e_name, bp, sizeof(objp->o_e.e_name)-1);
+X	    break;
+X	case E_INC:
+X	    objp->o_e.e_inc = atof (bp);
+X	    break;
+X	case E_LAN:
+X	    objp->o_e.e_Om = atof (bp);
+X	    break;
+X	case E_AOP:
+X	    objp->o_e.e_om = atof (bp);
+X	    break;
+X	case E_A:
+X	    objp->o_e.e_a = atof (bp);
+X	    break;
+X	case E_N:
+X	    objp->o_e.e_n = atof (bp);
+X	    break;
+X	case E_E:
+X	    objp->o_e.e_e = atof (bp);
+X	    break;
+X	case E_M:
+X	    objp->o_e.e_M = atof (bp);
+X	    break;
+X	case E_CEPOCH:
+X	    crack_year (bp, &objp->o_e.e_cepoch);
+X	    break;
+X	case E_EPOCH:
+X	    crack_year (bp, &objp->o_e.e_epoch);
+X	    break;
+X	case E_M1:
+X	    switch (bp[0]) {
+X	    case 'g':
+X		objp->o_e.e_mag.m_whichm = MAG_gk;
+X		bp++;
+X		break;
+X	    case 'H':
+X		objp->o_e.e_mag.m_whichm = MAG_HG;
+X		bp++;
+X		break;
+X	    default:
+X		/* leave type unchanged if no or unrecognized prefix */
+X		break;
+X	    }
+X	    objp->o_e.e_mag.m_m1 = atof(bp);
+X	    break;
+X	case E_M2:
+X	    switch (bp[0]) {
+X	    case 'k':
+X		objp->o_e.e_mag.m_whichm = MAG_gk;
+X		bp++;
+X		break;
+X	    case 'G':
+X		objp->o_e.e_mag.m_whichm = MAG_HG;
+X		bp++;
+X		break;
+X	    default:
+X		/* leave type unchanged if no or unrecognized prefix */
+X		break;
+X	    }
+X	    objp->o_e.e_mag.m_m2 = atof(bp);
+X	    break;
+X	case E_SIZE:
+X	    objp->o_e.e_siz = atof (bp);
+X	    break;
+X
+X	case H_NAME:
+X	    strncpy (objp->o_h.h_name, bp, sizeof(objp->o_h.h_name)-1);
+X	    break;
+X	case H_EP:
+X	    crack_year (bp, &objp->o_h.h_ep);
+X	    break;
+X	case H_INC:
+X	    objp->o_h.h_inc = atof (bp);
+X	    break;
+X	case H_LAN:
+X	    objp->o_h.h_Om = atof (bp);
+X	    break;
+X	case H_AOP:
+X	    objp->o_h.h_om = atof (bp);
+X	    break;
+X	case H_E:
+X	    objp->o_h.h_e = atof (bp);
+X	    break;
+X	case H_QP:
+X	    objp->o_h.h_qp = atof (bp);
+X	    break;
+X	case H_EPOCH:
+X	    crack_year (bp, &objp->o_h.h_epoch);
+X	    break;
+X	case H_G:
+X	    objp->o_h.h_g = atof (bp);
+X	    break;
+X	case H_K:
+X	    objp->o_h.h_k = atof (bp);
+X	    break;
+X	case H_SIZE:
+X	    objp->o_h.h_siz = atof (bp);
+X	    break;
+X
+X	case P_NAME:
+X	    strncpy (objp->o_p.p_name, bp, sizeof(objp->o_p.p_name)-1);
+X	    break;
+X	case P_EP:
+X	    crack_year (bp, &objp->o_p.p_ep);
+X	    break;
+X	case P_INC:
+X	    objp->o_p.p_inc = atof (bp);
+X	    break;
+X	case P_AOP:
+X	    objp->o_p.p_om = atof (bp);
+X	    break;
+X	case P_QP:
+X	    objp->o_p.p_qp = atof (bp);
+X	    break;
+X	case P_LAN:
+X	    objp->o_p.p_Om = atof (bp);
+X	    break;
+X	case P_EPOCH:
+X	    crack_year (bp, &objp->o_p.p_epoch);
+X	    break;
+X	case P_G:
+X	    objp->o_p.p_g = atof (bp);
+X	    break;
+X	case P_K:
+X	    objp->o_p.p_k = atof (bp);
+X	    break;
+X	case P_SIZE:
+X	    objp->o_p.p_siz = atof (bp);
+X	    break;
+X	default:
+X	    printf ("obj_set_field: bad id: %d\n", id);
+X	    exit (1);
+X	}
+}
+X
+/* given either a decimal year (xxxx. something) or a calendar (x/x/x)
+X * convert it to an mjd and store it at *p;
+X */
+static
+crack_year (bp, p)
+char *bp;
+double *p;
+{
+X	if (decimal_year(bp)) {
+X	    double y = atof (bp);
+X	    year_mjd (y, p);
+X	} else {
+X	    int m, y;
+X	    double d;
+X	    mjd_cal (*p, &m, &d, &y);	/* init with current */
+X	    f_sscandate (bp, &m, &d, &y);
+X	    cal_mjd (m, d, y, p);
+X	}
+}
+X
+/* fill in info about object x or y.
+X * most arguments and conditions are the same as for plans().
+X * only difference is that mag is already apparent, not absolute magnitude.
+X * this is called by body_cir() for object x and y just like plans() is called
+X * for the planets.
+X */
+obj_cir (jd, p, lpd0, psi0, rp0, rho0, lam, bet, siz, mag)
+double jd;	/* mjd now */
+int p;		/* OBJX or OBJY */
+double *lpd0;	/* heliocentric longitude, or NOHELIO  */
+double *psi0;	/* heliocentric latitude, or 0 if *lpd0 set to NOHELIO */
+double *rp0;	/* distance from the sun, or 0 */
+double *rho0;	/* true distance from the Earth, or 0 */
+double *lam;	/* apparent geocentric ecliptic longitude */
+double *bet;	/* apparent geocentric ecliptic latitude */
+double *siz;	/* angular size of object, arc seconds */
+double *mag;	/* APPARENT magnitude */
+{
+X	Obj *op = (p == OBJX) ? &objx : &objy;
+X
+X	switch (op->o_type) {
+X	case FIXED: {
+X	    double xr, xd;
+X	    xr = op->o_f.f_ra;
+X	    xd = op->o_f.f_dec;
+X	    if (op->o_f.f_epoch != jd)
+X		precess (op->o_f.f_epoch, jd, &xr, &xd);
+X	    eq_ecl (jd, xr, xd, bet, lam);
+X
+X	    *lpd0 = NOHELIO;
+X	    *psi0 = *rp0 = *rho0 = 0.0;
+X	    *mag = op->o_f.f_mag;
+X	    *siz = op->o_f.f_siz;
+X	    }
+X	    break;
+X
+X	case ELLIPTICAL: {
+X	    /* this is basically the same code as pelement() and plans()
+X	     * combined and simplified for the special case of osculating
+X	     * (unperturbed) elements.
+X	     * inputs have been changed to match the Astronomical Almanac.
+X	     * we have added reduction of elements using reduce_elements().
+X	     */
+X	    double dt, lg, lsn, rsn;
+X	    double nu, ea;
+X	    double ma, rp, lo, slo, clo;
+X	    double inc, psi, spsi, cpsi;
+X	    double y, lpd, rpd, ll, rho, sll, cll;
+X	    double om;		/* arg of perihelion */
+X	    double Om;		/* long of ascending node. */
+X	    double e;
+X	    int pass;
+X
+X	    dt = 0;
+X	    sunpos (jd, &lsn, &rsn);
+X	    lg = lsn + PI;
+X	    e = op->o_e.e_e;
+X
+X	    for (pass = 0; pass < 2; pass++) {
+X
+X		reduce_elements (op->o_e.e_epoch, jd-dt, degrad(op->o_e.e_inc),
+X				degrad (op->o_e.e_om), degrad (op->o_e.e_Om),
+X				&inc, &om, &Om);
+X
+X		ma = degrad (op->o_e.e_M
+X				+ (jd - op->o_e.e_cepoch - dt) * op->o_e.e_n);
+X		anomaly (ma, e, &nu, &ea);
+X		rp = op->o_e.e_a * (1-e*e) / (1+e*cos(nu));
+X		lo = nu + om;
+X		slo = sin(lo);
+X		clo = cos(lo);
+X		spsi = slo*sin(inc);
+X		y = slo*cos(inc);
+X		psi = asin(spsi);
+X		lpd = atan(y/clo)+Om;
+X		if (clo<0) lpd += PI;
+X		range (&lpd, 2*PI);
+X		cpsi = cos(psi);
+X		rpd = rp*cpsi;
+X		ll = lpd-lg;
+X		rho = sqrt(rsn*rsn+rp*rp-2*rsn*rp*cpsi*cos(ll));
+X		dt = rho*5.775518e-3;	/* light travel time, in days */
+X		if (pass == 0) {
+X		    *lpd0 = lpd;
+X		    *psi0 = psi;
+X		    *rp0 = rp;
+X		    *rho0 = rho;
+X		}
+X	    }
+X
+X	    sll = sin(ll);
+X	    cll = cos(ll);
+X	    if (rpd < rsn)
+X		*lam = atan(-1*rpd*sll/(rsn-rpd*cll))+lg+PI;
+X	    else
+X		*lam = atan(rsn*sll/(rpd-rsn*cll))+lpd;
+X	    range (lam, 2*PI);
+X	    *bet = atan(rpd*spsi*sin(*lam-lpd)/(cpsi*rsn*sll));
+X
+X	    if (op->o_e.e_mag.m_whichm == MAG_HG) {
+X		/* the H and G parameters from the Astro. Almanac.
+X		 */
+X		double psi_t, Psi_1, Psi_2, beta;
+X		beta = acos((rp*rp + rho*rho - rsn*rsn)/ (2*rp*rho));
+X		psi_t = exp(log(tan(beta/2.0))*0.63);
+X		Psi_1 = exp(-3.33*psi_t);
+X		psi_t = exp(log(tan(beta/2.0))*1.22);
+X		Psi_2 = exp(-1.87*psi_t);
+X		*mag = op->o_e.e_mag.m_m1 + 5.0*log10(rp*rho)
+X		    - 2.5*log10((1-op->o_e.e_mag.m_m2)*Psi_1
+X		    + op->o_e.e_mag.m_m2*Psi_2);
+X	    } else {
+X		/* the g/k model of comets */
+X		*mag = op->o_e.e_mag.m_m1 + 5*log10(rho)
+X					+ 2.5*op->o_e.e_mag.m_m2*log10(rp);
+X	    }
+X	    *siz = op->o_e.e_siz / rho;
+X	    }
+X	    break;
+X
+X	case HYPERBOLIC: {
+X	    double dt, lg, lsn, rsn;
+X	    double nu, ea;
+X	    double ma, rp, lo, slo, clo;
+X	    double inc, psi, spsi, cpsi;
+X	    double y, lpd, rpd, ll, rho, sll, cll;
+X	    double om;		/* arg of perihelion */
+X	    double Om;		/* long of ascending node. */
+X	    double e;
+X	    double a, n;	/* semi-major axis, mean daily motion */
+X	    int pass;
+X
+X	    dt = 0;
+X	    sunpos (jd, &lsn, &rsn);
+X	    lg = lsn + PI;
+X	    e = op->o_h.h_e;
+X	    a = op->o_h.h_qp/(e - 1.0);
+X	    n = .98563/sqrt(a*a*a);
+X
+X	    for (pass = 0; pass < 2; pass++) {
+X
+X		reduce_elements (op->o_h.h_epoch, jd-dt, degrad(op->o_h.h_inc),
+X				degrad (op->o_h.h_om), degrad (op->o_h.h_Om),
+X				&inc, &om, &Om);
+X
+X		ma = degrad ((jd - op->o_h.h_ep - dt) * n);
+X		anomaly (ma, e, &nu, &ea);
+X		rp = a * (e*e-1.0) / (1.0+e*cos(nu));
+X		lo = nu + om;
+X		slo = sin(lo);
+X		clo = cos(lo);
+X		spsi = slo*sin(inc);
+X		y = slo*cos(inc);
+X		psi = asin(spsi);
+X		lpd = atan(y/clo)+Om;
+X		if (clo<0) lpd += PI;
+X		range (&lpd, 2*PI);
+X		cpsi = cos(psi);
+X		rpd = rp*cpsi;
+X		ll = lpd-lg;
+X		rho = sqrt(rsn*rsn+rp*rp-2*rsn*rp*cpsi*cos(ll));
+X		dt = rho*5.775518e-3;	/* light travel time, in days */
+X		if (pass == 0) {
+X		    *lpd0 = lpd;
+X		    *psi0 = psi;
+X		    *rp0 = rp;
+X		    *rho0 = rho;
+X		}
+X	    }
+X
+X	    sll = sin(ll);
+X	    cll = cos(ll);
+X	    if (rpd < rsn)
+X		*lam = atan(-1*rpd*sll/(rsn-rpd*cll))+lg+PI;
+X	    else
+X		*lam = atan(rsn*sll/(rpd-rsn*cll))+lpd;
+X	    range (lam, 2*PI);
+X	    *bet = atan(rpd*spsi*sin(*lam-lpd)/(cpsi*rsn*sll));
+X
+X	    *mag = op->o_h.h_g + 5*log10(rho) + 2.5*op->o_h.h_k*log10(rp);
+X	    *siz = op->o_h.h_siz / rho;
+X	    }
+X	    break;
+X
+X	case PARABOLIC: {
+X	    double inc, om, Om;
+X	    double lpd, psi, rp, rho;
+X	    double dt;
+X	    int pass;
+X
+X	    /* two passes to correct lam and bet for light travel time. */
+X	    dt = 0.0;
+X	    for (pass = 0; pass < 2; pass++) {
+X		reduce_elements (op->o_p.p_epoch, jd-dt, degrad(op->o_p.p_inc),
+X		    degrad(op->o_p.p_om), degrad(op->o_p.p_Om), &inc, &om, &Om);
+X		comet (jd-dt, op->o_p.p_ep, inc, om, op->o_p.p_qp, Om,
+X					&lpd, &psi, &rp, &rho, lam, bet);
+X		if (pass == 0) {
+X		    *lpd0 = lpd;
+X		    *psi0 = psi;
+X		    *rp0 = rp;
+X		    *rho0 = rho;
+X		}
+X		dt = rho*5.775518e-3;	/* au to light-days */
+X	    }
+X	    *mag = op->o_p.p_g + 5*log10(rho) + 2.5*op->o_p.p_k*log10(rp);
+X	    *siz = op->o_p.p_siz / rho;
+X	    }
+X	    break;
+X
+X	default:
+X	    f_msg ((p == OBJX) ? "Obj X is on but not defined"
+X			       : "Obj Y is on but not defined", 1);
+X	    break;
+X	}
+}
+SHAR_EOF
+echo 'File obj.c is complete' &&
+chmod 0644 obj.c ||
+echo 'restore of obj.c failed'
+Wc_c="`wc -c < 'obj.c'`"
+test 41488 -eq "$Wc_c" ||
+	echo 'obj.c: original size 41488, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= obliq.c ==============
+if test -f 'obliq.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping obliq.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting obliq.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'obliq.c' &&
+#include <stdio.h>
+#include "astro.h"
+X
+/* given the modified Julian date, mjd, find the obliquity of the
+X * ecliptic, *eps, in radians.
+X */
+obliquity (mjd, eps)
+double mjd;
+double *eps;
+{
+X	static double lastmjd = -10000, lasteps;
+X
+X	if (mjd != lastmjd) {
+X	    double t;
+X	    t = mjd/36525.;
+X	    lasteps = degrad(2.345229444E1
+X			- ((((-1.81E-3*t)+5.9E-3)*t+4.6845E1)*t)/3600.0);
+X	    lastmjd = mjd;
+X	}
+X	*eps = lasteps;
+}
+SHAR_EOF
+chmod 0644 obliq.c ||
+echo 'restore of obliq.c failed'
+Wc_c="`wc -c < 'obliq.c'`"
+test 421 -eq "$Wc_c" ||
+	echo 'obliq.c: original size 421, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= parallax.c ==============
+if test -f 'parallax.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping parallax.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting parallax.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'parallax.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* given true ha and dec, tha and tdec, the geographical latitude, phi, the
+X * height above sea-level (as a fraction of the earths radius, 6378.16km),
+X * ht, and the equatorial horizontal parallax, ehp, find the apparent
+X * ha and dec, aha and adec allowing for parallax.
+X * all angles in radians. ehp is the angle subtended at the body by the
+X * earth's equator.
+X */
+ta_par (tha, tdec, phi, ht, ehp, aha, adec)
+double tha, tdec, phi, ht, ehp;
+double *aha, *adec;
+{
+X	static double last_phi, last_ht, rsp, rcp;
+X	double rp;	/* distance to object in Earth radii */
+X	double ctha;
+X	double stdec, ctdec;
+X	double tdtha, dtha;
+X	double caha;
+X
+X	/* avoid calcs involving the same phi and ht */
+X	if (phi != last_phi || ht != last_ht) {
+X	    double cphi, sphi, u;
+X	    cphi = cos(phi);
+X	    sphi = sin(phi);
+X	    u = atan(9.96647e-1*sphi/cphi);
+X	    rsp = (9.96647e-1*sin(u))+(ht*sphi);
+X	    rcp = cos(u)+(ht*cphi);
+X	    last_phi  =  phi;
+X	    last_ht  =  ht;
+X	}
+X
+X        rp = 1/sin(ehp);
+X
+X        ctha = cos(tha);
+X	stdec = sin(tdec);
+X	ctdec = cos(tdec);
+X        tdtha = (rcp*sin(tha))/((rp*ctdec)-(rcp*ctha));
+X        dtha = atan(tdtha);
+X	*aha = tha+dtha;
+X	caha = cos(*aha);
+X	range (aha, 2*PI);
+X        *adec = atan(caha*(rp*stdec-rsp)/(rp*ctdec*ctha-rcp));
+}
+X
+#ifdef NEEDIT
+/* given the apparent ha and dec, aha and adec, the geographical latitude, phi,
+X * the height above sea-level (as a fraction of the earths radius, 6378.16km),
+X * ht, and the equatorial horizontal parallax, ehp, find the true ha and dec,
+X * tha and tdec allowing for parallax.
+X * all angles in radians. ehp is the angle subtended at the body by the
+X * earth's equator.
+X * uses ta_par() iteratively: find a set of true ha/dec that converts back
+X  *  to the given apparent ha/dec.
+X */
+at_par (aha, adec, phi, ht, ehp, tha, tdec)
+double aha, adec, phi, ht, ehp;
+double *tha, *tdec;
+{
+X	double nha, ndec;	/* ha/dec corres. to current true guesses */
+X	double eha, edec;	/* error in ha/dec */
+X
+X	/* first guess for true is just the apparent */
+X	*tha = aha;
+X	*tdec = adec;
+X
+X	while (1) {
+X	    ta_par (*tha, *tdec, phi, ht, ehp, &nha, &ndec);
+X	    eha = aha - nha;
+X	    edec = adec - ndec;
+X	    if (fabs(eha)<1e-6 && fabs(edec)<1e-6)
+X		break;
+X	    *tha += eha;
+X	    *tdec += edec;
+X	}
+}
+#endif
+SHAR_EOF
+chmod 0644 parallax.c ||
+echo 'restore of parallax.c failed'
+Wc_c="`wc -c < 'parallax.c'`"
+test 2301 -eq "$Wc_c" ||
+	echo 'parallax.c: original size 2301, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= pelement.c ==============
+if test -f 'pelement.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping pelement.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting pelement.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'pelement.c' &&
+#include <stdio.h>
+#include <math.h>
+#include "astro.h"
+X
+/* this array contains polynomial coefficients to find the various orbital
+X *   elements for the mean orbit at any instant in time for each major planet.
+X *   the first five elements are in the form a0 + a1*t + a2*t**2 + a3*t**3,
+X *   where t is the number of Julian centuries of 36525 Julian days since 1900
+X *   Jan 0.5. the last three elements are constants.
+X *
+X * the orbital element (column) indeces are:
+X *   [ 0- 3]: coefficients for mean longitude, in degrees;
+X *   [ 4- 7]: coefficients for longitude of the perihelion, in degrees;
+X *   [ 8-11]: coefficients for eccentricity;
+X *   [12-15]: coefficients for inclination, in degrees;
+X *   [16-19]: coefficients for longitude of the ascending node, in degrees;
+X *      [20]: semi-major axis, in AU;
+X *      [21]: angular diameter at 1 AU, in arcsec;
+X *      [22]: standard visual magnitude, ie, the visual magnitude of the planet
+X *	      when at a distance of 1 AU from both the Sun and the Earth and
+X *	      with zero phase angle.
+X *
+X * the planent (row) indeces are:
+X *   [0]: Mercury; [1]: Venus;   [2]: Mars;  [3]: Jupiter; [4]: Saturn;
+X *   [5]: Uranus;  [6]: Neptune; [7]: Pluto.
+X */
+#define	NPELE	(5*4 + 3)	/* 4 coeffs for ea of 5 elems, + 3 constants */
+static double elements[8][NPELE] = {
+X
+X	{   /*     mercury... */
+X
+X	    178.179078,	415.2057519,	3.011e-4,	0.0,
+X	    75.899697,	1.5554889,	2.947e-4,	0.0,
+X	    .20561421,	2.046e-5,	3e-8,		0.0,
+X	    7.002881,	1.8608e-3,	-1.83e-5,	0.0,
+X	    47.145944,	1.1852083,	1.739e-4,	0.0,
+X	    .3870986,	6.74, 		-0.42
+X	},
+X
+X	{   /*     venus... */
+X
+X	    342.767053,	162.5533664,	3.097e-4,	0.0,
+X	    130.163833,	1.4080361,	-9.764e-4,	0.0,
+X	    6.82069e-3,	-4.774e-5,	9.1e-8,		0.0,
+X	    3.393631,	1.0058e-3,	-1e-6,		0.0,
+X	    75.779647,	.89985,		4.1e-4,		0.0,
+X	    .7233316,	16.92,		-4.4
+X	},
+X
+X	{   /*     mars... */
+X
+X	    293.737334,	53.17137642,	3.107e-4,	0.0,
+X	    3.34218203e2, 1.8407584,	1.299e-4,	-1.19e-6,
+X	    9.33129e-2,	9.2064e-5,	7.7e-8,		0.0,
+X	    1.850333,	-6.75e-4,	1.26e-5,	0.0,
+X	    48.786442,	.7709917,	-1.4e-6,	-5.33e-6,
+X	    1.5236883,	9.36,		-1.52
+X	},
+X
+X	{   /*     jupiter... */
+X
+X	    238.049257,	8.434172183,	3.347e-4,	-1.65e-6,
+X	    1.2720972e1, 1.6099617,	1.05627e-3,	-3.43e-6,
+X	    4.833475e-2, 1.6418e-4,	-4.676e-7,	-1.7e-9,
+X	    1.308736,	-5.6961e-3,	3.9e-6,		0.0,
+X	    99.443414,	1.01053,	3.5222e-4,	-8.51e-6,
+X	    5.202561,	196.74,		-9.4
+X	},
+X
+X	{   /*     saturn... */
+X
+X	    266.564377,	3.398638567,	3.245e-4,	-5.8e-6,
+X	    9.1098214e1, 1.9584158,	8.2636e-4,	4.61e-6,
+X	    5.589232e-2, -3.455e-4,	-7.28e-7,	7.4e-10,
+X	    2.492519,	-3.9189e-3,	-1.549e-5,	4e-8,
+X	    112.790414,	.8731951,	-1.5218e-4,	-5.31e-6,
+X	    9.554747,	165.6,		-8.88
+X	},
+X
+X	{   /*     uranus... */
+X
+X	    244.19747,	1.194065406,	3.16e-4,	-6e-7,
+X	    1.71548692e2, 1.4844328,	2.372e-4,	-6.1e-7,
+X	    4.63444e-2,	-2.658e-5,	7.7e-8,		0.0,
+X	    .772464,	6.253e-4,	3.95e-5,	0.0,
+X	    73.477111,	.4986678,	1.3117e-3,	0.0,
+X	    19.21814,	65.8,		-7.19
+X	},
+X
+X	{   /*     neptune... */
+X
+X	    84.457994,	.6107942056,	3.205e-4,	-6e-7,
+X	    4.6727364e1, 1.4245744,	3.9082e-4,	-6.05e-7,
+X	    8.99704e-3,	6.33e-6,	-2e-9,		0.0,
+X	    1.779242,	-9.5436e-3,	-9.1e-6,	0.0,
+X	    130.681389,	1.098935,	2.4987e-4,	-4.718e-6,
+X	    30.10957,	62.2,		-6.87
+X	},
+X
+X	{   /*     pluto...(osculating 1984 jan 21) */
+X
+X	    95.3113544,	.3980332167,	0.0,		0.0,
+X	    224.017,	0.0,		0.0,		0.0,
+X	    .25515,	0.0,		0.0,		0.0,
+X	    17.1329,	0.0,		0.0,		0.0,
+X	    110.191,	0.0,		0.0,		0.0,
+X	    39.8151,	8.2,		-1.0
+X	}
+};
+X
+/* given a modified Julian date, mjd, return the elements for the mean orbit
+X *   at that instant of all the major planets, together with their
+X *   mean daily motions in longitude, angular diameter and standard visual
+X *   magnitude.
+X * plan[i][j] contains all the values for all the planets at mjd, such that
+X *   i = 0..7: mercury, venus, mars, jupiter, saturn, unranus, neptune, pluto;
+X *   j = 0..8: mean longitude, mean daily motion in longitude, longitude of 
+X *     the perihelion, eccentricity, inclination, longitude of the ascending
+X *     node, length of the semi-major axis, angular diameter from 1 AU, and
+X *     the standard visual magnitude (see elements[][] comment, above).
+X */
+pelement (mjd, plan)
+double mjd;
+double plan[8][9];
+{
+X	register double *ep, *pp;
+X	register double t = mjd/36525.;
+X	double aa;
+SHAR_EOF
+true || echo 'restore of pelement.c failed'
+fi
+echo 'End of  part 6'
+echo 'File pelement.c is continued in part 7'
+echo 7 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

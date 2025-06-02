@@ -1,0 +1,1126 @@
+Newsgroups: comp.sources.misc
+From: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Subject:  v31i058:  bam - [OpenLook|Athena] menu system for [GNU|Epoch|Lucid] Emacs, Part02/07
+Message-ID: <1992Jul31.042303.23317@sparky.imd.sterling.com>
+X-Md4-Signature: a7a5d93feacbfc573dca9fb67c54cde7
+Date: Fri, 31 Jul 1992 04:23:03 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sbo@vlsi.polymtl.ca (Stephane Boucher)
+Posting-number: Volume 31, Issue 58
+Archive-name: bam/part02
+Environment: Lex, Yacc, SunOS 4.x with XView or BSD Unix with Athena Widget
+Supersedes: bam: Volume 27, Issue 68-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 7)."
+# Contents:  bam-2.0/FindWindow.c bam-2.0/args.c bam-2.0/bam.c
+#   bam-2.0/bam.h bam-2.0/filenames.c bam-2.0/icon.c
+#   bam-2.0/menus/emacs-base-ol.el bam-2.0/scanner.l
+#   bam-2.0/strstore.c
+# Wrapped by sbo@froh on Mon Jul 27 20:11:48 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'bam-2.0/FindWindow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/FindWindow.c'\"
+else
+echo shar: Extracting \"'bam-2.0/FindWindow.c'\" \(2108 characters\)
+sed "s/^X//" >'bam-2.0/FindWindow.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Hans Olsson.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: FindWindow.c,v 1.1 1992/07/02 00:59:41 sbo Exp $ */
+X
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/cursorfont.h>
+X#include <X11/IntrinsicP.h>
+X#include <X11/StringDefs.h>
+X
+X/*
+X * Window_With_Name: routine to locate a window with a given name on a display.
+X *                   If no window with the given name is found, 0 is returned.
+X *                   If more than one window has the given name, the first
+X *                   one found will be returned.  Only top and its subwindows
+X *                   are looked at.  Normally, top should be the RootWindow.
+X */
+XWindow Window_With_Name(dpy,top,name)
+X     Display *dpy;
+X     Window top;
+X     char* name;
+X{
+X	Window *children, dummy;
+X	unsigned int nchildren;
+X	int i;
+X	Window w=0;
+X	char *window_name;
+X
+X	if (XFetchName(dpy, top, &window_name) && !strcmp(window_name, name)) {
+X       	  return(top);
+X	}
+X	if (!XQueryTree(dpy, top, &dummy, &dummy, &children, &nchildren))
+X	  return(0);
+X
+X	for (i=0; i<nchildren; i++) {
+X		w = Window_With_Name(dpy, children[i], name);
+X		if (w)
+X		  break;
+X	}
+X	if (children) XFree ((char *)children);
+X	return(w);
+X}
+END_OF_FILE
+if test 2108 -ne `wc -c <'bam-2.0/FindWindow.c'`; then
+    echo shar: \"'bam-2.0/FindWindow.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/FindWindow.c'
+fi
+if test -f 'bam-2.0/args.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/args.c'\"
+else
+echo shar: Extracting \"'bam-2.0/args.c'\" \(2270 characters\)
+sed "s/^X//" >'bam-2.0/args.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: args.c,v 1.7 1992/07/02 00:57:44 sbo Exp $ */
+X
+X#include "bam.h"
+X
+Xextern char *optarg;
+Xextern int optind, opterr;
+X
+XprocessArgs(argc, argv)
+X     int argc;
+X     char **argv;
+X{
+X  char c;
+X  int errflg=0;
+X
+X  while ((c = getopt(argc, argv, "e:g:B:nw:")) != -1)
+X    switch (c) {
+X    case 'e':
+X      /* -e <error_format> 
+X	 Specify the error format where <error_format>
+X	 is a format string like printf format with
+X	 one %s */
+X
+X      errorFormat=optarg;
+X      break;
+X
+X    case 'w':
+X#ifdef ATHENA
+X      windowName = optarg;
+X#endif
+X      break;
+X
+X    case 'g':
+X      /* -g <debug_level>
+X	 specify the debug level. Used only for debugging bam. */
+X
+X      menuDebug=atoi(optarg);
+X      break;
+X      
+X    case 'B':
+X      /* -B <bitmap_path>
+X	 Specify a search path for the bitmaps. <bitmap_path>
+X	 is a list of paths seperated by ':', just like the
+X	 shell variable PATH. */
+X      
+X      bitmapsPath=optarg;
+X      
+X    case 'n':
+X      /* -n
+X	 specify not to display the author frame when the menu
+X	 is openned */
+X      noAuthorFrame=TRUE;
+X      break;
+X
+X    case '?':
+X    default:
+X      errflg++;
+X      break;
+X    }
+X
+X  if (errflg || optind+1!=argc) {
+X    sendErrorToEmacs("usage: \n\
+X\t%s [-e <error_format>] [-B <bitmap_path>] menu_file\n", argv[0]);
+X    exit (2);
+X  }
+X
+X  menuFile=argv[optind];
+X}
+END_OF_FILE
+if test 2270 -ne `wc -c <'bam-2.0/args.c'`; then
+    echo shar: \"'bam-2.0/args.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/args.c'
+fi
+if test -f 'bam-2.0/bam.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/bam.c'\"
+else
+echo shar: Extracting \"'bam-2.0/bam.c'\" \(2632 characters\)
+sed "s/^X//" >'bam-2.0/bam.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: bam.c,v 1.8 1992/07/02 00:57:44 sbo Exp $ */
+X
+X#define _BAM_MAIN_
+X
+X#include <unistd.h>
+X
+X#include "bam.h"
+X
+X#ifdef ATHENA
+X#include "athena.h"
+X#endif
+X
+Xchar *menuFile=NULL;
+Xchar *errorFormat="(command-process-error \"%s\")";
+Xchar *bitmapsPath=NULL;
+X
+XFrame baseFrame=NULL;
+Xint menuDebug=0; /* Contains the level of debugging. 0 is no debug level */
+Xint finalExit=0;
+Xint noAuthorFrame=FALSE;
+X
+XFILE *debugFp=stdout;
+X
+Xmain(argc, argv)
+X     int argc;
+X     char **argv; 
+X{
+X  int exitVal=0;
+X
+X#ifdef ATHENA
+X  do_init(&argc,argv);
+X#else
+X  xv_init(XV_INIT_ARGC_PTR_ARGV, &argc, argv, NULL);
+X#endif
+X
+X  strStoreOpen();
+X  
+X  processArgs(argc, argv);
+X  
+X  if (access(menuFile, R_OK) == 0 ) {
+X    /* Menu File accessible */
+X    
+X    while (1) {
+X      /* The next exit of the window_main_loop will
+X	 be the final one, unless specified otherwise  
+X	 in panelMenuNotifyProc */
+X      finalExit=1;
+X
+X      yyin=fopen(menuFile, "r");
+X
+X      if (!yyparse()) {
+X	window_main_loop(baseFrame);
+X	strStoreFree();
+X      }
+X      else {
+X	/* A parse error has occured */
+X	exitVal=1;
+X	fclose(yyin);
+X	break;
+X      }
+X      fclose(yyin);
+X
+X      if (finalExit)
+X	break;
+X    }
+X    
+X  }
+X  else {
+X    /* Menu File not accessible */
+X    sendErrorToEmacs("Unaccessable File: %s\n", menuFile);
+X    exitVal=1;
+X  }
+X  
+X  strStoreClose();
+X  
+X  return(exitVal);
+X} 
+X
+X
+X#ifdef XVIEW
+Xvoid
+XmenuProc (menu, menuItem)
+X     Menu menu;
+X     Menu_item menuItem;
+X{
+X  sendToEmacs( (int)xv_get(menuItem, 
+X			   XV_KEY_DATA, M_COMMAND_STRING));
+X}
+X
+Xint
+X  selected(item, event)
+XPanel_item item;
+XEvent *event;
+X{
+X  sendToEmacs((char *)xv_get(item, 
+X			     XV_KEY_DATA, M_COMMAND_STRING));
+X  return XV_OK;
+X}
+X
+X#endif
+END_OF_FILE
+if test 2632 -ne `wc -c <'bam-2.0/bam.c'`; then
+    echo shar: \"'bam-2.0/bam.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/bam.c'
+fi
+if test -f 'bam-2.0/bam.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/bam.h'\"
+else
+echo shar: Extracting \"'bam-2.0/bam.h'\" \(3811 characters\)
+sed "s/^X//" >'bam-2.0/bam.h' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher, Hans Olsson.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: bam.h,v 1.8 1992/07/02 00:57:44 sbo Exp $ */
+X
+X#ifndef _BAM_H_
+X#define _BAM_H_
+X
+X/*#include <stdlib.h>*/
+X/*#include <unistd.h>*/
+X
+X#include <stdio.h>
+X
+X#ifdef XVIEW
+X
+X#include <xview/xview.h>
+X#include <xview/screen.h>
+X#include <xview/frame.h>
+X#include <xview/panel.h>
+X#include <xview/openmenu.h>
+X
+X#else
+X
+X#include <X11/Intrinsic.h>
+X#include <X11/StringDefs.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xaw/MenuButton.h>
+X#include <X11/Xaw/SimpleMenu.h>
+X#include <X11/Xaw/Sme.h>
+X#include <X11/Xaw/SmeBSB.h>
+X#include <X11/Xaw/Form.h>
+X#include <X11/Xaw/Box.h>
+X#include "GrabAndManage.h"
+X#include <X11/Xaw/Paned.h>
+X
+X#include <X11/Xaw/Cardinals.h>
+Xtypedef Widget Frame;
+Xtypedef Widget Panel;
+Xtypedef Widget Panel_item;
+Xtypedef Widget Menu;
+Xtypedef Widget Menu_item;
+Xextern Widget baseFrame;
+Xextern Widget gam;
+Xextern int grab;
+Xextern char*windowName;
+Xextern XtTranslations button_xt;
+Xextern Widget mainFrame;
+Xextern Widget pops[200]; /* Sorry no more than 200 submenus */
+Xextern int pops_nr;
+X
+X#endif
+X
+X
+X
+X#include "config.h"
+X#include "paths.h"
+X
+X/*define temporaire */
+X#define SCROLLBAR_KEY 1000
+X#define MENU_KEY      1001
+X#define PANEL_KEY     1002
+X/* ---------------------------------- */
+X
+X#define TRUE 			1
+X#define FALSE 			0
+X
+X#define M_COMMAND_STRING 	100
+X
+X/* ---------------------------------- */
+X
+Xtypedef struct {
+X  Frame frame;
+X  Panel panel;
+X  int buttonNameIndex;
+X  int buttonActionIndex;
+X  Panel_item button;
+X} ButtonData;
+X
+Xtypedef struct {
+X  struct {
+X    int pushpin;
+X    char *title;
+X  } attr;
+X  int defaultChoice;
+X  int curItem;
+X  Menu id;
+X  Menu prevCur; /* Previous current menu */
+X  Panel_item button;  /* athena only */
+X} MenuData;
+X#define DEFAULT_MENU_DATA_VALUE {{TRUE, ""}, 1, 1, NULL, NULL, NULL}
+X#ifdef _BAM_MAIN_
+XMenuData defaultMenuDataValue=DEFAULT_MENU_DATA_VALUE;
+X#else
+Xextern MenuData defaultMenuDataValue;
+X#endif
+X
+X
+Xtypedef struct {
+X  struct {
+X    int showResizeCorner;
+X    char *iconFileName;
+X    char *iconLabel;
+X    char *title;
+X  } attr;
+X  Frame id;
+X  Frame prevCur; /* Previous current frame @@Unused */
+X}FrameData;
+X#define DEFAULT_FRAME_DATA_VALUE {{FALSE, NULL, NULL, ""}, NULL, NULL}
+X#ifdef _BAM_MAIN_
+XFrameData defaultFrameDataValue=DEFAULT_FRAME_DATA_VALUE;
+X#else
+Xextern FrameData defaultFrameDataValue;
+X#endif
+X
+X/* ---------------------------------- */
+X/* Fonction Prototypes		      */
+X
+Xvoid sendToEmacs();
+Xvoid sendErrorToEmacs();
+X
+Xvoid menuProc();
+Xint selected();
+X
+Xint processArgs();
+X
+Xvoid printMenuDataStruct();
+Xvoid initMenuData();
+Xint setMenu();
+Xvoid menuUp();
+X
+Xchar *getFileName();
+X
+X/* ---------------------------------- */
+X/* Global variables                   */
+X
+Xextern Frame baseFrame;
+Xextern FILE *yyin;
+Xextern char *menuFile;
+Xextern char *errorFormat;
+Xextern int menuDebug;
+Xextern char *bitmapsPath;
+Xextern FILE *debugFp;
+Xextern int finalExit;
+Xextern int noAuthorFrame;
+X
+X#endif
+X
+END_OF_FILE
+if test 3811 -ne `wc -c <'bam-2.0/bam.h'`; then
+    echo shar: \"'bam-2.0/bam.h'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/bam.h'
+fi
+if test -f 'bam-2.0/filenames.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/filenames.c'\"
+else
+echo shar: Extracting \"'bam-2.0/filenames.c'\" \(4128 characters\)
+sed "s/^X//" >'bam-2.0/filenames.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: filenames.c,v 1.4 1992/07/27 23:06:26 sbo Exp $ */
+X
+X#include <string.h>
+X
+X#include "bam.h"
+X
+X/* Search for a file that exist and have the permission specified. The
+X   search is done by concatenating the filename with each path in the
+X   primary list of paths seperated by ':', and then the alternate list of
+X   paths until a file that satisfies the the specified permission is
+X   found. If the filename given is absolute (starting with '/'), then the
+X   path lists are not used 
+X   
+X   A return Value of NULL means an error occured.
+X   
+X   A return Value of "" means no file was found. 
+X   
+X   The string returned is newly allocated (including ""). It must
+X   therefore be freed.
+X   */
+X
+Xchar *getFileName(filename, perm, primaryPathList, secondaryPathList)
+X     char *filename;
+X     int perm;
+X     char *primaryPathList;
+X     char *secondaryPathList;
+X{
+X  char tmpFileName[MAX_FILE_NAME_LEN+1];
+X  char *startOfPath;
+X  char *endOfPath;
+X  char savedChar;
+X  char *returnValue=NULL;
+X  int step=0;
+X  int loopFinished=0;
+X  
+X  if (filename[0]=='/') {
+X    /* Filename is absolute. There's no need to check against
+X       path lists */
+X    if (access(filename, perm)==0)
+X      returnValue=strdup(filename);
+X    else
+X      returnValue=strdup("");
+X  }
+X
+X  else {
+X    step=0;
+X    
+X    /* Do the various steps.
+X
+X       Step 0 is to use primaryPathList
+X
+X       Step 1 is to use secondaryPathList
+X
+X       Step 2 is to use the filename as is (the filename is relative
+X       since it would have been treated in the first if above for the case of
+X       absolute filename */
+X
+X    loopFinished=0;
+X    while (1) {
+X      switch(step) {
+X	/* Step 0 */
+X      case 0:
+X	if (primaryPathList!=NULL) {
+X	  startOfPath=primaryPathList;
+X	  step++;
+X	  break;
+X	}
+X	/* No break was put here So that if primaryPathList is NULL
+X	   the function will proceed with the next step */
+X
+X	/* Step 1 */
+X      case 1:
+X	if (secondaryPathList!=NULL) {
+X	  startOfPath=secondaryPathList;
+X	  step++;
+X	  break;
+X	}
+X    /* No break was put here So that if secondaryPathList is NULL
+X	   the function will proceed with the next step */
+X
+X	/* Step 2 */
+X      case 2:
+X	if (access(filename, perm)==0)
+X	  returnValue=strdup(filename);
+X	else
+X	  returnValue=strdup("");
+X	loopFinished=1;
+X	break;
+X      }
+X
+X      if (loopFinished)
+X	break;
+X
+X      while (1) {
+X	if (startOfPath[0]=='\0')
+X	    break;
+X
+X	endOfPath=strchr(startOfPath, ':');
+X	savedChar='\0';
+X	if (endOfPath!=NULL) {
+X	  savedChar=*endOfPath;
+X	  *endOfPath='\0';
+X	}
+X	if (strlen(startOfPath)+strlen(filename)+1 <= MAX_FILE_NAME_LEN) {
+X	  sprintf(&(tmpFileName[0]), "%s/%s", startOfPath, filename);
+X	}
+X	else
+X	  tmpFileName[0]='\0';
+X
+X	if (savedChar!='\0') {
+X	  *endOfPath=savedChar;
+X	  startOfPath=endOfPath+1;
+X	}
+X	else
+X	  startOfPath=strchr(startOfPath, '\0');
+X
+X	if (tmpFileName[0]!='\0' && access(tmpFileName, perm)==0) {
+X	  returnValue=strdup(tmpFileName);
+X	  break;
+X	}
+X	else {
+X	  /* No need to check the filename. It can't exist since
+X	     it is longer than the allowed maximum length for a filename */
+X	}
+X      }
+X
+X      /* If something was found than exit the main loop */
+X      if (returnValue!=NULL)
+X	break;
+X    }
+X  }
+X  
+X  return(returnValue);
+X}
+END_OF_FILE
+if test 4128 -ne `wc -c <'bam-2.0/filenames.c'`; then
+    echo shar: \"'bam-2.0/filenames.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/filenames.c'
+fi
+if test -f 'bam-2.0/icon.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/icon.c'\"
+else
+echo shar: Extracting \"'bam-2.0/icon.c'\" \(2106 characters\)
+sed "s/^X//" >'bam-2.0/icon.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: icon.c,v 1.3 1992/03/30 20:50:23 sbo Exp $ */
+X
+X#include <unistd.h>
+X#include "bam.h"
+X
+XIcon makeIcon(iconFileName, iconLabel)
+X     char *iconFileName;
+X     char *iconLabel;
+X{
+X  Server_image serverImage;
+X  Icon icon=NULL;       /* By default there's an error */
+X  char *bitmapFileName;
+X  
+X  if (iconFileName==NULL) {
+X    icon=xv_create(NULL, ICON,
+X		   XV_LABEL, iconLabel,
+X		   NULL);
+X  }
+X  else {
+X    strStorePut(bitmapFileName=
+X		getFileName(iconFileName, 
+X			    R_OK, 
+X			    bitmapsPath, 
+X			    DEFAULT_BITMAPS_PATH));
+X
+X    if (bitmapFileName==NULL) {
+X     /* Internal error */
+X      sendErrorToEmacs("Internal Error While Trying to Find the File: %s", 
+X		       iconFileName);
+X    }
+X    else if (strcmp(bitmapFileName, "")==0) {
+X      /* No file was found */
+X      sendErrorToEmacs("Unaccessible File: %s", iconFileName);
+X    }
+X    else {
+X      serverImage=(Server_image)
+X	xv_create(NULL, SERVER_IMAGE,
+X		  SERVER_IMAGE_BITMAP_FILE, bitmapFileName,
+X		  NULL);
+X      icon=
+X	xv_create(NULL, ICON,
+X		  XV_LABEL, iconLabel,
+X		  ICON_IMAGE, serverImage,
+X		  MENU_RELEASE_IMAGE,
+X		  NULL);
+X    }
+X  }
+X  return(icon);
+X}
+END_OF_FILE
+if test 2106 -ne `wc -c <'bam-2.0/icon.c'`; then
+    echo shar: \"'bam-2.0/icon.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/icon.c'
+fi
+if test -f 'bam-2.0/menus/emacs-base-ol.el' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/menus/emacs-base-ol.el'\"
+else
+echo shar: Extracting \"'bam-2.0/menus/emacs-base-ol.el'\" \(2907 characters\)
+sed "s/^X//" >'bam-2.0/menus/emacs-base-ol.el' <<'END_OF_FILE'
+X;   bam - the Born Again Menus for GNU Emacs.
+X;   Copyright (C) 1992 Marc Paquette.
+X;
+X;    This program is free software; you can redistribute it and/or modify
+X;    it under the terms of the GNU General Public License as published by
+X;    the Free Software Foundation; either version 1, or (at your option)
+X;    any later version.
+X;
+X;    This program is distributed in the hope that it will be useful,
+X;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X;    GNU General Public License for more details.
+X;
+X;    You should have received a copy of the GNU General Public License
+X;    along with this program; if not, write to the Free Software
+X;    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X;
+X;  In other words, you are welcome to use, share and improve this program.
+X;  You are forbidden to forbid anyone else to use, share and improve
+X;  what you give them.   Help stamp out software-hoarding!
+X
+X; $Id: emacs-base-ol.el,v 1.9 1992/07/27 22:55:57 sbo Exp $
+X; @(#)emacs-base-ol.el	1.8 92/04/01
+X
+X(bam-set-menu-args "emacs-base-ol" 
+X		   (append (bam-font-option "7x14") 
+X			   (bam-geometry-option 0 0 1000 300 't)))
+X
+X(defun bam-emacs-base-ol:find-file ()
+X  "Do an equivalent of a find-file but from a BAM menu and with no arguments.
+XIt checks for special actions to take depending of the current
+Xmode."
+X  (cond ((and (eq major-mode 'dired-mode)
+X	      (dired-get-filename nil 'no-error-if-not-filep))
+X	 (call-interactively 'dired-find-file))
+X	((eq major-mode 'Electric-buffer-menu-mode)
+X	 (call-interactively 'Electric-buffer-menu-select))
+X	(t (call-interactively 'find-file))))
+X
+X(defun bam-emacs-base-ol:dired ()
+X  "Do an equivalent of a dired but from a BAM menu.
+XCheck for special actions to do depending of the current mode."
+X  (cond ((eq major-mode 'dired-mode)
+X	 (let ((entry (dired-get-filename 'no-dir t)))
+X	   (cond ((null entry)
+X		  (call-interactively 'dired))
+X		 ((not (file-directory-p entry))
+X		  (call-interactively 'dired-view-file))
+X		 ((file-directory-p entry)
+X		  (call-interactively 'dired-find-file))
+X		 (t (call-interactively 'dired)))))
+X	(t (call-interactively 'dired))))
+X
+X(defun bam-emacs-base-ol:save-buffer ()
+X  "Do an equivalent of a save-buffer but from a BAM menu."
+X  (call-interactively 'save-buffer))
+X
+X(defun bam-emacs-base-ol:write-file ()
+X  "Do an equivalent of a write-file but from a BAM menu.
+XCheck for special actions to do depending of the current mode."
+X  (cond ((eq major-mode 'dired-mode)
+X	 (message "Current buffer is a dired buffer."))
+X	(t (call-interactively write-file))))
+X
+X(defun bam-emacs-base-ol:insert-file ()
+X  "Do an equivalent of a insert-file but from a BAM menu.
+XCheck for special actions to do depending of the current mode."
+X  (cond ((eq major-mode 'dired-mode)
+X	 (message "Current buffer is a dired buffer."))
+X	(t (call-interactively insert-file))))
+X
+X	 
+END_OF_FILE
+if test 2907 -ne `wc -c <'bam-2.0/menus/emacs-base-ol.el'`; then
+    echo shar: \"'bam-2.0/menus/emacs-base-ol.el'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/menus/emacs-base-ol.el'
+fi
+if test -f 'bam-2.0/scanner.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/scanner.l'\"
+else
+echo shar: Extracting \"'bam-2.0/scanner.l'\" \(2816 characters\)
+sed "s/^X//" >'bam-2.0/scanner.l' <<'END_OF_FILE'
+X%{
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X%}
+X%{ -*-c-*-
+X/* $Id: scanner.l,v 1.11 1992/07/27 23:04:06 sbo Exp $ */
+X
+X/* 
+X  Please note that sun's cc,lex and X11/Xutil.h doesn't get along at all 
+X  You will have to change one of them (or replace input()
+X  in scanner.c with some other name.
+X*/
+X
+X#include <string.h>
+X
+X#include "bam.h"
+X#include "parser.h"
+X
+X%}
+X
+X%%
+X
+X"BUTTON"	{return(BUTTON_TOK);}
+X"FRAME"         {return(FRAME_TOK);}
+X"TITLE"         {return(TITLE_TOK);}
+X"LABEL"         {return(LABEL_TOK);}
+X"PANEL"	        {return(PANEL_TOK);}
+X"MENU"	        {return(MENU_TOK);}
+X"END"		{return(END_TOK);}
+X"TEXT" 		{return(TEXT_TOK);}
+X"BITMAP"        {return(BITMAP_TOK);} 
+X"PUSHPIN"	{return(PUSHPIN_TOK);}
+X%{
+X/*"RESIZE_CORNER" {return(RESIZE_CORNER_TOK);}*/
+X%}
+X"ICON_FILE_NAME" {return(ICON_FILE_NAME);}
+X"ICON_LABEL"    {return(ICON_LABEL_TOK);}
+X"TRUE"          {return(TRUE_TOK);}
+X"FALSE"         {return(FALSE_TOK);}
+X"DEFAULT"       {return(DEFAULT_TOK);}
+X
+X"\""(([\\]"\"")|([\\][\\])|[^"])*"\"" { 
+X        char *ptRead, *ptWrite;
+X
+X	/* Enlever le " de la fin */
+X	yytext[strlen(yytext)-1]='\0';
+X
+X	/*	voir p 261 pour allocation */
+X	yylval.str=strdup(&yytext[1]);
+X
+X	/* substitute \" by " and \\ by \ */
+X        for (ptRead=yylval.str, ptWrite=yylval.str;
+X             *ptRead!='\0';
+X             ptRead++, ptWrite++) {
+X          if (*ptRead=='\\') {
+X            switch(*(ptRead+1)) {
+X	    case '\\':
+X	    case '"':
+X	      ptRead++;
+X	      *ptWrite=*ptRead;
+X              break;
+X
+X	    default:
+X	      *ptWrite=*ptRead;
+X            }
+X          }
+X          else {
+X            *ptWrite=*ptRead;
+X          }
+X        }
+X	*ptWrite='\0';
+X
+X	return(STRING);
+X} 
+X
+X%{
+X/*[ ]	{return((int)(yytext[0]));}*/
+X%}
+X
+X"#".*$  {/*Commentaire*/}
+X[ \t\n] {/*Inhiber les caracteres blancs*/}
+X
+X. {return(ERROR_TOK);}
+X
+X%%
+X
+Xyyerror(str)
+X     char *str;
+X{
+X  sendErrorToEmacs("%d:%s\n", yylineno, str);
+X  return(0);
+X}
+END_OF_FILE
+if test 2816 -ne `wc -c <'bam-2.0/scanner.l'`; then
+    echo shar: \"'bam-2.0/scanner.l'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/scanner.l'
+fi
+if test -f 'bam-2.0/strstore.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bam-2.0/strstore.c'\"
+else
+echo shar: Extracting \"'bam-2.0/strstore.c'\" \(3471 characters\)
+sed "s/^X//" >'bam-2.0/strstore.c' <<'END_OF_FILE'
+X/*   bam - the Born Again Menus for GNU Emacs.
+X   Copyright (C) 1992 Stephane Boucher.
+X
+X    This program is free software; you can redistribute it and/or modify
+X    it under the terms of the GNU General Public License as published by
+X    the Free Software Foundation; either version 1, or (at your option)
+X    any later version.
+X
+X    This program is distributed in the hope that it will be useful,
+X    but WITHOUT ANY WARRANTY; without even the implied warranty of
+X    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X    GNU General Public License for more details.
+X
+X    You should have received a copy of the GNU General Public License
+X    along with this program; if not, write to the Free Software
+X    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X  In other words, you are welcome to use, share and improve this program.
+X  You are forbidden to forbid anyone else to use, share and improve
+X  what you give them.   Help stamp out software-hoarding!
+X*/
+X/* $Id: strstore.c,v 1.3 1992/03/30 20:50:11 sbo Exp $ */
+X
+X#include "strstore.h"
+X
+X
+Xint strStoreInitialized=FALSE;
+Xint strStoreNextAvail=0;
+Xchar **strStoreVector=NULL;
+Xint strStoreVectorSize=0;
+X
+Xint strStorePut(str)
+X     char *str;
+X{
+X  int returnValue=STR_STORE_OK;
+X  char **newVector;
+X
+X  if (strStoreNextAvail>=strStoreVectorSize) {
+X    /* Not enough Vector Space left */
+X    
+X    strStoreVectorSize+=INITIAL_STR_STORE_VECTOR_SIZE;
+X    newVector=(char **)realloc(strStoreVector, 
+X			       sizeof(char*)*strStoreVectorSize);
+X      
+X    if (newVector==NULL) {
+X      strStoreVectorSize-=INITIAL_STR_STORE_VECTOR_SIZE;
+X      returnValue=STR_STORE_ERR;
+X    }
+X    else {
+X      strStoreVector=newVector;
+X    }
+X  }
+X  
+X  if (returnValue!=STR_STORE_ERR) {
+X    strStoreVector[strStoreNextAvail]=str;
+X    returnValue=strStoreNextAvail;
+X    strStoreNextAvail++;
+X  }
+X  
+X  return(returnValue);
+X}
+X
+Xchar *strStoreGet(strIndex)
+X     int strIndex;
+X{
+X  /* Bogus. Peu utile puisque les utilisateurs de la librairie ne connaissent
+X     jamais l'index de la chaine de car. */
+X  char *returnValue=NULL;
+X  
+X  if (strIndex<strStoreNextAvail)
+X    returnValue=strStoreVector[strIndex];
+X  
+X  return(returnValue);
+X}
+X
+Xint strStoreFree()
+X{
+X  int index;
+X  
+X  index=strStoreNextAvail-1;
+X  while (index>=0) {
+X    if (strStoreVector[index]!=NULL) {
+X      free(strStoreVector[index]);
+X      strStoreVector[index]=NULL;
+X    }
+X    index--;
+X  }
+X  strStoreNextAvail=0;
+X}
+X
+Xint strStoreOpen()
+X{
+X  int returnValue=STR_STORE_OK;
+X  
+X  if (strStoreInitialized) {
+X    fprintf(stderr, "String Storing facilities Already Initialized\n");
+X    returnValue=STR_STORE_ERR;
+X  }
+X  else {
+X    if (strStoreVector==NULL) {
+X      strStoreVector=(char **)malloc(sizeof(char*)*
+X				     (INITIAL_STR_STORE_VECTOR_SIZE));
+X      if (strStoreVector==NULL) {
+X	fprintf(stderr, "Memory Allocation Error\n");
+X	returnValue=STR_STORE_ERR;
+X      }
+X      else {
+X	strStoreVectorSize=INITIAL_STR_STORE_VECTOR_SIZE;
+X	strStoreVector[0]=NULL;
+X	strStoreNextAvail=0;
+X	strStoreInitialized=TRUE;
+X      }
+X    }
+X    else {
+X      fprintf(stderr, "strStore module already initialized\n");
+X      returnValue=STR_STORE_ERR;
+X    }
+X  }
+X  return(returnValue);
+X}
+X
+X
+Xint strStoreClose()
+X{
+X  int returnValue=STR_STORE_OK;
+X  
+X  if (strStoreInitialized) {
+X    strStoreFree();
+X    free(strStoreVector);
+X    strStoreVector=NULL;
+X    strStoreVectorSize=0;
+X    strStoreNextAvail=0;
+X    strStoreInitialized=FALSE;
+X  }
+X  else {
+X    fprintf(stderr, "StrStore Module not initialized\n");
+X  }
+X}
+END_OF_FILE
+if test 3471 -ne `wc -c <'bam-2.0/strstore.c'`; then
+    echo shar: \"'bam-2.0/strstore.c'\" unpacked with wrong size!
+fi
+# end of 'bam-2.0/strstore.c'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

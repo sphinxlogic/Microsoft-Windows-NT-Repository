@@ -1,0 +1,2525 @@
+Newsgroups: comp.sources.misc
+From: jfh@rpp386.cactus.org (John F. Haugh II)
+Subject: v38i121:  shadow - Shadow Password Suite, v3.3, Part02/14
+Message-ID: <1993Aug14.192322.9116@sparky.sterling.com>
+X-Md4-Signature: 19fb37d04a5a077914fc5a2ba9b410ea
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 14 Aug 1993 19:23:22 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: jfh@rpp386.cactus.org (John F. Haugh II)
+Posting-number: Volume 38, Issue 121
+Archive-name: shadow/part02
+Environment: UNIX
+Supersedes: shadow: Volume 26, Issue 54-64
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile groupmod.1 usermod.c
+# Wrapped by kent@sparky on Sat Aug 14 14:11:39 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 14)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(20253 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#
+X# Copyright 1988,1989,1990,1991,1992,1993 John F. Haugh II
+X# All rights reserved.
+X#
+X# Permission is granted to copy and create derivative works for any
+X# non-commercial purpose, provided this copyright notice is preserved
+X# in all copies of source code, or included in human readable form
+X# and conspicuously displayed on all copies of object code or
+X# distribution media.
+X#
+X# This software is provided on an AS-IS basis and the author makes
+X# no warrantee of any kind.
+X#
+X#	@(#)Makefile	3.25.1.18	09:57:59  - Shadow password system
+X#
+X#	@(#)Makefile	3.25.1.18	09:57:59	08 Aug 1993
+X#
+XSHELL = /bin/sh
+X
+X#
+X# Set this flag to decide what level of code "get" returns.
+X# The base USENET release was release 1.  It is no longer supported.
+X# The version with the utilities added was release 2.  It is now unsupported.
+X# The version with database-like file access is release 3.
+XRELEASE = 3
+XVERSION = ver3.3.0
+XGFLAGS = -n $(VERSION)
+XGET = get_file
+X
+X# Define the directory login is copied to.  BE VERY CAREFUL!!!  BSD old SunOS
+X# seems to use /bin, USG seems to use /etc, SunOS 4.1.1 seems to use /usr/bin.
+X# If you define SCOLOGIN, you MUST use /etc as LOGINDIR.
+X# LOGINDIR = /bin
+XLOGINDIR = /etc
+X# LOGINDIR = /usr/bin
+X
+X# Define any special libraries required to access the directory routines.
+X# Some systems require -lndir for the directory routines.  SCO Xenix uses
+X# -lx for that.  Your system might need nothing.
+X# NDIR = -lndir
+XNDIR = -lx
+X# NDIR =
+X
+X# Define some stuff for Cracklib.  This assumes that libcracklib.a is
+X# in a system directory.
+X# CRACKDEF='-DCRACKLIB_DICTPATH="$(DICTPATH)"'
+X# CRACKLIB=-lcrack
+X
+X# Pick your favorite C compiler and tags command
+XCC = cc
+XTAGS = ctags
+X
+X# OS.  Pick one of USG (AT&T, SYSV, SYS3), BSD, SUN (SunOS 2 and 3),
+X# SUN4 (SunOS 4.1.1.), or UNIXPC (AT&T PC/7300, 3B1)
+X# OS = -DUSG -DSYS3
+XOS = -DUSG
+X# OS = -DBSD
+X# OS = -DSUN
+X# OS = -DSUN4
+X# OS = -DUSG -DUNIXPC
+X
+X# Do you have to do ranlib (probably SUN, BSD and XENIX)?
+XRANLIB = ranlib
+X# RANLIB = echo
+X
+X# Enable the following if you are running SCO TCP/IP.  It is a /bin/login
+X# which understands the *ahem* novel way they do rlogin/telnet.
+X# SCOLOGIN = scologin
+X
+X# Configuration Flags
+X#
+X#	DEST_INCLUDE_DIR - local include files
+X#	LIBS - system libraries
+X#		-lsocket - needed for TCP/IP and possibly SYSLOG
+X#		-ldbm or -lndbm - needed for DBM support
+X#		-lcrypt - needed for SCO crypt() functions
+X#	CFLAGS - C compiler flags
+X#		-DLAI_TCP - needed for SCO Xenix Lachman TCP/IP
+X
+XDEST_INCLUDE_DIR = /usr/include
+X
+X# Flags for SCO Xenix/386
+XCFLAGS = -O -M3 -g $(OS) -I$(DEST_INCLUDE_DIR) $(CRACKDEF)
+XLIBS = -lcrypt -lndbm
+X# LIBS = -lcrypt -ldbm
+XLDFLAGS = -M3 -g
+XLTFLAGS = 
+X
+X# Flags for normal machines
+X# CFLAGS = -O -g $(OS) -I$(DEST_INCLUDE_DIR) $(CRACKDEF)
+X# LIBS =
+X# LDFLAGS = -g
+X
+X# Flags for SunOS 4.1.1
+X# CFLAGS = -O2 $(OS) -I$(DEST_INCLUDE_DIR) $(CRACKDEF)
+X# LIBS =
+X# LDFLAGS = 
+X
+X# This should be Slibsec.a for small model, or Llibsec.a for
+X# large model or whatever.  MUST AGREE WITH CFLAGS!!!  For non-Intel
+X# machines, just use libsec.a
+XLIBSEC = Slibsec.a
+X# LIBSEC = libsec.a
+X
+X# Names for root user and group, and bin user and group.  See your
+X# /etc/passwd and /etc/group files.  BSD and SUN use "wheel", most
+X# others use "root" for RGID.
+XRUID = root
+XRGID = root
+X# RGID = wheel
+XBUID = bin
+XBGID = bin
+X
+X# Where the login.defs file will be copied.  Must agree with config.h
+XDEST_LOGIN_DEFS = /etc/login.defs
+X
+X# Rules for .L (lint) files.
+X.SUFFIXES: .L
+XLINT = lint
+XLINTFLAGS = $(OS) -Dlint
+X
+X.c.L:
+X	$(LINT) -pxu $(LINTFLAGS) $*.c > $*.L
+X
+XLOBJS = lmain.o login.o env.o valid.o setup.o shell.o age.o \
+X	utmp.o sub.o mail.o motd.o log.o ttytype.o failure.o \
+X	tz.o console.o hushed.o
+X
+XLSRCS = lmain.c login.c env.c valid.c setup.c shell.c age.c \
+X	utmp.c sub.c mail.c motd.c log.c ttytype.c failure.c \
+X	tz.c console.c hushed.c
+X
+XSOBJS = smain.o env.o entry.o susetup.o shell.o \
+X	sub.o mail.o motd.o sulog.o age.o tz.o hushed.o
+X
+XSSRCS = smain.c env.c entry.c setup.c shell.c \
+X	pwent.c sub.c mail.c motd.c sulog.c shadow.c age.c pwpack.c rad64.c \
+X	tz.c hushed.c
+X
+XPOBJS = passwd.o obscure.o
+XPSRCS = passwd.c obscure.c
+X
+XGPSRCS = gpmain.c
+X
+XGPOBJS = gpmain.o
+X
+XPWOBJS = pwconv.o
+X
+XPWSRCS = pwconv.c pwent.c shadow.c pwpack.c rad64.c
+X
+XPWUNOBJS = pwunconv.o
+X
+XPWUNSRCS = pwunconv.c pwent.c shadow.c pwpack.c rad64.c
+X
+XSULOGOBJS = sulogin.o entry.o env.o age.o setup.o \
+X	valid.o shell.o tz.o
+X
+XSULOGSRCS = sulogin.c entry.c env.c age.c pwent.c setup.c \
+X	shadow.c shell.c valid.c pwpack.c tz.c
+X
+XMKPWDOBJS = mkpasswd.o
+X
+XMKPWDSRCS = mkpasswd.c
+X
+XNGSRCS = newgrp.c env.c shell.c
+X
+XNGOBJS = newgrp.o env.o shell.o
+X
+XCHFNSRCS = chfn.c fields.c
+XCHFNOBJS = chfn.o fields.o
+XCHSHSRCS = chsh.c fields.c
+XCHSHOBJS = chsh.o fields.o
+XCHAGEOBJS = chage.o fields.o
+XCHAGESRCS = chage.c fields.c
+XCHPASSOBJS = chpasswd.o
+XCHPASSSRCS = chpasswd.c
+XDPSRCS = dpmain.c
+XDPOBJS = dpmain.o
+X
+XALLSRCS = age.c dialchk.c dialup.c entry.c env.c lmain.c log.c login.c mail.c \
+X	motd.c obscure.c passwd.c pwconv.c pwent.c pwunconv.c getpass.c \
+X	setup.c shadow.c shell.c smain.c sub.c sulog.c sulogin.c ttytype.c \
+X	utmp.c valid.c port.c newgrp.c gpmain.c grent.c mkpasswd.c pwpack.c \
+X	chfn.c chsh.c chage.c rad64.c encrypt.c chpasswd.c shadowio.c pwio.c \
+X	newusers.c groupio.c fields.c pwdbm.c grpack.c grdbm.c sppack.c \
+X	spdbm.c dpmain.c gshadow.c gsdbm.c gspack.c sgroupio.c useradd.c \
+X	userdel.c patchlevel.h usermod.c copydir.c mkrmdir.c groupadd.c \
+X	groupdel.c groupmod.c tz.c console.c hushed.c getdef.c scologin.c \
+X	logoutd.c groups.c pwauth.c lockpw.c chowndir.c
+X
+XFILES1 = README patchlevel.h newgrp.c Makefile config.h pwunconv.c obscure.c \
+X	age.c id.c
+X
+XFILES2 = passwd.c port.c lmain.c sulogin.c pwpack.c dialup.c
+X
+XFILES3 = chfn.c chsh.c smain.c faillog.c pwconv.c shadow.c pwck.c
+X
+XFILES4 = gpmain.c chage.c pwent.c valid.c setup.c entry.c ttytype.c port.h
+X
+XFILES5 = pwio.c encrypt.c chpasswd.c newusers.c rad64.c dialchk.c faillog.h \
+X	pwdbm.c grdbm.c gshadow.c sppack.c grpck.c
+X
+XFILES6 = gspack.c spdbm.c lastlog.h shell.c login.c sub.c dpmain.c mail.c \
+X	env.c pwd.h.m4 grpack.c shadow.h log.c grent.c motd.c dialup.h \
+X	fields.c gsdbm.c utmp.c failure.c
+X
+XFILES7 = groupio.c shadowio.c sgroupio.c groups.c copydir.c mkrmdir.c \
+X	mkpasswd.c pwauth.c pwauth.h lastlog.c
+X
+XFILES8 = useradd.c usermod.c login.defs
+X
+XFILES9 = groupadd.c groupdel.c groupmod.c tz.c console.c hushed.c getdef.c \
+X	scologin.c logoutd.c sulog.c getpass.c userdel.c lockpw.c chowndir.c
+X
+XFILES_SUN4 = Makefile.sun4 README.sun4 config.h.sun4
+XFILES_SVR4 = Makefile.svr4 config.h.svr4
+X
+XMAN_1 = chage.1 chfn.1 chsh.1 id.1 login.1 newgrp.1 passwd.1 su.1 \
+X	useradd.1 userdel.1 usermod.1 groupadd.1 groupdel.1 groupmod.1 \
+X	groups.1 pwck.1 grpck.1
+XMAN_3 = shadow.3 pwauth.3
+XMAN_4 = faillog.4 passwd.4 porttime.4 shadow.4
+XMAN_5 = login.5
+XMAN_8 = chpasswd.8 dpasswd.8 faillog.8 newusers.8 pwconv.8 pwunconv.8 \
+X	sulogin.8 mkpasswd.8 logoutd.8 pwauth.8 lastlog.8
+X
+XDOCS1 = $(MAN_1) $(MAN_3) $(MAN_4)
+XDOCS2 = $(MAN_5) $(MAN_8)
+XDOCS = $(DOCS1) $(DOCS2)
+X
+XBINS = su login pwconv pwunconv passwd sulogin faillog newgrp sg gpasswd \
+X	mkpasswd chfn chsh chage chpasswd newusers dpasswd id useradd \
+X	userdel usermod groupadd groupdel groupmod $(SCOLOGIN) logoutd \
+X	groups pwck grpck lastlog
+X
+Xall:	$(BINS) $(DOCS)
+X
+X.PRECIOUS: libshadow.a
+X
+Xlibshadow.a: \
+X	libshadow.a(dialchk.o) \
+X	libshadow.a(dialup.o) \
+X	libshadow.a(encrypt.o) \
+X	libshadow.a(getdef.o) \
+X	libshadow.a(getpass.o) \
+X	libshadow.a(grdbm.o) \
+X	libshadow.a(grent.o) \
+X	libshadow.a(groupio.o) \
+X	libshadow.a(grpack.o) \
+X	libshadow.a(gshadow.o) \
+X	libshadow.a(gsdbm.o) \
+X	libshadow.a(gspack.o) \
+X	libshadow.a(sgroupio.o) \
+X	libshadow.a(port.o) \
+X	libshadow.a(pwdbm.o) \
+X	libshadow.a(pwent.o) \
+X	libshadow.a(pwio.o) \
+X	libshadow.a(pwpack.o) \
+X	libshadow.a(pwauth.o) \
+X	libshadow.a(rad64.o) \
+X	libshadow.a(spdbm.o) \
+X	libshadow.a(shadow.o) \
+X	libshadow.a(shadowio.o) \
+X	libshadow.a(sppack.o) \
+X	libshadow.a(lockpw.o)
+X	$(RANLIB) libshadow.a
+X
+Xlibsec: $(LIBSEC)(shadow.o)
+X	$(RANLIB) $(LIBSEC)
+X
+Xsave:
+X	[ ! -d save ] && mkdir save
+X	-cp $(LOGINDIR)/login save
+X	-cp /etc/mkpasswd /etc/pwconv /etc/pwunconv /etc/sulogin /etc/chpasswd \
+X		/etc/newusers /etc/useradd /etc/userdel /etc/usermod \
+X		/etc/groupadd /etc/groupdel /etc/groupmod /etc/logoutd \
+X		/etc/login.defs /etc/pwck /etc/grpck save
+X	-cp /bin/su /bin/passwd /bin/gpasswd /bin/dpasswd /bin/faillog \
+X		/bin/newgrp /bin/chfn /bin/chsh /bin/chage /bin/id \
+X		/bin/scologin save
+X	-cp $(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/shadow.h \
+X		$(DEST_INCLUDE_DIR)/pwd.h save
+X
+Xrestore:
+X	[ -d save ]
+X	-(cd save ; cp login $(LOGINDIR) )
+X	-(cd save ; -cp mkpasswd pwconv pwunconv sulogin chpasswd \
+X		newusers useradd userdel usermod groupadd groupdel groupmod \
+X		logoutd login.defs pwck grpck /etc)
+X	-(cd save ; cp su passwd gpasswd dpasswd faillog newgrp chfn chsh \
+X		chage id scologin /bin)
+X	-(cd save ; cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR) )
+X
+Xinstall: all
+X	strip $(BINS)
+X	cp login $(LOGINDIR)/login
+X	cp mkpasswd pwconv pwunconv sulogin chpasswd newusers \
+X		useradd userdel usermod groupadd groupdel groupmod logoutd \
+X		pwck grpck /etc
+X	cp su passwd gpasswd dpasswd faillog newgrp chfn chsh chage id /bin
+X	rm -f /bin/sg
+X	ln /bin/newgrp /bin/sg
+X	cp dialup.h shadow.h pwd.h $(DEST_INCLUDE_DIR)
+X	chown $(RUID) $(LOGINDIR)/login /etc/pwconv /etc/pwunconv /etc/sulogin \
+X		/bin/su /bin/passwd /bin/gpasswd /bin/newgrp /etc/mkpasswd \
+X		/bin/dpasswd /bin/chsh /bin/chfn /bin/chage /etc/useradd \
+X		/etc/userdel /etc/usermod /etc/groupadd /etc/groupdel \
+X		/etc/groupmod /etc/logoutd /etc/pwck /etc/grpck
+X	chgrp $(RGID) $(LOGINDIR)/login /etc/pwconv /etc/pwunconv /etc/sulogin \
+X		/bin/su /bin/passwd /bin/gpasswd /bin/newgrp /etc/mkpasswd \
+X		/bin/dpasswd /bin/chsh /bin/chfn /bin/chage /etc/useradd \
+X		/etc/userdel /etc/usermod /etc/groupadd /etc/groupdel \
+X		/etc/groupmod /etc/logoutd /etc/pwck /etc/grpck
+X	chown $(BUID) /bin/faillog /bin/id $(DEST_INCLUDE_DIR)/shadow.h \
+X		$(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/pwd.h
+X	chgrp $(BGID) /bin/faillog /bin/id $(DEST_INCLUDE_DIR)/shadow.h \
+X		$(DEST_INCLUDE_DIR)/dialup.h $(DEST_INCLUDE_DIR)/pwd.h
+X	chmod 700 /etc/pwconv /etc/pwunconv /etc/sulogin /etc/mkpasswd \
+X		/etc/chpasswd /etc/newusers /bin/dpasswd /etc/logoutd \
+X		/etc/useradd /etc/userdel /etc/usermod /etc/groupadd \
+X		/etc/groupdel /etc/groupmod /etc/pwck /etc/grpck
+X	chmod 4711 $(LOGINDIR)/login /bin/su /bin/passwd /bin/gpasswd \
+X		/bin/newgrp /bin/chfn /bin/chsh /bin/chage
+X	chmod 711 /bin/faillog /bin/id
+X	chmod 444 $(DEST_INCLUDE_DIR)/shadow.h $(DEST_INCLUDE_DIR)/dialup.h \
+X		$(DEST_INCLUDE_DIR)/pwd.h
+X	[ -f $(DEST_LOGIN_DEFS) ] || (cp login.defs $(DEST_LOGIN_DEFS) ; \
+X		chown $(RUID) $(DEST_LOGIN_DEFS) ; \
+X		chgrp $(RGID) $(DEST_LOGIN_DEFS) ; \
+X		chmod 600 $(DEST_LOGIN_DEFS) )
+X	[ -z "$(SCOLOGIN)" ] || (cp scologin /bin/login ; \
+X		chown $(RUID) /bin/login ; \
+X		chgrp $(RGID) /bin/login ; \
+X		chmod 755 /bin/login )
+X
+Xlint:	su.lint login.lint pwconv.lint pwunconv.lint passwd.lint sulogin.lint \
+X	faillog.lint newgrp.lint gpasswd.lint mkpasswd.lint chfn.lint \
+X	chsh.lint chage.lint dpasswd.lint id.lint useradd.lint userdel.lint \
+X	usermod.lint groupadd.lint groupdel.lint groupmod.lint logoutd.lint \
+X	pwck.lint grpck.lint \
+X	$(ALLSRCS:.c=.L)
+X
+Xtags:	$(ALLSRCS)
+X	$(TAGS) $(ALLSRCS)
+X
+XREADME:
+X	[ -f s.README ] && $(GET) $(GFLAGS) s.README
+X	
+X$(DOCS):
+X	[ -f s.$@ ] && $(GET) $(GFLAGS) s.$@
+X
+Xlogin.defs:
+X	[ -f s.login.defs ] && $(GET) $(GFLAGS) s.login.defs
+X
+XMakefile.sun4:
+X	[ -f s.Makefile.sun4 ] && $(GET) $(GFLAGS) s.Makefile.sun4
+X
+XMakefile.svr4:
+X	[ -f s.Makefile.svr4 ] && $(GET) $(GFLAGS) s.Makefile.svr4
+X
+XREADME.sun4:
+X	[ -f s.README.sun4 ] && $(GET) $(GFLAGS) s.README.sun4
+X
+Xconfig.h.sun4:
+X	[ -f s.config.h.sun4 ] && $(GET) $(GFLAGS) s.config.h.sun4
+X
+Xconfig.h.svr4:
+X	[ -f s.config.h.svr4 ] && $(GET) $(GFLAGS) s.config.h.svr4
+X
+Xlogin:	$(LOBJS) libshadow.a
+X	$(CC) -o login $(LDFLAGS) $(LOBJS) libshadow.a $(LIBS)
+X
+Xlogin.lint: $(LSRCS)
+X	$(LINT) $(LINTFLAGS) $(LSRCS) > login.lint
+X
+Xsu:	$(SOBJS) libshadow.a
+X	$(CC) -o su $(LDFLAGS) $(SOBJS) libshadow.a $(LIBS)
+X
+Xsu.lint:	$(SSRCS)
+X	$(LINT) $(LINTFLAGS) -DSU $(SSRCS) > su.lint
+X
+Xpasswd:	$(POBJS) libshadow.a
+X	$(CC) -o passwd $(LDFLAGS) $(POBJS) libshadow.a $(LIBS) $(CRACKLIB)
+X
+Xpasswd.lint: $(PSRCS)
+X	$(LINT) $(LINTFLAGS) -DPASSWD $(PSRCS) > passwd.lint
+X
+Xgpasswd: $(GPOBJS) libshadow.a
+X	$(CC) -o gpasswd $(LDFLAGS) $(GPOBJS) libshadow.a $(LIBS)
+X
+Xgpasswd.lint: $(GPSRCS)
+X	$(LINT) $(LINTFLAGS) $(GPSRCS) > gpasswd.lint
+X
+Xdpasswd: $(DPOBJS) libshadow.a
+X	$(CC) -o dpasswd $(LDFLAGS) $(DPOBJS) libshadow.a $(LIBS)
+X
+Xdpasswd.lint: $(DPSRCS)
+X	$(LINT) $(LINTFLAGS) $(DPSRCS) > dpasswd.lint
+X
+Xpwconv:	$(PWOBJS) libshadow.a config.h
+X	$(CC) -o pwconv $(LDFLAGS) $(PWOBJS) libshadow.a $(LIBS)
+X
+Xpwconv.lint: $(PWSRCS) config.h
+X	$(LINT) $(LINTFLAGS) -DPASSWD $(PWSRCS) > pwconv.lint
+X
+Xpwunconv: $(PWUNOBJS) libshadow.a config.h
+X	$(CC) -o pwunconv $(LDFLAGS) $(PWUNOBJS) libshadow.a $(LIBS)
+X
+Xpwunconv.lint: $(PWUNSRCS)
+X	$(LINT) $(LINTFLAGS) -DPASSWD $(PWUNSRCS) > pwunconv.lint
+X
+Xsulogin: $(SULOGOBJS) libshadow.a
+X	$(CC) -o sulogin $(LDFLAGS) $(SULOGOBJS) libshadow.a $(LIBS)
+X
+Xsulogin.lint: $(SULOGSRCS)
+X	$(LINT) $(LINTFLAGS) $(SULOGSRCS) > sulogin.lint
+X
+Xfaillog: faillog.o
+X	$(CC) -o faillog $(LDFLAGS) faillog.o $(LIBS)
+X
+Xfaillog.lint: faillog.c faillog.h config.h
+X	$(LINT) $(LINTFLAGS) faillog.c > faillog.lint
+X
+Xlastlog: lastlog.o
+X	$(CC) -o lastlog $(LDFLAGS) lastlog.o $(LIBS)
+X
+Xlastlog.lint: lastlog.c config.h lastlog.h
+X	$(LINT) $(LINTFLAGS) $(MKPWDSRCS) > lastlog.lint
+X
+Xmkpasswd: $(MKPWDOBJS) libshadow.a
+X	$(CC) -o mkpasswd $(LDFLAGS) $(MKPWDOBJS) libshadow.a $(LIBS)
+X
+Xmkpasswd.lint: $(MKPWDSRCS)
+X	$(LINT) $(LINTFLAGS) $(MKPWDSRCS) > mkpasswd.lint
+X
+Xnewgrp: $(NGOBJS) libshadow.a
+X	$(CC) -o newgrp $(LDFLAGS) $(NGOBJS) libshadow.a $(LIBS)
+X
+Xnewgrp.lint: $(NGSRCS)
+X	$(LINT) $(LINTFLAGS) $(NGSRCS) > newgrp.lint
+X
+Xsg:	newgrp
+X	rm -f sg
+X	ln newgrp sg
+X
+Xsg.lint: newgrp.lint
+X	ln newgrp.lint sg.lint
+X
+Xchfn:	$(CHFNOBJS) libshadow.a
+X	$(CC) -o chfn $(LDFLAGS) $(CHFNOBJS) libshadow.a $(LIBS)
+X
+Xchfn.lint:	$(CHFNSRCS)
+X	$(LINT) $(LINTFLAGS) $(CHFNSRCS) > chfn.lint
+X
+Xchsh:	$(CHSHOBJS) libshadow.a
+X	$(CC) -o chsh $(LDFLAGS) $(CHSHOBJS) libshadow.a $(LIBS)
+X
+Xchsh.lint: $(CHSHSRCS)
+X	$(LINT) $(LINTFLAGS) $(CHSHSRCS) > chsh.lint
+X
+Xchage:	$(CHAGEOBJS) libshadow.a
+X	$(CC) -o chage $(LDFLAGS) $(CHAGEOBJS) libshadow.a $(LIBS)
+X
+Xchage.lint: $(CHAGESRCS)
+X	$(LINT) $(LINTFLAGS) -DPASSWD $(CHAGESRCS) > chage.lint
+X
+Xchpasswd: $(CHPASSOBJS) libshadow.a
+X	$(CC) -o chpasswd $(LDFLAGS) $(CHPASSOBJS) libshadow.a $(LIBS)
+X
+Xchpasswd.lint: $(CHPASSSRCS)
+X	$(LINT) $(LINTFLAGS) $(CHPASSSRCS) > chpasswd.lint
+X
+Xnewusers: newusers.o libshadow.a
+X	$(CC) -o newusers $(LDFLAGS) newusers.o libshadow.a $(LIBS)
+X
+Xnewusers.lint: newusers.c
+X	$(LINT) $(LINTFLAGS) newusers.c > newusers.lint
+X	
+Xid: id.o libshadow.a
+X	$(CC) -o id $(LDFLAGS) id.o libshadow.a $(LIBS)
+X
+Xid.lint: id.c
+X	$(LINT) $(LINTFLAGS) id.c > id.lint
+X
+Xgroups: groups.o libshadow.a
+X	$(CC) -o groups $(LDFLAGS) groups.o libshadow.a $(LIBS)
+X
+Xgroups.lint: groups.c
+X	$(LINT) $(LINTFLAGS) groups.c > groups.lint
+X
+Xuseradd: useradd.o copydir.o mkrmdir.o libshadow.a
+X	$(CC) -o useradd $(LDFLAGS) useradd.o copydir.o mkrmdir.o \
+X		libshadow.a $(LIBS) $(NDIR)
+X
+Xuseradd.lint: useradd.c copydir.c mkrmdir.c
+X	$(LINT) $(LINTFLAGS) useradd.c copydir.c mkrmdir.c > useradd.lint
+X
+Xuserdel: userdel.o copydir.o mkrmdir.o libshadow.a
+X	$(CC) -o userdel $(LDFLAGS) userdel.o copydir.o mkrmdir.o \
+X		libshadow.a $(LIBS) $(NDIR)
+X
+Xuserdel.lint: userdel.c copydir.c mkrmdir.c
+X	$(LINT) $(LINTFLAGS) userdel.c copydir.c mkrmdir.c > userdel.lint
+X
+Xusermod: usermod.o copydir.o mkrmdir.o chowndir.o libshadow.a
+X	$(CC) -o usermod $(LDFLAGS) usermod.o copydir.o mkrmdir.o \
+X		chowndir.o libshadow.a $(LIBS) $(NDIR)
+X
+Xusermod.lint: usermod.c copydir.c mkrmdir.c chowndir.c
+X	$(LINT) $(LINTFLAGS) usermod.c copydir.c mkrmdir.c \
+X		chowndir.c > usermod.lint
+X
+Xgroupadd: groupadd.o libshadow.a
+X	$(CC) -o groupadd $(LDFLAGS) groupadd.o libshadow.a $(LIBS)
+X
+Xgroupadd.lint: groupadd.c
+X	$(LINT) $(LINTFLAGS) groupadd.c > groupadd.lint
+X
+Xgroupdel: groupdel.o libshadow.a
+X	$(CC) -o groupdel $(LDFLAGS) groupdel.o libshadow.a $(LIBS)
+X
+Xgroupdel.lint: groupdel.c
+X	$(LINT) $(LINTFLAGS) groupdel.c > groupdel.lint
+X
+Xgroupmod: groupmod.o libshadow.a
+X	$(CC) -o groupmod $(LDFLAGS) groupmod.o libshadow.a $(LIBS)
+X
+Xgroupmod.lint: groupmod.c
+X	$(LINT) $(LINTFLAGS) groupmod.c > groupmod.lint
+X
+Xpwd.h.m4:
+X	[ -f s.pwd.h.m4 ] && $(GET) $(GFLAGS) s.pwd.h.m4
+X
+Xpwd.h: pwd.h.m4
+X	m4 $(OS) < pwd.h.m4 > pwd.h
+X
+Xlogoutd: logoutd.o libshadow.a
+X	$(CC) -o logoutd $(LDFLAGS) logoutd.o libshadow.a
+X
+Xlogoutd.lint: logoutd.c
+X	$(LINT) $(LINTFLAGS) logoutd.c > logoutd.lint
+X
+Xpwck: pwck.o libshadow.a
+X	$(CC) -o pwck $(LDFLAGS) pwck.o libshadow.a $(LIBS)
+X
+Xpwck.lint: pwck.c
+X	$(LINT) $(LINTFLAGS) pwck.c > pwck.lint
+X
+Xgrpck: grpck.o libshadow.a
+X	$(CC) -o grpck $(LDFLAGS) grpck.o libshadow.a $(LIBS)
+X
+Xgrpck.lint: grpck.c
+X	$(LINT) $(LINTFLAGS) grpck.c > grpck.lint
+X
+Xsulog.o: config.h
+X
+Xsusetup.c: setup.c
+X	cp setup.c susetup.c
+X
+Xsusetup.o: config.h susetup.c pwd.h
+X	$(CC) -c $(CFLAGS) -DSU susetup.c
+X
+Xscologin: scologin.o
+X	$(CC) -o scologin $(LDFLAGS) scologin.o -lsocket
+X
+Xpasswd.o: config.h shadow.h pwd.h pwauth.h
+Xlmain.o: config.h lastlog.h faillog.h pwd.h pwauth.h
+Xsmain.o: config.h lastlog.h pwd.h shadow.h pwauth.h
+Xsub.o: pwd.h
+Xsetup.o: config.h pwd.h
+Xmkrmdir.o: config.h
+Xutmp.o: config.h
+Xmail.o: config.h
+Xmotd.o: config.h
+Xage.o: config.h pwd.h
+Xlog.o: config.h lastlog.h pwd.h
+Xshell.o: config.h
+Xentry.o: config.h shadow.h pwd.h
+Xhushed.o: config.h pwd.h
+Xvalid.o: config.h pwd.h
+Xfailure.o: faillog.h config.h
+Xfaillog.o: faillog.h config.h pwd.h
+Xnewgrp.o: config.h shadow.h pwd.h
+Xmkpasswd.o: config.h shadow.h pwd.h
+Xgpmain.o: config.h pwd.h
+Xchfn.o: config.h pwd.h
+Xchsh.o: config.h pwd.h
+Xchage.o: config.h shadow.h pwd.h
+Xpwconv.o: config.h shadow.h
+Xpwunconv.o: config.h shadow.h pwd.h
+Xchpasswd.o: config.h shadow.h pwd.h
+Xid.o: pwd.h
+Xnewusers.o: config.h shadow.h pwd.h
+Xdpmain.o: config.h dialup.h
+Xuseradd.o: config.h shadow.h pwd.h pwauth.h
+Xuserdel.o: config.h shadow.h pwd.h pwauth.h
+Xusermod.o: config.h shadow.h pwd.h pwauth.h
+Xgroupadd.o: config.h shadow.h
+Xgroupdel.o: config.h shadow.h
+Xgroupmod.o: config.h shadow.h
+Xlogoutd.o: config.h
+Xsulogin.o: config.h pwauth.h
+Xcopydir.o: config.h
+Xchowndir.o: config.h
+Xpwck.o: config.h shadow.h pwd.h
+Xgrpck.o: config.h shadow.h pwd.h
+X
+Xlibshadow.a(shadow.o): shadow.h config.h
+Xlibshadow.a(shadowio.o): shadow.h
+Xlibshadow.a(grent.o): config.h shadow.h
+Xlibshadow.a(sgroupio.o): shadow.h
+Xlibshadow.a(dialup.o): dialup.h
+Xlibshadow.a(dialchk.o): dialup.h config.h
+Xlibshadow.a(getdef.o): config.h
+Xlibshadow.a(pwdbm.o): config.h pwd.h
+Xlibshadow.a(spdbm.o): config.h shadow.h
+Xlibshadow.a(grdbm.o): config.h
+Xlibshadow.a(gshadow.o): config.h
+Xlibshadow.a(gsdbm.o): config.h shadow.h
+Xlibshadow.a(pwauth.o): config.h pwauth.h
+Xlibshadow.a(pwpack.o): config.h pwd.h
+Xlibshadow.a(pwent.o): config.h pwd.h
+Xlibshadow.a(pwio.o): pwd.h
+Xlibshadow.a(getpass.o): config.h
+Xlibshadow.a(encrypt.o): config.h
+Xlibshadow.a(port.o): port.h
+Xlibshadow.a(rad64.o): config.h
+Xlibshadow.a(lockpw.o):
+X
+Xclean:
+X	-rm -f susetup.c *.o a.out core npasswd nshadow *.pag *.dir pwd.h
+X
+Xclobber: clean
+X	-rm -f $(BINS) *.lint *.L libshadow.a
+X
+Xnuke:	clobber
+X	-for file in * ; do \
+X		if [ -f s.$$file -a ! -f p.$$file ] ; then \
+X			rm -f $$file ;\
+X		fi ;\
+X	done
+X
+Xshar:	login.sh.01 login.sh.02 login.sh.03 login.sh.04 login.sh.05 \
+X	login.sh.06 login.sh.07 login.sh.08 login.sh.09 login.sh.10 \
+X	login.sh.11 login.sh.12
+X
+Xlogin.sh.01: $(FILES1) Makefile
+X	shar -Dc $(FILES1) > login.sh.01
+X
+Xlogin.sh.02: $(FILES2) Makefile
+X	shar -Dc $(FILES2) > login.sh.02
+X
+Xlogin.sh.03: $(FILES3) Makefile
+X	shar -Dc $(FILES3) > login.sh.03
+X
+Xlogin.sh.04: $(FILES4) Makefile
+X	shar -Dc $(FILES4) > login.sh.04
+X
+Xlogin.sh.05: $(FILES5) Makefile
+X	shar -Dc $(FILES5) > login.sh.05
+X
+Xlogin.sh.06: $(FILES6) Makefile
+X	shar -Dc $(FILES6) > login.sh.06
+X
+Xlogin.sh.07: $(FILES7) Makefile
+X	shar -Dc $(FILES7) > login.sh.07
+X
+Xlogin.sh.08: $(FILES8) Makefile
+X	shar -Dc $(FILES8) > login.sh.08
+X
+Xlogin.sh.09: $(FILES9) Makefile
+X	shar -Dc $(FILES9) > login.sh.09
+X
+Xlogin.sh.10: $(DOCS1) Makefile
+X	shar -Dc $(DOCS1) > login.sh.10
+X
+Xlogin.sh.11: $(DOCS2) Makefile
+X	shar -Dc $(DOCS2) > login.sh.11
+X
+Xlogin.sh.12: $(FILES_SUN4) $(FILES_SVR4) Makefile
+X	shar -Dc $(FILES_SUN4) $(FILES_SVR4) > login.sh.12
+END_OF_FILE
+  if test 20253 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'groupmod.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'groupmod.1'\"
+else
+  echo shar: Extracting \"'groupmod.1'\" \(1387 characters\)
+  sed "s/^X//" >'groupmod.1' <<'END_OF_FILE'
+X.\" Copyright 1991, John F. Haugh II
+X.\" All rights reserved.
+X.\"
+X.\" Permission is granted to copy and create derivative works for any
+X.\" non-commercial purpose, provided this copyright notice is preserved
+X.\" in all copies of source code, or included in human readable form
+X.\" and conspicuously displayed on all copies of object code or
+X.\" distribution media.
+X.\"
+X.\"	@(#)groupmod.1	3.1	13:28:27	13 Jul 1991
+X.\"
+X.TH GROUPMOD 1M
+X.SH NAME
+Xgroupmod \- Modify a group
+X.SH SYNOPSIS
+X.B groupmod
+X[ \fB-g\fI gid \fR[ \fB-o\fR ] ]
+X[ \fB-n\fI group_name \fR ]
+X.I group
+X.SH DESCRIPTION
+XThe \fIgroupmod\fR command modifies the system account files to reflect
+Xthe changes that are specified on the command line.
+XThe options which apply to the \fIgroupmod\fR command are
+X.IP "\fB-g \fIgid\fR"
+XThe numerical value of the group's ID.
+XThis value must be unique, unless the \fI-o\fR option is used.
+XThe value must be non-negative.
+XValues between 0 and 99 are typically reserved for system groups.
+XAny files which the old group ID is the file group ID
+Xmust have the file group ID changed manually.
+X.IP "\fB-n \fIgroup_name\fR"
+XThe name of the group will be changed from \fIgroup\fR to
+X\fIgroup_name\fR.
+X.SH Files
+X/etc/group \- group information
+X.br
+X/etc/gshadow \- secure group information
+X.SH SEE ALSO
+X\fBchfn(1), chsh(1), useradd(1M), userdel(1M), usermod(1M),
+Xpasswd(1), groupadd(1M), groupdel(1M)
+END_OF_FILE
+  if test 1387 -ne `wc -c <'groupmod.1'`; then
+    echo shar: \"'groupmod.1'\" unpacked with wrong size!
+  fi
+  # end of 'groupmod.1'
+fi
+if test -f 'usermod.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'usermod.c'\"
+else
+  echo shar: Extracting \"'usermod.c'\" \(35799 characters\)
+  sed "s/^X//" >'usermod.c' <<'END_OF_FILE'
+X/*
+X * Copyright 1991, 1992, 1993, John F. Haugh II
+X * All rights reserved.
+X *
+X * Permission is granted to copy and create derivative works for any
+X * non-commercial purpose, provided this copyright notice is preserved
+X * in all copies of source code, or included in human readable form
+X * and conspicuously displayed on all copies of object code or
+X * distribution media.
+X *
+X * This software is provided on an AS-IS basis and the author makes
+X * no warrantee of any kind.
+X */
+X
+X#ifndef lint
+Xstatic	char	sccsid[] = "@(#)usermod.c	3.16	08:11:52	07 May 1993";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <stdio.h>
+X#include <errno.h>
+X#include "pwd.h"
+X#include <grp.h>
+X#include <ctype.h>
+X#include <fcntl.h>
+X#include <time.h>
+X
+X#ifdef	BSD
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X
+X#include "config.h"
+X#ifdef	SHADOWPWD
+X#include "shadow.h"
+X#endif
+X#include "faillog.h"
+X#include "lastlog.h"
+X#include "pwauth.h"
+X
+X#ifdef	USE_SYSLOG
+X#include <syslog.h>
+X
+X#ifndef	LOG_WARN
+X#define	LOG_WARN LOG_WARNING
+X#endif
+X#endif
+X
+X#ifndef	NGROUPS_MAX
+X#define	NGROUPS_MAX	64
+X#endif
+X
+X#if defined(DIR_XENIX) || defined(DIR_BSD) || defined(DIR_SYSV)
+X#define	DIR_ANY
+X#endif
+X
+X#if !defined(MDY_DATE) && !defined(DMY_DATE) && !defined(YMD_DATE)
+X#define	MDY_DATE	1
+X#endif
+X#if (defined (MDY_DATE) && (defined (DMY_DATE) || defined (YMD_DATE))) || \
+X    (defined (DMY_DATE) && (defined (MDY_DATE) || defined (YMD_DATE)))
+XError: You must only define one of MDY_DATE, DMY_DATE, or YMD_DATE
+X#endif
+X
+X#define	VALID(s)	(strcspn (s, ":\n") == strlen (s))
+X
+Xchar	user_name[BUFSIZ];
+Xchar	user_newname[BUFSIZ];
+Xchar	user_auth[BUFSIZ];
+Xchar	user_newauth[BUFSIZ];
+Xuid_t	user_id;
+Xuid_t	user_newid;
+Xgid_t	user_gid;
+Xgid_t	user_newgid;
+Xchar	user_comment[BUFSIZ];
+Xchar	user_home[BUFSIZ];
+Xchar	user_newhome[BUFSIZ];
+Xchar	user_shell[BUFSIZ];
+X#ifdef	SHADOWPWD
+Xlong	user_expire;
+Xlong	user_inactive;
+X#endif
+Xint	user_ngroups = -1;
+Xgid_t	user_groups[NGROUPS_MAX];
+Xstruct	passwd	user_pwd;
+X#ifdef	SHADOWPWD
+Xstruct	spwd	user_spwd;
+X#endif
+X
+Xchar	*Prog;
+Xchar	*auth_arg;
+X
+Xint	Aflg;	/* specify user defined authentication method                 */
+Xint	uflg;	/* specify user ID for new account                            */
+Xint	oflg;	/* permit non-unique user ID to be specified with -u          */
+Xint	gflg;	/* primary group ID  for new account                          */
+Xint	Gflg;	/* secondary group set for new account                        */
+Xint	dflg;	/* home directory for new account                             */
+Xint	sflg;	/* shell program for new account                              */
+Xint	cflg;	/* comment (GECOS) field for new account                      */
+Xint	mflg;	/* create user's home directory if it doesn't exist           */
+Xint	fflg;	/* days until account with expired password is locked         */
+Xint	eflg;	/* days after password changed before it becomes expired      */
+Xint	lflg;	/* new user name for user                                     */
+X
+X#ifdef	NDBM
+Xextern	int	pw_dbm_mode;
+X#ifdef	SHADOWPWD
+Xextern	int	sp_dbm_mode;
+X#endif
+Xextern	int	gr_dbm_mode;
+X#ifdef	SHADOWGRP
+Xextern	int	sg_dbm_mode;
+X#endif
+X#endif
+Xextern	FILE	*fopen();
+Xextern	int	fclose();
+Xextern	char	*malloc();
+Xextern	char	*mktemp();
+X
+Xextern	struct	group	*getgrnam();
+Xextern	struct	group	*getgrgid();
+Xextern	struct	group	*gr_next();
+Xextern	struct	group	*gr_locate();
+Xextern	int	gr_lock();
+Xextern	int	gr_unlock();
+Xextern	int	gr_rewind();
+Xextern	int	gr_open();
+X
+X#ifdef	SHADOWGRP
+Xextern	struct	sgrp	*sgr_next();
+Xextern	int	sgr_lock();
+Xextern	int	sgr_unlock();
+Xextern	int	sgr_rewind();
+Xextern	int	sgr_open();
+X#endif
+X
+Xextern	struct	passwd	*getpwnam();
+Xextern	struct	passwd	*pw_next();
+Xextern	struct	passwd	*pw_locate();
+Xextern	int	pw_lock();
+Xextern	int	pw_unlock();
+Xextern	int	pw_rewind();
+Xextern	int	pw_open();
+X
+X#ifdef	SHADOWPWD
+Xextern	int	spw_lock();
+Xextern	int	spw_unlock();
+Xextern	int	spw_open();
+Xextern	struct	spwd	*spw_locate();
+X#endif
+X
+X#define	DAY	(24L*3600L)
+X#define	WEEK	(7*DAY)
+X
+X#ifdef	ITI_AGING
+X#define	SCALE	(1)
+X#else
+X#define	SCALE	(DAY)
+X#endif
+X
+X/*
+X * days and juldays are used to compute the number of days in the
+X * current month, and the cummulative number of days in the preceding
+X * months.  they are declared so that january is 1, not 0.
+X */
+X
+Xstatic	short	days[13] = { 0,
+X	31,	28,	31,	30,	31,	30,	/* JAN - JUN */
+X	31,	31,	30,	31,	30,	31 };	/* JUL - DEC */
+X
+Xstatic	short	juldays[13] = { 0,
+X	0,	31,	59,	90,	120,	151,	/* JAN - JUN */
+X	181,	212,	243,	273,	304,	334 };	/* JUL - DEC */
+X
+X#ifdef	NEED_RENAME
+X/*
+X * rename - rename a file to another name
+X *
+X *	rename is provided for systems which do not include the rename()
+X *	system call.
+X */
+X
+Xint
+Xrename (begin, end)
+Xchar	*begin;
+Xchar	*end;
+X{
+X	struct	stat	s1, s2;
+X	extern	int	errno;
+X	int	orig_err = errno;
+X
+X	if (stat (begin, &s1))
+X		return -1;
+X
+X	if (stat (end, &s2)) {
+X		errno = orig_err;
+X	} else {
+X
+X		/*
+X		 * See if this is a cross-device link.  We do this to
+X		 * insure that the link below has a chance of working.
+X		 */
+X
+X		if (s1.st_dev != s2.st_dev) {
+X			errno = EXDEV;
+X			return -1;
+X		}
+X
+X		/*
+X		 * See if we can unlink the existing destination
+X		 * file.  If the unlink works the directory is writable,
+X		 * so there is no need here to figure that out.
+X		 */
+X
+X		if (unlink (end))
+X			return -1;
+X	}
+X
+X	/*
+X	 * Now just link the original name to the final name.  If there
+X	 * was no file previously, this link will fail if the target
+X	 * directory isn't writable.  The unlink will fail if the source
+X	 * directory isn't writable, but life stinks ...
+X	 */
+X
+X	if (link (begin, end) || unlink (begin))
+X		return -1;
+X
+X	return 0;
+X}
+X#endif
+X
+X/*
+X * strtoday - compute the number of days since 1970.
+X *
+X * the total number of days prior to the current date is
+X * computed.  january 1, 1970 is used as the origin with
+X * it having a day number of 0.
+X */
+X
+Xlong
+Xstrtoday (str)
+Xchar	*str;
+X{
+X	char	slop[2];
+X	int	month;
+X	int	day;
+X	int	year;
+X	long	total;
+X
+X	/*
+X	 * start by separating the month, day and year.  the order
+X	 * is compiled in ...
+X	 */
+X
+X#ifdef	MDY_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &month, &day, &year, slop) != 3)
+X		return -1;
+X#endif
+X#ifdef	DMY_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &day, &month, &year, slop) != 3)
+X		return -1;
+X#endif
+X#ifdef	YMD_DATE
+X	if (sscanf (str, "%d/%d/%d%c", &year, &month, &day, slop) != 3)
+X		return -1;
+X#endif
+X
+X	/*
+X	 * the month, day of the month, and year are checked for
+X	 * correctness and the year adjusted so it falls between
+X	 * 1970 and 2069.
+X	 */
+X
+X	if (month < 1 || month > 12)
+X		return -1;
+X
+X	if (day < 1)
+X		return -1;
+X
+X	if ((month != 2 || (year % 4) != 0) && day > days[month])
+X		return -1;
+X	else if ((month == 2 && (year % 4) == 0) && day > 29)
+X		return -1;
+X
+X	if (year < 0)
+X		return -1;
+X	else if (year < 69)
+X		year += 2000;
+X	else if (year < 99)
+X		year += 1900;
+X
+X	if (year < 1970 || year > 2069)
+X		return -1;
+X
+X	/*
+X	 * the total number of days is the total number of days in all
+X	 * the whole years, plus the number of leap days, plus the
+X	 * number of days in the whole months preceding, plus the number
+X	 * of days so far in the month.
+X	 */
+X
+X	total = (long) ((year - 1970) * 365L) + (((year + 1) - 1970) / 4);
+X	total += (long) juldays[month] + (month > 2 && (year % 4) == 0 ? 1:0);
+X	total += (long) day - 1;
+X
+X	return total;
+X}
+X
+X/*
+X * add_list - add a member to a list of group members
+X *
+X *	the array of member names is searched for the new member
+X *	name, and if not present it is added to a freshly allocated
+X *	list of users.
+X */
+X
+Xchar **
+Xadd_list (list, member)
+Xchar	**list;
+Xchar	*member;
+X{
+X	int	i;
+X	char	**tmp;
+X
+X	/*
+X	 * Scan the list for the new name.  Return the original list
+X	 * pointer if it is present.
+X	 */
+X
+X	for (i = 0;list[i] != (char *) 0;i++)
+X		if (strcmp (list[i], member) == 0)
+X			return list;
+X
+X	/*
+X	 * Allocate a new list pointer large enough to hold all the
+X	 * old entries, and the new entries as well.
+X	 */
+X
+X	if (! (tmp = (char **) malloc ((i + 2) * sizeof member)))
+X		return 0;
+X
+X	/*
+X	 * Copy the original list to the new list, then append the
+X	 * new member and NULL terminate the result.  This new list
+X	 * is returned to the invoker.
+X	 */
+X
+X	for (i = 0;list[i] != (char *) 0;i++)
+X		tmp[i] = list[i];
+X
+X	tmp[i++] = strdup (member);
+X	tmp[i] = (char *) 0;
+X
+X	return tmp;
+X}
+X
+X/*
+X * del_list - delete a member from a list of group members
+X *
+X *	the array of member names is searched for the old member
+X *	name, and if present it is deleted from a freshly allocated
+X *	list of users.
+X */
+X
+Xchar **
+Xdel_list (list, member)
+Xchar	**list;
+Xchar	*member;
+X{
+X	int	i, j;
+X	char	**tmp;
+X
+X	/*
+X	 * Scan the list for the new name.  Return the original list
+X	 * pointer if it is present.
+X	 */
+X
+X	for (i = j = 0;list[i] != (char *) 0;i++)
+X		if (strcmp (list[i], member))
+X			j++;
+X
+X	if (j == i)
+X		return list;
+X
+X	/*
+X	 * Allocate a new list pointer large enough to hold all the
+X	 * old entries, and the new entries as well.
+X	 */
+X
+X	if (! (tmp = (char **) malloc ((j + 2) * sizeof member)))
+X		return 0;
+X
+X	/*
+X	 * Copy the original list to the new list, then append the
+X	 * new member and NULL terminate the result.  This new list
+X	 * is returned to the invoker.
+X	 */
+X
+X	for (i = j = 0;list[i] != (char *) 0;i++)
+X		if (strcmp (list[i], member))
+X			tmp[j++] = list[i];
+X
+X	tmp[j] = (char *) 0;
+X
+X	return tmp;
+X}
+X
+X/*
+X * get_groups - convert a list of group names to an array of group IDs
+X *
+X *	get_groups() takes a comma-separated list of group names and
+X *	converts it to an array of group ID values.  Any unknown group
+X *	names are reported as errors.
+X */
+X
+Xint
+Xget_groups (list)
+Xchar	*list;
+X{
+X	char	*cp;
+X	struct	group	*grp;
+X	int	errors = 0;
+X
+X	/*
+X	 * Initialize the list to be empty
+X	 */
+X
+X	user_ngroups = 0;
+X
+X	if (! *list)
+X		return 0;
+X
+X	/*
+X	 * So long as there is some data to be converted, strip off
+X	 * each name and look it up.  A mix of numerical and string
+X	 * values for group identifiers is permitted.
+X	 */
+X
+X	do {
+X		/*
+X		 * Strip off a single name from the list
+X		 */
+X
+X		if (cp = strchr (list, ','))
+X			*cp++ = '\0';
+X
+X		/*
+X		 * Names starting with digits are treated as numerical
+X		 * GID values, otherwise the string is looked up as is.
+X		 */
+X
+X		if (isdigit (*list))
+X			grp = getgrgid (atoi (list));
+X		else
+X			grp = getgrnam (list);
+X
+X		/*
+X		 * There must be a match, either by GID value or by
+X		 * string name.
+X		 */
+X
+X		if (! grp) {
+X			fprintf (stderr, "%s: unknown group %s\n", Prog, list);
+X			errors++;
+X		}
+X
+X		/*
+X		 * Add the GID value from the group file to the user's
+X		 * list of groups.
+X		 */
+X
+X		user_groups[user_ngroups++] = grp->gr_gid;
+X
+X		list = cp;
+X	} while (list);
+X
+X	/*
+X	 * Any errors in finding group names are fatal
+X	 */
+X
+X	if (errors)
+X		return -1;
+X
+X	return 0;
+X}
+X
+X/*
+X * usage - display usage message and exit
+X */
+X
+Xusage ()
+X{
+X	fprintf (stderr,
+X		"usage: %s [-u uid [-o]] [-g group] [-G group,...] \n", Prog);
+X#ifdef	SHADOWPWD
+X	fprintf (stderr,
+X		"\t\t[-d home [-m]] [-s shell] [-c comment] [-l new_name]\n");
+X#ifdef	MDY_DATE
+X	fprintf (stderr,
+X		"\t\t[-f inactive ] [-e expire mm/dd/yy ] name\n");
+X#endif
+X#ifdef	DMY_DATE
+X	fprintf (stderr,
+X		"\t\t[-f inactive ] [-e expire dd/mm/yy ] name\n");
+X#endif
+X#ifdef	YMD_DATE
+X	fprintf (stderr,
+X		"\t\t[-f inactive ] [-e expire yy/mm/dd ] name\n");
+X#endif
+X#else	/* !SHADOWPWD */
+X	fprintf (stderr,
+X		"\t\t[-d home [-m]] [-s shell] [-c comment] [-l new_name]\n");
+X	fprintf (stderr,
+X		"\t\t[ -A {DEFAULT|program},... ] name\n");
+X#endif	/* SHADOWPWD */
+X	exit (2);
+X}
+X
+X/*
+X * new_pwent - initialize the values in a password file entry
+X *
+X *	new_pwent() takes all of the values that have been entered and
+X *	fills in a (struct passwd) with them.
+X */
+X
+Xvoid
+Xnew_pwent (pwent)
+Xstruct	passwd	*pwent;
+X{
+X	if (lflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user name `%s' to `%s'\n",
+X			pwent->pw_name, user_newname);
+X#endif
+X		pwent->pw_name = strdup (user_newname);
+X	}
+X	if (uflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' UID from `%d' to `%d'\n",
+X			pwent->pw_name, pwent->pw_uid, user_newid);
+X#endif
+X		pwent->pw_uid = user_newid;
+X	}
+X	if (gflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' GID from `%d' to `%d'\n",
+X			pwent->pw_name, pwent->pw_gid, user_newgid);
+X#endif
+X		pwent->pw_gid = user_newgid;
+X	}
+X	if (cflg)
+X		pwent->pw_gecos = strdup (user_comment);
+X
+X	if (dflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' home from `%s' to `%s'\n",
+X			pwent->pw_name, pwent->pw_dir, user_newhome);
+X#endif
+X		pwent->pw_dir = strdup (user_newhome);
+X	}
+X	if (sflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' shell from `%s' to `%s'\n",
+X			pwent->pw_name, pwent->pw_shell, user_shell);
+X#endif
+X		pwent->pw_shell = strdup (user_shell);
+X	}
+X}
+X
+X#ifdef	SHADOWPWD
+X/*
+X * new_spent - initialize the values in a shadow password file entry
+X *
+X *	new_spent() takes all of the values that have been entered and
+X *	fills in a (struct spwd) with them.
+X */
+X
+Xvoid
+Xnew_spent (spent)
+Xstruct	spwd	*spent;
+X{
+X	if (lflg)
+X		spent->sp_namp = strdup (user_newname);
+X
+X	if (fflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' inactive from `%d' to `%d'\n",
+X			spent->sp_namp, spent->sp_inact, user_inactive);
+X#endif
+X		spent->sp_inact = user_inactive;
+X	}
+X	if (eflg) {
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_INFO, "change user `%s' expiration from `%d' to `%d'\n",
+X			spent->sp_namp, spent->sp_expire, user_expire);
+X#endif
+X		spent->sp_expire = user_expire;
+X	}
+X}
+X#endif	/* SHADOWPWD */
+X
+X/*
+X * grp_update - add user to secondary group set
+X *
+X *	grp_update() takes the secondary group set given in user_groups
+X *	and adds the user to each group given by that set.
+X */
+X
+Xvoid
+Xgrp_update ()
+X{
+X	int	i;
+X	int	is_member;
+X	int	was_member;
+X	struct	group	*grp;
+X#ifdef	SHADOWGRP
+X	int	was_admin;
+X	struct	sgrp	*sgrp;
+X#endif
+X
+X	/*
+X	 * Lock and open the group file.  This will load all of the group
+X	 * entries.
+X	 */
+X
+X	if (! gr_lock ()) {
+X		fprintf (stderr, "%s: error locking group file\n", Prog);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, "error locking group file");
+X#endif
+X		exit (1);
+X	}
+X	if (! gr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: error opening group file\n", Prog);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, "error opening group file");
+X#endif
+X		fail_exit (1);
+X	}
+X#ifdef	SHADOWGRP
+X	if (! sgr_lock ()) {
+X		fprintf (stderr, "%s: error locking shadow group file\n", Prog);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, "error locking shadow group file");
+X#endif
+X		fail_exit (1);
+X	}
+X	if (! sgr_open (O_RDWR)) {
+X		fprintf (stderr, "%s: error opening shadow group file\n", Prog);
+X#ifdef	USE_SYSLOG
+X		syslog (LOG_ERR, "error opening shadow group file");
+X#endif
+X		fail_exit (1);
+X	}
+X#endif	/* SHADOWGRP */
+X
+X	/*
+X	 * Scan through the entire group file looking for the groups that
+X	 * the user is a member of.
+X	 */
+X
+X	for (gr_rewind (), grp = gr_next ();grp;grp = gr_next ()) {
+X
+X		/*
+X		 * See if the user specified this group as one of their
+X		 * concurrent groups.
+X		 */
+X
+X		for (i = 0;i < user_ngroups;i++)
+X			if (grp->gr_gid == user_groups[i])
+X				break;
+X
+X		is_member = i == user_ngroups ? -1:i;
+X
+X		for (i = 0;grp->gr_mem[i];i++)
+X			if (strcmp (user_name, grp->gr_mem[i]) == 0)
+X				break;
+X
+X		was_member = grp->gr_mem[i] ? i:-1;
+X
+X		if (is_member == -1 && was_member == -1)
+X			continue;
+X
+X		if (was_member >= 0 && (! Gflg || is_member >= 0)) {
+X			if (lflg) {
+X				grp->gr_mem = del_list (grp->gr_mem,
+X					user_name);
+X				grp->gr_mem = add_list (grp->gr_mem,
+X					user_newname);
+X#ifdef	USE_SYSLOG
+X				syslog (LOG_INFO,
+X					"change `%s' to `%s' in group `%s'\n",
+X					user_name, user_newname, grp->gr_name);
+X#endif
+X			}
+X		} else if (was_member >= 0 && Gflg && is_member < 0) {
+X			grp->gr_mem = del_list (grp->gr_mem, user_name);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO, "delete `%s' from group `%s'\n",
+X				user_name, grp->gr_name);
+X#endif
+X		} else if (was_member < 0 && Gflg && is_member >= 0) {
+X			grp->gr_mem = add_list (grp->gr_mem,
+X				lflg ? user_newname:user_name);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO, "add `%s' to group `%s'\n",
+X				lflg ? user_newname:user_name, grp->gr_name);
+X#endif
+X		} else
+X			continue;
+X
+X		if (! gr_update (grp)) {
+X			fprintf (stderr, "%s: error adding new group entry\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error adding group entry");
+X#endif
+X			fail_exit (1);
+X		}
+X#ifdef	NDBM
+X		/*
+X		 * Update the DBM group file with the new entry as well.
+X		 */
+X
+X		if (! gr_dbm_update (grp)) {
+X			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error adding dbm group entry");
+X#endif
+X			fail_exit (1);
+X		}
+X#endif	/* NDBM */
+X	}
+X#ifdef NDBM
+X	endgrent ();
+X#endif
+X
+X#ifdef	SHADOWGRP
+X	/*
+X	 * Scan through the entire shadow group file looking for the groups
+X	 * that the user is a member of.
+X	 */
+X
+X	for (sgr_rewind (), sgrp = sgr_next ();sgrp;sgrp = sgr_next ()) {
+X
+X		/*
+X		 * See if the user was a member of this group
+X		 */
+X
+X		for (i = 0;sgrp->sg_mem[i];i++)
+X			if (strcmp (sgrp->sg_mem[i], user_name) == 0)
+X				break;
+X
+X		was_member = sgrp->sg_mem[i] ? i:-1;
+X
+X		/*
+X		 * See if the user was an administrator of this group
+X		 */
+X
+X		for (i = 0;sgrp->sg_adm[i];i++)
+X			if (strcmp (sgrp->sg_adm[i], user_name) == 0)
+X				break;
+X
+X		was_admin = sgrp->sg_adm[i] ? i:-1;
+X
+X		/*
+X		 * See if the user specified this group as one of their
+X		 * concurrent groups.
+X		 */
+X
+X		for (i = 0;i < user_ngroups;i++) {
+X			if (! (grp = gr_locate (sgrp->sg_name)))
+X				continue;
+X
+X			if (grp->gr_gid == user_groups[i])
+X				break;
+X		}
+X		is_member = i == user_ngroups ? -1:i;
+X
+X		if (is_member == -1 && was_admin == -1 && was_member == -1)
+X			continue;
+X
+X		if (was_admin >= 0 && lflg) {
+X			sgrp->sg_adm = del_list (sgrp->sg_adm, user_name);
+X			sgrp->sg_adm = add_list (sgrp->sg_adm, user_newname);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO, "change admin `%s' to `%s' in shadow group `%s'\n",
+X				user_name, user_newname, sgrp->sg_name);
+X#endif
+X		}
+X		if (was_member >= 0 && (! Gflg || is_member >= 0)) {
+X			if (lflg) {
+X				sgrp->sg_mem = del_list (sgrp->sg_mem,
+X					user_name);
+X				sgrp->sg_mem = add_list (sgrp->sg_mem,
+X					user_newname);
+X#ifdef	USE_SYSLOG
+X				syslog (LOG_INFO, "change `%s' to `%s' in shadow group `%s'\n",
+X					user_name, user_newname, sgrp->sg_name);
+X#endif
+X			}
+X		} else if (was_member >= 0 && Gflg && is_member < 0) {
+X			sgrp->sg_mem = del_list (sgrp->sg_mem, user_name);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO,
+X				"delete `%s' from shadow group `%s'\n",
+X				user_name, sgrp->sg_name);
+X#endif
+X		} else if (was_member < 0 && Gflg && is_member >= 0) {
+X			sgrp->sg_mem = add_list (sgrp->sg_mem,
+X				lflg ? user_newname:user_name);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_INFO, "add `%s' to shadow group `%s'\n",
+X				lflg ? user_newname:user_name, grp->gr_name);
+X#endif
+X		} else
+X			continue;
+X
+X		/* 
+X		 * Update the group entry to reflect the changes.
+X		 */
+X
+X		if (! sgr_update (sgrp)) {
+X			fprintf (stderr, "%s: error adding new group entry\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error adding shadow group entry\n");
+X#endif
+X			fail_exit (1);
+X		}
+X#ifdef	NDBM
+X		/*
+X		 * Update the DBM group file with the new entry as well.
+X		 */
+X
+X		if (! sg_dbm_update (sgrp)) {
+X			fprintf (stderr, "%s: cannot add new dbm group entry\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR,
+X				"error adding dbm shadow group entry\n");
+X#endif
+X			fail_exit (1);
+X		}
+X#endif	/* NDBM */
+X	}
+X#ifdef NDBM
+X	endsgent ();
+X#endif	/* NDBM */
+X#endif	/* SHADOWGRP */
+X}
+X
+X/*
+X * check_new_id - verify the new UID for uniqueness
+X *
+X *	check_new_id() insures that the new UID does not exist already.
+X *	It does this by checking that the UID has changed and that there
+X *	is no current entry for this user ID.
+X */
+X
+Xint
+Xcheck_new_id ()
+X{
+X	/*
+X	 * First, the easy stuff.  If the ID can be duplicated, or if
+X	 * the ID didn't really change, just return.  If the ID didn't
+X	 * change, turn off those flags.  No sense doing needless work.
+X	 */
+X
+X	if (oflg)
+X		return 0;
+X
+X	if (user_id == user_newid) {
+X		uflg = lflg = 0;
+X		return 0;
+X	}
+X	if (getpwuid (user_newid))
+X		return -1;
+X
+X	return 0;
+X}
+X
+X/*
+X * get_password - locate encrypted password in authentication list
+X */
+X
+Xchar *
+Xget_password (list)
+Xchar	*list;
+X{
+X	char	*cp, *end;
+X	static	char	buf[257];
+X
+X	strcpy (buf, list);
+X	for (cp = buf;cp;cp = end) {
+X		if (end = strchr (cp, ';'))
+X			*end++ = 0;
+X
+X		if (cp[0] == '@')
+X			continue;
+X
+X		return cp;
+X	}
+X	return (char *) 0;
+X}
+X
+X/*
+X * split_auths - break up comma list into (char *) array
+X */
+X
+Xsplit_auths (list, array)
+Xchar	*list;
+Xchar	**array;
+X{
+X	char	*cp, *end;
+X	int	i = 0;
+X
+X	for (cp = list;cp;cp = end) {
+X		if (end = strchr (cp, ';'))
+X			*end++ = '\0';
+X
+X		array[i++] = cp;
+X	}
+X	array[i] = 0;
+X}
+X
+X/*
+X * update_auths - find list of methods to update
+X */
+X
+Xupdate_auths (old, new, update)
+Xchar	*old;
+Xchar	*new;
+Xchar	*update;
+X{
+X	char	oldbuf[257], newbuf[257];
+X	char	*oldv[32], *newv[32], *updatev[32];
+X	int	i, j, k;
+X
+X	strcpy (oldbuf, old);
+X	split_auths (oldbuf, oldv);
+X
+X	strcpy (newbuf, new);
+X	split_auths (newbuf, newv);
+X
+X	for (i = j = k = 0;oldv[i];i++) {
+X		for (j = 0;newv[j];j++)
+X			if (strcmp (oldv[i], newv[j]) != 0)
+X				break;
+X
+X		if (newv[j] != (char *) 0)
+X			updatev[k++] = oldv[i];
+X	}
+X	updatev[k] = 0;
+X
+X	update[0] = '\0';
+X	for (i = 0;updatev[i];i++) {
+X		if (i)
+X			strcat (update, ";");
+X
+X		strcat (update, updatev[i]);
+X	}
+X}
+X
+X/*
+X * add_auths - find list of methods to add
+X */
+X
+Xadd_auths (old, new, add)
+Xchar	*old;
+Xchar	*new;
+Xchar	*add;
+X{
+X	char	oldbuf[257], newbuf[257];
+X	char	*oldv[32], *newv[32], *addv[32];
+X	int	i, j, k;
+X
+X	strcpy (oldbuf, old);
+X	split_auths (oldbuf, oldv);
+X
+X	strcpy (newbuf, new);
+X	split_auths (newbuf, newv);
+X
+X	for (i = j = k = 0;newv[i];i++) {
+X		for (j = 0;oldv[j];j++)
+X			if (strcmp (oldv[i], newv[j]) == 0)
+X				break;
+X
+X		if (oldv[j] == (char *) 0)
+X			addv[k++] = newv[i];
+X	}
+X	addv[k] = 0;
+X
+X	add[0] = '\0';
+X	for (i = 0;addv[i];i++) {
+X		if (i)
+X			strcat (add, ";");
+X
+X		strcat (add, addv[i]);
+X	}
+X}
+X
+X/*
+X * delete_auths - find list of methods to delete
+X */
+X
+Xdelete_auths (old, new, remove)
+Xchar	*old;
+Xchar	*new;
+Xchar	*remove;
+X{
+X	char	oldbuf[257], newbuf[257];
+X	char	*oldv[32], *newv[32], *removev[32];
+X	int	i, j, k;
+X
+X	strcpy (oldbuf, old);
+X	split_auths (oldbuf, oldv);
+X
+X	strcpy (newbuf, new);
+X	split_auths (newbuf, newv);
+X
+X	for (i = j = k = 0;oldv[i];i++) {
+X		for (j = 0;newv[j];j++)
+X			if (strcmp (oldv[i], newv[j]) == 0)
+X				break;
+X
+X		if (newv[j] == (char *) 0)
+X			removev[k++] = oldv[i];
+X	}
+X	removev[k] = 0;
+X
+X	remove[0] = '\0';
+X	for (i = 0;removev[i];i++) {
+X		if (i)
+X			strcat (remove, ";");
+X
+X		strcat (remove, removev[i]);
+X	}
+X}
+X
+X/*
+X * convert_auth - convert the argument list to a authentication list
+X */
+X
+Xconvert_auth (auths, oldauths, list)
+Xchar	*auths;
+Xchar	*oldauths;
+Xchar	*list;
+X{
+X	char	*cp, *end;
+X	char	*old;
+X	char	buf[257];
+X
+X	/*
+X	 * Copy each method.  DEFAULT is replaced by an encrypted string
+X	 * if one can be found in the current authentication list.
+X	 */
+X
+X	strcpy (buf, list);
+X	auths[0] = '\0';
+X	for (cp = buf;cp;cp = end) {
+X		if (auths[0])
+X			strcat (auths, ";");
+X
+X		if (end = strchr (cp, ','))
+X			*end++ = '\0';
+X
+X		if (strcmp (cp, "DEFAULT") == 0) {
+X			if (old = get_password (oldauths))
+X				strcat (auths, old);
+X			else
+X				strcat (auths, "!");
+X		} else {
+X			strcat (auths, "@");
+X			strcat (auths, cp);
+X		}
+X	}
+X}
+X
+X/*
+X * valid_auth - check authentication list for validity
+X */
+X
+Xvalid_auth (methods)
+Xchar	*methods;
+X{
+X	char	*cp, *end;
+X	char	buf[257];
+X	int	default_cnt = 0;
+X
+X	/*
+X	 * Cursory checks, length and illegal characters
+X	 */
+X
+X	if (strlen (methods) > 256)
+X		return 0;
+X
+X	if (! VALID (methods))
+X		return 0;
+X
+X	/*
+X	 * Pick each method apart and check it.
+X	 */
+X
+X	strcpy (buf, methods);
+X	for (cp = buf;cp;cp = end) {
+X		if (end = strchr (cp, ','))
+X			*end++ = '\0';
+X
+X		if (strcmp (cp, "DEFAULT") == 0) {
+X			if (default_cnt++ > 0)
+X				return 0;
+X		} else if (cp[0] != '/')
+X			return 0;
+X	}
+X	return 1;
+X}
+X
+X/*
+X * process_flags - perform command line argument setting
+X *
+X *	process_flags() interprets the command line arguments and sets
+X *	the values that the user will be created with accordingly.  The
+X *	values are checked for sanity.
+X */
+X
+Xvoid
+Xprocess_flags (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	extern	int	optind;
+X	extern	char	*optarg;
+X	struct	group	*grp;
+X	struct	passwd	*pwd;
+X	struct	spwd	*spwd;
+X	long	l;
+X	int	anyflag = 0;
+X	int	arg;
+X
+X	if (argc == 1 || argv[argc - 1][0] == '-')
+X		usage ();
+X
+X	if (! (pwd = getpwnam (argv[argc - 1]))) {
+X		fprintf (stderr, "%s: user %s does not exist\n",
+X			Prog, argv[argc - 1]);
+X		exit (6);
+X	}
+X	strcpy (user_name, pwd->pw_name);
+X	user_id = pwd->pw_uid;
+X	user_gid = pwd->pw_gid;
+X	strcpy (user_comment, pwd->pw_gecos);
+X	strcpy (user_home, pwd->pw_dir);
+X	strcpy (user_shell, pwd->pw_shell);
+X
+X#ifdef	SHADOWPWD
+X	if (spwd = getspnam (user_name)) {
+X		user_expire = spwd->sp_expire;
+X		user_inactive = spwd->sp_inact;
+X	}
+X#endif
+X#ifdef	SHADOWPWD
+X	while ((arg = getopt (argc, argv, "A:u:og:G:d:s:c:mf:e:l:")) != EOF)
+X#else
+X	while ((arg = getopt (argc, argv, "A:u:og:G:d:s:c:ml:")) != EOF)
+X#endif
+X	{
+X		switch (arg) {
+X			case 'A':
+X				if (! valid_auth (optarg)) {
+X					fprintf (stderr,
+X						"%s: invalid field `%s'\n",
+X						Prog, optarg);
+X					exit (3);
+X				}
+X				auth_arg = optarg;
+X				Aflg++;
+X				break;
+X			case 'c':
+X				if (! VALID (optarg)) {
+X					fprintf (stderr,
+X						"%s: invalid field `%s'\n",
+X						Prog, optarg);
+X					exit (3);
+X				}
+X				strncpy (user_comment, optarg, BUFSIZ);
+X				cflg++;
+X				break;
+X			case 'd':
+X				if (! VALID (optarg)) {
+X					fprintf (stderr,
+X						"%s: invalid field `%s'\n",
+X						Prog, optarg);
+X					exit (3);
+X				}
+X				dflg++;
+X				strncpy (user_newhome, optarg, BUFSIZ);
+X				break;
+X#ifdef	SHADOWPWD
+X			case 'e':
+X				l = strtoday (optarg);
+X#ifdef	ITI_AGING
+X				l *= DAY;
+X#endif
+X				user_expire = l;
+X				eflg++;
+X				break;
+X			case 'f':
+X				user_inactive = atoi (optarg);
+X				fflg++;
+X				break;
+X#endif	/* SHADOWPWD */
+X			case 'g':
+X				if (isdigit (optarg[0]))
+X					grp = getgrgid (atoi (optarg));
+X				else
+X					grp = getgrnam (optarg);
+X
+X				if (! grp) {
+X					fprintf (stderr,
+X						"%s: unknown group %s\n",
+X						Prog, optarg);
+X					exit (1);
+X				}
+X				user_newgid = grp->gr_gid;
+X				gflg++;
+X				break;
+X			case 'G':
+X				Gflg++;
+X				if (get_groups (optarg))
+X					exit (1);
+X
+X				break;
+X			case 'l':
+X				if (! VALID (optarg)) {
+X					fprintf (stderr,
+X						"%s: invalid field `%s'\n",
+X						Prog, optarg);
+X					exit (3);
+X				}
+X
+X				/*
+X				 * If the name does not really change, we
+X				 * mustn't set the flag as this will cause
+X				 * rather serious problems later!
+X				 */
+X
+X				if (strcmp (user_newname, optarg)) {
+X					strcpy (user_newname, optarg);
+X					lflg++;
+X				}
+X				break;
+X			case 'm':
+X				if (! dflg)
+X					usage ();
+X
+X				mflg++;
+X				break;
+X			case 'o':
+X				if (! uflg)
+X					usage ();
+X
+X				oflg++;
+X				break;
+X			case 's':
+X				if (! VALID (optarg)) {
+X					fprintf (stderr,
+X						"%s: invalid field `%s'\n",
+X						Prog, optarg);
+X					exit (3);
+X				}
+X				strncpy (user_shell, optarg, BUFSIZ);
+X				sflg++;
+X				break;
+X			case 'u':
+X				uflg++;
+X				user_newid = atoi (optarg);
+X				break;
+X			default:
+X				usage ();
+X		}
+X		anyflag++;
+X	}
+X	if (anyflag == 0) {
+X		fprintf (stderr, "%s: no flags given\n", Prog);
+X		exit (1);
+X	}
+X	if (optind != argc - 1)
+X		usage ();
+X
+X	if (dflg && strcmp (user_home, user_newhome) == 0)
+X		dflg = mflg = 0;
+X
+X	if (uflg && user_id == user_newid)
+X		uflg = oflg = 0;
+X
+X	if (lflg && getpwnam (user_newname)) {
+X		fprintf (stderr, "%s: user %s exists\n", Prog, user_newname);
+X		exit (9);
+X	}
+X}
+X
+X/*
+X * close_files - close all of the files that were opened
+X *
+X *	close_files() closes all of the files that were opened for this
+X *	new user.  This causes any modified entries to be written out.
+X */
+X
+Xclose_files ()
+X{
+X	if (! pw_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite password file\n", Prog);
+X		fail_exit (1);
+X	}
+X#ifdef	SHADOWPWD
+X	if (! spw_close ()) {
+X		fprintf (stderr, "%s: cannot rewrite shadow password file\n",	
+X			Prog);
+X		fail_exit (1);
+X	}
+X#endif
+X	if (user_ngroups >= 0) {
+X		if (! gr_close ()) {
+X			fprintf (stderr, "%s: cannot rewrite group file\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X	}
+X	(void) gr_unlock ();
+X#ifdef	SHADOWGRP
+X	if (user_ngroups >= 0) {
+X		if (! sgr_close ()) {
+X			fprintf (stderr, "%s: cannot rewrite shadow group file\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X	}
+X	(void) sgr_unlock ();
+X#endif
+X	(void) spw_unlock ();
+X	(void) pw_unlock ();
+X
+X	/*
+X	 * Close the DBM and/or flat files
+X	 */
+X
+X	endpwent ();
+X#ifdef	SHADOWPWD
+X	endspent ();
+X#endif
+X	endgrent ();
+X#ifdef	SHADOWGRP
+X	endsgent ();
+X#endif
+X}
+X
+X/*
+X * open_files - lock and open the password files
+X *
+X *	open_files() opens the two password files.
+X */
+X
+Xopen_files ()
+X{
+X	if (! pw_lock ()) {
+X		fprintf (stderr, "%s: unable to lock password file\n", Prog);
+X		exit (1);
+X	}
+X	if (! pw_open (O_RDWR)) {
+X		fprintf (stderr, "%s: unable to open password file\n", Prog);
+X		fail_exit (1);
+X	}
+X#ifdef	SHADOWPWD
+X	if (! spw_lock ()) {
+X		fprintf (stderr, "%s: cannot lock shadow password file\n",
+X			Prog);
+X		fail_exit (1);
+X	}
+X	if (! spw_open (O_RDWR)) {
+X		fprintf (stderr, "%s: cannot open shadow password file\n",
+X			Prog);
+X		fail_exit (1);
+X	}
+X#endif
+X}
+X
+X/*
+X * usr_update - create the user entries
+X *
+X *	usr_update() creates the password file entries for this user
+X *	and will update the group entries if required.
+X */
+X
+Xusr_update ()
+X{
+X	struct	passwd	pwent;
+X	struct	passwd	*pwd;
+X#ifdef	SHADOWPWD
+X	struct	spwd	spent;
+X	struct	spwd	*spwd;
+X#endif
+X	char	old_auth[BUFSIZ];
+X	char	auth_buf[BUFSIZ];
+X
+X	old_auth[0] = '\0';
+X
+X	/*
+X	 * Locate the entry in /etc/passwd, which MUST exist.
+X	 */
+X
+X	pwd = pw_locate (user_name);
+X	pwent = *pwd;
+X	new_pwent (&pwent);
+X
+X#ifdef	SHADOWPWD
+X
+X	/* 
+X	 * Locate the entry in /etc/shadow.  It doesn't have to
+X	 * exist, and won't be created if it doesn't.
+X	 */
+X
+X	if (spwd = spw_locate (user_name)) {
+X		spent = *spwd;
+X		new_spent (&spent);
+X		strcpy (old_auth, spent.sp_pwdp);
+X	} else {
+X		strcpy (old_auth, pwent.pw_passwd);
+X	}
+X#else
+X	strcpy (old_auth, pwent.pw_passwd);
+X#endif
+X	if (lflg || (Aflg && strcmp (old_auth, user_auth) != 0)) {
+X		convert_auth (user_auth, old_auth, auth_arg);
+X		delete_auths (old_auth, user_auth, auth_buf);
+X		if (auth_buf[0] && pw_auth (auth_buf, user_name,
+X				PW_DELETE, 0)) {
+X			fprintf (stderr,
+X				"%s: error deleting authentication method\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error deleting auth for `%s'\n",
+X				user_name);
+X#endif
+X			fail_exit (1);
+X		}
+X		add_auths (old_auth, user_auth, auth_buf);
+X		if (auth_buf[0] == '@' && pw_auth (auth_buf,
+X				lflg ? user_newname:user_name, PW_ADD, 0)) {
+X			fprintf (stderr,
+X				"%s: error adding authentication method\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error adding auth for `%s'\n",
+X				lflg ? user_newname:user_name);
+X#endif
+X			fail_exit (1);
+X		}
+X		update_auths (old_auth, user_auth, auth_buf);
+X		if (lflg && auth_buf[0] == '@' && pw_auth (auth_buf,
+X				user_newname, PW_CHANGE, user_name)) {
+X			fprintf (stderr,
+X				"%s: error changing authentication method\n",
+X				Prog);
+X#ifdef	USE_SYSLOG
+X			syslog (LOG_ERR, "error changing auth for `%s'\n",
+X				lflg ? user_newname:user_name);
+X#endif
+X			fail_exit (1);
+X		}
+X#ifdef	SHADOWPWD
+X		spent.sp_pwdp = user_auth;
+X#else
+X		pwent.pw_passwd = user_auth;
+X#endif
+X	}
+X	if (lflg || uflg || gflg || cflg || dflg || sflg || Aflg) {
+X		if (! pw_update (&pwent)) {
+X			fprintf (stderr, "%s: error changing password entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X		if (lflg && ! pw_remove (user_name)) {
+X			fprintf (stderr, "%s: error removing password entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X#if defined(DBM) || defined(NDBM)
+X		if (access ("/etc/passwd.pag", 0) == 0) {
+X			if (! pw_dbm_update (&pwent)) {
+X				fprintf (stderr,
+X					"%s: error adding password dbm entry\n",
+X					Prog);
+X				fail_exit (1);
+X			}
+X			if (lflg && (pwd = getpwnam (user_name)) &&
+X					! pw_dbm_remove (pwd)) {
+X				fprintf (stderr,
+X					"%s: error removing passwd dbm entry\n",
+X					Prog);
+X				fail_exit (1);
+X			}
+X		}
+X#endif
+X	}
+X#ifdef	SHADOWPWD
+X	if (spwd && (lflg || eflg || fflg || Aflg)) {
+X		if (! spw_update (&spent)) {
+X			fprintf (stderr,
+X				"%s: error adding new shadow password entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X		if (lflg && ! spw_remove (user_name)) {
+X			fprintf (stderr,
+X				"%s: error removing shadow password entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X	}
+X#ifdef	NDBM
+X	if (spwd && access ("/etc/shadow.pag", 0) == 0) {
+X		if (! sp_dbm_update (&spent)) {
+X			fprintf (stderr,
+X				"%s: error updating shadow passwd dbm entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X		if (lflg && ! sp_dbm_remove (user_name)) {
+X			fprintf (stderr,
+X				"%s: error removing shadow passwd db entry\n",
+X				Prog);
+X			fail_exit (1);
+X		}
+X	}
+X#endif	/* NDBM */
+X#endif	/* SHADOWPWD */
+X	if (Gflg || lflg)
+X		grp_update ();
+X}
+X
+X/*
+X * move_home - move the user's home directory
+X *
+X *	move_home() moves the user's home directory to a new location.
+X *	The files will be copied if the directory cannot simply be
+X *	renamed.
+X */
+X
+Xmove_home ()
+X{
+X	struct	stat	sb;
+X
+X	if (mflg && stat (user_home, &sb) == 0) {
+X		if (access (user_newhome, 0) == 0) {
+X			fprintf (stderr, "%s: directory %s exists\n",
+X				Prog, user_newhome);
+X			fail_exit (12);
+X		} else if (rename (user_home, user_newhome)) {
+X			if (errno == EXDEV) {
+X				if (mkdir (user_newhome, sb.st_mode & 0777)) {
+X					fprintf (stderr,
+X						"%s: can't create %s\n",
+X						Prog, user_newhome);
+X				}
+X				if (chown (user_newhome,
+X						sb.st_uid, sb.st_gid)) {
+X					fprintf (stderr, "%s: can't chown %s\n",
+X						Prog, user_newhome);
+X					rmdir (user_newhome);
+X					fail_exit (12);
+X				}
+X#ifdef	DIR_ANY
+X				if (copy_tree (user_home, user_newhome,
+X						uflg ? user_newid:-1,
+X						gflg ? user_newgid:-1,
+X						user_id, user_gid) == 0 &&
+X					remove_tree (user_home) == 0 &&
+X						rmdir (user_home) == 0)
+X					return;
+X
+X				(void) remove_tree (user_newhome);
+X				(void) rmdir (user_newhome);
+X#else
+X				return;
+X#endif
+X			}
+X			fprintf (stderr,
+X				"%s: cannot rename directory %s to %s\n",
+X				Prog, user_home, user_newhome);
+X			fail_exit (12);
+X		}
+X	}
+X	if (uflg || gflg)
+X		chown (dflg ? user_newhome:user_home,
+X			uflg ? user_newid:user_id,
+X			gflg ? user_newgid:user_gid);
+X}
+X
+X/*
+X * update_files - update the lastlog and faillog files
+X */
+X
+Xvoid
+Xupdate_files ()
+X{
+X	struct	lastlog	ll;
+X	struct	faillog	fl;
+X	int	fd;
+X
+X	/*
+X	 * Relocate the "lastlog" entries for the user.  The old entry
+X	 * is left alone in case the UID was shared.  It doesn't hurt
+X	 * anything to just leave it be.
+X	 */
+X
+X	if ((fd = open ("/usr/adm/lastlog", O_RDWR)) != -1) {
+X		lseek (fd, (long) user_id * sizeof ll, 0);
+X		if (read (fd, &ll, sizeof ll) == sizeof ll) {
+X			lseek (fd, (long) user_newid * sizeof ll, 0);
+X			write (fd, &ll, sizeof ll);
+X		}
+X		close (fd);
+X	}
+X
+X	/*
+X	 * Relocate the "faillog" entries in the same manner.
+X	 */
+X
+X	if ((fd = open (FAILFILE, O_RDWR)) != -1) {
+X		lseek (fd, (long) user_id * sizeof fl, 0);
+X		if (read (fd, &fl, sizeof fl) == sizeof fl) {
+X			lseek (fd, (long) user_newid * sizeof ll, 0);
+X			write (fd, &fl, sizeof fl);
+X		}
+X		close (fd);
+X	}
+X}
+X
+X/*
+X * fail_exit - exit with an error code after unlocking files
+X */
+X
+Xfail_exit (code)
+Xint	code;
+X{
+X	(void) gr_unlock ();
+X#ifdef	SHADOWGRP
+X	(void) sgr_unlock ();
+X#endif
+X#ifdef	SHADOWPWD
+X	(void) spw_unlock ();
+X#endif
+X	(void) pw_unlock ();
+X	exit (code);
+X}
+X
+X/*
+X * main - usermod command
+X */
+X
+Xmain (argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	/*
+X	 * Get my name so that I can use it to report errors.
+X	 */
+X
+X	if (Prog = strrchr (argv[0], '/'))
+X		Prog++;
+X	else
+X		Prog = argv[0];
+X
+X#ifdef	USE_SYSLOG
+X	openlog (Prog, LOG_PID|LOG_CONS|LOG_NOWAIT, LOG_AUTH);
+X#endif
+X
+X	/*
+X	 * The open routines for the NDBM files don't use read-write
+X	 * as the mode, so we have to clue them in.
+X	 */
+X
+X#ifdef	NDBM
+X	pw_dbm_mode = O_RDWR;
+X#ifdef	SHADOWPWD
+X	sp_dbm_mode = O_RDWR;
+X#endif
+X	gr_dbm_mode = O_RDWR;
+X#ifdef	SHADOWGRP
+X	sg_dbm_mode = O_RDWR;
+X#endif
+X#endif	/* NDBM */
+X	process_flags (argc, argv);
+X
+X	/*
+X	 * Do the hard stuff - open the files, change the user entries,
+X	 * change the home directory, then close and update the files.
+X	 */
+X
+X	open_files ();
+X
+X	usr_update ();
+X
+X	close_files ();
+X
+X	if (mflg)
+X		move_home ();
+X
+X	if (uflg) {
+X		update_files ();
+X
+X		/*
+X		 * Change the UID on all of the files owned by `user_id'
+X		 * to `user_newid' in the user's home directory.
+X		 */
+X
+X		chown_tree (dflg ? user_newhome:user_home,
+X			user_id, user_newid,
+X			user_gid, gflg ? user_newgid:user_gid);
+X	}
+X	exit (0);
+X	/*NOTREACHED*/
+X}
+END_OF_FILE
+  if test 35799 -ne `wc -c <'usermod.c'`; then
+    echo shar: \"'usermod.c'\" unpacked with wrong size!
+  fi
+  # end of 'usermod.c'
+fi
+echo shar: End of archive 2 \(of 14\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,349 @@
+Newsgroups: comp.sources.misc
+From: leo@ipmce.su (Leonid A. Broukhis)
+Subject:  v30i070:  freeze - Freeze/melt compression program v.2.3, Patch04
+Message-ID: <1992Jun20.162747.278@sparky.imd.sterling.com>
+X-Md4-Signature: 9d328f962fc8f72e741303d831cfcb8f
+Date: Sat, 20 Jun 1992 16:27:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 30, Issue 70
+Archive-name: freeze/patch04
+Environment: ISC, Xenix, SunOS, MS-DOS
+Patch-To: freeze: Volume 25, Issue 12-13
+
+This is a little patch, minor MS-DOS bug fix, HP-UX handling 
+(longnames w/o BSD), "greedy" mode slightly changed.
+
+--------
+*** distribution/encode.c	Wed Feb 26 14:39:46 1992
+--- encode.c	Tue May 12 15:10:56 1992
+***************
+*** 17,22 ****
+--- 17,23 ----
+  {
+  	register us_t i, len, r, s;
+  	register short c;
++ 	int greedy_threshold = CHAIN_THRESHOLD / (3 * greedy + 3);
+  	putchar(MAGIC1);
+  	putchar(MAGIC2_2);
+  
+***************
+*** 64,70 ****
+  				fprintf(stderr, "'%s'\n",
+  					pr_char(text_buf[r]));
+  #endif /* DEBUG */
+! 		} else if (greedy) {
+  /* GREEDY parsing (compression rate 1.5% worse, but 40% faster) */
+  
+  			EncodeLength((us_t) (match_length - THRESHOLD));
+--- 65,71 ----
+  				fprintf(stderr, "'%s'\n",
+  					pr_char(text_buf[r]));
+  #endif /* DEBUG */
+! 		} else if (match_length >= greedy_threshold) {
+  /* GREEDY parsing (compression rate 1.5% worse, but 40% faster) */
+  
+  			EncodeLength((us_t) (match_length - THRESHOLD));
+***************
+*** 159,166 ****
+      if(quiet != 1) {
+  #ifdef GATHER_STAT
+  	fprintf(stderr, "Average number of steps: ");
+! 	prratio(stderr, node_steps, node_matches);
+! 	fprintf(stderr, "\n");
+  #endif
+  #ifdef DEBUG
+  	fprintf( stderr,
+--- 160,167 ----
+      if(quiet != 1) {
+  #ifdef GATHER_STAT
+  	fprintf(stderr, "Average number of steps: ");
+! 	fprintf(stderr, "%d.%02d\n", (int) (node_steps / node_matches),
+! 			(int)((node_steps * 100 / node_matches) % 100));
+  #endif
+  #ifdef DEBUG
+  	fprintf( stderr,
+*** distribution/freeze.c	Tue May 12 15:44:25 1992
+--- freeze.c	Tue May 12 16:08:11 1992
+***************
+*** 35,40 ****
+--- 35,43 ----
+   * a la ZIP (Jean-Loup Gailly). Max. hash bits reduced to 16.
+   * Version 2.3.2: Adaptation to TOS 1.04 (fifi@hiss.han.de), UTIMES
+   * handling (jik@athena.mit.edu).
++  * Version 2.3.3: More accurate adaptation for XENIX 286.
++  * Version 2.3.4: Minor bug fixes, HP-UX (longnames w/o BSD) handling,
++  * greedy_threshold added.
+   */
+  
+  static char ident[] = "@(#) freeze.c 2.3.%d %s leo@s514.ipmce.su\n";
+***************
+*** 71,83 ****
+        force = 0;        /* "Force" flag */
+  
+  char ofname [MAXNAMLEN];
+! struct stat statbuf;    /* Used by 'main' and 'copystat' routines */
+  
+  char inbuf[BUFSIZ * 4], outbuf[BUFSIZ * 4];
+  
+  #ifdef DOS
+     char *last_sep();	/* last slash, backslash, or colon */
+!    char tail[2];        /* 2nd and 3rd chars of file extension */
+  # ifdef TEXT_DEFAULT
+  	short image = O_TEXT;
+  # else
+--- 74,86 ----
+        force = 0;        /* "Force" flag */
+  
+  char ofname [MAXNAMLEN];
+! static struct stat statbuf;    /* Used by 'main' and 'copystat' routines */
+  
+  char inbuf[BUFSIZ * 4], outbuf[BUFSIZ * 4];
+  
+  #ifdef DOS
+     char *last_sep();	/* last slash, backslash, or colon */
+!    char tail[3];        /* 2nd and 3rd chars of file extension */
+  # ifdef TEXT_DEFAULT
+  	short image = O_TEXT;
+  # else
+***************
+*** 370,375 ****
+--- 373,379 ----
+  		    /* cp now points to file extension */
+  			tail[0] = cp[1];        /* save two chars */
+  			tail[1] = cp[2];
++ 			tail[2] = '\0';
+  			*(++cp) = '\0';
+  			(void) strcat(tempname, "XF");
+  		    }
+***************
+*** 458,464 ****
+  
+  		/* Generate output filename */
+  		(void) strcpy(ofname, *fileptr);
+! #ifndef BSD     /* Short filenames */
+  		if ((cp = last_sep(ofname)) != NULL) cp++;
+  		else cp = ofname;
+  # ifdef DOS
+--- 462,469 ----
+  
+  		/* Generate output filename */
+  		(void) strcpy(ofname, *fileptr);
+! 
+! #ifndef LONGNAMES
+  		if ((cp = last_sep(ofname)) != NULL) cp++;
+  		else cp = ofname;
+  # ifdef DOS
+***************
+*** 472,478 ****
+  		    continue;
+  		}
+  # endif /* DOS */
+! #endif  /* BSD               Long filenames allowed */
+  							 
+  #ifdef DOS
+  		/* There is no difference between FOOBAR and FOOBAR. names */
+--- 477,483 ----
+  		    continue;
+  		}
+  # endif /* DOS */
+! #endif  /* LONGNAMES */
+  							 
+  #ifdef DOS
+  		/* There is no difference between FOOBAR and FOOBAR. names */
+*** distribution/freeze.h	Tue May 12 15:44:25 1992
+--- freeze.h	Tue May 12 15:18:42 1992
+***************
+*** 173,178 ****
+--- 173,179 ----
+  #ifdef BSD
+  #define strchr index
+  #define strrchr rindex
++ #define LONGNAMES
+  #endif
+  
+  extern char *strchr(), *strrchr();
+*** distribution/lz.c	Tue May 12 15:44:25 1992
+--- lz.c	Tue May 26 18:27:48 1992
+***************
+*** 106,118 ****
+  
+  			pattern = text_buf + p;
+  
+- 			MATCHING;
+- 
+- 		} while NOT_YET;
+- 
+  #ifdef GATHER_STAT
+  		node_steps++;
+  #endif
+  
+  		for (m = match_length;
+  			++m < F2 && key[m] == pattern[m]; );
+--- 106,118 ----
+  
+  			pattern = text_buf + p;
+  
+  #ifdef GATHER_STAT
+  		node_steps++;
+  #endif
++ 
++ 			MATCHING;
++ 
++ 		} while NOT_YET;
+  
+  		for (m = match_length;
+  			++m < F2 && key[m] == pattern[m]; );
+*** distribution/lz.h	Tue May 12 15:44:25 1992
+--- lz.h	Tue May 12 15:10:24 1992
+***************
+*** 143,154 ****
+  
+  #else
+  
+! /* Hope this function will be intrinsic (Microsoft C).
+!    Ideally this memcmp should be right-to-left, but this works
+!    fast enough.
+  */
+! #define MATCHING m = memcmp(key, pattern, match_length + 1)
+! #define NOT_YET (m != 0)
+  
+  #endif
+  
+--- 143,152 ----
+  
+  #else
+  
+! /* Hope that memcmp will be intrinsic (Microsoft C).
+  */
+! #define MATCHING
+! #define NOT_YET (key[match_length] != pattern[match_length] || memcmp(key, pattern, match_length))
+  
+  #endif
+  
+***************
+*** 158,164 ****
+  /* Simple inline replacement for get_next_match; they match
+  literally except return --> goto quote(leave)l. No obfuscations !! */
+  
+! #ifdef __STDC__
+  #define LEAVE(num) leave##num
+  #else
+  #define quote(x)x
+--- 156,162 ----
+  /* Simple inline replacement for get_next_match; they match
+  literally except return --> goto quote(leave)l. No obfuscations !! */
+  
+! #if defined(__STDC__) || defined (__TURBOC__)
+  #define LEAVE(num) leave##num
+  #else
+  #define quote(x)x
+*** distribution/makefile	Tue May 12 15:44:26 1992
+--- makefile	Thu May 21 12:58:30 1992
+***************
+*** 3,9 ****
+  default:
+  	@echo ''
+  	@echo 'Please indicate the system to make Freeze for.'
+! 	@echo 'Possible choices are: bsd, sysv, x286, sun4,'
+  	@echo 'generic.'
+  	@echo ''
+  
+--- 3,9 ----
+  default:
+  	@echo ''
+  	@echo 'Please indicate the system to make Freeze for.'
+! 	@echo 'Possible choices are: bsd, sysv, x286, sun4, hpux,'
+  	@echo 'generic.'
+  	@echo ''
+  
+***************
+*** 81,87 ****
+  install:        $(DEST)/$(PROGRAM) $(DEST)/statist $(MANDEST)/freeze.$(SEC) $(MANDEST)/statist.$(SEC)
+  
+  patch:;         rm -f patch.out
+! 		-for i in ../distribution/* ; do \
+  		(diff -c $$i `basename $$i` >> patch.out); \
+  		done
+  
+--- 81,87 ----
+  install:        $(DEST)/$(PROGRAM) $(DEST)/statist $(MANDEST)/freeze.$(SEC) $(MANDEST)/statist.$(SEC)
+  
+  patch:;         rm -f patch.out
+! 		-for i in distribution/* ; do \
+  		(diff -c $$i `basename $$i` >> patch.out); \
+  		done
+  
+***************
+*** 111,124 ****
+  
+  bsd:
+  		make prog CFLAGS="-O -DBSD -DUTIMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void"
+  
+  sysv:
+  		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=void"\
+! 		LIBS="-lc_s"
+  
+  x286:
+! 		make prog CC=cc CFLAGS="-Ox -Mc2 -DBITS=16 -DFAST\
+  		-DSIGTYPE=int"
+  
+  x286install:
+--- 111,128 ----
+  
+  bsd:
+  		make prog CFLAGS="-O -DBSD -DUTIMES -DBITS=16\
+! 		-DFAST -DSIGTYPE=void" CC=$(CC)
+  
++ hpux:
++ 		make prog CFLAGS="-O -DLONGNAMES -DBITS=16\
++ 		-DFAST -DSIGTYPE=void" CC=$(CC)
++ 
+  sysv:
+  		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=void"\
+! 		LIBS="-lc_s" CC=$(CC)
+  
+  x286:
+! 		make prog CC=cc CFLAGS="-Ox -Ml2 -DBITS=16 -DFAST\
+  		-DSIGTYPE=int"
+  
+  x286install:
+***************
+*** 125,135 ****
+  		make install MANDEST=/usr/man/man.C SEC=C
+  
+  generic:
+! 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=int"
+  
+  sun4:
+  		make prog CC=cc CFLAGS="-O4 -DBSD -DSUN4 -DSIGTYPE=void\
+  		-DUTIMES -DBITS=16 -DFAST"
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+--- 129,140 ----
+  		make install MANDEST=/usr/man/man.C SEC=C
+  
+  generic:
+! 		make prog CFLAGS="-O -DBITS=16 -DFAST -DSIGTYPE=int" CC=$(CC)
+  
+  sun4:
+  		make prog CC=cc CFLAGS="-O4 -DBSD -DSUN4 -DSIGTYPE=void\
+  		-DUTIMES -DBITS=16 -DFAST"
++ 
+  
+  ###
+  bitio.o: freeze.h compat.h bitio.h
+*** distribution/patchlevel.h	Tue May 12 15:44:26 1992
+--- patchlevel.h	Wed Jun  3 20:55:00 1992
+***************
+*** 1,2 ****
+! #define PATCHLEVEL 3
+! #define PATCHDATE "3/5/92"
+--- 1,2 ----
+! #define PATCHLEVEL 4
+! #define PATCHDATE "6/3/92"
+
+exit 0 # Just in case...

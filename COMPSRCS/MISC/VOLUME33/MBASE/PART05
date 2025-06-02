@@ -1,0 +1,1964 @@
+Newsgroups: comp.sources.misc
+From: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Subject:  v33i123:  mbase - MetalBase 5.0, Portable database engine, Part05/08
+Message-ID: <1992Nov23.232524.7609@sparky.imd.sterling.com>
+X-Md4-Signature: 7c0f340c8c6f6f5ba8ed9c2f701e46da
+Date: Mon, 23 Nov 1992 23:25:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: richid@owlnet.rice.edu (Richard Parvin Jernigan)
+Posting-number: Volume 33, Issue 123
+Archive-name: mbase/part05
+Environment: AMIGA, MS-DOS, HP-UX, XENIX, UNIX, ULTRIX, SGI, SU, Curses
+Supersedes: mbase: Volume 28, Issue 40-44
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  dox/build.dox sample/makefile src/create.c src/entry.c
+#   src/form_wr.c src/util2.c
+# Wrapped by kent@sparky on Mon Nov 23 16:33:14 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 8)."'
+if test -f 'dox/build.dox' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dox/build.dox'\"
+else
+  echo shar: Extracting \"'dox/build.dox'\" \(10995 characters\)
+  sed "s/^X//" >'dox/build.dox' <<'END_OF_FILE'
+XBuild Documentation                                               MetalBase 5.0
+X-------------------------------------------------------------------------------
+X
+X                                  Function
+X
+XRelations are built from schema files, which decribe the relation in a more
+Xhuman-friendly syntax.  Schema for MetalBase 4.0 and up relations take the
+Xfollowing form (Words in brackets are optional syntax, words enclosed in <>
+Xare sample entries):
+X
+X        [relation] <equipment>
+X
+X        field <customer>         [type] <string> [length/*] <5> ;
+X        field <num_purchased>    [type] <ushort> ;
+X        field <part_number>      [type] <char>   [length/*] <4> ;
+X        field <shop_address>     [type] <char>   [length/*] <11> ;
+X        field <price_code>       [type] <money> ;
+X        field <transaction>      [type] <serial> [<start 100>] ;
+X
+X        index customer [on] customer                 [<with duplicates>] ;
+X        index part     [on] part_number,price_code   [with duplicates] ;
+X        index ix_price [on] price_code               [<with duplicates>] ;
+X
+X        [<typedef <equ> >] ;
+X
+X        end
+X
+XAh, but note:  4.1 and up expect to find SEMICOLONS after every line save
+X"Relation..." and "End"!  It's okay if they're not there, but better get
+Xin the habit, 'cause report and form will choke heavily without their
+Xsemicolons.
+X
+XBuild is the program which reads these schema and creates MetalBase-format
+Xrelations from them; in addition, build released with mbase 4.0 and up can
+Xcreate C-style header files for interface with metalbase routines; these look
+Xsomewhat like this:
+X
+X   #ifndef EQUIPMENT_H
+X   #define EQUIPMENT_H
+X
+X   /*
+X    * This file was created by MetalBase version 5.0 to reflect the structure
+X    * of the relation "equipment".
+X    *
+X    * MetalBase 5.0 released October 1992 by virtual!richid@owlnet.rice.edu
+X    *
+X    */
+X
+X   typedef struct
+X    { char    customer[5];          /* field customer type string length 5   */
+X      ushort  num_purch;            /* field num_purch type ushort           */
+X      char    part_numb[4];         /* field part_numb type string length 4  */
+X      char    shop_addr[11];        /* field shop_addr type string length 11 */
+X      double  price_code;           /* field price_code type money           */
+X      long    trans;                /* field trans type serial start 100     */
+X      } equipment_str;
+X
+X   #ifndef MODULE
+X      equipment_str equipment_rec;
+X   #else
+X      extern equipment_str equipment_rec;
+X   #endif
+X
+X   #endif
+X
+XThe headers created by build include actual data (the reference to
+X      equipment_str equipment_rec
+Xabove), that should be local to only one module of a multiple .c-program
+Xexecutable; all the others should have the headers' variables declared as
+Xexternal.  So the headers use #ifdefs and check for the definition of MODULE--
+Xif it's there, variables are declared external, if not, they're declared local.
+XThat way, variables always go in this one piece of .c code.
+X
+X
+X                             Command-Line Options
+X
+XBuild's command line is rather simple:
+X      build [-q] [-h] schemaname
+X   Where
+X      -q indicates no output should be sent; all questions are assumed to
+X         be answered by their defaults.
+X      -h indiciates the header file should be created.  When used with -q,
+X         this overrides the "No" default answer for build's question; when
+X         used without, the header will be created without the user being
+X         asked interactively.
+X
+XThe schemaname may optionally be terminated in .s; if it is missing, it is
+Xadded by build.  MetalBase requires that schema be terminated in .s, and
+Xrelations in .rel.
+X
+X
+X                                   Format
+X
+XThe build utility released with versions 3.1 and higher supports comments at
+Xthe end of the "field" and "index" lines, and that's it--that's totally
+Xpathetic.  5.0 accepts comments anywhere, like a makefile--anything after a
+X# is ignored.  Likewise are form and report.  Empty lines are ignored.
+X
+X        # Comments
+X
+X        [relation] <equipment>   # Another comment.
+X
+X        field <custo...
+X
+X    The first line of a schema simply tells the computer what to call the new
+Xrelation.  The word 'relation' is optional, as is all text enclosed in
+Xbrackets in the description way up above.
+X    The second section of a schema describes the fields of which every record
+Xin the relation will be composed.  The word immediately following 'field' is
+Xsimply a name for the field.  Fields may be any of twelve types:
+X
+X       string/char/character    short             unsigned short
+X       long                     unsigned long     float
+X       double                   money             time
+X       date                     serial            phone
+X
+X   MetalBase 4.0 and up surpass 3.2 in that they understand the following
+X   fields that 3.2 just didn't know about:
+X      phone  - This corresponds to the typedef mb_phone, which is actually
+X               20 characters.  Fields stored in this type of field are parsed
+X               before writing into the database, and sorted correctly
+X               regardless of missing or extra pieces of data (extensions,
+X               area codes, etc).
+X      money  - Fields of this type are actually doubles which are automatically
+X               rounded by MetalBase before adding them to a relation.  There
+X               is no typedef to support this--use double.
+X      time   - MetalBase uses a long to contain a 24-hour clock (including
+X               precision to microseconds, though the built-in date-n-time
+X               routines only go to seconds), and sorts and stores these
+X               appropriately.  There is a typedef (mb_time) for these fields.
+X      date   - MetalBase uses a long to contain a date, with range from the
+X               year -4096 to 4096, and precision down to the day.  Routines
+X               are also included to obtain the current date and time, and
+X               to manipulate these formats.  There is a typedef (mb_date) for
+X               these fields... use mb_date and mb_time fields as if they were
+X               longs, for purposes of returning and passing values.
+X      serial - Something that has really been missing from MetalBase.  Each
+X               relation now has a counter, and every time a new record is
+X               added, the counter goes up--it never goes back down.  If the
+X               relation has a serial field, it is automatically filled in by
+X               the system--set to this counter's value at the time of addition.
+X               In this way, each record can be stamped with a serial code for
+X               reference--guaranteed to be unique, record to record (and
+X               appropriately, any index containing a serial field as part of
+X               itself is automatically marked 'no duplicates allowed').  Serial
+X               numbers start at zero unless the parameter "start xxx" is
+X               specified in the schema.  Serials are represented as longs;
+X               there is no typedef.
+X
+X   The next point of interest is the number after 'length' or '*' in a
+Xcharacter field... this number indicates the number of characters in that
+Xfield.  MetalBase will allow any positive integer here your computer can
+Xhandle, and if any length, or the sum of all lengths, is indeed large, _build_
+Xwill prompt you to add certain lines to the beginning of your code to warn the
+Xsystem of excessive-length records.
+X
+X    After all fields have been declared, indicies are placed on fields and
+Xcombinations of fields.  MetalBase requires that you have at least one index
+Xin any relation (this is only logical--a database without indicies is nothing
+Xmore than a text file).  After the word 'index' in each line, the index must
+Xbe given a name (whether or not it is used it up to the programmer), followed
+Xby names of fields to be indexed, separated by commas (note that this is VERY
+XDIFFERENT from previous versions of MetalBase.  Because version 4.0 and up read
+Xrecords directly into structures, the vertical bar ("|") is no longer used at
+Xall).  If more than one field name appears, MetalBase will declare that index
+Xcomposite.
+X
+X    Occasionally certain data should not be repeated... for instance, a
+Xperson obviously cannot visit a physician's office twice at the same time.  In
+Xthis case, were a relation defined as consisting of the fields "name" and
+X"visit_time", an index would be declared on "name,time" WITHOUT including the
+Xwords 'with duplicates', as seen above.  If such a relation were built,
+XMetalBase would not allow the space-time continuum to be stretched, as
+Xdescribed previously.  Including the words 'with duplicates' after the
+Xdefinition of an index removes this error-catching system, for that index
+Xalone.  Use of the duplicate-catching system is entirely a case-to-case
+Xdecision... there is little difference in the amount of time used between
+Ximplementing and not implementing it.
+X
+X    If the schema described previously exists as "/usr/joe/equip.s", the
+Xcommand BUILD, a utility included for use with MetalBase, will create a
+Xrelation called "equipment.rel" under the directory "/usr/joe".  A sample
+Xoutput of BUILD is as follows:
+X
+X        % build /usr/joe/equip.s
+X        Building relation equipment under current directory
+X
+X        Fields___________________________________________________
+X        customer [char *5]            num_purchased [ushort]
+X        part_number [char *4]         shop_address [char *11]
+X        price_code [money]            transaction [serial @100]
+X
+X        Indicies_________________________________________________
+X        customer.....customer................Duplicates allowed
+X        part.........part_number,price_code..Duplicates not allowed
+X        ix_price.....price_code..............Duplicates allowed
+X
+X        Continue with the creation of the relation [Y/n] ? <y>
+X        Create header file for this relation       [y/N] ? <y>
+X
+X        Header file created.
+X        Relation created--zero entries.
+X
+X        % ls -C /usr/joe
+X        equip.s         equipment.rel       equipment.h
+X        %
+X
+X    Once a relation has been built, it contains no entries, and is ready for
+Xuse.  BUILD's sole use is the creation of relations... other utilities
+X(discussed later) must be used for maintenance of relations (if needed).
+X
+X    A recent addition to build's operation is its ability to create header
+Xfiles for your programs.  When interacting with MetalBase routines, you must
+Xpass pointers to structures where data can be placed--build now creates these
+Xstructures for you, removing chances for error along with mindless tedium.
+XNote that, as in the above example, the line 'typedef equ' has caused the
+Xstructure to be named as:
+X
+X         typedef struct { ... } equ;
+X         equ  equ_rec;
+X
+XIf this line (typedef equ) were not present in the schema, the structure
+Xwould have been named with:
+X
+X         typedef struct { ... } equipment_str;
+X         equipment_str  equipment_rec;
+X
+XThat is, the relation name appended with "_str".
+X
+END_OF_FILE
+  if test 10995 -ne `wc -c <'dox/build.dox'`; then
+    echo shar: \"'dox/build.dox'\" unpacked with wrong size!
+  fi
+  # end of 'dox/build.dox'
+fi
+if test -f 'sample/makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sample/makefile'\"
+else
+  echo shar: Extracting \"'sample/makefile'\" \(725 characters\)
+  sed "s/^X//" >'sample/makefile' <<'END_OF_FILE'
+X#
+X#  METALBASE 5.0
+X#
+X#  Released October 1st, 1992 by Huan-Ti [ virtual!root@owlnet.rice.edu ]
+X#                                        [ t-richj@microsoft.com ]
+X#
+X#  Makefile for demonstration program  -- *nix expected
+X#
+X#
+X#  If mbase.h and stdinc.h aren't in /usr/include or /usr/local/include,
+X#  put them there or add -Idirectory to CFLAGS=.
+X
+Xall : sample bench
+X
+X
+Xbench : bench.o
+X	cc -f -o bench bench.o -lmb
+X
+Xbench.o : bench.c bench.h
+X	cc -c $(CFLAGS) bench.c
+X
+Xbench.h : bench.s
+X	./build -qh bench.s
+X
+X
+Xsample : sample.o
+X	cc -f -o sample sample.o -lmb -lcurses -lterm
+X
+Xsample.o : sample.c sample.h sample_fm.h
+X	cc -c $(CFLAGS) sample.c
+X
+Xsample.h : sample.s
+X	./build -qh sample.s
+X
+Xsample_fm.h : sample.frm
+X	./form sample
+X
+END_OF_FILE
+  if test 725 -ne `wc -c <'sample/makefile'`; then
+    echo shar: \"'sample/makefile'\" unpacked with wrong size!
+  fi
+  # end of 'sample/makefile'
+fi
+if test -f 'src/create.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/create.c'\"
+else
+  echo shar: Extracting \"'src/create.c'\" \(8713 characters\)
+  sed "s/^X//" >'src/create.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define CREATE_C
+X#include "mbase.h"
+X#include "internal.h"
+X
+X/*
+X ******************************************************************************
+X *
+X */
+X
+Xrelation *
+Xmb_new ()
+X{
+X   relation *rel;
+X
+X   if ((rel = New (relation)) == RNULL)
+X      relerr (MB_NO_MEMORY, RNULL);
+X
+X   rel->num_i  = 0;
+X   rel->num_f  = 0;
+X   rel->serial = 0L;
+X
+X   relerr (MB_OKAY, rel);
+X}
+X
+Xmb_err
+Xmb_addindex (rel, name, dups, desc)
+Xrelation    *rel;
+Xchar             *name,      *desc;
+Xint                     dups;
+X{
+X   char  *pch, *line, temp[128], t2[5];
+X   int    i;
+X
+X   if (_identify (rel) != -1 || dups < 0 || dups > 1 ||
+X       ! name || ! *name || ! desc || *desc < '0' || *desc > '9')
+X      {
+X      baderr (MB_BAD_INDEX);
+X      }
+X
+X   rel->itype[rel->num_i] = dups;  /* 1 == dups, 0 == nodups */
+X
+X   strcpy (rel->iname[rel->num_i], name);
+X   strcpy (rel->idxs[rel->num_i], "000");
+X
+X   strcpy (temp, desc);
+X   line  = temp;
+X
+X   for (i = 0; i < MAX_IDX-1; i++)
+X      {
+X      if ((pch = strchr (line, ',')) == NULL)
+X         break;
+X      *pch = 0;
+X
+X      sprintf (t2, "%03d", atoi (line));
+X      strcat (rel->idxs[rel->num_i], t2);
+X
+X      line = pch+1;
+X      }
+X
+X   sprintf (t2, "%03d", atoi (line));
+X   strcat (rel->idxs[rel->num_i], t2);
+X
+X   sprintf (t2, "%03d", i+1);
+X   strncpy (rel->idxs[rel->num_i], t2, 3);
+X
+X   rel->num_i ++;
+X
+X   baderr (MB_OKAY);
+X}
+X
+Xmb_err
+Xmb_addfield (rel, name, type, arg)
+Xrelation    *rel;
+Xchar             *name;
+Xftype                   type;
+Xlong                          arg;
+X{
+X   strcpy (rel->name[rel->num_f], name);
+X
+X   if (type == T_SERIAL)
+X      {
+X      rel->serial = arg;  /* serial is temporary storage for NextSerial */
+X      }
+X
+X   switch (rel->type[rel->num_f] = type)
+X      {
+X      case T_CHAR:    rel->siz [rel->num_f] = (int)arg;  break;
+X      case T_SHORT:   rel->siz [rel->num_f] =  2;        break;
+X      case T_USHORT:  rel->siz [rel->num_f] =  2;        break;
+X      case T_LONG:    rel->siz [rel->num_f] =  4;        break;
+X      case T_ULONG:   rel->siz [rel->num_f] =  4;        break;
+X      case T_FLOAT:   rel->siz [rel->num_f] =  4;        break;
+X      case T_DOUBLE:  rel->siz [rel->num_f] =  8;        break;
+X      case T_MONEY:   rel->siz [rel->num_f] =  8;        break;
+X      case T_TIME:    rel->siz [rel->num_f] =  4;        break;
+X      case T_DATE:    rel->siz [rel->num_f] =  4;        break;
+X      case T_SERIAL:  rel->siz [rel->num_f] =  4;        break;
+X      }
+X
+X   rel->num_f ++;
+X
+X   baderr (MB_OKAY);
+X}
+X
+X
+X/*
+X ******************************************************************************
+X *
+X */
+X
+Xmb_err
+Xmb_create (rel, name, mem)
+Xrelation  *rel;
+Xchar           *name;
+Xint                   mem;
+X{
+X   char   temp[35];
+X   int    i, R, n, j;
+X   short  tshort;
+X   long   tlong;
+X
+X   (void)mem;    /* Reference for compiler's sake; unused in MetalBase 5.0 */
+X
+X   if (! rel || _identify (rel) != -1)
+X      baderr (MB_BAD_REL);
+X
+X   if (! rel->num_i)   baderr (MB_NO_INDICES);
+X   if (! rel->num_f)   baderr (MB_NO_FIELDS);
+X
+X
+X/*
+X * See if we can create the file (if it already exists, delete it).
+X *
+X */
+X
+X   if (access (name, 0) != -1)
+X      unlink (name);
+X   if ((R = creatx (name)) == -1)
+X      baderr (MB_NO_WRITE);
+X   modex (name, 0666);   /* Make the file   -rw-rw-rw-  */
+X   close (R);
+X
+X   if ((R = openx (name, OPENMODE)) == -1)
+X      {
+X      unlink (name);  /* We made it, but can't open it, so delete it. */
+X      baderr (MB_NO_WRITE);
+X      }
+X
+X
+X/*
+X * Great; we've created the file.  Now fill it out...
+X *
+X */
+X
+X   temp[0] = 50;  writx (R, temp, 1);  /* MetalBase 5.0 Signature */
+X   temp[0] =  0;  writx (R, temp, 1);  /* Zero users              */
+X
+X   for (tshort = 0, i = 0; i < 2; i++)
+X      write (R, &tshort, 2);           /* Temporary and exclusive locks */
+X
+X   for (tlong = 0L, i = 0; i < 3; i++)
+X      writx (R, &tlong, 4);            /* Pointers to fields,indices,recs */
+X
+X   writx (R, &tlong, 4);               /* Number of records */
+X   writx (R, &rel->serial, 4);         /* Next serial value */
+X
+X   tshort = (short)rel->num_f;  writx (R, &tshort, 2);  /* Number of fields  */
+X   tshort = (short)rel->num_i;  writx (R, &tshort, 2);  /* Number of indices */
+X
+X   for (i = 0; i < rel->num_i; i++)
+X      writx (R, &tlong, 4);       /* Pointers to top of each index tree */
+X
+X/*
+X * That was ugly.  We're now ready to write the fields' descriptions...
+X *
+X */
+X
+X   tlong = lseek (R, 0L, 1);               /* Current position?             */
+X   lseek (R, POS_FIELDPTR(verCURRENT), 0); /* Pointer to fields' positions  */
+X   writx (R, &tlong, 4);
+X   lseek (R, tlong, 0);           /* Move back to where we were    */
+X
+X/*
+X * A: var*F.....Fields' descriptions:
+X *                 byte    0 : Type (0-10, as listed above)
+X *                 bytes 1-2 : Size (short/ used only for char fields)
+X *                 bytes 3-? : Name (max len = 20, terminated by '|')
+X *
+X */
+X
+X   for (i = 0; i < rel->num_f; i++)
+X      {
+X      temp[0] = (char)rel->type[i];   writx (R,  temp,   1);
+X      tshort  = (short)rel->siz[i];   writx (R, &tshort, 2);
+X
+X      writx (R, rel->name[i], strlen(rel->name[i]));
+X      writx (R, "|", 1);
+X      }
+X
+X/*
+X * That was uglier.  We're now ready to write the indices' descriptions...
+X *
+X */
+X
+X   tlong = lseek (R, 0L, 1);   /* Current position?             */
+X   lseek (R, POS_INDEXPTR, 0); /* Pointer to indices' positions */
+X   writx (R, &tlong, 4);
+X   lseek (R, tlong, 0);        /* Move back to where we were    */
+X
+X/*
+X * B: var*I.....Indices' descriptions:
+X *                 byte    0 : Type (0-1, 0==nodups, 1==dups)
+X *                 bytes   1 : Number of fields in this index
+X *                 bytes 2-? : Name (max len = 20, terminated by ':')
+X *                       --- : Each field's sequential # (as short, 0-based)
+X *      1.......Separator ('\n')
+X *
+X */
+X
+X   for (i = 0; i < rel->num_i; i++)
+X      {
+X      strzcpy (temp, rel->idxs[i], 3);
+X      n = atoi (temp);
+X
+X      temp[0] = (char)rel->itype[i];  /* 0==nodups, 1==dups                */
+X      temp[1] = (char)n;              /* N==number of fields in this index */
+X
+X      writx (R, temp, 2);
+X
+X      writx (R, rel->iname[i], strlen (rel->iname[i]));
+X      writx (R, ":", 1);
+X
+X      for (j = 0; j < n; j++)
+X         {
+X         strzcpy (temp, &rel->idxs[i][3 + j*3], 3);
+X         tshort = (short)atoi (temp);
+X         writx (R, &tshort, 2);
+X         }
+X      }
+X
+X/*
+X * Next, there's the stuff that's new to 5.0-- rel->hack points to the position
+X * of all the new stuff.  Included are:
+X *    6 bytes (3 * sizeof(short))  - Hacklock positions
+X *   60 bytes (30 * sizeof(short)) - Thirty-position service queue
+X *   30 bytes (30 * sizeof(char))  - Queue strobes
+X *   32 bytes (8 * sizeof(long))   - Reserved for later use
+X *
+X */
+X
+X   rel->hack = lseek (R, 0L, 1);  /* Remember current position */
+X   tshort = 0;
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X   writx (R, &tshort, 2); writx (R, &tshort, 2); writx (R, &tshort, 2);
+X
+X   for (i = 0; i < 30; i++)
+X      temp[i] = 0;
+X
+X   writx (R, temp, 30);
+X
+X   tlong = 0L;
+X   writx (R, &tlong, 4); writx (R, &tlong, 4);  /* RESERVED SPACE */
+X   writx (R, &tlong, 4); writx (R, &tlong, 4);  /* RESERVED SPACE */
+X   writx (R, &tlong, 4); writx (R, &tlong, 4);  /* RESERVED SPACE */
+X   writx (R, &tlong, 4); writx (R, &tlong, 4);  /* RESERVED SPACE */
+X
+X   writx (R, SNGCR, NUMCR);
+X
+X   tlong = lseek (R, 0L, 1);   /* Current position?             */
+X   lseek (R, POS_RECZERO, 0);  /* Pointer to record #0          */
+X   writx (R, &tlong, 4);
+X
+X   rel->recz = tlong;
+X
+X   close (R);
+X
+X   baderr (MB_OKAY);
+X}
+X
+Xint
+Xmb_getname (rel, name, fIndex)
+Xrelation   *rel;
+Xchar            *name;
+Xint                    fIndex;
+X{
+X   int   i;
+X
+X   if (fIndex)
+X      {
+X      for (i = 0; i < rel->num_i; i++)
+X         if (! strcmp (rel->iname[i], name))
+X            return i;
+X      }
+X   else
+X      {
+X      for (i = 0; i < rel->num_f; i++)
+X         if (! strcmp (rel->name[i], name))
+X            return i;
+X      }
+X
+X   return -1;
+X}
+X
+END_OF_FILE
+  if test 8713 -ne `wc -c <'src/create.c'`; then
+    echo shar: \"'src/create.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/create.c'
+fi
+if test -f 'src/entry.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/entry.c'\"
+else
+  echo shar: Extracting \"'src/entry.c'\" \(9469 characters\)
+  sed "s/^X//" >'src/entry.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X *
+X * Special thanks go to Adrian Corston (adrian@internode.com.au) for his
+X * suggestions and code.  While this code is of my penning, the idea and
+X * style of implementation for this are direct ports from his own
+X * excellent work.
+X *
+X */
+X
+X#define ENTRY_C
+X#include "mbase.h"
+X
+X/*
+X * Prototypes
+X *
+X */
+X
+XWINDOW     *win;
+X
+X#ifdef LONGARGS
+X   int   _std_val  (de_form *);
+X   void  _getnext  (de_form *);
+X   int   _validopt (de_form *, field *, char);
+X#else
+X   int   _std_val();
+X   void  _getnext();
+X   int   _validopt();
+X#endif
+X
+X /***************************************************************************/
+X
+X/*
+X * form->key will be:
+X *  -1 == Abort transaction--they hit CTRL-C or CTRL-Q or some such.
+X *   1 == Accept transaction--they hit CTRL-A or some such.
+X *  Otherwise, it's the key they hit to get out of the field; look at
+X *     input.c to see what it returns.
+X *
+X */
+X
+Xint
+X_std_val (form)
+Xde_form  *form;
+X{
+X   if (form->key == -1 || form->key == 1)  return form->key;
+X   return 0;
+X}
+X
+Xvoid
+X_getnext (form)
+Xde_form  *form;
+X{
+X   int  mv;
+X
+X   if (form->key == -1 || form->key == 1)  return;
+X
+X   form->nextfield = form->curfield;
+X
+X   switch (form->key)
+X    { case '-': case 'k':            mv = -1;  break;
+X      case  0 : case '+': case 'j':  mv =  1;  break;
+X      default :                      mv =  0;  break;
+X    }
+X   if (mv == 0)
+X      if (form->fields[form->curfield].inout&FM_IN)  return;
+X      else
+X         mv = 1;
+X
+X   for (;;)
+X    { form->nextfield += mv;
+X
+X      if (form->nextfield <  0)
+X         form->nextfield=form->numfields-1;
+X      if (form->nextfield >= form->numfields)
+X         form->nextfield=0;
+X
+X      if (form->fields[form->nextfield].inout & FM_IN)
+X         break;
+X    }
+X}
+X
+X/*
+X * validopt() is used to check a given Choice field, to make sure its data
+X * is valid.  It also looks for any Link fields which reference it, and
+X * sets/refreshes those.
+X *
+X */
+X
+Xint
+X_validopt (form, fld, old)
+Xde_form   *form;
+Xfield           *fld;
+Xchar                  old;
+X{
+X   int   i, j;
+X   char  now;
+X
+X   now = *(char *)(fld->buffer);
+X
+X   if (now == 0)
+X      {
+X      i = 10;
+X      }
+X   else
+X      {
+X      for (i = 1; i < 10 && fld->opt_arr[i][0] != 0; i++)
+X         {
+X         if (strchr (fld->opt_arr[i], now) != NULL)
+X            break;
+X         }
+X      if (i == 10 || fld->opt_arr[i][0] == 0)
+X         {
+X         *((char *)(fld->buffer))   = old;
+X         *((char *)(fld->buffer)+1) = 0;
+X         if (old != 0)  return 0;
+X         i = 10;
+X         }
+X      }
+X
+X   for (j = 0; j < form->numfields; j++)
+X      if (form->fields[j].option == 2 &&
+X          ! strcmp (form->fields[j].opt_arr[0], fld->name))
+X      {
+X      if (i == 10)
+X         *(char *)(form->fields[j].buffer) = 0;
+X      else
+X         strcpy (form->fields[j].buffer, form->fields[j].opt_arr[i]);
+X      fm_refresh (form, &(form->fields[j]));
+X      }
+X
+X   return 1;
+X}
+X
+X /***************************************************************************/
+X
+Xint
+Xfm_fldnum (form, str)
+Xde_form   *form;
+Xchar            *str;
+X{
+X   char         *ptr;
+X   register int  i;
+X
+X   if (!form || !str || !*str)  return -1;
+X
+X   for (i = 0; i < form->numfields; i++)
+X      if (! strcmp (form->fields[i].name, str))  return i;
+X
+X   for (i = 0; i < form->numfields; i++)
+X      if ((ptr = strchr (form->fields[i].name, '.')) != NULL)
+X         if (! strcmp (ptr+1, str))  return i;
+X
+X   return -1;
+X}
+X
+X/*
+X * formtorel() is great.  It takes any data in a data-entry form and moves
+X * it into the appropriate places in a relation's structure... it goes by
+X * name, and only those fields in both are copied.  Wonderful toy.  Pass
+X * it pointers to the form and relation, and the structure record for the
+X * relation.  reltoform() works the same way but backwards, moving data from
+X * a relation's record into a form, BUT MAKE SURE YOU CHECK THE ARGUMENTS
+X * FIRST.  They're backwards.  On purpose.
+X *
+X */
+X
+Xvoid
+Xformtorel (form, rel, ptr)
+Xde_form   *form;
+Xrelation        *rel;
+Xdataptr               ptr;
+X{
+X   char          temp[80], *a, *b;
+X   dataptr       frm;
+X   register int  i;
+X   int           n;
+X
+X   if (! form || ! rel || ! ptr)  return;
+X
+X   for (n = 0; n < rel->num_f; n++)
+X      {
+X      sprintf (temp, "%s.%s", rel->relname, rel->name[n]);
+X      if ((frm = fm_data (form, temp)) != NULL)
+X         {
+X         a=(char *)ptr +rel->start[n];
+X         b=(char *)frm;
+X         for (i = 0; i < rel->siz[n]; i++, a++, b++)
+X            *a = *b;
+X         }
+X      }
+X}
+X
+Xvoid
+Xreltoform (rel, form, ptr)
+Xrelation  *rel;
+Xde_form        *form;
+Xdataptr               ptr;
+X{
+X   char          temp[80];
+X   dataptr       frm;
+X   register int  i;
+X   int           n;
+X
+X   if (! form || ! rel || ! ptr)  return;
+X
+X   for (n = 0; n < rel->num_f; n++)
+X    { sprintf (temp, "%s.%s", rel->relname, rel->name[n]);
+X      if ((frm = fm_data (form, temp)) != NULL)
+X         for (i = 0; i < rel->siz[n]; i++)
+X            ((char *)frm)[i] = ((char *)ptr)[i +rel->start[n]];
+X    }
+X}
+X
+X/*
+X * Refresh a field.  Basically redisplays whatever's in it, and doesn't
+X * move your current field number.
+X *
+X */
+X
+Xvoid
+Xfm_refresh (form, fld)
+Xde_form    *form;
+Xfield            *fld;
+X{
+X   if (! fld)  return;
+X   move (form->y +fld->y, form->x +fld->x);
+X   display (fld->buffer, fld->type, fld->len);
+X   if (fld->option == 1)  (void)_validopt (form, fld, 0);
+X}
+X
+X/*
+X * Refresh the whole forsaken form.
+X *
+X */
+X
+Xvoid
+Xfm_refrall (form)
+Xde_form    *form;
+X{
+X   register int  i;
+X   field        *fld;
+X
+X   if (! form)  return;
+X
+X   for (i = 0; i < form->numfields; i++)
+X    { fld = &(form->fields[i]);
+X      move (form->y +fld->y, form->x +fld->x);
+X      display(form->fields[i].buffer,form->fields[i].type,form->fields[i].len);
+X      if (form->fields[i].option == 1)
+X         (void)_validopt (form, &form->fields[i], 0);
+X    }
+X}
+X
+X/*
+X * zero all data in the form.  Yayy.....
+X *
+X */
+X
+Xvoid
+Xfm_zero (form)
+Xde_form *form;
+X{
+X   register int  i;
+X   dataptr       ptr;
+X
+X   for (i = 0; i < form->numfields; i++)
+X      {
+X      ptr = form->fields[i].buffer;
+X      switch (form->fields[i].type)
+X         {
+X         case T_SHORT:   *(short  *)ptr = (short) 0;  break;
+X         case T_USHORT:  *(ushort *)ptr = (ushort)0;  break;
+X         case T_TIME:
+X         case T_DATE:
+X         case T_SERIAL:
+X         case T_LONG:    *(long   *)ptr = (long)  0;  break;
+X         case T_ULONG:   *(ulong  *)ptr = (ulong) 0;  break;
+X         case T_FLOAT:   *(float  *)ptr = (float) 0;  break;
+X         case T_DOUBLE:
+X         case T_MONEY:   *(double *)ptr = (double)0;  break;
+X         default:        *(char   *)ptr = 0;          break;
+X         }
+X      }
+X}
+X
+X/*
+X * Give fm_data a form pointer, and a name (like "sample.custnum"), and it
+X * will return a pointer to the buffer used to contain sample.custnum's number
+X * for data-entry.  Useful, eh?
+X *
+X */
+X
+Xdataptr
+Xfm_data (form, str)
+Xde_form *form;
+Xchar          *str;
+X{
+X   int  i;
+X   if (! form || ! str)  return NULL;
+X   if ((i = fm_fldnum (form, str)) < 0)  return NULL;
+X   return form->fields[i].buffer;
+X}
+X
+X/*
+X * Set a mode... those basically just determine which fields you can get into
+X * and which you can't.  Logically, it helps to remember what you're doing
+X * on the data-entry form in the first place too.
+X *
+X */
+X
+Xvoid
+Xfm_mode (form, n)
+Xde_form *form;
+Xint            n;
+X{
+X   register int  i;
+X   if (!form || n < 0 || n > form->nummodes)  return;
+X   form->curmode = n;
+X   for (i = 0; i < form->numfields; i++)
+X      if (form->curmode == 0)
+X         form->fields[i].inout = FM_INOUT;
+X      else
+X         form->fields[i].inout = form->fields[i].mode[form->curmode-1];
+X}
+X
+X/*
+X * do_form()'s flow:
+X *   display the data-entry form
+X *   call fm_mode() to set the current mode
+X *   call fm_refrall()
+X *   set valid_fn if it's not set already
+X *   .-> call input() on the appropriate field  <---------------.
+X *   |   if in a choice field, verify its validity --(invalid)--'
+X *   |   call _getnext() to set the next field
+X *   |   call (*valid_fn)() to validate the transaction:
+X *   `---- if returns 0
+X *
+X */
+X
+X   /* do_form()  returns 0 if failed, -1 if aborted, and 1 if accepted. */
+X
+Xint
+Xdo_form (form)
+Xde_form *form;
+X{
+X   register int  i;
+X   int           wedidit = 0;
+X   char          buffer;
+X   field        *fld;
+X
+X   if (!form)  return 0;
+X
+X   if (! win)
+X    { wedidit = 1;  init_curses();
+X      savetty(); raw(); noecho(); nl();
+X    }
+X   clear(); refresh();
+X
+X   for (i = 0; i < form->numlines; i++)
+X      mvaddstr (i+form->y, form->x, form->_scrn[i]);
+X   refresh();
+X
+X   fm_mode    (form, form->curmode);
+X   fm_refrall (form);
+X
+X   if (form->valid_fn == (int (*)())0)  form->valid_fn = _std_val;
+X
+X   for (;;)
+X      {
+X      fld = &(form->fields[form->curfield]);
+X      move (form->y +fld->y, form->x +fld->x);
+X      if (fld->option == 1)  buffer = *(char *)(fld->buffer);
+X
+X      do   form->key = input (fld->buffer, fld->type, fld->len);
+X      while (fld->option == 1 && !_validopt (form, fld, buffer));
+X
+X      _getnext (form);
+X      if ((i = (*form->valid_fn)(form)) != 0)  break;
+X      form->key = '.';
+X
+X      form->curfield = form->nextfield;
+X      _getnext (form);
+X      form->curfield = form->nextfield;
+X      }
+X
+X/*
+X * The second _getnext() function is used to ensure the user hasn't placed
+X * us on a bad field--one which we normally couldn't get to.
+X *
+X */
+X
+X   if (wedidit)
+X      {
+X      clear(); refresh(); resetty(); endwin();
+X      win = (WINDOW *)0;
+X      }
+X   return i;
+X}
+X
+END_OF_FILE
+  if test 9469 -ne `wc -c <'src/entry.c'`; then
+    echo shar: \"'src/entry.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/entry.c'
+fi
+if test -f 'src/form_wr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/form_wr.c'\"
+else
+  echo shar: Extracting \"'src/form_wr.c'\" \(9304 characters\)
+  sed "s/^X//" >'src/form_wr.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X *
+X * Special thanks go to Adrian Corston (adrian@internode.com.au) for his
+X * suggestions and code.  While this code is of my penning, the idea and
+X * style of implementation for this are direct ports from his own
+X * excellent work.
+X *
+X */
+X
+X#include "mbase.h"
+X
+X#ifndef MAXnREL
+X#define MAXnREL 20    /* Max # of relations in any given DE form */
+X#endif
+X#ifndef MAXnFLD
+X#define MAXnFLD 40    /* Max # of fields in any given DE form    */
+X#endif
+X
+X/*
+X * Definitions
+X *
+X */
+X
+X#define LPARQ "("
+X#define LBRCQ "{"   /* These are pulled out   */
+X#define LBKT  '['   /* so that vi's ()/[]/{}  */
+X#define LBRC  '{'   /* matchin works properly */
+X#define RBRC  '}'   /* in moving through the  */
+X#define RBKT  ']'   /* code.                  */
+X#define RBRCQ "}"
+X#define RPARQ ")"
+X
+X#define fieldopt(x) (*(options[x]))
+X#define fieldmode(x) (*(modes[x]))
+X#define wrdata(x)   write (H, x, strlen(x));
+X#define wrline(x) { wrdata(x); wrdata(SNGCR); }
+X
+X/*
+X * Prototypes
+X *
+X */
+X
+X#ifdef LONGARGS
+X   extern void  id_field     (char *, char *);
+X          void  writeit      (void);
+X          void  wr_header    (void);
+X          void  wr_buffer    (void);
+X          void  wr_mode      (void);
+X          void  wr_option    (void);
+X          void  wr_field     (void);
+X          void  wr_screen    (void);
+X          void  wr_form      (void);
+X          void  strqucpy     (char *, char *);
+X#else
+X   extern void  id_field();
+X          void  writeit();
+X          void  wr_header();
+X          void  wr_header();
+X          void  wr_buffer();
+X          void  wr_mode();
+X          void  wr_option();
+X          void  wr_field();
+X          void  wr_screen();
+X          void  wr_form();
+X          void  strqucpy();
+X#endif
+X
+Xtypedef char optlist[10][40];
+Xtypedef int  modelist[20];
+X
+X/*
+X * Global Variables
+X *
+X */
+X
+Xint  H;
+X
+Xextern char      formname[30];
+Xextern char      displ[25][140];
+Xextern int       num_l, pos_y, pos_x, num_f, num_m;
+X
+Xextern field     fld[MAXnFLD];
+Xextern int       lens[MAXnFLD];
+Xextern optlist  *options[MAXnFLD];
+Xextern modelist *modes[MAXnFLD];
+X
+Xvoid
+Xwriteit ()
+X{
+X   int   i;
+X   char  temp[128], *ptr;
+X
+X   if ((ptr = strrchr (formname, '.')) != NULL)  *ptr = 0;
+X
+X   sprintf (temp, "%-1.5s_fm.h", formname);
+X
+X   if ((H = openx (temp, O_RDWR)) != -1)
+X    { close  (H);
+X      unlink (temp);
+X    }
+X   if ((H = creatx (temp)) == -1)
+X    { fprintf (stderr, "cannot create %s -- aborted%s", temp, SNGCR);
+X      mb_exit (10);
+X    }
+X   modex (temp, 0666);   /* Make the file   -rw-rw-rw-  */
+X
+X   wr_header ();
+X   wr_buffer ();
+X   wr_mode   ();
+X   wr_option ();
+X   wr_field  ();
+X   wr_screen ();
+X   wr_form   ();
+X
+X   close (H);
+X
+X   for (i = 0; i < MAXnFLD; i++)
+X    {
+X      if (options[i] != (optlist *)0)
+X       { free (options[i]);
+X         options[i] = (optlist *)0;
+X       }
+X      if (modes[i] != (modelist *)0)
+X       { free (modes[i]);
+X         modes[i] = (modelist *)0;
+X       }
+X    }
+X
+X   printf ("%-1.5s_fm.h written successfully\n", formname);
+X}
+X
+Xvoid
+Xwr_header ()
+X{
+X   char  temp[128];
+X   int   i;
+X
+X   for (i = 0; formname[i] != 0; i++)
+X      temp[i] = toupper (formname[i]);
+X   temp[i] = 0;
+X   strcat (temp, "_FM_H");
+X
+X   wrdata ("#");  wrdata ("ifndef ");  wrline (temp);
+X   wrdata ("#");  wrdata ("define ");  wrline (temp);  wrdata (SNGCR);
+X
+X   wrdata ("/");  wrline ("*");
+X   wrline (" * This file was created by MetalBase version 5.0 from the data-entry");
+X   wrdata (" * template \"");  wrdata (formname);  wrdata (".frm");  wrline ("\"");
+X   wrline (" *");
+X   wrline (" * MetalBase 5.0 released October 1st by richid@owlnet.rice.edu");
+X   wrline (" *");
+X   wrdata (" *");  wrline ("/");
+X   wrdata (SNGCR);
+X
+X   wrdata ("#");  wrline ("ifdef MODULE");
+X   wrdata ("   extern de_form ");  wrdata (formname);  wrline ("_fm;");
+X   wrdata ("#");  wrline ("else");
+X}
+X
+Xvoid
+Xwr_buffer ()
+X{
+X   char  temp[128];
+X   int   i;
+X
+X   for (i = 0; i < num_f; i++)
+X      {
+X      wrdata ("   ");
+X      switch (fld[i].type)
+X         {
+X         case T_SHORT:   wrdata ("short    ");  break;
+X         case T_USHORT:  wrdata ("ushort   ");  break;
+X         case T_LONG:    wrdata ("long     ");  break;
+X         case T_ULONG:   wrdata ("ulong    ");  break;
+X         case T_FLOAT:   wrdata ("float    ");  break;
+X         case T_DOUBLE:  wrdata ("double   ");  break;
+X         case T_MONEY:   wrdata ("double   ");  break;
+X         case T_TIME:    wrdata ("mb_time  ");  break;
+X         case T_DATE:    wrdata ("mb_date  ");  break;
+X         case T_SERIAL:  wrdata ("long     ");  break;
+X         case T_PHONE:   wrdata ("mb_phone ");  break;
+X         default:        wrdata ("char     ");  break;
+X         }
+X
+X      if (fld[i].type == T_CHAR)
+X         sprintf (temp, "%s_f%d[%2d] = ", formname, i, lens[i]);
+X      else
+X         sprintf (temp, "%s_f%d     = ",  formname, i);
+X      wrdata (temp);
+X
+X      switch (fld[i].type)
+X         {
+X         case T_SHORT:   wrdata ("(short)0");     break;
+X         case T_USHORT:  wrdata ("(ushort)0");    break;
+X         case T_LONG:    wrdata ("0L");           break;
+X         case T_ULONG:   wrdata ("(ulong)0L");    break;
+X         case T_FLOAT:   wrdata ("(float)0.0");   break;
+X         case T_DOUBLE:  wrdata ("(double)0.0");  break;
+X         case T_MONEY:   wrdata ("(double)0.0");  break;
+X         case T_TIME:    wrdata ("(mb_time)0");   break;
+X         case T_DATE:    wrdata ("(mb_date)0");   break;
+X         case T_SERIAL:  wrdata ("0L");           break;
+X         default:        wrdata ("\"\"");         break;
+X         }
+X      wrline (";");
+X      }
+X   wrdata (SNGCR);
+X}
+X
+Xvoid
+Xwr_mode ()
+X{
+X   char  temp[128];
+X   int   i, j;
+X
+X   for (i = 0; i < num_f; i++)
+X    {
+X      sprintf (temp, "   int %s_m%d[%d] = ", formname, i, num_m);
+X      wrdata  (temp);
+X      wrdata  (LBRCQ);
+X      wrdata  (" ");
+X
+X      for (j = 0; j < num_m; j++)
+X       {
+X         if (fieldmode(i)[j] == FM_INOUT)  strcpy (temp, "FM_INOUT");
+X         if (fieldmode(i)[j] == FM_IN)     strcpy (temp, "FM_IN");
+X         if (fieldmode(i)[j] == FM_OUT)    strcpy (temp, "FM_OUT");
+X         if (j < num_m-1)  strcat (temp, ",");
+X         strcat (temp, "     ");  temp[10] = 0;
+X         wrdata (temp);
+X       }
+X      wrdata  (" ");
+X      wrdata  (RBRCQ);
+X      wrline  (";");
+X    }
+X
+X   wrdata (SNGCR);
+X}
+X
+Xvoid
+Xwr_option ()
+X{
+X   char  temp[128];
+X   int   i, j;
+X
+X   for (i = 0; i < num_f; i++)
+X      if (options[i] != (optlist *)0)
+X       {
+X         for (j = 1; j < 10; j++)
+X            if (fieldopt(i)[j][0] == 0)  break;
+X         sprintf (temp, "   char *%s_o%d[%d] = ", formname, i, j+1);
+X         wrdata (temp);
+X         wrdata (LBRCQ);
+X         for (j = 0; j < 10; j++)
+X            if (j != 0 && fieldopt(i)[j][0] == 0)  break;
+X            else
+X             {
+X               if (j != 0)  wrdata (",");
+X               wrdata (" \"");
+X               wrdata (fieldopt(i)[j]);
+X               wrdata ("\"");
+X             }
+X         wrdata (", \"\" ");
+X         wrdata (RBRCQ);
+X         wrline (";");
+X       }
+X   wrdata (SNGCR);
+X}
+X
+Xvoid
+Xwr_field ()
+X{
+X   char  temp[128];
+X   int   i;
+X
+X   sprintf (temp, "   field %s_f[%d] =", formname, num_f);
+X   wrline  (temp);
+X
+X   for (i = 0; i < num_f; i++)
+X    {
+X      if (i == 0)
+X       { wrdata ("    ");  wrdata (LBRCQ);  wrdata (" "); }
+X      else
+X       { wrline (",");  wrdata ("      "); }
+X
+X      wrdata (LBRCQ);  wrdata (" ");
+X
+X      sprintf (temp, "%2d, %2d, %2d,", fld[i].y, fld[i].x, fld[i].len);
+X      wrdata  (temp);
+X      sprintf (temp, " %2d, 0, %d,", fld[i].type, fld[i].option);
+X      wrdata  (temp);
+X      sprintf (temp, " %s_m%d,", formname, i);
+X      wrdata  (temp);
+X      wrdata ( (fld[i].type==T_CHAR || fld[i].type==T_PHONE) ? "  " : " &" );
+X      sprintf (temp, "%s_f%d, \"%s\",", formname, i, fld[i].name);
+X      wrdata  (temp);
+X      if (options[i] == (optlist *)0)  strcpy (temp, " NULL ");
+X      else
+X         sprintf (temp, " %s_o%d ", formname, i);
+X      wrdata  (temp);
+X      wrdata  (RBRCQ);
+X    }
+X   wrdata (" ");  wrdata (RBRCQ);  wrline (";");
+X
+X   wrdata (SNGCR);
+X}
+X
+Xvoid
+Xwr_screen ()
+X{
+X   char  temp[128];
+X   int   i;
+X
+X   sprintf (temp, "   char *%s_s[%d] =", formname, num_l);
+X   wrline (temp);
+X
+X   for (i = 0; i < num_l; i++)
+X    {
+X      if (i == 0)
+X       { wrdata ("    ");   wrdata (LBRCQ);   wrdata (" ");
+X       }
+X      else
+X       { wrline (",");   wrdata ("      ");
+X       }
+X
+X      wrdata ("\"");
+X      strqucpy (temp, displ[i]);
+X      wrdata (temp);
+X      wrdata ("\"");
+X    }
+X   wrdata ("  ");
+X   wrdata (RBRCQ);
+X   wrline (";");
+X   wrdata (SNGCR);
+X}
+X
+Xvoid
+Xstrqucpy (oa, ob)
+Xchar     *oa,*ob;
+X{
+X   register char *a, *b;
+X   for (a=oa, b=ob; *b; a++,b++)
+X      {
+X      if (*b == '\"')
+X         {
+X         *a = '\\';
+X         a++;
+X         }
+X      *a = *b;
+X      }
+X   *a = 0;
+X}
+X
+Xvoid
+Xwr_form ()
+X{
+X   char  temp[128];
+X
+X   wrdata ("   de_form "); wrdata (formname); wrline ("_fm =");
+X   wrdata ("    ");  wrdata (LBRCQ);
+X
+X   sprintf (temp, " 1, 0, 0, 0, %d, %d, (int_fn)0, %d,", num_f, num_m, num_l);
+X   wrdata  (temp);
+X   sprintf (temp, " %d, %d, %s_f, %s_s ", pos_y, pos_x, formname, formname);
+X   wrdata  (temp);
+X   wrdata  (RBRCQ);
+X   wrline  (";");
+X
+X   wrdata (SNGCR);
+X   wrdata ("#");  wrline ("endif");  wrdata (SNGCR);
+X   wrdata ("#");  wrline ("endif");  wrdata (SNGCR);
+X}
+X
+END_OF_FILE
+  if test 9304 -ne `wc -c <'src/form_wr.c'`; then
+    echo shar: \"'src/form_wr.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/form_wr.c'
+fi
+if test -f 'src/util2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/util2.c'\"
+else
+  echo shar: Extracting \"'src/util2.c'\" \(11746 characters\)
+  sed "s/^X//" >'src/util2.c' <<'END_OF_FILE'
+X/*
+X * METALBASE 5.0
+X *
+X * Released October 1st, 1992 by Huan-Ti [ richid@owlnet.rice.edu ]
+X *                                       [ t-richj@microsoft.com ]
+X */
+X
+X#define UTIL_C
+X#include "mbase.h"
+X#include "internal.h"
+X
+Xextern int       _started;
+Xextern relation *_list[MAX_REL];
+X
+X/****************************************************************************/
+X
+Xmb_err
+X_balance (rel, rcd, idx, bal)  /* CACHED */
+Xrelation *rel;
+Xlong           rcd;
+Xint                 idx, bal;
+X{
+X   long   rep, rp;
+X   cache *ptr;
+X
+X   if (! (rep = _find_seq (rel, 0L, rcd, idx, NUM_BAL(bal))) )
+X      baderr (MB_CORRUPT);
+X
+X   ptr = _read_cache (rel, rep, idx);
+X   rp = ptr->parent;
+X
+X   _dislink (rel, rep, idx, rcd);
+X   _replace (rel, rcd, rep, idx);
+X   _drop    (rel, rcd, idx, rep);
+X
+X   if (rp != rcd)  _check (rel, rp, rep, idx);  /* Stop at _rep_ */
+X
+X   ptr = _read_cache (rel, rcd, idx);
+X   rp = ptr->parent;
+X
+X   _check (rel, rp, rep, idx);
+X
+X   baderr (MB_OKAY);
+X}
+X
+Xvoid
+X_dislink (rel, pos, idx, end)  /* CACHED */
+Xrelation *rel;
+Xlong           pos,      end;
+Xint                 idx;
+X{
+X   char   temp[5];
+X   long   ch, par, tmp;
+X   int    dir = 0, tdir;
+X   cache *ptr;
+X
+X   ptr = _read_cache (rel, pos, idx); /* There will be one child, at most */
+X   ch = ptr->left;
+X   if (ch)
+X      dir = -1;
+X   else
+X      {
+X      ch = ptr->right;     /* We already read in this record! */
+X      dir = (ch ? 1 : 0);
+X      }
+X
+X   par = ptr->parent;
+X   temp[0] = (char)((int)ptr->parbal & PARDIR);
+X   tdir = temp[0]?1:-1;
+X
+X   ptr = _read_cache (rel, par, idx);
+X   ptr->changed = 1;
+X   if (par == 0L)
+X      {
+X      _changeqcache (ptr, num, ch);
+X      }
+X   else
+X      {
+X      if (temp[0]) _changeqcache (ptr, right, ch);
+X      else         _changeqcache (ptr, left,  ch);
+X      }
+X
+X   if (ch)
+X      {
+X      ptr = _read_cache (rel, ch, idx);
+X      _change_cache (ptr, parent, par);
+X      temp[0] = ptr->parbal;
+X      temp[0] = (char)((int)(temp[0] & BAL) | (tdir == 1 ? PARDIR : 0));
+X
+X      _change_cache (ptr, parbal, temp[0]);
+X      }
+X
+X   for (tmp=par, dir=tdir; tmp != 0L; )   /* Update balances: */
+X      {
+X      ptr = _read_cache (rel, tmp, idx);
+X      temp[0] = ptr->parbal;
+X      temp[0] = (char)((int)(temp[0] & PARDIR) | ((temp[0] & BAL) - dir));
+X
+X      _change_cache (ptr, parbal, temp[0]);
+X
+X      dir = (temp[0] & PARDIR) ? 1 : -1;
+X      if (tmp == end)  break;
+X
+X      tmp = ptr->parent;
+X      }
+X}
+X
+Xvoid
+X_replace (rel, old, new, idx)  /* CACHED */
+Xrelation *rel;
+Xlong           old, new;
+Xint                      idx;
+X{
+X   char   pba;
+X   long   lef, rig, par;
+X   cache *ptr;
+X
+X   ptr = _read_cache (rel, old, idx);
+X      lef = ptr->left;
+X      rig = ptr->right;
+X      par = ptr->parent;
+X      pba = ptr->parbal;
+X   ptr = _read_cache (rel, new, idx);
+X      _change_cache (ptr, left,   lef);
+X      _changeqcache (ptr, right,  rig);
+X      _changeqcache (ptr, parent, par);
+X      _changeqcache (ptr, parbal, pba);
+X
+X   if (par == 0L)   /* Parent */
+X      {
+X      ptr = _read_cache (rel, 0L, idx);
+X      _change_cache (ptr, num, new);
+X      }
+X   else
+X      {
+X      ptr = _read_cache (rel, par, idx);
+X      if (pba & PARDIR)  _changeqcache (ptr, right, new);
+X      else               _changeqcache (ptr, left,  new);
+X      ptr->changed = 1;
+X      }
+X
+X   if (lef != 0L)  /* Left child */
+X      {
+X      ptr = _read_cache (rel, lef, idx);
+X      _change_cache (ptr, parent, new);
+X      }
+X
+X   if (rig != 0L)  /* Right child */
+X      {
+X      ptr = _read_cache (rel, rig, idx);
+X      _change_cache (ptr, parent, new);
+X      }
+X
+X   _zero (rel, old, idx);  /* Remove old record's pointers */
+X}
+X
+Xvoid
+X_zero    (rel, pos, idx)  /* CACHED */
+Xrelation *rel;
+Xlong           pos;
+Xint                 idx;
+X{
+X   cache *ptr;
+X   ptr = _read_cache (rel, pos, idx);
+X   _change_cache (ptr, parbal, BAL_EV);
+X   _changeqcache (ptr, left,   0L);
+X   _changeqcache (ptr, right,  0L);
+X   _changeqcache (ptr, parent, 0L);
+X}
+X
+Xlong
+X_find_ends (rel, idx, dir)  /* CACHED */
+Xrelation   *rel;
+Xint              idx, dir;
+X{
+X   long    pos, tmp;
+X   cache  *ptr;
+X
+X   _strobe (rel, 0);  /* Don't let anyone think we're dead */
+X
+X   ptr = _read_cache (rel, 0L, idx);
+X   pos = ptr->num;
+X
+X   if (pos == 0L)  return 0L;
+X
+X   for (tmp = pos; ; pos = tmp)
+X      {
+X      ptr = _read_cache (rel, tmp, idx);
+X      tmp = _cache_field (ptr, dir);
+X
+X      if (tmp == 0L)  return pos;
+X      }
+X}
+X
+Xlong
+X_search  (rel, pos, idx, act, comp)  /* CACHED */
+Xrelation *rel;
+Xlong           pos;
+Xint                 idx;
+Xmb_action                act;
+Xdataptr                       comp;
+X{
+X   long     x;
+X   int      r,  dir;
+X   dataptr  rec;
+X   cache   *ptr;
+X
+X   if (pos == 0L)  return 0;
+X
+X   _strobe (rel, 0);  /* Don't let anyone think we're dead */
+X
+X   ptr = _read_cache (rel, pos, idx);
+X
+X   dir = r = _compare (rel, comp, rec=_rec(rel,pos), idx);
+X   free (rec);
+X
+X   if (dir == 0)
+X    { if (act == GTHN || act == LTEQ)                 dir =  1;
+X      if (act == GTEQ || act == LTHN || act == EQUL)  dir = -1;
+X    }
+X
+X   if ((x = _search (rel, (dir==1)?ptr->right:ptr->left, idx,act,comp)) != 0L)
+X      return x;
+X
+X   if  (act != GTHN && act != LTHN  && r    ==  0)  return pos;
+X   if ((act == GTEQ || act == GTHN) && dir  == -1)  return pos;
+X   if ((act == LTEQ || act == LTHN) && dir  ==  1)  return pos;
+X
+X   return 0L;
+X}
+X
+Xlong
+X_find_seq (rel, top, rcd, idx, dir)  /* CACHED */
+Xrelation  *rel;
+Xlong            top, rcd;
+Xint                       idx, dir;
+X{
+X   char   temp[5];
+X   long   pos, tmp;
+X   cache *ptr;
+X
+X   _strobe (rel, 0);  /* Don't let anyone think we're dead */
+X
+X   ptr = _read_cache (rel, rcd, idx);
+X   pos = _cache_field (ptr, dir);
+X
+X   if (pos == 0L)
+X      {
+X      if (rcd == top)  return 0L;      /* hit top=no sequential available */
+X      for (pos = rcd; ; pos = tmp)
+X         {
+X         ptr = _read_cache (rel, pos, idx);
+X         tmp = ptr->parent;
+X
+X         if (tmp == top)  return 0L;    /* hit top=no sequential available */
+X
+X         temp[0] = ptr->parbal;
+X         if (dir == ((temp[0] & PARDIR) ? -1 : 1))  return tmp;
+X         } 
+X      } 
+X
+X   for (dir = 0-dir; ; pos = tmp)
+X      {
+X      ptr = _read_cache (rel, pos, idx);
+X      tmp = _cache_field (ptr, dir);
+X      if (tmp == 0L)  return pos;
+X      }
+X}
+X
+Xlong
+X_delete  (rel, bad)  /* CACHED */
+Xrelation *rel;
+Xlong           bad;
+X{
+X   static   int  lastmove = -1;
+X   register int  i;
+X   long          bp, rep, rp;
+X   char          buf[5];
+X   int           bal;
+X   cache        *ptr;
+X
+X   _free_cache ();
+X
+X   for (i = 0; i < rel->num_i; i++)
+X      {
+X      ptr = _read_cache (rel, bad, i);
+X      bp     = ptr->parent;
+X      buf[0] = ptr->parbal;
+X
+X      bal= buf[0] & BAL;
+X
+X      if (bal != BAL_EV)
+X         rep = _find_seq (rel, bad, bad, i, NUM_BAL(bal));
+X      else
+X         if (! (rep = _find_seq (rel, bad, bad, i, togg (lastmove))))
+X            rep = _find_seq (rel, bad, bad, i, togg (lastmove));
+X
+X      if (! rep)
+X         {
+X         _dislink (rel, bad, i, 0L);
+X         }
+X      else
+X         {
+X         ptr = _read_cache (rel, rep, i);
+X         rp = ptr->parent;
+X
+X         _dislink (rel, rep, i, 0L);
+X         _replace (rel, bad, rep, i);
+X         if (rp != bad)
+X            if (_check (rel, rp, bp, i))
+X               {
+X               _flush_cache (rel, i);
+X               longerr (mb_errno, -1L);
+X               }
+X         }
+X
+X      if (_check (rel, bp, 0L, i))
+X         {
+X         _flush_cache (rel, i);
+X         longerr (mb_errno, -1L);
+X         }
+X
+X      _flush_cache (rel, i);
+X      }
+X}
+X
+Xint
+X_compare (rel, ptra, ptrb, idx)  /* -1 == ptra < ptrb */
+Xrelation *rel;
+Xdataptr        ptra, ptrb;
+Xint                        idx;
+X{
+X   register int  i;
+X   int           mx, n, p;
+X   char          temp[5];
+X
+X   strzcpy (temp, rel->idxs[idx], 3);  mx = atoi (temp);
+X
+X   for (i = 0; i < mx; i++)
+X      {
+X      strzcpy (temp, &rel->idxs[idx][3*i +3], 3);  p = atoi (temp);
+X      if ((n = _comp_fld (rel, ptra, ptrb, p)) != 0)  return n;
+X      }
+X
+X   return 0;
+X}
+X
+Xvoid
+X_dumprec (rel, rec)  /* rec must not be encrypted */
+Xrelation *rel;
+Xdataptr        rec;
+X{
+X   char          buf[128], temp[80], *p;
+X   register int  i;
+X
+X   buf[0] = 0;
+X   for (i=0; i<rel->num_f; i++)
+X      {
+X      p=(char *)rec +rel->start[i];
+X      switch (rel->type[i])
+X         {
+X         case T_CHAR:    strzcpy (temp, p, rel->siz[i]);               break;
+X         case T_SHORT:   sprintf (temp,    "%d",  (int)*(short  *)p);  break;
+X         case T_USHORT:  sprintf (temp,    "%u",  (int)*(ushort *)p);  break;
+X         case T_LONG:    sprintf (temp,   "%ld", *(long   *)p);        break;
+X         case T_ULONG:   sprintf (temp,   "%lu", *(ulong  *)p);        break;
+X         case T_FLOAT:   sprintf (temp,    "%f", *(float  *)p);        break;
+X         case T_DOUBLE:  sprintf (temp,   "%lf", *(double *)p);        break;
+X         case T_MONEY:   sprintf (temp,"%-.2lf", *(double *)p);        break;
+X         case T_TIME:    sprintf (temp,   "%ld", *(long   *)p);        break;
+X         case T_DATE:    sprintf (temp,   "%ld", *(long   *)p);        break;
+X         case T_SERIAL:  sprintf (temp,   "%ld", *(long   *)p);        break;
+X         case T_PHONE:   strzcpy (temp, p, 20);                        break;
+X         }
+X      if (strlen (buf) + strlen (temp) > 126)  break;
+X      strcat (buf, temp);
+X      strcat (buf, "|");
+X      }
+X
+X   printf ("%s\n", buf);
+X}
+X
+Xint
+X_comp_fld (rel, ptra, ptrb, fld)
+Xrelation  *rel;
+Xdataptr         ptra, ptrb;
+Xint                         fld;
+X{
+X   char  *a, *b;
+X   int    n;
+X
+X   n = rel->siz[fld];
+X
+X   _cryptf ((dataptr)(a = (char *)ptra +rel->start[fld]), n, rel->mask);
+X   _cryptf ((dataptr)(b = (char *)ptrb +rel->start[fld]), n, rel->mask);
+X
+X   switch (rel->type[fld])
+X      {
+X      case T_SHORT:   n = _comp_short  ((short  *)a, (short  *)b);     break;
+X      case T_USHORT:  n = _comp_ushort ((ushort *)a, (ushort *)b);     break;
+X      case T_LONG:    n = _comp_long   ((long   *)a, (long   *)b);     break;
+X      case T_ULONG:   n = _comp_ulong  ((ulong  *)a, (ulong  *)b);     break;
+X      case T_FLOAT:   n = _comp_float  ((float  *)a, (float  *)b);     break;
+X      case T_DOUBLE:  n = _comp_double ((double *)a, (double *)b);     break;
+X      case T_MONEY:   n = _comp_double ((double *)a, (double *)b);     break;
+X      case T_TIME:    n = _comp_long   ((long   *)a, (long   *)b);     break;
+X      case T_DATE:    n = _comp_long   ((long   *)a, (long   *)b);     break;
+X      case T_SERIAL:  n = _comp_long   ((long   *)a, (long   *)b);     break;
+X      case T_PHONE:   n = _comp_string (a, b, n);  break;
+X      default:        n = _comp_string (a, b, n);  break;
+X      }
+X
+X   _cryptf ((dataptr)a, rel->siz[fld], rel->mask);
+X   _cryptf ((dataptr)b, rel->siz[fld], rel->mask);
+X
+X   return n;
+X}
+X
+Xint
+X_comp_short (a, b)
+Xshort       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_ushort (a, b)
+Xushort       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_long (a, b)
+Xlong       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_ulong (a, b)
+Xulong       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_float (a, b)
+Xfloat       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_double (a, b)
+Xdouble       *a,*b;
+X{
+X   return ((*a < *b) ? -1 : (*a > *b) ? 1 : 0);
+X}
+X
+Xint
+X_comp_string (a, b, n)
+Xchar         *a,*b;
+Xint                 n;
+X{
+X   int  i;
+X   i = strncmp (a,b,n);            /* THIS WON'T RETURN -1,0,1!! It returns  */
+X   return (i < 0) ? -1 : (i > 0);  /* different amounts on different systems */
+X}
+X
+Xdataptr
+X_rec     (rel, rcd)
+Xrelation *rel;
+Xlong           rcd;
+X{
+X   dataptr a;
+X   a = (dataptr)malloc (1+ rel->rec_len);
+X   return _memrec (rel, rcd, a);
+X}
+X
+Xdataptr
+X_memrec  (rel, rcd, a)
+Xrelation *rel;
+Xlong           rcd;
+Xdataptr             a;
+X{
+X   GO_RECID   (rel, rcd);
+X   readx      (rel->relcode, a, rel->rec_len);
+X   return a;
+X}
+X
+END_OF_FILE
+  if test 11746 -ne `wc -c <'src/util2.c'`; then
+    echo shar: \"'src/util2.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/util2.c'
+fi
+echo shar: End of archive 5 \(of 8\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

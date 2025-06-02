@@ -1,0 +1,1256 @@
+From decwrl!athertn!sander.cupertino.ca.us!paul@cs.purdue.edu Wed Jan  6 13:53:15 EST 1993
+Submit chipset-2 03/10 
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 10)."
+# Contents:  ChipSet src/btree/btmalloc.c src/btree/btsearch.c
+#   src/list/README src/list/dldelete.c src/list/dldelrank.c
+#   src/list/dldestroy.c src/list/dlinsert.c src/list/dlinsutl.c
+#   src/list/dlnext.c src/list/dlsearch.c src/list/dltrav.c
+# Wrapped by paul@sander on Sun Nov 22 15:41:49 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f ChipSet -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"ChipSet\"
+else
+echo shar: Extracting \"ChipSet\" \(2019 characters\)
+sed "s/^X//" >ChipSet <<'END_OF_ChipSet'
+XThe Software ChipSet is a collection of reusable software components that
+Xis being placed in the public domain by its author, Paul Sander.  The goal
+Xof the Software ChipSet is to provide small, general, production quality
+Xoff-the-shelf solutions to common problems that are faced by programmers.
+XIf compared to integrated circuits, these components probably best correspond
+Xto standard cells.  The complexity of the components are comparable to SSI
+X(small-scale integration) and MSI (medium scale integration) devices, but
+Xmany of them are reentrant and can be composed into larger components.
+X
+XThe components that comprise the Software ChipSet are intended to be general
+Xenough to be used in a wide variety of applications.  Two of the key features
+Xof these components are generalized interfaces, and programmability.  The
+Xgeneralized interfaces permit the components to be used with arbitrary data
+Xtypes.  Programmability permits the application to tune the components to
+Xits data types and performance requirements at run-time.  In addition, several
+Xcomponents solve similar problems with varying performance and storage
+Xcharacteristics; in such cases, the interfaces of the components are identical,
+Xsave for their initial configuration.
+X
+XThe programmability feature of the components also allows them to be composed
+Xinto larger components.  The design of the components is such that components
+Xburied deep in such a composition can still be configured by the application
+Xin a controlled way.  In addition, such components can be easily swapped out
+Xfor others should the programmer find that to be desirable.
+X
+XThe components are designed to be portable across Unix platforms, but many
+Xwill port to other platforms easily.  The target audience is rather ambitious:
+XAll platforms that support the standard Unix utilities, support a "void"
+Xtype, and have a "make" tool that is at least as capable as SVR2's.
+X
+XPlease send bug reports and other comments to Paul Sander via Internet mail
+Xat paul@sander.cupertino.ca.us .
+END_OF_ChipSet
+if test 2019 -ne `wc -c <ChipSet`; then
+    echo shar: \"ChipSet\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btmalloc.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btmalloc.c\"
+else
+echo shar: Extracting \"src/btree/btmalloc.c\" \(2613 characters\)
+sed "s/^X//" >src/btree/btmalloc.c <<'END_OF_src/btree/btmalloc.c'
+X/**************************************************************
+X *
+X * btmalloc.c -- This file contains functions that augment the
+X *               C runtime library memory allocator in order
+X *               to aid debugging.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X **************************************************************/
+X
+X#include <stdio.h>
+X
+X/* The following structure is used for debugging heap corruptions */
+X
+Xstruct heapblk {
+X	void	*blk;
+X	int	freeNext;
+X};
+X
+Xstruct heap_struct {
+X	int		allocSeq;
+X	int		freeLast;
+X	struct heapblk	blks[10000];
+X};
+X
+Xstruct heap_struct btheap = {0,-1}; 
+X
+X
+X/*
+X * The following code is used for allocating space on the heap.  When not
+X * debugging heap corruptions, a macro aliases bt_malloc with malloc.
+X */
+X
+X#ifdef __STDC__
+Xvoid *bt_malloc(unsigned size)
+X#else
+Xvoid *bt_malloc(size)
+Xunsigned	size;
+X#endif
+X{
+X	void	*temp;
+X
+X	temp = (void*) malloc(size);
+X	btheap.blks[btheap.allocSeq].blk = temp;
+X	btheap.blks[btheap.allocSeq].freeNext = -2;
+X	btheap.allocSeq++;
+X	return temp;
+X}
+X
+X/*
+X * The following code is used for freeing memory on the heap.  If not
+X * debugging heap corruptions, bt_free is aliased with free.
+X */
+X
+X#ifdef __STDC__
+Xvoid bt_free(void *ptr)
+X#else
+Xvoid bt_free(ptr)
+Xvoid	*ptr;
+X#endif
+X{
+X	int	i;
+X
+X	printf("Freeing heap storage at %x\n",ptr);
+X	for (i = 0; i < btheap.allocSeq; i++)
+X	{
+X		if (ptr == btheap.blks[i].blk)
+X		{
+X			if (btheap.blks[i].freeNext == -2)
+X			{
+X				btheap.blks[i].freeNext = btheap.freeLast;
+X				btheap.freeLast = i;
+X				free(ptr);
+X				return;
+X			}
+X			else
+X			{
+X				printf(
+X				  "ERROR: freeing %x which was already freed\n",
+X				  ptr);
+X				printf("Block\n");
+X				i = btheap.freeLast;
+X				while (i > 0)
+X				{
+X					printf("%x\n",btheap.blks[i].blk);
+X					i = btheap.blks[i].freeNext;
+X				}
+X				fflush(stdout);
+X				kill(getpid(),5);
+X			}
+X		}
+X	}
+X	printf("ERROR:  Freeing %x which has not been allocated\n",ptr);
+X	fflush(stdout);
+X	kill(getpid(),5);
+X}
+X
+X/* The following verifies the integrity of the heap. */
+X
+X#ifdef __STDC__
+Xint bt_malloc_verify(void)
+X#else
+Xint bt_malloc_verify()
+X#endif
+X{
+X	int	retval;
+X	int	once;
+X	int	i;
+X
+X	retval = 1;
+X	once = 0;
+X
+X#ifdef DEBUG
+X	for (i = 0; i < btheap.allocSeq; i++)
+X	{
+X		if (btheap.blks[i].freeNext == -2)
+X		{
+X			if (!once)
+X			{
+X				once = 1;
+X				printf("The following blocks are allocated:\n");
+X			}
+X			printf("%x\n",btheap.blks[i].blk);
+X		}
+X	}
+X	fflush(stdout);
+X#endif
+X
+X#ifdef sun
+X	retval = malloc_verify();
+X#endif
+X
+X	return retval;
+X}
+X
+X/***** End of file *****/
+X
+END_OF_src/btree/btmalloc.c
+if test 2613 -ne `wc -c <src/btree/btmalloc.c`; then
+    echo shar: \"src/btree/btmalloc.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/btree/btsearch.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/btree/btsearch.c\"
+else
+echo shar: Extracting \"src/btree/btsearch.c\" \(2365 characters\)
+sed "s/^X//" >src/btree/btsearch.c <<'END_OF_src/btree/btsearch.c'
+X/********************************************************************
+X * btsearch -- This file contains functions needed to locate an
+X *             item in an in-memory B-tree.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ********************************************************************/
+X
+X#include <stdio.h>
+X#include "btpriv.h"
+X
+X/***********************************************************************
+X *
+X * bt_locate -- This function performs a recursive-descent search of
+X *              a sub-tree for a key.  The key is returned if found,
+X *              or NULL otherwise.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xstatic void *bt_locate(BTREE tree, BTNODE *node, void *target, int (*comp)(),
+X                       void **data)
+X#else
+Xstatic void *bt_locate(tree,node,target,comp,data)
+XBTREE	tree;
+XBTNODE	*node;
+Xvoid	*target;
+Xint	(*comp)();
+Xvoid	**data;
+X#endif
+X{
+X	int	res;
+X	int	i;
+X	int	eq;
+X
+X	COVER("btsearch.c",1);
+X	i = bt_searchNode(node,target,comp,&eq);
+X	node->currKey = i;
+X	if (eq)
+X	{
+X		COVER("btsearch.c",2);
+X		tree->currNode = node;
+X		tree->nextOk = 1;
+X		if (data != NULL)
+X		{
+X			COVER("btsearch.c",3);
+X			*data = node->data[i];
+X		}
+X		COVER("btsearch.c",4);
+X		return node->keys[i];
+X	}
+X	else if (node->children == NULL)
+X	{
+X		COVER("btsearch.c",5);
+X		tree->currNode = node;
+X		tree->nextOk = 0;
+X		return NULL;
+X	}
+X	else
+X	{
+X		COVER("btsearch.c",6);
+X		return bt_locate(tree,node->children[i],target,comp,data);
+X	}
+X}
+X
+X/***********************************************************************
+X *
+X * bt_search -- This function searches a tree for a specified key.  The
+X *              key is returned if found, or NULL if not.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *bt_search(void *ptree, void *target, void **data)
+X#else
+Xvoid *bt_search(ptree,target,data)
+Xvoid	*ptree;
+Xvoid	*target;
+Xvoid	**data;
+X#endif
+X{
+X	BTREE	tree;
+X
+X	tree = (BTREE) ptree;
+X	if (tree == NULL)
+X	{
+X		COVER("btsearch.c",7);
+X		return NULL;
+X	}
+X	if (target == NULL)
+X	{
+X		COVER("btsearch.c",8);
+X		return NULL;
+X	}
+X	COVER("btsearch.c",9);
+X	return bt_locate(tree,tree->root,target,tree->comp,data);
+X}
+X
+X/*********** End of file ************/
+X
+END_OF_src/btree/btsearch.c
+if test 2365 -ne `wc -c <src/btree/btsearch.c`; then
+    echo shar: \"src/btree/btsearch.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/README\"
+else
+echo shar: Extracting \"src/list/README\" \(2643 characters\)
+sed "s/^X//" >src/list/README <<'END_OF_src/list/README'
+XThis directory contains source code to an doubly-linked list implementation.
+XIt can be used as a unique-key index (i.e. no two keys can be the same, and
+Xthey are kept sorted), or as a stack, queue, or dequeue.
+X
+XThis implementation has been placed in the public domain by its author,
+XPaul Sander, to be used as you wish.  However, if you add neat new features,
+XI'd appreciate having a copy sent to me at paul@sander.cupertino.ca.us .
+X
+XYou are strongly urged to review the Makefile.  It contains a lot of stuff
+Xthat is specific to my system, but configuring it to your needs should be
+Xstraightforward.  The most important places to look are at the macros near
+Xthe beginning of the file, and in the "installDocs" and "installLib" recipes.
+X
+XAlso review the dldump.c file.  It contains additional debugging code that
+Xdisplay the contents of a list to the standard output device.  This file
+Xcontains platform-specific code to format pointers.
+X
+XTo build the library on a Unix system, invoke "make".  VMS users will need
+Xto translate the Makefile into a DESCRIP.MMS file.  Others will need to do
+Xsomething different, of course.  The code should compile under either an
+XANSI or a K&R compiler.  If your implementation predates the "void" type,
+Xyou should add a typedef or macro to the .h files to alias the "char" type
+Xas "void".
+X
+XOnline documentation has been provided.  It consists of source code using
+Xthe Unix "man" macros, and also ASCII plaintext and PostScript versions
+Xproduced by nroff and troff, respectively.  The plaintext and PostScript
+Xdocuments can be rebuilt by invoking the "make docs" command.
+X
+XInstallation should be done by invoking other tools provided with the
+XSoftware ChipSet that package the components up and install them in one
+Xpass.  For details about using these tools, please see the ../../README
+Xfile.
+X
+XThere is a test program that performs a very rigorous test of the list
+Ximplementation.  The program is built by invoking "make test".  It is
+Xalso built as the result of "make all" or simply "make".  To run the test,
+Xinvoke the command "./test | tail -1" should echo "TEST PASSED" to the
+Xcontrolling tty.
+X
+XAn attempt to do coverage analysis was done by hand.  To view the coverage,
+Xcompile the library while #define'ing the COVERAGE macro and run the test
+Xprogram.  The test program's output will then contain data reflecting each
+Xdecision point in the library.  Portions of the code not stimulated by the
+Xtest program are noted in comments in the source code, or fall along paths
+Xwhere malloc fails (which is difficult to induce in a controlled way).  Each
+Xof these paths has been reviewed and appears to be correct.
+X
+END_OF_src/list/README
+if test 2643 -ne `wc -c <src/list/README`; then
+    echo shar: \"src/list/README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dldelete.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dldelete.c\"
+else
+echo shar: Extracting \"src/list/dldelete.c\" \(2017 characters\)
+sed "s/^X//" >src/list/dldelete.c <<'END_OF_src/list/dldelete.c'
+X/*******************************************************************
+X *
+X * dldelete.c -- This file contains functions to delete from a
+X *               sorted list.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *******************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/*******************************************************************
+X *
+X * dll_delete -- This function deletes a node by key from a sorted
+X *               list.
+X *
+X *******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *dll_delete(DL_LIST plist, void *key, void **data)
+X#else
+Xvoid *dll_delete(plist,key,data)
+XDL_LIST	plist;
+Xvoid	*key;
+Xvoid	**data;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*this;
+X	int	res;
+X	void	*retval;
+X
+X	COVER("dldelete.c",1);
+X
+X	/* Validate list parameter */
+X	if (plist == NULL)
+X	{
+X		COVER("dldelete.c",2);
+X		return NULL;
+X	}
+X	list = (LIST*) plist;
+X	if (list->last == NULL)
+X	{
+X		COVER("dldelete.c",3);
+X		return NULL;
+X	}
+X	if (list->comp == NULL)
+X	{
+X		COVER("dldelete.c",4);
+X		return NULL;
+X	}
+X
+X	/* Perform sequential search for node */
+X	COVER("dldelete.c",5);
+X	res = dll_locate(list,key,&this);
+X
+X	/* Unlink and free node if found */
+X	if (res == 0)
+X	{
+X		COVER("dldelete.c",6);
+X		retval = this->key;
+X		if (data != NULL)
+X		{
+X			COVER("dldelete.c",7);
+X			*data = this->data;
+X		}
+X		COVER("dldelete.c",8);
+X		dll_unlink(this);
+X
+X		/* Special consideration if this is the tail of the list */
+X		if (this == list->last)
+X		{
+X			if (this->prev != this)
+X			{
+X				COVER("dldelete.c",9);
+X				list->last = this->prev;
+X			}
+X			else
+X			{
+X				COVER("dldelete.c",10);
+X				list->last = NULL;
+X			}
+X		}
+X		COVER("dldelete.c",11);
+X		dll_freeNode(this);
+X		list->size -= 1;
+X		dll_touch(list);
+X	}
+X	else
+X	{
+X		COVER("dldelete.c",12);
+X		retval = NULL;
+X	}
+X	COVER("dldelete.c",13);
+X	return retval;
+X}
+X
+X/************** End of file **************/
+X
+END_OF_src/list/dldelete.c
+if test 2017 -ne `wc -c <src/list/dldelete.c`; then
+    echo shar: \"src/list/dldelete.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dldelrank.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dldelrank.c\"
+else
+echo shar: Extracting \"src/list/dldelrank.c\" \(2117 characters\)
+sed "s/^X//" >src/list/dldelrank.c <<'END_OF_src/list/dldelrank.c'
+X/*******************************************************************
+X *
+X * dldelrank.c -- This file contains functions to delete from a
+X *                list, given an item's rank.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *******************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/*******************************************************************
+X *
+X * dll_delRank -- This function deletes a node by rank from a list.
+X *
+X *******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *dll_delRank(DL_LIST plist, int rank, void **data)
+X#else
+Xvoid *dll_delRank(plist,rank,data)
+XDL_LIST	plist;
+Xint	rank;
+Xvoid	**data;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*this;
+X	int	res;
+X	void	*retval;
+X
+X	COVER("dldelrank.c",1);
+X
+X	/* Validate list parameter */
+X	if (plist == NULL)
+X	{
+X		COVER("dldelrank.c",2);
+X		return NULL;
+X	}
+X	list = (LIST*) plist;
+X	if (list->last == NULL)
+X	{
+X		COVER("dldelrank.c",3);
+X		return NULL;
+X	}
+X	if (rank < 0)
+X	{
+X		COVER("dldelrank.c",4);
+X		return NULL;
+X	}
+X	if (rank >= list->size)
+X	{
+X		COVER("dldelrank.c",5);
+X		return NULL;
+X	}
+X
+X	/* Find the node with the given rank */
+X	COVER("dldelrank.c",6);
+X	this = dll_locRank(list,rank);
+X
+X	/* Unlink and free node if found */
+X	if (this != NULL)
+X	{
+X		COVER("dldelrank.c",7);
+X		retval = this->key;
+X		if (data != NULL)
+X		{
+X			COVER("dldelrank.c",8);
+X			*data = this->data;
+X		}
+X		dll_unlink(this);
+X
+X		/* Special consideration if this is the tail of the list */
+X		if (this == list->last)
+X		{
+X			if (this->prev != this)
+X			{
+X				COVER("dldelrank.c",9);
+X				list->last = this->prev;
+X			}
+X			else
+X			{
+X				COVER("dldelrank.c",10);
+X				list->last = NULL;
+X			}
+X		}
+X		COVER("dldelrank.c",11);
+X		dll_freeNode(this);
+X		list->size -= 1;
+X		dll_touch(list);
+X	}
+X	else
+X	{
+X		/*
+X		 * Earlier tests on rank prevent this code from being
+X		 * reached.
+X		 */
+X		COVER("dldelrank.c",12);
+X		retval = NULL;
+X	}
+X	return retval;
+X}
+X
+X/************** End of file **************/
+X
+END_OF_src/list/dldelrank.c
+if test 2117 -ne `wc -c <src/list/dldelrank.c`; then
+    echo shar: \"src/list/dldelrank.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dldestroy.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dldestroy.c\"
+else
+echo shar: Extracting \"src/list/dldestroy.c\" \(2627 characters\)
+sed "s/^X//" >src/list/dldestroy.c <<'END_OF_src/list/dldestroy.c'
+X/************************************************************************
+X *
+X * dldestroy.c -- This file contains routines needed for destroying
+X *                doubly-linked lists.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ************************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/************************************************************************
+X *
+X * dll_destroy -- This function destroys a doubly-linked list.  It is
+X *                passed the doomed list, along with pointers to functions
+X *                that destroy the keys and client-defined data stored in
+X *                each node in the list.  An additional parameter is
+X *                passed along to the callback functions without modification.
+X *                The freeData function is always called before the freeKey
+X *                function.  Either or both of these may be NULL, in which
+X *                no action is taken for that item.  The interfaces for
+X *                freeKey and freeData are the same, which is the following:
+X *
+X *                void freeMe(keyOrData,info)
+X *                void *keyOrData;
+X *                void *info;
+X *
+X ************************************************************************/
+X
+X#ifdef __STDC__
+Xvoid dll_destroy(DL_LIST plist, void (*freeKey)(void*,void*),
+X                 void(*freeData)(void*,void*), void *info)
+X#else
+Xvoid dll_destroy(plist,freeKey,freeData,info)
+XDL_LIST	plist;
+Xvoid	(*freeKey)();
+Xvoid	(*freeData)();
+Xvoid	*info;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*this;
+X	NODE	*next;
+X
+X	COVER("dldestroy.c",1);
+X	list = (LIST*) plist;
+X	if (list != NULL)
+X	{
+X		COVER("dldestroy.c",2);
+X		if (list->last != NULL)
+X		{
+X			COVER("dldestroy.c",3);
+X			this = list->last->next;
+X			while (this != list->last)
+X			{
+X				COVER("dldestroy.c",4);
+X				next = this->next;
+X				if (freeData != NULL)
+X				{
+X					COVER("dldestroy.c",5);
+X					(*freeData)(this->data,info);
+X				}
+X				if (freeKey != NULL)
+X				{
+X					COVER("dldestroy.c",6);
+X					(*freeKey)(this->key,info);
+X				}
+X				COVER("dldestroy.c",7);
+X				free(this);
+X				this = next;
+X			}
+X			if (freeData != NULL)
+X			{
+X				COVER("dldestroy.c",8);
+X				(*freeData)(this->data,info);
+X			}
+X			if (freeKey != NULL)
+X			{
+X				COVER("dldestroy.c",9);
+X				(*freeKey)(this->key,info);
+X			}
+X			COVER("dldestroy.c",10);
+X			free(this);
+X		}
+X		COVER("dldestroy.c",11);
+X		free(list);
+X	}
+X	COVER("dldestroy.c",12);
+X	return;
+X}
+X
+X/************* End of file **************/
+X
+END_OF_src/list/dldestroy.c
+if test 2627 -ne `wc -c <src/list/dldestroy.c`; then
+    echo shar: \"src/list/dldestroy.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dlinsert.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dlinsert.c\"
+else
+echo shar: Extracting \"src/list/dlinsert.c\" \(2606 characters\)
+sed "s/^X//" >src/list/dlinsert.c <<'END_OF_src/list/dlinsert.c'
+X/*****************************************************************
+X *
+X * dlinsert.c -- This file contains functions needed to perform
+X *               insertion into sorted doubly-linked lists.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *****************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/*****************************************************************
+X *
+X * dll_insert -- This function takes as its parameters a doubly-
+X *               linked list, a key, and a pointer to arbitrary
+X *               data.  It performs a linear search of the list
+X *               and inserts a new node in the appropriate place
+X *               if the key is not found.  Returns values are:
+X *               1 for success, 0 for failure, -1 for duplicate
+X *               key.
+X *
+X *****************************************************************/
+X
+X#ifdef __STDC__
+Xint dll_insert(DL_LIST plist, void *key, void *data)
+X#else
+Xint dll_insert(plist,key,data)
+XDL_LIST	plist;
+Xvoid	*key;
+Xvoid	*data;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*this;
+X	NODE	*next;
+X	int	res;
+X
+X	COVER("dlinsert.c",1);
+X
+X	/* Initialization */
+X	list = (LIST*) plist;
+X
+X	/* Validate list parameter */
+X	if (list == NULL)
+X	{
+X		COVER("dlinsert.c",2);
+X		return 0;
+X	}
+X	if (list->comp == NULL)
+X	{
+X		COVER("dlinsert.c",3);
+X		return 0;
+X	}
+X
+X	/* Validate key parameter */
+X	if (key == NULL)
+X	{
+X		COVER("dlinsert.c",4);
+X		return 0;
+X	}
+X
+X	/* Perform insertion */
+X	COVER("dlinsert.c",5);
+X	if (list->last == NULL)
+X	{
+X		/* Insert first node into empty list */
+X		COVER("dlinsert.c",6);
+X		this = dll_newNode(key,data);
+X		if (this == NULL) return 0;
+X		dll_store(this,this);
+X		list->last = this;
+X	}
+X	else
+X	{
+X		/* Perform sequential search of list for given key */
+X		COVER("dlinsert.c",7);
+X		res = dll_locate(list,key,&this);
+X
+X		/* Test for duplicate */
+X		if (res == 0)
+X		{
+X			COVER("dlinsert.c",8);
+X			return -1;
+X		}
+X
+X		/* Create new node for new key */
+X		next = dll_newNode(key,data);
+X		if (next == NULL)
+X		{
+X			COVER("dlinsert.c",9);
+X			return 0;
+X		}
+X
+X		/*
+X		 * Insert before "this" node if new key is less than "this",
+X		 * else insert after end of list and update list structure.
+X		 */
+X		if (res > 0)
+X		{
+X			COVER("dlinsert.c",10);
+X			dll_store(this->prev,next);
+X		}
+X		else
+X		{
+X			COVER("dlinsert.c",11);
+X			dll_store(list->last,next);
+X			list->last = next;
+X		}
+X	}
+X	COVER("dlinsert.c",12);
+X	list->size += 1;
+X	dll_touch(list);
+X	return 1;
+X}
+X
+X/*********** End of file ***********/
+X
+END_OF_src/list/dlinsert.c
+if test 2606 -ne `wc -c <src/list/dlinsert.c`; then
+    echo shar: \"src/list/dlinsert.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dlinsutl.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dlinsutl.c\"
+else
+echo shar: Extracting \"src/list/dlinsutl.c\" \(1963 characters\)
+sed "s/^X//" >src/list/dlinsutl.c <<'END_OF_src/list/dlinsutl.c'
+X/*****************************************************************
+X *
+X * dlinsutl.c -- This file contains utility functions used in
+X *               inserting nodes into a list.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X *****************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X
+X/*****************************************************************
+X *
+X * dll_newNode -- This function creates and initializes a new node
+X *                for a linked list.  The function's parameters
+X *                are a pointer to a client-defined key and
+X *                a pointer to arbitrary data.  The return value
+X *                is a pointer to the new node, or NULL in case of
+X *                error.
+X *
+X *****************************************************************/
+X
+X#ifdef __STDC__
+XNODE *dll_newNode(void *key, void *data)
+X#else
+XNODE *dll_newNode(key,data)
+Xvoid	*key;
+Xvoid	*data;
+X#endif
+X{
+X	NODE	*retval;
+X
+X	COVER("dlinsutl.c",1);
+X	retval = (NODE*) malloc(sizeof(NODE));
+X	if (retval != NULL)
+X	{
+X		COVER("dlinsutl.c",2);
+X		retval->key = key;
+X		retval->data = data;
+X		retval->next = NULL;
+X		retval->prev = NULL;
+X	}
+X	COVER("dlinsutl.c",3);
+X	return retval;
+X}
+X
+X/*****************************************************************
+X *
+X * dll_store -- This function inserts node2 into the linked list
+X *              after node1.  Node2 is assumed not to be linked
+X *              into the list.
+X *
+X *****************************************************************/
+X
+X#ifdef __STDC__
+Xvoid dll_store(NODE *node1, NODE *node2)
+X#else
+Xvoid dll_store(node1,node2)
+XNODE	*node1;
+XNODE	*node2;
+X#endif
+X{
+X	COVER("dlinsutl.c",4);
+X	node2->prev = node1;
+X	node2->next = node1->next;
+X	node1->next = node2;
+X	node2->next->prev = node2;
+X	return;
+X}
+X
+X/************* End of file **************/
+X
+END_OF_src/list/dlinsutl.c
+if test 1963 -ne `wc -c <src/list/dlinsutl.c`; then
+    echo shar: \"src/list/dlinsutl.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dlnext.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dlnext.c\"
+else
+echo shar: Extracting \"src/list/dlnext.c\" \(2145 characters\)
+sed "s/^X//" >src/list/dlnext.c <<'END_OF_src/list/dlnext.c'
+X/***********************************************************************
+X *
+X * dlnext.c -- This file contains the dll_next function.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ***********************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/***********************************************************************
+X *
+X * dll_next -- This function returns the next key stored in the list.
+X *             If the list is sorted, this key is the next highest in
+X *             the lexical order of keys stored in the tree.
+X *
+X ***********************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *dll_next(DL_LIST plist, void **data)
+X#else
+Xvoid *dll_next(plist,data)
+XDL_LIST	plist;
+Xvoid	**data;
+X#endif
+X{
+X	LIST	*list;
+X
+X	COVER("dlnext.c",1);
+X
+X	/* Validate parameters */
+X	list = (LIST*) plist;
+X	if (list == NULL)
+X	{
+X		COVER("dlnext.c",2);
+X		return NULL;
+X	}
+X	if (list->last == NULL)
+X	{
+X		COVER("dlnext.c",3);
+X		return NULL;
+X	}
+X
+X	/* Require a search, first, or next */
+X	if (list->changed)
+X	{
+X		COVER("dlnext.c",4);
+X		return NULL;
+X	}
+X
+X	/* If no search was done, return first item in list */
+X	if ((list->current == NULL) && (! list->nextOk))
+X	{
+X		/*
+X		 * This is never reached.  This condition is met only after
+X		 * the linked list has been changed, in which case the test
+X		 * above causes this function to fail.
+X		 */
+X		COVER("dlnext.c",5);
+X		return dll_first(plist,data);
+X	}
+X
+X	/* Indicate error if list is overrun */
+X	if (((list->current == list->last) && (! list->nextOk)) ||
+X	    (list->current == NULL))
+X	{
+X		COVER("dlnext.c",6);
+X		list->current = NULL;
+X		list->nextOk = 1;
+X		return NULL;
+X	}
+X	COVER("dlnext.c",7);
+X
+X	/* Return next item in list */
+X	if (! list->nextOk)
+X	{
+X		COVER("dlnext.c",8);
+X		list->current = list->current->next;
+X	}
+X	COVER("dlnext.c",9);
+X	list->nextOk = 0;
+X	if (data != NULL)
+X	{
+X		COVER("dlnext.c",10);
+X		*data = list->current->data;
+X	}
+X	return list->current->key;
+X}
+X
+X/************ End of file ************/
+X
+END_OF_src/list/dlnext.c
+if test 2145 -ne `wc -c <src/list/dlnext.c`; then
+    echo shar: \"src/list/dlnext.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dlsearch.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dlsearch.c\"
+else
+echo shar: Extracting \"src/list/dlsearch.c\" \(1912 characters\)
+sed "s/^X//" >src/list/dlsearch.c <<'END_OF_src/list/dlsearch.c'
+X/******************************************************************
+X *
+X * dlsearch.c -- This file contains functions used for searching
+X *               sorted lists for specified keys.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ******************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/******************************************************************
+X *
+X * dll_search -- This function searches a sorted list for a specified
+X *               key.
+X *
+X ******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid *dll_search(DL_LIST plist, void *target, void **data)
+X#else
+Xvoid *dll_search(plist,target,data)
+XDL_LIST	plist;
+Xvoid	*target;
+Xvoid	**data;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*node;
+X	int	res;
+X	void	*retval;
+X
+X	COVER("dlsearch.c",1);
+X
+X	/* Validate parameters */
+X	if (plist == NULL)
+X	{
+X		COVER("dlsearch.c",2);
+X		return NULL;
+X	}
+X	list = (LIST*) plist;
+X	if (list->last == NULL)
+X	{
+X		COVER("dlsearch.c",3);
+X		return NULL;
+X	}
+X	if (list->comp == NULL)
+X	{
+X		COVER("dlsearch.c",4);
+X		return NULL;
+X	}
+X
+X	/* Perform sequential search for target */
+X	res = dll_locate(list,target,&node);
+X	if (res < 0)
+X	{
+X		/* Target is higher than highest key, overran list */
+X		COVER("dlsearch.c",5);
+X		list->current = NULL;
+X		list->nextOk = 1;
+X		retval = NULL;
+X	}
+X	else if (res > 0)
+X	{
+X		/* Target not found, but has a successor */
+X		COVER("dlsearch.c",6);
+X		list->current = node;
+X		list->nextOk = 1;
+X		retval = NULL;
+X	}
+X	else
+X	{
+X		/* Target was found */
+X		COVER("dlsearch.c",7);
+X		list->current = node;
+X		list->nextOk = 0;
+X		if (data != NULL)
+X		{
+X			COVER("dlsearch.c",8);
+X			*data = node->data;
+X		}
+X		retval = target;
+X	}
+X	list->changed = 0;
+X	return retval;
+X}
+X
+X/*************** End of file **************/
+X
+END_OF_src/list/dlsearch.c
+if test 1912 -ne `wc -c <src/list/dlsearch.c`; then
+    echo shar: \"src/list/dlsearch.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f src/list/dltrav.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"src/list/dltrav.c\"
+else
+echo shar: Extracting \"src/list/dltrav.c\" \(2110 characters\)
+sed "s/^X//" >src/list/dltrav.c <<'END_OF_src/list/dltrav.c'
+X/******************************************************************
+X *
+X * dltrav.c -- This file contains functions used for traversing
+X *             linked lists.
+X *
+X * This file is part of a suite of programs called Software Chipset.
+X * The source code for Software Chipset has been released into the
+X * public domain by its author, Paul Sander.
+X *
+X ******************************************************************/
+X
+X#include <stdio.h>
+X#include "dlpriv.h"
+X
+X/******************************************************************
+X *
+X * dll_traverse -- This function traverses a linked list, calling
+X *                 a client-provided visitation function once for
+X *                 each node stored there.  If the list is sorted,
+X *                 the nodes are visited in the lexical order of
+X *                 the keys.  If the list is unsorted, the nodes
+X *                 are visited in the order in which dll_first and
+X *                 dll_next visits them.
+X *
+X *                 The interface for the visitation function follows:
+X *
+X *			void fn(key,parms,data)
+X *			void	*key;
+X *			void	*parms;
+X *			void	*data;
+X *
+X *                 where "key" is the key stored in the node, "parms"
+X *                 is an arbitrary client-specified pointer passed
+X *                 to dll_traverse, and "data" is the data pointer
+X *                 stored in the node.
+X *
+X ******************************************************************/
+X
+X#ifdef __STDC__
+Xvoid	dll_traverse(DL_LIST plist, void (*fn)(void*,void*,void*), void *parms)
+X#else
+Xvoid	dll_traverse(plist,fn,parms)
+XDL_LIST	plist;
+Xvoid	(*fn)();
+Xvoid	*parms;
+X#endif
+X{
+X	LIST	*list;
+X	NODE	*node;
+X
+X	COVER("dltrav.c",1);
+X	list = (LIST*) plist;
+X	if (list == NULL)
+X	{
+X		COVER("dltrav.c",2);
+X		return;
+X	}
+X	if (list->last == NULL)
+X	{
+X		COVER("dltrav.c",3);
+X		return;
+X	}
+X	if (fn == NULL)
+X	{
+X		COVER("dltrav.c",4);
+X		return;
+X	}
+X
+X	node = list->last->next;
+X	do
+X	{
+X		COVER("dltrav.c",5);
+X		(*fn)(node->key,parms,node->data);
+X		node = node->next;
+X	} while (node != list->last->next);
+X	COVER("dltrav.c",6);
+X	return;
+X}
+X
+X/************** End of file **************/
+X
+END_OF_src/list/dltrav.c
+if test 2110 -ne `wc -c <src/list/dltrav.c`; then
+    echo shar: \"src/list/dltrav.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 3 \(of 10\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    echo "Now edit common.mk and do a 'make all'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+

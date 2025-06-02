@@ -1,0 +1,1737 @@
+Newsgroups: comp.sources.misc
+From: astrolog@u.washington.edu (Astrolog)
+Subject: v37i074:  astrolog - Generation of astrology charts v3.05, Part05/12
+Message-ID: <1993May19.061622.11488@sparky.imd.sterling.com>
+X-Md4-Signature: 70fb06081e0808e7eff1a569a6cc4232
+Date: Wed, 19 May 1993 06:16:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: astrolog@u.washington.edu (Astrolog)
+Posting-number: Volume 37, Issue 74
+Archive-name: astrolog/part05
+Environment: UNIX, DOS, VMS
+Supersedes: astrolog: Volume 30, Issue 62-69
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 12)."
+# Contents:  xgeneral.c xdriver.c
+# Wrapped by pul@hardy on Sun May 16 22:23:16 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xgeneral.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xgeneral.c'\"
+else
+echo shar: Extracting \"'xgeneral.c'\" \(16971 characters\)
+sed "s/^X//" >'xgeneral.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: xgeneral.c
+X** Initially programmed 10/23-29/1991.
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef GRAPH
+X
+X/* Macros to access a point in a bitmap. */
+X
+X#ifdef NOPC
+X#define AIND(B, X, Y) ((B)->m[(X) >> 1][(Y)])
+X#else
+X#define AIND(B, X, Y) ((B)[(long)(Y)*(long)(BITMAPX >> 1) + ((X) >> 1)])
+X#endif
+X#define PGET(B, X, Y) (AIND(B, X, Y) >> (((X)&1^1) << 2) & 15)
+X#define PSET(B, X, Y, O) AIND(B, X, Y) = AIND(B, X, Y) & \
+X  15 << (((X)&1) << 2) | (O) << (((X)&1^1) << 2)
+X
+X
+X/*
+X*******************************************************************************
+X** Core graphic procedures
+X*******************************************************************************
+X*/
+X
+X/* Set a single point on the screen. This is the most basic graphic function */
+X/* and is called by all the more complex routines. Based on what mode we are */
+X/* in, we either set a cell in the bitmap array or a pixel on the window.    */
+X
+Xvoid DrawPoint(x, y, o)
+Xint x, y;
+Xbit o;
+X{
+X  if (xbitmap) {
+X
+X    /* Force the coordinates to be within the bounds of the bitmap. */
+X
+X    if (x < 0)
+X      x = 0;
+X    else if (x >= chartx)
+X      x = chartx-1;
+X    if (y < 0)
+X      y = 0;
+X    else if (y >= charty)
+X      y = charty-1;
+X    PSET(bm, x, y, o);
+X  }
+X#ifdef X11
+X  else
+X    XDrawPoint(disp, pixmap, gc, x, y);
+X#endif
+X#ifdef MSC
+X  else
+X    _setpixel(x, y);
+X#endif
+X}
+X
+X
+X/* Draw dot a little larger than just a single pixel at specified location. */
+X
+Xvoid DrawSpot(x, y, o)
+Xint x, y;
+Xbit o;
+X{
+X  DrawPoint(x, y, o);
+X  DrawPoint(x, y-1, o);
+X  DrawPoint(x-1, y, o);
+X  DrawPoint(x+1, y, o);
+X  DrawPoint(x, y+1, o);
+X}
+X
+X
+X/* Draw a filled in block, defined by the corners of its rectangle. */
+X
+Xvoid DrawBlock(x1, y1, x2, y2, o)
+Xint x1, y1, x2, y2;
+Xbit o;
+X{
+X  int x, y;
+X  SORT(y1, y2); SORT(x1, x2);
+X  if (xbitmap)
+X    for (y = y1; y <= y2; y++)         /* For bitmap, it's faster to  */
+X      for (x = x1; x <= x2; x++)       /* just fill in the array.     */
+X        PSET(bm, x, y, o);
+X#ifdef X11
+X  else
+X    for (y = y1; y <= y2; y++)         /* For X window, let's go call */
+X      DrawLine(x1, y, x2, y, o, 0);    /* XDrawLine for fewer events. */
+X#endif
+X#ifdef MSC
+X  else {
+X    Xcolor(o);
+X    _rectangle(_GFILLINTERIOR, x1, y1, x2, y2);
+X  }
+X#endif
+X}
+X
+X
+X/* Draw a rectangle on the screen with specified thickness. This is just   */
+X/* like DrawBlock() except that we are only drawing the edges of the area. */
+X
+Xvoid DrawBox(x1, y1, x2, y2, xsiz, ysiz, o)
+Xint x1, y1, x2, y2, xsiz, ysiz;
+Xbit o;
+X{
+X  DrawBlock(x1, y1, x2, y1 + ysiz - 1, o);
+X  DrawBlock(x1, y1 + ysiz, x1 + xsiz - 1, y2 - ysiz, o);
+X  DrawBlock(x2 - xsiz + 1, y1 + ysiz, x2, y2 - ysiz, o);
+X  DrawBlock(x1, y2 - ysiz + 1, x2, y2, o);
+X}
+X
+X
+X/* Draw a line on the screen, specified by its endpoints. In addition, we */
+X/* have specified a skip factor, which allows us to draw dashed lines.    */
+X
+Xvoid DrawLine(x1, y1, x2, y2, o, skip)
+Xint x1, y1, x2, y2, skip;
+Xbit o;
+X{
+X  int x = x1, y = y1, xadd, yadd, yinc, xabs, yabs, i, j = 0;
+X
+X  if (skip < 0)
+X    skip = 0;
+X#ifdef X11
+X  if (!xbitmap) {
+X    Xcolor(o);
+X
+X    /* For non-dashed X window lines, let's just have the Xlib do it for us. */
+X
+X    if (!skip) {
+X      XDrawLine(disp, pixmap, gc, x1, y1, x2, y2);
+X      return;
+X    }
+X  }
+X#endif
+X#ifdef MSC
+X  if (!xbitmap) {
+X    Xcolor(o);
+X
+X    /* For non-dashed lines, let's have the graphics library do it for us. */
+X
+X    if (!skip) {
+X      _moveto(x1, y1);
+X      _lineto(x2, y2);
+X      return;
+X    }
+X  }
+X#endif
+X  xadd = x2 - x1 >= 0 ? 1 : 3;
+X  yadd = y2 - y1 >= 0 ? 2 : 4;
+X  xabs = abs(x2 - x1);
+X  yabs = abs(y2 - y1);
+X
+X  /* Technically what we're doing here is drawing a line which is more    */
+X  /* horizontal then vertical. We always increment x by 1, and increment  */
+X  /* y whenever a fractional variable passes a certain amount. For lines  */
+X  /* that are more vertical than horizontal, we just swap x and y coords. */
+X
+X  if (xabs < yabs) {
+X    SWAP(xadd, yadd);
+X    SWAP(xabs, yabs);
+X  }
+X  yinc = (xabs >> 1) - ((xabs & 1 ^ 1) && xadd > 2);
+X  for (i = xabs+1; i; i--) {
+X    if (j < 1)
+X      DrawPoint(x, y, o);
+X    j = j < skip ? j+1 : 0;
+X    switch (xadd) {
+X    case 1: x++; break;
+X    case 2: y++; break;
+X    case 3: x--; break;
+X    case 4: y--; break;
+X    }
+X    yinc += yabs;
+X    if (yinc - xabs >= 0) {
+X      yinc -= xabs;
+X      switch (yadd) {
+X      case 1: x++; break;
+X      case 2: y++; break;
+X      case 3: x--; break;
+X      case 4: y--; break;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/* Draw a normal line on the screen; however, if the x coordinates are close */
+X/* to opposite sides of the window, then we assume that the line runs off    */
+X/* one side and reappears on the other, so draw the appropriate two lines    */
+X/* instead. This is used by the Ley line and astro-graph routines, which     */
+X/* draw lines running around the world and hence off the edges of the maps.  */
+X
+Xvoid DrawWrap(xold, yold, xnew, ynew, o)
+Xint xold, yold, xnew, ynew;
+Xbit o;
+X{
+X  int xmid, ymid, i;
+X
+X  if (xold < 0) {
+X    DrawPoint(xnew, ynew, o);
+X    return;
+X  }
+X  xmid = 180*SCALE;
+X
+X  /* If endpoints aren't near opposite edges, just draw the line and return. */
+X
+X  if (dabs((real)(xnew-xold)) < (real) xmid) {
+X    DrawLine(xold, yold, xnew, ynew, o, 0);
+X    return;
+X  }
+X  i = xold < xmid ? xold+chartx-xnew-2 : xnew+chartx-xold-2;
+X
+X  /* Determine vertical coordinate where our line runs off edges of screen. */
+X
+X  ymid = yold+(int)((real)(ynew-yold)*
+X    (xold < xmid ? (real)(xold-1) : (real)(chartx-xold-2))/(real)i);
+X  DrawLine(xold, yold, xold < xmid ? 1 : chartx-2, ymid, o, 0);
+X  DrawLine(xnew < xmid ? 1 : chartx-2, ymid, xnew, ynew, o, 0);
+X}
+X
+X
+X/* This routine, and its companion below, clips a line defined by its */
+X/* endpoints to either above the y=0 line, or below some line y=c. By */
+X/* passing in parameters in different orders, we can clip to vertical */
+X/* lines, too. These are used by the DrawClip() routine below.        */
+X
+Xvoid ClipNegative(x1, y1, x2, y2)
+Xint *x1, *y1, *x2, *y2;
+X{
+X  *x1 -= (int)((long)*y1*(*x2-*x1)/(*y2-*y1));
+X  *y1 = 0;
+X}
+X
+Xvoid ClipGreater(x1, y1, x2, y2, s)
+Xint *x1, *y1, *x2, *y2, s;
+X{
+X  *x1 += (int)((long)(s-*y1)*(*x2-*x1)/(*y2-*y1));
+X  *y1 = s;
+X}
+X
+X
+X/* Draw a line on the screen. This is just like DrawLine() routine earlier; */
+X/* however, first clip the endpoints to the window viewport before drawing. */
+X
+Xvoid DrawClip(x1, y1, x2, y2, o, skip)
+Xint x1, y1, x2, y2, skip;
+Xbit o;
+X{
+X  if (x1 < 0)
+X    ClipNegative(&y1, &x1, &y2, &x2);    /* Check left side of window. */
+X  if (x2 < 0)
+X    ClipNegative(&y2, &x2, &y1, &x1);
+X  if (y1 < 0)
+X    ClipNegative(&x1, &y1, &x2, &y2);    /* Check top side of window.  */
+X  if (y2 < 0)
+X    ClipNegative(&x2, &y2, &x1, &y1);
+X  if (x1 > chartx)
+X    ClipGreater(&y1, &x1, &y2, &x2, chartx);    /* Check right of window.  */
+X  if (x2 > chartx)
+X    ClipGreater(&y2, &x2, &y1, &x1, chartx);
+X  if (y1 > charty)
+X    ClipGreater(&x1, &y1, &x2, &y2, charty);    /* Check bottom of window. */
+X  if (y2 > charty)
+X    ClipGreater(&x2, &y2, &x1, &y1, charty);
+X  DrawLine(x1, y1, x2, y2, o, skip);            /* Go draw the line.       */
+X}
+X
+X
+X/* Print a string of text on the graphic window at specified location. To do */
+X/* this we use Astrolog's own "font" and draw each letter separately.        */
+X
+Xvoid DrawText(string, x, y, o)
+Xchar *string;
+Xint x, y;
+Xcolor o;
+X{
+X  int s = scale;
+X
+X  scale = 100;
+X  x++;
+X  y -= FONTY-3;
+X  while (*string) {
+X    DrawBlock(x, y, x+FONTX-1, y+FONTY-2, off);
+X    DrawTurtle(asciidraw[*string-' '], x, y, o);
+X    x += FONTX;
+X    string++;
+X  }
+X  scale = s;
+X}
+X
+X
+X/* Draw the glyph of an object at particular coordinates on the window. */
+X
+Xvoid DrawObject(i, x, y)
+Xint i, x, y;
+X{
+X  char glyph[4];
+X
+X  if (!label)    /* If we are inhibiting labels, then do nothing. */
+X    return;
+X
+X  /* For other planet centered charts, we have to remember that that     */
+X  /* particular planet's index now represents the Earth. If we are given */
+X  /* that index to draw, then change it so we draw the Earth instead.    */
+X
+X  if (modex != 's' &&
+X      ((i == centerplanet && i > 2) || (centerplanet == 0 && i == 1)))
+X    i = 0;
+X  if (i <= OBJECTS)
+X    DrawTurtle(objectdraw[i], x, y, objectcolor[i]);
+X
+X  /* Normally we can just go draw the glyph; however, uranians and stars   */
+X  /* don't have glyphs, so for these draw their three letter abbreviation. */
+X
+X  else {
+X    sprintf(glyph, "%c%c%c", OBJNAM(i));
+X    DrawText(glyph, x-StringLen(glyph)*FONTX/2, y+FONTY/2, objectcolor[i]);
+X  }
+X}
+X
+X
+X/* Convert a string segment to a positive number, updating the string to  */
+X/* point beyond the number chars. Return 1 if the string doesn't point to */
+X/* a numeric value. This is used by the DrawTurtle() routine to extract   */
+X/* motion vector quantities from draw strings, e.g. the "12" in "U12".    */
+X
+Xint IntInString(str)
+Xchar **str;
+X{
+X  int num = 0, i = 0;
+X
+X  while (TRUE) {
+X    if (**str < '0' || **str > '9')
+X      return num > 0 ? num : (i < 1 ? 1 : 0);
+X    num = num*10+(**str)-'0';
+X    (*str)++;
+X    i++;
+X  }
+X}
+X
+X
+X/* This routine is used to draw complicated objects composed of lots of line */
+X/* segments on the screen, such as all the glyphs and coastline pieces. It   */
+X/* is passed in a string of commands defining what to draw in relative       */
+X/* coordinates. This is a copy of the format of the BASIC draw command found */
+X/* in PC's. For example, "U5R10D5L10" means go up 5 dots, right 10, down 5,  */
+X/* and left 10 - draw a box twice as wide as it is high.                     */
+X
+Xvoid DrawTurtle(lin, x0, y0, o)
+Xchar *lin;
+Xint x0, y0;
+Xbit o;
+X{
+X  int i, j, x, y, deltax, deltay, blank, noupdate;
+X  char cmd;
+X
+X  turtlex = x0; turtley = y0;
+X#ifdef WIN
+X  if (!xbitmap)
+X    Xcolor(o);
+X#endif
+X  while (cmd = CAP(*lin)) {
+X    lin++;
+X
+X    /* 'B' prefixing a command means just move the cursor, and don't draw. */
+X
+X    if (blank = cmd == 'B') {
+X      cmd = CAP(*lin);
+X      lin++;
+X    }
+X
+X    /* 'N' prefixing a command means don't update cursor when done drawing. */
+X
+X    if (noupdate = cmd == 'N') {
+X      cmd = CAP(*lin);
+X      lin++;
+X    }
+X
+X    /* Here we process the eight directional commands. */
+X
+X    switch (cmd) {
+X    case 'U': deltax =  0; deltay = -1; break;    /* Up    */
+X    case 'D': deltax =  0; deltay =  1; break;    /* Down  */
+X    case 'L': deltax = -1; deltay =  0; break;    /* Left  */
+X    case 'R': deltax =  1; deltay =  0; break;    /* Right */
+X    case 'E': deltax =  1; deltay = -1; break;    /* Northeast */
+X    case 'F': deltax =  1; deltay =  1; break;    /* Southeast */
+X    case 'G': deltax = -1; deltay =  1; break;    /* Southwest */
+X    case 'H': deltax = -1; deltay = -1; break;    /* Northwest */
+X    default:                                      /* Shouldn't happen. */
+X      fprintf(stderr, "%s: Bad turtle subcommand: '%c'\n", appname, cmd);
+X      Terminate(1);
+X    }
+X    x = turtlex;
+X    y = turtley;
+X    j = IntInString(&lin)*SCALE;    /* Figure out how far to draw. */
+X    if (blank) {
+X      turtlex += deltax*j;
+X      turtley += deltay*j;
+X    } else {
+X      DrawPoint(turtlex, turtley, o);
+X      for (i = 0; i < j; i++) {
+X        turtlex += deltax;
+X        turtley += deltay;
+X        DrawPoint(turtlex, turtley, o);
+X      }
+X      if (noupdate) {
+X        turtlex = x;
+X        turtley = y;
+X      }
+X    }
+X  }
+X}
+X
+X
+X/*
+X*******************************************************************************
+X** Bitmap file routines
+X*******************************************************************************
+X*/
+X
+X#define INTTOHEX(I) (char) ((I) < 10 ? '0' + (I) : 'a' + (I) - 10)
+X
+X/* Write the bitmap array to a previously opened file in a format that   */
+X/* can be read in by the Unix X commands bitmap and xsetroot. The 'mode' */
+X/* parameter defines how much white space is put in the file.            */
+X
+Xvoid WriteXBitmap(data, name, mode)
+XFILE *data;
+Xchar *name, mode;
+X{
+X  int x, y, i, value, temp = 0;
+X
+X  fprintf(data, "#define %s_width %d\n" , name, chartx);
+X  fprintf(data, "#define %s_height %d\n", name, charty);
+X  fprintf(data, "static %s %s_bits[] = {",
+X    mode != 'V' ? "char" : "short", name);
+X  for (y = 0; y < charty; y++) {
+X    x = 0;
+X    do {
+X
+X      /* Process each row, eight columns at a time. */
+X
+X      if (y + x > 0)
+X        fprintf(data, ",");
+X      if (temp == 0)
+X        fprintf(data, "\n%s",
+X          mode == 'N' ? "  " : (mode == 'C' ? " " : ""));
+X      value = 0;
+X      for (i = (mode != 'V' ? 7 : 15); i >= 0; i--)
+X        value = (value << 1) +
+X          (!(PGET(bm, x+i, y)^(xreverse*15))^xreverse && (x + i < chartx));
+X      if (mode == 'N')
+X        putc(' ', data);
+X      fprintf(data, "0x");
+X      if (mode == 'V')
+X        fprintf(data, "%c%c",
+X          INTTOHEX(value >> 12), INTTOHEX((value >> 8) & 15));
+X      fprintf(data, "%c%c",
+X        INTTOHEX((value >> 4) & 15), INTTOHEX(value & 15));
+X      temp++;
+X
+X      /* Is it time to skip to the next line while writing the file yet? */
+X
+X      if ((mode == 'N' && temp >= 12) ||
+X          (mode == 'C' && temp >= 15) ||
+X          (mode == 'V' && temp >= 11))
+X        temp = 0;
+X      x += (mode != 'V' ? 8 : 16);
+X    } while (x < chartx);
+X  }
+X  fprintf(data, "};\n");
+X}
+X
+X
+X/* Write the bitmap array to a previously opened file in a simple boolean    */
+X/* Ascii rectangle, one char per pixel, where '#' represents an off bit and  */
+X/* '-' an on bit. The output format is identical to the format generated by  */
+X/* the Unix bmtoa command, and it can be converted into a bitmap with atobm. */
+X
+Xvoid WriteAscii(data)
+XFILE *data;
+X{
+X  int x, y, i;
+X
+X  for (y = 0; y < charty; y++) {
+X    for (x = 0; x < chartx; x++) {
+X      i = PGET(bm, x, y);
+X      if (xcolor)
+X        putc(INTTOHEX(i), data);
+X      else
+X        putc(i ? '-' : '#', data);
+X    }
+X    putc('\n', data);
+X  }
+X}
+X
+X
+X#define putbyte(A) putc((byte) (A), data)
+X#define putword(A) putbyte(LOBYTE(A)); putbyte(HIBYTE(A))
+X#define putlong(A) putword(LOWORD(A)); putword(HIWORD(A))
+X
+X/* Write the bitmap array to a previously opened file in the bitmap format  */
+X/* used in Microsoft Windows for its .bmp extension files. This is a pretty */
+X/* efficient format, only requiring one bit per pixel and a small header.   */
+X
+Xvoid WriteBmp(data)
+XFILE *data;
+X{
+X  int x, y;
+X  unsigned long value;
+X
+X  /* BitmapFileHeader */
+X  putbyte('B'); putbyte('M');
+X  putlong(14+40 + (xcolor ? 64 : 8) +
+X    (long)4*charty*((chartx-1 >> (xcolor ? 3 : 5))+1));
+X  putword(0); putword(0);
+X  putlong(14+40 + (xcolor ? 64 : 8));
+X  /* BitmapInfo / BitmapInfoHeader */
+X  putlong(40);
+X  putlong(chartx); putlong(charty);
+X  putword(1); putword(xcolor ? 4 : 1);
+X  putlong(0 /*BI_RGB*/); putlong(0);
+X  putlong(chartx*10); putlong(charty*10);
+X  putlong(0); putlong(0);
+X  /* RgbQuad */
+X  if (xcolor)
+X    for (x = 0; x < 16; x++) {
+X      putbyte(RGBB(rgbbmp[x])); putbyte(RGBG(rgbbmp[x]));
+X      putbyte(RGBR(rgbbmp[x])); putbyte(0);
+X    }
+X  else {
+X    putlong(0);
+X    putbyte(255); putbyte(255); putbyte(255); putbyte(0);
+X  }
+X  /* Data */
+X  for (y = charty-1; y >= 0; y--) {
+X    value = 0;
+X    for (x = 0; x < chartx; x++) {
+X      if ((x & (xcolor ? 7 : 31)) == 0 && x > 0) {
+X        putlong(value);
+X        value = 0;
+X      }
+X      if (xcolor)
+X        value |= (dword)PGET(bm, x, y) << ((x & 7 ^ 1) << 2);
+X      else
+X        if (PGET(bm, x, y))
+X          value |= (long)1 << (x & 31 ^ 7);
+X    }
+X    putlong(value);
+X  }
+X}
+X
+X
+X/* Output the bitmap in memory to a file. This basically consists of just    */
+X/* calling the routine to actually write a bitmap to a file, although we     */
+X/* need to prompt the user for a filename if it wasn't specified beforehand. */
+X
+Xvoid WriteFile()
+X{
+X  FILE *data;
+X  int tty;
+X
+X  tty = (outputfile[0] == 't' && outputfile[1] == 't' &&
+X    outputfile[2] == 'y' && outputfile[3] == 0);
+X  while (TRUE) {
+X    if (tty) {
+X      printf("Enter name of file to write X bitmap to > ");
+X      if (gets(outputfile) == (char *) NULL) {
+X        printf("\n%s terminated.\n", appname);
+X        Terminate(2);
+X      }
+X    }
+X    data = fopen(outputfile, "wb");
+X    if (data != NULL)
+X      break;
+X    else {
+X      printf("Bad output file.\n");
+X      tty = TRUE;
+X    }
+X  }
+X  if (bitmapmode == 'B')
+X    WriteBmp(data);
+X  else if (bitmapmode == 'A')
+X    WriteAscii(data);
+X  else
+X    WriteXBitmap(data, outputfile, bitmapmode);
+X  fclose(data);
+X}
+X#endif
+X
+X/* xgeneral.c */
+END_OF_FILE
+if test 16971 -ne `wc -c <'xgeneral.c'`; then
+    echo shar: \"'xgeneral.c'\" unpacked with wrong size!
+fi
+# end of 'xgeneral.c'
+fi
+if test -f 'xdriver.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdriver.c'\"
+else
+echo shar: Extracting \"'xdriver.c'\" \(32400 characters\)
+sed "s/^X//" >'xdriver.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 3.05) File: xdriver.c
+X** Initially programmed 10/23-29/1991.
+X**
+X** IMPORTANT: The planetary calculation routines used in this program
+X** have been Copyrighted and the core of this program is basically a
+X** conversion to C of the routines created by James Neely as listed in
+X** Michael Erlewine's 'Manual of Computer Programming for Astrologers',
+X** available from Matrix Software. The copyright gives us permission to
+X** use the routines for our own purposes but not to sell them or profit
+X** from them in any way.
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1993 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef GRAPH
+X
+X#ifdef X11
+X/* Size of the Astrolog X11 icon. These values are defined in xdata.c too. */
+X
+X#define icon_width 63
+X#define icon_height 32
+X#endif
+X
+X/* Macros to allocate a bitmap from free memory. */
+X
+X#ifdef NOPC
+X#define BITMAPSIZE sizeof(bitmapstruct)
+X#else
+X#define BITMAPSIZE ((long)(BITMAPX >> 1)*(BITMAPY))
+X#endif
+X
+X/* Global variables. */
+X
+X#ifdef MSC
+X#define HIRESMODE _MAXRESMODE
+X#define LORESMODE _ERESCOLOR
+Xstruct videoconfig config;
+Xint xscreen = HIRESMODE;
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** X routines
+X*******************************************************************************
+X*/
+X
+X#ifdef X11
+X/* Allocate a color from the present colormap. Given a string like "red" or */
+X/* "blue" allocate this color and return a value specifying it.             */
+X
+Xcolor XMakeColor(name)
+Xchar *name;
+X{
+X  XColor col;
+X  XParseColor(disp, cmap, name, &col);
+X  XAllocColor(disp, cmap, &col);
+X  return col.pixel;
+X}
+X#endif
+X
+X
+X/* Set up all the colors used by the program, i.e. the foreground and   */
+X/* background colors, and all the colors in the object arrays, based on */
+X/* whether or not we are in monochrome and/or reverse video mode.       */
+X
+XXColorInit()
+X{
+X  int i;
+X
+X#ifdef X11
+X  cmap = XDefaultColormap(disp, screen);
+X  for (i = 0; i < 16; i++)
+X    rgbind[i] = XMakeColor(rgbname[i]);
+X#endif
+X  on  = mainansi[!xreverse];
+X  off = mainansi[xreverse];
+X  hilite = xcolor ? mainansi[2] : on;
+X  gray   = xcolor ? mainansi[3] : on;
+X  for (i = 0; i <= 6; i++)
+X    maincolor[i]    = xcolor ? mainansi[i]    : on;
+X  for (i = 0; i <= 7; i++)
+X    rainbowcolor[i] = xcolor ? rainbowansi[i] : on;
+X  for (i = 0; i < 4; i++)
+X    elemcolor[i]    = xcolor ? elemansi[i]    : on;
+X  for (i = 0; i <= ASPECTS; i++)
+X    aspectcolor[i]  = xcolor ? aspectansi[i]  : on;
+X  for (i = 0; i <= TOTAL; i++)
+X    objectcolor[i]  = xcolor ? objectansi[i]  : on;
+X#ifdef WIN
+X  if (!xbitmap) {
+X#ifdef X11
+X    XSetBackground(disp, gc,   rgbind[off]);  /* Initialize X window colors. */
+X    XSetForeground(disp, pmgc, rgbind[off]);
+X#endif
+X    Xcolor(on);
+X  }
+X#endif
+X}
+X
+X
+X#ifdef WIN
+X/* This routine opens up and initializes a window and prepares it to be */
+X/* drawn upon, and gets various information about the display, too.     */
+X
+Xvoid XBegin()
+X{
+X#ifdef X11
+X  disp = XOpenDisplay(dispname);
+X  if (!disp) {
+X    fprintf(stderr, "%s: Can't open display.\n", appname);
+X    Terminate(1);
+X  }
+X  screen = DefaultScreen(disp);
+X  bg = BlackPixel(disp, screen);
+X  fg = WhitePixel(disp, screen);
+X  hint.x = hint.width = chartx; hint.y = hint.height = charty;
+X  hint.min_width = BITMAPX1; hint.min_height = BITMAPY1;
+X  hint.max_width = BITMAPX;  hint.max_height = BITMAPY;
+X  hint.flags = PPosition | PSize | PMaxSize | PMinSize;
+X  /*wmhint = XGetWMHints(disp, window);
+X  wmhint->input = True;
+X  XSetWMHints(disp, window, wmhint);*/
+X  depth = DefaultDepth(disp, screen);
+X  if (depth < 5) {
+X    xmono = TRUE;      /* Is this a monochrome monitor? */
+X    xcolor = FALSE;
+X  }
+X  root = RootWindow(disp, screen);
+X  if (xroot)
+X    window = root;     /* If -XB in effect, we'll use the root window. */
+X  else
+X    window = XCreateSimpleWindow(disp, DefaultRootWindow(disp),
+X      hint.x, hint.y, hint.width, hint.height, 5, fg, bg);
+X  pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X  icon = XCreateBitmapFromData(disp, DefaultRootWindow(disp),
+X    icon_bits, icon_width, icon_height);
+X  if (!xroot)
+X    XSetStandardProperties(disp, window, appname, appname, icon, xkey, 0,
+X      &hint);
+X
+X  /* We have two graphics workareas. One is what the user currently sees in */
+X  /* the window, and the other is what we are currently drawing on. When    */
+X  /* done, we can quickly copy this to the viewport for a smooth look.      */
+X
+X  gc = XCreateGC(disp, window, 0, 0);
+X  XSetGraphicsExposures(disp, gc, 0);
+X  pmgc = XCreateGC(disp, window, 0, 0);
+X  XColorInit();                            /* Go set up colors. */
+X  if (!xroot)
+X    XSelectInput(disp, window, KeyPressMask | StructureNotifyMask |
+X      ExposureMask | ButtonPressMask | ButtonReleaseMask | ButtonMotionMask);
+X  XMapRaised(disp, window);
+X  XSync(disp, 0);
+X  XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X#else
+X  _setvideomode(xscreen);
+X  if (_grstatus()) {
+X    fprintf(stderr, "%s: Can't enter graphics mode.\n", appname);
+X    Terminate(1);
+X  }
+X  _getvideoconfig((struct videoconfig far *) &config);
+X  if (config.numcolors < 16) {
+X    xmono = TRUE;
+X    xcolor = FALSE;
+X  }
+X  _remapallpalette((long far *) rgb);
+X  _setactivepage(0);
+X  _clearscreen(_GCLEARSCREEN);
+X  _setvisualpage(0);
+X  XColorInit();
+X#endif
+X}
+X
+X
+X/* Add a certain amount of time to the current hour/day/month/year quantity */
+X/* defining the present chart. This is used by the chart animation feature. */
+X/* We can add or subtract anywhere from 1 to 9 seconds, minutes, hours,     */
+X/* days, months, years, decades, centuries, or millenia in any one call.    */
+X/* This is mainly just addition to the appropriate quantity, but we have    */
+X/* to check for overflows, e.g. Dec 30 + 3 days = Jan 2 of Current year + 1 */
+X
+Xvoid AddTime(mode, num)
+Xint mode, num;
+X{
+X  real toadd, h, m, j;
+X
+X  toadd = (real)num;
+X  h = floor(F);
+X  m = FRACT(F)*100.0;
+X  if (mode == 1)
+X    m += 1.0/60.0*(real)toadd;    /* Add seconds. */
+X  else if (mode == 2)
+X    m += 1.0*(real)toadd;         /* add minutes. */
+X
+X  /* Add hours, either naturally or if minute value overflowed. */
+X
+X  if (m < 0.0 || m >= 60.0 || mode == 3) {
+X    if (m >= 60.0) {
+X      m -= 60.0; toadd = Sgn(toadd);
+X    } else if (m < 0.0) {
+X      m += 60.0; toadd = Sgn(toadd);
+X    }
+X    h += 1.0*(real)toadd;
+X  }
+X
+X  /* Add days, either naturally or if hour value overflowed. */
+X
+X  if (h >= 24.0 || h < 0.0 || mode == 4) {
+X    if (h >= 24.0) {
+X      h -= 24.0; toadd = Sgn(toadd);
+X    } else if (h < 0.0) {
+X      h += 24.0; toadd = Sgn(toadd);
+X    }
+X    D += 1.0*(real)toadd;
+X  }
+X
+X  /* Add months, either naturally or if day value overflowed. */
+X
+X  if (D > (j = (real)DayInMonth((int) M, (int) Y)) ||
+X      D < 1.0 || mode == 5) {
+X    if (D > j) {
+X      D -= j; toadd = Sgn(toadd);
+X    } else if (D < 1.0) {
+X      D += (real)DayInMonth(Mod12(((int) M) - 1), (int) Y); toadd = Sgn(toadd);
+X    }
+X    M += 1.0*(real)toadd;
+X  }
+X
+X  /* Add years, either naturally or if month value overflowed. */
+X
+X  if (M > 12.0 || M < 1.0 || mode == 6) {
+X    if (M > 12.0) {
+X      M -= 12.0; toadd = Sgn(toadd);
+X    } else if (M < 1.0) {
+X      M += 12.0; toadd = Sgn(toadd);
+X    }
+X    Y += 1.0*(real)toadd;
+X  }
+X  if (mode == 7)
+X    Y += 10.0*(real)toadd;      /* Add decades.   */
+X  else if (mode == 8)
+X    Y += 100.0*(real)toadd;     /* Add centuries. */
+X  else if (mode == 9)
+X    Y += 1000.0*(real)toadd;    /* Add millenia.  */
+X  F = h+m/100.0;                /* Recalibrate hour time. */
+X}
+X
+X
+X/* Print a list of every key that one can press in an X window to do a */
+X/* certain function, and a description of what it does. This list gets */
+X/* displayed whenever one presses the 'H' or '?' key in the window.    */
+X
+Xvoid DisplayKeys()
+X{
+X  sprintf(string, "\n%s window keypress options (version %s):", appname,
+X    VERSION);
+X  Prints(string);
+X  Prints(" Press 'H' or '?' to display this list of key options.");
+X  Prints(" Press 'p' to toggle pause status on or off.");
+X  Prints(" Press 'x' to toggle fg/bg colors on screen.");
+X  Prints(" Press 'm' to toggle color/monochrome display on screen.");
+X  Prints(" Press 'T' to toggle header info on current chart on screen.");
+X  Prints(" Press 'i' to toggle status of the minor chart modification.");
+X  Prints(" Press 'l' to toggle labeling of object points in chart.");
+X  Prints(" Press 'v' to display current chart positions on text screen.");
+X  Prints(" Press 'R' to toggle restriction status of minor objects.");
+X  Prints(" Press 'C' to toggle restriction status of minor house cusps.");
+X  Prints(" Press 'u' to toggle restriction status of uranian planets.");
+X  Prints(" Press 'U' to toggle restriction status of fixed stars.");
+X  Prints(" Press 's', 'h', 'f', 'F' to toggle status of sidereal zodiac,");
+X  Prints("        heliocentric charts, domal charts, and decan charts.");
+X  Prints(" Press 'O' and 'o' to recall/store a previous chart from memory.");
+X#ifdef X11
+X  Prints(" Press 'B' to dump current window contents to root background.");
+X#else
+X  Prints(" Press 'B' to resize chart display to full size of screen.");
+X#endif
+X  Prints(" Press 'Q' to resize chart display to a square.");
+X  Prints(" Press '<' and '>' to decrease/increase the scale size of the");
+X  Prints("       glyphs and the size of world map.");
+X  Prints(" Press '[' and ']' to decrease/increase tilt in globe display.");
+X  Prints(" Press 'N' to toggle animation status on or off. Charts will");
+X  Prints("       be updated to current status and globe will rotate.");
+X  Prints(" Press '!'-'(' to begin updating current chart by adding times.");
+X  Prints("       !: seconds, @: minutes, #: hours, $: days, %: months,");
+X  Prints("       ^: years, &: years*10, *: years*100, (: years*1000.");
+X  Prints(" Press 'r' to reverse direction of time-lapse or animation.");
+X  Prints(" Press '1'-'9' to set rate of animation to 'n' degrees, etc.");
+X#ifdef MSC
+X  Prints(" Press '1'-'9' to determine section of chart to show if clipped.");
+X#endif
+X  Prints(" Press 'V','L','A','Z','S','W','G','P' to switch to normal (_v),");
+X  Prints("       astro-graph (_L), grid (_g), local (_Z), space (_S),");
+X  Prints("       world (_XW), globe (_XG), and polar (_XP) modes.");
+X  Prints(" Press '0' to toggle between _Z & _Z0, and _XW & _XW0 modes.");
+X#ifdef MSC
+X  Prints(" Press 'tab' to toggle between graphics resolutions.");
+X#endif
+X  Prints(" Press 'q' to terminate the window and program.");
+X#ifdef X11
+X  Prints("\n Left   mouse button: Draw lines on chart in window.");
+X  Prints(" Middle mouse button: Print coordinates of pointer on world map.");
+X  Prints(" Right  mouse button: Terminate the window and program.");
+X#endif
+X}
+X
+X
+X/* These macros are used by the 'o' and 'O' keys to save chart information. */
+X
+X#define STOREX  MonX = Mon; DayX = Day; YeaX = Yea; TimX = Tim; ZonX = Zon; \
+X  LonX = Lon; LatX = Lat
+X#define RECALLX Mon = MonX; Day = DayX; Yea = YeaX; Tim = TimX; Zon = ZonX; \
+X  Lon = LonX; Lat = LatX
+X
+X/* This routine gets called after an X window is brought up and displayed   */
+X/* on the screen. It loops, processing key presses, mouse clicks, etc, that */
+X/* the window receives, until the user specifies they want to exit program. */
+X
+Xvoid XSpin()
+X{
+X#ifdef X11
+X  int xupdate = FALSE, xevent = TRUE;
+X#else
+X  int xupdate = TRUE, xevent = FALSE;
+X#endif
+X  int xbreak = FALSE, xpause = FALSE, xnew = FALSE, xcorner = 7,
+X    buttonx = 0, buttony = 0, dir = 1, length, i;
+X  real MonX, DayX, YeaX, TimX, ZonX, LonX, LatX, lon, lat;
+X
+X  STOREX;
+X  while (!xbreak) {
+X
+X#ifndef MSC
+X    /* First, make sure the window isn't too large or too small. */
+X
+X    if (chartx < BITMAPX1) {
+X      chartx = BITMAPX1;
+X      xupdate = TRUE;
+X    } else if (chartx > BITMAPX) {
+X      chartx = BITMAPX;
+X      xupdate = TRUE;
+X    }
+X    if (charty < BITMAPY1) {
+X      charty = BITMAPY1;
+X      xupdate = TRUE;
+X    } else if (charty > BITMAPY) {
+X      charty = BITMAPY;
+X      xupdate = TRUE;
+X    }
+X#endif
+X
+X    /* Some chart windows, like the world maps and aspect grids, should */
+X    /* always be a certian size, so correct if a resize was attempted.  */
+X
+X    if (modex == 'l' || modex == 'w') {
+X      length = 360*SCALE+2;
+X      if (chartx != length) {
+X        chartx = length;
+X        xupdate = TRUE;
+X      }
+X      length = (90*2+1)*SCALE+2;
+X      if (charty != length) {
+X        charty = length;
+X        xupdate = TRUE;
+X      }
+X    } else if (modex == 'a') {
+X      if (chartx !=
+X        (length = (OBJECTS+(relation==1))*CELLSIZE*SCALE+1)) {
+X        chartx = length;
+X        xupdate = TRUE;
+X      } if (charty != length) {
+X        charty = length;
+X        xupdate = TRUE;
+X      }
+X    }
+X
+X#ifdef MSC
+X    /* If in animation mode, ensure we are in the flicker free resolution. */
+X
+X    if (xnow < 0 && xscreen == HIRESMODE) {
+X      xnow = -xnow;
+X      xscreen = LORESMODE;
+X      XBegin();
+X      chartx = config.numxpixels;
+X      charty = config.numypixels;
+X      if (chartx > charty)
+X        chartx = charty;
+X      chartx = (long)chartx * 480 / 350;
+X      xupdate = TRUE;
+X    }
+X#else
+X    if (xnow < 0)
+X      xnow = -xnow;
+X#endif
+X
+X    /* Physically resize window if we've changed the size parameters. */
+X
+X    if (xupdate) {
+X      xupdate = FALSE;
+X#ifdef X11
+X      XResizeWindow(disp, window, chartx, charty);
+X      XFreePixmap(disp, pixmap);
+X      pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X#else
+X      if (config.numxpixels > chartx)
+X        buttonx = (config.numxpixels - chartx) >> 1;
+X      else {
+X        if (xcorner % 3 == 1)
+X          buttonx = 0;
+X        else if (xcorner % 3 == 0)
+X          buttonx = -chartx + config.numxpixels;
+X        else
+X          buttonx = -(chartx - config.numxpixels) / 2;
+X      }
+X      if (config.numypixels > charty)
+X        buttony = (config.numypixels - charty) >> 1;
+X      else {
+X        if (xcorner > 6)
+X          buttony = 0;
+X        else if (xcorner < 4)
+X          buttony = -charty + config.numypixels;
+X        else
+X          buttony = -(charty - config.numypixels) / 2;
+X      }
+X      _setviewport(buttonx, buttony, config.numxpixels, config.numypixels);
+X#endif
+X      xevent = TRUE;
+X    }
+X
+X    /* Recast chart if the chart information has changed any. */
+X
+X    if (xnew && (!xnow || xpause)) {
+X      xnew = FALSE;
+X      M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X      CastChart(TRUE);
+X      xevent = TRUE;
+X    }
+X    if (xnow && !xpause)
+X      xevent = TRUE;
+X
+X    /* Update the window if anything has changed since last time around. */
+X
+X    if (xevent) {
+X      xevent = FALSE;
+X
+X      /* If we're in animation mode, change the chart info appropriately. */
+X
+X      if (xnow) {
+X        if (modex == 'w' || modex == 'g' || modex == 'p') {
+X          degree += dir;
+X          if (degree >= 360)      /* For animating globe display, add */
+X            degree -= 360;        /* in appropriate degree value.     */
+X          else if (degree < 0)
+X            degree += 360;
+X        } else {
+X          if (xnow == 10)
+X#ifdef TIME
+X            /* For the continuous chart update to present moment */
+X            /* animation mode, go get whatever time it is now.   */
+X            InputData("now")
+X#endif
+X              ;
+X          else {  /* Otherwise add on appropriate time vector to chart info. */
+X            M = Mon; D = Day; Y = Yea; F = Tim; X = Zon; L5 = Lon; LA = Lat;
+X            AddTime(xnow, dir);
+X          }
+X          Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X          CastChart(TRUE);
+X          if (relation) {
+X            for (i = 1; i <= total; i++)    /* Make sure animations    */
+X              planet2[i] = planet[i];       /* of relationship charts  */
+X            for (i = 1; i <= SIGNS; i++)    /* are reflected properly. */
+X              house2[i] = house[i];
+X          }
+X        }            /* Update window display with new chart. */
+X      }
+X#ifdef X11
+X      Xcolor(on);
+X      XFillRectangle(disp, pixmap, pmgc, 0, 0, chartx, charty);
+X#else
+X      if (config.numvideopages > 1)
+X        _setactivepage(_getactivepage() == 0);
+X      _clearscreen(_GCLEARSCREEN);
+X      DrawBlock(0, 0, chartx-1, charty-1, off);
+X#endif
+X      XChart();
+X#ifdef X11
+X      XSync(disp, 0);
+X      XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X#else
+X      if (config.numvideopages > 1)
+X        _setvisualpage(_getactivepage());
+X#endif
+X    }
+X
+X    /* Now process what's on the event queue, i.e. any keys pressed, etc. */
+X
+X#ifdef X11
+X    if (XEventsQueued(disp, QueuedAfterFlush /*QueuedAfterReading*/ )) {
+X      XNextEvent(disp, &event);
+X
+X      /* Restore what's on window if a part of it gets uncovered. */
+X
+X      if (event.type == Expose && event.xexpose.count == 0) {
+X        XSync(disp, 0);
+X        XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X      }
+X      switch (event.type) {
+X
+X      /* Check for a manual resize of window by user. */
+X
+X      case ConfigureNotify:
+X        chartx = event.xconfigure.width;
+X        charty = event.xconfigure.height;
+X        XFreePixmap(disp, pixmap);
+X        pixmap = XCreatePixmap(disp, window, chartx, charty, depth);
+X        xevent = TRUE;
+X        break;
+X      case MappingNotify:
+X        XRefreshKeyboardMapping(&event);
+X        break;
+X
+X      /* Process any mouse buttons the user pressed. */
+X
+X      case ButtonPress:
+X        buttonx = event.xbutton.x; buttony = event.xbutton.y;
+X        if (event.xbutton.button == Button1) {
+X          Xcolor(hilite);
+X          DrawPoint(buttonx, buttony, hilite);
+X          XSync(disp, 0);
+X          XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X        } else if (event.xbutton.button == Button2 &&
+X          (modex == 'l' || modex == 'w') && degree == 0) {
+X          lon = 180.0-(real)(event.xbutton.x-1)/(real)(chartx-2)*DEGREES;
+X          lat =  90.0-(real)(event.xbutton.y-1)/(real)(charty-2)*181.0;
+X          printf("Mouse is at %s.\n", StringLocation(lon, lat, 60.0));
+X        } else if (event.xbutton.button == Button3)
+X          xbreak = TRUE;
+X        break;
+X
+X      /* Check for user dragging any of the mouse buttons across window. */
+X
+X      case MotionNotify:
+X        Xcolor(hilite);
+X        DrawLine(buttonx, buttony, event.xbutton.x, event.xbutton.y,
+X          hilite, 0);
+X        XSync(disp, 0);
+X        XCopyArea(disp, pixmap, window, gc, 0, 0, chartx, charty, 0, 0);
+X        buttonx = event.xbutton.x; buttony = event.xbutton.y;
+X        break;
+X
+X      /* Process any keys user pressed in window. */
+X
+X      case KeyPress:
+X        length = XLookupString(&event, xkey, 10, &key, 0);
+X        if (length == 1) {
+X          i = xkey[0];
+X#else
+X        if (kbhit()) {
+X          i = getch();
+X#endif
+X          switch (i) {
+X          case 'p':
+X            xpause = !xpause;
+X            break;
+X          case 'r':
+X            dir = -dir;
+X            break;
+X          case 'x':
+X            xreverse = !xreverse;
+X            XColorInit();
+X            xevent = TRUE;
+X            break;
+X          case 'm':
+X            if (!xmono) {
+X              xcolor = !xcolor;
+X#ifdef MSC
+X              _getvideoconfig((struct videoconfig far *) &config);
+X#endif
+X              XColorInit();
+X              xevent = TRUE;
+X            }
+X            break;
+X          case 'B':
+X#ifdef X11
+X            XSetWindowBackgroundPixmap(disp, root, pixmap);
+X            XClearWindow(disp, root);
+X#else
+X            chartx = config.numxpixels;
+X            charty = config.numypixels;
+X            xupdate = TRUE;
+X#endif
+X            break;
+X          case 'T':
+X            xtext = !xtext;
+X            xevent = TRUE;
+X            break;
+X          case 'i':
+X            bonus = !bonus;
+X            xevent = TRUE;
+X            break;
+X          case '<':
+X            if (scale > 100) {
+X              scale -= 100;
+X              xupdate = TRUE;
+X            }
+X            break;
+X          case '>':
+X            if (scale < 300) {
+X              scale += 100;
+X              xupdate = TRUE;
+X            }
+X            break;
+X          case '[':
+X            if (modex == 'g') {
+X              tilt = tilt > -90.0 ? tilt-11.25 : -90.0;
+X              xevent = TRUE;
+X            }
+X            break;
+X          case ']':
+X            if (modex == 'g') {
+X              tilt = tilt < 90.0 ? tilt+11.25 : 90.0;
+X              xevent = TRUE;
+X            }
+X            break;
+X          case 'Q':
+X            if (chartx > charty)
+X              chartx = charty;
+X            else
+X              charty = chartx;
+X#ifdef MSC
+X            if (xscreen == LORESMODE)
+X              chartx = (long)chartx * 480 / 350;
+X#endif
+X            xupdate = TRUE;
+X            break;
+X          case 'R':
+X            for (i = 11; i <= 15; i++)
+X              ignore[i] = !ignore[i];
+X            ignore[17] = !ignore[17]; ignore[20] = !ignore[20];
+X            xevent = TRUE;
+X            break;
+X          case 'C':
+X            operation ^= DASHC;
+X            for (i = C_LO; i <= C_HI; i++)
+X              ignore[i] = !ignore[i];
+X            xnew = TRUE;
+X            break;
+X          case 'u':
+X            operation ^= DASHu;
+X            for (i = U_LO; i <= U_HI; i++)
+X              ignore[i] = !ignore[i];
+X            xnew = TRUE;
+X            break;
+X          case 'U':
+X            universe = !universe;
+X            for (i = S_LO; i <= S_HI; i++)
+X              ignore[i] = !ignore[i];
+X            xnew = TRUE;
+X            break;
+X          case 's':
+X            operation ^= DASHs;
+X            xnew = TRUE;
+X            break;
+X          case 'h':
+X            centerplanet = centerplanet ? 0 : 1;
+X            xnew = TRUE;
+X            break;
+X          case 'f':
+X            operation ^= DASHf;
+X            xnew = TRUE;
+X            break;
+X          case 'F':
+X            operation ^= DASH3;
+X            xnew = TRUE;
+X            break;
+X          case 'o':
+X            STOREX;
+X            break;
+X          case 'O':
+X            RECALLX;
+X            xnew = TRUE;
+X            break;
+X          case 'l':
+X            label = !label;
+X            xevent = TRUE;
+X            break;
+X          case 'N':                      /* The continuous update animation. */
+X            xnow = xnow ? 0 : -10;
+X            break;
+X          case '!': xnow = -1; break;    /* These are the nine different     */
+X          case '@': xnow = -2; break;    /* "add time to chart" animations.  */
+X          case '#': xnow = -3; break;
+X          case '$': xnow = -4; break;
+X          case '%': xnow = -5; break;
+X          case '^': xnow = -6; break;
+X          case '&': xnow = -7; break;
+X          case '*': xnow = -8; break;
+X          case '(': xnow = -9; break;
+X          case 'V': modex = 'c'; xevent = TRUE; break;    /* Should we go    */
+X          case 'L': modex = 'l'; xevent = TRUE; break;    /* switch to a     */
+X          case 'A': modex = 'a'; xevent = TRUE; break;    /* new chart type? */
+X          case 'Z': modex = 'z'; xevent = TRUE; break;
+X          case 'S': modex = 's'; xevent = TRUE; break;
+X          case 'W': modex = 'w'; xevent = TRUE; break;
+X          case 'P': modex = 'p'; xevent = TRUE; break;
+X          case 'G': modex = 'g'; xevent = TRUE; break;
+X          case '0':
+X            exdisplay ^= DASHZ0 | DASHXW0;
+X            xevent = TRUE;
+X            break;
+X          case 'v':
+X#ifdef MSC
+X            _setvideomode(_DEFAULTMODE);
+X#endif
+X            ChartLocation(FALSE);
+X#ifdef MSC
+X            while (!kbhit());
+X            XBegin();
+X            xupdate = TRUE;
+X#endif
+X            break;
+X          case 'H': case '?':
+X#ifdef MSC
+X            _setvideomode(_DEFAULTMODE);
+X            _settextrows(43);
+X#endif
+X            DisplayKeys();
+X#ifdef MSC
+X            while (!kbhit());
+X            XBegin();
+X            xupdate = TRUE;
+X#endif
+X            break;
+X#ifdef MSC
+X          case '\t':
+X            if (xscreen == HIRESMODE)
+X              xscreen = LORESMODE;
+X            else
+X              xscreen = HIRESMODE;
+X            XBegin();
+X            chartx = config.numxpixels;
+X            charty = config.numypixels;
+X            if (chartx > charty)
+X              chartx = charty;
+X            if (xscreen == LORESMODE)
+X              chartx = (long)chartx * 480 / 350;
+X            xupdate = TRUE;
+X            break;
+X#endif
+X          case 'q': case ESCAPE: case '\3':
+X            xbreak = TRUE;
+X            break;
+X          default:
+X            if (i > '0' && i <= '9') {
+X#ifdef MSC
+X              if (xnow)
+X#endif
+X                /* Process numbers 1..9 signifying animation rate. */
+X                dir = (dir > 0 ? 1 : -1)*(i-'0');
+X#ifdef MSC
+X              else {
+X                /* If we aren't in animation mode, then 1..9 refers to the */
+X                /* clipping "quadrant" to use if chart size > screen size. */
+X                xcorner = i-'0';
+X                xupdate = TRUE;
+X              }
+X#endif
+X            }
+X          }  /* switch */
+X        }  /* if */
+X#ifdef X11
+X      default:
+X        ;
+X      }  /* switch */
+X    }  /* if */
+X#endif
+X  }  /* while */
+X}
+X
+X
+X/* This is called right before program termination to get rid of the window. */
+X
+Xvoid XEnd()
+X{
+X#ifdef X11
+X  XFreeGC(disp, gc);
+X  XFreeGC(disp, pmgc);
+X  XFreePixmap(disp, pixmap);
+X  XDestroyWindow(disp, window);
+X  XCloseDisplay(disp);
+X#else
+X  _setvideomode(_DEFAULTMODE);
+X#endif
+X}
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Main processing
+X*******************************************************************************
+X*/
+X
+X
+X/* Print a list of every command switch dealing with the graphics features  */
+X/* that can be passed to the program, and a description of what it does.    */
+X/* This is part of what the -H switch prints, if graphics were compiled in. */
+X
+Xvoid XDisplaySwitches()
+X{
+X  Prints(" _X: Create a graphics chart instead of displaying it as text.");
+X#ifdef WIN
+X  Prints(" _Xb: Create bitmap file instead of putting graphics on screen.");
+X#endif
+X  Prints(" _Xb[n,c,v,a,b]: Set bitmap file output mode to X11 normal,");
+X  Prints("     compacted, very compact, Ascii (bmtoa), or Windows bmp.");
+X  Prints(" _Xo <file>: Write output bitmap to specified file.");
+X#ifdef X11
+X  Prints(" _XB: Display X chart on root instead of in a separate window.");
+X#endif
+X  Prints(" _Xm: Create monochrome graphic instead of one in color.");
+X  Prints(" _Xr: Create chart graphic in reversed colors (white background).");
+X  Prints(" _Xw <hor> [<ver>]: Change the size of the chart graphic.");
+X  Prints(" _Xs <100,200,300>: Change the size of map or characters by n%.");
+X  Prints(" _Xi: Create chart graphic in slightly modified form.");
+X  Prints(" _XT: Inhibit display of chart info at bottom of graphic.");
+X  Prints(" _X1 <object>: Rotate wheel charts so object is at left edge.");
+X  Prints(" _X2 <object>: Rotate wheel charts so object is at top edge.");
+X#ifdef X11
+X  Prints(" _Xd <name>, _di[..] <name>: Open X window on specified display.");
+X#endif
+X  Prints(" _XW: Simply create an image of the world map.");
+X  Prints(" _XW0: Like _XW but do a non-rectangular Mollewide projection.");
+X  Prints(" _XP: Create just the world map, but from a polar projection.");
+X  Prints(" _XG [<degrees>]: Display the image of the world as a globe.");
+X#ifdef WIN
+X  Prints(" _Xn: Start up chart or globe display in animation mode.");
+X  Prints("Also, press 'H' while running for list of key press options.");
+X#endif
+X}
+X
+X
+X/* Process a command line switch passed to the program dealing with the      */
+X/* graphics features. This is just like the processing of each switch in the */
+X/* main program; however, here each switch has been prefixed with an 'X'.    */
+X
+Xint XProcess(argc, argv, pos)
+Xint argc, pos;
+Xchar **argv;
+X{
+X  int i = 0, j;
+X  char c;
+X
+X  switch (argv[0][pos]) {
+X  case 0:
+X    break;
+X  case 'W':
+X    if (argc > 1 && ((degree = atoi(argv[1])) || argv[1][0] == '0')) {
+X      i++;
+X      if (degree < 0 || degree > 359)
+X        BadVal("XW", degree);
+X    } else
+X      degree = 0;
+X    modex = 'w';
+X    if (argv[0][pos+1] == '0')
+X      exdisplay |= DASHXW0;
+X    autom = TRUE;
+X    break;
+X  case 'P':
+X    if (argc > 1 && ((degree = atoi(argv[1])) || argv[1][0] == '0')) {
+X      i++;
+X      if (degree < 0 || degree > 359)
+X        BadVal("XP", degree);
+X    } else
+X      degree = 0;
+X    modex = 'p';
+X    if (argv[0][pos+1] == '0')
+X      exdisplay |= DASHXP0;
+X    autom = TRUE;
+X    break;
+X  case 'G':
+X    if (argc > 1 && ((degree = atoi(argv[1])) || argv[1][0] == '0')) {
+X      i++;
+X      if (degree < 0 || degree > 359)
+X        BadVal("XG", degree);
+X      if (argc > 2 && ((tilt = atof(argv[2])) || argv[2][0] == '0')) {
+X        i++;
+X        if (tilt < -90.0 || tilt > 90.0)
+X          BadVal2("XG", tilt);
+X      }
+X    }
+X    modex = 'g';
+X    autom = TRUE;
+X    break;
+X  case 'b':
+X    c = CAP(argv[0][pos+1]);
+X    if (c == 'N' || c == 'C' || c == 'V' || c == 'A' || c == 'B')
+X      bitmapmode = c;
+X    xbitmap = TRUE;
+X    break;
+X#ifdef X11
+X  case 'B':
+X    xroot = TRUE;
+X    break;
+X#endif
+X  case 'm':
+X    xcolor = FALSE;
+X    break;
+X  case 'r':
+X    xreverse = TRUE;
+X    break;
+X  case 'w':
+X    if (argc <= 1)
+X      TooFew("Xw");
+X    chartx = atoi(argv[1]);
+X    if (argc > 2 && (charty = atoi(argv[2]))) {
+X      argc--; argv++;
+X      i++;
+X    } else
+X      charty = chartx;
+X    if (chartx < BITMAPY1 || chartx > BITMAPX)
+X      BadVal("Xw", chartx);
+X    if (charty < BITMAPY1 || charty > BITMAPY)
+X      BadVal("Xw", charty);
+X    i++;
+X    break;
+X  case 's':
+X    if (argc <= 1)
+X      TooFew("Xs");
+X    scale = atoi(argv[1]);
+X    if (scale >= 1 && scale <= 3)
+X      scale *= 100;
+X    else if (scale < 100 || scale > 300 || scale%100 > 0)
+X      BadVal("Xs", scale);
+X    i++;
+X    break;
+X  case 'i':
+X    bonus = TRUE;
+X    break;
+X  case 'T':
+X    xtext = FALSE;
+X    break;
+X  case '1':
+X    if (argc <= 1)
+X      TooFew("X1");
+X    xeast = atoi(argv[1]);
+X    if (xeast < 1 || xeast > TOTAL)
+X      BadVal("X1", xeast);
+X    i++;
+X    break;
+X  case '2':
+X    if (argc <= 1)
+X      TooFew("X2");
+X    xeast = atoi(argv[1]);
+X    if (xeast < 1 || xeast > TOTAL)
+X      BadVal("X2", xeast);
+X    xeast = -xeast;
+X    i++;
+X    break;
+X  case 'd':
+X    if (argc <= 1)
+X      TooFew("Xd");
+X    dispname = argv[1];
+X    i++;
+X    break;
+X#ifdef WIN
+X  case 'n':
+X    if (argc > 1 && (xnow = atoi(argv[1])))
+X      i++;
+X    else
+X      xnow = 10;
+X    if (xnow < 1 || xnow > 10)
+X      BadVal("Xn", xnow);
+X    break;
+X#endif
+X  case 'o':
+X    if (argc <= 1)
+X      TooFew("Xo");
+X    xbitmap = TRUE;
+X    for (j = 0; outputfile[j] = argv[1][j]; j++)
+X      ;
+X    i++;
+X    break;
+X  default:
+X    fprintf(stderr, "%s: Unknown switch -X%c\n", appname, argv[0][pos]);
+X    Terminate(1);
+X  }
+X  return i;    /* 'i' contains the value to be added to argc when we return. */
+X}
+X
+X
+X/* This is the main interface to all the graphics features. This routine     */
+X/* is called from the main program if any of the -X switches were specified, */
+X/* and it sets up for and goes and generates the appropriate graphics chart. */
+X
+Xvoid XAction()
+X{
+X  /* First figure out what graphic mode to generate the chart in, based on */
+X  /* various non-X command switches, e.g. -L combined with -X, -g combined */
+X  /* with -X, and so on, and determine the size the window is to be, too.  */
+X
+X  if (modex == 'c' && (todisplay & DASHL) > 0)
+X    modex = 'l';
+X  else if (modex == 'c' && (todisplay & DASHg | todisplay & DASHm) > 0) {
+X    modex = 'a';
+X    chartx = charty = (OBJECTS + (relation == DASHr0))*CELLSIZE*SCALE + 1;
+X  } else if (modex == 'c' && (todisplay & DASHZ) > 0) {
+X    modex = 'z';
+X    /*if (!(exdisplay & DASHZ0)) {
+X      chartx = (360+12)*SCALE;
+X      charty = (90*2+12)*SCALE;
+X    }*/
+X  } else if (modex == 'c' && (todisplay & DASHS) > 0)
+X    modex = 's';
+X  if (modex == 'l' || modex == 'w') {
+X    chartx = 360*SCALE+2;
+X    charty = (90*2+1)*SCALE+2;
+X  }
+X  if (xbitmap) {                       /* Initialize bitmap or window. */
+X    Allocate(bm, BITMAPSIZE, bitmap);
+X    if (bm == NULL) {
+X      fprintf(stderr, "%s: Out of memory for bitmap.\n", appname);
+X      Terminate(1);
+X    }
+X    XColorInit();
+X  }
+X#ifdef WIN
+X  else
+X    XBegin();
+X#endif
+X  if (xroot || xbitmap)    /* Go draw the graphic chart. */
+X    XChart();
+X  if (xbitmap) {    /* Write bitmap to file if in that mode. */
+X    WriteFile();
+X    Deallocate(bm);
+X  }
+X#ifdef WIN
+X  else {
+X#ifdef X11
+X    if (xroot) {
+X      XSetWindowBackgroundPixmap(disp, root, pixmap);    /* Process -XB. */
+X      XClearWindow(disp, root);
+X    } else
+X#endif
+X      XSpin();    /* Window's up; process commands given to window now. */
+X    XEnd();
+X  }
+X#endif
+X}
+X#endif
+X
+X/* xdriver.c */
+END_OF_FILE
+if test 32400 -ne `wc -c <'xdriver.c'`; then
+    echo shar: \"'xdriver.c'\" unpacked with wrong size!
+fi
+# end of 'xdriver.c'
+fi
+echo shar: End of archive 5 \(of 12\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

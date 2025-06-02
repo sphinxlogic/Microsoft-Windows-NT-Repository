@@ -1,0 +1,2358 @@
+Newsgroups: comp.sources.misc
+From: tcamp@acpub.duke.edu (Ted A. Campbell)
+Subject:  v33i040:  bwbasic - Bywater BASIC interpreter version 1.10, Part04/11
+Message-ID: <1992Nov5.035311.15712@sparky.imd.sterling.com>
+X-Md4-Signature: 69e013f0dbe4e75aeb880d4336b6bdef
+Date: Thu, 5 Nov 1992 03:53:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: tcamp@acpub.duke.edu (Ted A. Campbell)
+Posting-number: Volume 33, Issue 40
+Archive-name: bwbasic/part04
+Environment: ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwb_dio.c bwb_str.c makefile.qcl
+# Wrapped by kent@sparky on Wed Nov  4 21:34:23 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 11)."'
+if test -f 'bwb_dio.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_dio.c'\"
+else
+  echo shar: Extracting \"'bwb_dio.c'\" \(46285 characters\)
+  sed "s/^X//" >'bwb_dio.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_dio.c       Device Input/Output Routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X#if INTENSIVE_DEBUG
+X#define RANDOM_FILLCHAR		'X'
+X#else
+X#define RANDOM_FILLCHAR		' '
+X#endif
+X
+Xstruct dev_element *dev_table;          /* table of devices */
+X
+Xstatic struct bwb_variable *v;
+Xstatic int pos;
+Xstatic int req_devnumber;
+Xstatic int rlen;
+Xstatic int mode;
+X
+Xstatic struct bwb_line *dio_lrset( struct bwb_line *l, int rset );
+Xstatic int dio_flush( int dev_number );
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_open()
+X
+X        DESCRIPTION: This function implements the BASIC OPEN
+X        command to open a stream for device input/output.
+X
+X        SYNTAX: 1. OPEN "I"|"O"|"R", [#]n, filename [,rlen]
+X                2. OPEN filename [FOR INPUT|OUTPUT|APPEND|] AS [#]n [LEN=n]
+X 
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_open( struct bwb_line *l )
+X   {
+X   FILE *fp;
+X   struct exp_ese *e;
+X   register int n;
+X   int previous_buffer;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char first[ MAXSTRINGSIZE + 1 ];
+X   char devname[ MAXSTRINGSIZE + 1 ];
+X
+X   /* initialize */
+X
+X   mode = req_devnumber = rlen = -1;
+X   previous_buffer = FALSE;
+X
+X   /* get the first expression element up to comma or whitespace */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   /* parse the first expression element */
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X   str_btoc( first, exp_getsval( e ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): first element is <%s>",
+X      first );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* test for syntactical form: if a comma follows the first element, 
+X      then the syntax is form 1 (the old CP/M BASIC format); otherwise we
+X      presume form 2 */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X
+X   /* Parse syntax Form 1 (OPEN "x", #n, devname...) */
+X
+X   if ( l->buffer[ l->position ] == ',' )
+X      {
+X
+X      /* parse the next element to get the device number */
+X
+X      ++( l->position );                        /* advance beyond comma */
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == '#' )
+X         {
+X         ++( l->position );
+X         adv_ws( l->buffer, &( l->position ) );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type == STRING )
+X         {
+X	 #if PROG_ERRORS
+X	 bwb_error( "String where integer was expected for device number" );
+X	 #else
+X	 bwb_error( err_syntax );
+X	 #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X      req_devnumber = exp_getival( e );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, req dev number is %d",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* parse the next element to get the devname */
+X
+X      adv_ws( l->buffer, &( l->position ) );    /* advance past whitespace */
+X      ++( l->position );                        /* advance past comma */
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type != STRING )
+X         {
+X	 #if PROG_ERRORS
+X	 bwb_error( "in bwb_open(): number where string was expected for devname" );
+X	 #else
+X	 bwb_error( err_syntax );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X      str_btoc( devname, exp_getsval( e ) );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, devname <%s>",
+X         devname  );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* see if there is another element; if so, parse it to get the
+X         record length */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] == ',' )
+X         {
+X
+X         ++( l->position );                     /* advance beyond comma */
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X
+X         pos = 0;
+X         e = bwb_exp( atbuf, FALSE, &pos );
+X         if ( e->type == STRING )
+X            {
+X	    #if PROG_ERRORS
+X            bwb_error( "String where integer was expected for record length" );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X         rlen = exp_getival( e );
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_open(): syntax 1, record length is %d",
+X            rlen );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         }
+X
+X      /* the first letter of the first should indicate the
+X         type of file opening requested: test this letter,
+X         then parse accordingly */
+X
+X      /* open file for sequential INPUT */
+X
+X      if ( ( first[ 0 ] == 'i' ) || ( first[ 0 ] == 'I' ))
+X         {
+X         mode = DEVMODE_INPUT;
+X         }
+X
+X      /* open file for sequential OUTPUT */
+X
+X      else if ( ( first[ 0 ] == 'o' ) || ( first[ 0 ] == 'O' ))
+X         {
+X         mode = DEVMODE_OUTPUT;
+X         }
+X
+X      /* open file for RANDOM access input and output */
+X
+X      else if ( ( first[ 0 ] == 'r' ) || ( first[ 0 ] == 'R' ))
+X         {
+X         mode = DEVMODE_RANDOM;
+X         }
+X
+X      /* error: none of the appropriate modes found */
+X
+X      else
+X         {
+X	 #if PROG_ERRORS
+X	 sprintf( bwb_ebuf, "in bwb_open(): invalid mode" );
+X	 bwb_error( bwb_ebuf );
+X	 #else
+X	 bwb_error( err_syntax );
+X	 #endif
+X         }
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 1, mode is %d", mode );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      }
+X
+X   /* Parse syntax Form 2 (OPEN devname FOR mode AS #n ... ) */
+X
+X   else
+X      {
+X
+X      /* save the devname from first */
+X
+X      strcpy( devname, first );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, devname <%s>",
+X         devname );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* get the next element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      /* check for "FOR mode" statement */
+X
+X      bwb_strtoupper( atbuf );
+X      if ( strcmp( atbuf, "FOR" ) == 0 )
+X         {
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X         bwb_strtoupper( atbuf );
+X         if ( strcmp( atbuf, "INPUT" ) == 0 )
+X            {
+X            mode = DEVMODE_INPUT;
+X            }
+X         else if ( strcmp( atbuf, "OUTPUT" ) == 0 )
+X            {
+X            mode = DEVMODE_OUTPUT;
+X            }
+X         else if ( strcmp( atbuf, "APPEND" ) == 0 )
+X            {
+X            mode = DEVMODE_RANDOM;
+X            }
+X         else 
+X            {
+X	    #if PROG_ERRORS
+X            bwb_error( "in bwb_open(): Invalid device i/o mode specified" );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X
+X         /* get the next element */
+X
+X         adv_element( l->buffer, &( l->position ), atbuf );
+X
+X         }
+X      else
+X         {
+X         mode = DEVMODE_RANDOM;
+X         }
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, mode is %d", mode );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* This leaves us with the next element in the atbuf: it
+X         should read "AS" */
+X
+X      bwb_strtoupper( atbuf );
+X      if ( strcmp( atbuf, "AS" ) != 0 )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_open(): expected AS statement" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X
+X      /* get the next element */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      if ( l->buffer[ l->position ] == '#' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): string to parse for req dev number <%s>",
+X         atbuf );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      if ( e->type == STRING )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "String where integer was expected for record length" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X      req_devnumber = exp_getival( e );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): syntax 2, req dev number is %d",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* Check for LEN = n statement */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X      bwb_strtoupper( atbuf );
+X      if ( strncmp( atbuf, "LEN", (size_t) 3 ) == 0 )
+X         {
+X
+X         pos = l->position - strlen( atbuf );
+X         while( ( l->buffer[ pos ] != '=' ) && ( l->buffer[ pos ] != '\0' ))
+X            {
+X            ++pos;
+X            }
+X         if ( l->buffer[ pos ] == '\0' )
+X            {
+X	    #if PROG_ERRORS
+X            bwb_error( "Failed to find equals sign after LEN element" );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X         ++pos;         /* advance past equal sign */
+X
+X         e = bwb_exp( l->buffer, FALSE, &pos );
+X
+X         if ( e->type == STRING )
+X            {
+X	    #if PROG_ERRORS
+X            bwb_error( "String where integer was expected for record length" );
+X            #else
+X            bwb_error( err_syntax );
+X            #endif
+X            l->next->position = 0;
+X            return l->next;
+X            }
+X         rlen = exp_getival( e );
+X
+X         #if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_open(): syntax 2, record length is %d",
+X            rlen );
+X         bwb_debug( bwb_ebuf );
+X         #endif
+X
+X         }
+X
+X      }                                 /* end of syntax 2 */
+X
+X   /* check for valid requested device number */
+X
+X   if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_open(): Requested device number is out of range." );
+X      #else
+X      bwb_error( err_devnum );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   if ( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED )
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): using previously closed file (and buffer)" );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      previous_buffer = TRUE;
+X      }
+X
+X   if ( ( dev_table[ req_devnumber ].mode != DEVMODE_CLOSED ) &&
+X      ( dev_table[ req_devnumber ].mode != DEVMODE_AVAILABLE ) )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_open(): Requested device number is already in use." );
+X      #else
+X      bwb_error( err_devnum );
+X      #endif
+X
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): ready to open device <%s> mode <%d>",
+X      devname, mode );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* attempt to open the file */
+X
+X   switch( mode )
+X      {
+X      case DEVMODE_OUTPUT:
+X         fp = fopen( devname, "w" );
+X         break;
+X      case DEVMODE_INPUT:
+X         fp = fopen( devname, "r" );
+X         break;
+X      case DEVMODE_APPEND:
+X         fp = fopen( devname, "a" );
+X         break;
+X      case DEVMODE_RANDOM:
+X         fp = fopen( devname, "r+" );
+X         if ( fp == NULL )
+X            {
+X            fp = fopen( devname, "w" );
+X            fclose( fp );
+X            fp = fopen( devname, "r+" );
+X            }
+X         break;
+X      }
+X
+X   /* check for valid file opening */
+X
+X   if ( fp == NULL )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Failed to open device <%s>", devname );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_dev );
+X      #endif
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* assign values to device table */
+X
+X   dev_table[ req_devnumber ].mode = mode;
+X   dev_table[ req_devnumber ].cfp = fp;
+X   dev_table[ req_devnumber ].reclen = rlen;
+X   dev_table[ req_devnumber ].next_record = 1;
+X   dev_table[ req_devnumber ].loc = 0;
+X   strcpy( dev_table[ req_devnumber ].filename, devname );
+X
+X   /* allocate a character buffer for random access */
+X
+X   if (( mode == DEVMODE_RANDOM ) && ( previous_buffer != TRUE ))
+X      {
+X      if ( ( dev_table[ req_devnumber ].buffer = calloc( rlen + 1, 1 )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         return l;
+X         }
+X
+X      dio_flush( req_devnumber );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_open(): allocated new random-access buffer" );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_open(): file is open now; end of function" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return next line number in sequence */
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_close()
+X
+X        DESCRIPTION: This function implements the BASIC CLOSE
+X        command to close a stream for device input/output.
+X  
+X        SYNTAX:         CLOSE [#]n [,[#]n...]
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_close( struct bwb_line *l )
+X   {
+X   struct exp_ese *e;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* loop to get device numbers to close */
+X
+X   do
+X      {
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] =='#' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X      if ( e->type == STRING )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "String where integer was expected for device number" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X
+X      req_devnumber = exp_getival( e );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_close(): requested device number <%d>",
+X         req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* check for valid requested device number */
+X
+X      if ( ( req_devnumber < 0 ) || ( req_devnumber >= DEF_DEVICES ))
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Requested device number is out if range." );
+X         #else
+X         bwb_error( err_devnum );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X
+X      if (( dev_table[ req_devnumber ].mode == DEVMODE_CLOSED ) ||
+X         ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Requested device number is not in use." );
+X         #else
+X         bwb_error( err_devnum );
+X         #endif
+X
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_close(): closing device # <%d>",
+X	 req_devnumber );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* attempt to close the file */
+X
+X      if ( fclose( dev_table[ req_devnumber ].cfp ) != 0 )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_close(): Failed to close the device" );
+X         #else
+X         bwb_error( err_dev );
+X         #endif
+X         l->next->position = 0;
+X         return l->next;
+X         }
+X
+X      /* mark the device in the table as unavailable */
+X
+X      dev_table[ req_devnumber ].mode = DEVMODE_CLOSED;
+X
+X      /* eat up any remaining whitespace */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   while ( l->buffer[ l->position ] == ',' );
+X
+X   /* return next line number in sequence */
+X
+X   l->next->position = 0;
+X   return l->next;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_chdir()
+X
+X        DESCRIPTION: This function implements the BASIC CHDIR
+X        command to switch logged directories.
+X
+X        SYNTAX: CHDIR pathname$
+X 
+X***************************************************************/
+X
+X#if DIRECTORY_CMDS
+Xstruct bwb_line *
+Xbwb_chdir( struct bwb_line *l )
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_chdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* try to chdir to the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = chdir( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_rmdir()
+X
+X        DESCRIPTION: This function implements the BASIC CHDIR
+X        command to remove a subdirectory.
+X
+X        SYNTAX: RMDIR pathname$
+X 
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_rmdir( struct bwb_line *l )
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_rmdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* try to remove the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = rmdir( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_mkdir()
+X
+X        DESCRIPTION: This function implements the BASIC MKDIR
+X        command to create a new subdirectory.
+X
+X        SYNTAX: MKDIR pathname$
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_mkdir( struct bwb_line *l )
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_mkdir(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* try to make the requested directory */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = mkdir( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X#endif				/* DIRECTORY_CMDS */
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_kill()
+X
+X        DESCRIPTION: This function implements the BASIC KILL
+X        command to erase a disk file.
+X
+X        SYNTAX: KILL btbuf$
+X 
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_kill( struct bwb_line *l )
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   /* get the next element in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_kill(): argument is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* interpret the argument */
+X
+X   position = 0;
+X  e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* try to delete the specified file */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X   r = unlink( atbuf );
+X
+X   /* detect error */
+X
+X   if ( r == -1 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_name()
+X
+X        DESCRIPTION: This function implements the BASIC NAME
+X        command to rename a disk file.
+X
+X        SYNTAX: NAME old_btbuf$ AS new_btbuf$
+X 
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_name( struct bwb_line *l )
+X   {
+X   int r;
+X   static int position;
+X   struct exp_ese *e;
+X   static char *atbuf;
+X   static char *btbuf;
+X   static int init = FALSE;
+X
+X   /* get memory for temporary buffers if necessary */
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      if ( ( atbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      if ( ( btbuf = calloc( MAXSTRINGSIZE + 1, sizeof( char ) )) == NULL )
+X         {
+X         bwb_error( err_getmem );
+X         }
+X      }
+X
+X   /* get the first argument in atbuf */
+X
+X   adv_element( l->buffer, &( l->position ), atbuf  );
+X
+X   /* interpret the first argument */
+X
+X   position = 0;
+X   e = bwb_exp( atbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* this argument must be copied back to atbuf, else the next
+X      call to bwb_exp() will overwrite the structure to which e
+X      refers */
+X
+X   str_btoc( atbuf, &( e->sval ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): old name is <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* get the second argument in btbuf */
+X
+X   adv_element( l->buffer, &( l->position ), btbuf  );
+X   bwb_strtoupper( btbuf );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): AS string is <%s>", btbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( strcmp( btbuf, "AS" ) != 0 )
+X      {
+X      bwb_error( err_syntax );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   /* get the third argument in btbuf */
+X
+X   adv_element( l->buffer, &( l->position ), btbuf  );
+X
+X   /* interpret the third argument */
+X
+X   position = 0;
+X   e = bwb_exp( btbuf, FALSE, &position );
+X
+X   if ( e->type != STRING )
+X      {
+X      bwb_error( err_argstr );
+X      l->next->position = 0;
+X      return l->next;
+X      }
+X
+X   str_btoc( btbuf, &( e->sval ) );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_name(): new name is <%s>", btbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* try to rename the file */
+X
+X   r = rename( atbuf, btbuf );
+X
+X   /* detect error */
+X
+X   if ( r != 0 )
+X      {
+X      bwb_error( err_opsys );
+X      }
+X
+X   l->next->position = 0;
+X   return l->next;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_field()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			FIELD command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_field( struct bwb_line *l )
+X   {
+X   int dev_number;
+X   int length;
+X   struct exp_ese *e;
+X   struct bwb_variable *v;
+X   bstring *b;
+X   int current_pos;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char btbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   current_pos = 0;
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_field(): device # buffer <%s>", atbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X
+X   if ( e->type != INTEGER )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_field(): Integer was expected for device number" );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return l;
+X      }
+X
+X   dev_number = exp_getival( e );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_field(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if (( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_field(): Requested device number is not in use." );
+X      #else
+X      bwb_error( err_devnum );
+X      #endif
+X      return l;
+X      }
+X
+X   /* loop to read variables */
+X
+X   do
+X      {
+X
+X      /* read the comma and advance beyond it */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X      if ( l->buffer[ l->position ] ==',' )
+X         {
+X         ++( l->position );
+X         }
+X
+X      /* first find the size of the field */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X      if ( e->type != INTEGER )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_field(): integer value for field size not found" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         return l;
+X         }
+X
+X      length = exp_getival( e );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): device <%d> length <%d> buf <%s>",
+X         dev_number, length, &( l->buffer[ l->position ] ) );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* read the AS */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X      bwb_strtoupper( atbuf );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): AS element <%s>", atbuf );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      if ( strncmp( atbuf, "AS", 2 ) != 0 )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_field(): AS statement not found" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         return l;
+X         }
+X
+X      /* read the string variable name */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );	/* get element */
+X      v = var_find( atbuf );
+X
+X      if ( v->type != STRING )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_field(): string variable name not found" );
+X         #else
+X         bwb_error( err_syntax );
+X         #endif
+X         return l;
+X         }
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): device <%d> var <%s> length <%d>",
+X         dev_number, v->name, length );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* check for overflow of record length */
+X
+X      if ( ( current_pos + length ) > dev_table[ dev_number ].reclen )
+X         {
+X	 #if PROG_ERRORS
+X         bwb_error( "in bwb_field(): record length exceeded" );
+X         #else
+X         bwb_error( err_overflow );
+X         #endif
+X         return l;
+X         }
+X
+X      /* set buffer */
+X
+X      b = var_findsval( v, v->array_pos );
+X      if ( b->buffer != NULL )
+X         {
+X         free( b->buffer );
+X         }
+X      b->buffer = dev_table[ dev_number ].buffer + current_pos;
+X      b->length = (unsigned char) length;
+X      b->rab = TRUE;
+X
+X      current_pos += length;
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_field(): buffer <%lXh> var <%s> buffer <%lXh>",
+X         (long) dev_table[ dev_number ].buffer, v->name, (long) b->buffer );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      /* eat up any remaining whitespace */
+X
+X      adv_ws( l->buffer, &( l->position ) );
+X
+X      }
+X
+X   while ( l->buffer[ l->position ] == ',' );
+X
+X   /* return */
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_lset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			LSET command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_lset( struct bwb_line *l )
+X   {
+X   return dio_lrset( l, FALSE );
+X   }
+X   
+X/***************************************************************
+X
+X        FUNCTION:       bwb_rset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			RSET command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_rset( struct bwb_line *l )
+X   {
+X   return dio_lrset( l, TRUE );
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dio_lrset()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			RSET and LSET commands.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xdio_lrset( struct bwb_line *l, int rset )
+X   {
+X   char varname[ MAXVARNAMESIZE + 1 ];
+X   bstring *d, *s;
+X   int *pp;
+X   int n_params;
+X   int p;
+X   register int n, i;
+X   int startpos;
+X   struct exp_ese *e;
+X
+X   /* find the variable name */
+X
+X   bwb_getvarname( l->buffer, varname, &( l->position ));
+X
+X   v = var_find( varname );
+X
+X   if ( v == NULL )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): failed to find variable" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      }
+X
+X   if ( v->type != STRING )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): assignment must be to string variable" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      }
+X
+X   /* read subscripts */
+X
+X   pos = 0;
+X   if ( ( v->dimensions == 1 ) && ( v->array_sizes[ 0 ] == 1 ))
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in dio_lrset(): variable <%s> has 1 dimension",
+X         v->name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      n_params = 1;
+X      pp = &p;
+X      pp[ 0 ] = dim_base;
+X      }
+X   else
+X      {
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in dio_lrset(): variable <%s> has > 1 dimensions",
+X         v->name );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X      dim_getparams( l->buffer, &( l->position ), &n_params, &pp );
+X      }
+X
+X   exp_es[ exp_esc ].pos_adv = pos;
+X   for ( n = 0; n < v->dimensions; ++n )
+X      {
+X      v->array_pos[ n ] = pp[ n ];
+X      }
+X
+X   /* get bstring pointer */
+X
+X   d = var_findsval( v, pp );
+X
+X   /* find equals sign */
+X
+X   adv_ws( l->buffer, &( l->position ));
+X   if ( l->buffer[ l->position ] != '=' )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_lrset(): failed to find equal sign" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      }
+X   ++( l->position );
+X   adv_ws( l->buffer, &( l->position ));
+X
+X   /* read remainder of line to get value */
+X
+X   e = bwb_exp( l->buffer, FALSE, &( l->position ) );
+X   s = exp_getsval( e );
+X
+X   /* set starting position */
+X
+X   startpos = 0;
+X   if ( rset == TRUE )
+X      {
+X      if ( s->length < d->length )
+X         {
+X         startpos = d->length - s->length;
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in dio_lrset(): startpos <%d> buffer <%lX>", 
+X      startpos, (long) d->buffer );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* write characters to new position */
+X
+X   i = 0;
+X   for ( n = startpos; ( i < s->length ) && ( n < d->length ); ++n )
+X      {
+X      d->buffer[ n ] = s->buffer[ i ];
+X      ++i;
+X      }
+X
+X   /* return */
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_get()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			GET command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_get( struct bwb_line *l )
+X   {
+X   int dev_number;
+X   int rec_number;
+X   register int i;
+X   struct exp_ese *e;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char btbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X
+X   pos = 0;
+X   e = bwb_exp( atbuf, FALSE, &pos );
+X
+X   if ( e->type != INTEGER )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_get(): Integer was expected for device number" );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return l;
+X      }
+X
+X   dev_number = exp_getival( e );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_get(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if ( ( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_get(): Requested device number is not in use." );
+X      #else
+X      bwb_error( err_devnum );
+X      #endif
+X      return l;
+X      }
+X
+X   /* see if there is a comma (and record number) */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] == ',' )	/* yes, there is a comma */
+X      {
+X      ++( l->position );
+X
+X      /* get the record number element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X      rec_number = exp_getival( e );
+X
+X      }
+X
+X   else				/* no record number given */
+X      {
+X      rec_number = dev_table[ dev_number ].next_record;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_get(): record number <%d>", rec_number );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* wind the c file up to the proper point */
+X
+X   if ( fseek( dev_table[ dev_number ].cfp,
+X      (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ), 
+X      SEEK_SET ) != 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_get(): fseek() failed, rec number <%d> offset <%ld>",
+X        rec_number, (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ) );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_dev );
+X      #endif
+X      return l;
+X      }
+X
+X   /* read the requested bytes into the buffer */
+X
+X   for ( i = 0; i < dev_table[ dev_number ].reclen; ++i )
+X      {
+X      dev_table[ dev_number ].buffer[ i ] =
+X         (char) fgetc( dev_table[ dev_number ].cfp );
+X      ++( dev_table[ dev_number ].loc );
+X      }
+X
+X   /* increment (or reset) the current record */
+X
+X   dev_table[ dev_number ].next_record = rec_number + 1;
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       bwb_put()
+X
+X        DESCRIPTION:	This C function implements the BASIC
+X			PUT command.
+X
+X***************************************************************/
+X
+Xstruct bwb_line *
+Xbwb_put( struct bwb_line *l )
+X   {
+X   int dev_number;
+X   int rec_number;
+X   register int i;
+X   struct exp_ese *e;
+X   struct bwb_variable *v;
+X   char atbuf[ MAXSTRINGSIZE + 1 ];
+X   char btbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   /* first read device number */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] =='#' )
+X      {
+X      ++( l->position );
+X      }
+X
+X   adv_element( l->buffer, &( l->position ), atbuf );
+X   dev_number = atoi( atbuf );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): device <%d>", dev_number );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* be sure that the requested device is open */
+X
+X   if ( ( dev_table[ dev_number ].mode == DEVMODE_CLOSED ) ||
+X      ( dev_table[ req_devnumber ].mode == DEVMODE_AVAILABLE ) )
+X      {
+X      #if PROG_ERRORS
+X      bwb_error( "in bwb_put(): Requested device number is not in use." );
+X      #else
+X      bwb_error( err_devnum );
+X      #endif
+X      return l;
+X      }
+X
+X   /* see if there is a comma (and record number) */
+X
+X   adv_ws( l->buffer, &( l->position ) );
+X   if ( l->buffer[ l->position ] == ',' )	/* yes, there is a comma */
+X      {
+X      ++( l->position );
+X
+X      /* get the record number element */
+X
+X      adv_element( l->buffer, &( l->position ), atbuf );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_put(): rec no buffer <%s>", atbuf );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      pos = 0;
+X      e = bwb_exp( atbuf, FALSE, &pos );
+X
+X      #if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_put(): return type <%c>", e->type );
+X      bwb_debug( bwb_ebuf );
+X      #endif
+X
+X      rec_number = exp_getival( e );
+X
+X      }
+X
+X   else				/* no record number given */
+X      {
+X      rec_number = dev_table[ dev_number ].next_record;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): record number <%d>", rec_number );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* wind the c file up to the proper point */
+X
+X   if ( fseek( dev_table[ dev_number ].cfp,
+X      (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ), 
+X      SEEK_SET ) != 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in bwb_get(): fseek() failed, rec number <%d> offset <%ld>",
+X        rec_number, (long) (( rec_number - 1 ) * dev_table[ dev_number ].reclen ) );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_dev );
+X      #endif
+X      return l;
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_put(): ready to write to file, buffer <%lXh>",
+X      (long) dev_table[ dev_number ].buffer );
+X   bwb_debug( bwb_ebuf );
+X   xprintf( stderr, "Buffer: <" );
+X   #endif
+X
+X   /* write the requested bytes to the file */
+X
+X   for ( i = 0; i < dev_table[ dev_number ].reclen; ++i )
+X      {
+X      fputc( dev_table[ dev_number ].buffer[ i ],
+X         dev_table[ dev_number ].cfp );
+X      #if INTENSIVE_DEBUG
+X      xputc( stderr, dev_table[ dev_number ].buffer[ i ] );
+X      #endif
+X      ++( dev_table[ dev_number ].loc );
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   xprintf( stderr, ">\n" );
+X   sprintf( bwb_ebuf, "in bwb_put(): write to file complete" );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* flush the buffer */
+X
+X   dio_flush( dev_number );
+X
+X   /* increment (or reset) the current record */
+X
+X   dev_table[ dev_number ].next_record = rec_number + 1;
+X
+X   return l;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       dio_flush()
+X
+X        DESCRIPTION:    This C function flushes the random-access
+X			buffer associated with file dev_number.
+X
+X***************************************************************/
+X
+Xint
+Xdio_flush( int dev_number )
+X   {
+X   register int n;
+X
+X   if ( dev_table[ dev_number ].mode != DEVMODE_RANDOM )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dio_flush(): only random-access buffers can be flushed" );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_dev );
+X      #endif
+X      }
+X
+X   /* fill buffer with blanks (or 'X' for test) */
+X
+X   for ( n = 0; n < dev_table[ req_devnumber ].reclen; ++n )
+X      {
+X      dev_table[ req_devnumber ].buffer[ n ] = RANDOM_FILLCHAR;
+X      }
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_loc()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X			LOC() function. As implemented here,
+X			this only workd for random-acess files.
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_loc( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X   int dev_number;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_loc(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( argc < 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function LOC().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function LOC().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X
+X   dev_number = var_getival( &( argv[ 0 ] ) );
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, INTEGER );
+X      }
+X
+X   /* note if this is the very beginning of the file */
+X
+X   if ( dev_table[ dev_number ].loc == 0 )
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = 0;
+X      }
+X   else
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) =
+X         dev_table[ dev_number ].next_record;
+X      }
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_lof()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X			LOF() function. 
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_lof( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X   int dev_number;
+X   int r;
+X   static struct stat statbuf;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_lof(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( argc < 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function LOF().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function LOF().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X
+X   dev_number = var_getival( &( argv[ 0 ] ) );
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, SINGLE );
+X      }
+X
+X   /* stat the file */
+X
+X   r = stat( dev_table[ dev_number ].filename, &statbuf );
+X
+X   if ( r != 0 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in fnc_lof(): failed to find file <%s>",
+X         dev_table[ dev_number ].filename );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      sprintf( bwb_ebuf, ERR_OPENFILE,
+X         dev_table[ dev_number ].filename );
+X      bwb_error( bwb_ebuf );
+X      #endif
+X      return NULL;
+X      }
+X
+X   * var_findfval( &nvar, nvar.array_pos ) = (float) statbuf.st_size;
+X
+X   return &nvar;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       fnc_eof()
+X
+X        DESCRIPTION:    This C function implements the BASIC
+X			EOF() function. 
+X
+X***************************************************************/
+X
+Xstruct bwb_variable *
+Xfnc_eof( int argc, struct bwb_variable *argv )
+X   {
+X   static struct bwb_variable nvar;
+X   static int init = FALSE;
+X   int dev_number;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in fnc_loc(): received f_arg <%f> ",
+X      var_getdval( &( argv[ 0 ] ) ) );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   if ( argc < 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Not enough parameters (%d) to function EOF().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X   else if ( argc > 1 )
+X      {
+X      #if PROG_ERRORS
+X      sprintf( bwb_ebuf, "Too many parameters (%d) to function EOF().",
+X         argc );
+X      bwb_error( bwb_ebuf );
+X      #else
+X      bwb_error( err_syntax );
+X      #endif
+X      return NULL;
+X      }
+X
+X   dev_number = var_getival( &( argv[ 0 ] ) );
+X
+X   if ( init == FALSE )
+X      {
+X      init = TRUE;
+X      var_make( &nvar, INTEGER );
+X      }
+X
+X   /* note if this is the very beginning of the file */
+X
+X   if ( dev_table[ dev_number ].mode == DEVMODE_AVAILABLE )
+X      {
+X      bwb_error( err_devnum );
+X      * var_findival( &nvar, nvar.array_pos ) = TRUE;
+X      }
+X   else if ( dev_table[ dev_number ].mode == DEVMODE_CLOSED )
+X      {
+X      bwb_error( err_devnum );
+X      * var_findival( &nvar, nvar.array_pos ) = TRUE;
+X      }
+X   else if ( feof( dev_table[ dev_number ].cfp ) == 0 )
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = FALSE;
+X      }
+X   else
+X      {
+X      * var_findival( &nvar, nvar.array_pos ) = TRUE;
+X      }
+X
+X   return &nvar;
+X   }
+X
+X
+END_OF_FILE
+  if test 46285 -ne `wc -c <'bwb_dio.c'`; then
+    echo shar: \"'bwb_dio.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_dio.c'
+fi
+if test -f 'bwb_str.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwb_str.c'\"
+else
+  echo shar: Extracting \"'bwb_str.c'\" \(7137 characters\)
+  sed "s/^X//" >'bwb_str.c' <<'END_OF_FILE'
+X/***************************************************************
+X
+X        bwb_str.c       String-management routines
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1992, Ted A. Campbell
+X
+X                        Bywater Software
+X                        P. O. Box 4023
+X                        Duke Station
+X                        Durham, NC  27706
+X
+X                        email: tcamp@acpub.duke.edu
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international copyrights are claimed by the
+X        author. The author grants permission to use this code
+X        and software based on it under the following conditions:
+X        (a) in general, the code and software based upon it may be
+X        used by individuals and by non-profit organizations; (b) it
+X        may also be utilized by governmental agencies in any country,
+X        with the exception of military agencies; (c) the code and/or
+X        software based upon it may not be sold for a profit without
+X        an explicit and specific permission from the author, except
+X        that a minimal fee may be charged for media on which it is
+X        copied, and for copying and handling; (d) the code must be
+X        distributed in the form in which it has been released by the
+X        author; and (e) the code and software based upon it may not
+X        be used for illegal activities.
+X
+X***************************************************************/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X#define FREE_STRBUFFERS	0	/* works with QuickC but not others */
+X
+X#if INTENSIVE_DEBUG || TEST_BSTRING
+Xstatic char tbuf[ MAXSTRINGSIZE + 1 ];
+X#endif
+X
+X/***************************************************************
+X
+X        FUNCTION:       str_btob()
+X
+X        DESCRIPTION:    This C function assigns a bwBASIC string
+X			structure to another bwBASIC string 
+X			structure.
+X
+X***************************************************************/
+X
+Xint
+Xstr_btob( bstring *d, bstring *s )
+X   {
+X   char *t;
+X   register int i;
+X
+X   #if TEST_BSTRING
+X   sprintf( tbuf, "in str_btob(): entry, source b string name is <%s>", s->name );
+X   bwb_debug( tbuf );
+X   sprintf( tbuf, "in str_btob(): entry, destination b string name is <%s>", d->name );
+X   bwb_debug( tbuf );
+X   #endif
+X
+X   /* get memory for new buffer */
+X
+X   if ( ( t = (char *) calloc( s->length + 1, 1 )) == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return FALSE;
+X      }
+X
+X   /* write the c string to the b string */
+X
+X   t[ 0 ] = '\0';
+X   for ( i = 0; i < s->length; ++i )
+X      {
+X      t[ i ] = s->buffer[ i ];
+X      #if INTENSIVE_DEBUG
+X      tbuf[ i ] = s->buffer[ i ];
+X      tbuf[ i + 1 ] = '\0';
+X      #endif
+X      }
+X
+X   /* deallocate old memory */
+X
+X   #if INTENSIVE_DEBUG
+X   if ( d->rab == TRUE )
+X      {
+X      sprintf( bwb_ebuf, "in str_btob(): reallocating RAB" );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X   #if FREE_STRBUFFERS
+X   if (( d->rab != TRUE ) && ( d->buffer != NULL ))
+X      {
+X      free( d->buffer );
+X      }
+X   #endif
+X   d->rab = (char) FALSE;
+X
+X   /* reassign buffer */
+X
+X   d->buffer = t;
+X
+X   /* reassign length */
+X
+X   d->length = s->length;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in str_btob(): exit length <%d> string <%s>",
+X      d->length, tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       str_ctob()
+X
+X        DESCRIPTION:    This C function assigns a null-terminated
+X			C string to a bwBASIC string structure.
+X
+X***************************************************************/
+X
+Xint
+Xstr_ctob( bstring *s, char *buffer )
+X   {
+X   char *t;
+X   register int i;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( tbuf, "in str_ctob(): entry, c string is <%s>", buffer );
+X   bwb_debug( tbuf );
+X   #endif
+X   #if TEST_BSTRING
+X   sprintf( tbuf, "in str_ctob(): entry, b string name is <%s>", s->name );
+X   bwb_debug( tbuf );
+X   #endif
+X
+X   /* get memory for new buffer */
+X
+X   if ( ( t = (char *) calloc( strlen( buffer ) + 1, 1 )) == NULL )
+X      {
+X      bwb_error( err_getmem );
+X      return FALSE;
+X      }
+X
+X   /* write the c string to the b string */
+X
+X   t[ 0 ] = '\0';
+X   for ( i = 0; i < strlen( buffer ); ++i )
+X      {
+X      t[ i ] = buffer[ i ];
+X      #if INTENSIVE_DEBUG
+X      tbuf[ i ] = buffer[ i ];
+X      tbuf[ i + 1 ] = '\0';
+X      #endif
+X      }
+X
+X   /* deallocate old memory */
+X
+X   #if INTENSIVE_DEBUG
+X   if ( s->rab == TRUE )
+X      {
+X      sprintf( bwb_ebuf, "in str_ctob(): reallocating RAB" );
+X      bwb_debug( bwb_ebuf );
+X      }
+X   #endif
+X   #if FREE_STRBUFFERS
+X   if (( s->rab != TRUE ) && ( s->buffer != NULL ))
+X      {
+X      free( s->buffer );
+X      }
+X   #endif
+X   s->rab = (char) FALSE;
+X
+X   /* reassign buffer */
+X
+X   s->buffer = t;
+X
+X   /* reassign length */
+X
+X   s->length = (unsigned char) strlen( buffer );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in str_ctob(): exit length <%d> string <%s>",
+X      s->length, tbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       str_btoc()
+X
+X        DESCRIPTION:    This C function assigns a null-terminated
+X			C string to a bwBASIC string structure.
+X
+X***************************************************************/
+X
+Xint
+Xstr_btoc( char *buffer, bstring *s )
+X   {
+X   register int i;
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( tbuf, "in str_btoc(): entry, b string length is <%d>", 
+X      s->length );
+X   bwb_debug( tbuf );
+X   #endif
+X   #if TEST_BSTRING
+X   sprintf( tbuf, "in str_btoc(): entry, b string name is <%s>", s->name );
+X   bwb_debug( tbuf );
+X   #endif
+X
+X   /* write the b string to the c string */
+X
+X   buffer[ 0 ] = '\0';
+X   for ( i = 0; i < s->length; ++i )
+X      {
+X      buffer[ i ] = s->buffer[ i ];
+X      buffer[ i + 1 ] = '\0';
+X      if ( i >= MAXSTRINGSIZE )
+X         {
+X         i = s->length + 1;
+X         }
+X      }
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( tbuf, "in str_btoc(): exit, c string is <%s>", buffer );
+X   bwb_debug( tbuf );
+X   #endif
+X
+X   /* return */
+X
+X   return TRUE;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       str_cat()
+X
+X        DESCRIPTION:    This C function 
+X
+X***************************************************************/
+X
+Xchar *
+Xstr_cat( bstring *a, bstring *b )
+X   {
+X   char abuf[ MAXSTRINGSIZE + 1 ];
+X   char bbuf[ MAXSTRINGSIZE + 1 ];
+X   char *r;
+X
+X   str_btoc( abuf, a );
+X   str_btoc( bbuf, b );
+X
+X   #if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in str_cat(): a <%s> b <%s>", abuf, bbuf );
+X   bwb_debug( bwb_ebuf );
+X   #endif
+X
+X   r = strcat( abuf, bbuf );
+X   str_ctob( a, abuf );
+X
+X   return r;
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:       str_cmp()
+X
+X        DESCRIPTION:    This C function 
+X
+X***************************************************************/
+X
+Xint
+Xstr_cmp( bstring *a, bstring *b )
+X   {
+X   char abuf[ MAXSTRINGSIZE + 1 ];
+X   char bbuf[ MAXSTRINGSIZE + 1 ];
+X
+X   str_btoc( abuf, a );
+X   str_btoc( bbuf, b );
+X
+X   return strcmp( abuf, bbuf );
+X   }
+X
+X
+END_OF_FILE
+  if test 7137 -ne `wc -c <'bwb_str.c'`; then
+    echo shar: \"'bwb_str.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwb_str.c'
+fi
+if test -f 'makefile.qcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile.qcl'\"
+else
+  echo shar: Extracting \"'makefile.qcl'\" \(1216 characters\)
+  sed "s/^X//" >'makefile.qcl' <<'END_OF_FILE'
+X#               Microsoft QuickC Makefile for Bywater BASIC Interpreter
+X#
+X#		This makefile is for line-oriented QuickC only, not for
+X#		the QuickC integrated environment. To make the program:
+X#		rename this file as "makefile," then type "nmake."
+X#
+XPROJ=           bwbasic
+XCC=             qcl
+X
+X#
+X#		These are the normal flags I used to compile bwBASIC:
+X#
+XCFLAGS=         -O -AL -W3 -Za
+X
+X#
+X#		The following flags can be used for debugging:
+X#
+X#CFLAGS=         -Od -AL -W3 -Za -Zr -Zi
+X
+XLFLAGS=         /NOE /ST:8192
+X
+XOFILES=         bwbasic.obj bwb_int.obj bwb_tbl.obj bwb_cmd.obj bwb_prn.obj\
+X                bwb_exp.obj bwb_var.obj bwb_inp.obj bwb_fnc.obj bwb_cnd.obj\
+X                bwb_ops.obj bwb_dio.obj bwb_str.obj bwb_elx.obj bwb_mth.obj
+X
+XHFILES=         bwbasic.h bwb_mes.h
+X
+Xall:            $(PROJ).exe
+X
+X$(OFILES):      $(HFILES) makefile.qcl
+X
+X$(PROJ).exe:    $(OFILES)
+X        echo >NUL @<<$(PROJ).crf
+Xbwbasic.obj +
+Xbwb_cmd.obj +
+Xbwb_cnd.obj +
+Xbwb_fnc.obj +
+Xbwb_inp.obj +
+Xbwb_int.obj +
+Xbwb_prn.obj +
+Xbwb_tbl.obj +
+Xbwb_var.obj +
+Xbwb_exp.obj +
+Xbwb_ops.obj +
+Xbwb_dio.obj +
+Xbwb_str.obj +
+Xbwb_elx.obj +
+Xbwb_mth.obj +
+X$(OBJS_EXT)
+X$(PROJ).exe
+X
+X$(LIBS_EXT);
+X<<
+X        link $(LFLAGS) @$(PROJ).crf
+X	erase $(PROJ).crf
+X
+END_OF_FILE
+  if test 1216 -ne `wc -c <'makefile.qcl'`; then
+    echo shar: \"'makefile.qcl'\" unpacked with wrong size!
+  fi
+  # end of 'makefile.qcl'
+fi
+echo shar: End of archive 4 \(of 11\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

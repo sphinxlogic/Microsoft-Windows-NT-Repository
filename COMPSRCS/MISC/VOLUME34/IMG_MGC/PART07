@@ -1,0 +1,1591 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i035:  imagemagick - X11 image processing and display v2.2, Part07/26
+Message-ID: <1992Dec13.202727.9473@sparky.imd.sterling.com>
+X-Md4-Signature: 74bdb03d168713abd599dc3dfa6f1c45
+Date: Sun, 13 Dec 1992 20:27:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 35
+Archive-name: imagemagick/part07
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.07 (part 7 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/image.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 7; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/image.c'
+else
+echo 'x - continuing file ImageMagick/image.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/image.c' &&
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure TransformRGBImage converts the reference image from an alternate
+%  colorspace to RGB.
+%
+%  The format of the TransformRGBImage routine is:
+%
+%      TransformRGBImage(image,colorspace)
+%
+%  A description of each parameter follows:
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace
+%      the image is currently in.  On return the image is in the RGB
+%      color space.
+%
+%
+*/
+void TransformRGBImage(image,colorspace)
+Image
+X  *image;
+X
+unsigned int
+X  colorspace;
+{
+#define R 0
+#define G (MaxRGB+1)
+#define B (MaxRGB+1)*2
+X
+X  long int
+X    *blue,
+X    *green,
+X    *red;
+X
+X  register int
+X    i,
+X    x,
+X    y,
+X    z;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *range_limit;
+X
+X  unsigned char
+X    *range_table;
+X
+X  if (colorspace == RGBColorspace)
+X    return;
+X  if (colorspace == GRAYColorspace)
+X    {
+X      if (image->colors == 2)
+X        {
+X          unsigned int
+X            polarity;
+X
+X          /*
+X            Monochrome image.
+X          */
+X          polarity=Intensity(image->colormap[0]) >
+X             Intensity(image->colormap[1]);
+X          image->colormap[polarity].red=0;
+X          image->colormap[polarity].green=0;
+X          image->colormap[polarity].blue=0;
+X          image->colormap[!polarity].red=MaxRGB;
+X          image->colormap[!polarity].green=MaxRGB;
+X          image->colormap[!polarity].blue=MaxRGB;
+X        }
+X      return;
+X    }
+X  /*
+X    Allocate the tables.
+X  */
+X  red=(long int *) malloc(3*(MaxRGB+1)*sizeof(long int));
+X  green=(long int *) malloc(3*(MaxRGB+1)*sizeof(long int));
+X  blue=(long int *) malloc(3*(MaxRGB+1)*sizeof(long int));
+X  range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X  if ((red == (long int *) NULL) || (green == (long int *) NULL) ||
+X      (blue == (long int *) NULL) || (range_table == (unsigned char *) NULL))
+X    {
+X      Warning("unable to transform color space","memory allocation failed");
+X      return;
+X    }
+X  /*
+X    Initialize tables.
+X  */
+X  for (i=0; i <= MaxRGB; i++)
+X  {
+X    range_table[i]=0;
+X    range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X    range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X  }
+X  range_limit=range_table+(MaxRGB+1);
+X  switch (colorspace)
+X  {
+X    case YIQColorspace:
+X    {
+X      /*
+X        Initialize YIQ tables:
+X
+X          R = Y+0.95600*I+0.62100*Q
+X          G = Y-0.27300*I-0.64700*Q
+X          B = Y-1.10400*I+1.70100*Q
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(1.00000)*i;
+X        green[i+R]=UpShifted(0.95600)*i;
+X        blue[i+R]=UpShifted(0.62100)*i;
+X        red[i+G]=UpShifted(1.00000)*i;
+X        green[i+G]=(-UpShifted(0.27300))*i;
+X        blue[i+G]=(-UpShifted(0.64700))*i;
+X        red[i+B]=UpShifted(1.00000)*i;
+X        green[i+B]=(-UpShifted(1.10400))*i;
+X        blue[i+B]=UpShifted(1.70100)*i;
+X      }
+X      break;
+X    }
+X    case YUVColorspace:
+X    default:
+X    {
+X      /*
+X        Initialize YUV tables:
+X
+X          R = Y          +1.40200*V
+X          G = Y-0.34414*U-0.71414*V
+X          B = Y+1.77200*U
+X
+X        U and V, normally -0.5 through 0.5, must be normalized to the range 0
+X        through MaxRGB.
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(1.00000)*i;
+X        green[i+R]=0;
+X        blue[i+R]=UpShifted(1.40200/2)*(2*i-MaxRGB);
+X        red[i+G]=UpShifted(1.00000)*i;
+X        green[i+G]=(-UpShifted(0.34414/2))*(2*i-MaxRGB);
+X        blue[i+G]=(-UpShifted(0.71414/2))*(2*i-MaxRGB);
+X        red[i+B]=UpShifted(1.00000)*i;
+X        green[i+B]=UpShifted(1.77200/2)*(2*i-MaxRGB);
+X        blue[i+B]=0;
+X      }
+X      break;
+X    }
+X    case XYZColorspace:
+X    {
+X      /*
+X        Initialize XYZ tables:
+X
+X          R =  2.36444*X-0.89680*Y-0.46770*Z
+X          G = -0.51483*X+1.42523*Y+0.08817*Z
+X          B =  0.00500*X-0.01439*Y+1.00921*Z
+X      */
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        red[i+R]=UpShifted(2.36444)*i;
+X        green[i+R]=(-UpShifted(0.89680))*i;
+X        blue[i+R]=(-UpShifted(0.46770))*i;
+X        red[i+G]=(-UpShifted(0.51483))*i;
+X        green[i+G]=UpShifted(1.42523)*i;
+X        blue[i+G]=UpShifted(0.08817)*i;
+X        red[i+B]=UpShifted(0.00500)*i;
+X        green[i+B]=(-UpShifted(0.01439))*i;
+X        blue[i+B]=UpShifted(1.00921)*i;
+X      }
+X      break;
+X    }
+X  }
+X  /*
+X    Convert to RGB.
+X  */
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      /*
+X        Convert DirectClass image.
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        x=p->red;
+X        y=p->green;
+X        z=p->blue;
+X        p->red=range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        p->green=range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        p->blue=range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X        p++;
+X      }
+X      break;
+X    }
+X    case PseudoClass:
+X    {
+X      /*
+X        Convert PseudoClass image.
+X      */
+X      for (i=0; i < image->colors; i++)
+X      {
+X        x=image->colormap[i].red;
+X        y=image->colormap[i].green;
+X        z=image->colormap[i].blue;
+X        image->colormap[i].red=
+X          range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        image->colormap[i].green=
+X          range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        image->colormap[i].blue=
+X          range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X      }
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        x=p->red;
+X        y=p->green;
+X        z=p->blue;
+X        p->red=range_limit[DownShift(red[x+R]+green[y+R]+blue[z+R])];
+X        p->green=range_limit[DownShift(red[x+G]+green[y+G]+blue[z+G])];
+X        p->blue=range_limit[DownShift(red[x+B]+green[y+B]+blue[z+B])];
+X        p++;
+X      }
+X      break;
+X    }
+X  }
+X  /*
+X    Free allocated memory.
+X  */
+X  (void) free((char *) range_table);
+X  (void) free((char *) blue);
+X  (void) free((char *) green);
+X  (void) free((char *) red);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e I m a g e                                                       %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteImage writes an image to a file.
+%
+%  The format of the WriteImage routine is:
+%
+%      status=WriteImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function WriteImage return True if the image is written.
+%      False is returned if there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image: A pointer to a Image structure.
+%
+%
+*/
+unsigned int WriteImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register long int
+X    count;
+X
+X  unsigned int
+X    status;
+X
+X  unsigned long int
+X    packets;
+X
+X  if ((image->class != DirectClass) && (image->class != PseudoClass))
+X    {
+X      Warning("unable to write image","unknown image class");
+X      return(False);
+X    }
+X  if ((image->compression != RunlengthEncodedCompression) &&
+X      (image->compression != QEncodedCompression) &&
+X      (image->compression != NoCompression))
+X    {
+X      Warning("unable to write image","unknown image compression");
+X      return(False);
+X    }
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return(False);
+X    }
+X  /*
+X    Pack image pixels.
+X  */
+X  if ((image->class == PseudoClass) &&
+X      (image->compression == QEncodedCompression))
+X    image->class=DirectClass;
+X  if (image->compression == RunlengthEncodedCompression)
+X    CompressImage(image);
+X  status=PackImage(image);
+X  if (status == False)
+X    {
+X      Warning("unable to write image",image->filename);
+X      DestroyImage(image);
+X      return(False);
+X    }
+X  packets=image->packets;
+X  if (image->compression != RunlengthEncodedCompression)
+X    packets=image->columns*image->rows;
+X  if (image->compression == QEncodedCompression)
+X    {
+X      unsigned char
+X        *compressed_pixels;
+X
+X      /*
+X        Compress image pixels with Q encoding.
+X      */
+X      compressed_pixels=(unsigned char *)
+X        malloc((unsigned int) packets*image->packet_size*sizeof(unsigned char));
+X      if (compressed_pixels == (unsigned char *) NULL)
+X        {
+X          Warning("unable to write image","memory allocation failed");
+X          DestroyImage(image);
+X          return(False);
+X        }
+X      packets=QEncodeImage(image->packed_pixels,compressed_pixels,
+X        image->columns*(int) image->packet_size,image->rows);
+X      (void) free((char *) image->packed_pixels);
+X      image->packed_pixels=compressed_pixels;
+X      image->packet_size=1;
+X    }
+X  if (image->class == PseudoClass)
+X    ColormapSignature(image);
+X  /*
+X    Write header to file.
+X  */
+X  if (image->comments != (char *) NULL)
+X    (void) fprintf(image->file,"{%s}\n",image->comments);
+X  (void) fprintf(image->file,"id=ImageMagick\n");
+X  if (image->class == PseudoClass)
+X    (void) fprintf(image->file,"class=PseudoClass  colors=%u  signature=%s\n",
+X      image->colors,image->signature);
+X  else
+X    if (image->alpha)
+X      (void) fprintf(image->file,"class=DirectClass  alpha=True\n");
+X    else
+X      (void) fprintf(image->file,"class=DirectClass\n");
+X  if (image->compression == RunlengthEncodedCompression)
+X    (void) fprintf(image->file,"compression=RunlengthEncoded  packets=%lu\n",
+X      packets);
+X  else
+X    if (image->compression == QEncodedCompression)
+X      (void) fprintf(image->file,"compression=QEncoded  packets=%lu\n",packets);
+X  (void) fprintf(image->file,"columns=%u  rows=%u\n",image->columns,
+X    image->rows);
+X  if (image->scene > 0)
+X    (void) fprintf(image->file,"scene=%u\n",image->scene);
+X  if (image->montage != (char *) NULL)
+X    (void) fprintf(image->file,"montage=%s\n",image->montage);
+X  (void) fprintf(image->file,"\f\n:\n");
+X  if (image->montage != (char *) NULL)
+X    {
+X      /*
+X        Write montage tile directory.
+X      */
+X      if (image->directory != (char *) NULL)
+X        (void) fprintf(image->file,"%s",image->directory);
+X      (void) fwrite("\0",1,1,image->file);
+X    }
+X  if (image->class == PseudoClass)
+X    {
+X      register unsigned char
+X        *q;
+X
+X      unsigned char
+X        *colormap;
+X
+X      /*
+X        Allocate colormap.
+X      */
+X      colormap=(unsigned char *) malloc(3*image->colors*sizeof(unsigned char));
+X      if (colormap == (unsigned char *) NULL)
+X        {
+X          Warning("unable to write image","memory allocation failed");
+X          DestroyImage(image);
+X          return(False);
+X        }
+X      q=colormap;
+X      for (i=0; i < image->colors; i++)
+X      {
+X        *q++=image->colormap[i].red;
+X        *q++=image->colormap[i].green;
+X        *q++=image->colormap[i].blue;
+X      }
+X      /*
+X        Write colormap to file.
+X      */
+X      count=fwrite((char *) colormap,sizeof(unsigned char),
+X        (int) (3*image->colors),image->file);
+X      if (count != (3*image->colors))
+X        {
+X          Warning("unable to write image","file write error");
+X          DestroyImage(image);
+X          return(False);
+X        }
+X      (void) free((char *) colormap);
+X    }
+X  /*
+X    Write image pixels to file.
+X  */
+X  count=fwrite((char *) image->packed_pixels,(int) image->packet_size,
+X    (int) packets,image->file);
+X  if (count != packets)
+X    {
+X      Warning("unable to write image","file write error");
+X      DestroyImage(image);
+X      return(False);
+X    }
+X  (void) free((char *) image->packed_pixels);
+X  image->packed_pixels=(unsigned char *) NULL;
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U n C o m p r e s s I m a g e                                             %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UncompressImage uncompresses runlength-encoded pixels packets to
+%  a rectangular array of pixels.
+%
+%  The format of the UncompressImage routine is:
+%
+%      status=UncompressImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function UncompressImage returns True if the image is
+%      uncompressed otherwise False.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int UncompressImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  RunlengthPacket
+X    *uncompressed_pixels;
+X
+X  /*
+X    Uncompress runlength-encoded packets.
+X  */
+X  uncompressed_pixels=(RunlengthPacket *)
+X    malloc(image->columns*image->rows*sizeof(RunlengthPacket));
+X  if (uncompressed_pixels == (RunlengthPacket *) NULL)
+X    return(False);
+X  p=image->pixels;
+X  q=uncompressed_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X    {
+X      q->red=p->red;
+X      q->green=p->green;
+X      q->blue=p->blue;
+X      q->index=p->index;
+X      q->length=0;
+X      q++;
+X    }
+X    p++;
+X  }
+X  (void) free((char *) image->pixels);
+X  image->pixels=uncompressed_pixels;
+X  image->packets=image->columns*image->rows;
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U n p a c k I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function UnpackImage unpacks the packed image pixels into runlength-encoded
+%  pixel packets.  The packed image pixel memory is then freed.
+%
+%  The format of the UnpackImage routine is:
+%
+%      status=UnpackImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function UnpackImage return True if the image is unpacked.
+%      False is returned if there is an error occurs.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+unsigned int UnpackImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned long int
+X    count;
+X
+X  if (image->packed_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to unpack pixels","no packed image pixels");
+X      return(False);
+X    }
+X  /*
+X    Allocate pixels.
+X  */
+X  if (image->pixels != (RunlengthPacket *) NULL)
+X    (void) free((char *) image->pixels);
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      Warning("unable to unpack pixels","memory allocation failed");
+X      return(False);
+X    }
+X  /*
+X    Unpack the packed image pixels into runlength-encoded pixel packets.
+X  */
+X  p=image->packed_pixels;
+X  q=image->pixels;
+X  count=0;
+X  if (image->class == DirectClass)
+X    {
+X      register int
+X        alpha;
+X
+X      alpha=image->alpha;
+X      if (image->compression == RunlengthEncodedCompression)
+X        for (i=0; i < image->packets; i++)
+X        {
+X          q->red=(*p++);
+X          q->green=(*p++);
+X          q->blue=(*p++);
+X          q->index=(unsigned short) (alpha ? (*p++) : 0);
+X          q->length=(*p++);
+X          count+=(q->length+1);
+X          q++;
+X        }
+X      else
+X        for (i=0; i < image->packets; i++)
+X        {
+X          q->red=(*p++);
+X          q->green=(*p++);
+X          q->blue=(*p++);
+X          q->index=(unsigned short) (alpha ? (*p++) : 0);
+X          q->length=0;
+X          count++;
+X          q++;
+X        }
+X    }
+X  else
+X    {
+X      register unsigned short
+X        index;
+X
+X      if (image->compression == RunlengthEncodedCompression)
+X        {
+X          if (image->colors <= 256)
+X            for (i=0; i < image->packets; i++)
+X            {
+X              index=(*p++);
+X              q->red=image->colormap[index].red;
+X              q->green=image->colormap[index].green;
+X              q->blue=image->colormap[index].blue;
+X              q->index=index;
+X              q->length=(*p++);
+X              count+=(q->length+1);
+X              q++;
+X            }
+X          else
+X            for (i=0; i < image->packets; i++)
+X            {
+X              index=(*p++) << 8;
+X              index|=(*p++);
+X              q->red=image->colormap[index].red;
+X              q->green=image->colormap[index].green;
+X              q->blue=image->colormap[index].blue;
+X              q->index=index;
+X              q->length=(*p++);
+X              count+=(q->length+1);
+X              q++;
+X            }
+X        }
+X      else
+X        if (image->colors <= 256)
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            count++;
+X            q++;
+X          }
+X        else
+X          for (i=0; i < image->packets; i++)
+X          {
+X            index=(*p++) << 8;
+X            index|=(*p++);
+X            q->red=image->colormap[index].red;
+X            q->green=image->colormap[index].green;
+X            q->blue=image->colormap[index].blue;
+X            q->index=index;
+X            q->length=0;
+X            count++;
+X            q++;
+X          }
+X    }
+X  /*
+X    Free packed pixels memory.
+X  */
+X  (void) free((char *) image->packed_pixels);
+X  image->packed_pixels=(unsigned char *) NULL;
+X  /*
+X    Guarentee the correct number of pixel packets.
+X  */
+X  if (count > (image->columns*image->rows))
+X    {
+X      Warning("insufficient image data in file",image->filename);
+X      return(False);
+X    }
+X  else
+X    if (count < (image->columns*image->rows))
+X      {
+X        Warning("too much image data in file",image->filename);
+X        return(False);
+X      }
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Z o o m I m a g e                                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ZoomImage creates a new image that is a integral size greater
+%  than an existing one.  It allocates the memory necessary for the new Image
+%  structure and returns a pointer to the new image.
+%
+%  ZoomImage scans the reference image to create a zoomed image by bilinear
+%  interpolation.  The zoomed image columns and rows become:
+%
+%    number_columns << 1
+%    number_rows << 1
+%
+%  The format of the ZoomImage routine is:
+%
+%      zoomed_image=ZoomImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o zoomed_image: Function ZoomImage returns a pointer to the image after
+%      zooming.  A null image is returned if there is a a memory shortage.
+%
+%    o image: The address of a structure of type Image.
+%
+%
+*/
+Image *ZoomImage(image)
+Image
+X  *image;
+{
+X  ColorPacket
+X    *scanline;
+X
+X  Image
+X    *zoomed_image;
+X
+X  register ColorPacket
+X    *cs,
+X    *ns,
+X    *s;
+X
+X  register RunlengthPacket
+X    *p,
+X    *q;
+X
+X  register unsigned int
+X    x;
+X
+X  unsigned int
+X    y;
+X
+X  if (((image->columns*image->rows) << 1) > MaxImageSize)
+X    {
+X      Warning("unable to zoom image","image size too large");
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize scaled image attributes.
+X  */
+X  zoomed_image=CopyImage(image,image->columns << 1,image->rows << 1,False);
+X  if (zoomed_image == (Image *) NULL)
+X    {
+X      Warning("unable to zoom image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  zoomed_image->class=DirectClass;
+X  /*
+X    Allocate scan line buffer.
+X  */
+X  scanline=(ColorPacket *) malloc(4*image->columns*sizeof(ColorPacket));
+X  if (scanline == (ColorPacket *) NULL)
+X    {
+X      Warning("unable to zoom image","memory allocation failed");
+X      DestroyImage(zoomed_image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Preload a scan line and interpolate.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  s=scanline;
+X  for (x=0; x < image->columns; x++)
+X  {
+X    s->red=p->red;
+X    s->green=p->green;
+X    s->blue=p->blue;
+X    s->index=p->index;
+X    s++;
+X    if (image->runlength > 0)
+X      {
+X        image->runlength--;
+X        s->red=p->red;
+X        s->green=p->green;
+X        s->blue=p->blue;
+X        s->index=p->index;
+X      }
+X    else
+X      {
+X        p++;
+X        image->runlength=p->length;
+X        s->red=(unsigned char) ((int) (p->red+(s-1)->red) >> 1);
+X        s->green=(unsigned char) ((int) (p->green+(s-1)->green) >> 1);
+X        s->blue=(unsigned char) ((int) (p->blue+(s-1)->blue) >> 1);
+X        s->index=(unsigned short) ((int) (p->index+(s-1)->index) >> 1);
+X      }
+X    s++;
+X  }
+X  /*
+X    Zoom each row.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  q=zoomed_image->pixels;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    cs=scanline+image->columns*((y+0) % 2)*2;
+X    ns=scanline+image->columns*((y+1) % 2)*2;
+X    /*
+X      Read a scan line and interpolate.
+X    */
+X    s=ns;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      s->red=p->red;
+X      s->green=p->green;
+X      s->blue=p->blue;
+X      s->index=p->index;
+X      s++;
+X      if (image->runlength > 0)
+X        {
+X          image->runlength--;
+X          s->red=p->red;
+X          s->green=p->green;
+X          s->blue=p->blue;
+X          s->index=p->index;
+X        }
+X      else
+X        {
+X          p++;
+X          image->runlength=p->length;
+X          s->red=(unsigned char) ((int) (p->red+(s-1)->red) >> 1);
+X          s->green=(unsigned char) ((int) (p->green+(s-1)->green) >> 1);
+X          s->blue=(unsigned char) ((int) (p->blue+(s-1)->blue) >> 1);
+X          s->index=(unsigned short) ((int) (p->index+(s-1)->index) >> 1);
+X        }
+X      s++;
+X    }
+X    /*
+X      Dump column interpolation values.
+X    */
+X    s=cs;
+X    for (x=0; x < zoomed_image->columns; x++)
+X    {
+X      q->red=s->red;
+X      q->green=s->green;
+X      q->blue=s->blue;
+X      q->index=s->index;
+X      q->length=0;
+X      q++;
+X      s++;
+X    }
+X    /*
+X      Dump row interpolation values.
+X    */
+X    for (x=0; x < zoomed_image->columns; x++)
+X    {
+X      q->red=(unsigned char) ((int) (cs->red+ns->red) >> 1);
+X      q->green=(unsigned char) ((int) (cs->green+ns->green) >> 1);
+X      q->blue=(unsigned char) ((int) (cs->blue+ns->blue) >> 1);
+X      q->index=(unsigned short) ((int) (cs->index+ns->index) >> 1);
+X      q->length=0;
+X      q++;
+X      cs++;
+X      ns++;
+X    }
+X  }
+X  (void) free((char *) scanline);
+X  return(zoomed_image);
+}
+SHAR_EOF
+echo 'File ImageMagick/image.c is complete' &&
+chmod 0644 ImageMagick/image.c ||
+echo 'restore of ImageMagick/image.c failed'
+Wc_c="`wc -c < 'ImageMagick/image.c'`"
+test 154352 -eq "$Wc_c" ||
+	echo 'ImageMagick/image.c: original size 154352, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/scenes/Makefile ==============
+if test ! -d 'ImageMagick/scenes'; then
+    echo 'x - creating directory ImageMagick/scenes'
+    mkdir 'ImageMagick/scenes'
+fi
+if test -f 'ImageMagick/scenes/Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/scenes/Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/scenes/Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/scenes/Makefile' &&
+all:
+X	rayshade < dna.script > dna.rle
+X	convert +alpha dna.rle miff:dna
+X	/bin/mv dna dna.0
+X	mogrify -verbose -colors 256 -dither dna.[0-9]*
+X
+clean:
+X	/bin/rm -f dna.[0-9]* dna.rle dna.log
+SHAR_EOF
+chmod 0644 ImageMagick/scenes/Makefile ||
+echo 'restore of ImageMagick/scenes/Makefile failed'
+Wc_c="`wc -c < 'ImageMagick/scenes/Makefile'`"
+test 186 -eq "$Wc_c" ||
+	echo 'ImageMagick/scenes/Makefile: original size 186, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/scenes/dna.script ==============
+if test -f 'ImageMagick/scenes/dna.script' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/scenes/dna.script (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/scenes/dna.script (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/scenes/dna.script' &&
+/*
+X  Rayshade script for creating a spinning DNA molecule image sequence.
+X
+X  Copyright 1992 E. I. du Pont de Nemours & Company
+X
+X  Permission to use, copy, modify, distribute, and sell this software and
+X  its documentation for any purpose is hereby granted without fee,
+X  provided that the above Copyright notice appear in all copies and that
+X  both that Copyright notice and this permission notice appear in
+X  supporting documentation, and that the name of E. I. du Pont de Nemours
+X  & Company not be used in advertising or publicity pertaining to
+X  distribution of the software without specific, written prior
+X  permission.  E. I. du Pont de Nemours & Company makes no representations
+X  about the suitability of this software for any purpose.  It is provided
+X  "as is" without express or implied warranty.
+X
+X  E. I. du Pont de Nemours & Company disclaims all warranties with regard
+X  to this software, including all implied warranties of merchantability
+X  and fitness, in no event shall E. I. du Pont de Nemours & Company be
+X  liable for any special, indirect or consequential damages or any
+X  damages whatsoever resulting from loss of use, data or profits, whether
+X  in an action of contract, negligence or other tortious action, arising
+X  out of or in connection with the use or performance of this software.
+*/
+X
+name atom.O
+X  list
+X  surface O
+X    ambient 0.20 0.20 0.20 
+X    diffuse 0.90 0.00 0.00 
+X    specular 0.32 0.32 0.32 
+X    specpow 100
+X    reflect 0.00
+X    transp 0.00
+X    index 1.00
+X  sphere O 2.22429 0.0 0.0 0.0
+end
+name atom.C
+X  list
+X  surface C
+X    ambient 0.09 0.09 0.09 
+X    diffuse 0.32 0.32 0.32 
+X    specular 0.32 0.32 0.32 
+X    specpow 100
+X    reflect 0.00
+X    transp 0.00
+X    index 1.00
+X  sphere C 2.70093 0.0 0.0 0.0
+end
+name atom.N
+X  list
+X  surface N
+X    ambient 0.00 0.00 0.22 
+X    diffuse 0.00 0.00 0.90 
+X    specular 0.32 0.32 0.32 
+X    specpow 100
+X    reflect 0.00
+X    transp 0.00
+X    index 1.00
+X  sphere N 2.44672 0.0 0.0 0.0
+end
+name atom.P
+X  list
+X  surface P
+X    ambient 0.22 0.22 0.00 
+X    diffuse 0.90 0.90 0.00 
+X    specular 0.32 0.32 0.32 
+X    specpow 100
+X    reflect 0.00
+X    transp 0.00
+X    index 1.00
+X  sphere P 2.85981 0.0 0.0 0.0
+end
+name molecule.dna
+X  grid 22 22 22
+X  object atom.O translate 40.71169 7.07008 -19.96654
+X  object atom.C translate 37.85082 6.08080 -20.30633
+X  object atom.C translate 37.49451 3.45211 -18.52562
+X  object atom.O translate 38.32873 3.99314 -15.61836
+X  object atom.C translate 34.51841 2.21794 -18.35552
+X  object atom.O translate 34.71203 -0.70266 -17.64078
+X  object atom.C translate 33.52023 3.89230 -15.79419
+X  object atom.C translate 35.99492 3.13117 -13.87875
+X  object atom.N translate 36.03749 4.88010 -11.25832
+X  object atom.C translate 36.92636 3.82070 -8.70081
+X  object atom.O translate 37.67140 1.31954 -8.53515
+X  object atom.N translate 36.90455 5.49210 -6.42207
+X  object atom.C translate 36.01080 8.17164 -6.60404
+X  object atom.N translate 35.88624 9.80427 -4.23124
+X  object atom.C translate 35.07702 9.31980 -9.15562
+X  object atom.C translate 35.11621 7.59035 -11.53816
+X  object atom.P translate 32.73897 -3.13710 -18.92938
+X  object atom.O translate 29.80989 -2.23849 -19.56130
+X  object atom.O translate 34.33516 -4.55303 -21.20071
+X  object atom.O translate 32.36465 -5.16714 -16.25599
+X  object atom.C translate 34.68449 -6.67585 -15.05636
+X  object atom.C translate 33.44990 -7.80960 -12.35628
+X  object atom.O translate 33.48803 -5.51646 -10.36331
+X  object atom.C translate 30.39753 -8.91307 -12.52532
+X  object atom.O translate 30.15646 -11.74682 -11.38013
+X  object atom.C translate 28.79095 -6.59705 -10.89502
+X  object atom.C translate 30.95784 -5.60459 -8.70737
+X  object atom.N translate 30.48375 -2.56366 -7.96425
+X  object atom.C translate 29.88446 -0.41012 -9.80639
+X  object atom.N translate 29.66034 2.12028 -8.53303
+X  object atom.C translate 30.14777 1.53858 -5.78062
+X  object atom.C translate 30.16726 3.41715 -3.42393
+X  object atom.O translate 29.73977 5.98547 -3.38453
+X  object atom.N translate 30.81315 2.01606 -0.96259
+X  object atom.C translate 31.39126 -0.79990 -0.67407
+X  object atom.N translate 31.97508 -1.77965 1.97941
+X  object atom.N translate 31.35694 -2.55942 -2.88353
+X  object atom.C translate 30.71889 -1.25853 -5.35568
+X  object atom.P translate 27.18967 -13.35212 -11.00221
+X  object atom.O translate 24.95945 -12.07411 -12.77593
+X  object atom.O translate 27.65550 -16.41021 -11.43097
+X  object atom.O translate 26.44294 -12.83249 -7.74902
+X  object atom.C translate 28.26284 -13.92642 -5.58891
+X  object atom.C translate 27.19094 -12.70136 -2.86786
+X  object atom.O translate 27.28097 -9.69644 -3.05915
+X  object atom.C translate 24.15446 -13.41398 -2.19782
+X  object atom.O translate 24.03245 -15.73678 -0.25823
+X  object atom.C translate 22.93004 -10.68657 -0.99606
+X  object atom.C translate 25.39159 -8.62645 -0.97000
+X  object atom.N translate 24.47540 -5.90836 -2.20523
+X  object atom.C translate 24.37583 -3.55252 -0.56794
+X  object atom.O translate 25.00690 -3.78935 1.95505
+X  object atom.N translate 23.63546 -1.07084 -1.72330
+X  object atom.C translate 22.98385 -0.89290 -4.46935
+X  object atom.N translate 22.33986 1.67034 -5.64907
+X  object atom.C translate 23.04486 -3.27183 -6.20960
+X  object atom.C translate 23.81722 -5.84799 -5.00678
+X  object atom.P translate 21.07498 -17.05505 0.69737
+X  object atom.O translate 19.00914 -16.62078 -1.59916
+X  object atom.O translate 21.56136 -19.97883 1.65593
+X  object atom.O translate 20.24712 -15.15063 3.33009
+X  object atom.C translate 21.99478 -15.13029 5.81049
+X  object atom.C translate 20.63542 -13.14177 7.88163
+X  object atom.O translate 20.53564 -10.34467 6.68305
+X  object atom.C translate 17.59046 -13.83490 8.68555
+X  object atom.O translate 16.87848 -12.69585 11.35873
+X  object atom.C translate 16.01778 -12.28213 6.34665
+X  object atom.C translate 17.63071 -9.50409 6.55298
+X  object atom.N translate 17.27461 -7.72805 3.98975
+X  object atom.C translate 16.68422 -8.53303 1.26467
+X  object atom.N translate 16.49314 -6.32441 -0.51244
+X  object atom.C translate 16.97529 -4.07067 1.17570
+X  object atom.C translate 16.99393 -1.13354 0.49422
+X  object atom.O translate 16.58699 0.01229 -1.80549
+X  object atom.N translate 17.49090 0.48744 2.85070
+X  object atom.C translate 17.95037 -0.45587 5.54718
+X  object atom.N translate 18.32702 1.52121 7.61366
+X  object atom.N translate 17.95016 -3.20531 6.18481
+X  object atom.C translate 17.44875 -4.85278 3.91900
+X  object atom.P translate 14.40654 -14.08572 13.19219
+X  object atom.O translate 12.08692 -15.04852 11.28078
+X  object atom.O translate 15.64346 -16.22316 15.08623
+X  object atom.O translate 13.38739 -11.39665 14.97056
+X  object atom.C translate 15.46552 -9.51574 16.17613
+X  object atom.C translate 14.23962 -6.60806 15.89333
+X  object atom.O translate 14.04176 -5.99458 12.94285
+X  object atom.C translate 11.24889 -6.21298 17.06288
+X  object atom.O translate 11.17284 -4.12533 19.27532
+X  object atom.C translate 9.47899 -5.52515 14.41470
+X  object atom.C translate 11.68973 -4.12130 12.55964
+X  object atom.N translate 10.96842 -4.45219 9.52973
+X  object atom.C translate 10.62673 -6.91459 8.03436
+X  object atom.N translate 10.25093 -6.48032 5.24531
+X  object atom.C translate 10.32740 -3.63534 4.99598
+X  object atom.C translate 10.07828 -1.81905 2.59628
+X  object atom.N translate 9.69379 -2.83079 -0.08007
+X  object atom.N translate 10.23292 0.96280 3.05300
+X  object atom.C translate 10.63626 1.93514 5.67767
+X  object atom.N translate 10.91313 0.48871 8.07864
+X  object atom.C translate 10.72671 -2.33170 7.56048
+X  object atom.P translate 8.31198 -3.29196 20.86833
+X  object atom.O translate 6.27092 -5.65183 20.68340
+X  object atom.O translate 9.05468 -2.20142 23.70442
+X  object atom.O translate 7.11319 -0.67280 19.11326
+X  object atom.C translate 8.46386 2.03449 19.34734
+X  object atom.C translate 6.80708 3.92239 17.43551
+X  object atom.O translate 6.64948 2.42512 14.80935
+X  object atom.C translate 3.74942 4.50790 18.29154
+X  object atom.O translate 3.21834 7.48825 18.68979
+X  object atom.C translate 2.07442 3.06804 15.92807
+X  object atom.C translate 4.11929 3.35636 13.47880
+X  object atom.N translate 3.58122 1.22718 11.22993
+X  object atom.C translate 3.44924 -1.65403 11.49982
+X  object atom.N translate 3.14759 -2.98627 9.00861
+X  object atom.C translate 3.10204 -0.85985 7.09783
+X  object atom.C translate 2.93406 -0.87277 4.07067
+X  object atom.N translate 2.81606 -3.31441 2.52680
+X  object atom.N translate 3.00714 1.62289 2.75770
+X  object atom.C translate 3.20966 3.99335 4.28526
+X  object atom.N translate 3.38675 4.28759 7.08385
+X  object atom.C translate 3.32108 1.73071 8.36653
+X  object atom.P translate 0.10285 8.68725 19.28421
+X  object atom.O translate -1.69587 6.55595 20.74822
+X  object atom.O translate 0.29880 11.49346 20.66306
+X  object atom.O translate -1.00951 9.18168 16.15198
+X  object atom.C translate 0.56804 10.97234 14.29226
+X  object atom.C translate -1.14106 10.93951 11.62650
+X  object atom.O translate -1.18576 8.11889 10.59294
+X  object atom.C translate -4.23792 11.67035 12.09402
+X  object atom.O translate -4.76306 14.57527 11.41508
+X  object atom.C translate -5.84132 9.46702 10.31819
+X  object atom.C translate -3.45581 8.05449 8.64679
+X  object atom.N translate -3.87737 5.00297 8.04369
+X  object atom.C translate -3.90893 4.12427 5.31352
+X  object atom.O translate -3.72337 5.86854 3.37203
+X  object atom.N translate -4.09281 1.28395 4.78774
+X  object atom.C translate -4.29554 -0.69673 6.89743
+X  object atom.O translate -4.34892 -3.22205 6.21828
+X  object atom.C translate -4.37074 0.25018 9.69644
+X  object atom.C translate -4.70417 -1.80803 12.10652
+X  object atom.C translate -4.12056 3.14431 10.23620
+X  object atom.P translate -7.89085 15.85287 11.39983
+X  object atom.O translate -9.72324 14.49224 13.55316
+X  object atom.O translate -7.60254 18.95671 11.65319
+X  object atom.O translate -8.95745 15.10741 8.26315
+X  object atom.C translate -7.40150 16.18715 5.85244
+X  object atom.C translate -8.71765 14.83838 3.29831
+X  object atom.O translate -8.79370 11.86863 3.87853
+X  object atom.C translate -11.80158 15.64463 2.76046
+X  object atom.O translate -12.16064 17.46813 0.32030
+X  object atom.C translate -13.35668 12.77995 2.71915
+X  object atom.C translate -10.93262 10.75500 2.07516
+X  object atom.N translate -11.38384 7.79605 3.06720
+X  object atom.C translate -11.18132 5.60056 1.20154
+X  object atom.O translate -10.81908 6.04013 -1.33648
+X  object atom.N translate -11.24996 2.90154 2.22196
+X  object atom.C translate -11.58995 2.32153 5.04025
+X  object atom.O translate -11.53488 -0.18493 5.76834
+X  object atom.C translate -11.91936 4.58141 6.92688
+X  object atom.C translate -12.36613 4.07491 10.05064
+X  object atom.C translate -11.73273 7.34632 5.90116
+X  object atom.P translate -15.22212 18.21168 -0.93759
+X  object atom.O translate -17.41443 18.11148 1.28818
+X  object atom.O translate -15.04037 20.86283 -2.55879
+X  object atom.O translate -15.62313 15.69229 -3.13922
+X  object atom.C translate -13.58462 15.32857 -5.38322
+X  object atom.C translate -14.53767 12.82126 -7.11054
+X  object atom.O translate -14.70058 10.42008 -5.26183
+X  object atom.C translate -17.43349 13.06021 -8.49893
+X  object atom.O translate -17.30872 12.41135 -11.46274
+X  object atom.C translate -19.26123 11.06004 -6.71123
+X  object atom.C translate -17.10917 8.76690 -6.07995
+X  object atom.N translate -17.84065 7.03830 -3.52921
+X  object atom.C translate -17.77837 4.14757 -3.70737
+X  object atom.O translate -17.39896 3.04580 -6.03547
+X  object atom.N translate -18.08934 2.57171 -1.37038
+X  object atom.C translate -18.52488 3.80079 1.13248
+X  object atom.N translate -18.80832 2.16223 3.48240
+X  object atom.C translate -18.71342 6.74258 1.39622
+X  object atom.C translate -18.34058 8.38877 -1.02085
+X  object atom.P translate -19.67389 13.58197 -13.60464
+X  object atom.O translate -21.14785 16.07657 -12.37047
+X  object atom.O translate -18.27830 13.88998 -16.41424
+X  object atom.O translate -21.90920 11.05030 -13.75610
+X  object atom.C translate -21.09341 8.41631 -15.05869
+X  object atom.C translate -23.35880 6.29836 -14.39437
+X  object atom.O translate -23.15946 5.68000 -11.42927
+X  object atom.C translate -26.43257 7.23214 -14.84410
+X  object atom.O translate -28.10651 4.95912 -15.90731
+X  object atom.C translate -27.31466 8.06720 -11.86079
+X  object atom.C translate -26.00402 5.53108 -10.44698
+X  object atom.N translate -25.97373 5.66899 -7.33000
+X  object atom.C translate -26.11396 7.92569 -5.52472
+X  object atom.N translate -26.05380 7.14020 -2.79435
+X  object atom.C translate -25.85595 4.29289 -2.92294
+X  object atom.C translate -25.68944 2.25544 -0.69864
+X  object atom.O translate -25.67440 2.63844 1.87519
+X  object atom.N translate -25.50154 -0.43660 -1.76101
+X  object atom.C translate -25.47464 -1.20938 -4.54370
+X  object atom.N translate -25.26407 -4.01093 -5.17392
+X  object atom.N translate -25.61191 0.68402 -6.61569
+X  object atom.C translate -25.77990 3.34979 -5.64102
+X  object atom.P translate -28.94263 4.89154 -19.18211
+X  object atom.O translate -31.69737 6.36064 -19.42847
+X  object atom.O translate -26.58594 5.98590 -20.93951
+X  object atom.O translate -29.17777 1.57904 -19.78521
+X  object atom.C translate -26.58657 -0.06292 -19.97396
+X  object atom.C translate -27.00368 -2.86765 -18.48792
+X  object atom.O translate -27.59047 -2.24378 -15.58553
+X  object atom.C translate -29.44532 -4.74304 -19.46004
+X  object atom.O translate -28.63949 -7.67318 -19.74305
+X  object atom.C translate -31.71431 -4.16727 -17.22388
+X  object atom.C translate -29.82981 -4.05097 -14.63311
+X  object atom.N translate -31.15294 -2.47511 -12.26519
+X  object atom.C translate -31.40058 -3.74571 -9.69729
+X  object atom.O translate -30.63331 -6.22273 -9.49414
+X  object atom.N translate -32.39304 -2.28086 -7.48168
+X  object atom.C translate -33.15524 0.42855 -7.77825
+X  object atom.N translate -34.03838 1.95166 -5.48702
+X  object atom.C translate -32.98386 1.78050 -10.38491
+X  object atom.C translate -31.93886 0.25654 -12.67869
+X  object atom.P translate -30.57823 -9.74750 -21.58138
+X  object atom.O translate -32.10706 -8.03818 -23.70442
+X  object atom.O translate -28.82951 -12.12135 -22.65328
+X  object atom.O translate -32.82625 -10.98759 -19.37043
+X  object atom.C translate -32.08164 -13.32416 -17.54015
+X  object atom.C translate -34.59107 -13.75525 -15.62557
+X  object atom.O translate -34.97344 -11.13779 -14.18867
+X  object atom.C translate -37.50214 -14.33738 -16.99891
+X  object atom.O translate -38.51388 -17.17622 -16.55998
+X  object atom.C translate -39.41101 -12.06097 -15.67344
+X  object atom.C translate -37.74406 -11.30514 -13.02928
+X  object atom.N translate -38.39165 -8.41800 -12.04403
+X  object atom.C translate -38.78164 -6.02847 -13.64425
+X  object atom.N translate -39.31568 -3.73576 -12.05970
+X  object atom.C translate -39.23582 -4.71847 -9.37699
+X  object atom.C translate -39.57624 -3.22756 -6.75889
+X  object atom.O translate -40.03593 -0.69334 -6.35407
+X  object atom.N translate -39.40232 -5.03030 -4.48503
+X  object atom.C translate -38.94434 -7.87294 -4.55430
+X  object atom.N translate -38.95958 -9.27107 -2.03957
+X  object atom.N translate -38.53654 -9.25794 -6.98598
+X  object atom.C translate -38.69881 -7.55392 -9.28590
+X  object atom.O translate -43.67996 2.27662 12.88651
+X  object atom.C translate -45.27319 -0.20591 13.69297
+X  object atom.C translate -43.85134 -2.82549 12.52342
+X  object atom.O translate -43.94963 -2.75410 9.47931
+X  object atom.C translate -40.77376 -3.28984 13.31166
+X  object atom.O translate -40.23019 -6.16490 14.04801
+X  object atom.C translate -39.22968 -2.33106 10.64526
+X  object atom.C translate -41.20358 -3.45910 8.38178
+X  object atom.N translate -41.00255 -1.74109 5.76135
+X  object atom.C translate -40.31704 -2.94391 3.22459
+X  object atom.O translate -39.78299 -5.47982 3.15702
+X  object atom.N translate -40.33695 -1.38796 0.86387
+X  object atom.C translate -41.04830 1.33182 0.94628
+X  object atom.N translate -41.18367 2.82613 -1.51612
+X  object atom.C translate -41.75711 2.65835 3.48897
+X  object atom.C translate -41.73804 1.03695 5.94861
+X  object atom.P translate -37.51845 -6.92349 15.94247
+X  object atom.O translate -35.70618 -4.38123 16.17084
+X  object atom.O translate -38.39589 -8.24366 18.66776
+X  object atom.O translate -35.97670 -9.20286 13.97938
+X  object atom.C translate -37.52226 -11.58222 12.87824
+X  object atom.C translate -35.67229 -12.66111 10.56159
+X  object atom.O translate -35.61192 -10.58531 8.37055
+X  object atom.C translate -32.61124 -13.03755 11.46084
+X  object atom.O translate -31.72236 -15.89142 11.06280
+X  object atom.C translate -30.99343 -10.85371 9.66064
+X  object atom.C translate -32.87540 -10.64590 7.07305
+X  object atom.N translate -32.65042 -7.79499 5.81770
+X  object atom.C translate -32.75656 -5.27327 7.23701
+X  object atom.N translate -32.64238 -3.03161 5.50015
+X  object atom.C translate -32.44833 -4.17977 2.89751
+X  object atom.C translate -32.28628 -2.78291 0.21671
+X  object atom.O translate -32.33415 -0.22285 -0.29551
+X  object atom.N translate -32.03885 -4.69114 -1.96098
+X  object atom.C translate -31.99373 -7.56811 -1.73029
+X  object atom.N translate -31.63805 -9.09461 -4.14820
+X  object atom.N translate -32.19328 -8.87176 0.78062
+X  object atom.C translate -32.43139 -7.06923 2.99665
+X  object atom.P translate -28.56810 -16.87456 11.72267
+X  object atom.O translate -27.31085 -14.90235 13.79317
+X  object atom.O translate -28.69542 -19.90659 12.48338
+X  object atom.O translate -27.03863 -16.55130 8.71140
+X  object atom.C translate -27.92687 -18.21803 6.31318
+X  object atom.C translate -26.44697 -16.92540 3.81731
+X  object atom.O translate -27.05156 -13.97810 3.83426
+X  object atom.C translate -23.24526 -16.98662 4.01919
+X  object atom.O translate -22.15747 -19.60705 2.99793
+X  object atom.C translate -22.38986 -14.46745 2.23722
+X  object atom.C translate -25.08253 -12.74627 1.95632
+X  object atom.N translate -24.77451 -9.81740 2.97971
+X  object atom.C translate -24.86179 -7.68462 1.05601
+X  object atom.O translate -25.00288 -8.32818 -1.46232
+X  object atom.N translate -24.81159 -4.99492 1.92391
+X  object atom.C translate -24.63788 -4.38589 4.67653
+X  object atom.N translate -24.64678 -1.63708 5.55396
+X  object atom.C translate -24.48324 -6.51803 6.70699
+X  object atom.C translate -24.58259 -9.31513 5.80456
+X  object atom.P translate -18.85514 -20.22117 2.69775
+X  object atom.O translate -17.23987 -18.76966 4.94471
+X  object atom.O translate -18.57911 -23.30425 2.53887
+X  object atom.O translate -18.08595 -18.96921 -0.33237
+X  object atom.C translate -19.12290 -20.31756 -2.84837
+X  object atom.C translate -18.37935 -18.30807 -5.17901
+X  object atom.O translate -19.10680 -15.57155 -4.06834
+X  object atom.C translate -15.28483 -18.12334 -6.02890
+X  object atom.O translate -14.94123 -18.09856 -9.04907
+X  object atom.C translate -14.22987 -15.49211 -4.45389
+X  object atom.C translate -16.82976 -13.61777 -4.58713
+X  object atom.N translate -16.80412 -11.59048 -2.17155
+X  object atom.C translate -16.19403 -12.09847 0.62132
+X  object atom.N translate -16.40460 -9.77546 2.25310
+X  object atom.C translate -17.12591 -7.72021 0.40715
+X  object atom.C translate -17.62966 -4.77779 0.89078
+X  object atom.O translate -17.51060 -3.43664 3.10935
+X  object atom.N translate -18.20946 -3.37606 -1.58730
+X  object atom.C translate -18.35224 -4.53057 -4.21620
+X  object atom.N translate -18.80853 -2.75791 -6.44092
+X  object atom.N translate -17.95292 -7.28531 -4.66170
+X  object atom.C translate -17.35744 -8.73915 -2.28530
+X  object atom.P translate -11.90707 -17.62044 -10.43893
+X  object atom.O translate -9.71053 -18.33052 -8.31060
+X  object atom.O translate -11.68507 -19.09970 -13.18541
+X  object atom.O translate -12.06235 -14.34246 -11.16935
+X  object atom.C translate -14.36058 -13.41059 -12.94540
+X  object atom.C translate -13.91318 -10.41330 -13.86689
+X  object atom.O translate -14.06040 -8.57349 -11.45025
+X  object atom.C translate -11.09404 -9.82482 -15.27900
+X  object atom.O translate -11.32791 -7.70305 -17.41559
+X  object atom.C translate -9.31969 -8.95755 -12.71704
+X  object atom.C translate -11.41413 -7.12240 -11.11872
+X  object atom.N translate -10.86314 -7.14338 -7.99984
+X  object atom.C translate -10.17424 -9.37106 -6.26001
+X  object atom.N translate -9.99249 -8.61988 -3.51354
+X  object atom.C translate -10.58923 -5.82426 -3.53070
+X  object atom.C translate -10.79069 -3.74550 -1.32399
+X  object atom.N translate -10.42167 -4.36025 1.47714
+X  object atom.N translate -11.38786 -1.08927 -2.09423
+X  object atom.C translate -11.81599 -0.48045 -4.82608
+X  object atom.N translate -11.73761 -2.20417 -7.06351
+X  object atom.C translate -11.09976 -4.86527 -6.22654
+X  object atom.P translate -8.58800 -6.64619 -19.06411
+X  object atom.O translate -6.35057 -8.85396 -18.84359
+X  object atom.O translate -9.36608 -5.77321 -21.97646
+X  object atom.O translate -7.84763 -3.85714 -17.32196
+X  object atom.C translate -9.95457 -1.68496 -17.07983
+X  object atom.C translate -8.60580 0.80308 -15.64251
+X  object atom.O translate -8.27279 0.23599 -12.67636
+X  object atom.C translate -5.72947 1.72415 -16.78855
+X  object atom.O translate -5.69515 4.70682 -17.31603
+X  object atom.C translate -3.75175 0.72639 -14.42762
+X  object atom.C translate -5.55746 1.23904 -11.82350
+X  object atom.N translate -4.77239 -0.67195 -9.45558
+X  object atom.C translate -4.18920 -3.51523 -9.53947
+X  object atom.N translate -3.71701 -4.61933 -6.95865
+X  object atom.C translate -4.03117 -2.38804 -5.20125
+X  object atom.C translate -3.84136 -2.14676 -2.19379
+X  object atom.N translate -3.28613 -4.39584 -0.48024
+X  object atom.N translate -4.26059 0.40673 -1.06681
+X  object atom.C translate -4.85797 2.59649 -2.73821
+X  object atom.N translate -5.12022 2.65221 -5.54082
+X  object atom.C translate -4.67515 0.04216 -6.63433
+X  object atom.P translate -2.89106 6.35068 -18.26422
+X  object atom.O translate -0.73285 4.34987 -19.31006
+X  object atom.O translate -3.69816 8.70547 -20.15359
+X  object atom.O translate -1.92825 7.77592 -15.36522
+X  object atom.C translate -3.84644 9.66382 -13.93065
+X  object atom.C translate -2.45382 10.35314 -11.15494
+X  object atom.O translate -1.95346 7.74732 -9.70322
+X  object atom.C translate 0.42865 11.78410 -11.40195
+X  object atom.O translate 0.29414 14.70132 -10.55629
+X  object atom.C translate 2.36336 9.87714 -9.65047
+X  object atom.C translate 0.25367 8.35106 -7.76152
+X  object atom.N translate 1.30206 5.54082 -6.83430
+X  object atom.C translate 1.64587 5.00255 -4.01919
+X  object atom.O translate 1.24762 6.88070 -2.24188
+X  object atom.N translate 2.37544 2.32937 -3.20553
+X  object atom.C translate 2.86245 0.21184 -5.11228
+X  object atom.O translate 3.50517 -2.13384 -4.18210
+X  object atom.C translate 2.60719 0.81960 -8.00005
+X  object atom.C translate 3.19695 -1.43350 -10.16376
+X  object atom.C translate 1.75624 3.51989 -8.84591
+X  object atom.P translate 3.03764 16.69132 -10.55036
+X  object atom.O translate 5.02595 15.78105 -12.79203
+X  object atom.O translate 2.07336 19.65344 -10.65374
+X  object atom.O translate 4.28833 16.15537 -7.46961
+X  object atom.C translate 2.50551 16.77775 -5.08156
+X  object atom.C translate 4.17754 16.06449 -2.50286
+X  object atom.O translate 4.78636 13.11423 -2.53400
+X  object atom.C translate 7.02951 17.52999 -2.29145
+X  object atom.O translate 7.17526 19.12110 0.27030
+X  object atom.C translate 9.12903 15.05890 -2.48104
+X  object atom.C translate 7.38180 12.76131 -1.06660
+X  object atom.N translate 8.24970 9.86718 -1.87540
+X  object atom.C translate 8.62550 7.85685 0.15591
+X  object atom.O translate 8.34269 8.44046 2.68970
+X  object atom.N translate 9.24237 5.16248 -0.68593
+X  object atom.C translate 9.46564 4.40453 -3.46715
+X  object atom.O translate 10.01324 1.91078 -4.01220
+X  object atom.C translate 9.06209 6.48922 -5.52515
+X  object atom.C translate 9.24618 5.81812 -8.62094
+X  object atom.C translate 8.44543 9.24311 -4.68246
+X  object atom.P translate 9.94122 20.84397 1.13736
+X  object atom.O translate 11.60499 21.50850 -1.43266
+X  object atom.O translate 9.08412 23.30425 2.88205
+X  object atom.O translate 11.55521 18.63853 3.11274
+X  object atom.C translate 10.15645 17.60307 5.61709
+X  object atom.C translate 12.29855 15.80796 7.07898
+X  object atom.O translate 12.63579 13.30128 5.43130
+X  object atom.C translate 15.20475 17.20842 7.19167
+X  object atom.O translate 15.97181 18.05831 10.02182
+X  object atom.C translate 17.15980 15.01632 5.84672
+X  object atom.C translate 15.41849 12.30798 5.96323
+X  object atom.N translate 15.89598 10.50503 3.44448
+X  object atom.C translate 16.19488 7.67276 3.79804
+X  object atom.O translate 16.24318 6.75338 6.24434
+X  object atom.N translate 16.36858 5.97933 1.52460
+X  object atom.C translate 16.23830 7.05991 -1.08461
+X  object atom.N translate 16.33384 5.30801 -3.37415
+X  object atom.C translate 15.94321 9.96378 -1.53392
+X  object atom.C translate 15.74959 11.71271 0.82956
+X  object atom.P translate 18.86933 19.72717 10.62196
+X  object atom.O translate 19.73256 21.44792 8.12037
+X  object atom.O translate 18.60538 21.27824 13.34704
+X  object atom.O translate 21.09743 17.21604 10.99056
+X  object atom.C translate 20.92966 15.30167 13.35700
+X  object atom.C translate 23.31008 13.20426 12.99814
+X  object atom.O translate 22.72985 11.47630 10.55163
+X  object atom.C translate 26.25759 14.44033 12.44207
+X  object atom.O translate 28.35711 12.63908 13.55824
+X  object atom.C translate 26.34253 14.49287 9.22044
+X  object atom.C translate 25.23484 11.52778 8.83405
+X  object atom.N translate 24.50230 11.01407 5.85138
+X  object atom.C translate 23.93225 12.92527 3.74550
+X  object atom.N translate 23.44417 11.66907 1.24264
+X  object atom.C translate 23.71469 8.87727 1.82032
+X  object atom.C translate 23.46493 6.48308 -0.00741
+X  object atom.O translate 22.99529 6.42143 -2.57616
+X  object atom.N translate 23.89030 3.99695 1.44727
+X  object atom.C translate 24.49383 3.70101 4.25433
+X  object atom.N translate 24.92640 1.03822 5.27243
+X  object atom.N translate 24.75587 5.93442 5.95963
+X  object atom.C translate 24.32097 8.41843 4.60217
+X  object atom.P translate 29.80798 13.32564 16.52121
+X  object atom.O translate 31.72512 15.78275 16.08123
+X  object atom.O translate 27.61187 13.65823 18.75080
+X  object atom.O translate 31.59971 10.49316 17.04382
+X  object atom.C translate 30.17489 7.87252 17.78461
+X  object atom.C translate 31.55077 5.48342 16.16427
+X  object atom.O translate 30.68457 5.91324 13.30213
+X  object atom.C translate 34.79718 5.50079 16.11639
+X  object atom.O translate 36.09193 3.18900 17.63336
+X  object atom.C translate 35.51086 5.66390 12.97357
+X  object atom.C translate 32.79490 4.64729 11.58307
+X  object atom.N translate 32.46613 5.96980 8.74042
+X  object atom.C translate 32.10282 4.27552 6.44410
+X  object atom.O translate 32.08503 1.70148 6.82371
+X  object atom.N translate 31.78549 5.42431 3.86413
+X  object atom.C translate 31.80434 8.23794 3.53006
+X  object atom.N translate 31.47112 9.38970 0.89925
+X  object atom.C translate 32.20027 10.04725 5.83507
+X  object atom.C translate 32.54259 8.85375 8.50464
+X  object atom.P translate 39.47520 3.11317 17.99391
+X  object atom.O translate 40.71233 5.96196 17.42089
+X  object atom.O translate 40.21684 1.82943 20.75648
+X  object atom.O translate 40.48883 1.07719 15.48279
+X  object atom.C translate 39.71415 -1.87137 15.44000
+X  object atom.C translate 40.62822 -2.85875 12.56896
+X  object atom.O translate 38.89434 -1.41253 10.56116
+X  object atom.C translate 43.58188 -1.93302 11.74512
+X  object atom.O translate 45.74982 -3.60908 13.02547
+X  object atom.C translate 43.40224 -2.34822 8.56057
+X  object atom.C translate 40.37020 -1.41889 7.91764
+X  object atom.N translate 40.14651 1.48689 6.79808
+X  object atom.C translate 40.41321 4.03148 8.16274
+X  object atom.N translate 39.94526 6.24582 6.45512
+X  object atom.C translate 39.36356 5.02648 3.93658
+X  object atom.C translate 38.63674 6.31340 1.30365
+X  object atom.O translate 38.31496 8.83977 0.75965
+X  object atom.N translate 38.32343 4.31492 -0.79121
+X  object atom.C translate 38.59670 1.44770 -0.51752
+X  object atom.N translate 38.36983 -0.17837 -2.89116
+X  object atom.N translate 39.16803 0.25060 1.96903
+X  object atom.C translate 39.50167 2.15502 4.06982
+end
+frames 72
+object molecule.dna rotate 1 0 0 (time*5) translate 0.00 0.00 25.00
+surface BlackTile
+X   ambient 0.01 0.01 0.01
+X   diffuse 0.02 0.02 0.02
+X   specular 0.3 0.3 0.3
+X   specpow 30
+X   transp 0.1
+X   reflect 0.2
+surface GlassTile
+X   ambient 0.02 0.02 0.02
+X   specular 0.8 0.8 0.8
+X   specpow 30
+X   reflect 0.2
+X   transp 0.3
+X   index 1.15
+plane BlackTile 0.0 0.0 0.0 0.0 0.0 1.0
+X  texture marble scale 20.0 20.0 20.0
+X  texture checker GlassTile translate 0.0 0.0 1.5 scale 20.0 20.0 20.0
+light 0.9 extended 7.0 465.31511 -843.39145 293.64980
+shadowtransp
+eyep 0.00 -150.00 25.00
+eyesep 5.255212
+lookp 0.00 0.00 25.00
+up 0.00 0.00 1.00
+fov 45.00
+screen 256 256
+background 0.66 0.66 0.90
+report verbose 25 dna.log
+SHAR_EOF
+chmod 0644 ImageMagick/scenes/dna.script ||
+echo 'restore of ImageMagick/scenes/dna.script failed'
+Wc_c="`wc -c < 'ImageMagick/scenes/dna.script'`"
+test 28655 -eq "$Wc_c" ||
+	echo 'ImageMagick/scenes/dna.script: original size 28655, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/scenes/README ==============
+if test -f 'ImageMagick/scenes/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/scenes/README (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/scenes/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/scenes/README' &&
+DNA sequence useful for testing the `animate' program from
+contrib/ImageMagick.tar.Z on export.lcs.mit.edu.  `animate' is a
+program that can display image sequences on any X server:
+X
+X  animate dna.[0-9]*
+X
+ImageMagick requires Craig Kolb's RAYSHADE software available via FTP
+as princeton.edu:/pub/Graphics/rayshade.4.0 to generate the DNA image
+sequence.  Alternately, you can get the image sequence from
+contrib/ImageMagick.animation.tar.Z on export.lcs.mit.edu.
+SHAR_EOF
+chmod 0644 ImageMagick/scenes/README ||
+echo 'restore of ImageMagick/scenes/README failed'
+Wc_c="`wc -c < 'ImageMagick/scenes/README'`"
+test 464 -eq "$Wc_c" ||
+	echo 'ImageMagick/scenes/README: original size 464, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/import.c ==============
+if test -f 'ImageMagick/import.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/import.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/import.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/import.c' &&
+/*
+SHAR_EOF
+true || echo 'restore of ImageMagick/import.c failed'
+fi
+echo 'End of  part 7'
+echo 'File ImageMagick/import.c is continued in part 8'
+echo 8 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2183 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i058:  ecu - ECU Asynchronous Communications v3.20, Part23/40
+Message-ID: <1992Sep14.143823.20710@sparky.imd.sterling.com>
+X-Md4-Signature: a751b9ebe61e7696ed28c05ba92ceb1b
+Date: Mon, 14 Sep 1992 14:38:23 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 58
+Archive-name: ecu/part23
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.23 (part 23 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file help/ecuhelp.src continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 23; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping help/ecuhelp.src'
+else
+echo 'x - continuing file help/ecuhelp.src'
+sed 's/^X//' << 'SHAR_EOF' >> 'help/ecuhelp.src' &&
+X
+XA similar feature is provided under SVR4 and SunOS.  See the ecu manual
+Xand your system's termio man page (termios for SunOS) for details.
+X#--------------------------------------------------------------------
+X%sdname
+XUsage: sdname [<filename> | ]
+X
+XThis command sets or displays the current screen dump filename.
+XUntil the command is issued, screen dump data is placed in
+X~/.ecu/screen.dump.
+X#--------------------------------------------------------------------
+X%sgr
+XUsage: sgr mode cmd
+X
+XThis experimental command is used to test the timed read primitive
+Xused by ECU.  The command <cmd> is sent to the line and a timed read
+Xis performed.  The data returned is displayed in hexadecimal format on
+Xthe console.  The stimulus (cmd) and response is logged in
+X./ecu.sgr.log if the current directory must be writable.  Refer to
+Xsource module ecugrabbag.c function send_get_response() for details.
+X#--------------------------------------------------------------------
+X%ts
+XUsage: ts
+X
+XThis experimental command displays raw termio structure information
+Xfor the console and the tty.  It is primarily used in debugging ECU.
+X#--------------------------------------------------------------------
+X%xlog
+XUsage: xlog [y | n]
+X
+XThis experimental command controls exhaustive logging by the X, Y, and
+XZMODEM file transfer protocols to files named /tmp/szNNNNN.log or
+X/tmp/rzNNNNN.log where NNNNN is the process id of the transfer process.
+X#--------------------------------------------------------------------
+X%eto
+XUsage: eto [msec]
+X
+XThis experimental command sets or displays the "escape timeout"
+Xfor non-multiscreen function key detection.  Use caution: although
+Xthe command has a lower limit, you may set the value low enough
+Xnot to be able to use the HOME key!
+X#--------------------------------------------------------------------
+X%nice
+XUsage: nice [niceval]
+X
+XThis command sets or displays the process nice value.  The usual
+Xrules apply (hint: you might accidently nice4 yourself into not
+Xgetting enough CPU!)
+X#--------------------------------------------------------------------
+X%pushd
+XUsage: pushd [ | <dir> ]
+X
+XThis command either 1) pushes the current directory pathname onto
+Xa stack and establishes a new direcctory or 2) shows the current
+Xstack.  Issuing the command with no argument displays the stack.
+X#--------------------------------------------------------------------
+X%popd
+XUsage: pushd [ | <#> | all ]
+X
+XThis command pops one, many or all of the entries off diretory stack,
+Xrestoring a previous directory.  No argument results in one directory
+Xbeing popped.  A numeric argument pops the stack to a specified level.
+X'all' is equal to the numeric value 0 (and may be abbreviasted 'a').
+SHAR_EOF
+echo 'File help/ecuhelp.src is complete' &&
+chmod 0644 help/ecuhelp.src ||
+echo 'restore of help/ecuhelp.src failed'
+Wc_c="`wc -c < 'help/ecuhelp.src'`"
+test 30182 -eq "$Wc_c" ||
+	echo 'help/ecuhelp.src: original size 30182, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ecuungetty/ecuungetty.c ==============
+if test -f 'ecuungetty/ecuungetty.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ecuungetty/ecuungetty.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ecuungetty/ecuungetty.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ecuungetty/ecuungetty.c' &&
+Xchar *revision = "@(#)ecuungetty 3.20";
+X
+X#if defined(SHARE_DEBUG)
+X#ifndef ECUUNGETTY_DEBUG
+X#define ECUUNGETTY_DEBUG
+X#endif
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	ecuungetty.c - ecu "ungetty" program
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XGet a line:
+Xecuungetty /dev/ttyxx <bamboozle-str>
+Xecuungetty -g /dev/ttyxx <bamboozle-str>
+X
+XTest a line's atatus:
+Xecuungetty -t /dev/ttyxx <bamboozle-str>
+X
+XReturn a line:
+Xecuungetty -r /dev/ttyxx <bamboozle-str>
+X
+X  Defined functions:
+X	assign_tty(tty,uid,gid,mode)
+X	ecu_log_event(pid,event_note)
+X	errno_text(errnum)
+X	eug_exit(code)
+X	main(argc,argv,envp)
+X	termecu()
+X
+XNo effort is made to close the passwd file with endpwent().
+XI use setpwent() instead.  It is so contrary for me to leave
+Xa file open that I just had to put a reminder to myself here.
+XIf the program lived for more than 1/2 second, I'd probably
+Xkeep to my usual practice.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-13:59-wht@n4hgf-ECU release 3.20 */
+X/*:09-02-1992-07:10-wht@n4hgf-DEBUG now gets actual user log file name */
+X/*:09-02-1992-06:48-wht@n4hgf-UG_RESTART exit any time we chown tty to user */
+X/*:08-22-1992-15:38-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-01:59-wht@n4hgf-absolutely ensure no chown/chmod of /dev/tty */
+X/*:08-07-1992-18:50-wht@n4hgf-chown/chmod both tty names on SCO */
+X/*:07-19-1992-09:07-wht@n4hgf-"rudimentary" security/validity checks on tty */
+X/*:06-19-1992-20:27-root@n4hgf-needed ECUUNGETTY_CHOWN in another place */
+X/*:06-04-1992-12:21-wht@n4hgf-chown/chmod with debugging */
+X/*:04-27-1992-19:30-wht@n4hgf-add optional chown/chmod */
+X/*:04-24-1992-20:12-wht@n4hgf-bel@nosc.mil found long time bug - bad kill */
+X/*:08-10-1991-17:39-wht@n4hgf-US_WEGOTIT handling */
+X/*:08-07-1991-14:15-wht@n4hgf-add debug log event code */
+X/*:07-25-1991-12:57-wht@n4hgf-ECU release 3.10 */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <fcntl.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <signal.h>
+X#include "../ecu_types.h"
+X#include "../ecu_stat.h"
+X#include <utmp.h>
+X#include <sys/locking.h>
+X#include "../ecuungetty.h"
+X#include "../utmpstatus.h"
+X#include "../ttynaming.h"
+X
+X#ifdef ECUUNGETTY_CHOWN
+X#include <pwd.h>
+Xstruct passwd *uupw;
+Xstruct passwd uucp_pwd;
+X#endif
+X
+Xvoid eug_exit();
+X
+Xextern struct utmp last_utmp;
+X
+Xint real_uid;
+Xint xmtr_pid;
+Xstruct stat tstat;
+X
+Xchar **gargv;
+Xint gargc;
+X
+X#if defined(ECUUNGETTY_DEBUG)
+Xchar s256[256];
+X#endif /* ECUUNGETTY_DEBUG */
+X
+X/*+-------------------------------------------------------------------------
+X	ecu_log_event(pid,event_note)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xecu_log_event(pid,event_note)
+Xint pid;
+Xchar *event_note;
+X{
+X#if defined(ECUUNGETTY_DEBUG)
+X	FILE *ecu_log_fp;
+X	static char logname[256] = "";
+X
+X	if(!logname[0])
+X	{
+X		struct passwd *uidpw;
+X		setpwent();
+X		if(!(uidpw = getpwuid(real_uid)))
+X			eug_exit(UGE_LOGIC);
+X		strcpy(logname,uidpw->pw_dir);
+X		strcat(logname,"/.ecu/log");
+X	}
+X
+X	if((ecu_log_fp = fopen(logname,"a")) != NULL)
+X	{
+X		locking(fileno(ecu_log_fp),LK_LOCK,0L);
+X		fputs("ECUUNGET",ecu_log_fp);
+X		fprintf(ecu_log_fp,"-%05d-(%05d) ",getppid(),pid);
+X		fputs(event_note,ecu_log_fp);
+X		fputs("\n",ecu_log_fp);
+X		fflush(ecu_log_fp);
+X		locking(fileno(ecu_log_fp),LK_UNLCK,0L);
+X		fclose(ecu_log_fp);
+X	}
+X#endif
+X}	/* end of ecu_log_event */
+X
+X/*+-------------------------------------------------------------------------
+X	assign_tty(tty,uid,gid,mode) - set a tty owner, group, mode
+X
+Xreturns 0 on success, -1 on error
+X--------------------------------------------------------------------------*/
+Xint
+Xassign_tty(tty,uid,gid,mode)
+Xchar *tty;
+Xint uid;
+Xint gid;
+Xint mode;
+X{
+X#ifndef ECUUNGETTY_CHOWN
+X	return(0);
+X#else
+X#if defined(ECUUNGETTY_DEBUG)
+X	struct stat tstat2;
+X#endif /* ECUUNGETTY_DEBUG */
+X#ifdef SCO_TTY_NAMING
+X	char other_tty[128];
+X	int itmp;
+X	char *cptr;
+X#endif /* SCO_TTY_NAMING */
+X#if defined(ECUUNGETTY_DEBUG) && defined(SCO_TTY_NAMING)
+X	struct stat otstat;
+X#endif /* ECUUNGETTY_DEBUG && SCO_TTY_NAMING */
+X
+X	if(!strcmp(tty,"/dev/tty"))	/* somebody reported this is still happening */
+X		eug_exit(UGE_BADARGV);
+X
+X#ifdef SCO_TTY_NAMING
+X	itmp = strlen(tty);
+X	if(itmp > 1)
+X	{
+X		strcpy(other_tty,tty);
+X		cptr = other_tty + itmp - 1;
+X		if(isalpha(*cptr))
+X			*cptr = (isupper(*cptr)) ? tolower(*cptr) : toupper(*cptr);
+X#if defined(ECUUNGETTY_DEBUG)
+X		stat(other_tty,&otstat);
+X#endif /* ECUUNGETTY_DEBUG */
+X		chown(other_tty,uid,gid);
+X		chmod(other_tty,(unsigned short)mode);
+X	}
+X#endif /* SCO_TTY_NAMING */
+X
+X	chown(tty,uid,gid);
+X	chmod(tty,(unsigned short)mode);
+X
+X#if defined(ECUUNGETTY_DEBUG)
+X	stat(tty,&tstat2);
+X	sprintf(s256,"TTY '%s' o=(%d,%d) m=0%o (was %d,%d,0%o)",
+X		tty,
+X		tstat2.st_uid,tstat2.st_gid,tstat2.st_mode & 0777,
+X		tstat.st_uid,tstat.st_gid,tstat.st_mode & 0777);
+X	ecu_log_event(getpid(),s256);
+X#ifdef SCO_TTY_NAMING
+X	stat(other_tty,&tstat2);
+X	sprintf(s256,"TTY '%s' o=(%d,%d) m=0%o (was %d,%d,0%o)",
+X		other_tty,
+X		tstat2.st_uid,tstat2.st_gid,tstat2.st_mode & 0777,
+X		otstat.st_uid,otstat.st_gid,otstat.st_mode & 0777);
+X	ecu_log_event(getpid(),s256);
+X#endif /* SCO_TTY_NAMING */
+X#endif /* ECUUNGETTY_DEBUG */
+X
+X#endif /* ECUUNGETTY_CHOWN */
+X}	/* end of assign_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	eug_exit(code) - exit() with debug logging
+X--------------------------------------------------------------------------*/
+Xvoid
+Xeug_exit(code)
+Xint code;
+X{
+X#if defined(ECUUNGETTY_DEBUG)
+X	int iargv;
+X	char s1024[1024];
+X	s1024[0] = 0;
+X	for(iargv = 1; iargv < gargc; iargv++)
+X	{
+X		strcat(s1024,gargv[iargv]);
+X		strcat(s1024," ");
+X	}
+X	sprintf(s1024 + strlen(s1024),"exit code %d",code);
+X	ecu_log_event(getpid(),s1024);
+X#endif
+X	exit(code);
+X}	/* end of eug_exit */
+X
+X/*+-------------------------------------------------------------------------
+X	termecu() - "dummy" for utmpstat.c
+X
+XThis particular incantation will only be called if utmp is non-existent
+Xor not readable.......
+X--------------------------------------------------------------------------*/
+Xtermecu()
+X{
+X	eug_exit(UGE_LOGIC);
+X}	/* end of hangup */
+X
+X/*+-------------------------------------------------------------------------
+X	errno_text(errnum)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xerrno_text(errnum)
+Xint errnum;
+X{
+X	static char errstr[16];
+X	sprintf(errstr,"%d",errnum);
+X	return(errstr);
+X}	/* end of errno_text */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+X	int op = 'g';	/* assume "get" operation */
+X	int status;
+X	int itmp;
+X	char *cptr;
+X	char *tty = argv[1];
+X	char *bamboozlement = argv[2];
+X	char *bamboozle();
+X
+X	gargv = argv;
+X	gargc = argc;
+X
+X	real_uid = getuid();
+X	if(geteuid())
+X		eug_exit(UGE_NOTROOT);
+X
+X#ifdef ECUUNGETTY_CHOWN
+X	if(!(uupw = getpwnam("uucp")))
+X		eug_exit(UGE_NOUUCP);
+X	uucp_pwd = *uupw;
+X	uupw = &uucp_pwd;
+X#endif
+X
+X	if(*argv[1] == '-')
+X	{
+X		switch(op = *(argv[1] + 1))
+X		{
+X		case 'r':
+X		case 't':
+X			break;
+X		default:
+X			eug_exit(UGE_BADSWITCH);
+X		}
+X		if(argc < 3)
+X			eug_exit(UGE_BADARGC);
+X		tty = argv[2];
+X		bamboozlement = argv[3];
+X	}
+X	else if(argc <= 2)
+X		eug_exit(UGE_BADARGC);
+X
+X	if(real_uid)	/* if caller not actually root */
+X	{
+X		if(strcmp(bamboozlement,bamboozle(getppid())))
+X			eug_exit(UGE_CALLER);
+X	}
+X
+X	/*
+X	 * rudimentary checks
+X	 * must be in /dev, no ".." in path,not /dev/tty,must be char special
+X	 */
+X	if(strncmp(tty,"/dev/",5))
+X		eug_exit(UGE_BADARGV);
+X	if((cptr = strchr(tty,'.')) && (*(cptr + 1) == '.'))
+X		eug_exit(UGE_BADARGV);
+X	if(!strcmp(tty,"/dev/tty"))
+X		eug_exit(UGE_BADARGV);
+X	if(stat(tty,&tstat))
+X	{
+X#if defined(ECUUNGETTY_DEBUG)
+X		sprintf(s256,"TTY '%s' stat error %d",tty,errno);
+X		ecu_log_event(getpid(),s256);
+X#endif /* ECUUNGETTY_DEBUG */
+X		eug_exit(UGE_BADARGV);
+X	}
+X	if((tstat.st_mode & S_IFMT) != S_IFCHR)
+X		eug_exit(UGE_BADARGV);
+X
+X	xmtr_pid = getppid();
+X	status = utmp_status(tty);
+X#if defined(ECUUNGETTY_DEBUG)
+X	sprintf(s256,"-%c utmp status=%d",op,status);
+X	ecu_log_event(getpid(),s256);
+X#endif
+X
+X	switch(op)
+X	{
+X	case 'g':
+X		switch(status)
+X		{
+X		case US_NOTFOUND:	/* not in utmp, or getty dead */
+X			itmp = assign_tty(tty,real_uid,getgid(),0622);
+X			eug_exit((itmp) ? UG_NOTENAB : UG_RESTART);
+X		case US_LOGIN:		/* enabled for login, idle */
+X			kill(last_utmp.ut_pid,SIGUSR1);
+X			nap(200L);
+X			itmp = assign_tty(tty,real_uid,getgid(),0622);
+X			eug_exit((itmp) ? UG_NOTENAB : UG_RESTART);
+X		case US_DIALOUT:	/* enabled for login, currently dialout */
+X		case US_LOGGEDIN:	/* enabled for login, in use */
+X			eug_exit(UG_FAIL);
+X		case US_WEGOTIT:	/* we on it */
+X			itmp = assign_tty(tty,real_uid,getgid(),0622);
+X#if 1
+X			eug_exit((itmp) ? UG_NOTENAB : UG_RESTART);
+X#else
+X			if(!kill(last_utmp.ut_pid,0))	/* is there a getty? */
+X				eug_exit(UG_RESTART);		/* yes */
+X			else
+X				eug_exit(UG_NOTENAB);
+X#endif
+X		}
+X		break;
+X
+X	case 't':	/* no longer called by ecu as of BETA 3.20.02 */
+X		switch(status)
+X		{
+X		case US_NOTFOUND:	/* not in utmp, or getty dead */
+X#ifdef ECUUNGETTY_CHOWN
+X			assign_tty(tty,uupw->pw_uid,uupw->pw_gid,0640);
+X#endif
+X			eug_exit(UGE_T_NOTFOUND);
+X		case US_LOGIN:		/* enabled for login, idle */
+X			eug_exit(UGE_T_LOGIN);
+X		case US_LOGGEDIN:	/* enabled for login, in use */
+X			eug_exit(UGE_T_LOGGEDIN);
+X		case US_WEGOTIT:	/* we have the line */
+X#ifdef ECUUNGETTY_CHOWN
+X			assign_tty(tty,uupw->pw_uid,uupw->pw_gid,0640);
+X#endif
+X			eug_exit(UG_RESTART);
+X		case US_DIALOUT:	/* enabled for login, currently dialout */
+X			eug_exit(UG_RESTART);
+X		}
+X		break;
+X
+X	case 'r':
+X		switch(status)
+X		{
+X		case US_NOTFOUND:	/* not in utmp, or getty dead */
+X		case US_LOGIN:		/* enabled for login, idle */
+X#ifdef ECUUNGETTY_CHOWN
+X			assign_tty(tty,uupw->pw_uid,uupw->pw_gid,0640);
+X#endif
+X			eug_exit(0);
+X		case US_LOGGEDIN:	/* enabled for login, in use */
+X			eug_exit(0);
+X		case US_WEGOTIT:	/* we own it */
+X		case US_DIALOUT:	/* enabled for login, currently dialout */
+X#ifdef ECUUNGETTY_CHOWN
+X			assign_tty(tty,uupw->pw_uid,uupw->pw_gid,0640);
+X#endif
+X			itmp = 5;
+X			while(itmp--)
+X			{
+X				if(kill(last_utmp.ut_pid,SIGUSR2))
+X					break;
+X				nap(100L);
+X			}
+X			eug_exit(0);
+X		}
+X		break;
+X	}
+X	eug_exit(UGE_LOGIC);
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ecuungetty.c */
+SHAR_EOF
+chmod 0644 ecuungetty/ecuungetty.c ||
+echo 'restore of ecuungetty/ecuungetty.c failed'
+Wc_c="`wc -c < 'ecuungetty/ecuungetty.c'`"
+test 10470 -eq "$Wc_c" ||
+	echo 'ecuungetty/ecuungetty.c: original size 10470, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= z/baudtest.c ==============
+if test -f 'z/baudtest.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping z/baudtest.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting z/baudtest.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'z/baudtest.c' &&
+X/*+-------------------------------------------------------------------------
+X	baudtest.c
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XAlas, on some systems, curses insists on sgtty.h inclusion
+Xwhich does not get along with termio.h AT ALL
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-28-1991-14:08-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:08-23-1991-18:33-wht@n4hgf2-disable force no curses for tty vs. line speed */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:12-04-1990-05:36-wht-creation */
+X
+X#include <stdio.h>
+X#include "../ecu_types.h"
+X#include <termio.h>
+X
+Xextern int iofd;
+Xextern int dumbtty;
+Xextern int report_verbosity;
+Xextern int report_init_complete;
+Xextern char *numeric_revision;
+X
+X/*+-------------------------------------------------------------------------
+X	test_tty_and_line_baud()
+X
+X  if non-multiscreen tty baud rate not at least that
+X  of the attached line, use no curses, but do be a bit more
+X  verbose than if tty not char special
+X
+X--------------------------------------------------------------------------*/
+X#ifdef TTY_VS_LINE_SPEED_NO_CURSES
+Xvoid
+Xtest_tty_and_line_baud()
+X{
+X	struct termio tty_termio;
+X	struct termio line_termio;
+X
+X	memset((char *)&tty_termio,0,sizeof(struct termio));
+X	memset((char *)&line_termio,0,sizeof(struct termio));
+X	if(ioctl(0,TCGETA,&tty_termio) || ioctl(iofd,TCGETA,&line_termio) ||
+X	    (((unsigned)tty_termio.c_cflag & CBAUD) <
+X		(unsigned)((line_termio.c_cflag & CBAUD))))
+X	{
+X		dumbtty = 1;
+X		report_verbosity = 1;
+X		report_init_complete = 1;
+X	}
+X
+X}	/* end of test_tty_and_line_baud */
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of baudtest.c */
+SHAR_EOF
+chmod 0644 z/baudtest.c ||
+echo 'restore of z/baudtest.c failed'
+Wc_c="`wc -c < 'z/baudtest.c'`"
+test 1751 -eq "$Wc_c" ||
+	echo 'z/baudtest.c: original size 1751, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= z/ecurz.c ==============
+if test -f 'z/ecurz.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping z/ecurz.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting z/ecurz.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'z/ecurz.c' &&
+Xchar *numeric_revision = "@(#)ecurz 3.20";
+X/*+-------------------------------------------------------------------------
+X	ecurz.c - X/Y/ZMODEM receive program
+X  Derived from public domain source by Chuck Forsberg, Omen Technologies
+X  Adaptation for ecu 1989 wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	SIGALRM_handler(sig)
+X	arg_token(parsestr,termchars)
+X	bye_bye(sig)
+X	cancel_transaction(can_code)
+X	close_and_report()
+X	flushline()
+X	fname_split(cmd,arg,arg_max_quan,narg_rtn)
+X	fname_too_long(fname)
+X	fname_truncated()
+X	getfree()
+X	isanylc(str)
+X	main(argc,argv,envp)
+X	make_dirs(pathname)
+X	mkdir(dpath,dmode)
+X	our_fopen(pathname,openmode)
+X	procheader(name)
+X	purgeline()
+X	readline(timeout)
+X	report_receive_progress(pos)
+X	rzfile()
+X	rzfiles()
+X	send_ZFIN()
+X	send_cancel(error)
+X	sendline(c)
+X	substr(str,token)
+X	sys2(shellcmd)
+X	tryz()
+X	uncaps(str)
+X	usage(fail_reason)
+X	wcgetsec(rxbuf,maxtime)
+X	wcreceive(argc,argp)
+X	wcrx()
+X	wcrxpn(rpn)
+X	write_sec_to_disk(buf,n)
+X	xsendline(c)
+X
+X      Usage:    ecurz -Z [-abeuy]    (ZMODEM)
+X                ecurz -Y [-abuy]     (YMODEM)
+X                ecurz -X [-abc] file (XMODEM or XMODEM-1k)
+X
+X          -a ASCII transfer (strip CR)
+X          -b Binary transfer for all files
+X          -c Use 16 bit CRC (XMODEM)
+X          -e Escape control characters  (ZMODEM)
+X          -p protect local files (ZMODEM)
+X          -t <tenths> rx timeout seconds
+X          -+ force append
+X          -u convert uppercase filenames to lower case
+X          -y Yes, clobber existing file if any
+X          -. line fd to use
+X          -, log protocol packets
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-16-1992-03:08-wht@n4hgf-head off another POSIX plot */
+X/*:08-10-1992-04:01-wht@n4hgf-use init_Nap */
+X/*:07-30-1992-16:35-wht@n4hgf-our_fopen fixes 3.2v4 ENAMETOOLONG ambiguity */
+X/*:07-20-1992-13:39-wht@n4hgf-need hzmsec for nap.c */
+X/*:04-24-1992-15:28-wht@n4hgf-start thinking about M_UNIX with long filenames */
+X/*:04-24-1992-15:23-wht@n4hgf-fix mkdir/make_dirs conditionals */
+X/*:01-27-1992-23:43-wht@n4hgf-more efficient fopen processing */
+X/*:01-20-1992-23:25-root@n4hgf-ZMAPND works now */
+X/*:12-16-1991-12:59-wht@n4hgf-support ZCRESUM */
+X/*:08-28-1991-14:08-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:04-30-1991-18:33-wht@n4hgf-gcc version coredumping on putc(); use fputc() */
+X/*:03-27-1991-21:21-wht@n4hgf-dont bump error count on send ZRPOS */
+X/*:02-03-1991-17:27-wht@n4hgf-version number change - see zcurses.c */
+X/*:12-18-1990-21:26-wht@n4hgf-better output control */
+X/*:10-04-1990-14:01-wht@n4hgf-add file finish warning for me */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-23-1990-14:14-wht@n4hgf-sending ZACK was erroneously counted as error */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <ctype.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <fcntl.h>
+X#include "zmodem.h"
+X#include <sys/param.h>
+X
+X#if defined(ENAMETOOLONG)
+Xchar *fname_truncated();
+X#endif
+X
+Xextern unsigned short crctab[];
+Xextern int force_dumbtty;
+Xextern int errno;
+Xextern char *sys_errlist[];
+Xextern int sys_nerr;
+Xextern char Attn[];		/* Attention string rx sends to tx on err */
+Xextern int Crc32;		/* Display flag indicating 32 bit CRC being received */
+Xextern int Rxcount;		/* Count of data bytes received */
+Xextern char Rxhdr[];	/* Received header */
+Xextern char Txhdr[];	/* Transmitted header */
+Xextern int Rxtimeout;	/* Tenths of seconds to wait for something */
+Xextern char s128[128];
+X
+X/*
+X * Max value for VMIN_COUNT is 255.  A larger value reduces system
+X * overhead but may evoke kernel bugs.  133 corresponds to an XMODEM/CRC
+X * sector.
+X
+XPaul Slootman said, though:
+X:PS: Something somewhere in the SVR4 kernel is a signed char, which causes
+X:PS: VMIN values of more than 127 to return *immediately* without ever
+X:PS: reading...
+X:PS:
+X:PS: I had troubles running the regular rz, which was where I saw
+X:PS: the bug the first time. I've also heard of this from someone
+X:PS: else, running something else than the ICL SPARC port for SVR4:
+X:PS:
+X:PS: Date: Sat, 3 Aug 91 11:41:16 EDT
+X:PS: From: tompkins@cat.syr.edu (Terry Tompkins)
+X:PS: Subject: Re:  Zmodem
+X:PS: 
+X:PS: Thanks for the info.  I just returned from vacation - sorry for the delay.
+X:PS: We are running AT&T 5.4 UNIX on an Osicom 25mhz 386.  If you hear of a 
+X:PS: fix for the OS, let me know - I feel a little apprehensive about a kernel
+X:PS: bug of this nature.  (The machine is a network server that we are using
+X:PS: for all kinds of things).
+X*/
+X
+X#if !defined(VMIN_COUNT)
+X# ifdef SVR4
+X#  define VMIN_COUNT 127
+X# else
+X#  define VMIN_COUNT 133
+X# endif
+X#endif
+Xunsigned char vmin_count = VMIN_COUNT;
+Xint Readnum = VMIN_COUNT;	/* num bytes to ask for in read() from modem */
+X
+X#define DEFBYTL 2000000000L	/* default rx file size */
+X#define RETRYMAX 5
+X
+XFILE *fout;
+Xlong rxfilepos;		/* received file seek position */
+Xlong initial_filepos;		/* initial file position */
+Xchar Lzmanag;		/* Local file management request */
+Xchar Pathname[PATHLEN];
+Xchar curr_dir[256];
+Xunsigned char linbuf[VMIN_COUNT];
+Xchar secbuf[1025];
+Xchar zconv;				/* ZMODEM file conversion request */
+Xchar zmanag;			/* ZMODEM file management request */
+Xchar ztrans;			/* ZMODEM file transport request */
+Xint Batch;
+Xint Blklen;				/* record length of received packets */
+Xint Crcflg;
+Xint Eofseen;			/* indicates cpm eof (^Z) has been received */
+Xint Filcnt;			/* count of number of files opened */
+Xint Filemode;			/* Unix style mode for incoming file */
+Xint Firstsec;
+Xint Lastrx;
+Xint Lleft;			/* number of characters in linbuf */
+Xint MakeLCPathname=1;	/* make received pathname lower case */
+Xint Nozmodem;		/* If invoked as "rb" */
+Xint Rxascii;			/* receive files in ascii (translate) mode */
+Xint Rxbinary;			/* receive all files in bin mode */
+Xint Rxclob;			/* Clobber existing file */
+Xint Thisbinary;			/* current file is to be received in bin mode */
+Xint Twostop;		/* use two stop bits */
+Xint Zctlesc;			/* Encode control characters */
+Xint Zmodem;			/* ZMODEM protocol requested */
+Xint Zrwindow = 1400;	/* RX window size (controls garbage count) */
+Xint ecusz_flag;
+Xint skip_count;		/* skipped files */
+Xint errors;
+Xint expect_zrpos;
+Xint iofd;
+Xint force_dumbtty;
+Xint can_on_eof;
+Xint log_packets;
+Xint npats;
+Xint oldBlklen = -1;		/* last block length */
+Xint this_file_errors;
+Xint tryzhdrtype=ZRINIT;	/* Header type to send corresponding to Last rx close */
+Xjmp_buf tohere;			/* For the interrupt on RX timeout */
+Xlong Bytesleft;			/* number of bytes of incoming file left */
+Xlong Modtime;			/* Unix style mod time for incoming file */
+Xlong TotalToReceive;
+Xlong rx_char_count;
+Xlong tx_char_count;
+Xstruct stat fout_stat;
+Xtime_t timep[2];
+Xunsigned Baudrate;
+Xunsigned long this_file_length;
+Xint required_type;
+Xchar *bottom_label = (char *)0;
+Xchar *got_garbage_txt = "got garbage (0x%02x)";
+Xchar **gargv;
+Xint gargc;
+X
+Xvoid purgeline();
+Xvoid send_cancel();
+X
+X/*+-----------------------------------------------------------------------
+X	arg_token(parsestr,termchars)
+X
+XGet next token from string parsestr ((char *)0 on 2nd, 3rd, etc.
+Xcalls), where tokens are nonempty strings separated by runs of chars
+Xfrom termchars.  Writes nulls into parsestr to end tokens.
+Xtermchars need not remain constant from call to call.
+X
+XTreats multiple occurrences of a termchar as one delimiter (does not
+Xallow null fields).
+X------------------------------------------------------------------------*/
+X#if defined(ENAMETOOLONG)
+Xstatic char *arg_token_static = (char *)0;
+Xchar *arg_token(parsestr,termchars)
+Xchar *parsestr;
+Xchar *termchars;
+X{
+X	register char *parseptr;
+X	char *token;
+X
+X	if(parsestr == (char *)0 && arg_token_static == (char *)0)
+X		return((char *)0);
+X
+X	if(parsestr)
+X		parseptr = parsestr;
+X	else
+X       parseptr = arg_token_static;
+X
+X	while(*parseptr)
+X	{
+X		if(!strchr(termchars,*parseptr))
+X			break;
+X		parseptr++;
+X	}
+X
+X	if(!*parseptr)
+X	{
+X		arg_token_static = (char *)0;
+X		return((char *)0);
+X	}
+X
+X	token = parseptr;
+X	if(*token == '\'')
+X	{
+X		token++;
+X		parseptr++;
+X		while(*parseptr)
+X		{
+X			if(*parseptr == '\'')
+X			{
+X				arg_token_static = parseptr + 1;
+X				*parseptr = 0;
+X				return(token);
+X			}
+X			parseptr++;
+X		}
+X		arg_token_static = (char *)0;
+X		return(token);
+X	}
+X	while(*parseptr)
+X	{
+X		if(strchr(termchars,*parseptr))
+X		{
+X			*parseptr = 0;
+X			arg_token_static = parseptr + 1;
+X			while(*arg_token_static)
+X			{
+X				if(!strchr(termchars,*arg_token_static))
+X					break;
+X				arg_token_static++;
+X			}
+X			return(token);
+X		}
+X		parseptr++;
+X	}
+X	arg_token_static = (char *)0;
+X	return(token);
+X}	/* end of arg_token */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	fname_split(cmd,arg,arg_max_quan,&narg)
+X--------------------------------------------------------------------------*/
+X#if defined(ENAMETOOLONG)
+Xvoid
+Xfname_split(cmd,arg,arg_max_quan,narg_rtn)
+Xchar *cmd;
+Xchar **arg;
+Xint arg_max_quan;
+Xint *narg_rtn;
+X{
+X	register itmp;
+X	register narg;
+X
+X	for(itmp = 0; itmp < arg_max_quan; itmp++)
+X		arg[itmp] = (char *)0;
+X	arg[0] = arg_token(cmd,"/");
+X
+X	for(narg = 1; narg < arg_max_quan; ++narg)
+X	{
+X		if((arg[narg] = arg_token((char *)0,"/")) == (char *)0) 
+X			break;
+X	}
+X
+X	*narg_rtn = narg;
+X
+X}	/* end of fname_split */
+X#endif
+X
+X#if defined(ENAMETOOLONG)
+X#define MAX_COMPONENT_LEN	14
+X#define MAX_PATH_COMPONENTS	16
+Xstatic char trunc_fname[257];
+Xstatic char *trunc_components[MAX_PATH_COMPONENTS];
+Xstatic int trunc_components_quan;
+Xstatic int trunc_absolute_path;
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	fname_too_long(fname) - check for any pathname component too long
+X--------------------------------------------------------------------------*/
+X#if defined(ENAMETOOLONG)
+Xint
+Xfname_too_long(fname)
+Xregister char *fname;
+X{
+X	register int itmp;
+X	register char **cpptr;
+X
+X	if(trunc_absolute_path = (*fname == '/'))
+X		fname++;
+X	strncpy(trunc_fname,fname,sizeof(trunc_fname) - 1);
+X	fname_split(trunc_fname,trunc_components,
+X		MAX_PATH_COMPONENTS,&trunc_components_quan);
+X	itmp = trunc_components_quan;
+X	cpptr = trunc_components;
+X	while(itmp--)
+X	{
+X		if(strlen(*cpptr) > MAX_COMPONENT_LEN)
+X			return(1);
+X		cpptr++;
+X	}
+X	return(0);
+X}	/* end of fname_too_long */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	fname_truncated() - build truncated path last checked by fname_too_long
+X--------------------------------------------------------------------------*/
+X#if defined(ENAMETOOLONG)
+Xchar *
+Xfname_truncated()
+X{
+X	register int icomp;
+X	char new_fname[257];
+X	register char *cptr = new_fname;
+X
+X	if(trunc_absolute_path)
+X	{
+X		*cptr = '/';
+X		*(cptr + 1) = 0;
+X	}
+X	else
+X		*cptr = 0;
+X	for(icomp = 0; icomp < trunc_components_quan; icomp++)
+X	{
+X		if(strlen(trunc_components[icomp]) > MAX_COMPONENT_LEN)
+X			*(trunc_components[icomp] + MAX_COMPONENT_LEN) = 0;
+X		strcat(cptr,trunc_components[icomp]);
+X		if(icomp < trunc_components_quan - 1)
+X			strcat(cptr,"/");
+X	}
+X	strcpy(trunc_fname,cptr);
+X	return(trunc_fname);
+X
+X}	/* end of fname_truncated */
+X#endif
+X
+X/*+-------------------------------------------------------------------------
+X	our_fopen(pathname,openmode) - fopen for write considering ENAMETOOLONG
+X
+XThis can modify the pathname argument
+X--------------------------------------------------------------------------*/
+XFILE *
+Xour_fopen(pathname,openmode)
+Xchar *pathname;
+Xchar *openmode;
+X{
+X	FILE *fp;
+X
+X	if(!(fp = fopen(pathname,openmode)))
+X	{
+X#if defined(ENAMETOOLONG)
+X		if(errno == ENAMETOOLONG)
+X		{
+X			if(fname_too_long(pathname))
+X			{
+X				strcpy(s128,"truncated: ");
+X				strncat(s128,pathname,sizeof(s128) - 12);
+X				ecu_log_event(getppid(),s128);
+X				report_str(s128,-1);
+X				strcpy(pathname,fname_truncated());
+X				fp = fopen(pathname,openmode);
+X			}
+X		}
+X#else
+X		; /* dummy statement for anti new-fangled compiler warnings */
+X#endif
+X	}
+X
+X	return(fp);
+X
+X}	/* end of our_fopen */
+X
+X/*+-------------------------------------------------------------------------
+X	substr(str,token)
+X
+X  searches for token in string str returns pointer to token within
+X  string if found,NULL otherwise
+X--------------------------------------------------------------------------*/
+Xchar *
+Xsubstr(str,token)
+Xregister char *str,*token;
+X{
+X	register char *ss;
+X	register char *tt;
+X
+X	/* search for first char of token */
+X	for(ss=str; *str; str++)
+X		if(*str == *token)
+X			/* compare token with substring */
+X			for(ss=str,tt=token; ;)
+X			{
+X				if(!*tt)
+X					return(str);
+X				if(*ss++ != *tt++)
+X					break;
+X			}
+X	return(NULL);
+X}	/* end of substr */
+X
+X/*+-------------------------------------------------------------------------
+X	getfree()
+X
+X  Routine to calculate the free bytes on the current file system ~0
+X  means many free bytes (unknown)
+X--------------------------------------------------------------------------*/
+Xlong
+Xgetfree()
+X{
+X	return(~0L);	/* many free bytes ... */
+X}	/* end of getfree */
+X
+X/*+-------------------------------------------------------------------------
+X	usage(fail_reason)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xusage(fail_reason)
+Xchar *fail_reason;
+X{
+X	fprintf(stderr,"%s\n",fail_reason);
+X	exit(255);
+X}	/* end of usage */
+X
+X/*+-------------------------------------------------------------------------
+X	SIGALRM_handler(sig)
+X--------------------------------------------------------------------------*/
+Xvoid
+XSIGALRM_handler(sig)
+Xint sig;
+X{
+X	report_tx_ind(0);
+X	report_rx_ind(0);
+X	longjmp(tohere,-1);
+X}	/* end of SIGALRM_handler */
+X
+X/*+-------------------------------------------------------------------------
+X	bye_bye(sig)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbye_bye(sig)
+Xint sig;
+X{
+X	exit(sig+128);
+X}	/* end of bye_bye */
+X
+X/*+-------------------------------------------------------------------------
+X	cancel_transaction(can_code)
+Xcalled by signal interrupt or terminate to clean things up
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcancel_transaction(can_code)
+Xint can_code;
+X{
+X	purgeline();
+X	if(Zmodem)
+X		zmputs(Attn);
+X	send_cancel(1);
+X	mode(0);
+X	if(can_code >= 0)
+X	{
+X		sprintf(s128,"ecurz aborted (signal %d)",can_code);
+X		report_str(s128,0);
+X	}
+X	report_tx_ind(0);
+X	report_rx_ind(0);
+X	report_uninit(0);
+X	bye_bye(can_code);
+X
+X}	/* end of cancel_transaction */
+X
+X/*+-------------------------------------------------------------------------
+X	sendline(c) -  send a character to DCE
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsendline(c)
+Xchar c;
+X{
+X	write(iofd,&c,1);
+X	++tx_char_count;
+X}	/* end of sendline */
+X
+X/*+-------------------------------------------------------------------------
+X	xsendline(c)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xxsendline(c)
+Xint c;
+X{
+X	sendline(c);
+X}	/* end of xsendline */
+X
+X/*+-------------------------------------------------------------------------
+X	flushline()
+X--------------------------------------------------------------------------*/
+Xvoid
+Xflushline()
+X{
+X}	/* end of flushline */
+X
+X/*+-------------------------------------------------------------------------
+X	purgeline() - purge the modem input queue of all characters
+X--------------------------------------------------------------------------*/
+Xvoid
+Xpurgeline()
+X{
+X	Lleft = 0;
+X#if defined(TCFLSH)
+X	ioctl(iofd,TCFLSH,0);
+X#else
+X	lseek(iofd,0L,2);
+X#endif
+X}	/* end of purgeline */
+X
+X/*+-------------------------------------------------------------------------
+X	wcreceive(argc,argp)
+X--------------------------------------------------------------------------*/
+Xwcreceive(argc,argp)
+Xint argc;
+Xchar **argp;
+X{
+X	register c;
+X
+X	if(Batch || argc==0)
+X	{
+X		Crcflg=1;
+X		c=tryz();
+X		if(Zmodem)
+X		{
+X			report_protocol_type("ZMODEM");
+X			report_protocol_crc_type((Crc32) ? "/CRC32" : "/CRC16");
+X		}
+X		if(c)
+X		{
+X			if(c == ZCOMPL)
+X				return(OK);
+X			if(c == ERROR)
+X				goto FAIL;
+X			c = rzfiles();
+X			if(c)
+X				goto FAIL;
+X		} else 
+X		{
+X			report_protocol_type("YMODEM");
+X			report_protocol_crc_type((Crcflg) ? "/CRC" : "/CHK");
+X			for(;;)
+X			{
+X				if(wcrxpn(secbuf)== ERROR)
+X					goto FAIL;
+X				if(secbuf[0]==0)
+X					return(OK);
+X				if(procheader(secbuf) == ERROR)
+X					goto FAIL;
+X				report_str("Receiving data",0);
+X				if(wcrx()==ERROR)
+X					goto FAIL;
+X			}
+X		}
+X	}
+X	else 
+X	{
+X		report_protocol_type("XMODEM");
+X		report_protocol_crc_type((Crcflg) ? "/CRC" : "/CHK");
+X		Bytesleft = DEFBYTL;
+X		Filemode = 0;
+X		Modtime = 0L;
+X		procheader("");
+X		strcpy(Pathname,*argp);
+X		if(!(fout=our_fopen(Pathname,"w")))
+X		{
+X			sprintf(s128,"%-0.64s: %-0.40s",Pathname,sys_errlist[errno]);
+X			report_str(s128,1);
+X			ecu_log_event(getppid(),s128);
+X			goto FAIL;
+X		}
+X
+X		++Filcnt;
+X		report_file_rcv_started(Pathname,0L,Modtime,(unsigned short)Filemode);
+X		this_file_length = 0;
+X		report_rxpos(0L);
+X		report_str("Receiving data",0);
+X		if(wcrx()==ERROR)
+X			goto FAIL;
+X	}
+X	return(OK);
+X
+XFAIL:
+X	send_cancel(1);
+X	if(fout)
+X	{
+X		fflush(fout);
+X		fstat(fileno(fout),&fout_stat);
+X		report_file_byte_io((long)fout_stat.st_size - initial_filepos);
+X		report_file_close(0);
+X		fclose(fout);
+X		fout = (FILE *)0;
+X	}
+X	return(ERROR);
+X}	/* end of wcreceive */
+X
+X/*+-------------------------------------------------------------------------
+X	wcgetsec(rxbuf,maxtime)
+X
+X  Wcgetsec fetches a Ward Christensen type sector.  Returns sector
+X  number encountered or ERROR if valid sector not received, or CAN CAN
+X  received or WCEOT if eot sector time is timeout for first char,set to
+X  4 seconds thereafter. NO ACK IS SENT IF SECTOR IS RECEIVED OK. Caller
+X  must do that when he is good and ready to get next sector.
+X--------------------------------------------------------------------------*/
+Xunsigned int
+Xwcgetsec(rxbuf,maxtime)
+Xchar *rxbuf;
+Xint maxtime;
+X{
+X	register unsigned int firstch;
+X	register unsigned short oldcrc;
+X	register unsigned char checksum;
+X	register wcj;
+X	register char *p;
+X	int sectcurr;
+X
+X	for(Lastrx=errors=0; errors<RETRYMAX; errors++)
+X	{
+X
+X		firstch=readline(maxtime);
+X		if((firstch == STX) || (firstch == SOH))
+X		{
+X			oldBlklen = Blklen;
+X			if(firstch == STX)
+X				Blklen=1024;
+X			else
+X				Blklen=128;
+X			if(oldBlklen != Blklen)
+X				report_rxblklen(Blklen);
+X
+X			sectcurr=readline(1);
+X			if((sectcurr + (oldcrc=readline(1))) == 0xFF)
+X			{
+X				oldcrc=checksum=0;
+X				for(p = rxbuf,wcj = Blklen; --wcj >= 0; )
+X				{
+X					if((int)(firstch=readline(1)) < 0)
+X						goto bilge;
+X					oldcrc=updcrc(firstch,oldcrc);
+X					checksum += (*p++ = firstch);
+X				}
+X				if((int)(firstch=readline(1)) < 0)
+X					goto bilge;
+X				if(Crcflg)
+X				{
+X					oldcrc=updcrc(firstch,oldcrc);
+X					if((int)(firstch=readline(1)) < 0)
+X						goto bilge;
+X					oldcrc=updcrc(firstch,oldcrc);
+X					if(oldcrc)
+X					{
+X						sprintf(s128,"CRC error = 0x%04x",oldcrc);
+X						report_str(s128,1);
+X					}
+X					else 
+X					{
+X						Firstsec=0;
+X						return(sectcurr);
+X					}
+X				}
+X				else if((checksum-firstch)==0)
+X				{
+X					Firstsec=0;
+X					return(sectcurr);
+X				}
+X				else
+X					report_str("checksum error",1);
+X			}
+X			else
+X			{
+X				report_last_txhdr("Noise",0);
+X				sprintf(s128,"Sector garbled 0x%x 0x%x",sectcurr,oldcrc);
+X				report_str(s128,1);
+X			}
+X		}
+X		/* make sure eot really is eot and not just mixmash */
+X#if defined(NFGVMIN)
+X		else if(firstch==EOT && readline(1)==TIMEOUT)
+X			return(WCEOT);
+X#else
+X		else if(firstch==EOT && Lleft==0)
+X			return(WCEOT);
+X#endif
+X		else if(firstch==EOT)
+X		{
+X			report_str("Noisy EOT",2);
+X		}
+X		else if(firstch==CAN)
+X		{
+X			if(Lastrx==CAN)
+X			{
+X				report_str("Sender CANcelled",1);
+X				report_last_rxhdr("CAN",1);
+X				return(ERROR);
+X			} else 
+X			{
+X				Lastrx=CAN;
+X				continue;
+X			}
+X		}
+X		else if(firstch==TIMEOUT)
+X		{
+X			if(Firstsec)
+X				goto humbug;
+Xbilge:
+X			report_str("Timeout",1);
+X		}
+X		else
+X		{
+X			sprintf(s128,"Got 0x%02x sector header",firstch);
+X			report_str(s128,1);
+X		}
+X
+Xhumbug:
+X		Lastrx=0;
+X		while(readline(1)!=TIMEOUT)
+X			;
+X		if(Firstsec)
+X		{
+X			sendline(Crcflg?WANTCRC:NAK);
+X			report_last_txhdr(Crcflg ? "WANTCRC" : "NAK",0);
+X			Lleft=0;	/* Do read next time ... */
+X		} else 
+X		{
+X			maxtime=40;
+X			sendline(NAK);
+X			report_last_txhdr("NAK",1);
+X			Lleft=0;	/* Do read next time ... */
+X		}
+X	}
+X	/* try to stop the bubble machine. */
+X	send_cancel(1);
+X	return(ERROR);
+X}	/* end of wcgetsec */
+X
+X/*+-------------------------------------------------------------------------
+X	wcrxpn(rpn)
+X
+X  Fetch a pathname from the other end.  Length is indeterminate as long
+X  as less than Blklen.  During YMODEM xfers, a null string represents no
+X  more files.
+X--------------------------------------------------------------------------*/
+Xwcrxpn(rpn)
+Xchar *rpn;	/* receive a pathname */
+X{
+X	register c;
+X
+X#if defined(NFGVMIN)
+X	readline(1);
+X#else
+X	purgeline();
+X#endif
+X
+Xet_tu:
+X	Firstsec=1;
+X	Eofseen=0;
+X	sendline(Crcflg?WANTCRC:NAK);
+X	report_last_txhdr(Crcflg ? "WANTCRC" : "NAK",0);
+X	Lleft=0;	/* Do read next time ... */
+X	while((c = wcgetsec(rpn,100)) != 0)
+X	{
+X		if(c == WCEOT)
+X		{
+X			sprintf(s128,"Pathname fetch returned %d",c);
+X			report_str(s128,1);
+X			sendline(ACK);
+X			report_last_txhdr("ACK",0);
+X			Lleft=0;	/* Do read next time ... */
+X			readline(1);
+X			goto et_tu;
+X		}
+X		return(ERROR);
+X	}
+X	sendline(ACK);
+X	report_last_txhdr("ACK",0);
+X	return(OK);
+X}	/* end of wcrxpn */
+X
+X/*+-------------------------------------------------------------------------
+X	report_receive_progress(pos)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xreport_receive_progress(pos)
+Xlong pos;
+X{
+X
+X	report_rxpos(pos);
+X	if(this_file_length != 0)
+X	{
+X		sprintf(s128,"Receiving data (%u%% complete)",
+X		    (int)((unsigned long)pos * (unsigned long)100) / this_file_length);
+X		report_str(s128,0);
+X	}
+X}	/* end of report_receive_progress */
+X
+X/*+-------------------------------------------------------------------------
+X	write_sec_to_disk(buf,n)
+X
+X  Putsec writes the n characters of buf to receive file fout.  If not in
+X  binary mode, carriage returns, and all characters starting with CPMEOF
+X  are discarded.
+X--------------------------------------------------------------------------*/
+Xwrite_sec_to_disk(buf,n)
+Xchar *buf;
+Xregister n;
+X{
+X	register char *p;
+X
+X	if(!n)
+X		return(OK);
+X	if(Thisbinary)
+X	{
+X		for(p=buf; --n>=0; )
+X			fputc( *p++,fout);
+X	}
+X	else 
+X	{
+X		if(Eofseen)
+X			return(OK);
+X		for(p=buf; --n>=0; ++p )
+X		{
+X			if( *p == '\r')
+X				continue;
+X			if(*p == CPMEOF)
+X			{
+X				Eofseen=1;
+X				fflush(fout);
+X				fstat(fileno(fout),&fout_stat);
+X				report_rxpos(fout_stat.st_size);
+X				return(OK);
+X			}
+X			fputc(*p,fout);
+X		}
+X	}
+X	if(!Zmodem)
+X	{
+X		fflush(fout);
+X		fstat(fileno(fout),&fout_stat);
+X		report_rxpos(fout_stat.st_size);
+X	}
+X	return(OK);
+X}	/* end of write_sec_to_disk */
+X
+X/*+-------------------------------------------------------------------------
+X	wcrx() - receive an X/YMODEM sector
+X
+X  Adapted from CMODEM13.C,written by Jack M.  Wierda and Roderick W. Hart
+X--------------------------------------------------------------------------*/
+Xint
+Xwcrx()
+X{
+X	register unsigned int sectnum,sectcurr;
+X	register unsigned char sendchar;
+X	int cblklen;			/* bytes to dump this block */
+X
+X	Firstsec=1;
+X	sectnum=0;
+X	Eofseen=0;
+X	sendchar=Crcflg ? WANTCRC : NAK;
+X	report_last_txhdr(Crcflg ? "WANTCRC" : "NAK",0);
+X
+X	for(;;)
+X	{
+X		sendline(sendchar);	/* send it now,we're ready! */
+X		if(sendchar == ACK)
+X			report_last_txhdr("ACK",0);
+X		Lleft=0;	/* Do read next time ... */
+X		sectcurr=wcgetsec(secbuf,(sectnum&0177)?50:130);
+X		sprintf(s128,"Block %d received",sectnum);
+X		report_last_rxhdr(s128,0);
+X		fstat(fileno(fout),&fout_stat);
+X		report_rxpos(fout_stat.st_size);
+X		if(sectcurr == (sectnum+1 & 0xFF))
+X		{
+X			sectnum++;
+X			cblklen = Bytesleft>Blklen ? Blklen : Bytesleft;
+X			if(write_sec_to_disk(secbuf,cblklen) == ERROR)
+X				return(ERROR);
+X			if((Bytesleft-=cblklen) < 0)
+X				Bytesleft = 0;
+X			sendchar=ACK;
+X		}
+X		else if(sectcurr == sectnum)
+X		{
+X			report_str("Received duplicate Sector",-1);
+X			sendchar = ACK;
+X		}
+X		else if(sectcurr == WCEOT)
+X		{
+X			if(close_and_report())
+X				return(ERROR);
+X			sendline(ACK);
+X			report_last_txhdr("ACK",0);
+X			Lleft=0;	/* Do read next time ... */
+X			return(OK);
+X		}
+X		else if(sectcurr==ERROR)
+X			return(ERROR);
+X		else 
+X		{
+X			report_str( "Sync Error",1);
+X			return(ERROR);
+X		}
+X	}
+X}	/* end of wcrx */
+X
+X/*+-------------------------------------------------------------------------
+X	readline(timeout)
+X
+X  read one or more characters timeout is in tenths of seconds
+X--------------------------------------------------------------------------*/
+Xreadline(timeout)
+Xint timeout;
+X{
+X	VOLATILE int n;
+X	static unsigned char *cdq;	/* pointer for removing chars from linbuf */
+X
+X	if(--Lleft >= 0)
+X		return(*cdq++);
+X
+X	n = timeout/10;
+X	if(n < 2)
+X		n = 3;
+X	if(setjmp(tohere))
+X	{
+X		Lleft = 0;
+X		return(TIMEOUT);
+X	}
+X	signal(SIGALRM,SIGALRM_handler);
+X	alarm(n);
+X	Lleft = read(iofd,(char *)(cdq = linbuf),Readnum);
+X	alarm(0);
+X	rx_char_count += Lleft;
+X
+X	if(Lleft < 1)
+X		return(TIMEOUT);
+X
+X	--Lleft;
+X	return(*cdq++);
+X
+X}	/* end of readline */
+X
+X/*+-------------------------------------------------------------------------
+X	mkdir(dpath,dmode)
+X Directory-creating routines from Public Domain TAR by John Gilmore
+X Make a directory.  Compatible with the mkdir() system call on 4.2BSD.
+X--------------------------------------------------------------------------*/
+X#if defined(M_XENIX)
+X#define	TERM_SIGNAL(status)		((status) & 0x7F)
+X#define TERM_COREDUMP(status)	(((status) & 0x80) != 0)
+X#define TERM_VALUE(status)		((status) >> 8)
+Xmkdir(dpath,dmode)
+Xchar *dpath;
+Xint dmode;
+X{
+X	int cpid,status;
+X	struct stat statbuf;
+X
+X	if(!stat(dpath,&statbuf))
+X	{
+X		errno = EEXIST;		/* Stat worked,so it already exists */
+X		return(-1);
+X	}
+X
+X	/* If stat fails for a reason other than non-existence,return error */
+X	if(errno != ENOENT)
+X		return(-1);
+X
+X	switch(cpid = fork())
+X	{
+X
+X	case -1:			/* Error in fork() */
+X		return(-1);		/* Errno is set already */
+X
+X	case 0:				/* Child process */
+X		/*
+X		 * Cheap hack to set mode of new directory.  Since this
+X		 * child process is going away anyway,we zap its umask.
+X		 * FIXME,this won't suffice to set SUID,SGID,etc. on this
+X		 * directory.  Does anybody care?
+X		 */
+X		status = umask(0);	/* Get current umask */
+X		status = umask(status | (0777 & ~dmode)); /* Set for mkdir */
+X		execl("/bin/mkdir","mkdir",dpath,(char *)0);
+X		_exit(-1);		/* Can't exec /bin/mkdir */
+X
+X	default:			/* Parent process */
+X		while(cpid != wait(&status)) ;	/* Wait for kid to finish */
+X	}
+X
+X	if(TERM_SIGNAL(status) != 0 || TERM_VALUE(status) != 0)
+X	{
+X		errno = EIO;		/* We don't know why,but */
+X		return(-1);		/* /bin/mkdir failed */
+X	}
+X
+X	return(0);
+X}	/* end of mkdir */
+X#endif /* M_XENIX */
+X
+X/*+-------------------------------------------------------------------------
+X	make_dirs(pathname)
+X
+X  Directory-creating routines from Public Domain TAR by John Gilmore
+X  After a file/link/symlink/dir creation has failed, see if it's because
+X  some required directory was not present, and if so, create all
+X  required dirs.
+X--------------------------------------------------------------------------*/
+Xint
+Xmake_dirs(pathname)
+Xregister char *pathname;
+X{
+X	register char *p;			/* Points into path */
+X	int madeone = 0;			/* Did we do anything yet? */
+X	int save_errno = errno;		/* Remember caller's errno */
+X
+X	if(errno != ENOENT)
+X		return(0);		/* Not our problem */
+X
+X	for(p = strchr(pathname,'/'); p != NULL; p = strchr(p+1,'/'))
+X	{
+X		/* Avoid mkdir of empty string,if leading or double '/' */
+X		if(p == pathname || p[-1] == '/')
+X			continue;
+X		/* Avoid mkdir where last part of path is '.' */
+X		if(p[-1] == '.' && (p == pathname+1 || p[-2] == '/'))
+X			continue;
+X		*p = 0;				/* Truncate the path there */
+X		if( !mkdir(pathname,0777))	/* Try to create it as a dir */
+X		{
+X			sprintf(s128,"Made directory %s",pathname);
+X			report_str(s128,-1);
+X			madeone++;		/* Remember if we made one */
+X			*p = '/';
+X			continue;
+X		}
+X		*p = '/';
+X		if(errno == EEXIST)		/* Directory already exists */
+X			continue;
+X		/*
+X		 * Some other error in the mkdir.  We return to the caller.
+X		 */
+X		break;
+X	}
+X	errno = save_errno;		/* Restore caller's errno */
+X	return(madeone);			/* Tell them to retry if we made one */
+X}	/* end of make_dirs */
+X
+X/*+-------------------------------------------------------------------------
+X	uncaps(str) - make string str lower case
+X--------------------------------------------------------------------------*/
+Xvoid
+Xuncaps(str)
+Xregister char *str;
+X{
+X	register int itmp;
+X
+X	while(itmp = *str)
+X	{
+X		if(isupper(itmp))
+X			*str = tolower(itmp);
+X		str++;
+X	}
+X}	/* end of uncaps */
+X
+X/*+-------------------------------------------------------------------------
+X	isanylc(str) - returns 1 if string str has any lower case letters
+X--------------------------------------------------------------------------*/
+Xint
+Xisanylc(str)
+Xregister char *str;
+X{
+X	while(*str)
+X	{
+X		if(islower(*str))
+X			return(1);
+X		str++;
+X	}
+X	return(0);
+X}	/* end of isanylc */
+X
+X/*+-------------------------------------------------------------------------
+X	procheader(name) - process incoming file information header
+X
+Xreturns with 0 and FILE *fout open to receive file if good headers
+Xand all is right with the filesystem, else returns error code
+X--------------------------------------------------------------------------*/
+Xint
+Xprocheader(name)
+Xchar *name;
+X{
+X	register char *openmode,*p;
+X	char zmanag2;
+X
+X	/* set default parameters and overrides */
+X	fout = (FILE *)0;
+X	openmode = "w";
+X	rxfilepos = 0L;
+X	Thisbinary = (!Rxascii) || Rxbinary;
+X	if(Lzmanag)
+X		zmanag = Lzmanag;
+X	zmanag2 = zmanag & ZMMASK;
+X
+X	/*
+X	 *  Process ZMODEM remote file management requests
+X	 */
+X	if(!Rxbinary && zconv == ZCNL)	/* Remote ASCII override */
+X		Thisbinary = 0;
+X	if(zconv == ZCBIN)	/* Remote Binary override */
+X		Thisbinary = 1;
+X
+X	report_xfer_mode(Thisbinary ? "BINARY" : "ASCII");
+X	this_file_errors = 0;
+X
+X	Bytesleft = DEFBYTL;
+X	Filemode = 0;
+X	Modtime = 0L;
+X	this_file_length = 0L;
+X	initial_filepos = 0L;
+X
+X	if(strlen(name))
+X		p = name + 1 + strlen(name);
+X	else
+X		p = name;
+X
+X	if(*p)
+X	{	/* header has attributes */
+X	int sscanf_count = 0;
+X	int SerialNumber = 0;
+X	int Filesleft = 0;
+X	long TotalLeft = 0;
+X
+X		sscanf_count = sscanf(p,"%ld%lo%o%d&d&ld",
+X		    &Bytesleft,		/* file size */
+X			&Modtime,		/* secs since 1970 */
+X			&Filemode,		/* unix st_mode */
+X			&SerialNumber,	/* vaxism */
+X		    &Filesleft,&TotalLeft);
+X
+X		switch(sscanf_count)
+X		{
+X			case 6:	/* TotalLeft */
+X				if(!TotalToReceive)
+X					TotalToReceive = TotalLeft;
+X			case 5:	/* Filesleft */
+X				if(!npats)
+X					npats = Filesleft;
+X			default:
+X				break;
+X		}
+X
+X		if(Thisbinary && (zconv == ZCRESUM))
+X		{
+X			if(!stat(name,&fout_stat))			/* if file accessible ... */
+X			{
+X				openmode = "r+";
+X				rxfilepos = fout_stat.st_size - 1024; /* re-get last 1024 */
+X				if(Bytesleft < rxfilepos)
+X					rxfilepos = 0;
+X				if(rxfilepos < 0)
+X					rxfilepos = 0;
+X				initial_filepos = rxfilepos;
+X				expect_zrpos = 1;	/* don't count first ZRPOS as error */
+X			}
+X		}
+X		else if(zmanag2 == ZMNEW)
+X		{
+X			if(!stat(name,&fout_stat))			/* if file accessible ... */
+X			{
+X				if(Modtime <= fout_stat.st_mtime)	/* ... and not older */
+X				{
+X					sprintf(s128,"RECEIVE skipped: %s (same or later date)",
+X						name);
+X					report_str(s128 + 8,-1);
+X					skip_count++;
+X					report_error_count();
+X#if defined(LOG_SKIP)
+X					ecu_log_event(getppid(),s128);
+X#endif
+X					return(ERROR);
+X				}
+X				openmode = "w";
+X				if(!(fout = our_fopen(name,openmode)))
+X					return ZFERR;
+X			}
+X		}
+X		else if(zmanag2 == ZMAPND)
+X		{
+X			if(!stat(name,&fout_stat))			/* if file accessible ... */
+X				initial_filepos = fout_stat.st_size;
+X		}
+X		else if(!Rxclob && ((zmanag2 != ZMCLOB)) && !access(name,0))
+X		{
+X			sprintf(s128,"RECEIVE skipped: %s (already exists)",name);
+X			report_str(s128 + 8,-1);
+X			skip_count++;
+X			report_error_count();
+X#if defined(LOG_SKIP)
+X			ecu_log_event(getppid(),s128);
+X#endif
+X			return(ERROR);
+X		}
+X
+X		if(Filemode & UNIXFILE)
+X			++Thisbinary;
+X
+X		report_rxpos(0L);
+X		report_str("",0);	/* get rid of End of File */
+X		if(Bytesleft != DEFBYTL)
+X		{
+X			long min_100;
+X			this_file_length = Bytesleft;
+X			min_100 = 2L + ((((Bytesleft - initial_filepos) * 11L)) * 10L) /
+X				(Baudrate * 6L);
+X			report_file_rcv_started(name,Bytesleft,
+X				Modtime,(unsigned short)Filemode);
+X			sprintf(s128,"Receive time this file ~= %2lu:%02lu",
+X			    min_100 / 100,((min_100 % 100) * 60L) / 100L);
+X			if(TotalToReceive)
+X			{
+X				min_100 = 2L +
+X				    (((TotalToReceive * 11L)) * 10L) / (Baudrate * 6L);
+X				if(Baudrate > 4800)
+X				{
+X					min_100 *= 13;
+X					min_100 /= 9;	/* yech ... empirical */
+X				}
+X				sprintf(&s128[strlen(s128)],", transaction ~= %2lu:%02lu",
+X				    min_100 / 100,((min_100 % 100) * 60L) / 100L);
+X			}
+X			report_transaction(s128);
+X			sprintf(s128,"Receiving data (%d%% complete)",(int)0);
+X			report_str(s128,0);
+X		}
+X	}
+X	else 
+X	{
+X		long now;
+X		for(p=name; *p; ++p)		/* change / to _ */
+X		{
+X			if( *p == '/')
+X				*p = '_';
+X		}
+X
+X		if( *--p == '.')		/* zap trailing period */
+X			*p = 0;
+X		time(&now);
+X		report_file_rcv_started(name,0,now,0);
+X	}
+X
+X	if(!Zmodem && MakeLCPathname && !isanylc(name) && !(Filemode&UNIXFILE))
+X		uncaps(name);
+X
+X	strcpy(Pathname,name);
+X	report_xfer_mode(Thisbinary?"BINARY":"ASCII");
+X	if(!fout)
+X		fout = our_fopen(name,openmode);
+X	if(!fout)
+X	{
+X		if(make_dirs(name))
+X			fout = our_fopen(name,openmode);
+X	}
+X	if(!fout)
+X	{
+X		if(errno > sys_nerr)
+X			sprintf(s128,"%-0.64s: open errno %d",name,errno);
+X		else
+X			sprintf(s128,"%-0.64s: open error: %s",name,sys_errlist[errno]);
+X		ecu_log_event(getppid(),s128);
+X		skip_count++;
+X		report_error_count();
+X		return(ERROR);
+X	}
+X	if(fseek(fout,rxfilepos,0))
+X	{
+X		fclose(fout);
+X		fout = (FILE *)0;
+X		if(errno > sys_nerr)
+X			sprintf(s128,"%-0.64s: seek errno %d",name,errno);
+X		else
+X			sprintf(s128,"%-0.64s: seek error: %s",name,sys_errlist[errno]);
+X		ecu_log_event(getppid(),s128);
+X		skip_count++;
+X		report_error_count();
+X		return(ERROR);
+X	}
+X	this_file_errors = 0;
+X	return(OK);
+X}	/* end of procheader */
+X
+X/*+-------------------------------------------------------------------------
+X	send_cancel(error) - send cancel string
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsend_cancel(error)
+Xint error;
+X{
+X	static char canistr[] = {
+X		24,24,24,24,24,24,24,24,24,24,8,8,8,8,8,8,8,8,8,8,0
+X	};
+X	register char *cptr = canistr;
+X
+X	purgeline();
+X	report_str("",0);
+X	report_last_txhdr("^X CAN",!!error);
+X	while(*cptr)
+X		sendline(*cptr++);
+X	Lleft=0;
+X}	/* end of send_cancel */
+X
+X/*+-------------------------------------------------------------------------
+X	send_ZFIN() - send ZFIN frame and wait for "OO" ack
+X--------------------------------------------------------------------------*/
+Xvoid
+Xsend_ZFIN()
+X{
+X	register n;
+X
+X	Readnum = 1;
+X	stohdr(0L);
+X	for(n = 0; n < 4; n++)
+X	{
+X		purgeline();
+X		zshhdr(ZFIN,Txhdr);
+X		switch(readline(100))
+X		{
+X		case 'O':
+X			readline(1);	/* Discard 2nd 'O' */
+X			return;
+X		case RCDO:
+X			return;
+X		case TIMEOUT:
+X		default:
+X			break;
+X		}
+X	}
+X}	/* end of send_ZFIN */
+X
+X/*+-------------------------------------------------------------------------
+X	tryz()
+X
+X  Initialize for Zmodem receive attempt, try to activate Zmodem sender
+X  Handles ZSINIT frame
+X  Return ZFILE if Zmodem filename received,-1 on error,
+X         ZCOMPL if transaction finished, else 0
+X--------------------------------------------------------------------------*/
+Xint
+Xtryz()
+X{
+X	register c;
+X	register n;
+X
+X	if(Nozmodem)		/* Check for "rb" program name */
+X		return(0);
+X
+X	for(n=Zmodem?15:5; --n>=0; )
+X	{
+X		/* Set buffer length (0) and capability flags */
+X		stohdr(0L);
+X
+X#if defined(CANBREAK)
+X		Txhdr[ZF0] = CANFC32|CANFDX|CANOVIO|CANBRK;
+X#else
+X		Txhdr[ZF0] = CANFC32|CANFDX|CANOVIO;
+X#endif
+X		if(Zctlesc)
+X			Txhdr[ZF0] |= TESCCTL;
+X		zshhdr(tryzhdrtype,Txhdr);
+X		if(tryzhdrtype == ZSKIP)	/* Don't skip too far */
+X			tryzhdrtype = ZRINIT;	/* CAF 8-21-87 */
+Xagain:
+X		switch(zgethdr(Rxhdr,0))
+X		{
+X		case ZRQINIT:
+X			continue;
+X		case ZEOF:
+X			continue;
+X		case TIMEOUT:
+X			continue;
+X		case ZFILE:
+X			zconv = Rxhdr[ZF0];
+X			zmanag = Rxhdr[ZF1];
+X			ztrans = Rxhdr[ZF2];
+X
+X			strcpy(s128,"Transfer type: ");
+X			if(zconv == ZCRESUM)
+X				strcat(s128,"resume interrupted transfer");
+X			else
+X			{
+X				switch(c = zmanag & ZMMASK)
+X				{
+X				case 0:
+X					strcat(s128,"if destination nonexistent");
+X					break;
+X				case ZMAPND:
+X					strcat(s128,"append to destination");
+X					break;
+X				case ZMCLOB:
+X					strcat(s128,"unconditional (overwrite)");
+X					break;
+X				case ZMNEW:
+X					strcat(s128,"if source newer");
+X					break;
+X				default:
+X					strcat(s128,"management option ");
+X					switch(c)
+X					{
+X						case ZMNEWL:	strcat(s128,"ZMNEWL"); break;
+X						case ZMCRC:		strcat(s128,"ZMCRC"); break;
+X						case ZMDIFF:	strcat(s128,"ZMDIFF"); break;
+X						case ZMPROT:	strcat(s128,"ZMPROT"); break;
+X						default:
+X							sprintf(s128 + strlen(s128),"%u",c);
+X							break;
+X					}
+X					break;
+X				}
+X			}
+X			report_str(s128,2);
+X
+X			tryzhdrtype = ZRINIT;
+X			c = zrdata(secbuf,1024);
+X			mode(3);
+X			if(c == GOTCRCW)
+X				return(ZFILE);
+X			zshhdr(ZNAK,Txhdr);
+X			goto again;
+X		case ZSINIT:
+X			Zctlesc = TESCCTL & Rxhdr[ZF0];
+X			if(zrdata(Attn,ZATTNLEN) == GOTCRCW)
+X			{
+X				stohdr(1L);
+X				zshhdr(ZACK,Txhdr);
+X				report_str("",-1);
+X				goto again;
+X			}
+X			zshhdr(ZNAK,Txhdr);
+X			goto again;
+X		case ZFREECNT:
+X			stohdr(getfree());
+X			zshhdr(ZACK,Txhdr);
+X			report_str("",-1);
+X			goto again;
+X		case ZCOMMAND:
+X			if(zrdata(secbuf,1024) == GOTCRCW)
+X			{
+X				stohdr(-1L);
+X				purgeline();	/* dump impatient questions */
+X				while(errors < 20)
+X				{
+X					zshhdr(ZCOMPL,Txhdr);
+X					if(zgethdr(Rxhdr,1) == ZFIN)
+X						break;
+X				}
+X				send_ZFIN();
+X				return(ZCOMPL);
+X			}
+X			zshhdr(ZNAK,Txhdr);
+X			goto again;
+X		case ZCOMPL:
+X			goto again;
+X		default:
+X			continue;
+X		case ZFIN:
+X			send_ZFIN();
+X			return(ZCOMPL);
+X		case ZCAN:
+X			return(ERROR);
+X		}
+X	}
+X	return(0);
+X}	/* end of tryz */
+X
+X/*+-------------------------------------------------------------------------
+X	rzfile() - receive a file with ZMODEM protocol
+X
+X  assumes file name frame is in secbuf
+X--------------------------------------------------------------------------*/
+Xint
+Xrzfile()
+X{
+X	register c,n;
+X	char s64[64];
+X
+X	Eofseen=0;
+X	rxfilepos = 0L;
+X	if(procheader(secbuf) == ERROR)
+X	{
+X		return(tryzhdrtype = ZSKIP);
+X	}
+X
+X	n = 20;
+X
+X	for(;;)
+X	{
+X		if(rxfilepos && !expect_zrpos)
+X		{
+X			sprintf(s64,"Sending ZRPOS (%ld)",rxfilepos);
+X			report_str(s64,1);
+X		}
+X		else
+X			report_str("Starting sender",0);
+X		expect_zrpos = 0;
+X		stohdr(rxfilepos);
+X		zshhdr(ZRPOS,Txhdr);
+Xnxthdr:
+X		report_receive_progress(rxfilepos);
+X		switch(c = zgethdr(Rxhdr,0))
+X		{
+X		default:
+X			sprintf(s128,got_garbage_txt,c);
+SHAR_EOF
+true || echo 'restore of z/ecurz.c failed'
+fi
+echo 'End of ecu320 part 23'
+echo 'File z/ecurz.c is continued in part 24'
+echo 24 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

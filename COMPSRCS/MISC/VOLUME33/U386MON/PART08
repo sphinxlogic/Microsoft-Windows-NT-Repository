@@ -1,0 +1,1389 @@
+Newsgroups: comp.sources.misc
+From: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Subject:  v33i117:  u386mon - SVR3 performance/status monitor v2.60, Part08/09
+Message-ID: <1992Nov22.020321.24475@sparky.imd.sterling.com>
+X-Md4-Signature: 044d0d8b31c22ea69482612d167df009
+Date: Sun, 22 Nov 1992 02:03:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Warren Tucker <wht@n4hgf.Mt-Park.GA.US>
+Posting-number: Volume 33, Issue 117
+Archive-name: u386mon/part08
+Environment: SYSVR3
+Supersedes: u386mon: Volume 22, Issue 3-9
+
+#!/bin/sh
+# This is part 08 of u386mon.2.60
+# ============= siotools/README ==============
+if test ! -d 'siotools'; then
+    echo 'x - creating directory siotools'
+    mkdir 'siotools'
+fi
+if test -f 'siotools/README' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/README (File already exists)'
+else
+echo 'x - extracting siotools/README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/README' &&
+XSIOTOOLS IS TWO PROGRAMS
+X------------------------
+XSIOMON displays kernel tty structures in a dynamic fashion.
+XDetailed status may be displayed on a single tty.
+X
+XUUSNAP displays HDB UUCP connection status.  Detailed status may be
+Xdisplayed on a single connection if you have configured the code
+Xproperly.
+X
+XThese display hacks are self-documenting.  Just read the following
+Xand have fun.
+X
+XCONFIGURATION
+X-------------
+X
+XA great number of people worked with u386mon to arrive at its
+Xconfigurability.  This work has not been done with siotools.  As
+Xdelivered, u386mon and siotools support the SCO standard sio tty
+Xdriver.  Porting to other SVR3 systems and tty drivers may be as
+Xsimple as modifying one header file in the u386mon base directory
+X(ttynm.h).  Refer to the discussion in the u386mon README.
+X
+XThe code was once supported under XENIX.  With this revision's
+Xuse of nlsym, XENIX support is dropped.  The earlier comp.sources.misc
+Xversion works fine for XENIX:
+X
+Xv09i044   siotools/part01   siotools part 1/2
+Xv09i045   siotools/part02   siotools part 2/2
+Xv09i056   siotools/patch01  siotools v09i044 patch 1
+Xv09i058   siotools/patch02  siotools patch 2
+Xv09i086   siotools/patch03  siotools patch 3
+Xv10i049   siotools/patch04  siotools v09i044,045 patch 4
+Xv10i070   siotools/patch05  siotools v09i044/045 patch 5
+Xv10i076   siotools/patch06  siotools v09i044/45 patch 6
+Xv11i028   siotools.p7       siotools v09i044/045 patch 7
+X
+XMAKING & INSTALLING
+X-------------------
+XTo make: edit the Makefile to select the CFLAGS options
+Xappropriate for you.  Then 'make' or 'make all'.  As mentioned
+Xabove, this will not be adequate to get the programs working on
+Xyour non-SCO/non-sio UNIX system.
+X
+XTo install, edit LBIN in the Makefile to have your favorite local
+Xbin directory path, 'su root' and 'make install'.
+X
+XPorts (ttynm.h definitions), bug reports and suggestions are appreciated.
+X
+X--------------------------------------------------------------------
+XWarren Tucker, TuckerWare emory!n4hgf!wht or wht@n4hgf.Mt-Park.GA.US
+XHacker Extraordinaire  d' async PADs,  pods,  proteins and protocols
+SHAR_EOF
+chmod 0644 siotools/README ||
+echo 'restore of siotools/README failed'
+Wc_c="`wc -c < 'siotools/README'`"
+test 2084 -eq "$Wc_c" ||
+	echo 'siotools/README: original size 2084, current size' "$Wc_c"
+fi
+# ============= siotools/kmemsio.c ==============
+if test -f 'siotools/kmemsio.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/kmemsio.c (File already exists)'
+else
+echo 'x - extracting siotools/kmemsio.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/kmemsio.c' &&
+X/* CHK=0xE646 */
+X/*+-------------------------------------------------------------------------
+X	kmemsio.c
+X	...!gatech!emory!tridom!wht
+X
+X  Defined functions:
+X	kmem_init_tty()
+X	kmem_read_tty(ttfirst,ttcount)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-24-1992-20:19-wht@n4hgf-use nlsym in cahorts with u386mon */
+X/*:12-04-1989-16:05-wht-creation */
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#define TERMIO_HACK /* for XENIX termio.h multiple inclusion problem */
+X#include <sys/tty.h>
+X
+X#include "kmemsio.h"
+X
+X#ifdef M_UNIX
+Xchar *kernel_file = "/unix";
+X
+X#include <nlist.h>
+X#define XLIST nlist
+X#define XL_name n_name
+X#define XL_value n_value
+X#define XL_type n_type
+X#else
+Xchar *kernel_file = "/xenix";
+X
+X#include <sys/a.out.h>
+X#define XLIST xlist
+X#define XL_name xl_name
+X#define XL_value xl_value
+X#define XL_type xl_type
+X#endif
+X
+X#ifdef STANDALONE_NLIST
+X#if defined(M_UNIX)
+Xstruct XLIST kernel_symbols[] = {
+X#define KS_SIO_TTY	0
+X	{ "sio_tty" },
+X	{ (char *)0 }
+X};
+X#else /* !M_UNIX */
+X
+Xstruct XLIST kernel_symbols[] = {
+X#define KS_SIO_TTY	0
+X	{0,0,0, "_sio_tty" },
+X	{0,0,0, (char *)0 }
+X};
+X#endif /* M_UNIX */
+X
+X#define	sio_ttyaddr kernel_symbols[KS_SIO_TTY].XL_value
+X
+X#else  /* !STANDALONE_NLIST */
+X#undef M_TERMINFO
+X#include "../config.h"
+X#ifndef M_TERMINFO
+Xa.kludge.did.not.work;
+X#endif
+X#include "../nlsym.h"
+X#include "../libnlsym.h"
+X#endif /* STANDALONE_NLIST */
+X
+Xchar *kmem_file = "/dev/kmem";
+X
+Xint kmemfd;
+X
+Xstruct tty sio[SIO_NTTY];
+X
+Xstatic char errmsg[80];
+X
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+X/*+-------------------------------------------------------------------------
+X	kmem_read_tty(ttfirst,ttcount)
+X--------------------------------------------------------------------------*/
+Xchar *
+Xkmem_read_tty(ttfirst,ttcount)
+Xint ttfirst;
+Xint ttcount;
+X{
+Xint len = ttcount * sizeof(struct tty);
+X
+X	if(((unsigned)ttfirst >= SIO_NTTY) ||
+X		(((unsigned)ttfirst + (unsigned)ttcount) > SIO_NTTY))
+X		return(" illegal tty ");
+X
+X	if(lseek(kmemfd,sio_ttyaddr + (ttfirst * sizeof(struct tty)),0) == -1)
+X	{
+X		sprintf(errmsg,
+X			" kmem lseek failure: %s ",sys_errlist[errno]);
+X		return(errmsg);
+X	}
+X	errno = 0;
+X	if(read(kmemfd,(char *)sio,len) != len)
+X	{
+X		sprintf(errmsg,
+X			" kmem read failure: %s ",sys_errlist[errno]);
+X		return(errmsg);
+X	}
+X
+X	return((char *)0);
+X
+X}	/* end of kmem_read_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	kmem_init_tty()
+X--------------------------------------------------------------------------*/
+Xchar *
+Xkmem_init_tty()
+X{
+X	char sio_ttyname[64];
+X
+X	strncpy(sio_ttyname,nlsym[Nindex_SIO_TTY].XL_name,
+X		sizeof(sio_ttyname));
+X	sio_ttyname[sizeof(sio_ttyname) - 1] = 0;
+X
+X
+X	if((kmemfd = open(kmem_file,0)) < 0)
+X	{
+X		sprintf(errmsg," %s: %s ",kmem_file,sys_errlist[errno]);
+X		return(errmsg);
+X	}
+X
+X#ifdef STANDALONE_NLIST
+X	if(XLIST(kernel_file,kernel_symbols))
+X	{
+X		sprintf(errmsg," xlist/nlist failure: %s ",kernel_file);
+X		return(errmsg);
+X	}
+X
+X#else
+X	nlsym_read();
+X	if(!sio_ttyaddr)
+X	{
+X		sprintf(errmsg," %s not found in this kernel", sio_ttyname);
+X		return(errmsg);
+X	}
+X#endif
+X
+X	return((char *)0);
+X
+X}	/* end of kmem_init_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	leave_text(text,code)
+X--------------------------------------------------------------------------*/
+X#ifndef STANDALONE_NLIST
+Xvoid
+Xleave_text(text,code)
+Xchar *text;
+Xint code;
+X{
+X	disp_cmd_legend(text);
+X	bye(1);
+X}	/* end of leave_text */
+X
+X#endif
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of kmemsio.c */
+SHAR_EOF
+chmod 0644 siotools/kmemsio.c ||
+echo 'restore of siotools/kmemsio.c failed'
+Wc_c="`wc -c < 'siotools/kmemsio.c'`"
+test 3580 -eq "$Wc_c" ||
+	echo 'siotools/kmemsio.c: original size 3580, current size' "$Wc_c"
+fi
+# ============= siotools/kmemsio.h ==============
+if test -f 'siotools/kmemsio.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/kmemsio.h (File already exists)'
+else
+echo 'x - extracting siotools/kmemsio.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/kmemsio.h' &&
+X/* CHK=0x83D5 */
+X/*+-----------------------------------------------------------------------
+X	kmemsio.h
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:12-04-1989-16:49-afterlint-creation */
+X
+X#ifndef _kmemsio_h
+X#define _kmemsio_h
+X
+X#include "../ttynm.h"
+X
+Xextern struct tty sio[SIO_NTTY];
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* kmemsio.c */
+Xchar *kmem_init_tty(void );
+Xchar *kmem_read_tty(int ,int );
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+X/* kmemsio.c */
+Xchar *kmem_init_tty();
+Xchar *kmem_read_tty();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X
+X#endif /* _kmemsio_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of kmemsio.h */
+SHAR_EOF
+chmod 0644 siotools/kmemsio.h ||
+echo 'restore of siotools/kmemsio.h failed'
+Wc_c="`wc -c < 'siotools/kmemsio.h'`"
+test 782 -eq "$Wc_c" ||
+	echo 'siotools/kmemsio.h: original size 782, current size' "$Wc_c"
+fi
+# ============= siotools/pend.sh ==============
+if test -f 'siotools/pend.sh' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/pend.sh (File already exists)'
+else
+echo 'x - extracting siotools/pend.sh (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/pend.sh' &&
+XFrom n4hgf!kd4nc!emory!wuarchive!zaphod.mps.ohio-state.edu!rpi!crdgw1!crdos1!local Tue Oct 30 15:33:14 EST 1990
+XArticle 822 of alt.sources:
+XPath: n4hgf!kd4nc!emory!wuarchive!zaphod.mps.ohio-state.edu!rpi!crdgw1!crdos1!local
+X>From: local@crdos1.crd.ge.COM (local software)
+XNewsgroups: alt.sources
+XSubject: Show pending jobs in HDB uucp
+XMessage-ID: <2801@crdos1.crd.ge.COM>
+XDate: 29 Oct 90 21:58:30 GMT
+XReply-To: davidsen@crdos1.crd.ge.com (bill davidsen)
+XDistribution: alt
+XOrganization: GE Corp R&D Center
+XLines: 211
+X
+X
+X  After a job comes in via uucp, and before it is run via uuxqt, it is
+Xin a state I call "pending." When debugging a system, or just looking
+Xaround, I like to see what's there. Here's my program to do that. Also
+Xuseful when tuning the system to determine how often to run uuxqt from
+Xcron.
+X
+X#!/bin/sh
+X# shar:	Shell Archiver  (v1.29)
+X#
+X#	Run the following text with /bin/sh to create:
+X#	  pending.1
+X#	  Makefile
+X#	  pending.c
+X#
+Xsed 's/^X//' << 'SHAR_EOF' > pending.1 &&
+XX.TH pending 1 Local
+XX.SH NAME
+XXpending \- list jobs pending from a remote site
+XX.SH SYNOPSIS
+XXpending remotesite
+XX.SH DESCRIPTION
+XXThe \fBpending\fP command shows jobs received from a remote site which
+XXhave not yet been processed by uuxqt. There are jobs which will be
+XXexecuted locally at some future time.
+XX.SS INSTALLATION
+XXThis program will only run from the uucp user (unless you security is
+XX\fIvery\fP lax), but may be installed setuid to uucp.
+XX.SH EXAMPLES
+XX  $ pending maxxwell
+XX
+XX     Job             User            Input File      Task
+XX    crdgw1X0T9Q     root crdgw1     D.crdgw1b0T9S   rmail stugr02!bob
+XX.SH FILES
+XX/usr/spool/uucp/site/*
+XX.SH SEE ALSO
+XXuustat
+XX.SH DIAGNOSTICS
+XXCan't get working dir - invalid site name of no directory for this site.
+XXCan't start ls - too many processes or /bin/ls missing.
+XXCan't open info file - sync error, uuxqt running, or access denied.
+XX.SH LIMITATIONS
+XXOnly works for HDB uucp.
+XX.SH AUTHOR
+XXBill Davidsen, davidsen@crdos1.crd.ge.com
+XX.SH Copyright
+XXCopyright (c) 1988,1990 by Bill Davidsen, All rights reserved. This
+XXprogram and documentation may be freely distributed and used providing
+XXthe copyright notices are kept intact.
+XSHAR_EOF
+Xchmod 0666 pending.1 || echo "restore of pending.1 fails"
+Xsed 's/^X//' << 'SHAR_EOF' > Makefile &&
+XX# makefile for pending command
+XX
+XX# ================> check everything below this line
+XX
+XXCFLAGS		= -O
+XXLFLAGS		= -S
+XX# remember to use /usr/man/man.LOCAL for SCO
+XXMANDIR		= /usr/man/man1
+XX# This is where you install it, like /usr/lbin, /usr/local/bin, 
+XX# /local, /u/local/bin or /usr/bin as last resort.
+XXBINDIR		= /u/local/bin
+XX# your local shar program
+XXSHAR		= shar
+XX
+XX# ================> stop, you've checked enough
+XX
+XXBASEFILES	= pending.1 Makefile
+XXSHARLIST	= $(BASEFILES) pending.c
+XXSHAROUT		= pending.shar
+XX
+XX# magic makerule for SCCS
+XX.c~.c:
+XX	get $<
+XX
+XX# default
+XXdefault:
+XX	@echo "After you have checked the first few lines of the Makefile"
+XX	@echo "you can type \"make pending\" or \"make install\"."
+XX	@echo "You can \"make clean\" after the install is done."
+XX
+XXpending: pending.o
+XX	$(CC) -o pending $(LFLAGS) pending.o
+XX
+XXinstall: pending pending.1
+XX	cp pending $(BINDIR)/pending
+XX	chusr uucp $(BINDIR)/pending
+XX	chmod 4711 $(BINDIR)/pending
+XX
+XXshar: $(SHAROUT)
+XX$(SHAROUT): $(SHARLIST)
+XX	$(SHAR) $(SHARLIST) > $(SHAROUT)
+XX
+XXclean:
+XX	rm -f pending $(SHAROUT)
+XX	test -f p.pending.c || rm -f pending.c
+XX
+XX# this is for the author!
+XXzoo: pending.zoo
+XXZOOLIST		= $(BASEFILES) s.pending.c
+XXpending.zoo: $(ZOOLIST)
+XX	zoo aunM pending.zoo $?
+XSHAR_EOF
+Xchmod 0644 Makefile || echo "restore of Makefile fails"
+Xsed 's/^X//' << 'SHAR_EOF' > pending.c &&
+XX/* list pending HDB requests from a site */
+XX
+XX#include <stdio.h>
+XX
+XX#define HDBdir	"/usr/spool/uucp"
+XX#define EOS		'\0'
+XX
+XXstatic char *IDent[] = {
+XX	"@(#)pending.c v1.2, 10/29/90"
+XX	"Copyright 1988 by Bill Davidsen, all rights reserved",
+XX	"May be freely distributed and used providing copyright",
+XX	"notices are kept intact."
+XX};
+XX
+XXmain(argc,argv)
+XXint argc;
+XXchar *argv[];
+XX{
+XX	char dirname[1024], filename[32], dataline[132];
+XX	char xfilename[32], wkfilename[132], *DummY = IDent[0];
+XX	int slen;					/* string length */
+XX	int first1 = 1;				/* flag for 1st time thru */
+XX	FILE *lsout, *popen(), *xfile, *fopen();
+XX
+XX	/* test input */
+XX	if (argc != 2) {
+XX		fprintf(stderr, "Format:\n  pending SYSname\n\n");
+XX		exit(1);
+XX	}
+XX
+XX	sprintf(dirname, "%s/%s", HDBdir, argv[1]);
+XX	if (chdir(dirname)) {
+XX		perror("Can't get working dir");
+XX		exit(1);
+XX	}
+XX	
+XX	lsout = popen("ls X.* 2>&1", "r");
+XX	if (lsout == NULL) {
+XX		perror("Can't start ls");
+XX		exit(1);
+XX	}
+XX
+XX	filename[31] = EOS;
+XX	/* loop checking files */
+XX	while (fgets(filename, 31, lsout)) {
+XX		if (strlen(filename) > 30) {
+XX			fprintf(stderr, "filename too long\n");
+XX			exit(1);
+XX		}
+XX
+XX		/* see if there's a file found */
+XX		sscanf(filename, "%s", xfilename);
+XX		if (strncmp(xfilename, "X.*", 3) == 0) {
+XX			fprintf(stderr, "No jobs pending\n");
+XX			exit(0);
+XX		}
+XX
+XX		/* open the file for reading */
+XX		xfile = fopen(xfilename, "r");
+XX		if (xfile == NULL) {
+XX			perror("Can't open info file");
+XX			exit(1);
+XX		}
+XX
+XX		/* check for header needed */
+XX		if (first1) {
+XX			first1 = 0;
+XX			printf("\n %-15s %-15s %-15s %s\n",
+XX				"Job", "User", "Input File", "Task");
+XX		}
+XX
+XX		/* scan the file for various things */
+XX		printf("%-15s ", xfilename+2);
+XX		dataline[131] = EOS;
+XX		while (fgets(dataline, 131, xfile)) {
+XX			if ((slen = strlen(dataline)) > 130) {
+XX				/* line too long */
+XX				while (getc(xfile) != '\n');
+XX			}
+XX			dataline[slen-1] = EOS;
+XX
+XX			switch (dataline[0]) {
+XX			case 'U': /* originating user */
+XX				printf("%-15s ", dataline+2);
+XX				break;
+XX			case 'C': /* command */
+XX				printf("%s\n", dataline+2);
+XX				break;
+XX			case 'I': /* input file */
+XX				printf("%-15s ", dataline+2);
+XX				break;
+XX			}
+XX		}
+XX
+XX		/* clean up */
+XX		fclose(xfile);
+XX	}
+XX
+XX	pclose(lsout);
+XX	exit(0);
+XX}
+XX/* tabs=4 */
+XSHAR_EOF
+Xchmod 0444 pending.c || echo "restore of pending.c fails"
+Xexit 0
+X
+X
+SHAR_EOF
+chmod 0644 siotools/pend.sh ||
+echo 'restore of siotools/pend.sh failed'
+Wc_c="`wc -c < 'siotools/pend.sh'`"
+test 5996 -eq "$Wc_c" ||
+	echo 'siotools/pend.sh: original size 5996, current size' "$Wc_c"
+fi
+# ============= siotools/siomon.c ==============
+if test -f 'siotools/siomon.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/siomon.c (File already exists)'
+else
+echo 'x - extracting siotools/siomon.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/siomon.c' &&
+X/* CHK=0xBED5 */
+Xchar *revision = "2.01";
+X/*+-------------------------------------------------------------------------
+X	siomon.c -- watch XENIX/UNIX serial I/O
+X	...!gatech!kd4nc!n4hgf!wht
+X	XENIX debugging help by Jim Stratton (stratton@hpda.da.com)
+X
+X    Sample output:
+X   000000000011111111112222222222333333333344444444445555555555666666666677777
+X   012345678901234567890123456789012345678901234567890123456789012345678901234
+X00  siomon 1.34 (UNIX V.3.2/i386) n4hgf           interval:  1        21:54:54
+X01 
+X02  tty  raw  can   out   speed  state iflag  oflag  cflag  lflag  pgrp
+X03  ---  ---  ---  -----  -----  ----- ------ ------ ------ ------ -----
+X04  1a     0    0      0   9600  OC     10045      0   6655      0     0
+X05  1b
+X06  1c
+X07  1d
+X08  1e
+X09  1f
+X10  1g
+X11  1h
+X12  2a
+X13  2b
+X14  2c
+X15  2d     0    0      0   9600  W          0      0   2275      0     0
+X16  2e
+X17  2f     0    0      0   4800  OC     10040      0   2374      0     0
+X18  2g     0    0      0   4800  OC     10005      0   6374      0     0
+X19  2h
+X20 
+X21 State: W waiting for open to complete  O open  C carrier on
+X22        S stopped by XOFF  D interval timeout in progress
+X23 Commands: + inc interval  - dec interval  ^L refresh  q quit  d detail
+X
+XUnder XENIX, termio.h is included twice (once by curses.h/tcap.h and
+Xagain by sys/tty.h.  You need to bracket the termio.h under XENIX with
+X  #if !defined(TERMIO_HACK) || (defined(TERMIO_HACK) && !defined(IOCTYPE))
+X  ...
+X  #endif
+X
+X  Defined functions:
+X	bye(sig)
+X	detail()
+X	disp_cmd_legend(text)
+X	disp_interval()
+X	disp_state_legend()
+X	disp_tod()
+X	disp_tty(y,sionum,tty)
+X	main(argc,argv,envp)
+X	main_template()
+X	my_resetty()
+X	my_savetty()
+X	strcmpi(s1,s2)
+X	to_lower(ch)
+X	to_upper(ch)
+X
+X  Kudos to pyrnj.pyramid.com!romain (Romain Kang) for many suggestions
+X  regarding screen and CPU efficiency in the original itpmon.c for Pyramid
+X  Thanks to mpxenix!news (Randy Bush) for tireless help with a curses
+X  bug hopefully now retired, even if it crockish.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:08-10-1992-07:32-wht@n4hgf-put state legend on detail screen too */
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:06-25-1992-02:37-root@n4hgf-integrate with u386mon's nlsym */
+X/*:06-22-1992-13:28-wht@n4hgf-revisit for 3.2v4 */
+X/*:02-23-1990-17:10-wht-more keyboard problems with UNIX: try typeahead(-1) */
+X/*:02-18-1990-03:29-wht-bug in curses tty mode handling - force a fix */
+X/*:12-28-1989-13:35-wht-change rev - B600 added to wintty */
+X/*:12-21-1989-15:20-wht-version number chg - CTSFLOW/RTSFLOW */
+X/*:12-04-1989-16:45-wht-add more to detail */
+X/*:11-28-1989-19:49-wht-no more sprintf and allow nap/rdchk in lieu of select */
+X/*:11-22-1989-12:33-wht-rehost my Pyramid itpmon.c */
+X
+X/* -------- select(S) availability --------- */
+X/* define HAVE_SELECT */ /* uncomment for XENIX/386 2.3.2 and later */
+X#if (defined(M_UNIX) && (!defined(HAVE_SELECT))) /* automatic for UNIX */
+X#define HAVE_SELECT
+X#endif
+X
+X#ifndef SYSV
+X#define SYSV
+X#endif
+X
+X#include <curses.h>
+X#include <signal.h>
+X#include <sys/types.h>
+X#include <sys/utsname.h>
+X#include <time.h>
+X
+X#if defined(HAVE_SELECT)
+X#include <sys/select.h>
+X#endif
+X
+X#include <sys/tty.h>
+X
+X#include "wintty.h"
+X#define DEFINE_TTYNM
+X#include "kmemsio.h"
+X#include "utoa.h"
+X
+X#define HY 2	/* header line */
+X#define TX 1
+X#define RX 6
+X#define CX 11
+X#define OX 16
+X#define SX 23
+X#define FX 30
+X
+Xextern char _sobuf[];
+Xextern int errno;
+Xextern char *sys_errlist[];
+X
+Xint no_tod = 0;
+Xint interval_secs = 1;
+Xstruct utsname me;
+Xchar bell = 7;
+X
+X/*+-------------------------------------------------------------------------
+X	workaround curses tty handling difficulties among different revs
+X--------------------------------------------------------------------------*/
+Xstruct termio my_termio_crock;
+Xvoid my_savetty()	/* used in lieu of savetty() */
+X{
+X	ioctl(0,TCGETA,&my_termio_crock);
+X}
+Xvoid my_resetty()	/* used in lieu of resetty() and endwin() */
+X{
+X	ioctl(0,TCSETA,&my_termio_crock);
+X}
+X
+X/*+-------------------------------------------------------------------------
+X	bye() - terminate curses, reset terminal and exit
+X--------------------------------------------------------------------------*/
+Xvoid
+Xbye(sig)
+Xint sig;
+X{
+X	if(stdscr)
+X	{
+X		standend();
+X		move(LINES - 1,0);
+X		refresh();
+X		my_resetty();
+X	}
+X	exit(0);
+X}	/* end of bye */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_tty(y,sionum,tty) - display info for 1 tty
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_tty(y,sionum,tty)
+Xint y;
+Xint sionum;
+Xregister struct tty *tty;
+X{
+X	register unsigned int itmp;
+X	register opened = tty->t_state & (ISOPEN | WOPEN);
+X	char s8[8];
+X
+X	move(y,TX + 0);
+X	addstr(ttynm[sionum]);
+X
+X	if(!opened)
+X	{
+X		clrtoeol();
+X		return;
+X	}
+X
+X	if((itmp = (unsigned)tty->t_rawq.c_cc) > 999)
+X		itmp = 999;
+X	utoda(s8,3,itmp);
+X	move(y,RX + 0);
+X	if(itmp > 10)
+X		standout();
+X	addstr(s8);
+X	if(itmp > 10)
+X		standend();
+X
+X	if((itmp = (unsigned)tty->t_canq.c_cc) > 999)
+X		itmp = 999;
+X	utoda(s8,3,itmp);
+X	move(y,CX + 0);
+X	addstr(s8);
+X
+X	if((itmp = (unsigned)tty->t_outq.c_cc + tty->t_tbuf.c_count) > 99999)
+X		itmp = 99999;
+X	utoda(s8,5,itmp);
+X	move(y,OX + 0);
+X	addstr(s8);
+X
+X	move(y,SX + 0);
+X	addstr(B_to_baud_rate(tty->t_cflag & CBAUD));
+X
+X	strcpy(s8,"     ");
+X	if(tty->t_state & WOPEN)
+X		s8[0] = 'W';
+X	else if(tty->t_state & ISOPEN)
+X		s8[0] = 'O';
+X	if(tty->t_state & CARR_ON)
+X		s8[1] = 'C';
+X	if(tty->t_state & BUSY)
+X		s8[2] = 'B';
+X	if(tty->t_state & TTSTOP)
+X		s8[3] = 'S';
+X	if(tty->t_state & TIMEOUT)
+X		s8[4] = 'D';
+X	move(y,FX);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_iflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_oflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_cflag);
+X	addstr(s8);
+X
+X	utooa(s8,7,tty->t_lflag);
+X	addstr(s8);
+X
+X	utoda(s8,6,tty->t_pgrp);
+X	addstr(s8);
+X
+X}	/* end of disp_tty */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_interval() - display current display interval
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_interval()
+X{
+X	char dmsg[12];
+X
+X	move(0,47);
+X	addstr("interval: ");
+X	utoda(dmsg,2,interval_secs);
+X	addstr(dmsg);
+X}	/* end of disp_interval */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_state_legend() - display "State: W ......"
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_state_legend()
+X{
+X
+X	move(LINES - 4,0);
+X	addstr(
+X"State: W waiting for open to complete  O open  C carrier on");
+X	move(LINES - 3,0);
+X	addstr(
+X"       S stopped by XOFF  D interval timeout in progress  B transmitter busy");
+X}	/* end of disp_state_legend */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_tod() - display time of day
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_tod()
+X{
+X	register struct tm *lt;		/* local time */
+X	struct tm *localtime();
+X	long now;
+X	char buf[10];
+X
+X	if(no_tod)
+X		return;
+X
+X	time(&now);
+X	lt = localtime(&now);
+X	utoda_lz(buf,2,lt->tm_hour);
+X	buf[2] = ':';
+X	utoda_lz(buf + 3,2,lt->tm_min);
+X	buf[5] = ':';
+X	utoda_lz(buf + 6,2,lt->tm_sec);
+X	move(0,COLS - 13);
+X	addstr(buf);
+X}	/* end of disp_tod */
+X
+X/*+-------------------------------------------------------------------------
+X	disp_cmd_legend(text) - display command legend
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdisp_cmd_legend(text)
+Xchar *text;
+X{
+X	move(LINES - 2,0);
+X	clrtoeol();
+X
+X	if(!text)
+X	{
+X		move(LINES - 2,0);
+X		addstr("Commands: ");
+X		standout();
+X		addstr("ESC");
+X		standend();
+X		addstr("/");
+X		standout();
+X		addstr("q");
+X		standend();
+X		addstr(" quit   ");
+X		standout();
+X		addstr("d");
+X		standend();
+X		addstr(" detail on tty   ");
+X		standout();
+X		addstr("+");
+X		standend();
+X		addstr("/");
+X		standout();
+X		addstr("-");
+X		standend();
+X		addstr(" change interval   ");
+X		standout();
+X		addstr("^L");
+X		standend();
+X		addstr(" refresh");
+X	}
+X	else
+X		addstr(text);
+X
+X}	/* end of disp_cmd_legend */
+X
+X/*+-------------------------------------------------------------------------
+X	main_template() - draw main screen template
+X--------------------------------------------------------------------------*/
+Xvoid
+Xmain_template()
+X{
+X	static char *header  = 
+X		" tty  raw  can   out   speed  state iflag  oflag  cflag  lflag  pgrp";
+X	static char *hyphens =
+X		" ---  ---  ---  -----  -----  ----- ------ ------ ------ ------ -----";
+X	FILE *fp = fopen("/etc/systemid","r");
+X	char sysid[64];
+X
+X	wclear(stdscr);
+X	move(0,0);
+X	standout();
+X	printw(" siomon %s (%s V.%s/%s)",
+X		revision,
+X#if defined(M_UNIX)
+X		"UNIX",
+X#else
+X		"XENIX",
+X#endif
+X		me.release,me.machine);
+X	if(fp)
+X	{
+X		sysid[0] = 0;
+X		fgets(sysid,sizeof(sysid),fp);
+X		if(sysid[0])
+X		{
+X			sysid[strlen(sysid) - 1] = 0;
+X			printw(" %s ",sysid);
+X		}
+X		fclose(fp);
+X	}
+X	standend();
+X	move(HY,0);
+X	addstr(header);
+X	move(HY + 1,0);
+X	addstr(hyphens);
+X	disp_state_legend();
+X	disp_cmd_legend((char *)0);
+X	move(LINES - 1,0);
+X	disp_interval();
+X	refresh();
+X}	/* end of main_template */
+X
+X#ifdef SIO_IS_FAS
+X#define  STRCMP strcmp
+X#else
+X#define  STRCMP strcmpi
+X/*+-------------------------------------------------------------------------
+X    to_upper() / to_lower()
+X
+XOne would think that these were relatively standard types of
+Xthing, but System V specifies toupper() to convert to upper case
+Xif not already and BSD says to adjust without testing, so, two
+Xstupid little routines here.  ASCII only -- no EBCDIC gradoo here please.
+X--------------------------------------------------------------------------*/
+Xchar to_upper(ch)
+Xregister char ch;
+X{ return( ((ch >= 'a') && (ch <= 'z')) ? ch - 0x20 : ch);
+X}   /* end of to_upper() */
+X
+Xchar to_lower(ch)
+Xregister char ch;
+X{ return( ((ch >= 'A') && (ch <= 'Z')) ? ch + 0x20 : ch);
+X}   /* end of to_lower() */
+X
+X/*+-------------------------------------------------------------------------
+X	strcmpi(s1,s2) - case-insensitive strcmp
+X
+XThis version of strcmp() is case-insensitive and works like a sane one
+Xshould, per strcmp(3), not per  the K&R1 example or POSIX/ANSI.
+X
+XIn here rather than ecuutil.c since other executables besides ecu
+Xuses this module and strcmpi needed there too 
+X--------------------------------------------------------------------------*/
+Xint
+Xstrcmpi(s1,s2)
+Xregister char *s1;
+Xregister char *s2;
+X{
+X
+X    while(*s1)
+X	{
+X        if(to_upper(*s1++) != to_upper(*s2++))
+X		{
+X			s1--;
+X			s2--;
+X            break;
+X		}
+X	}
+X	return(to_upper(*s1) - to_upper(*s2));
+X
+X}	/* end of strcmpi */
+X#endif /* SIO_IS_FAS */
+X
+X/*+-------------------------------------------------------------------------
+X	detail() - detail screen handler
+X--------------------------------------------------------------------------*/
+Xvoid
+Xdetail()
+X{
+X	int y,x;
+X	int sionum;
+X	char tty_name[32];
+X	char cmd;
+X	char **cpptr;
+X	char delim;
+X	int cmd_available;
+X#if defined(HAVE_SELECT)
+X	struct timeval timeout;
+X	int readfds;
+X#else
+X	long ltimeout;
+X	long nap();
+X#endif
+X
+X	for(y = 0; y < (LINES - 4); y++)
+X	{
+X		move(HY + 2 + y,0);
+X		clrtoeol();
+X	}
+X	disp_cmd_legend("display detail on /dev/tty");
+X	getyx(stdscr,y,x);
+X
+X	if(wingets(stdscr,y,x,tty_name,3,&delim,0,(int *)0) < 0)
+X		return;
+X	for(sionum = 0,cpptr = ttynm; sionum < SIO_NTTY; sionum++,cpptr++)
+X	{
+X		if(!STRCMP(*cpptr,tty_name))
+X			break;
+X	}
+X	if(sionum == SIO_NTTY)
+X	{
+X		write(2,&bell,1);
+X		return;
+X	}
+X
+X	disp_state_legend();
+X	disp_cmd_legend("");
+X	move(LINES - 2,0);
+X	addstr("Commands: ");
+X	standout();
+X	addstr("ESC");
+X	standend();
+X	addstr("/");
+X	standout();
+X	addstr("q");
+X	standend();
+X	addstr(" main display   ");
+X	standout();
+X	addstr("+");
+X	standend();
+X	addstr("/");
+X	standout();
+X	addstr("-");
+X	standend();
+X	addstr(" change interval");
+X
+X	move(HY + 2,0);
+X	clrtoeol();
+X	wintty_template(stdscr,HY + 2 + 2,0,1);
+X	while(1)
+X	{
+X		disp_tod();
+X		kmem_read_tty(sionum,1);
+X		disp_tty(HY + 2,sionum,&sio[0]);
+X		wintty(stdscr,HY + 2 + 2,0,&sio[0]);
+X		move(HY + 2 + 11,0);
+X		refresh();
+X#if defined(HAVE_SELECT)
+X		readfds = 1;			/* for standard input */
+X		timeout.tv_sec  = interval_secs;
+X		timeout.tv_usec = (interval_secs)
+X								? 0
+X								: ((sio[0].t_state & ISOPEN)
+X									? 20*1000L
+X									: 200*1000L);
+X		cmd_available = (select(32,&readfds,0,0,&timeout) > 0);
+X#else
+X		ltimeout = (interval_secs)
+X						? (interval_secs * 1000L)
+X						: ((sio[0].t_state & ISOPEN) ? 20L : 100L);
+X		while(ltimeout > 0)
+X		{
+X			ltimeout -= nap((interval_secs) ? 20L : 100L);
+X			if(cmd_available = rdchk(0))
+X				break;
+X		}
+X#endif
+X		if(rdchk(0))
+X		{
+X			cmd = getch();
+X			if((cmd == 0x1B) || (cmd == 'q'))
+X				break;
+X			switch(cmd)
+X			{
+X				case '+':
+X					interval_secs++;
+X					disp_interval();
+X					break;
+X
+X				case '-':
+X					if(!interval_secs)
+X						break;
+X					interval_secs--;
+X					disp_interval();
+X					break;
+X			}
+X		}
+X	}
+X}	/* end of detail */
+X
+X/*+-------------------------------------------------------------------------
+X	main(argc,argv,envp)
+X--------------------------------------------------------------------------*/
+Xmain(argc,argv,envp)
+Xint argc;
+Xchar **argv;
+Xchar **envp;
+X{
+X	register sionum;
+X	char *cptr;
+X	int cmd_available;
+X#if defined(HAVE_SELECT)
+X	struct timeval timeout;
+X	int readfds;
+X#else
+X	long ltimeout;
+X	long nap();
+X#endif
+X
+X	if((argc > 1) && !strcmp(argv[1],"-n"))
+X		no_tod = 1;
+X
+X	signal(SIGINT,bye);
+X	signal(SIGTERM,bye);
+X	uname(&me);
+X
+X	setbuf(stdout,_sobuf);
+X	my_savetty();
+X	if(!initscr())
+X	{
+X		fputs("curses init failed ... check terminal type\n",stderr);
+X		exit(1);
+X	}
+X#if defined(M_TERMINFO)
+X	typeahead(-1);
+X#endif
+X	crmode();
+X	noecho();
+X	main_template();
+X
+X	move(4,0);
+X	standout();
+X	addstr(" Reading kernel symbol table ");
+X	standend();
+X	refresh();
+X
+X	if(cptr = kmem_init_tty())
+X	{
+X		move(5,0);
+X		standout();
+X		addstr(cptr);
+X		standend();
+X		bye(0);
+X	}
+X
+X	move(4,0);
+X	clrtoeol();
+X	refresh();
+X
+X	while(1)
+X	{
+X		kmem_read_tty(0,SIO_NTTY);
+X		for(sionum = 0; sionum < SIO_NTTY; sionum++)
+X		{
+X			int yy = HY + 2 + sionum;
+X			if(yy == (LINES - 5))
+X			{
+X				move(yy,0);
+X				clrtoeol();
+X				addstr("not enough room for all ttys");
+X				break;
+X			}
+X			disp_tty(yy,sionum,&sio[sionum]);
+X		}
+X		disp_tod();
+X		move(LINES - 1,0);
+X		refresh();
+X
+X#if defined(HAVE_SELECT)
+X		readfds = 1;			/* for standard input */
+X		timeout.tv_sec  = interval_secs;
+X		timeout.tv_usec = (interval_secs) ? 0 : 100*1000L;
+X		cmd_available = (select(32,&readfds,0,0,&timeout) > 0);
+X#else
+X		ltimeout = (interval_secs) ? (interval_secs * 1000L) : 100L;
+X		while(ltimeout > 0)
+X		{
+X			ltimeout -= nap(100L);
+X			if(cmd_available = rdchk(0))
+X				break;
+X		}
+X#endif
+X
+X		if(cmd_available)
+X		{
+X		char ch;
+X			ch = getch();
+X			switch(ch & 0x7F)
+X			{
+X			case 'L' & 0x1F:		/* redraw screen */
+X			case 'R' & 0x1F:		/* redraw screen */
+X				main_template();
+X				break;
+X
+X			case '+':
+X				interval_secs++;
+X				disp_interval();
+X				break;
+X
+X			case '-':
+X				if(!interval_secs)
+X					break;
+X				interval_secs--;
+X				disp_interval();
+X				break;
+X
+X			case 'q':		/* quit */
+X			case 0x1B:
+X				bye(0);
+X				break;
+X
+X			case 'd':		/* detail */
+X				detail();
+X				main_template();
+X				refresh();
+X				break;
+X
+X			}
+X		}
+X	}
+X}	/* end of main */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of siomon.c */
+SHAR_EOF
+chmod 0644 siotools/siomon.c ||
+echo 'restore of siotools/siomon.c failed'
+Wc_c="`wc -c < 'siotools/siomon.c'`"
+test 14992 -eq "$Wc_c" ||
+	echo 'siotools/siomon.c: original size 14992, current size' "$Wc_c"
+fi
+# ============= siotools/utoa.c ==============
+if test -f 'siotools/utoa.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/utoa.c (File already exists)'
+else
+echo 'x - extracting siotools/utoa.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/utoa.c' &&
+X/* CHK=0xAD27 */
+X/*+-------------------------------------------------------------------------
+X	utoa.c - fast substitutes for most sprintf needs
+X	...!gatech!emory!tridom!wht
+X
+X  Defined functions:
+X	utoda_common(buf,width,n,leading)
+X	utooa_common(buf,width,n,leading)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:11-29-1989-03:32-wht-creation */
+X
+X#include "utoa.h"
+X
+X/*+-------------------------------------------------------------------------
+X	utoda_common(buf,width,n,leading) unsigned to decimal ascii
+X--------------------------------------------------------------------------*/
+Xvoid
+Xutoda_common(buf,width,n,leading)
+Xchar *buf;
+Xint width;
+Xunsigned n;
+Xchar leading;
+X{
+X	register unsigned div;
+X	register char *ep = &buf[width];
+X
+X	*ep = '\0';
+X	if(n == 0)
+X		*--ep = '0';
+X	while(ep-- > buf)
+X	{
+X		if(n <= 0)
+X			*ep = leading;
+X		else
+X		{
+X			div = n / 10;
+X			*ep = n - 10*div + '0';
+X			n = div;
+X		}
+X	}
+X}	/* end of utoda_common */
+X
+X/*+-------------------------------------------------------------------------
+X	utooa_common(buf,width,n,leading) unsigned to octal ascii
+X--------------------------------------------------------------------------*/
+Xvoid
+Xutooa_common(buf,width,n,leading)
+Xchar *buf;
+Xint width;
+Xunsigned n;
+Xchar leading;
+X{
+Xregister unsigned div;
+Xregister char *ep = &buf[width];
+X
+X	*ep = '\0';
+X	if(n == 0)
+X		*--ep = '0';
+X	while(ep-- > buf)
+X	{
+X		if(n <= 0)
+X			*ep = leading;
+X		else
+X		{
+X			div = n >> 3;
+X			*ep = n - (div << 3) + '0';
+X			n = div;
+X		}
+X	}
+X}	/* end of utooa_common */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of utoa.c */
+SHAR_EOF
+chmod 0644 siotools/utoa.c ||
+echo 'restore of siotools/utoa.c failed'
+Wc_c="`wc -c < 'siotools/utoa.c'`"
+test 1659 -eq "$Wc_c" ||
+	echo 'siotools/utoa.c: original size 1659, current size' "$Wc_c"
+fi
+# ============= siotools/utoa.h ==============
+if test -f 'siotools/utoa.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping siotools/utoa.h (File already exists)'
+else
+echo 'x - extracting siotools/utoa.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'siotools/utoa.h' &&
+X/* CHK=0x01CD */
+X/*+-----------------------------------------------------------------------
+X	utoa.h
+X------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:07-15-1992-14:33-wht@n4hgf-2.60 release - u386mon+siotools merge */
+X/*:12-04-1989-16:50-afterlint-creation */
+X
+X#ifndef _utoa_h
+X#define _utoa_h
+X/* unsigned to decimal ascii w/o leading spaces */
+X#define utoda(buf,width,n)  utoda_common(buf,width,n,' ')
+X
+X/* unsigned to decimal ascii w/leading zeroes */
+X#define utoda_lz(buf,width,n)  utoda_common(buf,width,n,'0')
+X
+X/* unsigned to octal ascii w/o leading spaces */
+X#define utooa(buf,width,n)  utooa_common(buf,width,n,' ')
+X
+X/* unsigned to octal ascii w/leading zeroes */
+X#define utooa_lz(buf,width,n)  utooa_common(buf,width,n,'0')
+X
+X#ifndef BUILDING_LINT_ARGS
+X#ifdef LINT_ARGS
+X
+X/* utoa.c */
+Xvoid utoda_common(char *,int ,unsigned int ,char );
+Xvoid utooa_common(char *,int ,unsigned int ,char );
+X
+X#else		/* compiler doesn't know about prototyping */
+X
+X/* utoa.c */
+Xvoid utoda_common();
+Xvoid utooa_common();
+X
+X#endif /* LINT_ARGS */
+X#endif /* BUILDING_LINT_ARGS */
+X
+X#endif /* _utoa_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of utoa.h */
+SHAR_EOF
+chmod 0644 siotools/utoa.h ||
+echo 'restore of siotools/utoa.h failed'
+Wc_c="`wc -c < 'siotools/utoa.h'`"
+test 1181 -eq "$Wc_c" ||
+	echo 'siotools/utoa.h: original size 1181, current size' "$Wc_c"
+fi
+true || echo 'restore of siotools/uusnap.c failed'
+echo End of part 8, continue with part 9
+exit 0
+
+exit 0 # Just in case...

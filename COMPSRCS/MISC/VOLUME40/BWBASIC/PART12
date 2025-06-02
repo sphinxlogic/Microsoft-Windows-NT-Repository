@@ -1,0 +1,1522 @@
+Newsgroups: comp.sources.misc
+From: tcamp@delphi.com (Ted A. Campbell)
+Subject: v40i063:  bwbasic - Bywater BASIC interpreter version 2.10, Part12/15
+Message-ID: <1993Oct29.162752.4164@sparky.sterling.com>
+X-Md4-Signature: 5055c59eb24c85e7eedc6ce14877dbbf
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 29 Oct 1993 16:27:52 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: tcamp@delphi.com (Ted A. Campbell)
+Posting-number: Volume 40, Issue 63
+Archive-name: bwbasic/part12
+Environment: UNIX, DOS
+Supersedes: bwbasic: Volume 33, Issue 37-47
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bwbasic-2.10/bwb_exp.c
+# Wrapped by kent@sparky on Thu Oct 21 10:47:51 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 15)."'
+if test -f 'bwbasic-2.10/bwb_exp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bwbasic-2.10/bwb_exp.c'\"
+else
+  echo shar: Extracting \"'bwbasic-2.10/bwb_exp.c'\" \(35984 characters\)
+  sed "s/^X//" >'bwbasic-2.10/bwb_exp.c' <<'END_OF_FILE'
+X/****************************************************************
+X
+X        bwb_exp.c       Expression Parser
+X                        for Bywater BASIC Interpreter
+X
+X                        Copyright (c) 1993, Ted A. Campbell
+X                        Bywater Software
+X
+X                        email: tcamp@delphi.com
+X
+X        Copyright and Permissions Information:
+X
+X        All U.S. and international rights are claimed by the author,
+X        Ted A. Campbell.
+X
+X	This software is released under the terms of the GNU General
+X	Public License (GPL), which is distributed with this software
+X	in the file "COPYING".  The GPL specifies the terms under
+X	which users may copy and use the software in this distribution.
+X
+X	A separate license is available for commercial distribution,
+X	for information on which you should contact the author.
+X
+X****************************************************************/
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X
+X#include "bwbasic.h"
+X#include "bwb_mes.h"
+X
+X/***************************************************************
+X
+X        FUNCTION:	bwb_exp()
+X
+X        DESCRIPTION:	This is the function by which the expression
+X			parser is called.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xstruct exp_ese *
+Xbwb_exp( char *expression, int assignment, int *position )
+X#else
+Xstruct exp_ese *
+Xbwb_exp( expression, assignment, position )
+X   char *expression;
+X   int assignment;
+X   int *position;
+X#endif
+X   {
+X   struct exp_ese *rval;			/* return value */
+X   int entry_level, main_loop, err_condition;
+X   char *e;                                     /* pointer to current string */
+X   int r;                                       /* return value from functions */
+X   register int c;                              /* quick counter */
+X#if OLD_WAY
+X   int adv_loop;
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "entered bwb_exp(): expression <%s> assignment <%d> level <%d>",
+X      & ( expression[ *position ] ), assignment, CURTASK expsc );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* save the entry level of the expression stack in order to
+X      check it at the end of this function */
+X
+X   entry_level = CURTASK expsc;
+X   err_condition = FALSE;
+X
+X   /* advance past whitespace or beginningg of line segment */
+X
+X#if MULTISEG_LINES
+X   if ( expression[ *position ] == ':' )
+X      {
+X      ++( *position );
+X      }
+X#endif
+X   adv_ws( expression, position );
+X#if MULTISEG_LINES
+X   if ( expression[ *position ] == ':' )
+X      {
+X      ++( *position );
+X      adv_ws( expression, position );
+X      }
+X#endif
+X
+X   /* increment the expression stack counter to get a new level */
+X
+X   inc_esc();
+X
+X   /* check to be sure there is a legitimate expression
+X      and set initial parameters for the main loop */
+X
+X   if ( is_eol( expression, position ) == TRUE )
+X      {
+X      main_loop = FALSE;    /* break out of loop */
+X      }
+X   else
+X      {
+X      main_loop = TRUE;
+X      CURTASK exps[ CURTASK expsc ].pos_adv = 0;
+X      }
+X
+X#if OLDWAY
+X   adv_loop = TRUE;
+X   while( adv_loop == TRUE )
+X      {
+X      switch( expression[ *position ] )
+X         {
+X         case ' ':                           /* whitespace */
+X         case '\t':
+X            ++(*position);
+X            break;
+X         case '\0':                          /* end of string */
+X         case '\r':
+X         case '\n':
+X            main_loop = adv_loop = FALSE;    /* break out of loop */
+X            break;
+X         default:
+X            adv_loop = FALSE;
+X            main_loop = TRUE;
+X            CURTASK exps[ CURTASK expsc ].pos_adv = 0;
+X            break;
+X         }
+X      }
+X#endif
+X
+X   /* main parsing loop */
+X
+X   while ( main_loop == TRUE )
+X      {
+X
+X      /* set variable <e> to the start of the expression */
+X
+X      e = &( expression[ *position ] );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_exp(): main loop, level <%d> element <%s> ",
+X         CURTASK expsc, e );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* detect the operation required at this level */
+X
+X      CURTASK exps[ CURTASK expsc ].operation = exp_findop( e );
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_exp(): exp_findop() returned <%d>",
+X         CURTASK exps[ CURTASK expsc ].operation );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* perform actions specific to the operation */
+X
+X      switch( CURTASK exps[ CURTASK expsc ].operation )
+X         {
+X         case OP_ERROR:
+X            main_loop = FALSE;
+X            err_condition = TRUE;
+X            break;
+X
+X	 case OP_TERMINATE:                /* terminate at THEN, ELSE, TO */
+X#if INTENSIVE_DEBUG
+X	    bwb_debug( "in bwb_exp(): Found OP_TERMINATE" );
+X#endif
+X         case OP_STRJOIN:                  /* string join or tab */
+X         case OP_STRTAB:
+X	    main_loop = FALSE;
+X	    err_condition = FALSE;
+X	    dec_esc();
+X	    break;
+X
+X	 case OP_ADD:                      /* in the case of any numerical operation, */
+X         case OP_SUBTRACT:
+X         case OP_MULTIPLY:
+X         case OP_DIVIDE:
+X         case OP_MODULUS:
+X         case OP_EXPONENT:
+X         case OP_INTDIVISION:
+X         case OP_GREATERTHAN:
+X         case OP_LESSTHAN:
+X         case OP_GTEQ:
+X         case OP_LTEQ:
+X         case OP_NOTEQUAL:
+X         case OP_NOT:
+X         case OP_AND:
+X         case OP_OR:
+X         case OP_XOR:
+X         case OP_IMPLIES:
+X         case OP_EQUIV:
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_exp(): operator detected." );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            CURTASK exps[ CURTASK expsc ].pos_adv = -1;             /* set to strange number */
+X
+X            /* cycle through operator table to find match */
+X
+X            for ( c = 0; c < N_OPERATORS; ++c )
+X               {
+X               if ( exp_ops[ c ].operation == CURTASK exps[ CURTASK expsc ].operation )
+X                  {
+X                  CURTASK exps[ CURTASK expsc ].pos_adv = strlen( exp_ops[ c ].symbol );
+X                  }
+X               }
+X
+X            if ( CURTASK exps[ CURTASK expsc ].pos_adv == -1 )      /* was a match found? */
+X               {
+X               CURTASK exps[ CURTASK expsc ].pos_adv = 0;           /* no -- set to 0 */
+X               }
+X            break;                         /* and move on */
+X
+X         case OP_EQUALS:
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_exp(): equal sign detected." );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            if ( assignment == TRUE )
+X               {
+X               CURTASK exps[ CURTASK expsc ].operation = OP_ASSIGN;
+X               }
+X            CURTASK exps[ CURTASK expsc ].pos_adv = 1;
+X            break;
+X
+X         case PARENTHESIS:
+X            r = exp_paren( e );
+X            break;
+X
+X	 case CONST_STRING:
+X            r = exp_strconst( e );
+X            break;
+X
+X	 case CONST_NUMERICAL:
+X            r = exp_numconst( e );
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_exp(): return from exp_numconst(), r = <%d>",
+X               r );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X            break;
+X
+X         case FUNCTION:
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_exp(): calling exp_function(), expression <%s>",
+X               e );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            r = exp_function( e );
+X            break;
+X
+X         case OP_USERFNC:
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in bwb_exp(): calling exp_ufnc(), expression <%s>",
+X               e );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X	    r = exp_ufnc( e );
+X
+X#if INTENSIVE_DEBUG
+X	    sprintf( bwb_ebuf, "in bwb_exp(): return from exp_ufnc(), buffer <%s>",
+X	       &( expression[ *position ] ) );
+X	    bwb_debug( bwb_ebuf );
+X#endif
+X
+X            break;
+X
+X         case VARIABLE:
+X            r = exp_variable( e );
+X            break;
+X
+X	 default:
+X            err_condition = TRUE;
+X            main_loop = FALSE;
+X#if PROG_ERRORS
+X            sprintf( bwb_ebuf, "in bwb_exp.c:bwb_exp(): unidentified operation (%d).",
+X               CURTASK exps[ CURTASK expsc ].operation );
+X            bwb_error( bwb_ebuf );
+X#else
+X            bwb_error( err_syntax );
+X#endif
+X            break;
+X         }
+X
+X      /* increment *position counter based on previous actions */
+X
+X      *position += CURTASK exps[ CURTASK expsc ].pos_adv;
+X      CURTASK exps[ CURTASK expsc ].pos_adv = 0;            /* reset advance counter */
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_exp(): advanced position; r <%d> err_c <%d>",
+X         r, err_condition );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X#if INTENSIVE_DEBUG
+X      if ( CURTASK exps[ CURTASK expsc ].operation == OP_EQUALS )
+X         {
+X         sprintf( bwb_ebuf, "in bwb_exp(): with OP_EQUALS: finished case" );
+X         bwb_debug( bwb_ebuf );
+X         }
+X#endif
+X
+X      /* check for end of string */
+X
+X      if ( is_eol( expression, position ) == TRUE )
+X         {
+X         main_loop = FALSE;    /* break out of loop */         
+X         }
+X
+X#if OLDWAY
+X      adv_loop = TRUE;
+X      while( adv_loop == TRUE )
+X         {
+X         switch( expression[ *position ] )
+X            {
+X            case ' ':                           /* whitespace */
+X            case '\t':
+X               ++(*position);
+X               break;
+X            case '\0':                          /* end of string */
+X            case '\r':
+X            case '\n':
+X            case ':':
+X               main_loop = adv_loop = FALSE;    /* break out of loop */
+X               break;
+X            default:
+X               adv_loop = FALSE;
+X               break;
+X            }
+X         }
+X#endif
+X
+X      /* get a new stack level before looping */
+X
+X      if ( main_loop == TRUE )
+X         {
+X         r = inc_esc();
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_exp(): increment esc, r <%d>, err_c <%d>",
+X            r, err_condition );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         }
+X
+X      /* check for error return */
+X
+X      if ( r == OP_ERROR )
+X         {
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_exp(): found r == OP_ERROR." );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         main_loop = FALSE;
+X         err_condition = TRUE;
+X         }
+X      else
+X         {
+X         r = TRUE;
+X         }
+X
+X      }                                 /* end of main parsing loop */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in bwb_exp(): breakout from main parsing loop, r <%d> err_c <%d>",
+X      r, err_condition );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* check error condition */
+X
+X   if ( err_condition == TRUE )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "error detected in expression parser" );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      /* decrement the expression stack counter until it matches entry_level */
+X
+X      while( CURTASK expsc > entry_level )
+X         {
+X         dec_esc();
+X         }
+X
+X#if PROG_ERRORS
+X      bwb_error( "in bwb_exp():  Error detected in parsing expression" );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      }
+X
+X   /* no error; normal exit from function */
+X
+X   else
+X      {
+X
+X      /* are any more operations needed? if we are still at entry level,
+X         then they are not */
+X
+X      /* try operations */
+X
+X      exp_operation( entry_level );
+X
+X      /* see what is on top of the stack */
+X
+X      if ( CURTASK expsc > ( entry_level + 1 ))
+X         {
+X         switch( CURTASK exps[ CURTASK expsc ].operation )
+X            {
+X            case OP_STRJOIN:
+X               if ( CURTASK expsc != ( entry_level + 2 ))
+X                  {
+X#if PROG_ERRORS
+X                  sprintf( bwb_ebuf, "in bwb_exp(): OP_STRJOIN in wrong position." );
+X                  bwb_error( bwb_ebuf );
+X#else
+X                  bwb_error( err_syntax );
+X#endif
+X                  }
+X               break;
+X            default:
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in bwb_exp(): incomplete expression." );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_syntax );
+X#endif
+X               break;
+X            }
+X
+X         /* decrement the expression stack counter */
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in bwb_exp(): before dec_esc type is <%c>",
+X            CURTASK exps[ CURTASK expsc ].type );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         dec_esc();
+X
+X         }
+X
+X      /* assign rvar to the variable for the current level */
+X
+X      rval = &( CURTASK exps[ CURTASK expsc ] );
+X
+X      /* decrement the expression stack counter */
+X
+X      dec_esc();
+X
+X      /* check the current level before exit */
+X
+X      if ( entry_level != CURTASK expsc )
+X         {
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in bwb_exp(): exit stack level (%d) does not match entry stack level (%d)",
+X            CURTASK expsc, entry_level );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_overflow );
+X#endif
+X         }
+X
+X      }
+X
+X   /* return a pointer to the last stack level */
+X
+X   return rval;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_findop()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			what operation is required at its stack level.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_findop( char *expression )
+X#else
+Xint
+Xexp_findop( expression )
+X   char *expression;
+X#endif
+X   {
+X   register int c;                              /* character counter */
+X   int carry_on;                                /* boolean: control while loop */
+X   int rval;                                    /* return value */
+X   char cbuf[ MAXSTRINGSIZE + 1 ];              /* capitalized expression */
+X   char nbuf[ MAXSTRINGSIZE + 1 ];              /* non-capitalized expression */
+X   int position;                                /* position in the expression */
+X   int adv_loop;                                /* control loop to build expression */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_findop(): received <%s>", expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* set return value to OP_NULL initially */
+X
+X   rval = OP_NULL;
+X
+X   /* assign local pointer to expression to begin reading */
+X
+X   position = 0;
+X
+X   /* advance to the first significant character */
+X
+X   adv_ws( expression, &position );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_findop(): expression after advance <%s>",
+X      &( expression[ position ] ) );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* we now have the first significant character and can begin parsing */
+X
+X   /* check the first character for an indication of a parenthetical
+X      expression, a string constant, or a numerical constant that begins
+X      with a digit (numerical constants beginning with a plus or minus
+X      sign or hex/octal/binary constants will have to be detected by
+X      exp_isnc() */
+X
+X   carry_on = TRUE;
+X   switch ( expression[ position ] )
+X      {
+X      case '\"':                /* this should indicate a string constant */
+X         rval = CONST_STRING;
+X         break;
+X      case '(':                 /* this will indicate a simple parenthetical expression */
+X         rval = PARENTHESIS;
+X         break;
+X
+X#if MULTISEG_LINES
+X      case ':':                 /* terminate processing */
+X#endif
+X      case ')':			/* end of argument list? */
+X         rval = OP_TERMINATE;
+X         break;
+X
+X      case '0':                 /* these will indicate a numerical constant */
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '.':
+X      case '&':                 /* designator for hex or octal constant */
+X         rval = CONST_NUMERICAL;
+X         break;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_findop(): rval pos 1 is <%d>", rval );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* String constants, numerical constants, open parentheses, and
+X      the plus and minus operators have been checked at this point;
+X      but if the return value is still OP_NULL, other possibilities
+X      must be checked, namely, other operators, function names, and
+X      variable names.  The function adv_element cannot be used here
+X      because it will stop, e.g., with certain operators and not
+X      include them in the returned element. */
+X
+X   /* get a character string to be interpreted */
+X
+X   adv_loop = TRUE;
+X   cbuf[ 0 ] = '\0';
+X   nbuf[ 0 ] = '\0';
+X   c = 0;
+X   while ( adv_loop == TRUE )
+X      {
+X
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in bwb_findop() loop position <%d> char 0x%x",
+X	 c, expression[ position ] );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X
+X      switch( expression[ position ] )
+X	 {
+X	 case ' ':              /* whitespace */
+X	 case '\t':
+X	 case '\r':             /* end of line */
+X	 case '\n':
+X	 case '\0':             /* end of string */
+X	 case '(':              /* parenthesis terminating function name */
+X	    adv_loop = FALSE;
+X	    break;
+X	 default:
+X	    nbuf[ c ] = cbuf[ c ] = expression[ position ];
+X	    ++c;
+X	    nbuf[ c ] = cbuf[ c ] = '\0';
+X	    ++position;
+X	    break;
+X	 }
+X
+X      if ( c >= MAXSTRINGSIZE )
+X	 {
+X	 adv_loop = FALSE;
+X	 }
+X
+X      }
+X   bwb_strtoupper( cbuf );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_findop(): cbuf element is <%s>", cbuf );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* check for numerical constant */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_isnc( cbuf );
+X      }
+X
+X   /* check for other operators */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_isop( cbuf );
+X      }
+X
+X   /* check for user-defined function */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_isufn( nbuf );
+X      }
+X
+X   /* check for function name */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_isfn( nbuf );
+X      }
+X
+X   /* check for a BASIC command, esp. to catch THEN or ELSE */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_iscmd( cbuf );
+X      }
+X
+X   /* last: check for variable name, and assign it if there
+X      is not already one */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      rval = exp_isvn( nbuf );
+X      }
+X
+X   /* return the value assigned (or OP_ERROR if none assigned) */
+X
+X   if ( rval == OP_NULL )
+X      {
+X      return OP_ERROR;
+X      }
+X   else
+X      {
+X      return rval;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_isnc()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			if a logical or mathematical operation is
+X			required at this point.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_isnc( char *expression )
+X#else
+Xint
+Xexp_isnc( expression )
+X   char *expression;
+X#endif
+X   {
+X
+X   switch( expression[ 0 ] )
+X      {
+X      case '0':                 /* these will indicate a numerical constant */
+X      case '1':
+X      case '2':
+X      case '3':
+X      case '4':
+X      case '5':
+X      case '6':
+X      case '7':
+X      case '8':
+X      case '9':
+X      case '&':                 /* indicator for hex or octal constant */
+X         return CONST_NUMERICAL;
+X      case '+':
+X      case '-':
+X
+X         /* if the previous stack level was a numerical value or a string,
+X            then this is certainly not one; return OP_NULL here
+X            and let the next function call to exp_isop() determine
+X            the (plus or minus) operator */
+X
+X         if (  ( CURTASK exps[ CURTASK expsc - 1 ].operation == NUMBER )
+X            || ( CURTASK exps[ CURTASK expsc - 1 ].operation == VARIABLE )
+X            || ( CURTASK exps[ CURTASK expsc - 1 ].operation == CONST_STRING ) )
+X            {
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_isnc(): previous function is a number or string" );
+X            bwb_debug( bwb_ebuf );
+X#endif
+X
+X            return OP_NULL;
+X            }
+X
+X         /* similarly, if the previous stack level was a variable
+X            with a numerical value (not a string), then this level
+X            must be an operator, not a numerical constant */
+X
+X         if ( ( CURTASK exps[ CURTASK expsc - 1 ].operation == VARIABLE )
+X            && ( CURTASK exps[ CURTASK expsc - 1 ].type != STRING ))
+X            {
+X            return OP_NULL;
+X            }
+X
+X         /* failing these tests, the argument must be a numerical
+X            constant preceded by a plus or minus sign */
+X
+X         return CONST_NUMERICAL;
+X
+X      default:
+X         return OP_NULL;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_isop()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			if a logical or mathematical operation is
+X			required at this point.
+X
+X        This function presupposes that a numerical constant with
+X        affixed plus or minus sign has been ruled out.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_isop( char *expression )
+X#else
+Xint
+Xexp_isop( expression )
+X   char *expression;
+X#endif
+X   {
+X   register int c;                              /* counter */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_isop(): expression is <%s>", expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* compare the initial characters of the string with the table
+X      of operators */
+X
+X   for ( c = 0; c < N_OPERATORS; ++c )
+X      {
+X      if ( strncmp( expression, exp_ops[ c ].symbol,
+X         (size_t) strlen( exp_ops[ c ].symbol ) ) == 0 )
+X         {
+X
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_isop(): match <%s>, number <%d>.",
+X            exp_ops[ c ].symbol, c );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         return exp_ops[ c ].operation;
+X         }
+X      }
+X
+X   /* search failed; return OP_NULL */
+X
+X   return OP_NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_iscmd()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			if a BASIC command name is present; if so,
+X			it returns OP_TERMINATE to terminate expression
+X			parsing.  This is critical, for example, in
+X			parsing a conditional following IF where THEN,
+X			ELSE, and other BASIC commands may follow.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_iscmd( char *expression )
+X#else
+Xint
+Xexp_iscmd( expression )
+X   char *expression;
+X#endif
+X   {
+X   register int n;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_iscmd(): expression received <%s>",
+X      expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   /* first check for THEN or ELSE statements */
+X
+X   if ( strcmp( expression, CMD_THEN ) == 0 )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_iscmd(): match found, <%s>",
+X	 expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return OP_TERMINATE;
+X      }
+X
+X#if STRUCT_CMDS
+X   if ( strcmp( expression, CMD_TO ) == 0 )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_iscmd(): match found, <%s>",
+X	 expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return OP_TERMINATE;
+X      }
+X#endif
+X
+X   if ( strcmp( expression, CMD_ELSE ) == 0 )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_iscmd(): match found, <%s>",
+X	 expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return OP_TERMINATE;
+X      }
+X
+X   /* run through the command table and search for a match */
+X
+X   for ( n = 0; n < COMMANDS; ++n )
+X      {
+X      if ( strcmp( expression, bwb_cmdtable[ n ].name ) == 0 )
+X         {
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_iscmd(): match found, <%s>",
+X            expression );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X         return OP_TERMINATE;
+X         }
+X#if INTENSIVE_DEBUG
+X      else
+X         {
+X         sprintf( bwb_ebuf, "in exp_iscmd(): No match, <%s> and <%s>; returns %d",
+X            expression, bwb_cmdtable[ n ].name,
+X            strcmp( expression, bwb_cmdtable[ n ].name ) );
+X         bwb_debug( bwb_ebuf );
+X         }
+X#endif
+X      }
+X
+X   /* search failed, return NULL */
+X
+X   return OP_NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   	exp_isufn()
+X
+X        DESCRIPTION:  	This function reads the expression to find
+X        		if a user-defined function name is present
+X			at this point.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_isufn( char *expression )
+X#else
+Xint
+Xexp_isufn( expression )
+X   char *expression;
+X#endif
+X   {
+X   struct fslte *f;
+X   char tbuf[ MAXVARNAMESIZE + 1 ];
+X
+X   exp_getvfname( expression, tbuf );
+X
+X   for ( f = CURTASK fslt_start.next; f != &CURTASK fslt_end; f = f->next )
+X      {
+X      if ( strcmp( f->name, tbuf ) == 0 )
+X         {
+X#if INTENSIVE_DEBUG
+X         sprintf( bwb_ebuf, "in exp_isufn(): found user function <%s>",
+X            tbuf );
+X         bwb_debug( bwb_ebuf );
+X#endif
+X
+X         /* a user function name was found: but is it the local variable
+X            name for the user function? If so, return OP_NULL and the
+X            name will be read as a variable */
+X
+X         if ( var_islocal( tbuf ) != NULL )
+X            {
+X            return OP_NULL;
+X            }
+X         else
+X            {
+X
+X#if INTENSIVE_DEBUG
+X            sprintf( bwb_ebuf, "in exp_isufn(): found function <%s> not a local variable, EXEC level <%d>",
+X               tbuf, CURTASK exsc );
+X            bwb_debug( bwb_ebuf );
+X            getchar();
+X#endif
+X
+X            return OP_USERFNC;
+X            }
+X         }
+X      }
+X
+X   return OP_NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_isfn()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			if a function name is present at this point.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_isfn( char *expression )
+X#else
+Xint
+Xexp_isfn( expression )
+X   char *expression;
+X#endif
+X   {
+X
+X   /* Block out the call to exp_getvfname() if exp_isvn() is called
+X      after exp_isfn() */
+X
+X   exp_getvfname( expression, CURTASK exps[ CURTASK expsc ].string );
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_isfn(): search for function <%s>",
+X      expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if ( fnc_find( CURTASK exps[ CURTASK expsc ].string ) == NULL )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_isfn(): failed to find function <%s>",
+X         expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return OP_NULL;
+X      }
+X   else
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_isfn(): found function <%s>",
+X         expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return FUNCTION;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_isvn()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			if a variable name at this point.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_isvn( char *expression )
+X#else
+Xint
+Xexp_isvn( expression )
+X   char *expression;
+X#endif
+X   {
+X
+X   /* Block out the call to exp_getvfname() if exp_isfn() is called
+X      after exp_isvn() */
+X
+X   /* exp_getvfname( expression, CURTASK exps[ CURTASK expsc ].string ); */
+X
+X   /* rule out null name */
+X
+X   if ( strlen( CURTASK exps[ CURTASK expsc ].string ) == 0 )
+X      {
+X      return OP_NULL;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_isvn(): search for variable <%s>",
+X      CURTASK exps[ CURTASK expsc ].string );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   if ( var_find( CURTASK exps[ CURTASK expsc ].string ) == NULL )
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_isvn(): failed to find variable <%s>",
+X         expression );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return OP_NULL;
+X      }
+X   else
+X      {
+X#if INTENSIVE_DEBUG
+X      sprintf( bwb_ebuf, "in exp_isvn(): found variable <%s>",
+X         CURTASK exps[ CURTASK expsc ].string );
+X      bwb_debug( bwb_ebuf );
+X#endif
+X      return VARIABLE;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_getvfname()
+X
+X	DESCRIPTION:    This function reads the expression to find
+X			a variable or function name at this point.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_getvfname( char *source, char *destination )
+X#else
+Xint
+Xexp_getvfname( source, destination )
+X   char *source;
+X   char *destination;
+X#endif
+X   {
+X   int s_pos, d_pos;                    /* source, destination positions */
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_getvfname(): source buffer <%s>", source );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   s_pos = d_pos = 0;
+X   destination[ 0 ] = '\0';
+X   while( source[ s_pos ] != '\0' )
+X      {
+X
+X      /* all aphabetical characters are acceptable */
+X
+X      if ( isalpha( source[ s_pos ] ) != 0 )
+X
+X         {
+X         destination[ d_pos ] = source[ s_pos ];
+X
+X         ++d_pos;
+X         ++s_pos;
+X         destination[ d_pos ] = '\0';
+X         }
+X
+X      /* numerical characters are acceptable but not in the first position */
+X
+X      else if (( isdigit( source[ s_pos ] ) != 0 ) && ( d_pos != 0 ))
+X         {
+X         destination[ d_pos ] = source[ s_pos ];
+X         ++d_pos;
+X         ++s_pos;
+X         destination[ d_pos ] = '\0';
+X         }
+X
+X      /* other characters will have to be tried on their own merits */
+X
+X      else
+X         {
+X         switch( source[ s_pos ] )
+X            {
+X
+X            case '.':                           /* tolerated non-alphabetical characters */
+X            case '_':
+X               destination[ d_pos ] = source[ s_pos ];
+X               ++d_pos;
+X               ++s_pos;
+X               destination[ d_pos ] = '\0';
+X               break;
+X
+X	    case STRING:                        /* terminating characters */
+X	    case '#':                           /* Microsoft-type double precision */
+X	    case '!':                           /* Microsoft-type single precision */
+X
+X	       destination[ d_pos ] = source[ s_pos ];
+X               ++d_pos;
+X               ++s_pos;
+X               destination[ d_pos ] = '\0';
+X
+X               return TRUE;
+X
+X            case '(':				/* begin function/sub name */
+X               return TRUE;
+X
+X            default:                            /* anything else is non-tolerated */
+X               return FALSE;
+X            }
+X         }
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_getvfname(): found name <%s>", destination );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   return TRUE;                         /* exit after coming to the end */
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_validarg()
+X
+X	DESCRIPTION:    This function reads the expression to
+X			determine whether it is a valid argument (to be
+X			read recursively by bwb_exp() and passed to a
+X			function.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xexp_validarg( char *expression )
+X#else
+Xint
+Xexp_validarg( expression )
+X   char *expression;
+X#endif
+X   {
+X   register int c;
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in exp_validarg(): expression <%s>.",
+X      expression );
+X   bwb_debug( bwb_ebuf );
+X#endif
+X
+X   c = 0;
+X   while ( TRUE )
+X      {
+X      switch( expression[ c ] )
+X         {
+X         case ' ':
+X         case '\t':
+X            ++c;
+X            break;
+X         case '\0':
+X            return FALSE;
+X         default:
+X            return TRUE;
+X         }
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X        FUNCTION:   	exp_getnval()
+X
+X	DESCRIPTION:    This function returns the numerical value
+X			contain in the expression-stack element
+X			pointed to by 'e'.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xbnumber
+Xexp_getnval( struct exp_ese *e )
+X#else
+Xbnumber
+Xexp_getnval( e )
+X   struct exp_ese *e;
+X#endif
+X   {
+X
+X   /* check for variable */
+X
+X   if ( e->operation == VARIABLE )
+X      {
+X      switch( e->type )
+X         {
+X         case NUMBER:
+X            return (* var_findnval( e->xvar, e->array_pos ));
+X         default:
+X            bwb_error( err_mismatch );
+X            return (bnumber) 0.0;
+X         }
+X      }
+X
+X   /* must be a numerical value */
+X
+X   if ( e->operation != NUMBER )
+X      {
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in exp_getnval(): operation <%d> is not a number",
+X         e->operation );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_syntax );
+X#endif
+X      return (bnumber) 0.0;
+X      }
+X
+X   /* return specific values */
+X
+X   switch( e->type )
+X      {
+X      case NUMBER:
+X         return e->nval;
+X      default:
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in exp_getnval(): type is <%c>",
+X            e->type );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return (bnumber) 0.0;
+X      }
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       exp_getsval()
+X
+X	DESCRIPTION:    This function returns a pointer to the
+X			BASIC string structure pointed to by
+X			expression-stack element 'e'.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xbstring *
+Xexp_getsval( struct exp_ese *e )
+X#else
+Xbstring *
+Xexp_getsval( e )
+X   struct exp_ese *e;
+X#endif
+X   {
+X   static bstring b;
+X#if TEST_BSTRING
+X   static int init = FALSE;
+X
+X   if ( init == FALSE )
+X      {
+X      sprintf( b.name, "<exp_getsval() bstring>" );
+X      }
+X#endif
+X
+X   b.rab = FALSE;
+X
+X   /* return based on operation type */
+X
+X   switch( e->operation )
+X      {
+X      case CONST_STRING:
+X      case OP_STRJOIN:
+X         return &( e->sval );
+X      case VARIABLE:
+X        switch( e->type )
+X            {
+X	    case STRING:
+X               return var_findsval( e->xvar, e->array_pos );
+X            case NUMBER:
+X               sprintf( bwb_ebuf, "%lf ", (double) exp_getnval( e ) );
+X               str_ctob( &b, bwb_ebuf );
+X               return &b;
+X            default:
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in exp_getsval(): type <%c> inappropriate for NUMBER",
+X                  e->type );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_syntax );
+X#endif
+X               return NULL;
+X            }
+X	 break;
+X
+X      case NUMBER:
+X        switch( e->type )
+X            {
+X	    case NUMBER:
+X               sprintf( bwb_ebuf, "%lf ", (double) exp_getnval( e ) );
+X               str_ctob( &b, bwb_ebuf );
+X               return &b;
+X            default:
+X#if PROG_ERRORS
+X               sprintf( bwb_ebuf, "in exp_getsval(): type <%c> inappropriate for NUMBER",
+X                  e->type );
+X               bwb_error( bwb_ebuf );
+X#else
+X               bwb_error( err_syntax );
+X#endif
+X               return NULL;
+X            }
+X	 break;
+X      default:
+X#if PROG_ERRORS
+X         sprintf( bwb_ebuf, "in exp_getsval(): operation <%d> inappropriate",
+X            e->operation );
+X         bwb_error( bwb_ebuf );
+X#else
+X         bwb_error( err_syntax );
+X#endif
+X         return NULL;
+X      }
+X
+X   /* this point may not be reached */
+X
+X   return NULL;
+X
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       inc_esc()
+X
+X	DESCRIPTION:    This function increments the expression
+X			stack counter.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xinc_esc( void )
+X#else
+Xint
+Xinc_esc()
+X#endif
+X   {
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( bwb_ebuf, "in inc_esc(): prev level <%d>",
+X      CURTASK expsc );
+X   bwb_debug ( bwb_ebuf );
+X#endif
+X
+X   ++CURTASK expsc;
+X   if ( CURTASK expsc >= ESTACKSIZE )
+X      {
+X      --CURTASK expsc;
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in inc_esc(): Maximum expression stack exceeded <%d>",
+X         CURTASK expsc );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_overflow );
+X#endif
+X      return OP_NULL;
+X      }
+X
+X#if INTENSIVE_DEBUG
+X   sprintf( CURTASK exps[ CURTASK expsc ].string, "New Expression Stack Level %d", CURTASK expsc );
+X#endif
+X
+X   CURTASK exps[ CURTASK expsc ].type = NUMBER;
+X   CURTASK exps[ CURTASK expsc ].operation = OP_NULL;
+X   CURTASK exps[ CURTASK expsc ].pos_adv = 0;
+X
+X   return TRUE;
+X   }
+X
+X/***************************************************************
+X
+X	FUNCTION:       dec_esc()
+X
+X	DESCRIPTION:    This function decrements the expression
+X			stack counter.
+X
+X***************************************************************/
+X
+X#if ANSI_C
+Xint
+Xdec_esc( void )
+X#else
+Xint
+Xdec_esc()
+X#endif
+X   {
+X   --CURTASK expsc;
+X   if ( CURTASK expsc < 0 )
+X      {
+X      CURTASK expsc = 0;
+X#if PROG_ERRORS
+X      sprintf( bwb_ebuf, "in dec_esc(): Expression stack counter < 0." );
+X      bwb_error( bwb_ebuf );
+X#else
+X      bwb_error( err_overflow );
+X#endif
+X      return OP_NULL;
+X      }
+X
+X   return TRUE;
+X   }
+X
+END_OF_FILE
+  if test 35984 -ne `wc -c <'bwbasic-2.10/bwb_exp.c'`; then
+    echo shar: \"'bwbasic-2.10/bwb_exp.c'\" unpacked with wrong size!
+  fi
+  # end of 'bwbasic-2.10/bwb_exp.c'
+fi
+echo shar: End of archive 12 \(of 15\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

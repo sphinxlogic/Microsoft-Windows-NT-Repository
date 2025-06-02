@@ -1,0 +1,1758 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i115:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part12/14
+Message-ID: <1992Aug24.025813.25273@sparky.imd.sterling.com>
+X-Md4-Signature: 253d0ffd87194d37a1959458621792a9
+Date: Mon, 24 Aug 1992 02:58:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 115
+Archive-name: unzip50/part12
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  AMIGA/stat.c AMIGA/utime.c ATARI/README.src.UU
+#   ATARI/unzip.prj.UU BUGS CONTRIBS MSDOS/Borland.fix MSDOS/makefile
+#   OS2/makefile.os2 Readme VMS/unzip.rnh Where envargs.c unshrink.c
+# Wrapped by kent@sparky on Sun Aug 23 21:09:36 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 12 (of 14)."'
+if test -f 'AMIGA/stat.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AMIGA/stat.c'\"
+else
+  echo shar: Extracting \"'AMIGA/stat.c'\" \(3402 characters\)
+  sed "s/^X//" >'AMIGA/stat.c' <<'END_OF_FILE'
+X/* stat.c -- for Lattice 4.01 */
+X
+X#include <exec/types.h>
+X#include <exec/exec.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X/* I can't find the defines for DirEntryType or EntryType... */
+X#define DOSDIR  (2L)
+X#define DOSFILE (-3L)   /* actually, < 0 */
+X
+X#ifndef SUCCESS
+X#define SUCCESS (-1)
+X#define FAILURE (0)
+X#endif
+X
+Xextern int stat(char *file,struct stat *buf);
+X
+Xstat(file,buf)
+Xchar *file;
+Xstruct stat *buf;
+X{
+X
+X        struct FileInfoBlock *inf;
+X        struct FileLock *lock;
+X        long ftime;
+X
+X        if( (lock = (struct FileLock *)Lock(file,SHARED_LOCK))==0 )
+X                /* file not found */
+X                return(-1);
+X
+X        if( !(inf = (struct FileInfoBlock *)AllocMem(
+X                (long)sizeof(struct FileInfoBlock),MEMF_PUBLIC|MEMF_CLEAR)) )
+X        {
+X                UnLock((BPTR)lock);
+X                return(-1);
+X        }
+X
+X        if( Examine((BPTR)lock,inf)==FAILURE )
+X        {
+X                FreeMem((char *)inf,(long)sizeof(*inf));
+X                UnLock((BPTR)lock);
+X                return(-1);
+X        }
+X
+X        /* fill in buf */
+X
+X        buf->st_dev                =
+X        buf->st_nlink        =
+X        buf->st_uid                =
+X        buf->st_gid                =
+X        buf->st_rdev        = 0;
+X        
+X        buf->st_ino                = inf->fib_DiskKey;
+X        buf->st_blocks        = inf->fib_NumBlocks;
+X        buf->st_size        = inf->fib_Size;
+X        buf->st_blksize        = 512;
+X
+X        /* now the date.  AmigaDOG has weird datestamps---
+X         *      ds_Days is the number of days since 1-1-1978;
+X         *      however, as Unix wants date since 1-1-1970...
+X         */
+X
+X        ftime =
+X                (inf->fib_Date.ds_Days * 86400 )                +
+X                (inf->fib_Date.ds_Minute * 60 )                 +
+X                (inf->fib_Date.ds_Tick / TICKS_PER_SECOND )     +
+X                (86400 * 8 * 365 )                              +
+X                (86400 * 2 );  /* two leap years, I think */
+X
+X/*  ftime += timezone;  */
+X
+X        buf->st_ctime =
+X        buf->st_atime =
+X        buf->st_mtime =
+X        buf->st_mtime = ftime;
+X
+X        switch( inf->fib_DirEntryType )
+X        {
+X        case DOSDIR:
+X                buf->st_mode = S_IFDIR;
+X                break;
+X
+X        case DOSFILE:
+X                buf->st_mode = S_IFREG;
+X                break;
+X
+X        default:
+X                buf->st_mode = S_IFDIR | S_IFREG;
+X                /* an impossible combination?? */
+X        }
+X
+X        /* lastly, throw in the protection bits */
+X
+X        if((inf->fib_Protection & FIBF_READ) == 0)
+X                buf->st_mode |= S_IREAD;
+X
+X        if((inf->fib_Protection & FIBF_WRITE) == 0)
+X                buf->st_mode |= S_IWRITE;
+X
+X        if((inf->fib_Protection & FIBF_EXECUTE) == 0)
+X                buf->st_mode |= S_IEXECUTE;
+X
+X        if((inf->fib_Protection & FIBF_DELETE) == 0)
+X                buf->st_mode |= S_IDELETE;
+X
+X        if((inf->fib_Protection & (long)FIBF_ARCHIVE))
+X                buf->st_mode |= S_IARCHIVE;
+X
+X        if((inf->fib_Protection & (long)FIBF_PURE))
+X                buf->st_mode |= S_IPURE;
+X
+X        if((inf->fib_Protection & (long)FIBF_SCRIPT))
+X                buf->st_mode |= S_ISCRIPT;
+X
+X        FreeMem((char *)inf, (long)sizeof(*inf));
+X        UnLock((BPTR)lock);
+X
+X        return(0);
+X
+X}
+END_OF_FILE
+  if test 3402 -ne `wc -c <'AMIGA/stat.c'`; then
+    echo shar: \"'AMIGA/stat.c'\" unpacked with wrong size!
+  fi
+  # end of 'AMIGA/stat.c'
+fi
+if test -f 'AMIGA/utime.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AMIGA/utime.c'\"
+else
+  echo shar: Extracting \"'AMIGA/utime.c'\" \(3993 characters\)
+  sed "s/^X//" >'AMIGA/utime.c' <<'END_OF_FILE'
+X/* utime.c */
+X
+X#include <string.h>
+X#include <time.h>
+X#include <errno.h>
+X
+X#include <exec/types.h>
+X#include <exec/memory.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X
+Xextern LONG sendpkt(struct MsgPort *,LONG,LONG[],LONG);
+X
+Xextern int _OSERR;
+X
+X#ifndef SUCCESS
+X#define SUCCESS (-1L)
+X#define FAILURE 0L
+X#endif
+X
+Xint utime(char *file, time_t timep[]);
+X
+Xint utime(file,timep)
+Xchar *file;
+Xtime_t timep[];
+X{
+X
+X    struct DateStamp date;
+X    struct MsgPort *taskport;
+X    struct FileLock *dirlock, *lock;
+X    struct FileInfoBlock *fib;
+X
+X    LONG argv[4];
+X    UBYTE *ptr;
+X    long ret;
+X
+X/*  timep[1] -= timezone;   */
+X
+X    date.ds_Days = timep[1] / 86400;
+X    date.ds_Minute = (timep[1] - (date.ds_Days * 86400))/60;
+X    date.ds_Tick = ( timep[1] - (date.ds_Days * 86400) -
+X                                (date.ds_Minute * 60)
+X                   ) * TICKS_PER_SECOND;
+X    date.ds_Days -= ((8*365+2));
+X
+X    if( !(taskport = (struct MsgPort *)DeviceProc(file)) )
+X    {
+X        errno = ESRCH;          /* no such process */
+X        _OSERR = IoErr();
+X        return(-1);
+X    }
+X
+X    if( !(lock = (struct FileLock *)Lock(file,SHARED_LOCK)) )
+X    {
+X        errno = ENOENT;         /* no such file */
+X        _OSERR = IoErr();
+X        return(-1);
+X    }
+X
+X    if( !(fib = (struct FileInfoBlock *)AllocMem(
+X        (long)sizeof(struct FileInfoBlock),MEMF_PUBLIC|MEMF_CLEAR)) )
+X    {
+X        errno = ENOMEM;         /* insufficient memory */
+X        UnLock((BPTR)lock);
+X        return(-1);
+X    }
+X
+X    if( Examine((BPTR)lock,fib)==FAILURE )
+X    {
+X        errno = EOSERR;         /* operating system error */
+X        _OSERR = IoErr();
+X        UnLock((BPTR)lock);
+X        FreeMem((char *)fib,(long)sizeof(*fib));
+X        return(-1);
+X    }
+X
+X    dirlock = (struct FileLock *)ParentDir((BPTR)lock);
+X    ptr = (UBYTE *)AllocMem(64L,MEMF_PUBLIC);
+X    strcpy((ptr+1),fib->fib_FileName);
+X    *ptr = strlen(fib->fib_FileName);
+X    FreeMem((char *)fib,(long)sizeof(*fib));
+X    UnLock((BPTR)lock);
+X
+X    /* now fill in argument array */
+X
+X    argv[0] = NULL;
+X    argv[1] = (LONG)dirlock;
+X    argv[2] = (LONG)&ptr[0] >> 2;
+X    argv[3] = (LONG)&date;
+X
+X    errno = ret = sendpkt(taskport,34L,argv,4L);
+X
+X    FreeMem(ptr,64L);
+X    UnLock((BPTR)dirlock);
+X
+X    return(0);
+X
+X} /* utime() */
+X/*  sendpkt.c
+X *  by A. Finkel, P. Lindsay, C. Sheppner
+X *  returns Res1 of the reply packet
+X */
+X/*
+X#include <exec/types.h>
+X#include <exec/memory.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X*/
+X
+XLONG sendpkt(pid,action,args,nargs)
+Xstruct MsgPort *pid;            /* process identifier (handler message port) */
+XLONG action,                    /* packet type (desired action)              */
+X     *args,                     /* a pointer to argument list                */
+X     nargs;                     /* number of arguments in list               */
+X{
+X
+X    struct MsgPort *replyport;
+X    struct StandardPacket *packet;
+X    LONG count, *pargs, res1;
+X
+X    replyport = (struct MsgPort *)CreatePort(0L,0L);
+X    if( !replyport ) return(NULL);
+X
+X    packet = (struct StandardPacket *)AllocMem(
+X            (long)sizeof(struct StandardPacket),MEMF_PUBLIC|MEMF_CLEAR);
+X    if( !packet )
+X    {
+X        DeletePort(replyport);
+X        return(NULL);
+X    }
+X
+X    packet->sp_Msg.mn_Node.ln_Name  = (char *)&(packet->sp_Pkt);
+X    packet->sp_Pkt.dp_Link          = &(packet->sp_Msg);
+X    packet->sp_Pkt.dp_Port          = replyport;
+X    packet->sp_Pkt.dp_Type          = action;
+X
+X    /* copy the args into the packet */
+X    pargs = &(packet->sp_Pkt.dp_Arg1);      /* address of 1st argument */
+X    for( count=0; count<nargs; count++ )
+X        pargs[count] = args[count];
+X
+X    PutMsg(pid,(struct Message *)packet);   /* send packet */
+X
+X    WaitPort(replyport);
+X    GetMsg(replyport);
+X
+X    res1 = packet->sp_Pkt.dp_Res1;
+X
+X    FreeMem((char *)packet,(long)sizeof(*packet));
+X    DeletePort(replyport);
+X
+X    return(res1);
+X
+X} /* sendpkt() */
+END_OF_FILE
+  if test 3993 -ne `wc -c <'AMIGA/utime.c'`; then
+    echo shar: \"'AMIGA/utime.c'\" unpacked with wrong size!
+  fi
+  # end of 'AMIGA/utime.c'
+fi
+if test -f 'ATARI/README.src.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ATARI/README.src.UU'\"
+else
+  echo shar: Extracting \"'ATARI/README.src.UU'\" \(4205 characters\)
+  sed "s/^X//" >'ATARI/README.src.UU' <<'END_OF_FILE'
+Xbegin 666 ATARI/README.src
+XM54Y:25 @-"XQ('-O=7)C92!C;V1E(&9O<B!T:&4@071A<FD@4U0-"CT]/3T]
+XM/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]#0H-"E1H92!S;W5R
+XM8V4@8V]D92!F;W(@54Y:25 @-"XQ("AO<B!L871E<BD@:7,@879A:6QA8FQE
+XM('1H<F]U9V@-"F%N;VYY;6]U<R!F=' @9G)O;3H-"@T*"7-I;71E;#(P+F%R
+XM;7DN;6EL"6UI<V,O=6YI>"]U;GII<#0Q+BH-"F]R"7=U87)C:&EV92YW=7-T
+XM;"YE9'4);6ER<F]R<R]M:7-C+W5N:7@O=6YZ:7 T,2XJ#0H-"DD@:&%V92!C
+XM;VUP:6QE9"!U;GII<"YP<F<@=VET:"!455)"3R!#(#(N,"!F;W(@=&AE($%4
+XM05))(%-4+"!P<F]B86)L>0T*=&AE(&)E<W0@0R!C;VUP:6QE<B!A=F%I;&%B
+XM;&4@9F]R('1H92!!=&%R:2!35"X-"@T*37D@;6]D:69I8V%T:6]N<R!T;R!U
+XM;GII<#H-"@T*,2D@051!4DE35"Y0050-"@DM(&%N(&%L:6=N;65N="!P<F]B
+XM;&5M(&EN('1H92!D871A("AU;GII<"YC*0T*#0H)+2!S970@)UPG(&%S('1H
+XM92!P871H(&-H87)A8W1E<B!F;W(@=&AE($%T87)I(%-4("AM87!N86UE+F,I
+XM#0H-"@DM(&%D9&ET:6]N<R!T;R!U;GII<"YH('-O('1H870@5'5R8F\@0R!F
+XM;W(@=&AE($%T87)I(%-4(&ES("!H87!P>2X-"@D@($D@=&AI;FL@22!D:61N
+XM)W0@8G)E86L@86YY=&AI9R!E;'-E+"!A="!L96%S="!T:&4@4W5N)W,@=F5R
+XM<VEO;@T*"2 @8V]M<&EL97,@:G5S="!A<R!B969O<F4N#0H)("!)(&-O;6UE
+XM;G1E9"!M87-S:79E;'D@:6X@=6YZ:7 N:"!B96-A=7-E('1H92!C;VYF:6=U
+XM<F%T:6]N#0H@(" @(" @(" @:7,@;F]T('=E;&P@=&AO=6=H="!O=70N("!4
+XM:&4@;&%S="!T:6UE($D@9V5N97)A=&5D('1H92!35 T*(" @(" @(" @('9E
+XM<G-I;VX@22!T:')E=R!O=70@86QL('1H92!M97-S+"!T:&4@<F5S=6QT(&]F
+XM('=H:6-H('=A<R!T:&%T#0H@(" @(" @(" @;7D@=F5R<VEO;B!W87-N)W0@
+XM9&ES=')I8G5T960N("!)(&AO<&4@=&AA="!W:6QL(&9I="!I;B!B971T97(-
+XM"B @(" @(" @("!T:&ES('1I;64N("!)9B!A;GEB;V1Y(&-A<F5S(&%B;W5T
+XM('1H92!C;VUM96YT<RP@:G5S="!C;&5A;B!U< T*(" @(" @(" @('1H92!C
+XM;V1E("AT;V=E=&AE<B!W:71H(&-O;6UE;G1S*2X-"@T*,BD@3U!424U)6D4N
+XM4$%4#0H)5&AI<R!P871C:"!I<R!G96YE<F%L(&%N9"!N;W0@<F5L871E9"!T
+XM;R!T:&4@071A<FD@4U0N#0H)270@<W!E961S('5P('1H92!P<F]C97-S:6YG
+XM(&)Y(&%S(&UU8V@@87,@,S E(&)Y#0H)96QI;6EN871I;F<@;6%N>2!F=6YC
+XM=&EO;B!C86QL<RP@;W!T:6UI>FEN9R!S;VUE#0H);6%C<F]S(&%N9"!U<VEN
+XM9R!A(%5,3TY'(&)I=&)U9F9E<BX@(%1H92!C;&%I;65D#0H)<&5R9F]R;6%N
+XM8V4@9V%I;B!I<R!O;B!A(%-U;BP@=7-I;F<@=6YZ:7 @+70@<V]M92UF:6QE
+XM+@T*"4D@9&ED;B=T(&UE87-U<F4@=&AE('-P965D(&]N('1H92!!=&%R:2!3
+XM5"X-"@T*,RD@4UE-3$E.2RY0050-"@E4:&ES(&%P<&QI97,@=&\@=6YI>"!S
+XM>7-T96US(&]N;'DN("!5;GII<"!D;V5S(&5X=')A8W0-"@ES>6UB;VQI8R!L
+XM:6YK<R!C;W)R96-T;'D@;F]W+@T*#0HT*2!53DE80DQ!3BY0050-"@E/;B!5
+XM;FEX('-Y<W1E;7,L(&9I;&4@;F%M97,@;6%Y(&-O;G1A:6X@8FQA;FMS+@T*
+XM"4EF('1H97D@9&\L('=H>2!N;W0@86QL;W<@=&AE;2!T;R!B92!R97-T;W)E
+XM9"!E>&%C=&QY/PT*"49O<B!A;&P@;W1H97(@<WES=&5M<R!S=&EL;"!C:&%N
+XM9V4@=&AE(&)L86YK<R!T;R G7R<N#0H-"D1U92!T;R!H:7-T;W)I8R!R96%S
+XM;VYS('1H92!O<F1E<B!T:&5S92!P871C:&5S('=E<F4@87!P;&EE9"!I<PT*
+XM(#,@+2 T("T@,2 M(#(N("!(;W=E=F5R('1H97D@9&\@;F]T(&]V97)L87 @
+XM86YD(&-A;B!T:&5R969O<F4@8F4-"F%P<&QI960@:6YD97!E;F1E;G1L>2X-
+XM"@T*22!A;2!P<F]V:61I;F<@54Y:25 N4%)'(&9O<B!T:&4@071A<FD@4U0@
+XM87,@54Y:25 T,2Y!4D,-"F9O<B!T:&]S92!W:&\@9&]N)W0@:&%V92!A;GD@
+XM=6YZ:7!P97(@>65T+@T*#0I3<&5C:6%L(&9E871U<F5S.@T*/3T]/3T]/3T]
+XM/3T]/3T]/3T-"@T*(%5N>FEP+G!R9R!U<V5S(&$@<W!E8VEA;"!V97)S:6]N
+XM(&]F('1H92!S=&%R='5P(&9I;&4@=VAI8V@@:7,@8V%P86)L90T*(&]F(')E
+XM8V]G;FEZ:6YG(&5X=&5N9&5D('!A<F%M971E<G,@82!L82!"96-K96UE>65R
+XM+TUA<FL@5VEL;&EA;7,@<VAE;&PL#0H@=7-I;F<@=&AE(")!4D=6/2(@16YV
+XM:7)O;FUE;G0@=F%R:6%B;&4N#0H-"B!!;'1H;W5G:"!T:&4@5'5R8F\@0R!C
+XM;VUP:6QE<B!I<R!Q=6ET92!G;V]D+"!T:&4@;&EB<R!A<F4@8G5G9WDA#0H@
+XM5&AE<F5F;W)E($D@8V%N;F]T(&=A<F%N=&5E('1H870@86YY('5N>FEP+G!R
+XM9R!C;VUP:6QE9"!W:71H(%1U<F)O($,-"B!W:6QL(&5V97(@<G5N('-U8V-E
+XM<W-F=6QL>2X@36EN92!S965M<R!T;R!B92!O:RXL(&)U="!)(&AA=F4@9FEX
+XM960-"B!V87)I;W5S('!R;V)L96US(&9O<B!M>2!L:6(N($5S<&5C:6%L;'D@
+XM=&AE('-T870H*2!W87,@;6%K:6YG('1R;W5B;&4N#0H-"DAO=V5V97(L(&EF
+XM('-O;65O;F4@=V%N=',@=&\@8V]M<&EL92!I="!T:&4@<V%M92!W87D@22!D
+XM:60L#0IT:&5R92!A<F4@97-S96YT:6%L;'D@,R!W87ES.@T*+2!U<VEN9R!A
+XM('-H96QL+"!A;F0@=&AE(&-O;6UA;F0@;&EN92!C;VUP:6QE<B!40T,L#0H@
+XM(&%S(&EN9&EC871E9"!B>2!T:&4@<V-R:7!T("=-04M%250G+ T*#0HM('5S
+XM:6YG('-O;64@<V]R="!O9B!M86ME(&%N9" G34%+149)3$4N4U0G#0H@(%1H
+XM:7,@86YD('1H92!P<F5V:6]U<R!C87-E(&)O=&@@<F5Q=6ER92!A;'-O("=4
+XM3$E.2RY/4%0G#0H-"BT@=7-I;F<@=&AE(&EN=&5R86-T:79E('9E<G-I;VX@
+XM)U1#)R!O9B!4=7)B;R!#(&%N9 T*("!T:&4@<W5P<&QI960@)U5.6DE0+E!2
+XM2B<N#0H-"E!L96%S92!R96%D('1H92!N;W1E(&%B;W9E(&%B;W5T('!R;V)L
+XM96US('=H:6-H(&UI9VAT(&%R:7-E#0IW:&5N('EO=2!R96-O;7!I;&4@=6YZ
+XM:7 @;VX@>6]U<B!!=&%R:2X-"@T*"0D)"0EM87)T:6Y 871L86YT:6,N8W,N
+X*=6YB+F-A#0H-"B!!
+X 
+Xend
+END_OF_FILE
+ if test 4205 -ne `wc -c <'ATARI/README.src.UU'`; then
+    echo shar: \"'ATARI/README.src.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'ATARI/README.src'\" \(3025 characters\)
+    cat ATARI/README.src.UU | uudecode
+    if test 3025 -ne `wc -c <'ATARI/README.src'`; then
+      echo shar: \"'ATARI/README.src'\" uudecoded with wrong size!
+    else
+      rm ATARI/README.src.UU
+    fi
+  fi
+  # end of 'ATARI/README.src.UU'
+fi
+if test -f 'ATARI/unzip.prj.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ATARI/unzip.prj.UU'\"
+else
+  echo shar: Extracting \"'ATARI/unzip.prj.UU'\" \(586 characters\)
+  sed "s/^X//" >'ATARI/unzip.prj.UU' <<'END_OF_FILE'
+Xbegin 666 ATARI/unzip.prj
+XM.SX^/CX^/CX@54Y:25 N4%)*#0H-"E5.6DE0+E!21PT*#0H](" @(" @(" @
+XM(" @(" @(" @.R!L:7-T(&]F(&UO9'5L97,@9F]L;&]W<RXN+@T*#0H[(%1#
+XM4U1!4E0N3R @(" @(" @(" [('-T87)T=7 @8V]D90T*35E35$%25"Y/#0I5
+XM3EI)4"Y##0I&24Q%7TE/+D,-"DU!4$Y!344N0PT*34%40T@N0PT*34E30RY#
+XM#0I53DE-4$Q/1"Y##0I53E)%1%5#12Y##0I53E-(4DE.2RY##0H-"E1#4U1$
+XM3$E"+DQ)0B @(" @(" [('-T86YD87)D(&QI8G)A<GD-"E1#15A43$E"+DQ)
+XM0B @(" @(" [(&5X=&5N9&5D(&QI8G)A<GD-"E1#5$]33$E"+DQ)0B @(" @
+XM(" [(%1/4R!L:6)R87)Y#0H-"CL^/CX^/CX^/CX^/CX^/CX^/CX^/CX^/CX^
+XI/CX^/CX^/#P\/#P\/#P\/#P\/#P\/#P\/#P\/#P\/#P\/#P\/#P\#0H^
+X 
+Xend
+END_OF_FILE
+ if test 586 -ne `wc -c <'ATARI/unzip.prj.UU'`; then
+    echo shar: \"'ATARI/unzip.prj.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'ATARI/unzip.prj'\" \(401 characters\)
+    cat ATARI/unzip.prj.UU | uudecode
+    if test 401 -ne `wc -c <'ATARI/unzip.prj'`; then
+      echo shar: \"'ATARI/unzip.prj'\" uudecoded with wrong size!
+    else
+      rm ATARI/unzip.prj.UU
+    fi
+  fi
+  # end of 'ATARI/unzip.prj.UU'
+fi
+if test -f 'BUGS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'BUGS'\"
+else
+  echo shar: Extracting \"'BUGS'\" \(3584 characters\)
+  sed "s/^X//" >'BUGS' <<'END_OF_FILE'
+XBugs (real and/or imagined):
+X---------------------------
+X
+X - Watcom C getch() broken; password echos (reported to Watcom by K.U.Rommel)
+X - VMS docs out of date
+X - Amiga port broken?
+X - VMS unzip no longer sets permissions correctly
+X - Macintosh file attributes not interpreted correctly (both unzip, zipinfo)
+X - errno declaration conflicts with several compilers' definitions:  change
+X    logic so undeclared by default?  How many systems affected?
+X - (?) add ifndef MODERN around srand, rand prototypes in crypt.c? [James
+X    Birdsall, 4/23]
+X - pkbug error:  zipfile with incorrect csize and/or ucsize--check for end of
+X    compressed (csize) data in uncompression routines:
+X      unimplod.c:    while ((!zipeof) && ((outpos + outcnt) < ucsize)) {
+X      unreduce.c:    while (((outpos + outcnt) < ucsize) && (!zipeof)) {
+X    (James Birdsall, Mark, bottom of BUGS.long)
+X - if PK signature not found, append .zip and try again without error 
+X    messages (Jean-loup, others, bottom of BUGS.long)
+X - disk full:  a few files clear some pointer; continuing beyond "Continue?"
+X    prompt, regardless of answer, kills unzip--stack too small? (doesn't seem
+X    to matter)  Bug in MSC write() function?  Subsequent write code isn't any 
+X    different from -t option, so unlikely to be bug in uncompress routines...
+X    File descriptor bad/close() failure?  (workaround:  ^C at prompt)
+X - textfile conversions on a PC system add extra CR to lines which already have
+X    CR/LF combo; other directions probably don't work, either (Mac/Unix/...):
+X    rewrite "dos2unix" and make general
+X - compressed symlinks are allowed:  revise symlink code
+X - fix "no errors detected" message for errors occurring *before* extract_or_
+X    test_files(); count errors?  differentiate between errors and warnings?
+X
+X
+XFeatures (possible and/or definite):
+X-----------------------------------
+X
+X - add -x "exclude following files" option to unzip and zipinfo
+X - make use of FILE_IO_C and similar defines to avoid including unnecessary
+X    header files in various modules (unzip.h)
+X - add "near" to global vars [Steve Salisbury, 4/21]
+X - construct CRC table dynamically? [Jean-loup, 5/12]
+X - when listing filenames, use '?' for non-printables? [Thomas Wolff, 6/1]
+X - modify to decompress input stream if part of a pipe, but continue using
+X    central directory if not (BIG job!)--extended local header capability
+X - need zipinfo target(s) in makefile.dos
+X - build in capability to check text/binary type and warn if -a (if version
+X    < 1.1 and not made on DOS--i.e., not early Info-ZIP versions)
+X - allow wildcards in zipfile name (loop through each one)
+X - test/incorporate Martin Schulz optimization patch (still useful?)
+X - add -oo option (overwrite and override):  no user queries (if bad password,
+X    skip file; if disk full, take default action; if VMS special on non-VMS,
+X    unpack anyway; etc.)
+X - add -Q[Q[Q]] option (quiet mode on comments, cautions, warnings and errors):
+X    forget -oo, or make synonym?  Default level -Q?
+X - incorporate Atari patches
+X - rewrite mapname()
+X - modify set_file_time routines to share common code (macro?)
+X - add zipinfo "in-depth" option? (check local vs. central filenames, etc.)
+X - create zipcat program to concatenate zipfiles
+X - create zipfix program to rebuild/salvage damaged zipfiles
+X - assembly-language routines?
+X - add -i (ignore case for internal filename match) option?  (maybe not)
+X - CP/M version (Jeffery Foy)
+X - VM/CMS version (Chua Kong Sian, others)
+X - put man pages in more "proper" nroff format
+X - add OS/2 .INF format helpfiles for UnZip and ZipInfo
+X
+END_OF_FILE
+  if test 3584 -ne `wc -c <'BUGS'`; then
+    echo shar: \"'BUGS'\" unpacked with wrong size!
+  fi
+  # end of 'BUGS'
+fi
+if test -f 'CONTRIBS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CONTRIBS'\"
+else
+  echo shar: Extracting \"'CONTRIBS'\" \(3583 characters\)
+  sed "s/^X//" >'CONTRIBS' <<'END_OF_FILE'
+XThis is a partial list of contributors to Info-ZIP UnZip and the code upon
+Xwhich it is based.  Many, many others have also contributed, and if you are
+Xamong them, please let us know.  Aside from the Info-ZIP digest archives,
+Xwe have not kept very good track of who contributed what.  Also, contributors
+Xto the makefile are listed at the bottom of Makefile.
+X
+X  Mark Adler             decryption, inflate, explode, funzip code; misc. casts
+X  Glenn Andrews          MSDOS makefiles; prototyping bugfix
+X  Joel Aycock            descrip.mms bugfix
+X  Allan Bjorklund        in misc.c
+X  James Birdsall         extract.c bugfix; etc.
+X  Wim Bonner             OS/2 stuff
+X  John Cowan             mods to original match.c; other stuff?
+X  Frank da Cruz          xxu.c, on which mapname.c is based
+X  Bill Davidsen          -q(q); mapname stuff; memset/memcpy(?); etc.
+X  Arjan de Vet           various things, but I don't remember exactly what...
+X  James Dugal            ZMEM stuff; unshrink bugfix; file perms stuff; etc.
+X  Jim Dumser             -z stuff; umask bugfixes; etc.
+X  Mark Edwards           in mapname.c, misc.c
+X  David Feinleib         Windows NT port
+X  Mike Freeman           VMS GCC makefiles; etc.
+X  Jean-loup Gailly       decryption code; much prodding to fix bugs :-)
+X  Hunter Goatley         VMS RUNOFF source (documentation)
+X  Robert Heath           original Windows port
+X  Dave Heiland           new usage screen [, new documentation...?]
+X  Larry Jones            ZMEM stuff; unimplod bugfix; etc.
+X  Kjetil J{\o}rgenson    ln/copy misc_.c bugfix
+X  Bob Kemp               NOTINT16 rewrite (byte arrays instead of structs)
+X  J. Kercheval           filmatch.c, on which match.c is based
+X  David Kirschbaum       mapname port; general-purpose meddling; Python jokes
+X  Alvin Koh              Borland C++ bugfixes
+X  Bo Kullmar             -z code; bugfixes: umask, do_string, BSD time; etc.
+X  Johnny Lee             Macintosh port; Mac resource fork stuff; Win3.1 port
+X  Warner Losh            in misc.c
+X  Igor Mandrichenko      vms.c; many improvements and VMS modifications
+X  Fulvio Marino          revised UnZip and ZipInfo man pages
+X  Carl Mascott           original Unix port
+X  Gene McManus           -o code
+X  Joe Meadows            file.c, on which VMSmunch.c is based
+X  Mike O'Carroll         OS/2 stuff
+X  Humberto Ortiz-Zuazaga Linux port; permissions bugfix; missing declarations
+X  Keith Petersen         former Info-ZIP list maintainer
+X  Piet W. Plomp          nice fix for msc_dos Makefile target
+X  Antonio Querubin, Jr   descrip.mms (VMS makefile)
+X  Greg Roelofs           central directory code; ZipInfo; original VMS port;...
+X  Kai Uwe Rommel         much OS/2 code; bugfixes; etc.
+X  Steve Salisbury        CountryInfo bugfix; variable INBUFSIZ
+X  Georg Sassen           Amiga DICE compiler port
+X  Jon Saxton             date formats
+X  Hugh Schmidt           VMS stuff
+X  Martin Schulz          Atari patches
+X  Charles Scripter       various bug reports and bugfixes
+X  Chris Seaman           Unix time stuff
+X  Richard Seay           MS-DOS Quick C makefile
+X  Alex Sergejew          file_io.c bugfix; stat() bugfix; Down Under jokes
+X  Samuel H. Smith        original unzip code (Pascal and C) for PC
+X  Cliff Stanford         file_io.c umask bug
+X  Onno van der Linden    SCO optimization bugfix; etc.
+X  Jim Van Zandt          one of original man pages
+X  Antoine Verheijen      MTS/EBCDIC stuff; FILENAME_MAX stuff; Mac fixes; etc.
+X  Rich Wales             current Info-ZIP moderator and zip guy
+X  Paul Wells             original Amiga port for SAS/C and Lattice C (?)
+END_OF_FILE
+  if test 3583 -ne `wc -c <'CONTRIBS'`; then
+    echo shar: \"'CONTRIBS'\" unpacked with wrong size!
+  fi
+  # end of 'CONTRIBS'
+fi
+if test -f 'MSDOS/Borland.fix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/Borland.fix'\"
+else
+  echo shar: Extracting \"'MSDOS/Borland.fix'\" \(3818 characters\)
+  sed "s/^X//" >'MSDOS/Borland.fix' <<'END_OF_FILE'
+XNotes on patching Borland (binary) executables so they'll understand Unix-
+Xstyle, LF-delimited ASCII files (from Onno van der Linden, c/o Frank van
+Xder Linden, vdlinden@fwi.uva.nl).
+X
+X
+X1. The CPP used by TC 2.0 can't handle unix-style (LF-terminated) lines.
+X   The CPP used by BC++ 2.0 can.
+X   The CPP used by BC++ 3.0 can't handle #if statements with unix-style lines.
+X   Fixes for both these problems below (GRR:  offset, new byte, old byte).
+X
+X     Comparing files \TC\CPP.EXE and \TC\CPP.OLD
+X     00004F25: 0D 0A
+X     00005E3D: 0D 0A
+X     00007916: 0D 0A
+X     000079D6: 0D 0A
+X     00007AC1: 0A 0D
+X     0000D8EE: EC F7
+X     0000D8F1: F7 EC
+X     0000D9EE: EC F7
+X     0000D9F1: F7 EC
+X     0000DC80: 0A 0D
+X     0000DC90: 0A 0D
+X
+X     Comparing files \BORLANDC\BIN\CPP.EXE and \BORLANDC\BIN\CPP.OLD
+X     0001D150: 89 75
+X     0001D151: 36 08
+X     0001D152: 30 89
+X     0001D153: 23 36
+X     0001D154: 75 30
+X     0001D155: 04 23
+X     0001D288: 9A 89
+X     0001D289: FF 36
+X     0001D28A: FF 30
+X     0001D28B: 00 23
+X     0001D28C: 00 9A
+X     0001D28E: 0E FF
+X     0001D28F: 30 00
+X     0001D290: 23 00
+X     0001E5A7: 89 8D
+X
+X
+X2. The compilers (tcc 2.0 and bcc 3.0) are both one-pass compilers; i.e.,
+X   cpp.exe isn't used when compiling with tcc or bcc.  The earlier statements
+X   about both cpp's are the same for the builtin preprocesser in the compilers.
+X   To fix the unix-style line stuff for the compilers, apply the fixes below.
+X   I do have something called bpatch.c which reads in the output of fc /b and
+X   changes the executable.  If anyone is too lazy to write it himself, just
+X   send out a mail.
+X
+X     Comparing files TCC.EXE and TCC.OLD
+X     00005E06: BF 88
+X     00005E07: 02 01
+X     00005E0C: 88 BF
+X     00005E0D: 01 02
+X     00006E7C: 0A 0D
+X     00011FF9: 0A 0D
+X     00012059: 0A 0D
+X     00017E6C: 0A 0D
+X     00018181: 0A 0D
+X     000181F6: 0A 0D
+X     00018AC1: 0A 0D
+X     00018B27: 0D 0A
+X     00018BBE: 0A 0D
+X     00018C12: 0A 0D
+X     00018C6A: 0A 0D
+X     0001948A: 0A 0D
+X     000194B7: 0D 0A
+X     00019507: 0A 0D
+X     0001C093: 0A 0D
+X     0001C495: 3C 89
+X     0001C496: 0D 46
+X     0001C497: 74 FC
+X     0001C498: DF 3D
+X     0001C499: FF 0D
+X     0001C49A: 0E 00
+X     0001C49B: 34 75
+X     0001C49C: 50 03
+X     0001C49D: 3C E9
+X     0001C49E: 0A F6
+X     0001C49F: 75 FB
+X     0001C4A0: 03 FF
+X     0001C4A1: E9 0E
+X     0001C4A2: F2 34
+X     0001C4A3: FB 50
+X     0001C4D0: 0A 0D
+X     0001CFA7: 0A 0D
+X     0001CFBA: 0D 0A
+X     0001D007: 0A 0D
+X     0002A13C: 0A 0D
+X     0002A14C: 0A 0D
+X     0002A2B6: EC F7
+X     0002A2B9: F7 EC
+X     0002A3B6: EC F7
+X     0002A3B9: F7 EC
+X     0002A4B6: EC F7
+X     0002A4B9: F7 EC
+X     0002BDC3: 20 21
+X     0002BDC6: 21 20
+X     
+X     Comparing files BCC.EXE and BCC.OLD
+X     0002B877: 89 75
+X     0002B878: 36 08
+X     0002B879: 5C 89
+X     0002B87A: 5F 36
+X     0002B87B: 75 5C
+X     0002B87C: 04 5F
+X     0002B9AF: 0E 89
+X     0002B9B0: E8 36
+X     0002B9B1: 56 5C
+X     0002B9B2: DC 5F
+X     0002B9B3: FF 90
+X     0002B9B5: 5C E8
+X     0002B9B6: 5F 51
+X     0002B9B7: 90 DC
+X     
+X   Just an addition: the first one was for the cpp.exe's, the recent one is for
+X   the compilers (bcc.exe, tcc.exe).  The first one is a bit redundant because
+X   cpp.exe is hardly ever used.  See it as an attempt to make things complete.
+X
+X
+X3. For those of you who are using NDMAKE45 under MSDOS:
+X   version 4.5 predefines the macro's MAKE and MFLAGS as readonly's.
+X   So there was no way you could use $(MAKE) with ndmake45.
+X   Here are the fc /b's that make things work:
+X
+X     Comparing files MAKE45.EXE and MAKE45.OLD
+X     000019C0: 00 03   # MFLAG
+X     000019DC: 00 03   # MAKE
+X     00007BEA: 0A 7E   # output of make -p
+X     00007BEB: 00 0A   #
+X
+X     Comparing files MAKE45L.EXE and MAKE45L.OLD
+X     0000277E: 00 03   # MFLAG
+X     0000279D: 00 03   # MAKE
+X     0000A6A8: 0A 7E   # output of make -p
+X     0000A6A9: 00 0A
+X
+END_OF_FILE
+  if test 3818 -ne `wc -c <'MSDOS/Borland.fix'`; then
+    echo shar: \"'MSDOS/Borland.fix'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS/Borland.fix'
+fi
+if test -f 'MSDOS/makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/makefile'\"
+else
+  echo shar: Extracting \"'MSDOS/makefile'\" \(3196 characters\)
+  sed "s/^X//" >'MSDOS/makefile' <<'END_OF_FILE'
+X#------------------------------------------------------------------------------
+X# Makefile for UnZip 5.x and ZipInfo 1.x                Greg Roelofs and others
+X# Version:  Microsoft C 5.x / Turbo C                              24 June 1992
+X#------------------------------------------------------------------------------
+X
+X# Comment/uncomment appropriate sections for your compiler.  Users of MSC 6
+X# and NMAKE should use the main Makefile, targets msc_dos and zi_dos.
+X#
+X# Latest revisions:  26 June 1992
+X
+X
+X#####################
+X# MACRO DEFINITIONS #
+X#####################
+X
+XCRYPTF =
+XCRYPTO =
+X# Uncomment the following two lines for decryption version:
+X#CRYPTF = -DCRYPT
+X#CRYPTO = crypt.obj
+X
+XSTRIP=rem
+X#    If you don't have lzexe, get it. Then define:
+X#STRIP=lzexe
+X#    and remove /e from LDFLAGS
+X#    This makes a big difference in .exe size (and possibly load time).
+X
+X
+X# MSC for MS-DOS:
+X# --------------
+XCC = cl
+XCFLAGS = -AS -Oait -Gs -G2 $(CRYPTF)   # add -G2 and/or -FPi87 for 80286/80x87
+XINCL =                                 # (-Ox does not work for inflate.c)
+XLD = link
+XLDFLAGS = /NOI/e/st:0x1000
+X# remove /e in above line if you have lzexe
+XLDFLAGS2 = ,$*;
+X
+X# Turbo C 2.0 for MS-DOS:
+X# ----------------------
+X## tcc is usually configured with -I and -L set appropriately...
+X#CC = tcc
+X#CFLAGS = -ms -O -Z $(CRYPTF)           # add -1 for 80286 instructions
+X#INCL = #-Ic:\turboc\include
+X#LD = tcc
+X#LDFLAGS = -ms #-Lc:\turboc\lib
+X#LDFLAGS2 =
+X
+X
+XOBJS1 = unzip.obj $(CRYPTO) envargs.obj explode.obj extract.obj file_io.obj
+XOBJS2 = inflate.obj mapname.obj match.obj misc.obj unreduce.obj unshrink.obj
+X
+XZI_OBJS = zipinfo.obj envargs.obj match.obj misc_.obj
+X
+X
+X###############################################
+X# BASIC COMPILE INSTRUCTIONS AND DEPENDENCIES #
+X###############################################
+X
+Xdefault:        unzip.exe zipinfo.exe
+X
+X.c.obj:
+X        $(CC) -c $(CFLAGS) $(INCL) $*.c
+X
+Xunzip.obj:      unzip.c unzip.h
+X
+Xcrypt.obj:      crypt.c unzip.h zip.h	# may or may not be in distribution
+X
+Xenvargs.obj:    envargs.c unzip.h
+X
+Xexplode.obj:    explode.c unzip.h
+X
+Xextract.obj:    extract.c unzip.h
+X
+Xfile_io.obj:    file_io.c unzip.h
+X
+Xinflate.obj:    inflate.c unzip.h
+X
+Xmapname.obj:    mapname.c unzip.h
+X
+Xmatch.obj:      match.c unzip.h
+X
+Xmisc.obj:       misc.c unzip.h
+X
+Xmisc_.obj:      misc.c unzip.h
+X	copy misc.c misc_.c
+X        $(CC) -c $(CFLAGS) -DZIPINFO $(INCL) misc_.c
+X	del misc_.c
+X
+Xunreduce.obj:   unreduce.c unzip.h
+X
+Xunshrink.obj:   unshrink.c unzip.h
+X
+X
+X
+X# DOS/MS make:
+X# -----------
+Xunzip.exe:      $(OBJS1) $(OBJS2)
+X	echo $(OBJS1)+ > unzip.rsp
+X	echo $(OBJS2); >> unzip.rsp
+X	$(LD) $(LDFLAGS) @unzip.rsp
+X	del unzip.rsp
+X	$(STRIP) unzip.exe
+X
+X# DOS/Borland tmake:  (not tested:  may need to use tlink instead)
+X# -----------------
+X#unzip.exe:     $(OBJS1) $(OBJS2)
+X#	$(LD) $(LDFLAGS) @&&|
+X#$(OBJS1)+
+X#$(OBJS2)
+X#|
+X#	$(STRIP) unzip.exe
+X
+X# DOS/better makes which know how to deal with 128 char limit on command line:
+X# ---------------------------------------------------------------------------
+X#unzip.exe:     $(OBJS)
+X#	$(LD) $(LDFLAGS) $(OBJS) $(LDFLAGS2)
+X
+X
+X
+X# Both makes:  (not tested)
+X# ----------
+Xzipinfo.exe:    $(ZI_OBJS)
+X	$(LD) $(LDFLAGS) $(ZI_OBJS) $(LDFLAGS2)
+X	$(STRIP) zipinfo.exe
+END_OF_FILE
+  if test 3196 -ne `wc -c <'MSDOS/makefile'`; then
+    echo shar: \"'MSDOS/makefile'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS/makefile'
+fi
+if test -f 'OS2/makefile.os2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OS2/makefile.os2'\"
+else
+  echo shar: Extracting \"'OS2/makefile.os2'\" \(3611 characters\)
+  sed "s/^X//" >'OS2/makefile.os2' <<'END_OF_FILE'
+X# Makefile for UnZip, ZipInfo and Ship                       12 August 1992
+X#
+X# - for Microsoft C 6.00 under OS/2 1.x (16-bit)
+X# - for IBM C Set/2 under OS/2 2.0 (32-bit)
+X# - for Watcom C/386 9.0 under OS/2 2.0 (32-bit)
+X# - for GNU gcc (emx kit) under OS/2 2.0 (32-bit)
+X
+X# To use, enter "{d,n}make -f makefile.os2" (this makefile depends on its
+X# name being "makefile.os2").
+X
+X# Notes on Microsoft C 6.00 compilation:
+X#   The resulting programs can be used under OS/2 1.x or 2.x
+X#   protected mode only, not under DOS.  A larger stack has to
+X#   be used for OS/2 because system calls use more stack than
+X#   under DOS; 8k is recommended by Microsoft.
+X
+X# Notes on IBM C Set/2, Watcom C/386 or gcc compilation:
+X#   The resulting programs can be used under OS/2 protected
+X#   mode of OS/2 2.0 only, not under 1.x and not under DOS.
+X
+XCRYPTF =
+XCRYPTO =
+X# *** For decryption version, remove the # at the front of next 2 lines ***
+X# CRYPTF = -DCRYPT
+X# CRYPTO = crypt$(OBJ)
+X
+Xdefault:
+X	@echo Enter "$(MAKE) -f makefile.os2 msc"
+X	@echo    or "$(MAKE) -f makefile.os2 ibm"
+X	@echo    or "$(MAKE) -f makefile.os2 watcom"
+X	@echo    or "$(MAKE) -f makefile.os2 gcc"
+X
+Xmscdos:
+X	$(MAKE) -f makefile.os2 unzips \
+X	CC="cl -nologo -AC -Oaict -Gs" \
+X	CFLAGS="-Zp1 $(CRYPTF)" \
+X	LDFLAGS="-Lr -F 1000 -Fe" \
+X	LDFLAGS2="" \
+X	OUT="-Fo" \
+X	OBJ=".obj" \
+X	OBJO=""
+X
+Xmsc:
+X	$(MAKE) -f makefile.os2 unzips \
+X	CC="cl -nologo -AC -Ocegit -Gs" \
+X	CFLAGS="-G2 -Zp1 $(CRYPTF) -DOS2 -DMSC" \
+X	LDFLAGS="-Lp -F 2000 -Fe" \
+X	LDFLAGS2="" \
+X	OUT="-Fo" \
+X	OBJ=".obj" \
+X	DEF=unzip.def DEFI=zipinfo.def DEFS=ship.def
+X
+Xibm:
+X	$(MAKE) -f makefile.os2 unzips \
+X	CC="icc -Q -O -Gs" \
+X	CFLAGS="-Sm -Sp1 $(CRYPTF) -DOS2" \
+X	LDFLAGS="-B/ST:131072 -Fe" \
+X	LDFLAGS2="" \
+X	OUT="-Fo" \
+X	OBJ=".obj" \
+X	DEF=unzip.def DEFI=zipinfo.def DEFS=ship.def
+X
+Xwatcom:
+X	$(MAKE) -f makefile.os2 unzips \
+X	CC="wcl386 -zq -Ox -s" \
+X	CFLAGS="-Zp1 $(CRYPTF) -DOS2" \
+X	LDFLAGS="-k131072 -x -Fe=" \
+X	LDFLAGS2="" \
+X	OUT="-Fo" \
+X	OBJ=".obj"
+X
+Xgcc:
+X	$(MAKE) -f makefile.os2 unzips \
+X	CC="gcc -O -s" \
+X	CFLAGS="$(CRYPTF) -DOS2 -Uunix" \
+X	LDFLAGS="-o " \
+X	LDFLAGS2="-los2" \
+X	OUT="-o" \
+X	OBJ=".o"
+X
+X# variables
+XOBJ1 = unzip$(OBJ) envargs$(OBJ) extract$(OBJ) misc$(OBJ) $(CRYPTO)
+XOBJ2 = file_io$(OBJ) mapname$(OBJ) match$(OBJ)
+XOBJ3 = inflate$(OBJ) explode$(OBJ) unreduce$(OBJ) unshrink$(OBJ)
+XOBJO = os2unzip$(OBJ)
+XOBJI = zipinfo$(OBJ) envargs$(OBJ) match$(OBJ) misc_$(OBJ) os2zinfo$(OBJ)
+X
+Xunzips:	unzip.exe zipinfo.exe
+X
+Xcrypt$(OBJ):	crypt.c unzip.h zip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xenvargs$(OBJ):	envargs.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xexplode$(OBJ):	explode.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xextract$(OBJ):	extract.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xfile_io$(OBJ):	file_io.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xinflate$(OBJ):	inflate.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xmapname$(OBJ):	mapname.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xmatch$(OBJ):	match.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xmisc$(OBJ):	misc.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xmisc_$(OBJ):	misc.c unzip.h
+X	$(CC) -c $(CFLAGS) -DZIPINFO $(OUT)$@ misc.c
+X
+Xos2unzip$(OBJ): os2unzip.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xos2zinfo$(OBJ):	os2unzip.c unzip.h
+X	$(CC) -c $(CFLAGS) -DZIPINFO $(OUT)$@ os2unzip.c
+X
+Xunreduce$(OBJ):	unreduce.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xunshrink$(OBJ):	unshrink.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xunzip$(OBJ):	unzip.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xzipinfo$(OBJ):	zipinfo.c unzip.h
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xunzip.exe: $(OBJ1) $(OBJ2) $(OBJ3) $(OBJO) $(DEF)
+X	$(CC) $(LDFLAGS)$@ $(DEF) $(OBJ1) $(OBJ2) $(OBJ3) $(OBJO) $(LDFLAGS2)
+X
+Xzipinfo.exe: $(OBJI) $(DEFI)
+X	$(CC) $(LDFLAGS)$@ $(DEFI) $(OBJI) $(LDFLAGS2)
+END_OF_FILE
+  if test 3611 -ne `wc -c <'OS2/makefile.os2'`; then
+    echo shar: \"'OS2/makefile.os2'\" unpacked with wrong size!
+  fi
+  # end of 'OS2/makefile.os2'
+fi
+if test -f 'Readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Readme'\"
+else
+  echo shar: Extracting \"'Readme'\" \(4033 characters\)
+  sed "s/^X//" >'Readme' <<'END_OF_FILE'
+XFile Readme for:
+X
+Xunzip50.zip	generic Unix/VMS/OS2/MSDOS/Mac/Windows[/Amiga/Atari] UnZip 5.0
+Xunzip50.zoo	same as above, but ZOO format
+Xunzip50.tar.Z	same as above, but compressed tar format
+X
+XA public distribution version of the Info-ZIP project's generic UnZip
+Xutility; 21 August 1992.
+X
+X__________________________________________________________________________
+X
+XBEFORE YOU ASK:  UnZip, its companion utility Zip, and related utilities
+Xand support files can be found in many places; read the file "Where" for
+Xfurther details.  To contact the authors with suggestions, bug reports, or
+Xfixes, continue reading this file (Readme) and the file "ZipRules".  For
+Xa list of known bugs and possible future features, read "BUGS".  And for a
+Xcommented listing of the files included in the source distribution, read
+X"Contents" in said distribution.
+X
+XALSO NOTE:  Info-ZIP's mailing addresses and ftp site will be changing
+Xwithin the next month.  The current e-mail addresses should hold for a
+Xwhile via mail-forwarding, but watch for the new addresses in our next
+Xrelease.
+X__________________________________________________________________________
+X
+X
+XThis version of UnZip has been ported to a wide array of Unix and other
+Xmainframes, minis, and micros (including VMS, OS/2, Minix, MSDOS, Windows,
+XAmiga (not tested recently), and Macintosh).  Although highly compatible 
+Xwith PKware's PKZIP and PKUNZIP utilities of MSDOS fame, our primary ob-
+Xjective has been one of portability and other-than-MSDOS functionality.  
+XFeatures not found in the PKWare version include default extraction of 
+Xdirectory trees (with a switch to defeat this, rather than the other way 
+Xaround); VMS, Macintosh and OS/2 extended file attributes; and, of course, 
+Xthe ability to run under most of your favorite operating systems.
+X
+XSee the main Contents file for a list of what's included.  The individual
+XOS Contents files (e.g., VMS/Contents) may list important compilation info
+Xin addition to explaining what files are what, so be sure to read them if
+Xyou're not compiling under Unix.
+X
+XNew features in this version include support for deflation (the new, high-
+Xperformance compression method introduced in the PKZIP 1.93 alpha); much
+Xfaster decompression; relaxed copyright restrictions, due to rewritten
+Xcode (see COPYING for details); multiple password guessing, for encrypted
+Xzipfiles; support for options stored in an environment variable, to change
+Xthe default behavior; and a new Unix filter version of UnZip called FUnZip.
+XMany bugs were fixed as well.  The History file details the changes, and 
+XBUGS indicates the ones we haven't nailed just yet. :-)
+X
+XSee unzip.1 or unzip.man for usage (or zipinfo.1/zipinfo.man for ZipInfo
+Xusage, or funzip.1/funzip.man--do you sense a pattern here?--for FUnZip
+Xusage).  Unfortunately the VMS versions of these documents are out of date
+Xnow; we hope to correct this soon.
+X
+XAll bug reports and patches (context diffs only, please!) should go to 
+Xzip-bugs@cs.ucla.edu, and suggestions for new features can be sent to 
+Xinfo-zip@cs.ucla.edu (although we don't promise to use all suggestions).
+XIf it's something which is manifestly useful, sending the required patches 
+Xto zip-bugs directly is likely to produce a quicker response than asking 
+Xus to do it.  Those directly responsible for updating the code are somewhat
+Xshort on time these days.  If you're considering a port, however, please 
+Xcheck in with Info-ZIP FIRST, since the code is constantly being updated 
+Xbehind the scenes.  We'll arrange to send you the latest source.  The 
+Xalternative is the possibility that your hard work will be tucked away in 
+Xa sub-archive and pretty much ignored.
+X
+XIf you'd like to keep up to date with our UnZip (and companion Zip utility)
+Xdevelopment, join the ranks of BETA testers, add your own thoughts and con-
+Xtributions, etc., send your request to Info-ZIP-Request@cs.ucla.edu and 
+XRich Wales will add you to the Info-ZIP newsletter mailing list.
+X
+XGreg Roelofs (Cave Newt), UnZip maintainer,
+Xwith inspiration from David Kirschbaum
+END_OF_FILE
+  if test 4033 -ne `wc -c <'Readme'`; then
+    echo shar: \"'Readme'\" unpacked with wrong size!
+  fi
+  # end of 'Readme'
+fi
+if test -f 'VMS/unzip.rnh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/unzip.rnh'\"
+else
+  echo shar: Extracting \"'VMS/unzip.rnh'\" \(4796 characters\)
+  sed "s/^X//" >'VMS/unzip.rnh' <<'END_OF_FILE'
+X.!
+X.!  File:	UNZIP.RNH
+X.!
+X.!  Author:	Hunter Goatley
+X.!
+X.!  Date:	October 23, 1991
+X.!
+X.!  Description:
+X.!
+X.!	RUNOFF source file for portable UNZIP on-line help for VMS.
+X.!	Adapted from UNZIP.MAN, distributed with UNZIP.
+X.!
+X.!	To build:	$ RUNOFF UNZIP.RNH
+X.!			$ LIBR/HELP/INSERT libr UNZIP
+X.!
+X.!  Modification history:
+X.!
+X.!	01-001		Hunter Goatley		23-OCT-1991 09:21
+X.!		Genesis.
+X.!	01-002		Cave Newt		16-MAR-1992 22:37
+X.!		Update for UnZip 4.2.
+X.!	01-003		Igor Mandrichenko	23-MAY-1992 22:14
+X.!		Add -X option to command syntax.
+X.!	01-004		Cave Newt		24-MAY-1992 13:30
+X.!		Add UNZIP_OPTS environment variable help.
+X.!
+X.noflags
+X.lm4 .rm72
+X.indent -4
+X1 UNZIP
+X.br
+XUnZip is used to extract files compressed and packaged by Zip (see HELP ZIP
+Xfor information on ZIP).
+X.sk
+XFor a brief help on Zip and Unzip, run each without specifying any
+Xparameters on the command line.
+X.sk
+XUNZIP will list, test, or extract from a ZIP archive.  ZIP archives are commonly
+Xfound on MS-DOS systems; a VMS version of ZIP can also be found here.
+X.sk
+XArchive member extraction is implied by the absence of the -c, -p, -t, -l, -v or
+X-z options.  All archive members are processed unless a filespec is provided to
+Xspecify a subset of the archive members.  The filespec is similar to an egrep
+Xexpression, and may contain:
+X.sk
+X.literal
+X     *       matches a sequence of 0 or more characters
+X     ?       matches exactly 1 character
+X     \nnn    matches the character having octal code nnn
+X     [...]   matches any single character found inside the brackets;
+X             ranges are specified by a beginning character,
+X             a hyphen, and an ending character.  If a '!' follows
+X             the left bracket, then the range of characters
+X             matched is complemented with respect to the ASCII
+X             character set.
+X.end literal
+X.sk
+XFormat:
+X.sk;.lm+1;.literal
+XUNZIP [-cflptuvxz[ajnoqUVX]] file[.zip] [filespec...]
+X.end literal;.lm-1
+X.!------------------------------------------------------------------------------
+X.indent -4
+X2 Parameters
+X.sk;.indent -4
+Xfile[.zip]
+X.sk
+XFile specification for the ZIP archive.  The suffix .ZIP is applied if the
+Xspecified file does not exist.  Note that self-extracting ZIP files are
+Xsupported; just specify the .EXE suffix yourself.
+X.sk;.indent -4
+X[filespec]
+X.sk
+XAn optional list of archive members to be processed.  Expressions may be
+Xused to match multiple members.  Expressions should be enclosed in double-quotes
+Xto prevent interpretation by DCL.  Multiple filenames should be separated by
+Xblanks.
+X.!------------------------------------------------------------------------------
+X.indent -4
+X2 Options
+X.br
+XThe default action of UnZip is to extract all zipfile entries.  The following
+Xoptions and modifiers can be provided:
+X.sk;.literal
+X   -c   extract files to SYS$OUTPUT (terminal)
+X   -f   freshen existing files (replace if newer); create none
+X   -l   list archive files (short format)
+X   -p   extract files to SYS$OUTPUT; no informational messages
+X   -t   test archive files
+X   -u   update existing files; create new ones if needed
+X   -v   list archive files (verbose format)
+X   -x   extract files in archive (default)
+X   -z   display only the archive comment
+X.end literal;.sk;.literal
+X MODIFIERS
+X   -a   convert to VMS textfile format (only use for TEXT files!)
+X   -j   junk paths (don't recreate archive's directory structure)
+X   -n   never overwrite existing files; don't prompt
+X   -o   OK to overwrite files without prompting
+X   -q   perform operations quietly (-qq => even quieter)
+X   -U   leave filenames uppercase if created under MS-DOS, VMS, etc.
+X   -V   retain (VMS) file version numbers
+X   -X   restore owner/protection info (may require privileges)
+X.end literal;.sk
+X! [this should probably be a separate section]:
+XIn addition, default options may be specified via the UNZIP_OPTS logical.
+XFor example, the following will cause UnZip to restore owner/protection
+Xinformation and perform all operations at quiet-level 1 by default:
+X.sk;.literal
+X    define UNZIP_OPTS "-qX"
+X.end literal;.sk
+XNote that the quotation marks are required to preserve lowercase options.
+XTo negate a default option on the command line, add one or more minus 
+Xsigns before the option letter, in addition to the leading switch character
+X`-':
+X.sk;.literal
+X    unzip --ql zipfile
+X.end literal
+Xor
+X.literal
+X    unzip -l-q zipfile
+X.end literal;.sk
+XAt present it is not possible to decrement an option below zero--that is,
+Xmore than a few minuses have no effect.
+X.sk
+XUNZIP_OPTS may be defined as a symbol rather than a logical, but if both
+Xare defined, the logical is used.
+X.!-----------------------------------------------------------------------------
+X.indent -4
+X2 Authors
+X.br
+XSamuel H. Smith, Usenet contributors, and Info-ZIP.
+X.sk
+XVMS on-line help ported from UNZIP.MAN by Hunter Goatley.
+END_OF_FILE
+  if test 4796 -ne `wc -c <'VMS/unzip.rnh'`; then
+    echo shar: \"'VMS/unzip.rnh'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/unzip.rnh'
+fi
+if test -f 'Where' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Where'\"
+else
+  echo shar: Extracting \"'Where'\" \(4412 characters\)
+  sed "s/^X//" >'Where' <<'END_OF_FILE'
+X__________________________________________________________________________
+X
+X  This is the Info-ZIP file ``Where,'' last updated on 20 August 1992.
+X__________________________________________________________________________
+X
+X
+X  SITE OWNERS:  If you're listed in here but the information is not
+X  correct (or if you're a big site but aren't listed at all), please
+X  let us know!  E-mail to zip-bugs at the address given in Readme
+X  and we'll update this file.
+X
+XBasic source-archive names for Info-ZIP's portable Zip, UnZip, and related
+Xutilities (on some ftp sites, the .zip files may have a .zoo equivalent
+Xin zoo 2.10 format):
+X
+X	zip19.zip	Zip 1.9 (includes zipnote and zipsplit)
+X	zip19.tar.Z	ditto, compress'd tar format
+X
+X	unzip50.zip	UnZip 5.0 (includes zipinfo and funzip)
+X	unzip50.tar.Z	ditto, compress'd tar format
+X
+X	wunz12sr.zip	WizUnZip 1.2 support files for Windows 3.1, UnZip 5.0
+X
+X	zcrypt19.zip	encryption/decryption support (includes zipcloak)
+X
+XRelated archives and files:
+X
+X	UnzpHist.zip	changes history of UnZip, back to 2.0
+X
+X	zip19x.zip      MSDOS executables and docs for zip, zipnote, zipsplit
+X	unzip50.exe     MSDOS executable for unzip
+X
+X	zip19_16.zip	OS/2 1.x 16-bit executables and docs
+X	zip19_32.zip	OS/2 2.x 32-bit executables and docs
+X	unz50_16.exe	OS/2 1.x 16-bit executable
+X	unz50_32.exe	OS/2 2.x 32-bit executable
+X
+X	zip19vms.zip	VMS executables and docs for zip, zipnote, zipsplit
+X	unz50vms.exe	VMS executable for unzip
+X
+X	zip_unzip.hqx   Macinstosh executables (zip 1.0 only, 1.9 not ready)
+X
+X	winunz12.zip    Windows 3.1 executables (zip 1.0 only, 1.9 not ready)
+X
+X	pkz110eu.exe	MS-DOS PKZIP/PKUNZIP 1.1 (self-extracting archive)
+X	pkz193a.exe	MS-DOS PKZIP/PKUNZIP beta 1.93 (self-extracting)
+X	pkz102-2.exe	OS/2 PKZIP/PKUNZIP 1.02 (self-extracting)
+X
+Xftp sites for the US-exportable sources and executables.  Look for
+Xthe file names given above in the following directories.  Some sites
+Xlike to use slightly different names, such as zip-1.9.tar-z instead
+Xof zip19.tar.Z.
+X
+X	wuarchive.wustl.edu:/packages/compression/...
+X	wuarchive.wustl.edu:/mirrors/misc/unix/...
+X	wuarchive.wustl.edu:/mirrors/misc/vaxvms/...
+X	wuarchive.wustl.edu:/mirrors/msdos/zip/...
+X	wuarchive.wustl.edu:/mirrors/msdos/windows3/...
+X
+X	ftp.uu.net:/pub/zip/...
+X
+X	ftp-os2.nmsu.edu:/pub/os2/2.0/archivers/...
+X	ftp-os2.nmsu.edu:/pub/os2/all/archivers/...
+X
+X	Zip 1.9 and UnZip 5.0 will also be available at any comp.sources.misc
+X	archive site as soon as they are posted.
+X
+X	wuarchive.wustl.edu:/mirrors/msdos/zip/pkz110eu.exe
+X	ux1.cso.uiuc.edu:/pc/exec-pc/pkz193a.exe	[128.174.5.59]
+X
+Xftp sites for the encryption and decryption sources:
+X
+X	NOTE:  Non-US users, please do NOT ftp from the US site (US
+X	regulations and all that).  Likewise, US users, please do not
+X	ftp from the European sites (it's not illegal, but it sure is
+X	a waste of expensive bandwidth).
+X
+X	From the US:
+X	   wuarchive.wustl.edu:/mirrors3/garbo.uwasa.fi/arcutil/zcrypt19.zip
+X
+X	Outside the US:
+X	   garbo.uwasa.fi:/pc/arcutil/zcrypt19.zip
+X	   ftp.win.tue.nl:/pub/compression/zip/zcrypt19.zip
+X	   ftp.inria.fr:/system/arch-compr/zcrypt19.zip
+X	   ftp.informatik.tu-muenchen.de:/pub/utils/archiver/zcrypt19.zip
+X	     (mail server at ftp-mailer@ftp.informatik.tu-muenchen.de)
+X
+XTo find other ftp sites:
+X
+X	The "archie" ftp database utility can be used to find an ftp site
+X	near you.  If you don't know how to use it, DON'T ASK US--check the
+X	Usenet groups news.newusers.questions or news.answers or some such,
+X	or ask your system administrator.
+X
+XUUCP sites:
+X
+X	uunet!~/pub/zip/ ...
+X
+XMail servers:
+X
+X	If you don't have anonymous FTP capability, you can mail one
+X	of the following commands (in the body of an e-mail message) to
+X	listserv@vm1.nodak.edu or listserv@vm.ecs.rpi.edu in order to
+X	get a copy via e-mail:
+X
+X	/pdget mail pd:<misc.unix>unzip50.tar-z uuencode
+X	/pdget mail pd:<misc.unix>zip19.zip uuencode
+X   or:	/pdget mail pd:<misc.unix>zip19.tar-z uuencode
+X
+X	To get the encryption source by email, send the following commands
+X	to ftp-mailer@ftp.informatik.tu-muenchen.de:
+X
+X	get /pub/utils/archiver/zcrypt19.zip
+X        quit
+X
+X__________________________________________________________________________
+X
+XAgain, if someone repackages any of the source or executable archives in
+XVMS-, Mac- or Atari-specific formats, please let us know (send e-mail to 
+Xzip-bugs at the address listed in README).
+X__________________________________________________________________________
+X
+END_OF_FILE
+  if test 4412 -ne `wc -c <'Where'`; then
+    echo shar: \"'Where'\" unpacked with wrong size!
+  fi
+  # end of 'Where'
+fi
+if test -f 'envargs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'envargs.c'\"
+else
+  echo shar: Extracting \"'envargs.c'\" \(3304 characters\)
+  sed "s/^X//" >'envargs.c' <<'END_OF_FILE'
+X/*****************************************************************
+X | envargs - add default options from environment to command line
+X |----------------------------------------------------------------
+X | Author: Bill Davidsen, original 10/13/91, revised 23 Oct 1991.
+X | This program is in the public domain.
+X |----------------------------------------------------------------
+X | Minor program notes:
+X |  1. Yes, the indirection is a tad complex
+X |  2. Parenthesis were added where not needed in some cases
+X |     to make the action of the code less obscure.
+X |  3. Set tabsize to four to make this pretty
+X |----------------------------------------------------------------
+X | UnZip notes 24 May 92 ("v1.4"):
+X |  1. #include "unzip.h" for prototypes
+X |  2. changed ch to type char
+X |  3. added an ifdef to avoid Borland warnings
+X *****************************************************************/
+X
+X#include "unzip.h"
+Xstatic int count_args __((char *));
+Xstatic void mem_err __((void));
+X
+X#if (defined(SCCS) && !defined(lint))  /* causes warnings:  annoying */
+Xstatic char *SCCSid = "@(#)envargs.c	1.3 23 Oct 1991";
+X#endif
+X
+Xvoid
+Xenvargs(Pargc, Pargv, envstr)
+Xint *Pargc;
+Xchar ***Pargv;
+Xchar *envstr;
+X{
+X	char *getenv();
+X	char *envptr;				/* value returned by getenv */
+X	char *bufptr;				/* copy of env info */
+X	int argc = 0;				/* internal arg count */
+X	char ch;					/* spare temp value */
+X	char **argv;				/* internal arg vector */
+X	char **argvect;				/* copy of vector address */
+X
+X	/* see if anything in the environment */
+X	envptr = getenv(envstr);
+X	if (envptr == (char *)NULL || *envptr == 0) return;
+X
+X	/* count the args so we can allocate room for them */
+X	argc = count_args(envptr);
+X	bufptr = (char *)malloc(1+strlen(envptr));
+X	if (bufptr == (char *)NULL) mem_err();
+X	strcpy(bufptr, envptr);
+X
+X	/* allocate a vector large enough for all args */
+X	argv = (char **)malloc((argc+*Pargc+1)*sizeof(char *));
+X	if (argv == (char **)NULL) mem_err();
+X	argvect = argv;
+X
+X	/* copy the program name first, that's always true */
+X	*(argv++) = *((*Pargv)++);
+X
+X	/* copy the environment args next, may be changed */
+X	do {
+X		*(argv++) = bufptr;
+X		/* skip the arg and any trailing blanks */
+X		while (((ch = *bufptr) != '\0') && ch != ' ') ++bufptr;
+X		if (ch == ' ') *(bufptr++) = '\0';
+X		while (((ch = *bufptr) != '\0') && ch == ' ') ++bufptr;
+X	} while (ch);
+X
+X	/* now save old argc and copy in the old args */
+X	argc += *Pargc;
+X	while (--(*Pargc)) *(argv++) = *((*Pargv)++);
+X
+X	/* finally, add a NULL after the last arg, like UNIX */
+X	*argv = (char *)NULL;
+X
+X	/* save the values and return */
+X	*Pargv = argvect;
+X	*Pargc = argc;
+X}
+X
+Xstatic int
+Xcount_args(s)
+Xchar *s;
+X{
+X	int count = 0;
+X	char ch;
+X
+X	do {
+X		/* count and skip args */
+X		++count;
+X		while (((ch = *s) != '\0') && ch != ' ') ++s;
+X		while (((ch = *s) != '\0') && ch == ' ') ++s;
+X	} while (ch);
+X
+X	return count;
+X}
+X
+Xstatic void
+Xmem_err()
+X{
+X	perror("Can't get memory for arguments");
+X	exit(2);
+X}
+X
+X#ifdef TEST
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	int i;
+X
+X	printf("Orig argv: %p\n", argv);
+X	dump_args(argc, argv);
+X	envargs(&argc, &argv, "ENVTEST");
+X	printf(" New argv: %p\n", argv);
+X	dump_args(argc, argv);
+X}
+X
+Xdump_args(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X	int i;
+X
+X	printf("\nDump %d args:\n", argc);
+X	for (i=0; i<argc; ++i) {
+X		printf("%3d %s\n", i, argv[i]);
+X	}
+X}
+X#endif
+END_OF_FILE
+  if test 3304 -ne `wc -c <'envargs.c'`; then
+    echo shar: \"'envargs.c'\" unpacked with wrong size!
+  fi
+  # end of 'envargs.c'
+fi
+if test -f 'unshrink.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unshrink.c'\"
+else
+  echo shar: Extracting \"'unshrink.c'\" \(4656 characters\)
+  sed "s/^X//" >'unshrink.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  unshrink.c
+X
+X  Shrinking is a Dynamic Lempel-Ziv-Welch compression algorithm with partial
+X  clearing.
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#include "unzip.h"
+X
+X
+X/*************************************/
+X/*  UnShrink Defines, Globals, etc.  */
+X/*************************************/
+X
+X/*      MAX_BITS        13   (in unzip.h; defines size of global work area)  */
+X#define INIT_BITS       9
+X#define FIRST_ENT       257
+X#define CLEAR           256
+X#define GetCode(dest)   READBIT(codesize,dest)
+X
+Xstatic void partial_clear __((void));   /* local prototype */
+X
+Xint codesize, maxcode, maxcodemax, free_ent;
+X
+X
+X
+X
+X/*************************/
+X/*  Function unShrink()  */
+X/*************************/
+X
+Xvoid unShrink()
+X{
+X    register int code;
+X    register int stackp;
+X    int finchar;
+X    int oldcode;
+X    int incode;
+X
+X
+X    /* decompress the file */
+X    codesize = INIT_BITS;
+X    maxcode = (1 << codesize) - 1;
+X    maxcodemax = HSIZE;         /* (1 << MAX_BITS) */
+X    free_ent = FIRST_ENT;
+X
+X    code = maxcodemax;
+X    do {
+X        prefix_of[code] = -1;
+X    } while (--code > 255);
+X/*
+X    OvdL: -Ox with SCO's 3.2.0 cc gives
+X    a. warning: overflow in constant multiplication
+X    b. segmentation fault (core dumped) when using the executable
+X    for (code = maxcodemax; code > 255; code--)
+X        prefix_of[code] = -1;
+X */
+X
+X    for (code = 255; code >= 0; code--) {
+X        prefix_of[code] = 0;
+X        suffix_of[code] = (byte) code;
+X    }
+X
+X    GetCode(oldcode);
+X    if (zipeof)
+X        return;
+X    finchar = oldcode;
+X
+X    OUTB(finchar);
+X
+X    stackp = HSIZE;
+X
+X    while (!zipeof) {
+X        GetCode(code);
+X        if (zipeof)
+X            return;
+X
+X        while (code == CLEAR) {
+X            GetCode(code);
+X            switch (code) {
+X                case 1:
+X                    codesize++;
+X                    if (codesize == MAX_BITS)
+X                        maxcode = maxcodemax;
+X                    else
+X                        maxcode = (1 << codesize) - 1;
+X                    break;
+X
+X                case 2:
+X                    partial_clear();
+X                    break;
+X            }
+X
+X            GetCode(code);
+X            if (zipeof)
+X                return;
+X        }
+X
+X
+X        /* special case for KwKwK string */
+X        incode = code;
+X        if (prefix_of[code] == -1) {
+X            stack[--stackp] = (byte) finchar;
+X            code = oldcode;
+X        }
+X        /* generate output characters in reverse order */
+X        while (code >= FIRST_ENT) {
+X            if (prefix_of[code] == -1) {
+X                stack[--stackp] = (byte) finchar;
+X                code = oldcode;
+X            } else {
+X                stack[--stackp] = suffix_of[code];
+X                code = prefix_of[code];
+X            }
+X        }
+X
+X        finchar = suffix_of[code];
+X        stack[--stackp] = (byte) finchar;
+X
+X
+X        /* and put them out in forward order, block copy */
+X        if ((HSIZE - stackp + outcnt) < OUTBUFSIZ) {
+X            memcpy(outptr, &stack[stackp], HSIZE - stackp);
+X            outptr += HSIZE - stackp;
+X            outcnt += HSIZE - stackp;
+X            stackp = HSIZE;
+X        }
+X        /* output byte by byte if we can't go by blocks */
+X        else
+X            while (stackp < HSIZE)
+X                OUTB(stack[stackp++]);
+X
+X
+X        /* generate new entry */
+X        code = free_ent;
+X        if (code < maxcodemax) {
+X            prefix_of[code] = oldcode;
+X            suffix_of[code] = (byte) finchar;
+X
+X            do
+X                code++;
+X            while ((code < maxcodemax) && (prefix_of[code] != -1));
+X
+X            free_ent = code;
+X        }
+X        /* remember previous code */
+X        oldcode = incode;
+X    }
+X}
+X
+X
+X
+X/******************************/
+X/*  Function partial_clear()  */
+X/******************************/
+X
+Xstatic void partial_clear()
+X{
+X    register int pr;
+X    register int cd;
+X
+X    /* mark all nodes as potentially unused */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++)
+X        prefix_of[cd] |= 0x8000;
+X
+X    /* unmark those that are used by other nodes */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++) {
+X        pr = prefix_of[cd] & 0x7fff;    /* reference to another node? */
+X        if (pr >= FIRST_ENT)    /* flag node as referenced */
+X            prefix_of[pr] &= 0x7fff;
+X    }
+X
+X    /* clear the ones that are still marked */
+X    for (cd = FIRST_ENT; cd < free_ent; cd++)
+X        if ((prefix_of[cd] & 0x8000) != 0)
+X            prefix_of[cd] = -1;
+X
+X    /* find first cleared node as next free_ent */
+X    cd = FIRST_ENT;
+X    while ((cd < maxcodemax) && (prefix_of[cd] != -1))
+X        cd++;
+X    free_ent = cd;
+X}
+END_OF_FILE
+  if test 4656 -ne `wc -c <'unshrink.c'`; then
+    echo shar: \"'unshrink.c'\" unpacked with wrong size!
+  fi
+  # end of 'unshrink.c'
+fi
+echo shar: End of archive 12 \(of 14\).
+cp /dev/null ark12isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

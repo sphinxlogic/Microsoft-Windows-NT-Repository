@@ -1,0 +1,953 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 28/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.094907.13854@klaava.Helsinki.FI>
+Date: 14 Jun 92 09:49:07 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 941
+
+Archieve-name: monster_helsinki_104/part28
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 28/32
+
+-+-+-+-+-+-+-+-+ START OF PART 28 -+-+-+-+-+-+-+-+
+X        o Specify how game objects function
+X        o Provide text descriptions for events that may happen
+X`032
+X  For example, a player in Monster could create a room named "Great`032
+X  Hall", provide a textual description for it (which other players`032
+X  would see upon entering the rooms), and describe special features`032
+X  of the room (for instance, a brass plaque on the wall).
+X`032
+X  Here's what another player who walked into the room described above`032
+X  would see (lines beginning with > are the player's input):
+X`032
+X  > look
+X  You're in Great Hall
+X  You're in the middle of a vast hall stretching out of sight to the
+X  east and west.  Strange shadows play across the high vaulted ceiling.
+X  The floor is set with smooth rectangular stones.  The walls feel slightly
+X  cold to the touch, and damp with condensation.  A copper plaque, slightly
+X  green with age, is set into one wall.
+X`032
+X  > look plaque
+X`032
+X  The plaque looks very old and corroded.   However, you can still make out
+X  the writing:
+X`032
+X  " Monster, created by Rich Skrenta, 1988.  Play at your own risk. "
+X`032
+X  Now the creator of the rooms could add a secret passage, perhaps`032
+X  hidden underneath some stones in the floor.  To do this, first the`032
+X  player would describe what the stones looked like, then make a hidden`032
+X  exit to another location with a special command which would activate`032
+X  it.  Here's what the player would see after making these changes:
+X`032
+X  > show details
+X  Details here that you may inspect:
+X      stones
+X      plaque
+X  > look stones
+X  The stones are rough and black, and cold to the touch.  Although the
+X  mortar work appears to have been expertly done, it has decayed with time.
+X  Many stones are cracked, and narrow spaces fracture the carefully laid
+X  pattern.  Some of the stones are quite loose.  You might be able to lift
+X  one of them with some effort.
+X  > lift
+X  With great effort, you manage to lift the stone enough to fit inside.
+X`032
+X  Once below the stone, it falls back into place, sealing out the light
+X  from above.  You squirm down the narrow tunnel . . .
+X`032
+X  This example only hints at the details that actually go into the`032
+X  creation of a realistic game puzzle.  To set up a rich game location,`032
+X  a player would have to
+X  specify:
+X`032
+X        o A textual description of the room, as well as separate description
+Vs
+X          for various rooms details (in the example above, the plaque and
+X          the stones are room details)
+X        o A description of each of the possible exits from the rooms (there
+X          might be no description if the exit is hidden)
+X        o What happens when an object is dropped at the location (for exampl
+Ve,
+X          if a player is swimming and he drops something, the object should
+X          sink) as well as a message describing what happened to the object
+X        o For each exit, a set of messages and parameters including:
+X                - the name of the exit
+X                - whether the exit requires a special object to pass (for
+X                  example, a door key or some magic object)
+X                - a message displayed to the player if he can't successfully
+X                  leave through the exit (if he doesn't have the key, for
+X                  instance)
+X                - an optional message that the player sees when he goes
+X                  through an exit (in the example above, the text "Once belo
+Vw
+X                  the stone, it falls back into place...." is such a message
+V)
+X                - a message that players inside the room see when someone
+X                  leaves through the exit
+X                - a message that players inside the room see when another
+X                  player enters the room through the exit
+X`009`009- special features specific to this exit
+X                - miscellaneous other parameters
+X`032
+X`032
+X`032
+X3 Technical_Aspects
+X`032
+X  Each player who plays the Monster game runs a separate copy of the`032
+X  game.  Each individual Monster process shares a database containing`032
+X  all of the information about the simulated world, including:
+X`032
+X        o Records describing all of the rooms, interconnections between`032
+X          rooms, objects, and descriptions for the above
+X        o The locations of every player and object
+X        o A special shared file used for interprocess communication
+X`032
+X  Each of the Monster database files are organized as a linear collection
+X  of fixed-length records.  Monster uses the following files:
+X`032
+X        roomfile:       file of records containing data on Monster locations
+X        namfile:        file containing names for objects, rooms and people
+X        descfile:       file of text description blocks (10 lines maximum)
+X        linefile:       file of short (one line) descriptions
+X        intfile:        file of various integer parameters
+X        objfile:        file of records containing data on Monster objects
+X        indexfile:      file of bitmaps for the other files; used to mark
+X                        free/inuse records for dynamic allocation
+X        eventfile:      file of records used for interprocess communication
+X`009spellfile:      contains player's spell information
+X`032
+X`032
+X4 Record_Locking
+X`032
+X  When Monster tries to access a record in one of the shared data`032
+X  files, it first makes a read attempt on the record.  If the record`032
+X  is available (no other Monster process is reading or writing it) VMS`032
+X  will lock and read the record and return successfully.  If another`032
+X  process has locked the record, VMS will return an error condition. `032
+X  In this case the Monster process will wait a small random amount of`032
+X  time and attempt to read the record again.  Then if the Monster program`03
+V2
+X  cannot successfully read and lock the record after a certain number of
+X  retries, it prints an error message and aborts.
+X`032
+X  In initial versions of Monster a count was kept of how many times`032
+X  two processes would "collide" when both wanted to read one record. `032
+X  The random wait dramatically reduced this hit count.
+X`032
+X  Monster's response time using this scheme is acceptable when the`032
+X  load on the VAX is not too high.  However, it does have some`032
+X  drawbacks.  The first is that a data record being read by a Monster`032
+X  process is locked for a short time, even if the process has no`032
+X  intention of writing to it.  Also, the collide-and-wait approach is`032
+X  somewhat crude considering VMS has extensive record locking facilities`032
+X  which are capable not only of allowing multiple-read access to a`032
+X  record but also of queueing processes desiring to write-lock a record.
+X  Unfortunately, the use of these facilities requires special VMS`032
+X  priviliges not available to ordinary users.  During testing on a`032
+X  VAX 8800 running VMS 5.1 with over 50 interactive users and 14`032
+X  players response time was fast enough for most picky users.
+X`032
+X`032
+X4 Interprocess_Communication
+X`032
+X  Monster processes communicate through a shared file.  A communication`032
+X  from one process to another is referred to as an event; the shared`032
+X  file for communication is called the event file.  Two player processes`032
+X  will only need to communicate if both players are in the same location,`03
+V2
+X  since actions in one room won't affect gamers elsewhere.  However,`032
+X  when two or more players are in the same location, quite a lot of events`0
+V32
+X  may happen:
+X`032
+X        o Notification of entry and exit -- players in the room must see whe
+Vn
+X          other players come and go
+X        o Notification of various actions -- such as picking up and dropping
+X          objects, taking inventory and closely examining things
+X        o Messages when players talk to each other in the game
+X        o Primary, target and third-party events for fighting -- the player
+X          throwing the punch sees one thing, the person being hit another,
+X          and somone else watching sees a third message.
+X`032
+X  Because only player processes in the same Monster game location`032
+X  need to communicate, each room has an associated event file record. `032
+X  Each event file record contains a circular list of events with a`032
+X  pointer to the most recent event.  When a player enters a new room,`032
+X  either by moving or joining the game, the Monster process reads the`032
+X  event file record for the room and makes a local copy of the current`032
+X  event pointer.  At periodic intervals, the Monster process will reread`032
+X  the event file record and compare its local pointer to the one in the`032
+X  event file.  If they are different, other player processes have logged
+X  events to the event record, and the Monster process will pull them`032
+X  off the list, handle them, and update its own local pointer.  When`032
+X  a process needs to log an event, it write-locks the event file record,`032
+X  writes a new event, and updates the event file pointer.
+X`032
+X  There are over sixty different events that a Monster process can`032
+X  initiate or handle; each event can be interpreted differently`032
+X  according to circumstances. For example, player A may whisper`032
+X  something to player B.  Suppose player C is also in the room. `032
+X  Player A's process logs an event containing the message, the event`032
+X  type ("whisper") and the target of the whisper (player B) to the
+X  event file record associated with their current location.
+X`032
+X  > whisper b
+X  >> Hey b, this is something I whispered to you.
+X`032
+X  Player B's process will receive and handle the event:
+X`032
+X  A whispers, "Hey b, this is something I whispered to you."
+X`032
+X  Player C's process will also receive and handle the event. `032
+X  Usually C will only see A and B whispering together:
+X`032
+X  A is whispering to B.
+X`032
+X  However, there is a small chance that C will overhear the message:
+X`032
+X  You overhear A whispering to B:
+X    "Hey b, this is something I whispered to you."
+X`032
+X  This method of interprocess communication requires that all`032
+X  Monster processes frequently read the event file to see if any`032
+X  events have occured.  This might seem less efficient than another`032
+X  scheme possibly using VMS mailboxes or shared memory.  Lack of`032
+X  sufficient VMS privileges prevented me from using shared memory. `032
+X  Mailboxes might be more efficient, especially if used with the Vax's
+X  interrupt system.  However, several problems would be present:
+X`032
+X        o In order to allow any process to communicate with any other,
+X          full interconnection would be necessary.  In addition, since VMS
+X          mailboxes only transmit data in one direction, n Monster processes
+X          would require 2n mailboxes.  A scheme using mailboxes would quickl
+Vy
+X          exhaust process quota limits.
+X`032
+X        o It is somewhat awkward to set up mailboxes and even more difficult
+X          to inform other processes of their presence.  Once again, I believ
+Ve
+X          that special VMS privileges might be necessary to do this.
+X`032
+X  The event file scheme of communication has proven flexible and is`032
+X  fast enough when the VAX load is not high.
+X`032
+X`032
+X4 Maintaining_a_Player's_Existence_in_the_Database
+X`032
+X  When a user runs Monster, it first checks a playerlog to see if`032
+X  he has ever played before.  If so, the player is restored to the`032
+X  state he was in when he last played, just before issuing the QUIT`032
+X  command.  In the user is not found in the playerlog, he is started`032
+X  out at an initial location, somewhat in the center of the world.
+X`032
+X  To place a player into a location, Monster scans the room record`032
+X  for a free "person" slot to put the player's index into.  Once the`032
+X  player is part of the room record, he will be visible to other`032
+X  players who are also in that room (providing he hasn't hidden`032
+X  himself), and they will be able to interact with him.
+X`032
+X  A dangerous situation occurs when a player process dies or becomes`032
+X  disconnected for some reason.  In this case, the room record shows`032
+X  that a certain player is in a location, but in fact there is no`032
+X  controlling Monster process for that player.  There will be no`032
+X  process to handle events directed at that player. This is a bad`032
+X  situation because they player is not obviously "dead" to the
+X  other Monster programs, as interprocess communication only involves`032
+X  sending an event, and does not provide for receipt acknowledgement.
+X`032
+X  These "zombie" players were a serious nuisance in an early version`032
+X  of Monster. The Monster world appeared to be full of players, when`032
+X  in fact they were just ghosts left from players typing the VAX`032
+X  interrupt character or becoming disconnected from modems (Monster`032
+X  now inhibits the interrupt character to help prevent the casual`032
+X  creation of zombies).
+X`032
+X  There are two cases where a zombie game character may be detected: `032
+X  when another player suspects that a game character is not being`032
+X  controlled by a real user (either from a lack of response from the`032
+X  game character or by checking the VAX user list); or when the player`032
+X  who created the zombie character attempts to play Monster again (only`032
+X  one player per account is allow to play Monster at a time, so if a`032
+X  player tries to enter Monster and also appears to be currently playing`032
+X  the game, either 1) two players on one account are trying
+X  to play Monster at the same time, or 2) the player character that`032
+X  appears to be currently playing Monster is really a zombie).
+X`032
+X  To handle the first case, when one player suspects another of being`032
+X  a zombie, the player can issue the PING command.  PING sends repeated`032
+X  events directed at the suspected zombie, with short pauses between the`032
+X  sends.  If PING does not receive a response within a certain amount of`032
+X  time (currently about three seconds) it attempts to smoothly return the`03
+V2
+X  zombie character to the "inactive" (not playing) state.  This involves`032
+X  taking every object the player character was holding and dropping them`032
+X  on the ground, updating the "time of last play" record and modifying`032
+X  the playerlog to show that the player is not currently playing.
+X`032
+X  In the second case, when no other player has PINGed away the zombie`032
+X  and the original player (the one responsible for the zombie character)`032
+X  attempts to reenter Monster, Monster will inform him:
+X`032
+X        There may have been some trouble the last time you played.
+X        Trying to fix it . . .
+X`032
+X  At this point, Monster itself attempts to PING the player's character. `03
+V2
+X  If two people on the same account are trying to play Monster at the`032
+X  same time the PING will be answered and Monster will not let the`032
+X  second player into the game.  Otherwise, the player will enter Monster`032
+X  normally after a short pause:
+X`032
+X        All should be fixed now.
+X`032
+X        Welcome back, Faust.  Your last play was on 13-MAY-1988 at 8:31pm.
+X`032
+X  Even with this solution, there are still situations where trouble can`032
+X  arise with zombie characters.  For example, suppose a player is on a`032
+X  modem playing Monster and becomes disconnected.  Another player PINGs`032
+X  away the zombie character.  The dialup player calls up the VAX again,`032
+X  and reconnects to his disconnected process.  Now his Monster process`032
+X  still thinks the player character is alive in the room (it has no`032
+X  knowledge of the disconnect) but the database shows that the player`032
+X  is inactive.
+X`032
+X  If only a few events have been logged in the associated event file`032
+X  record, the reconnnected Monster process will notice the fatal PING`032
+X  to itself (lingering in the event file record) and will abort. `032
+X  However, if many events have occured while the process was disconnected,`0
+V32
+X  it will not be aware of the change to the database. This will leave the`03
+V2
+X  database in an inconsistent state until the player QUITs the game. `032
+X  Fortunately, when the player quits the database will be fixed.
+X`032
+X  Since this problem will eventually correct itself (when the player`032
+X  quits) and because checking for this very rare situation would slow`032
+X  response time considerably (Monster would have to verify its existence`032
+X  in the database continuously) I decided to ignore this exception.
+X`032
+X  I had originally hoped for a smoother solution to the "disconnected`032
+X  player" problem.  In a system where a central process drives all of`032
+X  the player terminals, this is possible.  However, because control in`032
+X  Monster is shared between many identical processes, the problem is`032
+X  much harder.
+X`032
+X`032
+X4 Reflections_on_the_Project
+X
+X  How the "Installed Base" Stagnated New Development:
+X `032
+X`032
+X  During the development of Monster I would periodically change the
+X  records that held the Monster database.  Once changed in the program,`032
+X  this would render the existing database unusable, as the new program`032
+X  could no longer open the old files.  Thus, I would have to destroy`032
+X  the existing world if I wanted to add any fields to the records that`032
+X  comprised the shared files.
+X`032
+X  In order to provide a stable environment for players who did not want`032
+X  to see their hard work making Monster rooms destroyed every time I made`03
+V2
+X  a change to the structure of the database, I installed a version with`032
+X  a separate set of data files than the copy I worked on for development. `0
+V32
+X  Players created rooms and tested the installed version, while I continued`
+V032
+X  to develop my own copy. Eventually, the world in the first release of`032
+X  Monster had about 60 rooms.
+X`032
+X  About a month after installing the original Monster I replaced it`032
+X  with the new, greatly enhanced version I had been working on (the`032
+X  executable was about 4 times the size of the original) and started`032
+X  over with an empty world.  I had provided expansion fields in the`032
+X  data records for the new release of Monster so I could continue to`032
+X  develop the game without having to work on my own private copy.
+X`032
+X  The second release of Monster was very popular.  I continued to add`032
+X  features to the program, and made use of the expansion fields when`032
+X  possible.  However, I felt more and more constrained by the limits of`032
+X  my database.  I needed to change more about the data records than the`032
+X  expansion fields would allow. I wanted to erase the world a second time;`0
+V32
+X  however, players had put much work into creating over 100 rooms, and`032
+X  became quite angry when I suggested that I might throw away the current`03
+V2
+X  world to make a new one.
+X`032
+X  Some suggested that I write a program which would convert the existing`032
+X  database to a new format.  However, I felt that the work to do this`032
+X  would be much greater than the work I was planning to spend to make`032
+X  enhancements to the game. Also, the style of my changes during development
+V`032
+X  called for small frequent changes. I abandoned the idea of trying to`032
+X  write a translation program, and instead attempted to work around the`032
+X  limitations of the database structure.  Eventually, however, my work`032
+X  stagnated, and new development on Monster ceased.
+X`032
+X  I never anticipated the work of my playtesters holding back further`032
+X  development. If I were to rewrite Monster, I would use a more flexible`032
+X  storage approach, one probably involving a form of dynamic typing which`03
+V2
+X  would let me add new parameters to the database without actually`032
+X  changing the record structure or size.
+X`032
+X3 Appendixs `032
+X4 A
+XAppendix A:  Specifyable Parameters for Monster Locations and Objects
+X`032
+X  Rooms:
+X  ------
+X  `032
+X  nicename:       the name of the room
+X  nameprint:      formatting control for the nicename
+X  primary,
+X  secondary:      textual descriptions of the room
+X  which:          control for which room description prints:
+X                          0 - only print primary room description
+X                          1 - only print secondary room description
+X                          2 - print both primary and secondary room descript
+Vions
+X                          3 - print primary description; then print secondar
+Vy
+X                              description if the player is holding the speci
+Vfied
+X                              magic object for the room
+X  magicobj:       the magic object for the room
+X  trapto,
+X  trapchance:     allows a player to semi-randomly be thrust through an exit
+X  rndmsg:         eerie message that randomly prints
+X  details:        details that may be looked at in the room
+X  `032
+X  `032
+X  Exits:
+X  ------
+X  `032
+X  toloc:          where the exit goes
+X  kind:           type of the exit:
+X                          0 - no exit; always fails
+X                          1 - open exit; always succeeds
+X                          2 - exits succeeds if player has key object
+X                          3 - exit fails if player has key object
+X                          4 - exit randomly fails
+X                          5 - potential exit; doesn't exist yet
+X                          7 - exit cycles between being open and closed
+X  exitdesc:       short textual descrption of the exit
+X  fail:           description if player fails to go through exit
+X  success:        description if player succeeds to go through exit
+X  goin:           what other players see when someone goes into the exit
+X  comeout:        what others see when a player comes out of the exit
+X  hidden:         what the player sees when he finds the exit (if it's hidde
+Vn)
+X  objreq:         key object for exit
+X  alias:          name of the exit
+X  reqverb:        requires the player to use the alias only (without "go") t
+Vo
+X                  use the exit
+X  reqalias:       requires the player to know the exit alias; can't use the
+X                  compass point
+X  autolook:       surpresses the automatic "look" done upon entering the
+X                  new room
+X  `032
+X  Objects:
+X  --------
+X  `032
+X  oname:          the name of the object
+X  kind:           type parameter for the object
+X  linedesc:       short description of the object (the "on the floor" descri
+Vption)
+X  examine:        close inspection description for the object
+X  numexist:       how many copies of the object exist
+X  sticky:         inhibits players from being able to pick up the object
+X  getobjreq:      requires the player to be holding another object before
+X                  he can pick up this one
+X  getfail:        message printed if a player fails to get an object
+X  getsuccess:     message printed when an object is successfully picked up
+X  useobjreq:      object player must be holding to use this object
+X  uselocreq:      place player must be in to use this object
+X  usefail:        message printed if player fails in use of the object
+X  usesuccess:     message printed if object is successfully used
+X  usealias:       alias word to "use"
+X  reqalias:       require player to know the alias to use the object
+X  article:        whether "a", "an", "some", "the" should precede the object
+V name
+X  `032
+X`032
+X4 B
+XAppendix B:  Monster Command List
+X`032
+X  Accept/Refuse #  Allow others to Link an exit here at direction # `124 Und
+Vo Accept
+X  Brief            Toggle printing of room descriptions
+X  Customize `091#`093    Customize this room `124 Customize exit # `124 Cust
+Vomize object #
+X  Describe `091#`093     Describe this room `124 Describe a feature (#) in d
+Vetail
+X  Destroy #        Destroy an instance of object # (you must be holding it)
+X  Duplicate #      Make a duplicate of an already-created object.
+X  Form/Zap #       Form a new room with name # `124 Destroy room named #
+X  Get/Drop #       Get/Drop an object
+X  #,Go #           Go towards # (Some: N/North S/South E/East W/West U/Up D/
+VDown)
+X  Health           Show how healthy you are
+X  Hide/Reveal `091#`093  Hide/Reveal yoursef `124 Hide object (#)
+X  I,Inventory      See what you or someone else is carrying
+X  Link/Unlink #    Link/Unlink this room to/from another via exit at directi
+Von #
+X  Look,L `091#`093       Look here `124 Look at something or someone (#) clo
+Vsely
+X  Make #           Make a new object named #
+X  Name #           Set your game name to #
+X  Players          List people who have played Monster
+X  Punch #          Punch person #
+X  Quit             Leave the game
+X  Relink           Move an exit
+X  Rooms            Show information about rooms you have made
+X  Say, ' (quote)   Say line of text following command to others in the room
+X  Search           Look around the room for anything hidden
+X  Self #           Edit a description of yourself `124 View #'s self-descrip
+Vtion
+X  Show #           Show option # (type SHOW ? for a list)
+X  Unmake #         Remove the form definition of object #
+X  Use #            Use object #
+X  Wear #           Wear the object #
+X  Wield #          Wield the weapon #;  you must be holding it first
+X  Whisper #        Whisper something (prompted for) to person #
+X  Who              List of people playing Monster now
+X  Whois #          What is a player's username
+X  ?,Help           This list
+X  . (period)       Repeat last command
+X`032
+X
+X4 C`032
+XAppendix C:  Customization Subsystem Menus
+X`032
+X  Room Customization:
+X  -------------------
+X  `032
+X  Custom> ?
+X  `032
+X  D       Alter the way the room description prints
+X  N       Change how the room Name prints
+X  P       Edit the Primary room description `091the default one`093 (same as
+V desc)
+X  S       Edit the Secondary room description
+X  X       Define a mystery message
+X  `032
+X  G       Set the location that a dropped object really Goes to
+X  O       Edit the object drop description (for drop effects)
+X  B       Edit the target room (G) "bounced in" description
+X  `032
+X  T       Set the direction that the Trapdoor goes to
+X  C       Set the Chance of the trapdoor functioning
+X  `032
+X  M       Define the magic object for this room
+X  R       Rename the room
+X  `032
+X  V       View settings on this room
+X  E       Exit (same as quit)
+X  Q       Quit (same as exit)
+X  ?       This list
+X  `032
+X  `032
+X  Exit customization:
+X  -------------------
+X  `032
+X  Custom `091direction`093> ?
+X  `032
+X  A       Set an Alias for the exit
+X  C       Conceal an exit
+X  D       Edit the exit's main Description
+X  E       EXIT custom (saves changes)
+X  F       Edit the exit's failure line
+X  I       Edit the line that others see when a player goes Into an exit
+X  K       Set the object that is the Key to this exit
+X  L       Automatically look `091default`093 / don't look on exit
+X  O       Edit the line that people see when a player comes Out of an exit
+X  Q       QUIT Custom (saves changes)
+X  R       Require/don't require alias for exit; ignore direction
+X  S       Edit the success line
+X  T       Alter Type of exit (passage, door, etc)
+X  V       View exit information
+X  X       Require/don't require exit name to be a verb
+X  ?       This list
+X  `032
+X  `032
+X  Object Customization:
+X  ---------------------
+X  `032
+X  Custom object> ?
+X  `032
+X  A       "a", "an", "some", etc.
+X  D       Edit a Description of the object
+X  F       Edit the GET failure message
+X  G       Set the object required to pick up this object
+X  1       Set the get success message
+X  K       Set the Kind of object this is
+X  L       Edit the label description ("There is a ... here.")
+X  P       Program the object based on the kind it is
+X  R       Rename the object
+X  S       Toggle the sticky bit
+X  `032
+X  U       Set the object required for use
+X  2       Set the place required for use
+X  3       Edit the use failure description
+X  4       Edit the use success description
+X  V       View attributes of this object
+X  `032
+X  X       Edit the extra description
+X  5       Edit extra desc #2
+X  E       Exit (same as Quit)
+X  Q       Quit (same as Exit)
+X  ?       This list
+X  `032
+X4 D`032
+XAppendix D:  Monster Playerlist as of June 5, 1988
+X`032
+X  dolpher       ! Monster Manager        5-JUN-1988  1:48pm * great baths
+X  dasun_c       ! Iceman                 4-JUN-1988 10:30pm * the transporte
+Vr room
+X  kirsten       ! Kirsten                4-JUN-1988 11:20pm * ffoirefirma
+X  isakson       ! Satan                  3-JUN-1988 10:13am * satan's privat
+Ve hell
+X  tlb05405      ! Tlb05405               3-JUN-1988 11:59am * east hall
+X  nate          ! Smaug                  3-JUN-1988  7:41pm * platform 1
+X  skrenta       ! Faust                  3-JUN-1988  8:37pm * tower room
+X  gary          ! Monster Vice Manager   2-JUN-1988  9:50pm * inner office
+X  laura         ! Laura                  2-JUN-1988 10:36pm * turbolift cham
+Vber
+X  james         ! James                  1-JUN-1988  7:54pm * chuk's elevato
+Vr
+X  chuk          ! SoulStorm              1-JUN-1988  9:57pm * east hall
+X  peter_t       ! Peter_t               31-MAY-1988  8:33pm * pine forest
+X  cary          ! Cary                  31-MAY-1988 11:20pm * maelstrom
+X  francisco     ! Prof. Anthrax         30-MAY-1988  3:54pm * waterbed
+X  sundeep       ! Sundeep               29-MAY-1988  2:21pm * mta office
+X  bkc04916      ! Cheekster             28-MAY-1988 10:51am * the 'ell stop
+X  ktl04905      ! Corwin                28-MAY-1988 11:44am * west hall
+X  perry         ! Bufu Master!!!        28-MAY-1988  8:40pm * pinkie's place
+X  maryahn       ! pinkie                27-MAY-1988 12:39pm * the sewer tunn
+Vel
+X  immell        ! hurricane eye         26-MAY-1988  2:25am * post office 3
+X  robert        ! Hungry Wolf           26-MAY-1988  2:26am * roll6
+X  linda         ! linlop                26-MAY-1988 10:47am * terminal room
+X  jeff          ! Pringle               25-MAY-1988  7:12pm * ic
+X  mic00229      ! Mic00229              22-MAY-1988  8:33pm * great hall
+X  jeffoire      ! Ffoire Zen Salad      20-MAY-1988  1:41pm * bar
+X  schroder      ! Schroder              19-MAY-1988 10:09am * burrow
+X  lunde         ! Purple Peril          18-MAY-1988 12:55pm * cloud 9.5
+X  pib           ! Great Pib             17-MAY-1988 11:51pm * great pib's la
+Vir
+X  ahrens        ! it                    15-MAY-1988  4:56pm * landing
+X  mborsetti     ! Mborsetti             12-MAY-1988 10:20pm * sewer crossroa
+Vds
+X  brian         ! Mr. Raven             11-MAY-1988 11:24am * a damp and dar
+Vk hole
+X  wen05563      ! Gary                  11-MAY-1988  9:00pm * great hall
+X  jimbo         ! Jimbo                  8-MAY-1988 10:02pm * great hall
+X  lentz         ! Lentz                  7-MAY-1988  8:24am * front of isp n
+Voyes
+X  miller        ! Mungus                 5-MAY-1988  1:14pm * starbase
+X  otto          ! Otto                   4-MAY-1988  8:45pm * heidi's nightm
+Vare
+X  chris         ! House Manager          3-MAY-1988  3:54am * home base
+X  liao          ! Liao                  30-APR-1988  1:21pm * white house
+X  chaz          ! Chaz                  29-APR-1988  4:05pm * post office 2
+X  jmc           ! Run JMC               29-APR-1988  4:37pm * isp heaven
+X  rod           ! Rod                   29-APR-1988  9:00pm * great hall
+X  choi          ! Choi                  28-APR-1988  8:25pm * east hall
+X  bo            ! God                   26-APR-1988  1:58pm * great hall
+X  jonathan      ! Jonathan              26-APR-1988  5:26pm * eye of the hur
+Vricane
+X  swift         ! Swift                 26-APR-1988  8:53pm * post office ha
+Vll
+X  ric05787      ! Deadhead              26-APR-1988 10:57pm * nightmarish ro
+Vom
+X  mccoy         ! The Scribe            26-APR-1988 11:41pm * scribe home
+X  g_wenslow     ! Gary II               24-APR-1988 11:58pm * east hall
+X  kri04333      ! Kri04333              18-APR-1988 12:11am * great hall
+X  dissett       ! Kronos                18-APR-1988 10:13pm * kronos' room
+X  wantz         ! Wantz                 17-APR-1988  2:51pm * great hall
+X  cheezer       ! Cheezer               16-APR-1988  7:55pm * the pine fores
+Vt
+X  ahr04465      ! Ivo                   16-APR-1988  7:56pm * sewer transpor
+Vt
+X  joey          ! geek                  15-APR-1988  8:03pm * forest crossro
+Vads
+X  wargaski      ! Wargaski              14-APR-1988  4:01pm * toxicated
+X  eric          ! Eric                  13-APR-1988  3:51pm * the hall of ch
+Vuk
+X  rwc00220      ! Rwc00220              12-APR-1988  1:32pm * great hall
+X  kstull        ! Kstull                12-APR-1988  5:01pm * post office 3
+X  tim           ! Tim                   11-APR-1988  8:26pm * great hall
+X  sean          ! Sean                  10-APR-1988  4:27pm * great hall
+X  sam           ! Sam                   10-APR-1988 12:54pm * great hall
+X  dean          ! Artagel                9-APR-1988  8:21am * turbolift cham
+Vber
+X  supercom      ! Cursor                 8-APR-1988 12:00am * forest paths
+X  anne          ! Anne                   7-APR-1988  6:55pm * great hall
+X  lisa          ! Lisa                   7-APR-1988  6:56pm * great hall
+X  mouse         ! Mouse                  3-APR-1988 11:26pm * west hall
+X  mca04477      ! Mca04477               2-APR-1988  8:56pm * burrow
+X  sajiv         ! Sajiv                 30-MAR-1988  6:06pm * great hall
+X  chad          ! Chad                  30-MAR-1988  6:37pm * chuk's elevato
+Vr
+X  jennifer      ! Jennifer              30-MAR-1988  7:22pm * east hall
+X  lasonia       ! Lasonia               29-MAR-1988 11:22am * west hall
+X  brian_t       ! Brian_t               29-MAR-1988 11:59am * maelstrom
+X  mikk          ! Random                29-MAR-1988 11:19pm * ledge
+X  topher        ! Topher                28-MAR-1988  1:19pm * great hall
+X  spectre       ! Ghost in the machine  28-MAR-1988 11:43pm * ghost's mailro
+Vom
+X  dave          ! Dave                  18-MAR-1988 10:14am * post office ha
+Vll
+X  penguins      ! Penguins Amok         18-MAR-1988 11:52pm * chuk's elevato
+Vr
+X  lawson        ! Space Cowboy          18-MAR-1988 12:23pm * great hall
+X  heidi         ! Heidi                 17-MAR-1988  1:11am * digital purgat
+Vory
+X  bueno         ! Bueno                 17-MAR-1988  7:49pm * post office ha
+Vll
+X  dan           ! Grando                16-MAR-1988  8:18am * eye of the hur
+Vricane
+X  eric_yue      ! Samsok                16-MAR-1988  9:29pm * the yueguy's j
+Voint
+X  cra01453      ! Cra01453              15-MAR-1988  3:01am * great hall
+X  adam          ! Adam                  14-MAR-1988  6:45pm * round room
+X  was04906      ! Milt                  14-MAR-1988  9:48pm * great hall
+X  watson        ! Watson                14-MAR-1988 10:22pm * chuk's elevato
+Vr
+X  brianw        ! Brianw                12-MAR-1988         * ffoirefirma
+X  mike          ! Mike                  12-MAR-1988         * toxicated
+X  predator      ! Predator              12-MAR-1988         * east hall
+X  daniel        ! Daniel                11-MAR-1988         * west hall
+X  dav08345      ! Dav08345              11-MAR-1988         * great hall
+X  vlahos        ! otis                  11-MAR-1988         * post office
+X  ginter        ! Ginter                10-MAR-1988         * living room
+X  rob09549      ! Rob09549               9-MAR-1988         * great hall
+X  dora          ! Dora                   8-MAR-1988         * toxicated
+X  kim           ! kim                    8-MAR-1988         * post office 2
+X  michael       ! Prabdib                7-MAR-1988         * tunnel of love
+X  bradley       ! Bradley               29-FEB-1988         * eye of the hur
+Vricane
+X  john          ! Raunchmeister         29-FEB-1988         * underhall
+X  melvin        ! Killer Melvin         27-FEB-1988         * chuk's elevato
+Vr
+X  cliff         ! Cliff                 26-FEB-1988         * east hall
+X  `032
+X4 E`032
+XAppendix E:  An Actual Monster Game Log
+X`032
+X  $ monster
+X  Welcome to Monster!  Hit return to start:
+X  `032
+X  Welcome back, Faust.  Your last play was on 1-JUN-1988 at 10:47pm.
+X  `032
+X  You're in Great Hall
+X  You're in the middle of a vast hall stretching out of sight to the
+X  east and west.  Strange shadows play across the high vaulted ceiling.
+X  The floor is set with smooth rectangular stones.  The walls feel slightly
+X  cold to the touch, and damp with condensation.  A copper plaque, slightly
+X  green with age, is set into one wall.
+X  `032
+X  Monster Manager is here.
+X  >
+X  Monster Manager vanishes in a brilliant burst of multicolored light.
+X  > l
+X  You're in Great Hall
+X  You're in the middle of a vast hall stretching out of sight to the
+X  east and west.  Strange shadows play across the high vaulted ceiling.
+X  The floor is set with smooth rectangular stones.  The walls feel slightly
+X  cold to the touch, and damp with condensation.  A copper plaque, slightly
+X  green with age, is set into one wall.
+X  `032
+X  >
+X  Monster Manager appears in a brilliant burst of multicolored light.
+X  > who
+X                     Monster Status
+X                   1-JUN-1988 10:48pm
+X  `032
+X  Username        Game Name                 Where
+X  dolpher         Monster Manager           great hall
+X  skrenta         Faust                     great hall
+X  > look plaque
+X  `032
+X  The plaque looks very old and corroded.   However, you can still make out
+X  the writing:
+X  `032
+X   " Monster, created by Rich Skrenta, 1988.  Play at your own risk. "
+X  `032
+X  > show details
+X  Details here that you may inspect:
+X      stones
+X      plaque
+X  > look stones
+X  The stones are rough and black, and cold to the touch.  Although the
+X  mortar work appears to have been expertly done, it has decayed with time.
+X  Many stones are cracked, and narrow spaces fracture the carefully laid
+X  pattern.  Some of the stones are quite loose.  You might be able to lift
+X  one of them with some effort.
+X  >
+X  Monster Manager is looking at the stones.
+X  >
+X  Monster Manager is looking at the plaque.
+X  >
+X  Monster Manager says, "Hey Faust, let's go down to the Underhall."
+X  >
+X  Monster Manager manages to lift a stone in the floor and descends.
+X  > lift
+X  With great effort, you manage to lift the stone enought to fit inside.
+X  `032
+X  Once below the stone, it falls back into place, sealing out the light
+X  from above.  You squirm down the narrow tunnel . . .
+X  `032
+X  You're in UnderHall
+X  This is a cramped, humid room beneath the Great Hall.  The walls are
+X  dripping with water condensed from mist rising from the baths.  Some
+X  of the mist follows the ceiling and dissappears up the narrow tunnel.
+X  `032
+X  Stairs lead north down to the Great Baths.
+X  A neon sign flashes "Great PIB's Lair" over a door to the South.
+X  You could manage a crawl through a narrow tunnel leading upwards.
+X  `032
+X  Monster Manager is here.
+X  > look Monster Manager
+X  Monster Manager is the stereotype of a computer hacker.  He is wearing
+X  a flannel shirt with several snickers bars in the breast pocket.  On
+X  his belt is an ASCII-HEX conversion chart.  On his feet are a scuffed
+X  pair of hiking boots so he can tackle those dangerous mountains that
+X  crop up in operations.  Also dangling from his belt is a battered box
+X  with many buttons on the front and wires with sockets on the ends protrudi
+Vng
+X  from the back.  The switches seem to have been placed haphazardly, but
+X  the object is unmistakably one of great power nonetheless.
+X  `032
+X  Monster Manager is in perfect health.
+X  Monster Manager is empty handed.
+X  >
+X  Monster Manager is looking at you.
+X  >
+X  Monster Manager swings at you but misses.
+X  >
+X  You duck in time to avoid Monster Manager's punch.
+X  >
+X  You see stars as Monster Manager bashes you in the face.
+X  >
+X  You parry Monster Manager's attack.
+X  > punch Monster Manager
+X  You can't punch the Monster Manager.
+X  > l
+X  You're in UnderHall
+X  This is a cramped, humid room beneath the Great Hall.  The walls are
+X  dripping with water condensed from mist rising from the baths.  Some
+X  of the mist follows the ceiling and dissappears up the narrow tunnel.
+X  `032
+X  Stairs lead north down to the Great Baths.
+X  A neon sign flashes "Great PIB's Lair" over a door to the South.
+X  You could manage a crawl through a narrow tunnel leading upwards.
+X  `032
+X  Monster Manager is here.
+X  > n
+X  You're in Great Baths
+X  These are the luxurious Great Baths where tired adventurers may come
+X  to relax and try to regain their health and youth from the mineral waters.
+X  From where you stand at the entrance, you can see below you the bubbling
+X  soapy pools of water churning violently in tile-lined pits.  The pools
+X  are fed by hot springs from deep in the rock beneath you.  Steam and
+X  huge soapy bubbles rise out of the hot pools of water.  The bubbles
+X  dance through the air, climbing higher and higher, until they either
+X  burst on the sharp walls of the cave or are lost in the mist above you.
+X  `032
+X  Shallow tiled steps, wet and slick from the hot soapy waters of the
+X  springs, lead down to the pools.
+X  `032
+X  Rough stone stairs lead up to the south.
+X  `032
+X  >
+X  In an explosion of orange smoke Monster Vice Manager poofs into the room.
+X  >
+X  Monster Manager has come down the stairs from the Underhall.
+X  >
+X  Monster Vice Manager produces a "who" list and reads it.
+X  > system
+X  System> v
+X  `032
+X                 used   free   total
+X  Block file    1008     92    1100
+X  Line file     1501    109    1610
+X  Room file      283     27     310
+X  Object file    139     41     180
+X  Integer file     6      0       6
+X  `032
+X  System>
+X  Monster Vice Manager is in system maintenance mode.
+X  System> exit
+X  >
+X  Monster Vice Manager is no longer in system maintenance mode.
+X  > 'Hey Gary
+X  >
+X  Monster Vice Manager says, "Hi, Faust."
+X  > look Monster Vice Manager
+X  The Monster Vice Manager is dressed in a conservative three piece
+X  suit.  The stern expression on his face is just a facade, he really
+X  is a warm and sensitive guy underneath.  He is willing to answer
+X  any questions and help out with any problems.  He can best be
+X  described by the phrase:
+X  `032
+X              "Do what thou wilt, so mete it be."
+X  `032
+X  He returns your gaze with a hint of understanding and amusement.
+X  `032
+X  Monster Vice Manager is in perfect health.
+X  Monster Vice Manager is empty handed.
+X  >
+X  Monster Vice Manager is looking at you.
+X  > punch Monster Vice Manager
+X  You swing wild and miss.
+X  > .
+X  Monster Vice Manager ducks and avoids your punch.
+X  > .
+X  A quick punch, but it only grazes Monster Vice Manager.
+X  >
+X  You only feel the breeze as Monster Vice Manager swings wildly.
+X  > .
+X  You swing wild and miss.
+X  >
+X  You see stars as Monster Vice Manager bashes you in the face.
+X  >
+X  You only feel the breeze as Monster Vice Manager swings wildly.
+X  > .
+X  You deliver a quick jab to Monster Vice Manager's jaw.
+X  >
+X  Monster Vice Manager's swing misses you by a yard.
+X  > .
+X  Your roundhouse blow sends Monster Vice Manager reeling.
+X  >
+X  You double over after Monster Vice Manager lands a mean jab to your stomac
+Vh!
+X  Monster Vice Manager looks a little dazed.
+X  >
+X  Monster Vice Manager vanishes from the room in a cloud of orange smoke.
+X  > who
+X                     Monster Status
+X                   1-JUN-1988 10:56pm
+X  `032
+X  Username        Game Name                 Where
+X  dolpher         Monster Manager           great baths
+X  skrenta         Faust                     great baths
+X  gary            Monster Vice Manager      inner office
+X  > poof inner office
+X  `032
+X  This rooms is a conservatively decorated office.  A large
+X  desk dominates the room.  Several pictures hang on the walls
++-+-+-+-+-+-+-+-  END  OF PART 28 +-+-+-+-+-+-+-+-

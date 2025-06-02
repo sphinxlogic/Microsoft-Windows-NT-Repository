@@ -1,0 +1,1735 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i087:  ss - Simple Spreadsheet program, v1.2b, Part01/11
+Message-ID: <csm-v35i087=ss.091453@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 221b475df622c1d8cb023527e06f9ce5
+Date: Mon, 22 Feb 1993 15:17:39 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 87
+Archive-name: ss/part01
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+ss is a spreadsheet program.  It is based upon the well known(?)
+public domain spreadsheet program ``sc'' version 6.19.
+
+ss is curses based.  It should function on any ASCII terminal, or in
+any terminal window in a windowing environment.
+
+ss is a major overhaul of the _user_interface_ of sc.  I tried to
+make it much more similar to the spreadsheets found on personal
+computers.  It makes use of hierarchical menus, and has a full range
+of `standard' spreadsheet functions.
+
+THIS IS A BETA RELEASE.  CAVEAT EMPTOR.
+
+I toyed around with starting off at version number 7.0, since I used
+sc 6.19 (and later 6.21) as my starting point, but I decided that
+would be a bit presumptuous.  So I hope this low release/version
+number doesn't scare away too many people.  There really is a *LOT*
+of work put in by a lot of people over a long period of time in the
+sc 6.19 code, which serves as the heart of ss.
+
+This is an ASCII spreadsheet program.  This is not Lotus 1-2-3.  It
+is not Microsoft Excel.  It does not do graphs or charts.  It does
+not do drawings.  It does not use a mouse.
+
+It _does_ do a fine job of manipulating rows and columns of numbers.
+Want a simple way of managing your student's grades, calculating class
+averages, etc?  No problem.  Want to figure out how much money you
+can borrow from the bank for a mortgage?  We can do that.
+
+FTP:
+ss is available for anonymous ftp from ftp.cs.ualberta.ca 
+(129.128.4.241) in the directory pub/ss_1.2b.tar.Z.
+
+Please ftp during off hours.  (We are located in Mountain Time Zone,
+which is 6-7 hours before Greenwich, depending on Daylight Savings
+time).
+
+ ...art mulder ( art@cs.ualberta.ca )    | "Do not be conformed to this world,
+ Department of Computing Science         |  but be transformed by the renewal
+ University of Alberta, Edmonton, Canada |  of your mind, ..."  Romans 12:2
+
+ ----------------------------------------------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b ss_12b/examples ss_12b/keys.h ss_12b/menu_rowcol.c
+#   ss_12b/sc_stuff ss_12b/ss.man.A ss_12b/sunfkeys
+# Wrapped by kent@sparky on Sat Feb 20 16:01:00 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 11)."'
+if test ! -d 'ss_12b' ; then
+    echo shar: Creating directory \"'ss_12b'\"
+    mkdir 'ss_12b'
+fi
+if test ! -d 'ss_12b/examples' ; then
+    echo shar: Creating directory \"'ss_12b/examples'\"
+    mkdir 'ss_12b/examples'
+fi
+if test -f 'ss_12b/keys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/keys.h'\"
+else
+  echo shar: Extracting \"'ss_12b/keys.h'\" \(2839 characters\)
+  sed "s/^X//" >'ss_12b/keys.h' <<'END_OF_FILE'
+X/*
+X * %W% %G%
+X *
+X *	ss	Art's Spread sheet program
+X *
+X *	Key Definition header file
+X *		- This is a prime candidate for an 'rc' file
+X */
+X
+X#define ctl(c) ((c)&037)
+X#define ESC 033
+X#define DEL 0177
+X
+X/*
+X * I set up this header file, to make it easy for customization
+X * of key bindings.  An "rc" file is the next step.
+X */
+X
+X/*
+X * CONTROL KEYS
+X * 	I don't know how to disable flow control, so I don't use
+X * 	control `s' or `q'.
+X *
+X * Checklist:
+X * A: kSTART	G: kGOTO	M: kABORT	S: n/a		Y: kCOPY
+X * B: kLEFT	H: kBS 		N: kDOWN	T: kTOP		Z: kSTOP
+X * C: kBREAK	I: kTAB		O		U
+X * D: kDEL	J: kJUMP	P: kUP		V: kPGDN
+X * E: kFINISH	K: kEXP		Q: n/a		W: kMARK
+X * F: kRIGHT	L: kREDRAW	R: kVAL		X: Ctrl-X Prefix
+X */
+X
+X#define kLEFT	ctl('b')	/* Move Cursor Left */
+X#define kDOWN	ctl('n')	/* ... Down */
+X#define kUP	ctl('p')	/* ... Up */
+X#define kRIGHT	ctl('f')	/* ... Right */
+X	/* the main input routine [nmgetch()] converts the keypad keys to
+X	 * control chars (defined here).  Hence, *at this time*
+X 	 * we cannot just use the curses definitions of the keys.
+X 	 */
+X
+X#define kTAB	ctl('i')	/* Tab key */
+X
+X#define kSTART	ctl('a')	/* Move to column A of current row */
+X#define kFINISH ctl('e')	/* Move to last valid column in curr. row */
+X
+X#define kSTOP	ctl('z')	/* Stop/Halt/Suspend program */
+X#define kBREAK	ctl('c')	/* Break */
+X#define kABORT	ctl('m') 	/* Abort menus */
+X
+X#define kBS	ctl('h')	/* Backspace */
+X
+X#define kTOP	ctl('t')	/* Move to row 0 of current column */
+X#define kPGDN	ctl('v')	/* Move cursor down one page */
+X
+X#define kREDRAW	ctl('l')	/* Redraw screen */
+X#define kEXP	ctl('k')	/* Redraw, highlight Expression cells */
+X#define kVAL	ctl('r')	/* Redraw, highlight value cells */
+X
+X#define kJUMP	ctl('j')	/* Jump to the end of a specified range */
+X#define kGOTO	ctl('g')	/* Goto a Cell */
+X
+X#define kDEL	ctl('d')	/* Delete/Erase the current cell */
+X#define kMARK	ctl('w')	/* Mark a cell for copying */
+X#define kCOPY	ctl('y')	/* Copy a previously Marked Cell
+X				   to the current cell */
+X/*
+X * META KEYS
+X * 	- in combination with the meta (ESC) keys
+X */
+X#define kMETA	ESC		/* Meta Prefix Key. */
+X
+X#define kHOME	'<'		/* Move cursor to cell A0 */
+X#define kEND	'>'		/* Move to last row of current column */
+X
+X#define kPGUP	'v'		/* Move cursor up one 'page' */
+X
+X#define kBACK	'b'		/* backward to prev. valid cell */
+X#define kFORW	'f'		/* forward to next valid cell */
+X
+X/*
+X * Ctrl-X KEYS
+X * 	- in combination with the Ctrl-X key.
+X */
+X#define kCTRLX	ctl('x')	/* ^X- Prefix Key */
+X    /* Sort of silly, but constants are better than
+X     * "Magic" values/numbers scattered througout
+X     * your code.
+X     */
+X       
+X#define kPGRIGHT '>'		/* Move Right one page */
+X#define kPGLEFT  '<'		/* Move Left one page */
+X
+X#define kEDVAL   'v'		/* Edit the Cell Value */
+X#define kEDLABL  'l'		/* Edit the Cell Label */
+X/*******************
+X*	END
+X********************/
+END_OF_FILE
+  if test 2839 -ne `wc -c <'ss_12b/keys.h'`; then
+    echo shar: \"'ss_12b/keys.h'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/keys.h'
+fi
+if test -f 'ss_12b/menu_rowcol.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/menu_rowcol.c'\"
+else
+  echo shar: Extracting \"'ss_12b/menu_rowcol.c'\" \(8286 characters\)
+  sed "s/^X//" >'ss_12b/menu_rowcol.c' <<'END_OF_FILE'
+X/**********************************************************************
+X* %M%
+X* Art Mulder ( art@cs.ualberta.ca )
+X* University of Alberta, Department of Computing Science.
+X***********************************************************************
+X* Row & Column Menu Operations
+X***********************************************************************
+X**********************************************************************/
+X#ifndef lint
+X  static char Sccsid[] = "%W% %G%";
+X#endif
+X
+X/*
+X * Include files
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include "curses_stuff.h"
+X
+X#include "ss.h"
+X#include "getinput.h"
+X#include "disprange.h"
+X#include "menu_rowcol.h"
+X
+X/*	Internal Macros & Data Structures
+X *----------------------------------------------------------------------
+X */
+X 
+Xstatic int minr;		/* To hold a range: min-row */
+Xstatic int minc;		/* ... min-column */
+Xstatic int maxr;		/* ... max-row */
+Xstatic int maxc;		/* ... max-column */
+X
+X/*	External Global variables
+X *----------------------------------------------------------------------
+X */
+X
+X
+X
+X/*	Externally Accessible Functions
+X ***********************************************************************
+X */
+X
+Xvoid RCInsert(IsRow)
+X/*----------------------------------------------------------------------
+X** Insert some Rows or Columns.  If a range is defined, insert the
+X** number of rows (columns) spanned by the range.  If no range is
+X** defined, insert just one row (column). 
+X**
+X** Rows (columns) will be inserted *BEFORE* the current one.
+X** In the case of a range, the 'current' row (column) will be the 
+X** topmost row (leftmost column).
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X    RangeGetNum(&minr, &minc, &maxr, &maxc);         
+X
+X    if (IsRow) {		/* Insert row(s) */
+X	currow = minr;
+X	insertrow( (maxr - minr +1) );	     /* # rows to insert */
+X	
+X    } else {			/* Insert Column(s) */
+X	curcol = minc;
+X	opencol(curcol, (maxc - minc +1) );  /* # cols to insert */
+X    }
+X} /* RCInsert() */
+X
+Xvoid RCDelete(IsRow)
+X/*----------------------------------------------------------------------
+X** Delete some Rows or Columns.  If a range is defined, the
+X** number of rows (columns) spanned by the range.  If no range is
+X** defined, delete just the row (column) where the cell cursor is. 
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X    RangeGetNum(&minr, &minc, &maxr, &maxc);         
+X
+X    /*
+X     * Set up message to prompt user
+X     */
+X    if (IsRow) {		/* Deleting a Row */
+X	if (minr == maxr)	/* ...No Range */
+X	    Sprintf(message, "** Delete the Current Row ?");
+X	else
+X	    Sprintf(message, "** Delete the Rows %d:%d ?", minr, maxr);
+X
+X    } else {			/* Deleting a Column */
+X	if (minc == maxc)	/* ...No Range */
+X	    Sprintf(message, "** Delete the Current Column ?");
+X	else {
+X	    /* coltoa uses static storage, which we have to get around.  */
+X	    Sprintf(message, "** Delete the Columns %s:", coltoa(minc) );
+X	    Sprintf(message + strlen(message), "%s ?", coltoa(maxc) );
+X	}
+X    }
+X
+X    /*
+X     * Ask user...
+X     */
+X    if (yn_ask(message) == 1) {
+X	if (IsRow)		/* Delete Row(s) */
+X	    deleterow(minr,maxr);
+X	else			/* Delete Column(s) */
+X	    closecol(minc, maxc);
+X    }
+X} /* RCDelete() */
+X
+X
+Xvoid RCYank(IsRow)
+X/*----------------------------------------------------------------------
+X** Yank back previously deleted set of cells, making room for them by
+X** inserting enough rows, or columns.
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X
+X  if (IsRow)			/* Yank Rows */
+X      pullcells('r');
+X  else				/* Yank Columns */
+X      pullcells('c');
+X
+X} /* RCYank() */
+X
+X
+Xvoid RCMerge()
+X/*----------------------------------------------------------------------
+X** Yank back previously deleted set of cells.
+X** DO NOT make room for them.  Overwrite the contents of
+X** any cells at the current cell-cursor position.
+X**
+X** NOTE: THIS IS IRRESPECTIVE OF "Row" or "Column".
+X** It really belongs on the "Edit" Menu, but leave here for now,
+X** to be by the "Yank" Command.
+X*/
+X{
+X    if (yn_ask("OVERWRITE current cells with Yanked cells?")) 
+X	pullcells('m');
+X    
+X} /* RCMerge() */
+X
+X
+Xvoid RCCopy(IsRow)
+X/*----------------------------------------------------------------------
+X** Make a copy (duplicate) of the current row (column), and insert
+X** it into the spreadsheet to the right (below) of the current
+X** row (column).
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X
+X    if (IsRow)			/* Hide Row */
+X	duprow();
+X    else			/* Hide Column */
+X      dupcol();
+X
+X} /* RCCopy() */
+X
+Xvoid RCHide(IsRow)
+X/*----------------------------------------------------------------------
+X** Hide some rows (columns).  If a range is defined, hide the
+X** number of rows (columns) spanned by the range.  If no range is
+X** defined, hide just the current row (column). 
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X    RangeGetNum(&minr, &minc, &maxr, &maxc);
+X    
+X    if (IsRow)			/* Show Hidden Row(s) */
+X	hiderow(minr,maxr);
+X    else			/* Show Hidden Column(s) */
+X	hidecol(minc,maxc);
+X
+X} /* RCHide() */
+X
+Xvoid RCShow(IsRow)
+X/*----------------------------------------------------------------------
+X** Show Hidden Row's (Columns)
+X** Shows the *first* hidden row(s) (columns) in the spreadsheet,
+X** starting at the left (top).
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X    register int i,j;
+X
+X    
+X    if (IsRow) {			/* Show Hidden Row(s) */
+X	/**      rowshow_op(); **/
+X
+X	for (i=0; i<maxrows; i++) 	/* STOLEN from "rowshow_op()" */
+X	    if (row_hidden[i])		/* in "cmds.c" ... */
+X		break;
+X	for(j=i; j<maxrows; j++)
+X	    if (!row_hidden[j]) 
+X		break;
+X	j--;
+X
+X	if (i>=maxrows) {
+X	    error ("No hidden rows to show");
+X	    return;
+X
+X	} else 
+X	    Sprintf(line,"show %d:%d", i, j);
+X	
+X    } else {			/* Show Hidden Column(s) */
+X	/**      colshow_op(); **/
+X
+X	for (i=0; i<maxcols; i++) 	/* STOLEN from "colshow_op()" */
+X	    if (col_hidden[i])		/* in "cmds.c" */
+X		break;
+X	for(j=i; j<maxcols; j++)
+X	    if (!col_hidden[j])
+X		break;
+X	j--;
+X
+X	if (i>=maxcols) {
+X	    error ("No hidden columns to show");
+X	    return;
+X	} else {
+X	    Sprintf(line,"show %s:", coltoa(i));
+X	    Sprintf(line + strlen(line),"%s",coltoa(j));
+X	}
+X    }
+X    PROCESS_line;
+X
+X} /* RCShow() */
+X
+Xvoid RCValueize(IsRow)
+X/*----------------------------------------------------------------------
+X** Valueize some rows (columns).  If a range is defined, Valueize the
+X** number of rows (columns) spanned by the range.  If no range is
+X** defined, valueize just the current row (column). 
+X*/
+X    int IsRow;			/* TRUE = a Row, FALSE = Column */
+X{
+X    RangeGetNum(&minr, &minc, &maxr, &maxc);
+X
+X    /*
+X     * Set up message to ask user...
+X     */
+X    if (IsRow) {		/* Valueizing a Row */
+X	if (minr == maxr)	/* ...No Range */
+X	    Sprintf(message, "** Valueize the Current Row ?");
+X	else
+X	    Sprintf(message, "** Valueize the Rows %d:%d ?", minr, maxr);
+X
+X    } else {			/* Valueizing a Column */
+X	if (minc == maxc)	/* ...No Range */
+X	    Sprintf(message, "** Valueize the Current Column ?");
+X	else
+X	    Sprintf(message, "** Valueize the Columns %s:%s ?",
+X		    coltoa(minc), coltoa(maxc) );
+X    }
+X
+X    /*
+X     * Ask user...
+X     */
+X    if (yn_ask(message) == 1) {
+X	if (IsRow)		/* Valueize Row */
+X	    valueize_area(minr, 0, maxr , maxcol);
+X	else {			/* Valueize Column */
+X	    valueize_area(0, minc, maxrow, maxc );
+X/**	    pullcells('c'); **/  /* I dunno *WHY* this is here?  Art M. */
+X	}
+X	modflg = 1;
+X    }
+X} /* RCValueize() */
+X
+X	
+Xvoid ColFormat()
+X/*----------------------------------------------------------------------
+X** Format the current column.  (This is primarily usefull for adjusting
+X** the column width.)  There seems to be some overlap here between
+X** this funciton and the format function in the edit menu.
+X**
+X** SHOULD BE FIXED UP
+X*/
+X{
+X    static char temp_str[MAXSTR];
+X
+X    Sprintf(temp_str, "%d %d %d", fwidth[curcol], precision[curcol],
+X	    realfmt[curcol]);
+X    Sprintf(message,
+X	    "** Enter format for column %s (width, precision, realfmt)",
+X	    coltoa(curcol) );
+X
+X    Message(message);
+X    buff = gi_editline(temp_str);
+X    ABORT_AND_RETURN_IF_BUFF_NULL;
+X
+X    Sprintf( line, "format [for column] %s %s", coltoa(curcol), buff);
+X    PROCESS_line;
+X    
+X} /* ColFormat() */
+X
+X/**********************************************************************
+X*       End
+X**********************************************************************/
+X
+END_OF_FILE
+  if test 8286 -ne `wc -c <'ss_12b/menu_rowcol.c'`; then
+    echo shar: \"'ss_12b/menu_rowcol.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/menu_rowcol.c'
+fi
+if test ! -d 'ss_12b/sc_stuff' ; then
+    echo shar: Creating directory \"'ss_12b/sc_stuff'\"
+    mkdir 'ss_12b/sc_stuff'
+fi
+if test -f 'ss_12b/ss.man.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/ss.man.A'\"
+else
+  echo shar: Extracting \"'ss_12b/ss.man.A'\" \(44116 characters\)
+  sed "s/^X//" >'ss_12b/ss.man.A' <<'END_OF_FILE'
+X'\" t
+X.\" Run through tbl first
+X.\" **********************************************************************
+X.\"              Copyright (c) 1992 by Arthur E. Mulder.
+X.\"
+X.\"         (See the end of this file for a copyright notice)
+X.\" **********************************************************************
+X.\" * %M%
+X.\" * ss    :       A SpreadSheet Program
+X.\" *
+X.\" * Art's Spreadsheet program.        Art Mulder ( art@cs.ualberta.ca )
+X.\" * University of Alberta, Department of Computing Science.
+X.\" **********************************************************************
+X.\" * Main Documentation (Man Page)
+X.\" **********************************************************************
+X.\"
+X.\" USAGE: tbl <this file> | nroff -man 
+X.\"
+X.\" WARNING:
+X.\"   1) The string "pname" is converted to the true program name
+X.\"      by the makefile, throughout this document.
+X.\"   2) The string "#LIBDIR#" is converted to the value of the variable
+X.\"	 LIBDIR from the Makefile.
+X.\"   3) The string "#REVISION#" is converted to the revision number of
+X.\"      of the package, as stripped from 'version.c', by 'torev'.
+X.\"
+X.\" CONVENTIONS:
+X.\" - pname italicized and never uppercased (it's a proper name).
+X.\" - Refer to lists of commands in the same order as introduced.
+X.\" - Command and function names bold when introduced, italicized in all
+X.\"   other places if possible, or in `` '' if not.
+X.\" - Cell names italicized except when used in expressions; row numbers
+X.\"   and column names not italicized.
+X.\" - Use `` '' rather than " " except referring to literal input or output.
+X.\" - TPs use default indent except for function names, then 18.
+X.\" - Smallify uppercase strings.
+X.\" - Avoid passive voice and third person.
+X.\" $Revision: 6.19 $
+X.\" **********************************************************************
+X.\"
+X.TH PNAME\ #REVISION#\  L
+X.SH NAME
+Xpname \- simple spreadsheet program
+X.SH SYNOPSIS
+X.B pname
+X[
+X.B -c
+X]
+X[
+X.B -m
+X]
+X[
+X.B -r
+X]
+X[
+X.B -x
+X]
+X[
+X.B -C
+X]
+X[
+X.B -R
+X]
+X[
+X.I file
+X]
+X.\"
+X.\" **********************************************************************
+X.SH DESCRIPTION
+X.\" ***********
+X.I pname
+Xis a spreadsheet program (big surprise!).  
+X.LP
+XIt is not another Lotus 1-2-3(tm) or Excel(tm) or etc spreadsheet
+Xprogram that consumes megabytes of disk space and is full of whiz-bang
+Xgraphics and fonts and so on and so forth that the average user (IMHO)
+Xneeds and uses only infrequently.
+X.LP
+X.I pname
+Xis a character based program that should run on any standard ASCII
+Xterminal.  It is based on rectangular tables much like a financial
+Xspreadsheet.  When invoked it presents you with a table organized as
+Xrows and columns of cells \- just like any ``normal'' spreadsheet
+Xprogram.  
+X.\" ** .LP
+X.\" ** For a online tutorial, type the command:
+X.\" ** .IP
+X.\" ** pname #LIBDIR#/tutorial.pname
+X.\" ** .LP
+X.\" ** To print a quick reference card, type the command:
+X.\" ** .IP
+X.\" ** pnameqref | [your_printer_commmand]
+X.\"
+X.\" **********************************************************************
+X.SH OPTIONS
+X.\" ***********
+X.TP
+X.B \-c
+XStart the program with the recalculation being done in column order.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B \-m
+XStart the program with automatic recalculation disabled.  The
+Xspreadsheet will be recalculated only when the recalc command (see
+Xbelow) is used.
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B \-r
+XStart the program with the recalculation being done in row order
+X(default option).
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B \-x
+XCause the data files to be decrypted/encrypted when read/written.  (This
+Xoption may not be available at your site, depending on the capabilities
+Xof your computer system, check with your system administrator.)
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B \-R
+XStart the program with automatic newline action set to increment the
+Xrow (see below).
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B \-C
+XStart the program with automatic newline action set to increment the
+Xcolumn (see below).
+X.\" ----------------------------------------------------------------------
+X.TP
+X.B file
+XIf invoked without a
+X.I file
+Xargument, the table is initially empty.  Otherwise
+X.I file
+Xis read in.
+X.\" ----------------------------------------------------------------------
+X.PP
+XAll of these options can also be changed from within
+X.IR pname .
+XThose changes will then be saved when the current spreadsheet is saved,
+Xand reloaded when that spreadsheet is read in from disk.  Options
+Xspecified when
+X.I pname
+Xis invoked override options saved in the data file.
+X.\"
+X.\"
+X**********************************************************************
+X.SH INTRODUCTION
+X.\" ***********
+X.I pname
+Xis based upon the well-known (?)  public domain spreadsheet program
+X.RB `` sc '',
+Xversion 6.19.
+X.LP
+X.I pname
+Xis an ``un-moded'' program.  It does not have separate input and output
+Xmodes that you toggle between.  To enter numbers into your
+Xspreadsheet, go ahead and start typing.  You can enter text the same
+Xway, just do it (more detail on these operations below).
+X.LP
+XIf your keyboard has Arrow keys and/or Page-Up and Page-Down keys,
+Xthey should work as you expect them too.  If they don't, talk to
+Xwhomever installed this program on your system, it could be a simple
+Xterminfo/termcap problem.  If your keyboard doesn't have cursor
+Xmovement keys, relax.  When you use
+X.I pname 
+Xyou can also use the same cursor movement commands as emacs  (more
+Xon that below, also).
+X.LP
+XThere are a wide selection of financial and other ``standard''
+Xspreadsheet functions that you can use.  They are listed and explained
+Xin detail below.  (Wow, sure must be a lot of stuff below!)
+X.LP
+XFinally, instead of forcing you to memorize bazillions of different
+Xcommands, 
+X.I pname
+Xplaces most spreadsheet operations (Save, Move, etc) in menus.  These
+Xmenus are probably vaguely familiar to you, since they were inspired
+Xby a certain well-known DOS spreadsheet program.  Go ahead, hit the
+X``/'' key.  You probably will figure many things out without even
+Xreading on in this man page.
+X.LP
+XHowever, you probably should read on, because there's lot's to learn.
+XI'd also hate to have typed all this in for nothing!  :-)
+X.LP
+XNOTE: This man page assumes that the reader has a general familiarity
+Xwith spreadsheet programs.
+X.\" ----------------------------------------------------------------------
+X.SS Screen Layout
+X.\" ----------------------------------------------------------------------
+XThe screen is divided into four regions.  The top line is for entering
+Xcommands/data and displaying cell values.  The second line is for messages
+Xfrom
+X.IR pname .
+XThe third line and the first four columns show the column and row
+Xnumbers, from which are derived cell addresses, e.g.
+X.I A0
+Xfor the cell in column A, row 0.  Note that column names are
+Xcase-insensitive: Entering
+X.I A0
+Xis equivalent to
+X.IR a0 .
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.PP
+XThe rest of the screen forms a window looking at a portion of the
+Xtable.  The total number of table rows and columns displayed is set
+Xby
+X.IR curses (3)
+Xand may be overridden by setting the LINES and COLUMNS environment
+Xvariables, respectively.
+X.PP
+X.RS
+XNote to X-Windows users; Yes you can resize your terminal windows.
+XThe next time a command is processed, or the screen is redrawn,
+X.I pname
+Xwill figure things out and adjust itself.
+X.RE
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.PP
+XThe screen has two cursors:  a cell cursor, indicated by a highlighted
+Xcell and a ``<'' on the screen, and a character cursor, indicated by
+Xthe terminal's hardware cursor.  The cell and character cursors are
+Xoften the same.  They differ when you type a command on the top line.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.PP
+XIf a cell's numeric value is wider than the column width the cell is
+Xfilled with asterisks.  If a cell's label string is wider than the
+Xcolumn width, it is truncated at the start of the next non-blank cell
+Xin the row, if any.
+X.\" ----------------------------------------------------------------------
+X.SH How Input Is Processed
+X.\" ----------------------------------------------------------------------
+XLet's assume that you have just started
+X.IR pname ,
+Xso that you are at the ``top-level'' of input processing.  You enter
+Xa keystroke, a number or letter, arrow key or function key.  The
+Xprogram reads your input and processes it as follows:
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B Control-key, Arrow key, or Function key
+XThe appropriate function is performed  (ie: Move the cursor to
+Xthe next row).  See the section below entitled
+X.BR COMMANDS .
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B `/'
+XThe main top-level menu is displayed and the program enters
+X``menu-mode''.  See the section below entitled 
+X.BR MENUS .
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.\" ** .IP `?'
+X.\" ** Pop-up help is invoked.  CURRENTLY DISABLED.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B `0-9',`-',`.',`+',`@'
+XIt is assumed that you are entering a number (or a function, in the
+Xcase of `@'), into the current cell.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B `='
+XThis is retained for compatibility with ``sc'' .  It signals that you
+Xwish to enter a number/function in the current cell.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B `"',`>',`<'
+XThese characters indicate that you want to enter a centered,
+Xright-justified, or left-justified string into the cell.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B Default:
+XThe entry of any other character is taken to be a signal that you wish
+Xto enter a left-justified string.
+X.\"
+X.\" **********************************************************************
+X.SH MENUS
+X.\" ***********
+XThe main (top-level) menu is invoked with the `/' key.  
+X.LP
+XMenus are displayed on the top line of the screen.  Each menu item is
+Xusually one (hopefully self-explanatory) word.  Each menu item begins
+Xwith a single highlighted letter.  By typing the key corresponding to
+Xthe letter \- case is unimportant \- you select that menu item.
+X.LP 
+XI tried to have all the highlighted letters match the first letter of
+Xtheir menu item, but unfortunately there had to be a few exceptions.
+XWatch for those!
+X.LP
+XBy typing a <Return> or a <Space> you will abort out of any menu (no
+Xmatter how deep you are into sub-menu's) back to the top-level of the
+Xprogram.
+X.\" ----------------------------------------------------------------------
+X.SS Main Menu
+X.BR F :File 
+X.BR E :Edit
+X.BR C :Cell
+X.BR R :Row
+X.BR O :Column
+X.BR M :Misc
+X.BR A :Macro
+X.BR Q :Quit
+X.LP
+XWith the exception of 
+X.BR Quit ,
+Xall menu items on the Main Menu invoke sub-menus.  See below for
+Xexplanations of those.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Quit
+XExit from the program.  If there have been any changes in the
+Xspreadsheet since the last Load or Save command
+X.I pname
+Xasks about saving your data before exiting.
+X.\" ----------------------------------------------------------------------
+X.SS File Sub-Menu
+X.BR N :New
+X.BR L :Load
+X.BR M :Merge
+X.BR S :Save
+X.BR A :Save As
+X.BR W :Write
+Xtxt
+X.BR T :Tbl
+X.RI save( mode )
+X.BR Q :Quit
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I New
+XErase the current spreadsheet from memory and start fresh with an
+Xempty table.
+X.I (Unimplemented)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Load
+XLoad (``get'') a new spreadsheet file from disk.  Enter the name of a
+Xspreadsheet file to load, followed by <CR>.  If encryption is enabled,
+Xthe file is decrypted before it is loaded into the spreadsheet.
+X.IP
+XNOTE: 
+X.I pname
+Xfiles are (currently) identical to ``sc'' data files.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Merge
+XMerge the spreadsheet from the named file into the current one.
+XValues and expressions defined in the named file are read into the
+Xcurrent spreadsheet, overwriting the existing entries at matching cell
+Xlocations.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Save
+XSave (``put'') the current spreadsheet into a file.
+XIf encryption is enabled, the file is encrypted before it is saved.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Save As
+XPrompt the user to enter a filename, and then save (``put'') the
+Xspreadsheet into a file with that name.  If a <CR> is entered, the
+Xcurrent default filename is used.  The newly entered filename becomes
+Xthe new default filename.  If encryption is enabled, the file is
+Xencrypted before it is saved.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Write Txt
+XWrite a text-only listing of the current spreadsheet (No functions,
+Xetc) into a file in a form that matches its appearance on the screen.
+X.IP
+XThis differs from the ``Save'' commands in that files saved with those
+Xcommands are intended to be reloaded with ``Load'', while ``Write
+Xtxt'' produces a file for people to look at.  Hidden rows or columns
+Xare not shown when the data is printed.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Table Save
+XWrite a text-only listing of the current spreadsheet to a file,
+Xbut include delimiters suitable for processing by the
+X.IR tbl ,
+X.IR LaTeX ,
+X.IR TeX ,
+Xor 
+X.I FrameMaker
+Xtable processors.
+X.IP
+XThe 
+X.I tblstyle
+Xoption (see the ``Settings'' item on the Misc menu) controls which
+Xdelimiters are output.  The delimiters are are a colon (:) for style
+X.I 0
+X(no style defined) or
+X.IR tbl ,
+Xand an ampersand (&) for style
+X.I LaTeX
+Xor
+X.IR TeX .
+X.IP
+XThe current setting of the 
+X.I tblstyle 
+Xoption is displayed in parentheses after the ``Tbl Save'' entry of the
+XFile menu.  A question mark (?) indicates that no style has been defined
+X(style 0).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Quit
+XExit from the program.  Identical to the Quit option on the main
+Xtop-most menu.  (Actually the Quit option on the main top-most
+Xmenu is identical to 
+X.I this
+Xoption, but that really is irrelevant).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.PP
+XWith the ``Save'', ``Write Text'', and ``Table Save'' commands,
+Xit is possible to save a write a subset of the spreadsheet to the
+Xoutput file.  To do that, a 
+X.I range
+Xmust be defined prior to invoking those commands.  See the section
+Xbelow on Ranges, for instructions on defining a range.
+X.PP
+XWith the ``Write Text'' and ``Table Save'' commands, if you try to
+Xwrite to the last file used with the ``Load'' or ``Save/Save As''
+Xcommands, or the file specified on the command line when
+X.I pname
+Xwas invoked, you are asked to confirm that the (potentially) dangerous
+Xoperation is really what you want.
+X.PP
+XThe four output commands, (``Save'', ``Save As'', ``Write Text'' and
+X``Table Save''), can pipe their (unencrypted only) output to a
+Xprogram.  To use this feature, enter ``| program'' to the prompt
+Xasking for a filename.  For example, to redirect the output of the
+X``Write Text'' command to the printer, you might enter ``| lpr -p''.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.\" ** Hmmm, now that I've changed the way input is processed, this 
+X.\" ** next feature is no longer available, since I put the "filename"
+X.\" ** in quotes.  Can a workaround be discovered somehow?  Hmmm.
+X.\" 
+X.\" The filename can also be obtained from a cell's label string or string
+X.\" expression.  In this case, delete the leading " with the backspace key
+X.\" and enter a cell name such as
+X.\" .I a22
+X.\" instead.  If the resulting string starts with ``|'', the rest of the
+X.\" string is interpreted as a
+X.\" .SM UNIX
+X.\" command, as mentioned above.
+X.\"
+X.\" ----------------------------------------------------------------------
+X.SS Edit Sub-Menu
+X.BR C :Copy 
+X.BR E :Erase
+X.BR N :Name
+X.BR L :Lock
+X.BR U :Unlck
+X.BR F :Format
+X.BR I :Fill
+X.BR V :Valueize
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Copy 
+XCopy a source range to a destination range.  The source and
+Xdestination may be different sizes.  The result is always one or more
+Xfull copies of the source.  Copying a row to a row yields a row.
+XCopying a column to a column yields a column.  Copying a range to
+Xanything yields a range.  Copying a row to a column or a column to a
+Xrow yields a range with as many copies of the source as there are
+Xcells in the destination.  This command can be used to duplicate a
+Xcell through an arbitrary range by making the source a single cell
+Xrange such as
+X.IR b20:b20 .
+X.IP
+XThe Source Range must be defined before selecting this command.
+XYou will be prompted to enter a destination range.
+X.IP
+X.I BUG: 
+XYou MUST enter a range, and the range WILL be copied.  If you
+Xwant to abort this operation the only current solution is to select
+Xyour source range to also be your destination range.  Then there will
+Xbe a net effect of zero.  This should be addressed in the next release.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Erase
+XClear a range.  Cells cleared with this command may be recalled with
+Xthe ``Yank'' or ``Merge'' commands under the Row or Column menus.
+X(This is, of course, less than ideal \- this awkwardness is an example
+Xof some of the problems that arose in converting from ``sc''.)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Name
+XInvoke the Name sub-menu.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Lock
+XThis command will lock the current cell -- or a range of cells, if a
+Xrange of cells is specified.  Locking will make them immune to any
+Xtype of editing. A locked cell can't be changed in anyway until it is
+Xunlocked.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I UnLock
+XIn light of the previous command, the necessity of this command is
+Xobvious.  This command will unlock a locked cell and make it editable.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Format
+XUse this command to assign a value format string to a range of cells.
+XSee the section ``Formatting Cell Contents'' for details.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Fill
+XFill a range with constant values starting with a given value and
+Xincreasing by a given increment.  Each row is filled before moving on
+Xto the next row, if row order recalculation is set.  Column order fills
+Xeach column in the range before moving on to the next column.  The
+Xstart and increment numbers may be positive or negative.  To fill all
+Xcells with the same value, give an increment of zero.
+X.IP
+X.I Example:
+XA Starting value and Increment of "2 5"  (2 is the starting value, 5
+Xis the increment)  will result in the defined range being filled with
+Xthe values 2 7 12 17 22 27 ...
+X.IP
+XA Range must be defined or this command will abort.  (Filling a single
+Xcell is rather a silly thing to do).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Valueize
+XValues only.
+XThis command removes the expressions from a range of cells,
+Xleaving just the values of the expressions.
+X.IP
+X.I Example:
+XA cell contains a function which currently evaluates to 12.
+XValueizing that cell would result in the function being removed, and
+Xthe constant value 12 being inserted into the cell.
+X.IP
+X.I BUG:
+X``Valueize'' is almost certainly not a real word.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XThe Copy and Erase parts of this section are rather klunky &
+Xkludgy.  It needs work.  One hoped for improvement is to re-do this
+Xsection into a more Macintosh-like setup, with a CUT/COPY/PASTE type of
+Xinterface.  Hopefully this section will be cleaned up in the next
+Xrelease. 
+X.\"
+X.\" ----------------------------------------------------------------------
+X.SS Cell Sub-Menu
+X.BR E :Erase
+X.BR G :Goto
+X.BR M :Mark
+X.BR C :Copy
+Xmarked cell
+X.BR L :edit
+XLabel 
+X.BR V :edit
+XValue
+X.LP
+XThis menu deals with operations that affect the current cell only.
+XAll of these menu items have direct Control- or Function-Key
+Xequivalents.  I suspect that the direct keyboard equivalents will
+Xprove to be more used than this menu.  In which case, this menu will
+Xdisappear with the next release.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.\" ** Erasing a single cell can be accomplished by the Erase
+X.\" ** option of the edit menu, when called WITHOUT a range.
+X.\" ** Hence, it it redundant here.
+X.\" .TP
+X.\" .I Erase
+X.\" Clear the current cell.  Deletes the numeric value, label string,
+X.\" and/or numeric or string expression.  Cells cleared with this command
+X.\" may be recalled with any of the ``pull'' commands (see below).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.\" .TP
+X.\" .I Format
+X.\" Enter a format string into the current cell.  This format string
+X.\" overrides the precision specified with the ``Edit/Format'' command.
+X.\" The format only applies to numeric values.  See the Section on 
+X.\" .B Format
+X.\" for details.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Goto
+XGo to a cell.
+X.I pname
+Xprompts for a cell's name, a regular expression surrounded by quotes,
+Xor a number.  
+X.IP
+XIf a cell's name such as ``ae122 '' or the name of a
+Xdefined range is given, the cell cursor goes directly to that cell.
+XIf a quoted regular expression such as "Tax Table" or "^Jan [0-9]*$"
+Xis given,
+X.I pname
+Xsearches for a cell containing a string matching the regular
+Xexpression.  Note that you must use double quotes (") around a regular
+Xexpression.  See
+X.I regex(3)
+Xor
+X.I ed(1)
+Xfor more details on the form of regular expressions.  
+X.IP
+XIf a number is given,
+X.I pname
+Xwill search for a cell containing that number.
+XSearches for either strings or numbers proceed forward from the
+Xcurrent cell, wrapping back to a0 at the end of the table, and
+Xterminate at the current cell if the string or number is not found.
+X.IP
+XYou may also go to a cell with an ERROR (divide by zero, etc in this
+Xcell) or INVALID (references a cell containing an ERROR).  Entering
+X``error'' (No quotes!  Case unimportant) will take you to the next
+XERROR, while ``invalid'' takes you to the next invalid.  The last goto
+Xcommand is saved, and can be re-issued by entering <return> at the
+XGoto prompt.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Mark
+XMark a cell to be used as the source for the ``Copy Marked Cell''
+Xcommand.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Copy Marked Cell
+XCopy the last cell marked with the ``Mark'' command to the current
+Xcell, updating row and column references in its numeric or string
+Xexpression, if any.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Edit Label
+XEdit the string associated with the current cell.  A subset of
+X``emacs'' commands are used in this mode.  See ``Emacs Command/Entry
+XEditing'' below.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Edit Value
+XEdit the value associated with the current cell.  A subset of
+X``emacs'' commands are used in this mode.
+X.\" ----------------------------------------------------------------------
+X.SS Row & Column Sub-Menu's
+X.BR I :Insert
+X.BR D :Delete
+X.BR Y :Yank
+X.BR M :Merge
+X.BR C :Copy
+X.BR H :Hide
+X.BR S :Show
+X.BR V :Valueize
+X.BR F :Fmt
+X.LP
+XWith the exception of the ``Fmt'' item, the Row and Column Menus are
+Xidentical.  Fmt appears on the Column Menu only.  The operations on
+Xthe two menus are also identical, with the obvious explanation that
+XRow menu commands operate on Rows, and Column menu commands operate on
+XColumns. 
+X.LP
+XCommands which move or copy cells
+Xalso modify the row and column references in affected cell expressions.
+XThe references may be frozen by using the
+X.I fixed
+Xoperator or using the
+X.I $
+Xcharacter in the reference to the cell.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Insert
+XInsert some Rows or Columns.  If a range is defined, insert the number
+Xof rows (columns) spanned by the range.  If no range is defined,
+Xinsert just one row (column).  The new row (column) is empty.
+X.IP
+XRows (columns) will be inserted before the current one.
+XIn the case of a range, the 'current' row (column) will be the 
+Xtop-most row (leftmost column).
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Delete
+XDelete some Rows or Columns.  If a range is defined, delete the 
+Xrows (columns) spanned by the range.  If no range is defined, delete
+Xjust the row (column) where the cell cursor is.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Yank
+XYank (Pull) back a previously deleted set of cells, making room for
+Xthem by inserting enough rows, or columns.  They are inserted at the
+Xcurrent cursor location.
+X.IP
+X.I Note:
+XUsing the Row menu to Yank back a deleted Column will insert as many
+Xrows as were in the deleted column.  The same is true of using the
+XColumn menu to yank back a deleted Row.  These ``Features'' are
+Xprobably bugs.
+X.IP
+X.I Bug:
+X(Feature?) This operation will also yank back cells erased with the
+X``Erase'' command on the Edit menu.  In most of those cases though,
+Xyou will probably want to use the Merge command to do that.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Merge
+XThis command also yanks back previously deleted cells.  However, it
+Xdoes NOT insert rows or columns to make room for the yanked back
+Xmaterial.  The present contents of any cells (beginning at the current
+Xcell cursor location) will be overwritten.
+X.IP
+XUnlike the yank command, a merged-back column will start at the
+Xcurrent cell cursor location, it will NOT start in row 0.  The same is
+Xtrue of merged-back rows.
+X.IP
+XThis command is the same, whether you select it through the Row menu
+Xor the Column menu.
+X.IP
+XThis operation will also yank back cells erased with the
+X``Erase'' command on the Edit menu. 
+X.IP
+X.I Note:
+XThis command really belongs on the Edit menu.  However, it is
+Xtemporarily staying here, to be by the Yank command, to which it is a
+X``partner''. 
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Copy
+XMake a copy (a duplicate really) of the current row (column), and
+Xinsert it into the spreadsheet to the right (below) of the current row
+X(column).
+X.IP
+XThis command operates on only one row (column) at a time.  Any defined
+Xrange is ignored.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Hide
+XHide some rows (columns).  If a range is defined, hide the number of
+Xrows (columns) spanned by the range.  If no range is defined, hide
+Xjust the current row (column).
+X.IP
+XThis keeps a row (column) from being displayed but keeps it in the
+Xspreadsheet.  The status of the rows and columns is saved with the
+Xsheet so hidden rows and columns will be still be hidden when you 
+Xreload the spreadsheet.  Hidden rows or columns are not printed by the
+X``Write Txt'' command.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Show
+XShow Hidden Row's (Columns).  Shows the first hidden row(s) (columns)
+Xin the spreadsheet, starting at the left (top).
+X.\" ** in ``sc'' you could enter a range of rows/columns to be
+X.\" ** shown.  Perhaps that can be added back in, for the next release.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Valueize
+XValueize some rows (columns).  If a range is defined, Valueize the
+Xnumber of rows (columns) spanned by the range.  If no range is
+Xdefined, valueize just the current row (column).
+X.IP
+XSee the section on ``Valueize'' under the Edit Menu (above) for more
+Xinformation.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Fmt (Format)
+XThis option appears on the Column menu only.
+X.IP
+XFormat the current column.  (This is primarily useful for adjusting
+Xthe column width.)  There seems to be some overlap here between this
+Xfunction and the format function in the edit menu.  (as you might have
+Xguessed, this function is a holdover from ``sc'' that I have not
+Xexplored in any great depth.)
+XSHOULD BE FIXED UP.
+X.IP
+X.I (Here's the ``sc'' definition)
+XSet the output format to be used for printing the numeric values in
+Xeach cell in the current column.  Enter three numbers: the total width
+Xin characters of the column, the number of digits to follow decimal
+Xpoints, and the format type.  Format types are 0 for fixed point, 1
+Xfor scientific notation, 2 for engineering notation, and 3 for dates.
+XValues are rounded off to the least significant digit displayed.  The
+Xtotal column width affects displays of strings as well as numbers.  A
+Xpreceding count can be used to affect more than one column. 
+X.\" ----------------------------------------------------------------------
+X.SS Misc Sub-Menu
+X.BR ! :Shell
+XCmd
+X.BR O :Options
+X.BR S :Settings
+X.BR V :show
+XValues
+X.BR E :show
+XExpr.
+X.BR R :Recalc
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Shell Command
+X.I pname
+Xprompts for a shell command to run.  End the command line with the
+X<RETURN> key.  If the environment variable SHELL is defined, that
+Xshell is run.  If not, /bin/sh is used.  Giving a null command line
+Xstarts the shell in interactive mode.  A second ``!'' repeats the
+Xprevious command.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Options
+XInvoke the Options sub-menu.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Settings
+XSet options.  This command allows you to set various options.
+XA small menu lists some of the options that can be changed here.
+X.IP
+XAt the prompt, enter one of the following commands to change a
+Xspreadsheet setting.
+X.RS
+X.TP
+X.\" - - - - - - - - - -
+X.BR byrows /  bycols
+XSpecify the order of cell evaluation when updating.  These options
+Xalso affect the order in which cells are filled (see the Fill command
+Xon the Edit menu).
+X.\" ** and whether a row or column is cleared by an
+X.\" ** .I x
+X.\" ** command.
+X.\" - - - - - - - - - -
+X.TP
+X.BI iterations =n
+XSet the maximum number of recalculations before the screen is
+Xdisplayed again.  Iterations is set to 10 by default.
+X.\" - - - - - - - - - -
+X.TP
+X.BI tblstyle =s
+XControl the output of the Table Save command.
+X.I s
+Xcan be:
+X.B 0
+X(default) to give colon delimited fields, with no 
+X.I tbl
+Xcontrol lines;
+X.B tbl
+Xto give colon delimited fields, with
+X.IR tbl (1)
+Xcontrol lines;
+X.B latex
+Xto give a
+X.I LaTeX
+Xtabular environment; 
+X.B slatex
+Xto give a
+X.I SLaTeX (Scandinavian LaTeX)
+Xtabular environment; 
+X.B tex
+Xto give a
+X.I TeX
+Xsimple tabbed alignment with ampersands as delimiters; and
+X.B frame
+Xto produce a file suitable for reading into 
+X.BR FrameMaker .
+X.\" - - - - - - - - - -
+X.PP
+XOther options are normally used only in
+X.I pname
+Xdata files since they are available through the Options sub-menu.
+XHowever, they can also be set here.  (``sc'' holdover).
+X.TP
+X.BR autocalc / !autocalc
+XSet/clear auto recalculation mode.
+X.\" - - - - - - - - - -
+X.TP
+X.BR prescale / !prescale
+XSet/clear numeric prescale mode.
+X.\" - - - - - - - - - -
+X.TP
+X.BR extfun / !extfun
+XEnable/disable external functions.
+X.\" - - - - - - - - - -
+X.TP
+X.BR cellcur / !cellcur
+XSet/clear current cell highlighting mode.
+X.\" - - - - - - - - - -
+X.TP
+X.BR toprow /  !toprow
+XSet/clear top row display mode.
+X.\" - - - - - - - - - -
+X.TP
+X.BR rndinfinity /  !rndinfinity
+Xdefault: round-to-even (banker's round), *.5 will round to the closest even
+Xnumber; doing a 'set rndinfinity' will round *.5 up to the next integer
+X(rounding to infinity).
+X.\" - - - - - - - - - -
+X.TP
+X.BI craction =n
+XSet the newline action.
+X.I n
+Xcan be:
+X.B 0
+X(default) to give no action;
+X.B 1
+Xto move down after each entry; or
+X.B 2
+Xto move right after each entry.
+X.\" - - - - - - - - - -
+X.TP
+X.BI rowlimit =n
+XSet the remembered limit for the maximum row below which
+Xthe current cell will be moved to the top of the next column
+Xif the newline action is set to move the current cell down.
+X.I n
+Xcan be
+X.B -1
+X(default) to disable this facility.
+X.\" - - - - - - - - - -
+X.TP
+X.BI collimit =n
+XSet the remembered limit for the maximum column to the right of which
+Xthe current cell will be moved to the left of the next row
+Xif the newline action is set to move the current cell right.
+X.I n
+Xcan be
+X.B -1
+X(default) to disable this facility.
+X.RE
+X.\" - - - - - - - - - -
+X.IP
+XNOTE: this menu option is a holdover from the ``sc'' spreadsheet.
+XIt's 
+X.I feel
+Xreally does not match the current user interface, and should be
+Xreworked / replaced for the next release.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Show Values
+XRedraw the screen with special highlighting of cells to be filled in.
+XThis is useful for finding values you need to provide or update in a
+Xform with which you aren't familiar or of which you have forgotten the
+Xdetails.
+X.IP
+XIt's also useful for checking a form you are creating.  All cells
+Xwhich contain constant numeric values (not the result of a numeric
+Xexpression) are highlighted temporarily, until the next screen change,
+Xhowever minor.  To avoid ambiguity, the current range (if any) and
+Xcurrent cell are not highlighted.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Show Expr.
+XThis command is similar to
+X.I Show 
+X.IR Values ,
+Xbut highlights cells which have expressions.  It also displays the
+Xexpressions in the highlighted cells as left-flushed strings, instead
+Xof the numeric values and/or label strings of those cells.  This
+Xcommand makes it easier to check expressions, at least when they fit
+Xin their cells or the following cell(s) are blank so the expressions
+Xcan slop over (like label strings).  In the latter case, the slop over
+Xis not cleared on the next screen update, so you may want redraw the
+Xscreen (via
+X.IR ^L )
+Xafter this command in order to clean up the screen.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Recalc
+XRecalculates the spreadsheet.
+X.\" ----------------------------------------------------------------------
+X.SS Macro Sub-Menu
+X.BR R :Run
+X.BR D :Define
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Run
+X(Run macros) Since
+X.I pname
+Xfiles are saved as ASCII files, it is possible to use them as
+Xprimitive macro definition files.  The ``Run'' command makes this
+Xeasier.  It's like the ``File/Merge'' command, but prints a saved path
+Xname as the start of the filename to merge in.  The string to use is
+Xset with the ``Define'' command.  To write macros, you must be
+Xfamiliar with the file format written by the ``File/Save'' commands.
+X.B This facility is still primitive
+X.B and could be much improved.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Define
+XDefine a path for the ``Run'' command to use.
+X.\" ----------------------------------------------------------------------
+X.SS Name Sub-Menu
+X.BR D :Define
+XName
+X.BR E :Erase
+XName
+X.BR S :Show
+XNames
+X.LP
+XThis menu is invoked from the Edit menu.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Define Name
+XDefine a Name for a range of cells.  If no range is currently defined,
+Xthen define a name for the current cell.
+X.IP
+XNames defined in this fashion are used by the program in future
+Xprompts, may be entered in response to prompts requesting a cell or
+Xrange name, and are saved when the spreadsheet is saved.  Names
+Xdefined must be more than two alpha characters long to differentiate
+Xthem from a column names, and must not have embedded special
+Xcharacters.  Names may include the character ``_'' or numerals as long
+Xas they occur after the first three alpha characters.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Erase Name
+XErase the name assigned to a range of cells.  If no range is currently
+Xdefined, then prompt for a cell name to erase.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Show Names
+XList all Names that have been assigned to cells, or ranges of cells.
+XPipe the output to 'sort' and then to a pager.  Therefore the list of
+Xnames is sorted, and it will not run off the top of your display.
+XIf the environment variable PAGER is set, its value is used as your
+Xpager, otherwise a (sytem dependent) default pager is used.
+X\" ----------------------------------------------------------------------
+X.SS Options Sub-Menu
+X.BR X :Encrypt
+X.BR A :Auto
+X.BR C :Cell
+X.BR E :Ext
+Xfn's
+X.BR L :Label
+X.BR R :Return
+X.BR T :Top
+X.BR Z :Limits
+X.BR $ :Pre-Scale
+X.LP
+XThis menu is invoked from the Misc Menu.
+X.LP
+XThe items listed on this menu are all ``Toggle'' Options.  Choosing
+Xone of them will toggle that option to be on or off.  The options
+Xselected are saved when the data and formulas are saved so that you
+Xwill have the same setup next time you enter the spreadsheet.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Encrypt
+XTurn encryption of files on/off.
+X.IP
+XNOTE: Encryption may not be available at your sight.  See the ``-x''
+Xitem under
+X.B OPTIONS
+Xabove for further details.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP 
+X.I Auto
+XAutomatic Recalculation.  When set, each change in the spreadsheet
+Xcauses the entire spreadsheet be recalculated.  Normally this is not
+Xnoticeable, but for very large spreadsheets, it may be faster to clear
+Xautomatic recalculation mode and update the spreadsheet via explicit
+Xrequests to recalculate the spreadsheet.  (DEFAULT: automatic
+Xrecalculation on)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Cell
+XCurrent cell highlighting.  If enabled, the current cell is highlighted
+X(using the terminal's standout mode, if available) in addition to being
+Xmarked by the cell cursor.  (DEFAULT: cell highlighting on)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Ext Fn's
+XExternal function execution.  When disabled, external functions (see
+X.IR @ext ()
+Xbelow) are not called.  This saves a lot of time at each screen
+Xupdate.  If disabled, and external functions are used anywhere, a
+Xwarning is printed each time the screen is updated, and the result of
+X.IR @ext ()
+Xis the value from the previous call, if any, or a null string.
+X(DEFAULT: external function execution disabled)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Label
+XAutolabeling.  If enabled, using the Define command (on the Name
+Xsub-menu) causes a label to be automatically generated in the cell to
+Xthe left of the defined cell.  This is only done if the cell to the
+Xleft is empty.  (DEFAULT: autolabeling enabled)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Return
+XNewline action.  This option toggles between three cases.  The default
+Xis no action.  If this option is used once, after each command which is
+Xterminated by a newline character is completed, the current cell will
+Xbe moved down one row.  If this option is used again, after each
+Xcommand which is terminated by a newline character is completed, the
+Xcurrent cell will be moved right one column.  Another use of this
+Xoption will restore the default action.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Top
+XTop line display.  If enabled, the name and value of the current cell
+Xis displayed on the top line.  If there is an associated label string,
+Xthe first character of the string value is ``|'' for a centered
+Xstring, ``<'' for a leftstring or ``>'' for a rightstring (see below),
+Xfollowed by "\fIstring\fP" for a constant string or
+X.RI { expr }
+Xfor a string expression.  A constant string may be preceded with a
+Xbackslash (`\\').  In this case the constant string will be used as a
+X``wheel'' to fill a column, e.g. "\\-" for a line in a column, and
+X"\\Yeh\ " for "Yeh\ Yeh\ Ye".  If the cell has a numeric value, it
+Xfollows as
+X.RI [ value ],
+Xwhich may be a constant or expression.  (DEFAULT: top line display
+Xenabled)
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Limits
+XSet newline action limits.  This option sets limits to the newline
+Xaction option above.  When this option is invoked, the row and column
+Xof the current cell are remembered.  If a later newline action would
+Xtake the current cell to the right of the remembered column, then the
+Xcurrent cell is instead moved to the first column of the next row.  If
+Xa newline action would take the current cell below the remembered row,
+Xthen the current cell is instead moved to the top row of the next
+Xcolumn.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.I Pre-Scale
+XDollar prescale.  If enabled, all numeric constants (not expressions)
+Xwhich you enter are multiplied by 0.01 so you don't have to keep typing
+Xthe decimal point if you enter lots of dollar figures.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XThe ``newline action'' and ``set newline action limits'' options can
+Xbe combined to allow very quick entry of large amounts of data.  If
+Xall the data to be entered is in a single row or column then setting
+Xthe appropriate newline action will allow the numbers to be entered
+Xwithout any explicit commands to position the current cell.
+X.LP
+XIf the data entry involves several entries in each row for many rows,
+Xthen setting the quick numeric entry option, setting the newline
+Xaction to move right after each entry and setting the newline action
+Xlimits on the last column on which data should be entered will allow
+Xthe data to entered quickly.  If necessary, columns which do not need
+Xdata to be entered can be hidden.  Similar arrangements can be made
+Xfor entering several rows of data in each column.
+X.RE
+X.\"
+X.\" **********************************************************************
+X.SH COMMANDS
+X.\" ***********
+X.LP 
+XA number of commands are accessible directly from the keyboard, via
+XControl-keys, or Function-keys.  These are primarily cursor movement
+Xcommands (ie: up-arrow key, etc), but there are also a small number of
+Xcontrol-keys which access other functions.
+X.LP
+X.I NOTE:
+XIn the following 
+X.RB `` ^ ''
+Xindicates the use of the Control key.  Hence,
+X.B ^A
+Xmeans ``Hold down the Control key, while typing the `A' key''.  Also,
+X.B < >
+Xare used to identify ``named'' keys.  So, 
+X.B <Delete>
+Xstands for the Delete Key.
+X.LP
+XThere are also a few commands that are invoked by two keystrokes in
+Xsuccession.  For example, `` ^X v '' means ``Type Control-X, then v''
+X(Case is unimportant, V or v is fine).  Also, ``<Esc> v'' means ``Type
+X<Esc>, then v''.
+XIn some cases, there exists more than one command sequence for the
+Xsame thing.  (Like ^B and <Left Arrow>).  Both commands are then
+Xlisted together, separated by a comma.
+X.\" ----------------------------------------------------------------------
+X.SS Cursor Movement
+XThese key sequences all move the cell cursor.  When possible, I strove
+Xto use the same control-key sequences as the emacs text editor \- no
+Xpoint in reinventing the wheel!
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XMoving Short Distances:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP 2in         .\" the 2in indent stays in effect until the next .RE
+X.B ^B, <Left Arrow>
+XMove left one cell.
+X.TP
+X.B ^F, <Right Arrow>
+XMove right one cell.
+X.TP
+X.B ^P, <Up Arrow>
+XMove up one cell.
+X.TP
+X.B ^N, <Down Arrow>
+XMove down one cell.
+X.\"
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.LP
+XMoving Longer Distances:
+X.\" - - - - - - - - - -
+X.RS .15in
+X.TP 1in
+X.B <Esc> <, <Home>
+XJump to cell A0.
+X.TP
+X.B <Esc> >, <End>
+XJump to the last row of the current column.
+X.TP
+X.B ^T
+XJump to row 0 of the current column.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+X.B ^A
+XJump to the first cell in the current row (Column A).
+X.TP
+X.B ^E
+XJump to the last valid cell in the current row.
+X.\" - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+X.TP
+END_OF_FILE
+  if test 44116 -ne `wc -c <'ss_12b/ss.man.A'`; then
+    echo shar: \"'ss_12b/ss.man.A'\" unpacked with wrong size!
+  elif test -f 'ss_12b/ss.man.B'; then
+    echo shar: Combining  \"'ss_12b/ss.man'\" \(80770 characters\)
+    cat 'ss_12b/ss.man.A' 'ss_12b/ss.man.B' > 'ss_12b/ss.man'
+    if test 80770 -ne `wc -c <'ss_12b/ss.man'`; then
+      echo shar: \"'ss_12b/ss.man'\" combined with wrong size!
+    else
+      rm sss_12b/s.man.A sss_12b/s.man.B
+    fi
+  fi
+  # end of 'ss_12b/ss.man.A'
+fi
+if test ! -d 'ss_12b/sunfkeys' ; then
+    echo shar: Creating directory \"'ss_12b/sunfkeys'\"
+    mkdir 'ss_12b/sunfkeys'
+fi
+echo shar: End of archive 1 \(of 11\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

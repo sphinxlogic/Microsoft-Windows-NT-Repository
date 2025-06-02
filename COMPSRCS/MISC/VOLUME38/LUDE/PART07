@@ -1,0 +1,2325 @@
+Newsgroups: comp.sources.misc
+From: laplante@crim.ca (Pierre Laplante)
+Subject: v38i039:  lude - A Distributed Software Library, Part07/12
+Message-ID: <1993Jul11.224646.16647@sparky.imd.sterling.com>
+X-Md4-Signature: 68711d7fb2994c7b51d7bd0d03ad6d7d
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 11 Jul 1993 22:46:46 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: laplante@crim.ca (Pierre Laplante)
+Posting-number: Volume 38, Issue 39
+Archive-name: lude/part07
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex
+#   lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc
+#   lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html
+#   lude-1.1/src/orig/src/ludeindex
+# Wrapped by kent@sparky on Sun Jul 11 15:49:14 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 7 (of 12)."'
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'\" \(25280 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex' <<'END_OF_FILE'
+X#! /usr/local/bin/perl
+X
+X# Program to index the man pages, info files and lude entries
+X# Copyright (C) 1992, 1993 Duong Thanh Long and Michel Dagenais
+X#
+X#
+X# This file is part of Lude
+X#
+X# Lude is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 2, or (at your option)
+X# any later version.
+X#
+X# Lude is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with Lude; see the file COPYING.  If not, write to
+X# the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+X#
+X#
+X##########################################################################
+X#
+X# A first prototype of Ludeindex was realised by Duong Thanh Long 
+X# as an undergraduate project under the supervision of Michel Dagenais, 
+X# in the department of electrical and computer engineering at Ecole 
+X# Polytechnique de Montreal.
+X#
+X# It was subsequently rewritten and integrated into Lude by Michel Dagenais.
+X# 26 january 1993
+X#
+X##########################################################################
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Globals definitions
+X#
+X
+X$FULL_VERSION=
+X    "-- ludeindex --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.='$Id: ludeindex,v 1.5 1993/06/14 20:09:11 dagenais Exp $' . "\n";
+X
+X$VERSION='1.1';
+X
+X$PL_INCDIR="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/include/lude:../include";
+X$LANG_PATH="/usr/local/soft/lude-1.1/run/crim/sun4.1_sparc/lib/lude/lang:../lib/lude/lang:../lang";
+X
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X
+X    unshift(@INC, split(/:/, $PL_INCDIR));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludeindex', @ARGV);
+X
+X    # Some useful definitions
+X    if (!defined($DEFAULTDEBUGLEVEL)) { $DEFAULTDEBUGLEVEL=9; }
+X    if (!defined($TRUE))              { $TRUE=1; }
+X    if (!defined($FALSE))             { $FALSE=0; }
+X    if (!defined($ERROR))             { $ERROR=STDERR; }
+X    if (!defined($OUT))               { $OUT=STDOUT; }
+X
+X    # Environnement
+X    
+X    $ENV{'SHELL'} = '/bin/sh' if $ENV{'SHELL'} ne '';
+X    
+X    # debug level
+X    
+X    if (!defined($Debugvalue)) { $Debugvalue=$DEFAULTDEBUGLEVEL; }
+X    
+X    $CatMan=$FALSE;
+X    $WAISMan=$FALSE;
+X    $Info=$FALSE;
+X    $WWWSoft=$FALSE;
+X    $WAISSoft=$FALSE;
+X    $RemoteLink=$FALSE;
+X    $NoWWWExt=$FALSE;
+X    $Show=$FALSE;
+X    $Verbose=$FALSE;
+X    $Help=$FALSE;
+X
+X    # Some useful definitions and default values
+X    #
+X    $LUDEWWW    = "$LOCAL_DIR/lib/WWW/lude";
+X    $LUDEWAIS   = "$LOCAL_DIR/lib/WAIS";
+X    $INSTALLDIR = "$LOCAL_DIR/doc";
+X    $MANDIR     = "$LOCAL_DIR/man";
+X
+X    $PathCatMan = "$CONF_SYS_MAN_PATH:$MANDIR";
+X    $PathWAISMan = $PathCatMan;
+X    $PathInfo   = "$LOCAL_DIR/info";
+X    $PathSoft   = "$LOCAL_DIR/soft";
+X    $HostWWW    = "localhost";
+X    $HostWAIS   = "localhost";
+X    $PortWWW    = 80;
+X    $PortWAIS   = 210;
+X
+X    $LocalSoft  = "$LOCAL_DIR/soft";
+X    $ServerSoft = "$SERVER_DIR";
+X    $IsLocal = $FALSE;
+X    $IsServer = '';
+X    
+X    #
+X    # commands that may change with various operating system flavors
+X    #
+X    $MAKEWHATIS = "catman -w -M";
+X    $MAKEINFO = "cat diri.top *.dir >dir";
+X    $MAKEWWW  = "cat dirh.top *.dir dirh.end >dir.html";
+X    $MAKEWAIS = "waisindex -d $LUDEWAIS/lude -T HTML -t para $LUDEWAIS/man/* $LUDEWAIS/soft/*";
+X
+X
+X    require("ludeindexinc");	# argument parsing
+X    require("fileutil.pl");
+X    require("BldRegexpMinRqr.pl");
+X
+X    # get progname
+X
+X    $PGM=&BaseName($0);
+X    
+X    #
+X    # Field names that change with the language
+X    #
+X
+X#    %No_field = ();
+X#    $No_field{$FIELD{$USAGE}} = 1;
+X#    $No_field{$FIELD{$INSTALL}} = 1;
+X#    $No_field{$FIELD{$DESCRIPTION}} = 1;
+X#    $No_field{$FIELD{$ABSTRACT}} = 1;
+X
+X    &Initialisation;
+X
+X    if($Help) { &Help; }
+X    if($CatMan) { &MakeManPagesIndex; }
+X    if($Info) { &MakeInfo; }
+X    if($WAISMan) { &MakeWAISMan; }
+X    if($WWWSoft) { &MakeWWWSoft; }
+X    if($WAISMan || $WAISSoft) { &MakeWAIS; }
+X
+X    exit($exitval);
+X}
+X
+X####################################################################
+X#
+X# First, index the man pages if one of the man directories is newer
+X# than the index in the whatis file and if the
+X# file whatis already exists.
+X#
+Xsub MakeManPagesIndex {
+X  #
+X  # list the components in the man path
+X  #
+X  local(@manpath) = split(/:/, $PathCatMan);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X  local($mandir);
+X
+X  foreach $mandir (@manpath) {
+X
+X    opendir(thisdir, "$mandir");
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^\.{1,2}$/, readdir(thisdir));
+X    closedir(thisdir);                                 
+X
+X    $newest = $allfiles[0];
+X    $mtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$newest");
+X
+X    $newest_time = $mtime;
+X    $mtime = 0;
+X
+X    foreach $filename (@allfiles) {
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$filename");
+X
+X      if($newest_time < $mtime) {
+X	$newest = $filename;
+X	$newest_time = $mtime;
+X      }
+X    }
+X
+X    #
+X    # If a subdirectory is newer than the whatis index, call
+X    # the catman indexing command.
+X    #
+X
+X    if ($newest eq '' ) {
+X      print "$PGM: ${mandir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif ($newest eq "whatis") {
+X      if($Verbose) { print "$PGM: ${mandir}/whatis $TEXT[$MAN_TO_DATE]\n"; }
+X    }
+X    else {
+X      if($Verbose) { print sprintf("$PGM: $TEXT[$MAN_INDEXING]\n",
+X                                   $mandir,$newest); }
+X      if($Show) { print "$MAKEWHATIS $mandir\n"; }
+X      else { system "$MAKEWHATIS $mandir"; }
+X
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X  }
+X}
+X
+X#################################################################
+X#
+X# The main menu for the info files is rebuilt if the directory
+X# was modified (an entry added or removed) and if the top.dir
+X# file exists.
+X#
+Xsub MakeInfo {
+X
+X  local(@infopath) = split(/[:]/, $PathInfo);
+X  local($infodir);
+X
+X  foreach $infodir (@infopath) {
+X
+X    chdir $infodir;
+X
+X    $infomtime = 0;
+X    $dirmtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$infomtime,$ctime,$blksize,$blocks) = stat("$infodir");
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$dirmtime,$ctime,$blksize,$blocks) = stat("$infodir/dir");
+X
+X    if ($infomtime == 0) {
+X      print "$PGM: ${infodir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif($infomtime > $dirmtime) {
+X
+X      if($Verbose) { print "$PGM: $TEXT[$INFO_UPDATE] ${infodir}/dir\n"; }
+X
+X      if($Show) { print "$MAKEINFO\n"; }
+X      else { system $MAKEINFO; }
+X
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X    else {
+X      if($Verbose) { print "$PGM: ${infodir}/dir $TEXT[$MAN_TO_DATE]\n"; }
+X    }
+X  }
+X}
+X
+X###############################################################
+X#
+X# Go through all the man pages in the path wais man and for
+X# each prepare a short summary for inclusion in the WAIS
+X# database.
+X#
+X
+Xsub MakeWAISMan {
+X  #
+X  # list the components in the man path
+X  #
+X  local(@manpath) = split(/:/, $PathWAISMan);
+X  local($waisfile);
+X  local($mandir);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X
+X  foreach $mandir (@manpath) {
+X
+X    #
+X    # each man tree gets its own WAIS file named after the
+X    # path with "/" replaced by "."
+X    #
+X    chdir $mandir;
+X    $waisfile = $mandir;
+X    $waisfile =~ s/\//./go;
+X    $waisfile = "$LUDEWAIS/man/wais$waisfile";
+X
+X    opendir(thisdir, "$mandir");
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^whatis$/,grep(! /^\.{1,2}$/, readdir(thisdir)));
+X    closedir(thisdir);                                 
+X
+X    $newest_time = 0;
+X    $mtime = 0;
+X    $newest = '';
+X
+X    foreach $filename (@allfiles) {
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$filename");
+X
+X      if($newest_time < $mtime) {
+X	$newest = $filename;
+X	$newest_time = $mtime;
+X      }
+X    }
+X
+X    $mtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$mtime,$ctime,$blksize,$blocks) = stat("$waisfile");
+X
+X    #
+X    # If a subdirectory is newer than the WAIS database, 
+X    # recreate it.
+X    #
+X
+X    if ($newest eq '' ) {
+X      print "$PGM: ${mandir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif($newest_time < $mtime) {
+X      if($Verbose) { print "$PGM: ${mandir}, $TEXT[$WAIS_TO_DATE]\n"; }
+X    }
+X
+X    elsif($Show) {
+X      if($Verbose) {print "$PGM: $TEXT[$WAIS_MAN_BASE] $mandir\n"; }
+X    }
+X
+X    elsif(open(WAISFILE,">$waisfile")) {
+X
+X      if($Verbose) {print "$PGM: $TEXT[$WAIS_MAN_BASE] $mandir\n"; }
+X
+X      $Man_too_small = 0;
+X
+X      &ExtractWAISMan("$mandir","");
+X
+X      if ( $Man_too_small > 0 ) {
+X        if($Verbose) { printf sprintf("$TEXT[$NB_MAN_TOO_SMALL]\n",
+X                                      $Man_too_small); }
+X      }
+X
+X      close(WAISFILE);
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X    else {
+X      print "$PGM: ${waisfile} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X  }
+X}
+X
+X
+X#######################################################################
+X#
+X# Recursive function to extract the WAIS database abstract for
+X# each man page
+X#
+Xsub ExtractWAISMan {
+X  local($manDirName)=$_[0];
+X
+X  local(@allfiles,$filename,$name,$description);
+X  local(*man_dir, *man_file);
+X  local($ext);
+X
+X  opendir(man_dir, $manDirName);
+X  @allfiles = grep(! /^\.{1,2}$/, readdir(man_dir));
+X  closedir(man_dir);
+X
+X  foreach $filename (sort @allfiles) {
+X    if (-d "$manDirName/$filename") {
+X      &ExtractWAISMan("$manDirName/$filename", "$_[1]$filename/");
+X    }
+X    elsif ("$manDirName/$filename" =~ /\.[0-9ln][a-z]*$/o) {
+X
+X      # Files of less than 80 characters are not worth pursuing
+X      # because they are only sourcing other man pages that will
+X      # get indexed anyhow.
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$infomtime,$ctime,$blksize,$blocks) =
+X	 stat("$manDirName/$filename");
+X
+X      if( $size <= 80 ) {
+X	$Man_too_small++;
+X	next; 
+X      }
+X
+X      open(man_file,"nroff -Tcrt -man $manDirName/$filename |");
+X
+X      $description = '';
+X      $name = '';
+X
+X      #
+X      # Find the summary and use the first line as header
+X      #
+X
+X      while($_ = <man_file>) {
+X	if( /^NAME/ ) {
+X	  $name = <man_file>;
+X	  last;
+X	}
+X      }
+X
+X      #
+X      # Get the rest of the NAME field if more than one line long
+X      #
+X
+X      $long_name = $name;
+X      while($_ = <man_file>) {
+X
+X	s/_\010//go;
+X	if( /^\s*$/ ) {
+X	  last;
+X	}
+X	$long_name = $long_name . $_;
+X      }
+X
+X      #
+X      # Find the description heading
+X      #
+X
+X      while($_ = <man_file>) {
+X	if( /^DESCRIPTION/ ) {
+X	  last;
+X	}
+X      }
+X
+X      #
+X      # keep the first paragraph of the description
+X      #
+X
+X      while($_ = <man_file>) {
+X
+X	s/_\010//go;
+X	if( /^\s*$/ ) {
+X	  last;
+X	}
+X	$description = $description . $_;
+X      }
+X
+X      close(man_file);
+X
+X      #
+X      # write this in the database file
+X      #
+X
+X      if($NoWWWExt) { $ext = ""; }
+X      else { $ext = ".man"; }
+X
+X      print WAISFILE "$name<TITLE>$filename</TITLE>\n<H1>$filename</H1>\n";
+X      print WAISFILE "<H2>NAME</H2>\n$long_name<P>\n";
+X      print WAISFILE "<H2>DESCRIPTION</H2>\n$description<P>\n";
+X
+X      print WAISFILE "<A HREF=http://$HostWWW:$PortWWW$manDirName/$filename$ext>$_[1]$filename</A>\n\n";
+X
+X    }
+X    else {
+X      if($Verbose) { print "$TEXT[$IGNORING_FILE] $manDirName/$filename\n"; }
+X    }
+X  }
+X}
+X
+X###############################################################
+X#
+X# For each software package, insure that an up to date html
+X# file is available. Create a new status file that tells which
+X# software is available where.
+X#
+X
+Xsub MakeWWWSoft {
+X  
+X  local(@softpath) = split(/:/, $PathSoft);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X  local($softdir);
+X  local($subdir);
+X  local(@subfiles);
+X  local($filename);
+X  local($subname);
+X  local($classname);
+X  local(@classfiles);
+X  local($classdir);
+X  local($softtime);
+X  local($htmltime);
+X  local($waistime);
+X
+X  # Remove all status files since it is safer to recreate them
+X  # every time.  
+X    
+X  if($Show) { print "rm -f $LUDEWWW/*.status.html\n"; }
+X  else { system "rm -f $LUDEWWW/*.status.html"; }
+X
+X  # Loop over all components of the Software path.
+X  # It often contains /usr/local/soft and /usr/local/server/*
+X
+X  foreach $softdir (@softpath) {
+X
+X    chdir $softdir;
+X
+X    if (! -d $softdir) {
+X      print "$PGM: ${softdir} $TEXT[$BAD_MAN_DIR]\n";
+X      next;
+X    }
+X
+X    if($Verbose) { print "$PGM: $TEXT[$HTML_UPDATING] $softdir\n"; }
+X
+X    # determine the type of software directory (local or server)
+X
+X    $IsLocal = $FALSE;
+X    $IsServer = '';
+X
+X    if($softdir =~ /^$LocalSoft/) { 
+X      $IsLocal = $TRUE; 
+X    }
+X    elsif($softdir =~ /^$ServerSoft/) {
+X      ($IsServer) = /^$ServerSoft\/(.*)/;
+X    }
+X
+X    # look at each software package
+X
+X    opendir(thisdir, $softdir);
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^\.{1,2}$/, readdir(thisdir));
+X    closedir(thisdir);                                 
+X
+X    foreach $filename (@allfiles) {
+X
+X      $softtime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$softtime,$ctime,$blksize,$blocks) = 
+X                             stat("$softdir/$filename/install/IAFA-PACKAGES");
+X
+X      # This cannot be a valid software package
+X
+X      if($softtime == 0) { next; }
+X
+X      # Verify if this package is linked in /usr/local/bin
+X
+X      if($IsLocal) {
+X        if(readlink("$INSTALLDIR/$filename/IAFA-PACKAGES") eq
+X           "$softdir/$filename/install/IAFA-PACKAGES") {
+X          $IsLinked = $TRUE;
+X        }
+X        else {
+X          $IsLinked = $FALSE;
+X        }
+X      }
+X 
+X      # Check if a status file exists for this package
+X
+X      $htmltime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/${filename}.status.html");
+X
+X      if($Show) { 
+X        print "\n"; 
+X      }
+X      elsif($htmltime == 0) {
+X        open(STATUSFILE,">$LUDEWWW/${filename}.status.html");
+X        print STATUSFILE "<TITLE>$filename</TITLE>\n<H1>$filename</H1>\n";
+X      }
+X      else {
+X        open(STATUSFILE,">>$LUDEWWW/${filename}.status.html");
+X      }
+X     
+X      # Now check the time of the html file
+X
+X      $htmltime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/${filename}.html");
+X
+X      # Check also the wais abstract if requested
+X
+X      if($WAISSoft) {
+X        $waistime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$waistime,$ctime,$blksize,$blocks) = 
+X                                   stat("$LUDEWAIS/soft/$filename");
+X        if($waistime < $htmltime) {
+X          $htmltime = $waistime;
+X        }
+X      }
+X
+X      # The html file for the software should be regenerated
+X      # the accompanying .dir and wais files are done at 
+X      # the same time
+X
+X      if($htmltime == 0 || $htmltime < $softtime) {
+X	if($Show) {
+X          print "MakeHTMLfile($softdir/$filename/install/IAFA-PACKAGES)\n";
+X        }
+X	else {
+X          &MakeHTMLfile("$softdir/$filename/install/IAFA-PACKAGES",
+X                      $filename,$TRUE);
+X        }
+X      }
+X
+X      # Check also the html file for the modifications,
+X      # loop over the modifications in the install dir.
+X
+X      opendir(subdir, "$softdir/$filename/install");
+X      # Note that the files '.' and '..' are not retained 
+X      @subfiles = grep(! /^IAFA-PACKAGES$/,
+X                         grep(! /^share$/,
+X                         grep(! /^\.{1,2}$/, readdir(subdir))));
+X      closedir(subdir);                                 
+X
+X      foreach $subname (@subfiles) {
+X
+X        $softtime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$softtime,$ctime,$blksize,$blocks) = 
+X                            stat("$softdir/$filename/install/$subname/LUDE");
+X
+X        $htmltime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/$filename/${subname}.html");
+X
+X        if($htmltime == 0 || $htmltime < $softtime) {
+X
+X          if(! -d "$LUDEWWW/$filename") {
+X            if(! $Show) { mkdir("$LUDEWWW/$filename",0755); }
+X          }
+X
+X	  if($Show) {
+X            print "MakeHTMLfile($softdir/$filename/install/$subname/LUDE)\n";
+X          }
+X          else {
+X	    &MakeHTMLfile("$softdir/$filename/install/$subname/LUDE",
+X                        "$filename/$subname",$FALSE);
+X          }
+X        }
+X
+X        # Check the classes available and update the status file
+X
+X        opendir(classdir, "$softdir/$filename/install/$subname");
+X        # Note that the files '.' and '..' are not retained 
+X        @classfiles = grep(! /^LUDE$/,
+X                         grep(! /^share$/,
+X                         grep(! /^\.{1,2}$/, readdir(classdir))));
+X        closedir(classdir);                                 
+X
+X        foreach $classname (@classfiles) {
+X
+X          if($Show) {
+X            print "MakeStatusFileEntry($softdir,$filename,$subname,$classname)\n";
+X          }
+X          else {
+X            &MakeStatusFileEntry($softdir,$filename,$subname,$classname);
+X          }
+X        }
+X      } 	# for each modification
+X    
+X      if(! $Show) { close(STATUSFILE); }
+X
+X    }           # for each software
+X  }             # for each path component
+X
+X  # All the dir files can be concatenated to produce the main menu
+X
+X  if($Verbose) { print "$PGM: $TEXT[$HTML_UPDATING_MENU]\n"; }
+X
+X  if($Show) {
+X    print "chdir $LUDEWWW\n";
+X    print "$MAKEWWW\n";
+X  }
+X  else {
+X    chdir $LUDEWWW ;
+X    system $MAKEWWW ;
+X  }
+X
+X  if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X
+X}
+X
+X
+X###########################################################
+X#
+X# Convert a IAFA-PACKAGES file into a HTML file
+X# and create the associated dir and wais files
+X#
+X
+Xsub MakeHTMLfile {
+X
+X  local($ludefile) = $_[0];
+X  local($software) = $_[1];
+X  local($notmodif) = $_[2];
+X  local(*html_file,*this_file);
+X
+X  if(!open(html_file,">$LUDEWWW/${software}.html")) {
+X    print "$PGM: $TEXT[$CANNOT_ACCESS] $LUDEWWW/${software}.html\n";
+X  }
+X  if(!open(this_file,$ludefile)) {
+X    print "$PGM: $TEXT[$CANNOT_ACCESS] $ludefile\n";
+X  }
+X
+X  $abstract = '';
+X  $description = '';
+X
+X  print html_file "<TITLE>$software</TITLE>\n";
+X  print html_file "<H1>$software</H1>\n";
+X
+X  # Read the file, when encountering a new field name, output the
+X  # previous field if not empty and not in the "no" list. Otherwise
+X  # accumulate the lines in the current field.
+X
+X  $in_description = 0;
+X  $in_abstract = 0;
+X  $fieldname = '';
+X  $field = '';
+X  while($_ = <this_file>) {
+X
+X    $found = /^([a-zA-Z-]*:)(.*)/;
+X    $newname = $1;
+X    $newfield = $2 . "\n";
+X
+X    if ($found eq '') {
+X      $field = $field . $_;
+X      if ( /^\s*$/ ) {
+X        $in_description = 0;
+X	$in_abstract = 0;
+X      }
+X
+X      if( $in_description == 1) {
+X	$description .= $_;
+X      }
+X
+X      if( $in_abstract == 1) {
+X        $abstract .= $_;
+X      }
+X    }
+X    else {
+X      if (($fieldname ne '') && 
+X#          ($No_field{$fieldname} != 1) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X				
+X	print html_file "<H3>${fieldname}</H3>\n$field\n"
+X      }
+X			    
+X      $fieldname = $newname;
+X      $fieldname =~ tr/a-z/A-Z/;
+X      $field = $newfield;
+X			    
+X      #
+X      # keep the description for the main menu
+X      #
+X
+X      if (($fieldname eq $FIELD[$DESCRIPTION]) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X	$in_description = 1;
+X	$description = $field;
+X      }
+X			    
+X      if (($fieldname eq $FIELD[$ABSTRACT]) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X	$in_abstract = 1;
+X	$abstract = $field;
+X      }
+X    }
+X  }
+X
+X  if (($fieldname ne '') && 
+X#      ($No_field{$fieldname} != 1) && 
+X      ($field =~ /[-a-zA-Z0-9]/)) {
+X			
+X    print html_file "<H3>${fieldname}</H3>\n$field\n";
+X  }
+X
+X  close this_file;
+X		    
+X  # The html file was produced. If this is not simply a modification,
+X  # a dir file and perhaps a WAIS file should be created.
+X		
+X  if($notmodif) {
+X
+X    # A reference is added to the status file
+X
+X    print html_file "<H3>$TEXT[$SOFT_AVAILABILITY]</H3>\n";
+X    print html_file "<A HREF=http://$HostWWW:$PortWWW$LUDEWWW/${software}.status.html>$software</A>\n\n";
+X    close html_file;
+X
+X    # the dir file is created
+X
+X    open(html_file,">$LUDEWWW/${software}.dir");
+X    print html_file "<DT><A HREF=http://$HostWWW:$PortWWW${LUDEWWW}/${software}.html>$software</A><DD>$abstract\n";
+X    close html_file;
+X
+X    # the WAIS file is created if needed
+X
+X    if($WAISSoft) {
+X
+X      if( !open(html_file,">$LUDEWAIS/soft/${software}")) {
+X        print "$PGM: $TEXT[$CANNOT_ACCESS] $LUDEWAIS/soft/${software}\n";
+X      }
+X      else {
+X        chop $abstract;
+X        print html_file "$software $abstract\n";
+X        print html_file "<TITLE>$software</TITLE>\n<H1>$software</H1>\n";
+X        print html_file "<H2>$FIELD[$DESCRIPTION]</H2>\n$description<P>\n";
+X        print html_file "<A HREF=http://$HostWWW:$PortWWW${LUDEWWW}/${software}.html>$software</A>\n\n";
+X        close html_file;
+X      }
+X
+X    }
+X  }
+X  else {
+X    close html_file;
+X  }
+X}	
+X
+X##########################################################
+X
+Xsub MakeStatusFileEntry {
+X
+X  local($softdir) = $_[0];
+X  local($software) = $_[1];
+X  local($modif) = $_[2];
+X  local($class) = $_[3];
+X
+X  # output one line in the status file
+X
+X  if($IsLocal) { 
+X    if($IsLinked) {
+X      print STATUSFILE 
+X            sprintf("<P>$TEXT[$CLASS_IS_LINKED]\n",$software,$modif,$class);  
+X    }
+X    else {
+X      print STATUSFILE 
+X            sprintf("<P>$TEXT[$CLASS_IS_LOCAL]\n",
+X                    $software,$modif,$class,$softdir);  
+X    }
+X  }
+X  elsif($IsServer ne '') {
+X    print STATUSFILE 
+X          sprintf("<P>$TEXT[$CLASS_ON_SERVER]\n",$software,$modif,$class,$IsServer);  
+X  }
+X  else {
+X    print STATUSFILE 
+X          sprintf("<P>$TEXT[$CLASS_ELSEWHERE]\n",$software,$modif,$class,$softdir);  
+X  }
+X
+X  # Put out a link to the modification
+X
+X  print STATUSFILE "<P><A HREF=$LUDEWWW/$software/${modif}.html>$modif</A>\n\n";
+X
+X  # If needed, list doc/info/man pages
+X
+X  if($IsLocal || $RemoteLink) {
+X
+X    print STATUSFILE "<P>\n";
+X
+X    if(-d "$softdir/$software/run/$modif/$class/doc") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/doc",
+X                    "doc/","","");
+X    }
+X
+X    if(-d "$softdir/$software/run/$modif/$class/info") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/info",
+X                    "info/",'^((.*\.dir$)|(.*[0-9]$)|(dir)|(dir\.top)|(COPYING))$',
+X                    ".info");
+X    }
+X
+X    if(-d "$softdir/$software/run/$modif/$class/man") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/man",
+X                    "",'^whatis$',".man");
+X    }
+X  }
+X}
+X
+X####################################################################
+X#
+X# Search for documentation files in the software tree and
+X# put out links to them in the status file
+X
+Xsub MakeDocLinks {
+X
+X  local($htmlLinksDirName, $radix, $filePattern, $ext) = @_;
+X  local(@allfiles,$filename);
+X  local(*html_links_dir);
+X
+X  if($NoWWWExt) {
+X    $ext = "";
+X  }
+X
+X  opendir(html_links_dir, $htmlLinksDirName);
+X  @allfiles = grep(! /^\.{1,2}$/, readdir(html_links_dir));
+X  closedir(html_links_dir);
+X
+X  # ignore ordinary files, follow recursively subdirectories
+X  # (adding the filename to both the directory name and to the 
+X  #  short name radix) and process symbolic links
+X
+X  foreach $filename (@allfiles) {
+X    if (-d "$htmlLinksDirName/$filename") {
+X      &MakeDocLinks("$htmlLinksDirName/$filename", "$radix$filename/",
+X		     $filePattern,$ext);
+X    }
+X    else {
+X      if (!($filename =~ /$filePattern/)) {
+X
+X        print STATUSFILE 
+X              "<A HREF=$htmlLinksDirName/$filename$ext>$radix$filename</A>\n";
+X      }
+X      else {
+X	if($Verbose) { print "$TEXT[$IGNORING_FILE] $htmlLinksDirName/$filename\n"; }
+X      }
+X    }
+X  }
+X}
+X
+X####################################################################
+X#
+X# Rebuild the WAIS database
+X#
+X
+Xsub MakeWAIS {
+X
+X  local($database_cover) = "${HostWAIS}:${PortWAIS}:lude.html";
+X  local(*waisfile);
+X
+X  if($Verbose) { print "$PGM: $TEXT[$WAIS_INDEXING]\n"; }
+X
+X  if($Show) {
+X    print "$MAKEWAIS\n";
+X    print "symlink($LUDEWAIS/lude.html,$LUDEWAIS/$database_cover)\n";
+X  }
+X  else {  
+X
+X    system $MAKEWAIS;
+X    
+X    # We must force the HTML type in this binary one line file.
+X    # The -T option in waisindex should have done it ?!
+X
+X    open(waisfile,"$LUDEWAIS/lude.fn");
+X    $_ = <waisfile>;
+X    close(waisfile);
+X    open(waisfile,">$LUDEWAIS/lude.fn");
+X    s/TEXT/HTML/g;
+X    print waisfile $_;
+X    close(waisfile);
+X
+X    # The cover page must have specially formatted name
+X
+X    symlink("$LUDEWAIS/lude.html","$LUDEWAIS/$database_cover");
+X  }
+X
+X  if($Verbose) { print "\n$TEXT[$IS_DONE]\n"; }
+X}
+X
+X### Local Variables: ***
+X### mode: perl ***
+X### End: ***
+X
+END_OF_FILE
+  if test 25280 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/bin/ludeindex'
+fi
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc'\" \(8880 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc' <<'END_OF_FILE'
+X# ludeadminc - Project lude.
+X# Copyright (C) 1991,1992  Pierre Laplante
+X# Copyright (C) 1992,1993 Stephane Boucher, Ecole Polytechnique de Montreal.
+X#
+X# This program is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 1, or (at your option)
+X# any later version.
+X#
+X# This program is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with this program; if not, write to the Free Software
+X# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X
+X$FULL_VERSION.= '$Id: ludeadminc,v 1.4 1993/03/17 19:44:08 sbo Exp $' ."\n";
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Local definitions
+X#
+X
+Xsub localDef {
+X    
+X# Environnement
+X    
+X    $ENV{'SHELL'} = '/bin/sh' if $ENV{'SHELL'} ne '';
+X    
+X    # debug level
+X    if (!defined($Debugvalue)) { $Debugvalue=$DEFAULTDEBUGLEVEL; }
+X    
+X    # get progname
+X    $Progname=&BaseName($0);
+X    
+X    $Server=$Software=$Modification="";
+X    $Create=$Mount_tfs=$Umount_tfs=$Lock=$Release=$FALSE;
+X    $Duplicate=$Unduplicate=$FALSE;
+X    $Show=$Verbose=$FALSE;
+X}
+X
+X
+Xsub ExecCommands {
+X    local($retval)=1;		# Success by default
+X
+X    if ($Server ne '/') {
+X	&DispSoftFoundOnce("$SERVER_DIR/$Server", $Software, $Modification, $Class);
+X    }
+X    else {
+X	&DispSoftFoundOnce("$SOFT_DIR", $Software, $Modification, $Class);
+X    }
+X
+X    if ($Create) {
+X	&Verbose($VERB_START_CREATE, $Software, $Modification, $Class);
+X	if (! &Create($Server, $Software, $Modification, $Class)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_CREATE_DONE);
+X	&HistAppend("create", $Server, $Software, $Modification, $Class);
+X    }
+X    if ($Duplicate) {
+X	&Verbose($VERB_START_DUPLICATE, "$Software/src/$Modification");
+X	if (&Duplicate($Server, $Software, $Modification)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_DUPLICATE_DONE);
+X	&HistAppend("duplicate", $Server, $Software, $Modification, '');
+X    }
+X    if ($Unduplicate) {
+X	&Verbose($VERB_START_UNDUPLICATE, "$Software/src/$Modification");
+X	if (! &Unduplicate($Server, $Software, $Modification)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_UNDUPLICATE_DONE);
+X	&HistAppend("unduplicate", $Server, $Software, $Modification, '');
+X    }
+X    if ($Mount_tfs) {	
+X	&Verbose($VERB_START_MOUNT_TFS);
+X	if (! &Mount_tfs($Server, $Software, $Modification)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_MOUNT_TFS_DONE);
+X	&HistAppend("mount_tfs", $Server, $Software, $Modification, $Class);
+X    }
+X    if ($Umount_tfs) {	
+X	&Verbose($VERB_START_UMOUNT_TFS);
+X	if (! &Umount_tfs($Server, $Software, $Modification)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_UMOUNT_TFS_DONE);
+X	&HistAppend("umount_tfs", $Server, $Software, $Modification, $Class);
+X    }
+X    if ($Lock) {
+X	&Verbose($VERB_START_LOCK);
+X	if (! &Lock($Server, $Software, $Modification, $Class)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_LOCK_DONE);
+X	&HistAppend("lock", $Server, $Software, $Modification, $Class);
+X    }
+X    if ($Release) {
+X	&Verbose($VERB_START_RELEASE);
+X	if (! &Release($Server, $Software, $Modification, $Class)) {
+X	    return 0;
+X	}
+X	&Warning($VERB_RELEASE_DONE);
+X	&HistAppend("release", $Server, $Software, $Modification, $Class);
+X    }
+X
+X    return $retval;
+X}
+X
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Initialisation
+X#
+X# Returns : the number of commands left to do
+X#           or -1 if any error      
+Xsub Initialisation {
+X    local($retval)=1;		# success by default
+X    local($cmdsToDo)=0;
+X    local($displayVersion)=$FALSE;
+X    local($displayFullVersion)=$FALSE;
+X    
+X# Globals definitions
+X    
+X# Locals definitions
+X    
+X    &localDef();
+X    
+X# scan aguments
+X    
+X    local($class_arg)       =&BldRegexpMinRqr('class', 2);
+X    local($create_arg)      =&BldRegexpMinRqr('create', 2);
+X    local($debug_arg)       =&BldRegexpMinRqr('debug', 2);
+X    local($duplicate_arg)   =&BldRegexpMinRqr('duplicate', 2);
+X    local($full_version_arg)=&BldRegexpMinRqr("full-version", 1);
+X    local($help_arg)        =&BldRegexpMinRqr("help", 1);
+X    local($language_arg)    ='language';
+X    local($lock_arg)        =&BldRegexpMinRqr("lock", 2);
+X    local($modification_arg)=&BldRegexpMinRqr("modification", 3);
+X    local($mount_tfs_arg)   =&BldRegexpMinRqr("mount_tfs", 3);
+X    local($release_arg)     =&BldRegexpMinRqr("release", 1);
+X    local($server_arg)      =&BldRegexpMinRqr("server", 2);
+X    local($show_arg)        =&BldRegexpMinRqr("show", 2);
+X    local($software_arg)    =&BldRegexpMinRqr("software", 2);
+X    local($umount_tfs_arg)  =&BldRegexpMinRqr('umount_tfs', 2);
+X    local($unduplicate_arg) =&BldRegexpMinRqr('unduplicate', 2);
+X    local($verbose_arg)     =&BldRegexpMinRqr("verbose", 4);
+X    local($version_arg)     =&BldRegexpMinRqr("version", 4);
+X
+X    while ($_=$ARGV[0],/^-/) {
+X
+X	last if (/^--$/);
+X
+X	shift(@ARGV);
+X	  
+X	if (/^-$class_arg$/o)        { &Arg($_, *Class, '[\-\w+.]+'); }
+X	elsif (/^-$create_arg$/o)    { $cmdsToDo++; $Create=$TRUE; }
+X	elsif (/^-$debug_arg$/o)     { &Arg($_, *Debuglevel, '[0-9]+'); }
+X	elsif (/^-$duplicate_arg$/o) { $cmdsToDo++; $Duplicate=$TRUE; }
+X	elsif (/^-$full_version_arg$/o) { $displayFullVersion=$TRUE; }
+X	elsif (/^-($help_arg)|([?])$/o) { &Help; }
+X        elsif (/^-$language_arg$/o)  { shift @ARGV; } # Just ignore it
+X	elsif (/^-$lock_arg$/o)      { $cmdsToDo++; $Lock=$TRUE; }
+X	elsif (/^-$modification_arg$/o) { 
+X	    &Arg($_, *Modification, '[\-\w+.]+'); 
+X	}
+X	elsif (/^-$mount_tfs_arg$/o) { 
+X	  if ($CONF_HAVE_TFS) { $cmdsToDo++; $Mount_tfs=$TRUE; }
+X	  else                { &Usage($ERR_TFS_NOT_SUPPORTED); }
+X	}
+X	elsif (/^-$release_arg$/o)   { $cmdsToDo++; $Release=$TRUE; }
+X	elsif (/^-$show_arg$/o)      { $Show=$Verbose=$TRUE; }	# verbose implicit
+X	elsif (/^-$server_arg$/o)    { &Arg($_, *Server, '[\-\w+.]+'); }
+X	elsif (/^-$software_arg$/o)  { 
+X	    &Arg($_, *Software, '[\-\w+.]+'); 
+X	}
+X	elsif (/^-$umount_tfs_arg$/o){ $cmdsToDo++; $Umount_tfs=$TRUE; }
+X	elsif (/^-$unduplicate_arg$/o) { $cmdsToDo++; $Unduplicate=$TRUE; }
+X	elsif (/^-$verbose_arg$/o)   { $Verbose=$TRUE; }
+X	elsif (/^-$version_arg$/o)   { $displayVersion=$TRUE; }
+X	else {
+X	    &Usage($INVALID_ARGUMENT, $_);
+X	}
+X    }
+X
+X    # Display the version immediately if requested
+X    if ($displayVersion) {
+X	print $OUT $VERSION . "\n";
+X    }
+X    # Display the full version (i.e. RCS revs) immediately if requested
+X    if ($displayFullVersion) {
+X	print $OUT $FULL_VERSION . "\n";
+X    }
+X
+X    #
+X    # Validation of the arguments
+X    #
+X    # Extra and invalid argument 
+X    if ( $ARGV[0] ne "" ) { 
+X	&Usage($INVALID_ARGUMENT, $ARGV[0]);
+X    }
+X
+X    # -class with anything
+X    # -debug with anything
+X    # -duplicate with anything but ... 
+X    if ($Duplicate && ($Mount_tfs || $Umount_tfs || $Unduplicate)) {
+X	&Usage($ERR_INCOMP_ARGS, '-mount_tfs|-umount_tfs|-unduplicate'); 
+X    }
+X    # -lock with anything
+X    # -modification with anything
+X    # -modification must be specified with...
+X    if ($Modification eq '' && ($Create)) {
+X	&Usage($ERR_ARG_REQUIRED, '-modification');
+X    }
+X    # -mount_tfs with anything but ...
+X    if ($Mount_tfs && ($Umount_tfs)) {
+X	&Usage($ERR_INCOMP_ARGS, '-mount_tfs', '-umount_tfs'); 
+X    }
+X    # -release with anything
+X    # -server with anything
+X    # -software with anything
+X    # -software is required with ...
+X    if ($Software eq '' && ($Create || $Mount_tfs || 
+X			    $Umount_tfs  || $Lock || $Release)) {
+X	&Usage($ERR_ARG_REQUIRED, '-software');
+X    }
+X    # -umount_tfs with anything but ...
+X    if ($Umount_tfs && ($Mount_tfs)) {
+X	&Usage($ERR_INCOMP_ARGS, '-umount_tfs', '-mount_tfs'); 
+X    }
+X    # -unduplicate with anything but ... 
+X    if ($Unduplicate && ($Mount_tfs || $Umount_tfs || $Duplicate)) {
+X	&Usage($ERR_INCOMP_ARGS, '-mount_tfs|-umount_tfs|-duplicate'); 
+X    }
+X    # -verbose with anything
+X
+X    # Find the default class if not already specified
+X    local(@classes);
+X    if ($Class eq '') {
+X	local($cmd);
+X	if ($Create) {
+X	    $cmd='class';
+X	    chop($Class=`$cmd`);
+X	    @classes=($Class);
+X	} 
+X	else {
+X	    $cmd='class -l';
+X	    @classes=split(/\s+/, `$cmd`);
+X	}
+X    }
+X    else {
+X	@classes=($Class);
+X    }
+X
+X    if (! $Create) {
+X	# Find a server
+X	local($searchcmd)='lst';
+X
+X	local(@serverfound)=
+X	    &FindSoftware($searchcmd, $Server, $Software, $Modification, @classes);
+X    
+X	# If the list @serverfound is empty, that means an error
+X	if (scalar(@serverfound) == 0) {
+X	    &Error($ERR_NOSER, $Software);
+X	}
+X	else {
+X	    ($Server, $Software, $Modification, $Class)=
+X		split($;, $serverfound[$[]);
+X	}
+X    }
+X    elsif ($Server eq '') {
+X	# Case of a create command with no server specified
+X	$Server='/';
+X    }
+X
+X    return $cmdsToDo;
+X}	
+X
+X1;
+X
+X#     ;;; Local Variables: ***
+X#     ;;; mode:perl ***
+X#     ;;; End: ***
+END_OF_FILE
+  if test 8880 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/include/lude/ludeadminc'
+fi
+if test -f 'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html'\"
+else
+  echo shar: Extracting \"'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html'\" \(1356 characters\)
+  sed "s/^X//" >'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html' <<'END_OF_FILE'
+X<title>World Wide Web (WWW)</title>
+X<h1>World Wide Web Entry Point</h1>
+XThis entry connects to information available around the world
+Xthrough World Wide Web (WWW), Wide Area Information System (WAIS)
+Xand Gopher information servers. The information available
+Xranges from library indexes, technical reports, geographical
+Xdatabases, computer programs to weather updates.
+X<DL>
+X<DT><a href=local.html>local</a>
+X<DD>Local information about your site, its organisation, resources
+Xavailable, seminars, local weather.
+X<DT><a href=http://localhost:80/usr/local/lib/WWW/lude/dir.html>Lude List</a>
+X<DD>List of locally available software packages, in
+Xthe LUDE library, and their documentation.
+X<DT><a href=http://localhost:81/localhost:210/lude>Lude Index</a>
+X<DD>Index of locally available software packages, in
+Xthe LUDE library, for keyword searches.
+X<DT><a href=http://info.cern.ch./hypertext/DataSources/bySubject/Overview.html>by Subject</a>
+X<DD>A classification by subject of interest. Incomplete
+Xbut easiest to use.
+X<DT><a href=http://info.cern.ch./hypertext/DataSources/ByAccess.html>by Type</a>
+X<DD>Looking by type of service (access protocol, etc)
+Xmay allow to find things if you know what you are looking for.
+X<DT><a href=http://info.cern.ch/hypertext/WWW/TheProject.html>About WWW</a>
+X<DD>About the World-Wide Web global information sharing project
+X</DL>
+X
+END_OF_FILE
+  if test 1356 -ne `wc -c <'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html'`; then
+    echo shar: \"'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html'\" unpacked with wrong size!
+  fi
+  # end of 'lude-1.1/run/crim/sun4.1_sparc/lib/WWW/default.html'
+fi
+if test -f 'lude-1.1/src/orig/src/ludeindex' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lude-1.1/src/orig/src/ludeindex'\"
+else
+  echo shar: Extracting \"'lude-1.1/src/orig/src/ludeindex'\" \(25189 characters\)
+  sed "s/^X//" >'lude-1.1/src/orig/src/ludeindex' <<'END_OF_FILE'
+X#! /usr/local/bin/perl
+X
+X# Program to index the man pages, info files and lude entries
+X# Copyright (C) 1992, 1993 Duong Thanh Long and Michel Dagenais
+X#
+X#
+X# This file is part of Lude
+X#
+X# Lude is free software; you can redistribute it and/or modify
+X# it under the terms of the GNU General Public License as published by
+X# the Free Software Foundation; either version 2, or (at your option)
+X# any later version.
+X#
+X# Lude is distributed in the hope that it will be useful,
+X# but WITHOUT ANY WARRANTY; without even the implied warranty of
+X# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X# GNU General Public License for more details.
+X#
+X# You should have received a copy of the GNU General Public License
+X# along with Lude; see the file COPYING.  If not, write to
+X# the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+X#
+X#
+X##########################################################################
+X#
+X# A first prototype of Ludeindex was realised by Duong Thanh Long 
+X# as an undergraduate project under the supervision of Michel Dagenais, 
+X# in the department of electrical and computer engineering at Ecole 
+X# Polytechnique de Montreal.
+X#
+X# It was subsequently rewritten and integrated into Lude by Michel Dagenais.
+X# 26 january 1993
+X#
+X##########################################################################
+X
+X#-----------------------------------------------------------------------
+X#
+X#	Globals definitions
+X#
+X
+X$FULL_VERSION=
+X    "-- ludeindex --\n" .
+X    "This is part of LUDE (Logitheque Universitaire Distribuee et Extensible)\n\n";
+X
+X$FULL_VERSION.='$Id: ludeindex,v 1.5 1993/06/14 20:09:11 dagenais Exp $' . "\n";
+X
+X$VERSION='%VERSION%';
+X
+X$PL_INCDIR="%PL_INCDIR%:../include";
+X$LANG_PATH="%LANG_PATH%:../lib/lude/lang:../lang";
+X
+Xmain: {
+X    local($exitval)=0;		# Success by default
+X
+X    unshift(@INC, split(/:/, $PL_INCDIR));
+X
+X    require('config.pl');
+X
+X    # Load and initialise the language support immediatly so
+X    # that the messages are available the soonest possible.
+X    # If an error occure in this phase, the execution is 
+X    # immediatly aborted.
+X    require('ludelang.pl');
+X    &InitLang($CONF_LANG_DEFAULT, $LANG_PATH, 'ludeindex', @ARGV);
+X
+X    # Some useful definitions
+X    if (!defined($DEFAULTDEBUGLEVEL)) { $DEFAULTDEBUGLEVEL=9; }
+X    if (!defined($TRUE))              { $TRUE=1; }
+X    if (!defined($FALSE))             { $FALSE=0; }
+X    if (!defined($ERROR))             { $ERROR=STDERR; }
+X    if (!defined($OUT))               { $OUT=STDOUT; }
+X
+X    # Environnement
+X    
+X    $ENV{'SHELL'} = '/bin/sh' if $ENV{'SHELL'} ne '';
+X    
+X    # debug level
+X    
+X    if (!defined($Debugvalue)) { $Debugvalue=$DEFAULTDEBUGLEVEL; }
+X    
+X    $CatMan=$FALSE;
+X    $WAISMan=$FALSE;
+X    $Info=$FALSE;
+X    $WWWSoft=$FALSE;
+X    $WAISSoft=$FALSE;
+X    $RemoteLink=$FALSE;
+X    $NoWWWExt=$FALSE;
+X    $Show=$FALSE;
+X    $Verbose=$FALSE;
+X    $Help=$FALSE;
+X
+X    # Some useful definitions and default values
+X    #
+X    $LUDEWWW    = "$LOCAL_DIR/lib/WWW/lude";
+X    $LUDEWAIS   = "$LOCAL_DIR/lib/WAIS";
+X    $INSTALLDIR = "$LOCAL_DIR/doc";
+X    $MANDIR     = "$LOCAL_DIR/man";
+X
+X    $PathCatMan = "$CONF_SYS_MAN_PATH:$MANDIR";
+X    $PathWAISMan = $PathCatMan;
+X    $PathInfo   = "$LOCAL_DIR/info";
+X    $PathSoft   = "$LOCAL_DIR/soft";
+X    $HostWWW    = "localhost";
+X    $HostWAIS   = "localhost";
+X    $PortWWW    = 80;
+X    $PortWAIS   = 210;
+X
+X    $LocalSoft  = "$LOCAL_DIR/soft";
+X    $ServerSoft = "$SERVER_DIR";
+X    $IsLocal = $FALSE;
+X    $IsServer = '';
+X    
+X    #
+X    # commands that may change with various operating system flavors
+X    #
+X    $MAKEWHATIS = "catman -w -M";
+X    $MAKEINFO = "cat diri.top *.dir >dir";
+X    $MAKEWWW  = "cat dirh.top *.dir dirh.end >dir.html";
+X    $MAKEWAIS = "waisindex -d $LUDEWAIS/lude -T HTML -t para $LUDEWAIS/man/* $LUDEWAIS/soft/*";
+X
+X
+X    require("ludeindexinc");	# argument parsing
+X    require("fileutil.pl");
+X    require("BldRegexpMinRqr.pl");
+X
+X    # get progname
+X
+X    $PGM=&BaseName($0);
+X    
+X    #
+X    # Field names that change with the language
+X    #
+X
+X#    %No_field = ();
+X#    $No_field{$FIELD{$USAGE}} = 1;
+X#    $No_field{$FIELD{$INSTALL}} = 1;
+X#    $No_field{$FIELD{$DESCRIPTION}} = 1;
+X#    $No_field{$FIELD{$ABSTRACT}} = 1;
+X
+X    &Initialisation;
+X
+X    if($Help) { &Help; }
+X    if($CatMan) { &MakeManPagesIndex; }
+X    if($Info) { &MakeInfo; }
+X    if($WAISMan) { &MakeWAISMan; }
+X    if($WWWSoft) { &MakeWWWSoft; }
+X    if($WAISMan || $WAISSoft) { &MakeWAIS; }
+X
+X    exit($exitval);
+X}
+X
+X####################################################################
+X#
+X# First, index the man pages if one of the man directories is newer
+X# than the index in the whatis file and if the
+X# file whatis already exists.
+X#
+Xsub MakeManPagesIndex {
+X  #
+X  # list the components in the man path
+X  #
+X  local(@manpath) = split(/:/, $PathCatMan);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X  local($mandir);
+X
+X  foreach $mandir (@manpath) {
+X
+X    opendir(thisdir, "$mandir");
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^\.{1,2}$/, readdir(thisdir));
+X    closedir(thisdir);                                 
+X
+X    $newest = $allfiles[0];
+X    $mtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$newest");
+X
+X    $newest_time = $mtime;
+X    $mtime = 0;
+X
+X    foreach $filename (@allfiles) {
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$filename");
+X
+X      if($newest_time < $mtime) {
+X	$newest = $filename;
+X	$newest_time = $mtime;
+X      }
+X    }
+X
+X    #
+X    # If a subdirectory is newer than the whatis index, call
+X    # the catman indexing command.
+X    #
+X
+X    if ($newest eq '' ) {
+X      print "$PGM: ${mandir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif ($newest eq "whatis") {
+X      if($Verbose) { print "$PGM: ${mandir}/whatis $TEXT[$MAN_TO_DATE]\n"; }
+X    }
+X    else {
+X      if($Verbose) { print sprintf("$PGM: $TEXT[$MAN_INDEXING]\n",
+X                                   $mandir,$newest); }
+X      if($Show) { print "$MAKEWHATIS $mandir\n"; }
+X      else { system "$MAKEWHATIS $mandir"; }
+X
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X  }
+X}
+X
+X#################################################################
+X#
+X# The main menu for the info files is rebuilt if the directory
+X# was modified (an entry added or removed) and if the top.dir
+X# file exists.
+X#
+Xsub MakeInfo {
+X
+X  local(@infopath) = split(/[:]/, $PathInfo);
+X  local($infodir);
+X
+X  foreach $infodir (@infopath) {
+X
+X    chdir $infodir;
+X
+X    $infomtime = 0;
+X    $dirmtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$infomtime,$ctime,$blksize,$blocks) = stat("$infodir");
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$dirmtime,$ctime,$blksize,$blocks) = stat("$infodir/dir");
+X
+X    if ($infomtime == 0) {
+X      print "$PGM: ${infodir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif($infomtime > $dirmtime) {
+X
+X      if($Verbose) { print "$PGM: $TEXT[$INFO_UPDATE] ${infodir}/dir\n"; }
+X
+X      if($Show) { print "$MAKEINFO\n"; }
+X      else { system $MAKEINFO; }
+X
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X    else {
+X      if($Verbose) { print "$PGM: ${infodir}/dir $TEXT[$MAN_TO_DATE]\n"; }
+X    }
+X  }
+X}
+X
+X###############################################################
+X#
+X# Go through all the man pages in the path wais man and for
+X# each prepare a short summary for inclusion in the WAIS
+X# database.
+X#
+X
+Xsub MakeWAISMan {
+X  #
+X  # list the components in the man path
+X  #
+X  local(@manpath) = split(/:/, $PathWAISMan);
+X  local($waisfile);
+X  local($mandir);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X
+X  foreach $mandir (@manpath) {
+X
+X    #
+X    # each man tree gets its own WAIS file named after the
+X    # path with "/" replaced by "."
+X    #
+X    chdir $mandir;
+X    $waisfile = $mandir;
+X    $waisfile =~ s/\//./go;
+X    $waisfile = "$LUDEWAIS/man/wais$waisfile";
+X
+X    opendir(thisdir, "$mandir");
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^whatis$/,grep(! /^\.{1,2}$/, readdir(thisdir)));
+X    closedir(thisdir);                                 
+X
+X    $newest_time = 0;
+X    $mtime = 0;
+X    $newest = '';
+X
+X    foreach $filename (@allfiles) {
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$mtime,$ctime,$blksize,$blocks) = stat("$mandir/$filename");
+X
+X      if($newest_time < $mtime) {
+X	$newest = $filename;
+X	$newest_time = $mtime;
+X      }
+X    }
+X
+X    $mtime = 0;
+X
+X    ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X     $atime,$mtime,$ctime,$blksize,$blocks) = stat("$waisfile");
+X
+X    #
+X    # If a subdirectory is newer than the WAIS database, 
+X    # recreate it.
+X    #
+X
+X    if ($newest eq '' ) {
+X      print "$PGM: ${mandir} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X    elsif($newest_time < $mtime) {
+X      if($Verbose) { print "$PGM: ${mandir}, $TEXT[$WAIS_TO_DATE]\n"; }
+X    }
+X
+X    elsif($Show) {
+X      if($Verbose) {print "$PGM: $TEXT[$WAIS_MAN_BASE] $mandir\n"; }
+X    }
+X
+X    elsif(open(WAISFILE,">$waisfile")) {
+X
+X      if($Verbose) {print "$PGM: $TEXT[$WAIS_MAN_BASE] $mandir\n"; }
+X
+X      $Man_too_small = 0;
+X
+X      &ExtractWAISMan("$mandir","");
+X
+X      if ( $Man_too_small > 0 ) {
+X        if($Verbose) { printf sprintf("$TEXT[$NB_MAN_TOO_SMALL]\n",
+X                                      $Man_too_small); }
+X      }
+X
+X      close(WAISFILE);
+X      if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X    }
+X    else {
+X      print "$PGM: ${waisfile} $TEXT[$BAD_MAN_DIR]\n";
+X    }
+X  }
+X}
+X
+X
+X#######################################################################
+X#
+X# Recursive function to extract the WAIS database abstract for
+X# each man page
+X#
+Xsub ExtractWAISMan {
+X  local($manDirName)=$_[0];
+X
+X  local(@allfiles,$filename,$name,$description);
+X  local(*man_dir, *man_file);
+X  local($ext);
+X
+X  opendir(man_dir, $manDirName);
+X  @allfiles = grep(! /^\.{1,2}$/, readdir(man_dir));
+X  closedir(man_dir);
+X
+X  foreach $filename (sort @allfiles) {
+X    if (-d "$manDirName/$filename") {
+X      &ExtractWAISMan("$manDirName/$filename", "$_[1]$filename/");
+X    }
+X    elsif ("$manDirName/$filename" =~ /\.[0-9ln][a-z]*$/o) {
+X
+X      # Files of less than 80 characters are not worth pursuing
+X      # because they are only sourcing other man pages that will
+X      # get indexed anyhow.
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$infomtime,$ctime,$blksize,$blocks) =
+X	 stat("$manDirName/$filename");
+X
+X      if( $size <= 80 ) {
+X	$Man_too_small++;
+X	next; 
+X      }
+X
+X      open(man_file,"nroff -Tcrt -man $manDirName/$filename |");
+X
+X      $description = '';
+X      $name = '';
+X
+X      #
+X      # Find the summary and use the first line as header
+X      #
+X
+X      while($_ = <man_file>) {
+X	if( /^NAME/ ) {
+X	  $name = <man_file>;
+X	  last;
+X	}
+X      }
+X
+X      #
+X      # Get the rest of the NAME field if more than one line long
+X      #
+X
+X      $long_name = $name;
+X      while($_ = <man_file>) {
+X
+X	s/_\010//go;
+X	if( /^\s*$/ ) {
+X	  last;
+X	}
+X	$long_name = $long_name . $_;
+X      }
+X
+X      #
+X      # Find the description heading
+X      #
+X
+X      while($_ = <man_file>) {
+X	if( /^DESCRIPTION/ ) {
+X	  last;
+X	}
+X      }
+X
+X      #
+X      # keep the first paragraph of the description
+X      #
+X
+X      while($_ = <man_file>) {
+X
+X	s/_\010//go;
+X	if( /^\s*$/ ) {
+X	  last;
+X	}
+X	$description = $description . $_;
+X      }
+X
+X      close(man_file);
+X
+X      #
+X      # write this in the database file
+X      #
+X
+X      if($NoWWWExt) { $ext = ""; }
+X      else { $ext = ".man"; }
+X
+X      print WAISFILE "$name<TITLE>$filename</TITLE>\n<H1>$filename</H1>\n";
+X      print WAISFILE "<H2>NAME</H2>\n$long_name<P>\n";
+X      print WAISFILE "<H2>DESCRIPTION</H2>\n$description<P>\n";
+X
+X      print WAISFILE "<A HREF=http://$HostWWW:$PortWWW$manDirName/$filename$ext>$_[1]$filename</A>\n\n";
+X
+X    }
+X    else {
+X      if($Verbose) { print "$TEXT[$IGNORING_FILE] $manDirName/$filename\n"; }
+X    }
+X  }
+X}
+X
+X###############################################################
+X#
+X# For each software package, insure that an up to date html
+X# file is available. Create a new status file that tells which
+X# software is available where.
+X#
+X
+Xsub MakeWWWSoft {
+X  
+X  local(@softpath) = split(/:/, $PathSoft);
+X  local($thisdir)  = '';
+X  local(@allfiles) = '';
+X  local($newest);
+X  local($softdir);
+X  local($subdir);
+X  local(@subfiles);
+X  local($filename);
+X  local($subname);
+X  local($classname);
+X  local(@classfiles);
+X  local($classdir);
+X  local($softtime);
+X  local($htmltime);
+X  local($waistime);
+X
+X  # Remove all status files since it is safer to recreate them
+X  # every time.  
+X    
+X  if($Show) { print "rm -f $LUDEWWW/*.status.html\n"; }
+X  else { system "rm -f $LUDEWWW/*.status.html"; }
+X
+X  # Loop over all components of the Software path.
+X  # It often contains /usr/local/soft and /usr/local/server/*
+X
+X  foreach $softdir (@softpath) {
+X
+X    chdir $softdir;
+X
+X    if (! -d $softdir) {
+X      print "$PGM: ${softdir} $TEXT[$BAD_MAN_DIR]\n";
+X      next;
+X    }
+X
+X    if($Verbose) { print "$PGM: $TEXT[$HTML_UPDATING] $softdir\n"; }
+X
+X    # determine the type of software directory (local or server)
+X
+X    $IsLocal = $FALSE;
+X    $IsServer = '';
+X
+X    if($softdir =~ /^$LocalSoft/) { 
+X      $IsLocal = $TRUE; 
+X    }
+X    elsif($softdir =~ /^$ServerSoft/) {
+X      ($IsServer) = /^$ServerSoft\/(.*)/;
+X    }
+X
+X    # look at each software package
+X
+X    opendir(thisdir, $softdir);
+X    # Note that the files '.' and '..' are not retained 
+X    @allfiles = grep(! /^\.{1,2}$/, readdir(thisdir));
+X    closedir(thisdir);                                 
+X
+X    foreach $filename (@allfiles) {
+X
+X      $softtime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$softtime,$ctime,$blksize,$blocks) = 
+X                             stat("$softdir/$filename/install/IAFA-PACKAGES");
+X
+X      # This cannot be a valid software package
+X
+X      if($softtime == 0) { next; }
+X
+X      # Verify if this package is linked in /usr/local/bin
+X
+X      if($IsLocal) {
+X        if(readlink("$INSTALLDIR/$filename/IAFA-PACKAGES") eq
+X           "$softdir/$filename/install/IAFA-PACKAGES") {
+X          $IsLinked = $TRUE;
+X        }
+X        else {
+X          $IsLinked = $FALSE;
+X        }
+X      }
+X 
+X      # Check if a status file exists for this package
+X
+X      $htmltime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/${filename}.status.html");
+X
+X      if($Show) { 
+X        print "\n"; 
+X      }
+X      elsif($htmltime == 0) {
+X        open(STATUSFILE,">$LUDEWWW/${filename}.status.html");
+X        print STATUSFILE "<TITLE>$filename</TITLE>\n<H1>$filename</H1>\n";
+X      }
+X      else {
+X        open(STATUSFILE,">>$LUDEWWW/${filename}.status.html");
+X      }
+X     
+X      # Now check the time of the html file
+X
+X      $htmltime = 0;
+X
+X      ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X       $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/${filename}.html");
+X
+X      # Check also the wais abstract if requested
+X
+X      if($WAISSoft) {
+X        $waistime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$waistime,$ctime,$blksize,$blocks) = 
+X                                   stat("$LUDEWAIS/soft/$filename");
+X        if($waistime < $htmltime) {
+X          $htmltime = $waistime;
+X        }
+X      }
+X
+X      # The html file for the software should be regenerated
+X      # the accompanying .dir and wais files are done at 
+X      # the same time
+X
+X      if($htmltime == 0 || $htmltime < $softtime) {
+X	if($Show) {
+X          print "MakeHTMLfile($softdir/$filename/install/IAFA-PACKAGES)\n";
+X        }
+X	else {
+X          &MakeHTMLfile("$softdir/$filename/install/IAFA-PACKAGES",
+X                      $filename,$TRUE);
+X        }
+X      }
+X
+X      # Check also the html file for the modifications,
+X      # loop over the modifications in the install dir.
+X
+X      opendir(subdir, "$softdir/$filename/install");
+X      # Note that the files '.' and '..' are not retained 
+X      @subfiles = grep(! /^IAFA-PACKAGES$/,
+X                         grep(! /^share$/,
+X                         grep(! /^\.{1,2}$/, readdir(subdir))));
+X      closedir(subdir);                                 
+X
+X      foreach $subname (@subfiles) {
+X
+X        $softtime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$softtime,$ctime,$blksize,$blocks) = 
+X                            stat("$softdir/$filename/install/$subname/LUDE");
+X
+X        $htmltime = 0;
+X
+X        ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,
+X         $atime,$htmltime,$ctime,$blksize,$blocks) = 
+X                                 stat("$LUDEWWW/$filename/${subname}.html");
+X
+X        if($htmltime == 0 || $htmltime < $softtime) {
+X
+X          if(! -d "$LUDEWWW/$filename") {
+X            if(! $Show) { mkdir("$LUDEWWW/$filename",0755); }
+X          }
+X
+X	  if($Show) {
+X            print "MakeHTMLfile($softdir/$filename/install/$subname/LUDE)\n";
+X          }
+X          else {
+X	    &MakeHTMLfile("$softdir/$filename/install/$subname/LUDE",
+X                        "$filename/$subname",$FALSE);
+X          }
+X        }
+X
+X        # Check the classes available and update the status file
+X
+X        opendir(classdir, "$softdir/$filename/install/$subname");
+X        # Note that the files '.' and '..' are not retained 
+X        @classfiles = grep(! /^LUDE$/,
+X                         grep(! /^share$/,
+X                         grep(! /^\.{1,2}$/, readdir(classdir))));
+X        closedir(classdir);                                 
+X
+X        foreach $classname (@classfiles) {
+X
+X          if($Show) {
+X            print "MakeStatusFileEntry($softdir,$filename,$subname,$classname)\n";
+X          }
+X          else {
+X            &MakeStatusFileEntry($softdir,$filename,$subname,$classname);
+X          }
+X        }
+X      } 	# for each modification
+X    
+X      if(! $Show) { close(STATUSFILE); }
+X
+X    }           # for each software
+X  }             # for each path component
+X
+X  # All the dir files can be concatenated to produce the main menu
+X
+X  if($Verbose) { print "$PGM: $TEXT[$HTML_UPDATING_MENU]\n"; }
+X
+X  if($Show) {
+X    print "chdir $LUDEWWW\n";
+X    print "$MAKEWWW\n";
+X  }
+X  else {
+X    chdir $LUDEWWW ;
+X    system $MAKEWWW ;
+X  }
+X
+X  if($Verbose) { print "$TEXT[$IS_DONE]\n\n"; }
+X
+X}
+X
+X
+X###########################################################
+X#
+X# Convert a IAFA-PACKAGES file into a HTML file
+X# and create the associated dir and wais files
+X#
+X
+Xsub MakeHTMLfile {
+X
+X  local($ludefile) = $_[0];
+X  local($software) = $_[1];
+X  local($notmodif) = $_[2];
+X  local(*html_file,*this_file);
+X
+X  if(!open(html_file,">$LUDEWWW/${software}.html")) {
+X    print "$PGM: $TEXT[$CANNOT_ACCESS] $LUDEWWW/${software}.html\n";
+X  }
+X  if(!open(this_file,$ludefile)) {
+X    print "$PGM: $TEXT[$CANNOT_ACCESS] $ludefile\n";
+X  }
+X
+X  $abstract = '';
+X  $description = '';
+X
+X  print html_file "<TITLE>$software</TITLE>\n";
+X  print html_file "<H1>$software</H1>\n";
+X
+X  # Read the file, when encountering a new field name, output the
+X  # previous field if not empty and not in the "no" list. Otherwise
+X  # accumulate the lines in the current field.
+X
+X  $in_description = 0;
+X  $in_abstract = 0;
+X  $fieldname = '';
+X  $field = '';
+X  while($_ = <this_file>) {
+X
+X    $found = /^([a-zA-Z-]*:)(.*)/;
+X    $newname = $1;
+X    $newfield = $2 . "\n";
+X
+X    if ($found eq '') {
+X      $field = $field . $_;
+X      if ( /^\s*$/ ) {
+X        $in_description = 0;
+X	$in_abstract = 0;
+X      }
+X
+X      if( $in_description == 1) {
+X	$description .= $_;
+X      }
+X
+X      if( $in_abstract == 1) {
+X        $abstract .= $_;
+X      }
+X    }
+X    else {
+X      if (($fieldname ne '') && 
+X#          ($No_field{$fieldname} != 1) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X				
+X	print html_file "<H3>${fieldname}</H3>\n$field\n"
+X      }
+X			    
+X      $fieldname = $newname;
+X      $fieldname =~ tr/a-z/A-Z/;
+X      $field = $newfield;
+X			    
+X      #
+X      # keep the description for the main menu
+X      #
+X
+X      if (($fieldname eq $FIELD[$DESCRIPTION]) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X	$in_description = 1;
+X	$description = $field;
+X      }
+X			    
+X      if (($fieldname eq $FIELD[$ABSTRACT]) &&
+X	  ($field =~ /[-a-zA-Z0-9]/)) {
+X	$in_abstract = 1;
+X	$abstract = $field;
+X      }
+X    }
+X  }
+X
+X  if (($fieldname ne '') && 
+X#      ($No_field{$fieldname} != 1) && 
+X      ($field =~ /[-a-zA-Z0-9]/)) {
+X			
+X    print html_file "<H3>${fieldname}</H3>\n$field\n";
+X  }
+X
+X  close this_file;
+X		    
+X  # The html file was produced. If this is not simply a modification,
+X  # a dir file and perhaps a WAIS file should be created.
+X		
+X  if($notmodif) {
+X
+X    # A reference is added to the status file
+X
+X    print html_file "<H3>$TEXT[$SOFT_AVAILABILITY]</H3>\n";
+X    print html_file "<A HREF=http://$HostWWW:$PortWWW$LUDEWWW/${software}.status.html>$software</A>\n\n";
+X    close html_file;
+X
+X    # the dir file is created
+X
+X    open(html_file,">$LUDEWWW/${software}.dir");
+X    print html_file "<DT><A HREF=http://$HostWWW:$PortWWW${LUDEWWW}/${software}.html>$software</A><DD>$abstract\n";
+X    close html_file;
+X
+X    # the WAIS file is created if needed
+X
+X    if($WAISSoft) {
+X
+X      if( !open(html_file,">$LUDEWAIS/soft/${software}")) {
+X        print "$PGM: $TEXT[$CANNOT_ACCESS] $LUDEWAIS/soft/${software}\n";
+X      }
+X      else {
+X        chop $abstract;
+X        print html_file "$software $abstract\n";
+X        print html_file "<TITLE>$software</TITLE>\n<H1>$software</H1>\n";
+X        print html_file "<H2>$FIELD[$DESCRIPTION]</H2>\n$description<P>\n";
+X        print html_file "<A HREF=http://$HostWWW:$PortWWW${LUDEWWW}/${software}.html>$software</A>\n\n";
+X        close html_file;
+X      }
+X
+X    }
+X  }
+X  else {
+X    close html_file;
+X  }
+X}	
+X
+X##########################################################
+X
+Xsub MakeStatusFileEntry {
+X
+X  local($softdir) = $_[0];
+X  local($software) = $_[1];
+X  local($modif) = $_[2];
+X  local($class) = $_[3];
+X
+X  # output one line in the status file
+X
+X  if($IsLocal) { 
+X    if($IsLinked) {
+X      print STATUSFILE 
+X            sprintf("<P>$TEXT[$CLASS_IS_LINKED]\n",$software,$modif,$class);  
+X    }
+X    else {
+X      print STATUSFILE 
+X            sprintf("<P>$TEXT[$CLASS_IS_LOCAL]\n",
+X                    $software,$modif,$class,$softdir);  
+X    }
+X  }
+X  elsif($IsServer ne '') {
+X    print STATUSFILE 
+X          sprintf("<P>$TEXT[$CLASS_ON_SERVER]\n",$software,$modif,$class,$IsServer);  
+X  }
+X  else {
+X    print STATUSFILE 
+X          sprintf("<P>$TEXT[$CLASS_ELSEWHERE]\n",$software,$modif,$class,$softdir);  
+X  }
+X
+X  # Put out a link to the modification
+X
+X  print STATUSFILE "<P><A HREF=$LUDEWWW/$software/${modif}.html>$modif</A>\n\n";
+X
+X  # If needed, list doc/info/man pages
+X
+X  if($IsLocal || $RemoteLink) {
+X
+X    print STATUSFILE "<P>\n";
+X
+X    if(-d "$softdir/$software/run/$modif/$class/doc") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/doc",
+X                    "doc/","","");
+X    }
+X
+X    if(-d "$softdir/$software/run/$modif/$class/info") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/info",
+X                    "info/",'^((.*\.dir$)|(.*[0-9]$)|(dir)|(dir\.top)|(COPYING))$',
+X                    ".info");
+X    }
+X
+X    if(-d "$softdir/$software/run/$modif/$class/man") {
+X      &MakeDocLinks("$softdir/$software/run/$modif/$class/man",
+X                    "",'^whatis$',".man");
+X    }
+X  }
+X}
+X
+X####################################################################
+X#
+X# Search for documentation files in the software tree and
+X# put out links to them in the status file
+X
+Xsub MakeDocLinks {
+X
+X  local($htmlLinksDirName, $radix, $filePattern, $ext) = @_;
+X  local(@allfiles,$filename);
+X  local(*html_links_dir);
+X
+X  if($NoWWWExt) {
+X    $ext = "";
+X  }
+X
+X  opendir(html_links_dir, $htmlLinksDirName);
+X  @allfiles = grep(! /^\.{1,2}$/, readdir(html_links_dir));
+X  closedir(html_links_dir);
+X
+X  # ignore ordinary files, follow recursively subdirectories
+X  # (adding the filename to both the directory name and to the 
+X  #  short name radix) and process symbolic links
+X
+X  foreach $filename (@allfiles) {
+X    if (-d "$htmlLinksDirName/$filename") {
+X      &MakeDocLinks("$htmlLinksDirName/$filename", "$radix$filename/",
+X		     $filePattern,$ext);
+X    }
+X    else {
+X      if (!($filename =~ /$filePattern/)) {
+X
+X        print STATUSFILE 
+X              "<A HREF=$htmlLinksDirName/$filename$ext>$radix$filename</A>\n";
+X      }
+X      else {
+X	if($Verbose) { print "$TEXT[$IGNORING_FILE] $htmlLinksDirName/$filename\n"; }
+X      }
+X    }
+X  }
+X}
+X
+X####################################################################
+X#
+X# Rebuild the WAIS database
+X#
+X
+Xsub MakeWAIS {
+X
+X  local($database_cover) = "${HostWAIS}:${PortWAIS}:lude.html";
+X  local(*waisfile);
+X
+X  if($Verbose) { print "$PGM: $TEXT[$WAIS_INDEXING]\n"; }
+X
+X  if($Show) {
+X    print "$MAKEWAIS\n";
+X    print "symlink($LUDEWAIS/lude.html,$LUDEWAIS/$database_cover)\n";
+X  }
+X  else {  
+X
+X    system $MAKEWAIS;
+X    
+X    # We must force the HTML type in this binary one line file.
+X    # The -T option in waisindex should have done it ?!
+X
+X    open(waisfile,"$LUDEWAIS/lude.fn");
+X    $_ = <waisfile>;
+X    close(waisfile);
+X    open(waisfile,">$LUDEWAIS/lude.fn");
+X    s/TEXT/HTML/g;
+X    print waisfile $_;
+X    close(waisfile);
+X
+X    # The cover page must have specially formatted name
+X
+X    symlink("$LUDEWAIS/lude.html","$LUDEWAIS/$database_cover");
+X  }
+X
+X  if($Verbose) { print "\n$TEXT[$IS_DONE]\n"; }
+X}
+X
+X### Local Variables: ***
+X### mode: perl ***
+X### End: ***
+X
+END_OF_FILE
+  if test 25189 -ne `wc -c <'lude-1.1/src/orig/src/ludeindex'`; then
+    echo shar: \"'lude-1.1/src/orig/src/ludeindex'\" unpacked with wrong size!
+  fi
+  chmod +x 'lude-1.1/src/orig/src/ludeindex'
+  # end of 'lude-1.1/src/orig/src/ludeindex'
+fi
+echo shar: End of archive 7 \(of 12\).
+cp /dev/null ark7isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

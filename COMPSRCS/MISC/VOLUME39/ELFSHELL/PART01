@@ -1,0 +1,2088 @@
+Newsgroups: comp.sources.misc
+From: erlkonig@apple-gunkies.gnu.ai.mit.edu (Christopher North-Keys)
+Subject: v39i062:  elfshell - Example convoluted configuration for csh/tcsh/bash/es/(sh) shells, Part01/02
+Message-ID: <csm-v39i062=elfshell.124047@sparky.Sterling.COM>
+X-Md4-Signature: d051afc607275bf6b5511737b6b04204
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: /home/gp2/erlkonig/.organization
+Date: Sun, 29 Aug 1993 17:41:05 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: erlkonig@apple-gunkies.gnu.ai.mit.edu (Christopher North-Keys)
+Posting-number: Volume 39, Issue 62
+Archive-name: elfshell/part01
+Environment: UNIX
+
+A convoluted, semi-shared configuration for the bash, csh, es, ksh, 
+sh, tcsh and shells.
+
+[Note: for anyone using the so-called `elfshell' environment, this is
+ the most recent revision.]
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  .elven .elven/README .elven/bash .elven/bash/.history
+#   .elven/bash/functions .elven/csh .elven/csh/.cshrc.v3.UU
+#   .elven/csh/.cshrc.v4.UU .elven/csh/README .elven/csh/cshrc
+#   .elven/csh/interface.UU .elven/csh/session .elven/es
+#   .elven/es/Noah-intro .elven/es/main.UU .elven/ksh .elven/sh
+#   .elven/sh/interface.UU .elven/tcsh
+# Wrapped by kent@sparky on Sun Aug 29 12:15:50 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test ! -d '.elven' ; then
+    echo shar: Creating directory \"'.elven'\"
+    mkdir '.elven'
+fi
+if test -f '.elven/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/README'\"
+else
+  echo shar: Extracting \"'.elven/README'\" \(4540 characters\)
+  sed "s/^X//" >'.elven/README' <<'END_OF_FILE'
+X[Talisman/North-Keys Fri Jul 24 04:31:34 CDT 1992]
+X
+X~/.elven
+X
+XThe Elfshell
+XChristopher Alexander North-Keys
+XSpring 1988 through Summer 1992, etc.
+X
+XTo enable the elfshell:
+X
+X	FIRST:  backup your existing shell scripts,
+X	including (but not limited to):
+X		.profile
+X		.cshrc
+X			.login
+X			.logout
+X		.bashrc
+X			.bash_profile
+X			.bash_login
+X			.bash_logout
+X		.rcrc
+X		.path
+X		.cdpath
+X
+X	Copy this directory, .elven, into your home directory.
+X	Run a ``make'' in subdirectories corresponding to the desired shells.
+X	Make any needed alterations.
+X
+XWarning:  this set of scripts is not officially supported,
+X          and is of a level of complexity far higher than
+X          most other sets of initialization scripts.
+X
+XAbstract  NOTE: these notes are historics from the original csh(1) version....
+X--------
+XThis set of shell configuartion scripts was developed with the following goals:
+X
+X	o	title-bar control in windowing environments.
+X	o	achieve effect of ".login-first" execution.
+X	o	optimize startup time for subshells, and non-interactive shells.
+X	o	protect against mistakes made in non-interactive shells.
+X	o	optimize access to common values via `setenv'
+X	o	avoid overlaying standard commands and builtins.
+X	o	tracking of shell depth.
+X	o	simplification of shell re-sourcing.
+X	o	economy of standard alias set.
+X	o	exportation of aliases into ~/bin shell scripts.
+X	o	portability.
+X	o	use of features like arch, and less in environment iff extant.
+X
+XThe basic problem had to do with an inconsistancy:  all shells could generally
+Xdepend on ~/.login having been run, EXCEPT the login shell.  This reveals the
+Xpurpose of ~/.login to be one of checking mail, etc., rather than setting a
+Xconsistant environment.  Hence a file ~/.cshlc was created for setenv commands,
+Xand handled so as to only run once per login.  This functionality is now within
+Xthe ~/.elven/environment file.
+X
+X(Initially sourcing ~/.login from inside ~/.cshrc was tried, but one then
+X needed to prevent it from being sourced a *second* time.  Less than
+X elegant.)
+X
+XIdeally one would like to configure a shell, core dump it, and `undump' the
+Ximage into a new, pre-initialized program.  So far attempts have failed.  A
+Xcompletely new shell would likely be required to fix this kind of thing
+Xelegantly.
+X
+XIn the meanwhile, we have the following:
+X
+XModule              Edit-safe           Description
+X------------------  --------- ----------------------------------
+X.cshrc               no       Install this as ~/.cshrc
+Xaliases              no       Basic aliases.
+Xaliases.local       yes       Sourced by `aliases'.
+Xenvironment          no       Basic environment.
+Xenvironment.local   yes       Sourced by `environment'.
+Xinterface            no       Sets TTY and INTERFACE in the environment.
+Xsession             yes       Per-shell session-oriented settings.
+Xsetheaders           no       Set title-bar aliases from INTERFACE.
+Xsunview              no       Exhaustive sunview window aliases list.
+Xinpath               no       Executable C-shell script.
+X
+XRecommended bin scripts (see ~/bin or equiv)
+X-----------------------
+Xl, li, lf, L, L., search
+X
+XModularity, or where to put what
+X--------------------------------
+Xaliases:     `aliases.local'     (addition to `aliases')
+Xsetenv:      `environment.local' (addition to `environment')
+Xumask:       `environment.local' (addition to `environment')
+Xset, stty:   `session'
+Xtset:        `interface` (with extreme caution)
+X
+XTimings on rev 29, Sun 3/150 server, SunOS 4.0.3:
+X	Self:	5.58 seconds
+X	self:	1.88 to 2.64 (norm 2.0) seconds
+X
+XTimings on rev 30, Sun SPARC server, SunOS 4.0.3:
+X	Self:   avg 6 seconds (6 to 11 seconds observable)
+X	self:   avg 1 second  (1 to 2 seconds observable)
+X
+XHistory:
+X
+X	.cshrc.v3:  rev 3.1 (Maerz.1988) .cshrc sourcing .login.
+X    .cshrc.v4:  rev 4   (Jun.1988) begin .cshrc_mine, remove hist'cal aliases.
+X             :  rev 7
+X             :  rev 15
+X	         :	rev 21  (Juli.1989 - Januar.1989).
+X             :  rev 25  (Mai.1990)
+X             :  rev 27  (Juni.1990)
+X             :  rev 28  (Juli.1990)
+X             :  rev 29  (August.1990) Added shell-variant prompt support
+X             :  rev 30  (Maerz.1991)  Added ~/.elven/inpath, prog' exist' chks.
+X  lvn/*/1    :  1991    Major portability rewrite. ~/.path ~/.elven/{csh,bash}
+X  lvn/*/2    :  1992    ~/.pathcd ~/.elven/environ*
+X  lvn/*/3    :  1993    ~/.path and ~/.pathcd moved to ~/.elven/path{,cd}
+X  lvn/bash/4 :  1993    ~/.elven/path* redone.  pathman, environ.stty added. added es.
+X
+XGood Luck.
+X
+X-Christoph. Alex. North-Keys
+X Donnerstag.d.4.Januar.1989
+END_OF_FILE
+  if test 4540 -ne `wc -c <'.elven/README'`; then
+    echo shar: \"'.elven/README'\" unpacked with wrong size!
+  fi
+  # end of '.elven/README'
+fi
+if test ! -d '.elven/bash' ; then
+    echo shar: Creating directory \"'.elven/bash'\"
+    mkdir '.elven/bash'
+fi
+if test -f '.elven/bash/.history' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/bash/.history'\"
+else
+  echo shar: Extracting \"'.elven/bash/.history'\" \(13774 characters\)
+  sed "s/^X//" >'.elven/bash/.history' <<'END_OF_FILE'
+XSelf
+Xnethack -help
+XSelf ; nethack
+Xexport TERM=vt100
+Xl
+Xreset
+Xnethack -help
+X
+XSelf ; nethack
+Xexport TERM=xterm
+Xnethack
+Xnote font
+Xnote font
+Xnethack
+Xnethack
+Xcbzone
+Xcbzone
+Xl
+Xc tmp
+Xli
+Xli
+Xl
+XL
+Xli
+Xl
+Xuudecode fuckme.uu 
+Xlo
+Xli
+Xtar xvf fuckme
+Xl
+Xrm c.obfuscator 
+Xmv tarf.Z  ..
+X..
+Xl
+Xrm tmp/fuckme
+Xli
+Xmkdir mnt
+Xmv tarf.Z mnt/
+Xc mnt/
+Xl
+Xzcat tarf.Z | tar xvf -
+Xcd rmail
+Xl
+Xlf mailbox outgoing 
+Xcat mailbox 
+Xp outgoing 
+Xpwd
+Xp outgoing 
+Xc xbitmaps
+Xpwd
+Xbitmap xterm.xbm 
+Xc lib
+Xl
+Xl emacs/
+Xc lib
+Xc lisp
+Xc emacs/lis
+Xc emacs/lisp
+Xl
+Xlr
+Xpwd
+Xl
+Xp elven
+Xp elven.el
+Xdf .
+Xdf
+Xl
+Xp c++-mode.el
+Xcd tmp
+Xl
+Xman tar
+Xtar vfx /dev/rst0 ./lib/emacs/lisp/c++-mode.el ./lib/emacs/lisp/elven.el
+Xhead /dev/rst0
+Xtar vft /dev/rst0
+Xl
+Xtar xvf /dev/rst0 ./lib/emacs/lisp
+Xtar tvf /dev/rst8 > toc 
+Xl
+Xp toc 
+Xmt -f /dev/rst0 fsf 1
+Xmt -f /dev/nrst0 fsf 1
+Xtar xvf /dev/nrst0
+Xmt -f /dev/nrst0 fsf 1
+Xmt -f /dev/nrst0 status
+Xl
+Xman mt
+Xmt -f /dev/nrst0 status
+Xtar xvf /dev/nrst0
+Xtar xvf /dev/nrst0
+X mt -f /dev/nrst0 fsf 1
+Xmt -f /dev/rst0 ret
+Xl
+Xrm toc
+Xtar tvf /dev/rst0 > toc 
+Xtar tvf /dev/nrst0 > toc 
+Xp ~/lib/astrolog/me
+Xl
+Xp toc 
+Xc lib
+Xl
+Xc emacs/
+Xli
+Xl lisp-untested/
+Xc lisp
+Xl
+Xl stashed/
+Xp elven.elc
+Xl
+Xrm rp-describe-fu
+Xl
+Xtar tvf /dev/fd0
+Xeject
+Xeject
+Xtar tvf /dev/fd0
+Xcd tmp
+Xl
+Xrm toc
+Xtar xvf /dev/rfd0
+Xl
+Xzcat .tar.Z | tar tvf -
+Xrm .tar.Z 
+Xl
+Xj
+Xeject
+Xl
+Xc lab
+Xl
+Xrm -rf xancur
+Xc url
+Xc yon
+Xl
+Xc urt/
+Xl
+Xl config/
+Xcd config/
+Xcp urt urt.dist
+Xvi urt
+Xl
+Xp sun4
+Xvi sun4
+X..
+XConfigure config/sun4
+Xl
+Xmake
+Xvi config/sun3
+Xp cnv/rletocgm.c 
+Xtouch cnv/unix_defs.h
+Xmake
+Xvi +463 rletocgm.c
+Xvi +463 cnv/rletocgm.c
+Xl
+Xgrep rle_init_hdr include/rle*.h
+Xvi cnv/makefile
+Xvi config/sun4
+Xmake config
+Xrm cnv/unix_defs.h 
+Xmake
+Xl 
+Xl lib
+Xvi config/sun
+Xvi config/sun4
+Xvi config/sun4
+Xl ~/yon/rayshade/src/
+Xp ~/yon/rayshade/BLURB.UTAH 
+Xfg
+Xp ~/yon/rayshade/BLURB.UTAH 
+Xfg
+Xl
+Xmake config
+Xmake
+Xfg
+Xl
+Xmake -n install
+Xfor d in include lib tools cnv get man ; do \
+X( cd $d ; echo make install on $d ; make -n install ) ; \
+Xdone
+X{ for d in include lib tools cnv get man ; do \
+X( cd $d ; echo make install on $d ; make -n install ) ; \
+Xdone } | p
+Xmake install
+Xl /tmp
+Xrmdir /tmp/X11R5
+Xl
+Xc doc
+Xc urt
+Xl
+Xl lib
+Xl get
+Xp README 
+Xc getx11
+Xl
+Xc get/getx11/
+Xl
+Xmake install
+Xp makefile
+Xl /usr/local/bin/g*
+Xrm install-pgm
+Xmake install
+X..
+X..
+Xl
+Xbin/getx11 
+Xbin/getx11  -help
+Xbin/getx11 ../rayshade/Examples/balls.rle 
+Xl include/
+Xl
+Xl lib
+Xl cnv/
+Xl
+Xl tools/
+X.
+Xecho $TERM
+Xexport TERM
+XSelf
+Xfind . -name svfb\* -print
+Xl
+Xl include/
+Xl
+Xl cnv
+Xl lib
+Xl 
+Xl get
+Xl get/*
+Xl
+Xman relcat
+Xman rlecat
+Xl tools/
+Xl
+Xl lib
+Xl
+Xl etc
+Xl cnv
+Xcd
+Xc
+Xdf
+Xcd /tmp
+Xl
+Xtar tvf /dev/rst0 > toc
+Xtail toc
+Xrewoffl
+Xmt -f /dev/rst0 rewoffl
+Xcd /usr/local
+Xl
+Xdf .
+Xtar xvf /dev/rst0
+Xmkdir X11R5
+Xcd X11R5
+Xl
+Xid
+Xpwd
+Xid 0
+Xl
+Xx
+X/
+Xc /usr/local/X11R5/
+Xl
+Xtar xvf /dev/rst0 ./include ./man
+Xl
+Xl include/
+Xl m
+Xman tar
+Xtar tvf /dev/rst0
+Xtar xvf /dev/rst0 include man
+Xl
+Xmt -f /dev/rst0 rewoffl
+Xl
+Xkbd_mode -a
+Xvi /etc/fbtab
+Xl
+Xkill -9  -1
+Xkbd_mode -a
+Xid 0
+Xvi /usr/include/X11/Xlib.h 
+Xfg
+Xchown erlkonig /usr/local/X11R5/include/X11/Xlib.h 
+Xcd /usr/local/X11R5
+Xl
+Xl
+Xli
+Xchown -R root.staff *
+Xli
+Xchmod g+w /usr/local/X11R5/lib/X11/app-defaults /usr/local/X11R5/include/X11/Xlib.h
+Xchmod g+w /usr/local/X11R5/{bin,lib}
+Xli
+Xcbzone -d 2
+Xman ldconfig
+Xp /etc/ld.so.cache 
+Xman ldconfig
+Xl
+Xdf
+Xc
+Xdu
+Xdf .
+Xdf
+Xl
+Xpurge
+Xfind . -name core -print
+Xmt -f /dev/rst0 erase
+Xc
+Xeasytape 
+Xvi ~/bin/script/easytape 
+Xl
+Xeasytape help
+Xeasytape |& tee easy.out | p
+Xeasytape 2>&1 | tee easy.out | p
+Xvi ~/bin/script/easytape 
+Xeasytape 2>&1 | tee easy.out | p
+Xmt -f /dev/rst0 rew
+Xeasytape 2>&1 | tee easy.out | p
+Xreset
+Xl
+Xp easy.out 
+Xrm easy.out 
+Xvi ~/bin/script/easytape 
+Xl /tmp/ea*
+Xp /tmp/ea*
+Xrm /tmp/ea*
+Xl
+Xc
+Xl
+Xtar tvf /dev/rst0 > tmp/toc
+Xp tmp/toc
+Xwc tmp/toc
+Xrm tmp/toc
+Xmt -f /dev/rst0 rewoffl
+Xdu arc/
+Xplumbing 
+Xl
+Xdf
+Xdu -s arc bin lab maw pub var yon
+Xc lib
+Xdu -s 8
+Xdu -s *
+Xl
+Xc KT/
+Xl
+Xl sound/
+Xc sound/
+Xplay  experimentIV.au 
+Xl
+Xli
+Xdf
+Xdkinfo sd
+Xdkinfo sd2
+X..
+Xl
+Xddu
+Xdu
+Xrm sound/experimentIV.au 
+Xdu
+Xl
+Xc lyrics/
+Xl
+Xc Albums/
+Xli
+Xrm *list
+X..
+Xl
+X..
+Xl
+X..
+Xli
+Xdu -s *
+Xdf
+X..
+Xl
+Xl yon
+Xc yon
+Xcd /usr/local/bin
+Xl
+Xrm rle*
+Xli | grep erl
+Xrm smush  to8 tobw unexp unslice 
+Xstrings pyrmask | p
+Xrm pyrmask
+Xli | grep erl
+Xrm applymap avg4 
+Xlr | grep erl
+Xrm crop into fant mcut mergechan repos 
+Xl
+Xc
+Xl
+Xl
+Xl arc
+Xdu maw
+Xcd maw
+Xl
+Xli
+X..
+Xl
+Xl etc
+Xl hub
+Xrm hub/tar
+Xl
+Xrm hub/tar.uu 
+Xl
+Xl lib
+Xln -s archive-03-08-1992 foobar
+Xl
+Xlf foobar 
+Xp foobar 
+Xcat foobar 
+Xcd foobar 
+Xecho hi > foobar
+Xl
+Xrm foobar  archive-03-08-1992 
+Xcd bin
+Xl
+Xl
+Xdf
+Xcd bin
+Xl
+Xl *
+XL su*
+Xrm sun4b/tvtwm 
+Xl
+X..
+Xl
+Xc X++
+Xl
+Xc lib
+Xl
+Xc
+Xl
+Xdf .
+Xl tmp
+Xl var
+Xrm var/easy-last 
+Xl yon
+Xcd emu
+Xl
+Xmake
+Xp /usr/include/X11/Xlib.h
+Xvi /usr/include/X11/Xlib.h
+Xid 0
+Xmake
+Xid 0
+Xvi /usr/include/X11/Xlib.h
+Xchmod 644 /usr/include/X11/Xlib.h
+Xfg
+Xmake
+Xvi Makefile 
+Xl
+Xmv Makefile Makefile.dist
+Xxmkmf
+Xp Makefile
+Xmake CC=gcc
+Xcd ./tdesc/
+Xl
+Xmv Makefile Makefile.dist
+Xxmkmf
+Xmake -n install
+Xlf /usr/local/X11R5/lib/X11/app-defaults
+Xid 0
+Xid root
+Xecho $LD_LIBRARY_PATH 
+Xdf
+Xcbzone -d 0
+Xcbzone -d 1
+Xcbzone -d 2
+Xcbzone -d 3
+Xcbzone -d 4
+Xc sun4
+Xl
+Xc sun4b
+Xl
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xc lab
+Xc gcc2.1/
+Xl
+Xc include/
+Xl
+Xp sys/stdtypes.h 
+Xc emu
+Xl
+Xc tdesc/
+Xmake install
+X..
+Xl
+X./emu
+Xmake -n install
+Xmake install
+Xemu
+Xinstall -c -m 0444 tdesc/Emu.ad  /usr/local/X11R5/lib/X11/app-defaults/Emu
+Xemui
+Xemu
+Xecho $XAPPLRESDIR 
+Xexport XAPPLRESDIR=/usr/local/X11R5/lib/X11/app-defaults
+Xemu
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*'
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*'
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -c csh
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e csh
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e sh
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e bash  -i
+Xl
+Xp README 
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e /bin/csh 
+Xp README 
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e less README 
+Xemu -fn '*smooth*medium*' -fb '*smooth*bold*' -e xterm 
+Xl
+X..
+Xl
+Xrm /usr/local/X11R5/bin/emu 
+Xrm /usr/local/X11R5/lib/X11/app-defaults/Emu 
+Xl
+Xrm -rf emu
+Xdf
+Xdu urt rayshade/
+Xli
+Xdf
+Xcd xhextris/
+Xl
+Xxhextris 
+Xmake clean
+Xyl
+Xl
+Xrm tophextris
+Xli
+Xmv Makefile Makefile.dist
+Xxmkmf
+Xmake CC=gcc
+Xvi +373 Makefile
+Xmake CC=gcc
+Xmake CC=gcc -f Makefile.dist 
+Xmake CC=gcc -f Makefile.dist 
+Xvi Makefile
+Xvi Makefile.dist 
+Xp Makefile
+Xfg
+Xp Makefile
+Xfg
+Xmake CC=gcc -f Makefile.dist 
+Xvi Makefile.dist 
+Xmake CC=gcc -f Makefile.dist 
+Xmkdir+ /usr/local/lib/xhextris
+Xmake CC=gcc -f Makefile.dist 
+Xvi Makefile.dist 
+Xmake CC=gcc -f Makefile.dist 
+Xxhextris 
+Xl
+Xsearch xhextris
+Xrm /usr/local/bin/xhextris /usr/local/lib/xhextris
+X..
+Xrm xhextris/
+Xrm xhextris
+Xl
+Xdf .
+Xdu
+X..
+Xl
+Xdu arc yon
+Xl
+Xdu maw
+Xcd hub
+Xgmake pure &>/dev/null &
+Xl
+X..
+Xl
+Xl arc
+Xdf
+Xl
+Xmkdir sav
+Xmv arc yon sav/
+Xl
+Xc save
+Xl
+Xl pub
+Xl
+Xmv pub sav
+Xl
+Xc sav
+Xlii
+Xli
+Xl pub/
+Xl ~/lab
+Xmv pub/xgosh ~/lab
+Xl
+Xeasytape 
+Xl
+Xfind . -name -print
+Xfind . -print
+Xfind . -print > toc
+Xl
+Xmkdir lib/tapes
+Xmkdir ~/lib/tapes
+Xl
+Xmv toc ~/lib/tapes/TOC-03-Aug-1992
+Xl
+Xtar tvf /dev/rst0
+Xtar tvf /dev/rst0 > ~/lib/tapes/TOC-03-Aug-1992 ; tail ~/lib/tapes/TOC-03-Aug-1992 ; play /usr/local/lib/sound/alien_sex.au 
+Xmt -f /dev/rst0 rewoffl
+Xmt -f /dev/rst0 rewoffl
+Xdf
+Xl
+Xc
+Xl
+Xdu > .du
+Xtail .du
+Xl
+Xdf
+Xl /home
+Xcd lib
+Xl
+Xcd KT
+Xl
+Xcompress lyrics/Albums/*/*.lyr
+Xdu
+Xcompress interviews/KTi-*
+Xl
+Xdu
+X..
+Xl
+Xldu
+Xdu -s *
+Xc tex
+Xl
+Xc
+Xl
+Xc lab
+Xl
+Xfind . -name '*.o' -print
+Xfind . -name '*.o' -print -exec rm {} \;
+X..
+Xl
+Xl maw
+XL maw
+Xl
+Xrm .du
+Xl
+Xdf
+Xcbzone
+Xxnacur
+Xxrdb+ .Xresources 
+Xstrings `which tvtwm` | p
+Xl
+Xdf
+Xdf
+Xspider
+Xbg
+Xdf
+Xdf
+Xdf
+Xdf
+Xl
+Xc lib/tapes/
+Xtail TOC-03-Aug-1992 
+Xl
+Xc sav
+Xl
+X..
+Xl
+Xtail lib/tapes/TOC-03-Aug-1992 
+Xtail lib/tapes/TOC-03-Aug-1992 
+Xtail lib/tapes/TOC-03-Aug-1992 
+Xtail -f lib/tapes/TOC-03-Aug-1992 
+Xl
+Xrm sav
+X/
+X/
+Xcat .Xdefaults 
+X/
+Xxphoon
+Xxphoon
+X/
+X/
+Xx
+X/
+Xl
+Xln -s xnews X
+Xl
+Xun
+Xreset
+Xecho $TERM
+Xcd bin/script
+Xvi x
+Xexport TERM=sun
+Xvi x
+X/
+X(olwm)&
+X/
+Xecho $TERM
+X/
+Xxterm
+Xbg
+Xxterm &
+Xenv
+Xeval `.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xexport LOGNAME=erlkonig
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xexport HOSTNAME=`hostname`
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xexport ELVEN=/home/erlkonig/.elven/bash
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xexport HOME=/home/erlkonig
+Xexport HOME=/home/erlkonig
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xexport NOTEDIR=~/lib/notes
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xenv
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'` { while read line ; do $line ; done ; }
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'` |  { while read line ; do $line ; done ; }
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'` |  { while read line ; do $line ; done ; }
+X}
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'` |  { while read line ; do $line ; done  }
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'` |  {
+Xwhile read line
+Xdo
+Xecho $line
+Xdone
+X}
+X}
+X}
+Xdone
+Xfi
+Xesac
+Xbreak
+Xeval `./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'`
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@'
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@' | { while read line ; do $line ; done }
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@' | { while read line ; do export $line ; done }
+Xenv
+X./.environ | sed 's@^\([^        ]*\)[   ][      ]*\(.*\)$@\1='"'"'\2'"'"'@' | { while read line ; do echo export $line ; done }
+X(olwm&)
+Xxterm & xterm &
+Xxterm -e csh &
+Xphone father
+Xl
+X/
+Xcbzone
+X/
+Xnethack
+Xl
+Xl
+Xc .elven
+Xl
+Xl
+Xcd bash
+Xl
+Xemacs .
+Xbg
+Xc
+Xchmod 755 .environ 
+X.environ
+X.environ
+X.environ
+X.environ
+Xc /usr/local/games/
+Xl
+Xc lib
+Xl
+Xc nethackdir/
+Xl
+Xzcat spoilers.Z  | p`
+Xzcat spoilers.Z  | p
+Xc
+X.environ
+X.environ
+X.environ
+X.environ
+X.environ
+X.environ
+X.environ
+Xsls
+Xsls -l
+X.environ | { while read line ; do echo export "`awk {print $1=$2}`" ; done ; }
+X.environ | { while read line ; do echo export "`awk {print $1'='$2}`" ; done ; }
+X.environ | { while read line ; do echo export "`awk '{print $1"="$2}'" ; done ; }
+X.environ | { while read line ; do echo export "`awk '{print $1"="$2}'`" ; done ; }
+Xfg
+Xbg
+X.environ | sed 's@[ 	]*@=@1'
+X.environ
+X.environ | sed 's@[ 	]*@=@1'
+X.environ | sed 's@[ 	]*@=@1'
+X{ .environ } | sed 's@[ 	]*@=@1'
+X.environ
+X.environ | rot13
+X.environ | sed 's@[ 	]*@=@'
+X.environ | sed 's@[ 	]*@=@1'
+X.environ | sed 's@[ 	][ 	]*@=@'
+X.environ | sed 's@\t@7777@'
+X.environ | sed 's@\([^ 	]*\)[ 	]+\(.*\)@\1=\'\2\'@'
+X.environ | sed "s@\([^ 	]*\)[ 	]+\(.*\)@\1='\2'@"
+X.environ | sed "s@^\([^ 	]*\)[ 	]+\(.*\)@@\1='\2'@g"
+X.environ | sed "s@^\([^ 	]*\)[ 	]+\(.*\)@@\1='\2'@"
+X.environ | sed "s@^\([^ 	]*\)[ 	]+\(.*\)$@\1='\2'@"
+X.environ | sed 's@^\([^ 	]*\)[ 	]+\(.*\)$@\1="\2"@'
+X.environ | sed 's@^\([^ 	]*\)[ 	][ 	]*\(.*\)$@\1="\2"@'
+X.environ | sed 's@^\([^ 	]*\)[ 	][ 	]*\(.*\)$@\1=\'\2\'@'
+X.environ | sed 's@^\([^ 	]*\)[ 	][ 	]*\(.*\)$@\1='"'"'\2'"'"'@'
+Xeval `.environ | sed 's@^\([^ 	]*\)[ 	][ 	]*\(.*\)$@\1='"'"'\2'"'"'@'`
+Xenv
+Xenv -
+Xenv - bash
+Xenv - /usr/local/bin/bash
+Xenv
+Xtset -S
+Xenv
+Xenv
+Xunset TERMCAP
+Xenv
+Xdeclare
+Xdeclare -x
+Xcsh
+Xcsh
+Xcsh
+Xc
+Xrm .environ
+Xenv - bash
+Xenv - `which bash`
+Xwhich bash`
+X`which bash`
+Xenv - /usr/local/bin/bash 
+Xl
+Xdf
+Xcd bin/scripts
+Xvi bin/script/x
+Xcd bin/script/x
+Xcd bin/script/
+Xln x o
+Xvi o
+Xman ld.so
+Xfg
+Xvi o
+Xman X
+Xvi o
+Xx
+Xvi o
+Xx
+Xo
+Xvi o
+Xbasename u/u
+Xbasename f/u
+Xfg
+Xx
+Xbasename ~/bin/script/x
+Xfg
+Xvi o
+Xx
+Xvi o
+Xx
+Xo
+X/
+Xvi o
+Xo
+Xl
+X]d /usr/openwin/bin
+Xl
+Xlf
+Xid 0 -c ln -s xnews X
+Xid 0
+X[d
+Xl
+Xrm #mkdir+2# 
+Xvi o
+Xc
+Xvi .elven/bash/environ.loc
+XSelf
+Xvi .elven/bash/environ.loc
+Xunset LD_LIBRARY_PATH 
+XSelf
+Xo
+Xvi x
+Xvi bin/script/x
+Xc
+Xo
+X/
+Xvi .xinitrc 
+Xvi bin/script/x
+Xc
+Xvi .xinitrc 
+Xo
+X/
+Xo
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xnethack
+Xc hub
+Xl
+Xmkdir scrunch
+Xcd scrunch
+Xnewcode main
+Xemacs .
+Xenv - bash
+Xenv - /usr/local/bin/bash
+Xl
+Xcd .elven/
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xenv - /usr/local/bin/bash
+Xecho $ELVEN
+Xecho ${ELVEN}
+Xecho ${ELVEN##}
+Xecho ${ELVEN##bash}
+Xecho ${ELVEN##.*}
+Xecho ${ELVEN##foo}
+Xecho $SHELL 
+Xs
+Xcsh
+Xecho ${ELVEN##*/foo}`
+Xecho ${ELVEN##*/foo}
+Xecho ${ELVEN##.*/foo}
+Xecho ${ELVEN#.*/foo}
+Xecho ${ELVEN##}
+Xecho ${ELVEN##E}
+Xecho ${ELVEN##e}
+Xecho ${ELVEN##/}
+Xecho ${ELVEN##*}
+Xecho ${ELVEN##*/}
+Xecho ${ELVEN##*/}
+Xecho ${ELVEN#*/}
+Xecho ${ELVEN%bash}
+Xecho ${ELVEN%/bash}
+Xc
+XSelf
+XSelf
+Xenv | p
+XSelf
+XSelf
+XSelf
+XSelf
+Xecho '\c hi'
+Xecho '\c hi'
+XSelf
+XSelf
+XSelf
+XSelf
+Xbas
+Xbash
+Xsh -c 'hostname 2> /dev/null'
+Xsh -c 'hstname 2> /dev/null'
+Xhstname 2> /dev/null
+Xhostname 2> /dev/null
+Xenv - csh
+Xenv - csh
+Xcd .elven
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xman bash
+XSelf
+Xxterm -e bash &
+Xlkjfds >& /dev/null
+Xcsh
+Xcsh -fb
+Xxterm -c csh
+Xxterm -e csh &
+Xenv - csh
+Xenv - csh
+Xcd .elven
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xenv - csh
+Xman bash
+XSelf
+Xc .elven/
+Xdiff env.csh env.bash | p
+Xdiff -wb env.csh env.bash | p
+Xmv env.csh t
+Xsort t > env.csh
+Xmv env.bash  t
+Xsort t > env.bash
+Xrm t
+Xdiff -wb env.csh env.bash | p
+Xdiff -wb env.csh env.bash | p
+Xxterm -e csh &
+Xxterm -e csh & xterm -e bash &
+Xxterm -e csh &
+XSelf
+XSelf
+XSelf
+Xxterm -e csh &
+Xemacs & xterm & xterm &
+Xsearch arch
+Xsearch machine
+X/
+Xxterm &
+Xxterm &xterm &xterm &xterm &xterm &
+Xo
+Xfrom
+Xmail
+Xecho $TERMl
+X/
+Xl
+Xcd /usr/openwin/
+Xl
+Xl bin
+Xfind . -name xterm -print
+Xl demo
+X
+Xl
+Xcd /usr/openwin/bin
+Xx
+Xl
+Xc /usr/local/X11R5/
+Xl
+Xc bin
+Xl
+Xcd bin/script
+Xl
+Xvi x
+END_OF_FILE
+  if test 13774 -ne `wc -c <'.elven/bash/.history'`; then
+    echo shar: \"'.elven/bash/.history'\" unpacked with wrong size!
+  fi
+  # end of '.elven/bash/.history'
+fi
+if test -f '.elven/bash/functions' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/bash/functions'\"
+else
+  echo shar: Extracting \"'.elven/bash/functions'\" \(1943 characters\)
+  sed "s/^X//" >'.elven/bash/functions' <<'END_OF_FILE'
+X#----------------------------------------------------------------------#
+X#	File:	functions
+X#	Auth:	Christoph. Alex. North-Keys    Sun Apr 28 23:22:27 EDT 1991
+X#	Desc:	basic functions for the bash version of the elven scripts
+X#----------------------------------------------------------------------#
+Xmessage functions' '
+X
+Xlsf () { echo `declare -f | tr -d '\012\015'` | sed 's@}declare[ ]@}\
+Xdeclare @g' | sed 's@^declare -f@+ @g' }
+X
+Xc   () { if [ $# -ge 1 ]; then cd "$*"; else cd; fi ; . ; }
+X.   () { dirs ; }
+X..  () { cd .. ; . ; }
+X/   () { clear ; . ; }
+Xj   () { jobs -l ; }
+Xh   () { history | p ; }
+Xp   () { $PAGER $* ; }
+X]d  () { pushd $* ; . ; }
+X[d  () { popd $* ; . ; }
+Xf   () { fg %$* ; }
+X
+Xrm	()
+X{
+X	ls -FCsd $*
+X	local reply ; echon 'remove[ny]? ' ; read reply
+X	if [ "$reply" = "y" ] ; then /bin/rm -rf $* ; else echo '(cancelled)' ; fi
+X}
+X
+Xif type -path y 2>&1 >/dev/null; then :; else
+X	y   () { $EDITOR $* ; }
+Xfi
+X
+Xif type -path li 2>&1 >/dev/null; then :; else
+X	l   () { ls -FCa $* ; }
+X	if [ `ls -ldg | wc -w` -gt `ls -ld | wc -w` ]; then
+X		#	BSD
+X		li  () { ls -Flgas   $* ; }
+X		lf  () { ls -Flgsd   $* ; }
+X		lr  () { ls -Flgasrt $* ; }
+X	else
+X		#	USG
+X		li  () { ls -Flas    $* ; }
+X		lf  () { ls -Flsd    $* ; }
+X		lr  () { ls -Flasrt  $* ; }
+X	fi
+Xfi
+X
+Xdivine ()
+X{
+X	local bcast="$ELVEN/broadcast"
+X	if [ $# -eq 0 ]; then
+X		echo 'self' > $bcast
+X	else
+X		case $1 in
+X		-)		cat > $bcast				;;
+X		-c)		shift ; echo "$*" > $bcast	;;
+X		-f)		shift ; cat $1 > $bcast	;;
+X		*)		local prog=divine 
+X				echo "$prog"' -- send a directive to all running bash progs'
+X				echo 'syntax: '"$prog"' [ - | -c <cmd> | -f <file> ]'
+X				echo '-       use stdin'
+X				echo '-c      run <cmd>'
+X				echo '-f      run copy of <file>'
+X				echo 'with no args, as if "'"$prog"' -c self" was used'
+X				return
+X		esac
+X	fi
+X	2>/dev/null kill -USR1 $(ps -x | awk '($5 == "bash")||($5 == "-bash") { print $1 }')
+X}
+X
+Xself functions.loc
+X#-------------------------------------------eof
+END_OF_FILE
+  if test 1943 -ne `wc -c <'.elven/bash/functions'`; then
+    echo shar: \"'.elven/bash/functions'\" unpacked with wrong size!
+  fi
+  # end of '.elven/bash/functions'
+fi
+if test ! -d '.elven/csh' ; then
+    echo shar: Creating directory \"'.elven/csh'\"
+    mkdir '.elven/csh'
+fi
+if test -f '.elven/csh/.cshrc.v3.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/.cshrc.v3.UU'\"
+else
+  echo shar: Extracting \"'.elven/csh/.cshrc.v3.UU'\" \(7031 characters\)
+  sed "s/^X//" >'.elven/csh/.cshrc.v3.UU' <<'END_OF_FILE'
+Xbegin 644 .elven/csh/.cshrc.v3
+XM(ST]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T](R *(PHC(" @(" @($9I;&4Z
+XM(" @(" N8W-H<F,*(PD)4W5P<&]R=#H@("YS971H96%D97)S(" H<W5P<&]R
+XM="!F:6QE(&9O<B!A;B!A;&EA<RD*(R @(" @("!$97-C<FEP.B @*'=I=&@@
+XM:'5M;W5R.BD@4V%M<&QE("YC<VAR8R!F:6QE(&9O<B!N97<@=7-E<G,N"B,@
+XM(" @(" @075T:&]R.B @($-H<FES=&]P:"X@02X@3F]R=&@M2V5Y<R H97)L
+XM:V]N:6= <VYO=W=H:71E*0HC(" @(" @(%)E=CH@(" @(" S+C$@*$UI='1W
+XM;V-H+F0N,S N36%E<GHN,3DX."D*(PHC/3T]/3T]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3TC"@IS970@=&5R;2 ]("(D=&5R;2(*:68@(2@D/TQ/1T=%1"D@<V]U
+XM<F-E('XO+FQO9VEN"@IS970@8V1P871H(#T@*"X@?B!^+V%U>"!^+T-R:71T
+XM97)S*0IS970@6#$P<&%T:" ]("]U<W(O;F5W"G-E="!8,3%P871H(#T@*"]U
+XM<W(O;&]C86PO6#$Q("]U<W(O;F5W*0IA;&EA<R!P871H<V5T("=S970@<&%T
+XM:#TH+B!^+V)I;B O8FEN("]U<W(O8FEN("]U<W(O;&]C86P@+W5S<B]L:6(@
+XM8&5C:&\@)%AP871H8" O=7-R+W5C8B O=7-R+S5B:6X@+W5S<B]G86UE<RD@
+XM.R!R96AA<V@G"F%L:6%S(%@Q,'-E=" G<V5T(%AP871H(#T@(B18,3!P871H
+XM(B [('!A=&AS970G"F%L:6%S(%@Q,7-E=" G<V5T(%AP871H(#T@(B18,3%P
+XM871H(B [('!A=&AS970G"@I8,3%S970*"FEF("@D/U5315(@/3T@,"!\?" D
+XM/W!R;VUP=" ]/2 P*2!E>&ET"@H)96-H;R B16YT97)I;F<@0R!3:&5L;"(@
+XM"@H)<V5T(&AI<W1O<GD@/2 Q,# @<V%V96AI<W0@/2 U, H)<V5T(&YO8F5E
+XM< H*"2,@4V5T('-E87)C:"!D:7)E8W1O<FEE<PH)<V5T(&-D<&%T:" ]("@N
+XM('XI"@ES970@<&%T:#TH+B!^+V)I;B O8FEN("]U<W(O8FEN("]U<W(O;&]C
+XM86P@+W5S<B]L:6(@+W5S<B]U8V(@+W5S<B\U8FEN("]U<W(O9V%M97,I"@EA
+XM;&EA<R!M("=L97-S)PH)86QI87,@<&<@)W!G("UC("UN("UP("(@4&%G93TH
+XM)60I.B(G"@EA;&EA<R!H("=H:7-T;W)Y("UR('P@;2<*"6%L:6%S('-E;&8@
+XM)W-O=7)C92!^+RYC<VAR8R<*"6%L:6%S('!P(" G<'-P;&]T(%PA*B!\(&QP
+XM<B M4&QW,2 M:"<*"6%L:6%S(&-L"6-L96%R"@H)<V5T96YV(%1462!@='1Y
+XM8 H)<V5T( EF:6QE8PH)<V5T"0EN;W1I9GD*"7-E= D)<')O;7!T/2(D2$]3
+XM5"U<(24@(@H)<V5T"0EP<F]M<'0](F!E8VAO("1(3U-4?'-E9" G<R\N8V,N
+XM=71E>&%S+F5D=24O+R=@+5PA)2 B"@H):68@*"145%D@(3T@)R]D978O8V]N
+XM<V]L92<I('1H96X*"0EI9B H*"1415)-(#T]("=S=6XM8VUD)RD@?'P@*"14
+XM15)-(#T]("=S=6XG*2!\?"!<"@D)"2@D=&5R;2 ]/2 G<W5N+6-M9"<I('Q\
+XM("@D=&5R;2 ]/2 G<W5N)RDI('1H96X*"0D)96-H;R G07-S=6UI;F<@4W5N
+XM5VEN9&]W<R!E;G9I<F]N;65N="XG"@D)"7-E=&5N=B!(14%$15)3(")S=6YH
+XM96%D97)S(@H)"65L<V4@("-8=VEN9&]W<PH)"0EE8VAO("=!<W-U;6EN9R!8
+XM=VEN9&]W<R!E;G9I<F]N;65N=#L@=7-E(&YO:&5A9&5R<R!T;R!C86YC96PN
+XM)PH)"0ES971E;G8@2$5!1$524R B>&AE861E<G,B"0H)"0ES971E;G8@4T-2
+XM145.("(P(@H)"0ES971E;G8@1%!9("(P(@H)"0ES971E;G8@1$E34$Q!64U!
+XM0T@@)$A/4U0*"0D):68@*"0_1$E34$Q!62 ]/2 P*2!T:&5N"@D)"0ES971E
+XM;G8@4T-2145.("(P(@H)"0D)<V5T96YV($1)4U!,05D@)$A/4U0B.B(D1%!9
+XM(BXB)%-#4D5%3@H)"0EE;F1I9@H)"0ES971E;G8@4D533U520T5?34%.04=%
+XM4B B)$A/344O+E@Q,61E9F%U;'1S(@H)"0EE8VAO("=!<W-U;6EN9R!8<V5R
+XM=F5R(" G)$A/4U0G+"<*"0D)96-H;R G(" @(" @(" @6&1I<W!L87D@)R1$
+XM25-03$%9)RPG"@D)"65C:&\@)R @(" @(" @(%AD<'D@(" @("<D1%!9)RPG
+XM"@D)"65C:&\@)R @(" @(" @(%AS8W)E96X@("<D4T-2145.)RP@=7-E('AD
+XM:7-P('1O(&-H86YG92XG"@D)96YD:68*"65L<V4*"0EE8VAO("=!<W-U;6EN
+XM9R!M:6YI;6%L(')A=R!T97)M:6YA;"!E;G9I<F]N;65N="XG"@D)<V5T96YV
+XM($A%041%4E,@(FYO:&5A9&5R<R(*"65N9&EF"@H*"6%L:6%S(&@@)VAI<W1O
+XM<GD@+7(G"@EA;&EA<R!P=V0@)V5C:&\@)&-W9"<*"6%L:6%S("X@("!P=V0*
+XM"6%L:6%S('-A>2 G96-H;R B7"$J(B<*"6%L:6%S(&-D"2=C9"!<(2H[(&5C
+XM:&\@+6X@(AM=;" D8W=D(!M<(B<*"6%L:6%S(')R;&]G:6X@(")E8VAO("UN
+XM("<;76P@7"$J(!LG.R!R;&]G:6X@7"$J(@H*"2,@+BXN;6]R90H*"6%L:6%S
+XM('-E=&AE861E<G,@)W-E=&5N=B!(14%$15)3(%PA*B [('-O=7)C92!^+RYS
+XM971H96%D97)S)PH)<V5T:&5A9&5R<R D2$5!1$524PH*"6%L:6%S('-T("=S
+XM=6YT;V]L<R M:2<*"6%L:6%S('-O=0ES;W5R8V4*"6%L:6%S(&5X"2=C:&UO
+XM9" K>"<*"6%L:6%S(&ME>0DG;6%N("UK)PH)"@DC(%)O=71E(&9I;&4@=&\@
+XM;&%S97(@=W)I=&5R"@EA;&EA<R!;72 G;'!R("U0;'=<(2HG"@H)(R!1=65R
+XM:65S(&%B;W5T(&QA<V5R('=R:71E<@H)86QI87,@6UT_("=L<'$@+5!L=UPA
+XM*B<*"2,@6UT@8V]M;6%N9',@=VET:"!S<&5C:6%L(&9O<FUA='1I;F<M+69R
+XM;VT@=7-E<FYO=&4*"6%L:6%S(%MM72 @)W!T<F]F9B M;6%N("U0;'=<(2HG
+XM"@H)(R!.86UE('!R97-E;G0@9&ER96-T;W)Y(&%N9"!D97-C<FEB92!M96UB
+XM97)S"@EA;&EA<R!,20DG<V%Y(&QI<W1I;F<@9FEL97,@7"$J(#L@;',@+49L
+XM06=S"5PA*B [('!W9"<*"6%L:6%S($P@"2=S87D@;&ES=&EN9R!F:6QE<R!<
+XM(2H@.R!L<R M1G,@"5PA*B [('!W9"<*"6%L:6%S(&P@"2=S87D@;&ES=&EN
+XM9R!F:6QE<R!<(2H@.R!L<R M1F$)"5PA*B [('!W9"<*"6%L:6%S(&QI"2=S
+XM87D@;&ES=&EN9R!F:6QE<R!<(2H@.R!L<R M1FQA9W,@"5PA*B [('!W9"<*
+XM"0H)86QI87,@;&8))W-A>2!L:7-T:6YG(&1I<B]F:6QE("!<(2H@.R!L<R M
+XM87-G;&1&(%PA*B [('!W9"<*"6%L:6%S(%UD"2=P=7-H9"!<(2H@.R!L)PH)
+XM86QI87,@761Q"2=P=7-H9"!<(2H@.R!P=V0G"@EA;&EA<R!;9 DG<&]P9" [
+XM(&PG"@EA;&EA<R!;9'$))W!O<&0@.R!P=V0G"@EA;&EA<R N( DG<'=D)PH*
+XM"2,@1FEL92!S=&]R86=E(&UA;F%G96UE;G0*"6%L:6%S('$@(" @("=S87D@
+XM<75O=&%S(&9O<B D=7-E<B [('%U;W1A("UV(#L@<'=D)PH*"2,@36]V92!T
+XM;R!A=7AI;&EA<GD@9&ER96-T;W)Y(&%N9" N+BX*"6%L:6%S(&%M(" @("=I
+XM9B H+64@?B]A=7@O7"%>*2!S970@<')E875X(#T@)&-W9" [(&-D('XO875X
+XM+UPA7B [('!W9"<*"6%L:6%S(&%B(" @("=C9" D<')E875X(#L@<'=D)PH*
+XM"2,@0V]M;6%N9',@<W5P<&]R=&EN9R!F87-T(&UO=F5S('1O(&ME>2!D:7)E
+XM8W1O<FEE<PH)86QI87,@6&,@("==9"!^+UAC;VYQ+V,G"@EA;&EA<R!-(" @
+XM)UUD('XO0W)I='1E<G,O365N=&%L07)M;W(G"@H)(R!-;W9E("AD:7)E8W0L
+XM(&1I<F5C=&]R>2D@=&\@9VEV96X@9&ER+"!N86UE(&ET(&%N9"!L:7-T( H)
+XM86QI87,@;60@)V-D(%PA*B [(&PG"@EA;&EA<R!M<2 G8V0@7"$J(#L@<'=D
+XM)PH*"2,@36]V92!U<"!T;R!P87)E;G0@9&ER+"!N86UE(&ET(&%N9"!L<PH)
+XM86QI87,@;74@)V-D("XN(#L@;"<*"@DC($-L96%N=7 @8V]M;6%N9 H)86QI
+XM87,@?GX@)W-A>2!K:6QL:6YG(&9I;&5S(&EN("1C=V0@.R!R;2 M:2 N*GX@
+XM+BHE("XJ3TQ$("XJ;VQD("I^("HE("I/3$0@*F]L9" C*B,@.R!S87D@9&]N
+XM92!K:6QL:6YG(&9I;&5S(&EN("1C=V0@.R!S;&5E<" Q(#L@<'=D)PH*"2,@
+XM061D(&%B:6QI='D@=&\@<G5N(&1I<F5C="!S8W)I<'1S('=I=&AO=70@<F5S
+XM:&5L;"!.3U0@0T]-34%.1 H)86QI87,@<VAE;&P@+V)I;B]C<V@@+68*"@DC
+XM($%U=&\M<V5L96-T('-U;G1O;VQS(&)A8VMG<F]U;F0*"6%L:6%S('!I8W1O
+XM;VQS("=S=6YT;V]L<R M8F%C:V=R;W5N9"!^+W)A<W1E<G,O7"$J+G)A<R M
+XM=&]G9VQE7V5N86)L92<*"6%L:6%S('!I8W1W;VQS("=S=6YT;V]L<R M<&%T
+XM=&5R;B!^+VEM86=E<R]T97-S+UPA.C$N:6-O;B M8F%C:V=R;W5N9"!^+W)A
+XM<W1E<G,O7"$Z,BYR87,@+71O9V=L95]E;F%B;&4G"@H)(R!#;&5A<B!S8W)E
+XM96X*"6%L:6%S("X@"7!W9 H)"@DC(%-P96-I86QI>F5D('=I;F1O=R!V87)I
+XM871I;VYS"@EI9B H)'1E<FT@(3T@)W-U;BUC;60G*2!S970@9FEL96,*"6%L
+XM:6%S('=O8B!E8VAO("UN("(;7%MQ(@H)86QI87,@8F]W(&5C:&\@+6X@(AM<
+XM6W B"B @("!U;6%S:R R,@D*"2,@4V5C=&EO;B!C;VYC97)N:6YG(%AW:6YD
+XM;W=S"@EA;&EA<R!X8F<))WAS971R;V]T("UB:71M87 @?B]R87-T97)S+UPA
+XM*BYR87,G( H)86QI87,@>&1I<W @"2=S971E;G8@1$E34$Q!64U!0T@@7"$Z
+XM,2 [('-E=&5N=B!30U)%14X@7"$Z,B [('-E=&5N=B!$25-03$%9("1$25-0
+XM3$%934%#2"(Z(B130U)%14XG"@EA;&EA<R!89F0))WAF9" D8W=D+UPA*B<*
+XM"@DC($-O;F-L=7-I;VX@86YD(&YO=&4@9&ES<&QA>0H)86QI87,@;F]T92 @
+XM)W-A>2!N;W1E<&%D(#L@=FD@?B\N;F]T97,O7"$J(#L@<'=D)PH)86QI87,@
+XM;F]T97,@)W-A>2!N;W1E<&%D<R [(&QI('XO+FYO=&5S)PH)86QI87,@;F]T
+XM93\@)W-A>2!N;W1E(&]N(%PA*B [(&-A="!^+RYN;W1E<R]<(2H@.R!P=V0G
+XM"@H)(R!497)M:6YA;"!A:61S"@EA;&EA<R!R<R G<F5S:7IE(#XO9&5V+VYU
+XM;&PG"@EA;&EA<R!S92 G='-E=" M90@G"@EA;&EA<R!312 G<V4@.R!R<R [
+XM(&-L96%R(#L@<'=D)PH)86QI87,@:' @)W-A>2!C;VYF:6=U<FEN9R!T;R!H
+XM<"!<(3HQ(#L@6#$P<V5T(#L@4T4@.R!X9&ES<"!<(3HQ(%PA.C(@.R!S971E
+XM;G8@6$5.5DE23TY-14Y4("Y8:' G"@EA;&EA<R!S=6X@)W-A>2!C;VYF:6=U
+XM<FEN9R!T;R!S=6X@7"$Z,2 [(%@Q,7-E=" [('AD:7-P(%PA.C$@7"$Z,B [
+XM('-E=&5N=B!814Y625)/3DU%3E0@+EAS=6XG"@HC(R,C(PH)<'=D"@D*"B,C
+XM(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,@16YD
+XB(&]F("YC<VAR8R C(R,C(R,C(R,C(R,C(R,C(R,C(R,*"B,C
+X 
+Xend
+END_OF_FILE
+  if test 7031 -ne `wc -c <'.elven/csh/.cshrc.v3.UU'`; then
+    echo shar: \"'.elven/csh/.cshrc.v3.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'.elven/csh/.cshrc.v3'\" \(5074 characters\)
+    cat .elven/csh/.cshrc.v3.UU | uudecode
+    if test 5074 -ne `wc -c <'.elven/csh/.cshrc.v3'`; then
+      echo shar: \"'.elven/csh/.cshrc.v3'\" uudecoded with wrong size!
+    else
+      rm .elven/csh/.cshrc.v3.UU
+    fi
+  fi
+  # end of '.elven/csh/.cshrc.v3.UU'
+fi
+if test -f '.elven/csh/.cshrc.v4.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/.cshrc.v4.UU'\"
+else
+  echo shar: Extracting \"'.elven/csh/.cshrc.v4.UU'\" \(7473 characters\)
+  sed "s/^X//" >'.elven/csh/.cshrc.v4.UU' <<'END_OF_FILE'
+Xbegin 644 .elven/csh/.cshrc.v4
+XM(ST]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T](R *(PHC(" @(" @($9I;&4Z
+XM(" @("!^+RYC<VAR8PHC(" @(" @(%-U<'!O<G0Z("!^+RYL;V=I;@HC(" @
+XM(" @(" @(" @(" @("!^+RYS971H96%D97)S("AS=7!P;W)T(&9I;&4@9F]R
+XM(&%N(&%L:6%S*0HC(" @(" @($1E<V-R:7 Z(" H=VET:"!H=6UO=7(Z*2!3
+XM86UP;&4@+F-S:')C(&9I;&4@9F]R(&YE=R!U<V5R<RX*(R @(" @(" @(" @
+XM(" @(" @*'=O<FMS(&EN(%-U;E9I97<L(%AW:6YD;W=S+"!C;VYS;VQE(&%N
+XM9"!R<V@I"B,@(" @(" @075T:&]R.B @($-H<FES=&]P:"X@02X@3F]R=&@M
+XM2V5Y<R H97)L:V]N:6= <VYO=W=H:71E*0HC(" @(" @(%)E=CH@(" @(" T
+XM+# @36ET='=O8V@N9"XX+DIU;BXQ.3@X"B,*(ST]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]/3T]
+XM/3T]/3T]/3T](PH*86QI87,@<V5L9B G<V]U<F-E('XO+F-S:')C)PIA;&EA
+XM<R!396QF("=U;G-E=&5N=B!,3T='140@.R!S96QF)PH*:68@(2@D/TQ/1T=%
+XM1"D@<V]U<F-E('XO+FQO9VEN"@II9B H+64@?B\N8W-H<F-?;6EN92D@<V]U
+XM<F-E('XO+F-S:')C7VUI;F4*"FEF("@D/W!R;VUP="D@96-H;R G16YT97)I
+XM;F<@0R!3:&5L;"<*"G-E="!H:7-T;W)Y(#T@,3 P('-A=F5H:7-T(#T@-3 *
+XM<V5T(&YO8F5E< H*"B,@4V5T('-E87)C:"!D:7)E8W1O<FEE<PH*<V5T(&-D
+XM<&%T:" ]("@N('X@?B]A=7@I"@IA;&EA<R!8,3!P871H<V5T("=S970@<&%T
+XM:#TH('XO8FEN("]U<W(O-6)I;B O8FEN("]U<W(O8FEN("]U<W(O;&]C86P@
+XM+W5S<B]L;V-A;"]B:6X@+W5S<B]N97<@+W5S<B]U8V(@+W5S<B]G86UE<R N
+XM*2 [(')E:&%S:"<*86QI87,@6#$Q<&%T:'-E=" G<V5T('!A=&@]*"!^+V)I
+XM;B O=7-R+S5B:6X@+V)I;B O=7-R+V)I;B O=7-R+VQO8V%L("]U<W(O;&]C
+XM86PO8FEN("]U<W(O;&]C86PO6#$Q("]U<W(O;F5W("]U<W(O=6-B("]U<W(O
+XM9V%M97,@+BD@.R!R96AA<V@G"F%L:6%S(%@Q,'!A=&AS971E;G8@)W-E=&5N
+XM=B!8(#$P(#L@<V5T96YV(%!!5$@].B1(3TU%+V)I;CHO=7-R+S5B:6XZ+V)I
+XM;CHO=7-R+V)I;CHO=7-R+VQO8V%L.B]U<W(O;&]C86PO8FEN.B]U<W(O;F5W
+XM.B]U<W(O=6-B.BXZ+W5S<B]G86UE<R<*86QI87,@6#$Q<&%T:'-E=&5N=B G
+XM<V5T96YV(%@@,3$@.R!S971E;G8@4$%42#TZ)$A/344O8FEN.B]U<W(O-6)I
+XM;CHO8FEN.B]U<W(O8FEN.B]U<W(O;&]C86PZ+W5S<B]L;V-A;"]B:6XZ+W5S
+XM<B]L;V-A;"]8,3$Z+W5S<B]N97<Z+W5S<B]U8V(Z+CHO=7-R+V=A;65S)PH*
+XM86QI87,@6#$P<V5T("=8,3!P871H<V5T96YV(#L@6#$P<&%T:'-E="<*86QI
+XM87,@6#$Q<V5T("=8,3%P871H<V5T96YV(#L@6#$Q<&%T:'-E="<*"FEF("@D
+XM>S]8?2D@=&AE;@H):68@*"18(#T](#$P*2!T:&5N"@D)6#$P<V5T"@EE;'-E
+XM"@D)6#$Q<V5T"@EE;F1I9@IE;'-E"@ES971E;G8@6" Q,0H)6#$Q<V5T"F5N
+XM9&EF"@IL:6UI="!C;W)E9'5M<'-I>F4@, H*86QI87,@<V5T:&5A9&5R<R G
+XM<V5T96YV($A%041%4E,@7"$J(#L@<V]U<F-E('XO+G-E=&AE861E<G,G"@IS
+XM971E;G8@5%19(")@='1Y8"(*"FEF("@D/W!R;VUP="D@=&AE;@H*"6%L:6%S
+XM(&T@)R]U<W(O;&]C86PO8FEN+VQE<W,G"@EA;&EA<R!P9R G<&<@+6,@+6X@
+XM+7 @(B!086=E/2@E9"DZ(B<*"6%L:6%S(&@@)VAI<W1O<GD@+7(@?"!M)PH*
+XM"6EF("@D5%19("$]("<O9&5V+V-O;G-O;&4G*2!T:&5N"@D):68@*"@D5$52
+XM32 ]/2 G<W5N+6-M9"<I('Q\("@D5$5232 ]/2 G<W5N)RD@?'P@7 H)"0DH
+XM)'1E<FT@/3T@)W-U;BUC;60G*2!\?" H)'1E<FT@/3T@)W-U;B<I*2!T:&5N
+XM"@D)"65C:&\@)T%S<W5M:6YG(%-U;E=I;F1O=W,@96YV:7)O;FUE;G0N)PH)
+XM"0ES971E;G8@2$5!1$524R B<W5N:&5A9&5R<R(*"0EE;'-E(" C6'=I;F1O
+XM=W,*"0D)96-H;R G07-S=6UI;F<@6'=I;F1O=W,@96YV:7)O;FUE;G0[('5S
+XM92!N;VAE861E<G,@=&\@8V%N8V5L+B<*"0D)<V5T96YV($A%041%4E,@(GAH
+XM96%D97)S(@H)"0ES971E;G8@1$E34$Q!64U!0T@@)$A/4U0)"@D)"7-E=&5N
+XM=B!$4%D@(C B"@D)"7-E=&5N=B!30U)%14X@(C B"@D)"7-E=&5N=B!$25-0
+XM3$%9("1$25-03$%934%#2"(Z(B1$4%DB+B(D4T-2145."@D)"7-E=&5N=B!2
+XM15-/55)#15]-04Y!1T52("(D2$]-12\N6#$Q9&5F875L=',B"@D)"65C:&\@
+XM)T%S<W5M:6YG(%AS97)V97(@("<D2$]35"<L)PH)"0EE8VAO("<@(" @(" @
+XM("!89&ES<&QA>2 G)$1)4U!,05DG+"<*"0D)96-H;R G(" @(" @(" @6&1P
+XM>2 @(" @)R1$4%DG+"<*"0D)96-H;R G(" @(" @(" @6'-C<F5E;B @)R13
+XM0U)%14XG+"!U<V4@>&1I<W @=&\@8VAA;F=E+B<*"0EE;F1I9@H)96QS90H)
+XM"65C:&\@)T%S<W5M:6YG(&UI;FEM86P@<F%W('1E<FUI;F%L(&5N=FER;VYM
+XM96YT+B<*"0ES971E;G8@2$5!1$524R B;F]H96%D97)S(@H)96YD:68*"6EF
+XM("@D=&5R;2 A/2 G<W5N+6-M9"<I('-E="!F:6QE8PIE;'-E"@EA;&EA<R!M
+XM;2 G8V%T)PH)86QI87,@:" G:&ES=&]R>2 M<B<*"6%L:6%S('!W9" G96-H
+XM;R D8W=D)PH)86QI87,@<V%Y("=E8VAO(")<(2HB)PH):68@*"(D5%19(B ]
+XM/2 B;F]T(&$@='1Y(BD@=&AE;@H)"7-E=&5N=B!(14%$15)3(")N;W1T>2(*
+XM"65L<V4*"0ES971E;G8@2$5!1$524R B;V9F(@H)96YD:68*96YD:68*"@DC
+XM("XN+FUO<F4*"@ES971H96%D97)S("1(14%$15)3"@H)(R!2;W5T92!F:6QE
+XM('1O(&QA<V5R('=R:71E<@H)86QI87,@6UT@)VQP<B M4&QW7"$J)PH*"2,@
+XM475E<FEE<R!A8F]U="!L87-E<B!W<FET97(*"6%L:6%S(%M=/R G;'!Q("U0
+XM;'=<(2HG"@H)(R!;72!C;VUM86YD<R!W:71H('-P96-I86P@9F]R;6%T=&EN
+XM9RTM9G)O;2!U<V5R;F]T90H)86QI87,@6VU=(" G<'1R;V9F("UM86X@+5!L
+XM=UPA*B<*"@DC($YA;64@<')E<V5N="!D:7)E8W1O<GD@86YD(&1E<V-R:6)E
+XM(&UE;6)E<G,*"6%L:6%S($Q)"2<H*'-A>2!L:7-T:6YG(&9I;&5S(%PA*B [
+XM(&QS("U#;$9S( E<(2H@.R!P=V0I('P@;2DG"@EA;&EA<R!,( DG*'-A>2!L
+XM:7-T:6YG(&9I;&5S(%PA*B [(&QS("U#1G,@"5PA*B [('!W9"DG"@EA;&EA
+XM<R!L( DG*'-A>2!L:7-T:6YG(&9I;&5S(%PA*B [(&QS("U#1F$)7"$J(#L@
+XM<'=D*2<*"6%L:6%S(&QI"2<H<V%Y(&QI<W1I;F<@9FEL97,@7"$J(#L@;',@
+XM+4-&86QS(%PA*B [('!W9"DG"@D*"6%L:6%S(&QF"2=S87D@;&ES=&EN9R!D
+XM:7(O9FEL92 @7"$J(#L@;',@+4-S;&1&(%PA*B [('!W9"<*"6%L:6%S(%UD
+XM"2=P=7-H9"!<(2H@.R!L)PH)86QI87,@761Q"2=P=7-H9"!<(2H@.R!P=V0G
+XM"@EA;&EA<R!;9 DG<&]P9" [(&PG"@EA;&EA<R!;9'$))W!O<&0@.R!P=V0G
+XM"@EA;&EA<R!P( DG<'=D)PH*"2,@1FEL92!S=&]R86=E(&UA;F%G96UE;G0*
+XM"6%L:6%S('$@(" @("=S87D@<75O=&%S(&9O<B D=7-E<B [('%U;W1A("UV
+XM(#L@<'=D)PH*"2,@36]V92!T;R!A=7AI;&EA<GD@9&ER96-T;W)Y(&%N9" N
+XM+BX*"6%L:6%S(&%M(" @("=I9B H+64@?B]A=7@O7"%>*2!S970@<')E875X
+XM(#T@)&-W9" [(&-D('XO875X+UPA7B [('!W9"<*"6%L:6%S(&%B(" @("=C
+XM9" D<')E875X(#L@<'=D)PH*"2,@36]V92!T;R!H;VUE("A,:6]S*2!D:7)E
+XM8W1O<GD@86YD(&QI<W0@87,@86)O=F4*"6%L:6%S(&QI;W,@)RAC9"!^(#L@
+XM;&D@.R!I9B H+64@?B]A=7@I(&5C:&\@(CT]/6%U>#T]/2(@875X+RH@(CT]
+XM/3T]/3T](B [(&EF("@M92!^+V%U>"D@;',@+49!(&%U>"\J(#L@:68@*"UE
+XM('XO875X*2!E8VAO("(]/3T]/3T]/3TB("D@?"!L97-S("<*"6%L:6%S(&-A
+XM97(@)V-D('X@.R!L(#L@:68@*"UE('XO875X*2!E8VAO("(]/3UA=7@]/3TB
+XM(&%U>"\J("(]/3T]/3T]/2(@.R!I9B H+64@?B]A=7@I(&QS("U&02!A=7@O
+XM*B [(&EF("@M92!^+V%U>"D@96-H;R B/3T]/3T]/3T](B G"@H)"@DC($UO
+XM=F4@*&1I<F5C="P@9&ER96-T;W)Y*2!T;R!G:79E;B!D:7(L(&YA;64@:70@
+XM86YD(&QI<W0@"@EA;&EA<R!M9" G8V0@7"$J(#L@;"<*"6%L:6%S(&UQ("=C
+XM9"!<(2H@.R!P=V0G"@H)(R!-;W9E('5P('1O('!A<F5N="!D:7(L(&YA;64@
+XM:70@86YD(&QS"@EA;&EA<R!M=2 G8V0@+BX@.R!L)PH*"2,@0VQE86YU<"!C
+XM;VUM86YD"@EA;&EA<R!^?B G<V%Y(&MI;&QI;F<@9FEL97,@:6X@)&-W9" [
+XM(')M("UI("XJ?B N*B4@+BI/3$0@+BIO;&0@*GX@*B4@*D],1" J;VQD(",J
+XM(R [('-A>2!D;VYE(&MI;&QI;F<@9FEL97,@:6X@)&-W9" [('-L965P(#$@
+XM.R!P=V0G"@H)(R!!9&0@86)I;&ET>2!T;R!R=6X@9&ER96-T('-C<FEP=',@
+XM=VET:&]U="!R97-H96QL($Y/5"!#3TU-04Y$"@EA;&EA<R!S:&5L;" O8FEN
+XM+V-S:" M9@H*"2,@075T;RUS96QE8W0@<W5N=&]O;',@8F%C:V=R;W5N9 H)
+XM86QI87,@<W5N<&EC("=S=6YT;V]L<R M8F%C:V=R;W5N9"!^+UPA.C$G(",@
+XM+71O9V=L95]E;F%B;&4G"@EA;&EA<R!S=6YI8V]N("=S=6YT;V]L<R M<&%T
+XM=&5R;B!^+VEM86=E<R]T97-S+UPA.C$N:6-O;B M8F%C:V=R;W5N9"!^+W)A
+XM<W1E<G,O7"$Z,BYR87,@+71O9V=L95]E;F%B;&4G"@H)(R!#;&5A<B!S8W)E
+XM96X*"6%L:6%S("X@)V-L96%R(#L@<'=D)PH)"@DC(%-E8W1I;VX@<W5P<&]R
+XM=&EN9R!X8V]N<2 N+BX@>&EN:70M8V]N<75E<W0*"6%L:6%S('=A<B G8V0@
+XM?B]W87(@.R!L)PH)86QI87,@9&5B=6=X8R G;6%K97AC;VYQ(#UT(#UW("UR
+XM("UO<B ];R D8W=D+V]B:B ]<R D8W=D("MX(#U$(#L@9&)X("U)("1C=V0@
+XM)&]B:B]X8V]N<2<*"@DC(%-P96-I86QI>F5D('=I;F1O=R!V87)I871I;VYS
+XM"@EA;&EA<R!W;V(@96-H;R M;B B&UQ;<2(*"6%L:6%S(&)O=R!E8VAO("UN
+XM("(;7%MP(@H)=V]B"@D*"2,@4V5C=&EO;B!C;VYC97)N:6YG(%AW:6YD;W=S
+XM"@EA;&EA<R!X8F<))WAS971R;V]T("UB:71M87 @?B]R87-T97)S+UPA*BYR
+XM87,G( H)86QI87,@>&1I<W @"2=S971E;G8@1$E34$Q!64U!0T@@7"$Z,2 [
+XM('-E=&5N=B!30U)%14X@7"$Z,B [('-E=&5N=B!$25-03$%9("1$25-03$%9
+XM34%#2"(Z(B130U)%14XG"@EA;&EA<R!89F0))WAF9" D8W=D+UPA*B<*"@DC
+XM(%1E<FUI;F%L(&%I9',*"6%L:6%S(')S("=R97-I>F4@/B]D978O;G5L;"<*
+XM"6%L:6%S('-E("=T<V5T("UE""<*"6%L:6%S(%-%("=S92 [(')S(#L@8VQE
+XM87(@.R!P=V0G"@HC(R,C(PH):68@*"0_<')O;7!T*2!P=V0*"0H*(R,C(R,C
+XM(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R,C(R!%;F0@;V8@
+XM+F-S:')C(",C(R,C(R,C(R,C(R,C(R,C(R,C(PIA;&EA<R!B87-E("=S971E
+XJ;G8@0T],54U.4R!<(3HQ(#L@<V]U<F-E('XO=G0Q,#!?.# M,3,R8R<*
+X 
+Xend
+END_OF_FILE
+  if test 7473 -ne `wc -c <'.elven/csh/.cshrc.v4.UU'`; then
+    echo shar: \"'.elven/csh/.cshrc.v4.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'.elven/csh/.cshrc.v4'\" \(5397 characters\)
+    cat .elven/csh/.cshrc.v4.UU | uudecode
+    if test 5397 -ne `wc -c <'.elven/csh/.cshrc.v4'`; then
+      echo shar: \"'.elven/csh/.cshrc.v4'\" uudecoded with wrong size!
+    else
+      rm .elven/csh/.cshrc.v4.UU
+    fi
+  fi
+  # end of '.elven/csh/.cshrc.v4.UU'
+fi
+if test -f '.elven/csh/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/README'\"
+else
+  echo shar: Extracting \"'.elven/csh/README'\" \(3889 characters\)
+  sed "s/^X//" >'.elven/csh/README' <<'END_OF_FILE'
+XThe Elfshell
+XChristopher Alexander North-Keys
+XSpring 1988 through Summer 1990, etc.
+X
+XTo enable the elfshell:
+X
+X	Copy this directory, .elven, into your home directory
+X	Move the file ~/.elven/.cshrc to ~/.cshrc
+X	Make any needed alterations.
+X
+XWarning:  this set of scripts is not officially supported,
+X          and is of a level of complexity far higher than
+X          most other sets of initialization scripts.
+X
+XAbstract
+X--------
+XThis set of shell configuartion scripts was developed with the following goals:
+X
+X	o	title-bar control in windowing environments.
+X	o	achieve effect of ".login-first" execution.
+X	o	optimize startup time for subshells, and non-interactive shells.
+X	o	protect against mistakes made in non-interactive shells.
+X	o	optimize access to common values via `setenv'
+X	o	avoid overlaying standard commands and builtins.
+X	o	tracking of shell depth.
+X	o	simplification of shell re-sourcing.
+X	o	economy of standard alias set.
+X	o	exportation of aliases into ~/bin shell scripts.
+X	o	portability.
+X	o	use of features like arch, mach, and less in environment iff extant.
+X
+XThe basic problem had to do with an inconsistancy:  all shells could generally
+Xdepend on ~/.login having been run, EXCEPT the login shell.  This reveals the
+Xpurpose of ~/.login to be one of checking mail, etc., rather than setting a
+Xconsistant environment.  Hence a file ~/.cshlc was created for setenv commands,
+Xand handled so as to only run once per login.  This functionality is now within
+Xthe ~/.elven/environment file.
+X
+X(Initially sourcing ~/.login from inside ~/.cshrc was tried, but one then
+X needed to prevent it from being sourced a *second* time.  Less than
+X elegant.)
+X
+XIdeally one would like to configure a shell, core dump it, and `undump' the
+Ximage into a new, pre-initialized program.  So far attempts have failed.  A
+Xcompletely new shell would likely be required to fix this kind of thing
+Xelegantly.
+X
+XIn the meanwhile, we have the following:
+X
+XModule              Edit-safe           Description
+X------------------  --------- ----------------------------------
+Xcshrc                no       Install this as ~/.cshrc
+Xaliases              no       Basic aliases.
+Xaliases.local       yes       Sourced by `aliases'.
+Xenvironment          no       Basic environment.
+Xenvironment.local   yes       Sourced by `environment'.
+Xinterface            no       Sets TTY and INTERFACE in the environment.
+Xsession             yes       Per-shell session-oriented settings.
+Xsetheaders           no       Set title-bar aliases from INTERFACE.
+Xsunview              no       Exhaustive sunview window aliases list.
+Xinpath               no       Executable C-shell script.
+X
+XRecommended bin scripts (see ~/bin or equiv)
+X-----------------------
+Xl, li, lf, L, L., search
+X
+XModularity, or where to put what
+X--------------------------------
+Xaliases:     `aliases.local'     (addition to `aliases')
+Xsetenv:      `environment.local' (addition to `environment')
+Xumask:       `environment.local' (addition to `environment')
+Xset, stty:   `session'
+Xtset:        `interface` (with extreme caution)
+X
+XTimings on rev 29, Sun 3/150 server, SunOS 4.0.3:
+X	Self:	5.58 seconds
+X	self:	1.88 to 2.64 (norm 2.0) seconds
+X
+XTimings on rev 30, Sun SPARC server, SunOS 4.0.3:
+X	Self:   avg 6 seconds (6 to 11 seconds observable)
+X	self:   avg 1 second  (1 to 2 seconds observable)
+X
+XHistory:
+X
+X	.cshrc.v3:  rev 3.1 (Maerz.1988) .cshrc sourcing .login.
+X    .cshrc.v4:  rev 4   (Jun.1988) begin .cshrc_mine, remove hist'cal aliases.
+X             :  rev 7
+X             :  rev 15
+X	         :	rev 21  (Juli.1989 - Januar.1989).
+X             :  rev 25  (Mai.1990)
+X             :  rev 27  (Juni.1990)
+X             :  rev 28  (Juli.1990)
+X             :  rev 29  (August.1990) Added shell-variant prompt support
+X             :  rev 30  (Maerz.1991)  Added ~/.elven/inpath, prog' exist' chks.
+X
+XGood Luck.
+X
+X-Christoph. Alex. North-Keys
+X Donnerstag.d.4.Januar.1989
+END_OF_FILE
+  if test 3889 -ne `wc -c <'.elven/csh/README'`; then
+    echo shar: \"'.elven/csh/README'\" unpacked with wrong size!
+  fi
+  # end of '.elven/csh/README'
+fi
+if test -f '.elven/csh/cshrc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/cshrc'\"
+else
+  echo shar: Extracting \"'.elven/csh/cshrc'\" \(1818 characters\)
+  sed "s/^X//" >'.elven/csh/cshrc' <<'END_OF_FILE'
+X#----------------------------------------------------------------------#
+X#       File:     ~/.cshrc
+X#       Author:   Christoph. Alex. North-Keys
+X#       Descrip:  Foundation of the elven shell used by the author.
+X#----------------------------------------------------------------------#
+Xalias echon 'echo -n \!*'
+Xif (X`echo -n` == X-n) alias echon 'echo \!*"\c"'
+Xif ($?prompt) then
+X	alias message 'echon \!*'
+Xelse
+X	alias message 'echo \!* > /dev/null'
+Xendif
+X
+Xmessage "lvn/csh/3 "	# Tue Jul  6 05:21:40 CDT 1993
+X
+X# lines to recover a login name and home directory
+Xif !($?LOGNAME)	then
+X	(logname) >& /dev/null
+X	if ($status) then
+X		echon 'Who are we?: '
+X		setenv LOGNAME "`head -1`"
+X	else
+X		setenv LOGNAME "`logname`"
+X	endif
+Xendif
+Xsetenv HOME ~$LOGNAME ; set home = $HOME
+Xif !($?ENVIRON) setenv ENVIRON ''           # set in environ
+X
+Xset ELVEN_PREV = ""
+Xif ($?ELVEN) then
+X	set ELVEN_PREV = "$ELVEN"
+Xendif
+Xsetenv ELVEN "$HOME/.elven"
+X
+Xsetenv SHELL "$shell"
+Xif (! $?SHLVL) setenv SHLVL -1
+Xif (! $?shlvl) then
+X	set shlvl = $SHLVL
+X	@ shlvl++
+X	setenv SHLVL $shlvl		# Yields  [0-?)
+Xendif
+X
+X#	this emulates the single bash function, self ...
+Xalias selfind 'if (-f $ELVEN/\!:1) echo $ELVEN/\!:1; if (-f $ELVEN/csh/\!:1) echo $ELVEN/csh/\!:1 '
+Xalias selfif	'set _s=`selfind \!:1`; if ("X" != "X$_s" && -f "$_s") source $_s; unset _s'
+Xalias self		'set _f = cshrc ; if ( "X-" == "X\!*") setenv ENVIRON ""; if ( "X" != "X\!*" && "X-" != "X\!*" ) set _f = "\!*" ; selfif $_f ; unset _f'
+X
+Xif (("$ENVIRON" != "$LOGNAME")||("$ELVEN_PREV" != "$ELVEN")) then
+X    self environ
+Xendif
+Xunset ELVEN_PREV
+X
+Xif ($?prompt) then
+X	self	aliases		# get aliases
+X	self	interface	# set interface
+X	self	session		# get interactive additions
+X	echo '.'
+Xendif
+X#----------End of file----------#
+X# Local Variables: #
+X# backup-by-copying-when-linked: t #
+X# end: #
+END_OF_FILE
+  if test 1818 -ne `wc -c <'.elven/csh/cshrc'`; then
+    echo shar: \"'.elven/csh/cshrc'\" unpacked with wrong size!
+  fi
+  # end of '.elven/csh/cshrc'
+fi
+if test -f '.elven/csh/interface.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/interface.UU'\"
+else
+  echo shar: Extracting \"'.elven/csh/interface.UU'\" \(2399 characters\)
+  sed "s/^X//" >'.elven/csh/interface.UU' <<'END_OF_FILE'
+Xbegin 644 .elven/csh/interface
+XM(RTM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TC"B,@("!&:6QE.B @(" @?B\N
+XM96QV96XO:6YT97)F86-E"B,@("!!=71H;W(Z(" @0VAR:7-T;W!H+B!!+B!.
+XM;W)T:"U+97ES("AE<FQK;VYI9T!G;G4N86DN;6ET+F5D=2D*(R @(%)E=CH@
+XM(" @(" S,BPP($1O;FYE<G-T86<N9"XR,BY!=6=U<W0N,3DY,0HC(" @5'EP
+XM97,Z(" @(%L@4W5N5FEE=R!\(%@Q,"P@6#$Q('P@<F%W(%T*(RTM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TC"FUE<W-A9V4@)VEN=&5R9F%C92 G"@II9B H
+XM(2 D/W1E<FTI('-E="!T97)M"0DC(&9A;&P@=&AR;W5G:"!T;R!C87-E(&1E
+XM9F%U;'0*<W=I=&-H("@B)'1E<FTB*0H)8V%S92!\*CH)"2,@:68@<&EP92!S
+XM:6=N(&%P<&5A<G,L(&9O<FT@:7,@8'QC;VUM86YD<RXN+B<*"0ES971E;G8@
+XM1U5252 B8&5X<'(@(B1T97)M(B Z("=\7"@N*EPI)V B"@D)<V5T('1E<FT]
+XM9W5R=0H)"65V86P@(B1'55)5(@H)8G)E86MS=PIE;F1S=PH*<V5T(&5S8R ]
+XM("<;)PIS970@8F5L(#T@)P<G"@IS=VET8V@@*"(D=&5R;2(I"@EC87-E(")X
+XM=&5R;2(Z"@D):68@*" A("0_6$-/3E-/3$4I('1H96X*"0D)86QI87,@=&ET
+XM;&4))V5C:&]N("(D97-C73([7"$J)&)E;"(G"@D)"6%L:6%S(&QA8F5L"2=E
+XM8VAO;B B)&5S8UTQ.UPA*B1B96PB)PH)"0EA;&EA<R!I8V]N"2=E8VAO;B B
+XM)&5S8UU).UPA*B1B96PB)PH)"0EA;&EA<R!S87D@"2=T:71L92!<(2HG"@D)
+XM"6%L:6%S("X@)W1I=&QE(%LM)'M(3U-43DE#2WTM(&!C=V1@(%T[(&QA8F5L
+XM("1[2$]35$Y)0TM].B D8W=D.G0G"@D)96YD:68*"0EI9B H(2 D/T1)4U!,
+XM05DI('-E=&5N=B!$25-03$%9("1[2$]35$Y)0TM].C *"0EE8VAO;B D1$E3
+XM4$Q!62<@)PH)"6)R96%K<W<*"6-A<V4@(G-U;BHB.@H)"6EF("@D/U=)3D1/
+XM5U]005)%3E0I('1H96X*"0D)86QI87,@=&ET;&4)"2=E8VAO;B B)&5S8UUL
+XM7"$J)&5S8UPB)PH)"0EA;&EA<R!L86)E; D))V5C:&]N("(D97-C74Q<(2HD
+XM97-C7"(G"@D)"6%L:6%S(&EC;VX)"2=E8VAO;B B)&5S8UU)7"$J)&5S8UPB
+XM)PH)"0EA;&EA<R!S87D@"0DG=&ET;&4@7"$J)PH)"0EA;&EA<R N"0D))W1I
+XM=&QE(%LM)'M(3U-43DE#2WTM(&!C=V1@(%TG"@D)96QS90H)"0EI9B H(F!T
+XM='E@(B A/2 B+V1E=B]C;VYS;VQE(BD@=&AE;@H)"0D)<V5T('1E<FT@/2 B
+XM8'1S970@+2 M22 M42 M<B M;2 Z7#\D=&5R;6 B"@D)"65N9&EF"@D)96YD
+XM:68*"0EB<F5A:W-W"@ED969A=6QT.@H)"6%L:6%S('-A>2 G96-H;R!<(2HG
+XM"@D)86QI87,@+B @("=C=V0G"@D)<W=I=&-H("@B)'1E<FTB*0H)"0EC87-E
+XM(")N971W;W)K(CH*"0D)"7-E="!T97)M(#T@8'1S970@+2 M22 M42 M<B M
+XM;2 Z7#]X=&5R;6 *"0D)"6)R96%K<W<*"0D)8V%S92!U;FMN;W=N.@H)"0EC
+XM87-E(&1U;6(Z"@D)"6-A<V4@<W4Z"@D)"0ES970@=&5R;2 ](&!T<V5T("T@
+XM+4D@+5$@+7(@+6T@.EP_=G0Q,#!@"@D)"0EB<F5A:W-W"0D)"0H)"0EC87-E
+XM("(_*B(Z"@D)"0EM97-S86=E("1T97)M)R G"@D)"0EB<F5A:W-W"@D)"61E
+XM9F%U;'0Z"@D)"0ES970@=&5R;2 ](&!T<V5T("T@+4D@+5$@+7(@+6T@.EP_
+XM=G0Q,#!@"@D)"0EB<F5A:W-W"@D)96YD<W<*"0EB<F5A:W-W"F5N9'-W"@HC
+X!"G0Q
+X 
+Xend
+END_OF_FILE
+  if test 2399 -ne `wc -c <'.elven/csh/interface.UU'`; then
+    echo shar: \"'.elven/csh/interface.UU'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'.elven/csh/interface'\" \(1711 characters\)
+    cat .elven/csh/interface.UU | uudecode
+    if test 1711 -ne `wc -c <'.elven/csh/interface'`; then
+      echo shar: \"'.elven/csh/interface'\" uudecoded with wrong size!
+    else
+      rm .elven/csh/interface.UU
+    fi
+  fi
+  # end of '.elven/csh/interface.UU'
+fi
+if test -f '.elven/csh/session' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/csh/session'\"
+else
+  echo shar: Extracting \"'.elven/csh/session'\" \(1255 characters\)
+  sed "s/^X//" >'.elven/csh/session' <<'END_OF_FILE'
+X#----------------------------------------------------------------------#
+X#   File:    ~/.elven/session
+X#   Author:  Christoph. A. North-Keys
+X#   Rev:     32,0 Dienstag.d.18.6.1991, Freitag.d.2.10.1990
+X#----------------------------------------------------------------------#
+Xmessage 'session '
+X
+Xset history = 200 savehist = 100 filec
+X
+Xset _tag = '>' ; if ("`logname`" == "root") set _tag = '#'
+Xif ($?tcsh) then
+X    set prompt2 = '    ' ; 	unset autologout ; 	alias cwdcmd .
+X	if ( "1" == "`alias title | wc -l`") then
+X		if($?prompt3) then
+X			set prompt = '}-'${SHLVL}'.%h-'${_tag}' ' 
+X		else
+X			set prompt = '}-'${SHLVL}'.\!-'${_tag}' ' 
+X		endif
+X	else
+X		if($?prompt3) then
+X			set prompt = '}-%m(%c)-'${SHLVL}'.%h-'${_tag}' '
+X		else
+X			set prompt = '}-'${HOSTNICK}'-'${SHLVL}'.\!-'${_tag}' '
+X		endif
+X	endif
+Xelse
+X	if ( "1" == "`alias title | wc -l`") then
+X		set prompt = '}-'${SHLVL}'.\!-'${_tag}' ' 
+X	else
+X		set prompt = '}-'${HOSTNICK}'-'${SHLVL}'.\!-'${_tag}' '
+X	endif
+Xendif
+Xunset _tag
+X
+X#	Timing information -- START
+Xset time=('65535' '===Timing Information\
+X Elapsed  :%E\
+X CPU Usage:%P (Kernel:%Ss User:%Us)\
+X Bl.Input :%I	Unsh Data:%Dk\
+X Bl.Output:%O	Unsh Stac:%Kk\
+X Swaps    :%W	Max RealM:%Mk\
+X Faults   :%F	Avg SharM:%Xk')
+X#	Timing information -- END
+END_OF_FILE
+  if test 1255 -ne `wc -c <'.elven/csh/session'`; then
+    echo shar: \"'.elven/csh/session'\" unpacked with wrong size!
+  fi
+  # end of '.elven/csh/session'
+fi
+if test ! -d '.elven/es' ; then
+    echo shar: Creating directory \"'.elven/es'\"
+    mkdir '.elven/es'
+fi
+if test -f '.elven/es/Noah-intro' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/es/Noah-intro'\"
+else
+  echo shar: Extracting \"'.elven/es/Noah-intro'\" \(2496 characters\)
+  sed "s/^X//" >'.elven/es/Noah-intro' <<'END_OF_FILE'
+XFrom: friedman@gnu.ai.mit.edu (Noah Friedman)
+X
+XPaul Haahr and Byron Rakitzis have written a new shell called `es' which
+Xhas some really amazing features for a shell, including lexical scope
+X(dynamic scope is also possible), first-class functions, an exception
+Xsystem (i.e. `catch' and `throw'), settors, etc.  You can redefine the
+Xmeaning of all the operators (e.g. `|', `>').  In fact, you can even
+Xredefine the top REPL---it's just an ordinary shell function!
+X
+XIt appears to have the capability of loading a bunch of shell code, then
+Xdumping the state into a C source file which can be recompiled into the
+Xshell.  This is more portable than unexec, but achieves essentially the
+Xsame end.  (Actually, the translation to C source is done with a separate
+Xprogram, and incredmental dumping doesn't look possible.  It's as if you
+Xalways had to dump temacs instead of being able to re-dump xemacs).
+X
+XIt is smaller and (seems) faster than bash.
+X
+XOverall, I think it's a very sexy shell.  The one essential feature it is
+Xmissing is job control (in addition to a couple of other nice things it
+Xcould have, such as macros for extending the syntax of the shell and tail
+Xrecursion elimination.  Some of these are on the author's to-do list).  But
+Xnot everyone needs job control, and we could presumably add it ourselves if
+Xit was terribly important.  Mostly likely we could find a volunteer to do
+Xit.  With just a few new primitive hooks, I'm speculating that a flexible
+Xuser-defineable job control mechanism could be hooked into the REP loop.
+X
+XThe following disclaimer is in the README:
+X
+X   Es is in the public domain.  We hold no copyrights or patents on the
+X   source code, and do not place any restrictions on its distribution.  We
+X   would appreciate it if any distributions do credit the authors.
+X
+XI would like very much for the GNU Project to distribute this shell, as it
+Xis the most winning of any unix shell I have ever seen.  I think it may
+Xeven be feasible to use this shell as our general-purpose extension
+Xlanguage (there has been talk about making the shell into an embedded
+Xlanguage library a la TCL).  The shell is still fairly new and
+Xfeatures/syntax are not yet set in stone, but that is a good thing in my
+Xview.  I'm sick to death of overbearing standards getting in the way of
+Xdevelopment of interesting ideas.
+X
+XI printed out the paper the authors published in the proceedings of the
+XJanuary 1993 Usenix conference, if you would like to read it.  I'm really
+Xpsyched about this shell. 
+X
+END_OF_FILE
+  if test 2496 -ne `wc -c <'.elven/es/Noah-intro'`; then
+    echo shar: \"'.elven/es/Noah-intro'\" unpacked with wrong size!
+  fi
+  # end of '.elven/es/Noah-intro'
+fi
+if test -f '.elven/es/main.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/es/main.UU'\"
+else
+  echo shar: Extracting \"'.elven/es/main.UU'\" \(1773 characters\)
+  sed "s/^X//" >'.elven/es/main.UU' <<'END_OF_FILE'
+Xbegin 644 .elven/es/main
+XM(RTM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TC"B,)1FEL93H)?B\N96QV96XO
+XM97,O;6%I;@HC"4%U=&@Z"4YO<G1H+4ME>7,@("!4:'4@2G5L(#(R(# T.C,Y
+XM.C0T($-$5" Q.3DS"B,)1&5S8SH)96QV96X@<V-R:7!T<R!P<FEM87)Y(&9I
+XM;&4L(&5S('9E<G-I;VX*(RTM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TC"@IF
+XM;B!E8VAO;B!A<F=S('L@96-H;R M;B D87)G<R!]"F9N(&UE<W-A9V4@87)G
+XM<R![(&EF("5I;G1E<F%C=&EV92UP('L@96-H;VX@)&%R9W,@?2!]"@IM97-S
+XM86=E("=L=FXO97,O-" G"@II9B![('X@)$Q/1TY!344@?2!<"GL*"6EF('L@
+XM=VAA=&ES(&QO9VYA;64@/B]D978O;G5L;" ^6S(],5T@?2!<"@D)>R!,3T=.
+XM04U%(#T@8'ML;V=N86UE?2!](%P*"0E[(&5C:&]N("=7:&\@87)E('=E/SH@
+XM)R [($Q/1TY!344@/2!@>R!H96%D("TQ('T@?0I]"FEF('L@?B D2$]-12!]
+XM('L@2$]-12 ]('XD3$]'3D%-12!]"@I%3%9%3E]04D56(#T@)$5,5D5.(#L@
+XM14Q614X@/2 D2$]-12\N96QV96X*"F9N('-E;&8@87)G<R!<"GL*"6EF('L@
+XM?B D87)G<R@Q*2 M('T@>R!%3E9)4D].(#T@*"D@.R!A<F=S(#T@)&%R9W,H
+XM,B N+BXI('T*"6EF('L@?B P("0C87)G<R!]('L@9FEL97,@/2!M86EN('T@
+XM>R!F:6QE<R ]("@D87)G<RD@?2 *"69O<B H9B ]("1F:6QE<RD@7 H)>PH)
+XM"6EF('L@=&5S=" M<B D14Q614XO)&8@?2!<"@D)"7L@)"9D;W0@)$5,5D5.
+XM+R1F('T@7 H)"0E[(&EF('L@=&5S=" M<B D14Q614XO97,O)&8@?2![("X@
+XM)$5,5D5.+V5S+R1F('T@9F%L<V4@?0H)?0I]"@II9B![('L@(2!^("1,3T=.
+XM04U%("1%3E9)4D].('T@?'P@>R A('X@)$5,5D5.7U!2158@)$5,5D5.('T@
+XM?2![('-E;&8@96YV:7)O;B!]"@I%3%9%3E]04D56(#T@*"D*"FEF('L@?B D
+XM5$5232 G?"<J('T@>R!'55)5(#T@8'L@96-H;R D5$5232!\(&-U=" M8S(M
+XM('T@.R!415)-(#T@9W5R=2 [("1'55)5('T*"FEF("5I;G1E<F%C=&EV92UP
+XM(%P*>PH)<V5L9@ET<F%P<PD)(R!S970@<VEG;F%L('1R87!S"@ES96QF"69U
+XM;F-T:6]N<PDC(&=E="!F=6YC=&EO;G,)86YD(&%L:6%S97,*"7-E;&8):6YT
+XM97)F86-E"2,@<V5T(&EN=&5R9F%C90H)<V5L9@ES97-S:6]N"0DC(&=E="!P
+XM97(@<V5S<VEO;B!S971T:6YG<PH)96-H;R N"@DN"GT*"B,M+2TM+2TM+2TM
+X#96]F
+X 
+Xend
+END_OF_FILE
+  if test 1773 -ne `wc -c <'.elven/es/main.UU'`; then
+    echo shar: \"'.elven/es/main.UU'\" unpacked with wrong size!
+  else 
+    echo shar: Uudecoding \"'.elven/es/main'\" \(1263 characters\) 
+    cat .elven/es/main.UU | uudecode 
+    if test 1263 -ne `wc -c <'.elven/es/main'`; then 
+      echo shar: \"'.elven/es/main'\" uudecoded with wrong size! 
+    else 
+      rm .elven/es/main.UU 
+    fi
+  fi
+  # end of '.elven/es/main.UU'
+fi
+if test ! -d '.elven/ksh' ; then
+    echo shar: Creating directory \"'.elven/ksh'\"
+    mkdir '.elven/ksh'
+fi
+if test ! -d '.elven/sh' ; then
+    echo shar: Creating directory \"'.elven/sh'\"
+    mkdir '.elven/sh'
+fi
+if test -f '.elven/sh/interface.UU' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'.elven/sh/interface.UU'\"
+else
+  echo shar: Extracting \"'.elven/sh/interface.UU'\" \(2538 characters\)
+  sed "s/^X//" >'.elven/sh/interface.UU' <<'END_OF_FILE'
+Xbegin 644 .elven/sh/interface
+XM(RTM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TC"B,)1FEL93H@"6EN=&5R9F%C
+XM90HC"4%U=&@Z"4-H<FES=&]P:"X@06QE>"X@3F]R=&@M2V5Y<R M+2!&<FD@
+XM2F%N(#,Q(# X.C,R.C0Y($-35" Q.3DR"B,)1&5S8SH):6YT97)F86-E(&1E
+XM=&5R;6EN871I;VXL(&5L9G-H96QL+"!B87-H('9E<G-I;VX*(RTM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM+2TM
+XM+2TM+2TM+2TM+2TM+2TM+2TC"FUE<W-A9V4@:6YT97)F86-E)R G"@II9B!;
+XM("$@(B1415)-(B!=(#L@=&AE;B!415)-/75N:VYO=VX@.R!F:2 @(",@9F%L
+XM;"!T:')O=6=H('1O(&-A<V4@9&5F875L= IC87-E("(D5$5232(@:6X*"5Q\
+XM*BD)"2,@:68@<&EP92!S:6=N(&%P<&5A<G,L(&9O<FT@:7,@8'QC;VUM86YD
+XM<RXN+B<*"0E'55)5/2)@97AP<B B)%1%4DTB(#H@)WQ<*"XJ7"DG8"(@.R!E
+XM>'!O<G0@1U5250H)"51%4DT]9W5R=0H)"65V86P@(B1'55)5(@H)"3L["F5S
+XM86,*8F5L/2('(@IE<V,](ALB"F-A<V4@(B1415)-(B!I;@H)>'1E<FTI"@D)
+XM:68@6R A("(D6$-/3E-/3$4B(%T@.R!T:&5N"@D)"71I=&QE"2@I('L@96-H
+XM;VX@(B1E<V-=,CLD*B1B96PB(#L@?0H)"0EL86)E; DH*2![(&5C:&]N("(D
+XM97-C73$[)"HD8F5L(B [('T*"0D):6-O;@DH*2![(&5C:&]N("(D97-C74D[
+XM)"HD8F5L(B [('T*"0D)<V%Y"0DH*2![('1I=&QE("0J(#L@?0H)"0ED;W0)
+XM"2@I('L@=&ET;&4@6RTD>TA/4U1.24-+?2T@)%!71"!=(#L*"0D)"0D)(&QA
+XM8F5L("1[2$]35$Y)0TM].B!@8F%S96YA;64@)%!71& @.R!]"@D)9FD*"0EI
+XM9B!;("$@(B1$25-03$%9(B!=(#L@=&AE;B!$25-03$%9/21[2$]35$Y)0TM]
+XM.C @.R!E>'!O<G0@1$E34$Q!62 [(&9I"@D);65S<V%G92 D1$E34$Q!62<@
+XM)PH)"3L["@ES=6XJ*0H)"6EF(%L@(B1724Y$3U=?4$%214Y4(B!=(#L@=&AE
+XM;@H)"0ET:71L90DH*2![(&5C:&]N("(D97-C76PD*B1E<V-<7"(@.R!]"@D)
+XM"6QA8F5L"2@I('L@96-H;VX@(B1E<V-=3"0J)&5S8UQ<(B [('T*"0D):6-O
+XM;@DH*2![(&5C:&]N("(D97-C74DD*B1E<V-<7"(@.R!]"@D)"7-A>0D)*"D@
+XM>R!T:71L92 D*B [('T*"0D)9&]T"0DH*2![('1I=&QE(%LM)'M(3U-43DE#
+XM2WTM("105T0@72 [('T*"0EE;'-E"@D)"6EF(%L@(F!T='E@(B A/2 B+V1E
+XM=B]C;VYS;VQE(B!=(#L@=&AE;@H)"0D)5$5233TB8'1S970@+2 M22 M42 M
+XM<B M;2 Z7#\D5$5236 B"@D)"69I"@D)9FD*"0D[.PH)=WDJ*0H)"71I=&QE
+XM"2@I('L@96-H;R @(B1E<V-&)"I<7')<7&,B(#L@?0H)"7-A>0D)*"D@>R!T
+XM:71L92 B)"HB(#L@?0H)"61O= D)*"D@>R!T:71L92 B8&QO9VYA;65@(&!T
+XM='D@?"!S960@)W- +V1E=B] 0&<G8"!@<'=D8"(@.R!]"@D).SL*"2HI"0D)
+XM(R!D969A=6QT"@D)<V%Y"0DH*2![(&5C:&\@)"H@.R!]"@D)9&]T"0DH*2![
+XM(&5C:&\@)%!71" [('T*"0EC87-E("(D5$5232(@:6X*"0D)96UA8W,I"0D)
+XM"7-T='D@+65C:&\@+6]N;&-R(&YL(#L["@D)"6YE='=O<FLI"0D)5$5233TB
+XM8'1S970@+2 M22 M42 M<B M;2 Z7#]X=&5R;6 B"3L["@D)"75N:VYO=VY\
+XM9'5M8GQS=2D)5$5233TB8'1S970@+2 M22 M42 M<B M;2 Z7#]V=#$P,& B
+XM"3L["@D)"3\J*0D)"0D):68@6R B)%!3,2(@73L@=&AE;B!M97-S86=E("14
+XM15)-)R G(#L@9FD).SL*"0D)*BD)"0D)"51%4DT](F!T<V5T("T@+4D@+5$@
+XM+7(@+6T@.EP_=G0Q,#!@(@D[.PH)"65S86,*"0D[.PIE<V%C"@IE>'!O<G0@
+X/5$5230H*(RTM+2UE;V8*
+X 
+Xend
+END_OF_FILE
+  if test 2538 -ne `wc -c <'.elven/sh/interface.UU'`; then
+    echo shar: \"'.elven/sh/interface.UU'\" unpacked with wrong size!
+  else 
+    echo shar: Uudecoding \"'.elven/sh/interface'\" \(1815 characters\) 
+    cat .elven/sh/interface.UU | uudecode 
+    if test 1815 -ne `wc -c <'.elven/sh/interface'`; then 
+      echo shar: \"'.elven/sh/interface'\" uudecoded with wrong size! 
+    else 
+      rm .elven/sh/interface.UU 
+    fi
+  fi
+  # end of '.elven/sh/interface.UU'
+fi
+if test ! -d '.elven/tcsh' ; then
+    echo shar: Creating directory \"'.elven/tcsh'\"
+    mkdir '.elven/tcsh'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

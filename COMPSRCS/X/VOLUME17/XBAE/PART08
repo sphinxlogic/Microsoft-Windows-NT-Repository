@@ -1,0 +1,1955 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Andrew Wason <aw@bae.bellcore.com>
+Subject: v17i035: Xbae widgets (MOTIF), Part08/12
+Message-ID: <1992Mar23.180140.16221@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i028-xbae@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 18:01:40 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: Andrew Wason <aw@bae.bellcore.com>
+Posting-number: Volume 17, Issue 35
+Archive-name: xbae/part08
+
+Submitted-by: aw@jello
+Archive-name: Xbae/part08
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is Xbae.shar.08 (part 8 of Xbae)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file Xbae/src/Matrix.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping Xbae/src/Matrix.c'
+else
+echo 'x - continuing file Xbae/src/Matrix.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'Xbae/src/Matrix.c' &&
+X
+X	/*
+X	 * Malloc a new row array for each row. Initialize it with foreground.
+X	 * Use the new column size.
+X	 */
+X	for (i = current->matrix.rows; i < new->matrix.rows; i++) {
+X	    new->matrix.colors[i] =
+X		(Pixel *) XtMalloc(new->matrix.columns * sizeof(Pixel));
+X	    for (j = 0; j < new->matrix.columns; j++)
+X		new->matrix.colors[i][j] = new->manager.foreground;
+X	}
+X
+X	safe_rows = current->matrix.rows;
+X    }
+X
+X    /*
+X     * Deleting rows
+X     */
+X    if (new->matrix.rows < current->matrix.rows) {
+X	for (i = new->matrix.rows; i < current->matrix.rows; i++)
+X	    XtFree((XtPointer) new->matrix.colors[i]);
+X	safe_rows = new->matrix.rows;
+X    }
+X
+X    /*
+X     * Adding columns
+X     */
+X    if (new->matrix.columns > current->matrix.columns) {
+X	/*
+X	 * Realloc each row array. Do not touch any rows added/deleted above
+X	 * (use safe_rows)
+X	 */
+X	for (i = 0; i < safe_rows; i++) {
+X	    int j;
+X
+X	    new->matrix.colors[i] =
+X		(Pixel *) XtRealloc((char *)new->matrix.colors[i],
+X				    new->matrix.columns * sizeof(Pixel));
+X	    for (j = current->matrix.columns; j < new->matrix.columns; j++)
+X		new->matrix.colors[i][j] = new->manager.foreground;
+X	}
+X    }
+X
+X    /*
+X     * Deleting columns
+X     *   if (new->matrix.columns < current->matrix.columns)
+X     * We don't bother to realloc, just leave some wasted space.
+X     * XXX is this a problem?
+X     */
+}
+X
+/*
+X * Add rows to the internal cells data structure.
+X * If rows or labels is NULL, add empty rows.
+X */
+static void
+AddRowsToTable(mw, position, rows, labels, colors, num_rows)
+XXbaeMatrixWidget mw;
+int position;
+String *rows;
+String *labels;
+Pixel *colors;
+int num_rows;
+{
+X    int i, j;
+X
+X    /*
+X     * Realloc a larger array of row pointers and a larger label array
+X     */
+X    mw->matrix.cells = (String **) XtRealloc((char *)mw->matrix.cells,
+X					     (mw->matrix.rows + num_rows) *
+X					     sizeof(String *));
+X    if (mw->matrix.row_labels)
+X	mw->matrix.row_labels =
+X	    (String *) XtRealloc((char *)mw->matrix.row_labels,
+X				 (mw->matrix.rows + num_rows) *
+X				 sizeof(String));
+X    if (mw->matrix.colors)
+X	mw->matrix.colors = (Pixel **) XtRealloc((char *)mw->matrix.colors,
+X						 (mw->matrix.rows + num_rows) *
+X						 sizeof(Pixel *));
+X
+X    mw->matrix.selected_cells =
+X	(Boolean **) XtRealloc((char *)mw->matrix.selected_cells,
+X			       (mw->matrix.rows + num_rows) *
+X			       sizeof(Boolean *));
+X
+X    /*
+X     * If we are inserting rows into the middle, we need to make room.
+X     * XXX we are assuming bcopy can handle overlapping moves.
+X     */
+X    if (position < mw->matrix.rows) {
+X	bcopy(&mw->matrix.cells[position],
+X	      &mw->matrix.cells[position + num_rows],
+X	      (mw->matrix.rows - position) * sizeof(String *));
+X	if (mw->matrix.row_labels)
+X	    bcopy(&mw->matrix.row_labels[position],
+X		  &mw->matrix.row_labels[position + num_rows],
+X		  (mw->matrix.rows - position) * sizeof(String));
+X	if (mw->matrix.colors)
+X	    bcopy(&mw->matrix.colors[position],
+X		  &mw->matrix.colors[position + num_rows],
+X		  (mw->matrix.rows - position) * sizeof(Pixel *));
+X	bcopy(&mw->matrix.selected_cells[position],
+X	      &mw->matrix.selected_cells[position + num_rows],
+X	      (mw->matrix.rows - position) * sizeof(Boolean *));
+X    }
+X
+X    /*
+X     * Malloc a new row array for each new row. Copy the label for each row.
+X     * If no label was passed in, use a NULL String. Malloc a new Pixel
+X     * and Boolean row array for each new row.
+X     */
+X    for (i = 0; i < num_rows; i++) {
+X	mw->matrix.cells[i + position] =
+X	    (String *) XtMalloc(mw->matrix.columns * sizeof(String));
+X	if (mw->matrix.row_labels)
+X	    mw->matrix.row_labels[i + position] =
+X		labels ? XtNewString(labels[i]) : XtNewString("");
+X	if (mw->matrix.colors)
+X	    mw->matrix.colors[i + position] =
+X		(Pixel *) XtMalloc(mw->matrix.columns * sizeof(Pixel));
+X	mw->matrix.selected_cells[i + position] =
+X	    (Boolean *) XtMalloc(mw->matrix.columns * sizeof(Boolean));
+X    }
+X
+X    /*
+X     * Copy the rows arrays passed in into each new row, or if NULL
+X     * was passed in initialize each row to NULL Strings. Copy the colors
+X     * arrays passed in into each new row, if NULL was passed use foreground.
+X     */
+X    for (i = 0; i < num_rows; i++)
+X	for (j = 0; j < mw->matrix.columns; j++) {
+X	    mw->matrix.cells[i + position][j] =
+X		rows
+X		    ? XtNewString(rows[i * mw->matrix.columns + j])
+X		    : XtNewString("");
+X	    if (mw->matrix.colors)
+X		mw->matrix.colors[i + position][j] =
+X		    colors
+X			? colors[i]
+X			: mw->manager.foreground;
+X	    mw->matrix.selected_cells[i + position][j] = False;
+X	}
+X
+X    mw->matrix.rows += num_rows;
+}
+X
+/*
+X * Delete rows from the internal cells data structure.
+X */
+static void
+DeleteRowsFromTable(mw, position, num_rows)
+XXbaeMatrixWidget mw;
+int position;
+int num_rows;
+{
+X    int i, j;
+X
+X    /*
+X     * We don't bother to realloc, we will just have some wasted space.
+X     * XXX is this a problem?
+X     */
+X
+X    /*
+X     * Free all the cells in the rows being deleted and the rows themselves.
+X     * Also free the String row labels.  Free the color arrays for the rows
+X     * being deleted.
+X     */
+X    for (i = position; i < position + num_rows; i++) {
+X	for (j = 0; j < mw->matrix.columns; j++)
+X	    XtFree((XtPointer) mw->matrix.cells[i][j]);
+X	XtFree((XtPointer) mw->matrix.cells[i]);
+X	if (mw->matrix.row_labels)
+X	    XtFree((XtPointer) mw->matrix.row_labels[i]);
+X	if (mw->matrix.colors)
+X	    XtFree((XtPointer) mw->matrix.colors[i]);
+X	XtFree((XtPointer) mw->matrix.selected_cells[i]);
+X    }
+X
+X    /*
+X     * Copy those rows which are below the ones deleted, up.
+X     * (unless we deleted rows from the bottom).
+X     * XXX we assume bcopy can handle overlapping moves
+X     */
+X    if (position + num_rows < mw->matrix.rows) {
+X	bcopy(&mw->matrix.cells[position + num_rows],
+X	      &mw->matrix.cells[position],
+X	      (mw->matrix.rows - position - num_rows) * sizeof(String *));
+X	if (mw->matrix.row_labels)
+X	    bcopy(&mw->matrix.row_labels[position + num_rows],
+X		  &mw->matrix.row_labels[position],
+X		  (mw->matrix.rows - position - num_rows) * sizeof(String));
+X	if (mw->matrix.colors)
+X	    bcopy(&mw->matrix.colors[position + num_rows],
+X		  &mw->matrix.colors[position],
+X		  (mw->matrix.rows - position - num_rows) * sizeof(Pixel *));
+X	bcopy(&mw->matrix.selected_cells[position + num_rows],
+X	      &mw->matrix.selected_cells[position],
+X	      (mw->matrix.rows - position - num_rows) * sizeof(Boolean *));
+X    }
+X
+X    mw->matrix.rows -= num_rows;
+}
+X
+/*
+X * Add columns to the internal cells data structure.
+X * If columns or labels is NULL, add empty columns.
+X * If max_lengths is NULL, widths will be used.
+X * If alignments is NULL, use XmALIGNMENT_BEGINNING.
+X * If label_alignments is NULL, use alignments, or if it is NULL
+X *   XmALIGNMENT_BEGINNING.
+X * widths must not be NULL.
+X */
+static void
+AddColumnsToTable(mw, position, columns, labels, widths, max_lengths,
+X		  alignments, label_alignments, colors, num_columns)
+XXbaeMatrixWidget mw;
+int position;
+String *columns;
+String *labels;
+short *widths;
+int *max_lengths;
+unsigned char *alignments;
+unsigned char *label_alignments;
+Pixel *colors;
+int num_columns;
+{
+X    int i, j;
+X
+X    /*
+X     * Realloc larger cells, widths, max_lengths, alignments,
+X     * colors, selected_cells, labels and label lines arrays.
+X     */
+X
+X    for (i = 0; i < mw->matrix.rows; i++) {
+X	mw->matrix.cells[i] = 
+X	    (String *) XtRealloc((char *) mw->matrix.cells[i],
+X				 (mw->matrix.columns + num_columns) *
+X				 sizeof(String));
+X	if (mw->matrix.colors)
+X	    mw->matrix.colors[i] =
+X		(Pixel *) XtRealloc((char *)mw->matrix.colors[i],
+X				     (mw->matrix.columns + num_columns) *
+X				     sizeof(Pixel));
+X	mw->matrix.selected_cells[i] =
+X	    (Boolean *) XtRealloc((char *)mw->matrix.selected_cells[i],
+X				   (mw->matrix.columns + num_columns) *
+X				   sizeof(Boolean));
+X    }
+X
+X    mw->matrix.column_widths =
+X	(short *) XtRealloc((char *) mw->matrix.column_widths,
+X			    (mw->matrix.columns + num_columns) *
+X			    sizeof(short));
+X
+X    if (mw->matrix.column_max_lengths)
+X	mw->matrix.column_max_lengths =
+X	    (int *) XtRealloc((char *) mw->matrix.column_max_lengths,
+X			      (mw->matrix.columns + num_columns) *
+X			      sizeof(int));
+X
+X    if (mw->matrix.column_alignments)
+X	mw->matrix.column_alignments =
+X	    (unsigned char *)
+X		XtRealloc((char *)mw->matrix.column_alignments,
+X			  (mw->matrix.columns + num_columns) *
+X			  sizeof(unsigned char));
+X
+X    if (mw->matrix.column_label_alignments)
+X	mw->matrix.column_label_alignments =
+X	    (unsigned char *) XtRealloc((char *)mw->matrix.
+X					column_label_alignments,
+X					(mw->matrix.columns + num_columns) *
+X					sizeof(unsigned char));
+X
+X    if (mw->matrix.column_labels) {
+X	mw->matrix.column_labels =
+X	    (String *) XtRealloc((char *)mw->matrix.column_labels,
+X				 (mw->matrix.columns + num_columns) *
+X				 sizeof(String));
+X	mw->matrix.column_label_lines =
+X	    (ColumnLabelLines) XtRealloc((char *)mw->matrix.column_label_lines,
+X					 (mw->matrix.columns + num_columns) *
+X					 sizeof(ColumnLabelLinesRec));
+X    }
+X
+X    /*
+X     * If we are inserting columns into the middle, we need to make room.
+X     * XXX we are assuming bcopy can handle overlapping moves.
+X     */
+X    if (position < mw->matrix.columns) {
+X	bcopy(&mw->matrix.column_widths[position],
+X	      &mw->matrix.column_widths[position + num_columns],
+X	      (mw->matrix.columns - position) * sizeof(short));
+X
+X	if (mw->matrix.column_max_lengths)
+X	    bcopy(&mw->matrix.column_max_lengths[position],
+X		  &mw->matrix.column_max_lengths[position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(int));
+X
+X	if (mw->matrix.column_alignments)
+X	    bcopy(&mw->matrix.column_alignments[position],
+X		  &mw->matrix.column_alignments[position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(unsigned char));
+X
+X	if (mw->matrix.column_label_alignments)
+X	    bcopy(&mw->matrix.column_label_alignments[position],
+X		  &mw->matrix.column_label_alignments[position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(unsigned char));
+X
+X	if (mw->matrix.column_labels) {
+X	    bcopy(&mw->matrix.column_labels[position],
+X		  &mw->matrix.column_labels[position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(String));
+X	    bcopy(&mw->matrix.column_label_lines[position],
+X		  &mw->matrix.column_label_lines[position + num_columns],
+X		  (mw->matrix.columns - position) *
+X		  sizeof(ColumnLabelLinesRec));
+X	}
+X
+X	/*
+X	 * Shift the columns in each row.
+X	 */
+X	for (i = 0; i < mw->matrix.rows; i++) {
+X	    bcopy(&mw->matrix.cells[i][position],
+X		  &mw->matrix.cells[i][position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(String));
+X	    if (mw->matrix.colors)
+X		bcopy(&mw->matrix.colors[i][position],
+X		      &mw->matrix.colors[i][position + num_columns],
+X		      (mw->matrix.columns - position) * sizeof(Pixel));
+X	    bcopy(&mw->matrix.selected_cells[i][position],
+X		  &mw->matrix.selected_cells[i][position + num_columns],
+X		  (mw->matrix.columns - position) * sizeof(Boolean));
+X	}
+X    }
+X
+X    /*
+X     * Copy all of the passed in info into each new column
+X     * (except column_positions which will be recalculated below).
+X     * If columns or labels is NULL, add empty columns.
+X     * If max_lengths is NULL, widths will be used.
+X     * If alignments is NULL, use XmALIGNMENT_BEGINNING.
+X     * If label_alignments is NULL, use XmALIGNMENT_BEGINNING
+X     * If labels is NULL, use NULL strings.
+X     * If colors is NULL, use foreground.
+X     */
+X    for (j = 0; j < num_columns; j++) {
+X	mw->matrix.column_widths[j + position] = widths[j];
+X
+X	if (mw->matrix.column_max_lengths)
+X	    mw->matrix.column_max_lengths[j + position] =
+X		max_lengths ? max_lengths[j] : (int)widths[j];
+X
+X	if (mw->matrix.column_alignments)
+X	    mw->matrix.column_alignments[j + position] =
+X		alignments ? alignments[j] : XmALIGNMENT_BEGINNING;
+X
+X	if (mw->matrix.column_label_alignments)
+X	    mw->matrix.column_label_alignments[j + position] =
+X		label_alignments ? label_alignments[j] : XmALIGNMENT_BEGINNING;
+X
+X	if (mw->matrix.column_labels) {
+X	    mw->matrix.column_labels[j + position] =
+X		labels ? XtNewString(labels[j]) : XtNewString("");
+X	    ParseColumnLabel(mw->matrix.column_labels[j + position],
+X			     &mw->matrix.column_label_lines[j + position]);
+X	}
+X
+X	/*
+X	 * Add this new column to each row.
+X	 */
+X	for (i = 0; i < mw->matrix.rows; i++) {
+X	    mw->matrix.cells[i][j + position] =
+X		columns
+X		    ? XtNewString(columns[i * num_columns + j])
+X		    : XtNewString("");
+X	    if (mw->matrix.colors)
+X		mw->matrix.colors[i][j + position] =
+X		    colors
+X			? colors[j]
+X			: mw->manager.foreground;
+X	    mw->matrix.selected_cells[i][j + position] = False;
+X	}
+X    }
+X
+X    mw->matrix.columns += num_columns;
+X    GetCellTotalWidth(mw);
+X
+X    /*
+X     * See if the max number of column label lines changed
+X     */
+X    if (mw->matrix.column_labels) {
+X	int end;
+X	end = position + num_columns;
+X	for (i = position; i < end; i++)
+X	    if (mw->matrix.column_label_lines[i].lines >
+X		mw->matrix.column_label_maxlines)
+X		mw->matrix.column_label_maxlines =
+X		    mw->matrix.column_label_lines[i].lines;
+X    }
+X
+X    /*
+X     * Recalculate the column positions
+X     */
+X    FreeColumnPositions(mw);
+X    mw->matrix.column_positions = CreateColumnPositions(mw);
+X    GetColumnPositions(mw);
+}
+X
+/*
+X * Delete columns from the internal cells data structure.
+X */
+static void
+DeleteColumnsFromTable(mw, position, num_columns)
+XXbaeMatrixWidget mw;
+int position;
+int num_columns;
+{
+X    int i, j;
+X
+X    /*
+X     * Free all the cells in the columns being deleted.
+X     * Also free the String column labels and the associated ColumnLabelLines
+X     * lengths arrays.
+X     */
+X    for (j = position; j < position + num_columns; j++) {
+X	for (i = 0; i < mw->matrix.rows; i++)
+X	    XtFree((XtPointer) mw->matrix.cells[i][j]);
+X	if (mw->matrix.column_labels) {
+X	    XtFree((XtPointer) mw->matrix.column_labels[j]);
+X	    XtFree((XtPointer) mw->matrix.column_label_lines[j].lengths);
+X	}
+X    }
+X
+X    /*
+X     * Shift those columns after the ones being deleted, left.
+X     * (unless we deleted columns from the right).
+X     * XXX we assume bcopy can handle overlapping moves
+X     */
+X    if (position + num_columns < mw->matrix.columns) {
+X	bcopy(&mw->matrix.column_widths[position + num_columns],
+X	      &mw->matrix.column_widths[position],
+X	      (mw->matrix.columns - position - num_columns) * sizeof(short));
+X
+X	if (mw->matrix.column_max_lengths)
+X	    bcopy(&mw->matrix.column_max_lengths[position + num_columns],
+X		  &mw->matrix.column_max_lengths[position],
+X		  (mw->matrix.columns - position - num_columns) * sizeof(int));
+X
+X	if (mw->matrix.column_alignments)
+X	    bcopy(&mw->matrix.column_alignments[position + num_columns],
+X		  &mw->matrix.column_alignments[position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(unsigned char));
+X
+X	if (mw->matrix.column_label_alignments)
+X	    bcopy(&mw->matrix.column_label_alignments[position + num_columns],
+X		  &mw->matrix.column_label_alignments[position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(unsigned char));
+X
+X	if (mw->matrix.column_labels) {
+X	    bcopy(&mw->matrix.column_labels[position + num_columns],
+X		  &mw->matrix.column_labels[position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(String));
+X	    bcopy(&mw->matrix.column_label_lines[position + num_columns],
+X		  &mw->matrix.column_label_lines[position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(ColumnLabelLinesRec));
+X	}
+X
+X	/*
+X	 * Shift the columns in each row.
+X	 */
+X	for (i = 0; i < mw->matrix.rows; i++) {
+X	    bcopy(&mw->matrix.cells[i][position + num_columns],
+X		  &mw->matrix.cells[i][position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(String));
+X	    if (mw->matrix.colors)
+X		bcopy(&mw->matrix.colors[i][position + num_columns],
+X		      &mw->matrix.colors[i][position],
+X		      (mw->matrix.columns - position - num_columns) *
+X		      sizeof(Pixel));
+X	    bcopy(&mw->matrix.selected_cells[i][position + num_columns],
+X		  &mw->matrix.selected_cells[i][position],
+X		  (mw->matrix.columns - position - num_columns) *
+X		  sizeof(Boolean));
+X	}
+X    }
+X
+X    mw->matrix.columns -= num_columns;
+X    GetCellTotalWidth(mw);
+X
+X    /*
+X     * See if the max number of column label lines changed
+X     */
+X    if (mw->matrix.column_labels) {
+X	mw->matrix.column_label_maxlines =
+X	    mw->matrix.column_label_lines[0].lines;
+X	for (i = 1; i < mw->matrix.columns; i++)
+X	    if (mw->matrix.column_label_lines[i].lines >
+X		mw->matrix.column_label_maxlines)
+X		mw->matrix.column_label_maxlines =
+X		    mw->matrix.column_label_lines[i].lines;
+X    }
+X
+X    /*
+X     * Recalculate the column positions
+X     */
+X    FreeColumnPositions(mw);
+X    mw->matrix.column_positions = CreateColumnPositions(mw);
+X    GetColumnPositions(mw);
+}
+X
+/*
+X * Try to make the row specified by the topRow resource (VERT_ORIGIN)
+X * be the top row. The row is relative to fixed_rows - so 0 would
+X * be the first non-fixed row.
+X * If we can't make topRow the top row, make it as close as possible.
+X */
+static void
+AdjustTopRow(mw)
+XXbaeMatrixWidget mw;
+{
+X    int rows_visible = VISIBLE_HEIGHT(mw) / ROW_HEIGHT(mw);
+X
+X    /*
+X     * If we have less than one full row visible, then count it as a full row
+X     */
+X    if (rows_visible == 0)
+X	rows_visible = 1;
+X    /*
+X     * rows_visible might be inaccurate since Clip may not have been resized
+X     */
+X    else if (rows_visible > mw->matrix.rows)
+X	rows_visible = mw->matrix.rows;
+X
+X    if (VERT_ORIGIN(mw) > (mw->matrix.rows - (rows_visible +
+X					      mw->matrix.fixed_rows)))
+X	VERT_ORIGIN(mw) = mw->matrix.rows - (rows_visible +
+X					     mw->matrix.fixed_rows);
+X    else if (VERT_ORIGIN(mw) < 0)
+X	VERT_ORIGIN(mw) = 0;
+}
+X
+/*
+X * Return the top and bottom-most visible non-fixed row
+X */
+static void
+GetVisibleRows(mw, top_row, bottom_row)
+XXbaeMatrixWidget mw;
+int *top_row, *bottom_row;
+{
+X    *top_row = VERT_ORIGIN(mw) + mw->matrix.fixed_rows;
+X    *bottom_row = *top_row + VISIBLE_HEIGHT(mw) / ROW_HEIGHT(mw);
+}
+X
+/*
+X * Return the left and right-most visible non-fixed column
+X */
+static void
+GetVisibleColumns(mw, left_column, right_column)
+XXbaeMatrixWidget mw;
+int *left_column, *right_column;
+{
+X    *left_column = XtoCol(mw, FIXED_COLUMN_WIDTH(mw) +  HORIZ_ORIGIN(mw));
+X    *right_column = XtoCol(mw, FIXED_COLUMN_WIDTH(mw) +  HORIZ_ORIGIN(mw) +
+X			   VISIBLE_WIDTH(mw));
+}
+X
+/*
+X * Return the top and bottom row and left and right column of
+X * the visible non-fixed cells
+X */
+static void
+GetVisibleCells(mw, top_row, bottom_row, left_column, right_column)
+XXbaeMatrixWidget mw;
+int *top_row, *bottom_row, *left_column, *right_column;
+{
+X    GetVisibleRows(mw, top_row, bottom_row);
+X    GetVisibleColumns(mw, left_column, right_column);
+}
+X
+/*
+X * Utility function to clear a cell so we can draw something new in it.
+X * Does not generate expose events on the cell.
+X * Does not check if the cell is actually visible before clearing it.
+X */
+static void
+ClearCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    int x, y;
+X    Window win = CELL_WINDOW(mw, row, column);
+X
+X    if (!win)
+X	return;
+X
+X    RowColToXY(mw, row, column, &x, &y);
+X
+X    XClearArea(XtDisplay(mw), win,
+X	       x, y,
+X	       COLUMN_WIDTH(mw, column),
+X	       ROW_HEIGHT(mw),
+X	       False);
+}
+X
+/*
+X * Return True if a row is visible on the screen (not scrolled totally off)
+X */
+static Boolean
+IsRowVisible(mw, row)
+XXbaeMatrixWidget mw;
+int row;
+{
+X    /*
+X     * If we are not in a fixed row, see if we are on the screen vertically
+X     * (fixed rows are always on the screen)
+X     */
+X    if (row >= mw->matrix.fixed_rows) {
+X	row -= mw->matrix.fixed_rows;
+X	if (row >= VERT_ORIGIN(mw) &&
+X	    row <
+X		ClipChild(mw)->core.height / ROW_HEIGHT(mw) + VERT_ORIGIN(mw))
+X	    return True;
+X    }
+X    else
+X	return True;
+X
+X    return False;
+}
+X
+/*
+X * Return True if a column is visible on the screen (not scrolled totally off)
+X */
+static Boolean
+IsColumnVisible(mw, column)
+XXbaeMatrixWidget mw;
+int column;
+{
+X    /*
+X     * If we are not in a fixed column, see if we are on the screen
+X     * horizontally (fixed columns are always on the screen)
+X     */
+X    if (column >= mw->matrix.fixed_columns) {
+X	int x;
+X
+X	/*
+X	 * Calculate the x endpoints of this column
+X	 */
+X	x = mw->matrix.column_positions[column] -
+X	    mw->matrix.column_positions[mw->matrix.fixed_columns];
+X
+X	/*
+X	 * Check if we are visible horizontally
+X	 */
+X	if (x + COLUMN_WIDTH(mw, column) > HORIZ_ORIGIN(mw) &&
+X	    x < ClipChild(mw)->core.width + HORIZ_ORIGIN(mw))
+X	    return True;
+X    }
+X    else
+X	return True;
+X
+X    return False;
+}
+X
+/*
+X * Return True if a cell is visible on the screen (not scrolled totally off)
+X */
+static Boolean
+IsCellVisible(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    return IsRowVisible(mw, row) && IsColumnVisible(mw, column);
+}
+X
+/*
+X * Scroll a row so it is visible on the screen.
+X */
+static void
+MakeRowVisible(mw, row)
+XXbaeMatrixWidget mw;
+int row;
+{
+X    int rows_visible;
+X    int value, slider_size, increment, page_increment, vert_value;
+X
+X    /*
+X     * If we are in a fixed row, we are already visible.
+X     */
+X    if (row < mw->matrix.fixed_rows)
+X	return;
+X
+X    /*
+X     * Take into account fixed_rows.
+X     * Calculate the number of rows visible. If less than one full
+X     * row is visible, use one full row.
+X     */
+X    row -= mw->matrix.fixed_rows;
+X    rows_visible = VISIBLE_HEIGHT(mw) / ROW_HEIGHT(mw);
+X    if (rows_visible == 0)
+X	rows_visible = 1;
+X    
+X    /*
+X     * Figure out the new value of the VSB to scroll this cell
+X     * onto the screen (the VSB uses row coordinates instead of pixels)
+X     */
+X    if (row < VERT_ORIGIN(mw))
+X	vert_value = row;
+X    else if (row >= rows_visible + VERT_ORIGIN(mw))
+X	vert_value = row - rows_visible + 1;
+X    else
+X	vert_value = VERT_ORIGIN(mw);
+X    
+X    /*
+X     * Give the VSB the new value and pass a flag to make it call
+X     * our scroll callbacks
+X     */
+X    if (vert_value != VERT_ORIGIN(mw)) {
+X	XmScrollBarGetValues(VertScrollChild(mw), &value,
+X			     &slider_size, &increment, &page_increment);
+X	XmScrollBarSetValues(VertScrollChild(mw), vert_value,
+X			     slider_size, increment, page_increment, True);
+X    }
+}
+X
+/*
+X * Scroll a column so it is visible on the screen.
+X */
+static void
+MakeColumnVisible(mw, column)
+XXbaeMatrixWidget mw;
+int column;
+{
+X    int value, slider_size, increment, page_increment, x, horiz_value;
+X
+X    /*
+X     * If we are in a fixed column, we are already visible.
+X     */
+X    if (column < mw->matrix.fixed_columns)
+X	return;
+X
+X    /*
+X     * Calculate the x position of this column
+X     */
+X    x = mw->matrix.column_positions[column] -
+X	mw->matrix.column_positions[mw->matrix.fixed_columns];
+X    
+X    /*
+X     * Figure out the new value of the HSB to scroll this cell
+X     * onto the screen. If the whole cell won't fit, scroll so its
+X     * left edge is visible.
+X     */
+X    if (x < HORIZ_ORIGIN(mw))
+X	horiz_value = x;
+X    else if (x + COLUMN_WIDTH(mw, column) >
+X	     VISIBLE_WIDTH(mw) + HORIZ_ORIGIN(mw)) {
+X	int off = (x + COLUMN_WIDTH(mw, column)) - (VISIBLE_WIDTH(mw) +
+X						    HORIZ_ORIGIN(mw));
+X	if (x - off < HORIZ_ORIGIN(mw))
+X	    horiz_value = x;
+X	else
+X	    horiz_value = HORIZ_ORIGIN(mw) + off;
+X    }
+X    else
+X	horiz_value = HORIZ_ORIGIN(mw);
+X    
+X    /*
+X     * Give the HSB the new value and pass a flag to make it
+X     * call our scroll callbacks
+X     */
+X    if (horiz_value != HORIZ_ORIGIN(mw)) {
+X	XmScrollBarGetValues(HorizScrollChild(mw), &value,
+X			     &slider_size, &increment, &page_increment);
+X	XmScrollBarSetValues(HorizScrollChild(mw), horiz_value,
+X			     slider_size, increment, page_increment, True);
+X    }
+}
+X
+/*
+X * Scrolls a fixed or non-fixed cell so it is visible on the screen.
+X */
+static void
+MakeCellVisible(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    MakeRowVisible(mw, row);
+X    MakeColumnVisible(mw, column);
+}
+X
+static Boolean
+DoCommitEdit(mw)
+XXbaeMatrixWidget mw;
+{
+X    String cell;
+X
+X    if (!XtIsManaged(TextChild(mw)))
+X	return True;
+X
+X    /*
+X     * Get the value the user entered in the textField (this is a copy)
+X     */
+X    cell = XmTextFieldGetString(TextChild(mw));
+X
+X    /*
+X     * Call the leaveCellCallback to see if we can leave the current cell.
+X     */
+X    if (mw->matrix.leave_cell_callback) {
+X	XbaeMatrixLeaveCellCallbackStruct call_data;
+X
+X	call_data.reason = XbaeLeaveCellReason;
+X	call_data.row = mw->matrix.current_row;
+X	call_data.column = mw->matrix.current_column;
+X	call_data.value = cell;
+X	call_data.doit = True;
+X
+X	XtCallCallbackList((Widget)mw, mw->matrix.leave_cell_callback,
+X			   (XtPointer) &call_data);
+X
+X	/*
+X	 * Application doesn't want to leave this cell. Make the cell visible
+X	 * and traverse to it so the user can see where they screwed up.
+X	 */
+X	if (!call_data.doit) {
+X	    MakeCellVisible(mw,
+X			    mw->matrix.current_row, mw->matrix.current_column);
+X	    XmProcessTraversal(TextChild(mw), XmTRAVERSE_CURRENT);
+X	    XtFree((XtPointer)cell);
+X	    return False;
+X	}
+X
+X	/*
+X	 * Use the applications value if it is different.
+X	 * If the application modified the string inplace, we will pick that
+X	 * up automatically.
+X	 */
+X	if (call_data.value != cell) {
+X	    XtFree((XtPointer)cell);
+X	    cell = call_data.value;
+X	}
+X    }
+X
+X    /*
+X     * Call the set_cell method to store the new value in the cell and redraw.
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.set_cell)
+X	(mw, mw->matrix.current_row, mw->matrix.current_column, cell);
+X
+X    XtFree((XtPointer)cell);
+X
+X    return True;
+}
+X
+/*
+X * Matrix set_cell method
+X */
+static void
+SetCell(mw, row, column, value)
+XXbaeMatrixWidget mw;
+int row, column;
+String value;
+{
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"setCell", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for SetCell.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Store the new value in the cell.
+X     */
+X    XtFree((XtPointer)mw->matrix.cells[row][column]);
+X    mw->matrix.cells[row][column] = XtNewString(value);
+X
+X    /*
+X     * Draw the cell.
+X     */
+X    if (IsCellVisible(mw, row, column)) {
+X	ClearCell(mw, row, column);
+X	DrawCell(mw, row, column);
+X    }
+X
+X    /*
+X     * If we are editing this cell, load the textField too.
+X     * XXX there is a bug in XmTextFieldSetString in Motif 1.1.3
+X     *     it doesn't handle "" strings well.  Use SetValues instead.
+X     */
+X    if (XtIsManaged(TextChild(mw)) &&
+X        mw->matrix.current_row == row && mw->matrix.current_column == column) {
+X        if (value[0] == '\0')
+X            XtVaSetValues(TextChild(mw),
+X                          XmNvalue, value,
+X                          NULL);
+X        else
+X            XmTextFieldSetString(TextChild(mw), value);
+X    }
+}
+X
+/*
+X * Public interface to set_cell method
+X */
+void
+XXbaeMatrixSetCell(w, row, column, value)
+Widget w;
+int row, column;
+String value;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the set_cell method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.set_cell)
+X	((XbaeMatrixWidget)w, row, column, value);
+}
+X
+/*
+X * Matrix edit_cell method
+X */
+static void
+EditCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    Boolean edit = True;
+X    int x, y;
+X
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"editCell", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for EditCell.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Attempt to commit the edit in the current cell. Return if we fail.
+X     */
+X    if (!DoCommitEdit(mw))
+X	return;
+X
+X    /*
+X     * Scroll the cell onto the screen
+X     */
+X    MakeCellVisible(mw, row, column);
+X
+X    /*
+X     * Fixed cells are not editable
+X     */
+X    if (IS_FIXED(mw, row, column))
+X	return;
+X
+X    /*
+X     * If we have an enterCellCallback, call it to see if the cell is
+X     * editable.
+X     */
+X    if (mw->matrix.enter_cell_callback) {
+X	XbaeMatrixEnterCellCallbackStruct call_data;
+X
+X	call_data.reason = XbaeEnterCellReason;
+X	call_data.row = row;
+X	call_data.column = column;
+X	call_data.doit = True;
+X	XtCallCallbackList((Widget)mw, mw->matrix.enter_cell_callback,
+X			   (XtPointer) &call_data);
+X
+X	edit = call_data.doit;
+X    }
+X
+X    mw->matrix.current_row = row;
+X    mw->matrix.current_column = column;
+X
+X    /*
+X     * Unmap the textField to avoid flashing.
+X     */
+X    if (XtIsManaged(TextChild(mw)) && XtIsRealized(TextChild(mw)))
+X	XtUnmapWidget(TextChild(mw));
+X
+X    /*
+X     * Convert the row/column to an xy position and move the textField
+X     * to this position. (the xy position will be relative to the Clip
+X     * widget because only non-fixed cells are editable)
+X     */
+X    RowColToXY(mw, row, column, &x, &y);
+X    XtMoveWidget(TextChild(mw), x, y);
+X
+#ifdef notdef
+X    /*
+X     * XXX Resetting the XmTextField foreground can cause a protocol error in
+X     * XmTextField.  I filed a bug report.  Put this code back in when it
+X     * is fixed.
+X     */
+X    /*
+X     * Figure out what color the textField needs to be
+X     */
+X    if (mw->matrix.colors)
+X	color = mw->matrix.colors[row][column];
+X    else
+X	color = mw->manager.foreground;
+X
+X    /*
+X     * Include XmNforeground in the setvalues below
+X     */
+#endif
+X
+X    /*
+X     * Setup the textField for the new cell. If the modifyVerify CB
+X     * rejects the new value, then it is the applications fault for
+X     * loading the cell with a bad value to begin with.
+X     */
+X    XtVaSetValues(TextChild(mw),
+X		  XmNvalue,	mw->matrix.cells[row][column],
+X		  XmNwidth,	COLUMN_WIDTH(mw, column),
+X		  XmNheight,	ROW_HEIGHT(mw),
+X		  XmNmaxLength, mw->matrix.column_max_lengths
+X				? mw->matrix.column_max_lengths[column]
+X				: (int)mw->matrix.column_widths[column],
+X		  XmNeditable,	edit,
+X		  XmNcursorPositionVisible, edit,
+X		  NULL);
+X
+X    /*
+X     * We need this to work around an XmTextField problem with
+X     * the I-beam and caret
+X     */
+X    if (edit)
+X	XmTextFieldSetInsertionPosition(TextChild(mw),
+X					strlen(mw->matrix.cells[row][column]));
+X
+X    /*
+X     * Manage and map the textField
+X     */
+X    XtManageChild(TextChild(mw));
+X    if (XtIsRealized(TextChild(mw)))
+X	XtMapWidget(TextChild(mw));
+}
+X
+/*
+X * Public interface to edit_cell method
+X */
+void
+XXbaeMatrixEditCell(w, row, column)
+Widget w;
+int row, column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the edit_cell method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.edit_cell)
+X	((XbaeMatrixWidget)w, row, column);
+X
+X    XmProcessTraversal(TextChild(((XbaeMatrixWidget)w)), XmTRAVERSE_CURRENT);
+}
+X
+/*
+X * Matrix select_cell method
+X */
+static void
+SelectCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"selectCell", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for SelectCell.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Scroll the cell onto the screen
+X     */
+X    MakeCellVisible(mw, row, column);
+X
+X    /*
+X     * If the cell is not already selected, select it and redraw it
+X     */
+X    if (!mw->matrix.selected_cells[row][column]) {
+X	mw->matrix.selected_cells[row][column] = True;
+X	DrawCell(mw, row, column);
+X    }
+}
+X
+/*
+X * Public interface to select_cell method
+X */
+void
+XXbaeMatrixSelectCell(w, row, column)
+Widget w;
+int row, column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the select_cell method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.select_cell)
+X	((XbaeMatrixWidget)w, row, column);
+}
+X
+/*
+X * Matrix select_row method
+X */
+static void
+SelectRow(mw, row)
+XXbaeMatrixWidget mw;
+int row;
+{
+X    int j, lc, rc;
+X
+X    if (row >= mw->matrix.rows || row < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"selectRow", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row out of bounds for SelectRow.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Scroll the row onto the screen
+X     */
+X    MakeRowVisible(mw, row);
+X
+X    /*
+X     * For each cell in the row, if the cell is not already selected,
+X     * select it and redraw it
+X     */
+X    GetVisibleColumns(mw, &lc, &rc);
+X    for (j = 0; j < mw->matrix.columns; j++) {
+X	if (!mw->matrix.selected_cells[row][j]) {
+X	    mw->matrix.selected_cells[row][j] = True;
+X	    if ((j >= lc && j <= rc) || j < mw->matrix.fixed_columns) {
+X		ClearCell(mw, row, j);
+X		DrawCell(mw, row, j);
+X	    }
+X	}
+X    }
+}
+X
+/*
+X * Public interface to select_row method
+X */
+void
+XXbaeMatrixSelectRow(w, row)
+Widget w;
+int row;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the select_row method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.select_row)
+X	((XbaeMatrixWidget)w, row);
+}
+X
+/*
+X * Matrix select_column method
+X */
+static void
+SelectColumn(mw, column)
+XXbaeMatrixWidget mw;
+int column;
+{
+X    int i, tr, br;
+X
+X    if (column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"selectColumn", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Column out of bounds for SelectColumn.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Scroll the column onto the screen
+X     */
+X    MakeColumnVisible(mw, column);
+X
+X    /*
+X     * For each cell in the column, if the cell is not already selected,
+X     * select it and redraw it
+X     */
+X    GetVisibleRows(mw, &tr, &br);
+X    for (i = 0; i < mw->matrix.rows; i++) {
+X	if (!mw->matrix.selected_cells[i][column]) {
+X	    mw->matrix.selected_cells[i][column] = True;
+X	    if ((i >= tr && i <= br) || i < mw->matrix.fixed_rows) {
+X		ClearCell(mw, i, column);
+X		DrawCell(mw, i, column);
+X	    }
+X	}
+X    }
+}
+X
+/*
+X * Public interface to select_column method
+X */
+void
+XXbaeMatrixSelectColumn(w, column)
+Widget w;
+int column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the select_column method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.select_column)
+X	((XbaeMatrixWidget)w, column);
+}
+X
+/*
+X * Matrix deselect_all method
+X */
+static void
+DeselectAll(mw)
+XXbaeMatrixWidget mw;
+{
+X    int i, j;
+X    int tr, br, lc, rc;
+X
+X    GetVisibleCells(mw, &tr, &br, &lc, &rc);
+X    for (i = 0; i < mw->matrix.rows; i++)
+X	for (j = 0; j < mw->matrix.columns; j++) {
+X	    if (mw->matrix.selected_cells[i][j]) {
+X		mw->matrix.selected_cells[i][j] = False;
+X		if ((i >= tr && i <= br && j >= lc && j <= rc) ||
+X		    (i < mw->matrix.fixed_rows && j >= lc && j <= rc) ||
+X		    (j < mw->matrix.fixed_columns && i >= tr && i <= br)) {
+X		    ClearCell(mw, i, j);
+X		    DrawCell(mw, i, j);
+X		}
+X	    }
+X	}
+}
+X
+/*
+X * Public interface to deselect_all method
+X */
+void
+XXbaeMatrixDeselectAll(w)
+Widget w;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the deselect_all method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.deselect_all)
+X	((XbaeMatrixWidget)w);
+}
+X
+/*
+X * Matrix deselect_cell method
+X */
+static void
+DeselectCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row;
+int column;
+{
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column > mw->matrix.columns - 1 || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deselectCell", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for DeselectCell.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    if (mw->matrix.selected_cells[row][column]) {
+X	mw->matrix.selected_cells[row][column] = False;
+X	if (IsCellVisible(mw, row, column)) {
+X	    ClearCell(mw, row, column);
+X	    DrawCell(mw, row, column);
+X	}
+X    }
+}
+X
+/*
+X * Public interface to deselect_cell method
+X */
+void
+XXbaeMatrixDeselectCell(w, row, column)
+Widget w;
+int row;
+int column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the deselect_cell method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.deselect_cell)
+X	((XbaeMatrixWidget)w, row, column);
+}
+X
+/*
+X * Matrix deselect_row method
+X */
+static void
+DeselectRow(mw, row)
+XXbaeMatrixWidget mw;
+int row;
+{
+X    int j, lc, rc;
+X
+X    if (row >= mw->matrix.rows || row < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deselectRow", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row parameter out of bounds for DeselectRow.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * For each cell in the row, if the cell is selected,
+X     * deselect it and redraw it
+X     */
+X    GetVisibleColumns(mw, &lc, &rc);
+X    for (j = 0; j < mw->matrix.columns; j++) {
+X	if (mw->matrix.selected_cells[row][j]) {
+X	    mw->matrix.selected_cells[row][j] = False;
+X	    if ((j >= lc && j <= rc) || j < mw->matrix.fixed_columns) {
+X		ClearCell(mw, row, j);
+X		DrawCell(mw, row, j);
+X	    }
+X	}
+X    }
+}
+X
+/*
+X * Public interface to deselect_row method
+X */
+void
+XXbaeMatrixDeselectRow(w, row)
+Widget w;
+int row;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the deselect_row method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.deselect_row)
+X	((XbaeMatrixWidget)w, row);
+}
+X
+/*
+X * Matrix deselect_column method
+X */
+static void
+DeselectColumn(mw, column)
+XXbaeMatrixWidget mw;
+int column;
+{
+X    int i, tr, br;
+X
+X    if (column >= mw->matrix.columns || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deselectColumn", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Column parameter out of bounds for DeselectColumn.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * For each cell in the column, if the cell is selected,
+X     * deselect it and redraw it
+X     */
+X    GetVisibleRows(mw, &tr, &br);
+X    for (i = 0; i < mw->matrix.rows; i++) {
+X	if (mw->matrix.selected_cells[i][column]) {
+X	    mw->matrix.selected_cells[i][column] = False;
+X	    if ((i >= tr && i <= br) || i < mw->matrix.fixed_rows) {
+X		ClearCell(mw, i, column);
+X		DrawCell(mw, i, column);
+X	    }
+X	}
+X    }
+}
+X
+/*
+X * Public interface to deselect_column method
+X */
+void
+XXbaeMatrixDeselectColumn(w, column)
+Widget w;
+int column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the deselect_column method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.deselect_column)
+X	((XbaeMatrixWidget)w, column);
+}
+X
+/*
+X * Matrix get_cell method
+X */
+static String
+GetCell(mw, row, column)
+XXbaeMatrixWidget mw;
+int row, column;
+{
+X    if (row >= mw->matrix.rows || row < 0 ||
+X	column > mw->matrix.columns - 1 || column < 0) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"getCell", "badIndex", "XbaeMatrix",
+X			"XbaeMatrix: Row or column parameter out of bounds for GetCell.",
+X			NULL, 0);
+X	return(NULL);
+X    }
+X
+X    return mw->matrix.cells[row][column];
+}
+X
+/*
+X * Public interface to get_cell method
+X */
+String
+XXbaeMatrixGetCell(w, row, column)
+Widget w;
+int row, column;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the get_cell method
+X     */
+X    return (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.get_cell)
+X	((XbaeMatrixWidget)w, row, column);
+}
+X
+/*
+X * Matrix commit_edit method
+X */
+static Boolean
+CommitEdit(mw, unmap)
+XXbaeMatrixWidget mw;
+Boolean unmap;
+{
+X    Boolean commit;
+X
+X    if (!XtIsManaged(TextChild(mw)))
+X	return True;
+X
+X    /*
+X     * Attempt to commit the edit
+X     */
+X    commit = DoCommitEdit(mw);
+X
+X    /*
+X     * If the commit succeeded and we are supposed to unmap the textField,
+X     * then hide the textField and traverse out
+X     */
+X    if (commit && unmap) {
+X	XtUnmanageChild(TextChild(mw));
+X	XmProcessTraversal(TextChild(mw), XmTRAVERSE_RIGHT);
+X    }
+X
+X    return commit;
+}
+X
+/*
+X * Public interface to commit_edit method
+X */
+Boolean
+XXbaeMatrixCommitEdit(w, unmap)
+Widget w;
+Boolean unmap;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the commit_edit method
+X     */
+X    return (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.commit_edit)
+X	((XbaeMatrixWidget)w, unmap);
+}
+X
+/*
+X * Matrix cancel_edit method
+X */
+static void
+CancelEdit(mw, unmap)
+XXbaeMatrixWidget mw;
+Boolean unmap;
+{
+X    if (!XtIsManaged(TextChild(mw)))
+X	return;
+X
+X    /*
+X     * If unmap is set, hide the textField and traverse out.
+X     */
+X    if (unmap) {
+X	XtUnmanageChild(TextChild(mw));
+X	XmProcessTraversal(TextChild(mw), XmTRAVERSE_RIGHT);
+X    }
+X
+X    /*
+X     * Don't unmap, just restore original contents
+X     */
+X    else {
+X	XtVaSetValues(TextChild(mw),
+X		      XmNvalue,	mw->matrix.cells[mw->matrix.current_row]
+X						[mw->matrix.current_column],
+X		      NULL);
+X    }
+}
+X
+/*
+X * Public interface to cancel_edit method
+X */
+void
+XXbaeMatrixCancelEdit(w, unmap)
+Widget w;
+Boolean unmap;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the cancel_edit method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.cancel_edit)
+X	((XbaeMatrixWidget)w, unmap);
+}
+X
+/*
+X * Matrix add_rows method
+X */
+static void
+AddRows(mw, position, rows, labels, colors, num_rows)
+XXbaeMatrixWidget mw;
+int position;
+String *rows;
+String *labels;
+Pixel *colors;
+int num_rows;
+{
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_rows <= 0)
+X	return;
+X    if (position < 0 || position > mw->matrix.rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"addRows", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds in AddRows.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Add the new rows into the internal cells/labels data structure.
+X     */
+X    AddRowsToTable(mw, position, rows, labels, colors, num_rows);
+X
+X    /*
+X     * Reconfig the VSB maximum.
+X     */
+X    XtVaSetValues(VertScrollChild(mw),
+X		  XmNmaximum,	mw->matrix.rows,
+X		  NULL);
+X
+X    /*
+X     * Relayout.
+X     */
+X    Resize(mw);
+X
+X    /*
+X     * Call our cancel_edit method since the rows shifted underneath us
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X	(mw, True);
+X
+X    /*
+X     * Generate expose events on Matrix and Clip to force the
+X     * new rows to be drawn.
+X     */
+X    XClearArea(XtDisplay(mw), XtWindow(mw),
+X	       0, 0,
+X	       0 /*Full Width*/, 0 /*Full Height*/,
+X	       True);
+X    XbaeClipRedraw(ClipChild(mw));
+}
+X
+/*
+X * Public interface to add_rows method
+X */
+void
+XXbaeMatrixAddRows(w, position, rows, labels, colors, num_rows)
+Widget w;
+int position;
+String *rows;
+String *labels;
+Pixel *colors;
+int num_rows;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the add_rows method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.add_rows)
+X	((XbaeMatrixWidget)w, position, rows, labels, colors, num_rows);
+}
+X
+/*
+X * Matrix delete_rows method
+X */
+static void
+DeleteRows(mw, position, num_rows)
+XXbaeMatrixWidget mw;
+int position;
+int num_rows;
+{
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_rows <= 0)
+X	return;
+X    if (position < 0 || position + num_rows > mw->matrix.rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deleteRows", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds in DeleteRows.",
+X			NULL, 0);
+X	return;
+X    }
+X    if (num_rows >= mw->matrix.rows - mw->matrix.fixed_rows) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deleteRows", "tooMany", "XbaeMatrix",
+X			"XbaeMatrix: Attempting to delete too many rows in DeleteRows.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Delete the new rows from the internal cells/labels data structure.
+X     */
+X    DeleteRowsFromTable(mw, position, num_rows);
+X
+X    /*
+X     * Reconfig the VSB maximum. Reset the sliderSize to avoid warnings.
+X     */
+X    XtVaSetValues(VertScrollChild(mw),
+X		  XmNmaximum,	mw->matrix.rows,
+X		  XmNsliderSize,1,
+X		  NULL);
+X
+X    /*
+X     * Relayout.
+X     */
+X    Resize(mw);
+X
+X    /*
+X     * Call our cancel_edit method since the rows shifted underneath us
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X	(mw, True);
+X
+X     /*
+X     * Generate expose events on Matrix and Clip to force the
+X     * rows to be redrawn.
+X     */
+X    XClearArea(XtDisplay(mw), XtWindow(mw),
+X	       0, 0,
+X	       0 /*Full Width*/, 0 /*Full Height*/,
+X	       True);
+X    XbaeClipRedraw(ClipChild(mw));
+}
+X
+/*
+X * Public interface to delete_rows method
+X */
+void
+XXbaeMatrixDeleteRows(w, position, num_rows)
+Widget w;
+int position;
+int num_rows;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the delete_rows method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.delete_rows)
+X	((XbaeMatrixWidget)w, position, num_rows);
+}
+X
+/*
+X * Matrix add_columns method.
+X */
+static void
+AddColumns(mw, position, columns, labels, widths, max_lengths,
+X	   alignments, label_alignments, colors, num_columns)
+XXbaeMatrixWidget mw;
+int position;
+String *columns;
+String *labels;
+short *widths;
+int *max_lengths;
+unsigned char *alignments;
+unsigned char *label_alignments;
+Pixel *colors;
+int num_columns;
+{
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_columns <= 0)
+X	return;
+X    if (position < 0 || position > mw->matrix.columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"addColumns", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds in AddColumns.",
+X			NULL, 0);
+X	return;
+X    }
+X    if (!widths) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"addColumns", "noWidths", "XbaeMatrix",
+X			"XbaeMatrix: Must specify column widths in AddColumns.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Add the new rows into the internal cells/labels data structure.
+X     */
+X    AddColumnsToTable(mw, position, columns, labels, widths, max_lengths,
+X		      alignments, label_alignments, colors, num_columns);
+X
+X    /*
+X     * Reconfig the HSB maximum.
+X     */
+X    XtVaSetValues(HorizScrollChild(mw),
+X		  XmNmaximum,	mw->matrix.cell_total_width,
+X		  NULL);
+X
+X    /*
+X     * Relayout.
+X     */
+X    Resize(mw);
+X
+X    /*
+X     * Call our cancel_edit method since the columns shifted underneath us
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(mw))->matrix_class.cancel_edit)
+X	(mw, True);
+X
+X    /*
+X     * Generate expose events on Matrix and Clip to force the
+X     * new columns to be drawn.
+X     */
+X    XClearArea(XtDisplay(mw), XtWindow(mw),
+X	       0, 0,
+X	       0 /*Full Width*/, 0 /*Full Height*/,
+X	       True);
+X    XbaeClipRedraw(ClipChild(mw));
+}
+X
+/*
+X * Public interface to add_columns method
+X */
+void
+XXbaeMatrixAddColumns(w, position, columns, labels, widths, max_lengths,
+X			  alignments, label_alignments, colors, num_columns) 
+Widget w;
+int position;
+String *columns;
+String *labels;
+short *widths;
+int *max_lengths;
+unsigned char *alignments;
+unsigned char *label_alignments;
+Pixel *colors;
+int num_columns;
+{
+X    /*
+X     * Make sure w is a Matrix or a subclass
+X     */
+X    XtCheckSubclass(w, xbaeMatrixWidgetClass, NULL);
+X
+X    /*
+X     * Call the add_columns method
+X     */
+X    (*((XbaeMatrixWidgetClass) XtClass(w))->matrix_class.add_columns)
+X	((XbaeMatrixWidget)w, position, columns, labels, widths,
+X	 max_lengths, alignments, label_alignments, colors, num_columns);
+}
+X
+/*
+X * Matrix delete_columns method
+X */
+static void
+DeleteColumns(mw, position, num_columns)
+XXbaeMatrixWidget mw;
+int position;
+int num_columns;
+{
+X    /*
+X     * Do some error checking.
+X     */
+X    if (num_columns <= 0)
+X	return;
+X    if (position < 0 || position + num_columns > mw->matrix.columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deleteColumns", "badPosition", "XbaeMatrix",
+X			"XbaeMatrix: Position out of bounds in DeleteColumns.",
+X			NULL, 0);
+X	return;
+X    }
+X    if (num_columns >= mw->matrix.columns - mw->matrix.fixed_columns) {
+X	XtAppWarningMsg(XtWidgetToApplicationContext((Widget)mw),
+X			"deleteColumns", "tooMany", "XbaeMatrix",
+X			"XbaeMatrix: Attempting to delete too many columns in DeleteColumns.",
+X			NULL, 0);
+X	return;
+X    }
+X
+X    /*
+X     * Delete the new columns from the internal cells/labels data structure.
+X     */
+X    DeleteColumnsFromTable(mw, position, num_columns);
+X
+X    /*
+X     * Reconfig the HSB maximum. Reset the sliderSize to avoid warnings.
+X     */
+X    XtVaSetValues(HorizScrollChild(mw),
+X		  XmNmaximum,	mw->matrix.cell_total_width,
+X		  XmNsliderSize,1,
+X		  NULL);
+X
+X    /*
+X     * Relayout.
+X     */
+X    Resize(mw);
+X
+X    /*
+X     * Call our cancel_edit method since the columns shifted underneath us
+SHAR_EOF
+true || echo 'restore of Xbae/src/Matrix.c failed'
+fi
+echo 'End of Xbae part 8'
+echo 'File Xbae/src/Matrix.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

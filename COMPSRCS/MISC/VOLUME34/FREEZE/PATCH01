@@ -1,0 +1,75 @@
+Newsgroups: comp.sources.misc
+From: leo@ipmce.su (Leonid A. Broukhis)
+Subject: v34i128:  freeze - Freeze/melt compression program vers. 2.4, Patch01
+Message-ID: <1993Jan20.014707.26989@sparky.imd.sterling.com>
+X-Md4-Signature: 2525e17d917bbc856dea1f1b81d1cbcb
+Date: Wed, 20 Jan 1993 01:47:07 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: leo@ipmce.su (Leonid A. Broukhis)
+Posting-number: Volume 34, Issue 128
+Archive-name: freeze/patch01
+Environment: ISC, Xenix, SunOS, MS-DOS
+Patch-To: freeze: Volume 34, Issue 125-127
+
+This is patch01 to the freeze/melt compression package.  I had 
+tested freeze configured with a big shift toward speed, neglecting 
+compression rate; and a small bug has been discovered.
+
+	Sorry for the inconvenience,
+		Leonid A. Broukhis
+
+
+*** lz.h.old    Mon Jan 18 23:58:52 1993
+--- lz.h	Tue Jan 19 15:06:12 1993
+***************
+*** 131,137 ****
+  #endif
+  
+  /* some heuristic to avoid necessity of "-ggg..." */
+! #define CHAIN_THRESHOLD (LOOKAHEAD >> (BITS - 12))
+  
+  extern int get_next_match();
+  extern hash_t rehash();
+--- 131,137 ----
+  #endif
+  
+  /* some heuristic to avoid necessity of "-ggg..." */
+! #define CHAIN_THRESHOLD (LOOKAHEAD / 2)
+  
+  extern int get_next_match();
+  extern hash_t rehash();
+
+*** encode.c.old	Fri Jan 15 21:27:14 1993
+--- encode.c	Tue Jan 19 15:15:03 1993
+***************
+*** 33,43 ****
+    InitTree();			/* LZ dependent */
+    InitIO();
+  
+!   r = MAXDIST + 1;              /* to make zero links "too old" */
+!   s = (r + LOOKAHEAD) & WINMASK;
+  
+!   for (len = 0; len < LOOKAHEAD && (c = getchar()) != EOF; len++)
+!     text_buf[r + len] = c;
+  
+   /* check for magic header */
+    if (!topipe && !force && text_buf[r] == MAGIC1 &&
+--- 33,46 ----
+    InitTree();			/* LZ dependent */
+    InitIO();
+  
+!   s = r = MAXDIST + 1;              /* to make zero links "too old" */
+  
+!   for (len = 0; len < LOOKAHEAD && (c = getchar()) != EOF; len++) {
+!       text_buf[s] = c;
+!       if (s < LOOKAHEAD - 1)
+! 	text_buf[s + WINSIZE] = c;
+!       s = (s + 1) & WINMASK;
+!   }
+  
+   /* check for magic header */
+    if (!topipe && !force && text_buf[r] == MAGIC1 &&
+
+
+exit 0 # Just in case...

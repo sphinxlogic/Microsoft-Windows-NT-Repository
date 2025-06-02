@@ -1,0 +1,751 @@
+Newsgroups: comp.sources.misc
+From: mpeppler@itf.ch (Michael Peppler)
+Subject: v40i005:  sybperl - Sybase DB-library extensions to Perl, v1.9, Patch09
+Message-ID: <1993Oct11.031306.22317@sparky.sterling.com>
+X-Md4-Signature: a010aba437da4a034a2a812dea5f32c4
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 11 Oct 1993 03:13:06 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mpeppler@itf.ch (Michael Peppler)
+Posting-number: Volume 40, Issue 5
+Archive-name: sybperl/patch09
+Environment: UNIX, Perl, Sybase
+Patch-To: sybperl: Volume 39, Issues 101-103
+
+This is patch 9 to Sybperl.
+
+[ NOTE: Sybperl was initially posted at patchlevel 8.  In order to ]
+[       get the version number to match the patchlevel, this patch ]
+[       is being posted as patch09.  There have been *no* previous ]
+[       patches since the initial posting in volume39.   -Kent+    ]
+
+Sybperl is an extension to Perl which allows you to access Sybase
+databases directly from Perl scripts using standard OpenClient (aka
+DB-Library) calls.
+
+>From the CHANGES file:
+
+	1.009   The script name is now used to set the application
+		name in sysprocesses via the DBSETLAPP() macro.
+		Calling &dbsafestr() with three arguments would result
+		in an erroneous fatal error message.
+		Sybperl now sets the application name in sysprocesses
+		(via DBSETLAPP()) to the name of the script that is
+		running.
+		Some problems with dbschema.pl which only showed up
+		when PACKAGE_BUG is defined have been corrected.
+
+--
+Michael Peppler	                       mpeppler@itf.ch
+ITF Management SA                      mpeppler@bix.com     
+13 Rue de la Fontaine                  Phone: (+4122) 312 1311
+CH-1204 Geneva, Switzerland            Fax:   (+4122) 312 1325
+
+
+Index: patchlevel.h
+Prereq: 1.2
+*** ../sybperl-1.8/patchlevel.h	Thu Sep 30 16:28:24 1993
+--- patchlevel.h	Tue Sep 28 19:16:26 1993
+***************
+*** 1,7 ****
+  
+! /* 	@(#)patchlevel.h	1.2	9/6/93 	*/
+  
+  #define VERSION 1
+! #define PATCHLEVEL 8
+! 
+  
+--- 1,6 ----
+  
+! /* 	@(#)patchlevel.h	1.3	9/28/93 	*/
+  
+  #define VERSION 1
+! #define PATCHLEVEL 9
+  
+Index: BUGS
+Prereq: 1.1
+*** ../sybperl-1.8/BUGS	Thu Sep 30 16:28:29 1993
+--- BUGS	Mon Oct  4 15:14:17 1993
+***************
+*** 1,4 ****
+! 	@(#)BUGS	1.1	9/2/93
+  	
+      The Sybase DB-Library - Perl savestr() conflict
+      ------------------------------------------------
+--- 1,4 ----
+! 	@(#)BUGS	1.3	10/4/93
+  	
+      The Sybase DB-Library - Perl savestr() conflict
+      ------------------------------------------------
+***************
+*** 11,28 ****
+      list of commands pointed to by dpproc->dbcmdbuf, and in dbuse() as
+      well. Now there are several ways to work around this problem.
+  
+!     1) Compile sybperl.c with -DBROKEN_DBCMD. I've written some code
+!        that emulates calls to dbcmd() and dbuse(). This works OK on my
+!        machine/OS/Version of Perl/Version of DBlib, but it relies on
+!        the internal storing method used by DBlib, and that might
+!        change in the future.
+! 
+!     2) Recompile Perl (specifically, uperl.o in the Perl source
+         directory) with some suitable flags (eg -Dsavestr=p_savestr).
+         This does not create any compatibility problems, but is a
+         lengthy procedure.
+  
+!     3) Do something like:
+         cc -c sybperl.c
+         ld -r -o sybperl2.o sybperl.o -lsybdb
+         [edit sybperl2.o and replace `_savestr' with something like `_savest1']
+--- 11,22 ----
+      list of commands pointed to by dpproc->dbcmdbuf, and in dbuse() as
+      well. Now there are several ways to work around this problem.
+  
+!     1) Recompile Perl (specifically, uperl.o in the Perl source
+         directory) with some suitable flags (eg -Dsavestr=p_savestr).
+         This does not create any compatibility problems, but is a
+         lengthy procedure.
+  
+!     2) Do something like:
+         cc -c sybperl.c
+         ld -r -o sybperl2.o sybperl.o -lsybdb
+         [edit sybperl2.o and replace `_savestr' with something like `_savest1']
+***************
+*** 30,36 ****
+         This is not a bad solution, but won't work if you have shared
+         library versions of libsybdb.a
+  
+!     4) Edit uperl.o and replace savestr with something else. This is
+         the solution I've chosen as the default. It is relatively fast,
+         does not rely on any internal knowledge of DB-Library, and does
+         not require Perl to be recompiled.
+--- 24,30 ----
+         This is not a bad solution, but won't work if you have shared
+         library versions of libsybdb.a
+  
+!     3) Edit uperl.o and replace savestr with something else. This is
+         the solution I've chosen as the default. It is relatively fast,
+         does not rely on any internal knowledge of DB-Library, and does
+         not require Perl to be recompiled.
+***************
+*** 146,152 ****
+--- 140,154 ----
+  
+      It's not the cleanest of solutions, but it works...
+  
++     However, be aware of the Perl @_ array assignement problems if you
++     call sybperl functions without a parameter list (as in &dbsqlexec;
++     instead of &dbsqlexec($dbproc);). When calling Sybperl functions
++     via the glue routines, the @_ array will default to the parameters
++     passed to last previously called Perl subroutine if it's called
++     without a parameter list. And that's almost certainly not what you
++     want.
+  
++     
+  
+      
+      Please let me know if you find any other problems with Sybperl so
+***************
+*** 155,159 ****
+      Thank you.
+  
+      Michael Peppler    <mpeppler@itf.ch>
+- 
+  
+--- 157,160 ----
+Index: CHANGES
+Prereq: 1.4
+*** ../sybperl-1.8/CHANGES	Thu Sep 30 16:28:29 1993
+--- CHANGES	Mon Oct  4 15:20:04 1993
+***************
+*** 1,8 ****
+! 	@(#)CHANGES	1.4	9/7/93
+  
+  	
+  	Sybperl CHANGES:
+  
+  	1.008   Added user settable variables to control whether
+  		Sybperl returns 'NULL' or Perl's 'undef' value on NULL
+  		values from a query, whether numeric results are kept
+--- 1,17 ----
+! 	@(#)CHANGES	1.7	10/4/93
+  
+  	
+  	Sybperl CHANGES:
+  
++ 	1.009   The script name is now used to set the application
++ 		name in sysprocesses via the DBSETLAPP() macro.
++ 		Calling &dbsafestr() with three arguments would result
++ 		in an erroneous fatal error message.
++ 		Sybperl now sets the application name in sysprocesses
++ 		(via DBSETLAPP()) to the name of the script that is
++ 		running.
++ 		Some problems with dbschema.pl which only showed up
++ 		when PACKAGE_BUG is defined have been corrected.
+  	1.008   Added user settable variables to control whether
+  		Sybperl returns 'NULL' or Perl's 'undef' value on NULL
+  		values from a query, whether numeric results are kept
+***************
+*** 67,70 ****
+  		Added a couple of example scripts in eg/*.pl, courtesy
+  		of Gijs Mos (Thank You!).
+  	1.003	Base version.
+- 
+--- 76,78 ----
+Index: Makefile
+Prereq: 1.16
+*** ../sybperl-1.8/Makefile	Thu Sep 30 16:28:24 1993
+--- Makefile	Tue Oct  5 16:27:15 1993
+***************
+*** 1,4 ****
+! #	@(#)Makefile	1.16	9/6/93
+  #
+  	
+  CC = gcc
+--- 1,4 ----
+! #	@(#)Makefile	1.18	10/5/93
+  #
+  	
+  CC = gcc
+***************
+*** 30,68 ****
+  # The default is to use the third solution:
+  UPERL = uperl2.o
+  
+  
+! HAS_CALLBACK= -DHAS_CALLBACK		# Remove this if you don't
+! 					# have Perl 4 patchlevel 18
+! 					# User defined, perl based
+! 					# error/message handlers are
+! 					# not possible without this, however.
+! OLD_SYBPERL= -DOLD_SYBPERL		# some backward compatibility stuff.
+  
+! DBLIBVS = -DDBLIB461			# Comment this if your version
+! 					# of DBlib is older than
+! 					# version 4.2
+  
+! #SET_VAL = -DUSERVAL_SET_FATAL		# Uncomment this if you wish
+! 					# to get a fatal error message
+! 					# if you attempt to set on of
+! 					# Sybperl's variables from a
+! 					# script. Normally such
+! 					# actions are silently ignored.
+  
+! #PACKAGE_BUG = -DPACKAGE_BUG		# Uncomment to enable code
+! 					# to circumvent a bug that
+! 					# shows up when calling usubs from
+! 					# within nested packages.
+! 					
+  
+  CFLAGS = -O2 -g
+  CPPFLAGS = -I$(PERLSRC) -I$(LOCINCS) -I$(SYBINCS) $(PERL_VERSION) \
+  		$(HAS_CALLBACK) $(OLD_SYBPERL) $(DBLIBVS) \
+! 		$(SET_VAL) $(PACKAGE_BUG)
+  
+  BINDIR = /usr/local/bin			# where does the executable go
+! PERLLIB = /usr/local/lib/perl		# where does lib/sybperl.pl
+! 					# and lib/sybdb.ph go
+  MANDIR = /usr/local/man			# where do we put the manual page
+  MANEXT = l
+  
+--- 30,70 ----
+  # The default is to use the third solution:
+  UPERL = uperl2.o
+  
++ # HAS_CALLBACK: This should be defined if you have Perl 4 patchlevel
++ # 18 or later. User defined error/message handlers in Perl are not
++ # possible if this is not defined, however.
++ HAS_CALLBACK= -DHAS_CALLBACK
+  
+! # OLD_SYBPERL: A number of backwards compatibility stuff. Mainly, when
+! # this is turned on, automatic logging in to Sybase is enabled.
+! # Otherwise, failing to call &dblogin is a fatal error.
+! OLD_SYBPERL= -DOLD_SYBPERL
+  
+! # DBLIBVS: The DBlib version that you have. Valid values are DBLIB42
+! # and DBLIB461. Controls the inclusion of routines which are available
+! # only in more recent versions of DB library.
+! DBLIBVS = -DDBLIB461
+  
+! # SET_VAL: If this is set, then assigning a value to Sybperl's
+! # read-only variables is a fatal error. Normally, this would be
+! # silently ignored.
+! #SET_VAL = -DUSERVAL_SET_FATAL
+  
+! # PACKAGE_BUG: Controls whether code to circumvent a bug in Perl that
+! # shows up when calling usubs from within nested packages is included.
+! # See also the BUGS file.
+! #PACKAGE_BUG = -DPACKAGE_BUG
+  
++ # RINDEX: Does your system know rindex(), but not strrchr() ?
++ #RINDEX = -Dstrrchr=rindex
++ 
+  CFLAGS = -O2 -g
+  CPPFLAGS = -I$(PERLSRC) -I$(LOCINCS) -I$(SYBINCS) $(PERL_VERSION) \
+  		$(HAS_CALLBACK) $(OLD_SYBPERL) $(DBLIBVS) \
+! 		$(SET_VAL) $(PACKAGE_BUG) $(RINDEX)
+  
+  BINDIR = /usr/local/bin			# where does the executable go
+! PERLLIB = /usr/local/lib/perl		# where does lib/*.pl go
+  MANDIR = /usr/local/man			# where do we put the manual page
+  MANEXT = l
+  
+***************
+*** 105,111 ****
+  	lib/sybdb_redefs.pl t/sbex.pl \
+  	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl \
+  	eg/dbschema.pl eg/dbtext.pl eg/test_dbmoney.pl eg/README
+- 
+  
+  
+  
+--- 107,112 ----
+Index: PACKING.LST
+Prereq: 1.1
+*** ../sybperl-1.8/PACKING.LST	Thu Sep 30 16:28:29 1993
+--- PACKING.LST	Thu Sep  2 18:09:42 1993
+***************
+*** 33,36 ****
+  			    views, triggers and stored procedures),
+  			    extracting the information from the
+  			    database's system tables.
+- 
+--- 33,35 ----
+Index: README
+Prereq: 1.4
+*** ../sybperl-1.8/README	Thu Sep 30 16:28:23 1993
+--- README	Thu Sep 23 19:53:15 1993
+***************
+*** 114,117 ****
+     Anders Ardo			Gijs Mos
+     Minh Ton Ha			G. Roderick Singleton
+     Peter Gutmann
+- 
+--- 114,116 ----
+Index: eg/README
+Prereq: 1.5
+*** ../sybperl-1.8/eg/README	Thu Sep 30 16:28:29 1993
+--- eg/README	Tue Aug 31 17:31:34 1993
+***************
+*** 48,51 ****
+  
+  
+      Michael Peppler		mpeppler@itf.ch
+- 
+--- 48,50 ----
+Index: eg/capture.pl
+Prereq: 1.1
+*** ../sybperl-1.8/eg/capture.pl	Thu Sep 30 16:28:30 1993
+--- eg/capture.pl	Wed Jun 24 12:11:39 1992
+***************
+*** 91,94 ****
+  	);
+  };
+  endgrent;
+- 
+--- 91,93 ----
+Index: eg/dbschema.pl
+Prereq: 1.5
+*** ../sybperl-1.8/eg/dbschema.pl	Thu Sep 30 16:28:26 1993
+--- eg/dbschema.pl	Mon Oct  4 14:40:15 1993
+***************
+*** 1,6 ****
+  #! /usr/local/bin/sybperl
+  #
+! #	@(#)dbschema.pl	1.5	9/10/93
+  #
+  #
+  #	dbschema.pl	A script to extract a database structure from
+--- 1,6 ----
+  #! /usr/local/bin/sybperl
+  #
+! #	@(#)dbschema.pl	1.7	10/4/93
+  #
+  #
+  #	dbschema.pl	A script to extract a database structure from
+***************
+*** 219,225 ****
+      print "Bind rules & defaults to columns...\n" if $opt_v;
+      print SCRIPT "/* Bind rules & defaults to columns... */\n\n";
+  
+!     if($tab[1] ne 'dbo' && (keys(%dflt) || keys(%rules)))
+      {
+  	print SCRIPT "/* The owner of the table is $tab[1].
+  ** I can't bind the rules/defaults to a table of which I am not the owner.
+--- 219,225 ----
+      print "Bind rules & defaults to columns...\n" if $opt_v;
+      print SCRIPT "/* Bind rules & defaults to columns... */\n\n";
+  
+!     if($tab[1] ne 'dbo' && (keys(%dflt) || keys(%rule)))
+      {
+  	print SCRIPT "/* The owner of the table is $tab[1].
+  ** I can't bind the rules/defaults to a table of which I am not the owner.
+***************
+*** 310,321 ****
+      local($ret, @dat, $act, $cnt);
+  
+      &dbcmd($dbproc, "sp_helprotect '$obj'\n");
+!     &dbsqlexec;
+  
+      $cnt = 0;
+!     while(($ret = &dbresults) != $NO_MORE_RESULTS && $ret != $FAIL)
+      {
+! 	while(@dat = &dbnextrow)
+  	{
+  	    $act = 'to';
+  	    $act = 'from' if $dat[0] =~ /Revoke/;
+--- 310,321 ----
+      local($ret, @dat, $act, $cnt);
+  
+      &dbcmd($dbproc, "sp_helprotect '$obj'\n");
+!     &dbsqlexec($dbproc);
+  
+      $cnt = 0;
+!     while(($ret = &dbresults($dbproc)) != $NO_MORE_RESULTS && $ret != $FAIL)
+      {
+! 	while(@dat = &dbnextrow($dbproc))
+  	{
+  	    $act = 'to';
+  	    $act = 'from' if $dat[0] =~ /Revoke/;
+***************
+*** 351,363 ****
+  	$found = 0;
+  
+  	&dbcmd($dbproc, "select text from syscomments where id = $vi[2]");
+! 	&dbsqlexec;
+! 	&dbresults;
+  	
+  	print SCRIPT
+  	    "/* $objname $vi[0], owner $vi[1] */\n";
+  
+! 	while(($text) = &dbnextrow)
+  	{
+  	    if(!$found && $vi[1] ne 'dbo')
+  	    {
+--- 351,363 ----
+  	$found = 0;
+  
+  	&dbcmd($dbproc, "select text from syscomments where id = $vi[2]");
+! 	&dbsqlexec($dbproc);
+! 	&dbresults($dbproc);
+  	
+  	print SCRIPT
+  	    "/* $objname $vi[0], owner $vi[1] */\n";
+  
+! 	while(($text) = &dbnextrow($dbproc))
+  	{
+  	    if(!$found && $vi[1] ne 'dbo')
+  	    {
+***************
+*** 373,377 ****
+  	}
+      }
+  }
+- 
+  
+--- 373,376 ----
+Index: eg/dbtext.pl
+Prereq: 1.1
+*** ../sybperl-1.8/eg/dbtext.pl	Thu Sep 30 16:28:30 1993
+--- eg/dbtext.pl	Tue Aug 31 17:31:09 1993
+***************
+*** 29,32 ****
+  print @result, "\n";
+  
+  &dbclose($d);
+- 
+--- 29,31 ----
+Index: eg/report.pl
+Prereq: 1.1
+*** ../sybperl-1.8/eg/report.pl	Thu Sep 30 16:28:26 1993
+--- eg/report.pl	Wed Jun 24 12:12:06 1992
+***************
+*** 38,41 ****
+  	($n,$u,$gn,$s,$d) = split("~",$x);
+  	write;
+  }
+- 
+--- 38,40 ----
+Index: eg/space.pl
+Prereq: 1.2
+*** ../sybperl-1.8/eg/space.pl	Thu Sep 30 16:28:30 1993
+--- eg/space.pl	Fri Apr  2 15:47:05 1993
+***************
+*** 70,73 ****
+  $name,      $size,     $res,       $data,     $index,    $free,     $unused
+  . 
+  
+- 
+--- 70,72 ----
+Index: eg/sql.pl
+Prereq: 1.2
+*** ../sybperl-1.8/eg/sql.pl	Thu Sep 30 16:28:31 1993
+--- eg/sql.pl	Mon Aug  9 22:02:25 1993
+***************
+*** 75,78 ****
+  
+  
+  1;
+- 
+--- 75,77 ----
+Index: eg/test_dbmoney.pl
+Prereq: 1.1
+*** ../sybperl-1.8/eg/test_dbmoney.pl	Thu Sep 30 16:28:31 1993
+--- eg/test_dbmoney.pl	Tue Aug 31 13:01:04 1993
+***************
+*** 173,176 ****
+  &dbexit;
+  
+  exit( $STDEXIT );
+- 
+--- 173,175 ----
+Index: lib/sybdb.ph
+Prereq: 1.2
+*** ../sybperl-1.8/lib/sybdb.ph	Thu Sep 30 16:28:31 1993
+--- lib/sybdb.ph	Mon Aug 30 16:23:34 1993
+***************
+*** 254,257 ****
+  sub INT_CANCEL {2;}
+  
+  1;
+- 
+--- 254,256 ----
+Index: lib/sybdb_redefs.pl
+Prereq: 1.2
+*** ../sybperl-1.8/lib/sybdb_redefs.pl	Thu Sep 30 16:28:32 1993
+--- lib/sybdb_redefs.pl	Tue Aug 31 12:07:20 1993
+***************
+*** 613,616 ****
+  # ----- end of sybdb_redefs.pl -----
+  
+  1;
+- 
+--- 613,615 ----
+Index: lib/sybperl.pl
+Prereq: 1.5
+*** ../sybperl-1.8/lib/sybperl.pl	Thu Sep 30 16:28:32 1993
+--- lib/sybperl.pl	Thu Sep 23 18:18:41 1993
+***************
+*** 73,76 ****
+  
+  
+  1;
+- 
+--- 73,75 ----
+Index: sybperl.1
+Prereq: 1
+*** ../sybperl-1.8/sybperl.1	Thu Sep 30 16:28:27 1993
+--- sybperl.1	Tue Sep  7 15:05:34 1993
+***************
+*** 290,293 ****
+  Don Preuss (donp@niaid.nih.gov) contributed the &dbcolXXX() calls.
+  Jeffrey Wong (jtw@comdyn.cdsyd.oz.au) contributed the
+  OpenClient R4.6.1 DBMONEY routines
+- 
+--- 290,292 ----
+Index: sybperl.c
+Prereq: 1.25
+*** ../sybperl-1.8/sybperl.c	Thu Sep 30 16:28:27 1993
+--- sybperl.c	Mon Oct  4 15:22:44 1993
+***************
+*** 1,4 ****
+! static char SccsId[] = "@(#)sybperl.c	1.25	9/13/93";
+  /************************************************************************/
+  /*	Copyright 1991, 1992, 1993 by Michael Peppler			*/
+  /*	                           and ITF Management SA 	        */
+--- 1,4 ----
+! static char SccsId[] = "@(#)sybperl.c	1.28	10/4/93";
+  /************************************************************************/
+  /*	Copyright 1991, 1992, 1993 by Michael Peppler			*/
+  /*	                           and ITF Management SA 	        */
+***************
+*** 247,256 ****
+--- 247,268 ----
+  static int userval();
+  static int err_handler(), msg_handler();
+  static int getDbProc();
++ static char scriptName[32];
+  
+  int
+  userinit()
+  {
++     char *p;
++     int len;
++ 
++     if(!(p = strrchr(origfilename, '/')))
++ 	p = origfilename;
++     else
++ 	++p;
++     if((len = strlen(p)) > 30)
++ 	len = 30;
++     strncpy(scriptName, p, len);
++     
+      init_sybase();
+  }
+  
+***************
+*** 484,491 ****
+  register int sp;
+  register int items;
+  {
+      STR **st = stack->ary_array + sp;
+!     ARRAY *ary = stack;    
+      STR *Str;		/* used in str_get and str_gnum macros */
+      int inx = -1;	/* Index into dbProc[] array. Passed as */
+      			/* first parameter to nearly all &dbxxx() calls */
+--- 496,505 ----
+  register int sp;
+  register int items;
+  {
++ #if 0
+      STR **st = stack->ary_array + sp;
+! #endif
+!     ARRAY *ary = stack;
+      STR *Str;		/* used in str_get and str_gnum macros */
+      int inx = -1;	/* Index into dbProc[] array. Passed as */
+      			/* first parameter to nearly all &dbxxx() calls */
+***************
+*** 509,514 ****
+--- 523,529 ----
+      {		/* You can call &dbmsghandle/errhandle before calling &dblogin */
+  #ifdef OLD_SYBPERL
+  	login = dblogin();
++ 	DBSETLAPP(login, scriptName);
+  	dbProc[0].dbproc = dbopen(login, NULL);
+  #else
+  	fatal("&dblogin has not been called yet!");
+***************
+*** 526,532 ****
+--- 541,550 ----
+  	    char *server = NULL, *user = NULL, *pwd = NULL;
+  
+  	    if (!login)
++ 	    {
+  		login = dblogin();
++ 		DBSETLAPP(login, scriptName);
++ 	    }
+  	    switch(items)
+  	    {
+  	      case 3:
+***************
+*** 1377,1383 ****
+  	break;
+  #if defined(DBLIB42)
+        case US_dbsafestr:
+! 	if (items > 3 || items != 2)
+  	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+  	else
+  	{
+--- 1395,1401 ----
+  	break;
+  #if defined(DBLIB42)
+        case US_dbsafestr:
+! 	if (!(items == 3 || items == 2))
+  	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+  	else
+  	{
+***************
+*** 1414,1420 ****
+  	break;
+  #elif defined(DBLIB461)
+        case US_dbsafestr:
+! 	if (items > 3 || items != 2)
+  	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+  	else
+  	{
+--- 1432,1438 ----
+  	break;
+  #elif defined(DBLIB461)
+        case US_dbsafestr:
+! 	if (!(items == 3 || items == 2))
+  	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+  	else
+  	{
+***************
+*** 2401,2406 ****
+--- 2419,2434 ----
+  	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+  	}
+  	break;
++       case US_dbrecftos:
++ 	if (items != 1)
++ 	    fatal("Usage: &dbrecftos($filename);");
++ 	else
++ 	{
++ 	    dbrecftos((char *)str_get(STACK(sp)[1]));
++ 	    
++ 	    str_numset(STACK(sp)[0], (double) 0);
++ 	}
++ 	break;
+  #endif
+        case US_dbwritetext:
+          if (items != 5)
+***************
+*** 2499,2514 ****
+  	    str_numset(STACK(sp)[0], (double) j);
+  	}
+  	break;
+-       case US_dbrecftos:
+- 	if (items != 1)
+- 	    fatal("Usage: &dbrecftos($filename);");
+- 	else
+- 	{
+- 	    dbrecftos((char *)str_get(STACK(sp)[1]));
+- 	    
+- 	    str_numset(STACK(sp)[0], (double) 0);
+- 	}
+- 	break;
+  
+        case US_BCP_SETL:
+  	if (items != 1)
+--- 2527,2532 ----
+***************
+*** 3353,3356 ****
+  }
+  
+  #endif  /* DBLIB461 */
+- 
+--- 3371,3373 ----
+Index: t/sbex.pl
+*** ../sybperl-1.8/t/sbex.pl	Thu Sep 30 16:28:33 1993
+--- t/sbex.pl	Fri Oct  1 08:59:54 1993
+***************
+*** 9,14 ****
+--- 9,15 ----
+  require "sybperl.pl";
+  
+  print "Sybperl version $SybperlVer\n\n";
++ print "PACKAGE_BUG is defined - sybdb_redefs.pl has been loaded\n" if (defined($SybPackageBug) && $SybPackageBug == 1);
+  
+  print "This script tests some of sybperl's functions, and prints out\n";
+  print "description of the databases that are defined in your Sybase\n";
+***************
+*** 113,119 ****
+  
+  # now get the indexes...
+  #
+! 	print "\nIndexes on $db[0].$tab[0].$tab[1]...\n\n";
+  	&dbuse($dbproc2, $db[0]);
+  	&dbcmd($dbproc2, "sp_helpindex '$tab[1].$tab[0]'\n");
+  
+--- 114,120 ----
+  
+  # now get the indexes...
+  #
+! 	print "\nIndexes on $db[0].$tab[1].$tab[0]...\n\n";
+  	&dbuse($dbproc2, $db[0]);
+  	&dbcmd($dbproc2, "sp_helpindex '$tab[1].$tab[0]'\n");
+  
+***************
+*** 188,193 ****
+  
+      &INT_CANCEL;
+  }
+- 
+  
+  
+--- 189,193 ----
+
+exit 0 # Just in case...

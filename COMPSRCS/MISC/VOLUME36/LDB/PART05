@@ -1,0 +1,1377 @@
+Newsgroups: comp.sources.misc
+From: ross@teserv.den.mmc.com (Perry R. Ross)
+Subject: v36i102:  ldb - Play backgammon by e-mail, v1.3, Part05/12
+Message-ID: <1993Apr11.233020.18191@sparky.imd.sterling.com>
+X-Md4-Signature: 17bf1b9bdc7b9cdbbd741864a927e6aa
+Date: Sun, 11 Apr 1993 23:30:20 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ross@teserv.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 36, Issue 102
+Archive-name: ldb/part05
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Supersedes: ldb: Volume 28, Issue 93-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 5 (of 12)."
+# Contents:  misc.c save.c
+# Wrapped by ross@teserv.den.mmc.com on Tue Apr  6 14:52:20 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc.c'\"
+else
+echo shar: Extracting \"'misc.c'\" \(18769 characters\)
+sed "s/^X//" >'misc.c' <<'END_OF_FILE'
+X/*	misc.c		8/8/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X
+X/*----------------------------------------------------------------------
+X *	rolldice -- roll two dice
+X *
+X * This function calls Rolldie twice and fills in the game structure
+X * with the resulting values.  If the two calls to Rolldie return the
+X * same number, the mvs field is filled in so that the user has 4 rolls
+X * to use, otherwise the rolls are stored in the first two elements
+X * of the mvs field and the last two are marked unused.
+X *----------------------------------------------------------------------
+X */
+X
+Xrolldice(g)
+Xstruct game *g;
+X{
+X
+Xclearmvs(g->mvs);			/* clear old stuff */
+Xg->mvs[0].roll = Rolldie();             /* roll the dice */
+Xg->mvs[1].roll = Rolldie();
+Xg->rolls[g->mvs[0].roll - 1]++;		/* keep count of what rolls we got */
+Xg->rolls[g->mvs[1].roll - 1]++;
+Xif (g->mvs[0].roll == g->mvs[1].roll) {	/* hot damn, we got doubles */
+X	g->mvs[2].roll = g->mvs[0].roll;	/* copy roll into two */
+X	g->mvs[3].roll = g->mvs[0].roll;	/* more moves */
+X	g->doubles[g->mvs[1].roll - 1]++;	/* keep track of doubles */
+X	}
+Xlegalmoves(g);			/* calculate the # of moves & hi roll */
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	sendpkt -- send a packet to the opponent
+X *
+X * This function fills in the fields of a packet and passes that
+X * packet to the transport using TSendPacket.  It also stores the
+X * opcode sent in the lastop field of the game, so the packet
+X * can be regenerated if necessary.  Sendpkt returns 1 if the
+X * packet was sent, and 0 if an error occurred.
+X *----------------------------------------------------------------------
+X */
+X
+Xsendpkt(g,op)
+Xstruct game *g;
+Xchar op;
+X{
+Xstatic char colors[4], adbl[10], mch[10];
+Xchar cmt[60], cmt2[60], *sendaddr;
+Xint i, status;
+X
+Xif (FeIsActive)
+X	FeMessage("Sending...");
+Xsendaddr = g->opaddr;		/* this is overridden for NOTIFY */
+Xif ( (op != RESEND) && (op != NOTIFY) )
+X	g->lastop = op;			/* save last op for resend */
+Xfor (i = 0; i < 4; i++)
+X	g->blot[i] = 0;			/* clear blots hit */
+Xif (*rc.chkpt == 'y') {
+X	writegames(rc.gfile,rc.gbackup,rc.pfile);
+X	rc.gbackup = NULL;	/* only backup old file once */
+X	}
+XP.version = LDB_VER;			/* these fields go in all packets */
+XP.gameid = g->gameid;
+XP.opcode = op;
+XP.seq = g->seq;
+XP.jacoby = NULL;
+XP.crawford = NULL;
+XP.european = NULL;
+XP.perm = NULL;
+XP.match = NULL;
+Xif (g->opver > 100) {	/* versions after 1.0 rot13 comments */
+X	if (g->mycmt != NULL) {
+X		strncpy(cmt,g->mycmt,sizeof(cmt));	/* make copy */
+X		cmt[sizeof(cmt)-1] = '\0';		/* null term */
+X		P.comment = cmt;			/* save pointer */
+X		rotate(P.comment);			/* rot13 the copy */
+X		}
+X	else
+X		P.comment = NULL;
+X	if (g->mycmt2 != NULL) {
+X		strncpy(cmt2,g->mycmt2,sizeof(cmt2));	/* make copy */
+X		cmt2[sizeof(cmt2)-1] = '\0';		/* null term */
+X		P.comment2 = cmt2;			/* save pointer */
+X		rotate(P.comment2);			/* rot13 the copy */
+X		}
+X	else
+X		P.comment2 = NULL;
+X	}
+Xelse {				/* version 1.0 sends comments as cleartext */
+X	P.comment = g->mycmt;
+X	P.comment2 = g->mycmt2;
+X	}
+Xif (g->flags & F_SENTNAME) {
+X	P.name = NULL;
+X	P.notify = NULL;
+X	}
+Xelse {
+X	P.name = rc.myname;
+X	P.notify = g->notify;
+X	g->flags |= F_SENTNAME;
+X	}
+Xif (g->ppl->newaddr != NA_NONE) {	/* our address has changed */
+X	P.addr = g->ppl->myaddr;	/* notify this opponent */
+X	g->ppl->newaddr = NA_SENT;	/* remember that we did it */
+X	}
+Xelse
+X	P.addr = NULL;
+XP.colors = NULL;
+XP.dir = NULL;
+XP.autodbl = NULL;			/* used by START and TIE */
+XP.timestamp = time((long *) 0);		/* attach timestamp */
+Xif (g->lastacc < P.timestamp)		/* update last access time */
+X	g->lastacc = P.timestamp;	/* but don't let time go backwards */
+Xclearmvs(P.mvs);
+Xswitch (op) {				/* now do operation-specific stuff */
+Xcase START:
+X	P.addr = g->myaddr;		/* send opponent my email address */
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send initial die roll */
+X	sprintf(colors,"%c%c",g->mycolor,g->opcolor);
+X	P.colors = colors;
+X	P.dir = (g->mydir > 0) ? "down" : "up";
+X	sprintf(adbl,"%d",rc.autodouble);
+X	P.autodbl = adbl;
+X	if (g->flags & F_JACOBY)	/* enable jacoby */
+X		P.jacoby = "yes";
+X	if (g->flags & F_CRAWFORD)	/* enable crawford */
+X		P.crawford = "yes";
+X	if (g->flags & F_EUROPE)	/* enable european rule */
+X		P.european = "yes";
+X	if (g->flags & F_PERM)		/* game is permanent */
+X		P.perm = "yes";
+X	if (g->mtotal > 0) {		/* enable match play */
+X		sprintf(mch,"%d",g->mtotal);
+X		P.match = mch;
+X		}
+X	break;
+Xcase USTART:
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send both initial dice */
+X	P.mvs[1].roll = g->mvs[1].roll;
+X	break;
+Xcase MSTART:
+Xcase RESTART:				/* retry initial roll */
+X	P.mvs[0].roll = g->mvs[0].roll;	/* send new roll */
+X	break;
+Xcase TIE:
+X	if (g->adcnt > 0) {		/* send current autodouble count */
+X		sprintf(adbl,"%d",g->adcnt);
+X		P.autodbl = adbl;
+X		}
+X	break;
+Xcase MOVE:
+X	for (i = 0; i < 4; i++)
+X		P.mvs[i] = g->mvs[i];
+X	break;
+Xcase NOTIFY:
+X	P.addr = g->myaddr;
+X	P.seq = 0;			/* no sequences for notify packets */
+X	P.notify = NULL;
+X	P.name = rc.myname;
+X	i = gvalue(g,&status);
+X	sprintf(cmt,"%d %d %d",g->term,status,i);
+X	P.comment = cmt;	/* send term code, game val, & bg flag */
+X	P.comment2 = g->opaddr;	/* send opponent address */
+X	if ( (sendaddr = g->notify) == NULL)
+X		return;		/* shouldn't happen */
+X	}
+Xstatus = TSendPacket(&P,sendaddr);		/* send the packet */
+Xif (FeIsActive)				/* clear "Sending..." from mesg line */
+X	FeMessage(NULL);
+Xreturn(status);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	resendpkt -- resend the last packet
+X *
+X * This function takes a game structure and causes the last packet sent
+X * in that game to be resent.
+X *
+X * The F_SENTNAME flag is cleared before resending, causing our personal
+X * name to be resent.  This is because the packet being resent might have
+X * been the one that sent the personal name (and set the F_SENTNAME flag),
+X * and since the F_SENTNAME flag is now set, the personal name would not
+X * be included in the resent packet.
+X *----------------------------------------------------------------------
+X */
+X
+Xresendpkt(g)
+Xstruct game *g;
+X{
+X
+Xg->flags &= ~F_SENTNAME;
+Xsendpkt(g,g->lastop);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	str2mv -- decode move string to struct mv
+X *
+X * This function takes a string representation of a move, decodes it,
+X * and places the information into a mv structure.  This format is:
+X *
+X *	roll/move
+X *
+X * where roll is the die value used in the move, and is a single
+X * digit in [1..6], and move is one of the following:
+X *
+X *	a 1 or 2 digit number in [1..24]
+X *		This designates the point the move originates from.
+X *		This number is stored in the "pt" field of the move
+X *		structure without modification.
+X *	the string "BAR"
+X *		This means the piece is coming off the bar.
+X *		Zero is stored in the "pt" field of the move structure,
+X *		regardless of whether the player's bar point is 0 or 25.
+X *		Apply() and FeDrawMove understand this and convert 0 to
+X *		the appropriate bar point before using it.
+X *	the string "UNUSED"
+X *		This means the roll is unused.  -1 is stored in the
+X *		"pt" field of the mv structure.
+X *----------------------------------------------------------------------
+X */
+X
+Xstr2mv(s,m)
+Xchar *s;
+Xstruct mv *m;
+X{
+Xchar *p, *strchr();
+X
+Xif ( (p = strchr(s,'/')) == NULL) {
+X	message("ERROR: malformed move: %s\n",s);
+X	return;
+X	}
+Xif ( ( (m->roll = atoi(s)) < 0) || (m->roll > 6) ) {
+X	message("ERROR: invalid roll: %d\n",m->roll);
+X	return;
+X	}
+Xp++;
+Xif ( (m->roll == 0) || (*p == 'U') || (*p == 'u') )
+X	m->pt = -1;		/* this roll is unused */
+Xelse if ( (*p == 'B') || (*p == 'b') )
+X	m->pt = 0;		/* move from bar */
+Xelse if ( ( (m->pt = atoi(p)) < 0) || (m->pt > 25) ) {
+X	message("ERROR: invalid point: %d\n",m->pt);
+X	return;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	mv2str -- encode move string from struct mv
+X *
+X * This function forms a string representation of a move based on
+X * the information in a mv structure.  This format is:
+X *
+X *	roll/move
+X *
+X * where roll is the die value stored in mv->roll, and move is:
+X *
+X *	mv->pt if mv->pt is in [1..24]
+X *	the string "BAR", if mv->pt is 0 or 25
+X *	the string "UNUSED", if mv->pt is < 0
+X *----------------------------------------------------------------------
+X */
+X
+Xmv2str(m,s)
+Xstruct mv *m;
+Xchar *s;
+X{
+X
+Xif (m->roll <= 0) {		/* non-existant roll */
+X	strcpy(s,"0/0");	/* should be skipped by nvwrite */
+X	return;			/* so we should never get here */
+X	}
+Xif (m->pt < 0)
+X	sprintf(s,"%d/UNUSED",m->roll);
+Xelse if ( (m->pt == DOWNBAR) || (m->pt == UPBAR) )
+X	sprintf(s,"%d/BAR",m->roll);
+Xelse
+X	sprintf(s,"%d/%d",m->roll,m->pt);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	clearmvs -- mark all entries in a mv array empty
+X *
+X * This function marks all elements of a mv array as being unused.
+X *----------------------------------------------------------------------
+X */
+X
+X
+Xclearmvs(m)
+Xstruct mv *m;
+X{
+Xint i;
+X
+Xfor (i = 0; i < 4; i++) {
+X	m[i].roll = -1;
+X	m[i].pt = -1;
+X	}
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	canmove -- see if a roll is usable in a range of points
+X *
+X * This function trys to use a roll over a range of points.  If it
+X * finds a point where a roll could be used, it returns 1, otherwise
+X * it returns 0.  The board is not changed.
+X *----------------------------------------------------------------------
+X */
+X
+Xcanmove(g,r,p1,p2)
+Xstruct game *g;		/* the game structure */
+Xint r;			/* which element of g->mvs */
+Xint p1, p2;		/* the range of points to try */
+X{
+Xint i, op;
+X
+Xif (p1 > p2) {
+X	i = p1;
+X	p1 = p2;
+X	p2 = i;
+X	}
+Xop = g->mvs[r].pt;		/* so we can restore it */
+Xfor (i = p1; i <= p2; i++) {
+X	g->mvs[r].pt = i;		/* try from this point */
+X	if (apply(g,WHO_ME,r,A_CHKONLY,NULL) >= 0) {
+X		g->mvs[r].pt = op;
+X		return(1);
+X		}
+X	}
+Xg->mvs[r].pt = op;
+Xreturn(0);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	rotate -- rot13 a buffer
+X *
+X * This function performs the popular "rot13" conversion to a buffer.
+X * The buffer is modified in place.  This conversion makes a
+X * string unreadable by adding 13 to letters in [A-Ma-m] and subtracting
+X * 13 from letters in [N-Zn-z].  All other characters are unchanged.
+X * Applying the rot13 transformation again returns the buffer to normal.
+X *----------------------------------------------------------------------
+X */
+X
+Xrotate(buf)
+Xchar *buf;
+X{
+Xregister char *s;
+X
+Xfor (s = buf; *s; s++) {
+X	if (! isalpha(*s))
+X		continue;
+X	if ( ((*s >= 'A') && (*s <= 'M')) || ((*s >= 'a') && (*s <= 'm')) )
+X		*s += (char) 13;
+X	else
+X		*s -= (char) 13;
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	message -- print a message in proper way
+X *
+X * This function checks to see if the front end is active.  If
+X * so, it calls FeMessage, otherwise it prints on stderr and
+X * sets the FeWaitInit flag so that when FeInitialize is called,
+X * it will wait for return to be pressed before clearing the screen.
+X *----------------------------------------------------------------------
+X */
+X
+Xmessage(s,a1,a2,a3)
+Xchar *s;
+Xint a1, a2, a3;
+X{
+Xchar buf[80];
+X
+Xif (FeIsActive) {
+X	sprintf(buf, s, a1, a2, a3);
+X	FeMessage(buf);
+X	}
+Xelse {
+X	fprintf(stderr,s,a1,a2,a3);
+X	FeWaitInit++;
+X	if (FeWaitInit > 22) {
+X		fprintf(stderr,"Press <return> to continue...");
+X		fgets(buf,sizeof(buf),stdin);
+X		FeWaitInit = 0;
+X		}
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	fatal -- terminate program with error message
+X *
+X * This function prints a message to stderr and exits.
+X *----------------------------------------------------------------------
+X */
+X
+Xfatal(msg)
+Xchar *msg;
+X{
+X
+XFeFinishSession();
+XTFinishSession();
+Xfprintf(stderr,"%s\n",msg);
+Xldbexit(STAT_ABORT);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	ldbexit -- terminate program in an orderly fashion
+X *
+X * This function can be called at any time, and ensures that the
+X * front end and the transport are closed down cleanly before
+X * exiting.
+X *----------------------------------------------------------------------
+X */
+X
+Xldbexit(code)
+Xint code;
+X{
+X
+XFeFinishSession();
+XTFinishSession();
+Xrelease_lock(rc.lockfile);
+Xfflush(stdout);
+Xfflush(stderr);
+Xexit(code);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	pipcount -- calculate a pip count for both players
+X *
+X * This function takes a board and a pointer to a game structure
+X * and calculates a pip count for both players.  These are returned
+X * in *mp and *op.
+X *----------------------------------------------------------------------
+X */
+X
+Xpipcount(b,g,mp,op)
+Xboard b;			/* the board */
+Xstruct game *g;			/* the game */
+Xint *mp;			/* where to store my pip count */
+Xint *op;			/* where to store opponent's pip count */
+X{
+Xint direction[2];
+Xint player;			/* me = 0; op = 1 */
+Xint PIP[2];			/* mypip = 0; oppip = 1 */
+Xint i;				/* counter */
+X
+XPIP[WHO_ME] = 0;			/* initialize my PIP count */
+XPIP[WHO_OPP] = 0;			/* initialize op PIP count */
+Xdirection[WHO_ME] = g->mydir;		/* my direction of travel */
+Xdirection[WHO_OPP] = g->opdir;		/* op direction of travel */
+X
+Xfor (i = 0; i <= DOWNBAR; i++) {	/* for each point on the board */
+X
+X	if (b[i].qty > 0) {
+X		player = (b[i].color == g->mycolor) ? WHO_ME : WHO_OPP;
+X		if ((i == UPBAR) || (i == DOWNBAR))
+X			PIP[player] += b[i].qty * 25;
+X		else {
+X			if (direction[player] == 1)
+X				PIP[player] += b[i].qty * (25 - i);
+X			else
+X				PIP[player] += b[i].qty * i;
+X			}
+X		}
+X	}
+X*mp = PIP[WHO_ME];		/* return my pip count */
+X*op = PIP[WHO_OPP];		/* return opponent's pip count */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	gvalue -- calculate the game value
+X *
+X * This function takes a completed game and calculates its value,
+X * taking into account gammons, backgammons, and the Jacoby and
+X * European rules.  These are:
+X *	- Gammon (when the loser does not bear off any pieces)
+X *	  counts as double the game value shown on the cube.
+X *	- Backgammon (when the loser does not bear off any pieces
+X *	  and has pieces in the winner's home board) counts as
+X *	  triple the game value shown on the cube.
+X *	- Jacoby rule (if enabled) states that Gammons and Backgammons
+X *	  count as single games if neither player doubled during the game.
+X *	- European rule (if enabled) states the Backgammons count double,
+X *	  not triple, the game value shown on the cube.
+X * The game value is returned in *vp; the return value is 1 for a gammon,
+X * 2 for a backgammon, and 0 for neither.
+X *
+X * If the game was conceded, gvalue() scores a gammon if the loser has
+X * not borne off any pieces, and a backgammon if the loser has any pieces
+X * in the winners inner table.  This prevents players from conceding to
+X * avoid a gammon/backgammon.
+X *----------------------------------------------------------------------
+X */
+X
+Xgvalue(g,vp)
+Xstruct game *g;
+Xint *vp;
+X{
+Xint bf;
+Xint p1, p2;
+X
+Xbf = 0;				/* init to no gammon/backgammon */
+X*vp = g->gameval;		/* init to game value on cube */
+Xif ( (g->term == T_ILOSE) || (g->term == T_ICONCEDE) ) {
+X	if (g->board[OFFPT(g->mydir)].qty == 0) {
+X		p1 = (g->opdir > 0) ? 19 : 0;/* check op's inner tbl*/
+X		p2 = (g->opdir > 0) ? 25 : 6;	/* for my pieces */
+X		if (addpcs(g->board,g->mycolor,p1,p2) > 0)
+X			bf = 2;			/* flag a backgammon */
+X		else
+X			bf = 1;			/* flag a gammon */
+X		}
+X	}
+Xelse if ( (g->term == T_IWIN) || (g->term == T_OPCONCEDE) ) {
+X	if (g->board[OFFPT(g->opdir)].qty == 0) {
+X		p1 = (g->mydir > 0) ? 19 : 0;	/* check my inner tbl*/
+X		p2 = (g->mydir > 0) ? 25 : 6;	/* for op's pieces */
+X		if (addpcs(g->board,g->opcolor,p1,p2) > 0)
+X			bf = 2;			/* flag a backgammon */
+X		else
+X			bf = 1;			/* flag a gammon */
+X		}
+X	}
+Xif ( (g->flags & F_JACOBY) && (g->gameval == (1 << g->adcnt)) )
+X	return(bf);	/* jacoby enabled & no doubles, don't mult game val */
+Xif ( (g->flags & F_EUROPE) && (bf == 2) ) {
+X	*vp *= 2;	/* european rule enabled, bg = 2 multiplier */
+X	return(bf);
+X	}
+Xif (bf == 2)
+X	*vp *= 3;	/* backgammon = 3 multiplier */
+Xelse if (bf == 1)
+X	*vp *= 2;	/* gammon = 2 multipler */
+Xreturn(bf);		/* return gammon/backgammon/neither flag */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	iscontact -- determine if contact is possible for a game
+X *
+X * This function returns 1 if it is possible for any piece to hit
+X * any other piece, 0 if both players have moved past each other
+X * and the game is a race.
+X *----------------------------------------------------------------------
+X */
+X
+Xiscontact(g)
+Xstruct game *g;
+X{
+Xint dc, dn, i;
+X
+Xif (g->mydir > 0)		/* which color is down-bound? */
+X	dc = g->opcolor;
+Xelse
+X	dc = g->mycolor;
+Xdn = g->board[DOWNOFF].qty;		/* start with # pcs borne off */
+Xfor (i = 0; (i <= 24) && (dn < 15); i++) {
+X	if (g->board[i].qty == 0)
+X		continue;
+X	if (g->board[i].color != dc)	/* found some upbound pieces */
+X		return(1);		/* that are in hitting range */
+X	dn += g->board[i].qty;		/* keep count of down pcs found */
+X	}
+Xif (dn >= 15)				/* found all down pcs */
+X	return(0);			/* no more contact for this game */
+Xreturn(1);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	crawford_check -- is this the crawford rule game for a match?
+X *
+X * This function sets the F_CRGAME and F_CRDONE flags for a match.
+X * F_CRGAME is set if this is the crawford rule game for the match.
+X * F_CRDONE is set after the crawford rule game has been played.
+X *
+X * F_CRGAME is set if:
+X *	F_CRAWFORD is set	AND
+X *	F_CRDONE is not set	AND
+X *	a player is within one point of winning the match.
+X * otherwise F_CRGAME is cleared.
+X *
+X * F_CRDONE is set if:
+X *	F_CRAWFORD is set	AND
+X *	F_CRGAME was set (before the above)
+X * otherwise F_CRDONE is not changed.
+X *----------------------------------------------------------------------
+X */
+X
+Xcrawford_check(g)
+Xstruct game *g;
+X{
+Xint old_crgame;
+X
+Xold_crgame = g->flags & F_CRGAME;		/* save F_CRGAME */
+Xif ( ((g->flags & (F_CRAWFORD|F_CRDONE)) == F_CRAWFORD) &&
+X     ( (g->mcurrent[WHO_ME] == g->mtotal-1) ||
+X       (g->mcurrent[WHO_OPP] == g->mtotal-1) ) )
+X	g->flags |= F_CRGAME;		/* this is the crawford rule game */
+Xelse
+X	g->flags &= ~F_CRGAME;		/* not the crawford game, clear flag */
+Xif ( (g->flags & F_CRAWFORD) && old_crgame)
+X	g->flags |= F_CRDONE;		/* crawford rule game is over */
+X}
+END_OF_FILE
+if test 18769 -ne `wc -c <'misc.c'`; then
+    echo shar: \"'misc.c'\" unpacked with wrong size!
+fi
+# end of 'misc.c'
+fi
+if test -f 'save.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'save.c'\"
+else
+echo shar: Extracting \"'save.c'\" \(21975 characters\)
+sed "s/^X//" >'save.c' <<'END_OF_FILE'
+X/*	save.c		8/4/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*===========================================================================
+X * This file contains miscellaneous functions that save and load things.
+X *===========================================================================
+X */
+X
+X/*---------------------------------------------------------------------------
+X *	save -- make a copy of a string
+X *
+X * This function makes a copy of a string in malloc memory, and returns
+X * a pointer to the copy.
+X *---------------------------------------------------------------------------
+X */
+X
+Xchar *save(s)
+Xchar *s;
+X{
+Xchar *n;
+X
+Xif (s == NULL) {
+X	return(NULL);
+X	}
+Xelse {
+X	if ( (n = calloc(strlen(s)+1,1)) == NULL)
+X		fatal("Out of memory!");
+X	strcpy(n,s);
+X	return(n);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	readldbrc -- read in the .ldbrc file
+X *
+X * This function reads the .ldbrc file, which contains the setup info
+X * for this user.  If the HOME environment variable is set, we chdir to it.
+X * If the LDBRC environment variable is set, it is used as the file to
+X * read instead of .ldbrc.
+X *---------------------------------------------------------------------------
+X */
+X
+Xreadldbrc()
+X{
+XFILE *fp;
+Xchar *s, *n, *getenv();
+Xchar buf[80];
+X
+Xif ( (s = getenv("HOME")) != NULL)	/* if we have a home */
+X	chdir(s);			/* go there */
+Xif ( (s = getenv("LDBRC")) == NULL)	/* LDBRC not set */
+X#ifdef VMS
+X	s = "ldb.rc";			/* use default file name */
+X#else
+X	s = ".ldbrc";			/* use default file name */
+X#endif
+Xif ( (fp = fopen(s,"r")) == NULL) {
+X	printf("'%s' does not exist.  Do you want to create it?",s);
+X	if ( (fgets(buf,sizeof(buf),stdin) == NULL)
+X	     || ( (*buf != 'y') && (*buf != 'Y') ) )
+X		fatal("ldb aborted.");
+X	if ( (fp = fopen(s,"w")) == NULL) {
+X		printf("Sorry, could not create %s.\n",s);
+X		ldbexit(STAT_ABORT);
+X		}
+X	printf("Please enter your personal name: ");
+X	if (fgets(buf,sizeof(buf),stdin) == NULL) {
+X		fclose(fp);
+X		unlink(s);
+X		printf("ldb aborted.\n");
+X		ldbexit(STAT_ABORT);
+X		}
+X	buf[strlen(buf)-1] = '\0';	/* clobber the newline char */
+X	fprintf(fp,"myname=%s\n",buf);
+X	printf("Please enter your e-mail address: ");
+X	if (fgets(buf,sizeof(buf),stdin) == NULL) {
+X		fclose(fp);
+X		unlink(s);
+X		printf("ldb aborted.\n");
+X		ldbexit(STAT_ABORT);
+X		}
+X	buf[strlen(buf)-1] = '\0';	/* clobber the newline char */
+X	fprintf(fp,"myaddr=%s\n",buf);
+X	fprintf(fp,"mailfile=ldb.rcv\n");
+X#ifdef VMS
+X	fprintf(fp,"sendcmd=mail/subject=\"$s\" $f IN%%\"\"\"$a\"\"\"\n");
+X	fprintf(fp,"gamefile=ldb.data\n");
+X	fprintf(fp,"backupfile=ldb.olddata\n");
+X	fprintf(fp,"peoplefile=ldb.people\n");
+X	fprintf(fp,"lockfile=ldb.lock\n");
+X	fprintf(fp,"supercmd=\n");
+X#else
+X	fprintf(fp,"sendcmd=mail -s '$s' $a < $f\n");
+X	fprintf(fp,"gamefile=.ldbdata\n");
+X	fprintf(fp,"backupfile=.oldldbdata\n");
+X	fprintf(fp,"peoplefile=.ldbpeople\n");
+X	fprintf(fp,"lockfile=.ldb_lock\n");
+X	fprintf(fp,"supercmd=sh\n");
+X#endif
+X	fprintf(fp,"delmail=no\n");
+X	fprintf(fp,"tempfile=ldb.tmp\n");
+X	fprintf(fp,"colors=rw\n");
+X	fprintf(fp,"direction=up\n");
+X	fprintf(fp,"initialboard=current\n");
+X	fprintf(fp,"autoroll=yes\n");
+X	fprintf(fp,"automove=no\n");
+X	fprintf(fp,"autodouble=0\n");
+X	fprintf(fp,"superkey=0\n");
+X	fprintf(fp,"checkpoint=yes\n");
+X	fprintf(fp,"timeout=7\n");
+X	fprintf(fp,"keepold=7\n");
+X	fprintf(fp,"debug=0\n");
+X	fclose(fp);
+X	printf("\nYour %s file was created.  You may want to read the\n",s);
+X	printf("manual for additional options available in this file.\n\n");
+X#ifdef VMS
+X	printf("VMS users should edit the sendcmd command in %s to use\n",s);
+X	printf("the appropriate mailer.  The IN%% mailer is assumed.\n\n");
+X#endif
+X	if ( (fp = fopen(s,"r")) == NULL) {
+X		printf("I can't re-open your %s file!\n",s);
+X		ldbexit(STAT_ABORT);
+X		}
+X	}
+Xrc.myname = NULL;		/* these fields are required */
+Xrc.myaddr = NULL;
+X#ifdef VMS
+Xrc.gfile = "ldb.data";	/* default game storage file */
+Xrc.pfile = "ldb.people";	/* default opponent file */
+Xrc.gbackup = "ldb.olddata";	/* game backup file */
+Xrc.sendcmd = "mail/subject=\"$s\" $f IN%%\"\"\"$a\"\"\""; /* dflt mail cmd */
+Xrc.lockfile = "ldb.lock";	/* default lock file */
+Xrc.supercmd = "";		/* command to run when we have company */
+X#else
+Xrc.gfile = ".ldbdata";	/* default game storage file */
+Xrc.pfile = ".ldbpeople";	/* default opponent file */
+Xrc.gbackup = ".oldldbdata";	/* game backup file */
+Xrc.sendcmd = "mail -s '$s' $a < $f";	/* default mail command */
+Xrc.lockfile = ".ldb_lock";	/* default lock file */
+Xrc.supercmd = "sh";		/* command to run when we have company */
+X#endif
+Xrc.mfile = "ldb.rcv";	/* default file for received mail */
+Xrc.delmail = "no";			/* don't delete mail by default */
+Xrc.tempfile = "ldb.tmp";		/* default temp file */
+Xrc.defclrs = "rw";			/* "default" default colors */
+Xrc.defdir = "u";			/* and direction */
+Xrc.initboard = "c";			/* show current board by default */
+Xrc.autoroll = "y";			/* enable autoroll by default */
+Xrc.automove = "n";		/* disabled by default (it's really annoying */
+Xrc.autodouble = 0;		/* disable autodouble by default */
+Xrc.superkey = 0;		/* key to activate supercmd (dflt=disabled) */
+Xrc.chkpt = "y";			/* checkpoint is enabled by default */
+Xrc.acctime = 7;			/* access timeout in 7 days by default */
+Xrc.keepold = 7;			/* keep dead games 7 days by default */
+Xrc.debug = 0;			/* default to no debug */
+Xif ( (n = nvscan(fp,nv_rcfile,&rc)) != NULL) {
+X	fprintf(stderr,"Invalid line in .ldbrc: %s\n",n);
+X	ldbexit(STAT_ABORT);
+X	}
+Xfclose(fp);
+Xif (rc.myname == NULL) {
+X	fprintf(stderr,"ERROR: missing 'myname' line in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (rc.myaddr == NULL) {
+X	fprintf(stderr,"ERROR: missing 'myaddr' line in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif ( (strlen(rc.defclrs) != 2) || (! isalpha(rc.defclrs[0])) ||
+X     (! isalpha(rc.defclrs[1])) || (rc.defclrs[0] == rc.defclrs[1]) ) {
+X	fprintf(stderr,"ERROR: invalid color string in %s: %s",s,rc.defclrs);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (strchr("ud",*rc.defdir) == NULL) {
+X	fprintf(stderr,"ERROR: direction must be 'up' or 'down' in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (strchr("bac",*rc.initboard) == NULL) {
+X	fprintf(stderr,
+X	 "ERROR: initialboard must be 'before', 'after', or 'current' in %s\n"
+X	 ,s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (strchr("yn",*rc.autoroll) == NULL) {
+X	fprintf(stderr,"ERROR: autoroll must be 'yes' or 'no' in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (strchr("yn",*rc.automove) == NULL) {
+X	fprintf(stderr,"ERROR: automove must be 'yes' or 'no' in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+Xif (strchr("yn",*rc.chkpt) == NULL) {
+X	fprintf(stderr,"ERROR: checkpoint must be 'yes' or 'no' in %s\n",s);
+X	ldbexit(STAT_ABORT);
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	readgames -- read in games in progress
+X *
+X * This function reads the games file specified in .ldbrc and loads
+X * the games into the games list (ghead/gtail).
+X *---------------------------------------------------------------------------
+X */
+X
+Xreadgames()
+X{
+XFILE *fp;
+Xchar c, *s;
+Xstruct game *g;
+Xlong old;
+X
+Xreadpeople();
+Xif ( (fp = fopen(rc.gfile,"r")) == NULL)
+X	return;				/* no games */
+Xold = time( (long *) 0);
+Xif (rc.keepold > 0)		/* if keeping old games is enabled */
+X	old -= (rc.keepold * 86400);	/* how old is too old? */
+Xwhile ( (c = getc(fp)) != EOF) {
+X	ungetc(c,fp);	/* put char back */
+X	g = addgame();		/* insert a new game */
+X	g->opaddr = NULL;
+X	g->opname = NULL;
+X	g->myaddr = NULL;
+X	g->opver = 100;			/* default to oldest ldb version */
+X	g->mycmt = NULL;
+X	g->mycmt2 = NULL;
+X	g->opcmt = NULL;
+X	g->opcmt2 = NULL;
+X	g->dispmsg = NULL;
+X	g->hiused = 0;
+X	g->maxused = 0;
+X	g->starttime = 0L;
+X	clearmvs(g->opmvs);
+X	clearmvs(g->mvs);
+X	if ( (s = nvscan(fp,nv_gfile,g)) != NULL) {	/* read game */
+X		FeFinishSession();	/* close down front-end */
+X		TFinishSession();	/* close down transport */
+X		fprintf(stderr,"ERROR: invalid line in %s: %s\n", rc.gfile, s);
+X		ldbexit(STAT_ABORT);
+X		}
+X	if (g->gameid == NULL) {		/* empty game (prob. EOF) */
+X		deletegame(g);
+X		continue;
+X		}
+X	if (g->myaddr == NULL)		/* no myaddr line */
+X		g->myaddr = save(rc.myaddr);	/* dflt to ldbrc setting */
+X	if ( (g->ppl = findppl(g->opaddr,P_ADDR)) == NULL)
+X		newppl(g);
+X	if (g->opver > g->ppl->opver)		/* (upgrade hook) */
+X		g->ppl->opver = g->opver;	/* copy op's ldb version */
+X	if (
+X	   (g->state == ST_GAMEOVER)	&&
+X	   (g->flags & F_DISPLAYED)	&&
+X	   (g->lastacc < old) )
+X		g->flags |= F_DELETE;	/* game is old, mark it for deletion */
+X	if (rc.debug & DB_RWGAMES)
+X		message("DB-readgames: read game %s\n",g->gameid);
+X	}
+Xfclose(fp);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	writegames -- save the game list to a file
+X *
+X * This function writes each game in the game list to the specified
+X * file.  Games with F_DELETE set in their flags are skipped, and
+X * are thus effectively deleted.  If the bkup arg is not NULL and
+X * is not an empty string, the old file is renamed to the string
+X * specified in bkup before the new file is created.
+X *----------------------------------------------------------------------
+X */
+X
+Xwritegames(file,bkup,pfile)
+Xchar *file, *bkup, *pfile;
+X{
+XFILE *fp;
+Xstruct game *g;
+X
+Xwritepeople(pfile);			/* save the people file */
+Xif ( (bkup != NULL) && (*bkup != '\0') ) {
+X	unlink(bkup);		/* prevent multiple versions on VMS */
+X	rename(file,bkup);	/* save old game file */
+X	}
+Xelse
+X	unlink(file);		/* prevent multiple versions on VMS */
+Xif ( (fp = fopen(file,"w")) == NULL) {
+X	message("ERROR: can't save games in %s!\n",file);
+X	return;			/* should do something to save games... */
+X	}
+Xfor (g = ghead; g != NULL; g = g->next) {
+X	if (g->flags & F_DELETE)
+X		continue;			/* game is over, delete it */
+X	if (g->state == ST_GAMEOVER)
+X		continue;			/* skip complete games 4 now */
+X	nvwrite(fp,nv_gfile,g);	/* write the struct */
+X	if (rc.debug & DB_RWGAMES)
+X		message("DB-writegames: write game %s\n",g->gameid);
+X	}
+Xfor (g = ghead; g != NULL; g = g->next) {
+X	if (g->flags & F_DELETE)
+X		continue;		/* game is over, delete it */
+X	if (g->state != ST_GAMEOVER)
+X		continue;		/* put complete games @ end */
+X	nvwrite(fp,nv_gfile,g);	/* write the struct */
+X	if (rc.debug & DB_RWGAMES)
+X		message("DB-writegames: write game %s\n",g->gameid);
+X	}
+Xfclose(fp);
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	readpeople -- read in the people file
+X *
+X * This function reads the "people" file, which is the list of all of the
+X * opponents we have ever played.  The people file serves three purposes:
+X *	1. It keeps a record of games/gammons/backgammons/matches won/lost
+X *	   to each person.
+X *	2. It stores the mail address so you don't have to remember,
+X *	   and allows you to assign an alias to each person.  This
+X *	   alias can be used in the -start argument instead of the
+X *	   mail address.
+X *	3. It stores the "fence" time, which is the time that the
+X *	   (newest game played with that person that has finished)
+X *	   was started.  (Read it again, it makes sense).
+X *	   This information allows us to discard START packets that
+X *	   have remained in our mail (that we should have deleted,
+X *	   but didn't) by discarding START packets that are not newer
+X *	   than the fence time.
+X *---------------------------------------------------------------------------
+X */
+X
+Xreadpeople()
+X{
+XFILE *fp;
+Xchar c, *s;
+Xstruct people *p;
+X
+Xif ( (fp = fopen(rc.pfile,"r")) == NULL)
+X	return;				/* no people file */
+Xwhile ( (c = getc(fp)) != EOF) {
+X	ungetc(c,fp);	/* put char back */
+X	p = addppl();		/* insert a new record */
+X	p->name = NULL;		
+X	p->addr = NULL;
+X	p->alias = NULL;
+X	p->myaddr = NULL;
+X	p->equiv = NULL;
+X	p->fence = 0L;
+X	if ( (s = nvscan(fp,nv_pfile,p)) != NULL) {	/* read record */
+X		FeFinishSession();	/* close down front-end */
+X		TFinishSession();	/* close down transport */
+X		fprintf(stderr,"ERROR: invalid line in %s: %s\n", rc.pfile, s);
+X		ldbexit(STAT_ABORT);
+X		}
+X	if (p->equiv != NULL)		/* an equiv record */
+X		continue;		/* no other fields */
+X	if (p->myaddr == NULL)			/* if no myaddr line */
+X		p->myaddr = save(rc.myaddr);	/* dflt to ldbrc setting */
+X	if (rc.debug & DB_RWGAMES)
+X		message("DB-readpeople: read '%s'\n",p->name);
+X	}
+Xfclose(fp);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	writepeople -- save the people list to a file
+X *
+X * This function writes the people list to rc.pfile.  It attempts to
+X * replace temporary people structures with permanent ones before
+X * saving the people list.
+X *----------------------------------------------------------------------
+X */
+X
+Xwritepeople(file)
+Xchar *file;
+X{
+XFILE *fp;
+Xstruct people *p;
+Xstruct game *g;
+X
+Xunlink(file);		/* prevent multiple versions on VMS */
+Xif ( (fp = fopen(file,"w")) == NULL) {
+X	message("ERROR: can't save people in %s!\n",file);
+X	return;			/* should do something to save people list */
+X	}
+X
+Xfor (g = ghead; g != NULL; g = g->next)	/* for all games */
+X	if (
+X	    (g->ppl->score[0] < 0)		 &&	/* temp record */
+X	    (g->opname != NULL)			 &&	/* we have real */
+X	    (strcmp(g->opname,PPL_ANON) != 0) )		/* personal info now?*/
+X		newppl(g);				/* make permanent */
+X
+Xfor (p = phead; p != NULL; p = p->next) {
+X	if (p->equiv == NULL) {
+X		nvwrite(fp,nv_pfile,p);	/* write the struct */
+X		if (rc.debug & DB_RWGAMES)
+X			message("DB-writepeople: write '%s'\n",p->name);
+X		}
+X	else if (strcmp(p->equiv,p->addr) != 0)	/* if doesn't refer to self */
+X		nvwrite(fp,nv_pequiv,p);	/* write an equiv record */
+X	}
+Xfclose(fp);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	boardstr -- generate an ascii representation of a board
+X *
+X * This function produces a visible representation of a board.  Each point
+X * on the board takes two characters; the quantity is offset by 65,
+X * putting it in the range [A-P], and the color is unchanged since it
+X * is already a printable character.  This results in a string of
+X * 28 character pairs, one for each point on the board.  These are
+X * in the order:
+X *	0:	BAR point for upbound player
+X *	1-24:	board points
+X *	25:	BAR point for downbound player
+X *	26:	OFF point for upbound player
+X *	27:	OFF point for downbound player
+X *----------------------------------------------------------------------
+X */
+X
+Xchar *boardstr(b)
+Xboard b;
+X{
+Xstatic char buf[BOARDSIZE*2+1];
+Xchar *s, c;
+Xint i;
+X
+Xs = buf;
+Xfor (i = 0; i < BOARDSIZE; i++) {
+X	*s++ = b[i].qty + 'A';		/* offset qty into u.c. letters */
+X	c = b[i].color;
+X	if (! isalpha(c))
+X		c = '-';		/* use printing chars */
+X	*s++ = c;
+X	}
+X*s = '\0';
+Xreturn(buf);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	nvscan -- read name/value pairs from a file
+X *
+X * This function provides a generalized method for reading name/value
+X * pairs.  The names and value types are specified in an array of
+X * struct namevalue's, along with an offset which is used to store
+X * the value.  The offset is added to a base pointer, passed as the
+X * "st" argument, to form a pointer, which is then converted to the
+X * type indicated by the "type" field of the namevalue table using
+X * the "nvtypes" union, and used to store the value.  The legal
+X * value types are defined in ldb.h as FT_*.  Name/value pairs are
+X * expected to be in the form "name=value\n", with no spaces before
+X * or after name, and with any spaces after the = or before the
+X * newline being part of the value string.  Comments are indicated by
+X * a # in column 1, which comments to the end of the line.
+X *----------------------------------------------------------------------
+X */
+X
+Xchar *nvscan(fp,t,st)
+XFILE *fp;		/* file to scan */
+Xstruct namevalue *t;	/* table of name/value pairs */
+Xchar *st;		/* really a pointer to a structure */
+X{
+Xstatic char buf[128];
+Xchar *s, **p;
+Xint i, j;
+Xunion nvtypes u;
+Xlong atol();
+X
+Xwhile (fgets(buf,sizeof(buf),fp) != NULL) {
+X	if (*buf == '#')			/* comment character */
+X		continue;
+X	buf[strlen(buf)-1] = '\0';		/* clobber the newline */
+X	if ( (s = strchr(buf,'=')) == NULL)
+X		return(buf);			/* bad line, return it */
+X	*s++ = '\0';
+X	for (i = 0; t[i].name != NULL; i++)
+X		if (strcmp(t[i].name,buf) == 0)
+X			break;
+X	if (t[i].name == NULL)		/* got a name we don't recognize */
+X		continue;		/* ignore it */
+X	u.nvchar = st + t[i].offset;	/* put pointer into union */
+X	switch (t[i].type) {
+X	case FT_CHAR:			/* just store a single char */
+X		*u.nvchar = atoi(s);	/* chars stored as ints in the file */
+X		break;
+X	case FT_INT:			/* store an int */
+X		*u.nvint = atoi(s);
+X		break;
+X	case FT_STRING:			/* store a copy of a string */
+X		*u.nvstring = save(s);
+X		break;
+X	case FT_MOVE:			/* store a struct mv */
+X		str2mv(s,u.nvmove);
+X		break;
+X	case FT_BOARD:			/* store an entire board */
+X		for (j = 0; j < BOARDSIZE; j++) {
+X			u.nvboard[j].qty = *s++ - 'A';
+X			u.nvboard[j].color = *s++;
+X			}
+X		break;
+X	case FT_STRLKUP:		/* look up string & store index */
+X		p = (char **) t[i].dflt;	/* unions are such a pain */
+X		if (p == NULL)		/* choke... */
+X			fatal("ERROR: NULL string table in nvscan.");
+X		for (j = 0; *p; j++, p++)
+X			if (strcmp(s,*p) == 0)
+X				break;
+X		if (*p == NULL) {
+X			FeFinishSession();	/* close down front-end */
+X			TFinishSession();	/* close down transport */
+X			fprintf(stderr,"ERROR: unknown string: %s\n",s);
+X			ldbexit(STAT_ABORT);	/* shouldn't do this... */
+X			}
+X		*u.nvint = j;	/* store integer opcode */
+X		break;
+X	case FT_TIME:			/* read in a timestamp */
+X		*u.nvtime = atol(s);
+X		break;
+X	case FT_INTARRAY:		/* array of integers */
+X		for (j = 0; j < t[i].dflt; j++) {
+X			while (isspace(*s))
+X				s++;
+X			(u.nvint)[j] = atoi(s);		/* store an int */
+X			while (isdigit(*s))	/* skip to end of int */
+X				s++;
+X			}
+X		break;
+X	case FT_END:			/* we hit the end marker */
+X		return(NULL);		/* return success */
+X	default:			/* we have a bad nv table */
+X		*--s = '=';		/* restore the buffer */
+X		return(buf);		/* return bad line */
+X		}
+X	}
+Xreturn(NULL);
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	nvwrite -- write name/value pairs into a file
+X *
+X * This function writes name/value pairs to a file in the same format
+X * used by nvscan.  Nvwrite is merely the inverse of nvscan, taking values
+X * out of the structure in the same manner nvscan used to store them
+X * there, and generating "name=value" lines.  One line is generated for
+X * each element in the namevalue table, except that elements of type
+X * FT_MOVE whose "roll" field is <= 0 are skipped, as are elements of
+X * type FT_STRING that are equal to NULL.
+X *----------------------------------------------------------------------
+X */
+X
+Xnvwrite(fp,t,st)
+XFILE *fp;			/* file to write to */
+Xstruct namevalue *t;		/* table of name/value pairs */
+Xchar *st;			/* really a pointer to a structure */
+X{
+Xstruct namevalue *n;
+Xstatic char buf[128];
+Xint nstr;
+Xunion nvtypes u;
+Xchar c, **stbl;
+Xint j;
+X
+Xfor (n = t; n->name != NULL; n++) {
+X	u.nvchar = st + n->offset;
+X	switch (n->type) {
+X	case FT_CHAR:			/* just store a single char */
+X		fprintf(fp,"%s=%d\n",n->name,*u.nvchar);
+X		break;
+X	case FT_INT:			/* store an int */
+X		fprintf(fp,"%s=%d\n",n->name,*u.nvint);
+X		break;
+X	case FT_STRING:			/* store a copy of a string */
+X		if (*u.nvstring != NULL)/* skip NULL strings */
+X			fprintf(fp,"%s=%s\n",n->name,*u.nvstring);
+X		break;
+X	case FT_MOVE:			/* store a struct mv */
+X		if (u.nvmove->roll > 0) {
+X			mv2str(u.nvmove,buf);
+X			fprintf(fp,"%s=%s\n",n->name,buf);
+X			}
+X		break;
+X	case FT_BOARD:			/* store an entire board */
+X		fprintf(fp,"%s=%s\n",n->name,boardstr(u.nvboard));
+X		break;
+X	case FT_STRLKUP:		/* look up string & store index */
+X		stbl = (char **) n->dflt;	/* hope char** fits in int */
+X		if (stbl == NULL)
+X			fatal("ERROR: NULL string table in nvwrite.");
+X		for (nstr = 0; stbl[nstr]; nstr++); /* # strings */
+X		if ( (*u.nvint < 0) || (*u.nvint >= nstr) ) {
+X			FeFinishSession();	/* close down front-end */
+X			TFinishSession();	/* close down transport */
+X			fprintf(stderr,"ERROR: invalid index: %s=%d\n",
+X				n->name,*u.nvint);
+X			ldbexit(STAT_ABORT);	/* shouldn't do this... */
+X			}
+X		fprintf(fp,"%s=%s\n",n->name,stbl[*u.nvint]);
+X		break;
+X	case FT_TIME:			/* generate a timestamp */
+X		fprintf(fp,"%s=%lu\n",n->name,*u.nvtime);
+X		break;
+X	case FT_INTARRAY:		/* generate an integer array */
+X		fprintf(fp,"%s",n->name);
+X		c = '=';
+X		for (j = 0; j < n->dflt; j++) {
+X			fprintf(fp,"%c%d",c,(u.nvint)[j]);
+X			c = ' ';
+X			}
+X		fprintf(fp,"\n");
+X		break;
+X	case FT_END:			/* we hit the end marker */
+X		fprintf(fp,"%s=end\n",n->name);
+X		break;
+X	default:			/* we have a bad nv table */
+X		FeFinishSession();	/* close down front-end */
+X		TFinishSession();	/* close down transport */
+X		fprintf(stderr,"ERROR: bad namevalue type: %s (%d)\n",
+X			n->name,n->type);
+X		ldbexit(STAT_ABORT);		/* should have saved games? */
+X		}
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	check_timeout -- see if a game has been accessed recently
+X *
+X * This function checks the access time of a game.  If it is less than
+X * rc.acctime (default 7 days), and the game is waiting for the opponent,
+X * an automatic timeout is performed.  If rc.acctime is <= 0,
+X * automatic timeouts are disabled.
+X *---------------------------------------------------------------------------
+X */
+X
+Xcheck_timeout(g)
+Xstruct game *g;
+X{
+Xlong old;
+X
+Xif (rc.acctime <= 0)
+X	return;
+Xold = time((long *) 0) - ((long) (rc.acctime*86400)); /* look for idle games */
+Xif ( (g->lastacc < old) && (g->state < OPSTATES) ) {
+X	message("Access timeout (%d days) with %s -- resending...\n",
+X		rc.acctime,g->opaddr);
+X	g->lastacc = time( (long *) 0);
+X	resendpkt(g);	/* auto resend */
+X	}
+X}
+END_OF_FILE
+if test 21975 -ne `wc -c <'save.c'`; then
+    echo shar: \"'save.c'\" unpacked with wrong size!
+fi
+# end of 'save.c'
+fi
+echo shar: End of archive 5 \(of 12\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

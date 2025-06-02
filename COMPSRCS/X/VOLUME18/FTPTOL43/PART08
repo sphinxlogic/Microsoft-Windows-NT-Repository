@@ -1,0 +1,1973 @@
+Newsgroups: comp.sources.x
+Path: uunet!decwrl!mips!msi!dcmartin
+From: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Subject: v18i090: Ftptool 4.3 (XVIEW), Part08/12
+Message-ID: <1992Aug18.153717.28965@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-18i083-ftptool-4.3@uunet.UU.NET>
+Date: Tue, 18 Aug 1992 15:37:17 GMT
+Approved: dcmartin@msi.com
+Lines: 1960
+
+Submitted-by: Mike.Sullivan@EBay.Sun.COM (Mike Sullivan {AKA Simon BarSinister})
+Posting-number: Volume 18, Issue 90
+Archive-name: ftptool-4.3/part08
+
+#!/bin/sh
+# this is part.08 (part 8 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file misc.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 8; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping misc.c'
+else
+echo 'x - continuing file misc.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'misc.c' &&
+int make_dirs(char *s, int make_last)
+#else
+int make_dirs(s, make_last)
+char	*s;
+int		make_last;
+#endif
+{
+X	int	rval = 0;
+X	char	*slash;
+X	char	*lastslash;
+X	char	ch;
+X	char	*dir;
+X
+X	dir = expand_dirname(s);
+X	if (dir == NULL)
+X		return ENOMEM;
+X	slash = dir;
+X	for (;;) {
+X		lastslash = slash;
+X		slash = index(lastslash + 1, '/');
+X		if (slash) {
+X			ch = *slash;
+X			*slash = '\0';
+X			if (mkdir(dir, 0777) == -1) {
+X				rval = errno;
+X				if (rval != EEXIST)
+X					goto out;
+X				rval = 0;
+X			}
+X			*slash = ch;
+X		} else {
+X			if (make_last && mkdir(dir, 0777) == -1) {
+X				if (errno == EEXIST)
+X					rval = 0;
+X				else
+X					rval = errno;
+X			}
+X			goto out;
+X		}
+X	}
+out:
+X	free(dir);
+X	return rval;
+}
+X
+#ifdef USE_PROTOTYPES
+int ask_make_remote_dir(char *s)
+#else
+int ask_make_remote_dir(s)
+char	*s;
+#endif
+{
+X	int		answer;
+#ifdef XVIEW3
+X	Xv_notice notice;
+#endif
+X
+X	sprintf(scratch, "%s does not exist.", s);
+#ifdef XVIEW3
+X	notice = xv_create(base_window.panel, NOTICE,
+X		NOTICE_MESSAGE_STRINGS,
+X			scratch,
+X			"You can:",
+X			NULL,
+X		NOTICE_BUTTON, 		"Cancel", 4,
+X		NOTICE_BUTTON,      "Try to create it", 3,
+X		NOTICE_STATUS, &answer,
+X		XV_SHOW, TRUE,
+X		NULL);
+X	xv_destroy_safe(notice);
+#else
+X	answer = notice_prompt(base_window.panel, NULL,
+X		NOTICE_MESSAGE_STRINGS,
+X			scratch,
+X			"You can:",
+X			NULL,
+X		NOTICE_BUTTON, 		"Cancel", 4,
+X		NOTICE_BUTTON,      "Try to create it", 3,
+X		NULL);
+#endif
+X	if (answer == 4) 
+X		return -1;
+X
+X	return make_remote_dirs(s, 1);
+}
+X
+#ifdef USE_PROTOTYPES
+int make_remote_dirs(char *s, int make_last)
+#else
+int make_remote_dirs(s, make_last)
+char	*s;
+int		make_last;
+#endif
+{
+X	int	rval = 0;
+X	char	*slash;
+X	char	*lastslash;
+X	char	*colon;
+X	char	ch;
+X	char	*dir;
+X	char	*ftperr;
+X
+X	dir = strdup(s);
+X	if (dir == NULL)
+X		return ENOMEM;
+X	slash = dir;
+X	for (;;) {
+X		lastslash = slash;
+X		slash = index(lastslash + 1, '/');
+X		if (slash) {
+X			ch = *slash;
+X			*slash = '\0';
+X
+X			if (command("MKD %s", dir) == ERROR) {
+X				/* 550 file: File exists */
+X				colon = index(response_line, ':');
+X				if (!colon || strncmp(colon + 1, " File", 5)) {
+X					/* permission denied or file exists */
+X					sprintf(scratch, "Remote mkdir of %s failed.", dir);
+X					ftperr = ftp_error(' ', scratch);
+X					footer_message(ftperr, (char *)NULL);
+X					return 1;
+X				}
+X			}
+X
+X			*slash = ch;
+X		} else {
+X			if (make_last) {
+X				if (command("MKD %s", dir) == ERROR) {
+X					colon = index(response_line, ':');
+X					if (!colon || strncmp(colon + 1, " File", 5)) {
+X						/* permission denied or file exists */
+X						sprintf(scratch, "Remote mkdir of %s failed.", dir);
+X						ftperr = ftp_error(' ', scratch);
+X						footer_message(ftperr, (char *)NULL);
+X						return 1;
+X					}
+X				}
+X
+X			}
+X			goto out;
+X		}
+X	}
+out:
+X	free(dir);
+X	return rval;
+}
+X
+/* geometry = widthxheight+x+y */
+#ifdef USE_PROTOTYPES
+void set_geometry(char *s, Frame frame, int def_width, int def_height, 
+X	int def_x, int def_y)
+#else
+void set_geometry(s, frame, def_width, def_height, def_x, def_y)
+char	*s;
+Frame	frame;
+int		def_width;
+int		def_height;
+int		def_x;
+int		def_y;
+#endif
+{
+X	int		width;
+X	int		height;
+X	int		x;
+X	int		y;
+X	Rect	rect;
+X
+X	if (strlen(s)==0 || sscanf(s,"%dx%d+%d+%d",&width, &height, &x, &y) != 4) {
+X		width = def_width;
+X		height = def_height;
+X		x = def_x;
+X		y = def_y;
+X	}
+X	if (x < 0 || x >= display_width)
+X		x = 0;
+X	if (y < 0 || y >= display_height)
+X		y = 0;
+X	rect.r_left = x;
+X	rect.r_top = y;
+X	if (width < def_width)
+X		rect.r_width = def_width;
+X	else
+X		rect.r_width = width;
+X	if (height < def_height)
+X		rect.r_height = def_height;
+X	else
+X		rect.r_height = height;
+X	frame_set_rect(frame, &rect);
+}
+X
+#ifdef USE_PROTOTYPES
+void save_geometry(char *s, Frame frame)
+#else
+void save_geometry(s, frame)
+char	*s;
+Frame	frame;
+#endif
+{
+X	Rect	rect;
+X
+X	frame_get_rect(frame, &rect);
+X	sprintf(s, "%dx%d+%d+%d", rect.r_width, rect.r_height, 
+X		rect.r_left, rect.r_top);
+}
+X
+#ifdef USE_PROTOTYPES
+void justify_items(Panel panel, int resize)
+#else
+void justify_items(panel, resize)
+Panel	panel;
+int	resize;		/* TRUE to resize text fields */
+#endif
+{
+X	register Panel_item	item;
+X	register int		value_x;
+X	register Panel_item_type class;
+X	Xv_Font			font = XV_NULL;
+X	Font_string_dims	font_size;
+X	int			longest = 0;
+X	char			*string;
+X
+X	if (panel == XV_NULL)
+X		return;
+X
+X	/*
+X	 * Compute the longest label excluding all panel buttons
+X	 */
+X	PANEL_EACH_ITEM(panel, item) {
+X		if ((int)xv_get(item, PANEL_SHOW_ITEM) && ((Panel_item_type)
+X		    xv_get(item, PANEL_ITEM_CLASS) != PANEL_BUTTON_ITEM)) {
+X			font = (Xv_Font)xv_get(item, PANEL_LABEL_FONT);
+X			string = (char *)xv_get(item, PANEL_LABEL_STRING);
+X			xv_get(font,FONT_STRING_DIMS, string, &font_size);
+X			if (font_size.width > longest)  {
+X				longest = font_size.width;
+X			}
+X		}
+X	} PANEL_END_EACH;
+X
+X	value_x = longest + 2 * (int)xv_get(panel, PANEL_ITEM_X_GAP);
+X
+X	/* Layout each item (except buttons) on the panel */
+X	PANEL_EACH_ITEM(panel, item) {
+X		if ((int)xv_get(item, PANEL_SHOW_ITEM) &&
+X		    ((class = (Panel_item_type)xv_get(item, PANEL_ITEM_CLASS))
+X		    		!= PANEL_BUTTON_ITEM)) {
+X			xv_set(item, 
+X				PANEL_VALUE_X, value_x, 
+X				NULL);
+X			if (resize && class == PANEL_TEXT_ITEM) {
+X				resize_text_item(panel, item);
+X			}
+X		}
+X	}
+X	PANEL_END_EACH;
+X
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+void resize_text_item(Panel panel, Panel_item text_item)
+#else
+void resize_text_item(panel, text_item)
+Panel		panel;
+Panel_item	text_item;
+#endif
+{
+X	Xv_Font	font;
+X	int	width;
+X	int	n;
+X
+X	if (panel == XV_NULL || text_item == XV_NULL)
+X		return;
+X
+X	/*
+X	 * Set the display width of the fillin field to extend to the
+X	 * right edge of the panel. 
+X	 */
+X	width = (int)xv_get(panel, XV_WIDTH) -
+X		(int)xv_get(text_item, PANEL_VALUE_X) -
+X		(int)xv_get(panel, PANEL_ITEM_X_GAP);
+X
+X	font = (Xv_Font)xv_get(panel, XV_FONT);
+X	n = width / (int)xv_get(font, FONT_DEFAULT_CHAR_WIDTH);
+X
+X	/*
+X	 * Make sure it gets no smaller than 5 characters and no larger
+X	 * than the stored length.
+X	 */
+X	if (n < 5)
+X		n = 5;
+X	else if (n > (int)xv_get(text_item, PANEL_VALUE_STORED_LENGTH))
+X		n = (int)xv_get(text_item, PANEL_VALUE_STORED_LENGTH);
+X
+X	xv_set(text_item, 
+X		PANEL_VALUE_DISPLAY_LENGTH, n,
+X		NULL);
+X
+X	return;
+}
+X
+#ifdef USE_PROTOTYPES
+char *linkval(char *string)
+#else
+char *linkval(string)
+char	*string;
+#endif
+{
+X	char	*tmp;
+X
+X	/* string is of the form */
+X	/* name -> value */
+X	/* be somewhat sure we find the ->, not just one or the other, */
+X	/* since those _are_ legal filename characters */
+X	tmp = string;
+X
+X	while ((tmp = index(tmp, '-')) != NULL) {
+X		if (tmp[1] == '>' && tmp[2] == ' ')
+X			return strdup(&tmp[3]);
+X		tmp++; /* skip '-', since we didn't find -> */
+X	}
+X	fprintf(stderr, "linkval: malformed link entry\n");
+X	return NULL;
+}
+X
+#ifdef USE_PROTOTYPES
+char *linkname(char *string)
+#else
+char *linkname(string)
+char	*string;
+#endif
+{
+X	char	*str, *tmp;
+X
+X	/* string is of the form */
+X	/* name -> value */
+X	/* be somewhat sure we find the ->, not just one or the other, */
+X	/* since those _are_ legal filename characters */
+X	str = strdup(string);
+X	if (str == NULL) {
+X		fprintf(stderr, "linkname: Out of memory.\n");
+X		return NULL;
+X	}
+X	tmp = str;
+X
+X	while ((tmp = index(tmp, '-')) != NULL) {
+X		if (tmp[1] == '>' && tmp[2] == ' ' && tmp > str && tmp[-1] == ' ') {
+X			tmp[-1] = '\0';
+X			return str;
+X		}
+X		tmp++; /* skip '-', since we didn't find -> */
+X	}
+X	/*
+X	fprintf(stderr, "linkval: malformed link entry\n");
+X	free(str);
+X	*/
+X	return str;
+}
+X
+#ifdef USE_PROTOTYPES
+void add_dismiss(Panel panel, Panel_item first, Panel_item dismiss)
+#else
+void add_dismiss(panel, first, dismiss)
+Panel	panel;
+Panel_item	first;
+Panel_item	dismiss;
+#endif
+{
+X	Rect	*first_rect;
+X	Rect	*dismiss_rect;
+X	int	width,space,pos;
+X
+X	width = xv_get(panel, XV_WIDTH);
+X    first_rect = (Rect *)xv_get(first, XV_RECT);
+X    if (openlook_mode) {
+X        xv_set(dismiss,
+X			XV_SHOW, FALSE,
+X            NULL);
+X        xv_set(first,
+X            XV_X, width/2 - first_rect->r_width/2,
+X			XV_SHOW, TRUE,
+X            NULL);
+X    } else {
+X        dismiss_rect = (Rect *)xv_get(dismiss, XV_RECT);
+X        space = xv_col(panel, 1);
+X        pos = (width-(first_rect->r_width+space+dismiss_rect->r_width))/2;
+X        xv_set(first,
+X            XV_X, pos,
+X			XV_SHOW, TRUE,
+X            NULL);
+X        xv_set(dismiss,
+X            XV_X, pos + first_rect->r_width + space,
+X			XV_SHOW, TRUE,
+X            NULL);
+X    }
+X
+}
+X
+#ifdef USE_PROTOTYPES
+void update_date(int doscheddefault)
+#else
+void update_date(doscheddefault)
+int	doscheddefault;
+#endif
+{
+X	time_t	t;
+X	struct tm *tm;
+X	static char date[30];
+X
+X	t = time((time_t *)NULL);
+X	tm = localtime(&t);
+X	current_year = tm->tm_year;
+X	current_month = tm->tm_mon;
+X	strftime(date, sizeof(date), "%R %b %e %Y", tm);
+X	xv_set(schedule_window.current_time,
+X		PANEL_LABEL_STRING, date,
+X		NULL);
+X	if (doscheddefault) {
+X		xv_set(schedule_window.hour,
+X			PANEL_VALUE, tm->tm_hour,
+X			NULL);
+X		xv_set(schedule_window.minute,
+X			PANEL_VALUE, tm->tm_min,
+X			NULL);
+X		xv_set(schedule_window.month,
+X			PANEL_VALUE, tm->tm_mon,
+X			NULL);
+X		xv_set(schedule_window.day,
+X			PANEL_VALUE, tm->tm_mday,
+X			NULL);
+X		xv_set(schedule_window.year,
+X			PANEL_VALUE, tm->tm_year + 1900,
+X			NULL);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+Notify_value date_wrapper(void)
+#else
+Notify_value date_wrapper()
+#endif
+{
+X	update_date(0);
+X	return NOTIFY_DONE;
+}
+X
+#ifdef USE_PROTOTYPES
+void local_show_items(void)
+#else
+void local_show_items()
+#endif
+{
+X	int	nitems =  (int)xv_get(local_window.list, PANEL_LIST_NROWS);
+X
+X	if (nitems == 1) {
+X		local_right_footer_message("1 item, %d selected", 
+X			local_list_nfiles + local_list_ndirs + local_list_nothers);
+X	} else {
+X		local_right_footer_message("%d items, %d selected", nitems,
+X			local_list_nfiles + local_list_ndirs + local_list_nothers);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+void remote_show_items(void)
+#else
+void remote_show_items()
+#endif
+{
+X	int	nitems = (int)xv_get(base_window.list, PANEL_LIST_NROWS);
+X
+X	if (nitems == 1) {
+X		right_footer_message("1 item, %d selected", 
+X			remote_list_nfiles + remote_list_ndirs + remote_list_nothers);
+X	} else {
+X		right_footer_message("%d items, %d selected", nitems,
+X			remote_list_nfiles + remote_list_ndirs + remote_list_nothers);
+X	}
+}
+X
+#ifdef USE_PROTOTYPES
+int ping_server(void)
+#else
+int ping_server()
+#endif
+{
+X	(void)command("NOOP");
+X	if (code == 421) {
+X		timedout++;
+X		return ETIMEDOUT;
+X	}
+X	return 0;
+}
+X
+#ifdef NEED_STRCASECMP
+X
+/* A quick and dirty version of strcasecmp(), which seems to work */
+X
+#ifdef USE_PROTOTYPES
+int strcasecmp(const char *s1, const char *s2)
+#else
+int strcasecmp(s1, s2)
+char *s1, *s2;
+#endif
+{
+X	char	c1, c2;
+X
+X	while(*s1 && *s2) {
+X		if (isupper(*s1))
+X			c1 = tolower(*s1);
+X		else
+X			c1 = *s1;
+X		if (isupper(*s2))
+X			c2 = tolower(*s2);
+X		else
+X			c2 = *s2;
+X		if (c1 == c2) {
+X			s1++;
+X			s2++;
+X			continue;
+X		}
+X		else if (c1 > c2)
+X			return 1;
+X		else
+X			return -1;
+X	}
+X	if (*s1 == '\0' && *s2 == '\0')
+X		return 0;
+X	
+X	if (*s1 == '\0')
+X		return -1;
+X	
+X	return 1;
+X
+}
+X
+#endif
+SHAR_EOF
+echo 'File misc.c is complete' &&
+chmod 0644 misc.c ||
+echo 'restore of misc.c failed'
+Wc_c="`wc -c < 'misc.c'`"
+test 23290 -eq "$Wc_c" ||
+	echo 'misc.c: original size 23290, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= create_main.c ==============
+if test -f 'create_main.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping create_main.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting create_main.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'create_main.c' &&
+#include "ftptool.h"
+X
+#ifdef USE_PROTOTYPES
+void create_base_window(void)
+#else
+void create_base_window()
+#endif
+{
+X	Menu file_menu;
+X	Menu copy_menu;
+X	Menu delete_menu;
+X	Menu dir_menu;
+X	Menu view_menu;
+X	Menu props_menu;
+X	Menu remote_list_menu;
+X	Xv_Screen	screen;
+X	int		screen_no;
+X	int	width, height, x, y;
+X
+X	base_window.frame = xv_create(XV_NULL, FRAME,
+X		XV_X, 350,
+X		XV_Y, 100,
+X		XV_LABEL, header_name,
+X		FRAME_SHOW_FOOTER, TRUE,
+X		FRAME_LEFT_FOOTER, NULL,
+X		NULL);
+X
+X    base_window.panel = xv_create(base_window.frame, PANEL,
+X        XV_X, 0,
+X        XV_Y, 0,
+X        XV_WIDTH, WIN_EXTEND_TO_EDGE,
+X        WIN_BORDER, FALSE,
+X        NULL);
+X
+X	list_label = "                 Date                     Size   Filename";
+X
+X	list_font = (Xv_font)xv_find(base_window.panel, FONT,
+X		FONT_FAMILY, FONT_FAMILY_DEFAULT_FIXEDWIDTH,
+X		FONT_STYLE, FONT_STYLE_NORMAL,
+X		NULL);
+X
+X	if (list_font == XV_NULL) {
+X		fprintf(stderr, "could not find default fixed font.\n");
+X	} else {
+X		switch((int)xv_get(list_font, FONT_SCALE)) {
+X		case WIN_SCALE_SMALL:
+X			list_label = "                     Date                        Size    Filename";
+X			break;
+X		case WIN_SCALE_MEDIUM:
+X		default:
+X			/* this seems to be the default */
+X			list_label = "                 Date                     Size   Filename";
+X			break;
+X		case WIN_SCALE_LARGE:
+X			list_label = "                     Date                            Size    Filename";
+X			break;
+X		case WIN_SCALE_EXTRALARGE:
+X			list_label = "            Date                    Size   Filename";
+X			break;
+X		}
+X	}
+X
+X	bold_list_font = (Xv_font)xv_find(base_window.panel, FONT,
+X		FONT_FAMILY, FONT_FAMILY_DEFAULT_FIXEDWIDTH,
+X		FONT_STYLE, FONT_STYLE_BOLD,
+X		NULL);
+X
+X	if (bold_list_font == XV_NULL)
+X		fprintf(stderr, "could not find default bold fixed font.\n");
+X
+X	xv_set(base_window.panel, 
+X		PANEL_LAYOUT, 
+X		PANEL_HORIZONTAL,
+X		NULL);
+X
+X
+X	copy_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, file_copy_menu_gen,
+X		MENU_ITEM,
+X			MENU_STRING, "Remote to Local",
+X			MENU_NOTIFY_PROC, get_proc,
+X			XV_HELP_DATA, "ftptool:FileCopyRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local to Remote",
+X			MENU_NOTIFY_PROC, put_proc,
+X			XV_HELP_DATA, "ftptool:FileCopyLocal",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Remote to Local (Batch)",
+X			MENU_NOTIFY_PROC, batchget_proc,
+X			XV_HELP_DATA, "ftptool:BatchReceiveCopy",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local to Remote (Batch)",
+X			MENU_NOTIFY_PROC, batchput_proc,
+X			XV_HELP_DATA, "ftptool:BatchSendCopy",
+X			NULL,
+X		NULL);
+X
+X	delete_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, file_delete_menu_gen,
+X		MENU_ITEM,
+X			MENU_STRING, "Remote File",
+X			MENU_NOTIFY_PROC, remote_delete_proc,
+X			XV_HELP_DATA, "ftptool:FileDeleteRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local File",
+X			MENU_NOTIFY_PROC, local_delete_proc,
+X			XV_HELP_DATA, "ftptool:FileLocalRemote",
+X			NULL,
+X		NULL);
+X
+X	dir_menu = xv_create(XV_NULL, MENU,
+X		MENU_ITEM,
+X			MENU_STRING, "DIR",
+X			MENU_NOTIFY_PROC, dir_list_proc,
+X			XV_HELP_DATA, "ftptool:FileDir",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "LS",
+X			MENU_NOTIFY_PROC, ls_list_proc,
+X			XV_HELP_DATA, "ftptool:FileLS",
+X			NULL,
+X		NULL);
+X
+#ifdef LINT
+X	file_menu = NULL;
+X	file_menu = file_menu;
+X	copy_menu = copy_menu;
+X	delete_menu = delete_menu;
+X	dir_menu = dir_menu;
+#else
+X	file_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, file_menu_gen,
+X		MENU_PULLRIGHT_ITEM, "Copy", copy_menu,
+X		MENU_PULLRIGHT_ITEM, "Delete", delete_menu,
+X		MENU_PULLRIGHT_ITEM, "List Directory", dir_menu,
+X		MENU_ITEM,
+X			MENU_STRING, "Compress File",
+X			MENU_NOTIFY_PROC, compress_proc,
+X			XV_HELP_DATA, "ftptool:FileCompress",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Uncompress File",
+X			MENU_NOTIFY_PROC, uncompress_proc,
+X			XV_HELP_DATA, "ftptool:FileUncompress",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Create Tar File",
+X			MENU_NOTIFY_PROC, tar_proc,
+X			XV_HELP_DATA, "ftptool:FileCreateTar",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Extract Tar File",
+X			MENU_NOTIFY_PROC, extract_proc,
+X			XV_HELP_DATA, "ftptool:FileExtractTar",
+X			NULL,
+X		NULL);
+#endif
+X
+X	base_window.file = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "File",
+X		PANEL_ITEM_MENU, file_menu, 
+X		XV_HELP_DATA, "ftptool:FileButton",
+X		NULL);
+X
+#ifdef LINT
+X	view_menu = NULL;
+X	view_menu = view_menu;
+#else
+X	view_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, view_menu_gen,
+X		MENU_ITEM,
+X			MENU_STRING, "Remote File",
+X			MENU_NOTIFY_PROC, remote_view,
+X			XV_HELP_DATA, "ftptool:ViewRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local File",
+X			MENU_NOTIFY_PROC, local_view,
+X			XV_HELP_DATA, "ftptool:ViewLocal",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local Directory List...",
+X			MENU_NOTIFY_PROC, local_dir_view,
+X			XV_HELP_DATA, "ftptool:ViewLocalDirectory",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Session Log...",
+X			MENU_NOTIFY_PROC, session_view,
+X			XV_HELP_DATA, "ftptool:ViewSessionLog",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Host Information...",
+X			MENU_NOTIFY_PROC, host_view,
+X			XV_HELP_DATA, "ftptool:ViewCurrentHost",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Transfer Status...",
+X			MENU_NOTIFY_PROC, status_view,
+X			XV_HELP_DATA, "ftptool:ViewStatus",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Batch Schedule...",
+X			MENU_NOTIFY_PROC, schedule_view,
+X			XV_HELP_DATA, "ftptool:ViewSchedule",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "About Ftptool...",
+X			MENU_NOTIFY_PROC, about_proc,
+X			XV_HELP_DATA, "ftptool:FileAbout",
+X			NULL,
+X		NULL);
+#endif
+X
+X    base_window.view = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "View",
+X		PANEL_ITEM_MENU, view_menu,
+X		XV_HELP_DATA, "ftptool:ViewButton",
+X		NULL);
+X
+X
+X	props_menu = xv_create(XV_NULL, MENU,
+X		MENU_GEN_PROC, props_menu_gen,
+X		MENU_ITEM,
+X			MENU_STRING, "Tool...",
+X			MENU_NOTIFY_PROC, props_proc,
+X			XV_HELP_DATA, "ftptool:PropertiesTool",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Local File...",
+X			MENU_NOTIFY_PROC, local_properties,
+X			XV_HELP_DATA, "ftptool:PropertiesLocal",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Remote File...",
+X			MENU_NOTIFY_PROC, remote_properties,
+X			XV_HELP_DATA, "ftptool:PropertiesRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Save Layout",
+X			MENU_NOTIFY_PROC, save_layout_func,
+X			XV_HELP_DATA, "ftptool:PropertiesSaveLayout",
+X			NULL,
+X		NULL);
+X
+X	base_window.props = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_ITEM_X_GAP, 3 * (int)xv_get(base_window.panel, PANEL_ITEM_X_GAP),
+X		PANEL_LABEL_STRING, "Properties",
+X		PANEL_ITEM_MENU, props_menu,
+X		XV_HELP_DATA, "ftptool:PropertiesButton",
+X		NULL);
+X
+X	base_window.connect = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_ITEM_X_GAP, 3 * (int)xv_get(base_window.panel, PANEL_ITEM_X_GAP),
+X        PANEL_LABEL_STRING, " Connect... ",
+X		PANEL_NOTIFY_PROC, connect_proc,
+X		XV_HELP_DATA, "ftptool:ConnectButton",
+X		NULL);
+X
+X	base_window.abort = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Abort",
+X		PANEL_NOTIFY_PROC, abort_proc,
+X		PANEL_INACTIVE, TRUE,
+X		XV_HELP_DATA, "ftptool:AbortButton",
+X		NULL);
+X
+X	base_window.quit = xv_create(base_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Quit",
+X		PANEL_NOTIFY_PROC, quit_proc,
+X		XV_HELP_DATA, "ftptool:QuitButton",
+X		XV_SHOW, openlook_mode ? FALSE : TRUE,
+X		NULL);
+X
+X	xv_set(base_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL, 
+X		NULL);
+X
+X    base_window.directory = xv_create(base_window.panel, PANEL_TEXT,
+X		PANEL_ITEM_X, 0,
+X        PANEL_VALUE_DISPLAY_LENGTH, 42,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X        PANEL_LABEL_STRING, "Remote Directory:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, remote_cd_text,
+X		PANEL_INACTIVE, TRUE,
+X		XV_HELP_DATA, "ftptool:RemoteDirectory",
+X        NULL);
+X
+X    base_window.list = xv_create(base_window.panel, PANEL_LIST,
+X		PANEL_ITEM_X, 2,
+X		PANEL_NEXT_ROW, xv_row(base_window.panel, 1),
+X        PANEL_LIST_DISPLAY_ROWS, 8,
+X		PANEL_LABEL_STRING, list_label,
+X		PANEL_FONT, bold_list_font,
+X        PANEL_LAYOUT, PANEL_VERTICAL,
+X        PANEL_READ_ONLY, TRUE,
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_NOTIFY_PROC, remote_list_proc,
+X		XV_HELP_DATA, "ftptool:RemoteList",
+X        NULL);
+X
+X	remote_list_menu = xv_get(base_window.list, PANEL_ITEM_MENU);
+#ifdef LINT
+X	remote_list_menu = remote_list_menu;
+#else
+X	xv_set(remote_list_menu, 
+X		MENU_GEN_PIN_WINDOW, base_window.frame, "Remote File List",
+X		MENU_TITLE_ITEM, "Remote File List",
+X		MENU_ITEM,
+X			MENU_STRING, "",
+X			MENU_FEEDBACK, FALSE,
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "CD to Selection",
+X			MENU_NOTIFY_PROC, remote_cd_select,
+X			XV_HELP_DATA, "ftptool:RemoteMenuCDSelection",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Up One Level",
+X			MENU_NOTIFY_PROC, remote_cd_dotdot,
+X			XV_HELP_DATA, "ftptool:RemoteMenuCDUp",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Copy to Local",
+X			MENU_NOTIFY_PROC, get_proc,
+X			XV_HELP_DATA, "ftptool:RemoteMenuCopyLocal",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Add to Batch Receive List",
+X			MENU_NOTIFY_PROC, add_batch_receive_proc,
+X			XV_HELP_DATA, "ftptool:BatchReceiveAdd",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "View File",
+X			MENU_NOTIFY_PROC, remote_view,
+X			XV_HELP_DATA, "ftptool:RemoteMenuView",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Delete",
+X			MENU_NOTIFY_PROC, remote_delete_proc,
+X			XV_HELP_DATA, "ftptool:FileDeleteRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Properties...",
+X			MENU_NOTIFY_PROC, remote_properties,
+X			XV_HELP_DATA, "ftptool:RemoteMenuProperties",
+X			NULL,
+X		NULL);
+#endif
+X
+X	change_remote_list_menu();
+X	xv_set(base_window.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X	window_fit(base_window.panel);
+X	window_fit(base_window.frame);
+X
+X	dpy = (Display *)xv_get(base_window.frame, XV_DISPLAY);
+X	screen = (Xv_Screen)xv_get(base_window.frame, XV_SCREEN);
+X	screen_no = (int)xv_get(screen, SCREEN_NUMBER);
+X
+X	display_width = DisplayWidth(dpy, screen_no);
+X	display_height = DisplayHeight(dpy, screen_no);
+X
+X	width = xv_get(base_window.frame, XV_WIDTH);
+X	height = xv_get(base_window.frame, XV_HEIGHT);
+X	x = xv_get(base_window.frame, XV_X);
+X	y = xv_get(base_window.frame, XV_Y);
+X
+X	set_geometry(base_window.geometry, base_window.frame, width, height, x, y);
+X	
+X	XSync(dpy, False);
+X
+X	xv_set(base_window.frame,
+X		WIN_EVENT_PROC, base_event_proc,
+X		NULL);
+X
+X	xv_set(base_window.panel,
+X		PANEL_BACKGROUND_PROC, props_event_proc,
+X		PANEL_ACCEPT_KEYSTROKE, TRUE,
+X		NULL);
+}
+X
+#ifdef USE_PROTOTYPES
+void create_property_window(void)
+#else
+void create_property_window()
+#endif
+{
+X    Rect    *butrect;
+X	int		options;
+X	int		x, y;
+X
+X    tool_property_window.frame = xv_create(base_window.frame, FRAME_PROPS,
+X		XV_LABEL, "Ftptool: Properties",
+X        NULL);
+X
+X    tool_property_window.panel = (Panel)xv_get(tool_property_window.frame, 
+X		FRAME_PROPS_PANEL);
+X
+X	tool_property_window.category = xv_create(tool_property_window.panel, 
+X		PANEL_CHOICE_STACK,
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		PANEL_LABEL_STRING, "Category:",
+X		PANEL_CHOICE_STRINGS,
+X			"Ftptool",
+X			"Directory Lists",
+X			"Viewers",
+X			NULL,
+X		PANEL_VALUE, 0,
+X		PANEL_NOTIFY_PROC, category_proc,
+X		NULL);
+X
+X	xv_set(tool_property_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL, 
+X		NULL);
+X		
+X	window_fit_height(tool_property_window.panel);
+X
+X	/* ftptool panel */
+X
+X	tool_property_window.ftptool.panel = xv_create(tool_property_window.frame, 
+X		PANEL,
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		WIN_BORDER, TRUE,
+X		NULL);
+X
+X	x = xv_get(tool_property_window.ftptool.panel, XV_X);
+X	y = xv_get(tool_property_window.ftptool.panel, XV_Y);
+X
+X	options = logging | keepalive;
+X	tool_property_window.ftptool.options =
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "FTP options:",
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_CHOICE_STRINGS,
+X			"Log Session",
+X			"Keep Connection Alive",
+X			NULL,
+X		PANEL_VALUE, options,
+X		XV_HELP_DATA, "ftptool:PropertyOptions",
+X		NULL);
+X
+X	options = unique_local_names | unique_remote_names;
+X	tool_property_window.ftptool.unique =
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Generate unique:",
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_CHOICE_STRINGS,
+X			"Local Filenames",
+X			"Remote Filenames",
+X			NULL,
+X		PANEL_VALUE, options,
+X		XV_HELP_DATA, "ftptool:PropertyUnique",
+X		NULL);
+X
+X	options = auto_connect | show_status | try_proxy;
+X	tool_property_window.ftptool.automatic =
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Automatically:",
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X		PANEL_CHOICE_STRINGS,
+X			"Connect",
+X			"Show Status",
+X			"Try Sun Proxy FTP",
+X			NULL,
+X		PANEL_VALUE, options,
+X		XV_HELP_DATA, "ftptool:PropertyAuto",
+X		NULL);
+X
+X	tool_property_window.ftptool.openlook = 
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHECK_BOX,
+X		PANEL_LABEL_STRING, "Window manager:",
+X		PANEL_CHOICE_STRINGS,
+X			"OPEN LOOK",
+X			NULL,
+X		PANEL_VALUE, openlook_mode,
+X		XV_HELP_DATA, "ftptool:PropertyOpenLook",
+X		NULL);
+X
+X    tool_property_window.ftptool.anonftp = 
+X		xv_create(tool_property_window.ftptool.panel, PANEL_TEXT,
+X        PANEL_LABEL_STRING, "Initial password:",
+X        PANEL_VALUE_DISPLAY_LENGTH, 40,
+X        PANEL_VALUE_STORED_LENGTH, MAXPASSWORDLEN,
+X		PANEL_VALUE, anonftp_password,
+X		XV_HELP_DATA, "ftptool:PropertyPassword",
+X        NULL);
+X
+X	tool_property_window.ftptool.ignore_case = 
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHECK_BOX,
+X		PANEL_LABEL_STRING, "Case sensitivity:",
+X		PANEL_CHOICE_STRINGS,
+X			"Ignore case",
+X			NULL,
+X		PANEL_VALUE, ignore_case,
+X		XV_HELP_DATA, "ftptool:PropertyIgnoreCase",
+X		NULL);
+X
+X	tool_property_window.ftptool.confirm = 
+X		xv_create(tool_property_window.ftptool.panel, PANEL_CHECK_BOX,
+X		PANEL_LABEL_STRING, "Deletions:",
+X		PANEL_CHOICE_STRINGS,
+X			"Confirm",
+X			NULL,
+X		PANEL_VALUE, confirmdeletes,
+X		XV_HELP_DATA, "ftptool:PropertyConfirm",
+X		NULL);
+X
+X	justify_items(tool_property_window.ftptool.panel, FALSE);
+X
+X    tool_property_window.ftptool.apply = 
+X		xv_create(tool_property_window.ftptool.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Apply",
+X        PANEL_NOTIFY_PROC, ftptool_props_apply_proc,
+X		XV_HELP_DATA, "ftptool:PropertyApply",
+X        NULL);
+X
+X
+X	window_fit_width(tool_property_window.ftptool.panel);
+X
+X	xv_set(tool_property_window.ftptool.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X    butrect = (Rect *)xv_get(tool_property_window.ftptool.apply,XV_RECT);
+X    xv_set(tool_property_window.ftptool.apply,
+X		XV_X, (int)xv_get(tool_property_window.ftptool.panel, XV_WIDTH)/2 
+X			- butrect->r_width,
+X		NULL);
+X
+X    xv_create(tool_property_window.ftptool.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Reset",
+X        PANEL_NOTIFY_PROC, ftptool_props_reset_proc,
+X		XV_HELP_DATA, "ftptool:PropertyReset",
+X        NULL);
+X	xv_set(tool_property_window.ftptool.panel, 
+X		PANEL_DEFAULT_ITEM, tool_property_window.ftptool.apply, 
+X		NULL); 
+X
+X	window_fit_height(tool_property_window.ftptool.panel);
+X
+X	/* directory lists panel */
+X
+X	tool_property_window.directory_lists.panel = 
+X		xv_create(tool_property_window.frame, PANEL,
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		WIN_BORDER, TRUE,
+X		XV_X, x,
+X		XV_Y, y,
+X		NULL);
+X
+X	tool_property_window.directory_lists.cache = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_SLIDER,
+X		PANEL_LABEL_STRING, "Directory Cache Size:",
+X		PANEL_MIN_VALUE, 1,
+X		PANEL_MAX_VALUE, 20,
+X		PANEL_SLIDER_WIDTH, 200,
+X		PANEL_TICKS, 5,
+X		PANEL_VALUE, dircache_size,
+X		PANEL_INACTIVE, dircache_size == 0,
+X		XV_HELP_DATA, "ftptool:PropertyCacheSize",
+X		NULL);
+X
+X	tool_property_window.directory_lists.cache_inf = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHECK_BOX,
+X		PANEL_CHOICE_STRINGS,
+X			"Unlimit Cache Size",
+X			NULL,
+X		PANEL_VALUE, dircache_size == 0,
+X		PANEL_NOTIFY_PROC, props_inf_check_box,
+X		PANEL_ITEM_Y, xv_get(tool_property_window.directory_lists.cache, XV_X)
+X			+xv_get(tool_property_window.directory_lists.cache, XV_HEIGHT),
+X		XV_HELP_DATA, "ftptool:PropertyCacheInf",
+X		NULL);
+X
+X
+X	tool_property_window.directory_lists.remote_sort = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_NEXT_ROW, xv_row(tool_property_window.directory_lists.panel, 1),
+X		PANEL_LABEL_STRING, "Sort remote files by:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_NOTIFY_PROC, remote_sort_choice_proc,
+X		PANEL_CHOICE_STRINGS,
+X			"Name",
+X			"Date",
+X			"Size",
+X			NULL,
+X		PANEL_VALUE, remote_sort_mode,
+X		XV_HELP_DATA, "ftptool:PropertySortChoice",
+X		NULL);
+X
+X	tool_property_window.directory_lists.remote_sortdir = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Sort order:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_CHOICE_STRINGS,
+X			"Least Recently Changed",
+X			"Most Recently Changed",
+X			NULL,
+X		PANEL_VALUE, remote_sort_direction,
+X		XV_HELP_DATA, "ftptool:PropertySortDirection",
+X		NULL);
+X
+X	tool_property_window.directory_lists.remote_dotfiles = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Hidden files:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_CHOICE_STRINGS,
+X			"Hide",
+X			"Show",
+X			NULL,
+X		PANEL_VALUE, remote_showdotfiles,
+X		XV_HELP_DATA, "ftptool:PropertyHidden",
+X		NULL);
+X
+X	tool_property_window.directory_lists.remote_group = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHECK_BOX,
+X		PANEL_CHOICE_STRINGS, 
+X			"Group files by type",
+X			NULL,
+X		PANEL_VALUE, group_remote_files,
+X		XV_HELP_DATA, "ftptool:PropertySortGrouping",
+X		NULL);
+X
+X	tool_property_window.directory_lists.local_sort = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_NEXT_ROW, xv_row(tool_property_window.directory_lists.panel, 1),
+X		PANEL_LABEL_STRING, "Sort local files by:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_NOTIFY_PROC, local_sort_choice_proc,
+X		PANEL_CHOICE_STRINGS,
+X			"Name",
+X			"Date",
+X			"Size",
+X			NULL,
+X		PANEL_VALUE, local_sort_mode,
+X		XV_HELP_DATA, "ftptool:PropertyLocalSortChoice",
+X		NULL);
+X
+X	tool_property_window.directory_lists.local_sortdir = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Sort order:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_CHOICE_STRINGS,
+X			"Least Recently Changed",
+X			"Most Recently Changed",
+X			NULL,
+X		PANEL_VALUE, local_sort_direction,
+X		XV_HELP_DATA, "ftptool:PropertySortDirection",
+X		NULL);
+X
+X	tool_property_window.directory_lists.local_dotfiles = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHOICE,
+X		PANEL_LABEL_STRING, "Hidden files:",
+X		PANEL_CHOOSE_ONE, TRUE,
+X		PANEL_CHOOSE_NONE, FALSE,
+X		PANEL_CHOICE_STRINGS,
+X			"Hide",
+X			"Show",
+X			NULL,
+X		PANEL_VALUE, local_showdotfiles,
+X		XV_HELP_DATA, "ftptool:PropertyHidden",
+X		NULL);
+X
+X	tool_property_window.directory_lists.local_group = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_CHECK_BOX,
+X		PANEL_CHOICE_STRINGS,
+X			"Group files by type",
+X			NULL,
+X		PANEL_VALUE, group_local_files,
+X		XV_HELP_DATA, "ftptool:PropertyLocalSortGrouping",
+X		NULL);
+X
+X	justify_items(tool_property_window.directory_lists.panel, FALSE);
+X
+X    tool_property_window.directory_lists.apply = 
+X		xv_create(tool_property_window.directory_lists.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Apply",
+X        PANEL_NOTIFY_PROC, directory_lists_props_apply_proc,
+X		XV_HELP_DATA, "ftptool:PropertyApply",
+X        NULL);
+X
+X
+X	window_fit_width(tool_property_window.directory_lists.panel);
+X
+X	xv_set(tool_property_window.directory_lists.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X    butrect = (Rect *)xv_get(tool_property_window.directory_lists.apply,
+X		XV_RECT);
+X    xv_set(tool_property_window.directory_lists.apply,
+X		XV_X, (int)xv_get(tool_property_window.directory_lists.panel, 
+X			XV_WIDTH)/2 - butrect->r_width,
+X		NULL);
+X
+X    xv_create(tool_property_window.directory_lists.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Reset",
+X        PANEL_NOTIFY_PROC, directory_lists_props_reset_proc,
+X		XV_HELP_DATA, "ftptool:PropertyReset",
+X        NULL);
+X
+X	xv_set(tool_property_window.directory_lists.panel, 
+X		PANEL_DEFAULT_ITEM, tool_property_window.directory_lists.apply, 
+X		NULL); 
+X
+X	window_fit_height(tool_property_window.directory_lists.panel);
+X
+X	/* viewers panel */
+X
+X	tool_property_window.viewers.panel = xv_create(tool_property_window.frame, 
+X		PANEL,
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		WIN_BORDER, TRUE,
+X		XV_X, x,
+X		XV_Y, y,
+X		NULL);
+X
+X    tool_property_window.viewers.viewer = 
+X		xv_create(tool_property_window.viewers.panel, PANEL_TEXT,
+X        PANEL_LABEL_STRING, "File viewer:",
+X        PANEL_VALUE_DISPLAY_LENGTH, 40,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X		PANEL_VALUE, default_viewer,
+X		XV_HELP_DATA, "ftptool:PropertyViewer",
+X        NULL);
+X
+X    tool_property_window.viewers.archive = 
+X		xv_create(tool_property_window.viewers.panel, PANEL_TEXT,
+X        PANEL_LABEL_STRING, "Archive viewer:",
+X        PANEL_VALUE_DISPLAY_LENGTH, 40,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X		PANEL_VALUE, archive_viewer,
+X		XV_HELP_DATA, "ftptool:PropertyArchiveViewer",
+X        NULL);
+X
+X    tool_property_window.viewers.postscript = 
+X		xv_create(tool_property_window.viewers.panel, PANEL_TEXT,
+X        PANEL_LABEL_STRING, "PostScript viewer:",
+X        PANEL_VALUE_DISPLAY_LENGTH, 40,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X		PANEL_VALUE, postscript_viewer,
+X		XV_HELP_DATA, "ftptool:PropertyPostScriptViewer",
+X        NULL);
+X
+X	justify_items(tool_property_window.viewers.panel, FALSE);
+X	
+X    tool_property_window.viewers.apply = 
+X		xv_create(tool_property_window.viewers.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING, "Apply",
+X        PANEL_NOTIFY_PROC, viewers_props_apply_proc,
+X		XV_HELP_DATA, "ftptool:PropertyApply",
+X        NULL);
+X
+X
+X	window_fit_width(tool_property_window.viewers.panel);
+X
+X	xv_set(tool_property_window.viewers.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL, 
+X		NULL);
+X
+X    butrect = (Rect *)xv_get(tool_property_window.viewers.apply,XV_RECT);
+X    xv_set(tool_property_window.viewers.apply,
+X		XV_X, (int)xv_get(tool_property_window.viewers.panel, XV_WIDTH)/2 
+X			- butrect->r_width,
+X		NULL);
+X
+X    xv_create(tool_property_window.viewers.panel, PANEL_BUTTON,
+X        PANEL_LABEL_STRING,     "Reset",
+X        PANEL_NOTIFY_PROC, viewers_props_reset_proc,
+X		XV_HELP_DATA, "ftptool:PropertyReset",
+X        NULL);
+X
+X	xv_set(tool_property_window.viewers.panel, 
+X		PANEL_DEFAULT_ITEM, tool_property_window.viewers.apply, 
+X		NULL); 
+X
+X	window_fit_height(tool_property_window.viewers.panel);
+X
+X	/* end panels */
+X	xv_set(tool_property_window.viewers.panel, 
+X		XV_SHOW, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.directory_lists.panel, 
+X		XV_SHOW, FALSE, 
+X		NULL);
+X	xv_set(tool_property_window.ftptool.panel, 
+X		XV_SHOW, TRUE, 
+X		NULL);
+X
+X	switch_category(0, TRUE);
+X	set_remote_sort_order(remote_sort_mode);
+X	set_local_sort_order(local_sort_mode);
+}
+X
+#ifdef USE_PROTOTYPES
+void create_local_window(void)
+#else
+void create_local_window()
+#endif
+{
+X	Menu local_list_menu;
+X	Rect	rect;
+X	int		width, height, x, y;
+X	Panel_item	message;
+X
+X	if (gethostname(myhostname, MAXHOSTNAMELEN) == -1) {
+X		fprintf(stderr, "What host is this?\n");
+X		strcpy(myhostname, "unknown");
+X	}
+X
+X	sprintf(scratch, "Ftptool: Local Host - %s", myhostname);
+X
+X	local_window.frame = xv_create(base_window.frame, FRAME_CMD,
+#ifdef XVIEW3
+X		FRAME_CMD_PIN_STATE, FRAME_CMD_PIN_IN,
+#else
+X		FRAME_CMD_PUSHPIN_IN, TRUE,
+#endif
+X		XV_LABEL, scratch,
+X		FRAME_SHOW_RESIZE_CORNER, TRUE,
+X		FRAME_SHOW_FOOTER, TRUE,
+X		FRAME_LEFT_FOOTER, NULL,
+X		NULL);
+X
+X    local_window.panel = xv_get(local_window.frame, FRAME_CMD_PANEL);
+X
+X	xv_set(local_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL, 
+X		NULL);
+X
+X    local_window.directory = xv_create(local_window.panel, PANEL_TEXT,
+X        PANEL_VALUE_DISPLAY_LENGTH, 44,
+X        PANEL_VALUE_STORED_LENGTH, MAXPATHLEN,
+X        PANEL_LABEL_STRING, "Local Directory:",
+X        PANEL_LAYOUT, PANEL_HORIZONTAL,
+X        PANEL_READ_ONLY, FALSE,
+X		PANEL_NOTIFY_LEVEL, PANEL_SPECIFIED,
+X		PANEL_NOTIFY_PROC, local_cd_text,
+X		XV_HELP_DATA, "ftptool:LocalDirectory",
+X        NULL);
+X
+X	xv_set(local_window.panel, 
+X		PANEL_LAYOUT, PANEL_HORIZONTAL,
+X		NULL);
+X
+X	xv_set(local_window.panel, 
+X		PANEL_LAYOUT, PANEL_VERTICAL,
+X		NULL);
+X
+X	message = xv_create(local_window.panel, PANEL_MESSAGE,
+X		PANEL_LABEL_STRING, "Free Space:",
+X		PANEL_LABEL_BOLD, TRUE,
+X		NULL);
+X
+X	justify_items(local_window.panel, FALSE);
+X
+X    local_window.list = xv_create(local_window.panel, PANEL_LIST,
+X        PANEL_LIST_DISPLAY_ROWS, 8,
+X		PANEL_LABEL_STRING, list_label,
+X		PANEL_FONT, bold_list_font,
+X        PANEL_LAYOUT, PANEL_VERTICAL,
+X		PANEL_CHOOSE_ONE, FALSE,
+X		PANEL_CHOOSE_NONE, TRUE,
+X        PANEL_READ_ONLY, TRUE,
+X		PANEL_NOTIFY_PROC, local_list_proc,
+X		XV_HELP_DATA, "ftptool:LocalList",
+X        NULL);
+X
+X	local_list_menu = xv_get(local_window.list, PANEL_ITEM_MENU);
+#ifdef LINT
+X	local_list_menu = local_list_menu;
+#else
+X	xv_set(local_list_menu,
+X		MENU_GEN_PIN_WINDOW, base_window.frame, "Local File List",
+X		MENU_TITLE_ITEM, "Local File List",
+X		MENU_ITEM,
+X			MENU_STRING, "",
+X			MENU_FEEDBACK, FALSE,
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "CD to Selection",
+X			MENU_NOTIFY_PROC, local_cd_select,
+X			XV_HELP_DATA, "ftptool:LocalMenuCDSelection",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Up One Level",
+X			MENU_NOTIFY_PROC, local_cd_dotdot,
+X			XV_HELP_DATA, "ftptool:LocalMenuCDUp",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Copy to Remote",
+X			MENU_NOTIFY_PROC, put_proc,
+X			XV_HELP_DATA, "ftptool:LocalMenuCopyRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Add to Batch Send List",
+X			MENU_NOTIFY_PROC, add_batch_send_proc,
+X			XV_HELP_DATA, "ftptool:BatchSendAdd",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "View File",
+X			MENU_NOTIFY_PROC, local_view,
+X			XV_HELP_DATA, "ftptool:LocalMenuView",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Delete",
+X			MENU_NOTIFY_PROC, local_delete_proc,
+X			XV_HELP_DATA, "ftptool:FileLocalRemote",
+X			NULL,
+X		MENU_ITEM,
+X			MENU_STRING, "Properties...",
+X			MENU_NOTIFY_PROC, local_properties,
+X			XV_HELP_DATA, "ftptool:LocalMenuProperties",
+X			NULL,
+X		NULL);
+#endif
+X
+X	change_local_list_menu();
+X
+X	local_window.space = xv_create(local_window.panel, PANEL_MESSAGE,
+X		PANEL_LABEL_STRING, "",
+X		PANEL_ITEM_X, xv_get(message, XV_X) + xv_get(message, XV_WIDTH)
+X				+ xv_col(local_window.panel, 1),
+X		PANEL_ITEM_Y, xv_get(message, XV_Y),
+X		NULL);
+X
+X	local_window.dismiss = xv_create(local_window.panel, PANEL_BUTTON,
+X		PANEL_LABEL_STRING, "Dismiss",
+X		PANEL_NOTIFY_PROC, dismiss_local_window,
+X		XV_SHOW, openlook_mode ? FALSE : TRUE,
+X		XV_HELP_DATA, "ftptool:DismissButton",
+X		NULL);
+X
+X	window_fit(local_window.panel);
+X	window_fit(local_window.frame);
+X
+X	XSync(dpy, False);
+X
+X
+X	frame_get_rect(base_window.frame, &rect);
+X
+X	x = rect.r_left;
+X	y = rect.r_top + rect.r_height;
+X
+X	width = xv_get(local_window.frame, XV_WIDTH);
+X	height = xv_get(local_window.frame, XV_HEIGHT);
+X
+X	rect.r_left = x;
+X	rect.r_top = y;
+X	rect.r_height = height;
+X
+X	frame_set_rect(local_window.frame, &rect);
+X	frame_set_rect(local_window.panel, &rect);
+X
+X	set_geometry(local_window.geometry,local_window.frame,width,height,x,y);
+X
+X	resize_window(local_window.panel, local_window.list, 
+X		local_window.dismiss);
+X
+X	xv_set(local_window.frame, 
+X		WIN_EVENT_PROC, local_event_proc,
+X		NULL);
+}
+SHAR_EOF
+chmod 0644 create_main.c ||
+echo 'restore of create_main.c failed'
+Wc_c="`wc -c < 'create_main.c'`"
+test 27153 -eq "$Wc_c" ||
+	echo 'create_main.c: original size 27153, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ftp.c ==============
+if test -f 'ftp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ftp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ftp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ftp.c' &&
+/*
+X * Copyright (c) 1985, 1989 Regents of the University of California.
+X * All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by the University of
+X *	California, Berkeley and its contributors.
+X * 4. Neither the name of the University nor the names of its contributors
+X *    may be used to endorse or promote products derived from this software
+X *    without specific prior written permission.
+X *
+X * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+X * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+X * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+X * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X
+#ifndef lint
+static char sccsid[] = "@(#)ftp.c	5.38 (Berkeley) 4/22/91";
+#endif /* not lint */
+X
+#include "ftptool.h"
+#include "ftp_var.h"
+X
+#ifdef USE_PROTOTYPES
+int ftp_hookup(char *host, int port)
+#else
+int ftp_hookup(host, port)
+char	*host;
+int 	port;
+#endif
+{
+X	register struct hostent *hp = 0;
+X	int s, len;
+X	static char hostnamebuf[80];
+X	char	*ftperr;
+X
+X	bzero((char *)&hisctladdr, sizeof (hisctladdr));
+X	hisctladdr.sin_addr.s_addr = inet_addr(host);
+X	if (hisctladdr.sin_addr.s_addr != -1) {
+X		hisctladdr.sin_family = AF_INET;
+X		(void) strncpy(hostnamebuf, host, sizeof(hostnamebuf));
+X	} else {
+X		hp = gethostbyname(host);
+X		if (hp == NULL) {
+X			if (try_proxy)
+X				footer_message("%s unknown. Trying proxy.", host, (char *)NULL);
+X			else
+X				footer_message("%s: unknown host", host, (char *)NULL);
+X			code = -1;
+X			return(1);
+X		}
+X		hisctladdr.sin_family = hp->h_addrtype;
+X		bcopy(hp->h_addr_list[0],
+X		    (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X		(void) strncpy(hostnamebuf, hp->h_name, sizeof(hostnamebuf));
+X	}
+X	s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X	if (s < 0) {
+X		perror("ftptool: socket");
+X		code = -1;
+X		return (0);
+X	}
+X	hisctladdr.sin_port = port;
+X	while (connect(s, (struct sockaddr *)&hisctladdr, sizeof (hisctladdr)) < 0) {
+X		if (hp && hp->h_addr_list[1]) {
+X			extern char *inet_ntoa();
+X
+X			sprintf(scratch, "connect to address %s: %s",
+X				inet_ntoa(hisctladdr.sin_addr), strerror(errno));
+X			log_message(scratch);
+X			hp->h_addr_list++;
+X			bcopy(hp->h_addr_list[0],
+X			     (caddr_t)&hisctladdr.sin_addr, hp->h_length);
+X			sprintf(scratch, "Trying %s...", inet_ntoa(hisctladdr.sin_addr));
+X			log_message(scratch);
+X			footer_message(scratch, (char *)NULL);
+X			(void) close(s);
+X			s = socket(hisctladdr.sin_family, SOCK_STREAM, 0);
+X			if (s < 0) {
+X				perror("ftptool: socket");
+X				code = -1;
+X				return (0);
+X			}
+X			continue;
+X		}
+X		code = -1;
+X		if (errno == ENETUNREACH) {
+X			if (try_proxy)
+X				footer_message("%s unreachable. Trying proxy.", host, (char *)NULL);
+X			(void)close(s);
+X			return 1;
+X		}
+X		sprintf(scratch, "connect: %s: %s", host, strerror(errno));
+X		footer_message(scratch, (char *)NULL);
+X		goto bad;
+X	}
+X	len = sizeof (myctladdr);
+X	if (getsockname(s, (struct sockaddr *)&myctladdr, &len) < 0) {
+X		perror("ftptool: getsockname");
+X		code = -1;
+X		goto bad;
+X	}
+#if 1
+X	hp = gethostbyname(myhostname);
+X	myctladdr.sin_family = hp->h_addrtype;
+X	bcopy(hp->h_addr_list[0], (caddr_t)&myctladdr.sin_addr, hp->h_length);
+#endif
+X	responsefp = fdopen(s, "r");
+X	commandfp = fdopen(s, "w");
+X	if (responsefp == NULL || commandfp == NULL) {
+X		fprintf(stderr, "ftptool: fdopen failed.\n");
+X		close_files();
+X		code = -1;
+X		goto bad;
+X	}
+X	if (verbose) {
+X		sprintf(scratch, "Connected to %s.\n", hostnamebuf);
+X		log_message(scratch);
+X	}
+X	if (getreply(0) > 2) { 	/* read startup message from server */
+X		close_files();
+X		code = -1;
+X		ftperr = ftp_error(' ', "Service not available.");
+X		footer_message(ftperr, (char *)NULL);
+X		goto bad;
+X	}
+X
+X	/* could get
+X	 Connected to sun-barr.ebay.sun.com.
+X	 The Internet FTP relay is down for system maintenance.
+X	 Please try again later this weekend.
+X	 Sorry for any inconvenience.
+X	 Network Operations
+X	 421 Service not available, remote server has closed connection
+X	 */
+X	if (!strncmp(response_line, "The Internet", 12)) {
+X		footer_message("The proxy FTP relay is down. Try again later.",
+X			(char *)NULL);
+X		close_files();
+X		code = -1;
+X		goto bad;
+X	}
+#ifdef SO_OOBINLINE
+X	{
+X	int on = 1;
+X
+X	if (setsockopt(s, SOL_SOCKET, SO_OOBINLINE, (char *)&on, sizeof(on))
+X		< 0 && debug) {
+X			perror("ftptool: setsockopt");
+X		}
+X	}
+#endif /* SO_OOBINLINE */
+X
+X	return 2;
+bad:
+X	(void) close(s);
+X	return 0;
+}
+X
+#ifdef USE_PROTOTYPES
+int ftp_login(char *user, char *pass)
+#else
+int ftp_login(user, pass)
+char	*user;
+char	*pass;
+#endif
+{
+X	int n;
+X	char	*ftperr;
+X
+X	n = command("USER %s", user);
+X	/* We may have just consumed some startup messages from a server */
+X	/* that spews them at connection, but we only grabbed the sun-barr one */
+X	if (code == 220) {
+X		cpend = 1;
+X		n = getreply(0);
+X	} else if (code == 0) {
+X		/* for nic.ddn.mil */
+X		while (code == 0 || code == 220) {
+X			cpend = 1;
+X			n = getreply(0);
+X		}
+X	}
+X	if (code == 500) {
+X		/* sun-barr.ebay doesn't recognize host */
+X		/* 500 yavin: unknown host */
+X		/* 500 connect: connection timed out */
+X		ftperr = ftp_error(' ', "Connect failed.");
+X		footer_message(ftperr, (char *)NULL);
+X		quit_ftp();
+X	} else if (code == 530) {
+X		/* XXX login unknown */
+X		/* login failed */
+X		ftperr = ftp_error(' ', "Connect failed. Login unknown.");
+X		footer_message(ftperr, (char *)NULL);
+X		quit_ftp();
+X	} else if (code == 421) {
+X		footer_message("Service not available.", (char *)NULL);
+X		quit_ftp();
+X	} 
+X
+X	/* Contact line is in the Sorry line */
+X	/* 421 Service not available  (for Iftp ) */
+X	if (!strncmp(response_line, "Sorry", 5)) {
+X		ftperr = "Connect failed. This host is directly reachable.";
+X		footer_message(ftperr, (char *)NULL);
+X		quit_ftp();
+X		return 0;
+X	}
+X	if (n == CONTINUE) {
+X		code = 0;
+X		n = command("PASS %s", pass);
+X		if (n == ERROR || code == 421) {
+X			if (code == 421)
+X				ftperr = &response_line[4];
+X			else
+X				ftperr = ftp_error(' ', "Connect failed.");
+X			footer_message(ftperr, (char *)NULL);
+X			quit_ftp();
+X			return 0;
+X		}
+X	}
+X	if (n != COMPLETE) {
+X		return (0);
+X	}
+X	return (1);
+}
+X
+#ifdef USE_PROTOTYPES
+int command(char *fmt, ...)
+#else
+/*VARARGS*/
+int command(va_alist)
+va_dcl
+#endif
+{
+#ifndef USE_PROTOTYPES
+X	char *fmt;
+#endif
+X	va_list ap;
+X	int r;
+X
+X	notify_do_dispatch();
+X	abrtflag = 0;
+X	if (commandfp == NULL) {
+X		/*
+X		perror ("No control connection for command");
+X		 */
+X		code = 421;
+X		return (0);
+X	}
+#ifdef USE_PROTOTYPES
+X	va_start(ap, format);
+#else
+X	va_start(ap);
+X	fmt = (char *)va_arg(ap, char *);
+#endif
+X	vfprintf(commandfp, fmt, ap);
+X	va_end(ap);
+X	fprintf(commandfp, "\r\n");
+X	(void) fflush(commandfp);
+X	cpend = 1;
+X	notify_do_dispatch();
+X	r = getreply(!strcmp(fmt, "QUIT"));
+X	return(r);
+}
+X
+#ifdef USE_PROTOTYPES
+int command_dataconn(FILE **a_file, char *lmode, char *fmt, ...)
+#else
+/*VARARGS2*/
+int command_dataconn(a_file, lmode, va_alist)
+FILE	**a_file;
+char	*lmode;
+va_dcl
+#endif
+{
+#ifndef USE_PROTOTYPES
+X	char *fmt;
+#endif
+X	va_list ap;
+X	int r;
+X
+X	notify_do_dispatch();
+X	abrtflag = 0;
+X	if (commandfp == NULL) {
+X		/*
+X		perror ("No control connection for command");
+X		*/
+X		code = 421;
+X		return 0;
+X	}
+#ifdef USE_PROTOTYPES
+X	va_start(ap, format);
+#else
+X	va_start(ap);
+X	fmt = (char *)va_arg(ap, char *);
+#endif
+X	vfprintf(commandfp, fmt, ap);
+X	va_end(ap);
+X	fprintf(commandfp, "\r\n");
+X	(void) fflush(commandfp);
+#ifdef SYSV386
+X	*a_file = dataconn(lmode);
+#endif
+X	cpend = 1;
+X	notify_do_dispatch();
+X	r = getreply(!strcmp(fmt, "QUIT"));
+#ifndef SYSV386
+X	if (r == PRELIM)
+X		*a_file = dataconn(lmode);
+#endif
+X	return r;
+}
+X
+#include <ctype.h>
+X
+#ifdef USE_PROTOTYPES
+int getreply(int expecteof)
+#else
+int getreply(expecteof)
+int expecteof;
+#endif
+{
+X	register int c, n;
+X	register int dig;
+X	register char *cp;
+X	int originalcode = 0, continuation = 0;
+X	int pflag = 0;
+X
+X	for (;;) {
+X		dig = n = code = 0;
+X		cp = response_line;
+X		notify_do_dispatch();
+X		while ((c = getc(responsefp)) != '\n') {
+X			if (c == IAC) {     /* handle telnet commands */
+X				switch (c = getc(responsefp)) {
+X				case WILL:
+X				case WONT:
+X					c = getc(responsefp);
+X					fprintf(commandfp, "%c%c%c", IAC, DONT, c);
+X					(void) fflush(commandfp);
+X					break;
+X				case DO:
+X				case DONT:
+X					c = getc(responsefp);
+X					fprintf(commandfp, "%c%c%c", IAC, WONT, c);
+X					(void) fflush(commandfp);
+X					break;
+X				default:
+X					break;
+X				}
+X				continue;
+X			}
+SHAR_EOF
+true || echo 'restore of ftp.c failed'
+fi
+echo 'End of  part 8'
+echo 'File ftp.c is continued in part 9'
+echo 9 > _shar_seq_.tmp
+exit 0
+-- 
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236
+Sunnyvale, California 94086		fax: 408/732-0831

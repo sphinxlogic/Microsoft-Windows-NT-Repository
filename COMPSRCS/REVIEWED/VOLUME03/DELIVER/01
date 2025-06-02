@@ -1,0 +1,280 @@
+This patch contains changes to the following files:
+	patchlevel.h
+	README
+	config.h
+	deliver.8
+	header.c
+	main.c
+	unctime.y
+	conf/os-sun4.h
+
+Index: patchlevel.h
+Prereq: 10
+***************
+*** 1 ****
+! #define PATCHLEVEL 10
+--- 1 ----
+! #define PATCHLEVEL 11
+
+Index: README
+Prereq: 1.11
+***************
+*** 1,4 ****
+! $Id: README,v 1.11 1992/07/02 17:57:59 chip Exp $
+! This is the README file for Deliver 2.1.10.
+  
+  
+--- 1,4 ----
+! $Id: README,v 1.12 1992/12/17 20:29:06 chip Exp $
+! This is the README file for Deliver 2.1.11.
+  
+  
+***************
+*** 43,46 ****
+--- 43,47 ----
+      NeWS-OS 3.2           Sony
+      NextOS 2.x            NeXT
++     RiscOS                ?                 both flavors (BSD, SysV)
+      SCO UNIX 3.2          SCO               using cc, rcc or gcc
+      SCO Xenix 2.x, 3.x    SCO               both Xenix/286 and Xenix/386
+
+Index: config.h
+Prereq: 1.8
+***************
+*** 1,3 ****
+! /* $Id: config.h,v 1.8 1992/01/20 20:36:05 chip Exp $
+   *
+   * Deliver configuration.
+--- 1,3 ----
+! /* $Id: config.h,v 1.9 1992/12/17 20:09:32 chip Exp $
+   *
+   * Deliver configuration.
+***************
+*** 4,7 ****
+--- 4,10 ----
+   *
+   * $Log: config.h,v $
++  * Revision 1.9  1992/12/17  20:09:32  chip
++  * Define HAS_NFS before including finish-os.h.
++  *
+   * Revision 1.8  1992/01/20  20:36:05  chip
+   * Allow for UUX_OPTS to be a list.
+***************
+*** 43,56 ****
+  
+  /*----------------------------------------------------------------------
+-  * Get operating system configuration.
+-  * Edit this include statement to refer to the correct file,
+-  * or add "-DOSHEADER=os-whatever.h" to DEFS in the Makefile.
+-  */
+- 
+- #include OSINCLUDE
+- 
+- #include <finish-os.h>
+- 
+- /*----------------------------------------------------------------------
+   * NFS support.
+   * If you write mailboxes across NFS, safe creation of mailboxes and
+--- 46,49 ----
+***************
+*** 61,67 ****
+--- 54,74 ----
+   * Define HAS_NFS to trigger worst-case assumptions for file creation
+   * behavior.  (And believe me: NFS *is* the worst case.)
++  *
++  * NOTE: You must define HAS_NFS before including <finish-os.h>.
++  *       Therefore, you CANNOT define HAS_NFS in <local.h>.
++  *       Define it here, or edit Makefile thus: "UDEFS = -DHAS_NFS".
+   */
+  
+  /* #define HAS_NFS */
++ 
++ /*----------------------------------------------------------------------
++  * Get operating system configuration.
++  * Edit this include statement to refer to the correct file,
++  * or edit Makefile thus: "OSHEADER = os-whatever.h".
++  */
++ 
++ #include OSINCLUDE
++ 
++ #include <finish-os.h>
+  
+  /*----------------------------------------------------------------------
+
+Index: deliver.8
+Prereq: 1.8
+***************
+*** 1,7 ****
+! .\" $Id: deliver.8,v 1.8 1992/07/02 17:58:44 chip Exp $
+  .\"
+  .\" Man page for deliver.
+  .\"
+! .TH DELIVER 8 "Deliver 2.1.10"
+  .SH NAME
+  deliver \- deliver mail
+--- 1,7 ----
+! .\" $Id: deliver.8,v 1.9 1992/12/17 20:29:00 chip Exp $
+  .\"
+  .\" Man page for deliver.
+  .\"
+! .TH DELIVER 8 "Deliver 2.1.11"
+  .SH NAME
+  deliver \- deliver mail
+
+Index: header.c
+Prereq: 1.2
+***************
+*** 1,3 ****
+! /* $Id: header.c,v 1.2 1991/05/23 17:23:19 chip Exp $
+   *
+   * A program to parse RFC 822 mail/news headers.
+--- 1,3 ----
+! /* $Id: header.c,v 1.3 1992/11/13 19:11:07 chip Exp $
+   *
+   * A program to parse RFC 822 mail/news headers.
+***************
+*** 18,21 ****
+--- 18,24 ----
+   *
+   * $Log: header.c,v $
++  * Revision 1.3  1992/11/13  19:11:07  chip
++  * Make "-v" really imply "-n".
++  *
+   * Revision 1.2  1991/05/23  17:23:19  chip
+   * Follow RFC822 definition of header syntax.
+***************
+*** 103,106 ****
+--- 106,110 ----
+  	case 'v':
+  	    except = TRUE;
++ 	    printnames = TRUE;
+  	    break;
+  	case 'f':
+
+Index: main.c
+Prereq: 1.9
+***************
+*** 1,3 ****
+! /* $Id: main.c,v 1.9 1992/05/12 21:02:17 chip Exp $
+   *
+   * A program to deliver local mail with some flexibility.
+--- 1,3 ----
+! /* $Id: main.c,v 1.10 1992/11/19 16:25:27 chip Exp $
+   *
+   * A program to deliver local mail with some flexibility.
+***************
+*** 4,7 ****
+--- 4,10 ----
+   *
+   * $Log: main.c,v $
++  * Revision 1.10  1992/11/19  16:25:27  chip
++  * Reset SIGCLD (or SIGCHLD) during setup.
++  *
+   * Revision 1.9  1992/05/12  21:02:17  chip
+   * No diagnostic message when sender address is unsafe;
+***************
+*** 38,41 ****
+--- 41,52 ----
+  #include "patchlevel.h"
+  
++ #ifdef SIGCLD
++ # define CHILD_SIGNAL SIGCLD
++ #else
++ # ifdef SIGCHLD
++ #  define CHILD_SIGNAL SIGCHLD
++ # endif
++ #endif
++ 
+  /*
+   * External data.
+***************
+*** 504,507 ****
+--- 515,526 ----
+      else
+  	ignore_sigs();
++ 
++     /*
++      * Handle death-of-child signal in the default way.
++      */
++ 
++ #ifdef CHILD_SIGNAL
++     (void) signal(CHILD_SIGNAL, SIG_DFL);
++ #endif
+  
+      /*
+
+Index: unctime.y
+Prereq: 1.5
+***************
+*** 1,4 ****
+  /*
+!  * $Id: unctime.y,v 1.5 1991/11/12 20:43:10 chip Exp $
+   *
+   * Conversion of ctime-style date string back to a time_t.
+--- 1,4 ----
+  /*
+!  * $Id: unctime.y,v 1.6 1992/11/19 16:26:03 chip Exp $
+   *
+   * Conversion of ctime-style date string back to a time_t.
+***************
+*** 7,10 ****
+--- 7,13 ----
+   *
+   * $Log: unctime.y,v $
++  * Revision 1.6  1992/11/19  16:26:03  chip
++  * Make yylex() and yyerror() public.
++  *
+   * Revision 1.5  1991/11/12  20:43:10  chip
+   * Ignore return value of ftime().
+***************
+*** 226,230 ****
+     If it is a punctuation mark, return the character code.
+     Ignore white space.  */
+! static
+  yylex()
+  {
+--- 229,233 ----
+     If it is a punctuation mark, return the character code.
+     Ignore white space.  */
+! 
+  yylex()
+  {
+***************
+*** 301,305 ****
+  
+  /* ARGSUSED */
+- static
+  yyerror(s)
+  char *s;
+--- 304,307 ----
+
+Index: conf/os-sun4.h
+Prereq: 1.4
+***************
+*** 1,3 ****
+! /* $Id: os-sun4.h,v 1.4 1991/08/05 18:19:27 chip Exp $
+   *
+   * Deliver configuration for SunOS 4.x.
+--- 1,3 ----
+! /* $Id: os-sun4.h,v 1.5 1992/07/29 17:08:35 chip Exp $
+   *
+   * Deliver configuration for SunOS 4.x.
+***************
+*** 4,7 ****
+--- 4,10 ----
+   *
+   * $Log: os-sun4.h,v $
++  * Revision 1.5  1992/07/29  17:08:35  chip
++  * SunOS 4.x has vprintf().
++  *
+   * Revision 1.4  1991/08/05  18:19:27  chip
+   * Rename to "sun4" since discovery that 4.0 also works.
+***************
+*** 23,26 ****
+--- 26,30 ----
+  #define ML_DOTLOCK		/* Create <mailbox>.lock		*/
+  
++ #define HAS_VPRINTF		/* Has vprintf()			*/
+  #define HAS_PUTENV		/* Has putenv()				*/
+  #define HAS_GETOPT		/* Has getopt()				*/
+

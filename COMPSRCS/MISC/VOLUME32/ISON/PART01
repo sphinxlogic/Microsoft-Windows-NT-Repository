@@ -1,0 +1,560 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject:  v32i104:  ison - Be informed when a specified user logs on, Part01/01
+Message-ID: <1992Oct16.142332.8342@sparky.imd.sterling.com>
+X-Md4-Signature: e934d5309339276c6f4f79f459d3ea0d
+Date: Fri, 16 Oct 1992 14:23:32 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 32, Issue 104
+Archive-name: ison/part01
+Environment: UNIX
+Supersedes: ison: Volume 25, Issue 16
+
+IsOn's purpose is to let you know when someone logs on.  You could always sit
+there at your terminal typing 'finger' or 'who' every 5 minutes, but that's
+boring and unproductive.  IsOn makes this easy.  If you wanted to know the
+instant I logged on, all it would take is a simple:
+
+   ison mgleason@cse.unl.edu
+
+When I do log on, ison would respond:
+
+   ** mgleason logged in since Wed Oct 16 02:19:33 1991
+
+IsOn lowers it's priority automatically, so it takes very little CPU, and
+spares you the trouble of remembering to use 'nice.'  It also puts itself
+in the background automatically, as of version 4.  For remote addresses
+(those in dude@machine.domain format) the 'finger' utility is used, or for
+a user on the same machine that you are on, IsOn will simply walk the 'utmp'
+file.
+
+Version 4 changes:
+   + Auto-backgrounding.
+   + Optional -a flag will prompt for a username (to hide from ps :-)
+   + Default remote delay is longer, to ease the load on the network.
+   + Quits when finger times out or barfs.
+   + Quits when parent is killed (logout, hangup, etc).
+   + Should compile without incident on SunOS.
+   + Obscure bugs fixed.
+
+Enjoy!
+--mike gleason = mgleason@cse.unl.edu
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  ison.c ison.readme Makefile
+# Wrapped by mgleason@cse on Thu Oct 15 15:45:16 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'ison.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ison.c'\"
+else
+echo shar: Extracting \"'ison.c'\" \(13015 characters\)
+sed "s/^X//" >'ison.c' <<'END_OF_FILE'
+X/*  IsOn... Copyright 1990, 1991 NCEMRSoft.  Use at your own risk!
+X 
+X    To compile: "cc -O ison.c -o ison"
+X 
+X    Version History:
+X    - v1.0 : 1990      : Phil Dietz, NCEMRSoft.
+X                       : Original release.
+X    - v2.0 : 05 Feb 91 : Phil Dietz, NCEMRSoft.
+X                       : Added 'finger'ing remote machines.
+X                       : Names and searches are now case insensitive.
+X    - v3.0 : 04 Aug 91 : Mike Gleason, NCEMRSoft.
+X                       : Complete rewrite, using unix system calls.
+X                       : Remote addresses are recognized automatically.
+X                       : IsOn nice's (lowers it's priority) itself.
+X                       : Remote commands are exec'd instead of subshelled.
+X                       : Uses handy getopt() function.
+X                       : Added -f option, in case you don't have finger,
+X                       :   our finger flags don't work, or want to try
+X                       :   it with rwho, etc.
+X                       : Added -d debugging option, so you can watch
+X                       :   ison's progress.  This is also useful if you
+X                       :   want to log to a file.
+X    - v4.0 : 31 Oct 91 : Mike Gleason, Mark Galassi, Tim Wilson.
+X                       : Added UTMP_FILE definition for SunOS.
+X                       : IsOn sends itself into the background!
+X                       : Added -a option, so you can specify a username
+X                       :   from a prompt, instead of on the command line,
+X                       :   to hide from ps, w, etc.
+X                       : IsOn should die if it's parent is killed (i.e.
+X                       :   you logout or hangup the serial line).
+X                       : Fixed big bug in stricmp().
+X                       : Should quit when finger gives an error; could
+X                       :   have done this earlier if finger would exit(1)
+X                       :   on an error like a nice program does.
+X                       : Changed default delay into two distincy delays,
+X                       :   one for remote (finger) and one for local.
+X                       :   The remote delay is much longer now, to be
+X                       :   more net friendly.
+X    - v4.1 : 15 Nov 91 : Didn't know there was a nice() system call :-);
+X                       :   replaced custom nice function with sys call.
+X 
+X    To do:
+X    -  Add an option to poll until the user is found AND not idle;
+X       Could be tricky due to different OS's finger output.
+X*/
+X
+X#define VERSION_STR "Version 4.1 (15 Nov 91)"
+X
+X#include <sys/types.h>
+X#include <sys/time.h>
+X#include <utmp.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <signal.h>
+X
+X#define SZ(expr) ((size_t) (expr))
+X#define DEFAULT_LOCAL_SLEEP 10   /* seconds to sleep between Utmp()'s */
+X#define DEFAULT_REMOTE_SLEEP 45  /* seconds to sleep between Finger()'s */
+X#define DDEBUG 0        /* prints stuff if > 0 */
+X#define DMAXITER -1L    /* loop forever until we find the guy */
+X#define DCOMMAND NULL   /* command line to do when user is found */
+X#define DFINGER "finger -fq"
+X#define NICE            /* when defined, I try to lower my priority. */
+X#define BEEP            /* when defined, I beep when the user is found. */
+X#define AUTOBG          /* when defined, I try to background myself. */
+X#define CHECKPARENT     /* check to see if our parent is alive */
+X
+X#ifndef UTMP_FILE       /* Most define this in utmp.h;  SunOS 4.1.1 doesn't. */
+X#   define UTMP_FILE "/etc/utmp"
+X#endif
+X
+X#ifndef INDEX
+X#   ifdef _SYSTYPE_SYSV
+X#       define INDEX strchr
+X#   else    /* bsd */
+X#       define INDEX index
+X#   endif
+X#endif
+X
+Xextern size_t fread();
+Xextern FILE *fopen(), *popen();
+Xextern char *INDEX();
+Xint strnicmp(), Nice(), Utmp(), Finger();
+X
+Xmain(argc, argv)
+X    int argc;
+X    char **argv;
+X{
+X    int                 sleep_sec = -1;
+X    int                 debug = DDEBUG;
+X    long                maxiter = DMAXITER;
+X    int                 notfound, flag;
+X    char                *username, hostname[64], *cp, prompted_name[64];
+X    int                 prompted = 0, parent_pid;
+X    char                *fingercmd = DFINGER;
+X    char                *cmd = DCOMMAND;
+X    time_t              logontime;
+X    extern int          getopt(), optind;   /* getopt() stuff */
+X    extern char         *optarg;            /* getopt() stuff */
+X
+X    if (argc <= 1)
+X        usage (argv[0]);
+X    parent_pid = getppid();
+X    while ((flag = getopt (argc, argv, "advs:p:i:f:")) != EOF)
+X        switch(flag) {
+X            case 'a':           /* ask for a name */
+X                printf("Name to check: ");
+X                gets(prompted_name);
+X                prompted = 1;
+X                break;
+X            case 'd':
+X            case 'v':   /* debug mode, verbose mode, same thing */
+X                debug++;
+X                break;
+X            case 's':
+X                cmd = optarg;
+X                break;
+X            case 'p':
+X                sleep_sec = atoi (optarg);
+X                break;
+X            case 'i':
+X                maxiter = (long) atol (optarg);
+X                break;
+X            case 'f':
+X                fingercmd = optarg;
+X                break;
+X            default: usage (argv[0]);
+X        }
+X    if (prompted == 0)
+X        username = argv[optind];
+X    else username = prompted_name;
+X
+X    if (username == NULL || strlen(username) == SZ(0))
+X        usage (argv[0]); /* no user specified! */
+X
+X#ifdef NICE
+X    /* lower our process' priority (nice) */
+X    (void) nice (20);
+X#endif
+X
+X#ifdef AUTOBG
+X	if (fork())	    /* automatically puts this task in background! */
+X	    exit(3);
+X
+X	(void) signal(SIGINT, SIG_IGN);
+X	(void) signal(SIGQUIT, SIG_IGN);
+X#endif
+X	(void) signal(SIGHUP, SIG_DFL);
+X
+X    if (debug > 0)
+X        printf("\nIsOn's PID: %d;  Parent: %d.\n", getpid(), parent_pid);
+X
+X    /*  Check the username for an @, which would suggest that it is
+X        a domain-style address. */
+X    if ((cp = INDEX (username, '@')) != NULL) {
+X        strcpy (hostname, cp);  /* @machine.domain.xxx */
+X        *cp = '\0';             /* shorten address down to just username */
+X        if (strlen(username) == SZ(0))
+X            usage (argv[0]);    /* no user specified! */
+X        if (sleep_sec < 0)
+X            sleep_sec = DEFAULT_REMOTE_SLEEP;
+X        notfound = Finger (username, sleep_sec, maxiter, argv[0],
+X            hostname, fingercmd, debug, parent_pid);
+X        time(&logontime);
+X    } else {
+X        if (sleep_sec < 0)
+X            sleep_sec = DEFAULT_LOCAL_SLEEP;
+X        notfound = Utmp (username, sleep_sec, maxiter, argv[0],
+X            debug, &logontime, parent_pid);
+X    }
+X
+X    /* See if the user was found.  If not, explain why not. */
+X    if (notfound != 0) {
+X        if (notfound > 0)   /* maxiter encoutered */
+X            (void) fprintf (stderr, "\n## %s is not on.\n", username);
+X        else (void) fprintf (stderr,
+X            "\n## %s: cannot go on because of errors.\n", argv[0]);
+X    } else {
+X        /* When we get here, the user we're looking for was detected. */
+X        (void) fprintf (stderr, "\n** %s%s logged in since %s",
+X#ifdef BEEP
+X            "\007",     /* Control-G, the ascii BEL character */
+X#else
+X            "",
+X#endif
+X            username, ctime(&logontime));
+X        if (cmd != NULL) {
+X            /* Run a command (script) if the user requested to. */
+X            (void) execlp ("/bin/sh", "sh", "-c", cmd, NULL);
+X            (void) perror (cmd);
+X        }
+X    }
+X    exit (notfound);
+X}   /* main */
+X
+X
+X
+X
+Xint Utmp(username, sleep_sec, maxiter, progname, debug, tyme, parent_pid)
+X    char                *username, *progname;
+X    int                 sleep_sec, debug, parent_pid;
+X    long                maxiter;
+X    time_t              *tyme;
+X{
+X    struct utmp         info;
+X    FILE                *in;
+X    register int        not_on = 1, iter = 1;
+X    char                theuser[16];
+X
+X    /* Open the utmp file, which is a list of all logged on users. */
+X    if ((in = fopen (UTMP_FILE, "r")) == NULL) {
+X        (void) perror (UTMP_FILE);
+X        return (-1);
+X    }
+X    
+X    do {
+X        if (debug > 0) {
+X            time(tyme);
+X            (void) printf("## %s: checking utmp (try #%d) at %s",
+X                progname, iter, ctime(tyme));
+X        }
+X
+X        /* Reset the utmp file and re-read it. */
+X        (void) rewind (in);
+X
+X#ifdef CHECKPARENT
+X	    if (kill(parent_pid, 0)) 	/* we've lost our shell! */
+X		    exit(2);
+X#endif
+X
+X        /* Cycle through all 'users' logged in. */
+X        while (not_on && (fread (&info, SZ(sizeof (info)), SZ(1), in)) == SZ(1)) {
+X            /* Inefficent, but necessary */
+X            strncpy(theuser, info.ut_name, SZ(8));
+X            theuser[8] = '\0';
+X            not_on = strnicmp(username, theuser, SZ(8));
+X            if (debug > 1 && theuser[0] != '\0')
+X                printf("%s\n", theuser);
+X        }
+X        
+X        /* Delay a little so we won't hog the CPU */
+X        if (not_on) {
+X            iter++;
+X            if ((maxiter > 0) && (iter > maxiter)) {
+X                not_on = 1;
+X                break;
+X            }
+X            if (iter == 2) {
+X                printf("\nPolling for %s...\n", username);
+X            }
+X            (void) sleep (sleep_sec);
+X        }
+X    } while (not_on);
+X    
+X    *tyme = info.ut_time;   /* will hold garbage if user not found! */
+X    (void) fclose (in);
+X    return (not_on);
+X}   /* Utmp */
+X
+X
+X
+X/* Maybe I should just break down and use a few global variables... */
+Xint Finger(username, sleep_sec, maxiter, progname, hostname, fingercmd, debug, parent_pid)
+X    char *username, *progname, *hostname, *fingercmd;
+X    int sleep_sec, debug, parent_pid;
+X    long maxiter;
+X{
+X    FILE                *in;
+X    register char       *cp;
+X    register int        not_on = 1, iter = 1, piperesult, pipelines;
+X    extern int          errno;
+X    char                buf[160], pipename[128];
+X    time_t              now;
+X    
+X    strcpy(pipename, fingercmd);
+X    strcat(pipename, " ");
+X    if (strnicmp("finger", fingercmd, SZ(6)) != 0)
+X        hostname++; /* Skip the @ sign if it's not finger! */
+X    strcat(pipename, hostname);
+X    
+X    do {
+X        if (debug > 0) {        
+X            time(&now);
+X            (void) printf("## %s: %s (try #%d), at %s",
+X                progname, pipename, iter, ctime(&now));
+X        }
+X
+X#ifdef CHECKPARENT
+X	    if (kill(parent_pid, 0)) 	/* we've lost our shell! */
+X		    exit(2);
+X#endif
+X
+X        if ((in = popen (pipename, "r")) == NULL) {
+X            perror (fingercmd);
+X            not_on = errno;	/* a negative not_on signifies an error. */
+X            break;
+X        }
+X        
+X        /* Cycle through all 'users' logged in. */
+X        pipelines = 0;
+X        while (not_on && fgets (buf, (int)sizeof(buf), in) != NULL) {
+X            if (debug > 1) printf(buf);
+X            pipelines++;
+X            /* put a \0 in the first space after the username for strnicmp */
+X            cp = buf;
+X            while (*cp && isspace(*cp) == 0)
+X                cp++;
+X            *cp = '\0';
+X            not_on = strnicmp(username, buf, SZ(8));
+X        }
+X        
+X        piperesult = pclose(in);            /* close pipe */
+X        if (piperesult && not_on) {
+X            not_on = (piperesult > 0) ? -piperesult : piperesult;
+X            break;
+X        }
+X        if (pipelines <= 1) {
+X            /* finger probably puked */
+X            not_on = -1;
+X            break;
+X        }
+X
+X        /* Delay a little so we won't hog the CPU */
+X        if (not_on) {
+X            iter++;
+X            if ((maxiter > 0) && (iter > maxiter)) {
+X                not_on = 1;
+X                break;
+X            }
+X            if (iter == 2) {
+X                printf("\nPolling for %s...\n", username);
+X            }
+X            (void) sleep (sleep_sec);
+X        }
+X    } while (not_on);
+X    return (not_on);
+X}   /* Finger */
+X
+X
+X
+Xstrnicmp(a, b, n)
+X    register char *a, *b;
+X    register size_t n;
+X{
+X    register int A, B;
+X    
+X    while (n-- > (size_t)0) {
+X    	A = tolower((int) *a++);
+X    	B = tolower((int) *b++);
+X    	if (A > B) return (A - B);
+X    	if (B > A) return (B - A);
+X    	if (A == 0 && B == 0) return (0);
+X    }
+X    return (0);	/* equal to n characters if we get here */
+X}   /* strnicmp */
+X
+X
+X
+X
+Xusage(progname)
+X    char *progname;
+X{   
+X    (void) fprintf (stderr,
+X"\nusage: %s [-p N] [-i N] [-s cmd] [-f cmd] [-d] username | -a %s\n\
+X\t-a     : Ask you for the user name, so others can't see it.\n\
+X\t-p N   : Seconds between iterations (defaults: local=%d, remote=%d).\n\
+X\t-i N   : Give up after 'N' iterations (default is infinity)\n\
+X\t-s cmd : Command to execute when user is found (i.e. \"talk username\")\n\
+X\t-f cmd : Command to execute for remote addresses (def: \"%s\")\n\
+X\t-d     : Debugging mode. More d's, more stuff.\n\n\
+X%s by Phil Dietz & Mike Gleason, NCEMRSoft.\n\
+XThis is TuitionWare.  Please send a buck to help us through school!\n\
+X\tPhil Dietz, Box 306, Yutan, NE  68073, USA... Thanks!\n\n",
+X    progname,
+X#ifdef AUTOBG
+X    "",
+X#else
+X    "&",
+X#endif
+X    DEFAULT_LOCAL_SLEEP,
+X    DEFAULT_REMOTE_SLEEP,
+X    DFINGER,
+X    VERSION_STR);
+X    exit (1);
+X}   /* usage */
+X
+X/* eof */
+END_OF_FILE
+if test 13015 -ne `wc -c <'ison.c'`; then
+    echo shar: \"'ison.c'\" unpacked with wrong size!
+fi
+# end of 'ison.c'
+fi
+if test -f 'ison.readme' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ison.readme'\"
+else
+echo shar: Extracting \"'ison.readme'\" \(1189 characters\)
+sed "s/^X//" >'ison.readme' <<'END_OF_FILE'
+XIsOn's purpose is to let you know when someone logs on.  You could always sit
+Xthere at your terminal typing 'finger' or 'who' every 5 minutes, but that's
+Xboring and unproductive.  IsOn makes this easy.  If you wanted to know the
+Xinstant I logged on, all it would take is a simple:
+X
+X   ison mgleason@cse.unl.edu
+X
+XWhen I do log on, ison would respond:
+X
+X   ** mgleason logged in since Wed Oct 16 02:19:33 1991
+X
+XIsOn lowers it's priority automatically, so it takes very little CPU, and
+Xspares you the trouble of remembering to use 'nice.'  It also puts itself
+Xin the background automatically, as of version 4.  For remote addresses
+X(those in dude@machine.domain format) the 'finger' utility is used, or for
+Xa user on the same machine that you are on, IsOn will simply walk the 'utmp'
+Xfile.
+X
+XVersion 4 changes:
+X   + Auto-backgrounding.
+X   + Optional -a flag will prompt for a username (to hide from ps :-)
+X   + Default remote delay is longer, to ease the load on the network.
+X   + Quits when finger times out or barfs.
+X   + Quits when parent is killed (logout, hangup, etc).
+X   + Should compile without incident on SunOS.
+X   + Obscure bugs fixed.
+X
+XEnjoy!
+X--mike gleason = mgleason@cse.unl.edu
+X
+END_OF_FILE
+if test 1189 -ne `wc -c <'ison.readme'`; then
+    echo shar: \"'ison.readme'\" unpacked with wrong size!
+fi
+# end of 'ison.readme'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(763 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# IsOn's Makefile
+X
+X# Source file name minus .c, and compiled exectuable's pathname.
+XCFILE=ison
+XOFILE=ison
+X
+X# Your favorite C Compiler, and flags.
+XCC=cc
+XCFLAGS=-O
+XLFLAGS=-s
+XDEFS=
+X
+XREADME=$(CFILE).readme
+XPACKAGE=$(CFILE).c $(README) Makefile
+X
+Xall:
+X	$(CC) $(CFLAGS) $(DEFS) $(CFILE).c -o $(OFILE) $(LFLAGS)
+X	@ls -l $(CFILE)
+X
+Xshar:
+X	shar $(PACKAGE) | cat $(README) - > $(CFILE).shar
+X
+Xtar:
+X	tar cvf - $(PACKAGE) | compress -f > $(CFILE).tar.Z
+X
+Xclean:
+X	rm -f core $(OFILE)
+X
+Xclobber: clean
+X	rm -i $(PACKAGE)
+X
+X# I use these during development:
+Xlint:
+X	lint $(CFILE).c > $(CFILE).lint
+X
+Xdebug:
+X	$(CC) -g $(DEFS) $(CFILE).c -o $(OFILE)
+X	@ls -l $(OFILE)
+X
+Xmips:
+X	cc -O3 -s $(DEFS) $(CFILE).c -o $(OFILE)
+X	@rm -f $(CFILE).u
+X	@ls -l $(OFILE)
+X
+Xrz:
+X	rm -f $(CFILE).c
+X	rz -e
+X	make
+X
+END_OF_FILE
+if test 763 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+echo shar: End of shell archive.
+exit 0
+--
+______________________________________________________________________________
+mike gleason                 mgleason@cse.unl.edu             NCEMRSoft, baby!
+
+exit 0 # Just in case...

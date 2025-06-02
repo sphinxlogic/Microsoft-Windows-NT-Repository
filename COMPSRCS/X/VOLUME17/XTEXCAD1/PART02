@@ -1,0 +1,1524 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Subject: v17i066: TeXcad (X) version 1.2, Part02/10
+Message-ID: <1992Apr21.130745.2180@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Nntp-Posting-Host: fascet
+Organization: Molecular Simulations, Inc.
+References: <csx-17i065-xtexcad-1.2@uunet.UU.NET>
+Date: Tue, 21 Apr 1992 13:07:45 GMT
+Approved: dcmartin@msi.com
+Lines: 1510
+
+Submitted-by: Fritz Haubensak <hsk@informatik.uni-wuerzburg.de>
+Posting-number: Volume 17, Issue 66
+Archive-name: xtexcad-1.2/part02
+
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file file_sel.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping file_sel.c'
+else
+echo 'x - continuing file file_sel.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'file_sel.c' &&
+X	 offset = (char *)(offset + LAENGE);  /* freie Stelle */
+X	 i++;
+X	 }
+X   
+X   /* Liste alphabetisch sortieren */
+X   qsort(Liste2[2],i-2,LAENGE,strcmp);
+X   
+X   /* Liste mit NULL Eintrag beenden */
+X   i++;
+X   Liste2[i] = NULL;
+X
+X   /* Directory Stream schliessen */
+X   closedir(dirp2);
+X
+X   /* alten Speicher wieder freigeben */
+X   if(Liste != NULL)
+X     free(Liste);
+X   if(Inhalt != NULL)
+X     free(Inhalt);
+X
+X   Liste = Liste2;
+X   Inhalt = Inhalt2;
+X
+X   return((String *)Liste); /* Pointer auf Listenkopf wird zureuckgegeben */
+}
+X
+/*****************************************************************************/
+/* Funktion steuert bei einer Neuerstellung der Liste im Listwidget den      */
+/* Ablauf und veranlasst die sich daraus ergebenden Folgen.                  */
+/*                                                                           */
+/* Aufruf: direct_to_list();                                                 */
+/*                                                                           */
+/* Parameter: keine                                                          */
+/* Rueckgabe: keine                                                          */
+/*****************************************************************************/
+void direct_to_list()
+{
+X   Arg args[1];
+X   short anzahl;              /* anzahl Directoryeintraege */
+X
+X   anzahl = count_eintraege();
+X
+X   /* Datei bei einem Patternwechsel nicht mehr vorhanden */
+X   /* Dateinamen in Labelfeld loeschen */
+X   /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X   XtSetArg(args[0],XtNstring," ");
+X   XtSetValues(((DialogWidget)text)->dialog.valueW,args,1);
+X
+X   /* neue Liste erstellen und Listwidget uebergeben */
+X   XtUnmanageChild(list_direct);
+X   XawListChange(list_direct,directory_erstellen(anzahl),anzahl,0,True);
+X   XtManageChild(list_direct);
+X
+X   /* Rollbalken wieder am oeberen Ende positionieren */ 
+X
+X
+}        
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer den Ok-Button. (Rueckgabe Dateiname, Fileselectbox  */
+/* schliessen.                                                               */
+/*                                                                           */
+/* Aufruf: Ok_gelickt(w,client_data,call_data);                              */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Ok_geklickt(Widget w ,caddr_t client_data,caddr_t call_data)
+{
+X  char *stelle;                 /* Pointer auf erstes Blank im String */
+X
+X
+X  if(XawDialogGetValueString(text)[0]  == ' ')
+X    /* falls Dateiname leer ist wird NULL zurueck gegeben vgl. CANCEL-Button */
+X    filename = NULL;
+X  else 
+X    {
+X    /* Dateinamenfeld war mit Dateinamen gefuellt */
+X    filename = (char *)malloc(MAXPATH*sizeof(char));
+X    getcwd(filename,LAENGE2);
+X    strcat(filename,"/");
+X    strcat(filename,XawDialogGetValueString(text));
+X    /* nachfolgende Blanks abschneiden */
+X    if((stelle=index(filename,' ')) != NULL)  
+X	*stelle = '\0';
+X    }
+X
+X  /* Ueberpruefen, ob Dateiname jetzt tatsaechlich passt */
+X  free(Liste);
+X  free(Inhalt);
+X  XtPopdown(file_s);             /* Ruecksprung */
+}
+X 
+/*****************************************************************************/
+/* Callbackfunktion fuer den Return im Labelfeld Dateinamen aufgerufen       */
+/* Setzt die Parmeter fuer Ok_geklickt (s.o.) um.                            */
+/*                                                                           */
+/* Aufruf: Ok2_gelickt(widget,event,params,n_params);                        */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Ok2_geklickt(Widget widget,XEvent *event,String *params,Cardinal *n_params)
+{
+X  /* Prozedur wird nach <Return> in Labelfeld aufgerufen */
+X  /* setzt nur Parameter fuer Ok_geklickt um */
+X  Ok_geklickt(XtParent(widget),NULL,NULL);
+}
+X
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer den Return im Labelfeld Pfadnamen aufgerufen        */
+/* Wechselt in neuen Pfad und erstellt Eintraege in der Liste neu.           */
+/*                                                                           */
+/* Aufruf: Path_changed(widget,event,params,n_params);                       */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Path_changed(Widget widget,XEvent *event,String *params,Cardinal *n_params)
+{
+X  char *home,               /* Homedirectory aus dem Environment */
+X       *stelle;             /* temporaerer Pointer */
+X  char p_name[LAENGE2];     /* Pfad in korrigierter Laenge */
+char p_name2[LAENGE2];
+X  char neuer_pfad[LAENGE2]; /* neuer eingegebene Pfad */
+Arg args[1];
+X  
+X  /* Prozedur wird nach <Return> in Dialogfeld fuer Path aufgerufen */
+X  /* uebernimmt ggf. neues Pattern und aendert Eintrage im Fenster    */
+X  sprintf(neuer_pfad,"%-50.50s",XawDialogGetValueString(XtParent(widget)));
+X  /* nachfolgende Blanks abschneiden */
+X
+X  if((stelle=index(neuer_pfad,' ')) != NULL)  
+X    *stelle = '\0';
+X  else                       /* Namen sind zu lang */ 
+X    {
+X    neuer_pfad[LAENGE2] = '\0';
+X    neuer_pfad[LAENGE2-1] = '*';
+X    }
+X
+X  if(chdir(neuer_pfad) == -1)
+X    /* Fehler beim Wechsel in angegebenen Pfadnamen */
+X    {
+X    home = getenv("HOME");
+X    if(home != NULL)
+X       chdir(home);    /* bei Fehler ins Homedirectory wechseln */ 
+X    else               /* kein Eintrag fuer Homedirectory gefunden */
+X       chdir("/");
+X
+X    /* Dialogfeld zur Ausgabe des aktuellen Verzeichnisnamen  aendern  */
+X    getcwd(p_name,LAENGE2);
+X    /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X    XtSetArg(args[0],XtNstring,p_name);
+X    XtSetValues(((DialogWidget)path)->dialog.valueW,args,1);
+X    }
+X
+X  /* evtl. Wechsel in neues Directory erfolgt, daher Liste neu erstellen */
+X  direct_to_list();
+}
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer ein Verlassen des Labelfeldes fuer Pfadeingabe      */
+/* wenn die Eingabe des Pfades nichtr mit Return abgeschlossen wurde, so     */
+/* muss der Pfad wieder korrekt angezeigt werden.                            */
+/*                                                                           */
+/* Aufruf: Path_leave(widget,event,params,n_params);                         */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Path_leave(Widget widget,XEvent *event,String *params,Cardinal *n_params)
+{
+X  char p_name[LAENGE2];     /* Pfad in korrigierter Laenge */
+char p_name2[LAENGE2];
+Arg args[1];
+X
+X  /* Dialogfeld zur Ausgabe des aktuellen Verzeichnisnamen  aendern  */
+X  getcwd(p_name,LAENGE2);
+X  /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X  sprintf(p_name2,"%-50.50s",p_name);
+X  XtSetArg(args[0],XtNstring,p_name2);
+X  XtSetValues(((DialogWidget)path)->dialog.valueW,args,1);
+}
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer den Return im Labelfeld Pattern aufgerufen          */
+/* Wechselt globales Pattern aus und erstellt Eintrage in der Liste neu.     */
+/*                                                                           */
+/* Aufruf: Patt_changed(widget,event,params,n_params);                       */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Patt_change(Widget widget,XEvent *event,String *params,Cardinal *n_params)
+{
+X  char neues_patt[LAENGE];   /* neues Patternmuster */
+X
+X  /* Prozedur wird nach <Return> in Labelfeld fuer Pattern aufgerufen */
+X  /* uebernimmt ggf. neues Pattern und aendert Eintrage im Fenster    */
+X  strcpy(neues_patt,(char *)XawDialogGetValueString(XtParent(widget)));
+X
+X  if(neues_patt != patt_global)       /* nur aendern falls Pattern anders */
+X    {
+X    strcpy(patt_global,neues_patt);   /* neues Pattern setzen */
+X    /* Eintrage im Fenster neu erstellen */ 
+X    direct_to_list();
+X    }
+}
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer den Cancel-Button.(Rueckgabe NULL, Fileselectbox    */
+/* schliessen.                                                               */
+/*                                                                           */
+/* Aufruf: Cancel_gelickt(w,client_data,call_data);                          */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void Cancel_geklickt(Widget w,caddr_t client_data,caddr_t call_data)
+{
+X  filename = NULL;                  /* gibt immer NULL zurueck */
+X  free(Liste);
+X  free(Inhalt);
+X  XtPopdown(file_s);
+}
+X
+/*****************************************************************************/
+/* Callbackfunktion fuer das Waehlen eines Eintrages in der Liste des List-  */
+/* widget. Prueft, ob Name eine Datei (Uebernahme in Dialogewidget) oder ein */
+/* Directory ist. (Wechsel in neues Directory,Liste neu erstellen)           */
+/*                                                                           */
+/* Aufruf: File_gewaehlt(w,client_data,call_data);                           */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+void File_gewaehlt(Widget w,caddr_t client_data,caddr_t call_data)
+{
+X  char name[LAENGE+2],          /* gekuerzter Eintragsnamen (ohne Blanks) */
+X       p_name[LAENGE2],         /* Pathname mit 50 Stellen */
+X       p_name2[LAENGE2];
+char name2[21];
+X  Arg args[1];                  /* Argumentvektor */
+X  char *stelle;                 /* Pointer auf erstes Blank im String */
+X  short i;                      /* Zaehler */
+X  XawListReturnStruct *feld;     /* Rueckgabe gewaehltes Feld(Listwidget) */
+X
+X  
+X  /* geklickter Dateinamen ermitteln */
+X  feld = XawListShowCurrent(w);  
+X
+X  /* Zeichenkette kopieren, damit Button nicht veraendert wird */
+X  strcpy(name,feld->string); 
+X  name[LAENGE+2] = '\0';
+X
+X  /* nachfolgende Blanks abschneiden */
+X  if((stelle=index(name,' ')) != NULL)  
+X    *stelle = '\0';
+X
+X  if (!(Is_direct(name)) && (name[0] != ' ')) /* Name nicht leer */
+X     /* Eintrag war Dateieintrag */
+X     {
+X     /* Eintrag wird in Labelfeld uebernommen */
+X     /* ohne direkt in Pointer zu schreiben wird der Wert nicht angezeigt */
+X     sprintf(name2,"%-20s",name);
+X     XtSetArg(args[0],XtNstring,name2);
+X     XtSetValues(((DialogWidget)text)->dialog.valueW,args,1);
+X     }
+X  else                                          
+X     {
+X     /* Eintrag war Directory */
+X     chdir(name);
+X
+X     /* Dialogfeld zur Ausgabe des aktuellen Verzeichnisnamen  aendern  */
+X     getcwd(p_name,LAENGE2);
+X     /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X     sprintf(p_name2,"%-50.50s",p_name);
+X     XtSetArg(args[0],XtNstring,p_name2);
+X     XtSetValues(((DialogWidget)path)->dialog.valueW,args,1);
+X
+X     /* neue Liste erstellen und anzeigen */
+X     direct_to_list();
+X
+X     }
+X
+} 
+X
+X
+/*****************************************************************************/
+/* Funktion setzt einen String die Mitte eines Strings, der aus einer ueber- */
+/* gebenen Anzahl von Leerzeichen besteht.                                   */
+/*                                                                           */
+/* Aufruf: center(zeile,laenge);                                             */
+/*                                                                           */
+/* Parameter: char *zeile; String der positioniert werden soll.              */
+/*            short laenge; Laenge des neu erstellten Strings.               */
+/* Rueckgabe: char *; Pointer auf den neu erstellten String                  */
+/*                                                                           */
+/* !Vorsicht: der Speicher fuer den neuen String wird mit malloc belegt und! */
+/* !sollte daher vom spaeteren Benutzer wieder freigegeben werden          ! */
+/*****************************************************************************/
+char *center(char *zeile,short laenge)
+{
+X   char *neue_zeile;            /* neu erstellter String */
+X   short blanks,                /* Anzahl fuehrende Blanks */
+X	 zeilen_laenge,         /* Laenge des uebergebenen Strings */
+X	 i,s;
+X
+X   zeilen_laenge = strlen(zeile);
+X   neue_zeile = (char *)malloc((laenge+1) *sizeof(char));
+X
+X   /* am Anfang Blanks einfuegen */
+X   blanks = (int)((laenge - zeilen_laenge)/2);
+X
+X   /* gesamten String loeschen */
+X   for(i=0;i<=laenge;i++)
+X      neue_zeile[i] = ' ';
+X
+X   /* String uebernehmen */
+X   for(i=blanks;i<=blanks+zeilen_laenge-1;i++)
+X      neue_zeile[i] = zeile[i-blanks];
+X	
+X   neue_zeile[laenge] = '\0';
+X		    
+X   return(neue_zeile);
+}
+X 
+/*****************************************************************************/
+/* Callbackfunktion fuer allgemeine Events die unterdreuckt werden sollen    */
+/* Die Funktion wird aufgerufen, raeumt den Stack auf und kehrt zureuck      */
+/*                                                                           */
+/* Aufruf: Dummy(widget,event,params,n_params);                              */
+/*                                                                           */
+/* Funktion wird nur von X-Windows aufgerufen.                               */
+/*****************************************************************************/
+/* Prozedur dient dazu unerwuenscht Events abzufangen */
+void Dummy(Widget widget,XEvent *event,String *params,Cardinal *n_params)
+{
+}
+X
+/*****************************************************************************/
+/* Funktion initialisiert Fileselectbox.(erstellt Widgets usw.)              */
+/* Diese Funktion wird i.A. nur einmal waehrend eines Programmes aufgerufen  */
+/*                                                                           */
+/* Aufruf: init_file_select(w);                                              */
+/*                                                                           */
+/* Parameter: Widget w; Widget im Baum, an das Fileselectbox gehangen wird   */
+/* Rueckgabe: PopupShell Widget, dass Fileselectbox Popup enthaelt           */
+/*****************************************************************************/
+Widget init_file_select(Widget w)     
+{
+X   Arg args[8];               /* Argumentvektor */
+X   Widget ok,                 /* Button fuer Ok */
+X	  box,                /* Rahmen um ganze Fileselectbox */
+X	  fenster,            /* ViewportWidget um Dir-Eintraege */
+X	  cancel;             /* Button fuer Cancel */
+X   short anzahl;              /* Anzahl temporaere Variablen */
+X   XtTranslations trans;      /* Aktionsbeschreibung */
+X   /* hinzugefuegte Events bei den Dialogboxen */
+X   static XtActionsRec Return_null[]={{"Ok2_geklickt",Ok2_geklickt},};
+X   static XtActionsRec Patt_return[]={{"Patt_change",Patt_change},};
+X   static XtActionsRec Dummy_call[]={{"Dummy",Dummy},};
+X   static XtActionsRec Path_return[]={{"Path_changed",Path_changed},};
+X   static XtActionsRec Path_verlas[]={{"Path_leave",Path_leave},};
+X   
+X   Dimension breite;
+X
+X   /* Abfrage, so dass FileSelectbox nur einmal initialisiert wird */
+X   if(init_called)  /* bereits aufgerufen */
+X     return(file_s);
+X
+X   /* Funktion zum ersten mal aufgerufen Flag setzen */ 
+X   init_called = 1;                   
+X
+X   /* Pattern initialisieren */
+X   strcpy(patt_global,"*");
+X
+X   /* Voreinstellung fuer Dateiname ist Leerstrings */
+X   sprintf(_default,"%-21s"," ");
+X   sprintf(_default2,"%-51s"," ");
+X
+X   /* File_selectbox ist Popupshell */
+X   XtSetArg( args[0],XtNx, (XtArgVal) DEFAULT_X);
+X   XtSetArg( args[1],XtNy, (XtArgVal) DEFAULT_Y);
+X   file_s = XtCreatePopupShell("F1",transientShellWidgetClass,w,args,2);
+X   
+X   /* passender Rahmen um das Ganze */
+X   box = XtCreateManagedWidget("F2",formWidgetClass,file_s,NULL,0);
+X
+X   /* Labelfeld zur Ausgabe der Ueberschrift */           
+X   XtSetArg( args[0],XtNlabel, (XtArgVal) _default2);
+X   XtSetArg( args[1],XtNborderWidth, (XtArgVal) 4);
+X   XtSetArg( args[2],XtNvertDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[3],XtNhorizDistance, (XtArgVal) ABSTAND);
+X   titel_zeile = XtCreateManagedWidget("F10",labelWidgetClass,box,args,4);
+X   
+X   /* Dialogfeld zur Ausgabe des aktuellen Verzeichnisnamen */
+X   XtSetArg( args[0],XtNvalue, (XtArgVal) _default2);
+X   XtSetArg( args[1],XtNvertDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[2],XtNhorizDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[3],XtNfromVert, (XtArgVal) titel_zeile);
+X   XtSetArg( args[4],XtNlabel,(XtArgVal) _default2);
+X   XtSetArg( args[5],XtNborderWidth, (XtArgVal) 0);       
+X   path = (DialogWidget)
+X	XtCreateManagedWidget("F9",dialogWidgetClass,box,args,6); 
+X   /* Labelfeld bei der Dialogbox nicht auf den Bildschirm */
+X   XtSetArg( args[0],XtNfromHoriz,(XtArgVal) NULL);
+X   XtSetArg( args[1],XtNfromVert, (XtArgVal) NULL);
+X   XtSetValues( path->dialog.valueW,args,2);
+X   XtUnmanageChild(path->dialog.labelW);
+X   XtSetArg(args[0],XtNwidth,&breite);
+X   XtGetValues(path->dialog.labelW,args,1);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetArg(args[1],XtNwidth,breite);
+X   XtSetValues(path->dialog.valueW,args,2);
+X   /* Return innerhalb des Textfeldes abfangen */
+X   XtAppAddActions(XtWidgetToApplicationContext(path->dialog.valueW),
+X	  Path_return,1);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetValues(((DialogWidget)path)->dialog.valueW,args,1);
+X   trans=XtParseTranslationTable(":<Key>Return:Path_changed()");
+X   XtOverrideTranslations(path->dialog.valueW,trans);
+X   /* Eingabe von Leerzeichen im Filenamen ist verboten */
+X   XtAppAddActions(XtWidgetToApplicationContext(path->dialog.valueW),
+X	  Dummy_call,1);
+X   trans=XtParseTranslationTable(":<Key>space:Dummy()");
+X   XtOverrideTranslations(path->dialog.valueW,trans);
+X   /* Wenn das Dialogfeld ohne Return verlassen wird, so muss der */
+X   /* Pfadname wieder korrekt angezeigt werden */
+X   XtAppAddActions(XtWidgetToApplicationContext(path->dialog.valueW),
+X	  Path_verlas,1);
+X   trans=XtParseTranslationTable(":<LeaveWindow>:Path_leave()");
+X   XtAugmentTranslations(path->dialog.valueW,trans);
+X
+X   /* Viewport um automatischen Rollbalken zu erzeugen */
+X   XtSetArg( args[0],XtNallowVert, (XtArgVal) True);
+X   XtSetArg( args[1],XtNheight, (XtArgVal) HOEHE);
+X   XtSetArg( args[2],XtNwidth, (XtArgVal) WEITE);
+X   XtSetArg( args[3],XtNforceBars, (XtArgVal) True);
+X   XtSetArg( args[4],XtNfromVert, (XtArgVal) path);
+X   XtSetArg( args[5],XtNvertDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[6],XtNhorizDistance, (XtArgVal) ABSTAND);
+X   fenster =XtCreateManagedWidget("F3",viewportWidgetClass,box,args,7);
+X  
+X   /* Directoryeintraege in ListWidget uebernehmen */
+X   anzahl = count_eintraege();
+X   XtSetArg( args[0],XtNverticalList, (XtArgVal) True);
+X   XtSetArg( args[1],XtNlist, (XtArgVal) directory_erstellen(anzahl));
+X   XtSetArg( args[2],XtNnumberStrings, (XtArgVal) anzahl);
+X   XtSetArg( args[3],XtNlongest, (XtArgVal) WEITE);
+X   XtSetArg( args[4],XtNwidth, (XtArgVal) WEITE);
+X   XtSetArg( args[5],XtNvertDistance, (XtArgVal) ABSTAND);
+X   list_direct = XtCreateManagedWidget("F5",listWidgetClass,fenster,args,6);
+X   XtAddCallback(list_direct,XtNcallback,File_gewaehlt,NULL);
+X
+X   /* Eingabefeld fuer Dateinamen */
+X   XtSetArg( args[0],XtNlabel, (XtArgVal) "    FILENAME <cr>   ");
+X   XtSetArg( args[1],XtNvalue, (XtArgVal) _default);
+X   XtSetArg( args[2],XtNvertDistance, (XtArgVal) (3*ABSTAND));
+X   XtSetArg( args[3],XtNfromVert, (XtArgVal) path);
+X   XtSetArg( args[4],XtNhorizDistance, (XtArgVal) (2*ABSTAND));
+X   XtSetArg( args[5],XtNfromHoriz, (XtArgVal) fenster);
+X   text =(DialogWidget)
+X	 XtCreateManagedWidget("F6",dialogWidgetClass,box,args,6);
+X   XtSetArg(args[0],XtNwidth,&breite);
+X   XtGetValues(text->dialog.labelW,args,1);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetArg(args[1],XtNwidth,breite);
+X   XtSetValues(text->dialog.valueW,args,2);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetValues(((DialogWidget)text)->dialog.valueW,args,1);
+X
+X   /* Return abfangen */
+X   XtAppAddActions(XtWidgetToApplicationContext(text->dialog.valueW),
+X	  Return_null,1);
+X   trans=XtParseTranslationTable(":<Key>Return:Ok2_geklickt()");
+X   XtOverrideTranslations(text->dialog.valueW,trans);
+X   /* Eingabe von Leerzeichen im Filenamen ist verboten */
+X   XtAppAddActions(XtWidgetToApplicationContext(text->dialog.valueW),
+X	  Dummy_call,1);
+X   trans=XtParseTranslationTable(":<Key>space:Dummy()");
+X   XtOverrideTranslations(text->dialog.valueW,trans);
+X
+X   /* Eingabefeld fuer Pattern */
+X   XtSetArg( args[0],XtNlabel, (XtArgVal) "    FILETYPE <cr>   ");
+X   XtSetArg( args[1],XtNvalue, (XtArgVal) _default);
+X   XtSetArg( args[2],XtNvertDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[3],XtNfromVert, (XtArgVal) text);
+X   XtSetArg( args[4],XtNhorizDistance, (XtArgVal) (2*ABSTAND));
+X   XtSetArg( args[5],XtNfromHoriz, (XtArgVal) fenster);
+X   patt_t=(DialogWidget)    
+X	 XtCreateManagedWidget("F13",dialogWidgetClass,box,args,6);
+X   XtSetArg(args[0],XtNwidth,&breite);
+X   XtGetValues(patt_t->dialog.labelW,args,1);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetArg(args[1],XtNwidth,breite);
+X   XtSetValues(patt_t->dialog.valueW,args,2);
+X   XtSetArg(args[0],XtNresize, XawtextResizeNever);
+X   XtSetValues(((DialogWidget)patt_t)->dialog.valueW,args,1);
+X   /* Return abfangen */
+X   XtAppAddActions(XtWidgetToApplicationContext(patt_t->dialog.valueW),
+X	  Patt_return,1);
+X   trans=XtParseTranslationTable(":<Key>Return:Patt_change()");
+X   XtOverrideTranslations(patt_t->dialog.valueW,trans);
+X   /* Eingabe von Leerzeichen im Pattern ist verboten */
+X   XtAppAddActions(XtWidgetToApplicationContext(patt_t->dialog.valueW),
+X	  Dummy_call,1);
+X   trans=XtParseTranslationTable(":<Key>space:Dummy()");
+X   XtOverrideTranslations(patt_t->dialog.valueW,trans);
+X
+X   /* Cancel Button */
+X   XtSetArg( args[0],XtNlabel, (XtArgVal) "        Cancel         ");
+X   XtSetArg( args[1],XtNvertDistance, (XtArgVal) (16*ABSTAND));
+X   XtSetArg( args[2],XtNfromVert, (XtArgVal) patt_t);
+X   XtSetArg( args[3],XtNhorizDistance, (XtArgVal) (2* ABSTAND));
+X   XtSetArg( args[4],XtNfromHoriz, (XtArgVal) fenster);
+X   cancel = XtCreateManagedWidget("F7",commandWidgetClass,box,args,5);
+X   XtAddCallback(cancel,XtNcallback,Cancel_geklickt,NULL);
+X
+X   /* OK Button */
+X   XtSetArg( args[0],XtNlabel,(XtArgVal) "        Accept         ");
+X   XtSetArg( args[1],XtNvertDistance, (XtArgVal) ABSTAND);
+X   XtSetArg( args[2],XtNfromVert, (XtArgVal) cancel);
+X   XtSetArg( args[3],XtNhorizDistance, (XtArgVal) (2*ABSTAND));
+X   XtSetArg( args[4],XtNfromHoriz, (XtArgVal) fenster);
+X   ok = XtCreateManagedWidget("F8",commandWidgetClass,box,args,5);
+X   XtAddCallback(ok,XtNcallback,Ok_geklickt,NULL);
+X
+X   return(file_s);
+}
+X
+X
+/*****************************************************************************/
+/* Funktion zum Aufruf der Fileselectbox.   (s.o)                            */
+/*                                                                           */
+/* Aufruf: File_select(x,y,patt,titel);                                      */
+/*****************************************************************************/
+char *file_select(char *patt,char *titel)
+{
+X   XtAppContext app_context;           /* Applikationskontext */
+X   XEvent event;                       /* Event */
+X   Arg args[2];                        /* Argumentvektor */
+X   char p_name[LAENGE2],               /* Path ion korrigierter Laenge */
+X	t_name[LAENGE2];               /* Titel in korrigierter Laenge */
+X   char *temp;                         /* Pointer zur Speicherfreigabe */
+X
+X   if( strlen(patt) > LAENGE || 
+X      strlen(titel) == 0 || strlen(titel) > LAENGE2 )
+X      {
+X
+X      printf("Die Argumente sind nicht korrekt !!! \n");
+X      return(NULL);
+X      }
+X   else 
+X      {
+X
+X      Liste = (String *)NULL;
+X      Inhalt = (char *)NULL;
+X
+X      /* uebergebenes Pattern in globale Variable uebernehmen */
+X      if(strlen(patt)!=0)
+X          strcpy(patt_global,patt);
+X      
+X      /* Titelzeile in Labelfeld uebernehmen */
+X      temp = center(titel,LAENGE2);  /* Ueberschrift zentrieren */
+X      strcpy(t_name,temp);
+X      free(temp);
+X      XtSetArg( args[0],XtNlabel,(XtArgVal) t_name);
+X      XtSetValues(titel_zeile,args,1);
+X
+X      /* aktuellen Pfadnamen im Dialogwidget anzeigen */
+X      temp = malloc(LAENGE2+1);
+X      getcwd(temp,LAENGE2);
+X      sprintf(p_name,"%-51s",temp);                        
+X      free(temp);
+X      /* Dialogfeld zur Ausgabe des aktuellen Verzeichnisnamen  aendern  */
+X      /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X      XtSetArg(args[0],XtNstring,p_name);
+X      XtSetValues(((DialogWidget)path)->dialog.valueW,args,1);
+X
+X      /* Pattern in DialogWidget uebernehmen */
+X      /* ohne direkt in Pointer zu schreiben wird Wert nicht angezeigt */
+X      XtSetArg(args[0],XtNstring,patt_global);
+X      XtSetValues(((DialogWidget)patt_t)->dialog.valueW,args,1);
+X       
+X      /* aktuelles Directory eintragen */
+X      direct_to_list(); 
+X
+X      /* Fileselectbox auf dem Bildschirm anzeigen */
+X      XtPopup(file_s,XtGrabExclusive);
+X       
+X      /* Events im Popup selbst verwalten */
+X      app_context = XtWidgetToApplicationContext(file_s);
+X      while(((ShellWidget)file_s)->shell.popped_up)
+X      {
+X	 XtAppNextEvent(app_context,&event);
+X	 XtDispatchEvent(&event);
+X      }
+X
+X      } 
+X
+X   /* String bereits in beim OK-Button kontrolliert */
+X   return(filename);
+} 
+X
+X
+/*******************************************************************
+X * Center a popup in the middle of another widget if possible,     *
+X * otherwise make shure that the popup is visible on the screen    *
+X *******************************************************************/
+void centerpopup(Widget centerin,Widget tocenter)
+{
+Display *CurDpy;
+Position xin,yin,x,y;
+Dimension win,hin,wto,hto;
+Arg args[4];
+X
+CurDpy = XtDisplay(centerin);
+XXtRealizeWidget(tocenter);
+XXtSetArg(args[0],XtNwidth,&wto);
+XXtSetArg(args[1],XtNheight,&hto);
+XXtGetValues(tocenter,args,2);
+X
+XXtSetArg(args[0],XtNwidth,&win);
+XXtSetArg(args[1],XtNheight,&hin);
+XXtGetValues(centerin,args,2);
+X
+XXtTranslateCoords(centerin,0,0,&xin,&yin);
+X
+x = xin + win/2 - wto/2;
+y = yin + hin/2 - hto/2;
+if(x < 0)
+X    x = 0;
+if(y < 0)
+X    y = 0;
+if((x+wto) > DisplayWidth(CurDpy, DefaultScreen(CurDpy)))
+X    x = DisplayWidth(CurDpy, DefaultScreen(CurDpy)) - wto;
+if((y+hto) > DisplayHeight(CurDpy, DefaultScreen(CurDpy)))
+X    y = DisplayHeight(CurDpy, DefaultScreen(CurDpy)) - hto;
+X
+XXtSetArg(args[0],XtNx,x);
+XXtSetArg(args[1],XtNy,y);
+XXtSetValues(tocenter,args,2);
+XXWarpPointer(CurDpy,None,DefaultRootWindow(CurDpy),0,0,0,0,x+wto/2,y+hto/2);
+}
+X
+SHAR_EOF
+echo 'File file_sel.c is complete' &&
+chmod 0644 file_sel.c ||
+echo 'restore of file_sel.c failed'
+Wc_c="`wc -c < 'file_sel.c'`"
+test 36818 -eq "$Wc_c" ||
+	echo 'file_sel.c: original size 36818, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= file_sel.h ==============
+if test -f 'file_sel.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping file_sel.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting file_sel.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'file_sel.h' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* header-file file_sel.h */
+X
+#ifndef FILE_SELH
+#define FILE_SELH
+X
+X
+X
+X
+int Is_direct(char *name);
+short count_eintraege(void);
+int match(char *sstring,char *pattern);
+String *directory_erstellen(short anzahl);
+void direct_to_list(void);
+void Ok_geklickt(Widget w ,caddr_t client_data,caddr_t call_data);
+void Ok2_geklickt(Widget widget,XEvent *event,String *params,Cardinal *n_params);
+void Path_changed(Widget widget,XEvent *event,String *params,Cardinal *n_params);
+void Path_leave(Widget widget,XEvent *event,String *params,Cardinal *n_params);
+void Patt_change(Widget widget,XEvent *event,String *params,Cardinal *n_params);
+void Cancel_geklickt(Widget w,caddr_t client_data,caddr_t call_data);
+void File_gewaehlt(Widget w,caddr_t client_data,caddr_t call_data);
+char *center(char *zeile,short laenge);
+void Dummy(Widget widget,XEvent *event,String *params,Cardinal *n_params);
+Widget init_file_select(Widget w);
+char *file_select(char *patt,char *titel);
+X
+X
+#endif
+X
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 file_sel.h ||
+echo 'restore of file_sel.h failed'
+Wc_c="`wc -c < 'file_sel.h'`"
+test 1046 -eq "$Wc_c" ||
+	echo 'file_sel.h: original size 1046, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= graphics.c ==============
+if test -f 'graphics.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping graphics.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting graphics.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'graphics.c' &&
+/* xtexcad  V1.2 - graphic editor for LaTeX */
+/* 1991 by K.Zitzmann */
+/* graphics.c */
+X
+#include "x_stuff.h"
+#include "oberfl.h"
+#include "ereignis.h"
+#include "io_trans.h"
+#include "graphics.h"
+#include <math.h>
+#include <ctype.h>
+X
+X
+X
+X
+X
+int black_white_patch = (1==0); /* JM */
+X
+X
+X
+/* the LaTeX-dilemma : restricted slopes, length and diameters */
+X
+/* possible line slopes */
+/*
+X * the constants indicate the possible values for the numerator or
+X * denominator of the fraction which represents the slope, i.e "6" means,
+X * values from -6 to 6
+X */
+/*
+X * convention : some TeX implementations support unlimited slopes, diameters
+X * and length. This might be indicated by changing the r-value to 0 !!!
+X */
+X
+int             line_slope = 6;
+int             slope_line = 6;	/* a copy */
+int             arrow_slope = 4;
+int             slope_arrow = 4;	/* a copy */
+int             line_length = 10;	/* each line/arrow must be 10 points
+X					 * long */
+/* const circle_diameter[0]={-1}; */
+/* diameters must! be sorted by size */
+/* -1 is an end-marker */
+int             circle_diameter[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 24, 28, 32, 36, 40, -1};
+int             disc_diameter[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1};
+int             rast_height = 40;
+X
+float           l_slope[30][3];	/* static !!! depends on 'line_slope' !!!! */
+float           a_slope[20][3];	/* dito! */
+Boolean         visible;
+int		ab=-9;
+Widget		muschel; /* popup-shell for textedit */
+Widget		fb_muschel; /* popup-shell ... */
+Widget		db_muschel; /* popup-shell ... */
+X
+struct textdel {
+X		Widget tg; /* pointer to the togglewidget */
+X		void *obj; /* pointer to text */
+X		} mem[10];		
+X
+X
+X
+X
+X
+void
+transform(char *name)
+{
+X	/* eliminates all special characters in this string */
+X
+X	char           *buffer;
+X	int             i, k, name_length;
+X
+X
+X
+X	name_length = strlen(name);
+X
+X	buffer = (char *) malloc(name_length + 1);
+X
+X	strcpy(buffer, name);
+X
+X	for (i = 0, k = 0; (i <= name_length), (buffer[i] != '\0'); i++)
+X	{
+X		if (isprint(buffer[i]))
+X			name[k++] = buffer[i];
+X	}
+X
+X	if (name[k - 1] != '\0')
+X		name[k] = '\0';
+X
+X	free(buffer);
+X
+X
+}
+X
+X
+X
+X
+X
+void
+make_GCcontext()
+{
+X	/* make a GC */
+X
+X	XGCValues       gcvals;
+X	Display        *disp=XtDisplay(toplevel);
+X	Drawable        win=(Drawable)XtWindow(toplevel);
+X	unsigned long   maske;
+X	char            d_list[5];
+X	Screen		*scr=XtScreen(toplevel);
+X
+X
+X	gcvals.foreground = BlackPixel(disp,XScreenNumberOfScreen(scr));
+X	gcvals.background = WhitePixel(disp,XScreenNumberOfScreen(scr));
+X	gcvals.line_width = 0;
+X	gcvals.plane_mask = AllPlanes;
+X	gcvals.line_style = LineSolid;
+X	gcvals.cap_style = CapButt;
+X	gcvals.join_style = JoinMiter;
+X	gcvals.fill_style = FillSolid;
+X	gcvals.fill_rule = WindingRule;
+X	gcvals.dash_offset = 5;
+X	
+X	/* gcvals.function = GXxor; */ 
+X	/* JM */ 
+X	/* starts here... */
+X	black_white_patch = (gcvals.foreground == 0);
+X	if (black_white_patch)
+X		gcvals.function = GXequiv;
+X	else
+X		gcvals.function = GXxor;
+X	/* ...ends here ! */
+X
+X	maske = (GCForeground | GCBackground | GCLineWidth | GCLineWidth |
+X	GCPlaneMask | GCLineStyle | GCCapStyle | GCJoinStyle | GCFillStyle |
+X		 GCFillRule | GCDashOffset | GCFunction);
+X
+X
+X	gc = XCreateGC(disp, win, maske, &gcvals);
+X
+X	/* for dashed lines only */
+X	copy_gc = XCreateGC(disp, win, maske, &gcvals);
+X
+X	d_list[0] = 3;
+X	d_list[1] = 10;
+X	d_list[2] = '\0';
+X	XSetLineAttributes(disp, copy_gc, 0, LineOnOffDash, CapButt, JoinMiter);
+X	XSetDashes(disp, copy_gc, 0, d_list, strlen(d_list));
+X
+X
+X
+}
+X
+X
+void
+PointerPosition(int *x, int *y, unsigned int *mask)
+{
+X	/* return the (relative) coordinates of the pointer in pboard */
+X	/* XQueryPointer returns origin-coordinates: (-1,-1) !!! */
+X	/* origin is top-left */
+X
+X	Display        *disp;
+X	Window          win, egal1, egal2;
+X	int             h, v;
+X	Bool            result;
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X	result = XQueryPointer(disp, win, &egal1, &egal2, &h, &v, x, y, mask);
+X	/* important parameters are disp,win,x,y */
+X	/* result==False is an impossible error ! */
+X	/* corrections of origin : */
+X
+X	if ((*x) < 0)
+X		x = 0;
+X	if ((*y) < 0)
+X		y = 0;
+X
+X
+}/* function returns the x,y coordinates of the pointer in pboard */
+X
+X
+void
+snapPointerPosition(int *x, int *y, unsigned int *mask)
+{
+X	PointerPosition(x, y, mask);
+X	if ((snap == True) && (raster == True))
+X		valid_snap_coords(x, y);
+}
+X
+X
+void
+valid_snap_coords(int *x, int *y)
+{
+X	/* compute the coordinates of the nearest raster-node */
+X	int             res, h = rast_height;
+X	float           a, b;
+X	a = (float) (*x);
+X	b = (float) (*y);
+X
+X	if (zoomed == True)
+X		zoomed2real(&a, &b);
+X
+X	(*x) = (int) a;
+X	(*y) = (int) b;
+X
+X	res = (h / 2 + (*x)) / h;
+X	(*x) = res * h;
+X
+X	res = (h / 2 + (*y)) / h;
+X	(*y) = res * h;
+X
+X
+X	a = (float) (*x);
+X	b = (float) (*y);
+X
+X	if (zoomed == True)
+X		real2zoomed(&a, &b);
+X
+X	(*x) = (int) a;
+X	(*y) = (int) b;
+X
+X
+}
+X
+X
+void
+set_TM_btn1_first(Widget w, XEvent * event, String * id, Cardinal * num)
+{
+X	switch (graph_action)
+X	{
+X	case 'Z':set_zoom_window();
+X		break;
+X
+X	case 'T':
+X		set_text_input();
+X		break;
+X
+X	case 'P':
+X		set_pick_object();
+X		break;
+X
+X	case 'Y':
+X		set_copy_object();
+X		break;
+X
+X	case 'G':
+X		set_pick_erase();
+X		break;
+X
+X	default:
+X		set_first();
+X		break;
+X	}
+}
+X
+X
+void
+set_first()
+{
+X	/* sets the translation manager of pboard */
+X	/* if button is pressed, execute the function */
+X
+X	/* Override Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<Btn1Down>: btn1_press_first()";
+X	static XtActionsRec actions[80] = {{"btn1_press_first", btn1_press_first}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+}
+X
+void
+set_text_input()
+{
+X	/* does the same (as the function above) for 'text' */
+X	/* Override Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<Btn1Down>: manage_text_input()";
+X	static XtActionsRec actions[80] = {{"manage_text_input", manage_text_input}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+}
+X
+void print_head(char ch)
+{
+X  char txt[80];
+X
+X	strcpy(txt, titlename);
+X	strcat(txt, "  :  ");
+X
+X	switch (ch)
+X	{
+X		case 'L':strcat(txt,"#### Line ####");
+X			 break;
+X		case 'I':strcat(txt,"#### Bezier ####");
+X			 break;
+X		case 'V':strcat(txt,"#### Vector ####");
+X			 break;
+X		case 'N':strcat(txt,"#### Box --> framed ####");
+X			 break;
+X		case 'D':strcat(txt,"#### Box --> dashed ####");
+X			 break;
+X		case 'F':strcat(txt,"#### Box --> filled ####");
+X			 break;
+X		case 'O':strcat(txt,"#### Circle --> oval ####");
+X			 break;
+X		case 'C':strcat(txt,"#### Circle --> normal ####");
+X			 break;
+X		case 'B':strcat(txt,"#### Circle --> filled ####");
+X			 break;
+X		default :strcat(txt,titlename);
+X			 break;
+X	}
+X	
+X	headline(toplevel,txt);
+X
+}
+X
+X
+void
+leave_translation()
+{
+X  char          	destination[80] = "<LeaveWindow> : left() \n";
+X  static 		XtActionsRec actions[80] = {{"left", left}};
+X  XtTranslations  	trans_table;
+X
+X
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+}
+X
+X
+void
+newline()
+{
+X  char ch;
+X  
+X	/* button 3 or 4 was pressed, start drawing a new line (object) */
+X
+X	XtUninstallTranslations(pboard);	
+X
+X	leave_translation();
+X	ch=graph_action;
+X	leaving();
+X	leave_translation();
+X	print_head(ch);
+X	graph_action=ch;
+X	set_first();
+X	
+}
+X 
+X
+X
+void
+btn1_press_first(Widget w, XEvent * event, String * id, Cardinal * num)
+{
+X	/* ------------------------------------------------------------- */
+X	/* btn1 in pboard was pressed for the first time */
+X	/* ------------------------------------------------------------- */
+X
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<LeaveNotify>: leaving()";
+X	char            destination2[80] = "<Btn2Down>: newline()\n\
+X					    <Btn3Down>: newline()\n";
+X	static XtActionsRec actions[80] = {{"leaving", leaving},
+X					   {"newline", newline}
+X					  };
+X	int             x, y;
+X	unsigned int    mask;
+X
+X
+X
+X
+X	/* get the position of the pointer */
+X	snapPointerPosition(&x, &y, &mask);
+X
+X	/* install interrupt-action */
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+X	trans_table = XtParseTranslationTable(destination2);
+X	XtOverrideTranslations(pboard, trans_table);
+X
+X
+X
+X
+X	/* prepare the 2nd btn1-press */
+X	set_TM_btn1_second();
+X
+X
+X
+X
+X	/* store the coordinates */
+X	switch (graph_action)
+X	{
+X	case 'I':
+X		if (bezier_start == NULL)
+X		{	/* first entry */
+X			bezier_start = (struct fig6 *) malloc(sizeof(bezier));
+X			bezier_curr = bezier_start;
+X		} else
+X		{	/* insert at end */
+X			bezier_curr->next = (struct fig6 *) malloc(sizeof(bezier));
+X			bezier_curr = bezier_curr->next;
+X		}
+X		bezier_curr->ax = (float) x;
+X		bezier_curr->ay = (float) y;
+X		bezier_curr->ex= -999.0;	/* special marker */
+X		bezier_curr->next = NULL;
+X		break;	/* bezier_curr points to (incomplete) structure */
+X
+X	case 'L':
+X		if (strich_start == NULL)
+X		{	/* first entry */
+X			strich_start = (struct fig2 *) malloc(sizeof(strich));
+X			strich_curr = strich_start;
+X		} else
+X		{	/* insert at end */
+X			strich_curr->next = (struct fig2 *) malloc(sizeof(strich));
+X			strich_curr = strich_curr->next;
+X		}
+X		strich_curr->x = (float) x;
+X		strich_curr->y = (float) y;
+X		strich_curr->h = -999.0;	/* special marker */
+X		strich_curr->next = NULL;
+X		break;	/* strich_curr points to (incomplete) structure */
+X
+X	case 'V':
+X		if (pfeil_start == NULL)
+X		{	/* first entry */
+X			pfeil_start = (struct fig2 *) malloc(sizeof(pfeil));
+X			pfeil_curr = pfeil_start;
+X		} else
+X		{	/* insert at end */
+X			pfeil_curr->next = (struct fig2 *) malloc(sizeof(pfeil));
+X			pfeil_curr = pfeil_curr->next;
+X		}
+X		pfeil_curr->x = (float) x;
+X		pfeil_curr->y = (float) y;
+X		pfeil_curr->h = -999.0; 	/* special marker */
+X		pfeil_curr->next = NULL;
+X		break;	/* pfeil_curr points to (incomplete) structure */
+X
+X	case 'N':
+X		if (framedBox_start == NULL)
+X		{	/* first entry */
+X			framedBox_start = (struct fig3 *) malloc(sizeof(framedBox));
+X			framedBox_curr = framedBox_start;
+X		} else
+X		{	/* insert at end */
+X			framedBox_curr->next = (struct fig3 *) malloc(sizeof(framedBox));
+X			framedBox_curr = framedBox_curr->next;
+X		}
+X		framedBox_curr->x = (float) x;
+X		framedBox_curr->y = (float) y;
+X		framedBox_curr->h = -999;	/* special marker */
+X		framedBox_curr->next = NULL;
+X		break;	/* framedBox_curr points to (incomplete) structure */
+X
+X	case 'D':
+X		if (dashedBox_start == NULL)
+X		{	/* first entry */
+X			dashedBox_start = (struct fig4 *) malloc(sizeof(dashedBox));
+X			dashedBox_curr = dashedBox_start;
+X		} else
+X		{	/* insert at end */
+X			dashedBox_curr->next = (struct fig4 *) malloc(sizeof(dashedBox));
+X			dashedBox_curr = dashedBox_curr->next;
+X		}
+X		dashedBox_curr->x = (float) x;
+X		dashedBox_curr->y = (float) y;
+X		dashedBox_curr->h = -999;	/* special marker */
+X		dashedBox_curr->next = NULL;
+X		break;	/* dashedBox_curr points to (incomplete) structure */
+X
+X	case 'F':
+X		if (filledBox_start == NULL)
+X		{	/* first entry */
+X			filledBox_start = (struct fig2 *) malloc(sizeof(filledBox));
+X			filledBox_curr = filledBox_start;
+X		} else
+X		{	/* insert at end */
+X			filledBox_curr->next = (struct fig2 *) malloc(sizeof(filledBox));
+X			filledBox_curr = filledBox_curr->next;
+X		}
+X		filledBox_curr->x = (float) x;
+X		filledBox_curr->y = (float) y;
+X		filledBox_curr->h = -999;	/* special marker */
+X		filledBox_curr->next = NULL;
+X		break;	/* filledBox_curr points to (incomplete) structure */
+X
+X	case 'C':
+X		if (kreis_start == NULL)
+X		{	/* first entry */
+X			kreis_start = (struct fig2 *) malloc(sizeof(kreis));
+X			kreis_curr = kreis_start;
+X		} else
+X		{	/* insert at end */
+X			kreis_curr->next = (struct fig2 *) malloc(sizeof(kreis));
+X			kreis_curr = kreis_curr->next;
+X		}
+X		kreis_curr->x = (float) x;
+X		kreis_curr->y = (float) y;
+X		kreis_curr->h = -999;	/* special marker */
+X		kreis_curr->next = NULL;
+X		break;	/* kreis_curr points to (incomplete) structure */
+X
+X	case 'B':
+X		if (disc_start == NULL)
+X		{	/* first entry */
+X			disc_start = (struct fig2 *) malloc(sizeof(disc));
+X			disc_curr = disc_start;
+X		} else
+X		{	/* insert at end */
+X			disc_curr->next = (struct fig2 *) malloc(sizeof(disc));
+X			disc_curr = disc_curr->next;
+X		}
+X		disc_curr->x = (float) x;
+X		disc_curr->y = (float) y;
+X		disc_curr->h = -999;	/* special marker */
+X		disc_curr->next = NULL;
+X		break;	/* disc_curr points to (incomplete) structure */
+X
+X	case 'O':
+X		if (oval_start == NULL)
+X		{	/* first entry */
+X			oval_start = (struct fig1 *) malloc(sizeof(oval));
+X			oval_curr = oval_start;
+X		} else
+X		{	/* insert at end */
+X			oval_curr->next = (struct fig1 *) malloc(sizeof(oval));
+X			oval_curr = oval_curr->next;
+X		}
+X		oval_curr->x = (float) x;
+X		oval_curr->y = (float) y;
+X		oval_curr->h = -999;	/* special marker */
+X		oval_curr->next = NULL;
+X		break;	/* oval_curr points to (incomplete) structure */
+X
+X	default:
+X		break;
+X	}	/* switch */
+X
+X	enable_tracker();
+X
+X
+}
+X
+X
+X
+X
+X
+void
+set_TM_btn1_second()
+{
+X	/*
+X	 * btn1 was pressed for the first time in pboard. Now, prepare the
+X	 * second btn1-press
+X	 */
+X
+X	/* Override Translation Manager */
+X	XtTranslations  trans_table;
+X	char            destination[80] = "<Btn1Down>: btn1_press_second()";
+X	static XtActionsRec actions[80] = {{"btn1_press_second", btn1_press_second}};
+X	XtAddActions(actions, XtNumber(actions));
+X	trans_table = XtParseTranslationTable(destination);
+X	XtOverrideTranslations(pboard, trans_table);
+}
+X
+X
+X
+void
+btn1_press_second(Widget w, XEvent * event, String * id, Cardinal * num)
+{
+X	/* button was pressed in pboard (for the 2nd time) */
+X	int             x, y, r;
+X	float           a1, a2, e1, e2;
+X	Display        *disp;
+X	Drawable        win;
+X	char 		ch=graph_action;
+X	int		lenn=81;
+X
+X
+X	disp = XtDisplay(pboard);
+X	win = XtWindow(pboard);
+X
+X	track_it(&x, &y);	/* the rubber-band-tracker */
+X
+X
+X	switch (graph_action)
+X	{
+X	case 'I':
+X		/* bezier_curr points to incomplete srtucture */
+X		XtUninstallTranslations(pboard);
+X		bezier_curr->ex = (float) x;
+X		bezier_curr->ey = (float) y;
+X		/* delete the line */
+X		XDrawLine(disp,win,gc,(int)bezier_curr->ax,(int)bezier_curr->ay,(int)x,(int)y);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			zoomed2real(&bezier_curr->ax,&bezier_curr->ay);
+X			/* translate second coordinate to real-system */
+X			zoomed2real(&bezier_curr->ex,&bezier_curr->ey);
+X		}
+X		bezier_curr->sx=-999.0; /* special marker */
+X		set_lastBezier_press(); /* watch 3rd btn1-press */
+X		break;
+X
+X	case 'L':	/* correct coordinates */
+X		valid_line_coords((int) strich_curr->x, (int) strich_curr->y, &x, &y);
+X		/* strich_curr points to incomplete srtucture */
+X		strich_curr->h = (float) x;
+X		strich_curr->v = (float) y;
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = strich_curr->x;
+X			a2 = strich_curr->y;
+X			zoomed2real(&a1, &a2);
+X			strich_curr->x = a1;
+X			strich_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = strich_curr->h;
+X			e2 = strich_curr->v;
+X			zoomed2real(&e1, &e2);
+X			strich_curr->h = e1;
+X			strich_curr->v = e2;
+X		}
+X		/* create new struct */
+X		strich_curr->next = (struct fig2 *) malloc(sizeof(strich));
+X		strich_curr = strich_curr->next;
+X		strich_curr->x = (float) x;
+X		strich_curr->y = (float) y;
+X		strich_curr->h = -999;	/* special marker */
+X		strich_curr->next = NULL;
+X		break;	/* strich_curr points to (incomplete) structure */
+X
+X	case 'V':	/* correct coordinates */
+X		valid_vector_coords((int) pfeil_curr->x, (int) pfeil_curr->y, &x, &y);
+X		/* pfeil_curr points to incomplete srtucture */
+X		pfeil_curr->h = (float) x;
+X		pfeil_curr->v = (float) y;
+X		draw_vector_marker(pfeil_curr->x, pfeil_curr->y, pfeil_curr->h, pfeil_curr->v);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = pfeil_curr->x;
+X			a2 = pfeil_curr->y;
+X			zoomed2real(&a1, &a2);
+X			pfeil_curr->x = a1;
+X			pfeil_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = pfeil_curr->h;
+X			e2 = pfeil_curr->v;
+X			zoomed2real(&e1, &e2);
+X			pfeil_curr->h = e1;
+X			pfeil_curr->v = e2;
+X		}
+X		/* create new struct */
+X		pfeil_curr->next = (struct fig2 *) malloc(sizeof(pfeil));
+X		pfeil_curr = pfeil_curr->next;
+X		pfeil_curr->x = (float) x;
+X		pfeil_curr->y = (float) y;
+X		pfeil_curr->h = -999;	/* special marker */
+X		pfeil_curr->next = NULL;
+X		break;	/* pfeil_curr points to (incomplete) structure */
+X
+X	case 'N':	/* framedBox_curr points to incomplete structure */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard); 
+X		framedBox_curr->h = (float) x;
+X		framedBox_curr->v = (float) y;
+X		norm_rectangle(&framedBox_curr->x, &framedBox_curr->y,
+X			       &framedBox_curr->h, &framedBox_curr->v);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = framedBox_curr->x;
+X			a2 = framedBox_curr->y;
+X			zoomed2real(&a1, &a2);
+X			framedBox_curr->x = a1;
+X			framedBox_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = framedBox_curr->h;
+X			e2 = framedBox_curr->v;
+X			zoomed2real(&e1, &e2);
+X			framedBox_curr->h = e1;
+X			framedBox_curr->v = e2;
+X		}
+X		/* ask for text in box */
+X		txtpos[0] = 'X';
+X		txtpos[1] = 'X';
+X		query_box_text_and_position();
+X		/* now, txtpos contains the position of the text in your box */
+X		/* boxinput contains the text-string */
+X		if (txtpos[0] == '?')	/* cancel option */
+X			leaving();
+X		else
+X		{
+X			if (lenn<1+strlen(boxinput)) lenn=1+strlen(boxinput);
+X			framedBox_curr->text = (char *) malloc(lenn);
+X			strcpy(framedBox_curr->text, boxinput);
+X			strcpy(framedBox_curr->textpos, txtpos);
+X			/* draw the shadow-style */
+X			draw_the_shadow((void *) framedBox_curr, nn);
+X			/* the global variable <shadow> decides, which shadow */
+X			/* will be drawn */
+X			left();
+X		}
+X		graph_action='N';
+X		print_head(graph_action);
+X		leave_translation();
+X		set_first();	
+X		break;	/* framedBox terminated */
+X
+X	case 'D':	/* dashedBox_curr points to incomplete structure */
+X		/* forget translations */
+X		XtUninstallTranslations(pboard);
+X		dashedBox_curr->h = (float) x;
+X		dashedBox_curr->v = (float) y;
+X		norm_rectangle(&dashedBox_curr->x, &dashedBox_curr->y,
+X			       &dashedBox_curr->h, &dashedBox_curr->v);
+X		if (zoomed == True)
+X		{
+X			/* translate first coordinate to real-system */
+X			a1 = dashedBox_curr->x;
+X			a2 = dashedBox_curr->y;
+X			zoomed2real(&a1, &a2);
+X			dashedBox_curr->x = a1;
+X			dashedBox_curr->y = a2;
+X
+X			/* translate second coordinate to real-system */
+X
+X			e1 = dashedBox_curr->h;
+X			e2 = dashedBox_curr->v;
+X			zoomed2real(&e1, &e2);
+X			dashedBox_curr->h = e1;
+X			dashedBox_curr->v = e2;
+X		}
+X		/* ask for text in box */
+X		txtpos[0] = 'X';
+X		txtpos[1] = 'X';
+X		query_box_text_and_position();
+X		/* now, txtpos contains the position of the text in your box */
+X		/* boxinput contains the text-string */
+X		if (txtpos[0] == '?')	/* cancel option */
+X			leaving();
+X		else
+X		{
+X			if (lenn<1+strlen(boxinput)) lenn=1+strlen(boxinput);
+X			dashedBox_curr->text = (char *) malloc(lenn);
+X			strcpy(dashedBox_curr->text, boxinput);
+X			strcpy(dashedBox_curr->textpos, txtpos);
+X			dashedBox_curr->dashlength = 0.5;	/* constant */
+X			/* draw the shadow-style */
+X			draw_the_shadow((void *) dashedBox_curr, dd);
+SHAR_EOF
+true || echo 'restore of graphics.c failed'
+fi
+echo 'End of  part 2'
+echo 'File graphics.c is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

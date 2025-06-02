@@ -1,0 +1,1984 @@
+Newsgroups: comp.sources.misc
+From: morris@netcom.com (Jim Morris)
+Subject: v34i122: splash - Small Perl-like List And String Handling class lib, v1.8, Part02/03
+Message-ID: <1993Jan18.214322.29972@sparky.imd.sterling.com>
+X-Md4-Signature: 0d2a471b88d3deaf43177fb733d19083
+Date: Mon, 18 Jan 1993 21:43:22 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: morris@netcom.com (Jim Morris)
+Posting-number: Volume 34, Issue 122
+Archive-name: splash/part02
+Environment: C++
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  regex.h splash.c++ splash.h spltest.c++
+# Wrapped by kent@sparky on Mon Jan 18 15:29:05 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 3)."'
+if test -f 'regex.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regex.h'\"
+else
+  echo shar: Extracting \"'regex.h'\" \(731 characters\)
+  sed "s/^X//" >'regex.h' <<'END_OF_FILE'
+X/*
+X * Definitions etc. for regexp(3) routines.
+X *
+X * Caveat:  this is V8 regexp(3) [actually, a reimplementation thereof],
+X * not the System V one.
+X */
+X#define NSUBEXP  10
+Xtypedef struct regexp {
+X	char *startp[NSUBEXP];
+X	char *endp[NSUBEXP];
+X	char regstart;		/* Internal use only. */
+X	char reganch;		/* Internal use only. */
+X	char *regmust;		/* Internal use only. */
+X	int regmlen;		/* Internal use only. */
+X	char program[1];	/* Unwarranted chumminess with compiler. */
+X} regexp;
+X
+X/*
+X * c++ headers added by Jim Morris.
+X */
+X#ifdef	__cplusplus
+Xextern "C"{
+Xregexp *regcomp(const char *);
+Xint regexec(regexp *, const char *);
+X}
+X#else
+Xextern regexp *regcomp();
+Xextern int regexec();
+Xextern void regsub();
+Xextern void regerror();
+X#endif
+END_OF_FILE
+  if test 731 -ne `wc -c <'regex.h'`; then
+    echo shar: \"'regex.h'\" unpacked with wrong size!
+  fi
+  # end of 'regex.h'
+fi
+if test -f 'splash.c++' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splash.c++'\"
+else
+  echo shar: Extracting \"'splash.c++'\" \(15937 characters\)
+  sed "s/^X//" >'splash.c++' <<'END_OF_FILE'
+X/*
+X * Version 1.8
+X * Written by Jim Morris,  jegm@sgi.com
+X * Kudos to Larry Wall for inventing SP
+X * Copyrights only exist on the regex stuff,  and all
+X * have been left intact.
+X * The only thing I ask is that you let me know of any nifty fixes or
+X * additions.
+X * Credits:
+X * I'd like to thank Michael Golan <mg@Princeton.EDU> for his critiques
+X * and clever suggestions. Some of which have actually been implemented
+X */
+X#include <iostream.h>
+X#include <string.h>
+X#include <malloc.h>
+X#include <stdio.h>
+X
+X#ifdef	__TURBOC__
+X#pragma hdrstop
+X#endif
+X
+X#include "splash.h"
+X
+X//************************************************************
+X// VarString Implementation
+X//************************************************************
+X
+XVarString& VarString::operator=(const char *s)
+X{
+X    int nl= strlen(s);
+X    if(nl+1 >= allocated) grow((nl-allocated)+allocinc);
+X    assert(allocated > nl+1);
+X    strcpy(a, s);
+X    len= nl;
+X    return *this;
+X}
+X
+XVarString& VarString::operator=(const VarString& n)
+X{
+X    if(this != &n){
+X	if(n.len+1 >= allocated){ // if it is not big enough
+X#	    ifdef	DEBUG
+X	    fprintf(stderr, "~operator=(VarString&) a= %p\n", a);
+X#	    endif
+X	    delete [] a; // get rid of old one
+X	    allocated= n.allocated;
+X	    allocinc= n.allocinc;
+X	    a= new char[allocated];
+X#	    ifdef	DEBUG
+X	    fprintf(stderr, "operator=(VarString&) a= %p, source= %p\n", a, n.a);
+X#	    endif
+X	}
+X        len= n.len;
+X	strcpy(a, n.a);
+X    }
+X    return *this;
+X}
+X
+Xvoid VarString::grow(int n)
+X{
+X    if(n == 0) n= allocinc;
+X    allocated += n;
+X    char *tmp= new char[allocated];
+X    strcpy(tmp, a);
+X#ifdef	DEBUG
+X    fprintf(stderr, "VarString::grow() a= %p, old= %p, allocinc= %d\n", tmp, a, allocinc);
+X    fprintf(stderr, "~VarString::grow() a= %p\n", a);
+X#endif
+X    delete [] a;
+X    a= tmp;
+X}
+X
+Xvoid VarString::add(char c)
+X{
+X    if(len+1 >= allocated) grow();
+X    assert(allocated > len+1);
+X    a[len++]= c; a[len]= '\0';
+X}
+X
+Xvoid VarString::add(const char *s)
+X{
+X    int nl= strlen(s);
+X    if(len+nl >= allocated) grow(((len+nl)-allocated)+allocinc);
+X    assert(allocated > len+nl);
+X    strcat(a, s);
+X    len+=nl;
+X}
+X
+Xvoid VarString::add(int ip, const char *s)
+X{
+X    int nl= strlen(s);
+X    if(len+nl >= allocated) grow(((len+nl)-allocated)+allocinc);
+X    assert(allocated > len+nl);
+X    memmove(&a[ip+nl], &a[ip], (len-ip)+1); // shuffle up
+X    memcpy(&a[ip], s, nl);
+X    len+=nl;
+X    assert(a[len] == '\0');
+X}
+X
+Xvoid VarString::remove(int ip, int n)
+X{
+X    assert(ip+n <= len);
+X    memmove(&a[ip], &a[ip+n], len-ip); // shuffle down
+X    len-=n;
+X    assert(a[len] == '\0');    
+X}
+X
+X//************************************************************
+X// SPString stuff
+X//************************************************************
+X
+X// assignments
+XSPString& SPString::operator=(const SPString& n)
+X{
+X    if(this == &n) return *this;
+X    pstr= n.pstr;
+X    return *this;
+X}
+X
+XSPString& SPString::operator=(const substring& sb)
+X{
+X    VarString tmp(sb.pt, sb.len);
+X    pstr= tmp;
+X    return *this;
+X}
+X
+X// concatenations
+XSPString SPString::operator+(const SPString& s) const
+X{
+X    SPString ts(*this);
+X    ts.pstr.add(s);    
+X    return ts; 
+X}
+X
+XSPString SPString::operator+(const char *s) const
+X{
+X    SPString ts(*this);
+X    ts.pstr.add(s);
+X    return ts; 
+X}
+X
+XSPString SPString::operator+(char c) const
+X{
+X    SPString ts(*this);
+X    ts.pstr.add(c);
+X    return ts; 
+X}
+X
+XSPString operator+(const char *s1, const SPString& s2)
+X{
+X    SPString ts(s1);
+X    ts = ts + s2;
+X//    cout << "s2[0] = " << s2[0] << endl; // gives incorrect error
+X    return ts; 
+X}
+X
+X//************************************************************
+X// other stuff
+X//************************************************************
+X
+Xchar SPString::chop(void)
+X{
+X    int n= length();
+X    if(n <= 0) return '\0'; // empty
+X    char tmp= pstr[n-1];
+X    pstr.remove(n-1);
+X    return tmp;
+X}
+X
+Xint SPString::index(const SPString& s, int offset)
+X{
+X    if(offset < 0) offset= 0;
+X    for(int i=offset;i<length();i++){
+X	if(strncmp(&pstr[i], s, s.length()) == 0) return i;
+X    }
+X
+X    return -1;
+X}
+X
+Xint SPString::rindex(const SPString& s, int offset)
+X{
+X    if(offset == -1) offset= length()-s.length();
+X    else offset= offset-s.length()+1;
+X    if(offset > length()-s.length()) offset= length()-s.length();
+X      
+X    for(int i=offset;i>=0;i--){
+X	if(strncmp(&pstr[i], s, s.length()) == 0) return i;
+X    }
+X    return -1;
+X}
+X
+XSPString::substring SPString::substr(int offset, int len)
+X{
+X    if(len == -1) len= length() - offset; // default use rest of string
+X    if(offset < 0){
+X	offset= length() + offset;  // count from end of string
+X	if(offset < 0) offset= 0;   // went too far, adjust to start
+X    }
+X    return substring(*this, offset, len);
+X}
+X
+X// this is private
+X// it shrinks or expands string as required
+Xvoid SPString::insert(int pos, int len, const char *s, int nlen)
+X{
+X    if(pos < length()){ // nothing to delete if not true
+X	if((len+pos) > length()) len= length() - pos;
+X	pstr.remove(pos, len);  // first remove subrange
+X    }else pos= length();
+X
+X    VarString tmp(s, nlen);
+X    pstr.add(pos, tmp);	    // then insert new substring
+X}
+X
+Xint SPString::m(Regexp& r)
+X{
+X    return r.match(*this);
+X}
+X
+Xint SPString::m(const char *pat, const char *opts)
+X{
+Xint iflg= strchr(opts, 'i') != NULL;
+X    Regexp r(pat, iflg?Regexp::nocase:0);
+X    return m(r);
+X}
+X
+Xint SPString::m(Regexp& r, SPStringList& psl)
+X{
+X    if(!r.match(*this)) return 0;
+X    psl.reset();    // clear it first
+X    Range rng;
+X    for (int i=0; i<r.groups(); i++){
+X        rng= r.getgroup(i);
+X	psl.push(substr(rng.start(), rng.length()));
+X    }
+X    return r.groups();
+X}
+X
+Xint SPString::m(const char *pat, SPStringList& psl, const char *opts)
+X{
+Xint iflg= strchr(opts, 'i') != NULL;
+X    Regexp r(pat, iflg?Regexp::nocase:0);
+X    return m(r, psl);
+X}
+X
+X//
+X// I know! This is not fast, but it works!!
+X//
+Xint SPString::tr(const char *sl, const char *rl, const char *opts)
+X{
+X    if(length() == 0 || strlen(sl) == 0) return 0;
+X
+X    int cflg= strchr(opts, 'c') != NULL; // thanks Michael
+X    int dflg= strchr(opts, 'd') != NULL;
+X    int sflg= strchr(opts, 's') != NULL;
+X
+X    int cnt= 0, flen= 0;
+X    SPString t;
+X    unsigned char lstc= '\0', fr[256];
+X    
+X    // build search array, which is a 256 byte array that stores the index+1
+X    // in the search string for each character found, == 0 if not in search
+X    memset(fr, 0, 256);
+X    for(int i=0;i<strlen(sl);i++){
+X	if(i && sl[i] == '-'){ // got a range
+X	    assert(i+1 < strlen(sl) && lstc <= sl[i+1]); // sanity check
+X	    for(unsigned char c=lstc+1;c<=sl[i+1];c++){
+X		fr[c]= ++flen;
+X	    }
+X	    i++; lstc= '\0';
+X	}else{
+X	    lstc= sl[i];
+X	    fr[sl[i]]= ++flen;
+X	}
+X    }
+X
+X    int rlen;
+X    // build replacement list
+X    if((rlen=strlen(rl)) != 0){
+X	for(i=0;i<rlen;i++){
+X	    if(i && rl[i] == '-'){ // got a range
+X		assert(i+1 < rlen && t[t.length()-1] <= rl[i+1]); // sanity check
+X		for(char c=t[i-1]+1;c<=rl[i+1];c++) t += c;
+X		i++;
+X	    }else t += rl[i];
+X	}
+X    }
+X
+X    // replacement string that is shorter uses last character for rest of string
+X    // unless the delete option is in effect or it is empty
+X    while(!dflg && rlen && flen > t.length()){
+X	t += t[t.length()-1]; // duplicate last character
+X    }
+X
+X    rlen= t.length(); // length of translation string   
+X   
+X    // do translation, and deletion if dflg (actually falls out of length of t)
+X    // also squeeze translated characters if sflg
+X
+X    SPString tmp; // need this in case dflg, and string changes size
+X    for(i=0;i<length();i++){
+X	int off;
+X	if(cflg){ // complement, ie if NOT in f
+X	    char rc= !dflg ? t[t.length()-1] : '\0'; // always use last character for replacement
+X	    if((off=fr[(*this)[i]]) == 0){ // not in map
+X		cnt++;
+X		if(!dflg && (!sflg || tmp.length() == 0 || tmp[tmp.length()-1] != rc))
+X		    tmp += rc;
+X	    }else tmp += (*this)[i]; // just stays the same
+X	}else{ // in fr so substitute with t, if no equiv in t then delete
+X	    if((off=fr[(*this)[i]]) > 0){
+X		off--; cnt++;
+X		if(rlen==0 && !dflg && (!sflg || tmp.length() == 0 || tmp[tmp.length()-1] != (*this)[i])) tmp += (*this)[i]; // stays the same
+X		else if(off < rlen && (!sflg || tmp.length() == 0 || tmp[tmp.length()-1] != t[off]))
+X		    tmp += t[off]; // substitute
+X	    }else tmp += (*this)[i]; // just stays the same
+X	}
+X    }
+X
+X    *this= tmp;
+X    return cnt;
+X}
+X
+Xint SPString::s(const char *exp, const char *repl, const char *opts)
+X{
+Xint gflg= strchr(opts, 'g') != NULL;
+Xint iflg= strchr(opts, 'i') != NULL;
+Xint cnt= 0;
+XRegexp re(exp, iflg?Regexp::nocase:0);
+XRange rg;
+X
+X    if(re.match(*this)){
+X	// OK I know, this is a horrible hack, but it seems to work
+X	if(gflg){ // recursively call s() until applied to whole string
+X	    rg= re.getgroup(0);
+X	    if(rg.end()+1 < length()){
+X		SPString st(substr(rg.end()+1));
+X//		cout << "Substring: " << st << endl;
+X		cnt += st.s(exp, repl, opts);
+X		substr(rg.end()+1)= st;
+X//		cout << "NewString: " << *this << endl;
+X	    }
+X	}	
+X
+X	if(!strchr(repl, '$')){ // straight, simple substitution
+X	    rg= re.getgroup(0);
+X	    substr(rg.start(), rg.length())= repl;
+X	    cnt++;	
+X	}else{ // need to do subexpression substitution
+X	    char c;
+X	    const char *src= repl;
+X	    SPString dst;
+X	    int no;
+X	    while ((c = *src++) != '\0') {
+X		if(c == '$' && *src == '&'){
+X		    no = 0; src++;
+X		}else if(c == '$' && '0' <= *src && *src <= '9')
+X		    no = *src++ - '0';
+X		else no = -1;
+X
+X		if(no < 0){	/* Ordinary character. */
+X		    if(c == '\\' && (*src == '\\' || *src == '$'))
+X			c = *src++;
+X		    dst += c;
+X		}else{
+X		    rg= re.getgroup(no);
+X		    dst += substr(rg.start(), rg.length());
+X		}
+X	    }
+X	    rg= re.getgroup(0);
+X	    substr(rg.start(), rg.length())= dst;
+X	    cnt++;
+X	}
+X
+X	return cnt;
+X    }
+X    return cnt;
+X}
+X
+XSPStringList SPString::split(const char *pat, int limit)
+X{
+XSPStringList l;
+X
+X    l.split(*this, pat, limit);
+X    return l;
+X}
+X
+X//************************************************************
+X// SPStringList stuff
+X//************************************************************
+X
+Xint SPStringList::split(const char *str, const char *pat, int limit)
+X{
+XRegexp re(pat);
+XRange rng;
+XSPString s(str);
+Xint cnt= 1;
+X    
+X    if(*pat == '\0'){ // special empty string case splits entire thing
+X	while(*str){
+X	    s= *str++;
+X	    push(s);
+X	}
+X	return count();
+X    }
+X
+X    if(strcmp(pat, "' '") == 0){ // special awk case
+X	char *p, *ws= " \t\n";
+X	TempString t(str); // can't hack users data
+X	p= strtok(t, ws);
+X	while(p){
+X	    push(p);
+X	    p= strtok(NULL, ws);
+X	}
+X	return count();
+X    }
+X
+X    while(re.match(s) && (limit < 0 || cnt < limit)){ // find separator
+X	rng= re.getgroup(0); // full matched string (entire separator)
+X	push(s.substr(0, rng.start()));
+X	for(int i=1;i<re.groups();i++){
+X	    push(s.substr(re.getgroup(i))); // add subexpression matches
+X	}
+X	
+X	s= s.substr(rng.end()+1);
+X	cnt++;
+X    }
+X    if(s.length()) push(s);
+X
+X    if(limit < 0){ // strip trailing null entries
+X	int off= count()-1;
+X	while(off >= 0 && (*this)[off].length() == 0){
+X	    off--;
+X	}
+X	splice(off+1);
+X    }
+X    return count();
+X}
+X
+XSPString SPStringList::join(const char *pat)
+X{
+XSPString ts;
+X
+X    for(int i=0;i<count();i++){
+X	ts += (*this)[i];
+X	if(i<count()-1) ts += pat;
+X    }
+X    return ts;
+X}
+X
+X
+XSPStringList::SPStringList(const SPStringList& n)
+X{
+X    for(int i=0;i<n.count();i++){
+X	push(n[i]);
+X    }
+X}
+X
+XSPStringList& SPStringList::operator=(const SPList<SPString>& n)
+X{
+X    if(this == &n) return *this;
+X    // erase old one
+X    reset();
+X    
+X    for(int i=0;i<n.count();i++){
+X	push(n[i]);
+X    }
+X    return *this;
+X}
+X
+Xint SPStringList::m(const char *rege, const char *targ, const char *opts)
+X{
+Xint iflg= strchr(opts, 'i') != NULL;
+XRegexp r(rege, iflg?Regexp::nocase:0);
+X    if(!r.match(targ)) return 0;
+X    Range rng;
+X    for (int i=0; i<r.groups(); i++){
+X        rng= r.getgroup(i);
+X	push(SPString(targ).substr(rng.start(), rng.length()));
+X    }
+X    return r.groups();
+X}
+X
+XSPStringList SPStringList::grep(const char *rege, const char *opts)
+X{
+XSPStringList rt;
+Xint iflg= strchr(opts, 'i') != NULL;
+X
+X    Regexp rexp(rege, iflg?Regexp::nocase:0);    // compile once
+X    for(int i=0;i<count();i++){
+X    	if(rexp.match((*this)[i])){
+X	    rt.push((*this)[i]);
+X	}
+X    }
+X    return rt;
+X}
+X
+X//************************************************************
+X// streams stuff
+X//************************************************************
+X
+Xistream& operator>>(istream& ifs, SPString& s)
+X{
+Xchar c;
+X#if 0
+Xchar buf[40];
+X#else
+Xchar buf[132];
+X#endif
+X
+X    s= ""; // empty string
+X    ifs.get(buf, sizeof buf); 
+X    // This is tricky because a line teminated by end of file that is not terminated
+X    // with a '\n' first is considered an OK line, but ifs.good() will fail.
+X    // This will correctly return the last line if it is terminated by eof with the
+X    // stream still in a non-fail condition, but at eof, so next call will fail as
+X    // expected
+X    if(ifs){ 		// previous operation was ok
+X        s += buf; 	// append buffer to string
+X//	cout << "<" << buf << ">" << endl;
+X	// if its a long line continue appending to string
+X	while(ifs.good() && (c=ifs.get()) != '\n'){
+X//	    cout << "eof1= " << ifs.eof() << endl;
+X	    ifs.putback(c);
+X//          cout << "eof2= " << ifs.eof() << endl;
+X	    if(ifs.get(buf, sizeof buf)) s += buf; // append to line
+X	}
+X    }
+X    return ifs;    
+X}
+X
+Xistream& operator>>(istream& ifs, SPStringList& sl)
+X{
+XSPString s;
+X
+X    // Should I reset sl first?
+X    sl.reset(); // I think so, to be consistent
+X    
+X    while(ifs >> s){
+X	sl.push(s);
+X//	cout << "<" << s << ">" << endl;
+X    };
+X    return ifs;    
+X}
+X
+Xostream& operator<<(ostream& os,  const SPString& arr)
+X{
+X#ifdef TEST
+X    os << "(" << arr.length() << ")" << "\"";
+X    os << (const char *)arr;
+X    os << "\"";
+X#else
+X    os << (const char *)arr;
+X#endif
+X    return os;   
+X}
+X
+Xostream& operator<<(ostream& os,  const SPStringList& arr)
+X{
+X
+X    for(int i=0;i<arr.count();i++)
+X#ifdef TEST
+X	os << "[" << i << "]" << arr[i] << endl;
+X#else	 
+X	os << arr[i] << endl; 
+X#endif	 
+X    return os;   
+X}
+X
+X//************************************************************
+X// Slice stuff
+X//************************************************************
+X
+X// a..b is range a thru b
+X// a-b is also range a thru b
+X// a,b,c is a and b and c
+XSlice::Slice(const char *s)
+X{
+XSPStringList sl;
+XSPString sep;
+Xint i1, i2;
+X
+X    rl= new SPList<Range>;
+X    sl.split(s, "([-,]|\\.\\.)"); // split on separators and save them
+X//    cout << sl << endl;
+X    
+X    while(sl){
+X	i1= atoi(sl.shift()); // +++ should check it is a valid number	    	
+X        if(sl){
+X	    sep= sl.shift(); // get separator
+X            if(sep == "-" || sep == ".."){ // its a range
+X		if(sl.isempty()){ // check there is more
+X                    cerr << "\nError in Slice, bad range in string: " << s << endl;
+X		    return;                         
+X                }
+X		i2= atoi(sl.shift()); // +++ get end of range
+X                rl->push(Range(i1, i2)); // +++ Should see if range is reversed, or contiguous
+X                if(sl && (sep=sl.shift()) != ","){
+X                    cerr << "\nError in Slice, Range not terminated correctly in string: "
+X                         << s << " by: " << sep << endl;
+X                }
+X            }else if(sep == ","){ // its a single
+X		add(i1);
+X            }else{ // oops
+X            	cerr << "\nError in Slice, bad separator in string: " << s
+X		     << "at: " << sep << endl;
+X                return;
+X            }
+X        }else add(i1); // last one must be a single
+X    }
+X    cout << *this << endl;
+X}
+X
+Xvoid Slice::add(int i)
+X{
+Xint n= rl->count()-1;
+X    // if and only if this index is one greater than the previous on
+X    if(n >= 0 && (*rl)[n].end() == i-1){ // extend end of range by 1
+X	((*rl)[n])++;
+X    }else rl->push(Range(i, i));
+X}
+X
+X// a list of at least one indices, terminated by -1
+XSlice::Slice(int n, ...)
+X{
+Xva_list ap;
+Xint arg;
+Xva_start(ap, n);
+X
+X    rl= new SPList<Range>;
+X    add(n);
+X    while((arg=va_arg(ap, int)) >= 0){
+X	add(arg);
+X    }
+X    va_end(ap);
+X}
+X
+Xostream& operator<<(ostream& os, const Slice& sl)
+X{
+X    for(int i=0;i<sl.rl->count();i++){
+X        os << (*sl.rl)[i] << endl;
+X    }
+X    return os;
+X}
+END_OF_FILE
+  if test 15937 -ne `wc -c <'splash.c++'`; then
+    echo shar: \"'splash.c++'\" unpacked with wrong size!
+  fi
+  # end of 'splash.c++'
+fi
+if test -f 'splash.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'splash.h'\"
+else
+  echo shar: Extracting \"'splash.h'\" \(21764 characters\)
+  sed "s/^X//" >'splash.h' <<'END_OF_FILE'
+X/*
+X * Version 1.8
+X * Written by Jim Morris,  jegm@sgi.com
+X * Kudos to Larry Wall for inventing Perl
+X * Copyrights only exist on the regex stuff, and all have been left intact.
+X * The only thing I ask is that you let me know of any nifty fixes or
+X * additions.
+X * 
+X * Credits:
+X * I'd like to thank Michael Golan <mg@Princeton.EDU> for his critiques
+X * and clever suggestions. Some of which have actually been implemented
+X */
+X
+X#ifndef	_SPLASH_H
+X#define	_SPLASH_H
+X
+X#include <string.h>
+X#include "regexp.h"
+X
+X#if	DEBUG
+X#include	<stdio.h>
+X#endif
+X
+X#define	INLINE	inline
+X
+X//************************************************************
+X// This is the base class for SPList, it handles the underlying
+X// dynamic array mechanism
+X//************************************************************
+X
+Xtemplate<class T>
+Xclass SPListBase
+X{
+Xprivate:
+X    enum{ALLOCINC=20};
+X    T *a;
+X    int cnt;
+X    int first;
+X    int allocated;
+X    int allocinc;
+X    void grow(int amnt= 0, int newcnt= -1);
+X
+Xprotected:
+X    void compact(const int i);
+X
+Xpublic:
+X#ifdef	USLCOMPILER
+X    // USL 3.0 bug with enums losing the value
+X    SPListBase(int n= 20)
+X#else
+X    SPListBase(int n= ALLOCINC)
+X#endif
+X    {
+X	a= new T[n];
+X	cnt= 0;
+X        first= n>>1;
+X	allocated= n;
+X	allocinc= n;
+X#	ifdef	DEBUG
+X	fprintf(stderr, "SPListBase(int %d) a= %p\n", allocinc, a);
+X#	endif
+X    }
+X
+X    SPListBase(const SPListBase<T>& n);
+X    SPListBase<T>& SPListBase<T>::operator=(const SPListBase<T>& n);
+X    virtual ~SPListBase(){
+X#       ifdef	DEBUG
+X	fprintf(stderr, "~SPListBase() a= %p, allocinc= %d\n", a, allocinc);
+X#       endif
+X	delete [] a;
+X    }
+X
+X    INLINE T& operator[](const int i);
+X    INLINE const T& operator[](const int i) const;
+X
+X    int count(void) const{ return cnt; }
+X
+X    void add(const T& n);
+X    void add(const int i, const T& n);
+X    void erase(void){ cnt= 0; first= (allocated>>1);}
+X};
+X
+X// forward declarations
+Xclass SPStringList;
+Xclass Slice;
+Xtemplate <class T> class SPList;
+Xtemplate <class T> class SubList;
+X
+X//************************************************************
+X// Slice class to keep track of, and create, slices
+X//************************************************************
+X
+X#include <stdarg.h>
+Xclass Slice
+X{
+Xprivate:
+X    SPList<Range> *rl;
+X
+Xpublic:
+X    inline Slice();
+X    Slice(const char *); // parse the string to get a slice
+X    Slice(int n, ...); // list of indices to add to slice
+X    inline Slice(const Slice& slc);
+X    inline Slice(const Range& r);
+X    inline ~Slice();
+X     
+X    inline int count(void) const;
+X    inline const Range& operator[](int i) const;
+X    void add(int i); // add one element to slice
+X    friend ostream& operator<<(ostream&, const Slice&);
+X};
+X
+X//************************************************************
+X// Allows assignment to slices of a list
+X//************************************************************
+X
+Xtemplate <class T>
+Xclass SubList
+X{
+Xprivate:
+X    // This has to be a pointer because we don't know the size of Splice
+X    // and there is a nasty cyclic interdependency between the next 3 classes
+X    Slice *sl; // because we may want to use a temp in call T/O convenience with efficiency
+X    SPList<T>& l;
+X
+Xpublic:
+X    SubList(SPList<T>& lst, const Slice& slc);
+X    SubList(SPList<T>& lst, int st, int len);
+X    SubList(SPList<T>& lst, const Range& r);
+X    ~SubList();
+X 
+X    SubList<T>& operator=(const SPList<T>& lst);
+X    friend SPList<T>;
+X};
+X
+X//************************************************************
+X// SPList
+X//************************************************************
+X
+Xtemplate <class T>
+Xclass SPList: private SPListBase<T>
+X{
+Xpublic:
+X
+X    SPList(int sz= 10): SPListBase<T>(sz){}
+X    SPList(const SubList<T>& sbl);
+X    
+X    // stuff I want public to see from SPListBase
+X    T& operator[](const int i){return SPListBase<T>::operator[](i);}
+X    const T& operator[](const int i) const{return SPListBase<T>::operator[](i);}
+X    SPListBase<T>::count;   // some compilers don't like this
+X
+X    // add perl-like synonyms
+X    void reset(void){ erase(); }
+X    int scalar(void) const { return count(); }
+X
+X    operator void*() { return count()?this:0; } // so it can be used in tests
+X    int isempty(void) const{ return !count(); } // for those that don't like the above (hi michael)
+X
+X    T pop(void)
+X    {
+X	T tmp;
+X	int n= count()-1;
+X	if(n >= 0){
+X	    tmp= (*this)[n];
+X	    compact(n);
+X	}
+X	return tmp;
+X    }
+X
+X    void push(const T& a){ add(a);}
+X    void push(const SPList<T>& l);
+X
+X    T shift(void)
+X    {
+X	T tmp= (*this)[0];
+X	compact(0);
+X	return tmp;
+X    }
+X    
+X    int unshift(const T& a)
+X    {
+X	add(0, a);
+X	return count();
+X    }
+X    
+X    int unshift(const SPList<T>& l);
+X
+X    SPList<T> reverse(void);
+X    SPList<T> sort();
+X    
+X    SPList<T> splice(int offset, int len, const SPList<T>& l);
+X    SPList<T> splice(int offset, int len);
+X    SPList<T> splice(int offset);
+X
+X    SubList<T> operator()(int st, int len){return SubList<T>(*this, st, len);}
+X    SubList<T> operator()(const Range& r){return SubList<T>(*this, r);}
+X    SubList<T> operator()(const Slice& slc){return SubList<T>(*this, slc);}
+X    SubList<T> operator()(const char *s){return SubList<T>(*this, Slice(s));}
+X};
+X
+X//****************************************************************
+X// just a mechanism for self deleteing strings which can be hacked
+X//****************************************************************
+X
+Xclass TempString
+X{
+Xprivate:
+X    char *str;
+Xpublic:
+X    TempString(const char *s)    
+X    {
+X        str= new char[strlen(s) + 1];
+X        strcpy(str, s);
+X    }
+X    
+X    TempString(const char *s, int len)    
+X    {
+X        str= new char[len + 1];
+X        if(len) strncpy(str, s, len);
+X        str[len]= '\0';
+X    }
+X
+X    ~TempString(){ delete [] str; }
+X
+X    operator char*() const { return str; }
+X};
+X
+X//************************************************************
+X// This class takes care of the mechanism behind variable
+X// length strings
+X//************************************************************
+X
+Xclass VarString
+X{
+Xprivate:
+X    enum{ALLOCINC=32};
+X    char *a;
+X    int len;
+X    int allocated;
+X    int allocinc;
+X    INLINE void grow(int n= 0);
+X
+Xpublic:
+X#ifdef	USLCOMPILER
+X    // USL 3.0 bug with enums losing the value
+X    INLINE VarString(int n= 32);
+X#else
+X    INLINE VarString(int n= ALLOCINC);
+X#endif
+X
+X    INLINE VarString(const VarString& n);
+X    INLINE VarString(const char *);
+X    INLINE VarString(const char* s, int n);
+X    INLINE VarString(char);
+X
+X    ~VarString(){
+X#       ifdef	DEBUG
+X	fprintf(stderr, "~VarString() a= %p, allocinc= %d\n", a, allocinc);
+X#       endif
+X	delete [] a;
+X    }
+X
+X    VarString& operator=(const VarString& n);
+X    VarString& operator=(const char *);
+X
+X    INLINE const char operator[](const int i) const;
+X    INLINE char& operator[](const int i);
+X
+X    operator const char *() const{ return a; }
+X
+X    int length(void) const{ return len; }
+X
+X    void add(char);
+X    void add(const char *);
+X    void add(int, const char *);
+X    void remove(int, int= 1);
+X
+X    void erase(void){ len= 0; }
+X};
+X
+Xclass SPStringList;
+X
+X//************************************************************
+X// Implements the perl specific string functionality 
+X//************************************************************
+X
+Xclass SPString
+X{
+Xprivate:
+X    VarString pstr;  // variable length string mechanism
+X    
+Xpublic:
+X    class substring;
+X    
+X    SPString():pstr(){}
+X    SPString(const SPString& n) : pstr(n.pstr){}     
+X    SPString(const char *s) : pstr(s){}
+X    SPString(const char c) : pstr(c){}
+X    SPString(const substring& sb) : pstr(sb.pt, sb.len){}
+X    
+X    SPString& operator=(const char *s){pstr= s; return *this;}        
+X    SPString& operator=(const SPString& n); 
+X    SPString& operator=(const substring& sb);
+X
+X    operator const char*() const{return pstr;}
+X    const char operator[](int n) const{ return pstr[n]; }
+X
+X    int length(void) const{ return pstr.length(); }
+X    
+X    char chop(void);
+X    
+X    int index(const SPString& s, int offset= 0);    
+X    int rindex(const SPString& s, int offset= -1);
+X    substring substr(int offset, int len= -1);
+X    substring substr(const Range& r){ return substr(r.start(), r.length());}
+X        
+X    int m(const char *, const char *opts=""); // the regexp match m/.../ equiv
+X    int m(Regexp&);
+X    int m(const char *, SPStringList&, const char *opts="");
+X    int m(Regexp&, SPStringList&);
+X   
+X    int tr(const char *, const char *, const char *opts="");
+X    int s(const char *, const char *, const char *opts="");
+X
+X    SPStringList split(const char *pat= "[ \t\n]+", int limit= -1);
+X    
+X    int operator<(const SPString& s) const { return (strcmp(pstr, s) < 0); }
+X    int operator>(const SPString& s) const { return (strcmp(pstr, s) > 0); }
+X    int operator<=(const SPString& s) const { return (strcmp(pstr, s) <= 0); }
+X    int operator>=(const SPString& s) const { return (strcmp(pstr, s) >= 0); }
+X    int operator==(const SPString& s) const { return (strcmp(pstr, s) == 0); }
+X    int operator!=(const SPString& s) const { return (strcmp(pstr, s) != 0); }
+X
+X    int operator<(const char *s) const { return (strcmp(pstr, s) < 0); }
+X    int operator>(const char *s) const { return (strcmp(pstr, s) > 0); }
+X    int operator<=(const char *s) const { return (strcmp(pstr, s) <= 0); }
+X    int operator>=(const char *s) const { return (strcmp(pstr, s) >= 0); }
+X    int operator==(const char *s) const { return (strcmp(pstr, s) == 0); }
+X    int operator!=(const char *s) const { return (strcmp(pstr, s) != 0); }
+X
+X    friend int operator<(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) < 0); }
+X    friend int operator>(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) > 0); }
+X    friend int operator<=(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) <= 0); }
+X    friend int operator>=(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) >= 0); }
+X    friend int operator==(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) == 0); }
+X    friend int operator!=(const char *s, const SPString& sp)  { return (strcmp(s, sp.pstr) != 0); }
+X
+X    SPString operator+(const SPString& s) const;
+X    SPString operator+(const char *s) const;
+X    SPString operator+(char c) const;
+X    friend SPString operator+(const char *s1, const SPString& s2);
+X
+X    SPString& operator+=(const SPString& s){pstr.add(s); return *this;}
+X    SPString& operator+=(const char *s){pstr.add(s); return *this;}
+X    SPString& operator+=(char c){pstr.add(c); return *this;}
+X    friend substring;
+X
+Xprivate:
+X    void insert(int pos, int len, const char *pt, int nlen);
+X
+X    // This idea lifted from NIH class library -
+X    // to handle substring LHS assignment
+X    // Note if subclasses can't be used then take external and make
+X    // the constructors private, and specify friend SPString
+X    class substring
+X    {
+X    public:
+X        int pos, len;
+X	SPString& str;
+X	char *pt;
+X    public:
+X        substring(SPString& os, int p, int l) : str(os)
+X	{
+X	    if(p > os.length()) p= os.length();
+X	    if((p+l) > os.length()) l= os.length() - p;
+X	    pos= p; len= l;
+X	    if(p == os.length()) pt= 0; // append to end of string
+X	    else pt= &os.pstr[p];
+X	}
+X
+X        void operator=(const SPString& s)
+X        {
+X            if(&str == &s){ // potentially overlapping
+X		VarString tmp(s);
+X		str.insert(pos, len, tmp, strlen(tmp));
+X	    }else str.insert(pos, len, s, s.length());
+X        }
+X        
+X        void operator=(const substring& s)
+X        {
+X	    if(&str == &s.str){ // potentially overlapping
+X		VarString tmp(s.pt, s.len);
+X		str.insert(pos, len, tmp, strlen(tmp));
+X	    }else str.insert(pos, len, s.pt, s.len);
+X        }
+X
+X        void operator=(const char *s)
+X        {
+X            str.insert(pos, len, s, strlen(s));
+X        }
+X    };
+X};
+X
+X//************************************************************
+X// SPStringList
+X//************************************************************
+X
+Xclass SPStringList: public SPList<SPString>
+X{
+Xpublic:
+X    SPStringList(int sz= 6):SPList<SPString>(sz){}
+X    // copy lists, need to duplicate all internal strings
+X    SPStringList(const SPStringList& n);
+X
+X    SPStringList& operator=(const SPList<SPString>& n);
+X 
+X    int split(const char *str, const char *pat= "[ \t\n]+", int limit= -1);
+X    SPString join(const char *pat= " ");
+X    int m(const char *rege, const char *targ, const char *opts=""); // makes list of sub exp matches
+X    friend SPStringList m(const char *pat, const char *str, const char *opts="")
+X    {
+X	SPStringList l;
+X	l.m(pat, str, opts);
+X        l.shift(); // remove the first element which would be $&
+X        return l;
+X    }
+X    SPStringList grep(const char *rege, const char *opts=""); // trys rege against elements in list
+X};
+X
+X//************************************************************
+X// Streams operators
+X//************************************************************
+X
+Xtemplate <class T>
+Xistream& operator>>(istream& ifs, SPList<T>& arr)
+X{
+XT a;
+X    // Should I reset arr first?
+X    arr.reset(); // I think so, to be consistent
+X    
+X    while(ifs >> a){
+X	arr.push(a);
+X//	cout << "<" << a << ">" << endl;
+X    };
+X    return ifs;    
+X}
+X
+Xtemplate <class T>
+Xostream& operator<<(ostream& os,  const SPList<T>& arr)
+X{
+X
+X    for(int i=0;i<arr.count();i++){
+X#ifdef	TEST
+X	os << "[" << i << "]" << arr[i] << " ";
+X    }
+X    os << endl; 
+X#else
+X	os << arr[i] << endl;
+X    }
+X#endif
+X    return os;   
+X}
+X
+Xistream& operator>>(istream& ifs, SPString& s);
+Xistream& operator>>(istream& ifs, SPStringList& sl);
+Xostream& operator<<(ostream& os,  const SPString& arr);
+Xostream& operator<<(ostream& os,  const SPStringList& arr);
+X
+X//************************************************************
+X// Implementation of template functions for splistbase
+X//************************************************************
+X
+Xtemplate <class T>
+XINLINE T& SPListBase<T>::operator[](const int i)
+X{
+X    assert((i >= 0) && (first >= 0) && ((first+cnt) <= allocated));
+X    int indx= first+i;
+X        
+X    if(indx >= allocated){  // need to grow it
+X	grow((indx-allocated)+allocinc, i+1); // index as yet unused element
+X	indx= first+i;			  // first will have changed in grow()
+X    }
+X    assert(indx >= 0 && indx < allocated);
+X
+X    if(i >= cnt) cnt= i+1;  // it grew
+X    return a[indx];
+X}
+X
+Xtemplate <class T>
+XINLINE const T& SPListBase<T>::operator[](const int i) const
+X{
+X     assert((i >= 0) && (i < cnt));
+X     return a[first+i];
+X}
+X
+Xtemplate <class T>
+XSPListBase<T>::SPListBase(const SPListBase<T>& n)
+X{
+X    allocated= n.allocated;
+X    allocinc= n.allocinc;
+X    cnt= n.cnt;
+X    first= n.first;
+X    a= new T[allocated];
+X    for(int i=0;i<cnt;i++) a[first+i]= n.a[first+i];
+X#ifdef	DEBUG
+X    fprintf(stderr, "SPListBase(SPListBase&) a= %p, source= %p\n", a, n.a);
+X#endif
+X
+X}
+X
+Xtemplate <class T>
+XSPListBase<T>& SPListBase<T>::operator=(const SPListBase<T>& n){
+X//  cout << "SPListBase<T>::operator=()" << endl;
+X    if(this == &n) return *this;
+X#ifdef	DEBUG
+X    fprintf(stderr, "~operator=(SPListBase&) a= %p\n", a);
+X#endif
+X    delete [] a; // get rid of old one
+X    allocated= n.allocated;
+X    allocinc= n.allocinc;
+X    cnt= n.cnt;
+X    first= n.first;
+X    a= new T[allocated];
+X    for(int i=0;i<cnt;i++) a[first+i]= n.a[first+i];
+X#ifdef	DEBUG
+X    fprintf(stderr, "operator=(SPListBase&) a= %p, source= %p\n", a, n.a);
+X#endif
+X    return *this;
+X}
+X
+Xtemplate <class T>
+Xvoid SPListBase<T>::grow(int amnt, int newcnt){
+X    if(amnt <= 0) amnt= allocinc; // default value
+X    if(newcnt < 0) newcnt= cnt;   // default
+X    allocated += amnt;
+X    T *tmp= new T[allocated];
+X    int newfirst= (allocated>>1) - (newcnt>>1);
+X    for(int i=0;i<cnt;i++) tmp[newfirst+i]= a[first+i];
+X#ifdef	DEBUG
+X    fprintf(stderr, "SPListBase::grow() a= %p, old= %p, allocinc= %d\n", tmp, a, allocinc);
+X    fprintf(stderr, "~SPListBase::grow() a= %p\n", a);
+X#endif
+X    delete [] a;
+X    a= tmp;
+X    first= newfirst;
+X}
+X
+Xtemplate <class T>
+Xvoid SPListBase<T>::add(const T& n){
+X    if(cnt+first >= allocated) grow();
+X    a[first+cnt]= n;
+X    cnt++;
+X}
+X
+Xtemplate <class T>
+Xvoid SPListBase<T>::add(const int ip, const T& n){
+X    assert(ip >= 0);
+X    if(first == 0 || (first+cnt) >= allocated) grow();
+X    assert((first > 0) && ((first+cnt) < allocated));
+X    if(ip == 0){ // just stick it on the bottom
+X    	first--;
+X        a[first]= n;
+X    }else{
+X        for(int i=cnt;i>ip;i--) // shuffle up
+X	    a[first+i]= a[(first+i)-1];
+X        a[first+ip]= n;
+X    }
+X    cnt++;
+X}
+X
+Xtemplate <class T>
+Xvoid SPListBase<T>::compact(const int n){ // shuffle down starting at n
+Xint i;
+X    assert((n >= 0) && (n < cnt));
+X    if(n == 0) first++;
+X    else for(i=n;i<cnt-1;i++){
+X	    a[first+i]= a[(first+i)+1];
+X    }
+X    cnt--;
+X}
+X
+X//************************************************************
+X// implementation of template functions for SPList
+X//************************************************************
+X
+Xtemplate <class T>
+Xvoid SPList<T>::push(const SPList<T>& l)
+X{
+X    for(int i=0;i<l.count();i++)
+X	add(l[i]);
+X}
+X
+Xtemplate <class T>
+Xint SPList<T>::unshift(const SPList<T>& l)
+X{
+X    for(int i=l.count()-1;i>=0;i--)
+X	unshift(l[i]);
+X    return count();
+X}
+X
+Xtemplate <class T>
+XSPList<T> SPList<T>::reverse(void)
+X{
+X    SPList<T> tmp;
+X    for(int i=count()-1;i>=0;i--)
+X	tmp.add((*this)[i]);
+X    
+X    return tmp;	
+X}
+X
+Xtemplate <class T>
+XSPList<T> SPList<T>::sort(void)
+X{
+XSPList<T> tmp(*this);
+Xint n= tmp.scalar();
+X
+X    for(int i=0;i<n-1;i++)
+X	for(int j=n-1;i<j;j--)
+X	    if(tmp[j] < tmp[j-1]){
+X		T temp = tmp[j];
+X		tmp[j] = tmp[j-1];
+X		tmp[j-1]= temp;
+X	    }
+X    
+X    return tmp;	
+X}
+X
+Xtemplate <class T>
+XSPList<T> SPList<T>::splice(int offset, int len, const SPList<T>& l)
+X{
+XSPList<T> r= splice(offset, len);
+X
+X    if(offset > count()) offset= count();
+X    for(int i=0;i<l.count();i++){
+X	add(offset+i, l[i]);	// insert into list
+X    }
+X    return r;
+X}
+X
+Xtemplate <class T>
+XSPList<T>  SPList<T>::splice(int offset, int len)
+X{
+XSPList<T> r;
+X
+X    if(offset >= count()) return r;
+X    for(int i=offset;i<offset+len;i++){
+X    	r.add((*this)[i]);
+X    }
+X
+X    for(i=offset;i<offset+len;i++)
+X	compact(offset);
+X    return r;
+X}
+X
+Xtemplate <class T>
+XSPList<T>  SPList<T>::splice(int offset)
+X{
+XSPList<T> r;
+X
+X    if(offset >= count()) return r;
+X    for(int i=offset;i<count();i++){
+X	r.add((*this)[i]);
+X    }
+X
+X    int n= count(); // count() will change so remember what it is
+X    for(i=offset;i<n;i++)
+X	compact(offset);
+X    return r;
+X}
+X
+X//************************************************************
+X// VarString Implementation
+X//************************************************************
+X
+XINLINE VarString::VarString(int n)
+X{
+X    a= new char[n];
+X    *a= '\0';
+X    len= 0;
+X    allocated= n;
+X    allocinc= n;
+X#   ifdef	DEBUG
+X    fprintf(stderr, "VarString(int %d) a= %p\n", allocinc, a);
+X#   endif
+X}
+X
+XINLINE VarString::VarString(const char* s)
+X{
+X    int n= strlen(s) + 1;
+X    a= new char[n];
+X    strcpy(a, s);
+X    len= n-1;
+X    allocated= n;
+X    allocinc= ALLOCINC;
+X#   ifdef	DEBUG
+X    fprintf(stderr, "VarString(const char *(%d)) a= %p\n", allocinc, a);
+X#   endif
+X}
+X
+XINLINE VarString::VarString(const char* s, int n)
+X{
+X    a= new char[n+1];
+X    if(n) strncpy(a, s, n);
+X    a[n]= '\0';
+X    len= n;
+X    allocated= n+1;
+X    allocinc= ALLOCINC;
+X#   ifdef	DEBUG
+X    fprintf(stderr, "VarString(const char *, int(%d)) a= %p\n", allocinc, a);
+X#   endif
+X}
+X
+XINLINE VarString::VarString(char c)
+X{
+X    int n= 2;
+X    a= new char[n];
+X    a[0]= c; a[1]= '\0';
+X    len= 1;
+X    allocated= n;
+X    allocinc= ALLOCINC;
+X#   ifdef	DEBUG
+X    fprintf(stderr, "VarString(char (%d)) a= %p\n", allocinc, a);
+X#   endif
+X}
+X
+X
+XINLINE ostream& operator<<(ostream& os,  const VarString& arr)
+X{
+X#ifdef TEST
+X    os << "(" << arr.length() << ")" << (const char *)arr;
+X#else
+X    os << (const char *)arr;
+X#endif
+X	
+X    return os;    
+X}
+X
+XINLINE const char VarString::operator[](const int i) const
+X{
+X     assert((i >= 0) && (i < len) && (a[len] == '\0'));
+X     return a[i];
+X}
+X
+XINLINE char& VarString::operator[](const int i)
+X{
+X     assert((i >= 0) && (i < len) && (a[len] == '\0'));
+X     return a[i];
+X}
+X
+XINLINE VarString::VarString(const VarString& n)
+X{
+X    allocated= n.allocated;
+X    allocinc= n.allocinc;
+X    len= n.len;
+X    a= new char[allocated];
+X    strcpy(a, n.a);
+X#ifdef	DEBUG
+X    fprintf(stderr, "VarString(VarString&) a= %p, source= %p\n", a, n.a);
+X#endif
+X
+X}
+X
+X//************************************************************
+X// Sublist and Slice stuff
+X//************************************************************
+X
+Xtemplate <class T>
+XSubList<T>::SubList(SPList<T>& lst, const Slice& slc) : l(lst)
+X{
+X    sl= new Slice(slc);
+X}
+X
+Xtemplate <class T>
+XSubList<T>::SubList(SPList<T>& lst, int st, int len) : l(lst)
+X{
+X    sl= new Slice(Range(st, st+len-1));
+X}
+X
+Xtemplate <class T>
+XSubList<T>::SubList(SPList<T>& lst, const Range& r) : l(lst)
+X{
+X    sl= new Slice(r);
+X}
+X
+Xtemplate <class T>
+XSubList<T>::~SubList()
+X{
+X    delete sl;
+X}
+X
+Xtemplate <class T>
+XSubList<T>& SubList<T>::operator=(const SPList<T>& lst)
+X{
+Xint n= 0;
+X    for(int i=0;i<sl->count();i++){
+X	for(int j=(*sl)[i].start();j<=(*sl)[i].end();j++){
+X            if(n < lst.count()) l[j]= lst[n++];
+X        }
+X    }        
+X    return *this;
+X}
+X
+Xtemplate <class T>
+XSPList<T>::SPList(const SubList<T>& sbl)
+X{
+X    for(int i=0;i<sbl.sl->count();i++){
+X	for(int j=(*sbl.sl)[i].start();j<=(*sbl.sl)[i].end();j++)
+X	    (*this).push(sbl.l[j]);
+X    }
+X}
+X
+X//************************************************************
+X// Slice inline stuff
+X//************************************************************
+X
+Xinline Slice::Slice(const Range& r)
+X{
+X    rl= new SPList<Range>;
+X    rl->push(r);
+X}
+X
+Xinline Slice::Slice()
+X{
+X    rl= new SPList<Range>;
+X}
+X
+Xinline Slice::Slice(const Slice& slc)
+X{
+X    rl= new SPList<Range>(*slc.rl);    
+X}
+X
+X
+Xinline Slice::~Slice()
+X{
+X    delete rl;
+X}
+X     
+Xinline int Slice::count(void) const
+X{
+X    return rl->count();
+X}
+X
+Xinline const Range& Slice::operator[](int i) const
+X{
+X    return (*rl)[i];
+X}
+X
+X
+X// For Old-timers compatibility
+Xtypedef SPStringList PerlStringList;
+Xtypedef SPString PerlString;
+X#define PerlList SPList
+X#endif
+X
+END_OF_FILE
+  if test 21764 -ne `wc -c <'splash.h'`; then
+    echo shar: \"'splash.h'\" unpacked with wrong size!
+  fi
+  # end of 'splash.h'
+fi
+if test -f 'spltest.c++' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'spltest.c++'\"
+else
+  echo shar: Extracting \"'spltest.c++'\" \(12772 characters\)
+  sed "s/^X//" >'spltest.c++' <<'END_OF_FILE'
+X#ifdef	TEST
+X
+X#include <iostream.h>
+X/*
+X * V1.8
+X */
+X
+X#include <string.h>
+X#include <malloc.h>
+X#include <stdio.h>
+X
+X#ifdef	__TURBOC__
+X#pragma hdrstop
+X#endif
+X
+X#include "splash.h"
+X
+Xint main()
+X{
+XSPList<int> il, il1, il2, il3;
+XSPStringList x, y, z;
+Xint n;
+X
+X    if(x) cout << "x is not empty" << endl;
+X    else cout << "x is empty" << endl;
+X
+X    if(x.isempty()) cout << "x.isempty() is true" << endl;
+X    else cout << "x.isempty() is false" << endl;
+X
+X    n= x.split("a b c d e f");
+X
+X    if(x) cout << "x is not empty" << endl;
+X    else cout << "x is empty" << endl;
+X
+X    if(x.isempty()) cout << "x.isempty() is true" << endl;
+X    else cout << "x.isempty() is false" << endl;
+X
+X    cout << "x.split(a b c d e f)= " << n << ": " << x << endl;
+X    cout << "x[0] = " << x[0] << endl;
+X    z= x; z[0]= "x";
+X    cout << "z= x; z[0]=\"x\" " << "z: " << z << endl;
+X
+X    SPString ss("1.2.3.4.5.6.7.8.9.0");
+X    y= ss.split("\\.");
+X    cout << "ss= " << ss << ", y= ss.split(\"\\.\"), y=" << endl << y << endl;
+X    cout << "y.join(\" \")" << y.join(" ") << endl;       
+X    {
+X	SPString xx= "a b c\nd e\tf   g";
+X        cout << xx << endl << "xx.split()= " << xx.split() << endl;
+X	xx= "a b c d e f g";
+X	cout << xx << endl << "xx.split(\",\")= " << xx.split(",") << endl;
+X	xx= "  a b c d e f g hi  ";
+X	cout << xx << endl << "xx.split(\"\")= " << xx.split("") << endl;
+X	xx= "a,b,c,d,,e,f,g,,,,";
+X	cout << xx << endl << "xx.split(\",\")= " << xx.split(",") << endl;
+X	xx= "a,b,c,d,,e,f,g,,";
+X	cout << xx << endl << "xx.split(\",\", 5)= " << xx.split(",", 5) << endl;
+X	xx= " a b c d e f g  ";
+X	cout << xx << endl << "xx.split(\" \")= " << xx.split(" ") << endl;
+X	xx= "a b c d,e,f g";
+X	cout << xx << endl << "xx.split(\"([ ,])+\")= " << xx.split("([ ,])+") << endl;
+X	xx= ",,,,";
+X	cout << xx << endl << "xx.split(\",\")= " << xx.split(",") << endl;
+X	xx= "";
+X	cout << xx << endl << "xx.split(\",\")= " << xx.split(",") << endl;
+X 	xx= "   a b c\td    e\nf  g   ";
+X	cout << xx << endl << "xx.split(\"' '\")= " << xx.split("' '") << endl;
+X   }
+X
+X    cout << "x = " << x << endl;
+X
+X    cout << "x.pop() : " << x.pop() << ", " ;
+X    cout << x.pop() << endl << "x= " << x << endl;;
+X    cout << "x.shift() : " << x.shift() << ", ";
+X    cout << x.shift() << endl<< "x= " << x << endl;
+X    
+X    x.unshift(y);
+X    cout << "x.unshift(y): " << x << endl;
+X    
+X    if(il) cout << "il is not empty" << endl;
+X    else cout << "il is empty" << endl;
+X    
+X    il.push(1); il.push(2); il.push(3); il.push(4);
+X
+X    if(il) cout << "il is not empty" << endl;
+X    else cout << "il is empty" << endl;
+X    
+X    cout << "il(1, 2, 3, 4) : " << il << endl;
+X    il3= il; il3[0]= 9999;
+X    cout << "il3= il; il3[0]= 9999; il3 = " << il3 << endl << "il= " << il << endl;
+X
+X    il1= il.reverse();
+X    cout << "il.reverse: " << il1 << endl;
+X
+X    cout << "il1.sort(): " << il1.sort() << endl;
+X
+X    y.reset();
+X    y.push("one"); y.push("two"); y.push("three"); y.push("four");
+X    cout << "y = " << endl << y;
+X    cout << "y.reverse() " << y.reverse() << endl;
+X    cout << "y.sort() " << y.sort() << endl;
+X    cout << "y.sort().reverse() " << y.sort().reverse() << endl;
+X        
+X    il2.push(3); il2.push(4);
+X    cout << "il2.push(3, 4) : " << il2 << endl;
+X
+X    il.push(il2);    
+X    cout << "il.push(il2) : " << il << endl;
+X    
+X    cout << "il.pop() : " << il.pop() << ", ";
+X    cout << il.pop() << endl;
+X    
+X    il.unshift(il2);    
+X    cout << "il.unshift(il2) : " << il << endl;
+X    
+X    cout << "il.shift() : " << il.shift() << ", ";
+X    cout << il.shift() << endl;
+X
+X    il.reset();
+X    il.push(1); il.push(2);
+X    if(il.shift() != 1) cout << "FIFO1 error" << endl;
+X    if(il.shift() != 2) cout << "FIFO2 error" << endl;
+X
+X    for(int i=0;i<100;i++) il.push(i);
+X    i= 0;
+X    while(il){
+X	if(il.shift() != i)  cout << "FIFO3 error" << endl;
+X	i++;
+X    }
+X    if(i != 100) cout << "FIFO over/under run" << endl;
+X    
+X    cout << "testing splice:" << endl;
+X    x.reset();
+X    x.split("a b c d e f g h i");
+X    cout << "x = " << x << endl;
+X    z= x.splice(2, 3);
+X    cout << "z= x.splice(2, 3): z= " << z << endl << "x = " << x << endl;
+X    cout << "x.splice(2, 0, z): " << x.splice(2, 0, z);
+X    cout << "x= " << x << endl;
+X    cout << "z.splice(1, 1, x): " << z.splice(1, 1, x);
+X    cout << "z= " << z << endl;
+X    cout << "x= " << x << endl;
+X    cout << "z.splice(20, 1, x): " << z.splice(20, 1, x);
+X    cout << "z= " << z << endl;
+X    
+X // test auto expand
+X    SPList<int> ile;
+X    ile[3]= 3;
+X    cout << ile.scalar() << ", " << ile[3] << endl;
+X    ile[100]= 1234;
+X    ile[0]= 5678;
+X    cout << ile.scalar() << ", " << ile[0] << ", " << ile[100] << endl;
+X    SPList<int> ile2;
+X    for(i=0;i<=100;i++) ile2[i]= i;
+X    for(i=200;i>100;i--) ile2[i]= i;
+X    for(i=0;i<=200;i++) if(ile2[i] != i) cout << "error at index " << i << endl;
+X    cout << "Index check done" << endl;
+X    cout << ile2.scalar() << ", " << ile2[0] << ", " << ile2[200] << endl;
+X
+X// test Regexp stuff
+X    cout << endl << "testing regexp stuff:" << endl;
+X    x.reset();
+X    cout << "x.m(\".*X((...)...(...))\", \"12345Xabcxyzdef\") returns " <<
+X	 x.m(".*X((...)...(...))", "12345Xabcxyzdef") << endl;
+X    cout << "subs matched = " << x << endl;
+X
+X    Regexp rexp("abc");
+X    SPString rst("12345Xabcxyzdef");
+X    cout << "rst.m(rexp) returns " << rst.m(rexp) << endl;
+X    
+X    cout << endl << "testing grep:" << endl;
+X    x.reset();
+X    x.push("abcd"); x.push("a2345"); x.push("X2345"); x.push("Xaaaaa"); x.push("aaaaa");
+X    
+X    y= x.grep("^a.*");
+X    cout << "x: " << endl << x << endl << "grep(^a.*)" << endl;
+X    cout << "Expect 3 matches:" << endl << y << endl;
+X    {
+X	SPString s1("abcdef");
+X        cout << "s1= " << s1 << ", s1.m(\"^cde\") : " << s1.m("^cde") << endl;
+X	cout << "s1= " << s1 << ", s1.m(\"^..cde\") : " << s1.m("^..cde") << endl;
+X    }
+X    {
+X    SPStringList sl;
+X    SPString str= "ab cd ef";
+X	sl = m("(..) (..)", str);
+X	cout << "sl = m(\"(..) (..)\", \"ab cd ef\"); sl = " << endl <<
+X		 sl << endl;
+X    }
+X
+X    {
+X    Regexp ncr("abc", Regexp::nocase);
+X    Regexp cr("abc");
+X    SPString s= "ABC";
+X    cout << "s= " << s << ": s.m(ncr)= " << s.m(ncr) << endl;
+X    cout << "s= " << s << ": s.m(cr)= " << s.m(cr) << endl;
+X    cout << "s.m(\"abc\", \"i\")= " << s.m("abc", "i") << endl;
+X    cout << "s.m(\"abc\")= " << s.m("abc") << endl;
+X    }
+X    
+X// Test strings
+X    cout << "test string stuff:" << endl;
+X
+X    SPString s1("string1"), s2, s3;
+X    const char *s= s1;
+X
+X    cout << "Empty string: " << s2 << " length= " << s2.length()
+X	 << ",  strlen(s2) = " << strlen(s2) << endl;
+X    
+X    cout << "s1:" << s1 << endl;
+X    cout << "s[0]= " << s[0] << ", s[5]= " << s[5] << endl;
+X//    s[2]= 'X';
+X//    cout << "s[2]= 'X', s= " << s << endl;
+X//    s[2]= 'r';
+X    
+X    cout << "const char *s= s1: s= " << s << endl;
+X    s2= s1;
+X    cout << "s2=s1,  s2:" << s2 << endl;
+X    s1.chop();
+X    cout << "s1.chop()" << s1 << endl;
+X    s3= s;
+X    cout << "s3= s: s3 = " << s3 << endl;
+X    cout << "index(\"ri\") in " << s1 << ": " << s1.index("ri") << endl;
+X    s3= "1";
+X    cout << "index(" << s3 << ") in " << s1 << ": " << s1.index(s3) << endl;
+X    s3= "abcabcabc";
+X    cout << "rindex(abc) in" << s3 << ": " << s3.rindex("abc") << endl;
+X    cout << "rindex(abc, 5) in" << s3 << ": " << s3.rindex("abc", 5) << endl;
+X
+X// test substrings
+X    cout << "substr(5, 3) in " << s3 << ": " << s3.substr(5, 3) << endl;
+X    s3.substr(5, 3)= "XXX";
+X    cout << "s3.substr(5, 3) = \"XXX\"" << s3 << endl;
+X    s3.substr(5, 3)= s1;
+X    cout << "s3.substr(5, 3) = s1" << s3 << endl;
+X    s3.substr(5, 3)= s1.substr(1, 3);
+X    cout << "s3.substr(5, 3) = s1.substr(1, 3)" << s3 << endl;
+X    s3.substr(0, 6)= s1.substr(0, 3);
+X    cout << "s3.substr(0, 6) = s1.substr(0, 3)" << s3 << endl;
+X    s3.substr(-3, 2)= s1.substr(0, 2);
+X    cout << "s3.substr(-3, 2) = s1.substr(0, 2)" << s3 << endl;
+X
+X// test overlapping substrings
+X    s1= "1234567890";
+X    cout << "s1 = " << s1 << endl;
+X    s1.substr(0, 10)= s1.substr(1, 9);
+X    cout << "s1.substr(0, 10)= s1.substr(1, 9) " << s1 << endl;
+X    s1= "1234567890";
+X    cout << "s1 = " << s1 << endl;
+X    s1.substr(1, 9)= s1.substr(0, 10);
+X    cout << "s1.substr(1, 9)= s1.substr(0, 10) " << s1 << endl;
+X
+X    // test over-large substrings
+X    s1= "1234567890"; s1.substr(7, 10)= "abcdefghij";
+X    cout << "s1.substr(7, 10)= \"abcdefghij\" " << s1 << endl;
+X    s1= "1234567890"; s1.substr(10, 5)= "abcdefghij";
+X    cout << "s1.substr(10, 5)= \"abcdefghij\" " << s1 << endl;
+X    s1= "1234567890"; s1.substr(20, 1)= "abcdefghij";
+X    cout << "s1.substr(20, 1)= \"abcdefghij\" " << s1 << endl;
+X
+X    s1= "abcdef"; s2= "123456";
+X     
+X    cout << s1 << " + " << s2 << ": " << s1 + s2 << endl;
+X    cout << s1 << " + " << "\"hello\"= " << s1 + "hello" << endl;
+X    cout << "\"hello\"" << " + " << s1 << "= " << "hello" + s1 << endl;
+X    cout << s1 << " + \'x\' = " << s1 + 'x' << endl;
+X    
+X    s1= "abc"; s2= "def"; s3= "abc";
+X    cout << s1 << " == " << s2 << ": " << (s1 == s2) << endl; 
+X    cout << s1 << " != " << s2 << ": " << (s1 != s2) << endl;
+X    cout << s1 << " == " << s3 << ": " << (s1 == s3) << endl; 
+X    cout << s1 << " != " << s3 << ": " << (s1 != s3) << endl;
+X    cout << s1 << " < " << s2 << ": " << (s1 < s2) << endl; 
+X    cout << s1 << " > " << s2 << ": " << (s1 > s2) << endl; 
+X    cout << s1 << " <= " << s2 << ": " << (s1 <= s2) << endl; 
+X    cout << s1 << " >= " << s3 << ": " << (s1 >= s3) << endl; 
+X
+X    cout << s1 << " == abc:" << (s1 == "abc") << endl; 
+X    cout << "abc == " << s1 << ("abc" == s1) << endl; 
+X
+X    cout << s1 << " != abc:" << (s1 != "abc") << endl; 
+X    cout << "abc != " << s1 << ("abc" != s1) << endl; 
+X
+X// Test the tr() functions
+X    s1= "abcdefghi";
+X    cout << "s1 = " << s1;
+X    cout << ", s1.tr(\"ceg\", \"123\") = " << s1.tr("ceg", "123");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"a-z\", \"A-Z\") = " << s1.tr("a-z", "A-Z");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"efg\", \"\") = " << s1.tr("efg", "");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"ac-e\", \"X\") = " << s1.tr("ac-e", "X");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghiiii";
+X    cout << "s1 = " << s1;
+X    cout << ", s1.tr(\"ac-e\", \"X\", \"s\") = " << s1.tr("ac-e", "X", "s");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"ac-e\", \"\", \"d\") = " << s1.tr("ac-e", "", "d");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"ac-e\", \"d\", \"d\") = " << s1.tr("ac-e", "d", "d");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << "s1.tr(\"ac-e\", \"\", \"cd\") = " << s1.tr("ac-e", "", "cd");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "bookkeeper";
+X    cout << s1;
+X    cout << ": s1.tr(\"a-zA-Z\", \"\", \"s\") = " << s1.tr("a-zA-Z", "", "s");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abc123def456ghi";
+X    cout << s1;
+X    cout << ": s1.tr(\"a-zA-Z\", \" \", \"c\") = " << s1.tr("a-zA-Z", " ", "c");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abc123def456ghi789aaa";
+X    cout << s1;
+X    cout << ": s1.tr(\"a-zA-Z\", \" \", \"cs\") = " << s1.tr("a-zA-Z", " ", "cs");
+X    cout << ", s1 = " << s1 << endl;
+X    s1= "abcdddaaaxxx";
+X    cout << s1;
+X    cout << ": s1.tr(\"a\", \"d\", \"s\") = " << s1.tr("a", "d", "s");
+X    cout << ", s1 = " << s1 << endl;
+X    
+X// Test substitute command
+X    s1= "abcdefghi";
+X    cout << s1;
+X    cout <<" s1.s(\"def\", \"FED\") = " << s1.s("def", "FED");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcDEFghi";
+X    cout << s1;
+X    cout <<" s1.s(\"def\", \"FED\") = " << s1.s("def", "FED");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcDEFghi";
+X    cout << s1;
+X    cout <<" s1.s(\"def\", \"FED\", \"i\") = " << s1.s("def", "FED", "i");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcdefghi";
+X    cout << s1;
+X    cout <<" s1.s(\"(...)(...)\", \"\\$,$&,$2 $1\") = " <<
+X	     s1.s("(...)(...)", "\\$,$&,$2 $1");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcdefabcghiabc";
+X    cout << s1;
+X    cout <<" s1.s(\"abc\", \"XabcX\", \"g\") = " << s1.s("abc", "XabcX", "g");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcdefabcghiabc";
+X    cout << s1;
+X    cout <<" s1.s(\"abc\", \"X\", \"g\") = " << s1.s("abc", "X", "g");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcdefabcghiabc";
+X    cout << s1;
+X    cout <<" s1.s(\"abc(.)\", \"X$1abcX$1\", \"g\") = " <<
+X	     s1.s("abc(.)", "X$1abcX$1", "g");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "abcdefabcghiabc";
+X    cout << s1;
+X    cout <<" s1.s(\"(.)abc\", \"$1X$1abcX\", \"g\") = " <<
+X	     s1.s("(.)abc", "$1X$1abcX", "g");
+X    cout << ", s1= " << s1 << endl;
+X    s1= "1234567890";
+X    cout << s1;
+X    cout <<" s1.s(\"(.)(.)\", \"$2$1\", \"g\") = " <<
+X	     s1.s("(.)(.)", "$2$1", "g");
+X    cout << ", s1= " << s1 << endl;
+X
+X}
+X#endif
+END_OF_FILE
+  if test 12772 -ne `wc -c <'spltest.c++'`; then
+    echo shar: \"'spltest.c++'\" unpacked with wrong size!
+  fi
+  # end of 'spltest.c++'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

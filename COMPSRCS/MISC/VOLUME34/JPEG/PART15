@@ -1,0 +1,2053 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v34i069:  jpeg - JPEG image compression, Part15/18
+Message-ID: <1992Dec17.165052.6804@sparky.imd.sterling.com>
+X-Md4-Signature: 12f254513e9764b5ba0ef59b4fa98b03
+Date: Thu, 17 Dec 1992 16:50:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 34, Issue 69
+Archive-name: jpeg/part15
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Atari, Cray
+Supersedes: jpeg: Volume 29, Issue 1-18
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  jccolor.c jdcolor.c jmemdosa.asm jwrppm.c jwrrle.c
+#   jwrtarga.c
+# Wrapped by kent@sparky on Wed Dec 16 20:52:30 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 15 (of 18)."'
+if test -f 'jccolor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jccolor.c'\"
+else
+  echo shar: Extracting \"'jccolor.c'\" \(11236 characters\)
+  sed "s/^X//" >'jccolor.c' <<'END_OF_FILE'
+X/*
+X * jccolor.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains input colorspace conversion routines.
+X * These routines are invoked via the methods get_sample_rows
+X * and colorin_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X
+Xstatic JSAMPARRAY pixel_row;	/* Workspace for a pixel row in input format */
+X
+X
+X/**************** RGB -> YCbCr conversion: most common case **************/
+X
+X/*
+X * YCbCr is defined per CCIR 601-1, except that Cb and Cr are
+X * normalized to the range 0..MAXJSAMPLE rather than -0.5 .. 0.5.
+X * The conversion equations to be implemented are therefore
+X *	Y  =  0.29900 * R + 0.58700 * G + 0.11400 * B
+X *	Cb = -0.16874 * R - 0.33126 * G + 0.50000 * B  + MAXJSAMPLE/2
+X *	Cr =  0.50000 * R - 0.41869 * G - 0.08131 * B  + MAXJSAMPLE/2
+X * (These numbers are derived from TIFF 6.0 section 21, dated 3-June-92.)
+X *
+X * To avoid floating-point arithmetic, we represent the fractional constants
+X * as integers scaled up by 2^16 (about 4 digits precision); we have to divide
+X * the products by 2^16, with appropriate rounding, to get the correct answer.
+X *
+X * For even more speed, we avoid doing any multiplications in the inner loop
+X * by precalculating the constants times R,G,B for all possible values.
+X * For 8-bit JSAMPLEs this is very reasonable (only 256 entries per table);
+X * for 12-bit samples it is still acceptable.  It's not very reasonable for
+X * 16-bit samples, but if you want lossless storage you shouldn't be changing
+X * colorspace anyway.
+X * The MAXJSAMPLE/2 offsets and the rounding fudge-factor of 0.5 are included
+X * in the tables to save adding them separately in the inner loop.
+X */
+X
+X#ifdef SIXTEEN_BIT_SAMPLES
+X#define SCALEBITS	14	/* avoid overflow */
+X#else
+X#define SCALEBITS	16	/* speedier right-shift on some machines */
+X#endif
+X#define ONE_HALF	((INT32) 1 << (SCALEBITS-1))
+X#define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
+X
+X/* We allocate one big table and divide it up into eight parts, instead of
+X * doing eight alloc_small requests.  This lets us use a single table base
+X * address, which can be held in a register in the inner loops on many
+X * machines (more than can hold all eight addresses, anyway).
+X */
+X
+Xstatic INT32 * rgb_ycc_tab;	/* => table for RGB to YCbCr conversion */
+X#define R_Y_OFF		0			/* offset to R => Y section */
+X#define G_Y_OFF		(1*(MAXJSAMPLE+1))	/* offset to G => Y section */
+X#define B_Y_OFF		(2*(MAXJSAMPLE+1))	/* etc. */
+X#define R_CB_OFF	(3*(MAXJSAMPLE+1))
+X#define G_CB_OFF	(4*(MAXJSAMPLE+1))
+X#define B_CB_OFF	(5*(MAXJSAMPLE+1))
+X#define R_CR_OFF	B_CB_OFF		/* B=>Cb, R=>Cr are the same */
+X#define G_CR_OFF	(6*(MAXJSAMPLE+1))
+X#define B_CR_OFF	(7*(MAXJSAMPLE+1))
+X#define TABLE_SIZE	(8*(MAXJSAMPLE+1))
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xrgb_ycc_init (compress_info_ptr cinfo)
+X{
+X  INT32 i;
+X
+X  /* Allocate a workspace for the result of get_input_row. */
+X  pixel_row = (*cinfo->emethods->alloc_small_sarray)
+X		(cinfo->image_width, (long) cinfo->input_components);
+X
+X  /* Allocate and fill in the conversion tables. */
+X  rgb_ycc_tab = (INT32 *) (*cinfo->emethods->alloc_small)
+X				(TABLE_SIZE * SIZEOF(INT32));
+X
+X  for (i = 0; i <= MAXJSAMPLE; i++) {
+X    rgb_ycc_tab[i+R_Y_OFF] = FIX(0.29900) * i;
+X    rgb_ycc_tab[i+G_Y_OFF] = FIX(0.58700) * i;
+X    rgb_ycc_tab[i+B_Y_OFF] = FIX(0.11400) * i     + ONE_HALF;
+X    rgb_ycc_tab[i+R_CB_OFF] = (-FIX(0.16874)) * i;
+X    rgb_ycc_tab[i+G_CB_OFF] = (-FIX(0.33126)) * i;
+X    rgb_ycc_tab[i+B_CB_OFF] = FIX(0.50000) * i    + ONE_HALF*(MAXJSAMPLE+1);
+X/*  B=>Cb and R=>Cr tables are the same
+X    rgb_ycc_tab[i+R_CR_OFF] = FIX(0.50000) * i    + ONE_HALF*(MAXJSAMPLE+1);
+X*/
+X    rgb_ycc_tab[i+G_CR_OFF] = (-FIX(0.41869)) * i;
+X    rgb_ycc_tab[i+B_CR_OFF] = (-FIX(0.08131)) * i;
+X  }
+X}
+X
+X
+X/*
+X * Fetch some rows of pixels from get_input_row and convert to the
+X * JPEG colorspace.
+X */
+X
+XMETHODDEF void
+Xget_rgb_ycc_rows (compress_info_ptr cinfo,
+X		  int rows_to_read, JSAMPIMAGE image_data)
+X{
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  register UINT16 r, g, b;
+X#else
+X  register int r, g, b;
+X#endif
+X  register INT32 * ctab = rgb_ycc_tab;
+X  register JSAMPROW inptr0, inptr1, inptr2;
+X  register JSAMPROW outptr0, outptr1, outptr2;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X
+X  for (row = 0; row < rows_to_read; row++) {
+X    /* Read one row from the source file */
+X    (*cinfo->methods->get_input_row) (cinfo, pixel_row);
+X    /* Convert colorspace */
+X    inptr0 = pixel_row[0];
+X    inptr1 = pixel_row[1];
+X    inptr2 = pixel_row[2];
+X    outptr0 = image_data[0][row];
+X    outptr1 = image_data[1][row];
+X    outptr2 = image_data[2][row];
+X    for (col = 0; col < width; col++) {
+X      r = GETJSAMPLE(inptr0[col]);
+X      g = GETJSAMPLE(inptr1[col]);
+X      b = GETJSAMPLE(inptr2[col]);
+X      /* If the inputs are 0..MAXJSAMPLE, the outputs of these equations
+X       * must be too; we do not need an explicit range-limiting operation.
+X       * Hence the value being shifted is never negative, and we don't
+X       * need the general RIGHT_SHIFT macro.
+X       */
+X      /* Y */
+X      outptr0[col] = (JSAMPLE)
+X		((ctab[r+R_Y_OFF] + ctab[g+G_Y_OFF] + ctab[b+B_Y_OFF])
+X		 >> SCALEBITS);
+X      /* Cb */
+X      outptr1[col] = (JSAMPLE)
+X		((ctab[r+R_CB_OFF] + ctab[g+G_CB_OFF] + ctab[b+B_CB_OFF])
+X		 >> SCALEBITS);
+X      /* Cr */
+X      outptr2[col] = (JSAMPLE)
+X		((ctab[r+R_CR_OFF] + ctab[g+G_CR_OFF] + ctab[b+B_CR_OFF])
+X		 >> SCALEBITS);
+X    }
+X  }
+X}
+X
+X
+X/**************** Cases other than RGB -> YCbCr **************/
+X
+X
+X/*
+X * Fetch some rows of pixels from get_input_row and convert to the
+X * JPEG colorspace.
+X * This version handles RGB->grayscale conversion, which is the same
+X * as the RGB->Y portion of RGB->YCbCr.
+X * We assume rgb_ycc_init has been called (we only use the Y tables).
+X */
+X
+XMETHODDEF void
+Xget_rgb_gray_rows (compress_info_ptr cinfo,
+X		   int rows_to_read, JSAMPIMAGE image_data)
+X{
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  register UINT16 r, g, b;
+X#else
+X  register int r, g, b;
+X#endif
+X  register INT32 * ctab = rgb_ycc_tab;
+X  register JSAMPROW inptr0, inptr1, inptr2;
+X  register JSAMPROW outptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X
+X  for (row = 0; row < rows_to_read; row++) {
+X    /* Read one row from the source file */
+X    (*cinfo->methods->get_input_row) (cinfo, pixel_row);
+X    /* Convert colorspace */
+X    inptr0 = pixel_row[0];
+X    inptr1 = pixel_row[1];
+X    inptr2 = pixel_row[2];
+X    outptr = image_data[0][row];
+X    for (col = 0; col < width; col++) {
+X      r = GETJSAMPLE(inptr0[col]);
+X      g = GETJSAMPLE(inptr1[col]);
+X      b = GETJSAMPLE(inptr2[col]);
+X      /* If the inputs are 0..MAXJSAMPLE, the outputs of these equations
+X       * must be too; we do not need an explicit range-limiting operation.
+X       * Hence the value being shifted is never negative, and we don't
+X       * need the general RIGHT_SHIFT macro.
+X       */
+X      /* Y */
+X      outptr[col] = (JSAMPLE)
+X		((ctab[r+R_Y_OFF] + ctab[g+G_Y_OFF] + ctab[b+B_Y_OFF])
+X		 >> SCALEBITS);
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xcolorin_init (compress_info_ptr cinfo)
+X{
+X  /* Allocate a workspace for the result of get_input_row. */
+X  pixel_row = (*cinfo->emethods->alloc_small_sarray)
+X		(cinfo->image_width, (long) cinfo->input_components);
+X}
+X
+X
+X/*
+X * Fetch some rows of pixels from get_input_row and convert to the
+X * JPEG colorspace.
+X * This version handles grayscale output with no conversion.
+X * The source can be either plain grayscale or YCbCr (since Y == gray).
+X */
+X
+XMETHODDEF void
+Xget_grayscale_rows (compress_info_ptr cinfo,
+X		    int rows_to_read, JSAMPIMAGE image_data)
+X{
+X  int row;
+X
+X  for (row = 0; row < rows_to_read; row++) {
+X    /* Read one row from the source file */
+X    (*cinfo->methods->get_input_row) (cinfo, pixel_row);
+X    /* Convert colorspace (gamma mapping needed here) */
+X    jcopy_sample_rows(pixel_row, 0, image_data[0], row,
+X		      1, cinfo->image_width);
+X  }
+X}
+X
+X
+X/*
+X * Fetch some rows of pixels from get_input_row and convert to the
+X * JPEG colorspace.
+X * This version handles multi-component colorspaces without conversion.
+X */
+X
+XMETHODDEF void
+Xget_noconvert_rows (compress_info_ptr cinfo,
+X		    int rows_to_read, JSAMPIMAGE image_data)
+X{
+X  int row, ci;
+X
+X  for (row = 0; row < rows_to_read; row++) {
+X    /* Read one row from the source file */
+X    (*cinfo->methods->get_input_row) (cinfo, pixel_row);
+X    /* Convert colorspace (gamma mapping needed here) */
+X    for (ci = 0; ci < cinfo->input_components; ci++) {
+X      jcopy_sample_rows(pixel_row, ci, image_data[ci], row,
+X			1, cinfo->image_width);
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xcolorin_term (compress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for input colorspace conversion.
+X */
+X
+XGLOBAL void
+Xjselccolor (compress_info_ptr cinfo)
+X{
+X  /* Make sure input_components agrees with in_color_space */
+X  switch (cinfo->in_color_space) {
+X  case CS_GRAYSCALE:
+X    if (cinfo->input_components != 1)
+X      ERREXIT(cinfo->emethods, "Bogus input colorspace");
+X    break;
+X
+X  case CS_RGB:
+X  case CS_YCbCr:
+X  case CS_YIQ:
+X    if (cinfo->input_components != 3)
+X      ERREXIT(cinfo->emethods, "Bogus input colorspace");
+X    break;
+X
+X  case CS_CMYK:
+X    if (cinfo->input_components != 4)
+X      ERREXIT(cinfo->emethods, "Bogus input colorspace");
+X    break;
+X
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported input colorspace");
+X    break;
+X  }
+X
+X  /* Standard init/term methods (may override below) */
+X  cinfo->methods->colorin_init = colorin_init;
+X  cinfo->methods->colorin_term = colorin_term;
+X
+X  /* Check num_components, set conversion method based on requested space */
+X  switch (cinfo->jpeg_color_space) {
+X  case CS_GRAYSCALE:
+X    if (cinfo->num_components != 1)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    if (cinfo->in_color_space == CS_GRAYSCALE)
+X      cinfo->methods->get_sample_rows = get_grayscale_rows;
+X    else if (cinfo->in_color_space == CS_RGB) {
+X      cinfo->methods->colorin_init = rgb_ycc_init;
+X      cinfo->methods->get_sample_rows = get_rgb_gray_rows;
+X    } else if (cinfo->in_color_space == CS_YCbCr)
+X      cinfo->methods->get_sample_rows = get_grayscale_rows;
+X    else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  case CS_YCbCr:
+X    if (cinfo->num_components != 3)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    if (cinfo->in_color_space == CS_RGB) {
+X      cinfo->methods->colorin_init = rgb_ycc_init;
+X      cinfo->methods->get_sample_rows = get_rgb_ycc_rows;
+X    } else if (cinfo->in_color_space == CS_YCbCr)
+X      cinfo->methods->get_sample_rows = get_noconvert_rows;
+X    else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  case CS_CMYK:
+X    if (cinfo->num_components != 4)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    if (cinfo->in_color_space == CS_CMYK)
+X      cinfo->methods->get_sample_rows = get_noconvert_rows;
+X    else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG colorspace");
+X    break;
+X  }
+X}
+END_OF_FILE
+  if test 11236 -ne `wc -c <'jccolor.c'`; then
+    echo shar: \"'jccolor.c'\" unpacked with wrong size!
+  fi
+  # end of 'jccolor.c'
+fi
+if test -f 'jdcolor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jdcolor.c'\"
+else
+  echo shar: Extracting \"'jdcolor.c'\" \(9090 characters\)
+  sed "s/^X//" >'jdcolor.c' <<'END_OF_FILE'
+X/*
+X * jdcolor.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains output colorspace conversion routines.
+X * These routines are invoked via the methods color_convert
+X * and colorout_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/**************** YCbCr -> RGB conversion: most common case **************/
+X
+X/*
+X * YCbCr is defined per CCIR 601-1, except that Cb and Cr are
+X * normalized to the range 0..MAXJSAMPLE rather than -0.5 .. 0.5.
+X * The conversion equations to be implemented are therefore
+X *	R = Y                + 1.40200 * Cr
+X *	G = Y - 0.34414 * Cb - 0.71414 * Cr
+X *	B = Y + 1.77200 * Cb
+X * where Cb and Cr represent the incoming values less MAXJSAMPLE/2.
+X * (These numbers are derived from TIFF 6.0 section 21, dated 3-June-92.)
+X *
+X * To avoid floating-point arithmetic, we represent the fractional constants
+X * as integers scaled up by 2^16 (about 4 digits precision); we have to divide
+X * the products by 2^16, with appropriate rounding, to get the correct answer.
+X * Notice that Y, being an integral input, does not contribute any fraction
+X * so it need not participate in the rounding.
+X *
+X * For even more speed, we avoid doing any multiplications in the inner loop
+X * by precalculating the constants times Cb and Cr for all possible values.
+X * For 8-bit JSAMPLEs this is very reasonable (only 256 entries per table);
+X * for 12-bit samples it is still acceptable.  It's not very reasonable for
+X * 16-bit samples, but if you want lossless storage you shouldn't be changing
+X * colorspace anyway.
+X * The Cr=>R and Cb=>B values can be rounded to integers in advance; the
+X * values for the G calculation are left scaled up, since we must add them
+X * together before rounding.
+X */
+X
+X#ifdef SIXTEEN_BIT_SAMPLES
+X#define SCALEBITS	14	/* avoid overflow */
+X#else
+X#define SCALEBITS	16	/* speedier right-shift on some machines */
+X#endif
+X#define ONE_HALF	((INT32) 1 << (SCALEBITS-1))
+X#define FIX(x)		((INT32) ((x) * (1L<<SCALEBITS) + 0.5))
+X
+Xstatic int * Cr_r_tab;		/* => table for Cr to R conversion */
+Xstatic int * Cb_b_tab;		/* => table for Cb to B conversion */
+Xstatic INT32 * Cr_g_tab;	/* => table for Cr to G conversion */
+Xstatic INT32 * Cb_g_tab;	/* => table for Cb to G conversion */
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_init (decompress_info_ptr cinfo)
+X{
+X  INT32 i, x2;
+X  SHIFT_TEMPS
+X
+X  Cr_r_tab = (int *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(int));
+X  Cb_b_tab = (int *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(int));
+X  Cr_g_tab = (INT32 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT32));
+X  Cb_g_tab = (INT32 *) (*cinfo->emethods->alloc_small)
+X				((MAXJSAMPLE+1) * SIZEOF(INT32));
+X
+X  for (i = 0; i <= MAXJSAMPLE; i++) {
+X    /* i is the actual input pixel value, in the range 0..MAXJSAMPLE */
+X    /* The Cb or Cr value we are thinking of is x = i - MAXJSAMPLE/2 */
+X    x2 = 2*i - MAXJSAMPLE;	/* twice x */
+X    /* Cr=>R value is nearest int to 1.40200 * x */
+X    Cr_r_tab[i] = (int)
+X		    RIGHT_SHIFT(FIX(1.40200/2) * x2 + ONE_HALF, SCALEBITS);
+X    /* Cb=>B value is nearest int to 1.77200 * x */
+X    Cb_b_tab[i] = (int)
+X		    RIGHT_SHIFT(FIX(1.77200/2) * x2 + ONE_HALF, SCALEBITS);
+X    /* Cr=>G value is scaled-up -0.71414 * x */
+X    Cr_g_tab[i] = (- FIX(0.71414/2)) * x2;
+X    /* Cb=>G value is scaled-up -0.34414 * x */
+X    /* We also add in ONE_HALF so that need not do it in inner loop */
+X    Cb_g_tab[i] = (- FIX(0.34414/2)) * x2 + ONE_HALF;
+X  }
+X}
+X
+X
+X/*
+X * Convert some rows of samples to the output colorspace.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X		 JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X#ifdef SIXTEEN_BIT_SAMPLES
+X  register INT32 y;
+X  register UINT16 cb, cr;
+X#else
+X  register int y, cb, cr;
+X#endif
+X  register JSAMPROW inptr0, inptr1, inptr2;
+X  register JSAMPROW outptr0, outptr1, outptr2;
+X  register long col;
+X  /* copy these pointers into registers if possible */
+X  register JSAMPLE * range_limit = cinfo->sample_range_limit;
+X  register int * Crrtab = Cr_r_tab;
+X  register int * Cbbtab = Cb_b_tab;
+X  register INT32 * Crgtab = Cr_g_tab;
+X  register INT32 * Cbgtab = Cb_g_tab;
+X  int row;
+X  SHIFT_TEMPS
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    inptr0 = input_data[0][row];
+X    inptr1 = input_data[1][row];
+X    inptr2 = input_data[2][row];
+X    outptr0 = output_data[0][row];
+X    outptr1 = output_data[1][row];
+X    outptr2 = output_data[2][row];
+X    for (col = 0; col < num_cols; col++) {
+X      y  = GETJSAMPLE(inptr0[col]);
+X      cb = GETJSAMPLE(inptr1[col]);
+X      cr = GETJSAMPLE(inptr2[col]);
+X      /* Note: if the inputs were computed directly from RGB values,
+X       * range-limiting would be unnecessary here; but due to possible
+X       * noise in the DCT/IDCT phase, we do need to apply range limits.
+X       */
+X      outptr0[col] = range_limit[y + Crrtab[cr]];	/* red */
+X      outptr1[col] = range_limit[y +			/* green */
+X				 ((int) RIGHT_SHIFT(Cbgtab[cb] + Crgtab[cr],
+X						    SCALEBITS))];
+X      outptr2[col] = range_limit[y + Cbbtab[cb]];	/* blue */
+X    }
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xycc_rgb_term (decompress_info_ptr cinfo)
+X{
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/**************** Cases other than YCbCr -> RGB **************/
+X
+X
+X/*
+X * Initialize for colorspace conversion.
+X */
+X
+XMETHODDEF void
+Xnull_init (decompress_info_ptr cinfo)
+X/* colorout_init for cases where no setup is needed */
+X{
+X  /* no work needed */
+X}
+X
+X
+X/*
+X * Color conversion for no colorspace change: just copy the data.
+X */
+X
+XMETHODDEF void
+Xnull_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X	      JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X  short ci;
+X
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    jcopy_sample_rows(input_data[ci], 0, output_data[ci], 0,
+X		      num_rows, num_cols);
+X  }
+X}
+X
+X
+X/*
+X * Color conversion for grayscale: just copy the data.
+X * This also works for YCbCr/YIQ -> grayscale conversion, in which
+X * we just copy the Y (luminance) component and ignore chrominance.
+X */
+X
+XMETHODDEF void
+Xgrayscale_convert (decompress_info_ptr cinfo, int num_rows, long num_cols,
+X		   JSAMPIMAGE input_data, JSAMPIMAGE output_data)
+X{
+X  jcopy_sample_rows(input_data[0], 0, output_data[0], 0,
+X		    num_rows, num_cols);
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xnull_term (decompress_info_ptr cinfo)
+X/* colorout_term for cases where no teardown is needed */
+X{
+X  /* no work needed */
+X}
+X
+X
+X
+X/*
+X * The method selection routine for output colorspace conversion.
+X */
+X
+XGLOBAL void
+Xjseldcolor (decompress_info_ptr cinfo)
+X{
+X  /* Make sure num_components agrees with jpeg_color_space */
+X  switch (cinfo->jpeg_color_space) {
+X  case CS_GRAYSCALE:
+X    if (cinfo->num_components != 1)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  case CS_RGB:
+X  case CS_YCbCr:
+X  case CS_YIQ:
+X    if (cinfo->num_components != 3)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  case CS_CMYK:
+X    if (cinfo->num_components != 4)
+X      ERREXIT(cinfo->emethods, "Bogus JPEG colorspace");
+X    break;
+X
+X  default:
+X    ERREXIT(cinfo->emethods, "Unsupported JPEG colorspace");
+X    break;
+X  }
+X
+X  /* Set color_out_comps and conversion method based on requested space */
+X  switch (cinfo->out_color_space) {
+X  case CS_GRAYSCALE:
+X    cinfo->color_out_comps = 1;
+X    if (cinfo->jpeg_color_space == CS_GRAYSCALE ||
+X	cinfo->jpeg_color_space == CS_YCbCr ||
+X	cinfo->jpeg_color_space == CS_YIQ) {
+X      cinfo->methods->color_convert = grayscale_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  case CS_RGB:
+X    cinfo->color_out_comps = 3;
+X    if (cinfo->jpeg_color_space == CS_YCbCr) {
+X      cinfo->methods->color_convert = ycc_rgb_convert;
+X      cinfo->methods->colorout_init = ycc_rgb_init;
+X      cinfo->methods->colorout_term = ycc_rgb_term;
+X    } else if (cinfo->jpeg_color_space == CS_RGB) {
+X      cinfo->methods->color_convert = null_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X
+X  default:
+X    /* Permit null conversion from CMYK or YCbCr to same output space */
+X    if (cinfo->out_color_space == cinfo->jpeg_color_space) {
+X      cinfo->color_out_comps = cinfo->num_components;
+X      cinfo->methods->color_convert = null_convert;
+X      cinfo->methods->colorout_init = null_init;
+X      cinfo->methods->colorout_term = null_term;
+X    } else			/* unsupported non-null conversion */
+X      ERREXIT(cinfo->emethods, "Unsupported color conversion request");
+X    break;
+X  }
+X
+X  if (cinfo->quantize_colors)
+X    cinfo->final_out_comps = 1;	/* single colormapped output component */
+X  else
+X    cinfo->final_out_comps = cinfo->color_out_comps;
+X}
+END_OF_FILE
+  if test 9090 -ne `wc -c <'jdcolor.c'`; then
+    echo shar: \"'jdcolor.c'\" unpacked with wrong size!
+  fi
+  # end of 'jdcolor.c'
+fi
+if test -f 'jmemdosa.asm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jmemdosa.asm'\"
+else
+  echo shar: Extracting \"'jmemdosa.asm'\" \(8314 characters\)
+  sed "s/^X//" >'jmemdosa.asm' <<'END_OF_FILE'
+X;
+X; jmemdosa.asm
+X;
+X; Copyright (C) 1992, Thomas G. Lane.
+X; This file is part of the Independent JPEG Group's software.
+X; For conditions of distribution and use, see the accompanying README file.
+X;
+X; This file contains low-level interface routines to support the MS-DOS
+X; backing store manager (jmemdos.c).  Routines are provided to access disk
+X; files through direct DOS calls, and to access XMS and EMS drivers.
+X;
+X; This file should assemble with Microsoft's MASM or any compatible
+X; assembler (including Borland's Turbo Assembler).  If you haven't got
+X; a compatible assembler, better fall back to jmemansi.c or jmemname.c.
+X;
+X; To minimize dependence on the C compiler's register usage conventions,
+X; we save and restore all 8086 registers, even though most compilers only
+X; require SI,DI,DS to be preserved.  Also, we use only 16-bit-wide return
+X; values, which everybody returns in AX.
+X;
+X; Based on code contributed by Ge' Weijers.
+X;
+X
+XJMEMDOSA_TXT	segment byte public 'CODE'
+X
+X		assume	cs:JMEMDOSA_TXT
+X
+X		public	_jdos_open
+X		public	_jdos_close
+X		public	_jdos_seek
+X		public	_jdos_read
+X		public	_jdos_write
+X		public	_jxms_getdriver
+X		public	_jxms_calldriver
+X		public	_jems_available
+X		public	_jems_calldriver
+X
+X;
+X; short far jdos_open (short far * handle, char far * filename)
+X;
+X; Create and open a temporary file
+X;
+X_jdos_open	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	cx,0			; normal file attributes
+X		lds	dx,dword ptr [bp+10]	; get filename pointer
+X		mov	ah,3ch			; create file
+X		int	21h
+X		jc	open_err		; if failed, return error code
+X		lds	bx,dword ptr [bp+6]	; get handle pointer
+X		mov	word ptr [bx],ax	; save the handle
+X		xor	ax,ax			; return zero for OK
+Xopen_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_open	endp
+X
+X
+X;
+X; short far jdos_close (short handle)
+X;
+X; Close the file handle
+X;
+X_jdos_close	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		mov	ah,3eh			; close file
+X		int	21h
+X		jc	close_err		; if failed, return error code
+X		xor	ax,ax			; return zero for OK
+Xclose_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_close	endp
+X
+X
+X;
+X; short far jdos_seek (short handle, long offset)
+X;
+X; Set file position
+X;
+X_jdos_seek	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		mov	dx,word ptr [bp+8]	; LS offset
+X		mov	cx,word ptr [bp+10]	; MS offset
+X		mov	ax,4200h		; absolute seek
+X		int	21h
+X		jc	seek_err		; if failed, return error code
+X		xor	ax,ax			; return zero for OK
+Xseek_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_seek	endp
+X
+X
+X;
+X; short far jdos_read (short handle, void far * buffer, unsigned short count)
+X;
+X; Read from file
+X;
+X_jdos_read	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		lds	dx,dword ptr [bp+8]	; buffer address
+X		mov	cx,word ptr [bp+12]	; number of bytes
+X		mov	ah,3fh			; read file
+X		int	21h
+X		jc	read_err		; if failed, return error code
+X		cmp	ax,word ptr [bp+12]	; make sure all bytes were read
+X		je	read_ok
+X		mov	ax,1			; else return 1 for not OK
+X		jmp	short read_err
+Xread_ok:	xor	ax,ax			; return zero for OK
+Xread_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_read	endp
+X
+X
+X;
+X; short far jdos_write (short handle, void far * buffer, unsigned short count)
+X;
+X; Write to file
+X;
+X_jdos_write	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	bx,word ptr [bp+6]	; file handle
+X		lds	dx,dword ptr [bp+8]	; buffer address
+X		mov	cx,word ptr [bp+12]	; number of bytes
+X		mov	ah,40h			; write file
+X		int	21h
+X		jc	write_err		; if failed, return error code
+X		cmp	ax,word ptr [bp+12]	; make sure all bytes written
+X		je	write_ok
+X		mov	ax,1			; else return 1 for not OK
+X		jmp	short write_err
+Xwrite_ok:	xor	ax,ax			; return zero for OK
+Xwrite_err:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jdos_write	endp
+X
+X
+X;
+X; void far jxms_getdriver (XMSDRIVER far *)
+X;
+X; Get the address of the XMS driver, or NULL if not available
+X;
+X_jxms_getdriver	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov 	ax,4300h		; call multiplex interrupt with
+X		int	2fh			; a magic cookie, hex 4300
+X		cmp 	al,80h			; AL should contain hex 80
+X		je	xmsavail
+X		xor 	dx,dx			; no XMS driver available
+X		xor 	ax,ax			; return a nil pointer
+X		jmp	short xmsavail_done
+Xxmsavail:	mov 	ax,4310h		; fetch driver address with
+X		int	2fh			; another magic cookie
+X		mov 	dx,es			; copy address to dx:ax
+X		mov 	ax,bx
+Xxmsavail_done:	les 	bx,dword ptr [bp+6]	; get pointer to return value
+X		mov	word ptr es:[bx],ax
+X		mov	word ptr es:[bx+2],dx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop	bp
+X		ret
+X_jxms_getdriver	endp
+X
+X
+X;
+X; void far jxms_calldriver (XMSDRIVER, XMScontext far *)
+X;
+X; The XMScontext structure contains values for the AX,DX,BX,SI,DS registers.
+X; These are loaded, the XMS call is performed, and the new values of the
+X; AX,DX,BX registers are written back to the context structure.
+X;
+X_jxms_calldriver 	proc	far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		les 	bx,dword ptr [bp+10]	; get XMScontext pointer
+X		mov 	ax,word ptr es:[bx]	; load registers
+X		mov 	dx,word ptr es:[bx+2]
+X		mov 	si,word ptr es:[bx+6]
+X		mov 	ds,word ptr es:[bx+8]
+X		mov 	bx,word ptr es:[bx+4]
+X		call	dword ptr [bp+6]	; call the driver
+X		mov	cx,bx			; save returned BX for a sec
+X		les 	bx,dword ptr [bp+10]	; get XMScontext pointer
+X		mov 	word ptr es:[bx],ax	; put back ax,dx,bx
+X		mov 	word ptr es:[bx+2],dx
+X		mov 	word ptr es:[bx+4],cx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jxms_calldriver 	endp
+X
+X
+X;
+X; short far jems_available (void)
+X;
+X; Have we got an EMS driver? (this comes straight from the EMS 4.0 specs)
+X;
+X_jems_available	proc	far
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		mov	ax,3567h		; get interrupt vector 67h
+X		int	21h
+X		push	cs
+X		pop	ds
+X		mov	di,000ah		; check offs 10 in returned seg
+X		lea	si,ASCII_device_name	; against literal string
+X		mov	cx,8
+X		cld
+X		repe cmpsb
+X		jne	no_ems
+X		mov	ax,1			; match, it's there
+X		jmp	short avail_done
+Xno_ems:		xor	ax,ax			; it's not there
+Xavail_done:	pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		ret
+X
+XASCII_device_name	db	"EMMXXXX0"
+X
+X_jems_available	endp
+X
+X
+X;
+X; void far jems_calldriver (EMScontext far *)
+X;
+X; The EMScontext structure contains values for the AX,DX,BX,SI,DS registers.
+X; These are loaded, the EMS trap is performed, and the new values of the
+X; AX,DX,BX registers are written back to the context structure.
+X;
+X_jems_calldriver	proc far
+X		push	bp			; linkage
+X		mov 	bp,sp
+X		push	si			; save all registers for safety
+X		push	di
+X		push	bx
+X		push	cx
+X		push	dx
+X		push	es
+X		push	ds
+X		les 	bx,dword ptr [bp+6]	; get EMScontext pointer
+X		mov 	ax,word ptr es:[bx]	; load registers
+X		mov 	dx,word ptr es:[bx+2]
+X		mov 	si,word ptr es:[bx+6]
+X		mov 	ds,word ptr es:[bx+8]
+X		mov 	bx,word ptr es:[bx+4]
+X		int	67h			; call the EMS driver
+X		mov	cx,bx			; save returned BX for a sec
+X		les 	bx,dword ptr [bp+6]	; get EMScontext pointer
+X		mov 	word ptr es:[bx],ax	; put back ax,dx,bx
+X		mov 	word ptr es:[bx+2],dx
+X		mov 	word ptr es:[bx+4],cx
+X		pop	ds			; restore registers and exit
+X		pop	es
+X		pop	dx
+X		pop	cx
+X		pop	bx
+X		pop	di
+X		pop	si
+X		pop 	bp
+X		ret
+X_jems_calldriver	endp
+X
+XJMEMDOSA_TXT	ends
+X
+X		end
+END_OF_FILE
+  if test 8314 -ne `wc -c <'jmemdosa.asm'`; then
+    echo shar: \"'jmemdosa.asm'\" unpacked with wrong size!
+  fi
+  # end of 'jmemdosa.asm'
+fi
+if test -f 'jwrppm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrppm.c'\"
+else
+  echo shar: Extracting \"'jwrppm.c'\" \(9091 characters\)
+  sed "s/^X//" >'jwrppm.c' <<'END_OF_FILE'
+X/*
+X * jwrppm.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write output images in PPM/PGM format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.
+X *
+X * These routines are invoked via the methods put_pixel_rows, put_color_map,
+X * and output_init/term.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef PPM_SUPPORTED
+X
+X
+X/*
+X * Haven't yet got around to making this work with text-format output,
+X * hence cannot handle pixels wider than 8 bits.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * On most systems, writing individual bytes with putc() is drastically less
+X * efficient than buffering a row at a time for fwrite().  But we must
+X * allocate the row buffer in near data space on PCs, because we are assuming
+X * small-data memory model, wherein fwrite() can't reach far memory.  If you
+X * need to process very wide images on a PC, you may have to use the putc()
+X * approach.  Also, there are still a few systems around wherein fwrite() is
+X * actually implemented as a putc() loop, in which case this buffer is a waste
+X * of space.  So the putc() method can be used by defining USE_PUTC_OUTPUT.
+X */
+X
+X#ifndef USE_PUTC_OUTPUT
+Xstatic char * row_buffer;	/* holds 1 pixel row's worth of output */
+X#endif
+X
+X
+X/*
+X * Write the file header.
+X */
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->out_color_space == CS_GRAYSCALE) {
+X    /* emit header for raw PGM format */
+X    fprintf(cinfo->output_file, "P5\n%ld %ld\n%d\n",
+X	    cinfo->image_width, cinfo->image_height, 255);
+X#ifndef USE_PUTC_OUTPUT
+X    /* allocate space for row buffer: 1 byte/pixel */
+X    row_buffer = (char *) (*cinfo->emethods->alloc_small)
+X			((size_t) (SIZEOF(char) * cinfo->image_width));
+X#endif
+X  } else if (cinfo->out_color_space == CS_RGB) {
+X    /* emit header for raw PPM format */
+X    fprintf(cinfo->output_file, "P6\n%ld %ld\n%d\n",
+X	    cinfo->image_width, cinfo->image_height, 255);
+X#ifndef USE_PUTC_OUTPUT
+X    /* allocate space for row buffer: 3 bytes/pixel */
+X    row_buffer = (char *) (*cinfo->emethods->alloc_small)
+X			((size_t) (3 * SIZEOF(char) * cinfo->image_width));
+X#endif
+X  } else {
+X    ERREXIT(cinfo->emethods, "PPM output must be grayscale or RGB");
+X  }
+X}
+X
+X
+X/*
+X * Write some pixel data.
+X */
+X
+X#ifdef USE_PUTC_OUTPUT
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    for (col = width; col > 0; col--) {
+X      putc(GETJSAMPLE(*ptr0), outfile);
+X      ptr0++;
+X      putc(GETJSAMPLE(*ptr1), outfile);
+X      ptr1++;
+X      putc(GETJSAMPLE(*ptr2), outfile);
+X      ptr2++;
+X    }
+X  }
+X}
+X
+XMETHODDEF void
+Xput_gray_rows (decompress_info_ptr cinfo, int num_rows,
+X	       JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      putc(GETJSAMPLE(*ptr0), outfile);
+X      ptr0++;
+X    }
+X  }
+X}
+X
+X#else /* use row buffering */
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register char * row_bufferptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr0++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr1++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr2++);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, 3*width);
+X  }
+X}
+X
+XMETHODDEF void
+Xput_gray_rows (decompress_info_ptr cinfo, int num_rows,
+X	       JSAMPIMAGE pixel_data)
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0;
+X  register char * row_bufferptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr0++);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, width);
+X  }
+X}
+X
+X#endif /* USE_PUTC_OUTPUT */
+X
+X
+X/*
+X * Write some pixel data when color quantization is in effect.
+X */
+X
+X#ifdef USE_PUTC_OUTPUT
+X
+XMETHODDEF void
+Xput_demapped_rgb (decompress_info_ptr cinfo, int num_rows,
+X		  JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register JSAMPROW color_map1 = cinfo->colormap[1];
+X  register JSAMPROW color_map2 = cinfo->colormap[2];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      putc(GETJSAMPLE(color_map0[pixval]), outfile);
+X      putc(GETJSAMPLE(color_map1[pixval]), outfile);
+X      putc(GETJSAMPLE(color_map2[pixval]), outfile);
+X    }
+X  }
+X}
+X
+XMETHODDEF void
+Xput_demapped_gray (decompress_info_ptr cinfo, int num_rows,
+X		   JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      putc(GETJSAMPLE(color_map0[pixval]), outfile);
+X    }
+X  }
+X}
+X
+X#else /* use row buffering */
+X
+XMETHODDEF void
+Xput_demapped_rgb (decompress_info_ptr cinfo, int num_rows,
+X		  JSAMPIMAGE pixel_data)
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register char * row_bufferptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register JSAMPROW color_map1 = cinfo->colormap[1];
+X  register JSAMPROW color_map2 = cinfo->colormap[2];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(color_map0[pixval]);
+X      *row_bufferptr++ = (char) GETJSAMPLE(color_map1[pixval]);
+X      *row_bufferptr++ = (char) GETJSAMPLE(color_map2[pixval]);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, 3*width);
+X  }
+X}
+X
+XMETHODDEF void
+Xput_demapped_gray (decompress_info_ptr cinfo, int num_rows,
+X		   JSAMPIMAGE pixel_data)
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register char * row_bufferptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(color_map0[pixval]);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, width);
+X  }
+X}
+X
+X#endif /* USE_PUTC_OUTPUT */
+X
+X
+X/*
+X * Write the color map.
+X * For PPM output, we just remember to demap the output data!
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X{
+X  if (cinfo->out_color_space == CS_RGB)
+X    cinfo->methods->put_pixel_rows = put_demapped_rgb;
+X  else
+X    cinfo->methods->put_pixel_rows = put_demapped_gray;
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X{
+X  /* No work except to make sure we wrote the output file OK; */
+X  /* we let free_all release any workspace */
+X  fflush(cinfo->output_file);
+X  if (ferror(cinfo->output_file))
+X    ERREXIT(cinfo->emethods, "Output file write error");
+X}
+X
+X
+X/*
+X * The method selection routine for PPM format output.
+X * This should be called from d_ui_method_selection if PPM output is wanted.
+X */
+X
+XGLOBAL void
+Xjselwppm (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->output_init = output_init;
+X  cinfo->methods->put_color_map = put_color_map;
+X  if (cinfo->out_color_space == CS_RGB)
+X    cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  else
+X    cinfo->methods->put_pixel_rows = put_gray_rows;
+X  cinfo->methods->output_term = output_term;
+X}
+X
+X#endif /* PPM_SUPPORTED */
+END_OF_FILE
+  if test 9091 -ne `wc -c <'jwrppm.c'`; then
+    echo shar: \"'jwrppm.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrppm.c'
+fi
+if test -f 'jwrrle.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrrle.c'\"
+else
+  echo shar: Extracting \"'jwrrle.c'\" \(6740 characters\)
+  sed "s/^X//" >'jwrrle.c' <<'END_OF_FILE'
+X/*
+X * jwrrle.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write output images in RLE format.
+X * The Utah Raster Toolkit library is required (version 3.0).
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.
+X *
+X * These routines are invoked via the methods put_pixel_rows, put_color_map,
+X * and output_init/term.
+X *
+X * Based on code contributed by Mike Lijewski.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef RLE_SUPPORTED
+X
+X/* rle.h is provided by the Utah Raster Toolkit. */
+X
+X#include <rle.h>
+X
+X
+X/*
+X * output_term assumes that JSAMPLE has the same representation as rle_pixel,
+X * to wit, "unsigned char".  Hence we can't cope with 12- or 16-bit samples.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * Since RLE stores scanlines bottom-to-top, we have to invert the image
+X * from JPEG's top-to-bottom order.  To do this, we save the outgoing data
+X * in virtual array(s) during put_pixel_row calls, then actually emit the
+X * RLE file during output_term.  We use one virtual array if the output is
+X * grayscale or colormapped, more if it is full color.
+X */
+X
+X#define MAX_CHANS	4	/* allow up to four color components */
+Xstatic big_sarray_ptr channels[MAX_CHANS]; /* Virtual arrays for saved data */
+X
+Xstatic long cur_output_row;	/* next row# to write to virtual array(s) */
+X
+X
+X/*
+X * For now, if we emit an RLE color map then it is always 256 entries long,
+X * though not all of the entries need be used.
+X */
+X
+X#define CMAPBITS	8
+X#define CMAPLENGTH	(1<<(CMAPBITS))
+X
+Xstatic rle_map *output_colormap; /* RLE-style color map, or NULL if none */
+Xstatic int number_colors;	/* Number of colors actually used */
+X
+X
+X/*
+X * Write the file header.
+X *
+X * In this module it's easier to wait till output_term to actually write
+X * anything; here we just request the big arrays we'll need.
+X */
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X{
+X  short ci;
+X  
+X  if (cinfo->final_out_comps > MAX_CHANS)
+X    ERREXIT1(cinfo->emethods, "Cannot handle %d output channels for RLE",
+X	     cinfo->final_out_comps);
+X  
+X  for (ci = 0; ci < cinfo->final_out_comps; ci++) {
+X    channels[ci] = (*cinfo->emethods->request_big_sarray)
+X			(cinfo->image_width, cinfo->image_height, 1L);
+X  }
+X  
+X  output_colormap = NULL;	/* No output colormap as yet */
+X  number_colors = 0;
+X  cur_output_row = 0;		/* Start filling virtual arrays at row 0 */
+X
+X  cinfo->total_passes++;	/* count file writing as separate pass */
+X}
+X
+X
+X/*
+X * Write some pixel data.
+X *
+X * This routine just saves the data away in virtual arrays.
+X */
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X{
+X  JSAMPROW outputrow[1];	/* a pseudo JSAMPARRAY structure */
+X  int row;
+X  short ci;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    for (ci = 0; ci < cinfo->final_out_comps; ci++) {
+X      outputrow[0] = *((*cinfo->emethods->access_big_sarray)
+X			(channels[ci], cur_output_row, TRUE));
+X      jcopy_sample_rows(pixel_data[ci], row, outputrow, 0,
+X			1, cinfo->image_width);
+X    }
+X    cur_output_row++;
+X  }
+X}
+X
+X
+X/*
+X * Write the color map.
+X *
+X *  For RLE output we just save the colormap for the output stage.
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X{
+X  size_t cmapsize;
+X  short ci;
+X  int i;
+X
+X  if (num_colors > CMAPLENGTH)
+X    ERREXIT1(cinfo->emethods, "Cannot handle %d colormap entries for RLE",
+X	     num_colors);
+X
+X  /* Allocate storage for RLE-style cmap, zero any extra entries */
+X  cmapsize = cinfo->color_out_comps * CMAPLENGTH * SIZEOF(rle_map);
+X  output_colormap = (rle_map *) (*cinfo->emethods->alloc_small) (cmapsize);
+X  MEMZERO(output_colormap, cmapsize);
+X
+X  /* Save away data in RLE format --- note 8-bit left shift! */
+X  /* Shifting would need adjustment for JSAMPLEs wider than 8 bits. */
+X  for (ci = 0; ci < cinfo->color_out_comps; ci++) {
+X    for (i = 0; i < num_colors; i++) {
+X      output_colormap[ci * CMAPLENGTH + i] = GETJSAMPLE(colormap[ci][i]) << 8;
+X    }
+X  }
+X  number_colors = num_colors;
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X *
+X * Here is where we really output the RLE file.
+X */
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X{
+X  rle_hdr header;		/* Output file information */
+X  rle_pixel *output_rows[MAX_CHANS];
+X  char cmapcomment[80];
+X  short ci;
+X  long row;
+X
+X  /* Initialize the header info */
+X  MEMZERO(&header, SIZEOF(rle_hdr)); /* make sure all bits are 0 */
+X  header.rle_file = cinfo->output_file;
+X  header.xmin     = 0;
+X  header.xmax     = cinfo->image_width  - 1;
+X  header.ymin     = 0;
+X  header.ymax     = cinfo->image_height - 1;
+X  header.alpha    = 0;
+X  header.ncolors  = cinfo->final_out_comps;
+X  for (ci = 0; ci < cinfo->final_out_comps; ci++) {
+X    RLE_SET_BIT(header, ci);
+X  }
+X  if (number_colors > 0) {
+X    header.ncmap   = cinfo->color_out_comps;
+X    header.cmaplen = CMAPBITS;
+X    header.cmap    = output_colormap;
+X    /* Add a comment to the output image with the true colormap length. */
+X    sprintf(cmapcomment, "color_map_length=%d", number_colors);
+X    rle_putcom(cmapcomment, &header);
+X  }
+X  /* Emit the RLE header and color map (if any) */
+X  rle_put_setup(&header);
+X
+X  /* Now output the RLE data from our virtual array(s).
+X   * We assume here that (a) rle_pixel is represented the same as JSAMPLE,
+X   * and (b) we are not on a machine where FAR pointers differ from regular.
+X   */
+X  for (row = cinfo->image_height-1; row >= 0; row--) {
+X    (*cinfo->methods->progress_monitor) (cinfo, cinfo->image_height-row-1,
+X					 cinfo->image_height);
+X    for (ci = 0; ci < cinfo->final_out_comps; ci++) {
+X      output_rows[ci] = (rle_pixel *) *((*cinfo->emethods->access_big_sarray)
+X					(channels[ci], row, FALSE));
+X    }
+X    rle_putrow(output_rows, (int) cinfo->image_width, &header);
+X  }
+X  cinfo->completed_passes++;
+X
+X  /* Emit file trailer */
+X  rle_puteof(&header);
+X  fflush(cinfo->output_file);
+X  if (ferror(cinfo->output_file))
+X    ERREXIT(cinfo->emethods, "Output file write error");
+X
+X  /* Release memory */
+X  /* no work (we let free_all release the workspace) */
+X}
+X
+X
+X/*
+X * The method selection routine for RLE format output.
+X * This should be called from d_ui_method_selection if RLE output is wanted.
+X */
+X
+XGLOBAL void
+Xjselwrle (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->output_init    = output_init;
+X  cinfo->methods->put_color_map  = put_color_map;
+X  cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  cinfo->methods->output_term    = output_term;
+X}
+X
+X#endif /* RLE_SUPPORTED */
+END_OF_FILE
+  if test 6740 -ne `wc -c <'jwrrle.c'`; then
+    echo shar: \"'jwrrle.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrrle.c'
+fi
+if test -f 'jwrtarga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jwrtarga.c'\"
+else
+  echo shar: Extracting \"'jwrtarga.c'\" \(9524 characters\)
+  sed "s/^X//" >'jwrtarga.c' <<'END_OF_FILE'
+X/*
+X * jwrtarga.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains routines to write output images in Targa format.
+X *
+X * These routines may need modification for non-Unix environments or
+X * specialized applications.  As they stand, they assume output to
+X * an ordinary stdio stream.
+X *
+X * These routines are invoked via the methods put_pixel_rows, put_color_map,
+X * and output_init/term.
+X *
+X * Based on code contributed by Lee Daniel Crocker.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef TARGA_SUPPORTED
+X
+X
+X/*
+X * To support 12-bit JPEG data, we'd have to scale output down to 8 bits.
+X * This is not yet implemented.
+X */
+X
+X#ifndef EIGHT_BIT_SAMPLES
+X  Sorry, this code only copes with 8-bit JSAMPLEs. /* deliberate syntax err */
+X#endif
+X
+X
+X/*
+X * On most systems, writing individual bytes with putc() is drastically less
+X * efficient than buffering a row at a time for fwrite().  But we must
+X * allocate the row buffer in near data space on PCs, because we are assuming
+X * small-data memory model, wherein fwrite() can't reach far memory.  If you
+X * need to process very wide images on a PC, you may have to use the putc()
+X * approach.  Also, there are still a few systems around wherein fwrite() is
+X * actually implemented as a putc() loop, in which case this buffer is a waste
+X * of space.  So the putc() method can be used by defining USE_PUTC_OUTPUT.
+X */
+X
+X#ifndef USE_PUTC_OUTPUT
+Xstatic char * row_buffer;	/* holds 1 pixel row's worth of output */
+X#endif
+X
+X
+XLOCAL void
+Xwrite_header (decompress_info_ptr cinfo, int num_colors)
+X/* Create and write a Targa header */
+X{
+X  char targaheader[18];
+X
+X  /* Set unused fields of header to 0 */
+X  MEMZERO(targaheader, SIZEOF(targaheader));
+X
+X  if (num_colors > 0) {
+X    targaheader[1] = 1;		/* color map type 1 */
+X    targaheader[5] = (char) (num_colors & 0xFF);
+X    targaheader[6] = (char) (num_colors >> 8);
+X    targaheader[7] = 24;	/* 24 bits per cmap entry */
+X  }
+X
+X  targaheader[12] = (char) (cinfo->image_width & 0xFF);
+X  targaheader[13] = (char) (cinfo->image_width >> 8);
+X  targaheader[14] = (char) (cinfo->image_height & 0xFF);
+X  targaheader[15] = (char) (cinfo->image_height >> 8);
+X  targaheader[17] = 0x20;	/* Top-down, non-interlaced */
+X
+X  if (cinfo->out_color_space == CS_GRAYSCALE) {
+X    targaheader[2] = 3;		/* image type = uncompressed gray-scale */
+X    targaheader[16] = 8;	/* bits per pixel */
+X  } else {			/* must be RGB */
+X    if (num_colors > 0) {
+X      targaheader[2] = 1;	/* image type = colormapped RGB */
+X      targaheader[16] = 8;
+X    } else {
+X      targaheader[2] = 2;	/* image type = uncompressed RGB */
+X      targaheader[16] = 24;
+X    }
+X  }
+X
+X  if (JFWRITE(cinfo->output_file, targaheader, 18) != (size_t) 18)
+X    ERREXIT(cinfo->emethods, "Could not write Targa header");
+X}
+X
+X
+X/*
+X * Write the file header.
+X */
+X
+XMETHODDEF void
+Xoutput_init (decompress_info_ptr cinfo)
+X{
+X  if (cinfo->out_color_space == CS_GRAYSCALE) {
+X    /* Targa doesn't have a mapped grayscale format, so we will */
+X    /* demap quantized gray output.  Never emit a colormap. */
+X    write_header(cinfo, 0);
+X#ifndef USE_PUTC_OUTPUT
+X    /* allocate space for row buffer: 1 byte/pixel */
+X    row_buffer = (char *) (*cinfo->emethods->alloc_small)
+X			((size_t) (SIZEOF(char) * cinfo->image_width));
+X#endif
+X  } else if (cinfo->out_color_space == CS_RGB) {
+X    /* For quantized output, defer writing header until put_color_map time. */
+X    if (! cinfo->quantize_colors)
+X      write_header(cinfo, 0);
+X#ifndef USE_PUTC_OUTPUT
+X    /* allocate space for row buffer: 3 bytes/pixel */
+X    row_buffer = (char *) (*cinfo->emethods->alloc_small)
+X			((size_t) (3 * SIZEOF(char) * cinfo->image_width));
+X#endif
+X  } else {
+X    ERREXIT(cinfo->emethods, "Targa output must be grayscale or RGB");
+X  }
+X}
+X
+X
+X/*
+X * Write some pixel data.
+X */
+X
+X#ifdef USE_PUTC_OUTPUT
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X/* used for unquantized full-color output */
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    for (col = width; col > 0; col--) {
+X      putc(GETJSAMPLE(*ptr2), outfile); /* write in BGR order */
+X      ptr2++;
+X      putc(GETJSAMPLE(*ptr1), outfile);
+X      ptr1++;
+X      putc(GETJSAMPLE(*ptr0), outfile);
+X      ptr0++;
+X    }
+X  }
+X}
+X
+XMETHODDEF void
+Xput_gray_rows (decompress_info_ptr cinfo, int num_rows,
+X	       JSAMPIMAGE pixel_data)
+X/* used for grayscale OR quantized color output */
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      putc(GETJSAMPLE(*ptr0), outfile);
+X      ptr0++;
+X    }
+X  }
+X}
+X
+X#else /* use row buffering */
+X
+XMETHODDEF void
+Xput_pixel_rows (decompress_info_ptr cinfo, int num_rows,
+X		JSAMPIMAGE pixel_data)
+X/* used for unquantized full-color output */
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0, ptr1, ptr2;
+X  register char * row_bufferptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    ptr1 = pixel_data[1][row];
+X    ptr2 = pixel_data[2][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr2++); /* BGR order */
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr1++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr0++);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, 3*width);
+X  }
+X}
+X
+XMETHODDEF void
+Xput_gray_rows (decompress_info_ptr cinfo, int num_rows,
+X	       JSAMPIMAGE pixel_data)
+X/* used for grayscale OR quantized color output */
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr0;
+X  register char * row_bufferptr;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr0 = pixel_data[0][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      *row_bufferptr++ = (char) GETJSAMPLE(*ptr0++);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, width);
+X  }
+X}
+X
+X#endif /* USE_PUTC_OUTPUT */
+X
+X
+X/*
+X * Write some demapped pixel data when color quantization is in effect.
+X * For Targa, this is only applied to grayscale data.
+X */
+X
+X#ifdef USE_PUTC_OUTPUT
+X
+XMETHODDEF void
+Xput_demapped_gray (decompress_info_ptr cinfo, int num_rows,
+X		   JSAMPIMAGE pixel_data)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      putc(GETJSAMPLE(color_map0[pixval]), outfile);
+X    }
+X  }
+X}
+X
+X#else /* use row buffering */
+X
+XMETHODDEF void
+Xput_demapped_gray (decompress_info_ptr cinfo, int num_rows,
+X		   JSAMPIMAGE pixel_data)
+X{
+X  FILE * outfile = cinfo->output_file;
+X  register JSAMPROW ptr;
+X  register char * row_bufferptr;
+X  register JSAMPROW color_map0 = cinfo->colormap[0];
+X  register int pixval;
+X  register long col;
+X  long width = cinfo->image_width;
+X  int row;
+X  
+X  for (row = 0; row < num_rows; row++) {
+X    ptr = pixel_data[0][row];
+X    row_bufferptr = row_buffer;
+X    for (col = width; col > 0; col--) {
+X      pixval = GETJSAMPLE(*ptr++);
+X      *row_bufferptr++ = (char) GETJSAMPLE(color_map0[pixval]);
+X    }
+X    (void) JFWRITE(outfile, row_buffer, width);
+X  }
+X}
+X
+X#endif /* USE_PUTC_OUTPUT */
+X
+X
+X/*
+X * Write the color map.
+X */
+X
+XMETHODDEF void
+Xput_color_map (decompress_info_ptr cinfo, int num_colors, JSAMPARRAY colormap)
+X{
+X  register FILE * outfile = cinfo->output_file;
+X  int i;
+X
+X  if (cinfo->out_color_space == CS_RGB) {
+X    /* We only support 8-bit colormap indexes, so only 256 colors */
+X    if (num_colors > 256)
+X      ERREXIT(cinfo->emethods, "Too many colors for Targa output");
+X    /* Time to write the header */
+X    write_header(cinfo, num_colors);
+X    /* Write the colormap.  Note Targa uses BGR byte order */
+X    for (i = 0; i < num_colors; i++) {
+X      putc(GETJSAMPLE(colormap[2][i]), outfile);
+X      putc(GETJSAMPLE(colormap[1][i]), outfile);
+X      putc(GETJSAMPLE(colormap[0][i]), outfile);
+X    }
+X  } else {
+X    cinfo->methods->put_pixel_rows = put_demapped_gray;
+X  }
+X}
+X
+X
+X/*
+X * Finish up at the end of the file.
+X */
+X
+XMETHODDEF void
+Xoutput_term (decompress_info_ptr cinfo)
+X{
+X  /* No work except to make sure we wrote the output file OK */
+X  fflush(cinfo->output_file);
+X  if (ferror(cinfo->output_file))
+X    ERREXIT(cinfo->emethods, "Output file write error");
+X}
+X
+X
+X/*
+X * The method selection routine for Targa format output.
+X * This should be called from d_ui_method_selection if Targa output is wanted.
+X */
+X
+XGLOBAL void
+Xjselwtarga (decompress_info_ptr cinfo)
+X{
+X  cinfo->methods->output_init = output_init;
+X  cinfo->methods->put_color_map = put_color_map;
+X  if (cinfo->out_color_space == CS_GRAYSCALE || cinfo->quantize_colors)
+X    cinfo->methods->put_pixel_rows = put_gray_rows;
+X  else
+X    cinfo->methods->put_pixel_rows = put_pixel_rows;
+X  cinfo->methods->output_term = output_term;
+X}
+X
+X#endif /* TARGA_SUPPORTED */
+END_OF_FILE
+  if test 9524 -ne `wc -c <'jwrtarga.c'`; then
+    echo shar: \"'jwrtarga.c'\" unpacked with wrong size!
+  fi
+  # end of 'jwrtarga.c'
+fi
+echo shar: End of archive 15 \(of 18\).
+cp /dev/null ark15isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

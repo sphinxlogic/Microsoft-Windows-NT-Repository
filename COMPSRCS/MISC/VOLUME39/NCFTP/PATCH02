@@ -1,0 +1,186 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject: v39i068:  ncftp - Alternative User Interface for FTP, v1.5.0, Patch02
+Message-ID: <1993Aug30.211247.19711@sparky.sterling.com>
+X-Md4-Signature: 336c9e2bcd437e0951fdd8fe72458d7f
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: NCEMRSoft
+Date: Mon, 30 Aug 1993 21:12:47 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 39, Issue 68
+Archive-name: ncftp/patch02
+Environment: UNIX, ANSI-C, !SVR4
+Patch-To: ncftp: Volume 39, Issue 53-57
+
+This is the second official patch to ncftp 1.5. 
+
+This patch fixes another termcap problem where boldface, etc, were not getting
+turned off correctly, and fixes a bug in the .netrc parsing code.
+
+NcFTP 1.5.0 was posted last week to comp.sources.misc; you'll need that
+code with patch 1 applied for this patch to work.
+
+diff -c ./README ../ncftp152/README
+*** ./README	Sun Aug 29 22:14:06 1993
+--- ../ncftp152/README	Mon Aug 30 14:57:44 1993
+***************
+*** 93,98 ****
+--- 93,100 ----
+        gcc (set CC=gcc in the Makefile), or acc (set CC=acc).
+        The regular 'cc' is not an ANSI compiler.  You could also run
+        something like 'ansi2knr' on the sources and hope it works.
++ 	  You will probably need to link both the curses and termcap
++ 	  libraries if you use -DCURSES (see below).
+  
+      Hewlett-Packard HP-UX:  If you have 7.0, you'll need to find
+        a copy of <ftp.h> from somewhere (8.0 has it though). Then
+***************
+*** 185,191 ****
+  *   -DCURSES:  Uses curses library to display boldface, underline, etc.
+      By default ncftp uses hard-coded ANSI escapes (^[[1m etc.) to
+      save the 100k or so the curses library adds.  You will also need
+!     to edit the LIBS line in the Makefile to add -lcurses.
+  
+  *   -DSYSLOG:  Define this to have ncftp log connections and transfers
+      to the syslog.
+--- 187,194 ----
+  *   -DCURSES:  Uses curses library to display boldface, underline, etc.
+      By default ncftp uses hard-coded ANSI escapes (^[[1m etc.) to
+      save the 100k or so the curses library adds.  You will also need
+!     to edit the LIBS line in the Makefile to add -lcurses.  You may
+! 	need to add -ltermcap instead, or both -lcurses and -ltermcap.
+  
+  *   -DSYSLOG:  Define this to have ncftp log connections and transfers
+      to the syslog.
+diff -c ./ftprc.c ../ncftp152/ftprc.c
+*** ./ftprc.c	Sun Aug 29 22:14:05 1993
+--- ../ncftp152/ftprc.c	Mon Aug 30 14:57:45 1993
+***************
+*** 450,456 ****
+  					cp++;
+  			} else
+  				continue;
+! 			if (strstr(host, str) != NULL) {
+  				site_found = 1;
+  				while (!isspace(*cp))
+  					++cp;		/* skip the site name. */
+--- 450,457 ----
+  					cp++;
+  			} else
+  				continue;
+! 			/* if (strstr(cp, host) != NULL) { */
+! 			if (strncmp(host, cp, strlen(host)) == 0) {
+  				site_found = 1;
+  				while (!isspace(*cp))
+  					++cp;		/* skip the site name. */
+diff -c ./main.c ../ncftp152/main.c
+*** ./main.c	Sun Aug 29 22:14:05 1993
+--- ../ncftp152/main.c	Mon Aug 30 14:57:45 1993
+***************
+*** 8,14 ****
+  #define _main_c_
+  
+  #define FTP_VERSION \
+! "NcFTP 1.5.1 (Aug 29, 1993) by Mike Gleason, NCEMRSoft."
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+--- 8,14 ----
+  #define _main_c_
+  
+  #define FTP_VERSION \
+! "NcFTP 1.5.2 (Aug 30, 1993) by Mike Gleason, NCEMRSoft."
+  
+  /* #define BETA 1 */ /* If defined, it prints a little warning message. */
+  
+***************
+*** 1009,1015 ****
+  	if (tgetent(tcbuf,term) != 1) {
+  		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+  	} else {
+! 		termcap_get(&tcap_normal, "se");
+  		termcap_get(&tcap_boldface, "md");
+  		termcap_get(&tcap_underline, "us");
+  		termcap_get(&tcap_reverse, "so");
+--- 1009,1015 ----
+  	if (tgetent(tcbuf,term) != 1) {
+  		(void) fprintf(stderr,"Can't get termcap entry for terminal [%s]\n", term);
+  	} else {
+! 		termcap_get(&tcap_normal, "me");
+  		termcap_get(&tcap_boldface, "md");
+  		termcap_get(&tcap_underline, "us");
+  		termcap_get(&tcap_reverse, "so");
+Only in ../ncftp152: ncftp
+diff -c ./open.c ../ncftp152/open.c
+*** ./open.c	Sun Aug 29 22:14:05 1993
+--- ../ncftp152/open.c	Mon Aug 30 14:57:45 1993
+***************
+*** 436,441 ****
+--- 436,456 ----
+  	char *user, *pass, *acct;	
+  	int					login_verbosity;
+  
++ 	/* If the hostname supplied was an abbreviation, such as just
++ 	 * "wu" (wuarchive.wustl.edu), look through the list of sites
++ 	 * we know about and get the whole name.  We also would like
++ 	 * the path we want to start out in, if it is available.
++ 	 */
++ 	GetFullSiteName(openopt->hostname, openopt->cdpath);
++ 
++ #ifdef GATEWAY
++ 	/* Make sure the gateway host name is a full name and not an
++ 	 * abbreviation.
++ 	 */
++ 	if (*gateway)
++ 		GetFullSiteName(gateway, NULL);
++ #endif
++ 
+  	ruser = rpass = racct = NULL;
+  	/* This also loads the init macro. */
+  	siteInRC = ruserpass2(openopt->hostname, &ruser, &rpass, &racct);
+***************
+*** 471,491 ****
+  	 */
+  	if (CheckForColonMode(openopt, &login_verbosity) == USAGE)
+  		return USAGE;
+- 
+- #ifdef GATEWAY
+- 	/* Make sure the gateway host name is a full name and not an
+- 	 * abbreviation.
+- 	 */
+- 	if (*gateway)
+- 		GetFullSiteName(gateway, NULL);
+- #endif
+- 
+- 	/* If the hostname supplied was an abbreviation, such as just
+- 	 * "wu" (wuarchive.wustl.edu), look through the list of sites
+- 	 * we know about and get the whole name.  We also would like
+- 	 * the path we want to start out in, if it is available.
+- 	 */
+- 	GetFullSiteName(openopt->hostname, openopt->cdpath);
+  
+  	for (
+  			dials = 0;
+--- 486,491 ----
+diff -c ./patchlevel.h ../ncftp152/patchlevel.h
+*** ./patchlevel.h	Sun Aug 29 22:14:06 1993
+--- ../ncftp152/patchlevel.h	Mon Aug 30 15:00:00 1993
+***************
+*** 110,114 ****
+--- 110,119 ----
+   *  of .netrc.  TRY_ABOR documented in the README.  Added stuff to the
+   *  DYNIX entry.  Hacks added for SCO322.  Shortened bargraph prog meter
+   *  by one char.  Better compat with getline.  Man page fixed by DWS again :)
++  *
++  * v1.5.1 - August 30, 1993.
++  *  Back to using "me" instead of "se" to for termcap_normal.  Fixed Netrc
++  *  site abbrev problem in a different way (by getting the fullsite name
++  *  before calling ruserpass2).
+   */
+  
+--
+--mg                                                      mgleason@cse.unl.edu
+
+exit 0 # Just in case...

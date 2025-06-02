@@ -1,0 +1,1501 @@
+Newsgroups: comp.sources.misc
+From: masrich@ubvmsb.cc.buffalo.edu (Richard Wicks)
+Subject: v39i075:  fed - Font Editor for use with VT320 and VT220 terminals, v2.0, Part01/02
+Message-ID: <csm-v39i075=fed.084751@sparky.Sterling.COM>
+X-Md4-Signature: 1bdf04748cf862657b18b238126d8982
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: University at Buffalo
+Date: Tue, 7 Sep 1993 13:48:47 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: masrich@ubvmsb.cc.buffalo.edu (Richard Wicks)
+Posting-number: Volume 39, Issue 75
+Archive-name: fed/part01
+Environment: vt320/220, VMS, UNIX
+
+This program is a font editor for use with VT320 and VT220 Digital
+terminals (or compatibles).  About a year ago, I posted a similar program
+called fed, not surprisingly, this is called fed2.  The files this program
+produces can be viewed on a VT320 (in VT320 mode) or a VT220 (in VT220 mode)
+by typing the output file to the screen.  If you are interested, there are
+several example fonts included.  Fonts for 220 terminals are *_200.fnt and
+fonts for 320 terms are *_300.fnt.
+
+NOTE:  fonts built for 320 terminals cannot be views on 220's!
+
+I originally wrote this program on a VAX/VMS system, and I used conventions 
+from that operating system.  The one convention that unix users will probably 
+not be familiar with is that FED backs up files by saving every keystroke you 
+make to a journal file.  If the system crashes, you can recover the program 
+with fed -r {filename}.  Journal files are deleted if you successfully save 
+a file, or if you quit from editing a file. 
+
+The default extension for font files (with fed) is .fnt.  Another nice 
+feature (I think) for FED2.0 is that it can read (to a limited extent) 
+pre-existing files created with other programs (or *gasp* by hand).  
+Read for_programmers.txt before attempting to alter a pre-existing font 
+NOT created with fed.
+
+If you have a mind to, Fed2.0 will compile nicely on a VMS system.
+It needs to be setup as a symbol, or it will not function.
+
+Also, there is another utility included called convert.c, it will
+do CRUDE conversions from VT320 to VT220 terminals and vice-versa.
+Understandably, the conversion from 220 to 320 is much better.  There is
+not a makefile included for this since it is very easy to compile
+
+Once you have compiled fed, do fed -h for a list of switches.  The
+program has ample online help I will not waste time repeating it here.
+
+                                                        Thanks,
+                                                        Rich
+- ------------------------------ cut here ------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  convert.c escape.h fed2.c shift.c
+# Wrapped by kent@sparky on Tue Sep  7 08:40:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'convert.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'convert.c'\"
+else
+  echo shar: Extracting \"'convert.c'\" \(6034 characters\)
+  sed "s/^X//" >'convert.c' <<'END_OF_FILE'
+X/*****************************************************************************/
+X/* this program does a VERY basic conversion from VT220 fonts to VT320 fonts */
+X/* and vice-versa.  On the VMS systems, this program has to be setup as a    */
+X/* symbol for use.  It will compile on Unix, and use is self explainitory    */
+X/* once you run it.                                 -Rich                    */
+X/*****************************************************************************/
+X#include <stdio.h>
+X
+X#define VT320_SS "\033P1;0;1;15;1;2;12;0;{.A" /* first line of vt320 file  */
+X#define VT220_SS "\033P1;0;1;4;1;1;{.A"       /* first line of vt220 file  */
+X#define WIDTH 15
+X
+X/*****************************************************************************/
+X/* This routine reads a character and puts into a binary format              */
+X/* If the end of file is reached or the escape character if found, this      */
+X/* function returns 0 and the program is exited.                             */
+X/* a = address where binary sequence is to be stored                         */
+X/* fp = file from which sixel bit character is obtained                      */
+X/* width = width of character                                                */
+X/*****************************************************************************/
+Xint read_character (a,fp,width)
+X    char *a;
+X    FILE *fp;
+X    int width;
+X{
+X  char in_char;
+X  int i;
+X
+X  for (i=0;i<(2*width);i++)
+X  { a[i] = 0;
+X  }
+X
+X  i = 0;
+X  while ((in_char=fgetc(fp)) != ';')
+X  { switch (in_char)
+X    { case 033  : return 0;
+X      case '/'  : i = width;
+X      case '\n' : break; 
+X      default   : a[i++] = in_char-'?';
+X                  break;
+X    }
+X  }
+X  return 1;
+X}
+X
+X/*****************************************************************************/
+X/* This routine pushes a character up by 1 bit, used for conversion from 320 */
+X/* to 220 fonts.                                                             */
+X/* a = character sequence used to store character in binary form             */
+X/*****************************************************************************/
+Xvoid push_up (a)
+X     char *a;
+X{
+X  char *b;                 /* point used to point to lower half of character */
+X  int i;
+X  char c;
+X
+X  b = (char *)((int)a + 15);
+X  for (i=0;i<15;i++)
+X  { c = (*b & 1);
+X    *a /= 2;
+X    *b /= 2;
+X    c *= 32;
+X    *a = (*a | c);
+X    *a = (*a & 63);           /* this keeps only bits 1-6 */
+X    *b = (*b & 15);           /* this keeps only bits 1-4 */
+X    a++;b++;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* This routine outputs the sixel set that is stored in a binary sequence    */
+X/* a = binary sequence storing the character                                 */
+X/* fp = file to write sixel sequence to                                      */
+X/* width = width of new character                                            */
+X/*****************************************************************************/
+Xvoid write_character (a,fp,width)
+X     char *a;
+X     FILE *fp;
+X     int width;
+X{
+X  int i;
+X
+X  putc (';',fp);
+X  for (i=0;i<width;i++)
+X  { putc (*a+'?',fp);
+X    a++;
+X  }
+X  putc ('/',fp);
+X  for (i=0;i<width;i++)
+X  { putc (*a+'?',fp);
+X    a++;
+X  }
+X  putc ('\n',fp);
+X}
+X
+X/*****************************************************************************/
+X/* This converts a 320 sequence to a 220 sequence                            */
+X/* a = 320 sequence                                                          */
+X/*****************************************************************************/
+Xchar *f322 (a)
+X      char *a;
+X{
+X  int i;
+X  char b[15];
+X
+X  for (i=0;i<8;i++)
+X  { b[i] = *a++;
+X    a++;
+X  }
+X  a--;
+X  for (i=8;i<16;i++)
+X  { b[i] = *a++;
+X    a++;
+X  }
+X  return b;
+X}
+X
+Xvoid push_down (a)
+X     char *a;
+X{
+X  char *b;               /* pointer used to point to lower half of character */
+X  int i;
+X  char c;
+X
+X  b = (char *)((int)a + 8);
+X  for (i=0;i<8;i++)
+X  { c = (*a & 32);
+X    *a *= 2;
+X    *b *= 2;
+X    c /= 32;
+X    *b = (*b | c);
+X    *a = (*a & 63);           /* this keeps only bits 1-6 */
+X    *b = (*b & 63);           /* this keeps only bits 1-6 */
+X    a++;b++;
+X  }
+X}
+X
+Xchar *f223 (a)
+X     char *a;
+X{
+X  int i;
+X  char b[30];
+X
+X  for (i=0;i<15;i += 2)
+X  { b[i] = *a++;
+X    b[i+1] = b[i];
+X  }
+X  for (i=15;i<30;i += 2)
+X  { b[i] = *a++;
+X    b[i+1] = b[i];
+X  }
+X  return b;
+X}
+X
+Xmain (argc,argv)
+X      int argc;
+X      char *argv[];
+X{
+X  FILE *f_in;
+X  FILE *f_out;
+X  char character[2*WIDTH];
+X  char in_char;
+X  char error=0;
+X  char *ss;
+X  char *converted;
+X
+X  if (argc !=3 && argc !=4)
+X  { printf ("\nUsage is convert (dest) infile {outfile}\n");
+X    printf ("  (dest) = 2 or 3.  2 converts from 320 to 220, 3 from 220 to 320\n");
+X    printf ("  infile (required) = input file\n");
+X    printf ("  outfile (optional) = output file, defaults to stdout\n\n");
+X    exit (1);
+X  }
+X
+X  if (*argv[1] != '2' && *argv[1] != '3')
+X  { printf ("you must suply a destination type of 2 or 3\n");
+X    exit (1);
+X  }
+X
+X  if ((f_in = fopen (argv[2],"r")) == NULL)
+X  { printf ("Could not open input file\n");
+X    exit (1);
+X  }
+X  if (argc == 4)
+X  { if ((f_out = fopen (argv[3],"w")) == NULL)
+X    { printf ("Could not open output file\n");
+X      exit (1);
+X    }
+X  } else
+X  { f_out = stdout;
+X  }
+X
+X  if (*argv[1] == '2') ss = VT320_SS;
+X  else ss = VT220_SS;
+X  while ((in_char = fgetc(f_in)) != '{')
+X  { if ((in_char != *ss) && (!(error)))
+X    { printf ("Warning: Expected escape sequence at top of file not found!\n");
+X      error = 1;
+X    }
+X    ss++;
+X  }
+X  while (fgetc(f_in) != ';');
+X
+X  if (*argv[1] == '2')
+X  { fprintf (f_out,"%s\n",VT220_SS);
+X    while (read_character (character,f_in,15))
+X    { push_up (character);
+X      converted = f322 (character);
+X      write_character (converted,f_out,8);
+X    }
+X  } else
+X  { fprintf (f_out,"%s\n",VT320_SS);
+X    while (read_character (character,f_in,8))
+X    { push_down (character);
+X      converted = f223 (character);
+X      write_character (converted,f_out,15);
+X    }
+X  }
+X  fprintf (f_out,"\033\\\033).A\016\n");
+X  fclose (f_out);
+X  fclose (f_in);
+X}
+END_OF_FILE
+  if test 6034 -ne `wc -c <'convert.c'`; then
+    echo shar: \"'convert.c'\" unpacked with wrong size!
+  fi
+  # end of 'convert.c'
+fi
+if test -f 'escape.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'escape.h'\"
+else
+  echo shar: Extracting \"'escape.h'\" \(796 characters\)
+  sed "s/^X//" >'escape.h' <<'END_OF_FILE'
+X#define UND "\033[4m"    /* underline mode                                 */
+X#define REV "\033[7m"    /* reverse video mode                             */
+X#define OFF "\033[0m"    /* turns off attributes to character sets         */
+X#define VT320_SS "\033P1;0;1;15;1;2;12;0;{.A" /* first line of vt320 file  */
+X#define VT220_SS "\033P1;0;1;4;1;1;{.A"    /* first line of vt220 file     */
+X
+X#define CLEAR             "\033[2J\033[;H"
+X#define CURS_2_END        "\033[0J"
+X#define SINGLE_WIDTH      "\033#5"
+X#define DOUBLE_WIDTH      "\033#6"
+X#define DOUBLE_HEIGHT_1   "\033#3"
+X#define DOUBLE_HEIGHT_2   "\033#4"
+X#define CUST_OFF          "\033(B\017"
+X#define CUST_ON           "\033).A\016"
+X#define BACK              "\033[D"
+X#define BACK_2            "\033[2D"
+X#define BACK_7            "\033[7D"
+END_OF_FILE
+  if test 796 -ne `wc -c <'escape.h'`; then
+    echo shar: \"'escape.h'\" unpacked with wrong size!
+  fi
+  # end of 'escape.h'
+fi
+if test -f 'fed2.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fed2.c'\"
+else
+  echo shar: Extracting \"'fed2.c'\" \(35324 characters\)
+  sed "s/^X//" >'fed2.c' <<'END_OF_FILE'
+X/*****************************************************************************/
+X/* FED Version 2.0: Created at the University of Buffalo in NY, USA,  The    */
+X/*                  The best of the cheapest engineering schools!            */
+X/*                                                                           */
+X/* Author:           MASRICH@ubvms.cc.buffalo.edu  (Richard Wicks)           */
+X/*                                                                           */
+X/*                   you may reach me at:                                    */
+X/*                                                                           */
+X/*                   V128LL9e@ubvms.cc.buffalo.edu                           */
+X/*             -or-  wicks@acsu.buffalo.edu                                  */
+X/*             -or-  wicks@eng.buffalo.edu                                   */
+X/*             -or-  wicks@cs.buffalo.edu                                    */
+X/*                                                                           */
+X/*     depending on which account they deactivate last when I graduate.      */
+X/*                                                                           */
+X/* Modification History:                                                     */
+X/*                                                                           */
+X/*   September 1993    : wrote program                                       */
+X/*                                                                           */
+X/*****************************************************************************/
+X#include "fed2.h"
+X#include "shift.h"
+X#include "escape.h"
+X
+Xchar character[N_CHAR][N_COL];  /* 97 characters, 30 bytes for each one    */
+Xint WIDTH=0;             /* Width of character, differs for 220, 320..etc  */
+Xint HEIGHT=0;            /* Height of character, differs for 220, 320..etc */
+Xint CORNER_X;            /* Position where display of character starts (X) */
+Xint CORNER_Y;            /* Position where display of character starts (Y) */
+Xchar *SS;                /* Starting string (changes according to term)    */
+Xchar *TT;                /* Terminal type (320,220,240,420,etc...)         */
+Xchar *JOURNAL_NAME;      /* name of journal file                           */
+Xchar RECOVER=0;          /* indicates if a file must be recovered          */
+XFILE *JOURNAL_P=NULL;    /* file pointer for recovering/saving .fjl files  */
+X
+X#ifdef VAX
+X/*****************************************************************************/
+X/* This is to patch a bug with VAX curses.  Vax Curses will not allow        */
+X/* cursor movement unless wmove() is used.  This screws up printf ().        */
+X/* Usage of the curses library is very limited since it cannot support the   */
+X/* soft fonts.                                                               */
+X/*****************************************************************************/
+Xchar get_char ()
+X{
+X  static int a;
+X
+X  if (RECOVER)
+X  { static char character;
+X    if ((character = fgetc (JOURNAL_P)) != EOF)
+X    { return character;
+X    } else
+X    { fclose (JOURNAL_P);
+X      JOURNAL_P = fopen (JOURNAL_NAME,"a");
+X      RECOVER = 0;
+X      return 0;
+X    }
+X  } else
+X  { smg$read_keystroke (stdkb,&a);
+X    if (JOURNAL_P != NULL) putc (a,JOURNAL_P);
+X    return (char)a;
+X  }
+X}
+X#else
+X/*****************************************************************************/
+X/* for UNIX use, DO NOT USE THIS PROCEDURE WITH VAX.  VAX CURSES SUCKS EVEN  */
+X/* _MORE_ THAN UNIX CURSES DOES!!!                                           */
+X/*****************************************************************************/
+Xchar get_char ()
+X{
+X  static char character;
+X
+X  if (RECOVER)
+X  { static char character;
+X    if ((character = fgetc (JOURNAL_P)) != EOF)
+X    { return character;
+X    } else
+X    { close (JOURNAL_P);
+X      JOURNAL_P = fopen (JOURNAL_NAME,"a");
+X      RECOVER = 0;
+X      return 0;
+X    }
+X  } else
+X  { character = wgetch(stdscr);
+X    if (JOURNAL_P != NULL)
+X    { putc (character,JOURNAL_P);
+X      fflush (JOURNAL_P);
+X    }
+X    return character;
+X  }
+X}
+X#endif
+X
+X/*****************************************************************************/
+X/* if the Character Viewer is turned off, this routine is used to reset the  */
+X/* character sets to XXX.                                                    */
+X/* a = a boolean that controlls the sending of the termintion escape sequence*/
+X/*****************************************************************************/
+Xvoid read_char_viewer (a)
+X     char a;
+X{
+X  if (WIDTH == VT220_WIDTH)
+X  { printf ("%s\n",VT220_SS);
+X    printf (";iiSSii/AADDAA;Fesw[MF/FB@?@BF;[KDBFM[/FMKGCEF;FM[wseF/FB@?@BF"); 
+X    printf (";FM[{saF/FB@?@BF;[GDFFM[/FMKGCEF;Fesw[MF/FB@?@BF");
+X  } else
+X  { printf ("%s\n",VT320_SS);
+X    printf (";?iiiiSSSSiiii/?IIIIDDDDIIII;_OGcQHDACHQcGO_/@ACHQcGOgcQHCA@");
+X    printf (";@ACHQcGOgcQHCA@/_OGcQHDACHQcGO_;_OGcQHDACHQcGO_/@ACHQcGOgcQHCA@");
+X    printf (";_OGcQHDACHQcGO_/@ACHQcGOgcQHCA@;@ACHQcGOgcQHCA@/_OGcQHDACHQcGO_");
+X    printf (";_OGcQHDACHQcGO_/@ACHQcGOgcQHCA@");
+X  }
+X  if (!(a)) printf ("\033\\");
+X}
+X
+X/*****************************************************************************/
+X/* This defines the custom character set for VT220                           */
+X/*****************************************************************************/
+Xvoid read_220_char ()
+X{
+X  read_char_viewer(1);
+X  printf (";;;;;;;;;;;;;;;;;;;;;;;;;;/???MAAAI;/IIIIIIII;/IIIAAAM");
+X  printf (";~~~???~/NNN???N;DDDCCCF/;DDDDDDDD/;???FCCCD/;???~???~/???N???N");
+X  printf (";/IIIIIMC;DDDDDFA?/;???AFDDD/;/???CMIII;T??@??@/D");
+X  printf (";T?i~}}~}/D?INNNNN;DDDDDDDD/IIIIIIII;DDDCCCF/IIIAAAM");
+X  printf (";???FCCCD/???MAAAI;DDDDDDDD/IIIAAAM;DDDDDDDD/???MAAAI");
+X  printf (";Ti?Ti?T/DA?DA?D\033\\");
+X}
+X
+X/*****************************************************************************/
+X/* This defines the custom character set for VT320                           */
+X/*****************************************************************************/
+Xvoid read_320_char ()
+X{
+X  read_char_viewer (1);
+X  printf (";;;;;;;;;;;;;;;;;;;;;;;;;");
+X  printf (";/????????wwGGGgg;/ggggggggggggggg;/ggGGGww;~~???~~/~~???~~;DDCCCFF/");
+X  printf (";DDDDDDDDDDDDDDD/;????????FFCCCDD/;????????~~???~~/????????~~???~~");
+X  printf (";/gggwO;DDDFA/;??????????AFDDD/;/??????????Owggg");
+X  printf (";Ti@?@?@?@?@?@iT/Ti?_?_?_?_?_?iT;Ti~}~}~}~}~}~iT/Ti^~^~^~^~^~^iT");
+X  printf (";DDDDDDDDDDDDDDD/ggggggggggggggg;DDCCCFF/ggGGGww");
+X  printf (";????????FFCCCDD/????????wwGGGgg;DDDDDDDDDDDDDDD/ggGGGww");
+X  printf (";DDDDDDDDDDDDDDD/????????wwGGGgg;??SiSiSiSiSiS/??TITITITITIT\033\\");
+X}
+X
+X/*****************************************************************************/
+X/* This positions the cursor.                                                */
+X/* a = Y position                                                            */
+X/* b = X position                                                            */
+X/*****************************************************************************/
+Xchar *position (a,b)
+X     int a;
+X     int b;
+X{
+X  static char ret_line[9];
+X
+X  sprintf (ret_line,"\033[%d;%dH",a,b);
+X  return ret_line;
+X}
+X
+X/*****************************************************************************/
+X/* This routine draws the pixel representation of a character                */
+X/* a = string containing binary sequence for number                          */
+X/*****************************************************************************/
+Xvoid draw (a)
+X     char *a;
+X{
+X  int x;
+X  int y;
+X  int bitno=1;
+X
+X  for (y=1;y<HEIGHT+1;y++)
+X  { printf ("%s",position(CORNER_Y+y,CORNER_X+1));
+X    for (x=0;x<WIDTH;x++)
+X    { if (a[x] & bitno)
+X        putc ('N',stdout);
+X      else
+X        putc ('M',stdout);
+X    }
+X    bitno *= 2;
+X    if (bitno > 32)
+X    { a = (char *)((int)a + WIDTH);
+X      bitno=1;
+X    }
+X  }  
+X}
+X
+X/*****************************************************************************/
+X/* This routine turns an array of characters into the most effecient string  */
+X/* the be used to program a character                                        */
+X/* a = incomming array to be converted                                       */
+X/* b = boolean, if set this function will optimize the string                */
+X/*****************************************************************************/
+Xchar *array_2_string(a,b)
+X     char *a;
+X     char b;
+X{
+X  static char ret_string[N_COL+3];
+X  static int i;
+X  static int width;
+X  static char *stroll;
+X
+X  width = -1;
+X  stroll = ret_string;
+X  *stroll++ = ';';
+X  if (b)
+X  { for (i=0;i<WIDTH;i++) if (a[i]) width=i;
+X  } else
+X  { width = WIDTH-1;
+X  }
+X  for (i=0;i<width+1;i++) *stroll++=a[i]+'?';
+X  *stroll++='/';
+X  width = -1;
+X  if (b)
+X  { for (i=WIDTH;i<(2*WIDTH);i++) if (a[i]) width=i;
+X  } else
+X  { width = (2*WIDTH)-1;
+X  }
+X  for (i=WIDTH;i<width+1;i++) *stroll++=a[i]+'?';
+X  *stroll = 0;
+X  if (ret_string[2] == 0) ret_string[1] = 0;  /* character is blank */
+X  return ret_string;
+X}
+X
+X/*****************************************************************************/
+X/* This routine prints out the escape sequence so that you can view the      */
+X/* altered character (s)                                                     */
+X/* first = character that is currently being edited                          */
+X/* viewer = byte (either 1 or 0) determines if viewer should be updated      */
+X/* viewer_string = character string that indicates what is in the viewer     */
+X/*****************************************************************************/
+Xvoid preview (first,viewer,view_string)
+X     char first;
+X     char viewer;
+X     char *view_string;
+X{
+X  static last_view;
+X
+X  printf ("%s%s",SS,array_2_string(character[first-'!']),1);
+X  if (viewer)
+X  { int j;
+X    if ((j = (int)strrchr(view_string,first)) || (!(last_view)))
+X    { j -= (int)view_string - 1;
+X      if (!(last_view)) j = 6;
+X      for (viewer=0;viewer<j;viewer++)
+X      { if (*view_string == ' ') putc (';',stdout);
+X        else printf ("%s",array_2_string(character[*view_string-'!']),1);
+X        view_string++;
+X      }
+X    }
+X  }
+X  printf ("\033\\");
+X  last_view = viewer;
+X}
+X
+X/*****************************************************************************/
+X/* Load character set into memory (if specified file exists).  Initializes   */
+X/* character set to blanks as well.                                          */
+X/* fn = file name to be retrieved (or created)                               */
+X/* ss = starting string expected to be found in file                         */
+X/*****************************************************************************/
+Xchar load_character_set (fn,ss)
+X     char *fn;
+X     char *ss;
+X{
+X  FILE *fp;
+X  int char_number;
+X  int element_number;
+X  char element;
+X  char quit=0;
+X  char start_string[80];
+X  char second_half=0;
+X
+X  for (char_number = 0;char_number < N_CHAR;char_number++)
+X  { for (element_number = 0;element_number< N_COL;element_number++)
+X    { character[char_number][element_number] = 0;
+X    }
+X  }
+X
+X  if ((fp = fopen (fn,"r")) == NULL)
+X  { if (errno == ENOENT)
+X    { printf ("%s: Filename %s%s%s not found, creating a new file.\n",
+X               NAME,UND,fn,OFF);
+X    } else
+X    { perror (fn);
+X      exit (1);
+X    }
+X    sleep (2);
+X    return 0;
+X  } else                /* do file conversion from characters to bits       */
+X  { char_number = 0;
+X
+X    while ((element = fgetc(fp)) != EOF && element != '{')
+X    { if (SS[char_number] != element)
+X      { if (!(char_number))
+X        { printf ("%s: This is NOT a font file.\n",NAME);
+X          exit (1);
+X        }
+X        printf ("WARNING: The escape sequence on line 1 does not match\n");
+X        printf ("         expected type!\n");
+X        sleep (2);
+X        while ((element = fgetc(fp)) != EOF && element != '{');
+X        ungetc (element,fp);
+X      }
+X      char_number++;
+X    }
+X    if (element != '{')
+X    { printf ("%s: This is NOT a font file.\n",NAME);
+X      exit (1);
+X    }
+X    while (fgetc(fp) != ';');            /* read Dscs, but ignore it        */
+X    ungetc (';',fp);                     /* backup one character            */
+X
+X    element_number = 0;
+X    char_number = -1;   /* the first character is space, this prog skips it */
+X    while ((element = fgetc(fp)) != EOF && char_number < N_CHAR)
+X    { switch (element)
+X      { case '/' : if (element_number > WIDTH)
+X	           { printf ("Buffer overflow!\n");
+X                     printf ("The width of the character exceedes expected\n");
+X                     printf ("parameters for character %c (char number %d)\n\n",
+X                              char_number+'!',char_number+1);
+X                     quit = 1;
+X		   }
+X                   second_half = 1;
+X                   element_number = WIDTH;
+X                   break;
+X        case ';' : element_number = 0;
+X                   second_half = 0;
+X                   char_number++;
+X        case '\n': break;
+X        default  : if (element == 033) goto escape;
+X                   if (!(element < '?' || element > '~'))
+X                   { if (element_number != 2*WIDTH)
+X                       character[char_number][element_number]=element-'?';
+X                   } else if (element_number < (2*WIDTH))
+X		   { printf ("Illegal element \"%c\" found for character \"%c\"\n",
+X                              element,char_number+'!');
+X                     printf ("(char number %d)\n\n",char_number+1);
+X                     quit = 1;
+X		   }
+X                   if (!(second_half))
+X                   { character[char_number][element_number++] &= 63;
+X                   } else
+X                   { if (WIDTH == VT220_WIDTH)
+X                     { character[char_number][element_number++] &= 15;
+X                     } else
+X                     { character[char_number][element_number++] &= 63;
+X                     }
+X                   }
+X      }
+X    }
+X  }
+X  escape:;
+X  fclose (fp);
+X  if (quit) exit (1);
+X  return 1;
+X}
+X
+X/*****************************************************************************/
+X/* This routine saves the character set to a file or to the screen           */
+X/* fn = filename to save character set to (if NULL it saves it to stdout)    */
+X/* comment = boolean, if set, it will put a comment in the font file, will   */
+X/*           not effect the character set, except make it slower to type to  */
+X/*           the screen.                                                     */
+X/*****************************************************************************/
+Xvoid save_characters (fn,comment)
+X     char *fn;
+X     char comment;
+X{
+X  int i;
+X  int column;
+X  FILE *fp;
+X
+X  if (fn == NULL) fp = stdout;
+X  else fp = fopen (fn,"w");
+X  if (fp == NULL)
+X  { perror (fn);
+X    if (JOURNAL_P == NULL)
+X    { printf ("Keeping journal file %s intact.\n",JOURNAL_NAME);
+X    } else
+X    { printf ("EEK! File lost, use a journal file next time!\n");
+X    }
+X    fclose (JOURNAL_P);
+X    exit (1);
+X  }
+X  fprintf (fp,"%s\n",SS);
+X  for (i=0;i<N_CHAR;i++)
+X  { fprintf (fp,"%s",array_2_string(character[i]),(!(comment)));
+X    if (comment)
+X    { putc (' ',fp);
+X      if ((i+'!') == ';') fprintf (fp,"semicolin");
+X      else if ((i+'!') == '/') fprintf (fp,"slash");
+X      else putc (i+'!',fp);
+X    }
+X    putc ('\n',fp);
+X  }
+X  fprintf (fp,"\033\\%s\n",CUST_ON);
+X}
+X
+X/*****************************************************************************/
+X/* This routine allows the user to select what is to be viewed in the Viewer */
+X/* a = boolean, if set it will just print the viewer, else it will program it*/
+X/* draw = string that will contain what is in the viewer                     */
+X/*****************************************************************************/
+Xint set_viewer (a,draw)
+X    char a;
+X    char *draw;
+X{
+X  if (!(a))
+X  { char mode;
+X    char *line;
+X    int x,y;
+X
+X    line = draw;
+X    printf ("%s%s",position(19,1),CURS_2_END);
+X    printf ("%sABBBBBBBBBBBBBBBBBBBBBBBBBBBBC\n",position(20,25));
+X    printf ("%sH %sMODE? (%sN%sormal,%sW%side,%sT%sall)   %sD\n",
+X             position(21,25),CUST_OFF,UND,OFF,UND,OFF,UND,OFF,CUST_ON);
+X    printf ("%sGFFFFFFFFFFFFFFFFFFFFFFFFFFFFE\n",position(22,25));
+X    printf ("%s%s",position(21,52),CUST_OFF);
+X    while ((mode = get_char()) != 'N' && mode != 'W' && mode != 'T' &&
+X           mode != 'n' && mode != 'w' && mode != 't');
+X    mode = toupper (mode);
+X    putc (mode,stdout);
+X    switch (mode)
+X    { case 'N' : a = 1;
+X                 break;
+X      case 'W' : a = 2;
+X                 break;
+X      case 'T' : a = 3;
+X                 break;
+X    }
+X    printf ("%s%s%s",position(19,1),CURS_2_END,CUST_ON);
+X    printf ("%sABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC ABBBBBC\n",position(20,13));
+X    printf ("%sH %sType in the viewer characters in the Box    %sD H%s %3.3s %sD\n",position(21,13),CUST_OFF,CUST_ON,CUST_OFF,draw,CUST_ON);
+X    printf ("%sH %sReturn to END, Tab to SKIP, Space for Blank %sD H%s %3.3s %sD\n",position(22,13),CUST_OFF,CUST_ON,CUST_OFF,draw+3,CUST_ON);
+X    printf ("%sGFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE GFFFFFE%s\n",position(23,13),CUST_OFF);
+X    x = 63;
+X    y = 21;
+X    while (y < 23)
+X    { printf ("%s",position(y,x));
+X      mode = get_char();
+X      if (mode >= ' ' && mode <= '~')
+X      { putc (mode,stdout);
+X        *line = mode;
+X        line++; x++;
+X      } else
+X      { switch (mode)
+X        { case NEWLINE : y = 23;
+X                         break;
+X          case 9       : x++;
+X        }
+X      }
+X      if (x > 65)
+X      { y++;
+X        x = 63;
+X      }
+X    }
+X  }
+X  if (a)
+X  { printf ("%s%s%sLBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBI\n",position (19,1),CURS_2_END,CUST_ON);
+X    switch (a)
+X    { case 1 : printf ("%s   %s%3.3s  %s\"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$\n",SINGLE_WIDTH,CUST_OFF,draw,CUST_ON);
+X               printf ("%s   %s%3.3s  %s%%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'\n",SINGLE_WIDTH,CUST_OFF,draw+3,CUST_ON);
+X               break;
+X      case 2 : printf ("%s %s%3.3s  %s\"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$\n",DOUBLE_WIDTH,CUST_OFF,draw,CUST_ON);
+X               printf ("%s %s%3.3s  %s%%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'\n",DOUBLE_WIDTH,CUST_OFF,draw+3,CUST_ON);
+X               break;
+X      case 3 : printf ("%s %s%3.3s  %s\"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$\n",DOUBLE_HEIGHT_1,CUST_OFF,draw,CUST_ON);
+X               printf ("%s %s%3.3s  %s\"#$  \"#$  \"#$  \"#$  \"#$  \"#$  \"#$\n",DOUBLE_HEIGHT_2,CUST_OFF,draw,CUST_ON);
+X               printf ("%s %s%3.3s  %s%%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'\n",DOUBLE_HEIGHT_1,CUST_OFF,draw+3,CUST_ON);
+X               printf ("%s %s%3.3s  %s%%&'  %%&'  %%&'  %%&'  %%&'  %%&'  %%&'\n",DOUBLE_HEIGHT_2,CUST_OFF,draw+3,CUST_ON);
+X               break;
+X    }
+X    printf ("%sKFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFJ",SINGLE_WIDTH);
+X  }
+X  return a;
+X}
+X
+X/*****************************************************************************/
+X/* The routine draws the work screen                                         */
+X/* fn = name of file being edited                                            */
+X/* view = controlls how the viewer is displayed                              */
+X/* view_string = string of what is to be viewed                              */
+X/*****************************************************************************/
+Xvoid setup_display (fn,view,view_string)
+X     char *fn;
+X     char view;
+X     char *view_string;
+X{
+X  printf ("%s",CLEAR);
+X  if (WIDTH == VT220_WIDTH) read_220_char ();
+X  else read_320_char ();
+X  /* #5 = single width, single height */
+X  printf ("%sABBBBBBBBBBBBBBBC  ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBC\n",CUST_ON);
+X  printf ("H%sD  H %sh: move cursor left             E: edit previewer        %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTTTTTTTTTTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sj: move cursor down             R: toggle all bits       %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sk: move cursor up               X: flip on X axis        %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sl: move cursor right            Y: flip on Y axis        %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sH: shift object left           ^E: erase work area       %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sJ: shift object down           ^P: preview characters    %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sK: shift object up             ^I: import letter         %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sL: shift object right          ^D: save and exit         %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %sQ: Quit/No save                ^V: toggle viewer         %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  H %s<RETURN>  Save letter           <SPACE>  toggle bit      %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT",CUST_OFF,CUST_ON);
+X  printf ("H%sD  QOOOOOOOOOOOOOOOOOOOOOOORSOOOOORSOOOOOOOOOOOOOOOOOOOOOOOOOOP\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTMMMMMMMMTTT");
+X  printf ("H%sD  H                       DH %s%3.3s %sDH %sFilename: %-14.14s %sD\n",(WIDTH == VT320_WIDTH)?"MMMMMMMMMMMMMMM":"TTTTTTTTTTTTTTT",CUST_OFF,TT,CUST_ON,CUST_OFF,fn,CUST_ON);
+X  printf ("GFFFFFFFFFFFFFFFE  GFFFFFFFFFFFFFFFFFFFFFFFEGFFFFFEGFFFFFFFFFFFFFFFFFFFFFFFFFFE\n");
+X  printf ("      %sstandard width & height:          %s!!!!    !         !        !\n",CUST_OFF,CUST_ON);
+X  printf ("   %s%sdouble width:    %s!!  !      !\n",CUST_OFF,DOUBLE_WIDTH,CUST_ON);
+X  printf ("   %s%sdouble height:   %s!!  !    !   !\n",CUST_OFF,DOUBLE_HEIGHT_1,CUST_ON);
+X  printf ("   %s%sdouble height:   %s!!  !    !   !\n",CUST_OFF,DOUBLE_HEIGHT_2,CUST_ON);
+X  (void) set_viewer (view,view_string);
+X}
+X
+X/*****************************************************************************/
+X/* This gets the character to edit                                           */
+X/*****************************************************************************/
+Xchar get_char_to_edit()
+X{
+X  char char_to_edit;
+X
+X  printf ("%s%sCharacter to Edit:  %s",CUST_OFF,position(13,22),BACK);
+X  while ((char_to_edit = get_char() ) < '!' || char_to_edit > '~');
+X  printf ("%c%s",char_to_edit,CUST_ON);
+X  return char_to_edit;
+X}
+X
+X/*****************************************************************************/
+X/* This routine types out the character set that the user created            */
+X/*****************************************************************************/
+Xvoid preview_char_set ()
+X{
+X  char normal;
+X  char custom;
+X  int last;
+X
+X  printf ("%s%sWait... loading character set to terminal...\n",CLEAR,CUST_OFF);
+X  save_characters (NULL,0);
+X  printf ("%s",CUST_OFF);
+X  last = '!';
+X  while (last < 127)
+X  { for (normal = (char)last;normal<(last+20) && normal<127;normal++)
+X    { printf ("%c   ",normal);
+X    } printf ("%s\n",CUST_ON);
+X    for (custom = (char)last;custom<(last+20) && custom<127;custom++)  /* reg  */
+X    { printf ("%c   ",custom);
+X    } printf ("\n%s",DOUBLE_WIDTH);
+X    for (custom = (char)last;custom<(last+20) && custom<127;custom++)  /* wide */
+X    { printf ("%c ",custom);
+X    } printf ("\n%s",DOUBLE_HEIGHT_1);
+X    for (custom = (char)last;custom<(last+20) && custom<127;custom++)  /* tall */
+X    { printf ("%c ",custom);
+X    } printf ("\n%s",DOUBLE_HEIGHT_2);
+X    for (custom = (char)last;custom<(last+20) && custom<127;custom++)  /* tall */
+X    { printf ("%c ",custom);
+X    } printf ("\n\n");
+X    printf ("%sPress any key to continue...\n",CUST_OFF);
+X    (void) get_char();
+X    last = (int)normal;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* This edits an individual character                                        */
+X/* a = character to be edited                                                */
+X/* fn = filename being edited                                                */
+X/*****************************************************************************/
+Xchar edit_char(a,fn)
+X     char a;
+X     char *fn;
+X{
+X  char key;
+X  int x=1;
+X  int y=1;
+X  char bitno=1;
+X  static viewer_size=1;
+X  static char viewer_string[7]="123456";
+X  static viewer_on=0;
+X
+X  printf ("%s",CUST_OFF);
+X  if (viewer_on)
+X  { preview (a,1,viewer_string);
+X  } else
+X  { printf ("%son ",position(10,71));
+X    read_char_viewer (0);
+X  }
+X  printf ("%s",CUST_ON);
+X  draw (character[a-'!']);
+X  preview (a,viewer_on,viewer_string);
+X  printf ("%s",position(CORNER_Y+y,CORNER_X+x));
+X  while ((key = get_char()) != NEWLINE && key != 4)
+X  {
+X    switch (key)
+X    { case 'h' : x--;
+X                 if (x < 1) x = WIDTH;
+X                 break;
+X      case 'j' : y++;
+X                 bitno *= 2;
+X                 if (y > HEIGHT)
+X                 { y = 1;
+X                   bitno=1;
+X                 }
+X                 if (bitno > 32) bitno=1;
+X                 break;
+X      case 'k' : y--;
+X                 bitno /= 2;
+X                 if (bitno < 1) bitno = 32;
+X                 if (y < 1)
+X                 { y = HEIGHT;
+X                   if (HEIGHT == VT220_HEIGHT)
+X                   { bitno = 8;
+X                   } else
+X                   { bitno = 32;
+X                   }
+X                 }
+X                 break;
+X      case 'l' : x++;
+X                 if (x > WIDTH) x = 1;
+X                 break;
+X      case ' ' : if (y < 7)
+X                 { character[a-'!'][x-1] ^= bitno;
+X                   if (character[a-'!'][x-1] & bitno)
+X                     putc ('N',stdout);
+X                   else
+X                     putc ('M',stdout);
+X                 } else
+X                 { character[a-'!'][x+(WIDTH-1)] ^= bitno;
+X                   if (character[a-'!'][x+(WIDTH-1)] & bitno)
+X                     putc ('N',stdout);
+X                   else
+X                     putc ('M',stdout);
+X                 }
+X                 printf ("%s",position(CORNER_Y+y,CORNER_X+x));
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'H' : shift_left (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'L' : shift_right (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'K' : shift_up (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'J' : shift_down (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'R' : toggle_bits (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'Y' : flip_y (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'X' : flip_x (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 9   : import_char(a);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 5   : erase_char (character[a-'!']);
+X                 draw (character[a-'!']);
+X                 preview (a,viewer_on,viewer_string);
+X                 break;
+X      case 'E' : viewer_size = set_viewer (0,viewer_string);
+X                 if (viewer_on)
+X                 { preview (a,0,viewer_string);
+X                   preview (a,1,viewer_string);
+X                 }
+X                 break;
+X      case 16  : preview_char_set ();
+X      case 12  : setup_display(fn,viewer_size,viewer_string);
+X                 printf ("%s",CUST_OFF);
+X                 if (viewer_on)
+X                 { printf ("%soff",position(10,71));
+X                   preview (a,0,viewer_string);
+X                 } else
+X                 { printf ("%son ",position(10,71));
+X                   read_char_viewer (0);
+X                 }
+X                 preview (a,viewer_on,viewer_string);
+X                 printf ("%s",CUST_ON);
+X                 preview (a,viewer_on,viewer_string);
+X                 draw (character[a-'!']);
+X                 printf ("%s%sCharacter to Edit: %c%s",CUST_OFF,position(13,22),a,CUST_ON);
+X                 break;
+X      case 22  : viewer_on = !(viewer_on);
+X                 printf ("%s",CUST_OFF);
+X                 if (viewer_on)
+X                 { printf ("%soff",position(10,71));
+X                   preview (a,0,viewer_string);
+X                 } else
+X                 { printf ("%son ",position(10,71));
+X                   read_char_viewer (0);
+X                 }
+X                 preview (a,viewer_on,viewer_string);
+X                 printf ("%s",CUST_ON);
+X                 break;
+X      case 'Q' : printf ("%s%sTo Quit hit 'Y' :   %s",CUST_OFF,position(13,22),BACK_2);
+X                 if (get_char() == 'Y')
+X                 { printf ("Yes");
+X                   printf ("%s\n",position (24,1));
+X                   fclose (JOURNAL_P);
+X                   remove (JOURNAL_NAME);
+X                   exit (1);
+X                 } else
+X                 { printf ("%s%sCharacter to Edit: %c%s",CUST_OFF,position(13,22),a,CUST_ON);
+X                 }
+X                 break;
+X    }
+X    printf ("%s",position(CORNER_Y+y,CORNER_X+x));
+X  }
+X  if (key == NEWLINE) return 1;
+X  return 0;
+X}
+X
+X/*****************************************************************************/
+X/* This function adds the extension (defined by EXTENSION) to the filename   */
+X/* if one does not already exist.  It also creates a jounal file for         */
+X/* recovery from system interruptions.                                       */
+X/* fn = filename given                                                       */
+X/* jou = journal file                                                        */
+X/*****************************************************************************/
+Xvoid add_extension (fn,jou)
+X     char **fn;
+X     char **jou;
+X{
+X#ifdef VAX
+X
+X  int i;
+X  for (i=0;(*fn)[i] && ((*fn)[i] != '.');i++)
+X  { if ((*fn)[i]=='<' || (*fn)[i]=='[' ) while ((*fn)[i]!='>' && (*fn)[i]!=']') i++;
+X  }
+X  *jou = (char *) malloc (i+strlen(JOURNAL)+1);
+X  strncpy (*jou,*fn,i); (*jou)[i] = 0;
+X  strcat (*jou,JOURNAL);
+X  if ((*fn)[i] != '.')
+X  { char *nf;
+X    nf = (char *) malloc (strlen(*fn)+strlen(EXTENSION)+1);
+X    strcpy (nf,*fn);
+X    strcat (nf,EXTENSION);
+X    *fn=nf;
+X  }
+X#else
+X  char *period;
+X
+X  period = strrchr (*fn,'.');
+X  if (period == NULL)
+X  { char *nf;
+X    nf = (char *) malloc (strlen(*fn)+strlen(EXTENSION)+1);
+X    strcpy (nf,*fn);
+X    strcat (nf,EXTENSION);
+X    *fn=nf;
+X    period = strrchr (*fn,'.');
+X  }
+X  *jou = (char *) malloc ((int)(period)-(int)(*fn)+strlen(JOURNAL)+1);
+X  strcpy (*jou,*fn);
+X  sprintf (strrchr(*jou,'.'),"%s",JOURNAL);
+X#endif
+X}
+X
+X#ifndef VAX
+X/*****************************************************************************/
+X/* If the fed program has been compiled on a unix machine, this routine is   */
+X/* used.  Given a path name, it returns the filename for the older version   */
+X/* Format returned is {path}.#{file}.~, as in emacs                          */
+X/* a = filename to be converted.                                             */
+X/*****************************************************************************/
+Xchar *unix_bkp (a)
+X     char *a;
+X{
+X  char *point;
+X  char *ret_string;
+X
+X  ret_string = (char *)malloc (strlen(a)+5);
+X  point = strchr (a,'.');   /* get near end of path (fed forces a period) */
+X  while (*point != '/' && point != a) point--;
+X  if (a == point)           /* no path preceedes the file name            */
+X  { sprintf (ret_string,".#%s.~",a);
+X  } else
+X  { int b;
+X    point++;
+X    b = (int)point-(int)a;
+X    strncpy (ret_string,a,b);
+X    ret_string[b]=0;
+X    sprintf ((char *)((int)ret_string+b),".#%s.~",point);
+X  }
+X  return ret_string;
+X}
+X#endif
+X
+Xmain (argc,argv)
+X      int argc;
+X      char **argv;
+X{
+X  char *file_name=NULL;
+X  char comment=0;
+X  char journal=1;
+X  char quit=0;
+X  char file_exists=0;
+X
+X  while (--argc)
+X  { if (*(argv[argc]) != '-')
+X    { if (file_name != NULL)     /* parse for file name */
+X      { printf ("%s: illegal number of parameters.\n",NAME);
+X        exit (1);
+X      }
+X      file_name = argv[argc];
+X    } else                       /* parse switches       */
+X    { while (*(++(argv[argc])))
+X      { switch (*argv[argc])
+X        { case '2' : WIDTH = VT220_WIDTH;
+X                     HEIGHT = VT220_HEIGHT;
+X                     CORNER_X = 5;
+X                     CORNER_Y = 2;
+X                     SS = VT220_SS;
+X                     TT = "220";
+X                     break;
+X          case '3' : WIDTH = VT320_WIDTH;
+X                     HEIGHT = VT320_HEIGHT;
+X                     CORNER_X = 1;
+X                     CORNER_Y = 1;
+X                     SS = VT320_SS;
+X                     TT = "320";
+X                     break;
+X          case 'r' : RECOVER = 1;
+X                     break;
+X          case 'n' : journal = 0;
+X                     break;
+X          case 'f' : comment = 1;
+X                     break;
+X          case 'h' : printf ("%s Version %s: VT 220/320 Graphic Font Editor\n\n",NAME,VERSION);
+X                     printf ("  -2 : Edit 220 character set on a 220\n");
+X                     printf ("  -3 : Edit 320 character set on a 320\n");
+X                     printf ("  -r : recover an interrupted file\n");
+X                     printf ("  -n : do not keep a journal file\n");
+X                     printf ("  -f : comment font file\n\n");
+X                     exit (1);
+X          default  : printf ("%s: switch -%c unknown and ignored\n",NAME,*argv[argc]);
+X                     quit = 1;
+X                     break;
+X        }
+X      }
+X    }
+X  }
+X  if (!(journal) && RECOVER)
+X  { printf ("%s: switch conflict -r -n\n",NAME);
+X    quit = 1;
+X  }
+X  if (file_name == NULL)
+X  { printf ("%s: you MUST supply a filename to edit\n",NAME);
+X    quit = 1;
+X  }
+X  if (HEIGHT == 0)
+X  { printf ("%s: you must specify 220 or 320\n",NAME);
+X    quit = 1;
+X  }
+X
+X  if (quit)
+X  { printf ("\n%s: use the -h switch for help\n",NAME);
+X    exit (1);
+X  }
+X  initscr ();       /* start curses (used only for keyboard input)  */
+X  noecho ();        /* don't echo characters to screen              */
+X  crmode ();        /* don't wait for carriage returns in getc()    */
+X  add_extension (&file_name,&JOURNAL_NAME);
+X
+X  file_exists = load_character_set (file_name,SS);
+X  if (journal)
+X  { if (!(RECOVER)) JOURNAL_P = fopen (JOURNAL_NAME,"w");
+X    else JOURNAL_P = fopen(JOURNAL_NAME,"r");
+X    if (JOURNAL_P == NULL)
+X    { printf ("%s: FATAL could not open journal file: %s!\n",NAME,JOURNAL_NAME);
+X      exit (1);
+X    }
+X  }
+X  setup_display(file_name,1,"123456");
+X  while (edit_char(get_char_to_edit(),file_name));
+X#ifndef VAX
+X  if (file_exists) rename (file_name,unix_bkp(file_name));
+X#endif
+X  save_characters(file_name,comment);
+X  fclose (JOURNAL_P);
+X  remove (JOURNAL_NAME);
+X  printf ("%s%s\n",position (24,1),CUST_OFF);
+X}
+END_OF_FILE
+  if test 35324 -ne `wc -c <'fed2.c'`; then
+    echo shar: \"'fed2.c'\" unpacked with wrong size!
+  fi
+  # end of 'fed2.c'
+fi
+if test -f 'shift.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'shift.c'\"
+else
+  echo shar: Extracting \"'shift.c'\" \(6267 characters\)
+  sed "s/^X//" >'shift.c' <<'END_OF_FILE'
+X#include "fed2.h"
+X#include "escape.h"
+X#include "shift.h"
+X
+Xextern char character[N_CHAR][N_COL];
+Xextern int WIDTH;
+Xextern int HEIGHT;
+Xextern int CORNER_X;
+Xextern int CORNER_Y;
+Xextern char *SS;
+Xextern char *TT;
+Xextern char *JOURNAL_NAME;
+Xextern char RECOVER;
+Xextern FILE *JOURNAL_P;
+X
+X/*****************************************************************************/
+X/* this routine shifts the character being edited left                       */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid shift_left (a)
+X     char *a;
+X{
+X  char b;
+X  int i;
+X
+X  b = *a;
+X  for (i=1;i<WIDTH;i++)
+X  { *a = *(a+1);
+X    a++;
+X  }
+X  *a = b;
+X
+X  b = *(++a);
+X  for (i=1;i<WIDTH;i++)
+X  { *a = *(a+1);
+X    a++;
+X  }
+X  *a = b;
+X}
+X
+X/*****************************************************************************/
+X/* this routine shifts the character being edited right                      */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid shift_right (a)
+X     char *a;
+X{
+X  char b;
+X  int i;
+X
+X  a = (char *)((int)a+(2*WIDTH)-1);
+X  b = *a;
+X  for (i=1;i<WIDTH;i++)
+X  { *a = *(a-1);
+X    a--;
+X  }
+X  *a = b;
+X
+X  b = *(--a);
+X  for (i=1;i<WIDTH;i++)
+X  { *a = *(a-1);
+X    a--;
+X  }
+X  *a = b;
+X}
+X
+X/*****************************************************************************/
+X/* this routine shifts the character being edited up                         */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid shift_up (a)
+X     char *a;
+X{
+X  int i;
+X  char *b;
+X  char c;
+X  char d;
+X
+X  b = (char *)((int)a+WIDTH);
+X  for (i=0;i<WIDTH;i++)
+X  {
+X    c = (*a & 1);
+X    d = (*b & 1);
+X    *a = *a >> 1;
+X    *b = *b >> 1;
+X    if (HEIGHT == VT220_HEIGHT) *b |= (c*8);
+X    else *b |= (c*32);
+X    *a |= (d*32);
+X    a++; b++;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* this routine shifts the character being edited down                       */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid shift_down (a)
+X     char *a;
+X{
+X  int i;
+X  char *b;
+X  char c;
+X  char d;
+X
+X  b = (char *)((int)a+WIDTH);
+X  for (i=0;i<WIDTH;i++)
+X  {
+X    c = (*a & 32);
+X    *a &= 31;
+X    if (HEIGHT == VT220_HEIGHT)
+X    { d = (*b & 8);
+X      *b &= 7;
+X    }
+X    else
+X    { d = (*b & 32);
+X      *b &= 31;
+X    }
+X    *a = *a << 1;
+X    *b = *b << 1;
+X    if (c) *b |= 1;
+X    if (d) *a |= 1;
+X    a++; b++;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* this routine erases the current character being edited                    */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid erase_char (a)
+X     char *a;
+X{
+X  int i;
+X
+X  for (i=0;i<2*WIDTH;i++) *a++ = 0;
+X}
+X
+X/*****************************************************************************/
+X/* this routine toggles all pixels from off to on and vice-versa             */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid toggle_bits (a)
+X     char *a;
+X{
+X  int i;
+X
+X  for (i=0;i<WIDTH;i++) *a++ ^= 63;
+X  if (WIDTH == VT220_WIDTH)
+X    for (i=0;i<WIDTH;i++) *a++ ^= 15;
+X  else
+X    for (i=0;i<WIDTH;i++) *a++ ^= 63;
+X}
+X
+X/*****************************************************************************/
+X/* this routine copies a character from one location to another              */
+X/* a = character to be changed                                               */
+X/*****************************************************************************/
+Xvoid import_char (a)
+X     char a;
+X{
+X  char b;
+X  int i;
+X
+X  printf ("%s%sImport from:        %s",position(13,22),CUST_OFF,BACK_7);
+X  b = get_char();
+X  if (b < '!' || b > '~')
+X  { printf (" ABORT");
+X    sleep (1);
+X    printf ("%s%sCharacter to Edit: %c%s",CUST_OFF,position(13,22),a,CUST_ON);
+X  } else
+X  { printf (" %c to %c%s",b,a,CUST_ON);
+X    for (i=0;i<2*WIDTH;i++)
+X    { character[a-'!'][i] = character[b-'!'][i];
+X    }
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* this routine flips the character over the Y axis                          */
+X/* a = string that stores character definition                               */
+X/*****************************************************************************/
+Xvoid flip_y (a)
+X     char *a;
+X{
+X  int i;
+X  char *b;
+X  char c;
+X
+X  b = (char *)((int)a+WIDTH-1);
+X  for (i=0;i<(WIDTH/2);i++)
+X  { c = *a;
+X    *a++ = *b;
+X    *b-- = c;
+X  }
+X  a = (char *)((int)a+WIDTH-(WIDTH/2));
+X  b = (char *)((int)a+WIDTH-1);
+X  for (i=0;i<(WIDTH/2);i++)
+X  { c = *a;
+X    *a++ = *b;
+X    *b-- = c;
+X  }
+X}
+X
+X/*****************************************************************************/
+X/* This function flips the character being drawn over the X axis.   The code */
+X/* is a little long since all characters are essentially stored in binary    */
+X/* form.  If you can get a better routine than this:  MAIL ME! Thanx.        */
+X/* a = string representation of character                                    */
+X/*****************************************************************************/
+Xvoid flip_x (a)
+X     char *a;
+X{
+X  char *b;
+X  char bit1;
+X  char bit2;
+X  int walk;
+X  char bitno1=1;
+X  char bitno2=32;
+X  char *top;
+X
+X  top = a;
+X  b = (char *)((int)a+WIDTH);
+X  for (walk=0;walk<WIDTH;walk++)
+X  { for (bitno1=1;bitno1<33;bitno1 *=2)
+X    { if (!bitno2) bitno2 = 32;
+X      bit1 = (bitno1 & *a);
+X      bit2 = (bitno2 & *b);
+X      if (bit1) *b |= bitno2; else *b &= (~bitno2);
+X      if (bit2) *a |= bitno1; else *a &= (~bitno1);
+X      bitno2 /= 2;
+X    }
+X    a++; b++;
+X  }
+X  if (WIDTH == VT220_WIDTH)   /* in 220 mode, bits must shift right by 2 */
+X  { a = top;
+X    b = (char *)((int)a+WIDTH);
+X    for (walk=0;walk<WIDTH;walk++)
+X    { bitno1 = (*b & 3);
+X      *a = *a >> 2;
+X      *a |= (bitno1 << 4);
+X      *b = *b >> 2;
+X      a++; b++;
+X    }
+X  }
+X}
+END_OF_FILE
+  if test 6267 -ne `wc -c <'shift.c'`; then
+    echo shar: \"'shift.c'\" unpacked with wrong size!
+  fi
+  # end of 'shift.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

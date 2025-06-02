@@ -1,0 +1,1517 @@
+Newsgroups: comp.sources.x
+From: gregor@kafka.saic.com (gregg hanna)
+Subject: v21i009:  mrolo - Motif rolodex, Part02/03
+Message-ID: <1993Oct9.011944.19165@sparky.sterling.com>
+X-Md4-Signature: 487d5e81ef44427909aea66fce48b398
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Sat, 9 Oct 1993 01:19:44 GMT
+Approved: chris@sterling.com
+
+Submitted-by: gregor@kafka.saic.com (gregg hanna)
+Posting-number: Volume 21, Issue 9
+Archive-name: mrolo/part02
+Environment: X11, OSF/Motif
+Supersedes: mrolo: Volume 20, Issue 96-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 3)."
+# Contents:  mrolo13/crolo.c mrolo13/mrolo.man mrolo13/prolo.c
+#   mrolo13/rolo.c mrolo13/sample.Z.uu
+# Wrapped by gregor@kafka on Fri Sep  3 01:45:26 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'mrolo13/crolo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mrolo13/crolo.c'\"
+else
+echo shar: Extracting \"'mrolo13/crolo.c'\" \(6980 characters\)
+sed "s/^X//" >'mrolo13/crolo.c' <<'END_OF_FILE'
+X#include <curses.h>
+X#include "roloP.h"
+X#include "arrows.h"
+X
+Xvoid Cleanup()
+X{
+X  endwin();
+X}
+X
+X#ifndef SYSV
+X#define waddchso(win,ch) waddch((win),(ch)|_STANDOUT)
+X#else
+X#define waddchso(win,ch) waddch((win),(ch)); waddch((win),')')
+X#endif
+X
+XWINDOW *w;
+XWINDOW *inst;
+XWINDOW *listWin;
+Xint linew, linec;
+Xint top_of_screen;
+Xint active_line;
+Xint re_x, re_y;
+X
+Xvoid Startup()
+X{
+X
+X  w = initscr();
+X
+X  inst = subwin(stdscr,2,COLS-4,LINES-2,1);
+X  waddchso(inst,'A');
+X  waddstr(inst,"dd Card  ");
+X  waddchso(inst,'D');
+X  waddstr(inst,"elete Card  ");
+X  waddchso(inst,'R');
+X  waddstr(inst,"edraw  ");
+X  waddchso(inst,'Q');
+X  waddstr(inst,"uit  ");
+X  waddchso(inst,'C');
+X  waddstr(inst,"lear Filter  ");
+X  waddchso(inst,'F');
+X  waddstr(inst,"ilter: ");
+X  getyx(inst,re_y,re_x);
+X
+X  linew = COLS;
+X  linec = LINES - 3;
+X  listWin = subwin(stdscr,linec,linew,0,0);
+X  leaveok(stdscr,FALSE);
+X  leaveok(listWin,FALSE);
+X  leaveok(inst,FALSE);
+X
+X  top_of_screen = active_line = 0;
+X
+X  idlok(listWin,TRUE);
+X  cbreak();
+X  noecho();
+X#ifdef SYSV
+X  atexit(Cleanup);
+X#else
+X  on_exit(Cleanup,NULL);
+X#endif
+X
+X  get_arrow_info();
+X}
+X
+Xint c;
+X
+Xvoid ShowMain()
+X{
+X  /*PutListOnScreen();*/
+X}
+X
+Xvoid GetInput()
+X{
+X  c = getch();
+X}
+X
+Xint InputEq(n)
+X     int n;
+X{
+X  return ( c == n );
+X}
+X
+Xstatic void mygetstr(win,str)
+X     WINDOW *win;
+X     char *str;
+X{
+X  int c, sx, sy, cx, n;
+X  char killc, erasec;
+X
+X  erasec = erasechar();
+X  killc = killchar();
+X  getyx(win,sy,sx);
+X  cx = 0;
+X  str[0] = '\0';
+X
+X  c = wgetch(win);
+X  while ( c != '\n' && c != '\r' ) {
+X    if ( c == erasec ) {
+X      if ( cx > 0 ) {
+X        cx--;
+X        mvwaddch(win,sy,sx+cx,' ');
+X      }
+X    } else if ( c == killc ) {
+X      wmove(win,sy,sx);
+X      for ( n = 0; n < cx; n++ )
+X	waddch(win,' ');
+X      cx = 0;
+X    } else {
+X      str[cx] = c & 255;
+X      cx++;
+X      waddch(win,c);
+X    }
+X    wmove(win,sy,sx+cx);
+X    wrefresh(win);
+X    c = wgetch(win);
+X  }
+X  str[cx] = '\0';
+X}
+X
+Xvoid DoFilter()
+X{
+X  char buf[500];
+X
+X  wmove(inst,re_y,re_x);
+X  wclrtoeol(inst);
+X  wrefresh(inst);
+X  mygetstr(inst,buf);
+X  RoloFilter(buf);
+X  top_of_screen = active_line = 0;
+X  PutListOnScreen();
+X}
+X
+Xvoid ClearFilter()
+X{
+X  RoloFilter(NULL);
+X  wmove(inst,re_y,re_x);
+X  wclrtoeol(inst);
+X  wrefresh(inst);
+X  PutListOnScreen();
+X}
+X
+X#ifndef DEFAULT_EDITOR
+X#ifdef SYSV
+X#define DEFAULT_EDITOR "/usr/bin/vi"
+X#else
+X#define DEFAULT_EDITOR "/usr/ucb/vi"
+X#endif
+X#endif
+X
+Xvoid ShowDetail(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X  char *fn, *ed, cmd[500];
+X  char name[STRSIZE], number[STRSIZE], number2[STRSIZE], text[STRSIZE];
+X  extern char *getenv();
+X  FILE *f;
+X  int cnt, same;
+X
+X  if ( n < 0 ) rr = NULL;
+X  else rr = GetN(n);
+X
+X  fn = tmpnam(NULL);
+X  f = fopen(fn,"w");
+X  if ( f == NULL ) return;
+X  if ( rr != NULL )
+X    fprintf(f,"%s\n%s\n%s\n%s",
+X	    (rr->name==NULL)?"":rr->name,
+X	    (rr->number==NULL)?"":rr->number,
+X	    (rr->number2==NULL)?"":rr->number2,
+X	    (rr->text==NULL)?"":rr->text);
+X  else
+X    fprintf(f,"\n\n\n");
+X  fclose(f);
+X
+X  ed = getenv("EDITOR");
+X  if ( ed == NULL )
+X    ed = DEFAULT_EDITOR;
+X  sprintf(cmd,"%s %s",ed,fn);
+X  system(cmd);
+X  clearok(curscr,TRUE);
+X
+X  f = fopen(fn,"r");
+X  if ( f == NULL ) return;
+X  fgets(name,STRSIZE,f);
+X  fgets(number,STRSIZE,f);
+X  fgets(number2,STRSIZE,f);
+X  cnt = fread(text,1,STRSIZE-1,f);
+X  text[cnt] = '\0';
+X  fclose(f);
+X  unlink(fn);
+X
+X  if ( n < 0 ) same = 0;
+X  else {
+X    same = (( strcmp(name,rr->name) == 0 ) &&
+X	    ( strcmp(number,rr->number) == 0 ) &&
+X	    ( strcmp(number2,rr->number2) == 0 ) &&
+X	    ( strcmp(text,rr->text) == 0 ));
+X    if ( !same ) DeleteRoloCard(n);
+X  }
+X
+X  if ( ! same ) {
+X    MakeNewRolo(name,number,number2,text,1);
+X    WriteRolo();
+X    PutListOnScreen();
+X  }
+X}
+X
+Xvoid NewCard()
+X{
+X  ShowDetail(-1);
+X}
+X
+Xvoid DoDir(dir)
+X  int dir;
+X{
+X  switch(dir) {
+X  case MY_KEY_UP:
+X    if ( active_line == top_of_screen ) {
+X      if ( active_line == 0 ) break;
+X      wmove(listWin,0,0);
+X      winsertln(listWin);
+X      top_of_screen--;
+X    }
+X    active_line--;
+X    PutLineOnScreen(active_line+1);
+X    PutLineOnScreen(active_line);
+X    break;
+X  case MY_KEY_DOWN:
+X    if ( active_line == top_of_screen + linec - 1 ) {
+X      if ( active_line == NumRoloOn() - 1 ) break;
+X      wmove(listWin,0,0);
+X      wdeleteln(listWin);
+X      top_of_screen++;
+X    }
+X    active_line++;
+X    PutLineOnScreen(active_line-1);
+X    PutLineOnScreen(active_line);
+X    break;
+X  case MY_KEY_RIGHT:
+X    active_line += (linec-1);
+X    top_of_screen += (linec-1);
+X    if ( top_of_screen + linec >= NumRoloOn() ) {
+X      active_line = NumRoloOn() - 1;
+X      top_of_screen = NumRoloOn() - linec;
+X    }
+X    PutListOnScreen();
+X    break;
+X  case MY_KEY_LEFT:
+X    active_line -= (linec-1);
+X    top_of_screen -= (linec-1);
+X    if ( top_of_screen < 0 ) {
+X      active_line = 0;
+X      top_of_screen = 0;
+X    }
+X    PutListOnScreen();
+X    break;
+X  }
+X}
+X
+Xvoid HandleEscape()
+X{
+X  c = do_escape(c);
+X  DoDir(c);
+X}
+X
+Xvoid Redraw()
+X{
+X  clearok(curscr,TRUE);
+X}
+X
+Xint Check(m)
+X     char *m;
+X{
+X  WINDOW *chWin;
+X  int c;
+X
+X  chWin = newwin(2,COLS-4,LINES-2,1);
+X  wmove(chWin,re_y,re_x);
+X  wclrtoeol(chWin);
+X  wmove(chWin,re_y,re_x+2);
+X  waddstr(chWin,m);
+X  wrefresh(chWin);
+X  do
+X    c = wgetch(chWin);
+X  while ( c != 'y' && c != 'Y' && c != 'n' && c != 'N' );
+X  delwin(chWin);
+X  touchwin(inst);
+X
+X  return ( c == 'y' || c == 'Y' );
+X}
+X
+Xvoid DeleteCard(n)
+X     int n;
+X{
+X  if ( ! Check("Really?") ) return;
+X  DeleteRoloCard(n);
+X  WriteRolo();
+X  if ( active_line > NumRoloOn() - 1 ) 
+X    active_line = NumRoloOn() - 1;
+X  PutListOnScreen();
+X}
+X
+Xvoid DoGoto()
+X{
+X  char s[2];
+X  int n, oa;
+X
+X  if ( isalpha(c) && isupper(c) ) {
+X    s[0] = c;
+X    s[1] = '\0';
+X    n = GetIndex(s);
+X    if ( n < top_of_screen + linec && n >= top_of_screen ) {
+X      /* no scrolling needed */
+X      oa = active_line;
+X      active_line = n;
+X      PutLineOnScreen(oa);
+X      PutLineOnScreen(active_line);
+X    } else {
+X      /* scrolling needed */
+X      active_line = n;
+X      top_of_screen = NumRoloOn() - linec; /* lowest it should ever be */
+X      if ( n < top_of_screen ) top_of_screen = n;
+X      PutListOnScreen();
+X    }
+X  }
+X}
+X
+X#define CTRL_L 12
+X
+Xmain(argc,argv)
+X     int argc;
+X     char *argv[];
+X{
+X  InitRolo(argc,argv,1);
+X  SetupRolo();
+X  Startup();
+X  PutListOnScreen();
+X  while (1) {
+X    ShowMain();
+X    wmove(inst,re_y,re_x);
+X    refresh();
+X    wrefresh(listWin);
+X    wrefresh(inst);
+X    GetInput();
+X    if ( InputEq('q') ) return 0;
+X    else if ( InputEq('f') ) DoFilter();
+X    else if ( InputEq('a') ) NewCard();
+X    else if ( InputEq('c') ) ClearFilter();
+X    else if ( InputEq('\n') || InputEq('\r') || InputEq(' ') ) ShowDetail(active_line);
+X    else if ( InputEq(CTRL_L) ) Redraw();
+X    else if ( InputEq('r') ) Redraw();
+X    else if ( InputEq('d') ) DeleteCard(active_line);
+X    else if ( InputEq(ESCAPE) ) HandleEscape();
+X    else if ( InputEq('+') || InputEq('=') || InputEq('j') ) DoDir(MY_KEY_DOWN);
+X    else if ( InputEq('-') || InputEq('k') ) DoDir(MY_KEY_UP);
+X    else if ( InputEq(6) || InputEq(4) ) DoDir(MY_KEY_RIGHT);
+X    else if ( InputEq(2) || InputEq(21) ) DoDir(MY_KEY_LEFT);
+X    else DoGoto();
+X  }
+X}
+X
+END_OF_FILE
+if test 6980 -ne `wc -c <'mrolo13/crolo.c'`; then
+    echo shar: \"'mrolo13/crolo.c'\" unpacked with wrong size!
+fi
+# end of 'mrolo13/crolo.c'
+fi
+if test -f 'mrolo13/mrolo.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mrolo13/mrolo.man'\"
+else
+echo shar: Extracting \"'mrolo13/mrolo.man'\" \(7572 characters\)
+sed "s/^X//" >'mrolo13/mrolo.man' <<'END_OF_FILE'
+X.TH mrolo L "19 April 1993"
+X.SH NAME
+Xmrolo \- Motif-based card file manager
+X.SH SYNOPSIS
+X.B mrolo
+X[
+X.B -vhs
+X] [
+X.B -f filename
+X]
+X.SH DESCRIPTION
+X.LP
+X.I MRolo
+Xis a program for maintaining a simple card-file,
+Xspecifically oriented for saving address-book
+Xinformation.
+X.LP
+XThe default database file read is
+X.IR $HOME/.rolo ,
+Xalthough this can be overridden with the
+X.B ROLODEX
+Xenvironment variable or the
+X.B -f
+Xcommand-line argument.
+XIf the file does not exist, it is created empty.
+XThe database is stored in a format similar to that of the
+X.I xrolo
+Xprogram:  Blocks of text separated by lines containing just
+Xa ctrl-L.  In addition,
+X.I MRolo
+Xassumes that the first line in a block is the primary name,
+Xthe second line is the primary number, the third line
+Xis a secondary number, and the rest is for other names,
+Xnumbers, and comments.  (You don't need
+Xto understand the file format to use
+X.IR MRolo .)
+X.LP
+XWhen invoked
+X.I MRolo
+Xwill present the user with a screen summarizing the database.
+XThe user may scroll through the summary with the scroll-bar,
+Xor they may click on one of the large letters along the left
+Xedge of the window and jump right to that part of the database.
+XSelecting an individual summary entry
+Xwill display a window containing the full information of
+Xthat entry, ready for editing or viewing.
+X.LP
+XOn the main
+X.I MRolo
+Xscreen there are three buttons and a text field.
+XThe three buttons are as follows:
+X.TP 2
+X.B Quit
+XExit the
+X.I MRolo
+Xprogram immediately.
+X.TP 2
+X.B "Add Card"
+XDisplay a blank detail window, into which new card information
+Xmay be entered.
+X.TP 2
+X.B "Clear Filter"
+XClear the selection filter, as described in the next paragraph.
+X.LP
+XTyping some text in the text field and pressing
+X.I return
+Xwill limit the summary display to only those cards which contain
+Xthat text somewhere in their entry (the entire entry,
+Xnot just the summary).  All of the cards are still in the database,
+Xthey just aren't all accessible.  To see all of the cards again,
+Xdelete all the text from the text field and press
+X.I return
+Xor just press the
+X.B "Clear Filter"
+Xbutton.  Usually, this text is matched as simple, case-insensitive
+Xtext, but if the first letter in the filter text is a back-slash
+Xthen the rest of the text is interpreted as a regular expression.
+X.LP
+XAny time you change a card, add a new card, or delete a card
+X(by pressing "Delete Card" on the detail screen), you will
+Xbe asked before the data is written to the disk.  You never
+Xhave to explicitly save the database, it is done by validating
+Xthe individual changes.  Likewise the screen always reflects
+Xthe current contents of the database, except when a filter has
+Xbeen applied thus hiding some of the database from view.
+X.LP
+XThere are companion programs included in this package but
+Xdocumented separately.  They are:
+X.IP "\fIcrolo\fR"
+Xcurses-based card file database manager
+X.IP "\fIprolo\fR"
+Xprints card file databases in postscript
+X.IP "\fIxr2mr\fR"
+Xconverts xrolodex files to crolo format
+X.SH OPTIONS
+X.TP
+X.B \-v
+XDisplay the version number and show error messages.
+X.TP
+X.B \-s
+XInclude a field selection menu, to allow restriction
+Xof filter searches to certain fields.
+X.TP
+X.B \-f filename
+XRun using the specified file as the default database.
+X.SH ADVANCED TECHNIQUES
+X.LP
+XIf you start a line in the comment section of your
+Xcard entry with the phrase "as of:" (note that the space
+Xand the colon are important) then mrolo will put the
+Xcurrent date in the format of ctime(3) after the colon
+Xwhenever the field is changed.  This keeps track of how
+Xcurrent the card is.
+X.LP
+XIf you like using
+X.I mrolo
+Xthen there are some "advanced" techniques you might
+Xwant to know about.  These tricks allow you to
+Xget more power and flexibility out of the simple
+X.I mrolo
+Xinterface.
+X.LP
+XRemember that everything is optional and the program doesn't
+Xcare what is where.  You can put text in the slots traditionally
+Xused for phone numbers, so if there is no secondary number some
+Xadditional descriptive text can go there.
+X.LP
+XWhile the program was developed for an address book, exploit
+Xit for whatever you need, for example record or video collection
+Xdatabases would work well.
+X.LP
+XYou can simulate having several address books by including codes
+Xin the comment section of the cards.  For example, I use
+Xthe code "~p" for personal entries, and "~w" for work
+Xrelated entries.
+XIf I want to see just work entries I can
+Xenter "~w" in the filter.
+XNote that cards can appear in multiple lists by including
+Xall applicable codes:  for example, Karen's entry has a "~p~w"
+Xcode since she is my friend and I work with her.
+X.LP
+XPeople who use
+X.I mrolo
+Xa lot will want to know about
+X.IR prolo ,
+Xwhich is used for printing card file databases.  Once you
+Xknow how this program works (see the manpage for
+X.IR prolo )
+Xyou can optimize your entries to look better on paper.
+X.SH XDEFAULTS
+X.LP
+XThere are a number of values you may wish to tweek in your
+XX-Defaults.  Look at the app defaults file for a more complete
+Xlist than is given here.
+X.TP
+Xmrolo*showSecondary
+XIf set to True (the default) the main screen will
+Xshow both primary and secondary numbers, if False
+Xonly the primary number will be shown.  This does
+Xnot affect the card screen or the file format.
+X.TP
+Xmrolo*sizePrimary
+XIf showSecondary is True then this resource defines
+Xhow wide the column containing the primary number
+Xis.  The default is 20 characters.
+X.TP
+Xmrolo*fontList
+XThe default font for everything in
+X.IR mrolo .
+X.TP
+Xmrolo*addressList*fontList
+XFont used in address list on main screen.  This
+Xshould be a fixed width font if you want the
+Xcolumns to line up.
+X.TP
+Xmrolo*commentText.rows and mrolo*commentText.cols
+XThe default size of the card text area.  You can
+Xscroll beyond this size or resize the window,
+Xbut you might want to change this if you have a lot
+Xof extremely large cards.
+X.TP
+Xmrolo*filterText.columns
+XThis is the size of the text field on the main screen.
+X.TP
+Xmrolo*{various}.foreground and mrolo*{various}.background
+XChange the colors to suit your tastes; some
+Xgood values for {various} are:
+Xnothing (default colors for application),
+XXmPushButton (all buttons),
+XXmText (all text fields),
+XaddressList (summary screen).
+X.TP
+Xmrolo*XmRowColumn*packing
+XIf you like your buttons only as big as the text they
+Xhold, try XmPACK_TIGHT here.  If you do that, you will
+Xwant to do the following also...
+X.TP
+Xmrolo*rowColumn*resizeWidth and mrolo*rowColumn*width
+XExplicitly set the width of the main screen, it usually
+Xdefaults to size based on the buttons and input field
+Xon the main screen.
+X.TP
+Xmrolo*selectFilter
+XWhen set to True, is the same as using the -s option.
+XFalse is the default.
+X.TP
+Xmrolo*indexElements
+XThis string is a white-space delimited list of elements
+Xto be made into index tabs.  The default is:
+X.nf
+X	A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+X.fi
+X.LP
+XThis can modified to break up dense groups of entries or
+Xto provide indexes for non-english letters.
+X.SH FILES
+X.TP 20
+X.B ~/.rolo
+XDefault database.
+X.SH ENVIRONMENT
+X.TP 20
+XROLODEX
+XDefault database, overrides ~/.rolo, but not the -f option.
+X.SH "SEE ALSO"
+X.PD
+X.BR xr2mr (1),
+X.BR prolo (1),
+X.BR crolo (1)
+X.br
+X.ne 5
+X.SH BUGS
+X.LP
+XNone known.  Report bugs to gregor@kafka.saic.com
+X.SH AUTHOR
+X.nf
+X.LP
+Xgregg hanna (gregor@kafka.saic.com)
+XScience Applications International Corporation
+X10260 Campus Point Drive, MS C3
+XSan Diego, California  92121
+X.fi
+X.LP
+XCopyright 1993 by gregg hanna.  Permission is granted
+Xto use, modify, and distribute this program.  Basically
+Xdo anything you want with it, but if you want to use
+Xit or any part of it to make money you must get further
+Xpermission from me.
+X
+X
+END_OF_FILE
+if test 7572 -ne `wc -c <'mrolo13/mrolo.man'`; then
+    echo shar: \"'mrolo13/mrolo.man'\" unpacked with wrong size!
+fi
+# end of 'mrolo13/mrolo.man'
+fi
+if test -f 'mrolo13/prolo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mrolo13/prolo.c'\"
+else
+echo shar: Extracting \"'mrolo13/prolo.c'\" \(6532 characters\)
+sed "s/^X//" >'mrolo13/prolo.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include "rolo.h"
+X#include "roloP.h"
+X
+Xint complines(rr)
+X	RoloRec *rr;
+X{
+X  int n;
+X  char *s;
+X  for ( n = 1, s = rr->text; *s != '\0'; s++ )
+X    if ( *s == '\n' ) n++;
+X  if ( s != rr->text )
+X    if ( *(s-1) != '\n' ) n++;
+X  return n;
+X}
+X
+Xint box, equal, fontsize, card;
+Xchar *filtertext;
+X
+Xvoid InitProlo(argc,argv)
+X     int argc;
+X     char *argv[];
+X{
+X  int c, n;
+X  char buf[255];
+X  extern char *optarg;
+X
+X  box = equal = card = 0;
+X  filtertext = NULL;
+X  fontsize = 5;
+X
+X  while ((c = getopt(argc, argv, "cf:beF:hs:")) != -1) {
+X    switch (c) {
+X    case 'c':
+X      card = 1;
+X      break;
+X    case 'f':
+X      sprintf(buf,"ROLODEX=%s",optarg);
+X      putenv(buf);
+X      break;
+X    case 'b':
+X      box = 1;
+X      break;
+X    case 'e':
+X      equal = 1;
+X      break;
+X    case 'F':
+X      filtertext = optarg;
+X      break;
+X    case 'h':
+X      fprintf(stderr,"%s [-c] [-b] [-e] [-F filtertext] [-h] [-f rolofile] [-s fontsize]\n",argv[0]);
+X      exit(1);
+X      break;
+X    case 's':
+X      n = sscanf(optarg,"%d",&fontsize);
+X      if ( n == 0 ) fontsize = 5;
+X      break;
+X    }
+X  }
+X}
+X
+Xmain(argc,argv)
+X     int argc;
+X     char *argv[];
+X{
+X  char *text;
+X  RoloRec *rr;
+X  int high, height;
+X
+X  InitProlo(argc,argv);
+X  InitRolo(argc,argv,0);
+X  SetupRolo();
+X
+X  RoloFilter(filtertext);
+X
+X  /* find tallest entry */
+X  high = 0;
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    if ( ! rr->on ) continue;
+X    height = complines(rr);
+X    if ( height > high ) high = height;
+X  }
+X
+X  printf("%%!\n\n");
+X  printf("\n%% user parameters:  feel free to change the following parameters\n");
+X  printf("/fontsize %d def  %% size for font, play with this!\n",fontsize);
+X  printf("/equalbox %d def  %% if 1, put each entry in equal sized boxes\n",equal);
+X  printf("/boxmode %d def   %% if 1, draw boxes around each entry\n",box);
+X  printf("/cardinfo %d def  %% if 1, print card contents\n",card);
+X  printf("\n%% other parameters\n");
+X  printf("/ystart 750 def\n");
+X  printf("/xwidth 525 def\n");
+X  printf("/tallest %d def   %% tallest entry in # of lines\n",high);
+X  printf("cardinfo 0 eq { /tallest 1 def } if\n");
+X  printf("0.1 setlinewidth\n");
+X  printf("/Times-Roman findfont fontsize scalefont setfont\n");
+X  printf("/mw 0 def\n");
+X  printf("/mw2 0 def\n\n");
+X  printf("/mw3 0 def\n\n");
+X  printf("/mw4 0 def\n\n");
+X
+X  printf("\n%% define procedures\n");
+X  printf("/newpage { showpage fontsize 5 mul 750 moveto } def\n");
+X  printf("/movecol { currentpoint pop mw add mw2 add ystart moveto } def\n");
+X  printf("\n/newcol {  %% shift to a new column, if no more columns shift to new page\n");
+X  printf("  movecol\n");
+X  printf("  currentpoint pop mw2 add\n");
+X  printf("  xwidth gt { newpage } if\n");
+X  printf("} def\n");
+X
+X  printf("\n/checkloc {  %% given # of lines, check if we can fit in this column\n");
+X  printf("  equalbox 1 eq { pop tallest } if  %% if in equal box mode, ignore # lines tall\n");
+X  printf("  height mul 100 add      %% projected location after next printing (with padding)\n");
+X  printf("  currentpoint exch pop   %% space left in column\n");
+X  printf("  gt { newcol } if        %% if it won't fit, start new column\n");
+X  printf("} def\n");
+X
+X  printf("\n/boxit {  %% given # of lines, draw a box mw+mw2 wide and # lines tall\n");
+X  printf("  boxmode 1 eq {\n");
+X  printf("    equalbox 1 eq { pop tallest } if  %% if in equal box mode, ignore # lines tall\n");
+X  printf("    gsave\n");
+X  printf("      currentpoint\n");
+X  printf("      newpath\n");
+X  printf("        exch 1 sub exch height sub 1 sub moveto\n");
+X  printf("        height mul\n");
+X  printf("        dup 0 exch rlineto\n");
+X  printf("        mw mw2 add 0 rlineto\n");
+X  printf("        neg 0 exch rlineto\n");
+X  printf("      closepath\n");
+X  printf("      stroke\n");
+X  printf("    grestore\n");
+X  printf("  } if\n");
+X  printf("} def\n");
+X
+X  printf("\n/fixloc { %% # of lines just printed, adjust for equalbox\n");
+X  printf("  equalbox 1 eq {\n");
+X  printf("    height mul neg vjump add  %% compute how much farther down we need to go\n");
+X  printf("    0 exch rmoveto\n");
+X  printf("  } if\n");
+X  printf("} def\n");
+X
+X  printf("\n");
+X  printf("/sizestr { stringwidth /h exch def /w exch def } def\n");
+X  printf("/chmax { w mw gt { /mw w def } if } def\n");
+X  printf("/chmax2 { w mw2 gt { /mw2 w def } if } def\n");
+X  printf("/chmax3 { w mw3 gt { /mw3 w def } if } def\n");
+X  printf("/chmax4 { w mw4 gt { /mw4 w def } if } def\n");
+X  printf("/nshow { dup show sizestr mw w sub 0 rmoveto } def\n");
+X  printf("/tshow { cardinfo 1 eq { dup show sizestr w neg height rmoveto } if } def\n");
+X  printf("/pshow1 { dup show sizestr mw3 w sub 0 rmoveto } def\n");
+X  printf("/pshow2 { dup show sizestr mw3 w add neg height rmoveto } def\n");
+X  printf("/height fontsize neg def\n");
+X  printf("/vjump height tallest mul def\n");
+X
+X  printf("\n%% find widest entry\n");
+X  for ( rr = RoloList; rr != NULL; rr = rr->next )
+X    if ( rr->on ) printf("(%s) sizestr chmax\n",rr->name);
+X
+X  printf("/mw mw fontsize add def\n");
+X
+X  printf("\n%% find widest text\n");
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    if ( ! rr->on ) continue;
+X    text = rr->text;
+X    while ( *text != '\0' ) {
+X      printf("(");
+X      while (*text != '\n' && *text != '\0') putc(*text++,stdout);
+X      printf(") sizestr chmax2\n");
+X      if ( *text != '\0' ) text++;
+X    }
+X  }
+X
+X  printf("\n%% find widest primary number\n");
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    if ( ! rr->on ) continue;
+X    printf("(%s) sizestr chmax3\n",rr->number);
+X  }
+X
+X  printf("/mw3 mw3 fontsize add def\n");
+X
+X  printf("\n%% find widest secondary number\n");
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    if ( ! rr->on ) continue;
+X    printf("(%s) sizestr chmax4\n",rr->number2);
+X  }
+X
+X  printf("mw3 mw4 add mw2 gt { /mw2 mw3 mw4 add def } if\n");
+X
+X  printf("/mw2 mw2 fontsize add def\n");
+X
+X  printf("\n%% setup and print\n");
+X  printf("fontsize 5 mul 750 moveto\n");
+X
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    if ( ! rr->on ) continue;
+X    height = complines(rr);
+X    printf("%d checkloc\n",height);
+X    printf("%d boxit\n",height);
+X    printf("(%s) nshow\n",rr->name);
+X    printf("(%s) pshow1\n",rr->number);
+X    printf("(%s) pshow2\n",rr->number2);
+X    text = rr->text;
+X    while ( *text != '\0' ) {
+X      printf("(");
+X      while (*text != '\n' && *text != '\0') putc(*text++,stdout);
+X      printf(") tshow\n");
+X      if ( *text != '\0' ) text++;
+X    }
+X    printf("mw neg 0 rmoveto\n");
+X    printf("%d fixloc\n",height);
+X  }
+X
+X  printf("showpage\n");
+X  return 0;
+X}
+X
+END_OF_FILE
+if test 6532 -ne `wc -c <'mrolo13/prolo.c'`; then
+    echo shar: \"'mrolo13/prolo.c'\" unpacked with wrong size!
+fi
+# end of 'mrolo13/prolo.c'
+fi
+if test -f 'mrolo13/rolo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mrolo13/rolo.c'\"
+else
+echo shar: Extracting \"'mrolo13/rolo.c'\" \(8819 characters\)
+sed "s/^X//" >'mrolo13/rolo.c' <<'END_OF_FILE'
+X/* Copyright 1993 by gregg hanna */
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <errno.h>
+X#ifdef NO_X
+X#include <ctype.h>
+X#include <strings.h>
+X#else
+X#include <X11/Xos.h>
+X#endif
+X
+X#include "patchlevel.h"
+X#include "rolo.h"
+X#include "roloP.h"
+X#include "compat.h"
+X
+X#define EXPSIZE 1024
+X
+XRoloRec *RoloList = NULL;
+Xstatic char *rolofile = NULL;
+Xint verbose = 0;
+Xint RoloSearch[4] = {1,1,1,1};
+Xint selectFilter = 0;
+X
+X#include "myregexp.h"
+X
+Xint NumRoloOn()
+X{
+X  RoloRec *rr;
+X  int n;
+X
+X  for ( n = 0, rr = RoloList; rr != NULL; rr = rr->next )
+X    if ( rr->on ) n++;
+X  return n;
+X}
+X
+X#ifndef NO_TIME
+Xstatic char *CheckField(field)
+X     char *field;
+X{
+X  char *s, *t , *r, *buf;
+X  time_t time_val;
+X  int i;
+X
+X  if ( field == NULL ) return field;
+X  if ((r=mystrstrcase(field,"\nas of:"))!=NULL) {
+X    buf = (char*)malloc(strlen(field)+30);  /* allocate bigger buffer */
+X    /* copy text up to & including AS OF marker into buffer */
+X    for ( t = buf, s = field; s != r; t++, s++ )
+X      *t = *s;
+X    for ( i = 0; i < 7; i++, t++, s++ )
+X      *t = *s;
+X    for ( ; *s == ' ' || *s == '\t'; t++, s++ )
+X      *t = *s;
+X    *t = '\0';
+X    /* write new AS OF entry into buffer */
+X    time_val = time((time_t*)NULL);
+X    sprintf(t,"%s",ctime(&time_val));
+X    /* skip to eol in old & new string (i.e. skip old AS OF line) */
+X    while ( *s != '\n' && *s != '\0' ) s++;
+X    s++;
+X    while ( *t != '\n' && *t != '\0' ) t++;
+X    t++;
+X    /* copy rest of buffer */
+X    strcat(t,s);
+X    return buf;
+X  }
+X  return field;
+X}
+X#endif
+X
+Xvoid MakeNewRolo(name,number,number2,text,checkfield)
+X     char *name, *number, *number2, *text;
+X     int checkfield;
+X{
+X  RoloRec *rr, *pp;
+X  char *s;
+X
+X  rr = (RoloRec*)malloc(sizeof(RoloRec));
+X
+X  rr->next = NULL;
+X
+X  rr->name = mystrdup(name);
+X  s = index(rr->name,'\n');
+X  if ( s != NULL ) *s = '\0';
+X
+X  rr->number = mystrdup(number);
+X  s = index(rr->number,'\n');
+X  if ( s != NULL ) *s = '\0';
+X
+X  rr->number2 = mystrdup(number2);
+X  s = index(rr->number2,'\n');
+X  if ( s != NULL ) *s = '\0';
+X
+X#ifndef NO_TIME
+X  if ( checkfield )
+X    rr->text = CheckField(mystrdup(text));
+X  else
+X#endif
+X    rr->text = mystrdup(text);
+X
+X  rr->on = 1;
+X
+X  if ( RoloList == NULL ) RoloList = rr;
+X  else if ( mystrcasecmp(RoloList->name,rr->name) > 0 ) {
+X    rr->next = RoloList;
+X    RoloList = rr;
+X  } else {
+X    for ( pp = RoloList; pp->next != NULL; pp = pp->next )
+X      if ( mystrcasecmp(pp->next->name,rr->name) > 0 ) break;
+X    rr->next = pp->next;
+X    pp->next = rr;
+X  }
+X}
+X
+X#ifndef ROLOFILENAME
+X#ifdef VMS
+X#define ROLOFILENAME "rolo-file"
+X#else
+X#define ROLOFILENAME ".rolo"
+X#endif
+X#endif
+X
+Xvoid InitRolo(argc,argv,stop)
+X     int argc;
+X     char *argv[];
+X     int stop;
+X{
+X  int c;
+X  extern char *optarg;
+X  FILE *f;
+X
+X  rolofile = getenv("ROLODEX");
+X  if ( rolofile == NULL ) {
+X    rolofile = getenv("HOME");
+X    if ( rolofile == NULL ) rolofile = ROLOFILENAME;
+X    else {
+X      rolofile = (char*)malloc(512);
+X#ifndef VMS
+X      sprintf(rolofile,"%s/%s",getenv("HOME"),ROLOFILENAME);
+X#else
+X      sprintf(rolofile,"%s%s",getenv("HOME"),ROLOFILENAME);
+X#endif
+X    }
+X  }
+X
+X  verbose = 0;
+X  while ((c = getopt(argc, argv, "sf:hv")) != -1) {
+X    switch (c) {
+X    case 's':
+X      selectFilter = 1;
+X      break;
+X    case 'f':
+X      rolofile = optarg;
+X      break;
+X    case 'v':
+X      verbose = 1;
+X      break;
+X    case 'h':
+X    case '?':
+X    default:
+X      if (!stop) break;
+X      fprintf(stderr,"usage:  %s [-v] [-f rolodexfile]\n",argv[0]);
+X      exit(1);
+X      break;
+X    }
+X  }
+X  if (verbose)
+X    fprintf(stderr,"%s Version %d.%d Patch Level %d\n",argv[0],VERSION_MAJOR,VERSION_MINOR,PATCHLEVEL);
+X  f = fopen(rolofile,"r");
+X  if ( f == NULL ) {
+X    if (verbose) fprintf(stderr,"Creating new rolodex file %s\n",rolofile);
+X    f = fopen(rolofile,"w");
+X  }
+X  fclose(f);
+X}
+X
+Xvoid SetupRolo()
+X{
+X  char name[STRSIZE], number[STRSIZE], number2[STRSIZE], text[STRSIZE], *s;
+X  FILE *f;
+X  int c;
+X
+X  f = fopen(rolofile,"r");
+X  if ( f == NULL ) {
+X    perror(rolofile);
+X    exit(1);
+X  }
+X
+X  while (!feof(f)) {
+X
+X    name[0] = number[0] = number2[0] = '\0';
+X
+X    /* get three lines, if we hit a ^L, punt */
+X    fgets(name,STRSIZE,f);
+X    if ( feof(f) ) /* yikes! eof in a record, or maybe empty file */
+X      break;
+X    s = index(name,'\f');
+X    if ( s == NULL ) {
+X      fgets(number,STRSIZE,f);
+X      s = index(number,'\f');
+X      if ( s == NULL ) {
+X	fgets(number2,STRSIZE,f);
+X	s = index(number2,'\f');
+X      }
+X    }
+X    if ( s != NULL ) {
+X      ungetc(12,f);
+X      *s = '\0';
+X    }
+X
+X    s = text;
+X    while(1){
+X      c = fgetc(f);
+X      if ( c < 1 || c == 12 ) { *s = '\0'; break; }
+X      *s = (char)c;
+X      s++;
+X    }
+X    while ( c != 12 && !feof(f) ) c = fgetc(f);
+X
+X    MakeNewRolo(name,number,number2,text,0);
+X
+X    for ( c = fgetc(f); c == '\n'; c = fgetc(f) );
+X
+X    if ( c != -1 ) ungetc((char)c,f);
+X  }
+X
+X  fclose(f);
+X}
+X
+Xvoid DeleteRoloCard(n)
+X     int n;
+X{
+X  RoloRec *rr, *pp;
+X
+X  if ( n < 0 ) return;
+X
+X  rr = GetN(n);
+X  if ( rr == RoloList ) RoloList = RoloList->next;
+X  else {
+X    for ( pp = RoloList; pp->next != rr; pp = pp->next );
+X    pp->next = rr->next;
+X  }
+X  if (rr->name != NULL)   free(rr->name);
+X  if (rr->number != NULL) free(rr->number);
+X  if (rr->number2 != NULL) free(rr->number2);
+X  if (rr->text != NULL)   free(rr->text);
+X  free((char*)rr);
+X}
+X
+Xint backedUp = 0;
+X
+Xvoid Backup()
+X{
+X  char bakfile[STRSIZE], buf[10240];
+X  FILE *in, *out;
+X  int n;
+X
+X  sprintf(bakfile, "%s-", rolofile);
+X  if (verbose)
+X    fprintf(stderr,"Backing up '%s' to '%s'.\n",rolofile,bakfile);
+X
+X  if ((in = fopen(rolofile, "r")) == NULL) {
+X    if (errno != ENOENT) {
+X      perror(rolofile);
+X      exit(1);
+X    }
+X  } else if ((out = fopen(bakfile, "w")) == NULL) {
+X    perror(bakfile);
+X    fprintf(stderr,"Unable to create backup rolodex file.\n");
+X    fclose(in);
+X  } else {
+X    while ((n = fread(buf, 1, 10240, in)) > 0) 
+X      fwrite(buf, 1, n, out);
+X
+X    fclose(in);
+X    fclose(out);
+X  }
+X
+X  backedUp = 1;
+X}
+X
+Xvoid WriteRolo()
+X{
+X  FILE *f;
+X  char  *s;
+X  RoloRec *rr;
+X
+X  if ( ! backedUp ) Backup();
+X
+X  f = fopen(rolofile,"w");
+X  if ( f == NULL ) {
+X    perror("WriteRolo");
+X    fprintf(stderr,"An error occured while trying to write your\n");
+X    fprintf(stderr,"rolodex file.  The attempt is being aborted\n");
+X    fprintf(stderr,"so your most recent changes might not be saved.\n");
+X    fprintf(stderr,"The error occurred while attempting to open the\n");
+X    fprintf(stderr,"file %s for writing.\n",rolofile);
+X    return;
+X  }
+X
+X  for ( rr = RoloList; rr != NULL; rr = rr->next ) {
+X    /* write data */
+X    if ( rr->name ) fprintf(f,"%s\n",rr->name);
+X    else fputc('\n',f);
+X    if ( rr->number ) fprintf(f,"%s\n",rr->number);
+X    else fputc('\n',f);
+X    if ( rr->number2 ) fprintf(f,"%s\n",rr->number2);
+X    else fputc('\n',f);
+X    if ( rr->text ) fprintf(f,"%s",rr->text);
+X    /* do new-line check to make xrolo happy */
+X    for ( s = &rr->text[strlen(rr->text)-1]; *s == ' ' || *s == '\t'; s-- );
+X    if ( *s != '\n' ) fputc('\n',f);
+X    fputc((char)12,f);
+X    fputc('\n',f);
+X  }
+X  fclose(f);
+X}
+X
+Xint GetIndex(s)
+X     char *s;
+X{
+X  RoloRec *rr;
+X  int n;
+X
+X  for ( rr = RoloList, n = 0; rr != NULL; rr = rr->next, n++ )
+X    if ( rr->on && mystrcasecmp(rr->name,s) >= 0 ) break;
+X
+X  return n;
+X}
+X
+XRoloRec *GetN(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X
+X  for ( rr = RoloList; rr != NULL && ! rr->on; rr = rr->next );
+X  for ( ; rr != NULL; rr = rr->next ) {
+X    if ( rr->on ) n--;
+X    if ( n < 0 ) break;
+X  }
+X  return rr;
+X}
+X
+Xchar *GetCardName(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X  rr = GetN(n);
+X  return (rr?rr->name:"");
+X}
+X
+Xchar *GetNumber(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X  rr = GetN(n);
+X  return (rr?rr->number:"");
+X}
+X
+Xchar *GetNumber2(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X  rr = GetN(n);
+X  return (rr?rr->number2:"");
+X}
+X
+Xchar *GetText(n)
+X     int n;
+X{
+X  RoloRec *rr;
+X  rr = GetN(n);
+X  return (rr?rr->text:"");
+X}
+X
+Xstatic int AllSpace(s)
+X     char *s;
+X{
+X  for ( ; *s != '\0'; s++)
+X    if ( ! isspace(*s) ) return 0;
+X  return 1;
+X}
+X
+Xvoid RoloFilter(s)
+X     char *s;
+X{
+X  RoloRec *rr;
+X  char expbuf[EXPSIZE], *t;
+X
+X  if ( s == NULL || AllSpace(s) )
+X    for ( rr = RoloList; rr != NULL; rr = rr->next )
+X      rr->on = 1;
+X  else {
+X#ifndef DONT_REGEXP
+X    if ( s[0] == '\\' ) {
+X      s++;
+X      t = re_comp(s);
+X      if ( t != NULL ) { if ( verbose ) fprintf(stderr,"%s\n",t); }
+X      else
+X	for ( rr = RoloList; rr != NULL; rr = rr->next )
+X	  rr->on = ( (re_exec(rr->name) && RoloSearch[0]) ||
+X		     (re_exec(rr->number) && RoloSearch[1]) ||
+X		     (re_exec(rr->number2) && RoloSearch[2]) ||
+X		     (re_exec(rr->text) && RoloSearch[3]) );
+X      re_free();
+X    } else
+X#endif
+X      for ( rr = RoloList; rr != NULL; rr = rr->next )
+X        rr->on = ( (mystrstrcase(rr->name,s) != NULL && RoloSearch[0]) ||
+X		   (mystrstrcase(rr->number,s) != NULL && RoloSearch[1]) ||
+X		   (mystrstrcase(rr->number2,s) != NULL && RoloSearch[2]) ||
+X		   (mystrstrcase(rr->text,s) != NULL && RoloSearch[3]) );
+X  }
+X}
+END_OF_FILE
+if test 8819 -ne `wc -c <'mrolo13/rolo.c'`; then
+    echo shar: \"'mrolo13/rolo.c'\" unpacked with wrong size!
+fi
+# end of 'mrolo13/rolo.c'
+fi
+if test -f 'mrolo13/sample.Z.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mrolo13/sample.Z.uu'\"
+else
+echo shar: Extracting \"'mrolo13/sample.Z.uu'\" \(10273 characters\)
+sed "s/^X//" >'mrolo13/sample.Z.uu' <<'END_OF_FILE'
+Xbegin 644 sample.Z
+XM'YV03=[4H?/&#0L00=B(*2.'3A@%-2*VR%'#Q@V($F/4H''Q#)LZ;4!,">.&
+XM3IHP9]Z 4* @S!P0;\SH  $BH!N$=<[0S $B1@X=,'[.H-$S1XX9+!DH:%*&
+XMC9TT!FN^@5IF#L8:+6[(D 'C:@L:.6@@'?.F#9PR;LB<!&%&3I@T;.CD <&D
+XM3,$P<LBH)%NG8=6Y9>"D&8-P#MRR>%?B34,'39LR)@DOG$/P3A@V(,BZ.5.5
+XMSDJE5:80"7)0"$/.;KQRK8$T(E8;,&!<I%PG;AHS<^V$&3.&*@BU;" [+%D&
+XM!!PV)!U"-3YX34PS(,[482@'+O*5<,*0D5,<#O?':AW2*:ZDJN$Q84!HES/5
+XMLP*E3,+T17L0"=XV!16@J(@CA>NO%=G@E0T1(<622S#)1)--..D$ D\^ 244
+XM43X=E90"1KPAQV0'50$'0:G]AT,.-\3 DEYLC%&<&<'A 0)W"['!1AH"O32&
+XM''E\^,89;H4T1QQUA'''&NK-F%YV#:4Q!TDKS2&8BB",9Q9#Z3D)E1L,01;E
+XM&W"\P<:.<T$UGTAIX'?3>PH@ 1(<:'"7QT%9,+1&5:K=  ,.)Y8A74C<L5C&
+XM& 3) <(=;[Q!QA@#95;0'&N:9$=Q:D$V%QEEA-&897D9%\9<![X4TTQ2W11$
+XM3CL5):$.0Q5E(9I"Y,'0'/6%T888?9VAWU8V^"?14#ET]9]8,-"@ %ED@2 $
+XM7G0$1X=G9,GA!F5XC8$&"&6X.H>&Q6EFQQMS*EK'''R]I ";;Q#$1AZ1@4!K
+XM=9<IVD8; UE:'*.,%7<9FT=^Y :1G28(*H.C.@CA3T&A2J%1!BK5Q!A#?,3=
+XM05 P%)Q7P<: IX@WS% #2RUYJF"H#98:8<&I5IBP J$-<1 3=:0%I))TZ$<#
+XM#3'HBE50,0C[7PTWW("G0S*"8,5B3 KAY1QH3 7"HW(L:5)PZG+WE%PPB3'C
+XM4P49QUZ7<Q2G0)QRS&EC4Q]]V36UR#KVQE.;@4 9E^K!<99+7BLU1!!46'&0
+XM$=R5048;)'F% \T7H3!4S2(&)8,"3I;AMQAO6 H"5/*I975Q3E@!PA!MPGS2
+XM35@"BM=<9A1*!FUF0-<2CX/51D=?[8I!$AES:4:'6RI^F,:CO[VQD!R W^16
+XMZFLI4,:C)04YGJ+/WEX'H&E<;AQ#2I)UUF]EX'>CY%:J2"O2*YG1,ADK=>SO
+XM@ED'+#+!$ZIZ\A)YE/M&:=4MBY9^!-9@<PLPV" 62Z6[ V;4\(8YO,0-&KH4
+XM7LB''_:<K5)SR$-*H**3M\AA>V;PS!#*HJ,SM>4-=]##7,3@%M[-*"Y:6UL!
+XM/4.%I G*+6HI8$$H]:)O>8TL9N$.&M!B&.E1ZCB0H=%-&H<HY"P/35<HP@8/
+XM,H4=XH4A,@O*_G! H(M)! <SL,BX(BBM<NW0+7"8R]NZQ+3>V7!S]VE*>@A(
+XM&:A!H3K@LDYZ%-!";,D')M4QPV"*(SNXO"@,Q -?&Z B1&-%"SF3XL[H5K($
+XMM(2N7)Y!3EKN>)DOB=$R,@*A<C"#)B((Y')DV-1!K@"7-:2A# /JV45$-(/8
+XM*& )AMI-F\HR+S?<!CI$*,/W(F@LY'2K"?*I#I1ZXP8WR"IKR)D/)]%CEF_1
+XM)0UP %=9Q& <+B:-37DXCZ:,6)P[^(TM&NJ-]!1PAQTV15H6!,$@;0DX%W52
+XME]^*X$&HX!*KB&AFK9'(S+0RKATB\#$(O$DNYV F\MVN7.5#T*?0)RI2/<A4
+XM)#O8JN 33+28A"0'&4(8V&8>K\1@!CG $QWSL*Z;6,UT2/MF&,3 J$RME#(6
+XM+21*>*0G>36))-*A2HTFAZ6/B$YZ).FB'>;2AFRFBSNH<8_=T&"IX13J#&$X
+XMR,*.@%0->85G-EB< B2YAMHQ-2U-.:6@^K50D*GOH2-KG\DN%(4@S8D[!F1B
+XM&LZ 0+=XA081L2)6!@<#$P7G>;Y1RV7^Y)GC\; @.LD.N)B*&:@TJTMND1X,
+XM:?2E,W"J,1I* T@2ZK%_I<^A SM5R1!VH2-T)@Q=*LW]_C,#&=@ *2@HT0WV
+XM1P/_Y4 !LAO#&L;(V?.9%;0052MI.WF9I'WKE*-T"1HH""+\P4 &^PN6#02$
+XM K'HC[5B,=%"_H0&0ADJ,R"IC3-O!TTOI>%%#!'(>,AW/.T4IXEA$-O<%'FF
+XM")HE.- CC![!U2[T+.LMF#F.2](%AY;-!365JBRGN@8H#;4+24I:;D$84D-J
+XM DX.,SJ34CRYSL% C#N!.HE'95!;C\) 8PIX7=N@VA@*-X6P($@:&3C3I1D7
+XM9YU5\69@**P6W8B*#6=IR$HX(X?Q[:XX1+C#7-'@&2:AJ0B"P9<;WB0264V'
+XM#=<*D40HTBN6?$E&Y85#9MQBR_0XEH-P[2'4LD/><@T&CYB50])F]>9QO4&W
+XMD!$?9LJ AQT=TYF&P4-C0/ 1'(/+HE$B\[541)(Z*PPN58&8EQ9C3XGT58NL
+XM#8N NG2NXTR%=B"PI1Q\G![678\@<("JC)(SO:89ECLQ1JVB_KL2(33A"G2I
+XM%J5N@AS!A!)'(" @6<Z60!D7)%VR.LYMYA(Q[NAA)=+ZTM;0D(>@8<EO4"/K
+XMQP &W+0:S'T7*@*BM*,AN6X&M=BZU0VNNZL:6&S$_B.GAB@3-R0AFG-PI /@
+XM7G)F.53G#-&#FN_40-C=,8938=!#F0;"6+>9I&UJHH.TH"(N\Y65VP(+[K?7
+XM^N2^0#,-E(*55+HF!\'AH$0L"8(<4E+,;EZ&#L\N$THHMSQ:V<]9B4H">HK\
+XM$LBE95#<<8.T>GOQSV;<VZ.=J (V6&@QG.0@.E=C6JZ*10&)2 9VVBH((3<7
+XM(@@QF\ZDE!EV4QPC!&>=B=40 GF$6FH[?$V<LOBVC;X^T4KT9$Z8*T/FB:S1
+XM>>4H'-%/:Q&W*]C@B3-WWN$@T;-G/'C:+8$*DXQ TDWK@# S_K2.UUA4!VP=
+XM.M; *\@(RU"Z,P"\;460$5H4Y>^J=.GG@/N6E\JP606TQ7'D,XVS]JBN@-.(
+XM39#^3)I(,I6##"TXU4$E"BPR ]K2  >^VM4,<+"QVZ$%U. J<H'-=G!"XX5(
+XMM&=\CE[WDB: I'290C40:RTG$#+FV=PIL-4&PZ1<LF&YPC^"E\CPNS/4IPYX
+XM$!QYX!5:40-ZU0*L$7B$XF]*0DO&D@?L<1/9D6';419O%BUHX'1( S<LHEPS
+XM<@9,MA),<&1RT"5>@EZ&05=NTR7R]2I9TS!/)'3%<01I0Q<"\2SKPBE*\48Q
+XMI2*CE ?!<U>LT16QI1'1E3'" GE"-%C&<8+1E ==9!@O<00G@4,J,2/CX1; 
+XMMES(41T[M5SDHP"/06YW, <ZYAE=@X$?&(+:41LV)00#D85ZU!3D4TYI\&P*
+XM0"DS4AV;U8$N @7UM#84IFV>U5!'QSX;-UP["$%E #%)@Q:#(6*LU5>%XS/]
+XM\1^O-3C#D@87!!+9%SV0PAY!XQ"T<AT;Y#H4MFB4!2:30U<.!B_B E,4QG;$
+XM41S# 32UIQ12("09EF5[$P9M@A8[Q!@>A44FDF++=1.[YAGK4BG/ WEL$8$F
+XM\2K!PU-F0!T4%&L2UUV;LA)JT3C/DBUHT!?20BC5J$=!0X@,%3)HA8A)=S)3
+XM("U8 G)[!P)$$%_E\A BPC,;,RP.5'$*-7>&6'<1!6YH0@6.]"?S P)5($D$
+XM6"*WQ3$!68CL&%H%R7%VPT$@<A!/<#62*!$&&"P4PWQ;=1NZ]"7?A2;VL1V?
+XMDU'L@6?+(GCNMC^O-5T#0D4781]Y@"4O@7[3.&APY1"P4Q)1XC>:%1+>82C/
+XMXRC=AP14(2YD(4 U,09-($>BTG+V P)Z@!)$)Y 5J7'O>"$:Q5%QA1"L0Q;(
+XM\7=X=5O_$0//U17E] 8G$#0M]2A6Z1DK*8 ( 053$&J+PD-O]E5DD&'%,8ZS
+XMDFV*1#Y0<$I_<VQ=29%G99'"I72>)$ 4=!!2D 9YH!UH0( R0'TL$1/C,420
+XM135H,@6<J%DB-RH,D5N=R5HY0UTU( ,Y,$5WLC&3M5F$P@;D Q4]IB0!=V-3
+XM06_TE$%N<UB" BWC05!.MA MAAG 1"F<>"1%AB4\-9J>P79LDCTSN!BRPYOG
+XMA5L?$1C5091(I$LP)0>E85Y/\1#[,9O[LQ4S8"*&0R!39"=( 3GE$APZH0>=
+XM(4;+99S2XCAGPW9Y8!EX!@))$ 4) AT%1@:#R2F:L6MJ9HL](F;I9$'[]A)F
+XM&&''"1D[1#X#1U@:LA(@QAXT94!')GQ/0#L&1'LB!X?.(AP4XS,1R6>W0Q)V
+XMX4Q3D!VUH19M@TZIHQ[VI2/+HP0%%!AHD&78,P;(42;ATS>"R5.:(878^9CK
+XM&)E@>7<7(@1NT3+UL9G%I"1>,0,]HS/Z=&("4I5DX$WI>1/H\:,1^"([!!*6
+XMHB0A401*@B6"@BF[AGE]<2:381*"@BAO VJ6D85\X6I%*6AC(@0HV09SR)OY
+XMYTU1057RDQJ&,WW[PS,RT(].4&S:!P)+ $AKD!Y5 $>;XR5B0#I-(7INTW04
+XMI@9SA7G)MA)00&V&0210H09UH!:]L5-.F5Y3!HMNPR7+15!1(FOJ^%N'*%HU
+XM8)!*P3=!U8@@X 1UX'3ZF!%'$9&&07Y+@Q99\F ,@4XR" )0$!PP<V?BBJ7.
+XM2I!"$:T8J0!! %8BQS)ZD!__<0/6Q1+D=3W>M&2>44[C"CF)PAT9]C+@,QXY
+XM&J)N46\)I!@?-#DY5!6+H1*41A#;XQE2D*1N8#6YJ #B5A"T1%[H41]-81C[
+XMD@:J,10"\C4D,2?%P3D"P1:[X3H BBV$J1ZI4W!W47-=6!Q(X"6/(2X"=J#_
+XM%H*4LBW+LYSB41P>44^8TAV.0R1DH1OL<D1M07^.XC5R!YG=YH[RJHA+ETPQ
+XMM#?OQQX#*"(Q0)LL<0?LL3SV!WQNX$Q4@0>[H51+5Q#BTQL898_AY!*W8H#Q
+XM&1%H>C,]TQ6,PE(P@V@J0APE>$K#])>C5G9%5@9,50?087YS,"<LMQ)U2U[I
+XM,05UH =U8$K"MYC+,@>32@9,Y"7Z41'LAA46,S.W$@.S]1\D1C,*\#):,@0O
+XM-ADQEB7A053?IR4(B1EJ03Q%Y!E%,&"2%(9S@$!P0T@7U5A8XGA&B6@-U"Z&
+XME3PVA29,<4&64F[&PA Q(R(XL!6QBU?1Q14"8EH:PAF5 :>7T1NXD4+><4H.
+XM 6R, E4O)"0^]TWHIR)ZMA)0H1N&D35J(62FX0;/MB0W\DU089A,TFR&D1X@
+XMTBX*@%0@MEZ)1A)SD*+7(BB0LRQ0PQ225!7%HQ2H:2:C!!6-L34W^5H A(V$
+XM$7_(XCC7.7MDEIV=-BTI"#C:."U\]G)WFC4*H&K(5SN2PQ3.$:3'%EGUY)>/
+XM$A=S 20 9HWC:9Y38+)K$+W"EP6/8C^ET1?-M:\YLS$HL!4P$)_3U17[JQO+
+XM@Y8@(8'LL2W^M:)\XS=)PP8A05Z3 5": E5G,DA8N$B^B7OJP5)>PCM2P' ,
+XM@7[D0Q(#-E> XQFIJB3LAR7 ZAF.]7&(E@1IL19+@L4@@*1?U37*6&1G\#:P
+XMI@!WYA ..T<N'**<>!!!(#>7(4LB9C@5L3\9$V\M41)*DCV,\6;?V"RA1)13
+XMH$N7S"033 :UT7TDD0=)<P?3<ZX*$!^R<Q./$42;85S$MG*-1E!O1D0Y2BWG
+XMDL%G(A\$D://@GZ/(2B(1\VZ!4[EXDV)@:0KQT.KAVXM=@8A(89S]</"QQ02
+XM=QEF<!!'$"1Y\9$W4P//Q1(R/,E9<JYX@1B9 85?8IUS4&BD"D*7T;GGA4Z<
+XM6(WDE8XL<H-0@J,,84R8 4AZ5*U+XQMOY;&%F25N8TMBULUV84R9<IIR 7!_
+XM.[1P8$K/\CDUZEHL<2-W]E9BA!R\DSV6O#PC,9@4!B^GDV$ZL;SB8QB\HP"A
+XM$[<7^"5,Y9>0 VI0Y9]9&1CT"#QU]K59&K;0*JUI A*/P0:Z'$J<." U$!84
+XMDP,Q8"*T:GI0,XYS\,T,!!4E&DJF-XA*H2;GQBY1833H\7=NB2=MG%6=2B+"
+XMTC(G@0<GP4F33;1Z*%6]#%41)#BS:2 TN&H@2&$X!!F+!+<PDZA#!R^V9!)9
+XM<QD@07->4RU5@2T.EVQ^PT=/-'8J$H9*X01ZPAX@MS*5@CP+V!@F)I)L.WT*
+XM0!4O0XI0HQG7:$ U :*& C,\]8T%!MXW5BE$=IS_K!BD;5^/8;+NBG'PBBIC
+XMJW3'XBP+1#\"JZ_<FC&"]ZFVR;Y5:4 "<1W4UB6C>4:,\BZ,(1+24@?51ML<
+XMA!R/ZQF>1+[BTDC%),WH>QN,B1#&G'CHA2BM9YYT_:[M>-?S>@7RTA @%!5#
+XM$)1/409W\'>R)3,WD"O_T3_\A$-H!S4C\3IYT8W<Z1:4^F* (DR?PSR"/! E
+XMFF**1L\IU-RP$V#DR%1+(CT;-*,SXDR $X;((4(#+"Z@8<BA!#'?9Q7552+[
+XMPRN+TY;N)E(MCM\O3C+[C7<;%08$=!#0C6Z)K&43/12"0Q%((050T 3J4DF0
+XM@1C6>2/C9\GMS,F]T8F, 6QL]RYW2AC#HB$.5$@-3*+ QC5=4XT:3B5'I!1!
+XML"U181\Y<3]M?&+"K!7Y]!K]@R=OD\].QTQ4@AE,D >"U<C4P6J6,2T6C$ @
+XMAT?E*TP<_"CTNU)0H\<VE7K#61Q&%!F0PK_4AF5/,ZBB:*)'YAEBYQN+_$U\
+XM]GHQU2YM$;,9)GR[#$0;N:KEV1A,S5K3M3&_XC/"<A9N0,BE2"0+,6#4(G2H
+XMQ2C<I"[!L4CK3CWMSDGRS+H9#24:!3QJ)!+984O@HQ=%&QDVU45S\CO -BZ7
+XMX9OLL7C141LS(CT+4Q=,L@1]03[Q$3;+,>RL[!PK6"ECM51=;ATM2>%XL>TL
+XM^RL:\;)\IN(+/$1.FE[ITJQZ+IGZC==(VC5T:ZWV$8Z&W@)M"P/\WFY4I #]
+XM#<3'Q![.9!DP=<!5ZH:"@B21 4VL!E-RXS6FM(VK5SKEDAWD4Z4F\3J(!O5T
+XMM^?QBM=>!W-- 2<Y44!4+=%9,7U6!Y+[E&),Z!V.8Q:!,B@;17H:$A)6,SL>
+XM2N2,,1XZ+NG8L9^6,G3N94O6R5C!\1%J (PBH62&+RB[EH^^?1/W\2)>PDEE
+XM(AB2,KQ9:"@[63?TBF'TT4MO@25W12*K)!$R8*8;(]Z;;],3B!DM]AC'K1:;
+XM95' YJ1>5!75V-TED<?H*WS'TJH?#>"95 =0X5$@]?A[A;M(L8'<8AR2=&<%
+XM\2@N\D79,A5"1X]$"4=-EN4APWP8JQ%#!>2[J00E0!(@VERH ][A+10H&$'\
+XMOI@P"6.SXP<U%?P!?6A25H%_7^'H,0[T0$)VBI))"[)#)YP4SR!@I,,W^1):
+XM+%@Y$Y74'*H%Q,@>)7!.#(C")BSJ4^ZR-#ACB9&92<,\5%S0\0PJS&#-*+8 
+XM<N@7"$!(>\]27 9T46?&@)AZ,X:*(+0!<F:+ M5*42\@X*&-IOZC*6P)GB$?
+XM]^POK(14U0!?0CU3<:5-^) NPV"MG( %\1TL*[;@ ,)S,SY5G9,(_@.D7(B1
+XM,".0AJ1I"#GA,CB7VA3D[@1U>3Z7Z(J0B*[P1=Y 52 T@DA1\)G&99Z4@A4@
+XM5O3G(-RCNJ6M--6Z8817)#8<(+QB VY+$* #2HU#D1<:<F$ !W*@(0J,1!65
+XMS+! :$2S<SH$!WJ,-2RD+JH;;>,.NV8KJ8M",2=^#IHH54&'(P4E.A'DM,(Q
+XM4CG3""9L!O^G$_0/C;L).P1O<9[,0D.X1A;J/@LA&X4Z?<,D&"!9^![A*J(!
+XM"DT!):#"-?)")NQ;=!>FDL_0!!00""!(9D43Y&+OFD7@V%>#0U@PCC#@(A9+
+XMH6 #"XC@?03P$018TJ=3#[S!HB@/6_150,"<V$GE8K@)':K6'9(#L+&#=N_9
+XM( G#8"8FA<$Q)K=O>BR+P1 YW$,68@_)*5LUK.LC[Z;#AI E>T.7R(SYU*G\
+XM1_39*R#E(B@9WN1?LI#;H$<Y*I]5L)7"&.+>EY ;<X$[-!A@ TR2!); 0QZA
+XM4H2$RN*U)E)=>U9\#J^-!#= R0Z"$H =^L%.1$*LP/Q$"J9X=)P!,VPFN9&-
+XM,M:=44*$H?<Q!*SA3.H)>GLX88SX/3 ]H,M:C#'!'UDDNLPF$_$K8,-%, )P
+XMX>,@D*KQ@9[=7"@P2F))$"7N$ SQ$C+;#)9A+C02&<$I2$B\P Q/8 D\00X2
+XM"T/-\VAX1 D_C \Y^+=@T%F 0 +N-5"1?L2)I,:K"$[J9%.4J!LW.RJ)\"%E
+XM>H'V;(U*<=G&QVFQ%9BH%=Z6ZM(_HDMM61RE"@UH&#HR9WS1YG @K4IPW( <
+XM\ >QPF3$$UW"=0";A6 9_$C2JPULAFJI*%N8T"Y65% YP4'YM:48T HY1IX+
+XM?%)/8^ U*G#0E(0NVX9I*;;8.K;%3W37^KHM<Z9E%)&SQU3D@(-B#VH!X.R4
+XMAP=F@E1?T TJ8J< OH$D^*;>O*I7*0$YJ#9$$A<_$VV!/@9B#2 0;<82@4A^
+XMB0XV9:^1#Q*2^3RB=: 4%$;.3)/P!-4,2(8A>-IAG8 (GI(&%* S*8&#9D5^
+XM):33YRX$%?@6C*=0+ F'1OY*CKZS7?\!86R,> 1)YD H@1JP!).8-*$18>I6
+XM9MAT-N4[V;26L1!T9(VC-PK A70-/P$^M*26XI)X+0BP&*:24;Y@S# <=F**
+XMC(B7%63$!_:C%/@AT3"<WM,V*(-;$%@Q9LFP!^TP*'B8BE,.9T(P6">W5Y1*
+XMPK280*R'R0F?CO4[Z(#( 42Z98&HF]GU%8Q"#_09?)!_S">DT)& T)/@693,
+XM+RF9L^$D$(L3XWA.L0R\C&]TBU:">G$+B.=* L00%"C.@EY@"QF&:M"4&7?3
+XM  XG67?3*29^LF<7!ZE-!7)R]@TEG0TQM!M2WNPI(F6QLYS%_)9%\-H56"[C
+XM@?7ILE:EHLJ,X+ !&H$E\+S&H,6Z!36C-_;0)'Y&9!&)\F.1^!+^Q6M0RR\%
+XM@CQ#W:IGX6O#9):H @+L0WUD:LOG*,0G+*)5V)2;RD)PZEMH0?MG*7*$,YE@
+XMAX8H80FF\9S,PTK0@CL"C+@=E(!H DK(N1'0Q#T<2!:9(&V 6G0BQF<P4)N6
+XMM6[B8K#8'^Q1$ I&.,)4I(>WE)ANXT[9E"9BE 1%/3-D)"=\1 \EE#4RG:&Z
+XM:=+D6Y&.3XG*G,[RH'SVIDFTB9QP>G0"FD@(VPGR,$9#,J,&D(2$+FDR9XB4
+XMA0 D*L6@@8#J ;$-!$)R$XK <QH4G,BV\<4@)06WCWMXA8EJJ]DVB*@AB(0>
+XM(D$V35!:M9M@!X5.W#&++JYIXC6- F;>QD$H GB@SVR]];@'5</SZ0J#Q%'!
+XM&EO"4FPC(H0U>B2#&+&T4$""3$B0?3SI)> %R*%(. D5P!V?L3SUAO5#!42=
+XM30LYKD-#?,85<A=5THOYCTY@"B2!JQ(17E;H, _=I\BH!8#2O^8"<&L#QB1?
+XM^I:H!Y:<YKQJ%7E!M7D<%>%1:(!(:F,4;<XEQ5#G+-"5$=D+;2*;F)?EL22B
+XMR?-X*QK/U)5*X4,$-.3?RB5N@&D4HXW $B+(JO&:((0A<$'LP6 @3W?0BGVA
+XMA"5'S^"K?!4"6T;=IX]!*!VD *Y /HH*U$I3N9:YB(!\!AOC5S]PKW %$W%0
+XMLA74,(Y- SD:2KM&,OPGV1H">R0"!3VS@Q*0SUWI<?MA<&!-*M(5] CT\&W.
+XMA'.(*Z)R%X#5T@!N-^;T.8;X\D+O#'+(9(5$[#D%\A&JMD4/X42=:W/XIRCT
+XM)72#*;%E"@ 0*3BF(56R!_"I-+1KNL"6Z1(LL0Z!8S-_C!6QBN10!U8&2O")
+XMW(%B!(NCV )PP(C $Q10V &232$<BD/'N@DL IJT-#&CWII"E1D.R3%L0 8!
+XM R72!)5P4HSA9O8%O6@7@L>ITW#D\O9@KOT3;'X5UQ*?V,%QA!'U0*S@V9OQ
+X*.KKSOB'(_HG7 /8%
+X 
+Xend
+END_OF_FILE
+if test 10273 -ne `wc -c <'mrolo13/sample.Z.uu'`; then
+    echo shar: \"'mrolo13/sample.Z.uu'\" unpacked with wrong size!
+fi
+# end of 'mrolo13/sample.Z.uu'
+fi
+echo shar: End of archive 2 \(of 3\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

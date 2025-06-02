@@ -1,0 +1,2176 @@
+Newsgroups: comp.sources.misc
+From: art@cs.ualberta.ca (Art Mulder)
+Subject: v35i092:  ss - Simple Spreadsheet program, v1.2b, Part06/11
+Message-ID: <1993Feb22.152930.21625@sparky.imd.sterling.com>
+X-Md4-Signature: e45c1a9fb9505d7eb368ce6afdf0256a
+Date: Mon, 22 Feb 1993 15:29:30 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: art@cs.ualberta.ca (Art Mulder)
+Posting-number: Volume 35, Issue 92
+Archive-name: ss/part06
+Environment: curses, sunos, sysv, ultrix, sgi, dec, mips, sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  ss_12b/Makefile ss_12b/Makefile.mips ss_12b/Makefile.sgi
+#   ss_12b/pss.c
+# Wrapped by kent@sparky on Sat Feb 20 16:01:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 11)."'
+if test -f 'ss_12b/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/Makefile'\"
+else
+  echo shar: Extracting \"'ss_12b/Makefile'\" \(16608 characters\)
+  sed "s/^X//" >'ss_12b/Makefile' <<'END_OF_FILE'
+X#############################################################################
+X# Makefile $Revision: 6.21 $
+X#
+X# How to build the 'ss' package:
+X# 1) Read this Makefile, keeping an eye out for anything that appears to
+X#    have a bearing on your situation.
+X#
+X# 2) Customize these variables, to match the situation at your site:
+X#    EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID, RE_COMP/REGCMP, 
+X#    DFLT_PAGER, and FMOD. 
+X#
+X#    There are lost of other variables, but most shouldn't need to be
+X#    changed.  (If you followed #1, you probably already know that, and
+X#    have probably already changed any you think should be changed.)
+X#
+X# 3) Underneath the heading "SYSTEM DEFINES", below, there are sections
+X#    of code for many different machine/compiler/OS setups.  Select
+X#    the section that corresponds to your site, and:
+X#      (a) Uncomment it.
+X#      (b) Customize it, if needed.
+X#      (c) Ensure that all other System Defines are commented out.
+X#
+X# 4) "make"
+X#    This will build everything, but will not install it.  If you want
+X#    you can install the pieces yourself, or issue the "make install"
+X#    command.  ( "make man" will build the ss man page )
+X#
+X# 5) If you have the command 'file' that uses /etc/magic you can
+X#    add the line to /etc/magic:
+X#	38	string		Spreadsheet	sc/ss file
+X#############################################################################
+X
+X#
+X#       Commonly Changed Variables.  Modify as necessary for your site
+X#---------------------------------------------------------------------------
+X
+X# This is where the install step puts the executables.
+X# EXDIR		= /site/bin
+X  EXDIR		= /usr/local/bin
+X
+X# This is where the man page goes.
+X# MANDIR	= /usr/local/src/man/man1	# reno
+X# MANEXT	= 1				# reno
+X  MANDIR	= /usr/man/manl
+X  MANEXT	= l
+X  MANMODE	= 644
+X
+X# This is where the library file (tutorial) goes.
+X# LIBDIR	=/usr/local/share/$(name) # reno
+X  LIBDIR	= /usr/local/lib/$(name)
+X
+X# Set SIGVOID if signal routines are type void.
+X# use: SIGVOID=-DSIGVOID for:
+X#	System 5.3, SunOS 4.X, VMS, BSD4.4 (reno), and ANSI C Compliant systems
+X# use: SIGVOID=		 for:
+X#  BSD systems (excluding reno, BSD4.4), and the UNIXPC 'cc'
+X  SIGVOID	=-DSIGVOID
+X# SIGVOID	=
+X
+X# Set RE_COMP if you have the re_comp/re_exec regular expression routines
+X# (most BSD based systems do).
+X  RE_COMP	=-DRE_COMP
+X##RE_COMP	=
+X
+X# Set REGCMP if you have the regcmp/regex regular expression routines
+X# (most System V based systems do)
+X##REGCMP	=-DREGCMP
+X  REGCMP	=
+X
+X# This is the name of a pager like "more".
+X# "pg" may be appropriate for SYSV.
+X  DFLT_PAGER	=-DDFLT_PAGER=\"less\"
+X# DFLT_PAGER	=-DDFLT_PAGER=\"more\"	# generic && reno
+X
+X# If you get errors about fmod being undefined when you try to
+X# compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+X# FMOD		=-DNO_FMOD
+X  FMOD		=
+X
+X#
+X#       Variables which are NOT commonly changed.  
+X#---------------------------------------------------------------------------
+X
+X# Specify the name of the program.
+X# All documentation and installation keys on this value.
+X  name		= ss
+X  NAME		= SS
+X
+X# Set NOUNGETCH for lex.c if you don't have ungetch() in your
+X# curses library.
+X# NOUNGETCH = -DNOUNGETCH
+X  NOUNGETCH = 
+X
+X# Set SIMPLE for lex.c if you don't want arrow keys or lex.c blows up
+X  SIMPLE	=
+X# SIMPLE	=-DSIMPLE
+X
+X# Set BROKENCURSES if your curses has the nl/nonl bug
+X# if it does and you don't set BROKENCURSES, the display will
+X# be staggered across the screen. Also try IDLOKBAD below.
+X  BROKENCURSES	=
+X# BROKENCURSES	=-DBROKENCURSES
+X
+X# Set DOBACKUPS if you would like a backup copy of a source file on a save
+X# DOBACKUPS	=
+X  DOBACKUPS	=-DDOBACKUPS
+X
+X# Set INTERNATIONAL if you need 8 bit characters.  You should
+X# not set this if you are running 5.3.0.  I think it is OK in 5.3.1.
+X# INTERNATIONAL	=-DINTERNATIONAL
+X  INTERNATIONAL	=
+X
+X# Set IEEE_MATH if you need setsticky() calls in your signal handlers
+X# IEEE_MATH	=-DIEEE_MATH
+X  IEEE_MATH	=
+X
+X# Set RINT=-DRINT if you do not have rint() in math.h
+X# Set RINT=	on/with (they have rint):
+X#	SunOS 4.0.3c, 4.1.1 compiler
+X#	BSD4.4 (reno)
+X  RINT	=
+X# RINT	=-DRINT
+X
+X# this is the name to save back ups in
+X  SAVE		=-DSAVENAME=\"$(NAME).SAVE\"
+X
+X# Path to crypt, do NOT define if you don't have crypt.
+X# most systems:
+X##CRYPT		=-DCRYPT_PATH=\"/bin/crypt\"
+X# BSD:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/bin/crypt\"
+X# other people?:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/local/bin/crypt\"
+X
+X# If your system doesn't have notimeout() in curses define NONOTIMEOUT
+X  NO_NOTIMEOUT	=
+X# NO_NOTIMEOUT	=-DNONOTIMEOUT
+X
+X# flags for lint
+X  LINTFLAGS	=-abchxv
+X
+X## # Format of quick reference guide generated by $(name)qref
+X## # Leave undefined for normal text output.
+X## # QREF_FMT=
+X##   QREF_FMT=-DTROFF
+X
+X
+X# *** SPECIAL NOTES ***
+X# HP-UX 7.0: Do NOT use -O
+X#	(known broken, try sc's boolean operators if you wish)
+X#
+X# **** SYSV curses bugs... ****
+X# Try setting IDLOKBAD to fix (with an empty spreadsheet):
+X#	a) Redrawing the bottom half of the screen when you
+X#	 	move between row 9 <-> 10
+X#	b) the highlighted row labels being trash when you
+X#		move between row 9 <-> 10
+X#	c) On an xterm on Esix Rev. D+ from eating lines
+X#		 -goto (or move) a few lines (or more) past the bottom
+X#		 of the screen, goto (or move) to the top line on the
+X#		 screen, move upward and the current line is deleted, the
+X#		 others move up even when they should not, check by
+X#		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+X#	Known systems/terminfos w/ curses problems:
+X#	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+X  IDLOKISBAD	=-DIDLOKBAD
+X# IDLOKISBAD	=
+X
+X# If you don't have idlok() in your curses define NOIDLOK
+X  NO_IDLOK=
+X# NO_IDLOK=-DNOIDLOK
+X
+X# If moving right off the screen causes the screen to not redraw
+X# properly, define RIGHT_CBUG to get around a curses problem on some
+X# boxes, this forces screen redraws when going right off the screen
+X  RIGHTBUG	=
+X# RIGHTBUG	=-DRIGHT_CBUG
+X
+X# IF you have problems w/ your yacc try bison, Berkeley yacc, or
+X# some other yacc. Some systems don't allow you to
+X# increase the number of terminals (mostly AT&T), SCO's does though.
+X# NOTE: Do not use with bison 1.16! Get a new version...
+X# YACC		=yacc
+X  YACC		=bison -y
+X
+X# MS-DOS needs y_tab instead of the normal y.tab
+X# YTAB	    	=y_tab
+X  YTAB	    	=y.tab
+X
+X# Command to use to make temporary copies of some source files.
+X  LN		=ln
+X# LN		=ln -s
+X# LN		=cp
+X
+X#	SYSTEM DEFINES
+X#---------------------------------------------------------------------------
+X# Locate your System in the following ALPHABETICAL list of systems, and
+X# uncomment the defintions relating to it.  See the comments accompanying
+X# each system for further information.  
+X#
+X# **> Make sure that all other systems are commented out! <**
+X
+X# system AIX V3.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 -DCHTYPE=int -DNLS
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X
+X# BSD 4.2
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD42
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X# with gcc also use:
+X#CC		=gcc
+X
+X# BSD 4.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD43
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# Microport
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DSYSV2 -O -DUPORT -Ml
+X#LDFLAGS	=-Ml
+X#LIB		=-lm -lcurses -lPW
+X
+X# Mips (preliminary, based on System V.3 entry)
+X#- - - - - - - - - - - - - - - - - - - -
+X# On Mips use: "/usr/bsd43/bin/make"
+X# CC            = gcc
+X# CFLAGS        = -DSYSV3 -O -I/usr/include -I/usr/include/posix
+X# LDFLAGS       = -s
+X# YACC          = bison -y
+X# LIB           = -lm -lcurses -lPW
+X
+X# MS-DOS, Microsoft C 5.1 and NDMAKE
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cl
+X#CFLAGS		= -AL -O -Fo$*.o
+X#LDFLAGS	=/noi /st:0x4000
+X#LIB		=lcurses
+X#YACC		=bison -y
+X#
+X#.SUFFIXES : .o .c
+X#.c.o:
+X#	$(CC) $(CFLAGS) -c $*.c
+X
+X# SCO Unix V rel. 3.2.0
+X#- - - - - - - - - - - - - - - - - - - -
+X#       -compile using rcc, cc does not cope with gram.c
+X#       -edit /usr/include/curses.h, rcc does not understand #error
+X#       -link: make CC=cc, rcc's loader gets unresolved __cclass, __range
+X#               (rather strange,?)
+X#CC		=rcc
+X#CC		=cc
+X#CC		=gcc -fstrength-reduce
+X#SIGVOID	=-DSIGVOID
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltinfo -lPW
+X#YACC		=yacc -Sm10000
+X
+X# SCO Unix 3.2.2 and ODT 1.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cc
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -lPW -lmalloc -lc_s
+X#YACC		=yacc -Sm10000
+X
+X# Sequent boxes
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=atscc
+X#CFLAGS		=-O -DBSD42
+X#LDFLAGS	= 
+X#LIB		=-lm -lcurses  -ltermcap
+X#PSCLIB		=-lseq
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -O -DBSD42 -pipe
+X
+X# Sun Systems
+X#- - - - - - - - - - - - - - - - - - - -
+X# Use this for SunOS 4.X if you have the System V package installed.
+X# This will link with the System V curses which is preferable to the
+X# BSD curses (especially helps scrolling on slow (9600bps or less)
+X# serial lines).
+X#
+X# Be sure to define SIGVOID and RE_COMP above.
+X# 
+X# CC		= /usr/5bin/cc
+X# CFLAGS	= -O -DSYSV3 
+X# LDFLAGS	=
+X  LIB		= -lm -lcurses 
+X
+X### Try gcc 2.0
+X  CC		= /usr/gnu/bin/gcc
+X  CFLAGS	= -O -DSYSV3  -I/usr/5include
+X  LDFLAGS	= -L/usr/5lib
+X
+X# Ultrix Systems (preliminary - Ultrix V4.2a, Rev. 47)
+X#- - - - - - - - - - - - - - - - - - - -
+X# The following comments came with `sc'.
+X#       # For ULTRIX: define the BSD4.2 section and SIGVOID above
+X#       #   tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+X# I'm not _quite_ listening to them.  Specifically: I use gcc and am
+X# using the System V curses -- cursesX -- in Ultrix.  Art Mulder
+X# CC            = /usr/gnu/bin/gcc
+X# CFLAGS        = -O -DULTRIX
+X# LIB           = -lm -lcursesX
+X# LDFLAGS       =
+X
+X# system V.2 (includes: HP-UX 7.05, UNIXPC)
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X# with gcc on a Sequent also use:
+X#CC		=att gcc
+X#CFLAGS		=  -DSYSV2 -g -pipe -traditional
+X
+X# system V.3
+X#- - - - - - - - - - - - - - - - - - - -
+X##CFLAGS	=  -DSYSV3 -O
+X##LDFLAGS	= -s
+X##CFLAGS	=  -DSYSV3 -g
+X##LDFLAGS	= -g
+X##LIB		=-lm -lcurses -lPW
+X
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -DSYSV3 -O -pipe -traditional
+X#YACC		=bison -y
+X# debugging bison (bison 1.16 is broken)
+X#CFLAGS=  -DSYSV3 -g -pipe -traditional
+X#YACC=bison -y -v -t -l
+X
+X
+X# system V.4
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		=  -DSYSV4 -DSYSV3 -O
+X#LDFLAGS	= -s
+X#LIB		=-lm -lcurses -lgen
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		=  -DSYSV3 -O -pipe
+X
+X# VENIX
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DVENIX -DBSD42 -DV7
+X#LDFLAGS	= -z -i 
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX Version 2.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII -DXENIX2_3
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX system III 
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X#
+X#       Some Definitions used in compiling/installing
+X#---------------------------------------------------------------------------
+X
+X# All of the source files
+XSRC=Makefile cmds.c crypt.c eres.sed format.c gram.y interp.c \
+X	lex.c pss.c range.c ss.c ss.h screen.c sres.sed version.c \
+X	vmtbl.c xmalloc.c ctrl.c disprange.c getinput.c \
+X    	menu.c menu_file.c menu_edit.c menu_cell.c menu_rowcol.c \
+X    	menu_name.c menu_misc.c menu_macro.c help.c
+X
+X# The objects
+XOBJS=cmds.o crypt.o format.o gram.o interp.o lex.o range.o ss.o \
+X	screen.o version.o vmtbl.o xmalloc.o ctrl.o \
+X        disprange.o getinput.o \
+X	menu.o menu_file.o menu_edit.o menu_cell.o menu_rowcol.o \
+X	menu_name.o menu_misc.o menu_macro.o help.o
+X
+X# The documents in the Archive
+XDOCS=README ss.man pss.doc VMS_NOTES torev build.com
+X
+X
+X#   	MAIN MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+X# Default Make Target:  Make ``ss'' and ``pss''.
+X# Nothing is installed.
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xall:	$(name) p$(name) 
+X
+X
+X# Make ``ss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X$(name):$(PAR) 	$(OBJS)
+X	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+X
+X# Alternative link for MS-DOS
+X# $(name): 	$(OBJS)
+X#	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+X
+X
+X# Make ``pss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xp$(name):	pss.c pvmtbl.o pxmalloc.o
+X	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) pss.c pvmtbl.o pxmalloc.o ${PSCLIB}
+X
+X# Alternative link for MS-DOS (NB: MSC 5.1 has no getopt.c)
+X# p$(name):    pss.o pvmtbl.o pxmalloc.o getopt.o
+X#     link ${LDFLAGS} pss.o pvmtbl.o pxmalloc.o getopt.o,p$(name);
+X
+X# Documentation
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X# 1) convert ``ss.man'' to ``ss.l''
+X#	- replace all occurances of ``pname'' with ``ss'' (or whatever
+X#	  the NAME is above)
+X#	- insert the proper revision number
+X
+Xman:	ss.man
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev ss.man > $(name).$(MANEXT)
+X 
+X
+X# - Do the same for ``pss.doc''
+Xpman:	pss.doc
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev pss.doc > p$(name).$(MANEXT)
+X 
+X 
+X#  	Make Install
+X#---------------------------------------------------------------------------
+X
+Xinstall: $(EXDIR)/$(name) $(EXDIR)/p$(name) \
+X	 $(MANDIR)/$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X
+X$(EXDIR)/$(name): $(name)
+X	cp $(name) $(EXDIR)
+X	strip $(EXDIR)/$(name)
+X
+X$(EXDIR)/p$(name): p$(name)
+X	cp p$(name) $(EXDIR)
+X	strip $(EXDIR)/p$(name)
+X
+X$(MANDIR)/$(name).$(MANEXT): man
+X	cp $(name).$(MANEXT) $(MANDIR)/$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/$(name).$(MANEXT)
+X
+X$(MANDIR)/p$(name).$(MANEXT): pman
+X	cp p$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/p$(name).$(MANEXT)
+X
+X
+X# 	SUPPLEMENTARY MAKE TARGETS
+X#---------------------------------------------------------------------------
+X# (These are usually not made directly themselves)
+X
+X
+X# ``ss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xgram.c:	gram.y
+X	$(YACC) -d gram.y
+X	mv $(YTAB).c gram.c
+X
+X$(YTAB).h:	gram.y
+X
+Xcmds.o: cmds.c ss.h
+X	$(CC) ${CFLAGS} ${DOBACKUPS} ${CRYPT} -c cmds.c
+X
+Xcrypt.o: crypt.c ss.h
+X	$(CC) ${CFLAGS} ${CRYPT} ${DOBACKUPS} -c crypt.c
+X
+Xformat.o: format.c
+X
+Xinterp.o:	interp.c ss.h
+X	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+X
+Xgram.o:	ss.h $(YTAB).h gram.c
+X	$(CC) ${CFLAGS} -c gram.c
+X	sed < gram.y > experres.h -f eres.sed
+X	sed < gram.y > statres.h -f sres.sed
+X
+Xlex.o:	ss.h $(YTAB).h gram.o lex.c
+X	$(CC) ${CFLAGS} ${NOUNGETCH} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NONOTIMEOUT} -c lex.c
+X
+Xrange.o: range.c ss.h
+X
+Xss.o:	ss.h ss.c menu.h disprange.h ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} $(RIGHTBUG) ${SIGVOID} ${SAVE} -c ss.c
+X
+Xdisprange.o:	ss.h disprange.c ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c disprange.c
+X
+Xmenu.o:	ss.h menu.c ctrl.h menu_file.h menu_edit.h menu_cell.h\
+X    menu_rowcol.h menu_name.h menu_misc.h menu_macro.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu.c
+X
+Xmenu_file.o:	ss.h menu_file.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_file.c
+X
+Xmenu_edit.o:	ss.h menu_edit.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_edit.c
+X
+Xmenu_cell.o:	ss.h menu_cell.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_cell.c
+X
+Xmenu_rowcol.o:	ss.h menu_rowcol.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_rowcol.c
+X
+Xmenu_misc.o:	ss.h menu_misc.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_misc.c
+X
+Xmenu_macro.o:	ss.h menu_macro.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_macro.c
+X
+Xmenu_name.o:	ss.h menu_name.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_name.c
+X
+Xgetinput.o:	ss.h getinput.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c getinput.c
+X
+Xctrl.o:	ss.h ctrl.c ctrl.h menu.h disprange.h menu_cell.h menu_misc.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c ctrl.c
+X
+Xscreen.o:	ss.h screen.c
+X	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKISBAD} ${INTERNATIONAL} ${RIGHTBUG} ${SIGVOID} -c screen.c
+X
+Xhelp.o: ss.h help.c
+X	$(CC) ${CFLAGS} -c help.c
+X
+X
+X# ``pss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xpvmtbl.c: vmtbl.c
+X	-rm -f pvmtbl.c
+X	${LN} vmtbl.c pvmtbl.c
+X
+Xpvmtbl.o: ss.h pvmtbl.c
+X	$(CC) ${CFLAGS} -c -DPSC pvmtbl.c
+X
+Xpxmalloc.c: xmalloc.c
+X	-rm -f pxmalloc.c
+X	${LN} xmalloc.c pxmalloc.c
+X
+Xpxmalloc.o: ss.h pxmalloc.c
+X	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+X
+X
+X# 	OTHER MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+Xclean:
+X	rm -f *.o *res.h $(YTAB).h debug core gram.c $(name).$(MANEXT) \
+X	$(name).$(MANEXT) p$(name).man p$(name).$(MANEXT) y.output \
+X	pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+X
+Xspotless: clean
+X	rm -f $(name) p$(name) 
+X
+X#---------------------------------------------------------------------------
+X#       end
+END_OF_FILE
+  if test 16608 -ne `wc -c <'ss_12b/Makefile'`; then
+    echo shar: \"'ss_12b/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/Makefile'
+fi
+if test -f 'ss_12b/Makefile.mips' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/Makefile.mips'\"
+else
+  echo shar: Extracting \"'ss_12b/Makefile.mips'\" \(16584 characters\)
+  sed "s/^X//" >'ss_12b/Makefile.mips' <<'END_OF_FILE'
+X#############################################################################
+X# Makefile $Revision: 6.21 $
+X#
+X# How to build the 'ss' package:
+X# 1) Read this Makefile, keeping an eye out for anything that appears to
+X#    have a bearing on your situation.
+X#
+X# 2) Customize these variables, to match the situation at your site:
+X#    EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID, RE_COMP/REGCMP, 
+X#    DFLT_PAGER, and FMOD. 
+X#
+X#    There are lost of other variables, but most shouldn't need to be
+X#    changed.  (If you followed #1, you probably already know that, and
+X#    have probably already changed any you think should be changed.)
+X#
+X# 3) Underneath the heading "SYSTEM DEFINES", below, there are sections
+X#    of code for many different machine/compiler/OS setups.  Select
+X#    the section that corresponds to your site, and:
+X#      (a) Uncomment it.
+X#      (b) Customize it, if needed.
+X#      (c) Ensure that all other System Defines are commented out.
+X#
+X# 4) "make"
+X#    This will build everything, but will not install it.  If you want
+X#    you can install the pieces yourself, or issue the "make install"
+X#    command.
+X#
+X# 4) If you have the command 'file' that uses /etc/magic you can
+X#    add the line:
+X#	38	string		Spreadsheet	sc/ss file
+X#############################################################################
+X
+X#
+X#       Commonly Changed Variables.  Modify as necessary for your site
+X#---------------------------------------------------------------------------
+X
+X# This is where the install step puts the executables.
+X# EXDIR		= /site/bin
+X  EXDIR		= /usr/local/bin
+X
+X# This is where the man page goes.
+X# MANDIR	= /usr/local/src/man/man1	# reno
+X# MANEXT	= 1				# reno
+X  MANDIR	= /usr/man/l_man/manl
+X  MANEXT	= l
+X  MANMODE	= 644
+X
+X# This is where the library file (tutorial) goes.
+X# LIBDIR	=/usr/local/share/$(name) # reno
+X  LIBDIR	= /usr/local/lib/$(name)
+X
+X# Set SIGVOID if signal routines are type void.
+X# use: SIGVOID=-DSIGVOID for:
+X#	System 5.3, SunOS 4.X, VMS, BSD4.4 (reno), and ANSI C Compliant systems
+X# use: SIGVOID=		 for:
+X#  BSD systems (excluding reno, BSD4.4), and the UNIXPC 'cc'
+X  SIGVOID	=-DSIGVOID
+X# SIGVOID	=
+X
+X# Set RE_COMP if you have the re_comp/re_exec regular expression routines
+X# (most BSD based systems do).
+X# RE_COMP	=-DRE_COMP
+X  RE_COMP	=
+X
+X# Set REGCMP if you have the regcmp/regex regular expression routines
+X# (most System V based systems do)
+X# REGCMP	=-DREGCMP
+X  REGCMP	=
+X
+X# This is the name of a pager like "more".
+X# "pg" may be appropriate for SYSV.
+X  DFLT_PAGER	=-DDFLT_PAGER=\"less\"
+X# DFLT_PAGER	=-DDFLT_PAGER=\"more\"	# generic && reno
+X
+X# If you get errors about fmod being undefined when you try to
+X# compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+X# FMOD		=-DNO_FMOD
+X  FMOD		=
+X
+X#
+X#       Variables which are NOT commonly changed.  
+X#---------------------------------------------------------------------------
+X
+X# Specify the name of the program.
+X# All documentation and installation keys on this value.
+X  name		= ss
+X  NAME		= SS
+X
+X# Set NOUNGETCH for lex.c if you don't have ungetch() in your
+X# curses library.
+X# NOUNGETCH = -DNOUNGETCH
+X  NOUNGETCH = 
+X
+X# Set SIMPLE for lex.c if you don't want arrow keys or lex.c blows up
+X  SIMPLE	=
+X# SIMPLE	=-DSIMPLE
+X
+X# Set BROKENCURSES if your curses has the nl/nonl bug
+X# if it does and you don't set BROKENCURSES, the display will
+X# be staggered across the screen. Also try IDLOKBAD below.
+X  BROKENCURSES	=
+X# BROKENCURSES	=-DBROKENCURSES
+X
+X# Set DOBACKUPS if you would like a backup copy of a source file on a save
+X# DOBACKUPS	=
+X  DOBACKUPS	=-DDOBACKUPS
+X
+X# Set INTERNATIONAL if you need 8 bit characters.  You should
+X# not set this if you are running 5.3.0.  I think it is OK in 5.3.1.
+X# INTERNATIONAL	=-DINTERNATIONAL
+X  INTERNATIONAL	=
+X
+X# Set IEEE_MATH if you need setsticky() calls in your signal handlers
+X# IEEE_MATH	=-DIEEE_MATH
+X  IEEE_MATH	=
+X
+X# Set RINT=-DRINT if you do not have rint() in math.h
+X# Set RINT=	on/with (they have rint):
+X#	SunOS 4.0.3c, 4.1.1 compiler
+X#	BSD4.4 (reno)
+X  RINT	=
+X# RINT	=-DRINT
+X
+X# this is the name to save back ups in
+X  SAVE		=-DSAVENAME=\"$(NAME).SAVE\"
+X
+X# Path to crypt, do NOT define if you don't have crypt.
+X# most systems:
+X##CRYPT		=-DCRYPT_PATH=\"/bin/crypt\"
+X# BSD:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/bin/crypt\"
+X# other people?:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/local/bin/crypt\"
+X
+X# If your system doesn't have notimeout() in curses define NONOTIMEOUT
+X  NO_NOTIMEOUT	=
+X# NO_NOTIMEOUT	=-DNONOTIMEOUT
+X
+X# flags for lint
+X  LINTFLAGS	=-abchxv
+X
+X## # Format of quick reference guide generated by $(name)qref
+X## # Leave undefined for normal text output.
+X## # QREF_FMT=
+X##   QREF_FMT=-DTROFF
+X
+X
+X# *** SPECIAL NOTES ***
+X# HP-UX 7.0: Do NOT use -O
+X#	(known broken, try sc's boolean operators if you wish)
+X#
+X# **** SYSV curses bugs... ****
+X# Try setting IDLOKBAD to fix (with an empty spreadsheet):
+X#	a) Redrawing the bottom half of the screen when you
+X#	 	move between row 9 <-> 10
+X#	b) the highlighted row labels being trash when you
+X#		move between row 9 <-> 10
+X#	c) On an xterm on Esix Rev. D+ from eating lines
+X#		 -goto (or move) a few lines (or more) past the bottom
+X#		 of the screen, goto (or move) to the top line on the
+X#		 screen, move upward and the current line is deleted, the
+X#		 others move up even when they should not, check by
+X#		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+X#	Known systems/terminfos w/ curses problems:
+X#	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+X  IDLOKISBAD	=-DIDLOKBAD
+X# IDLOKISBAD	=
+X
+X# If you don't have idlok() in your curses define NOIDLOK
+X  NO_IDLOK=
+X# NO_IDLOK=-DNOIDLOK
+X
+X# If moving right off the screen causes the screen to not redraw
+X# properly, define RIGHT_CBUG to get around a curses problem on some
+X# boxes, this forces screen redraws when going right off the screen
+X  RIGHTBUG	=
+X# RIGHTBUG	=-DRIGHT_CBUG
+X
+X# IF you have problems w/ your yacc try bison, Berkeley yacc, or
+X# some other yacc. Some systems don't allow you to
+X# increase the number of terminals (mostly AT&T), SCO's does though.
+X# NOTE: Do not use with bison 1.16! Get a new version...
+X# YACC		=yacc
+X  YACC		=bison -y
+X
+X# MS-DOS needs y_tab instead of the normal y.tab
+X# YTAB	    	=y_tab
+X  YTAB	    	=y.tab
+X
+X# Command to use to make temporary copies of some source files.
+X  LN		=ln
+X# LN		=ln -s
+X# LN		=cp
+X
+X#	SYSTEM DEFINES
+X#---------------------------------------------------------------------------
+X# Locate your System in the following ALPHABETICAL list of systems, and
+X# uncomment the defintions relating to it.  See the comments accompanying
+X# each system for further information.  
+X#
+X# **> Make sure that all other systems are commented out! <**
+X
+X# system AIX V3.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 -DCHTYPE=int -DNLS
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X
+X# BSD 4.2
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD42
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X# with gcc also use:
+X#CC		=gcc
+X
+X# BSD 4.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD43
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# Microport
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DSYSV2 -O -DUPORT -Ml
+X#LDFLAGS	=-Ml
+X#LIB		=-lm -lcurses -lPW
+X
+X# Mips (preliminary, based on System V.3 entry)
+X#- - - - - - - - - - - - - - - - - - - -
+X# On Mips use: "/usr/bsd43/bin/make"
+X# CC		= gcc
+X  CC		= cc
+X  CFLAGS	= -DSYSV3 -O -I/usr/include -I/usr/include/posix
+X  LDFLAGS	= -s
+X  YACC		= bison -y
+X  LIB		= -lm -lcurses -lPW
+X
+X# MS-DOS, Microsoft C 5.1 and NDMAKE
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cl
+X#CFLAGS		= -AL -O -Fo$*.o
+X#LDFLAGS	=/noi /st:0x4000
+X#LIB		=lcurses
+X#YACC		=bison -y
+X#
+X#.SUFFIXES : .o .c
+X#.c.o:
+X#	$(CC) $(CFLAGS) -c $*.c
+X
+X# SCO Unix V rel. 3.2.0
+X#- - - - - - - - - - - - - - - - - - - -
+X#       -compile using rcc, cc does not cope with gram.c
+X#       -edit /usr/include/curses.h, rcc does not understand #error
+X#       -link: make CC=cc, rcc's loader gets unresolved __cclass, __range
+X#               (rather strange,?)
+X#CC		=rcc
+X#CC		=cc
+X#CC		=gcc -fstrength-reduce
+X#SIGVOID	=-DSIGVOID
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltinfo -lPW
+X#YACC		=yacc -Sm10000
+X
+X# SCO Unix 3.2.2 and ODT 1.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cc
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -lPW -lmalloc -lc_s
+X#YACC		=yacc -Sm10000
+X
+X# Sequent boxes
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=atscc
+X#CFLAGS		=-O -DBSD42
+X#LDFLAGS	= 
+X#LIB		=-lm -lcurses  -ltermcap
+X#PSCLIB		=-lseq
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -O -DBSD42 -pipe
+X
+X# Sun Systems
+X#- - - - - - - - - - - - - - - - - - - -
+X# Use this for SunOS 4.X if you have the System V package installed.
+X# This will link with the System V curses which is preferable to the
+X# BSD curses (especially helps scrolling on slow (9600bps or less)
+X# serial lines).
+X#
+X# Be sure to define SIGVOID and RE_COMP above.
+X# 
+X# CC		= /usr/5bin/cc
+X# CFLAGS	= -O -DSYSV3 
+X# LDFLAGS	=
+X# LIB		= -lm -lcurses 
+X
+X### Try gcc 2.0
+X# CC		= /usr/gnu/bin/gcc
+X# CFLAGS	= -O -DSYSV3  -I/usr/5include
+X# LDFLAGS	= -L/usr/5lib
+X
+X# Ultrix Systems (preliminary - Ultrix V4.2a, Rev. 47)
+X#- - - - - - - - - - - - - - - - - - - -
+X# The following comments came with `sc'.
+X#       # For ULTRIX: define the BSD4.2 section and SIGVOID above
+X#       #   tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+X# I'm not _quite_ listening to them.  Specifically: I use gcc and am
+X# using the System V curses -- cursesX -- in Ultrix.  Art Mulder
+X# CC            = /usr/gnu/bin/gcc
+X# CFLAGS        = -O -DULTRIX
+X# LIB           = -lm -lcursesX
+X# LDFLAGS       =
+X
+X
+X# system V.2 (includes: HP-UX 7.05, UNIXPC)
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X# with gcc on a Sequent also use:
+X#CC		=att gcc
+X#CFLAGS		=  -DSYSV2 -g -pipe -traditional
+X
+X# system V.3
+X#- - - - - - - - - - - - - - - - - - - -
+X##CFLAGS	=  -DSYSV3 -O
+X# LDFLAGS	= -s
+X##CFLAGS	=  -DSYSV3 -g
+X##LDFLAGS	= -g
+X# LIB		=-lm -lcurses -lPW
+X
+X# with gcc also use:
+X# CC		= gcc
+X# CFLAGS	= -DSYSV3 -O -pipe -traditional
+X# YACC		= bison -y
+X# debugging bison (bison 1.16 is broken)
+X#CFLAGS=  -DSYSV3 -g -pipe -traditional
+X#YACC=bison -y -v -t -l
+X
+X
+X# system V.4
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		=  -DSYSV4 -DSYSV3 -O
+X#LDFLAGS	= -s
+X#LIB		=-lm -lcurses -lgen
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		=  -DSYSV3 -O -pipe
+X
+X# VENIX
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DVENIX -DBSD42 -DV7
+X#LDFLAGS	= -z -i 
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX Version 2.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII -DXENIX2_3
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX system III 
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X#
+X#       Some Definitions used in compiling/installing
+X#---------------------------------------------------------------------------
+X
+X# All of the source files
+XSRC=Makefile cmds.c crypt.c eres.sed format.c gram.y interp.c \
+X	lex.c pss.c range.c ss.c ss.h screen.c sres.sed version.c \
+X	vmtbl.c xmalloc.c ctrl.c disprange.c getinput.c \
+X    	menu.c menu_file.c menu_edit.c menu_cell.c menu_rowcol.c \
+X    	menu_name.c menu_misc.c menu_macro.c help.c
+X
+X# The objects
+XOBJS=cmds.o crypt.o format.o gram.o interp.o lex.o range.o ss.o \
+X	screen.o version.o vmtbl.o xmalloc.o ctrl.o \
+X        disprange.o getinput.o \
+X	menu.o menu_file.o menu_edit.o menu_cell.o menu_rowcol.o \
+X	menu_name.o menu_misc.o menu_macro.o help.o
+X
+X# The documents in the Archive
+XDOCS=README ss.man pss.doc VMS_NOTES torev build.com
+X
+X
+X#   	MAIN MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+X# Default Make Target:  Make ``ss'' and ``pss''.
+X# Nothing is installed.
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xall:	$(name) p$(name) 
+X
+X
+X# Make ``ss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X$(name):$(PAR) 	$(OBJS)
+X	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+X
+X# Alternative link for MS-DOS
+X# $(name): 	$(OBJS)
+X#	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+X
+X
+X# Make ``pss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xp$(name):	pss.c pvmtbl.o pxmalloc.o
+X	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) pss.c pvmtbl.o pxmalloc.o ${PSCLIB}
+X
+X# Alternative link for MS-DOS (NB: MSC 5.1 has no getopt.c)
+X# p$(name):    pss.o pvmtbl.o pxmalloc.o getopt.o
+X#     link ${LDFLAGS} pss.o pvmtbl.o pxmalloc.o getopt.o,p$(name);
+X
+X# Documentation
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X# 1) convert ``ss.man'' to ``ss.l''
+X#	- replace all occurances of ``pname'' with ``ss'' (or whatever
+X#	  the NAME is above)
+X#	- insert the proper revision number
+X
+Xman:	ss.man
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev ss.man > $(name).$(MANEXT)
+X 
+X
+X# - Do the same for ``pss.doc''
+Xpman:	pss.doc
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev pss.doc > p$(name).$(MANEXT)
+X 
+X 
+X#  	Make Install
+X#---------------------------------------------------------------------------
+X
+Xinstall: $(EXDIR)/$(name) $(EXDIR)/p$(name) \
+X	 $(MANDIR)/$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X
+X$(EXDIR)/$(name): $(name)
+X	cp $(name) $(EXDIR)
+X	strip $(EXDIR)/$(name)
+X
+X$(EXDIR)/p$(name): p$(name)
+X	cp p$(name) $(EXDIR)
+X	strip $(EXDIR)/p$(name)
+X
+X$(MANDIR)/$(name).$(MANEXT): man
+X	cp $(name).$(MANEXT) $(MANDIR)/$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/$(name).$(MANEXT)
+X
+X$(MANDIR)/p$(name).$(MANEXT): pman
+X	cp p$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/p$(name).$(MANEXT)
+X
+X
+X# 	SUPPLEMENTARY MAKE TARGETS
+X#---------------------------------------------------------------------------
+X# (These are usually not made directly themselves)
+X
+X
+X# ``ss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xgram.c:	gram.y
+X	$(YACC) -d gram.y
+X	mv $(YTAB).c gram.c
+X
+X$(YTAB).h:	gram.y
+X
+Xcmds.o: cmds.c ss.h
+X	$(CC) ${CFLAGS} ${DOBACKUPS} ${CRYPT} -c cmds.c
+X
+Xcrypt.o: crypt.c ss.h
+X	$(CC) ${CFLAGS} ${CRYPT} ${DOBACKUPS} -c crypt.c
+X
+Xformat.o: format.c
+X
+Xinterp.o:	interp.c ss.h
+X	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+X
+X# default sed (gnu sed) dies on the mips
+Xgram.o:	ss.h $(YTAB).h gram.c
+X	$(CC) ${CFLAGS} -c gram.c
+X	/bin/sed < gram.y > experres.h -f eres.sed
+X	/bin/sed < gram.y > statres.h -f sres.sed
+X
+Xlex.o:	ss.h $(YTAB).h gram.o lex.c
+X	$(CC) ${CFLAGS} ${NOUNGETCH} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NONOTIMEOUT} -c lex.c
+X
+Xrange.o: range.c ss.h
+X
+Xss.o:	ss.h ss.c menu.h disprange.h ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} $(RIGHTBUG) ${SIGVOID} ${SAVE} -c ss.c
+X
+Xdisprange.o:	ss.h disprange.c ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c disprange.c
+X
+Xmenu.o:	ss.h menu.c ctrl.h menu_file.h menu_edit.h menu_cell.h\
+X    menu_rowcol.h menu_name.h menu_misc.h menu_macro.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu.c
+X
+Xmenu_file.o:	ss.h menu_file.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_file.c
+X
+Xmenu_edit.o:	ss.h menu_edit.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_edit.c
+X
+Xmenu_cell.o:	ss.h menu_cell.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_cell.c
+X
+Xmenu_rowcol.o:	ss.h menu_rowcol.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_rowcol.c
+X
+Xmenu_misc.o:	ss.h menu_misc.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_misc.c
+X
+Xmenu_macro.o:	ss.h menu_macro.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_macro.c
+X
+Xmenu_name.o:	ss.h menu_name.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_name.c
+X
+Xgetinput.o:	ss.h getinput.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c getinput.c
+X
+Xctrl.o:	ss.h ctrl.c ctrl.h menu.h disprange.h menu_cell.h menu_misc.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c ctrl.c
+X
+Xscreen.o:	ss.h screen.c
+X	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKISBAD} ${INTERNATIONAL} ${RIGHTBUG} ${SIGVOID} -c screen.c
+X
+Xhelp.o: ss.h help.c
+X	$(CC) ${CFLAGS} -c help.c
+X
+X
+X# ``pss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xpvmtbl.c: vmtbl.c
+X	-rm -f pvmtbl.c
+X	${LN} vmtbl.c pvmtbl.c
+X
+Xpvmtbl.o: ss.h pvmtbl.c
+X	$(CC) ${CFLAGS} -c -DPSC pvmtbl.c
+X
+Xpxmalloc.c: xmalloc.c
+X	-rm -f pxmalloc.c
+X	${LN} xmalloc.c pxmalloc.c
+X
+Xpxmalloc.o: ss.h pxmalloc.c
+X	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+X
+X
+X# 	OTHER MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+Xclean:
+X	rm -f *.o *res.h $(YTAB).h debug core gram.c $(name).$(MANEXT) \
+X	$(name).$(MANEXT) p$(name).man p$(name).$(MANEXT) y.output \
+X	pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+X
+Xspotless: clean
+X	rm -f $(name) p$(name) 
+X
+X#---------------------------------------------------------------------------
+X#       end
+END_OF_FILE
+  if test 16584 -ne `wc -c <'ss_12b/Makefile.mips'`; then
+    echo shar: \"'ss_12b/Makefile.mips'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/Makefile.mips'
+fi
+if test -f 'ss_12b/Makefile.sgi' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/Makefile.sgi'\"
+else
+  echo shar: Extracting \"'ss_12b/Makefile.sgi'\" \(16755 characters\)
+  sed "s/^X//" >'ss_12b/Makefile.sgi' <<'END_OF_FILE'
+X#############################################################################
+X# Makefile $Revision: 6.21 $
+X#
+X# How to build the 'ss' package:
+X# 1) Read this Makefile, keeping an eye out for anything that appears to
+X#    have a bearing on your situation.
+X#
+X# 2) Customize these variables, to match the situation at your site:
+X#    EXDIR (path), MANDIR, MANEXT, LIBDIR, SIGVOID, RE_COMP/REGCMP, 
+X#    DFLT_PAGER, and FMOD. 
+X#
+X#    There are lost of other variables, but most shouldn't need to be
+X#    changed.  (If you followed #1, you probably already know that, and
+X#    have probably already changed any you think should be changed.)
+X#
+X# 3) Underneath the heading "SYSTEM DEFINES", below, there are sections
+X#    of code for many different machine/compiler/OS setups.  Select
+X#    the section that corresponds to your site, and:
+X#      (a) Uncomment it.
+X#      (b) Customize it, if needed.
+X#      (c) Ensure that all other System Defines are commented out.
+X#
+X# 4) "make"
+X#    This will build everything, but will not install it.  If you want
+X#    you can install the pieces yourself, or issue the "make install"
+X#    command.  ( "make man" will build the ss man page )
+X#
+X# 5) If you have the command 'file' that uses /etc/magic you can
+X#    add the line to /etc/magic:
+X#	38	string		Spreadsheet	sc/ss file
+X#############################################################################
+X
+X#
+X#       Commonly Changed Variables.  Modify as necessary for your site
+X#---------------------------------------------------------------------------
+X
+X# This is where the install step puts the executables.
+X# EXDIR		= /site/bin
+X  EXDIR		= /usr/local/bin
+X
+X# This is where the man page goes.
+X# MANDIR	= /usr/local/src/man/man1	# reno
+X# MANEXT	= 1				# reno
+X  MANDIR	= /usr/man/manl
+X  MANEXT	= l
+X  MANMODE	= 644
+X
+X# This is where the library file (tutorial) goes.
+X# LIBDIR	=/usr/local/share/$(name) # reno
+X  LIBDIR	= /usr/local/lib/$(name)
+X
+X# Set SIGVOID if signal routines are type void.
+X# use: SIGVOID=-DSIGVOID for:
+X#	System 5.3, SunOS 4.X, VMS, BSD4.4 (reno), and ANSI C Compliant systems
+X# use: SIGVOID=		 for:
+X#  BSD systems (excluding reno, BSD4.4), and the UNIXPC 'cc'
+X  SIGVOID	=-DSIGVOID
+X# SIGVOID	=
+X
+X# Set RE_COMP if you have the re_comp/re_exec regular expression routines
+X# (most BSD based systems do).
+X  RE_COMP	=-DRE_COMP
+X##RE_COMP	=
+X
+X# Set REGCMP if you have the regcmp/regex regular expression routines
+X# (most System V based systems do)
+X# REGCMP	=-DREGCMP
+X  REGCMP	=
+X
+X# This is the name of a pager like "more".
+X# "pg" may be appropriate for SYSV.
+X  DFLT_PAGER	=-DDFLT_PAGER=\"less\"
+X# DFLT_PAGER	=-DDFLT_PAGER=\"more\"	# generic && reno
+X
+X# If you get errors about fmod being undefined when you try to
+X# compile, then define NO_FMOD (most likely BSD4.3 and Mt Xinu).
+X  FMOD		=-DNO_FMOD
+X# FMOD		=
+X
+X#
+X#       Variables which are NOT commonly changed.  
+X#---------------------------------------------------------------------------
+X
+X# Specify the name of the program.
+X# All documentation and installation keys on this value.
+X  name		= ss
+X  NAME		= SS
+X
+X# Set NOUNGETCH for lex.c if you don't have ungetch() in your
+X# curses library.
+X# NOUNGETCH = -DNOUNGETCH
+X  NOUNGETCH = 
+X
+X# Set SIMPLE for lex.c if you don't want arrow keys or lex.c blows up
+X  SIMPLE	=
+X# SIMPLE	=-DSIMPLE
+X
+X# Set BROKENCURSES if your curses has the nl/nonl bug
+X# if it does and you don't set BROKENCURSES, the display will
+X# be staggered across the screen. Also try IDLOKBAD below.
+X  BROKENCURSES	=
+X# BROKENCURSES	=-DBROKENCURSES
+X
+X# Set DOBACKUPS if you would like a backup copy of a source file on a save
+X# DOBACKUPS	=
+X  DOBACKUPS	=-DDOBACKUPS
+X
+X# Set INTERNATIONAL if you need 8 bit characters.  You should
+X# not set this if you are running 5.3.0.  I think it is OK in 5.3.1.
+X# INTERNATIONAL	=-DINTERNATIONAL
+X  INTERNATIONAL	=
+X
+X# Set IEEE_MATH if you need setsticky() calls in your signal handlers
+X# IEEE_MATH	=-DIEEE_MATH
+X  IEEE_MATH	=
+X
+X# Set RINT=-DRINT if you do not have rint() in math.h
+X# Set RINT=	on/with (they have rint):
+X#	SunOS 4.0.3c, 4.1.1 compiler
+X#	BSD4.4 (reno)
+X  RINT	=
+X# RINT	=-DRINT
+X
+X# this is the name to save back ups in
+X  SAVE		=-DSAVENAME=\"$(NAME).SAVE\"
+X
+X# Path to crypt, do NOT define if you don't have crypt.
+X# most systems:
+X##CRYPT		=-DCRYPT_PATH=\"/bin/crypt\"
+X# BSD:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/bin/crypt\"
+X# other people?:
+X# CRYPT		=-DCRYPT_PATH=\"/usr/local/bin/crypt\"
+X
+X# If your system doesn't have notimeout() in curses define NONOTIMEOUT
+X  NO_NOTIMEOUT	=
+X# NO_NOTIMEOUT	=-DNONOTIMEOUT
+X
+X# flags for lint
+X  LINTFLAGS	=-abchxv
+X
+X## # Format of quick reference guide generated by $(name)qref
+X## # Leave undefined for normal text output.
+X## # QREF_FMT=
+X##   QREF_FMT=-DTROFF
+X
+X
+X# *** SPECIAL NOTES ***
+X# HP-UX 7.0: Do NOT use -O
+X#	(known broken, try sc's boolean operators if you wish)
+X#
+X# **** SYSV curses bugs... ****
+X# Try setting IDLOKBAD to fix (with an empty spreadsheet):
+X#	a) Redrawing the bottom half of the screen when you
+X#	 	move between row 9 <-> 10
+X#	b) the highlighted row labels being trash when you
+X#		move between row 9 <-> 10
+X#	c) On an xterm on Esix Rev. D+ from eating lines
+X#		 -goto (or move) a few lines (or more) past the bottom
+X#		 of the screen, goto (or move) to the top line on the
+X#		 screen, move upward and the current line is deleted, the
+X#		 others move up even when they should not, check by
+X#		 noticing the rows become 2, 3, 40, 41, 42... (etc).
+X#	Known systems/terminfos w/ curses problems:
+X#	{Esix Rev. D+, AT&T SysV3.2.1}:at386-m,xterm, HP-UX7.0:(not sure)
+X  IDLOKISBAD	=-DIDLOKBAD
+X# IDLOKISBAD	=
+X
+X# If you don't have idlok() in your curses define NOIDLOK
+X  NO_IDLOK=
+X# NO_IDLOK=-DNOIDLOK
+X
+X# If moving right off the screen causes the screen to not redraw
+X# properly, define RIGHT_CBUG to get around a curses problem on some
+X# boxes, this forces screen redraws when going right off the screen
+X  RIGHTBUG	=
+X# RIGHTBUG	=-DRIGHT_CBUG
+X
+X# IF you have problems w/ your yacc try bison, Berkeley yacc, or
+X# some other yacc. Some systems don't allow you to
+X# increase the number of terminals (mostly AT&T), SCO's does though.
+X# NOTE: Do not use with bison 1.16! Get a new version...
+X# YACC		=yacc
+X  YACC		=bison -y
+X
+X# MS-DOS needs y_tab instead of the normal y.tab
+X# YTAB	    	=y_tab
+X  YTAB	    	=y.tab
+X
+X# Command to use to make temporary copies of some source files.
+X  LN		=ln
+X# LN		=ln -s
+X# LN		=cp
+X
+X#	SYSTEM DEFINES
+X#---------------------------------------------------------------------------
+X# Locate your System in the following ALPHABETICAL list of systems, and
+X# uncomment the defintions relating to it.  See the comments accompanying
+X# each system for further information.  
+X#
+X# **> Make sure that all other systems are commented out! <**
+X
+X# system AIX V3.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 -DCHTYPE=int -DNLS
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X
+X# BSD 4.2
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD42
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X# with gcc also use:
+X#CC		=gcc
+X
+X# BSD 4.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DBSD43
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# Microport
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DSYSV2 -O -DUPORT -Ml
+X#LDFLAGS	=-Ml
+X#LIB		=-lm -lcurses -lPW
+X
+X# Mips (preliminary, based on System V.3 entry)
+X#- - - - - - - - - - - - - - - - - - - -
+X# On Mips use: "/usr/bsd43/bin/make"
+X# CC            = gcc
+X# CFLAGS        = -DSYSV3 -O -I/usr/include -I/usr/include/posix
+X# LDFLAGS       = -s
+X# YACC          = bison -y
+X# LIB           = -lm -lcurses -lPW
+X
+X# MS-DOS, Microsoft C 5.1 and NDMAKE
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cl
+X#CFLAGS		= -AL -O -Fo$*.o
+X#LDFLAGS	=/noi /st:0x4000
+X#LIB		=lcurses
+X#YACC		=bison -y
+X#
+X#.SUFFIXES : .o .c
+X#.c.o:
+X#	$(CC) $(CFLAGS) -c $*.c
+X
+X# SCO Unix V rel. 3.2.0
+X#- - - - - - - - - - - - - - - - - - - -
+X#       -compile using rcc, cc does not cope with gram.c
+X#       -edit /usr/include/curses.h, rcc does not understand #error
+X#       -link: make CC=cc, rcc's loader gets unresolved __cclass, __range
+X#               (rather strange,?)
+X#CC		=rcc
+X#CC		=cc
+X#CC		=gcc -fstrength-reduce
+X#SIGVOID	=-DSIGVOID
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -ltinfo -lPW
+X#YACC		=yacc -Sm10000
+X
+X# SCO Unix 3.2.2 and ODT 1.1
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=cc
+X#CFLAGS		= -O -DSYSV3
+X#LDFLAGS	=
+X#LIB		=-lm -lcurses -lPW -lmalloc -lc_s
+X#YACC		=yacc -Sm10000
+X
+X# Sequent boxes
+X#- - - - - - - - - - - - - - - - - - - -
+X#CC		=atscc
+X#CFLAGS		=-O -DBSD42
+X#LDFLAGS	= 
+X#LIB		=-lm -lcurses  -ltermcap
+X#PSCLIB		=-lseq
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -O -DBSD42 -pipe
+X
+X# Silicon Graphics (Preliminary)
+X#- - - - - - - - - - - - - - - - - - - -
+X  CC		= /usr/gnu/bin/gcc
+X  CFLAGS	= -O -DSYSV3  
+X  LIB		= -lm -lcurses 
+X
+X# Sun Systems
+X#- - - - - - - - - - - - - - - - - - - -
+X# Use this for SunOS 4.X if you have the System V package installed.
+X# This will link with the System V curses which is preferable to the
+X# BSD curses (especially helps scrolling on slow (9600bps or less)
+X# serial lines).
+X#
+X# Be sure to define SIGVOID and RE_COMP above.
+X# 
+X# CC		= /usr/5bin/cc
+X# CFLAGS	= -O -DSYSV3 
+X# LDFLAGS	=
+X# LIB		= -lm -lcurses 
+X
+X### Try gcc 2.0
+X# CC		= /usr/gnu/bin/gcc
+X# CFLAGS	= -O -DSYSV3  -I/usr/5include
+X# LDFLAGS	= -L/usr/5lib
+X
+X# Ultrix Systems (preliminary - Ultrix V4.2a, Rev. 47)
+X#- - - - - - - - - - - - - - - - - - - -
+X# The following comments came with `sc'.
+X#       # For ULTRIX: define the BSD4.2 section and SIGVOID above
+X#       #   tdw@cl.cam.ac.uk tested on Ultrix 3.1C-0
+X# I'm not _quite_ listening to them.  Specifically: I use gcc and am
+X# using the System V curses -- cursesX -- in Ultrix.  Art Mulder
+X# CC            = /usr/gnu/bin/gcc
+X# CFLAGS        = -O -DULTRIX
+X# LIB           = -lm -lcursesX
+X# LDFLAGS       =
+X
+X# system V.2 (includes: HP-UX 7.05, UNIXPC)
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSV2 
+X#LDFLAGS	=
+X#LIB		=-lm -lPW -lcurses
+X# with gcc on a Sequent also use:
+X#CC		=att gcc
+X#CFLAGS		=  -DSYSV2 -g -pipe -traditional
+X
+X# system V.3
+X#- - - - - - - - - - - - - - - - - - - -
+X##CFLAGS	=  -DSYSV3 -O
+X##LDFLAGS	= -s
+X##CFLAGS	=  -DSYSV3 -g
+X##LDFLAGS	= -g
+X##LIB		=-lm -lcurses -lPW
+X
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		= -DSYSV3 -O -pipe -traditional
+X#YACC		=bison -y
+X# debugging bison (bison 1.16 is broken)
+X#CFLAGS=  -DSYSV3 -g -pipe -traditional
+X#YACC=bison -y -v -t -l
+X
+X
+X# system V.4
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		=  -DSYSV4 -DSYSV3 -O
+X#LDFLAGS	= -s
+X#LIB		=-lm -lcurses -lgen
+X# with gcc also use:
+X#CC		=gcc
+X#CFLAGS		=  -DSYSV3 -O -pipe
+X
+X# VENIX
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -DVENIX -DBSD42 -DV7
+X#LDFLAGS	= -z -i 
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX Version 2.3
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII -DXENIX2_3
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X# XENIX system III 
+X#- - - - - - - - - - - - - - - - - - - -
+X#CFLAGS		= -O -DSYSIII
+X#LDFLAGS	= -i
+X#LIB		=-lm -lcurses -ltermcap
+X
+X#
+X#       Some Definitions used in compiling/installing
+X#---------------------------------------------------------------------------
+X
+X# All of the source files
+XSRC=Makefile cmds.c crypt.c eres.sed format.c gram.y interp.c \
+X	lex.c pss.c range.c ss.c ss.h screen.c sres.sed version.c \
+X	vmtbl.c xmalloc.c ctrl.c disprange.c getinput.c \
+X    	menu.c menu_file.c menu_edit.c menu_cell.c menu_rowcol.c \
+X    	menu_name.c menu_misc.c menu_macro.c help.c
+X
+X# The objects
+XOBJS=cmds.o crypt.o format.o gram.o interp.o lex.o range.o ss.o \
+X	screen.o version.o vmtbl.o xmalloc.o ctrl.o \
+X        disprange.o getinput.o \
+X	menu.o menu_file.o menu_edit.o menu_cell.o menu_rowcol.o \
+X	menu_name.o menu_misc.o menu_macro.o help.o
+X
+X# The documents in the Archive
+XDOCS=README ss.man pss.doc VMS_NOTES torev build.com
+X
+X
+X#   	MAIN MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+X# Default Make Target:  Make ``ss'' and ``pss''.
+X# Nothing is installed.
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xall:	$(name) p$(name) 
+X
+X
+X# Make ``ss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X$(name):$(PAR) 	$(OBJS)
+X	$(CC) ${LDFLAGS} ${OBJS} ${LIB} -o $(name)
+X
+X# Alternative link for MS-DOS
+X# $(name): 	$(OBJS)
+X#	link ${LDFLAGS} ${OBJS},$(name),,${LIB};
+X
+X
+X# Make ``pss''
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xp$(name):	pss.c pvmtbl.o pxmalloc.o
+X	$(CC) $(CFLAGS) ${LDFLAGS} -o p$(name) pss.c pvmtbl.o pxmalloc.o ${PSCLIB}
+X
+X# Alternative link for MS-DOS (NB: MSC 5.1 has no getopt.c)
+X# p$(name):    pss.o pvmtbl.o pxmalloc.o getopt.o
+X#     link ${LDFLAGS} pss.o pvmtbl.o pxmalloc.o getopt.o,p$(name);
+X
+X# Documentation
+X#- - - - - - - - - - - - - - - - - - - -
+X
+X# 1) convert ``ss.man'' to ``ss.l''
+X#	- replace all occurances of ``pname'' with ``ss'' (or whatever
+X#	  the NAME is above)
+X#	- insert the proper revision number
+X
+Xman:	ss.man
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev ss.man > $(name).$(MANEXT)
+X 
+X
+X# - Do the same for ``pss.doc''
+Xpman:	pss.doc
+X	name=$(name) NAME=$(NAME) LIBDIR=$(LIBDIR) sh torev pss.doc > p$(name).$(MANEXT)
+X 
+X 
+X#  	Make Install
+X#---------------------------------------------------------------------------
+X
+Xinstall: $(EXDIR)/$(name) $(EXDIR)/p$(name) \
+X	 $(MANDIR)/$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X
+X$(EXDIR)/$(name): $(name)
+X	cp $(name) $(EXDIR)
+X	strip $(EXDIR)/$(name)
+X
+X$(EXDIR)/p$(name): p$(name)
+X	cp p$(name) $(EXDIR)
+X	strip $(EXDIR)/p$(name)
+X
+X$(MANDIR)/$(name).$(MANEXT): man
+X	cp $(name).$(MANEXT) $(MANDIR)/$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/$(name).$(MANEXT)
+X
+X$(MANDIR)/p$(name).$(MANEXT): pman
+X	cp p$(name).$(MANEXT) $(MANDIR)/p$(name).$(MANEXT)
+X	chmod $(MANMODE) $(MANDIR)/p$(name).$(MANEXT)
+X
+X
+X# 	SUPPLEMENTARY MAKE TARGETS
+X#---------------------------------------------------------------------------
+X# (These are usually not made directly themselves)
+X
+X
+X# ``ss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xgram.c:	gram.y
+X	$(YACC) -d gram.y
+X	mv $(YTAB).c gram.c
+X
+X$(YTAB).h:	gram.y
+X
+Xcmds.o: cmds.c ss.h
+X	$(CC) ${CFLAGS} ${DOBACKUPS} ${CRYPT} -c cmds.c
+X
+Xcrypt.o: crypt.c ss.h
+X	$(CC) ${CFLAGS} ${CRYPT} ${DOBACKUPS} -c crypt.c
+X
+Xformat.o: format.c
+X
+Xinterp.o:	interp.c ss.h
+X	$(CC) ${CFLAGS} ${IEEE_MATH} ${SIGVOID} ${RINT} ${RE_COMP} ${REGCMP} ${FMOD} -c interp.c
+X
+Xgram.o:	ss.h $(YTAB).h gram.c
+X	$(CC) ${CFLAGS} -c gram.c
+X	sed < gram.y > experres.h -f eres.sed
+X	sed < gram.y > statres.h -f sres.sed
+X
+Xlex.o:	ss.h $(YTAB).h gram.o lex.c
+X	$(CC) ${CFLAGS} ${NOUNGETCH} ${SIMPLE} ${IEEE_MATH} ${SIGVOID} ${NONOTIMEOUT} -c lex.c
+X
+Xrange.o: range.c ss.h
+X
+Xss.o:	ss.h ss.c menu.h disprange.h ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} $(RIGHTBUG) ${SIGVOID} ${SAVE} -c ss.c
+X
+Xdisprange.o:	ss.h disprange.c ctrl.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c disprange.c
+X
+Xmenu.o:	ss.h menu.c ctrl.h menu_file.h menu_edit.h menu_cell.h\
+X    menu_rowcol.h menu_name.h menu_misc.h menu_macro.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu.c
+X
+Xmenu_file.o:	ss.h menu_file.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_file.c
+X
+Xmenu_edit.o:	ss.h menu_edit.c getinput.h disprange.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_edit.c
+X
+Xmenu_cell.o:	ss.h menu_cell.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_cell.c
+X
+Xmenu_rowcol.o:	ss.h menu_rowcol.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_rowcol.c
+X
+Xmenu_misc.o:	ss.h menu_misc.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_misc.c
+X
+Xmenu_macro.o:	ss.h menu_macro.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_macro.c
+X
+Xmenu_name.o:	ss.h menu_name.c getinput.h 
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c menu_name.c
+X
+Xgetinput.o:	ss.h getinput.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c getinput.c
+X
+Xctrl.o:	ss.h ctrl.c ctrl.h menu.h disprange.h menu_cell.h menu_misc.h
+X	$(CC) ${CFLAGS} ${DFLT_PAGER} ${SIGVOID} ${SAVE} -c ctrl.c
+X
+Xscreen.o:	ss.h screen.c
+X	$(CC) ${CFLAGS} ${BROKENCURSES} ${IDLOKISBAD} ${INTERNATIONAL} ${RIGHTBUG} ${SIGVOID} -c screen.c
+X
+Xhelp.o: ss.h help.c
+X	$(CC) ${CFLAGS} -c help.c
+X
+X
+X# ``pss'' supplementary objects
+X#- - - - - - - - - - - - - - - - - - - -
+X
+Xpvmtbl.c: vmtbl.c
+X	-rm -f pvmtbl.c
+X	${LN} vmtbl.c pvmtbl.c
+X
+Xpvmtbl.o: ss.h pvmtbl.c
+X	$(CC) ${CFLAGS} -c -DPSC pvmtbl.c
+X
+Xpxmalloc.c: xmalloc.c
+X	-rm -f pxmalloc.c
+X	${LN} xmalloc.c pxmalloc.c
+X
+Xpxmalloc.o: ss.h pxmalloc.c
+X	$(CC) ${CFLAGS} -c -DPSC pxmalloc.c
+X
+X
+X# 	OTHER MAKE TARGETS
+X#---------------------------------------------------------------------------
+X
+Xclean:
+X	rm -f *.o *res.h $(YTAB).h debug core gram.c $(name).$(MANEXT) \
+X	$(name).$(MANEXT) p$(name).man p$(name).$(MANEXT) y.output \
+X	pxmalloc.c pvmtbl.c qhelp.c y_tab.h
+X
+Xspotless: clean
+X	rm -f $(name) p$(name) 
+X
+X#---------------------------------------------------------------------------
+X#       end
+END_OF_FILE
+  if test 16755 -ne `wc -c <'ss_12b/Makefile.sgi'`; then
+    echo shar: \"'ss_12b/Makefile.sgi'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/Makefile.sgi'
+fi
+if test -f 'ss_12b/pss.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ss_12b/pss.c'\"
+else
+  echo shar: Extracting \"'ss_12b/pss.c'\" \(7238 characters\)
+  sed "s/^X//" >'ss_12b/pss.c' <<'END_OF_FILE'
+X/* Sc parse routine
+X *
+X * usage psc options
+X * options:
+X *   -L		Left justify strings.  Default is right justify.
+X *   -r		Assemble data into rows first, not columns.
+X *   -R	n	Increment by n between rows 
+X *   -C n	Increment by n between columns
+X *   -n n	Length of the row (column) should be n.
+X *   -s v	Top left location in the spreadsheet should be v; eg, k5
+X *   -d c       Use c as the delimiter between the fields.
+X *   -k         Keep all delimiters - Default is strip multiple delimiters to 1.
+X *   -f         suppress 'format' lines in output
+X *   -S		Use strings vs numbers for numbers
+X *   -P		Use numbers only when there is no [-+eE] (plain numbers only)
+X *
+X *  Author: Robert Bond
+X *  Adjustments: Jeff Buhrt and Eric Putz
+X */
+Xchar *rev = "$Revision: 6.21 $";
+X
+X#include <ctype.h>
+X#include <stdio.h>
+X#include "ss.h"
+X
+X#define END	0
+X#define NUM	1
+X#define ALPHA	2
+X#define SPACE	3
+X#define EOL	4
+X
+Xextern char *optarg;
+Xextern int   optind, getopt(), atoi();
+Xchar	*coltoa();
+Xchar	*progname;
+Xint	getrow(), getcol(), scan();
+X
+X#ifdef SYSV3
+Xextern void exit();
+X#else
+Xextern int exit();
+X#endif
+X
+Xint *fwidth;
+Xint *precision;
+Xint maxcols;
+Xint *realfmt;
+X
+X/* option flags reset */
+Xint colfirst = FALSE;
+Xint leftadj = FALSE;
+Xint r0 = 0;
+Xint c0 = 0;
+Xint rinc = 1;
+Xint cinc = 1;
+Xint len = 20000;
+Xchar delim1 = ' ';
+Xchar delim2 = '\t';
+Xint strip_delim = TRUE;
+Xint drop_format = FALSE;
+Xint strnums	= FALSE;
+Xint plainnums	= FALSE;
+X
+Xchar token[1000];
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X    int curlen;
+X    int curcol, coff;
+X    int currow, roff;
+X    int first;
+X    int c;
+X    register effr, effc;
+X    int i,j;
+X    register char *p;
+X
+X    progname = argv[0];
+X    while ((c = getopt(argc, argv, "rfLks:R:C:n:d:SPv")) != EOF) {
+X	switch(c) {
+X	case 'r':
+X	    colfirst = TRUE;
+X	    break;
+X	case 'L':
+X	    leftadj = TRUE;
+X	    break;
+X	case 's':
+X	    c0 = getcol(optarg);
+X	    r0 = getrow(optarg);
+X	    break;
+X	case 'R':
+X	    rinc = atoi(optarg);
+X	    break;
+X	case 'C':
+X	    cinc = atoi(optarg);
+X	    break;
+X	case 'n':
+X	    len = atoi(optarg);
+X	    break;
+X	case 'd':
+X	    delim1 = optarg[0];
+X	    delim2 = '\0';
+X	    break;
+X	case 'k':
+X	    strip_delim = FALSE;
+X	    break;
+X	case 'f':
+X	    drop_format = TRUE;
+X	    break;
+X	case 'S':
+X	    strnums = TRUE;
+X	    break;
+X	case 'P':
+X	    plainnums = TRUE;
+X	    break;
+X	case 'v':
+X	    (void) fprintf(stderr,"%s: %s\n", progname, rev);
+X	default:
+X	    (void) fprintf(stderr,"Usage: %s [-rkfLSPv] [-s v] [-R i] [-C i] [-n i] [-d c]\n", progname);
+X	    exit(1);
+X        }
+X    }
+X
+X    if (optind < argc) {
+X	    (void) fprintf(stderr,"Usage: %s [-rL] [-s v] [-R i] [-C i] [-n i] [-d c]\n", progname);
+X	    exit(1);
+X    }
+X
+X	/* setup the spreadsheet arrays */
+X    if (!growtbl(GROWNEW, 0, 0))
+X	exit(1);
+X
+X    curlen = 0;
+X    curcol = c0; coff = 0;
+X    currow = r0; roff = 0;
+X    first = TRUE;
+X
+X    while(1) {
+X
+X	effr = currow+roff;
+X	effc = curcol+coff;
+X
+X	switch(scan()) {
+X	case END:
+X	    if(drop_format) exit(0);
+X	    for (i = 0; i<maxcols; i++) {
+X		if (fwidth[i])
+X		    (void) printf("format %s %d %d\n", coltoa(i), 
+X			fwidth[i]+1, precision[i]);
+X	    }
+X	    exit(0);
+X	case NUM:
+X	    first = FALSE;
+X	    (void) printf("let %s%d = %s\n", coltoa(effc), effr, token);
+X	    if (effc >= maxcols - 1)
+X	    {	if (!growtbl(GROWCOL, 0, effc))
+X		{	(void) fprintf(stderr, "Invalid column used: %s\n", coltoa(effc));
+X			continue;
+X		}
+X	    }
+X	    i = 0;
+X	    j = 0;
+X	    p = token;
+X	    while (*p && *p != '.') {
+X		p++; i++;
+X	    }
+X	    if (*p) {
+X		p++; i++;
+X	    }
+X	    while (*p) {
+X		p++; i++; j++;
+X	    }
+X	    {   int	ow, nw;
+X
+X		ow = fwidth[effc] - precision[effc];
+X		if (precision[effc] < j)
+X			precision[effc] = j;
+X	
+X		if (fwidth[effc] < i)
+X			fwidth[effc] = i;
+X
+X		/* now make sure:
+X		 *	1234.567890 (format 11 6)
+X		 *	1234567.890 (format 11 3)
+X		 *	both show (format 14 6)
+X		 *		(really it uses 15 6 to separate columns)
+X		 */
+X		if ((nw = i - j) > ow)
+X			fwidth[effc] += nw - (fwidth[effc] - precision[effc]);
+X	    }
+X	    break;
+X	case ALPHA:
+X	    first = FALSE;
+X	    if (leftadj)
+X		(void) printf("leftstring %s%d = \"%s\"\n", coltoa(effc),effr,token); 
+X	    else
+X		(void) printf("rightstring %s%d = \"%s\"\n",coltoa(effc),effr,token); 
+X	    if (effc >= maxcols - 1)
+X	    {	if (!growtbl(GROWCOL, 0, effc))
+X		{	(void) fprintf(stderr, "Invalid column used: %s\n", coltoa(effc));
+X			continue;
+X		}
+X	    }
+X	    i = strlen(token);
+X	    if (i > fwidth[effc])
+X		fwidth[effc] = i;
+X	    break;
+X	case SPACE:
+X	    if (first && strip_delim)
+X		break;
+X	    if (colfirst)
+X		roff++;
+X	    else
+X		coff++;
+X	    break;
+X	case EOL:
+X	    curlen++;
+X	    roff = 0;
+X	    coff = 0;
+X	    first = TRUE;
+X	    if (colfirst) {
+X		if (curlen >= len) {
+X		    curcol = c0;
+X		    currow += rinc;
+X		    curlen = 0;
+X		} else {
+X		    curcol += cinc;
+X		}
+X	    } else {
+X		if (curlen >= len) {
+X		    currow = r0;
+X		    curcol += cinc;
+X		    curlen = 0;
+X		} else {
+X		    currow += rinc;
+X		}
+X	    }
+X	    break;
+X	}
+X    }
+X}
+X
+Xint
+Xscan()
+X{
+X    register int c;
+X    register char *p;
+X    register int founddigit;
+X
+X    p = token;
+X    c = getchar();
+X
+X    if (c == EOF)
+X	return(END);
+X
+X    if (c == '\n')
+X	return(EOL);
+X
+X    if (c == delim1 || c == delim2) {
+X        if (strip_delim) {
+X	    while ((c = getchar()) && (c == delim1 || c == delim2))
+X	        ;
+X	    (void)ungetc(c, stdin);
+X	} 
+X	return(SPACE);
+X    }
+X
+X    if (c == '\"') {
+X	while ((c = getchar()) && c != '\"' && c != '\n' && c != EOF)
+X	    *p++ = c;
+X	if (c != '\"')
+X	    (void)ungetc(c, stdin);
+X	*p = '\0';
+X	return(ALPHA);
+X    }
+X
+X    while (c != delim1 && c != delim2 && c!= '\n' && c != EOF) {
+X	*p++ = c;
+X	c = getchar();
+X    }
+X    *p = '\0';
+X    (void)ungetc(c, stdin);
+X
+X    p = token;
+X    c = *p;
+X    founddigit = FALSE;
+X    /*
+X     * str_nums always returns numbers as strings
+X     * plainnums returns 'numbers' with [-+eE] in them as strings
+X     * lastprtnum makes sure a number ends in one of [0-9eE.]
+X     */
+X    if (!strnums && (isdigit(c) || c == '.' || c == '-' || c == '+')) {
+X	int	lastprtnum = FALSE;
+X
+X	while(isdigit(c) || c == '.' || (!plainnums && (c == '-' ||
+X					c == '+' || c == 'e' || c == 'E'))) {
+X		if (isdigit(c)) 
+X			lastprtnum = founddigit = TRUE;
+X		else
+X		if (!(c == '.' || c == 'e' || c == 'E'))
+X			lastprtnum = FALSE;
+X		c = *p++;
+X	}
+X	if (c == '\0' && founddigit && lastprtnum)
+X	    return(NUM);
+X	else
+X	    return(ALPHA);
+X    }
+X
+X    return(ALPHA);
+X}
+X    
+X/* turns [A-Z][A-Z] into a number */
+Xint
+Xgetcol(p)
+Xchar *p;
+X{
+X    register  col;
+X
+X    col = 0;
+X    if (!p)
+X	return(0);
+X    while(*p && !isalpha(*p)) 
+X	p++; 
+X    if (!*p)
+X	return(0);
+X    col = ((*p & 0137) - 'A');
+X    if (isalpha(*++p)) 
+X	col = (col + 1)*26 + ((*p & 0137) - 'A');
+X    return(col);
+X}
+X
+X/* given a string turn it into a row number */
+Xint
+Xgetrow(p)
+Xchar *p;
+X{
+X    int row;
+X
+X    row = 0;
+X    if (!p)
+X	return(0);
+X    while(*p && !isdigit(*p))
+X	p++; 
+X    if (!*p)
+X	return(0);
+X    while(*p && isdigit(*p))
+X    {	row = row * 10 + *p - '0';
+X	p++;
+X    }
+X    return(row);
+X}
+X
+X/* turns a column number into [A-Z][A-Z] */
+Xchar *
+Xcoltoa(col)
+Xint col;
+X{
+X    static char rname[3];
+X    register char *p = rname;
+X
+X    if (col < 0 || col > 27*26)	/* A-Z, AA-ZZ */
+X	(void) fprintf(stderr,"coltoa: invalid col: %d", col);
+X
+X    if (col > 25) {
+X	*p++ = col/26 + 'A' - 1;
+X	col %= 26;
+X    }
+X    *p++ = col+'A';
+X    *p = '\0';
+X    return(rname);
+X}
+END_OF_FILE
+  if test 7238 -ne `wc -c <'ss_12b/pss.c'`; then
+    echo shar: \"'ss_12b/pss.c'\" unpacked with wrong size!
+  fi
+  # end of 'ss_12b/pss.c'
+fi
+echo shar: End of archive 6 \(of 11\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

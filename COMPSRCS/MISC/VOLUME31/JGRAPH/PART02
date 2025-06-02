@@ -1,0 +1,2280 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v31i032:  jgraph - A filter for plotting postscript graphs v8.0, Part02/07
+Message-ID: <1992Jul14.151542.10301@sparky.imd.sterling.com>
+X-Md4-Signature: 1b66a8e7710e3d8c15b700aede19e8e0
+Date: Tue, 14 Jul 1992 15:15:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 31, Issue 32
+Archive-name: jgraph/part02
+Environment: UNIX, VMS, postscript
+Supersedes: jgraph: Volume 16, Issue 20
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  redexp.vms sin2.pts.b
+# Wrapped by kent@sparky on Sun Jul 12 20:04:02 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 7)."'
+if test -f 'redexp.vms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'redexp.vms'\"
+else
+  echo shar: Extracting \"'redexp.vms'\" \(19252 characters\)
+  sed "s/^X//" >'redexp.vms' <<'END_OF_FILE'
+X/*	--redexp.vms--
+X   This 'C' module may be included prior to the ``main'' programs on VMS in
+X   order to allow 'C' arguments to contain redirection symbols (<,>,>>) and
+X   VMS wild cards (*,%, ...], [-).  By including this module, two programs
+X   redirect() and expand() are run prior to turning control over to
+X   your main() entry point.
+X
+X    redirect-- Gregg Townsend circa 1983,
+X    expand-- John Campbell circa 1987
+X
+X   This code is public domain, others may use it freely. Credit, however, to
+X   Gregg Townsend (who wrote ``redirect()'') and John Campbell (who followed
+X   with ``expand()'') would be appreciated.  If someone writes the next
+X   logical successor ``pipe()'', please email a copy to
+X   ...!arizona!naucse!jdc (John Campbell) (Gregg works on unix :-).
+X
+X   HISTORY
+X
+X*/
+X
+X#include <rms.h>      /* No easy way to tell if this has already been included. */
+X#ifndef ERANGE
+X#include <stdlib.h>   /* Include only if missing. */
+X#endif
+X#ifndef __FILE
+X#include <stdio.h>    /* Include only if missing. */
+X#endif
+X#include <ctype.h>  /* Added for conversion to lower case  */
+X#ifndef __STRING_LOADED
+X#include <string.h>
+X#endif /* !__STRING_LOADED */
+X
+X/* Expansion of wild cards is done using RMS. */
+X        struct NAMBLK { struct NAM nam;         /* VMS nam block structure */
+X                 char es[NAM$C_MAXRSS],         /* Extended string         */
+X                      rs[NAM$C_MAXRSS];         /* Resultant string        */
+X               };
+X
+X#define ErrorExit 1
+X
+X/* Allow the user to override _N_FARGS or _E_FLAG if they wish. */
+X#ifndef _N_FARGS
+X#define _N_FARGS 0 /* no automatic redirection please */
+X#endif
+X#ifndef _E_FLAG
+X#define _E_FLAG 4  /* only include dev and dir if different from default */
+X#endif
+X/*
+X   Since the following will possibly be included in a single module, try
+X   hard to avoid name conflicts. (Just being static doesn't cut it if
+X   compiled in the same module.)
+X*/
+X#define redirect     _r_edirect
+X#define filearg      _f_ilearg
+X#define expand       _e_xpand
+X#define wild_found   _w_ild_found
+X#define wild_expand  _w_ild_expand
+X
+X/* forward protypes */
+Xstatic void redirect(int *argc, char *argv[], int nfargs);
+Xchar **expand (int *argc, const char *argv[], const int flag);
+X
+Xmain(int argc, char *argv[], char *envp[])
+X{
+X   redirect (&argc, argv, _N_FARGS);
+X   argv = expand (&argc, argv, _E_FLAG);
+X
+X   /* Make the user's main entry point this routine's entry point. */
+X#define main _user_main
+X   _user_main (argc, argv, envp);
+X}
+X
+X/* ------------------------ REDIRECT code ------------------------ */
+X
+X/*
+X * redirect(&argc,argv,nfargs) - redirect standard I/O
+X *    int *argc         number of command arguments (from call to main)
+X *    char *argv[]      command argument list (from call to main)
+X *    int nfargs        number of filename arguments to process
+X *
+X * argc and argv will be adjusted by redirect.
+X *
+X * redirect processes a program's command argument list and handles redirection
+X * of stdin, and stdout.  Any arguments which redirect I/O are removed from the
+X * argument list, and argc is adjusted accordingly.  redirect would typically be
+X * called as the first statement in the main program.
+X *
+X * Files are redirected based on syntax or position of command arguments.
+X * Arguments of the following forms always redirect a file:
+X *
+X *    <file     redirects standard input to read the given file
+X *    >file     redirects standard output to write to the given file
+X *    >>file    redirects standard output to append to the given file
+X *
+X * It is often useful to allow alternate input and output files as the
+X * first two command arguments without requiring the <file and >file
+X * syntax.  If the nfargs argument to redirect is 2 or more then the
+X * first two command arguments, if supplied, will be interpreted in this
+X * manner:  the first argument replaces stdin and the second stdout.
+X * A filename of "-" may be specified to occupy a position without
+X * performing any redirection.
+X *
+X * If nfargs is 1, only the first argument will be considered and will
+X * replace standard input if given.  Any arguments processed by setting
+X * nfargs > 0 will be removed from the argument list, and again argc will
+X * be adjusted.  Positional redirection follows syntax-specified
+X * redirection and therefore overrides it.
+X *
+X */
+X
+X/* forward prototype for local routine */
+Xstatic void filearg(int *argc, char *argv[], int n, int i, FILE *fp, char mode[]);
+X
+Xstatic void redirect(int *argc, char *argv[], int nfargs)
+X{
+X   int i;
+X
+X   i = 1;
+X   while (i < *argc)  {         /* for every command argument... */
+X      switch (argv[i][0])  {            /* check first character */
+X         case '<':                      /* <file redirects stdin */
+X            filearg(argc,argv,i,1,stdin,"r");
+X            break;
+X         case '>':                      /* >file or >>file redirects stdout */
+X            if (argv[i][1] == '>')
+X               filearg(argc,argv,i,2,stdout,"a");
+X            else
+X               filearg(argc,argv,i,1,stdout,"w");
+X            break;
+X         default:                       /* not recognized, go on to next arg */
+X            i++;
+X      }
+X   }
+X   if (nfargs >= 1 && *argc > 1)        /* if positional redirection & 1 arg */
+X      filearg(argc,argv,1,0,stdin,"r"); /* then redirect stdin */
+X   if (nfargs >= 2 && *argc > 1)        /* likewise for 2nd arg if wanted */
+X      filearg(argc,argv,1,0,stdout,"w");/* redirect stdout */
+X}
+X
+X/* local routine for redirect() */
+X/* filearg(&argc,argv,n,i,fp,mode) - redirect and remove file argument
+X *    int *argc         number of command arguments (from call to main)
+X *    char *argv[]      command argument list (from call to main)
+X *    int n             argv entry to use as file name and then delete
+X *    int i             first character of file name to use (skip '<' etc.)
+X *    FILE *fp          file pointer for file to reopen (typically stdin etc.)
+X *    char mode[]       file access mode (see freopen spec)
+X */
+X
+Xstatic void filearg(int *argc, char *argv[], int n, int i, FILE *fp, char mode[])
+X{
+X   if (strcmp(argv[n]+i,"-"))           /* alter file if arg not "-" */
+X      fp = freopen(argv[n]+i,mode,fp,"mbf=8","mbc=16");
+X   if (fp == NULL)  {                   /* abort on error */
+X      fprintf(stderr,"%%can't open %s",argv[n]+i);
+X      exit(ErrorExit);
+X   }
+X   for ( ;  n < *argc;  n++)            /* move down following arguments */
+X      argv[n] = argv[n+1];
+X   *argc = *argc - 1;                   /* decrement argument count */
+X}
+X
+X/* ------------------------ EXPAND code ------------------------ */
+X/*-
+X   ``expand()'' is a routine to expand wild-cards to file specifications.
+X   This routine is often used in conjunction with ``redirect()'' to provide
+X   both wild card expansion and standard file redirection prior to doing
+X   any real work in a 'C' program.
+X
+X   Normal usage is to include the following line prior to using argc or
+X   argv in main():
+X
+X     argv = expand (&argc, argv, 0);
+X
+X   ``argc'' will be adjusted by ``expand()'', the return value from expand
+X   will replace ``argv''.
+X
+X   ``expand()'' processes a program's command argument list and expands any
+X   wild cards into zero or more argv entries. Only arguments that posses VMS
+X   wild-cards are expanded. Wild cards searched for are ``*'', ``%'',
+X   ``...]'', and ``[-''. If the wild-card is found inside a single or double
+X   quote ("*" or '%') then they are not counted as wild-cards. Be aware that
+X   the expansion of a VMS wild card will match all VMS files, including
+X   directory files (".DIR;1").
+X
+X   NOTE: The use of quotes in VMS requires thinking about how the CLI expands
+X   things before handing the argument line over to your program.  Do not
+X   expect "*" to avoid expansion, use """*""" instead.  Likewise, expression
+X   substitution precludes the use of (') to quote wild cards:
+X           $ A := HELLO
+X           $ ECHO 'a'   ! 'C' program that calls ``expand()''
+X           hello
+X   The easiest way to escape a wild-card may be "'*'".  The point is that
+X   ``expand()'' will only recognize quotes passed into main().
+X   Note: I have added '\' as an escape character -hdd.
+X
+X   ``expand()'' references the VMS runtime routines, you will need to
+X   link with the 'C' RTL whenever expand is used.
+X
+X   Parameters:
+X
+X         argc:  Pointer to the number of command arguments (from main),
+X                the contents of this parameter are modified.
+X
+X         argv:  Pointer to the initial command argument list (from main),
+X                the contents are copied into a new array which is returned
+X                from this routine.
+X
+X         flag:  Flag indicating how to expand wild-cards:
+X                   0 - Complete file name expansion
+X                   1 - only file name (no directory or version).
+X                   2 - directory info and file name (no version).
+X                   3 - file name and version info (no directory).
+X		   4 - omit fields that are the same as RMS default.
+X -*/
+X
+X/* Local prototypes. */
+Xint wild_found (char *string);
+Xchar **wild_expand (const char *string, char **argv, int *argc,
+X                    int extra, int flag);
+X/*
+X   General note: removing the prototyping and const keywords should
+X   allow this code to compile with VMS 'C' compilers prior to version
+X   2.3-024.
+X*/
+X
+Xchar **expand (int *argc, const char *argv[], const int flag)
+X{
+X   int i, nargc;
+X   char **nargv;
+X   char *s1;
+X
+X   /* Get an initial amount of memory for the master nargv array. */
+X   if ((nargv = (char **)malloc ((*argc+1) * sizeof (char *))) == NULL) {
+X      fprintf (stderr, "Not enough memory to expand argument list\n");
+X      exit (ErrorExit);
+X   }
+X   /* Copy the command name (0th argument), but only the name of the exe */
+X   nargv[0] = strchr(argv[0],']');
+X   if (nargv[0] != NULL) {
+X       nargv[0]++;
+X       if ((s1=strrchr(nargv[0],'.')) != NULL) *s1 = '\0';
+X   } else {
+X       nargv[0] = argv[0];	/* if nothing suitable take original */
+X   }      
+X
+X   /* Copy all other arguments, expanding those that have wild characters. */
+X   for (nargc = i = 1; i < *argc; i++) {
+X      if (wild_found(argv[i]))
+X         nargv = wild_expand(argv[i], nargv, &nargc, *argc-i, flag);
+X      else
+X         nargv[nargc++] = argv[i];
+X   }
+X   *argc = nargc;
+X   nargv[nargc] = NULL;  /* realloc always 0 fills, but... */
+X
+X   return nargv;
+X}
+X
+Xstatic int wild_found (char *string)
+X/*
+X   Routine to search the given string for a VMS wild-card pattern.
+X   Returns 1 if "*", "%", "[-", or "...]" is found.  (This may not
+X   be all VMS wild-cards but it is enough for now--anyone that wants
+X   to recognize others can change this code.)
+X
+X   Parameter:
+X
+X      string: '\0' terminated character array.
+X*/
+X{
+X   int state = 0;
+X
+X   /* State of 0 is "rest" state.  State 1 on our way to [-, states 2-4
+X      on our way to ...], negative states indicate the two quotes (' -10,
+X      " -1).
+X   */
+X   for ( ;*string; string++) {
+X      switch (*string) {
+X      case '*':
+X      case '%':
+X         if (state >= 0)
+X            return 1;                    /* Unquoted % or * found. */
+X      break;
+X      case '[':
+X         if (state >= 0)
+X            state = 1;
+X      break;
+X      case ']':
+X         if (state == 4)
+X            return 1;                    /* Unquoted ...] found. */
+X         else if (state >= 0)
+X            state = 0;
+X      break;
+X      case '-':
+X         if (state == 1)
+X            return 1;                    /* Unquoted [- found. */
+X         else if (state >= 0)
+X            state = 0;
+X      break;
+X      case '.':
+X         if (state == 1 || state == 0)
+X            state = 2;                   /* First '.' */
+X         else if (state > 1 && state < 5)
+X            state++;                     /* ... == states 2, 3, 4 */
+X         else if (state >= 0)
+X            state = 0;
+X      break;
+X      case '\'':
+X         if (state <= -10)
+X            state += 10;           /* One ', possibly one " also */
+X         else if (state < 0)
+X            state -= 10;           /* 0 ', possibly one " */
+X         else
+X            state = -10;           /* No ' or " prior to this ' */
+X      break;
+X      case '"':
+X         if (state == -11)
+X            state = -10;           /* Both " and ' prior to this. */
+X         else if (state == -10)
+X            state = -11;           /* A ' prior to this. */
+X         else if (state == -1)
+X            state = 0;             /* A " prior to this. */
+X         else
+X            state = -1;            /* No ' or " prior to this " */
+X      break;
+X      case '\\':
+X         string = strcpy(string, string+1);
+X	 state = 0;
+X      break;
+X      }
+X   }
+X   return 0;
+X}
+X
+X
+Xstatic char **wild_expand(const char *wild, char **argv,
+X			  int *argc, int extra, int flag)
+X/*
+X   Routine to expand wild into new arguments appended to the end
+X   of argv[*argc].  This routine must realloc in order to make room
+X   for the individual arguments and malloc for enough space for each
+X   of the arguments.  The return value is a new **argv.
+X
+X   Parameters:
+X
+X         wild:  '\0' terminated string that needs to be expanded.
+X
+X         argv:  initial starting address of the argv array.
+X
+X         argc:  pointer to an integer that tells the current end of the
+X                argument list.
+X
+X        extra:  The number of extra pointers that the returned argv
+X                must have available for future assignments.
+X
+X         flag:  Flag indicating how to expand wild-card:
+X                  0 - Complete file name expansion
+X                  1 - only file name (no directory or version).
+X                  2 - directory info and file name (no version)
+X                  3 - file name and version info (no directory).
+X		  4 - omit fields that are the same as RMS default.
+X*/
+X{
+X   int more_to_go = 1, err, length, status, len_wild, i, ddev_l, ddir_l;
+X   char *namptr;
+X   struct FAB fab_blk;
+X   struct NAMBLK nam_blk;
+X   char path[256];
+X   char *ddevice = &path[0];	/* default device and directory */
+X   char *ddirectory, *ppath;
+X
+X   char *env = getenv("PATH");
+X   ppath = &path[0];
+X   while (*env) {
+X       char *p = env++;
+X       if ((*ppath++ = _toupper(*p)) == ':') {
+X	   ddev_l = ppath - &path[0];
+X	   *ppath++ = 0;
+X	   ddirectory = ppath;
+X       }
+X   }
+X   *ppath++ = 0;
+X   ddir_l = ppath - ddirectory - 1;
+X   len_wild = strlen(wild);
+X
+X   /* Initialize all the fab and nam fields needed for parse and search */
+X
+X   fab_blk = cc$rms_fab;                   /* Initialize FAB structure */
+X
+X   nam_blk.nam    = cc$rms_nam;            /* Initialize NAM structure */
+X   fab_blk.fab$l_dna = ".*";               /* Default file specif.     */
+X   fab_blk.fab$b_dns = 2;                  /* Length of default spec.  */
+X   fab_blk.fab$l_nam = &nam_blk.nam;       /* Set address of NAM in FAB*/
+X   nam_blk.nam.nam$b_ess = NAM$C_MAXRSS;   /* Set extended  string size*/
+X   nam_blk.nam.nam$l_esa = nam_blk.es;     /* and address              */
+X   nam_blk.nam.nam$b_rss = NAM$C_MAXRSS;   /* Set resultant string size*/
+X   nam_blk.nam.nam$l_rsa = nam_blk.rs;     /* and address              */
+X   nam_blk.nam.nam$l_rlf = NULL;           /* No related file address  */
+X
+X   fab_blk.fab$l_fna = wild;           /* Address of file name string  */
+X   fab_blk.fab$b_fns = len_wild;       /* Length of file name string   */
+X
+X   /* Prepare to enter the search loop, parse fab. */
+X   err = SYS$PARSE (&fab_blk);
+X
+X   /* Catch the directory not found error and return no files found. */
+X   if (err != RMS$_NORMAL)
+X      exit(err);
+X
+X   while (more_to_go) {
+X      err = SYS$SEARCH (&fab_blk);
+X      if (err == RMS$_NMF || err == RMS$_FNF)
+X         more_to_go = 0;               /* Done, no more files found */
+X      else if (err != RMS$_NORMAL)
+X         exit (err);
+X      else {
+X      /* Count that we now have this many arguments. */
+X         (*argc)++;
+X
+X      /* Make sure there is room for a new pointer. */
+X         if ((argv = realloc (argv, (*argc + extra)*sizeof(char *))) == NULL) {
+X            fprintf (stderr, "Not enough memory to expand argument list\n");
+X            exit(ErrorExit);
+X         }
+X
+X      /* Move the right name into the list. */
+X         switch (flag) {
+X         case 0:             /* Complete file name */
+X            length = nam_blk.nam.nam$b_rsl;
+X            namptr = nam_blk.rs;
+X            break;
+X         case 1:            /* File name only (no directory or version). */
+X            length = nam_blk.nam.nam$b_name + nam_blk.nam.nam$b_type;
+X            namptr = nam_blk.nam.nam$l_name;
+X            break;
+X         case 2:            /* directory and file name (no version) */
+X            length = nam_blk.nam.nam$b_rsl - nam_blk.nam.nam$b_ver;
+X            namptr = nam_blk.rs;
+X            break;
+X         case 3:            /* File name and version (no directory). */
+X            length = nam_blk.nam.nam$b_name +
+X                     nam_blk.nam.nam$b_type +
+X                     nam_blk.nam.nam$b_ver;
+X            namptr = nam_blk.nam.nam$l_name;
+X            break;
+X	 case 4:	     /* Remove redundant fields, no version */
+X            length = nam_blk.nam.nam$b_rsl - nam_blk.nam.nam$b_ver;
+X            namptr = nam_blk.rs;
+X	    if ((nam_blk.nam.nam$b_dev==ddev_l) &&
+X	    	!strncmp(namptr, ddevice, nam_blk.nam.nam$b_dev)) {
+X		    length -= nam_blk.nam.nam$b_dev;
+X		    namptr += nam_blk.nam.nam$b_dev;
+X		    if ((nam_blk.nam.nam$b_dir==ddir_l) &&
+X		    	!strncmp(namptr, ddirectory, nam_blk.nam.nam$b_dir)) {
+X			    length -= nam_blk.nam.nam$b_dir;
+X			    namptr += nam_blk.nam.nam$b_dir;
+X			}
+X		}
+X            break;
+X         default:
+X            fprintf (stderr, "illegal flag used in VMS expand call\n");
+X            exit (ErrorExit);
+X	 } /* end of switch */
+X	 /* Copy the requested string into the argument array. */
+X         if ((argv[*argc-1] = malloc (length+1)) == NULL) {
+X            fprintf (stderr, "Not enough memory to expand argument list\n");
+X            exit (ErrorExit);
+X	 }
+X         /* Copy the string, translate to lower case */
+X         /* strncpy (argv[*argc-1], namptr, length); */
+X         for (i=0; i<length; i++) {
+X	     argv[*argc-1][i] = _tolower(*namptr);
+X	     namptr++;
+X	 }
+X         /* End of modification */
+X         argv[*argc-1][length] = '\0';
+X      }
+X   } /* end while (more_to_go) */
+X   return (argv);
+X}
+X
+X/* Remove all the defines that might affect the user's code. */
+X
+X#undef redirect
+X#undef filearg
+X#undef expand
+X#undef wild_found
+X#undef wild_expand
+X
+X#if 0
+X/* ------------------------ ECHO sample code ------------------------ */
+X
+X#include <stdio.h>
+X/* here come the 3 lines that make this Unix program into a VMS one: */
+X#ifdef VMS
+X#include <redexp.vms>
+X#endif
+X
+X/*
+X   This main program allows you to run experiments with redexp.vms.
+X   Try $ echo *.*, $ echo -f1 [-...]*.*, $ echo -f[0-3] *.*.
+X   Questions about using "%", "\", etc. may be answered by testing
+X   with this version of echo.
+X
+X   To use this, cut from the "#if 0" above up to the last #endif,
+X   and put the text in echo.c. Assuming you have defined VAXC$INCLUDE
+X   to also look in the directory where you put redexp.VMS, you should
+X   be able to compile and link echo. Define a symbol echo as
+X   	echo :== $sys$disk:[]echo
+X   and you are ready to run.
+X
+X*/
+Xmain(argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X    int i = 0;
+X
+X    while (i < argc) {
+X	printf("argv[%d]: %s\n", i, argv[i]);
+X	i++;	
+X    }
+X}
+X/* ------------------------ ECHO sample code end --------------------- */
+X#endif  /* if 0 */
+END_OF_FILE
+  if test 19252 -ne `wc -c <'redexp.vms'`; then
+    echo shar: \"'redexp.vms'\" unpacked with wrong size!
+  fi
+  # end of 'redexp.vms'
+fi
+if test -f 'sin2.pts.b' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sin2.pts.b'\"
+else
+  echo shar: Extracting \"'sin2.pts.b'\" \(32763 characters\)
+  sed "s/^X//" >'sin2.pts.b' <<'END_OF_FILE'
+X49.600000 -0.617439
+X49.630000 -0.593566
+X49.660000 -0.569159
+X49.690000 -0.544240
+X49.720000 -0.518831
+X49.750000 -0.492955
+X49.780000 -0.466635
+X49.810000 -0.439896
+X49.840000 -0.412760
+X49.870000 -0.385253
+X49.900000 -0.357400
+X49.930000 -0.329225
+X49.960000 -0.300753
+X49.990000 -0.272011
+X50.020000 -0.243024
+X50.050000 -0.213819
+X50.080000 -0.184421
+X50.110000 -0.154857
+X50.140000 -0.125153
+X50.170000 -0.095337
+X50.200000 -0.065436
+X50.230000 -0.035475
+X50.260000 -0.005482
+X50.290000 0.024515
+X50.320000 0.054491
+X50.350000 0.084417
+X50.380000 0.114267
+X50.410000 0.144015
+X50.440000 0.173633
+X50.470000 0.203095
+X50.500000 0.232374
+X50.530000 0.261444
+X50.560000 0.290278
+X50.590000 0.318852
+X50.620000 0.347138
+X50.650000 0.375112
+X50.680000 0.402748
+X50.710000 0.430022
+X50.740000 0.456909
+X50.770000 0.483385
+X50.800000 0.509426
+X50.830000 0.535008
+X50.860000 0.560109
+X50.890000 0.584706
+X50.920000 0.608777
+X50.950000 0.632299
+X50.980000 0.655253
+X51.010000 0.677617
+X51.040000 0.699371
+X51.070000 0.720496
+X51.100000 0.740973
+X51.130000 0.760782
+X51.160000 0.779907
+X51.190000 0.798330
+X51.220000 0.816035
+X51.250000 0.833005
+X51.280000 0.849226
+X51.310000 0.864682
+X51.340000 0.879361
+X51.370000 0.893247
+X51.400000 0.906330
+X51.430000 0.918598
+X51.460000 0.930038
+X51.490000 0.940642
+X51.520000 0.950399
+X51.550000 0.959301
+X51.580000 0.967340
+X51.610000 0.974508
+X51.640000 0.980799
+X51.670000 0.986208
+X51.700000 0.990728
+X51.730000 0.994358
+X51.760000 0.997092
+X51.790000 0.998929
+X51.820000 0.999868
+X51.850000 0.999906
+X51.880000 0.999044
+X51.910000 0.997284
+X51.940000 0.994626
+X51.970000 0.991073
+X52.000000 0.986628
+X52.030000 0.981295
+X52.060000 0.975079
+X52.090000 0.967985
+X52.120000 0.960020
+X52.150000 0.951192
+X52.180000 0.941507
+X52.210000 0.930975
+X52.240000 0.919606
+X52.270000 0.907408
+X52.300000 0.894394
+X52.330000 0.880575
+X52.360000 0.865964
+X52.390000 0.850574
+X52.420000 0.834418
+X52.450000 0.817511
+X52.480000 0.799868
+X52.510000 0.781505
+X52.540000 0.762440
+X52.570000 0.742688
+X52.600000 0.722267
+X52.630000 0.701197
+X52.660000 0.679496
+X52.690000 0.657183
+X52.720000 0.634279
+X52.750000 0.610804
+X52.780000 0.586779
+X52.810000 0.562226
+X52.840000 0.537167
+X52.870000 0.511625
+X52.900000 0.485622
+X52.930000 0.459183
+X52.960000 0.432330
+X52.990000 0.405088
+X53.020000 0.377482
+X53.050000 0.349535
+X53.080000 0.321275
+X53.110000 0.292725
+X53.140000 0.263911
+X53.170000 0.234861
+X53.200000 0.205598
+X53.230000 0.176151
+X53.260000 0.146545
+X53.290000 0.116808
+X53.320000 0.086965
+X53.350000 0.057044
+X53.380000 0.027072
+X53.410000 -0.002925
+X53.440000 -0.032919
+X53.470000 -0.062883
+X53.500000 -0.092791
+X53.530000 -0.122616
+X53.560000 -0.152330
+X53.590000 -0.181906
+X53.620000 -0.211320
+X53.650000 -0.240543
+X53.680000 -0.269549
+X53.710000 -0.298313
+X53.740000 -0.326809
+X53.770000 -0.355010
+X53.800000 -0.382892
+X53.830000 -0.410429
+X53.860000 -0.437597
+X53.890000 -0.464372
+X53.920000 -0.490728
+X53.950000 -0.516642
+X53.980000 -0.542092
+X54.010000 -0.567054
+X54.040000 -0.591506
+X54.070000 -0.615425
+X54.100000 -0.638790
+X54.130000 -0.661581
+X54.160000 -0.683776
+X54.190000 -0.705356
+X54.220000 -0.726301
+X54.250000 -0.746592
+X54.280000 -0.766212
+X54.310000 -0.785142
+X54.340000 -0.803365
+X54.370000 -0.820866
+X54.400000 -0.837627
+X54.430000 -0.853635
+X54.460000 -0.868875
+X54.490000 -0.883333
+X54.520000 -0.896995
+X54.550000 -0.909851
+X54.580000 -0.921888
+X54.610000 -0.933095
+X54.640000 -0.943462
+X54.670000 -0.952981
+X54.700000 -0.961642
+X54.730000 -0.969437
+X54.760000 -0.976360
+X54.790000 -0.982404
+X54.820000 -0.987564
+X54.850000 -0.991836
+X54.880000 -0.995214
+X54.910000 -0.997698
+X54.940000 -0.999283
+X54.970000 -0.999969
+X55.000000 -0.999755
+X55.030000 -0.998642
+X55.060000 -0.996629
+X55.090000 -0.993720
+X55.120000 -0.989917
+X55.150000 -0.985222
+X55.180000 -0.979641
+X55.210000 -0.973179
+X55.240000 -0.965841
+X55.270000 -0.957633
+X55.300000 -0.948564
+X55.330000 -0.938641
+X55.360000 -0.927873
+X55.390000 -0.916270
+X55.420000 -0.903843
+X55.450000 -0.890602
+X55.480000 -0.876560
+X55.510000 -0.861729
+X55.540000 -0.846123
+X55.570000 -0.829755
+X55.600000 -0.812640
+X55.630000 -0.794794
+X55.660000 -0.776233
+X55.690000 -0.756973
+X55.720000 -0.737032
+X55.750000 -0.716427
+X55.780000 -0.695178
+X55.810000 -0.673303
+X55.840000 -0.650823
+X55.870000 -0.627757
+X55.900000 -0.604125
+X55.930000 -0.579950
+X55.960000 -0.555254
+X55.990000 -0.530057
+X56.020000 -0.504383
+X56.050000 -0.478256
+X56.080000 -0.451698
+X56.110000 -0.424734
+X56.140000 -0.397387
+X56.170000 -0.369683
+X56.200000 -0.341646
+X56.230000 -0.313302
+X56.260000 -0.284675
+X56.290000 -0.255793
+X56.320000 -0.226680
+X56.350000 -0.197363
+X56.380000 -0.167869
+X56.410000 -0.138224
+X56.440000 -0.108454
+X56.470000 -0.078587
+X56.500000 -0.048649
+X56.530000 -0.018667
+X56.560000 0.011332
+X56.590000 0.041320
+X56.620000 0.071272
+X56.650000 0.101159
+X56.680000 0.130955
+X56.710000 0.160633
+X56.740000 0.190167
+X56.770000 0.219530
+X56.800000 0.248695
+X56.830000 0.277636
+X56.860000 0.306327
+X56.890000 0.334743
+X56.920000 0.362857
+X56.950000 0.390645
+X56.980000 0.418081
+X57.010000 0.445141
+X57.040000 0.471801
+X57.070000 0.498036
+X57.100000 0.523823
+X57.130000 0.549138
+X57.160000 0.573959
+X57.190000 0.598263
+X57.220000 0.622030
+X57.250000 0.645236
+X57.280000 0.667862
+X57.310000 0.689886
+X57.340000 0.711290
+X57.370000 0.732054
+X57.400000 0.752159
+X57.430000 0.771587
+X57.460000 0.790321
+X57.490000 0.808343
+X57.520000 0.825638
+X57.550000 0.842190
+X57.580000 0.857984
+X57.610000 0.873006
+X57.640000 0.887242
+X57.670000 0.900680
+X57.700000 0.913307
+X57.730000 0.925113
+X57.760000 0.936085
+X57.790000 0.946216
+X57.820000 0.955495
+X57.850000 0.963914
+X57.880000 0.971465
+X57.910000 0.978142
+X57.940000 0.983939
+X57.970000 0.988851
+X58.000000 0.992873
+X58.030000 0.996001
+X58.060000 0.998233
+X58.090000 0.999566
+X58.120000 1.000000
+X58.150000 0.999534
+X58.180000 0.998168
+X58.210000 0.995904
+X58.240000 0.992744
+X58.270000 0.988691
+X58.300000 0.983748
+X58.330000 0.977919
+X58.360000 0.971210
+X58.390000 0.963628
+X58.420000 0.955178
+X58.450000 0.945869
+X58.480000 0.935708
+X58.510000 0.924705
+X58.540000 0.912870
+X58.570000 0.900214
+X58.600000 0.886747
+X58.630000 0.872483
+X58.660000 0.857433
+X58.690000 0.841612
+X58.720000 0.825033
+X58.750000 0.807712
+X58.780000 0.789664
+X58.810000 0.770905
+X58.840000 0.751452
+X58.870000 0.731323
+X58.900000 0.710537
+X58.930000 0.689110
+X58.960000 0.667064
+X58.990000 0.644417
+X59.020000 0.621190
+X59.050000 0.597404
+X59.080000 0.573081
+X59.110000 0.548242
+X59.140000 0.522909
+X59.170000 0.497106
+X59.200000 0.470856
+X59.230000 0.444181
+X59.260000 0.417107
+X59.290000 0.389658
+X59.320000 0.361858
+X59.350000 0.333733
+X59.380000 0.305307
+X59.410000 0.276606
+X59.440000 0.247656
+X59.470000 0.218484
+X59.500000 0.189115
+X59.530000 0.159575
+X59.560000 0.129892
+X59.590000 0.100093
+X59.620000 0.070203
+X59.650000 0.040250
+X59.680000 0.010260
+X59.710000 -0.019738
+X59.740000 -0.049719
+X59.770000 -0.079655
+X59.800000 -0.109519
+X59.830000 -0.139285
+X59.860000 -0.168926
+X59.890000 -0.198414
+X59.920000 -0.227724
+X59.950000 -0.256829
+X59.980000 -0.285703
+X60.010000 -0.314319
+X60.040000 -0.342653
+X60.070000 -0.370679
+X60.100000 -0.398370
+X60.130000 -0.425704
+X60.160000 -0.452654
+X60.190000 -0.479197
+X60.220000 -0.505309
+X60.250000 -0.530966
+X60.280000 -0.556145
+X60.310000 -0.580823
+X60.340000 -0.604979
+X60.370000 -0.628591
+X60.400000 -0.651636
+X60.430000 -0.674096
+X60.460000 -0.695948
+X60.490000 -0.717175
+X60.520000 -0.737756
+X60.550000 -0.757673
+X60.580000 -0.776908
+X60.610000 -0.795444
+X60.640000 -0.813264
+X60.670000 -0.830352
+X60.700000 -0.846693
+X60.730000 -0.862272
+X60.760000 -0.877075
+X60.790000 -0.891089
+X60.820000 -0.904301
+X60.850000 -0.916699
+X60.880000 -0.928272
+X60.910000 -0.939010
+X60.940000 -0.948902
+X60.970000 -0.957941
+X61.000000 -0.966118
+X61.030000 -0.973425
+X61.060000 -0.979856
+X61.090000 -0.985405
+X61.120000 -0.990068
+X61.150000 -0.993840
+X61.180000 -0.996717
+X61.210000 -0.998697
+X61.240000 -0.999778
+X61.270000 -0.999960
+X61.300000 -0.999242
+X61.330000 -0.997624
+X61.360000 -0.995109
+X61.390000 -0.991698
+X61.420000 -0.987395
+X61.450000 -0.982203
+X61.480000 -0.976128
+X61.510000 -0.969173
+X61.540000 -0.961347
+X61.570000 -0.952655
+X61.600000 -0.943107
+X61.630000 -0.932709
+X61.660000 -0.921472
+X61.690000 -0.909406
+X61.720000 -0.896521
+X61.750000 -0.882830
+X61.780000 -0.868344
+X61.810000 -0.853076
+X61.840000 -0.837041
+X61.870000 -0.820253
+X61.900000 -0.802726
+X61.930000 -0.784477
+X61.960000 -0.765523
+X61.990000 -0.745879
+X62.020000 -0.725564
+X62.050000 -0.704596
+X62.080000 -0.682993
+X62.110000 -0.660777
+X62.140000 -0.637965
+X62.170000 -0.614580
+X62.200000 -0.590641
+X62.230000 -0.566171
+X62.260000 -0.541191
+X62.290000 -0.515725
+X62.320000 -0.489794
+X62.350000 -0.463422
+X62.380000 -0.436633
+X62.410000 -0.409452
+X62.440000 -0.381902
+X62.470000 -0.354008
+X62.500000 -0.325796
+X62.530000 -0.297290
+X62.560000 -0.268517
+X62.590000 -0.239502
+X62.620000 -0.210272
+X62.650000 -0.180852
+X62.680000 -0.151270
+X62.710000 -0.121552
+X62.740000 -0.091724
+X62.770000 -0.061814
+X62.800000 -0.031848
+X62.830000 -0.001853
+X62.860000 0.028143
+X62.890000 0.058114
+X62.920000 0.088033
+X62.950000 0.117872
+X62.980000 0.147606
+X63.010000 0.177206
+X63.040000 0.206647
+X63.070000 0.235902
+X63.100000 0.264945
+X63.130000 0.293749
+X63.160000 0.322289
+X63.190000 0.350539
+X63.220000 0.378474
+X63.250000 0.406068
+X63.280000 0.433296
+X63.310000 0.460135
+X63.340000 0.486559
+X63.370000 0.512546
+X63.400000 0.538071
+X63.430000 0.563112
+X63.460000 0.587646
+X63.490000 0.611652
+X63.520000 0.635107
+X63.550000 0.657990
+X63.580000 0.680282
+X63.610000 0.701961
+X63.640000 0.723008
+X63.670000 0.743405
+X63.700000 0.763133
+X63.730000 0.782174
+X63.760000 0.800511
+X63.790000 0.818127
+X63.820000 0.835008
+X63.850000 0.851137
+X63.880000 0.866500
+X63.910000 0.881083
+X63.940000 0.894873
+X63.970000 0.907858
+X64.000000 0.920026
+X64.030000 0.931366
+X64.060000 0.941868
+X64.090000 0.951522
+X64.120000 0.960320
+X64.150000 0.968254
+X64.180000 0.975316
+X64.210000 0.981500
+X64.240000 0.986802
+X64.270000 0.991215
+X64.300000 0.994736
+X64.330000 0.997362
+X64.360000 0.999091
+X64.390000 0.999920
+X64.420000 0.999849
+X64.450000 0.998879
+X64.480000 0.997010
+X64.510000 0.994243
+X64.540000 0.990582
+X64.570000 0.986030
+X64.600000 0.980589
+X64.630000 0.974267
+X64.660000 0.967068
+X64.690000 0.958998
+X64.720000 0.950065
+X64.750000 0.940278
+X64.780000 0.929644
+X64.810000 0.918174
+X64.840000 0.905877
+X64.870000 0.892765
+X64.900000 0.878850
+X64.930000 0.864143
+X64.960000 0.848659
+X64.990000 0.832412
+X65.020000 0.815415
+X65.050000 0.797684
+X65.080000 0.779236
+X65.110000 0.760086
+X65.140000 0.740252
+X65.170000 0.719752
+X65.200000 0.698605
+X65.230000 0.676828
+X65.260000 0.654443
+X65.290000 0.631469
+X65.320000 0.607926
+X65.350000 0.583836
+X65.380000 0.559221
+X65.410000 0.534102
+X65.440000 0.508503
+X65.470000 0.482447
+X65.500000 0.455956
+X65.530000 0.429054
+X65.560000 0.401767
+X65.590000 0.374118
+X65.620000 0.346133
+X65.650000 0.317835
+X65.680000 0.289252
+X65.710000 0.260409
+X65.740000 0.231331
+X65.770000 0.202045
+X65.800000 0.172577
+X65.830000 0.142954
+X65.860000 0.113203
+X65.890000 0.083349
+X65.920000 0.053420
+X65.950000 0.023444
+X65.980000 -0.006554
+X66.010000 -0.036546
+X66.040000 -0.066505
+X66.070000 -0.096404
+X66.100000 -0.126217
+X66.130000 -0.155916
+X66.160000 -0.185474
+X66.190000 -0.214866
+X66.220000 -0.244064
+X66.250000 -0.273042
+X66.280000 -0.301775
+X66.310000 -0.330237
+X66.340000 -0.358401
+X66.370000 -0.386242
+X66.400000 -0.413736
+X66.430000 -0.440858
+X66.460000 -0.467583
+X66.490000 -0.493887
+X66.520000 -0.519747
+X66.550000 -0.545138
+X66.580000 -0.570040
+X66.610000 -0.594428
+X66.640000 -0.618281
+X66.670000 -0.641578
+X66.700000 -0.664298
+X66.730000 -0.686420
+X66.760000 -0.707924
+X66.790000 -0.728791
+X66.820000 -0.749002
+X66.850000 -0.768539
+X66.880000 -0.787384
+X66.910000 -0.805521
+X66.940000 -0.822933
+X66.970000 -0.839604
+X67.000000 -0.855520
+X67.030000 -0.870666
+X67.060000 -0.885028
+X67.090000 -0.898594
+X67.120000 -0.911351
+X67.150000 -0.923288
+X67.180000 -0.934394
+X67.210000 -0.944659
+X67.240000 -0.954074
+X67.270000 -0.962631
+X67.300000 -0.970321
+X67.330000 -0.977138
+X67.360000 -0.983075
+X67.390000 -0.988128
+X67.420000 -0.992292
+X67.450000 -0.995563
+X67.480000 -0.997937
+X67.510000 -0.999414
+X67.540000 -0.999991
+X67.570000 -0.999668
+X67.600000 -0.998446
+X67.630000 -0.996325
+X67.660000 -0.993308
+X67.690000 -0.989396
+X67.720000 -0.984594
+X67.750000 -0.978906
+X67.780000 -0.972338
+X67.810000 -0.964894
+X67.840000 -0.956582
+X67.870000 -0.947408
+X67.900000 -0.937383
+X67.930000 -0.926514
+X67.960000 -0.914810
+X67.990000 -0.902284
+X68.020000 -0.888946
+X68.050000 -0.874808
+X68.080000 -0.859882
+X68.110000 -0.844183
+X68.140000 -0.827723
+X68.170000 -0.810519
+X68.200000 -0.792586
+X68.230000 -0.773939
+X68.260000 -0.754596
+X68.290000 -0.734574
+X68.320000 -0.713890
+X68.350000 -0.692565
+X68.380000 -0.670616
+X68.410000 -0.648063
+X68.440000 -0.624927
+X68.470000 -0.601229
+X68.500000 -0.576990
+X68.530000 -0.552231
+X68.560000 -0.526976
+X68.590000 -0.501246
+X68.620000 -0.475065
+X68.650000 -0.448457
+X68.680000 -0.421445
+X68.710000 -0.394054
+X68.740000 -0.366308
+X68.770000 -0.338233
+X68.800000 -0.309853
+X68.830000 -0.281194
+X68.860000 -0.252283
+X68.890000 -0.223144
+X68.920000 -0.193804
+X68.950000 -0.164290
+X68.980000 -0.134628
+X69.010000 -0.104845
+X69.040000 -0.074968
+X69.070000 -0.045023
+X69.100000 -0.015038
+X69.130000 0.014961
+X69.160000 0.044946
+X69.190000 0.074891
+X69.220000 0.104769
+X69.250000 0.134552
+X69.280000 0.164214
+X69.310000 0.193729
+X69.340000 0.223069
+X69.370000 0.252208
+X69.400000 0.281121
+X69.430000 0.309780
+X69.460000 0.338161
+X69.490000 0.366237
+X69.520000 0.393983
+X69.550000 0.421376
+X69.580000 0.448388
+X69.610000 0.474998
+X69.640000 0.501180
+X69.670000 0.526911
+X69.700000 0.552167
+X69.730000 0.576927
+X69.760000 0.601168
+X69.790000 0.624867
+X69.820000 0.648005
+X69.850000 0.670559
+X69.880000 0.692509
+X69.910000 0.713837
+X69.940000 0.734522
+X69.970000 0.754546
+X70.000000 0.773891
+X70.030000 0.792539
+X70.060000 0.810474
+X70.090000 0.827680
+X70.120000 0.844141
+X70.150000 0.859843
+X70.180000 0.874770
+X70.210000 0.888911
+X70.240000 0.902251
+X70.270000 0.914779
+X70.300000 0.926485
+X70.330000 0.937356
+X70.360000 0.947384
+X70.390000 0.956559
+X70.420000 0.964874
+X70.450000 0.972320
+X70.480000 0.978891
+X70.510000 0.984581
+X70.540000 0.989385
+X70.570000 0.993299
+X70.600000 0.996318
+X70.630000 0.998442
+X70.660000 0.999666
+X70.690000 0.999991
+X70.720000 0.999416
+X70.750000 0.997942
+X70.780000 0.995570
+X70.810000 0.992301
+X70.840000 0.988140
+X70.870000 0.983089
+X70.900000 0.977154
+X70.930000 0.970339
+X70.960000 0.962652
+X70.990000 0.954097
+X71.020000 0.944684
+X71.050000 0.934421
+X71.080000 0.923317
+X71.110000 0.911383
+X71.140000 0.898628
+X71.170000 0.885064
+X71.200000 0.870704
+X71.230000 0.855560
+X71.260000 0.839646
+X71.290000 0.822977
+X71.320000 0.805567
+X71.350000 0.787432
+X71.380000 0.768588
+X71.410000 0.749053
+X71.440000 0.728843
+X71.470000 0.707978
+X71.500000 0.686476
+X71.530000 0.664355
+X71.560000 0.641637
+X71.590000 0.618342
+X71.620000 0.594490
+X71.650000 0.570103
+X71.680000 0.545203
+X71.710000 0.519812
+X71.740000 0.493954
+X71.770000 0.467651
+X71.800000 0.440927
+X71.830000 0.413806
+X71.860000 0.386313
+X71.890000 0.358472
+X71.920000 0.330309
+X71.950000 0.301849
+X71.980000 0.273116
+X72.010000 0.244138
+X72.040000 0.214941
+X72.070000 0.185549
+X72.100000 0.155991
+X72.130000 0.126293
+X72.160000 0.096481
+X72.190000 0.066582
+X72.220000 0.036623
+X72.250000 0.006631
+X72.280000 -0.023367
+X72.310000 -0.053344
+X72.340000 -0.083272
+X72.370000 -0.113126
+X72.400000 -0.142878
+X72.430000 -0.172502
+X72.460000 -0.201970
+X72.490000 -0.231256
+X72.520000 -0.260335
+X72.550000 -0.289179
+X72.580000 -0.317763
+X72.610000 -0.346061
+X72.640000 -0.374047
+X72.670000 -0.401697
+X72.700000 -0.428985
+X72.730000 -0.455887
+X72.760000 -0.482379
+X72.790000 -0.508437
+X72.820000 -0.534038
+X72.850000 -0.559157
+X72.880000 -0.583774
+X72.910000 -0.607865
+X72.940000 -0.631409
+X72.970000 -0.654385
+X73.000000 -0.676772
+X73.030000 -0.698550
+X73.060000 -0.719699
+X73.090000 -0.740201
+X73.120000 -0.760036
+X73.150000 -0.779188
+X73.180000 -0.797638
+X73.210000 -0.815371
+X73.240000 -0.832369
+X73.270000 -0.848619
+X73.300000 -0.864105
+X73.330000 -0.878813
+X73.360000 -0.892730
+X73.390000 -0.905844
+X73.420000 -0.918143
+X73.450000 -0.929616
+X73.480000 -0.940252
+X73.510000 -0.950042
+X73.540000 -0.958976
+X73.570000 -0.967048
+X73.600000 -0.974250
+X73.630000 -0.980574
+X73.660000 -0.986017
+X73.690000 -0.990572
+X73.720000 -0.994235
+X73.750000 -0.997004
+X73.780000 -0.998876
+X73.810000 -0.999848
+X73.840000 -0.999921
+X73.870000 -0.999094
+X73.900000 -0.997368
+X73.930000 -0.994744
+X73.960000 -0.991225
+X73.990000 -0.986814
+X74.020000 -0.981515
+X74.050000 -0.975333
+X74.080000 -0.968273
+X74.110000 -0.960341
+X74.140000 -0.951546
+X74.170000 -0.941894
+X74.200000 -0.931394
+X74.230000 -0.920056
+X74.260000 -0.907890
+X74.290000 -0.894907
+X74.320000 -0.881119
+X74.350000 -0.866538
+X74.380000 -0.851177
+X74.410000 -0.835050
+X74.440000 -0.818172
+X74.470000 -0.800557
+X74.500000 -0.782222
+X74.530000 -0.763182
+X74.560000 -0.743456
+X74.590000 -0.723061
+X74.620000 -0.702016
+X74.650000 -0.680338
+X74.680000 -0.658048
+X74.710000 -0.635166
+X74.740000 -0.611713
+X74.770000 -0.587709
+X74.800000 -0.563176
+X74.830000 -0.538136
+X74.860000 -0.512612
+X74.890000 -0.486626
+X74.920000 -0.460203
+X74.950000 -0.433365
+X74.980000 -0.406138
+X75.010000 -0.378545
+X75.040000 -0.350611
+X75.070000 -0.322362
+X75.100000 -0.293823
+X75.130000 -0.265019
+X75.160000 -0.235977
+X75.190000 -0.206722
+X75.220000 -0.177282
+X75.250000 -0.147682
+X75.280000 -0.117948
+X75.310000 -0.088109
+X75.340000 -0.058191
+X75.370000 -0.028220
+X75.400000 0.001776
+X75.430000 0.031771
+X75.460000 0.061737
+X75.490000 0.091648
+X75.520000 0.121476
+X75.550000 0.151194
+X75.580000 0.180777
+X75.610000 0.210197
+X75.640000 0.239428
+X75.670000 0.268443
+X75.700000 0.297217
+X75.730000 0.325723
+X75.760000 0.353936
+X75.790000 0.381831
+X75.820000 0.409382
+X75.850000 0.436564
+X75.880000 0.463354
+X75.910000 0.489727
+X75.940000 0.515659
+X75.970000 0.541127
+X76.000000 0.566108
+X76.030000 0.590579
+X76.060000 0.614519
+X76.090000 0.637906
+X76.120000 0.660719
+X76.150000 0.682937
+X76.180000 0.704541
+X76.210000 0.725511
+X76.240000 0.745828
+X76.270000 0.765473
+X76.300000 0.784430
+X76.330000 0.802681
+X76.360000 0.820209
+X76.390000 0.836999
+X76.420000 0.853036
+X76.450000 0.868306
+X76.480000 0.882794
+X76.510000 0.896487
+X76.540000 0.909374
+X76.570000 0.921442
+X76.600000 0.932681
+X76.630000 0.943081
+X76.660000 0.952632
+X76.690000 0.961326
+X76.720000 0.969154
+X76.750000 0.976111
+X76.780000 0.982189
+X76.810000 0.987383
+X76.840000 0.991688
+X76.870000 0.995102
+X76.900000 0.997619
+X76.930000 0.999239
+X76.960000 0.999959
+X76.990000 0.999780
+X77.020000 0.998701
+X77.050000 0.996723
+X77.080000 0.993848
+X77.110000 0.990079
+X77.140000 0.985418
+X77.170000 0.979871
+X77.200000 0.973443
+X77.230000 0.966138
+X77.260000 0.957963
+X77.290000 0.948927
+X77.320000 0.939036
+X77.350000 0.928301
+X77.380000 0.916730
+X77.410000 0.904334
+X77.440000 0.891124
+X77.470000 0.877112
+X77.500000 0.862311
+X77.530000 0.846734
+X77.560000 0.830395
+X77.590000 0.813309
+X77.620000 0.795490
+X77.650000 0.776956
+X77.680000 0.757723
+X77.710000 0.737807
+X77.740000 0.717228
+X77.770000 0.696003
+X77.800000 0.674152
+X77.830000 0.651694
+X77.860000 0.628650
+X77.890000 0.605040
+X77.920000 0.580886
+X77.950000 0.556208
+X77.980000 0.531031
+X78.010000 0.505375
+X78.040000 0.479264
+X78.070000 0.452723
+X78.100000 0.425773
+X78.130000 0.398441
+X78.160000 0.370750
+X78.190000 0.342725
+X78.220000 0.314392
+X78.250000 0.285776
+X78.280000 0.256903
+X78.310000 0.227799
+X78.340000 0.198489
+X78.370000 0.169001
+X78.400000 0.139361
+X78.430000 0.109596
+X78.460000 0.079732
+X78.490000 0.049796
+X78.520000 0.019815
+X78.550000 -0.010183
+X78.580000 -0.040173
+X78.610000 -0.070126
+X78.640000 -0.100016
+X78.670000 -0.129816
+X78.700000 -0.159500
+X78.730000 -0.189039
+X78.760000 -0.218409
+X78.790000 -0.247582
+X78.820000 -0.276532
+X78.850000 -0.305234
+X78.880000 -0.333660
+X78.910000 -0.361787
+X78.940000 -0.389587
+X78.970000 -0.417038
+X79.000000 -0.444113
+X79.030000 -0.470788
+X79.060000 -0.497040
+X79.090000 -0.522844
+X79.120000 -0.548178
+X79.150000 -0.573018
+X79.180000 -0.597343
+X79.210000 -0.621130
+X79.240000 -0.644358
+X79.270000 -0.667006
+X79.300000 -0.689055
+X79.330000 -0.710483
+X79.360000 -0.731271
+X79.390000 -0.751402
+X79.420000 -0.770856
+X79.450000 -0.789616
+X79.480000 -0.807666
+X79.510000 -0.824990
+X79.540000 -0.841570
+X79.570000 -0.857394
+X79.600000 -0.872445
+X79.630000 -0.886712
+X79.660000 -0.900180
+X79.690000 -0.912839
+X79.720000 -0.924676
+X79.750000 -0.935681
+X79.780000 -0.945844
+X79.810000 -0.955155
+X79.840000 -0.963607
+X79.870000 -0.971192
+X79.900000 -0.977903
+X79.930000 -0.983734
+X79.960000 -0.988679
+X79.990000 -0.992735
+X80.020000 -0.995897
+X80.050000 -0.998164
+X80.080000 -0.999531
+X80.110000 -1.000000
+X80.140000 -0.999568
+X80.170000 -0.998237
+X80.200000 -0.996008
+X80.230000 -0.992882
+X80.260000 -0.988862
+X80.290000 -0.983953
+X80.320000 -0.978158
+X80.350000 -0.971483
+X80.380000 -0.963934
+X80.410000 -0.955517
+X80.440000 -0.946241
+X80.470000 -0.936112
+X80.500000 -0.925142
+X80.530000 -0.913339
+X80.560000 -0.900713
+X80.590000 -0.887278
+X80.620000 -0.873043
+X80.650000 -0.858024
+X80.680000 -0.842231
+X80.710000 -0.825681
+X80.740000 -0.808388
+X80.770000 -0.790368
+X80.800000 -0.771636
+X80.830000 -0.752210
+X80.860000 -0.732106
+X80.890000 -0.711344
+X80.920000 -0.689942
+X80.950000 -0.667919
+X80.980000 -0.645295
+X81.010000 -0.622090
+X81.040000 -0.598325
+X81.070000 -0.574022
+X81.100000 -0.549202
+X81.130000 -0.523888
+X81.160000 -0.498102
+X81.190000 -0.471869
+X81.220000 -0.445210
+X81.250000 -0.418151
+X81.280000 -0.390716
+X81.310000 -0.362929
+X81.340000 -0.334815
+X81.370000 -0.306400
+X81.400000 -0.277709
+X81.430000 -0.248769
+X81.460000 -0.219604
+X81.490000 -0.190242
+X81.520000 -0.160709
+X81.550000 -0.131031
+X81.580000 -0.101235
+X81.610000 -0.071348
+X81.640000 -0.041397
+X81.670000 -0.011409
+X81.700000 0.018590
+X81.730000 0.048572
+X81.760000 0.078510
+X81.790000 0.108378
+X81.820000 0.138148
+X81.850000 0.167793
+X81.880000 0.197288
+X81.910000 0.226605
+X81.940000 0.255719
+X81.970000 0.284602
+X82.000000 0.313229
+X82.030000 0.341574
+X82.060000 0.369612
+X82.090000 0.397317
+X82.120000 0.424664
+X82.150000 0.451630
+X82.180000 0.478189
+X82.210000 0.504317
+X82.240000 0.529992
+X82.270000 0.555190
+X82.300000 0.579888
+X82.330000 0.604064
+X82.360000 0.627697
+X82.390000 0.650765
+X82.420000 0.673247
+X82.450000 0.695123
+X82.480000 0.716374
+X82.510000 0.736980
+X82.540000 0.756923
+X82.570000 0.776184
+X82.600000 0.794747
+X82.630000 0.812595
+X82.660000 0.829712
+X82.690000 0.846082
+X82.720000 0.861690
+X82.750000 0.876523
+X82.780000 0.890567
+X82.810000 0.903810
+X82.840000 0.916240
+X82.870000 0.927844
+X82.900000 0.938614
+X82.930000 0.948539
+X82.960000 0.957611
+X82.990000 0.965821
+X83.020000 0.973161
+X83.050000 0.979626
+X83.080000 0.985209
+X83.110000 0.989906
+X83.140000 0.993712
+X83.170000 0.996623
+X83.200000 0.998638
+X83.230000 0.999753
+X83.260000 0.999970
+X83.290000 0.999286
+X83.320000 0.997703
+X83.350000 0.995222
+X83.380000 0.991845
+X83.410000 0.987576
+X83.440000 0.982418
+X83.470000 0.976376
+X83.500000 0.969456
+X83.530000 0.961663
+X83.560000 0.953004
+X83.590000 0.943488
+X83.620000 0.933123
+X83.650000 0.921918
+X83.680000 0.909883
+X83.710000 0.897029
+X83.740000 0.883369
+X83.770000 0.868913
+X83.800000 0.853675
+X83.830000 0.837669
+X83.860000 0.820909
+X83.890000 0.803411
+X83.920000 0.785189
+X83.950000 0.766261
+X83.980000 0.746643
+X84.010000 0.726354
+X84.040000 0.705410
+X84.070000 0.683832
+X84.100000 0.661638
+X84.130000 0.638849
+X84.160000 0.615485
+X84.190000 0.591568
+X84.220000 0.567117
+X84.250000 0.542157
+X84.280000 0.516708
+X84.310000 0.490795
+X84.340000 0.464440
+X84.370000 0.437666
+X84.400000 0.410499
+X84.430000 0.382963
+X84.460000 0.355082
+X84.490000 0.326881
+X84.520000 0.298386
+X84.550000 0.269623
+X84.580000 0.240617
+X84.610000 0.211395
+X84.640000 0.181982
+X84.670000 0.152405
+X84.700000 0.122692
+X84.730000 0.092868
+X84.760000 0.062960
+X84.790000 0.032996
+X84.820000 0.003002
+X84.850000 -0.026995
+X84.880000 -0.056967
+X84.910000 -0.086889
+X84.940000 -0.116732
+X84.970000 -0.146470
+X85.000000 -0.176076
+X85.030000 -0.205523
+X85.060000 -0.234786
+X85.090000 -0.263837
+X85.120000 -0.292651
+X85.150000 -0.321202
+X85.180000 -0.349463
+X85.210000 -0.377410
+X85.240000 -0.405018
+X85.270000 -0.432261
+X85.300000 -0.459115
+X85.330000 -0.485555
+X85.360000 -0.511559
+X85.390000 -0.537103
+X85.420000 -0.562163
+X85.450000 -0.586717
+X85.480000 -0.610743
+X85.510000 -0.634219
+X85.540000 -0.657125
+X85.570000 -0.679439
+X85.600000 -0.701142
+X85.630000 -0.722214
+X85.660000 -0.742636
+X85.690000 -0.762390
+X85.720000 -0.781458
+X85.750000 -0.799822
+X85.780000 -0.817466
+X85.810000 -0.834375
+X85.840000 -0.850533
+X85.870000 -0.865926
+X85.900000 -0.880539
+X85.930000 -0.894360
+X85.960000 -0.907376
+X85.990000 -0.919575
+X86.020000 -0.930947
+X86.050000 -0.941481
+X86.080000 -0.951168
+X86.110000 -0.959999
+X86.140000 -0.967966
+X86.170000 -0.975062
+X86.200000 -0.981280
+X86.230000 -0.986615
+X86.260000 -0.991062
+X86.290000 -0.994618
+X86.320000 -0.997278
+X86.350000 -0.999041
+X86.380000 -0.999905
+X86.410000 -0.999869
+X86.440000 -0.998933
+X86.470000 -0.997098
+X86.500000 -0.994366
+X86.530000 -0.990739
+X86.560000 -0.986220
+X86.590000 -0.980814
+X86.620000 -0.974525
+X86.650000 -0.967359
+X86.680000 -0.959323
+X86.710000 -0.950423
+X86.740000 -0.940668
+X86.770000 -0.930067
+X86.800000 -0.918628
+X86.830000 -0.906363
+X86.860000 -0.893282
+X86.890000 -0.879397
+X86.920000 -0.864721
+X86.950000 -0.849266
+X86.980000 -0.833048
+X87.010000 -0.816079
+X87.040000 -0.798377
+X87.070000 -0.779955
+X87.100000 -0.760832
+X87.130000 -0.741024
+X87.160000 -0.720549
+X87.190000 -0.699426
+X87.220000 -0.677674
+X87.250000 -0.655311
+X87.280000 -0.632359
+X87.310000 -0.608837
+X87.340000 -0.584768
+X87.370000 -0.560173
+X87.400000 -0.535073
+X87.430000 -0.509492
+X87.460000 -0.483452
+X87.490000 -0.456978
+X87.520000 -0.430092
+X87.550000 -0.402819
+X87.580000 -0.375183
+X87.610000 -0.347210
+X87.640000 -0.318924
+X87.670000 -0.290352
+X87.700000 -0.261518
+X87.730000 -0.232448
+X87.760000 -0.203170
+X87.790000 -0.173709
+X87.820000 -0.144091
+X87.850000 -0.114344
+X87.880000 -0.084493
+X87.910000 -0.054567
+X87.940000 -0.024592
+X87.970000 0.005406
+X88.000000 0.035398
+X88.030000 0.065359
+X88.060000 0.095261
+X88.090000 0.125077
+X88.120000 0.154781
+X88.150000 0.184345
+X88.180000 0.213744
+X88.210000 0.242950
+X88.240000 0.271937
+X88.270000 0.300680
+X88.300000 0.329152
+X88.330000 0.357328
+X88.360000 0.385183
+X88.390000 0.412690
+X88.420000 0.439827
+X88.450000 0.466567
+X88.480000 0.492888
+X88.510000 0.518765
+X88.540000 0.544175
+X88.570000 0.569096
+X88.600000 0.593504
+X88.630000 0.617378
+X88.660000 0.640697
+X88.690000 0.663439
+X88.720000 0.685584
+X88.750000 0.707112
+X88.780000 0.728004
+X88.810000 0.748240
+X88.840000 0.767803
+X88.870000 0.786676
+X88.900000 0.804840
+X88.930000 0.822280
+X88.960000 0.838980
+X88.990000 0.854925
+X89.020000 0.870100
+X89.050000 0.884493
+X89.080000 0.898089
+X89.110000 0.910878
+X89.140000 0.922846
+X89.170000 0.933984
+X89.200000 0.944282
+X89.230000 0.953730
+X89.260000 0.962319
+X89.290000 0.970043
+X89.320000 0.976893
+X89.350000 0.982864
+X89.380000 0.987951
+X89.410000 0.992149
+X89.440000 0.995454
+X89.470000 0.997863
+X89.500000 0.999374
+X89.530000 0.999985
+X89.560000 0.999697
+X89.590000 0.998509
+X89.620000 0.996423
+X89.650000 0.993440
+X89.680000 0.989562
+X89.710000 0.984794
+X89.740000 0.979140
+X89.770000 0.972605
+X89.800000 0.965195
+X89.830000 0.956916
+X89.860000 0.947775
+X89.890000 0.937782
+X89.920000 0.926945
+X89.950000 0.915274
+X89.980000 0.902779
+X90.010000 0.889471
+X90.040000 0.875363
+X90.070000 0.860468
+X90.100000 0.844798
+X90.130000 0.828367
+X90.160000 0.811192
+X90.190000 0.793286
+X90.220000 0.774666
+X90.250000 0.755349
+X90.280000 0.735353
+X90.310000 0.714694
+X90.340000 0.693393
+X90.370000 0.671467
+X90.400000 0.648937
+X90.430000 0.625824
+X90.460000 0.602147
+X90.490000 0.577928
+X90.520000 0.553189
+X90.550000 0.527952
+X90.580000 0.502240
+X90.610000 0.476076
+X90.640000 0.449483
+X90.670000 0.422487
+X90.700000 0.395109
+X90.730000 0.367377
+X90.760000 0.339313
+X90.790000 0.310945
+X90.820000 0.282296
+X90.850000 0.253394
+X90.880000 0.224263
+X90.910000 0.194931
+X90.940000 0.165423
+X90.970000 0.135766
+X91.000000 0.105988
+X91.030000 0.076113
+X91.060000 0.046171
+X91.090000 0.016186
+X91.120000 -0.013813
+X91.150000 -0.043799
+X91.180000 -0.073746
+X91.210000 -0.103627
+X91.240000 -0.133414
+X91.270000 -0.163081
+X91.300000 -0.192602
+X91.330000 -0.221949
+X91.360000 -0.251097
+X91.390000 -0.280018
+X91.420000 -0.308688
+X91.450000 -0.337079
+X91.480000 -0.365168
+X91.510000 -0.392928
+X91.540000 -0.420334
+X91.570000 -0.447362
+X91.600000 -0.473987
+X91.630000 -0.500186
+X91.660000 -0.525934
+X91.690000 -0.551209
+X91.720000 -0.575989
+X91.750000 -0.600250
+X91.780000 -0.623970
+X91.810000 -0.647129
+X91.840000 -0.669706
+X91.870000 -0.691680
+X91.900000 -0.713032
+X91.930000 -0.733742
+X91.960000 -0.753791
+X91.990000 -0.773163
+X92.020000 -0.791838
+X92.050000 -0.809801
+X92.080000 -0.827035
+X92.110000 -0.843525
+X92.140000 -0.859256
+X92.170000 -0.874213
+X92.200000 -0.888384
+X92.230000 -0.901755
+X92.260000 -0.914315
+X92.290000 -0.926052
+X92.320000 -0.936955
+X92.350000 -0.947016
+X92.380000 -0.956224
+X92.410000 -0.964571
+X92.440000 -0.972051
+X92.470000 -0.978655
+X92.500000 -0.984379
+X92.530000 -0.989217
+X92.560000 -0.993165
+X92.590000 -0.996219
+X92.620000 -0.998377
+X92.650000 -0.999636
+X92.680000 -0.999995
+X92.710000 -0.999455
+X92.740000 -0.998015
+X92.770000 -0.995677
+X92.800000 -0.992443
+X92.830000 -0.988316
+X92.860000 -0.983299
+X92.890000 -0.977398
+X92.920000 -0.970616
+X92.950000 -0.962962
+X92.980000 -0.954441
+X93.010000 -0.945060
+X93.040000 -0.934830
+X93.070000 -0.923758
+X93.100000 -0.911855
+X93.130000 -0.899131
+X93.160000 -0.885598
+X93.190000 -0.871268
+X93.220000 -0.856154
+X93.250000 -0.840269
+X93.280000 -0.823628
+X93.310000 -0.806247
+X93.340000 -0.788139
+X93.370000 -0.769322
+X93.400000 -0.749813
+X93.430000 -0.729629
+X93.460000 -0.708789
+X93.490000 -0.687310
+X93.520000 -0.665213
+X93.550000 -0.642518
+X93.580000 -0.619244
+X93.610000 -0.595413
+X93.640000 -0.571046
+X93.670000 -0.546165
+X93.700000 -0.520793
+X93.730000 -0.494952
+X93.760000 -0.468666
+X93.790000 -0.441957
+X93.820000 -0.414852
+X93.850000 -0.387372
+X93.880000 -0.359544
+X93.910000 -0.331393
+X93.940000 -0.302943
+X93.970000 -0.274221
+X94.000000 -0.245252
+X94.030000 -0.216062
+X94.060000 -0.186678
+X94.090000 -0.157126
+X94.120000 -0.127432
+X94.150000 -0.097624
+X94.180000 -0.067728
+X94.210000 -0.037771
+X94.240000 -0.007780
+X94.270000 0.022219
+X94.300000 0.052197
+X94.330000 0.082128
+X94.360000 0.111985
+X94.390000 0.141741
+X94.420000 0.171370
+X94.450000 0.200845
+X94.480000 0.230139
+X94.510000 0.259226
+X94.540000 0.288079
+X94.570000 0.316673
+X94.600000 0.344983
+X94.630000 0.372982
+X94.660000 0.400645
+X94.690000 0.427947
+X94.720000 0.454865
+X94.750000 0.481373
+X94.780000 0.507448
+X94.810000 0.533066
+X94.840000 0.558205
+X94.870000 0.582841
+X94.900000 0.606953
+X94.930000 0.630518
+X94.960000 0.653516
+X94.990000 0.675926
+X95.020000 0.697728
+X95.050000 0.718901
+X95.080000 0.739428
+X95.110000 0.759289
+X95.140000 0.778467
+X95.170000 0.796945
+X95.200000 0.814705
+X95.230000 0.831732
+X95.260000 0.848011
+X95.290000 0.863526
+X95.320000 0.878264
+X95.350000 0.892212
+X95.380000 0.905357
+X95.410000 0.917688
+X95.440000 0.929192
+X95.470000 0.939860
+X95.500000 0.949682
+X95.530000 0.958650
+X95.560000 0.966755
+X95.590000 0.973990
+X95.620000 0.980349
+X95.650000 0.985825
+X95.680000 0.990414
+X95.710000 0.994111
+X95.740000 0.996914
+X95.770000 0.998820
+X95.800000 0.999827
+X95.830000 0.999935
+X95.860000 0.999142
+X95.890000 0.997450
+X95.920000 0.994861
+X95.950000 0.991376
+X95.980000 0.986999
+X96.010000 0.981734
+X96.040000 0.975586
+X96.070000 0.968559
+X96.100000 0.960661
+X96.130000 0.951898
+X96.160000 0.942279
+X96.190000 0.931811
+X96.220000 0.920506
+X96.250000 0.908371
+X96.280000 0.895419
+X96.310000 0.881662
+X96.340000 0.867111
+X96.370000 0.851779
+X96.400000 0.835681
+X96.430000 0.818831
+X96.460000 0.801244
+X96.490000 0.782937
+X96.520000 0.763924
+X96.550000 0.744224
+X96.580000 0.723854
+X96.610000 0.702833
+X96.640000 0.681179
+X96.670000 0.658913
+X96.700000 0.636053
+X96.730000 0.612621
+X96.760000 0.588637
+X96.790000 0.564124
+X96.820000 0.539103
+X96.850000 0.513597
+X96.880000 0.487629
+X96.910000 0.461222
+X96.940000 0.434400
+X96.970000 0.407187
+X97.000000 0.379608
+X97.030000 0.351687
+X97.060000 0.323449
+X97.090000 0.294920
+X97.120000 0.266126
+X97.150000 0.237093
+X97.180000 0.207846
+X97.210000 0.178412
+X97.240000 0.148817
+X97.270000 0.119089
+X97.300000 0.089253
+X97.330000 0.059337
+X97.360000 0.029368
+X97.390000 -0.000628
+X97.420000 -0.030623
+X97.450000 -0.060591
+X97.480000 -0.090504
+X97.510000 -0.120335
+X97.540000 -0.150059
+X97.570000 -0.179647
+X97.600000 -0.209074
+X97.630000 -0.238312
+X97.660000 -0.267336
+X97.690000 -0.296120
+X97.720000 -0.324637
+X97.750000 -0.352862
+X97.780000 -0.380769
+X97.810000 -0.408334
+X97.840000 -0.435531
+X97.870000 -0.462336
+X97.900000 -0.488725
+X97.930000 -0.514674
+X97.960000 -0.540160
+X97.990000 -0.565160
+X98.020000 -0.589652
+X98.050000 -0.613613
+X98.080000 -0.637021
+X98.110000 -0.659856
+X98.140000 -0.682098
+X98.170000 -0.703726
+X98.200000 -0.724720
+X98.230000 -0.745062
+X98.260000 -0.764734
+X98.290000 -0.783717
+X98.320000 -0.801995
+X98.350000 -0.819551
+X98.380000 -0.836370
+X98.410000 -0.852436
+X98.440000 -0.867735
+X98.470000 -0.882254
+X98.500000 -0.895978
+X98.530000 -0.908895
+X98.560000 -0.920995
+X98.590000 -0.932266
+X98.620000 -0.942698
+X98.650000 -0.952282
+X98.680000 -0.961009
+X98.710000 -0.968871
+X98.740000 -0.975861
+X98.770000 -0.981972
+X98.800000 -0.987200
+X98.830000 -0.991540
+X98.860000 -0.994987
+X98.890000 -0.997539
+X98.920000 -0.999193
+X98.950000 -0.999948
+X98.980000 -0.999803
+X99.010000 -0.998759
+X99.040000 -0.996815
+X99.070000 -0.993975
+X99.100000 -0.990240
+X99.130000 -0.985613
+X99.160000 -0.980100
+X99.190000 -0.973705
+X99.220000 -0.966433
+X99.250000 -0.958292
+X99.280000 -0.949288
+X99.310000 -0.939431
+X99.340000 -0.928727
+X99.370000 -0.917188
+X99.400000 -0.904823
+X99.430000 -0.891645
+X99.460000 -0.877663
+X99.490000 -0.862892
+X99.520000 -0.847345
+X99.550000 -0.831034
+X99.580000 -0.813976
+X99.610000 -0.796186
+X99.640000 -0.777679
+X99.670000 -0.758472
+X99.700000 -0.738582
+X99.730000 -0.718028
+X99.760000 -0.696828
+X99.790000 -0.675000
+X99.820000 -0.652565
+X99.850000 -0.629543
+X99.880000 -0.605954
+X99.910000 -0.581820
+X99.940000 -0.557163
+X99.970000 -0.532003
+END_OF_FILE
+  if test 32763 -ne `wc -c <'sin2.pts.b'`; then
+    echo shar: \"'sin2.pts.b'\" unpacked with wrong size!
+  else 
+    if test -f 'sin2.pts.a'; then 
+      echo shar: Recreating \"'sin2.pts'\" \(64597 characters\)
+      cat 'sin2.pts.a' 'sin2.pts.b' > 'sin2.pts'  
+      if test 64597 -ne `wc -c <'sin2.pts'`; then
+        echo shar: \"'sin2.pts'\" unpacked with wrong size!
+      else 
+        rm -f 'sin2.pts.a' 'sin2.pts.b'   
+      fi 
+    fi 
+  fi
+  # end of 'sin2.pts.b'
+fi
+echo shar: End of archive 2 \(of 7\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

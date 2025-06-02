@@ -1,0 +1,1825 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i009:  mailagent - Flexible mail filtering and processing package, v3.0, Part09/26
+Message-ID: <1993Dec2.133830.18419@sparky.sterling.com>
+X-Md4-Signature: 225552b58db32df60ced138e7ac608fd
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:38:30 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 9
+Archive-name: mailagent/part09
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/pl/filter.pl agent/pl/getdate.pl
+#   agent/test/basic/mailagent.t
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:55 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 9 (of 26)."'
+if test -f 'agent/pl/filter.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/filter.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/filter.pl'\" \(22116 characters\)
+  sed "s/^X//" >'agent/pl/filter.pl' <<'END_OF_FILE'
+X;# $Id: filter.pl,v 3.0 1993/11/29 13:48:46 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: filter.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:46  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# There are a number of variables which are used by the filter commands and
+X;# which are in the dynamic scope when those functions are called. The calling
+X;# tree being: analyze_mail -> xeqte -> run_command -> run_*, where '*' stands
+X;# for the action we are currently executing.
+X;#
+X;# All the run_* commands are called from within an eval by run_command, so that
+X;# any otherwise fatal error can be trapped and reported in the log file. This
+X;# is only a precaution against possible typos or other unpredictable errors.
+X;#
+X;# The following variables are inherited from run_command:
+X;#  $mfile is the name of the mail file processed
+X;#  $cmd is the command to be run
+X;#  $cmd_name is the command name (upper-cased)
+X;#  $ever_saved which states whether a saving/discarding action occurred
+X;#  $cont is the continuation status, modified by REJECT and friends
+X;#  $vacation which is a boolean stating whether vacation messages are allowed
+X;# The following variable is inherited from xeqte:
+X;#  $lastcmd is the failure status of the last command (among those to be kept)
+X;# The working mode is held in $wmode (comes from analyze_mail).
+X;#
+X;# All the commands return an exit status: 0 for ok, 1 for failure. This status
+X;# is normally recorded in $lastcmd by run_command, unless the executed action
+X;# belongs to the set of commands whose exit status is discarded (because they
+X;# can never fail).
+X;#
+X#
+X# Filter commands are run from here
+X#
+X
+X# Run the PROCESS command
+Xsub run_process {
+X	if (0 != &process) {
+X		&add_log("ERROR while processing [$mfile]--queing it") if $loglvl;
+X		&queue_mail($file_name);
+X		return 1;
+X	}
+X	&add_log("PROCESSED [$mfile]") if $loglvl > 8;
+X	0;
+X}
+X
+X# Run the SERVER command
+Xsub run_server {
+X	local($options) = $cmd =~ /^\w+\s+(.*)/;	# Get options
+X	local($disabled);							# List of disabled commands
+X	$disabled = $1 if $options =~ s/'(.*)'//;	# Disables commands within ''
+X	local($opt_t) = $options =~ /t/;
+X	local($opt_d) = $options =~ /d/;
+X	&cmdenv'inituid;				# Initialize server session environment
+X	&cmdserv'trusted if $opt_t;		# Server runs in trusted mode
+X	&cmdserv'disable($disabled) if $opt_d;	# Disable commands for this run
+X	local(@body) = split(/\n/, $Header{'Body'});
+X	&cmdserv'process(*body);
+X	&add_log("SERVED [$mfile]") if $loglvl > 8;
+X	0;
+X}
+X
+X# Run the LEAVE command
+Xsub run_leave {
+X	local($mbox, $failed) = &leave;
+X	unless ($failed) {
+X		&add_log("LEFT [$mfile] in mailbox") if $loglvl > 2;
+X	}
+X	# Even if it failed, mark it as saved anyway, as the default action would
+X	# be a saving in mailbox and there is little chance another attempt would
+X	# succeed while this one failed.
+X	$ever_saved = 1;		# At least we tried to save it
+X	$failed;
+X}
+X
+X# Run the SAVE command
+Xsub run_save {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	&save_message($folder);
+X}
+X
+X# Run the STORE command
+Xsub run_store {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_APPEND);
+X	unless ($failed) {
+X		$ever_saved = 1;			# We were able to save it
+X		($mbox, $failed) = &leave;
+X		unless ($failed) {
+X			&add_log("STORED [$mfile] in $log_message") if $loglvl > 2;
+X		} else {
+X			&add_log("WARNING only SAVED [$mfile] in $log_message")
+X				if $loglvl > 1;
+X			return 1;
+X		}
+X	} else {
+X		($mbox, $failed) = &leave;
+X		unless ($failed) {
+X			$ever_saved = 1;			# We were able to save it
+X			&add_log("WARNING only LEFT [$mfile] in mailbox")
+X				if $loglvl > 1;
+X		}
+X	}
+X	$failed;
+X}
+X
+X# Run the WRITE command
+Xsub run_write {
+X	local($folder) = $cmd =~ /^\w+\s+(\S+)/;	# Get first parameter
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_REMOVE);
+X	unless ($failed) {
+X		&add_log("WROTE [$mfile] in $log_message") if $loglvl > 2;
+X		$ever_saved = 1;			# We were able to save it
+X	}
+X	$failed;
+X}
+X
+X# Run the DELETE command
+Xsub run_delete {
+X	&add_log("DELETED [$mfile]") if $loglvl > 2;
+X	$ever_saved = 1;		# User chose to discard it, it counts as a save
+X	0;
+X}
+X
+X# Run the MACRO command
+Xsub run_macro {
+X	local($args) = $cmd =~ m|^\w+\s+(.*)|;	# Get command arguments
+X	local($name, $action) = &macro($args);	# Perform the command
+X	&add_log("MACRO [$mfile] $name $action") if $loglvl > 7;
+X	0;	# Never fails
+X}
+X
+X# Run the MESSAGE command
+Xsub run_message {
+X	local($msg) = $cmd =~ m|^\w+\s+(\S+)|;	# Vacation message location
+X	$msg =~ s/~/$cf'home/g;					# ~ substitution
+X	local($failed) = &message($msg);
+X	unless ($failed) {
+X		$msg = &tilda($msg);				# Replace the home directory by ~
+X		&add_log("MESSAGE $msg for [$mfile]") if $loglvl > 2;
+X	}
+X	$failed;
+X}
+X
+X# Run the NOTIFY command
+Xsub run_notify {
+X	local($args) = $cmd =~ m|^\w+\s+(.*)|;
+X	local(@args) = split(' ', $args);
+X	local($msg) = shift(@args);				# First argument is message text
+X	$msg =~ s/~/$cf'home/g;					# ~ substitution
+X	local($address) = join(' ', @args);		# Address list
+X	local($failed) = &notify($msg, $address);
+X	unless ($failed) {
+X		$msg = &tilda($msg);				# Replace the home directory by ~
+X		&add_log("NOTIFIED $msg [$mfile] to $address") if $loglvl > 2;
+X	}
+X	$failed;
+X}
+X
+X# Run the REJECT command
+Xsub run_reject {
+X	local(*perform) = *do_reject;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the RESTART command
+Xsub run_restart {
+X	local(*perform) = *do_restart;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the ABORT command
+Xsub run_abort {
+X	local(*perform) = *do_abort;
+X	&alter_flow;		# Change control flow by calling &perform
+X}
+X
+X# Run the RESYNC command
+Xsub run_resync {
+X	&header_resync;				# Resynchronize the %Header array
+X	&add_log("RESYNCED [$mfile]") if $loglvl > 4;
+X	0;
+X}
+X
+X# Run the BEGIN command
+Xsub run_begin {
+X	local($newstate) = $cmd =~ m|^\w+\s+(\S+)|;	# New state wanted
+X	$newstate = 'INITIAL' unless $newstate;
+X	$wmode = $newstate;			# $wmode comes from analyze_mail
+X	&add_log("BEGUN new state $newstate") if $loglvl > 4;
+X	0;
+X}
+X
+X# Run the RECORD command
+Xsub run_record {
+X	local($option, $mode) = $cmd =~ m|^\w+\s+(-\w)?\s*(\w+)?|;
+X	local($failed) = 0;
+X	if (&history_record) {		# Message already seen
+X		$wmode = '_SEEN_';		# Enter special mode ($wmode from analyze_mail)
+X		&add_log("NOTICE entering seen mode") if $loglvl > 5;
+X		&alter_execution($option, $mode);
+X		$failed = 1;			# Make sure it "fails"
+X	}
+X	&add_log("RECORDED [$mfile]") if $loglvl > 4;
+X	$failed;
+X}
+X
+X# Run the UNIQUE command
+Xsub run_unique {
+X	local($option, $mode) = $cmd =~ m|^\w+\s+(-\w)?\s*(\w+)?|;
+X	local($failed) = 0;
+X	if (&history_record) {		# Message already seen
+X		&add_log("NOTICE message tagged as saved") if $loglvl > 5;
+X		$ever_saved = 1;		# In effect, runs a DELETE
+X		&alter_execution($option, $mode);
+X		$failed = 1;			# Make sure it "fails"
+X	}
+X	&add_log("UNIQUE [$mfile]") if $loglvl > 4;
+X	$failed;
+X}
+X
+X# Run the FORWARD command
+Xsub run_forward {
+X	local($addresses) = $cmd =~ m|^\w+\s+(.*)|;	# Address(es)
+X	local($failed) = &forward($addresses);
+X	unless ($failed) {
+X		&add_log("FORWARDED [$mfile] to $addresses") if $loglvl > 2;
+X		$ever_saved = 1;		# Forwarding succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the BOUNCE command
+Xsub run_bounce {
+X	local($addresses) = $cmd =~ m|^\w+\s+(.*)|;	# Address(es)
+X	local($failed) = &bounce($addresses);
+X	unless ($failed) {
+X		&add_log("BOUNCED [$mfile] to $addresses") if $loglvl > 2;
+X		$ever_saved = 1;		# Bouncing succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the POST command
+Xsub run_post {
+X	local($newsgroups) = $cmd =~ m|^\w+\s+(.*)|;	# Newsgroup(s)
+X	local($failed) = &post($newsgroups);
+X	unless ($failed) {
+X		&add_log("POSTED [$mfile] to $newsgroups") if $loglvl > 2;
+X		$ever_saved = 1;		# Posting succeeded, counts as a save
+X	}
+X	$failed;
+X}
+X
+X# Run the RUN command
+Xsub run_run {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $NO_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		&add_log("RAN '$program' for [$mfile]") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PIPE command
+Xsub run_pipe {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $MAIL_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		&add_log("PIPED [$mfile] to '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the GIVE command
+Xsub run_give {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $BODY_INPUT, $NO_FEEDBACK);
+X	unless ($failed) {
+X		&add_log("GAVE [$mfile] to '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PASS command
+Xsub run_pass {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $BODY_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		&add_log("PASSED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the FEED command
+Xsub run_feed {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $MAIL_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		&add_log("FED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the PURIFY command
+Xsub run_purify {
+X	local($program) = $cmd =~ m|^\w+\s+(.*)|;	# Program to run
+X	local($failed) = &shell_command($program, $HEADER_INPUT, $FEEDBACK);
+X	unless ($failed) {
+X		&add_log("PURIFIED [$mfile] through '$program'") if $loglvl > 4;
+X	}
+X	$failed;
+X}
+X
+X# Run the BACK command
+X# Manipulates dynamically bound variable $cont (output from xeqte)
+Xsub run_back {
+X	# BACK command is handled recursively. The local variable $Back will be set
+X	# by xeq_back() if any feedback is to ever occur. This routine will be
+X	# transparently called instead of the usual handle_output() because of the
+X	# dynamic aliasing done here.
+X	local($Back) = '';					# BACK may be nested
+X	local(*handle_output) = *xeq_back;	# Any output to be put in $Back
+X	local($command) = $cmd =~ m|^BACK\s+(.*)|;
+X	local($failed) = 0;
+X	$command =~ s/%/%%/g;				# Protect against 2nd macro substitution
+X	# Calling run_command will position $lastcmd to be the return status of
+X	# the last meaningful command executed. However, we reset $lastcmd before
+X	# diving into the execution.
+X	$lastcmd = 0;						# Assume everything went fine
+X	&run_command($command);				# Run command (ignore return value)
+X	if ($Back ne '') {
+X		&add_log("got '$Back' back") if $loglvl > 11;
+X		$cont = &xeqte($Back);			# Get continuation status back
+X		$@ = '';						# Avoid cascade of (same) error report
+X		&add_log("BACK from '$command'") if $loglvl > 4;
+X	} else {
+X		&add_log("WARNING got nothing out of '$command'") if $loglvl > 5;
+X	}
+X	$lastcmd;			# Propage error status we got from the $command
+X}
+X
+X# Run the ONCE command
+Xsub run_once {
+X	local($_) = $cmd;					# The whole command line
+X	local($hname);						# Hash name (e-mail address)
+X	local($tag);						# Tag associated with command
+X	local($raw_period);					# The period, as written
+X	if (s/^ONCE\s*\(([^,\)]*),\s*([^,;\)]*),\s*(\w+)\s*\)//) {
+X		($hname, $tag, $raw_period) = ($1, $2, $3);
+X		&add_log("tag is ($hname, $tag, $raw_period)") if $loglvl > 18;
+X	} else {
+X		&add_log("ERROR bad once syntax (invalid tag)") if $loglvl > 1;
+X		return 1;
+X	}
+X	s/^\s*//;							# Remove leading spaces
+X	local($period) = &seconds_in_period($raw_period);
+X	&add_log("period is $raw_period = $period seconds") if $loglvl > 18;
+X
+X	# Calling run_command will set $lastcmd to the status of the command. In
+X	# case we are running a command which does not alter this status, assume
+X	# everything is fine.
+X	$lastcmd = 0;						# Assume command will run correctly
+X
+X	if (&once_check($hname, $tag, $period)) {
+X		&add_log("ONCE ($hname, $tag, $raw_period) $_") if $loglvl > 7;
+X		&s_once($cmd_name, $wmode, $tag);
+X		s/%/%%/g;						# Protect against 2nd macro substitution
+X		$cont = &run_command($_);		# Run it, update continuation status
+X	} else {
+X		&add_log("retry time not reached for $_") if $loglvl > 12;
+X		&s_noretry($cmd_name, $wmode, $tag);
+X	}
+X
+X	$lastcmd;							# Propagates execution status
+X}
+X
+X# Run the SELECT command
+Xsub run_select {
+X	local($_) = $cmd;					# The whole command line
+X	local($start, $end);				# Date strings for start and end
+X	if (s/^SELECT\s*\(([^.\)]*)\.\.\s*([^\)]*)\)//) {
+X		($start, $end) = ($1, $2);
+X		$start =~ s/\s*$//;				# Remove trailing spaces
+X		$end =~ s/\s*$//;
+X		&add_log("time is ($start .. $end)") if $loglvl > 18;
+X	} else {
+X		&add_log("ERROR bad select syntax (invalid time)") if $loglvl > 1;
+X		return 1;
+X	}
+X	local($now) = time;					# Current time
+X	local($sec_start, $sec_end);		# Start and end converted in seconds
+X	$sec_start = &getdate($start, $now);
+X	if ($sec_start == -1) {
+X		&add_log("ERROR in SELECT: 1st time '$start'") if $loglvl > 1;
+X		return 1;
+X	}
+X	$sec_end = &getdate($end, $now);
+X	if ($sec_end == -1) {
+X		&add_log("ERROR in SELECT: 2nd time '$end'") if $loglvl > 1;
+X		return 1;
+X	}
+X	if ($sec_start > $sec_end) {
+X		&add_log("WARNING time selection always impossible?") if $loglvl > 1;
+X		return 0;
+X	}
+X
+X	# Calling run_command will set $lastcmd to the status of the command. In
+X	# case we are running a command which does not alter this status, assume
+X	# everything is fine.
+X	$lastcmd = 0;						# Assume command will run correctly
+X
+X	s/^\s*//;							# Remove leading spaces
+X	if ($now >= $sec_start && $now <= $sec_end) {
+X		&add_log("SELECT ($start .. $end) $_") if $loglvl > 7;
+X		s/%/%%/g;						# Protect against 2nd macro substitution
+X		$cont = &run_command($_);		# Run command and update control flow
+X	} else {
+X		&add_log("time period not good for $_") if $loglvl > 12;
+X	}
+X
+X	$lastcmd;							# Propagates execution status
+X}
+X
+X# Run the NOP command
+Xsub run_nop {
+X	&add_log("NOP [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the STRIP command
+Xsub run_strip {
+X	local($headers) = $cmd =~ m|^\w+\s+(.*)|;	# Headers to remove
+X	&alter_header($headers, $HD_STRIP);
+X	$headers = join(', ', split(/\s/, $headers));
+X	&add_log("STRIPPED $headers from [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the KEEP command
+Xsub run_keep {
+X	local($headers) = $cmd =~ m|^\w+\s+(.*)|;	# Headers to keep
+X	&alter_header($headers, $HD_KEEP);
+X	$headers = join(', ', split(/\s/, $headers));
+X	&add_log("KEPT $headers from [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the ANNOTATE command
+Xsub run_annotate {
+X	local($date, $field, $value) = $cmd =~ m|^\w+\s+(-d\s+)?([\w\-]+):?\s*(.*)|;
+X	if (0 == &annotate_header($field, $value, $date)) {
+X		&add_log("ANNOTATED [$mfile] with $field") if $loglvl > 7;
+X	}
+X	0;
+X}
+X
+X# Run the ASSIGN command
+Xsub run_assign {
+X	local($var, $value) = $cmd =~ m|^\w+\s+(:?\w+)\s+(.*)|;
+X	local($eval);						# Evaluated value for expression
+X	local($@);
+X	# An expression may be provided as a value. If the whole value is enclosed
+X	# within simple quotes, then those are stripped and no evaluation is made.
+X	unless ($value =~ s/^'(.*)'$/$1/) {
+X		eval "\$eval = $value";			# Maybe value is an expression?
+X	} else {
+X		$eval = $value;					# Leading and trailing ' trimmed
+X	}
+X	$value = $eval if $eval && $@ eq '';
+X	if ($var =~ s/^://) {
+X		&extern'set($var, $value);		# Persistent variable is set
+X	} else {
+X		$Variable{$var} = $value;		# User defined variable is set
+X	}
+X	&add_log("ASSGINED '$value' to '$var' [$mfile]") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the TR command
+Xsub run_tr {
+X	local($variable, $tr) = $cmd =~ m|^\w+\s+(#?:?\w+)\s+(.*)|;
+X	&alter_value($variable, "tr$tr");
+X}
+X
+X# Run the SUBST command
+Xsub run_subst {
+X	local($variable, $s) = $cmd =~ m|^\w+\s+(#?:?\w+)\s+(.*)|;
+X	&alter_value($variable, "s$s");
+X}
+X
+X# Run the SPLIT command
+Xsub run_split {
+X	local($folder) = $cmd =~ m|^\w+\s+(.*)|;	# Folder where split occurs
+X	local($failed) = &split($folder);
+X	if (0 == $failed % 2) {			# Message was in digest format
+X		if ($failed & 0x4) {
+X			&add_log("SPLIT [$mfile] in mailagent's queue") if $loglvl > 2;
+X		} else {
+X			&add_log("SPLIT [$mfile] in $folder") if $loglvl > 2;
+X		}
+X		# If digest was not in RFC-934 style, there is a chance the split
+X		# was not correctly performed. To avoid any accidental loss of
+X		# information, the original digest message is also saved if SPLIT
+X		# had a folder argument, or it is not tagged saved.
+X		if ($failed & 0x8) {		# Digest was not RFC-934 compliant
+X			&add_log("NOTICE [$mfile] not RFC-934 compliant") if $loglvl > 6;
+X			if ($folder ne '') {
+X				&add_log("NOTICE saving original [$mfile] in $folder")
+X					if $loglvl > 6;
+X				&save_message($folder);
+X			} else {
+X				&add_log("NOTICE [$mfile] not tagged as saved")
+X					if $loglvl > 6 && ($failed & 0x2);
+X			}
+X		} else {
+X			$ever_saved = 1 if $failed & 0x2;	# Split -i succeeded
+X		}
+X		$failed = 0;
+X	}
+X	# If message was not in digest format and a folder was specified, save
+X	# message in that folder.
+X	if ($failed < 0 && $folder ne '') {
+X		&add_log("NOTICE [$mfile] not in digest format") if $loglvl > 6;
+X		$failed = &save_message($folder);
+X	}
+X	$failed ? 1 : 0;	# Failure status from split can be negative
+X}
+X
+X# Run the VACATION command
+Xsub run_vacation {
+X	return 0 unless $cf'vacation =~ /on/i;	# Ignore if vacation mode off
+X	local($mode) = $cmd =~ m|^\w+\s+(.*)|;	# Vacation mode
+X	$vacation = ($mode =~ /on/i) ? 1 : 0;
+X	$mode = $vacation ? 'on' : 'off';
+X	&add_log("vacation message turned $mode") if $loglvl > 7;
+X	0;
+X}
+X
+X# Run the QUEUE command
+Xsub run_queue {
+X	# Mail is saved as a 'qm' file, to avoid endless loops when mailagent
+X	# processes the queue. This means the mail will be deferred for at
+X	# least half an hour.
+X	local($failed) = &queue_mail('', 1);	# No file name, mail in %Header
+X	$ever_saved = 1 unless $failed;			# Queuing counts as saving
+X	$failed;
+X}
+X
+X# Run the PERL command
+Xsub run_perl {
+X	local($script) = $cmd =~ m|^\w+\s+(.*)|;	# Script to be loaded
+X	local($failed) = &perl($script);
+X	unless ($failed) {
+X		$script = &tilda($script);			# Replace the home directory by ~
+X		&add_log("PERLED [$mfile] through $script") if $loglvl > 7;
+X	}
+X	$failed;
+X}
+X
+X# Run the REQUIRE command
+Xsub run_require {
+X	local($file, $package) = $cmd =~ m|^\w+\s+(\S+)\s*(.*)|;
+X	local($failed) = &require($file, $package);
+X	unless ($failed) {
+X		$file = &tilda($file);		# Replace the home directory by ~
+X		local($inpack) = $file;		# Loaded in a package?
+X		$inpack .= " in package $package" if $package ne '';
+X		&add_log("REQUIRED [$mfile] $inpack") if $loglvl > 7;
+X	}
+X	$failed;
+X}
+X
+X# Run the APPLY command
+Xsub run_apply {
+X	local($rulefile) = $cmd =~ m|^\w+\s+(.*)|;	# Rule file to be applied
+X	local($failed, $saved) = &apply($rulefile);
+X	unless ($failed) {
+X		$rulefile = &tilda($rulefile);		# Replace the home directory by ~
+X		&add_log("APPLIED [$mfile] rules $rulefile") if $loglvl > 7;
+X	}
+X	$ever_saved = 1 if $saved;		# Mark mail as saved if appropriate
+X	$saved ? $failed : 1;			# Force failure if never saved
+X}
+X
+X# For SAVE, STORE or WRITE, the job is the same
+X# If the name is not an absolute path, the folder directory is taken
+X# in the "maildir" environment variable. If none, defaults to ~/Mail.
+X# A folder whose name begins with a '+' is taken as an MH folder.
+Xsub run_saving {
+X	local($folder, $remove) = @_;				# Shall we remove folder first?
+X	local($folddir) = $XENV{'maildir'};			# Folder directory location
+X	unless ($folder =~ /^\+/) {					# Not an MH folder
+X		$folder = "~/mbox" unless $folder;		# No folder -> save in mbox
+X		$folder =~ s/~/$cf'home/g;				# ~ substitution
+X		$folddir =~ s/~/$cf'home/g;				# ~ substitution
+X		$folddir = "$cf'home/Mail" unless $folddir;	# Default folders in ~/Mail
+X		$folder = "$folddir/$folder" unless $folder =~ m|^/|;
+X		local($dir) = $folder =~ m|(.*)/.*|;	# Get directory name
+X		unless (-d "$dir") {
+X			&makedir($dir);
+X			unless (-d "$dir") {
+X				&add_log("ERROR couldn't create directory $dir")
+X					if $loglvl > 0;
+X			} else {
+X				&add_log("created directory $dir") if $loglvl > 7;
+X			}
+X		}
+X	}
+X	# Cannot use WRITE with an MH folder, it behaves like a SAVE. Same thing
+X	# when attempting to save in a directory...
+X	if ($remove == $FOLDER_REMOVE && $folder !~ /^\+/) {
+X		# Folder has to be removed before writting into it. However, if it
+X		# is write protected, do not unlink it (save will fail later on anyway).
+X		# Note that this makes it a candidate for hooks via WRITE, if the
+X		# folder has its 'x' bit set with its 'w' bit cleared. This is an
+X		# undocumented feature however (WRITE is not supposed to trigger hooks).
+X		unlink "$folder" if -f "$folder" && -w _;
+X	}
+X	local($mbox, $failed) = &save($folder);
+X	local($log_message);				# Log message to be issued
+X	unless ($failed) {
+X		local($file) = $folder;			# Work on a copy to detect leading dir
+X		$file =~ s|^$folddir/||;		# Preceded by folder directory?
+X		if ($file =~ s/^\+//) {
+X			$log_message = "MH folder $file";
+X		} elsif ($file ne $folder) {
+X			$log_message = "folder $file";
+X		} else {
+X			$log_message = &tilda($folder);	# Replace the home directory by ~
+X		}
+X	}
+X
+X	# Return the status of the save command and a part of the logging message
+X	# to be issued. That way, we get a nice contextual log.
+X	($mbox, $failed, $log_message);
+X}
+X
+X# Perform the appropriate continuation status, depending on the option:
+Xsub alter_execution {
+X	local($option) = shift(@_);		# The invocation option
+X	local($mode) = shift(@_);		# Mode we have to change to
+X	if ($mode ne '') {
+X		$wmode = $mode;
+X		&add_log("entering new state $wmode") if $loglvl > 6;
+X	}
+X	&add_log("altering execution in mode '$wmode', option '$option'")
+X		if $loglvl > 18;
+X	if ($option eq '-c') {		# Continue execution
+X		0;
+X	} elsif ($option eq '-r') {	# Asks for RESTART
+X		&do_restart;
+X	} elsif ($option eq '-a') {	# Asks for ABORT
+X		&do_abort;
+X	} else {					# Default is to REJECT
+X		&do_reject;
+X	}
+X	# Propagate return status.
+X}
+X
+X# Save message in specified folder
+Xsub save_message {
+X	local($folder) = @_;
+X	local($mbox, $failed, $log_message) = &run_saving($folder, $FOLDER_APPEND);
+X	unless ($failed) {
+X		&add_log("SAVED [$mfile] in $log_message") if $loglvl > 2;
+X		$ever_saved = 1;			# We were able to save it
+X	}
+X	$failed;
+X}
+X
+END_OF_FILE
+  if test 22116 -ne `wc -c <'agent/pl/filter.pl'`; then
+    echo shar: \"'agent/pl/filter.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/filter.pl'
+fi
+if test -f 'agent/pl/getdate.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/getdate.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/getdate.pl'\" \(26821 characters\)
+  sed "s/^X//" >'agent/pl/getdate.pl' <<'END_OF_FILE'
+X;# From: rick@imd.sterling.com (Richard Ohnemus)
+X;# Newsgroups: comp.lang.perl
+X;# Subject: Re: Parsing a date/time string
+X;# Message-ID: <1992Jun26.133036.2077@sparky.imd.sterling.com>
+X;# Date: 26 Jun 92 13:30:36 GMT
+X;# References: <25116@life.ai.mit.edu>
+X;# Sender: news@sparky.imd.sterling.com (News Admin)
+X;# Organization: Sterling Software, IMD
+X;#
+X;# Here is the famous (or infamous) getdate routine adapted for use with
+X;# PERL. (This was a quick hack but, it is being used in a couple of
+X;# programs and no problems have shown up yet. 8-{)
+X;# 
+X;# Calling sequence:
+X;#   $seconds = &getdate($date_time_str, 
+X;#                       $time_in_seconds, 
+X;#                       $offset_from_GMT_in_minutes);
+X;# 
+X;# time_in_seconds and offset_from_GMT_in_minutes are optional arguments.
+X;# If time_in_seconds is not specified then the current time is used.
+X;# If offset_from_GMT_in_minutes is not specified then TZ is read from the
+X;# environment to get the offset.
+X;# 
+X;# Examples of use:
+X;#   require 'getdate.pl';
+X;#   seconds = &getdate('Apr 24 17:44');
+X;#   seconds = &getdate('2 Feb 1992 03:53:17');
+X;#   ... many more date/time formats supported ...
+X;#
+X;# getdate.pl was generated from getdate.y by a version of Berkeley Yacc
+X;# 1.8 that I modified to generate PERL output. (The patches are based on
+X;# Ray Lischner's patches to byacc 1.6.) If anyone would like a copy of
+X;# the patches I can e-mail them or make them available for anonymous FTP
+X;# if there is enough interest.
+X;#
+X;#
+X;# $yysccsid = "@(#)yaccpar	1.8 (Berkeley) 01/20/91 (Perl 2.0 04/23/92)";
+X;# 	Steven M. Bellovin (unc!smb)
+X;#	Dept. of Computer Science
+X;#	University of North Carolina at Chapel Hill
+X;#	@(#)getdate.y	2.13	9/16/86
+X;#
+X;#	Richard J. Ohnemus (rick@IMD.Sterling.COM)
+X;#	(Where do I work??? I'm not even sure who I am! 8-{)
+X;#	converted to PERL 4/24/92
+X;#
+X;# Below are logging information for this package as included in the
+X;# mailagent program.
+X;#
+X;# $Id: getdate.pl,v 3.0 1993/11/29 13:48:48 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: getdate.pl,v $
+X;# Revision 3.0  1993/11/29  13:48:48  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+Xpackage getdate;
+X
+X# This package parses a date string and converts it into a number of seconds.
+X# I did minor editing on this code, mainly to remove all the YYDEBUG #if tests
+X# and to reformat some of the table. I also encapsulated all the initializations
+X# into init subroutines and reworked on the indentation of semantic actions.
+X# Oh yes, I also made some minor modifications in place (i.e. without running
+X# yacc again) to apply some small fixes Richard sent me via e-mail.
+X# Other than that, it's pretty verbatim--RAM.
+X
+Xsub yyinit {
+X	$daysec = 24 * 60 * 60;
+X
+X	$AM = 1;
+X	$PM = 2;
+X	$DAYLIGHT = 1;
+X	$STANDARD = 2;
+X	$MAYBE = 3;
+X
+X	$ID=257;
+X	$MONTH=258;
+X	$DAY=259;
+X	$MERIDIAN=260;
+X	$NUMBER=261;
+X	$UNIT=262;
+X	$MUNIT=263;
+X	$SUNIT=264;
+X	$ZONE=265;
+X	$DAYZONE=266;
+X	$AGO=267;
+X	$YYERRCODE=256;
+X	@yylhs = (                                               -1,
+X		0,    0,    1,    1,    1,    1,    1,    1,    7,    2,
+X		2,    2,    2,    2,    2,    2,    3,    3,    5,    5,
+X		5,    4,    4,    4,    4,    4,    4,    4,    4,    4,
+X		6,    6,    6,    6,    6,    6,    6,
+X	);
+X	@yylen = (                                                2,
+X		0,    2,    1,    1,    1,    1,    1,    1,    1,    2,
+X		3,    4,    4,    5,    6,    6,    1,    1,    1,    2,
+X		2,    3,    5,    2,    4,    5,    7,    3,    2,    3,
+X		2,    2,    2,    1,    1,    1,    2,
+X	);
+X	@yydefred = (                                             1,
+X		0,    0,    0,    0,   34,   35,   36,   17,   18,    2,
+X		3,    4,    5,    6,    0,    8,    0,   20,    0,   21,
+X	   10,   31,   32,   33,    0,    0,   37,    0,    0,   30,
+X		0,    0,    0,   25,   12,   13,    0,    0,    0,    0,
+X	   23,    0,   15,   16,   27,
+X	);
+X	@yydgoto = (                                              1,
+X	   10,   11,   12,   13,   14,   15,   16,
+X	);
+X	@yysindex = (                                             0,
+X	 -241, -255,  -37,  -47,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0, -259,    0,  -42,    0, -252,    0,
+X		0,    0,    0,    0, -249, -248,    0,  -44, -246,    0,
+X	  -55,  -31, -235,    0,    0,    0, -234, -232,  -28, -256,
+X		0, -230,    0,    0,    0,
+X	);
+X	@yyrindex = (                                             0,
+X		0,    0,    1,   79,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,   10,    0,   46,    0,   55,    0,
+X		0,    0,    0,    0,    0,    0,    0,   19,    0,    0,
+X	   64,   28,    0,    0,    0,    0,    0,    0,   37,   73,
+X		0,    0,    0,    0,    0,
+X	);
+X	@yygindex = (                                             0,
+X		0,    0,    0,    0,    0,    0,    0,
+X	);
+X	$YYTABLESIZE=345;
+X	@yytable = (                                             26,
+X	   19,   29,   37,   43,   44,   17,   18,   27,   30,    7,
+X	   25,   31,   32,   33,   34,   38,    2,    3,   28,    4,
+X		5,    6,    7,    8,    9,   39,   40,   22,   41,   42,
+X	   45,    0,    0,    0,    0,    0,   26,    0,    0,    0,
+X		0,    0,    0,    0,    0,   24,    0,    0,    0,    0,
+X		0,    0,    0,    0,   29,    0,    0,    0,    0,    0,
+X		0,    0,    0,   11,    0,    0,    0,    0,    0,    0,
+X		0,    0,   14,    0,    0,    0,    0,    0,    9,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,   35,   36,    0,    0,    0,    0,
+X	   19,   20,   21,    0,   22,   23,   24,    0,   28,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,    0,    0,
+X		0,    0,    0,    0,    0,    0,    0,    0,   19,   19,
+X		0,   19,   19,   19,   19,   19,   19,    7,    7,    0,
+X		7,    7,    7,    7,    7,    7,   28,   28,    0,   28,
+X	   28,   28,   28,   28,   28,   22,   22,    0,   22,   22,
+X	   22,   22,   22,   22,   26,   26,    0,   26,   26,   26,
+X	   26,   26,   26,   24,   24,    0,    0,   24,   24,   24,
+X	   24,   24,   29,   29,    0,    0,   29,   29,   29,   29,
+X	   29,   11,   11,    0,    0,   11,   11,   11,   11,   11,
+X	   14,   14,    0,    0,   14,   14,   14,   14,   14,    9,
+X		0,    0,    0,    9,    9,
+X	);
+X	@yycheck = (                                             47,
+X		0,   44,   58,  260,  261,  261,   44,  267,  261,    0,
+X	   58,  261,  261,   58,  261,   47,  258,  259,    0,  261,
+X	  262,  263,  264,  265,  266,  261,  261,    0,  261,   58,
+X	  261,   -1,   -1,   -1,   -1,   -1,    0,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,    0,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,    0,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,    0,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,    0,   -1,   -1,   -1,   -1,   -1,    0,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,  260,  261,   -1,   -1,   -1,   -1,
+X	  258,  259,  260,   -1,  262,  263,  264,   -1,  261,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,
+X	   -1,   -1,   -1,   -1,   -1,   -1,   -1,   -1,  258,  259,
+X	   -1,  261,  262,  263,  264,  265,  266,  258,  259,   -1,
+X	  261,  262,  263,  264,  265,  266,  258,  259,   -1,  261,
+X	  262,  263,  264,  265,  266,  258,  259,   -1,  261,  262,
+X	  263,  264,  265,  266,  258,  259,   -1,  261,  262,  263,
+X	  264,  265,  266,  258,  259,   -1,   -1,  262,  263,  264,
+X	  265,  266,  258,  259,   -1,   -1,  262,  263,  264,  265,
+X	  266,  258,  259,   -1,   -1,  262,  263,  264,  265,  266,
+X	  258,  259,   -1,   -1,  262,  263,  264,  265,  266,  261,
+X	   -1,   -1,   -1,  265,  266,
+X	);
+X	$YYFINAL=1;
+X	$YYSTACKSIZE = $YYSTACKSIZE || $YYMAXDEPTH || 500;
+X	$YYMAXDEPTH = $YYMAXDEPTH || $YYSTACKSIZE || 500;
+X	$yyss[$YYSTACKSIZE] = 0;
+X	$yyvs[$YYSTACKSIZE] = 0;
+X}
+X
+Xsub yyclearin { $yychar = -1; }
+Xsub yyerrok { $yyerrflag = 0; }
+Xsub YYERROR { ++$yynerrs; &yy_err_recover; }
+Xsub yy_err_recover {
+X  if ($yyerrflag < 3)
+X  {
+X    $yyerrflag = 3;
+X    while (1)
+X    {
+X      if (($yyn = $yysindex[$yyss[$yyssp]]) && 
+X          ($yyn += $YYERRCODE) >= 0 && 
+X          $yycheck[$yyn] == $YYERRCODE)
+X      {
+X        $yyss[++$yyssp] = $yystate = $yytable[$yyn];
+X        $yyvs[++$yyvsp] = $yylval;
+X        next yyloop;
+X      }
+X      else
+X      {
+X        return(1) if $yyssp <= 0;
+X        --$yyssp;
+X        --$yyvsp;
+X      }
+X    }
+X  }
+X  else
+X  {
+X    return (1) if $yychar == 0;
+X    $yychar = -1;
+X    next yyloop;
+X  }
+X0;
+X} # yy_err_recover
+X
+Xsub yyparse {
+X  $yynerrs = 0;
+X  $yyerrflag = 0;
+X  $yychar = (-1);
+X
+X  $yyssp = 0;
+X  $yyvsp = 0;
+X  $yyss[$yyssp] = $yystate = 0;
+X
+Xyyloop: while(1)
+X  {
+X    yyreduce: {
+X      last yyreduce if ($yyn = $yydefred[$yystate]);
+X      if ($yychar < 0)
+X      {
+X        if (($yychar = &yylex) < 0) { $yychar = 0; }
+X      }
+X      if (($yyn = $yysindex[$yystate]) && ($yyn += $yychar) >= 0 &&
+X              $yycheck[$yyn] == $yychar)
+X      {
+X        $yyss[++$yyssp] = $yystate = $yytable[$yyn];
+X        $yyvs[++$yyvsp] = $yylval;
+X        $yychar = (-1);
+X        --$yyerrflag if $yyerrflag > 0;
+X        next yyloop;
+X      }
+X      if (($yyn = $yyrindex[$yystate]) && ($yyn += $yychar) >= 0 &&
+X            $yycheck[$yyn] == $yychar)
+X      {
+X        $yyn = $yytable[$yyn];
+X        last yyreduce;
+X      }
+X      if (! $yyerrflag) {
+X        &yyerror('syntax error');
+X        ++$yynerrs;
+X      }
+X      return(1) if &yy_err_recover;
+X    } # yyreduce
+X    $yym = $yylen[$yyn];
+X    $yyval = $yyvs[$yyvsp+1-$yym];
+X    switch:
+X    {
+X		if ($yyn == 3) {
+X			$timeflag++;
+X			last switch;
+X		}
+X		if ($yyn == 4) {
+X			$zoneflag++;
+X			last switch;
+X		}
+X		if ($yyn == 5) {
+X			$dateflag++;
+X			last switch;
+X		}
+X		if ($yyn == 6) {
+X			$dayflag++;
+X			last switch;
+X		}
+X		if ($yyn == 7) {
+X			$relflag++;
+X			last switch;
+X		}
+X		if ($yyn == 9) {
+X			if ($timeflag && $dateflag && !$relflag) {
+X				$year = $yyvs[$yyvsp-0];
+X			}
+X			else {
+X				$timeflag++;
+X				$hh = int($yyvs[$yyvsp-0] / 100);
+X				$mm = $yyvs[$yyvsp-0] % 100;
+X				$ss = 0;
+X				$merid = 24;
+X			}
+X			last switch;
+X		}
+X		if ($yyn == 10) {
+X			$hh = $yyvs[$yyvsp-1];
+X			$mm = 0;
+X			$ss = 0;
+X			$merid = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 11) {
+X			$hh = $yyvs[$yyvsp-2];
+X			$mm = $yyvs[$yyvsp-0];
+X			$merid = 24;
+X			last switch;
+X		}
+X		if ($yyn == 12) {
+X			$hh = $yyvs[$yyvsp-3];
+X			$mm = $yyvs[$yyvsp-1];
+X			$merid = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 13) {
+X			$hh = $yyvs[$yyvsp-3];
+X			$mm = $yyvs[$yyvsp-1];
+X			$merid = 24;
+X			$daylight = $STANDARD;
+X			$ourzone = $yyvs[$yyvsp-0] % 100 + 60 * int($yyvs[$yyvsp-0] / 100);
+X			last switch;
+X		}
+X		if ($yyn == 14) {
+X			$hh = $yyvs[$yyvsp-4];
+X			$mm = $yyvs[$yyvsp-2];
+X			$ss = $yyvs[$yyvsp-0];
+X			$merid = 24;
+X			last switch;
+X		}
+X		if ($yyn == 15) {
+X			$hh = $yyvs[$yyvsp-5];
+X			$mm = $yyvs[$yyvsp-3];
+X			$ss = $yyvs[$yyvsp-1];
+X			$merid = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 16) {
+X			$hh = $yyvs[$yyvsp-5];
+X			$mm = $yyvs[$yyvsp-3];
+X			$ss = $yyvs[$yyvsp-1];
+X			$merid = 24;
+X			$daylight = $STANDARD;
+X			$ourzone = $yyvs[$yyvsp-0] % 100 + 60 * int($yyvs[$yyvsp-0] / 100);
+X			last switch;
+X		}
+X		if ($yyn == 17) {
+X			$ourzone = $yyvs[$yyvsp-0];
+X			$daylight = $STANDARD;
+X			last switch;
+X		}
+X		if ($yyn == 18) {
+X			$ourzone = $yyvs[$yyvsp-0];
+X			$daylight = $DAYLIGHT;
+X			last switch;
+X		}
+X		if ($yyn == 19) {
+X			$dayord = 1;
+X			$dayreq = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 20) {
+X			$dayord = 1;
+X			$dayreq = $yyvs[$yyvsp-1];
+X			last switch;
+X		}
+X		if ($yyn == 21) {
+X			$dayord = $yyvs[$yyvsp-1];
+X			$dayreq = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 22) {
+X			$month = $yyvs[$yyvsp-2];
+X			$day = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 23) {
+X			#
+X			# HACK ALERT!!!!
+X			# The 1000 is a magic number to attempt to force
+X			# use of 4 digit years if year/month/day can be
+X			# parsed. This was only done for backwards
+X			# compatibility in rh.
+X			#
+X			if ($yyvs[$yyvsp-4] > 1000) {
+X				$year = $yyvs[$yyvsp-4];
+X				$month = $yyvs[$yyvsp-2];
+X				$day = $yyvs[$yyvsp-0];
+X			}
+X			else {
+X				$month = $yyvs[$yyvsp-4];
+X				$day = $yyvs[$yyvsp-2];
+X				$year = $yyvs[$yyvsp-0];
+X			}
+X			last switch;
+X		}
+X		if ($yyn == 24) {
+X			$month = $yyvs[$yyvsp-1];
+X			$day = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 25) {
+X			$month = $yyvs[$yyvsp-3];
+X			$day = $yyvs[$yyvsp-2];
+X			$year = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 26) {
+X			$month = $yyvs[$yyvsp-4];
+X			$day = $yyvs[$yyvsp-3];
+X			$hh = $yyvs[$yyvsp-2];
+X			$mm = $yyvs[$yyvsp-0];
+X			$merid = 24;
+X			$timeflag++;
+X			last switch;
+X		}
+X		if ($yyn == 27) {
+X			$month = $yyvs[$yyvsp-6];
+X			$day = $yyvs[$yyvsp-5];
+X			$hh = $yyvs[$yyvsp-4];
+X			$mm = $yyvs[$yyvsp-2];
+X			$ss = $yyvs[$yyvsp-0];
+X			$merid = 24;
+X			$timeflag++;
+X			last switch;
+X		}
+X		if ($yyn == 28) {
+X			$month = $yyvs[$yyvsp-2];
+X			$day = $yyvs[$yyvsp-1];
+X			$year = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 29) {
+X			$month = $yyvs[$yyvsp-0];
+X			$day = $yyvs[$yyvsp-1];
+X			last switch;
+X		}
+X		if ($yyn == 30) {
+X			$month = $yyvs[$yyvsp-1];
+X			$day = $yyvs[$yyvsp-2];
+X			$year = $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 31) {
+X			$relsec +=  60 * $yyvs[$yyvsp-1] * $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 32) {
+X			$relmonth += $yyvs[$yyvsp-1] * $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 33) {
+X			$relsec += $yyvs[$yyvsp-1];
+X			last switch;
+X		}
+X		if ($yyn == 34) {
+X			$relsec +=  60 * $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 35) {
+X			$relmonth += $yyvs[$yyvsp-0];
+X			last switch;
+X		}
+X		if ($yyn == 36) {
+X			$relsec++;
+X			last switch;
+X		}
+X		if ($yyn == 37) {
+X			$relsec = -$relsec;
+X			$relmonth = -$relmonth;
+X			last switch;
+X		}
+X    } # switch
+X    $yyssp -= $yym;
+X    $yystate = $yyss[$yyssp];
+X    $yyvsp -= $yym;
+X    $yym = $yylhs[$yyn];
+X    if ($yystate == 0 && $yym == 0) {
+X      $yystate = $YYFINAL;
+X      $yyss[++$yyssp] = $YYFINAL;
+X      $yyvs[++$yyvsp] = $yyval;
+X      if ($yychar < 0) {
+X        if (($yychar = &yylex) < 0) { $yychar = 0; }
+X      }
+X      return(0) if $yychar == 0;
+X      next yyloop;
+X    }
+X    if (($yyn = $yygindex[$yym]) && ($yyn += $yystate) >= 0 &&
+X        $yyn <= $#yycheck && $yycheck[$yyn] == $yystate)
+X    {
+X        $yystate = $yytable[$yyn];
+X    } else {
+X        $yystate = $yydgoto[$yym];
+X    }
+X    $yyss[++$yyssp] = $yystate;
+X    $yyvs[++$yyvsp] = $yyval;
+X  } # yyloop
+X} # yyparse
+X
+Xsub dateconv {
+X	local($mm, $dd, $yy, $h, $m, $s, $mer, $zone, $dayflag) = @_;
+X	local($time_of_day, $jdate);
+X	local($i);
+X
+X	if ($yy < 0) {
+X		$yy = -$yy;
+X	}
+X	if ($yy < 100) {
+X		$yy += 1900;
+X	}
+X	$mdays[1] =
+X		28 + (($yy % 4) == 0 && (($yy % 100) != 0 || ($yy % 400) == 0));
+X	if ($yy < $epoch || $yy > 2001 || $mm < 1 || $mm > 12
+X		|| $dd < 1 || $dd > $mdays[--$mm]) {
+X		return -1;
+X	}
+X	$jdate = $dd - 1;
+X	for ($i = 0; $i < $mm; $i++) {
+X		$jdate += $mdays[$i];
+X	}
+X	for ($i = $epoch; $i < $yy; $i++) {
+X		$jdate += 365 + (($i % 4) == 0);
+X	}
+X	$jdate *= $daysec;
+X	$jdate += $zone * 60;
+X	if (($time_of_day = &timeconv($h, $m, $s, $mer)) < 0) {
+X		return -1;
+X	}
+X	$jdate += $time_of_day;
+X	if ($dayflag == $DAYLIGHT
+X		|| ($dayflag == $MAYBE && (localtime($jdate))[8])) {
+X		$jdate -= 60 * 60;
+X	}
+X	return $jdate;
+X}
+X
+Xsub dayconv {
+X	local($ordday, $day, $now) = @_;
+X	local(@loctime);
+X	local($time_of_day);
+X
+X	$time_of_day = $now;
+X	@loctime = localtime($time_of_day);
+X	$time_of_day += $daysec * (($day - $loctime[6] + 7) % 7);
+X	$time_of_day += 7 * $daysec * ($ordday <= 0 ? $ordday : $ordday - 1);
+X	return &daylcorr($time_of_day, $now);
+X}
+X
+Xsub timeconv {
+X	local($hh, $mm, $ss, $mer) = @_;
+X
+X	return -1 if ($mm < 0 || $mm > 59 || $ss < 0 || $ss > 59);
+X
+X	if ($mer == $AM) {
+X		return -1 if ($hh < 1 || $hh > 12);
+X		return 60 * (($hh % 12) * 60 + $mm) + $ss;
+X	}
+X	if ($mer == $PM) {
+X		return -1 if ($hh < 1 || $hh > 12);
+X		return 60 * (($hh % 12 + 12) * 60 + $mm) + $ss;
+X	}
+X	if ($mer == 24) {
+X		return -1 if ($hh < 0 || $hh > 23);
+X		return 60 * ($hh * 60 + $mm) + $ss;
+X	}
+X	return -1;
+X}
+X
+Xsub monthadd {
+X	local($sdate, $relmonth) = @_;
+X	local(@ltime);
+X	local($mm, $yy);
+X	
+X	return 0 if ($relmonth == 0);
+X
+X	@ltime = localtime($sdate);
+X	$mm = 12 * $ltime[5] + $ltime[4] + $relmonth;
+X	$yy = int($mm / 12);
+X	$mm = $mm % 12 + 1;
+X	return &daylcorr(&dateconv($mm, $ltime[3], $yy, $ltime[2],
+X							   $ltime[1], $ltime[0], 24, $ourzone, $MAYBE),
+X					 $sdate);
+X}
+X
+Xsub daylcorr {
+X	local($future, $now) = @_;
+X	local($fdayl, $nowdayl);
+X
+X	$nowdayl = ((localtime($now))[2] + 1) % 24;
+X	$fdayl = ((localtime($future))[2] + 1) % 24;
+X	return ($future - $now) + 60 * 60 * ($nowdayl - $fdayl);
+X}
+X
+Xsub yylex {
+X	local($pcnt, $sign);
+X
+X	while (1) {
+X		$dtstr =~ s/^\s*//;
+X		
+X		if ($dtstr =~ /^([-+])/) {
+X			$sign = ($1 eq '-') ? -1 : 1;
+X			$dtstr =~ s/^.\s*//;
+X			if ($dtstr =~ /^(\d+)/) {
+X				$yylval = eval "$1 * $sign";
+X				$dtstr =~ s/^\d+//;
+X				return $NUMBER;
+X			}
+X			else {
+X				return &yylex;
+X			}
+X		}
+X		elsif ($dtstr =~ /^(\d+)/) {
+X			$yylval = eval "$1";
+X			$dtstr =~ s/^\d+//;
+X			return $NUMBER;
+X		}
+X		elsif ($dtstr =~ /^([a-zA-z][a-zA-Z.]*)/) {
+X			$dtstr = substr($dtstr, length($1));
+X			return &lookup($1);
+X		}
+X		elsif ($dtstr =~ /^\(/) {
+X			$pcnt = 0;
+X			do {
+X				$dtstr = s/^(.)//;
+X				return 0 if !defined($1);
+X				$pcnt++ if ($1 eq '(');
+X				$pcnt-- if ($1 eq ')');
+X			} while ($pcnt > 0);
+X		}
+X		else {
+X			$yylval = ord(substr($dtstr, 0, 1));
+X			$dtstr =~ s/^.//;
+X			return $yylval;
+X		}
+X	}
+X}
+X		
+Xsub lookup_init {
+X	%mdtab = (
+X		"January",		"$MONTH,1",
+X		"February",		"$MONTH,2",
+X		"March",		"$MONTH,3",
+X		"April",		"$MONTH,4",
+X		"May",			"$MONTH,5",
+X		"June",			"$MONTH,6",
+X		"July",			"$MONTH,7",
+X		"August",		"$MONTH,8",
+X		"September",	"$MONTH,9",
+X		"Sept",			"$MONTH,9",
+X		"October",		"$MONTH,10",
+X		"November",		"$MONTH,11",
+X		"December",		"$MONTH,12",
+X
+X		"Sunday",		"$DAY,0",
+X		"Monday",		"$DAY,1",
+X		"Tuesday",		"$DAY,2",
+X		"Tues",			"$DAY,2",
+X		"Wednesday",	"$DAY,3",
+X		"Wednes",		"$DAY,3",
+X		"Thursday",		"$DAY,4",
+X		"Thur",			"$DAY,4",
+X		"Thurs",		"$DAY,4",
+X		"Friday",		"$DAY,5",
+X		"Saturday",		"$DAY,6"
+X	);
+X
+X	$HRS='*60';
+X	$HALFHR='30';
+X
+X	%mztab = (
+X		"a.m.",		"$MERIDIAN,$AM",
+X		"am",		"$MERIDIAN,$AM",
+X		"p.m.",		"$MERIDIAN,$PM",
+X		"pm",		"$MERIDIAN,$PM",
+X		"nst",		"$ZONE,3 $HRS + $HALFHR",		# Newfoundland
+X		"n.s.t.",	"$ZONE,3 $HRS + $HALFHR",
+X		"ast",		"$ZONE,4 $HRS",			# Atlantic
+X		"a.s.t.",	"$ZONE,4 $HRS",
+X		"adt",		"$DAYZONE,4 $HRS",
+X		"a.d.t.",	"$DAYZONE,4 $HRS",
+X		"est",		"$ZONE,5 $HRS",			# Eastern
+X		"e.s.t.",	"$ZONE,5 $HRS",
+X		"edt",		"$DAYZONE,5 $HRS",
+X		"e.d.t.",	"$DAYZONE,5 $HRS",
+X		"cst",		"$ZONE,6 $HRS",			# Central
+X		"c.s.t.",	"$ZONE,6 $HRS",
+X		"cdt",		"$DAYZONE,6 $HRS",
+X		"c.d.t.",	"$DAYZONE,6 $HRS",
+X		"mst",		"$ZONE,7 $HRS",			# Mountain
+X		"m.s.t.",	"$ZONE,7 $HRS",
+X		"mdt",		"$DAYZONE,7 $HRS",
+X		"m.d.t.",	"$DAYZONE,7 $HRS",
+X		"pst",		"$ZONE,8 $HRS",			# Pacific
+X		"p.s.t.",	"$ZONE,8 $HRS",
+X		"pdt",		"$DAYZONE,8 $HRS",
+X		"p.d.t.",	"$DAYZONE,8 $HRS",
+X		"yst",		"$ZONE,9 $HRS",			# Yukon
+X		"y.s.t.",	"$ZONE,9 $HRS",
+X		"ydt",		"$DAYZONE,9 $HRS",
+X		"y.d.t.",	"$DAYZONE,9 $HRS",
+X		"hst",		"$ZONE,10 $HRS",		# Hawaii
+X		"h.s.t.",	"$ZONE,10 $HRS",
+X		"hdt",		"$DAYZONE,10 $HRS",
+X		"h.d.t.",	"$DAYZONE,10 $HRS",
+X
+X		"gmt",		"$ZONE,0 $HRS",
+X		"g.m.t.",	"$ZONE,0 $HRS",
+X		"bst",		"$DAYZONE,0 $HRS",		# British Summer Time
+X		"b.s.t.",	"$DAYZONE,0 $HRS",
+X		"eet",		"$ZONE,-2 $HRS",		# European Eastern Time
+X		"e.e.t.",	"$ZONE,-2 $HRS",
+X		"eest",		"$DAYZONE,-2 $HRS",		# European Eastern Summer Time
+X		"e.e.s.t.",	"$DAYZONE,-2 $HRS",
+X		"met",		"$ZONE,-1 $HRS",		# Middle European Time
+X		"m.e.t.",	"$ZONE,-1 $HRS",
+X		"mest",		"$DAYZONE,-1 $HRS",		# Middle European Summer Time
+X		"m.e.s.t.",	"$DAYZONE,-1 $HRS",
+X		"wet",		"$ZONE,0 $HRS ",		# Western European Time
+X		"w.e.t.",	"$ZONE,0 $HRS ",
+X		"west",		"$DAYZONE,0 $HRS",		# Western European Summer Time
+X		"w.e.s.t.",	"$DAYZONE,0 $HRS",
+X
+X		"jst",		"$ZONE,-9 $HRS",		# Japan Standard Time
+X		"j.s.t.",	"$ZONE,-9 $HRS",		# Japan Standard Time
+X
+X		"aest",		"$ZONE,-10 $HRS",		# Australian Eastern Time
+X		"a.e.s.t.",	"$ZONE,-10 $HRS",
+X		"aesst",	"$DAYZONE,-10 $HRS",	# Australian Eastern Summer Time
+X		"a.e.s.s.t.",	"$DAYZONE,-10 $HRS",
+X		"acst",			"$ZONE,-(9 $HRS + $HALFHR)",	# Austr. Central Time
+X		"a.c.s.t.",		"$ZONE,-(9 $HRS + $HALFHR)",
+X		"acsst",		"$DAYZONE,-(9 $HRS + $HALFHR)",	# Austr. Central Summer
+X		"a.c.s.s.t.",	"$DAYZONE,-(9 $HRS + $HALFHR)",
+X		"awst",			"$ZONE,-8 $HRS",	# Australian Western Time
+X		"a.w.s.t.",		"$ZONE,-8 $HRS"		# (no daylight time there)
+X	);
+X
+X	%unittab = (
+X		"year",		"$MUNIT,12",
+X		"month",	"$MUNIT,1",
+X		"fortnight","$UNIT,14*24*60",
+X		"week",		"$UNIT,7*24*60",
+X		"day",		"$UNIT,1*24*60",
+X		"hour",		"$UNIT,60",
+X		"minute",	"$UNIT,1",
+X		"min",		"$UNIT,1",
+X		"second",	"$SUNIT,1",
+X		"sec",		"$SUNIT,1"
+X		);
+X
+X	%othertab = (
+X		"tomorrow",	"$UNIT,1*24*60",
+X		"yesterday","$UNIT,-1*24*60",
+X		"today",	"$UNIT,0",
+X		"now",		"$UNIT,0",
+X		"last",		"$NUMBER,-1",
+X		"this",		"$UNIT,0",
+X		"next",		"$NUMBER,2",
+X		"first",	"$NUMBER,1",
+X		# "second",	"$NUMBER,2",
+X		"third",	"$NUMBER,3",
+X		"fourth",	"$NUMBER,4",
+X		"fifth",	"$NUMBER,5",
+X		"sixth",	"$NUMBER,6",
+X		"seventh",	"$NUMBER,7",
+X		"eigth",	"$NUMBER,8",
+X		"ninth",	"$NUMBER,9",
+X		"tenth",	"$NUMBER,10",
+X		"eleventh",	"$NUMBER,11",
+X		"twelfth",	"$NUMBER,12",
+X		"ago",		"$AGO,1"
+X	);
+X
+X	%milzone = (
+X		"a",		"$ZONE,1 $HRS",
+X		"b",		"$ZONE,2 $HRS",
+X		"c",		"$ZONE,3 $HRS",
+X		"d",		"$ZONE,4 $HRS",
+X		"e",		"$ZONE,5 $HRS",
+X		"f",		"$ZONE,6 $HRS",
+X		"g",		"$ZONE,7 $HRS",
+X		"h",		"$ZONE,8 $HRS",
+X		"i",		"$ZONE,9 $HRS",
+X		"k",		"$ZONE,10 $HRS",
+X		"l",		"$ZONE,11 $HRS",
+X		"m",		"$ZONE,12 $HRS",
+X		"n",		"$ZONE,-1 $HRS",
+X		"o",		"$ZONE,-2 $HRS",
+X		"p",		"$ZONE,-3 $HRS",
+X		"q",		"$ZONE,-4 $HRS",
+X		"r",		"$ZONE,-5 $HRS",
+X		"s",		"$ZONE,-6 $HRS",
+X		"t",		"$ZONE,-7 $HRS",
+X		"u",		"$ZONE,-8 $HRS",
+X		"v",		"$ZONE,-9 $HRS",
+X		"w",		"$ZONE,-10 $HRS",
+X		"x",		"$ZONE,-11 $HRS",
+X		"y",		"$ZONE,-12 $HRS",
+X		"z",		"$ZONE,0 $HRS"
+X	);
+X
+X	@mdays = (31, 0, 31,  30, 31, 30,  31, 31, 30,  31, 30, 31);
+X	$epoch = 1970;
+X}
+X
+Xsub lookup {
+X	local($id) = @_;
+X	local($abbrev, $idvar, $key, $token);
+X
+X	$idvar = $id;
+X	if (length($idvar) == 3) {
+X		$abbrev = 1;
+X	}
+X	elsif (length($idvar) == 4 && substr($idvar, 3, 1) eq '.') {
+X		$abbrev = 1;
+X		$idvar = substr($idvar, 0, 3);
+X	}
+X	else {
+X		$abbrev = 0;
+X	}
+X
+X	substr($idvar, 0, 1) =~ tr/a-z/A-Z/;
+X	if (defined($mdtab{$idvar})) {
+X		($token, $yylval) = split(/,/,$mdtab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	foreach $key (keys %mdtab) {
+X		if ($idvar eq substr($key, 0, 3)) {
+X			($token, $yylval) = split(/,/,$mdtab{$key});
+X			$yylval = eval "$yylval";
+X			return $token;
+X		}
+X	}
+X	
+X	$idvar = $id;
+X	if (defined($mztab{$idvar})) {
+X		($token, $yylval) = split(/,/,$mztab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	
+X	$idvar =~ tr/A-Z/a-z/;
+X	if (defined($mztab{$idvar})) {
+X		($token, $yylval) = split(/,/,$mztab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	
+X	$idvar = $id;
+X	if (defined($unittab{$idvar})) {
+X		($token, $yylval) = split(/,/,$unittab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	
+X	if ($idvar =~ /s$/) {
+X		$idvar =~ s/s$//;
+X	}
+X	if (defined($unittab{$idvar})) {
+X		($token, $yylval) = split(/,/,$unittab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	
+X	$idvar = $id;
+X	if (defined($othertab{$idvar})) {
+X		($token, $yylval) = split(/,/,$othertab{$idvar});
+X		$yylval = eval "$yylval";
+X		return $token;
+X	}
+X	
+X	if (length($idvar) == 1 && $idvar =~ /[a-zA-Z]/) {
+X		$idvar =~ tr/A-Z/a-z/;
+X		if (defined($milzone{$idvar})) {
+X			($token, $yylval) = split(/,/,$milzone{$idvar});
+X			$yylval = eval "$yylval";
+X			return $token;
+X		}
+X	}
+X	
+X	return $ID;
+X}
+X
+Xsub main'getdate {
+X	($dtstr, $now, $timezone) = @_;
+X	local($now, $timezone);
+X	local(@lt);
+X	local($sdate);
+X	local($TZ);
+X
+X	&yyinit;
+X	&lookup_init;
+X	$odtstr = $dtstr;		# Save it for error report--RAM
+X
+X	if (!$now) {
+X		$now = time;
+X	}
+X
+X	if (!$timezone) {
+X		$TZ = defined($ENV{'TZ'}) ? ($ENV{'TZ'} ? $ENV{'TZ'} : '') : '';
+X		if( $TZ =~
+X		   /^([^:\d+\-,]{3,})([+-]?\d{1,2}(:\d{1,2}){0,2})([^\d+\-,]{3,})?/) {
+X			$timezone = $2 * 60;
+X		}
+X		else {
+X			$timezone = 0;
+X		}
+X	}
+X
+X	@lt = localtime($now);
+X	$year = 0;
+X	$month = $lt[4] + 1;
+X	$day = $lt[3];
+X	$relsec = $relmonth = 0;
+X	$timeflag = $zoneflag = $dateflag = $dayflag = $relflag = 0;
+X	$daylight = $MAYBE;
+X	$hh = $mm = $ss = 0;
+X	$merid = 24;
+X	
+X	$dtstr =~ tr/A-Z/a-z/;
+X	return -1 if &yyparse;
+X	return -1 if $timeflag > 1 || $zoneflag > 1 || $dateflag > 1 || $dayflag > 1;
+X
+X	if (!$year) {
+X		$year = ($month > ($lt[4] + 1)) ? ($lt[5] - 1) : $lt[5];
+X	}
+X
+X	if ($dateflag || $timeflag || $dayflag) {
+X		$sdate = &dateconv($month, $day, $year, $hh, $mm, $ss,
+X						   $merid, $timezone, $daylight);
+X		if ($sdate < 0) {
+X			return -1;
+X		}
+X	}
+X	else {
+X		$sdate = $now;
+X		if ($relflag == 0) {
+X			$sdate -= ($lt[0] + $lt[1] * 60 + $lt[2] * (60 * 60));
+X		}
+X	}
+X	
+X	$sdate += $relsec + &monthadd($sdate, $relmonth);
+X	$sdate += &dayconv($dayord, $dayreq, $sdate) if ($dayflag && !$dateflag);
+X	
+X	return $sdate;
+X}
+X
+X# Mark error within date string with a '^' cursor--RAM
+Xsub yyerror {
+X	local($parsed) = length($odstr) - length($dtstr);
+X	substr($odtstr, $parsed) = '^' .  substr($odtstr, $parsed + 1);
+X	&'add_log("syntax error in date: $odtstr") if $'loglvl > 5;
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 26821 -ne `wc -c <'agent/pl/getdate.pl'`; then
+    echo shar: \"'agent/pl/getdate.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/getdate.pl'
+fi
+if test -f 'agent/test/basic/mailagent.t' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/test/basic/mailagent.t'\"
+else
+  echo shar: Extracting \"'agent/test/basic/mailagent.t'\" \(2692 characters\)
+  sed "s/^X//" >'agent/test/basic/mailagent.t' <<'END_OF_FILE'
+X# Basic mailagent test: ensure it is correctly invoked by filter.
+X
+X# $Id: mailagent.t,v 3.0 1993/11/29 13:49:25 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: mailagent.t,v $
+X# Revision 3.0  1993/11/29  13:49:25  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+Xdo '../pl/init.pl';
+Xdo '../pl/logfile.pl';
+X$user = $ENV{'USER'};
+Xchdir '../out' || exit 0;
+X# Make sure we'll find the mailagent
+Xsystem 'perl', '-i', '-p', '-e', "s|^path.*|path     :.:$up|", '.mailagent';
+X$? == 0 || print "1\n";
+Xunlink '.cache';		# Make sure no cached rules yet
+Xopen(RULES, ">.rules") || print "2\n";
+Xprint RULES "{ DELETE };\n";
+Xclose RULES;
+Xunlink <queue/qm*>;
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "3\n";
+Xprint FILTER <<EOF;
+XFrom: test
+X
+XDummy body
+XEOF
+Xclose FILTER;
+X$? == 0 || print "4\n";
+X&get_log(5);
+X&check_log('WARNING.*assuming', 6);		# No To: field
+X&check_log('FILTERED', 7);				# Mail filtered
+X&check_log('DELETED', 8);				# Mail deleted by only rule
+X@files = <queue/qm*>;
+X@files == 0 || print "9\n";				# Queued mail deleted when filtered
+Xunlink 'agentlog', '.rules';
+Xsleep 1 while -f 'perl.lock';			# Let background mailagent die
+X# Check empty rules...
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "10\n";
+Xprint FILTER <<EOF;
+XFrom: test
+X
+XDummy body
+XEOF
+Xclose FILTER;
+X$? == 0 || print "11\n";
+X&get_log(12);
+X&check_log('FILTERED', 13);				# Mail filtered
+X&check_log('LEFT', 14);					# Mail left in mbox
+X&check_log('building default', 15);		# Used default rules
+X-s "$user" || print "16\n";				# Maildrop is here, so is mbox
+X@files = <queue/qm*>;
+X@files == 0 || print "17\n";			# Queued mail deleted when filtered
+X-f 'context' && print "18\n";			# Empty context must be deleted
+Xunlink 'agentlog', "$user";
+Xsleep 1 while -f 'perl.lock';			# Let background mailagent die
+X# Make sure file is correctly queued when another mailagent is running
+X`cp /dev/null perl.lock`;
+X$? == 0 || print "19\n";
+Xopen(FILTER, "|$filter -t >/dev/null 2>&1") || print "20\n";
+Xprint FILTER <<EOF;
+XDummy mail
+XEOF
+Xclose FILTER;
+X$? == 0 || print "21\n";	# Must terminate correctly (queued)
+X&get_log(22);
+X&check_log('QUEUED', 23);	# Mail was queued
+X$file = <queue/fm*>;
+X-f "$file" || print "24\n";	# Must have been left in queue as a 'fm' file
+X-s '.cache' || print "25\n";	# Rules are cached in ~/.cache
+Xunlink "$file", 'agentlog', 'perl.lock';
+Xprint "0\n";
+END_OF_FILE
+  if test 2692 -ne `wc -c <'agent/test/basic/mailagent.t'`; then
+    echo shar: \"'agent/test/basic/mailagent.t'\" unpacked with wrong size!
+  fi
+  # end of 'agent/test/basic/mailagent.t'
+fi
+echo shar: End of archive 9 \(of 26\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2545 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i105:  xephem - astronomical ephemeris program, Part17/21
+Message-ID: <1993May10.221242.9478@sparky.imd.sterling.com>
+X-Md4-Signature: 9fffca138cecd2b2d793b3cd48700c8f
+Date: Mon, 10 May 1993 22:12:42 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 105
+Archive-name: xephem/part17
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  constel.c jupmenu.c skyviewmenu.c.2
+# Wrapped by chris@nova on Mon May 10 16:41:52 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 17 (of 21)."'
+if test -f 'constel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'constel.c'\"
+else
+  echo shar: Extracting \"'constel.c'\" \(20349 characters\)
+  sed "s/^X//" >'constel.c' <<'END_OF_FILE'
+X#include <math.h>
+X#include "astro.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void cal_mjd P_((int mn, double dy, int yr, double *Mjd));
+Xextern void precess P_((double mjd1, double mjd2, double *ra, double *dec));
+X
+Xvoid confnd P_((double r, double d, double e, char **name));
+X
+X#undef P_
+X
+X
+X/*
+X  METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+XC version by Craig Counterman and Elwood Downey,
+Xadapted from fortran version:
+Xexerpt from accompanying doc file:
+X
+X        Recently, Mr. Barry N. Rappaport of New  Mexico State University
+X  transcribed  the constellation  boundaries as  fixed  by the IAU  into
+X  machine-readable form.  These have  been  transcribed  by Dr. Nancy G.
+X  Roman to make it possible  to determine by  computer the constellation
+X  in which a position is located.
+X
+XNSSDC catalog description:
+X 6042   AN     Catalog of Constellation Boundary Data (Delporte, E. 1930, 
+X               Cambridge Univ. Press)
+X               Comment(s): includes constellation identification software 
+X               (ADC 1987; see Roman, N.G. 1987, Publ. Astron. Soc. Pacific 
+X               99, 695); 23 description, 118 software, 358 data records. 
+X               3 files: 23x80, 118x80, 358x29 
+X
+Xfull documentation file:
+X
+X   METHOD TO DETERMINE THE CONSTELLATION IN WHICH A POSITION IS LOCATED
+X
+X     Recently, Mr. Barry N. Rappaport of New Mexico State University trans-
+Xcribed the constellation boundaries as fixed by the IAU into machine-readable
+Xform.  These have been transcribed by Dr. Nancy G. Roman to make it possible to
+Xdetermine by computer the constellation in which a position is located.
+X     Two files follow.  The first is a program, in FORTRAN77, for determining
+Xthe constellation using the data in the succeeding file.  Comments describe
+Xthe format in which the positions must be entered.  The main program is
+Xfollowed by a precession subroutine.
+X     The final file is a list of constellation boundaries in the form Lower
+XRight Ascension (F8.4), Upper Right Ascension (F8.4), Lower Declination (F9.4),
+Xthree letter abbreviation for the Constellation (1X,A3).  The file contains
+X358, 29-byte records.
+X    The following is an example of the output of the program:
+X RA =  9.0000 DEC =  65.0000  IS IN CONSTELLATION UMa
+X RA = 23.5000 DEC = -20.0000  IS IN CONSTELLATION Aqr
+X RA =  5.1200 DEC =   9.1200  IS IN CONSTELLATION Ori
+X RA =  9.4555 DEC = -19.9000  IS IN CONSTELLATION Hya
+X RA = 12.8888 DEC =  22.0000  IS IN CONSTELLATION Com
+X RA = 15.6687 DEC = -12.1234  IS IN CONSTELLATION Lib
+X RA = 19.0000 DEC = -40.0000  IS IN CONSTELLATION CrA
+X RA =  6.2222 DEC = -81.1234  IS IN CONSTELLATION Men
+X END OF INPUT POSITIONS AFTER: RA =   6.2222   DEC = -81.1234
+X THE EQUINOX FOR THESE POSITIONS IS 1950.0
+X*/
+X
+Xstatic char And[] = "And: Andromeda";
+Xstatic char Ant[] = "Ant: Antlia";
+Xstatic char Aps[] = "Aps: Apus";
+Xstatic char Aql[] = "Aql: Aquila";
+Xstatic char Aqr[] = "Aqr: Aquarius";
+Xstatic char Ara[] = "Ara: Ara";
+Xstatic char Ari[] = "Ari: Aries";
+Xstatic char Aur[] = "Aur: Auriga";
+Xstatic char Boo[] = "Boo: Bootes";
+Xstatic char CMa[] = "CMa: Canis Major";
+Xstatic char CMi[] = "CMi: Canis Minor";
+Xstatic char CVn[] = "CVn: Canes Venatici";
+Xstatic char Cae[] = "Cae: Caelum";
+Xstatic char Cam[] = "Cam: Camelopardalis";
+Xstatic char Cap[] = "Cap: Capricornus";
+Xstatic char Car[] = "Car: Carina";
+Xstatic char Cas[] = "Cas: Cassiopeia";
+Xstatic char Cen[] = "Cen: Centaurus";
+Xstatic char Cep[] = "Cep: Cepheus";
+Xstatic char Cet[] = "Cet: Cetus";
+Xstatic char Cha[] = "Cha: Chamaeleon";
+Xstatic char Cir[] = "Cir: Circinus";
+Xstatic char Cnc[] = "Cnc: Cancer";
+Xstatic char Col[] = "Col: Columba";
+Xstatic char Com[] = "Com: Coma Berenices";
+Xstatic char CrA[] = "CrA: Corona Australis";
+Xstatic char CrB[] = "CrB: Corona Borealis";
+Xstatic char Crt[] = "Crt: Crater";
+Xstatic char Cru[] = "Cru: Crux";
+Xstatic char Crv[] = "Crv: Corvus";
+Xstatic char Cyg[] = "Cyg: Cygnus";
+Xstatic char Del[] = "Del: Delphinus";
+Xstatic char Dor[] = "Dor: Dorado";
+Xstatic char Dra[] = "Dra: Draco";
+Xstatic char Equ[] = "Equ: Equuleus";
+Xstatic char Eri[] = "Eri: Eridanus";
+Xstatic char For[] = "For: Fornax";
+Xstatic char Gem[] = "Gem: Gemini";
+Xstatic char Gru[] = "Gru: Grus";
+Xstatic char Her[] = "Her: Hercules";
+Xstatic char Hor[] = "Hor: Horologium";
+Xstatic char Hya[] = "Hya: Hydra";
+Xstatic char Hyi[] = "Hyi: Hydrus";
+Xstatic char Ind[] = "Ind: Indus";
+Xstatic char LMi[] = "LMi: Leo Minor";
+Xstatic char Lac[] = "Lac: Lacerta";
+Xstatic char Leo[] = "Leo: Leo";
+Xstatic char Lep[] = "Lep: Lepus";
+Xstatic char Lib[] = "Lib: Libra";
+Xstatic char Lup[] = "Lup: Lupus";
+Xstatic char Lyn[] = "Lyn: Lynx";
+Xstatic char Lyr[] = "Lyr: Lyra";
+Xstatic char Men[] = "Men: Mensa";
+Xstatic char Mic[] = "Mic: Microscopium";
+Xstatic char Mon[] = "Mon: Monoceros";
+Xstatic char Mus[] = "Mus: Musca";
+Xstatic char Nor[] = "Nor: Norma";
+Xstatic char Oct[] = "Oct: Octans";
+Xstatic char Oph[] = "Oph: Ophiuchus";
+Xstatic char Ori[] = "Ori: Orion";
+Xstatic char Pav[] = "Pav: Pavo";
+Xstatic char Peg[] = "Peg: Pegasus";
+Xstatic char Per[] = "Per: Perseus";
+Xstatic char Phe[] = "Phe: Phoenix";
+Xstatic char Pic[] = "Pic: Pictor";
+Xstatic char PsA[] = "PsA: Piscis Austrinus";
+Xstatic char Psc[] = "Psc: Pisces";
+Xstatic char Pup[] = "Pup: Puppis";
+Xstatic char Pyx[] = "Pyx: Pyxis";
+Xstatic char Ret[] = "Ret: Reticulum";
+Xstatic char Scl[] = "Scl: Sculptor";
+Xstatic char Sco[] = "Sco: Scorpius";
+Xstatic char Sct[] = "Sct: Scutum";
+Xstatic char Ser[] = "Ser: Serpens";
+Xstatic char Sex[] = "Sex: Sextans";
+Xstatic char Sge[] = "Sge: Sagitta";
+Xstatic char Sgr[] = "Sgr: Sagittarius";
+Xstatic char Tau[] = "Tau: Taurus";
+Xstatic char Tel[] = "Tel: Telescopium";
+Xstatic char TrA[] = "TrA: Triangulum Australe";
+Xstatic char Tri[] = "Tri: Triangulum";
+Xstatic char Tuc[] = "Tuc: Tucana";
+Xstatic char UMa[] = "UMa: Ursa Major";
+Xstatic char UMi[] = "UMi: Ursa Minor";
+Xstatic char Vel[] = "Vel: Vela";
+Xstatic char Vir[] = "Vir: Virgo";
+Xstatic char Vol[] = "Vol: Volans";
+Xstatic char Vul[] = "Vul: Vulpecula";
+X
+Xstatic struct cdata {
+X    double l_ra, u_ra, l_dec;
+X    char *cons;
+X} con_data[] = {
+X    {0.0000, 24.0000, 88.0000, UMi},
+X    {8.0000, 14.5000, 86.5000, UMi},
+X    {21.0000, 23.0000, 86.1667, UMi},
+X    {18.0000, 21.0000, 86.0000, UMi},
+X    {0.0000, 8.0000, 85.0000, Cep},
+X    {9.1667, 10.6667, 82.0000, Cam},
+X    {0.0000, 5.0000, 80.0000, Cep},
+X    {10.6667, 14.5000, 80.0000, Cam},
+X    {17.5000, 18.0000, 80.0000, UMi},
+X    {20.1667, 21.0000, 80.0000, Dra},
+X    {0.0000, 3.5083, 77.0000, Cep},
+X    {11.5000, 13.5833, 77.0000, Cam},
+X    {16.5333, 17.5000, 75.0000, UMi},
+X    {20.1667, 20.6667, 75.0000, Cep},
+X    {7.9667, 9.1667, 73.5000, Cam},
+X    {9.1667, 11.3333, 73.5000, Dra},
+X    {13.0000, 16.5333, 70.0000, UMi},
+X    {3.1000, 3.4167, 68.0000, Cas},
+X    {20.4167, 20.6667, 67.0000, Dra},
+X    {11.3333, 12.0000, 66.5000, Dra},
+X    {0.0000, 0.3333, 66.0000, Cep},
+X    {14.0000, 15.6667, 66.0000, UMi},
+X    {23.5833, 24.0000, 66.0000, Cep},
+X    {12.0000, 13.5000, 64.0000, Dra},
+X    {13.5000, 14.4167, 63.0000, Dra},
+X    {23.1667, 23.5833, 63.0000, Cep},
+X    {6.1000, 7.0000, 62.0000, Cam},
+X    {20.0000, 20.4167, 61.5000, Dra},
+X    {20.5367, 20.6000, 60.9167, Cep},
+X    {7.0000, 7.9667, 60.0000, Cam},
+X    {7.9667, 8.4167, 60.0000, UMa},
+X    {19.7667, 20.0000, 59.5000, Dra},
+X    {20.0000, 20.5367, 59.5000, Cep},
+X    {22.8667, 23.1667, 59.0833, Cep},
+X    {0.0000, 2.4333, 58.5000, Cas},
+X    {19.4167, 19.7667, 58.0000, Dra},
+X    {1.7000, 1.9083, 57.5000, Cas},
+X    {2.4333, 3.1000, 57.0000, Cas},
+X    {3.1000, 3.1667, 57.0000, Cam},
+X    {22.3167, 22.8667, 56.2500, Cep},
+X    {5.0000, 6.1000, 56.0000, Cam},
+X    {14.0333, 14.4167, 55.5000, UMa},
+X    {14.4167, 19.4167, 55.5000, Dra},
+X    {3.1667, 3.3333, 55.0000, Cam},
+X    {22.1333, 22.3167, 55.0000, Cep},
+X    {20.6000, 21.9667, 54.8333, Cep},
+X    {0.0000, 1.7000, 54.0000, Cas},
+X    {6.1000, 6.5000, 54.0000, Lyn},
+X    {12.0833, 13.5000, 53.0000, UMa},
+X    {15.2500, 15.7500, 53.0000, Dra},
+X    {21.9667, 22.1333, 52.7500, Cep},
+X    {3.3333, 5.0000, 52.5000, Cam},
+X    {22.8667, 23.3333, 52.5000, Cas},
+X    {15.7500, 17.0000, 51.5000, Dra},
+X    {2.0417, 2.5167, 50.5000, Per},
+X    {17.0000, 18.2333, 50.5000, Dra},
+X    {0.0000, 1.3667, 50.0000, Cas},
+X    {1.3667, 1.6667, 50.0000, Per},
+X    {6.5000, 6.8000, 50.0000, Lyn},
+X    {23.3333, 24.0000, 50.0000, Cas},
+X    {13.5000, 14.0333, 48.5000, UMa},
+X    {0.0000, 1.1167, 48.0000, Cas},
+X    {23.5833, 24.0000, 48.0000, Cas},
+X    {18.1750, 18.2333, 47.5000, Her},
+X    {18.2333, 19.0833, 47.5000, Dra},
+X    {19.0833, 19.1667, 47.5000, Cyg},
+X    {1.6667, 2.0417, 47.0000, Per},
+X    {8.4167, 9.1667, 47.0000, UMa},
+X    {0.1667, 0.8667, 46.0000, Cas},
+X    {12.0000, 12.0833, 45.0000, UMa},
+X    {6.8000, 7.3667, 44.5000, Lyn},
+X    {21.9083, 21.9667, 44.0000, Cyg},
+X    {21.8750, 21.9083, 43.7500, Cyg},
+X    {19.1667, 19.4000, 43.5000, Cyg},
+X    {9.1667, 10.1667, 42.0000, UMa},
+X    {10.1667, 10.7833, 40.0000, UMa},
+X    {15.4333, 15.7500, 40.0000, Boo},
+X    {15.7500, 16.3333, 40.0000, Her},
+X    {9.2500, 9.5833, 39.7500, Lyn},
+X    {0.0000, 2.5167, 36.7500, And},
+X    {2.5167, 2.5667, 36.7500, Per},
+X    {19.3583, 19.4000, 36.5000, Lyr},
+X    {4.5000, 4.6917, 36.0000, Per},
+X    {21.7333, 21.8750, 36.0000, Cyg},
+X    {21.8750, 22.0000, 36.0000, Lac},
+X    {6.5333, 7.3667, 35.5000, Aur},
+X    {7.3667, 7.7500, 35.5000, Lyn},
+X    {0.0000, 2.0000, 35.0000, And},
+X    {22.0000, 22.8167, 35.0000, Lac},
+X    {22.8167, 22.8667, 34.5000, Lac},
+X    {22.8667, 23.5000, 34.5000, And},
+X    {2.5667, 2.7167, 34.0000, Per},
+X    {10.7833, 11.0000, 34.0000, UMa},
+X    {12.0000, 12.3333, 34.0000, CVn},
+X    {7.7500, 9.2500, 33.5000, Lyn},
+X    {9.2500, 9.8833, 33.5000, LMi},
+X    {0.7167, 1.4083, 33.0000, And},
+X    {15.1833, 15.4333, 33.0000, Boo},
+X    {23.5000, 23.7500, 32.0833, And},
+X    {12.3333, 13.2500, 32.0000, CVn},
+X    {23.7500, 24.0000, 31.3333, And},
+X    {13.9583, 14.0333, 30.7500, CVn},
+X    {2.4167, 2.7167, 30.6667, Tri},
+X    {2.7167, 4.5000, 30.6667, Per},
+X    {4.5000, 4.7500, 30.0000, Aur},
+X    {18.1750, 19.3583, 30.0000, Lyr},
+X    {11.0000, 12.0000, 29.0000, UMa},
+X    {19.6667, 20.9167, 29.0000, Cyg},
+X    {4.7500, 5.8833, 28.5000, Aur},
+X    {9.8833, 10.5000, 28.5000, LMi},
+X    {13.2500, 13.9583, 28.5000, CVn},
+X    {0.0000, 0.0667, 28.0000, And},
+X    {1.4083, 1.6667, 28.0000, Tri},
+X    {5.8833, 6.5333, 28.0000, Aur},
+X    {7.8833, 8.0000, 28.0000, Gem},
+X    {20.9167, 21.7333, 28.0000, Cyg},
+X    {19.2583, 19.6667, 27.5000, Cyg},
+X    {1.9167, 2.4167, 27.2500, Tri},
+X    {16.1667, 16.3333, 27.0000, CrB},
+X    {15.0833, 15.1833, 26.0000, Boo},
+X    {15.1833, 16.1667, 26.0000, CrB},
+X    {18.3667, 18.8667, 26.0000, Lyr},
+X    {10.7500, 11.0000, 25.5000, LMi},
+X    {18.8667, 19.2583, 25.5000, Lyr},
+X    {1.6667, 1.9167, 25.0000, Tri},
+X    {0.7167, 0.8500, 23.7500, Psc},
+X    {10.5000, 10.7500, 23.5000, LMi},
+X    {21.2500, 21.4167, 23.5000, Vul},
+X    {5.7000, 5.8833, 22.8333, Tau},
+X    {0.0667, 0.1417, 22.0000, And},
+X    {15.9167, 16.0333, 22.0000, Ser},
+X    {5.8833, 6.2167, 21.5000, Gem},
+X    {19.8333, 20.2500, 21.2500, Vul},
+X    {18.8667, 19.2500, 21.0833, Vul},
+X    {0.1417, 0.8500, 21.0000, And},
+X    {20.2500, 20.5667, 20.5000, Vul},
+X    {7.8083, 7.8833, 20.0000, Gem},
+X    {20.5667, 21.2500, 19.5000, Vul},
+X    {19.2500, 19.8333, 19.1667, Vul},
+X    {3.2833, 3.3667, 19.0000, Ari},
+X    {18.8667, 19.0000, 18.5000, Sge},
+X    {5.7000, 5.7667, 18.0000, Ori},
+X    {6.2167, 6.3083, 17.5000, Gem},
+X    {19.0000, 19.8333, 16.1667, Sge},
+X    {4.9667, 5.3333, 16.0000, Tau},
+X    {15.9167, 16.0833, 16.0000, Her},
+X    {19.8333, 20.2500, 15.7500, Sge},
+X    {4.6167, 4.9667, 15.5000, Tau},
+X    {5.3333, 5.6000, 15.5000, Tau},
+X    {12.8333, 13.5000, 15.0000, Com},
+X    {17.2500, 18.2500, 14.3333, Her},
+X    {11.8667, 12.8333, 14.0000, Com},
+X    {7.5000, 7.8083, 13.5000, Gem},
+X    {16.7500, 17.2500, 12.8333, Her},
+X    {0.0000, 0.1417, 12.5000, Peg},
+X    {5.6000, 5.7667, 12.5000, Tau},
+X    {7.0000, 7.5000, 12.5000, Gem},
+X    {21.1167, 21.3333, 12.5000, Peg},
+X    {6.3083, 6.9333, 12.0000, Gem},
+X    {18.2500, 18.8667, 12.0000, Her},
+X    {20.8750, 21.0500, 11.8333, Del},
+X    {21.0500, 21.1167, 11.8333, Peg},
+X    {11.5167, 11.8667, 11.0000, Leo},
+X    {6.2417, 6.3083, 10.0000, Ori},
+X    {6.9333, 7.0000, 10.0000, Gem},
+X    {7.8083, 7.9250, 10.0000, Cnc},
+X    {23.8333, 24.0000, 10.0000, Peg},
+X    {1.6667, 3.2833,  9.9167, Ari},
+X    {20.1417, 20.3000,  8.5000, Del},
+X    {13.5000, 15.0833,  8.0000, Boo},
+X    {22.7500, 23.8333,  7.5000, Peg},
+X    {7.9250, 9.2500,  7.0000, Cnc},
+X    {9.2500, 10.7500,  7.0000, Leo},
+X    {18.2500, 18.6622,  6.2500, Oph},
+X    {18.6622, 18.8667,  6.2500, Aql},
+X    {20.8333, 20.8750,  6.0000, Del},
+X    {7.0000, 7.0167,  5.5000, CMi},
+X    {18.2500, 18.4250,  4.5000, Ser},
+X    {16.0833, 16.7500,  4.0000, Her},
+X    {18.2500, 18.4250,  3.0000, Oph},
+X    {21.4667, 21.6667,  2.7500, Peg},
+X    {0.0000, 2.0000,  2.0000, Psc},
+X    {18.5833, 18.8667,  2.0000, Ser},
+X    {20.3000, 20.8333,  2.0000, Del},
+X    {20.8333, 21.3333,  2.0000, Equ},
+X    {21.3333, 21.4667,  2.0000, Peg},
+X    {22.0000, 22.7500,  2.0000, Peg},
+X    {21.6667, 22.0000,  1.7500, Peg},
+X    {7.0167, 7.2000,  1.5000, CMi},
+X    {3.5833, 4.6167,  0.0000, Tau},
+X    {4.6167, 4.6667,  0.0000, Ori},
+X    {7.2000, 8.0833,  0.0000, CMi},
+X    {14.6667, 15.0833,  0.0000, Vir},
+X    {17.8333, 18.2500,  0.0000, Oph},
+X    {2.6500, 3.2833, -1.7500, Cet},
+X    {3.2833, 3.5833, -1.7500, Tau},
+X    {15.0833, 16.2667, -3.2500, Ser},
+X    {4.6667, 5.0833, -4.0000, Ori},
+X    {5.8333, 6.2417, -4.0000, Ori},
+X    {17.8333, 17.9667, -4.0000, Ser},
+X    {18.2500, 18.5833, -4.0000, Ser},
+X    {18.5833, 18.8667, -4.0000, Aql},
+X    {22.7500, 23.8333, -4.0000, Psc},
+X    {10.7500, 11.5167, -6.0000, Leo},
+X    {11.5167, 11.8333, -6.0000, Vir},
+X    {0.0000, 0.3333, -7.0000, Psc},
+X    {23.8333, 24.0000, -7.0000, Psc},
+X    {14.2500, 14.6667, -8.0000, Vir},
+X    {15.9167, 16.2667, -8.0000, Oph},
+X    {20.0000, 20.5333, -9.0000, Aql},
+X    {21.3333, 21.8667, -9.0000, Aqr},
+X    {17.1667, 17.9667, -10.0000, Oph},
+X    {5.8333, 8.0833, -11.0000, Mon},
+X    {4.9167, 5.0833, -11.0000, Eri},
+X    {5.0833, 5.8333, -11.0000, Ori},
+X    {8.0833, 8.3667, -11.0000, Hya},
+X    {9.5833, 10.7500, -11.0000, Sex},
+X    {11.8333, 12.8333, -11.0000, Vir},
+X    {17.5833, 17.6667, -11.6667, Oph},
+X    {18.8667, 20.0000, -12.0333, Aql},
+X    {4.8333, 4.9167, -14.5000, Eri},
+X    {20.5333, 21.3333, -15.0000, Aqr},
+X    {17.1667, 18.2500, -16.0000, Ser},
+X    {18.2500, 18.8667, -16.0000, Sct},
+X    {8.3667, 8.5833, -17.0000, Hya},
+X    {16.2667, 16.3750, -18.2500, Oph},
+X    {8.5833, 9.0833, -19.0000, Hya},
+X    {10.7500, 10.8333, -19.0000, Crt},
+X    {16.2667, 16.3750, -19.2500, Oph},
+X    {15.6667, 15.9167, -20.0000, Lib},
+X    {12.5833, 12.8333, -22.0000, Crv},
+X    {12.8333, 14.2500, -22.0000, Vir},
+X    {9.0833, 9.7500, -24.0000, Hya},
+X    {1.6667, 2.6500, -24.3833, Cet},
+X    {2.6500, 3.7500, -24.3833, Eri},
+X    {10.8333, 11.8333, -24.5000, Crt},
+X    {11.8333, 12.5833, -24.5000, Crv},
+X    {14.2500, 14.9167, -24.5000, Lib},
+X    {16.2667, 16.7500, -24.5833, Oph},
+X    {0.0000, 1.6667, -25.5000, Cet},
+X    {21.3333, 21.8667, -25.5000, Cap},
+X    {21.8667, 23.8333, -25.5000, Aqr},
+X    {23.8333, 24.0000, -25.5000, Cet},
+X    {9.7500, 10.2500, -26.5000, Hya},
+X    {4.7000, 4.8333, -27.2500, Eri},
+X    {4.8333, 6.1167, -27.2500, Lep},
+X    {20.0000, 21.3333, -28.0000, Cap},
+X    {10.2500, 10.5833, -29.1667, Hya},
+X    {12.5833, 14.9167, -29.5000, Hya},
+X    {14.9167, 15.6667, -29.5000, Lib},
+X    {15.6667, 16.0000, -29.5000, Sco},
+X    {4.5833, 4.7000, -30.0000, Eri},
+X    {16.7500, 17.6000, -30.0000, Oph},
+X    {17.6000, 17.8333, -30.0000, Sgr},
+X    {10.5833, 10.8333, -31.1667, Hya},
+X    {6.1167, 7.3667, -33.0000, CMa},
+X    {12.2500, 12.5833, -33.0000, Hya},
+X    {10.8333, 12.2500, -35.0000, Hya},
+X    {3.5000, 3.7500, -36.0000, For},
+X    {8.3667, 9.3667, -36.7500, Pyx},
+X    {4.2667, 4.5833, -37.0000, Eri},
+X    {17.8333, 19.1667, -37.0000, Sgr},
+X    {21.3333, 23.0000, -37.0000, PsA},
+X    {23.0000, 23.3333, -37.0000, Scl},
+X    {3.0000, 3.5000, -39.5833, For},
+X    {9.3667, 11.0000, -39.7500, Ant},
+X    {0.0000, 1.6667, -40.0000, Scl},
+X    {1.6667, 3.0000, -40.0000, For},
+X    {3.8667, 4.2667, -40.0000, Eri},
+X    {23.3333, 24.0000, -40.0000, Scl},
+X    {14.1667, 14.9167, -42.0000, Cen},
+X    {15.6667, 16.0000, -42.0000, Lup},
+X    {16.0000, 16.4208, -42.0000, Sco},
+X    {4.8333, 5.0000, -43.0000, Cae},
+X    {5.0000, 6.5833, -43.0000, Col},
+X    {8.0000, 8.3667, -43.0000, Pup},
+X    {3.4167, 3.8667, -44.0000, Eri},
+X    {16.4208, 17.8333, -45.5000, Sco},
+X    {17.8333, 19.1667, -45.5000, CrA},
+X    {19.1667, 20.3333, -45.5000, Sgr},
+X    {20.3333, 21.3333, -45.5000, Mic},
+X    {3.0000, 3.4167, -46.0000, Eri},
+X    {4.5000, 4.8333, -46.5000, Cae},
+X    {15.3333, 15.6667, -48.0000, Lup},
+X    {0.0000, 2.3333, -48.1667, Phe},
+X    {2.6667, 3.0000, -49.0000, Eri},
+X    {4.0833, 4.2667, -49.0000, Hor},
+X    {4.2667, 4.5000, -49.0000, Cae},
+X    {21.3333, 22.0000, -50.0000, Gru},
+X    {6.0000, 8.0000, -50.7500, Pup},
+X    {8.0000, 8.1667, -50.7500, Vel},
+X    {2.4167, 2.6667, -51.0000, Eri},
+X    {3.8333, 4.0833, -51.0000, Hor},
+X    {0.0000, 1.8333, -51.5000, Phe},
+X    {6.0000, 6.1667, -52.5000, Car},
+X    {8.1667, 8.4500, -53.0000, Vel},
+X    {3.5000, 3.8333, -53.1667, Hor},
+X    {3.8333, 4.0000, -53.1667, Dor},
+X    {0.0000, 1.5833, -53.5000, Phe},
+X    {2.1667, 2.4167, -54.0000, Eri},
+X    {4.5000, 5.0000, -54.0000, Pic},
+X    {15.0500, 15.3333, -54.0000, Lup},
+X    {8.4500, 8.8333, -54.5000, Vel},
+X    {6.1667, 6.5000, -55.0000, Car},
+X    {11.8333, 12.8333, -55.0000, Cen},
+X    {14.1667, 15.0500, -55.0000, Lup},
+X    {15.0500, 15.3333, -55.0000, Nor},
+X    {4.0000, 4.3333, -56.5000, Dor},
+X    {8.8333, 11.0000, -56.5000, Vel},
+X    {11.0000, 11.2500, -56.5000, Cen},
+X    {17.5000, 18.0000, -57.0000, Ara},
+X    {18.0000, 20.3333, -57.0000, Tel},
+X    {22.0000, 23.3333, -57.0000, Gru},
+X    {3.2000, 3.5000, -57.5000, Hor},
+X    {5.0000, 5.5000, -57.5000, Pic},
+X    {6.5000, 6.8333, -58.0000, Car},
+X    {0.0000, 1.3333, -58.5000, Phe},
+X    {1.3333, 2.1667, -58.5000, Eri},
+X    {23.3333, 24.0000, -58.5000, Phe},
+X    {4.3333, 4.5833, -59.0000, Dor},
+X    {15.3333, 16.4208, -60.0000, Nor},
+X    {20.3333, 21.3333, -60.0000, Ind},
+X    {5.5000, 6.0000, -61.0000, Pic},
+X    {15.1667, 15.3333, -61.0000, Cir},
+X    {16.4208, 16.5833, -61.0000, Ara},
+X    {14.9167, 15.1667, -63.5833, Cir},
+X    {16.5833, 16.7500, -63.5833, Ara},
+X    {6.0000, 6.8333, -64.0000, Pic},
+X    {6.8333, 9.0333, -64.0000, Car},
+X    {11.2500, 11.8333, -64.0000, Cen},
+X    {11.8333, 12.8333, -64.0000, Cru},
+X    {12.8333, 14.5333, -64.0000, Cen},
+X    {13.5000, 13.6667, -65.0000, Cir},
+X    {16.7500, 16.8333, -65.0000, Ara},
+X    {2.1667, 3.2000, -67.5000, Hor},
+X    {3.2000, 4.5833, -67.5000, Ret},
+X    {14.7500, 14.9167, -67.5000, Cir},
+X    {16.8333, 17.5000, -67.5000, Ara},
+X    {17.5000, 18.0000, -67.5000, Pav},
+X    {22.0000, 23.3333, -67.5000, Tuc},
+X    {4.5833, 6.5833, -70.0000, Dor},
+X    {13.6667, 14.7500, -70.0000, Cir},
+X    {14.7500, 17.0000, -70.0000, TrA},
+X    {0.0000, 1.3333, -75.0000, Tuc},
+X    {3.5000, 4.5833, -75.0000, Hyi},
+X    {6.5833, 9.0333, -75.0000, Vol},
+X    {9.0333, 11.2500, -75.0000, Car},
+X    {11.2500, 13.6667, -75.0000, Mus},
+X    {18.0000, 21.3333, -75.0000, Pav},
+X    {21.3333, 23.3333, -75.0000, Ind},
+X    {23.3333, 24.0000, -75.0000, Tuc},
+X    {0.7500, 1.3333, -76.0000, Tuc},
+X    {0.0000, 3.5000, -82.5000, Hyi},
+X    {7.6667, 13.6667, -82.5000, Cha},
+X    {13.6667, 18.0000, -82.5000, Aps},
+X    {3.5000, 7.6667, -85.0000, Men},
+X    {0.0000, 24.0000, -90.0000, Oct},
+X    {0.0000, 24.0000, -90.0000, ""}
+X};
+X
+X/* given ra and dec (in rads) precessed to epoch e (an mjd)
+X * point *name to a string naming the constellation at that location.
+X */
+Xvoid
+Xconfnd(r, d, e, name)
+Xdouble r, d, e;
+Xchar **name;
+X{
+X	double ra1875, de1875, mjd1875;
+X	int i;
+X
+X	cal_mjd (1, 1.0, 1875, &mjd1875);
+X	precess (e, mjd1875, &r, &d);
+X	    
+X	/* find constellation such that the declination entered is higher than
+X	 * the lower boundary of the constellation when the upper and lower
+X	 * right ascensions for the constellation bound the entered right
+X	 * ascension
+X	 */
+X	i = 0;
+X	ra1875 = radhr (r);
+X	de1875 = raddeg (d);
+X	while ((con_data[i].l_dec > de1875 || con_data[i].u_ra <= ra1875
+X		     || con_data[i].l_ra > ra1875) && con_data[i].cons[0])
+X	     i++;
+X
+X	*name = con_data[i].cons[0] ? con_data[i].cons : "<No constellation?!>";
+X}
+END_OF_FILE
+  if test 20349 -ne `wc -c <'constel.c'`; then
+    echo shar: \"'constel.c'\" unpacked with wrong size!
+  fi
+  # end of 'constel.c'
+fi
+if test -f 'jupmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jupmenu.c'\"
+else
+  echo shar: Extracting \"'jupmenu.c'\" \(26718 characters\)
+  sed "s/^X//" >'jupmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "jupiter" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Scale.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X
+Xtypedef struct {
+X    double x, y, z;
+X} MoonData;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern int any_ison P_((void));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void range P_((double *v, double r));
+Xextern void register_selection P_((char *name));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void timestamp P_((Now *np, Widget w));
+X
+Xvoid jm_manage P_((void));
+Xint jm_ison P_((void));
+Xvoid jm_selection_mode P_((int whether));
+Xvoid jm_update P_((Now *np, int how_much));
+Xvoid jm_cursor P_((Cursor c));
+Xstatic void jm_create_form_w P_((void));
+Xstatic void jm_set_buttons P_((int whether));
+Xstatic void jm_set_a_button P_((Widget pbw, int whether));
+Xstatic void jm_bigd_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_tags_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_scale_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_da_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void jm_draw_map P_((Widget w, MoonData moons[4], double sIcml, double sIIcml));
+Xstatic void jupinfo P_((double d, MoonData moons[4], double *sIcml, double *sIIcml));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+Xstatic Widget jupform_w;	/* main form */
+Xstatic Widget jda_w;		/* drawing area */
+Xstatic Widget cml_w[2];		/* display widgets for CMLs */
+Xstatic Widget scale_w;		/* size scale */
+Xstatic Widget dt_w;		/* date/time stamp widget */
+Xenum {CMLI, CMLII};		/* cml indexes */
+X#define	NM	4		/* number of moons */
+Xstatic Widget j_w[NM][3];	/* the data display widgets */
+Xenum {X, Y, Z};			/* j_w column index */
+Xstatic int jm_selecting;	/* set while our fields are being selected */
+Xstatic int bigdots;		/* whether we want big dots */
+Xstatic int j_tags;		/* whether we want tags on the drawing */
+X
+X#define	MAXSCALE	10.0	/* max scale mag factor */
+X
+Xstatic struct MoonNames {
+X    char *full;
+X    char *tag;
+X} mnames[NM] = {
+X    {"Io", "I"},
+X    {"Europa", "II"},
+X    {"Ganymede", "III"},
+X    {"Callisto", "IV"}
+X};
+X
+X/* called when the jupiter menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xjm_manage ()
+X{
+X	if (!jupform_w)
+X	    jm_create_form_w();
+X	
+X	if (XtIsManaged(jupform_w))
+X	    XtUnmanageChild (jupform_w);
+X	else {
+X	    XtManageChild (jupform_w);
+X	    jm_set_buttons(jm_selecting);
+X	}
+X}
+X
+Xjm_ison()
+X{
+X	return (jupform_w && XtIsManaged(jupform_w));
+X}
+X
+X/* called by other menus as they want to hear from our buttons or not.
+X * the "on"s and "off"s stack - only really redo the buttons if it's the
+X * first on or the last off.
+X */
+Xvoid
+Xjm_selection_mode (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	jm_selecting += whether ? 1 : -1;
+X
+X	if (jupform_w && XtIsManaged(jupform_w))
+X	    if (whether && jm_selecting == 1     /* first one to want on */
+X		|| !whether && jm_selecting == 0 /* last one to want off */)
+X		jm_set_buttons (whether);
+X}
+X
+X/* called to recompute and fill in values for the jupiter menu.
+X * don't bother if it doesn't exist or is unmanaged now and we are not logging.
+X */
+Xvoid
+Xjm_update (np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	static char fmt[] = "%7.3f";
+X	MoonData moons[NM];
+X	double sIcml, sIIcml;
+X	int i;
+X
+X	if (!jupform_w)
+X	    return;
+X	if (!XtIsManaged(jupform_w) && !any_ison() && !how_much)
+X	    return;
+X
+X	/* compute jupiter info.
+X	 */
+X	jupinfo (mjd, moons, &sIcml, &sIIcml);
+X
+X	f_double (cml_w[CMLI], fmt, sIcml);
+X	f_double (cml_w[CMLII], fmt, sIIcml);
+X
+X	for (i = 0; i < NM; i++) {
+X	    f_double (j_w[i][X], fmt, moons[i].x);
+X	    f_double (j_w[i][Y], fmt, moons[i].y);
+X	    f_double (j_w[i][Z], fmt, moons[i].z);
+X	}
+X
+X	if (XtIsManaged(jupform_w)) {
+X	    jm_draw_map (jda_w, moons, sIcml, sIIcml);
+X	    timestamp (np, dt_w);
+X	}
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xjm_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (jupform_w && (win = XtWindow(jupform_w))) {
+X	    Display *dsp = XtDisplay(jupform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xjm_create_form_w()
+X{
+X	Widget w;
+X	Widget frame_w, r_w, title_w, col_w;
+X	Widget f_w, fr_w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	jupform_w = XmCreateFormDialog (toplevel_w, "Jupiter", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Jupiter Table"); n++;
+X	XtSetValues (XtParent(jupform_w), args, n);
+X
+X	/* make top two title rows */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	r_w = XmCreateLabel (jupform_w, "Heading", args, n);
+X	XtManageChild (r_w);
+X	set_xmstring (r_w, XmNlabelString, 
+X	    "Central Meridian Longitude (degs):\n(GRS is at 30 degs in System II)");
+X
+X	/* make row for CMLs */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, r_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNuserData, "Jupiter.CMLI"); n++;
+X	w = cml_w[CMLI] = XmCreatePushButton(jupform_w, "CMLI", args, n);
+X	XtAddCallback(w, XmNactivateCallback, jm_activate_cb, 0);
+X	XtManageChild (w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, r_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, w); n++;
+X	w = XmCreatePushButton (jupform_w, "CMLIL", args, n);
+X	XtManageChild (w);
+X	jm_set_a_button (w, False);
+X	set_xmstring (w, XmNlabelString, "(Sys I)");
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, r_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	w = XmCreatePushButton (jupform_w, "CMLIIL", args, n);
+X	XtManageChild (w);
+X	jm_set_a_button (w, False);
+X	set_xmstring (w, XmNlabelString, "(Sys II)");
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, r_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, w); n++;
+X	XtSetArg (args[n], XmNuserData, "Jupiter.CMLII"); n++;
+X	w = cml_w[CMLII] = XmCreatePushButton(jupform_w, "CMLII", args, n);
+X	XtAddCallback(w, XmNactivateCallback, jm_activate_cb, 0);
+X	XtManageChild (w);
+X
+X	/* make table title label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	title_w = XmCreateLabel (jupform_w, "TableLabel", args, n);
+X	XtManageChild (title_w);
+X	set_xmstring (title_w, XmNlabelString,
+X				" \nMoon positions -- in Jupiter Radii");
+X
+X	/* make the moon table, one column at a time */
+X
+X	/* moon designator column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (jupform_w, "MoonDes", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, " ", args, n);
+X	    XtManageChild (w);
+X	    jm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (col_w, mnames[i].tag, args, n);
+X		XtManageChild (w);
+X		jm_set_a_button (w, False);
+X	    }
+X
+X	/* moon name column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 10); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (jupform_w, "MoonName", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, " ", args, n);
+X	    XtManageChild (w);
+X	    jm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (col_w, mnames[i].full, args, n);
+X		XtManageChild (w);
+X		jm_set_a_button (w, False);
+X	    }
+X
+X	/* moon X column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 35); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (jupform_w, "MoonXRC", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "MoonX", args, n);
+X	    XtManageChild (w);
+X	    jm_set_a_button (w, False);
+X	    set_xmstring (w, XmNlabelString, "X (+E)");
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.X\0' */
+X		(void) sprintf (sel, "%s.X", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = j_w[i][X] = XmCreatePushButton(col_w, "MoonXPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, jm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* moon Y column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 55); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (jupform_w, "MoonYRC", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "MoonYLabel", args, n);
+X	    XtManageChild (w);
+X	    set_xmstring (w, XmNlabelString, "Y (+S)");
+X	    jm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.Y\0' */
+X		(void) sprintf (sel, "%s.Y", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = j_w[i][Y] = XmCreatePushButton(col_w, "MoonYPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, jm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* moon Z column */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, title_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 75); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	col_w = XmCreateRowColumn (jupform_w, "MoonZRC", args, n);
+X	XtManageChild (col_w);
+X
+X	    n = 0;
+X	    w = XmCreatePushButton (col_w, "MoonZ", args, n);
+X	    XtManageChild (w);
+X	    set_xmstring (w, XmNlabelString, "Z (+front)");
+X	    jm_set_a_button (w, False);
+X
+X	    for (i = 0; i < NM; i++) {
+X		char *sel;
+X		sel = XtMalloc (strlen(mnames[i].full) + 3); /* '.Z\0' */
+X		(void) sprintf (sel, "%s.Z", mnames[i].full);
+X		n = 0;
+X		XtSetArg (args[n], XmNuserData, sel); n++;
+X		w = j_w[i][Z] = XmCreatePushButton(col_w, "MoonZPB", args, n);
+X		XtAddCallback(w, XmNactivateCallback, jm_activate_cb, 0);
+X		XtManageChild (w);
+X	    }
+X
+X	/* make a Form to hold the bottom controls */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 15); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	f_w = XmCreateForm (jupform_w, "CtlForm", args, n);
+X	XtManageChild (f_w);
+X
+X	    /* make the close button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 4); n++;
+X	    w = XmCreatePushButton (f_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, jm_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the tags toggle button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 6); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 9); n++;
+X	    fr_w = XmCreateFrame (f_w, "TagsFr", args, n);
+X	    XtManageChild (fr_w);
+X	    n = 0;
+X	    w = XmCreateToggleButton (fr_w, "Tags", args, n);
+X	    XtAddCallback (w, XmNvalueChangedCallback, jm_tags_cb, 0);
+X	    XtManageChild (w);
+X	    j_tags = XmToggleButtonGetState(w);
+X
+X	    /* "big dots" toggle button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 11); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 14); n++;
+X	    fr_w = XmCreateFrame(f_w,"BigDotsFr",args,n);
+X	    XtManageChild (fr_w);
+X	    str = XmStringCreate("Big dots", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton(fr_w,"BigDots",args,n);
+X	    XtAddCallback(w, XmNvalueChangedCallback, jm_bigd_cb, 0);
+X	    XtManageChild (w);
+X	    XmStringFree (str);
+X	    bigdots = XmToggleButtonGetState(w);
+X
+X	/* make the date/time stamp label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, f_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	dt_w = XmCreateLabel (jupform_w, "DateStamp", args, n);
+X	timestamp (mm_get_now(), dt_w);	/* establishes size */
+X	XtManageChild (dt_w);
+X
+X	/* make the scale widget
+X	 * attach both top and bottom so it's the one to follow resizing.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, col_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNmaximum, 100); n++;
+X	XtSetArg (args[n], XmNminimum, 0); n++;
+X	XtSetArg (args[n], XmNscaleMultiple, 10); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_TOP); n++;
+X	scale_w = XmCreateScale (jupform_w, "Scale", args, n);
+X	XtAddCallback (scale_w, XmNdragCallback, jm_scale_cb, 0);
+X	XtAddCallback (scale_w, XmNvalueChangedCallback, jm_scale_cb, 0);
+X	XtManageChild (scale_w);
+X
+X	/* make a frame for the drawing area.
+X	 * attach both top and bottom so it's the one to follow resizing.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, col_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, scale_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	frame_w = XmCreateFrame (jupform_w, "DAFrame", args, n);
+X	XtManageChild (frame_w);
+X
+X	    /* make a drawing area for drawing the little map */
+X
+X	    n = 0;
+X	    jda_w = XmCreateDrawingArea (frame_w, "Map", args, n);
+X	    XtAddCallback (jda_w, XmNexposeCallback, jm_da_exp_cb, 0);
+X	    XtManageChild (jda_w);
+X}
+X
+X/* go through all the buttons pickable for plotting and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+Xstatic void
+Xjm_set_buttons (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	int i;
+X
+X	for (i = 0; i < NM; i++) {
+X	    jm_set_a_button (j_w[i][X], whether);
+X	    jm_set_a_button (j_w[i][Y], whether);
+X	    jm_set_a_button (j_w[i][Z], whether);
+X	}
+X
+X	jm_set_a_button (cml_w[CMLI], whether);
+X	jm_set_a_button (cml_w[CMLII], whether);
+X}
+X
+X/* set whether the given button looks like a label.
+X */
+Xstatic void
+Xjm_set_a_button(pbw, whether)
+XWidget pbw;
+Xint whether;
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	Arg *ap;
+X	int na;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    Widget tmpw;
+X	    int n;
+X
+X	    n = 0;
+X	    tmpw = XmCreatePushButton (jupform_w, "tmp", args, n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (tmpw, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    XtDestroyWidget (tmpw);
+X	     
+X	    called = 1;
+X	}
+X
+X	if (whether) {
+X	    ap = look_like_button;
+X	    na = XtNumber(look_like_button);
+X	} else {
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	}
+X
+X	XtSetValues (pbw, ap, na);
+X}
+X
+X/* callback from the big dots toggle button
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_bigd_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	bigdots = XmToggleButtonGetState(w);
+X	jm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from the tags toggle button
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_tags_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	j_tags = XmToggleButtonGetState(w);
+X	jm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from the scale.
+X * TODO: really shouldn't get present time, just redo dots in same location.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_scale_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	jm_update (mm_get_now(), 1);
+X}
+X
+X/* callback from any of the data menu buttons being activated.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (jm_selecting) {
+X	    char *name;
+X	    get_something (w, XmNuserData, (char *)&name);
+X	    register_selection (name);
+X	}
+X}
+X
+X/* callback from the Close button
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (jupform_w);
+X}
+X
+X/* callback from either expose of the drawing area.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_da_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	/* filter out a few oddball cases */
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand.
+X	     */
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window, 
+X							    CWBitGravity, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected jupform_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	jm_update (mm_get_now(), 1);
+X}
+X
+X/* given the loc of the moons, draw a nifty little picture.
+X * scale of the locations is in terms of jupiter radii == 1.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xjm_draw_map (w, moons, sIcml, sIIcml)
+XWidget w;
+XMoonData moons[NM];
+Xdouble sIcml, sIIcml;
+X{
+X	static GC j_fgc, j_bgc, j_xgc;
+X	static XFontStruct *j_fs;
+X	static last_nx, last_ny;
+X	static int cw, ch;
+X	static Pixmap pm;
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow(w);
+X	Window root;
+X	double scale;
+X	int sv;
+X	char c;
+X	int x, y;
+X	unsigned int nx, ny, bw, d;
+X	int i;
+X#define	NORM	27.0	/* max callisto orbit radius; used to normalize */
+X#define	MAPSCALE(v)	((v)*((int)nx)/NORM/2*scale)
+X#define	XCORD(x)	((int)(((int)nx)/2.0 + MAPSCALE(x) + 0.5))
+X#define	YCORD(y)	((int)(((int)ny)/2.0 - MAPSCALE(y) + 0.5))
+X
+X	if (!j_fgc) {
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X	    Pixel fg, bg;
+X
+X	    gcm = GCForeground;
+X	    get_something (w, XmNforeground, (char *)&fg);
+X	    gcv.foreground = fg;
+X	    j_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	    j_fs = XQueryFont (dsp, XGContextFromGC (j_fgc));
+X	    cw = j_fs->max_bounds.width;
+X	    ch = j_fs->max_bounds.ascent + j_fs->max_bounds.descent;
+X
+X	    gcm = GCForeground;
+X	    get_something (w, XmNbackground, (char *)&bg);
+X	    gcv.foreground = bg;
+X	    j_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X
+X	    gcm = GCForeground | GCFunction;
+X	    gcv.foreground = fg ^ bg;
+X	    gcv.function = GXxor;
+X	    j_xgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	XmScaleGetValue (scale_w, &sv);
+X	scale = pow(MAXSCALE, sv/100.0);
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+X	if (!pm || nx != last_nx || ny != last_ny) {
+X	    if (pm)
+X		XFreePixmap (dsp, pm);
+X	    pm = XCreatePixmap (dsp, win, nx, ny, d);
+X	    last_nx = nx;
+X	    last_ny = ny;
+X	}
+X
+X	XFillRectangle (dsp, pm, j_bgc, 0, 0, nx, ny);
+X
+X	c = 'E'; XDrawString(dsp, pm, j_fgc, nx-cw-1, ny/2-2, &c, 1);
+X	c = 'S'; XDrawString(dsp, pm, j_fgc, (nx-cw)/2-1, j_fs->ascent, &c, 1);
+X
+X	/* draw Jupiter of unit radius */
+X	XFillArc (dsp, pm, j_fgc, XCORD(-1), YCORD(1), 2*(int)MAPSCALE(1),
+X						2*(int)MAPSCALE(1), 0, 360*64);
+X
+X	/* draw each moon that is visible.
+X	 */
+X	for (i = 0; i < NM; i++) {
+X	    double mx = moons[i].x;
+X	    double my = moons[i].y;
+X	    double mz = moons[i].z;
+X	    int outside = mx*mx + my*my > 1.0;
+X	    int infront = mz > 0.0;
+X
+X	    if (!outside && !infront)
+X		continue;	/* behind jupiter */
+X
+X	    x = XCORD(mx);
+X	    y = YCORD(my);
+X	    XDrawPoint (dsp, pm, j_xgc, x, y);
+X	    if (bigdots) {
+X		XDrawPoint(dsp, pm, j_xgc, x+1, y);
+X		XDrawPoint(dsp, pm, j_xgc, x,   y+1);
+X		XDrawPoint(dsp, pm, j_xgc, x+1, y+1);
+X	    }
+X	    if (j_tags)
+X		XDrawString(dsp, pm, j_xgc, x-cw/2, y+2*ch,
+X					mnames[i].tag, strlen(mnames[i].tag));
+X	}
+X
+X	XCopyArea (dsp, pm, win, j_fgc, 0, 0, nx, ny, 0, 0);
+X}
+X
+X
+X#define	dsin(x)	sin(degrad(x))
+X#define	dcos(x)	cos(degrad(x))
+X
+X/* given a modified julian date (ie, days since Jan .5 1900), d, return x, y, z
+X *   location of each Galilean moon as a multiple of Jupiter's radius. on this
+X *   scale, Callisto is never more than 26.5593. +x is easterly, +y is
+X *   southerly, +z is towards earth. x and z are relative to the equator
+X *   of Jupiter; y is further corrected for earth's position above or below
+X *   this plane. also, return the system I and II central meridian longitude,
+X *   in degress, relative to the true disk of jupiter and corrected for light
+X *   travel time.
+X * from "Astronomical Formulae for Calculators", 2nd ed, by Jean Meeus,
+X *   Willmann-Bell, Richmond, Va., U.S.A. (c) 1982, chapters 35 and 36.
+X */
+Xstatic void
+Xjupinfo (d, moons, sIcml, sIIcml)
+Xdouble d;
+XMoonData moons[NM];	/* Io, Europa, Ganymede, Callisto */
+Xdouble *sIcml, *sIIcml;
+X{
+X	double A, B, Del, J, K, M, N, R, V;
+X	double cor_u1, cor_u2, cor_u3, cor_u4;
+X	double solc, tmp, G, H, psi, r, r1, r2, r3, r4;
+X	double u1, u2, u3, u4;
+X	double lam, Ds;
+X	double z1, z2, z3,  z4;
+X	double De, dsinDe;
+X
+X	V = 134.63 + 0.00111587 * d;
+X
+X	M = (358.47583 + 0.98560003*d);
+X	N = (225.32833 + 0.0830853*d) + 0.33 * dsin (V);
+X
+X	J = 221.647 + 0.9025179*d - 0.33 * dsin(V);;
+X
+X	A = 1.916*dsin(M) + 0.02*dsin(2*M);
+X	B = 5.552*dsin(N) + 0.167*dsin(2*N);
+X	K = (J+A-B);
+X	R = 1.00014 - 0.01672 * dcos(M) - 0.00014 * dcos(2*M);
+X	r = 5.20867 - 0.25192 * dcos(N) - 0.00610 * dcos(2*N);
+X	Del = sqrt (R*R + r*r - 2*R*r*dcos(K));
+X	psi = raddeg (asin (R/Del*dsin(K)));
+X
+X	solc = (d - Del/173.);	/* speed of light correction */
+X	tmp = psi - B;
+X
+X	u1 = 84.5506 + 203.4058630 * solc + tmp;
+X	u2 = 41.5015 + 101.2916323 * solc + tmp;
+X	u3 = 109.9770 + 50.2345169 * solc + tmp;
+X	u4 = 176.3586 + 21.4879802 * solc + tmp;
+X
+X	G = 187.3 + 50.310674 * solc;
+X	H = 311.1 + 21.569229 * solc;
+X      
+X	cor_u1 =  0.472 * dsin (2*(u1-u2));
+X	cor_u2 =  1.073 * dsin (2*(u2-u3));
+X	cor_u3 =  0.174 * dsin (G);
+X	cor_u4 =  0.845 * dsin (H);
+X      
+X	r1 = 5.9061 - 0.0244 * dcos (2*(u1-u2));
+X	r2 = 9.3972 - 0.0889 * dcos (2*(u2-u3));
+X	r3 = 14.9894 - 0.0227 * dcos (G);
+X	r4 = 26.3649 - 0.1944 * dcos (H);
+X
+X	moons[0].x = -r1 * dsin (u1+cor_u1);
+X	moons[1].x = -r2 * dsin (u2+cor_u2);
+X	moons[2].x = -r3 * dsin (u3+cor_u3);
+X	moons[3].x = -r4 * dsin (u4+cor_u4);
+X
+X	lam = 238.05 + 0.083091*d + 0.33*dsin(V) + B;
+X	Ds = 3.07*dsin(lam + 44.5);
+X	De = Ds - 2.15*dsin(psi)*dcos(lam+24.)
+X		- 1.31*(r-Del)/Del*dsin(lam-99.4);
+X	dsinDe = dsin(De);
+X
+X	z1 = r1 * dcos(u1+cor_u1);
+X	z2 = r2 * dcos(u2+cor_u2);
+X	z3 = r3 * dcos(u3+cor_u3);
+X	z4 = r4 * dcos(u4+cor_u4);
+X
+X	moons[0].y = z1*dsinDe;
+X	moons[1].y = z2*dsinDe;
+X	moons[2].y = z3*dsinDe;
+X	moons[3].y = z4*dsinDe;
+X
+X	moons[0].z = z1;
+X	moons[1].z = z2;
+X	moons[2].z = z3;
+X	moons[3].z = z4;
+X
+X	*sIcml  = 268.28 + 877.8169088*(d - Del/173) + psi - B;
+X	range (sIcml, 360.0);
+X	*sIIcml = 290.28 + 870.1869088*(d - Del/173) + psi - B;
+X	range (sIIcml, 360.0);
+X}
+END_OF_FILE
+  if test 26718 -ne `wc -c <'jupmenu.c'`; then
+    echo shar: \"'jupmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'jupmenu.c'
+fi
+if test -f 'skyviewmenu.c.2' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'skyviewmenu.c.2'\"
+else
+  echo shar: Extracting \"'skyviewmenu.c.2'\" \(26155 characters\)
+  sed "s/^X//" >'skyviewmenu.c.2' <<'END_OF_FILE'
+X	XtSetArg (args[n], XmNorientation, XmHORIZONTAL); n++;
+X	XtSetArg (args[n], XmNscaleMultiple, 1); n++;
+X	XtSetArg (args[n], XmNshowValue, True); n++;
+X	azra_w = XmCreateScale (svform_w, "AzRAScale", args, n);
+X	XtAddCallback (azra_w, XmNvalueChangedCallback, sv_changed_cb, NULL);
+X	XtManageChild (azra_w);
+X
+X	/* make the left scale */
+X
+X	str = XmStringCreate ("FOV", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, azra_w); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNminimum, 1); n++;
+X	XtSetArg (args[n], XmNmaximum, 180); n++;
+X	XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_BOTTOM); n++;
+X	XtSetArg (args[n], XmNscaleMultiple, 1); n++;
+X	XtSetArg (args[n], XmNshowValue, True); n++;
+X	XtSetArg (args[n], XmNtitleString, str); n++;
+X	fov_w = XmCreateScale (svform_w, "FOVScale", args, n);
+X	XtAddCallback (fov_w, XmNvalueChangedCallback, sv_changed_cb, NULL);
+X	XtManageChild (fov_w);
+X	XmStringFree (str);
+X
+X	/* make the right scale */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, azra_w); n++;
+X	XtSetArg (args[n], XmNorientation, XmVERTICAL); n++;
+X	XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_TOP); n++;
+X	XtSetArg (args[n], XmNscaleMultiple, 1); n++;
+X	XtSetArg (args[n], XmNshowValue, True); n++;
+X	altdec_w = XmCreateScale (svform_w, "AltDecScale", args, n);
+X	XtAddCallback (altdec_w, XmNvalueChangedCallback, sv_changed_cb, NULL);
+X	XtManageChild (altdec_w);
+X
+X	/* make ra/dec tracking labels just above the bottom scale on either
+X	 * side.
+X	 */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, fov_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, azra_w); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	tra_w = XmCreateLabel (svform_w, "TRA", args, n);
+X	set_xmstring (tra_w, XmNlabelString, " ");
+X	XtManageChild(tra_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, altdec_w); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, azra_w); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	tdec_w = XmCreateLabel (svform_w, "TDec", args, n);
+X	set_xmstring (tdec_w, XmNlabelString, " ");
+X	XtManageChild(tdec_w);
+X
+X	/* make alt/az tracking labels on top on either side */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, fov_w); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	talt_w = XmCreateLabel (svform_w, "TAlt", args, n);
+X	set_xmstring (talt_w, XmNlabelString, " ");
+X	XtManageChild(talt_w);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, altdec_w); n++;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	taz_w = XmCreateLabel (svform_w, "TAz", args, n);
+X	set_xmstring (taz_w, XmNlabelString, " ");
+X	XtManageChild(taz_w);
+X
+X	/* make a drawing area inside the sliders for drawing the sky */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, azra_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, fov_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNrightWidget, altdec_w); n++;
+X	svda_w = XmCreateDrawingArea (svform_w, "Map", args, n);
+X	XtAddCallback (svda_w, XmNexposeCallback, sv_da_exp_cb, 0);
+X	XtAddCallback (svda_w, XmNinputCallback, sv_da_input_cb, 0);
+X	mask = Button1MotionMask | ButtonPressMask | ButtonReleaseMask
+X						   | PointerMotionHintMask,
+X	XtAddEventHandler (svda_w, mask, False, sv_da_motion_cb,0);
+X	XtManageChild (svda_w);
+X
+X	/* create the filter dialog.
+X	 * it's not managed yet, but its state info is used right off.
+X	 */
+X	svf_create();
+X
+X	/* create the popup */
+X	sv_create_popup();
+X
+X	sv_set_view();
+X	sv_set_scales();
+X}
+X
+Xstatic void
+Xsv_create_find (parent)
+XWidget parent;
+X{
+X	Arg args[20];
+X	Widget mb_w, menu_w, p_w;
+X	Widget w;
+X	int n;
+X	int i;
+X
+X	/* create menu bar for the cascade button */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNrowColumnType, XmMENU_BAR); n++;
+X	mb_w = XmCreateRowColumn (parent, "PointMB", args, n);
+X	XtManageChild (mb_w);
+X
+X	/* create pulldown managed by the cascade button */
+X	n = 0;
+X	menu_w = XmCreatePulldownMenu (parent, "PointPD", args, n);
+X
+X	    /* create the pushbuttons forming the cascade menu.
+X	     * go ahead and fill in and manage the planet names now.
+X	     * we do the user objects just as we are cascading.
+X	     */
+X	    for (i = 0; i < NOBJ; i++) {
+X		n = 0;
+X		w = XmCreatePushButton (menu_w, "PointPB", args, n);
+X		XtAddCallback (w, XmNactivateCallback, sv_find_cb,
+X								(XtPointer)i);
+X		if (i >= MERCURY && i <= MOON) {
+X		    Obj *op = db_basic (i);
+X		    set_xmstring (w, XmNlabelString, op->o_name);
+X		    XtManageChild (w);
+X		} else if (i == OBJX)
+X		    find_w[0] = w;
+X		else if (i == OBJY)
+X		    find_w[1] = w;
+X	    }
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNsubMenuId, menu_w); n++;
+X	XtSetArg (args[n], XmNmarginHeight, 0); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	p_w = XmCreateCascadeButton (mb_w, "PointCB", args, n);
+X	set_xmstring (p_w, XmNlabelString, "Locate...");
+X	XtAddCallback (p_w, XmNcascadingCallback, sv_finding_cb, 0);
+X	XtManageChild (p_w);
+X}
+X
+X/* callback from the main Close button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (svform_w);
+X	svf_unmanage ();
+X	if (sv_pm) {
+X	    XFreePixmap (XtDisplay(svda_w), sv_pm);
+X	    sv_pm = (Pixmap) NULL;
+X	}
+X}
+X
+X/* callback from the Help button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_help_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char *msg[] = {
+X"This displays all database objects currently in memory onto the sky. The view",
+X"may be Alt/Az or RA/Dec. The three sliders adjust the field of fov, the",
+X"azimuth (or RA), and the altitude (or Dec). Objects may be filtered out by",
+X"type and magnitude."
+X};
+X
+X	hlp_dialog ("Sky View", msg, sizeof(msg)/sizeof(msg[0]));
+X}
+X
+X/* callback when the alt/az button changes state.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_aa_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	double lst;
+X	Now *np;
+X
+X	np = mm_get_now();
+X	now_lst (np, &lst);
+X
+X	if (aa_mode) {
+X	    /* change from alt/az to ra/dec mode */
+X	    double ha;
+X	    unrefract (pressure, temp, sv_altdec, &sv_altdec);
+X	    aa_hadec (lat, sv_altdec, sv_azra, &ha, &sv_altdec);
+X	    sv_azra = hrrad(lst) - ha;
+X	    range (&sv_azra, 2*PI);
+X	    if (epoch != EOD)
+X		precess (mjd, epoch, &sv_azra, &sv_altdec);
+X	} else {
+X	    /* change from ra/dec to alt/az mode if center is above horizon */
+X	    double ha, ra, dec, alt, az;
+X	    ra = sv_azra;
+X	    dec = sv_altdec;
+X	    if (epoch != EOD)
+X		precess (epoch, mjd, &ra, &dec);
+X	    ha = hrrad(lst) - ra;
+X	    range (&ha, 2*PI);
+X	    hadec_aa (lat, ha, dec, &alt, &az);
+X	    refract (pressure, temp, alt, &alt);
+X	    if (alt < 0.0) {
+X		xe_msg ("Center would be below horizon.", 1);
+X		XmToggleButtonSetState (aa_w, False, False);
+X		XmToggleButtonSetState (rad_w, True, False);
+X		return;
+X	    }
+X	    sv_altdec = alt;
+X	    sv_azra = az;
+X	}
+X
+X	aa_mode ^= 1;
+X	sv_set_scales();
+X	sv_all(np, 1);
+X}
+X
+X/* callback from the filter button.
+X * just toggle the filter dialog.
+X * always restore it to the real state before bringing it up.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_filter_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	svf_manage_toggle ();
+X}
+X
+X/* callback from the grid button.
+X * if adding the grid just draw it, but if taking it away copy from pixmap.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_grid_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	want_grid = XmToggleButtonGetState(w);
+X
+X	sv_all(mm_get_now(), 1);
+X
+X	if (!want_grid) {
+X	    set_xmstring (vgrid_w, XmNlabelString, null_grid_str);
+X	    set_xmstring (hgrid_w, XmNlabelString, null_grid_str);
+X	}
+X}
+X
+X/* set the altdec_w and azra_w scale values, depending on aa_mode and sv_altdec
+X * and sv_azra.
+X */
+Xstatic void
+Xsv_set_scales()
+X{
+X	Arg args[20];
+X	int n;
+X
+X	if (aa_mode) {
+X	    int altitude, azimuth;
+X
+X	    altitude = raddeg(sv_altdec) + 0.5;
+X	    azimuth = raddeg(sv_azra) + 0.5;
+X	    if (azimuth >= 360) azimuth -= 360;
+X	    if (azimuth < 0) azimuth += 360;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_RIGHT); n++;
+X	    XtSetArg (args[n], XmNmaximum, 359); n++;
+X	    XtSetArg (args[n], XmNminimum, 0); n++;
+X	    XtSetArg (args[n], XmNdecimalPoints, 0); n++;
+X	    XtSetArg (args[n], XmNvalue, azimuth); n++;
+X	    XtSetValues (azra_w, args, n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmaximum, 90); n++;
+X	    XtSetArg (args[n], XmNminimum, 0); n++;
+X	    XtSetArg (args[n], XmNvalue, altitude); n++;
+X	    XtSetValues (altdec_w, args, n);
+X
+X	} else {
+X	    int ra, dec;
+X
+X	    ra = radhr(sv_azra)*10.0 + 0.5;
+X	    if (ra >= 240) ra -= 240;
+X	    dec = raddeg(sv_altdec) + (sv_altdec >= 0 ? 0.5 : -0.5);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNprocessingDirection, XmMAX_ON_LEFT); n++;
+X	    XtSetArg (args[n], XmNmaximum, 239); n++;
+X	    XtSetArg (args[n], XmNminimum, 0); n++;
+X	    XtSetArg (args[n], XmNdecimalPoints, 1); n++;
+X	    XtSetArg (args[n], XmNvalue, ra); n++;
+X	    XtSetValues (azra_w, args, n);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNmaximum, 90); n++;
+X	    XtSetArg (args[n], XmNminimum, -90); n++;
+X	    XtSetArg (args[n], XmNvalue, dec); n++;
+X	    XtSetValues (altdec_w, args, n);
+X	}
+X}
+X
+X/* expose event of sky view drawing area.
+X * if same size just copy from pixmap, else recompute all (it's resized).
+X * N.B. we set bit_gravity to ForgetGravity so we can just use Expose events.
+X * N.B. we turn off backing store since we effectively do it in the pixmap.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_da_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static unsigned int wid_last, hei_last;
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X	Display *dsp = XtDisplay(w);
+X	Window win = XtWindow(w);
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	unsigned wid, hei;
+X
+X
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		unsigned long mask = CWBitGravity | CWBackingStore;
+X		swa.bit_gravity = ForgetGravity;
+X		swa.backing_store = NotUseful;
+X		XChangeWindowAttributes (e->display, e->window, mask, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected svda_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	XGetGeometry (dsp, win, &root, &x, &y, &wid, &hei, &bw, &d);
+X
+X	if (!sv_pm || wid != wid_last || hei != hei_last) {
+X	    if (sv_pm)
+X		XFreePixmap (dsp, sv_pm);
+X
+X	    if (!sv_gc)
+X		sv_mk_gcs(dsp, win);
+X
+X	    sv_pm = XCreatePixmap (dsp, win, wid, hei, d);
+X	    wid_last = wid;
+X	    hei_last = hei;
+X
+X	    sv_all(mm_get_now(), 1);
+X	} else {
+X	    /* same size; just copy from the pixmap */
+X	    sv_copy_sky();
+X	}
+X}
+X
+X/* copy the pixmap to the drawing area
+X */
+Xstatic void
+Xsv_copy_sky()
+X{
+X	Display *dsp = XtDisplay (svda_w);
+X	Window win = XtWindow (svda_w);
+X	unsigned wid, hei;	/* overall width and height */
+X	unsigned int r;		/* circle radius */
+X	unsigned int xb, yb;	/* x and y border */
+X
+X	sv_getcircle (&wid, &hei, &r, &xb, &yb);
+X
+X	XCopyArea (dsp, sv_pm, win, sv_gc, 0, 0, wid, hei, 0, 0);
+X}
+X
+X/* called on receipt of a MotionNotify or ButtonPress or ButtonRelease event
+X *   while the cursor is wandering over the sky view and button 1 is down.
+X * we report the current location in world coordinates.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_da_motion_cb (w, client, ev, continue_to_dispatch)
+XWidget w;
+XXtPointer client;
+XXEvent *ev;
+XBoolean *continue_to_dispatch;
+X{
+X	Now *np = mm_get_now();
+X	unsigned int wide, h, r, xb, yb;
+X	double altdec, azra;
+X	Window root, child;
+X	int rx, ry, wx, wy;
+X	unsigned mask;
+X	char alt_buf[64], az_buf[64];
+X	char ra_buf[64], dec_buf[64];
+X	int evt = ev->type;
+X	int okmotion, okbutton;
+X	double lst;
+X
+X	/* only interested if motion event or button 1 press/release */
+X	okmotion = evt == MotionNotify && ev->xmotion.state == Button1Mask;
+X	okbutton = (evt == ButtonPress || evt == ButtonRelease)
+X					&& ev->xbutton.button == Button1;
+X	if (!okmotion && !okbutton)
+X	    return;
+X
+X	now_lst (np, &lst);
+X
+X	XQueryPointer (XtDisplay(w), XtWindow(w),
+X			    &root, &child, &rx, &ry, &wx, &wy, &mask);
+X
+X	sv_getcircle (&wide, &h, &r, &xb, &yb);
+X
+X	if (evt != ButtonRelease && sv_unloc (r, wx-xb, wy-yb, &altdec, &azra)){
+X	    double ha, ra, dec, alt, az;
+X
+X	    if (aa_mode) {
+X		/* need to make the ra/dec entries */
+X		alt = altdec;
+X		az = azra;
+X		unrefract (pressure, temp, altdec, &altdec);
+X		aa_hadec (lat, altdec, azra, &ha, &dec);
+X		ra = hrrad(lst) - ha;
+X		range (&ra, 2*PI);
+X		if (epoch != EOD)
+X		    precess (mjd, epoch, &ra, &dec);
+X	    } else {
+X		/* need to make the alt/az entries */
+X		ra = azra;
+X		dec = altdec;
+X		if (epoch != EOD)
+X		    precess (epoch, mjd, &azra, &altdec);
+X		ha = hrrad(lst) - azra;
+X		range (&ha, 2*PI);
+X		hadec_aa (lat, ha, altdec, &alt, &az);
+X		refract (pressure, temp, alt, &alt);
+X	    }
+X
+X	    (void) strcpy (alt_buf, "Alt: ");
+X	    fs_angle (alt_buf+5, alt);
+X	    (void) strcpy (az_buf, "Az: ");
+X	    fs_angle (az_buf+4, az);
+X	    (void) strcpy (ra_buf, "RA: ");
+X	    fs_ra (ra_buf+4, ra);
+X	    (void) strcpy (dec_buf, "Dec: ");
+X	    fs_angle (dec_buf+5, dec);
+X	} else {
+X	    (void) strcpy (alt_buf, " ");
+X	    (void) strcpy (az_buf, " ");
+X	    (void) strcpy (ra_buf, " ");
+X	    (void) strcpy (dec_buf, " ");
+X	}
+X
+X	f_showit (talt_w, alt_buf);
+X	f_showit (taz_w, az_buf);
+X	f_showit (tra_w, ra_buf);
+X	f_showit (tdec_w, dec_buf);
+X}
+X
+X/* a dot has been picked:
+X * find what it is and report stuff about it in a popup.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_da_input_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X#define	PICKRANGE	100	/* sqr of dist allowed from pointer */
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X	XEvent *ev;
+X	TrailObj *top;
+X	unsigned int wide, h, r, xb, yb;
+X	int x, y;
+X	int mind = 1000000;	/* min distance to far */
+X	TSky *mintsp = NULL;	/* set to a TSky if find one close */
+X	Obj *minop = NULL;	/* set to an Obj if find one closer */
+X	Obj *op;
+X	int cx, cy;
+X	int d;
+X	int i;
+X
+X	if (c->reason != XmCR_INPUT)
+X	    return;
+X	ev = c->event;
+X	if (ev->xany.type != ButtonPress || ev->xbutton.button != 3)
+X	    return;
+X
+X	watch_cursor(1);
+X
+X	sv_getcircle (&wide, &h, &r, &xb, &yb);
+X
+X	/* search everything based on cursor loc within the circle */
+X	cx = ev->xbutton.x - xb;
+X	cy = ev->xbutton.y - yb;
+X
+X	/* search the trailed stuff first because
+X	 * the first entry in a trailing list will be both in the db and in
+X	 * the trails list -- we want to find the latter when we can.
+X	 */
+X	for (top = trailobj; top; top = top->ntop) {
+X	    if (!top->on)
+X		continue;
+X	    for (i = 0; i < top->nsky; i++) {
+X		if (!sv_trailobjloc (&top->sky[i], r, &x, &y))
+X		    continue;
+X		d = (cx - x)*(cx - x) + (cy - y)*(cy - y);
+X		if (d < mind) {
+X		    mintsp = &top->sky[i];
+X		    mind = d;
+X		}
+X	    }
+X	}
+X
+X	/* search the database too -- might be something closer */
+X	for (op = db_next(NULL, OBJS_ALL); op; op = db_next(op, OBJS_ALL)) {
+X	    if (!(op->o_flags & OBJF_ONSCREEN))
+X		continue;
+X	    if (!sv_dbobjloc (op, r, &x, &y))
+X		continue;	/* not in the circle now */
+X	    d = (cx - x)*(cx - x) + (cy - y)*(cy - y);
+X	    if (d < mind) {
+X		minop = op;
+X		mind = d;
+X	    }
+X	}
+X
+X	if (mind <= PICKRANGE)
+X	    sv_popup (ev, minop, minop ? NULL : mintsp);
+X
+X	watch_cursor(0);
+X}
+X
+X/* callback when any of the scales change value.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_changed_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	sv_set_view();
+X	sv_all(mm_get_now(), 1);
+X}
+X
+X/* callback when the "just dots" toggle button changes state.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_justdots_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	justdots = XmToggleButtonGetState (w);
+X	sv_all(mm_get_now(), 1);
+X}
+X
+X/* callback when the "ecliptic" toggle button changes state.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_ecliptic_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	want_ecliptic = XmToggleButtonGetState (w);
+X	sv_all(mm_get_now(), 1);
+X}
+X
+X/* callback when the "all labels" toggle button changes state.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_all_labels_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	all_labels = XmToggleButtonGetState (w);
+X	sv_all(mm_get_now(), 1);
+X}
+X
+X/* callback when the "Find" cascade button is activated.
+X * check the used defined objects and adjust the cascade buttons accordingly.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_finding_cb (wid, client, call)
+XWidget wid;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int i;
+X
+X	for (i = 0; i < 2; i++) {
+X	    Obj *op = db_basic (i == 0 ? OBJX : OBJY);
+X	    Widget w = find_w[i];
+X	    if (op->type == UNDEFOBJ)
+X		XtUnmanageChild (w);
+X	    else {
+X		set_xmstring (w, XmNlabelString, op->o_name);
+X		XtManageChild (w);
+X	    }
+X	}
+X}
+X
+X/* callback when one of the "point" cascade buttons changes state.
+X * object index is in client.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_find_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	Obj *op = db_basic((int)client);
+X
+X	switch (sv_id (op)) {
+X	case 0: 
+X	    break;
+X	case -1:
+X	    xe_msg ("Object is below the horizon now", 1);
+X	    break;
+X	case -2:
+X	    sv_point (op);
+X	    break;
+X	}
+X}
+X
+X/* callback as either magnitude scale is dragged.
+X * enforce at least a 1 mag window.
+X*/
+X/* ARGSUSED */
+Xstatic void
+Xsv_magdrag_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	int f, b;
+X
+X	XmScaleGetValue (fmag_w, &f);
+X	XmScaleGetValue (bmag_w, &b);
+X	if (f - b < 1)
+X	    XmScaleSetValue (w, w == fmag_w ? b+1 : f-1);
+X}
+X
+X/* read the scales and alt-az widgets into the global variables that
+X * describe our current display conditions.
+X */
+Xstatic void
+Xsv_set_view()
+X{
+X	int i;
+X
+X	XmScaleGetValue (fov_w, &i);
+X	sv_fov = degrad(i);
+X
+X	XmScaleGetValue (bmag_w, &bmag);
+X	XmScaleGetValue (fmag_w, &fmag);
+X
+X	XmScaleGetValue (altdec_w, &i);
+X	sv_altdec = degrad(i);
+X	XmScaleGetValue (azra_w, &i);
+X	sv_azra = aa_mode ? degrad(i) : hrrad((double)i/10.0);
+X}
+X
+X/* return the current circle info about svda_w */
+Xstatic void
+Xsv_getcircle (wp, hp, rp, xbp, ybp)
+Xunsigned int *wp, *hp;		/* overall width and height */
+Xunsigned int *rp;		/* circle radius */
+Xunsigned int *xbp, *ybp;	/* x and y border */
+X{
+X	Display *dsp = XtDisplay(svda_w);
+X	Window win = XtWindow(svda_w);
+X	Window root;
+X	int x, y;
+X	unsigned int w, h;
+X	unsigned int bw, d;
+X
+X	XGetGeometry (dsp, win, &root, &x, &y, wp, hp, &bw, &d);
+X	w = *wp/2;
+X	h = *hp/2;
+X	*rp = w > h ? h : w;	/* radius */
+X	*xbp = w - *rp;		/* x border */
+X	*ybp = h - *rp;		/* y border */
+X
+X}
+X
+X/* fill in the popup with goodies from db object *op or *tsp if it is set:
+X *   if tsp is set use it's Obj -- this is a trailed object.
+X * position the popup as indicated by ev and display it.
+X * it goes down by itself.
+X */
+Xstatic void
+Xsv_popup (ev, op, tsp)
+XXEvent *ev;
+XObj *op;
+XTSky *tsp;
+X{
+X	char buf[32], buf2[64];
+X	int trail;
+X	int label;
+X	double jd;
+X
+X	if (tsp) {
+X	    /* we were given a trailed Obj */
+X	    TrailObj *top;
+X	    op = &tsp->o;
+X	    jd = tsp->ts_mjd;
+X	    top = tobj_find (op);
+X	    trail = top->on;
+X	    label = !!(tsp->flags & OBJF_LABEL);
+X	} else {
+X	    /* no tsp trail -- just use the db */
+X	    Now *np = mm_get_now();
+X	    jd = mjd;
+X	    trail = 0;
+X	    label = !!(op->o_flags & OBJF_LABEL);
+X	}
+X
+X	XmToggleButtonSetState (pu.trail_w, trail, False);
+X	XmToggleButtonSetState (pu.label_w, label, False);
+X
+X	pu.op = op;
+X	pu.tsp = tsp;
+X
+X	(void) sprintf (buf2, "   Name: %.20s", op->o_name);
+X	set_xmstring (pu.name_w, XmNlabelString, buf2);
+X
+X	(void) sprintf (buf2, "   Type: %.20s", obj_description(op));
+X	set_xmstring (pu.desc_w, XmNlabelString, buf2);
+X
+X	if (op->type == FIXED && op->f_spect[0]) {
+X	    (void) sprintf (buf2, "  Spect: %.*s", sizeof(op->f_spect),
+X								op->f_spect);
+X	    set_xmstring (pu.spect_w, XmNlabelString, buf2);
+X	    XtManageChild (pu.spect_w);
+X	} else
+X	    XtUnmanageChild (pu.spect_w);
+X
+X	fs_date (buf, jd);
+X	(void) sprintf (buf2, "UT Date: %s", buf);
+X	set_xmstring (pu.ud_w, XmNlabelString, buf2);
+X
+X	fs_time (buf, mjd_hr(jd));
+X	(void) sprintf (buf2, "UT Time: %s", buf);
+X	set_xmstring (pu.ut_w, XmNlabelString, buf2);
+X
+X	fs_ra (buf, op->s_ra);
+X	(void) sprintf (buf2, "     RA: %s", buf);
+X	set_xmstring (pu.ra_w, XmNlabelString, buf2);
+X
+X	fs_angle (buf, op->s_dec);
+X	(void) sprintf (buf2, "    Dec: %s", buf);
+X	set_xmstring (pu.dec_w, XmNlabelString, buf2);
+X
+X	fs_angle (buf, op->s_alt);
+X	(void) sprintf (buf2, "    Alt: %s", buf);
+X	set_xmstring (pu.alt_w, XmNlabelString, buf2);
+X
+X	fs_angle (buf, op->s_az);
+X	(void) sprintf (buf2, "     Az: %s", buf);
+X	set_xmstring (pu.az_w, XmNlabelString, buf2);
+X
+X	(void) sprintf (buf2, "    Mag: %.3g", op->s_mag/MAGSCALE);
+X	set_xmstring (pu.mag_w, XmNlabelString, buf2);
+X
+X	XmMenuPosition (pu.pu_w, (XButtonPressedEvent *)ev);
+X	XtManageChild (pu.pu_w);
+X}
+X
+X/* create the id popup */
+Xstatic void
+Xsv_create_popup()
+X{
+X	static Widget *puw[] = {
+X	    &pu.name_w,
+X	    &pu.desc_w,
+X	    &pu.spect_w,
+X	    &pu.ud_w,
+X	    &pu.ut_w,
+X	    &pu.ra_w,
+X	    &pu.dec_w,
+X	    &pu.alt_w,
+X	    &pu.az_w,
+X	    &pu.mag_w,
+X	};
+X	Arg args[20];
+X	XmString str;
+X	Widget w;
+X	int i, n;
+X
+X	/* create the outer form */
+X	n = 0;
+X	XtSetArg (args[n], XmNisAligned, True); n++;
+X	XtSetArg (args[n], XmNentryAlignment, XmALIGNMENT_CENTER); n++;
+X	pu.pu_w = XmCreatePopupMenu (toplevel_w, "SVPopup", args, n);
+X
+X	/* create the label widgets */
+X
+X	for (i = 0; i < XtNumber(puw); i++) {
+X	    n = 0;
+X	    *puw[i] = XmCreateLabel (pu.pu_w, "SVPopValueL", args, n);
+X	    XtManageChild (*puw[i]);
+X	}
+X
+X	/* add a nice separator */
+X	n = 0;
+X	w = XmCreateSeparator (pu.pu_w, "SVSep", args, n);
+X	XtManageChild(w);
+X
+X	/* make the "aim", "ObjX" and "trail" command buttons */
+X
+X	str = XmStringCreateLtoR ("Point", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreatePushButton (pu.pu_w, "SVPopPoint", args, n);
+X	XtAddCallback (w, XmNactivateCallback, sv_pu_activate_cb,
+X							    (XtPointer)AIM);
+X	XtManageChild (w);
+X	XmStringFree (str);
+X
+X	str = XmStringCreateLtoR ("Make ObjX/Y", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreatePushButton (pu.pu_w, "SVPopMakeObj", args, n);
+X	XtAddCallback (w, XmNactivateCallback, sv_pu_activate_cb,
+X							(XtPointer)MK_OBJX);
+X	XtManageChild (w);
+X	XmStringFree(str);
+X
+X	str = XmStringCreateLtoR ("Leave Trail", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+X	pu.trail_w = XmCreateToggleButton (pu.pu_w, "SVPopTrail", args, n);
+X	XtAddCallback(pu.trail_w, XmNvalueChangedCallback, sv_pu_trail_cb,NULL);
+X	XtManageChild (pu.trail_w);
+X	XmStringFree(str);
+X
+X	str = XmStringCreateLtoR ("Persistent Label", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+X	pu.label_w = XmCreateToggleButton (pu.pu_w, "SVPopLabel", args, n);
+X	XtAddCallback(pu.label_w, XmNvalueChangedCallback, sv_pu_label_cb,NULL);
+X	XtManageChild (pu.label_w);
+X	XmStringFree(str);
+X}
+X
+X/* called when any of the popup's pushbuttons are activated.
+X * client is a code to indicate which.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_pu_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	switch ((int)client) {
+X	case AIM:
+X	    sv_point (pu.tsp ? &pu.tsp->o : pu.op);
+X	    break;
+X	case MK_OBJX: {
+X	    switch (pu.op->type) {
+X	    case HYPERBOLIC: case PARABOLIC: case ELLIPTICAL: case FIXED:
+X		sv_ournewobj = 1;
+X		obj_set (pu.op);
+X		sv_ournewobj = 0;
+X		break;
+X	    default:
+X		xe_msg ("User objects can not be of that type.", 0);
+X		break;
+X	    }
+X	    }
+X	    break;
+X	}
+X}
+X
+X/* called when the Trail popup toggle button changes.
+X * clean up the trailobj stuff.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_pu_trail_cb (wid, client, call)
+XWidget wid;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (XmToggleButtonGetState(wid)) {
+X	    /* trail is being turned on.
+X	     * if it already has a trail just turn it back on and draw it, else
+X	     *   add a new db obj to trailobj list.
+X	     */
+X	    TrailObj *top = tobj_find (pu.op);
+X	    if (top) {
+X		unsigned int w, h, r, xb, yb;
+X		sv_getcircle (&w, &h, &r, &xb, &yb);
+X		top->on = 1;
+X		tobj_display_all(r, xb, yb);
+X		sv_copy_sky();
+X	    } else {
+X		Now *np = mm_get_now();
+X		top = tobj_addobj (pu.op);
+X		(void) tobj_addsky (top, mjd, pu.op);
+X		/* no need to redraw since a trail of lenth 1 won't *look*
+X		 * any different.
+X		 */
+X	    }
+X	} else {
+X	    /* trailing is being turned off. mark it as being off.
+X	     * it will get removed at the next update if it's still off.
+X	     * redraw sky so it disappears.
+X	     */
+X	    TrailObj *top = tobj_find (pu.op);
+X	    top->on = 0;
+X	    sv_all (mm_get_now(), 1);
+X	}
+X}
+X
+X/* called when the Label popup toggle button changes.
+X * we get all context from the pu structure.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xsv_pu_label_cb (wid, client, call)
+XWidget wid;
+XXtPointer client;
+XXtPointer call;
+X{
+X	unsigned int w, h, r, xb, yb;
+X	int x, y;
+X	int label;
+X	char *name;
+X
+X	/* if this is a trailed item then its TSky will be in pu.tsp
+X	 * otherwise it is a plain db object.
+X	 * either way, toggle the corresponding OBJF_LABEL bit too.
+X	 */
+X	if (pu.tsp) {
+X	    label = (pu.tsp->flags ^= OBJF_LABEL) & OBJF_LABEL;
+X	    if (label) {
+X		sv_getcircle (&w, &h, &r, &xb, &yb);
+X		(void) sv_trailobjloc (pu.tsp, r, &x, &y);
+X		name = pu.tsp->o.o_name;
+X	    }
+END_OF_FILE
+  if test 26155 -ne `wc -c <'skyviewmenu.c.2'`; then
+    echo shar: \"'skyviewmenu.c.2'\" unpacked with wrong size!
+  fi
+  # end of 'skyviewmenu.c.2'
+fi
+echo shar: End of archive 17 \(of 21\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

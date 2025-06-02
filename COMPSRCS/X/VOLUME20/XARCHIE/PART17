@@ -1,0 +1,1433 @@
+Newsgroups: comp.sources.x
+From: ferguson@cs.rochester.edu (George Ferguson)
+Subject: v20i045:  xarchie - An X browser interface to Archie, v2.0.6, Part17/24
+Message-ID: <1993Jun15.223442.1315@sparky.imd.sterling.com>
+X-Md4-Signature: f644b161eac3f830089c1c134161c138
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 15 Jun 1993 22:34:42 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ferguson@cs.rochester.edu (George Ferguson)
+Posting-number: Volume 20, Issue 45
+Archive-name: xarchie/part17
+Environment: X11
+Supersedes: xarchie: Volume 14, Issue 82-90
+
+Submitted-by: ferguson@cs.rochester.edu
+Archive-name: xarchie-2.0.6/part17
+
+#!/bin/sh
+# this is Part.17 (part 17 of xarchie-2.0.6)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xarchie-2.0.6/xarchie.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 17; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xarchie-2.0.6/xarchie.c'
+else
+echo 'x - continuing file xarchie-2.0.6/xarchie.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xarchie-2.0.6/xarchie.c' &&
+X */
+static String fallbackResources[] = {
+#include "Xarchie.ad.h"
+X    NULL
+};
+X
+/*	-	-	-	-	-	-	-	-	*/
+X
+main(argc,argv)
+int argc;
+char **argv;
+{
+X    program = argv[0];
+X    /* Init display and application context, other globals, parse args */
+X    initGraphics(&argc,argv);
+X    if (argc > 1) {
+X	syntax(argc,argv);
+X	bye(1);
+X    }
+X    /* Init other non-widget stuff */
+X    initErrorHandlers();
+X    initColors();
+X    initActions();
+X    initHostWeights();
+X    /* Then init the menus so they can be found for other widgets */
+X    initMenus();
+X    /* Then the main panel widgets */
+X    initWidgets();
+X    /* Now we realize so the toplevel window is available */
+X    XtRealizeWidget(realToplevel);
+X    /* Other initializations that need to go now */
+X    initSettings();
+#ifdef HELP
+X    initHelpPanel();
+#endif
+X    initMisc();
+X    /* Enable WM_DELETE_WINDOW processing */
+X    (void)XSetWMProtocols(display,XtWindow(realToplevel),&WM_DELETE_WINDOW,1);
+X    status0("Ready");
+X    /* Init the data structure for responses */
+X    db = newEntry();
+X    resetBrowser();
+X    setBrowserState(BROWSER_READY);
+X    /* Do it */
+X    XtAppMainLoop(appContext);
+X    /*NOTREACHED*/
+}
+X
+void
+bye(ret)
+int ret;
+{
+X    XtDestroyApplicationContext(appContext);
+#ifdef CUTCP
+X    netshut();
+#endif
+X    exit(ret);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Initialization routines */
+X
+static void
+initGraphics(argcp,argv)
+int *argcp;
+char **argv;
+{
+X    /* Some systems want (Cardinal*), others want (int*) for argcp. */
+X    realToplevel = toplevel =
+X	XtAppInitialize(&appContext,"Xarchie",options,XtNumber(options),
+X			(Cardinal *)argcp,argv,fallbackResources,NULL,ZERO);
+X    /*
+X     * Set graphics globals
+X     */
+X    display = XtDisplay(realToplevel);
+X    screen = XtScreen(realToplevel);
+X    root = RootWindowOfScreen(screen);
+X    busyCursor = XCreateFontCursor(display,XC_watch);
+X    WM_PROTOCOLS = XInternAtom(display,"WM_PROTOCOLS",False);
+X    WM_DELETE_WINDOW = XInternAtom(display,"WM_DELETE_WINDOW",False);
+X    WM_STATE = XInternAtom(display,"WM_STATE",False);
+X    /*
+X     * Set up the resource converters (needs globals)
+X     */
+X    initConverters(appContext);
+X    /*
+X     * Get non-widget resources
+X     */
+X    XtGetApplicationResources(realToplevel,(XtPointer)&appResources,
+X			      resources,XtNumber(resources),NULL,ZERO);
+X    /*
+X     * Realloc these right away so we can free/realloc them later
+X     */
+X    appResources.archieHost = XtNewString(appResources.archieHost);
+X    appResources.ftpLocalDir = XtNewString(appResources.ftpLocalDir);
+X    appResources.ftpType = XtNewString(appResources.ftpType);
+X    appResources.hostWeights = XtNewString(appResources.hostWeights);
+X    /*
+X     * Catch iconify/deiconify so we can do children also
+X     */
+X    XtAddEventHandler(realToplevel,PropertyChangeMask,False,
+X		      iconifyEventHandler,NULL);
+#ifdef DEBUG
+X    XSetErrorHandler(xerror);
+X    XSynchronize(display,True);
+#endif
+}
+X
+/*
+X * initColors: To allow resources to be specfied separately for color
+X *	and mono displays, we add a dummy Form widget below realToplevel
+X *	in appropriate circumstances.
+X *      This means that:
+X *	  - realToplevel gets realized
+X *	  - toplevel gets used as parent of children
+X */
+#define ADDTOPLEVEL(NAME) \
+X	toplevel = XtCreateManagedWidget(NAME,formWidgetClass, \
+X					 realToplevel,NULL,0);
+static void
+initColors()
+{
+X    Visual *visual;
+X
+X    /* The default is no extra widget (ie. mono) */
+X    toplevel = realToplevel;
+X    /* See if the user specified a type */
+X    if (strcmp(appResources.visualType,"mono") == 0) {
+X	return;
+X    } else if (strcmp(appResources.visualType,"color") == 0) {
+X	ADDTOPLEVEL("color");
+X	return;
+X    } else if (strcmp(appResources.visualType,"gray") == 0) {
+X	ADDTOPLEVEL("gray");
+X	return;
+X    }
+X    /* Otherwise we try to figure it out */
+X    if ((visual=XDefaultVisualOfScreen(screen)) == NULL) {
+X	fprintf(stderr,"%s: can't get info about visual!\n",program);
+X	return;
+X    }
+X    if (visual->map_entries > 2) {
+X	switch (visual->class) {
+X	  case StaticColor:
+X	  case PseudoColor:
+X	  case TrueColor:
+X	  case DirectColor:
+X	    ADDTOPLEVEL("color");
+X	    break;
+X	  case StaticGray:
+X	  case GrayScale:
+X	    ADDTOPLEVEL("gray");
+X	    break;
+X	  default:
+X	    toplevel = realToplevel;
+X	}
+X    } else {
+X	toplevel = realToplevel;
+X    }
+}
+X
+/*
+X * initMenus: Call all the menu initialization routines
+X */
+static void
+initMenus()
+{
+X    initMenuCreator();		/* must be first */
+X    initFileMenu();
+X    initQueryMenu();
+X    initSettingsMenu();
+X    initFilePanelMenu();
+}
+X
+/*
+X * initWidgets: Initialize the widgets and set globals variables.
+X */
+static void
+initWidgets()
+{
+X    Widget outerPaned,buttonForm,browserPaned;
+X    Widget stringForm;
+X    char name[32];
+X    int i;
+X
+X    outerPaned = XtCreateManagedWidget("outerPaned",panedWidgetClass,
+X				       toplevel,NULL,0);
+X    /* Button Form */
+X    buttonForm = XtCreateManagedWidget("buttonForm",formWidgetClass,
+X				       outerPaned,NULL,0);
+X    fileButton = XtCreateManagedWidget("fileButton",menuButtonWidgetClass,
+X				       buttonForm,NULL,0);
+X    settingsButton = XtCreateManagedWidget("settingsButton",
+X					   menuButtonWidgetClass,
+X					   buttonForm,NULL,0);
+X    queryButton = XtCreateManagedWidget("queryButton",
+X					menuButtonWidgetClass,
+X					buttonForm,NULL,0);
+X    abortButton = XtCreateManagedWidget("abortButton",
+X					commandWidgetClass,
+X					buttonForm,NULL,0);
+X    XtSetSensitive(abortButton,False);
+#ifdef HELP
+X    helpButton = XtCreateManagedWidget("helpButton",commandWidgetClass,
+X				       buttonForm,NULL,0);
+#endif
+X    (void)XtCreateManagedWidget("statusLabel",labelWidgetClass,
+X				buttonForm,NULL,0);
+X    statusText = XtCreateManagedWidget("statusText",asciiTextWidgetClass,
+X				       buttonForm,NULL,0);
+X    /* Browser */
+X    browserForm = XtCreateManagedWidget("browserForm",formWidgetClass,
+X					outerPaned,NULL,0);
+X    browserUpButton = XtCreateManagedWidget("browserUpButton",
+X					    commandWidgetClass,
+X					    browserForm,NULL,0);
+X    browserDownButton = XtCreateManagedWidget("browserDownButton",
+X					      commandWidgetClass,
+X					      browserForm,NULL,0);
+X    browserPaned = XtCreateManagedWidget("browserPaned",panedWidgetClass,
+X					 browserForm,NULL,0);
+X    for (i=0; i < NUM_BROWSER_PANES; i++) {
+X	sprintf(name,"browserViewport%d",i);
+X	browserViewports[i] = XtCreateManagedWidget(name,viewportWidgetClass,
+X						    browserPaned,NULL,0);
+X	browserScrollbars[i] = XtNameToWidget(browserViewports[i],"vertical");
+X	sprintf(name,"browserList%d",i);
+#ifdef MULTILIST
+X	browserLists[i] = XtCreateManagedWidget(name,xfwfMultiListWidgetClass,
+X						browserViewports[i],NULL,0);
+#else
+X	browserLists[i] = XtCreateManagedWidget(name,listWidgetClass,
+X						browserViewports[i],NULL,0);
+#endif
+X	clearBrowserPane(i);
+X	XtAddCallback(browserLists[i],XtNcallback,
+X		      browserCallback,(XtPointer)i);
+X    }
+X    /* String Form */
+X    stringForm = XtCreateManagedWidget("stringForm",formWidgetClass,
+X				       outerPaned,NULL,0);
+X    (void)XtCreateManagedWidget("searchLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    searchText = XtCreateManagedWidget("searchText",asciiTextWidgetClass,
+X				       stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("hostLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    hostText = XtCreateManagedWidget("hostText",asciiTextWidgetClass,
+X				     stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("locationLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    locationText = XtCreateManagedWidget("locationText",asciiTextWidgetClass,
+X					 stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("fileLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    fileText = XtCreateManagedWidget("fileText",asciiTextWidgetClass,
+X				     stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("sizeLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    sizeText = XtCreateManagedWidget("sizeText",asciiTextWidgetClass,
+X				     stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("modesLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    modesText = XtCreateManagedWidget("modesText",asciiTextWidgetClass,
+X				      stringForm,NULL,0);
+X    (void)XtCreateManagedWidget("dateLabel",labelWidgetClass,
+X				stringForm,NULL,0);
+X    dateText = XtCreateManagedWidget("dateText",asciiTextWidgetClass,
+X				     stringForm,NULL,0);
+}
+X
+static void
+initMisc()
+{
+X    char *user,*host,*addr;
+X
+X    if ((tmpDirectory=getenv("TMPDIR")) == NULL) {
+X	tmpDirectory = "/tmp";
+X    }
+X    user = GetUsername();
+X    host = GetHostname();
+X    addr = XtMalloc(strlen(user)+
+X		    strlen(host)+strlen(appResources.ftpMailAddress));
+X    sprintf(addr,appResources.ftpMailAddress,user,host);
+X    appResources.ftpMailAddress = addr;
+X    /* Do initial tilde expansion if needed */
+X    if (appResources.ftpLocalDir && *(appResources.ftpLocalDir) == '~') {
+X	appResources.ftpLocalDir =
+X	    XtNewString(tildeExpand(appResources.ftpLocalDir));
+X    }
+X    /* Use the default icons unless overridden */
+X    if (appResources.defaultIcon == None) {
+X	appResources.defaultIcon =
+X	    XCreateBitmapFromData(display,root,xarchie_bits,
+X				  xarchie_width,xarchie_height);
+X    }
+X    if (appResources.busyIcon == None) {
+X	appResources.busyIcon =
+X	    XCreateBitmapFromData(display,root,busy_bits,
+X				  busy_width,busy_height);
+X    }
+X    /* Tell the world about the initial icons */
+X    setIconStatus(0);
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* The following functions attempt to provide information in the event of
+X * a crash. If you have trouble compiling them because of UNIX-isms in
+X * the signal handlers, then add -DDONT_CATCH_ERRORS to the definition
+X * of DEFINES in the Imakefile and re-make (or just #define it here).
+X */
+#ifndef DONT_CATCH_ERRORS
+#include <signal.h>
+static void crashHandler();
+#endif /* DONT_CATCH_ERRORS */
+X
+static void
+initErrorHandlers()
+{
+#ifndef DONT_CATCH_ERRORS
+X    signal(SIGBUS,crashHandler);
+X    signal(SIGSEGV,crashHandler);
+#endif /* DONT_CATCH_ERRORS */
+}
+X
+#ifndef DONT_CATCH_ERRORS
+static void
+crashHandler(sig)
+int sig;
+{
+X    char *s;
+X
+X    switch (sig) {
+X	case SIGBUS: s = "SIGBUS"; break;
+X	case SIGSEGV: s = "SIGSEGV"; break;
+X	default: s = "UNKNOWN";
+X    }
+X    fprintf(stderr,"%s: caught a %s signal!\n",program,s);
+X    fprintf(stderr,"If you want to report an error, please indicate your hardware type,\n");
+X    fprintf(stderr,"operating system, compiler, and your version of X and include a\n");
+X    fprintf(stderr,"backtrace. Thanks.\n");
+X    abort();
+}
+X
+#endif /* DONT_CATCH_ERRORS */
+X
+#ifdef DEBUG
+/*
+X * Override default X error handler to force an abort to debugger
+X */
+static void
+xerror(display,event)
+Display *display;
+XXErrorEvent *event;
+{
+X    char buf[256];
+X
+X    XGetErrorText(display,event->error_code,buf,256);
+X    printf("XERROR: %d: %s\n",event->error_code,buf);
+X    abort();
+}
+#endif
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Callback procedures */
+X
+/*ARGSUSED*/
+static void
+browserCallback(w,client_data,call_data)
+Widget w;
+XXtPointer client_data;	/* pane */
+XXtPointer call_data;	/* returnStruct */
+{
+X    int pane = (int)client_data;
+#ifdef MULTILIST
+#ifdef DEBUG
+X    static char *actions[] = { "NOTHING","HIGHLIGHT","UNHIGHLIGHT","STATUS" };
+X    int i;
+#endif
+X    XfwfMultiListReturnStruct *ret = (XfwfMultiListReturnStruct*)call_data;
+X
+#ifdef DEBUG
+X    printf("Callback: %s, item %d\n",actions[ret->action],ret->item);
+X    printf("  num_selected = %d\n",ret->num_selected);
+X    printf("  selected_items[] = ");
+X    for (i = 0; i < ret->num_selected; i++) {
+X	printf("%d ",ret->selected_items[i]);
+X    }
+X    if (ret->num_selected == 0) printf("None");
+X    printf("\n");
+#endif /* DEBUG */
+X    switch (ret->action) {
+X      case XfwfMultiListActionHighlight:
+X	/* Anything selected? */
+X	if (ret->item != -1) {
+X	    /* If just one thing selected, then we came here from Select() */
+X	    if (ret->num_selected == 1)
+X		resetSelectionsForPane(pane);
+X	    selectBrowserItem(pane,ret->item);
+X	}
+X	break;
+X      case XfwfMultiListActionUnhighlight:
+X	if (ret->item == -1)
+X	    resetSelectionsForPane(pane);
+X	else
+X	    unselectBrowserItem(pane,ret->item);
+X	break;
+X    }
+#else /* !MULTILIST */
+X    XawListReturnStruct *ret = (XawListReturnStruct*)call_data;
+X
+X    resetSelectionsForPane(pane);
+X    selectBrowserItem(pane,ret->list_index);
+#endif /* !MULTILIST */
+}
+X
+/*	-	-	-	-	-	-	-	-	*/
+/* Misc. routines */
+X
+void
+setBusyStatus(state)
+Boolean state;
+{
+X    setWindowBusyStatus(XtWindow(realToplevel),state);
+}
+X
+static void
+setWindowBusyStatus(window,state)
+Window window;
+Boolean state;
+{
+X    Window root,parent,*children;
+X    unsigned int numChildren;
+X    int i;
+X
+X    /* Do the window */
+X    if (state)
+X	XDefineCursor(display,window,busyCursor);
+X    else
+X	XUndefineCursor(display,window);
+X    /* And all the children... */
+X    if (XQueryTree(display,window,&root,&parent,&children,&numChildren) != 0) {
+X	for (i=0; i < numChildren; i++) {
+X	    setWindowBusyStatus(*(children+i),state);
+X	}
+X	if (numChildren > 0)
+X	    XFree((char *)children);
+X    }
+}
+X		
+/*	-	-	-	-	-	-	-	-	*/
+X
+/*ARGSUSED*/
+static void
+iconifyEventHandler(w,client_data,event,cont)
+Widget w;
+XXtPointer client_data;
+XXEvent *event;
+Boolean *cont;
+{
+X    int state;
+X
+X    if (event->xproperty.state == PropertyNewValue &&
+X	event->xproperty.atom == WM_STATE) {
+X	Atom actual_type;
+X	int actual_format;
+X	unsigned long nitems = 0, bytes_after = 0;
+X	unsigned char* data = NULL;
+X
+X	if (XGetWindowProperty(display,XtWindow(realToplevel),
+X			       WM_STATE,0,2,False,AnyPropertyType,
+X			       &actual_type,&actual_format,
+X			       &nitems,&bytes_after,&data) == Success) {
+X	    state = *(int *)data;
+X	    setSettingsShellState(state);
+X	    setFileShellState(state);
+#ifdef HELP
+X	    setHelpShellState(state);
+#endif
+X	    setAboutShellState(state);
+X	    setFtpTraceShellState(state);
+X	    XFree((char *)data);
+X	}
+X    }
+}
+X
+void
+setIconStatus(state)
+Boolean state;
+{
+X    Pixmap pixmap;
+X    char *name;
+X    Arg args[2];
+X
+X    if (state == True) {
+X	pixmap = appResources.busyIcon;
+X	name = "xarchie:busy";
+X    } else {
+X	pixmap = appResources.defaultIcon;
+X	name = "xarchie";
+X    }
+X    XtSetArg(args[0],XtNiconName,name);
+X    XtSetArg(args[1],XtNiconPixmap,pixmap);
+X    XtSetValues(realToplevel,args,2);
+}
+SHAR_EOF
+echo 'File xarchie-2.0.6/xarchie.c is complete' &&
+chmod 0644 xarchie-2.0.6/xarchie.c ||
+echo 'restore of xarchie-2.0.6/xarchie.c failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/xarchie.c'`"
+test 21932 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/xarchie.c: original size 21932, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/xarchie.h ==============
+if test -f 'xarchie-2.0.6/xarchie.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/xarchie.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/xarchie.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/xarchie.h' &&
+/*
+X * xarchie.h : Definitions of the X globals and misc. functions
+X *
+X * George Ferguson, ferguson@cs.rochester.edu, 2 Nov 1991.
+X * Version 2.0: 23 Apr 1993.
+X */
+X
+#ifndef XARCHIE_H
+#define XARCHIE_H
+X
+extern Display *display;
+extern Screen *screen;
+extern Window root;
+extern Atom WM_DELETE_WINDOW,WM_PROTOCOLS;
+X
+extern XtAppContext appContext;
+extern Widget toplevel;
+extern Widget queryButton,abortButton;
+extern Widget statusText;
+extern Widget browserForm;
+extern Widget browserUpButton,browserDownButton;
+extern Widget browserViewports[],browserScrollbars[],browserLists[];
+extern Widget searchText;
+extern Widget hostText,locationText,fileText,sizeText,modesText,dateText;
+X
+extern char *program;
+extern char *tmpDirectory;
+X
+extern void bye();
+extern void setBusyStatus(),setIconStatus();
+X
+#endif /* XARCHIE_H */
+SHAR_EOF
+chmod 0644 xarchie-2.0.6/xarchie.h ||
+echo 'restore of xarchie-2.0.6/xarchie.h failed'
+Wc_c="`wc -c < 'xarchie-2.0.6/xarchie.h'`"
+test 817 -eq "$Wc_c" ||
+	echo 'xarchie-2.0.6/xarchie.h: original size 817, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xarchie-2.0.6/xarchie.man ==============
+if test -f 'xarchie-2.0.6/xarchie.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xarchie-2.0.6/xarchie.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xarchie-2.0.6/xarchie.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xarchie-2.0.6/xarchie.man' &&
+.\"
+.\" xarchie : X11 browser interface to archie
+.\"
+.\" This manpage is designed to be used either as a normal manpage
+.\" processed by nroff, or processed specially for use in the Help
+.\" browser. The large number of section headings (.SH) commands are
+.\" to provide topics for the browser. The leading spaces in these
+.\" headings are used to make a hierarchy of topics.
+.\"
+.\" If the XX number register is set > 0, then this text is formatted
+.\" for use in the Help browser. By default it is formatted like a
+.\" normal manpage.
+.\"
+.\" George Ferguson, ferguson@cs.rochester.edu, 12 Nov 1991.
+.\" Version 2.0: 23 Apr 1993
+.\" 28 Apr 1993: Changed default host to "archie.sura.net(1526)".
+.\" 13 May 1993: Added stuff about how hostMenu labels are parsed.
+.\"
+.\" -----------------------------------------------------------------------
+.\" If formatting for Help, kill the header and footer before .TH
+.if \n(XX \{\
+.de }H
+..
+.de }F
+.. \}
+.TH XARCHIE 1 "7 Jun 1993" "U of Rochester"
+.\" If formatting for Help, set line length and tabs after .TH
+.if \n(XX \{\
+.nr LL 40n
+.ll 40n
+.ta 2,4,6,8,10,12,14,16,18,20 \}
+.el .ta 4,8,12,16,20,24,28,32,36,40
+.\" Real manpage begins here
+.SH NAME
+xarchie \- X11 browser interface to archie, version 2.0.6
+.SH SYNOPSIS
+.na
+.in +8n
+.ti -8n
+xarchie
+[X\ Toolkit\ options]
+[\-host\ host]
+[\-search\ type|\-e|\-c|\-s|\-r|\-ec|\-es|\-er]
+[\-sort\ type|\-t|\-w]
+[\-maxhits\ num]
+[\-offset\ num]
+[\-nice lev|\-N\ lev]
+[\-noscroll]
+[\-mono|\-gray|\-color]
+[\-debug\ num|\-D\ num]
+[\-help|-?]
+.in -8n
+.ad
+.SH DESCRIPTION
+.PP
+XXarchie is an X11 browser interface to the Archie Internet information
+system using the Prospero virtual filesystem protocol.  Archie
+provides information about files available for ftp anywhere on the
+Internet; Xarchie displays this information using an easy-to-use,
+point-and-click interface.  Xarchie allows you to further explore ftp
+sites by examining directories returned as query matches, and allows
+you to retrieve files located this way.  Xarchie is designed (like
+most X applications) to be highly customizable, allowing you to tailor
+the look-and-feel of the tool to your own preferences.
+.PP
+This document is broken into two parts. First, the USER'S GUIDE
+describes Archie and Xarchie, and covers both Basic and Advanced
+XXarchie usage. Second, the REFERENCE MANUAL provides all the
+information needed to customize Xarchie. You can also browse this
+document using the Xarchie Help facility.
+.PP
+To report problems or bugs, please see the section "Reporting Bugs" in
+the REFERENCE MANUAL section.
+.\"===========================================================
+.SH "USER'S GUIDE"
+.PP
+The User's Guide section of this manual describes the Archie service,
+the Xarchie client, and how to use Xarchie to access resources
+available for FTP on the Internet.
+.SH " What is Archie?"
+.PP
+The Archie information system is a network-based information tool
+offering proactive data retrieval and indexing for widely distributed
+collections of data.
+.PP
+Perhaps the best known application of the Archie system is to maintain
+the Internet Archives database. This database, already available from a
+number of service providers across the Internet, currently contains the
+names of over 2,100,000 files at over 1,000 anonymous FTP archive sites.
+Using this database, users can rapidly locate needed files without the
+need to log onto dozens or even hundreds of machines. Archie servers
+offering this database currently receive over 50,000 queries per day.
+It is this database that the Xarchie client accesses, as described in
+the next section, using one of the many independently owned and
+operated Archie servers around the world.
+.PP
+The Archie system is much more than the Internet Archives database.
+For more information contact Bunyip Information Systems at (514)
+398-3709 or (514) 398-811 or email "info@bunyip.com".
+.\"-----------------------------------------------------------
+.SH " What is Xarchie?"
+.PP
+XXarchie is an X11 browser interface to the Archie Internet Archives
+database using the Prospero virtual filesystem protocol.  Archie
+provides information about files available for ftp anywhere on the
+Internet; Xarchie displays this information using an easy-to-use,
+point-and-click interface.  Xarchie allows you to further explore ftp
+sites by examining directories returned as query matches, and allows
+you to retrieve files located this way.
+.PP
+XXarchie is designed (like most X applications) to be highly
+customizable, allowing you to tailor the look-and-feel of the tool to
+your own preferences. See the REFERENCE MANUAL for details.
+.PP
+Users should be aware that the Xarchie client accesses a server that
+is shared with users on other hosts.  As such, submitting long or
+large numbers of queries during peak periods not only increases the
+time that you have to wait for a response, but it increases the time
+that others have to wait too. Please read about the
+.I -nice
+option, the
+.B niceLevel
+resource, and the "Nice Level" setting before making large queries.
+Also, you should use the closest possible host to save long-distance
+network traffic. Abusers of the service may find their access revoked
+without notice.
+.\"-----------------------------------------------------------
+.SH " The Xarchie Display"
+.PP
+XXarchie uses several conventions regarding menus and button names:
+.IP \-
+Clicking on a button whose name ends with a ">" will pop up a menu
+from which you should select the desired action.
+.IP \-
+Clicking on or selecting an item whose name ends in "..." will pop up
+a panel that will let you perform the desired operation.
+.PP
+A label with neither of these suffixes indicates that the action will
+be taken without subsequent interaction.
+.PP
+XXarchie's
+display is divided into three horizontal areas. The top pane is a
+control panel providing the following buttons:
+.IP File:
+Clicking on this button presents the File Menu, from which you can
+select a variety of file-related operations to be described later. The
+File Menu operations can also be invoked by holding down the Meta key
+and typing the first letter of the operation's name (e.g., Meta-Q to
+quit).
+.IP Settings:
+Clicking on this button presents the Settings Menu, whose operations
+will be described in the "Advanced Usage" section.
+.IP Query:
+This button presents the Query Menu, used to send queries to Archie.
+Its operation will be described shortly.
+.IP Abort:
+When active during a query or retrieval, this button allows you to
+abort the operation.
+.IP Help:
+Clicking on this button pops up the Help Panel, which allows you to
+browse this document on-line.
+.LP
+Finally, the area labelled "Status" is used to provide information
+about the progress of a query or other informative messages.
+.PP
+The middle pane of the Xarchie display functions as a
+host-location-file browser. That is, the leftmost pane displays
+hostnames, the middle pane locations (directories), and the rightmost
+pane files or directories returned by a query. The browser's use is
+described in the section "Browsing", below. You can adjust the
+relative size of the browser panes using the Grips on their borders.
+.PP
+Finally, the bottom pane of the Xarchie display provides a set of Text
+items where you can enter information and where information is
+displayed as query results are browsed. Not all Text items can be
+typed in; some are used for display only. These text items provide
+Emacs-like editing controls (see
+.IR xedit (1)
+for a complete description). Typing Return in some Text items invokes
+an action as a shortcut for selecting it from a menu or button.
+.\"-----------------------------------------------------------
+.SH " Basic Xarchie Usage"
+.PP
+This section provides information on basic querying, browsing, and
+file operations. The "Advanced Xarchie Usage" section describes how to
+use the Settings Panel and how to perform other, more complicated,
+queries.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Querying"
+.PP
+The primary function provided by Xarchie is that of querying the
+Archie server for a "search term" (the string or expression for which
+you want to search). By default, your query uses
+.I exact
+search mode. That is, the search term must literally match an entry in
+the database for the entry to be returned. Other search modes are
+available, and are described in the "Advanced Usage" section.
+.PP
+You enter your search term in the appropriately
+labelled Text item in the bottom pane of the Xarchie display.  Hitting
+Return in the text item or selecting "Query Item" from the Query Menu
+will send your request to Archie.
+.PP
+The Status area will be updated as the query progresses. First the
+Archie server's Internet address is looked up, then the server is
+contacted, the search term is sent over, and, after reaching the front
+of the server's request queue, matches are returned to Xarchie. The
+matches, if any, are displayed in the browser and the Status area
+indicates how many matches were returned.
+.PP
+If your window manager and version of X support it, you can iconify
+the Xarchie application and the icon will change to reflect the
+progress of your query. That is, it will change when a query is in
+progress and when it finishes.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Aborting"
+.PP
+If you find that your query is taking too long, you can abort it by
+clicking on the "Abort" button when it is active. Your query will
+be aborted as soon as possible. You should note that while aborting a
+query will allow you to enter a new query, it does not remove the
+query from the server's queue (this may be changed in the future).
+Thus aborting queries does not reduce the load on the server -- just
+the opposite probably. Use it with discretion, like the rest of the
+service.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Browsing"
+.PP
+As described in the section "The Xarchie Display", the middle pane of
+the Xarchie display functions as a host-location-file browser.  The
+leftmost pane of the browser contains the names of hosts that have a
+file matching your search term. Clicking the Left mouse button on a
+hostname will highlight it and cause the middle browser pane to be
+filled with a list of locations on that host where files matching your
+search term can be found. The selected hostname will also be displayed
+in the Text item labelled "Host" in the bottom pane of the Xarchie
+display.
+.PP
+Similarly, selecting a location from the middle browser pane will
+cause the right browser pane to be filled with a list of the files
+available from the selected host in the selected location, and the
+location will be displayed in the bottom pane item labelled
+"Location".
+.PP
+Finally, selecting a file from the right browser pane causes its name,
+size, permission modes and last-modification date to be displayed in
+the correspondingly-labelled bottom pane items.
+.PP
+Note that if a browser pane has only one item, then that item will be
+automatically selected and its "lesser" panes and information items filled
+in. This saves time and effort in the common case where there is only one
+host, location, or file that matches your query. Also, note that, by
+default, Xarchie scrolls the browser pane when you select an item.
+This makes it easy to click through a long list of matches, but can be
+annoying. If you don't like it, it can be changed on the Settings
+Panel (described below), and see the description of the
+.B \-noscroll
+command-line option in the REFERENCE MANUAL.
+.PP
+The browser allows you to select multiple items simultaneously,
+although of course only the last-selected item will have it's
+information displayed in the bottom pane. You add to a selection by
+clicking the Left button with Shift depressed. If the clicked-on item
+is already selected, it will be unselected. Currently, only the bottom
+level of the browser can have multiple selections, since a selection
+at a higher level clears the selections for all lower levels (this may
+be changed in the future). Thus you can select multiple files from a
+single host, but not multiple files from separate hosts.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Expanding the Browser"
+.PP
+The browser can be expanded, allowing you to investigate, say, a
+directory that matched your query. To select and expand an directory,
+double-click on it (double-click with Shift to avoid unselecting any
+other items). You can also select "Open" from the File Menu to expand
+directories (although this will also open selected files, as described
+later). All selected directories will be expanded by querying an
+appropriate Archie server, and the Status area will keep you informed.
+Expansion requests can be aborted just like queries using the "Abort"
+button.
+.PP
+If only a single item was expanded, and if the expansion was
+successful, then the browser will scroll to display the results. The
+arrow buttons across the top of the browser can be used to scroll the
+browser left or right when they are active. The Middle and Right mouse
+buttons or the Left and Right arrow keys will do the same thing, when
+the pointer is in the browser panes.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Viewing Files"
+.PP
+You can view a file that is selected in the browser by selecting
+"Open" from the File Menu (or by typing Meta\-O).  Xarchie retrieves
+all selected files in ASCII mode into a temporary directory.  The
+Status area, like usual, will keep you posted on the progress of the
+operation and, once the FTP connection is established, the Abort
+button can be used to abort the Open operation.  If you abort and
+there are files remaining to retrieve, you will be prompted as to
+whether to continue with the next file. Note that partially-retrieved
+files are not removed.  There is currently no way to abort the
+transfer until the connection is established. The connection will
+eventually timeout and control will return to Xarchie if connection is
+impossible.
+.PP
+Each file is displayed in a popup Text window after being retrieved.
+Use the "Down" and "Up" buttons or the scrollbars to view the text.
+Click on the "Dismiss" button to destroy the window and delete the
+file. To save the file before dismissing, use the "Save" button. This
+pops up a panel with which you can choose the name of the file to
+which to save.
+.PP
+Note that because the Archie database is only updated periodically,
+some files returned by Archie may not exist when you attempt to
+retrieve them. This and any other FTP errors are signalled with alert
+boxes.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Retrieving Files"
+.PP
+The "Open" action should be used to view short files, such as "README"
+files, that you don't need to save. For more permanent files, and for
+non-ASCII files like tar or compressed files, Xarchie allows you to
+retrieve the selected browser items using the "Get" item of the File
+Menu (or typing Meta\-G). The selected files are retrieved via FTP and
+stored in the current directory (see the section "FTP Parameters" in
+the "Advanced Usage" section for how to change this).  The "Status"
+area is updated to reflect the progress of the transfer. As for
+"Open", you can abort the retrieval using the "Abort" button once the
+FTP connection is established.
+.PP
+It is currently not possible to retrieve a directory, although of
+course the directory can be opened and the entire contents selected
+for transfer.
+.PP
+Note that because the Archie database is only updated periodically,
+some files returned by Archie may not exist when you attempt to
+retrieve them. This and any other FTP errors are signalled with alert
+boxes.
+.PP
+As with querying, if your window manager and version of X support it,
+XXarchie's icon will be changed to reflect the progress of a transfer.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Saving, Loading, and Writing"
+.PP
+XXarchie allows you to save and reload the contents of the browser, or
+write it in human-readable format using the items on the File menu.
+Selecting either of "Save", "Load", or "Write" (or typing Meta\-S,
+Meta\-L, or Meta\-W, respectively) will pop up the File Panel with
+which you can specify the appropriate filename.  Clicking on the "Ok"
+button will invoke the appropriate action; clicking "Cancel" will
+abort the operation and pop down the panel.
+.PP
+Saving the database creates a file containing sufficient information
+for the browser to be reloaded using "Load". The output is not
+intended for human consumption. The current Settings are also written
+to the file by "Save" and are restored by "Load".
+.PP
+Users should note that a reloaded database will be "flattened", that
+is, directories will be added to the middle pane as needed to fit
+everything in three browser panes.  (This may be changed in the future
+to preserve the original hierarchy.)
+.PP
+Writing the database is intended to create files that are more or less
+human-readable (compared to "Save", anyway). There are two possible
+formats, selectable from the "Write Format" menu on the panel. If "One
+entry per line" is selected, then the output will have one line per
+entry, in the format
+X
+.ce
+mode size date host:location/file
+X
+If "Pretty-printed" is selected, then the file format has hostnames
+starting at the beginning of the line, location names indented one
+tab, and file entries indented two tabs, all on separate lines.
+Hostnames and locations are only printed once, as in:
+X
+.na
+.nf
+X        host
+X                location
+X                        mode size date file
+X                        mode size date file
+.fi
+.ad
+X
+The latter is more readable, the former may be more useful if the
+output is to be used by a program.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Quitting Xarchie"
+.PP
+You can exit Xarchie by selecting "Quit" from the File Menu (or typing
+Meta\-Q).
+.\"-----------------------------------------------------------
+.SH " Advanced Xarchie Usage"
+.PP
+This section describes how various aspects of Xarchie's functionality
+can be modified to perform different queries and other operations.
+Further customization information is found in the REFERENCE MANUAL
+section.
+.\"	-	-	-	-	-	-	-	-
+.SH "  The Settings Panel"
+.PP
+The panel popped up by selecting "Other" on the Settings Menu in the
+top Xarchie pane allows you to change the parameters of your queries
+Archie. Each of the parameters is described in the following sections.
+.PP
+After you're done with the Settings Panel, clicking on the "Apply"
+button will make Xarchie use the settings as set on the panel.
+Clicking on "Default" will reset the settings to the values they had
+when Xarchie started (but note that you will still have to apply them
+to have them take effect). Clicking on "Done" closes the Settings
+panel. A popup confirmer will appear if you did not apply your
+changes, allowing you to discard the changes or go back and apply
+them. Note that the "Apply" button is inactive until a change is made.
+.PP
+The menus available from the "Search\ Type", "Sort\ Type", "Nice\ 
+Level" and "Archie\ Host" submenus of the Settings Menu on the
+XXarchie top pane have effects corresponding to those of the buttons on
+the Settings Panel. However, they do not require that the "Apply"
+button be clicked on to take effect, and do not affect the behaviour
+of the "Done" button confirmer.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Archie host"
+.PP
+The item labelled "Host" provides a menu of known Archie hosts. You
+should choose one appropriate to your site (i.e., one that minimizes
+long-distance transmission).  In addition however, you can enter an
+arbitrary hostname in the Text item next to the "Host" button.  Note
+that the Archie host is only used for queries; expansion requests use
+information stored with the items to determine which host to contact.
+That is, changing the Archie host does not "take effect" until the
+next query is issued.
+.PP
+If you have the
+.IR ping (1)
+program, you can try to use it with the its "\-s" option to locate a
+"nearby" host.
+.PP
+You can specify hostnames using either the symbolic name or by giving
+its numeric IP address (four octets separated by periods). In either
+case, you can specify the port at which the Prospero server should be
+contacted by giving it in parentheses immediately following the
+hostname (no spaces).
+.\"	-	-	-	-	-	-	-	-
+.SH "  Search mode"
+.PP
+The "Search Mode" item allow you to change how Archie interprets your
+search term.  Holding a mouse button down while the mouse cursor is on
+the button displays a menu from which you can choose the desired
+search type.  The label to the right of the item is updated to reflect
+the choice.
+.PP
+The
+.I exact
+mode is fastest and returns files exactly matching your search term.
+The
+.I substr
+and
+.I subcase
+modes return substring and case-sensitive substring matches
+respectively (i.e.,
+.I substr
+means case-insensitive). The
+.I regexp
+mode allows you to specify a regular expression to select files (see
+.IR ed (1)
+for a description of regular expression syntax).
+The
+.I exact*
+forms of these last three try an exact match first and then fall back
+on the more costly search type if the exact match fails.
+.PP
+.\"	-	-	-	-	-	-	-	-
+.SH "  Sort mode"
+.PP
+The "Sort Mode" item allows you to specify how Xarchie displays the
+results from Archie.  Holding a mouse button down while the mouse
+cursor is in this item displays a menu from which you can choose the
+desired sort type.  The label to the right of the item is updated to
+reflect the choice.  Applying the settings (see above) will cause the
+data to be resorted according to the new sort mode.
+.PP
+The type can be one of
+.IR name ,
+.IR date ,
+or
+.IR weight .
+Sorting by
+.I name
+is simple lexicographic ordering.
+.PP
+If sorting by
+.I date
+is selected, then hosts are ordered according to the most recent file
+among those returned for them, and similarly for locations. Files
+themselves are ordered by last-modification date, naturally.
+.PP
+If sorting by
+.I weight
+is selected, then hosts are ordered by a user-definable set of
+"weights". In this way, hosts that are "close" (in some sense) are
+displayed first. The weights can be set using the Text item that
+appears on the Settings Panel when this sort mode is selected.
+.PP
+Hopefully, an appropriate weight list for the geographic location of
+your site will have been installed as the default. In any case, the
+the weight list is a set of lines, where each line specifies a weight
+and the set of domains for that weight. A
+host's weight is determined by finding the first line for which the
+end of the host's name matches one of the suffixes. A host that
+belongs in none of the classes is assigned the weight 99. For example,
+the default for the USA is:
+X
+.nf
+.na
+X	  1 edu com net gov mil us\en\e
+X	  2 ca\en\e
+X	  3 uk de nl fi fr eu.net\en\e
+X	100 au nz jp
+.ad
+.fi
+X
+This means that all the US domains are ordered first, then Canada,
+then several European countries. Hosts in Australia, New Zealand, and
+Japan are ordered
+.I after
+any unknown (i.e. non-matching) hosts.
+.PP
+For more details, see the description of the
+.B hostWeights
+non-widget resource in the REFERENCE MANUAL section.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Nice level"
+.PP
+The "Nice Level" item deserves special mention. As mentioned in the
+"About Archie" section, Archie servers run on machines that must be
+shared between other
+Archie
+users and even other "real" users. This item allows you to voluntarily
+lower the priority of your request, just like the
+.IR nice (1)
+command does for Unix. The menu provides some recommended values and
+you can enter arbitrary values in the text item. If you are searching
+with a large number of matches requested, please increase your nice
+level.
+.PP
+Note that, like
+.IR nice (1),
+nicing a job does not mean your job won't affect others.  In
+particular, once your job begins it is not pre-empted, thus you should
+still avoid long jobs during peak periods. You should especially avoid
+queries for items of only personal interest (you know what we mean)
+during these periods. As stated above, abusers of the service may find
+their access revoked without notice.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Other Query Settings"
+.PP
+The following items set parameters of your query to the Archie server.
+.IP "Max Hits:"
+the limit on the number of successful matches that will be
+returned.
+.IP "Initial Timeout:"
+the length of the first timeout interval in seconds.
+.IP "Retries:"
+the number of times to retry a query if it times out, doubling the
+timeout each retry.
+.PP
+These items are Text items that allow you to edit their values.
+.PP
+The item labelled "Auto-Scroll Browser" controls whether the browser
+scrolls after an item is selected. Setting this to "yes" is useful
+when browsing a long list of matches. It can be annoying if you're
+doing more selective browsing, so set it to "no" in those cases.
+.\"	-	-	-	-	-	-	-	-
+.SH "  FTP settings"
+.PP
+The following items allow you to set parameters of file retrieval. You
+should be sure they are appropriately set before retrieving files
+using either "Open" or "Get".
+.IP "FTP Email Address:"
+Specifies the password used for anonymous FTP login. By convention,
+users logging in as "anonymous" send their email address as the
+password. Some servers enforce this by checking the address. The
+default may not be appropriate depending on what information Xarchie
+could glean from your system about its address. You can set the
+environment variables
+.B USER
+and
+.B HOSTNAME
+to override the system's
+information, or see the description of the
+.B ftpMailAddress
+non-widget resource in the REFERENCE MANUAL.
+.IP "FTP Local Directory:"
+Specifies the directory into which files will be retrieved using
+"Get".
+.IP "FTP Transfer Type:"
+Provides a menu from which you can select "ascii" or "binary" mode
+transfer for files retrieved with "Get". Files retrieved with "Open"
+are always retrieved in ascii mode.
+.IP "FTP Prompt:"
+Provides a menu allowing you to enable or disable prompting during
+multi-file transfers.
+.IP "Trace FTP Transfers:"
+Since FTP transfers are susceptible to timeouts and other confusions,
+this item allows you to monitor any FTP interactions. If tracing is
+enabled, then invoking "Open" or "Get" on a file will popup a trace
+window that displays a running log of the FTP session as it happens.
+Using this successfully requires that you understand something about
+how FTP works, which is beyond the scope of this document.
+.IP "Strip CR"
+If this option is enabled, then carriage returns are removed from
+ASCII-mode files. This is usually desirable when transferring to a
+Unix machine.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Querying Hosts and Locations"
+.PP
+The Query Menu provides two other types of queries besides the "Query
+Item" described in the "Basic Usage" section for querying the Archie
+database.
+.PP
+Selecting "Query Host" will use the hostname in the "Host" Text item
+on the bottom pane and will fill the browser with the contents of the
+root of its FTP directory. From then on, interaction is as previously
+described. The host to query can be in the "Host" item as a result of
+selecting a host in the browser, or you can type directly into the
+item the name of the host that you wish to open. Typing Return in the
+"Host" item is equivalent to selecting "Query Host" from the Query
+Menu.
+.PP
+Querying locations by selecting "Query Location" is similar: the
+Archie server is queried for the contents of the directory given by
+the "Location" item on the host given by the "Host" item. The browser
+is filled in with the results of the query (i.e., the contents of the
+directory). As before, you can type the name of the location into the
+"Location" item if you wish, and typing Return there is the same as
+invoking "Query Location".
+.PP
+Note that because the Archie database is only updated periodically,
+some files returned by Archie may not exist when you attempt to
+retrieve them. Similarly, recently added files may exist on the host
+but not in the Archie database.
+.\"===========================================================
+.SH "REFERENCE MANUAL"
+.PP
+This section provides all the information you should need to customize
+XXarchie. Command-line options, non-widget resources, widget
+hierarchies, translations actions, and other information are all
+provided. It is assumed that you understand enough about X
+applications to understand this.
+.\"----------------------------------------------------------
+.SH " Command-line Options"
+.PP
+The following non-widget resources can be set from the command-line or
+in a resource file. As usual, when given on the command line they can
+be abbreviated to their shortest unique prefix, often the first
+letter.  Furthermore Xarchie accepts all the standard X Toolkit
+options (see
+.IR X (1)).
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-host\fP host"
+Sets the host to which Archie queries will be sent. Please be careful
+to use the nearest possible host.  You can specify hostnames using
+either the symbolic name or by giving its numeric IP address (four
+octets separated by periods). In either case, you can specify the port
+at which the Prospero server should be contacted by giving it in
+parentheses immediately following the hostname (no spaces).
+.IP
+The default is "archie.sura.net(1526)". This option corresponds to
+the
+.B archieHost
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-search\fP type"
+Sets the search mode for Archie queries. The type can be one of
+.IR exact ,
+.IR substr ,
+.IR subcase ,
+.IR regexp ,
+.IR exactSubstr ,
+.IR exactSubcase ,
+or
+.IR exactRegexp .
+See the section describing the Settings Panel in the USER'S GUIDE for
+a description of the various search types.  The default search mode is
+.IR exact .
+This option corresponds to the
+.B searchType
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-e\fP"
+Equivalent to "\fB-search\ exact\fP".
+.IP "\fB-s\fP"
+Equivalent to "\fB-search\ substr\fP".
+.IP "\fB-c\fP"
+Equivalent to "\fB-search\ subcase\fP".
+.IP "\fB-r\fP"
+Equivalent to "\fB-search\ regexp\fP".
+.IP "\fB-es\fP"
+Equivalent to "\fB-search\ exactSubstr\fP".
+.IP "\fB-ec\fP"
+Equivalent to "\fB-search\ exactSsubcase\fP".
+.IP "\fB-er\fP"
+Equivalent to "\fB-search\ exactRegexp\fP".
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-sort\fP type"
+Sets the sort mode for displaying Archie responses. The type can be
+one of
+.IR name ,
+.IR date ,
+or
+.IR weight .
+See the section describing the Settings Panel in the USER'S GUIDE for a
+description of the various sort types.  This option corresponds to the
+.B sortType
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-t\fP"
+Equivalent to "\fB-sort\ date\fP".
+.IP "\fB-w\fP"
+Equivalent to "\fB-sort\ weight\fP".
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-maxHits\fP num"
+Sets the maximum number of matches allowed per query. This option
+corresponds to the
+.B maxHits
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-offset\fP num"
+Sets the offset of the Prospero query. This option corresponds to the
+.B offset
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-nice\fP level or \fB-N\fP level"
+Sets the query niceness level. Higher numbers are nicer, up to a
+maximum niceness of 32765. The default niceness is 0. This option
+corresponds to the
+.B niceLevel
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-noscroll\fP"
+By default, Xarchie scrolls the browser lists automatically when you
+select items. This usually makes it easier to scan through the results
+of queries but can be annoying. This option turns off the automatic
+scrolling. It corresponds to the
+.B autoScroll
+resource.
+.IP "\fB\-mono\fP or \fB\-gray\fP or \fB\-color\fP"
+By default, Xarchie will determine the visual type of your display and
+use the proper color resources. If it gets it wrong, you can override
+the default by specifying one of these options. They correspond to the
+.B visualType
+resource.
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-debug\fP level or \fB-D\fP level"
+Sets the Prospero debugging level. Higher numbers mean more verbose
+messages.
+This option corresponds to the
+.B debugLevel
+resource.
+.I Xarchie
+must be specially compiled for this option to have any effect (see the
+Imakefile or your local installer).
+.\"	-	-	-	-	-	-	-	-
+.IP "\fB-help\fP or \fB-?\fP"
+Prints the usage message summarizing Xarchie options.
+.\"----------------------------------------------------------
+.SH " Non-widget Resources"
+.PP
+.I Xarchie
+has a default set of resources built in. If you wish to customize the
+tool, take a copy of the default application defaults file (see the
+section "Files", below) and modify it. Then, before invoking Xarchie,
+set the environment variable
+.B XAPPLRESDIR
+to the directory containing your private copy. Alternatively, you can place
+entries in your .Xdefaults file or provide them with the
+.B -xrm
+toolkit option (see
+.IR X (1)).
+Most of the following resources can also be set using the command-line
+options described in the previous section.
+.\"	-	-	-	-	-	-	-	-
+.SH "  Query Resources"
+.IP "\fBarchieHost\fP"
+Sets the host to which Archie queries will be sent. Please be careful
+to use the nearest possible host. The default is "archie.sura.net".
+This resource can be set with the
+.B \-host
+option or on the Settings Panel.
+.IP
+You can specify hostnames using either the symbolic name or by giving
+its numeric IP address (four octets separated by periods). In either
+case, you can specify the port at which the Prospero server should be
+contacted by giving it in parentheses immediately following the
+hostname (no spaces).
+.\"	-	-	-	-	-	-	-	-
+.IP "\fBsearchType\fP"
+Sets the search mode for Archie queries. This can be one of
+.IR exact ,
+.IR substr ,
+.IR subcase ,
+.IR regexp ,
+.IR exactSubstr ,
+.IR exactSubcase ,
+or
+.IR exactRegexp .
+See the section describing the Settings Panel in the USER'S GUIDE for
+a description of the various search types.  The default search mode is
+.IR exact .
+SHAR_EOF
+true || echo 'restore of xarchie-2.0.6/xarchie.man failed'
+fi
+echo 'End of xarchie-2.0.6 part 17'
+echo 'File xarchie-2.0.6/xarchie.man is continued in part 18'
+echo 18 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

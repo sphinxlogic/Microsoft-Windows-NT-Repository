@@ -1,0 +1,288 @@
+Newsgroups: comp.sources.misc
+From: sjk@netcom.com (Shel Kaphan)
+Subject:  v29i095:  loancalc - a loan calculator, Part01/01
+Message-ID: <1992May11.161233.7400@sparky.imd.sterling.com>
+X-Md4-Signature: ceceddd4cc3fe1f1be64a5628ccfc2b5
+Date: Mon, 11 May 1992 16:12:33 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjk@netcom.com (Shel Kaphan)
+Posting-number: Volume 29, Issue 95
+Archive-name: loancalc/part01
+Environment: UNIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  loan.c makefile
+# Wrapped by kent@sparky on Mon May 11 11:06:50 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive."'
+if test -f 'loan.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'loan.c'\"
+else
+  echo shar: Extracting \"'loan.c'\" \(6047 characters\)
+  sed "s/^X//" >'loan.c' <<'END_OF_FILE'
+X/*
+X  loan.c
+X
+X  Copyright (C) 1990 by Shel Kaphan	(sjk@netcom.com, sjk@well.sf.ca.us).
+X
+X  This program is distributed in the hope that it will be useful,
+X  but WITHOUT ANY WARRANTY.  The author accepts no responsibility to anyone
+X  for any consequences of using it or for whether it serves any particular 
+X  purpose or works at all.
+X
+X  This file may be freely copied, modified, and redistributed,
+X  but only so long as this notice is preserved on all copies.
+X
+X  May be compiled and linked with:
+X     gcc -o loan loan.c -lm
+X
+X*/
+X
+X
+X#include <ctype.h>
+X#include <math.h>
+X#include <stdio.h>
+X
+Xint payments_per_year=12;
+X
+Xfloat expt (num, pow)
+X     float num;
+X     int pow;
+X{
+X  float result=1.0;
+X  int i;
+X  for(i=0; i<pow; i++, result *= num);
+X  return result;
+X}
+X
+X
+Xvoid show_params(principal, interest_rate, monthly_payment, number_of_payments)
+X     float principal;
+X     float interest_rate;
+X     float monthly_payment;
+X     int number_of_payments;
+X{
+X  float total_interest(float,float,float,int);
+X  printf("(P)rincipal          %9.2f\n", principal);
+X  printf("(M)onthly payment    %9.2f\n", monthly_payment);
+X  printf("(I)nterest rate      %10.3f%%\n", interest_rate*100);
+X  printf("(N)umber of payments %6d\n", number_of_payments);
+X  printf("\nTotal Interest       %9.2f\n", total_interest(principal,interest_rate,monthly_payment,
+X  														number_of_payments) );
+X
+X
+X}
+X
+X
+Xfloat total_interest(float principal,float interest_rate,float monthly_payment, int num_payments)
+X{ 
+X 	int m;
+X 	float total=0.0;
+X 	float remaining_principal = principal;
+X 	for (m=0; m<num_payments; m++) {
+X 		float monthly_interest = (remaining_principal * interest_rate) / 12;
+X 		remaining_principal -= (monthly_payment - monthly_interest);
+X 		total += monthly_interest;
+X	}
+X	return total;
+X}
+X
+X
+X
+Xfloat monthly_payment(principal, interest_rate, num_payments)
+X     float principal;
+X     float interest_rate;
+X     int num_payments;
+X{
+X
+X  float monthly_rate = interest_rate / payments_per_year;
+X  float monthly_interest = principal * monthly_rate;
+X  float compounding_factor = pow((double)(monthly_rate+1.0),
+X				 (double)num_payments);
+X  float monthly_excess = monthly_interest/(compounding_factor - 1.0);
+X  float monthly_payment = monthly_interest+monthly_excess;
+X  return monthly_payment;
+X	      
+X}
+X
+Xfloat loan_size(monthly_payment, interest_rate, num_payments)
+X     float monthly_payment;
+X     float interest_rate;
+X     int num_payments;
+X{
+X  float monthly_rate = interest_rate / payments_per_year;
+X  float compounding_factor = pow((double)(monthly_rate+1.0),
+X				 (double)num_payments);
+X  float monthly_excess = monthly_payment/compounding_factor;
+X  float monthly_interest = monthly_payment - monthly_excess;
+X  float principal = monthly_interest/monthly_rate;
+X  return (principal);
+X}
+X
+Xfloat interest_rate(principal, mon_payment, num_payments)
+X     float principal;
+X     float mon_payment;
+X     int num_payments;
+X{
+X
+X  float guess = (payments_per_year * mon_payment)/principal;
+X  float inc = guess * -0.1;
+X  float mp;
+X  int i;
+X  for(i=0; i<1000; i++) {
+X    mp = monthly_payment(principal, guess, num_payments);
+X/*    printf("guess = %f    estimate = %.2f\n", guess, mp); */
+X    if (fabs(mp - mon_payment) <= .005) return guess;
+X    if (mp-mon_payment > 0) {
+X      if (inc > 0) inc = inc * -0.5;
+X    } else {
+X      if (inc < 0) inc = inc * -0.5;
+X    }
+X    guess += inc;
+X
+X    if (guess <=0) {
+X      guess -= inc;
+X      guess *= .05;
+X    }
+X
+X  }
+X
+X  printf("\n*** This is getting nowhere! Try something more realistic... ***\n\n");
+X
+X  return 0.0;
+X}
+X
+X
+Xint number_of_payments(principal, monthly_payment, interest_rate)
+X     float principal;
+X     float monthly_payment;
+X     float interest_rate;
+X{
+X  float compounding_factor;
+X  int num_payments;
+X
+X  float monthly_rate = interest_rate / payments_per_year;
+X  float monthly_interest = monthly_rate * principal;
+X  float monthly_excess = monthly_payment - monthly_interest;
+X  if (monthly_excess<=0.0) {
+X    printf("\n*** THIS LOAN CAN NEVER BE PAID OFF AT THIS INTEREST RATE ***\n\n");
+X    return 0;
+X  }
+X  compounding_factor = monthly_payment / monthly_excess;
+X  num_payments = (int) ceil(log((double)compounding_factor) /
+X		       log((double)(1.0 + monthly_rate)));
+X  return num_payments;
+X}
+X
+X
+Xvoid command_loop() {
+X  char command;
+X  float arg1, arg2, arg3;
+X  int matches;
+X  float int_rate = .10;
+X  float principal = 100000;
+X  int num_payments = 360;
+X  float mon_payment = 877.58;
+X  char cbuf[100];
+X
+X  printf("Type '?' for help\n");
+X  while(1) {
+X    printf("> ");
+X    if (gets(cbuf)==NULL) return;
+X    matches = sscanf(cbuf, " %c %f %f %f ", &command, &arg1, &arg2, &arg3);
+X    if (matches<=0) continue;
+X
+X    if (isupper(command)) command = tolower(command);
+X
+X    switch(command) {
+X    case 'i':			/* set interest rate */
+X      if (matches>=2) {
+X	int_rate = arg1;
+X	if (int_rate >= 1.0) int_rate *= .01;
+X      } else
+X	int_rate = interest_rate(principal, mon_payment, num_payments);
+X
+X      break;
+X    case 'p':			/* set principal */
+X      if (matches>=2) {
+X	principal = arg1;
+X      } else
+X	principal = loan_size(mon_payment, int_rate, num_payments);
+X      break;
+X    case 'n':			/* set number of payments */
+X      if (matches>=2) {
+X	num_payments = (int)ceil((double)arg1);
+X      } else {
+X	int n = number_of_payments(principal, mon_payment, int_rate);
+X	if (n)
+X	  num_payments=n;
+X	else
+X	  matches=0;
+X      }
+X      break;
+X    case 'm':			/* set monthly payment */
+X      if (matches>=2) {
+X	mon_payment = arg1;
+X      }  else
+X	mon_payment = monthly_payment(principal, int_rate, num_payments);
+X      break;
+X    case 'q':
+X      exit(0);
+X    case '?':
+X    case 'h':
+X      printf("Type 'p', 'm', 'i', or 'n' followed by a number to set the Principal,\n\
+XMonthly payment, Interest rate, or Number of payments, respectively.\n\
+XThe same commands with no arguments recalculate the specified quantity.\n\
+XType q to quit.\n\n");
+X      matches=0;
+X      break;
+X    default:
+X      printf("Huh?\n");
+X      matches=0;
+X      break;
+X    }
+X
+X    if (matches==1)
+X      show_params(principal, int_rate, mon_payment, num_payments);
+X
+X  }
+X
+X}
+X
+X
+X
+Xmain () {
+X  command_loop();
+X}
+X
+END_OF_FILE
+  if test 6047 -ne `wc -c <'loan.c'`; then
+    echo shar: \"'loan.c'\" unpacked with wrong size!
+  fi
+  # end of 'loan.c'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+  echo shar: Extracting \"'makefile'\" \(40 characters\)
+  sed "s/^X//" >'makefile' <<'END_OF_FILE'
+XCC=gcc
+X
+Xloan:
+X	${CC} -o loan loan.c -lm
+END_OF_FILE
+  if test 40 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+  fi
+  # end of 'makefile'
+fi
+echo shar: End of archive.
+exit 0
+exit 0 # Just in case...

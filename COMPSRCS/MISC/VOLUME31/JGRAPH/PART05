@@ -1,0 +1,2345 @@
+Newsgroups: comp.sources.misc
+From: jsp@Princeton.EDU (James Plank)
+Subject:  v31i035:  jgraph - A filter for plotting postscript graphs v8.0, Part05/07
+Message-ID: <1992Jul14.151919.11129@sparky.imd.sterling.com>
+X-Md4-Signature: 1fdf7025b1aac687a77d4fb78c42fcf1
+Date: Tue, 14 Jul 1992 15:19:19 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jsp@Princeton.EDU (James Plank)
+Posting-number: Volume 31, Issue 35
+Archive-name: jgraph/part05
+Environment: UNIX, VMS, postscript
+Supersedes: jgraph: Volume 16, Issue 20
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MSDOS.help prio_list.c process.c sin.pts sin3.pts
+# Wrapped by kent@sparky on Sun Jul 12 20:04:03 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 7)."'
+if test -f 'MSDOS.help' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS.help'\"
+else
+  echo shar: Extracting \"'MSDOS.help'\" \(321 characters\)
+  sed "s/^X//" >'MSDOS.help' <<'END_OF_FILE'
+XThis from Alan S. Raskin:
+X
+XYou may be interested in knowing what it takes to get jgraph to compile
+XMS-DOS/MS-QuickC:
+X
+X1) Ignore all of the "function should return a value" warnings.  :-)
+X2) Use the blank VMS templates for popen and pclose in token.c
+X3) Define float=double to avoid math-overflow run-time errors.
+X
+X-Alan
+X
+END_OF_FILE
+  if test 321 -ne `wc -c <'MSDOS.help'`; then
+    echo shar: \"'MSDOS.help'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS.help'
+fi
+if test -f 'prio_list.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'prio_list.c'\"
+else
+  echo shar: Extracting \"'prio_list.c'\" \(1786 characters\)
+  sed "s/^X//" >'prio_list.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/prio_list.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:06 $
+X * $Author: jsp $
+X */
+X
+X#include "list.h"
+X#include "prio_list.h"
+X#include <stdio.h>
+X
+Xtypedef int Boolean;
+X
+X/* A prioirity list is any list with the first three fields being flink, 
+X * blink and prio.  Use the routines of list.c to do everything except
+X * insertion */
+X 
+Xtypedef struct prio_list {
+X  struct prio_list *flink;
+X  struct prio_list *blink;
+X  int prio;
+X} *Prio_list;
+X
+X/* Prio_insert inserts nodes into their proper places in priority lists.  It first 
+X * checks for inserting into the head or tail, and then proceeds sequentially.
+X * Thus, it is worst case linear, but for most cases constant time (right). */
+X
+Xprio_insert(node, list, desc)
+XPrio_list node;
+XPrio_list list;
+XBoolean desc;
+X{
+X  Prio_list p;
+X
+X  /* Check nil and head of list */
+X  if (first(list) == nil(list) || 
+X      (!desc && first(list)->prio >= node->prio) ||
+X      (desc  && first(list)->prio <= node->prio) ) {
+X    node->blink = list;
+X    node->flink = list->flink;
+X    list->flink->blink = node;
+X    list->flink = node;
+X    return;
+X  }
+X  /* Check tail of list */
+X  if ((desc  && last(list)->prio >= node->prio) ||
+X      (!desc && last(list)->prio <= node->prio) ) {
+X    node->flink = list;
+X    node->blink = list->blink;
+X    list->blink->flink = node;
+X    list->blink = node;
+X    return;
+X  }
+X  /* Check the rest of the list sequentially */
+X  for(p = next(first(list));  ; p = next(p)) {
+X    if (p == nil(list)) fprintf(stderr, "inserting into tail did not work\n");
+X    if ((!desc && p->prio >= node->prio) ||
+X        (desc  && p->prio <= node->prio)) {
+X      node->flink = p;
+X      node->blink = p->blink;
+X      p->blink->flink = node;
+X      p->blink = node;
+X      return;
+X    }
+X  }
+X}
+X      
+X
+X  
+END_OF_FILE
+  if test 1786 -ne `wc -c <'prio_list.c'`; then
+    echo shar: \"'prio_list.c'\" unpacked with wrong size!
+  fi
+  # end of 'prio_list.c'
+fi
+if test -f 'process.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'process.c'\"
+else
+  echo shar: Extracting \"'process.c'\" \(23107 characters\)
+  sed "s/^X//" >'process.c' <<'END_OF_FILE'
+X/* 
+X * $Source: /n/fs/vd/jsp/src/jgraph/RCS/process.c,v $
+X * $Revision: 8.0 $
+X * $Date: 92/07/03 14:16:11 $
+X * $Author: jsp $
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X
+X#include "jgraph.h"
+X
+X#define ABS(a) ((a > 0.0) ? (a) : (-a))
+X#define MAX(a, b) ((a > b) ? (a) : (b))
+X#define MIN(a, b) ((a < b) ? (a) : (b))
+X#define AXIS_CHAR(a) ((a->is_x) ? 'x' : 'y')
+X#define HASH_DIR(a) ((a->hash_scale > 0.0) ? 1 : -1)
+X
+Xstatic double Pi;
+X
+Xprocess_title(g)
+XGraph g;
+X{
+X
+X  float ytitleloc;
+X
+X  if (g->title->x == FSIG) g->title->x = g->x_axis->psize / 2.0;
+X    else g->title->x = ctop(g->title->x, g->x_axis);
+X  if (g->title->y != FSIG) g->title->y = ctop(g->title->y, g->y_axis);
+X  else {
+X    ytitleloc = 0.0;
+X    if (g->x_axis->draw_axis_label && g->x_axis->label->label != CNULL) 
+X      ytitleloc = MIN(ytitleloc, g->x_axis->label->ymin); 
+X    if (g->x_axis->draw_hash_labels)
+X      ytitleloc = MIN(ytitleloc, g->x_axis->hl->ymin);
+X    if (g->x_axis->draw_hash_marks)
+X      ytitleloc = MIN(ytitleloc, g->x_axis->draw_hash_marks_at - HASH_SIZE);
+X    if (g->legend->type == 'u')
+X      ytitleloc = MIN(ytitleloc, g->legend->l->ymin);
+X    
+X    g->title->y = ytitleloc - 10.0;
+X  }
+X  process_label(g->title, g, 0);
+X}
+X
+Xprocess_legend(g)
+XGraph g;
+X{
+X  Legend l;
+X  int anything;
+X  float height, hdist, y, x, width, maxmark, maxmarky;
+X  Curve c;
+X  char *s;
+X
+X  l = g->legend;
+X  if (l->type == 'n') return;
+X  if (l->l->linesep == FSIG) l->l->linesep = l->l->fontsize;
+X  l->anylines = 0;
+X  maxmark = 0.0;
+X  maxmarky = 0.0;
+X  anything = 0;
+X  for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    if (c->l->label != CNULL) {
+X      anything = 1;
+X      if (c->marktype == 'l') {
+X         maxmark = MAX(maxmark, c->lmark->xmax - c->lmark->xmin); 
+X         maxmarky = MAX(maxmarky, c->lmark->ymax - c->lmark->ymin); 
+X      } else if (c->marktype != 'n') {
+X        maxmark = MAX(maxmark, ABS(c->marksize[0]));
+X        maxmarky = MAX(maxmarky, ABS(c->marksize[1]));
+X      }
+X      if (c->linetype != '0') l->anylines = 1;
+X    }
+X  }
+X  if (l->linelength == FSIG)
+X    l->linelength = (l->anylines) ? (MAX(maxmark + 6.0, 12.0)) : 0.0;
+X    else l->linelength = disttop(l->linelength, g->x_axis);
+X  if (l->midspace == FSIG)
+X    l->midspace = (l->anylines) ? 4.0 : (maxmark / 2.0) + 4.0;
+X    else l->midspace = disttop(l->midspace, g->x_axis);
+X  if (l->linebreak == FSIG)
+X    l->linebreak = MAX(l->l->linesep * FCPI / FPPI, maxmarky);
+X    else l->linebreak = disttop(l->linebreak, g->y_axis);
+X
+X  if (l->type == 'c') {
+X    for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X      if (c->l->label != CNULL) process_label(c->l, g, 1);
+X    }
+X    return;
+X  }
+X
+X  if (!anything) {
+X    l->anylines = -1; 
+X    return;
+X  }
+X
+X  width = 0.0;
+X  height = -l->linebreak;
+X  for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    if (c->l->label != CNULL) {
+X      s = c->l->label;
+X      copy_label(c->l, l->l);
+X      c->l->x = 0.0;
+X      c->l->y = 0.0;
+X      c->l->rotate = 0.0;
+X      c->l->hj = 'l';
+X      c->l->vj = 'b';
+X      c->l->label = s;
+X      process_label(c->l, g, 0);
+X      height += c->l->ymax + l->linebreak;
+X      width = MAX(width, c->l->xmax);
+X    }
+X  }
+X  hdist = (l->anylines) ? l->midspace + l->linelength : l->midspace;
+X  width += hdist;
+X
+X  if (l->l->x == FSIG) {
+X    if (l->l->hj == 'c') {
+X      l->l->x = g->x_axis->psize / 2;
+X    } else if (l->l->hj == 'l') {
+X      if (l->l->vj == 'c') {
+X        l->l->x = g->x_axis->psize;
+X        if (g->y_axis->draw_axis_label) 
+X          l->l->x = MAX(l->l->x, g->y_axis->label->xmax);
+X        if (g->y_axis->draw_hash_labels) 
+X          l->l->x = MAX(l->l->x, g->y_axis->hl->xmax);
+X        if (g->y_axis->draw_hash_marks) {
+X          l->l->x = MAX(l->l->x, g->y_axis->draw_hash_marks_at);
+X          l->l->x = MAX(l->l->x, g->y_axis->draw_hash_marks_at + 
+X                                 HASH_DIR(g->y_axis) * HASH_SIZE);
+X        }
+X        l->l->x += 15.0;
+X      } else {
+X        l->l->x = 0.0;
+X      }
+X    } else {
+X      if (l->l->vj == 'c') {
+X        l->l->x = 0.0;
+X        if (g->y_axis->draw_axis_label) 
+X          l->l->x = MIN(l->l->x, g->y_axis->label->xmin);
+X        if (g->y_axis->draw_hash_labels) 
+X          l->l->x = MIN(l->l->x, g->y_axis->hl->xmin);
+X        if (g->y_axis->draw_hash_marks) {
+X          l->l->x = MIN(l->l->x, g->y_axis->draw_hash_marks_at);
+X          l->l->x = MIN(l->l->x, g->y_axis->draw_hash_marks_at + 
+X                                 HASH_DIR(g->y_axis) * HASH_SIZE);
+X        }
+X        l->l->x = l->l->x - 15.0;
+X      } else {
+X        l->l->x = g->x_axis->psize;
+X      }
+X    }
+X  } else {
+X    l->l->x = ctop(l->l->x, g->x_axis);
+X  }
+X  if (l->l->y == FSIG) {
+X    if (l->l->vj == 'c') {
+X      l->l->y = g->y_axis->psize / 2.0;
+X    } else if (l->l->vj == 'b') {
+X      l->l->y = g->y_axis->psize;
+X      if (g->x_axis->draw_axis_label) 
+X        l->l->y = MAX(l->l->y, g->x_axis->label->ymax);
+X      if (g->x_axis->draw_hash_labels) 
+X        l->l->y = MAX(l->l->y, g->x_axis->hl->ymax);
+X      if (g->x_axis->draw_hash_marks) {
+X        l->l->y = MAX(l->l->y, g->x_axis->draw_hash_marks_at);
+X        l->l->y = MAX(l->l->y, g->x_axis->draw_hash_marks_at + 
+X                               HASH_DIR(g->x_axis) * HASH_SIZE);
+X      }
+X      l->l->y += 15.0;
+X    } else {
+X      l->l->y = 0.0;
+X      if (g->x_axis->draw_axis_label) 
+X        l->l->y = MIN(l->l->y, g->x_axis->label->ymin);
+X      if (g->x_axis->draw_hash_labels) 
+X        l->l->y = MIN(l->l->y, g->x_axis->hl->ymin);
+X      if (g->x_axis->draw_hash_marks) {
+X        l->l->y = MIN(l->l->y, g->x_axis->draw_hash_marks_at);
+X        l->l->y = MIN(l->l->y, g->x_axis->draw_hash_marks_at + 
+X                               HASH_DIR(g->x_axis) * HASH_SIZE);
+X      }
+X      l->l->y -= 15.0;
+X    }
+X  } else {
+X    l->l->y = ctop(l->l->y, g->y_axis);
+X  }
+X
+X  if (l->l->hj == 'l') x = 0.0;
+X  else if (l->l->hj == 'c') x = - width/2.0;
+X  else x = -width;
+X
+X  if (l->l->vj == 't') y = 0.0;
+X  else if (l->l->vj == 'c') y = height / 2.0;
+X  else y = height;
+X
+X  for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    if (c->l->label != CNULL) {
+X      c->l->x = hdist + x;
+X      c->l->y = y;
+X      c->l->vj = 't';
+X      c->l->hj = 'l';
+X      c->l->rotate = 0.0;
+X      process_label(c->l, g, 0);
+X      y = c->l->ymin - l->linebreak;
+X    }
+X  }
+X  
+X  process_label_max_n_mins(l->l, width, height);
+X}
+X
+Xfloat find_reasonable_hash_interval(a) 
+XAxis a;
+X{
+X  float s, d;
+X
+X  if (a->is_lg) return 0.0;
+X  s = a->max - a->min;
+X  d = 1.0;
+X  if (s > 5.0) {
+X    while(1) {
+X      if (s / d < 6.0) return d;
+X      d *= 2.0;
+X      if (s / d < 6.0) return d;
+X      d *= 2.5;
+X      if (s / d < 6.0) return d;
+X      d *= 2.0;
+X    }
+X  } else {
+X    while(1) {
+X      if (s / d > 2.0) return d;
+X      d /= 2.0;
+X      if (s / d > 2.0) return d;
+X      d /= 2.5;
+X      if (s / d > 2.0) return d;
+X      d /= 2.0;
+X    }
+X  }
+X}
+X
+Xfloat find_reasonable_hash_start(a)
+XAxis a;
+X{
+X  int i;
+X  
+X  if (a->is_lg) return 0.0;
+X  if (a->max > 0.0 && a->min < 0.0) return 0.0;
+X  i = ((int) (a->min / a->hash_interval));
+X  return ((float) i) * a->hash_interval;
+X}
+X
+Xint find_reasonable_precision(a)
+XAxis a;
+X{
+X  int i, b, b2, done;
+X  float x, x2, tolerance;
+X
+X  tolerance = 0.000001;
+X  b = 0;
+X  x = a->hash_interval;
+X
+X  done = 0;
+X  while(b < 6 && !done) {
+X    i = (int) (x + 0.4);
+X    x2 = i;
+X    if (x2 - x < tolerance && x - x2 < tolerance) done = 1;
+X    else {
+X      b++;
+X      x *= 10.0;
+X      tolerance *= 10.0;
+X    }
+X  }
+X
+X  tolerance = 0.000001;
+X  b2 = 0;
+X  x = a->hash_start;
+X
+X  done = 0;
+X  while(b2 < 6 && !done) {
+X    i = (int) (x + 0.4);
+X    x2 = i;
+X    if (x2 - x < tolerance && x - x2 < tolerance) done = 1;
+X    else {
+X      b2++;
+X      x *= 10.0;
+X      tolerance *= 10.0;
+X    }
+X  }
+X  return MAX(b, b2);
+X}
+X
+Xint find_reasonable_minor_hashes(a)
+XAxis a;
+X{
+X  float d;  
+X  int i;
+X  
+X  if (a->is_lg) {
+X    d = a->log_base;
+X    while(d > 10.0) d /= 10.0;
+X    while(d <= 1.0) d *= 10.0;
+X    i = (int) d;
+X    return MAX((i - 2), 0);
+X  } else {
+X    d = a->hash_interval;
+X    if (d == 0.0) return 0;
+X    while(d > 10.0) d /= 10.0;
+X    while(d <= 1.0) d *= 10.0;
+X    i = (int) d;
+X    if (((float) i) != d) return 0;
+X    return i-1;
+X  }
+X}
+X
+Xprocess_axis1(a, g)
+XAxis a;
+XGraph g;
+X{
+X  float tmp;
+X  int i;
+X
+X  if (a->min == FSIG) {
+X    if (a->pmin == FSIG) {
+X      error_header();
+X      fprintf(stderr, 
+X              "Graph %d: %c axis has no minimum, and cannot derive one\n",
+X              g->num, AXIS_CHAR(a));
+X      fprintf(stderr, "  Use %caxis min\n", AXIS_CHAR(a));
+X      exit(1);
+X    } else if (a->pmin <= 0.0 && a->is_lg) {
+X      error_header();
+X      fprintf(stderr, "Trying to derive %c axis\n", AXIS_CHAR(a));
+X      fprintf(stderr, 
+X        "        Minimum value %f will be -infinity with log axes\n", a->pmin);
+X      exit(1);
+X    } else a->min = a->pmin;
+X  }
+X  if (a->max == FSIG) {
+X    if (a->pmax == FSIG) {
+X      error_header();
+X      fprintf(stderr, 
+X              "Graph %d: %c axis has no maximum, and cannot derive one\n",
+X              g->num, AXIS_CHAR(a));
+X      fprintf(stderr, "  Use %caxis max\n", AXIS_CHAR(a));
+X      exit(1);
+X    } else if (a->pmax <= 0.0 && a->is_lg) {
+X      error_header();
+X      fprintf(stderr, "Trying to derive %c axis\n", AXIS_CHAR(a));
+X      fprintf(stderr, 
+X        "        Maximum value %f will be -infinity with log axes\n", a->pmax);
+X      exit(1);
+X    } else a->max = a->pmax;
+X  }
+X  if (a->max < a->min) {
+X    tmp = a->max;  a->max = a->min;  a->min = tmp;
+X  } else if (a->max == a->min) {
+X    if (!a->is_lg) a->min -= 1;
+X    a->max += 1;
+X  }
+X  a->psize = intop(a->size);
+X  if (a->is_lg) {
+X    if (a->min <= 0.0) {
+X      error_header();
+X      fprintf(stderr, 
+X        "Graph %d, %c axis: Min value = %f.  This is -infinity with logrhythmic axes\n", 
+X        g->num, (a->is_x) ? 'x' : 'y', a->min);
+X      exit(1);
+X    }
+X    a->logfactor = log(a->log_base);
+X    a->logmin = log(a->min) / a->logfactor;
+X    a->factor = a->psize / (log(a->max) / a->logfactor - a->logmin);
+X  } else {
+X    a->factor = a->psize / (a->max - a->min);
+X  }
+X  if (a->gr_graytype == '0') {
+X    a->gr_graytype = a->graytype;
+X    for (i = 0; i < 3; i++) a->gr_gray[i] = a->gray[i];
+X  }
+X  if (a->mgr_graytype == '0') {
+X    a->mgr_graytype = a->gr_graytype;
+X    for (i = 0; i < 3; i++) a->mgr_gray[i] = a->gr_gray[i];
+X  }
+X}
+X
+Xprocess_axis2(a, g)
+XAxis a;
+XGraph g;
+X{
+X  float t1, t2, t3, minor_hashes, hloc, tmp;
+X  float ymin, ymax, xmin, xmax;
+X  int prec, i1;
+X  Hash h;
+X  String s;
+X  Axis other;
+X
+X  other = (a->is_x) ? g->y_axis : g->x_axis;
+X  if (a->draw_at == FSIG) 
+X    a->draw_at = (HASH_DIR(a) == -1) ? 0.0 : other->psize;
+X  else a->draw_at = ctop(a->draw_at, other);
+X
+X  if (a->hash_interval < 0.0) {
+X    a->hash_interval = find_reasonable_hash_interval(a);
+X    if (!a->start_given)
+X      a->hash_start = find_reasonable_hash_start(a);
+X  } else if (!a->start_given) a->hash_start = a->min;
+X  if (a->minor_hashes < 0) {
+X    a->minor_hashes = find_reasonable_minor_hashes(a);
+X  }
+X  if (a->precision < 0 && !a->is_lg)
+X    a->precision = find_reasonable_precision(a);
+X
+X  for (h = first(a->hash_lines) ; h != nil(a->hash_lines); h = next(h)) {
+X    h->loc = ctop(h->loc, a);
+X  }
+X  
+X  for (s = first(a->hash_labels); s != nil(a->hash_labels); s = next(s)) {
+X    s->s->x = ctop(s->s->x, a);
+X    s->s->y = ctop(s->s->y, a);
+X  }
+X
+X  if (((a->hash_interval != 0.0 && !a->is_lg) || a->is_lg) && a->auto_hash_marks) {
+X    if (a->is_lg) {
+X      for (t1 = 1.0; t1 > a->min; t1 /= a->log_base) ;
+X      t2 = t1 * a->log_base - t1;
+X    } else {
+X      for (t1 = a->hash_start; t1 > a->min; t1 -= a->hash_interval) ;
+X      t2 = a->hash_interval;
+X    }
+X    while (t1 <= a->max) {
+X      hloc = ctop(t1, a);
+X      if (hloc > -.05 && hloc < a->psize + .05) {
+X        h = (Hash) get_node(a->hash_lines);
+X        h->loc = hloc;
+X        h->size = HASH_SIZE;
+X        h->major = 1;
+X        insert(h, a->hash_lines);
+X        if (a->auto_hash_labels) {
+X          s = (String) get_node (a->hash_labels);
+X          s->s = new_label();
+X          s->s->x = hloc;
+X          s->s->y = hloc;
+X          s->s->label = (char *) malloc (80);
+X          if (a->precision >= 0) {
+X            prec = a->precision;
+X          } else {
+X            if (ABS(t1) >= 1.0 || t1 == 0.0) prec = 0;
+X            else {
+X              tmp = ABS(t1);
+X              prec = -1;
+X              while(tmp < 1.0) {tmp *= 10.0; prec++;}
+X            }
+X          }
+X          sprintf(s->s->label, "%.*f", prec, t1);
+X          insert(s, a->hash_labels);
+X        }
+X      }
+X      minor_hashes = t2 / ((float) (a->minor_hashes + 1));
+X      t3 = t1;
+X      for (i1 = 1; i1 <= a->minor_hashes; i1++) {
+X        t3 += minor_hashes;
+X        hloc = ctop(t3, a);
+X        if (hloc > -.05 && hloc < a->psize + .05) {
+X          h = (Hash) get_node(a->hash_lines);
+X          h->loc = hloc;
+X          h->size = MHASH_SIZE;
+X          h->major = 0;
+X          insert(h, a->hash_lines);
+X        }
+X      }
+X      if (a->is_lg) {
+X        t1 *= a->log_base;
+X        t2 = t1 * a->log_base - t1;
+X      } else t1 += t2;
+X    }
+X  }
+X
+X  if (a->draw_hash_marks_at == FSIG)
+X    a->draw_hash_marks_at = a->draw_at;
+X  else a->draw_hash_marks_at = ctop(a->draw_hash_marks_at, other);
+X  if (a->draw_hash_labels_at == FSIG)
+X    a->draw_hash_labels_at = a->draw_hash_marks_at +
+X      a->hash_scale * HASH_SIZE + HASH_DIR(a) * 3.0;
+X  else a->draw_hash_labels_at = ctop(a->draw_hash_labels_at, other);
+X
+X  if (a->is_x) {
+X    a->hl->y = a->draw_hash_labels_at; 
+X    if (a->hl->hj == '0')
+X      a->hl->hj = 'c';
+X    if (a->hl->vj == '0')
+X      a->hl->vj = (HASH_DIR(a) == -1) ? 't' : 'b';
+X  } else {
+X    a->hl->x = a->draw_hash_labels_at;
+X    if (a->hl->vj == '0') a->hl->vj = 'c';
+X    if (a->hl->hj == '0')
+X      a->hl->hj = (HASH_DIR(a) == -1) ? 'r' : 'l';
+X  }
+X
+X  ymin = (a->is_x) ? a->hl->y : 0;
+X  ymax = (a->is_x) ? a->hl->y : a->psize;
+X  xmin = (!a->is_x) ? a->hl->x : 0;
+X  xmax = (!a->is_x) ? a->hl->x : a->psize;
+X
+X  for (s = first(a->hash_labels); s != nil(a->hash_labels); s = next(s)) {
+X    if (a->is_x) a->hl->x = s->s->x; else a->hl->y = s->s->y;
+X    a->hl->label = s->s->label;
+X    process_label(a->hl, g, 0);
+X    xmin = MIN(a->hl->xmin, xmin);
+X    ymin = MIN(a->hl->ymin, ymin);
+X    xmax = MAX(a->hl->xmax, xmax);
+X    ymax = MAX(a->hl->ymax, ymax);
+X  }
+X  a->hl->xmin = xmin;
+X  a->hl->ymin = ymin;
+X  a->hl->xmax = xmax;
+X  a->hl->ymax = ymax;
+X
+X  /* HERE -- now either test or continue */
+X
+X  if (a->is_x) {
+X    if (a->label->x == FSIG) 
+X      a->label->x = a->psize / 2.0;
+X      else a->label->x = ctop(a->label->x, g->x_axis);
+X    if (a->label->y == FSIG) {
+X      ymin = 0.0;
+X      ymax = other->psize;
+X      if (a->draw_hash_labels) {
+X        ymin = MIN(ymin, a->hl->ymin); 
+X        ymax = MAX(ymax, a->hl->ymax); 
+X      } 
+X      if (a->draw_hash_marks) {
+X        ymin = MIN(ymin, a->draw_hash_marks_at);
+X        ymin = MIN(ymin, a->draw_hash_marks_at + a->hash_scale * HASH_SIZE);
+X        ymax = MAX(ymax, a->draw_hash_marks_at);
+X        ymax = MAX(ymax, a->draw_hash_marks_at + a->hash_scale * HASH_SIZE);
+X      } 
+X      a->label->y = (HASH_DIR(a) == -1) ? ymin - 8.0 : ymax + 8.0 ;
+X    } else a->label->y = ctop(a->label->y, g->y_axis);
+X    if (a->label->hj == '0') a->label->hj = 'c';
+X    if (a->label->vj == '0') a->label->vj = (HASH_DIR(a) == -1) ? 't' : 'b' ;
+X    if (a->label->rotate == FSIG) a->label->rotate = 0.0;
+X  } else {
+X    if (a->label->y == FSIG) 
+X      a->label->y = a->psize / 2.0;
+X      else a->label->y = ctop(a->label->y, g->y_axis);
+X    if (a->label->x == FSIG) {
+X      xmin = 0.0;
+X      xmax = other->psize;
+X      if (a->draw_hash_labels) {
+X        xmin = MIN(xmin, a->hl->xmin); 
+X        xmax = MAX(xmax, a->hl->xmax); 
+X      } 
+X      if (a->draw_hash_marks) {
+X        xmin = MIN(xmin, a->draw_hash_marks_at);
+X        xmin = MIN(xmin, a->draw_hash_marks_at + a->hash_scale * HASH_SIZE);
+X        xmax = MAX(xmax, a->draw_hash_marks_at);
+X        xmax = MAX(xmax, a->draw_hash_marks_at + a->hash_scale * HASH_SIZE);
+X      } 
+X      a->label->x = (HASH_DIR(a) == -1) ? xmin - 8.0 : xmax + 8.0 ;
+X    } else a->label->x = ctop(a->label->x, g->x_axis);
+X    if (a->label->hj == '0') a->label->hj = 'c';
+X    if (a->label->vj == '0') a->label->vj = 'b';
+X    if (a->label->rotate == FSIG) 
+X      a->label->rotate = (HASH_DIR(a) == -1) ? 90.0 : -90.0;
+X  }
+X  process_label (a->label, g, 0);
+X}
+X
+Xprocess_label(l, g, adjust)
+XLabel l;
+XGraph g;
+Xint adjust;
+X{
+X  float len, height;
+X  int f, i;
+X  float fnl, tmp;
+X  char *s;
+X
+X  if (l->label == CNULL) return;
+X
+X  if (adjust) {
+X    l->x = ctop(l->x, g->x_axis);
+X    l->y = ctop(l->y, g->y_axis);
+X  }
+X  if (l->linesep == FSIG) l->linesep = l->fontsize;
+X
+X  l->nlines = 0;
+X  for (i = 0; l->label[i] != '\0'; i++) {
+X    if (l->label[i] == '\n') {
+X      l->label[i] = '\0';
+X      l->nlines++;
+X    }
+X  }
+X  fnl = (float) l->nlines;
+X
+X  len = 0.0;
+X  s = l->label;
+X  for (i = 0; i <= l->nlines; i++) {
+X    tmp = l->fontsize * FCPI / FPPI * strlen(s) * 0.8;
+X    len = MAX(len, tmp);
+X    if (i != l->nlines) {
+X      f = strlen(s);
+X      s[f] = '\n';
+X      s = &(s[f+1]);
+X    }
+X  }
+X  height = (l->fontsize * (fnl+1) + l->linesep * fnl) * FCPI / FPPI;
+X  process_label_max_n_mins(l, len, height);
+X}
+X   
+Xprocess_label_max_n_mins(l, len, height)
+XLabel l;
+Xfloat len;
+Xfloat height;
+X{
+X  float xlen, ylen, xheight, yheight;
+X  float x, y;
+X
+X  xlen = len * cos(l->rotate * Pi / 180.00);
+X  ylen = height * cos((l->rotate + 90.0) * Pi / 180.00);
+X  xheight = len * sin(l->rotate * Pi / 180.00);
+X  yheight = height * sin((l->rotate + 90.0) * Pi / 180.00);
+X  
+X  x = l->x;
+X  y = l->y;
+X
+X  if (l->hj == 'c') {
+X    x -= xlen / 2.0;
+X    y -= xheight / 2.0;
+X  } else if (l->hj == 'r') {
+X    x -= xlen;
+X    y -= xheight;
+X  }
+X  if (l->vj == 'c') {
+X    x -= ylen / 2.0;
+X    y -= yheight / 2.0;
+X  } else if (l->vj == 't') {
+X    x -= ylen;
+X    y -= yheight;
+X  }
+X
+X  l->xmin = MIN(x, x + xlen);
+X  l->xmin = MIN(l->xmin, x + xlen + ylen);
+X  l->xmin = MIN(l->xmin, x + ylen);
+X
+X  l->ymin = MIN(y, y + xheight);
+X  l->ymin = MIN(l->ymin, y + yheight);
+X  l->ymin = MIN(l->ymin, y + xheight + yheight);
+X
+X  l->xmax = MAX(x, x + xlen);
+X  l->xmax = MAX(l->xmax, x + xlen + ylen);
+X  l->xmax = MAX(l->xmax, x + ylen);
+X
+X  l->ymax = MAX(y, y + xheight);
+X  l->ymax = MAX(l->ymax, y + yheight);
+X  l->ymax = MAX(l->ymax, y + xheight + yheight);
+X
+X}
+X
+Xprocess_strings(g)
+XGraph g;
+X{
+X  String s;
+X
+X  for(s = first(g->strings); s != nil(g->strings); s = next(s)) {
+X    process_label(s->s, g, 1);
+X  }
+X}
+X
+Xprocess_curve(c, g)
+XCurve c;
+XGraph g;
+X{
+X  if (c->bezier && (c->npts < 4 || (c->npts % 3 != 1))) {
+X    error_header();
+X    fprintf(stderr, "  Graph %d Curve %d:\n", g->num, c->num);
+X    fprintf(stderr, "  Curve has %d points\n", c->npts);
+X    fprintf(stderr, "  Bezier must have 3n + 1 points (n > 0)\n");
+X    exit(1);
+X  }
+X  c->marksize[0] = (c->marksize[0] == FSIG) ? 
+X                   4.0 : disttop(c->marksize[0], g->x_axis);
+X  c->marksize[1] = (c->marksize[1] == FSIG) ? 
+X                   4.0 : disttop(c->marksize[1], g->y_axis);
+X  if (c->marktype == 'o') c->marksize[1] = c->marksize[0];
+X  c->asize[0] = (c->asize[0] == FSIG) ? 
+X                   6.0 : disttop(c->asize[0], g->x_axis);
+X  c->asize[1] = (c->asize[1] == FSIG) ? 
+X                   2.0 : disttop(c->asize[1], g->y_axis) / 2.0;
+X  c->lmark->x = disttop(c->lmark->x, g->x_axis);
+X  c->lmark->y = disttop(c->lmark->y, g->y_axis);
+X  process_label(c->lmark, g, 0);
+X}
+X
+Xprocess_curves(g)
+XGraph g;
+X{
+X  Curve c;
+X  for(c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X    process_curve(c, g);
+X  }
+X}
+X 
+Xprocess_extrema(g)  /* This finds all the minval/maxvals for bbox calc */
+XGraph g;
+X{
+X  Curve c;
+X  String s;
+X  Axis xa, ya;
+X
+X  xa = g->x_axis;
+X  ya = g->y_axis;
+X
+X  g->xminval = 0.0;
+X  g->yminval = 0.0;
+X  g->xmaxval = xa->psize;
+X  g->ymaxval = ya->psize;
+X  
+X  if (xa->draw_axis_label) process_label_extrema(xa->label, g);
+X  if (ya->draw_axis_label) process_label_extrema(ya->label, g);
+X  if (xa->draw_hash_labels) process_label_extrema(xa->hl, g);
+X  if (ya->draw_hash_labels) process_label_extrema(ya->hl, g);
+X
+X  if (xa->draw_hash_marks) {
+X      g->yminval = MIN(g->yminval, xa->draw_hash_marks_at);
+X      g->yminval = MIN(g->yminval, 
+X                       xa->draw_hash_marks_at + HASH_DIR(xa) * HASH_SIZE);
+X      g->ymaxval = MAX(g->ymaxval, xa->draw_hash_marks_at);
+X      g->ymaxval = MAX(g->ymaxval, 
+X                       xa->draw_hash_marks_at + HASH_DIR(xa) * HASH_SIZE);
+X  }
+X  if (ya->draw_hash_marks) {
+X      g->xminval = MIN(g->xminval, ya->draw_hash_marks_at);
+X      g->xminval = MIN(g->xminval, 
+X                       ya->draw_hash_marks_at + HASH_DIR(ya) * HASH_SIZE);
+X      g->xmaxval = MAX(g->xmaxval, ya->draw_hash_marks_at);
+X      g->xmaxval = MAX(g->xmaxval, 
+X                       ya->draw_hash_marks_at + HASH_DIR(ya) * HASH_SIZE);
+X  }
+X  process_label_extrema(g->title, g);  
+X
+X  if (g->legend->type == 'c') {
+X    for (c = first(g->curves); c != nil(g->curves); c = next(c)) {
+X      process_label_extrema(c->l, g);
+X    }
+X  } else if (g->legend->type == 'u' && g->legend->anylines >= 0) {
+X    process_label_extrema(g->legend->l, g);
+X  }
+X  for(s = first(g->strings); s != nil(g->strings); s = next(s)) {
+X    process_label_extrema(s->s, g);
+X  }
+X}
+X
+Xprocess_label_extrema(l, g)
+XLabel l;
+XGraph g;
+X{
+X  if (l->label == CNULL) return;
+X  g->yminval = MIN(g->yminval, l->ymin);
+X  g->ymaxval = MAX(g->ymaxval, l->ymax);
+X  g->xminval = MIN(g->xminval, l->xmin);
+X  g->xmaxval = MAX(g->xmaxval, l->xmax);
+X}
+X
+Xprocess_graph(g)
+XGraph g;
+X{
+X  g->x_translate = intop(g->x_translate);
+X  g->y_translate = intop(g->y_translate);
+X  process_axis1(g->x_axis, g);
+X  process_axis1(g->y_axis, g);
+X  process_axis2(g->x_axis, g);
+X  process_axis2(g->y_axis, g);
+X  process_curves(g);
+X  process_legend(g);
+X  process_strings(g);
+X  process_title(g);
+X  process_extrema(g);
+X}
+X
+Xprocess_graphs(gs)
+XGraphs gs;
+X{
+X  Graphs the_g;
+X  Graph g;
+X  float diff, max_y, min_y, max_x, min_x;
+X  int do_bb, i;
+X
+X  Pi = acos(-1.0);
+X  for (the_g = first(gs); the_g != nil(gs); the_g = next(the_g)) {
+X    for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) process_graph(g);
+X    max_x = 0.0;
+X    min_x = 0.0;
+X    max_y = 0.0;
+X    min_y = 0.0;
+X    for (g = first(the_g->g); g != nil(the_g->g); g = next(g)) {
+X      max_y = MAX(max_y, g->y_translate + g->ymaxval);
+X      min_y = MIN(min_y, g->y_translate + g->yminval);
+X      max_x = MAX(max_x, g->x_translate + g->xmaxval);
+X      min_x = MIN(min_x, g->x_translate + g->xminval);
+X    }
+X    if (the_g->height >= 0.00) {
+X      the_g->height *= FCPI;
+X      if (the_g->height > max_y - min_y) {
+X        diff = (the_g->height - max_y + min_y) / 2.0;
+X        max_y += diff;
+X        min_y -= diff;
+X      } else {
+X        the_g->height = max_y - min_y;
+X      }
+X    } else {
+X      the_g->height = max_y - min_y;
+X    }
+X    if (the_g->width >= 0.00) {
+X      the_g->width *= FCPI;
+X      if (the_g->width > max_x - min_x) {
+X        diff = (the_g->width - max_x + min_x) / 2.0;
+X        max_x += diff;
+X        min_x -= diff;
+X      } else {
+X        the_g->width = max_x - min_x;
+X      }
+X    } else {
+X      the_g->width = max_x - min_x;
+X    }
+X
+X    do_bb = 1;
+X    for (i = 0; i < 4; i++) do_bb = (do_bb && the_g->bb[i] == FSIG);
+X    if (do_bb) {
+X      the_g->bb[0] = min_x;
+X      the_g->bb[1] = min_y;
+X      the_g->bb[2] = max_x;
+X      the_g->bb[3] = max_y;
+X    } 
+X  }
+X}
+END_OF_FILE
+  if test 23107 -ne `wc -c <'process.c'`; then
+    echo shar: \"'process.c'\" unpacked with wrong size!
+  fi
+  # end of 'process.c'
+fi
+if test -f 'sin.pts' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sin.pts'\"
+else
+  echo shar: Extracting \"'sin.pts'\" \(12673 characters\)
+  sed "s/^X//" >'sin.pts' <<'END_OF_FILE'
+X-10.000000 0.544021
+X-9.970000 0.518608
+X-9.940000 0.492728
+X-9.910000 0.466405
+X-9.880000 0.439662
+X-9.850000 0.412523
+X-9.820000 0.385013
+X-9.790000 0.357157
+X-9.760000 0.328979
+X-9.730000 0.300505
+X-9.700000 0.271761
+X-9.670000 0.242772
+X-9.640000 0.213564
+X-9.610000 0.184165
+X-9.580000 0.154599
+X-9.550000 0.124895
+X-9.520000 0.095078
+X-9.490000 0.065176
+X-9.460000 0.035215
+X-9.430000 0.005222
+X-9.400000 -0.024775
+X-9.370000 -0.054751
+X-9.340000 -0.084676
+X-9.310000 -0.114526
+X-9.280000 -0.144273
+X-9.250000 -0.173889
+X-9.220000 -0.203350
+X-9.190000 -0.232627
+X-9.160000 -0.261695
+X-9.130000 -0.290527
+X-9.100000 -0.319098
+X-9.070000 -0.347382
+X-9.040000 -0.375353
+X-9.010000 -0.402987
+X-8.980000 -0.430257
+X-8.950000 -0.457141
+X-8.920000 -0.483613
+X-8.890000 -0.509650
+X-8.860000 -0.535228
+X-8.830000 -0.560325
+X-8.800000 -0.584917
+X-8.770000 -0.608983
+X-8.740000 -0.632501
+X-8.710000 -0.655450
+X-8.680000 -0.677809
+X-8.650000 -0.699557
+X-8.620000 -0.720677
+X-8.590000 -0.741147
+X-8.560000 -0.760951
+X-8.530000 -0.780070
+X-8.500000 -0.798487
+X-8.470000 -0.816185
+X-8.440000 -0.833149
+X-8.410000 -0.849363
+X-8.380000 -0.864813
+X-8.350000 -0.879484
+X-8.320000 -0.893364
+X-8.290000 -0.906440
+X-8.260000 -0.918701
+X-8.230000 -0.930134
+X-8.200000 -0.940731
+X-8.170000 -0.950480
+X-8.140000 -0.959375
+X-8.110000 -0.967406
+X-8.080000 -0.974566
+X-8.050000 -0.980850
+X-8.020000 -0.986251
+X-7.990000 -0.990764
+X-7.960000 -0.994385
+X-7.930000 -0.997112
+X-7.900000 -0.998941
+X-7.870000 -0.999872
+X-7.840000 -0.999902
+X-7.810000 -0.999033
+X-7.780000 -0.997265
+X-7.750000 -0.994599
+X-7.720000 -0.991038
+X-7.690000 -0.986585
+X-7.660000 -0.981244
+X-7.630000 -0.975021
+X-7.600000 -0.967920
+X-7.570000 -0.959947
+X-7.540000 -0.951111
+X-7.510000 -0.941419
+X-7.480000 -0.930880
+X-7.450000 -0.919503
+X-7.420000 -0.907299
+X-7.390000 -0.894278
+X-7.360000 -0.880452
+X-7.330000 -0.865834
+X-7.300000 -0.850437
+X-7.270000 -0.834274
+X-7.240000 -0.817361
+X-7.210000 -0.799712
+X-7.180000 -0.781343
+X-7.150000 -0.762271
+X-7.120000 -0.742513
+X-7.090000 -0.722087
+X-7.060000 -0.701011
+X-7.030000 -0.679305
+X-7.000000 -0.656987
+X-6.970000 -0.634077
+X-6.940000 -0.610597
+X-6.910000 -0.586568
+X-6.880000 -0.562011
+X-6.850000 -0.536948
+X-6.820000 -0.511401
+X-6.790000 -0.485395
+X-6.760000 -0.458951
+X-6.730000 -0.432095
+X-6.700000 -0.404850
+X-6.670000 -0.377240
+X-6.640000 -0.349291
+X-6.610000 -0.321028
+X-6.580000 -0.292476
+X-6.550000 -0.263660
+X-6.520000 -0.234607
+X-6.490000 -0.205344
+X-6.460000 -0.175895
+X-6.430000 -0.146288
+X-6.400000 -0.116549
+X-6.370000 -0.086706
+X-6.340000 -0.056784
+X-6.310000 -0.026811
+X-6.280000 0.003185
+X-6.250000 0.033179
+X-6.220000 0.063143
+X-6.190000 0.093051
+X-6.160000 0.122874
+X-6.130000 0.152587
+X-6.100000 0.182163
+X-6.070000 0.211574
+X-6.040000 0.240795
+X-6.010000 0.269800
+X-5.980000 0.298562
+X-5.950000 0.327055
+X-5.920000 0.355254
+X-5.890000 0.383133
+X-5.860000 0.410667
+X-5.830000 0.437832
+X-5.800000 0.464602
+X-5.770000 0.490955
+X-5.740000 0.516865
+X-5.710000 0.542311
+X-5.680000 0.567269
+X-5.650000 0.591716
+X-5.620000 0.615630
+X-5.590000 0.638991
+X-5.560000 0.661776
+X-5.530000 0.683966
+X-5.500000 0.705540
+X-5.470000 0.726480
+X-5.440000 0.746765
+X-5.410000 0.766379
+X-5.380000 0.785303
+X-5.350000 0.803520
+X-5.320000 0.821014
+X-5.290000 0.837769
+X-5.260000 0.853771
+X-5.230000 0.869004
+X-5.200000 0.883455
+X-5.170000 0.897111
+X-5.140000 0.909959
+X-5.110000 0.921989
+X-5.080000 0.933189
+X-5.050000 0.943549
+X-5.020000 0.953060
+X-4.990000 0.961713
+X-4.960000 0.969501
+X-4.930000 0.976416
+X-4.900000 0.982453
+X-4.870000 0.987605
+X-4.840000 0.991869
+X-4.810000 0.995240
+X-4.780000 0.997715
+X-4.750000 0.999293
+X-4.720000 0.999971
+X-4.690000 0.999749
+X-4.660000 0.998628
+X-4.630000 0.996608
+X-4.600000 0.993691
+X-4.570000 0.989880
+X-4.540000 0.985178
+X-4.510000 0.979589
+X-4.480000 0.973119
+X-4.450000 0.965773
+X-4.420000 0.957558
+X-4.390000 0.948481
+X-4.360000 0.938551
+X-4.330000 0.927776
+X-4.300000 0.916166
+X-4.270000 0.903732
+X-4.240000 0.890484
+X-4.210000 0.876435
+X-4.180000 0.861597
+X-4.150000 0.845984
+X-4.120000 0.829609
+X-4.090000 0.812488
+X-4.060000 0.794636
+X-4.030000 0.776068
+X-4.000000 0.756802
+X-3.970000 0.736856
+X-3.940000 0.716246
+X-3.910000 0.694991
+X-3.880000 0.673111
+X-3.850000 0.650625
+X-3.820000 0.627554
+X-3.790000 0.603918
+X-3.760000 0.579738
+X-3.730000 0.555037
+X-3.700000 0.529836
+X-3.670000 0.504159
+X-3.640000 0.478027
+X-3.610000 0.451466
+X-3.580000 0.424498
+X-3.550000 0.397148
+X-3.520000 0.369441
+X-3.490000 0.341401
+X-3.460000 0.313054
+X-3.430000 0.284426
+X-3.400000 0.255541
+X-3.370000 0.226427
+X-3.340000 0.197108
+X-3.310000 0.167612
+X-3.280000 0.137966
+X-3.250000 0.108195
+X-3.220000 0.078327
+X-3.190000 0.048388
+X-3.160000 0.018406
+X-3.130000 -0.011592
+X-3.100000 -0.041581
+X-3.070000 -0.071532
+X-3.040000 -0.101418
+X-3.010000 -0.131213
+X-2.980000 -0.160890
+X-2.950000 -0.190423
+X-2.920000 -0.219784
+X-2.890000 -0.248947
+X-2.860000 -0.277886
+X-2.830000 -0.306575
+X-2.800000 -0.334988
+X-2.770000 -0.363100
+X-2.740000 -0.390885
+X-2.710000 -0.418318
+X-2.680000 -0.445375
+X-2.650000 -0.472031
+X-2.620000 -0.498262
+X-2.590000 -0.524044
+X-2.560000 -0.549355
+X-2.530000 -0.574172
+X-2.500000 -0.598472
+X-2.470000 -0.622234
+X-2.440000 -0.645435
+X-2.410000 -0.668056
+X-2.380000 -0.690075
+X-2.350000 -0.711473
+X-2.320000 -0.732231
+X-2.290000 -0.752331
+X-2.260000 -0.771753
+X-2.230000 -0.790480
+X-2.200000 -0.808496
+X-2.170000 -0.825785
+X-2.140000 -0.842330
+X-2.110000 -0.858118
+X-2.080000 -0.873133
+X-2.050000 -0.887362
+X-2.020000 -0.900793
+X-1.990000 -0.913413
+X-1.960000 -0.925212
+X-1.930000 -0.936177
+X-1.900000 -0.946300
+X-1.870000 -0.955572
+X-1.840000 -0.963983
+X-1.810000 -0.971527
+X-1.780000 -0.978197
+X-1.750000 -0.983986
+X-1.720000 -0.988890
+X-1.690000 -0.992904
+X-1.660000 -0.996024
+X-1.630000 -0.998248
+X-1.600000 -0.999574
+X-1.570000 -1.000000
+X-1.540000 -0.999526
+X-1.510000 -0.998152
+X-1.480000 -0.995881
+X-1.450000 -0.992713
+X-1.420000 -0.988652
+X-1.390000 -0.983701
+X-1.360000 -0.977865
+X-1.330000 -0.971148
+X-1.300000 -0.963558
+X-1.270000 -0.955101
+X-1.240000 -0.945784
+X-1.210000 -0.935616
+X-1.180000 -0.924606
+X-1.150000 -0.912764
+X-1.120000 -0.900100
+X-1.090000 -0.886627
+X-1.060000 -0.872355
+X-1.030000 -0.857299
+X-1.000000 -0.841471
+X-0.970000 -0.824886
+X-0.940000 -0.807558
+X-0.910000 -0.789504
+X-0.880000 -0.770739
+X-0.850000 -0.751280
+X-0.820000 -0.731146
+X-0.790000 -0.710353
+X-0.760000 -0.688921
+X-0.730000 -0.666870
+X-0.700000 -0.644218
+X-0.670000 -0.620986
+X-0.640000 -0.597195
+X-0.610000 -0.572867
+X-0.580000 -0.548024
+X-0.550000 -0.522687
+X-0.520000 -0.496880
+X-0.490000 -0.470626
+X-0.460000 -0.443948
+X-0.430000 -0.416871
+X-0.400000 -0.389418
+X-0.370000 -0.361615
+X-0.340000 -0.333487
+X-0.310000 -0.305059
+X-0.280000 -0.276356
+X-0.250000 -0.247404
+X-0.220000 -0.218230
+X-0.190000 -0.188859
+X-0.160000 -0.159318
+X-0.130000 -0.129634
+X-0.100000 -0.099833
+X-0.070000 -0.069943
+X-0.040000 -0.039989
+X-0.010000 -0.010000
+X0.020000 0.019999
+X0.050000 0.049979
+X0.080000 0.079915
+X0.110000 0.109778
+X0.140000 0.139543
+X0.170000 0.169182
+X0.200000 0.198669
+X0.230000 0.227978
+X0.260000 0.257081
+X0.290000 0.285952
+X0.320000 0.314567
+X0.350000 0.342898
+X0.380000 0.370920
+X0.410000 0.398609
+X0.440000 0.425939
+X0.470000 0.452886
+X0.500000 0.479426
+X0.530000 0.505533
+X0.560000 0.531186
+X0.590000 0.556361
+X0.620000 0.581035
+X0.650000 0.605186
+X0.680000 0.628793
+X0.710000 0.651834
+X0.740000 0.674288
+X0.770000 0.696135
+X0.800000 0.717356
+X0.830000 0.737931
+X0.860000 0.757843
+X0.890000 0.777072
+X0.920000 0.795602
+X0.950000 0.813416
+X0.980000 0.830497
+X1.010000 0.846832
+X1.040000 0.862404
+X1.070000 0.877201
+X1.100000 0.891207
+X1.130000 0.904412
+X1.160000 0.916803
+X1.190000 0.928369
+X1.220000 0.939099
+X1.250000 0.948985
+X1.280000 0.958016
+X1.310000 0.966185
+X1.340000 0.973485
+X1.370000 0.979908
+X1.400000 0.985450
+X1.430000 0.990105
+X1.460000 0.993868
+X1.490000 0.996738
+X1.520000 0.998710
+X1.550000 0.999784
+X1.580000 0.999958
+X1.610000 0.999232
+X1.640000 0.997606
+X1.670000 0.995083
+X1.700000 0.991665
+X1.730000 0.987354
+X1.760000 0.982154
+X1.790000 0.976071
+X1.820000 0.969109
+X1.850000 0.961275
+X1.880000 0.952576
+X1.910000 0.943020
+X1.940000 0.932615
+X1.970000 0.921371
+X2.000000 0.909297
+X2.030000 0.896406
+X2.060000 0.882707
+X2.090000 0.868215
+X2.120000 0.852940
+X2.150000 0.836899
+X2.180000 0.820104
+X2.210000 0.802571
+X2.240000 0.784316
+X2.270000 0.765355
+X2.300000 0.745705
+X2.330000 0.725384
+X2.360000 0.704411
+X2.390000 0.682803
+X2.420000 0.660581
+X2.450000 0.637765
+X2.480000 0.614374
+X2.510000 0.590431
+X2.540000 0.565956
+X2.570000 0.540972
+X2.600000 0.515501
+X2.630000 0.489567
+X2.660000 0.463191
+X2.690000 0.436399
+X2.720000 0.409214
+X2.750000 0.381661
+X2.780000 0.353764
+X2.810000 0.325549
+X2.840000 0.297041
+X2.870000 0.268266
+X2.900000 0.239249
+X2.930000 0.210017
+X2.960000 0.180596
+X2.990000 0.151013
+X3.020000 0.121293
+X3.050000 0.091465
+X3.080000 0.061554
+X3.110000 0.031587
+X3.140000 0.001593
+X3.170000 -0.028404
+X3.200000 -0.058374
+X3.230000 -0.088292
+X3.260000 -0.118131
+X3.290000 -0.147863
+X3.320000 -0.177462
+X3.350000 -0.206902
+X3.380000 -0.236155
+X3.410000 -0.265196
+X3.440000 -0.293998
+X3.470000 -0.322536
+X3.500000 -0.350783
+X3.530000 -0.378715
+X3.560000 -0.406306
+X3.590000 -0.433531
+X3.620000 -0.460366
+X3.650000 -0.486787
+X3.680000 -0.512769
+X3.710000 -0.538291
+X3.740000 -0.563327
+X3.770000 -0.587857
+X3.800000 -0.611858
+X3.830000 -0.635308
+X3.860000 -0.658186
+X3.890000 -0.680473
+X3.920000 -0.702146
+X3.950000 -0.723188
+X3.980000 -0.743579
+X4.010000 -0.763301
+X4.040000 -0.782336
+X4.070000 -0.800667
+X4.100000 -0.818277
+X4.130000 -0.835151
+X4.160000 -0.851273
+X4.190000 -0.866630
+X4.220000 -0.881206
+X4.250000 -0.894989
+X4.280000 -0.907967
+X4.310000 -0.920128
+X4.340000 -0.931461
+X4.370000 -0.941955
+X4.400000 -0.951602
+X4.430000 -0.960392
+X4.460000 -0.968319
+X4.490000 -0.975373
+X4.520000 -0.981550
+X4.550000 -0.986844
+X4.580000 -0.991249
+X4.610000 -0.994763
+X4.640000 -0.997381
+X4.670000 -0.999102
+X4.700000 -0.999923
+X4.730000 -0.999845
+X4.760000 -0.998867
+X4.790000 -0.996990
+X4.820000 -0.994216
+X4.850000 -0.990547
+X4.880000 -0.985986
+X4.910000 -0.980538
+X4.940000 -0.974208
+X4.970000 -0.967001
+X5.000000 -0.958924
+X5.030000 -0.949984
+X5.060000 -0.940189
+X5.090000 -0.929548
+X5.120000 -0.918070
+X5.150000 -0.905767
+X5.180000 -0.892648
+X5.210000 -0.878725
+X5.240000 -0.864012
+X5.270000 -0.848522
+X5.300000 -0.832267
+X5.330000 -0.815264
+X5.360000 -0.797527
+X5.390000 -0.779073
+X5.420000 -0.759917
+X5.450000 -0.740077
+X5.480000 -0.719572
+X5.510000 -0.698418
+X5.540000 -0.676637
+X5.570000 -0.654246
+X5.600000 -0.631267
+X5.630000 -0.607719
+X5.660000 -0.583625
+X5.690000 -0.559005
+X5.720000 -0.533882
+X5.750000 -0.508279
+X5.780000 -0.482218
+X5.810000 -0.455724
+X5.840000 -0.428819
+X5.870000 -0.401529
+X5.900000 -0.373877
+X5.930000 -0.345888
+X5.960000 -0.317589
+X5.990000 -0.289003
+X6.020000 -0.260157
+X6.050000 -0.231078
+X6.080000 -0.201790
+X6.110000 -0.172321
+X6.140000 -0.142697
+X6.170000 -0.112944
+X6.200000 -0.083089
+X6.230000 -0.053160
+X6.260000 -0.023183
+X6.290000 0.006815
+X6.320000 0.036806
+X6.350000 0.066765
+X6.380000 0.096664
+X6.410000 0.126475
+X6.440000 0.156173
+X6.470000 0.185730
+X6.500000 0.215120
+X6.530000 0.244316
+X6.560000 0.273293
+X6.590000 0.302024
+X6.620000 0.330482
+X6.650000 0.358644
+X6.680000 0.386483
+X6.710000 0.413973
+X6.740000 0.441092
+X6.770000 0.467813
+X6.800000 0.494113
+X6.830000 0.519969
+X6.860000 0.545357
+X6.890000 0.570254
+X6.920000 0.594637
+X6.950000 0.618486
+X6.980000 0.641778
+X7.010000 0.664493
+X7.040000 0.686609
+X7.070000 0.708108
+X7.100000 0.728969
+X7.130000 0.749174
+X7.160000 0.768705
+X7.190000 0.787545
+X7.220000 0.805675
+X7.250000 0.823081
+X7.280000 0.839746
+X7.310000 0.855655
+X7.340000 0.870794
+X7.370000 0.885149
+X7.400000 0.898708
+X7.430000 0.911458
+X7.460000 0.923388
+X7.490000 0.934487
+X7.520000 0.944745
+X7.550000 0.954152
+X7.580000 0.962701
+X7.610000 0.970384
+X7.640000 0.977193
+X7.670000 0.983123
+X7.700000 0.988168
+X7.730000 0.992324
+X7.760000 0.995587
+X7.790000 0.997954
+X7.820000 0.999423
+X7.850000 0.999992
+X7.880000 0.999662
+X7.910000 0.998431
+X7.940000 0.996303
+X7.970000 0.993277
+X8.000000 0.989358
+X8.030000 0.984549
+X8.060000 0.978853
+X8.090000 0.972277
+X8.120000 0.964825
+X8.150000 0.956506
+X8.180000 0.947325
+X8.210000 0.937292
+X8.240000 0.926415
+X8.270000 0.914705
+X8.300000 0.902172
+X8.330000 0.888827
+X8.360000 0.874681
+X8.390000 0.859749
+X8.420000 0.844043
+X8.450000 0.827577
+X8.480000 0.810367
+X8.510000 0.792427
+X8.540000 0.773774
+X8.570000 0.754425
+X8.600000 0.734397
+X8.630000 0.713708
+X8.660000 0.692377
+X8.690000 0.670422
+X8.720000 0.647865
+X8.750000 0.624724
+X8.780000 0.601021
+X8.810000 0.576777
+X8.840000 0.552014
+X8.870000 0.526755
+X8.900000 0.501021
+X8.930000 0.474836
+X8.960000 0.448224
+X8.990000 0.421209
+X9.020000 0.393815
+X9.050000 0.366066
+X9.080000 0.337988
+X9.110000 0.309605
+X9.140000 0.280944
+X9.170000 0.252031
+X9.200000 0.222890
+X9.230000 0.193549
+X9.260000 0.164033
+X9.290000 0.134370
+X9.320000 0.104586
+X9.350000 0.074708
+X9.380000 0.044763
+X9.410000 0.014777
+X9.440000 -0.015221
+X9.470000 -0.045207
+X9.500000 -0.075151
+X9.530000 -0.105028
+X9.560000 -0.134810
+X9.590000 -0.164471
+X9.620000 -0.193984
+X9.650000 -0.223323
+X9.680000 -0.252460
+X9.710000 -0.281371
+X9.740000 -0.310028
+X9.770000 -0.338406
+X9.800000 -0.366479
+X9.830000 -0.394223
+X9.860000 -0.421612
+X9.890000 -0.448621
+X9.920000 -0.475227
+X9.950000 -0.501405
+X9.980000 -0.527132
+END_OF_FILE
+  if test 12673 -ne `wc -c <'sin.pts'`; then
+    echo shar: \"'sin.pts'\" unpacked with wrong size!
+  fi
+  # end of 'sin.pts'
+fi
+if test -f 'sin3.pts' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sin3.pts'\"
+else
+  echo shar: Extracting \"'sin3.pts'\" \(12673 characters\)
+  sed "s/^X//" >'sin3.pts' <<'END_OF_FILE'
+X-1.570000 -1.000000
+X4.700000 -0.999923
+X-7.840000 -0.999902
+X-7.870000 -0.999872
+X4.730000 -0.999845
+X-1.600000 -0.999574
+X-1.540000 -0.999526
+X4.670000 -0.999102
+X-7.810000 -0.999033
+X-7.900000 -0.998941
+X4.760000 -0.998867
+X-1.630000 -0.998248
+X-1.510000 -0.998152
+X4.640000 -0.997381
+X-7.780000 -0.997265
+X-7.930000 -0.997112
+X4.790000 -0.996990
+X-1.660000 -0.996024
+X-1.480000 -0.995881
+X4.610000 -0.994763
+X-7.750000 -0.994599
+X-7.960000 -0.994385
+X4.820000 -0.994216
+X-1.690000 -0.992904
+X-1.450000 -0.992713
+X4.580000 -0.991249
+X-7.720000 -0.991038
+X-7.990000 -0.990764
+X4.850000 -0.990547
+X-1.720000 -0.988890
+X-1.420000 -0.988652
+X4.550000 -0.986844
+X-7.690000 -0.986585
+X-8.020000 -0.986251
+X4.880000 -0.985986
+X-1.750000 -0.983986
+X-1.390000 -0.983701
+X4.520000 -0.981550
+X-7.660000 -0.981244
+X-8.050000 -0.980850
+X4.910000 -0.980538
+X-1.780000 -0.978197
+X-1.360000 -0.977865
+X4.490000 -0.975373
+X-7.630000 -0.975021
+X-8.080000 -0.974566
+X4.940000 -0.974208
+X-1.810000 -0.971527
+X-1.330000 -0.971148
+X4.460000 -0.968319
+X-7.600000 -0.967920
+X-8.110000 -0.967406
+X4.970000 -0.967001
+X-1.840000 -0.963983
+X-1.300000 -0.963558
+X4.430000 -0.960392
+X-7.570000 -0.959947
+X-8.140000 -0.959375
+X5.000000 -0.958924
+X-1.870000 -0.955572
+X-1.270000 -0.955101
+X4.400000 -0.951602
+X-7.540000 -0.951111
+X-8.170000 -0.950480
+X5.030000 -0.949984
+X-1.900000 -0.946300
+X-1.240000 -0.945784
+X4.370000 -0.941955
+X-7.510000 -0.941419
+X-8.200000 -0.940731
+X5.060000 -0.940189
+X-1.930000 -0.936177
+X-1.210000 -0.935616
+X4.340000 -0.931461
+X-7.480000 -0.930880
+X-8.230000 -0.930134
+X5.090000 -0.929548
+X-1.960000 -0.925212
+X-1.180000 -0.924606
+X4.310000 -0.920128
+X-7.450000 -0.919503
+X-8.260000 -0.918701
+X5.120000 -0.918070
+X-1.990000 -0.913413
+X-1.150000 -0.912764
+X4.280000 -0.907967
+X-7.420000 -0.907299
+X-8.290000 -0.906440
+X5.150000 -0.905767
+X-2.020000 -0.900793
+X-1.120000 -0.900100
+X4.250000 -0.894989
+X-7.390000 -0.894278
+X-8.320000 -0.893364
+X5.180000 -0.892648
+X-2.050000 -0.887362
+X-1.090000 -0.886627
+X4.220000 -0.881206
+X-7.360000 -0.880452
+X-8.350000 -0.879484
+X5.210000 -0.878725
+X-2.080000 -0.873133
+X-1.060000 -0.872355
+X4.190000 -0.866630
+X-7.330000 -0.865834
+X-8.380000 -0.864813
+X5.240000 -0.864012
+X-2.110000 -0.858118
+X-1.030000 -0.857299
+X4.160000 -0.851273
+X-7.300000 -0.850437
+X-8.410000 -0.849363
+X5.270000 -0.848522
+X-2.140000 -0.842330
+X-1.000000 -0.841471
+X4.130000 -0.835151
+X-7.270000 -0.834274
+X-8.440000 -0.833149
+X5.300000 -0.832267
+X-2.170000 -0.825785
+X-0.970000 -0.824886
+X4.100000 -0.818277
+X-7.240000 -0.817361
+X-8.470000 -0.816185
+X5.330000 -0.815264
+X-2.200000 -0.808496
+X-0.940000 -0.807558
+X4.070000 -0.800667
+X-7.210000 -0.799712
+X-8.500000 -0.798487
+X5.360000 -0.797527
+X-2.230000 -0.790480
+X-0.910000 -0.789504
+X4.040000 -0.782336
+X-7.180000 -0.781343
+X-8.530000 -0.780070
+X5.390000 -0.779073
+X-2.260000 -0.771753
+X-0.880000 -0.770739
+X4.010000 -0.763301
+X-7.150000 -0.762271
+X-8.560000 -0.760951
+X5.420000 -0.759917
+X-2.290000 -0.752331
+X-0.850000 -0.751280
+X3.980000 -0.743579
+X-7.120000 -0.742513
+X-8.590000 -0.741147
+X5.450000 -0.740077
+X-2.320000 -0.732231
+X-0.820000 -0.731146
+X3.950000 -0.723188
+X-7.090000 -0.722087
+X-8.620000 -0.720677
+X5.480000 -0.719572
+X-2.350000 -0.711473
+X-0.790000 -0.710353
+X3.920000 -0.702146
+X-7.060000 -0.701011
+X-8.650000 -0.699557
+X5.510000 -0.698418
+X-2.380000 -0.690075
+X-0.760000 -0.688921
+X3.890000 -0.680473
+X-7.030000 -0.679305
+X-8.680000 -0.677809
+X5.540000 -0.676637
+X-2.410000 -0.668056
+X-0.730000 -0.666870
+X3.860000 -0.658186
+X-7.000000 -0.656987
+X-8.710000 -0.655450
+X5.570000 -0.654246
+X-2.440000 -0.645435
+X-0.700000 -0.644218
+X3.830000 -0.635308
+X-6.970000 -0.634077
+X-8.740000 -0.632501
+X5.600000 -0.631267
+X-2.470000 -0.622234
+X-0.670000 -0.620986
+X3.800000 -0.611858
+X-6.940000 -0.610597
+X-8.770000 -0.608983
+X5.630000 -0.607719
+X-2.500000 -0.598472
+X-0.640000 -0.597195
+X3.770000 -0.587857
+X-6.910000 -0.586568
+X-8.800000 -0.584917
+X5.660000 -0.583625
+X-2.530000 -0.574172
+X-0.610000 -0.572867
+X3.740000 -0.563327
+X-6.880000 -0.562011
+X-8.830000 -0.560325
+X5.690000 -0.559005
+X-2.560000 -0.549355
+X-0.580000 -0.548024
+X3.710000 -0.538291
+X-6.850000 -0.536948
+X-8.860000 -0.535228
+X5.720000 -0.533882
+X9.980000 -0.527132
+X-2.590000 -0.524044
+X-0.550000 -0.522687
+X3.680000 -0.512769
+X-6.820000 -0.511401
+X-8.890000 -0.509650
+X5.750000 -0.508279
+X9.950000 -0.501405
+X-2.620000 -0.498262
+X-0.520000 -0.496880
+X3.650000 -0.486787
+X-6.790000 -0.485395
+X-8.920000 -0.483613
+X5.780000 -0.482218
+X9.920000 -0.475227
+X-2.650000 -0.472031
+X-0.490000 -0.470626
+X3.620000 -0.460366
+X-6.760000 -0.458951
+X-8.950000 -0.457141
+X5.810000 -0.455724
+X9.890000 -0.448621
+X-2.680000 -0.445375
+X-0.460000 -0.443948
+X3.590000 -0.433531
+X-6.730000 -0.432095
+X-8.980000 -0.430257
+X5.840000 -0.428819
+X9.860000 -0.421612
+X-2.710000 -0.418318
+X-0.430000 -0.416871
+X3.560000 -0.406306
+X-6.700000 -0.404850
+X-9.010000 -0.402987
+X5.870000 -0.401529
+X9.830000 -0.394223
+X-2.740000 -0.390885
+X-0.400000 -0.389418
+X3.530000 -0.378715
+X-6.670000 -0.377240
+X-9.040000 -0.375353
+X5.900000 -0.373877
+X9.800000 -0.366479
+X-2.770000 -0.363100
+X-0.370000 -0.361615
+X3.500000 -0.350783
+X-6.640000 -0.349291
+X-9.070000 -0.347382
+X5.930000 -0.345888
+X9.770000 -0.338406
+X-2.800000 -0.334988
+X-0.340000 -0.333487
+X3.470000 -0.322536
+X-6.610000 -0.321028
+X-9.100000 -0.319098
+X5.960000 -0.317589
+X9.740000 -0.310028
+X-2.830000 -0.306575
+X-0.310000 -0.305059
+X3.440000 -0.293998
+X-6.580000 -0.292476
+X-9.130000 -0.290527
+X5.990000 -0.289003
+X9.710000 -0.281371
+X-2.860000 -0.277886
+X-0.280000 -0.276356
+X3.410000 -0.265196
+X-6.550000 -0.263660
+X-9.160000 -0.261695
+X6.020000 -0.260157
+X9.680000 -0.252460
+X-2.890000 -0.248947
+X-0.250000 -0.247404
+X3.380000 -0.236155
+X-6.520000 -0.234607
+X-9.190000 -0.232627
+X6.050000 -0.231078
+X9.650000 -0.223323
+X-2.920000 -0.219784
+X-0.220000 -0.218230
+X3.350000 -0.206902
+X-6.490000 -0.205344
+X-9.220000 -0.203350
+X6.080000 -0.201790
+X9.620000 -0.193984
+X-2.950000 -0.190423
+X-0.190000 -0.188859
+X3.320000 -0.177462
+X-6.460000 -0.175895
+X-9.250000 -0.173889
+X6.110000 -0.172321
+X9.590000 -0.164471
+X-2.980000 -0.160890
+X-0.160000 -0.159318
+X3.290000 -0.147863
+X-6.430000 -0.146288
+X-9.280000 -0.144273
+X6.140000 -0.142697
+X9.560000 -0.134810
+X-3.010000 -0.131213
+X-0.130000 -0.129634
+X3.260000 -0.118131
+X-6.400000 -0.116549
+X-9.310000 -0.114526
+X6.170000 -0.112944
+X9.530000 -0.105028
+X-3.040000 -0.101418
+X-0.100000 -0.099833
+X3.230000 -0.088292
+X-6.370000 -0.086706
+X-9.340000 -0.084676
+X6.200000 -0.083089
+X9.500000 -0.075151
+X-3.070000 -0.071532
+X-0.070000 -0.069943
+X3.200000 -0.058374
+X-6.340000 -0.056784
+X-9.370000 -0.054751
+X6.230000 -0.053160
+X9.470000 -0.045207
+X-3.100000 -0.041581
+X-0.040000 -0.039989
+X3.170000 -0.028404
+X-6.310000 -0.026811
+X-9.400000 -0.024775
+X6.260000 -0.023183
+X9.440000 -0.015221
+X-3.130000 -0.011592
+X-0.010000 -0.010000
+X3.140000 0.001593
+X-6.280000 0.003185
+X-9.430000 0.005222
+X6.290000 0.006815
+X9.410000 0.014777
+X-3.160000 0.018406
+X0.020000 0.019999
+X3.110000 0.031587
+X-6.250000 0.033179
+X-9.460000 0.035215
+X6.320000 0.036806
+X9.380000 0.044763
+X-3.190000 0.048388
+X0.050000 0.049979
+X3.080000 0.061554
+X-6.220000 0.063143
+X-9.490000 0.065176
+X6.350000 0.066765
+X9.350000 0.074708
+X-3.220000 0.078327
+X0.080000 0.079915
+X3.050000 0.091465
+X-6.190000 0.093051
+X-9.520000 0.095078
+X6.380000 0.096664
+X9.320000 0.104586
+X-3.250000 0.108195
+X0.110000 0.109778
+X3.020000 0.121293
+X-6.160000 0.122874
+X-9.550000 0.124895
+X6.410000 0.126475
+X9.290000 0.134370
+X-3.280000 0.137966
+X0.140000 0.139543
+X2.990000 0.151013
+X-6.130000 0.152587
+X-9.580000 0.154599
+X6.440000 0.156173
+X9.260000 0.164033
+X-3.310000 0.167612
+X0.170000 0.169182
+X2.960000 0.180596
+X-6.100000 0.182163
+X-9.610000 0.184165
+X6.470000 0.185730
+X9.230000 0.193549
+X-3.340000 0.197108
+X0.200000 0.198669
+X2.930000 0.210017
+X-6.070000 0.211574
+X-9.640000 0.213564
+X6.500000 0.215120
+X9.200000 0.222890
+X-3.370000 0.226427
+X0.230000 0.227978
+X2.900000 0.239249
+X-6.040000 0.240795
+X-9.670000 0.242772
+X6.530000 0.244316
+X9.170000 0.252031
+X-3.400000 0.255541
+X0.260000 0.257081
+X2.870000 0.268266
+X-6.010000 0.269800
+X-9.700000 0.271761
+X6.560000 0.273293
+X9.140000 0.280944
+X-3.430000 0.284426
+X0.290000 0.285952
+X2.840000 0.297041
+X-5.980000 0.298562
+X-9.730000 0.300505
+X6.590000 0.302024
+X9.110000 0.309605
+X-3.460000 0.313054
+X0.320000 0.314567
+X2.810000 0.325549
+X-5.950000 0.327055
+X-9.760000 0.328979
+X6.620000 0.330482
+X9.080000 0.337988
+X-3.490000 0.341401
+X0.350000 0.342898
+X2.780000 0.353764
+X-5.920000 0.355254
+X-9.790000 0.357157
+X6.650000 0.358644
+X9.050000 0.366066
+X-3.520000 0.369441
+X0.380000 0.370920
+X2.750000 0.381661
+X-5.890000 0.383133
+X-9.820000 0.385013
+X6.680000 0.386483
+X9.020000 0.393815
+X-3.550000 0.397148
+X0.410000 0.398609
+X2.720000 0.409214
+X-5.860000 0.410667
+X-9.850000 0.412523
+X6.710000 0.413973
+X8.990000 0.421209
+X-3.580000 0.424498
+X0.440000 0.425939
+X2.690000 0.436399
+X-5.830000 0.437832
+X-9.880000 0.439662
+X6.740000 0.441092
+X8.960000 0.448224
+X-3.610000 0.451466
+X0.470000 0.452886
+X2.660000 0.463191
+X-5.800000 0.464602
+X-9.910000 0.466405
+X6.770000 0.467813
+X8.930000 0.474836
+X-3.640000 0.478027
+X0.500000 0.479426
+X2.630000 0.489567
+X-5.770000 0.490955
+X-9.940000 0.492728
+X6.800000 0.494113
+X8.900000 0.501021
+X-3.670000 0.504159
+X0.530000 0.505533
+X2.600000 0.515501
+X-5.740000 0.516865
+X-9.970000 0.518608
+X6.830000 0.519969
+X8.870000 0.526755
+X-3.700000 0.529836
+X0.560000 0.531186
+X2.570000 0.540972
+X-5.710000 0.542311
+X-10.000000 0.544021
+X6.860000 0.545357
+X8.840000 0.552014
+X-3.730000 0.555037
+X0.590000 0.556361
+X2.540000 0.565956
+X-5.680000 0.567269
+X6.890000 0.570254
+X8.810000 0.576777
+X-3.760000 0.579738
+X0.620000 0.581035
+X2.510000 0.590431
+X-5.650000 0.591716
+X6.920000 0.594637
+X8.780000 0.601021
+X-3.790000 0.603918
+X0.650000 0.605186
+X2.480000 0.614374
+X-5.620000 0.615630
+X6.950000 0.618486
+X8.750000 0.624724
+X-3.820000 0.627554
+X0.680000 0.628793
+X2.450000 0.637765
+X-5.590000 0.638991
+X6.980000 0.641778
+X8.720000 0.647865
+X-3.850000 0.650625
+X0.710000 0.651834
+X2.420000 0.660581
+X-5.560000 0.661776
+X7.010000 0.664493
+X8.690000 0.670422
+X-3.880000 0.673111
+X0.740000 0.674288
+X2.390000 0.682803
+X-5.530000 0.683966
+X7.040000 0.686609
+X8.660000 0.692377
+X-3.910000 0.694991
+X0.770000 0.696135
+X2.360000 0.704411
+X-5.500000 0.705540
+X7.070000 0.708108
+X8.630000 0.713708
+X-3.940000 0.716246
+X0.800000 0.717356
+X2.330000 0.725384
+X-5.470000 0.726480
+X7.100000 0.728969
+X8.600000 0.734397
+X-3.970000 0.736856
+X0.830000 0.737931
+X2.300000 0.745705
+X-5.440000 0.746765
+X7.130000 0.749174
+X8.570000 0.754425
+X-4.000000 0.756802
+X0.860000 0.757843
+X2.270000 0.765355
+X-5.410000 0.766379
+X7.160000 0.768705
+X8.540000 0.773774
+X-4.030000 0.776068
+X0.890000 0.777072
+X2.240000 0.784316
+X-5.380000 0.785303
+X7.190000 0.787545
+X8.510000 0.792427
+X-4.060000 0.794636
+X0.920000 0.795602
+X2.210000 0.802571
+X-5.350000 0.803520
+X7.220000 0.805675
+X8.480000 0.810367
+X-4.090000 0.812488
+X0.950000 0.813416
+X2.180000 0.820104
+X-5.320000 0.821014
+X7.250000 0.823081
+X8.450000 0.827577
+X-4.120000 0.829609
+X0.980000 0.830497
+X2.150000 0.836899
+X-5.290000 0.837769
+X7.280000 0.839746
+X8.420000 0.844043
+X-4.150000 0.845984
+X1.010000 0.846832
+X2.120000 0.852940
+X-5.260000 0.853771
+X7.310000 0.855655
+X8.390000 0.859749
+X-4.180000 0.861597
+X1.040000 0.862404
+X2.090000 0.868215
+X-5.230000 0.869004
+X7.340000 0.870794
+X8.360000 0.874681
+X-4.210000 0.876435
+X1.070000 0.877201
+X2.060000 0.882707
+X-5.200000 0.883455
+X7.370000 0.885149
+X8.330000 0.888827
+X-4.240000 0.890484
+X1.100000 0.891207
+X2.030000 0.896406
+X-5.170000 0.897111
+X7.400000 0.898708
+X8.300000 0.902172
+X-4.270000 0.903732
+X1.130000 0.904412
+X2.000000 0.909297
+X-5.140000 0.909959
+X7.430000 0.911458
+X8.270000 0.914705
+X-4.300000 0.916166
+X1.160000 0.916803
+X1.970000 0.921371
+X-5.110000 0.921989
+X7.460000 0.923388
+X8.240000 0.926415
+X-4.330000 0.927776
+X1.190000 0.928369
+X1.940000 0.932615
+X-5.080000 0.933189
+X7.490000 0.934487
+X8.210000 0.937292
+X-4.360000 0.938551
+X1.220000 0.939099
+X1.910000 0.943020
+X-5.050000 0.943549
+X7.520000 0.944745
+X8.180000 0.947325
+X-4.390000 0.948481
+X1.250000 0.948985
+X1.880000 0.952576
+X-5.020000 0.953060
+X7.550000 0.954152
+X8.150000 0.956506
+X-4.420000 0.957558
+X1.280000 0.958016
+X1.850000 0.961275
+X-4.990000 0.961713
+X7.580000 0.962701
+X8.120000 0.964825
+X-4.450000 0.965773
+X1.310000 0.966185
+X1.820000 0.969109
+X-4.960000 0.969501
+X7.610000 0.970384
+X8.090000 0.972277
+X-4.480000 0.973119
+X1.340000 0.973485
+X1.790000 0.976071
+X-4.930000 0.976416
+X7.640000 0.977193
+X8.060000 0.978853
+X-4.510000 0.979589
+X1.370000 0.979908
+X1.760000 0.982154
+X-4.900000 0.982453
+X7.670000 0.983123
+X8.030000 0.984549
+X-4.540000 0.985178
+X1.400000 0.985450
+X1.730000 0.987354
+X-4.870000 0.987605
+X7.700000 0.988168
+X8.000000 0.989358
+X-4.570000 0.989880
+X1.430000 0.990105
+X1.700000 0.991665
+X-4.840000 0.991869
+X7.730000 0.992324
+X7.970000 0.993277
+X-4.600000 0.993691
+X1.460000 0.993868
+X1.670000 0.995083
+X-4.810000 0.995240
+X7.760000 0.995587
+X7.940000 0.996303
+X-4.630000 0.996608
+X1.490000 0.996738
+X1.640000 0.997606
+X-4.780000 0.997715
+X7.790000 0.997954
+X7.910000 0.998431
+X-4.660000 0.998628
+X1.520000 0.998710
+X1.610000 0.999232
+X-4.750000 0.999293
+X7.820000 0.999423
+X7.880000 0.999662
+X-4.690000 0.999749
+X1.550000 0.999784
+X1.580000 0.999958
+X-4.720000 0.999971
+X7.850000 0.999992
+END_OF_FILE
+  if test 12673 -ne `wc -c <'sin3.pts'`; then
+    echo shar: \"'sin3.pts'\" unpacked with wrong size!
+  fi
+  # end of 'sin3.pts'
+fi
+echo shar: End of archive 5 \(of 7\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

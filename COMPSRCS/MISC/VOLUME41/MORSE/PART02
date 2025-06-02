@@ -1,0 +1,2183 @@
+Newsgroups: comp.sources.misc
+From: joe@montebello.soest.hawaii.edu (Joe Dellinger)
+Subject: v41i044:  morse - morse-code practice utility, Part02/02
+Message-ID: <1993Dec19.210047.28920@sparky.sterling.com>
+X-Md4-Signature: a311da0f9439a8105377835b221f7c47
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 19 Dec 1993 21:00:47 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: joe@montebello.soest.hawaii.edu (Joe Dellinger)
+Posting-number: Volume 41, Issue 44
+Archive-name: morse/part02
+Environment: Sun, HP9000s700, X11
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Makefile QSO.c alarm.c alarm.h beep.h beepHP.c beepX11.c
+# Wrapped by kent@sparky on Sun Dec 19 14:59:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1754 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Select your audio output device.  Current choices are:
+X#   Sun:   Sun workstation with audio hardware.
+X#   HP:    HP9000s700 with audio hardware.
+X#   X11:   The X11 window system.
+X# Adding a new device is as simple as creating a new implementation of the
+X# beep.h interface.  See beep*.c for examples.  Please send any additions
+X# to the authors.
+X#
+XDEVICE = Sun
+X#DEVICE = HP
+X#DEVICE = X11
+X
+X# For termio a la System V, add -DUSG to DEFINES.
+X# For alternate random number generator, add either -DUSELRAND for lrand48(),
+X#   or -DUSERAND for (ugh) rand(). Default is -DUSERANDOM for random().
+X# Define SIGRET to be your signal handler return type if not "void".
+X# Define BSDSIGS or POSIXSIGS, depending on what kind of signals you
+X#   have. "Old-style" signals are not currently supported. Default is BSDSIGS.
+X#
+X#DEFINES = -DUSG -DUSELRAND -DPOSIXSIGS
+XDEFINES = -DFULLVOLUME
+X
+X# The flags necessary to link with the X11 libraries.
+X#X11LIBS = -L/usr/X386/lib -lX11 -lsocket -lnsl
+XX11LIBS = -lX11
+X
+X# Your favorite C compiler
+X#CC	= gcc
+XCC	= cc
+X
+X# The flags your favorite C compiler requires to work.
+X#CFLAGS  = -O -I/usr/X386/include -DSVR4 -DSYSV386 ${DEFINES}
+XCFLAGS  = -O ${DEFINES}
+X
+Xall:	morse QSO
+X
+Xmorse:	morse${DEVICE}
+X	rm -f $@
+X	ln morse${DEVICE} $@
+X
+XmorseSun:	morse.o beepSun.o
+X	$(CC) -o $@ morse.o beepSun.o -L/usr/demo/SOUND -laudio -lm
+X
+XmorseHP:	morse.o beepHP.o alarm.o
+X	$(CC) -o $@ morse.o beepHP.o alarm.o -lm
+X
+XmorseX11:	morse.o beepX11.o alarm.o
+X	$(CC) -o $@ morse.o beepX11.o alarm.o $(X11LIBS)
+X
+XQSO:	QSO.o
+X	$(CC) -o $@ QSO.o
+X
+Xtest:
+X	./QSO | ./morse -l -e
+X
+Xclean:
+X	rm -f *.o morseSun morseHP morseX11
+X
+Xsqueakyclean:	clean
+X	rm -f morse QSO
+X
+X
+Xmorse.o:	beep.h
+XbeepSun.o:	beep.h
+XbeepHP.o:	beep.h alarm.h
+XbeepX11.o:	beep.h alarm.h
+Xalarm.o:	alarm.h
+END_OF_FILE
+  if test 1754 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'QSO.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'QSO.c'\"
+else
+  echo shar: Extracting \"'QSO.c'\" \(29113 characters\)
+  sed "s/^X//" >'QSO.c' <<'END_OF_FILE'
+X/*
+X * Return-Path: <pjd@cadillac.siemens.com>
+X * Received: from cadillac.siemens.com by montebello.soest.hawaii.edu (4.1/montebello-MX-1.9)
+X * 	id AA01487; Mon, 10 Aug 92 03:21:41 HST
+X * Received: from kevin.siemens.com by cadillac.siemens.com (4.1/SMI-4.0)
+X * 	id AA25847; Mon, 10 Aug 92 09:21:37 EDT
+X * Date: Mon, 10 Aug 92 09:21:37 EDT
+X * From: pjd@cadillac.siemens.com (paul j. drongowski)
+X * Message-Id: <9208101321.AA25847@cadillac.siemens.com>
+X * To: joe@montebello.soest.hawaii.edu
+X * Status: RO
+X *
+X * This copy is slightly hacked by Joe Dellinger, August 1992
+X * And some more... November 1992
+X */
+X
+X/*
+X * Generate QSO
+X */
+X
+X/*
+X * Author:  Paul J. Drongowski / N2OQT
+X * Address: 1 Allen Court
+X *          Plainsboro, New Jersey 08536
+X * Date:    10 October 1991
+X *
+X * Copyright (c) 1991 Paul J. Drongowski
+X */
+X
+X/*
+X * When run, this program generates a single QSO. The form of the
+X * QSO is similar to QSO`s one would expect to hear at a code test.
+X * It begins with a series of V's (commented out in this version),
+X * callsigns of the receiver and
+X * sender, followed by a few sentences about weather, name,
+X * occupation, etc. The QSO ends with the callsigns of the receiver
+X * and sender.
+X *
+X * All output is produced using "printf." This should make the
+X * program easy to port. Output can be piped into another program
+X * such as sparc-morse on the Sun or it can be redirected into
+X * a file (without viewing the contents of course!)
+X *
+X * The program design is similar to a "random poetry generator"
+X * or "mad-libs." Each QSO form is generated by its own C function,
+X * such as "PutForm1." Each function calls other C functions to
+X * produce the sentences in the QSO. The sentence forms are
+X * selected somewhat randomly as well as any blanks to be filled.
+X * Words and phrases are selected from several lists such as
+X * "Transceiver," "Antenna," "Job," etc. Sometimes this scheme is
+X * clever as in the formation of city names. Sometimes it is
+X * stupidly simple-minded and grammatical agreement is lost.
+X * By the way, the callsigns are real and were picked from
+X * rec.radio.amateur.misc on USENET.
+X *
+X * The program was constructed in C for Sun workstations. It uses
+X * the library function "drand48" in function "Roll" to produce
+X * pseudo-random numbers. The library function "srand48" and "time"
+X * in "main" are used to set the pseudo-random number seed.
+X *
+X * Known problems and caveats? Hey, it`s software! All Morse
+X * training programs handle the procedural signs (e.g., AR, SK)
+X * differently. The function "PutQSO" currently prints "+ @"
+X * for the AR and SK at the end of the QSO. These may be ignored,
+X * mapped into something else, or just plain cause your training
+X * program to roll over and play dead. I don`t know. This is a
+X * cheap hack.
+X *
+X * And speaking of cheap... The program will not generate all
+X * characters and pro-signs that are found on an "official" code
+X * test. This program is for practice only and should be supplemented
+X * with lots of random code.
+X *
+X * Please note that I retain the copyright
+X * to this program. You may use it for any non-commercial purposes.
+X * This is roughly equivalent to "fair use."
+X *
+X * Always have fun!
+X */
+X
+X
+X#include <sys/types.h>
+X#include <sys/time.h>
+X
+Xint NXCVR ;
+Xchar *Transceiver[] =
+X
+X  {
+X  "Collins 75S=3",
+X  "Collins KWM=2",
+X  "Drake TR3",
+X  "Drake TR4",
+X  "Drake T=4XB",
+X  "Eico 753",
+X  "Hallicrafters SR150",
+X  "Hallicrafters SR160",
+X  "Hallicrafters SR400",
+X  "Hallicrafters SR500",
+X  "Hallicrafters SR2000",
+X  "Heathkit DX=660B",
+X  "Heathkit HG=10B",
+X  "Heathkit HR=10",
+X  "Heathkit HW12",
+X  "Heathkit HW22",
+X  "Heathkit HW32",
+X  "Heathkit HW12A",
+X  "Heathkit HW22A",
+X  "Heathkit HW32A",
+X  "Heathkit HW100",
+X  "Heathkit SB100",
+X  "Icom IC=275",
+X  "Icom IC=475",
+X  "Icom IC=575",
+X  "Icom IC=725",
+X  "Icom IC=726",
+X  "Icom IC=730",
+X  "Icom IC=735",
+X  "Icom IC=751",
+X  "Icom IC=765",
+X  "Icom IC=781",
+X  "Icom IC=1275",
+X  "Kenwood TS=77",
+X  "Kenwood TS=140",
+X  "Kenwood TS=440",
+X  "Kenwood TS=680",
+X  "Kenwood TS=711",
+X  "Kenwood TS=850",
+X  "Kenwood TR=450",
+X  "Kenwood TR=751",
+X  "Kenwood TR=850",
+X  "Kenwood TR=851",
+X  "National NCX3",
+X  "National NCX5",
+X  "National NCL 200",
+X  "Radio Shack HTX=100",
+X  "RS HTX=100",
+X  "Swan 120",
+X  "Swan 140",
+X  "Swan 180",
+X  "Swan 240",
+X  "Swan 350",
+X  "Ten Tec 585",
+X  "Ten Tec 562",
+X  "Ten Tec Delta",
+X  "Ten Tec Argonaut",
+X  "Ten Tec Omni",
+X  "Yaesu FT=101",
+X  "Yaesu FT=736",
+X  "Yaesu FT=747",
+X  "Yaesu FT=757",
+X  "Yaesu FT=767",
+X  "Yaesu FT=990",
+X  "Yaesu FT=1000",
+X  "Homebrew",
+X  0
+X  } ;
+X
+Xint NANTENNA ;
+Xchar *Antenna[] =
+X
+X  {
+X  "beam",
+X  "delta loop",
+X  "dipole",
+X  "doublet zepp",
+X  "half wave dipole",
+X  "inverted V",
+X  "whip",
+X  "delta loop",
+X  "parasitic beam",
+X  "log periodic",
+X  "quad loop",
+X  "quad vertical",
+X  "quagi",
+X  "quarter wave vertical",
+X  "rhombic",
+X  "long=wire",
+X  "ground=plane",
+X  "trap doublet",
+X  "yagi",
+X  "zepp",
+X  "monobander",
+X  "tribander",
+X  "symmetrical delta loop",
+X  "3 element beam",
+X  "5 band vertical",
+X  "5 element loop",
+X  "10 meter dipole",
+X  "10 meter whip",
+X  "7 band beam",
+X  0
+X  } ;
+X
+Xint NUPFEET ;
+Xchar *UpFeet[] =
+X
+X  {
+X  "10", "15", "20", "25", "30", "35", "40", "45",
+X  "50", "55", "60", "65", "70", "75", "80", "85",
+X  "90", "95", "100",
+X  0
+X  } ;
+X
+Xint NWX1 ;
+Xchar *Weather1[] =
+X
+X  {
+X  "sunny",
+X  "rain",
+X  "freezing rain",
+X  "sleet",
+X  "snow",
+X  "cloudy",
+X  "partly cloudy",
+X  "partly sunny",
+X  "clear",
+X  0
+X  } ;
+X
+Xint NWX2 ;
+Xchar *Weather2[] =
+X
+X  {
+X  "cold and windy",
+X  "raining",
+X  "snowing",
+X  "sunny",
+X  "hot",
+X  "windy and warm",
+X  "cloudy",
+X  "drizzling",
+X  "foggy",
+X  "wet/foggy",
+X  "fog/drizzle",
+X  "hot/muggy",
+X  "hot/dry",
+X  "cool/windy",
+X  "smoggy",
+X  "hot/smoggy",
+X  "cold/dry",
+X  "hot/humid",
+X  "warm",
+X  "windy",
+X  "very hot",
+X  "very cold",
+X  "very windy",
+X  "wet",
+X  "wet/windy",
+X  "humid",
+X  "hot and humid",
+X  0
+X  } ;
+X
+Xint NPOWER ;
+Xchar *Power[] =
+X
+X  {
+X    "5",  "10",  "20",  "25",  "40",  "50",  "80", "100",
+X  "125", "140", "150", "170", "200", "250", "270", "300",
+X  0
+X  } ;
+X
+Xint NJOB ;
+Xchar *Job[] =
+X
+X  {
+X  "engineer",
+X  "nurse",
+X  "fireman",
+X  "mechanic",
+X  "programmer",
+X  "carpenter",
+X  "electrician",
+X  "writer",
+X  "teacher",
+X  "doctor",
+X  "attorney",
+X  "lawyer",
+X  "clerk",
+X  "chemist",
+X  "librarian",
+X  "teller",
+X  "physician",
+X  "physicist",
+X  "chemist",
+X  "mathematician",
+X  "professor",
+X  "driver",
+X  "milkman",
+X  "gardener",
+X  "bricklayer",
+X  "guard",
+X  "dentist",
+X  "curator",
+X  "farmer",
+X  "stock broker",
+X  "letter carrier",
+X  "designer",
+X  "student",
+X  "college student",
+X  "high school student",
+X  "administrator",
+X  "police officer",
+X  "investment banker",
+X  "politician",
+X  "consultant",
+X  "systems analyst",
+X  "airline pilot",
+X  "semiotician",
+X  0
+X  } ;
+X
+Xint NNAME ;
+Xchar *Name[] =
+X
+X  {
+X  "Al",
+X  "Alan",
+X  "Alice",
+X  "Allen",
+X  "Alex",
+X  "Alexeev",
+X  "Amber",
+X  "Anne",
+X  "Art",
+X  "Barbara",
+X  "Bart",
+X  "Betty",
+X  "Bea",
+X  "Bill",
+X  "Bob",
+X  "Bruce",
+X  "Bud",
+X  "Carl",
+X  "Carol",
+X  "Cathy",
+X  "Cheryl",
+X  "Chris",
+X  "Christy",
+X  "Chuck",
+X  "Dale",
+X  "Dave",
+X  "David",
+X  "Dennis",
+X  "Diane",
+X  "Dick",
+X  "Dan",
+X  "Don",
+X  "Ed",
+X  "Elaine",
+X  "Ellen",
+X  "Francie",
+X  "Fred",
+X  "Gary",
+X  "Helen",
+X  "Ingrid",
+X  "Frank",
+X  "George",
+X  "Gilda",
+X  "Gus",
+X  "Harry",
+X  "Henry",
+X  "Jack",
+X  "James",
+X  "Jane",
+X  "Janet",
+X  "Jeff",
+X  "Jessica",
+X  "Jill",
+X  "Jim",
+X  "Joan",
+X  "Joe",
+X  "John",
+X  "Jon",
+X  "Kathy",
+X  "Kevin",
+X  "Karen",
+X  "Karl",
+X  "Keith",
+X  "Ken",
+X  "Kent",
+X  "Kristen",
+X  "Kurt",
+X  "Larry",
+X  "Lauren",
+X  "Liholiho",
+X  "Linda",
+X  "Lou",
+X  "Lynda",
+X  "Lynn",
+X  "Marc",
+X  "Margaret",
+X  "Marv",
+X  "Maria",
+X  "Mark",
+X  "Marty",
+X  "Mary",
+X  "Mike",
+X  "Monica",
+X  "Nancy",
+X  "Neil",
+X  "Noelani",
+X  "Oliver",
+X  "Olivia",
+X  "Pat",
+X  "Patrick",
+X  "Paul",
+X  "Paula",
+X  "Peter",
+X  "Phil",
+X  "Ralph",
+X  "Ray",
+X  "Rex",
+X  "Rich",
+X  "Rick",
+X  "Roy",
+X  "Ron",
+X  "Sally",
+X  "Sam",
+X  "Scott",
+X  "Scottie",
+X  "Spencer",
+X  "Steve",
+X  "Stu",
+X  "Sue",
+X  "Terry",
+X  "Tim",
+X  "Todd",
+X  "Tom",
+X  "Tony",
+X  "Thomas",
+X  "Walt",
+X  "Wendy",
+X  "William",
+X  "Zelda",
+X  0
+X  } ;
+X
+Xint NCALLSIGN ;
+Xchar *Sender, *Receiver ;
+Xchar *CallSign[] =
+X
+X  {
+X  "AA0ET",
+X  "AA4LR",
+X  "AA5BT",
+X  "AA6NP",
+X  "AA6YD",
+X  "AA9BK",
+X  "AB5AP",
+X  "AB6FI",
+X  "AC4HF",
+X  "G0GWA",
+X  "GM4ZNX",
+X  "KA0WCH",
+X  "KA1AXY",
+X  "KA1CV",
+X  "KA1UTU",
+X  "KA1ZGC",
+X  "KA6S",
+X  "KA2RAF",
+X  "KB0CY",
+X  "KB2NRH",
+X  "KB6CSP",
+X  "KB6JXT",
+X  "KC6SKV",
+X  "KC6SSS",
+X  "KC6TDR",
+X  "KC6VWV",
+X  "KD3FU",
+X  "KD4AUS",
+X  "KD4CPL",
+X  "KE2TP",
+X  "KE4ZV",
+X  "KF8NH",
+X  "KF6BZF",
+X  "KJ6NN",
+X  "KJ9U",
+X  "KK6JQ",
+X  "KM3T",
+X  "KT7H",
+X  "K2WK",
+X  "K5RC",
+X  "K6XO",
+X  "K6OCK",
+X  "K9ALD",
+X  "IK5AAX",
+X  "I5FLN",
+X  "JA1BLV",
+X  "N1AL",
+X  "N1JCX",
+X  "N4PBK",
+X  "N4VRN",
+X  "N5IAL",
+X  "N5OP",
+X  "N6BIS",
+X  "N6MWC",
+X  "N6TTO",
+X  "N8EMR",
+X  "N9MYI",
+X  "N9FZX",
+X  "N9JRV",
+X  "N9LFF",
+X  "NE3X",
+X  "NH6ZW",
+X  "NJ7E",
+X  "NR3Z",
+X  "NT1G",
+X  "OD5NG",
+X  "OH3BK",
+X  "OH8NUP",
+X  "TG9VT",
+X  "UT5RP",
+X  "VE6MGS",
+X  "VE7EMD",
+X  "VK2BQS",
+X  "VK2EG",
+X  "W0PBV",
+X  "W0RIJ",
+X  "W0RSB",
+X  "WA1UXA",
+X  "WA2AGE",
+X  "WA3EEC",
+X  "WA3TBL",
+X  "WA3UQV",
+X  "WA5RPF",
+X  "WA6DGX",
+X  "WA7VYJ",
+X  "WA8ZGO",
+X  "WB4JCM",
+X  "WB5FDP",
+X  "WB5FKH",
+X  "WB5NRN",
+X  "WB2CJL",
+X  "WB7CJO",
+X  "WB7EEL",
+X  "WB7TZA",
+X  "WB8EOH",
+X  "WB9IVR",
+X  "WD0EIB",
+X  "WX9T",
+X  "W2FG",
+X  "W2JGR",
+X  "W3GRG",
+X  "W3OTC",
+X  0
+X  } ;
+X
+Xint NLICENSE ;
+Xchar *License[] =
+X
+X  {
+X  "Novice",
+X  "Technician",
+X  "Tech",
+X  "General",
+X  "Advanced",
+X  "Extra",
+X  0
+X  } ;
+X
+Xint NCITY ;
+Xchar *City[] =
+X
+X  {
+X  "Aiea",
+X  "Alexander",
+X  "Asbury",
+X  "Baker",
+X  "Beckley",
+X  "Bedford",
+X  "Brunswick",
+X  "Burnsville",
+X  "Clarksville",
+X  "Cambridge",
+X  "Charleston",
+X  "Circleville",
+X  "Clarksburg",
+X  "Clear Lake",
+X  "Cleveland",
+X  "Crystal",
+X  "Duncanville",
+X  "Elizabeth",
+X  "Ewa",
+X  "Fairbanks",
+X  "Fairfield",
+X  "Flint",
+X  "Gahanna",
+X  "Grant",
+X  "Greensburg",
+X  "Harper",
+X  "Honolulu",
+X  "Hillsdale",
+X  "Jamestown",
+X  "Jefferson",
+X  "Kaaawa",
+X  "Kona",
+X  "Lawrenceville",
+X  "Lakewood",
+X  "Lincoln",
+X  "Litchfield",
+X  "London",
+X  "Long Branch",
+X  "Lyndhurst",
+X  "Lyndale",
+X  "Lynnville",
+X  "Mansfield",
+X  "Maple",
+X  "Meadows",
+X  "Mentor",
+X  "Mercer",
+X  "Mesquite",
+X  "Midland",
+X  "Milldale",
+X  "Milltown",
+X  "Moorestown",
+X  "Mountain View",
+X  "Murray",
+X  "Newfield",
+X  "Newport",
+X  "New London",
+X  "Olmstead",
+X  "Oak",
+X  "Oxnard",
+X  "Oxford",
+X  "Paradise",
+X  "Paris",
+X  "Perry",
+X  "Potter",
+X  "Pottsville",
+X  "Redwood",
+X  "Russellville",
+X  "Salem",
+X  "Sandy",
+X  "Saratoga",
+X  "Smithville",
+X  "Springdale",
+X  "Springfield",
+X  "Starkville",
+X  "Sunnyvale",
+X  "Tinker",
+X  "Trenton",
+X  "Walnut",
+X  "Warren",
+X  "Warsaw",
+X  "Washington",
+X  "Weston",
+X  "Wheatfield",
+X  "Williamson",
+X  "Worchester",
+X  "Zolton",
+X  0
+X  } ;
+X
+Xint NNEWCITY ;
+Xchar *NewCity[] =
+X
+X  {
+X  "Albany",
+X  "Avalon",
+X  "Barnard",
+X  "Brunswick",
+X  "Bedford",
+X  "Chester",
+X  "Conway",
+X  "Dime Box",
+X  "Franklin",
+X  "Granville",
+X  "Hamilton",
+X  "Morris",
+X  "Oxford",
+X  "Salisbury",
+X  "Stafford",
+X  "Stanton",
+X  "Trenton",
+X  "Troy",
+X  "Walpole",
+X  "Warren",
+X  "Wilton",
+X  "Weston",
+X  "Windsor",
+X  "Zulch",
+X  0
+X  } ;
+X
+Xint NCITYHTS ;
+Xchar *CityHeights[] =
+X
+X  {
+X  "Apple",
+X  "Ashford",
+X  "Baker",
+X  "Baldwin",
+X  "Banner",
+X  "Barnard",
+X  "Benton",
+X  "Carson",
+X  "Chester",
+X  "Conway",
+X  "Cornwall",
+X  "Crystal",
+X  "Fletcher",
+X  "Franklin",
+X  "Granite",
+X  "Grant",
+X  "Harper",
+X  "Jefferson",
+X  "Hamilton",
+X  "Hickory",
+X  "Lincoln",
+X  "Maple",
+X  "Mercer",
+X  "Morgan",
+X  "Morris",
+X  "Murray",
+X  "Oak",
+X  "Orwell",
+X  "Quail",
+X  "Perry",
+X  "Potter",
+X  "Salem",
+X  "Stafford",
+X  "Stone",
+X  "Tinker",
+X  "Walnut",
+X  "Warren",
+X  "Washington",
+X  "Weston",
+X  "Wilton",
+X  0
+X  } ;
+X
+Xint NNEW ;
+Xchar *New[] =
+X
+X  {
+X  "New",
+X  "Old",
+X  "North",
+X  "South",
+X  "East",
+X  "West",
+X  0
+X  } ;
+X
+Xint NHEIGHTS ;
+Xchar *Heights[] =
+X
+X  {
+X  "Castle",
+X  "Heights",
+X  "Island",
+X  "Valley",
+X  "City",
+X  "Creek",
+X  "Park",
+X  "Mill",
+X  "Neck",
+X  0
+X  } ;
+X
+Xint NSTATE ;
+Xchar *State[] =
+X
+X  {
+X  "Alabama",
+X  "Alaska",
+X  "Arizona",
+X  "Arkansas",
+X  "California",
+X  "Colorado",
+X  "Connecticut",
+X  "Delaware",
+X  "Florida",
+X  "Gaum",
+X  "Georgia",
+X  "Hawaii",
+X  "Idaho",
+X  "Illinois",
+X  "Indiana",
+X  "Iowa",
+X  "Kansas",
+X  "Kentucky",
+X  "Louisiana",
+X  "Maine",
+X  "Maryland",
+X  "Massachusetts",
+X  "Michigan",
+X  "Midway",
+X  "Minnesota",
+X  "Mississippi",
+X  "Missouri",
+X  "Montana",
+X  "Nebraska",
+X  "Nevada",
+X  "New Hampshire",
+X  "New Jersey",
+X  "New Mexico",
+X  "New York",
+X  "North Carolina",
+X  "North Dakota",
+X  "Ohio",
+X  "Oklahoma",
+X  "Oregon",
+X  "Pennsylvania",
+X  "Puerto Rico",
+X  "Rhode Island",
+X  "Saipan",
+X  "American Samoa",
+X  "South Carolina",
+X  "South Dakota",
+X  "Tennessee",
+X  "Texas",
+X  "Utah",
+X  "Vermont",
+X  "Virginia",
+X  "Virgin Islands",
+X  "Wake Island",
+X  "Washington",
+X  "West Virginia",
+X  "Wisconsin",
+X  "Wyoming",
+X  0
+X  } ;
+X
+Xint NMISC ;
+Xchar *Miscellaneous[] =
+X  {
+X  "I sometimes work packet on vhf.",
+X  "I sometimes work packet on vhf.",
+X  "We are on vacation and I am mobile.",
+X  "We are on vacation and I am mobile.",
+X  "Your signal is chirpy.",
+X  "Lots of QRM.",
+X  "Lots of QRM.",
+X  "Should we QSY?",
+X  "Please QRS.",
+X  "Please QRS.",
+X  "Tnx for the report.",
+X  "Thanks for the call.",
+X  "Tnx for the call.",
+X  "Tnx for ur call.",
+X  "QRM",
+X  "QRM?",
+X  "QRS",
+X  "QRS?",
+X  "QSY?",
+X  "QSK?",
+X  "QRX?",
+X  "QTH?",
+X  "QTR?",
+X  "What is your QTH?",
+X  "Is it green there or brown?",
+X  "Where do you live?",
+X  "Where do you live?",
+X  "Where do you live now?",
+X  "How long have you been a radio amateur?",
+X  "How long have you been a radio amateur?",
+X  "What are your hobbies?",
+X  "What is your hobby?",
+X  "Must QRT for dinner.",
+X  "Must QRT for dinner.",
+X  "Must QRT for hot dinner.",
+X  "Must QRT for cold dinner.",
+X  "Must QRT for lunch.",
+X  "Must QRT for lunch.",
+X  "Must QRT for hot lunch.",
+X  "Must QRT for sleep.",
+X  "Must QRT for some sleep.",
+X  "Must QRT for bathroom break.",
+X  "Must QRT, lightning threatens.",
+X  "Must QRT, lightning storm has started.",
+X  "Must QRT, tornado sirens sounding.",
+X  "Must QRT, tsunami sirens sounding.",
+X  "Must QRT to hear news about approaching hurricane.",
+X  "Must QRT wind has blown door open again.",
+X  "Must QRT, weather radio warbling.",
+X  "Must QRT invading tanks making too much noise outside to hear you.",
+X  "Must QRT occupation forces knocking at door.",
+X  "Must QRT, nuclear attack?",
+X  "I am mobile and am going to the office.",
+X  "I am mobile and am going to work.",
+X  "I am mobile and driving to work.",
+X  "I am mobile, driving home from work.",
+X  "I am mobile, stuck in traffic.",
+X  "I am mobile, driving cross country.",
+X  "I am mobile, riding a Peruvian Paso horse.",
+X  "Ive fallen and I cant get up.",
+X  "How is my signal?",
+X  "Hows my signal?",
+X  "How copy so far?",
+X  "How copy so far?",
+X  "How copy?",
+X  "Copy?",
+X  "Copy?",
+X  "Cpy?",
+X  "Do you understand English?",
+X  "Do u understand English?",
+X  "Habla espanol?",
+X  "Sprechen Sie Deutsch?",
+X  "What is your job?",
+X  "Whats your job?",
+X  "Your job is?",
+X  "How is the weather?",
+X  "Hows the weather?",
+X  "How is the weather?",
+X  "So how is the weather?",
+X  "Are you using a linear amplifier?",
+X  "ru using linear amplifier?",
+X  "I am using a linear amplifier.",
+X  "am using a linear amplifier.",
+X  "Are you using a linear amplifier?",
+X  "You are using a nonlinear amplifier?",
+X  "Propagation is good.",
+X  "Propagation is good.",
+X  "Propagation is very good.",
+X  "Propagation is poor.",
+X  "Propagation is very poor.",
+X  "Are you on daylight savings time?",
+X  "Did you hear the news?",
+X  "Did you hear news?",
+X  "Is the bad news true?",
+X  "Sorry, stack of books just fell over.",
+X  "There is an eclipse of the moon right now.",
+X  "Do you recycle often?",
+X  "Do you prefer metric units?",
+X  "Aye, laddie, have you ever been to sea?",
+X  "Have you ever seen a computer virus?",
+X  "We just felt a small quake here.",
+X  "Whoa, we are having an earthquake here. A real roller.",
+X  "You are my first contact today.",
+X  "You are my second contact today.",
+X  "You are my last contact today.",
+X  "Are you married?",
+X  "Do you have a horse?",
+X  "Do you have a dog?",
+X  "Do you have a cat?",
+X  "Do you have a ferret?",
+X  "Do you have a gecko?",
+X  "Do you listen to the BBC?",
+X  "Do you listen to VOA?",
+X  "Do you listen to Radio Moscow?",
+X  "Do you listen to Radio Peace Peoples Republic of Korea?",
+X  "Do you listen to Radio New Zealand Intl?",
+X  "Do you listen to Radio Australia?",
+X  "Do you listen to Deutsche Welle?",
+X  "ewsqgbhjolpi oops cat on keyboard.",
+X  "9p0ojgbhnw23 oops cat on keyboard.",
+X  "8y67fvgb oops cat on keyboard.",
+X  "A clumsy gecko just fell on my hand.",
+X  "How old is your rig?",
+X  "How did you learn morse code?",
+X  "Do you know morse code?",
+X  "When did you start to learn morse code?",
+X  "Are you good at calculus? I have a question for you.",
+X  "Are you good at group theory? I have a question for you.",
+X  "Are you good at summing infinite series?",
+X  "Can you pick master locks? Those are supposed to be easy.",
+X  "Can you pick kryptonite locks? Those are tricky.",
+X  "QLF?",
+X  "There is a rainbow outside the window.",
+X  "I just saw a bolide.",
+X  "Do you know the word copacetic?",
+X  "Do you know the word garrulous?",
+X  "Do you know the word prosy?",
+X  "What time zone are you in?",
+X  "Have you ever been to the Chatham islands?",
+X  "Mele kelikimaka and hauoli makahiki hou 1994.",
+X  "Would you have given Morse a Nobel prize?",
+X  "Our neighbors have a horse named morse code.",
+X  "What is your elevation?",
+X  "What is the air pressure there?",
+X  "I live at 1620 Keeaumoku.",
+X  "I live at 1010 Springwood.",
+X  "I live at 61C Escondido.",
+X  "I live at 2500 Pennsylvania.",
+X  "I live at 10 Downing.",
+X  "I sometimes monitor ULF for earthquake precursors.",
+X  "Where is Parkfield, California anyway?",
+X  "Have you ever been to New Madrid, Missouri?",
+X  "Have you ever contacted Kalawao county, Molokai?",
+X  "Is your the state the one that has parishes instead of counties?",
+X  "Is your the state the one that has townships instead of counties?",
+X  "+@=x/,? 73 just testing you.",
+X  "@w=+/,? 73 just testing you.",
+X  ",?/=+9@ 73 just testing you.",
+X  ",?/=q+@ 73 just testing u.",
+X  "Your contest sequence no is 826.",
+X  "Your contest sequence no is 479.",
+X  "Your contest sequence no is 1035.",
+X  "Your contest sequence no is 12.",
+X  "Your contest sequence no is 73.",
+X  "Your contest sequence no is 7v.",
+X  "What is your sign? I am a fish.",
+X  "What is your sign? I am a cancer.",
+X  "What is your sign? I am a centaur.",
+X  "Do you like rock music?",
+X  "Do you like modern rock?",
+X  "Do you like country music?",
+X  "Do you like swing music?",
+X  "Do you like reggae music?",
+X  "Do you like jawaiian music?",
+X  "Do you like pop music?",
+X  "Do you like classical music?",
+X  "Do you like mozart?",
+X  "Do you like bach?",
+X  "Do you like bernstein?",
+X  "Do you watch STTNG?",
+X  "Do you watch Quantum Leap?",
+X  "Do you watch Simpsons?",
+X  "Can you think of something else interesting to say?",
+X  0
+X  };
+X
+Xint NRST ;
+Xchar *RST[] =
+X  {
+X  "555",
+X  "577",
+X  "578",
+X  "579",
+X  "588",
+X  "589",
+X  "599",
+X  "478",
+X  "354",
+X  "248",
+X  "126",
+X  0
+X  } ;
+X
+X/*
+X ********************
+X * Utility routines *
+X ********************
+X */
+X
+Xint CountStrings(StringVector) char *StringVector[] ;
+X
+X  /*
+X   * Count the number of string values in the supplied vector
+X   * of pointers. Start with the first pointer and stop when
+X   * NIL (0) is encountered.
+X   */
+X
+X  {
+X  register char **SV ;
+X  register int Count ;
+X
+X  Count = 0 ;
+X
+X  for (SV = StringVector ; *SV ; SV++)
+X    {
+X    Count++ ;
+X    }
+X  return(Count) ;
+X  }
+X
+Xint Roll(Number) int Number ;
+X
+X  {
+X  double drand48() ;
+X  return( (int)(drand48() * (Number/*-1*/)) ) ;
+X  }
+X
+Xchar *Choose(Words, Number) char *Words[] ; int Number ;
+X
+X  {
+X  return( Words[ Roll(Number) ] ) ;
+X  }
+X
+X/*
+X *************************************
+X * Routines to put sentences/clauses *
+X *************************************
+X */
+X
+Xvoid PutMisc()
+X
+X  {
+X  printf("%s\n", Choose(Miscellaneous, NMISC)) ;
+X  }
+X
+Xvoid PutThanks()
+X
+X  {
+X  switch(Roll(6))
+X    {
+X    case 0:
+X      printf("Thanks for your call.\n") ;
+X      break ;
+X    case 1:
+X      printf("Tnx for ur call.\n") ;
+X      break ;
+X    case 2:
+X      printf("Tnx for the call.\n") ;
+X      break ;
+X    case 3:
+X      printf("Thanks for the call.\n") ;
+X      break ;
+X    default:
+X      printf("Thanks %s for the call.\n", Choose(Name, NNAME)) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutName()
+X
+X  {
+X  switch (Roll(4))
+X    {
+X    case 0:
+X      printf("Name is %s.\n", Choose(Name, NNAME)) ;
+X      break ;
+X    case 1:
+X      printf("This is %s.\n", Choose(Name, NNAME)) ;
+X      break ;
+X    case 2:
+X      printf("%s here.\n", Choose(Name, NNAME)) ;
+X      break ;
+X    default:
+X      printf("My name is %s.\n", Choose(Name, NNAME)) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutJob()
+X
+X  {
+X  switch(Roll(10))
+X    {
+X    case 0:
+X    case 1:
+X      printf("Occupation is %s.\n", Choose(Job, NJOB)) ;
+X      break ;
+X    case 2:
+X    case 3:
+X      printf("My occupation is %s.\n", Choose(Job, NJOB)) ;
+X      break ;
+X    case 4:
+X    case 5:
+X      printf("I work as a %s.\n",  Choose(Job, NJOB)) ;
+X      break ;
+X    case 6:
+X      printf("I was a %s, now unemployed.\n",  Choose(Job, NJOB)) ;
+X      break ;
+X    default:
+X      printf("I am a %s.\n", Choose(Job, NJOB)) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutAge()
+X
+X  {
+X  switch(Roll(3))
+X    {
+X    case 0:
+X      printf("I am %d years old.\n", Roll(60)+16) ;
+X      break ;
+X    case 1:
+X      printf("My age is %d.\n", Roll(60)+16) ;
+X      break ;
+X    default:
+X      printf("Age is %d.\n", Roll(60)+16) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutLicense()
+X
+X  {
+X  switch(Roll(4))
+X    {
+X    case 0:
+X      printf("I have a %s class license.\n", Choose(License, NLICENSE)) ;
+X      break ;
+X    case 1:
+X      printf("I am a %s class ham.\n", Choose(License, NLICENSE)) ;
+X      break ;
+X    case 2:
+X      printf("I have been licensed %d years as %s class.\n",
+X        Roll(20)+1, Choose(License, NLICENSE)) ;
+X      break ;
+X    default:
+X      printf("I have been a %s class ham for %d years.\n",
+X        Choose(License, NLICENSE), Roll(20)+1) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutTemperature()
+X
+X  {
+X  printf("Temperature is %d.\n", Roll(80) + 10) ;
+X  }
+X
+Xvoid PutWeather1()
+X
+X  {
+X  switch (Roll(14))
+X    {
+X    case 0:
+X      printf("Weather here is %s.\n", Choose(Weather1, NWX1)) ;
+X      PutTemperature() ;
+X      break ;
+X    case 1:
+X      printf("Weather is %s.\n", Choose(Weather1, NWX1)) ;
+X      PutTemperature() ;
+X      break ;
+X    case 2:
+X      printf("WX is %s.\n", Choose(Weather1, NWX1)) ;
+X      PutTemperature() ;
+X      break ;
+X    case 3:
+X      printf("Weather here is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 4:
+X      printf("Weather is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 5:
+X      printf("WX is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 6:
+X      PutTemperature() ;
+X      printf("Weather here is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 7:
+X      PutTemperature() ;
+X      printf("Weather is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 8:
+X      PutTemperature() ;
+X      printf("WX is %s.\n", Choose(Weather1, NWX1)) ;
+X      break ;
+X    case 9:
+X      printf("Weather here is %s and temperature is %d.\n",
+X        Choose(Weather1, NWX1), Roll(80)+10) ;
+X      break ;
+X    case 10:
+X      printf("Weather is %s, temperature %d.\n",
+X        Choose(Weather1, NWX1), Roll(80)+10) ;
+X      break ;
+X    case 11:
+X      printf("WX is %d degrees and %s.\n",
+X        Roll(80)+10, Choose(Weather1, NWX1));
+X      break ;
+X    case 12:
+X      printf("The WX is %s and the temp is %d degrees.\n",
+X        Choose(Weather1, NWX1), Roll(80)+10) ;
+X      break ;
+X    default:
+X      printf("WX is %s and %d degrees.\n",
+X        Choose(Weather1, NWX1), Roll(80)+10);
+X    }
+X  }
+X
+Xvoid PutWeather2()
+X
+X  {
+X  switch(Roll(5))
+X    {
+X    case 0:
+X      printf("It is %s.\n", Choose(Weather2, NWX2));
+X      break ;
+X    case 1:
+X      printf("It is %s and %d degrees.\n",
+X        Choose(Weather2, NWX2), Roll(80)+10) ;
+X      break ;
+X    case 2:
+X      printf("The WX is %s and the temp is %d degrees.\n",
+X        Choose(Weather2, NWX2), Roll(80)+10) ;
+X      break ;
+X    case 3:
+X      printf("WX is %s and the temp is %d degrees.\n",
+X        Choose(Weather2, NWX2), Roll(80)+10) ;
+X      break ;
+X    default:
+X      printf("It is %s here.\n", Choose(Weather2, NWX2));
+X      break ;
+X    }
+X  }
+X
+Xvoid PutWeather()
+X
+X  {
+X  switch (Roll(2))
+X    {
+X    case 0:
+X      PutWeather1() ;
+X      break ;
+X    default:
+X      PutWeather2() ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutCityState()
+X
+X  {
+X  switch(Roll(4))
+X    {
+X    case 0:
+X      printf("%s %s, ", Choose(New, NNEW), Choose(NewCity, NNEWCITY)) ;
+X      break ;
+X    case 1:
+X      printf("%s %s, ",
+X        Choose(CityHeights, NCITYHTS), Choose(Heights,NHEIGHTS)) ;
+X      break ;
+X    default:
+X      printf("%s, ", Choose(City, NCITY)) ;
+X      break ;
+X    }
+X  printf("%s.\n", Choose(State, NSTATE)) ;
+X  }
+X
+Xvoid PutLocation()
+X
+X  {
+X  switch(Roll(3))
+X    {
+X    case 0:
+X      printf("My location is ");
+X      break ;
+X    case 1:
+X      printf("My QTH is ") ;
+X      break ;
+X    default:
+X      printf("QTH is ") ;
+X      break ;
+X    }
+X  PutCityState() ;
+X  }
+X
+Xvoid PutRig()
+X
+X  {
+X  switch(Roll(5))
+X    {
+X    case 0:
+X      printf("My rig runs %s watts into a %s up %s feet.\n",
+X        Choose(Power, NPOWER), Choose(Antenna, NANTENNA),
+X        Choose(UpFeet, NUPFEET)) ;
+X      break ;
+X    case 1:
+X      printf("Rig is a %s watt %s and antenna is a %s.\n",
+X        Choose(Power, NPOWER), Choose(Transceiver, NXCVR),
+X        Choose(Antenna, NANTENNA)) ;
+X      break ;
+X    case 2:
+X      printf("My transceiver is a %s.\n", Choose(Transceiver, NXCVR)) ;
+X      printf("It runs %s watts into a %s.\n",
+X        Choose(Power, NPOWER), Choose(Antenna, NANTENNA)) ;
+X      break ;
+X    case 3:
+X      printf("The rig is a %s running %s watts.\n",
+X        Choose(Transceiver, NXCVR), Choose(Power, NPOWER)) ;
+X      printf("Antenna is a %s up %s feet.\n",
+X        Choose(Antenna, NANTENNA), Choose(UpFeet, NUPFEET)) ;
+X      break ;
+X    default:
+X      printf("Rig is a %s running %s watts into a %s up %s feet.\n",
+X        Choose(Transceiver, NXCVR), Choose(Power, NPOWER),
+X        Choose(Antenna, NANTENNA), Choose(UpFeet, NUPFEET)) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutRST()
+X
+X  {
+X  register char *TheRST ;
+X
+X  TheRST = Choose(RST, NRST) ;
+X
+X  switch(Roll(8))
+X    {
+X    case 0:
+X      printf("UR RST %s %s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 1:
+X      printf("RST is %s %s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 2:
+X      printf("RST %s%s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 3:
+X      printf("Your RST %s %s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 4:
+X      printf("Your RST is %s=%s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 5:
+X      printf("Your signal is RST %s/%s.\n", TheRST, TheRST) ;
+X      break ;
+X    case 6:
+X      printf("UR signal is RST %s,%s.\n", TheRST, TheRST) ;
+X      break ;
+X    default:
+X      printf("Your RST is %s=%s.\n", TheRST, TheRST) ;
+X      break ;
+X    }
+X  }
+X
+Xvoid PutFirstCallsign()
+X
+X  {
+X  Sender = Choose(CallSign, NCALLSIGN) ;
+X  Receiver = Choose(CallSign, NCALLSIGN) ;
+X  printf("%s de %s\n", Receiver, Sender) ;
+X  }
+X
+Xvoid PutLastCallsign()
+X
+X  {
+X  printf("%s de %s\n", Receiver, Sender) ;
+X  }
+X
+Xvoid PutForm0()
+X
+X  {
+X  PutRST() ;
+X  PutName() ;
+X  PutLocation() ;
+X  PutMisc() ;
+X  PutRig() ;
+X  PutWeather() ;
+X  PutJob() ;
+X  PutAge() ;
+X  PutMisc() ;
+X  PutLicense() ;
+X  }
+X
+Xvoid PutForm1()
+X
+X  {
+X  PutLocation() ;
+X  PutRST() ;
+X  PutRig() ;
+X  PutWeather() ;
+X  PutMisc() ;
+X  PutName() ;
+X  PutLicense() ;
+X  PutMisc() ;
+X  PutAge() ;
+X  PutJob() ;
+X  }
+X
+Xvoid PutForm2()
+X
+X  {
+X  PutThanks() ;
+X  PutRST() ;
+X  PutName() ;
+X  PutWeather() ;
+X  PutLocation() ;
+X  PutJob() ;
+X  PutLicense() ;
+X  PutRig() ;
+X  PutAge() ;
+X  }
+X
+Xvoid PutForm3()
+X
+X  {
+X  PutLocation() ;
+X  PutRST() ;
+X  PutRig() ;
+X  PutMisc() ;
+X  PutName() ;
+X  PutMisc() ;
+X  PutAge() ;
+X  PutJob() ;
+X  PutLicense() ;
+X  PutMisc() ;
+X  PutWeather() ;
+X  PutMisc() ;
+X  }
+X
+Xvoid PutForm4()
+X
+X  {
+X  PutThanks() ;
+X  PutRST() ;
+X  PutJob() ;
+X  PutMisc() ;
+X  PutMisc() ;
+X  PutName() ;
+X  PutAge() ;
+X  PutLicense() ;
+X  PutRig() ;
+X  PutLocation() ;
+X  PutWeather() ;
+X  PutMisc() ;
+X  }
+X
+Xvoid PutForm5()
+X
+X  {
+X  PutLocation() ;
+X  PutRST() ;
+X  PutRig() ;
+X  PutName() ;
+X  PutJob() ;
+X  PutAge() ;
+X  PutMisc() ;
+X  PutLicense() ;
+X  PutWeather() ;
+X  PutMisc() ;
+X  }
+X
+XPutQSO()
+X
+X  {
+X/*  printf("VVV VVV\n") ; */
+X  PutFirstCallsign() ;
+X  switch(Roll(6))
+X    {
+X    case 0:  PutForm0() ; break ;
+X    case 1:  PutForm1() ; break ;
+X    case 2:  PutForm2() ; break ;
+X    case 3:  PutForm3() ; break ;
+X    case 4:  PutForm4() ; break ;
+X    default: PutForm5() ; break ;
+X    }
+X  printf("+ @\n") ;
+X  PutLastCallsign() ;
+X  printf("\n") ;
+X  }
+X
+Xmain()
+X
+X  {
+X  int i ;
+X
+X  NXCVR     = CountStrings(Transceiver) ;
+X  NANTENNA  = CountStrings(Antenna) ;
+X  NUPFEET   = CountStrings(UpFeet) ;
+X  NPOWER    = CountStrings(Power) ;
+X  NRST      = CountStrings(RST) ;
+X  NWX1      = CountStrings(Weather1) ;
+X  NWX2      = CountStrings(Weather2) ;
+X  NJOB      = CountStrings(Job) ;
+X  NNAME     = CountStrings(Name) ;
+X  NSTATE    = CountStrings(State) ;
+X  NCITY     = CountStrings(City) ;
+X  NCITYHTS  = CountStrings(CityHeights) ;
+X  NNEW      = CountStrings(New) ;
+X  NHEIGHTS  = CountStrings(Heights) ;
+X  NNEWCITY  = CountStrings(NewCity) ;
+X  NLICENSE  = CountStrings(License) ;
+X  NMISC     = CountStrings(Miscellaneous) ;
+X  NCALLSIGN = CountStrings(CallSign) ;
+X
+X  srand48((long) time(0)) ;
+X
+X  PutQSO() ;
+X  }
+END_OF_FILE
+  if test 29113 -ne `wc -c <'QSO.c'`; then
+    echo shar: \"'QSO.c'\" unpacked with wrong size!
+  fi
+  # end of 'QSO.c'
+fi
+if test -f 'alarm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alarm.c'\"
+else
+  echo shar: Extracting \"'alarm.c'\" \(1948 characters\)
+  sed "s/^X//" >'alarm.c' <<'END_OF_FILE'
+X/* alarm.c -- seligman 6/92 */
+X
+X/*
+X-- Implementation of alarm.h
+X*/
+X
+X#include <signal.h>
+X#include <sys/time.h>
+X
+Xstatic int alarmPending = 0;  /* Nonzero when the alarm is set. */
+X
+Xstatic void ualarm();
+Xstatic void AlarmHandler();
+X
+X/* Default BSDSIGS for backwards compatibility of makefile */
+X#ifndef BSDSIGS
+X#ifndef POSIXSIGS
+X#ifndef OTHERSIGS
+X#define BSDSIGS
+X#endif
+X#endif
+X#endif
+X
+Xvoid AlarmSet(time)
+X    int time;
+X{
+X    alarmPending = 1;
+X#ifdef BSDSIGS
+X    signal(SIGALRM, AlarmHandler);
+X#else
+X#ifdef POSIXSIGS
+X    sigset(SIGALRM, AlarmHandler);
+X#else
+X    /* You're on your own... */
+X# endif /*POSIXSIGS*/
+X#endif /*BSDSIGS*/
+X    ualarm(1000 * time, 0);
+X}
+X
+X
+X/*
+X-- If an alarm signal is lurking (due to a prior call to SetAlarm), then
+X-- pause until it arrives.  This procedure could have simply been written:
+X--   if (alarmPending) pause();
+X-- but that allows a potential race condition.
+X*/
+Xvoid AlarmWait()
+X{
+X#ifdef BSDSIGS
+X    long savemask = sigblock(sigmask(SIGALRM));
+X    if (alarmPending)
+X        sigpause(savemask);
+X    sigsetmask(savemask);
+X#else
+X#ifdef POSIXSIGS
+X    sighold(SIGALRM);
+X    if (alarmPending)
+X      sigpause(SIGALRM);
+X    sigrelse(SIGALRM);
+X#else
+X    /* You're on your own */
+X#endif /*POSIXSIGS*/
+X#endif /*BSDSIGS*/
+X
+X}
+X
+X
+Xstatic void ualarm(us)
+X    unsigned us;
+X{
+X    struct itimerval rttimer, old_rttimer;
+X
+X    rttimer.it_value.tv_sec  = us / 1000000;
+X    rttimer.it_value.tv_usec = us % 1000000;
+X    rttimer.it_interval.tv_sec  = 0;
+X    rttimer.it_interval.tv_usec = 0;
+X    if (setitimer(ITIMER_REAL, &rttimer, &old_rttimer)) {
+X	perror("ualarm");
+X	exit(1);
+X    }
+X}
+X
+X
+X#ifdef __hpux
+X
+Xstatic void AlarmHandler(sig, code, scp)
+X    int sig;
+X    int code;
+X    struct sigcontext *scp;
+X{
+X    alarmPending = 0;
+X    /* Prevent alarm signal from interrupting any pending read. */
+X    if (scp->sc_syscall == SYS_READ)
+X	scp->sc_syscall_action = SIG_RESTART;
+X}
+X
+X#else
+X
+Xstatic void AlarmHandler()
+X{
+X    alarmPending = 0;
+X}
+X
+X#endif __hpux
+END_OF_FILE
+  if test 1948 -ne `wc -c <'alarm.c'`; then
+    echo shar: \"'alarm.c'\" unpacked with wrong size!
+  fi
+  # end of 'alarm.c'
+fi
+if test -f 'alarm.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'alarm.h'\"
+else
+  echo shar: Extracting \"'alarm.h'\" \(450 characters\)
+  sed "s/^X//" >'alarm.h' <<'END_OF_FILE'
+X/* alarm.h -- seligman 6/92 */
+X
+X/*
+X-- Routines for using the system interval timer to time beeps.  Useful
+X-- for implementing the functions in beep.h on systems that don't provide
+X-- a more straightforward BeepWait() equivalent.
+X--
+X-- These routines use the ALRM signal.
+X*/
+X
+X
+X/*
+X-- Set the alarm for a time specified in ms.
+X*/
+Xvoid AlarmSet(/*int time*/);
+X
+X/*
+X-- Wait for the alarm, or return immediately if the alarm isn't set.
+X*/
+Xvoid AlarmWait();
+END_OF_FILE
+  if test 450 -ne `wc -c <'alarm.h'`; then
+    echo shar: \"'alarm.h'\" unpacked with wrong size!
+  fi
+  # end of 'alarm.h'
+fi
+if test -f 'beep.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'beep.h'\"
+else
+  echo shar: Extracting \"'beep.h'\" \(1424 characters\)
+  sed "s/^X//" >'beep.h' <<'END_OF_FILE'
+X/* beep.h -- seligman 5/92 */
+X
+X/*
+X-- Machine-dependent code for sounding a beep.
+X*/
+X
+X#ifndef _BEEP_H
+X#define _BEEP_H
+X
+X
+X/*
+X-- Called exactly once, before any other function in this interface.
+X-- Returns nonzero on error.
+X*/
+Xint BeepInit();
+X
+X
+X/*
+X-- Sound a beep for a time specified in ms.
+X-- The volume is in the range [0..100], and the pitch is in Hz.
+X--
+X-- May return immediately, after the sounding of the beep is completed,
+X-- or any time in between.  May be called while a previous beep is still
+X-- sounding, in which case the previous beep finishes before the new one
+X-- begins. Overall timing will be much better if this routine can return
+X-- during the sounding of the beep, especially if it's a "zero-volume beep",
+X-- meaning it's really just the timed pause of silence between tones.
+X-- ("morse.c" tries to do all its thinking during the pauses between beeps,
+X-- mostly in the longer ones between words.)
+X--
+X-- May use the ALRM signal for timing.
+X--
+X-- Returns nonzero on error.
+X*/
+Xint Beep(/*int time, int volume, int pitch*/);
+X
+X
+X/*
+X-- Wait until any currently sounding beeps have completed.
+X-- Returns nonzero on error.
+X*/
+Xint BeepWait();
+X
+X
+X/*
+X-- Clean up any altered state before exiting or suspending the program.
+X-- Returns nonzero on error.
+X*/
+Xint BeepCleanup();
+X
+X
+X/*
+X-- Restore the world when program is resumed after having been suspended.
+X-- Returns nonzero on error.
+X*/
+Xint BeepResume();
+X
+X
+X#endif _BEEP_H
+END_OF_FILE
+  if test 1424 -ne `wc -c <'beep.h'`; then
+    echo shar: \"'beep.h'\" unpacked with wrong size!
+  fi
+  # end of 'beep.h'
+fi
+if test -f 'beepHP.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'beepHP.c'\"
+else
+  echo shar: Extracting \"'beepHP.c'\" \(4037 characters\)
+  sed "s/^X//" >'beepHP.c' <<'END_OF_FILE'
+X/* beepHP.c -- seligman 5/92 */
+X
+X/*
+X-- Implementation of beep.h for HP9000s700 with audio hardware.
+X--
+X-- If the environment variable SPEAKER begins with "E", the external
+X-- audio connection is used.  If it begins with "I", the internal speaker
+X-- is used.  Otherwise both are used.
+X--
+X-- Compile with the math library "-lm".
+X*/
+X
+X#include "beep.h"
+X#include "alarm.h"
+X#include <stdlib.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <math.h>
+X#include <fcntl.h>
+X#include <malloc.h>
+X
+X
+Xstatic char *AudioDev;
+X
+Xstatic int DoBeep();
+X
+X
+Xint BeepInit()
+X{
+X    char *speaker = getenv("SPEAKER");
+X    int fd;
+X
+X    AudioDev =   speaker && toupper(speaker[0])=='E'  ?  "/dev/audioEL"
+X	       : speaker && toupper(speaker[0])=='I'  ?  "/dev/audioIL"
+X	       :					 "/dev/audioBL";
+X
+X    /*
+X    -- A quick check to ensure that we can open the device.
+X    */
+X    if ((fd = open(AudioDev, O_WRONLY)) < 0) {
+X	perror("?? Error opening audio device");
+X	return 1;
+X    }
+X    close(fd);
+X    return 0;
+X}
+X
+X
+X/*
+X-- Optimized for the case where volume & pitch don't change (except possibly
+X-- to zero and back) between successive calls.
+X*/
+Xint Beep(time, volume, pitch)
+X    int time, volume, pitch;
+X{
+X    int rc;
+X
+X    AlarmWait();
+X    if (volume != 0  &&  pitch != 0)
+X	if ((rc = DoBeep(time, volume, pitch))  !=  0)
+X	    return rc;
+X    AlarmSet(time);
+X    return 0;
+X}
+X
+X
+Xint BeepWait()
+X{
+X    AlarmWait();
+X    return 0;
+X}
+X
+X
+Xint BeepCleanup()
+X{
+X    return 0;
+X}
+X
+X
+Xint BeepResume()
+X{
+X    return 0;
+X}
+X
+X
+X/*----------------------------------------*/
+X
+X#define SamplingRate 8000		/* audio device samples per second */
+X#define NumRamp (SamplingRate / 200)	/* # samples in 5ms ramp up/down */
+X
+Xtypedef short int Sample;
+X#define MaxSample (Sample)0x7FFF
+X
+X
+X/*
+X-- Sound a beep.
+X-- Optimized for the case where volume & pitch don't change between successive
+X-- calls.
+X*/
+Xstatic int DoBeep(time, volume, pitch)
+X    int time, volume, pitch;
+X{
+X    static int audioDevFD = -1;  /* -1 indicates not yet open. */
+X
+X    /* Save sample buffer from call to call, and reuse it when possible. */
+X    static Sample *buf = NULL;
+X    static int bufLen    = 0;
+X    static int bufVolume = 0;
+X    static int bufPitch  = 0;
+X
+X    Sample rampbuf[NumRamp];  /* Sample buffer for ramp-down. */
+X
+X    /* Are volume and pitch same as previous call? */
+X    int sameVP  =  (volume == bufVolume  &&  pitch == bufPitch);
+X
+X    int i, j;
+X    int numSamples = SamplingRate * time / 1000;
+X
+X    /*
+X    -- It seems that the first write to the audio device after it's
+X    -- been opened must be the longest.
+X    */
+X    if (numSamples > bufLen) {
+X	if (audioDevFD >= 0) close(audioDevFD);
+X	audioDevFD = -1;
+X    }
+X    if (audioDevFD < 0) {
+X	if ((audioDevFD = open(AudioDev, O_WRONLY)) < 0) {
+X	    perror("?? Error opening audio device");
+X	    return 1;
+X	}
+X    }
+X
+X    /*
+X    -- Allocate space for sample buffer.  Set "i" to lowest index in
+X    -- need of updating.
+X    */
+X    i = sameVP ? bufLen : 0;
+X    if (numSamples > bufLen) {
+X	if (sameVP) {
+X	    buf = realloc(buf, numSamples * sizeof(Sample));
+X	} else {
+X	    if (buf != NULL) free(buf);
+X	    bufVolume = volume;
+X	    bufPitch  = pitch;
+X	    buf = malloc(numSamples * sizeof(Sample));
+X	}
+X	if (buf == NULL) {
+X	    fprintf(stderr, "?? Buy more memory.\n");
+X	    return 1;
+X	}
+X	bufLen = numSamples;
+X    }
+X
+X    /*
+X    -- Update any newly-allocated tail of sample buffer.  The ramp-up is
+X    -- handled here (since it always occurs at the same place); the ramp-down
+X    -- is handled later.
+X    */
+X    while (i < bufLen) {
+X	double rampScale  =  (i < NumRamp)  ?  (double) i / NumRamp  :  1;
+X	double t = (double) i / SamplingRate;
+X	buf[i++] =
+X	    sin(2 * M_PI * pitch * t) * MaxSample * rampScale * volume / 100;
+X    }
+X
+X    /* Sound the beep, except for the ramp-down. */
+X    write(audioDevFD, buf, (numSamples - NumRamp) * sizeof(Sample));
+X
+X    /* Ramp-down */
+X    for (i = 0, j = numSamples-NumRamp;  i < NumRamp;  i++, j++)
+X	rampbuf[i] = buf[j] * ((double) (NumRamp - i) / NumRamp);
+X    write(audioDevFD, rampbuf, sizeof rampbuf);
+X
+X    return 0;
+X}
+END_OF_FILE
+  if test 4037 -ne `wc -c <'beepHP.c'`; then
+    echo shar: \"'beepHP.c'\" unpacked with wrong size!
+  fi
+  # end of 'beepHP.c'
+fi
+if test -f 'beepX11.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'beepX11.c'\"
+else
+  echo shar: Extracting \"'beepX11.c'\" \(1293 characters\)
+  sed "s/^X//" >'beepX11.c' <<'END_OF_FILE'
+X/* beepX11.c -- seligman 5/92 */
+X
+X/*
+X-- Implementation of beep.h for X11.
+X--
+X-- Compile with the library "-lX11".
+X*/
+X
+X#include "beep.h"
+X#include <X11/Xlib.h>
+X
+X
+Xstatic Display *dpy = 0;
+Xstatic XKeyboardControl initialState;
+X
+X#define BellFlags (KBBellPercent | KBBellPitch | KBBellDuration)
+X
+X
+Xint BeepInit()
+X{
+X    XKeyboardState state;
+X
+X    if (! (dpy = XOpenDisplay(0))) {
+X	perror("Couldn't open display");
+X	return 1;
+X    }
+X
+X    /* Save initial state so it can be restored later. */
+X    XGetKeyboardControl(dpy, &state);
+X    initialState.bell_duration = state.bell_duration;
+X    initialState.bell_percent  = state.bell_percent;
+X    initialState.bell_pitch    = state.bell_pitch;
+X
+X    return 0;
+X}
+X
+X
+Xint Beep(time, volume, pitch)
+X    int time, volume, pitch;
+X{
+X    XKeyboardControl values;
+X
+X    AlarmWait();
+X
+X    if (volume != 0  &&  pitch != 0) {
+X	values.bell_duration = time;
+X	values.bell_percent  = 100;
+X	values.bell_pitch    = pitch;
+X
+X	XChangeKeyboardControl(dpy, BellFlags, &values);
+X	XBell(dpy, volume - 100);
+X	XFlush(dpy);
+X    }
+X
+X    AlarmSet(time);
+X    return 0;
+X}
+X
+X
+Xint BeepWait()
+X{
+X    AlarmWait();
+X    return 0;
+X}
+X
+X
+Xint BeepCleanup()
+X{
+X    if (dpy != 0) {
+X	XChangeKeyboardControl(dpy, BellFlags, &initialState);
+X	XFlush(dpy);
+X    }
+X    return 0;
+X}
+X
+X
+Xint BeepResume()
+X{
+X    return 0;
+X}
+END_OF_FILE
+  if test 1293 -ne `wc -c <'beepX11.c'`; then
+    echo shar: \"'beepX11.c'\" unpacked with wrong size!
+  fi
+  # end of 'beepX11.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

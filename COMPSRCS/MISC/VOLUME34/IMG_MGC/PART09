@@ -1,0 +1,1814 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (John Cristy)
+Subject:  v34i037:  imagemagick - X11 image processing and display v2.2, Part09/26
+Message-ID: <1992Dec13.202811.9789@sparky.imd.sterling.com>
+X-Md4-Signature: 90d00814723ce3528650c775e8603408
+Date: Sun, 13 Dec 1992 20:28:11 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (John Cristy)
+Posting-number: Volume 34, Issue 37
+Archive-name: imagemagick/part09
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+
+#!/bin/sh
+# this is Part.09 (part 9 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/quantize.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 9; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/quantize.c'
+else
+echo 'x - continuing file ImageMagick/quantize.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/quantize.c' &&
+X      q->length=0;
+X      q+=step;
+X      /*
+X        Propagate the error in these proportions:
+X                Q     7/16
+X          3/16  5/16  1/16
+X      */
+X      cs+=step;
+X      cs->red+=red_error-((red_error*9+8) >> 4);
+X      cs->green+=green_error-((green_error*9+8) >> 4);
+X      cs->blue+=blue_error-((blue_error*9+8) >> 4);
+X      ns-=step;
+X      ns->red+=(red_error*3+8) >> 4;
+X      ns->green+=(green_error*3+8) >> 4;
+X      ns->blue+=(blue_error*3+8) >> 4;
+X      ns+=step;
+X      ns->red+=(red_error*5+8) >> 4;
+X      ns->green+=(green_error*5+8) >> 4;
+X      ns->blue+=(blue_error*5+8) >> 4;
+X      ns+=step;
+X      ns->red+=(red_error+8) >> 4;
+X      ns->green+=(green_error+8) >> 4;
+X      ns->blue+=(blue_error+8) >> 4;
+X    }
+X    odd_scanline=!odd_scanline;
+X  }
+X  /*
+X    Free up memory.
+X  */
+X  (void) free((char *) scanline);
+X  (void) free((char *) range_table);
+X  (void) free((char *) cache);
+X  (void) free((char *) image->pixels);
+X  image->packets=dithered_image->packets;
+X  image->pixels=dithered_image->pixels;
+X  dithered_image->file=(FILE *) NULL;
+X  dithered_image->pixels=(RunlengthPacket *) NULL;
+X  DestroyImage(dithered_image);
+X  return(False);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e C u b e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeCube initialize the Cube data structure.
+%
+%  The format of the InitializeCube routine is:
+%
+%      InitializeCube(number_colors,tree_depth,number_pixels,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  Here we use this value
+%      to determine the depth of the color description tree.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells Quantize to choose a optimal tree depth of Log4(number_colors).
+%      A tree of this depth generally allows the best representation of the
+%      reference image with the least amount of memory and the fastest
+%      computational speed.  In some cases, such as an image with low color
+%      dispersion (a few number of colors), a value other than
+%      Log4(number_colors) is required.  To expand the color tree completely,
+%      use a value of 8.
+%
+%    o number_pixels: Specifies the number of individual pixels in the image.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+*/
+static void InitializeCube(number_colors,tree_depth,number_pixels,optimal)
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  number_pixels,
+X  optimal;
+{
+X  register int
+X    i;
+X
+X  static int
+X    log4[6] = {4, 16, 64, 256, 1024, ~0};
+X
+X  unsigned int
+X    level;
+X
+X  unsigned long int
+X    max_shift;
+X
+X  /*
+X    Initialize tree to describe color cube.  Depth is: Log4(colormap size)+2;
+X  */
+X  cube.node_queue=(Nodes *) NULL;
+X  cube.nodes=0;
+X  cube.free_nodes=0;
+X  if (tree_depth > 1)
+X    cube.depth=Min(tree_depth,8);
+X  else
+X    {
+X      for (i=0; i < 6; i++)
+X        if (number_colors <= log4[i])
+X          break;
+X      cube.depth=i+3;
+X      if (!optimal)
+X        cube.depth--;
+X    }
+X  /*
+X    Initialize the shift values.
+X  */
+X  for (max_shift=0; number_pixels > 0; max_shift++)
+X    number_pixels<<=1;
+X  for (level=0; level < cube.depth; level++)
+X  {
+X    cube.shift[level]=(cube.depth-level-1) << 1;
+X    if (cube.shift[level] > max_shift)
+X      cube.shift[level]=max_shift;
+X  }
+X  /*
+X    Initialize the square values.
+X  */
+X  for (i=(-MaxRGB); i <= MaxRGB; i++)
+X    cube.squares[i+MaxRGB]=i*i;
+X  /*
+X    Initialize root node.
+X  */
+X  cube.root=
+X    InitializeNode(0,0,(Node *) NULL,MaxRGB >> 1,MaxRGB >> 1,MaxRGB >> 1);
+X  if (cube.root == (Node *) NULL)
+X    {
+X      Warning("unable to quantize image","memory allocation failed");
+X      exit(1);
+X    }
+X  cube.root->parent=cube.root;
+X  cube.root->number_colors=(~0);
+X  cube.colors=0;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  I n i t i a l i z e N o d e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function InitializeNode allocates memory for a new node in the color cube
+%  tree and presets all fields to zero.
+%
+%  The format of the InitializeNode routine is:
+%
+%      node=InitializeNode(node,id,level,mid_red,mid_green,mid_blue)
+%
+%  A description of each parameter follows.
+%
+%    o node: The InitializeNode routine returns this integer address.
+%
+%    o id: Specifies the child number of the node.
+%
+%    o level: Specifies the level in the classification the node resides.
+%
+%    o mid_red: Specifies the mid point of the red axis for this node.
+%
+%    o mid_green: Specifies the mid point of the green axis for this node.
+%
+%    o mid_blue: Specifies the mid point of the blue axis for this node.
+%
+%
+*/
+static Node *InitializeNode(id,level,parent,mid_red,mid_green,mid_blue)
+unsigned int
+X  id,
+X  level;
+X
+Node
+X  *parent;
+X
+unsigned int
+X  mid_red,
+X  mid_green,
+X  mid_blue;
+{
+X  register int
+X    i;
+X
+X  register Node
+X    *node;
+X
+X  if (cube.free_nodes == 0)
+X    {
+X      register Nodes
+X        *nodes;
+X
+X      /*
+X        Allocate a new nodes of nodes.
+X      */
+X      nodes=(Nodes *) malloc(sizeof(Nodes));
+X      if (nodes == (Nodes *) NULL)
+X        return((Node *) NULL);
+X      nodes->next=cube.node_queue;
+X      cube.node_queue=nodes;
+X      cube.next_node=nodes->nodes;
+X      cube.free_nodes=NodesInAList;
+X    }
+X  cube.nodes++;
+X  cube.free_nodes--;
+X  node=cube.next_node++;
+X  node->parent=parent;
+X  for (i=0; i < 8; i++)
+X    node->child[i]=(Node *) NULL;
+X  node->id=id;
+X  node->level=level;
+X  node->children=0;
+X  node->mid_red=mid_red;
+X  node->mid_green=mid_green;
+X  node->mid_blue=mid_blue;
+X  node->number_colors=0;
+X  node->number_unique=0;
+X  node->total_red=0;
+X  node->total_green=0;
+X  node->total_blue=0;
+X  return(node);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  P r u n e C h i l d                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function PruneChild deletes the given node and merges its statistics into
+%  its parent.
+%
+%  The format of the PruneSubtree routine is:
+%
+%      PruneChild(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void PruneChild(node)
+register Node
+X  *node;
+{
+X  register Node
+X    *parent;
+X
+X  /*
+X    Merge color statistics into parent.
+X  */
+X  parent=node->parent;
+X  parent->children&=~(1 << node->id);
+X  parent->number_unique+=node->number_unique;
+X  parent->total_red+=node->total_red;
+X  parent->total_green+=node->total_green;
+X  parent->total_blue+=node->total_blue;
+X  cube.nodes--;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  P r u n e L e v e l                                                        %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure PruneLevel deletes all nodes at the bottom level of the color
+%  tree merging their color statistics into their parent node.
+%
+%  The format of the PruneLevel routine is:
+%
+%      PruneLevel(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void PruneLevel(node)
+register Node
+X  *node;
+{
+X  register int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children > 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        PruneLevel(node->child[id]);
+X  if (node->level == (cube.depth-1))
+X    PruneChild(node);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e d u c e                                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Reduce traverses the color cube tree and prunes any node whose
+%  number of colors fall below a particular threshold.
+%
+%  The format of the Reduce routine is:
+%
+%      Reduce(node)
+%
+%  A description of each parameter follows.
+%
+%    o node: pointer to node in color cube tree that is to be pruned.
+%
+%
+*/
+static void Reduce(node)
+register Node
+X  *node;
+{
+X  register unsigned int
+X    id;
+X
+X  /*
+X    Traverse any children.
+X  */
+X  if (node->children > 0)
+X    for (id=0; id < 8; id++)
+X      if (node->children & (1 << id))
+X        Reduce(node->child[id]);
+X  if (node->number_colors <= cube.pruning_threshold)
+X    {
+X      /*
+X        Node has a sub-threshold color count so prune it.  Node is an colormap
+X        entry if parent does not have any unique colors.
+X      */
+X      if (node->parent->number_unique == 0)
+X        cube.colors++;
+X      PruneChild(node);
+X      if (node->parent->number_colors < cube.next_pruning_threshold)
+X        cube.next_pruning_threshold=node->parent->number_colors;
+X    }
+X  else
+X    {
+X      /*
+X        Find minimum pruning threshold.  Node is a colormap entry if it has
+X        unique colors.
+X      */
+X      if (node->number_unique > 0)
+X        cube.colors++;
+X      if (node->number_colors < cube.next_pruning_threshold)
+X        cube.next_pruning_threshold=node->number_colors;
+X    }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e d u c t i o n                                                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Reduction repeatedly prunes the tree until the number of nodes
+%  with n2 > 0 is less than or equal to the maximum number of colors allowed
+%  in the output image.  On any given iteration over the tree, it selects
+%  those nodes whose n1  count is minimal for pruning and merges their
+%  color statistics upward. It uses a pruning threshold, ns, to govern
+%  node selection as follows:
+%
+%    ns = 0
+%    while number of nodes with (n2 > 0) > required maximum number of colors
+%      prune all nodes such that n1 <= ns
+%      Set ns to minimum n1 in remaining nodes
+%
+%  When a node to be pruned has offspring, the pruning procedure invokes
+%  itself recursively in order to prune the tree from the leaves upward.
+%  n2,  Sr, Sg,  and  Sb in a node being pruned are always added to the
+%  corresponding data in that node's parent.  This retains the pruned
+%  node's color characteristics for later averaging.
+%
+%  For each node, n2 pixels exist for which that node represents the
+%  smallest volume in RGB space containing those pixel's colors.  When n2
+%  > 0 the node will uniquely define a color in the output image. At the
+%  beginning of reduction,  n2 = 0  for all nodes except a the leaves of
+%  the tree which represent colors present in the input image.
+%
+%  The other pixel count, n1, indicates the total number of colors
+%  within the cubic volume which the node represents.  This includes n1 -
+%  n2  pixels whose colors should be defined by nodes at a lower level in
+%  the tree.
+%
+%  The format of the Reduction routine is:
+%
+%      Reduction(number_colors)
+%
+%  A description of each parameter follows.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of
+%      colors allocated to the colormap may be less than this value, but
+%      never more.  Note, the number of colors is restricted to a value
+%      less than or equal to 65536 if the continuous_tone parameter has a
+%      value of zero.
+%
+%
+*/
+static void Reduction(number_colors)
+register unsigned int
+X  number_colors;
+{
+X  cube.next_pruning_threshold=1;
+X  while (cube.colors > number_colors)
+X  {
+X    cube.pruning_threshold=cube.next_pruning_threshold;
+X    cube.next_pruning_threshold=cube.root->number_colors-1;
+X    cube.colors=0;
+X    Reduce(cube.root);
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  Q u a n t i z a t i o n E r r o r                                          %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QuantizationError measures the difference between the original
+%  and quantized images.  This difference is the total quantization error.
+%  The error is computed by summing over all pixels in an image the distance
+%  squared in RGB space between each reference pixel value and its quantized
+%  value.
+%
+%  The format of the QuantizationError routine is:
+%
+%      QuantizationError(image,mean_error_per_pixel,
+%        normalized_mean_square_error,normalized_maximum_square_error)
+%
+%  A description of each parameter follows.
+%
+%    o image: The address of a byte (8 bits) array of run-length
+%      encoded pixel data of your reference image.  The sum of the
+%      run-length counts in the reference image must be equal to or exceed
+%      the number of pixels.
+%
+%    o mean_error_per_pixel: The address of an integer value.  The value
+%      returned is the mean error for any single pixel in the image.
+%
+%    o normalized_mean_square_error: The address of a real value.  The value
+%      returned is the normalized mean quantization error for any single
+%      pixel in the image.  This distance measure is normalized to a
+%      range between 0 and 1.  It is independent of the range of red,
+%      green, and blue values in your image.
+%
+%    o normalized_maximum_square_error: The address of a real value.  The value
+%      returned is the normalized maximum quantization error for any
+%      single pixel in the image.  This distance measure is normalized to
+%      a range between 0 and 1.  It is independent of the range of red,
+%      green, and blue values in your image.
+%
+%
+*/
+void QuantizationError(image,mean_error_per_pixel,normalized_mean_square_error,
+X  normalized_maximum_square_error)
+Image
+X  *image;
+X
+unsigned int
+X  *mean_error_per_pixel;
+X
+double
+X  *normalized_mean_square_error,
+X  *normalized_maximum_square_error;
+{
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned int
+X    blue_distance,
+X    green_distance,
+X    red_distance;
+X
+X  unsigned long int
+X    distance,
+X    maximum_error_per_pixel,
+X    total_error;
+X
+X  /*
+X    For each pixel, collect error statistics.
+X  */
+X  for (i=(-MaxRGB); i <= MaxRGB; i++)
+X    cube.squares[i+MaxRGB]=i*i;
+X  maximum_error_per_pixel=0;
+X  total_error=0;
+X  p=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    red_distance=(int) p->red-(int) image->colormap[p->index].red+MaxRGB;
+X    green_distance=(int) p->green-(int) image->colormap[p->index].green+MaxRGB;
+X    blue_distance=(int) p->blue-(int) image->colormap[p->index].blue+MaxRGB;
+X    distance=cube.squares[red_distance]+cube.squares[green_distance]+
+X      cube.squares[blue_distance];
+X    total_error+=(distance*(p->length+1));
+X    if (distance > maximum_error_per_pixel)
+X      maximum_error_per_pixel=distance;
+X    p++;
+X  }
+X  /*
+X    Compute final error statistics.
+X  */
+X  *mean_error_per_pixel=(unsigned int) total_error/(image->columns*image->rows);
+X  *normalized_mean_square_error=((double) *mean_error_per_pixel)/
+X    (3.0*MaxRGB*MaxRGB);
+X  *normalized_maximum_square_error=((double) maximum_error_per_pixel)/
+X    (3.0*MaxRGB*MaxRGB);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  Q u a n t i z e I m a g e                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function QuantizeImage analyzes the colors within a reference image and
+%  chooses a fixed number of colors to represent the image.  The goal of the
+%  algorithm is to minimize the difference between the input and output image
+%  while minimizing the processing time.
+%
+%  The format of the Quantize routine is:
+%
+%      colors=QuantizeImage(image,number_colors,tree_depth,dither,optimal)
+%
+%  A description of each parameter follows.
+%
+%    o colors: The QuantizeImage function returns this integer
+%      value.  It is the actual number of colors allocated in the
+%      colormap.  Note, the actual number of colors allocated may be less
+%      than the number of colors requested, but never more.
+%
+%    o image: Specifies a pointer to an Image structure;  returned from
+%      ReadImage.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of
+%      colors allocated to the colormap may be less than this value, but
+%      never more.  Note, the number of colors is restricted to a value
+%      less than or equal to 65536 if the continuous_tone parameter has a
+%      value of zero.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells Quantize to choose a optimal tree depth of Log4(number_colors).
+%      A tree of this depth generally allows the best representation of the
+%      reference image with the least amount of memory and the fastest
+%      computational speed.  In some cases, such as an image with low color
+%      dispersion (a few number of colors), a value other than
+%      Log4(number_colors) is required.  To expand the color tree completely,
+%      use a value of 8.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%      Empirical evidence suggests that distances in YUV or YIQ correspond to
+%      perceptual color differences more closely than do distances in RGB
+%      space.  The image is then returned to RGB colorspace after color
+%      reduction.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+void QuantizeImage(image,number_colors,tree_depth,dither,colorspace,optimal)
+Image
+X  *image;
+X
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  dither,
+X  colorspace,
+X  optimal;
+{
+X  Nodes
+X    *nodes;
+X
+X  /*
+X    Reduce the number of colors in the continuous tone image.
+X  */
+X  if (number_colors > MaxColormapSize)
+X    number_colors=MaxColormapSize;
+X  InitializeCube(number_colors,tree_depth,image->columns*image->rows,optimal);
+X  if ((image->compression == RunlengthEncodedCompression) &&
+X      (image->packets == (image->columns*image->rows)))
+X    CompressImage(image);
+X  if (colorspace != RGBColorspace)
+X    RGBTransformImage(image,colorspace);
+X  Classification(image);
+X  if (!optimal)
+X    dither|=cube.colors > (1 << (cube.depth-1));
+X  Reduction(number_colors);
+X  Assignment(image,dither,optimal);
+X  if (colorspace != RGBColorspace)
+X    TransformRGBImage(image,colorspace);
+X  /*
+X    Release color cube tree storage.
+X  */
+X  do
+X  {
+X    nodes=cube.node_queue->next;
+X    (void) free((char *) cube.node_queue);
+X    cube.node_queue=nodes;
+X  }
+X  while (cube.node_queue != (Nodes *) NULL);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   Q u a n t i z e I m a g e s                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  QuantizeImages analyzes the colors within a set of reference images and
+%  chooses a fixed number of colors to represent the set.  The goal of the
+%  algorithm is to minimize the difference between the input and output images
+%  while minimizing the processing time.
+%
+%  The format of the QuantizeImages routine is:
+%
+%      QuantizeImages(images,number_images,number_colors,tree_depth,dither,
+%        optimal)
+%
+%  A description of each parameter follows:
+%
+%    o images: Specifies a pointer to a set of Image structures.
+%
+%    o number_images:  Specifies an unsigned integer representing the number
+%      images in the image set.
+%
+%    o colormap_image: Specifies a pointer to a Image structure.  Reduce
+%      images to a set of colors represented by this image.
+%
+%    o number_colors: This integer value indicates the maximum number of
+%      colors in the quantized image or colormap.  The actual number of colors
+%      allocated to the colormap may be less than this value, but never more.
+%      Note, the number of colors is restricted to a value less than or equal
+%      to 65536 if the quantized image is not DirectClass.
+%
+%    o tree_depth: Normally, this integer value is zero or one.  A zero or
+%      one tells QUANTIZE to choose a optimal tree depth.  An optimal depth
+%      generally allows the best representation of the reference image with the
+%      fastest computational speed and the least amount of memory.  However,
+%      the default depth is inappropriate for some images.  To assure the best
+%      representation, try values between 2 and 8 for this parameter.
+%
+%    o dither: Set this integer value to something other than zero to
+%      dither the quantized image.  The basic strategy of dithering is to
+%      trade intensity resolution for spatial resolution by averaging the
+%      intensities of several neighboring pixels.  Images which suffer
+%      from severe contouring when quantized can be improved with the
+%      technique of dithering.  Severe contouring generally occurs when
+%      quantizing to very few colors, or to a poorly-chosen colormap.
+%      Note, dithering is a computationally expensive process and will
+%      increase processing time significantly.
+%
+%    o colorspace: An unsigned integer value that indicates the colorspace.
+%      Empirical evidence suggests that distances in YUV or YIQ correspond to
+%      perceptual color differences more closely than do distances in RGB
+%      space.  The image is then returned to RGB colorspace after color
+%      reduction.
+%
+%    o optimal: An unsigned integer value greater than zero indicates that
+%      the optimal representation of the reference image should be returned.
+%
+%
+*/
+void QuantizeImages(images,number_images,colormap_image,number_colors,
+X  tree_depth,dither,colorspace,optimal)
+Image
+X  **images;
+X
+unsigned int
+X  number_images;
+X
+Image
+X  *colormap_image;
+X
+unsigned int
+X  number_colors,
+X  tree_depth,
+X  dither,
+X  colorspace,
+X  optimal;
+{
+X  Nodes
+X    *nodes;
+X
+X  register unsigned int
+X    i;
+X
+X  /*
+X    Reduce the number of colors in the continuous tone image sequence.
+X  */
+X  InitializeCube(number_colors,tree_depth,~0,optimal);
+X  if (colormap_image != (Image *) NULL)
+X    {
+X      /*
+X        Reduce images to a set of colors represented by the colormap image.
+X      */
+X      if ((colormap_image->compression == RunlengthEncodedCompression) &&
+X          (colormap_image->packets ==
+X           (colormap_image->columns*colormap_image->rows)))
+X        CompressImage(colormap_image);
+X      if (colorspace != RGBColorspace)
+X        RGBTransformImage(colormap_image,colorspace);
+X      Classification(colormap_image);
+X      if (colorspace != RGBColorspace)
+X        TransformRGBImage(colormap_image,colorspace);
+X      optimal=True;
+X    }
+X  for (i=0; i < number_images; i++)
+X  {
+X    if ((images[i]->compression == RunlengthEncodedCompression) &&
+X        (images[i]->packets == (images[i]->columns*images[i]->rows)))
+X      CompressImage(images[i]);
+X    if (colorspace != RGBColorspace)
+X      RGBTransformImage(images[i],colorspace);
+X    if (colormap_image == (Image *) NULL)
+X      Classification(images[i]);
+X  }
+X  if (!optimal)
+X    dither|=cube.colors > (1 << (cube.depth-1));
+X  Reduction(number_colors);
+X  for (i=0; i < number_images; i++)
+X  {
+X    Assignment(images[i],dither,optimal);
+X    if (colorspace != RGBColorspace)
+X      TransformRGBImage(images[i],colorspace);
+X  }
+X  /*
+X    Release color cube tree storage.
+X  */
+X  do
+X  {
+X    nodes=cube.node_queue->next;
+X    (void) free((char *) cube.node_queue);
+X    cube.node_queue=nodes;
+X  }
+X  while (cube.node_queue != (Nodes *) NULL);
+}
+SHAR_EOF
+echo 'File ImageMagick/quantize.c is complete' &&
+chmod 0644 ImageMagick/quantize.c ||
+echo 'restore of ImageMagick/quantize.c failed'
+Wc_c="`wc -c < 'ImageMagick/quantize.c'`"
+test 60634 -eq "$Wc_c" ||
+	echo 'ImageMagick/quantize.c: original size 60634, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/rotate.c ==============
+if test -f 'ImageMagick/rotate.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/rotate.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/rotate.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/rotate.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                 RRRR    OOO   TTTTT   AAA   TTTTT   EEEEE                   %
+%                 R   R  O   O    T    A   A    T     E                       %
+%                 RRRR   O   O    T    AAAAA    T     EEE                     %
+%                 R R    O   O    T    A   A    T     E                       %
+%                 R  R    OOO     T    A   A    T     EEEEE                   %
+%                                                                             %
+%                                                                             %
+%                Rotate a raster image by an arbitrary angle.                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                           Software Design                                   %
+%                             John Cristy                                     %
+%                              July 1992                                      %
+%                                                                             %
+%                                                                             %
+%  Copyright 1992 E. I. du Pont de Nemours & Company                          %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. du Pont de Nemours    %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. du Pont de Nemours & Company makes no representations   %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. du Pont de Nemours & Company disclaims all warranties with regard    %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. du Pont de Nemours & Company be       %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RotateImage is based on the paper "A Fast Algorithm for General
+%  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+%  routine based on the Paeth paper written by Michael Halle of the Spatial
+%  Imaging Group, MIT Media Lab.
+%
+*/
+X
+/*
+X  Include declarations.
+*/
+#include "display.h"
+#include "image.h"
+X
+/*
+X  External declarations.
+*/
+extern char
+X  *application_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   C o l u m n S h e a r                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure ColumnShear displaces a subcolumn of pixels a specified number of
+%  pixels.
+%
+%  The format of the ColumnShear routine is:
+%
+%      ColumnShear(source_image,source_columns,column,y,length,displacement,
+%        background)
+%
+%  A description of each parameter follows.
+%
+%    o source_image: A pointer to a ColorPacket structure which contains the
+%      source image.
+%
+%    o source_columns: Specifies the number of columns in the source image.
+%
+%    o column: Specifies which column in the image to move.
+%
+%    o y: Specifies the offset in the source image.
+%
+%    o length: Specifies the number of pixels to move.
+%
+%    o displacement: Specifies the number of pixels to displace the column of
+%      pixels.
+%
+%    o background: Specifies the background color.
+%
+%
+*/
+static void ColumnShear(source_image,source_columns,column,y,length,
+X  displacement,background,range_limit)
+ColorPacket
+X  *source_image;
+X
+register unsigned int
+X  source_columns;
+X
+unsigned int
+X  column,
+X  y,
+X  length;
+X
+double
+X  displacement;
+X
+ColorPacket
+X  background;
+X
+register unsigned char
+X  *range_limit;
+{
+X  ColorPacket
+X    last_pixel;
+X
+X  enum {UP,DOWN}
+X    direction;
+X
+X  int
+X    blue,
+X    green,
+X    red,
+X    step;
+X
+X  long int
+X    fractional_step;
+X
+X  register ColorPacket
+X    *p,
+X    *q;
+X
+X  register int
+X    i;
+X
+X  if (displacement == 0.0)
+X    return;
+X  else
+X    if (displacement > 0.0)
+X      direction=DOWN;
+X    else
+X      {
+X        displacement*=(-1.0);
+X        direction=UP;
+X      }
+X  step=(int) floor(displacement);
+X  fractional_step=UpShifted(displacement-(double) step);
+X  if (fractional_step == 0)
+X    {
+X      /*
+X        No fractional displacement-- just copy the pixels.
+X      */
+X      switch (direction)
+X      {
+X        case UP:
+X        {
+X          p=source_image+y*source_columns+column;
+X          q=p-step*source_columns;
+X          for (i=0; i < length; i++)
+X          {
+X            *q=(*p);
+X            q+=source_columns;
+X            p+=source_columns;
+X          }
+X          /*
+X            Set old column to background color.
+X          */
+X          for (i=0; i < step; i++)
+X          {
+X            *q=background;
+X            q+=source_columns;
+X          }
+X          break;
+X        }
+X        case DOWN:
+X        {
+X          p=source_image+(y+length)*source_columns+column;
+X          q=p+step*source_columns;
+X          for (i=0; i < length; i++)
+X          {
+X            q-=source_columns;
+X            p-=source_columns;
+X            *q=(*p);
+X          }
+X          /*
+X            Set old column to background color.
+X          */
+X          for (i=0; i < step; i++)
+X          {
+X            q-=source_columns;
+X            *q=background;
+X          }
+X          break;
+X        }
+X      }
+X      return;
+X    }
+X  /*
+X    Fractional displacment.
+X  */
+X  step++;
+X  last_pixel=background;
+X  switch (direction)
+X  {
+X    case UP:
+X    {
+X      p=source_image+y*source_columns+column;
+X      q=p-step*source_columns;
+X      for (i=0; i < length; i++)
+X      {
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X          fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+X          fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X          fractional_step);
+X        last_pixel=(*p);
+X        p+=source_columns;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        q+=source_columns;
+X      }
+X      /*
+X        Set old column to background color.
+X      */
+X      red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X        background.red*fractional_step);
+X      green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X        background.green*fractional_step);
+X      blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X        background.blue*fractional_step);
+X      q->red=range_limit[red];
+X      q->green=range_limit[green];
+X      q->blue=range_limit[blue];
+X      q+=source_columns;
+X      for (i=0; i < step-1; i++)
+X      {
+X        *q=background;
+X        q+=source_columns;
+X      }
+X      break;
+X    }
+X    case DOWN:
+X    {
+X      p=source_image+(y+length)*source_columns+column;
+X      q=p+step*source_columns;
+X      for (i=0; i < length; i++)
+X      {
+X        p-=source_columns;
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X          fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+X          fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X          fractional_step);
+X        last_pixel=(*p);
+X        q-=source_columns;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X      }
+X      /*
+X        Set old column to background color.
+X      */
+X      red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X        background.red*fractional_step);
+X      green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X        background.green*fractional_step);
+X      blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X        background.blue*fractional_step);
+X      q-=source_columns;
+X      q->red=range_limit[red];
+X      q->green=range_limit[green];
+X      q->blue=range_limit[blue];
+X      for (i=0; i < step-1; i++)
+X      {
+X        q-=source_columns;
+X        *q=background;
+X      }
+X      break;
+X    }
+X  }
+X  return;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   I n t e g r a l R o t a t i o n                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function IntegralRotation rotates the source image starting at location
+%  (x,y) an integral of 90 degrees and copies the result to the rotated image
+%  buffer.
+%
+%  The format of the IntegralRotation routine is:
+%
+%      IntegralRotation(image,source_columns,source_rows,rotated_image,
+%        rotated_columns,x,y,rotations)
+%
+%  A description of each parameter follows.
+%
+%    o source_image: A pointer to a Image structure containing the source
+%      image.
+%
+%    o source_columns: Specifies the number of columns of pixels in the
+%      source image.
+%
+%    o source_rows: Specifies the number of rows of pixels in the source
+%      image.
+%
+%    o rotated_image: A pointer to a ColorPacket structure containing the
+%      rotated image.
+%
+%    o rotated_columns: Specifies the number of columns of pixels in the
+%      rotated image.
+%
+%    o x: Specifies the x offset in the source image.
+%
+%    o y: Specifies the y offset in the source image.
+%
+%    o rotations: Specifies the number of 90 degree rotations.
+%
+%
+*/
+static void IntegralRotation(image,source_columns,source_rows,rotated_image,
+X  rotated_columns,x,y,rotations)
+Image
+X  *image;
+X
+unsigned int
+X  source_columns,
+X  source_rows;
+X
+ColorPacket
+X  *rotated_image;
+X
+unsigned int
+X  rotated_columns,
+X  x,
+X  y,
+X  rotations;
+{
+X  ColorPacket
+X    *q;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register int
+X    i,
+X    j;
+X
+X  /*
+X    Expand runlength packets into a rectangular array of pixels.
+X  */
+X  p=image->pixels;
+X  image->runlength=p->length+1;
+X  switch (rotations)
+X  {
+X    case 0:
+X    {
+X      /*
+X        Rotate 0 degrees.
+X      */
+X      for (j=0; j < source_rows; j++)
+X      {
+X        q=rotated_image+rotated_columns*(y+j)+x;
+X        for (i=0; i < source_columns; i++)
+X        {
+X          if (image->runlength > 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          q->red=p->red;
+X          q->green=p->green;
+X          q->blue=p->blue;
+X          q->index=p->index;
+X          q++;
+X        }
+X      }
+X      break;
+X    }
+X    case 1:
+X    {
+X      /*
+X        Rotate 90 degrees.
+X      */
+X      for (j=source_columns-1; j >= 0; j--)
+X      {
+X        q=rotated_image+rotated_columns*y+x+j;
+X        for (i=0; i < source_rows; i++)
+X        {
+X          if (image->runlength > 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          q->red=p->red;
+X          q->green=p->green;
+X          q->blue=p->blue;
+X          q->index=p->index;
+X          q+=rotated_columns;
+X        }
+X      }
+X      break;
+X    }
+X    case 2:
+X    {
+X      /*
+X        Rotate 180 degrees.
+X      */
+X      q=rotated_image;
+X      for (j=source_rows-1; j >= 0; j--)
+X      {
+X        q=rotated_image+rotated_columns*(y+j)+x+source_columns;
+X        for (i=0; i < source_columns; i++)
+X        {
+X          if (image->runlength > 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          q--;
+X          q->red=p->red;
+X          q->green=p->green;
+X          q->blue=p->blue;
+X          q->index=p->index;
+X        }
+X      }
+X      break;
+X    }
+X    case 3:
+X    {
+X      /*
+X        Rotate 270 degrees.
+X      */
+X      for (j=0; j < source_columns; j++)
+X      {
+X        q=rotated_image+rotated_columns*(y+source_rows)+x+j-rotated_columns;
+X        for (i=0; i < source_rows; i++)
+X        {
+X          if (image->runlength > 0)
+X            image->runlength--;
+X          else
+X            {
+X              p++;
+X              image->runlength=p->length;
+X            }
+X          q->red=p->red;
+X          q->green=p->green;
+X          q->blue=p->blue;
+X          q->index=p->index;
+X          q-=rotated_columns;
+X        }
+X      }
+X      break;
+X    }
+X    default:
+X      break;
+X  }
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R o w S h e a r                                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure RowShear displaces a subrow of pixels a specified number of
+%  pixels.
+%
+%  The format of the RowShear routine is:
+%
+%      RowShear(source_image,source_columns,row,y,length,displacement,
+%        background)
+%
+%  A description of each parameter follows.
+%
+%    o source_image: A pointer to a ColorPacket structure.
+%
+%    o source_columns: Specifies the number of columns in the source image.
+%
+%    o row: Specifies which row in the image to move.
+%
+%    o y: Specifies the offset in the source image.
+%
+%    o length: Specifies the number of pixels to move.
+%
+%    o displacement: Specifies the number of pixels to displace the row of
+%      pixels.
+%
+%    o background: Specifies the background color.
+%
+%
+*/
+static void RowShear(source_image,source_columns,row,x,length,displacement,
+X  background,range_limit)
+ColorPacket
+X  *source_image;
+X
+unsigned int
+X  source_columns,
+X  row,
+X  x,
+X  length;
+X
+double
+X  displacement;
+X
+ColorPacket
+X  background;
+X
+register unsigned char
+X  *range_limit;
+{
+X  ColorPacket
+X    last_pixel;
+X
+X  enum {LEFT,RIGHT}
+X    direction;
+X
+X  int
+X    blue,
+X    green,
+X    red,
+X    step;
+X
+X  long int
+X    fractional_step;
+X
+X  register ColorPacket
+X    *p,
+X    *q;
+X
+X  register int
+X    i;
+X
+X  if (displacement == 0.0)
+X    return;
+X  else
+X    if (displacement > 0.0)
+X      direction=RIGHT;
+X    else
+X      {
+X        displacement*=(-1.0);
+X        direction=LEFT;
+X      }
+X  step=(int) floor(displacement);
+X  fractional_step=UpShifted(displacement-(double) step);
+X  if (fractional_step == 0)
+X    {
+X      /*
+X        No fractional displacement-- just copy.
+X      */
+X      switch (direction)
+X      {
+X        case LEFT:
+X        {
+X          p=source_image+row*source_columns+x;
+X          q=p-step;
+X          for (i=0; i < length; i++)
+X          {
+X            *q=(*p);
+X            q++;
+X            p++;
+X          }
+X          /*
+X            Set old row to background color.
+X          */
+X          for (i=0; i < step; i++)
+X          {
+X            *q=background;
+X            q++;
+X          }
+X          break;
+X        }
+X        case RIGHT:
+X        {
+X          /*
+X            Right is the same as left except data is transferred backwards
+X            to prevent deleting data we need later.
+X          */
+X          p=source_image+row*source_columns+x+length;
+X          q=p+step;
+X          for (i=0; i < length; i++)
+X          {
+X            p--;
+X            q--;
+X            *q=(*p);
+X          }
+X          /*
+X            Set old row to background color.
+X          */
+X          for (i=0; i < step; i++)
+X          {
+X            q--;
+X            *q=background;
+X          }
+X          break;
+X        }
+X      }
+X      return;
+X    }
+X  /*
+X    Fractional displacement.
+X  */
+X  step++;
+X  last_pixel=background;
+X  switch (direction)
+X  {
+X    case LEFT:
+X    {
+X      p=source_image+row*source_columns+x;
+X      q=p-step;
+X      for (i=0; i < length; i++)
+X      {
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X          fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+X          fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X          fractional_step);
+X        last_pixel=(*p);
+X        p++;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X        q++;
+X      }
+X      /*
+X        Set old row to background color.
+X      */
+X      red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X        background.red*fractional_step);
+X      green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X        background.green*fractional_step);
+X      blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X        background.blue*fractional_step);
+X      q->red=range_limit[red];
+X      q->green=range_limit[green];
+X      q->blue=range_limit[blue];
+X      q++;
+X      for (i=0; i < step-1; i++)
+X      {
+X        *q=background;
+X        q++;
+X      }
+X      break;
+X    }
+X    case RIGHT:
+X    {
+X      p=source_image+row*source_columns+x+length;
+X      q=p+step;
+X      for (i=0; i < length; i++)
+X      {
+X        p--;
+X        red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+p->red*
+X          fractional_step);
+X        green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+p->green*
+X          fractional_step);
+X        blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+p->blue*
+X          fractional_step);
+X        last_pixel=(*p);
+X        q--;
+X        q->red=range_limit[red];
+X        q->green=range_limit[green];
+X        q->blue=range_limit[blue];
+X      }
+X      /*
+X        Set old row to background color.
+X      */
+X      red=DownShift(last_pixel.red*(UpShift(1)-fractional_step)+
+X        background.red*fractional_step);
+X      green=DownShift(last_pixel.green*(UpShift(1)-fractional_step)+
+X        background.green*fractional_step);
+X      blue=DownShift(last_pixel.blue*(UpShift(1)-fractional_step)+
+X        background.blue*fractional_step);
+X      q--;
+X      q->red=range_limit[red];
+X      q->green=range_limit[green];
+X      q->blue=range_limit[blue];
+X      for (i=0; i < step-1; i++)
+X      {
+X        q--;
+X        *q=background;
+X      }
+X      break;
+X    }
+X  }
+X  return;
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R o t a t e I m a g e                                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function RotateImage creates a new image that is a rotated copy of an
+%  existing one.  It allocates the memory necessary for the new Image structure %  and returns a pointer to the new image.
+%
+%  Function RotateImage is based on the paper "A Fast Algorithm for General
+%  Raster Rotatation" by Alan W. Paeth.  RotateImage is adapted from a similiar
+%  routine based on the Paeth paper written by Michael Halle of the Spatial
+%  Imaging Group, MIT Media Lab.
+%
+%  The format of the RotateImage routine is:
+%
+%      RotateImage(image,degrees,clip)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function RotateImage returns a pointer to the image after
+%      rotating.  A null image is returned if there is a memory shortage.
+%
+%    o image: The address of a structure of type Image;  returned from
+%      ReadImage.
+%
+%    o degrees: Specifies the number of degrees to rotate the image.
+%
+%    o clip: A value other than zero clips the corners of the rotated
+%      image and retains the original image size.
+%
+%
+*/
+Image *RotateImage(image,degrees,clip)
+Image
+X  *image;
+X
+double
+X  degrees;
+X
+int
+X  clip;
+{
+#define DegreesToRadians(x) ((x)*3.14159265358979323846/180.0)
+X
+X  ColorPacket
+X    background,
+X    *rotated_pixels;
+X
+X  double
+X    x_shear,
+X    y_shear;
+X
+X  Image
+X    *rotated_image;
+X
+X  register ColorPacket
+X    *p;
+X
+X  register int
+X    i,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  unsigned int
+X    number_rows,
+X    number_columns,
+X    rotations,
+X    x_offset,
+X    y_offset,
+X    y_width;
+X
+X  /*
+X    Adjust rotation angle.
+X  */
+X  while (degrees < -45.0)
+X    degrees+=360.0;
+X  rotations=0;
+X  while (degrees > 45.0)
+X  {
+X    degrees-=90.0;
+X    rotations++;
+X  }
+X  rotations%=4;
+X  /*
+X    Calculate shear equations.
+X  */
+X  x_shear=(-tan(DegreesToRadians(degrees)/2.0));
+X  y_shear=sin(DegreesToRadians(degrees));
+X  if ((rotations == 1) || (rotations == 3))
+X    {
+X      /*
+X        Invert image size.
+X      */
+X      y_width=image->rows+
+X        (int) ceil(fabs(x_shear)*(double) (image->columns-1));
+X      number_columns=image->rows+2*
+X        (int) ceil(fabs(x_shear)*(double) (image->columns-1));
+X      number_rows=image->columns+
+X        (int) ceil(fabs(y_shear)*(double) (y_width-1));
+X      rotated_image=CopyImage(image,number_columns,number_rows,False);
+X      if (rotated_image == (Image *) NULL)
+X        {
+X          Warning("unable to rotate image","memory allocation failed");
+X          return((Image *) NULL);
+X        }
+X      rotated_image->columns=image->rows;
+X      rotated_image->rows=image->columns;
+X    }
+X  else
+X    {
+X      y_width=image->columns+
+X        (int) ceil(fabs(x_shear)*(double) (image->rows-1));
+X      number_columns=image->columns+2*
+X        (int) ceil(fabs(x_shear)*(double) (image->rows-1));
+X      number_rows=image->rows+
+X        (int) ceil(fabs(y_shear)*(double) (y_width-1));
+X      rotated_image=CopyImage(image,number_columns,number_rows,False);
+X      if (rotated_image == (Image *) NULL)
+X        {
+X          Warning("unable to rotate image","memory allocation failed");
+X          return((Image *) NULL);
+X        }
+X      rotated_image->columns=image->columns;
+X      rotated_image->rows=image->rows;
+X    }
+X  /*
+X    Initialize rotated image attributes.
+X  */
+X  rotated_pixels=(ColorPacket *)
+X    malloc(number_columns*(number_rows+2)*sizeof(ColorPacket));
+X  if (rotated_pixels == (ColorPacket *) NULL)
+X    {
+X      Warning("unable to rotate image","memory allocation failed");
+X      return((Image *) NULL);
+X    }
+X  if ((x_shear == 0.0) || (y_shear == 0.0))
+X    {
+X      /*
+X        No shearing required; do integral rotation.
+X      */
+X      x_offset=0;
+X      y_offset=0;
+X      IntegralRotation(image,rotated_image->columns,rotated_image->rows,
+X        rotated_pixels+number_columns,number_columns,x_offset,y_offset,
+X        rotations);
+X    }
+X  else
+X    {
+X      typedef struct Point
+X      {
+X        double
+X          x,
+X          y;
+X      } Point;
+X
+X      double
+X        x_max,
+X        x_min,
+X        y_max,
+X        y_min;
+X
+X      Point
+X        corners[4];
+X
+X      unsigned char
+X        *range_limit,
+X        *range_table;
+X
+X      unsigned int
+X        column,
+X        row;
+X
+X      /*
+X        Initialize rotated image buffer to background color.
+X      */
+X      rotated_image->class=DirectClass;
+X      background.red=image->pixels[0].red;
+X      background.green=image->pixels[0].green;
+X      background.blue=image->pixels[0].blue;
+X      p=rotated_pixels;
+X      for (i=0; i < (number_columns*(number_rows+2)); i++)
+X      {
+X        *p=background;
+X        p++;
+X      }
+X      /*
+X        Perform an initial integral 90 degree rotation.
+X      */
+X      x_offset=(number_columns-rotated_image->columns)/2;
+X      y_offset=(number_rows-rotated_image->rows)/2;
+X      IntegralRotation(image,rotated_image->columns,rotated_image->rows,
+X        rotated_pixels+number_columns,number_columns,x_offset,y_offset,
+X        rotations);
+X      /*
+X        Initialize range table.
+X      */
+X      range_table=(unsigned char *) malloc(3*(MaxRGB+1)*sizeof(unsigned char));
+X      if (range_table == (unsigned char *) NULL)
+X        {
+X          DestroyImage(rotated_image);
+X          Warning("unable to rotate image","memory allocation failed");
+X          return((Image *) NULL);
+X        }
+X      for (i=0; i <= MaxRGB; i++)
+X      {
+X        range_table[i]=0;
+X        range_table[i+(MaxRGB+1)]=(unsigned char) i;
+X        range_table[i+(MaxRGB+1)*2]=MaxRGB;
+X      }
+X      range_limit=range_table+(MaxRGB+1);
+X      /*
+X        Perform a fractional rotation.  First, shear the image rows.
+X      */
+X      row=(number_rows-rotated_image->rows)/2;
+X      for (i=0; i < rotated_image->rows; i++)
+X      {
+X        RowShear(rotated_pixels+number_columns,number_columns,row,x_offset,
+SHAR_EOF
+true || echo 'restore of ImageMagick/rotate.c failed'
+fi
+echo 'End of  part 9'
+echo 'File ImageMagick/rotate.c is continued in part 10'
+echo 10 > _shar_seq_.tmp
+exit 0
+exit 0 # Just in case...

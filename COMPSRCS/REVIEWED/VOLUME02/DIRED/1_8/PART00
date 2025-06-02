@@ -1,0 +1,320 @@
+From: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Subject: v02i032: dired - (Ver. 1.8) directory editor in C++, Part00/05
+Newsgroups: comp.sources.reviewed
+Approved: csr@calvin.dgbt.doc.ca
+
+Submitted-by: Mike Lijewski <lijewski@theory.tc.cornell.edu>
+Posting-number: Volume 2, Issue 32
+Archive-name: dired/part00
+Supersedes: dired: Volume 2, Issue 7-12
+
+Environment: UNIX (requires C++ compiler)
+
+Tested Environments:
+   Previous Version:
+      HP9000/425s, HP-UX 7.05, CC version A.02.11 (C++ ATT 2.1).
+      HP9000/720, HP-UX 8.05, CC version A.02.11 (C++ ATT 2.1).
+      HP400, HPUX 7.05/8.0x, C++ ATT 2.1
+      HP710, HPUX 8.0x, C++ ATT 2.1
+      Sun3/4, SunOs 4.0/4.1, C++ ATT 2.0/2.1, Gnu g++ 1.37
+   This Version:
+      SN/MP SunOS 4.1A.2, g++ 2.2.2.
+      MicroVAX 3900, ULTRIX V4.0 (rev 179) 
+      Sun Sparcstation 2, SunOS 4.1.2, g++ (v2)
+      Sparcstation, SunOS4.1.1, gcc version 2.0
+      SGI, Irix 4.0.5, g++ 2.2.2, libg++2.2.  
+      
+Dates:
+   Submission Received: July 20 1992
+   Reviews Returned: Oct 1 1992
+   Revised Version Received: Oct 5 1992
+   Accepted: Oct 20 1992
+	
+	
+Author's Summary:
+-----------------
+
+Dired is a directory editor modelled after Dired Mode of GNU Emacs,
+but targetted for non-emacs users, designed for the UNIX environment.
+It implements a window into the current directory consisting of lines
+of the form:
+
+    -rw------- 1 mjlx     staff        2002 Apr 11 15:17 c++-motif
+    -rw------- 1 mjlx     staff       51399 Aug 11 1990  c++browser.tar.Z
+    -rw------- 1 mjlx     staff         970 Mar 14 18:44 callback
+    drwx--x--x 2 mjlx     staff         384 Jun 21 16:32 cfront
+    -rw------- 1 mjlx     staff        2152 Dec 17 1990  cfront-sun4.1.bug.Z
+    drwx------ 3 mjlx     staff        2048 Aug  1 13:04 dired
+    -rw------- 1 mjlx     staff        2033 Jan 25 1991  link-bug.C.Z
+
+The filename in the line containing the cursor is known as the current
+file.  There are numerous of commands available for operating on the
+current file.  These include copy, delete, edit, view, chmod, chgrp,
+compress, rename and uncompress.  Hence by simply positioning the
+cursor on the appropriate filename, one can do many of the "usual"
+UNIX operations on the files in a directory without bothering to
+spelling out the command and filename each time.  If you edit a
+directory, you get a directory listing of that directory.  In this
+manner it is possible to walk up and down a directory tree from within
+dired.
+
+Unfortunately, from experience, it appears that C++ code is much more
+difficult to port than C code.  The main problem seems to be header
+files.  Since every function must be prototyped before it is used, one
+necessarily includes many system include files to properly prototype
+functions, especially in an application such as dired which uses a
+fair number of system services and library functions.  When one starts
+including many include files, the inconsistencies of the files becomes
+apparent.  The most common "bug" is when two different include files
+prototype a function differently.  C++ compilers consider this as a hard
+error.  The only thing to be done in this situation is to fix the
+header file(s) and continue with the build process.
+
+Another common problem is a header file which doesn't prototype a
+function when in fact it should.  In this case your best bet is to
+manually add the prototype to 'dired.h'. 
+
+Another more fundamental problem with include files is that they are
+incompletely or inconsistently standardized.  ANSI C dictates the
+contents of only fifteen include files which are meant to cover the C
+library.  In order to use a function not covered by ANSI C, which, by
+necessity, will include all operating system specific functions, one
+must have some other scheme for deciding what file(s) to include.
+Where ANSI C stops, dired development has followed the rules proposed
+by POSIX 1003.1 as regards which file to include to get the prototype
+of some system-specific function.  Not all systems follow or even
+purport to follow the POSIX standard.
+
+The one place where this POSIX strategy may bite you are the S_ISREG
+and S_ISDIR macros.  These are an attempt by POSIX to hide the
+machinations traditionally done with the stat structure in order to
+decide upon the type of a file.  If your machine doesn't have these
+macros, you'll need to modify two functions in utilities.C in a manner
+appropriate to you machine/OS combination.  Please send me any diffs
+so I can incorporate them into the base release.
+
+If nothing else, attempting to compile dired will probably point out a
+number of deficiencies in the implementation of your header files.
+Persevere and report all bugs to your vendor.
+
+
+Changes from Previous Version Posted to CSR
+-------------------------------------------
+
+o Am now ringing the terminal's bell when an unknown key sequence is
+  input.
+
+o The UP and DOWN arrow keys now work as expected.
+
+o Removed the `D' command.  It has proven to be too easy to abuse.
+
+o The `E' and `c' commands now support filename completion when the
+  TAB key is pressed from within the prompt asking for the file to
+  copy to or the directory to edit.
+
+o Am now updating the display when I do a `c' command which overwrites
+  another file in the window.
+
+o Am now appending the string "(C-g to Abort)" to all prompts, so that
+  those users who don't RTFM can get out of prompts :-).
+
+o The help screen now scrolls forward (SPACE) and backward (BACKSPACE).
+
+o Replaced printf()s with fputs()s wherever possible.
+
+o Added a second `const char *' argument to message(), which defaults
+  to 0.  This allows me to treat message() as either printing a simple
+  string, or as a simple printf() mechanism where it replaces the `%'
+  in the first string, with the second string.
+
+o The modeline algorithm now updates the modeline in a "smart" manner
+  intended to minimize the total number of characters output to the screen.
+
+o Replaced getchar() with read().
+
+o The `L', `S' and `r' commands now expand a `~' to the user's home
+  directory, if the `~' is the first character of the new filename.
+
+o Removed all possible system()s and instead do my own fork()ing and
+  exec()ing where it makes sense.
+
+o Modified reread_current_directory() to take a reference to a pointer
+  instead of a pointer to a pointer.
+
+o Modified get_current_directory() to return new'd storage.  Also
+  changed it's name to current_directory().  Modified get_file_name()
+  to use its own volatile storage instead of forcing its clients to
+  delete memory.  Made prompt(), completion() and expand_tilde also
+  return volatile storage.
+
+o Plugged a memory leak in get_directory_listing() in utilities.C.
+
+o Added class specific operators new() and delete() for the DirLine
+  class.  This is both a speed and space efficiency when directories
+  have many files in them.
+
+o Put all the globals into one file for easy reference.
+
+o Fixed a problem with deleting the last line on the screen, which
+  has more lines following it.
+
+o Developed and integrated in a simple reference counted string package.
+
+o Fixed a problem with the directory name in the modeline not being
+  updated in certain cases.
+
+o Added -DSIGINTERRUPT to Makefile and INSTALL as well as adding the
+  appropriate code to dired.C to call siginterrupt(2) when needed.  I
+  rely on read(2) being interrupted by signals to deal appropriately
+  with SIGTSTP and SIGWINCH.
+
+o Added LINES and COLUMNS to the list of environment variables in the
+  manpage which dired consults.
+
+o Now update the listing line after paging through a file.  This way,
+  if we're viewing files based on access or inode-modification time, the
+  directory listing will reflect our reality, though it won't be ordered
+  properly. 
+
+o Purify'd the code.  Purify is a really nice product.
+
+o Inlined those member functions which didn't significantly bloat the
+  code.
+
+o removed setbuf for setvbuf -- stdout is still fully buffered, but
+  now I let the standard I/O choose the buffer and the buffer size.
+
+o added a bit more information to some of the error messages in
+  command[12].C. 
+
+o added a define OLDDELETE to Makefile and INSTALL which means that
+  your compiler doesn't understand the 'delete []' syntax.  I then
+  integrated this into the source code.
+
+o according to POSIX.1 the second argument to the execv() functions is
+  a (char *const *); my code is now cognizant of this fact.
+
+o forced the cursor to return to its previous position when aborting
+  out of a shell command.
+
+o ran c++-tame-comments from the latest c++-mode.el on each .C file.
+  This is where all the backslashes in the comments come from.
+
+o added 1992 to Copyright notice.
+
+o did some reformatting to meet new formatting requirements I've imposed on
+  myself.
+
+o got rid of <stdarg.h> function error() by overloading error for the
+  specific cases I needed.
+
+o added workaround to bug in g++ 2.2.2
+
+o changed "clean" target in Makefile to not delete files ending in
+  '~'.  A new target "realclean" does though remove them as well as
+  removing command.C, forcing it to be regenerated at next make.
+
+o am now conditionally compiling code which depends on SIGTSTP for
+  those poor souls who don't have job control.
+
+
+Reviewers' Comments (This Version):
+-----------------------------------
+
+I like the package, and am considering using it as my point and shoot
+program of choice.  The installation went just fine, as it only got one
+pertinent warning.  That condition didn't seem to cause any troubles.
+The documentation was clear, and there were no surprises.
+
+All the commands perform as advertised, and on the whole, the software
+seems to provide the point and shoot capability that it was intended
+to.  Aside from a few wish-list items, this program provides much
+capability in a little space, if users can get used to the emacs/vi
+combination of commands.
+
+
+--------------------------------------------------------------------------
+
+'dired' is one of those useful utilities that makes handling your UNIX
+files and directories much simpler. Similar in concept to the PC
+program XTREE. When first using it and getting used to the movement
+within the program, you start to realise how much junk you have lying
+around. One of the handiest parts of 'dired' is that you can compress a
+file with a single keystroke. I have vowed myself to use dired once
+every month, just to keep my directories in order.
+
+The movement is apparently Emacs-like , but there are vi movement keys
+as well. The arrow keys work too, except for a small bug (I believe) I
+found:  after editing a file (with vi), the arrow keys did not seem to
+work.
+
+'dired' is programmed in C++, which means you need a C++ compiler. I
+compiled 'dired' on a Sun Sparcstation 2 SunOS 4.1.2 with g++ (gcc
+v.2.1) . I had never used g++ before, and I had to hunt around my
+filesystem to find the C++ header files, but I eventually found them
+and the compilation was clean.
+
+Overall, it is a very nice utility to have. No UNIX user should go
+without a tool such as this.
+
+--------------------------------------------------------------------------
+
+dired 1.8 should be very comfortable and intuitive for emacs and vi
+users.  I use it all the time, mostly for quickly viewing and deleting
+files. I'd compare it with "Directory Freedom (DF)" under DOS.  It
+lacks the mark-and-do-something and multi-viewer features of DF.
+
+--------------------------------------------------------------------------
+
+The software performed as documented.  I tried each of the functions in
+the manual pages and they worked correctly.
+
+The package works well emulating the dired functionality from emacs as
+well as some extensions.  I especially liked the compress/uncompress
+feature.  All in all, a nice package for the user fond of the emacs
+dired functionality.
+
+
+Reviewers' Comments (Previous Version):
+---------------------------------------
+
+Dired is a useful directory browsing tool.  Its compatibility with
+standard GNU Emacs dired gives a casual user a flying start.
+...
+I found dired useful when I didn't have access to GNU Emacs, for
+example on remote machines that I don't use too often.  I really liked
+the compatibility with GNU Emacs "classic" dired, so I didn't have to
+re-learn too much.  The ability to sort by date was liked when I was
+browsing non-familiar directory structures looking for files.
+
+--------------------------------------------------------------------------
+
+'dired' is a directory editor similar to the 'dired mode' of emacs.
+
+The overall submission is good. It unpacks correctly, the documentation and
+manual are good. 
+...
+Once compiled (it is not so easy), 'dired' works (almost) fine, and does
+efficiently what the author claims.
+
+--------------------------------------------------------------------------
+
+Dired provides a useful, consolidated front-end for common file
+manipulations, and could almost replace a shell for significant amounts
+of daily work.  The interface is not unfamiliar to people familiar with
+interactive unix tools such as rn or vi (to say nothing of emacs ;-):
+i.e., some odd or arbitrary behaviours, but nothing completely
+unreasonable.  I don't automatically recommend people use emacs unless
+there is a need for such a tool (e.g., the casual user who reads mail
+and news and plays games has no need for emacs), and for those users
+this appears to be a nice tool.  The only unfortunate choice here is
+that dired matches "classic" emacs dired.
+
+The built-in help commands make it useful for fairly novice users with
+little training; the man page is clear, concise and informative (much
+better than most UNIX man pages, but that is damning with faint praise
+;-).  The selection of built-in commands (move, copy, delete, compress,
+view, edit, print, chmod, chgrp, link, etc.) seems well chosen.  Error
+messages for failed actions are generally clear, if terse.
+
+exit 0 # Just in case...

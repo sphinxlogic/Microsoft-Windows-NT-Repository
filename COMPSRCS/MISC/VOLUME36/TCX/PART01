@@ -1,0 +1,1961 @@
+Newsgroups: comp.sources.misc
+From: slf@cs.mu.OZ.AU (Stewart Forster)
+Subject: v36i096:  tcx - Transparent Compressed Executables, v1.02, Part01/02
+Message-ID: <csm-v36i096=tcx.175155@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 24a2293c8edf10d7857ba228aaf52551
+Date: Sun, 4 Apr 1993 22:52:17 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: slf@cs.mu.OZ.AU (Stewart Forster)
+Posting-number: Volume 36, Issue 96
+Archive-name: tcx/part01
+Environment: SunOS, Ultrix, Irix
+
+This is release 1.0.2 of TCX, being a system for transparently compressed 
+executables for Unix.  Current ports include SunOs, Ultrix, and Irix. This
+release fixes many of the common bugs reported on the first release which 
+was posted to alt.sources.  If you had problems with the original release,
+chances are, this will fix them.
+
+TCX allows you to specify a compression algorithm to use when compressing 
+executables.  It allows for the transparent uncompression, execution and 
+recompression of executables compressed with the system.  Savings can be 
+in the range of 30-70% depending on executable and compression system type.  
+With GNU gzip v1+, savings are over 50% and often are at 70% on the operating
+systems listed above.
+
+TCX is in current use at the University Of Melbourne, and so it is well
+supported, and continual improvements are being made as we need them, or
+as requests come in.  There is an effort to port TCX to Linux (not by me)
+and hopefully to other OS types soon.
+	
+			Stewart.
+
++-----------------------------------------------------------------------------+
+| Stewart Forster           Snr Systems Programmer - Dept of Computer Science |
+| Phone : +61 3 3444046	    Richard Berry Bldng, The University Of Melbourne  |
+| Email : slf@cs.mu.OZ.AU   Parkville, 3052, Victoria, Australia.             |
+-----------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README config.h tcx.c untcx.c
+# Wrapped by kent@sparky on Sun Apr  4 17:44:16 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 2)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(5643 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X	TCX - Transparently Compressed Executables (For Unix)
+X
+X				by
+X
+X	   Stewart Forster, University Of Melbourne, 1993
+X
+XTCX is a system designed for the transparent decompression, execution
+Xand recompression of executables under Unix.  It allows configuration
+Xoptions such as the type of compression system used (compress(1),
+Xgzip(1), your own local system etc), timeouts between recompressions,
+Xand emergency directories in case a decompression fails from shortage
+Xof disk space.  The system is designed with a reasonable amount of
+Xrobustness in mind, such as in the event of system crashes, or races
+Xon trying to uncompress, compress or execute something.
+X
+X	Currently TCX is only proven to run on Irix 4.*, Ultrix 4.2
+Xor higher, and SunOs 4.1.1 or higher.  It may run on other releases
+Xof these OS's but has not been tested.  It should also be relatively
+Xeasy to port to other OS's as much of the code is fairly straight
+Xforward.
+X
+X	The system is used here at the Department of Computer Science
+XUniversity Of Melbourne, and in other departments on campus.  This is
+Xthe first official release of TCX to the world, so please feel free
+Xto comment or help in bug fixes and machine reports by sending email
+Xto slf@cs.mu.OZ.AU
+X
+X---------------------------------------------------------------------
+X
+X			INSTALLATION
+X
+XTCX is a small package with just the following files. If you don't
+Xhave these three file, get a complete distribution.
+X
+X		config.h
+X		tcx.c
+X		untcx.c
+X
+XFirst read the "FURTHER INFO" section below before configuring TCX
+Xfor your system, since it may influence some of your decisions.
+X
+XTo configure TCX, edit the config.h file.  There are enough directions
+Xtherein to help you configure for your system.  TCX relies on the
+Xcompression system you use to barf when the filesystem gets full
+Xand return a fail exit code.  If the compression system you use
+Xdoesn't do this, you run the risk of losing files. The GNU gzip
+Xpackage is known to do the correct safety checks and exit accordingly.
+XCompress may not under certain systems.
+X
+XOnce done editing the config file, edit the Makefile to set the C
+Xcompiler and libraries for your system, and compile.
+XDon't worry if your optimizer complains of no exit points in the
+Xprocedures called "check_tcxd_mode", "untcx_and_exec_local", and
+X"untcx_and_exec_nfs" when compiling untcx.c, these are normal.
+X
+XThe tcx, and untcx executables must be placed at the pathnames you
+Xspecified for them in config.h, if they are not there, the system
+Xwill NOT work. eg.
+X
+X	cp tcx /usr/local/bin/tcx
+X	cp untcx /usr/local/bin/untcx
+X
+XUntcx must also be installed setuid, so issue the following command.
+X
+X	chown root /usr/local/bin/untcx
+X	chmod 4711 /usr/local/bin/untcx 	(or path you chose)
+X
+XDo not install the "tcx" executable setuid to anyone.
+X
+Xand copy the manual pages to your regular man directory and read them.
+X
+X	The installation is now complete.
+X
+X----------------------------------------------------------------------
+X
+X		TESTING YOUR INSTALLATION
+X
+XYou can now try running "tcx" on an innocuous executable to transform
+Xit, and then try running it.  Wait for the timeout interval you
+Xspecified (after disuse, which means not even reading the file) and it
+Xshould recompress.  If it doesn't recompress after about twice the
+Xinterval specified, check the following.
+X
+X1) Access times on the file. MAKE SURE it wasn't touched before suspecting
+X   something is wrong.
+X2) That the daemon mode for untcx started correctly.  The pid should be
+X   stored in ENFSDIR/.lock.  Assuming ENFSDIR is /tmp/exec as in the
+X   distributed config file, issue
+X
+X	ps `cat /tmp/exec/.lock`   and check that the daemon started.
+X
+X   If it didn't, there is a minor problem with permissions, or maybe
+X   you specified a read-only file system for ENFSDIR.
+X3) Check if you installed tcx where PATHTCX in the config file said
+X   where it was.
+X4) Check that the uncompressor is where PATHUNPACK in the the config
+X   file says it is.
+X5) If you're using the compress/uncompress system, it may be returning
+X   bad exit codes.  Try getting the GNU gzip compression package.
+X
+XIf all else comes to nought, look into the source code, or mail your
+Xsystem configuration and config file to slf@cs.mu.OZ.AU, and I'll
+Xtry and see what can be done.
+X
+X----------------------------------------------------------------------
+X
+X	FUTHER INFO / POTENTIAL BUGS
+X
+XThe compress(1) system had problems on Ultrix in that is was returning
+Xfailures when trying to decompress a tcx(1) executable. I was unable
+Xto pinpoint the source of the problem, and this problem may exist on
+Xother systems too. I STRONGLY recommend using the "gzip" package from
+XGNU as your compression system of choice, or at least for TCX, since
+Xit has much stronger error checking, and returns reliable exit codes.
+XGzip will compress from 10 to 40% better than compress, and is faster
+Xon uncompression, which is where the system becomes noticable to the
+Xuser in the effect of delays when an executable is run.
+X
+XUsers may experience a slight delay when a TCX executable is started up
+Xdue the decompression phase.  If this becomes a problem for large
+Xexecutables, you should probably discourage use of TCX on these huge
+Xbinaries.  The "gzip" system decompresses at around 500-700K/sec on the
+Xsystems I tested it on, which are all around the 25 SPECmark rating.
+X
+X----------------------------------------------------------------------
+X
+X		THANKS
+X
+XSpecial thanks go to Robert Elz, who provided invaluable input,
+Xsuggestions and clarifications on the whole idea.
+X
+XThanks also to Jeff Shultz who provided some potential "sticky" cases
+Xwhich gave me some more work to do (plus made tcx more robust).
+X
+X				Stewart.
+X
+END_OF_FILE
+  if test 5643 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'config.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.h'\"
+else
+  echo shar: Extracting \"'config.h'\" \(7055 characters\)
+  sed "s/^X//" >'config.h' <<'END_OF_FILE'
+X/* config.h, Version 1.0.1, 25/3/1993 by Stewart Forster */
+X
+X/************************************************************************/
+X/*   Copyright (C) 1993 Stewart Forster					*/
+X/*  This program is free software; you can redistribute it and/or modify*/
+X/*  it under the terms of the GNU General Public License as published by*/
+X/*  the Free Software Foundation; either version 2, or (at your option) */
+X/*  any later version.							*/
+X/*									*/
+X/*  This program is distributed in the hope that it will be useful,	*/
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of	*/
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the	*/
+X/*  GNU General Public License for more details.			*/
+X/*									*/
+X/*  You should have received a copy of the GNU General Public License	*/
+X/*  along with this program; if not, write to the Free Software		*/
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		*/
+X/************************************************************************/
+X
+X
+X/************************************************************************/
+X/*	OS TYPE DEFINITION						*/
+X/* Define one of the following where appropriate			*/
+X/************************************************************************/
+X
+X/* #define	SUNOS		/* */
+X#define	IRIX		/* */
+X/* #define	ULTRIX		/* */
+X
+X/************************************************************************/
+X/* SUNOS requires the pstat command to be available.  This is part of 	*/
+X/* the SunOs distribution but fix this following path if it's wrong.	*/
+X/************************************************************************/
+X
+X#ifdef SUNOS
+X#define	PSTATI	"/usr/etc/pstat -i"
+X#endif
+X
+X/************************************************************************/
+X/* PATHUNTCX is the pathname where the untcx executable resides.  Note	*/
+X/* that this is the interpreter/unpacker and hence must exist with this	*/
+X/* path, or else the whole system will fail! This path should also be on*/
+X/* a filesystem which the local system trusts setuid binaries from,	*/
+X/* since PATHUNTCX must run setuid to root.				*/
+X/************************************************************************/
+X
+X#define	PATHUNTCX	"/usr/local/bin/untcx"
+X
+X/************************************************************************/
+X/* PATHTCX is the pathname to the tcx executable.  This does not have to*/
+X/*  be installed setuid.						*/
+X/************************************************************************/
+X
+X#define	PATHTCX		"/usr/local/bin/tcx"
+X
+X/************************************************************************/
+X/* PATHPACKER is the pathname to the compression program you wish to use*/
+X/* with the system. PACKEROPTS is an optional definition of options you	*/
+X/* wish to pass to the packer program. NB. The compression program must	*/
+X/* be a `filter', that is, it is capable of reading from stdion and	*/
+X/* compressing to stdout.						*/
+X/************************************************************************/
+X
+X#define	PATHPACKER	"/usr/local/bin/gzip"
+X/*#define	PACKEROPTS	"-7"			/* Optional */
+X
+X/************************************************************************/
+X/* PATHUNPACK and the optional UNPACKOPTS serve a similar purpose to	*/
+X/* PATHPACKER and PACKEROPTS above. */
+X/************************************************************************/
+X
+X#define	PATHUNPACK	"/usr/local/bin/gzip"
+X#define	UNPACKOPTS	"-d"			/* Optional */
+X
+X/************************************************************************/
+X/* ENFSDIR is the pathname to the directory where emergency (out of disk*/
+X/* space locally) or NFS mounted executables get unpacked to.		*/
+X/* On SUNOS, if you are using the "tmpfs", you will have to set ENFSDIR	*/
+X/* to a "real disk". (A "real disk" may also be an NFS mounted partition*/
+X/* to which the machine has root access to).  There seems to be some	*/
+X/* problem with fcntl locks on SUNOS tmpfs.				*/
+X/************************************************************************/
+X
+X#define	ENFSDIR		"/tmp/exec"
+X
+X/************************************************************************/
+X/* SCANRATE is the interval in seconds which the tcx daemon waits before*/
+X/* rescanning all files it is currently managing, for recompression in	*/
+X/* the case of local files, or deletion from ENFSDIR in the case of 	*/
+X/* emergency or NFS mounted executables.  Note that SCANRATE should	*/
+X/* probably not be larger than ENFSTIMEOUT or LOCALTIMEOUT defined	*/
+X/* below, otherwise you will undermine the purpose of those variables.	*/
+X/************************************************************************/
+X
+X#define	SCANRATE	60		/* 60 seconds between scans */
+X
+X/************************************************************************/
+X/* ENFSTIMEOUT is the least number of seconds of disuse of an executable*/
+X/* residing in ENFSDIR the tcx daemon will wait for, before it attempts	*/
+X/* to delete the executable. This should be set quite low if there isn't*/
+X/* much disk space available in ENFSDIR.				*/
+X/* On SUNOS, this value only sets in after the inode is timed out of the*/
+X/* inode cache.  This problem will be addressed in a future release.	*/
+X/************************************************************************/
+X
+X#define	ENFSTIMEOUT	60		/* 60 seconds of inactivity */
+X
+X/************************************************************************/
+X/* LOCALTIMEOUT is the least number of seconds of disuse of an		*/
+X/* executable residing locally on the system that the tcx will wait	*/
+X/* before attempting to repack the executable.				*/
+X/* On SUNOS, this value only sets in after the inode is timed out of the*/
+X/* inode cache.  This problem will be addressed in a future release.	*/
+X/************************************************************************/
+X
+X#define	LOCALTIMEOUT	1800		/* 30 minutes */
+X
+X
+X
+X
+X/************************************************************************/
+X/************************************************************************/
+X/* You should not need to edit anything after this point		*/
+X/************************************************************************/
+X/************************************************************************/
+X
+X#define	MAXHEADERSIZE	256
+X
+X/* Define PUSLEEP (portable usleep definition)	*/
+X
+X#ifdef	IRIX
+X#define _BSD_SIGNALS
+X#define	PUSLEEP(x)	(sginap((long)((x)/10000)))
+X#endif
+X
+X#ifdef	ULTRIX
+X#define	PUSLEEP(x)	(usleep(x))	/* usleep code in untcx.c */
+X#endif
+X
+X#ifdef	SUNOS
+X#define	PUSLEEP(x)	(usleep(x))
+X#endif
+X
+X#include	<stdlib.h>
+X#include        <unistd.h>
+X#include        <sys/time.h>
+X#include        <sys/wait.h>
+X#include        <sys/types.h>
+X
+X#ifdef ULTRIX
+X#include	<sys/param.h>
+X#include	<sys/mount.h>
+X#endif
+X
+X#ifdef IRIX
+X#include        <sys/statfs.h>
+X#endif
+X
+X#ifdef SUNOS
+X#include        <sys/vfs.h>
+X#endif
+X
+X#include        <sys/stat.h>
+X
+X#include	<fcntl.h>
+X#include        <string.h>
+X#include        <errno.h>
+X#include        <signal.h>
+X#include        <stdio.h>
+X
+X#if defined(SUNOS) || defined(ULTRIX)
+X#include	<utime.h>
+X#endif
+X
+X#ifndef	MAXPATHLEN
+X#define	MAXPATHLEN	1024
+X#endif
+END_OF_FILE
+  if test 7055 -ne `wc -c <'config.h'`; then
+    echo shar: \"'config.h'\" unpacked with wrong size!
+  fi
+  # end of 'config.h'
+fi
+if test -f 'tcx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tcx.c'\"
+else
+  echo shar: Extracting \"'tcx.c'\" \(8138 characters\)
+  sed "s/^X//" >'tcx.c' <<'END_OF_FILE'
+X/* tcx.c, Version 1.0.2, 25/3/1993 by Stewart Forster */
+X
+X/************************************************************************/
+X/*   Copyright (C) 1993 Stewart Forster					*/
+X/*  This program is free software; you can redistribute it and/or modify*/
+X/*  it under the terms of the GNU General Public License as published by*/
+X/*  the Free Software Foundation; either version 2, or (at your option) */
+X/*  any later version.							*/
+X/*									*/
+X/*  This program is distributed in the hope that it will be useful,	*/
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of	*/
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the	*/
+X/*  GNU General Public License for more details.			*/
+X/*									*/
+X/*  You should have received a copy of the GNU General Public License	*/
+X/*  along with this program; if not, write to the Free Software		*/
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		*/
+X/************************************************************************/
+X
+X
+X#include	"config.h"
+X
+Xextern	int	errno;
+X
+Xint	main(int, char *[]);
+Xint	is_tcx(int);
+Xint	doencode(int, int);
+X
+X#ifdef ULTRIX
+Xint	is_file_local(char *);
+X#endif
+X
+Xint
+Xmain(int argc, char *argv[])
+X{
+Xstruct	stat	dostat;
+Xchar	*s;
+Xint	perms;
+Xint	infd, outfd;
+Xchar	tofile[MAXPATHLEN];
+Xchar	header[MAXHEADERSIZE];
+Xstruct	flock	lck;
+Xunsigned char c;
+X#ifdef ULTRIX
+Xint	islocal;
+X#endif
+X
+X	/* Check to make sure we have an argument */
+X
+X	if(argc < 2)
+X	{
+X		(void)fprintf(stderr, "Usage: %s filename\n", argv[0]);
+X		exit(-1);
+X	}
+X
+X	/* Try to lstat first argument. If cannot, quit */
+X
+X	if(lstat(argv[1], &dostat) < 0)
+X	{
+X		perror(argv[1]);
+X		exit(-1);
+X	}
+X
+X	/* Make sure it's a regular file. If not, quit! */
+X
+X	if(!(dostat.st_mode & S_IFREG)||((dostat.st_mode & S_IFMT) == S_IFLNK))
+X	{
+X		(void)fprintf(stderr, "Error: %s is not a regular file\n", argv[1]);
+X		exit(-1);
+X	}
+X
+X	/* Check permissions on file, must not be setuid or setgid */
+X	/* Then check to see if it's an executable */
+X
+X	if(dostat.st_mode & (S_ISUID | S_ISGID))
+X	{
+X		(void)fprintf(stderr, "Error: Cannot compress setuid or setgid programs.\n");
+X		exit(-1);
+X	}
+X
+X	if(! (dostat.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)))
+X	{
+X		(void)fprintf(stderr, "File does have any execute bits set. Aborting.\n");
+X		exit(-1);
+X	}
+X
+X#ifdef ULTRIX
+X	/* Test to see if file we are compressing is local or not */
+X
+X	if((islocal = is_file_local(argv[1])) < 0)
+X	{
+X		perror("statfs");
+X		exit(-1);
+X	}
+X#endif
+X
+X	/* Now open file we are compressing for reading. Quit if can't. */
+X
+X	if((infd = open(argv[1], O_RDONLY)) < 0)
+X	{
+X		perror(argv[1]);
+X		exit(-1);
+X	}
+X
+X	/* Check to make sure file is not already tcx'ed */
+X
+X	if(is_tcx(infd))
+X	{
+X		(void)fprintf(stderr, "%s is already in tcx format!\n", argv[1]);
+X		exit(0);
+X	}
+X
+X	if(lseek(infd, 0, SEEK_SET) < 0)
+X	{
+X		perror("lseek");
+X		exit(-1);
+X	}
+X
+X	/* Open generation file, and try to mimic permissions */
+X	/* If cannot, warn user and quit */
+X
+X	if(strrchr(argv[1], '/') == NULL)
+X		(void)sprintf(tofile, ".tcx.%s", argv[1]);
+X	else
+X	{
+X		(void)strcpy(tofile, argv[1]);
+X		s = strrchr(tofile, '/');
+X		*s = '\0';
+X		(void)strcat(tofile, "/.tcx.");
+X		s = strrchr(argv[1], '/');
+X		s++;
+X		(void)strcat(tofile, s);
+X	}
+X
+X	lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X
+X	perms = (dostat.st_mode & 0777);
+X	if(perms & S_IXUSR) perms |= S_IRUSR;
+X	if(perms & S_IXGRP) perms |= S_IRGRP;
+X	if(perms & S_IXOTH) perms |= S_IROTH;
+X	perms |= S_IWUSR;
+X
+X	/* Attempt to create scratch file */
+X	/* Ultrix barfs on F_SETLK if file is on an NFS mount. */
+X
+X	if((outfd = open(tofile, O_EXCL | O_CREAT | O_WRONLY, perms)) < 0)
+X	{
+X#ifdef ULTRIX
+X		if(islocal == 0 || errno != EEXIST)
+X#else
+X		if(errno != EEXIST)
+X#endif
+X		{
+X			perror(tofile);
+X			exit(-1);
+X		}
+X
+X		/* Attempt to open and lock file that's there.  If we can't */
+X		/* lock the file, someone else must be packing it, so quit. */
+X		/* If we can, it must be bogus and left lying around after a*/
+X		/* crash, interrupt or something. Delete file and try again.*/
+X
+X		if((outfd = open(tofile, O_WRONLY)) < 0)
+X		{
+X			perror(tofile);
+X			exit(-1);
+X		}
+X
+X		if(fcntl(outfd, F_SETLK, &lck) < 0)
+X			exit(-1);
+X
+X		(void)unlink(tofile);	/* Unlink. Don't care if fails yet */
+X		(void)close(outfd);
+X		if((outfd = open(tofile, O_EXCL | O_CREAT | O_WRONLY, perms)) < 0)
+X		{
+X			perror(tofile);
+X			exit(-1);
+X		}
+X	}
+X
+X	/* Attempt to lock tofile.  If can't then assume someone else */
+X	/* is in the process of packing this file, so quit. */
+X	/* Only try to lock on ULTRIX if file is local.  If not, risk */
+X	/* the race condition, we have no choice!. */
+X
+X#ifdef ULTRIX
+X	if(islocal == 1)
+X#endif
+X		if(fcntl(outfd, F_SETLK, &lck) < 0)
+X			exit(-1);
+X
+X	/* Do a chmod (Just to be sure - in case of user umask affecting open) */
+X
+X	if(chmod(tofile, perms) < 0)
+X	{
+X		(void)fprintf(stderr, "Cannot set proper permissions on scratch file %s\n", tofile);
+X		(void)close(infd);
+X		(void)close(outfd);
+X		if(unlink(tofile) < 0)
+X			(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X		exit(-1);
+X	}
+X
+X	if(chown(tofile, dostat.st_uid, dostat.st_gid) < 0)
+X	{
+X		(void)fprintf(stderr, "Cannot set proper ownership on scratch file\n");
+X		(void)close(infd);
+X		(void)close(outfd);
+X		if(unlink(tofile) < 0)
+X			(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X		exit(-1);
+X	}
+X
+X	/* Spit out header and start encoding executable */
+X
+X	(void)sprintf(header, "#!%s\n", PATHUNTCX);
+X	if(write(outfd, header, strlen(header)) < 0) { (void)perror("write"); exit(-1); }
+X
+X	c = 0;	if((write(outfd, &c, 1)) < 0) { (void)perror("write"); exit(-1); }
+X	c = 76;	if((write(outfd, &c, 1)) < 0) { (void)perror("write"); exit(-1); }
+X	c = 193; if((write(outfd, &c, 1)) < 0) { (void)perror("write"); exit(-1); }
+X	c = 13;	if((write(outfd, &c, 1)) < 0) { (void)perror("write"); exit(-1); }
+X	c = 138; if((write(outfd, &c, 1)) < 0) { (void)perror("write"); exit(-1); }
+X
+X	if(doencode(infd, outfd) != 0)
+X	{
+X		(void)fprintf(stderr, "Compression failed\n");
+X		if(unlink(tofile) < 0)
+X			(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X		exit(-1);
+X	}
+X
+X	(void)close(infd);
+X
+X	if((infd = open(argv[1], O_WRONLY)) <= 0)
+X	{
+X		perror(argv[1]);
+X		if(unlink(tofile) < 0)
+X			(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X		exit(-1);
+X	}
+X
+X#ifdef ULTRIX
+X	if(islocal == 1)
+X#endif
+X		if(fcntl(infd, F_SETLK, &lck) < 0)
+X		{
+X			if(unlink(tofile) < 0)
+X				(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X			exit(-1);
+X		}
+X
+X	/* Rename() compressed version to original */
+X
+X	if(rename(tofile, argv[1]) < 0)
+X	{
+X		perror(argv[1]);
+X		if(unlink(tofile) < 0)
+X			(void)fprintf(stderr, "Warning: Unable to delete scratch file\n");
+X		exit(-1);
+X	}
+X
+X	/* Close files and hence locks */
+X
+X	(void)close(infd);
+X	(void)close(outfd);
+X
+X	/* All done! Bye, bye. */
+X
+X	return(0);
+X}
+X
+X
+Xint
+Xis_tcx(int fd)
+X{
+Xint     i;
+Xunsigned char   c;
+X
+X        for(i = 0; i < MAXHEADERSIZE; i++)
+X                if(read(fd, &c, 1) < 1 || c == 0)
+X                        break;
+X        if((i >= MAXHEADERSIZE) || read(fd, &c, 1) < 1  || c != 76 || read(fd, &c, 1) < 1  || c != 193
+X            || read(fd, &c, 1) < 1  || c != 13 || read(fd, &c, 1) < 1  || c != 138 )
+X                return 0;
+X        return 1;
+X} /* is_tcx */
+X
+X
+Xint
+Xdoencode(int infd, int outfd)
+X{
+Xint	pid;
+Xunion	wait	status;
+X
+X	pid = fork();
+X	if(pid < 0) return -1;
+X	if(pid == 0)
+X	{
+X		if(dup2(infd, 0) < 0)	exit(-1);	/* Attach infd to stdin */
+X		(void)close(infd);
+X		if(dup2(outfd, 1) < 0)	exit(-1);	/* Attach outfd to stdout */
+X		(void)close(outfd);
+X#ifdef PACKEROPTS
+X		(void)execl(PATHPACKER, "packer", PACKEROPTS, (char *)0);
+X#else
+X		(void)execl(PATHPACKER, "packer", (char *)0);
+X#endif
+X		exit(-1);
+X	}
+X	else
+X		pid = wait(&status);
+X	return WEXITSTATUS(status);
+X} /* doencode */
+X
+X
+X#ifdef ULTRIX
+Xint
+Xis_file_local(char *path)
+X{
+Xstruct  fs_data fsbuf;
+X
+X        if(statfs(path, &fsbuf) < 1)     /* Returns 0 on "NOT MOUNTED" */
+X                return -1;
+X
+X        /* NFS Version 2 returns -1 or 0 for both gfree, and gtot */
+X        /* to a client, so return false on this condition. */
+X
+X        if((fsbuf.fd_req.gfree <= 0) && (fsbuf.fd_req.gtot <= 0))
+X                return 0;
+X	return 1;
+X} /* is_file_local */
+X#endif
+END_OF_FILE
+  if test 8138 -ne `wc -c <'tcx.c'`; then
+    echo shar: \"'tcx.c'\" unpacked with wrong size!
+  fi
+  # end of 'tcx.c'
+fi
+if test -f 'untcx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'untcx.c'\"
+else
+  echo shar: Extracting \"'untcx.c'\" \(27702 characters\)
+  sed "s/^X//" >'untcx.c' <<'END_OF_FILE'
+X/* untcx.c, Version 1.0.2, 27/3/1993 by Stewart Forster */
+X
+X/************************************************************************/
+X/*   Copyright (C) 1993 Stewart Forster					*/
+X/*  This program is free software; you can redistribute it and/or modify*/
+X/*  it under the terms of the GNU General Public License as published by*/
+X/*  the Free Software Foundation; either version 2, or (at your option) */
+X/*  any later version.							*/
+X/*									*/
+X/*  This program is distributed in the hope that it will be useful,	*/
+X/*  but WITHOUT ANY WARRANTY; without even the implied warranty of	*/
+X/*  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the	*/
+X/*  GNU General Public License for more details.			*/
+X/*									*/
+X/*  You should have received a copy of the GNU General Public License	*/
+X/*  along with this program; if not, write to the Free Software		*/
+X/*  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		*/
+X/************************************************************************/
+X
+X#include	"config.h"
+X
+Xtypedef struct path
+X{
+X	char	path[MAXPATHLEN]; /* Pathname to file */
+X	int	pid;		/* Process id compressing file */
+X	int	local;		/* Is file local? */
+X	int	ctime;		/* Inode modification time */
+X	struct	path	*next;	/* Next structure */
+X} path;
+X
+X#if defined(SUNOS)
+X#define	MAXOPENFILES	4096
+X#define	PIHASH(a, b)	(((a) + (b)) % MAXOPENFILES)
+X
+Xtypedef struct pstat
+X{
+X	int	dev;
+X	int	ino;
+X	int	cnt;
+X	struct	pstat	*next;
+X} pstat;
+X
+Xpstat	parr[MAXOPENFILES];
+Xpstat	*pihash[MAXOPENFILES];
+Xvoid	update_pstat_info();
+X#endif
+X
+Xextern	int	errno;
+Xpath	*worklist = NULL, *freelist = NULL;
+X
+X
+Xchar	logpath[MAXPATHLEN], logtmppath[MAXPATHLEN], lockpath[MAXPATHLEN];
+X
+Xvoid	untcx_and_exec_local(char *, char *, char *[]);
+Xvoid	untcx_and_exec_nfs(char *, char *, char *, char *[]);
+Xint	try_to_exec(char *, char *[]);
+Xvoid	check_tcxd_mode();
+Xint	tcxd_reaper();
+Xvoid	just_untcx(char *, char *);
+Xint	scan_logtail(int);
+Xint	is_dir_local(char *);
+Xint	is_tcx(int);
+Xint	dodecode(int, int);
+Xchar	*newargs[1024];
+X#ifdef ULTRIX
+Xint	usleep(int);
+Xint	usleep_sig();
+X#endif
+X
+Xint
+Xmain(int argc, char *argv[])
+X{
+Xchar	cwd[MAXPATHLEN];	/* Save of current working directory */
+Xchar	realdir[MAXPATHLEN];	/* Real directory packed executable lives in */
+Xchar	execname[MAXPATHLEN];	/* Name of packed/target executable */
+Xchar	execpath[MAXPATHLEN];	/* Full path name of packed executable */
+Xchar	untcxtmp[MAXPATHLEN];	/* Temporary unpack pathname */
+Xchar	tcxtarg[MAXPATHLEN];	/* Target path name of unpacked executable */
+Xchar	*c;			/* String manipulation pointers */
+Xstruct	stat	dostat;	/* Stat buffer */
+Xint	i, local, isinterp;
+X
+X	if(argc < 2)
+X	{
+X		(void)fprintf(stderr, "Usage: %s filename\n", argv[0]);
+X		exit(-1);
+X	}
+X
+X	/* Re-exec if not root and pass -x along on the command line. */
+X	/* If it's there when we restart and we're still not root, then */
+X	/* avoid an exec loop by quitting with a warning. */
+X
+X	if(geteuid() != 0)
+X	{
+X		if(strcmp(argv[1], "-x") == 0)
+X		{
+X			(void)fprintf(stderr, "Error: untcx is not installed setuid!\n");
+X			(void)fprintf(stderr, "Contact your systems administrator\n");
+X			exit(-1);
+X		}
+X
+X		/* Push -x into argv[1] and shift rest of args along */
+X
+X		newargs[0] = argv[0];
+X		newargs[1] = "-x";
+X		for(i = 1; i < argc; i++) newargs[i+1] = argv[i];
+X		newargs[i + 1] = (char *)NULL;
+X		if(execv(PATHUNTCX, newargs) < 0)
+X			perror("exec");
+X
+X		/* exec failed! Warn user and quit */
+X
+X		(void)fprintf(stderr, "Unable to invoke interpreter as root\n");
+X		exit(-1);
+X	}
+X
+X	if(strcmp(argv[1], "-x") == 0)
+X	{
+X		for(i = 1; i < (argc - 1); i++) argv[i] = argv[i+1];
+X		argv[i] = (char *)NULL;
+X		--argc;
+X		isinterp = 1;
+X	}
+X	else
+X	if(strcmp(argv[1], "-u") == 0)
+X	{
+X		for(i = 1; i < (argc - 1); i++) argv[i] = argv[i+1];
+X		argv[i] = (char *)NULL;
+X		--argc;
+X		isinterp = 0;
+X	}
+X	else
+X	if(getuid() == 0)
+X		isinterp = 1;
+X	else
+X		isinterp = 0;
+X
+X	/* Copy argv[1] to argv[0] for obsolete stuff (and IRIX) */
+X
+X	argv[0] = argv[1];
+X
+X	/* Setup to catch all undesirable signals */
+X
+X	(void)signal(SIGINT, SIG_IGN);
+X	(void)signal(SIGHUP, SIG_IGN);
+X	(void)signal(SIGTSTP, SIG_IGN);
+X	(void)signal(SIGALRM, SIG_IGN);
+X	(void)signal(SIGQUIT, SIG_IGN);
+X	(void)signal(SIGTERM, SIG_IGN);
+X
+X	/* Set global paths */
+X
+X	(void)sprintf(logpath, "%s/log", ENFSDIR);
+X	(void)sprintf(logtmppath, "%s/logtmp", ENFSDIR);
+X	(void)sprintf(lockpath, "%s/.lock", ENFSDIR);
+X
+X	/* Check and start tcxd as required */
+X
+X	check_tcxd_mode();
+X
+X	/* Go to the uid of invoking user.  Resolve through symbolic links */
+X	/* as to what the real pathname of the executable is. */
+X
+X	if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X
+X	/* Grab argv[0] and resolve to full path name via getwd() */
+X
+X	if(getwd(cwd) == NULL)
+X	{
+X		(void)fprintf(stderr, "Get Working Directory Error: %s\n", cwd);
+X		exit(-1);
+X	}
+X
+X	if(*argv[0] == '/')
+X		(void)strcpy(realdir, argv[0]);
+X	else
+X		(void)sprintf(realdir, "%s/%s", cwd, argv[0]);
+X	for(;;)
+X	{
+X		if((c = strrchr(realdir, '/')) == NULL)
+X		{	/* Should never happen, BUT... */
+X			(void)fprintf(stderr, "Help! Internal corruption of variables!\n");
+X			exit(-1);
+X		}
+X		c++;
+X		(void)strcpy(execname, c);
+X		*c = '\0';
+X
+X		if(chdir(realdir) < 0)	/* Oops. Failed. Report and quit. */
+X		{
+X			perror(realdir);
+X			exit(-1);
+X		}
+X
+X		if(getwd(realdir) == NULL)
+X		{
+X			(void)fprintf(stderr, "Get Working Directory Error: %s\n", cwd);
+X			exit(-1);
+X		}
+X
+X		/* Do lstat executable from here. If not a link, go on, else */
+X		/* read the value of the link, and append it to realdir if */
+X		/* it doesn't begin with a /, other just copy it to realdir */
+X		/* and cycle through the loop again. */
+X
+X		if(lstat(execname, &dostat) < 0)
+X		{
+X			perror(execname);
+X			exit(-1);
+X		}
+X
+X		if((dostat.st_mode & S_IFMT) == S_IFLNK)
+X		{
+X			if(readlink(execname, execpath, MAXPATHLEN) < 0)
+X			{
+X				perror(execname);
+X				exit(-1);
+X			}
+X			if(execpath[0] == '/')
+X				(void)strcpy(realdir, execpath);
+X			else
+X			{
+X				(void)strcat(realdir, "/");
+X				(void)strcat(realdir, execpath);
+X			}
+X			continue;
+X		}
+X
+X		if(!(dostat.st_mode & S_IFREG))
+X		{
+X			(void)fprintf(stderr, "Error: Not an executable file - %s/%s\n", realdir, execname);
+X			exit(-1);
+X		}
+X
+X		/* Now do a statfs on realdir.  If it's on an NFS mounted filesystem we */
+X		/* will need to unpack to ENFSDIR, otherwise we can unpack it in place, */
+X		/* fsbuf.f_fstyp tells what filesystem type we're on.  For IRIX this */
+X		/* appears to be 1 for NFS, and 3 for local based filesystems.  I could */
+X		/* not find any documentation on this issue, so until a more portable */
+X		/* method is found, I'll be using these two numbers. */
+X
+X		if((local = is_dir_local(realdir)) < 0)
+X			exit(-1);
+X
+X		break;
+X	}
+X
+X	/* Return to the original invocation directory */
+X
+X	if(chdir(cwd) < 0)	/* Oops. Failed again! Try as user again! */
+X	{
+X		perror(cwd);
+X		exit(-1);
+X	}
+X
+X	if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X
+X	/* Now check if last components of argv[0] and argv[1] are equal */
+X	/* If not, we are invoked just to decompress something, not to */
+X	/* execute it.  Just attempt an uncompress as the user */
+X
+X	if(isinterp == 0)
+X	{
+X#if defined(IRIX)
+X		if(setuid(getuid()) < 0) { perror("setuid"); exit(-1); }
+X#else
+X		if(setreuid(getuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X#endif
+X		(void)sprintf(tcxtarg, "%s/%s", realdir, execname);
+X		(void)sprintf(untcxtmp, "%s/.untcx.%s", realdir, execname);
+X		just_untcx(tcxtarg, untcxtmp);
+X		exit(0);
+X	}
+X
+X	/* Try to do a local execute. If it returns, it means failure. */
+X
+X	if(local)
+X	{
+X		(void)sprintf(tcxtarg, "%s/%s", realdir, execname);
+X		(void)sprintf(untcxtmp, "%s/.untcx.%s", realdir, execname);
+X		untcx_and_exec_local(tcxtarg, untcxtmp, &(argv[1]));
+X	}
+X
+X	/* We get this far if file is not local, or the local execution */
+X	/* failed for some reason like shortage of disk space. Attempt */
+X	/* to unpack program to /tmp and go from there. */
+X
+X	for(c = realdir; *c ; c++)
+X		if(*c == '/')
+X			*c = '=';
+X	(void)sprintf(tcxtarg, "%s/%s", ENFSDIR, realdir);
+X	if(mkdir(tcxtarg, 0777) < 0)
+X		if(errno != EEXIST)
+X		{
+X			perror(tcxtarg);
+X			exit(-1);
+X		}
+X	(void)chmod(tcxtarg, 0777);
+X	(void)strcat(tcxtarg,"/");
+X	(void)strcat(tcxtarg, execname);
+X	(void)sprintf(untcxtmp, "%s/%s/.untcx.%s", ENFSDIR, realdir, execname);
+X
+X	untcx_and_exec_nfs(argv[0], untcxtmp, tcxtarg, &(argv[1]));
+X
+X	/* :-(  We only get this far if everything has failed. Exit with failure */
+X
+X	return(-1);
+X} /* main */
+X
+X
+Xvoid
+Xcheck_tcxd_mode()
+X{
+Xchar	*s, spid[32];
+Xint	infd, logfd, lkfd, lasttime = 0, timer;
+XFILE	*logfp;
+Xpath	*curr, *prev;
+Xstruct	stat	sb;	/* Stat buffer */
+Xstruct	flock	lck;	/* File lock structure */
+Xstruct	utimbuf	times;
+Xint	lastoff;
+X#if defined(SUNOS)
+Xpstat	*pc;		/* Hash/search pointer for SUNOS */
+Xint	found;
+X#endif
+X
+X	/* Check if we're root. If not, go home */
+X
+X	if(geteuid() != 0)
+X		return;
+X
+X	/* Try to create emergency/NFS execute directory and set it's permissions */
+X	/* It's not important yet if we can't at this stage. */
+X
+X	(void)mkdir(ENFSDIR, 01777);
+X	(void)chmod(ENFSDIR, 01777);
+X
+X	/* Attempt to create ENFSDIR/.lock  If can't, just return. */
+X
+X	if((lkfd = open(lockpath, O_CREAT | O_RDONLY, 0600)) < 0)
+X		return;
+X
+X	/* Attempt to read lock ENFSDIR/.lock If can't, we assume the tcxd */
+X	/* is already running. Return. */
+X
+X	lck.l_type = F_RDLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X	if(fcntl(lkfd, F_SETLK, &lck) < 0)
+X	{
+X		(void)close(lkfd);
+X		return;
+X	}
+X
+X	/* Close lkfd and hence the lock on it, fork() and return */
+X
+X	(void)close(lkfd);
+X	if(fork() != 0)	/* On parent or fork error, just return */
+X		return;
+X
+X	/* No errors to user at this point */
+X
+X	(void)fclose(stderr);
+X	(void)close(2);
+X	(void)open("/dev/null", O_WRONLY);	/* Don't really care */
+X
+X	/* Make ourselves nice and rooted */
+X
+X#if defined(IRIX)
+X	if(setuid(geteuid()) < 0) exit(-1);
+X#else
+X	if(setreuid(geteuid(), geteuid()) < 0) exit(-1);
+X#endif
+X
+X	/* Check if we're root again. If not, exit */
+X
+X	if(geteuid() != 0)
+X		exit(-1);
+X
+X	/* Change directory to ENFSDIR to prevent hanging on NFS server crashes */
+X
+X	if(chdir(ENFSDIR) < 0)
+X		exit(-1);
+X
+X	/* Lock the server lock file to prevent more than 1 starting up */
+X
+X	if((lkfd = open(lockpath, O_WRONLY | O_TRUNC)) < 0)
+X		exit(-1);
+X	lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X	if(fcntl(lkfd, F_SETLK, &lck) < 0)
+X		exit(-1);
+X
+X	/* Write our process id to the lock file. Don't really care if fails. */
+X
+X	(void)sprintf(spid, "%d\n", getpid());
+X	(void)write(lkfd, spid, strlen(spid));
+X
+X	/* setup our child process reaper */
+X
+X	(void)signal(SIGCHLD, tcxd_reaper);
+X
+X	/* Read in log file if it's there in case of crashes */
+X
+X	if((lastoff = scan_logtail(0)) < 0)
+X		(void)creat(logpath, 0600);
+X
+X	/* Loop doing tasks at hand */
+X
+X	for(;;)
+X	{
+X		/* Before starting loop, logfp should be open for reading */
+X		/* at end of log file. */
+X
+X		lastoff = 0;
+X		for(timer = 0; timer < SCANRATE; timer++, (void)sleep(1))
+X		{
+X			if(stat(logpath, &sb) < 0)
+X				continue;
+X
+X			/* Don't check if not updated, but do on last time */
+X
+X			if(sb.st_mtime <= lasttime)
+X				continue;
+X			lasttime = sb.st_mtime;
+X
+X			lastoff = scan_logtail(lastoff);
+X		}
+X
+X#if defined(SUNOS)
+X		update_pstat_info();
+X#endif
+X
+X		for(prev = NULL, curr = worklist; curr != NULL; prev = curr, curr = curr->next)
+X		{
+X			/* Stat file. If not accessed within last 30 minutes */
+X			/* we consider it a candidate for compression */
+X
+X			if(stat(curr->path, &sb) < 0)
+X			{
+X				(prev == NULL) ? (worklist = curr->next) : (prev->next = curr->next);
+X				curr->next = freelist; freelist = curr;
+X				(prev == NULL) ? (curr = worklist) : (curr = prev);
+X				if(curr == NULL) break;
+X				continue;
+X			}
+X
+X			if(curr->local==1 && (time(NULL) - sb.st_atime) < LOCALTIMEOUT)
+X					continue;
+X			if(curr->local == 0 && (time(NULL) - sb.st_atime) < ENFSTIMEOUT)
+X					continue;
+X
+X			/* Open file for reading and test if readlock exists */
+X			/* If not, then if file is local, recompress it */
+X			/* otherwise, unlink it from the ENFSDIR home */
+X
+X#if defined(IRIX) || defined(DEC)
+X			if((infd = open(curr->path, O_WRONLY)) < 0)
+X			{
+X				if(errno != ETXTBSY)
+X				{
+X					(prev == NULL) ? (worklist = curr->next) : (prev->next = curr->next);
+X					curr->next = freelist; freelist = curr;
+X					(prev == NULL) ? (curr = worklist) : (curr = prev);
+X					if(curr == NULL) break;
+X					continue;
+X				}
+X				times.actime = time(NULL);
+X				times.modtime = sb.st_mtime;
+X				(void)utime(curr->path, &times);
+X				continue;
+X			}
+X			(void)close(infd);
+X#endif
+X
+X#if defined(SUNOS)
+X			found = 0;
+X			for(pc = pihash[PIHASH(sb.st_dev, sb.st_ino)]; pc != NULL; pc = pc->next)
+X				if(pc->dev == sb.st_dev && pc->ino == sb.st_ino)
+X				{
+X					if(pc->cnt < 2) break;
+X					times.actime = time(NULL);
+X					times.modtime = sb.st_mtime;
+X					(void)utime(curr->path, &times);
+X					found = 1;
+X					break;
+X				}
+X			if(found) continue;
+X#endif
+X
+X			if(curr->local == -1)	/* Compression completed */
+X			{
+X				(prev == NULL) ? (worklist = curr->next) : (prev->next = curr->next);
+X				curr->next = freelist; freelist = curr;
+X				(prev == NULL) ? (curr = worklist) : (curr = prev);
+X				if(curr == NULL) break;
+X				continue;
+X			}
+X
+X			if(curr->pid > 0) continue;
+X
+X			if(curr->local == 1)
+X			{
+X				/* Check inode modification times. If target is */
+X				/* newer than what we know, forget it. */
+X
+X				if(sb.st_ctime > curr->ctime)
+X				{
+X					(prev == NULL) ? (worklist = curr->next) : (prev->next = curr->next);
+X					curr->next = freelist; freelist = curr;
+X					(prev == NULL) ? (curr = worklist) : (curr = prev);
+X					if(curr == NULL) break;
+X					continue;
+X				}
+X
+X				/* Fork and compress program */
+X
+X				curr->pid = fork();
+X				if(curr->pid != 0) continue;
+X
+X				/* Here we must be the child */
+X				/* Close stdio stuff and reopen to /dev/null */
+X
+X				(void)close(2);
+X				(void)close(1);
+X				(void)close(0);
+X				(void)open("/dev/null", O_RDONLY);
+X				(void)open("/dev/null", O_WRONLY);
+X				(void)open("/dev/null", O_WRONLY);
+X				(void)execl(PATHTCX, "tcx", curr->path, (char *)0);
+X				exit(-1);
+X			}
+X
+X			/* At this point, file is in ENFSDIR. Delete it */
+X
+X			(void)unlink(curr->path);
+X			s = strrchr(curr->path, '/');
+X			*s = '\0';
+X			(void)rmdir(curr->path);
+X
+X			(prev == NULL) ? (worklist = curr->next) : (prev->next = curr->next);
+X			curr->next = freelist; freelist = curr;
+X			(prev == NULL) ? (curr = worklist) : (curr = prev);
+X			if(curr == NULL) break;
+X		} /* for */
+X
+X		/* Update log file in case of crashes */
+X
+X		lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X
+X		/* Do one final read in case someone has modified during */
+X		/* the scan sequence. */
+X
+X		(void)scan_logtail(lastoff);
+X
+X		if((logfp = fopen(logtmppath, "w")) == NULL)
+X			continue;
+X		for(curr = worklist; curr != NULL; curr = curr->next)
+X			(void)fprintf(logfp, "%s\n", curr->path);
+X		(void)fclose(logfp);
+X
+X		/* Try for 20 times to lock file, sleep 5/100ths secs b/w tries */
+X
+X		for(timer = 0; timer < 20; timer++, PUSLEEP(50000))
+X		{
+X			if((logfd = open(logpath, O_WRONLY)) < 0)
+X				continue;
+X			if(fcntl(logfd, F_SETLK, &lck) < 0)
+X			{	(void)close(logfd); continue;	}
+X
+X			(void)rename(logtmppath, logpath);
+X			(void)close(logfd);
+X			break;
+X		}
+X	} /* for */
+X} /* check_tcxd_mode */
+X
+X
+Xint
+Xtcxd_reaper()
+X{
+Xunion	wait	state;
+Xint	pid;
+Xpath	*curr;
+X
+X	while((pid = wait3(&state, WNOHANG, 0)) > 0)
+X		for(curr = worklist; curr != NULL; curr = curr->next)
+X			if(curr->pid == pid)
+X			{
+X				curr->pid = -1;
+X				if(WIFEXITED(state) && WEXITSTATUS(state) == 0)
+X					curr->local = -1;
+X				break;
+X			}
+X} /* tcxd_reaper */
+X
+X
+Xvoid
+Xuntcx_and_exec_local(char *execpath, char *untcxtmp, char *argv[])
+X{
+Xstruct	stat	tostat;	/* Stat buffer to check on lengths */
+Xint	owner, group;
+Xint	perms;		/* Saved permissions to restore on target exec */
+Xint	infd, outfd;	/* In and out file descriptors */
+Xstruct	flock	lck;	/* File lock structure */
+X
+X	/* Stat executable and grab permissions */
+X
+X	if(stat(execpath, &tostat) < 0)
+X	{
+X		perror(argv[0]);
+X		exit(-1);
+X	}
+X	perms = (tostat.st_mode & 0777);
+X	owner = tostat.st_uid;
+X	group = tostat.st_gid;
+X
+X	for(;;PUSLEEP(10000))
+X	{
+X		if((infd = open(execpath, O_RDWR)) < 0)
+X		{
+X			if(errno != ETXTBSY)
+X			{
+X				(void)fprintf(stderr, "Cannot write to %s\n", execpath);
+X				exit(-1);
+X			}
+X			if((infd = open(execpath, O_RDONLY)) < 0)
+X				continue;
+X			(void)close(infd);
+X			if(try_to_exec(execpath, argv) < 0)
+X				exit(-1);
+X			continue;
+X		}
+X
+X		lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X		if(fcntl(infd, F_SETLK, &lck) < 0)
+X		{
+X			if(fcntl(infd, F_GETLK, &lck) < 0 || lck.l_type != F_RDLCK)
+X			{ (void)close(infd); continue; }
+X			(void)close(infd);
+X			if(try_to_exec(execpath, argv) < 0)
+X				exit(-1);
+X			continue;
+X		}
+X
+X		if(! is_tcx(infd))
+X		{
+X			(void)close(infd);
+X			continue;
+X		}
+X
+X		/* File is in packed format. Unpack it */
+X
+X		if((outfd = open(untcxtmp, O_WRONLY | O_CREAT | O_EXCL)) < 0)
+X		{
+X			if(errno != EEXIST)
+X			{
+X				perror(untcxtmp);
+X				exit(-1);
+X			}
+X			if((outfd = open(untcxtmp, O_WRONLY | O_TRUNC)) < 0)
+X			{
+X				perror(untcxtmp);
+X				exit(-1);
+X			}
+X		}
+X
+X		/* Start decompressing executable */
+X
+X		if(dodecode(infd, outfd) != 0)
+X		{
+X			if(unlink(untcxtmp) < 0)
+X				perror("untcxtmp");
+X			exit(-1);
+X		}
+X
+X		(void)close(outfd);
+X
+X		/* Now set execute permissions on the beastie */
+X
+X		if(chmod(untcxtmp, perms) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror("untcxtmp");
+X			exit(-1);
+X		}
+X
+X		if(chown(untcxtmp, owner, group) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror("untcxtmp");
+X			exit(-1);
+X		}
+X
+X		/* Rename temporary file to target executable and close target */
+X
+X		if(rename(untcxtmp, execpath) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror("untcxtmp");
+X			exit(-1);
+X		}
+X
+X		(void)close(infd);
+X
+X		/* Everything OK!  Now go exec the executable. */
+X
+X		if(try_to_exec(execpath, argv) < 0)
+X			exit(-1);
+X	} /* for */
+X} /* untcx_and_exec_local */
+X
+X
+Xvoid
+Xuntcx_and_exec_nfs(char *execpath, char *untcxtmp, char *tcxtarg, char *argv[])
+X{
+Xstruct	stat	tostat;	/* Stat buffer to check on lengths */
+Xint	mtime;
+Xint	owner, group;
+Xint	perms;		/* Saved permissions to restore on target exec */
+Xint	infd, outfd;	/* In and out file descriptors */
+Xstruct	flock	lck;	/* File lock structure */
+X
+X	/* Stat executable and grab permissions */
+X
+X	if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X	if(stat(execpath, &tostat) < 0)
+X	{
+X		perror(argv[0]);
+X		exit(-1);
+X	}
+X	perms = (tostat.st_mode & 0777);
+X	mtime = tostat.st_mtime;
+X	owner = tostat.st_uid;
+X	group = tostat.st_gid;
+X	if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X
+X	for(;;PUSLEEP(10000))
+X	{
+X		if(stat(tcxtarg, &tostat) >= 0)
+X			if(mtime > tostat.st_mtime)
+X				(void)unlink(tcxtarg);
+X			else
+X			{
+X				if(try_to_exec(tcxtarg, argv) < 0)
+X					exit(-1);
+X				continue;
+X			}
+X
+X		if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X		if((infd = open(execpath, O_RDONLY)) < 0)
+X		{
+X			perror(execpath);
+X			exit(-1);
+X		}
+X		if(setreuid(geteuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X
+X		if(! is_tcx(infd))
+X		{
+X			(void)close(infd);
+X			if(try_to_exec(tcxtarg, argv) < 0)
+X				exit(-1);
+X			continue;
+X		}
+X
+X		/* File is in packed format. Unpack it */
+X
+X		if((outfd = open(untcxtmp, O_EXCL | O_CREAT | O_WRONLY)) < 0)
+X		{
+X			if(errno != EEXIST)
+X			{
+X				perror(untcxtmp);
+X				exit(-1);
+X			}
+X			if((outfd = open(untcxtmp, O_WRONLY | O_TRUNC)) < 0)
+X			{
+X				perror(untcxtmp);
+X				exit(-1);
+X			}
+X		}
+X
+X		lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X		if(fcntl(outfd, F_SETLK, &lck) < 0)
+X		{
+X			(void)close(infd);
+X			(void)close(outfd);
+X			continue;
+X		}
+X
+X		/* Start decompressing executable */
+X
+X		if(dodecode(infd, outfd) != 0)
+X		{
+X			if(unlink(untcxtmp) < 0)
+X				perror(untcxtmp);
+X			exit(-1);
+X		}
+X
+X		(void)close(infd);
+X
+X		/* Now set execute permissions on the beastie */
+X
+X		if(chmod(untcxtmp, perms) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror(untcxtmp);
+X			exit(-1);
+X		}
+X
+X		if(chown(untcxtmp, owner, group) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror(untcxtmp);
+X			exit(-1);
+X		}
+X
+X		/* Rename temporary file to target executable and close target */
+X
+X		if(rename(untcxtmp, tcxtarg) < 0)
+X		{
+X			perror(untcxtmp);
+X			if(unlink(untcxtmp) < 0)
+X				perror(untcxtmp);
+X			exit(-1);
+X		}
+X
+X		(void)close(outfd);
+X
+X		/* Everything OK!  Now go exec the executable. */
+X
+X		if(try_to_exec(tcxtarg, argv) < 0)
+X			exit(-1);
+X	} /* for */
+X} /* untcx_and_exec_nfs */
+X
+X
+Xvoid
+Xjust_untcx(char *execpath, char *untcxtmp)
+X{
+Xstruct	stat	tostat;	/* Stat buffer to check on lengths */
+Xint	owner, group;
+Xint	perms;		/* Saved permissions to restore on target exec */
+Xint	infd, outfd;	/* In and out file descriptors */
+Xstruct	flock	lck;	/* File lock structure */
+X
+X	/* Stat executable and grab permissions */
+X
+X	if(stat(execpath, &tostat) < 0)
+X	{
+X		perror(execpath);
+X		exit(-1);
+X	}
+X	perms = (tostat.st_mode & 0777);
+X	owner = tostat.st_uid;
+X	group = tostat.st_gid;
+X
+X	if((infd = open(execpath, O_RDWR)) < 0)
+X	{
+X		perror(execpath);
+X		exit(-1);
+X	}
+X
+X	lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X	if(fcntl(infd, F_SETLK, &lck) < 0)
+X	{
+X		perror(execpath);
+X		exit(-1);
+X	}
+X
+X	if(! is_tcx(infd))
+X	{
+X		(void)fprintf(stderr, "File does not appear to be in tcx format. Aborting\n");
+X		exit(-1);
+X	}
+X
+X	/* File is in packed format. Unpack it */
+X
+X	if((outfd = open(untcxtmp, O_WRONLY | O_CREAT | O_EXCL)) < 0)
+X	{
+X		if(errno != EEXIST)
+X		{
+X			perror(untcxtmp);
+X			exit(-1);
+X		}
+X		if((outfd = open(untcxtmp, O_WRONLY | O_TRUNC)) < 0)
+X		{
+X			perror(untcxtmp);
+X			exit(-1);
+X		}
+X	}
+X
+X	/* Start decompressing executable */
+X
+X	if(dodecode(infd, outfd) != 0)
+X	{
+X		if(unlink(untcxtmp) < 0)
+X			perror(untcxtmp);
+X		exit(-1);
+X	}
+X
+X	(void)close(outfd);
+X
+X	/* Now set execute permissions on the beastie */
+X
+X	if(chmod(untcxtmp, perms) < 0)
+X	{
+X		perror(untcxtmp);
+X		if(unlink(untcxtmp) < 0)
+X			perror(untcxtmp);
+X		exit(-1);
+X	}
+X
+X	if(chown(untcxtmp, owner, group) < 0)
+X	{
+X		perror(untcxtmp);
+X		if(unlink(untcxtmp) < 0)
+X			perror(untcxtmp);
+X		exit(-1);
+X	}
+X
+X	/* Rename temporary file to target executable and close target */
+X
+X	if(rename(untcxtmp, execpath) < 0)
+X	{
+X		perror(untcxtmp);
+X		if(unlink(untcxtmp) < 0)
+X			perror(untcxtmp);
+X		exit(-1);
+X	}
+X
+X	(void)close(infd);
+X	return;
+X} /* untcx_and_exec_local */
+X
+X
+Xint
+Xtry_to_exec(char *execpath, char *argv[])
+X{
+Xint	infd, try;
+Xint	logfd;
+XFILE	*logfp;
+Xstruct	flock	lck;
+X
+X	if((infd = open(execpath, O_RDONLY)) < 0)
+X	{
+X		if(errno == ENOENT)
+X		{
+X			perror(execpath);
+X			return -1;
+X		}
+X		return 0;
+X	}
+X
+X	if(is_tcx(infd))
+X	{
+X		(void)close(infd);
+X		return 0;
+X	}
+X
+X	lck.l_type = F_WRLCK; lck.l_whence = 0; lck.l_start = 0; lck.l_len = 0;
+X	for(try = 0; try < 10; try++, PUSLEEP(50000))
+X	{
+X		if((logfd = open(logpath, O_WRONLY)) < 0)
+X			continue;
+X		if(fcntl(logfd, F_SETLK, &lck) < 0)
+X		{
+X			(void)close(logfd);
+X			continue;
+X		}
+X
+X		if((logfp = fopen(logpath, "a+")) == NULL)
+X		{
+X			(void)close(logfd);
+X			continue;
+X		}
+X
+X		(void)fprintf(logfp, "%s\n", execpath);
+X		(void)fclose(logfp);
+X		(void)close(logfd);
+X		break;
+X	}
+X
+X#if defined(IRIX)
+X	if(setuid(getuid()) < 0) { perror("setuid"); exit(-1); }
+X#else
+X	if(setreuid(getuid(), getuid()) < 0) { perror("setreuid"); exit(-1); }
+X#endif
+X
+X	/* Reset signals back to normal to prevent carriage through execv */
+X
+X	(void)signal(SIGINT, SIG_DFL);
+X	(void)signal(SIGHUP, SIG_DFL);
+X	(void)signal(SIGTSTP, SIG_DFL);
+X	(void)signal(SIGALRM, SIG_DFL);
+X	(void)signal(SIGQUIT, SIG_DFL);
+X	(void)signal(SIGTERM, SIG_DFL);
+X
+X	(void)close(infd);
+X	if(execv(execpath, argv) < 0)
+X		perror(execpath);
+X	return -1;
+X} /* try_to_exec */
+X
+X
+X#if defined(SUNOS)
+Xvoid
+Xupdate_pstat_info()
+X{
+XFILE	*fp;
+Xchar	line[256], tmp[10];
+Xpstat	*curr;
+Xint	i, pos;
+Xint	maj, min, dev, ino, cnt;
+X
+X	for(pos = 0 ; pos < MAXOPENFILES; pos++)
+X		pihash[pos] = (pstat *)NULL;
+X
+X	if((fp = popen(PSTATI, "r")) == NULL)
+X		return;
+X	if(fgets(line, 256, fp) == NULL)
+X		return;
+X	for(i = 0; fgets(line, 256, fp) != NULL && i < MAXOPENFILES; i++)
+X	{
+X		curr = parr + i;
+X		strncpy(tmp, line+16, 3);	tmp[3] = '\0';	maj = atoi(tmp);
+X		strncpy(tmp, line+20, 3);	tmp[3] = '\0';	min = atoi(tmp);
+X		strncpy(tmp, line+23, 6);	tmp[6] = '\0';	ino = atoi(tmp);
+X		strncpy(tmp, line+61, 4);	tmp[4] = '\0';	cnt = atoi(tmp);
+X		dev = maj * 256 + min;
+X		pos = PIHASH(dev, ino);
+X		curr->dev = dev;
+X		curr->ino = ino;
+X		curr->cnt = cnt;
+X		curr->next = pihash[pos];
+X		pihash[pos] = curr;
+X	} /* while */
+X	pclose(fp);
+X} /* update_pstat_info */
+X#endif
+X
+X
+Xint
+Xscan_logtail(int lastoff)
+X{
+Xchar	newpath[MAXPATHLEN], *s;
+XFILE	*logfp;
+Xpath	*curr;
+Xstruct	stat	sb;
+X
+X	if(lastoff < 0)
+X		lastoff = 0;
+X	if((logfp = fopen(logpath, "r")) == NULL)
+X		return -1;
+X	(void)fseek(logfp, lastoff, SEEK_SET);
+X	while(fgets(newpath, MAXPATHLEN, logfp) != NULL)
+X	{
+X		for(s = newpath; *s; s++) if(*s == '\n') *s = '\0';
+X
+X		for(curr = worklist; curr != NULL; curr = curr->next)
+X			if(strcmp(curr->path, newpath) == 0) break;
+X		if(curr != NULL)
+X			continue;
+X
+X		if(stat(newpath, &sb) < 0)
+X			continue;
+X
+X		if(freelist != NULL)
+X		{
+X			curr = freelist;
+X			freelist = freelist->next;
+X		}
+X		else
+X			if((curr = (path *)malloc(sizeof(path))) == NULL)
+X				continue;
+X
+X		(void)strcpy(curr->path, newpath);
+X		curr->pid = -1;
+X		(strstr(newpath, ENFSDIR) == newpath) ? (curr->local = 0) : (curr->local = 1);
+X		curr->ctime = sb.st_ctime;
+X		curr->next = worklist;
+X		worklist = curr;
+X	} /* while */
+X	lastoff = ftell(logfp);
+X	(void)fclose(logfp);
+X	return lastoff;
+X} /* scan_logtail */
+X
+X
+X#ifdef ULTRIX
+Xint
+Xis_dir_local(char *dir)
+X{
+Xstruct  fs_data fsbuf;
+X
+X	if(statfs(dir, &fsbuf) < 1)     /* Returns 0 on "NOT MOUNTED" */
+X		return -1;
+X
+X	/* NFS Version 2 returns -1 or 0 for both gfree, and gtot */
+X	/* to a client, so return false on this condition. */
+X
+X	if((fsbuf.fd_req.gfree <= 0) && (fsbuf.fd_req.gtot <= 0))
+X		return 0;
+X	return 1;
+X} /* is_dir_local */
+X#else
+Xint
+Xis_dir_local(char *dir)
+X{
+Xstruct	statfs	fsbuf;	/* Statfs buffer to check local versus NFS executable */
+X
+X	if(statfs(dir, &fsbuf, (int)(sizeof(struct statfs)), 0) < 0)
+X		return -1;
+X
+X	/* NFS Version 2 returns -1 or 0 for both f_files, and f_ffree */
+X	/* to a client, so return false on this condition. */
+X
+X	if((fsbuf.f_files <= 0) && (fsbuf.f_ffree <= 0))
+X		return 0;
+X	return 1;
+X} /* is_dir_local */
+X#endif
+X
+X
+Xint
+Xis_tcx(int fd)
+X{
+Xint	i;
+Xunsigned char	c;
+X
+X	for(i = 0; i < 256; i++)
+X		if(read(fd, &c, 1) < 1 || c == 0)
+X			break;
+X	if((i >= 256) || read(fd, &c, 1) < 1  || c != 76 || read(fd, &c, 1) < 1  || c != 193
+X	    || read(fd, &c, 1) < 1  || c != 13 || read(fd, &c, 1) < 1  || c != 138 )
+X		return 0;
+X	return 1;
+X} /* is_tcx */
+X
+X
+Xint
+Xdodecode(int infd, int outfd)
+X{
+Xint	pid;
+Xunion	wait	status;
+X
+X	pid = fork();
+X	if(pid < 0) return -1;
+X	if(pid == 0)
+X	{
+X		if(dup2(infd, 0) < 0) exit(-1);	 /* Attach infd to stdin */
+X		(void)close(infd);
+X		if(dup2(outfd, 1) < 0) exit(-1); /* Attach outfd to stdout */
+X		(void)close(outfd);
+X#ifdef	UNPACKOPTS
+X		(void)execl(PATHUNPACK, "unpacker", UNPACKOPTS, (char *)0);
+X#else
+X		(void)execl(PATHUNPACK, "unpacker", (char *)0);
+X#endif
+X		exit(-1);
+X	}
+X	else
+X		pid = wait(&status);
+X	return WEXITSTATUS(status);
+X} /* dodecode */
+X
+X
+X#ifdef ULTRIX
+Xint
+Xusleep(int usec)
+X{
+Xstruct	itimerval	value, dumb;
+X
+X	(void)signal(SIGALRM, usleep_sig);
+X
+X	if(getitimer(ITIMER_REAL, &value) != 0)
+X	{
+X		perror("Error: couldn't get timer");
+X		return(-1);
+X	}
+X	value.it_value.tv_sec = value.it_interval.tv_sec = (long) usec / 1000000;
+X	value.it_value.tv_usec = value.it_interval.tv_usec = (long) usec % 1000000;
+X        
+X	if(setitimer(ITIMER_REAL, &value, &dumb) != 0) /* ignore parameter 3 */
+X	{
+X		perror("Error: couldn't set timer");
+X		return(-1);
+X	}
+X
+X	(void)sigpause(SIGALRM);
+X
+X	if(getitimer(ITIMER_REAL, &value) != 0)
+X	{
+X		perror("Error: couldn't get timer");
+X		return(-1);
+X	}
+X	usec = (value.it_value.tv_sec - value.it_interval.tv_sec) * 1000000;
+X	usec += (value.it_value.tv_usec - value.it_interval.tv_usec);
+X	return usec;
+X}
+X
+Xint
+Xusleep_sig()
+X{
+X} /* usleep_sig */
+X#endif
+END_OF_FILE
+  if test 27702 -ne `wc -c <'untcx.c'`; then
+    echo shar: \"'untcx.c'\" unpacked with wrong size!
+  fi
+  # end of 'untcx.c'
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

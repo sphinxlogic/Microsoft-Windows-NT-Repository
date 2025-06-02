@@ -1,0 +1,1604 @@
+Path: uunet!dtix!darwin.sura.net!mips!msi!dcmartin
+From: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Newsgroups: comp.sources.x
+Subject: v18i044: X11R5 public fix #13, Part03/05
+Message-ID: <1992Jul22.150708.18752@msi.com>
+Date: 22 Jul 92 15:07:08 GMT
+References: <csx-18i042-X11R5-fix13@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1591
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: gildea@EXPO.LCS.MIT.EDU (Stephen Gildea)
+Posting-number: Volume 18, Issue 44
+Archive-name: X11R5-fix13/part03
+
+#!/bin/sh
+# this is part.03 (part 3 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file fix-13 continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 3; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping fix-13'
+else
+echo 'x - continuing file fix-13'
+sed 's/^X//' << 'SHAR_EOF' >> 'fix-13' &&
+--- 86,93 ----
+X      /* compute remaining accelerators */
+X      FontComputeInfoAccelerators (pinfo);
+X  
++     *spfont = spf;
++ 
+X      return Successful;
+X  }
+X  
+***************
+*** 102,108 ****
+X      char		*fileName;
+X      FontScalablePtr	vals;
+X  {
+!     SpeedoFontPtr spf;
+X      char        fullName[MAXFONTNAMELEN];
+X      int         err;
+X  
+--- 100,106 ----
+X      char		*fileName;
+X      FontScalablePtr	vals;
+X  {
+!     SpeedoFontPtr spf = NULL;
+X      char        fullName[MAXFONTNAMELEN];
+X      int         err;
+X  
+***************
+*** 113,119 ****
+X  
+X      err = get_font_info(pFontInfo, fullName, fileName, entry, &spf);
+X  
+!     close_sp_font(spf);
+X      return err;
+X  }
+X  
+--- 111,119 ----
+X  
+X      err = get_font_info(pFontInfo, fullName, fileName, entry, &spf);
+X  
+!     if (spf)
+! 	close_sp_font(spf);
+! 
+X      return err;
+X  }
+X  
+*** /tmp/da27273	Tue Jul 14 18:06:01 1992
+--- mit/fonts/lib/font/Speedo/spfile.c	Tue Jul 14 18:06:00 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: spfile.c,v 1.4 91/07/15 18:16:46 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: spfile.c,v 1.6 92/04/09 18:13:03 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 154,159 ****
+--- 154,162 ----
+X      if (!spmf)
+X  	return AllocError;
+X      bzero(spmf, sizeof(SpeedoMasterFontRec));
++     spmf->entry = NULL;
++     spmf->f_buffer = NULL;
++     spmf->c_buffer = NULL;
+X  
+X      /* open font */
+X      spmf->fname = (char *) xalloc(strlen(filename) + 1);
+***************
+*** 265,270 ****
+--- 268,275 ----
+X  	return;
+X      if (spmf->state & MasterFileOpen)
+X  	fclose(spmf->fp);
++     if (spmf->entry)
++ 	spmf->entry->u.scalable.extra->private = NULL;
+X      xfree(spmf->fname);
+X      xfree(spmf->f_buffer);
+X      xfree(spmf->c_buffer);
+*** /tmp/da27342	Tue Jul 14 18:06:08 1992
+--- mit/fonts/lib/font/Speedo/spglyph.c	Tue Jul 14 18:06:07 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: spglyph.c,v 1.10 91/07/31 01:08:59 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: spglyph.c,v 1.12 92/05/13 16:03:30 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 21,30 ****
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   *
+-  * $NCDId: @(#)spglyph.c,v 4.7 1991/06/24 16:55:40 lemke Exp $
+-  *
+X   * Author: Dave Lemke, Network Computing Devices Inc
+-  *
+X   */
+X  
+X  #include	<X11/X.h>	/* for bit order #defines */
+--- 21,27 ----
+***************
+*** 34,41 ****
+X  
+X  static CurrentFontValuesRec current_font_values;
+X  static CurrentFontValuesPtr cfv = &current_font_values;
+! static int  bit,
+!             byte,
+X              scan;
+X  
+X  unsigned long
+--- 31,38 ----
+X  
+X  static CurrentFontValuesRec current_font_values;
+X  static CurrentFontValuesPtr cfv = &current_font_values;
+! static int  bit_order,
+!             byte_order,
+X              scan;
+X  
+X  unsigned long
+***************
+*** 165,171 ****
+X      nmiddle = (xbit2 >> 3);
+X      xbit1 &= 7;
+X      xbit2 &= 7;
+!     if (bit == MSBFirst) {
+X  	startmask = ((CARD8) ~0) >> xbit1;
+X  	endmask = ~(((CARD8) ~0) >> xbit2);
+X      } else {
+--- 162,168 ----
+X      nmiddle = (xbit2 >> 3);
+X      xbit1 &= 7;
+X      xbit2 &= 7;
+!     if (bit_order == MSBFirst) {
+X  	startmask = ((CARD8) ~0) >> xbit1;
+X  	endmask = ~(((CARD8) ~0) >> xbit2);
+X      } else {
+***************
+*** 260,266 ****
+X  	finish_line(cur_spf);
+X  	cfv->last_y++;
+X      }
+!     if (byte != bit) {
+X  	switch (scan) {
+X  	case 1:
+X  	    break;
+--- 257,263 ----
+X  	finish_line(cur_spf);
+X  	cfv->last_y++;
+X      }
+!     if (byte_order != bit_order) {
+X  	switch (scan) {
+X  	case 1:
+X  	    break;
+***************
+*** 293,300 ****
+X  
+X      scan = 1;
+X      ret = CheckFSFormat(format, fmask,
+! 			&bit, &byte, &scan, &glyph, &image);
+X  
+X      if (ret != Successful)
+X  	return BadFontFormat;
+X  
+--- 290,301 ----
+X  
+X      scan = 1;
+X      ret = CheckFSFormat(format, fmask,
+! 			&bit_order, &byte_order, &scan, &glyph, &image);
+X  
++     pfont->bit = bit_order;
++     pfont->byte = byte_order;
++     pfont->glyph = glyph;
++     pfont->scan = scan;
+X      if (ret != Successful)
+X  	return BadFontFormat;
+X  
+*** /tmp/da27386	Tue Jul 14 18:06:11 1992
+--- mit/fonts/lib/font/Speedo/spint.h	Tue Jul 14 18:06:11 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: spint.h,v 1.4 91/07/16 20:20:32 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: spint.h,v 1.5 92/03/25 18:45:51 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 52,57 ****
+--- 52,58 ----
+X  #define	MasterFileOpen	0x1
+X  
+X  typedef struct _sp_master {
++     FontEntryPtr    entry;	/* back pointer */
+X      FILE       *fp;
+X      char       *fname;
+X      ufix8      *f_buffer;
+***************
+*** 98,103 ****
+--- 99,106 ----
+X  typedef struct _sp_font {
+X      struct _sp_master *master;
+X      specs_t     specs;
++ 
++     FontEntryPtr    entry;
+X  
+X      FontScalableRec vals;
+X  
+*** /tmp/da27732	Tue Jul 14 18:06:41 1992
+--- mit/fonts/lib/fs/FSFontInfo.c	Tue Jul 14 18:06:41 1992
+***************
+*** 1,6 ****
+! /* $XConsortium: FSFontInfo.c,v 1.2 91/05/13 15:11:37 gildea Exp $ */
+! 
+! /* @(#)FSFontInfo.c	4.1	91/05/02
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+--- 1,5 ----
+! /* $XConsortium: FSFontInfo.c,v 1.4 92/05/13 15:41:58 gildea Exp $ */
+! /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+***************
+*** 47,52 ****
+--- 46,52 ----
+X      char      **flist = NULL;
+X      fsListFontsWithXInfoReply reply;
+X      fsListFontsWithXInfoReq *req;
++     Status status;
+X  
+X      GetReq(ListFontsWithXInfo, req);
+X      req->maxNames = maxNames;
+***************
+*** 55,63 ****
+X      _FSSend(svr, pattern, nbytes);
+X  
+X      for (i = 0;; i++) {
+! 	if (!_FSReply(svr, (fsReply *) & reply,
+! 		      ((SIZEOF(fsListFontsWithXInfoReply) -
+! 			SIZEOF(fsGenericReply)) >> 2), fsFalse)) {
+X  	    for (j = (i - 1); j >= 0; j--) {
+X  		FSfree((char *) fhdr[j]);
+X  		FSfree((char *) pi[j]);
+--- 55,75 ----
+X      _FSSend(svr, pattern, nbytes);
+X  
+X      for (i = 0;; i++) {
+! 	if (FSProtocolVersion(svr) > 1)
+! 	{
+! 	    status = _FSReply(svr, (fsReply *) &reply, 0, fsFalse);
+! 	    if (status != 0  &&  reply.nameLength == 0)	/* got last reply */
+! 		break;
+! 	    if (status)
+! 		_FSRead(svr, (char *) &reply.nReplies,
+! 			SIZEOF(fsListFontsWithXInfoReply) -
+! 			SIZEOF(fsGenericReply));
+! 	} else {
+! 	    status = _FSReply(svr, (fsReply *) & reply,
+! 			      ((SIZEOF(fsListFontsWithXInfoReply) -
+! 				SIZEOF(fsGenericReply)) >> 2), fsFalse);
+! 	}
+! 	if (!status) {
+X  	    for (j = (i - 1); j >= 0; j--) {
+X  		FSfree((char *) fhdr[j]);
+X  		FSfree((char *) pi[j]);
+***************
+*** 79,85 ****
+X  	    SyncHandle();
+X  	    return (char **) NULL;
+X  	}
+! 	if (reply.nameLength == 0)	/* got last reply */
+X  	    break;
+X  	if ((i + reply.nReplies) >= size) {
+X  	    size = i + reply.nReplies + 1;
+--- 91,97 ----
+X  	    SyncHandle();
+X  	    return (char **) NULL;
+X  	}
+! 	if (reply.nameLength == 0)	/* got last reply in version 1 */
+X  	    break;
+X  	if ((i + reply.nReplies) >= size) {
+X  	    size = i + reply.nReplies + 1;
+***************
+*** 172,187 ****
+X  	    goto badmem;
+X  	}
+X  	bcopy((char *) &reply.header, (char *) fhdr[i], sizeof(fsFontHeader));
+X  
+! 	/* get the name */
+X  	flist[i] = (char *) FSmalloc((unsigned int) (reply.nameLength + 1));
+! 	if (!flist[i]) {
+! 	    nbytes = reply.nameLength + 3 & ~3;
+! 	    _FSEatData(svr, (unsigned long) nbytes);
+! 	    goto badmem;
+X  	}
+- 	_FSReadPad(svr, flist[i], (long) reply.nameLength);
+- 	flist[i][reply.nameLength] = '\0';
+X  
+X  	pi[i] = (fsPropInfo *) FSmalloc(sizeof(fsPropInfo));
+X  	if (!pi[i]) {
+--- 184,212 ----
+X  	    goto badmem;
+X  	}
+X  	bcopy((char *) &reply.header, (char *) fhdr[i], sizeof(fsFontHeader));
++ 	if (FSProtocolVersion(svr) == 1)
++ 	{
++ 	    fhdr[i]->char_range.min_char.high = reply.header.char_range.min_char.low;
++ 	    fhdr[i]->char_range.min_char.low = reply.header.char_range.min_char.high;
++ 	    fhdr[i]->char_range.max_char.high = reply.header.char_range.max_char.low;
++ 	    fhdr[i]->char_range.max_char.low = reply.header.char_range.max_char.high;
++ 	    fhdr[i]->default_char.high = reply.header.default_char.low;
++ 	    fhdr[i]->default_char.low = reply.header.default_char.high;
++ 	}
+X  
+! 	/* alloc space for the name */
+X  	flist[i] = (char *) FSmalloc((unsigned int) (reply.nameLength + 1));
+! 	if (FSProtocolVersion(svr) == 1)
+! 	{
+! 	    /* get the name */
+! 	    if (!flist[i]) {
+! 		nbytes = reply.nameLength + 3 & ~3;
+! 		_FSEatData(svr, (unsigned long) nbytes);
+! 		goto badmem;
+! 	    }
+! 	    _FSReadPad(svr, flist[i], (long) reply.nameLength);
+! 	    flist[i][reply.nameLength] = '\0';
+X  	}
+X  
+X  	pi[i] = (fsPropInfo *) FSmalloc(sizeof(fsPropInfo));
+X  	if (!pi[i]) {
+***************
+*** 208,215 ****
+X  	_FSReadPad(svr, (char *) po[i],
+X  		   (pi[i]->num_offsets * sizeof(fsPropOffset)));
+X  	/* get prop data */
+! 	_FSReadPad(svr, (char *) pd[i], pi[i]->data_len);
+X  
+X      }
+X      *info = fhdr;
+X      *count = i;
+--- 233,257 ----
+X  	_FSReadPad(svr, (char *) po[i],
+X  		   (pi[i]->num_offsets * sizeof(fsPropOffset)));
+X  	/* get prop data */
+! 	if (FSProtocolVersion(svr) == 1)
+! 	    _FSReadPad(svr, (char *) pd[i], pi[i]->data_len);
+! 	else
+! 	    _FSRead(svr, (char *) pd[i], pi[i]->data_len);
+X  
++ 	if (FSProtocolVersion(svr) != 1)
++ 	{
++ 	    /* get the name */
++ 	    if (!flist[i]) {
++ 		nbytes = reply.nameLength + 3 & ~3;
++ 		_FSEatData(svr, (unsigned long) nbytes);
++ 		goto badmem;
++ 	    }
++ 	    _FSRead(svr, flist[i], (long) reply.nameLength);
++ 	    flist[i][reply.nameLength] = '\0';
++ 
++ 	    nbytes = pi[i]->data_len + reply.nameLength;
++ 	    _FSEatData(svr, (unsigned long) (((nbytes+3)&~3) - nbytes));
++ 	}
+X      }
+X      *info = fhdr;
+X      *count = i;
+*** /tmp/da27843	Tue Jul 14 18:06:50 1992
+--- mit/fonts/lib/fs/FSQGlyphs.c	Tue Jul 14 18:06:49 1992
+***************
+*** 1,29 ****
+! /* $XConsortium: FSQGlyphs.c,v 1.2 91/05/13 15:11:49 gildea Exp $ */
+! 
+! /* @(#)FSQGlyphs.c	4.1	91/05/02
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   */
+X  
+! #include	"FSlibint.h"
+X  
+X  int
+X  FSQueryXBitmaps8(svr, fid, format, range_type, str, str_len, offsets, glyphdata)
+--- 1,28 ----
+! /* $XConsortium: FSQGlyphs.c,v 1.4 92/05/26 17:27:39 gildea Exp $ */
+! /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  
+! #include "FSlibint.h"
+X  
+X  int
+X  FSQueryXBitmaps8(svr, fid, format, range_type, str, str_len, offsets, glyphdata)
+***************
+*** 98,104 ****
+X      req->format = format;
+X      req->num_ranges = str_len;
+X      req->length += ((str_len * sizeof(fsChar2b)) + 3) >> 2;
+!     _FSSend(svr, (char *) str, (str_len * sizeof(fsChar2b)));
+X  
+X      /* get back the info */
+X      if (!_FSReply(svr, (fsReply *) & reply,
+--- 97,119 ----
+X      req->format = format;
+X      req->num_ranges = str_len;
+X      req->length += ((str_len * sizeof(fsChar2b)) + 3) >> 2;
+!     if (FSProtocolVersion(svr) == 1)
+!     {
+! 	int i;
+! 	fsChar2b_version1 *swapped_str;
+! 
+! 	swapped_str = (fsChar2b_version1 *)
+! 	    FSmalloc(sizeof(fsChar2b_version1) * str_len);
+! 	if (!swapped_str)
+! 	    return FSBadAlloc;
+! 	for (i = 0; i < str_len; i++) {
+! 	    swapped_str[i].low = str[i].low;
+! 	    swapped_str[i].high = str[i].high;
+! 	}
+! 	_FSSend(svr, (char *)swapped_str, (str_len*sizeof(fsChar2b_version1)));
+! 	FSfree(swapped_str);
+!     } else
+! 	_FSSend(svr, (char *) str, (str_len * sizeof(fsChar2b)));
+X  
+X      /* get back the info */
+X      if (!_FSReply(svr, (fsReply *) & reply,
+*** /tmp/da27865	Tue Jul 14 18:06:52 1992
+--- mit/fonts/lib/fs/FSQXExt.c	Tue Jul 14 18:06:51 1992
+***************
+*** 1,29 ****
+! /* $XConsortium: FSQXExt.c,v 1.2 91/05/13 15:11:50 gildea Exp $ */
+! 
+! /* @(#)FSQXExt.c	4.1	91/05/02
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   */
+X  
+! #include	"FSlibint.h"
+X  
+X  int
+X  FSQueryXExtents8(svr, fid, range_type, str, str_len, extents)
+--- 1,28 ----
+! /* $XConsortium: FSQXExt.c,v 1.4 92/05/26 17:26:53 gildea Exp $ */
+! /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  
+! #include "FSlibint.h"
+X  
+X  int
+X  FSQueryXExtents8(svr, fid, range_type, str, str_len, extents)
+***************
+*** 83,89 ****
+X      req->range = range_type;
+X      req->num_ranges = str_len;
+X      req->length += ((str_len * sizeof(fsChar2b)) + 3) >> 2;
+!     _FSSend(svr, (char *) str, (str_len * sizeof(fsChar2b)));
+X  
+X      /* get back the info */
+X      if (!_FSReply(svr, (fsReply *) & reply,
+--- 82,103 ----
+X      req->range = range_type;
+X      req->num_ranges = str_len;
+X      req->length += ((str_len * sizeof(fsChar2b)) + 3) >> 2;
+!     if (FSProtocolVersion(svr) == 1)
+!     {
+! 	fsChar2b_version1 *swapped_str;
+! 
+! 	swapped_str = (fsChar2b_version1 *)
+! 	    FSmalloc(sizeof(fsChar2b_version1) * str_len);
+! 	if (!swapped_str)
+! 	    return FSBadAlloc;
+! 	for (i = 0; i < str_len; i++) {
+! 	    swapped_str[i].low = str[i].low;
+! 	    swapped_str[i].high = str[i].high;
+! 	}
+! 	_FSSend(svr, (char *)swapped_str, (str_len*sizeof(fsChar2b_version1)));
+! 	FSfree(swapped_str);
+!     } else
+! 	_FSSend(svr, (char *) str, (str_len * sizeof(fsChar2b)));
+X  
+X      /* get back the info */
+X      if (!_FSReply(svr, (fsReply *) & reply,
+*** /tmp/da27887	Tue Jul 14 18:06:54 1992
+--- mit/fonts/lib/fs/FSQXInfo.c	Tue Jul 14 18:06:53 1992
+***************
+*** 1,6 ****
+! /* $XConsortium: FSQXInfo.c,v 1.2 91/05/13 15:11:51 gildea Exp $ */
+! 
+! /* @(#)FSQXInfo.c	4.1	91/05/02
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+--- 1,5 ----
+! /* $XConsortium: FSQXInfo.c,v 1.3 92/05/12 18:07:24 gildea Exp $ */
+! /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+***************
+*** 53,58 ****
+--- 52,66 ----
+X  	return FSBadAlloc;
+X      }
+X      bcopy((char *) &reply.header, (char *) info, sizeof(fsFontHeader));
++     if (FSProtocolVersion(svr) == 1)
++     {
++ 	info->char_range.min_char.high = reply.header.char_range.min_char.low;
++ 	info->char_range.min_char.low = reply.header.char_range.min_char.high;
++ 	info->char_range.max_char.high = reply.header.char_range.max_char.low;
++ 	info->char_range.max_char.low = reply.header.char_range.max_char.high;
++ 	info->default_char.high = reply.header.default_char.low;
++ 	info->default_char.low = reply.header.default_char.high;
++     }
+X      /* get the prop header */
+X      _FSReadPad(svr, (char *) props, sizeof(fsPropInfo));
+X      /* prepare for prop data */
+*** /tmp/da27951	Tue Jul 14 18:06:59 1992
+--- mit/fonts/lib/fs/FSSync.c	Tue Jul 14 18:06:59 1992
+***************
+*** 1,33 ****
+! /* $XConsortium: FSSync.c,v 1.3 91/07/22 11:29:21 rws Exp $ */
+! 
+! /* @(#)FSSync.c	4.1	91/05/02
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X   */
+X  
+! #include	"FSlibint.h"
+X  
+X  extern _FSQEvent *_FSqfree;
+X  
+! /* synchronize withe errors and events */
+X  
+X  FSSync(svr, discard)
+X      FSServer     *svr;
+--- 1,32 ----
+! /* $XConsortium: FSSync.c,v 1.4 92/05/26 17:14:57 gildea Exp $ */
+! /*
+X   * Copyright 1990 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  
+! #include "FSlibint.h"
+X  
+X  extern _FSQEvent *_FSqfree;
+X  
+! /* synchronize with errors and events */
+X  
+X  FSSync(svr, discard)
+X      FSServer     *svr;
+***************
+*** 38,46 ****
+X  
+X      GetEmptyReq(ListExtensions, req);
+X      (void) _FSReply(svr, (fsReply *) & rep, 0, fsTrue);
+-     if (rep.nExtensions) {
+- 	_FSEatData(svr, (unsigned long) rep.length << 2);
+-     }
+X  
+X      if (discard && svr->head) {
+X  	((_FSQEvent *) svr->tail)->next = _FSqfree;
+--- 37,42 ----
+*** /tmp/da28759	Tue Jul 14 18:08:08 1992
+--- mit/fonts/server/os/access.c	Tue Jul 14 18:08:07 1992
+***************
+*** 1,28 ****
+! /* $XConsortium: access.c,v 1.5 91/07/18 22:34:38 keith Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+!  *
+!  * $NCDId: @(#)access.c,v 4.5 1991/07/02 18:32:37 lemke Exp $
+!  *
+X   */
+X  
+X  #include        <sys/param.h>
+--- 1,25 ----
+! /* $XConsortium: access.c,v 1.6 92/06/01 17:07:58 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  
+X  #include        <sys/param.h>
+***************
+*** 91,105 ****
+X  {
+X      OsCommPtr	oc;
+X  
+!     /* now that its connected, zero the connect time so it doesn't get killed */
+X      oc = (OsCommPtr)client->osPrivate;
+X      oc->conn_time = 0;
+X  
+X      *size = 0;
+X      *accept = AuthSuccess;
+!     if (*index > 0)
+! 	*index = 0;
+!     else
+! 	*index = -1;
+X      return FSSuccess;
+X  }
+--- 88,100 ----
+X  {
+X      OsCommPtr	oc;
+X  
+!     /* now that it's connected, zero the connect time
+!        so it doesn't get killed */
+X      oc = (OsCommPtr)client->osPrivate;
+X      oc->conn_time = 0;
+X  
+X      *size = 0;
+X      *accept = AuthSuccess;
+!     *index = 0;			/* we support no authorization protocols */
+X      return FSSuccess;
+X  }
+*** /tmp/da28803	Tue Jul 14 18:08:12 1992
+--- mit/fonts/server/os/io.c	Tue Jul 14 18:08:11 1992
+***************
+*** 1,7 ****
+! /* $XConsortium: io.c,v 1.5 91/06/21 18:19:12 keith Exp $ */
+X  /*
+X   * i/o functions
+-  *
+X   */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+--- 1,6 ----
+! /* $XConsortium: io.c,v 1.9 92/05/18 13:50:44 gildea Exp $ */
+X  /*
+X   * i/o functions
+X   */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+***************
+*** 24,32 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)io.c	4.2	5/3/91
+-  *
+X   */
+X  
+X  #include	<stdio.h>
+--- 23,28 ----
+***************
+*** 156,162 ****
+X  	    if (needed > oci->size) {
+X  		char       *ibuf;
+X  
+! 		ibuf = (char *) fsrealloc(oci, needed);
+X  		if (!ibuf) {
+X  		    yield_control_death();
+X  		    return -1;
+--- 152,158 ----
+X  	    if (needed > oci->size) {
+X  		char       *ibuf;
+X  
+! 		ibuf = (char *) fsrealloc(oci->buffer, needed);
+X  		if (!ibuf) {
+X  		    yield_control_death();
+X  		    return -1;
+***************
+*** 320,333 ****
+X      }
+X  }
+X  
+- static int  padlength[4] = {0, 3, 2, 1};
+- 
+X  int
+! FlushClient(client, oc, extraBuf, extraCount)
+X      ClientPtr   client;
+X      OsCommPtr   oc;
+X      char       *extraBuf;
+X      int         extraCount;
+X  {
+X      ConnectionOutputPtr oco = oc->output;
+X      int         fd = oc->fd;
+--- 316,328 ----
+X      }
+X  }
+X  
+X  int
+! FlushClient(client, oc, extraBuf, extraCount, padsize)
+X      ClientPtr   client;
+X      OsCommPtr   oc;
+X      char       *extraBuf;
+X      int         extraCount;
++     int         padsize;
+X  {
+X      ConnectionOutputPtr oco = oc->output;
+X      int         fd = oc->fd;
+***************
+*** 334,340 ****
+X      struct iovec iov[3];
+X      char        padBuffer[3];
+X      long        written;
+-     long        padsize;
+X      long        notWritten;
+X      long        todo;
+X  
+--- 329,334 ----
+***************
+*** 341,347 ****
+X      if (!oco)
+X  	return 0;
+X      written = 0;
+-     padsize = padlength[extraCount & 3];
+X      notWritten = oco->count + extraCount + padsize;
+X      todo = notWritten;
+X      while (notWritten) {
+--- 335,340 ----
+***************
+*** 484,503 ****
+X  		BITSET(OutputPending, oc->fd);
+X  		NewOutputPending = TRUE;
+X  	    } else {
+! 		(void) FlushClient(client, oc, (char *) NULL, 0);
+X  	    }
+X  	}
+X      }
+X  }
+X  
+! WriteToClient(client, count, buf)
+X      ClientPtr   client;
+X      int         count;
+X      char       *buf;
+X  {
+X      OsCommPtr   oc = (OsCommPtr) client->osPrivate;
+X      ConnectionOutputPtr oco = oc->output;
+-     int         padBytes;
+X  
+X      if (!count)
+X  	return 0;
+--- 477,500 ----
+X  		BITSET(OutputPending, oc->fd);
+X  		NewOutputPending = TRUE;
+X  	    } else {
+! 		(void) FlushClient(client, oc, (char *) NULL, 0, 0);
+X  	    }
+X  	}
+X      }
+X  }
+X  
+! /*
+!  * returns number of bytes written
+!  */
+! static int
+! write_to_client_internal(client, count, buf, padBytes)
+X      ClientPtr   client;
+X      int         count;
+X      char       *buf;
++     int         padBytes;
+X  {
+X      OsCommPtr   oc = (OsCommPtr) client->osPrivate;
+X      ConnectionOutputPtr oco = oc->output;
+X  
+X      if (!count)
+X  	return 0;
+***************
+*** 512,523 ****
+X  	}
+X  	oc->output = oco;
+X      }
+-     padBytes = padlength[count & 3];
+- 
+X      if (oco->count + count + padBytes > oco->size) {
+X  	BITCLEAR(OutputPending, oc->fd);
+X  	NewOutputPending = FALSE;
+! 	return FlushClient(client, oc, buf, count);
+X      }
+X      NewOutputPending = TRUE;
+X      BITSET(OutputPending, oc->fd);
+--- 509,518 ----
+X  	}
+X  	oc->output = oco;
+X      }
+X      if (oco->count + count + padBytes > oco->size) {
+X  	BITCLEAR(OutputPending, oc->fd);
+X  	NewOutputPending = FALSE;
+! 	return FlushClient(client, oc, buf, count, padBytes);
+X      }
+X      NewOutputPending = TRUE;
+X      BITSET(OutputPending, oc->fd);
+***************
+*** 525,530 ****
+--- 520,543 ----
+X      oco->count += count + padBytes;
+X  
+X      return count;
++ }
++ 
++ WriteToClientUnpadded(client, count, buf)
++     ClientPtr   client;
++     int         count;
++     char       *buf;
++ {
++     write_to_client_internal(client, count, buf, 0);
++ }
++ 
++ static int  padlength[4] = {0, 3, 2, 1};
++ 
++ WriteToClient(client, count, buf)
++     ClientPtr   client;
++     int         count;
++     char       *buf;
++ {
++      write_to_client_internal(client, count, buf, padlength[count & 3]);
+X  }
+X  
+X  static      ConnectionInputPtr
+*** /tmp/da28825	Tue Jul 14 18:08:14 1992
+--- mit/fonts/server/os/connection.c	Tue Jul 14 18:08:14 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: connection.c,v 1.17 91/09/09 18:56:03 rws Exp $ */
+X  /*
+X   * handles connections
+X   */
+--- 1,4 ----
+! /* $XConsortium: connection.c,v 1.19 92/05/18 13:51:29 gildea Exp $ */
+X  /*
+X   * handles connections
+X   */
+***************
+*** 23,31 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * $NCDId: @(#)connection.c,v 4.10 1991/07/03 17:19:22 lemke Exp $
+-  *
+X   */
+X  
+X  /* sorry, streams support not here yet */
+--- 23,28 ----
+***************
+*** 471,477 ****
+X      OsCommPtr   oc = (OsCommPtr) client->osPrivate;
+X  
+X      if (oc->output && oc->output->count)
+! 	FlushClient(client, oc, (char *) NULL, 0);
+X      ConnectionTranslation[oc->fd] = 0;
+X      close_fd(oc);
+X      client->osPrivate = (pointer) NULL;
+--- 468,474 ----
+X      OsCommPtr   oc = (OsCommPtr) client->osPrivate;
+X  
+X      if (oc->output && oc->output->count)
+! 	FlushClient(client, oc, (char *) NULL, 0, 0);
+X      ConnectionTranslation[oc->fd] = 0;
+X      close_fd(oc);
+X      client->osPrivate = (pointer) NULL;
+*** /tmp/da28868	Tue Jul 14 18:08:18 1992
+--- mit/fonts/server/os/utils.c	Tue Jul 14 18:08:18 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: utils.c,v 1.7 91/07/25 12:15:52 keith Exp $ */
+X  /*
+X   * misc os utilities
+X   */
+--- 1,4 ----
+! /* $XConsortium: utils.c,v 1.9 92/01/31 17:45:40 eswu Exp $ */
+X  /*
+X   * misc os utilities
+X   */
+***************
+*** 32,37 ****
+--- 32,38 ----
+X  #include	<X11/Xos.h>
+X  #include	"misc.h"
+X  #include	"globals.h"
++ #include	<signal.h>
+X  
+X  #ifndef X_NOT_POSIX
+X  #ifdef _POSIX_SOURCE
+***************
+*** 44,54 ****
+--- 45,57 ----
+X  #endif /* X_NOT_POSIX */
+X  #ifndef PATH_MAX
+X  #include <sys/param.h>
++ #ifndef PATH_MAX
+X  #ifdef MAXPATHLEN
+X  #define PATH_MAX MAXPATHLEN
+X  #else
+X  #define PATH_MAX 1024
+X  #endif
++ #endif
+X  #endif /* PATH_MAX */
+X  
+X  #ifdef SIGNALRETURNSINT
+***************
+*** 73,78 ****
+--- 76,85 ----
+X  
+X      dispatchException |= DE_RESET;
+X      isItTimeToYield = TRUE;
++ 
++ #ifdef SYSV
++     signal(SIGHUP, AutoResetServer);
++ #endif
+X  }
+X  
+X  SIGVAL
+***************
+*** 97,102 ****
+--- 104,113 ----
+X  
+X      dispatchException |= DE_RECONFIG;
+X      isItTimeToYield = TRUE;
++ 
++ #ifdef SYSV
++     signal(SIGUSR1, ServerReconfig);
++ #endif
+X  }
+X  
+X  SIGVAL
+***************
+*** 109,114 ****
+--- 120,129 ----
+X  
+X      dispatchException |= DE_FLUSH;
+X      isItTimeToYield = TRUE;
++ 
++ #ifdef SYSV
++     signal(SIGUSR2, ServerCacheFlush);
++ #endif
+X  }
+X  
+X  long
+***************
+*** 140,146 ****
+--- 155,165 ----
+X  	extern pointer MemoryAllocationBase;
+X  
+X  	if (!MemoryAllocationBase)
++ #ifndef AIXV3
+X  	    MemoryAllocationBase = (pointer) sbrk(0);
++ #else
++ 	    MemoryAllocationBase = (pointer) 0x20000000;
++ #endif
+X      }
+X  #endif
+X  
+*** /tmp/da28953	Tue Jul 14 18:08:25 1992
+--- mit/fonts/server/os/osdep.h	Tue Jul 14 18:08:25 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: osdep.h,v 1.3 91/05/13 16:51:04 gildea Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+--- 1,4 ----
+! /* $XConsortium: osdep.h,v 1.4 92/01/31 17:45:07 eswu Exp $ */
+X  /*
+X   * Copyright 1990, 1991 Network Computing Devices;
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+***************
+*** 131,141 ****
+X  #define MASKANDSETBITS(dst, b1, b2)  \
+X  		      { int cri;			\
+X  			for (cri=0; cri<mskcnt; cri++)	\
+! 		          dst[cri] = (b1[cri] & b2[cri]) }
+X  #define ORBITS(dst, b1, b2)  \
+X  		      { int cri;			\
+X  		      for (cri=0; cri<mskcnt; cri++)	\
+! 		          dst[cri] = (b1[cri] | b2[cri]) }
+X  #define UNSETBITS(dst, b1) \
+X  		      { int cri;			\
+X  		      for (cri=0; cri<mskcnt; cri++)	\
+--- 131,141 ----
+X  #define MASKANDSETBITS(dst, b1, b2)  \
+X  		      { int cri;			\
+X  			for (cri=0; cri<mskcnt; cri++)	\
+! 		          dst[cri] = (b1[cri] & b2[cri]); }
+X  #define ORBITS(dst, b1, b2)  \
+X  		      { int cri;			\
+X  		      for (cri=0; cri<mskcnt; cri++)	\
+! 		          dst[cri] = (b1[cri] | b2[cri]); }
+X  #define UNSETBITS(dst, b1) \
+X  		      { int cri;			\
+X  		      for (cri=0; cri<mskcnt; cri++)	\
+*** /tmp/da29017	Tue Jul 14 18:08:31 1992
+--- mit/fonts/server/os/error.c	Tue Jul 14 18:08:31 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: error.c,v 1.3 91/08/16 16:20:23 rws Exp $ */
+X  /*
+X   * error message handling
+X   */
+--- 1,4 ----
+! /* $XConsortium: error.c,v 1.4 91/12/09 16:49:23 converse Exp $ */
+X  /*
+X   * error message handling
+X   */
+***************
+*** 41,50 ****
+--- 41,52 ----
+X  #endif
+X  #ifndef PATH_MAX
+X  #include <sys/param.h>
++ #ifndef PATH_MAX
+X  #ifdef MAXPATHLEN
+X  #define PATH_MAX MAXPATHLEN
+X  #else
+X  #define PATH_MAX 1024
++ #endif
+X  #endif
+X  #endif
+X  
+*** /tmp/da29043	Tue Jul 14 18:08:34 1992
+--- mit/fonts/server/difs/fontinfo.c	Tue Jul 14 18:08:33 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: fontinfo.c,v 1.7 91/07/25 12:24:51 keith Exp $ */
+X  /*
+X   * font data query
+X   */
+--- 1,4 ----
+! /* $XConsortium: fontinfo.c,v 1.8 92/05/12 18:08:08 gildea Exp $ */
+X  /*
+X   * font data query
+X   */
+***************
+*** 23,31 ****
+X   * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X   * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X   * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+-  *
+-  * @(#)fontinfo.c	4.1	5/2/91
+-  *
+X   */
+X  
+X  #include        "FS.h"
+--- 23,28 ----
+***************
+*** 132,138 ****
+X  
+X  
+X  int
+! LoadFontHeader(pinfo, hdr, pi)
+X      FontInfoPtr pinfo;
+X      fsFontHeader *hdr;
+X      fsPropInfo **pi;
+--- 129,136 ----
+X  
+X  
+X  int
+! LoadXFontInfo(client, pinfo, hdr, pi)
+!     ClientPtr client;		/* for client version info */
+X      FontInfoPtr pinfo;
+X      fsFontHeader *hdr;
+X      fsPropInfo **pi;
+***************
+*** 147,158 ****
+X  
+X      if (pinfo->inkInside)
+X  	hdr->flags |= FontInfoInkInside;
+!     hdr->char_range.min_char.low = pinfo->firstCol;
+!     hdr->char_range.min_char.high = pinfo->firstRow;
+!     hdr->char_range.max_char.low = pinfo->lastCol;
+!     hdr->char_range.max_char.high = pinfo->lastRow;
+!     hdr->default_char.low = pinfo->defaultCh & 0xff;
+!     hdr->default_char.high = pinfo->defaultCh >> 8;
+X  
+X      CopyCharInfo(&pinfo->ink_minbounds, &hdr->min_bounds);
+X      CopyCharInfo(&pinfo->ink_maxbounds, &hdr->max_bounds);
+--- 145,165 ----
+X  
+X      if (pinfo->inkInside)
+X  	hdr->flags |= FontInfoInkInside;
+!     if (client->major_version > 1) {
+! 	hdr->char_range.min_char.low = pinfo->firstCol;
+! 	hdr->char_range.min_char.high = pinfo->firstRow;
+! 	hdr->char_range.max_char.low = pinfo->lastCol;
+! 	hdr->char_range.max_char.high = pinfo->lastRow;
+! 	hdr->default_char.low = pinfo->defaultCh & 0xff;
+! 	hdr->default_char.high = pinfo->defaultCh >> 8;
+!     } else {
+! 	hdr->char_range.min_char.high = pinfo->firstCol;
+! 	hdr->char_range.min_char.low = pinfo->firstRow;
+! 	hdr->char_range.max_char.high = pinfo->lastCol;
+! 	hdr->char_range.max_char.low = pinfo->lastRow;
+! 	hdr->default_char.high = pinfo->defaultCh & 0xff;
+! 	hdr->default_char.low = pinfo->defaultCh >> 8;
+!     }
+X  
+X      CopyCharInfo(&pinfo->ink_minbounds, &hdr->min_bounds);
+X      CopyCharInfo(&pinfo->ink_maxbounds, &hdr->max_bounds);
+***************
+*** 233,238 ****
+--- 240,265 ----
+X      }
+X  }
+X  
++ /*
++  * provide backward compatibility with version 1, which had
++  * the bytes of char2b backwards
++  */
++ static void
++ swap_char2b (values, number)
++     fsChar2b *values;
++     int number;
++ {
++     fsChar2b temp;
++     int i;
++ 
++     for (i = 0; i < number; i++) {
++ 	temp.low = ((fsChar2b_version1 *)values)->low;
++ 	temp.high = ((fsChar2b_version1 *)values)->high;
++ 	*values++ = temp;
++     }
++ }
++ 
++ 
+X  static Bool
+X  do_query_extents(client, c)
+X      ClientPtr   client;
+***************
+*** 244,250 ****
+X      fsCharInfo *extents;
+X      fsQueryXExtents8Reply reply;
+X  
+!     err = (*c->pfont->get_extents) ((pointer) c->client, c->pfont,
+X  		     c->flags, c->nranges, c->range, &num_extents, &extents);
+X      if (err == Suspended) {
+X  	if (!c->slept) {
+--- 271,277 ----
+X      fsCharInfo *extents;
+X      fsQueryXExtents8Reply reply;
+X  
+!     err = GetExtents (c->client, c->pfont,
+X  		     c->flags, c->nranges, c->range, &num_extents, &extents);
+X      if (err == Suspended) {
+X  	if (!c->slept) {
+***************
+*** 288,293 ****
+--- 315,323 ----
+X      fsRange    *fixed_range;
+X      Bool        all_glyphs = FALSE;
+X  
++     if (item_size == 2  &&  client->major_version == 1)
++ 	swap_char2b (range_data, nranges);
++ 
+X      fixed_range = build_range(range_flag, range_data, item_size,
+X  			      &nranges, &all_glyphs);
+X  
+***************
+*** 322,328 ****
+X      fsQueryXBitmaps8Reply reply;
+X      int		freedata;
+X  
+!     err = (*c->pfont->get_bitmaps) ((pointer) c->client, c->pfont, c->format,
+X  				    c->flags, c->nranges, c->range,
+X  			     &data_size, &num_glyphs, &offsets, &glyph_data, &freedata);
+X  
+--- 352,358 ----
+X      fsQueryXBitmaps8Reply reply;
+X      int		freedata;
+X  
+!     err = GetBitmaps (c->client, c->pfont, c->format,
+X  				    c->flags, c->nranges, c->range,
+X  			     &data_size, &num_glyphs, &offsets, &glyph_data, &freedata);
+X  
+***************
+*** 375,380 ****
+--- 405,413 ----
+X      QBclosurePtr c;
+X      fsRange    *fixed_range;
+X      Bool        all_glyphs = FALSE;
++ 
++     if (item_size == 2  &&  client->major_version == 1)
++ 	swap_char2b (range_data, nranges);
+X  
+X      fixed_range = build_range(range_flag, range_data, item_size,
+X  			      &nranges, &all_glyphs);
+*** /tmp/da29128	Tue Jul 14 18:08:42 1992
+--- mit/fonts/server/difs/dispatch.c	Tue Jul 14 18:08:41 1992
+***************
+*** 1,4 ****
+! /* $XConsortium: dispatch.c,v 1.7 91/07/27 02:29:05 keith Exp $ */
+X  /*
+X   * protocol dispatcher
+X   */
+--- 1,4 ----
+! /* $XConsortium: dispatch.c,v 1.15 92/06/02 14:15:53 gildea Exp $ */
+X  /*
+X   * protocol dispatcher
+X   */
+***************
+*** 7,31 ****
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, and distribute this protoype software
+!  * and its documentation to Members and Affiliates of the MIT X Consortium
+!  * any purpose and without fee is hereby granted, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * MIT not be used in advertising or publicity pertaining to distribution of
+!  * the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND MIT DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
+!  * AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES, DIGITAL OR MIT BE
+!  * LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+!  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+!  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+!  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+!  *
+!  * $NCDId: @(#)dispatch.c,v 4.11 1991/07/09 14:09:07 lemke Exp $
+!  *
+X   */
+X  
+X  #include	"FS.h"
+--- 7,28 ----
+X   * Portions Copyright 1987 by Digital Equipment Corporation and the
+X   * Massachusetts Institute of Technology
+X   *
+!  * Permission to use, copy, modify, distribute, and sell this software and
+!  * its documentation for any purpose is hereby granted without fee, provided
+X   * that the above copyright notice appear in all copies and that both that
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation, and that the names of Network Computing Devices, Digital or
+!  * M.I.T. not be used in advertising or publicity pertaining to distribution
+!  * of the software without specific, written prior permission.
+X   *
+!  * NETWORK COMPUTING DEVICES, DIGITAL AND M.I.T. DISCLAIM ALL WARRANTIES WITH
+!  * REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+!  * MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL NETWORK COMPUTING DEVICES,
+!  * DIGITAL OR M.I.T. BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL
+!  * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+!  * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+!  * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+!  * THIS SOFTWARE.
+X   */
+X  
+X  #include	"FS.h"
+***************
+*** 138,143 ****
+--- 135,141 ----
+X  		NoticeF("Re-reading config file\n");
+X  		if (ReadConfigFile(configfilename) != FSSuccess)
+X  		    ErrorF("couldn't parse config file");
++ 		SetConfigValues();
+X  		dispatchException &= ~DE_RECONFIG;
+X  	    }
+X  	    /* flush all the caches */
+***************
+*** 146,156 ****
+X  		CacheReset();
+X  		dispatchException &= ~DE_FLUSH;
+X  	    }
+! 	    /* reset when no clients left */
+! 	    if ((dispatchException & DE_RESET) && (nClients == 0)) {
+! 		NoticeF("reseting\n");
+X  		break;
+- 
+X  	    }
+X  	    /* die *now* */
+X  	    if (dispatchException & DE_TERMINATE) {
+--- 144,153 ----
+X  		CacheReset();
+X  		dispatchException &= ~DE_FLUSH;
+X  	    }
+! 	    /* reset */
+! 	    if (dispatchException & DE_RESET) {
+! 		NoticeF("resetting\n");
+X  		break;
+X  	    }
+X  	    /* die *now* */
+X  	    if (dispatchException & DE_TERMINATE) {
+***************
+*** 176,188 ****
+X      nClients++;
+X      prefix = (fsConnClientPrefix *) ((char *) stuff + sz_fsReq);
+X      if ((prefix->byteOrder != 'l') && (prefix->byteOrder != 'B'))
+! 	return (client->noClientException = -1);
+X      if (((*(char *) &whichbyte) && (prefix->byteOrder == 'B')) ||
+X  	    (!(*(char *) &whichbyte) && (prefix->byteOrder == 'l'))) {
+X  	client->swapped = TRUE;
+X  	SwapConnClientPrefix(prefix);
+X      }
+X      stuff->reqType = 2;
+X      if (client->swapped) {
+X  	swaps(&stuff->length, whichbyte);
+X      }
+--- 173,188 ----
+X      nClients++;
+X      prefix = (fsConnClientPrefix *) ((char *) stuff + sz_fsReq);
+X      if ((prefix->byteOrder != 'l') && (prefix->byteOrder != 'B'))
+! 	return (client->noClientException = -2);
+X      if (((*(char *) &whichbyte) && (prefix->byteOrder == 'B')) ||
+X  	    (!(*(char *) &whichbyte) && (prefix->byteOrder == 'l'))) {
+X  	client->swapped = TRUE;
+X  	SwapConnClientPrefix(prefix);
+X      }
++     client->major_version = prefix->major_version;
++     client->minor_version = prefix->minor_version;
+X      stuff->reqType = 2;
++     stuff->length += prefix->auth_len;
+X      if (client->swapped) {
+X  	swaps(&stuff->length, whichbyte);
+X      }
+***************
+*** 221,227 ****
+X  /* XXXX -- this needs work for multiple auth replies */
+X  
+X      /* build up a list of the stuff */
+!     for (i = 0, ad = auth_data; i < prefix->num_auths; i++) {
+X  	client_auth[i].namelen = *(short *) ad;
+X  	ad += 2;
+X  	client_auth[i].datalen = *(short *) ad;
+--- 221,227 ----
+X  /* XXXX -- this needs work for multiple auth replies */
+X  
+X      /* build up a list of the stuff */
+!     for (i = 0, ad = auth_data; i < (int)prefix->num_auths; i++) {
+X  	client_auth[i].namelen = *(short *) ad;
+X  	ad += 2;
+X  	client_auth[i].datalen = *(short *) ad;
+***************
+*** 248,254 ****
+X  	return FSBadAlloc;
+X      }
+X      csp.status = auth_accept;
+!     csp.major_version = FS_PROTOCOL;
+X      csp.minor_version = FS_PROTOCOL_MINOR;
+X      csp.num_alternates = num_alts;
+X      csp.alternate_len = altlen;
+--- 248,258 ----
+X  	return FSBadAlloc;
+X      }
+X      csp.status = auth_accept;
+!     if (client->major_version == 1)
+! 	/* we implement backwards compatibility for version 1.0 */
+! 	csp.major_version = client->major_version;
+!     else
+! 	csp.major_version = FS_PROTOCOL;
+X      csp.minor_version = FS_PROTOCOL_MINOR;
+X      csp.num_alternates = num_alts;
+X      csp.alternate_len = altlen;
+***************
+*** 271,281 ****
+X  	(void) WriteToClient(client, altservers[i].namelen + 2, tmp);
+X      }
+X  
+!     (void) WriteToClient(client, auth_len, (char *) server_auth_data);
+X  
+X      if (auth_accept != AuthSuccess) {
+X  	nClients--;
+! 	return (client->noClientException = -1);
+X      }
+X      client->requestVector = client->swapped ? SwappedProcVector : ProcVector;
+X      client->sequence = 0;
+--- 275,286 ----
+X  	(void) WriteToClient(client, altservers[i].namelen + 2, tmp);
+X      }
+X  
+!     if (auth_len)
+! 	(void) WriteToClient(client, auth_len, (char *) server_auth_data);
+X  
+X      if (auth_accept != AuthSuccess) {
+X  	nClients--;
+! 	return (client->noClientException = -2);
+X      }
+X      client->requestVector = client->swapped ? SwappedProcVector : ProcVector;
+X      client->sequence = 0;
+***************
+*** 311,316 ****
+--- 316,322 ----
+X      case FSBadFont:
+X      case FSBadAccessContext:
+X      case FSBadIDChoice:
++     case FSBadEventMask:
+X  	if (client->swapped)
+X  	    SwapLongs((long *) data, 1);
+X  	extralen = sizeof(Font);
+***************
+*** 496,502 ****
+X      	}
+X      }
+X      /* build up a list of the stuff */
+!     for (i = 0, ad = (pointer) &stuff[1]; i < stuff->num_auths; i++) {
+X  	acp[i].namelen = *(short *) ad;
+X  	ad += 2;
+X  	acp[i].datalen = *(short *) ad;
+--- 502,508 ----
+X      	}
+X      }
+X      /* build up a list of the stuff */
+!     for (i = 0, ad = (pointer) &stuff[1]; i < (int)stuff->num_auths; i++) {
+X  	acp[i].namelen = *(short *) ad;
+X  	ad += 2;
+X  	acp[i].datalen = *(short *) ad;
+SHAR_EOF
+true || echo 'restore of fix-13 failed'
+fi
+echo 'End of  part 3'
+echo 'File fix-13 is continued in part 4'
+echo 4 > _shar_seq_.tmp
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

@@ -1,0 +1,2183 @@
+Newsgroups: comp.sources.misc
+From: mpeppler@itf.ch (Michael Peppler)
+Subject: v39i101:  sybperl - Sybase DB-library extensions to Perl, v1.8, Part01/03
+Message-ID: <csm-v39i101=sybperl.132552@sparky.Sterling.COM>
+X-Md4-Signature: 40b3185c7c0a4ebda79de2f788a1222e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sat, 25 Sep 1993 18:26:25 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: mpeppler@itf.ch (Michael Peppler)
+Posting-number: Volume 39, Issue 101
+Archive-name: sybperl/part01
+Environment: UNIX, Perl, Sybase
+Supersedes: sybperl: Volume 37, Issue 33-34
+
+This is Sybperl release 1.8.
+
+Sybperl is an extension to Perl which allows you to access Sybase
+databases directly from Perl scripts using standard OpenClient (aka
+DB-Library) calls.
+
+>From the CHANGES file:
+	1.008   Added user settable variables to control whether
+		Sybperl returns 'NULL' or Perl's 'undef' value on NULL
+		values from a query, whether numeric results are kept
+		in native format, and whether binary data should be
+		preceded by '0x' (suggested by Steve Baumgartner).
+		Actually made $DBstatus visible (it was documented but
+		not usable up to now...).
+		Passing an undef'd variable to &bcp_sendrow will cause
+		a NULL value to be sent to the server for that column.
+	1.007   Added &dbmny* calls and code to circumvent weird
+		package/usub interaction bug, both contributed by Jeff
+		Wong.
+		Added &bcp_* calls.
+		Added &dbretdata() call (returns an array, possibly
+		associative, with the return parameters of a stored
+		proc).
+		Calls to any of the routines with an undefined
+		DBPROCESS will now elicit a warning; previously, such
+		calls defaulted to using the first (default)
+		DBPROCESS.
+		Data returned from queries is not converted to char
+		unless its necessary - this applies mainly to types
+		SYBFLOAT and SYBREAL which could loose some precision
+		on being converted to a string via sprintf().
+
+Michael Peppler	                       mpeppler@itf.ch
+ITF Management SA                      mpeppler@bix.com     
+13 Rue de la Fontaine                  Phone: (+4122) 312 1311
+CH-1204 Geneva, Switzerland            Fax:   (+4122) 312 1325
+---
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  README Makefile eg lib patchlevel.h sybperl.c.A t
+# Wrapped by kent@sparky on Sat Sep 25 13:15:59 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(3918 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+X	@(#)README	1.4	9/23/93
+X	
+X	             Sybperl, version 1.0
+X
+X
+X
+X   Sybperl is a set of user-defined subroutines letting you access a
+X   Sybase data server using Perl.
+X
+X   Requirements: Perl ver 3.0.27 or higher (4.036 strongly suggested!).
+X		 Sybase DB-Library (aka Open Client)
+X
+X
+X   Compiling & Installing Sybperl:
+X   
+X   Unshar somewhere convenient, and edit Makefile to reflect your
+X   system setup. The following macros/defines may need to be set:
+X
+X       PERL_VERSION	 Uncomment if you're using a Perl version
+X			 earlier than 4.03
+X       UPERL		 See the comments in the Makefile, and the
+X			 BUGS file. The defaults should work.
+X       HAS_CALLBACK	 This enables the use of Perl subroutines as
+X			 DB-Library error & message handlers. This is
+X			 a new feature of Perl 4.018, but it might
+X			 work with earlier versions.
+X       DBLIBVS     	 The version of your OpenClient library. Valid
+X			 values are 'undefined', DBLIB42 and DBLIB461.
+X			 Depending on its value certain newer features
+X			 of DBlibrary will be included in Sybperl.
+X       SET_VAL		 If this macro is set, then attempts to set a
+X			 Sybperl user-variable (such as
+X			 $NO_MORE_RESULTS) will result in a fatal
+X			 error. Otherwise such attempts are silently
+X			 ignored.
+X       OLD_SYBPERL	 This is a backwards compatibility flag -
+X			 mainly for myself :-). It's main impact is to
+X			 silently call dblogin()/dbopen() with default
+X			 arguments if you omit to do so in the script.
+X       PACKAGE_BUG	 There appears to be a weird bug when one
+X			 calls usersubs from within multiple Perl
+X			 packages. If you run into this problem, you
+X			 can enable this macro (see also the BUGS
+X			 file).
+X
+X   When building Sybperl under Solaris 2.x, you need to add -lnsl
+X   and -lsocket to the SYBLIBS variable in the Makefile.
+X   
+X   The Makefile will not attempt to build uperl.o if it can't find it.
+X
+X   You may also need to edit the lib/sybperl.pl file to addapt it to
+X   your environment.
+X
+X   There are some test scripts in the t directory which you can run to
+X   see if all is well, and to get an idea of what can be done with
+X   sybperl. There are also some example scripts in the 'eg' directory.
+X
+X   Sybperl has been tested succesfully in the following environments:
+X
+X   Sun Sparc, SunOS 4.1.3, Sybase 4.8, Perl 4.036
+X   Sun 3/80, SunOS 4.0.3, Sybase 4.0.1, Perl 4.010
+X   Sun Sparc, SunOS 4.1, Sybase 4.2, Perl 4.010
+X   Pyramid MIServer 2/2, OSx V5.1a, Sybase 4.0, Perl 4.010
+X   
+X   I use sybperl daily in a production environment on a Sun network
+X   (Sun 4/65s and Axil HWS 310s) under SunOS 4.1.3, with Sybase
+X   version 4.8 and Perl 4.036
+X
+X   FTP site: Sybperl and other DBMS related extensions to Perl can be
+X   found on ftp.demon.co.uk:/pub/perl/db.
+X   
+X
+X   BUGS:
+X
+X   Both DBlibrary and Perl define a symbol named 'savestr', resulting
+X   in the Perl version being called from DBlibrary. See the BUGS file
+X   for ways to get around this problem.
+X
+X   Memory usage can also be a problem in certain cases. Again see the
+X   BUGS file for details.
+X
+X
+X
+X
+X   
+X   Have fun using it and let me know of any improvements, problems,
+X   whatever...
+X
+X   Michael Peppler	        mpeppler@itf.ch    mpeppler@bix.com
+X   ITF Management SA            BIX:   mpeppler                         
+X   13 Rue de la Fontaine        Phone: (+4122) 312 1311  
+X   CH-1204 Geneva, Switzerland  Fax:   (+4122) 312 1322  
+X
+X   
+X
+X                   NOTICE - Warranty and Copyright
+X
+X		   
+X   Sybperl is not a product of ITF Management. There is no warranty,
+X   and no official support.
+X
+X   Sybperl is copyright, but may be freely distributed under the
+X   same terms as Perl itself.
+X
+X
+X
+X   My thanks to the following people for testing Perl, and suggesting
+X   improvements:
+X
+X   Teemu Torma			Brent Milnor
+X   Matthew Merzbacher		Eric Fifer
+X   Dan Banay			Mark Lawrence
+X   Jeffrey Wong			Wolfgang Richter
+X   Anders Ardo			Gijs Mos
+X   Minh Ton Ha			G. Roderick Singleton
+X   Peter Gutmann
+X
+END_OF_FILE
+  if test 3918 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3285 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X#	@(#)Makefile	1.16	9/6/93
+X#
+X	
+XCC = gcc
+XPERLSRC = ..				# where to find uperl.o
+XSYBINCS = /usr/local/sybase/include	# where to find the sybase .h files
+XLOCINCS =				# other includes ?
+XSYBLIBDIR = /usr/local/lib		# Sybase libraries
+XSYBLIBS = -lsybdb			# db-library
+X
+X# Uncomment this if you are compiling sybperl for Perl version 3.xx
+X
+X# PERL_VERSION = -DVERSION3
+X
+X# The Perl/Sybase savestr() conflict.
+X# Both Perl and Sybase DB-Library have a function called savestr(),
+X# and this creates a problem when using functions such as dbcmd().
+X# There are several ways around this.
+X# You can:
+X#
+X#	- Recompile uperl.o with a -Dsavestr=psvestr (or something similar).
+X#	- Edit an existing uperl.o and change _savestr to _psvestr.
+X#
+X#
+X# To use the first option, you have to reconfigure & recompile Perl
+X# manually, and then set compile sybperl with the following line
+X# uncommented:
+X# UPERL = $(PERLSRC)/uperl.o
+X#
+X# The default is to use the third solution:
+XUPERL = uperl2.o
+X
+X
+XHAS_CALLBACK= -DHAS_CALLBACK		# Remove this if you don't
+X					# have Perl 4 patchlevel 18
+X					# User defined, perl based
+X					# error/message handlers are
+X					# not possible without this, however.
+XOLD_SYBPERL= -DOLD_SYBPERL		# some backward compatibility stuff.
+X
+XDBLIBVS = -DDBLIB461			# Comment this if your version
+X					# of DBlib is older than
+X					# version 4.2
+X
+X#SET_VAL = -DUSERVAL_SET_FATAL		# Uncomment this if you wish
+X					# to get a fatal error message
+X					# if you attempt to set on of
+X					# Sybperl's variables from a
+X					# script. Normally such
+X					# actions are silently ignored.
+X
+X#PACKAGE_BUG = -DPACKAGE_BUG		# Uncomment to enable code
+X					# to circumvent a bug that
+X					# shows up when calling usubs from
+X					# within nested packages.
+X					
+X
+XCFLAGS = -O2 -g
+XCPPFLAGS = -I$(PERLSRC) -I$(LOCINCS) -I$(SYBINCS) $(PERL_VERSION) \
+X		$(HAS_CALLBACK) $(OLD_SYBPERL) $(DBLIBVS) \
+X		$(SET_VAL) $(PACKAGE_BUG)
+X
+XBINDIR = /usr/local/bin			# where does the executable go
+XPERLLIB = /usr/local/lib/perl		# where does lib/sybperl.pl
+X					# and lib/sybdb.ph go
+XMANDIR = /usr/local/man			# where do we put the manual page
+XMANEXT = l
+X
+X
+Xsybperl: $(UPERL) sybperl.o
+X	$(CC) $(CFLAGS) -L$(SYBLIBDIR) $(UPERL) sybperl.o $(SYBLIBS) -lm -o sybperl
+X
+Xsybperl.o: sybperl.c
+X	$(CC) -c $(CFLAGS) $(CPPFLAGS) sybperl.c
+X
+X# Create uperl.o IF you wish to use the 3rd way of resolving the
+X# Perl/Sybase savestr conflict.
+X$(UPERL): $(PERLSRC)/uperl.o
+X	cp $(PERLSRC)/uperl.o $(UPERL)
+X	perl -p -i.bak -e 's/savestr/psvestr/g;' $(UPERL)
+X	rm -f $(UPERL).bak
+X
+X
+Xclean:
+X	rm -f sybperl *.o *~ core
+X
+Xinstall: sybperl
+X	install -s -m 775 sybperl $(BINDIR)
+X	cp lib/syb*.p? $(PERLLIB)
+X	cp sybperl.1 $(MANDIR)/man$(MANEXT)/sybperl.$(MANEXT)
+X
+Xshar:
+X	rm -f sybperl.shar
+X	shar.pl README PACKING.LST BUGS CHANGES Makefile sybperl.c \
+X	sybperl.1 patchlevel.h lib/sybperl.pl lib/sybdb.ph \
+X	lib/sybdb_redefs.pl t/sbex.pl \
+X	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl \
+X	eg/dbschema.pl eg/dbtext.pl eg/test_dbmoney.pl eg/README >sybperl.shar
+X
+X
+Xtar:
+X	rm -f sybperl.tar
+X	tar cvfB sybperl.tar README PACKING.LST BUGS CHANGES Makefile sybperl.c \
+X	sybperl.1 patchlevel.h lib/sybperl.pl lib/sybdb.ph \
+X	lib/sybdb_redefs.pl t/sbex.pl \
+X	eg/sql.pl eg/space.pl eg/capture.pl eg/report.pl \
+X	eg/dbschema.pl eg/dbtext.pl eg/test_dbmoney.pl eg/README
+X
+X
+X
+X
+X
+END_OF_FILE
+  if test 3285 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test ! -d 'eg' ; then
+    echo shar: Creating directory \"'eg'\"
+    mkdir 'eg'
+fi
+if test ! -d 'lib' ; then
+    echo shar: Creating directory \"'lib'\"
+    mkdir 'lib'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+  echo shar: Extracting \"'patchlevel.h'\" \(79 characters\)
+  sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X
+X/* 	@(#)patchlevel.h	1.2	9/6/93 	*/
+X
+X#define VERSION 1
+X#define PATCHLEVEL 8
+X
+X
+END_OF_FILE
+  if test 79 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel.h'
+fi
+if test -f 'sybperl.c.A' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sybperl.c.A'\"
+else
+  echo shar: Extracting \"'sybperl.c.A'\" \(48039 characters\)
+  sed "s/^X//" >'sybperl.c.A' <<'END_OF_FILE'
+Xstatic char SccsId[] = "@(#)sybperl.c	1.25	9/13/93";
+X/************************************************************************/
+X/*	Copyright 1991, 1992, 1993 by Michael Peppler			*/
+X/*	                           and ITF Management SA 	        */
+X/*      Portions Copyright (c) 1993 Commercial Dynamics Pty Ltd         */
+X/*									*/
+X/*	Full ownership of this software, and all rights pertaining to 	*/
+X/*	the for-profit distribution of this software, are retained by 	*/
+X/*	Michael Peppler and ITF Management SA.  You are permitted to 	*/
+X/*	use this software without fee.  This software is provided "as 	*/
+X/*	is" without express or implied warranty.  You may redistribute 	*/
+X/*	this software, provided that this copyright notice is retained,	*/
+X/*	and that the software is not distributed for profit.  If you 	*/
+X/*	wish to use this software in a profit-making venture, you must 	*/
+X/*	first license this code and its underlying technology from 	*/
+X/*	ITF Management SA. 						*/
+X/*									*/
+X/*	Bottom line: you can have this software, you can use it, you 	*/
+X/*	can give it away.  You just can't sell any or all parts of it 	*/
+X/*	without prior permission from ITF Management SA.		*/
+X/************************************************************************/
+X
+X/* sybperl.c
+X *
+X * Call Sybase DB-Library functions from Perl.
+X * Written by Michael Peppler (mpeppler@itf.ch)
+X * ITF Management SA, 13 rue de la Fontaine
+X * CH-1204 Geneva, Switzerland
+X * Tel: (+4122) 312 1311 Fax: (+4122) 312 1322
+X */
+X
+X 
+X#include "EXTERN.h"
+X#include "perl.h"
+X#undef MAX
+X#undef MIN
+X
+X#if defined(VERSION3)
+X#define str_2mortal(s)		str_2static(s)
+X#endif
+X
+X#include <sybfront.h>
+X#include <sybdb.h>
+X#include <syberror.h>
+X
+X#include "patchlevel.h"
+X
+Xextern int wantarray;
+X
+X#if defined(DBLIB461)
+Xstatic void new_mny4tochar();  /* forward declaration */
+Xstatic void new_mnytochar();   /* forward declaration */
+X#endif
+X
+X/* 
+X * The variables that the Sybase routines set, and that you may want 
+X * to test in your Perl script. These variables are READ-ONLY.
+X */
+Xenum uservars
+X{
+X    UV_SUCCEED,			/* Returns SUCCEED */
+X    UV_FAIL,			/* Returns FAIL */
+X    UV_NO_MORE_ROWS,		/* Returns NO_MORE_ROWS */
+X    UV_NO_MORE_RESULTS,		/* Returns NO_MORE_RESULTS */
+X    UV_ComputeId,		/* Returns the compute id of the row (in dbnextrow()) */
+X    UV_SybperlVer,		/* Returns Sybperl Version/Patchlevel */
+X    UV_DBstatus,		/* The status value of the last dbnextrow() call */
+X    /* The following enum definitions are also for Sybase OpenClient R4.6.1
+X     * read-only perl variable synthesis.  See above for format ...
+X     */
+X#if defined(DBLIB461)
+X    UV_STDEXIT,
+X    UV_ERREXIT,
+X    UV_INT_EXIT,
+X    UV_INT_CONTINUE,
+X    UV_INT_CANCEL,
+X    UV_INT_TIMEOUT,
+X    UV_MORE_ROWS,
+X    UV_REG_ROW,
+X    UV_BUF_FULL,
+X    UV_NO_MORE_PARAMS,
+X    UV_DBSAVE,
+X    UV_DBNOSAVE,
+X    UV_DBNOERR,
+X    UV_DB_PASSTHRU_MORE,
+X    UV_DB_PASSTHRU_EOM,
+X    UV_DBNOPROC,
+X    UV_EXCEPTION,
+X    UV_EXSIGNAL,
+X    UV_EXSCREENIO,
+X    UV_EXDBLIB,
+X    UV_EXFORMS,
+X    UV_EXCLIPBOARD,
+X    UV_EXLOOKUP,
+X    UV_EXINFO,
+X    UV_EXUSER,
+X    UV_EXNONFATAL,
+X    UV_EXCONVERSION,
+X    UV_EXSERVER,
+X    UV_EXTIME,
+X    UV_EXPROGRAM,
+X    UV_EXRESOURCE,
+X    UV_EXCOMM,
+X    UV_EXFATAL,
+X    UV_EXCONSISTENCY,
+X#endif
+X    UV_DB_IN,
+X    UV_DB_OUT,
+X    UV_BCPMAXERRS,
+X    UV_BCPFIRST,
+X    UV_BCPLAST,
+X    UV_BCPBATCH,
+X    UV_DBTRUE,
+X    UV_DBFALSE,
+X#if defined(PACKAGE_BUG)
+X    UV_PACKAGE_BUG,
+X#endif
+X    UV_dbNullIsUndef,
+X    UV_dbKeepNumeric,
+X    UV_dbBin0x,
+X};
+X
+X/* 
+X * User subroutines that we have implemented. I've found that I can do 
+X * all the stuff I want to with this subset of DB-Library. Let me know 
+X * if you implement further routines.
+X * The names are self-explanatory.
+X */
+Xenum usersubs
+X{
+X    US_dblogin,			/* This also performs the first dbopen()  */
+X    US_dbopen,
+X    US_dbclose,
+X    US_dbcmd,
+X    US_dbsqlexec,
+X    US_dbresults,
+X    US_dbnextrow,
+X    US_dbcancel,
+X    US_dbcanquery,
+X    US_dbexit,
+X    US_dbuse,
+X#ifdef HAS_CALLBACK
+X    US_dberrhandle,
+X    US_dbmsghandle,
+X#endif
+X    US_dbstrcpy,
+X    US_DBMORECMDS,
+X    US_DBCMDROW,
+X    US_DBROWS,
+X    US_DBCOUNT,
+X    US_DBCURCMD,
+X    US_dbhasretstat,
+X    US_dbretstatus,
+X    US_dbretdata,
+X    US_dbwritetext,
+X    US_dbcoltype,
+X    US_dbcolname,
+X    US_dbcollen,
+X    US_dbnumcols,
+X#if defined(DBLIB461)
+X    US_dbsafestr,
+X    US_dbmny4add,
+X    US_dbmny4cmp,
+X    US_dbmny4divide,
+X    US_dbmny4minus,
+X    US_dbmny4mul,
+X    US_dbmny4sub,
+X    US_dbmny4zero,
+X    US_dbmnyadd,
+X    US_dbmnycmp,
+X    US_dbmnydivide,
+X    US_dbmnyminus,
+X    US_dbmnymul,
+X    US_dbmnysub,
+X    US_dbmnyzero,
+X    US_dbmnydec,
+X    US_dbmnydown,
+X    US_dbmnyinc,
+X    US_dbmnyinit,
+X    US_dbmnymaxneg,
+X    US_dbmnymaxpos,
+X    US_dbmnyndigit,
+X    US_dbmnyscale,
+X    US_dbrecftos,
+X#endif
+X    US_BCP_SETL,
+X    US_bcp_getl,
+X    US_bcp_init,
+X    US_bcp_meminit,
+X    US_bcp_sendrow,
+X    US_bcp_batch,
+X    US_bcp_done,
+X    US_bcp_control,
+X    US_bcp_columns,
+X    US_bcp_colfmt,
+X    US_bcp_collen,
+X    US_bcp_exec,
+X    US_bcp_readfmt,
+X    US_bcp_writefmt,
+X};
+X
+X#ifndef MAX_DBPROCS
+X#define MAX_DBPROCS 25		/* Change this if you really want your perl script to talk to */
+X				/* more than 25 dataserver connections at a time ...*/
+X#endif
+X
+X
+X /* some info that needs to be maintained on a per DBPROCESS basis. */
+Xstruct dbProcInfo
+X{
+X    DBPROCESS *dbproc;
+X    BYTE **colPtr;
+X};
+X
+Xstatic LOGINREC *login;
+Xstatic struct dbProcInfo dbProc[MAX_DBPROCS];
+Xstatic int exitCalled = 0;	/* Set to 1 if dbexit() has been called. */
+Xstatic int ComputeId;
+Xstatic int DBstatus;		/* Set by dbnextrow() */
+Xstatic int dbNullIsUndef;
+Xstatic int dbKeepNumeric;
+Xstatic int dbBin0x;
+X
+X/* Stack pointer for the error routines.  This is set to the stack pointer
+X   when entering into the sybase subroutines.  Error and message
+X   handling needs this.  */
+X
+Xstatic int perl_sp;
+X
+X/* Current error handler name. */
+X
+Xstatic char *err_handler_sub;
+X
+X/* Current message handler subroutine name */
+X
+Xstatic char *msg_handler_sub;
+X
+X/* Macro to access the stack.  This is necessary since error handlers may
+X   call perl routines and thus the stack may change.  I hope most compilers
+X   will optimize this reasonably. */
+X
+X#define STACK(SP) (stack->ary_array + (SP))
+X
+X
+Xstatic int usersub();
+Xstatic int userset();
+Xstatic int userval();
+Xstatic int err_handler(), msg_handler();
+Xstatic int getDbProc();
+X
+Xint
+Xuserinit()
+X{
+X    init_sybase();
+X}
+X
+Xint
+Xinit_sybase()
+X{
+X    struct ufuncs uf;
+X    char *filename = "sybase.c";
+X
+X    if (dbinit() == FAIL)	/* initialize dblibrary */
+X	exit(ERREXIT);
+X/*
+X * Install the user-supplied error-handling and message-handling routines.
+X * They are defined at the bottom of this source file.
+X */
+X    dberrhandle(err_handler);
+X    dbmsghandle(msg_handler);
+X
+X    if(MAX_DBPROCS > 25)
+X	dbsetmaxprocs(MAX_DBPROCS);
+X    
+X    uf.uf_set = userset;
+X    uf.uf_val = userval;
+X
+X#define MAGICVAR(name, ix) uf.uf_index = ix, magicname(name, &uf, sizeof uf)
+X
+X    MAGICVAR("SUCCEED",	UV_SUCCEED);
+X    MAGICVAR("FAIL",UV_FAIL);
+X    MAGICVAR("NO_MORE_ROWS",	UV_NO_MORE_ROWS);
+X    MAGICVAR("NO_MORE_RESULTS",	UV_NO_MORE_RESULTS);
+X    MAGICVAR("ComputeId",	UV_ComputeId);
+X    MAGICVAR("SybperlVer",	UV_SybperlVer);
+X    MAGICVAR("DBstatus",	UV_DBstatus);
+X#if defined(DBLIB461)
+X    MAGICVAR("STDEXIT",          UV_STDEXIT);
+X    MAGICVAR("ERREXIT",          UV_ERREXIT);
+X    MAGICVAR("INT_EXIT",         UV_INT_EXIT);
+X    MAGICVAR("INT_CONTINUE",     UV_INT_CONTINUE);
+X    MAGICVAR("INT_CANCEL",       UV_INT_CANCEL);
+X    MAGICVAR("INT_TIMEOUT",      UV_INT_TIMEOUT);
+X    MAGICVAR("MORE_ROWS",        UV_MORE_ROWS);
+X    MAGICVAR("REG_ROW",          UV_REG_ROW);
+X    MAGICVAR("BUF_FULL",         UV_BUF_FULL);
+X    MAGICVAR("NO_MORE_PARAMS",   UV_NO_MORE_PARAMS);
+X    MAGICVAR("DBSAVE",           UV_DBSAVE);
+X    MAGICVAR("DBNOSAVE",         UV_DBNOSAVE);
+X    MAGICVAR("DBNOERR",          UV_DBNOERR);
+X    MAGICVAR("DB_PASSTHRU_MORE", UV_DB_PASSTHRU_MORE);
+X    MAGICVAR("DB_PASSTHRU_EOM",  UV_DB_PASSTHRU_EOM);
+X    MAGICVAR("DBNOPROC",         UV_DBNOPROC);
+X    MAGICVAR("EXCEPTION",        UV_EXCEPTION);
+X    MAGICVAR("EXSIGNAL",         UV_EXSIGNAL);
+X    MAGICVAR("EXSCREENIO",       UV_EXSCREENIO);
+X    MAGICVAR("EXDBLIB",          UV_EXDBLIB);
+X    MAGICVAR("EXFORMS",          UV_EXFORMS);
+X    MAGICVAR("EXCLIPBOARD",      UV_EXCLIPBOARD);
+X    MAGICVAR("EXLOOKUP",         UV_EXLOOKUP);
+X    MAGICVAR("EXINFO",           UV_EXINFO);
+X    MAGICVAR("EXUSER",           UV_EXUSER);
+X    MAGICVAR("EXNONFATAL",       UV_EXNONFATAL);
+X    MAGICVAR("EXCONVERSION",     UV_EXCONVERSION);
+X    MAGICVAR("EXSERVER",         UV_EXSERVER);
+X    MAGICVAR("EXTIME",           UV_EXTIME);
+X    MAGICVAR("EXPROGRAM",        UV_EXPROGRAM);
+X    MAGICVAR("EXRESOURCE",       UV_EXRESOURCE);
+X    MAGICVAR("EXCOMM",           UV_EXCOMM);
+X    MAGICVAR("EXFATAL",          UV_EXFATAL);
+X    MAGICVAR("EXCONSISTENCY",    UV_EXCONSISTENCY);
+X#endif
+X    MAGICVAR("DB_IN", 		 UV_DB_IN);
+X    MAGICVAR("DB_OUT",           UV_DB_OUT);
+X    MAGICVAR("BCPMAXERRS",       UV_BCPMAXERRS);
+X    MAGICVAR("BCPFIRST",         UV_BCPFIRST);
+X    MAGICVAR("BCPLAST",          UV_BCPLAST);
+X    MAGICVAR("BCPBATCH",         UV_BCPBATCH);
+X    MAGICVAR("DBTRUE",           UV_DBTRUE);
+X    MAGICVAR("DBFALSE",          UV_DBFALSE);
+X#if defined(PACKAGE_BUG)
+X    MAGICVAR("SybPackageBug",    UV_PACKAGE_BUG);
+X#endif
+X    MAGICVAR("dbNullIsUndef",   UV_dbNullIsUndef);
+X    MAGICVAR("dbKeepNumeric",   UV_dbKeepNumeric);
+X    MAGICVAR("dbBin0x",         UV_dbBin0x);
+X
+X#if defined(PACKAGE_BUG)    
+X    make_usub("dbLOGIN",	US_dblogin,	usersub, filename);
+X    make_usub("dbOPEN",		US_dbopen,	usersub, filename);
+X    make_usub("dbCLOSE",	US_dbclose,	usersub, filename);
+X    make_usub("dbCMD",		US_dbcmd,	usersub, filename);
+X    make_usub("dbSQLEXEC",	US_dbsqlexec,	usersub, filename);
+X    make_usub("dbRESULTS",	US_dbresults,	usersub, filename);
+X    make_usub("dbNEXTROW",	US_dbnextrow,	usersub, filename);
+X    make_usub("dbCANCEL",	US_dbcancel,	usersub, filename);
+X    make_usub("dbCANQUERY",	US_dbcanquery,	usersub, filename);
+X    make_usub("dbEXIT",	US_dbexit,	usersub, filename);
+X    make_usub("dbUSE",	US_dbuse,	usersub, filename);
+X#ifdef HAS_CALLBACK
+X    make_usub("dbERRHANDLE", US_dberrhandle, usersub, filename);
+X    make_usub("dbMSGHANDLE", US_dbmsghandle, usersub, filename);
+X#endif
+X    make_usub("dbSTRCPY", US_dbstrcpy, usersub, filename);
+X    make_usub("dbCURCMD", US_DBCURCMD, usersub, filename);
+X    make_usub("dbMORECMDS", US_DBMORECMDS, usersub, filename);
+X    make_usub("dbCMDROW", US_DBCMDROW, usersub, filename);
+X    make_usub("dbROWS", US_DBROWS, usersub, filename);
+X    make_usub("dbCOUNT", US_DBCOUNT, usersub, filename);
+X    make_usub("dbHASRETSTAT", US_dbhasretstat, usersub, filename);
+X    make_usub("dbRETSTATUS", US_dbretstatus, usersub, filename);
+X    make_usub("dbRETDATA",   US_dbretdata, usersub, filename);    
+X    make_usub("dbWRITETEXT", US_dbwritetext, usersub, filename);
+X    make_usub("dbCOLTYPE",   US_dbcoltype, usersub, filename);
+X    make_usub("dbCOLNAME",   US_dbcolname, usersub, filename);
+X    make_usub("dbCOLLEN",    US_dbcollen, usersub, filename);
+X    make_usub("dbNUMCOLS",   US_dbnumcols, usersub, filename);
+X#if defined(DBLIB461)
+X    make_usub("dbSAFESTR",       US_dbsafestr,    usersub, filename);
+X    make_usub("dbMNY4ADD",       US_dbmny4add,    usersub, filename);
+X    make_usub("dbMNY4CMP",       US_dbmny4cmp,    usersub, filename);
+X    make_usub("dbMNY4DIVIDE",    US_dbmny4divide, usersub, filename);
+X    make_usub("dbMNY4MINUS",     US_dbmny4minus,  usersub, filename);
+X    make_usub("dbMNY4MUL",       US_dbmny4mul,    usersub, filename);
+X    make_usub("dbMNY4SUB",       US_dbmny4sub,    usersub, filename);
+X    make_usub("dbMNY4ZERO",      US_dbmny4zero,   usersub, filename);
+X    make_usub("dbMNYADD",        US_dbmnyadd,     usersub, filename);
+X    make_usub("dbMNYCMP",        US_dbmnycmp,     usersub, filename);
+X    make_usub("dbMNYDIVIDE",     US_dbmnydivide,  usersub, filename);
+X    make_usub("dbMNYMINUS",      US_dbmnyminus,   usersub, filename);
+X    make_usub("dbMNYMUL",        US_dbmnymul,     usersub, filename);
+X    make_usub("dbMNYSUB",        US_dbmnysub,     usersub, filename);
+X    make_usub("dbMNYZERO",       US_dbmnyzero,    usersub, filename);
+X    make_usub("dbMNYDEC",        US_dbmnydec,     usersub, filename);
+X    make_usub("dbMNYDOWN",       US_dbmnydown,    usersub, filename);
+X    make_usub("dbMNYINC",        US_dbmnyinc,     usersub, filename);
+X    make_usub("dbMNYINIT",       US_dbmnyinit,    usersub, filename);
+X    make_usub("dbMNYMAXNEG",     US_dbmnymaxneg,  usersub, filename);
+X    make_usub("dbMNYMAXPOS",     US_dbmnymaxpos,  usersub, filename);
+X    make_usub("dbMNYNDIGIT",     US_dbmnyndigit,  usersub, filename);
+X    make_usub("dbMNYSCALE",      US_dbmnyscale,   usersub, filename);
+X    make_usub("dbRECFTOS",       US_dbrecftos,    usersub, filename);
+X#endif
+X    make_usub("bcp_SETL",        US_BCP_SETL,     usersub, filename);
+X    make_usub("bcp_GETL",        US_bcp_getl,     usersub, filename);
+X    make_usub("bcp_INIT",        US_bcp_init,     usersub, filename);
+X    make_usub("bcp_MEMINIT",     US_bcp_meminit,  usersub, filename);
+X    make_usub("bcp_SENDROW",     US_bcp_sendrow,  usersub, filename);
+X    make_usub("bcp_BATCH",       US_bcp_batch,    usersub, filename);
+X    make_usub("bcp_DONE",        US_bcp_done,     usersub, filename);
+X    make_usub("bcp_CONTROL",     US_bcp_control,  usersub, filename);
+X    make_usub("bcp_COLUMNS",     US_bcp_columns,  usersub, filename);
+X    make_usub("bcp_COLFMT",      US_bcp_colfmt,   usersub, filename);
+X    make_usub("bcp_COLLEN",      US_bcp_collen,   usersub, filename);
+X    make_usub("bcp_EXEC",        US_bcp_exec,     usersub, filename);
+X    make_usub("bcp_READFMT",     US_bcp_readfmt,  usersub, filename);
+X    make_usub("bcp_WRITEFMT",    US_bcp_writefmt, usersub, filename);
+X#else
+X    make_usub("dblogin",	US_dblogin,	usersub, filename);
+X    make_usub("dbopen",		US_dbopen,	usersub, filename);
+X    make_usub("dbclose",	US_dbclose,	usersub, filename);
+X    make_usub("dbcmd",		US_dbcmd,	usersub, filename);
+X    make_usub("dbsqlexec",	US_dbsqlexec,	usersub, filename);
+X    make_usub("dbresults",	US_dbresults,	usersub, filename);
+X    make_usub("dbnextrow",	US_dbnextrow,	usersub, filename);
+X    make_usub("dbcancel",	US_dbcancel,	usersub, filename);
+X    make_usub("dbcanquery",	US_dbcanquery,	usersub, filename);
+X    make_usub("dbexit",	US_dbexit,	usersub, filename);
+X    make_usub("dbuse",	US_dbuse,	usersub, filename);
+X#ifdef HAS_CALLBACK
+X    make_usub("dberrhandle", US_dberrhandle, usersub, filename);
+X    make_usub("dbmsghandle", US_dbmsghandle, usersub, filename);
+X#endif
+X    make_usub("dbstrcpy", US_dbstrcpy, usersub, filename);
+X    make_usub("DBCURCMD", US_DBCURCMD, usersub, filename);
+X    make_usub("DBMORECMDS", US_DBMORECMDS, usersub, filename);
+X    make_usub("DBCMDROW", US_DBCMDROW, usersub, filename);
+X    make_usub("DBROWS", US_DBROWS, usersub, filename);
+X    make_usub("DBCOUNT", US_DBCOUNT, usersub, filename);
+X    make_usub("dbhasretstat", US_dbhasretstat, usersub, filename);
+X    make_usub("dbretstatus", US_dbretstatus, usersub, filename);
+X    make_usub("dbretdata", US_dbretdata, usersub, filename);
+X    make_usub("dbwritetext", US_dbwritetext, usersub, filename);
+X    make_usub("dbcoltype",   US_dbcoltype, usersub, filename);
+X    make_usub("dbcolname",   US_dbcolname, usersub, filename);
+X    make_usub("dbcollen",    US_dbcollen, usersub, filename);
+X    make_usub("dbnumcols",   US_dbnumcols, usersub, filename);
+X#if defined(DBLIB461)
+X    make_usub("dbsafestr",       US_dbsafestr,    usersub, filename);
+X    make_usub("dbmny4add",       US_dbmny4add,    usersub, filename);
+X    make_usub("dbmny4cmp",       US_dbmny4cmp,    usersub, filename);
+X    make_usub("dbmny4divide",    US_dbmny4divide, usersub, filename);
+X    make_usub("dbmny4minus",     US_dbmny4minus,  usersub, filename);
+X    make_usub("dbmny4mul",       US_dbmny4mul,    usersub, filename);
+X    make_usub("dbmny4sub",       US_dbmny4sub,    usersub, filename);
+X    make_usub("dbmny4zero",      US_dbmny4zero,   usersub, filename);
+X    make_usub("dbmnyadd",        US_dbmnyadd,     usersub, filename);
+X    make_usub("dbmnycmp",        US_dbmnycmp,     usersub, filename);
+X    make_usub("dbmnydivide",     US_dbmnydivide,  usersub, filename);
+X    make_usub("dbmnyminus",      US_dbmnyminus,   usersub, filename);
+X    make_usub("dbmnymul",        US_dbmnymul,     usersub, filename);
+X    make_usub("dbmnysub",        US_dbmnysub,     usersub, filename);
+X    make_usub("dbmnyzero",       US_dbmnyzero,    usersub, filename);
+X    make_usub("dbmnydec",        US_dbmnydec,     usersub, filename);
+X    make_usub("dbmnydown",       US_dbmnydown,    usersub, filename);
+X    make_usub("dbmnyinc",        US_dbmnyinc,     usersub, filename);
+X    make_usub("dbmnyinit",       US_dbmnyinit,    usersub, filename);
+X    make_usub("dbmnymaxneg",     US_dbmnymaxneg,  usersub, filename);
+X    make_usub("dbmnymaxpos",     US_dbmnymaxpos,  usersub, filename);
+X    make_usub("dbmnyndigit",     US_dbmnyndigit,  usersub, filename);
+X    make_usub("dbmnyscale",      US_dbmnyscale,   usersub, filename);
+X    make_usub("dbrecftos",       US_dbrecftos,    usersub, filename);
+X#endif
+X    make_usub("BCP_SETL",        US_BCP_SETL,     usersub, filename);
+X    make_usub("bcp_getl",        US_bcp_getl,     usersub, filename);
+X    make_usub("bcp_init",        US_bcp_init,     usersub, filename);
+X    make_usub("bcp_meminit",     US_bcp_meminit,  usersub, filename);
+X    make_usub("bcp_sendrow",     US_bcp_sendrow,  usersub, filename);
+X    make_usub("bcp_batch",       US_bcp_batch,    usersub, filename);
+X    make_usub("bcp_done",        US_bcp_done,     usersub, filename);
+X    make_usub("bcp_control",     US_bcp_control,  usersub, filename);
+X    make_usub("bcp_columns",     US_bcp_columns,  usersub, filename);
+X    make_usub("bcp_colfmt",      US_bcp_colfmt,   usersub, filename);
+X    make_usub("bcp_collen",      US_bcp_collen,   usersub, filename);
+X    make_usub("bcp_exec",        US_bcp_exec,     usersub, filename);
+X    make_usub("bcp_readfmt",     US_bcp_readfmt,  usersub, filename);
+X    make_usub("bcp_writefmt",    US_bcp_writefmt, usersub, filename);
+X#endif
+X}
+X
+Xstatic int
+Xusersub(ix, sp, items)
+Xint ix;
+Xregister int sp;
+Xregister int items;
+X{
+X    STR **st = stack->ary_array + sp;
+X    ARRAY *ary = stack;    
+X    STR *Str;		/* used in str_get and str_gnum macros */
+X    int inx = -1;	/* Index into dbProc[] array. Passed as */
+X    			/* first parameter to nearly all &dbxxx() calls */
+X
+X    if(exitCalled)
+X	fatal("&dbexit() has been called. Access to Sybase impossible.");
+X
+X    perl_sp = sp + items;	/* Save the stack pointer - */
+X				/* required in the case where */
+X				/* callbacks are used. */
+X
+X    /* 
+X     * We're calling some dblib function, but dblogin has not been 
+X     * called. Two actions are possible: either fail the call, or call 
+X     * dblogin/dbopen with the default info. The second option is used 
+X     * to keep backwards compatibility with an older version of 
+X     * sybperl. A call to fatal(msg) is probably better.
+X     */
+X    if(!login && (ix != US_dblogin) &&
+X       (ix != US_dbmsghandle) && (ix != US_dberrhandle))
+X    {		/* You can call &dbmsghandle/errhandle before calling &dblogin */
+X#ifdef OLD_SYBPERL
+X	login = dblogin();
+X	dbProc[0].dbproc = dbopen(login, NULL);
+X#else
+X	fatal("&dblogin has not been called yet!");
+X#endif
+X    }
+X    
+X    switch (ix)
+X    {
+X      case US_dblogin:
+X	if (items > 3)
+X	    fatal("Usage: &dblogin([user[,pwd[,server]]])");
+X	else
+X	{
+X	    int j = 0;
+X	    char *server = NULL, *user = NULL, *pwd = NULL;
+X
+X	    if (!login)
+X		login = dblogin();
+X	    switch(items)
+X	    {
+X	      case 3:
+X		server = (char *)str_get(STACK(sp)[3]);
+X	      case 2:
+X		if(STACK(sp)[2] != &str_undef)
+X		{
+X		    pwd = (char *)str_get(STACK(sp)[2]);
+X		    if(pwd && strlen(pwd))
+X			DBSETLPWD(login, pwd);
+X		}
+X	      case 1:
+X		if(STACK(sp)[1] != &str_undef)
+X		{
+X		    user = (char *)str_get(STACK(sp)[1]);
+X		    if(user && strlen(user))
+X			DBSETLUSER(login, user);
+X		}
+X	    }
+X
+X	    for(j = 0; j < MAX_DBPROCS; ++j)
+X		if(dbProc[j].dbproc == NULL)
+X		    break;
+X	    if(j == MAX_DBPROCS)
+X		fatal ("&dblogin: No more dbprocs available.");
+X	    if((dbProc[j].dbproc = dbopen(login, server)) == NULL)
+X		j = -1;
+X
+X	    str_numset(STACK(sp)[0], (double) j);
+X	}
+X	break;
+X      case US_dbopen:
+X	if (items > 1)
+X	    fatal("Usage: $dbproc = &dbopen([server]);");
+X	else
+X	{
+X	    int j;
+X	    char *server = NULL;
+X	    
+X	    for(j = 0; j < MAX_DBPROCS; ++j)
+X		if(dbProc[j].dbproc == NULL)
+X		    break;
+X	    if(j == MAX_DBPROCS)
+X		fatal("&dbopen: No more dbprocs available.");
+X	    if(items == 1)
+X		server = (char *)str_get(STACK(sp)[1]);
+X	    
+X	    dbProc[j].dbproc = dbopen(login, server);
+X	    str_numset(STACK(sp)[0], (double) j);
+X	}
+X	break;
+X      case US_dbclose:
+X	if (items > 1)
+X	    fatal("Usage: $ret = &dbclose($dbproc);");
+X	else
+X	{
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    dbclose(dbProc[inx].dbproc);
+X	    dbProc[inx].dbproc = (DBPROCESS *)NULL;
+X	}
+X	break;
+X      case US_dbcancel:
+X	if (items > 1)
+X	    fatal("Usage: &dbcancel($dbproc)");
+X	else
+X	{
+X	    int retval;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    retval = dbcancel(dbProc[inx].dbproc);
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbcanquery:
+X	if (items > 1)
+X	    fatal("Usage: &dbcanquery($dbproc)");
+X	else
+X	{
+X	    int retval;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    retval = dbcanquery(dbProc[inx].dbproc);
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbexit:
+X	if (items != 0)
+X	    fatal("Usage: &dbexit()");
+X	else
+X	{
+X	    dbexit();
+X	    exitCalled++;
+X	    str_numset(STACK(sp)[0], (double) 1);
+X	}
+X	break;
+X
+X      case US_dbuse:
+X	if (items > 2)
+X	    fatal("Usage: &dbuse($dbproc, $database)");
+X	else
+X	{
+X	    int retval, off;
+X	    char str[255];
+X	    
+X	    if(items == 2)
+X	    {
+X		inx = getDbProc(STACK(sp)[1]);
+X		off = 2;
+X	    }
+X	    else
+X		inx = 0, off = 1;
+X	    
+X	    strcpy(str, (char *)str_get(STACK(sp)[off]));
+X
+X
+X	    retval = dbuse(dbProc[inx].dbproc, str);
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbsqlexec:
+X	if (items > 1)
+X	    fatal("Usage: &dbsqlexec($dbproc)");
+X	else
+X	{
+X	    int retval;
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    retval = dbsqlexec(dbProc[inx].dbproc);
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbresults:
+X	if (items > 1)
+X	    fatal("Usage: &dbresults($dbproc)");
+X	else
+X	{
+X	    int retval;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    retval = dbresults(dbProc[inx].dbproc);
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbcmd:
+X	if (items > 2)
+X	    fatal("Usage: &dbcmd($dbproc, $str)");
+X	else
+X	{
+X	    int retval, off;
+X
+X	    if(items == 2)
+X	    {
+X		inx = getDbProc(STACK(sp)[1]);
+X		off = 2;
+X	    }
+X	    else
+X		inx = 0, off = 1;
+X	    retval = dbcmd(dbProc[inx].dbproc, (char *)str_get(STACK(sp)[off]));
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X
+X      case US_dbnextrow:
+X	if (items > 2)
+X	    fatal("Usage: @arr = &dbnextrow([$dbproc [, $returnAssoc]])");
+X	else
+X	{
+X	    int retval;
+X	    char buff[260], *p = NULL, *t;
+X	    BYTE *data;
+X	    int col, type, numcols;
+X	    int len;
+X	    int doAssoc = 0;
+X	    DBFLT8 tmp;
+X	    char *colname;
+X	    char cname[64];
+X	    int is_numeric;
+X	    int is_null;
+X#if defined(DBLIB461)
+X	    DBMONEY tv_money;
+X#endif
+X
+X	    inx = 0;
+X	    switch(items)
+X	    {
+X	      case 2:
+X		doAssoc = (int)str_gnum(STACK(sp)[2]);
+X	      case 1:
+X		inx = getDbProc(STACK(sp)[1]);
+X		break;
+X	    }
+X
+X	    --sp;		/* get rid of space pre-allocation */
+X
+X	    DBstatus = retval = dbnextrow(dbProc[inx].dbproc);
+X	    if(retval == REG_ROW)
+X	    {
+X		ComputeId = 0;
+X		numcols = dbnumcols(dbProc[inx].dbproc);
+X	    }
+X	    else
+X	    {
+X		ComputeId = retval;
+X		numcols = dbnumalts(dbProc[inx].dbproc, ComputeId);
+X	    }
+X	    for(col = 1, buff[0] = 0; col <= numcols; ++col)
+X	    {
+X		is_numeric = 0;
+X		is_null = 0;
+X		colname = NULL;
+X		if(!ComputeId)
+X		{
+X		    type = dbcoltype(dbProc[inx].dbproc, col);
+X		    len = dbdatlen(dbProc[inx].dbproc,col);
+X		    data = (BYTE *)dbdata(dbProc[inx].dbproc,col);
+X		    colname = dbcolname(dbProc[inx].dbproc, col);
+X		    if(!colname || !colname[0])
+X		    {
+X			sprintf(cname, "Col %d", col);
+X			colname = cname;
+X		    }
+X		}
+X		else
+X		{
+X		    int colid = dbaltcolid(dbProc[inx].dbproc, ComputeId, col);
+X		    type = dbalttype(dbProc[inx].dbproc, ComputeId, col);
+X		    len = dbadlen(dbProc[inx].dbproc, ComputeId, col);
+X		    data = (BYTE *)dbadata(dbProc[inx].dbproc, ComputeId, col);
+X		    if(colid > 0)
+X			colname = dbcolname(dbProc[inx].dbproc, colid);
+X		    if(!colname || !colname[0])
+X		    {
+X			sprintf(cname, "Col %d", col);
+X			colname = cname;
+X		    }
+X		}
+X		t = &buff[0];
+X		if(!data && !len)
+X		    ++is_null;
+X		else
+X		{
+X		    switch(type)
+X		    {
+X		      case SYBCHAR:
+X			strncpy(buff,data,len);
+X			buff[len] = 0;
+X			break;
+X		      case SYBTEXT:
+X		      case SYBIMAGE:
+X			New(902, p, len + 1, char);
+X			memcpy(p, data, len);
+X			p[len] = 0;
+X			t = p;
+X			break;
+X		      case SYBINT1:
+X		      case SYBBIT: /* a bit is at least a byte long... */
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(unsigned char *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%u",*(unsigned char *)data);
+X			break;
+X		      case SYBINT2:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(short *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			sprintf(buff,"%d",*(short *)data);
+X			break;
+X		      case SYBINT4:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(long *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%d",*(long *)data);
+X			break;
+X		      case SYBFLT8:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(double *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%.6f",*(double *)data);
+X			break;
+X#if   defined(DBLIB461)
+X		      case SYBMONEY:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY, data, len,
+X				  SYBMONEY, (BYTE*)&tv_money, -1);
+X			new_mnytochar(dbProc[inx].dbproc, &tv_money, buff);
+X			break;
+X#else
+X		      case SYBMONEY:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY, data, len,
+X				  SYBFLT8, &tmp, -1);
+X			if(dbKeepNumeric)
+X			    ++is_numeric;
+X			else
+X			    sprintf(buff,"%.6f",tmp);
+X			break;
+X#endif
+X		      case SYBDATETIME:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		      case SYBBINARY:
+X			if(dbBin0x)
+X			{
+X			    strcpy(buff, "0x");
+X			    dbconvert(dbProc[inx].dbproc, type, data, len,
+X				      SYBCHAR, &buff[2], -1);
+X			}
+X			else
+X			    dbconvert(dbProc[inx].dbproc, type, data, len,
+X				      SYBCHAR, buff, -1);
+X			break;
+X#if defined(DBLIB42)
+X		      case SYBREAL:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(float *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff, "%.6f", (double)*(float *)data);
+X			break;
+X		      case SYBDATETIME4:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME4, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X#elif defined(DBLIB461)
+X		      case SYBREAL:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(float *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff, "%.6f", (double)*(float *)data);
+X			break;
+X		      case SYBDATETIME4:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME4, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		      case SYBMONEY4:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY4, data, len,
+X				  SYBMONEY, (BYTE*)&tv_money, -1);
+X			new_mnytochar(dbProc[inx].dbproc, &tv_money, buff);
+X			break;
+X#endif
+X		      default:
+X			/* 
+X			 * WARNING!
+X			 * 
+X			 * We convert unknown data types to SYBCHAR 
+X			 * without checking to see if the resulting 
+X			 * string will fit in the 'buff' variable. 
+X			 * This isn't very pretty...
+X			 */
+X			dbconvert(dbProc[inx].dbproc, type, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		    }
+X		}
+X		if(doAssoc)
+X		    (void)astore(ary,++sp,str_2mortal(str_make(colname, 0)));
+X		if(type != SYBIMAGE)
+X		    len = 0;	/* str_make needs to know the lenght only on binary data */
+X		if(is_null)
+X		{
+X		    if(dbNullIsUndef)
+X		    {
+X			/* we make a copy of str_undef to be on the safe */
+X			/* side (we don't want somebody modifying it! */
+X			(void)astore(ary,++sp,str_mortal(&str_undef));
+X			continue; /* whatever follows here (in this iteration) is irrelevant */
+X				  /* when NULLs are returned as undef */
+X		    }
+X		    else
+X			strcpy(buff,"NULL");
+X		}
+X		if(is_numeric)
+X		    (void)astore(ary,++sp,str_2mortal(str_nmake(tmp)));
+X		else
+X		    (void)astore(ary,++sp,str_2mortal(str_make(t, len)));
+X		/* 
+X		 * If we've allocated some space to retrieve a 
+X		 * SYBTEXT field, then free it now.
+X		 */
+X		if(t == p)
+X		{
+X		    Safefree(p);
+X		    p = NULL;
+X		}
+X	    }
+X	}
+X	break;
+X#ifdef HAS_CALLBACK
+X      case US_dberrhandle:
+X	if (items > 1)
+X	    fatal ("Usage: &dberrhandle($handler)");
+X	else
+X	{
+X	    char *old = err_handler_sub;
+X	    if (items == 1)
+X	    {
+X		if (STACK (sp)[1] == &str_undef)
+X		    err_handler_sub = 0;
+X		else
+X		{
+X		    char *sub = (char *) str_get (STACK (sp)[1]);	
+X		    New (902, err_handler_sub, strlen (sub) + 1, char);
+X		    strcpy (err_handler_sub, sub);
+X		}
+X	    }
+X
+X	    if (old)
+X	    {
+X		STACK (sp)[0] = str_2mortal (str_make (old, strlen (old)));
+X		if (items == 1)
+X		    Safefree (old);
+X	    }
+X	    else
+X		STACK (sp)[0] = &str_undef;
+X	}
+X	break;
+X      case US_dbmsghandle:
+X	if (items > 1)
+X	    fatal ("Usage: &dbmsghandle($handler)");
+X	else
+X	{
+X	    char *old = msg_handler_sub;
+X	    if (items == 1)
+X	    {
+X		if (STACK (sp)[1] == &str_undef)
+X		    msg_handler_sub = 0;
+X		else
+X		{
+X		    char *sub = (char *) str_get (STACK (sp)[1]);	
+X		    New (902, msg_handler_sub, strlen (sub) + 1, char);
+X		    strcpy (msg_handler_sub, sub);
+X		}
+X	    }
+X
+X	    if (old)
+X	    {
+X		STACK (sp)[0] = str_2mortal (str_make (old, strlen (old)));
+X		if (items == 1)
+X		    Safefree (old);
+X	    }
+X	    else
+X		STACK (sp)[0] = &str_undef;
+X	}
+X	break;
+X#endif				/* HAS_CALLBACK */
+X      case US_dbstrcpy:
+X	if (items > 1)
+X	    fatal("Usage: $string = &dbstrcpy($dbproc)");
+X	else
+X	{
+X	    int retval, len;
+X	    char *buff;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc && (len = dbstrlen(dbProc[inx].dbproc)))
+X	    {
+X		New(902, buff, len+1, char);
+X		retval = dbstrcpy(dbProc[inx].dbproc, 0, -1, buff);
+X		str_set(STACK(sp)[0], buff);
+X		Safefree(buff);
+X	    }
+X	    else
+X		str_set(STACK(sp)[0], "");
+X	}
+X	break;
+X
+X      case US_DBCURCMD:
+X	if (items > 1)
+X	    fatal("Usage: $num = &DBCURCMD($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = DBCURCMD(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_DBMORECMDS:
+X	if (items > 1)
+X	    fatal("Usage: $rc = &DBMORECMDS($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = DBMORECMDS(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_DBCMDROW:
+X	if (items > 1)
+X	    fatal("Usage: $rc = &DBCMDROW($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = DBCMDROW(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_DBROWS:
+X	if (items > 1)
+X	    fatal("Usage: $rc = &DBROWS($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = DBROWS(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_DBCOUNT:
+X	if (items > 1)
+X	    fatal("Usage: $ret = &DBCOUNT($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = DBCOUNT(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_dbhasretstat:
+X	if (items > 1)
+X	    fatal("Usage: $rc = &dbhasretstat($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = dbhasretstat(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_dbretstatus:
+X	if (items > 1)
+X	    fatal("Usage: $rc = &dbretstatus($dbproc)");
+X	else
+X	{
+X	    int retval = 0;
+X
+X	    if(items)
+X		inx = getDbProc(STACK(sp)[1]);
+X	    else
+X		inx = 0;
+X
+X	    if(dbProc[inx].dbproc)
+X		retval = dbretstatus(dbProc[inx].dbproc);
+X
+X	    str_numset(STACK(sp)[0], (double) retval);
+X	}
+X	break;
+X      case US_dbretdata:
+X	if (items > 2)
+X	    fatal("Usage: @data = &dbretdata($dbproc [, $doAssoc])");
+X	else
+X	{
+X	    int numrets;
+X	    int retval;
+X	    char buff[260], *p = NULL, *t;
+X	    BYTE *data;
+X	    int col, type;
+X	    int len;
+X	    int doAssoc = 0;
+X	    DBFLT8 tmp;
+X	    char *colname;
+X	    char cname[64];
+X	    int is_numeric;
+X	    int is_null;
+X#if defined(DBLIB461)
+X	    DBMONEY tv_money;
+X#endif
+X	    
+X	    if(items == 2)
+X	    {
+X		inx = getDbProc(STACK(sp)[1]);
+X		doAssoc = str_gnum(STACK(sp)[2]);
+X	    }
+X	    else
+X		inx = 0;
+X	    --sp;		/* get rid of space pre-allocation */
+X	    
+X	    if(!(numrets = dbnumrets(dbProc[inx].dbproc)))
+X		break;		/* nothing to return! */
+X
+X	    for(col = 1, buff[0] = 0; col <= numrets; ++col)
+X	    {
+X		is_numeric = 0;
+X		is_null = 0;
+X		colname = NULL;
+X		type = dbrettype(dbProc[inx].dbproc, col);
+X		len = dbretlen(dbProc[inx].dbproc,col);
+X		data = (BYTE *)dbretdata(dbProc[inx].dbproc,col);
+X		colname = dbretname(dbProc[inx].dbproc, col);
+X		if(!colname || !colname[0])
+X		{
+X		    sprintf(cname, "Par %d", col);
+X		    colname = cname;
+X		}
+X		t = &buff[0];
+X		if(!data && !len)
+X		    ++is_null;
+X		else
+X		{
+X		    switch(type)
+X		    {
+X		      case SYBCHAR:
+X			strncpy(buff,data,len);
+X			buff[len] = 0;
+X			break;
+X		      case SYBTEXT:
+X		      case SYBIMAGE:
+X			New(902, p, len + 1, char);
+X			memcpy(p, data, len);
+X			p[len] = 0;
+X			t = p;
+X			break;
+X		      case SYBINT1:
+X		      case SYBBIT: /* a bit is at least a byte long... */
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(unsigned char *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%u",*(unsigned char *)data);
+X			break;
+X		      case SYBINT2:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(short *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%d",*(short *)data);
+X			break;
+X		      case SYBINT4:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(long *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%d",*(long *)data);
+X			break;
+X		      case SYBFLT8:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(double *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff,"%.6f",*(double *)data);
+X			break;
+X#if   defined(DBLIB461)
+X		      case SYBMONEY:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY, data, len,
+X				  SYBMONEY, (BYTE*)&tv_money, -1);
+X			new_mnytochar(dbProc[inx].dbproc, &tv_money, buff);
+X			break;
+X#else
+X		      case SYBMONEY:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY, data, len,
+X				  SYBFLT8, &tmp, -1);
+X			if(dbKeepNumeric)
+X			    ++is_numeric;
+X			else
+X			    sprintf(buff,"%.6f",tmp);
+X			break;
+X#endif
+X		      case SYBDATETIME:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		      case SYBBINARY:
+X			if(dbBin0x)
+X			{
+X			    strcpy(buff, "0x");
+X			    dbconvert(dbProc[inx].dbproc, type, data, len,
+X				      SYBCHAR, &buff[2], -1);
+X			}
+X			else
+X			    dbconvert(dbProc[inx].dbproc, type, data, len,
+X				      SYBCHAR, buff, -1);
+X			break;
+X#if defined(DBLIB42)
+X		      case SYBREAL:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(float *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff, "%.6f", (double)*(float *)data);
+X			break;
+X		      case SYBDATETIME4:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME4, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X#elif defined(DBLIB461)
+X		      case SYBREAL:
+X			if(dbKeepNumeric)
+X			{
+X			    tmp = *(float *)data;
+X			    ++is_numeric;
+X			}
+X			else
+X			    sprintf(buff, "%.6f", (double)*(float *)data);
+X			break;
+X		      case SYBDATETIME4:
+X			dbconvert(dbProc[inx].dbproc, SYBDATETIME4, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		      case SYBMONEY4:
+X			dbconvert(dbProc[inx].dbproc, SYBMONEY4, data, len,
+X				  SYBMONEY, (BYTE*)&tv_money, -1);
+X			new_mnytochar(dbProc[inx].dbproc, &tv_money, buff);
+X			break;
+X#endif
+X		      default:
+X			/* 
+X			 * WARNING!
+X			 * 
+X			 * We convert unknown data types to SYBCHAR 
+X			 * without checking to see if the resulting 
+X			 * string will fit in the 'buff' variable. 
+X			 * This isn't very pretty...
+X			 */
+X			dbconvert(dbProc[inx].dbproc, type, data, len,
+X				  SYBCHAR, buff, -1);
+X			break;
+X		    }
+X		}
+X		if(doAssoc)
+X		    (void)astore(ary,++sp,str_2mortal(str_make(colname, 0)));
+X		if(type != SYBIMAGE)
+X		    len = 0;	/* str_make needs to know the lenght only on binary data */
+X		if(is_null)
+X		{
+X		    if(dbNullIsUndef)
+X		    {
+X			(void)astore(ary,++sp,str_mortal(&str_undef));
+X			continue; /* skip the rest of the processing */
+X				  /* in this iteration */
+X		    }
+X		    else
+X			strcpy(buff,"NULL");
+X		}
+X		if(is_numeric)
+X		    (void)astore(ary,++sp,str_2mortal(str_nmake(tmp)));
+X		else
+X		    (void)astore(ary,++sp,str_2mortal(str_make(t, len)));
+X		/* 
+X		 * If we've allocated some space to retrieve a 
+X		 * SYBTEXT field, then free it now.
+X		 */
+X		if(t == p)
+X		{
+X		    Safefree(p);
+X		    p = NULL;
+X		}
+X	    }
+X	}
+X	break;
+X#if defined(DBLIB42)
+X      case US_dbsafestr:
+X	if (items > 3 || items != 2)
+X	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+X	else
+X	{
+X	    int retval, len, quote;
+X	    char *buff, *instr;
+X	    
+X	    inx = getDbProc (STACK (sp)[1]);
+X	    
+X	    instr = (char *) str_get (STACK (sp)[2]);
+X	    if (items != 3)
+X		quote = DBBOTH;
+X	    else
+X	    {
+X		char *quote_char = (char *) str_get (STACK (sp)[3]);
+X		if (*quote_char == '\"')
+X		    quote = DBDOUBLE;
+X		else if (*quote_char == '\'')
+X		    quote = DBSINGLE;
+X		else
+X		{ /* invalid  */
+X		    str_set (STACK (sp)[0], "");
+X		    break;
+X		}
+X	    }
+X	    if (dbProc[inx].dbproc && (len = strlen (instr)))
+X	    {
+X		/* twice as much space needed worst case */
+X		New (902, buff, len * 2 + 1, char);
+X		retval = dbsafestr (dbProc[inx].dbproc, instr, -1, buff, -1, quote);
+X                str_set (STACK (sp)[0], buff);
+X                Safefree (buff);
+X	    }
+X	}
+X	break;
+X#elif defined(DBLIB461)
+X      case US_dbsafestr:
+X	if (items > 3 || items != 2)
+X	    fatal ("Usage: $string = &dbsafestr($dbproc,$instring[,$quote_char])");
+X	else
+X	{
+X	    int retval, len, quote;
+X	    char *buff, *instr;
+X	    
+X	    inx = getDbProc (STACK (sp)[1]);
+X	    
+X	    instr = (char *) str_get (STACK (sp)[2]);
+X	    if (items != 3)
+X		quote = DBBOTH;
+X	    else
+X	    {
+X		char *quote_char = (char *) str_get (STACK (sp)[3]);
+X		if (*quote_char == '\"')
+X		    quote = DBDOUBLE;
+X		else if (*quote_char == '\'')
+X		    quote = DBSINGLE;
+X		else
+X		{ /* invalid  */
+X		    str_set (STACK (sp)[0], "");
+X		    break;
+X		}
+X	    }
+X	    if (dbProc[inx].dbproc && (len = strlen (instr)))
+X	    {
+X		/* twice as much space needed worst case */
+X		New (902, buff, len * 2 + 1, char);
+X		retval = dbsafestr (dbProc[inx].dbproc, instr, -1, buff, -1, quote);
+X                str_set (STACK (sp)[0], buff);
+X                Safefree (buff);
+X	    }
+X	}
+X	break;
+X      case US_dbmny4add:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: @arr = &dbmny4add($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int      retval, off1, off2;
+X	    DBMONEY4 m1, m2, mresult;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4add $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4add $m2 parameter");
+X            }
+X
+X	    retval = dbmny4add(dbProc[inx].dbproc, &m1, &m2, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmny4cmp:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: &dbmny4cmp($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int      retval, off1, off2;
+X	    DBMONEY4 m1, m2;
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4cmp $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4cmp $m2 parameter");
+X            }
+X
+X	    retval = dbmny4cmp(dbProc[inx].dbproc, &m1, &m2);
+X
+X	    str_numset(STACK(sp)[0], (double)retval);
+X	}
+X	break;
+X      case US_dbmny4divide:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: @arr = &dbmny4divide($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int      retval, off1, off2;
+X	    DBMONEY4 m1, m2, mresult;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4divide $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4divide $m2 parameter");
+X            }
+X
+X	    retval = dbmny4divide(dbProc[inx].dbproc, &m1, &m2, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmny4minus:
+X	if ((items > 2) || (items < 1 ))
+X        {
+X	    fatal("Usage: @arr = &dbmny4minus($dbproc, $m1)");
+X        }
+X	else
+X	{
+X	    int      retval, off1;
+X	    DBMONEY4 m1, mresult;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 2)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4minus $m1 parameter");
+X            }
+X
+X	    retval = dbmny4minus(dbProc[inx].dbproc, &m1, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmny4mul:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: @arr = &dbmny4mul($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int      retval, off1, off2;
+X	    DBMONEY4 m1, m2, mresult;
+X            DBMONEY  tv_money;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4mul $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4mul $m2 parameter");
+X            }
+X
+X	    retval = dbmny4mul(dbProc[inx].dbproc, &m1, &m2, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmny4sub:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: @arr = &dbmny4sub($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int      retval, off1, off2;
+X	    DBMONEY4 m1, m2, mresult;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4sub $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY4, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmny4sub $m2 parameter");
+X            }
+X
+X	    retval = dbmny4sub(dbProc[inx].dbproc, &m1, &m2, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmny4zero:
+X	if (items > 1)
+X        {
+X	    fatal("Usage: @arr = &dbmny4zero($dbproc)");
+X        }
+X	else
+X	{
+X	    int      retval;
+X	    DBMONEY4 mresult;
+X            DBMONEY  tv_money;
+X            DBCHAR   mnybuf[40];
+X
+X	    if(items == 1)
+X	    {
+X		inx = getDbProc(STACK(sp)[1]);
+X	    }
+X	    else
+X	    {
+X		inx = 0;
+X            }
+X
+X	    retval = dbmny4zero(dbProc[inx].dbproc, &mresult);
+X
+X            new_mny4tochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+X      case US_dbmnyadd:
+X	if ((items > 3) || (items < 2 ))
+X        {
+X	    fatal("Usage: @arr = &dbmnyadd($dbproc, $m1, $m2)");
+X        }
+X	else
+X	{
+X	    int     retval, off1, off2;
+X	    DBMONEY m1, m2, mresult;
+X            DBCHAR  mnybuf[40];
+X
+X	    if(items == 3)
+X	    {
+X		inx  = getDbProc(STACK(sp)[1]);
+X		off1 = 2;
+X		off2 = 3;
+X	    }
+X	    else
+X	    {
+X		inx  = 0;
+X		off1 = 1;
+X		off2 = 2;
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off1]), (DBINT)-1,
+X			  SYBMONEY, (BYTE*)&m1, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmnyadd $m1 parameter");
+X            }
+X
+X	    if (dbconvert(dbProc[inx].dbproc, SYBCHAR,
+X			  (char *)str_get(STACK(sp)[off2]), (DBINT)-1,
+X			  SYBMONEY, (BYTE*)&m2, (DBINT)-1) == -1)
+X            {
+X	       fatal("Invalid dbconvert() for &dbmnyadd $m2 parameter");
+X            }
+X
+X	    retval = dbmnyadd(dbProc[inx].dbproc, &m1, &m2, &mresult);
+X
+X            new_mnytochar(dbProc[inx].dbproc, &mresult, mnybuf);
+X
+X            --sp;  /* readjust to get rid of space preallocation */
+X
+X            (void)astore(ary,++sp,str_2mortal(str_nmake((double)retval)));
+X	    (void)astore(ary,++sp,str_2mortal(str_make(mnybuf, 0)));
+X	}
+X	break;
+END_OF_FILE
+  if test 48039 -ne `wc -c <'sybperl.c.A'`; then
+    echo shar: \"'sybperl.c.A'\" unpacked with wrong size!
+  elif test -f 'sybperl.c.B' ; then
+    echo shar: Combining  \"'sybperl.c'\" \(84305 characters\)
+    cat 'sybperl.c.A' 'sybperl.c.B' > 'sybperl.c'
+    if test 84305 -ne `wc -c <'sybperl.c'`; then
+      echo shar: \"'sybperl.c'\" combined with wrong size!
+    else
+      rm sybperl.c.A sybperl.c.B
+    fi
+  fi
+  # end of 'sybperl.c.A'
+fi
+if test ! -d 't' ; then
+    echo shar: Creating directory \"'t'\"
+    mkdir 't'
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

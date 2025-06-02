@@ -1,0 +1,1090 @@
+Path: comp-sources-3b1
+From: thad@btr.com (Thaddeus P. Floryan)
+Subject:  v02i008:  rsetclk: set system clock from remote host on ethernet, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 978722dd b379843c 630be6d6 4f882ab4
+
+Submitted-by: thad@btr.com (Thaddeus P. Floryan)
+Posting-number: Volume 2, Issue 8
+Archive-name: rsetclk/part01
+
+rsetclk - sets the system's clocks referenced to a remote host
+
+Sets the 3B1's time-of-day and realtime clocks from another system
+on the net per the "time" service.  Presently Ethernet is assumed.
+Resolution is +/- 1 second; if more accuracy is needed (and on systems
+which support it), the NTP facility should be used instead.
+
+Even if you don't have Ethernet on your 3B1, some of the ancillary
+time and clock routines might prove useful in other applications.
+
+rsetclk has worked fine for over 2 months, so it's time to inflict
+in on the net!  :-)
+
+This distribution includes:
+
+	total 48
+	-rw-r--r--  1 thad    users      1231 Apr 12 22:46 Makefile 
+	-rwxr-xr-x  1 thad    users      1046 Apr  6 02:33 cleanup.exam*
+	-rwxr-xr-x  1 thad    users       588 Apr 12 15:29 clockupd.sh*
+	-rw-r--r--  1 thad    users       341 Apr  6 02:16 crontab.exam 
+	-rw-r--r--  1 thad    users      3494 Apr 12 17:37 mksystime.c 
+	-rw-r--r--  1 thad    users      4772 Apr 14 21:59 rhost_time.c 
+	-rw-r--r--  1 thad    users      6203 Apr 13 13:29 rsetclk.c 
+	-rw-r--r--  1 thad    users      1784 Apr 12 23:27 rtc_stime.c 
+	-rw-r--r--  1 thad    users      2111 Apr 12 23:28 rtc_time.c 
+
+Thad Floryan [ thad@btr.com (OR) {decwrl, mips, fernwood}!btr!thad ]
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 06/15/1992 11:35 UTC by thad@thadlabs
+# Source directory /usr/local/src/rsetclk
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#   1231 -rw-r--r-- Makefile
+#   1243 -rw-r--r-- README
+#   1046 -rwxr-xr-x cleanup.exam
+#    588 -rwxr-xr-x clockupd.sh
+#    341 -rw-r--r-- crontab.exam
+#   3494 -rw-r--r-- mksystime.c
+#   4772 -rw-r--r-- rhost_time.c
+#   6203 -rw-r--r-- rsetclk.c
+#   1784 -rw-r--r-- rtc_stime.c
+#   2111 -rw-r--r-- rtc_time.c
+#
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+else
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+X# Makefile for rsetclk on 3B1
+X#
+X# The program must be run as root when changing system time and is intended to
+X# be ONLY run by root.  Must be root to install.
+X#
+XCC	=	gcc
+XCFLAGS	=	-O -DUNIXPC
+XCWINTCP	=	-DSYSTEM5 -DSHORT_IDENT
+XINCL	=
+XIWINTCP	=	-I/usr/ethernet/include
+XLDFLAGS	=	-s
+XLIBS	=	-lnet /lib/crt0.o /usr/local/lib/gcc-gnulib -lc
+XNAME	=	rsetclk
+XOBJS	=	rsetclk.o mksystime.o rhost_time.o rtc_stime.o rtc_time.o
+XSRCS	=	rsetclk.c mksystime.c rhost_time.c rtc_stime.c rtc_time.c
+XDEST	=	/usr/local/bin
+XFMODE	=	4500
+XOWNER	=	root
+XGROUP	=	root
+X
+X$(NAME)	:	$(OBJS)
+X		$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+X
+Xrsetclk.o :	rsetclk.c
+X		$(CC) $(CFLAGS) $(INCL) -c $*.c
+X
+Xmksystime.o :	mksystime.c
+X		$(CC) $(CFLAGS) $(INCL) -c $*.c
+X
+Xrhost_time.o :	rhost_time.c
+X		$(CC) $(CFLAGS) $(CWINTCP) $(INCL) $(IWINTCP) -c $*.c
+X
+Xrtc_stime.o :	rtc_stime.c
+X		$(CC) $(CFLAGS) $(INCL) -c $*.c
+X
+Xrtc_time.o :	rtc_time.c
+X		$(CC) $(CFLAGS) $(INCL) -c $*.c
+X
+Xinstall :	$(NAME)
+X		mv    $(NAME)  $(DEST)/
+X		chown $(OWNER) $(DEST)/$(NAME)
+X		chgrp $(GROUP) $(DEST)/$(NAME)
+X		chmod $(FMODE) $(DEST)/$(NAME)
+X
+Xclean	:
+X		rm -f $(OBJS) core *~
+X
+Xlint	:
+X		lint $(CFLAGS) $(CWINTCP) $(INCL) $(IWINTCP) $(SRCS)
+X
+Xlintp	:
+X		lint $(CFLAGS) $(CWINTCP) $(INCL) $(IWINTCP) -p $(SRCS)
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 1231 -eq "$Wc_c" ||
+	echo 'Makefile: original size 1231, current size' "$Wc_c"
+fi
+# ============= README ==============
+if test -f 'README' -a X"$1" != X"-c"; then
+	echo 'x - skipping README (File already exists)'
+else
+echo 'x - extracting README (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'README' &&
+Xrsetclk - sets the system's clocks referenced to a remote host
+X
+XSets the 3B1's time-of-day and realtime clocks from another system
+Xon the net per the "time" service.  Presently Ethernet is assumed.
+XResolution is +/- 1 second; if more accuracy is needed (and on systems
+Xwhich support it), the NTP facility should be used instead.
+X
+XEven if you don't have Ethernet on your 3B1, some of the ancillary
+Xtime and clock routines might prove useful in other applications.
+X
+Xrsetclk has worked fine for over 2 months, so it's time to inflict
+Xin on the net!  :-)
+X
+XThis distribution includes:
+X
+X	total 48
+X	-rw-r--r--  1 thad    users      1231 Apr 12 22:46 Makefile 
+X	-rwxr-xr-x  1 thad    users      1046 Apr  6 02:33 cleanup.exam*
+X	-rwxr-xr-x  1 thad    users       588 Apr 12 15:29 clockupd.sh*
+X	-rw-r--r--  1 thad    users       341 Apr  6 02:16 crontab.exam 
+X	-rw-r--r--  1 thad    users      3494 Apr 12 17:37 mksystime.c 
+X	-rw-r--r--  1 thad    users      4772 Apr 14 21:59 rhost_time.c 
+X	-rw-r--r--  1 thad    users      6203 Apr 13 13:29 rsetclk.c 
+X	-rw-r--r--  1 thad    users      1784 Apr 12 23:27 rtc_stime.c 
+X	-rw-r--r--  1 thad    users      2111 Apr 12 23:28 rtc_time.c 
+X
+XThad Floryan [ thad@btr.com (OR) {decwrl, mips, fernwood}!btr!thad ]
+SHAR_EOF
+chmod 0644 README ||
+echo 'restore of README failed'
+Wc_c="`wc -c < 'README'`"
+test 1243 -eq "$Wc_c" ||
+	echo 'README: original size 1243, current size' "$Wc_c"
+fi
+# ============= cleanup.exam ==============
+if test -f 'cleanup.exam' -a X"$1" != X"-c"; then
+	echo 'x - skipping cleanup.exam (File already exists)'
+else
+echo 'x - extracting cleanup.exam (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'cleanup.exam' &&
+X# Example of log file(s) rollover as could be used in /etc/cleanup.wk
+X
+XADMDIR=/usr/adm
+X
+X# The list of names in the NAME loop specifies the log files to be rolled.
+X# The monotonically decreasing list of numbers in the GEN loop controls how
+X# many old LOG files are retained per the example:
+X#
+X#	OLD/*log-2 goes to OLD/*log-3,
+X#	OLD/*log-1 goes to OLD/*log-2,
+X#	OLD/*log-0 goes to OLD/*log-1,
+X#	current    goes to OLD/*log-0
+X#
+Xfor NAME in cronlog sulog modemlog clocklog
+Xdo
+X    for GEN in  2 1 0
+X    do
+X	PLUS=`expr $GEN + 1`
+X	mv      $ADMDIR/OLD/$NAME-$GEN $ADMDIR/OLD/$NAME-$PLUS 2>/dev/null || \
+X	  touch $ADMDIR/OLD/$NAME-$GEN $ADMDIR/OLD/$NAME-$PLUS
+X    done
+X
+X    cp $ADMDIR/$NAME $ADMDIR/OLD/$NAME-0 2>/dev/null || touch $ADMDIR/$NAME
+X
+X    if [ "$NAME" = "cronlog" ]
+X    then
+X	# tell the status manager to empty the file $ADMDIR/cronlog
+X	#
+X	ps -e | grep "smgr" | \
+X	    while read PID TTY TIME COMMAND
+X	    do
+X		if [ "$COMMAND" = "smgr" ]
+X		then	kill -17 $PID
+X		fi
+X	    done
+X    else
+X	> $ADMDIR/$NAME
+X    fi
+X
+X    chmod 640 $ADMDIR/$NAME
+X
+Xdone
+SHAR_EOF
+chmod 0755 cleanup.exam ||
+echo 'restore of cleanup.exam failed'
+Wc_c="`wc -c < 'cleanup.exam'`"
+test 1046 -eq "$Wc_c" ||
+	echo 'cleanup.exam: original size 1046, current size' "$Wc_c"
+fi
+# ============= clockupd.sh ==============
+if test -f 'clockupd.sh' -a X"$1" != X"-c"; then
+	echo 'x - skipping clockupd.sh (File already exists)'
+else
+echo 'x - extracting clockupd.sh (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'clockupd.sh' &&
+X# Sample shell script (as /etc/clockupd.sh) to be invoked by cron for updating
+X# the 3B1's time from a remote host at some periodic interval.
+X#
+X# The "sleep 60" is to accomodate the check for excessive clock drift made by
+X# the rsetclk program so as not to perturb other cron activities.
+X#
+X# stdout and stderr will both appear in LOGFILE
+X#
+X# The "-l $LOGFILE" is solely for use in messages directed to /dev/error
+X#
+XLOGFILE=/usr/adm/clocklog
+XRHOST=cosmic
+XRSETCLK=/usr/local/bin/rsetclk
+X
+Xsleep 60
+Xecho "\nAt `date`"             1>> $LOGFILE
+X$RSETCLK -l $LOGFILE -s $RHOST 1>> $LOGFILE 2>&1
+SHAR_EOF
+chmod 0755 clockupd.sh ||
+echo 'restore of clockupd.sh failed'
+Wc_c="`wc -c < 'clockupd.sh'`"
+test 588 -eq "$Wc_c" ||
+	echo 'clockupd.sh: original size 588, current size' "$Wc_c"
+fi
+# ============= crontab.exam ==============
+if test -f 'crontab.exam' -a X"$1" != X"-c"; then
+	echo 'x - skipping crontab.exam (File already exists)'
+else
+echo 'x - extracting crontab.exam (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'crontab.exam' &&
+X# Example crontab entries for /etc/clockupd.sh and /etc/cleanup.wk
+X#
+X#Mn  Hr Da Mo Da (0=SUN, 1=MON, 2=TUE, 3=WED, 4=THU, 5=FRI, 6=SAT)
+X#of  of of of of
+X#Hr  Da Mo Yr Wk  Command
+X#
+X03    3  *  *  *  /bin/sh         -c "/etc/clockupd.sh              >/dev/null"
+X30    5  *  *  1  /bin/sh         -c "/etc/cleanup.wk               >/dev/null"
+SHAR_EOF
+chmod 0644 crontab.exam ||
+echo 'restore of crontab.exam failed'
+Wc_c="`wc -c < 'crontab.exam'`"
+test 341 -eq "$Wc_c" ||
+	echo 'crontab.exam: original size 341, current size' "$Wc_c"
+fi
+# ============= mksystime.c ==============
+if test -f 'mksystime.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping mksystime.c (File already exists)'
+else
+echo 'x - extracting mksystime.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'mksystime.c' &&
+X/************************************************************************
+X *	MKSYSTIME						MKSYSTIME
+X *
+X * NAME
+X *	mksystime - creates an epoch-based time value from its components
+X *
+X * SYNOPSIS
+X *
+X *	time_t mksystime(year, month, day, hour, minute, second)
+X *
+X *	int year, month, day, hour, minute, second
+X *
+X * DESCRIPTION
+X *
+X *	mksystime() will return a time_t time value in the form of time(2) for
+X *	the given year, month, day, hour, minute, and second arguments.
+X *
+X *	Because this is a "raw" translation to time_t without cognizance of
+X *	time zones or DST, the value should be treated as being GMT.
+X *
+X *	By default, the returned value will be UNIX-style based on the epoch
+X *	Jan. 1, 1970 0:00:00.  Other systems' epochs are easily handled.
+X *
+X *	An invalid conversion returns a value of -1.
+X *
+X * ASSERTIONS
+X *
+X *	146097 = number of days in 400 years per 400 * 365.2425 = 146097.00
+X *	 36524 = number of days in 100 years per 100 * 365.2425 =  36524.25
+X *	  1461 = number of days in   4 years per   4 * 365.2425 =   1460.97
+X *
+X * BUGS
+X *
+X *	Assumes the input arguments represent a valid date. A "filter" should
+X *	be added for the year, month and day arguments.
+X *
+X *	The returned value succumbs to 32-bit architecture problems similar
+X *	to those of the host system (for UNIX, this typically occurs for dates
+X *	beginning 2038 A.D. when the value rolls past the largest signed long
+X *	value in 32 bits).
+X *
+X * SEE ALSO
+X *
+X *	dayno() [ also by Thad Floryan ] which is part of a date-arithmetic
+X *		package in which dates and times are specially handled as
+X *		jdates and time fractions, respectively, and in which the time
+X *		rollover problem has been solved and validated in a machine-
+X *		independent fashion for years up to 9999 AD.
+X *
+X * AUTHOR
+X *
+X *	Thad Floryan [ thad@btr.com (OR) {decwrl, mips, fernwood} ]
+X *
+X * VERSION
+X *
+X *	1.0 12-Nov-1985 (original implementation)
+X *	2.0 sometime later (formatting cleanup, use of time_t instead of long)
+X *
+X * NOTES
+X *
+X *	The ADJ_* epoch adjusters represent the number of days between the
+X *	pseudo-date Jan. 1, 0000 and the date of the epoch.
+X */
+X
+X#include <sys/types.h>
+X
+X#define ADJ_UNIX	719527	/* adjuster for Jan. 1, 1970 epoch */
+X#define ADJ_AMIGA	722449	/* adjuster for Jan. 1, 1978 epoch */
+X
+X#ifdef AMIGA
+X#  define ADJ_DAY ADJ_AMIGA
+X#else
+X#  define ADJ_DAY ADJ_UNIX
+X#endif
+X
+Xshort mthvec[] = {-1,-1,30,58,89,119,150,180,211,242,272,303,333,364};
+X
+Xtime_t
+Xmksystime(year, month, day, hour, minute, second)
+X	int	year;
+X	int	month;
+X	int	day;
+X	int	hour;
+X	int	minute;
+X	int	second;
+X{
+X	int	quex;	/* Number of years excess of quad centuries */
+X	int	cent;	/* Number of years excess of centuries */
+X	int	leap;	/* Number of leap days since epoch Jan. 1, 0000 */
+X
+X	int	jdate;	/* pseudo-Julian date epoch Jan. 1, 0000 */
+X
+X/*
+X *	Filter out bad time values
+X */
+X	if (   ((hour   < 0) || (hour   > 23))
+X	    || ((minute < 0) || (minute > 59))
+X	    || ((second < 0) || (second > 59))) {
+X		return -1;
+X	}
+X/*
+X *	Perform main calculations
+X */
+X	quex = year % 400;
+X	cent = quex % 100;
+X	leap = (cent % 4) * 365;
+X
+X	jdate = day
+X		+ (year / 400) * 146097
+X		+ (quex / 100) *  36524
+X		+ (cent /   4) *   1461
+X		+ leap
+X		+ mthvec[month];
+X/*
+X *	Adjust for months before March in non-leap years
+X */
+X	if ((month < 3) &&
+X			((leap != 0 && quex == 0) ||
+X			 (leap == 0 && (quex == 0 || cent != 0)))) {
+X	    --jdate;
+X	}
+X/*
+X *	Compute return value referenced to requested epoch
+X */
+X	return ((jdate - ADJ_DAY) * 86400)
+X		+ (hour * 3600)
+X		+ (minute * 60)
+X		+ second;
+X}
+SHAR_EOF
+chmod 0644 mksystime.c ||
+echo 'restore of mksystime.c failed'
+Wc_c="`wc -c < 'mksystime.c'`"
+test 3494 -eq "$Wc_c" ||
+	echo 'mksystime.c: original size 3494, current size' "$Wc_c"
+fi
+# ============= rhost_time.c ==============
+if test -f 'rhost_time.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping rhost_time.c (File already exists)'
+else
+echo 'x - extracting rhost_time.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'rhost_time.c' &&
+X/****************************************************************************
+X *	RHOST_TIME					           RHOST_TIME
+X *
+X * NAME
+X *
+X *	rhost_time - gets current time_t value from a remote host adjusted
+X *		     to UNIX-style time.
+X *
+X * SYNOPSIS
+X *
+X *	time_t rhost_time(hostname, errptr)
+X *
+X *	char *hostname, *errptr
+X *
+X * DESCRIPTION
+X *
+X *	Returns the UNIX-style time from a remote host's inetd server.  Note
+X *	the time returned by the inetd server is the number of seconds since
+X *	midnight, Jan 1, 1900, in a timeval structure.  Since gettimeofday()
+X *	returns the number of seconds since midnight, Jan 1, 1970, the value
+X *	2208988800 seconds was added to gettimeofday(2)'s returned value and
+X *	we have to make an adjustment to normal UNIX system time.  Note that
+X *	the tv_usec value will always be zero.  For compilers that cannot
+X *	handle such large numbers, 2208988800 is equivalent to 0x83AA7E80.
+X *
+X *	The returned value is compatible to that from time().  Note that since
+X *	we cannot assume we're running on a "real" computer whose byte order
+X *	is the same as network byte order, ntohl() is applied to the value
+X *	retrieved from the remote host to accomodate "little endian" machines
+X *	such as the DEC {VAX or Alpha} or Intel 80?86 platforms.
+X *
+X *	The hostname is a null-terminated string whose form may be anything
+X *	normally used to reach that host (i.e. "host" or "host.domain.com").
+X *
+X * RETURN VALUES
+X *
+X *	On successful completion, rhost_time() returns the time as documented
+X *	above.
+X *
+X *	On error, rhost_time() returns a -1, errno will be set, and a pointer
+X *	to the error string will be returned via *errptr.
+X *
+X * BUGS
+X *
+X *	The return value for the error message points to a static data area
+X *	whose content is potentially overwritten by each call to rhost_time.
+X *
+X * SEE ALSO
+X *
+X *	time(), stime()
+X *	
+X */
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X#include <signal.h>
+X#include <setjmp.h>
+X#include <errno.h>
+X
+X#define SERVICE	"time"
+X#define TIMEOUT 10		/* seconds to wait for reply from rhost */
+X
+Xextern	char			*sys_errlist[];	/* system error strings */
+X
+X	jmp_buf			 env;		/* used by timeout handler */
+X	char			 errmsg[80];	/* text of error message */
+X
+Xtime_t
+Xrhost_time(hostname, errptr)
+X	char			*hostname;
+X	char		       **errptr;
+X{
+X
+X	int			 noanswer();
+X
+X	int			 s;
+X	int			 n;
+X	int			 len;
+X	int			 status;
+X	struct	timeval		 rtimebuf;
+X	struct	hostent		*hp;
+X	struct	servent		*sp;
+X	struct	sockaddr_in	 sin;
+X
+X/*
+X *	Get a datagram socket in the Internet domain
+X */
+X	s = socket(AF_INET, SOCK_DGRAM, 0);
+X	if (s < 0) {
+X	    sprintf(errmsg, "socket: %s\n", sys_errlist[errno]);
+X	    *errptr = errmsg;
+X	    return -1;
+X	}
+X/*
+X *	Look up the port number of the service.
+X */
+X	sp = getservbyname(SERVICE, "udp");
+X	if (sp == NULL) {
+X	    errno = EINVAL;
+X	    sprintf(errmsg, "%s/udp: unknown service\n", SERVICE);
+X	    *errptr = errmsg;
+X	    close(s);
+X	    return -1;
+X	}
+X/*
+X *	Look up the network number of the host on the command line
+X */
+X	hp = gethostbyname(hostname);
+X	if (hp == NULL) {
+X	    errno = EINVAL;
+X	    sprintf(errmsg, "%s: host unknown\n", hostname);
+X	    *errptr = errmsg;
+X	    close(s);
+X	    return -1;
+X	}
+X/*
+X *	Build the address of the server on the remote machine
+X */
+X	sin.sin_family = AF_INET;
+X	sin.sin_port   = sp->s_port;
+X
+X	bcopy(hp->h_addr, &sin.sin_addr, hp->h_length);
+X/*
+X *	Send a datagram to the server
+X */
+X	status = sendto(s, &rtimebuf, sizeof(rtimebuf), 0, &sin, sizeof(sin));
+X	if (status < 0) {
+X	    sprintf(errmsg, "sendto(%s): %s\n", hostname, sys_errlist[errno]);
+X	    *errptr = errmsg;
+X	    close(s);
+X	    return -1;
+X	}
+X/*
+X *	Enable timeout signal in case remote host is dead
+X */
+X	signal(SIGALRM, noanswer);
+X	alarm(TIMEOUT);
+X/*
+X *	Test if we timed out waiting for remote host to respond; presume the
+X *	remote host is down if so.
+X */
+X	status = setjmp(env);
+X	if (status > 0) {
+X	    errno = EHOSTDOWN;
+X	    sprintf(errmsg, "timeout(%s): %s\n", hostname, sys_errlist[errno]);
+X	    *errptr = errmsg;
+X	    close(s);
+X	    return -1;
+X	}
+X/*
+X *	Receive a datagram back
+X */
+X	len = sizeof(sin);
+X	n   = recvfrom(s, &rtimebuf, sizeof(rtimebuf), 0, &sin, &len);
+X/*
+X *	Disable timeout signal
+X */
+X	alarm(0);
+X/*
+X *	Test state of returned datagram
+X */
+X	if (n < 0) {
+X	    sprintf(errmsg, "recvfrom(%s): %s", hostname, sys_errlist[errno]);
+X	    *errptr = errmsg;
+X	    close(s);
+X	    return -1;
+X	}
+X/*
+X *	Accomodate "little endian" architectures.
+X */
+X	rtimebuf.tv_sec = ntohl(rtimebuf.tv_sec);
+X/*
+X *	Adjust time with respect to the UNIX epoch of Jan. 1, 1970 00:00:00 GMT
+X */
+X	rtimebuf.tv_sec -= 2208988800L;
+X/*
+X *	Release socket
+X */
+X	close(s);
+X
+X	return rtimebuf.tv_sec;
+X}
+X
+X/*
+X *	rhost_time() timeout handler
+X *
+X */
+Xnoanswer()
+X{
+X	longjmp(env, 1);
+X}
+SHAR_EOF
+chmod 0644 rhost_time.c ||
+echo 'restore of rhost_time.c failed'
+Wc_c="`wc -c < 'rhost_time.c'`"
+test 4772 -eq "$Wc_c" ||
+	echo 'rhost_time.c: original size 4772, current size' "$Wc_c"
+fi
+# ============= rsetclk.c ==============
+if test -f 'rsetclk.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping rsetclk.c (File already exists)'
+else
+echo 'x - extracting rsetclk.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'rsetclk.c' &&
+X/******************************************************************************
+X *	RSETCLK								RSETCLK
+X *
+X * NAME
+X *
+X *	rsetclk - sets the system's clocks referenced to a remote host
+X *
+X * SYNOPSIS
+X *
+X *	rsetclk [ -l logfile ]  [ -s ] hostname
+X *
+X * DESCRIPTION
+X *
+X *	Sets the 3B1's time-of-day and realtime clocks from another system
+X *	on the net per the "time" service.  Presently Ethernet is assumed.
+X *	Resolution is +/- 1 second; if more accuracy is needed (and on systems
+X *	which support it), the NTP facility should be used instead.
+X *
+X *	If the time drift exceeds 60 seconds, a warning will be issued and
+X *	the local time will NOT be changed; on the 3B1, a log message will
+X *	be sent to /dev/error informing of the condition.
+X *
+X *	All time values and variances will be displayed per the example:
+X *
+X *		   Local RTC: Sun Apr  5 03:04:00 1992
+X *		   Local TOD: Sun Apr  5 03:04:04 1992
+X *		  Remote TOD: Sun Apr  5 03:03:57 1992  (hostname)
+X *		TOD Variance: 7 seconds
+X *
+X *	If the time was set, new time values will be retrieved and the display
+X *	will include the following (where "S" is "+", "-", or " " indicating
+X *	the directional adjustment performed):
+X *
+X *		==Remote TOD: Sun Apr  5 03:03:57 1992  (hostname)
+X *		S= Local TOD: Sun Apr  5 03:03:57 1992
+X *		S= Local RTC: Sun Apr  5 03:03:57 1992
+X *
+X * OPTIONS
+X *
+X *	-l logfile	the logfile name is used here ONLY for inclusion
+X *			in error messages sent to /dev/error.  The actual
+X *			logging is controlled by directing stdout and stderr
+X *			in the invoking script per (for example):
+X *
+X *			rsetclk -l $LOGFILE -s rhost 1>> $LOGFILE 2>&1
+X *
+X *	-s		causes the time-of-day (TOD) clock (and RTC) to be
+X *			set to the value received from hostname.
+X *
+X * AUTHOR
+X *
+X *	Thad Floryan, 5-Apr-1992 [ thad@btr.com ]
+X *
+X * NOTES
+X *
+X *	The program must be setuid root to change the system's clocks.
+X *
+X *	Clobbered-registers in an onboard RTC will cause strange displays
+X *	for the RTC time; this effect could be fixed in mksystime().
+X */
+X
+X#include <stdio.h>
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#define VERSKIP	4		/* print displacement in version string	*/
+X
+X#define ABS(x) ((x) >= 0 ? (x) : -(x))
+X
+Xchar *version =
+X	"@(#)rsetclk V1.0, 5-Mar-1992, Thad Floryan [ thad@btr.com ]";
+X
+Xchar *usage_text[] = {
+X	"usage:	rsetclk [-l logfile] [-s] from_host",
+X	0
+X};
+X
+Xchar *logfile = "/dev/tty";	/* default name in case "-l logfile" missing */
+X
+X
+Xmain(argc, argv)
+X	int		 argc;
+X	char		*argv[];
+X{
+Xextern	int		 getopt();
+Xextern	int		 optind;
+Xextern	char		*optarg;
+X
+Xextern	time_t		 mksystime();
+Xextern	time_t		 rhost_time();
+Xextern	int		 rtc_stime();
+Xextern	time_t		 rtc_time();
+X
+X	FILE		*ef;
+X	struct tm	*tm_ptr;
+X	long		 delta;		/* local vs. remote clock delta */
+X	long		 drift;		/* local vs. remote clock drift */
+X	time_t		 lcltime;	/* local system's time */
+X	time_t		 remtime;	/* remote system's time */
+X	time_t		 rtctime;	/* RTC time */
+X	int		 optchr;
+X	int		 setflg = 0;	/* non-zero means actually set time */
+X	char		 direction;	/* '+', '-' or ' ' */
+X	char		*errstr;
+X
+X
+X/*
+X *	Process command line argument(s)
+X */
+X	while ((optchr = getopt(argc, argv, "l:s")) != EOF) {
+X	    switch (optchr) {
+X		case 'l':   logfile = optarg;
+X			    break;
+X		case 's':   setflg++;
+X			    break;
+X		default:    usage();
+X	    }
+X	}
+X
+X	if ( optind != (argc - 1)) {
+X	    usage();
+X	}
+X/*
+X *	Get UNIX-style time from remote host and handle any errors
+X */
+X	remtime = rhost_time(argv[optind], &errstr);
+X	if (remtime < 0) {
+X	    fprintf(stderr, errstr);
+X
+X#ifdef UNIXPC
+X	    if (setflg != 0) {
+X		ef = fopen("/dev/error", "w");
+X		if (ef != NULL) {
+X		    fprintf(ef, "%s failure with rhost_time()\n", argv[0]);
+X		    fprintf(ef, "between localhost and %s\n", argv[optind]);
+X		    fprintf(ef, "See %s for more details.\n", logfile);
+X		}
+X		fclose(ef);
+X	    }
+X#endif /* UNIXPC */
+X
+X	    exit(1);
+X	}
+X/*
+X *	Get UNIX-style local time from local host
+X */
+X	lcltime = time((time_t *) 0);
+X/*
+X *	Get UNIX-style local time from Real Time Clock
+X */
+X	rtctime = rtc_time((time_t *) 0);
+X/*
+X *	Compute time variance
+X */
+X	delta = lcltime - remtime;
+X	drift = ABS(delta);
+X/*
+X *	Check if we're actually setting the time
+X */
+X	if (setflg != 0) {
+X/*
+X *	Check for excessive time drift ( >= 60 seconds )
+X */
+X	    if ( drift >= 60 ) {
+X		fprintf(stderr, "WARNING: Excessive time drift, %ld seconds\n",
+X		    drift);
+X		setflg = 0;
+X#ifdef UNIXPC
+X		ef = fopen("/dev/error", "w");
+X		if (ef != NULL) {
+X		    fprintf(ef, "Excessive time drift (%ld seconds)\n", drift);
+X		    fprintf(ef, "between localhost and %s\n", argv[optind]);
+X		    fprintf(ef, "See %s for more details.\n", logfile);
+X		}
+X		fclose(ef);
+X#endif /* UNIXPC */
+X
+X	    } else {
+X/*
+X *	Set UID to root so we can change the system's clocks
+X */
+X		if (setuid(0) < 0) {
+X		    perror("setuid");
+X		    exit(1);
+X		}
+X/*
+X *	Set current time
+X */
+X		if (stime(&remtime) != 0) {
+X		    perror("stime");
+X		    exit(1);
+X		}
+X		rtc_stime(&remtime);
+X	    }
+X	}
+X/*
+X *	Display pertinent times
+X */
+X	tm_ptr = gmtime(&rtctime);
+X	printf("   Local RTC: %s", asctime(tm_ptr));
+X
+X	tm_ptr = localtime(&lcltime);
+X	printf("   Local TOD: %s", asctime(tm_ptr));
+X
+X	tm_ptr = localtime(&remtime);
+X	printf("  Remote TOD: %24.24s  (%s)\n", asctime(tm_ptr), argv[optind]);
+X
+X	printf("TOD Variance: %ld seconds\n", delta);
+X/*
+X *	Display verification of changes
+X */
+X	if (setflg != 0) {
+X	    direction = (delta >= 0) ? ((delta > 0) ? '-' : ' ') : '+';
+X
+X	    remtime = rhost_time(argv[optind], &errstr);
+X	    if (remtime < 0) {
+X		fprintf(stderr, errstr);
+X		exit(1);
+X	    } else {
+X		tm_ptr = localtime(&remtime);
+X		printf("==Remote TOD: %24.24s  (%s)\n",
+X		    asctime(tm_ptr),
+X		    argv[optind]);
+X	    }
+X
+X	    lcltime = time((time_t *) 0);
+X	    tm_ptr = localtime(&lcltime);
+X	    printf("%c= Local TOD: %s", direction, asctime(tm_ptr));
+X
+X	    rtctime = rtc_time((time_t *) 0);
+X	    tm_ptr = gmtime(&rtctime);
+X	    printf("%c= Local RTC: %s", direction, asctime(tm_ptr));
+X	}
+X
+X	return 0;
+X}
+X
+X/********************************************************************
+X *	USAGE							USAGE
+X *
+X *	Display program's usage
+X */
+X
+Xusage()
+X{
+X	int	ndx = 0;
+X
+X	while ( usage_text[ndx] != 0 ) {
+X
+X	    (void) fprintf( stderr, "%s\n", usage_text[ndx++] );
+X	}
+X	(void) fprintf( stderr, "%s\n", version + VERSKIP );
+X	exit(1);
+X}
+SHAR_EOF
+chmod 0644 rsetclk.c ||
+echo 'restore of rsetclk.c failed'
+Wc_c="`wc -c < 'rsetclk.c'`"
+test 6203 -eq "$Wc_c" ||
+	echo 'rsetclk.c: original size 6203, current size' "$Wc_c"
+fi
+# ============= rtc_stime.c ==============
+if test -f 'rtc_stime.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping rtc_stime.c (File already exists)'
+else
+echo 'x - extracting rtc_stime.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'rtc_stime.c' &&
+X/*************************************************************************
+X *	RTC_STIME						 RTC_STIME
+X *
+X * NAME
+X *
+X *	rtc_stime -- sets the battery-backed Real Time Clock in the UNIXPC
+X *		     to the UNIX-style time given as input
+X *
+X * SYNOPSIS
+X *
+X *	rtc_stime(tval)
+X *
+X *	time_t *tval
+X *
+X * DESCRIPTION
+X *
+X *	Sets the RTC's registers to the given time.
+X *
+X *	On the 3B1, the RTC's registers contain local time.  Thus, the time_t
+X *	value should be treated as "gmtime(2)" for any conversions to ASCII.
+X *
+X *	For many RTCs, problems will occur come 2000 AD because the stored
+X *	year comprises only the ones and tens digits, not the century.
+X *
+X *	Note that on the 3B1, the stock /etc/clockupd.wk script documents why
+X *	the RTC is set to the present "software" time at 3:03am each Sunday: to
+X *	synchronize the clocks in case of Daylight Savings Time adjustments.
+X *	The RTC setting is accomplished by:  date `date +%m%d%H%M`
+X *
+X * SEE ALSO
+X *
+X *	time(), stime(), rtc_time()
+X *
+X */
+X
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#ifdef UNIXPC
+X#include <sys/syslocal.h>
+X#include <sys/rtc.h>
+X#endif
+X
+Xrtc_stime(tval)
+X	time_t		*tval;
+X{
+X
+X#ifdef UNIXPC
+X
+X	struct tm	*p_tm;
+X	struct rtc	 rtc_val;
+X
+X	p_tm = localtime(tval);
+X
+X	rtc_val.wkday = p_tm->tm_wday;
+X	rtc_val.yr10  = p_tm->tm_year / 10;
+X	rtc_val.yr1   = p_tm->tm_year % 10;
+X	rtc_val.mon10 = (p_tm->tm_mon + 1) / 10;
+X	rtc_val.mon1  = (p_tm->tm_mon + 1) % 10;
+X	rtc_val.day10 = p_tm->tm_mday / 10;
+X	rtc_val.day1  = p_tm->tm_mday % 10;
+X	rtc_val.hr10  = p_tm->tm_hour / 10;
+X	rtc_val.hr1   = p_tm->tm_hour % 10;
+X	rtc_val.min10 = p_tm->tm_min / 10;
+X	rtc_val.min1  = p_tm->tm_min % 10;
+X	rtc_val.sec10 = p_tm->tm_sec / 10;
+X	rtc_val.sec1  = p_tm->tm_sec % 10;
+X
+X	syslocal(SYSL_WRTRTC, &rtc_val);	/* write and update RTC */
+X
+X#endif /* UNIXPC */
+X
+X}
+SHAR_EOF
+chmod 0644 rtc_stime.c ||
+echo 'restore of rtc_stime.c failed'
+Wc_c="`wc -c < 'rtc_stime.c'`"
+test 1784 -eq "$Wc_c" ||
+	echo 'rtc_stime.c: original size 1784, current size' "$Wc_c"
+fi
+# ============= rtc_time.c ==============
+if test -f 'rtc_time.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping rtc_time.c (File already exists)'
+else
+echo 'x - extracting rtc_time.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'rtc_time.c' &&
+X/***********************************************************************
+X *	RTC_TIME						RTC_TIME
+X *
+X * NAME
+X *
+X *	rtc_time -- gets time from system's Real Time Clock (RTC)
+X *
+X * SYNOPSIS
+X *
+X *	time_t rtc_time((time_t *) 0)
+X *
+X *	time_t rtc_time(tloc)
+X *	time_t *tloc
+X *
+X * DESCRIPTION
+X *
+X *	rtc_time() returns the value of time in seconds since the epoch;
+X *	on UNIX systems, the epoch is January 1, 1970 00:00:00 GMT
+X *
+X *	If tloc is non-zero, the returned value is also stored in the location
+X *	to which tloc points.
+X *
+X *	rtc_time() will fail if tloc points to an illegal address.
+X *
+X *	For many RTCs, problems will occur come 2000 AD because the stored
+X *	year comprises only the ones and tens digits, not the century.
+X *
+X *	On the 3B1, the RTC's registers contain local time.  Thus, the time_t
+X *	value should be treated as "gmtime(2)" for any conversions to ASCII.
+X *
+X *	On the 3B1, the stock /etc/clockupd.wk script documents why the RTC
+X *	is set to the present "software" time at 3:03am each Sunday: to
+X *	synchronize the clocks in case of Daylight Savings Time adjustments.
+X *	The RTC setting is accomplished by:  date `date +%m%d%H%M`
+X *
+X * RETURN VALUE
+X *
+X *	Upon successful completion, rtc_time() returns the value of the RTC's
+X *	time.  Otherwise a value of -1 is returned and errno is set to indicate
+X *	the error.
+X *
+X * SEE ALSO
+X *
+X *	time(), stime(), rtc_stime()
+X *
+X */
+X
+X#include <errno.h>
+X#include <time.h>
+X#include <sys/types.h>
+X
+X#ifdef UNIXPC
+X#include <sys/syslocal.h>
+X#include <sys/rtc.h>
+X#endif
+X
+Xtime_t
+Xrtc_time(tloc)
+X	time_t		*tloc;
+X{
+Xextern	time_t		 mksystime();
+X
+X	time_t		 curtime = 0;
+X
+X#ifdef UNIXPC
+X
+X	struct rtc	rtc_val;
+X
+X
+X	syslocal(SYSL_RDRTC, &rtc_val);		/* read RTC */
+X
+X	curtime = mksystime(
+X			(rtc_val.yr10  * 10) + rtc_val.yr1  + 1900,
+X			(rtc_val.mon10 * 10) + rtc_val.mon1,
+X			(rtc_val.day10 * 10) + rtc_val.day1,
+X			(rtc_val.hr10  * 10) + rtc_val.hr1,
+X			(rtc_val.min10 * 10) + rtc_val.min1,
+X			(rtc_val.sec10 * 10) + rtc_val.sec1);
+X
+X	if (curtime < 0) {
+X		errno = EINVAL;
+X	}
+X
+X#endif /* UNIXPC */
+X
+X	if (tloc != (time_t *) 0) {
+X	    *tloc = curtime;
+X	}
+X
+X	return curtime;
+X
+X}
+SHAR_EOF
+chmod 0644 rtc_time.c ||
+echo 'restore of rtc_time.c failed'
+Wc_c="`wc -c < 'rtc_time.c'`"
+test 2111 -eq "$Wc_c" ||
+	echo 'rtc_time.c: original size 2111, current size' "$Wc_c"
+fi
+exit 0
+
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

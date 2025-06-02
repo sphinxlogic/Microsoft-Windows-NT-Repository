@@ -1,0 +1,1590 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v29i085:  pdksh - Public Domain Korn Shell, v4, Patch03c/5
+Message-ID: <1992Apr26.041550.22314@sparky.imd.sterling.com>
+X-Md4-Signature: 33c575c38912b013f9574b876cc8ed58
+Date: Sun, 26 Apr 1992 04:15:50 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 29, Issue 85
+Archive-name: pdksh/patch03c
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+*** sh/jobs.c.old	Sat Apr 25 17:44:29 1992
+--- sh/jobs.c	Sat Apr 25 18:31:27 1992
+***************
+*** 2,9 ****
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 3.5 89/03/27 15:51:01 egisin Exp $";
+! static char  sccs_id[] = "@(#)jobs.c     1.5  91/11/22  22:53:20  (sjg)";
+  #endif
+  
+  /*
+--- 2,8 ----
+   * Process and job control
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: jobs.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  /*
+***************
+*** 29,35 ****
+  #include <sys/times.h>
+  #include <sys/wait.h>
+  #include "sh.h"
+- #include "tree.h"
+  #ifdef JOBS
+  #ifdef _BSD
+  #include <sys/ioctl.h>
+--- 28,33 ----
+***************
+*** 67,73 ****
+  #   define WEXITSTATUS(x)	((x).w_retcode)
+  # endif
+  # ifndef HAVE_WAITPID
+! #   define	waitpid(pid, sp, opts)	wait3(sp, opts, (Void*)NULL)
+  # endif
+  #else					/* not _BSD */
+  # ifndef WIFCORED
+--- 65,71 ----
+  #   define WEXITSTATUS(x)	((x).w_retcode)
+  # endif
+  # ifndef HAVE_WAITPID
+! #   define	waitpid(pid, sp, opts)	wait3(sp, opts, (void*)NULL)
+  # endif
+  #else					/* not _BSD */
+  # ifndef WIFCORED
+***************
+*** 81,87 ****
+   *	int setpgid(pid_t pid, pid_t pgid); // Set process group id for job control
+   */
+  
+- static int sigchld_caught;	/* for recording child terminations */
+  
+  #ifdef JOBS
+  #ifdef _BSD			/* _BSD 4.* */
+--- 79,84 ----
+***************
+*** 94,99 ****
+--- 91,97 ----
+  #endif
+  #endif
+  
++ 
+  #ifndef	SIGCHLD
+  #define	SIGCHLD	SIGCLD
+  #endif
+***************
+*** 109,116 ****
+  struct Proc {
+  	Proc   *next;		/* `procs' list link */
+  	int	job;		/* job number: %n */
+! 	short	Volatile state;	/* proc state */
+! 	short	Volatile notify; /* proc state has changed */
+  	Proc   *prev;		/* prev member of pipeline */
+  	pid_t	proc;		/* process id */
+  	pid_t	pgrp;		/* process group if flag[FMONITOR] */
+--- 107,114 ----
+  struct Proc {
+  	Proc   *next;		/* `procs' list link */
+  	int	job;		/* job number: %n */
+! 	short	volatile state;	/* proc state */
+! 	short	volatile notify; /* proc state has changed */
+  	Proc   *prev;		/* prev member of pipeline */
+  	pid_t	proc;		/* process id */
+  	pid_t	pgrp;		/* process group if flag[FMONITOR] */
+***************
+*** 131,137 ****
+--- 129,139 ----
+  
+  clock_t	j_utime, j_stime;	/* user and system time for last job a-waited */
+  #ifdef JOBS
++ # ifdef USE_SIGACT
++ sigset_t sm_default, sm_sigchld;	/* signal masks */
++ # else
+  static	int	sm_default, sm_sigchld;	/* signal masks */
++ # endif
+  static	int	our_pgrp;		/* shell's pgrp */
+  #endif
+  static	Proc   *j_lastj;		/* last proc created by exchild */
+***************
+*** 139,169 ****
+  static	int	j_current = 0;		/* current job */
+  static	int	j_previous = 0;		/* previous job */
+  
+! static	int	j_newjob ARGS((void));
+! static	void	j_print ARGS((Proc *j));
+! static	Proc   *j_search ARGS((int job));
+! static	int	j_waitj ARGS((Proc *j, int intr));
+! static	void	j_sigchld ARGS((int sig));
+! 	
+  /* initialize job control */
+  void
+  j_init()
+  {
+  #ifdef JOBS
+! #ifdef NTTYDISC
+  	int ldisc = NTTYDISC;	/* BSD brain damage */
+  
+  	if (ttyfd >= 0)
+  		ioctl(ttyfd, TIOCSETD, &ldisc);
+! #endif
+  	our_pgrp = getpgid(0);
+  	sigchld_caught = 0;
+  	sm_default = 0;
+  	sm_sigchld = sigmask(SIGCHLD);
+  	_TRACE(5, ("j_init: sm_sigchld == 0x%x", sm_sigchld));
+! #endif
+! #if defined(_SYSV) && !defined(JOBS)
+  	signal(SIGCHLD, SIG_DFL);	/* necessary ??? */
+  #endif
+  }
+  
+--- 141,183 ----
+  static	int	j_current = 0;		/* current job */
+  static	int	j_previous = 0;		/* previous job */
+  
+! static int      j_waitj     ARGS((Proc *aj, int intr));
+! static void     j_print     ARGS((Proc *j));
+! static int      j_newjob    ARGS((void));
+! static Proc *   j_search    ARGS((int job));
+! static void	j_sigchld   ARGS((int sig));
+!   
+  /* initialize job control */
+  void
+  j_init()
+  {
+  #ifdef JOBS
+! # if defined(NTTYDISC) && defined(TIOCSETD)
+  	int ldisc = NTTYDISC;	/* BSD brain damage */
+  
+  	if (ttyfd >= 0)
+  		ioctl(ttyfd, TIOCSETD, &ldisc);
+! # endif
+  	our_pgrp = getpgid(0);
+  	sigchld_caught = 0;
++ # ifdef USE_SIGACT
++ 	sigemptyset(&sm_default);
++ 	sigemptyset(&sm_sigchld);
++ 	sigaddset(&sm_sigchld, SIGCHLD);
++ # else
+  	sm_default = 0;
+  	sm_sigchld = sigmask(SIGCHLD);
+  	_TRACE(5, ("j_init: sm_sigchld == 0x%x", sm_sigchld));
+! # endif
+! #endif 
+! #ifndef JOBS
+! # ifdef USE_SIGACT
+! 	sigaction(SIGCHLD, &Sigact_dfl, NULL);
+! # else
+! #   ifdef _SYSV
+  	signal(SIGCHLD, SIG_DFL);	/* necessary ??? */
++ #   endif
++ # endif
+  #endif
+  }
+  
+***************
+*** 200,207 ****
+  void
+  j_change()
+  {
+  	static handler_t old_tstp, old_ttin, old_ttou;
+! 
+  	if (flag[FMONITOR]) {
+  		if (ttyfd < 0) {
+  			flag[FMONITOR] = 0;
+--- 214,224 ----
+  void
+  j_change()
+  {
++ #ifdef USE_SIGACT
++ 	static struct sigaction old_tstp, old_ttin, old_ttou;
++ #else
+  	static handler_t old_tstp, old_ttin, old_ttou;
+! #endif
+  	if (flag[FMONITOR]) {
+  		if (ttyfd < 0) {
+  			flag[FMONITOR] = 0;
+***************
+*** 208,213 ****
+--- 225,244 ----
+  			shellf("job control requires tty\n");
+  			return;
+  		}
++ #ifdef USE_SIGACT
++ 		Sigact.sa_handler = j_sigchld;
++ 		sigemptyset(&Sigact.sa_mask);
++ 		Sigact.sa_flags = SA_RESTART;
++ 		sigaction(SIGCHLD, &Sigact, NULL);
++ 		Sigact.sa_flags = 0;
++ 		sigtraps[SIGCHLD].sig_dfl = 1; /* restore on fork */
++ 		sigaction(SIGTSTP, &Sigact_ign, &old_tstp);
++ 		sigtraps[SIGTSTP].sig_dfl = 1;
++ 		sigaction(SIGTTIN, &Sigact_ign, &old_ttin);
++ 		sigtraps[SIGTTIN].sig_dfl = 1;
++ 		sigaction(SIGTTOU, &Sigact_ign, &old_ttou);
++ 		sigtraps[SIGTTOU].sig_dfl = 1;
++ #else
+  		(void) signal(SIGCHLD, j_sigchld);
+  		sigtraps[SIGCHLD].sig_dfl = 1; /* restore on fork */
+  		old_tstp = signal(SIGTSTP, SIG_IGN);
+***************
+*** 216,224 ****
+--- 247,269 ----
+  		sigtraps[SIGTTIN].sig_dfl = 1;
+  		old_ttou = signal(SIGTTOU, SIG_IGN);
+  		sigtraps[SIGTTOU].sig_dfl = 1;
++ #endif
++ #ifdef USE_SIGACT
++ 		sigprocmask(SIG_SETMASK, &sm_default, NULL);
++ #else
+  		sigsetmask(sm_default);
++ #endif
+  		tcsetpgrp(ttyfd, our_pgrp);
+  	} else {
++ #ifdef USE_SIGACT
++ 		sigaction(SIGCHLD, &Sigact_dfl, NULL);
++ 		sigaction(SIGTSTP, &old_tstp, NULL);
++ 		sigtraps[SIGTSTP].sig_dfl = 0;
++ 		sigaction(SIGTTIN, &old_ttin, NULL);
++ 		sigtraps[SIGTTIN].sig_dfl = 0;
++ 		sigaction(SIGTTOU, &old_ttou, NULL);
++ 		sigtraps[SIGTTOU].sig_dfl = 0;
++ #else
+  		(void) signal(SIGCHLD, SIG_DFL);
+  		(void) signal(SIGTSTP, old_tstp);
+  		sigtraps[SIGTSTP].sig_dfl = 0;
+***************
+*** 226,231 ****
+--- 271,277 ----
+  		sigtraps[SIGTTIN].sig_dfl = 0;
+  		(void) signal(SIGTTOU, old_ttou);
+  		sigtraps[SIGTTOU].sig_dfl = 0;
++ #endif
+  	}
+  }
+  #endif
+***************
+*** 269,274 ****
+--- 315,329 ----
+  
+  	/* create child process */
+  	forksleep = 0;
++ #ifdef JOBS
++ 	/* don't allow SIGCHLD until we are ready */
++ 
++ #ifdef USE_SIGACT
++ 	sigprocmask(SIG_SETMASK, &sm_sigchld, NULL);
++ # else
++ 	sigsetmask(sm_sigchld);
++ # endif
++ #endif
+  	while ((i = fork()) < 0 && errno == EAGAIN && forksleep < 32) {
+  		if (forksleep) {
+  			sleep(forksleep);
+***************
+*** 284,295 ****
+  
+  #ifdef JOBS
+  	/* job control set up */
+! 	if (flag[FMONITOR] && !(flags&XXCOM)) {
+! 		j->pgrp = !(flags&XPIPEI) ? j->proc : j_lastj->pgrp;
+! 		/* do in both parent and child to avoid fork race condition */
+! 		if (!(flags&XBGND))
+! 			tcsetpgrp(ttyfd, j->pgrp); /* could be trouble */
+! 		setpgid(j->proc, j->pgrp);
+  	}
+  #endif
+  	j_lastj = j;
+--- 339,351 ----
+  
+  #ifdef JOBS
+  	/* job control set up */
+! 	if (flag[FMONITOR] && !(flags&XXCOM))
+! 	{
+! 	  j->pgrp = !(flags&XPIPEI) ? j->proc : j_lastj->pgrp;
+! 	  /* do in both parent and child to avoid fork race condition */
+! 	  if (!(flags&XBGND))
+! 	    tcsetpgrp(ttyfd, j->pgrp); /* could be trouble */
+! 	  setpgid(j->proc, j->pgrp);
+  	}
+  #endif
+  	j_lastj = j;
+***************
+*** 298,308 ****
+  		e.oenv = NULL;
+  		if (flag[FTALKING])
+  			restoresigs();
+! 		if ((flags&XBGND) && !flag[FMONITOR]) {
+! 			signal(SIGINT, SIG_IGN);
+! 			signal(SIGQUIT, SIG_IGN);
+! 			if (flag[FTALKING])
+! 				signal(SIGTERM, SIG_DFL);
+  			if (!(flags&XPIPEI)) {
+  				i = open("/dev/null", 0);
+  				(void) dup2(i, 0);
+--- 354,372 ----
+  		e.oenv = NULL;
+  		if (flag[FTALKING])
+  			restoresigs();
+! 		if ((flags&XBGND) && !flag[FMONITOR])
+! 		{
+! #ifdef USE_SIGACT
+! 		  sigaction(SIGINT, &Sigact_dfl, NULL);
+! 		  sigaction(SIGQUIT, &Sigact_dfl, NULL);
+! 		  if (flag[FTALKING])
+! 		    sigaction(SIGTERM, &Sigact_dfl, NULL);
+! #else
+! 		  signal(SIGINT, SIG_IGN);
+! 		  signal(SIGQUIT, SIG_IGN);
+! 		  if (flag[FTALKING])
+! 		    signal(SIGTERM, SIG_DFL);
+! #endif
+  			if (!(flags&XPIPEI)) {
+  				i = open("/dev/null", 0);
+  				(void) dup2(i, 0);
+***************
+*** 312,317 ****
+--- 376,389 ----
+  		for (j = procs; j != NULL; j = j->next)
+  			j->state = JFREE;
+  		ttyfd = -1;
++ #ifdef JOBS
++ 		/* is this needed in the child? */
++ # ifdef USE_SIGACT
++ 		sigprocmask(SIG_SETMASK, &sm_default, NULL);
++ # else
++ 		sigsetmask(sm_default);
++ # endif
++ #endif
+  		flag[FMONITOR] = flag[FTALKING] = 0;
+  		cleartraps();
+  		execute(t, flags|XEXEC); /* no return */
+***************
+*** 325,331 ****
+  		j_current = j->job;
+  		if (flag[FTALKING])
+  			j_print(j);
+! 	} else {		/* sync statement */
+  		if (!(flags&XPIPE))
+  			rv = j_waitj(j, 0);
+  	}
+--- 397,412 ----
+  		j_current = j->job;
+  		if (flag[FTALKING])
+  			j_print(j);
+! 	}
+! #ifdef JOBS
+! # ifdef USE_SIGACT
+! 	sigprocmask(SIG_SETMASK, &sm_default, NULL);
+! # else
+! 	sigsetmask(sm_default);
+! # endif
+! #endif
+! 	if (!(flags&XBGND))
+! 	{ 		/* sync statement */
+  		if (!(flags&XPIPE))
+  			rv = j_waitj(j, 0);
+  	}
+***************
+*** 353,360 ****
+--- 434,445 ----
+  #ifdef JOBS
+  	if (flag[FMONITOR])
+  	{
++ # ifdef USE_SIGACT
++ 	  sigprocmask(SIG_SETMASK, &sm_sigchld, NULL);
++ # else
+  	  _TRACE(5, ("j_waitj: sigsetmask(sm_sigchld==0x%x)", sm_sigchld));
+  	  sigsetmask(sm_sigchld);
++ # endif
+  	}
+  #endif
+  	/* wait for all members of pipeline */
+***************
+*** 371,383 ****
+  			   */
+  			  if (!sigchld_caught)
+  			  {
+  			    _TRACE(4, ("j_waitj: sigpause(%d), sigchld_caught==%d", sm_default, sigchld_caught));
+  			    sigpause(sm_default);
+  			    _TRACE(4, ("j_waitj: sigpause() returned %d, sigchld_caught==%d", errno, sigchld_caught));
+  			  }
+  			}
+  			else
+! #endif
+  				j_sigchld(0);
+  			/*
+  			 * Children to reap
+--- 456,472 ----
+  			   */
+  			  if (!sigchld_caught)
+  			  {
++ # ifdef USE_SIGACT
++ 			    sigsuspend(&sm_default);
++ # else
+  			    _TRACE(4, ("j_waitj: sigpause(%d), sigchld_caught==%d", sm_default, sigchld_caught));
+  			    sigpause(sm_default);
+  			    _TRACE(4, ("j_waitj: sigpause() returned %d, sigchld_caught==%d", errno, sigchld_caught));
++ # endif /* USE_SIGACT */
+  			  }
+  			}
+  			else
+! #endif /* JOBS */
+  				j_sigchld(0);
+  			/*
+  			 * Children to reap
+***************
+*** 398,404 ****
+  			if (!(j->flags&XPIPEO))
+  				rv = 0x80 + WTERMSIG(j->status);
+  			if (WTERMSIG(j->status) == SIGINT ||
+! 			    WTERMSIG(j->status) == SIGPIPE && (j->flags&XPIPEO))
+  				j->notify = 0;
+  			if (WTERMSIG(j->status) == SIGINT ||
+  			    WTERMSIG(j->status) == SIGQUIT)
+--- 487,494 ----
+  			if (!(j->flags&XPIPEO))
+  				rv = 0x80 + WTERMSIG(j->status);
+  			if (WTERMSIG(j->status) == SIGINT ||
+! 			    (WTERMSIG(j->status) == SIGPIPE &&
+! 			     (j->flags&XPIPEO)))
+  				j->notify = 0;
+  			if (WTERMSIG(j->status) == SIGINT ||
+  			    WTERMSIG(j->status) == SIGQUIT)
+***************
+*** 441,450 ****
+  
+    Break:
+  #ifdef JOBS
+! 	if (flag[FMONITOR]) {
+! 		/* reset shell job control state */
+! 		sigsetmask(sm_default);
+! 		tcsetpgrp(ttyfd, our_pgrp);
+  	}
+  #endif
+  	if (ttysig)
+--- 531,545 ----
+  
+    Break:
+  #ifdef JOBS
+! 	if (flag[FMONITOR])
+! 	{
+! 	  /* reset shell job control state */
+! # ifdef USE_SIGACT
+! 	  sigprocmask(SIG_SETMASK, &sm_default, NULL);
+! # else
+! 	  sigsetmask(sm_default);
+! # endif
+! 	  tcsetpgrp(ttyfd, our_pgrp);
+  	}
+  #endif
+  	if (ttysig)
+***************
+*** 466,476 ****
+  	int sig;
+  {
+  	sigchld_caught++;	/* acknowledge it */
+- #if defined(_SYSV) && !defined(JOBS)
+- 	/* non-zero sig means called as handler */
+- 	/* 5.2 handlers must reinstate themselves */
+- 	if (sig) signal(SIGCHLD, j_sigchld);
+- #endif
+  }
+  
+  /*
+--- 561,566 ----
+***************
+*** 481,492 ****
+  j_reapchld()
+  {
+  	struct tms t0, t1;
+! #ifdef JOBS
+  	int sm_old;
+  
+  	sm_old = sigblock(0);	/* just get current mask */
+- #endif
+  	_TRACE(5, ("j_reapchld: sm_old==0x%x, sigchld_caught==%d", sm_old, sigchld_caught));
+  	(void) times(&t0);
+  
+  	do {
+--- 571,588 ----
+  j_reapchld()
+  {
+  	struct tms t0, t1;
+! #if defined(JOBS)
+! # ifdef USE_SIGACT
+! 	sigset_t	sm_old;
+! 
+! 	sigprocmask(SIG_SETMASK, NULL, &sm_old);
+! # else
+  	int sm_old;
+  
+  	sm_old = sigblock(0);	/* just get current mask */
+  	_TRACE(5, ("j_reapchld: sm_old==0x%x, sigchld_caught==%d", sm_old, sigchld_caught));
++ # endif
++ #endif
+  	(void) times(&t0);
+  
+  	do {
+***************
+*** 499,504 ****
+--- 595,607 ----
+  		else
+  #endif
+  			pid = wait(&status);
++ 		if (pid < 0 && errno == ECHILD)
++ 		{
++ 		  /* no children - what are we doing here? */
++ 		  _TRACE(5, ("j_reapchld: no children"));
++ 		  sigchld_caught = 0;
++ 		  break;
++ 		}
+  		if (pid <= 0)	/* return if would block (0) ... */
+  			break;	/* ... or no children or interrupted (-1) */
+  		(void) times(&t1);
+***************
+*** 534,552 ****
+--- 637,674 ----
+  		j->stime = t1.tms_cstime - t0.tms_cstime;
+  		t0 = t1;
+  #ifdef JOBS
++ # ifdef USE_SIGACT
++ 		sigprocmask(SIG_BLOCK, &sm_sigchld, NULL);
++ # else
+  		sigblock(sm_sigchld);
++ # endif
+  #endif
+  		if (--sigchld_caught < 0) /* reduce the count */
+  		  sigchld_caught = 0;
+  #ifdef JOBS
++ # ifdef USE_SIGACT
++ 		sigprocmask(SIG_SETMASK, &sm_old, NULL);
++ # else
+  		_TRACE(5, ("j_reapchld: j->proc==%d, j->com=='%s', j->state==0x%hx, j->status==0x%x, j->notify==%hd", j->proc, j->com, j->state, j->status, j->notify));
+  		sigsetmask(sm_old); /* restore old mask */
++ # endif
+  #endif
++ 		
+  #ifdef JOBS
+  	} while (flag[FMONITOR]);
+  #else
+  	} while (0);		/* only once if wait()ing */
+  #endif
++ /*
++  * this should be safe
++  */
++ #if defined(_SYSV) && !defined(JOBS) && !defined(USE_SIGACT)
++ 	signal(SIGCHLD, j_sigchld);
++ #if 0
++ 	/* why was this here??? */
++ 	signal(SIGCLD, SIG_DFL);
++ #endif
++ #endif
+  }
+  
+  j_reap()
+***************
+*** 553,559 ****
+  {
+    if (sigchld_caught)
+      j_reapchld();
+! #if defined(_SYSV) && !defined(JOBS)
+  	signal(SIGCHLD, j_sigchld);
+  	signal(SIGCLD, SIG_DFL);
+  #endif
+--- 675,684 ----
+  {
+    if (sigchld_caught)
+      j_reapchld();
+! /*
+!  * now done in j_reapchld()
+!  */
+! #if 0 && defined(_SYSV) && !defined(JOBS) && !defined(USE_SIGACT)
+  	signal(SIGCHLD, j_sigchld);
+  	signal(SIGCLD, SIG_DFL);
+  #endif
+*** sh/lex.c.old	Sat Apr 25 17:44:30 1992
+--- sh/lex.c	Sat Apr 25 18:36:52 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 3.6 89/03/27 15:51:20 egisin Exp $";
+! static char *sccs_id = "@(#)lex.c	1.4 91/11/22 22:53:17 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: lex.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 13,21 ****
+  #include <unistd.h>
+  #include <assert.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"
+- #include "table.h"
+  #include "expand.h"
+  
+  	int	ttyfd = -1;		/* tty fd for edit and jobs */
+--- 12,17 ----
+***************
+*** 29,36 ****
+  
+  static	int	expanding_alias;
+  static	int	alias;
+- static	int	getsc_ ARGS((void));
+  
+  /* optimized getsc_() */
+  #define	getsc()	((*source->str != 0) ? *source->str++ : getsc_())
+  #define	ungetsc() (source->str--)
+--- 25,34 ----
+  
+  static	int	expanding_alias;
+  static	int	alias;
+  
++ static void     readhere    ARGS((struct ioword *iop));
++ static int      getsc_      ARGS((void));
++ 
+  /* optimized getsc_() */
+  #define	getsc()	((*source->str != 0) ? *source->str++ : getsc_())
+  #define	ungetsc() (source->str--)
+***************
+*** 87,93 ****
+  
+  	/* collect non-special or quoted characters to form word */
+  	for (*statep = state = istate;
+! 	     !((c = getsc()) == 0 || state == SBASE && ctype(c, C_LEX1)); ) {
+  		Xcheck(ws, wp);
+  		switch (state) {
+  		  case SBASE:
+--- 85,91 ----
+  
+  	/* collect non-special or quoted characters to form word */
+  	for (*statep = state = istate;
+! 	     !((c = getsc()) == 0 || (state == SBASE && ctype(c, C_LEX1))); ) {
+  		Xcheck(ws, wp);
+  		switch (state) {
+  		  case SBASE:
+***************
+*** 464,470 ****
+  
+  void
+  yyerror(msg)
+! 	Const char *msg;
+  {
+  	yynerrs++;
+  	while (source->type == SALIAS) /* pop aliases */
+--- 462,468 ----
+  
+  void
+  yyerror(msg)
+! 	const char *msg;
+  {
+  	yynerrs++;
+  	while (source->type == SALIAS) /* pop aliases */
+***************
+*** 501,507 ****
+  	register Source *s = source;
+  	register int c;
+  	extern void	mprint();
+! 
+  	while ((c = *s->str++) == 0) {
+  		s->str = NULL;		/* return 0 for EOF by default */
+  		switch (s->type) {
+--- 499,505 ----
+  	register Source *s = source;
+  	register int c;
+  	extern void	mprint();
+! 	
+  	while ((c = *s->str++) == 0) {
+  		s->str = NULL;		/* return 0 for EOF by default */
+  		switch (s->type) {
+***************
+*** 521,526 ****
+--- 519,533 ----
+  			mprint();
+  			pprompt(prompt);
+  			flushshf(1);	flushshf(2);
++ 			/*
++ 			 * This allows the arival of a SIGCHLD 
++ 			 * to not disturb us until we are ready. 
++ 			 * BSD and other systems that 
++ 			 * automatically rety a read after an 
++ 			 * interrupt don't need this but it 
++ 			 * doesn't do any harm either.
++ 			 */
++ 		      retry:
+  #ifdef EDIT
+  #ifdef EMACS
+  			if (flag[FEMACS])
+***************
+*** 534,539 ****
+--- 541,550 ----
+  #endif
+  #endif
+  				c = read(ttyfd, line, LINE);
++ 			if (c < 0 && sigchld_caught)
++ 			{
++ 			  goto retry;
++ 			}
+  			if (c < 0)	/* read error */
+  				c = 0;
+  			line[c] = '\0';
+*** sh/lex.h.old	Sat Apr 25 17:41:36 1992
+--- sh/lex.h	Sat Apr 25 18:36:59 1992
+***************
+*** 2,8 ****
+   * Source input, lexer and parser
+   */
+  
+! /* Id: /u/egisin/sh/src/RCS/lex.h,v 3.3 89/01/28 15:29:42 egisin Exp $ */
+  
+  #define	IDENT	64
+  
+--- 2,8 ----
+   * Source input, lexer and parser
+   */
+  
+! /* $Id: lex.h,v 1.2 1992/04/25 08:33:28 sjg Exp $ */
+  
+  #define	IDENT	64
+  
+***************
+*** 99,105 ****
+  Extern	char	ident [IDENT+1];
+  
+  extern	int	yylex ARGS((int flags));
+! extern	void	yyerror ARGS((Const char *msg));
+  
+  #define	HISTORY	100		/* size of saved history */
+  
+--- 99,105 ----
+  Extern	char	ident [IDENT+1];
+  
+  extern	int	yylex ARGS((int flags));
+! extern	void	yyerror ARGS((const char *msg));
+  
+  #define	HISTORY	100		/* size of saved history */
+  
+*** sh/mail.c.old	Sat Apr 25 17:44:30 1992
+--- sh/mail.c	Sat Apr 25 18:37:02 1992
+***************
+*** 3,9 ****
+   * John R. MacMillan
+   */
+  #ifndef lint
+! static char *sccs_id = "@(#)mail.c	1.2 91/11/22 22:53:47 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   * John R. MacMillan
+   */
+  #ifndef lint
+! static char *RCSid = "$Id: mail.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 12,24 ****
+  #include <setjmp.h>
+  #include <sys/stat.h>
+  #include "sh.h"
+- #include "table.h"
+  
+- Void	mcheck();	/* check for new mail */
+- Void	mbset();	/* set $MAIL */
+- Void	mpset();	/* set $MAILPATH */
+- Void	mprint();	/* print a list of mail messages */
+- 
+  #define MBMESSAGE	"you have mail in $_"
+  
+  typedef struct mbox {
+--- 12,18 ----
+***************
+*** 43,53 ****
+  static mbox_t  mbox = { NULL, NULL, NULL, 0 };
+  static long	mlastchkd = 0;	/* when mail was last checked */
+  static struct mailmsg *mmsgs = NULL;	/* Messages to be printed */
+! static Void	munset();		/* free mlist and mval */
+  static mbox_t  *mballoc();		/* allocate a new mbox */
+! static Void	maddmsg();
+  
+! Void
+  mcheck()
+  {
+  	register mbox_t	*mbp;
+--- 37,52 ----
+  static mbox_t  mbox = { NULL, NULL, NULL, 0 };
+  static long	mlastchkd = 0;	/* when mail was last checked */
+  static struct mailmsg *mmsgs = NULL;	/* Messages to be printed */
+! #if 0
+! static void	munset();		/* free mlist and mval */
+  static mbox_t  *mballoc();		/* allocate a new mbox */
+! static void	maddmsg();
+! #endif
+! static void     munset      ARGS((mbox_t *mlist));
+! static mbox_t * mballoc     ARGS((char *p, char *m));
+! static void     maddmsg     ARGS((mbox_t *mbp));
+  
+! void
+  mcheck()
+  {
+  	register mbox_t	*mbp;
+***************
+*** 93,99 ****
+  	}
+  }
+  
+! Void
+  mbset(p)
+  	register char	*p;
+  {
+--- 92,98 ----
+  	}
+  }
+  
+! void
+  mbset(p)
+  	register char	*p;
+  {
+***************
+*** 100,106 ****
+  	struct stat	stbuf;
+  
+  	if (mbox.mb_msg)
+! 		afree((Void *)mbox.mb_msg, APERM);
+  	mbox.mb_path = p;
+  	mbox.mb_msg = NULL;
+  	if (stat(p,&stbuf) == 0 && (stbuf.st_mode & S_IFMT) == S_IFREG)
+--- 99,105 ----
+  	struct stat	stbuf;
+  
+  	if (mbox.mb_msg)
+! 		afree((void *)mbox.mb_msg, APERM);
+  	mbox.mb_path = p;
+  	mbox.mb_msg = NULL;
+  	if (stat(p,&stbuf) == 0 && (stbuf.st_mode & S_IFMT) == S_IFREG)
+***************
+*** 109,115 ****
+  		mbox.mb_size = 0;
+  }
+  
+! Void
+  mpset(mptoparse)
+  	register char	*mptoparse;
+  {
+--- 108,114 ----
+  		mbox.mb_size = 0;
+  }
+  
+! void
+  mpset(mptoparse)
+  	register char	*mptoparse;
+  {
+***************
+*** 133,139 ****
+  	}
+  }
+  
+! static Void
+  munset(mlist)
+  register mbox_t	*mlist;
+  {
+--- 132,138 ----
+  	}
+  }
+  
+! static void
+  munset(mlist)
+  register mbox_t	*mlist;
+  {
+***************
+*** 143,150 ****
+  		mbp = mlist;
+  		mlist = mbp->mb_next;
+  		if (!mlist)
+! 			afree((Void *)mbp->mb_path, APERM);
+! 		afree((Void *)mbp, APERM);
+  	}
+  }
+  
+--- 142,149 ----
+  		mbp = mlist;
+  		mlist = mbp->mb_next;
+  		if (!mlist)
+! 			afree((void *)mbp->mb_path, APERM);
+! 		afree((void *)mbp, APERM);
+  	}
+  }
+  
+***************
+*** 169,175 ****
+  	return(mbp);
+  }
+  
+! Void
+  mprint()
+  {
+  	struct mailmsg *mm;
+--- 168,174 ----
+  	return(mbp);
+  }
+  
+! void
+  mprint()
+  {
+  	struct mailmsg *mm;
+***************
+*** 177,189 ****
+  	while ((mm = mmsgs) != NULL) {
+  		shellf( "%s\n", mm->msg );
+  		fflush(shlout);
+! 		afree((Void *)mm->msg, APERM);
+  		mmsgs = mm->next;
+! 		afree((Void *)mm, APERM);
+  	}
+  }
+  
+! static Void
+  maddmsg( mbp )
+  mbox_t	*mbp;
+  {
+--- 176,188 ----
+  	while ((mm = mmsgs) != NULL) {
+  		shellf( "%s\n", mm->msg );
+  		fflush(shlout);
+! 		afree((void *)mm->msg, APERM);
+  		mmsgs = mm->next;
+! 		afree((void *)mm, APERM);
+  	}
+  }
+  
+! static void
+  maddmsg( mbp )
+  mbox_t	*mbp;
+  {
+*** sh/main.c.old	Sat Apr 25 17:44:31 1992
+--- sh/main.c	Sat Apr 25 18:31:56 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 3.3 89/03/27 15:51:39 egisin Exp $";
+! static char *sccs_id = "@(#)main.c	1.6 91/11/25 13:33:06 (sjg)";
+  #endif
+  
+  #define	Extern				/* define Externs in sh.h */
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: main.c,v 1.3 1992/04/25 08:29:52 sjg Exp $";
+  #endif
+  
+  #define	Extern				/* define Externs in sh.h */
+***************
+*** 17,27 ****
+  #include <setjmp.h>
+  #include <time.h>
+  #include "sh.h"
+- #include "lex.h"
+- #include "tree.h"
+- #include "table.h"
+  
+! #ifndef HAVE_REMOVE
+  #define remove(x)	unlink(x)
+  #endif
+  
+--- 16,23 ----
+  #include <setjmp.h>
+  #include <time.h>
+  #include "sh.h"
+  
+! #if !defined(HAVE_REMOVE) && !defined(remove)
+  #define remove(x)	unlink(x)
+  #endif
+  
+***************
+*** 39,45 ****
+  
+  static	char	initifs [] = "IFS= \t\n"; /* must be R/W */
+  
+! static	Const	char   initsubs [] = 
+  #ifdef sun				/* sun's don't have a real /bin */
+    "${SHELL:=/bin/sh} ${PATH:=/usr/bin:/usr/ucb:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #else
+--- 35,41 ----
+  
+  static	char	initifs [] = "IFS= \t\n"; /* must be R/W */
+  
+! static	const	char   initsubs [] = 
+  #ifdef sun				/* sun's don't have a real /bin */
+    "${SHELL:=/bin/sh} ${PATH:=/usr/bin:/usr/ucb:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #else
+***************
+*** 46,52 ****
+    "${SHELL:=/bin/sh} ${PATH:=/bin:/usr/bin:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #endif
+  
+! static	Const	char *initcoms [] = {
+  	"cd", ".", NULL,		/* set up $PWD */
+  	"typeset", "-x", "SHELL", "PATH", "HOME", NULL,
+  	"typeset", "-r", "PWD", "OLDPWD", NULL,
+--- 42,48 ----
+    "${SHELL:=/bin/sh} ${PATH:=/bin:/usr/bin:.} ${HOME:=/} ${PS1:=$ } ${PS2:=> } ${MAILCHECK:=600}";
+  #endif
+  
+! static	const	char *initcoms [] = {
+  	"cd", ".", NULL,		/* set up $PWD */
+  	"typeset", "-x", "SHELL", "PATH", "HOME", NULL,
+  	"typeset", "-r", "PWD", "OLDPWD", NULL,
+***************
+*** 78,85 ****
+--- 74,83 ----
+      Trace_level = 0;
+      break;
+    }
++ #if defined(_SYSV) && !defined(USE_SIGACT)
+    if (sig > 0)
+      (void) signal(sig, set_TraceLev);
++ #endif
+    return;
+  }
+  #endif
+***************
+*** 92,97 ****
+--- 90,96 ----
+  	register int i;
+  	register char *arg;
+  	int cflag = 0, qflag = 0, fflag = 0;
++ 	int argi;
+  	char *name;
+  	register Source *s;
+  	register struct block *l = &globals;
+***************
+*** 99,104 ****
+--- 98,116 ----
+  	extern char ksh_version [];
+  	extern time_t time();
+  
++ #ifdef USE_SIGACT
++ 	sigemptyset(&Sigact.sa_mask);
++ 	sigemptyset(&Sigact_dfl.sa_mask);
++ 	sigemptyset(&Sigact_ign.sa_mask);
++ 	sigemptyset(&Sigact_trap.sa_mask);
++ 	Sigact.sa_flags = 0;
++ 	Sigact_dfl.sa_flags = 0;
++ 	Sigact_ign.sa_flags = 0;
++ 	Sigact_trap.sa_flags = 0;
++ 	Sigact_dfl.sa_handler = SIG_DFL;
++ 	Sigact_ign.sa_handler = SIG_IGN;
++ 	Sigact_trap.sa_handler = trapsig;
++ #endif
+  	ainit(&aperm);		/* initialize permanent Area */
+  
+  #ifndef F_SETFD
+***************
+*** 133,140 ****
+--- 145,158 ----
+  	typeset(ksh_version, 0, 0); /* RDONLY */
+  
+  #ifdef USE_TRACE
++ #ifdef USE_SIGACT
++ 	Sigact.sa_handler = set_TraceLev;
++ 	sigaction(SIGUSR1, &Sigact, NULL);
++ 	sigaction(SIGUSR2, &Sigact, NULL);
++ #else
+  	(void) signal(SIGUSR1, set_TraceLev);
+  	(void) signal(SIGUSR2, set_TraceLev);
++ #endif
+  	_TRACE(0, ("Traces enabled.")); /* allow _TRACE to setup */
+  #endif
+  
+***************
+*** 167,184 ****
+  	s = pushs(SFILE);
+  	s->u.file = stdin;
+  	cflag = 0;
+! 	name = *argv++;
+  
+  	/* what a bloody mess */
+! 	if (--argc >= 1) {
+! 		if (argv[0][0] == '-' && argv[0][1] != '\0') {
+! 			for (arg = argv[0]+1; *arg; arg++)
+  				switch (*arg) {
+  				  case 'c':
+  					cflag = 1;
+! 					if (--argc > 0) {
+  						s->type = SSTRING;
+! 						s->str = *++argv;
+  					}
+  					break;
+  	
+--- 185,202 ----
+  	s = pushs(SFILE);
+  	s->u.file = stdin;
+  	cflag = 0;
+! 	name = *argv;
+  
+  	/* what a bloody mess */
+! 	if ((argi = 1) < argc) {
+! 		if (argv[argi][0] == '-' && argv[argi][1] != '\0') {
+! 			for (arg = argv[argi++]+1; *arg; arg++) {
+  				switch (*arg) {
+  				  case 'c':
+  					cflag = 1;
+! 					if (argi < argc) {
+  						s->type = SSTRING;
+! 						s->str = argv[argi++];
+  					}
+  					break;
+  	
+***************
+*** 190,205 ****
+  					if (*arg>='a' && *arg<='z')
+  						flag[FLAG(*arg)]++;
+  				}
+! 		} else {
+! 			argv--;
+! 			argc++;
+  		}
+! 		if (s->type == SFILE && --argc > 0 && !flag[FSTDIN]) {
+! 			if ((s->u.file = fopen(*++argv, "r")) == NULL)
+! 				errorf("%s: cannot open\n", *argv);
+  			fflag = 1;
+- 			s->file = name = *argv;
+- 			argc--;
+  			fileno(s->u.file) = savefd(fileno(s->u.file));
+  			setvbuf(s->u.file, (char *)NULL, _IOFBF, BUFSIZ);
+  		}
+--- 208,220 ----
+  					if (*arg>='a' && *arg<='z')
+  						flag[FLAG(*arg)]++;
+  				}
+! 			}
+  		}
+! 		if (s->type == SFILE && argi < argc && !flag[FSTDIN]) {
+! 			s->file = name = argv[argi++];
+! 			if ((s->u.file = fopen(name, "r")) == NULL)
+! 				errorf("%s: cannot open\n", name);
+  			fflag = 1;
+  			fileno(s->u.file) = savefd(fileno(s->u.file));
+  			setvbuf(s->u.file, (char *)NULL, _IOFBF, BUFSIZ);
+  		}
+***************
+*** 216,225 ****
+  	if (s->type == STTY) {
+  		ttyfd = fcntl(0, F_DUPFD, FDBASE);
+  #ifdef F_SETFD
+! 		(void) fcntl(ttyfd, F_SETFD, FD_CLEXEC);
+  #else
+  		(void) fd_clexec(ttyfd);
+  #endif
+  #ifdef EMACS
+  		x_init_emacs();
+  #endif
+--- 231,243 ----
+  	if (s->type == STTY) {
+  		ttyfd = fcntl(0, F_DUPFD, FDBASE);
+  #ifdef F_SETFD
+! 		(void) fcntl(ttyfd, F_SETFD, 1);
+  #else
+  		(void) fd_clexec(ttyfd);
+  #endif
++ #if defined(EMACS) || defined(VI)
++ 		init_editmode();
++ #endif
+  #ifdef EMACS
+  		x_init_emacs();
+  #endif
+***************
+*** 231,238 ****
+  	if (!qflag)
+  		ignoresig(SIGQUIT);
+  
+! 	l->argv = argv;
+! 	l->argc = argc;
+  	l->argv[0] = name;
+  	resetopts();
+  
+--- 249,256 ----
+  	if (!qflag)
+  		ignoresig(SIGQUIT);
+  
+! 	l->argv = &argv[argi];
+! 	l->argc = argc - argi;
+  	l->argv[0] = name;
+  	resetopts();
+  
+***************
+*** 247,257 ****
+  	if (*arg != '\0')
+  		(void) include(arg);
+  
+! 	if (flag[FTALKING]) {
+! 		signal(SIGTERM, trapsig);
+! 		ignoresig(SIGINT);
+  	} else
+! 		flag[FHASHALL] = 1;
+  
+  #ifdef JOBS			/* todo: could go before includes? */
+  	if (s->type == STTY) {
+--- 265,280 ----
+  	if (*arg != '\0')
+  		(void) include(arg);
+  
+! 	if (flag[FTALKING])
+! 	{
+! #ifdef USE_SIGACT
+! 	  sigaction(SIGTERM, &Sigact_trap, NULL);
+! #else
+! 	  signal(SIGTERM, trapsig);
+! #endif
+! 	  ignoresig(SIGINT);
+  	} else
+! 	  flag[FHASHALL] = 1;
+  
+  #ifdef JOBS			/* todo: could go before includes? */
+  	if (s->type == STTY) {
+***************
+*** 259,267 ****
+  		j_change();
+  	}
+  #endif
+! 
+  	argc = shell(s);
+  	leave(argc);
+  }
+  
+  int
+--- 282,294 ----
+  		j_change();
+  	}
+  #endif
+! 	if (flag[FTALKING])
+! 	{
+! 	  hist_init(s);
+! 	}
+  	argc = shell(s);
+  	leave(argc);
++ 	return 0;
+  }
+  
+  int
+***************
+*** 308,316 ****
+  	Source *s;		/* input source */
+  {
+  	struct op *t;
+! 	Volatile int attempts = 13;
+! 	Volatile int wastty;
+! 	Volatile int reading = 0;
+  	extern void mcheck();
+  
+  	newenv(E_PARSE);
+--- 335,343 ----
+  	Source *s;		/* input source */
+  {
+  	struct op *t;
+! 	volatile int attempts = 13;
+! 	volatile int wastty;
+! 	volatile int reading = 0;
+  	extern void mcheck();
+  
+  	newenv(E_PARSE);
+***************
+*** 329,335 ****
+  		if (trap)
+  			runtraps();
+  		if (flag[FTALKING])
+! 			signal(SIGINT, trapsig);
+  
+  		if (s->next == NULL)
+  			s->echo = flag[FVERBOSE];
+--- 356,368 ----
+  		if (trap)
+  			runtraps();
+  		if (flag[FTALKING])
+! 		{
+! #ifdef USE_SIGACT
+! 		  sigaction(SIGINT, &Sigact_trap, NULL);
+! #else
+! 		  signal(SIGINT, trapsig);
+! #endif
+! 		}
+  
+  		if (s->next == NULL)
+  			s->echo = flag[FVERBOSE];
+***************
+*** 360,366 ****
+  
+  		reclaim();
+  	}
+!   Error:
+  	quitenv();
+  	return exstat;
+  }
+--- 393,399 ----
+  
+  		reclaim();
+  	}
+! 	/* Error: */
+  	quitenv();
+  	return exstat;
+  }
+***************
+*** 372,377 ****
+--- 405,414 ----
+  	if (e.type == E_TCOM && e.oenv != NULL)	/* exec'd command */
+  		unwind();
+  	runtrap(&sigtraps[0]);
++ 	if (flag[FTALKING])
++ 	{
++ 	  hist_finish();
++ 	}
+  	j_exit();
+  	exit(rv);
+  	/* NOTREACHED */
+***************
+*** 431,436 ****
+--- 468,474 ----
+  			restfd(fd, e.savefd[fd]);
+  	reclaim();
+  	e = *ep;
++ 	afree(ep, ATEMP);
+  }
+  
+  /* remove temp files and free ATEMP Area */
+***************
+*** 448,454 ****
+  void
+  aerror(ap, msg)
+  	Area *ap;
+! 	Const char *msg;
+  {
+  	errorf("alloc internal error: %s\n", msg);
+  }
+--- 486,492 ----
+  void
+  aerror(ap, msg)
+  	Area *ap;
+! 	const char *msg;
+  {
+  	errorf("alloc internal error: %s\n", msg);
+  }
+*** sh/misc.c.old	Sat Apr 25 17:44:31 1992
+--- sh/misc.c	Sat Apr 25 18:37:07 1992
+***************
+*** 3,10 ****
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: misc.c,v 3.2 89/03/27 15:51:44 egisin Exp $";
+! static char *sccs_id = "@(#)misc.c	1.2 91/11/22 22:53:50 (sjg)";
+  #endif
+  
+  #include "stdh.h"
+--- 3,9 ----
+   */
+  
+  #ifndef lint
+! static char *RCSid = "$Id: misc.c,v 1.2 1992/04/25 08:33:28 sjg Exp $";
+  #endif
+  
+  #include "stdh.h"
+***************
+*** 21,32 ****
+  
+  char ctypes [UCHAR_MAX+1];	/* type bits for unsigned char */
+  
+  /*
+   * Fast character classes
+   */
+  void
+  setctypes(s, t)
+! 	register Const char *s;
+  	register int t;
+  {
+  	register int i;
+--- 20,33 ----
+  
+  char ctypes [UCHAR_MAX+1];	/* type bits for unsigned char */
+  
++ static char *   cclass      ARGS((char *p, int sub));
++ 
+  /*
+   * Fast character classes
+   */
+  void
+  setctypes(s, t)
+! 	register /* const */ char *s;
+  	register int t;
+  {
+  	register int i;
+***************
+*** 119,125 ****
+   */
+  int
+  option(n)
+! 	Const char *n;
+  {
+  	register struct option *op;
+  
+--- 120,126 ----
+   */
+  int
+  option(n)
+! 	const char *n;
+  {
+  	register struct option *op;
+  
+***************
+*** 277,283 ****
+  			p++;
+  		} else
+  			d = c;
+! 		if (c == sub || c <= sub && sub <= d)
+  			found = 1;
+  	} while (*++p != ']');
+  
+--- 278,284 ----
+  			p++;
+  		} else
+  			d = c;
+! 		if (c == sub || (c <= sub && sub <= d))
+  			found = 1;
+  	} while (*++p != ']');
+  
+***************
+*** 292,298 ****
+  
+  void
+  qsortp(base, n, f)
+! 	Void **base;		/* base address */
+  	size_t n;		/* elements */
+  	int (*f)();		/* compare function */
+  {
+--- 293,299 ----
+  
+  void
+  qsortp(base, n, f)
+! 	void **base;		/* base address */
+  	size_t n;		/* elements */
+  	int (*f)();		/* compare function */
+  {
+***************
+*** 300,317 ****
+  }
+  
+  #define	swap2(a, b)	{\
+! 	register Void *t; t = *(a); *(a) = *(b); *(b) = t;\
+  }
+  #define	swap3(a, b, c)	{\
+! 	register Void *t; t = *(a); *(a) = *(c); *(c) = *(b); *(b) = t;\
+  }
+  
+  qsort1(base, lim, f)
+! 	Void **base, **lim;
+  	int (*f)();
+  {
+! 	register Void **i, **j;
+! 	register Void **lptr, **hptr;
+  	size_t n;
+  	int c;
+  
+--- 301,318 ----
+  }
+  
+  #define	swap2(a, b)	{\
+! 	register void *t; t = *(a); *(a) = *(b); *(b) = t;\
+  }
+  #define	swap3(a, b, c)	{\
+! 	register void *t; t = *(a); *(a) = *(c); *(c) = *(b); *(b) = t;\
+  }
+  
+  qsort1(base, lim, f)
+! 	void **base, **lim;
+  	int (*f)();
+  {
+! 	register void **i, **j;
+! 	register void **lptr, **hptr;
+  	size_t n;
+  	int c;
+  
+***************
+*** 378,389 ****
+  
+  int
+  xstrcmp(p1, p2)
+! 	Void *p1, *p2;
+  {
+  	return (strcmp((char *)p1, (char *)p2));
+  }
+  
+! Void
+  cleanpath(pwd, dir, clean)
+  	char *pwd, *dir, *clean;
+  {
+--- 379,390 ----
+  
+  int
+  xstrcmp(p1, p2)
+! 	void *p1, *p2;
+  {
+  	return (strcmp((char *)p1, (char *)p2));
+  }
+  
+! void
+  cleanpath(pwd, dir, clean)
+  	char *pwd, *dir, *clean;
+  {
+***************
+*** 396,402 ****
+  		s = pwd;
+  		while (*d++ = *s++)
+  			;
+! 		*(d - 1) = '/';
+  	}
+  
+  	s = dir;
+--- 397,406 ----
+  		s = pwd;
+  		while (*d++ = *s++)
+  			;
+! 		if (d >= clean + 2 && *(d - 2) == '/')
+! 			d--;
+! 		else
+! 			*(d - 1) = '/';
+  	}
+  
+  	s = dir;
+*** /dev/null	Sat Apr 25 07:00:06 1992
+--- sh/patchlevel.h	Sat Apr 25 18:24:54 1992
+***************
+*** 0 ****
+--- 1,6 ----
++ /*
++  * PD KSH
++  * $Id: patchlevel.h,v 4.3 1992/04/25 08:24:42 sjg Exp $
++  */
++ #define VERSION		4
++ #define PATCHLEVEL	3
+
+exit 0 # Just in case...

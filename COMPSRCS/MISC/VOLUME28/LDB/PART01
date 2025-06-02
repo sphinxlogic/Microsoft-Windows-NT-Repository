@@ -1,0 +1,1597 @@
+Newsgroups: comp.sources.misc
+From: ROSS@emf780.den.mmc.com ("Perry R. Ross")
+Subject:  REPOST: v28i093:  ldb - Play backgammon by e-mail, Part01/05
+Message-ID: <1992Mar13.183858.21284@sparky.imd.sterling.com>
+X-Md4-Signature: 91d542f66eedfd13b6d8c224f5982fb5
+Date: Fri, 13 Mar 1992 18:38:58 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ROSS@emf780.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 28, Issue 93
+Archive-name: ldb/part01
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+
+		Long Distance Backgammon
+
+	This is a program that lets two people easily play backgammon
+by e-mail.  It currently runs only on character-oriented terminals
+(or emulators thereof) under the curses package.  It should work
+on any 32 bit UNIX system, as well as under VMS with VAX C.
+
+	Ldb takes care of rolling dice, checking moves, and
+communicating with your opponent's ldb via e-mail.  Duplicated mail
+messages are rejected, and lost messages may be regenerated easily.
+Gammons and backgammons are detected, and the game value is automatically
+calculated at the end of the game.  Doubling is fully supported, and
+automatic doubles (when there is a tied opening roll) may be enabled
+at the user's option.  Ldb also allows you to enclose a two-line message
+with each move which will be displayed on your opponent's screen.
+
+	To start a game, you only need to know your opponent's e-mail
+address.  Ldb will handle all negotiations involved with starting the
+game, performing the opening roll, re-rolling when there is a tie, etc.
+The README file has instructions for getting started quickly, and
+the manual has more detailed information.
+
+	Note that this program does not play backgammon itself, it
+is merely enables two humans connected only by e-mail to do so.
+----------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 5)."
+# Contents:  MANIFEST Makefile README board.c check.c control.c game.c
+#   makeldb.com move.c patchlevel.h readmail.c t_email.c
+# Wrapped by ross@emf780 on Tue Mar 10 09:24:11 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(1450 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X MANIFEST                   1	List of files
+X Makefile                   1	Compilation instructions
+X README                     1	Info file
+X board.c                    1	Routines pertaining to setting up boards
+X check.c                    1	Routines that check for legal moves
+X control.c                  1	Function to handle the -control option
+X fe_curses.c                5	Front end routines, based on curses package
+X game.c                     1	Functions to create/delete/find games
+X ldb.h                      2	Master include file
+X ldb.man                    4	The user's manual source ("make ldb.doc")
+X main.c                     2	The main program
+X makeldb.com                1	Command file to build ldb under vax c
+X misc.c                     2	Miscellaneous handy routines
+X move.c                     1	Performing/checking moves
+X patchlevel.h               1	Patch level (for patch program)
+X process.c                  3	Routines to perform local game processing
+X r_xrand.c                  2	Roll routine, based on xrand
+X rcvop.c                    3	Routines to handle received operations
+X readmail.c                 1	Routines that read & process incoming mail
+X save.c                     3	Routines that save and load things
+X t_email.c                  1	Transport routine, based on mail
+X vars.c                     2	All global variables.
+END_OF_FILE
+if test 1450 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(3201 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile for ldb	8/3/91
+X#
+X# Copyright 1991  Perry R. Ross
+X#
+X# Permission to use, copy, modify, and distribute this software and its
+X# documentation without fee is hereby granted, subject to the restrictions
+X# detailed in the README file, which is included here by reference.
+X# Any other use requires written permission from the author.  This software
+X# is distributed "as is" without any warranty, including any implied
+X# warranties of merchantability or fitness for a particular purpose.
+X# The author shall not be liable for any damages resulting from the
+X# use of this software.  By using this software, the user agrees
+X# to these terms.
+X
+X### INSTALLATION OPTIONS ###
+X# If your host uses an ancient version of curses (e.g. VAX-C, Sequent),
+X# uncomment the following line.  To tell if you need this option,
+X# first try compiling without it and see if your linker complains
+X# about cbreak() and nocbreak() not being defined.  If it does,
+X# you need this option.
+XCDEFS=
+X# CDEFS=-DOLD_CURSES
+X
+X# Uncomment the following lines only if you are using Eunice.
+X# If you don't know what it is, believe me, you're not using it.
+XUNIXTOVMS=true
+XVMSTOUNIX=true
+X# UNIXTOVMS=unixtovms
+X# VMSTOUNIX=vmstounix
+X
+X# Put the name of the front-end you want to compile in here.
+X# NOTE: there is currently only one available front-end (curses).
+XFE_FILE=fe_curses
+X
+X# Put the name of the transport you want to compile in here.
+X# NOTE: there is currently only one available transport (email).
+XT_FILE=t_email
+X
+X# Put the name of the dice roller you want to compile in here.
+X# If you want to write your own dice roller, you can.  I would
+X# prefer people all used the same one, since that is more fair,
+X# but as long as it is really a random number generator, you're ok.
+X# If you put in a fake dice roller (e.g. one that asks you what
+X# roll you want), you are in violation of the copyright.  Read
+X# the README file for more information.
+XR_FILE=r_xrand
+X
+X# Put compiler flags here.
+XCFLAGS=-O $(CDEFS)
+XLINTFLAGS=
+X
+X# Page length to format manual with.  62 for VMS or Eunice, 66 for most others.
+XPAGELEN=66
+X
+X### END OF INSTALLATION OPTIONS ###
+X
+XCFILES=	board.c game.c main.c misc.c move.c process.c rcvop.c control.c \
+X	check.c readmail.c save.c vars.c $(FE_FILE).c $(T_FILE).c $(R_FILE).c
+XHFILES=ldb.h patchlevel.h
+XOFILES=	board.o game.o main.o misc.o move.o process.o rcvop.o control.o \
+X	check.o readmail.o save.o vars.o $(FE_FILE).o $(T_FILE).o $(R_FILE).o
+XSHARFILES=MANIFEST README Makefile $(CFILES) $(HFILES) makeldb.com ldb.man
+X
+Xldb: $(OFILES)
+X	cc $(CFLAGS) -s -o ldb $(OFILES) -lcurses -ltermcap
+X
+Xall: ldb ldb.doc
+X
+Xldb.doc: ldb.man
+X	nroff -rT$(PAGELEN) -man ldb.man >ldb.doc
+X	$(UNIXTOVMS) ldb.doc
+X
+Xldb.doc60: ldb.man
+X	nroff -rT60 -man ldb.man >ldb.doc60
+X	$(UNIXTOVMS) ldb.doc60
+X
+Xldb.doc62: ldb.man
+X	nroff -rT62 -man ldb.man >ldb.doc62
+X	$(UNIXTOVMS) ldb.doc62
+X
+Xldb.doc66: ldb.man
+X	nroff -rT66 -man ldb.man >ldb.doc66
+X	$(UNIXTOVMS) ldb.doc66
+X
+Xlint: .XXX
+X	lint $(LINTFLAGS) $(CFILES) > lint.out
+X
+Xclean: .XXX
+X	rm -f $(OFILES) ldb *.obj ldb.exe make.out .mk lint.out MANIFEST.BAK
+X
+Xshar: $(SHARFILES)
+X	$(VMSTOUNIX) $(SHARFILES)
+X	makekit -m
+X
+Xtags: .XXX
+X	ctags $(CFILES)
+X	sed 's/Mmain/main/' <tags | sort >.tags
+X	mv .tags tags
+X
+X.XXX:
+END_OF_FILE
+if test 3201 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+chmod +x 'Makefile'
+# end of 'Makefile'
+fi
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(4907 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+X		Long Distance Backgammon
+X		------------------------
+X
+X	This is a program that lets two people easily play backgammon
+Xby e-mail.  It currently runs only on character-oriented terminals
+X(or emulators thereof) under the curses package.
+X
+X	To build ldb, create a directory, copy all the parts into
+Xthat directory, strip the usenet or mail headers with a text editor,
+Xand execute them with a shell (e.g. sh Part1; sh Part2; ...).
+XThe installation options are documented in the Makefile.  The only
+Xone of any importance is the one that allows the OLD_CURSES symbol
+Xto be defined.  If you get linker errors complaining about cbreak()
+Xand nocbreak(), you will need to enable this option.  If your system
+Xneeds this, and you know a unique symbol your preprocessor predefines,
+Xsend it to me and I'll include it in future releases.
+X
+X	Suggestions and problems are cheerfully accepted, all the more
+Xso when accompanied by appropriate patches, in any format the patch
+Xprogram understands (e.g. context diff).  E-mail to ross@emf780.den.mmc.com.
+X
+X	The first time ldb is run, it will create a file in your home
+Xdirectory called ".ldbrc".  If this name is inconvenient, define the
+Xenvironment variable LDBRC to be the name you want before running it
+Xthe first time (and all times after that).  Ldb will ask for your
+Xpersonal, human-type name and your e-mail address.  All other options
+Xwill be set to their defaults, as explained in the manual.
+X
+X	To start a game, type:
+X		ldb -start opponent's-email-address
+X	and everything is automatic from there.  You may have to exchange
+Xseveral mail messages before you are ready to play, since your ldb has to
+Xdo the initial roll with the remote ldb, and if there is a tie, the
+Xinitial roll is repeated.  Eventually, you will see a board drawn on
+Xthe screen.  The commands are in the bottom right corner.  The moves by
+Xyou and your opponent are above that, on the right side of the screen, and
+Xthe bottom of the screen contains a place for you to enclose a 2-line
+Xmessage with each move.  This is useful for taunting, pleading, etc.
+XYou will need to press 'r' to roll the dice, then press the number of the roll
+Xyou want to use followed by the point you want to move from.  For example,
+Xif you roll 5 2, and you want to move the piece on the 11 point 5, press
+X5 1 1.  You don't need to hit return, but if the point number is 1 digit,
+Xyou will need to type some non-numeric digit after it to finish the
+X2 characters.  After you have used one of your rolls, there are 3 shortcuts
+Xyou can use for the remainder of your roll:
+X	<space bar>	Continues the last move.  The piece you last moved
+X			is moved by the amount of the other/next roll.
+X	<return>	Repeat the last move.  The other/next roll is applied
+X			to the same point you moved from last time.
+X	p		Make point.  This gets a little tricky.  Ldb attempts
+X			to use the other/next roll to move one of your pieces
+X			so that it ends up on the same point as your last move
+X			ended on.  That is, if you roll 5 2 and use the 5
+X			to move from the 6 point to the 11 point, and hit "p",
+X			ldb will move one of your pieces from the 9 point to
+X			the 11 point to make the 11 point.  This assumes,
+X			of course, that you have a piece on the 9 point.
+X
+X	Ldb checks your moves for a number of common errors.  These 
+Xare listed in the manual.
+X
+X	For more options, read the manual and the comments at the top
+Xof main.c.
+X
+X	Good luck!
+X
+X						Perry R. Ross
+X						ross@emf780.den.mmc.com
+X
+X-----------------------------------------------------------------------------
+X
+X	Really Scary and Hopefully Bulletproof Legal Statement:
+X
+XThis software is copyright 1991 by Perry R. Ross.  Permission to use,
+Xcopy, modify, and redistribute it is granted provided:
+X	(1) It is not sold.
+X	(2) This notice accompanies all copies, and is kept intact.
+X	(3) Users do not cheat by any method, including but not limited to:
+X		A. modifying the roll generated by the random number generator,
+X		B. modifying the code to provide any roll other than that
+X		   generated by a bona-fide random number generator,
+X		C. taking advantage of any non-randomness in a random
+X		   number generator to predict upcoming rolls,
+X		D. changing the contents of an incoming message or of the
+X		   .ldbdata file to modify the normal progression of a
+X		   game in any way, or
+X		E. generating a roll before offering to double.
+X	   Persons guilty of cheating in any way while using this software
+X	   are denied permission to use or distribute this software
+X	   in perpetuity.  Excluded from the definition of cheating is
+X	   any action whose intention is to test or debug this software,
+X	   as long as the opponent is aware that these actions are being
+X	   performed, and the game is considered "unofficial".
+XThe above restrictions are made in all seriousness, and with every
+Xintention of enforcement by any and all legal means where practical.
+X
+X(Sounds almost as good as the real thing, doesn't it?)
+END_OF_FILE
+if test 4907 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+chmod +x 'README'
+# end of 'README'
+fi
+if test -f 'board.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'board.c'\"
+else
+echo shar: Extracting \"'board.c'\" \(2195 characters\)
+sed "s/^X//" >'board.c' <<'END_OF_FILE'
+X/* board.c		8/3/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	newboard -- set up a board array for a new game
+X *
+X * This function initializes a board array so that it is set up
+X * properly for a new game.  It is passed two characters that are
+X * used to draw the pieces for the board.  C1 is the color for the
+X * upbound player, and c2 is the color for the downbound player.
+X *----------------------------------------------------------------------
+X */
+X
+Xnewboard(b,c1,c2)
+Xboard b;
+Xchar c1, c2;
+X{
+Xint i;
+X
+Xfor (i = 0; i < BOARDSIZE; i++) {
+X	b[i].qty = 0;			/* init to empty */
+X	b[i].color = 'x';		/* init to invalid color */
+X	}
+Xb[1].qty = 2;				/* 2 c1's on 1 point */
+Xb[1].color = c1;
+Xb[6].qty = 5;				/* 5 c2's on 6 point */
+Xb[6].color = c2;
+Xb[8].qty = 3;				/* 3 c2's on 8 point */
+Xb[8].color = c2;
+Xb[12].qty = 5;				/* 5 c1's on 12 point */
+Xb[12].color = c1;
+Xb[13].qty = 5;				/* 5 c2's on 13 point */
+Xb[13].color = c2;
+Xb[17].qty = 3;				/* 3 c1's on 17 point */
+Xb[17].color = c1;
+Xb[19].qty = 5;				/* 5 c1's on 19 point */
+Xb[19].color = c1;
+Xb[24].qty = 2;				/* 2 c2's on 24 point */
+Xb[24].color = c2;
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	copyboard -- make a copy a board array
+X *
+X * This is a convenience function that copies an entire board. The
+X * source is given as "f", and the destination as "t".
+X *----------------------------------------------------------------------
+X */
+X
+Xcopyboard(f,t)
+Xboard f, t;
+X{
+Xint i;
+X
+Xfor (i = 0; i < BOARDSIZE; i++)
+X	t[i] = f[i];
+X}
+END_OF_FILE
+if test 2195 -ne `wc -c <'board.c'`; then
+    echo shar: \"'board.c'\" unpacked with wrong size!
+fi
+chmod +x 'board.c'
+# end of 'board.c'
+fi
+if test -f 'check.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'check.c'\"
+else
+echo shar: Extracting \"'check.c'\" \(5300 characters\)
+sed "s/^X//" >'check.c' <<'END_OF_FILE'
+X/*	check.c		10/29/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file contains the functions that check for unused moves.
+X *======================================================================
+X */
+X
+X
+XPRIVATE int maxused, hiused, nlegal;
+X
+Xstruct legal *rmlegal();
+X
+X
+Xlegalmoves(g)
+Xstruct game *g;
+X{
+Xstruct game tmp;
+Xint i;
+Xstruct legal *l;
+X
+Xtmp = *g;			/* we don't want to change actual game */
+Xfor (i = 0; i < 4; tmp.mvs[i++].pt = -1);	/* mark all unused */
+Xmaxused = -1;			/* init to not all used */
+Xhiused = 0;			/* init to 0 */
+Xnlegal = 0;			/* init to no legal moves*/
+Xlhead = NULL;
+Xltail = NULL;
+Xif (tmp.mvs[0].roll == tmp.mvs[1].roll)
+X	scanmvs(&tmp,0,3);	/* there is only one ordering */
+Xelse {
+X	scanmvs(&tmp,0,1);		/* scan for one ordering */
+X	i = tmp.mvs[0].roll;	/* reverse rolls */
+X	tmp.mvs[0].roll = tmp.mvs[1].roll;
+X	tmp.mvs[1].roll = i;
+X	for (i = 0; i < 4; tmp.mvs[i++].pt = -1);	/* mark all unused */
+X	scanmvs(&tmp,0,1);		/* scan for other ordering */
+X	}
+Xtrimunused();
+Xtrimlowused();
+Xtrimequal();
+Xg->maxused = maxused;
+Xg->hiused = hiused;
+Xif (nlegal == 0) {
+X	if (g->dispmsg != NULL)
+X		free(g->dispmsg);
+X	g->dispmsg = save("You don't have any legal moves.");
+X	}
+Xelse if (nlegal == 1) {
+X	if (g->dispmsg != NULL)
+X		free(g->dispmsg);
+X	g->dispmsg = save("You only have one legal move.");
+X	if (*rc.automove == 'y') {
+X		if ( (lhead->nmove==0) && (lhead->mvs[0].roll!=g->mvs[0].roll))
+X			g->mvs[1] = g->mvs[0];
+X		for (i = 0; i <= lhead->nmove; i++) {
+X			g->mvs[i] = lhead->mvs[i];
+X			apply(g,1,i,0,NULL);
+X			}
+X		}
+X	}
+X
+X	/* we have no use for the legal moves list, so free it */
+X	/* maybe in the future we will have a use for it */
+X
+Xfor (l = lhead; l != NULL; l = l->next)
+X	free(l);
+Xlhead = NULL;
+Xltail = NULL;
+X}
+X
+X
+Xscanmvs(g,mn,max)
+Xstruct game *g;
+X{
+Xint i;
+Xboard sv;
+X
+Xcopyboard(g->board,sv);
+Xfor (i = 0; i <= 24; i++) {
+X	if (i == 0)
+X		g->mvs[mn].pt = BARPT(g->mydir);
+X	else
+X		g->mvs[mn].pt = i;
+X	if (apply(g,1,mn,0,NULL) < 0)	/* can't move from this pt */
+X		continue;
+X	addlegal(mn,g->mvs[mn].roll,g->mvs[mn].pt);
+X	if (mn < max)
+X		scanmvs(g,mn+1,max);
+X	copyboard(sv,g->board);
+X	}
+X}
+X
+X
+Xaddlegal(mn,r,pt)
+Xint mn, r, pt;
+X{
+Xint i;
+Xstruct legal *n;
+X
+Xif ( (n = (struct legal *) calloc(sizeof(struct legal),1)) == NULL) {
+X	FeFinishSession();
+X	TFinishSession();
+X	fprintf(stderr,"Out of memory!\n");
+X	exit(1);
+X	}
+Xclearmvs(n->mvs);
+Xif (ltail != NULL)
+X	for (i = 0; i < mn; i++)		/* copy prefix from prev move */
+X		n->mvs[i] = ltail->mvs[i];
+Xn->mvs[mn].roll = r;
+Xn->mvs[mn].pt = pt;
+Xn->next = NULL;
+Xif (lhead == NULL) {
+X	n->prev = NULL;
+X	lhead = n;
+X	ltail = n;
+X	}
+Xelse {
+X	n->prev = ltail;
+X	ltail->next = n;
+X	ltail = n;
+X	}
+Xn->himove = 0;
+Xfor (i = 0; i <= mn; i++)
+X	if (n->mvs[i].roll > n->himove)
+X		n->himove = n->mvs[i].roll;
+Xif (mn > maxused)		/* keep track of whether it is possible */
+X	maxused = mn;	/* to use all of the rolls */
+Xnlegal++;
+Xn->nmove = mn;
+X}
+X
+X
+Xtrimunused()
+X{
+Xstruct legal *l;
+X
+Xl = lhead;
+Xwhile (l != NULL) {
+X	if (l->nmove < maxused)
+X		l = rmlegal(l);
+X	else
+X		l = l->next;
+X	}
+X}
+X
+X
+Xtrimlowused()
+X{
+Xstruct legal *l;
+X
+Xl = lhead;
+Xwhile (l != NULL) {
+X	if (l->himove < hiused)
+X		l = rmlegal(l);
+X	else
+X		l = l->next;
+X	}
+X}
+X
+X
+Xtrimequal()
+X{
+Xstruct legal *l, *p;
+Xstruct mv m1[4], m2[4];
+Xint i, n;
+X
+Xfor (l = lhead; l != NULL; l = l->next) {
+X	extractmvs(l,m1);
+X	n = l->nmove;
+X	p = l->next;
+X	while (p != NULL) {
+X		if (p->nmove != n) {
+X			p = p->next;
+X			continue;
+X			}
+X		extractmvs(p,m2);
+X		for (i = 0; i <= n; i++)
+X			if ((m1[i].roll != m2[i].roll)||(m1[i].pt != m2[i].pt))
+X				break;
+X		if (i <= n)
+X			p = p->next;
+X		else
+X			p = rmlegal(p);
+X		}
+X	}
+X}
+X
+X
+Xstruct legal *rmlegal(l)
+Xstruct legal *l;
+X{
+Xstruct legal *t;
+X
+Xt = l;
+Xif (l == lhead) {
+X	lhead = l->next;
+X	l = lhead;
+X	}
+Xelse {
+X	if ( (l->prev->next = l->next) != NULL)
+X		l->next->prev = l->prev;
+X	l = l->next;
+X	}
+Xfree(t);
+Xnlegal--;
+Xreturn(l);
+X}
+X
+X
+Xextractmvs(l,m)
+Xstruct legal *l;
+Xstruct mv *m;
+X{
+Xint i, n, s;
+Xstruct mv tmp;
+X
+Xclearmvs(m);
+Xfor (i = 0; i <= l->nmove; i++)		/* extract the moves */
+X	m[i] = l->mvs[i];
+Xn = l->nmove;
+Xdo {			/* sort by increasing roll then increasing point */
+X	s = 0;
+X	for (i = 0; i < n; i++) {		/* long live bubblesort */
+X		if (m[i].roll < m[i+1].roll)
+X			continue;
+X		else if ( (m[i].roll == m[i+1].roll) && (m[i].pt < m[i+1].pt) )
+X			continue;
+X		tmp = m[i];
+X		m[i] = m[i+1];
+X		m[i+1] = tmp;
+X		s = 1;
+X		}
+X	n--;
+X	} while (s);
+X}
+X
+X
+Xcheckused(g)
+Xstruct game *g;
+X{
+Xint h, i;
+X
+Xh = 0;
+Xfor (i = 0; i <= g->maxused; i++) {
+X	if (g->mvs[i].pt < 0) {
+X		FeMessage("You left a roll unused.");
+X		return(1);
+X		}
+X	if (h < g->mvs[i].roll)
+X		h = g->mvs[i].roll;
+X	}
+Xif (g->hiused > h) {
+X	FeMessage("You can use the higher roll.");
+X	return(1);
+X	}
+Xreturn(0);
+X}
+END_OF_FILE
+if test 5300 -ne `wc -c <'check.c'`; then
+    echo shar: \"'check.c'\" unpacked with wrong size!
+fi
+chmod +x 'check.c'
+# end of 'check.c'
+fi
+if test -f 'control.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'control.c'\"
+else
+echo shar: Extracting \"'control.c'\" \(3519 characters\)
+sed "s/^X//" >'control.c' <<'END_OF_FILE'
+X/*	control.c		9/12/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	control -- control a game
+X *
+X * This function is called to process the -control command line option.
+X * It currently allows the following:
+X *    -	The board may be inverted.  The points are still numbered the
+X *	same, the board is merely drawn upside down.  This can help users
+X *	who are playing a number of games simultaneously by allowing him
+X *	to make all of his games move in the same direction on the screen.
+X *    - The last packet sent may be resent.  This is useful when moves
+X *	are lost in the mail, or if players forget whose turn it is.
+X *	Ldb rejects packets that have already been received, so both
+X *	players may simply resend their last packet, and ldb will display
+X *	the board to the player who is supposed to move.
+X *----------------------------------------------------------------------
+X */
+X
+Xcontrol()
+X{
+Xregister struct game *g;
+Xstatic char *m[] = {"Invert","Resend","Delete Game","Next Game","Quit",NULL};
+Xchar buf[60], c, done;
+Xint mod;
+X
+Xif (ghead == NULL) {
+X	printf("You don't have any games in progress.\n");
+X	printf("Use the -start option to start one.\n");
+X	usage(0);
+X	exit(1);
+X	}
+Xmod = 0;				/* init to no mods */
+XFeInitialize();				/* initialize front end */
+XFeDrawScreen();				/* draw board outline */
+Xdone = 0;
+Xfor (g = ghead; (done < 2) && (g != NULL); g = g->next) {/* for all games */
+X	g->curbd = BD_CUR;		/* make sure we draw the current bd */
+X	FeDrawGame(g);
+X	FeDrawMenu(m);
+X	sprintf(buf,"Current state: %s",states[g->state]);
+X	FeMessage(buf);
+X	done = 0;
+X	while (! done) {
+X		c = FeMenu(m,0,0," \n\r");
+X		switch (c) {
+X		case 'I':			/* invert board */
+X			g->flags ^= F_INVERT;	/* toggle invert bit */
+X			FeDrawGame(g);		/* redraw the screen */
+X			mod++;			/* games have been modified */
+X			break;
+X		case 'R':			/* resend last packet */
+X			sendpkt(g,g->lastop);
+X			FeMessage("Last packet re-sent.");
+X			break;
+X		case 'D':			/* delete game */
+X			mod++;			/* games have been modified */
+X			if (g->flags & F_DELETE) {	/* undelete */
+X				g->flags &= ~F_DELETE;
+X				FeMessage("Game undeleted.");
+X				}
+X			else {
+X				g->flags |= F_DELETE;	/* delete */
+X				FeMessage(
+X				 "Game deleted -- press D again to undelete.");
+X				}
+X			break;
+X		case 'Q':			/* exit ldb */
+X			done = 2;		/* 2 means Really done */
+X			break;
+X		case 'N':
+X		case ' ':
+X		case '\n':
+X		case '\r':
+X			done = 1;	/* 1 means just done with this game */
+X			break;		/* go to next game */
+X			}
+X		}
+X	}
+XFeFinishSession();
+Xwhile (mod) {
+X	printf("Save changes? [yn]: ");
+X	if ( ( (c = getchar()) == 'y') || (c == 'Y') ) {
+X		writegames(rc.gfile,rc.gbackup);
+X		break;
+X		}
+X	if ( (c == 'n') || (c == 'N') ) {
+X		printf("Changes discarded.\n");
+X		break;
+X		}
+X	if ( (c != '\n') && (c != EOF) )
+X		while ( ( (c = getchar()) != '\n') && (c != EOF) );
+X	printf("Please respond with y or n.\n");
+X	}
+X}
+END_OF_FILE
+if test 3519 -ne `wc -c <'control.c'`; then
+    echo shar: \"'control.c'\" unpacked with wrong size!
+fi
+chmod +x 'control.c'
+# end of 'control.c'
+fi
+if test -f 'game.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'game.c'\"
+else
+echo shar: Extracting \"'game.c'\" \(6317 characters\)
+sed "s/^X//" >'game.c' <<'END_OF_FILE'
+X/*	game.c		8/3/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*----------------------------------------------------------------------
+X *	startgame -- start a game
+X *
+X * This function is called in response to the -start command line
+X * option to start a game with another user.  It allocates a game
+X * record and fills it in, then sends a START packet to the opponent.
+X * The arguments are:
+X *	The email address of the opponent
+X *	The direction I want to play
+X *	The color I want to play
+X *	The color I want the opponent to play
+X *----------------------------------------------------------------------
+X */
+X
+Xstruct game *startgame(addr,d,mc,oc)
+Xchar *addr;			/* path to opponent */
+Xint d;
+Xchar mc, oc;
+X{
+Xstruct game *g;
+Xchar c1, c2, *newid;
+X
+Xnewid = makeid();		/* give it a unique id */
+Xg = addgame();			/* allocate new game */
+Xg->gameid = newid;		/* store new id */
+Xg->opaddr = save(addr);		/* save opponent's mail addr */
+Xg->opname = NULL;		/* we don't know his name yet */
+Xg->mycolor = mc;		/* set starting colors */
+Xg->opcolor = oc;
+Xg->mydir = d;			/* set starting directions */
+Xg->opdir = REV(d);
+Xg->gameval = 1;			/* no doubles yet */
+Xg->adcnt = 0;			/* no autodoubles yet */
+Xg->admax = rc.autodouble;	/* max allowed autodoubles */
+Xg->flags = 0;
+Xg->state = ST_OPSTART;		/* need to send first roll */
+Xg->seq = 1;			/* start with sequence number = 1 */
+Xif (d > 0) {
+X	c1 = mc;	/* upbound color is mine */
+X	c2 = oc;	/* downbound color is opponent's */
+X	}
+Xelse {
+X	c1 = oc;	/* upbound color is opponent's */
+X	c2 = mc;	/* downbound color is mine */
+X	}
+Xclearmvs(g->mvs);
+Xclearmvs(g->opmvs);
+Xnewboard(g->opbd,c1,c2);	/* set up boards for new game */
+Xnewboard(g->mybd,c1,c2);
+Xnewboard(g->board,c1,c2);
+Xg->mvs[0].roll = Rolldie();	/* roll an initial die */
+Xsendpkt(g,START);		/* send the start message */
+Xreturn(g);			/* and return pointer to new game */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	makeid -- create a unique game identifier.
+X *
+X * This function creates a string that is guaranteed unique among all
+X * ldb games worldwide, provided that email addresses are unique.
+X * This should be a good assumption, since if there is a duplicate,
+X * the users with the duplicate id's will have a great deal of difficulty
+X * getting mail delivered, and therefore won't be able to play ldb anyway.
+X * To make id's created by the same user unique, the time is
+X * appended to the mail address; to make sure the time is unique when
+X * the user creates more than 1 game per second, the games list is searched
+X * for a new id before it is returned and, if it is found, we sleep for
+X * 1 second and try again.
+X *----------------------------------------------------------------------
+X */
+X
+Xchar *makeid()
+X{
+Xchar *n;
+X
+Xif ( (n = calloc(strlen(rc.myaddr)+10,1)) == NULL) {
+X	FeFinishSession();	/* close down front-end */
+X	TFinishSession();	/* close down transport */
+X	fprintf(stderr,"ERROR: Out of memory!\n");
+X	exit(1);
+X	}
+Xdo {
+X	sprintf(n,"%s|%08x",rc.myaddr,time(0));
+X	if (findgame(n) == NULL)
+X		return(n);
+X	sleep(1);
+X	} while (1);
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	addgame -- allocate a game struct and link it into the game list
+X *
+X * This function allocates a game structure and links it into the
+X * doubly-linked game list.  The head of this list is ghead, and the
+X * tail is gtail.
+X *
+X * NOTE: the memory-zeroing feature of calloc is depended on to
+X *	 initialize the allocated game struct.
+X *---------------------------------------------------------------------------
+X */
+X
+Xstruct game *addgame()
+X{
+Xstruct game *g;
+X
+Xif ( (g = (struct game *)calloc(sizeof(struct game),1)) == NULL) {
+X	FeFinishSession();	/* close down front-end */
+X	TFinishSession();	/* close down transport */
+X	fprintf(stderr,"Out of memory!\n");
+X	exit(1);
+X	}
+Xg->next = NULL;
+Xif (gtail == NULL) {		/* this is the first game in the list */
+X	ghead = g;
+X	gtail = g;
+X	g->prev = NULL;
+X	}
+Xelse {
+X	g->prev = gtail;	/* link onto end of list */
+X	gtail->next = g;
+X	gtail = g;
+X	}
+Xreturn(g);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	deletegame -- delete a game from the game list
+X *
+X * This function removes a game from the game list by linking around
+X * it, then frees the memory associated with the game structure.
+X *----------------------------------------------------------------------
+X */
+X
+Xdeletegame(g)
+Xstruct game *g;
+X{
+X
+Xif (g == ghead) {		/* deleting first game in list */
+X	ghead = g->next;	/* move head pointer to next game */
+X	if (ghead == NULL)	/* we just deleted the last game */
+X		gtail = NULL;	/* set both ptrs to NULL */
+X	else
+X		ghead->prev = NULL;	/* first in list has no prev */
+X	}
+Xelse if (g == gtail) {		/* deleting last game in list */
+X	gtail = g->prev;	/* move tail pointer back */
+X	gtail->next = NULL;	/* last game has no next */
+X	}
+Xelse {
+X	g->next->prev = g->prev;	/* link back link around g */
+X	g->prev->next = g->next;	/* and forward link too */
+X	}
+Xif (g->gameid != NULL)
+X	free(g->gameid);		/* free string space */
+Xif (g->opname != NULL)
+X	free(g->opname);
+Xif (g->opaddr != NULL)
+X	free(g->opaddr);
+Xfree(g);			/* free the memory */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	findgame -- find a game based on its game id
+X *
+X * This function performs a linear search through the game list
+X * for a game id.  It returns a pointer to the game, or NULL if
+X * the game does not exist.
+X *----------------------------------------------------------------------
+X */
+X
+Xstruct game *findgame(gid)
+Xchar *gid;
+X{
+Xstruct game *g;
+X
+Xfor (g = ghead; g != NULL; g = g->next)
+X	if (strcmp(gid,g->gameid) == 0)		/* is this it? */
+X		return(g);			/* yup, return it */
+Xreturn(NULL);					/* no such game */
+X}
+END_OF_FILE
+if test 6317 -ne `wc -c <'game.c'`; then
+    echo shar: \"'game.c'\" unpacked with wrong size!
+fi
+chmod +x 'game.c'
+# end of 'game.c'
+fi
+if test -f 'makeldb.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makeldb.com'\"
+else
+echo shar: Extracting \"'makeldb.com'\" \(540 characters\)
+sed "s/^X//" >'makeldb.com' <<'END_OF_FILE'
+X$ set verify
+X$ assign "sys$library" vaxc$include
+X$ cc/nolist board
+X$ cc/nolist game
+X$ cc/nolist main
+X$ cc/nolist misc
+X$ cc/nolist move
+X$ cc/nolist process
+X$ cc/nolist rcvop
+X$ cc/nolist control
+X$ cc/nolist readmail
+X$ cc/nolist save
+X$ cc/nolist vars
+X$ cc/nolist fe_curses
+X$ cc/nolist t_email
+X$ cc/nolist r_xrand
+X$ cc/nolist check
+X$ link/exe=ldb sys$input/opt
+Xboard,game,main,misc,move,process,rcvop,control,readmail,save,vars
+Xfe_curses,t_email,r_xrand,check
+Xsys$share:vaxccurse.olb/library
+Xsys$share:vaxcrtl.olb/library
+X$ set noverify
+X$ exit
+END_OF_FILE
+if test 540 -ne `wc -c <'makeldb.com'`; then
+    echo shar: \"'makeldb.com'\" unpacked with wrong size!
+fi
+# end of 'makeldb.com'
+fi
+if test -f 'move.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'move.c'\"
+else
+echo shar: Extracting \"'move.c'\" \(5354 characters\)
+sed "s/^X//" >'move.c' <<'END_OF_FILE'
+X/*	move.c		8/5/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*-----------------------------------------------------------------------
+X *	apply -- apply a move to a board
+X *
+X * Apply applies a move to a board, detecting the following errors:
+X *	RJ_NOROLL	The mv struct did not contain a valid roll.
+X *	RJ_ONBAR	The move attempted to move from a point other than
+X *			the bar when pieces are on the bar.
+X *	RJ_NOOFF	The move attempted to move pieces off before all
+X *			pieces are in the inner table.
+X *	RJ_NOPIECE	The move attempted to take a piece from an empty point.
+X *	RJ_NOTYOURS	The move attempted to move the opponent's piece.
+X *	RJ_OCC		The move attempted to move to an occupied point.
+X *	RJ_EXACT	The move attempted to bear off a piece with a
+X *			larger roll than necessary when that piece was
+X *			not the outermost piece.
+X * If the move was legal, apply returns:
+X *	MVOK		if no blot was hit, or
+X *	point number	where the blot was before it was hit.
+X * Note that blot numbers are in the range [1-24], MVOK is 0, and
+X * the reject codes are negative.  When the move is rejected,
+X * the board is unchanged.  When a blot is hit, it is moved to the
+X * appropriate bar point automatically.
+X *
+X * If A_REDRAW is set in flags, apply redraws the relevant portions of
+X * the screen to reflect the move.  If A_CHKONLY is set in flags, the
+X * move is checked but the board is not modified.
+X *-----------------------------------------------------------------------
+X */
+X
+Xapply(g,who,mn,flags,dest)
+Xstruct game *g;			/* game structure */
+Xint who;			/* 0 = opponent, 1 = me */
+Xint mn;				/* which element of mv array */
+Xint flags;			/* A_* */
+Xint *dest;			/* where to store destination point */
+X{
+Xint i, j, blot;
+Xint op, np;
+Xint dir;
+Xchar clr;
+Xstruct mv *m;
+Xregister struct point *b = g->board;
+X
+Xdir = who ? g->mydir : g->opdir;
+Xclr = who ? g->mycolor : g->opcolor;
+Xblot = MVOK;			/* no blot hit yet */
+Xm = who ? &g->mvs[mn] : &g->opmvs[mn];
+Xif (m->roll <= 0)		/* sanity check */
+X	return(RJ_NOROLL);	/* reject move */
+Xop = m->pt;		/* starting point number */
+Xif (op < 0)		/* this roll is unused */
+X	return(MVOK);	/* and that's ok */
+Xif ( (op == 0) || (op == 25) )	/* moving off bar */
+X	op = BARPT(dir);	/* use correct bar point */
+Xelse {			/* not moving off bar */
+X	j = BARPT(dir);	/* make sure no pieces still on bar */
+X	if (b[j].qty > 0)
+X		return(RJ_ONBAR);	/* can't move, pieces on bar */
+X	}
+Xnp = op + m->roll*dir;	/* move piece correct number of pts */
+Xif ( (np <= 0) || (np >= 25) ) {
+X	i = (dir > 0) ? 19 : 1;
+X	j = (dir > 0) ? 24 : 6;
+X	if (addpcs(b,clr,i,j)+b[OFFPT(dir)].qty < 15) /* all pcs not */
+X		return(RJ_NOOFF);	/* in inner table, can't move off */
+X	if ( (np != 0) && (np != 25) ) {/* using bigger roll than needed */
+X		i = (dir > 0) ? 19   : op+1; /* check for pcs on higher pts */
+X		j = (dir > 0) ? op-1 : 6;
+X		if (addpcs(b,clr,i,j) > 0)	/* there are some */
+X			return(RJ_EXACT);	/* must use roll on them */
+X		}
+X	np = OFFPT(dir);	/* this piece is moving off */
+X	}
+Xif (b[op].qty <= 0)		/* no piece here to move */
+X	return(RJ_NOPIECE);
+Xif (b[op].color != clr)	/* trying to move opponent's pieces? */
+X	return(RJ_NOTYOURS);
+Xif (b[np].qty == 0)		/* moving to an empty point */
+X	b[np].color = b[op].color;	/* copy color */
+Xif (b[np].color != b[op].color) {	/* moving to occupied pt */
+X	if (b[np].qty == 1) {		/* whacked a blot */
+X		blot = np;		/* save point number for return */
+X		if ( (flags & A_CHKONLY) == 0) {
+X			b[np].qty = 0;		/* bye bye */
+X			j = BARPT(REV(dir));	/* send it to opponents bar */
+X			b[j].color = b[np].color; /* copy color to bar pt */
+X			b[j].qty++;		/* bump counter */
+X			if (flags & A_REDRAW)	/* update screen */
+X				FeDrawPoint(b,j,0,g->flags & F_INVERT);
+X			b[np].color = b[op].color;	/* my point now */
+X			}
+X		}
+X	else
+X		return(RJ_OCC);		/* point is occupied */
+X	}
+Xif ( (flags & A_CHKONLY) == 0) {
+X	b[op].qty--;				/* take piece from old pt */
+X	b[np].qty++;				/* and put in on new pt */
+X	if (flags & A_REDRAW) {
+X		FeDrawPoint(b,op,0,g->flags & F_INVERT);/* update the screen */
+X		FeDrawPoint(b,np,0,g->flags & F_INVERT);
+X		}
+X	}
+Xif (dest != NULL)			/* return new position */
+X	*dest = np;
+Xreturn(blot);				/* succeeded, return MVOK or blot */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	addpcs -- add the number of pieces in a range of points
+X *
+X * This function returns the number of pieces of a certain color
+X * that reside within a range of points.
+X *----------------------------------------------------------------------
+X */
+X
+Xaddpcs(b,clr,f,t)
+Xboard b;
+Xchar clr;
+Xint f, t;
+X{
+Xint i, q;
+X
+Xq = 0;				/* quantity we have found so far */
+Xfor (i = f; i <= t; i++)
+X	if (b[i].color == clr)	/* found some */
+X		q += b[i].qty;	/* count them */
+Xreturn(q);			/* return quantity found */
+X}
+END_OF_FILE
+if test 5354 -ne `wc -c <'move.c'`; then
+    echo shar: \"'move.c'\" unpacked with wrong size!
+fi
+chmod +x 'move.c'
+# end of 'move.c'
+fi
+if test -f 'patchlevel.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel.h'\"
+else
+echo shar: Extracting \"'patchlevel.h'\" \(1366 characters\)
+sed "s/^X//" >'patchlevel.h' <<'END_OF_FILE'
+X/*	patchlevel.h	9/9/91
+X *
+X * adapted from the file "patchlevel", which is part of the
+X * "xloadimage" package by Jim Frost, and used within the terms
+X * of the original copyright notice, which appears below.
+X * Please note that the copyright notice below applies only to
+X * this file.
+X */
+X
+X/*
+X * Copyright 1989, 1990, 1991 Jim Frost
+X *
+X * Permission to use, copy, modify, distribute, and sell this software
+X * and its documentation for any purpose is hereby granted without fee,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.  The author makes no representations
+X * about the suitability of this software for any purpose.  It is
+X * provided "as is" without express or implied warranty.
+X *
+X * THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+X * NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+X * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+X * USE OR PERFORMANCE OF THIS SOFTWARE.
+X */
+X
+X#define VERSION		1
+X#define PATCHLEVEL	0
+X#define AUTHOR_EMAIL	"ross@emf780.den.mmc.com"
+END_OF_FILE
+if test 1366 -ne `wc -c <'patchlevel.h'`; then
+    echo shar: \"'patchlevel.h'\" unpacked with wrong size!
+fi
+chmod +x 'patchlevel.h'
+# end of 'patchlevel.h'
+fi
+if test -f 'readmail.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'readmail.c'\"
+else
+echo shar: Extracting \"'readmail.c'\" \(5482 characters\)
+sed "s/^X//" >'readmail.c' <<'END_OF_FILE'
+X/*	rcv.c		8/7/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X
+X/*----------------------------------------------------------------------
+X *	readmail -- read the incoming mail and process it
+X *
+X * This function extracts each packet from the mail file and applies it
+X * to the appropriate game structure.  Most packets are processed by
+X * calling the handler found in the func array, which is a 2-dimensional
+X * array indexed by the current game state and the received opcode.
+X * The handlers are responsible for transforming the game state as
+X * necessary.  The START and RSTART opcodes receive special processing,
+X * since they apply to games that do not exist and thus have no state.
+X * START packets result in the creation of a game, whose state is set
+X * such that the correct handler will be called.  The RSTART opcode
+X * is processed in the same way as the -start command line argument;
+X * the packet is then discarded.
+X *----------------------------------------------------------------------
+X */
+X
+Xreadmail(file)
+Xchar *file;
+X{
+XFILE *fp;
+Xint d, c1, c2;
+X
+Xif ( (fp = fopen(file,"r")) == NULL)
+X	return;
+Xwhile (getpkt(fp) > 0) {	/* as long as we found a valid packet */
+X	if (P.gameptr == NULL) {
+X		if (P.opcode == START) {
+X			P.gameptr = addgame(); /* init later in start() */
+X			P.gameptr->gameid = P.gameid;
+X			P.gameptr->state = ST_OPSTART;
+X			}
+X		else if (P.opcode == RSTART) {	/* remote start packet */
+X			if (P.dir == NULL)	/* if no direction was given */
+X				d = cr_mydir;	/* use my default */
+X			else			/* dir was given, grab it */
+X				d = (*P.dir == 'u') ? 1 : -1;
+X			if (P.colors == NULL) {	/* if no colors were given */
+X				c1 = cr_mycolor;	/* use my defaults */
+X				c2 = cr_opcolor;
+X				}
+X			else {				/* colors were given */
+X				c1 = *P.colors;		/* use them */
+X				c2 = P.colors[1];
+X				}
+X			startgame(P.addr,d,c1,c2);	/* start a game */
+X			continue;		/* discard this packet */
+X			}
+X		else {
+X			fprintf(stderr,"ERROR: no such gameid: %s (ignored)\n",
+X				P.gameid);
+X			continue;
+X			}
+X		}
+X	if (P.gameptr->state >= OPSTATES) {	/* hey, it's still my turn */
+X		fprintf(stderr,
+X			"ERROR: move out of turn: %s (ignored)\n",P.gameid);
+X		continue;
+X		}
+X	if (P.name != NULL)		/* snarf opponent's name */
+X		P.gameptr->opname = P.name;
+X	(*func[P.gameptr->state][P.opcode])(P.gameptr);	/* call handler */
+X	}
+X}
+X
+X
+X/*---------------------------------------------------------------------------
+X *	getpkt -- read one packet from a file
+X *
+X * This function reads the next packet from the specified file.
+X * Getpkt() is passed a open file pointer to the file it is to scan.
+X * Lines are read and discarded until a line is found that contains only:
+X *		<<<===LDB===>>>
+X * Subsequent lines should contain name/value pairs as specified
+X * in nv_packet.  The packet ends with end of file or a line beginning
+X * with "end=".  Getpkt reads from the input file until one
+X * packet has been found and processed, then returns.  Subsequent calls
+X * to getpkt with the same file pointer will process additional packets.
+X * Getpkt returns 1 if a valid packet was read, 0 if EOF was encountered.
+X * Getpkt ignores incoming packets with the incorrect sequence number.
+X *---------------------------------------------------------------------------
+X */
+X
+Xgetpkt(fp)
+XFILE *fp;
+X{
+Xstatic char buf[128];
+Xint i;
+X
+Xwhile (fgets(buf,sizeof(buf),fp) != NULL) {
+X	if (strcmp(buf,"<<<===LDB===>>>\n"))/* skip all other lines */
+X		continue;
+X	P.gameid = NULL;	/* init P structure */
+X	P.timestamp = 0L;
+X	P.opcode = -1;
+X	P.name = NULL;
+X	P.addr = NULL;
+X	P.comment = NULL;
+X	P.comment2 = NULL;
+X	P.seq = -1;
+X	P.autodbl = NULL;
+X	clearmvs(P.mvs);
+X	P.gameptr = NULL;
+X	nvscan(fp,nv_packet,&P,opcodes);	/* scan the packet into P */
+X	if (P.gameid == NULL) {		/* didn't get a gameid */
+X		fprintf(stderr,"ERROR: missing gameid in packet -- ignored\n");
+X		continue;
+X		}
+X	if ( (P.gameptr = findgame(P.gameid)) == NULL)	/* doesn't exist */
+X		i = 1;			/* initial seq == 1 */
+X	else
+X		i = P.gameptr->seq+1;	/* get current seq */
+X	if (P.seq != i) {		/* sequence number is wrong */
+X		if (P.seq > i)		/* rec'd seq # is too big */
+X			fprintf(stderr,		/* shouldn't happen */
+X			"WARNING: game %s, seq no. is %d, s/b %d -- ignored.\n"
+X			,P.gameid,P.seq,i);
+X		continue;		/* ignore pkts with bad sequence #s */
+X		}
+X	if ( (P.opcode < 0) || (P.opcode >= NOP) ) {	/* bad opcode */
+X		fprintf(stderr,
+X			"ERROR: bad opcode for game %s: %d -- ignored.\n",
+X			P.gameid,P.opcode);
+X		continue;
+X		}
+X	if (P.gameptr != NULL) {
+X		P.gameptr->seq += 2;	/* bump sequence number */
+X		if (P.gameptr->opcmt != NULL)
+X			free(P.gameptr->opcmt);	/* discard old comment */
+X		P.gameptr->opcmt = P.comment;	/* copy new comment */
+X		if (P.gameptr->opcmt2 != NULL)
+X			free(P.gameptr->opcmt2);/* discard old comment */
+X		P.gameptr->opcmt2 = P.comment2;	/* copy new comment */
+X		}
+X	return(1);			/* return success */
+X	}
+Xreturn(0);		/* return this to mean end of file */
+X}
+END_OF_FILE
+if test 5482 -ne `wc -c <'readmail.c'`; then
+    echo shar: \"'readmail.c'\" unpacked with wrong size!
+fi
+chmod +x 'readmail.c'
+# end of 'readmail.c'
+fi
+if test -f 't_email.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'t_email.c'\"
+else
+echo shar: Extracting \"'t_email.c'\" \(4738 characters\)
+sed "s/^X//" >'t_email.c' <<'END_OF_FILE'
+X/*	t_email.c		9/5/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*======================================================================
+X * This file is the e-mail transport for the ldb program.  It is
+X * modularized to allow other transports to be substituted, most
+X * notably a socket transport to allow interactive network backgammon.
+X * For now, though, this is the only transport available.
+X *
+X * Packets are sent via TSendPacket, which takes an instance of
+X * struct packet and an address, and sends the packet to that address.
+X * TInitialize must be called before any calls to TSendPacket, and
+X * TFinishSession must be called before exiting.
+X *
+X * Individual files may be sent by calling TSendFile.  These files
+X * need not be related to a game.
+X *======================================================================
+X */
+X
+XPRIVATE PStringSub();
+X
+X
+X/*----------------------------------------------------------------------
+X *	TInitialize -- initialize the transport
+X *
+X * This function is called before the transport is used.  As you can
+X * see, email doesn't require a great deal of initialization.
+X *----------------------------------------------------------------------
+X */
+X
+XTInitialize()
+X{
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	FeDrawMenu -- draw menu choices in menu box
+X *
+X * This function closes down the transport.
+X *----------------------------------------------------------------------
+X */
+X
+XTFinishSession()
+X{
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	TSendPacket -- send a packet to an email address
+X *
+X * This function sends a packet to an email address.
+X *----------------------------------------------------------------------
+X */
+X
+XTSendPacket(p,addr)
+Xstruct packet *p;
+Xchar *addr;
+X{
+Xchar subject[80];
+XFILE *fp;
+X
+X
+Xif ((fp = fopen(rc.tempfile,"w")) == NULL) {	/* open temp file */
+X	fprintf(stderr,"ERROR: can't create %s!\n",rc.tempfile);
+X	return;
+X	}
+Xfprintf(fp,"<<<===LDB===>>>\n");	/* send magic header text */
+Xnvwrite(fp,nv_packet,p,opcodes);	/* write the contents of the packet */
+Xfclose(fp);				/* close temp file */
+Xsprintf(subject,"<=LDB=> from %s (Long Distance Backgammon)", rc.myname);
+XTSendFile(addr,rc.tempfile,subject);
+Xunlink(rc.tempfile);		/* delete the temp file */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	TSendFile -- send a file to an address
+X *
+X * This function takes an e-mail address, a file, and a subject line,
+X * and sends the contents of the file to the specified address.  The
+X * subject is set to the contents of the subject argument, which should
+X * be one line.
+X *----------------------------------------------------------------------
+X */
+X
+XTSendFile(addr,file,subj)
+Xchar *addr, *file, *subj;
+X{
+Xchar cmd[256];
+Xchar *subs[3];
+X
+Xsubs[0] = addr;			/* substitute $a with opponent address */
+Xsubs[1] = file;			/* substitue $f with file */
+Xsubs[2] = subj;			/* substitute $s with subject */
+XPStringSub(rc.sendcmd,"afs",subs,cmd);
+Xsystem(cmd);			/* execute email command */
+X}
+X
+X
+X
+X/*----------------------------------------------------------------------
+X *	PStringSub -- substitute variables in a string
+X *
+X * This function copies str to obuf, replacing occurrences of $x to
+X * a corresponding string.  The characters which can appear after
+X * the $ are passed in a single string in the "chars" argument, and
+X * the strings to replace them with are passed, in the same order as
+X * the characters appear in "chars", in the "strings" argument.
+X *----------------------------------------------------------------------
+X */
+X
+XPRIVATE PStringSub(str,chars,strings,obuf)
+Xchar *str, *chars, *strings[], obuf[];
+X{
+Xchar *s, *o, *t;
+X
+Xfor (s = str, o = obuf; *s; s++) {
+X	if (*s != '$') {	/* as long as we don't see a $ */
+X		*o++ = *s;	/* just keep copying */
+X		continue;
+X		}
+X	s++;
+X	if (*s == '$') {	/* $$ is a single $ */
+X		*o++ = '$';
+X		continue;
+X		}
+X	if ( (t = strchr(chars,*s)) == NULL)	/* skip invalid $ subs */
+X		continue;
+X	t = strings[t - chars];		/* get ptr to replacement string */
+X	while (*t)			/* copy it to obuf */
+X		*o++ = *t++;
+X	}
+X*o = '\0';				/* null terminate obuf */
+X}
+END_OF_FILE
+if test 4738 -ne `wc -c <'t_email.c'`; then
+    echo shar: \"'t_email.c'\" unpacked with wrong size!
+fi
+chmod +x 't_email.c'
+# end of 't_email.c'
+fi
+echo shar: End of archive 1 \(of 5\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+
+exit 0 # Just in case...
+exit 0 # Just in case...

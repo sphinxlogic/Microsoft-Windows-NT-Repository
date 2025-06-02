@@ -1,0 +1,1271 @@
+Newsgroups: comp.sources.misc
+From: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Subject:  v29i010:  jpeg - JPEG image compression, Part10/18
+Message-ID: <1992Mar25.145151.363@sparky.imd.sterling.com>
+X-Md4-Signature: dae7e79221d13aa43d1a03deebe87e45
+Date: Wed, 25 Mar 1992 14:51:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jpeg-info@uunet.uu.net (Independent JPEG Group)
+Posting-number: Volume 29, Issue 10
+Archive-name: jpeg/part10
+Environment: UNIX, VMS, MS-DOS, Mac, Amiga, Cray
+
+#! /bin/sh
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  jbsmooth.c jcpipe.c testimg.gif.u
+# Wrapped by kent@sparky on Mon Mar 23 16:02:48 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 18)."'
+if test -f 'jbsmooth.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jbsmooth.c'\"
+else
+  echo shar: Extracting \"'jbsmooth.c'\" \(3258 characters\)
+  sed "s/^X//" >'jbsmooth.c' <<'END_OF_FILE'
+X/*
+X * jbsmooth.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains cross-block smoothing routines.
+X * These routines are invoked via the smooth_coefficients method.
+X */
+X
+X#include "jinclude.h"
+X
+X#ifdef BLOCK_SMOOTHING_SUPPORTED
+X
+X
+X/*
+X * Cross-block coefficient smoothing.
+X */
+X
+XMETHODDEF void
+Xsmooth_coefficients (decompress_info_ptr cinfo,
+X		     jpeg_component_info *compptr,
+X		     JBLOCKROW above,
+X		     JBLOCKROW currow,
+X		     JBLOCKROW below,
+X		     JBLOCKROW output)
+X{
+X  QUANT_TBL_PTR Qptr = cinfo->quant_tbl_ptrs[compptr->quant_tbl_no];
+X  long blocks_in_row = compptr->subsampled_width / DCTSIZE;
+X  long col;
+X
+X  /* First, copy the block row as-is.
+X   * This takes care of the first & last blocks in the row, the top/bottom
+X   * special cases, and the higher-order coefficients in each block.
+X   */
+X  jcopy_block_row(currow, output, blocks_in_row);
+X
+X  /* Now apply the smoothing calculation, but not to any blocks on the
+X   * edges of the image.
+X   */
+X
+X  if (above != NULL && below != NULL) {
+X    for (col = 1; col < blocks_in_row-1; col++) {
+X
+X      /* See section K.8 of the JPEG standard.
+X       *
+X       * As I understand it, this produces approximations
+X       * for the low frequency AC components, based on the
+X       * DC values of the block and its eight neighboring blocks.
+X       * (Thus it can't be used for blocks on the image edges.)
+X       */
+X
+X      /* The layout of these variables corresponds to text and figure in K.8 */
+X      
+X      JCOEF DC1, DC2, DC3;
+X      JCOEF DC4, DC5, DC6;
+X      JCOEF DC7, DC8, DC9;
+X      
+X      long       AC01, AC02;
+X      long AC10, AC11;
+X      long AC20;
+X      
+X      DC1 = above [col-1][0];
+X      DC2 = above [col  ][0];
+X      DC3 = above [col+1][0];
+X      DC4 = currow[col-1][0];
+X      DC5 = currow[col  ][0];
+X      DC6 = currow[col+1][0];
+X      DC7 = below [col-1][0];
+X      DC8 = below [col  ][0];
+X      DC9 = below [col+1][0];
+X      
+X#define DIVIDE_256(x)	x = ( (x) < 0 ? -((128-(x))/256) : ((x)+128)/256 )
+X      
+X      AC01 = (36 * (DC4 - DC6));
+X      DIVIDE_256(AC01);
+X      AC10 = (36 * (DC2 - DC8));
+X      DIVIDE_256(AC10);
+X      AC20 = (9 * (DC2 + DC8 - 2*DC5));
+X      DIVIDE_256(AC20);
+X      AC11 = (5 * ((DC1 - DC3) - (DC7 - DC9)));
+X      DIVIDE_256(AC11);
+X      AC02 = (9 * (DC4 + DC6 - 2*DC5));
+X      DIVIDE_256(AC02);
+X      
+X      /* I think that this checks to see if the quantisation
+X       * on the transmitting side would have produced this
+X       * answer. If so, then we use our (hopefully better)
+X       * estimate.
+X       */
+X
+X#define ABS(x)	((x) < 0 ? -(x) : (x))
+X
+X#define COND_ASSIGN(_ac,_n,_z)   if ((ABS(output[col][_n] - (_ac))<<1) <= Qptr[_z]) output[col][_n] = (JCOEF) (_ac)
+X
+X      COND_ASSIGN(AC01,  1, 1);
+X      COND_ASSIGN(AC02,  2, 5);
+X      COND_ASSIGN(AC10,  8, 2);
+X      COND_ASSIGN(AC11,  9, 4);
+X      COND_ASSIGN(AC20, 16, 3);
+X    }
+X  }
+X}
+X
+X
+X/*
+X * The method selection routine for cross-block smoothing.
+X */
+X
+XGLOBAL void
+Xjselbsmooth (decompress_info_ptr cinfo)
+X{
+X  /* just one implementation for now */
+X  cinfo->methods->smooth_coefficients = smooth_coefficients;
+X}
+X
+X#endif /* BLOCK_SMOOTHING_SUPPORTED */
+END_OF_FILE
+  if test 3258 -ne `wc -c <'jbsmooth.c'`; then
+    echo shar: \"'jbsmooth.c'\" unpacked with wrong size!
+  fi
+  # end of 'jbsmooth.c'
+fi
+if test -f 'jcpipe.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'jcpipe.c'\"
+else
+  echo shar: Extracting \"'jcpipe.c'\" \(26133 characters\)
+  sed "s/^X//" >'jcpipe.c' <<'END_OF_FILE'
+X/*
+X * jcpipe.c
+X *
+X * Copyright (C) 1991, 1992, Thomas G. Lane.
+X * This file is part of the Independent JPEG Group's software.
+X * For conditions of distribution and use, see the accompanying README file.
+X *
+X * This file contains compression pipeline controllers.
+X * These routines are invoked via the c_pipeline_controller method.
+X *
+X * There are four basic pipeline controllers, one for each combination of:
+X *	single-scan JPEG file (single component or fully interleaved)
+X *  vs. multiple-scan JPEG file (noninterleaved or partially interleaved).
+X *
+X *	optimization of entropy encoding parameters
+X *  vs. usage of default encoding parameters.
+X *
+X * Note that these conditions determine the needs for "big" arrays:
+X * multiple scans imply a big array for splitting the color components;
+X * entropy encoding optimization needs a big array for the MCU data.
+X *
+X * All but the simplest controller (single-scan, no optimization) can be
+X * compiled out through configuration options, if you need to make a minimal
+X * implementation.
+X */
+X
+X#include "jinclude.h"
+X
+X
+X/*
+X * About the data structures:
+X *
+X * The processing chunk size for subsampling is referred to in this file as
+X * a "row group": a row group is defined as Vk (v_samp_factor) sample rows of
+X * any component after subsampling, or Vmax (max_v_samp_factor) unsubsampled
+X * rows.  In an interleaved scan each MCU row contains exactly DCTSIZE row
+X * groups of each component in the scan.  In a noninterleaved scan an MCU row
+X * is one row of blocks, which might not be an integral number of row groups;
+X * for convenience we use a buffer of the same size as in interleaved scans,
+X * and process Vk MCU rows in each burst of subsampling.
+X * To provide context for the subsampling step, we have to retain the last
+X * two row groups of the previous MCU row while reading in the next MCU row
+X * (or set of Vk MCU rows).  To do this without copying data about, we create
+X * a rather strange data structure.  Exactly DCTSIZE+2 row groups of samples
+X * are allocated, but we create two different sets of pointers to this array.
+X * The second set swaps the last two pairs of row groups.  By working
+X * alternately with the two sets of pointers, we can access the data in the
+X * desired order.
+X */
+X
+X
+X
+X/*
+X * Utility routines: common code for pipeline controllers
+X */
+X
+XLOCAL void
+Xinterleaved_scan_setup (compress_info_ptr cinfo)
+X/* Compute all derived info for an interleaved (multi-component) scan */
+X/* On entry, cinfo->comps_in_scan and cinfo->cur_comp_info[] are set up */
+X{
+X  short ci, mcublks;
+X  jpeg_component_info *compptr;
+X
+X  if (cinfo->comps_in_scan > MAX_COMPS_IN_SCAN)
+X    ERREXIT(cinfo->emethods, "Too many components for interleaved scan");
+X
+X  cinfo->MCUs_per_row = (cinfo->image_width
+X			 + cinfo->max_h_samp_factor*DCTSIZE - 1)
+X			/ (cinfo->max_h_samp_factor*DCTSIZE);
+X
+X  cinfo->MCU_rows_in_scan = (cinfo->image_height
+X			     + cinfo->max_v_samp_factor*DCTSIZE - 1)
+X			    / (cinfo->max_v_samp_factor*DCTSIZE);
+X  
+X  cinfo->blocks_in_MCU = 0;
+X
+X  for (ci = 0; ci < cinfo->comps_in_scan; ci++) {
+X    compptr = cinfo->cur_comp_info[ci];
+X    /* for interleaved scan, sampling factors give # of blocks per component */
+X    compptr->MCU_width = compptr->h_samp_factor;
+X    compptr->MCU_height = compptr->v_samp_factor;
+X    compptr->MCU_blocks = compptr->MCU_width * compptr->MCU_height;
+X    /* compute physical dimensions of component */
+X    compptr->subsampled_width = jround_up(compptr->true_comp_width,
+X					  (long) (compptr->MCU_width*DCTSIZE));
+X    compptr->subsampled_height = jround_up(compptr->true_comp_height,
+X					   (long) (compptr->MCU_height*DCTSIZE));
+X    /* Sanity check */
+X    if (compptr->subsampled_width !=
+X	(cinfo->MCUs_per_row * (compptr->MCU_width*DCTSIZE)))
+X      ERREXIT(cinfo->emethods, "I'm confused about the image width");
+X    /* Prepare array describing MCU composition */
+X    mcublks = compptr->MCU_blocks;
+X    if (cinfo->blocks_in_MCU + mcublks > MAX_BLOCKS_IN_MCU)
+X      ERREXIT(cinfo->emethods, "Sampling factors too large for interleaved scan");
+X    while (mcublks-- > 0) {
+X      cinfo->MCU_membership[cinfo->blocks_in_MCU++] = ci;
+X    }
+X  }
+X
+X  (*cinfo->methods->c_per_scan_method_selection) (cinfo);
+X}
+X
+X
+XLOCAL void
+Xnoninterleaved_scan_setup (compress_info_ptr cinfo)
+X/* Compute all derived info for a noninterleaved (single-component) scan */
+X/* On entry, cinfo->comps_in_scan = 1 and cinfo->cur_comp_info[0] is set up */
+X{
+X  jpeg_component_info *compptr = cinfo->cur_comp_info[0];
+X
+X  /* for noninterleaved scan, always one block per MCU */
+X  compptr->MCU_width = 1;
+X  compptr->MCU_height = 1;
+X  compptr->MCU_blocks = 1;
+X  /* compute physical dimensions of component */
+X  compptr->subsampled_width = jround_up(compptr->true_comp_width,
+X					(long) DCTSIZE);
+X  compptr->subsampled_height = jround_up(compptr->true_comp_height,
+X					 (long) DCTSIZE);
+X
+X  cinfo->MCUs_per_row = compptr->subsampled_width / DCTSIZE;
+X  cinfo->MCU_rows_in_scan = compptr->subsampled_height / DCTSIZE;
+X
+X  /* Prepare array describing MCU composition */
+X  cinfo->blocks_in_MCU = 1;
+X  cinfo->MCU_membership[0] = 0;
+X
+X  (*cinfo->methods->c_per_scan_method_selection) (cinfo);
+X}
+X
+X
+X
+XLOCAL void
+Xalloc_sampling_buffer (compress_info_ptr cinfo, JSAMPIMAGE fullsize_data[2],
+X		       long fullsize_width)
+X/* Create a pre-subsampling data buffer having the desired structure */
+X/* (see comments at head of file) */
+X{
+X  short ci, vs, i;
+X
+X  vs = cinfo->max_v_samp_factor; /* row group height */
+X
+X  /* Get top-level space for array pointers */
+X  fullsize_data[0] = (JSAMPIMAGE) (*cinfo->emethods->alloc_small)
+X				(cinfo->num_components * SIZEOF(JSAMPARRAY));
+X  fullsize_data[1] = (JSAMPIMAGE) (*cinfo->emethods->alloc_small)
+X				(cinfo->num_components * SIZEOF(JSAMPARRAY));
+X
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    /* Allocate the real storage */
+X    fullsize_data[0][ci] = (*cinfo->emethods->alloc_small_sarray)
+X				(fullsize_width,
+X				(long) (vs * (DCTSIZE+2)));
+X    /* Create space for the scrambled-order pointers */
+X    fullsize_data[1][ci] = (JSAMPARRAY) (*cinfo->emethods->alloc_small)
+X				(vs * (DCTSIZE+2) * SIZEOF(JSAMPROW));
+X    /* Duplicate the first DCTSIZE-2 row groups */
+X    for (i = 0; i < vs * (DCTSIZE-2); i++) {
+X      fullsize_data[1][ci][i] = fullsize_data[0][ci][i];
+X    }
+X    /* Copy the last four row groups in swapped order */
+X    for (i = 0; i < vs * 2; i++) {
+X      fullsize_data[1][ci][vs*DCTSIZE + i] = fullsize_data[0][ci][vs*(DCTSIZE-2) + i];
+X      fullsize_data[1][ci][vs*(DCTSIZE-2) + i] = fullsize_data[0][ci][vs*DCTSIZE + i];
+X    }
+X  }
+X}
+X
+X
+X#if 0				/* this routine not currently needed */
+X
+XLOCAL void
+Xfree_sampling_buffer (compress_info_ptr cinfo, JSAMPIMAGE fullsize_data[2])
+X/* Release a sampling buffer created by alloc_sampling_buffer */
+X{
+X  short ci;
+X
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    /* Free the real storage */
+X    (*cinfo->emethods->free_small_sarray) (fullsize_data[0][ci]);
+X    /* Free the scrambled-order pointers */
+X    (*cinfo->emethods->free_small) ((void *) fullsize_data[1][ci]);
+X  }
+X
+X  /* Free the top-level space */
+X  (*cinfo->emethods->free_small) ((void *) fullsize_data[0]);
+X  (*cinfo->emethods->free_small) ((void *) fullsize_data[1]);
+X}
+X
+X#endif
+X
+X
+XLOCAL void
+Xsubsample (compress_info_ptr cinfo,
+X	   JSAMPIMAGE fullsize_data, JSAMPIMAGE subsampled_data,
+X	   long fullsize_width,
+X	   short above, short current, short below, short out)
+X/* Do subsampling of a single row group (of each component). */
+X/* above, current, below are indexes of row groups in fullsize_data;      */
+X/* out is the index of the target row group in subsampled_data.           */
+X/* Special case: above, below can be -1 to indicate top, bottom of image. */
+X{
+X  jpeg_component_info *compptr;
+X  JSAMPARRAY above_ptr, below_ptr;
+X  JSAMPROW dummy[MAX_SAMP_FACTOR]; /* for subsample expansion at top/bottom */
+X  short ci, vs, i;
+X
+X  vs = cinfo->max_v_samp_factor; /* row group height */
+X
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    compptr = & cinfo->comp_info[ci];
+X
+X    if (above >= 0)
+X      above_ptr = fullsize_data[ci] + above * vs;
+X    else {
+X      /* Top of image: make a dummy above-context with copies of 1st row */
+X      /* We assume current=0 in this case */
+X      for (i = 0; i < vs; i++)
+X	dummy[i] = fullsize_data[ci][0];
+X      above_ptr = (JSAMPARRAY) dummy; /* possible near->far pointer conv */
+X    }
+X
+X    if (below >= 0)
+X      below_ptr = fullsize_data[ci] + below * vs;
+X    else {
+X      /* Bot of image: make a dummy below-context with copies of last row */
+X      for (i = 0; i < vs; i++)
+X	dummy[i] = fullsize_data[ci][(current+1)*vs-1];
+X      below_ptr = (JSAMPARRAY) dummy; /* possible near->far pointer conv */
+X    }
+X
+X    (*cinfo->methods->subsample[ci])
+X		(cinfo, (int) ci,
+X		 fullsize_width, (int) vs,
+X		 compptr->subsampled_width, (int) compptr->v_samp_factor,
+X		 above_ptr,
+X		 fullsize_data[ci] + current * vs,
+X		 below_ptr,
+X		 subsampled_data[ci] + out * compptr->v_samp_factor);
+X  }
+X}
+X
+X
+X/* These vars are initialized by the pipeline controller for use by
+X * MCU_output_catcher.
+X * To avoid a lot of row-pointer overhead, we cram as many MCUs into each
+X * row of whole_scan_MCUs as we can get without exceeding 64KB per row.
+X */
+X
+X#define MAX_WHOLE_ROW_BLOCKS	((int) (65500 / SIZEOF(JBLOCK))) /* max blocks/row */
+X
+Xstatic big_barray_ptr whole_scan_MCUs; /* Big array for saving the MCUs */
+Xstatic int MCUs_in_big_row;	/* # of MCUs in each row of whole_scan_MCUs */
+Xstatic long next_whole_row;	/* next row to access in whole_scan_MCUs */
+Xstatic int next_MCU_index;	/* next MCU in current row */
+X
+X
+XMETHODDEF void
+XMCU_output_catcher (compress_info_ptr cinfo, JBLOCK *MCU_data)
+X/* Output method for siphoning off extract_MCUs output into a big array */
+X{
+X  static JBLOCKARRAY rowptr;
+X
+X  if (next_MCU_index >= MCUs_in_big_row) {
+X    rowptr = (*cinfo->emethods->access_big_barray) (whole_scan_MCUs,
+X						    next_whole_row, TRUE);
+X    next_whole_row++;
+X    next_MCU_index = 0;
+X  }
+X
+X  /*
+X   * note that on 80x86, the cast applied to MCU_data implies
+X   * near to far pointer conversion.
+X   */
+X  jcopy_block_row((JBLOCKROW) MCU_data,
+X		  rowptr[0] + next_MCU_index * cinfo->blocks_in_MCU,
+X		  (long) cinfo->blocks_in_MCU);
+X  next_MCU_index++;
+X}
+X
+X
+XMETHODDEF void
+Xdump_scan_MCUs (compress_info_ptr cinfo, MCU_output_method_ptr output_method)
+X/* Dump the MCUs saved in whole_scan_MCUs to the output method. */
+X/* The method may be either the entropy encoder or some routine supplied */
+X/* by the entropy optimizer. */
+X{
+X  /* On an 80x86 machine, the entropy encoder expects the passed data block
+X   * to be in NEAR memory (for performance reasons), so we have to copy it
+X   * back from the big array to a local array.  On less brain-damaged CPUs
+X   * we needn't do that.
+X   */
+X#ifdef NEED_FAR_POINTERS
+X  JBLOCK MCU_data[MAX_BLOCKS_IN_MCU];
+X#endif
+X  long mcurow, mcuindex, next_row;
+X  int next_index;
+X  JBLOCKARRAY rowptr = NULL;	/* init only to suppress compiler complaint */
+X
+X  next_row = 0;
+X  next_index = MCUs_in_big_row;
+X
+X  for (mcurow = 0; mcurow < cinfo->MCU_rows_in_scan; mcurow++) {
+X    (*cinfo->methods->progress_monitor) (cinfo, mcurow,
+X					 cinfo->MCU_rows_in_scan);
+X    for (mcuindex = 0; mcuindex < cinfo->MCUs_per_row; mcuindex++) {
+X      if (next_index >= MCUs_in_big_row) {
+X	rowptr = (*cinfo->emethods->access_big_barray) (whole_scan_MCUs,
+X							next_row, FALSE);
+X	next_row++;
+X	next_index = 0;
+X      }
+X#ifdef NEED_FAR_POINTERS
+X      jcopy_block_row(rowptr[0] + next_index * cinfo->blocks_in_MCU,
+X		      (JBLOCKROW) MCU_data, /* casts near to far pointer! */
+X		      (long) cinfo->blocks_in_MCU);
+X      (*output_method) (cinfo, MCU_data);
+X#else
+X      (*output_method) (cinfo, rowptr[0] + next_index * cinfo->blocks_in_MCU);
+X#endif
+X      next_index++;
+X    }
+X  }
+X
+X  cinfo->completed_passes++;
+X}
+X
+X
+X
+X/*
+X * Compression pipeline controller used for single-scan files
+X * with no optimization of entropy parameters.
+X */
+X
+XMETHODDEF void
+Xsingle_ccontroller (compress_info_ptr cinfo)
+X{
+X  int rows_in_mem;		/* # of sample rows in full-size buffers */
+X  long fullsize_width;		/* # of samples per row in full-size buffers */
+X  long cur_pixel_row;		/* counts # of pixel rows processed */
+X  long mcu_rows_output;		/* # of MCU rows actually emitted */
+X  int mcu_rows_per_loop;	/* # of MCU rows processed per outer loop */
+X  /* Work buffer for pre-subsampling data (see comments at head of file) */
+X  JSAMPIMAGE fullsize_data[2];
+X  /* Work buffer for subsampled data */
+X  JSAMPIMAGE subsampled_data;
+X  int rows_this_time;
+X  short ci, whichss, i;
+X
+X  /* Prepare for single scan containing all components */
+X  if (cinfo->num_components > MAX_COMPS_IN_SCAN)
+X    ERREXIT(cinfo->emethods, "Too many components for interleaved scan");
+X  cinfo->comps_in_scan = cinfo->num_components;
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    cinfo->cur_comp_info[ci] = &cinfo->comp_info[ci];
+X  }
+X  if (cinfo->comps_in_scan == 1) {
+X    noninterleaved_scan_setup(cinfo);
+X    /* Vk block rows constitute the same number of MCU rows */
+X    mcu_rows_per_loop = cinfo->cur_comp_info[0]->v_samp_factor;
+X  } else {
+X    interleaved_scan_setup(cinfo);
+X    /* in an interleaved scan, one MCU row contains Vk block rows */
+X    mcu_rows_per_loop = 1;
+X  }
+X  cinfo->total_passes++;
+X
+X  /* Compute dimensions of full-size pixel buffers */
+X  /* Note these are the same whether interleaved or not. */
+X  rows_in_mem = cinfo->max_v_samp_factor * DCTSIZE;
+X  fullsize_width = jround_up(cinfo->image_width,
+X			     (long) (cinfo->max_h_samp_factor * DCTSIZE));
+X
+X  /* Allocate working memory: */
+X  /* fullsize_data is sample data before subsampling */
+X  alloc_sampling_buffer(cinfo, fullsize_data, fullsize_width);
+X  /* subsampled_data is sample data after subsampling */
+X  subsampled_data = (JSAMPIMAGE) (*cinfo->emethods->alloc_small)
+X				(cinfo->num_components * SIZEOF(JSAMPARRAY));
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    subsampled_data[ci] = (*cinfo->emethods->alloc_small_sarray)
+X			(cinfo->comp_info[ci].subsampled_width,
+X			 (long) (cinfo->comp_info[ci].v_samp_factor * DCTSIZE));
+X  }
+X
+X  /* Tell the memory manager to instantiate big arrays.
+X   * We don't need any big arrays in this controller,
+X   * but some other module (like the input file reader) may need one.
+X   */
+X  (*cinfo->emethods->alloc_big_arrays)
+X	((long) 0,				/* no more small sarrays */
+X	 (long) 0,				/* no more small barrays */
+X	 (long) 0);				/* no more "medium" objects */
+X
+X  /* Initialize output file & do per-scan object init */
+X
+X  (*cinfo->methods->write_scan_header) (cinfo);
+X  cinfo->methods->entropy_output = cinfo->methods->write_jpeg_data;
+X  (*cinfo->methods->entropy_encoder_init) (cinfo);
+X  (*cinfo->methods->subsample_init) (cinfo);
+X  (*cinfo->methods->extract_init) (cinfo);
+X
+X  /* Loop over input image: rows_in_mem pixel rows are processed per loop */
+X
+X  mcu_rows_output = 0;
+X  whichss = 1;			/* arrange to start with fullsize_data[0] */
+X
+X  for (cur_pixel_row = 0; cur_pixel_row < cinfo->image_height;
+X       cur_pixel_row += rows_in_mem) {
+X    (*cinfo->methods->progress_monitor) (cinfo, cur_pixel_row,
+X					 cinfo->image_height);
+X
+X    whichss ^= 1;		/* switch to other fullsize_data buffer */
+X    
+X    /* Obtain rows_this_time pixel rows and expand to rows_in_mem rows. */
+X    /* Then we have exactly DCTSIZE row groups for subsampling. */   
+X    rows_this_time = (int) MIN((long) rows_in_mem,
+X			       cinfo->image_height - cur_pixel_row);
+X 
+X    (*cinfo->methods->get_sample_rows) (cinfo, rows_this_time,
+X					fullsize_data[whichss]);
+X    (*cinfo->methods->edge_expand) (cinfo,
+X				    cinfo->image_width, rows_this_time,
+X				    fullsize_width, rows_in_mem,
+X				    fullsize_data[whichss]);
+X    
+X    /* Subsample the data (all components) */
+X    /* First time through is a special case */
+X    
+X    if (cur_pixel_row) {
+X      /* Subsample last row group of previous set */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) DCTSIZE, (short) (DCTSIZE+1), (short) 0,
+X		(short) (DCTSIZE-1));
+X      /* and dump the previous set's subsampled data */
+X      (*cinfo->methods->extract_MCUs) (cinfo, subsampled_data, 
+X				       mcu_rows_per_loop,
+X				       cinfo->methods->entropy_encode);
+X      mcu_rows_output += mcu_rows_per_loop;
+X      /* Subsample first row group of this set */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (DCTSIZE+1), (short) 0, (short) 1,
+X		(short) 0);
+X    } else {
+X      /* Subsample first row group with dummy above-context */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (-1), (short) 0, (short) 1,
+X		(short) 0);
+X    }
+X    /* Subsample second through next-to-last row groups of this set */
+X    for (i = 1; i <= DCTSIZE-2; i++) {
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (i-1), (short) i, (short) (i+1),
+X		(short) i);
+X    }
+X  } /* end of outer loop */
+X  
+X  /* Subsample the last row group with dummy below-context */
+X  /* Note whichss points to last buffer side used */
+X  subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X	    (short) (DCTSIZE-2), (short) (DCTSIZE-1), (short) (-1),
+X	    (short) (DCTSIZE-1));
+X  /* Dump the remaining data (may be less than full height if uninterleaved) */
+X  (*cinfo->methods->extract_MCUs) (cinfo, subsampled_data, 
+X		(int) (cinfo->MCU_rows_in_scan - mcu_rows_output),
+X		cinfo->methods->entropy_encode);
+X
+X  /* Finish output file */
+X  (*cinfo->methods->extract_term) (cinfo);
+X  (*cinfo->methods->subsample_term) (cinfo);
+X  (*cinfo->methods->entropy_encoder_term) (cinfo);
+X  (*cinfo->methods->write_scan_trailer) (cinfo);
+X  cinfo->completed_passes++;
+X
+X  /* Release working memory */
+X  /* (no work -- we let free_all release what's needful) */
+X}
+X
+X
+X/*
+X * Compression pipeline controller used for single-scan files
+X * with optimization of entropy parameters.
+X */
+X
+X#ifdef ENTROPY_OPT_SUPPORTED
+X
+XMETHODDEF void
+Xsingle_eopt_ccontroller (compress_info_ptr cinfo)
+X{
+X  int rows_in_mem;		/* # of sample rows in full-size buffers */
+X  long fullsize_width;		/* # of samples per row in full-size buffers */
+X  long cur_pixel_row;		/* counts # of pixel rows processed */
+X  long mcu_rows_output;		/* # of MCU rows actually emitted */
+X  int mcu_rows_per_loop;	/* # of MCU rows processed per outer loop */
+X  /* Work buffer for pre-subsampling data (see comments at head of file) */
+X  JSAMPIMAGE fullsize_data[2];
+X  /* Work buffer for subsampled data */
+X  JSAMPIMAGE subsampled_data;
+X  int rows_this_time;
+X  int blocks_in_big_row;
+X  short ci, whichss, i;
+X
+X  /* Prepare for single scan containing all components */
+X  if (cinfo->num_components > MAX_COMPS_IN_SCAN)
+X    ERREXIT(cinfo->emethods, "Too many components for interleaved scan");
+X  cinfo->comps_in_scan = cinfo->num_components;
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    cinfo->cur_comp_info[ci] = &cinfo->comp_info[ci];
+X  }
+X  if (cinfo->comps_in_scan == 1) {
+X    noninterleaved_scan_setup(cinfo);
+X    /* Vk block rows constitute the same number of MCU rows */
+X    mcu_rows_per_loop = cinfo->cur_comp_info[0]->v_samp_factor;
+X  } else {
+X    interleaved_scan_setup(cinfo);
+X    /* in an interleaved scan, one MCU row contains Vk block rows */
+X    mcu_rows_per_loop = 1;
+X  }
+X  cinfo->total_passes += 2;	/* entropy encoder must add # passes it uses */
+X
+X  /* Compute dimensions of full-size pixel buffers */
+X  /* Note these are the same whether interleaved or not. */
+X  rows_in_mem = cinfo->max_v_samp_factor * DCTSIZE;
+X  fullsize_width = jround_up(cinfo->image_width,
+X			     (long) (cinfo->max_h_samp_factor * DCTSIZE));
+X
+X  /* Allocate working memory: */
+X  /* fullsize_data is sample data before subsampling */
+X  alloc_sampling_buffer(cinfo, fullsize_data, fullsize_width);
+X  /* subsampled_data is sample data after subsampling */
+X  subsampled_data = (JSAMPIMAGE) (*cinfo->emethods->alloc_small)
+X				(cinfo->num_components * SIZEOF(JSAMPARRAY));
+X  for (ci = 0; ci < cinfo->num_components; ci++) {
+X    subsampled_data[ci] = (*cinfo->emethods->alloc_small_sarray)
+X			(cinfo->comp_info[ci].subsampled_width,
+X			 (long) (cinfo->comp_info[ci].v_samp_factor * DCTSIZE));
+X  }
+X
+X  /* Figure # of MCUs to be packed in a row of whole_scan_MCUs */
+X  MCUs_in_big_row = MAX_WHOLE_ROW_BLOCKS / cinfo->blocks_in_MCU;
+X  blocks_in_big_row = MCUs_in_big_row * cinfo->blocks_in_MCU;
+X
+X  /* Request a big array: whole_scan_MCUs saves the MCU data for the scan */
+X  whole_scan_MCUs = (*cinfo->emethods->request_big_barray)
+X		((long) blocks_in_big_row,
+X		 (long) (cinfo->MCUs_per_row * cinfo->MCU_rows_in_scan
+X			 + MCUs_in_big_row-1) / MCUs_in_big_row,
+X		 1L);		/* unit height is 1 row */
+X
+X  next_whole_row = 0;		/* init output ptr for MCU_output_catcher */
+X  next_MCU_index = MCUs_in_big_row; /* forces access on first call! */
+X
+X  /* Tell the memory manager to instantiate big arrays */
+X  (*cinfo->emethods->alloc_big_arrays)
+X	((long) 0,				/* no more small sarrays */
+X	 (long) 0,				/* no more small barrays */
+X	 (long) 0);				/* no more "medium" objects */
+X
+X  /* Do per-scan object init */
+X
+X  (*cinfo->methods->subsample_init) (cinfo);
+X  (*cinfo->methods->extract_init) (cinfo);
+X
+X  /* Loop over input image: rows_in_mem pixel rows are processed per loop */
+X  /* MCU data goes into whole_scan_MCUs, not to the entropy encoder */
+X
+X  mcu_rows_output = 0;
+X  whichss = 1;			/* arrange to start with fullsize_data[0] */
+X
+X  for (cur_pixel_row = 0; cur_pixel_row < cinfo->image_height;
+X       cur_pixel_row += rows_in_mem) {
+X    (*cinfo->methods->progress_monitor) (cinfo, cur_pixel_row,
+X					 cinfo->image_height);
+X
+X    whichss ^= 1;		/* switch to other fullsize_data buffer */
+X    
+X    /* Obtain rows_this_time pixel rows and expand to rows_in_mem rows. */
+X    /* Then we have exactly DCTSIZE row groups for subsampling. */   
+X    rows_this_time = (int) MIN((long) rows_in_mem,
+X			       cinfo->image_height - cur_pixel_row);
+X 
+X    (*cinfo->methods->get_sample_rows) (cinfo, rows_this_time,
+X					fullsize_data[whichss]);
+X    (*cinfo->methods->edge_expand) (cinfo,
+X				    cinfo->image_width, rows_this_time,
+X				    fullsize_width, rows_in_mem,
+X				    fullsize_data[whichss]);
+X    
+X    /* Subsample the data (all components) */
+X    /* First time through is a special case */
+X    
+X    if (cur_pixel_row) {
+X      /* Subsample last row group of previous set */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) DCTSIZE, (short) (DCTSIZE+1), (short) 0,
+X		(short) (DCTSIZE-1));
+X      /* and dump the previous set's subsampled data */
+X      (*cinfo->methods->extract_MCUs) (cinfo, subsampled_data, 
+X				       mcu_rows_per_loop,
+X				       MCU_output_catcher);
+X      mcu_rows_output += mcu_rows_per_loop;
+X      /* Subsample first row group of this set */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (DCTSIZE+1), (short) 0, (short) 1,
+X		(short) 0);
+X    } else {
+X      /* Subsample first row group with dummy above-context */
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (-1), (short) 0, (short) 1,
+X		(short) 0);
+X    }
+X    /* Subsample second through next-to-last row groups of this set */
+X    for (i = 1; i <= DCTSIZE-2; i++) {
+X      subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X		(short) (i-1), (short) i, (short) (i+1),
+X		(short) i);
+X    }
+X  } /* end of outer loop */
+X  
+X  /* Subsample the last row group with dummy below-context */
+X  /* Note whichss points to last buffer side used */
+X  subsample(cinfo, fullsize_data[whichss], subsampled_data, fullsize_width,
+X	    (short) (DCTSIZE-2), (short) (DCTSIZE-1), (short) (-1),
+X	    (short) (DCTSIZE-1));
+X  /* Dump the remaining data (may be less than full height if uninterleaved) */
+X  (*cinfo->methods->extract_MCUs) (cinfo, subsampled_data, 
+X		(int) (cinfo->MCU_rows_in_scan - mcu_rows_output),
+X		MCU_output_catcher);
+X
+X  /* Clean up after that stuff, then find the optimal entropy parameters */
+X
+X  (*cinfo->methods->extract_term) (cinfo);
+X  (*cinfo->methods->subsample_term) (cinfo);
+X
+X  cinfo->completed_passes++;
+X
+X  (*cinfo->methods->entropy_optimize) (cinfo, dump_scan_MCUs);
+X
+X  /* Emit scan to output file */
+X  /* Note: we can't do write_scan_header until entropy parameters are set! */
+X
+X  (*cinfo->methods->write_scan_header) (cinfo);
+X  cinfo->methods->entropy_output = cinfo->methods->write_jpeg_data;
+X  (*cinfo->methods->entropy_encoder_init) (cinfo);
+X  dump_scan_MCUs(cinfo, cinfo->methods->entropy_encode);
+X  (*cinfo->methods->entropy_encoder_term) (cinfo);
+X  (*cinfo->methods->write_scan_trailer) (cinfo);
+X
+X  /* Release working memory */
+X  /* (no work -- we let free_all release what's needful) */
+X}
+X
+X#endif /* ENTROPY_OPT_SUPPORTED */
+X
+X
+X/*
+X * Compression pipeline controller used for multiple-scan files
+X * with no optimization of entropy parameters.
+X */
+X
+X#ifdef MULTISCAN_FILES_SUPPORTED
+X
+XMETHODDEF void
+Xmulti_ccontroller (compress_info_ptr cinfo)
+X{
+X  ERREXIT(cinfo->emethods, "Not implemented yet");
+X}
+X
+X#endif /* MULTISCAN_FILES_SUPPORTED */
+X
+X
+X/*
+X * Compression pipeline controller used for multiple-scan files
+X * with optimization of entropy parameters.
+X */
+X
+X#ifdef MULTISCAN_FILES_SUPPORTED
+X#ifdef ENTROPY_OPT_SUPPORTED
+X
+XMETHODDEF void
+Xmulti_eopt_ccontroller (compress_info_ptr cinfo)
+X{
+X  ERREXIT(cinfo->emethods, "Not implemented yet");
+X}
+X
+X#endif /* ENTROPY_OPT_SUPPORTED */
+X#endif /* MULTISCAN_FILES_SUPPORTED */
+X
+X
+X/*
+X * The method selection routine for compression pipeline controllers.
+X */
+X
+XGLOBAL void
+Xjselcpipeline (compress_info_ptr cinfo)
+X{
+X  if (cinfo->interleave || cinfo->num_components == 1) {
+X    /* single scan needed */
+X#ifdef ENTROPY_OPT_SUPPORTED
+X    if (cinfo->optimize_coding)
+X      cinfo->methods->c_pipeline_controller = single_eopt_ccontroller;
+X    else
+X#endif
+X      cinfo->methods->c_pipeline_controller = single_ccontroller;
+X  } else {
+X    /* multiple scans needed */
+X#ifdef MULTISCAN_FILES_SUPPORTED
+X#ifdef ENTROPY_OPT_SUPPORTED
+X    if (cinfo->optimize_coding)
+X      cinfo->methods->c_pipeline_controller = multi_eopt_ccontroller;
+X    else
+X#endif
+X      cinfo->methods->c_pipeline_controller = multi_ccontroller;
+X#else
+X    ERREXIT(cinfo->emethods, "Multiple-scan support was not compiled");
+X#endif
+X  }
+X}
+END_OF_FILE
+  if test 26133 -ne `wc -c <'jcpipe.c'`; then
+    echo shar: \"'jcpipe.c'\" unpacked with wrong size!
+  fi
+  # end of 'jcpipe.c'
+fi
+if test -f 'testimg.gif.u' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'testimg.gif.u'\"
+else
+  echo shar: Extracting \"'testimg.gif.u'\" \(21738 characters\)
+  sed "s/^X//" >'testimg.gif.u' <<'END_OF_FILE'
+Xbegin 666 testimg.gif
+XM1TE&.#=A?0!] /<  "L!"*!N=F,[,M.LH'AA4LV'=T<;+:5GC:E"3HHH+O+-
+XMLL>?EF@,(LIY;>VADZ5<7L&$IWI)4VTA-+E27)LW0N%]=^NZH\]:8^B1AH9*
+XM?48()%$20+-XG=UL;V\P8/NSKM.:IOG7S*UW?+).67X=-].1@)E<CWU <TH+
+XM2]*NLX8G4&,D5*]QE[2 @Y<U85T &9]66.R=L[54<.>)@=O$M?W$N==E:UP>
+XM.I0Q/$T1+',^29-3AUL<3,=W?_6KHZXR.^>SG-R:B7<W:LM/5*1$8*1<<Y!'
+XM5,%O<GL90[^9D\F.L>R.L=:AKKEG:G03-:U,:.F[M,"+C+5CBF,S-M]^B/*8
+XMDYQCEX5%>&DJ6HQ/:$D(-ZMWN>)U=Z=OKUX4)J(_2I19</_*PN&?F-2/DWHP
+XM0.//O_^5I']#8,)SE]NSO-)D@C\");T^1H@I0LI<>H!+EO^XM,V5P>2&CZ<K
+XM-&<62LU]A;]M@K=E>N_!N\%:9._$JNV/F%\.0F,N>?_0S,)&39X4&]& I/2H
+XMNY9/4&T+-X\O6[ULD)=O9F,E0_JNP7,^B6H#)X(U6(M6H=ZVK<.0RO/1QO_6
+XMTDX-/(5)9L^?R'0G2I=BK2\ *&<Z4N"HH*!GHYP@,<^GGL^ <^Z@I+N(PHL_
+XM4)DX4O!W>.!679=&>E0&);N H^]B>WLJ7O^DLM^3J(,B.J=6BHLZ;FX=4;V&
+XMA:$Z:/^2L+Y9=/S!SN9;96<8/)$P2H,W2I].@O^?F[0X0=N8F(,R9M)46:EB
+XM>X A2MB)K<^%B_!TAY=*95T3-9]2;7HM4/')P>BMO$L (OI^D?_,V_?2M_CA
+XMTN&FLUP -.#)NED+*N69KG4I//^+GJU<D)% ='4D6%0#-_9I@I\^6/_'U(L\
+XM8,EZGO^'FO^:N&\@1&0"/.BPK*UD9ED(/)%"9CH &JIP=5Q"1->PI-&+>T<B
+XM+:EKDZU&4H\K-LNCFFX/*.^FEZE@8,*(L7$E.+M78)\[1N.!>^Z_IM-?9>Z4
+XMBXM.@4D-*%851+=\H^!P=2P     ?0!]   (_P#;Y:OSS\81@__RC:AGHT>'
+XM'A7J=#C2H$&G3@UFR.ETA,J>8#/440FR2\ZN,4%0CJE0 D.0$B5>!E.WZ^28
+XM76)(!A&3R4&FE#A5C5&U*U.) E&"6 "220RG3$"@'-,#I:JCJX[27*51%4\:
+XM*'BXEL$#[9BC,:_&>)+3HP%*<0J.=.ADHXD-@_F:Y+G0X-^1?_\:.&S0@; <
+XMBYUZ=)*#8<R]8/?VI!09C I,.25F!"G0J<08S\%JBLE9(@E,F&)JWAS#NG0)
+XM3D &\!P Q )8?%5I8*61(@T-WS2@01'.53BT,L<6O$H2;U>=(_?&.("B@(O#
+XM@]A'Y#MRA N7PG+;<O^W6.$(1"J5@U4(QI[UF#IC@HT1L^=S'8X%=NF+Z:" 
+XMNILU!2$@3"?9%%\+!00!!!"<!#$ ;57I@<=50&P%A&X8<A4<#<%!XV$9960R
+XM1E+.=<*:.IG4D$D#=TUD0Q[U3"#77-:Y:-=?5-Q#42?HS3!&#SW,L,MC!033
+XM0WORE<!6"?<$4<48!9BDTF0CEK!+"5&$%E\4G^V2#A#I!/%E5!8X J8CZ6"U
+XMU5;#D=6F<""60<-R)]519 D-!..#'X=<T 1V%]0S1!.%-?3=04TTD4\#]U30
+XM@WE4R!&,')+6(1][P=1A1P!'W/% $:$%4]^DZF!6ZB[RQ2=4,%RR%DP!=HK_
+XM4680[]!F@6UEQC9 FFKJ5A58T(0%#0UE#%M&"- PD>I]P1PACP@EX+$,&789
+XM%&BB_W!QT#\]&%37=IW4T<!V#7CTW!U-H'O''6@$T\(==K30Q#!&V"$':_>R
+XM9Y(ZP6  GZ2J=+-J?$>\$D0FF83)R9=<64!#A6CRF@Z&CG#5%5G#$BOGL8XD
+XM(=2C\L @<@% ;".& =O94,]"VP5F4 ??VD58M]SU\$^F=\A0Q!,R%$-$,45(
+XM(441$ 0RCQU@W,%!#X$$HHHJ/;0 9# @! -,-[Y44TXW3;\2M8(6B)$$;%0Y
+XM H6:O*[)(8=5&;?VL'B4,0L4G$1!A1H3P&"/ (.\_S) #=N H4$>=4TP0AY]
+XM->1M$_7XV0%!35P '154]#""$;( >8<L1113#BCE%/-*(""H(D(Q0'<>0"!9
+XM6@I&#U+488HO)C""B!2!2+T+4S&E@P\>4&BH)H6Z5;SV[\,%/^QQ-. !R3'I
+XMC'@' K?@8,0@300!10UXW*#!BR-,0.A#+N:UUXT-;==1#W:L:T</ADA1C/S%
+XM<,,-%J3, XP2\QC"P@%68,<.3""$?9B !2P 0Q;.L (A>. $^R@%(UH #'&(
+XM0QU1J-6"*I:5"WFP5QS"AX;>=IPR@.48W/,!%9HP @I8;Q!?>$ )+'",;4PB
+XM!S=8V>%LP"+LU.5\BYN(0__JL,()L L-OB#"SAC!"&-< Q&D, 4:XH &")C 
+XM%\78009.( 0PG,$84S &)H1P@Q5LH!\\B$8E@B&(*KVC-DNQF-K09+RK.$QY
+XMP2F6V4!T#"B(H5DP, (%[$$!"L3P%>D01PA:( $-\&$$"PE/7NZB%S]YRP:R
+XM,$CEU)"S.]0!#;(@!2Z*T8K0X4((K3"!";8@!7\,T(%]V( BK)"!#6!!$1O@
+XM 0^TT(]>:J$2 7!&E3AA 7R(D$*[N=#$)E9'M@4OC\BIP5E:4 \8%G*0H,">
+XM.L0 !3\D A/$6,<C)R Y%_TP#^@[PG:VHP8NU 4!LD!##ZJA1$/( A>&,$0U
+XM&''_ FM<@10FV,$^/("%%:Q H"M0A!"$@ D>],, DH H%O;1 E6 0 1)P(<%
+XM]'"K#0[O8>E@IO&"%SSCE0$2$XK".09A!% ,TAY?^((1ZM&$3H@#"LX0!QCX
+XM<0-B: &=#8'90=Q0#\+9P09NP.1V'F*#3L)+!JP(6A=800I6M$((KL""5D\0
+XMT'V<X 17:,17A8"%?BBB#ROH!PH@:H!)4"(3(G@%3H+G, X.3VT0HP%N-#2<
+XM8T!"'"UXP"! 04@<V*,=B&W' PH0DP\(0@1DR$$.B$%91?VE W?P$XPN<-28
+XMJ>$?$\F##"9@!SL8H@@RJ 8K8.$"1E2"#BO(*A8\L(\=_W0!@ES%A!7VL0*T
+XM*N(**-BE%A!A E.,H0DBV,798L.PVE2(5\I$4_%*Z@@\X.$8)LQ$"P:A \)2
+XMP*5?&,3AFI @<< !"G:8 C\V@(@-W  +*>N67O8"U".X 9TPZX$:;$"$>KA/
+XM"C(@12M<P(M6M,(5='#%"NC@@4;L0Q-@70$$37 %3%28!XKPP"7Z(0E$'$*8
+XMYSB$&/ Q +,M($UI2\>N(+;,K=CF*UP9  BB( )Y? $![?B"/>R! ",>03X.
+XM" (^:A ,">1  ANH!3_X@(BCYL,.^<B#+/RDJ*/F@7!4.(B?X*G?.Q"A$->H
+XM!"^L80Q>U((./$#S#EA!844$%_\+.U@! 3+0!RR@P(']6,,Z_#'C!X@@-A;(
+XM1!)V]:60%OI+R>Q5Q:K"B180  ;I@L$@$&"/A=CA7S=Q !!\\(K(;H"R-W %
+XM(FKAK4 5U0T7<(.BKMR$;OT#7G9P 1H,@8M6>( .^,L *C: "32N0!*MT 0N
+XMK( *.J#Q#5?HPQ97H 4M[$ (V&A%#]YS#G4XUQ&9>%"AS80F71DZI!<*3G5[
+XM P(A# ,,8&B!")Q%$4;-  ,N$5 FH!",*93""S>H1:AO@.:#Y,%P,DCU!=30
+XM!!D452\'44/EB%"-8O BJZW@(@^(P0,SWH 'KC !+G;0BGYLP ,[V($'T)$!
+XM+&@AN-;_\  H.*"*(QR"9+G*]@ <$-('$1K<S05I.C@1G%=,@A'<8$06P."+
+XM(U%A!N]^-P9:$H1X+",*9'A!#KQ V5K$EM\=:(+A)I '-]@W'V[@^A&T3@1X
+XMFO8)K6"$*SR "@>"8P.VO $V>, '(53# QW'^!LTL0-%O&$=_5C!.GB0 3  
+XMHP[K+D F;I6P 62"$X1^$.1O[L$S&?,825C@#3#!@7.C^Q7!$ /2X4UZ!UB@
+XM!B4 A09X"FH>@(,'M>"!7NKAWWQ<0!;U4+4L\N$0O7Q!!C)X A&,L?:K7F,%
+XM%2<HAWF B!/L .,H<,4^]G&%#.R@#RA0A)L]P '6%>$08X#"_Z8MH&*GV#P=
+XM#A@ )QH$>8E]"3?I$,$4#)"%")#!$.P 0Q%\(8(>W$,=2@=O0  ''Q $TU *
+XM_" !^L9OH?9ZM1 ^0+4Y$R +,N &\*(&I24#A< -A< (UH *J' "O#!;6+ !
+XMUY %$T<.B&!@J, '"[8";W!5^R $*/ &5K "&F %"^ /8)!<XF !XK @-0=Y
+XMZ;=^Z_<.ZT<;)69'9W$.M\  -P #8"!T+% $5N +15 '4: 9^@!O\: '\= $
+XM[G #I1 -Q)!DM= /=( (KG!F"^$G%R!ELB!E Z<&%"@+H; *TZ "X, -(<@+
+XM0J!+%9<!5X -'N<*&9!W=;<"U\ ##?^V#BBP!6^  IC  @%0!,EE&]R&)C*G
+XM8NM'*^\@!K6"8A%C0>HP#A&  SI !N4 !AE0!.QP $60!7:B#BZ! ?@ !_HP
+XM"%Z 0]&0 [50"TGF"J$6>[5P<'?@!F#G!A4(+SD3?,4@8.5P#;S@ 4*P F75
+XM;$+ #L:@!<0 6Q^HACQP#7U !W<VB7T 82=@!6 0 2( %9NH8IXH<YGP#DD0
+XM!)/G -Q6?HM7!06  Q30#J# #<-P!B> 0.A6,(RE#_&0"T' BPE8"DDV:L30
+XM#\:PAFU(#(EB T?5/LQX!VK@!A8H T1@#:W5"M1X J3  QN@!;IT NS DA5'
+XMC1[ !W30!^3_((@GX&:*8 F-\ D!< :'$ 5 <%-@4B$VEX2/MP#XN"OGQPD1
+XMXP,?X -R< 3VT 8_DT598 (<((OGX!^Y@ ] T  X,'6UD ,;  YT0 RQ98PK
+XMH&]\T 1J8%^B50^R()+!)PM20 2H0(VMP LGD &DX '(MTLKL ^X,'&NP AI
+XM!EO7\)=78 U]L ,G@ 5OT A@L 4F$ !)( ;?AI2<\ [9)HI.L0NAZ'@J]B".
+XM8$%@,96>T $3$ JVX *^P K\=  <P *MUA,ET X2T(M><$8VB7%J60NN  YG
+XM1EF9I75/8)<6>)>&P HN8 Q( ((>4&#6< (>X% L>0U"< (&M0*H_X!Q:<8'
+XM/( *)>@*X#D%;_ &#Q8 _O .M9)^-2>?2&B?G$":G+ +^<DKXK":4/ !KJD,
+XM%T $H0!T67 %_&0'[' $+: .#3 . N %5$=Q=$<'QDF,&MI3?$ ,^7 ']6!P
+XM264'LD $3V!/UL +QH *KK!VWRD$J%"8/'"-(=@*R$<.&T .:&:3&S!W,9H!
+XM#C0)/1@%29 $2*A^Z[< "["?"X 3[X 3^WF/:7(V4,":Q22@9G $(V /OX $
+XM'I %)U )OL ./5 'CP(#"< /%=H/-LF&X' #X!"GR-E3Q+ 0N[=?=N &=D $
+XMI" #PQ!T+&IL#%:-#428_< +CL@*^U""Y/_I"N;)!WS0#]'01<\F!"S0!4F@
+XM!/@H!DHH!DIJI$NJ?C6QGS@Q;U5AI3\HH!_@ -D@"^V@ DYP U]J#)-@""+0
+XM#:]@!S P!12: Y)P1@G6@'00I[!'#!W:#A/P9!R):C(0"D'7HD)@#&G&I@WD
+XM0(#I"A_7HCM@!6?PJQZ7AI15=?/#"&!@ DE@"N] ">]@:+'Q#J[!E$^Q"QA$
+XM$EY2%;@1H#Y@K[?B V9P#WF  (6 !!<7=)7  NP2#&@P#/1 #&;XC<%8"W**
+XM"'$:C.$Z@?E@ VJ0%[)0#+9  I1E#(R !<.9DX!HC;S0!_T0H^=I!2: ?'2P
+XM 1U*#M&0#+=3#)/_D 6FP +^8 I,D *[0!M@X@"F81H+()J"YADXX0/BD*^_
+XM\@'V:DQ+D0L8X ;:8 LJ<):5P V(< >&@ ; 8 >,( '$4 L=6I&(@*%R6@GT
+XM4 OAZJ%@1WM29D2AP+#@<(U:8)[&-H[6Z)W70 =899,GP $9D &3@ 7$D S1
+XM$ W@4 3 , S%T .4D 2<F0+(D +BD ;9YJY)H Z=Z7@I01)BH+0^@ ]*BP_'
+XM(*!XH ?0H ?XH >Y4 4VT XNT 9PYP6W8 S#P#7 @ ;&4'5M&XS@(+'3  X*
+XM6*%T@&HK,P'U\ 0(0 1M0'5 APB_.IP4YYT><+VNH A]NW8LL)UT)PGD_V .
+XMX. +W7 'PP ,SA %$' (\\ $3VJYCQ<$FVL:LK$ \^H)0> )4NFT]^JT>O"_
+XM>E #>O !GL %]: -)#!9Q# -C$ &7*,*A@ .OIMO^8:<<4H/Q/N[^3 $3_ $
+XM;: -C  .@.BH5\ +' 9JKF"VX'!KL74"Y,@#Z7@"&[ &_< /:T ,Q1 ,=P #
+XM,\0E(' .1!H%G) &ZJ>D5F(E53 #+!%O/I )2FL;'X ;N)&ZQZ  -5 #'Y +
+XMQ^6\3K (D"H$E5 $2J *$# -M2 !^09;Q%@+B% )E8 (%/FP-T +]< &%- &
+XMW& ,X-"B=$ 'N' -9P0.L84(_<"6:*:R8&6C_?_P56NE!1J P^PS#J$G(&, 
+XM @$0!44[ "G@")Q0M#6Q"T&@Q!4P _J@#_KK SX !/P+!50A(0$LP#4 !SZ 
+XM 3;P! %+")+ !RM<#OM3!V0@ :/&QF<6O,%;"7':4U0'IVJ@!L%G/Z_GJ#:Y
+XM WR@!;A6":X >VEV _VPG7QP!3O0"+R04 ?@4)= #+38 W?0 SXQ!@,P!DP@
+XM D+,"9O,R:4Q(.I1 $U2!6+@ *@L#D[[ 1:0NJR,!PJ !S5@Q36 #U70 ",P
+XM!TA ".$0J4VD!&. !A& P?EVMJY7S&_,MJ 6C++0"QU\"[&WQ[G,!]:09L@G
+XMR,:HTJX07*303R> "8K_8 J8L 9K< 8M8 =%T .I(2;UF )1$ 5*L  #H!N<
+XMD 2?$1_NA@'Z( ;ZP,]2J<H!^CNLF[H'?<6Q' ^=( ,NL F$0 Z0B@G@X#2F
+XMH+"UX 6NMX;$7,P]10<970O!IP(7>0. ";-\@ U"P UDE& K@+<81YC8L )7
+XMD%#CR0,09@YDX$DT-0,.@!.QD0)"C5%,\!6I 1-CH X%P%A!X!+Z$ 3\/'X 
+XM'=!P8-55K "H+<"YH X7\ 6_  CD<+?@4 D'H K!D 7TT%-LG& 2*['&7*R-
+XMR0->#0Y(<+99( 0Y20?8@ 75F)8>$'NNP*8%A0IHA 5^RP<H@ (01 ]D*@]-
+XM_R 9P: @:9(&C18 "[":(M(J)0 98P!OG_W44JW*%@#0'X 'N"$A5HS:5FP!
+XM06 '[6 +2, #V,!OC% ,(# &PX#&8WNV$ANGO<VV&)IOQ'!@N,9A5R"(QL:6
+XMB, #K8 )=."";"H$N+9@NO1\V$ .M:!_/9 H%>  ,]  HEEBDBVYE.L)NT %
+XM!5 !_W</,"$94#T:\;!I/C#?\XT/40P'^*W?![VJ'=!"FT '.DH,C# )P" -
+XM8&#&%3S(LRVQ+7UF='>U'F ,DN!L+,P'KG"W*Y %K8 *L1W==' "_:!@+FL)
+XMKK &&Y ,66 'OC "ZN  %: .): ."T ##R+9KQ"*-O^!'B Q!D*" 6)0!:"]
+XMSU)-Y/]L3*E+T*BM!PJ #P[0 _7P RK !QL0#1;)"! 0 U>>;[O-T:]%IV>V
+XM8.:)"L]'PU>@"&:$9I7PI2=@#!RVHRO0"BBP HV 9EC5#]C !\;@"X%4 *)W
+XM&B6PKAU# ^^P ,Y0$I'"&,J@)#,@&57@"0[PV?N<"?$PY!^@RJI\WYB>WYQN
+XMP/8P!U NZI7 "#W !%) #SK QL3GVV\LP6O8[SE@YH?92RA F?U S70P1B? 
+XM"&\)LVDVCBA !RG]YB[+!RS0 [?P"KE0 *4<!.J@#NO*3.^ ##[0!/(0'D>W
+XM!T*R[8_N "S/\O$P[N4.T/[_; %P8%W_B]IA  <6, ,-[01\D,O$@ C&8 @Q
+XM %G&4 MNS(9MK,<]Q6]6]^%KQPMNIDN6< +>2@?'APAF](TP&ULK@ *H<.%8
+XM(.(;X 1$$ S%< @LKPZ@S?$% !NKZ0.H,@&W$)!7MAV1H@Q[T.V>L/<M[P!!
+XM/N2I3.Y&;N0!G,6YX !<, )MX 2$@ +1H,MA[ QH  J(( &5$%NS;0P=_8U.
+XM3W'9NP-VIMV:P*C4R@,&L +1D&]J*)XU*0174'<3IP&A4 ?%, @\$1- $ ]'
+XM$069<!7^/ ;R0 &#H$,Y=F/UT!%[8 :>4 484 4.4 (N/_A+:P'D#@5P$,MA
+XM  08_]  $_ #)  /RBT)08\(Q> ,MUW,L[T"27^VNLWZQ( *K; /:K4"&6 %
+XM'J %79_Y,\KZ>7L- '%B!2\L*U;PRX&I1QX8!<0D 9(.7[H2!4H @9(I5R<;
+XM1SI4Z)$OSX@O[A*XLT<D7YT]U*I4<: OB(-X/GP \2$.)Y /<.#D<C##QHAV
+XM]MJ0($%($A]BM<!%B!&HB 1$E59<0V0,$;A:-YK><.6U%J,W*S;P>(-IQQ4M
+XM&_AX\(!H!29&7C>00T%'2*LK&TX0XT=,2J<1ZC*I$Y,.") %!:)D@B).S+]Z
+XM3?[=J]-!3N9>3WZTV90 1SL;,_3IPX!A9DV<F7;ZL.!IS/\1>5\HC"9JSP4=
+XM/DQO5&(D+8JO*4XQ@4-5"5'76LRY_C[#BP</(1EX8#*Q84,MZ?WZK9A4B5P.
+XM/N2ID^HG1 .Q21PN-' 09$$Z3C0&1(GR+N>8%D-Z=; AGPLFJ( *+NX8Z0D*
+XMYFACCA$TFR'"$O1Q *>;8 ,BGB#J:**H"=H9H9<FGH!%%U=XX&,#8HPA X1 
+XMI&"D*4;HP,(8KHBYH;D<<S1F&%3Z$*(1#]:1Q 17O./%@ W6P:(83(@Q+T5L
+XMA%@!&WYNX"" /*H(8J;Z+$AG@8O$*>&!"/Y@XX\_FF"#! 0ZR(,(79X80@8Z
+XMB6@GGTXJ4&<&U5C[0*=X@ BBDR;_8!@A45WL00 !"FSAQ945:B&&&$R,426*
+XM.R*HM!5BKK'Q!M^8JP411HI802 KL$!A R'8XN&$?B0Y2PA<>$"!APV\4Y$8
+XM+Z*1H8<G2NC2 8GP 6* !<2!H@=M;+'GEF*F(:&-5:)1@9M:G*BE$#ME&6*(
+XM/)JP@0M19JB PG3TP,>F#_09HX<[?)$ % DDJ(6$7_;]185:^"AE16.  ::8
+XM822X02M4N.J*CNEXJ&4#"8:Q8P5%A-!D!2W2JZ0?.G;8N%4>3+B"C@VTX*&?
+XM#0);XQ8[9#DBGGC$""(>"_ !,YU,>@"E#9]7<<*)I&HAI*EHB"'$B5^($"8?
+XMD?*QX1]1_\[%H$(++/ !#A\\D2<48T@ QU<OG* '";-5"(L8;&I);@P0BAB&
+XM'G",<67A6OKY%^+I<JBEF!X\R. $2[#86(A^/+C!!)3[T4(27G;800A)).$!
+XML%*\Z,&.)G810Y\%XG'$ D<P\L19H>EQPFA*:_&B$B,8D<"+%Y[9Y E:U,B'
+XMW'^XR"9"!RP P@(X:JAB GN;(Z:251@6F@XDFDNQ%AL#4>6.+,B0X#A7&"9&
+XM[\J)F::('DYX8Q\35D#A\ U0X8&5AS>@]?$K5DB9'RV2R:*.8>KP 8,2W@D>
+XM#4;W@3H@P!TD<((7&)"O!"Z"*EE0@A**0 8&T X)3B.7#3IPBO_+S.!8"JA!
+XM/";@A56,C0RGDH(1X!$->)B-6]LA!AV,<8- @, 7H" #.!BQ/>@UIW*5N\$M
+XMI!",M>PC RKCP0HHMX$K2(<'2R'&"D0E!"&08RDWJ(,OQN$#,7@B$P,  @T$
+XMB \JC" !FU@%/+P@ 5N 0P+&*,4-=*"#%$"!$B*X!0EP,(=P]0)J43M%!921
+XM"0O4P \?: "^O% *Z4FA"*J0 AF\  ]P<*M2_[K!-<!1A^I%X!8Z!,>D*G4#
+XMB.&-&(@81@_JT(@W-.($N^H'BE0DA"),1Q)>X8$6M" IRM4"#"R @30^$(R9
+XMI$.,-$C6"+0QATT 0HU3( (WVL"(:5S_"A-I@ (4G'$$'(1"!FF:0!.@QD%1
+XM8"!X"O!#"08Q#0F0@1[2*P<N5-$#(M##"X2@@R5%)3U$=(,)=K@%*(QQ!E2X
+XMHCFUH,,-Z$",?MS@5&CH@15.H E%Q-([-]@ '5:P@VLPE!@:@!C\DM$;8Q0A
+XM"_(00T62P E'X$,/- C".1 P@B?8HQ" D, JM"$+6[2!&Z 0P &. 8590$$.
+XMQ?C!$-3DGPO8P :GN(<W?( '/^"C ?9X !G* 0M&< ,<:  &&HI!#T+<$Z$Q
+XM)(8KC%$+-,1 !(P8AC&\*DJ((6*A39F$'7K0 TN<H M'3!D/CB0)]JS@.\38
+XM "+Z08[%IJP(_R;=110<8DP!.B(=1S!"'B[0BUZXP1;Y(H(,AF&+[!4A!;-(
+XMPS;20 4[L$$6?PA7/?*0CU-DXQ[4L$ 8(I&)<\#@#D6X!3>X48@B+&&>VK G
+XM(8A6*8;.#1&&< 9 XWH&<-!!1^ (2S^:D@4[V.$(^U"$%?:1Q%PJMGM=X0$B
+XM;A!'5TB"''0@!S?0D+_#<((3H@N> _) &LW:00TV^*8M1E /-[@A6#%(1#83
+XM$8,Z',$&0SA%N"[@-%ITX+90\(,?!B /"@2@"5)XPC ,L808+,$.H B:! B!
+XMKQA*;V&^4,48=  *;M -$7P0%8["=@-ZB$\$1] $#QYA!45L !.5@__?>7D 
+XMC@W<@,FED$0IOIJ%)HCC'06(!V6AL(L'3, &];@ N7J@!C?4XP]$&,$=U& (
+XM*H  !,B LR?D0 4U#&$4O="L@&@!53-\( S, $(##O&$.V3.$,!80B#L0(0\
+XM3F,5VZ(4.'A@C$J XY' ,,(M)L&(ZC:E4G9U,B-\D;DC;*$/C[A"!!3A 5XA
+XMEE(_G)06HE&*:%#,"&,@TSN 1X,R!$$>NAB"@#JR5R[TX!2T -<(ZN2&(]RA
+XM"7H=@S+VH(Q_W-F/ J)M!?: X3 X8@SQ4J5_[> &(MC#)"2PA2W,YA4ZS&T%
+XM$B@"",90C%L,PRJUJ)S'P,&C88A 7D"V D7_=V"%7'IEE-IM"@_(,VMCV*$8
+XM1<C$&,0P (G0@!,<MO-_.M"#!O3@'W4XQ2F$<0I9/&$$>="<%GM !2K((1LV
+XMX"S4]%PN;V X!%L>0['O( ,9R$(&H<"!.W#035L$[=,RO,8-BJ$*50 W"^"H
+XM[MV( 0Y$-.461?#NC]]@@BX<8@M"R,%T2$FI&VAW.MB(,C'RT(.&[.(B[TB'
+XM L0P APHVPW'WETGZE !+OSC'U1PL%-MT(.-KWP,=3 0S$?A5&R?H@?Z$$<8
+XM;KZ+> 'H"&&^P @HP"@$? $')$ ",:+1;DKW30G5TX%7?]@]JC<%%'<0P1V.
+XM<(03[* 1?_5 0:*A_UWMXK@6*- 8-DK!B#H\8'.[" (G@,",=,# 'O:0 6<U
+XM6.P*%(CEQ>Y ![!?AW\$@PICF+,<YKQXQD^8%E380R9J$()C.&,7&&!Y#VQP
+XMAPN8>00?:H<M]/5IM4ZJ&&X#*$ZSKN]9 7"(!@G@+LTY@AYX P)0A$; A'U 
+XM!%W!$>;*$8_A VR0 %\X@A%H #$0@TP0 P4XAD/8!#5A@P#IA6PPEPJXAQF0
+XM QC$@!FX!SDH$&G;@SW8!?&+OU$X!<$S/RY(/SQ@/Q]P!AKL.\&S@3P8 ONS
+XM!R38!*9HMX4AAF( !K>JL4I *[S)D1RPM.[ZL4ZPA#XX 47PAQ- F?-"+/\<
+XMTZCT(8?]:8<'$ ,-T0,]@((6$( ?L(<A<(-@^P<;J !1N(=S@<$9*($(T0=E
+XMF($<W$$=E(,=/ ):B)H "9!\Z %E2(/U:S\QF,$7S P;N(#-JH<A&($V>1ZG
+XMF+2PR8(QB($>,(*LX(,5Z!ZT6A%?^+'9"P83R(  V()#P(3$ @<^X(&%4I$)
+XM= MPZ($F0 !BB0@HP(,QD(!;^ '8XJRFZH#=H8(94(89Q  =W(,@& -]>+]O
+XMW -]V(-[^(?"<ZI18,=1Z  J4+\0**H4D F6RS[&&X5PF0!=4(&DF#IPJ(2%
+XMXH8QD(9YN(6U2BL4<8JD 84FZ($C$($&* $"T(3_+0 #(<@","@'1D"1Z>B'
+XM=3B+RBF&)93#3$@'1] F : ',M"%/^ L/]*@W1'$1<0 .8 ),2C'7:B"72#'
+XM(%!$[OL'^;,!6J"%4<B'(X!'.& _1QB 78#!.N""_R+*?. L&4" 52"!Y@ '
+XM4&$=;@@$:0@&(R"#2I%%O*D%!I" =K"#!FB"!GB%$C !(5B'=< $-)"",V"$
+XM6B"LE/$.[V"K)O# +,,'**"!8M  )Z  -O"/F'NJW>&"%_03?7B)*@!!RA0#
+XMRJR"1$278DO'H1P%-U@\*A #I=P&*$@!#-B%Z_M#6LB'4=BL//B"HV@*@$0%
+XM2C&&8!".(JB$B+D;ZT*:_U4H@MF+R )0AS= @4O@ 6Y@@7,HAK421L3B@1MH
+XM"[]A"#$P%CR@ 1'( 0EP B+X@PGHA<TB/\>\AVPLQSVX3,SLG,LT1QJD K[S
+XMN*$L2EHX BX0@P\( 4B  DYPRAE@.37XP<6C2EG0!:1H#K7*RQ6) E6H SN@
+XME-%3PVBP!8<\@@9PRQ(PG!M A%NX@WD!!7I0*/C9%7Y !'EY@$ZP@$Q R7=8
+XMAQ>0@#8(!9<,3YB,FMUQ03\I1YAX"?;D$GV($+[C B[HA-5<O,6SSP]8AA# 
+XM@Q0PQ#D3!2Y81U#,@WK0AE](G>8P!H2DAT 8 P[H 42(!A6!F%I8!'@P@MD[
+XM@O\6($X,[8=2R %0.(=F.Q@M*(5=61EB2*4[@(&;R 0:2(<(X(<ULH5"D+#P
+XM',J8Y )AJ !AB$P==0 'N,P@0 T:!-)K)-)\H$\NV 5Q\ ,E'8 @B$&62T?6
+XMI(7-^CD$0AY4R,MH (=@ (8>B()*.!H^""5*08(G0--.*($24(?:C(9:&(0B
+XM>(!@ "C D(0<.!EZ:((F>( CP =F20,1T( IF#H5L =J#$7RBYH@O=%M? D'
+XMT-'3F$$DY(+LNT?7-,JH&0,?J(%(*(/3' /_S(;.E,3Z&X&BL]7DB9%?[8%Y
+XM"@104)'$6JA:: /QF3V+V%4^H ,O( 8C<+X'8(([R$O_;&B<#0B%'I '&  "
+XM3X""8^"$=3" =7 ".M@$6*!&USQ46G!,OHL0TY#,EY )#/!1)/0[CP"0UA30
+XM?Y #3SB&93B&IG1/*DC'4X :)GR"-B :IU@1%2"&@&D!8'B%>1.]3\F16J" 
+XM.^B$@^V2$JBD2B !&%A6,BB"8/ 'AB6&-4"$(YB 9LVF-#@&3""2&U !0K"%
+XM'T  V)HP\ML@J>$"*B!$F<W,U.#&"!&%"NB ?+A9&[ V\I,#!Z"J,DB'&1@#
+XMS/ [  F0"X@3$K@DKD %;FA:";B#,;"#%C $"=""4Z(4"<#5AVP A"V!O%R%
+XM6Y"'[[.7.P@$<+ ??C@#>3B"_P<H@0^H 6AH 43@ARM1 9(MA#2QL]8\U&OD
+XM@D"$S,A$#<$=U^KK $D,$-9D3!NX!S.P.4<XQ/?,ANR31 &A4A+@ ^7B"D:(
+XM$48J@C%XA3J0@O7"MTBKAX<\@DY8TQ)@VEL@-&GP@6+P E!@!W#0@&10NB-H
+XM@BVB*@@P  -8 RU8 15P A7X <4<@@LPRL6K,,<4!49M63\17#^9@:DIU_*]
+XM7,XRRG>L BB0/&B0@WNH * $P@'Y)#[ FTHSAO;U@O\+AD 0 7 HA9"JA5N@
+XMT ;0WUTM !(@@R=XK#$0A#O EQC1@#4@ Q%H@B_X73P0!W0P  V0-7!P 2AT
+XM >5U3?_F'<I_.(46/)=[@,S4".'J6TWF-4K."C8;Z(0]\ 3)*X,94(?W+%< 
+XM8<T.05J%K85IT*%":%HO& 0N#88[,(8<J)1?)8*UK%!UP&1,YM [N 6Q]85A
+XMT"[<309&CH)Z.(0/T -G* (-D$Y^V(!?T 82<(?$Q%NCE,0*<UYS$<3JJX"6
+XM'=<2[DS7G+ 4MC,;Z!UQJ(%F"($]4(?G34+&JX<O  <OB*45J80=7F10"(8H
+XMJ ,6 (5*V8 <H(=B6$ +)4YU*( "V)\[P"$CL)$P)89DJ)=#@ '?G9DDN $ 
+XMT( D<P4B6 714-[PY."AO,8U;D%>#N$?%06_LS9,94T!@<G_3E"&/5;F$KB'
+XM!C"0.<Z'"<"!U*&#A36&7]CA7XF&6^@!_NB!85BH,+T%F*E0B<3D='Z]#BT'
+XM(PB+%(D&'C#808"!!FB!,3B'&[@!5R:&1?B%HUT%6O:/UL14@N8@QWQ>%W1C
+XM&B37=!P%EW1'P2M*3-59]6L&2$"7'@A2RPU%,ZJ4:L[2+!4;";"#,0B$;B@"
+XM, T,(] K).Z$>XCI I" *3""J:@%.M4";."#2?@V3([(7<B$"%B'-5B'W@B'
+XM2G@"' #HD\59@K;4('U>-Y;A%W1C<TG'7G!)7.[,UKR #I@!3UB_/BZ #N@$
+XM*'4:S$4 $IA5'B $8Y@&8U"!7_&"_QNX@TP)!E^0Q?7P&X[KA$Z(:73F@V@P
+XM(L-YAG"HA5( @"A(@@68B5U !A   PG(@>TF!L*";%M( *5NQ]:4Q.SSNR?5
+XMY>K3;$I-PJON!0W*QU$@RF+^ASWP"2C0.[Z+F@X(LPDP!H;"X4EQ!=)"6N;R
+XMA3&(@AX(@%^(AFCP O'9JP; Z[P&!Q/@@!NXA UP!4)(AF28@G> ")E!ABC(
+XM;@UX 17!J.0A EN8@PO&5G9TZ'_H8*AN0<UVX\(5A<,=@@#Y@V;:!#903)2=
+XM 9L0@PH8TD"&N3O0!E>(!F'T&%=PA39X42=(WQPP@6_#8D98A%J@ASRH PLU
+XM[KPN "Q@ ?\6D,7MT  -\()5W%0P0@8IJ 4-0 @O:#(5,88G #H$".A>:$>B
+XM5-GSGAJ^A5X;[SL9OP!)' )=^ %= '(UF8 \" 8'\(1=0,?*=:H+D %%3I'N
+XM<3)4( ,2F 9NH0-^L(8H  '8XX9HH <*4*4%-&Z\KH!T-H$B< 5^J(3?H#I0
+XM@(%S&(,22 (+X  =,/%[N8$<2'%C^+E%AZW%9,?YO-YT]#L/ENJIEF'KS0<[
+XM:T=V'((TR8,C.&TQ<,H&^(<&N-[+(P+TQ;=^D NU(H-5"'6$*@4/,/4F: %M
+XM4'6_"08+Y1-T3N<" (,KB&>Z  ,"*()SF  9J(<C&(!WJ+I]IH?_XV H23X5
+XM(L"!+UCV.V-'Q4UC2\UQF9QVS>;E=)RPRB[5/##M*O"$F2D!.8AVIVH"-XB1
+XM?@ '[P@E)&B%-KB%59  8JR$5P"!-"6"?#G1+V^ 3";.=)ZT0H"K+ B %M@%
+XM$0"181@#2"  HO8"I]@W/I $Z9$%(E#V/E)A\G[V&9=V]7Y!7JX F:1$&_V'
+XMT_Z #_ !<+P'+B#W2Q\!<"@:AVFR H0%,K"%=^^-&[ #$#B''N &"7 'AR1N
+XM=$;G6.^$4@&#8CB$0VB!=(@"&*" ^Q4$)5B'AC*H [4K.Y>%8:  ;5 3%>9S
+XM^;;L@MZ@)Q7$S:;!:K?>>[R,(-B# M@%_Q_X 'R8]!+(Z YP,!FPA81KJ(:J
+XMM'+ >:SL-$D(@-D0 5L@ R.PT-;557Y/Y\?GA1:0 @Y8@(4?!",(!1N( 55 
+XMA\:&F.U1#E>H.NF1@7(+Z&SO!3\GWVLT;QPW>]GW[&BO  R(AP\(@DP "!\6
+XM/H@+$H5+G7\V%LH@P0<<CPT\5M3"!&X8/1ST2*"B0VQ#DR@M>C "-:%3@P8%
+XM.JEK66!EL$)HQD1)PBE3CR_VC!Q!IH,?,1X\:A$%9PP<G1ODP,D@\@7!GR&]
+XM>@T9U<O&J ZT.G#=2NL?5RZB*@CC4J'"O0I<.G'Y9Y:+.@<?+&0* J4&$'%B
+XMU%')1^7?'36@B/\%W=#OQHU*X'YQ(]%F8RT^?$IEJ5.GP:TG>5*F5/?R\ZM.
+XML *9:I&"QBX87T: \I3EAI<-=(9Z!'<-7+]:Q&XT10!5:B^KHX9[U0KVWZD.
+XM__Z-Y6+V[%JW_Z"7D%MC0! @>/!EVA7E^,()QN#UX]'O,(]*B%1P6W6+Q"I7
+XM=#;P,_(JRI%;#S:G['3O\TN=%#!,#RU$X8@C39"!@!%1B) #4$Y01!0Q2!A3
+XM"86U/#%,.Z%$555P6-E RU8=B%+<5LLMYQR+;CEW5@4S^ !'&/&((0X<'\2S
+XM2P4]<&&(&G:$0E@_*Y1W6"5D% +**@ELY HA?& 301W!-&&$+$W\T]__9YZ]
+XM%$PQYT21P@ BP&#/%WDPL4YLKJA0RU"Z66B,;H0]H<T(%+ 157#Y$$=B<<K1
+XM,J)RA2JGHHMGS5#=!W#X ,0'D?H01!UJ<)%/#[*0\%&1YB&FPC2,,)( &:N0
+XMX H?Q/!S2POJC#-,$S9P5H%G7A806A2O. )%'8,@,(@ONYQA0#0;%.+"?%[4
+XMX@0]9*@ #F'$$ '*$SCHPF<O^= RRH@ETB(*5UPM)VZ)X:XXEC#WS*!/%?&D
+XMD@L&>U0AAPU-!/G/,%[,-U%Y0K6Q"B,JN'-+&R1<0P<YV C0PQCRP'!' UNJ
+XMI Y+M][:"0V.U)#:%\., ,(Y_*Q3"C&_P$(8_U$2D* "&<9$6XPM(^"@)W#<
+XM#C<*H%UU,*)"5@TJ+E<V[!ST0D)S,4,=L?:0SPCYJ $8&8O<()%0/"3U6"%D
+XMW((#&4ZH@' I$HC0<!Y-=-! !6C7^LI*H94!32;U?-$.$78HL<X-!H132SBM
+XMZ.:%$Q)(,(T*C$1##"%$D$&$+7-<*]7-.',;J+BC_+'G$%5%/DKF0WPXQ 7Y
+XMY'/Y'[W\,<(1=O2@C1,?55W>"NN1P,@J[MBRBA,=\4&.!..4\( =1Z"=T@PO
+XM><EV)V70T ,%[?Q1##(1K(,W.(0L4DB=$L CP2K3@%)*-+44HT([[CC.IY_I
+XMXUP<N.#V\@/\<_R@R_^>>_ZABR[STR_5!4/@G_D?+F #*MAA%5ZX@19>QP-$
+XM@*,-3@A%)7!PBU7 HQ"_^,@-'A ,>=3A"";JS-I>$IH/ &$0,+A%$9 A F*L
+XM@P\WX$,_Z  .:!&C%C.<(2-JX04O*(X;MZ# %_Y0CYH)9W): 9=6!F65/Y N
+XM<U:12A[J(8->N$$-:J""#61PA']LL1L]@(47:GB#JDGD0N!  BC:T(;WU,(8
+XMC-B #HTPAB-T@HX-\,]_ /09..0!!L.X PC&0 ;$\. &T7(%.'1C0QM6PA@2
+XM:)T1*@&*4.#@!^W(W%2$$R*O(+$!7!E.<*JBN:S\0QC*4,8>8O$-,\0"BSW_
+XMX*(->B #,D3K=4&I!!(6$XIIV.)V3JC$+38PM4F,H0<H29N 7*+' O0 !C"0
+XMAS-4,0G$("8IJ;(ARFPX0S(DLA:V"-4MW($#-HS@0U,)SBCR431/(E$K?MH<
+XMSK)A2F]0@QJQ,$,J6KD0Y_S#$(R(UFXB,L89+HL,H6B#+1A! A* @QN[\<(D
+XM@M&#M%6@$Q:M@/$ ] HCU&,<G@ !##: B-VLX 8>(08=B,*'1<[0&"0@"B.F
+XM<8M")  ']F!BYZ@2''262Q1(W-;-1ID<81!5&%3(AC*X8 -U<N$>-B@&"4A6
+XMPT(2(S?8])H1?@$*6_QB%> HAR&)P8TQO")M][!H_\4*8*N7R*,)8_@ &.B!
+XM"*K5@B(H0T12M F.1F*H%LZZA4+=H2><YK1/D_,DN; "S^'8X!3RS 9RU& #
+XM2TGG CDD#!]X@)ND$(.@$FB#-E81"C*HL1;ET,T-(D"%8*Q$'17%:$;UJ(X:
+XM]( ,7D $(6-7TD42Y08W-,HTEF4,,C#"%B1(P!SL83]S[K0!62D76(1&"]'=
+XM+)/J+)H;\G$*+F3C+WD8 5$B,U4^(").$EA620QJ"Q6LPK3@0 PC@A$, 9U5
+XM0&J]+X!*\($Q"* 68W0%#URQ E?XMQ:(J(4,9\C EM9B<,8 +'QL <3E8O)F
+XM12N75D:T5#]=X)R8K,=4;/_0EAY000WMP,%*^Y'9H:2'*(@X+PFV:HM;S)BA
+XM+CCP#4 1C#%T K;&6ZLZHJ .,?B #!(@#"JH-F >U!"U=?UM&\\K 6 6 CYM
+XMF,,7V*!EPF:26UH)U\X&-2+1J3,?%SBS.M70@6S(X1]N^,<%</!2CT@"P?VH
+XM!!8.?$8O2$!Q:>PE"2K!C40B@A%U* %]>ZS,^T;A)7" P0&/7!XZ#'@%[ZT%
+XM/31;8$O_%ASG39(*G(#0F;$!!EN&W%2<JS.B%4UH*Z("%<12 5@3\!]H&(83
+XMR& >/LAFH'V]@0Z=8(0T;G4:J_C%+>@TY1;L@25WC&T!&AWM C1!  <LKU R
+XM.V#_0QH8P7C5)@/I48GSUF(:E7 @"6Q14_IQ.5N,7<BJ#>46M,AA!LI05UK^
+XMTH$ZW"$!7F@#,7CMP@ CPA6^)8JRB$"PK?ZB#4JJ!&+H48<@W*,$SVX)QE\B
+XM;8@?$#$KF VE#;X;:)G4D,#N=(/W^B82D'8:./C"(.P'N09<F"LT5PYTS#*#
+XM/>@# S/X^0SN084&6*88833&><XSE((G<H9'!D<Q0&'0@[:!/3.\ 3U>L0MU
+XM6)PE)?!2$M@6A4;3@YK"G(U0*F'7&XPT*1YQH8*[:4-Q.Z&!JY  />9029F'
+XMB%M"<W4#S'*/P:M+#GN(%] '3^(>W"(:B4GZ& G.Z?""_^,)H+B%-@C6!F/8
+XMHA+C1L3$[Z&..V9<A&Q[Q2N$4-)"LMC Z@$''"MQ&&O"T;\*3GDM%+/7KL&#
+XM'@F@P"!B7CIW+U5H':@ SH%>;SD$00X8>'Z]Z] )*O@""5Y03[^&8FD&:K,H
+XM1;A\YM78!D: @Q$WD$ P=E$ BS? )=(6X4N$8)YM%]+U[]U-)5R85\*</)'G
+XM];33)0D]P,/V)$ "_,">R,,YM5H'K,5:W(,<Z,,>S, 8')[S58'/_4,/U$$[
+XMU) Q5(U0W("E80&"^5_N/8$1W((1X, JK)<ME-_Y!4,0<%T#L$V031OJY2 6
+XM",4*3 1J[17$W=)0W(#!>82+O?_7#=D?.)!!UW@! 0+"[^T)59 9O"U'X,6(
+XM')3 SB'>\P7=*]F!-A"&?.A6>3$0AAR<#1D#+H ?P<Q8(324?^V8%J;$*ZA$
+XMH^7@Z8$@DP$;(B#"A>PAG5A-P7';R:6<!("#'\+4>VP/ 1J@M001MEQ K'@2
+XMT6'A#.S"!-I;T&G@/PA)#1G<"H1B286B,:142M6"FWS?+7P!P80"-X0".!A!
+XM#): 6K5  XA  [3 K9S>+FX U4R$2=4"*AB#,41#4GC 5-45G-0".?@6 _E6
+XM)="#N)V1,:@1"4@ ('A! BR4(\+<'SQ +\2*!QD3%52 '-1;,%1 ,-S#91Q!
+XM#]P!* #_&R%-A-6L "K$#C6=URT,PS"  B@8@=;8PRV0P3?=0AV, :(U0!Z,
+XM0Q,(#R[68"Z^0M6L #_$$"HRPC!N /[106ZX75"@##@@DNX=XF)P7AML8TW-
+XMS%,,PNE,@$OFP06,(T+ &CK.VEEM24,6@;6)%";TP42$XC5\W('A5H/= A$,
+XMV[!MS>4A&PG<0C!D80,T@3QT5!-491.(P!&(0 NT@!5@@@%(1#_ $3CP B-4
+XM O]!''HLHW]YA&;IGJ<1!1)40B'8 @[85#M,0#UDB:Q0(LWU)1>4(^'M0KP$
+XM0;R4 /-5P1@T0020 2*LPPHXIGEH%A:,$6(<XCX.@PK:@]:$_P+!D,$TM,$8
+XM!(,Z',$$/, $P, #C -#'D(3',(1- $E=$$?7 (F:.2 $2,-^:$+Z5_)Y16X
+XM8=H9%84*W$(H&,$(U,,=Y(,;N$&LV, 1+(0'>=!?"ETYU@&LW<,8S  &5($G
+XM?  R^  31($)Z  /K,-$ !BE)05BV!#F]>,_#LPDD=8:J1^UP< $.,P(/(##
+XMZ*=J!L \4$(+8((D"!,BBLJ!$4,E8,(R,IG;K26P(=)>20"P$4(#A4(HM$,]
+XM-$'HG!E,B@X#^LA;J$4#], =^4<0B($#/ H4X $>.$(2!$ $3 $U]:&G0.,M
+XME -F_N-FSM1FBH'T'<($,.1I/A-J/O^ D3X !+! %SR"(1726 X:8302B_5F
+XM, :CZ[U8>-5"&W"#/1SGF;G!!617/CRG<YZ-JSE'Q 0>%4Q?C 1!BOH %, I
+XM%$ !--# .[! !-Q #BQ0(?5#9QD#-VA#CH("UW"F+7">$<1 2EAE5<K#.$SE
+XM Z"F,\4! 9S /( !%O # V&"^7W$%!C#&-6"GRZ0;@RA?[G"YW53 W'#:M0#
+XM3)X9K(9.JRT$8HF+)_G(^NF#&(@!$%@ /C@"/N#!,3@"-)1!.HB $2!"#DR-
+XM+]Y J+A ,=S"+4@=C0TDRPS#+EQ&0QX!MS(JI)YF$IB $.@ !+S1@0$J87B!
+XM&P7%#8PJG*S_)]R]GEQU$QJM1A[D02^<62]TJ#H-C?&=3=#T0 ?TF'8Z@ , 
+XM@4   3[@ PU8 #3@ Q0< Q1D CO4)H0 !3@4PCXR@M;8 AELU;F1P1.H7U9&
+XM91,LJK<:J2F<0 1@PCZP -O= #%.32FTS.RQJS+ZIF:!PS30PU'4$#T4PFI,
+XM "8%!ZQ>EW/^Z[]Z$EJ40! $03S$ Q!,K054K04HP,):0 T<0R*D0!8@@@;D
+XMP&Z003D4@Y+< B\Y"VG1PQVP%F<\)"YRZSE8Y3BPP!;(7P1T@2_T0Q^"JA?D
+XM ,>RWM3 R3.*ZLDQT#181&>!PRK"P A,P+X:K>@($+PIK2>!!=HL_\H,.(#4
+XM3JWG-JROZD&P;BT4I  [3($!_*DQ#,.#>2:/;AX)W($ZO,+)VN(MWF*WOF95
+XM3D( - (ZK, DF (FL)U9?L0M8$)2L-ANN (B6)H\&M@TA H]$,7LK,800.Y4
+XM;*B'NIK-_9URH(VZE  &&&SG>J["*JP>I*\>;&T(T$ +Y.DZ[-4P)$DA\!+!
+XMN!0], QGU*$MUB$N8F6W]@$F!, .K ,F[  +]"%NA1$C& ->E1=EKL"%]*89
+XM$M=1U (2,((]V"?D=M@HH%G1&,K.5.%9J,L,/"W4'JSY4JWH^NHQU  >A$ 9
+XM),%K$ .@6@@9T,/]MA<X,$Q6%H!*^&\N"F]/"V3E$9S )>S )V ")@B!$C1O
+XMNQH2,?(I1 1%'SJO[2&"P[D (R"!#15"*!PGY)H9YU"N\8%%]S*M?_R<^))O
+XMU):OPE;MPBZL N@!),BP$D2 2'%#N54"R[',+WC!*LB7\-P*1-9A+HXH5HI 
+X$0   .U;M
+X 
+Xend
+END_OF_FILE
+  if test 21738 -ne `wc -c <'testimg.gif.u'`; then
+    echo shar: \"'testimg.gif.u'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'testimg.gif'\"
+    cat testimg.gif.u | uudecode
+    if [ -f testimg.gif ]; then
+       rm testimg.gif.u
+    fi
+  fi
+  # end of 'testimg.gif.u'
+fi
+echo shar: End of archive 10 \(of 18\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1392 @@
+Newsgroups: comp.sources.misc
+From: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Subject:  v33i003:  problem - A Problem Database Manager, Part01/07
+Message-ID: <1992Oct19.165747.3979@sparky.imd.sterling.com>
+X-Md4-Signature: 22ab85f11b0f0c324497ec0d067a7a3e
+Date: Mon, 19 Oct 1992 16:57:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lijewski@rosserv.gsfc.nasa.gov (Mike Lijewski)
+Posting-number: Volume 33, Issue 3
+Archive-name: problem/part01
+Environment: UNIX, GDBM, C++, termcap
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 7)."
+# Contents:  classes.h display.h help.h lister.h keys.h problem.h
+#   regexp.h version.h utilities.h AREAS.template ChangeLog INSTALL
+#   MANIFEST
+# Wrapped by lijewski@xtesoc2 on Mon Oct 19 11:04:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'classes.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'classes.h'\"
+else
+echo shar: Extracting \"'classes.h'\" \(8836 characters\)
+sed "s/^X//" >'classes.h' <<'END_OF_FILE'
+X/*
+X** classes.h - the declarations of the classes used in problem
+X**
+X** classes.h classes.h 1.7   Delta'd: 15:50:54 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __CLASSES_H
+X#define __CLASSES_H
+X
+X#include <stddef.h>
+X#include <string.h>
+X
+X#include "problem.h"
+X
+X/////////////////////////////////////////////////////////////////////////////
+X// A Simple reference counted string class.  It is implemented as an
+X// Envelope-Letter abstaction with String being the envelope and StringRep
+X// being the letter.
+X/////////////////////////////////////////////////////////////////////////////
+X
+Xclass String;
+Xclass SBHelper;
+X
+Xclass StringRep {
+X  public:
+X    friend class String;
+X    friend class SBHelper;
+X
+X    StringRep();
+X    StringRep(const char *s);
+X    StringRep(char** r, size_t slen) { rep = *r; len = slen; count = 1; }
+X    ~StringRep()                     { DELETE rep;                      }
+X
+X    enum { chunksize = 50 };     // # of StringReps to allocate at a time
+X    static StringRep *freeList;  // we manage our own storage
+X    void *operator new(size_t size);
+X    void operator delete(void *object);
+X
+X    int operator!=(const char *rhs) const;
+X    int operator==(const char *rhs) const;
+X    int operator!=(const StringRep& rhs) const;
+X    int operator==(const StringRep& rhs) const;
+X
+X    String operator+(const String& s) const;
+X
+X    size_t length() const { return len; }
+X  private:
+X    //
+X    // Disable these two methods
+X    //
+X    StringRep(const StringRep&);
+X    StringRep& operator=(const StringRep &);
+X    union {
+X        char *rep;
+X        StringRep *next;
+X    };
+X    size_t len;
+X    int count;
+X};
+X
+Xclass String {
+X  public:
+X    friend class StringRep;
+X    friend class SBHelper;
+X
+X    String()                       { p = new StringRep();           }
+X    String(const String& s)        { p = s.p; p->count++;           }
+X    String(const char *s)          { p = new StringRep(s);          }
+X    String(char **s)               { p = new StringRep(s, ::strlen(*s)); }
+X    String(char** s, size_t slen)  { p = new StringRep(s, slen);    }
+X    ~String();
+X
+X    String& operator=(const String& rhs);
+X
+X    int operator==(const char *rhs)   const;
+X    int operator==(const String& rhs) const;
+X    int operator!=(const char *rhs)   const;
+X    int operator!=(const String& rhs) const;
+X
+X    String operator+(const String &rhs) const   { return *p + rhs;      }
+X    friend String operator+(const char *lhs, const String& rhs)
+X                                            { return rhs + String(lhs); }
+X
+X    void operator+=(const String &rhs);
+X    void operator+=(const char *rhs);
+X
+X    operator const char *() const { return p->rep; }
+X    SBHelper operator[](int index);
+X    size_t length() const { return p->len; }
+X    void range_error(int index);
+X  private:
+X    StringRep *p;
+X};
+X
+X/////////////////////////////////////////////////////////////////////////////
+X// This class is a helper class used by String::operator[] to distinguish
+X// between applications of operator[] on the lhs and rhs of "=" signs.
+X/////////////////////////////////////////////////////////////////////////////
+X
+Xclass SBHelper {
+X  public:
+X    SBHelper(String &s, int i);
+X    char operator=(char c);
+X    operator char() { return str.p->rep[index]; }
+X  private:
+X    SBHelper(const SBHelper&);        // disallow this method
+X    void operator=(const SBHelper&);  // disallow this method
+X    String &str;
+X    int index;
+X};
+X
+X///////////////////////////////////////////////////////////////////////////////
+X// DLink - Class modeling a link in a doubly-linked list of strings.
+X//         We also maintain the length of the string.
+X///////////////////////////////////////////////////////////////////////////////
+X
+Xclass DLink {
+X    friend class DList;
+X  public:
+X    DLink(char **);
+X    ~DLink() { }
+X
+X    static DLink *freeList;    // we manage our own storage for DLinks
+X    enum { chunksize = 50 };   // size blocks of DLinks we allocate
+X    void *operator new(size_t size);
+X    void operator delete(void *object);
+X
+X    const char *line()  const { return _line;          }
+X    int length()        const { return _line.length(); }
+X    DLink *next()       const { return _next;          }
+X    DLink *prev()       const { return _prev;          }
+X    void update(char **);
+X  private:
+X    String            _line;
+X    DLink            *_next;
+X    DLink            *_prev;
+X    //
+X    // Disallow these operations by not providing definitions.
+X    // Also keep compiler from generating default versions of these.
+X    //
+X    DLink();
+X    DLink(const DLink &);
+X    DLink &operator=(const DLink &); 
+X};
+X
+X///////////////////////////////////////////////////////////////////////////////
+X// DList - Class modeling a doubly-linked list of DLinks.
+X//         It also maintains our current notion of what
+X//         is and isn't visible in the window.
+X///////////////////////////////////////////////////////////////////////////////
+X
+Xclass DList {
+X  public:
+X    DList();
+X    ~DList();
+X
+X    DLink *head()              const { return _head;                   }
+X    DLink *tail()              const { return _tail;                   }
+X    DLink *firstLine()         const { return _firstLine;              }
+X    DLink *lastLine()          const { return _lastLine;               }
+X    DLink *currLine()          const { return _currLine;               }
+X    DList *next()              const { return _next;                   }
+X    DList *prev()              const { return _prev;                   }
+X
+X    int savedXPos()            const { return _saved_x;                }
+X    int savedYPos()            const { return _saved_y;                }
+X
+X    void setFirst(DLink *e)          { _firstLine = e;                 }
+X    void setLast (DLink *e)          { _lastLine  = e;                 }
+X    void setCurrLine (DLink *ln)     { _currLine = ln;                 }
+X
+X    void setNext (DList *l)          { _next = l;                      }
+X    void setPrev (DList *l)          { _prev = l;                      }
+X
+X    int nelems()                 const { return _nelems;               }
+X    void saveYXPos(int y, int x)       { _saved_x = (short)x;
+X                                         _saved_y = (short)y;          }
+X
+X    int atBegOfList()            const { return _currLine == _head;    }
+X    int atEndOfList()            const { return _currLine == _tail;    }
+X
+X    int atWindowTop()            const { return _currLine == _firstLine; }
+X    int atWindowBot()            const { return _currLine == _lastLine;  }
+X
+X    void add(DLink *);
+X    void deleteLine();
+X  private:
+X    DLink      *_head;
+X    DLink      *_tail;
+X    int         _nelems;
+X    short       _saved_x;     // saved x cursor position
+X    short       _saved_y;     // saved y cursor position
+X    DLink      *_firstLine;   // first viewable DLink in window
+X    DLink      *_lastLine;    // last  viewable DLink in window
+X    DLink      *_currLine;    // line cursor is on in window
+X    DList      *_next;
+X    DList      *_prev;
+X    //
+X    // Disallow these operations by not providing definitions.
+X    // Also keep compiler from generating default versions of these.
+X    //
+X    DList(const DList &);
+X    DList &operator=(const DList &);
+X};
+X
+Xinline int StringRep::operator!=(const char *rhs) const {
+X    return strcmp(rep, rhs);
+X}
+X
+Xinline int StringRep::operator==(const char *rhs) const {
+X    return strcmp(rep, rhs) == 0;
+X}
+X
+Xinline int StringRep::operator!=(const StringRep& rhs) const {
+X    return strcmp(rep, rhs.rep);
+X}
+X
+Xinline int StringRep::operator==(const StringRep& rhs) const {
+X    return strcmp(rep, rhs.rep) == 0;
+X}
+X
+Xinline int String::operator==(const char *rhs) const {
+X    return *p == rhs;
+X}
+X
+Xinline int String::operator==(const String& rhs) const {
+X    return *p == *(rhs.p);
+X}
+X
+Xinline int String::operator!=(const char *rhs) const {
+X    return *p != rhs;
+X}
+X
+Xinline int String::operator!=(const String& rhs) const {
+X    return *p != *(rhs.p);
+X}
+X
+X#endif /* __CLASSES_H */
+END_OF_FILE
+if test 8836 -ne `wc -c <'classes.h'`; then
+    echo shar: \"'classes.h'\" unpacked with wrong size!
+fi
+# end of 'classes.h'
+fi
+if test -f 'display.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'display.h'\"
+else
+echo shar: Extracting \"'display.h'\" \(7724 characters\)
+sed "s/^X//" >'display.h' <<'END_OF_FILE'
+X/*
+X** external definitions needed for interfacing with display.C
+X**
+X** display.h display.h 1.8   Delta'd: 15:50:52 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __DISPLAY_H
+X#define __DISPLAY_H
+X
+X//
+X// termcap capabilities we'll try to use
+X//
+Xextern char *AL;               // insert blank line before cursor
+Xextern char *ALN;              // insert N blank lines before cursor
+Xextern int   AM;               // automatic margins?
+Xextern char *BC;               // backspace, if not BS
+Xextern int   BS;               // ASCII backspace works
+Xextern char *CD;               // clear to end of display
+Xextern char *CE;               // clear to end of line
+Xextern char *CL;               // clear screen
+Xextern int   CO;               // number of columns
+Xextern char *CM;               // cursor motion
+Xextern char *CR;               // cursor beginning of line
+Xextern char *CS;               // set scroll region
+Xextern int   DA;               // backing store off top?
+Xextern int   DB;               // backing store off bottom?
+Xextern char *DC;               // delete character at cursor
+Xextern char *DL;               // delete line cursor is on
+Xextern char *DLN;              // delete N lines at cursor
+Xextern char *DM;               // string to enter delete mode
+Xextern char *DO;               // cursor down
+Xextern char *ED;               // string to end delete mode
+Xextern int   HC;               // hardcopy terminal?
+Xextern char *HO;               // cursor home
+Xextern char *IS;               // initialize terminal
+Xextern char *KD;               // down arrow key
+Xextern char *KE;               // de-initialize keypad
+Xextern char *KS;               // initialize keypad (for arrow keys)
+Xextern char *KU;               // up arrrow key
+Xextern char *LE;               // cursor back one column
+Xextern int   LI;               // number of rows
+Xextern char *LL;               // cursor to lower left
+Xextern int   OS;               // terminal overstrikes?
+Xextern char  PC;               // pad character
+Xextern char *PCstr;            // pad string
+Xextern char *SE;               // end standout mode
+Xextern char *SF;               // scroll screen up one line
+Xextern char *SO;               // enter standout mode
+Xextern char *SR;               // scroll screen down one line
+Xextern char *TE;               // end cursor addressing mode
+Xextern char *TI;               // enter cursor addressing mode
+Xextern char *UP;               // cursor up
+Xextern char *VE;               // end visual mode
+Xextern char *VS;               // enter visual mode
+Xextern char *XN;               // strange wrap behaviour
+X
+X// have we just been resumed after being suspended?
+Xextern int resumingAfterSuspension;
+X
+X//
+X// termcap routines
+X//
+Xextern "C" {
+X    extern short ospeed;        // terminal speed - needed by tputs()
+X#if !defined(__GNUG__) || __GNUG__ == 2
+X    int    tgetent(const char *buf, const char *name);
+X    int    tgetflag(const char *);
+X    int    tgetnum(const char *);
+X    char  *tgetstr(const char *, char **);
+X    char  *tgoto(const char *, int, int);
+X    int    tputs(const char *, int, int (*)(int));
+X#endif
+X}
+X
+X//
+X// functions defined in display.C
+X//
+Xextern void    clear_display();
+Xextern void    clear_to_end_of_screen(int);
+Xextern void    delete_listing_line(int);
+Xextern void    init_display();
+Xextern int     outputch(int);
+Xextern void    scroll_listing_up_one();
+Xextern void    scroll_listing_down_one();
+Xextern void    scroll_listing_up_N(int);
+Xextern void    scroll_listing_down_N(int);
+Xextern void    scroll_screen_up_one();
+Xextern void    scroll_screen_down_one();
+Xextern void    scroll_screen_up_N(int);
+Xextern void    scroll_screen_down_N(int);
+Xextern void    setraw();
+Xextern void    termcap(const char *);
+Xextern void    term_display();
+Xextern void    termstop(int);
+Xextern void    unsetraw();
+Xextern void    update_screen_line(const char *, const char *, int);
+X
+X/*
+X** output_string_capability - output a string capability from termcap
+X**                             to the terminal. The second argument,
+X**                             which defaults to 1, is the number
+X**                             of rows affected.
+X*/
+X
+Xinline void output_string_capability(const char *capability, int affected = 1)
+X{
+X    if (capability) tputs(capability, affected, outputch);
+X}
+X
+Xinline int rows() { return LI; }
+X
+Xinline int columns() { return CO; }
+X
+Xinline void initialize_terminal() { output_string_capability(IS); }
+X
+Xinline void synch_display() { (void)fflush(stdout); }
+X
+Xinline void enter_cursor_addressing_mode() { output_string_capability(TI); }
+X
+Xinline void enable_keypad() { output_string_capability(KS); }
+X
+Xinline void disable_keypad() { output_string_capability(KE); }
+X
+Xinline void enter_visual_mode() { output_string_capability(VS); }
+X
+Xinline void end_visual_mode() { output_string_capability(VE); }
+X
+Xinline void end_cursor_addressing_mode() { output_string_capability(TE); }
+X
+Xinline void enter_standout_mode() { output_string_capability(SO); }
+X
+Xinline void end_standout_mode() { output_string_capability(SE); }
+X
+Xinline void enter_delete_mode() { output_string_capability(DM); }
+X
+Xinline void end_delete_mode() { output_string_capability(ED); }
+X
+Xinline void move_cursor(int row, int column)
+X{
+X    if (column >= columns()) column = columns()-1;
+X    output_string_capability(tgoto(CM, column, row));
+X}
+X
+Xinline void cursor_home()
+X{
+X    HO ? output_string_capability(HO) : move_cursor(0, 0);
+X}
+X
+Xinline void clear_to_end_of_line() { output_string_capability(CE); }
+X
+Xinline void move_to_modeline() { move_cursor(rows() - 2, 0); }
+X
+Xinline void move_to_message_line()
+X{
+X    if (LL)
+X        output_string_capability(LL);
+X    else
+X        move_cursor(rows()-1, 0); }
+X
+Xinline void clear_modeline() { move_to_modeline(); clear_to_end_of_line(); }
+X
+Xinline void clear_message_line()
+X{
+X    move_to_message_line(); clear_to_end_of_line();
+X}
+X
+Xinline void delete_screen_line(int y)
+X{
+X    move_cursor(y, 0);
+X    output_string_capability(DL, rows()-y);
+X}
+X
+Xinline void backspace() {
+X    if (BS)
+X        putchar('\b');
+X    else if (LE)
+X        output_string_capability(LE);
+X    else
+X        output_string_capability(BC);
+X}
+X
+Xinline void cursor_up() { output_string_capability(UP); }
+X
+Xinline void delete_char_at_cursor()
+X{
+X    if (DM) output_string_capability(DM);
+X    output_string_capability(DC);
+X    if (ED) output_string_capability(ED);
+X}
+X
+Xinline void cursor_down() { output_string_capability(DO); }
+X
+Xinline void cursor_beginning_of_line() { output_string_capability(CR); } 
+X
+Xinline void cursor_wrap() { cursor_beginning_of_line(); cursor_down(); }
+X
+Xinline void ding() {
+X    //
+X    // This should be `output('\a')', but some braindead C compilers when
+X    // used as the backend to Cfront, don't recognize '\a' as the BELL.
+X    //
+X    outputch(7);
+X    synch_display();
+X} 
+X
+X#endif
+END_OF_FILE
+if test 7724 -ne `wc -c <'display.h'`; then
+    echo shar: \"'display.h'\" unpacked with wrong size!
+fi
+# end of 'display.h'
+fi
+if test -f 'help.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'help.h'\"
+else
+echo shar: Extracting \"'help.h'\" \(2843 characters\)
+sed "s/^X//" >'help.h' <<'END_OF_FILE'
+X/*
+X** help.C - strings displayed for help while in the lister
+X**
+X** help.h 1.7   Delta'd: 17:26:30 10/7/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+Xconst char *const help_file[] = {
+X    " CURSOR MOVEMENT COMMANDS:",
+X    "",
+X    "    ?  H               Display this help.",
+X    "    q                  quit.",
+X    "    j  n  ^N  SPC  CR  Forward  one line.",
+X    "    DOWN_ARROW_KEY             \"        .",
+X    "    k  p  ^P  ^Y       Backward one line.",
+X    "    UP_ARROW_KEY               \"        .",
+X    "    ^F  ^V             Forward  one window.",
+X    "    b  ^B  ESC-V       Backward one window.",
+X    "    ^D                 Forward  one half-window.",
+X    "    ^U                 Backward one half-window.",
+X    "    <                  Go to first line of listing.",
+X    "    >                  Go to last line of listing.",
+X    "",
+X    " COMMANDS WHICH OPERATE ON THE CURRENT PROBLEM:",
+X    "",
+X    "    a                  Append to current problem.",
+X    "    c                  Close current problem.",
+X    "    d                  Delete current problem.",
+X    "    e m v              Examine, View or \"more\" current problem.",
+X    "    r                  Reorganize the database.",
+X    "    M                  Modify keyword field.",
+X    "    R                  Reopen a closed problem.",
+X    "    S                  Save problem listing to a file - prompts for filename.",
+X    "",
+X    " MISCELLANEOUS COMMANDS:",
+X    "",
+X    "    !                  starts up a shell.",
+X    "    ! cmd              executes a shell command - prompts for command.",
+X    "    !!                 reexecutes previous shell command.",
+X    "    ^L                 Repaint screen.",
+X    "    CR                 Signifies end-of-response when in a prompt.",
+X    "    V                  Print out version string."
+X};
+X
+X// number of entries in help_file
+Xconst int HELP_FILE_DIM = int(sizeof(help_file) / sizeof(help_file[0]));
+END_OF_FILE
+if test 2843 -ne `wc -c <'help.h'`; then
+    echo shar: \"'help.h'\" unpacked with wrong size!
+fi
+# end of 'help.h'
+fi
+if test -f 'lister.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lister.h'\"
+else
+echo shar: Extracting \"'lister.h'\" \(1312 characters\)
+sed "s/^X//" >'lister.h' <<'END_OF_FILE'
+X/*
+X** lister.h - the public interface to lister.C
+X**
+X** lister.h 1.3   Delta'd: 15:51:02 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __LISTER_H
+X#define __LISTER_H
+X
+X// interface to the lister
+Xextern void initialize_lister(DList *dl);
+Xextern void lister_cmd_loop(DList *dl);
+X
+X// goal_column - mostly a no-op now
+Xinline int goal_column(const DList*) { return 0; }
+X
+X#endif
+END_OF_FILE
+if test 1312 -ne `wc -c <'lister.h'`; then
+    echo shar: \"'lister.h'\" unpacked with wrong size!
+fi
+# end of 'lister.h'
+fi
+if test -f 'keys.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'keys.h'\"
+else
+echo shar: Extracting \"'keys.h'\" \(3601 characters\)
+sed "s/^X//" >'keys.h' <<'END_OF_FILE'
+X/*
+X** keys.h - contains definitions of all the keys which invoke commands.
+X**
+X** keys.h 1.7   Delta'd: 17:26:33 10/7/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __KEYS_H
+X#define __KEYS_H
+X
+Xconst char KEY_CTL_D = 4;       // forward half window - ASCII CTL-D
+Xconst char KEY_CTL_U = 0x15;    // backward half window - ASCII CTL-U
+Xconst char KEY_TOP   = '<';     // go to first line in listing
+Xconst char KEY_BOT   = '>';     // go to last line in listing
+Xconst char KEY_CTL_L = '\f';    // repaint screen -- CTR-L
+Xconst char KEY_a     = 'a';     // append to current problem
+Xconst char KEY_c     = 'c';     // close current problem
+Xconst char KEY_d     = 'd';     // delete current problem
+Xconst char KEY_e     = 'e';     // examine current problem
+Xconst char KEY_l     = 'l';     // log new problem
+Xconst char KEY_m     = 'm';     // examine current problem -- aka "more"
+Xconst char KEY_q     = 'q';     // quit
+Xconst char KEY_r     = 'r';     // reorganize the database for current area
+Xconst char KEY_s     = 's';     // subscribe to a problem area
+Xconst char KEY_u     = 'u';     // unsubscribe from a problem area
+Xconst char KEY_v     = 'v';     // view problem summaries
+Xconst char KEY_K     = 'K';     // keyword search over entire problem text
+Xconst char KEY_M     = 'M';     // modify keywords
+Xconst char KEY_R     = 'R';     // reopen a closed problem
+Xconst char KEY_S     = 'S';     // save problem listing to file
+Xconst char KEY_V     = 'V';     // print out version string
+Xconst char KEY_BKSP  = '\b';    // backspace works as expected while in a prompt
+Xconst char KEY_BANG  = '!';     // run shell command
+Xconst char KEY_ESC   = 0x1B;    // for GNU Emacs compatibility -- ASCII-ESC
+X
+X// display help
+Xconst char KEY_QM    = '?';
+Xconst char KEY_H     = 'H';
+X
+X// forward one line
+Xconst char KEY_j          = 'j';
+Xconst char KEY_n          = 'n';
+Xconst char KEY_CTL_N      = 0xE;   // ASCII CTL-N
+Xconst char KEY_SPC        = ' ';
+Xconst char KEY_CR         = '\r';  // carriage return
+Xconst char KEY_ARROW_DOWN = 300;
+X
+X// backward one line
+Xconst char KEY_k        = 'k';  // or keyword search over problem headers
+Xconst char KEY_p        = 'p';
+Xconst char KEY_CTL_P    = 0x10; // ASCII CTL-P
+Xconst char KEY_CTL_Y    = 0x19; // ASCII CTL-Y
+Xconst char KEY_ARROW_UP = 301;
+X
+X// forward one window
+Xconst char KEY_CTL_F = 6;    // ASCII CTL-F
+Xconst char KEY_CTL_V = 0x16; // ASCII CTL-V
+X
+X// backward one window
+Xconst char KEY_b     = 'b';
+Xconst char KEY_CTL_B = 2;   // ASCII CTL-B
+X
+X// abort from a prompt - CTL-G
+X//
+X// Can't use '\a' here due to some C compilers not recognizing this
+X// as the terminal bell.
+X//
+Xconst char KEY_ABORT = 0x7;
+X
+X#endif /* __KEYS_H */
+END_OF_FILE
+if test 3601 -ne `wc -c <'keys.h'`; then
+    echo shar: \"'keys.h'\" unpacked with wrong size!
+fi
+# end of 'keys.h'
+fi
+if test -f 'problem.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'problem.h'\"
+else
+echo shar: Extracting \"'problem.h'\" \(2118 characters\)
+sed "s/^X//" >'problem.h' <<'END_OF_FILE'
+X/*
+X** problem.h - functions exported by problem.C
+X**
+X** problem.h 1.9   Delta'd: 15:50:49 9/22/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __PROBLEM_H
+X#define __PROBLEM_H
+X
+Xextern "C" {
+X#include <gdbm.h>
+Xextern gdbm_error gdbm_errno;
+X}
+X
+X// our GDMB filehandle  -- only one open GDBM file at a time
+Xextern GDBM_FILE GdbmFile;
+X
+X// help message for the message window when displaying help
+Xextern const char *const HELP_MSG[];
+X
+Xextern int   append_to_problem(const char *number = 0);
+Xextern int   close_problem(const char *number = 0);
+Xextern int   database_exists();
+Xextern int   delete_problem(const char *number = 0);
+Xextern int   examine_problem(const char *number = 0);
+Xextern int   modify_keywords(const char *number = 0);
+Xextern void  open_database(int mode);
+Xextern int   reopen_problem(const char *number = 0);
+Xextern void  reorganize_database(int dodelay = 1);
+Xextern char *summary_info(datum &data);
+X
+X//
+X// We need this on i486 + ISC v3.2 3.0 Unix (SysVR3)
+X// pid_t is the type returned by fork(2).
+X//
+X#ifdef ISC
+X#define pid_t short
+X#endif
+X
+X//
+X// Deal with old and new types of delete
+X//
+X#ifdef  OLDDELETE
+X#define DELETE delete
+X#else
+X#define DELETE delete []
+X#endif
+X
+X#endif
+END_OF_FILE
+if test 2118 -ne `wc -c <'problem.h'`; then
+    echo shar: \"'problem.h'\" unpacked with wrong size!
+fi
+# end of 'problem.h'
+fi
+if test -f 'regexp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'regexp.h'\"
+else
+echo shar: Extracting \"'regexp.h'\" \(1596 characters\)
+sed "s/^X//" >'regexp.h' <<'END_OF_FILE'
+X/*
+X** external definitions needed for interfacing with regexp.C
+X**
+X** regexp.h regexp.h 1.3   Delta'd: 23:06:20 7/2/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef _REGEXP_H
+X#define _REGEXP_H
+X
+X#define NSUBEXP  10
+Xtypedef struct regexp {
+X	char *startp[NSUBEXP];
+X	char *endp[NSUBEXP];
+X	char regstart;		// Internal use only.
+X	char reganch;		// Internal use only.
+X	char *regmust;		// Internal use only.
+X	int regmlen;		// Internal use only.
+X	char program[1];	// Unwarranted chumminess with compiler.
+X} regexp;
+X
+Xextern const char *REerror; // how we pass error messages around
+Xextern regexp *regcomp(const char *exp);
+Xextern int regexec(regexp *prog, char *string);
+X
+X#endif
+END_OF_FILE
+if test 1596 -ne `wc -c <'regexp.h'`; then
+    echo shar: \"'regexp.h'\" unpacked with wrong size!
+fi
+# end of 'regexp.h'
+fi
+if test -f 'version.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version.h'\"
+else
+echo shar: Extracting \"'version.h'\" \(1176 characters\)
+sed "s/^X//" >'version.h' <<'END_OF_FILE'
+X/*
+X** version.h - where our version number is defined
+X**
+X** version.h version.h 1.8   Delta'd: 13:39:02 10/13/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef _VERSION_H
+X#define _VERSION_H
+X
+Xconst char *const Version = "Problem Version 1.0";
+X
+X#endif
+END_OF_FILE
+if test 1176 -ne `wc -c <'version.h'`; then
+    echo shar: \"'version.h'\" unpacked with wrong size!
+fi
+# end of 'version.h'
+fi
+if test -f 'utilities.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utilities.h'\"
+else
+echo shar: Extracting \"'utilities.h'\" \(3526 characters\)
+sed "s/^X//" >'utilities.h' <<'END_OF_FILE'
+X/*
+X** utilities.h - functions in utilities.C
+X**
+X** utilities.h utilities.h 1.27   Delta'd: 17:42:55 10/8/92   Mike Lijewski, CNSF
+X**
+X** Copyright (c) 1991, 1992 Cornell University
+X** All rights reserved.
+X**
+X** Redistribution and use in source and binary forms are permitted
+X** provided that: (1) source distributions retain this entire copyright
+X** notice and comment, and (2) distributions including binaries display
+X** the following acknowledgement:  ``This product includes software
+X** developed by Cornell University'' in the documentation or other
+X** materials provided with the distribution and in all advertising
+X** materials mentioning features or use of this software. Neither the
+X** name of the University nor the names of its contributors may be used
+X** to endorse or promote products derived from this software without
+X** specific prior written permission.
+X**
+X** THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+X** IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+X*/
+X
+X#ifndef __UTILITIES_H
+X#define __UTILITIES_H
+X
+X#include <stdio.h>
+X#include "classes.h"
+X
+X//
+X// possible response for yes_or_no command
+X//
+Xenum Response { No, Yes };
+X
+Xextern void         adjust_window();
+Xextern void         block_tstp_and_winch();
+Xextern void         cleanup(int);
+Xextern void         display_string(const char *str, int len =0, int offset =0); 
+Xextern void         eat_a_character(const char *msg, void (*redisplay)(),int=0);
+Xextern void         error(const char *format, ...);
+Xextern void         exec_with_system(const char *cmd, int prompt = 1);
+Xextern int          execute(const char *file, const char *argv[]);
+Xextern const char  *expand_tilde(char *str);
+Xextern char        *fgetline(FILE *fp, int size);
+Xextern char        *get_prob_number(const DList *dl);
+Xextern void         initialize();
+Xextern void         initial_listing(DList *dl);
+Xextern void         leftshift_current_line(DList *dl);
+Xextern int          lines_displayed(DList *dl);
+Xextern int          read_and_exec_perm(const char *file);
+Xextern void         rightshift_current_line(DList *dl);
+Xextern void         lock_file(int fd);
+Xextern void         message(const char *fmt, const char *str = 0);
+Xextern char        *prompt(const char *msg, void (*redisplay)());
+Xextern int          read_file(FILE *, char** &, int, int, int = 0);
+Xextern long         seconds_in_date(const char *date);
+Xextern void         set_signals();
+Xextern const char  *temporary_file();
+Xextern const char **tokenize(const char *line, const char *separators);
+Xextern void         unblock_tstp_and_winch();
+Xextern void         unlock_file(int fd);
+Xextern void         unset_signals();
+Xextern void         update_modeline(const char *head=0, const char *tail=0);
+Xextern void         update_screen_line(const char *oldl, const char *newl, int y);
+Xextern const char  *username();
+Xextern void         winch(int);
+Xextern void         write_to_pipe(int fd, const char *data, int size);
+Xextern int          yes_or_no(const char *msg,
+X                              void (*redisplay)(),
+X                              Response defResponse,
+X                              int standout);
+X
+X// has the window size changed?
+Xextern int windowSizeChanged;
+X
+X// is the message window dirty?
+Xextern int message_window_dirty;
+X
+X// the current modeline
+Xextern char *current_modeline;
+X
+X// max - the maximum of two integer arguments.
+Xinline int max(int x, int y) { return x >= y ? x : y; }
+X
+X#endif /*__UTILITIES_H*/
+END_OF_FILE
+if test 3526 -ne `wc -c <'utilities.h'`; then
+    echo shar: \"'utilities.h'\" unpacked with wrong size!
+fi
+# end of 'utilities.h'
+fi
+if test -f 'AREAS.template' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AREAS.template'\"
+else
+echo shar: Extracting \"'AREAS.template'\" \(900 characters\)
+sed "s/^X//" >'AREAS.template' <<'END_OF_FILE'
+X#
+X# This file contains the problem areas that are currently
+X# valid.  Lines with a `#' in the first position are considered
+X# comments; all other lines should be of the form:
+X#
+X# apf        - for APF problems under AIX/370
+X# dbx
+X# aix370     - general AIX/370 problems
+X# AFS or NFS - any AFS or NFS related problem
+X#
+X# The part preceding the '-' is considered the to the problem area.
+X# Any trailing spaces and tabs will be striped.  Any spaces embedded
+X# in the name will be transformed to underscores.  The resultant name
+X# must be a valid UNIX filename. So you shouldn't have any leading
+X# spaces in these strings, nor any slashes (/) at all.  The full line
+X# will be displayed in the AREA screen from which the user chooses
+X# areas.  It is suggested that you use only spaces to align the
+X# comment fields as there is no guarantee that tab aligned fields will
+X# come out aligned when displayed.
+X#
+END_OF_FILE
+if test 900 -ne `wc -c <'AREAS.template'`; then
+    echo shar: \"'AREAS.template'\" unpacked with wrong size!
+fi
+# end of 'AREAS.template'
+fi
+if test -f 'ChangeLog' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ChangeLog'\"
+else
+echo shar: Extracting \"'ChangeLog'\" \(1676 characters\)
+sed "s/^X//" >'ChangeLog' <<'END_OF_FILE'
+X0.7 to 0.8
+X---------
+X
+Xo replaced access(2) with open(2) in problem1.C
+Xo replaced calls to fchmod(2) with chmod(2).
+Xo made temporary_file return a const char *.
+Xo replaced all calls to ftruncate() with a close(open()) combination.
+Xo some #ifdef ISCs to make i486 + ISC v3.2 3.0 Unix (SysVR3) work.
+Xo added POSIX signals and a flag to choose between BSD and POSIX
+X  signals for those places where I truly need to "block" signals.
+Xo added a MANIFEST file to the distribution.
+X
+X0.8 to 0.9
+X---------
+X
+Xo added a '-v' flag.
+Xo if we can't fit all the areas on the screen, even after compacting
+X  them into multiple columns, the title line on the area window
+X  becomes: "The First N Areas:".
+Xo removed setbuf for setvbuf -- stdout is still fully buffered, but I now
+X  let the standard I/O package choose the buffer and buffer size.
+Xo added macro OLDDELETE to signify that the C++ compiler cannot deal
+X  with the 'delete []' form of deleting arrays of objects.
+Xo will now strip trailing tabs as well as spaces from the area names,
+X  though tab-embedded strings probably won't display as the user
+X  expects.
+Xo am now cognizant of the fact that the second argument to execvp is a
+X  (char *const *) and am using it correctly.
+X
+X0.9 to .95
+X---------
+X
+Xo ran c++-tame-comments on all the .C files.  This is where all the
+X  backslashes in comments come from.
+Xo added 1992 to Copyright notice.
+Xo fixed problem with not being able to use emacs as an editor.
+Xo merged in patch from Rob Kurver
+X
+X0.95 to 1.0
+X----------
+X
+Xo changed modify keyword command from 'm' to 'M'; now 'm' is
+X  a mnemonic for "more" in "view" mode.
+Xo enhanced yes_or_no with a default response mode.
+Xo added patches for Apollo
+END_OF_FILE
+if test 1676 -ne `wc -c <'ChangeLog'`; then
+    echo shar: \"'ChangeLog'\" unpacked with wrong size!
+fi
+# end of 'ChangeLog'
+fi
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+echo shar: Extracting \"'INSTALL'\" \(8889 characters\)
+sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+X
+XInstallation Guidelines:
+X-----------------------
+X
+XProblem is written in C++, so you must have a C++ compiler.  It runs
+Xonly in the UNIX environment for the time being.  You must also have
+Xthe GNU database management library (GDBM) installed, as well as have
+Xthe pager "less" on your system.  It has been successfully built and
+Xtested in the following environments:
+X
+XSun Sparc running SunOS 4.1.1 with Cfront 2.0, g++ 2.2
+XIBM 3090 running AIX/370 with Cfront 2.0
+XIBM RS/6000 running AIX 3.1.5 with Cfront 2.1, g++ 2.2, xlC
+Xi486 + ISC v3.2 3.0 Unix (SysVR3) with g++ 2.2.2 (use -DTERMIO -DISC)
+XApollo running Domain/OS 10.3 with ANSI headers, BSD Environment, g++ 2.2
+X
+XIn order to build "problem", a few lines in the Makefile will need to be
+Xmodified.  The line
+X
+XCC = 
+X
+Xis used to define the name of your C++ compiler.
+X
+X  ex.  You have some version of Cfront
+X  --
+X         CC = CC
+X
+X  ex.  you have GNU g++
+X  --
+X         CC = g++
+X
+XThe line
+X
+XCFLAGS =
+X
+Xis where system-specific preprocessor defines are put.  Direct from
+Xthe Makefile we have:
+X
+X# Add -DSIGINTERRUPT if you both have it and NEED it to ensure that signals
+X# interrupt slow system calls.  This is primarily for 4.3 BSD-based systems.
+X# Otherwise, your system most certaily does the right thing already.
+X#
+X# Add -DOLDDELETE if your compiler can't handle the 'delete []' form
+X# of the delete operator for deleting arrays of objects allocated
+X# via new.  If you don't know whether you compiler can handle it or
+X# not, just don't define it and see what happens.  If your compiler
+X# accepts it, it'll do the right thing.
+X#
+X# You must indicate where the GDBM header file 'gdbm.h' is to be found
+X# using a flag of the form: -I/usr/local/include.
+X#
+X# If you have the BSD 4.3 signal mechanism, in particular, sigblock(2) and
+X# sigsetmask(2), add -DBSDSIGNALS.  Else if you have POSIX signals, in
+X# particular sigprocmask(2), add -DPOSIXSIGNALS.  Otherwise I'll use
+X# the usually ANSI C signal mechanism when I need to block SIGTSTP and
+X# SIGWINCH.  This can lead to some lost signals in very rare
+X# circumstances, but what can you do with a braindead signal mechanism.
+X#
+X# The default locking is done using the POSIX "lockf".  If you don't
+X# have "lockf" but have the BSD "flock", add -DFLOCK.  If you have
+X# neither, well ...
+X
+X  ex.  On a Sun you need to use -DSIGINTERRUPT and -DBSDSIGNALS
+X  --
+X         CFLAGS = -DSIGINTERRUPT -DBSDSIGNALS -I/usr/local/include
+X
+X  ex.  On an RS/6000 you only need -DBSDSIGNALS
+X  --
+X         CFLAGS = -DBSDSIGNALS -I/usr/local/include
+X
+XYou should also add -O to CFLAGS, unless you really don't trust the
+Xoptimization phase of your compiler.
+X
+XThe line
+X
+XTERMFLAGS = 
+X
+Xis used to set which type of terminal control your OS uses.  From the
+XMakefile:
+X
+X# Those flags needed to compile in the type of terminal
+X# control you have.  Use -DTERMIOS if you have <termios.h>, the POSIX
+X# terminal control.  Use -DTERMIO if you have <termio.h>, the SYSV
+X# terminal control.  Otherwise, the default assumes you have <sgtty.h>,
+X# the BSD terminal control.
+X#
+X# If you choose to use -DTERMIOS and have problems, try -DTERMIO.  On
+X# at least two systems I've tried, the vendor hasn't had all the
+X# include files set up correctly to include <unistd.h> together with 
+X#  <osfcn.h> among others.
+X#
+X# On RS/6000s, AIX/370 and recent Suns, -DTERMIO works well.
+X
+X  ex.  on a SYSV-based system
+X  --
+X         TERMFLAGS = -DTERMIO
+X
+X  ex.  on a POSIX system
+X  --
+X         TERMFLAGS = -DTERMIOS
+X
+X  ex.  on a BSD-based system
+X  --
+X         TERMFLAGS =
+X
+XTo control the screen, dired uses the termcap(3) library.  It used the
+XGNU Database Management Library  (GDBM) for low-level database
+Xmanipulations.  You'll need to link with both these libraries.  From
+Xthe Makefile we have:
+X
+XLIBS =  -lgdbm -ltermcap
+X
+XYou shouldn't need to change this unless you don't have termcap(3).
+XIf this is the case, try one of '-lterminfo' or '-lcurses'.
+X
+XThe macro HOMEBASE is used to control where "problem" stores its
+Xdatabases, mailing lists, SEQUENCE file and AREA file.  It must be a
+Xfull pathname.  From the Makefile:
+X
+X# Directory is which the databases, AREA file (this is the file, with
+X# one area per line, listing the valid problem areas), SEQUENCE file
+X# (this is the file used to keep the unique problem #), and
+X# MAILLIST.* files (which contains the names of interested parties)
+X# will be stored. 
+X
+XThe macro MAILPROG is a version of mail which accepts the -s option to
+Xset the subject line.  It must be a full pathname.
+X
+X  ex.  on AIX/370
+X  --
+X       MAILPROG = /bin/mail  
+X
+X  ex.  on a RS/6000
+X  --
+X       MAILPROG = /usr/bin/mail
+X
+XProblem maintains some limit on the amount of text it will accept for
+Xany initial problem log, or for any single append or close.  From
+Xexperience, this is important to keep people from putting lots of
+Xexxtraneous information in their problem reports which does nothing
+Xexcept cause the databases to grow excessively fast.  The size of this
+Xlimit is configurable by setting the MAXFILESIZE.  At the authors site
+Xwe use
+X
+XMAXFILESIZE = 16000
+X
+XProblem is designed to be run SUID from an account which has write
+Xpermission to the HOMEBASE directory.  This is so that it can update
+Xits SEQUENCE file and mailing list files, without giving write access
+Xto the world.  To start with, it is probably easiest to just make the
+XHOMEBASE directory writeable only by the "problem" administrator and
+Xthen make it SUID to that user.
+X
+XOnce you've edited Makefile, type 'make'.  Hopefully, the make will
+Xcomplete with no errors and you will have a working "problem".  Then
+Xmove the executable "problem" to a suitable binary directory making
+Xsure to set it up SUID to the owner of the HOMEBASE directory.  You
+Xthen need to add some areas to the AREA file.
+X
+XA Word On GDBM:
+X--------------
+X
+XRegarding GDBM, you'll need to do a bit of work to make it work from
+XC++ code.  Specifically, the gdbm.h file generated when GDBM is built
+Xisn't callable from C++; it doesn't have the functions prototyped.
+XThe file 'gdbm.h-proto' should be a dropin replacement for the gdbm.h
+Xfile generated on your system from GDBM version 1.5.  I've also sent
+Xthis to the author of GDBM so that future releases will hopefully be
+Xboth C and C++ compatible.
+X
+XThere is a potential problem with calling the GDBM functions on Suns
+Xfrom C++ code if you use g++.  Basically, you need to compile GDBM and
+X"problem" with compilers from the same "family".  That is, if you
+Xcompile GDBM with gcc, you must compile "problem" with g++.  Likewise,
+Xif you compiled GDBM with cc, you must use a Cfront-based compiler to
+Xcompile "problem".  Otherwise, "problem" will seg fault when you try
+Xto call any of the GDBM functions.  The problem is due to incompatible
+Xstruct passing conventions between gcc and the native C compiler.  I'm
+Xtold that this has been fixed in gcc/g++ versions 2.0 and higher.
+XMoral: don't use a version of g++ lower than 2.0 on Suns.
+X
+XA Note Regarding Portability:
+X----------------------------
+X
+XUnfortunately, from experience, it appears that C++ code is much more
+Xdifficult to port than C code.  The main difficulty seems to be header
+Xfiles.  Since every function must be prototyped before it is used, one
+Xnecessarily includes many system include files to properly prototype
+Xfunctions, especially in an application such as "problem" which uses a
+Xfair number of system services and library functions.  When one starts
+Xincluding many include files, the inconsistencies of the files becomes
+Xapparent.  The most common "bug" is when two different include files
+Xprototype a function differently.  C++ compilers consider this as a
+Xhard error.  The only thing to be done in this situation is to fix the
+Xheader file(s) and continue with the build process.
+X
+XAnother common difficulty is a header file which doesn't prototype a
+Xfunction when in fact it should.  In this case your best bet is to
+Xmanually add the prototype to "problem.h".
+X
+XAnother more fundamental difficulty with include files is that they are
+Xincompletely or inconsistently standardized.  ANSI C dictates the
+Xcontents of only fifteen include files which are meant to cover the C
+Xlibrary.  In order to use a function not covered by ANSI C, which, by
+Xnecessity, will include all operating system specific functions, one
+Xmust have some other scheme for deciding what file(s) to include.
+XWhere ANSI C stops, "problem" development has followed the rules
+Xproposed by POSIX 1003.1 as regards which file to include to get the
+Xprototype of some system-specific function.  Not all systems follow or
+Xeven purport to follow the POSIX standard.
+X
+XIf nothing else, attempting to compile "problem" will probably point out
+Xa number of deficiencies in the implementation of your header files.
+XPersevere and report all bugs to your vendor.
+X
+X
+XMike Lijewski (W)607/254-8686 (H)607/272-0238
+XGoddard Space Flight Center
+XINTERNET: lijewski@rosserv.gsfc.nasa.gov
+XSMAIL:  446 Ridge Rd. Apt. 3, Greenbelt, MD  20770
+END_OF_FILE
+if test 8889 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+fi
+# end of 'INSTALL'
+fi
+if test -f 'MANIFEST' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MANIFEST'\"
+else
+echo shar: Extracting \"'MANIFEST'\" \(1315 characters\)
+sed "s/^X//" >'MANIFEST' <<'END_OF_FILE'
+XAREAS.template     template for the AREAS file
+XINSTALL            how to install this critter
+XMANIFEST           you're reading it
+XMakefile           controls the build
+XREADME             a little about "problem"
+XTHANKS             a bit of thanks to some people
+Xclasses.C          definitions of some of our class member functions
+Xclasses.h          declarations of the classes we use
+Xdisplay.C          contains code controlling the display using termcap(3)
+Xdisplay.h          declarations and inlines for display.C
+Xgdbm.h-proto       sample C++-compatible header file for GDBM 1.5
+Xhelp.h             contains help messages
+Xkeys.h             definitions of all the keyboard keys we acknowledge
+Xlister.C           contains code controlling the view window
+Xlister.h           externally visible declarations for lister.C
+Xproblem.1          man page
+Xproblem.h          external declarations
+Xproblem.lpr        line printable version of the man page
+Xproblem1.C         first part of main command loop
+Xproblem2.C         final part of main command loop
+Xregexp.C           regular expression code
+Xregexp.h           external declarations for regular expression code
+Xutilities.C        some utility functions
+Xutilities.h        external declarations of utility functions
+Xversion.h          contains the patch level
+X
+X
+X
+X
+END_OF_FILE
+if test 1315 -ne `wc -c <'MANIFEST'`; then
+    echo shar: \"'MANIFEST'\" unpacked with wrong size!
+fi
+# end of 'MANIFEST'
+fi
+echo shar: End of archive 1 \(of 7\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 7 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

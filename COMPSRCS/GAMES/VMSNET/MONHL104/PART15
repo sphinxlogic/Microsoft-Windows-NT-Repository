@@ -1,0 +1,1154 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 15/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.031842.9387@klaava.Helsinki.FI>
+Date: 14 Jun 92 03:18:42 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1142
+
+Archieve-name: monster_helsinki_104/part15
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 15/32
+
+-+-+-+-+-+-+-+-+ START OF PART 15 -+-+-+-+-+-+-+-+
+X        a := eval_atom (p1);
+X        write_debug('%e_attack - p1: ',a); `032
+X        readv(a,value,error:=continue);
+X`009if left <= 0 then result := ''
+X        else if statusv <> 0 then result := ''
+X        else if value < 0 then result := ''
+X        else if not privilegion and`032
+X`009`009(attack_limit = maxint) then result := ''  `032
+X        else begin
+X`009    if debug then writeln('%e_attack - power left: ',left:1);
+X`009    if value > left then value := left;
+X`009    if int_attack(myname,value) then begin`032
+X`009`009writev(result,value:1);
+X`009`009used_attack := used_attack + value;
+X`009    end else result := '';
+X`009    if debug then writeln('%e_attack - used power: ',used_attack:1);
+X`009end;
+X        write_debug('%e_attack - result: ',result);
+X        e_attack := result;
+X      end; `123 e_attack `125
+X
+X      function e_not(p1: integer): string_t;
+X      var a: string_t;
+X          value : integer;
+X      begin
+X        write_debug('%e_not');
+X        a := eval_atom (p1);
+X        write_debug('%e_not - p1: ',a); `032
+X        if a > '' then e_not := ''
+X        else e_not := 'TRUE';
+X        write_debug('%e_not leaving');
+X      end; `123 e_not `125
+X
+X      function e_random(p1: integer): string_t;
+X      const max_item = 100;
+X      var a,result: string_t;
+X          table: array `0911 .. max_item`093 of atom_t;
+X          count: integer;
+X          value: integer;
+X
+X`009function action(atom: atom_t): atom_t;`009`123 meta_do ei kutsu t`228t`2
+V28`009`125
+X`009begin`009`009`009`009`009`123 kun atom = ''`009`009`125
+X`009    table`091count`093 := atom;
+X`009    count := count +1;
+X`009    action := '';
+X`009end;
+X
+X      begin
+X         write_debug('%e_random');
+X         result := '';
+X         count := 1;
+X`009 meta_do(p1,action);
+X         count := count -1;
+X         if count > 0 then`032
+X            begin
+X               value := trunc (random * count) + 1;
+X               if debug then writeln ('%e_random - value: ',value);
+X               result := table `091value`093;
+X            end;
+X         write_debug('%e_random result: ',result);
+X         e_random := result;
+X      end; `123 e_random `125
+X
+X      function e_strip(p1: integer): string_t;
+X      var a,result: string_t;
+X          index: integer;
+X          value: integer;
+X      begin
+X         write_debug('%e_strip');
+X         a := eval_atom (p1);
+X         write_debug('%e_strip - p1: ',a);
+X         result := '';
+X         for index := 1 to length(a) do begin
+X             if (a`091index`093 >= 'A') and (a`091index`093 <= 'Z') then`032
+X                result := result + chr(ord(a`091index`093) - ord('A') + ord(
+V'a'))
+X             else if (a`091index`093 >= 'a') and (a`091index`093 <= 'z') the
+Vn
+X                result := result + a`091index`093
+X             else if a`091index`093 in `091'0'..'9'`093 then
+X                result := result + a`091index`093
+X             else result := result + ' ';
+X         end;
+X         `123 result := clean_spaces(result); `125
+X         write_debug('%e_strip result: ',result);
+X         e_strip := result;
+X      end; `123 e_strip `125
+X
+X      function e_control(p1,p2: integer): string_t;
+X      var name,result: string_t;
+X          code: integer;
+X          old_monster: atom_t;
+X      begin
+X         old_monster := monster;
+X         write_debug('%e_control');
+X         name := eval_atom(p1);
+X         write_debug('%e_control - p1: ',name);
+X         if length(name) > atom_length then
+X            name := substr(name,1,atom_length);
+X         if name = '' then result := ''`032
+X         else begin
+X            code := int_get_code(name);
+X            if code = 0 then result := ''
+X            else if (x_monster_owner(pool`091buffer`093.current_program) <>`
+V032
+X`009`009`009x_monster_owner(code) )`032
+X`009`009    and not int_ask_privilege(monster,'manager')`032
+X`009`009    and not system_code then`032
+X`009`009result := ''
+X            else if x_get_flag(code,CF_NO_CONTROL) then begin
+X`009`009result := '';
+X`009`009write_debug('%e_control - control disabled.');
+X`009    end else if int_login(name,false) <> 1 then `123 mark running `125
+X`009`009result := ''`009     `123 monster is already active `125
+X`009    else begin
+X               monster := name;
+X               set_variable('monster name',monster);
+X               result := eval_atom(p2);
+X               int_logout(name);
+X            end;
+X         end;
+X         monster := old_monster;
+X         set_variable('monster name',monster);
+X         write_debug('%e_control - result: ',result);
+X         e_control := result;
+X      end; `123 e_control `125
+X
+X      function e_experience(p1: integer): string_t;
+X      var name,result: string_t;
+X          exp: integer;
+X      begin
+X         write_debug('%e_experience');
+X         name := eval_atom(p1);
+X         write_debug('%e_experience - p1: ',name);
+X         if length(name) > atom_length then
+X            name := substr(name,1,atom_length);
+X         if name = '' then result := ''`032
+X         else begin
+X            exp := int_get_experience(name);
+X            if exp = -1 then result := ''
+X            else writev(result,exp:1);
+X         end;
+X         write_debug('%e_experience - result: ',result);
+X         e_experience := result;
+X      end; `123 e_experience `125
+X
+X      function e_health(p1: integer): string_t;
+X      var name,result: string_t;
+X          hel: integer;
+X      begin
+X         write_debug('%e_health');
+X         name := eval_atom(p1);
+X         write_debug('%e_health - p1: ',name);
+X         if length(name) > atom_length then
+X            name := substr(name,1,atom_length);
+X         if name = '' then result := ''`032
+X         else begin
+X            hel := int_get_health(name);
+X            if hel = -1 then result := ''
+X            else writev(result,hel:1);
+X         end;
+X         write_debug('%e_health - result: ',result);
+X         e_health := result;
+X      end; `123 e_health `125
+X
+X      function eval_number(param: integer; var result: integer): boolean;
+X      var str: string_t;
+X      begin
+X         write_debug('%eval_number');
+X         result := 0;
+X         str := eval_atom(param);
+X         write_debug('%eval_number - param: ',str);
+X         if str = '' then eval_number := false
+X         else begin
+X            readv(str,result,error := continue);
+X            if statusv = 0 then eval_number := true
+X            else begin
+X               result := 0;
+X               eval_number := false
+X            end;
+X         end;
+X      end; `123 eval_number `125
+X
+X      function e_plus_n(p1,p2: integer): string_t;
+X      var result: string_t;
+X          a1,a2: integer;
+X      begin
+X        write_debug('%e_plus_n');
+X        result := '';
+X        if eval_number(p1,a1) and eval_number(p2,a2) then begin
+X           if abs((a1 div 3) + (a1 div 3)) > ((maxint div 3)-1) then
+X              result := ''
+X           else writev(result,a1+a2:1);
+X        end;                           `032
+X        write_debug('%e_plus_n - result: ',result);
+X        e_plus_n := result;
+X      end; `123 e_plus_n `125
+X
+X      function e_difference_n(p1,p2: integer): string_t;
+X      var result: string_t;
+X          a1,a2: integer;
+X      begin
+X        write_debug('%e_difference_n');
+X        result := '';
+X        if eval_number(p1,a1) and eval_number(p2,a2) then begin
+X           if abs((a1 div 3) - (a1 div 3)) > ((maxint div 3)-1) then
+X              result := ''
+X           else writev(result,a1-a2:1);
+X        end;                           `032
+X        write_debug('%e_difference_n - result: ',result);
+X        e_difference_n := result;
+X      end; `123 e_difference_n `125
+X
+X      function e_times_n(p1,p2: integer): string_t;
+X      var result: string_t;
+X          a1,a2: integer;
+X      begin
+X        write_debug('%e_times_n');
+X        result := '';
+X        if eval_number(p1,a1) and eval_number(p2,a2) then begin
+X           if ln(abs(a1)) + ln(abs(a2)) > (ln(maxint)-1) then result := ''
+X           else writev(result,a1*a2:1);
+X        end;                           `032
+X        write_debug('%e_times_n - result: ',result);
+X        e_times_n := result;
+X      end; `123 e_times_n `125
+X
+X      function e_quotient_n(p1,p2: integer): string_t;
+X      var result: string_t;
+X          a1,a2: integer;
+X      begin
+X        write_debug('%e_quotient_n');
+X        result := '';
+X        if eval_number(p1,a1) and eval_number(p2,a2) then begin
+X           if a2 <> 0 then writev(result,a1 div a2:1);
+X        end;                           `032
+X        write_debug('%e_quotient_n - result: ',result);
+X        e_quotient_n := result;
+X      end; `123 e_quotient_n `125
+X
+X      function e_set_experience(p1: integer): string_t;
+X      var result: string_t;
+X          exp: integer;
+X          owner,owner2: atom_t;
+X      begin
+X        write_debug('%e_set_experience');
+X        result := '';
+X        owner  := x_monster_owner(pool`091buffer`093.current_program); `123
+V get owner of this `125
+X        owner2 := x_monster_owner(pool`091buffer`093.current_program,1); `12
+V3 and code owner `125
+X        if eval_number(p1,exp) and`032
+X           (  (int_ask_privilege(monster,'experience') and`032
+X              (userid <> owner) and (userid <> owner2))`032
+X`009      or system_code`009`123 system override check `125
+X           ) then
+X           if exp >= 0 then
+X              if int_set_experience(myname,exp) then writev(result,exp:1);
+X        write_debug('%e_set_experience - result: ',result);
+X        e_set_experience := result;
+X      end; `123 e_set_experience `125
+X
+X      function e_get_state: string_t;
+X      var result: string_t;
+X      begin
+X         write_debug ('%e_get_state');
+X         getheader(pool`091buffer`093.current_program);
+X         freeheader;
+X         result := header.state;
+X         write_debug ('%e_get_state - result: ',result);
+X         e_get_state := result;
+X      end; `123 e_get_state `125
+X
+X      function e_set_state(p1: integer): string_t;
+X      var a: string_t;
+X      begin
+X         write_debug('%e_set_state');
+X         a := eval_atom(p1);
+X         write_debug('%e_set_state - p1: ',a);
+X         getheader(pool`091buffer`093.current_program);
+X         header.state := a;
+X         putheader;  `032
+X         write_debug('e_set_state - result: ',a);
+X         e_set_state := a;
+X      end; `123 e_set_state `125
+X
+X      function e_get_remote_state(p1: integer): string_t;
+X      var result: string_t;
+X          a1: string_t;
+X          code: integer;
+X`009  pub: atom_t;
+X      begin
+X`009 if not lookup_class(pub,'public') then
+X`009    writeln('%error in e_get_remote_state');
+X         write_debug ('%e_get_remote_state');
+X         a1 := eval_atom(p1);
+X         write_debug ('%e_get_remote_state - p1: ',a1);
+X         if length(a1) > atom_length then a1 := substr(a1,1,atom_length);
+X         code := int_get_code(a1);
+X         if code = 0 then result := ''
+X         else if (x_monster_owner(code) <>`032
+X`009`009x_monster_owner(pool`091buffer`093.current_program))
+X`009    and ((x_monster_owner(code) <> pub) or`032
+X`009`009 not int_ask_privilege(monster,'owner'))`032
+X`009    and not system_code then result := ''
+X         else begin
+X            getheader(code);
+X            freeheader;
+X            result := header.state;
+X         end;
+X         write_debug ('%e_get_remote_state - result: ',result);
+X         e_get_remote_state := result;
+X      end; `123 e_get_remote_state `125
+X
+X      function e_set_remote_state(p1,p2: integer): string_t;
+X      var result: string_t;
+X          a1,a2: string_t;
+X          code: integer;
+X`009  pub: atom_t;
+X      begin
+X         write_debug ('%e_set_remote_state');
+X`009 if not lookup_class(pub,'public') then
+X`009    writeln('%error in e_set_remote_state');
+X
+X         a1 := eval_atom(p1);
+X         a2 := eval_atom(p2);
+X         write_debug ('%e_set_remote_state - p1: ',a1);
+X         write_debug ('%                     p2: ',a2);
+X         if length(a1) > atom_length then a1 := substr(a1,1,atom_length);
+X         code := int_get_code(a1);
+X         if code = 0 then result := ''
+X         else if (x_monster_owner(code) <>`032
+X`009`009x_monster_owner(pool`091buffer`093.current_program))
+X`009    and ((x_monster_owner(code) <> pub) or`032
+X`009`009not int_ask_privilege(monster,'owner'))`032
+X`009    and not system_code then result := ''
+X         else begin
+X            getheader(code);
+X            header.state := a2;
+X            putheader;
+X            result := a2;
+X         end;
+X         write_debug ('%e_set_remote_state - result: ',result);
+X         e_set_remote_state := result;
+X      end; `123 e_set_remote_state `125
+X
+X      function e_less_n(p1,p2: integer): atom_t;
+X      var result: atom_t;
+X          a1,a2: integer;
+X      begin
+X        write_debug('%e_less_n');
+X        result := '';
+X        if eval_number(p1,a1) and eval_number(p2,a2) then begin
+X           if a1 < a2 then result := 'TRUE';
+X        end;                           `032
+X        write_debug('%e_less_n - result: ',result);
+X        e_less_n := result;
+X      end; `123 e_less_n `125
+X
+X      function e_number_n(p1: integer): string_t;
+X      var result: string_t;
+X          a1: integer;
+X      begin
+X        write_debug('%e_number_n');
+X        result := '';
+X        if eval_number(p1,a1) then writev(result,a1:1);
+X        write_debug('%e_number_n - result: ',result);
+X        e_number_n := result;
+X      end; `123 e_number_n `125
+X
+X      function e_heal(p1: integer): string_t;
+X      var result: string_t;
+X         a1: integer;
+X      begin
+X         write_debug('%e_heal');
+X         result := '';
+X         if eval_number(p1,a1) and privilegion then
+X            if a1 >= 0 then
+X               if int_heal(myname,a1) then writev(result,a1:1);
+X         write_debug('%e_heal - result: ',result);
+X         e_heal := result;
+X      end; `123 e_heal `125
+X
+X      function e_all_players: string_t;
+X      var result: string_t;
+X      begin
+X         write_debug('%e_all_players');
+X         result := int_l_player;
+X         write_debug('%e_all_players - result: ',result);
+X         e_all_players := result;
+X      end;
+X
+X
+X      function e_all_objects: string_t;
+X      var result: string_t;
+X      begin
+X         write_debug('%e_all_objects');
+X         result := int_l_object;
+X         write_debug('%e_all_objects - result: ',result);
+X         e_all_objects := result;
+X      end;
+X
+X      function e_all_rooms: string_t;
+X      var result: string_t;
+X      begin
+X         write_debug('%e_all_rooms');
+X         result := int_l_room;
+X         write_debug('%e_all_rooms - result: ',result);
+X         e_all_rooms := result;
+X      end;`032
+X
+X      function e_include(p1,p2: integer): string_t;
+X      var a1,a2,result: string_t;
+X      begin
+X         write_debug('%e_include');
+X         a1 := eval_atom(p1);
+X         a2 := eval_atom(p2);
+X         write_debug('%e_include - p1: ',a1);
+X         write_debug('%            p2: ',a2);
+X         if index(a1,a2) >0 then result := a2
+X         else result := '';
+X         write_debug('%e_include - result: ',result);
+X         e_include := result;
+X      end; `123 e_include `125
+X
+X      function e_string_head(p1: integer; c: char): string_t;
+X      var a1,result: string_t;
+X          i: integer;
+X      begin
+X         write_debug('%e_string_head');
+X         a1 := eval_atom(p1);
+X         write_debug('%e_string_head - p1: ',a1);
+X`009 write_debug('%                char: ',c);
+X         i := index(a1,c);
+X         if i = 0 then i := length(a1)+1;
+X         result := substr(a1,1,i-1);
+X         write_debug('%string_head - result: ',result);
+X         e_string_head := result;
+X      end; `123 e_string_head `125
+X
+X      function e_string_tail(p1: integer; c: char): string_t;
+X      var a1,result: string_t;
+X          i,n: integer;
+X      begin
+X         write_debug('%e_string_tail');
+X         a1 := eval_atom(p1);
+X         write_debug('%e_string_tail - p1: ',a1);
+X`009 write_debug('%                char: ',c);
+X         i := index(a1,c);
+X         if i = 0 then i := length(a1)+1;
+X         n := length(a1) - i;
+X         if n <= 0 then result := ''
+X         else result := substr(a1,i+1,n);
+X         write_debug('%string_tail - result: ',result);
+X         e_string_tail := result;
+X      end; `123 e_string_tail `125
+X
+X      function e_lookup_player (p1: integer): string_t;
+X      var result: string_t;
+X      begin
+X         write_debug('%e_lookup_player');
+X`009 result := meta_do(p1,int_lookup_player);
+X         write_debug('%e_lookup_player result: ',result);
+X         e_lookup_player := result
+X      end; `123 e_lookup_player `125
+X
+X      function e_lookup_object (p1: integer): string_t;
+X      var result: string_t;
+X      begin
+X         write_debug('%e_lookup_object');
+X`009 result := meta_do(p1,int_lookup_object);
+X         write_debug('%e_lookup_player result: ',result);
+X         e_lookup_object := result
+X      end; `123 e_lookup_object `125
+X
+X      function e_lookup_room (p1: integer): string_t;
+X      var list,result: string_t;
+X          atom,fill: atom_t;
+X          index: integer;
+X      begin
+X         write_debug('%e_lookup_room');
+X`009 result := meta_do(p1,int_lookup_room);
+X         write_debug('%e_lookup_room result: ',result);
+X         e_lookup_room := result
+X      end; `123 e_lookup_room `125
+X
+X      function e_lookup_direction (p1: integer): string_t;
+X      var list,result: string_t;
+X          atom,fill: atom_t;
+X          index: integer;
+X      begin
+X         write_debug('%e_lookup_direction');
+X`009 result := meta_do(p1,int_lookup_direction);
+X         write_debug('%e_lookup_direction result: ',result);
+X         e_lookup_direction := result
+X      end; `123 e_lookup_direction `125
+X
+X    function same_room(player: atom_t): boolean;
+X    var room: atom_t;
+X    begin
+X`009write_debug('%same_room: ',player);
+X`009room := int_where(player);
+X`009same_room :=`032
+X`009    (int_where(myname) = room) or
+X`009    (int_where(monster) = room);
+X    end; `123 same_room `125
+X`009   `032
+X      function e_submit(p1,p2: integer; label_name: atom_t): string_l;
+X      var r2,result: string_l;
+X          r1: integer;
+X      begin
+X         write_debug('%e_submit');
+X         write_debug('%e_submit - label_name:',label_name);
+X         if eval_number(p1,r1) then begin
+X            r2 := eval_atom(p2);
+X            write_debug('%e_submit - p2: ',r2);
+X            if length (r2) > atom_length then`032
+X               r2 := substr(r2,1,atom_length);
+X            if not same_room (r2) and
+X               not int_ask_privilege(monster,'manager') and
+X`009       not system_code then
+X               result := ''
+X            else if send_submit(monster,
+X`009`009pool`091buffer`093.current_program,label_name,r1,r2) then
+X               writev(result,r1:1)
+X            else result := '';          `032
+X         end else result := '';
+X         write_debug('%e_submit - result:',result);
+X         e_submit := result;
+X      end; `123 e_submit `125
+X
+X      function e_privilege (p1,p2: integer): string_t;
+X      var result,name: string_t;
+X
+X`009function action(atom: atom_t): atom_t;
+X`009begin
+X`009    if int_ask_privilege(name,atom) then action := atom
+X`009    else action := '';
+X`009end;
+X
+X      begin
+X         write_debug('%e_privilege');
+X         name := eval_atom (p1);
+X         write_debug('%e_privilege - p1: ',name);
+X`009 result := meta_do(p2,action);
+X         write_debug('%e_privilege result: ',result);
+X         e_privilege := result
+X      end; `123 e_privilege `125
+X
+X      function e_parse_player(p1: integer): string_t;
+X      var list,result: string_t;
+X
+X`009    function action(s: atom_t; id: integer): boolean;
+X`009    begin
+X`009`009add_atom(result,s);
+X`009`009action := true;
+X`009    end;
+X
+X`009    function undo(id: integer): boolean;
+X`009    begin undo := true; end;
+X
+X      begin
+X`009    write_debug('%e_parse_player');
+X`009    list := eval_atom(p1);
+X`009    write_debug('%e_parse_player - p1: ',list);
+X`009    result := '';
+X`009    scan_pers(action,list,TRUE,undo);
+X`009    write_debug('%e_parse_player result: ',result);
+X`009    e_parse_player := result;
+X      end; `123 e_parse_player `125
+X
+X      function e_parse_object(p1: integer):string_t;
+X      var list,result: string_t;
+X
+X`009    function action(s: atom_t; id: integer): boolean;
+X`009    begin
+X`009`009add_atom(result,s);
+X`009`009action := true;
+X`009    end;
+X
+X`009    function undo(id: integer): boolean;
+X`009    begin undo := true; end;
+X
+X      begin
+X`009    write_debug('%e_parse_object');
+X`009    list := eval_atom(p1);
+X`009    write_debug('%e_parse_object - p1: ',list);
+X`009    result := '';
+X`009    scan_obj(action,list,TRUE,undo);
+X`009    write_debug('%e_parse_object result: ',result);
+X`009    e_parse_object := result;
+X      end; `123 e_parse_object `125
+X
+X      function e_parse_room(p1: integer):string_t;`032
+X      var list,result: string_t;
+X
+X`009    function action(s: atom_t; id: integer): boolean;
+X`009    begin
+X`009`009add_atom(result,s);
+X`009`009action := true;
+X`009    end;
+X
+X`009    function undo(id: integer): boolean;
+X`009    begin undo := true; end;
+X
+X      begin
+X`009    write_debug('%e_parse_room');
+X`009    list := eval_atom(p1);
+X`009    write_debug('%e_parse_room - p1: ',list);
+X`009    result := '';
+X`009    scan_room(action,list,TRUE,undo);
+X`009    write_debug('%e_parse_room result: ',result);
+X`009    e_parse_room := result;
+X      end; `123 e_parse_room `125
+X
+X    function e_for(variable: atom_t; p1,p2: integer): string_t;
+X    var result: string_t;
+X
+X`009function action(atom: atom_t): atom_t;
+X`009begin
+X`009    set_variable(variable,atom);
+X`009    if eval_atom(p2) > '' then action := atom
+X`009    else action := '';
+X`009end;
+X
+X    begin
+X`009write_debug('%e_for');
+X`009write_debug('%e_for - variable: ',variable);
+X`009define_variable(variable);
+X`009result := meta_do(p1,action);
+X`009write_debug('%e_for result: ',result);
+X`009e_for := result;
+X    end; `123 e_for `125
+X`009
+X    function e_userid (p1: integer): string_t;
+X    var result: string_t;
+X    begin
+X`009write_debug('%e_userid');
+X        result := '';
+X        if int_ask_privilege(monster,'experience') or system_code then
+X`009    result := meta_do(p1,int_userid);
+X        write_debug('%e_userid result: ',result);
+X        e_userid := result
+X    end; `123 e_userid `125
+X
+X    function e_list(params: paramtable): string_t;
+X    var result: string_t;
+X`009i: integer;
+X
+X`009function action(atom: atom_t): atom_t;
+X`009begin
+X`009    add_atom(result,atom);
+X`009    action := '';
+X`009end;
+X
+X    begin
+X`009write_debug('%e_list');
+X`009result := '';
+X`009for i := 1 to count_params(params) do`032
+X`009    meta_do(params`091i`093,action);
+X`009write_debug('%e_list result: ',result);
+X`009e_list := result;
+X    end;
+X
+X    function e_mattack(p1,p2: integer):string_t;
+X    var a,result: string_t;
+X`009b: integer;
+X`009manager: boolean;
+X    begin
+X`009write_debug('%e_mattack');
+X`009a := eval_atom(p1);
+X`009write_debug('%e_mattack - p1: ',a);
+X`009manager := int_ask_privilege(monster,'manager') or system_code;
+X`009if length(a) > atom_length then a := substr(a,1,atom_length);
+X`009if (int_get_code(a) = 0) or`032
+X`009    not privilegion or
+X`009    ( not same_room(a) and
+X`009      not manager )
+X`009    then result := ''
+X`009else if not eval_number(p2,b) then result := ''
+X`009else if b < 0 then result := ''
+X`009else if not int_attack(a,b) then result := ''
+X`009else writev(result,b:1);
+X`009write_debug('%e_mattack result : ',result);
+X`009e_mattack := result
+X    end; `123 e_mattack `125
+X`009   `032
+X    function e_mheal(p1,p2: integer):string_t;
+X    var a,result: string_t;
+X`009b,code: integer;
+X`009manager: boolean;
+X    begin
+X`009write_debug('%e_mheal');
+X`009a := eval_atom(p1);
+X`009write_debug('%e_mheal - p1: ',a);
+X`009manager := int_ask_privilege(monster,'manager') or system_code;
+X`009if length(a) > atom_length then a := substr(a,1,atom_length);
+X`009code := int_get_code(a);
+X`009if (code = 0) or
+X`009    not privilegion or
+X`009    ((code = pool`091buffer`093.current_program) and`032
+X`009      not manager
+X`009    ) or`032
+X`009    ( not same_room(a) and
+X`009      not manager
+X`009    ) then result := ''
+X`009else if not eval_number(p2,b) then result := ''
+X`009else if b < 0 then result := ''
+X`009else if not int_heal(a,b) then result := ''
+X`009else writev(result,b:1);
+X`009write_debug('%e_mheal result : ',result);
+X`009e_mheal := result
+X    end; `123 e_mheal `125
+X
+X    function e_prog(params: paramtable): string_t;
+X    var i: integer;
+X`009result : string_t;
+X    begin
+X`009write_debug('%e_prog');
+X`009result := '';
+X`009for i := 1 to count_params(params) do result := eval_atom(params`091i`09
+V3);
+X`009write_debug('%e_prog result : ',result);
+X`009e_prog := result;
+X    end; `123 e_prog `125
+X
+X    function e_spell_level: string_t;
+X    var lev: integer;
+X`009result : string_t;
+X    begin
+X`009write_debug('%e_spell_level');
+X`009if spell_name = '' then result := ''
+X        else begin
+X`009    lev := int_spell_level(summoner_name,spell_name);
+X`009    if lev = -1 then result := ''
+X`009    else writev(result,lev:1);
+X`009end;
+X`009write_debug('%e_spell_level result : ',result);
+X`009e_spell_level := result;
+X    end; `123 e_spell_level `125
+X
+X    function e_set_spell_level(p: integer): string_t;
+X    var lev: integer;
+X`009result : string_t;
+X    begin
+X`009write_debug('%e_set_spell_level');
+X`009if spell_name = '' then result := ''
+X`009else if not eval_number(p,lev) then result := ''
+X`009else if lev < 0 then result := ''
+X        else if not int_set_spell_level(summoner_name,spell_name,lev) then r
+Vesult := ''
+X`009else  writev(result,lev:1);
+X`009write_debug('%e_set_spell_level result : ',result);
+X`009e_set_spell_level := result;
+X    end; `123 e_set_spell_level `125
+X
+X
+X      `123`009   `032
+X      function eval_function (name: atom_t; params: paramtable): string_t;
+X      var result: string_t;
+X          found: boolean;
+X`009  r1,r2,r3: string_t;
+X`009  p1,p2,p3: integer;
+X      begin
+X         write_debug('%eval_function: ',name);
+X`009 p1 := params`0911`093;
+X`009 p2 := params`0912`093;
+X`009 p3 := params`0913`093;
+X         result := '';
+X         if name = '+' then result := e_plus(params)
+X         else if name = '=' then result := e_equal(p1,p2)
+X         else if name = 'inv' then result := e_inv
+X         else if name = 'pinv' then result := e_pinv
+X         else if name = 'players' then result := e_players
+X         else if name = 'objects' then result := e_objects
+X         else if name = 'get' then result := e_get (p1)
+X         else if name = 'pget' then result := e_pget (p1)
+X         else if name = 'drop' then result := e_drop (p1)
+X         else if name = 'pdrop' then result := e_pdrop (p1)
+X         else if name = 'and' then result := e_and (p1,p2)
+X         else if name = 'or' then result := e_or (p1,p2,p3)
+X         else if name = 'move' then result := e_move (p1)
+X         else if name = 'pmove' then result := e_pmove (p1)
+X         else if name = 'pprint' then result := e_pprint (params,false)
+X         else if name = 'print' then result := e_print (params,false)
+X         else if name = 'oprint' then result := e_oprint (params,false)
+X         else if name = 'pprint raw' then result := e_pprint (params,true)
+X         else if name = 'print raw' then result := e_print (params,true)
+X         else if name = 'oprint raw' then result := e_oprint (params,true)
+X         else if name = 'print null' then result := e_print_null (params)
+X         else if name = 'if' then result := e_if (p1,p2,p3)
+X         else if name = 'where' then result := e_where (p1)
+X         else if name = 'null' then result := e_null (params)
+X         else if name = 'attack' then result := e_attack (p1)
+X         else if name = 'heal' then result := e_heal (p1)
+X         else if name = 'not' then result := e_not (p1)
+X         else if name = 'random' then result := e_random (p1)
+X         else if name = 'strip' then result := e_strip(p1)
+X         else if name = 'experience' then result := e_experience(p1)
+X         else if name = 'plus' then result := e_plus_n(p1,p2)
+X         else if name = 'difference' then result := e_difference_n(p1,p2)
+X         else if name = 'times' then result := e_times_n(p1,p2)
+X         else if name = 'quotient' then result := e_quotient_n(p1,p2)
+X         else if name = 'set experience' then result := e_set_experience(p1)
+X         else if name = 'get state' then result := e_get_state
+X         else if name = 'set state' then result := e_set_state(p1)
+X         else if name = 'less' then result := e_less_n(p1,p2)
+X         else if name = 'number' then result := e_number_n(p1)
+X         else if name = 'health' then result := e_health(p1)
+X
+X         else if name = 'all objects' then result := e_all_objects
+X         else if name = 'all rooms' then result := e_all_rooms
+X         else if name = 'all players' then result := e_all_players`032
+X
+X         else if name = 'control' then result := e_control(p1,p2)
+X         else if name = 'include' then result := e_include(p1,p2)
+X         else if name = 'exclude' then result := e_exclude(p1,p2)
+X         else if name = 'get remote state' then`032
+X            result := e_get_remote_state(p1)
+X         else if name = 'set remote state' then
+X            result := e_set_remote_state(p1,p2)
+X         else if name = 'remote players' then result := e_remote_players(p1)
+X         else if name = 'remote objects' then result := e_remote_objects(p1)
+X
+X         else if name = 'duplicate'  then result := e_duplicate(p1)
+X         else if name = 'pduplicate' then result := e_pduplicate(p1)
+X         else if name = 'destroy'    then result := e_destroy(p1)
+X         else if name = 'pdestroy'   then result := e_pdestroy(p1)
+X         else if name = 'string head' then result := e_string_head(p1,' ')
+X         else if name = 'string tail' then result := e_string_tail(p1,' ')
+X         else if name = 'head' then result := e_string_head(p1,',')
+X         else if name = 'tail' then result := e_string_tail(p1,',')
+X         else if name = 'lookup object' then result := e_lookup_object(p1)
+X         else if name = 'lookup player' then result := e_lookup_player(p1)
+X         else if name = 'lookup room' then result := e_lookup_room(p1)
+X`009 else if name = 'privilege' then result := e_privilege(p1,p2)
+X`009 else if name = 'parse player' then result := e_parse_player(p1)
+X`009 else if name = 'parse object' then result := e_parse_object(p1)
+X`009 else if name = 'parse room' then result   := e_parse_room(p1)
+X`009 else if name = 'userid' then result       := e_userid(p1)
+X`009 else if name = 'list' then result`009   := e_list(params)
+X`009 else if name = 'mattack' then result      := e_mattack(p1,p2)
+X`009 else if name = 'mheal' then result        := e_mheal(p1,p2)
+X
+X         else if index(name,'SUBMIT ') = 1 then
+X            if length(name) > 7 then begin`032
+X               result := e_submit(p1,p2,substr(name,8,length(name)-7));
+X            end else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end     `032
+X         else if index(name,'FOR ') = 1 then
+X            if length(name) > 4 then begin`032
+X               result := e_for(substr(name,5,length(name)-4),p1,p2);
+X            end else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end     `032
+X         else if index(name,'GOSUB ') = 1 then          `032
+X            if length(name) > 6 then begin
+X               r1 := eval_atom(p1);
+X               r2 := eval_atom(p2);
+X               r3 := eval_atom(p3);
+X               define_variable('p1');
+X               define_variable('p2');
+X               define_variable('p3');
+X               set_variable('p1',r1);
+X               set_variable('p2',r2);
+X               set_variable('p3',r3);
+X`009`009
+X               result := goto_label (substr(name,7,length(name)-6),found)
+X            end else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end     `032
+X         else if index(name,'DEFINE ') = 1 then begin
+X            if length(name) > 7 then
+X               define_variable (substr(name,8,length(name)-7))
+X            else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end;
+X            result := eval_atom(p1)
+X         end else if index(name,'SET ') = 1 then begin
+X            result := eval_atom(p1);
+X            if length(name) > 4 then
+X              set_variable (substr(name,5,length(name)-4),result)
+X            else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end
+X         end else if index(name,'LABEL ') = 1 then
+X            result := eval_atom(p1)
+X         else begin
+X                 result := '';
+X                 error_counter := error_counter +1
+X            end;
+X         write_debug('%eval_function result: ',result);
+X         if debug then writeln('%                  ec: ',error_counter:1);
+X         eval_function:= clean_spaces (result);
+X      end;
+X      `125
+X
+X    function eval_function (name: integer; params: paramtable): string_t;
+X    var result: string_t;
+X`009found: boolean;
+X`009r1,r2,r3: string_t;
+X`009p1,p2,p3: integer;
+X    begin
+X`009write_debug('%eval_function: ',ftable`091name`093.name);
+X`009p1 := params`0911`093;
+X`009p2 := params`0912`093;
+X`009p3 := params`0913`093;
+X`009result := '';
+X`009case name of
+X`009    1: `123 + `125`009result := e_plus(params);
+X`009    2: `123 = `125`009result := e_equal2(p1,p2);
+X`009    3: `123 inv `125`009result := e_inv;
+X`009    4: `123 pinv `125`009result := e_pinv;
+X`009    5: `123 players `125  result := e_players;
+X`009    6: `123 objects `125  result := e_objects;
+X`009    7: `123 get `125`009result`009:= e_get (p1);
+X`009    8: `123 pget `125 result`009:= e_pget (p1);
+X`009    9: `123 drop `125 result`009:= e_drop (p1);
+X`009    10: `123 pdrop `125   result := e_pdrop (p1);
+X`009    11: `123 and `125 result`009:= e_and (p1,p2);
+X`009    12: `123 or `125`009result := e_or (p1,p2,p3);
+X`009    13: `123 move `125    result := e_move (p1);
+X`009    14: `123 pmove `125   result := e_pmove (p1);
+X`009    15: `123 pprint `125  result := e_pprint (params,false);
+X`009    16: `123 print `125   result := e_print (params,false);
+X`009    17: `123 oprint `125  result := e_oprint (params,false);
+X`009    18: `123 pprint raw `125`009result := e_pprint (params,true);
+X`009    19: `123 print raw `125`009result := e_print (params,true);
+X`009    20: `123 oprint raw `125`009result := e_oprint (params,true);
+X`009    21: `123 print null `125`009result := e_print_null (params);
+X`009    22: `123if `125`009result := e_if (p1,p2,p3);
+X`009    23: `123 where `125   result := e_where (p1);
+X`009    24: `123 null `125    result := e_null (params);
+X`009    25: `123 attack `125  result := e_attack (p1);
+X`009    26: `123 heal `125    result := e_heal (p1);
+X`009    27: `123 not `125`009    result := e_not (p1);
+X`009    28: `123 random `125  result := e_random (p1);
+X`009    29: `123 strip `125   result := e_strip(p1);
+X`009    30: `123 experience `125`009    result := e_experience(p1);
+X`009    31: `123 plus `125`009    result := e_plus_n(p1,p2);
+X`009    32: `123 difference `125`009    result := e_difference_n(p1,p2);
+X`009    33: `123 times `125`009    result := e_times_n(p1,p2);
+X`009    34: `123 quotient `125`009    result := e_quotient_n(p1,p2);
+X`009    35: `123 set experience `125  result := e_set_experience(p1);
+X`009    36: `123 get state `125`009    result := e_get_state;
+X`009    37: `123 set state `125`009    result := e_set_state(p1);
+X`009    38: `123 less `125`009    result := e_less_n(p1,p2);
+X`009    39: `123 number `125`009    result := e_number_n(p1);
+X`009    40: `123 health `125`009    result := e_health(p1);
+X
+X`009    41: `123 all objects `125`009    result := e_all_objects;
+X`009    42: `123 all rooms `125`009    result := e_all_rooms;
+X`009    43: `123 all players `125`009    result := e_all_players;
+X
+X`009    44: `123 control `125`009    result := e_control(p1,p2);
+X`009    69: `123 include `125`009    result := e_include(p1,p2);
+X`009    45: `123 exclude `125`009    result := e_exclude(p1,p2);
+X`009    46: `123 get remote state `125`032
+X`009`009result := e_get_remote_state(p1);
+X`009    47: `123 set remote state `125
+X`009`009result := e_set_remote_state(p1,p2);
+X`009    48: `123 remote players `125  result := e_remote_players(p1);
+X`009    49: `123 remote objects `125  result := e_remote_objects(p1);
+X
+X`009    50: `123 duplicate `125`009result := e_duplicate(p1);
+X`009    51: `123 pduplicate `125`009result := e_pduplicate(p1);
+X`009    52: `123 destroy `125`009result := e_destroy(p1);
+X`009    53: `123 pdestroy `125`009result := e_pdestroy(p1);
+X`009    54: `123 string head `125`009result := e_string_head(p1,' ');
+X`009    55: `123 string tail `125`009result := e_string_tail(p1,' ');
+X`009    56: `123 head `125`009result := e_string_head(p1,',');
+X`009    57: `123 tail `125`009result := e_string_tail(p1,',');
+X`009    58: `123 lookup object `125   result := e_lookup_object(p1);
+X`009    59: `123 lookup player `125   result := e_lookup_player(p1);
+X`009    60: `123 lookup room `125`009result := e_lookup_room(p1);
+X`009    61: `123 privilege `125`009result := e_privilege(p1,p2);
+X`009    62: `123 parse player `125    result := e_parse_player(p1);
+X`009    63: `123 parse object `125    result := e_parse_object(p1);
+X`009    64: `123 parse room `125`009    result := e_parse_room(p1);
+X`009    65: `123 userid `125`009    result := e_userid(p1);
+X`009    66: `123 list `125`009    result := e_list(params);
+X`009    67: `123 mattack `125`009    result := e_mattack(p1,p2);
+X`009    68: `123 mheal `125`009    result := e_mheal(p1,p2);
+X`009    ERROR_ID: `123 -ERROR- `125  begin
+X`009`009result := '';
+X`009`009error_counter := error_counter +1;
+X`009    end;
+X`009    71: `123 lookup direction `125 result := e_lookup_direction(p1);
+X`009    72: `123 prog `125 result := e_prog (params);
+X`009    73: `123 get global flag `125 result := e_get_global_flag(p1);
+X`009    74: `123 == `125 result := e_equal(p1,p2);
+X`009    75: `123 === `125 result := e_equal3(p1,p2);
+X`009    76: `123 spell level `125 result := e_spell_level;
+X`009    77: `123 set spell level `125 result := e_set_spell_level(p1);
+X`009end; `123 case `125
+X
+X`009write_debug('%eval_function result: ',result);
+X`009if debug then writeln('%                  ec: ',error_counter:1);
+X`009eval_function:= clean_spaces (result);
+X    end; `123 eval_function `125
+X     `032
+X    function eval_header(code: integer; par: atom_t; params: paramtable):`03
+V2
+X`009string_t;
+X    var`009result: string_t;
+X`009 found: boolean;
+X`009 r: array `091 1 .. max_param`093 of string_t;
+X`009 p1,p2,p3,i,n: integer;
+X`009 temp: atom_t;
+X    begin
+X`009 write_debug('%eval_header: ',htable`091code`093.name);
+X`009 write_debug('%           : ',par);
+X`009 p1 := params`0911`093;
+X`009 p2 := params`0912`093;
+X`009 p3 := params`0913`093;
+X`009 result := '';
+X`009case(code) of
+X`009    1: `123 SUBMIT `125 result := e_submit(p1,p2,par);
+X`009    2: `123 FOR `125`009result := e_for(par,p1,p2);
+X`009    3: `123 GOSUB  `125 begin
+X`009`009for i := 1 to max_param do r`091i`093 := '';
+X`009`009n := count_params(params);
+X`009`009for i := 1 to n do r`091i`093 := eval_atom(params`091i`093);
+X`009`009define_variable('p1');
+X`009`009define_variable('p2');
+X`009`009define_variable('p3');
+X`009`009for i := 4 to n do begin
+X`009`009    writev(temp,'p',i:1);
+X`009`009    define_variable(temp);
+X`009`009end;
+X`009`009set_variable('p1',r`0911`093);
+X`009`009set_variable('p2',r`0912`093);
+X`009`009set_variable('p3',r`0913`093);
+X`009`009for i := 4 to n do begin
+X`009`009    writev(temp,'p',i:1);
+X`009`009    set_variable(temp,r`091i`093);
+X`009`009end;
+X`009`009result := goto_label (par,found)
+X            end;
+X`009    4: `123 DEFINE `125 begin
+X`009`009define_variable (par);
+X`009`009result := eval_atom(p1);
+X`009    end;
+X`009    5: `123 SET `125 begin
+X`009`009result := eval_atom(p1);
+X`009`009set_variable (par,result);
+X            end;
+X`009    6: `123 LABEL  `125 result := e_prog (params);
+X`009end; `123 case `125
+X`009write_debug('%eval_header result: ',result);
+X`009if debug then writeln('%                  ec: ',error_counter:1);
+X`009eval_header:= clean_spaces (result);
+X      end;
+X     `032
+X`009function eval_gosub(address: integer; params: paramtable): string_t;
+X`009var result: string_t;
+X`009    temp: atom_t;
+X`009    r: array `091 1 .. max_param`093 of string_t;
+X`009    i,n: integer;
+X`009begin
+X`009    if debug then writeln('%eval_gosub: ',address:1);
+X`009    for i := 1 to max_param do r`091i`093 := '';
+X`009    n := count_params(params);
+X`009`009for i := 1 to n do r`091i`093 := eval_atom(params`091i`093);
+X`009`009define_variable('p1');
+X`009`009define_variable('p2');
+X`009`009define_variable('p3');
+X`009`009for i := 4 to n do begin
+X`009`009    writev(temp,'p',i:1);
+X`009`009    define_variable(temp);
+X`009`009end;
+X`009`009set_variable('p1',r`0911`093);
+X`009`009set_variable('p2',r`0912`093);
+X`009`009set_variable('p3',r`0913`093);
+X`009`009for i := 4 to n do begin
+X`009`009    writev(temp,'p',i:1);
+X`009`009    set_variable(temp,r`091i`093);
+X`009`009end;
+X`009`009result := eval_atom(address);
+X`009`009write_debug('%eval_gosub result: ',result);
+X`009`009eval_gosub := clean_spaces (result);
+X`009end; `123 eval_gosub `125
+X                              `032
+X      function eval_atom; `123 (item: integer): string_t; `125
+X      var bf: string_t;                              `032
+X
+X         var_pointer: integer;
+X
+X         procedure eval_step;                              `032
+X         begin
+X            write_debug('%eval_step');
+X            eval_count := eval_count +1;
+X            if eval_count mod event_check = 0 then checkevents(true);
+X            if eval_count >= MAXEVAL then begin           `032
+X               WriteLn ('Error in monster code - out of time.');
+X               goto 1
+X            end
+X         end; `123 eval_step `125
+X
+X      begin
+X         write_debug('%eval_atom ENTER');
+X         var_pointer := var_count;`032
+X         eval_step;
+X         if item = 0 then eval_atom := ''
+X         else with pool`091buffer`093.table`091item`093 do begin
+X`009    `123
+X            if long_name=nil then atom_name := name
+X            else atom_name := long_name`094;
+X            if atom_name = '' then eval_atom := ''
+X            else if atom_name = '-' then`032
+X               eval_atom := eval_atom(params`0911`093)
+X            else if atom_name`0911`093 = '"' then`032
+X               eval_atom := clean_spaces
+X`009`009    (substr(atom_name,2,length(atom_name)-2))
+X            else if atom_name`0911`093 = '_' then`032
+X
+X               eval_atom := eval_variable(substr(atom_name,2,
+X                  length(atom_name)-1))
+X            else eval_atom := clean_spaces(eval_function (atom_name,params))
+V;`032
+X`009    `125
+X`009    case nametype of`032
+X`009`009n_function: eval_atom := eval_function(name,params);
+X`009`009n_header:   eval_atom := eval_header(name,long_name`094,params);
+X`009`009n_variable: eval_atom := eval_variable(long_name`094);
+X`009`009n_gosub:    eval_atom := eval_gosub(name,params);
+X`009`009n_const:    eval_atom := long_name`094;
++-+-+-+-+-+-+-+-  END  OF PART 15 +-+-+-+-+-+-+-+-

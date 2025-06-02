@@ -1,0 +1,1715 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v39i024:  dist-3.0 - Configure script generator and related tools, Part20/28
+Message-ID: <1993Aug19.131526.5975@sparky.sterling.com>
+X-Md4-Signature: f9c9b44103e0d55a67ba34cd178ceb4c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 19 Aug 1993 13:15:26 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 39, Issue 24
+Archive-name: dist-3.0/part20
+Environment: UNIX, Perl, RCS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Wishlist lib/makedir.sh mcon/U/Init.U mcon/U/bitpbyte.U
+#   mcon/U/d_crypt.U mcon/U/d_keepsig.U mcon/U/d_newsadm.U
+#   mcon/U/d_normsig.U mcon/U/d_scorfl.U mcon/U/d_speedopt.U
+#   mcon/U/d_volatile.U mcon/U/fpu.U mcon/U/i_string.U
+#   mcon/U/i_systimeb.U mcon/U/manfmt.U mcon/U/mboxchar.U
+#   mcon/U/newslib.U mcon/U/orgname.U mcon/U/randbits.U
+#   mcon/U/startperl.U mcon/files/question.U mcon/pl/init.pl
+#   pl/newer.pl
+# Wrapped by ram@soft208 on Wed Aug 18 14:42:23 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 20 (of 28)."'
+if test -f 'Wishlist' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Wishlist'\"
+else
+  echo shar: Extracting \"'Wishlist'\" \(1899 characters\)
+  sed "s/^X//" >'Wishlist' <<'END_OF_FILE'
+X*** List of wishes for dist version 3.0 ***
+X
+X=======================================================================
+XIf you wish to implement one of the following, you're welcome :-). In
+Xthat case, please let me know about it.  I will probably integrate your
+Xchanges in my version (after some sanity checks, because I can't
+Xmaintain something I don't understand).
+X
+XThis list has no priority order whatsoever, so you may pick up one of
+Xthe following suggestion and start working on it. In that case, you
+Xmay want to get all the official patches for dist 3.0 first and make
+Xsure nobody is already working on that topic.
+X=======================================================================
+X
+X*** jmake
+X
+XMake the names used more uniform. For instance, 'Simple' appears in
+Xmany rules, but with different meanings, thus making the Jmakefile
+Xharder to understand at a first glance.
+X
+XAllow per-system compilation rules, so that objects and source file
+Xdo not inter-mix but are kept in separate directories.
+X
+X*** metaconfig
+X
+XWrite some "generic" templates for writing new units, so that the user
+Xonly needs to fill up some fields. For instance, there could be a
+Xtemplate for d_* and i_* units. [That's done, they are under mcon/files.
+XNow I need only to write the generator on top of them]
+X
+XMake Configure know about cross-compiling.
+X
+X*** metalint
+X
+XProcess '@' pre-processor lines, and signal mismatches, unrecognized
+Xcommands, etc... Also warn when testing wantedness of unknown symbols
+Xor obsolete ones, etc...
+X
+XThere should be a ?F: directive to tell both jmake and metalint which
+Xfiles are produced by special units. Thus, metalint could warn if
+Xsomewhere in the units a `./prog` appears and Prog is not in the
+Xdependencies. And metaconfig could leave this info out (for scripts
+Xproduced directly in the top-level dir) for jmake to clean them in
+Xthe clobber target...
+X
+X*** pat tools
+X
+XClean that stuff.
+END_OF_FILE
+  if test 1899 -ne `wc -c <'Wishlist'`; then
+    echo shar: \"'Wishlist'\" unpacked with wrong size!
+  fi
+  # end of 'Wishlist'
+fi
+if test -f 'lib/makedir.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lib/makedir.sh'\"
+else
+  echo shar: Extracting \"'lib/makedir.sh'\" \(1763 characters\)
+  sed "s/^X//" >'lib/makedir.sh' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test ! -f config.sh; then
+X		ln ../config.sh . || \
+X		ln ../../config.sh . || \
+X		ln ../../../config.sh . || \
+X		ln ../../../../config.sh . || \
+X		(echo "Can't find config.sh."; exit 1)
+X	fi 2>/dev/null
+X	. ./config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting makedir (with variable substitutions)"
+X$spitshell >makedir <<!GROK!THIS!
+X$startsh
+X# $Id: makedir.sh,v 3.0 1993/08/18 12:04:38 ram Exp $
+X#
+X#  Copyright (c) 1991-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic Licence,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic Licence; a copy of which may be found at the root
+X#  of the source tree for dist 3.0.
+X#
+X# Original Author: Larry Wall <lwall@netlabs.com>
+X# 
+X# $Log: makedir.sh,v $
+X# Revision 3.0  1993/08/18  12:04:38  ram
+X# Baseline for dist 3.0 netwide release.
+X#
+X
+Xexport PATH || (echo "OOPS, this isn't sh.  Desperation time.  I will feed myself to sh."; sh \$0; kill \$\$)
+X
+Xcase \$# in
+X  0)
+X    $echo "makedir pathname filenameflag"
+X    exit 1
+X    ;;
+Xesac
+X
+X: guarantee one slash before 1st component
+Xcase \$1 in
+X  /*) ;;
+X  *)  set ./\$1 \$2 ;;
+Xesac
+X
+X: strip last component if it is to be a filename
+Xcase X\$2 in
+X  X1) set \`$echo \$1 | $sed 's:\(.*\)/[^/]*\$:\1:'\` ;;
+X  *)  set \$1 ;;
+Xesac
+X
+X: return reasonable status if nothing to be created
+Xif $test -d "\$1" ; then
+X    exit 0
+Xfi
+X
+Xlist=''
+Xwhile true ; do
+X    case \$1 in
+X    */*)
+X	list="\$1 \$list"
+X	set \`echo \$1 | $sed 's:\(.*\)/:\1 :'\`
+X	;;
+X    *)
+X	break
+X	;;
+X    esac
+Xdone
+X
+Xset \$list
+X
+Xfor dir do
+X    $mkdir \$dir >/dev/null 2>&1
+Xdone
+X!GROK!THIS!
+X$eunicefix makedir
+Xchmod +x makedir
+END_OF_FILE
+  if test 1763 -ne `wc -c <'lib/makedir.sh'`; then
+    echo shar: \"'lib/makedir.sh'\" unpacked with wrong size!
+  fi
+  # end of 'lib/makedir.sh'
+fi
+if test -f 'mcon/U/Init.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/Init.U'\"
+else
+  echo shar: Extracting \"'mcon/U/Init.U'\" \(1861 characters\)
+  sed "s/^X//" >'mcon/U/Init.U' <<'END_OF_FILE'
+X?RCS: $Id: Init.U,v 3.0 1993/08/18 12:05:02 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: Init.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:02  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X: 
+X?X: This file initializes certain default variables used by Configure.  They
+X?X: may be overridden or added to by definitions in Myinit.U.
+X?X:
+X?MAKE:Init eunicefix: Null Options package
+X?MAKE:	-pick add $@ %<
+X?MAKE:	-pick weed $@ ./Init
+X?S:eunicefix:
+X?S:	When running under Eunice this variable contains a command which will
+X?S:	convert a shell script to the proper form of text file for it to be
+X?S:	executable by the shell.  On other systems it is a no-op.
+X?S:.
+X?V:define undef smallmach:rmlist
+X: Eunice requires " " instead of "", can you believe it
+Xecho " "
+X: Here we go...
+Xecho "Beginning of configuration questions for $package."
+X
+X?X:
+X?X: Throughout the units, one may make use of $define and $undef to reference
+X?X: a defined symbol or an undefined one. There is no need to add them in
+X?X: the dependency line since this unit makes them visible via ?V:, and
+X?X: everyone inherits from those symbols since by convention Init.U is the
+X?X: root dependency.
+X?X:
+Xdefine='define'
+Xundef='undef'
+Xsmallmach='pdp11 i8086 z8000 i80286 iAPX286'
+Xrmlist=''
+X
+Xtrap 'echo " "; rm -rf $rmlist; exit 1' 1 2 3 15
+X
+X: We must find out about Eunice early
+Xeunicefix=':'
+Xif test -f /etc/unixtovms; then
+X	eunicefix=/etc/unixtovms
+Xfi
+Xif test -f /etc/unixtovms.exe; then
+X	eunicefix=/etc/unixtovms.exe
+Xfi
+X
+END_OF_FILE
+  if test 1861 -ne `wc -c <'mcon/U/Init.U'`; then
+    echo shar: \"'mcon/U/Init.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/Init.U'
+fi
+if test -f 'mcon/U/bitpbyte.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/bitpbyte.U'\"
+else
+  echo shar: Extracting \"'mcon/U/bitpbyte.U'\" \(1795 characters\)
+  sed "s/^X//" >'mcon/U/bitpbyte.U' <<'END_OF_FILE'
+X?RCS: $Id: bitpbyte.U,v 3.0 1993/08/18 12:05:27 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: bitpbyte.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:27  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:bitpbyte: cat rm Myread +cc +ccflags
+X?MAKE:	-pick add $@ %<
+X?S:bitpbyte:
+X?S:	This variable contains the value of the BITS_PER_BYTE symbol, which
+X?S:	indicates to the C program how many bits there are in a byte.
+X?S:.
+X?C:BITS_PER_BYTE:
+X?C:	This symbol contains the number of bits in a byte, so that the C
+X?C:	preprocessor can make decisions based on it.
+X?C:.
+X?H:#define BITS_PER_BYTE $bitpbyte		/**/
+X?H:.
+X: check for length of byte
+Xecho " "
+Xcase "$bitpbyte" in
+X'')
+X	echo "Checking to see how many bits there are in a byte..." >&4
+X	$cat >try.c <<'EOCP'
+X#include <stdio.h>
+X?X: Standard C requires a macro CHAR_BIT in <limits.h>
+X#ifdef __STDC__
+X#include <limits.h>
+X#ifndef CHAR_BIT
+X#define CHAR_BIT 8
+X#endif
+X#ifndef BITSPERBYTE
+X#define BITSPERBYTE CHAR_BIT
+X#endif
+X#else
+X?X: On non standard C, try with <values.h>
+X#include <values.h>
+X#ifndef BITSPERBYTE
+X#define BITSPERBYTE 8
+X#endif
+X#endif
+Xmain()
+X{
+X	printf("%d\n", BITSPERBYTE);
+X}
+XEOCP
+X	if $cc $ccflags try.c -o try >/dev/null 2>&1 ; then
+X		dflt=`./try`
+X	else
+X		dflt='8'
+X		echo "(I can't seem to compile the test program.  Guessing...)"
+X	fi
+X	;;
+X*)
+X	dflt="$bitpbyte"
+X	;;
+Xesac
+Xrp="What is the length of a byte (in bits)?"
+X. ./myread
+Xbitpbyte="$ans"
+X$rm -f try.c try
+X
+END_OF_FILE
+  if test 1795 -ne `wc -c <'mcon/U/bitpbyte.U'`; then
+    echo shar: \"'mcon/U/bitpbyte.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/bitpbyte.U'
+fi
+if test -f 'mcon/U/d_crypt.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_crypt.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_crypt.U'\" \(1873 characters\)
+  sed "s/^X//" >'mcon/U/d_crypt.U' <<'END_OF_FILE'
+X?RCS: $Id: d_crypt.U,v 3.0 1993/08/18 12:05:52 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_crypt.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:05:52  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_crypt cryptlib: Loc test xlibpth libpth Csym Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_crypt:
+X?S:	This variable conditionally defines the CRYPT symbol, which
+X?S:	indicates to the C program that the crypt() routine is available
+X?S:	to encrypt passwords and the like.
+X?S:.
+X?S:cryptlib:
+X?S:	This variable holds -lcrypt or the path to a libcrypt.a archive if
+X?S:	the crypt() function is not defined in the standard C library. It is
+X?S:	up to the Makefile to use this.
+X?S:.
+X?C:HAS_CRYPT (CRYPT):
+X?C:	This symbol, if defined, indicates that the crypt routine is available
+X?C:	to encrypt passwords and the like.
+X?C:.
+X?H:#$d_crypt HAS_CRYPT		/**/
+X?H:.
+X?LINT:set d_crypt
+X?T:val
+X: see if crypt exists
+Xecho " "
+Xif set crypt val -f d_crypt; eval $csym; $val; then
+X	echo 'crypt() found.' >&4
+X	val="$define"
+X	cryptlib=''
+Xelse
+X	cryptlib=`./loc Slibcrypt.a "" $xlibpth`
+X	if $test -z "$cryptlib"; then
+X		cryptlib=`./loc Mlibcrypt.a "" $xlibpth`
+X	else
+X		cryptlib=-lcrypt
+X	fi
+X	if $test -z "$cryptlib"; then
+X		cryptlib=`./loc Llibcrypt.a "" $xlibpth`
+X	else
+X		cryptlib=-lcrypt
+X	fi
+X	if $test -z "$cryptlib"; then
+X		cryptlib=`./loc libcrypt.a "" $libpth`
+X	else
+X		cryptlib=-lcrypt
+X	fi
+X	if $test -z "$cryptlib"; then
+X		echo 'crypt() NOT found.' >&4
+X		val="$undef"
+X	else
+X		val="$define"
+X	fi
+Xfi
+Xset d_crypt
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1873 -ne `wc -c <'mcon/U/d_crypt.U'`; then
+    echo shar: \"'mcon/U/d_crypt.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_crypt.U'
+fi
+if test -f 'mcon/U/d_keepsig.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_keepsig.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_keepsig.U'\" \(1756 characters\)
+  sed "s/^X//" >'mcon/U/d_keepsig.U' <<'END_OF_FILE'
+X?RCS: $Id: d_keepsig.U,v 3.0 1993/08/18 12:06:26 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_keepsig.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:06:26  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_keepsig: cat cc ccflags rm Guess contains echo n c Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_keepsig:
+X?S:	This variable contains the eventual value of the SIGNALS_KEPT symbol,
+X?S:	which indicates to the C program if signal handlers need not reinstated
+X?S:	after receipt of a signal.
+X?S:.
+X?C:SIGNALS_KEPT (PERSISTENT_SIGNAL):
+X?C:	This symbol is defined if signal handlers must be reinstated after
+X?C:	receipt of a signal.
+X?C:.
+X?H:#$d_keepsig SIGNALS_KEPT	/**/
+X?H:.
+X?LINT:set d_keepsig
+X: see if signals are kept
+Xval="$undef";
+Xecho " "
+Xecho "Checking to see if signal handlers stick around..." >&4
+X$cat >try.c <<'EOCP'
+Xfoo() {}
+X
+Xmain()
+X{
+X	signal(2, foo);
+X	kill(getpid(), 2);
+X	kill(getpid(), 2);
+X	printf("abc\n");
+X}
+XEOCP
+Xif $cc -o try $ccflags try.c >/dev/null 2>&1; then
+X?X: On AIX a single ./try will not work (with ksh)
+X	sh -c ./try > try.out 2>/dev/null
+X	if $contains abc try.out >/dev/null 2>&1; then
+X		echo "Yes, they do."
+X		val="$define";
+X	else
+X		echo "No, they don't."
+X	fi
+Xelse
+X	$echo $n "(I can't seem to compile the test program. Assuming $c"
+X	if bsd; then
+X		echo "they do.)"
+X		val="$define"
+X	else
+X		echo "they don't.)"
+X	fi
+Xfi
+Xset d_keepsig
+Xeval $setvar
+X$rm -f try*
+X
+END_OF_FILE
+  if test 1756 -ne `wc -c <'mcon/U/d_keepsig.U'`; then
+    echo shar: \"'mcon/U/d_keepsig.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_keepsig.U'
+fi
+if test -f 'mcon/U/d_newsadm.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_newsadm.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_newsadm.U'\" \(1838 characters\)
+  sed "s/^X//" >'mcon/U/d_newsadm.U' <<'END_OF_FILE'
+X?RCS: $Id: d_newsadm.U,v 3.0 1993/08/18 12:06:42 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_newsadm.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:06:42  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_newsadm newsadmin: cat contains Setvar Myread Oldconfig
+X?MAKE:	-pick add $@ %<
+X?S:d_newsadm:
+X?S:	This variable conditionally defines the NEWS_ADMIN symbol, which
+X?S:	indicates to the C program that there is a user who is in charge
+X?S:	of news administration.
+X?S:.
+X?S:newsadmin:
+X?S:	This variable holds the login name of the news administrator, if any.
+X?S:.
+X?C:NEWS_ADMIN (NEWSADMIN):
+X?C:	This symbol, if defined, contains the login name of the news
+X?C:	administrator.
+X?C:.
+X?H:#$d_newsadm NEWS_ADMIN "$newsadmin"		/**/
+X?H:.
+X?LINT:set d_newsadm
+X: get news administrator name
+Xcase "$newsadmin" in
+X'')
+X	if $contains "^news:" /etc/passwd >/dev/null 2>&1 ; then
+X		dflt=news
+X	elif $contains "^usenet:" /etc/passwd >/dev/null 2>&1 ; then
+X		dflt=usenet
+X	elif eunice; then
+X		dflt=system
+X	else
+X		dflt=root
+X	fi
+X	;;
+X*)
+X	dflt="$newsadmin"
+X	;;
+Xesac
+X$cat <<'EOM'
+X 
+XMany systems keep their news in a private directory, or have a non-superuser
+Xin charge of administering news.  (If you don't have such a user, take the
+Xdefault answer.)  I need the login name (not directory) which is used for
+Xnews administration.
+X
+XEOM
+Xrp="News admin login?"
+X. ./myread
+Xnewsadmin="$ans"
+Xcase "$newsadmin" in
+Xroot) val="$undef" ;;
+X*) val="$define" ;;
+Xesac
+Xset d_newsadm
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1838 -ne `wc -c <'mcon/U/d_newsadm.U'`; then
+    echo shar: \"'mcon/U/d_newsadm.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_newsadm.U'
+fi
+if test -f 'mcon/U/d_normsig.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_normsig.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_normsig.U'\" \(1735 characters\)
+  sed "s/^X//" >'mcon/U/d_normsig.U' <<'END_OF_FILE'
+X?RCS: $Id: d_normsig.U,v 3.0 1993/08/18 12:06:44 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_normsig.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:06:44  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_normsig jobslib: test Setvar Guess
+X?MAKE:	-pick add $@ %<
+X?S:d_normsig:
+X?S:	This variable conditionally defines the NORMSIG symbol, which
+X?S:	indicates to the C program that the normal signal handling routines
+X?S:	should be used, as opposed to the ones in 4.1bsd (sigset, etc.).
+X?S:.
+X?S:jobslib:
+X?S:	This variable holds the argument to be passed to the loader to include
+X?S:	the strange signal handling routines from 4.1bsd.  On systems that
+X?S:	have NORMSIG defined this variable is null.
+X?S:.
+X?C:NORMSIG:
+X?C:	This symbol, if defined, indicates that normal signal handling routines
+X?C:	should be used, as opposed to the ones in 4.1bsd (sigset, etc.).
+X?C:.
+X?H:#$d_normsig NORMSIG		/**/
+X?H:.
+X?LINT:set d_normsig
+X: see if we need -ljobs and if we have sigset, etc.
+Xecho " "
+Xif $test -r /usr/lib/libjobs.a || $test -r /usr/local/lib/libjobs.a ; then
+X	echo "Jobs library found." >&4
+X	val="$undef"
+X	jobslib='-ljobs'
+Xelse
+X	if bsd; then
+X		echo "No jobs library found. (I suppose this is at least 4.2...)" >&4
+X	else
+X		echo "No jobs library found. (That's okay, we all have our faults.)" >&4
+X	fi
+X	val="$define"
+X	jobslib=''
+Xfi
+Xset d_normsig
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1735 -ne `wc -c <'mcon/U/d_normsig.U'`; then
+    echo shar: \"'mcon/U/d_normsig.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_normsig.U'
+fi
+if test -f 'mcon/U/d_scorfl.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_scorfl.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_scorfl.U'\" \(1852 characters\)
+  sed "s/^X//" >'mcon/U/d_scorfl.U' <<'END_OF_FILE'
+X?RCS: $Id: d_scorfl.U,v 3.0 1993/08/18 12:07:01 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_scorfl.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:07:01  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_scorfl: cat Myread Oldconfig nametype Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_scorfl:
+X?S:	This variable conditionally defines the SCOREFULL symbol, which
+X?S:	indicates to the C program that any scoreboard kept by the program
+X?S:	should be kept on the basis of the user's full name as opposed to
+X?S:	the user's login name.
+X?S:.
+X?C:SCOREFULL:
+X?C:	This symbol, if defined, indicates that any scoreboard kept by the
+X?C:	program should be kept on the basis of the user's full name as opposed
+X?C:	to the user's login name.  If the user can change his full name he
+X?C:	can enter multiple scores if this is defined.
+X?C:.
+X?H:#$d_scorfl SCOREFULL	/**/
+X?H:.
+X?LINT:set d_scorfl
+X: see how they want the scoreboard kept
+Xcase "$d_scorfl" in
+X"$define") dflt=y ;;
+X*) dflt=n ;;
+Xesac
+Xcase "$nametype" in
+Xother) val="$undef" ;;
+X*)
+X	$cat <<'EOM'
+X
+XThe scoreboard can be kept with one score per login name, or one score per full
+Xname.  If users can change their full name, or if there is more than one person
+Xon your system with the same full name, you should keep the score by login name
+X(the full name is still printed).
+X
+XEOM
+X	rp='Do you want the scoreboard kept by full name?'
+X	. ./myread
+X	case "$ans" in
+X	y*) val="$define" ;;
+X	*) val="$undef" ;;
+X	esac
+X	;;
+Xesac
+Xset d_scorfl
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1852 -ne `wc -c <'mcon/U/d_scorfl.U'`; then
+    echo shar: \"'mcon/U/d_scorfl.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_scorfl.U'
+fi
+if test -f 'mcon/U/d_speedopt.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_speedopt.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_speedopt.U'\" \(1729 characters\)
+  sed "s/^X//" >'mcon/U/d_speedopt.U' <<'END_OF_FILE'
+X?RCS: $Id: d_speedopt.U,v 3.0 1993/08/18 12:07:27 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_speedopt.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:07:27  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_speedopt: Myread Cppsym Oldconfig cat models Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_speedopt:
+X?S:	This variable conditionally defines the SPEED_OVER_MEM symbol, which
+X?S:	indicates to the C program that it can burn memory in order to save
+X?S:	CPU time.
+X?S:.
+X?C:SPEED_OVER_MEM (SPEEDOVERMEM):
+X?C:	This symbol, if defined, indicates that the program can use more
+X?C:	memory in order to reduce CPU time.  The symbol doesn't say whether
+X?C:	we are more interested in saving text space or data space.
+X?C:.
+X?H:#$d_speedopt SPEED_OVER_MEM	/**/
+X?H:.
+X?LINT:set d_speedopt
+X: do we want speed at the expense of memory
+X$cat <<'EOM'
+X 
+XI can try to optimize this package for either speed or memory.  If you have
+Xlimited address space you may wish to optimize for memory.  Otherwise you
+Xshould probably optimize for speed.
+X
+XEOM
+Xcase "$d_speedopt" in
+X'') if Cppsym $smallmach; then
+X	case "$models" in
+X		*large*|*huge*) dflt=speed;;
+X		*) dflt=memory;;
+X		esac
+X	else
+X		dflt=speed
+X	fi
+X	;;
+X*define*) dflt=speed;;
+X*) dflt=memory;;
+Xesac
+Xrp="What to optimize for?"
+X. ./myread
+Xcase "$ans" in
+Xmem*) val="$undef";;
+X*) val="$define";;
+Xesac
+Xset d_speedopt
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1729 -ne `wc -c <'mcon/U/d_speedopt.U'`; then
+    echo shar: \"'mcon/U/d_speedopt.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_speedopt.U'
+fi
+if test -f 'mcon/U/d_volatile.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/d_volatile.U'\"
+else
+  echo shar: Extracting \"'mcon/U/d_volatile.U'\" \(1870 characters\)
+  sed "s/^X//" >'mcon/U/d_volatile.U' <<'END_OF_FILE'
+X?RCS: $Id: d_volatile.U,v 3.0 1993/08/18 12:07:57 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: d_volatile.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:07:57  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_volatile: cat cc ccflags rm Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_volatile:
+X?S:	This variable conditionally defines the HASVOLATILE symbol, which
+X?S:	indicates to the C program that this C compiler knows about the
+X?S:	volatile declaration.
+X?S:.
+X?C:HASVOLATILE ~ %<:
+X?C:	This symbol, if defined, indicates that this C compiler knows about
+X?C:	the volatile declaration.
+X?C:.
+X?H:?%<:#$d_volatile	HASVOLATILE	/**/
+X?H:?%<:#ifndef HASVOLATILE
+X?H:?%<:#define volatile
+X?H:?%<:#endif
+X?H:.
+X?W:%<:volatile
+X?LINT:set d_volatile
+X?LINT:known volatile
+X: check for volatile keyword
+Xecho " "
+Xecho 'Checking to see if your C compiler knows about "volatile"...' >&4
+X$cat >try.c <<'EOCP'
+Xmain()
+X{
+X?X:
+X?X: The following seven lines added by Bill Campbell <billc@sierra.com>
+X?X: detect that MIPS compilers do not handle volatile in all situations.
+X?X:
+X	typedef struct _goo_struct goo_struct;
+X	goo_struct * volatile goo = ((goo_struct *)0);
+X	struct _goo_struct {
+X		long long_int;
+X		int reg_int;
+X		char char_var;
+X	};
+X	typedef unsigned short foo_t;
+X	char *volatile foo;
+X	volatile int bar;
+X	volatile foo_t blech;
+X	foo = foo;
+X}
+XEOCP
+Xif $cc -c $ccflags try.c >/dev/null 2>&1 ; then
+X	val="$undef"
+X	echo "Yup, it does."
+Xelse
+X	val="$define"
+X	echo "Nope, it doesn't."
+Xfi
+Xset d_volatile
+Xeval $setvar
+X$rm -f try.*
+X
+END_OF_FILE
+  if test 1870 -ne `wc -c <'mcon/U/d_volatile.U'`; then
+    echo shar: \"'mcon/U/d_volatile.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/d_volatile.U'
+fi
+if test -f 'mcon/U/fpu.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/fpu.U'\"
+else
+  echo shar: Extracting \"'mcon/U/fpu.U'\" \(1865 characters\)
+  sed "s/^X//" >'mcon/U/fpu.U' <<'END_OF_FILE'
+X?RCS: $Id: fpu.U,v 3.0 1993/08/18 12:08:10 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: fpu.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:08:10  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:fpu: test cat cc Myread
+X?MAKE:	-pick add $@ %<
+X?S:fpu (fpunit):
+X?S:	Set to be the compile flag for the local floating point unit.
+X?S:.
+X?C:FPU (FPUNIT):
+X?C:	String containing the flags for the local floating point unit.
+X?C:.
+X?H:#define FPU "$fpu" /**/
+X?H:.
+X: see what floating point compile flags should be used.
+Xfpu=''
+Xif $test -r /dev/fpa; then
+X	$cat>fpa.c << GOOP
+X	main(){return(1);}
+XGOOP
+X	$cc -ffpa fpa.c -o fpa
+X	fpa > fpa.out 2>&1
+X	if $test ! -s fpa.out; then
+X		dflt='y'
+X		$cat <<'EOM'
+X
+XYou seem to have a sun fpa...  I can compile the code to use the fpa but it will
+Xmean that the code can ONLY run on a machine with a fpa...
+X
+XEOM
+X		rp="Should I compile for fpa?"
+X		. ./myread
+X		if $test $ans = "n"; then
+X			fpu=''
+X		else
+X			fpu='-ffpa'
+X		fi
+X	else
+X		$cat <<'EOM'
+X
+XYou have the fpa device but I can't seem to use it.  Maybe you should talk to
+Xyour sysadmin about this.  For now, I am not going to compile it in.
+X
+XEOM
+X	fi
+Xfi
+Xif $test "$fpu" = ''; then
+X	if $test -r /usr/etc/mc68881version; then
+X		dflt='y'
+X		$cat <<'EOM'
+X
+XThere also seems to be the pieces for a 68881.  If I compile this in, it will
+Xwork on almost all Sun 3's except for a few Sun-3/50s without a 68881...
+X
+XEOM
+X		rp="Should I compile for a 68881?"
+X		. ./myread
+X		if $test $ans = "y"; then
+X			fpu='-f68881'
+X		fi
+X	fi
+Xfi
+X
+END_OF_FILE
+  if test 1865 -ne `wc -c <'mcon/U/fpu.U'`; then
+    echo shar: \"'mcon/U/fpu.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/fpu.U'
+fi
+if test -f 'mcon/U/i_string.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/i_string.U'\"
+else
+  echo shar: Extracting \"'mcon/U/i_string.U'\" \(1881 characters\)
+  sed "s/^X//" >'mcon/U/i_string.U' <<'END_OF_FILE'
+X?RCS: $Id: i_string.U,v 3.0 1993/08/18 12:08:28 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: i_string.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:08:28  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X:
+X?X: See if we should include <string.h> or <strings.h>
+X?X:
+X?MAKE:i_string strings: test Loc Guess Setvar Findhdr
+X?MAKE:	-pick add $@ %<
+X?S:i_string:
+X?S:	This variable conditionally defines the I_STRING symbol, which
+X?S:	indicates that <string.h> should be included rather than <strings.h>.
+X?S:.
+X?S:strings:
+X?S:	This variable holds the full path of the string header that will be
+X?S:	used. Typically /usr/include/string.h or /usr/include/strings.h.
+X?S:.
+X?C:I_STRING:
+X?C:	This symbol, if defined, indicates to the C program that it should
+X?C:	include <string.h> (USG systems) instead of <strings.h> (BSD systems).
+X?C:.
+X?H:#$i_string I_STRING		/**/
+X?H:.
+X?LINT:set i_string
+X: see which of string.h or strings.h is needed
+Xecho " "
+Xstrings=`./findhdr string.h`
+Xval="$undef"
+Xif $test "$strings" && $test -r "$strings"; then
+X	echo "Using <string.h> instead of <strings.h>." >&4
+X	if bsd; then
+X		echo "(Actually, this looks more like it were an USG system)"
+X	fi
+X	val="$define"
+Xelse
+X	strings=`./findhdr strings.h`
+X	if $test "$strings" && $test -r "$strings"; then
+X		echo "Using <strings.h> instead of <string.h>." >&4
+X		if usg; then
+X			echo "(Actually, this looks more like it were a BSD system)"
+X		fi
+X	else
+X		echo "No string header found--You'll surely have problems." >&4
+X	fi
+Xfi
+Xset i_string
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1881 -ne `wc -c <'mcon/U/i_string.U'`; then
+    echo shar: \"'mcon/U/i_string.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/i_string.U'
+fi
+if test -f 'mcon/U/i_systimeb.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/i_systimeb.U'\"
+else
+  echo shar: Extracting \"'mcon/U/i_systimeb.U'\" \(1858 characters\)
+  sed "s/^X//" >'mcon/U/i_systimeb.U' <<'END_OF_FILE'
+X?RCS: $Id: i_systimeb.U,v 3.0 1993/08/18 12:08:37 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: i_systimeb.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:08:37  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X:
+X?X: This unit looks wether <sys/timeb.h> should be included
+X?X: or not when using ftime() (for struct timeb definition).
+X?X:
+X?X:	Force looking for <sys/time.h> for struct timeb.
+X?X:INC: i_systime
+X?MAKE:i_systimeb: test contains Loc Setvar Findhdr
+X?MAKE:	-pick add $@ %<
+X?S:i_systimeb:
+X?S:	This variable conditionally defines I_SYS_TIMEB, which indicates
+X?S:	to the C program that it should include <sys/timeb.h>.
+X?S:.
+X?C:I_SYS_TIMEB (I_SYSTIMEB):
+X?C:	This symbol, if defined, indicates to the C program that it should
+X?C:	include <sys/timeb.h>, in order to define struct timeb (some systems
+X?C:	define this in <sys/time.h>). This is useful when using ftime().
+X?C:	You should include <sys/time.h> if I_SYS_TIMEB is not defined,
+X?C:	nor is I_SYS_TIME.
+X?C:.
+X?H:#$i_systimeb I_SYS_TIMEB		/**/
+X?H:.
+X?T:xxx
+X?LINT:set i_systimeb
+X: see where struct timeb is defined
+Xecho " "
+Xxxx=`./findhdr sys/timeb.h`
+Xif $test "$xxx"; then
+X	if $contains 'struct timeb' $xxx >/dev/null 2>&1; then
+X		val="$define"
+X		echo "You have struct timeb defined in <sys/timeb.h>." >&4
+X	else
+X		val="$undef"
+X		echo "Assuming struct timeb is defined in <sys/time.h>." >&4
+X	fi
+Xelse
+X	val="$undef"
+Xecho "No <sys/timeb.h> -- Assuming struct timeb is defined in <sys/time.h>." >&4
+Xfi
+Xset i_systimeb
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1858 -ne `wc -c <'mcon/U/i_systimeb.U'`; then
+    echo shar: \"'mcon/U/i_systimeb.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/i_systimeb.U'
+fi
+if test -f 'mcon/U/manfmt.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/manfmt.U'\"
+else
+  echo shar: Extracting \"'mcon/U/manfmt.U'\" \(1737 characters\)
+  sed "s/^X//" >'mcon/U/manfmt.U' <<'END_OF_FILE'
+X?RCS: $Id: manfmt.U,v 3.0 1993/08/18 12:09:13 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: manfmt.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:13  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:manfmt manfmtexp: Getfile Loc Oldconfig cat manext package
+X?MAKE:	-pick add $@ %<
+X?S:manfmt:
+X?S:	This variable contains the name of the directory in which formatted
+X?S:	manual pages are to be put.  It is the responsibility of the
+X?S:	Makefile.SH to get the value of this into the proper command. Note
+X?S:	that you may have to do ~name substitution. Use manfmtexp otherwise.
+X?S:.
+X?S:manfmtexp:
+X?S:	This is the same as the manfmt variable, but is filename expanded
+X?S:	at configuration time, for programs not willing to deal with it at
+X?S:	run-time.
+X?S:.
+X?LINT:change manext
+X: determine where manual pages go
+X$cat <<EOM
+X  
+X$package has pre-formatted manual pages.  If you don't want these installed,
+Xanswer 'none' to the next question.
+X
+XEOM
+Xcase "$manfmt" in
+X'')
+X	dflt=`./loc . none /usr/catman/local/man1 /usr/catman/manl /usr/catman/mann /usr/catman/u_man/man1 /usr/catman/man1`
+X	;;
+X*)  dflt="$manfmt"
+X	;;
+Xesac
+Xfn=dn~
+Xrp='Where do pre-formatted manual pages go?'
+X. ./getfile
+Xmanfmt="$ans"
+Xmanfmtexp="$ansexp"
+X
+Xcase "$manfmt" in
+X'') manext='0';;
+X*l) manext=l;;
+X*n) manext=n;;
+X*o) manext=l;;
+X*p) manext=n;;
+X*C) manext=C;;
+X*L) manext=L;;
+X*) manext=1;;
+Xesac
+X
+END_OF_FILE
+  if test 1737 -ne `wc -c <'mcon/U/manfmt.U'`; then
+    echo shar: \"'mcon/U/manfmt.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/manfmt.U'
+fi
+if test -f 'mcon/U/mboxchar.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/mboxchar.U'\"
+else
+  echo shar: Extracting \"'mcon/U/mboxchar.U'\" \(1861 characters\)
+  sed "s/^X//" >'mcon/U/mboxchar.U' <<'END_OF_FILE'
+X?RCS: $Id: mboxchar.U,v 3.0 1993/08/18 12:09:15 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: mboxchar.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:15  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:mboxchar: cat package shsharp Myread Oldconfig
+X?MAKE:	-pick add $@ %<
+X?S:mboxchar:
+X?S:	This variable contains the eventual value of the MBOXCHAR symbol,
+X?S:	which is how a C program can identify a file as a mailbox.
+X?S:.
+X?C:MBOXCHAR:
+X?C:	This symbol contains a character which will match the beginning
+X?C:	of a mailbox file.
+X?C:.
+X?H:#define MBOXCHAR '$mboxchar'		/**/
+X?H:.
+X: determine how to determine when a file is a mailbox
+Xcase "$mboxchar" in
+X'') dflt=F;;
+X*)  dflt="$mboxchar";;
+Xesac
+X$cat <<EOM
+X 
+XIn saving articles, $package wants to differentiate between saving to
+Xmailbox format files and normal files.  It does this by examining the
+Xfirst character of the file in question.  On most systems the first line
+Xstarts with "From ...", so the first character is an F.  Other systems
+Xuse magic cookies like control codes between articles, so one of those
+Xwould be first.
+X
+XEOM
+Xrp="What's the first character of a mailbox file?"
+X. ./myread
+Xmboxchar="$ans"
+Xcase "$mboxchar" in
+X'F') ;;
+X*)  cat <<'EOM'
+X
+XYou will need to edit the shell script mbox.saver to properly append an
+Xarticle to a mailbox.  The arguments to the script are documented in
+XEOM
+X	case "$shsharp" in
+X	false) echo "comments in mbox.saver.std.";;
+X	true) echo "comments in the shell script itself.";;
+X	esac
+Xesac
+X
+END_OF_FILE
+  if test 1861 -ne `wc -c <'mcon/U/mboxchar.U'`; then
+    echo shar: \"'mcon/U/mboxchar.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/mboxchar.U'
+fi
+if test -f 'mcon/U/newslib.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/newslib.U'\"
+else
+  echo shar: Extracting \"'mcon/U/newslib.U'\" \(1833 characters\)
+  sed "s/^X//" >'mcon/U/newslib.U' <<'END_OF_FILE'
+X?RCS: $Id: newslib.U,v 3.0 1993/08/18 12:09:23 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: newslib.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:23  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:newslib newslibexp: test inews Oldconfig Getfile
+X?MAKE:	-pick add $@ %<
+X?S:newslib:
+X?S:	This variable contains the eventual value of the NEWSLIB symbol,
+X?S:	which holds the name of the directory serving as the news library.
+X?S:	It may have a ~ on the front.  See newslibexp for expanded version.
+X?S:.
+X?S:newslibexp:
+X?S:	This variable contains the ~ expanded name of the news library
+X?S:	directory.  See newslib.
+X?S:.
+X?C:NEWSLIB:
+X?C:	This symbol contains the name of the directory serving as the news
+X?C:	library.  The program must be prepared to do ~ expansion on it.
+X?C:.
+X?C:NEWSLIB_EXP:
+X?C:	This symbol is the ~ expanded version of NEWSLIB, for programs that
+X?C:	do not wish to deal with it at run-time.
+X?C:.
+X?H:#define NEWSLIB "$newslib"		/**/
+X?H:#define NEWSLIB_EXP "$newslibexp"	/**/
+X?H:.
+X?LINT:change inews
+X: figure out news library
+Xcase "$newslib" in
+X'')
+X	dflt=/usr/lib/news
+X	;;
+X*)  dflt=$newslib ;;
+Xesac
+Xecho " "
+Xfn=d~
+Xrp='Where is your news library?'
+X. ./getfile
+Xnewslib="$ans"
+Xnewslibexp="$ansexp"
+Xif $test -f $newslibexp/inews; then
+X	echo "Aha!  Inews is really in $newslibexp!  Maybe this is 2.10.2..." >&4
+X	case "$inews" in
+X	inews) 
+X		: null
+X		;;
+X	*) echo "(Make sure $inews isn't an old version.)";;
+X	esac
+X	inews=$newslibexp/inews
+Xfi
+X
+END_OF_FILE
+  if test 1833 -ne `wc -c <'mcon/U/newslib.U'`; then
+    echo shar: \"'mcon/U/newslib.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/newslib.U'
+fi
+if test -f 'mcon/U/orgname.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/orgname.U'\"
+else
+  echo shar: Extracting \"'mcon/U/orgname.U'\" \(1891 characters\)
+  sed "s/^X//" >'mcon/U/orgname.U' <<'END_OF_FILE'
+X?RCS: $Id: orgname.U,v 3.0 1993/08/18 12:09:27 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: orgname.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:27  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:orgname: sed cat Myread Loc Oldconfig
+X?MAKE:	-pick add $@ %<
+X?S:orgname:
+X?S:	This variable contains the eventual value of the ORGNAME symbol,
+X?S:	which contains either the organizaton name or the full pathname
+X?S:	of a file containing the organization name.
+X?S:.
+X?C:ORGNAME:
+X?C:	This symbol contains either the organizaton name or the full pathname
+X?C:	of a file containing the organization name, which the program must
+X?C:	be prepared to open and substitute the contents of.
+X?C:.
+X?H:#define ORGNAME "$orgname"		/**/
+X?H:.
+X?T:longshots xxx
+X: get organization name
+Xlongshots='/usr/src/new /usr/src/local /usr/local/src'
+Xcase "$orgname" in
+X'') if xxx=`./loc news/src/defs.h x $longshots`; then
+X		dflt=`$sed -n 's/^.*MYORG[ 	]*"\(.*\)".*$/\1/p' $xxx`
+X	else
+X		dflt=''
+X	fi
+X	;;
+X*)  dflt="$orgname";;
+Xesac
+X$cat << 'EOH'
+X 
+XPlease type the name of your organization as you want it to appear on the
+XOrganization line of outgoing articles.  (It's nice if this also specifies
+Xyour location.  Your city name is probably sufficient if well known.)
+XFor example:
+X
+X    University of Southern North Dakota, Hoople
+X
+XYou may also put the name of a file, as long as it begins with a slash.
+XFor example:
+X
+X    /etc/organization
+X
+XEOH
+Xorgname=""
+Xwhile test "X$orgname" = "X"; do
+X	rp='Organization:'
+X	. ./myread
+X	orgname="$ans"
+Xdone
+X
+END_OF_FILE
+  if test 1891 -ne `wc -c <'mcon/U/orgname.U'`; then
+    echo shar: \"'mcon/U/orgname.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/orgname.U'
+fi
+if test -f 'mcon/U/randbits.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/randbits.U'\"
+else
+  echo shar: Extracting \"'mcon/U/randbits.U'\" \(1876 characters\)
+  sed "s/^X//" >'mcon/U/randbits.U' <<'END_OF_FILE'
+X?RCS: $Id: randbits.U,v 3.0 1993/08/18 12:09:38 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: randbits.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:38  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?X:
+X?X:	This unit has been somewhat made obsolete with creation of the
+X?X:	randfunc function (which finds out how to generate random
+X?X:	numbers between 0 and 1.
+X?X:
+X?MAKE:randbits: cat rm Myread cc
+X?MAKE:	-pick add $@ %<
+X?S:randbits:
+X?S:	This variable contains the eventual value of the RANDBITS symbol,
+X?S:	which indicates to the C program how many bits of random number
+X?S:	the rand() function produces.
+X?S:.
+X?C:RANDBITS:
+X?C:	This symbol contains the number of bits of random number the rand()
+X?C:	function produces.  Usual values are 15, 16, and 31.
+X?C:.
+X?H:#define RANDBITS $randbits		/**/
+X?H:.
+X: check for size of random number generator
+Xecho " "
+Xcase "$randbits" in
+X'')
+X	echo "Checking to see how many bits your rand function produces..." >&4
+X	$cat >try.c <<'EOCP'
+X#include <stdio.h>
+Xmain()
+X{
+X	register int i;
+X	register unsigned long tmp;
+X	register unsigned long max = 0L;
+X
+X	for (i = 1000; i; i--) {
+X		tmp = (unsigned long)rand();
+X		if (tmp > max) max = tmp;
+X	}
+X	for (i = 0; max; i++)
+X		max /= 2;
+X	printf("%d\n",i);
+X}
+XEOCP
+X	if $cc try.c -o try >/dev/null 2>&1 ; then
+X		dflt=`try`
+X	else
+X		dflt='?'
+X		echo "(I can't seem to compile the test program...)"
+X	fi
+X	;;
+X*)
+X	dflt="$randbits"
+X	;;
+Xesac
+Xrp='How many bits does your rand() function produce?'
+X. ./myread
+Xrandbits="$ans"
+X$rm -f try.c try
+X
+END_OF_FILE
+  if test 1876 -ne `wc -c <'mcon/U/randbits.U'`; then
+    echo shar: \"'mcon/U/randbits.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/randbits.U'
+fi
+if test -f 'mcon/U/startperl.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/U/startperl.U'\"
+else
+  echo shar: Extracting \"'mcon/U/startperl.U'\" \(1814 characters\)
+  sed "s/^X//" >'mcon/U/startperl.U' <<'END_OF_FILE'
+X?RCS: $Id: startperl.U,v 3.0 1993/08/18 12:09:50 ram Exp $
+X?RCS:
+X?RCS: Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS: 
+X?RCS: You may redistribute only under the terms of the Artistic Licence,
+X?RCS: as specified in the README file that comes with the distribution.
+X?RCS: You may reuse parts of this distribution only within the terms of
+X?RCS: that same Artistic Licence; a copy of which may be found at the root
+X?RCS: of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: startperl.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:09:50  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:startperl: cat sharpbang perlpath d_portable Myread
+X?MAKE:	-pick add $@ %<
+X?S:startperl:
+X?S:	This variable contains the string to put on the front of a perl
+X?S:	script to make sure (hopefully) that it runs with perl and not some
+X?S:	shell. Of course, that leading line must be followed by the classical
+X?S:	perl idiom:
+X?S:		eval 'exec perl -S $0 "$@"'
+X?S:			if $running_under_some_shell;
+X?S:	to guarantee perl startup should the shell execute the script. Note
+X?S:	that this magic incatation is not understood by csh.
+X?S:.
+X: figure out how to guarantee perl startup
+Xcase "$sharpbang" in
+X*!)
+X	$cat <<EOH
+X
+XI can use the #! construct to start perl on your system. This will make
+Xstartup of perl scripts faster, but may cause problems if you want to share
+Xthose scripts and perl is not in a standard place (/usr/bin/perl) on all your
+Xplatforms. The alternative is to force a shell by starting the script with a
+Xsingle ':' character.
+X
+XEOH
+X	dflt=n
+X	case "$startperl" in
+X	*!*) dflt=y;;
+X	'') case "$d_portable" in
+X		"$define") ;;
+X		*) dflt=y;;
+X		esac;;
+X	esac
+X	rp='Shall I use #! to start up perl?'
+X	. ./myread
+X	case "$ans" in
+X	y*|Y*) startperl="#!$perlpath";;
+X	*) startperl=": # use perl";;
+X	esac;;
+X*) startperl=": # use perl";;
+Xesac
+X
+END_OF_FILE
+  if test 1814 -ne `wc -c <'mcon/U/startperl.U'`; then
+    echo shar: \"'mcon/U/startperl.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/U/startperl.U'
+fi
+if test -f 'mcon/files/question.U' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/files/question.U'\"
+else
+  echo shar: Extracting \"'mcon/files/question.U'\" \(1857 characters\)
+  sed "s/^X//" >'mcon/files/question.U' <<'END_OF_FILE'
+X?RCS: $Id: question.U,v 3.0 1993/08/18 12:10:09 ram Exp $
+X?RCS:
+X?RCS:  Copyright (c) 1991-1993, Raphael Manfredi
+X?RCS:  
+X?RCS:  You may redistribute only under the terms of the Artistic Licence,
+X?RCS:  as specified in the README file that comes with the distribution.
+X?RCS:  You may reuse parts of this distribution only within the terms of
+X?RCS:  that same Artistic Licence; a copy of which may be found at the root
+X?RCS:  of the source tree for dist 3.0.
+X?RCS:
+X?RCS: $Log: question.U,v $
+X?RCS: Revision 3.0  1993/08/18  12:10:09  ram
+X?RCS: Baseline for dist 3.0 netwide release.
+X?RCS:
+X?MAKE:d_scorfl: cat Myread Oldconfig nametype Setvar
+X?MAKE:	-pick add $@ %<
+X?S:d_scorfl:
+X?S:	This variable conditionally defines the SCOREFULL symbol, which
+X?S:	indicates to the C program that any scoreboard kept by the program
+X?S:	should be kept on the basis of the user's full name as opposed to
+X?S:	the user's login name.
+X?S:.
+X?C:SCOREFULL:
+X?C:	This symbol, if defined, indicates that any scoreboard kept by the
+X?C:	program should be kept on the basis of the user's full name as opposed
+X?C:	to the user's login name.  If the user can change his full name he
+X?C:	can enter multiple scores if this is defined.
+X?C:.
+X?H:#$d_scorfl SCOREFULL	/**/
+X?H:.
+X?LINT:set d_scorfl
+X: see how they want the scoreboard kept
+Xcase "$d_scorfl" in
+X"$define") dflt=y ;;
+X*) dflt=n ;;
+Xesac
+Xcase "$nametype" in
+Xother) val="$undef" ;;
+X*)
+X	$cat <<'EOM'
+X
+XThe scoreboard can be kept with one score per login name, or one score per full
+Xname.  If users can change their full name, or if there is more than one person
+Xon your system with the same full name, you should keep the score by login name
+X(the full name is still printed).
+X
+XEOM
+X	rp='Do you want the scoreboard kept by full name?'
+X	. myread
+X	case "$ans" in
+X	y*) val="$define" ;;
+X	*) val="$undef" ;;
+X	esac
+X	;;
+Xesac
+Xset d_scorfl
+Xeval $setvar
+X
+END_OF_FILE
+  if test 1857 -ne `wc -c <'mcon/files/question.U'`; then
+    echo shar: \"'mcon/files/question.U'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/files/question.U'
+fi
+if test -f 'mcon/pl/init.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mcon/pl/init.pl'\"
+else
+  echo shar: Extracting \"'mcon/pl/init.pl'\" \(1735 characters\)
+  sed "s/^X//" >'mcon/pl/init.pl' <<'END_OF_FILE'
+X;# $Id: init.pl,v 3.0 1993/08/18 12:10:24 ram Exp $
+X;#
+X;#  Copyright (c) 1991-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic Licence,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic Licence; a copy of which may be found at the root
+X;#  of the source tree for dist 3.0.
+X;#
+X;# $Log: init.pl,v $
+X;# Revision 3.0  1993/08/18  12:10:24  ram
+X;# Baseline for dist 3.0 netwide release.
+X;#
+X;# 
+X# The %Depend array records the functions we use to process the configuration
+X# lines in the unit, with a special meaning. It is important that all the
+X# known control symbols be listed below, so that metalint does not complain.
+Xsub init_depend {
+X	%Depend = (
+X		'MAKE', 'p_make',				# The ?MAKE: line records dependencies
+X		'INIT', 'p_init',				# Initializations printed verbatim
+X		'LINT', 'p_lint',				# Hints for metalint
+X		'RCS', 'p_ignore',				# RCS comments are ignored
+X		'C', 'p_c',						# C symbols
+X		'D', 'p_default',				# Default value for conditional symbols
+X		'E', 'p_example',				# Example of usage
+X		'F', 'p_file',					# Produced files
+X		'H', 'p_config',				# Process the config.h lines
+X		'I', 'p_include',				# Added includes
+X		'L', 'p_library',				# Added libraries
+X		'O', 'p_obsolete',				# Unit obsolescence
+X		'P', 'p_public',				# Location of PD implementation file
+X		'S', 'p_shell',					# Shell variables
+X		'T', 'p_temp',					# Shell temporaries used
+X		'V', 'p_visible',				# Visible symbols like 'rp', 'dflt'
+X		'W', 'p_wanted',				# Wanted value for interpreter
+X		'X', 'p_ignore',				# User comment is ignored
+X		'Y', 'p_layout',				# User-defined layout preference
+X	);
+X}
+X
+END_OF_FILE
+  if test 1735 -ne `wc -c <'mcon/pl/init.pl'`; then
+    echo shar: \"'mcon/pl/init.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mcon/pl/init.pl'
+fi
+if test -f 'pl/newer.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pl/newer.pl'\"
+else
+  echo shar: Extracting \"'pl/newer.pl'\" \(1803 characters\)
+  sed "s/^X//" >'pl/newer.pl' <<'END_OF_FILE'
+X;# $Id: newer.pl,v 3.0 1993/08/18 12:10:56 ram Exp $
+X;#
+X;#  Copyright (c) 1991-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic Licence,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic Licence; a copy of which may be found at the root
+X;#  of the source tree for dist 3.0.
+X;#
+X;# $Log: newer.pl,v $
+X;# Revision 3.0  1993/08/18  12:10:56  ram
+X;# Baseline for dist 3.0 netwide release.
+X;#
+X;#
+Xsub newer {
+X	open(FIND, "find . -type f -newer patchlevel.h -print | sort |") ||
+X	die "Can't run find.\n";
+X	open(NEWER,">.newer") || die "Can't create .newer.\n";
+X	open(MANI,"MANIFEST.new");
+X	while (<MANI>) {
+X		($name,$foo) = split;
+X		$mani{$name} = 1;
+X	}
+X	close MANI;
+X	while (<FIND>) {
+X	s|^\./||;
+X	chop;
+X	next if m|^MANIFEST|;
+X	next if m|^PACKLIST$|;
+X	if (!$mani{$_}) {
+X		next if m|^MANIFEST.new$|;
+X		next if m|^Changes$|;
+X		next if m|^Wanted$|;
+X		next if m|^.package$|;
+X		next if m|^bugs|;
+X		next if m|^UU/|;
+X		next if m|^RCS/|;
+X		next if m|/RCS/|;
+X		next if m|^config.sh$|;
+X		next if m|/config.sh$|;
+X		next if m|^make.out$|;
+X		next if m|/make.out$|;
+X		next if m|^all$|;
+X		next if m|/all$|;
+X		next if m|^core$|;
+X		next if m|/core$|;
+X		next if m|^toto|;
+X		next if m|/toto|;
+X		next if m|^\.|;
+X		next if m|/\.|;
+X		next if m|\.o$|;
+X		next if m|\.old$|;
+X		next if m|\.orig$|;
+X		next if m|~$|;
+X		next if $mani{$_ . ".SH"};
+X		next if m|(.*)\.c$| && $mani{$1 . ".y"};
+X		next if m|(.*)\.c$| && $mani{$1 . ".l"};
+X		next if (-x $_ && !m|^Configure$|);
+X	}
+X	print NEWER $_,"\n";
+X	}
+X	close FIND;
+X	close NEWER;
+X	print "Please remove unwanted files...\n";
+X	sleep(2);
+X	system '${EDITOR-vi} .newer';
+X	die "Aborted.\n" unless -s '.newer';
+X	@ARGV = split(' ',`cat .newer`);
+X}
+X
+END_OF_FILE
+  if test 1803 -ne `wc -c <'pl/newer.pl'`; then
+    echo shar: \"'pl/newer.pl'\" unpacked with wrong size!
+  fi
+  # end of 'pl/newer.pl'
+fi
+echo shar: End of archive 20 \(of 28\).
+cp /dev/null ark20isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 28 archives.
+    echo "Please run PACKNOTES through sh, read REAMDE and then type Configure."
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

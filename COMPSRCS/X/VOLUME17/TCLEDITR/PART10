@@ -1,0 +1,1734 @@
+Newsgroups: comp.sources.x
+Path: uunet!think.com!mips!msi!dcmartin
+From: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Subject: v17i011: point text editor (TCL and TK), Part10/16
+Message-ID: <1992Mar18.141632.27235@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i002-tcl-editor@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 14:16:32 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: crowley@chaco.cs.unm.edu (Charlie Crowley)
+Posting-number: Volume 17, Issue 11
+Archive-name: tcl-editor/part10
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 9 (of 15)."
+# Contents:  anaSources.c doc/point.n
+# Wrapped by crowley@chaco.cs.unm.edu on Tue Mar 10 15:05:46 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'anaSources.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'anaSources.c'\"
+else
+echo shar: Extracting \"'anaSources.c'\" \(26116 characters\)
+sed "s/^X//" >'anaSources.c' <<'END_OF_FILE'
+X/* $Header: /nfs/unmvax/faculty/crowley/x/pt/RCS/anaSources.c,v 1.5 1992/03/04 17:07:18 crowley Exp crowley $ */
+X
+X#ifdef HYPERTEXT
+X#include <string.h>
+X#include <stdio.h>
+X#include "pt.h"
+X
+X/*********************************************************************/
+X/* This routines takes the selection (selBegin and selEnd) in terms  */
+X/* of the view (ff) and translates it to a new selection (selBegin   */
+X/* and selEnd) that are relative to the underlying (real) file that  */
+X/* the pieces in ff were clones from.  Along the way it makes some   */
+X/* checks about the selection and returns a value based on these.    */
+X/*                                                                   */
+X/* Return values: the OR of:                                         */
+X/*    1 if selBegin or selEnd is in synthetic text                   */
+X/*    2 if selBegin and selEnd are in different blocks               */
+X/*********************************************************************/
+int
+GetRealSelection( ff, selBeginOnly )
+X	struct openFile *ff;
+X	int selBeginOnly;
+X{
+X	extern Offset selBegin, selEnd;
+X	extern int debug;
+X
+X	Piece pp, ppBegin, ppEnd;
+X	Offset offsetBegin, offsetEnd;
+X	BlockID blockIDBegin;
+X	int nBeforePPBegin, nBetweenBeginAndEnd;
+X	int ret_value = 0;
+X	int beginPieceOffset;
+X
+X	/* find the cloned piece the selection starts in */
+X	ppBegin = findPiece( selBegin, ff, &beginPieceOffset );
+X	offsetBegin = selBegin - beginPieceOffset;
+X
+X	/* remember this so we can check it later */
+X	blockIDBegin = ppBegin->blockID;
+X
+X	/* do not allow the selection to begin in synthetic text since */
+X	/* it has no analog in the real file */
+X	if( ppBegin->flags & IS_DECORATION ) {
+X		ret_value |= 1;
+X		return ret_value;
+X	}
+X
+X	/* find the real piece in the chain of cloned pieces */
+X	while( ppBegin->flags & IS_CLONED_PIECE )
+X		ppBegin = ppBegin->nextClone;
+X
+X	/* count the number of file bytes in front of this piece */
+X	pp = ppBegin->prevPiece;
+X	nBeforePPBegin = 0;
+X	while( pp != NULL ) {
+X		nBeforePPBegin += pp->length;
+X		pp = pp->prevPiece;
+X	}
+printf("selBegin=%d, ", selBegin);
+X	selBegin = nBeforePPBegin + offsetBegin;
+printf("real selBegin=%d\n", selBegin);
+X
+X	if( selBeginOnly )
+X		return ret_value;
+X
+X	/* now do the same stuff with selEnd */
+X
+X	/* find the cloned piece the selection ends in */
+X	ppEnd = findPiece( selEnd, ff, &beginPieceOffset );
+X	offsetEnd = selEnd - beginPieceOffset;
+X
+X	/* check if the selection begins and ends in the same block */
+X	if( blockIDBegin != ppEnd->blockID )
+X		ret_value |= 2;
+X
+X	/* do not allow the selection to end in synthetic text since */
+X	/* it has no analog in the real file */
+X	if( ppEnd->flags & IS_DECORATION ) {
+X		ret_value |= 1;
+X		return ret_value;
+X	}
+X
+X	/* find the real piece in the chain of cloned pieces */
+X	while( ppEnd->flags & IS_CLONED_PIECE )
+X		ppEnd = ppEnd->nextClone;
+X
+X	/* figure out how many bytes between selBegin and selEnd */
+X	if( ppBegin == ppEnd ) {
+X		/* the selection begins and ends in the same real piece */
+printf("selEnd=%d, ", selEnd);
+X		selEnd = nBeforePPBegin + offsetEnd;
+printf("real selEnd=%d\n", selEnd);
+X	} else {
+X		pp = ppEnd->prevPiece;
+X		nBetweenBeginAndEnd = 0;
+X		while( pp != ppBegin ) {
+X			nBetweenBeginAndEnd += pp->length;
+X			pp = pp->prevPiece;
+X		}
+X printf("selEnd=%d, ", selEnd);
+X		selEnd = nBeforePPBegin + ppBegin->length
+X					+ nBetweenBeginAndEnd + offsetEnd;
+printf("real selEnd=%d\n", selEnd);
+X	}
+X
+X	return ret_value;
+X}
+X
+void
+InitHypertext()
+X{
+X	extern char * databaseName;
+X	extern DBM *currentDB;
+X	extern Document currentDocument;
+X	extern AttributeID mainFileBlock;
+X	extern MapID naturalMap;
+X
+X	Attribute main_file_block, procedure_header, procedure_body;
+X	Attribute comment, level0, level1, level2, level3, level4;
+X	Map block_map;
+X
+X	if( databaseName == NULL || databaseName[0] == '\0' ) {
+X		char *m = "NULL or empty hypertext database name\n";
+X		msg( m, 1 );
+X		printf( m );
+X		return;
+X	}
+X	currentDB = OpenObjects( databaseName );
+X	/* the document record always has key == 1 */
+X	currentDocument = GetDocument( currentDB, 1, ALLOCATE );
+X	if( currentDocument != NULL ) {
+X		/* this is an existing document */
+X		mainFileBlock = LookupAttributeByName( currentDB,
+X					currentDocument, "Main File Block" );
+X		if( mainFileBlock == NullObject )
+X			printf(
+X"InitHypertext: ERROR! Could not find Main File Block attribute.\n");
+X		naturalMap = LookupMapByName( currentDB,
+X					currentDocument, "Natural" );
+X		if( naturalMap == NullObject )
+X			printf(
+X"InitHypertext: ERROR! Could not find Natural map.\n");
+X		return;
+X	}
+X
+X	/* create the document structure and store it */
+X	currentDocument = CreateDocument( currentDB, databaseName );
+X
+X	/* create some predefined attributes */
+X	main_file_block = CreateAttribute( currentDB, currentDocument,
+X			"Main File Block" );
+X	mainFileBlock = main_file_block->this_one;
+X	procedure_header = CreateAttribute( currentDB, currentDocument,
+X			"Procedure Header" );
+X	procedure_body = CreateAttribute( currentDB, currentDocument,
+X			"Procedure Body" );
+X	comment = CreateAttribute( currentDB, currentDocument,
+X			"Comment" );
+X	level0 = CreateAttribute( currentDB, currentDocument,
+X			"Level 0" );
+X	level1 = CreateAttribute( currentDB, currentDocument,
+X			"Level 1" );
+X	level2 = CreateAttribute( currentDB, currentDocument,
+X			"Level 2" );
+X	level3 = CreateAttribute( currentDB, currentDocument,
+X			"Level 3" );
+X	level4 = CreateAttribute( currentDB, currentDocument,
+X			"Level 4" );
+X
+X	/* create some predefined maps */
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Natural" );
+X	/* Set up the initial block map */
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	naturalMap = block_map->this_one;
+X	PutMap( currentDB, block_map, RELEASE );
+X	
+X	block_map = CreateMap( currentDB, currentDocument, "Block numbers" );
+X	/* Set up the initial block map */
+X	strcpy( block_map->defaultRange, "[$i:$b:$i]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Verbose" );
+X	/* Set up the initial block map */
+X	strcpy( block_map->defaultRange, "[$a,$n,$i:$b:$a,$n,$i]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument,
+X						"No procedure bodies" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = procedure_body->this_one;
+X	strcpy( block_map->range[0], "...Body..." );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "No comments" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = comment->this_one;
+X	strcpy( block_map->range[0], "/*...*/" );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Level 0-3 only" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = level4->this_one;
+X	strcpy( block_map->range[0], "...4..." );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Level 0-2 only" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = level4->this_one;
+X	strcpy( block_map->range[0], "...4..." );
+X	block_map->domain[0] = level3->this_one;
+X	strcpy( block_map->range[0], "...3..." );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Level 0-1 only" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = level4->this_one;
+X	strcpy( block_map->range[0], "...4..." );
+X	block_map->domain[0] = level3->this_one;
+X	strcpy( block_map->range[0], "...3..." );
+X	block_map->domain[0] = level2->this_one;
+X	strcpy( block_map->range[0], "...2..." );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	block_map = CreateMap( currentDB, currentDocument, "Level 0 only" );
+X	/* Set up the initial block map */
+X	block_map->domain[0] = level4->this_one;
+X	strcpy( block_map->range[0], "...4..." );
+X	block_map->domain[0] = level3->this_one;
+X	strcpy( block_map->range[0], "...3..." );
+X	block_map->domain[0] = level2->this_one;
+X	strcpy( block_map->range[0], "...2..." );
+X	block_map->domain[0] = level1->this_one;
+X	strcpy( block_map->range[0], "...1..." );
+X	strcpy( block_map->defaultRange, "[$a:$b:$a]" );
+X	PutMap( currentDB, block_map, RELEASE );
+X
+X	/* free the attribute structures */
+X	PtFree( (char *)main_file_block );
+X	PtFree( (char *)procedure_header );
+X	PtFree( (char *)procedure_body );
+X	PtFree( (char *)comment );
+X	PtFree( (char *)level0 );
+X	PtFree( (char *)level1 );
+X	PtFree( (char *)level2 );
+X	PtFree( (char *)level3 );
+X	PtFree( (char *)level4 );
+X
+X	/* LATER: create some predefined views */
+X	PutDocument( currentDB, currentDocument, NO_RELEASE );
+printf("InitHypertext: currentDB=0X%X  currentDocument=0X%X\n");
+printf("*********** Dump of database opened **************\n");
+DumpDB( currentDB );
+X}
+X
+void
+CloseHypertext()
+X{
+X	extern DBM *currentDB;
+X
+X	CloseObjects( currentDB );
+X}
+X
+X#define EN_MAX 1000
+static unsigned long en_addrs[EN_MAX];
+static int last_en = 0;
+X
+static int
+XEncodeAddress( addr )
+X	unsigned long addr;
+X{
+X	int i;
+X
+X	/* a 1 resets the table */
+X	if( addr == 1 ) {
+X		last_en = 0;
+X		return 0;
+X	}
+X	
+X	/* search for this address */
+X	for( i = 0; i < last_en; ++i ) {
+X		if( en_addrs[i] == addr )
+X			return i;
+X	}
+X	/* have we overflowed the table? */
+X	if( i >= EN_MAX ) {
+X		return addr;
+X	}
+X	/* else install it in the table */
+X	en_addrs[last_en] = addr;
+X	return last_en++;
+X}
+X
+void
+DumpPieces( w )
+X	struct window *w;
+X{
+X	extern struct openFile *files;
+X	int fid = w->fileId;
+X	struct openFile *ff = &(files[fid]);
+X	
+X	PrintPieceChain( "************ fileId pieces ************",
+X		ff->pieceList, fid );
+X}
+void
+DumpRealPieces( w )
+X	struct window *w;
+X{
+X	extern struct openFile *files;
+X	int fid = w->realFileId;
+X	struct openFile *ff = &(files[fid]);
+X	
+X	PrintPieceChain( "************ realFileId pieces ************",
+X		ff->pieceList, fid );
+X}
+X
+void
+DumpTables()
+X{
+X	extern struct window *selWindow;
+X	
+X	DumpPieces( selWindow );
+X	DumpRealPieces( selWindow );
+X}
+X
+static char *
+ReadViewText( start, len, fid )
+X	int start;
+X	int len;
+X	int fid;
+X{
+X	int i;
+X	static char buffer[100];
+X	char *p = buffer;
+X	char ch;
+X
+X	if( len > 49 )
+X		len = 49;
+X	for( i = 0; i < len; ++i ) {
+X		ch = getFileByte( fid, start++ );
+X		if( ch == '\n' ) {
+X			*p++ = '\\';
+X			ch = 'n';
+X		} else if( ch == '\t' ) {
+X			*p++ = '\\';
+X			ch = 't';
+X		}
+X		*p++ = ch;
+X	}
+X	*p = '\0';
+X	return buffer;
+X}
+X
+void
+PrintPieceChain( title, pp, fid )
+X	char *title;
+X	Piece pp;
+X	int fid;
+X{
+X	int offset = 0;
+X
+X	printf("%s\n", title);
+X	printf("%7s%7s%3s%3s%4s%5s%4s%5s %s\n",
+X			"addr  ", "clone>", "fi", "fl",
+X			"bID", "pos", "len", "offs", "Contents" );
+X	while( pp != NULL ) {
+X		printf( "%7x%7x%3d%3x%4d%5d%4d%5d %s\n",
+X			EncodeAddress((unsigned int)pp),
+X			EncodeAddress((unsigned int)pp->nextClone),
+X			pp->file, pp->flags,
+X			pp->blockID, pp->position, pp->length, offset,
+X			ReadViewText(offset,pp->length,fid)
+X		);
+X		offset += pp->length;
+X		pp = pp->nextPiece;
+X	}
+X}
+X
+static Piece first_pp, last_pp;
+static int orig_handle;
+X
+static void
+AddPieceToChain( pos, len )
+X	Offset pos;
+X	int len;
+X{
+X	Piece pp;
+X
+X	pp = getFreePiece();
+X	pp->file = orig_handle;
+X	pp->position = pos;
+X	pp->length = len;
+X	/* put at the end of the list of pieces */
+X	if( last_pp == NULL ) {
+X		first_pp = pp;
+X		last_pp = pp;
+X	} else {
+X		pp->prevPiece = last_pp;
+X		last_pp->nextPiece = pp;
+X		last_pp = pp;
+X	}
+X}
+X
+void
+SeparateBlockMarkers( w )
+X	struct window *w;
+X{
+X	extern unsigned char beginMarkerChar;
+X	extern unsigned char endMarkerChar;
+X	extern struct openFile *files;
+X
+X	Offset pos, begin_pos;
+X	int fid = w->realFileId;
+X	struct openFile *ff = &files[fid];
+X	int flags;
+X	BlockID blockID;
+X	int uch, len;
+X
+X	/* get the file handle for the file */
+X	/* we ASSUME that there is only one piece in the piece table */
+X	orig_handle = ff->pieceList->file;
+X	begin_pos = pos = 0;
+X	last_pp = NULL;
+X	while( 1 ) {
+X		uch = getFileByte(fid, pos);
+X		if( uch == BLOCK_EOF || uch == beginMarkerChar ) {
+X			/* adjust pos if a character was not really read */
+X			/* (that is, if BLOCK_EOF was read) */
+X			if( uch == BLOCK_EOF )
+X				--pos;
+X			len = pos - begin_pos;
+X			if( len > 0 ) {
+X				AddPieceToChain( begin_pos, len );
+X				begin_pos = pos;
+X			}
+X			if( uch == BLOCK_EOF )
+X				break;
+X			if( uch == beginMarkerChar ) {
+X				begin_pos = pos;
+X				pos = ReadBlockMarker( fid, pos+1, &blockID,
+X					(unsigned int *)&flags );
+X				/* LATER: verify and save blockID and flags */
+X				AddPieceToChain( begin_pos, MARKER_SIZE );
+X				begin_pos = pos;
+X			}
+X		}
+X		++pos;
+X	}
+X	/* install the new piece table */
+X	freePieces( ff->pieceList );
+X	ff->pieceList = first_pp;
+X	/* initialize the optimization fields */
+X	ff->loLogPiece = 0;
+X	ff->hiLogPiece = first_pp->length - 1;
+X	ff->logPiece = first_pp;
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X	ff->logBuf = NULL;
+X}
+X
+Offset
+ReadBlockMarker( fid, pos, blockID, flags )
+X	int fid;
+X	Offset pos;
+X	BlockID *blockID;
+X	unsigned int *flags;
+X{
+X	extern unsigned char endMarkerChar;
+X
+X	unsigned int n;
+X	unsigned char uch;
+X	int i;
+X
+X	/* read the block number */
+X	n = 0;
+X	for( i = 0; i < 6; ++i )
+X		n = 10*n + getFileByte(fid, pos++) - '0';
+X	*blockID = (BlockID)n;
+X	++pos;	/* skip the ',' */
+X
+X	/* read the flags */
+X	*flags = (int)getFileByte( fid, pos++ );
+X
+X	/* move past the end of marker character */
+X	uch = (unsigned char)getFileByte( fid, pos++ );
+X	if( uch != endMarkerChar )
+X		printf("ReadBlockMarker: marker ends with %x not %X\n",
+X			uch, endMarkerChar);
+X	return pos;
+X}
+X
+Offset
+XFindBlock( blockID, fid )
+X	BlockID blockID;
+X	int fid;
+X{
+X	extern unsigned char beginMarkerChar;
+X
+X	Offset offset = 0;
+X	int uch;
+X	unsigned int blockNumber, flags;
+X
+X	while( 1 ) {
+X		uch = getFileByte( fid, offset++ );
+X		if( uch == BLOCK_EOF ) {
+X			printf("FindBlock: blockID %d not found in file\n",
+X				blockID);
+X			return -1;
+X		}
+X		if( (unsigned char)uch == beginMarkerChar ) {
+X			/* read the block number */
+X			offset = ReadBlockMarker( fid, offset, &blockNumber,
+X								&flags );
+X			if( flags == (int)BeginBlockFlag
+X						&& blockNumber == blockID )
+X				return offset - MARKER_SIZE;
+X		}
+X	}
+X	/*NOTREACHED*/
+X}
+X
+Offset
+SkipToEndOfBlock( fid, offset, endBlockID )
+X	int fid;
+X	Offset offset;
+X	BlockID endBlockID;
+X{
+X	extern unsigned char beginMarkerChar;
+X
+X	int uch;
+X	unsigned int flags;
+X	BlockID blockID;
+X	
+X	while( 1 ) {
+X		uch = getFileByte( fid, offset++ );
+X		if( uch == BLOCK_EOF ) {
+X			printf(
+X"SkipToEndOfBlock: end of block %d not found in file\n",
+X				endBlockID );
+X			/* and end of file automatically ends any blocks */
+X			break;
+X		}
+X		if( uch == beginMarkerChar ) {
+X			offset = ReadBlockMarker( fid, offset, &blockID, &flags );
+X			if( (endBlockID == 0 || blockID == endBlockID) ) {
+X				if( flags != EndBlockFlag )
+X					printf(
+X"SkipToEndOfBlock: found another beginning for block %d (%d)\n",
+X						endBlockID, blockID );
+X				break;
+X			}
+X			/* else keep looking */
+X		}
+X		/* else keep looking */
+X	}
+X	return offset;
+X}
+X
+void
+CreateViewPieceTable( w, ff )
+X	struct window *w;
+X	struct openFile *ff;
+X{
+X	extern int debug;
+X
+X	Offset offset;
+X	Piece pp;
+X	int length;
+X
+X	offset = FindBlock( w->block->this_one, w->realFileId );
+X	(void)CreatePieceTableForBlock( w, offset, &(ff->pieceList), NULL );
+X	
+X	/* find out the length of the file */
+X	length = 0;
+X	pp = ff->pieceList;
+X	while( pp != NULL ) {
+X		length += pp->length;
+X		pp = pp->nextPiece;
+X	}
+X	ff->fileSize = length;
+X	ff->origFileSize = length;
+X}
+X
+Offset
+ProcessOneBlock( blockID, w, offset, firstPiece, lastPiece )
+X	BlockID blockID;
+X	struct window *w;
+X	Offset offset;
+X	Piece *firstPiece;
+X	Piece *lastPiece;
+X{
+X	extern unsigned char beginMarkerChar;
+X	extern int debug;
+X
+X	Piece firstpp = NULL;
+X	Piece lastpp = NULL;
+X	Piece fp, lp;
+X	Offset beginOffset;
+X	int uch;
+X	unsigned int id, flags;
+X	int fid = w->realFileId;
+X
+X	while( 1 ) {	/* loop through each run of characters or subblock */
+X		beginOffset = offset;	/* remember for later */
+X		/* scan characters until EOF or a block marker is found */
+X		while( 1 ) {
+X			uch = getFileByte( fid, offset++ );
+X			if( uch == BLOCK_EOF || uch == beginMarkerChar )
+X				break;
+X		}
+X		CreateSpanPieces(blockID, fid, beginOffset, offset-2, &fp, &lp);
+X			/* CreateSpanPieces handles empty runs */
+X		if( fp != NULL ) {
+X			if( lastpp == NULL ) {
+X				firstpp = fp;
+X				lastpp = lp;
+X			} else {
+X				fp->prevPiece = lastpp;
+X				lastpp->nextPiece = fp;
+X				lastpp = lp;
+X			}
+X		}
+X		if( uch == BLOCK_EOF ) {
+X			printf("ProcessOneBlock: hit EOF looking for block\n");
+X			break;
+X		}
+X		offset = ReadBlockMarker( fid, offset, &id, &flags );
+X		if( id == blockID ) {
+X			/* same id -- should be the end of the block */
+X			if( flags != EndBlockFlag )
+X				printf("ProcessOneBlock: wrong block marker\n");
+X			break;
+X		}
+X		if( flags != BeginBlockFlag ) {
+X			printf( "ProcessOneBlock: block end should be begin\n");
+X			break;
+X		}
+X		offset = CreatePieceTableForBlock( w, offset-MARKER_SIZE, &fp,
+X									&lp );
+X		if( fp != NULL ) {
+X			if( lastpp == NULL ) {
+X				firstpp = fp;
+X				lastpp = lp;
+X			} else {
+X				fp->prevPiece = lastpp;
+X				lastpp->nextPiece = fp;
+X				lastpp = lp;
+X			}
+X		}
+X	}
+X	*firstPiece = firstpp;
+X	*lastPiece = lastpp;
+X	return offset;
+X}
+X
+void
+CreateSpanPieces( blockID, fid, begin, end, fp, lp )
+X	BlockID blockID;
+X	int fid;
+X	Offset begin, end;
+X	Piece *fp, *lp;
+X{
+X	extern struct openFile *files;
+X	extern int debug;
+X
+X	Piece firstpp = NULL;
+X	Piece lastpp = NULL;
+X	Piece newpp, oldpp;
+X	struct openFile *ff;
+X	Offset beginPiece;
+X	Offset pieceOffset;
+X	Offset pieceLength;
+X	Offset size;
+X
+X	ff = &files[fid];
+X	while( begin <= end ) {
+X		oldpp = findPiece( begin, ff, &beginPiece );
+X		pieceOffset = begin - beginPiece;
+X		newpp = getFreePiece();
+X		newpp->flags = IS_CLONED_PIECE;
+X		newpp->blockID = blockID;
+X		newpp->position = oldpp->position + pieceOffset;
+X		pieceLength = oldpp->length - pieceOffset;
+X		size = end - begin + 1;
+X		if( pieceLength > size )
+X			pieceLength = size;
+X		begin += pieceLength;
+X		newpp->length = pieceLength;
+X		newpp->file = oldpp->file;
+X		/* link into the chain of cloned pieces */
+X		newpp->nextClone = oldpp->nextClone;
+X		oldpp->nextClone = newpp;
+X		/* link onto the chain of pieces for this span */
+X		if( lastpp == NULL ) {
+X			lastpp = newpp;
+X			firstpp = newpp;
+X		} else {
+X			lastpp->nextPiece = newpp;
+X			newpp->prevPiece = lastpp;
+X			lastpp = newpp;
+X		}
+X	}
+X	*fp = firstpp;
+X	*lp = lastpp;
+X}
+X
+Offset
+CreatePieceTableForBlock( w, offset, firstPiece, lastPiece )
+X	struct window *w;
+X	Offset offset;
+X	Piece *firstPiece;
+X	Piece *lastPiece;
+X{
+X	extern struct openFile *files;
+X	extern unsigned char beginMarkerChar;
+X	extern unsigned char endMarkerChar;
+X	extern Offset addPosition;
+X	extern int addHandle;
+X	extern int debug;
+X	extern char msgBuffer[];
+X
+X	int uch;
+X	char ch2;
+X	Block block;
+X	ID attrID;
+X	unsigned char *s;
+X	int i;
+X	int blockSkipped;
+X	Map blockMap;
+X	Attribute attribute;
+X	unsigned int flags;
+X	char *p;
+X	Offset stringBegin, size;
+X	Piece firstpp = NULL;
+X	Piece lastpp = NULL;
+X	Piece pp, fp, lp;
+X	BlockID blockID;
+X	int fid = w->realFileId;
+X	DBM *db = w->db;
+X
+X	uch = getFileByte( fid, offset++ );	/* read beginMarkerChar */
+X	if( uch != beginMarkerChar ) {
+X		printf("CreatePieceTableForBlock: no block marker\n");
+X		return NULL;
+X	}
+X
+X	offset = ReadBlockMarker( fid, offset, &blockID, &flags );
+X		/* get the block to get the attribute IDs */
+X	block = GetBlock( db, blockID, NO_ALLOCATE);
+X	if( block != NULL ) {
+X		attrID = block->attribute[0];
+X	} else {
+X		printf("Cannot find block %d\n", blockID);
+X		attrID = 0;
+X	}
+X
+X	/* get the block map and look for our attribute */
+X	blockMap = w->blockMap;
+X	s = (unsigned char *)blockMap->defaultRange;
+X	for( i = 0; i < MAP_SIZE; ++i ) {
+X		if( blockMap->domain[i] == attrID ) {
+X			s = (unsigned char *)blockMap->range[i];
+X			break;
+X		}
+X	}
+X	
+X	blockSkipped = 0;
+X	stringBegin = addPosition;
+X
+X	/* process the format string */
+X	while( (ch2 = *s++) != '\0' ) {
+X		if( ch2 != FormatMarker ) {
+X			writeChar( ch2, addPosition++ );
+X			continue;
+X		}
+X		/* else it is a format character, so get the control char */
+X		ch2 = *s++;
+X		/* this is to guard against a malformed format */
+X		if( ch2 == '\0' ) {
+X			printf(
+X"CreatePieceTableForBlock: format char (%c) at end of format string\n",
+X				FormatMarker );
+X			break;
+X		}
+X		switch( ch2 ) {
+X		case PutBlockContents:
+X			/* create a piece for the inital block string */
+X			size = addPosition - stringBegin;
+X			if( size > 0 ) {
+X				pp = getFreePiece();
+X				pp->file = addHandle;
+X				pp->position = stringBegin;
+X				pp->length = size;
+X				pp->flags |= IS_DECORATION;
+X				pp->blockID = blockID;
+X				if( lastpp == NULL ) {
+X					/* still empty */
+X					firstpp = pp;
+X					lastpp = pp;
+X				} else {
+X					pp->prevPiece = lastpp;
+X					lastpp->nextPiece = pp;
+X					lastpp = pp;
+X				}
+X			}
+X			/* put in the pieces for the block */
+X			offset = ProcessOneBlock(blockID, w, offset, &fp, &lp);
+X			if( fp != NULL ) {
+X				if( lastpp == NULL ) {
+X					firstpp = fp;
+X					lastpp = lp;
+X				} else {
+X					fp->prevPiece = lastpp;
+X					lastpp->nextPiece = fp;
+X					lastpp = lp;
+X				}
+X			}
+X			/* indicate we have passed over the block */
+X			blockSkipped = 1;
+X			/* start a new string for the stuff after */
+X			/* the block contents */
+X			stringBegin = addPosition;
+X			break;
+X		case PutBlockID:
+X			sprintf( msgBuffer, "%d", blockID );
+X			goto InsertString;
+X		case PutBlockName:
+X			block = GetBlock( db, blockID, NO_ALLOCATE);
+X			sprintf( msgBuffer, "%s", block->name );
+X			goto InsertString;
+X		case PutAttributeName:
+X			block = GetBlock( db, blockID, NO_ALLOCATE);
+X			attribute = GetAttribute( db, block->attribute[0],
+X								NO_ALLOCATE);
+X			sprintf( msgBuffer, "%s", attribute->name );
+X		InsertString:
+X			p = msgBuffer;
+X			while( (ch2 = *p++) != '\0' )
+X				writeChar(ch2, addPosition++);
+X			break;
+X		default:
+X			printf("Unknown format (%c) in block format string\n",
+X				ch2);
+X			break;
+X		}
+X	}
+X	size = addPosition - stringBegin;
+X	if( size > 0 ) {
+X		pp = getFreePiece();
+X		pp->file = addHandle;
+X		pp->position = stringBegin;
+X		pp->flags |= IS_DECORATION;
+X		pp->blockID = blockID;
+X		pp->length = size;
+X		if( lastpp == NULL ) {
+X			/* still empty */
+X			firstpp = pp;
+X			lastpp = pp;
+X		} else {
+X			pp->prevPiece = lastpp;
+X			lastpp->nextPiece = pp;
+X			lastpp = pp;
+X		}
+X	}
+X
+X	if( !blockSkipped )
+X		offset = SkipToEndOfBlock( fid, offset, blockID );
+X	if( firstPiece != NULL )
+X		*firstPiece = firstpp;
+X	if( lastPiece != NULL )
+X		*lastPiece = lastpp;
+X	return offset;
+X}
+X
+void
+XFreeOldViewPieces( ff )
+X	struct openFile *ff;
+X{
+X	Piece pp = ff->pieceList;
+X	Piece pp_prev;
+X	
+X	while( pp != NULL ) {
+X		/* go around the circular list to find the previous piece */
+X		pp_prev = pp->nextClone;
+X		while( pp_prev->nextClone != pp )
+X			pp_prev = pp->nextClone;
+X		if( pp_prev != pp ) {	/* check this to be safe */
+X			pp_prev->nextClone = pp->nextClone;
+X		}
+X		pp = pp->nextPiece;
+X	}
+X	freePieces( ff->pieceList );
+X	ff->pieceList = NULL;	/* just to be safe */
+X}
+X
+int
+CreateViewFile( w )
+X	struct window *w;
+X{
+X	extern struct openFile *files;
+X	extern int maxFiles;
+X
+X	int fileNumber;
+X	struct openFile *ff;
+X
+X	/* find a free file structure */
+X	for(fileNumber = 0; fileNumber < maxFiles; fileNumber++) {
+X		if( files[fileNumber].origHandle == -1 )
+X			break;
+X	}
+X	if( fileNumber == maxFiles ) {
+X		msg("openFile: out of file structures", 3);
+X		return -1;
+X	}
+X	ff = &files[fileNumber];
+X	strncpy( ff->origName, w->file->name, FILENAMESIZE );
+X	ff->origHandle = -2;	/* invalid handle -- not used */
+X	ff->isView = 1;
+X	ff->useCount = 1;
+X	ff->flags = 0;
+X
+X	/* now build the pieces of this view */
+X	CreateViewPieceTable( w, ff );
+X
+X	/* initialize the optimization fields to first piece */
+X	ff->loLogPiece = 0;
+X	ff->hiLogPiece = ff->pieceList->length - 1;
+X	ff->logPiece = ff->pieceList;
+X	ff->hiLogBuffer = -1;
+X	ff->loLogBuffer = -1;
+X	ff->logBuf = NULL;
+X
+X	/* return the fileId */
+X	return fileNumber;
+X}
+X
+void
+AddFileToDocument( w )
+X	struct window *w;
+X{
+X	extern DBM *currentDB;
+X	extern Document currentDocument;
+X	extern Offset selBegin, selEnd;
+X	extern struct openFile *files;
+X	extern AttributeID mainFileBlock;
+X	extern MapID naturalMap;
+X
+X	char *name, *long_name;
+X
+X	if( w->db != NULL ) {
+X		printf("db is not NULL, is this already a Anasazi document?\n");
+X		return;
+X	}
+X	w->db = currentDB;
+X	w->document = currentDocument;
+X
+X	long_name = files[w->fileId].origName;
+X	name = &(files[w->fileId].origName[w->nameOffset]);
+X
+X	/* create the file and store it */
+X	w->file = CreateFile( w->db, w->document, long_name );
+X	
+X	/* create a block out of the whole file (and store it) */
+X	w->block = CreateBlock( w->db, w->document, name, mainFileBlock, 0,
+X							w->file->this_one );
+X	/* select the whole file */
+X	selBegin = 0;
+X	selEnd = fileSize( w->fileId ) - 1;
+X	InsertBlock( w->block->this_one );
+X	
+X	/* use the default (Natural) map */
+X	w->blockMap = GetMap( w->db, naturalMap, ALLOCATE );
+X
+X	/* the link maps are initially empty */
+X	w->fromLinkMap = NULL;
+X	w->toLinkMap = NULL;
+X
+X	/* create the initial view and store it */
+X	w->view = CreateView( w->db, w->document, name, w->block->this_one,
+X				NullObject, NullObject, w->blockMap->this_one );
+X	
+X	/* set up the cloned piece table */
+X	w->realFileId = w->fileId;	/* save the real fid */
+X	w->fileId = CreateViewFile( w );
+X
+X	/* finish up */
+X	w->posTopline = 0;
+X	selBegin = 0;
+X	selEnd = 0;
+X	AssertSelectionOwnership();
+X
+X	/* set up the last row cache */
+X	w->posCurLast = 0;
+X	w->lastPosTop = 0;
+X	w->rowCurLast = 0;
+X}
+X
+int
+InsertBlock( n )
+X	unsigned int n;
+X{
+X	extern Offset selBegin, selEnd;
+X	extern struct window *selWindow;
+X	extern unsigned char beginMarkerChar;
+X	extern unsigned char endMarkerChar;
+X	extern struct openFile *files;
+X	extern char msgBuffer[];
+X	extern int hypertextOn;
+X
+X	Offset saveSelBegin = selBegin;
+X	int i;
+X	int saveHypertextOn = hypertextOn;
+X
+X	hypertextOn = 0;
+X	
+X	/* insert the end marker */
+X	/* move one character past the selection for the insertion */
+X	selBegin = ++selEnd;
+X
+X	insertChar( beginMarkerChar );
+X	sprintf( msgBuffer, "%06d", n );
+X	for( i = 0; i < 6; ++i )
+X		insertChar( msgBuffer[i] );
+X	insertChar( ',' );
+X	insertChar( EndBlockFlag );
+X	insertChar( endMarkerChar );
+X
+X	/* insert the begin marker */
+X	selEnd = selBegin = saveSelBegin;
+X	insertChar( beginMarkerChar );
+X	for( i = 0; i < 6; ++i )
+X		insertChar( msgBuffer[i] );
+X	insertChar( ',' );
+X	insertChar( BeginBlockFlag );
+X	insertChar( endMarkerChar );
+X
+X	hypertextOn = saveHypertextOn;
+X	
+X	return 1;
+X}
+X#endif
+X
+END_OF_FILE
+if test 26116 -ne `wc -c <'anaSources.c'`; then
+    echo shar: \"'anaSources.c'\" unpacked with wrong size!
+fi
+# end of 'anaSources.c'
+fi
+if test -f 'doc/point.n' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/point.n'\"
+else
+echo shar: Extracting \"'doc/point.n'\" \(23608 characters\)
+sed "s/^X//" >'doc/point.n' <<'END_OF_FILE'
+X.TH PT 1 "7 February 1992"
+X.SH NAME
+Point \- an X-based text editor
+X.SH SYNOPSIS
+X.B point
+X[-nobrowser] [-nb]
+X[
+X.IR filename \.\|\.\|\.\|]
+X.SH DESCRIPTION
+This document gives an overview of Point so you can
+get started using it quickly to determine whether you like it or not.
+There is a longer manual that describes Point in detail.
+Point is highly configurable but in this document will describe
+the configuration specified in files \fItclLib/*.tcl\fR.
+X
+X
+X
+X.SH USAGE
+X
+X
+X.SS Starting Point
+You just have to make sure that
+X.I point
+is in your
+X.IR path .
+Point uses a startup file to specify menus, key bindings and options.
+Point will look for a startup file
+X.I ~/.ptrc
+first.
+Typically this will just source the real startup file but by doing it
+this way, the startup file is found no matter which directory you
+start point in.
+If it cannot find that it will look for 
+X.IR ./ptsetup.tcl .
+If it cannot find either of those it will use an installation
+default which is the configuration described in this manual page.
+The default startup file will print out its pathname so you can
+copy and modify it to configure Point the way you would like.
+X.LP
+When Point starts a thin
+X.I file browser
+appears in the upper, central part
+of your screen and a text window for each file name on the command line
+will appear on the upper left, all stacked on top of each other
+X(thus you will only see one text window).
+X(The reference manual describes a way for Point to find its
+configuration file from any directory.)
+X
+X
+X.SS Selecting text
+The
+X.I selection
+is a central concept in Point.
+The selection is the implied object of many Point commands
+X(e.g., delete, move, copy, search).
+The
+X.I insertion point
+is the position just in front
+of the first character of the selection and is the destination
+of all insert operation in Point (e.g., typed characters, insert scrap,
+move and copy)
+The selection is one or more characters of text in one of the
+open text windows.
+There is only one selection among all the text windows at any one time.
+X.LP
+You select text in the usual way, that is,
+you move the sprite to the first character of the intended
+selection, press the left mouse button, move the sprite to
+the last character of the selection and release the left mouse button.
+Alternatively you can click the left mouse button on the
+first character of the intended selection and click the right
+mouse button on the last character of the selection.
+XFinally you can double (triple) click on a word (line) to select it.
+By holding down the second (third) click and moving the mouse
+you can extend the selection by words (lines).
+X
+X
+X.SS X selections
+When you select text in Point it becomes the X selection
+and can be inserted in \fIxterm\fR windows (for example) by clicking
+the middle mouse button.
+The ``Insert X selection'' command (on the EDIT menu) inserts the X selection
+into a Point text window at the insertion point. 
+This X selection must be made after any Point selections to ensure
+that it is the current X selection.
+X
+X
+X.SS Editing text
+Typed characters are inserted at the insertion point
+X(just in front of the first character of the selection).
+The delete (to the scrap buffer) command
+deletes the selected text into the scrap buffer.
+The delete command is on the \fIScrap =>\fR submenu of the EDIT menu
+and is also attached to the F1 key.
+The insert (from the scrap buffer) command inserts the text
+in the scrap buffer at the insertion point.
+The insert command is on the \fIScrap =>\fR submenu of the EDIT menu
+and is also attached to the F2 key.
+X.LP
+Point keeps a history list of all commands executed.
+The \fIagain\fR command repeats the last command using the current selection.
+The \fIundo\fR command undoes the last command.
+Additional \fIundo\fR commands undo earlier and earlier commands.
+If you undo too many commands the \fIredo\fR command will
+redo an undone command.
+These are all on the \fIUndo/Again/Redo =>\fR submenu of the EDIT menu.
+X
+X
+X.SS Scrolling the text
+Point has vertical and horizontal scroll bars.
+The size and position of the slider in the scroll bar indicate how
+much of and what part of the file is being displayed in the window.
+The right mouse button scrolls down (towards the end of the file)
+and the left mouse button scrolls up (towards the beginning of the file)
+when they are clicked in the scroll bar.
+The line of text beside the sprite (mouse cursor) is moved to the top
+of the window when you scroll down and is replaced by the top
+line when you scroll up.
+This allows you to control exactly the number of lines scrolls.
+It is common to use this feature to move the beginning of the text
+of interest (say a procedure definition) to the top of the window.
+If you hold down the left or right mouse button the window
+will scroll continuously (after a short initial delay).
+When the middle mouse button is clicked in the scroll bar the window
+jumps so that the top of the slider is located at the location of
+the mouse sprite.
+The middle mouse button can also be dragged to scroll the text.
+X
+X
+X.SS Searching for text
+The \fISearch for string =>\fR submenu of the GOTO menu contains
+several commands
+which search for a string and reposition the window
+so that the string is displayed in the window.
+You can search forward (backward) for the next (previous) instance of the
+selected text.
+You can also repeat the last search (forward or backwards),
+that is, search again for the last string searched for or
+you can bring up a dialogue box that allows you to enter a search string.
+Also there is a regular expression search command that uses the same
+types of regular expressions as the Unix commands grep/sed/ed/ex/vi.
+X
+X
+X.SS Moving around the file
+The GOTO menu contains several other functions that move the window
+around the text.
+The \fIMove in file to =>\fR submenu has specific commands to move
+to the beginning and end of the
+file although this can also be done using the scroll bar.
+When you jump around the file (that is, any movement not a scroll)
+Point remembers the last place you jumped from
+and there is a command to go back to that place.
+This command is convenient for alternating between two places
+in the file.
+The GOTO menu also has commands to go to specified line
+numbers and to show the selection.
+X
+X
+X.SS Moving and resizing windows
+The FILE menu has a submenu (\fIMove Window =>\fR) with four commands
+X(\fIMove to (NW,NE,SE,SW)\fR)
+which will move windows to one of the predefined
+locations for windows and a \fIZoom vertical\fR command that
+zooms the window vertically to (almost) the whole height of the screen.
+You can also move and resize the windows using the usual
+window manager commands.
+X
+X
+X.SS Raising and lowering windows
+Click on a window name in the list of windows at the top of the
+file browser to top that window (and move it to
+the first predefined window stack location).
+Clicking with the middle or right mouse buttons tops the window and
+moves it to the second or third window stack locations.
+You can also raise and lower windows using the window manager.
+X
+X
+X.SS Opening windows and changing directories
+To open a window, double click on the name of the desired
+file in the file browser.
+To change to a directory, double click on its name in the file browser.
+The DIRS menu (on the file browser menu bar)
+also allows direct jumps to some directories.
+Double clicking with the middle or right mouse buttons
+also opens a window but at the second (SE)
+and third (NE) window stack locations.
+X
+X
+X.SS Closing windows
+To close a window, click on the \fIClose\fR item on its menu bar.
+If the file in the window has been edited and not saved it will be
+saved automatically (click with the right mouse button to prevent
+this saving).
+The \fIClose =>\fR submenu of the FILE menu has commands
+to close and automatically save and close and automatically not save.
+You can also save the file or write it to a new name
+using commands from the FILE menu.
+X
+X
+X.SS Redrawing the screen
+Point occasionally fails to update the display correctly.
+Clicking the right mouse button on \fISv\fR and selecting
+the \fIRedraw window\fR command
+on the EDIT menu) fixes it up and ensures that the
+display reflects the actual state of the text.
+X
+X
+X.SS Changing fonts
+The FILE menu (submenu \fISet text fonts =>\fR)
+allows you to change the font used to display the
+text in the window.
+This allows you to see more text or see it the text more easily
+X(but not both).
+You can change the font size at any time.
+It is often useful to change to a smaller font for a short time
+in order to see more text.
+X
+X
+X.SS The text window menu bar
+The FILE menu contains file and window related commands.
+The EDIT menu contains commands that change text.
+The GOTO window contains commands that move the window around the text
+X(including the search commands).
+X
+Most of the menu bar items do different things depending
+on which mouse button you click on them.
+I have tried to group the functions logically with related
+functions grouped together.
+Here are the overloaded functions (where LMB represents
+clicking the left mouse
+button and MMB and RMB clicking the middle and right mouse buttons):
+X.LP
+X.IP \fB<<\fR
+LMB: search backward for selection, MMB: pop up search dialogue box,
+RMB: search backward for the last string searched for
+X.IP \fB>>\fR
+LMB: search forward for selection, MMB: pop up search dialogue box,
+RMB: search forward for the last string searched for
+X.IP \fBClose\fR
+LMB: close and save, MMB: close and ask about saving changes,
+RMB: close and do not save changes
+X.IP \fBSv\fR
+LMB: save, MMB: save as (write with new name), RMB: redraw the window
+X(This combination is not logical but I wanted redraw somewhere.)
+X.IP \fBJump\fR
+LMB: beginning of file, MMB: last place jumped from, RMB: end of file
+X.IP \fBTag\fR
+LMB: find selected tag,
+MMB: bring up tag dialogue box
+RMB: find selected keyword
+X.IP \fB++X--\fR
+LMB: insert (at the insertion point) the scrap, MMB: insert the X selection,
+RMB: delete the selection to the scrap
+X.IP \fB+Do-\fR
+LMB: redo, MMB: repeat last edit (again), RMB: undo
+X.IP \fBZz\fR
+LMB: make selection upper case, MMB: toggle case of selection,
+RMB: make selection lower case
+X.IP \fBMoveW\fR Move this window to:
+LMB: NW position, MMB: SE position, RMB: NE position
+X.IP \fBLine#\fR
+LMB: got selected line number, MMB: pop up goto line number dialogue box,
+RMB: zoom window vertically
+X(This combination is not logical but I wanted zoom vertical somewhere.)
+X
+X
+X.SS Typing in a line number
+It can be inconvenient to wait for the dialogue box to come up to type
+in a line number.
+One solution is to select it and goto the selected line number.
+This function works with the X selection as well as the Point selection
+X(whichever one was made more recently)
+so the line number can be compiler output in an \fIxterm\fR window.
+Another solution is to just type digits into the \fILine#\fR menu bar
+item, that is, move the mouse cursor into \fILine#\fR and type
+X(no mouse button press or click is required).
+XEnd the number with any non-digit character (I usually use a function
+key since it is close to the digits on my keyboard).
+X
+X
+X.SS Typing in incremental search strings
+You can search for the X selection in a window to avoid retyping
+the search string.
+That is, you can select a string in any X window that support
+XX selections and then search for it in any Point window with the
+X\fI<<\fR or \fI>>\fR buttons or using a mouse menu to invoke the search for
+selection command.
+You can also type the search string directly into
+the \fI<<\fR or \fI>>\fR menu bar buttons,
+that is, (as above) move the sprite inside \fI<<\fR or \fI>>\fR and type.
+This form of search is incremental, that is, Point searches after each
+character is added to the search string.
+Any non-ASCII character restarts the search string (I use a function key).
+X(It is useful to get in the habit of hitting a function key first to
+clear the search string since it keeps accumulating otherwise.
+The ``\fIyourString\fR not found'' error message will remind you
+if you forget.)
+The incremental search is convenient since you only have to type
+a unique prefix of the desired string.
+X
+X
+X.SS C tags
+Point supports the ``tags'' facility like vi and emacs.
+Just create a tags file in the normal way with ctags.
+You can find a selected tag or type the tag in a dialogue box.
+Both commands are on GOTO menu.
+The file the tag is in is loaded into a new window
+X(unless it is already in a window in which case the window is raised)
+and jumped to the location of the tag.
+X
+X
+X.SS Keyword search 
+I commonly want to see all the places a variable name is used in
+my program.
+Grep can be used for this and Point's keyword search facility
+will call grep for you.
+The keyword can be the selection or can be typed into a dialogue box
+X(both commands are on the GOTO menu).
+They both bring up a dialogue box with a list of the
+files that contain that keyword.
+If you click (once) on a file name in the list a window
+is opened on the file (or the window is topped if the file is already
+in an open window),
+the window is jumped to the first instance of the keyword,
+the keyword is selected and an asterisk is placed before the
+file name on the list so you can easily tell which files
+you have already examined and which you haven't.
+X
+X
+X.SS Function keys
+X.IP
+X.B Arrow keys
+move the selection up, down, left and right
+X.IP
+X.B F1
+delete the selection to the scrap buffer
+X.IP
+X.B F2
+insert text in the scrap buffer at the insertion point
+X.IP
+X.B F3
+search backwards from the selection for the last string searched for
+X.IP
+X.B F4
+search forwards from the selection for the last string searched for
+X.IP
+X.B F5
+repeat the last edit (using the current selection and insertion point)
+X.IP
+X.B F6
+redo the last undone edit
+X.IP
+X.B F7
+scroll up one page
+X.IP
+X.B F8
+scroll down one page
+X.IP
+X.B F9
+undo the last edit (this is undoable with redo)
+X.LP
+The best use of function keys is to combine with mouse command to
+get maximum editing bandwidth.
+XFor example I usually select things with the mouse and execute
+delete (F1), insert (F2) or again (F5) commands with function keys.
+I also often use repeat search (F4) and repeat edit (F5) alternatively
+to do an interactive search and replace.
+X
+X
+X.SS The browser window
+The browser window contains:
+X.HP
+X\(bu A list of open text windows \(em click on a name to top and
+relocate the window \- the mouse button clicked determines the
+new location: left button for NorthWest, middle button for SouthEast
+and right button for NorthEast
+X.HP
+X\(bu A short menu bar of commands (see below),
+X.HP
+X\(bu A display of file and directory names.
+Directories are shown with a ``/'' appended to their name.
+If you double click on a directory name with the left mouse button
+the browser switches to that directory.
+If you double click on a directory name with the middle (right)
+mouse button, a new browser is created in the second (third)
+standard position and the new browser will display the named directory.
+It is handy to have two or three file browsers on different
+directories available at one time.
+If you double click on a file name point will open a window on that file.
+The button used determines the location of the new window:
+left button for NorthWest, middle button for SouthEast
+and right button for NorthEast.
+X.HP
+X\(bu A message line.
+X.LP
+The ``DIRS'' menu allows you to jump directly to one of
+a list of preselected directories.
+It also includes a command to change to the dirertory named by the
+XX selection.
+X.LP
+The ``New'' button creates new browsers.
+The button determines which of three predefined browser positions
+is used.
+The initial browser is in the position  used when you click
+on ``New'' with the left mouse button.
+The other two positions are to the right of that.
+X.LP
+The ``MENU'' menu contains most of the commands in submenus.
+The ``PREFS'' menu allows you to change most Point options.
+It has several submenus and many check boxes and radio buttons.
+The ``New'' button creates a new window and loads it with
+the file name that is selected
+X(this can be either the Point selection or the X selection \(em whichever
+one was made most recently).
+The ``DIRS'' menu allows you to jump directly to one of
+a list of preselected directories.
+X
+The MISC menu contain a number of occasionally useful commands.
+It allows you to change the font used to display file names
+in the browser.
+X
+The ``  *  '' button rereads and redisplays the directory contents.
+The ``New Browser'' button create another file browser.
+The ``Del File'' button deletes the  file whose name is selected.
+The ``Close'' button closes this file browser.
+The ``Quit'' menu exits Point and gives you three options for
+disposing of unsaved edits.
+X
+X
+X.SS Mouse menus
+Pressing the middle or right mouse button enters a mode where you select
+a command from a ``circular menu''.
+When you press the middle or right mouse button, after a delay of 0.6 seconds,
+the menu comes up showing the commands in each of five positions.
+As you move the mouse around the circle you select the nearest command.
+Release the button to execute the command.
+To cancel the command click the left mouse button
+and then release the mouse button.
+The purpose of the delay is to allow you to give these
+command without the overhead of displaying the menu.
+If you select the direction and release the middle mouse button before
+X0.6 seconds is up the menu is not displayed.
+X.LP
+The commands are for the \fBMiddle mouse button\fR:
+X.HP
+X\fBClose to it:\fR duplicate (copy-to-from)
+X.HP
+X\fBNorth (or up) of it:\fR delete the selection to the scrap buffer
+X.HP
+X\fBSouth (or down) of it:\fR insert the scrap buffer
+X.HP
+X\fBEast (or right) of it:\fR copy the selection to the location where
+you first pressed the middle mouse button
+X.HP
+X\fBWest (or left) of it:\fR move the selection to the location where
+you first pressed the middle mouse button
+X.LP
+The commands are for the \fBRight mouse button\fR:
+X.HP
+X\fBClose to it:\fR extend the selection to this point
+X.HP
+X\fBNorth (or up) of it:\fR search towards the beginning of the file
+X.HP
+X\fBSouth (or down) of it:\fR search towards the end of the file
+X.HP
+X\fBEast (or right) of it:\fR undo the last edit
+X.HP
+X\fBWest (or left) of it:\fR repeat the last edit with the current selection
+X
+X
+X.SS Using mouse menus
+The mouse menu commands are close at hand and are used for the
+most common actions.
+X(Since this changes from user to user you will probably want to
+change some of these commands on the mouse menus after you get used
+to using Point.
+The next section discusses customizing Point to your own tastes.)
+The forward and backward searches are obviously useful to find
+the previous and next use of a variable name in a program.
+The duplicate command is for duplicating text.
+Duplicating a line is the most common case:
+X.IP
+X1. Select the line (triple click) or lines (triple click and drag
+before releasing the third click).
+X.IP
+X2. Duplicate the line(s) (double click the middle mouse button).
+X(Duplicate is the ``close to'' command so a fast click executes duplicate.
+The first click sets the destination of the duplicate at the beginning
+of the selected line and the second click copies the selected text to that
+point.)
+X.LP
+Another common use of duplicate is to copy a nearby word to the insertion
+point as you are typing a line.
+Suppose you are typing a line and you want to use a word that is
+on a nearby line:
+X.IP
+X1. Stop typing where the word is to go and click the middle mouse button.
+This executes duplicate which remembers the current insertion point.
+X.IP
+X2. Move the sprite to the word to be copied and select it
+X(with a double click).
+X.IP
+X3. Click the middle mouse button to execute duplicate a second time
+which copies the selected word back to the line you were typing and
+leaves the insertion point just after the copied word so you can
+immediately resume typing the rest of the line.
+X.LP
+I have found that any word longer that seven or eight characters is
+worth copying rather than typing, especially in programs where misspelled
+identifiers cause you to have to recompile.
+Similarly to replace a word with a nearby word:
+X.IP
+X1. Select the word (double click)
+X.IP
+X2. Delete it (F1 or EDIT menu)
+X.IP
+X3. Duplicate (click middle button)
+X.IP
+X4. Select word to copy in (double click)
+X.IP
+X5. Duplicate (click middle button)
+X.LP
+These techniques can be used repeatedly to build up or modify
+lines from pieces of nearby lines.
+Also the text to be copied need not be nearby text.
+It can be in another window or in a different place in the same window.
+Between the first and second duplicate commands you can invoke any other
+Point commands.
+XFor example, you can scroll windows, you can open new windows,
+you can search in windows, etc.
+X.LP
+The duplicate command mentioned above is a ``copy-to-from'' command
+because first you give the location to copy to and then you select
+the text to be copied there.
+The East (left) mouse motion command is a ``copy-from-to'' command.
+Here is how you would use it:
+X.IP
+X1. Select the text to be copied (the `from' text))
+X.IP
+X2. Move the mouse to the `to' point.
+If you are copying a whole word (that is, if it was selected in
+word mode \(em with a double click) then you can point anywhere
+within the word and the text will be copied in front of that word.
+Similarly, to copy text selected in line mode (triple click) you
+can point anywhere in the line you want it copied in front of.
+X.IP
+X3. Press the middle mouse button and move to the left 
+and then release the middle mouse button.
+X.LP
+The Move scenario is nearly identical \- just move right in step 3.
+X
+X
+X.SS Moving windows
+The ``MoveW'' menu item is useful for positioning windows quickly.
+If I want to see two windows at the same time I usually put them in the
+NW (left mouse button) and NE (right mouse button) window positions.
+You can click the left (right) mouse button on either the ``MoveW''
+menu item or on the window's file name in the main browser window.
+A third document goes to the SE (middle mouse button) window position.
+I find that I spend a lot of time looking at several files
+at the same time during program development.
+X
+X
+X.SS Backups
+Most UNIX users (except emacs users) are not used to backup files.
+I got to like them using PCs even though at first I hated them
+because they cluttered up my directory.
+There are two options that control backups.
+The first is ``backupDepth'' which determines how many versions
+of each file are kept.
+It can vary for 0 (no backups are kept) to 9
+X(the default is 1 but I use 6).
+The backup files are often named with the file name appended with a period
+and a digit (``.1'' to ``.9'' with ``.1'' being the most recent).
+The option \fIbackupNameFormat\fR determines the form of
+the name of the backup file and hence where the backup files are stored.
+The default is the current directory (\fIbackupNameFormat=%n.%v\fR).
+I use
+X.I backupNameFormat=bak/%n.%v
+so the backup files are out of the way but there when I need them.
+The backup file name can be a relative or absolute pathname.
+X
+X
+X.SS Hints for using Point
+Section 7 of the Point Reference Manual has a number of hints on
+how to use Point's features.
+All of the command bindings described in this document are configurable
+in by editing
+X.I ptsetup.tcl
+X(the Point configuration file).
+You can look in this file but to change very much you should read the
+relevant sections in the user's manual
+X.LP
+You can change almost all of Point's options dynamically the
+X.I PREFS
+menu.
+X
+X
+X.SH BUGS
+See the file KnownBugs.
+X
+X
+X.SH AUTHOR
+Charles Crowley
+X.br
+Computer Science Department
+X.br
+University of New Mexico
+X.br
+Albuquerque, New Mexico 87131
+X.br
+X505-277-5446 (office) or 505-277-3112 (messages)
+X.br
+crowley@unmvax.cs.unm.edu
+X
+X
+X
+END_OF_FILE
+if test 23608 -ne `wc -c <'doc/point.n'`; then
+    echo shar: \"'doc/point.n'\" unpacked with wrong size!
+fi
+# end of 'doc/point.n'
+fi
+echo shar: End of archive 9 \(of 15\).
+cp /dev/null ark9isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 15 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

@@ -1,0 +1,2336 @@
+Newsgroups: comp.sources.misc
+From: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Subject:  v32i056:  ecu - ECU Asynchronous Communications v3.20, Part21/40
+Message-ID: <1992Sep14.143537.20519@sparky.imd.sterling.com>
+X-Md4-Signature: 2a483ee7f53cc8ec6effc22788cabf61
+Date: Mon, 14 Sep 1992 14:35:37 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: wht@n4hgf.Mt-Park.GA.US (Warren Tucker)
+Posting-number: Volume 32, Issue 56
+Archive-name: ecu/part21
+Environment: SCO,XENIX,ISC,SUNOS,SYSVR4,HDB,Curses
+Supersedes: ecu: Volume 21, Issue 53-89
+
+---- Cut Here and feed the following to sh ----
+#!/bin/sh
+# this is ecu320.21 (part 21 of ecu320)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file proc.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 21; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping proc.c'
+else
+echo 'x - continuing file proc.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'proc.c' &&
+Xdo_proc(argc,argv)
+Xint argc;
+Xchar **argv;
+X{
+X	register itmp;
+X	int itmp2;
+X	int erc;
+X	int iargv;
+X	char *pargv[MAX_PARGV];
+X	int ipargv = 0;
+X	char s256[256];
+X	char *procpath;
+X	FILE *fp;
+X	PCB *pcb = (PCB *)0;
+X	LCB *lcb = (LCB *)0;
+X	LCB *plcb;
+X	ushort line_count = 0;
+X	extern ulong colors_current;
+X	ulong colors_at_entry = colors_current;
+X	extern int proc_interrupt;
+X
+X	proc_interrupt = 0;		/* ok to reset here because no one ... */
+X	sigint = 0;				/* ... would call here if interrupted */
+X
+X	for(iargv = 0; iargv < argc; iargv++)
+X	{
+X		if(ipargv == MAX_PARGV)
+X		{
+X			pputs("\nMax arguments to procedure invocation exceeded\n");
+X			erc = eFATAL_ALREADY;
+X			goto RETURN;
+X		}
+X		pargv[ipargv++] = argv[iargv];
+X	}
+X
+X	if(!ipargv)
+X	{
+X		pputs("\nno procedure name given\n");
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X
+X	if(!(procpath = find_procedure(pargv[0])))
+X	{
+X		pprintf("\nprocedure %s not found\n",pargv[0]);
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X	fp = fopen(procpath,"r");
+X	if(!fp)
+X	{
+X		pperror(procpath);
+X		erc = eFATAL_ALREADY;
+X		goto RETURN;
+X	}
+X	if(proctrace)
+X		pprintf("DO: %s\n",procpath);
+X
+X	if(!(pcb = (PCB *)calloc(1,sizeof(PCB))))
+X	{
+X		erc = eNoMemory;
+X		goto RETURN;
+X	}
+X
+X	pcb->argv = pargv;
+X	pcb->argc = ipargv;
+X
+X	plcb = (LCB *)0;
+X	line_count = 0;
+X	while(1)
+X	{
+X		if(fgets(s256,sizeof(s256),fp) == NULL)
+X			break;
+X		line_count++;
+X
+X		itmp = strlen(s256) - 1;	/* skip blank lines */
+X		if(!itmp)
+X			continue;
+X		s256[itmp] = 0;				/* kill trailing NL */
+X		for(itmp2 = 0; itmp2 < itmp; itmp2++)
+X		{	/* convert tabs to spaces so we don't have to scan for each */
+X			if(s256[itmp2] == TAB)
+X				s256[itmp2] = SPACE;
+X		}
+X		if(s256[0] == '#')	 		/* skip comments */
+X			continue;
+X
+X		if(!(lcb = (LCB *)malloc(sizeof(LCB))))
+X		{
+X			fclose(fp);
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X
+X		lcb->prev = plcb;
+X		lcb->next = (LCB *)0;
+X		lcb->lineno = line_count;
+X
+X		if(plcb)
+X			plcb->next = lcb;
+X		else
+X			pcb->first = lcb;
+X
+X		if((lcb->text = esdalloc(itmp)) == (ESD *)0)
+X		{
+X			fclose(fp);
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		strcpy(lcb->text->pb,s256);
+X		lcb->text->cb = itmp;
+X		esd_null_terminate(lcb->text);
+X		plcb = lcb;
+X	}
+X	fclose(fp);
+X	pcb->last = lcb;
+X	if(line_count)
+X		erc = execute_proc(pcb,0);
+X	else
+X		erc = eProcEmpty;
+X
+XRETURN:
+X	if(pcb)
+X	{
+X		if(pcb->first)
+X			free_lcb_chain(pcb->first);
+X		free((char *)pcb);
+X	}
+X	if((erc > e_USER) && (erc <= 0x1FFF))
+X		erc -= e_USER;
+X	if(erc > e_USER)
+X		setcolor(colors_at_entry);
+X	return(erc);
+X
+X}	/* end of do_proc */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_do(param)
+X--------------------------------------------------------------------------*/
+Xpcmd_do(param)
+XESD *param;
+X{
+X	int erc;
+X	register ipargv;
+X	char *cmd_copy;
+X	char *pargv[MAX_PARGV];
+X	ESD *pargv_esd[MAX_PARGV];
+X	int pargc = 0;
+X
+X	if(!(cmd_copy = (char *)malloc(param->cb)))
+X		return(eNoMemory);
+X	strcpy(cmd_copy,param->pb + param->old_index);
+X	while(pargc != MAX_PARGV)
+X	{
+X		if(end_of_cmd(param))
+X			break;
+X		if((pargv_esd[pargc] = esdalloc(256)) == (ESD *)0)
+X		{
+X			erc = eNoMemory;
+X			goto RETURN;
+X		}
+X		if(erc = gstr(param,pargv_esd[pargc],1))
+X			goto RETURN;
+X		pargv[pargc] = pargv_esd[pargc]->pb;
+X		pargc++;
+X	}
+X
+X	if(pargc < MAX_PARGV)
+X		erc = do_proc(pargc,pargv);
+X	else
+X	{
+X		pprintf("too many arguments to procedure\n");
+X		erc = eFATAL_ALREADY;
+X	}
+X
+XRETURN:
+X	free(cmd_copy);
+X	for(ipargv = 0; ipargv < pargc; ipargv++)
+X		esdfree(pargv_esd[ipargv]);
+X	return(erc);
+X
+X}	/* end of pcmd_do */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of proc.c */
+SHAR_EOF
+echo 'File proc.c is complete' &&
+chmod 0644 proc.c ||
+echo 'restore of proc.c failed'
+Wc_c="`wc -c < 'proc.c'`"
+test 19700 -eq "$Wc_c" ||
+	echo 'proc.c: original size 19700, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= proc.h ==============
+if test -f 'proc.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping proc.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting proc.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'proc.h' &&
+X/*+-------------------------------------------------------------------------
+X	proc.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:11-16-1991-14:00-wht@n4hgf-add upon_dcdloss */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _proc_h
+X#define _proc_h
+X
+Xtypedef struct lcb_type
+X{
+X	ESD *text;				/* line's text buffer */
+X	struct lcb_type *next;	/* next lcb in chain; if NULL, no more in chain */
+X	struct lcb_type *prev;	/* previous lcb in chain; if NULL, top of chain */
+X	ushort lineno;			/* line number */
+X} LCB;
+X
+Xtypedef struct pcb_type
+X{
+X	int argc;
+X	char **argv;
+X	LCB *first;			/* first in procedure */
+X	LCB *last;			/* last in procedure */
+X	LCB *current;		/* currently executing or last executed line */
+X	ESD upon_dcdloss;	/* pseudo-ESD to execute as
+X						 * a statement upon DCD loss
+X						 */
+X	char *mkvs_last;	/* actually MKV *, but ... */
+X	char *mkvi_last;	/* ... see var.c for details */
+X} PCB;
+X
+X#define MAX_PARGV 20	/* max args to procedure, including name */
+X#define PROC_STACK_MAX	10	/* max proc nest */
+X
+X#endif /* _proc_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of proc.h */
+SHAR_EOF
+chmod 0644 proc.h ||
+echo 'restore of proc.h failed'
+Wc_c="`wc -c < 'proc.h'`"
+test 1418 -eq "$Wc_c" ||
+	echo 'proc.h: original size 1418, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= proc_error.c ==============
+if test -f 'proc_error.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping proc_error.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting proc_error.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'proc_error.c' &&
+X/* CHK=0x80A3 */
+X/*+-------------------------------------------------------------------------
+X	proc_error.c - print ecu procedure error
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-31-1992-15:12-build_err-creation from ecuerror.h */
+X
+X#include "ecu.h"
+X#include "ecuerror.h"
+X
+X/*+-------------------------------------------------------------------------
+X	proc_error(erc) - print error message
+X--------------------------------------------------------------------------*/
+Xvoid
+Xproc_error(erc)
+Xint erc;
+X{
+X	switch(erc)
+X	{
+X		case eProcEmpty:
+X			pputs("empty procedure\n");
+X			break;
+X		case eConnectFailed:
+X			pputs("failed to connect\n");
+X			break;
+X		case eNoSwitches:
+X			pputs("no switch(es) to command\n");
+X			break;
+X		case eIllegalCommand:
+X			pputs("invalid command\n");
+X			break;
+X		case eNoMemory:
+X			pputs("no more memory available\n");
+X			break;
+X		case eSyntaxError:
+X			pputs("syntax error\n");
+X			break;
+X		case eIllegalVarNumber:
+X			pputs("number is invalid or out of range\n");
+X			break;
+X		case eIllegalVarType:
+X			pputs("unrecognized variable type\n");
+X			break;
+X		case eNotInteger:
+X			pputs("integer expected and not found\n");
+X			break;
+X		case eCONINT:
+X			pputs("abort due to interrupt\n");
+X			break;
+X		case eInvalidFunction:
+X			pputs("invalid function name\n");
+X			break;
+X		case eMissingLeftParen:
+X			pputs("did not find expected left paren\n");
+X			break;
+X		case eMissingRightParen:
+X			pputs("did not find expected right paren\n");
+X			break;
+X		case eCommaExpected:
+X			pputs("expected comma not found\n");
+X			break;
+X		case eProcStackTooDeep:
+X			pputs("procedure stack depth exceeded\n");
+X			break;
+X		case eInvalidRelOp:
+X			pputs("invalid relational operator\n");
+X			break;
+X		case eInvalidIntOp:
+X			pputs("invalid integer operator\n");
+X			break;
+X		case eInvalidStrOp:
+X			pputs("invalid string operator\n");
+X			break;
+X		case eNotExecutingProc:
+X			pputs("not executing DO at this time\n");
+X			break;
+X		case eInvalidLabel:
+X			pputs("invalid label\n");
+X			break;
+X		case eInternalLogicError:
+X			pputs("internal logic error ... whoops\n");
+X			break;
+X		case eEOF:
+X			pputs("end of file or read error\n");
+X			break;
+X		case eBufferTooSmall:
+X			pputs("string too long\n");
+X			break;
+X		case eNoParameter:
+X			pputs("expected parameter not found\n");
+X			break;
+X		case eBadParameter:
+X			pputs("bad parameter\n");
+X			break;
+X		case eInvalidHexNumber:
+X			pputs("invalid hexadecimal digit\n");
+X			break;
+X		case eInvalidDecNumber:
+X			pputs("invalid decimal digit\n");
+X			break;
+X		case eInvalidOctNumber:
+X			pputs("invalid octal digit\n");
+X			break;
+X		case eInteractiveCmd:
+X			pputs("interactive command\n");
+X			break;
+X		case eNoLineAttached:
+X			pputs("no line (modem) attached\n");
+X			break;
+X		case eBadFileNumber:
+X			pputs("file number out of range\n");
+X			break;
+X		case eNotImplemented:
+X			pputs("not implemented\n");
+X			break;
+X		case eDuplicateMatch:
+X			pputs("more than one condition matches\n");
+X			break;
+X		case eColonExpected:
+X			pputs("expected colon not found\n");
+X			break;
+X		case eLabelInvalidHere:
+X			pputs("label not allowed on this statement\n");
+X			break;
+X		case eNoCloseFrame:
+X			pputs("missing '}' for '{'\n");
+X			break;
+X		case eNoFrame:
+X			pputs("missing command or command group after 'while' or 'if'\n");
+X			break;
+X		case eMissingCommand:
+X			pputs("expected command not found\n");
+X			break;
+X		case eBreakCommand:
+X			pputs("'break' outside 'while'\n");
+X			break;
+X		case eContinueCommand:
+X			pputs("'continue' outside 'while'\n");
+X			break;
+X		case eElseCommand:
+X			pputs("'else' without matching 'if'\n");
+X			break;
+X		case eInvalidVarName:
+X			pputs("invalid variable name\n");
+X			break;
+X		case eNoSuchVariable:
+X			pputs("variable by this name not defined\n");
+X			break;
+X		case eInvalidLogicOp:
+X			pputs("invalid logical operator\n");
+X			break;
+X		case eExpectRespondFail:
+X			pputs("expect-respond failed\n");
+X			break;
+X		case eSwitchesTooLong:
+X			pputs("switches too long\n");
+X			break;
+X		case eProcAttn_GOTO:
+X			pputs("GOTO detected\n");
+X			break;
+X		case eProcAttn_GOTOB:
+X			pputs("GOTOB detected\n");
+X			break;
+X		case eProcAttn_RETURN:
+X			pputs("RETURN detected\n");
+X			break;
+X		case eProcAttn_ESCAPE:
+X			pputs("ESCAPE detected\n");
+X			break;
+X		case eProcAttn_Interrupt:
+X			pputs("procedure interrupted\n");
+X			break;
+X		case eProcAttn_DCDloss:
+X			pputs("DCD lost during procedure execution\n");
+X			break;
+X		case eFATAL_ALREADY:
+X		case eWARNING_ALREADY:
+X			break;
+X		default:
+X			pprintf("unknown error %x\n",erc);
+X			break;
+X	}
+X} /* end of proc_error */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of proc_error.c */
+SHAR_EOF
+chmod 0644 proc_error.c ||
+echo 'restore of proc_error.c failed'
+Wc_c="`wc -c < 'proc_error.c'`"
+test 4619 -eq "$Wc_c" ||
+	echo 'proc_error.c: original size 4619, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= procframe.c ==============
+if test -f 'procframe.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping procframe.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting procframe.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'procframe.c' &&
+X/*+-------------------------------------------------------------------------
+X	procframe.c - execute frame of procedure statements
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	execute_frame(truth)
+X	pcmd_break(param)
+X	pcmd_continue(param)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <ctype.h>
+X#include "ecu.h"
+X#include "ecukey.h"
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include "proc.h"
+X
+Xextern PCB *pcb_stack[PROC_STACK_MAX];
+Xextern int proctrace;
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_break(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_break(param)
+XESD *param;
+X{
+X	return(eBreakCommand);
+X}	/* end of pcmd_break */
+X
+X/*+-------------------------------------------------------------------------
+X	pcmd_continue(param)
+X--------------------------------------------------------------------------*/
+X/*ARGSUSED*/
+Xint
+Xpcmd_continue(param)
+XESD *param;
+X{
+X	return(eContinueCommand);
+X}	/* end of pcmd_continue */
+X
+X/*+-------------------------------------------------------------------------
+X	execute_frame(truth)
+X
+X  pcb_stack[proc_level - 1]->current points to lcb behind frame: one
+X  statement or { statements }
+X
+X  if truth true, execute frame, else skip it
+X--------------------------------------------------------------------------*/
+Xint
+Xexecute_frame(truth)
+Xint truth;
+X{
+Xregister itmp;
+Xint erc = 0;
+XPCB *pcb = pcb_stack[proc_level - 1];
+XLCB *original_lcb = pcb->current;
+XLCB *begin_lcb;
+XESD *text;
+Xint nest_level = 0;
+Xint remember_break = 0;
+Xextern int proc_interrupt;
+X
+X	if(!(pcb->current = pcb->current->next))
+X	{
+X		pcb->current = original_lcb;
+X		return(eNoFrame);
+X	}
+X
+X	text = pcb->current->text;
+X	text->old_index = text->index = 0;
+X
+X	if(*text->pb != SPACE)	/* tabs were converted to spaces at read time */
+X		return(eLabelInvalidHere);
+X	skip_cmd_break(text);
+X
+X/* handle single statement frame */
+X	if(*(text->pb + text->index) != '{')
+X	{
+X		itmp = text->cb - text->index;
+X		if( ((itmp > 2) && !strncmp(text->pb + text->index,"if",2)))
+X		{
+X			pputs("command must appear inside {} or on same line as else\n");
+X			erc = eFATAL_ALREADY;
+X		}
+X		else if( ((itmp > 5) && !strncmp(text->pb + text->index,"while",5)))
+X		{
+X			pputs("command must appear inside {} within this context\n");
+X			erc = eFATAL_ALREADY;
+X		}
+X		else if(truth)
+X		{
+X			trace_proc_cmd(pcb);
+X			erc = execute_esd(text);
+X		}
+X		return(erc);
+X	}
+X
+X/* we've got a {} frame */
+X	begin_lcb = pcb->current;
+X	pcb->current = pcb->current->next;
+X	while(pcb->current)
+X	{
+X		if(proc_interrupt)
+X			return(eCONINT);
+X		text = pcb->current->text;
+X		text->old_index = text->index = 0;
+X		if(*text->pb != SPACE)	/* tabs were converted to spaces at read time */
+X			return(eLabelInvalidHere);
+X		skip_cmd_break(text);
+X		if(*(text->pb + text->index) == '}')
+X		{
+X			if(!nest_level)
+X			{
+X				text->index = text->cb;
+X				if(remember_break)
+X					return(eBreakCommand);
+X				return(0);
+X			}
+X			nest_level--;
+X		}
+X		else if(truth)
+X		{
+X			trace_proc_cmd(pcb);
+X			if(erc = execute_esd(text))
+X			{
+X				if(erc != eBreakCommand)
+X					return(erc);
+X				remember_break = 1;
+X				truth = 0;
+X			}
+X		}
+X		else if(*(text->pb + text->index) == '{')
+X			nest_level++;
+X		pcb->current = pcb->current->next;
+X	}
+X	pcb->current = begin_lcb;
+X	return(eNoCloseFrame);
+X	
+X}	/* end of execute_frame */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of procframe.c */
+SHAR_EOF
+chmod 0644 procframe.c ||
+echo 'restore of procframe.c failed'
+Wc_c="`wc -c < 'procframe.c'`"
+test 3651 -eq "$Wc_c" ||
+	echo 'procframe.c: original size 3651, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= regexp.c ==============
+if test -f 'regexp.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping regexp.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting regexp.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'regexp.c' &&
+X/*+-------------------------------------------------------------------------
+X	regexp.c -- regular expression functions made sane
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	advance(lp,ep)
+X	compile(pattern,ep,endbuf,seof)
+X	ecmp(a,b,count)
+X	getrnge(regexp)
+X	regexp_compile(regexp,cmpbuf,cmpbuf_size,emsg)
+X	regexp_operation(match_str,regexp_str,rtn_value)
+X	regexp_scan(cmpbuf,str_to_search,match,matchlen)
+X	step(p1,p2)
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-28-1991-14:07-wht@n4hgf2-SVR4 cleanup by aega84!lh */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include <stdio.h>
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X#include "ecuerror.h"
+X#include "esd.h"
+X#include "var.h"
+X#include <setjmp.h>
+X
+X#define	CBRA	2
+X#define	CCHR	4
+X#define	CDOT	8
+X#define	CCL		12
+X#define	CDOL	20
+X#define	CCEOF	22
+X#define	CKET	24
+X#define	CBACK	36
+X
+X#define	STAR	01
+X#define	RNGE	03
+X
+X#define	NBRA	9
+X
+X#define	PLACE(c)	ep[c >> 3] |= bittab[c & 07]
+X#define	ISTHERE(c)	(ep[c >> 3] & bittab[c & 07])
+X
+Xvoid getrnge();
+Xint advance();
+Xint ecmp();
+X
+Xextern int proc_level;
+Xextern int proctrace;
+X
+Xchar *braslist[NBRA];
+Xchar *braelist[NBRA];
+Xint nbra;
+Xint ebra;
+Xchar *match_start;
+Xchar *match_end;
+Xchar *locs;
+Xint sed;
+Xint nodelim;
+Xint circf;
+Xint low;
+Xint size;
+Xunsigned char bittab[] = { 1,2,4,8,16,32,64,128 };
+Xjmp_buf compile_error_jmpbuf;
+X
+X/*+-------------------------------------------------------------------------
+X	compile(pattern,ep,endbuf,seof)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xcompile(pattern,ep,endbuf,seof)
+Xchar *pattern;
+Xregister char *ep;
+Xchar *endbuf;
+Xint seof;
+X{
+X	register char *sp = pattern;
+X	register c;
+X	register eof = seof;
+X	char *lastep = pattern;
+X	int cclcnt;
+X	char bracket[NBRA],*bracketp;
+X	int closed;
+X	char neg;
+X	int lc;
+X	int i,cflg;
+X
+X	lastep = 0;
+X	if((c = *sp++) == eof || c == '\n')
+X	{
+X		if(c == '\n')
+X		{
+X			--sp;
+X			nodelim = 1;
+X		}
+X		if(*ep == 0 && !sed)
+X			longjmp(compile_error_jmpbuf,41);
+X		return;
+X	}
+X	bracketp = bracket;
+X	circf = closed = nbra = ebra = 0;
+X	if(c == '^')
+X		circf++;
+X	else
+X		--sp;
+X	while(1)
+X	{
+X		if(ep >= endbuf)
+X			longjmp(compile_error_jmpbuf,50);
+X		c = *sp++;
+X		if(c != '*' && ((c != '\\') || (*sp != 0x7B)))
+X			lastep = ep;
+X		if(c == eof)
+X		{
+X			*ep++ = CCEOF;
+X			return;
+X		}
+X		switch(c)
+X		{
+X
+X		case '.':
+X			*ep++ = CDOT;
+X			continue;
+X
+X		case '\n':
+X			if(!sed)
+X			{
+X				--sp;
+X				*ep++ = CCEOF;
+X				nodelim = 1;
+X				return;
+X			}
+X			else longjmp(compile_error_jmpbuf,36);
+X		case '*':
+X			if(lastep==0 || *lastep==CBRA || *lastep==CKET)
+X				goto defchar;
+X			*lastep |= STAR;
+X			continue;
+X
+X		case '$':
+X			if(*sp != eof && *sp != '\n')
+X				goto defchar;
+X			*ep++ = CDOL;
+X			continue;
+X
+X		case '[':
+X			if(&ep[17] >= endbuf)
+X				longjmp(compile_error_jmpbuf,50);
+X
+X			*ep++ = CCL;
+X			lc = 0;
+X			for(i = 0; i < 16; i++)
+X				ep[i] = 0;
+X
+X			neg = 0;
+X			if((c = *sp++) == '^')
+X			{
+X				neg = 1;
+X				c = *sp++;
+X			}
+X
+X			do 
+X			{
+X				if(c == '\0' || c == '\n')
+X					longjmp(compile_error_jmpbuf,49);
+X				if(c == '-' && lc != 0)
+X				{
+X					if((c = *sp++) == ']')
+X					{
+X						PLACE('-');
+X						break;
+X					}
+X					while(lc < c)
+X					{
+X						PLACE(lc);
+X						lc++;
+X					}
+X				}
+X				if(c == '\\')
+X				{
+X					switch(c = *sp++)
+X					{
+X					case 'n':
+X						c = '\n';
+X						break;
+X					}
+X				}
+X				lc = c;
+X				PLACE(c);
+X			} while((c = *sp++) != ']');
+X			if(neg)
+X			{
+X				for(cclcnt = 0; cclcnt < 16; cclcnt++)
+X					ep[cclcnt] ^= -1;
+X				ep[0] &= 0376;
+X			}
+X
+X			ep += 16;
+X
+X			continue;
+X
+X		case '\\':
+X			switch(c = *sp++)
+X			{
+X
+X			case 0x28: /* open paren */
+X				if(nbra >= NBRA)
+X					longjmp(compile_error_jmpbuf,43);
+X				*bracketp++ = nbra;
+X				*ep++ = CBRA;
+X				*ep++ = nbra++;
+X				continue;
+X
+X			case 0x29: /* close paren */
+X				if(bracketp <= bracket || ++ebra != nbra)
+X					longjmp(compile_error_jmpbuf,42);
+X				*ep++ = CKET;
+X				*ep++ = *--bracketp;
+X				closed++;
+X				continue;
+X
+X			case 0x7B:	/* open brace */
+X				if(lastep == (char *) (0))
+X					goto defchar;
+X				*lastep |= RNGE;
+X				cflg = 0;
+Xnlim:
+X				c = *sp++;
+X				i = 0;
+X				do 
+X				{
+X					if('0' <= c && c <= '9')
+X						i = 10 * i + c - '0';
+X					else
+X						longjmp(compile_error_jmpbuf,16);
+X				} while(((c = *sp++) != '\\') && (c != ','));
+X				if(i >= 255)
+X					longjmp(compile_error_jmpbuf,11);
+X				*ep++ = i;
+X				if(c == ',')
+X				{
+X					if(cflg++)
+X						longjmp(compile_error_jmpbuf,44);
+X					if((c = *sp++) == '\\')
+X						*ep++ = 255;
+X					else 
+X					{
+X						--sp;
+X						goto nlim;
+X						/* get 2'nd number */
+X					}
+X				}
+X				if(*sp++ != 0x7D) /* close brace */
+X					longjmp(compile_error_jmpbuf,45);
+X				if(!cflg)	/* one number */
+X					*ep++ = i;
+X				else if((ep[-1] & 0377) < (ep[-2] & 0377))
+X					longjmp(compile_error_jmpbuf,46);
+X				continue;
+X
+X			case '\n':
+X				longjmp(compile_error_jmpbuf,36);
+X
+X			case 'n':
+X				c = '\n';
+X				goto defchar;
+X
+X			default:
+X				if(c >= '1' && c <= '9')
+X				{
+X					if((c -= '1') >= closed)
+X						longjmp(compile_error_jmpbuf,25);
+X					*ep++ = CBACK;
+X					*ep++ = c;
+X					continue;
+X				}
+X			}
+X			/* Drop through to default to use \ to turn off special chars */
+X
+Xdefchar:
+X		default:
+X			lastep = ep;
+X			*ep++ = CCHR;
+X			*ep++ = c;
+X		}
+X	}
+X}	/* end of compile */
+X
+X/*+-------------------------------------------------------------------------
+X	step(p1,p2)
+X--------------------------------------------------------------------------*/
+Xint
+Xstep(p1,p2)
+Xregister char *p1,*p2;
+X{
+X	register c;
+X
+X	if(circf)
+X	{
+X		match_start = p1;
+X		return(advance(p1,p2));
+X	}
+X	/* fast check for first character */
+X	if(*p2==CCHR)
+X	{
+X		c = p2[1];
+X		do 
+X		{
+X			if(*p1 != c)
+X				continue;
+X			if(advance(p1,p2))
+X			{
+X				match_start = p1;
+X				return(1);
+X			}
+X		} while(*p1++);
+X		return(0);
+X	}
+X	/* regular algorithm */
+X	do 
+X	{
+X		if(advance(p1,p2))
+X		{
+X			match_start = p1;
+X			return(1);
+X		}
+X	} while(*p1++);
+X	return(0);
+X}	/* end of step */
+X
+X/*+-------------------------------------------------------------------------
+X	advance(lp,ep)
+X--------------------------------------------------------------------------*/
+Xint
+Xadvance(lp,ep)
+Xregister char *lp,*ep;
+X{
+X	register char *curlp;
+X	char c;
+X	char *bbeg;
+X	int ct;
+X
+X	while(1)
+X		switch(*ep++)
+X		{
+X
+X		case CCHR:
+X			if(*ep++ == *lp++)
+X				continue;
+X			return(0);
+X
+X		case CDOT:
+X			if(*lp++)
+X				continue;
+X			return(0);
+X
+X		case CDOL:
+X			if(*lp==0)
+X				continue;
+X			return(0);
+X
+X		case CCEOF:
+X			match_end = lp;
+X			return(1);
+X
+X		case CCL:
+X			c = *lp++ & 0177;
+X			if(ISTHERE(c))
+X			{
+X				ep += 16;
+X				continue;
+X			}
+X			return(0);
+X		case CBRA:
+X			braslist[*ep++] = lp;
+X			continue;
+X
+X		case CKET:
+X			braelist[*ep++] = lp;
+X			continue;
+X
+X		case CCHR|RNGE:
+X			c = *ep++;
+X			getrnge(ep);
+X			while(low--)
+X				if(*lp++ != c)
+X					return(0);
+X			curlp = lp;
+X			while(size--)
+X				if(*lp++ != c)
+X					break;
+X			if(size < 0)
+X				lp++;
+X			ep += 2;
+X			goto star;
+X
+X		case CDOT|RNGE:
+X			getrnge(ep);
+X			while(low--)
+X				if(*lp++ == '\0')
+X					return(0);
+X			curlp = lp;
+X			while(size--)
+X				if(*lp++ == '\0')
+X					break;
+X			if(size < 0)
+X				lp++;
+X			ep += 2;
+X			goto star;
+X
+X		case CCL|RNGE:
+X			getrnge(ep + 16);
+X			while(low--)
+X			{
+X				c = *lp++ & 0177;
+X				if(!ISTHERE(c))
+X					return(0);
+X			}
+X			curlp = lp;
+X			while(size--)
+X			{
+X				c = *lp++ & 0177;
+X				if(!ISTHERE(c))
+X					break;
+X			}
+X			if(size < 0)
+X				lp++;
+X			ep += 18;		/* 16 + 2 */
+X			goto star;
+X
+X		case CBACK:
+X			bbeg = braslist[*ep];
+X			ct = braelist[*ep++] - bbeg;
+X
+X			if(ecmp(bbeg,lp,ct))
+X			{
+X				lp += ct;
+X				continue;
+X			}
+X			return(0);
+X
+X		case CBACK|STAR:
+X			bbeg = braslist[*ep];
+X			ct = braelist[*ep++] - bbeg;
+X			curlp = lp;
+X			while(ecmp(bbeg,lp,ct))
+X				lp += ct;
+X
+X			while(lp >= curlp)
+X			{
+X				if(advance(lp,ep))	return(1);
+X				lp -= ct;
+X			}
+X			return(0);
+X
+X
+X		case CDOT|STAR:
+X			curlp = lp;
+X			while(*lp++);
+X			goto star;
+X
+X		case CCHR|STAR:
+X			curlp = lp;
+X			while(*lp++ == *ep);
+X			ep++;
+X			goto star;
+X
+X		case CCL|STAR:
+X			curlp = lp;
+X			do 
+X			{
+X				c = *lp++ & 0177;
+X			} while(ISTHERE(c));
+X			ep += 16;
+X			goto star;
+X
+Xstar:
+X			do 
+X			{
+X				if(--lp == locs)
+X					break;
+X				if(advance(lp,ep))
+X					return(1);
+X			} while(lp > curlp);
+X			return(0);
+X
+X		}
+X}	/* end of advance */
+X
+X/*+-------------------------------------------------------------------------
+X	getrnge(regexp)
+X--------------------------------------------------------------------------*/
+Xvoid
+Xgetrnge(regexp)
+Xregister char *regexp;
+X{
+X	low = *regexp++ & 0377;
+X	size = ((*regexp & 0377) == 255) ? 20000 : (*regexp & 0377) - low;
+X}	/* end of getrnge */
+X
+X/*+-------------------------------------------------------------------------
+X	ecmp(a,b,count)
+X--------------------------------------------------------------------------*/
+Xint
+Xecmp(a,b,count)
+Xregister char *a,*b;
+Xregister count;
+X{
+X	while(count--)
+X		if(*a++ != *b++)
+X			return(0);
+X	return(1);
+X}	/* end of ecmp */
+X
+X/*+-------------------------------------------------------------------------
+X	itmp = regexp_compile(regexp,cmpbuf,cmpbuf_size,emsg)
+X
+Xreturns 0 if no compile error,
+Xelse error occurred (*emsg points to error message text)
+X--------------------------------------------------------------------------*/
+Xint
+Xregexp_compile(regexp,cmpbuf,cmpbuf_size,emsg)
+Xchar *regexp;
+Xchar *cmpbuf;
+Xint cmpbuf_size;
+Xchar **emsg;
+X{
+X	register int itmp;
+X	static char errm[40];
+X
+X	if(itmp = setjmp(compile_error_jmpbuf))
+X	{
+X		switch(itmp)
+X		{
+X		case 11:
+X			*emsg = "Range endpoint too large";
+X			break;
+X		case 16:
+X			*emsg = "Bad number";
+X			break;
+X		case 25:
+X			*emsg = "\"\\digit\" out of range";
+X			break;
+X		case 36:
+X			*emsg = "Illegal or missing delimiter";
+X			break;
+X		case 41:
+X			*emsg = "No previous regular expression";
+X			break;
+X		case 42:
+X			*emsg = "More \\)'s than \\('s in regular expression";
+X			break;
+X		case 43:
+X			*emsg = "More \\('s than \\)'s in regular expression";
+X			break;
+X		case 44:
+X			*emsg = "More than 2 numbers in \\{ \\}";
+X			break;
+X		case 45:
+X			*emsg = "} expected after \\";
+X			break;
+X		case 46:
+X			*emsg = "First number exceeds second in \\{ \\}";
+X			break;
+X		case 49:
+X			*emsg = "[] imbalance";
+X			break;
+X		case 50:
+X			*emsg = "Regular expression too complex";
+X			break;
+X		default:
+X			sprintf(errm,"Unknown regexp compile error %d",itmp);
+X			*emsg = errm;
+X			break;
+X		}
+X		return(itmp);
+X	}
+X
+X	compile(regexp,cmpbuf,cmpbuf + cmpbuf_size,0);
+X	return(0);
+X}	/* end of regexp_compile */
+X
+X/*+-------------------------------------------------------------------------
+X	regexp_scan(cmpbuf,str_to_search,&match,&matchlen)
+Xreturn 1 if string match found, else 0
+Xif string matches, match receives pointer to first byte, matchlen = length
+Xof matching string
+X--------------------------------------------------------------------------*/
+Xregexp_scan(cmpbuf,str_to_search,match,matchlen)
+Xchar *cmpbuf;
+Xchar *str_to_search;
+Xchar **match;
+Xint *matchlen;
+X{
+X	register int itmp = step(str_to_search,cmpbuf);
+X	if(itmp)
+X	{
+X		*match = match_start;
+X		*matchlen = (int)(match_end - match_start);
+X	}
+X	return(itmp);
+X}	/* end of regexp_scan */
+X
+X/*+-------------------------------------------------------------------------
+X	regexp_operation(match_str,regexp_str,rtn_value)
+X
+Xone stop operation used by procedure language:
+Xdetermine if 'match_str' matches 'regexp_str', returning the index of
+Xthe match in *rtn_value and setting #I0 to the length of the match
+X
+Xreturns 0 if no error, else eFATAL_ALREADY after printing the error message
+X--------------------------------------------------------------------------*/
+Xint
+Xregexp_operation(match_str,regexp_str,rtn_value)
+Xchar *match_str;
+Xchar *regexp_str;
+Xlong *rtn_value;
+X{
+X#define CMPBUF_SIZE	512
+Xchar cmpbuf[CMPBUF_SIZE];
+Xchar *emsg;
+Xchar *match;
+Xint matchlen;
+X
+X	if(regexp_compile(regexp_str,cmpbuf,sizeof(cmpbuf),&emsg))
+X	{
+X		pprintf("regexp compile error: %s\n",emsg);
+X		return(eFATAL_ALREADY);
+X	}
+X
+X	if(regexp_scan(cmpbuf,match_str,&match,&matchlen))
+X	{
+X		*rtn_value = (long)(match - match_str);
+X		iv[0] = (long)matchlen;
+X		if(proc_level && proctrace)
+X			pprintf("%match set $i00 = %ld\n",iv[0]);
+X	}
+X	else
+X		*rtn_value = -1L;
+X
+X	return(0);
+X}	/* end of regexp_operation */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of regexp.c */
+SHAR_EOF
+chmod 0644 regexp.c ||
+echo 'restore of regexp.c failed'
+Wc_c="`wc -c < 'regexp.c'`"
+test 12122 -eq "$Wc_c" ||
+	echo 'regexp.c: original size 12122, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= relop.h ==============
+if test -f 'relop.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping relop.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting relop.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'relop.h' &&
+X/*+-------------------------------------------------------------------------
+X	relop.h - operator definitions (relative and logical)
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _relop_h
+X#define _relop_h
+X
+X#define OP_EQ   1
+X#define OP_NE   2
+X#define OP_LT   3
+X#define OP_LE   4
+X#define OP_GT   5
+X#define OP_GE   6
+X
+X#define OP_AND	20
+X#define OP_OR	21
+X
+X#endif /* _relop_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of relop.h */
+SHAR_EOF
+chmod 0644 relop.h ||
+echo 'restore of relop.h failed'
+Wc_c="`wc -c < 'relop.h'`"
+test 801 -eq "$Wc_c" ||
+	echo 'relop.h: original size 801, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= smap.c ==============
+if test -f 'smap.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping smap.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting smap.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'smap.c' &&
+X/* CHK=0x7CB8 */
+X/*
+X *	@(#)smap.c	1.2	30/08/88	16:28:19	agc
+X *
+X *	Copyright 1988, Joypace Ltd., UK. This product is "careware".
+X *	If you find it useful, I suggest that you send what you think
+X *	it is worth to the charity of your choice.
+X *
+X *	Alistair G. Crooks,				+44 5805 3114
+X *	Joypace Ltd.,
+X *	2 Vale Road,
+X *	Hawkhurst,
+X *	Kent TN18 4BU,
+X *	UK.
+X *
+X *	UUCP Europe                 ...!mcvax!unido!nixpbe!nixbln!agc
+X *	UUCP everywhere else ...!uunet!linus!nixbur!nixpbe!nixbln!agc
+X *
+X *	smap.c - source file for debugging aids.
+X */
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:11-30-1991-13:46-wht@n4hgf-smap conditional compilation reorg */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:04-19-1990-03:08-wht@n4hgf-GCC run found unused vars -- rm them */
+X/*:03-25-1990-14:12-wht@n4hgf------ x2.70 ------- */
+X/*:07-03-1989-22:57-wht------ x2.00 ----- */
+X/*:06-24-1989-16:52-wht-flush edits --- ecu 1.95 */
+X
+X#ifdef MEMCHECK
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#ifdef USE_PROTOS
+X# include "protos.h"
+X#endif
+X
+Xtypedef struct _slotstr
+X{
+X	char *s_ptr;				/* the allocated area */
+X	unsigned int s_size;		/* its size */
+X	char s_freed;				/* whether it's been freed yet */
+X	char s_blkno;				/* program block reference number */
+X} SLOT;
+X
+X#ifndef MAXSLOTS
+X#define MAXSLOTS	4096
+X#endif /* MAXSLOTS */
+X
+Xstatic SLOT	slots[MAXSLOTS];
+Xstatic int slotc;
+Xstatic int blkno;
+X
+X#define WARNING(s1, s2)		(void) fprintf(stderr, s1, s2)
+X
+X/* __STDC__ dependency hasn't invaded this module yet */
+Xchar *malloc();
+Xchar *calloc();
+Xchar *realloc();
+Xvoid _abort();
+X
+X/*+-------------------------------------------------------------------------
+X	_dump_malloc()
+X--------------------------------------------------------------------------*/
+Xvoid
+X_dump_malloc()
+X{
+Xregister islot;
+Xregister slot_count = 0;
+Xchar dfile[32];
+Xchar title[64];
+XFILE *fp;
+XSLOT *slot;
+X
+X	sprintf(dfile,"/tmp/m%05d.dmp",getpid());
+X	fp = fopen(dfile,"w");
+X	fprintf(stderr,"\r\n\n\ndumping malloc status to %s\r\n",dfile);
+X	for(islot = 0,slot = slots; islot < slotc; islot++,slot++)
+X	{
+X		if(slot->s_freed)
+X			continue;
+X		sprintf(title,"%d (%d) %08x size %u",
+X			slot_count,islot,slot->s_ptr,slot->s_size);
+X		hex_dump_fp(fp,slot->s_ptr,slot->s_size,title,0);
+X		slot_count++;
+X	}
+X	fclose(fp);
+X	fprintf(stderr,"done\r\n");
+X
+X}	/* end of _dump_malloc */
+X
+X
+X/*
+X *	_malloc - wrapper around malloc. Warns if unusual size given, or the
+X *	real malloc returns a 0 pointer. Returns a pointer to the
+X *	malloc'd area
+X */
+Xchar *
+X_malloc(size)
+Xunsigned int size;
+X{
+X	register SLOT *sp;
+X	char *ptr;
+X	register int i;
+X
+X	if(size == 0)
+X		WARNING("_malloc: unusual size %d bytes\r\n",size);
+X	if((ptr = (char *) malloc(size)) == (char *) 0)
+X		_abort("_malloc: unable to malloc %u bytes\r\n",size);
+X	for(i = 0,sp = slots ; i < slotc ; i++,sp++)
+X		if(sp->s_ptr == ptr)
+X			break;
+X	if(i == slotc)
+X	{
+X		if(slotc == MAXSLOTS - 1)
+X		{
+X			_dump_malloc();
+X			_abort("_malloc: run out of slots\r\n","");
+X		}
+X		sp = &slots[slotc++];
+X	}
+X	else if(!sp->s_freed)
+X		WARNING("_malloc: malloc returned a non-freed pointer\r\n","");
+X	sp->s_size = size;
+X	sp->s_freed = 0;
+X	sp->s_ptr = ptr;
+X	sp->s_blkno = blkno;
+X#ifndef NO_EXTRA_HELP
+X	memset(sp->s_ptr,0x12,sp->s_size);
+X#endif
+X	return(sp->s_ptr);
+X}
+X
+X
+X/*
+X *	_calloc - wrapper for calloc. Calls _malloc to allocate the area, and
+X *	then sets the contents of the area to NUL bytes. Returns its address.
+X */
+Xchar *
+X_calloc(nel,size)
+Xint nel;
+Xunsigned int size;
+X{
+X	unsigned int tot;
+X	register char *ptr;
+X
+X	tot = nel * size;
+X	ptr = _malloc(tot);
+X	if(ptr == (char *)0)
+X		return((char *)0);
+X	memset(ptr,0,tot);
+X	return(ptr);
+X}
+X
+X
+X/*
+X *	_realloc - wrapper for realloc. Checks area already alloc'd and
+X *	not freed. Returns its address
+X */
+Xchar *
+X_realloc(ptr,size)
+Xchar *ptr;
+Xunsigned int size;
+X{
+X	register SLOT *sp;
+X	register int i;
+X
+X	for(i = 0,sp = slots ; i < slotc ; i++,sp++)
+X		if(sp->s_ptr == ptr)
+X			break;
+X	if(i == slotc)
+X		_abort("_realloc: realloc on unallocated area\r\n","");
+X	if(sp->s_freed)
+X		WARNING("_realloc: realloc on freed area\r\n","");
+X	if((sp->s_ptr = (char *) realloc(ptr,size)) == (char *)0)
+X		WARNING("_realloc: realloc failure %d bytes\r\n",size);
+X	sp->s_size = size;
+X	sp->s_blkno = blkno;
+X	return(sp->s_ptr);
+X}
+X
+X
+X/*
+X *	_free - wrapper for free. Loop through allocated slots, until you
+X *	find the one corresponding to pointer. If none, then it's an attempt
+X *	to free an unallocated area. If it's already freed, then tell user.
+X */
+Xvoid
+X_free(ptr)
+Xchar *ptr;
+X{
+X	register SLOT *sp;
+X	register int i;
+X
+X	for(i = 0,sp = slots ; i < slotc ; i++,sp++)
+X		if(sp->s_ptr == ptr)
+X			break;
+X	if(i == slotc)
+X		_abort("_free: free not previously malloc'd\r\n","");
+X	if(sp->s_freed)
+X		_abort("_free: free after previous freeing\r\n","");
+X	(void) free(sp->s_ptr);
+X	sp->s_freed = 1;
+X}
+X
+X
+X/*
+X *	_blkstart - start of a program block. Increase the block reference
+X *	number by one.
+X */
+Xvoid
+X_blkstart()
+X{
+X	blkno += 1;
+X}
+X
+X
+X/*
+X *	_blkend - end of a program block. Check all areas allocated in this
+X *	block have been freed. Decrease the block number by one.
+X */
+Xvoid
+X_blkend()
+X{
+X	register SLOT *sp;
+X	register int i;
+X
+X	if(blkno == 0)
+X	{
+X		WARNING("_blkend: unmatched call to _blkend\r\n","");
+X		return;
+X	}
+X	for(i = 0,sp = slots ; i < slotc ; i++,sp++)
+X		if(sp->s_blkno == blkno && !sp->s_freed)
+X			WARNING("_blkend: %d bytes unfreed\r\n",sp->s_size);
+X	blkno -= 1;
+X}
+X
+X
+X/*
+X *	_blkignore - find the slot corresponding to ptr, and set its block
+X *	number to zero, to avoid _blkend picking it up when checking.
+X */
+Xvoid
+X_blkignore(ptr)
+Xchar *ptr;
+X{
+X	register SLOT *sp;
+X	register int i;
+X
+X	for(i = 0,sp = slots ; i < slotc ; i++,sp++)
+X		if(sp->s_ptr == ptr)
+X			break;
+X	if(i == slotc)
+X		WARNING("_blkignore: pointer has not been allocated\r\n","");
+X	else
+X		sp->s_blkno = 0;
+X}
+X
+X/*
+X *	_abort - print a warning on stderr, and send a SIGQUIT to ourself
+X */
+X#if !defined(BUILDING_LINT_ARGS)
+Xstatic void
+X_abort(s1,s2)
+Xchar *s1;
+Xchar *s2;
+X{
+X#ifdef M_I386
+Xchar *kaboom = (char *)90000000;
+X	
+X	WARNING(s1,s2);
+X	*kaboom = 1;
+X#else
+X	WARNING(s1,s2);
+X	(void) kill((PID_T)getpid(),SIGIOT);	/* core dump here */
+X#endif
+X}
+X#endif /* !defined(BUILDING_LINT_ARGS) */
+X
+X#endif /* MEMCHECK */
+SHAR_EOF
+chmod 0644 smap.c ||
+echo 'restore of smap.c failed'
+Wc_c="`wc -c < 'smap.c'`"
+test 6186 -eq "$Wc_c" ||
+	echo 'smap.c: original size 6186, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= smap.h ==============
+if test -f 'smap.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping smap.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting smap.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'smap.h' &&
+X/*
+X *	@(#)smap.h	1.1	30/08/88	16:07:36	agc
+X *
+X *	Copyright 1988, Joypace Ltd., UK. This product is "careware".
+X *	If you find it useful, I suggest that you send what you think
+X *	it is worth to the charity of your choice.
+X *
+X *	Alistair G. Crooks,				+44 5805 3114
+X *	Joypace Ltd.,
+X *	2 Vale Road,
+X *	Hawkhurst,
+X *	Kent TN18 4BU,
+X *	UK.
+X *
+X *	UUCP Europe                 ...!mcvax!unido!nixpbe!nixbln!agc
+X *	UUCP everywhere else ...!uunet!linus!nixbur!nixpbe!nixbln!agc
+X *
+X *	smap.h - include file for debugging aids. This file must be included,
+X *	before any calls, in any source file that calls malloc, calloc,
+X *	realloc, or free. (Note alloca is not included in this list).
+X */
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:11-30-1991-13:46-wht@n4hgf-smap conditional compilation reorg */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _smap_h
+X#define _smap_h
+X
+X#ifdef MEMCHECK
+X
+X#if !defined(VTYPE)
+X#if __STDC__	/* sigh ... malloc and such types */
+X#define VTYPE void
+X#else
+X#define VTYPE char
+X#endif /* __STDC__ */
+X#endif /* VTYPE */
+X
+X#define malloc	_malloc
+X#define calloc	_calloc
+X#define realloc	_realloc
+X#define free	_free
+XVTYPE *_malloc();
+XVTYPE *_calloc();
+XVTYPE *_realloc();
+X#if !defined(sun)
+Xvoid _free();
+X#endif /* sun */
+Xvoid	_blkstart();
+Xvoid	_blkend();
+Xvoid	_blkignore();
+X
+X#endif /* MEMCHECK */
+X
+X#endif /* _smap_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of smap.h */
+SHAR_EOF
+chmod 0644 smap.h ||
+echo 'restore of smap.h failed'
+Wc_c="`wc -c < 'smap.h'`"
+test 1612 -eq "$Wc_c" ||
+	echo 'smap.h: original size 1612, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= termecu.h ==============
+if test -f 'termecu.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping termecu.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting termecu.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'termecu.h' &&
+X/*+-------------------------------------------------------------------------
+X	termecu.h -- termecu (exit()) codes
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  1 - 64    reserved for signals
+X  193 - 223 reserved for procedure 'exit' codes
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _termecu_h
+X#define _termecu_h
+X
+X#define TERMECU_OK					0
+X#define TERMECU_SIG1				1
+X#define TERMECU_SIGN				64
+X#define TERMECU_LINE_READ_ERROR		129
+X#define TERMECU_XMTR_WRITE_ERROR	130
+X#define TERMECU_XMTR_FATAL_ERROR	131
+X#define TERMECU_BSD4_IOCTL			132
+X#define TERMECU_SHM_ABL				133
+X#define TERMECU_SHM_RTL				134
+X#define TERMECU_NO_FORK_FOR_RCVR	135
+X#define TERMECU_TTYIN_READ_ERROR	136
+X#define TERMECU_LINE_OPEN_ERROR		137
+X#define TERMECU_PWENT_ERROR			138
+X#define TERMECU_USAGE				139
+X#define TERMECU_CONFIG_ERROR		140
+X#define TERMECU_CURSES_ERROR		141
+X#define TERMECU_RCVR_FATAL_ERROR	142
+X#define TERMECU_MALLOC				143
+X#define TERMECU_LOGIC_ERROR			144
+X#define TERMECU_GEOMETRY			145
+X#define TERMECU_IPC_ERROR			146
+X
+X#define TERMECU_INIT_PROC_ERROR		192
+X
+X#define TERMECU_USER1				193
+X#define TERMECU_USERN				223
+X
+X#endif /* _termecu_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of termecu.h */
+SHAR_EOF
+chmod 0644 termecu.h ||
+echo 'restore of termecu.h failed'
+Wc_c="`wc -c < 'termecu.h'`"
+test 1516 -eq "$Wc_c" ||
+	echo 'termecu.h: original size 1516, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ttynaming.c ==============
+if test -f 'ttynaming.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ttynaming.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ttynaming.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ttynaming.c' &&
+X/*+-------------------------------------------------------------------------
+X	ttynaming.c - direct/modem tty name management
+X	wht@n4hgf.Mt-Park.GA.US
+X
+XFor now, meaningful only on SCO.  In the future, perhaps, we'll
+Xmanage an installation-dependent table of what line names
+Xrefer to the same device and which are modem, direct, etc.
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X/*:08-21-1992-04:47-wht@n4hgf-creation */
+X
+X#include "ecu.h"
+X
+X/*+-------------------------------------------------------------------------
+X	direct_tty(tty) - make non-modem line out of SCO ttyname
+X--------------------------------------------------------------------------*/
+X#ifdef NEED_TTY_NAME_CONVERSION
+Xchar *
+Xdirect_tty(tty)
+Xchar *tty;
+X{
+X	char stat_tty[64];
+X
+X	register itmp;
+X	strncpy(stat_tty,tty,sizeof(stat_tty));
+X	stat_tty[sizeof(stat_tty) - 1] = 0;
+X
+X	if((itmp = strlen(stat_tty)) > 2)
+X	{
+X		itmp--;
+X		if(
+X#if 0
+X			isdigit(stat_tty[itmp - 1]) &&
+X#endif
+X			isupper(stat_tty[itmp])
+X			)
+X		{
+X			stat_tty[itmp] = tolower(stat_tty[itmp]);
+X		}
+X	}
+X
+X	return(stat_tty);
+X
+X}	/* end of direct_tty */
+X#endif /* NEED_TTY_NAME_CONVERSION */
+X
+X/*+-------------------------------------------------------------------------
+X	modem_tty(tty) - make modem line out of SCO ttyname
+X--------------------------------------------------------------------------*/
+X#ifdef NEED_TTY_NAME_CONVERSION
+Xchar *
+Xmodem_tty(tty)
+Xchar *tty;
+X{
+X	char stat_tty[64];
+X
+X	register itmp;
+X	strncpy(stat_tty,tty,sizeof(stat_tty));
+X	stat_tty[sizeof(stat_tty) - 1] = 0;
+X
+X	if((itmp = strlen(stat_tty)) > 2)
+X	{
+X		itmp--;
+X		if(
+X#if 0
+X			isdigit(stat_tty[itmp - 1]) &&
+X#endif
+X			islower(stat_tty[itmp])
+X			)
+X		{
+X			stat_tty[itmp] = toupper(stat_tty[itmp]);
+X		}
+X	}
+X
+X	return(stat_tty);
+X
+X}	/* end of modem_tty */
+X#endif /* NEED_TTY_NAME_CONVERSION */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ttynaming.c */
+SHAR_EOF
+chmod 0644 ttynaming.c ||
+echo 'restore of ttynaming.c failed'
+Wc_c="`wc -c < 'ttynaming.c'`"
+test 2050 -eq "$Wc_c" ||
+	echo 'ttynaming.c: original size 2050, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ttynaming.h ==============
+if test -f 'ttynaming.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping ttynaming.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ttynaming.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ttynaming.h' &&
+X/*+-------------------------------------------------------------------------
+X	ttynaming.h -- SCO tty naming decision
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  You might want to change this (if you are on SCO, but have
+X  non-SCO style ttys, but then you have to be careful about
+X  using upper- versus lower-case tty names in inittab/utmp,
+X  Devices, dialing directories and interactive usage; some or all
+X  XENIX implimentations have problems with CLOCAL swapping to
+X  simulate upper- vs.  lower-case name choices, but that is too
+X  long a story to go into here :-< ...  you may need to omit
+X  SCO_TTY_NAMING under XENIX and watch your cases.  There are
+X  several uses of SCO_TTY_NAMING throughout the code but one
+X  common use has been localized in the TTYNAME_STRCMP macro
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:08-21-1992-13:39-wht@n4hgf-rewire direct/modem device use */
+X/*:08-07-1992-19:03-wht@n4hgf-creation */
+X
+X#ifndef _ttynaming_h
+X#define _ttynaming_h
+X
+X#if defined(M_SYSV) && !defined(SCO_TTY_NAMING)
+X#define SCO_TTY_NAMING
+X#endif
+X
+X#undef NEED_TTY_NAME_CONVERSION
+X
+X#ifdef SCO_TTY_NAMING
+X#define TTYNAME_STRCMP(name1,name2) strcmpi(name1,name2)
+X#define NEED_TTY_NAME_CONVERSION
+Xchar *direct_tty();
+Xchar *modem_tty();
+X#else
+X#define TTYNAME_STRCMP(name1,name2) strcmp(name1,name2)
+X#define direct_tty(tty) (tty)
+X#define modem_tty(tty) (tty)
+X#endif
+X
+X#endif /* _ttynaming_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of ttynaming.h */
+SHAR_EOF
+chmod 0644 ttynaming.h ||
+echo 'restore of ttynaming.h failed'
+Wc_c="`wc -c < 'ttynaming.h'`"
+test 1587 -eq "$Wc_c" ||
+	echo 'ttynaming.h: original size 1587, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= utmpstat.c ==============
+if test -f 'utmpstat.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping utmpstat.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting utmpstat.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'utmpstat.c' &&
+X#if defined(SHARE_DEBUG)
+X#define LOG_UTMP
+X#endif
+X/*+-------------------------------------------------------------------------
+X	utmpstat.c - utmp status for XENIX/UNIX line
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	strcmpi(s1,s2)
+X	to_lower(ch)
+X	to_upper(ch)
+X	utmp_status(line)
+X
+X                   system boot         0 Fri Apr 24 07:18:52 1992
+X                   run-level 2         0 Fri Apr 24 07:18:52 1992
+Xasktimerck ck                         15 Fri Apr 24 07:19:38 1992
+Xcat        copy                       17 Fri Apr 24 07:19:38 1992
+Xbrc        brc                        18 Fri Apr 24 07:19:39 1992
+Xbrc        mt                         22 Fri Apr 24 07:19:39 1992
+Xauthckrcac ack                        26 Fri Apr 24 07:19:39 1992
+Xrc2        r2                         27 Fri Apr 24 07:20:05 1992
+XLOGIN      co      tty01             170 Fri Apr 24 07:20:09 1992
+XLOGIN      c02     tty02             171 Fri Apr 24 07:20:09 1992
+Xuugetty    u2B     tty2B            3837 Fri Apr 24 21:24:38 1992
+Xuugetty    u2h                       190 Fri Apr 24 07:20:08 1992
+Xuugetty    u1A                      3830 Fri Apr 24 21:24:10 1992
+Xwht        p0      ttyp0             206 Fri Apr 24 07:20:43 1992
+Xwht        p1      ttyp1            1515 Fri Apr 24 20:55:53 1992
+Xwht        p2      ttyp2            2929 Fri Apr 24 20:55:45 1992
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:09-02-1992-14:18-wht@n4hgf-some mark dead utmp entries instead of rming */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:06-30-1992-14:46-wht@n4hgf-honor DIALOUT set by 3.2v4 getty when we lock */
+X/*:04-28-1992-03:58-wht@n4hgf-check SCO utmp entry against ut_id */
+X/*:04-24-1992-21:59-wht@n4hgf-more SCO tty name normalizing */
+X/*:11-08-1991-21:09-root@n4hgf-bug in strcmpi made for erratic return value */
+X/*:08-25-1991-14:39-wht@n4hgf-SVR4 port thanks to aega84!lh */
+X/*:08-21-1991-02:23-wht@n4hgf-sun port */
+X/*:08-10-1991-17:39-wht@n4hgf-US_WEGOTIT handling */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:02-13-1991-02:00-ache@hq.demos.su-swap patch 5 US_ return values */
+X/*:02-07-1991-00:28-wht@n4hgf-utmp_status() was really messed up */
+X/*:02-03-1991-17:52-ache@hq.demos.su-fix for XENIX utmp handling bug */
+X/*:10-16-1990-20:43-wht@n4hgf-add SHARE_DEBUG */
+X/*:09-19-1990-19:36-wht@n4hgf-ecu_log_event now gets pid for log from caller */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "termecu.h"
+X#include "utmpstatus.h"
+X#include "ecuungetty.h"
+X#include "dialprog.h"
+X#include <errno.h>
+X#include <utmp.h>
+X
+X#if defined(sun)
+X#define ut_id ut_host		/* fake debug info */
+X#else
+X#if !defined(ut_name)		/* nobody can keep their mind made up; ... */
+X#define ut_name ut_user		/* ... this is getting verry difficult, very old */
+X#endif
+X#endif /* sun */
+X
+X#if defined(SVR4)
+Xchar *utmp_file = "/var/adm/utmp";
+X#else
+Xchar *utmp_file = "/etc/utmp";
+X#endif
+X
+Xstruct utmp last_utmp;
+X
+X/*+-------------------------------------------------------------------------
+X    to_upper() / to_lower()
+X
+XOne would think that these were relatively standard types of
+Xthing, but System V specifies toupper() to convert to upper case
+Xif not already and BSD says to adjust without testing, so, two
+Xstupid little routines here.  ASCII only -- no EBCDIC gradoo here please.
+X--------------------------------------------------------------------------*/
+Xchar to_upper(ch)
+Xregister char ch;
+X{ return( ((ch >= 'a') && (ch <= 'z')) ? ch - 0x20 : ch);
+X}   /* end of to_upper() */
+X
+Xchar to_lower(ch)
+Xregister char ch;
+X{ return( ((ch >= 'A') && (ch <= 'Z')) ? ch + 0x20 : ch);
+X}   /* end of to_lower() */
+X
+X/*+-------------------------------------------------------------------------
+X	strcmpi(s1,s2) - case-insensitive strcmp
+X
+XThis version of strcmp() is case-insensitive and works like a sane one
+Xshould, per strcmp(3), not per  the K&R1 example or POSIX/ANSI.
+X
+XIn here rather than ecuutil.c since other executables besides ecu
+Xuses this module and strcmpi needed there too 
+X--------------------------------------------------------------------------*/
+Xint
+Xstrcmpi(s1,s2)
+Xregister char *s1;
+Xregister char *s2;
+X{
+X
+X    while(*s1)
+X	{
+X        if(to_upper(*s1++) != to_upper(*s2++))
+X		{
+X			s1--;
+X			s2--;
+X            break;
+X		}
+X	}
+X	return(to_upper(*s1) - to_upper(*s2));
+X
+X}	/* end of strcmpi */
+X
+X/*+-------------------------------------------------------------------------
+X	utmp_status(line) - check line status in utmp
+X'line' is "/dev/ttyxx"-style
+Xreturns US_ value and global utmp struct last_utmp;
+X--------------------------------------------------------------------------*/
+Xint
+Xutmp_status(line)
+Xchar *line;
+X{
+X#ifdef sun
+X	return(US_NOTFOUND);
+X#else
+X	register itmp;
+X	register status = US_NOTFOUND;
+X	register ufd;
+X#if defined(LOG_UTMP)
+X	char logstr[128];
+X#endif
+X
+X/*
+X * crock/bozo alert: 
+X * ut_name ain't but EIGHT characters long, but
+X * EIGHT characters are often stored, so ya don't get no null
+X * ut_id ain't but FOUR characters long, but
+X * FOUR characters are routinely stored, so ya don't get no null
+X */
+X	char namecopy[sizeof(last_utmp.ut_name) + 1];
+X	char idcopy[sizeof(last_utmp.ut_id) + 1];
+X
+X	if((ufd = open(utmp_file,O_RDONLY,755)) < 0)
+X	{
+X		perror(utmp_file);
+X		termecu(TERMECU_LINE_OPEN_ERROR);
+X	}
+X
+X	while((status == US_NOTFOUND) &&
+X		(read(ufd,(char *)&last_utmp,sizeof(last_utmp)) == sizeof(last_utmp)))
+X	{
+X		strncpy(namecopy,last_utmp.ut_name,sizeof(last_utmp.ut_name));
+X		namecopy[sizeof(last_utmp.ut_name)] = 0;
+X
+X		strncpy(idcopy,last_utmp.ut_id,sizeof(last_utmp.ut_id));
+X		idcopy[sizeof(last_utmp.ut_id)] = 0;
+X
+X	    if(!last_utmp.ut_line[0] || TTYNAME_STRCMP(last_utmp.ut_line,line + 5))
+X		{
+X#ifdef M_SYSV
+X			/*
+X			 * yetch! SCO uugetty doesn't always plug tty field !!!!
+X			 * So we count on a convention of the last two characters
+X			 * match the last two characters of the id field
+X			 */
+X			int itmp2;
+X			if( !last_utmp.ut_line[0] &&
+X				((itmp = strlen(line)) > 2) &&
+X				((itmp2 = strlen(idcopy)) > 2) &&
+X				!strcmpi(line + itmp - 2,idcopy + itmp2 - 2))
+X			{
+X				if(itmp = line_lock_status(line))
+X				{
+X					if(itmp == LINST_WEGOTIT)
+X						status = US_WEGOTIT;
+X					else
+X						status = US_DIALOUT;
+X				}
+X				else if(!kill(last_utmp.ut_pid,0) || (errno == ESRCH))
+X					status = US_LOGIN;
+X				else
+X					status = US_NOTFOUND;
+X				break;
+X			}
+X#endif
+X			continue;
+X		}
+X
+X	    if(!strcmp(namecopy,"LOGIN"))
+X		{
+X			if(!kill(last_utmp.ut_pid,0) || (errno == ESRCH))
+X				status = US_LOGIN;
+X			else
+X				status = US_NOTFOUND;
+X		}
+X	    else if(!strcmp(namecopy,"DIALOUT"))
+X		{
+X			status = US_DIALOUT;
+X			if(last_utmp.ut_pid == xmtr_pid)
+X				status = US_WEGOTIT;
+X			else if(line_lock_status(line) == LINST_WEGOTIT)
+X				status = US_WEGOTIT;
+X		}
+X	    else if((!strcmp(namecopy,"uugetty") || !strcmp(namecopy,"getty")))
+X		{
+X			if(itmp = line_lock_status(line))
+X			{
+X				if(itmp == LINST_WEGOTIT)
+X					status = US_WEGOTIT;
+X				else
+X					status = US_DIALOUT;
+X			}
+X			else if(!kill(last_utmp.ut_pid,0) || (errno == ESRCH))
+X				status = US_LOGIN;
+X			else
+X				status = US_NOTFOUND;
+X		}
+X		else if(!kill((PID_T)last_utmp.ut_pid,0) || (errno != ESRCH))
+X			status = (last_utmp.ut_pid == xmtr_pid) ? US_WEGOTIT : US_LOGGEDIN;
+X	}
+X
+X#if defined(LOG_UTMP)
+X	if(status == US_NOTFOUND)
+X		sprintf(logstr,"UTMP %s: no entry in utmp, status=%d",line,status);
+X	else
+X	{
+X	char *ctime();
+X		sprintf(logstr,"UTMP %s:%s:%s:%d:%d",
+X		    namecopy,idcopy,last_utmp.ut_line,last_utmp.ut_pid,status);
+X	}
+X	ecu_log_event(getpid(),logstr);
+X#endif
+X
+X	close(ufd);
+X	return(status);
+X#endif  /* sun */
+X
+X}	/* end of utmp_status */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of utmpstat.c */
+SHAR_EOF
+chmod 0644 utmpstat.c ||
+echo 'restore of utmpstat.c failed'
+Wc_c="`wc -c < 'utmpstat.c'`"
+test 7666 -eq "$Wc_c" ||
+	echo 'utmpstat.c: original size 7666, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= utmpstatus.h ==============
+if test -f 'utmpstatus.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping utmpstatus.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting utmpstatus.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'utmpstatus.h' &&
+X/*+-------------------------------------------------------------------------
+X	utmpstatus.h
+X	wht@n4hgf.Mt-Park.GA.US
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:03-27-1992-16:21-wht@n4hgf-re-include protection for all .h files */
+X/*:08-10-1991-17:19-wht@n4hgf-add US_WEGOTIT */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#ifndef _utmpstatus_h
+X#define _utmpstatus_h
+X
+X/* utmp_status defines */
+Xenum us
+X{
+X	US_NOTFOUND = 100,	/* not in utmp, or getty dead */
+X	US_LOGIN,			/* enabled for login, idle */
+X	US_DIALOUT,			/* enabled for login, currently dialout */
+X	US_LOGGEDIN,		/* enabled for login, in use */
+X	US_WEGOTIT			/* we own the line */
+X};
+X
+X#endif /* _utmpstatus_h */
+X
+X/* vi: set tabstop=4 shiftwidth=4: */
+X/* end of utmpstatus.h */
+SHAR_EOF
+chmod 0644 utmpstatus.h ||
+echo 'restore of utmpstatus.h failed'
+Wc_c="`wc -c < 'utmpstatus.h'`"
+test 960 -eq "$Wc_c" ||
+	echo 'utmpstatus.h: original size 960, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= var.c ==============
+if test -f 'var.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping var.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting var.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'var.c' &&
+X/*+-------------------------------------------------------------------------
+X	var.c - ecu variable routines
+X	wht@n4hgf.Mt-Park.GA.US
+X
+X  Defined functions:
+X	alloc_MKV(name)
+X	build_mkvi(param)
+X	build_mkvi_primitive(name)
+X	build_mkvs(param)
+X	build_mkvs_primitive(name,length)
+X	find_mkvi(name,pplong,auto_create)
+X	find_mkvs(name,ppesd,auto_create)
+X	free_mkvi(mkv)
+X	free_mkvs(mkv)
+X	get_ivptr(param,ppiv,auto_create)
+X	get_subscript(param,psubscript)
+X	get_svptr(param,ppsv,auto_create)
+X	mkv_proc_starting(pcb)
+X	mkv_proc_terminating(pcb)
+X	pcmd_mkvar(param)
+X	var_init()
+X
+X--------------------------------------------------------------------------*/
+X/*+:EDITS:*/
+X/*:09-10-1992-14:00-wht@n4hgf-ECU release 3.20 */
+X/*:08-22-1992-15:39-wht@n4hgf-ECU release 3.20 BETA */
+X/*:07-25-1991-12:59-wht@n4hgf-ECU release 3.10 */
+X/*:08-14-1990-20:40-wht@n4hgf-ecu3.00-flush old edit history */
+X
+X#include "ecu.h"
+X#include "esd.h"
+X#define VDECL
+X#include "var.h"
+X#include "proc.h"
+X#include "ecukey.h"
+X#include "ecuerror.h"
+X#include "termecu.h"
+X
+Xextern int proctrace;
+SHAR_EOF
+true || echo 'restore of var.c failed'
+fi
+echo 'End of ecu320 part 21'
+echo 'File var.c is continued in part 22'
+echo 22 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...

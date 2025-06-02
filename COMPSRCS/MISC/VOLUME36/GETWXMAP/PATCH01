@@ -1,0 +1,425 @@
+Newsgroups: comp.sources.misc
+From: rodmur@ecst.csuchico.edu (Dale Harris)
+Subject: v36i069:  getwxmap - Retrieve and display Weather satellite maps, Patch01
+Message-ID: <1993Mar25.052147.7648@sparky.imd.sterling.com>
+X-Md4-Signature: 1a06e56216f2d9dd9463d444a30c8ea4
+Date: Thu, 25 Mar 1993 05:21:47 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: rodmur@ecst.csuchico.edu (Dale Harris)
+Posting-number: Volume 36, Issue 69
+Archive-name: getwxmap/patch01
+Environment: X11, UNIX, xv
+Patch-To: getwxmap: Volume 35, Issue 115
+
+[ This patch is late getting out because the moderator wasn't ]
+[ paying attention.  Sorry for the delay.          -Kent+     ]
+
+This is patch to upgrade getwxmap ver. 2.3.1 to ver. 2.3.2
+
+Getwxmap is a small program that retrieves the most recent satellite
+images from vmd.cso.uiuc.edu and then displays them (someday I'll build in
+support for a European site I heard about, but I haven't got to that yet.)
+
+*** Makefile.orig	Tue Mar 16 18:40:44 1993
+--- Makefile	Tue Mar 16 18:13:32 1993
+***************
+*** 1,6 ****
+  #
+! # Makefile for getwxmap.c ver 2.3.1
+! # Copyright (C) February 10, 1993 by Dale A. Harris
+  #                                {rodmur@ecst.csuchico.edu}
+  #
+  #CC=gcc
+--- 1,6 ----
+  #
+! # Makefile for getwxmap.c ver 2.3.2
+! # Copyright (C) March 11, 1993 by Dale A. Harris
+  #                                {rodmur@ecst.csuchico.edu}
+  #
+  #CC=gcc
+***************
+*** 14,32 ****
+  #     good old fashioned C.
+  #
+  
+! #CFLAGS= -g  # for debugging 
+  #CFLAGS=-O #most machines in this world
+  #CFLAGS=-O2  #for gcc
+! CFLAGS= +O3 # with cc on HP9000/7xx-series running HPUX 8.*
+  
+  #Setting a domain is no longer neccessary
+  DEFINES= -DSYSV 
+  
+  #If you need any libs
+  #LIBS= -lmalloc #for HPUX if you like
+! LIBS= -lmalloc
+  
+! getwxmap: getwxmap.c
+  	$(CC) $(CFLAGS) -o getwxmap $(DEFINES) getwxmap.c $(LIBS)
+  
+  clean:
+--- 14,33 ----
+  #     good old fashioned C.
+  #
+  
+! CFLAGS= -g  # for debugging 
+  #CFLAGS=-O #most machines in this world
+  #CFLAGS=-O2  #for gcc
+! #CFLAGS= +O3 # with cc on HP9000/7xx-series running HPUX 8.*
+  
+  #Setting a domain is no longer neccessary
++ #DEFINES= -DSYSV -DNO_STRDUP 
+  DEFINES= -DSYSV 
+  
+  #If you need any libs
+  #LIBS= -lmalloc #for HPUX if you like
+! LIBS= 
+  
+! getwxmap: getwxmap.c getwxmap.h
+  	$(CC) $(CFLAGS) -o getwxmap $(DEFINES) getwxmap.c $(LIBS)
+  
+  clean:
+*** README.orig	Tue Mar 16 18:40:44 1993
+--- README	Thu Mar 11 15:51:43 1993
+***************
+*** 1,6 ****
+--- 1,9 ----
+  Check out the Makefile, if your on a SYSV machine you might want to
+  -DSYSV, check out the #define fields also in getwxmap.h
+  
++ If you don't have strdup() on your system, define -DNO_STRDUP in the
++ Makefile.
++ 
+  If you find any bugs or have any suggestions e-mail:
+  rodmur@ecst.csuchico.edu
+  
+*** getwxmap.1.orig	Tue Mar 16 18:40:44 1993
+--- getwxmap.1	Tue Mar 16 18:41:36 1993
+***************
+*** 11,20 ****
+  .SH OPTIONS
+  .TP
+  .B \-D
+! don't display file (implies -R).
+  .TP
+  .B \-R
+! don't remove file when program finishes.
+  .TP
+  .B \-d
+  debugging (implies -f).
+--- 11,20 ----
+  .SH OPTIONS
+  .TP
+  .B \-D
+! don't display file, file won't be removed unless -R is used.
+  .TP
+  .B \-R
+! don't remove file when program finishes.  Except with -x and -D.
+  .TP
+  .B \-d
+  debugging (implies -f).
+***************
+*** 42,49 ****
+  .TP
+  .B \-x [xv options]
+  Must be last argument.  All arguments following -x are passed
+! as command line arguments to xv.  Use this to get a background. (Implies
+! -R)
+  .SH SEE ALSO
+  .BR xv (1V),
+  .SH AUTHOR
+--- 42,49 ----
+  .TP
+  .B \-x [xv options]
+  Must be last argument.  All arguments following -x are passed
+! as command line arguments to xv.  Use this to get a background. If -R is
+! used with this option the files retrieved will be deleted.
+  .SH SEE ALSO
+  .BR xv (1V),
+  .SH AUTHOR
+*** getwxmap.c.orig	Tue Mar 16 18:40:44 1993
+--- getwxmap.c	Tue Mar 16 18:26:25 1993
+***************
+*** 21,31 ****
+--- 21,35 ----
+  2/12/93 - added -m option for mos*.gif maps (d.a.h)
+  2/19/93 - added files variable - dah
+  
++ 3/11/93 - fixed stupid little bug where SA.GIF was retrieve everytime,
++ 	     put in strdup() for those that don't have it. - dah
++ 3/16/93 - changed -R will trigger removal of files with -x and -D - dah
+  */
+  
+  #include "getwxmap.h"
+  
+  
++ int
+  main (argc, argv)
+       int argc;
+       char **argv;
+***************
+*** 37,43 ****
+    char *mnthday, *gmt, *wgifs, *dispstr, *command, *filename, *uhour;
+    char *tmp_char1, *tmp_char2;
+    char *my_host, *xvargs;	/* hostname and xv arguments */
+!   register short surface = 0, visible = 0, infrared = 0, nodis = 0, norm = 0,
+      debug = 0, upair = 0, keymap = 0, echoname = 0, mos = 0, i, j;
+    short hpa[UMAPNO];
+    struct hostent *my_site;	/* to get the site name */
+--- 41,47 ----
+    char *mnthday, *gmt, *wgifs, *dispstr, *command, *filename, *uhour;
+    char *tmp_char1, *tmp_char2;
+    char *my_host, *xvargs;	/* hostname and xv arguments */
+!   short surface = 0, visible = 0, infrared = 0, nodis = 0, norm = 0, xvflg = 0,
+      debug = 0, upair = 0, keymap = 0, echoname = 0, mos = 0, i, j;
+    short hpa[UMAPNO];
+    struct hostent *my_site;	/* to get the site name */
+***************
+*** 120,125 ****
+--- 124,130 ----
+  	  ++echoname;
+  	  break;
+  	case 'x':		/* grab the rest into xvargs and run... */
++ 	  ++xvflg;
+  	  while (i < argc - 1)
+  	    {
+  	      strcat (xvargs, argv[++i]);
+***************
+*** 126,132 ****
+  	      strcat (xvargs, " ");
+  	    }
+  	  j = strlen (argv[i]);	/* to break from j loop */
+- 	  ++norm;
+  	  break;
+  	default:
+  	  fprintf (stderr, "%s: Bad Option: %c\n", argv[0], argv[i][j]);
+--- 131,136 ----
+***************
+*** 134,162 ****
+  	  exit (1);
+  	}
+    if (strlen (xvargs) == 0)
+!     strcat (xvargs, " ");	/* empty string */
+  
+    /* getting the time */
+    otp = tp = thetime ((time_t) 0, tp, argv[0]);
+    strftime (gmt, SMAX, "%m%d%H", tp);
+  
+    if (surface)
+-     strcat (wgifs, " SA.GIF ");
+-   tmp_char1 = (char *) strdup (wgifs);
+-   if (tp->tm_min >= SMAPMINMADE)
+-     sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+-   else
+      {
+!       fprintf (stderr, "%s: SA%s.GIF not made until %d past the hour, getting last hours map.\n", argv[0], gmt, SMAPMINMADE);
+!       /* Take off an hour's worth of seconds if before the quarter hour */
+!       tp = thetime ((time_t) 3600, tp, argv[0]);
+!       strftime (gmt, SMAX, "%m%d%H", tp);
+!       sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+!       tptmp = tp;
+!       tp = otp;
+!       free (tptmp);
+      }
+-   free (tmp_char1);
+    if (infrared)
+      strcat (wgifs, " CIR.GIF ");
+    if (visible)
+--- 138,174 ----
+  	  exit (1);
+  	}
+    if (strlen (xvargs) == 0)
+!     {
+!       strcat (xvargs, " ");	/* empty string */
+!       xvflg = 0;
+!     }
+  
++   if (nodis || xvflg)
++     norm = (!norm);		/* if -R set, then remove, else don't */
++ 
+    /* getting the time */
+    otp = tp = thetime ((time_t) 0, tp, argv[0]);
+    strftime (gmt, SMAX, "%m%d%H", tp);
+  
+    if (surface)
+      {
+!       strcat (wgifs, " SA.GIF ");
+!       tmp_char1 = (char *) strdup (wgifs);
+!       if (tp->tm_min >= SMAPMINMADE)
+! 	sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+!       else
+! 	{
+! 	  fprintf (stderr, "%s: SA%s.GIF not made until %d past the hour, getting last hours map.\n", argv[0], gmt, SMAPMINMADE);
+! 	  /* Take off an hour's worth of seconds if before the quarter hour */
+! 	  tp = thetime ((time_t) 3600, tp, argv[0]);
+! 	  strftime (gmt, SMAX, "%m%d%H", tp);
+! 	  sprintf (wgifs, "%s SA%s.GIF ", tmp_char1, gmt);
+! 	  tptmp = tp;
+! 	  tp = otp;
+! 	  free (tptmp);
+! 	}
+!       free (tmp_char1);
+      }
+    if (infrared)
+      strcat (wgifs, " CIR.GIF ");
+    if (visible)
+***************
+*** 283,289 ****
+  	  system (dispstr);
+  	}
+  
+!       if (!norm && !nodis)
+  	{
+  	  filename = strtok (wgifs, " ");
+  	  while (filename != (char *) NULL)
+--- 295,301 ----
+  	  system (dispstr);
+  	}
+  
+!       if (!norm)
+  	{
+  	  filename = strtok (wgifs, " ");
+  	  while (filename != (char *) NULL)
+***************
+*** 294,300 ****
+  	    }
+  	}
+      }
+!   exit (0);
+  }
+  
+  struct tm *
+--- 306,312 ----
+  	    }
+  	}
+      }
+!   return 0;
+  }
+  
+  struct tm *
+***************
+*** 323,331 ****
+  void
+  usage ()
+  {
+!   fputs ("Usage: getwxmap [ -RDdfsrmvku#x [xv options] ]\n", stderr);
+!   fputs ("-D if you don't want the files displayed (implies -R)\n", stderr);
+!   fputs ("-R if you don't want the files removed after displaying\n", stderr);
+    fputs ("-d for debugging (implies -f)\n", stderr);
+    fputs ("-f echos names of successfully retrieved files to standard out\n", stderr);
+    fputs ("-s For the Surface Anaylsis map\n", stderr);
+--- 335,343 ----
+  void
+  usage ()
+  {
+!   fputs ("Usage: getwxmap [ -RDdfsrmvku#x <xv options> ]\n", stderr);
+!   fputs ("-D if you don't want the files displayed, using with -R will remove files\n", stderr);
+!   fputs ("-R don't remove after displaying, except with -x and -D\n", stderr);
+    fputs ("-d for debugging (implies -f)\n", stderr);
+    fputs ("-f echos names of successfully retrieved files to standard out\n", stderr);
+    fputs ("-s For the Surface Anaylsis map\n", stderr);
+***************
+*** 335,341 ****
+    fputs ("-k for the WX key map (note: this picture doesn't change)\n", stderr);
+    fputs ("-u# for the Upper Air maps at a # * 100 hPa itervals\n", stderr);
+    fputs ("(# = 2,3,5,7,8 for 200hPa, 300hPa, 500hPa, 700hPa, 800hPa respectively)\n", stderr);
+!   fputs ("-x [xv options]  Pass ALL arguments that follow to XV as command line\n", stderr);
+!   fputs ("options.  This option MUST come last.  Use this to get a background. (implies -R)\n", stderr);
+    return;
+  }
+--- 347,367 ----
+    fputs ("-k for the WX key map (note: this picture doesn't change)\n", stderr);
+    fputs ("-u# for the Upper Air maps at a # * 100 hPa itervals\n", stderr);
+    fputs ("(# = 2,3,5,7,8 for 200hPa, 300hPa, 500hPa, 700hPa, 800hPa respectively)\n", stderr);
+!   fputs ("-x [xv <options>]  Pass ALL arguments that follow to XV as command line\n", stderr);
+!   fputs ("    <options>. This option MUST come last. Use this to get a background.\n", stderr);
+!   fputs ("      Files will not be removed unless -R is used.\n", stderr);
+    return;
+  }
++ 
++ #ifdef NO_STRDUP
++ char *
++ strdup (s)
++ {
++   char *t;
++ 
++   t = malloc (strlen (s) + 1);
++   strcpy (t, s);
++   return (t);
++ }
++ 
++ #endif
+*** getwxmap.h.orig	Tue Mar 16 18:40:44 1993
+--- getwxmap.h	Tue Mar 16 18:38:08 1993
+***************
+*** 1,5 ****
+  /*
+!  @(#) getwxmap 2.3.1, February 19, 1993
+  
+   Copyright (C) 1993, Dale A. Harris (rodmur@ecst.csuchico.edu)
+  
+--- 1,5 ----
+  /*
+!  @(#) getwxmap 2.3.2, March 11, 1993
+  
+   Copyright (C) 1993, Dale A. Harris (rodmur@ecst.csuchico.edu)
+  
+***************
+*** 23,30 ****
+   Special Thanks to Emma Pease <emma@Russell.Stanford.EDU> for the man page!
+  
+   USAGE: getwxmap [ -DRdbsrmvkfu#x [xv options]  ]
+!    -D if you don't want the files displayed (implies -R)
+!    -R  if you don't want the files removed after displaying
+     -d for debugging (implies -f)
+     -s    Retrieves the current Surface Anaylsis Map (this usually gets
+             made a little before 15 minutes after the hour, so WXMAP
+--- 23,31 ----
+   Special Thanks to Emma Pease <emma@Russell.Stanford.EDU> for the man page!
+  
+   USAGE: getwxmap [ -DRdbsrmvkfu#x [xv options]  ]
+!    -D if you don't want the files displayed, files not removed unless -R is 
+! 	used
+!    -R  files not removed after displaying, except with -x and -D
+     -d for debugging (implies -f)
+     -s    Retrieves the current Surface Anaylsis Map (this usually gets
+             made a little before 15 minutes after the hour, so WXMAP
+***************
+*** 38,44 ****
+     -f    echo names of files successfully recieved to standard output
+     -x [xv options]  Pass ALL arguments that follow to XV as command line
+              options.  This option MUST come last.  Use this to get a
+! 	    background. (implies -R)
+  
+  */
+  
+--- 39,45 ----
+     -f    echo names of files successfully recieved to standard output
+     -x [xv options]  Pass ALL arguments that follow to XV as command line
+              options.  This option MUST come last.  Use this to get a
+! 	    background.  Files not removed unless -R is used.
+  
+  */
+  
+***************
+*** 61,63 ****
+--- 62,65 ----
+  #define UMAPHOURMADE 3
+  #define UMAPMINMADE  5		/* minutes past the hour that the U*.GIF's made */
+  #define SMAPMINMADE 15		/* Minutes past the hour that SA*.GIF made */
++ 
+*** patchlevel.h.orig	Tue Mar 16 19:03:34 1993
+--- patchlevel.h	Tue Mar 16 19:04:08 1993
+***************
+*** 0 ****
+--- 1 ----
++ #define PATCHLEVEL 2.3.2
+
+-- 
+   __        _                     Dale A. Harris  {rodmur@ecst.csuchico.edu} 
+  /  )      //                           /"Get smart, rather than complicated."
+ /  / __.  // _      , , , __.  _       /_  _  __  _            J.L.
+/__/_(_/|_</_</_    (_(_/_(_/|_/_)_    / /_</_/ (_</_ 
+
+exit 0 # Just in case...

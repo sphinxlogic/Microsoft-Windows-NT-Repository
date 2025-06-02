@@ -1,0 +1,1722 @@
+Newsgroups: comp.sources.misc
+From: lwall@netlabs.com (Larry Wall)
+Subject:  v30i040:  perl - The perl programming language, Patch29
+Message-ID: <1992Jun11.180724.1246@sparky.imd.sterling.com>
+X-Md4-Signature: faf393b179fa4464fdb8cf6649a4964f
+Date: Thu, 11 Jun 1992 18:07:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lwall@netlabs.com (Larry Wall)
+Posting-number: Volume 30, Issue 40
+Archive-name: perl/patch29
+Environment: UNIX, MS-DOS, OS2
+Patch-To: perl: Volume 18, Issue 19-54
+
+System: perl version 4.0
+Patch #: 29
+Priority: highish
+Subject: patch #20, continued
+
+Description:
+	See patch #20.
+
+Fix:	From rn, say "| patch -p -N -d DIR", where DIR is your perl source
+	directory.  Outside of rn, say "cd DIR; patch -p -N <thisarticle".
+	If you don't have the patch program, apply the following by hand,
+	or get patch (version 2.0, latest patchlevel).
+
+	After patching:
+		*** DO NOTHING--INSTALL ALL PATCHES UP THROUGH #33 FIRST ***
+
+	If patch indicates that patchlevel is the wrong version, you may need
+	to apply one or more previous patches, or the patch may already
+	have been applied.  See the patchlevel.h file to find out what has or
+	has not been applied.  In any event, don't continue with the patch.
+
+	If you are missing previous patches they can be obtained from me:
+
+	Larry Wall
+	lwall@netlabs.com
+
+	If you send a mail message of the following form it will greatly speed
+	processing:
+
+	Subject: Command
+	@SH mailpatch PATH perl 4.0 LIST
+		   ^ note the c
+
+	where PATH is a return path FROM ME TO YOU either in Internet notation,
+	or in bang notation from some well-known host, and LIST is the number
+	of one or more patches you need, separated by spaces, commas, and/or
+	hyphens.  Saying 35- says everything from 35 to the end.
+
+
+Index: patchlevel.h
+Prereq: 28
+1c1
+< #define PATCHLEVEL 28
+---
+> #define PATCHLEVEL 29
+
+Index: perl.c
+*** perl.c.old	Mon Jun  8 17:50:22 1992
+--- perl.c	Mon Jun  8 17:50:23 1992
+***************
+*** 1,4 ****
+! char rcsid[] = "$RCSfile: perl.c,v $$Revision: 4.0.1.6 $$Date: 91/11/11 16:38:45 $\nPatch level: ###\n";
+  /*
+   *    Copyright (c) 1991, Larry Wall
+   *
+--- 1,4 ----
+! char rcsid[] = "$RCSfile: perl.c,v $$Revision: 4.0.1.7 $$Date: 92/06/08 14:50:39 $\nPatch level: ###\n";
+  /*
+   *    Copyright (c) 1991, Larry Wall
+   *
+***************
+*** 6,11 ****
+--- 6,22 ----
+   *    License or the Artistic License, as specified in the README file.
+   *
+   * $Log:	perl.c,v $
++  * Revision 4.0.1.7  92/06/08  14:50:39  lwall
++  * patch20: PERLLIB now supports multiple directories
++  * patch20: running taintperl explicitly now does checks even if $< == $>
++  * patch20: -e 'cmd' no longer fails silently if /tmp runs out of space
++  * patch20: perl -P now uses location of sed determined by Configure
++  * patch20: form feed for formats is now specifiable via $^L
++  * patch20: paragraph mode now skips extra newlines automatically
++  * patch20: eval "1 #comment" didn't work
++  * patch20: couldn't require . files
++  * patch20: semantic compilation errors didn't abort execution
++  * 
+   * Revision 4.0.1.6  91/11/11  16:38:45  lwall
+   * patch19: default arg for shift was wrong after first subroutine definition
+   * patch19: op/regexp.t failed from missing arg to bcmp()
+***************
+*** 44,54 ****
+  #include "EXTERN.h"
+  #include "perl.h"
+  #include "perly.h"
+- #ifdef MSDOS
+- #include "patchlev.h"
+- #else
+  #include "patchlevel.h"
+- #endif
+  
+  char *getenv();
+  
+--- 55,61 ----
+***************
+*** 65,70 ****
+--- 72,78 ----
+  #endif
+  
+  static char* moreswitches();
++ static void incpush();
+  static char* cddir;
+  static bool minus_c;
+  static char patchlevel[6];
+***************
+*** 117,122 ****
+--- 125,136 ----
+  	loop_ptr = -1;		/* start label stack again */
+  	goto just_doit;
+      }
++ #ifdef TAINT
++ #ifndef DOSUID
++     if (uid == euid && gid == egid)
++ 	taintanyway == TRUE;		/* running taintperl explicitly */
++ #endif
++ #endif
+      (void)sprintf(index(rcsid,'#'), "%d\n", PATCHLEVEL);
+      linestr = Str_new(65,80);
+      str_nset(linestr,"",0);
+***************
+*** 164,169 ****
+--- 178,185 ----
+  	    if (!e_fp) {
+  	        e_tmpname = savestr(TMPPATH);
+  		(void)mktemp(e_tmpname);
++ 		if (!*e_tmpname)
++ 		    fatal("Can't mktemp()");
+  		e_fp = fopen(e_tmpname,"w");
+  		if (!e_fp)
+  		    fatal("Cannot open temporary file");
+***************
+*** 234,278 ****
+    switch_end:
+      scriptname = argv[0];
+      if (e_fp) {
+! 	(void)fclose(e_fp);
+  	argc++,argv--;
+  	scriptname = e_tmpname;
+      }
+  
+! #ifdef MSDOS
+  #define PERLLIB_SEP ';'
+  #else
+  #define PERLLIB_SEP ':'
+  #endif
+  #ifndef TAINT		/* Can't allow arbitrary PERLLIB in setuid script */
+!     {
+! 	char * s2 = getenv("PERLLIB");
+! 
+! 	if ( s2 ) {
+! 	    /* Break at all separators */
+! 	    while ( *s2 ) {
+! 		/* First, skip any consecutive separators */
+! 		while ( *s2 == PERLLIB_SEP ) {
+! 		    /* Uncomment the next line for PATH semantics */
+! 		    /* (void)apush(stab_array(incstab),str_make(".",1)); */
+! 		    s2++;
+! 		}
+! 		if ( (s = index(s2,PERLLIB_SEP)) != Nullch ) {
+! 		    (void)apush(stab_array(incstab),str_make(s2,(int)(s-s2)));
+! 		    s2 = s+1;
+! 		} else {
+! 		    (void)apush(stab_array(incstab),str_make(s2,0));
+! 		    break;
+! 		}
+! 	    }
+! 	}
+!     }
+  #endif /* TAINT */
+  
+  #ifndef PRIVLIB
+  #define PRIVLIB "/usr/local/lib/perl"
+  #endif
+!     (void)apush(stab_array(incstab),str_make(PRIVLIB,0));
+      (void)apush(stab_array(incstab),str_make(".",1));
+  
+      str_set(&str_no,No);
+--- 250,274 ----
+    switch_end:
+      scriptname = argv[0];
+      if (e_fp) {
+! 	if (fflush(e_fp) || ferror(e_fp) || fclose(e_fp))
+! 	    fatal("Can't write to temp file for -e: %s", strerror(errno));
+  	argc++,argv--;
+  	scriptname = e_tmpname;
+      }
+  
+! #ifdef DOSISH
+  #define PERLLIB_SEP ';'
+  #else
+  #define PERLLIB_SEP ':'
+  #endif
+  #ifndef TAINT		/* Can't allow arbitrary PERLLIB in setuid script */
+!     incpush(getenv("PERLLIB"));
+  #endif /* TAINT */
+  
+  #ifndef PRIVLIB
+  #define PRIVLIB "/usr/local/lib/perl"
+  #endif
+!     incpush(PRIVLIB);
+      (void)apush(stab_array(incstab),str_make(".",1));
+  
+      str_set(&str_no,No);
+***************
+*** 296,314 ****
+  
+  	bufend = s + strlen(s);
+  	while (*s) {
+! #ifndef MSDOS
+  	    s = cpytill(tokenbuf,s,bufend,':',&len);
+  #else
+  	    for (len = 0; *s && *s != ';'; tokenbuf[len++] = *s++);
+  	    tokenbuf[len] = '\0';
+  #endif
+  	    if (*s)
+  		s++;
+! #ifndef MSDOS
+  	    if (len && tokenbuf[len-1] != '/')
+  #else
+  	    if (len && tokenbuf[len-1] != '\\')
+  #endif
+  		(void)strcat(tokenbuf+len,"/");
+  	    (void)strcat(tokenbuf+len,scriptname);
+  #ifdef DEBUGGING
+--- 292,319 ----
+  
+  	bufend = s + strlen(s);
+  	while (*s) {
+! #ifndef DOSISH
+  	    s = cpytill(tokenbuf,s,bufend,':',&len);
+  #else
++ #ifdef atarist
++ 	    for (len = 0; *s && *s != ',' && *s != ';'; tokenbuf[len++] = *s++);
++ 	    tokenbuf[len] = '\0';
++ #else
+  	    for (len = 0; *s && *s != ';'; tokenbuf[len++] = *s++);
+  	    tokenbuf[len] = '\0';
+  #endif
++ #endif
+  	    if (*s)
+  		s++;
+! #ifndef DOSISH
+  	    if (len && tokenbuf[len-1] != '/')
+  #else
++ #ifdef atarist
++ 	    if (len && ((tokenbuf[len-1] != '\\') && (tokenbuf[len-1] != '/')))
++ #else
+  	    if (len && tokenbuf[len-1] != '\\')
+  #endif
++ #endif
+  		(void)strcat(tokenbuf+len,"/");
+  	    (void)strcat(tokenbuf+len,scriptname);
+  #ifdef DEBUGGING
+***************
+*** 348,355 ****
+  	    sprintf(tokenbuf, "%s", cpp);
+  	str_cat(str,"-I");
+  	str_cat(str,PRIVLIB);
+  	(void)sprintf(buf, "\
+! %ssed %s -e '/^[^#]/b' \
+   -e '/^#[ 	]*include[ 	]/b' \
+   -e '/^#[ 	]*define[ 	]/b' \
+   -e '/^#[ 	]*if[ 	]/b' \
+--- 353,376 ----
+  	    sprintf(tokenbuf, "%s", cpp);
+  	str_cat(str,"-I");
+  	str_cat(str,PRIVLIB);
++ #ifdef MSDOS
+  	(void)sprintf(buf, "\
+! sed %s -e \"/^[^#]/b\" \
+!  -e \"/^#[ 	]*include[ 	]/b\" \
+!  -e \"/^#[ 	]*define[ 	]/b\" \
+!  -e \"/^#[ 	]*if[ 	]/b\" \
+!  -e \"/^#[ 	]*ifdef[ 	]/b\" \
+!  -e \"/^#[ 	]*ifndef[ 	]/b\" \
+!  -e \"/^#[ 	]*else/b\" \
+!  -e \"/^#[ 	]*elif[ 	]/b\" \
+!  -e \"/^#[ 	]*undef[ 	]/b\" \
+!  -e \"/^#[ 	]*endif/b\" \
+!  -e \"s/^#.*//\" \
+!  %s | %s -C %s %s",
+! 	  (doextract ? "-e \"1,/^#/d\n\"" : ""),
+! #else
+! 	(void)sprintf(buf, "\
+! %s %s -e '/^[^#]/b' \
+   -e '/^#[ 	]*include[ 	]/b' \
+   -e '/^#[ 	]*define[ 	]/b' \
+   -e '/^#[ 	]*if[ 	]/b' \
+***************
+*** 361,372 ****
+   -e '/^#[ 	]*endif/b' \
+   -e 's/^[ 	]*#.*//' \
+   %s | %s -C %s %s",
+! #ifdef MSDOS
+! 	  "",
+  #else
+! 	  "/bin/",
+  #endif
+  	  (doextract ? "-e '1,/^#/d\n'" : ""),
+  	  scriptname, tokenbuf, str_get(str), CPPMINUS);
+  #ifdef DEBUGGING
+  	if (debug & 64) {
+--- 382,394 ----
+   -e '/^#[ 	]*endif/b' \
+   -e 's/^[ 	]*#.*//' \
+   %s | %s -C %s %s",
+! #ifdef LOC_SED
+! 	  LOC_SED,
+  #else
+! 	  "sed",
+  #endif
+  	  (doextract ? "-e '1,/^#/d\n'" : ""),
++ #endif
+  	  scriptname, tokenbuf, str_get(str), CPPMINUS);
+  #ifdef DEBUGGING
+  	if (debug & 64) {
+***************
+*** 376,382 ****
+  #endif
+  	doextract = FALSE;
+  #ifdef IAMSUID				/* actually, this is caught earlier */
+! 	if (euid != uid && !euid)	/* if running suidperl */
+  #ifdef HAS_SETEUID
+  	    (void)seteuid(uid);		/* musn't stay setuid root */
+  #else
+--- 398,404 ----
+  #endif
+  	doextract = FALSE;
+  #ifdef IAMSUID				/* actually, this is caught earlier */
+! 	if (euid != uid && !euid) {	/* if running suidperl */
+  #ifdef HAS_SETEUID
+  	    (void)seteuid(uid);		/* musn't stay setuid root */
+  #else
+***************
+*** 386,391 ****
+--- 408,416 ----
+  	    setuid(uid);
+  #endif
+  #endif
++ 	    if (geteuid() != uid)
++ 		fatal("Can't do seteuid!\n");
++ 	}
+  #endif /* IAMSUID */
+  	rsfp = mypopen(buf,"r");
+      }
+***************
+*** 538,544 ****
+  	    fatal("Can't do setuid\n");
+  	}
+  
+! 	if (statbuf.st_mode & S_ISGID && statbuf.st_gid != egid)
+  #ifdef HAS_SETEGID
+  	    (void)setegid(statbuf.st_gid);
+  #else
+--- 563,569 ----
+  	    fatal("Can't do setuid\n");
+  	}
+  
+! 	if (statbuf.st_mode & S_ISGID && statbuf.st_gid != egid) {
+  #ifdef HAS_SETEGID
+  	    (void)setegid(statbuf.st_gid);
+  #else
+***************
+*** 548,553 ****
+--- 573,581 ----
+  	    setgid(statbuf.st_gid);
+  #endif
+  #endif
++ 	    if (getegid() != statbuf.st_gid)
++ 		fatal("Can't do setegid!\n");
++ 	}
+  	if (statbuf.st_mode & S_ISUID) {
+  	    if (statbuf.st_uid != euid)
+  #ifdef HAS_SETEUID
+***************
+*** 559,566 ****
+  		setuid(statbuf.st_uid);
+  #endif
+  #endif
+  	}
+! 	else if (uid)			/* oops, mustn't run as root */
+  #ifdef HAS_SETEUID
+  	    (void)seteuid((UIDTYPE)uid);
+  #else
+--- 587,596 ----
+  		setuid(statbuf.st_uid);
+  #endif
+  #endif
++ 	    if (geteuid() != statbuf.st_uid)
++ 		fatal("Can't do seteuid!\n");
+  	}
+! 	else if (uid) {			/* oops, mustn't run as root */
+  #ifdef HAS_SETEUID
+  	    (void)seteuid((UIDTYPE)uid);
+  #else
+***************
+*** 570,575 ****
+--- 600,608 ----
+  	    setuid((UIDTYPE)uid);
+  #endif
+  #endif
++ 	    if (geteuid() != uid)
++ 		fatal("Can't do seteuid!\n");
++ 	}
+  	uid = (int)getuid();
+  	euid = (int)geteuid();
+  	gid = (int)getgid();
+***************
+*** 713,723 ****
+      rightstab = stabent("'",allstabs);
+      sawampersand = (amperstab || leftstab || rightstab);
+      if (tmpstab = stabent(":",allstabs))
+! 	str_set(STAB_STR(tmpstab),chopset);
+      if (tmpstab = stabent("\024",allstabs))
+  	time(&basetime);
+  
+      /* these aren't necessarily magical */
+      if (tmpstab = stabent(";",allstabs))
+  	str_set(STAB_STR(tmpstab),"\034");
+      if (tmpstab = stabent("]",allstabs)) {
+--- 746,760 ----
+      rightstab = stabent("'",allstabs);
+      sawampersand = (amperstab || leftstab || rightstab);
+      if (tmpstab = stabent(":",allstabs))
+! 	str_set(stab_val(tmpstab),chopset);
+      if (tmpstab = stabent("\024",allstabs))
+  	time(&basetime);
+  
+      /* these aren't necessarily magical */
++     if (tmpstab = stabent("\014",allstabs)) {
++ 	str_set(stab_val(tmpstab),"\f");
++ 	formfeed = stab_val(tmpstab);
++     }
+      if (tmpstab = stabent(";",allstabs))
+  	str_set(STAB_STR(tmpstab),"\034");
+      if (tmpstab = stabent("]",allstabs)) {
+***************
+*** 730,736 ****
+  
+      stdinstab = stabent("STDIN",TRUE);
+      stdinstab->str_pok |= SP_MULTI;
+!     stab_io(stdinstab) = stio_new();
+      stab_io(stdinstab)->ifp = stdin;
+      tmpstab = stabent("stdin",TRUE);
+      stab_io(tmpstab) = stab_io(stdinstab);
+--- 767,774 ----
+  
+      stdinstab = stabent("STDIN",TRUE);
+      stdinstab->str_pok |= SP_MULTI;
+!     if (!stab_io(stdinstab))
+! 	stab_io(stdinstab) = stio_new();
+      stab_io(stdinstab)->ifp = stdin;
+      tmpstab = stabent("stdin",TRUE);
+      stab_io(tmpstab) = stab_io(stdinstab);
+***************
+*** 738,744 ****
+  
+      tmpstab = stabent("STDOUT",TRUE);
+      tmpstab->str_pok |= SP_MULTI;
+!     stab_io(tmpstab) = stio_new();
+      stab_io(tmpstab)->ofp = stab_io(tmpstab)->ifp = stdout;
+      defoutstab = tmpstab;
+      tmpstab = stabent("stdout",TRUE);
+--- 776,783 ----
+  
+      tmpstab = stabent("STDOUT",TRUE);
+      tmpstab->str_pok |= SP_MULTI;
+!     if (!stab_io(tmpstab))
+! 	stab_io(tmpstab) = stio_new();
+      stab_io(tmpstab)->ofp = stab_io(tmpstab)->ifp = stdout;
+      defoutstab = tmpstab;
+      tmpstab = stabent("stdout",TRUE);
+***************
+*** 747,753 ****
+  
+      curoutstab = stabent("STDERR",TRUE);
+      curoutstab->str_pok |= SP_MULTI;
+!     stab_io(curoutstab) = stio_new();
+      stab_io(curoutstab)->ofp = stab_io(curoutstab)->ifp = stderr;
+      tmpstab = stabent("stderr",TRUE);
+      stab_io(tmpstab) = stab_io(curoutstab);
+--- 786,793 ----
+  
+      curoutstab = stabent("STDERR",TRUE);
+      curoutstab->str_pok |= SP_MULTI;
+!     if (!stab_io(curoutstab))
+! 	stab_io(curoutstab) = stio_new();
+      stab_io(curoutstab)->ofp = stab_io(curoutstab)->ifp = stderr;
+      tmpstab = stabent("stderr",TRUE);
+      stab_io(tmpstab) = stab_io(curoutstab);
+***************
+*** 761,766 ****
+--- 801,807 ----
+      rs = nrs;
+      rslen = nrslen;
+      rschar = nrschar;
++     rspara = (nrslen == 2);
+      str_nset(stab_val(stabent("/", TRUE)), rs, rslen);
+  
+      if (do_undump)
+***************
+*** 879,884 ****
+--- 920,952 ----
+      }
+  }
+  
++ static void
++ incpush(p)
++ char *p;
++ {
++     char *s;
++ 
++     if (!p)
++ 	return;
++ 
++     /* Break at all separators */
++     while (*p) {
++ 	/* First, skip any consecutive separators */
++ 	while ( *p == PERLLIB_SEP ) {
++ 	    /* Uncomment the next line for PATH semantics */
++ 	    /* (void)apush(stab_array(incstab), str_make(".", 1)); */
++ 	    p++;
++ 	}
++ 	if ( (s = index(p, PERLLIB_SEP)) != Nullch ) {
++ 	    (void)apush(stab_array(incstab), str_make(p, (int)(s - p)));
++ 	    p = s + 1;
++ 	} else {
++ 	    (void)apush(stab_array(incstab), str_make(p, 0));
++ 	    break;
++ 	}
++     }
++ }
++ 
+  void
+  savelines(array, str)
+  ARRAY *array;
+***************
+*** 947,953 ****
+  	curcmd->c_filestab = fstab("(eval)");
+  	curcmd->c_line = 1;
+  	str_sset(linestr,str);
+! 	str_cat(linestr,";\n");		/* be kind to them */
+  	if (perldb)
+  	    savelines(stab_xarray(curcmd->c_filestab), linestr);
+      }
+--- 1015,1021 ----
+  	curcmd->c_filestab = fstab("(eval)");
+  	curcmd->c_line = 1;
+  	str_sset(linestr,str);
+! 	str_cat(linestr,";\n;\n");	/* be kind to them */
+  	if (perldb)
+  	    savelines(stab_xarray(curcmd->c_filestab), linestr);
+      }
+***************
+*** 969,976 ****
+  	    return sp;
+  	}
+  	tmpfilename = savestr(specfilename);
+! 	if (index("/.", *tmpfilename))
+  	    rsfp = fopen(tmpfilename,"r");
+  	else {
+  	    ar = stab_array(incstab);
+  	    for (i = 0; i <= ar->ary_fill; i++) {
+--- 1037,1049 ----
+  	    return sp;
+  	}
+  	tmpfilename = savestr(specfilename);
+! 	if (*tmpfilename == '/' ||
+! 	    (*tmpfilename == '.' && 
+! 		(tmpfilename[1] == '/' ||
+! 		 (tmpfilename[1] == '.' && tmpfilename[2] == '/'))))
+! 	{
+  	    rsfp = fopen(tmpfilename,"r");
++ 	}
+  	else {
+  	    ar = stab_array(incstab);
+  	    for (i = 0; i <= ar->ary_fill; i++) {
+***************
+*** 1061,1067 ****
+      }
+      myroot = eval_root;		/* in case cmd_exec does another eval! */
+  
+!     if (retval) {
+  	st = stack->ary_array;
+  	sp = arglast[0];
+  	if (gimme != G_ARRAY)
+--- 1134,1140 ----
+      }
+      myroot = eval_root;		/* in case cmd_exec does another eval! */
+  
+!     if (retval || error_count) {
+  	st = stack->ary_array;
+  	sp = arglast[0];
+  	if (gimme != G_ARRAY)
+***************
+*** 1074,1079 ****
+--- 1147,1153 ----
+  #endif
+  	    cmd_free(eval_root);
+  #endif
++ 	    /*SUPPRESS 29*/ /*SUPPRESS 30*/
+  	    if ((CMD*)eval_root == last_root)
+  		last_root = Nullcmd;
+  	    eval_root = myroot = Nullcmd;
+***************
+*** 1301,1310 ****
+  	fputs("MS-DOS port Copyright (c) 1989, 1990, Diomidis Spinellis\n",
+  	stdout);
+  #ifdef OS2
+!         fputs("OS/2 port Copyright (c) 1990, Raymond Chen, Kai Uwe Rommel\n",
+          stdout);
+  #endif
+  #endif
+  	fputs("\n\
+  Perl may be copied only under the terms of either the Artistic License or the\n\
+  GNU General Public License, which may be found in the Perl 4.0 source kit.\n",stdout);
+--- 1375,1387 ----
+  	fputs("MS-DOS port Copyright (c) 1989, 1990, Diomidis Spinellis\n",
+  	stdout);
+  #ifdef OS2
+!         fputs("OS/2 port Copyright (c) 1990, 1991, Raymond Chen, Kai Uwe Rommel\n",
+          stdout);
+  #endif
+  #endif
++ #ifdef atarist
++         fputs("atariST series port, ++jrb  bammi@cadence.com\n", stdout);
++ #endif
+  	fputs("\n\
+  Perl may be copied only under the terms of either the Artistic License or the\n\
+  GNU General Public License, which may be found in the Perl 4.0 source kit.\n",stdout);
+***************
+*** 1330,1335 ****
+--- 1407,1413 ----
+  
+  /* unexec() can be found in the Gnu emacs distribution */
+  
++ void
+  my_unexec()
+  {
+  #ifdef UNEXEC
+***************
+*** 1346,1352 ****
+  	fprintf(stderr, "unexec of %s into %s failed!\n", perlpath, dumpname);
+      exit(status);
+  #else
+! #ifdef MSDOS
+      abort();	/* nothing else to do */
+  #else /* ! MSDOS */
+  #   ifndef SIGABRT
+--- 1424,1430 ----
+  	fprintf(stderr, "unexec of %s into %s failed!\n", perlpath, dumpname);
+      exit(status);
+  #else
+! #ifdef DOSISH
+      abort();	/* nothing else to do */
+  #else /* ! MSDOS */
+  #   ifndef SIGABRT
+
+Index: perl.man
+*** perl.man.old	Mon Jun  8 17:51:02 1992
+--- perl.man	Mon Jun  8 17:51:08 1992
+***************
+*** 1,7 ****
+  .rn '' }`
+! ''' $RCSfile: perl.man,v $$Revision: 4.0.1.5 $$Date: 91/11/11 16:42:00 $
+  ''' 
+  ''' $Log:	perl.man,v $
+  ''' Revision 4.0.1.5  91/11/11  16:42:00  lwall
+  ''' patch19: added little-endian pack/unpack options
+  ''' 
+--- 1,18 ----
+  .rn '' }`
+! ''' $RCSfile: perl.man,v $$Revision: 4.0.1.6 $$Date: 92/06/08 15:07:29 $
+  ''' 
+  ''' $Log:	perl.man,v $
++ ''' Revision 4.0.1.6  92/06/08  15:07:29  lwall
++ ''' patch20: documented that numbers may contain underline
++ ''' patch20: clarified that DATA may only be read from main script
++ ''' patch20: relaxed requirement for semicolon at the end of a block
++ ''' patch20: added ... as variant on ..
++ ''' patch20: documented need for 1; at the end of a required file
++ ''' patch20: extended bracket-style quotes to two-arg operators: s()() and tr()()
++ ''' patch20: paragraph mode now skips extra newlines automatically
++ ''' patch20: documented PERLLIB and PERLDB
++ ''' patch20: documented limit on size of regexp
++ ''' 
+  ''' Revision 4.0.1.5  91/11/11  16:42:00  lwall
+  ''' patch19: added little-endian pack/unpack options
+  ''' 
+***************
+*** 623,634 ****
+  integer formats:
+  .nf
+  
+! .ne 5
+      12345
+      12345.67
+      .23E-10
+      0xffff	# hex
+      0377	# octal
+  
+  .fi
+  String literals are delimited by either single or double quotes.
+--- 634,646 ----
+  integer formats:
+  .nf
+  
+! .ne 6
+      12345
+      12345.67
+      .23E-10
+      0xffff	# hex
+      0377	# octal
++     4_294_967_296
+  
+  .fi
+  String literals are delimited by either single or double quotes.
+***************
+*** 687,693 ****
+  into strings.
+  In addition, the token _\|_END_\|_ may be used to indicate the logical end of the
+  script before the actual end of file.
+! Any following text is ignored (but may be read via the DATA filehandle).
+  The two control characters ^D and ^Z are synonyms for _\|_END_\|_.
+  .PP
+  A word that doesn't have any other interpretation in the grammar will be
+--- 699,707 ----
+  into strings.
+  In addition, the token _\|_END_\|_ may be used to indicate the logical end of the
+  script before the actual end of file.
+! Any following text is ignored, but may be read via the DATA filehandle.
+! (The DATA filehandle may read data only from the main script, but not from
+! any required file or evaluated string.)
+  The two control characters ^D and ^Z are synonyms for _\|_END_\|_.
+  .PP
+  A word that doesn't have any other interpretation in the grammar will be
+***************
+*** 944,950 ****
+  	}
+  
+  .ne 10
+! is equivalent to
+  
+  	unshift(@ARGV, \'\-\') \|if \|$#ARGV < $[;
+  	while ($ARGV = shift) {
+--- 958,964 ----
+  	}
+  
+  .ne 10
+! is equivalent to the following Perl-like pseudo code:
+  
+  	unshift(@ARGV, \'\-\') \|if \|$#ARGV < $[;
+  	while ($ARGV = shift) {
+***************
+*** 955,966 ****
+  	}
+  
+  .fi
+! except that it isn't as cumbersome to say.
+  It really does shift array ARGV and put the current filename into
+  variable ARGV.
+! It also uses filehandle ARGV internally.
+! You can modify @ARGV before the first <> as long as you leave the first
+! filename at the beginning of the array.
+  Line numbers ($.) continue as if the input was one big happy file.
+  (But see example under eof for how to reset line numbers on each file.)
+  .PP
+--- 969,983 ----
+  	}
+  
+  .fi
+! except that it isn't as cumbersome to say, and will actually work.
+  It really does shift array ARGV and put the current filename into
+  variable ARGV.
+! It also uses filehandle ARGV internally\*(--<> is just a synonym for
+! <ARGV>, which is magical.
+! (The pseudo code above doesn't work because it treats <ARGV> as non-magical.)
+! .PP
+! You can modify @ARGV before the first <> as long as the array ends up
+! containing the list of filenames you really want.
+  Line numbers ($.) continue as if the input was one big happy file.
+  (But see example under eof for how to reset line numbers on each file.)
+  .PP
+***************
+*** 1288,1296 ****
+  .Sh "Simple statements"
+  The only kind of simple statement is an expression evaluated for its side
+  effects.
+! Every expression (simple statement) must be terminated with a semicolon.
+! Note that this is like C, but unlike Pascal (and
+! .IR awk ).
+  .PP
+  Any simple statement may optionally be followed by a
+  single modifier, just before the terminating semicolon.
+--- 1305,1313 ----
+  .Sh "Simple statements"
+  The only kind of simple statement is an expression evaluated for its side
+  effects.
+! Every simple statement must be terminated with a semicolon, unless it is the
+! final statement in a block, in which case the semicolon is optional.
+! (Semicolon is still encouraged there if the block takes up more than one line).
+  .PP
+  Any simple statement may optionally be followed by a
+  single modifier, just before the terminating semicolon.
+***************
+*** 1416,1422 ****
+  slice operations on arrays.
+  .Sp
+  In a scalar context, .\|. returns a boolean value.
+! The operator is bistable, like a flip-flop..
+  Each .\|. operator maintains its own boolean state.
+  It is false as long as its left operand is false.
+  Once the left operand is true, the range operator stays true
+--- 1433,1440 ----
+  slice operations on arrays.
+  .Sp
+  In a scalar context, .\|. returns a boolean value.
+! The operator is bistable, like a flip-flop, and
+! emulates the line-range (comma) operator of sed, awk, and various editors.
+  Each .\|. operator maintains its own boolean state.
+  It is false as long as its left operand is false.
+  Once the left operand is true, the range operator stays true
+***************
+*** 1423,1435 ****
+  until the right operand is true,
+  AFTER which the range operator becomes false again.
+  (It doesn't become false till the next time the range operator is evaluated.
+! It can become false on the same evaluation it became true, but it still returns
+! true once.)
+  The right operand is not evaluated while the operator is in the \*(L"false\*(R" state,
+  and the left operand is not evaluated while the operator is in the \*(L"true\*(R" state.
+- The scalar .\|. operator is primarily intended for doing line number ranges
+- after
+- the fashion of \fIsed\fR or \fIawk\fR.
+  The precedence is a little lower than || and &&.
+  The value returned is either the null string for false, or a sequence number
+  (beginning with 1) for true.
+--- 1441,1452 ----
+  until the right operand is true,
+  AFTER which the range operator becomes false again.
+  (It doesn't become false till the next time the range operator is evaluated.
+! It can test the right operand and become false on the
+! same evaluation it became true (as in awk), but it still returns true once.
+! If you don't want it to test the right operand till the next
+! evaluation (as in sed), use three dots (.\|.\|.) instead of two.)
+  The right operand is not evaluated while the operator is in the \*(L"false\*(R" state,
+  and the left operand is not evaluated while the operator is in the \*(L"true\*(R" state.
+  The precedence is a little lower than || and &&.
+  The value returned is either the null string for false, or a sequence number
+  (beginning with 1) for true.
+***************
+*** 1472,1484 ****
+  arithmetic operators.
+  The operator may be any of:
+  .nf
+! 	\-r	File is readable by effective uid.
+! 	\-w	File is writable by effective uid.
+! 	\-x	File is executable by effective uid.
+  	\-o	File is owned by effective uid.
+! 	\-R	File is readable by real uid.
+! 	\-W	File is writable by real uid.
+! 	\-X	File is executable by real uid.
+  	\-O	File is owned by real uid.
+  	\-e	File exists.
+  	\-z	File has zero size.
+--- 1489,1501 ----
+  arithmetic operators.
+  The operator may be any of:
+  .nf
+! 	\-r	File is readable by effective uid/gid.
+! 	\-w	File is writable by effective uid/gid.
+! 	\-x	File is executable by effective uid/gid.
+  	\-o	File is owned by effective uid.
+! 	\-R	File is readable by real uid/gid.
+! 	\-W	File is writable by real uid/gid.
+! 	\-X	File is executable by real uid/gid.
+  	\-O	File is owned by real uid.
+  	\-e	File exists.
+  	\-z	File has zero size.
+***************
+*** 1655,1660 ****
+--- 1672,1691 ----
+  All other unary operators have a precedence greater than relational operators
+  but less than arithmetic operators.
+  See the section on Precedence.
++ .PP
++ For operators that can be used in either a scalar or array context,
++ failure is generally indicated in a scalar context by returning
++ the undefined value, and in an array context by returning the null list.
++ Remember though that
++ THERE IS NO GENERAL RULE FOR CONVERTING A LIST INTO A SCALAR.
++ Each operator decides which sort of scalar it would be most
++ appropriate to return.
++ Some operators return the length of the list
++ that would have been returned in an array context.
++ Some operators return the first value in the list.
++ Some operators return the last value in the list.
++ Some operators return a count of successful operations.
++ In general, they do what you want, unless you want consistency.
+  .Ip "/PATTERN/" 8 4
+  See m/PATTERN/.
+  .Ip "?PATTERN?" 8 4
+***************
+*** 2389,2395 ****
+  .Ip "endservent" 8
+  These routines perform the same functions as their counterparts in the
+  system library.
+! The return values from the various get routines are as follows:
+  .nf
+  
+  	($name,$passwd,$uid,$gid,
+--- 2420,2427 ----
+  .Ip "endservent" 8
+  These routines perform the same functions as their counterparts in the
+  system library.
+! Within an array context,
+! the return values from the various get routines are as follows:
+  .nf
+  
+  	($name,$passwd,$uid,$gid,
+***************
+*** 2401,2410 ****
+  	($name,$aliases,$port,$proto) = getserv.\|.\|.
+  
+  .fi
+  The $members value returned by getgr.\|.\|. is a space separated list
+  of the login names of the members of the group.
+  .Sp
+! The @addrs value returned by the gethost.\|.\|. functions is a list of the
+  raw addresses returned by the corresponding system library call.
+  In the Internet domain, each address is four bytes long and you can unpack
+  it by saying something like:
+--- 2433,2461 ----
+  	($name,$aliases,$port,$proto) = getserv.\|.\|.
+  
+  .fi
++ (If the entry doesn't exist you get a null list.)
++ .Sp
++ Within a scalar context, you get the name, unless the function was a
++ lookup by name, in which case you get the other thing, whatever it is.
++ (If the entry doesn't exist you get the undefined value.)
++ For example:
++ .nf
++ 
++ 	$uid = getpwnam
++ 	$name = getpwuid
++ 	$name = getpwent
++ 	$gid = getgrnam
++ 	$name = getgrgid
++ 	$name = getgrent
++ 	etc.
++ 
++ .fi
+  The $members value returned by getgr.\|.\|. is a space separated list
+  of the login names of the members of the group.
+  .Sp
+! For the gethost.\|.\|. functions, if the h_errno variable is supported in C,
+! it will be returned to you via $? if the function call fails.
+! The @addrs value returned by a successful call is a list of the
+  raw addresses returned by the corresponding system library call.
+  In the Internet domain, each address is four bytes long and you can unpack
+  it by saying something like:
+***************
+*** 2807,2813 ****
+  	($one,$five,$fifteen) = (\`uptime\` =~ /(\ed+\e.\ed+)/g);
+  
+  	# scalar context
+! 	$/ = 1; $* = 1;
+  	while ($paragraph = <>) {
+  	    while ($paragraph =~ /[a-z][\'")]*[.!?]+[\'")]*\es/g) {
+  		$sentences++;
+--- 2858,2864 ----
+  	($one,$five,$fifteen) = (\`uptime\` =~ /(\ed+\e.\ed+)/g);
+  
+  	# scalar context
+! 	$/ = ""; $* = 1;
+  	while ($paragraph = <>) {
+  	    while ($paragraph =~ /[a-z][\'")]*[.!?]+[\'")]*\es/g) {
+  		$sentences++;
+***************
+*** 3330,3335 ****
+--- 3381,3389 ----
+  
+  .fi
+  Note that the file will not be included twice under the same specified name.
++ The file must return true as the last statement to indicate successful
++ execution of any initialization code, so it's customary to end
++ such a file with \*(L"1;\*(R" unless you're sure it'll return true otherwise.
+  .Ip "reset(EXPR)" 8 6
+  .Ip "reset EXPR" 8
+  .Ip "reset" 8
+***************
+*** 3404,3409 ****
+--- 3458,3466 ----
+  interpretation is done on the replacement string (the e modifier overrides
+  this, however); if backquotes are used, the replacement string is a command
+  to execute whose output will be used as the actual replacement text.
++ If the PATTERN is delimited by bracketing quotes, the REPLACEMENT
++ has its own pair of quotes, which may or may not be bracketing quotes, e.g.
++ s(foo)(bar) or s<foo>/bar/.
+  If no string is specified via the =~ or !~ operator,
+  the $_ string is searched and modified.
+  (The string specified with =~ must be a scalar variable, an array element,
+***************
+*** 3661,3679 ****
+  
+  .ne 2
+  	# same thing, but with explicit sort routine
+! 	@articles = sort {$a cmp $b;} @files;
+  
+  .ne 2
+  	# same thing in reversed order
+! 	@articles = sort {$b cmp $a;} @files;
+  
+  .ne 2
+  	# sort numerically ascending
+! 	@articles = sort {$a <=> $b;} @files;
+  
+  .ne 2
+  	# sort numerically descending
+! 	@articles = sort {$b <=> $a;} @files;
+  
+  .ne 5
+  	# sort using explicit subroutine name
+--- 3718,3736 ----
+  
+  .ne 2
+  	# same thing, but with explicit sort routine
+! 	@articles = sort {$a cmp $b} @files;
+  
+  .ne 2
+  	# same thing in reversed order
+! 	@articles = sort {$b cmp $a} @files;
+  
+  .ne 2
+  	# sort numerically ascending
+! 	@articles = sort {$a <=> $b} @files;
+  
+  .ne 2
+  	# sort numerically descending
+! 	@articles = sort {$b <=> $a} @files;
+  
+  .ne 5
+  	# sort using explicit subroutine name
+***************
+*** 3826,3831 ****
+--- 3883,3889 ----
+  .Ip "stat SCALARVARIABLE" 8
+  Returns a 13-element array giving the statistics for a file, either the file
+  opened via FILEHANDLE, or named by EXPR.
++ Returns a null list if the stat fails.
+  Typically used as follows:
+  .nf
+  
+***************
+*** 3902,3908 ****
+  .ne 12
+  	$search = \'while (<>) { study;\';
+  	foreach $word (@words) {
+! 	    $search .= "++\e$seen{\e$ARGV} if /\eb$word\eb/;\en";
+  	}
+  	$search .= "}";
+  	@ARGV = @files;
+--- 3960,3966 ----
+  .ne 12
+  	$search = \'while (<>) { study;\';
+  	foreach $word (@words) {
+! 	    $search .= "++\e$seen{\e$ARGV} if /\e\eb$word\e\eb/;\en";
+  	}
+  	$search .= "}";
+  	@ARGV = @files;
+***************
+*** 4023,4028 ****
+--- 4081,4089 ----
+  .I y
+  is provided as a synonym for
+  .IR tr .
++ If the SEARCHLIST is delimited by bracketing quotes, the REPLACEMENTLIST
++ has its own pair of quotes, which may or may not be bracketing quotes, e.g.
++ tr[A-Z][a-z] or tr(+-*/)/ABCD/.
+  .Sp
+  If the c modifier is specified, the SEARCHLIST character set is complemented.
+  If the d modifier is specified, any characters specified by SEARCHLIST that
+***************
+*** 4880,4885 ****
+--- 4941,4952 ----
+  if set to the null string.
+  You may set it to a multicharacter string to match a multi-character
+  delimiter.
++ Note that setting it to "\en\en" means something slightly different
++ than setting it to "", if the file contains consecutive blank lines.
++ Setting it to "" will treat two or more consecutive blank lines as a single
++ blank line.
++ Setting it to "\en\en" will blindly assume that the next input character
++ belongs to the next paragraph, even if it's a newline.
+  (Mnemonic: / is used to delimit line boundaries when quoting poetry.)
+  .Ip $, 8
+  The output field separator for the print operator.
+***************
+*** 4974,4989 ****
+  there was a core dump.
+  (Mnemonic: similar to sh and ksh.)
+  .Ip $& 8 4
+! The string matched by the last pattern match (not counting any matches hidden
+  within a BLOCK or eval enclosed by the current BLOCK).
+  (Mnemonic: like & in some editors.)
+  .Ip $\` 8 4
+! The string preceding whatever was matched by the last pattern match
+  (not counting any matches hidden within a BLOCK or eval enclosed by the current
+  BLOCK).
+  (Mnemonic: \` often precedes a quoted string.)
+  .Ip $\' 8 4
+! The string following whatever was matched by the last pattern match
+  (not counting any matches hidden within a BLOCK or eval enclosed by the current
+  BLOCK).
+  (Mnemonic: \' often follows a quoted string.)
+--- 5041,5057 ----
+  there was a core dump.
+  (Mnemonic: similar to sh and ksh.)
+  .Ip $& 8 4
+! The string matched by the last successful pattern match
+! (not counting any matches hidden
+  within a BLOCK or eval enclosed by the current BLOCK).
+  (Mnemonic: like & in some editors.)
+  .Ip $\` 8 4
+! The string preceding whatever was matched by the last successful pattern match
+  (not counting any matches hidden within a BLOCK or eval enclosed by the current
+  BLOCK).
+  (Mnemonic: \` often precedes a quoted string.)
+  .Ip $\' 8 4
+! The string following whatever was matched by the last successful pattern match
+  (not counting any matches hidden within a BLOCK or eval enclosed by the current
+  BLOCK).
+  (Mnemonic: \' often follows a quoted string.)
+***************
+*** 5158,5163 ****
+--- 5226,5233 ----
+  (Mnemonic: value of
+  .B \-i
+  switch.)
++ .Ip $^L 8 2
++ What formats output to perform a formfeed.  Default is \ef.
+  .Ip $^P 8 2
+  The internal flag that the debugger clears so that it doesn't
+  debug itself.  You could conceivable disable debugging yourself
+***************
+*** 5635,5648 ****
+  The tainting mechanism is intended to prevent stupid mistakes, not to remove
+  the need for thought.
+  .SH ENVIRONMENT
+! .I Perl
+! uses PATH in executing subprocesses, and in finding the script if \-S
+  is used.
+! HOME or LOGDIR are used if chdir has no argument.
+  .PP
+  Apart from these,
+  .I perl
+! uses no environment variables, except to make them available
+  to the script being executed, and to child processes.
+  However, scripts running setuid would do well to execute the following lines
+  before doing anything else, just to keep people honest:
+--- 5705,5730 ----
+  The tainting mechanism is intended to prevent stupid mistakes, not to remove
+  the need for thought.
+  .SH ENVIRONMENT
+! .Ip HOME 12 4
+! Used if chdir has no argument.
+! .Ip LOGDIR 12 4
+! Used if chdir has no argument and HOME is not set.
+! .Ip PATH 12 4
+! Used in executing subprocesses, and in finding the script if \-S
+  is used.
+! .Ip PERLLIB 12 4
+! A colon-separated list of directories in which to look for Perl library
+! files before looking in the standard library and the current directory.
+! .Ip PERLDB 12 4
+! The command used to get the debugger code.  If unset, uses
+! .br
+! 
+! 	require 'perldb.pl'
+! 
+  .PP
+  Apart from these,
+  .I perl
+! uses no other environment variables, except to make them available
+  to the script being executed, and to child processes.
+  However, scripts running setuid would do well to execute the following lines
+  before doing anything else, just to keep people honest:
+***************
+*** 5686,5694 ****
+  users should take special note of the following:
+  .Ip * 4 2
+  Semicolons are required after all simple statements in
+! .IR perl .
+! Newline
+! is not a statement delimiter.
+  .Ip * 4 2
+  Curly brackets are required on ifs and whiles.
+  .Ip * 4 2
+--- 5768,5776 ----
+  users should take special note of the following:
+  .Ip * 4 2
+  Semicolons are required after all simple statements in
+! .I perl
+! (except at the end of a block).
+! Newline is not a statement delimiter.
+  .Ip * 4 2
+  Curly brackets are required on ifs and whiles.
+  .Ip * 4 2
+***************
+*** 5917,5922 ****
+--- 5999,6005 ----
+  from memory size), there are still a few arbitrary limits:
+  a given identifier may not be longer than 255 characters,
+  and no component of your PATH may be longer than 255 if you use \-S.
++ A regular expression may not compile to more than 32767 bytes internally.
+  .PP
+  .I Perl
+  actually stands for Pathologically Eclectic Rubbish Lister, but don't tell
+
+Index: atarist/perldb.diff
+*** atarist/perldb.diff.old	Mon Jun  8 17:35:23 1992
+--- atarist/perldb.diff	Mon Jun  8 17:44:46 1992
+***************
+*** 0 ****
+--- 1,179 ----
++ *** ../../../lib/perldb.pl	Mon Nov 11 10:40:22 1991
++ --- perldb.pl	Mon May 18 17:00:56 1992
++ ***************
++ *** 1,10 ****
++   package DB;
++   
++ ! # modified Perl debugger, to be run from Emacs in perldb-mode
++ ! # Ray Lischner (uunet!mntgfx!lisch) as of 5 Nov 1990
++ ! # Johan Vromans -- upgrade to 4.0 pl 10
++ ! 
++ ! $header = '$RCSfile: perldb.diff,v $$Revision: 4.0.1.1 $$Date: 92/06/08 11:50:28 $';
++   #
++   # This file is automatically included if you do perl -d.
++   # It's probably not useful to include this yourself.
++ --- 1,6 ----
++   package DB;
++   
++ ! $header = '$RCSfile: perldb.diff,v $$Revision: 4.0.1.1 $$Date: 92/06/08 11:50:28 $';
++   #
++   # This file is automatically included if you do perl -d.
++   # It's probably not useful to include this yourself.
++ ***************
++ *** 14,22 ****
++   # have a breakpoint.  It also inserts a do 'perldb.pl' before the first line.
++   #
++   # $Log:	perldb.diff,v $
++   # Revision 4.0.1.1  92/06/08  11:50:28  lwall
++   # Initial revision
++   # 
++ - # Revision 4.0.1.2  91/11/05  17:55:58  lwall
++ - # patch11: perldb.pl modified to run within emacs in perldb-mode
++ - # 
++   # Revision 4.0.1.1  91/06/07  11:17:44  lwall
++   # patch4: added $^P variable to control calling of perldb routines
++   # patch4: debugger sometimes listed wrong number of lines for a statement
++ --- 10,15 ----
++ ***************
++ *** 56,63 ****
++   # 
++   #
++   
++ ! open(IN, "</dev/tty") || open(IN,  "<&STDIN");	# so we don't dingle stdin
++ ! open(OUT,">/dev/tty") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
++   select(OUT);
++   $| = 1;				# for DB'OUT
++   select(STDOUT);
++ --- 49,56 ----
++   # 
++   #
++   
++ ! open(IN, "</dev/console") || open(IN,  "<&STDIN");	# so we don't dingle stdin
++ ! open(OUT,">/dev/console") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
++   select(OUT);
++   $| = 1;				# for DB'OUT
++   select(STDOUT);
++ ***************
++ *** 64,79 ****
++   $| = 1;				# for real STDOUT
++   $sub = '';
++   
++ - # Is Perl being run from Emacs?
++ - $emacs = $main'ARGV[$[] eq '-emacs';
++ - shift(@main'ARGV) if $emacs;
++ - 
++   $header =~ s/.Header: ([^,]+),v(\s+\S+\s+\S+).*$/$1$2/;
++ ! print OUT "\nLoading DB routines from $header\n";
++ ! print OUT ("Emacs support ",
++ ! 	   $emacs ? "enabled" : "available",
++ ! 	   ".\n");
++ ! print OUT "\nEnter h for help.\n\n";
++   
++   sub DB {
++       &save;
++ --- 57,64 ----
++   $| = 1;				# for real STDOUT
++   $sub = '';
++   
++   $header =~ s/.Header: ([^,]+),v(\s+\S+\s+\S+).*$/$1$2/;
++ ! print OUT "\nLoading DB routines from $header\n\nEnter h for help.\n\n";
++   
++   sub DB {
++       &save;
++ ***************
++ *** 93,107 ****
++   	}
++       }
++       if ($single || $trace || $signal) {
++ ! 	if ($emacs) {
++ ! 	    print OUT "\032\032$filename:$line:0\n";
++ ! 	} else {
++ ! 	    print OUT "$package'" unless $sub =~ /'/;
++ ! 	    print OUT "$sub($filename:$line):\t",$dbline[$line];
++ ! 	    for ($i = $line + 1; $i <= $max && $dbline[$i] == 0; ++$i) {
++ ! 		last if $dbline[$i] =~ /^\s*(}|#|\n)/;
++ ! 		print OUT "$sub($filename:$i):\t",$dbline[$i];
++ ! 	    }
++   	}
++       }
++       $evalarg = $action, &eval if $action;
++ --- 78,88 ----
++   	}
++       }
++       if ($single || $trace || $signal) {
++ ! 	print OUT "$package'" unless $sub =~ /'/;
++ ! 	print OUT "$sub($filename:$line):\t",$dbline[$line];
++ ! 	for ($i = $line + 1; $i <= $max && $dbline[$i] == 0; ++$i) {
++ ! 	    last if $dbline[$i] =~ /^\s*(;|}|#|\n)/;
++ ! 	    print OUT "$sub($filename:$i):\t",$dbline[$i];
++   	}
++       }
++       $evalarg = $action, &eval if $action;
++ ***************
++ *** 263,276 ****
++   		    $i = $2;
++   		    $i = $line if $i eq '.';
++   		    $i = 1 if $i < 1;
++ ! 		    if ($emacs) {
++ ! 			print OUT "\032\032$filename:$i:0\n";
++ ! 			$i = $end;
++ ! 		    } else {
++ ! 			for (; $i <= $end; $i++) {
++ ! 			    print OUT "$i:\t", $dbline[$i];
++ ! 			    last if $signal;
++ ! 			}
++   		    }
++   		    $start = $i;	# remember in case they want more
++   		    $start = $max if $start > $max;
++ --- 244,252 ----
++   		    $i = $2;
++   		    $i = $line if $i eq '.';
++   		    $i = 1 if $i < 1;
++ ! 		    for (; $i <= $end; $i++) {
++ ! 			print OUT "$i:\t", $dbline[$i];
++ ! 			last if $signal;
++   		    }
++   		    $start = $i;	# remember in case they want more
++   		    $start = $max if $start > $max;
++ ***************
++ *** 417,427 ****
++   			$start = 1 if ($start > $max);
++   			last if ($start == $end);
++   			if ($dbline[$start] =~ m'."\n$pat\n".'i) {
++ ! 			    if ($emacs) {
++ ! 				print OUT "\032\032$filename:$start:0\n";
++ ! 			    } else {
++ ! 				print OUT "$start:\t", $dbline[$start], "\n";
++ ! 			    }
++   			    last;
++   			}
++   		    } ';
++ --- 393,399 ----
++   			$start = 1 if ($start > $max);
++   			last if ($start == $end);
++   			if ($dbline[$start] =~ m'."\n$pat\n".'i) {
++ ! 			    print OUT "$start:\t", $dbline[$start], "\n";
++   			    last;
++   			}
++   		    } ';
++ ***************
++ *** 445,455 ****
++   			$start = $max if ($start <= 0);
++   			last if ($start == $end);
++   			if ($dbline[$start] =~ m'."\n$pat\n".'i) {
++ ! 			    if ($emacs) {
++ ! 				print OUT "\032\032$filename:$start:0\n";
++ ! 			    } else {
++ ! 				print OUT "$start:\t", $dbline[$start], "\n";
++ ! 			    }
++   			    last;
++   			}
++   		    } ';
++ --- 417,423 ----
++   			$start = $max if ($start <= 0);
++   			last if ($start == $end);
++   			if ($dbline[$start] =~ m'."\n$pat\n".'i) {
++ ! 			    print OUT "$start:\t", $dbline[$start], "\n";
++   			    last;
++   			}
++   		    } ';
+
+Index: lib/perldb.pl
+Prereq: 4.0.1.2
+*** lib/perldb.pl.old	Mon Jun  8 17:49:06 1992
+--- lib/perldb.pl	Mon Jun  8 17:49:07 1992
+***************
+*** 4,10 ****
+  # Ray Lischner (uunet!mntgfx!lisch) as of 5 Nov 1990
+  # Johan Vromans -- upgrade to 4.0 pl 10
+  
+! $header = '$RCSfile: perldb.pl,v $$Revision: 4.0.1.2 $$Date: 91/11/05 17:55:58 $';
+  #
+  # This file is automatically included if you do perl -d.
+  # It's probably not useful to include this yourself.
+--- 4,10 ----
+  # Ray Lischner (uunet!mntgfx!lisch) as of 5 Nov 1990
+  # Johan Vromans -- upgrade to 4.0 pl 10
+  
+! $header = '$RCSfile: perldb.pl,v $$Revision: 4.0.1.3 $$Date: 92/06/08 13:43:57 $';
+  #
+  # This file is automatically included if you do perl -d.
+  # It's probably not useful to include this yourself.
+***************
+*** 14,19 ****
+--- 14,23 ----
+  # have a breakpoint.  It also inserts a do 'perldb.pl' before the first line.
+  #
+  # $Log:	perldb.pl,v $
++ # Revision 4.0.1.3  92/06/08  13:43:57  lwall
++ # patch20: support for MSDOS folded into perldb.pl
++ # patch20: perldb couldn't debug file containing '-', such as STDIN designator
++ # 
+  # Revision 4.0.1.2  91/11/05  17:55:58  lwall
+  # patch11: perldb.pl modified to run within emacs in perldb-mode
+  # 
+***************
+*** 56,63 ****
+  # 
+  #
+  
+! open(IN, "</dev/tty") || open(IN,  "<&STDIN");	# so we don't dingle stdin
+! open(OUT,">/dev/tty") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
+  select(OUT);
+  $| = 1;				# for DB'OUT
+  select(STDOUT);
+--- 60,76 ----
+  # 
+  #
+  
+! if (-e "/dev/tty") {
+!     $console = "/dev/tty";
+!     $rcfile=".perldb";
+! }
+! else {
+!     $console = "con";
+!     $rcfile="perldb.ini";
+! }
+! 
+! open(IN, "<$console") || open(IN,  "<&STDIN");	# so we don't dingle stdin
+! open(OUT,">$console") || open(OUT, ">&STDOUT");	# so we don't dongle stdout
+  select(OUT);
+  $| = 1;				# for DB'OUT
+  select(STDOUT);
+***************
+*** 304,310 ****
+  		    $cond = $2 || '1';
+  		    $subname = "$package'" . $subname unless $subname =~ /'/;
+  		    $subname = "main" . $subname if substr($subname,0,1) eq "'";
+! 		    ($filename,$i) = split(/[:-]/, $sub{$subname});
+  		    if ($i) {
+  			*dbline = "_<$filename";
+  			++$i while $dbline[$i] == 0 && $i < $#dbline;
+--- 317,324 ----
+  		    $cond = $2 || '1';
+  		    $subname = "$package'" . $subname unless $subname =~ /'/;
+  		    $subname = "main" . $subname if substr($subname,0,1) eq "'";
+! 		    ($filename,$i) = split(/:/, $sub{$subname});
+! 		    $i += 0;
+  		    if ($i) {
+  			*dbline = "_<$filename";
+  			++$i while $dbline[$i] == 0 && $i < $#dbline;
+***************
+*** 568,581 ****
+      s/(.*)/'$1'/ unless /^-?[\d.]+$/;
+  }
+  
+! if (-f '.perldb') {
+!     do './.perldb';
+  }
+! elsif (-f "$ENV{'LOGDIR'}/.perldb") {
+!     do "$ENV{'LOGDIR'}/.perldb";
+  }
+! elsif (-f "$ENV{'HOME'}/.perldb") {
+!     do "$ENV{'HOME'}/.perldb";
+  }
+  
+  1;
+--- 582,595 ----
+      s/(.*)/'$1'/ unless /^-?[\d.]+$/;
+  }
+  
+! if (-f $rcfile) {
+!     do "./$rcfile";
+  }
+! elsif (-f "$ENV{'LOGDIR'}/$rcfile") {
+!     do "$ENV{'LOGDIR'}/$rcfile";
+  }
+! elsif (-f "$ENV{'HOME'}/$rcfile") {
+!     do "$ENV{'HOME'}/$rcfile";
+  }
+  
+  1;
+
+Index: atarist/perlglob.c
+*** atarist/perlglob.c.old	Mon Jun  8 17:44:50 1992
+--- atarist/perlglob.c	Mon Jun  8 17:44:51 1992
+***************
+*** 0 ****
+--- 1,45 ----
++ /*
++  * glob and echo any globbed args
++  *
++  *  ++jrb  bammi@cadence.com
++  */
++ 
++ #include <stdio.h>
++ 
++ #if __STDC__
++ # include <compiler.h>
++ #else
++ # define __PROTO(X) ()
++ #endif
++ 
++ char	**glob __PROTO((char *patt, int decend_dir));
++ int	contains_wild __PROTO((char *patt));
++ void	free_all __PROTO((void));
++ 
++ 
++ int main(argc, argv)
++ int argc;
++ char **argv;
++ {
++     --argc; ++argv;
++     while(argc--)
++     {
++ 	char *word = *argv;
++ 	char **list;
++ 	int did_some = 0;
++ 
++ 	if(contains_wild(word) && (list = glob(word, 0)))
++ 	{
++ 	    while(*list)
++ 	    {
++ 		fputs(*list, stdout);
++ 	        if(*++list) putchar(' ');
++ 	    }
++ 	    free_all();
++ 	    did_some = 1;
++ 	}
++ 	if(*++argv && did_some) putchar(' ');
++     }
++     putchar('\0');
++     return 0;
++ }
+
+Index: os2/perlglob.cs
+*** os2/perlglob.cs.old	Mon Jun  8 17:50:11 1992
+--- os2/perlglob.cs	Mon Jun  8 17:50:11 1992
+***************
+*** 1,9 ****
+  os2\glob.c
+- (-DPERLGLOB os2\director.c)
+  
+  setargv.obj
+! os2\perlglob.def
+! os2\perlglob.bad
+  perlglob.exe
+  
+  -AS -LB -S0x1000
+--- 1,9 ----
+  os2\glob.c
+  
+  setargv.obj
+! 
+! os2\perl.def
+! os2\perl.bad
+  perlglob.exe
+  
+  -AS -LB -S0x1000
+
+Index: os2/perlglob.def
+*** os2/perlglob.def.old	Mon Jun  8 17:50:13 1992
+--- os2/perlglob.def	Mon Jun  8 17:50:13 1992
+***************
+*** 1,2 ****
+! NAME PERLGLOB WINDOWCOMPAT NEWFILES
+! DESCRIPTION 'Filename globbing for PERL - for MS-DOS and OS/2'
+--- 1 ----
+! (deprecated)
+
+Index: os2/popen.c
+*** os2/popen.c.old	Mon Jun  8 17:50:15 1992
+--- os2/popen.c	Mon Jun  8 17:50:15 1992
+***************
+*** 65,71 ****
+          if ( _osmode == DOS_MODE )
+            return dos_popen(cmd, mode);
+  
+! 	if (DosMakePipe((PHFILE) &p[0], (PHFILE) &p[1], 4096) < 0)
+                  return NULL;
+  
+          myside = tst(p[WRITEH], p[READH]);
+--- 65,71 ----
+          if ( _osmode == DOS_MODE )
+            return dos_popen(cmd, mode);
+  
+!         if ( _pipe(p, 4096, 0) )
+                  return NULL;
+  
+          myside = tst(p[WRITEH], p[READH]);
+***************
+*** 124,130 ****
+  {
+    int res;
+  
+!   if ( res = DosMakePipe((PHFILE) &filedes[0], (PHFILE) &filedes[1], 4096) )
+      return res;
+  
+    DosSetFHandState(filedes[0], OPEN_FLAGS_NOINHERIT);
+--- 124,130 ----
+  {
+    int res;
+  
+!   if ( res = _pipe(filedes, 4096, 0) )
+      return res;
+  
+    DosSetFHandState(filedes[0], OPEN_FLAGS_NOINHERIT);
+***************
+*** 149,154 ****
+--- 149,155 ----
+  {
+      FILE *current;
+      char name[128];
++     char *tmp = getenv("TMP");
+      int cur;
+      pipemode curmode;
+  
+***************
+*** 165,172 ****
+      /*
+      ** get a name to use.
+      */
+!     strcpy(name, "piXXXXXX");
+!     Mktemp(name);
+  
+      /*
+      ** If we're reading, just call system to get a file filled with
+--- 166,176 ----
+      /*
+      ** get a name to use.
+      */
+!     strcpy(name, tmp ? tmp : "\\");
+!     if ( name[strlen(name) - 1] != '\\' )
+!       strcat(name, "\\");
+!     strcat(name, "piXXXXXX");
+!     mktemp(name);
+  
+      /*
+      ** If we're reading, just call system to get a file filled with
+
+Index: atarist/test/printenv
+*** atarist/test/printenv.old	Mon Jun  8 17:45:16 1992
+--- atarist/test/printenv	Mon Jun  8 17:45:16 1992
+***************
+*** 0 ****
+--- 1,16 ----
++ $exit = 0;
++ $\ = "\n";
++ if($#ARGV >= 0) {
++     foreach (@ARGV) {
++ 	if(defined $ENV{$_}) {
++ 	    print $ENV{$_};
++         } else {
++ 	    $exit = 1;
++         }
++     }
++ } else {
++     foreach (sort keys %ENV) {
++ 	print $_, '=', $ENV{$_};
++     }
++ }
++ exit $exit;
+
+Index: hints/solaris_2_0.sh
+*** hints/solaris_2_0.sh.old	Mon Jun  8 17:48:20 1992
+--- hints/solaris_2_0.sh	Mon Jun  8 17:48:21 1992
+***************
+*** 0 ****
+--- 1 ----
++ d_vfork='undef'
+
+*** End of Patch 29 ***
+exit 0 # Just in case...

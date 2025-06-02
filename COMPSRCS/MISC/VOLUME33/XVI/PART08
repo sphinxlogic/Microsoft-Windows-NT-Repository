@@ -1,0 +1,2017 @@
+Newsgroups: comp.sources.misc
+From: jmd@cyclone.bt.co.uk (John Downey)
+Subject:  v33i017:  xvi - portable multi-window vi-like editor, Part08/18
+Message-ID: <1992Oct23.181342.391@sparky.imd.sterling.com>
+X-Md4-Signature: 98d37031a5d766c2ca44cecd730694f3
+Date: Fri, 23 Oct 1992 18:13:42 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jmd@cyclone.bt.co.uk (John Downey)
+Posting-number: Volume 33, Issue 17
+Archive-name: xvi/part08
+Environment: Unix, MS-DOS, OS/2, QNX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xvi/src/undo.c xvi/src/xvi.h
+# Wrapped by kent@sparky on Thu Oct 22 09:03:42 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 18)."'
+if test -f 'xvi/src/undo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/undo.c'\"
+else
+  echo shar: Extracting \"'xvi/src/undo.c'\" \(21383 characters\)
+  sed "s/^X//" >'xvi/src/undo.c' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X#ifndef lint
+Xstatic char *sccsid = "@(#)undo.c	2.2 (Chris & John Downey) 8/28/92";
+X#endif
+X
+X/***
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    undo.c
+X* module function:
+X    Code to implement "undo" command.
+X
+X* usage:
+X    We provide several primitive functions for "do"ing things,
+X    and an "undo" function to restore the previous state.
+X
+X    Normally, a primitive function is simply called, and will
+X    automatically throw away the old previous state before
+X    saving the current one and then making the change.
+X
+X    Alternatively, it is possible to bracket lots of changes
+X    between calls to the start_command() and end_command()
+X    functions; more global changes can then be effected,
+X    and undo still works as it should.  This is used for the
+X    "global" command, for multi-line substitutes, and for
+X    insert mode.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X#include "xvi.h"
+X
+Xstatic	void	save_position P((Xviwin *));
+Xstatic	void	free_changes P((Change *));
+Xstatic	void	report P((Xviwin *));
+X
+X/*
+X * This variable holds the total number of added/deleted lines
+X * for a change; it is used for reporting (the "report" parameter).
+X */
+Xstatic	long	total_lines;
+X
+Xvoid
+Xinit_undo(buffer)
+XBuffer	*buffer;
+X{
+X    /*
+X     * Initialise the undo-related variables in the Buffer.
+X     */
+X    buffer->b_nlevels = 0;
+X    buffer->b_change = NULL;
+X
+X    /*
+X     * Set line numbers.
+X     */
+X    buffer->b_line0->l_number = 0;
+X    buffer->b_file->l_number = 1;
+X    buffer->b_lastline->l_number = MAX_LINENO;
+X}
+X
+X/*
+X * Start a command. This routine may be called many times;
+X * what it does is increase the variable which shows how
+X * many times it has been called.  The end_command() then
+X * decrements the variable - so it is vital that calls
+X * of the two routines are matched.
+X *
+X * The effect of this is quite simple; if the nlevels variable
+X * is >0, the "do*" routines will not throw away the previous
+X * state before making a change; and thus we are able to undo
+X * multiple changes.
+X *
+X * All the do* routines, and start_command(), will throw away
+X * the previous saved state if the b_nlevels variable is 0.
+X */
+Xbool_t
+Xstart_command(window)
+XXviwin	*window;
+X{
+X    Buffer	*buffer;
+X
+X    buffer = window->w_buffer;
+X
+X    if (buffer->b_nlevels == 0) {
+X	if (not_editable(buffer)) {
+X	    show_error(window, "Edit not allowed!");
+X	    return(FALSE);
+X	}
+X	free_changes(buffer->b_change);
+X	buffer->b_change = NULL;
+X    }
+X
+X    buffer->b_nlevels += 1;
+X
+X    total_lines = 0;
+X
+X    save_position(window);
+X
+X    return(TRUE);
+X}
+X
+X/*
+X * Save the cursor position.
+X *
+X * This is called at the start of each change, so that
+X * the cursor will return to the right place after an undo.
+X */
+Xstatic void
+Xsave_position(window)
+XXviwin	*window;
+X{
+X    Buffer	*buffer;
+X    Change	*change;
+X
+X    buffer = window->w_buffer;
+X
+X    change = challoc();
+X    if (change == NULL)
+X	return;
+X
+X    change->c_type = C_POSITION;
+X    change->c_pline = lineno(buffer, window->w_cursor->p_line);
+X    change->c_pindex = window->w_cursor->p_index;
+X
+X    change->c_next = buffer->b_change;
+X    buffer->b_change = change;
+X}
+X
+Xvoid
+Xend_command(window)
+XXviwin	*window;
+X{
+X    Buffer	*buffer;
+X
+X    buffer = window->w_buffer;
+X
+X    if (buffer->b_nlevels > 0) {
+X	buffer->b_nlevels -= 1;
+X	if (buffer->b_nlevels == 0) {
+X	    report(window);
+X	}
+X    } else {
+X	show_error(window, "Internal error: too many \"end_command\"s");
+X    }
+X}
+X
+X/*
+X * Replace the given section of the given line with the
+X * new (null-terminated) string. nchars may be zero for
+X * insertions of text; newstring may point to a 0-length
+X * string to delete text. start is the first character
+X * of the section which is to be replaced.
+X *
+X * Note that we don't call strcpy() to copy text here, for
+X * two reasons: firstly, we are likely to be copying small
+X * numbers of characters and it is therefore faster to do
+X * the copying ourselves, and secondly, strcpy() doesn't
+X * necessarily work for copying overlapping text towards
+X * higher locations in memory.
+X */
+Xvoid
+Xreplchars(window, line, start, nchars, newstring)
+XXviwin	*window;
+XLine	*line;
+Xint	start;
+Xint	nchars;
+Xchar	*newstring;
+X{
+X    register char	*from;		/* where to copy from */
+X    register char	*to;		/* where to copy to */
+X    register int	nlen;		/* length of newstring */
+X    register int	olen;		/* length of old line */
+X    register int	offset;		/* how much to move text by */
+X    Buffer		*buffer;
+X    Change		*change;
+X
+X    buffer = window->w_buffer;
+X
+X    /*
+X     * If this is a singleton command, make sure we
+X     * destroy the changes made as part of the last
+X     * command before we start the new one.
+X     */
+X    if (buffer->b_nlevels == 0) {
+X	if (not_editable(buffer)) {
+X	    show_error(window, "Edit not allowed!");
+X	    return;
+X	}
+X	free_changes(buffer->b_change);
+X	buffer->b_change = NULL;
+X	save_position(window);
+X    }
+X
+X    /*
+X     * First thing we have to do is to obtain a change
+X     * structure to record the change so we can be sure
+X     * that we can undo it. If this fails, we must not
+X     * make any change at all.
+X     */
+X    change = challoc();
+X    if (change == NULL)
+X	return;
+X
+X    nlen = strlen(newstring);
+X    olen = strlen(line->l_text + start);
+X    if (olen < nchars)
+X	nchars = olen;
+X    offset = nlen - nchars;
+X
+X    /*
+X     * Record the opposite change so we can undo it.
+X     */
+X    if (nchars == 0) {
+X	change->c_type = C_DEL_CHAR;
+X    } else {
+X	change->c_type = C_CHAR;
+X	change->c_chars = alloc((unsigned) nchars + 1);
+X	if (change->c_chars == NULL) {
+X	    chfree(change);
+X	    State = NORMAL;
+X	    return;
+X	}
+X	(void) strncpy(change->c_chars, line->l_text + start, nchars);
+X	change->c_chars[nchars] = '\0';
+X    }
+X    change->c_lineno = lineno(buffer, line);
+X    change->c_index = start;
+X    change->c_nchars = nlen;
+X
+X    if (offset > 0) {
+X	register char	*s;
+X
+X	/*
+X	 * Move existing text along by offset to the right.
+X	 * First make some room in the line.
+X	 */
+X	if (grow_line(line, offset) == FALSE) {
+X	    free(change->c_chars);
+X	    chfree(change);
+X	    State = NORMAL;
+X	    return;
+X	}
+X
+X	/*
+X	 * Copy characters backwards, i.e. start
+X	 * at the end of the line rather than at
+X	 * the start.
+X	 */
+X	from = line->l_text + start;
+X	to = from + offset + olen + 1;
+X	s = from + olen + 1;
+X	while (s > from) {
+X	    *--to = *--s;
+X	}
+X
+X    } else if (offset < 0) {
+X
+X	/*
+X	 * Move existing text along to the left.
+X	 */
+X	offset = - offset;
+X	to = line->l_text + start;
+X	from = to + offset;
+X
+X	/*
+X	 * Do classic K&R strcpy().
+X	 */
+X	while ((*to++ = *from++) != '\0') {
+X	    ;
+X	}
+X    }
+X
+X    /*
+X     * Finally, copy the new text into position.
+X     * Note that we are careful not to copy the
+X     * null terminator.
+X     */
+X    from = newstring;
+X    to = line->l_text + start;
+X    while (*from != '\0') {
+X	*to++ = *from++;
+X    }
+X
+X    buffer->b_flags |= FL_MODIFIED;
+X
+X    window->w_curs_new = TRUE;
+X    
+X    /*
+X     * Push this change onto the LIFO of changes
+X     * that form the current command.
+X     */
+X    change->c_next = buffer->b_change;
+X    buffer->b_change = change;
+X}
+X
+X/*
+X * Replace the specified set of lines with the replacement set.
+X * The number of lines to be replaced may be 0; the replacement
+X * list may be a NULL pointer.
+X */
+Xvoid
+Xrepllines(window, line, nolines, newlines)
+Xregister Xviwin	*window;
+XLine		*line;
+Xlong		nolines;
+XLine		*newlines;
+X{
+X    register Buffer	*buffer;	/* buffer window is mapped onto */
+X    Line		*firstp;	/* line before first to delete */
+X    Line		*lastp;		/* line after last to delete */
+X    Line		*lastline;	/* last line to delete */
+X    Line		*new_start;	/* start of lines to be inserted */
+X    Line		*new_end;	/* last line to be inserted */
+X    long		nnlines;	/* no. new logical lines */
+X    long		oplines;	/* no. physical lines to be replaced */
+X    long		nplines;	/* no. new physical lines */
+X    long		n;		/* lines done so far */
+X    register Xviwin	*wp;		/* loop variable */
+X    Change		*change;
+X
+X    buffer = window->w_buffer;
+X
+X    /*
+X     * If this is a singleton command, make sure we
+X     * destroy the changes made as part of the last
+X     * command before we start the new one.
+X     */
+X    if (buffer->b_nlevels == 0) {
+X	if (not_editable(buffer)) {
+X	    show_error(window, "Edit not allowed!");
+X	    return;
+X	}
+X	free_changes(buffer->b_change);
+X	buffer->b_change = NULL;
+X	total_lines = 0;
+X	save_position(window);
+X    }
+X
+X    /*
+X     * First thing we have to do is to obtain a change
+X     * structure to record the change so we can be sure
+X     * that we can undo it. If this fails, we must not
+X     * make any change at all.
+X     */
+X    change = challoc();
+X    if (change == NULL)
+X	return;
+X    change->c_type = C_LINE;
+X
+X    /*
+X     * Work out how many lines are in the new set, and set up
+X     * pointers to the beginning and end of the list.
+X     */
+X    if (newlines != NULL) {
+X	/*
+X	 * We have a new set of lines to replace the old.
+X	 */
+X	new_start = newlines;
+X	nnlines = 1;
+X	nplines = 0;
+X	for (new_end = newlines; new_end->l_next != NULL;
+X					    new_end = new_end->l_next) {
+X	    nnlines++;
+X	    nplines += plines(window, new_end);
+X	}
+X	nplines += plines(window, new_end);
+X    } else {
+X	/*
+X	 * No new lines; we are just deleting some.
+X	 */
+X	new_start = new_end = NULL;
+X	nnlines = 0;
+X	nplines = 0;
+X    }
+X
+X    /*
+X     * Point "firstp" at the line before the first to be deleted,
+X     * "lastline" at the last line to be deleted, and "lastp" at
+X     * the line after the last to be deleted. To do the latter,
+X     * we must loop through the buffer from the specified start
+X     * line "nolines" times. We also use this loop to set up the
+X     * "oplines" variable.
+X     *
+X     * The line number recorded for the change is the number of the
+X     * line immediately before it, plus 1. This copes with line being
+X     * equal to the lastline pointer, which is sometimes necessary
+X     * for deleting lines at the end of the file.
+X     */
+X    firstp = line->l_prev;
+X    lastline = line;
+X    change->c_lineno = firstp->l_number + 1;
+X
+X    oplines = 0;
+X    for (lastp = line, n = 0; lastp != buffer->b_lastline && n < nolines;
+X					    n++, lastp = lastp->l_next) {
+X
+X	lastline = lastp;
+X
+X	/*
+X	 * Clear any marks that may have been set
+X	 * on the lines to be deleted.
+X	 */
+X	clrmark(lastp, buffer);
+X
+X	oplines += plines(window, lastp);
+X
+X	/*
+X	 * Scan through all windows which are mapped
+X	 * onto the buffer we are modifying, to see
+X	 * if we need to update their w_topline and/or
+X	 * w_cursor elements as a result of the change.
+X	 *
+X	 * There is a disgusting hack here. If the number
+X	 * of lines being added/deleted is such that the
+X	 * cursor could remain at the same logical line
+X	 * in the file after the change, then it should.
+X	 * Since the cursor could be in different places
+X	 * in each window, we use the Posn.p_index field
+X	 * to store the offset from the start of the
+X	 * changed section. This is only used if the
+X	 * Posn.p_line field has been set to NULL.
+X	 */
+X	wp = window;
+X	do {
+X	    if (wp->w_buffer != buffer)
+X		continue;
+X
+X	    if (lastp == wp->w_cursor->p_line) {
+X		long	offset;
+X
+X		/*
+X		 * Mark the cursor line as NULL
+X		 * so we will know to re-assign
+X		 * it later.
+X		 */
+X		wp->w_cursor->p_line = NULL;
+X		offset = cntllines(line, lastp);
+X		if (offset > INT_MAX) {
+X		    offset = 0;
+X		}
+X		wp->w_cursor->p_index = offset;
+X	    }
+X	} while ((wp = next_window(wp)) != window);
+X    }
+X
+X    /*
+X     * Hack.
+X     *
+X     * If we are replacing the entire buffer with no lines, we must
+X     * insert a blank line to avoid the buffer becoming totally empty.
+X     */
+X    if (nnlines == 0 && firstp == buffer->b_line0 &&
+X					lastp == buffer->b_lastline) {
+X	/*
+X	 * We are going to delete all the lines - so we have
+X	 * to insert a new blank one in their place.
+X	 */
+X	new_start = newline(1);
+X	if (new_start == NULL) {
+X	    show_error(window, "Can't get memory to delete lines");
+X	    chfree(change);
+X	    return;
+X	}
+X	new_end = new_start;
+X	nnlines = 1;
+X	nplines = 1;
+X    }
+X
+X    /*
+X     * Scan through all of the windows which are mapped onto
+X     * the buffer being changed, and do any screen updates
+X     * that seem like a good idea.
+X     */
+X    wp = window;
+X    do {
+X	/*
+X	 * Only do windows onto the right buffer.
+X	 */
+X	if (wp->w_buffer != buffer)
+X	    continue;
+X
+X	/*
+X	 * Redraw part of the screen if necessary.
+X	 */
+X	if (!earlier(line, wp->w_topline) &&
+X	    earlier(lastline, wp->w_botline)) {
+X
+X	    int	start_row;
+X
+X	    start_row = cntplines(wp, wp->w_topline, line);
+X	    if (nplines > oplines && start_row > 0 &&
+X		(start_row + nplines - oplines) < wp->w_nrows - 2) {
+X
+X		s_ins(wp, start_row, (int) (nplines - oplines));
+X
+X	    } else if (nplines < oplines &&
+X		    (start_row + oplines - nplines) < (wp->w_nrows - 2)) {
+X
+X		s_del(wp, start_row, (int) (oplines - nplines));
+X	    }
+X	}
+X    } while ((wp = next_window(wp)) != window);
+X
+X    /*
+X     * Record the old set of lines as the replacement
+X     * set for undo, if there were any.
+X     */
+X    if (nolines > 0) {
+X	lastp->l_prev->l_next = NULL;
+X	line->l_prev = NULL;
+X	change->c_lines = line;
+X    } else {
+X	change->c_lines = NULL;
+X    }
+X    change->c_nlines = nnlines;
+X
+X    /*
+X     * Link the buffer back together, using the new
+X     * lines if there are any, otherwise just linking
+X     * around the deleted lines.
+X     */
+X    if (new_start != NULL) {
+X	firstp->l_next = new_start;
+X	lastp->l_prev = new_end;
+X	new_end->l_next = lastp;
+X	new_start->l_prev = firstp;
+X    } else {
+X	firstp->l_next = lastp;
+X	lastp->l_prev = firstp;
+X    }
+X
+X    buffer->b_flags |= FL_MODIFIED;
+X
+X    window->w_curs_new = TRUE;
+X
+X    /*
+X     * Re-link the buffer file pointer
+X     * in case we deleted line 1.
+X     */
+X    buffer->b_file = buffer->b_line0->l_next;
+X
+X    /*
+X     * Push this change onto the LIFO of changes
+X     * that form the current command.
+X     */
+X    change->c_next = buffer->b_change;
+X    buffer->b_change = change;
+X
+X    /*
+X     * Update the w_cursor and w_topline fields in any Xviwins
+X     * for which the lines to which they were pointing have
+X     * been deleted.
+X     */
+X    wp = window;
+X    do {
+X	/*
+X	 * Only do windows onto the right buffer.
+X	 */
+X	if (wp->w_buffer != buffer)
+X	    continue;
+X
+X	/*
+X	 * Don't need to update the w_cursor or w_topline
+X	 * elements of this window if no lines are being
+X	 * deleted.
+X	 */
+X	if (nolines == 0)
+X	    continue;
+X
+X	/*
+X	 * Need a new cursor line value.
+X	 */
+X	if (wp->w_cursor->p_line == NULL) {
+X	    if (wp->w_cursor->p_index == 0) {
+X		wp->w_cursor->p_line = (lastp != buffer->b_lastline) ?
+X						lastp : lastp->l_prev;
+X	    } else {
+X		wp->w_cursor->p_line = firstp;
+X		(void) onedown(wp, (long) wp->w_cursor->p_index);
+X	    }
+X	    wp->w_cursor->p_index = 0;
+X	    begin_line(wp, TRUE);
+X	}
+X
+X	/*
+X	 * Update the "topline" element of the Xviwin structure
+X	 * if the current topline is one of those being replaced.
+X	 */
+X	if (line->l_number <= wp->w_topline->l_number &&
+X			lastline->l_number >= wp->w_topline->l_number) {
+X	    wp->w_topline = wp->w_cursor->p_line;
+X	}
+X    } while ((wp = next_window(wp)) != window);
+X
+X    /*
+X     * Renumber the buffer - but not until all the pointers,
+X     * especially the b_file pointer, have been re-linked.
+X     */
+X    {
+X	Line		*p;
+X	unsigned long	l;
+X
+X	p = firstp;
+X	l = p->l_number;
+X	for (p = p->l_next; p != buffer->b_lastline; p = p->l_next) {
+X	    p->l_number = ++l;
+X	}
+X	buffer->b_lastline->l_number = MAX_LINENO;
+X    }
+X
+X    total_lines += nnlines - nolines;
+X    if (buffer->b_nlevels == 0)
+X	report(window);
+X}
+X
+X/*
+X * Replace the entire buffer with the specified list of lines.
+X * This is only used for the :edit command, and we assume that
+X * checking has already been done that we are not losing data.
+X * The buffer is marked as unmodified. No screen updating is
+X * performed. This is the only way to make a non-undoable change
+X * to a buffer.
+X */
+Xvoid
+Xreplbuffer(window, newlines)
+Xregister Xviwin	*window;
+XLine		*newlines;
+X{
+X    register Buffer	*buffer;	/* buffer window is mapped onto */
+X    Line		*new_end;	/* last line to be inserted */
+X    Line		*p;
+X    unsigned long	l;
+X    Xviwin		*wp;
+X
+X    buffer = window->w_buffer;
+X
+X    if (newlines == NULL) {
+X	show_error(window,
+X		"Internal error: replbuffer called with no lines");
+X	return;
+X    }
+X
+X    if (buffer->b_nlevels != 0) {
+X	show_error(window,
+X		"Internal error: replbuffer called with nlevels != 0");
+X	return;
+X    }
+X    free_changes(buffer->b_change);
+X    buffer->b_change = NULL;
+X    buffer->b_nlevels = 0;
+X
+X    /*
+X     * Point new_end at the last line of newlines.
+X     */
+X    for (new_end = newlines; new_end->l_next != NULL;
+X    					new_end = new_end->l_next) {
+X	;
+X    }
+X
+X    /*
+X     * Free up the old list of lines.
+X     */
+X    buffer->b_lastline->l_prev->l_next = NULL;
+X    throw(buffer->b_file);
+X
+X    /*
+X     * Link the buffer back together with the new lines.
+X     */
+X    buffer->b_line0->l_next = buffer->b_file = newlines;
+X    newlines->l_prev = buffer->b_line0;
+X    buffer->b_lastline->l_prev = new_end;
+X    new_end->l_next = buffer->b_lastline;
+X
+X    /*
+X     * Update the w_cursor and w_topline fields in all Xviwins
+X     * mapped onto the current Buffer.
+X     */
+X    wp = window;
+X    do {
+X	if (wp->w_buffer != buffer)
+X	    continue;
+X
+X	move_cursor(wp, buffer->b_file, 0);
+X	wp->w_topline = wp->w_cursor->p_line;
+X
+X    } while ((wp = next_window(wp)) != window);
+X
+X    /*
+X     * Renumber the buffer.
+X     */
+X    l = 0L;
+X    for (p = buffer->b_line0; p != buffer->b_lastline; p = p->l_next) {
+X	p->l_number = l++;
+X    }
+X    buffer->b_lastline->l_number = MAX_LINENO;
+X
+X    /*
+X     * Mark buffer as unmodified, and clear any marks it has.
+X     */
+X    buffer->b_flags &= ~FL_MODIFIED;
+X    init_marks(buffer);
+X}
+X
+X/*
+X * Undo the last change in the buffer mapped by the given window.
+X */
+Xvoid
+Xundo(window)
+XXviwin	*window;
+X{
+X    Buffer	*buffer;
+X    Change	*chp;
+X
+X    buffer = window->w_buffer;
+X
+X    if (buffer->b_nlevels != 0) {
+X	show_error(window, "Internal error: undo called with nlevels != 0");
+X	return;
+X    }
+X
+X    /*
+X     * Grab the list of transactions which formed the command
+X     * that has to be undone, and then call start_command() so
+X     * we start with a clean slate.
+X     */
+X    chp = buffer->b_change;
+X    buffer->b_change = NULL;
+X
+X    if (start_command(window) == FALSE) {
+X	return;
+X    }
+X
+X    while (chp != NULL) {
+X	Change	*tmp;
+X	Line	*lp;
+X
+X	tmp = chp;
+X	chp = chp->c_next;
+X
+X	lp = gotoline(buffer, tmp->c_lineno);
+X
+X	switch (tmp->c_type) {
+X	case C_LINE:
+X	    /*
+X	     * If the line corresponding to the given number
+X	     * isn't the one we went to, then we must have
+X	     * deleted it in the original change. If the change
+X	     * structure says to insert lines, we must set the
+X	     * line pointer to the lastline marker so that the
+X	     * insert happens in the right place; otherwise,
+X	     * we should not, because repllines won't handle
+X	     * deleting lines from the lastline pointer.
+X	     */
+X	    if (lp->l_number < tmp->c_lineno && tmp->c_lines != NULL) {
+X		lp = buffer->b_lastline;
+X	    }
+X	    /*
+X	     * Put the lines back as they were.
+X	     * Note that we don't free the lines
+X	     * here; that is only ever done by
+X	     * free_changes, when the next line
+X	     * change happens.
+X	     */
+X	    repllines(window, lp, tmp->c_nlines, tmp->c_lines);
+X	    break;
+X
+X	case C_DEL_CHAR:
+X	    replchars(window, lp, tmp->c_index, tmp->c_nchars, "");
+X	    break;
+X
+X	case C_CHAR:
+X	    replchars(window, lp, tmp->c_index, tmp->c_nchars, tmp->c_chars);
+X
+X	    /*
+X	     * Free up the string, since it was strsave'd
+X	     * by replchars at the time the change was made.
+X	     */
+X	    free(tmp->c_chars);
+X	    break;
+X
+X	case C_POSITION:
+X	    move_cursor(window, gotoline(buffer, tmp->c_pline), tmp->c_pindex);
+X	    break;
+X
+X	default:
+X	    show_error(window,
+X	     "Internal error in undo: invalid change type. This is serious.");
+X	    break;
+X	}
+X	chfree(tmp);
+X    }
+X
+X    end_command(window);
+X    
+X    update_buffer(buffer);
+X}
+X
+Xstatic void
+Xfree_changes(chp)
+XChange	*chp;
+X{
+X    while (chp != NULL) {
+X	Change	*tmp;
+X
+X	tmp = chp;
+X	chp = chp->c_next;
+X
+X	switch (tmp->c_type) {
+X	case C_LINE:
+X	    throw(tmp->c_lines);
+X	    break;
+X	case C_CHAR:
+X	    free(tmp->c_chars);
+X	    break;
+X	case C_DEL_CHAR:
+X	case C_POSITION:
+X	    break;
+X	}
+X	chfree(tmp);
+X    }
+X}
+X
+Xstatic void
+Xreport(window)
+XXviwin	*window;
+X{
+X    if (echo & e_REPORT) {
+X	if (total_lines > Pn(P_report)) {
+X	    show_message(window, "%ld more lines", total_lines);
+X	} else if (-total_lines > Pn(P_report)) {
+X	    show_message(window, "%ld fewer lines", -total_lines);
+X	}
+X    }
+X}
+X
+Xbool_t
+Xset_edit(window, new_value, interactive)
+XXviwin		*window;
+XParamval	new_value;
+Xbool_t		interactive;
+X{
+X    Xviwin	*wp;
+X
+X    /*
+X     * Disallow setting of "edit" parameter to TRUE if it is FALSE.
+X     * Hence, this parameter can only ever be set to FALSE.
+X     */
+X    if (new_value.pv_b == TRUE && !Pb(P_edit)) {
+X	if (interactive) {
+X	    show_error(window, "Can't set edit once it has been unset");
+X	}
+X	return(FALSE);
+X    } else {
+X	/*
+X	 * Set the "noedit" flag on all current buffers,
+X	 * but only if we are in interactive mode
+X	 * (otherwise the window pointer is unreliable).
+X	 * This may set the flag several times on split
+X	 * buffers, but it's no great problem so why not.
+X	 */
+X	if (interactive) {
+X	    wp = window;
+X	    do {
+X		wp->w_buffer->b_flags |= FL_NOEDIT;
+X	    } while ((wp = next_window(wp)) != window);
+X	}
+X	return(TRUE);
+X    }
+X}
+END_OF_FILE
+  if test 21383 -ne `wc -c <'xvi/src/undo.c'`; then
+    echo shar: \"'xvi/src/undo.c'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/undo.c'
+fi
+if test -f 'xvi/src/xvi.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xvi/src/xvi.h'\"
+else
+  echo shar: Extracting \"'xvi/src/xvi.h'\" \(30896 characters\)
+  sed "s/^X//" >'xvi/src/xvi.h' <<'END_OF_FILE'
+X/* Copyright (c) 1990,1991,1992 Chris and John Downey */
+X/***
+X
+X* @(#)xvi.h	2.5 (Chris & John Downey) 9/1/92
+X
+X* program name:
+X    xvi
+X* function:
+X    PD version of UNIX "vi" editor, with extensions.
+X* module name:
+X    xvi.h
+X* module function:
+X    General definitions for xvi.
+X
+X    This file should really be split up into several files
+X    rather than being concentrated into one huge monolith.
+X
+X* history:
+X    STEVIE - ST Editor for VI Enthusiasts, Version 3.10
+X    Originally by Tim Thompson (twitch!tjt)
+X    Extensive modifications by Tony Andrews (onecom!wldrdg!tony)
+X    Heavily modified by Chris & John Downey
+X
+X***/
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 1: ENVIRONMENT                                      *
+X *                                                             *
+X * Most of this section is concerned with including the right  *
+X * header files; we also define some things by hand if the     *
+X * appropriate definitions are not provided by the system.     *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * System include files ...
+X */
+X#include <stdio.h>
+X#include <signal.h>
+X#include <string.h>
+X
+X#ifdef	__STDC__
+X
+X#   define  USE_STDHDRS
+X#   define  STRERROR_AVAIL
+X#   include <errno.h>
+X#   include <stdarg.h>
+X#   define  VA_START(a, b)	va_start(a, b)
+X#   define  P(args)		args
+X
+X#else	/* not __STDC__ */
+X
+X#   ifdef   ultrix
+X#   	ifdef	mips
+X#   	    define  USE_STDHDRS
+X#   	endif   /* mips */
+X#   endif   /* ultrix */
+X#   ifdef   sparc
+X#   	define	USE_STDHDRS
+X#   endif   /* sparc */
+X#   include <varargs.h>
+X#   define  VA_START(a, b)	va_start(a)
+X
+X#   define  P(args) 		()
+X
+X#   define  const
+X#   define  volatile
+X
+X#endif	/* not __STDC__ */
+X
+X#ifdef	USE_STDHDRS
+X#   include <stdlib.h>
+X#   include <stddef.h>
+X#   include <limits.h>
+X#else	/* USE_STDHDRS not defined */
+X    extern  FILE	*fopen();
+X    extern  char	*malloc();
+X    extern  char	*realloc();
+X    extern  char	*getenv();
+X    extern  long	atol();
+X    extern  char	*memcpy();
+X    extern  char	*memset();
+X    extern  void	exit();
+X#endif	/* USE_STDHDRS not defined */
+X
+X#undef USE_STDHDRS
+X
+X/*
+X * Functions which ANSI does not specify should
+X * be included in any standard header file.
+X */
+Xextern	int	chdir P((const char *path));
+Xextern	char	*getcwd P((char *, unsigned));
+Xextern	void	sleep P((unsigned seconds));
+X
+X/*
+X * If we have ANSI C, these should be defined in limits.h:
+X */
+X#ifndef INT_MAX
+X#   define INT_MAX	((int) ((unsigned int) ~0 >> 1))
+X#endif
+X#ifndef INT_MIN
+X#   define INT_MIN	(~INT_MAX)
+X#endif
+X#ifndef ULONG_MAX
+X#   define ULONG_MAX	0xffffffff
+X#endif
+X
+X/*
+X * Macro to convert a long to an int.
+X * If a long is the same as an int, this is trivial.
+X */
+X#define	LONG2INT(n)	(sizeof(int) == sizeof(long) ? (int) (n) : \
+X			 (int) ((n) > INT_MAX ? INT_MAX : \
+X			  ((n) < INT_MIN ? INT_MIN : (n))))
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 2: FUNDAMENTAL TYPES                                *
+X *                                                             *
+X * These types are used by other included header files.        *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Boolean type.
+X * It would be possible to make this an enumerated type,
+X * but it isn't worth the hassle - enums don't confer any
+X * real advantages, and it means we can't do things like
+X *
+X *	bool_t	value = (i == 47);
+X *
+X * but instead are forced to write the abominable
+X *
+X *	bool_t	value = (i == 47) ? TRUE : FALSE;
+X *
+X * which is silly.
+X */
+X#undef	FALSE			/* just in case */
+X#undef	TRUE
+X#define	FALSE		0
+X#define	TRUE		1
+Xtypedef	int		bool_t;
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 3: FUNDAMENTAL HEADER FILES                         *
+X *                                                             *
+X * These header files define types which are used by Xvi.      *
+X *                                                             *
+X ***************************************************************/
+X
+X#include "virtscr.h"
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 4: MISCELLANEOUS DEFINITIONS                        *
+X *                                                             *
+X * Definitions of limits and suchlike used within the editor.  *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Minimum number of rows a window can have, including status line.
+X */
+X#define	MINROWS		2
+X
+X/*
+X * SLOP is the amount of extra space we get for text on a line during
+X * editing operations that need more space. This keeps us from calling
+X * malloc every time we get a character during insert mode. No extra
+X * space is allocated when the file is initially read.
+X */
+X#define	SLOP		10
+X
+X/*
+X * The number of characters taken up by the line number
+X * when "number" is set; up to 6 digits plus two spaces.
+X */
+X#define	NUM_SIZE	8
+X#define	NUM_FMT		"%6ld  "
+X
+X/*
+X * (MAX_LINE_LENGTH - 1) gives the maximum line length this editor can read in.
+X * Used by fileio.c (getfile()) and pipe.c (p_read()).
+X */
+X#define	MAX_LINE_LENGTH	1024
+X
+X/*
+X * Maximum value for the tabstop parameter.
+X */
+X#define	MAX_TABSTOP	32
+X
+X/*
+X * Default timeout for keystrokes (in milliseconds).
+X * The timeout parameter is set to this value.
+X */
+X#define	DEF_TIMEOUT	200
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 5: PARAMETER TYPE DEFINITIONS                       *
+X *                                                             *
+X * These are definitions of types for particular parameters.   *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Regular expression search modes - used in search.c.
+X * These are the integer values to which the P_regextype
+X * enumerated parameter may be set. Note that these values
+X * are ordered; e.g. rt_GREP is considered to be earlier
+X * than, and/or less than, rt_EGREP. If the types are added
+X * to, this ordering must be maintained. Also note that the
+X * names in the rt_strings table must follow the same order.
+X */
+X#define rt_TAGS		0	/* only ^ and $ are significant */
+X#define rt_GREP		1	/* like grep, but with \< and \> */
+X#define rt_EGREP	2	/* like egrep, but with \< and \> */
+X
+X/*
+X * Array of names for the P_regextype enumeration, defined in
+X * search.c.
+X */
+Xextern	char		*rt_strings[];
+X
+X/*
+X * Integer values for the P_preserve enumerated parameter. Note that
+X * the names in psv_strings must follow the same order.
+X */
+X#define psv_UNSAFE	0	/* never preserve buffer before writing */
+X#define psv_STANDARD	1	/*
+X				 * only preserve buffer before writing
+X				 * if it hasn't been preserved recently
+X				 */
+X#define psv_SAFE	2	/* always preserve buffer before writing */
+X#define psv_PARANOID	3	/*
+X				 * like psv_SAFE, but never remove the
+X				 * preserve file
+X				 */
+X
+X/*
+X * Array of names for the P_preserve enumeration, defined in
+X * search.c.
+X */
+Xextern	char		*psv_strings[];
+X
+X/*
+X * Integer values for the P_format enumerated parameter. These are for
+X * the formats we know about so far. Note that the entries in
+X * fmt_strings & tftable (defined in fileio.c) must follow the same order.
+X */
+X#define	fmt_CSTRING	0
+X#define	fmt_MACINTOSH	1
+X#define	fmt_MSDOS	2
+X#define	fmt_OS2		3
+X#define	fmt_QNX		4
+X#define	fmt_TOS		5
+X#define	fmt_UNIX	6
+X
+X/*
+X * Array of names for the P_format enumeration.
+X */
+Xextern	char		*fmt_strings[];
+X
+X/*
+X * Integer values for the P_jumpscroll enumerated parameter. Note that
+X * the entries in js_strings (defined in param.c) must follow the same
+X * order.
+X */
+X#define	js_OFF		0
+X#define	js_AUTO		1
+X#define	js_ON		2
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 6: EDITOR TYPE DEFINITIONS                          *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Possible editor states.
+X */
+Xtypedef enum {
+X    NORMAL,			/* command mode */
+X    INSERT,			/* insert mode */
+X    REPLACE,			/* overwrite mode */
+X    CMDLINE,			/* on the : command line */
+X    DISPLAY			/* in display mode (e.g. g//p or :set all) */
+X} state_t;
+X
+Xextern	state_t		State;	/* defined in main.c */
+X
+X/*
+X * Possible return values for cmd_input(), which deals with command
+X * line input. This is for commands starting with :, /, ? and !.
+X */
+Xtypedef enum {
+X    cmd_COMPLETE,		/* user hit return (cmd line available) */
+X    cmd_INCOMPLETE,		/* not finished typing command line yet */
+X    cmd_CANCEL			/* user aborted command line */
+X} Cmd_State;
+X
+X/*
+X * Possible directions for searching, and opening lines.
+X */
+X#define	FORWARD		0
+X#define	BACKWARD	1
+X
+X/*
+X * Line structure and its friends.
+X *
+X * The structure used to hold a line; this is used to form
+X * a doubly-linked list of the lines comprising a file.
+X *
+X * The definition for MAX_LINENO depends on the type of
+X * l_number, and on the size of the machine; we are fairly
+X * safe setting all bits here so long as l_number is always
+X * an unsigned type. Should really use a lineno_t here, and
+X * get rid of the need for a maximum lineno.
+X */
+Xtypedef	struct	line {
+X    struct line		*l_prev;	/* previous line */
+X    struct line		*l_next;	/* next line */
+X    char		*l_text;	/* text for this line */
+X    int			l_size;		/* actual size of space at 's' */
+X    unsigned long	l_number;	/* line "number" */
+X} Line;
+X
+X#define	MAX_LINENO	ULONG_MAX
+X
+X/*
+X * These pseudo-functions operate on lines in a buffer, returning TRUE
+X * or FALSE according to whether l1 is later or earlier than l2.
+X * Note that there is no macro for "same", which is excluded by both
+X * "earlier" and "later".
+X */
+X#define	later(l1, l2)	((l1)->l_number > (l2)->l_number)
+X#define	earlier(l1, l2)	((l1)->l_number < (l2)->l_number)
+X
+X/*
+X * This macro gives the line number of line 'l' in buffer 'b'.
+X */
+X#define	lineno(b, l)	((l)->l_number)
+X
+X/*
+X * Easy ways of finding out whether a given line is the first
+X * or last line of a buffer, without needing a buffer pointer.
+X */
+X#define	is_lastline(lp)	((lp)->l_number == MAX_LINENO)
+X#define	is_line0(lp)	((lp)->l_number == 0)
+X
+X
+X/*
+X * Structure used to hold a position in a file;
+X * this is just a pointer to the line, and an index.
+X */
+Xtypedef	struct	position {
+X    Line		*p_line;	/* line we're referencing */
+X    int			p_index;	/* position within that line */
+X} Posn;
+X
+X/*
+X * This is stuff to do with marks - it should be privately defined
+X * in mark.c, but it needs to be related to each individual buffer.
+X */
+X#define	NMARKS	10		/* max. # of marks that can be saved */
+X
+Xtypedef	struct	mark {
+X    char		m_name;
+X    Posn		m_pos;
+X} Mark;
+X
+X/*
+X * Structure used to record a single change to a buffer.
+X * A change may either be a number of lines replaced with a
+X * new set, a number of characters removed or a number of
+X * characters replaced with a new set. Character changes
+X * never straddle line boundaries. A list of these
+X * structures forms a complex change. There is also a fourth
+X * type of "change", which does not actually change the
+X * buffer, but is simply a record of the cursor position at
+X * the time of the start of the change. This is needed so
+X * that the cursor returns to the correct position after an
+X * "undo".
+X *
+X * This entire structure is only used in undo.c and alloc.c, and
+X * no other code should touch it.
+X */
+Xtypedef	struct change {
+X    struct change	*c_next;
+X    enum {
+X	C_LINE,
+X	C_CHAR,
+X	C_DEL_CHAR,
+X	C_POSITION
+X    }			c_type;
+X    unsigned long	c_lineno;
+X    union {
+X	struct {
+X	    long    cul_nlines;
+X	    Line    *cul_lines;
+X	}	cu_l;
+X	struct {
+X	    int	    cuc_index;
+X	    int	    cuc_nchars;
+X	    char    *cuc_chars;
+X	}	cu_c;
+X	struct {
+X	    long    cup_line;
+X	    int	    cup_index;
+X	}	cu_p;
+X    }			c_u;
+X} Change;
+X
+X#define	c_nlines	c_u.cu_l.cul_nlines
+X#define	c_lines		c_u.cu_l.cul_lines
+X#define	c_index		c_u.cu_c.cuc_index
+X#define	c_nchars	c_u.cu_c.cuc_nchars
+X#define	c_chars		c_u.cu_c.cuc_chars
+X#define	c_pline		c_u.cu_p.cup_line
+X#define	c_pindex	c_u.cu_p.cup_index
+X
+X/*
+X * Variable-length FIFO queue of characters.
+X */
+Xtypedef struct
+X{
+X	char		*fxb_chars;	/* pointer to allocated space */
+X	unsigned	fxb_max;	/* size of allocated space */
+X	unsigned	fxb_rcnt;	/* number of characters read */
+X	unsigned	fxb_wcnt;	/* number of characters written */
+X/* public: */
+X/*
+X * Initialize a Flexbuf.
+X */
+X#define			flexnew(f)	((f)->fxb_wcnt = (f)->fxb_max = 0)
+X/*
+X * Reset a Flexbuf by clearing its contents, but without freeing the
+X * dynamically allocated space.
+X */
+X#define			flexclear(f)	((f)->fxb_wcnt = 0)
+X/*
+X * Test whether a Flexbuf is empty.
+X */
+X#define			flexempty(f)	((f)->fxb_rcnt >= (f)->fxb_wcnt)
+X/*
+X * Remove last character from a Flexbuf.
+X */
+X#define			flexrmchar(f)	(!flexempty(f) && --(f)->fxb_wcnt)
+X/*
+X * Return number of characters in a Flexbuf.
+X */
+X#define			flexlen(f)	(flexempty(f) ? 0 : \
+X					 (f)->fxb_wcnt - (f)->fxb_rcnt)
+X}
+XFlexbuf;
+X
+X/*
+X * Structure used to hold all information about a "buffer" -
+X * i.e. the representation of a file in memory.
+X */
+Xtypedef struct buffer {
+X    Line		*b_line0;	/* ptr to zeroth line of file */
+X    Line		*b_file;	/* ptr to first line of file */
+X    Line		*b_lastline;	/* ptr to (n+1)th line of file */
+X
+X    /*
+X     * All of these are allocated, and should be freed
+X     * before assigning any new value to them.
+X     */
+X    char		*b_filename;	/* file name, if any */
+X    char		*b_tempfname;	/* name for temporary copy of file */
+X
+X    unsigned int 	b_flags;	/* flags */
+X
+X    int			b_nwindows;	/* no of windows open on this buffer */
+X
+X    /*
+X     * The following only used in mark.c.
+X     */
+X    Mark		b_mlist[NMARKS];	/* current marks */
+X    Mark		b_pcmark;		/* previous context mark */
+X    bool_t		b_pcvalid;		/* true if pcmark is valid */
+X
+X    /*
+X     * The following only used in undo.c.
+X     */
+X    unsigned int	b_nlevels;	/* number of brackets surrounding */
+X					/* current change to buffer */
+X    Change		*b_change;	/* ptr to list of changes made */
+X
+X} Buffer;
+X
+X/*
+X * Definitions for the "flags" field of a buffer.
+X */
+X#define	FL_MODIFIED	0x1
+X#define	FL_READONLY	0x2
+X#define	FL_NOEDIT	0x4
+X#define	is_modified(b)	((b)->b_flags & FL_MODIFIED)
+X#define	is_readonly(b)	(Pb(P_readonly) || ((b)->b_flags & FL_READONLY))
+X#define	not_editable(b)	((b)->b_flags & FL_NOEDIT)
+X
+X/*
+X * Structure used to hold information about a "window" -
+X * this is intimately associated with the Buffer structure.
+X */
+Xtypedef struct window {
+X    Posn		*w_cursor;	/* cursor's position in buffer */
+X
+X    Buffer		*w_buffer;	/* buffer we are a window into */
+X
+X    Line		*w_topline;	/* line at top of screen */
+X    Line		*w_botline;	/* line below bottom of screen */
+X
+X    VirtScr		*w_vs;		/* virtual screen for window */
+X
+X    unsigned		w_nrows;	/* number of rows in window */
+X    unsigned		w_ncols;	/* number of columns in window */
+X    unsigned		w_winpos;	/* row of top line of window */
+X    unsigned		w_cmdline;	/* row of window command line */
+X
+X    /*
+X     * These are used by the ^O command to store the previous
+X     * size of the window so that we can return to it.
+X     */
+X    int			w_2winpos;	/* last row of top line of window */
+X    int			w_2nrows;	/* last no of rows in buffer window */
+X    int			w_2cmdline;	/* last row of window command line */
+X
+X
+X    /*
+X     * Allocated within screen.c.
+X     */
+X    Flexbuf		w_statusline;	/* status information on status line */
+X
+X
+X    /*
+X     * These elements are related to the cursor's position in the window.
+X     */
+X    int			w_row, w_col;	/* cursor's position in window */
+X
+X    int			w_virtcol;	/* column number of the file's actual */
+X					/* line, as opposed to the column */
+X					/* number we're at on the screen. */
+X					/* This makes a difference on lines */
+X					/* which span more than one screen */
+X					/* line. */
+X
+X    int			w_curswant;	/* The column we'd like to be at. */
+X					/* This is used to try to stay in */
+X					/* the same column through up/down */
+X					/* cursor motions. */
+X
+X    bool_t		w_set_want_col;	/* If set, then update w_curswant */
+X					/* the next time through cursupdate() */
+X					/* to the current virtual column */
+X
+X    int			w_c_line_size;	/* current size of cursor line */
+X
+X    bool_t		w_curs_new;	/* true if cursor should be updated */
+X
+X    /*
+X     * The following only used in windows.c.
+X     */
+X    struct window	*w_last;	/* first and last pointers */
+X    struct window	*w_next;
+X} Xviwin;
+X
+X/*
+X * Values returned by inc() & dec().
+X */
+Xenum mvtype {
+X    mv_NOMOVE = -1,	/* at beginning or end of buffer */
+X    mv_SAMELINE = 0,	/* still within same line */
+X    mv_CHLINE = 1,	/* changed to different line */
+X    mv_EOL = 2		/* in same line, at terminating '\0' */
+X};
+X
+X/*
+X * Number of input characters since the last buffer preservation.
+X */
+Xextern volatile int	keystrokes;
+X
+X/*
+X * Minimum number of keystrokes after which we do an automatic
+X * preservation of all modified buffers.
+X */
+X#define PSVKEYS		60
+X
+X/*
+X * Exceptional return values for get_file().
+X */
+X#define gf_NEWFILE	((long)-1)	/* no such file */
+X#define gf_CANTOPEN	((long)-2)	/* error opening file */
+X#define gf_IOERR	((long)-3)	/* error reading from file */
+X#define gf_NOMEM	((long)-4)	/* not enough memory */
+X
+X/*
+X * Editor input events. Handled by xvi_handle_event().
+X */
+Xtypedef struct event {
+X    enum {
+X	Ev_char,
+X	Ev_timeout
+X    }			ev_type;
+X    union {
+X	/* Ev_char: */
+X	int	evu_inchar;
+X
+X	/* Ev_timeout: */
+X    }			ev_u;
+X} xvEvent;
+X
+X#define	ev_inchar	ev_u.evu_inchar
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 7: MISCELLANEOUS MACROS                             *
+X *                                                             *
+X ***************************************************************/
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 8: XVI-LOCAL HEADER FILES                           *
+X *                                                             *
+X * Various subsidiary header files with definitions relating   *
+X * to particular areas of the editor (or its environment).     *
+X * Note that these header files may use definitions in this    *
+X * file, so are included after all types are defined.          *
+X *                                                             *
+X ***************************************************************/
+X
+X#include "ascii.h"
+X#include "param.h"
+X#include "ptrfunc.h"
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 9: SYSTEM-SPECIFIC HEADER FILES                     *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Include file for system interface module.
+X * We must have one of these.
+X */
+X
+X#ifdef	ATARI
+X#   include "tos.h"
+X#   define	GOT_OS
+X#endif
+X
+X#ifdef	UNIX
+X#   include "unix.h"
+X#   define	GOT_OS
+X#endif
+X
+X#ifdef	OS2
+X    /*
+X     * Microsoft's wonderful compiler defines MSDOS, even when
+X     * we're compiling for OS/2, but it doesn't define OS2.
+X     * Ingenious, eh?
+X     */
+X#   undef MSDOS
+X#   include "os2vio.h"
+X#   define	GOT_OS
+X#endif
+X
+X#ifdef	MSDOS
+X#   include "msdos.h"
+X#   define	GOT_OS
+X#endif
+X
+X#ifdef	QNX
+X#   include "qnx.h"
+X#   define	GOT_OS
+X#endif
+X
+X#ifndef	GOT_OS
+X    no system-specific include file found
+X#endif
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 10: GLOBAL VARIABLE DECLARATIONS                    *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Miscellaneous global vars.
+X */
+Xextern	Buffer		*curbuf;	/* current buffer */
+Xextern	Xviwin		*curwin;	/* current window */
+X
+Xextern	int		indentchars;	/* auto-indentation on current line */
+Xextern	char		*altfilename;	/* name of current alternate file */
+Xextern	char		Version[];	/* version string for :ve command */
+X
+X/*
+X * This flag is set when a keyboard interrupt is received.
+X */
+Xextern volatile unsigned char kbdintr;
+X
+X/*
+X * This one indicates whether we should display the "Interrupted"
+X * message.
+X */
+Xextern	bool_t		imessage;
+X
+X/*
+X * This variable (defined in main.c) is a bitmap which controls the
+X * verbosity of screen output. The meanings of the individual bits
+X * are:
+X *
+X *	e_CHARUPDATE means it's OK to update individual characters in
+X *	any window.
+X *
+X *	e_SCROLL means it's OK to scroll any area of the screen up or
+X *	down.
+X *
+X *	e_REPORT means it's OK for report() to report the number of
+X *	lines inserted or deleted.
+X *
+X *	e_SHOWINFO means it's OK for show_file_info() to display file
+X *	information for any buffer.
+X *
+X *	e_BEEP: not implemented yet.
+X *
+X *	e_REGERR means it's OK for functions in search.c to display
+X *	messages which may have resulted from an invalid regular
+X *	expression string.
+X *
+X *	e_NOMATCH means it's OK for functions in search.c to complain
+X *	if they fail to match a regular expression at least once.
+X *
+X * If we're reading an input sequence & e_CHARUPDATE & e_SCROLL are
+X * turned off, no screen updating will be done until an ESC is
+X * received.
+X */
+Xextern	unsigned	echo;
+X
+X#define	e_CHARUPDATE	1
+X#define	e_SCROLL	2
+X#define	e_REPORT	4
+X#define	e_SHOWINFO	010
+X#define	e_BEEP		020
+X#define	e_REGERR	040
+X#define	e_NOMATCH	0100
+X
+X#define e_ANY		0xffff
+X
+X
+X/***************************************************************
+X *                                                             *
+X * SECTION 11: FUNCTION DECLARATIONS                           *
+X *                                                             *
+X ***************************************************************/
+X
+X/*
+X * Declarations of all the routines exported from the various .c files.
+X */
+X
+X/*
+X * main.c
+X */
+Xextern	Xviwin	*xvi_startup P((VirtScr *, int, char **, char *));
+X
+X/*
+X * alloc.c
+X */
+Xextern	Change	*challoc P((void));
+Xextern	void	chfree P((Change *));
+Xextern	char	*alloc P((unsigned int));
+Xextern	char	*strsave P((const char *));
+Xextern	Line	*newline P((int));
+Xextern	bool_t	bufempty P((Buffer *));
+Xextern	bool_t	buf1line P((Buffer *));
+Xextern	bool_t	endofline P((Posn *));
+Xextern	bool_t	grow_line P((Line *, int));
+Xextern	void	throw P((Line *));
+X
+X/*
+X * ascii.c
+X */
+Xextern unsigned vischar P((int, char **, int));
+X
+X/*
+X * buffers.c
+X */
+Xextern	Buffer	*new_buffer P((void));
+Xextern	void	free_buffer P((Buffer *));
+Xextern	bool_t	clear_buffer P((Buffer *));
+Xextern	int	nbuffers;
+X
+X/*
+X * edit.c
+X */
+Xextern	bool_t	i_proc P((int));
+Xextern	bool_t	r_proc P((int));
+Xextern	void	startinsert P((int));
+Xextern	void	startreplace P((int));
+Xextern	char	*mkstr P((int));
+X
+X/*
+X * events.c
+X */
+Xextern	long	xvi_handle_event P((xvEvent *));
+X
+X/*
+X * cmdline.c
+X */
+Xextern	void	do_colon P((char *, bool_t));
+Xextern	void	wait_return P((void));
+X
+X/*
+X * cursor.c
+X */
+Xextern	void	cursupdate P((Xviwin *));
+Xextern	void	curs_horiz P((Xviwin *, int));
+X
+X/*
+X * ex_cmds1.c
+X */
+Xextern	void	do_quit P((Xviwin *, bool_t));
+Xextern	void	do_split_window P((Xviwin *));
+Xextern	bool_t	do_buffer P((Xviwin *, char *));
+Xextern	void	do_close_window P((Xviwin *, bool_t));
+Xextern	void	do_xit P((Xviwin *));
+Xextern	bool_t	do_edit P((Xviwin *, bool_t, char *));
+Xextern	void	do_args P((Xviwin *));
+Xextern	void	do_next P((Xviwin *, int, char **, bool_t));
+Xextern	void	do_rewind P((Xviwin *, bool_t));
+Xextern	bool_t	do_write P((Xviwin *, char *, Line *, Line *, bool_t));
+Xextern	void	do_wq P((Xviwin *, char *, bool_t));
+Xextern	void	do_read P((Xviwin *, char *, Line *));
+Xextern	void	do_alt_edit P((Xviwin *));
+Xextern	void	do_compare P((void));
+X
+X/*
+X * ex_cmds2.c
+X */
+Xextern	void	do_shell P((Xviwin *));
+Xextern	void	do_shcmd P((Xviwin *, char *));
+Xextern	void	do_suspend P((Xviwin *));
+Xextern	void	do_equals P((Xviwin *, Line *));
+Xextern	void	do_help P((Xviwin *));
+Xextern	bool_t	do_source P((bool_t, char *));
+Xextern	char	*do_chdir P((char *));
+Xextern	void	do_cdmy P((int, Line *, Line *, Line *));
+X
+X/*
+X * fileio.c
+X */
+Xextern	bool_t	set_format P((Xviwin *, Paramval, bool_t));
+Xextern	long	get_file P((Xviwin *, char *, Line **, Line **, char *,
+X							char *));
+Xextern	bool_t	writeit P((Xviwin *, char *, Line *, Line *, bool_t));
+Xextern	bool_t	put_file P((Xviwin *, FILE *, Line *, Line *,
+X				unsigned long *, unsigned long *));
+X
+X/*
+X * find.c
+X */
+Xextern	Posn	*searchc P((int, int, int, int));
+Xextern	Posn	*crepsearch P((Buffer *, int, int));
+Xextern	Posn	*showmatch P((void));
+Xextern	Posn	*find_pattern P((char *, int, int));
+Xextern	Posn	*fwd_word P((Posn *, int, bool_t));
+Xextern	Posn	*bck_word P((Posn *, int, bool_t));
+Xextern	Posn	*end_word P((Posn *, int, bool_t));
+Xextern	bool_t	dosearch P((Xviwin *, char *, int));
+X
+X/*
+X * flexbuf.c
+X */
+Xextern	bool_t	flexaddch P((Flexbuf *, int));
+Xextern	char	*flexgetstr P((Flexbuf *));
+Xextern	int	flexpopch P((Flexbuf *));
+Xextern	void	flexdelete P((Flexbuf *));
+Xextern	bool_t	vformat P((Flexbuf *, char *, va_list));
+Xextern	bool_t	lformat P((Flexbuf *, char *, ...));
+X
+X/*
+X * map.c
+X */
+Xextern	void	stuff P((char *, ...));
+Xextern	int	map_getc P((void));
+Xextern	void	map_char P((int));
+Xextern	void	map_timeout P((void));
+Xextern	bool_t	map_waiting P((void));
+Xextern	int	mapped_char P((int));
+Xextern	void	xvi_map P((int, char **, bool_t, bool_t));
+Xextern	void	xvi_keymap P((char *, char *));
+Xextern	void	xvi_unmap P((int, char **, bool_t, bool_t));
+Xextern	void	do_unmap P((int, char **, bool_t, bool_t));
+X
+X/*
+X * mark.c
+X */
+Xextern	void	init_marks P((Buffer *));
+Xextern	bool_t	setmark P((int, Buffer *, Posn *));
+Xextern	void	setpcmark P((Xviwin *));
+Xextern	Posn	*getmark P((int, Buffer *));
+Xextern	void	clrmark P((Line *, Buffer *));
+X
+X/*
+X * misccmds.c
+X */
+Xextern	bool_t	openfwd P((bool_t));
+Xextern	bool_t	openbwd P((void));
+Xextern	long	cntllines P((Line *, Line *));
+Xextern	long	cntplines P((Xviwin *, Line *, Line *));
+Xextern	long	plines P((Xviwin *, Line *));
+Xextern	Line	*gotoline P((Buffer *, unsigned long));
+Xextern	int	get_indent P((Line *));
+Xextern	int	set_indent P((Line *, int));
+Xextern	void	tabinout P((int, Line *, Line *));
+Xextern	void	makeargv P((char *, int *, char ***, char *));
+X
+X/*
+X * mouse.c
+X */
+Xextern	void	mouseclick P((int, int));
+Xextern	void	mousedrag P((int, int, int, int));
+X
+X/*
+X * movement.c
+X */
+Xextern	int	shiftdown P((Xviwin *, unsigned));
+Xextern	int	shiftup P((Xviwin *, unsigned));
+Xextern	void	scrolldown P((Xviwin *, unsigned));
+Xextern	void	scrollup P((Xviwin *, unsigned));
+Xextern	bool_t	oneup P((Xviwin *, long));
+Xextern	bool_t	onedown P((Xviwin *, long));
+Xextern	bool_t	one_left P((Xviwin *, bool_t));
+Xextern	bool_t	one_right P((Xviwin *, bool_t));
+Xextern	void	begin_line P((Xviwin *, bool_t));
+Xextern	void	coladvance P((Xviwin *, int));
+Xextern	void	do_goto P((long));
+Xextern	void	move_cursor P((Xviwin *, Line *, int));
+Xextern	void	move_window_to_cursor P((Xviwin *));
+Xextern	void	move_cursor_to_window P((Xviwin *));
+X
+X/*
+X * normal.c
+X */
+Xextern	bool_t	normal P((int));
+X
+X/*
+X * param.c
+X */
+Xextern	void	init_params P((void));
+Xextern	void	do_set P((Xviwin *, int, char **, bool_t));
+Xextern	void	set_param P((int, ...));
+X
+X/*
+X * pipe.c
+X */
+Xextern	void	specify_pipe_range P((Xviwin *, Line *, Line *));
+Xextern	void	do_pipe P((Xviwin *, char *));
+X
+X/*
+X * preserve.c
+X */
+Xextern	bool_t	preservebuf P((Xviwin *));
+Xextern	bool_t	do_preserve P((void));
+X
+X/*
+X * ptrfunc.c
+X */
+Xextern	enum mvtype	inc P((Posn *));
+Xextern	enum mvtype	dec P((Posn *));
+Xextern	void	pswap P((Posn *, Posn *));
+Xextern	bool_t	lt P((Posn *, Posn *));
+X
+X/*
+X * screen.c
+X */
+Xextern	void	init_screen P((Xviwin *));
+Xextern	void	updateline P((Xviwin *));
+Xextern	void	update_sline P((Xviwin *));
+Xextern	void	update_window P((Xviwin *));
+Xextern	void	update_all P((void));
+Xextern	void	redraw_screen P((void));
+Xextern	void	clear P((Xviwin *));
+Xextern	void	s_ins P((Xviwin *, int, int));
+Xextern	void	s_del P((Xviwin *, int, int));
+Xextern	void	s_inschar P((Xviwin *, int));
+Xextern	void	wind_goto P((Xviwin *));
+Xextern	void	cmd_init P((Xviwin *, int));
+Xextern	Cmd_State
+X		cmd_input P((Xviwin *, int));
+Xextern	char	*get_cmd P((Xviwin *));
+Xextern	void	gotocmd P((Xviwin *, bool_t));
+Xextern	void	prompt P((char *));
+Xextern	void	beep P((Xviwin *));
+Xextern	void	disp_init P((Xviwin *, char *(*) P((void)), int, bool_t));
+Xextern	bool_t	disp_screen P((Xviwin *));
+X
+X/*
+X * search.c
+X */
+Xextern	Posn	*search P((Xviwin *, Line *, int, int, char **));
+Xextern	Posn	*nsearch P((Xviwin *, Line *, int, int, char *));
+Xextern	Line	*linesearch P((Xviwin *, int, char **));
+Xextern	void	do_global P((Xviwin *, Line *, Line *, char *, bool_t));
+Xextern	long	do_substitute P((Xviwin *, Line *, Line *, char *));
+Xextern	long	do_ampersand P((Xviwin *, Line *, Line *, char *));
+Xextern	long	do_tilde P((Xviwin *, Line *, Line *, char *));
+X
+X/*
+X * signal.c
+X */
+Xextern	void	ignore_signals P((void));
+Xextern	void	catch_signals P((void));
+X
+X/*
+X * status.c
+X */
+Xextern	void	init_sline P((Xviwin *));
+Xextern	void	show_message P((Xviwin *, char *, ...));
+Xextern	void	show_error P((Xviwin *, char *, ...));
+Xextern	void	show_file_info P((Xviwin *));
+X
+X/*
+X * tags.c
+X */
+Xextern	bool_t	set_tags P((Xviwin *, Paramval, bool_t));
+Xextern	void	tagword P((void));
+Xextern	bool_t	do_tag P((Xviwin *, char *, bool_t, bool_t, bool_t));
+X
+X/*
+X * undo.c
+X */
+Xextern	void	init_undo P((Buffer *));
+Xextern	bool_t	start_command P((Xviwin *));
+Xextern	void	end_command P((Xviwin *));
+Xextern	void	replchars P((Xviwin *, Line *, int, int, char *));
+Xextern	void	repllines P((Xviwin *, Line *, long, Line *));
+Xextern	void	replbuffer P((Xviwin *, Line *));
+Xextern	void	undo P((Xviwin *));
+Xextern	bool_t	set_edit P((Xviwin *, Paramval, bool_t));
+X
+X/*
+X * windows.c
+X */
+Xextern	Xviwin	*init_window P((VirtScr *));
+Xextern	void	free_window P((Xviwin *));
+Xextern	Xviwin	*split_window P((Xviwin *));
+Xextern	void	map_window_onto_buffer P((Xviwin *, Buffer *));
+Xextern	void	unmap_window P((Xviwin *));
+Xextern	Xviwin	*next_window P((Xviwin *));
+Xextern	Xviwin	*find_window P((Xviwin *, char *));
+Xextern	void	resize_window P((Xviwin *, int));
+Xextern	int	move_sline P((Xviwin *, int));
+Xextern	void	update_buffer P((Buffer *));
+Xextern	bool_t	can_split P((void));
+X
+X/*
+X * yankput.c
+X */
+Xextern	void	init_yankput P((void));
+Xextern	bool_t	do_yank P((Buffer *, Posn *, Posn *, bool_t, int));
+Xextern	bool_t	yank_str P((int, char *, bool_t));
+Xextern	void	do_put P((Xviwin *, Posn *, int, int));
+Xextern	void	yp_stuff_input P((Xviwin *, int, bool_t));
+Xextern	void	yp_push_deleted P((void));
+END_OF_FILE
+  if test 30896 -ne `wc -c <'xvi/src/xvi.h'`; then
+    echo shar: \"'xvi/src/xvi.h'\" unpacked with wrong size!
+  fi
+  # end of 'xvi/src/xvi.h'
+fi
+echo shar: End of archive 8 \(of 18\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

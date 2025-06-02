@@ -1,0 +1,2274 @@
+Newsgroups: comp.sources.misc
+From: jv@squirrel.mh.nl (Johan Vromans)
+Subject: v34i094:  mserv - Squirrel Mail Server Software, version 3.1, Part03/06
+Message-ID: <1993Jan7.034829.11630@sparky.imd.sterling.com>
+X-Md4-Signature: 4c172a367943ba39686e2f00b30a81e4
+Date: Thu, 7 Jan 1993 03:48:29 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jv@squirrel.mh.nl (Johan Vromans)
+Posting-number: Volume 34, Issue 94
+Archive-name: mserv/part03
+Environment: Perl
+Supersedes: mserv-3.0: Volume 30, Issue 46-49
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  mserv-3.1/ftp.pl mserv-3.1/ms_config.pl
+#   mserv-3.1/mserv.notesi mserv-3.1/process.pl
+# Wrapped by kent@sparky on Wed Jan  6 21:39:46 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 6)."'
+if test -f 'mserv-3.1/ftp.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ftp.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ftp.pl'\" \(22946 characters\)
+  sed "s/^X//" >'mserv-3.1/ftp.pl' <<'END_OF_FILE'
+X# ftp.pl -- 
+X# SCCS Status     : @(#)@ ftp	1.3
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Wed Dec 30 14:31:38 1992
+X# Update Count    : 3
+X# Status          : OK
+X
+X# This is a wrapper to the chat2.pl routines that make life easier
+X# to do ftp type work.
+X# Written by Alan R. Martello <al@ee.pitt.edu>
+X# Some bug fixes and extensions by Lee McLoughlin <lmjm@doc.ic.ac.uk>
+X# And by A.Macpherson@bnr.co.uk for multi-homed hosts
+X#
+X# Adopted for use by the Squirrel Mail Server Software by Johan Vromans <jv@mh.nl>.
+X# Only modification: indent all output with four spaces.
+X#		     show password string if user is anonymous.
+X#
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/RCS/ftp.pl,v 1.13 1992/03/20 21:01:03 lmjm Exp lmjm $
+X# $Log: ftp.pl,v $
+X# Revision 1.13  1992/03/20  21:01:03  lmjm
+X# Added in the proxy ftp code from Edwards Reed <err@cinops.xerox.com>
+X# Added  ftp'delete from Aaron Wohl <aw0g+@andrew.cmu.edu>
+X#
+X# Revision 1.12  1992/02/06  23:25:56  lmjm
+X# Moved code around so can use this as a lib for both mirror and ftpmail.
+X# Time out opens.  In case Unix doesn't bother to.
+X#
+X# Revision 1.11  1991/11/27  22:05:57  lmjm
+X# Match the response code number at the start of a line allowing
+X# for any leading junk.
+X#
+X# Revision 1.10  1991/10/23  22:42:20  lmjm
+X# Added better timeout code.
+X# Tried to optimise file transfer
+X# Moved open/close code to not leak file handles.
+X# Cleaned up the alarm code.
+X# Added $fatalerror to show wether the ftp link is really dead.
+X#
+X# Revision 1.9  1991/10/07  18:30:35  lmjm
+X# Made the timeout-read code work.
+X# Added restarting file gets.
+X# Be more verbose if ever have to call die.
+X#
+X# Revision 1.8  1991/09/17  22:53:16  lmjm
+X# Spot when open_data_socket fails and return a failure rather than dying.
+X#
+X# Revision 1.7  1991/09/12  22:40:25  lmjm
+X# Added Andrew Macpherson's patches for hosts without ip forwarding.
+X#
+X# Revision 1.6  1991/09/06  19:53:52  lmjm
+X# Relaid out the code the way I like it!
+X# Changed the debuggin to produce more "appropriate" messages
+X# Fixed bugs in the ordering of put and dir listing.
+X# Allow for hash printing when getting files (a la ftp).
+X# Added the new commands from Al.
+X# Don't print passwords in debugging.
+X#
+X# Revision 1.5  1991/08/29  16:23:49  lmjm
+X# Timeout reads from the remote ftp server.
+X# No longer call die expect on fatal errors.  Just return fail codes.
+X# Changed returns so higher up routines can tell whats happening.
+X# Get expect/accept in correct order for dir listing.
+X# When ftp_show is set then print hashes every 1k transfered (like ftp).
+X# Allow for stripping returns out of incoming data.
+X# Save last error in a global string.
+X#
+X# Revision 1.4  1991/08/14  21:04:58  lmjm
+X# ftp'get now copes with ungetable files.
+X# ftp'expect code changed such that the string_to_print is
+X# ignored and the string sent back from the remote system is printed
+X# instead.
+X# Implemented patches from al.  Removed spuiours tracing statements.
+X#
+X# Revision 1.3  1991/08/09  21:32:18  lmjm
+X# Allow for another ok code on cwd's
+X# Rejigger the log levels
+X# Send \r\n for some odd ftp daemons
+X#
+X# Revision 1.2  1991/08/09  18:07:37  lmjm
+X# Don't print messages unless ftp_show says to.
+X#
+X# Revision 1.1  1991/08/08  20:31:00  lmjm
+X# Initial revision
+X#
+X
+Xrequire 'chat2.pl';
+Xrequire 'sys/socket.ph';
+X
+Xpackage ftp;
+X
+X# If the remote ftp daemon doesn't respond within this time presume its dead
+X# or something.
+X$timeout = 30;
+X
+X# Timeout a read if I don't get data back within this many seconds
+X$timeout_read = 20 * $timeout;
+X
+X# Timeout an open
+X$timeout_open = $timeout;
+X
+X# This is a "global" it contains the last response from the remote ftp server
+X# for use in error messages
+X$ftp'response = "";
+X# Also ftp'NS is the socket containing the data coming in from the remote ls
+X# command.
+X
+X# The size of block to be read or written when talking to the remote
+X# ftp server
+X$ftp'ftpbufsize = 4096;
+X
+X# How often to print a hash out, when debugging
+X$ftp'hashevery = 1024;
+X# Output a newline after this many hashes to prevent outputing very long lines
+X$ftp'hashnl = 70;
+X
+X# If a proxy connection then who am I really talking to?
+X$real_site = "";
+X
+X# This is just a tracing aid.
+X$ftp_show = 0;
+Xsub ftp'debug
+X{
+X	$ftp_show = @_[0];
+X#	if( $ftp_show ){
+X#		print "    ftp debugging on\n";
+X#	}
+X}
+X
+Xsub ftp'set_timeout
+X{
+X	$timeout = @_[0];
+X	$timeout_open = $timeout;
+X	$timeout_read = 20 * $timeout;
+X	if( $ftp_show ){
+X		print "    ftp timeout set to $timeout\n";
+X	}
+X}
+X
+X
+Xsub ftp'open_alarm
+X{
+X	die "timeout: open";
+X}
+X
+Xsub ftp'timed_open
+X{
+X	local( $site, $ftp_port, $retry_call, $attempts ) = @_;
+X	local( $connect_site, $connect_port );
+X	local( $res );
+X
+X	alarm( $timeout_open );
+X
+X	while( $attempts-- ){
+X		if( $ftp_show ){
+X			print "    proxy connecting via $proxy_gateway [$proxy_ftp_port]\n" if $proxy;
+X			print "    Connecting to $site";
+X			if( $ftp_port != 21 ){
+X				print " [port $ftp_port]";
+X			}
+X			print "\n";
+X		}
+X		
+X		if( $proxy ) {
+X			if( ! $proxy_gateway ) {
+X				# if not otherwise set
+X				$proxy_gateway = "internet-gateway";
+X			}
+X			if( $debug ) {
+X				print "    using proxy services of $proxy_gateway, ";
+X				print "at $proxy_ftp_port\n";
+X			}
+X			$connect_site = $proxy_gateway;
+X			$connect_port = $proxy_ftp_port;
+X			$real_site = $site;
+X		}
+X		else {
+X			$connect_site = $site;
+X			$connect_port = $ftp_port;
+X		}
+X		if( ! &chat'open_port( $connect_site, $connect_port ) ){
+X			if( $retry_call ){
+X				print "    Failed to connect\n" if $ftp_show;
+X				next;
+X			}
+X			else {
+X				print "    proxy connection failed " if $proxy;
+X				print "    Cannot open ftp to $connect_site\n" if $ftp_show;
+X				return 0;
+X			}
+X		}
+X		$res = &ftp'expect( $timeout,
+X				    120, "service unavailable to $site", 0, 
+X	                            220, "ready for login to $site", 1,
+X				    421, "service unavailable to $site, closing connection", 0);
+X		if( ! $res ){
+X			&chat'close();
+X			next;
+X		}
+X		return 1;
+X	}
+X	continue {
+X		print "    Pausing between retries\n";
+X		sleep( $retry_pause );
+X	}
+X	return 0;
+X}
+X
+Xsub ftp'open
+X{
+X	local( $site, $ftp_port, $retry_call, $attempts ) = @_;
+X
+X	$SIG{ 'ALRM' } = "ftp\'open_alarm";
+X
+X	local( $ret ) = eval "&timed_open( '$site', $ftp_port, $retry_call, $attempts )";
+X	alarm( 0 );
+X
+X	if( $@ =~ /^timeout/ ){
+X		return -1;
+X	}
+X	return $ret;
+X}
+X
+Xsub ftp'login
+X{
+X	local( $remote_user, $remote_password ) = @_;
+X
+X	if( $proxy ){
+X		&ftp'send( "USER $remote_user@$site" );
+X	}
+X	else {
+X		&ftp'send( "USER $remote_user" );
+X	}
+X        local( $val ) =
+X               &ftp'expect($timeout,
+X	           230, "$remote_user logged in", 1,
+X		   331, "send password for $remote_user", 2,
+X
+X		   500, "syntax error", 0,
+X		   501, "syntax error", 0,
+X		   530, "not logged in", 0,
+X		   332, "account for login not supported", 0,
+X
+X		   421, "service unavailable, closing connection", 0);
+X	if( $val == 1 ){
+X		return 1;
+X	}
+X	if( $val == 2 ){
+X		# A password is needed
+X		&ftp'send( "PASS $remote_password" );
+X
+X		$val = &ftp'expect( $timeout,
+X#		   "[.|\n]*^230", "$remote_user logged in", 1,
+X		   230, "$remote_user logged in", 1,
+X
+X		   202, "command not implemented", 0,
+X		   332, "account for login not supported", 0,
+X
+X		   530, "not logged in", 0,
+X		   500, "syntax error", 0,
+X		   501, "syntax error", 0,
+X		   503, "bad sequence of commands", 0, 
+X
+X		   421, "service unavailable, closing connection", 0);
+X		if( $val == 1){
+X			# Logged in
+X			return 1;
+X		}
+X	}
+X	# If I got here I failed to login
+X	return 0;
+X}
+X
+Xsub ftp'close
+X{
+X	&ftp'quit();
+X	&chat'close();
+X}
+X
+X# Change directory
+X# return 1 if successful
+X# 0 on a failure
+Xsub ftp'cwd
+X{
+X	local( $dir ) = @_;
+X
+X	&ftp'send( "CWD $dir" );
+X
+X	return &ftp'expect( $timeout,
+X		200, "working directory = $dir", 1,
+X		250, "working directory = $dir", 1,
+X
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X                502, "command not implemented", 0,
+X		530, "not logged in", 0,
+X                550, "cannot change directory", 0,
+X		421, "service unavailable, closing connection", 0 );
+X}
+X
+X# Get a full directory listing:
+X# &ftp'dir( remote LIST options )
+X# Start a list goin with the given options.
+X# Presuming that the remote deamon uses the ls command to generate the
+X# data to send back then then you can send it some extra options (eg: -lRa)
+X# return 1 if sucessful and 0 on a failure
+Xsub ftp'dir_open
+X{
+X	local( $options ) = @_;
+X	local( $ret );
+X	
+X	if( ! &ftp'open_data_socket() ){
+X		return 0;
+X	}
+X	
+X	if( $options ){
+X		&ftp'send( "LIST $options" );
+X	}
+X	else {
+X		&ftp'send( "LIST" );
+X	}
+X	
+X	$ret = &ftp'expect( $timeout,
+X		150, "reading directory", 1,
+X	
+X		125, "data connection already open?", 0,
+X	
+X		450, "file unavailable", 0,
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "command not implemented", 0,
+X		530, "not logged in", 0,
+X	
+X		   421, "service unavailable, closing connection", 0 );
+X	if( ! $ret ){
+X		&ftp'close_data_socket;
+X		return 0;
+X	}
+X	
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	# now accept
+X	accept(NS,S) || die "accept failed $!";
+X	
+X	return 1;
+X}
+X
+X
+X# Close down reading the result of a remote ls command
+X# return 1 if successful and 0 on failure
+Xsub ftp'dir_close
+X{
+X	local( $ret );
+X
+X	# read the close
+X	#
+X	$ret = &ftp'expect($timeout,
+X        	226, "", 1,     # transfer complete, closing connection
+X        	250, "", 1,     # action completed
+X
+X	        425, "can't open data connection", 0,
+X        	426, "connection closed, transfer aborted", 0,
+X	        451, "action aborted, local error", 0,
+X	        421, "service unavailable, closing connection", 0);
+X
+X	# shut down our end of the socket
+X	&ftp'close_data_socket;
+X
+X	if( ! $ret ){
+X		return 0;
+X	}
+X
+X	return 1;
+X}
+X
+X# Quit from the remote ftp server
+X# return 1 if successful and 0 on failure
+Xsub ftp'quit
+X{
+X	$site_command_check = 0;
+X	@site_command_list = ();
+X
+X	&ftp'send("QUIT");
+X
+X	return &ftp'expect($timeout, 
+X		221, "Goodbye", 1,     # transfer complete, closing connection
+X	
+X		500, "error quitting??", 0);
+X}
+X
+Xsub ftp'read_alarm
+X{
+X	die "timeout: read";
+X}
+X
+Xsub ftp'timed_read
+X{
+X	alarm( $timeout_read );
+X	return sysread( NS, $buf, $ftpbufsize );
+X}
+X
+Xsub ftp'read
+X{
+X	$SIG{ 'ALRM' } = "ftp\'read_alarm";
+X
+X	local( $ret ) = eval '&timed_read()';
+X	alarm( 0 );
+X
+X	if( $@ =~ /^timeout/ ){
+X		return -1;
+X	}
+X	return $ret;
+X}
+X
+X# Get a remote file back into a local file.
+X# If no loc_fname passed then uses rem_fname.
+X# returns 1 on success and 0 on failure
+Xsub ftp'get
+X{
+X	local($rem_fname, $loc_fname, $restart ) = @_;
+X	
+X	if ($loc_fname eq "") {
+X		$loc_fname = $rem_fname;
+X	}
+X	
+X	if( ! &ftp'open_data_socket() ){
+X		print "    Cannot open data socket\n";
+X		return 0;
+X	}
+X
+X	# Find the size of the target file
+X	local( $restart_at ) = &ftp'filesize( $loc_fname );
+X	if( $restart && $restart_at > 0 && &ftp'restart( $restart_at ) ){
+X		$restart = 1;
+X		# Make sure the file can be updated
+X		chmod( 0644, $loc_fname );
+X	}
+X	else {
+X		$restart = 0;
+X		unlink( $loc_fname );
+X	}
+X
+X	&ftp'send( "RETR $rem_fname" );
+X	
+X	local( $ret ) =
+X		&ftp'expect($timeout, 
+X                   150, "receiving $loc_fname", 1,
+X
+X                   125, "data connection already open?", 0,
+X
+X                   450, "file unavailable", 2,
+X                   550, "file unavailable", 2,
+X
+X		   500, "syntax error", 0,
+X		   501, "syntax error", 0,
+X		   530, "not logged in", 0,
+X
+X		   421, "service unavailable, closing connection", 0);
+X	if( $ret != 1 ){
+X		print "    Failure on RETR command\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X	# 
+X	# the data should be coming at us now
+X	#
+X
+X	# now accept
+X	accept(NS,S) || die "accept failed: $!";
+X
+X	#
+X	#  open the local fname
+X	#  concatenate on the end if restarting, else just overwrite
+X	if( !open(FH, ($restart ? '>>' : '>') . $loc_fname) ){
+X		print "    Cannot create local file $loc_fname\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X#    while (<NS>) {
+X#        print FH ;
+X#    }
+X
+X	local( $start_time ) = time;
+X	local( $bytes, $lasthash, $hashes ) = (0, 0, 0);
+X	while( ($len = &ftp'read()) > 0 ){
+X		$bytes += $len;
+X		if( $strip_cr ){
+X			$ftp'buf =~ s/\r//g;
+X		}
+X#		if( $ftp_show ){
+X#			while( $bytes > ($lasthash + $ftp'hashevery) ){
+X#				print '#';
+X#				$lasthash += $ftp'hashevery;
+X#				$hashes++;
+X#				if( ($hashes % $ftp'hashnl) == 0 ){
+X#					print "\n";
+X#				}
+X#			}
+X#		}
+X		print FH $ftp'buf;
+X	}
+X	close( FH );
+X
+X	# shut down our end of the socket
+X	&ftp'close_data_socket;
+X
+X	if( $len < 0 ){
+X		print "\n    timed out reading data!\n";
+X
+X		return 0;
+X	}
+X		
+X	if( $ftp_show ){
+X		if( $hashes && ($hashes % $ftp'hashnl) != 0 ){
+X			print "\n";
+X		}
+X		local( $secs ) = (time - $start_time);
+X		if( $secs <= 0 ){
+X			$secs = 1; # To avoid a devide by zero;
+X		}
+X
+X		local( $rate ) = int( $bytes / $secs );
+X		print "    Got $bytes bytes ($rate bytes/sec)\n";
+X	}
+X
+X	#
+X	# read the close
+X	#
+X
+X	$ret = &ftp'expect($timeout, 
+X		226, "Got file", 1,     # transfer complete, closing connection
+X	        250, "Got file", 1,     # action completed
+X	
+X	        110, "restart not supported", 0,
+X	        425, "can't open data connection", 0,
+X	        426, "connection closed, transfer aborted", 0,
+X	        451, "action aborted, local error", 0,
+X		421, "service unavailable, closing connection", 0);
+X
+X	return $ret;
+X}
+X
+Xsub ftp'delete
+X{
+X	local( $rem_fname, $val ) = @_;
+X
+X	&ftp'send("DELE $rem_fname" );
+X	$val = &ftp'expect( $timeout, 
+X			   250,"Deleted $rem_fname", 1,
+X			   550,"Permission denied",0
+X			   );
+X	return $val == 1;
+X}
+X
+Xsub ftp'deldir
+X{
+X    local( $fname ) = @_;
+X
+X    # not yet implemented
+X    # RMD
+X}
+X
+X# UPDATE ME!!!!!!
+X# Add in the hash printing and newline conversion
+Xsub ftp'put
+X{
+X	local( $loc_fname, $rem_fname ) = @_;
+X	local( $strip_cr );
+X	
+X	if ($loc_fname eq "") {
+X		$loc_fname = $rem_fname;
+X	}
+X	
+X	if( ! &ftp'open_data_socket() ){
+X		return 0;
+X	}
+X	
+X	&ftp'send("STOR $rem_fname");
+X	
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	local( $ret ) =
+X	&ftp'expect($timeout, 
+X		150, "sending $loc_fname", 1,
+X
+X		125, "data connection already open?", 0,
+X		450, "file unavailable", 0,
+X
+X		532, "need account for storing files", 0,
+X		452, "insufficient storage on system", 0,
+X		553, "file name not allowed", 0,
+X
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X
+X		421, "service unavailable, closing connection", 0);
+X
+X	if( $ret != 1 ){
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	# now accept
+X	accept(NS,S) || die "accept failed: $!";
+X	
+X	#
+X	#  open the local fname
+X	#
+X	if( !open(FH, "<$loc_fname") ){
+X		print "    Cannot open local file $loc_fname\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X	
+X	while (<FH>) {
+X		print NS ;
+X	}
+X	close(FH);
+X	
+X	# shut down our end of the socket to signal EOF
+X	&ftp'close_data_socket;
+X	
+X	#
+X	# read the close
+X	#
+X	
+X	$ret = &ftp'expect($timeout, 
+X		226, "file put", 1,     # transfer complete, closing connection
+X		250, "file put", 1,     # action completed
+X	
+X		110, "restart not supported", 0,
+X		425, "can't open data connection", 0,
+X		426, "connection closed, transfer aborted", 0,
+X		451, "action aborted, local error", 0,
+X		551, "page type unknown", 0,
+X		552, "storage allocation exceeded", 0,
+X	
+X		421, "service unavailable, closing connection", 0);
+X	if( ! $ret ){
+X		print "    error putting $loc_fname\n";
+X	}
+X	return $ret;
+X}
+X
+Xsub ftp'restart
+X{
+X	local( $restart_point, $ret ) = @_;
+X
+X	&ftp'send("REST $restart_point");
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect($timeout, 
+X			   350, "restarting at $restart_point", 1,
+X			   
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   502, "REST not implemented", 2,
+X			   530, "not logged in", 0,
+X			   
+X			   421, "service unavailable, closing connection", 0);
+X	return $ret;
+X}
+X
+X# Set the file transfer type
+Xsub ftp'type
+X{
+X	local( $type ) = @_;
+X
+X	&ftp'send("TYPE $type");
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect($timeout, 
+X			   200, "file type set to $type", 1,
+X			   
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   504, "Invalid form or byte size for type $type", 0,
+X			   
+X			   421, "service unavailable, closing connection", 0);
+X	return $ret;
+X}
+X
+X$site_command_check = 0;
+X@site_command_list = ();
+X
+X# routine to query the remote server for 'SITE' commands supported
+Xsub ftp'site_commands
+X{
+X	local( $ret );
+X	
+X	# if we havent sent a 'HELP SITE', send it now
+X	if( !$site_command_check ){
+X	
+X		$site_command_check = 1;
+X	
+X		&ftp'send( "HELP SITE" );
+X	
+X		# assume the line in the HELP SITE response with the 'HELP'
+X		# command is the one for us
+X		$ret = &ftp'expect( $timeout,
+X			".*HELP.*", "", "\$1",
+X			214, "", "0",
+X			202, "", "0" );
+X	
+X		if( $ret eq "0" ){
+X			print "    No response from HELP SITE\n" if( $ftp_show );
+X		}
+X	
+X		@site_command_list = split(/\s+/, $ret);
+X	}
+X	
+X	return @site_command_list;
+X}
+X
+X# return the pwd, or null if we can't get the pwd
+Xsub ftp'pwd
+X{
+X	local( $ret, $cwd );
+X
+X	&ftp'send( "PWD" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X#			   "257.*\\\"(.*)\\\"", "working directory is \$2", "\$2",
+X			   257, "working dir is", 1,
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   502, "PWD not implemented", 0,
+X	                   550, "file unavailable", 0,
+X
+X			   421, "service unavailable, closing connection", 0 );
+X	if( $ret ){
+X		if( $ftp'response =~ /^257\s"(.*)"\s.*$/ ){
+X			$cwd = $1;
+X		}
+X	}
+X	return $cwd;
+X}
+X
+X# return 1 for success, 0 for failure
+Xsub ftp'mkdir
+X{
+X	local( $path ) = @_;
+X	local( $ret );
+X
+X	&ftp'send( "MKD $path" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X			   257, "made directory $path", 1,
+X			   
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   502, "MKD not implemented", 0,
+X			   530, "not logged in", 0,
+X	                   550, "file unavailable", 0,
+X
+X			   421, "service unavailable, closing connection", 0 );
+X	return $ret;
+X}
+X
+X# return 1 for success, 0 for failure
+Xsub ftp'chmod
+X{
+X	local( $path, $mode ) = @_;
+X	local( $ret );
+X
+X	&ftp'send( sprintf( "SITE CHMOD %o $path", $mode ) );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X			   200, "chmod $mode $path succeeded", 1,
+X			   
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   502, "CHMOD not implemented", 0,
+X			   530, "not logged in", 0,
+X	                   550, "file unavailable", 0,
+X
+X			   421, "service unavailable, closing connection", 0 );
+X	return $ret;
+X}
+X
+X# rename a file
+Xsub ftp'rename
+X{
+X	local( $old_name, $new_name ) = @_;
+X	local( $ret );
+X
+X	&ftp'send( "RNFR $old_name" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X
+X			   350, "", 1,
+X			   
+X			   500, "syntax error", 0,
+X			   501, "syntax error", 0,
+X			   502, "RNFR not implemented", 0,
+X			   530, "not logged in", 0,
+X	                   550, "file unavailable", 0,
+X	                   450, "file unavailable", 0,
+X			   
+X			   421, "service unavailable, closing connection", 0);
+X
+X
+X	# check if the "rename from" occurred ok
+X	if( $ret ) {
+X		&ftp'send( "RNTO $new_name" );
+X	
+X		# 
+X		# see what they say
+X	
+X		$ret = &ftp'expect( $timeout, 
+X	
+X			           250, "rename $old_name to $new_name", 1, 
+X
+X				   500, "syntax error", 0,
+X				   501, "syntax error", 0,
+X				   502, "RNTO not implemented", 0,
+X				   503, "bad sequence of commands", 0,
+X				   530, "not logged in", 0,
+X		                   532, "need account for storing files", 0,
+X		                   553, "file name not allowed", 0,
+X				   
+X				   421, "service unavailable, closing connection", 0);
+X	}
+X
+X	return $ret;
+X}
+X
+X# ------------------------------------------------------------------------------
+X# These are the lower level support routines
+X
+Xsub ftp'expectgot
+X{
+X	($ftp'response, $ftp'fatalerror) = @_;
+X	if( $ftp_show ){
+X		print "    $ftp'response\n";
+X	}
+X}
+X
+X#
+X#  create the list of parameters for chat'expect
+X#
+X#  ftp'expect(time_out, {value, string_to_print, return value});
+X#     if the string_to_print is "" then nothing is printed
+X#  the last response is stored in $ftp'response
+X#
+X# NOTE: lmjm has changed this code such that the string_to_print is
+X# ignored and the string sent back from the remote system is printed
+X# instead.
+X#
+Xsub ftp'expect {
+X	local( $ret );
+X	local( $time_out );
+X	local( $expect_args );
+X	
+X	$ftp'response = '';
+X	$ftp'fatalerror = 0;
+X
+X	@expect_args = ();
+X	
+X	$time_out = shift(@_);
+X	
+X	while( @_ ){
+X		local( $code ) = shift( @_ );
+X		local( $pre ) = '^';
+X		if( $code =~ /^\d/ ){
+X			$pre =~ "[.|\n]*^";
+X		}
+X		push( @expect_args, "$pre(" . $code . " .*)\\015\\n" );
+X		shift( @_ );
+X		push( @expect_args, 
+X			"&ftp'expectgot( \$1, 0 ); " . shift( @_ ) );
+X	}
+X	
+X	# Treat all unrecognised lines as continuations
+X	push( @expect_args, "^(.*)\\015\\n" );
+X	push( @expect_args, "&ftp'expectgot( \$1, 0 ); 100" );
+X	
+X	# add patterns TIMEOUT and EOF
+X	
+X	push( @expect_args, 'TIMEOUT' );
+X	push( @expect_args, "&ftp'expectgot( \"timed out\", 1 ); 0" );
+X	
+X	push( @expect_args, 'EOF' );
+X	push( @expect_args, "&ftp'expectgot( \"remote server gone away\", 1 ); 0" );
+X	
+X	if( $ftp_show > 9 ){
+X		&printargs( $time_out, @expect_args );
+X	}
+X	
+X	$ret = &chat'expect( $time_out, @expect_args );
+X	if( $ret == 100 ){
+X		# we saw a continuation line, wait for the end
+X		push( @expect_args, "^.*\n" );
+X		push( @expect_args, "100" );
+X	
+X		while( $ret == 100 ){
+X			$ret = &chat'expect( $time_out, @expect_args );
+X		}
+X	}
+X	
+X	return $ret;
+X}
+X
+X#
+X#  opens NS for io
+X#
+Xsub ftp'open_data_socket
+X{
+X	local( $ret );
+X	local( $hostname );
+X	local( $sockaddr, $name, $aliases, $proto, $port );
+X	local( $type, $len, $thisaddr, $myaddr, $a, $b, $c, $d );
+X	local( $mysockaddr, $family, $hi, $lo );
+X	
+X	
+X	$sockaddr = 'S n a4 x8';
+X	chop( $hostname = `hostname` );
+X	
+X	$port = "ftp";
+X	
+X	($name, $aliases, $proto) = getprotobyname( 'tcp' );
+X	($name, $aliases, $port) = getservbyname( $port, 'tcp' );
+X	
+X#	($name, $aliases, $type, $len, $thisaddr) =
+X#	gethostbyname( $hostname );
+X	($a,$b,$c,$d) = unpack( 'C4', $chat'thisaddr );
+X	
+X#	$this = pack( $sockaddr, &main'AF_INET, 0, $thisaddr );
+X	$this = $chat'thisproc;
+X	
+X	socket(S, &main'PF_INET, &main'SOCK_STREAM, $proto ) || die "socket: $!";
+X	bind(S, $this) || die "bind: $!";
+X	
+X	# get the port number
+X	$mysockaddr = getsockname(S);
+X	($family, $port, $myaddr) = unpack( $sockaddr, $mysockaddr );
+X	
+X	$hi = ($port >> 8) & 0x00ff;
+X	$lo = $port & 0x00ff;
+X	
+X	#
+X	# we MUST do a listen before sending the port otherwise
+X	# the PORT may fail
+X	#
+X	listen( S, 5 ) || die "listen";
+X	
+X	&ftp'send( "PORT $a,$b,$c,$d,$hi,$lo" );
+X	
+X	return &ftp'expect($timeout, 200, "", 1,
+X	
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X		421, "service unavailable, closing connection", 0);
+X}
+X	
+Xsub ftp'close_data_socket
+X{
+X	close(NS);
+X}
+X
+Xsub ftp'send
+X{
+X	local($send_cmd) = @_;
+X	if( $send_cmd =~ /\n/ ){
+X		print "    ERROR, \\n in send string for $send_cmd\n";
+X	}
+X	
+X	if( $ftp_show ){
+X		local( $sc ) = $send_cmd;
+X
+X		if( $send_cmd =~ /^PASS/
+X		   && $remote_user !~ /^(ftp|anonymous)$/i ){
+X			$sc = "PASS <somestring>";
+X		}
+X		print "    ---> $sc\n";
+X	}
+X	
+X	&chat'print( "$send_cmd\r\n" );
+X}
+X
+Xsub ftp'printargs
+X{
+X	while( @_ ){
+X		print shift( @_ ) . "\n";
+X	}
+X}
+X
+Xsub ftp'filesize
+X{
+X	local( $fname ) = @_;
+X
+X	if( ! -f $fname ){
+X		return -1;
+X	}
+X
+X	return (stat( _ ))[ 7 ];
+X	
+X}
+X
+X# make this package return true
+X1;
+END_OF_FILE
+  if test 22946 -ne `wc -c <'mserv-3.1/ftp.pl'`; then
+    echo shar: \"'mserv-3.1/ftp.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ftp.pl'
+fi
+if test -f 'mserv-3.1/ms_config.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/ms_config.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/ms_config.pl'\" \(12646 characters\)
+  sed "s/^X//" >'mserv-3.1/ms_config.pl' <<'END_OF_FILE'
+X# mserv_config.pl -- config info for mail server
+X# Author          : Johan Vromans
+X# Created On      : ***
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Jan  2 14:18:04 1993
+X# Update Count    : 74
+X# Status          : OK
+X
+X################ Preamble ################
+X #
+X # Owner of the mail server. Must be set.
+X # This user need no special privileges, except for write access to the
+X # mail server files, and read access to the archives.
+X # It will get email about problem situations.
+X$mserv_owner = "mserv";
+X
+X################ Reply section ################
+X #
+X # The mail server sends replies to the sender of messages.
+X # It could use the current user id as its own address, but usually it
+X # is better to substitute something else to prevent bounced mail
+X # messages clobbering your system.
+X #
+X # Your domain. Unfortunately there is no reliable way of fetching this
+X # from the system info.
+X$domain = "mh.nl";
+X #
+X # Sender of the messages. Try to prevent annoying bounced messages.
+X$mserv_sender = (getpwnam($mserv_owner))[6] || "Mail Server";
+X$sender = "From: $mserv_sender <bit-bucket@$domain>";
+X #
+X # Mail server bcc id.
+X # If set, this user gets a Bcc of each request. Can be used for
+X # accounting, or to keep track of functionality.
+X$mserv_bcc = $mserv_owner;
+X #
+X # Sendmail functionality. Will be called with the recipients on the
+X # command line, and a pre-formatted message (including some headers) on 
+X # standard input.
+X # NOTE: Do not use `-t' if you're running smail3. It will exclude the
+X #	named recipients from delivery.
+X$sendmail = "/usr/lib/sendmail";
+X #
+X # Optional mail headers.
+X # Undefine if not wanted.
+X@x_headers = ("X-Server: $my_package [$my_name $my_version]",
+X	      "X-Info: Send mail to <postmaster@$domain>");
+X #
+X # Sometimes system users (daemons) can send unsollicited messages.
+X # The next list holds the names of users whose messages will be 
+X # discarded without notice. 
+X # Leave it undefined if this feature is not needed.
+X@black_list = ("root", "uucp", "mailer", "MAILER-DAEMON", "news",
+X	       "daemon", "demon", "deliver", "sendmail");
+X #
+X # Define $black_list_warning if you only want to supply a warning.
+X$black_list_warning = 1;
+X
+X################ Listener section ################
+X #
+X # When a mail message is received by the mail server, it is piped into
+X # program 'listener'.
+X # This program changes uid to the mail server owner, and executes
+X # the 'process' program.
+X #
+X # Define $have_setruid if you have the setruid/setguid system calls.
+X # In this case, the program needs to be installed setuid to the
+X # mail server owner. If you do not define $have_setruid, the program has to
+X # be installed setuid 'root'.
+X$have_setruid = 1;
+X #
+X # Define $have_setenv if you have the setenv(3) library call. Using
+X # setenv is optional.
+X$have_setenv = 1;
+X #
+X # If you $have_setruid, you may define $use_uid also.
+X # In this case the getpw* routines will not be used and
+X # your executable will be significantly smaller and faster.
+X$use_uid = 1;
+X
+X################ Email section ################
+X #
+X # The default strategy for the mail server is to transfer requests
+X # via email. If you set this to zero, $uucp must be defined, and the
+X # server will deliver via UUCP only.
+X$email = 1;
+X #
+X # Sendmail functionality. Will be called with the recipients on the
+X # command line, and a pre-formatted message (including some headers) on 
+X # standard input.
+X # NOTE: Do not use `-t' if you're running smail3. It will exclude the
+X #	named recipients from delivery.
+X # Used by "dorequest" to transmit chunks of data via email.
+X$chunkmail = "/usr/lib/sendmail -odq";
+X #
+X # The minimum,default,maximum size of email chunks in K.
+X@email_limits = (10,64,1024);
+X #
+X # To prevent overloading the system by firing too many sendmails,
+X # use this amount to sleep between sending chunks.
+X$mailer_delay = 30;
+X
+X################ UUCP section ################
+X #
+X # The mail server can transfer requests via uucp to systems that are
+X # connected that way. This is very efficient compared to email, e.g. 
+X # no encoding overhead.
+X #
+X # Define '$uucp' if you want to use the uucp feature.
+X # Append uucp grade, if desired (and your uucp supports it).
+X # If you do not define $uucp, requests will be send via email.
+X$uucp = "/usr/bin/uucp -ga";
+X #
+X # Prefer UUCP transfer, if possible.
+X$prefer_uucp = 1;
+X #
+X # Uucp host names can be checked for validity, if desired.
+X # This is how to get a list of uucp host names. 
+X # Set it to empty if you do not want to check the host names.
+X$uuname = "/usr/bin/uuname";	# Check host names.
+X #$uuname = "";			# Do not check host names.
+X #
+X # The minimum,default,maximum size of uucp chunks in K.
+X@uucp_limits = (10,256,2048);
+X #
+X # Your uucp host name, if appropriate
+X#$uuname = "sun4nl";		# static
+Xchop ($uucp_name = `uuname -l`) if defined $uucp;	# dynamic
+X
+X################ FTP section ################
+X #
+X # The mail server can fetch files via FTP.
+X$ftp = 1;
+X #
+X # The mail server tries to cache files retrieved via FTP, so
+X # subsequent requests can be retrieved from the cache.
+X # Before transferring a file from the cache, the file is verified to
+X # matche the file on the FTP host.
+X # Define $ftp_cache to specify where to cache the transferred files.
+X # Do not define it to disable caching.
+X$ftp_cache = "$libdir/ftp";
+X #
+X # Number of days a file is kept in the cache. Zero means: forever.
+X # Time is measured since last access.
+X$ftp_keep = 8;
+X #
+X # To reduce overhead, FTP requests may be restricted delivery via UUCP.
+X$ftp_uucp_only = 1;
+X
+X################ Archives section ################
+X #
+X # Where to find the archive entries.
+X@libdirs = ("/usr/local/src", "/beethoven/arch", "/users/jv/PD");
+X # Please add mail server 'pub'!
+Xpush (@libdirs, "$libdir/pub");
+X #
+X # Extensions we recognize. See "$dofilesearch" below.
+X@exts = (".TZ", ".tar.Z", ".tar", ".shar.Z", ".shar", ".Z",
+X	 ".zoo", ".zip", ".arc", ".sit");
+X
+X################ Search strategies ################
+X #
+X # $dofilesearch: 
+X #   Look for file: XXX must exist as file XXX in some lib dir.
+X #   Known extensions are also tried.
+X #   This is default if no other strategies are selected.
+X #
+X # $doindexsearch:
+X #   Lookup XXXNNNYYY in $indexfile. 
+X #   If $indexfile is a relative filename, every lib dir is supposed to
+X #   have one. 
+X #   If $indexfile is an absolute filename, the location it appears in
+X #   will be considered part of the archives. This can be overridden with
+X #   $indexlib.
+X #
+X # $dodirsearch:
+X #   Look in dir: XXX or XXXNNNYYY (where NNN is a version indicator,
+X #   e.g. '-1.02' and YYY a known extension, e.g. '.tar.Z') must exist
+X #   in some lib dir, or subdir XXXNNN.
+X #   Example: 'gcc' matches 'gcc', 'gcc.tar.Z', 'gcc-2.1.tar.Z',
+X #            'gcc-2.1/gcc.tar.Z' etc.
+X #
+X # If your index matches the archives (as specified in @libdirs), you
+X # can safely set $dodirsearch to 0.
+X #
+X$indexfile = "ix.codes";	# index file per archive directory
+X#$indexfile = "$libdir/ix.codes";	# separate index file 
+X#$indexlib  = $libdirs[0];		# archive for index file
+X #
+X # Subdirs of libdirs we do NOT want in the index files.
+X # This is a list of gfind regexps, one per corresponding archive lib.
+X # This is used by `makeindex' only.
+X@libprunes = ();
+X #
+X$dofilesearch = 1;
+X$doindexsearch = defined $indexfile;
+X$dodirsearch = 1;
+X #
+X # If doindexsearch is selected, index searches can return a huge amount
+X # of information. Therefore enforce a limit on the max. number of lines
+X # an index request can return. Zero means: no limit.
+X # Each time an index search exceeds the limit, it is lowered to half the 
+X # value it had. This is to avoid excessive results.
+X$maxindexlines = 200;
+X #
+X # Set auto_compress to 1 if a request for 'file.Z' is honoured if
+X # 'file.Z' does not exists, but 'file' is found. 
+X # 'file' will be compressed before transfer.
+X # Set it to 2 if 'file.Z' may even result in 'file.shar.Z' or 'file.zoo.Z'...
+X$auto_compress = 1;
+X
+X################ The mail server files ################
+X #
+X # No need to change these, I suppose.
+X #
+X # Where to store requests.
+X$queue = $libdir . "/queue";
+X # Where to log. Undefine if you do not want logging.
+X # Note -- you can override this at run-time with 'doreqest -nolog'.
+X #         'chmod -w $logfile' also works.
+X$logfile = $libdir . "/logfile";
+X # Lock file to guard against multiple executions of 'dorequest'.
+X$lockfile = $libdir . "/lockfile";
+X # notes file. Will be prepended to each confirmation message.
+X # NOTE: if you change this, you'll need to change the Makefile also.
+X$notesfile = $libdir . "/mserv.notes";
+X # hints file. Will be appended to each confirmation message.
+X # NOTE: if you change this, you'll need to change the Makefile also.
+X$hintsfile = $libdir . "/mserv.hints";
+X
+X################ Locking section ################
+X #
+X # Select a locking method. Not selecting a locking method
+X # voids your warranty.
+X #
+X # fcntl(2) locking. Requires "errno.ph" and "fcntl.ph".
+X$lock_fcntl = 1;
+X #
+X # BSD style flock(2). Requires "errno.ph" and "sys/file.h".
+X#$lock_flock = 1;
+X #
+X # lockf(2) locking. Requires "errno.ph", "unistd.ph" and "sys/syscall.ph".
+X#$lock_lockf = 1;
+X
+X################ Encoding programs ################
+X #
+X # Default encoding. Select one of B, U, D, X and make sure the
+X # corresponding encoding tool exists.
+X$default_encoding = "U";	# uuencode
+X #
+X # Encoding programs. Supply a full pathname.
+X # Encoding commands will be disallowed if the corresponding
+X # encoding program is not available.
+X # Since uuencode is fixed, it should better be there!
+X$btoa     = "/usr/local/bin/btoa";	# btoa/atob
+X$uuencode = "/usr/bin/uuencode";	# uu{en.de}code
+X$uue      = "/usr/local/bin/uue"; 	# Dumas uue/uud program
+X$xxencode = "/usr/local/bin/xxencode"; 	# xx{en.de}code
+X
+X################ Index section ################
+X #
+X # The following are only needed if you select indexsearch.
+X # `makeindex' uses the GNU find program and locate tools.
+X # The actual index lookup is performed by GNU locate 3.6 (or later)
+X # or a customized version of GNU locate 3.5. In the latter case,
+X # you need to "make ixlookup" and "make install-ixlookup".
+X$gfind = "/usr/local/bin/gfind";
+X # The GNU locate library (used to find bigram and code).
+X$locatelib = "/usr/local/lib/locate";
+X#$ixlookup = $libdir . "/ixlookup";	# based on GNU locate 3.5
+X$ixlookup = "/usr/local/bin/locate";	# as of GNU locate 3.6
+X
+X################ Packing section ################
+X #
+X # The following are only needed if you want to support the packing 
+X # of directories.
+X #
+X # Max number of blocks in a directory (as returned by 'du -s').
+X # Undefine (or set to zero) if you do not want to support packing.
+X$packing_limit = 4100;
+X #
+X # Set $auto_packing if a request for 'foo.tar.Z' may automatically
+X # pack directory 'foo'.
+X$auto_packing = 1;
+X #
+X # Tools.
+X$du       = "/bin/du";			# get size of dir
+X$find     = "/usr/local/bin/gfind";	# find
+X # If you do not have 'pdtar', undefine it and the mail server will use
+X # $tar and $compress instead.
+X$pdtar    = "/usr/local/bin/pdtar";	# create compressed ustar
+X$tar      = "/bin/tar";			# if no $pdtar...
+X$compress = "/usr/ucb/compress";	# if no $pdtar...
+X$zoo      = "/usr/local/bin/zoo";	# zoo
+X$zip      = "/usr/local/bin/zip";	# zip
+X
+X################ Local commands section ################
+X #
+X # Command to produce a useful listing of files.
+X$dircmd = "/bin/ls -lL";
+X #
+X # Command to call Archie.
+X$archie = "archie";
+X #
+X # Limit (in K) for command output to be included in the feedback
+X # mail.  If it is bigger, it will be compressed and transferred.
+X # Zero disables the limit.
+X$fb_limit = 8;
+X #
+X # Define $compress to the name of the compress command.
+X # It should read from stdin and write to stdout.
+X # This is needed for auto-compress and compress/tar functionality.
+X$compress = "/usr/ucb/compress";
+X
+X################ Miscellaneous ################
+X #
+X # Working directory. Should have space for at least 1.5 times the
+X # biggest file in the archives...
+X #
+X$tmpdir = $ENV{"TMPDIR"} || "/usr/tmp";
+X
+X # Should "dorequest" be run automatically after completion of
+X # "process"?
+X$auto_runrequest = 1;
+X
+X # Shall we be nice? This applies to the processing of the requests,
+X # as well as to the queue run. Legitimate values are -20..20, but
+X # only the superuser can raise the priority using negative values.
+X$nice = 10;
+X
+X # It is possible to add user defined commands to the mail server.
+X # See the documentation for details.
+X#$cmd_extend = $libdir . "/userdefs.pl";
+X
+X # For debugging, it is sometimes necessary to trace the mail headers.
+X # Note: the $trace_file must exist.
+X$trace_headers = 0;
+X$trace_file = $libdir . "/tracefile";
+X
+X################ End of configuation info ################
+X
+X1;
+END_OF_FILE
+  if test 12646 -ne `wc -c <'mserv-3.1/ms_config.pl'`; then
+    echo shar: \"'mserv-3.1/ms_config.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/ms_config.pl'
+fi
+if test -f 'mserv-3.1/mserv.notesi' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/mserv.notesi'\"
+else
+  echo shar: Extracting \"'mserv-3.1/mserv.notesi'\" \(0 characters\)
+  sed "s/^X//" >'mserv-3.1/mserv.notesi' <<'END_OF_FILE'
+END_OF_FILE
+  if test 0 -ne `wc -c <'mserv-3.1/mserv.notesi'`; then
+    echo shar: \"'mserv-3.1/mserv.notesi'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/mserv.notesi'
+fi
+if test -f 'mserv-3.1/process.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mserv-3.1/process.pl'\"
+else
+  echo shar: Extracting \"'mserv-3.1/process.pl'\" \(19935 characters\)
+  sed "s/^X//" >'mserv-3.1/process.pl' <<'END_OF_FILE'
+X#!/usr/local/bin/perl
+X# process.pl -- 
+X# SCCS Status     : @(#)@ process	3.67
+X# Author          : Johan Vromans
+X# Created On      : ***
+X# Last Modified By: Johan Vromans
+X# Last Modified On: Sat Jan  2 14:14:45 1993
+X# Update Count    : 672
+X# Status          : Going steady.
+X
+X# This program processes mail messages, and enqueues requests for
+X# the mail server.
+X#
+X# For options and calling, see subroutine 'usage'.
+X#
+X$my_name = "process";
+X$my_version = "3.67";
+X#
+X################ Common stuff ################
+X
+X$libdir = $ENV{"MSERVLIB"} || "/usr/local/lib/mserv";
+Xunshift (@INC, $libdir);
+X
+X################ Options handling ################
+X
+X$opt_interactive = -t;
+X&options if @ARGV > 0 && $ARGV[0] =~ /^-+[^-]+/;
+X@ARGV = ("-") unless @ARGV > 0;
+X$trace_headers = 1 if defined $opt_trace_headers;
+X$interactive = $opt_interactive || defined $opt_i0;
+X
+X################ More common stuff ################
+X
+X# Require common here, so $opt_config can be used to select an
+X# alternate configuration file.
+Xrequire "ms_common.pl";
+X
+X################ Setting up ################
+X
+Xif ( $interactive ) {
+X    if ( defined $opt_i0 ) {
+X	# Attach STDOUT to STDIN.
+X	close (STDOUT);
+X	open (STDOUT, ">&0");
+X    }
+X    require "ctime.pl";
+X    print STDOUT ("$mserv_sender ($my_package) ready.\n");
+X    local ($t) = &ctime (time);
+X    chop ($t);
+X    print STDOUT ("Local time is $t.\n");
+X    select (STDOUT);
+X    $| = 1;
+X}
+Xelse {
+X    # All output goes to STDOUT, and will be mailed to the requestor.
+X    # Create a temp file to catch all.
+X    $tmpfile = &fttemp;
+X    open (STDOUT, ">" . $tmpfile) unless $opt_debug;
+X}
+X# Catch stderr also.
+Xopen (STDERR, ">&STDOUT");
+X
+X# Motd.
+X&include ($notesfile);
+X
+X$errflag = 0;
+X$didhelp = 0;
+X$needhelp = 0;
+X
+X# Turn extensions into pattern.
+X($extpat = "(" . join("|", @exts) . ")") =~ s/\./\\./g;
+X
+X# Search strategy.
+X$dofilesearch = 1 unless $dodirsearch || $doindexsearch;
+X
+Xrequire "$libdir/rfc822.pl";
+X
+X# Defaults from RFC822 mail headers.
+X$h_from = $h_reply = "";
+X
+X# Defaults from UUCP From_ header.
+X# Note that these will only be set if the host is existent and reachable,
+X# and the user name appears to be good-looking.
+X$h_uufrom = $h_uuhost = "";
+X@hdrs = () if $trace_headers;
+X
+Xif ( !$interactive ) {
+X    &start_read (shift(@ARGV)) ||
+X	&die ("Cannot read input [$!]\n");
+X}
+X
+X# UUCP "From_" line...
+Xif ( defined $rfc822'line_in_cache && $rfc822'line_in_cache =~ /^From (\S+) / ) {
+X    local ($try) = $1;
+X    local (@h);
+X
+X    push (@hdrs, $rfc822'line_in_cache), chop $hdrs[0] if $trace_headers;
+X
+X    print STDOUT ("Processing UUCP header...\n");
+X
+X    $try = $1 . '!' . $try
+X	if $rfc822'line_in_cache =~ /remote from (\S+)$/; #';
+X	    
+X    # UUCP defaults...
+X    @h = split ('!', $try);
+X
+X    # Sometimes the system name is prepended.
+X    shift (@h) if $h[0] eq $uucp_name;
+X
+X    # For safety, we'll only accept good looking addresses.
+X    if ( @h == 2 && $h[1] =~ /^\w[-\w.]*$/ &&
+X	&check_uucp_name ($h[0], 1) ) {
+X
+X	# We have a valid UUCP name, and a good looking user name.
+X	# We'll accept is as a default return address.
+X	($h_uuhost, $h_uufrom) = @h;
+X	$h_from = join ('!', @h);
+X	print STDOUT ("=> Return address (UUCP): \"$h_from\"\n");
+X	push (@hdrs, "=> Return address (UUCP): \"$h_from\"")
+X	    if $trace_headers;
+X    }
+X    else {
+X	&warning ("Unusable UUCP header", $rfc822'line_in_cache);	#');
+X	push (@hdrs, "=> WARNING: Unusable UUCP header") if $trace_headers;
+X    }
+X    undef $rfc822'line_in_cache;	#';
+X}
+X
+Xif ( !$interactive ) {
+X    # Scan RFC822 headers, extracting From: and Reply-To: info.
+X    print STDOUT ("Processing mail headers...\n");
+X    while ( $res = &read_header ) {
+X	last if $res == $rfc822'EMPTY_LINE;	#';
+X	push (@hdrs, $rfc822'line) if $trace_headers;	#');
+X	next unless $res == $rfc822'VALID_HEADER;	#';
+X	$rfc822'header =~ tr/[A-Z]/[a-z]/;		#';
+X	$h_from = $rfc822'contents if $rfc822'header eq "from";
+X	$h_reply = $rfc822'contents if $rfc822'header eq "reply-to";
+X    }
+X
+X    # Preset sender info.
+X    $h_from = $h_reply if $h_reply;
+X    $v_sender = $h_from;
+X    &parse_addresses ($h_from);
+X    if ( @rfc822'addresses == 1 ) {		#'){
+X	$h_from = $rfc822'addresses[0];	#';
+X	$v_sender = $rfc822'addr_comments{$h_from} || $h_from;	#';
+X    }
+X}
+X
+X# Setup defaults.
+X&reset;
+X
+Xif ( !$interactive ) {
+X    print STDOUT ("=> Default return address: \"$sender\"\n");
+X
+X    # Check the sender against the list of system accounts.
+X    &validate_recipient ($sender, 2);
+X
+X    push (@hdrs, "=> Return address: \"$sender\"") if $trace_headers;
+X
+X    if ( $trace_headers && defined $trace_file && $trace_file ) {
+X	if (open (TRACE, ">>$trace_file")) {
+X	    if ( &locking (*TRACE, 1) == 1 ) {
+X		seek (TRACE, 0, 2);
+X		print TRACE (join ("\n", @hdrs), "\n\n");
+X		close (TRACE);
+X	    }
+X	}
+X    }
+X
+X    print STDOUT ("\nProcessing message contents...\n\n");
+X    require "$libdir/pr_parse.pl";
+X    &command_loop;
+X    print STDOUT ("Your message has been processed.\n");
+X    close (STDIN);
+X}
+Xelse {
+X    require "$libdir/pr_parse.pl";
+X    &interactive_loop;
+X}
+X
+Xif ( $commands == 0 ) {
+X    print STDOUT ("No commands were found.\n");
+X    &help unless $interactive;
+X}
+Xelsif ( $errflag ) {
+X    print STDOUT ("Number of errors detected = $errflag.\n",
+X		  "NO WORK WILL BE DONE.\n");
+X    &help unless $didhelp;
+X}
+Xelse {
+X    print STDOUT ("\n");
+X
+X    # Be nice and forgiving
+X    eval { setpriority (0, $$, $nice) } if $nice;
+X
+X    # Subroutines index_loop and work_loop are contained in separate
+X    # sources, since they may not always be needed. This speeds up
+X    # processing and cuts down memory resources.
+X    require "$libdir/pr_doindex.pl", &index_loop if @indexq > 0;
+X    &search_loop if @searchq > 0;
+X    if ( @workq > 0 ) {
+X	require "$libdir/pr_dowork.pl";
+X	&work_loop;
+X    }
+X    &help if $needhelp && !$didhelp;
+X}
+X
+X&include ($hintsfile) 
+X    unless $didhelp || $opt_debug || $opt_nomail || $interactive;
+X
+Xprint STDOUT ("\nMail Server finished.\n");
+X
+X# Send confirmation message to recipient.
+X&confirm unless $interactive;
+X
+X# Startup the queue run in the background.
+X&background_run ("$libdir/dorequest" . 
+X		 ($config_file ? " -config $config_file" : "") .
+X		 ($opt_trace ? " -trace" : "")) 
+X    if -s $queue && $auto_runrequest && !$opt_debug && !$opt_noqueue;
+X
+Xexit (0);
+X
+X################ Subroutines ################
+X
+Xsub search {
+X    local ($request, $wantall) = @_;
+X
+X    # This function returns an array of strings, each describing one
+X    # possibility. Each description is a NUL-joined string with fields:
+X    #   - the basename (used for sorting)
+X    #   - the size
+X    #   - the last modification date
+X    #   - the name of the library (LIB)
+X    #   - the part between library and basename
+X    #
+X    # If $wantall == TRUE, all possibilities are returned.
+X    # If $wantall == FALSE, one possibility is returned if the filesearch
+X    # (failing that, the directory search) locates exactly one file.
+X    # Otherwise, all possibilities are returned.
+X
+X    local (@ret) = ();
+X
+X    if ( $dofilesearch ) {
+X	foreach $lib ( @libdirs ) {
+X	    push (@ret, &filesearch ($lib, $request));
+X	}
+X    }
+X
+X    if ( $dodirsearch && ($wantall || @ret != 1)) {
+X	require "$libdir/pr_dsearch.pl";
+X	foreach $lib ( @libdirs ) {
+X	    push (@ret, &dirsearch ($lib, $request));
+X	}
+X    }
+X
+X    if ( $doindexsearch && ($wantall || @ret != 1)) {
+X	require "$libdir/pr_isearch.pl";
+X	if ( $indexfile =~ m|^/| ) {
+X	    local ($lib) = defined $indexlib ? $indexlib 
+X		: (&fnsplit($indexfile))[0];
+X	    push (@ret, &indexsearch ($indexfile, $lib, $request));
+X	}
+X	else {
+X	    foreach $lib ( @libdirs ) {
+X		push (@ret, &indexsearch ("$lib/$indexfile", $lib, $request));
+X	    }
+X	}
+X    }
+X
+X    if ( $opt_debug || $opt_trace ) {
+X	@ret = reverse ( sort (@ret));
+X	print STDOUT ("=> Search queue:\n");
+X	local ($i) = 1;
+X	foreach $entry ( @ret ) {
+X	    local (@a) = &zu ($entry);
+X	    printf STDOUT ("  %3d: %s %s %s %s:%s:%s\n", $i, 
+X			   $a[0], $a[1], $a[2], $a[3], $a[4], $a[0]);
+X	    $i++;
+X	}
+X	@ret;
+X    }
+X    else {
+X	reverse ( sort (@ret));
+X    }
+X}
+X
+Xsub filesearch {
+X
+X    local ($libdir, $request) = @_;
+X
+X    # Locate an archive item $request in library $libdir.
+X    # Eligible items are in the format XXX or
+X    # XXX.EXT, where EXT is one of the known extensions.
+X    #
+X    # See "sub search" for a description of the return values.
+X
+X    local (@retval);		# return value
+X    local (@a);			# to hold stat() result
+X
+X    # Normalize the request. 
+X    # $tryfile will be the basename of the request.
+X    # $subdir holds the part between $libdir and $tryfile.
+X    local ($subdir, $tryfile) = &fnsplit ($request);
+X    $subdir .= "/" if $subdir && $subdir !~ m|/$|;
+X    $libdir .= "/" if $libdir && $libdir !~ m|/$|;
+X
+X    print STDOUT ("Try file $libdir$subdir$tryfile...\n") if $opt_debug;
+X
+X    # First attempt: see if the given file exists 'as is', with possible 
+X    # extensions
+X
+X    foreach $ext ( "", @exts) {
+X	if ( -f $libdir.$subdir.$tryfile.$ext && -r _ ) {
+X	    @a = stat (_);
+X	    print STDOUT ("File $libdir$subdir$tryfile$ext (found)\n")
+X		if $opt_debug;
+X	    push (@retval, 
+X		  &zp ($tryfile.$ext, $a[7], $a[9], $libdir, $subdir));
+X	    last if $ext eq "";	# exact match prevails
+X	}
+X    }
+X
+X    return @retval;
+X}
+X
+Xsub confirm {
+X
+X    # Send the contents of the temp file to the requestor.
+X
+X    # Close it, and reopen.
+X    close (STDOUT);
+X    open (MESSAGE, $tmpfile);
+X
+X    if ( $opt_debug || $opt_nomail ) {
+X	open (MAILER, ">&STDERR");
+X    }
+X    else {
+X	open (MAILER, "|$sendmail '$recipient' $mserv_bcc");
+X    }
+X
+X    print MAILER ("To: $recipient\n",
+X		  "Subject: Request by $v_sender\n");
+X
+X    if ( defined @x_headers ) {
+X	foreach $hdr ( @x_headers ) {
+X	    print MAILER ($hdr, "\n");
+X	}
+X    }
+X    print MAILER ("\n");
+X
+X    local ($inhdrs) = 1;
+X    while ( <MESSAGE> ) {
+X
+X	# Include everything before the message contents.
+X	if ( $inhdrs ) {
+X	    print MAILER $_;
+X	    if ( $_ eq "Processing message contents...\n" ) {
+X		$inhdrs = 0;
+X		print MAILER "\n";
+X	    }
+X	    next;
+X	}
+X
+X	# Suppress unrecognized stuff.
+X	if ( $reset > 1 ) {
+X	    $reset-- if /^=> Resetting/;
+X	    if ( $reset > 1 ) {
+X		print MAILER $' if /^Command: /;
+X	    }
+X	    else {
+X		print MAILER $_;
+X	    }
+X	}
+X	else {
+X	    print MAILER $_;
+X	}
+X    }
+X    close (MAILER);
+X    close (MESSAGE);
+X
+X    # This aids in debugging...
+X    rename ($tmpfile, $tmpdir . "/mserv.last");
+X    unlink ($tmpfile);
+X}
+X
+Xsub discard {
+X    local ($msg) = @_;
+X
+X    # Discard the job.
+X    # Do not attempt to send feedback except for a mailer error.
+X    # This is used when requests are received from someone on the 
+X    # 'black list'.
+X
+X    print STDOUT ("\nREQUEST DISCARDED: ", $msg, "\n");
+X    close (STDOUT);
+X
+X    # This aids in debugging...
+X    rename ($tmpfile, $tmpdir . "/mserv.last");
+X    unlink ($tmpfile);
+X
+X    # The end of it all (silently)
+X    exit (0);
+X}
+X
+Xsub dolist {
+X    local ($list_type, $query, *found) = (@_);
+X    local ($entries) = 0;
+X    local ($name, $size, $date, $lib, $subdir); # elements of @found
+X    local ($prev);		# to suppress duplicates
+X    local (@tm);		# for time conversions
+X
+X    $~ = "list_header";
+X    write;
+X    $~ = "list_format";
+X    $: = " /";		# break filenames at logical places
+X    $= = 99999;
+X
+X    # have we found something?
+X    unless ( @found > 0 ) {
+X	$size = $date = "";
+X	$name = "***not found***";
+X	write;
+X	next;
+X    }
+X
+X    $prev = "";
+X    foreach $found ( @found ) {
+X
+X	($name, $size, $date, $lib, $subdir) = &zu ($found);
+X
+X	# Avoid duplicates.
+X	next if $lib.$subdir.$name eq $prev;
+X	$prev = $lib.$subdir.$name;
+X
+X	# Normalize size and date, if needed.
+X	$size = int(($size+1023)/1024) . "K" unless $size =~ /K$/;
+X	if ( $date =~ /^T/ ) {
+X	    $date = $';
+X	}
+X	else {
+X	    @tm = localtime ($date);
+X	    $date = sprintf("%02d/%02d/%02d", 
+X			    1900+$tm[5], $tm[4]+1, $tm[3]);
+X	}
+X
+X	$name = $subdir.$name;
+X	write;
+X    }
+X}
+X
+Xsub search_loop {
+X
+X    print STDOUT ("Search results:\n");
+X
+X    foreach $query ( @searchq ) {
+X
+X	local (@found);		# return from search
+X
+X	# Locate them.
+X	@found = &search ($query, 1);
+X
+X	# Print report.
+X	&dolist ("Search", $query, *found);
+X
+X    }
+X    @searchq = ();
+X    print STDOUT ("\n");
+X}
+X
+Xsub reset {
+X    # Set defaults.
+X    @workq = ();
+X    @searchq = ();
+X    @indexq = ();
+X    $commands = 0;
+X    $errflag = 0;
+X    $method = '';
+X    @limits = defined $email ? @email_limits : @uucp_limits;
+X    $ftphost = '';
+X
+X    # Who sent this mail?
+X    $sender = $h_from || "?";
+X
+X    # Who gets the replies?
+X    $recipient = $sender;
+X
+X    # Destination for email transfers.
+X    $destination = "";
+X
+X    # Tally.
+X    $reset++;
+X}
+X
+Xsub errmsg {
+X  local (@msg) = @_;
+X  print STDOUT ('>>>>>>>> Error: ', shift(@msg), "\n");
+X  foreach $msg ( @msg ) {
+X      print STDOUT ('         ', $msg, "\n");
+X  }
+X  # Most parsing routines use 'return &errmsg...', so make sure it
+X  # errmsg returns a non-zero value.
+X  ++$errflag;
+X}
+X
+Xsub warning {
+X  local (@msg) = @_;
+X  print STDOUT ('>>>>>>>> Warning: ', shift(@msg), "\n");
+X  foreach $msg ( @msg ) {
+X      print STDOUT ('         ', $msg, "\n");
+X  }
+X  1;				# must be non-zero;
+X}
+X
+Xsub include {
+X    local ($file) = @_;
+X    local (*F);
+X    local ($ok) = 0;
+X
+X    if ( $interactive ) {
+X	$ok = open (F, $file . 'i');
+X    }
+X    if ( $ok || ($ok = open (F, $file)) ) {
+X	while ( <F> ) {
+X	    print STDOUT;
+X	}
+X	close (F);
+X    }
+X    $ok;
+X}
+X
+X# Pseudo-record pack/unpack
+Xsub zp { join ("\0", @_); }
+Xsub zu { split (/\0/, $_[0]); }
+X
+Xsub email_defaults {
+X    local ($dest) = @_;
+X    $method = "M";
+X    $destination = $dest;
+X    push (@workq, &zp ("M", $destination));
+X    &method_msg;
+X    @limits = @email_limits;
+X}
+X
+Xsub uucp_defaults {
+X    local ($uuhost, $uupath, $uunote) = @_;
+X    $uunote = $h_uufrom unless $uunote;
+X    $uuhost = $h_uuhost unless $uuhost;
+X    $uupath = "~uucp/receive/$h_uufrom" unless $uupath;
+X
+X    if ( &check_uucp_name ($uuhost) &&
+X	&check_uucp_path ($uupath) ) {
+X	$method = "U";
+X	$uupath = $uuhost . '!' . $uupath;
+X	push (@workq, &zp ("U", $uupath, $uunote));
+X	&method_msg;
+X	@limits = @uucp_limits;
+X    }
+X}
+X
+Xsub method_msg {
+X    if ( $method eq 'U' ) {
+X	print STDOUT ("=> Transfer via UUCP to \"$uupath\"\n");
+X	print STDOUT ("=> (UUCP notification to \"$uunote\")\n");
+X    }
+X    elsif ( $method eq 'M' ) {
+X	print STDOUT ("=> Transfer via email to \"$destination\"\n");
+X    }
+X    else {
+X	&errmsg ("Please issue a MAIL or UUCP command first");
+X    }
+X}
+X
+Xsub ftp_defaults {
+X
+X    # Setup FTP stuff. Check if allowed.
+X
+X    ($ftphost) = @_;
+X
+X    if ( $ftphost eq '' ) {
+X	&errmsg ("Missing FTP host name");
+X	return 0;
+X    }
+X
+X    local ($prefer_uucp) = $prefer_uucp | $ftp_uucp_only;
+X    return 0 unless &setdefaults;
+X
+X    if ( $ftp_uucp_only && $method ne 'U' ) {
+X	&errmsg ("FTP commands are only allowed when delivering via UUCP");
+X	print STDOUT ("         (Issue an UUCP command first)\n");
+X	$ftphost = '';
+X	return 0;
+X    }
+X
+X    push (@workq, &zp ('G', 'O', $ftphost));
+X    print STDOUT ("=> FTP Connect to \"$ftphost\"\n");
+X    1;
+X}
+X
+Xsub setdefaults {
+X
+X    local (@_);
+X
+X    if ( $interactive && ! $method ) {
+X	&method_msg;
+X	return 0;
+X    }
+X
+X    unless ( $recipient || $interactive ) {
+X	$recipient = $sender;
+X	print STDOUT ("=> Return address: \"$recipient\"\n");
+X    }
+X
+X    unless ( $method ) {
+X	if ( defined $uucp && $prefer_uucp && $h_uufrom && $h_uuhost ) {
+X	    &uucp_defaults;
+X	    print STDOUT ("=> If delivery via UUCP is not desired, ",
+X			  "issue a MAIL command first\n");
+X	}
+X	elsif ( defined $email ) {
+X	    &email_defaults ($destination || $recipient);
+X	}
+X	elsif ( defined $uucp ) {
+X	    if ( $h_uufrom && $h_uuhost ) {
+X		&uucp_defaults;
+X	    }
+X	    else {
+X		&errmsg ("Please issue a UUCP command first");
+X		return 0;
+X	    }
+X	}
+X
+X	unless ( $method ) {
+X	    &errmsg ("Sorry, can't transfer the requests to you",
+X		     "Issue a MAIL or UUCP command first");
+X	    return 0;
+X	}
+X    }
+X    1;
+X}
+X
+Xsub validate_recipient {
+X    local ($addr, $todo) = @_;
+X
+X    # Validate a recipient name against the black list.
+X    # Values for $todo:
+X    #  0: return offending user name if invalid, otherwise return ''
+X    #  1: as 0, but also supply warning
+X    #  2: as 1, and discard job if configured to do so
+X
+X    local ($user);
+X
+X    return '' unless defined @black_list;
+X    return '' if $interactive;
+X
+X    while ( ! defined $user ) {
+X	$addr = $', next if $addr =~ /^@[^:]+:/;	# @domain,domain:...
+X	$addr = $', next if $addr =~ /^[^!]+!/;		# host!...
+X	$addr = $`, next if $addr =~ /@[^@]+$/;		# ...@domain
+X	$user = $addr;
+X    }
+X
+X    $addr = join ('!', @black_list);
+X    return '' if index ("!\U$addr\E!", "!\U$user\E!") < $[;
+X
+X    if ( $todo >= 2 && ! $black_list_warning ) {
+X	&discard ("User \"$user\" access refused");
+X	# Not reached.
+X    }
+X
+X    if ( $todo >= 1 ) {
+X	&warning ("User \"$user\" will be refused access in the future",
+X		  "Please use a user account instead of a system account");
+X    }
+X
+X    # Return the offending user name, so caller can provide a message.
+X    return $user;
+X}
+X
+Xsub die {
+X    local ($msg) = "@_";
+X    print STDOUT ($msg, "\n");
+X    $sender = $sender || $mserv_owner || $mserv_bcc || "postmaster";
+X    $mserv_bcc = $mserv_owner;
+X    &confirm;
+X    exit (1);
+X}
+X
+Xsub background_run {
+X    local ($cmd) = @_;
+X
+X    # Run $cmd in the background.
+X
+X    local ($pid);
+X
+X    if ( ($pid = fork) == 0 ) {
+X
+X	# Child process. Disable signals.
+X	foreach $sig ( "HUP", "INT", "QUIT" ) {
+X	    $SIG{$sig} = "IGNORE";
+X	}
+X
+X	# Fork another child to do the job.
+X	if ( fork == 0 ) {
+X	    # Execute command. No way to signal failure.
+X	    exec $cmd;
+X	    exit (0);
+X	}
+X
+X    }
+X
+X    # Wait for first child to complete. 
+X    # This assures that the signals are armed before the parent can do
+X    # harmful things.
+X    waitpid ($pid, 0);
+X}
+X
+Xsub check_uucp_name {
+X    local ($host, $silent) = @_;
+X    $host = $` if $host =~ /\.uucp/i;	# strip .UUCP
+X    return 1 if $host eq $h_uuhost; 	# already verified
+X    return 1 unless $uuname ne "";
+X    open ( UUNAME, $uuname . "|" );
+X    local (@hosts) = <UUNAME>;
+X    close (UUNAME);
+X    @found = grep ( /^$host$/, @hosts );
+X    return 1 if @found == 1;
+X    &errmsg ("Unknown UUCP system name: \"$host\"") unless $silent;
+X    $opt_debug;
+X}
+X
+Xsub check_uucp_path {
+X    local ($path) = @_;
+X    # $path should start with slash or tilde.
+X    return 1 if $path =~ /^[\/~]/;
+X    &errmsg ("Invalid UUCP path name: \"$path\"");
+X    0;
+X}
+X
+Xsub options {
+X    require "newgetopt.pl";
+X    local ($opt_noi, $opt_nointeractive);
+X    $opt_debug = $opt_trace = $opt_nomail = $opt_noqueue = $opt_help = 0;
+X    if ( !&NGetOpt ("config=s", "trace_headers", "interactive", "i0",
+X		    "nointeractive", "noi",
+X		    "debug", "trace", "noqueue", "nomail", "help")
+X	|| $opt_help
+X	|| (@ARGV > 0 && !($opt_debug || $opt_trace || $opt_nomail))) {
+X	&usage;
+X    }
+X    $config_file = $opt_config if defined $opt_config;
+X    $opt_interactive = 0 if defined $opt_noi || defined $opt_nointeractive;
+X
+X}
+X
+Xsub usage {
+X    require "ms_common.pl";
+X    print STDERR <<EndOfUsage;
+X$my_package [$my_name $my_version]
+X
+XUsage: $my_name [options] < mail-message
+X
+XOptions:
+X    -config XX	load this config file instead of ms_config.pl
+X    -help	this message
+X    -interactive interactively read commands, and execute them
+X    -nointeractive read an email message, even from terminal
+X    -noqueue	process message, but do not enter request in the queue
+X    -nomail	do not reply by email (testing only)
+X    -debug	for debugging
+X    -trace	for debugging
+X    -trace_headers	for debugging
+X
+X'mail-message' should be RFC-822 conformant.
+XEndOfUsage
+X    exit (1);
+X}
+X
+Xformat list_header =
+X
+X     Date       Size  @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$list_type . ": " . $query
+X  ----------  ------  ----------------------------
+X.
+Xformat list_format =
+X  @<<<<<<<<< @>>>>>>  ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$date, $size, $name
+X~~                      ^<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X$name
+X.
+X
+Xsub help {
+X    require 'pr_help.pl';
+X    &do_help;
+X    &include ($hintsfile) if $interactive;
+X}
+X
+Xsub add_help {
+X    # For user extensions, so they can give help too.
+X    local ($cmd, @text) = @_;
+X    @ext_help = () unless defined @ext_help;
+X    push (@ext_help, "+$cmd", @text);
+X}
+X    
+X1;
+END_OF_FILE
+  if test 19935 -ne `wc -c <'mserv-3.1/process.pl'`; then
+    echo shar: \"'mserv-3.1/process.pl'\" unpacked with wrong size!
+  fi
+  # end of 'mserv-3.1/process.pl'
+fi
+echo shar: End of archive 3 \(of 6\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

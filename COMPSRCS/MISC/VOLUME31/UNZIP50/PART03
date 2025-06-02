@@ -1,0 +1,1827 @@
+Newsgroups: comp.sources.misc
+From: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Subject:  v31i106:  unzip50 - Info-ZIP portable UnZip, version 5.0, Part03/14
+Message-ID: <1992Aug24.025251.24218@sparky.imd.sterling.com>
+X-Md4-Signature: fabdf9c0a06a78514d0221842abb608b
+Date: Mon, 24 Aug 1992 02:52:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: zip-bugs@cs.ucla.edu (Info-ZIP group)
+Posting-number: Volume 31, Issue 106
+Archive-name: unzip50/part03
+Supersedes: unzip: Volume 29, Issue 31-42
+Environment: UNIX, VMS, OS/2, MS-DOS, MACINTOSH, WIN-NT, LINUX, MINIX, COHERENT AMIGA?, !ATARI, symlink, SGI, DEC, Cray, Convex, Amdahl, Sun
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  MAC/Contents file_io.c match.c
+# Wrapped by kent@sparky on Sun Aug 23 21:09:31 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 3 (of 14)."'
+if test -f 'MAC/Contents' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/Contents'\"
+else
+  echo shar: Extracting \"'MAC/Contents'\" \(1275 characters\)
+  sed "s/^X//" >'MAC/Contents' <<'END_OF_FILE'
+XContents of the MAC sub-archive for UnZip 5.0 and later:
+X
+X  Contents                this file
+X  macfile.c               Macintosh filesystem code
+X  macstat.c               Macintosh stat() emulation
+X  macstat.h               header file for stat() emulation
+X  aztec.make              MPW makefile for Aztec C (binary)
+X  mpw.make                MPW makefile for MPW C (binary)
+X  thinkc.hqx              Think C project file (BinHex)
+X  thinkc.rsrc.hqx         resource file for Macintosh unzip (BinHex)
+X
+XThe makefiles are marked "binary" because they contain a few special
+Xcharacters (which look a lot like D's and 6's under Unix).  They're
+Xbasically readable, but e-mailing them without protection is likely
+Xto strip the high bit off these characters, rendering the makefiles
+Xless than useful.  Be forewarned...
+X
+XThe Think C files are BinHexed because they contain Mac resource forks
+Xin addition to the ordinary data forks (or maybe they only contain re-
+Xsource forks...whatever).  While Zip 1.9 and UnZip 5.0 can save/restore
+Xsuch information, it's not too helpful to make use of this feature until
+Xeveryone *has* UnZip 5.0.  Also, there's no way to store such information
+Xin a .tar.Z file, for instance.  Both of the .hqx files must be converted
+Xwith BinHex 4.0 (or later).
+END_OF_FILE
+  if test 1275 -ne `wc -c <'MAC/Contents'`; then
+    echo shar: \"'MAC/Contents'\" unpacked with wrong size!
+  fi
+  # end of 'MAC/Contents'
+fi
+if test -f 'file_io.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'file_io.c'\"
+else
+  echo shar: Extracting \"'file_io.c'\" \(34380 characters\)
+  sed "s/^X//" >'file_io.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  file_io.c
+X
+X  This file contains routines for doing direct input/output, file-related
+X  sorts of things.  Most of the system-specific code for unzip is contained
+X  here, including the non-echoing password code for decryption (bottom).
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#ifndef __GO32__
+X#  define const
+X#endif
+X
+X#define FILE_IO_C
+X#include "unzip.h"
+X
+X#ifdef  MSWIN
+X#  include "wizunzip.h"
+X#endif
+X
+X
+X/************************************/
+X/*  File_IO Local Prototypes, etc.  */
+X/************************************/
+X
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X   static int dos2unix __((unsigned char *buf, int len));
+X   int CR_flag = 0;      /* when last char of buffer == CR (for dos2unix()) */
+X#endif
+X
+X#ifdef OS2
+X   extern int   longname;          /* set in mapname.c */
+X   extern char  longfilename[];
+X#endif
+X
+X#ifdef CRYPT
+X#  if (defined(DOS_OS2) || defined(VMS))
+X#    define MSVMS
+X#    ifdef DOS_OS2
+X#      ifdef __EMX__
+X#        define getch() _read_kbd(0, 1, 0)
+X#      else
+X#        ifdef __GO32__
+X#          include <pc.h>
+X#          define getch() getkey()
+X#        else /* !__GO32__ */
+X#          include <conio.h>
+X#        endif /* ?__GO32__ */
+X#      endif
+X#    else /* !DOS_OS2 */
+X#      define getch() getc(stderr)
+X#      define OFF 0   /* for echo control */
+X#      define ON 1
+X#      define echoff(f) echo(OFF)
+X#      define echon()   echo(ON)
+X#      include <descrip.h>
+X#      include <iodef.h>
+X#      include <ttdef.h>
+X#      if !defined(SS$_NORMAL)
+X#        define SS$_NORMAL 1   /* only thing we need from <ssdef.h> */
+X#      endif
+X#    endif /* ?DOS_OS2 */
+X#  else /* !(DOS_OS2 || VMS) */
+X#    ifdef TERMIO       /* Amdahl, Cray, all SysV? */
+X#      ifdef CONVEX
+X#        include <sys/termios.h>
+X#        include <sgtty.h>
+X#      else /* !CONVEX */
+X#        ifdef LINUX
+X#          include <termios.h>
+X#        else /* !LINUX */
+X#          include <sys/termio.h>
+X#        endif /* ?LINUX */
+X#        define sgttyb termio
+X#        define sg_flags c_lflag
+X#      endif /* ?CONVEX */
+X       int ioctl OF((int, int, voidp *));
+X#      define GTTY(f,s) ioctl(f,TCGETA,(voidp *)s)
+X#      define STTY(f,s) ioctl(f,TCSETAW,(voidp *)s)
+X#    else /* !TERMIO */
+X#      if (!defined(MINIX) && !defined(__386BSD__))
+X#        include <sys/ioctl.h>
+X#      endif /* !MINIX && !__386BSD__ */
+X#      include <sgtty.h>
+X#      ifdef __386BSD__
+X#        define GTTY(f, s) ioctl(f, TIOCGETP, (voidp *) s)
+X#        define STTY(f, s) ioctl(f, TIOCSETP, (voidp *) s)
+X#      else /* !__386BSD__ */
+X#        define GTTY gtty
+X#        define STTY stty
+X         int gtty OF((int, struct sgttyb *));
+X         int stty OF((int, struct sgttyb *));
+X#      endif /* ?__386BSD__ */
+X#    endif /* ?TERMIO */
+X     int isatty OF((int));
+X     char *ttyname OF((int));
+X#    if (defined(PROTO) && !defined(__GNUC__) && !defined(_AIX))
+X       int open (char *, int, ...);
+X#    endif
+X     int close OF((int));
+X     int read OF((int, voidp *, int));
+X#  endif /* ?(DOS_OS2 || VMS) */
+X#endif /* CRYPT */
+X
+X
+X
+X
+X
+X/******************************/
+X/* Function open_input_file() */
+X/******************************/
+X
+Xint open_input_file()    /* return non-zero if open failed */
+X{
+X    /*
+X     *  open the zipfile for reading and in BINARY mode to prevent cr/lf
+X     *  translation, which would corrupt the bitstreams
+X     */
+X
+X#ifdef VMS
+X    zipfd = open(zipfn, O_RDONLY, 0, "ctx=stm");
+X#else /* !VMS */
+X#ifdef UNIX
+X    zipfd = open(zipfn, O_RDONLY);
+X#else /* !UNIX */
+X#ifdef MACOS
+X    zipfd = open(zipfn, 0);
+X#else /* !MACOS */
+X    zipfd = open(zipfn, O_RDONLY | O_BINARY);
+X#endif /* ?MACOS */
+X#endif /* ?UNIX */
+X#endif /* ?VMS */
+X    if (zipfd < 1) {
+X        fprintf(stderr, "error:  can't open zipfile [ %s ]\n", zipfn);
+X        return (1);
+X    }
+X    return 0;
+X}
+X
+X
+X
+X
+X
+X/**********************/
+X/* Function readbuf() */
+X/**********************/
+X
+Xint readbuf(buf, size)
+X    char *buf;
+X    register unsigned size;
+X{                               /* return number of bytes read into buf */
+X    register int count;
+X    int n;
+X
+X    n = size;
+X    while (size) {
+X        if (incnt == 0) {
+X            if ((incnt = read(zipfd, (char *)inbuf, INBUFSIZ)) <= 0)
+X                return (n-size);
+X            /* buffer ALWAYS starts on a block boundary:  */
+X            cur_zipfile_bufstart += INBUFSIZ;
+X            inptr = inbuf;
+X        }
+X        count = MIN(size, (unsigned)incnt);
+X        memcpy(buf, inptr, count);
+X        buf += count;
+X        inptr += count;
+X        incnt -= count;
+X        size -= count;
+X    }
+X    return (n);
+X}
+X
+X
+X
+X
+X
+X#ifndef VMS   /* for VMS use code in vms.c (old VMS code below is retained
+X               * in case of problems...will be removed in a later release) */
+X
+X/*********************************/
+X/* Function create_output_file() */
+X/*********************************/
+X
+Xint create_output_file()         /* return non-0 if creat failed */
+X{
+X/*---------------------------------------------------------------------------
+X    Create the output file with appropriate permissions.  If we've gotten to
+X    this point and the file still exists, we have permission to blow it away.
+X  ---------------------------------------------------------------------------*/
+X
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X    CR_flag = 0;   /* hack to get CR at end of buffer working */
+X#endif
+X
+X#if (defined(UNIX) && !defined(AMIGA))
+X    {
+X        int mask;
+X
+X#ifndef VMS
+X        if (!stat(filename, &statbuf) && (unlink(filename) < 0)) {
+X            fprintf(stderr, "\n%s:  cannot delete old copy\n", filename);
+X            return 1;
+X        }
+X#       define EXTRA_ARGS
+X#else /* VMS */
+X#       define EXTRA_ARGS   ,"rfm=stmlf","rat=cr"
+X#endif /* ?VMS */
+X
+X        mask = umask(0);   /* now know that we own it */
+X        outfd = creat(filename, 0xffff & pInfo->unix_attr  EXTRA_ARGS);
+X        umask(mask);                                            /* VMS, Unix */
+X    }
+X#else /* !UNIX || AMIGA */  /* file permissions set after file closed */
+X#ifndef MACOS
+X    outfd = creat(filename, S_IWRITE | S_IREAD);     /* DOS, OS2, Mac, Amiga */
+X#else /* MACOS */
+X    {
+X        short fDataFork=TRUE;
+X        MACINFO mi;
+X        OSErr err;
+X
+X        fMacZipped = FALSE;
+X        CtoPstr(filename);
+X        if (extra_field &&
+X            (lrec.extra_field_length > sizeof(MACINFOMIN)) &&
+X            (lrec.extra_field_length <= sizeof(MACINFO))) {
+X            BlockMove(extra_field, &mi, lrec.extra_field_length);
+X            if ((makeword((byte *)&mi.header) == 1992) &&
+X                (makeword((byte *)&mi.data) ==
+X                  lrec.extra_field_length-sizeof(ZIP_EXTRA_HEADER)) &&
+X                (mi.signature == 'JLEE')) {
+X                gostCreator = mi.finfo.fdCreator;
+X                gostType = mi.finfo.fdType;
+X                fDataFork = (mi.flags & 1) ? TRUE : FALSE;
+X                fMacZipped = true;
+X                /* If it was Zipped w/Mac version, the filename has either */
+X                /* a 'd' or 'r' appended.  Remove the d/r when unzipping */
+X                filename[0]-=1;
+X            }
+X        }
+X        if (!fMacZipped) {
+X            if (!aflag)
+X                gostType = gostCreator = '\?\?\?\?';
+X            else {
+X#ifdef THINK_C
+X                gostCreator = 'KAHL';
+X#else
+X#ifdef MCH_MACINTOSH
+X                gostCreator = 'Manx';
+X#else
+X                gostCreator = 'MPS ';
+X#endif
+X#endif
+X                gostType = 'TEXT';
+X            }
+X        }
+X        PtoCstr(filename);
+X
+X        outfd = creat(filename, 0);
+X        if (fMacZipped) {
+X            CtoPstr(filename);
+X            if (hfsflag) {
+X                HParamBlockRec   hpbr;
+X    
+X                hpbr.fileParam.ioNamePtr = (StringPtr)filename;
+X                hpbr.fileParam.ioVRefNum = gnVRefNum;
+X                hpbr.fileParam.ioDirID = glDirID;
+X                hpbr.fileParam.ioFlFndrInfo = mi.finfo;
+X                hpbr.fileParam.ioFlCrDat = mi.lCrDat;
+X                hpbr.fileParam.ioFlMdDat = mi.lMdDat;
+X                err = PBHSetFInfo(&hpbr, 0);
+X            } else {
+X                err = SetFInfo((StringPtr)filename , 0, &mi.finfo);
+X            }
+X            PtoCstr(filename);
+X        }
+X        if (outfd != -1)
+X            outfd = open(filename, (fDataFork)? 1 : 2);
+X    }
+X#endif /* ?MACOS */
+X#endif /* ?(UNIX && !AMIGA) */
+X
+X    if (outfd < 1) {
+X        fprintf(stderr, "\n%s:  cannot create\n", filename);
+X        return 1;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    If newly created file is in text mode and should be binary (to disable
+X    automatic CR/LF translations), either close it and reopen as binary or
+X    else change the mode to binary (DOS, OS/2).
+X  ---------------------------------------------------------------------------*/
+X
+X#if (!defined(UNIX) && !defined(MACOS))
+X    if (!aflag) {
+X#ifdef DOS_OS2
+X        if (setmode(outfd, O_BINARY) == -1) {
+X#else /* !DOS_OS2 */
+X        close(outfd);
+X        if ((outfd = open(filename, O_RDWR | O_BINARY)) < 1) {
+X#endif /* ?DOS_OS2 */
+X            fprintf(stderr, "Can't make output file binary:  %s\n", filename);
+X            return 1;
+X        }
+X    }
+X#endif /* !UNIX && !MACOS */
+X
+X    return 0;
+X}
+X
+X#endif /* !VMS */
+X
+X
+X
+X
+X
+X/****************************/
+X/* Function FillBitBuffer() */
+X/****************************/
+X
+Xint FillBitBuffer()
+X{
+X    /*
+X     * Fill bitbuf, which is 32 bits.  This function is only used by the
+X     * READBIT and PEEKBIT macros (which are used by all of the uncompression
+X     * routines).
+X     */
+X    UWORD temp;
+X
+X    zipeof = 1;
+X    while (bits_left < 25 && ReadByte(&temp) == 8)
+X    {
+X      bitbuf |= (ULONG)temp << bits_left;
+X      bits_left += 8;
+X      zipeof = 0;
+X    }
+X    return 0;
+X}
+X
+X
+X
+X
+X
+X/***********************/
+X/* Function ReadByte() */
+X/***********************/
+X
+Xint ReadByte(x)
+X    UWORD *x;
+X{
+X    /*
+X     * read a byte; return 8 if byte available, 0 if not
+X     */
+X
+X    if (mem_mode)
+X        return ReadMemoryByte(x);
+X
+X    if (csize-- <= 0)
+X        return 0;
+X
+X    if (incnt == 0) {
+X        if ((incnt = read(zipfd, (char *)inbuf, INBUFSIZ)) <= 0)
+X            return 0;
+X        /* buffer ALWAYS starts on a block boundary:  */
+X        cur_zipfile_bufstart += INBUFSIZ;
+X        inptr = inbuf;
+X#ifdef CRYPT
+X        if (pInfo->encrypted) {
+X            byte *p;
+X            int n, t;
+X
+X            for (n = (longint)incnt > csize + 1 ? (int)csize + 1 : incnt,
+X                 p = inptr; n--; p++)
+X                *p = (byte) DECRYPT(*p);
+X        }
+X#endif /* CRYPT */
+X    }
+X    *x = *inptr++;
+X    --incnt;
+X    return 8;
+X}
+X
+X
+X
+X
+X
+X#ifndef VMS   /* for VMS use code in vms.c */
+X
+X/**************************/
+X/* Function FlushOutput() */
+X/**************************/
+X
+Xint FlushOutput()
+X{
+X    /*
+X     * flush contents of output buffer; return PK-type error code
+X     */
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X    int saved_ctrlZ = FALSE;
+X#endif
+X    int len;
+X
+X
+X    if (mem_mode) {
+X        int rc = FlushMemory();
+X        outpos += outcnt;
+X        outcnt = 0;
+X        outptr = outbuf;
+X        return rc;
+X    }
+X
+X    if (disk_full) {
+X        outpos += outcnt;   /* fake emptied buffer */
+X        outcnt = 0;
+X        outptr = outbuf;
+X        return 50;          /* ignore rest of this file */
+X    }
+X
+X    if (outcnt) {
+X        UpdateCRC(outbuf, outcnt);
+X
+X        if (!tflag) {
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X            if (aflag) {
+X                if (outbuf[outcnt-1] == CTRLZ) {
+X                    --outcnt;
+X                    saved_ctrlZ = TRUE;
+X                }
+X                len = dos2unix(outbuf, outcnt);
+X            } else
+X#endif /* !DOS_OS2 || MSWIN */
+X                len = outcnt;
+X#ifdef MACOS
+X            if ((giCursor+1) >> 2 != (giCursor>>2))
+X                SetCursor( *rghCursor[((giCursor+1)>>2)&0x03] );
+X            giCursor = (giCursor+1) & 15;
+X#endif /* MACOS */
+X#ifdef MSWIN
+X            /* if writing to console vs. actual file, write to Msg Window */
+X            if (cflag)
+X                WriteBufferToMsgWin(outout, len, FALSE);
+X            else if (_lwrite(outfd, outout, len) != (UINT)len)
+X#else /* !MSWIN */
+X            if (write(outfd, (char *)outout, len) != len)
+X#endif /* ?MSWIN */
+X#ifdef DOS_OS2
+X                if (!cflag)           /* ^Z treated as EOF, removed with -c */
+X#else /* !DOS_OS2 */
+X#ifdef MINIX
+X                if (errno == EFBIG)
+X                    if (write(fd, outout, len/2) != len/2  ||
+X                        write(fd, outout+len/2, len/2) != len/2)
+X#endif /* MINIX */
+X#endif /* ?DOS_OS2 */
+X                {
+X                    /* GRR: add test for force_flag when has its own switch */
+X                    fprintf(stderr,
+X                      "\n%s:  write error (disk full?).  Continue? (y/n/^C) ",
+X                      filename);
+X                    FFLUSH   /* for Amiga and Mac MPW */
+X#ifdef MSWIN
+X                    disk_full = 2;
+X#else /* !MSWIN */
+X                    fgets(answerbuf, 9, stdin);
+X                    if (*answerbuf == 'y')   /* stop writing to this file */
+X                        disk_full = 1;       /*  (outfd bad?), but new OK */
+X                    else
+X                        disk_full = 2;       /* no:  exit program */
+X#endif /* ?MSWIN */
+X                    return 50;    /* 50:  disk full */
+X                }
+X        }
+X        outpos += outcnt;
+X        outcnt = 0;
+X        outptr = outbuf;
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X        if (saved_ctrlZ) {
+X            *outptr++ = CTRLZ;
+X            ++outcnt;
+X        }
+X#endif /* !DOS_OS2 || MSWIN */
+X    }
+X    return 0;                   /* 0:  no error */
+X}
+X
+X#endif /* !VMS */
+X
+X
+X
+X
+X
+X#if (!defined(DOS_OS2) || defined(MSWIN))
+X
+X/***********************/
+X/* Function dos2unix() */
+X/***********************/
+X
+Xstatic int dos2unix(buf, len)   /* GRR:  rewrite for generic text conversions */
+X    unsigned char *buf;
+X    int len;
+X{
+X    int new_len;
+X    int i;
+X#ifdef MSWIN
+X    unsigned char __far *walker;
+X#else /* !MSWIN */
+X    unsigned char *walker;
+X#endif /* ?MSWIN */
+X
+X    new_len = len;
+X    walker = outout;
+X#ifdef MACOS
+X    /*
+X     * Mac wants to strip LFs instead CRs from CRLF pairs
+X     */
+X    if (CR_flag && *buf == LF) {
+X        buf++;
+X        new_len--;
+X        len--;
+X        CR_flag = buf[len] == CR;
+X    }
+X    else
+X        CR_flag = buf[len - 1] == CR;
+X    for (i = 0; i < len; i += 1) {
+X        *walker++ = ascii_to_native(*buf);
+X        if (*buf == LF) walker[-1] = CR;
+X        if (*buf++ == CR && *buf == LF) {
+X            new_len--;
+X            buf++;
+X            i++;
+X        }
+X    }
+X#else /* !MACOS */
+X    if (CR_flag && *buf != LF)
+X        *walker++ = ascii_to_native(CR);
+X    CR_flag = buf[len - 1] == CR;
+X    for (i = 0; i < len; i += 1) {
+X        *walker++ = ascii_to_native(*buf);
+X        if (*buf++ == CR && *buf == LF) {
+X            new_len--;
+X            walker[-1] = ascii_to_native(*buf++);
+X            i++;
+X        }
+X    }
+X    /*
+X     * If the last character is a CR, then "ignore it" for now...
+X     */
+X    if (walker[-1] == ascii_to_native(CR))
+X        new_len--;
+X#endif /* ?MACOS */
+X    return new_len;
+X}
+X
+X#endif /* !DOS_OS2 || MSWIN */
+X
+X
+X
+X
+X
+X#ifdef __GO32__
+X
+Xvoid _dos_setftime(int fd, UWORD dosdate, UWORD dostime)
+X{
+X    asm("pushl %ebx");
+X    asm("movl %0, %%ebx": : "g" (fd));
+X    asm("movl %0, %%ecx": : "g" (dostime));
+X    asm("movl %0, %%edx": : "g" (dosdate));
+X    asm("movl $0x5701, %eax");
+X    asm("int $0x21");
+X    asm("popl %ebx");
+X}
+X
+Xvoid _dos_setfileattr(char *name, int attr)
+X{
+X    asm("movl %0, %%edx": : "g" (name));
+X    asm("movl %0, %%ecx": : "g" (attr));
+X    asm("movl $0x4301, %eax");
+X    asm("int $0x21");
+X}
+X
+X#endif /* __GO32__ */
+X
+X
+X
+X
+X
+X#ifdef DOS_OS2
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * MS-DOS AND OS/2 VERSION (Mac, Unix/VMS versions are below)
+X  *
+X  * Set the output file date/time stamp according to information from the
+X  * zipfile directory record for this member, then close the file and set
+X  * its permissions (archive, hidden, read-only, system).  Aside from closing
+X  * the file, this routine is optional (but most compilers support it).
+X  */
+X{
+X/*---------------------------------------------------------------------------
+X    Allocate local variables needed by OS/2 and Turbo C.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef __TURBOC__
+X
+X    union {
+X        struct ftime ft;        /* system file time record */
+X        struct {
+X            UWORD ztime;        /* date and time words */
+X            UWORD zdate;        /* .. same format as in .ZIP file */
+X        } zt;
+X    } td;
+X
+X#endif                          /* __TURBOC__ */
+X
+X/*---------------------------------------------------------------------------
+X     Do not attempt to set the time stamp on standard output.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (cflag) {
+X        close(outfd);
+X        return;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Copy and/or convert time and date variables, if necessary; then set the
+X    file time/date.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifndef OS2
+X#ifdef __TURBOC__
+X    td.zt.ztime = lrec.last_mod_file_time;
+X    td.zt.zdate = lrec.last_mod_file_date;
+X    setftime(outfd, &td.ft);
+X#else /* !__TURBOC__ */
+X#ifdef WIN32
+X    {
+X        FILETIME ft;     /* 64-bit value made up of two 32 bit [low & high] */
+X        WORD wDOSDate;   /* for vconvertin from DOS date to Windows NT */
+X        WORD wDOSTime;
+X        HANDLE hFile;    /* file handle (defined in Windows NT) */
+X
+X        wDOSTime = (WORD) lrec.last_mod_file_time;
+X        wDOSDate = (WORD) lrec.last_mod_file_date;
+X
+X        /* The DosDateTimeToFileTime() function converts a DOS date/time
+X         * into a 64 bit Windows NT file time */
+X        DosDateTimeToFileTime(wDOSDate, wDOSTime, &ft);
+X
+X        /* Close the file and then re-open it using the Win32
+X         * CreateFile call, so that the file can be created
+X         * with GENERIC_WRITE access, otherwise the SetFileTime
+X         * call will fail. */
+X        close(outfd);
+X
+X        hFile = CreateFile(filename, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+X             FILE_ATTRIBUTE_NORMAL, NULL);
+X
+X        if (!SetFileTime(hFile, NULL, NULL, &ft))
+X            printf("\nSetFileTime failed: %d\n", GetLastError());
+X        CloseHandle(hFile);
+X        return;
+X    }
+X#else /* !WIN32 */
+X    _dos_setftime(outfd, lrec.last_mod_file_date, lrec.last_mod_file_time);
+X#endif /* ?WIN32 */
+X#endif /* ?__TURBOC__ */
+X#endif /* ?OS2 */
+X
+X/*---------------------------------------------------------------------------
+X    And finally we can close the file...at least everybody agrees on how to
+X    do *this*.  I think...  Oh yeah, also change the mode according to the
+X    stored file attributes, since we didn't do that when we opened the dude.
+X  ---------------------------------------------------------------------------*/
+X
+X    close(outfd);
+X
+X#ifdef OS2
+X    SetPathInfo(filename, lrec.last_mod_file_date,
+X                          lrec.last_mod_file_time, pInfo->dos_attr);
+X    if (extra_field)
+X        SetEAs(filename, extra_field);
+X    if (longname)
+X        SetLongNameEA(filename, longfilename);
+X#else /* !OS2 */
+X#ifdef __TURBOC__
+X    if (_chmod(filename, 1, pInfo->dos_attr) != pInfo->dos_attr)
+X        fprintf(stderr, "\nwarning:  file attributes may not be correct\n");
+X#else /* !__TURBOC__ */
+X#ifdef WIN32
+X    /* Attempt to set the file attributes.  SetFileAttributes returns
+X     * FALSE (0) if unsucessful, in which case print an error message,
+X     * with error value returned from GetLastError call. */
+X    pInfo->dos_attr = pInfo->dos_attr & 0x7F;
+X
+X    if (!(SetFileAttributes(filename, pInfo->dos_attr)))
+X        fprintf(stderr, "\nwarning (%d): could not set file attributes\n",
+X          GetLastError());
+X#else /* !WIN32 */
+X    _dos_setfileattr(filename, pInfo->dos_attr);
+X#endif /* ?WIN32 */
+X#endif /* ?__TURBOC__ */
+X#endif /* ?OS2 */
+X
+X} /* end function set_file_time_and_close() (DOS, OS/2) */
+X
+X
+X
+X
+X
+X#else                           /* !DOS_OS2 */
+X#ifdef MACOS                    /* Mac */
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * MAC VERSION
+X  */
+X{
+X    long m_time;
+X    DateTimeRec dtr;
+X    ParamBlockRec pbr;
+X    HParamBlockRec hpbr;
+X    OSErr err;
+X
+X    if (outfd != 1) {
+X        close(outfd);
+X
+X        /*
+X         * Macintosh bases all file modification times on the number of seconds
+X         * elapsed since Jan 1, 1904, 00:00:00.  Therefore, to maintain
+X         * compatibility with MS-DOS archives, which date from Jan 1, 1980,
+X         * with NO relation to GMT, the following conversions must be made:
+X         *      the Year (yr) must be incremented by 1980;
+X         *      and converted to seconds using the Mac routine Date2Secs(),
+X         *      almost similar in complexity to the Unix version :-)
+X         *                                     J. Lee
+X         */
+X
+X        dtr.year = (((lrec.last_mod_file_date >> 9) & 0x7f) + 1980);
+X        dtr.month = ((lrec.last_mod_file_date >> 5) & 0x0f);
+X        dtr.day = (lrec.last_mod_file_date & 0x1f);
+X
+X        dtr.hour = ((lrec.last_mod_file_time >> 11) & 0x1f);
+X        dtr.minute = ((lrec.last_mod_file_time >> 5) & 0x3f);
+X        dtr.second = ((lrec.last_mod_file_time & 0x1f) * 2);
+X
+X        Date2Secs(&dtr, (unsigned long *)&m_time);
+X        CtoPstr(filename);
+X        if (hfsflag) {
+X            hpbr.fileParam.ioNamePtr = (StringPtr)filename;
+X            hpbr.fileParam.ioVRefNum = gnVRefNum;
+X            hpbr.fileParam.ioDirID = glDirID;
+X            hpbr.fileParam.ioFDirIndex = 0;
+X            err = PBHGetFInfo(&hpbr, 0L);
+X            hpbr.fileParam.ioFlMdDat = m_time;
+X            if ( !fMacZipped )
+X                hpbr.fileParam.ioFlCrDat = m_time;
+X            hpbr.fileParam.ioDirID = glDirID;
+X            if (err == noErr)
+X                err = PBHSetFInfo(&hpbr, 0L);
+X            if (err != noErr)
+X                printf("error:  can't set the time for %s\n", filename);
+X        } else {
+X            pbr.fileParam.ioNamePtr = (StringPtr)filename;
+X            pbr.fileParam.ioVRefNum = pbr.fileParam.ioFVersNum =
+X              pbr.fileParam.ioFDirIndex = 0;
+X            err = PBGetFInfo(&pbr, 0L);
+X            pbr.fileParam.ioFlMdDat = pbr.fileParam.ioFlCrDat = m_time;
+X            if (err == noErr)
+X                err = PBSetFInfo(&pbr, 0L);
+X            if (err != noErr)
+X                printf("error:  can't set the time for %s\n", filename);
+X        }
+X
+X        /* set read-only perms if needed */
+X        if ((err == noErr) && !(pInfo->unix_attr & S_IWRITE)) {
+X            if (hfsflag) {
+X                hpbr.fileParam.ioNamePtr = (StringPtr)filename;
+X                hpbr.fileParam.ioVRefNum = gnVRefNum;
+X                hpbr.fileParam.ioDirID = glDirID;
+X                err = PBHSetFLock(&hpbr, 0);
+X            } else
+X                err = SetFLock((ConstStr255Param)filename, 0);
+X        }
+X        PtoCstr(filename);
+X    }
+X}
+X
+X
+X
+X
+X
+X#else /* !MACOS... */
+X#if (!defined(MTS) && !defined(VMS))   /* && !MTS (can't do) && !VMS: only one
+X                                  * left is UNIX (for VMS use code in vms.c) */
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * UNIX VERSION (MS-DOS & OS/2, Mac versions are above)
+X  */
+X{
+X    static short yday[]={0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+X    long m_time;
+X    int yr, mo, dy, hh, mm, ss, leap, days=0;
+X    struct utimbuf {
+X        time_t actime;          /* new access time */
+X        time_t modtime;         /* new modification time */
+X    } tp;
+X#ifdef AMIGA
+X#   define YRBASE  1978         /* in AmigaDos, counting begins 01-Jan-1978 */
+X    struct DateStamp myadate;
+X/*  extern char *_TZ;   no longer used? */
+X#else /* !AMIGA */
+X#   define YRBASE  1970
+X#ifdef BSD
+X#ifndef __386BSD__
+X    static struct timeb tbp;
+X#endif /* !__386BSD__ */
+X#else /* !BSD */
+X    extern long timezone;
+X#endif /* ?BSD */
+X#endif /* ?AMIGA */
+X
+X
+X    /*
+X     * Close the file *before* setting its time under Unix and AmigaDos.
+X     */
+X#ifdef AMIGA
+X    if (cflag)                  /* can't set time on stdout */
+X        return;
+X    close(outfd);
+X#else /* !AMIGA */
+X    close(outfd);
+X    if (cflag)                  /* can't set time on stdout */
+X        return;
+X#endif /* ?AMIGA */
+X
+X    /*
+X     * These date conversions look a little weird, so I'll explain.
+X     * UNIX bases all file modification times on the number of seconds
+X     * elapsed since Jan 1, 1970, 00:00:00 GMT.  Therefore, to maintain
+X     * compatibility with MS-DOS archives, which date from Jan 1, 1980,
+X     * with NO relation to GMT, the following conversions must be made:
+X     *      the Year (yr) must be incremented by 10;
+X     *      the Date (dy) must be decremented by 1;
+X     *      and the whole mess must be adjusted by TWO factors:
+X     *          relationship to GMT (ie.,Pacific Time adds 8 hrs.),
+X     *          and whether or not it is Daylight Savings Time.
+X     * Also, the usual conversions must take place to account for leap years,
+X     * etc.
+X     *                                     C. Seaman
+X     */
+X
+X    /* dissect date */
+X    yr = ((lrec.last_mod_file_date >> 9) & 0x7f) + (1980 - YRBASE);
+X    mo = ((lrec.last_mod_file_date >> 5) & 0x0f) - 1;
+X    dy = (lrec.last_mod_file_date & 0x1f) - 1;
+X
+X    /* dissect time */
+X    hh = (lrec.last_mod_file_time >> 11) & 0x1f;
+X    mm = (lrec.last_mod_file_time >> 5) & 0x3f;
+X    ss = (lrec.last_mod_file_time & 0x1f) * 2;
+X
+X    /* leap = # of leap years from BASE up to but not including current year */
+X    leap = ((yr + YRBASE - 1) / 4);   /* leap year base factor */
+X
+X    /* How many days from BASE to this year? (& add expired days this year) */
+X    days = (yr * 365) + (leap - 492) + yday[mo];
+X
+X    /* if year is a leap year and month is after February, add another day */
+X    if ((mo > 1) && ((yr+YRBASE)%4 == 0) && ((yr+YRBASE) != 2100))
+X        ++days;                 /* OK through 2199 */
+X
+X#ifdef AMIGA
+X/*  _TZ = getenv("TZ"); does Amiga not have TZ and tzset() after all? */
+X    myadate.ds_Days   =   days+dy-2;   /* off by one? */
+X    myadate.ds_Minute =   hh*60+mm;
+X    myadate.ds_Tick   =   ss*TICKS_PER_SECOND;
+X
+X    if (!(SetFileDate(filename, &myadate)))
+X        fprintf(stderr, "error:  can't set the time for %s\n", filename);
+X
+X#else /* !AMIGA */
+X    /* convert date & time to seconds relative to 00:00:00, 01/01/YRBASE */
+X    m_time = ((days + dy) * 86400) + (hh * 3600) + (mm * 60) + ss;
+X
+X#ifdef BSD
+X#ifndef __386BSD__
+X    ftime(&tbp);
+X    m_time += tbp.timezone * 60L;
+X#endif
+X/* #elif WIN32
+X * don't do anything right now (esp. since "elif" is not legal for old cc's */
+X#else /* !BSD */
+X    tzset();                    /* set `timezone' */
+X    m_time += timezone;         /* account for timezone differences */
+X#endif /* ?BSD */
+X
+X#ifdef __386BSD__
+X    m_time += localtime(&m_time)->tm_gmtoff;
+X#else
+X    if (localtime(&m_time)->tm_isdst)
+X        m_time -= 60L * 60L;    /* adjust for daylight savings time */
+X#endif
+X
+X    tp.actime = m_time;         /* set access time */
+X    tp.modtime = m_time;        /* set modification time */
+X
+X    /* set the time stamp on the file */
+X    if (utime(filename, &tp))
+X        fprintf(stderr, "error:  can't set the time for %s\n", filename);
+X#endif /* ?AMIGA */
+X}
+X
+X#endif /* !MTS && !VMS */
+X#endif /* ?MACOS */
+X#endif /* ?DOS_OS2 */
+X
+X
+X
+X
+X
+X/************************/
+X/*  Function handler()  */
+X/************************/
+X
+Xvoid handler(signal)   /* upon interrupt, turn on echo and exit cleanly */
+X    int signal;
+X{
+X#if (defined(SIGBUS) || defined(SIGSEGV))
+X    static char *corrupt = "error:  zipfile probably corrupt\n";
+X#endif
+X
+X#ifndef DOS_OS2
+X#ifdef CRYPT
+X    echon();
+X#endif /* CRYPT */
+X    putc('\n', stderr);
+X#endif /* !DOS_OS2 */
+X#ifdef SIGBUS
+X    if (signal == SIGBUS) {
+X        fprintf(stderr, corrupt);
+X        exit(3);
+X    }
+X#endif /* SIGBUS */
+X#ifdef SIGSEGV
+X    if (signal == SIGSEGV) {
+X        fprintf(stderr, corrupt);
+X        exit(3);
+X    }
+X#endif /* SIGSEGV */
+X    exit(0);
+X}
+X
+X
+X
+X
+X
+X/*******************************/
+X/*  Non-echoing password code  */
+X/*******************************/
+X
+X#ifdef CRYPT
+X#ifndef DOS_OS2
+X#ifdef VMS
+X
+Xint echo(opt)
+X    int opt;
+X{
+X/*---------------------------------------------------------------------------
+X    Based on VMSmunch.c, which in turn was based on Joe Meadows' file.c code.
+X  ---------------------------------------------------------------------------
+X     * For VMS v5.x:
+X     *   IO$_SENSEMODE/SETMODE info:  Programming, Vol. 7A, System Programming,
+X     *     I/O User's: Part I, sec. 8.4.1.1, 8.4.3, 8.4.5, 8.6
+X     *   sys$assign(), sys$qio() info:  Programming, Vol. 4B, System Services,
+X     *     System Services Reference Manual, pp. sys-23, sys-379
+X     *   fixed-length descriptor info:  Programming, Vol. 3, System Services,
+X     *     Intro to System Routines, sec. 2.9.2
+X     * GRR, 15 Aug 91
+X  ---------------------------------------------------------------------------*/
+X    static struct dsc$descriptor_s DevDesc =
+X        {9, DSC$K_DTYPE_T, DSC$K_CLASS_S, "SYS$INPUT"};
+X     /* {dsc$w_length, dsc$b_dtype, dsc$b_class, dsc$a_pointer}; */
+X    static short           DevChan, iosb[4];
+X    static long            i, status;
+X    static unsigned long   oldmode[2], newmode[2];   /* each = 8 bytes */
+X  
+X
+X/*---------------------------------------------------------------------------
+X    Assign a channel to standard input.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$assign(&DevDesc, &DevChan, 0, 0);
+X    if (!(status & 1))
+X        return status;
+X
+X/*---------------------------------------------------------------------------
+X    Use sys$qio and the IO$_SENSEMODE function to determine the current tty
+X    status (for password reading, could use IO$_READVBLK function instead,
+X    but echo on/off will be more general).
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$qio(0, DevChan, IO$_SENSEMODE, &iosb, 0, 0,
+X                     oldmode, 8, 0, 0, 0, 0);
+X    if (!(status & 1))
+X        return status;
+X    status = iosb[0];
+X    if (!(status & 1))
+X        return status;
+X
+X/*---------------------------------------------------------------------------
+X    Copy old mode into new-mode buffer, then modify to be either NOECHO or
+X    ECHO (depending on function argument opt).
+X  ---------------------------------------------------------------------------*/
+X
+X    newmode[0] = oldmode[0];
+X    newmode[1] = oldmode[1];
+X    if (opt == OFF)
+X        newmode[1] |= TT$M_NOECHO;                      /* set NOECHO bit */
+X    else
+X        newmode[1] &= ~((unsigned long) TT$M_NOECHO);   /* clear NOECHO bit */
+X
+X/*---------------------------------------------------------------------------
+X    Use the IO$_SETMODE function to change the tty status.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$qio(0, DevChan, IO$_SETMODE, &iosb, 0, 0,
+X                     newmode, 8, 0, 0, 0, 0);
+X    if (!(status & 1))
+X        return status;
+X    status = iosb[0];
+X    if (!(status & 1))
+X        return status;
+X
+X/*---------------------------------------------------------------------------
+X    Deassign the sys$input channel by way of clean-up, then exit happily.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$dassgn(DevChan);
+X    if (!(status & 1))
+X        return status;
+X
+X    return SS$_NORMAL;   /* we be happy */
+X
+X} /* end function echo() */
+X
+X
+X
+X
+X
+X#else /* !VMS */
+X
+Xstatic int echofd=(-1);       /* file descriptor whose echo is off */
+X
+Xvoid echoff(f)
+X    int f;                    /* file descriptor for which to turn echo off */
+X/* Turn echo off for file descriptor f.  Assumes that f is a tty device. */
+X{
+X    struct sgttyb sg;         /* tty device structure */
+X
+X    echofd = f;
+X    GTTY(f, &sg);             /* get settings */
+X    sg.sg_flags &= ~ECHO;     /* turn echo off */
+X    STTY(f, &sg);
+X}
+X
+X
+X
+Xvoid echon()
+X/* Turn echo back on for file descriptor echofd. */
+X{
+X    struct sgttyb sg;         /* tty device structure */
+X
+X    if (echofd != -1) {
+X        GTTY(echofd, &sg);    /* get settings */
+X        sg.sg_flags |= ECHO;  /* turn echo on */
+X        STTY(echofd, &sg);
+X        echofd = -1;
+X    }
+X}
+X
+X#endif /* ?VMS */
+X#endif /* !DOS_OS2 */
+X
+X
+X
+X
+X
+Xchar *getp(m, p, n)
+X    char *m;                  /* prompt for password */
+X    char *p;                  /* return value: line input */
+X    int n;                    /* bytes available in p[] */
+X/* Get a password of length n-1 or less into *p using the prompt *m.
+X   The entered password is not echoed.  Return p on success, NULL on
+X   failure (can't get controlling tty). */
+X{
+X    char c;                   /* one-byte buffer for read() to use */
+X    int i;                    /* number of characters input */
+X    char *w;                  /* warning on retry */
+X
+X#ifndef DOS_OS2
+X#ifndef VMS
+X    int f;                    /* file decsriptor for tty device */
+X
+X    /* turn off echo on tty */
+X    if (!isatty(2))
+X        return NULL;          /* error if not tty */
+X    if ((f = open(ttyname(2), 0, 0)) == -1)
+X        return NULL;
+X#endif /* !VMS */
+X    echoff(f);                /* turn echo off */
+X#endif /* !DOS_OS2 */
+X
+X    /* get password */
+X    w = "";
+X    do {
+X#ifdef VMS   /* bug:  VMS adds '\n' to NULL fputs (apparently) */
+X        if (*w)
+X#endif /* VMS */
+X            fputs(w, stderr); /* warning if back again */
+X        fputs(m, stderr);     /* prompt */
+X        fflush(stderr);
+X        i = 0;
+X        do {                  /* read line, keeping n */
+X#ifdef MSVMS
+X            if ((c = (char)getch()) == '\r')
+X                c = '\n';
+X#else /* !MSVMS */
+X            read(f, &c, 1);
+X#endif /* ?MSVMS */
+X            if (i < n)
+X                p[i++] = c;
+X        } while (c != '\n');
+X        putc('\n', stderr);  fflush(stderr);
+X        w = "(line too long--try again)\n";
+X    } while (p[i-1] != '\n');
+X    p[i-1] = 0;               /* terminate at newline */
+X
+X#ifndef DOS_OS2
+X    echon();                  /* turn echo back on */
+X#ifndef VMS
+X    close(f);
+X#endif /* !VMS */
+X#endif /* !DOS_OS2 */
+X
+X    /* return pointer to password */
+X    return p;
+X}
+X
+X#endif /* CRYPT */
+END_OF_FILE
+  if test 34380 -ne `wc -c <'file_io.c'`; then
+    echo shar: \"'file_io.c'\" unpacked with wrong size!
+  fi
+  # end of 'file_io.c'
+fi
+if test -f 'match.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'match.c'\"
+else
+  echo shar: Extracting \"'match.c'\" \(19243 characters\)
+  sed "s/^X//" >'match.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  match.c
+X
+X  The match() routine recursively compares a string to a "pattern" (regular
+X  expression), returning TRUE if a match is found or FALSE if not.  This
+X  version is specifically for use with unzip.c:  as did the previous match()
+X  from SEA, it leaves the case (upper, lower, or mixed) of the string alone,
+X  but converts any uppercase characters in the pattern to lowercase if indi-
+X  cated by the global var pInfo->lcflag (which is to say, string is assumed
+X  to have been converted to lowercase already, if such was necessary).
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#ifdef ZIPINFO
+X#  undef ZIPINFO   /* make certain there is only one version of match.o */
+X#endif /* ZIPINFO */
+X#include "unzip.h"
+X
+Xstatic int  matche              __((register char *p, register char *t));
+Xstatic int  matche_after_star   __((register char *p, register char *t));
+X
+X/* #include "filmatch.h": */
+X#ifndef BOOLEAN
+X#  define BOOLEAN short int      /* v1.2 made it short */
+X#endif
+X
+X/* match defines */
+X#define MATCH_PATTERN  6    /* bad pattern */
+X#define MATCH_LITERAL  5    /* match failure on literal match */
+X#define MATCH_RANGE    4    /* match failure on [..] construct */
+X#define MATCH_ABORT    3    /* premature end of text string */
+X#define MATCH_END      2    /* premature end of pattern string */
+X#define MATCH_VALID    1    /* valid match */
+X
+X/* pattern defines */
+X#define PATTERN_VALID  0    /* valid pattern */
+X#define PATTERN_ESC   -1    /* literal escape at end of pattern */
+X#define PATTERN_RANGE -2    /* malformed range in [..] construct */
+X#define PATTERN_CLOSE -3    /* no end bracket in [..] construct */
+X#define PATTERN_EMPTY -4    /* [..] contstruct is empty */
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*
+X*       match() returns TRUE if pattern matches, FALSE otherwise.
+X*       matche() returns MATCH_VALID if pattern matches, or an errorcode
+X*           as follows otherwise:
+X*
+X*            MATCH_PATTERN  - bad pattern
+X*            MATCH_RANGE    - match failure on [..] construct
+X*            MATCH_ABORT    - premature end of text string
+X*            MATCH_END      - premature end of pattern string
+X*            MATCH_VALID    - valid match
+X*
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters (zero or more)
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).  [0-9a-zA-Z_] is the
+X*  minimal set of characters allowed in the [..] pattern construct.
+X*  Other characters are allowed (ie. 8 bit characters) if your system
+X*  will support them.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  in a [..] construct and match the character exactly, precede it
+X*  with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+X/*----------------------------------------------------------------------------
+X*
+X*  Match the pattern PATTERN against the string TEXT;
+X*
+X*  returns MATCH_VALID if pattern matches, or an errorcode as follows
+X*  otherwise:
+X*
+X*            MATCH_PATTERN  - bad pattern
+X*            MATCH_RANGE    - match failure on [..] construct
+X*            MATCH_ABORT    - premature end of text string
+X*            MATCH_END      - premature end of pattern string
+X*            MATCH_VALID    - valid match
+X*
+X*
+X*  A match means the entire string TEXT is used up in matching.
+X*
+X*  In the pattern string:
+X*       `*' matches any sequence of characters (zero or more)
+X*       `?' matches any character
+X*       [SET] matches any character in the specified set,
+X*       [!SET] or [^SET] matches any character not in the specified set.
+X*       \ is allowed within a set to escape a character like ']' or '-'
+X*
+X*  A set is composed of characters or ranges; a range looks like
+X*  character hyphen character (as in 0-9 or A-Z).  [0-9a-zA-Z_] is the
+X*  minimal set of characters allowed in the [..] pattern construct.
+X*  Other characters are allowed (ie. 8 bit characters) if your system
+X*  will support them.
+X*
+X*  To suppress the special syntactic significance of any of `[]*?!^-\',
+X*  within a [..] construct and match the character exactly, precede it
+X*  with a `\'.
+X*
+X----------------------------------------------------------------------------*/
+X
+Xstatic int matche(p, t)
+Xregister char *p;
+Xregister char *t;
+X{
+X    register char range_start, range_end;  /* start and end in range */
+X
+X    BOOLEAN invert;             /* is this [..] or [!..] */
+X    BOOLEAN member_match;       /* have I matched the [..] construct? */
+X    BOOLEAN loop;               /* should I terminate? */
+X
+X    for (;  *p;  p++, t++) {
+X
+X        /* if this is the end of the text then this is the end of the match */
+X        if (!*t)
+X            return ((*p == '*') && (*++p == '\0'))?  MATCH_VALID : MATCH_ABORT;
+X
+X        /* determine and react to pattern type */
+X        switch (*p) {
+X
+X            /* single any character match */
+X            case '?':
+X                break;
+X
+X            /* multiple any character match */
+X            case '*':
+X                return matche_after_star (p, t);
+X
+X            /* [..] construct, single member/exclusion character match */
+X            case '[': {
+X
+X                /* move to beginning of range */
+X                p++;
+X
+X                /* check if this is a member match or exclusion match */
+X                invert = FALSE;
+X                if ((*p == '!') || (*p == '^')) {
+X                    invert = TRUE;
+X                    p++;
+X                }
+X
+X                /* if closing bracket here or at range start then we have a
+X                   malformed pattern */
+X                if (*p == ']')
+X                    return MATCH_PATTERN;
+X
+X                member_match = FALSE;
+X                loop = TRUE;
+X
+X                while (loop) {
+X
+X                    /* if end of construct then loop is done */
+X                    if (*p == ']') {
+X                        loop = FALSE;
+X                        continue;
+X                    }
+X
+X                    /* matching a '!', '^', '-', '\' or a ']' */
+X                    if (*p == '\\')
+X                        range_start = range_end = *++p;
+X                    else
+X                        range_start = range_end = *p;
+X
+X                    /* if end of pattern then bad pattern (Missing ']') */
+X                    if (!*p)
+X                        return MATCH_PATTERN;
+X
+X                    /* check for range bar */
+X                    if (*++p == '-') {
+X
+X                        /* get the range end */
+X                        range_end = *++p;
+X
+X                        /* if end of pattern or construct then bad pattern */
+X                        if ((range_end == '\0') || (range_end == ']'))
+X                            return MATCH_PATTERN;
+X
+X                        /* special character range end */
+X                        if (range_end == '\\') {
+X                            range_end = *++p;
+X
+X                            /* if end of text then we have a bad pattern */
+X                            if (!range_end)
+X                                return MATCH_PATTERN;
+X                        }
+X
+X                        /* move just beyond this range */
+X                        p++;
+X                    }
+X
+X                    /* if the text character is in range then match found.
+X                     * make sure the range letters have the proper
+X                     * relationship to one another before comparison
+X                     */
+X                    if (range_start < range_end) {
+X                        if ((*t >= range_start) && (*t <= range_end)) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    } else {
+X                        if ((*t >= range_end) && (*t <= range_start)) {
+X                            member_match = TRUE;
+X                            loop = FALSE;
+X                        }
+X                    }
+X                }
+X
+X                /* if there was a match in an exclusion set then no match */
+X                /* if there was no match in a member set then no match */
+X                if ((invert && member_match) ||
+X                   !(invert || member_match))
+X                    return MATCH_RANGE;
+X
+X                /* if this is not an exclusion then skip the rest of the [...]
+X                    construct that already matched. */
+X                if (member_match) {
+X                    while (*p != ']') {
+X
+X                        /* bad pattern (Missing ']') */
+X                        if (!*p)
+X                            return MATCH_PATTERN;
+X
+X                        /* skip exact match */
+X                        if (*p == '\\') {
+X                            p++;
+X
+X                            /* if end of text then we have a bad pattern */
+X                            if (!*p)
+X                                return MATCH_PATTERN;
+X                        }
+X
+X                        /* move to next pattern char */
+X                        p++;
+X                    }
+X                }
+X
+X                break;
+X            }  /* switch '[' */
+X
+X            /* must match this character exactly */
+X            default:
+X#ifdef OLDSTUFF
+X                if (*p != *t)
+X#else /* !OLDSTUFF */
+X                /* do it like arcmatch() (old unzip) did it (v1.2) */
+X                if (*t != (char) ((pInfo->lcflag && isupper((int)(*p)))?
+X                    tolower((int)(*p)) : *p))
+X#endif /* ?OLDSTUFF */
+X                    return MATCH_LITERAL;
+X
+X        }  /* switch */
+X    }  /* for */
+X
+X        /* if end of text not reached then the pattern fails */
+X    if (*t)
+X        return MATCH_END;
+X    else
+X        return MATCH_VALID;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X* recursively call matche() with final segment of PATTERN and of TEXT.
+X*
+X----------------------------------------------------------------------------*/
+X
+Xstatic int matche_after_star (p,t)
+Xregister char *p;
+Xregister char *t;
+X{
+X    register int match = 0;
+X    register int nextp;
+X
+X    /* pass over existing ? and * in pattern */
+X    while ((*p == '?') || (*p == '*')) {
+X
+X        /* take one char for each ? and +; if end of text then no match */
+X        if ((*p == '?') && (!*t++))
+X                return MATCH_ABORT;
+X
+X        /* move to next char in pattern */
+X        p++;
+X    }
+X
+X    /* if end of pattern we have matched regardless of text left */
+X    if (!*p)
+X        return MATCH_VALID;
+X
+X    /* get the next character to match which must be a literal or '[' */
+X    nextp = *p;
+X
+X    /* Continue until we run out of text or definite result seen */
+X    do {
+X        /* a precondition for matching is that the next character
+X         * in the pattern match the next character in the text or that
+X         * the next pattern char is the beginning of a range.  Increment
+X         * text pointer as we go here.
+X         */
+X        if ((nextp == *t) || (nextp == '['))
+X            match = matche(p, t);
+X
+X        /* if the end of text is reached then no match */
+X        if (!*t++)
+X            match = MATCH_ABORT;
+X
+X    } while ((match != MATCH_VALID) &&
+X             (match != MATCH_ABORT) &&
+X             (match != MATCH_PATTERN));
+X
+X    /* return result */
+X    return match;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X* match() is a shell to matche() to return only BOOLEAN values.
+X*
+X----------------------------------------------------------------------------*/
+X
+Xint match(string,pattern)
+Xchar *string;
+Xchar *pattern;
+X{
+X    int error_type;
+X    error_type = matche(pattern,string);
+X    return (error_type == MATCH_VALID ) ? TRUE : FALSE;
+X}
+X
+X
+X#ifdef TEST_MATCH
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_pattern (char *pattern);
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has is a well formed regular expression according
+X* to the above syntax
+X*
+X* error_type is a return code based on the type of pattern error.  Zero is
+X* returned in error_type if the pattern is a valid one.  error_type return
+X* values are as follows:
+X*
+X*   PATTERN_VALID - pattern is well formed
+X*   PATTERN_RANGE - [..] construct has a no end range in a '-' pair (ie [a-])
+X*   PATTERN_CLOSE - [..] construct has no end bracket (ie [abc-g )
+X*   PATTERN_EMPTY - [..] construct is empty (ie [])
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_valid_pattern (char *pattern, int *error_type);
+Xint fast_match_after_star (register char *pattern, register char *text);
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has any special wildcard characters
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_pattern (char *p)
+X{
+X    while (*p)
+X        switch (*p++) {
+X            case '?':
+X            case '*':
+X            case '[':
+X                return TRUE;
+X        }
+X    return FALSE;
+X}
+X
+X
+X/*----------------------------------------------------------------------------
+X*
+X* Return TRUE if PATTERN has is a well formed regular expression according
+X* to the above syntax
+X*
+X* error_type is a return code based on the type of pattern error.  Zero is
+X* returned in error_type if the pattern is a valid one.  error_type return
+X* values are as follows:
+X*
+X*   PATTERN_VALID - pattern is well formed
+X*   PATTERN_RANGE - [..] construct has a no end range in a '-' pair (ie [a-])
+X*   PATTERN_CLOSE - [..] construct has no end bracket (ie [abc-g )
+X*   PATTERN_EMPTY - [..] construct is empty (ie [])
+X*
+X----------------------------------------------------------------------------*/
+X
+XBOOLEAN is_valid_pattern (char *p, int *error_type)
+X{
+X    /* init error_type */
+X    *error_type = PATTERN_VALID;
+X
+X    /* loop through pattern to EOS */
+X    while (*p) {
+X
+X        /* determine pattern type */
+X        switch (*p) {
+X
+X            /* the [..] construct must be well formed */
+X            case '[':
+X                p++;
+X
+X                /* if the next character is ']' then bad pattern */
+X                if (*p == ']') {
+X                    *error_type = PATTERN_EMPTY;
+X                    return FALSE;
+X                }
+X
+X                /* if end of pattern here then bad pattern */
+X                if (!*p) {
+X                    *error_type = PATTERN_CLOSE;
+X                    return FALSE;
+X                }
+X
+X                /* loop to end of [..] construct */
+X                while (*p != ']') {
+X
+X                    /* check for literal escape */
+X                    if (*p == '\\') {
+X                        p++;
+X
+X                        /* if end of pattern here then bad pattern */
+X                        if (!*p++) {
+X                            *error_type = PATTERN_ESC;
+X                            return FALSE;
+X                        }
+X                    } else
+X                        p++;
+X
+X                    /* if end of pattern here then bad pattern */
+X                    if (!*p) {
+X                        *error_type = PATTERN_CLOSE;
+X                        return FALSE;
+X                    }
+X
+X                    /* if this a range */
+X                    if (*p == '-') {
+X
+X                        /* we must have an end of range */
+X                        if (!*++p || (*p == ']')) {
+X                            *error_type = PATTERN_RANGE;
+X                            return FALSE;
+X                        } else {
+X
+X                            /* check for literal escape */
+X                            if (*p == '\\')
+X                                p++;
+X
+X                            /* if end of pattern here then bad pattern */
+X                            if (!*p++) {
+X                                *error_type = PATTERN_ESC;
+X                                return FALSE;
+X                            }
+X                        }
+X                    }
+X                }
+X                break;
+X
+X            /* all other characters are valid pattern elements */
+X            case '*':
+X            case '?':
+X            default:
+X                p++;                /* "normal" character */
+X                break;
+X        }    /* switch */
+X    }
+X
+X    return TRUE;
+X}
+X
+X
+X    /*
+X    * This test main expects as first arg the pattern and as second arg
+X    * the match string.  Output is yay or nay on match.  If nay on
+X    * match then the error code is parsed and written.
+X    */
+X
+X#include <stdio.h>
+X
+Xint main(int argc, char *argv[])
+X{
+X    int error;
+X    int is_valid_error;
+X
+X    if (argc != 3)
+X        printf("Usage:  MATCH Pattern Text\n");
+X    else {
+X        printf("Pattern: %s\n", argv[1]);
+X        printf("Text   : %s\n", argv[2]);
+X
+X        if (!is_pattern(argv[1]))
+X            printf("    First Argument Is Not A Pattern\n");
+X        else {
+X            match(argv[1],argv[2]) ? printf("TRUE") : printf("FALSE");
+X            error = matche(argv[1],argv[2]);
+X            is_valid_pattern(argv[1],&is_valid_error);
+X
+X            switch (error) {
+X                case MATCH_VALID:
+X                    printf("    Match Successful");
+X                    if (is_valid_error != PATTERN_VALID)
+X                        printf(" -- is_valid_pattern() is complaining\n");
+X                    else
+X                        printf("\n");
+X                    break;
+X                case MATCH_RANGE:
+X                    printf("    Match Failed on [..]\n");
+X                    break;
+X                case MATCH_ABORT:
+X                    printf("    Match Failed on Early Text Termination\n");
+X                    break;
+X                case MATCH_END:
+X                    printf("    Match Failed on Early Pattern Termination\n");
+X                    break;
+X                case MATCH_PATTERN:
+X                    switch (is_valid_error) {
+X                        case PATTERN_VALID:
+X                            printf("    Internal Disagreement On Pattern\n");
+X                            break;
+X                        case PATTERN_RANGE:
+X                            printf("    No End of Range in [..] Construct\n");
+X                            break;
+X                        case PATTERN_CLOSE:
+X                            printf("    [..] Construct is Open\n");
+X                            break;
+X                        case PATTERN_EMPTY:
+X                            printf("    [..] Construct is Empty\n");
+X                            break;
+X                        default:
+X                            printf("    Internal Error in is_valid_pattern()\n");
+X                    }
+X                    break;
+X                default:
+X                    printf("    Internal Error in matche()\n");
+X                    break;
+X            } /* switch */
+X        }
+X
+X    }
+X    return(0);
+X}
+X
+X#endif  /* TEST_MATCH */
+END_OF_FILE
+  if test 19243 -ne `wc -c <'match.c'`; then
+    echo shar: \"'match.c'\" unpacked with wrong size!
+  fi
+  # end of 'match.c'
+fi
+echo shar: End of archive 3 \(of 14\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 14 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2066 @@
+Newsgroups: comp.sources.misc
+From: pgf@Cayman.COM (Paul Fox)
+Subject:  v29i126:  nruff - text formatter for KXP-1124, Part01/01
+Message-ID: <1992May17.185427.1177@sparky.imd.sterling.com>
+X-Md4-Signature: bf20db3759941b0887056b8d146ea759
+Date: Sun, 17 May 1992 18:54:27 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: pgf@Cayman.COM (Paul Fox)
+Posting-number: Volume 29, Issue 126
+Archive-name: nruff/part01
+Environment: Panasonic KXP-1124, SYSV386, UNIX-PC
+
+#!/bin/sh
+# This is nruff, a shell archive (shar 3.47)
+# made 04/28/1992 15:20 UTC by pgf@cayman.com
+# Source directory /tmp_mnt/home/cuba/pgf/nruff
+#
+# existing files WILL be overwritten
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  39419 -r--r--r-- nruff.c
+#   4488 -rw-rw-r-- nruff.doc
+#    114 -rw-rw-r-- Makefile
+#
+# ============= nruff.c ==============
+echo 'x - extracting nruff.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'nruff.c' &&
+/*
+X *	This is nruff, a simple text formatter, which I wrote a couple of
+X *	years ago to kill time while looking for a job.  I needed to write
+X *	and print a resume, and had no word processor or formatter to drive
+X *	my printer.
+X * 
+X *	It drives the Panasonic KXP-1124, in its Epson (750?  850?)
+X *	emulation mode.  It's pretty printer specific, but it runs that
+X *	printer quite well, should be portable to other hosts, since it's
+X *	fairly straightforward code.  (I've run it on the UNIX PC and AT&T
+X *	386 UNIX.)  I'm posting it in the hopes that someone finds it useful,
+X *	before the 1124 is totally obsolete.  (Does anyone have a PostScript
+X *	driver for...  :-)
+X *
+X *	It supports all the built in fonts, including the proportionally
+X *	spaced versions.  It supports super- and sub-script modes.  You can
+X *	do page headers and footers, and marked and indexed lists.  Left,
+X *	right, top, and bottom margins are all specifyable in inches.
+X *
+X *	Documentation consists of a single crib sheet, called nruff.doc,
+X *	which you should have found with this file.
+X *
+X *	Paul Fox, pgf@cayman.com,  April 28, 1992
+X *
+X *	(I started adding multi-column support, but never finished...)
+X */
+X
+#include "stdio.h"
+#include "ctype.h"
+X
+/* initial defaults, for some things that are user settable */
+/*   some other defaults, like margins, are based on these */
+X
+#define DEF_FWID 85	/* physical page width, tenths of inches */
+#define DEF_FLEN 110	/* physical page length, tenths of inches */
+X
+/* these are sent to the printer on startup */
+#define DEFLPI 6	/* line pitch, in lpi */
+#define DEFPITCH 10	/* character pitch, in cpi */
+#define DEFFONT "draft"
+X
+/* miscellaneous junk */
+#define BAD 0
+#define GOOD 1
+#define FALSE 0
+#define TRUE 1
+#define eq(s1,s2) (!strcmp(s1,s2))
+#define eqn(s1,s2,n) (!strncmp(s1,s2,n))
+X
+/* some ascii characters */
+#define ESC 0x1b
+#define DC2 0x12
+#define SI  0x0f
+X
+/* font types */
+/* these values (except draft) match printer manual, p.6-6 */
+#define SA 1		/* sans serif */
+#define CO 2		/* courier */
+#define PR 3		/* prestige */
+#define SC 4		/* script */
+#define BO 6		/* bold PS */
+#define DR 7		/* draft */
+/* none */
+#define NO 0		/* none -- not selectable, just the initial default */
+X
+int font;  /* keeps track of current font setting */
+X
+/* text enhancements */
+#define NONE	0
+X
+#define BASIC 0xff /* mask for the basic enhancements */
+#define BOLD	'B'
+#define ITALIC	'I'
+#define UNDER	'U'
+#define LARGE	'L'
+#define GRAPHIC1 'G'
+#define GRAPHIC2 'g'
+/* sub and super are independent of the others */
+#define EXTRA 0xff00 /* mask for the extra enhancements */
+#define SUPER	('S'<<8)
+#define SUB	('s'<<8)
+X
+/* All widths are kept internally as 180'ths of an inch */
+#define H_INCH 180
+/* the user, sees 10'ths of an inch, i.e. pica character widths, or inches */
+X
+/* page lengths are kept internally in 360'ths of an inch */
+#define V_INCH 360
+/* externally, it is in 10'ths of an inch, or inches */
+X
+/* we can only get within a quarter inch of the left edge of the page */
+#define MINLW H_INCH/4
+/* we seem to lose about half an inch at the top of each sheet */
+#define MINPL V_INCH/2
+X
+X
+/* character pitch can be 10, 12, 15, 17, 20, or proportional (-1) */
+int pitch = DEFPITCH;
+X
+char *Prog;  /* saves argv[0] */
+X
+/* the current word of text, and one word of history */
+char word1[100] = "";
+char word2[100] = "";
+char *lastword = word1;
+char *thisword = word2;
+X
+/* commands with text arguments poke the rest of their line
+X   in here, where it is then doled out one word at a time */
+char *pokestuff = NULL;
+X
+/* if we want a line break when those arguments are used up (like after 
+X	centering, as opposed to makeing bold), this tells us so */
+int breakafterpoke = FALSE;
+X
+/* if we want a different enhancement after the poked text, put it here */
+int enhanceafterpoke = FALSE;
+X
+/*  done_enhance keeps track of what we've _really_ done, want_enhace
+X	keeps track of what we want for the next word of output.
+X   we suppress enhancements across linefeeds, because the 
+X   printer will underline the left margin, and it makes calculating 
+X   indents work correctly in large mode.
+*/
+int want_enhance = NONE;
+int done_enhance = NONE;
+int enhoffatendofline = 0; /* if an enhance command is alone on a line, it */
+X			 /*	is "permanent" 'til the next enhancement */
+X
+/* space between pair of words or at the start of the line is figured out 
+X	just before the next word is printed */
+char *space;
+X
+/* always printed a fixed distance above and below the top and bottom
+X	margins, unless too close to the edge of the paper -- then they
+X	go at the top or bottom line of the page (unless that's the top
+X	(or bottom) margin, then the headers/footers are dropped */
+char pageheader[100];
+char pagefooter[100];
+/* footer depth and header height -- distance below or above margin */
+int ftdepth = V_INCH/2;
+int hdheight = V_INCH/2;
+int allheaders;  /* should header go at top of first page?*/
+int allfooters;  /* should footer go at bottom of last page?*/
+X
+/* a few flags to tell us where we are in both input and output streams */
+int inpendofline = TRUE;
+int inpstartofline = TRUE;
+int outpstartofline = TRUE;
+X
+/* do we want a newline because of this command? */
+int donewline = FALSE;
+X
+/* how many blank lines have been requested? */
+int leaveblanklines = 0;
+X
+/* line fill mode */
+int filling = TRUE;
+X
+int indent = 0;
+int rightjustcol = 0;
+X
+int tmpindent = 0;
+int paraindent = 0;
+int usetmpind = FALSE;	/* flag -- is tmpindent valid? */
+X
+/* these hold the size of the form we're dealing with */
+int formwidth = DEF_FWID * H_INCH/10;
+int formlength = DEF_FLEN * V_INCH/10;
+X
+/* these two keep track of where we are on the page */
+/*  they keep track of the _lower_left_ corner of the _next_ character */
+int curlinewidth;
+int curpagelen;
+X
+/* current line and page, numbered starting with 0 */
+int linenumber;
+int pagenumber;
+X
+/* the inital left and top margins are one inch each */
+int leftmargin = H_INCH;
+int topmargin = V_INCH;
+X
+/* the inital right and bottom margins are set to make the margins symmetric */
+int rightmargin = DEF_FWID*H_INCH/10 - H_INCH;
+int bottommargin = DEF_FLEN*V_INCH/10 - V_INCH;
+X
+/* how many columns, how wide are they, and how wide is the gutter */
+int columns;  /* usually 0 */
+int colwidth;
+int gutwidth;
+X
+int unitsperline = V_INCH/DEFLPI;
+X
+/* for the ".seq" command, which allows numbered or lettered lists */
+/* if not explicitly started, do a numeric list */
+int sequencer = 1;
+int numericseq = TRUE;
+char seqbuff[54];
+char seqsep[50];
+X
+/* forward declarations */
+char *calcspaces();
+char *calcleftwhite();
+char *restofline();
+char *getstrarg();
+char *getpoked();
+X
+FILE *Ifile;
+FILE *Ofile;
+X
+/* for getopt() */
+extern char *optarg;
+extern int optind;
+X
+/* debugging:  print item V in format F (i.e. printf format) */
+#define DEBUGVAL(V,F) { if (debug) errr("debug: V is F\n",V); }
+X
+int debug = FALSE;
+int draftonly = FALSE;
+int rflag = FALSE;
+X
+int inches = TRUE;
+X
+prusage()
+{
+X	fprintf(stderr,"usage: %s [-dr] [files...]\n",Prog);
+X	fprintf(stderr,"	-d forces draft mode\n");
+X	fprintf(stderr,"	-r forces carriage returns in output\n");
+X	fprintf(stderr,"	files are used in place of stdin.\n");
+X	fprintf(stderr,"	output always goes to stdout.\n");
+X	fprintf(stderr,"		This is nruff version 1.0\n");
+}
+X
+main(argc,argv)
+char *argv[];
+{
+X	int optc;
+X	FILE *f = NULL;
+X
+X	Prog = argv[0];
+X
+X	/* input and output may be changed by arguments, below */
+X	Ofile = stdout;
+X
+X	/* command line options */
+X	while ((optc = getopt(argc,argv,"Ddr")) != EOF) {
+X		switch(optc) {
+X		case 'D':
+X			debug = TRUE;
+X			break;
+X		case 'd':
+X			draftonly = TRUE;
+X			break;
+X		case 'r':
+X			rflag = TRUE;
+X			break;
+X		case '?':
+X		default:
+X			prusage();
+X			exit(1);
+X			break;
+X		}
+X	}
+X	/* set up defaults */
+X	esc('!',0,-1); /* reset all of printer's enhancements */
+X	dofont(DEFFONT,TRUE);
+X	dopitch(DEFPITCH,TRUE);
+X	dolinesperinch(DEFLPI * 10);
+X
+X	if (optind == argc) {
+X		Ifile = stdin;
+X		process();
+X	} else {
+X		while (optind < argc) { /* process every input file */
+X
+X			if (f != NULL)
+X				fclose(f);
+X
+X			f = fopen(argv[optind],"r");
+X			if (f == NULL) {
+X				fprintf(stderr, "%s: ",Prog);
+X				perror(argv[optind]);
+X				exit(1);
+X			}
+X			Ifile = f;
+X
+X			process();
+X
+X			optind++;
+X		}
+X	}
+X
+X	exit(0);
+}
+X
+/* zip through some input.  essentially, get a word, and either process it
+X	as a command, or spit it out */
+process()
+{
+X	while (getword(thisword)) {
+X		/* commands begin with '.' at front of line */
+X		if (inpstartofline && thisword[0] == '.') {
+X			docommand(thisword);
+X		} else {
+X			char *tmpwordptr;
+X
+X			emitword(thisword);
+X			/* shuffle some history */
+X			tmpwordptr = lastword;
+X			lastword = thisword;
+X			thisword = tmpwordptr;
+X		}
+X	}
+}
+X
+/* get a single word from the input stream */
+/*  manipulate some flags that indicate where we are relative to 
+X	input and output lines */
+/* if there is a poked buffer present, get the word from it rather than the
+X	input stream */
+getword(word)
+char *word;
+{
+X	int wascommand;
+X	int c;
+X
+X	if (inpendofline) {
+X		/* if we found the end before, we must be at the 
+X			start now */
+X		inpstartofline = TRUE;
+X		inpendofline = FALSE;
+X	} else {
+X		inpstartofline = FALSE;
+X	}
+X
+X	if (pokestuff != NULL) {
+X		/* get the first word of the poked word list */
+X		strcpy(word,getpoked());
+X		inpstartofline = FALSE;
+X	} else {
+X		/* no poked stuff */
+X		if (breakafterpoke) {
+X			/* did we request a line break when we poked? */
+X			donewline = TRUE;
+X			breakafterpoke = FALSE;
+X		}
+X		if (enhanceafterpoke) {
+X			/* did we request an enhancement when we poked? */
+X			want_enhance = enhanceafterpoke;
+X			enhanceafterpoke = FALSE;
+X		}
+X
+X		/* grab a word from the input stream.
+X			this ignores whitespace */
+X		if (fscanf(Ifile,"%s",word) == EOF)
+X			return BAD;
+X
+X		/* is it the last word on the line?
+X			checkforEOL() sets flags */
+X		if (checkforEOL() == EOF)
+X			return BAD;
+X
+X	}
+X	return GOOD;
+}
+X
+/* get a single word out of the previously poked input buffer */
+char *
+getpoked()
+{
+X	char *cp,*waspoked;
+X
+X	/* point at the stored stuff */
+X	cp = pokestuff; 
+X
+X	/* find the start of the word, just in case.  can't happen, i think */
+X	while (*cp == ' ') cp++;
+X
+X	waspoked = cp;
+X
+X	/* find the end of the word */
+X	while (*cp != ' ' && *cp != '\0') cp++;
+X
+X	if (*cp) {
+X		/* mark it, and if there's more poked stuff,
+X		   find the next word */
+X		*cp++ = '\0';
+X		while (*cp == ' ' && *cp != '\0')
+X			cp++;
+X		if (*cp) {
+X			pokestuff = cp;
+X		} else {
+X			/* no more for next time */
+X			pokestuff = NULL;
+X		}
+X	} else {
+X		/* no more for next time */
+X		pokestuff = NULL;
+X	}
+X	if (pokestuff == NULL) {
+X		/* if that's the end of it... */
+X		inpendofline = TRUE;
+X		inpstartofline = FALSE;
+X	}
+X	/* return the first word we found */
+X	return waspoked;
+}
+X
+emitword(word)
+char *word;
+{
+X	/* couple of one-time flags:
+X		to get the whitespace right on the first line, where no
+X		linefeed preceded to call calcleftwhite() for the margin
+X		and to get the top margin and header done on the first page */
+X	static int firstline = TRUE;
+X	static int firstpage = TRUE;
+X
+X	if (firstpage) {
+X		curpagelen = MINPL + unitsperline;
+X		curlinewidth = MINLW;
+X		outc('\r');
+X		toppage(TRUE);
+X		firstpage = FALSE;
+X	}
+X	if (donewline) {  /* newline was requested */
+X		newline();  /* sets space */
+X	} else {
+X		if (firstline) {
+X			space = calcleftwhite();
+X		} else {
+X			space = calcspaces(lastword);
+X		}
+X	}
+X	firstline = FALSE;
+X
+X	/* turn off underlining before putting out spaces, if we're about
+X		to turn it off anyway */
+X	if (done_enhance == UNDER && want_enhance != UNDER)
+X		enh_off(BASIC|EXTRA);
+X
+X	/* if the line will grow too long, break it, unless
+X		the following word is lone punctuation */
+X	if (strlen(word) == 1 && 
+X			(word[0] == ',' ||
+X			 word[0] == ';' ||
+X			 word[0] == '.')	) {
+X		space = "";  /* butt lone punctuation agains their neighbor */
+X	} else if (strwidth(space) +
+X		   strwidth(word) +
+X		   curlinewidth > rightmargin) {
+X		DEBUGVAL(strwidth(space),%d);
+X		DEBUGVAL(strwidth(word),%d);
+X		DEBUGVAL(curlinewidth,%d);
+X		DEBUGVAL(rightmargin,%d);
+X		newline();
+X	}
+X
+X	outstr(space);
+X	curlinewidth += strwidth(space);
+X
+X	/* justification from the .r command */
+X	if (rightjustcol) {
+X		moveover(rightjustcol);
+X		rightjustcol = 0;
+X	}
+X
+X	/* turn on enhancement before spitting a word */
+X	if (done_enhance != want_enhance) {
+X		enh_on(want_enhance);
+X	}
+X
+X	outstr(word);
+X	curlinewidth += strwidth(word);
+X	usetmpind = FALSE;  /* once we're sure it's been used */
+X	tmpindent = 0;
+X
+X	outpstartofline = FALSE; /* obviously not true anymore */
+X
+X	if ( inpendofline ) {  /* end of a line from the input */
+X
+X		/* if it was a one line enhancement, stop it */
+X		want_enhance &= ~enhoffatendofline;
+X		enhoffatendofline = 0;
+X
+X		/* in no-fill mode, input linebreaks cause output linebreaks */
+X		if (!filling)
+X			donewline = TRUE;
+X	}
+}
+X
+/* commands all begin with a ".", and occur as the first text on 
+X   an input line */
+/* some don't break the line if we're already 
+X	on a fresh one, by checking outpstartofline (i.e., two
+X	.br commands in a row should be equal to one */
+/* numeric arguments are adjusted to their internal units immediately */
+/* since we don't actually do newlines until later (before the next word)
+X	we keep track of how many blank lines were requested. (e.g. .P, .sp)
+X	in "leaveblanklines". coincidentally (?), these are also the
+X	commands which end previous paragraphs */
+docommand(word)
+char *word;
+{
+X	if (eq(word, ".fi")) {
+X
+X		filling = TRUE;
+X		if (!outpstartofline)
+X			donewline = TRUE;
+X
+X	} else if (eq(word, ".nf")) {
+X
+X		filling = FALSE;
+X		if (!outpstartofline)
+X			donewline = TRUE;
+X
+X	} else if (eq(word, ".i") || eq(word, ".in")) {
+X
+X		indent = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			indent /= 10;	/* and didn't need multiplying */
+X		indent *= H_INCH/10;
+X		if (indent < 0 || indent >= rightmargin - leftmargin) {
+X			errr(".in indent out of range");
+X			exit(1);
+X		}
+X
+X	} else if (eq(word, ".P")) {
+X
+X		int *indp, i;
+X
+X		/* from the arguments, first get tmpindent, then paraindent */
+X		/*   they both need adjusting and constraining, so  */
+X		/*   do this trickily, with a loop */
+X		for (i = 0, indp = &tmpindent; i<= 1; i++, indp = &paraindent) {
+X			*indp = getnumarg();
+X
+X			if (!inches)	/* then the arg was already tenths, */
+X				*indp /= 10;  /* and didn't need multiplying */
+X			*indp *= H_INCH/10;
+X
+X			if (*indp < -indent) /* keep inside the left margin */
+X				*indp = -indent;
+X			else if (*indp >= rightmargin - indent - leftmargin)
+X				*indp = rightmargin - indent - leftmargin - 1;
+X		}
+X		usetmpind = TRUE;
+X
+X		donewline = TRUE;
+X		leaveblanklines++;
+X
+X	} else if (eq(word, ".sp")) { /* force one or more blank line */
+X		int l;
+X
+X		l = getnumarg()/10;	/* getnumarg multiplies by 10 */
+X
+X		if (l <= 0) /* quietly correct errors */
+X			l = 1;
+X
+X		donewline = TRUE;
+X		leaveblanklines += l;
+X		paraindent = 0;
+X
+X	} else if (eq(word, ".c")) {  /* centering */
+X		/* we use tmpindent for centering.  it is shared by the
+X			first-line indent for paragraphs, but if we center
+X			the first line of a paragraph, we want centering to
+X			take precedence anyway  */
+X		int m;
+X
+X		/* leave the args around in "pokestuff" -- they'll be
+X			picked up in getword() when it tries to advance */
+X		pokestuff = restofline(TRUE);
+X		breakafterpoke = TRUE;
+X
+X		/* strwidth() normally takes care of this, but not for
+X			margin calculations (they're done single-width) */
+X		if (want_enhance == LARGE)
+X			m = 2;
+X		else
+X			m = 1;
+X
+X		/* start column is center of margins minus half the text:
+X			i.e.  (r+l)/2 - w/2
+X		 */
+X		tmpindent = (rightmargin + leftmargin - 
+X					m*strwidth(pokestuff))/2;
+X
+X		/* take off the margin, since it'll be put back on later */
+X		tmpindent -= (leftmargin + indent);
+X
+X		usetmpind = TRUE;
+X		if (!outpstartofline)
+X			donewline = TRUE;
+X
+X	} else if (eq(word, ".r")) { /* right justification */
+X
+X		pokestuff = restofline(TRUE);
+X
+X		/* just set this up -- it'll be used in the next emitword() */
+X		rightjustcol = rightmargin - strwidth(pokestuff);
+X
+X	} else if (eq(word, ".nop")) {
+X		/* this is a no-op -- useful for formatting words that begin
+X			with "." */
+X		pokestuff = restofline(FALSE);
+X
+X	} else if (eq(word, ".\\") || eq(word, ".#")) {
+X		/* this is a comment -- throw what follows away */
+X		(void)restofline(FALSE);
+X
+X	} else if (eq(word, ".pf")) {
+X		char *cp;
+X
+X		cp = restofline(TRUE);
+X		strcpy(pagefooter, cp ? cp : "");
+X
+X	} else if (eq(word, ".ph")) {
+X		char *cp;
+X
+X		cp = restofline(TRUE);
+X		strcpy(pageheader, cp ? cp : "");
+X
+X	} else if (eqn(word, ".allheaders",5)) {
+X
+X		allheaders = TRUE;
+X
+X	} else if (eqn(word, ".allfooters",5)) {
+X
+X		allfooters = TRUE;
+X
+X	} else if (eq(word, ".inches")) {
+X
+X		inches = TRUE;
+X
+X	} else if (eq(word, ".tenths")) {
+X
+X		inches = FALSE;
+X
+X	} else if (eq(word, ".br")) {
+X		/* force a line break -- not a blank line */
+X
+X		if (!outpstartofline)
+X			donewline = TRUE;
+X
+X	} else if (eq(word, ".lm")) { /* left margin has a .25 inch minimum */
+X
+X		leftmargin = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			leftmargin /= 10; /* and didn't need multiplying */
+X		leftmargin *= H_INCH/10;
+X		if (leftmargin < MINLW) {
+X			fprintf(stderr,
+X		"%s: warning: leftmargin too small, setting to minimum\n",
+X					 Prog);
+X			leftmargin = MINLW;
+X		} else if (leftmargin > rightmargin) {
+X	errr("warning:  leftmargin wrong side of rightmargin -- readjusting");
+X			leftmargin = rightmargin - strwidth(" ");
+X		}
+X		DEBUGVAL(leftmargin,%d);
+X
+X	} else if (eq(word, ".rm")) {
+X
+X		/* externally, rightmargin is measured from the right
+X			edge of the form.  Internally, we measure from
+X			the left edge */
+X
+X		rightmargin = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			rightmargin /= 10; /* and didn't need multiplying */
+X		rightmargin *= H_INCH/10;
+X
+X		if (rightmargin > 3*H_INCH)  /* three inches */
+X	errr("warning:  rightmargin seems too big -- measure from the right?");
+X
+X		rightmargin = formwidth - rightmargin;
+X
+X		if (rightmargin < 0) {
+X			errr("error: negative right margin not allowed");
+X			exit(1);
+X		}
+X
+X
+X		if (rightmargin < leftmargin) {
+X	errr("warning:  rightmargin wrong side of leftmargin -- readjusting");
+X			rightmargin = leftmargin + strwidth(" ");
+X		}
+X
+X		DEBUGVAL(rightmargin,%d);
+X
+X	} else if (eq(word, ".tm")) {	/* top margin -- half inch minimum */
+X
+X		topmargin = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			topmargin /= 10; /* and didn't need multiplying */
+X		topmargin *= V_INCH/10;
+X		if (topmargin < MINPL) {
+X			fprintf(stderr,
+X		"%s: warning: topmargin too small, setting to minimum\n",
+X					 Prog);
+X			topmargin = MINLW;
+X		} else if (topmargin > bottommargin) {
+X		errr("warning:  topmargin below bottommargin -- readjusting");
+X			topmargin = bottommargin - unitsperline;
+X		}
+X
+X		DEBUGVAL(topmargin,%d);
+X
+X	} else if (eq(word, ".bm")) {  /* bottom margin */
+X
+X		bottommargin = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			bottommargin /= 10; /* and didn't need multiplying */
+X		bottommargin *= V_INCH/10;
+X
+X		if (bottommargin < 0) {
+X			errr("error: negative margin not allowed");
+X			exit(1);
+X		}
+X
+X		if (bottommargin > 5*V_INCH)  /* five inches */
+X    errr("warning:  bottom margin seems too big -- measure from the bottom?");
+X
+X		bottommargin = formlength - bottommargin;
+X
+X
+X		if (bottommargin < topmargin) {
+X		errr("warning:  bottommargin below topmargin -- readjusting");
+X			bottommargin = topmargin + unitsperline;
+X		}
+X
+X		DEBUGVAL(bottommargin,%d);
+X
+X	} else if (eqn(word, ".hdheight",4)) {  /* header height from margin */
+X
+X		hdheight = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			hdheight /= 10; /* and didn't need multiplying */
+X		hdheight *= V_INCH/10;
+X
+X		if (topmargin - hdheight < unitsperline) {
+X		errr("warning: header height too big -- resetting to max");
+X			hdheight = topmargin - unitsperline;
+X		}
+X
+X	} else if (eqn(word, ".ftdepth",4)) {  /* footer depth from margin */
+X		ftdepth = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			ftdepth /= 10; /* and didn't need multiplying */
+X		ftdepth *= V_INCH/10;
+X
+X		if (bottommargin + ftdepth > formlength) {
+X		errr("warning: footer depth too big -- resetting to max");
+X			ftdepth = formlength - bottommargin;
+X		}
+X
+X	} else if (eq(word, ".ln")) {
+X
+X		formlength = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			formlength /= 10;  /* and didn't need multiplying */
+X
+X		/* the printer supports 11, 12, 14, 8, 8.5, 11 2/3 inch forms */
+X		switch(formlength) {
+X		case 120:
+X		case 140:
+X		case 80:
+X		case 851:
+X		case 116:
+X		case 117:
+X		  errr("warning:  be sure to set form length on front panel");
+X		case 110:
+X			break;
+X			
+X		default:
+X		  errr("warning:  this length not supported by printer\n\
+X	and will only work for single sheets");
+X			break;
+X
+X		}
+X		formlength *= V_INCH/10;
+X		if (formlength < 1) {
+X			errr(".ln form length too small");
+X			exit(1);
+X		}
+X
+X		DEBUGVAL(formlength,%d);
+X
+X	} else if (eq(word, ".wd")) {
+X
+X		formwidth = getnumarg();
+X		if (!inches)	/* then the argument was already tenths, */
+X			formwidth /= 10;  /* and didn't need multiplying */
+X		formwidth *= H_INCH/10;
+X		if (formwidth < strwidth("  ")) {
+X			errr(".wd form width too small");
+X			exit(1);
+X		}
+X
+X		DEBUGVAL(formwidth,%d);
+X
+X	} else if (eq(word, ".fo")) {
+X
+X		dofont(getstrarg(),FALSE);
+X
+X	} else if (eq(word, ".lpi")) {
+X
+X		dolinesperinch(getnumarg());
+X
+X	} else if (eq(word, ".pi")) {
+X
+X		/* getnumarg multiplies by 10 */
+X		dopitch(getnumarg()/10,FALSE);
+X
+X	} else if (eq(word, ".dot")) {
+X		enhanceafterpoke = want_enhance;
+X		want_enhance = GRAPHIC1;
+X		pokestuff = "y";
+X		pokestuff[0] |= 0x80;
+X		enhoffatendofline = 0;
+X
+X	} else if (eq(word, ".seq")) {
+X
+X		char *cp;
+X
+X		/* if there's an arg (i.e. ".seq a") then start a 
+X			sequence with it.  if there's no arg, simply
+X			continue the sequence (i.e. first 'b', then 'c', etc.
+X		   numeric sequences must be treated differently than 
+X			character sequences.
+X		*/
+X		cp = getstrarg();
+X		if (cp[0]) {
+X			if (numericseq = isdigit(cp[0])) {
+X				sscanf(cp,"%d",&sequencer);
+X			} else {
+X				sequencer = cp[0];
+X			}
+X			strcpy(seqsep,getstrarg());
+X		}
+X		if (numericseq && sequencer >= 10000)
+X			sequencer = 1;
+X
+X		sprintf(seqbuff,numericseq?"%-4d%s":"%c%s",sequencer++,seqsep);
+X
+X		if (!isprint(seqbuff[0])) {
+X			errr("warning: sequence value unprintable");
+X			seqbuff[0] = '?';
+X			seqbuff[1] = '\0';
+X		}
+X		pokestuff = seqbuff;
+X
+X	} else if (eqn(word, ".superscript",4) ||
+X			eqn(word, ".subscript",4)) {
+X		/* turn on super/subscript */
+X		/* these are recorded in the 2nd byte of want/done_enhance,
+X			to keep them independent of bold, italic, etc. */
+X
+X		pokestuff = restofline(FALSE);
+X		if (pokestuff) {
+X			enhoffatendofline = EXTRA;
+X			enhanceafterpoke = want_enhance;
+X		} else {
+X			enhoffatendofline = 0;
+X		}
+X
+X		want_enhance = (want_enhance & ~EXTRA) | 
+X					(word[3] == 'p') ? SUPER : SUB;
+X
+X	} else if (eqn(word, ".nosu",5)) {  /* turn off super or sub */
+X
+X		want_enhance &= ~EXTRA;
+X
+X	} else if (eqn(word, ".columns",4)) {  /* set columns per page */
+X		columns = getnumarg()/10;
+X		if (columns != 0) {
+X			gutwidth = getnumarg();  /* gutter width, in tenths */
+X			if (!inches)	/* then argument was already tenths, */
+X				gutwidth /= 10; /* didn't need multiplying */
+X			gutwidth *= H_INCH/10;
+X		}
+X
+X	} else if (strlen(word) <= 3) { /* remaining 1 and 2 letter commands */
+X		switch(word[1]) {
+X		case BOLD:	/* B */
+X		case ITALIC:	/* I */
+X		case UNDER:	/* U */
+X		case LARGE:	/* L */
+X		case 'R':	/* NONE */
+X			switch(word[2]) {
+X			case '\0':
+X				/* all the enhancements (bold, underline,
+X				 * italics, doublewide) can affect a
+X				 * single line:
+X				 *	.B embolden this line
+X				 * or many lines:
+X				 *	.B
+X				 *	embolden
+X				 *	these
+X				 *	lines
+X				 *	.R
+X				 */
+X				pokestuff = restofline(FALSE);
+X				if (pokestuff) {
+X					enhoffatendofline = BASIC;
+X					enhanceafterpoke = want_enhance;
+X				} else {
+X					enhoffatendofline = 0;
+X				}
+X
+X				if (word[1] == 'R')
+X					want_enhance = want_enhance & ~BASIC;
+X				else
+X					want_enhance = want_enhance & ~BASIC |
+X							word[1];
+X				break;
+X			default:
+X				fprintf(stderr, 
+X				"%s: warning: %s command not understood\n",
+X					 Prog, word);
+X			}
+X			break;
+X		default:
+X			fprintf(stderr, 
+X			"%s: warning: %s command not understood\n", Prog, word);
+X		}
+X	} else {
+X		fprintf(stderr, "%s: warning: %s command not understood\n",
+X				Prog, word);
+X	}
+X
+}
+X
+/* set pitch value.  printer only supports selected values */
+dopitch(pit,force)
+{
+X
+X	/* release proportional and compressed */
+X	/*	     esc p 0		DC2	*/
+X	esc('p','0',DC2);
+X
+X	/* can't have a draft font in proportional pitch */
+X	if (!force && draftonly && pit == -1)
+X		pit = DEFPITCH;
+X
+X	switch (pit) {
+X
+X	default:
+X		errr("warning: pitch not recognized. using 10 cpi.\n");
+X		/* fall through */
+X	case 10:		/* pica */
+X		pitch = 10;
+X		esc('P',-1,-1);
+X		break;
+X
+X	case 12:		/* elite */
+X		pitch = 12;
+X		esc('M',-1,-1);
+X		break;
+X
+X	case 15:		/* micron */
+X		pitch = 15;
+X		esc('g',-1,-1);
+X		break;
+X
+X	case 17:		/* compressed */
+X		/* set both pica and compressed */
+X		/* 	   esc P	SI	*/
+X		pitch = 17;
+X		esc('P',SI,-1);
+X		break;
+X
+X	case 20:		/* elite compressed */
+X		/* set both elite and compressed */
+X		/* 	   esc M	SI	*/
+X		pitch = 20;
+X		esc('M',SI,-1);
+X		break;
+X
+X	case -1:
+X		/* ".pi prop" would be nice, but args must be
+X			either alpha or numeric */
+X		pitch = -1;
+X		esc('p','1',-1);
+X		break;
+X	}
+}
+X
+/* all the allowable values (3, 4, 6, 7.5, 8, 12) go into 360 evenly,
+X	so we use that printer control command  (see pp 6-17, 6-18 of manual) */
+/* argument is ten times the lines-per-inch value wanted */
+dolinesperinch(ttlpi)
+int ttlpi;
+{
+X
+X	/* lpi changes cause a line break */
+X	if (!outpstartofline)
+X		donewline = TRUE;
+X
+#ifdef BEFORE
+X	switch (ttlpi) {
+X
+X	case 70:	/* previously allowed 7 or 75 instead of 7.5 */
+X	case 750:
+X		ttlpi = 75;
+X
+X	default:
+X		unitsperline = (V_INCH*10)/ttlpi;
+X		break;
+X
+X	}
+#else
+X	/* ttlpi is ten times too big, so numerator must be too */
+X	unitsperline = (V_INCH*10)/ttlpi;
+#endif
+X	esc('+',unitsperline,-1);
+}
+X
+/* font changes take effect immediately, no line break */
+/* for the letter quality fonts, need to get out of draft mode _and_
+X	select which font */
+dofont(ft,force)
+char *ft;
+{
+X	if (!force && draftonly)
+X		goto draft;
+X
+X	if (eqn(ft, "courier", 2)) {
+X		font = CO;
+X		esc('x','1',-1);
+X		esc('k',CO+'0',-1);
+X
+X	} else if (eqn(ft, "prestige", 2)) {
+X		font = PR;
+X		esc('x','1',-1);
+X		esc('k',PR+'0',-1);
+X
+X	} else if (eqn(ft, "boldPS", 2)) {
+X		font = BO;
+X		esc('x','1',-1);
+X		esc('k',BO+'0',-1);
+X
+X	} else if (eqn(ft, "script", 2)) {
+X		font = SC;
+X		esc('x','1',-1);
+X		esc('k',SC+'0',-1);
+X
+X	} else if (eqn(ft, "sansserif", 2)) {
+X		font = SA;
+X		esc('x','1',-1);
+X		esc('k',SA+'0',-1);
+X
+X	} else {  /* no match */
+X		if (!eqn(ft, "draft", 2)) {
+X			fprintf(stderr,
+X			 "%s: warning: %s font not recognized. using draft.\n",
+X				Prog, ft);
+X		}
+X	draft:
+X		font = DR;
+X		esc('x','0',-1);
+X	}
+}
+X
+/* change or turn on an enhancement. */
+/* 	asks, for each half (BASIC or EXTRA) of the given enhancement,
+X	if something's already on in that half to turn off.  does so, then
+X	turns what was requested on */
+enh_on(e)
+int e;
+{
+X	if ((e & BASIC) != (done_enhance & BASIC)) {
+X		enh_off(BASIC);
+X		switch(e & BASIC) {
+X		case BOLD:
+X			esc('G',-1,-1);
+X			break;
+X		case ITALIC:
+X			esc('4',-1,-1);
+X			break;
+X		case UNDER:
+X			esc('-','1',-1);
+X			break;
+X		case LARGE:
+X			esc('W','1',-1);
+X			break;
+X		case GRAPHIC1:
+X			esc('t','1',-1);
+X			esc('7',-1,-1);
+X			break;
+X		case GRAPHIC2:
+X			esc('t','1',-1);
+X			esc('6',-1,-1);
+X			break;
+X		}
+X	}
+X	if ((e & EXTRA) != (done_enhance & EXTRA)) {
+X		enh_off(EXTRA);
+X		switch(e & EXTRA) {
+X		case SUPER:
+X			esc('S',0,-1);
+X			break;
+X		case SUB:
+X			esc('S',1,-1);
+X			break;
+X		}
+X	}
+X	done_enhance = e;
+}
+X
+/* turn off an enhancement.  takes the BASIC or EXTRA masks or both as arg */
+enh_off(whichtype)
+{
+X	
+X	/* only turn off what was on */
+X	switch(done_enhance & whichtype & BASIC) {
+X	case BOLD:
+X		esc('H',-1,-1);
+X		break;
+X	case ITALIC:
+X		esc('5',-1,-1);
+X		break;
+X	case UNDER:
+X		esc('-','0',-1);
+X		break;
+X	case LARGE:
+X		esc('W','0',-1);
+X		break;
+X	case GRAPHIC1:
+X		esc('t','0',-1);
+X		break;
+X	case GRAPHIC2:
+X		esc('t','0',-1);
+X		break;
+X	}
+X
+X	switch(done_enhance & whichtype & EXTRA) {  /* turn off what was on */
+X	case SUPER:
+X	case SUB:
+X		esc('T',-1,-1);
+X		break;
+X	}
+X	done_enhance &= ~whichtype;
+}
+X
+/* emit an escape sequence */
+esc(a,b,c)
+int a,b,c;
+{
+X	outc(ESC);
+X	if (a >= 0) {
+X		outc(a);
+X		if (b >= 0) {
+X			outc(b);
+X			if (c >= 0) {
+X				outc(c);
+X			}
+X		}
+X	}
+}
+X
+/* fetches a numeric argument, along with leading and trailing
+X	whitespace, from a line */
+/* always attempts to read N.M, and returns N*10+M */
+/* this means the return value is sometimes ten times too big, */
+/* and the caller must correct this */
+/* we're trying to avoid %f, which the astute programmer will 
+X   note would do most of this for us.  we may port to machines without it */
+getnumarg()
+{
+X	int c, whol, frac, minus, ret;
+X
+X	if ((c = checkforEOL()) == EOF)
+X		goto errout;
+X	else if (c == '\n')
+X		return 0;  /* no argument on the line */
+X
+X	if (c == '-') {  /* fscanf doesn't help with negatives, e.g. -0.5 */
+X		minus = -1;
+X		(void)fgetc(Ifile); /* eat the '-' */
+X		if ((c = checkforEOL()) == EOF)
+X			goto errout;
+X		else if (c == '\n')
+X			return 0;
+X	} else {
+X		minus = 1;
+X	}
+X
+X	if (c == '.') { /* we already have the point, just match the fraction */
+X		if ((ret = fscanf(Ifile,".%d",&frac)) == EOF)
+X			goto errout;
+X
+X		whol = 0;  /* pretend we successfully matched whol */
+X		ret += 1;
+X	} else {
+X		/* attempt to match two fields, before and after the point */
+X		if ((ret = fscanf(Ifile,"%d.%d",&whol,&frac)) == EOF)
+X			goto errout;
+X	}
+X
+X	if (ret < 2) {  /* then we only got the whol part */
+X		frac = 0;
+X		if (ret < 1) /* then we didn't get either */
+X			whol = 0;
+X	} else while (frac > 9) { /* make sure we didn't get 1.5478 */
+X		frac /= 10; /* will give frac == 5 eventually */
+X	}
+X
+X	if (whol < 0)
+X		whol = -whol;
+X	if (frac < 0)
+X		frac = -frac;
+X
+X	(void)checkforEOL();
+X
+X	return minus*(whol*10 + frac);
+X
+X    errout:
+X	errr("EOF while trying for argument");
+X	exit(1);
+}
+X
+/* fetches next string argument, along with leading and trailing
+X	whitespace, from a line */
+char *
+getstrarg()
+{
+X	int c;
+X	static char arg[50];
+X
+X	arg[0] = '\0';
+X
+X	if ((c = checkforEOL()) == EOF) {
+X		errr("EOF while trying for argument");
+X		exit(1);
+X	} else if (c == '\n') {
+X		return "";  /* no argument on the line */
+X	}
+X
+X	if (fscanf(Ifile,"%50s",arg) == EOF) {
+X		errr("EOF while trying for argument");
+X		exit(1);
+X	}
+X	if (checkforEOL() == EOF) {
+X		errr("EOF after argument");
+X		exit(1);
+X	}
+X
+X	return arg;
+}
+X
+/* restofline fetches the rest of the input line.
+X	if requested, does spacing on it, puts it in a buffer.
+X	this is usually then poked away, and fetched as needed.
+X	Unfortunately, the space calculations will be redone then.
+X	We need them here, though, so we can center and right justify
+X	correctly */
+char *
+restofline(spacing)
+{
+X	static char linebuff[100];
+X	char word[100];
+X	char *sp = "";
+X	int c;
+X
+X	linebuff[0] = '\0';
+X	word[0] = '\0';
+X
+X	for(;;) {
+X		if ((c = checkforEOL()) == EOF) {
+X			errr("EOF in mid-line");
+X			exit(1);
+X		} else if (c == '\n') {
+X			break;
+X		}
+X
+X		if (fscanf(Ifile,"%s",word) == EOF) {
+X			errr("EOF while reading rest of line");
+X			exit(1);
+X		}
+X		strcat(linebuff,sp);
+X		strcat(linebuff,word);
+X		sp = spacing ? calcspaces(word) : " ";
+X
+X	}
+X
+X	if (linebuff[0] == '\0')
+X		return NULL;
+X	else
+X		return linebuff;
+}
+X
+/* next line processing: turn off all enhancements temporarily,
+X	add extra linefeeds if requested, and calculate leading
+X	space for the next line */
+newline()
+{
+X	enh_off(BASIC|EXTRA);  /* no enhancements across newlines */
+X	while (leaveblanklines-- > 0) {
+X		emitlinefeed();
+X	}
+X	emitlinefeed();
+X	outpstartofline = TRUE;
+X	space = calcleftwhite();
+X	donewline = FALSE;
+X	leaveblanklines = 0;
+X	curlinewidth = MINLW;
+}
+X
+/* do the linefeed, checking for page breaks */
+emitlinefeed()
+{
+X
+X	if ((curpagelen += unitsperline) > bottommargin ) {
+X
+X		/* don't do the newline if it'll take us past end of form! */
+X		if (curpagelen <= formlength) {
+X			outc('\n');
+X			curlinewidth = MINLW;
+X			linenumber++;
+X
+X			bottompage(FALSE);
+X		}
+X
+X		newpage();
+X		toppage(FALSE);
+X
+X	} else {
+X		outc('\n');
+X		curlinewidth = MINLW;
+X		linenumber++;
+X	}
+X
+}
+X
+/* process the page footer and bottom margin at the bottom of the page */
+bottompage(lastpage)
+{
+X	int footerline;
+X
+X	/* nothing to do if there's no footer */
+X	if ((lastpage && !allfooters) || pagefooter[0] == '\0')
+X		return;
+X
+X	/* try to put the footer half an inch down */
+X	footerline = bottommargin + ftdepth;
+X
+X	/* go to that line and print it */
+X	while (curpagelen < footerline &&
+X		curpagelen + unitsperline <= formlength ) {
+X		outc('\n');
+X		curpagelen += unitsperline;
+X		linenumber++;
+X	}
+X
+X	moveover(rightmargin - strwidth(pagefooter));
+X	outstr(pagefooter);
+X
+}
+X
+/* any time we need a  new page */
+newpage()
+{
+X	outstr("\007\f\r");	/* bell, formfeed, return */
+X	curlinewidth = MINLW;
+X	curpagelen = MINPL + unitsperline;
+X	pagenumber++;
+X	linenumber = 0;
+}
+X
+/* generic top-of-page processing */
+/* does header unless first page, and leaves room for top margin */
+toppage(firstpage)
+{
+X	int headerline;
+X	int newcpl;
+X
+X	headerline = 0;
+X
+X	if ((allheaders || !firstpage) && pageheader[0] != '\0')
+X		headerline = topmargin - hdheight;
+X	else
+X		headerline = 0;
+X
+X	while (curpagelen <= topmargin) {
+X		if (headerline && curpagelen > headerline)  {
+X			moveover(rightmargin - strwidth(pageheader));
+X			outstr(pageheader);
+X			headerline = 0;
+X		}
+X		outc('\n');
+X		curpagelen += unitsperline;
+X		linenumber++;
+X	}
+X	DEBUGVAL(curpagelen,%d);
+X
+X	outc('\r');
+X	curlinewidth = MINLW;
+X
+}
+X
+/* pad the output to the "to" width.  used for right justifying */
+moveover(to)
+int to;
+{
+X	int spw = strwidth(" ");
+X
+X	while (curlinewidth + spw <= to) {
+X		outc(' ');
+X		curlinewidth += spw;
+X	}
+X
+}
+X
+/* calculate the true width of a string, 180'ths of an inch */
+strwidth(s)
+char *s;
+{
+X	char *cp;
+X	int wid;
+X	int column;
+X	extern unsigned char PStable[96][2];
+X
+X	/* the fixed pitch modes are easy.  super/subscript has no effect */
+X	if (pitch != -1) {
+X		if ((done_enhance & BASIC) == LARGE)
+X			return strlen(s) * 2*H_INCH/pitch;
+X		else
+X			return strlen(s) * H_INCH/pitch;
+X	}
+X
+X	/* we're in proportional spaceing mode -- 
+X		look up the character widths individually */
+X
+X	column = (font == SC);  /* script characters have different widths */
+X
+X	cp = s;
+X	wid = 0;
+X	while (*cp) {
+X		/* add the table value -- those units are 360'ths */
+X		wid += PStable[(*cp & 0x7f) - ' '][column];
+X		cp++;
+X	}
+X
+X	/* double width */
+X	if ((done_enhance & BASIC) == LARGE)
+X		wid *= 2;
+X
+X	/* super/subscript is 2/3 original size.  we don't know whether
+X		to truncate or round up, so we truncate */
+X	if ((done_enhance & EXTRA) == SUPER ||
+X		(done_enhance & EXTRA) == SUB) {
+X		wid = (wid * 2) / 3;
+X	}
+X
+X	return wid/2;  /* convert to 180'ths */
+}
+X
+/* whitespace on the left is the sum of the leftmargin, the indent, and
+X	the paraindent or the tmpindent. tmpindent is caused by the first 
+X	line of a paragraph or a centered heading.  tmpindent can be negative 
+X	for paragraphs but should never take us past the left margin.  
+X	paraindent is for the rest of a paragraph, and likewise can be
+X	negative  */
+char *
+calcleftwhite()
+{
+X	static char indentbuff[100];
+X	int i,buffwidth,spw,in;
+X
+X	i = 0;
+X	buffwidth = 0;
+X	spw = strwidth(" ");
+X	in = leftmargin - MINLW + indent + (usetmpind ? tmpindent : paraindent);
+X
+X	while (i < sizeof indentbuff - 1 && buffwidth < in) {
+X		indentbuff[i++] = ' ';
+X		buffwidth += spw;
+X	}
+X	indentbuff[--i] = '\0';	/* overwrite the space that took us over */
+X	return indentbuff;
+}
+X
+/* figure out how many spaces, based on the end of the last word put out */
+/*   (which is passed as the arg.) */
+char *
+calcspaces(word)
+char *word;
+{
+X	/* two spaces after periods and colons at end of proper
+X	strings, even if parenhesized or quoted.
+X	regular expression:
+X		.*[a-z0-9A-Z][a-z0-9A-Z)"][\.:][)"]*$
+X	*/
+X
+X	int l;
+X
+X	l = strlen(word)-1;
+X
+X	/* failsafe... no string, no spaces */
+X	if (l < 0) return "";
+X
+X	/* nothing changes if last char is ) or ", so dump them */
+X	/* (i.e. 'hello."' and 'hello.)' both end sentences */
+X	if (word[l] == ')' || word[l] == '"')
+X		l--;
+X
+X
+X	/* the word must be long enough, and end in . or : */
+X	/* in regular expression form:
+X		.*[0-9a-zA-Z][0-9a-zA-Z)"][.:]$
+X	               l-2        l-1      l
+X	*/
+X	if ( l >= 2 &&
+X		(word[l] == '.' || word[l] == ':') && 
+X		(isalnum(word[l-1]) || word[l-1] == ')' || word[l-1] == '"' ) &&
+X			isalnum(word[l-2]) )
+X	{
+X		/* then it's a sentence, except for common abbreviations */
+X		/* this doesn't work if a sentence ends in one of these abbrs */
+X		if (    !eq(word, "Rd.")  && 
+X			!eq(word, "St.")  && 
+X			!eq(word, "Ave.") && 
+X			!eq(word, "Mr.")  && 
+X			!eq(word, "Ms.")  && 
+X			!eq(word, "Mrs.")
+X		    ) {
+X			return "  ";  /* two space */
+X		}
+X	}
+X
+X	/* ends in a hyphen, concatenate with the next word */
+X	/* 	i.e.   .*.[0-9a-zA-Z]-$ 		 */
+X	if ( l >= 2 && word[l] == '-' && isalnum(word[l-1]) )
+X		return "";
+X
+X	/* normal word, normal spacing */
+X	return " ";
+}
+X
+/* general purpose messenger */
+errr(s)
+char *s;
+{
+X	fprintf(stderr,"\n%s: %s\n", Prog, s);
+}
+X
+/* returns:  the next non-space non-tab character, or EOF (end of file)
+X	   if char was '\n', a newline was found (flag set)
+*/
+checkforEOL()
+{
+X	int c;
+X	while ((c = fgetc(Ifile)) != EOF && (c == ' ' || c == '\t'))
+X		;
+X
+X	if (c == EOF)
+X		return EOF;
+X	else if ( c == '\n')
+X		inpendofline = TRUE;
+X
+X	ungetc(c,Ifile);
+X	return c;
+}
+X
+outstr(s)
+char *s;
+{
+X	while (*s) fputc(*s++,Ofile);
+}
+X
+outc(c)
+{
+X	if (rflag && c == '\n')
+X		fputc('\r',Ofile);
+X	fputc(c,Ofile);
+}
+X
+/* proportional spacing table -- second column for script font */
+/* the values are the width of each character, in 360'ths of an inch */
+unsigned char PStable[96][2] = {
+X	/*   */	{ 30, 20 },
+X	/* ! */ { 18, 12 },
+X	/* " */	{ 30, 20 },
+X	/* # */	{ 30, 20 },
+X	/* $ */	{ 30, 20 },
+X	/* % */	{ 36, 24 },
+X	/* & */	{ 36, 24 },
+X	/* ` */	{ 18, 12 },
+X	/* ( */	{ 24, 16 },
+X	/* ) */	{ 24, 16 },
+X	/* * */	{ 30, 20 },
+X	/* + */	{ 30, 20 },
+X	/* , */	{ 18, 12 },
+X	/* - */	{ 30, 20 },
+X	/* . */	{ 18, 12 },
+X	/* / */	{ 30, 20 },
+X	/* 0 */	{ 30, 20 },
+X	/* 1 */	{ 30, 20 },
+X	/* 2 */	{ 30, 20 },
+X	/* 3 */	{ 30, 20 },
+X	/* 4 */	{ 30, 20 },
+X	/* 5 */	{ 30, 20 },
+X	/* 6 */	{ 30, 20 },
+X	/* 7 */	{ 30, 20 },
+X	/* 8 */	{ 30, 20 },
+X	/* 9 */	{ 30, 20 },
+X	/* : */	{ 18, 12 },
+X	/* ; */	{ 18, 12 },
+X	/* < */	{ 30, 20 },
+X	/* = */	{ 30, 20 },
+X	/* > */	{ 30, 20 },
+X	/* ? */	{ 30, 20 },
+X	/* @ */	{ 36, 24 },
+X	/* A */	{ 36, 24 },
+X	/* B */	{ 36, 24 },
+X	/* C */	{ 36, 24 },
+X	/* D */	{ 36, 24 },
+X	/* E */	{ 36, 24 },
+X	/* F */	{ 36, 24 },
+X	/* G */	{ 36, 24 },
+X	/* H */	{ 36, 24 },
+X	/* I */	{ 24, 16 },
+X	/* J */	{ 30, 20 },
+X	/* K */	{ 36, 24 },
+X	/* L */	{ 36, 24 },
+X	/* M */	{ 42, 28 },
+X	/* N */	{ 36, 24 },
+X	/* O */	{ 36, 24 },
+X	/* P */	{ 36, 24 },
+X	/* Q */	{ 36, 24 },
+X	/* R */	{ 36, 24 },
+X	/* S */	{ 36, 24 },
+X	/* T */	{ 36, 24 },
+X	/* U */	{ 42, 28 },
+X	/* V */	{ 36, 24 },
+X	/* W */	{ 42, 28 },
+X	/* X */	{ 36, 24 },
+X	/* Y */	{ 36, 24 },
+X	/* Z */	{ 30, 20 },
+X	/* [ */	{ 24, 16 },
+X	/* \ */	{ 30, 20 },
+X	/* ] */	{ 24, 16 },
+X	/* ^ */	{ 30, 20 },
+X	/* _ */	{ 30, 20 },
+X	/* ' */	{ 18, 12 },
+X	/* a */	{ 30, 20 },
+X	/* b */	{ 36, 24 },
+X	/* c */	{ 30, 20 },
+X	/* d */	{ 36, 24 },
+X	/* e */	{ 30, 20 },
+X	/* f */	{ 24, 16 },
+X	/* g */	{ 36, 24 },
+X	/* h */	{ 36, 24 },
+X	/* i */	{ 18, 12 },
+X	/* j */	{ 24, 16 },
+X	/* k */	{ 36, 24 },
+X	/* l */	{ 18, 12 },
+X	/* m */	{ 42, 28 },
+X	/* n */	{ 36, 24 },
+X	/* o */	{ 30, 20 },
+X	/* p */	{ 36, 24 },
+X	/* q */	{ 36, 24 },
+X	/* r */	{ 30, 20 },
+X	/* s */	{ 30, 20 },
+X	/* t */	{ 24, 16 },
+X	/* u */	{ 36, 24 },
+X	/* v */	{ 36, 24 },
+X	/* w */	{ 42, 28 },
+X	/* x */	{ 30, 20 },
+X	/* y */	{ 36, 24 },
+X	/* z */	{ 30, 20 },
+X	/* { */	{ 24, 16 },
+X	/* | */	{ 18, 12 },
+X	/* } */	{ 24, 16 }, 
+X	/* ~ */	{ 30, 20 },
+X	/* 0 */	{ 30, 20 }
+};
+X
+SHAR_EOF
+chmod 0444 nruff.c ||
+echo 'restore of nruff.c failed'
+Wc_c="`wc -c < 'nruff.c'`"
+test 39419 -eq "$Wc_c" ||
+	echo 'nruff.c: original size 39419, current size' "$Wc_c"
+# ============= nruff.doc ==============
+echo 'x - extracting nruff.doc (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'nruff.doc' &&
+X
+.# proportional, boldPS font
+.pi -1
+.fo boldPS
+X
+.lm .7
+.rm 1.3
+X
+.# page length, lines per inch
+.lpi 7.5
+X
+.pf (cont.)
+.ph nruff commands (cont.)
+X
+.U usage:
+.P .3  1 
+.B nruff 
+.I [-d] [files...]
+.br
+.I -d
+forces
+.fo draft
+.pi 10
+draft
+.fo boldPS
+.pi -1
+mode, which is faster.
+.br
+.I files
+are used in place of stdin.
+.br
+The processed output always goes to stdout.
+.sp 2
+.U nruff commands
+.in 1.0
+.fi
+.P -.7
+.B .fi
+,
+.B .nf
+.br
+Turn fill mode on and off respectively. Causes a line break.  Fill mode is on
+to begin.
+X
+.P -.7
+.B .lm
+.I N
+,
+.B .rm
+.I N
+,
+.B .tm
+.I N
+,
+.B .bm
+.I N
+,
+.br
+Set the left, right, top, or bottom margin to
+.I N
+inches.  The right and bottom
+margins are measured from the
+.U right
+and
+.U bottom
+edges of the form.  All of these default to one inch.
+X
+.P -.7
+.B .i
+.I N
+,
+.B .in
+.I N
+.br
+Set a normal indent, in inches.  This is measured from the left margin.
+X
+.P -.7
+.B .P
+.I [N] [M]
+.br
+Start a new paragraph, optionally offsetting the first line
+.I N
+inches, and the rest of the paragraph
+.I M
+inches, either
+right or left
+with respect to the
+.U indent
+value, not from the left margin.  (The left margin, the normal indent,
+and the paragraph indents are all additive.) The left margin
+cannot be backed over.  The paragraph is considered to end at
+the next
+.B .P
+or
+.B .sp
+command.
+X
+.P -.7
+.B  .sp
+.I [N]
+.br
+Cause
+.I N
+X blank lines to appear in the output.
+X
+.P -.7
+.B .c
+.I text...
+.br
+Center
+.I text
+X on a new line.
+X
+.P -.7
+.B  .r
+.I text...
+.br
+Right justify
+.I text
+X on a new line.
+X
+.P -.7
+.B  .br
+.br
+Cause a line break (but not a blank line) in the output.
+X
+.P -.7
+.B  .wd
+.I N
+,
+.B  .ln
+.I N
+.br
+Set the physical page width or length to
+.I N
+inches.  All margins are measured with respect to these boundaries.  Defaults
+are 8.5 and 11.
+X
+.P -.7
+.B  .fo
+.I fontstyle
+.br
+Select a new font, which can be one of
+.fo courier
+courier,
+.fo prestige
+prestige,
+.fo script
+script,
+.fo boldPS
+boldPS,
+.fo sansserif
+sansserif,
+.fo boldPS
+or
+.pi 10
+.fo draft
+draft
+.pi -1
+.fo boldPS
+, which is the default.
+X
+.P -.7
+.B  .lpi
+.I N
+.br
+Set the line-per-inch value to any of 3, 4, 6, 7.5, 8, or 12.
+Default is 6.
+X
+.P -.7
+.B  .pi
+.I N
+.br
+Set the character pitch to any of 10, 12, 15, 17, 20 or -1.  Use -1 to
+get proportional pitch. Default is 10.
+X
+.P -.7
+.B .B
+.I [text...]
+,
+.B .U
+.I [text...]
+,
+.B .I
+.I [text...]
+,
+.B .L
+.I [text...]
+,
+.B .R
+.I [text...]
+.br
+Print
+.I text
+X in
+.B bold
+,
+.U underlined
+,
+.I italics
+, or
+.L large
+.nop .  The
+enhancement lasts for a single line, unless it is specified on a line
+by itself (no following text), in which case it lasts until the next
+enhancement command.  (That's what 
+.B .R
+is for.)  When an enhancement affects
+a single line, the enhancement previously in effect is restored
+when the line is done.
+X
+.P -.7
+.B .super
+.I [text...]
+,
+.B .sub
+.I [text...]
+,
+.B .nosu
+.br
+Similar to, and independent of, the above enhancements.  Puts the following
+.I text
+into the
+.super superscript
+or
+.sub subscript
+position.  If not followed by
+.I text
+, the enhancement remains until removed by
+.B .nosu
+.nop .
+X
+.P -.7
+.B .pf
+.I [text...]
+,
+.B .ph
+.I [text...]
+.br
+Set the page footer or header string to
+.I text.
+Headers and footers are placed as close to half an inch from the text
+as possible.  They go
+.U outside
+the top and bottom margins, respectively.
+X
+.P -.7
+.B .hdheight
+.I N
+,
+.B .ftdepth
+.I N
+.br
+Respectively, cause page headers and footers to go 
+.I N
+inches above or below their respective margins.  The default distance
+is one half inch.
+X
+.P -.7
+.B .allheaders
+,
+.B .allfooters
+.br
+Respectively, cause page headers and footers to be printed on
+.U all
+pages.  Normally, the header at the top of the first page and
+the footer at the bottom of the last page
+are skipped.
+X
+.P -.7
+.B .tenths
+,
+.B .inches
+.br
+Cause subsequent page measurements (margins, lengths, etc.) to be taken
+as tenths of inches, or inches.  The default is inches.
+X
+.P -.7
+.B .dot
+.br
+Put a bullet (
+.dot
+) into the text.
+X
+.P -.7
+.B .seq
+.I [tag start value] [separator]
+.br
+Start (or increment and use a previously started) sequence of
+.I tags
+.nop . 
+.I Tags
+can be
+either numeric (1, 2, 3, etc.) or not (a,b,c... or A,B,C).  The
+.I separator
+is optional, and is concatenated with the
+.I tag
+.nop .
+X
+.P -.7
+.B .nop
+.I [text...],
+.br
+Null command, simply prints
+.I text.
+Useful if the input text looks like a command
+to nruff, i.e. the input line begins with a ".".
+X
+.P -.7
+.B .\
+.I [text...]
+or
+.B .#
+.I [text...]
+.br
+Commenting command, discards
+.I text.
+SHAR_EOF
+chmod 0664 nruff.doc ||
+echo 'restore of nruff.doc failed'
+Wc_c="`wc -c < 'nruff.doc'`"
+test 4488 -eq "$Wc_c" ||
+	echo 'nruff.doc: original size 4488, current size' "$Wc_c"
+# ============= Makefile ==============
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+X
+# Not much of a makefile is needed...
+X
+nruff:	nruff.c
+X	$(CC) -o nruff nruff.c
+X
+doc:	nruff
+X	nruff nruff.doc | lpr
+SHAR_EOF
+chmod 0664 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 114 -eq "$Wc_c" ||
+	echo 'Makefile: original size 114, current size' "$Wc_c"
+exit 0
+-- 
+		paul fox, pgf@cayman.com, (617)494-1999
+		Cayman Systems, 26 Landsdowne St., Cambridge, MA 02139
+
+exit 0 # Just in case...

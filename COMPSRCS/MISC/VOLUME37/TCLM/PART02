@@ -1,0 +1,2448 @@
+Newsgroups: comp.sources.misc
+From: durian@advtech.uswest.com (Mike Durian)
+Subject: v37i044:  tclm - TCL extensions for MIDI file manipulation, Part02/05
+Message-ID: <1993May10.215118.3747@sparky.imd.sterling.com>
+X-Md4-Signature: 79ee0564170eda41d3e3c1a582e47a78
+Date: Mon, 10 May 1993 21:51:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: durian@advtech.uswest.com (Mike Durian)
+Posting-number: Volume 37, Issue 44
+Archive-name: tclm/part02
+Environment: BSD/386, Esix SV4, SunOS, TCL 6.x
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  tclm-1.0/mlib/mfileutil.c tclm-1.0/mlib/mpu_bsd386.c
+#   tclm-1.0/mseq tclm-1.0/tclmPlay.c
+# Wrapped by kent@sparky on Mon May 10 09:43:32 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 5)."'
+if test -f 'tclm-1.0/mlib/mfileutil.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/mlib/mfileutil.c'\"
+else
+  echo shar: Extracting \"'tclm-1.0/mlib/mfileutil.c'\" \(20842 characters\)
+  sed "s/^X//" >'tclm-1.0/mlib/mfileutil.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by Michael B. Durian.
+X * 4. The name of the the Author may be used to endorse or promote 
+X *    products derived from this software without specific prior written 
+X *    permission.
+X *
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*
+X * mfileutil.c,v 1.13 1993/05/07 17:45:18 durian Exp
+X */
+Xstatic char cvsid[] = "mfileutil.c,v 1.13 1993/05/07 17:45:18 durian Exp";
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <string.h>
+X#include <sys/fcntl.h>
+X#include "mutil.h"
+X
+X/* hack so we know if a read failed because of an eof instead of bad data */
+Xint MidiEof = 0;
+Xchar MidiError[256];
+X
+Xint
+Xread_header_chunk(mfile, hchunk)
+X	int mfile;
+X	HCHUNK *hchunk;
+X{
+X
+X	if (mread(mfile, hchunk->str, sizeof(hchunk->str)) !=
+X	    sizeof(hchunk->str)) {
+X		if (!MidiEof)
+X			sprintf(MidiError,
+X			    "Couldn't read header chunk identifier");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&hchunk->length, sizeof(hchunk->length)) !=
+X	    sizeof(hchunk->length)) {
+X		sprintf(MidiError, "Couldn't read header chunk length");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&hchunk->format, sizeof(hchunk->format)) !=
+X	    sizeof(hchunk->format)) {
+X		sprintf(MidiError, "Couldn't read header chunk format");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&hchunk->num_trks, sizeof(hchunk->num_trks))
+X	    != sizeof(hchunk->num_trks)) {
+X		sprintf(MidiError, "Couldn't read header chunk num_trks");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&hchunk->division, sizeof(hchunk->division))
+X	    != sizeof(hchunk->division)) {
+X		sprintf(MidiError, "Couldn't read header chunk division");
+X		return (0);
+X	}
+X
+X	/* fix byte ordering */
+X	hchunk->length = mtohl(hchunk->length);
+X	hchunk->format = mtohs(hchunk->format);
+X	hchunk->num_trks = mtohs(hchunk->num_trks);
+X	hchunk->division = mtohs(hchunk->division);
+X
+X	if (strncmp(hchunk->str, "MThd", 4) != 0) {
+X		sprintf(MidiError, "Not a standard MIDI file");
+X		return (0);
+X	}
+X
+X	if (hchunk->length != 6) {
+X		sprintf(MidiError, "Bad header chunk size");
+X		return (0);
+X	}
+X
+X	if (hchunk->format == 0 && hchunk->num_trks != 1) {
+X		sprintf(MidiError,
+X		    "Midi format 0, but number of tracks (%d) is > 1",
+X		    hchunk->num_trks);
+X		return (0);
+X	}
+X
+X	return (1);
+X}
+X
+Xint
+Xread_track_chunk(mfile, tracks)
+X	int mfile;
+X	TCHUNK *tracks;
+X{
+X
+X	if (mread(mfile, tracks->str, 4) != 4) {
+X		sprintf(MidiError, "Couldn't read track chunk identifier");
+X		return (0);
+X	}
+X
+X	if (strncmp(tracks->str, "MTrk", 4) != 0) {
+X		sprintf(MidiError, "Bad track chunk identifier");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&tracks->length, sizeof(tracks->length)) !=
+X	    sizeof(tracks->length)) {
+X		sprintf(MidiError, "Couldn't read track length");
+X		return (0);
+X	}
+X
+X	tracks->msize = tracks->length = mtohl(tracks->length);
+X	tracks->pos = 0;
+X
+X	/* allocate space for tracks events */
+X	if ((tracks->events = (unsigned char *) malloc(tracks->length)) ==
+X	    NULL) {
+X		sprintf(MidiError, "Not enough memory for track data");
+X		return (0);
+X	}
+X	tracks->event_start = tracks->events;
+X
+X	if (mread(mfile, (char *)tracks->events, tracks->length) !=
+X	    tracks->length) {
+X			sprintf(MidiError, "Couldn't read track data");
+X			return (0);
+X	}
+X	tracks->events = tracks->event_start;
+X
+X	return (1);
+X}
+X
+Xint
+Xskip_track_chunk(mfile)
+X	int mfile;
+X{
+X	long length;
+X	char str[4];
+X
+X	if (mread(mfile, str, sizeof(str)) != sizeof(str)) {
+X		sprintf(MidiError, "Couldn't read track chunk identifier");
+X		return (0);
+X	}
+X
+X	if (strncmp(str, "MTrk", 4) != 0) {
+X		sprintf(MidiError, "Bad track chunk identifier");
+X		return (0);
+X	}
+X
+X	if (mread(mfile, (char *)&length, sizeof(length)) != sizeof(length)) {
+X		sprintf(MidiError, "Couldn't read track length");
+X		return (0);
+X	}
+X
+X	length = mtohl(length);
+X
+X	if (lseek(mfile, length, SEEK_CUR) == -1) {
+X		sprintf(MidiError, "Couldn't seek past track");
+X		return (0);
+X	}
+X
+X	return (1);
+X}
+X
+Xint
+Xsplit_type_zero(tracks)
+X	TCHUNK *tracks;
+X{
+X	long tempo_delta;
+X	long data_delta;
+X	long timing;
+X	EVENT_TYPE event_type;
+X	int data_size;
+X	int event_size;
+X	int i;
+X	int offset;
+X	int malloced_data;
+X	int malloced_tempo;
+X	int malloc_inc;
+X	int tempo_size;
+X	int time_len;
+X	unsigned char event[256];
+X	unsigned char *data_events;
+X	unsigned char *data_ptr;
+X	unsigned char *last_events;
+X	unsigned char *tempo_events;
+X	unsigned char *tempo_ptr;
+X	unsigned char var_time[4];
+X
+X	data_size = 0;
+X	tempo_size = 0;
+X	tempo_delta = 0;
+X	data_delta = 0;
+X	malloc_inc = 512;
+X
+X	if ((data_events = (unsigned char *) malloc(malloc_inc))
+X		    == NULL) {
+X		sprintf(MidiError, "Not enought memory to split track");
+X		return (0);
+X	}
+X	malloced_data = malloc_inc;
+X	if ((tempo_events = (unsigned char *) malloc(malloc_inc))
+X		    == NULL) {
+X		sprintf(MidiError, "Not enought memory to split track");
+X		return (0);
+X	}
+X	malloced_tempo = malloc_inc;
+X
+X	data_ptr = data_events;
+X	tempo_ptr = tempo_events;
+X	while (event_size = get_smf_event(&tracks[0], event, &event_type)) {
+X		if (event_size == -1) {
+X			sprintf(MidiError,
+X			    "Problem getting event while splitting");
+X			return (0);
+X		}
+X
+X		if (event_type ==  NORMAL || event_type == SYSEX) {
+X			timing = var2fix(event, &offset);
+X			data_delta += timing;
+X			time_len = fix2var(data_delta, var_time);
+X			data_size += event_size - offset + time_len;
+X			if (data_size > malloced_data) {
+X				last_events = data_events;
+X				if (!more_memory((char **)&data_events,
+X				    malloced_data + malloc_inc)) {
+X					sprintf(MidiError,
+X					    "Not enough memory");
+X					return (0);
+X				}
+X				if (data_events != last_events)
+X					data_ptr = data_events + (data_ptr -
+X					    last_events);
+X			}
+X			/* copy in timing */
+X			for (i = 0; i < time_len; i++)
+X				*data_ptr++ = var_time[i];
+X
+X			/* copy in data */
+X			for (i = offset; i < event_size; i++)
+X				*data_ptr++ = event[i];
+X
+X			/* add timing to tempo delta */
+X			tempo_delta += timing;
+X			data_delta = 0;
+X		} else {
+X			timing = var2fix(event, &offset);
+X			tempo_delta += timing;
+X			time_len = fix2var(tempo_delta, var_time);
+X			tempo_size += event_size - offset + time_len;
+X			if (tempo_size > malloced_tempo) {
+X				last_events = tempo_events;
+X				if (!more_memory((char **)&tempo_events,
+X				    malloced_tempo + malloc_inc)) {
+X					sprintf(MidiError,
+X					    "Not enough memory");
+X					return (0);
+X				}
+X				if (tempo_events != last_events)
+X					tempo_ptr = data_events + (tempo_ptr -
+X					    last_events);
+X			}
+X			/* copy in timing */
+X			for (i = 0; i < time_len; i++)
+X				*tempo_ptr++ = var_time[i];
+X
+X			/* copy in data */
+X			for (i = offset; i < event_size; i++)
+X				*tempo_ptr++ = event[i];
+X
+X			/* add timing to tempo delta */
+X			data_delta += timing;
+X			tempo_delta = 0;
+X		}
+X	}
+X
+X	/* add eot to tempo track */
+X	event[0] = 0xff;
+X	event[1] = METAEOT;
+X	event[2] = 0;
+X	event_size = 3;
+X
+X	time_len = fix2var(tempo_delta, var_time);
+X	tempo_size += event_size + time_len;
+X	if (tempo_size > malloced_tempo) {
+X		last_events = tempo_events;
+X		if (!more_memory((char **)&tempo_events, malloced_tempo +
+X		    malloc_inc)) {
+X			sprintf(MidiError, "Not enough memory");
+X			return (0);
+X		}
+X		if (tempo_events != last_events)
+X			tempo_ptr = data_events + (tempo_ptr - last_events);
+X	}
+X	/* copy in timing */
+X	for (i = 0; i < time_len; i++)
+X		*tempo_ptr++ = var_time[i];
+X
+X	/* copy in data */
+X	for (i = 0; i < event_size; i++)
+X		*tempo_ptr++ = event[i];
+X			
+X	free(tracks[0].events);
+X	tracks[0].events = tracks[0].event_start = tempo_events;
+X	tracks[1].events = tracks[1].event_start = data_events;
+X	tracks[0].msize = malloced_tempo;
+X	tracks[1].msize = malloced_data;
+X	tracks[0].length = tempo_size;
+X	tracks[1].length = data_size;
+X	tracks[0].pos = 0;
+X	tracks[1].pos = 0;
+X	(void) strncpy(tracks[0].str, "MTrk", 4);
+X	(void) strncpy(tracks[1].str, "MTrk", 4);
+X	return (1);
+X}
+X
+Xint
+Xmore_memory(ptr, size)
+X	char **ptr;
+X	int size;
+X{
+X
+X	if ((*ptr = realloc(*ptr, size)) == NULL)
+X		return (0);
+X	else
+X		return (1);
+X}
+X
+Xint
+Xget_smf_event(track, event, event_type)
+X	TCHUNK *track;
+X	unsigned char *event;
+X	EVENT_TYPE *event_type;
+X{
+X	long length = 0;
+X	int i;
+X	int size;
+X	static int extra_bytes[] = {2, 2, 2, 2, 1, 1, 2, 0};
+X	unsigned char etype;
+X			
+X	if (track->pos >= track->length)
+X		return (0);
+X
+X	/*
+X	 * get timing bytes
+X	 */
+X	if (track->pos++ == track->length)
+X		return (-1);
+X	*event++ = *track->events++;
+X	size = 1;
+X	while (*(event - 1) & 0x80) {
+X		if (track->pos++ == track->length)
+X			return (-1);
+X		*event++ = *track->events++;
+X		size++;
+X	}
+X
+X	if (track->pos++ == track->length)
+X		return (-1);
+X	*event = *track->events++;
+X
+X	/* get event type */
+X	switch (*event) {
+X	case 0xff:
+X		/* meta event */
+X		if (track->pos++ == track->length)
+X			return (-1);
+X		size++;
+X		event++;
+X		*event_type = *event++ = *track->events++;
+X		size++;
+X		/* get length as a variable length */
+X		do {
+X			if (track->pos++ == track->length)
+X				return (-1);
+X			length = (length << 7) + (*track->events & 0x7f);
+X			*event = *track->events++;
+X			size++;
+X		} while (*event++ & 0x80);
+X		for (; length > 0; length--) {
+X			/* get event */
+X			if (track->pos++ == track->length)
+X				return (-1);
+X			*event++ = *track->events++;
+X			size++;
+X		}
+X		track->read_rs = 0;
+X		break;
+X	case 0xf0:
+X	case 0xf7:
+X		event++;
+X		size++;
+X		*event_type = SYSEX;
+X		/* get length as variable length value */
+X		do {
+X			if (track->pos++ == track->length)
+X				return (-1);
+X			length = (length << 7) + (*track->events & 0x7f);
+X			*event = *track->events++;
+X			size++;
+X		} while (*event++ & 0x80);
+X		for (; length > 0; length--) {
+X			/* get event */
+X			if (track->pos++ == track->length)
+X				return (-1);
+X			*event++ = *track->events++;
+X			size++;
+X		}
+X		track->read_rs = 0;
+X		break;
+X	default:
+X		*event_type = NORMAL;
+X		size++;
+X		if (*event & 0x80) {
+X			etype = *event;
+X			track->read_rs = etype;
+X			for (i = 0; i < extra_bytes[(etype >> 4) & 0x07];
+X			    i++) {
+X				event++;
+X				if (track->pos++ == track->length)
+X					return(-1);
+X				*event = *track->events++;
+X				size++;
+X			}
+X		} else {
+X			/* it is using running state */
+X			/* get other data bytes */
+X			switch ((track->read_rs >> 4) & 0x0f) {
+X			case 0x08:
+X			case 0x09:
+X			case 0x0a:
+X			case 0x0b:
+X			case 0x0e:
+X				event++;
+X				if (track->pos++ == track->length)
+X					return (-1);
+X				*event = *track->events++;
+X				size++;
+X				break;
+X			default:
+X				break;
+X			}
+X		}
+X	}
+X	return (size);
+X}
+X
+Xint
+Xput_smf_event(track, event, event_size)
+X	TCHUNK *track;
+X	unsigned char *event;
+X	int event_size;
+X{
+X	unsigned char *event_cpy;
+X	unsigned char *event_ptr;
+X	int i;
+X	int pos;
+X
+X	/* make a copy of the event we can modify */
+X	if ((event_cpy = (unsigned char *)malloc(event_size)) == NULL) {
+X		sprintf(MidiError, "Out of memory in put_smf_event");
+X		return (0);
+X	}
+X	for (i = 0; i < event_size; i++)
+X		event_cpy[i] = event[i];
+X
+X	/* skip timing part */
+X	(void)var2fix(event_cpy, &pos);
+X	event_ptr = event_cpy + pos;
+X
+X	/*
+X	 * check event type to see if we can dump the running state
+X	 * If there is no running state, assume whoever sent us
+X	 * the data got it right.
+X	 */
+X	if (*event_ptr & 0x80) {
+X		switch (*event_ptr & 0xf0) {
+X		case 0xf0:
+X			/* clear running state for these */
+X			track->write_rs = 0;
+X			break;
+X		default:
+X			if (*event_ptr != track->write_rs)
+X				track->write_rs = *event_ptr;
+X			else {
+X				/* it's the same as the last, so dump it */
+X				event_size--;
+X				while (pos++ < event_size) {
+X					*event_ptr = *(event_ptr + 1);
+X					event_ptr++;
+X				}
+X			}
+X		}
+X	}
+X	if (track->msize == 0) {
+X		if ((track->event_start = (unsigned char *)malloc(
+X		    BUFSIZ)) == NULL) {
+X			sprintf(MidiError, "Not enough memory for new event");
+X			return (0);
+X		}
+X		track->msize = BUFSIZ;
+X		track->events = track->event_start;
+X	}
+X	track->length += event_size;
+X	if (track->length > track->msize) {
+X		track->msize += BUFSIZ;
+X		if ((track->event_start =
+X		    (unsigned char *)realloc(track->event_start, track->msize))
+X		    == NULL) {
+X			perror("");
+X			sprintf(MidiError, "Not enough memory for new event");
+X			track->length -= event_size;
+X			track->msize -= BUFSIZ;
+X			return (0);
+X		}
+X		/* starting position might move */
+X		track->events = track->event_start + track->pos;
+X	}
+X
+X	memcpy(track->event_start + track->length - event_size, event_cpy,
+X	    event_size);
+X	free(event_cpy);
+X	return (1);
+X}
+X
+Xvoid
+Xrewind_track(track)
+X	TCHUNK *track;
+X{
+X	track->pos = 0;
+X	track->events = track->event_start;
+X	track->read_rs = 0;
+X}
+X
+Xvoid
+Xreset_track(track)
+X	TCHUNK *track;
+X{
+X	track->pos = 0;
+X	track->length = 0;
+X	track->events = track->event_start;
+X	track->read_rs = 0;
+X	track->write_rs = 0;
+X}
+X
+X
+Xint
+Xwrite_header_chunk(mfile, hchunk)
+X	int mfile;
+X	HCHUNK *hchunk;
+X{
+X
+X	(void)strncpy(hchunk->str, "MThd", 4);
+X	if (mwrite(mfile, hchunk->str, 4) != 4) {
+X		sprintf(MidiError, "Couldn't write header chunk identifier");
+X		return (0);
+X	}
+X
+X	hchunk->length = 6;
+X	hchunk->length = htoml(hchunk->length);
+X	if (mwrite(mfile, (char *)&hchunk->length, sizeof(hchunk->length)) !=
+X		sizeof(hchunk->length)) {
+X		sprintf(MidiError, "Couldn't write header chunk length");
+X		return (0);
+X	}
+X	hchunk->length = mtohl(hchunk->length);
+X
+X	hchunk->format = htoms(hchunk->format);
+X	if (mwrite(mfile, (char *)&hchunk->format, sizeof(hchunk->format)) !=
+X		sizeof(hchunk->format)) {
+X		sprintf(MidiError, "Couldn't write header chunk format");
+X		return (0);
+X	}
+X	hchunk->format = mtohs(hchunk->format);
+X
+X	hchunk->num_trks = htoms(hchunk->num_trks);
+X	if (mwrite(mfile, (char *)&hchunk->num_trks, sizeof(hchunk->num_trks))
+X	    != sizeof(hchunk->num_trks)) {
+X		sprintf(MidiError, "Couldn't write number of tracks");
+X		return (0);
+X	}
+X	hchunk->num_trks = mtohs(hchunk->num_trks);
+X
+X	hchunk->division = htoms(hchunk->division);
+X	if (mwrite(mfile, (char *)&hchunk->division, sizeof(hchunk->division))
+X	    != sizeof(hchunk->division)) {
+X		sprintf(MidiError, "Couldn't write header chunk division");
+X		return (0);
+X	}
+X	hchunk->division = mtohs(hchunk->division);
+X
+X	return (1);
+X}
+X
+Xint
+Xwrite_track_chunk(mfile, tchunk)
+X	int mfile;
+X	TCHUNK *tchunk;
+X{
+X	long midi_length;
+X
+X	(void)strncpy(tchunk->str, "MTrk", 4);
+X	if (mwrite(mfile, tchunk->str, 4) != 4) {
+X		sprintf(MidiError, "Couldn't write track chunk identifier");
+X		return (0);
+X	}
+X
+X	midi_length = htoml(tchunk->length);
+X	if (mwrite(mfile, (char *)&midi_length, sizeof(midi_length)) !=
+X	    sizeof(midi_length)) {
+X		sprintf(MidiError, "Couldn't write track length");
+X		return (0);
+X	}
+X
+X	if (mwrite(mfile, (char *)tchunk->event_start, tchunk->length)
+X	    != tchunk->length) {
+X		sprintf(MidiError, "Couldn't write track events");
+X		return (0);
+X	}
+X
+X	return (1);
+X}
+X
+Xint
+Xmerge_tracks(out, in, tscalar, num, delta)
+X	TCHUNK *out;
+X	TCHUNK **in;
+X	int *tscalar;
+X	int num;
+X	int delta;
+X{
+X	struct evnt {
+X		long	timing;
+X		EVENT_TYPE	type;
+X		int	size;
+X		short	remainder;
+X		unsigned	char event[256];
+X		unsigned	char run_state;
+X	} *ev;
+X	long timing;
+X	int *atracks;
+X	int endtime;
+X	int i;
+X	int j;
+X	int foo;
+X	int lasttime;
+X	int next;
+X	int num_active;
+X	unsigned char event[256];
+X
+X	if ((ev = (struct evnt *)malloc(sizeof(struct evnt) * num))
+X	    == NULL) {
+X		sprintf(MidiError, "Not enough memory for event buffers");
+X		return (-1);
+X	}
+X	if ((atracks = (int *)malloc(sizeof(int) * num)) == NULL) {
+X		sprintf(MidiError, "Not enought memory for atracks");
+X		free((char *)ev);
+X		return (-1);
+X	}
+X
+X	endtime = delta;
+X	/* get first events from each in track */
+X	for (i = 0; i < num; i++) {
+X		if ((ev[i].size = get_smf_event(in[i], ev[i].event,
+X		    &ev[i].type)) == -1) {
+X			free((char *)ev);
+X			free((char *)atracks);
+X			return (-1);
+X		}
+X		ev[i].run_state = get_running_state(in[i]);
+X
+X		/* convert time */
+X		timing = var2fix(ev[i].event, &foo);
+X		ev[i].timing = timing / tscalar[i] + delta;
+X		ev[i].remainder = timing % tscalar[i];
+X		/* alway force inclusion of running status */
+X		ev[i].size -= foo;
+X		for (j = 0; j < ev[i].size; j++)
+X			ev[i].event[j] = ev[i].event[foo + j];
+X		if (ev[i].type == METAEOT) {
+X			if (ev[i].timing > endtime)
+X				endtime = ev[i].timing;
+X		} else
+X			atracks[i] = 1;
+X	}
+X	num_active = num;
+X
+X	lasttime = 0;
+X	while (num_active) {
+X		/* find first active track */
+X		next = 0;
+X		for (i = 0; i < num; i++)
+X			if (atracks[i]) {
+X				next = i;
+X				break;
+X			}
+X		/* now compare to find active track with smallest timing */
+X		for (; i < num; i++)
+X			if (atracks[i])
+X				if (ev[i].timing < ev[next].timing)
+X					next = i;
+X
+X		foo = fix2var(ev[next].timing - lasttime, event);
+X
+X		/* stick in a running state if it is missing */
+X		if (!(ev[next].event[0] & 0x80))
+X			event[foo++] = ev[next].run_state;
+X
+X		for (i = 0; i < ev[next].size; i++)
+X			event[foo + i] = ev[next].event[i];
+X
+X/*
+X{
+Xint x;
+Xprintf("wrote: ");
+Xfor (x = 0; x < ev[next].size + foo; x++)
+Xprintf("0x%02x ", event[x]);
+Xprintf("\n");
+X}
+X*/
+X
+X		/* change timing value of event */
+X		if (!put_smf_event(out, event, ev[next].size + foo)) {
+X			free((char *)ev);
+X			free((char *)atracks);
+X			return (-1);
+X		}
+X
+X		lasttime = ev[next].timing;
+X
+X		/* get replacement event */
+X		if ((ev[next].size = get_smf_event(in[next], ev[next].event,
+X		    &ev[next].type)) == -1) {
+X			free((char *)ev);
+X			free((char *)atracks);
+X			return (-1);
+X		}
+X/*
+X{
+Xint x;
+Xprintf("read: ");
+Xfor (x = 0; x < ev[next].size; x++)
+Xprintf("0x%02x ", ev[next].event[x]);
+Xprintf("\n");
+X}
+X*/
+X		ev[next].run_state = get_running_state(in[next]);
+X		/* convert time */
+X		timing = var2fix(ev[next].event, &foo) + ev[next].remainder;
+X		ev[next].timing += timing / tscalar[next];
+X		ev[next].remainder = timing % tscalar[next];
+X		ev[next].size -= foo;
+X		for (j = 0; j < ev[next].size; j++)
+X			ev[next].event[j] = ev[next].event[foo + j];
+X		if (ev[next].type == METAEOT) {
+X			if (ev[next].timing > endtime)
+X				endtime = ev[next].timing;
+X			atracks[next] = 0;
+X			num_active--;
+X		}
+X	}
+X	free((char *)ev);
+X	free((char *)atracks);
+X	return (endtime - lasttime);
+X}
+X
+Xint
+Xfix2var(val, ptr)
+X	long val;
+X	unsigned char *ptr;
+X{
+X	int i;
+X	unsigned char buf[4];
+X	unsigned char *bptr;
+X
+X	buf[0] = buf[1] = buf[2] = buf[3] = 0;
+X	bptr = buf;
+X	*bptr++ = val & 0x7f;
+X	while ((val >>= 7) > 0) {
+X		*bptr |= 0x80;
+X		*bptr++ += (val & 0x7f);
+X	}
+X
+X	i = 0;
+X	do {
+X		*ptr++ = *--bptr;
+X		i++;
+X	} while (bptr != buf);
+X
+X	return (i);
+X}
+X
+Xlong
+Xvar2fix(var, delta)
+X	unsigned char *var;
+X	int *delta;
+X{
+X	long fix;
+X
+X	fix = 0;
+X	*delta = 0;
+X	if (*var & 0x80)
+X		do {
+X			fix = (fix << 7) + (*var & 0x7f);
+X			(*delta)++;
+X		} while (*var++ & 0x80);
+X	else {
+X		fix = *var++;
+X		(*delta)++;
+X	}
+X
+X	return (fix);
+X}
+X
+Xvoid
+Xfree_track(track)
+X	TCHUNK *track;
+X{
+X
+X	if (track == NULL)
+X		return;
+X	if (track->event_start != NULL)
+X		free(track->event_start);
+X	track->event_start = NULL;
+X	track->events = NULL;
+X	track->length = 0;
+X	track->pos = 0;
+X	track->msize = 0;
+X	track->read_rs = 0;
+X	track->write_rs = 0;
+X}
+X
+Xvoid
+Xinit_track(track)
+X	TCHUNK *track;
+X{
+X	track->event_start = NULL;
+X	track->events = NULL;
+X	track->msize = 0;
+X	track->length = 0;
+X	track->pos = 0;
+X	track->read_rs = 0;
+X	track->write_rs = 0;
+X	strncpy(track->str, "MTrk", 4);
+X}
+X
+Xunsigned char
+Xget_running_state(track)
+X	TCHUNK *track;
+X{
+X
+X	return (track->read_rs);
+X}
+X
+Xint
+Xmread(dev, buf, size)
+X	int dev;
+X	char *buf;
+X	int size;
+X{
+X	int num_read;
+X	int total_read;
+X
+X	total_read = 0;
+X	do {
+X		if ((num_read = read(dev, buf, size - total_read)) == -1) {
+X			perror("");
+X			return (-1);
+X		}
+X		if (num_read == 0)
+X			break;
+X		total_read += num_read;
+X		buf += num_read;
+X	} while (size > total_read);
+X	if (total_read == 0)
+X		MidiEof = 1;
+X	return (total_read);
+X}
+X
+Xint
+Xmwrite(dev, buf, size)
+X	int dev;
+X	char *buf;
+X	int size;
+X{
+X	int num_written;
+X	int total_written;
+X
+X	total_written = 0;
+X	do {
+X		if ((num_written = write(dev, buf, size - total_written))
+X		    == -1) {
+X			perror("");
+X			return (-1);
+X		}
+X		if (num_written == 0)
+X			break;
+X		total_written += num_written;
+X		buf += num_written;
+X	} while (size > total_written);
+X	return (total_written);
+X}
+END_OF_FILE
+  if test 20842 -ne `wc -c <'tclm-1.0/mlib/mfileutil.c'`; then
+    echo shar: \"'tclm-1.0/mlib/mfileutil.c'\" unpacked with wrong size!
+  fi
+  # end of 'tclm-1.0/mlib/mfileutil.c'
+fi
+if test -f 'tclm-1.0/mlib/mpu_bsd386.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/mlib/mpu_bsd386.c'\"
+else
+  echo shar: Extracting \"'tclm-1.0/mlib/mpu_bsd386.c'\" \(10123 characters\)
+  sed "s/^X//" >'tclm-1.0/mlib/mpu_bsd386.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by Michael B. Durian.
+X * 4. The name of the the Author may be used to endorse or promote 
+X *    products derived from this software without specific prior written 
+X *    permission.
+X *
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*
+X * mpu_bsd386.c,v 1.9 1993/05/07 17:45:20 durian Exp
+X */
+X
+X#ifdef MIDIPLAY
+Xstatic char cvsid[] = "mpu_bsd386.c,v 1.9 1993/05/07 17:45:20 durian Exp";
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <unistd.h>
+X#include <sys/file.h>
+X#include <string.h>
+X#include <errno.h>
+X#include <sys/ioctl.h>
+X#include <i386/isa/midiioctl.h>
+X#include "mutil.h"
+X#include "mdevice.h"
+X
+X#define MAX_EVENT_SIZE 256
+X/* global */
+Xvolatile int StopProcessing;
+X
+Xstatic int adjust_division _ANSI_ARGS_((int division, long *div_ioctl,
+X    int *tempo_scalar));
+Xstatic unsigned char double2tempo _ANSI_ARGS_((double d));
+X
+Xint
+Xplay_tracks(dev, tracks, indices, num, repeat)
+X	int dev;
+X	TCHUNK *tracks;
+X	int *indices;
+X	int num;
+X	int repeat;
+X{
+X
+X	return (record_tracks(dev, tracks, indices, num, NULL, repeat));
+X}
+X
+Xint
+Xrecord_tracks(dev, p_tracks, indices, p_num, r_track, repeat)
+X	int dev;
+X	TCHUNK *p_tracks;
+X	int *indices;
+X	int p_num;
+X	TCHUNK *r_track;
+X	int repeat;
+X{
+X	TCHUNK tmptrack;
+X	struct timeval mwait;
+X	TCHUNK **track_list;
+X	int *tscalars;
+X	fd_set w_select;
+X	fd_set r_select;
+X	EVENT_TYPE event_type;
+X	int endtime;
+X	int event_len;
+X	int i;
+X	int select_return;
+X	int track_done;
+X	unsigned char event[MAX_EVENT_SIZE];
+X
+X	tscalars = NULL;
+X	track_list = NULL;
+X	if (p_num > 0) {
+X		/* merge play tracks */
+X		if ((tscalars = (int *)malloc(sizeof(int) * p_num)) == NULL) {
+X			sprintf(MidiError, "Out of memory");
+X			return (0);
+X		}
+X		if ((track_list = (TCHUNK **)malloc(sizeof(TCHUNK *) * p_num))
+X		    == NULL) {
+X			sprintf(MidiError, "Out of memory");
+X			return (0);
+X		}
+X		for (i = 0; i < p_num; i++) {
+X			tscalars[i] = 1;
+X			track_list[i] = &p_tracks[i];
+X			
+X		}
+X		init_track(&tmptrack);
+X		endtime = merge_tracks(&tmptrack, track_list, tscalars, p_num,
+X		    0);
+X		event_len = fix2var(endtime, event);
+X		event[event_len] = METAEOT;
+X		event[event_len + 1] = 0;
+X		if (!put_smf_event(&tmptrack, event, event_len + 2)) {
+X			sprintf(MidiError, "Couldn't add METAEOT event");
+X			free(tscalars);
+X			free(track_list);
+X			free_track(&tmptrack);
+X			return (0);
+X		}
+X	}
+X
+X	StopProcessing = 0;
+X	do {
+X		track_done = 0;
+X		rewind_track(&tmptrack);
+X		while (!StopProcessing && !track_done) {
+X			/* select on play */
+X			FD_ZERO(&w_select);
+X			if (p_num != 0)
+X				FD_SET(dev, &w_select);
+X			/* also on record */
+X			FD_ZERO(&r_select);
+X			if (r_track != NULL)
+X				FD_SET(dev, &r_select);
+X			/*
+X			 * we time out every so often to check and see
+X			 * if StopProcessing has changed
+X			 */
+X			mwait.tv_sec = 0;
+X			mwait.tv_usec = 100000;
+X			if ((select_return = select(getdtablesize(), &r_select,
+X			    &w_select, NULL, &mwait)) == -1) {
+X				if (errno == EINTR)
+X					break;
+X				else {
+X					sprintf(MidiError,
+X					    "Error in select: %s",
+X					    sys_errlist[errno]);
+X					if (tscalars != NULL)
+X						free(tscalars);
+X					if (track_list != NULL)
+X						free(track_list);
+X					free_track(&tmptrack);
+X					return (0);
+X				}
+X			}
+X			if (StopProcessing)
+X				break;
+X			if (select_return == 0)
+X				continue;
+X	
+X			/* write event if not blocked */
+X			if (p_num != 0 && FD_ISSET(dev, &w_select)) {
+X				event_len = get_smf_event(&tmptrack,
+X				    event, &event_type);
+X				switch (event_len) {
+X				case -1:
+X					sprintf(MidiError,
+X					    "Couldn't get event from tmptrack");
+X					if (tscalars != NULL)
+X						free(tscalars);
+X					if (track_list != NULL)
+X						free(track_list);
+X					free_track(&tmptrack);
+X					return (0);
+X				case 0:
+X					track_done = 1;
+X					break;
+X				default:
+X					if (write(dev, event, event_len) !=
+X					    event_len) {
+X						sprintf(MidiError,
+X						    "Error writing event: %s",
+X						    sys_errlist[errno]);
+X						if (tscalars != NULL)
+X							free(tscalars);
+X						if (track_list != NULL)
+X							free(track_list);
+X						free_track(&tmptrack);
+X						return (0);
+X					}
+X					break;
+X				}
+X			}
+X
+X
+X			if (r_track != NULL && FD_ISSET(dev, &r_select)) {
+X				if ((event_len = read(dev, event,
+X				    MAX_EVENT_SIZE)) == -1) {
+X					sprintf(MidiError,
+X					    "Error reading event: %s",
+X					    sys_errlist[errno]);
+X					if (tscalars != NULL)
+X						free(tscalars);
+X					if (track_list != NULL)
+X						free(track_list);
+X					free_track(&tmptrack);
+X					return (0);
+X				}
+X				if (!put_smf_event(r_track, event, event_len)) {
+X					sprintf(MidiError,
+X					    "Coudln't put smf event");
+X					if (tscalars != NULL)
+X						free(tscalars);
+X					if (track_list != NULL)
+X						free(track_list);
+X					free_track(&tmptrack);
+X					return (0);
+X				}
+X			}
+X		}
+X	} while (repeat && !StopProcessing);
+X
+X	if (!StopProcessing) {
+X		/* this waits until we're done playing */
+X		if (ioctl(dev, MFLUSHQ, NULL) == -1)
+X			sprintf(MidiError, "Error flushing queue: %s",
+X			    sys_errlist[errno]);
+X		/* check for any final data to be read */
+X		FD_ZERO(&r_select);
+X		if (r_track != NULL)
+X			FD_SET(dev, &r_select);
+X		mwait.tv_sec = 0;
+X		mwait.tv_usec = 0;
+X		if ((select_return = select(getdtablesize(), NULL, &w_select,
+X		    NULL, &mwait)) == -1) {
+X			if (errno != EINTR) {
+X				sprintf(MidiError, "Error in select: %s",
+X				    sys_errlist[errno]);
+X				if (tscalars != NULL)
+X					free(tscalars);
+X				if (track_list != NULL)
+X					free(track_list);
+X				free_track(&tmptrack);
+X				return (0);
+X			}
+X		}
+X		if (r_track != NULL && FD_ISSET(dev, &r_select)) {
+X			if ((event_len = read(dev, event, MAX_EVENT_SIZE))
+X			    == -1) {
+X				sprintf(MidiError, "Error reading event: %s",
+X				    sys_errlist[errno]);
+X				if (tscalars != NULL)
+X					free(tscalars);
+X				if (track_list != NULL)
+X					free(track_list);
+X				free_track(&tmptrack);
+X				return (0);
+X			}
+X			if (!put_smf_event(r_track, event, event_len)) {
+X				sprintf(MidiError, "Coudln't put smf event");
+X				if (tscalars != NULL)
+X					free(tscalars);
+X				if (track_list != NULL)
+X					free(track_list);
+X				free_track(&tmptrack);
+X				return (0);
+X			}
+X		}
+X	}
+X	if (tscalars != NULL)
+X		free(tscalars);
+X	if (track_list != NULL)
+X		free(track_list);
+X	free_track(&tmptrack);
+X	return (1);
+X}
+X
+Xint
+Xstop_processing(dev)
+X	int dev;
+X{
+X
+X	StopProcessing = 1;
+X	/* if we leave, leave now - don't hang on close */
+X	if (ioctl(dev, MCLRQ, NULL) == -1) {
+X		sprintf(MidiError, "Error clearing queue: %s",
+X		    sys_errlist[errno]);
+X		return (0);
+X	}
+X	return (0);
+X}
+X
+Xint
+Xopen_midi_device(mode)
+X	PlayMode mode;
+X{
+X	mode_t m;
+X	int dev;
+X
+X	switch (mode) {
+X	case PLAY:
+X		m =  O_WRONLY;
+X		break;
+X	case RECORD:
+X		m = O_RDONLY;
+X		break;
+X	case PLAYRECORD:
+X		m = O_RDWR;
+X		break;
+X	}
+X	if ((dev = open("/dev/midi0", m)) == -1) {
+X		sprintf(MidiError, "Couldn't open /dev/midi0: %s",
+X		    sys_errlist[errno]);
+X	}
+X	return (dev);
+X}
+X
+Xint
+Xinit_midi_device(dev, hd, reltempo)
+X	int dev;
+X	HCHUNK *hd;
+X	double reltempo;
+X{
+X	long div_ioctl;
+X	int tscalar;
+X	unsigned char fixreltempo;
+X
+X	if (!adjust_division(hd->division, &div_ioctl, &tscalar)) {
+X		sprintf(MidiError, "Bad division value.  Must be on of \
+X48, 72, 96, 120, 144, 168, 192 or an integer multiple thereof");
+X		return (0);
+X	}
+X
+X	if (ioctl(dev, div_ioctl, NULL) == -1) {
+X		sprintf(MidiError, "Couldn't set division: %s",
+X		    sys_errlist[errno]);
+X		return (0);
+X	}
+X	if (ioctl(dev, MTSCALAR, &tscalar) == -1) {
+X		sprintf(MidiError, "Couldn't set tscalar: %s",
+X		    sys_errlist[errno]);
+X		return (0);
+X	}
+X	fixreltempo = double2tempo(reltempo);
+X	if (ioctl(dev, MSETRELTMP, &fixreltempo) == -1) {
+X		sprintf(MidiError, "Couldn't set relative tempo: %s",
+X		    sys_errlist[errno]);
+X		return (0);
+X	}
+X
+X	return (1);
+X}
+X
+Xint
+Xstart_midi_device(dev, mode)
+X	int dev;
+X	PlayMode mode;
+X{
+X
+X	/* automatically started by open */
+X	return (1);
+X}
+X
+Xint
+Xstop_midi_device(dev, mode)
+X	int dev;
+X	PlayMode mode;
+X{
+X	/* automatically stopped by close */
+X	return (1);
+X}
+X
+Xint
+Xclose_midi_device(dev)
+X	int dev;
+X{
+X
+X	close(dev);
+X	return (1);
+X}
+X
+Xint
+Xadjust_division(division, div_ioctl, tempo_scalar)
+X	int division;
+X	long *div_ioctl;
+X	int *tempo_scalar;
+X{
+X	long ioctls[] = {MRES192, MRES168, MRES144, MRES120, MRES96,
+X	    MRES72, MRES48};
+X	int divs[] = {192, 168, 144, 120, 96, 72, 48};
+X	int i;
+X	int ret_val;
+X
+X	ret_val = 0;
+X	for (i = 0; i < sizeof(divs) / sizeof(divs[0]); i++) {
+X		if (division % divs[i] == 0) {
+X			*div_ioctl = ioctls[i];
+X			*tempo_scalar = 1000 * division / divs[i];
+X			ret_val = 1;
+X			break;
+X		}
+X	}
+X	return (ret_val);
+X}
+X
+Xunsigned char
+Xdouble2tempo(d)
+X	double d;
+X{
+X	double bit_vals[] = {2.0, 1.0, 0.5, 0.25, 0.125, 0.0625,
+X	    0.03125, 0.015625};
+X	int i;
+X	unsigned char tempo_scalar;
+X
+X	for (i = 0; i < 8; i++) {
+X		if (d < bit_vals[i])
+X			tempo_scalar = (tempo_scalar << 1) & ~1;
+X		else {
+X			tempo_scalar = (tempo_scalar << 1) | 1;
+X			d -= bit_vals[i];
+X		}
+X	}
+X	return(tempo_scalar);
+X}
+X#endif
+END_OF_FILE
+  if test 10123 -ne `wc -c <'tclm-1.0/mlib/mpu_bsd386.c'`; then
+    echo shar: \"'tclm-1.0/mlib/mpu_bsd386.c'\" unpacked with wrong size!
+  fi
+  # end of 'tclm-1.0/mlib/mpu_bsd386.c'
+fi
+if test -f 'tclm-1.0/mseq' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/mseq'\"
+else
+  echo shar: Extracting \"'tclm-1.0/mseq'\" \(7875 characters\)
+  sed "s/^X//" >'tclm-1.0/mseq' <<'END_OF_FILE'
+X#!/usr/local/bin/tclm -f
+X#
+X# Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X#
+X# Redistribution and use in source and binary forms, with or without
+X# modification, are permitted provided that the following conditions
+X# are met:
+X# 1. Redistributions of source code must retain the above copyright
+X#    notice, this list of conditions and the following disclaimer.
+X# 2. Redistributions in binary form must reproduce the above copyright
+X#    notice, this list of conditions and the following disclaimer in the
+X#    documentation and/or other materials provided with the distribution.
+X# 3. All advertising materials mentioning features or use of this software
+X#    must display the following acknowledgement:
+X#	This product includes software developed by Michael B. Durian.
+X# 4. The name of the the Author may be used to endorse or promote 
+X#    products derived from this software without specific prior written 
+X#    permission.
+X#
+X# THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X# OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X# SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X# SUCH DAMAGE.
+X
+X# mseq,v 1.4 1993/04/08 04:16:05 durian Exp
+X
+Xset ScopeList ""
+Xset CurrentScope ""
+Xset ScopeDuration long
+X
+Xset TrackNumber 0
+Xset CurrentTrack ""
+X
+Xset InFileName stdin
+Xset OutFileName stdout
+Xset LineNumber 0
+X
+Xset Division -1
+X
+Xproc ReadLine {file} {
+X	global LineNumber
+X
+X	# we want to skip blank lines
+X	# and escape both curly braces
+X	if {[gets $file line0] == -1} {
+X		return ""
+X	}
+X	incr LineNumber
+X	if {![regsub -all \{ $line0 \\\{ line1]} {
+X		set line1 $line0
+X	}
+X	if {![regsub -all \} $line1 \\\} line2]} {
+X		set line2 $line1
+X	}
+X	while {[llength $line2] == 0} {
+X		if {[gets $file line0] == -1} {
+X			return ""
+X		}
+X		incr LineNumber
+X		if {![regsub -all \{ $line0 \\\{ line1]} {
+X			set line1 $line0
+X		}
+X		if {![regsub -all \{ $line2 \\\{ line1]} {
+X			set line2 $line1
+X		}
+X	}
+X	return $line2
+X}
+X
+X
+Xproc CollapseAndAdd {outfile infilename outtimes} {
+X	global Division
+X
+X	if {[catch {open $infilename "r"} file]} {
+X		puts stderr $file
+X		exit 1
+X	}
+X	set infile [midiread $file]
+X	set outtime0 [lindex $outtimes 0]
+X	set outtime1 [lindex $outtimes 1]
+X
+X	set form [midiconfig $infile format]
+X	if {[midiconfig $infile format] != 1} {
+X		puts stderr "Sorry!  mseq only handles format 1 files currently."
+X		exit 1
+X	}
+X	if {$Division == -1} {
+X		set Division [midiconfig $infile division]
+X		set scalar 1
+X	} else {
+X		set scalar [expr {[midiconfig $infile division] / $Division}]
+X	}
+X
+X	# copy over track 0
+X	set outtime0 [midimerge "$outfile 0" "\"$infile 0 $scalar\"" $outtime0]
+X
+X	# now merge the other tracks to track 1
+X	set num_tracks [midiconfig $infile tracks]
+X	for {set i 1} {$i < $num_tracks} {incr i} {
+X		lappend inputs "$infile $i $scalar"
+X	}
+X	set outtime1 [midimerge "$outfile 1" $inputs $outtime1]
+X
+X	midifree $infile
+X	close $file
+X
+X	return "$outtime0 $outtime1"
+X}
+X
+X# parse command line args
+X# mseq [input.seq [output.mid]]
+Xif {[string compare [lindex $argv 0] -f] == 0} {
+X	set argv [lrange $argv 2 end]
+X	set argc [expr {$argc - 2}]
+X}
+Xif {$argc > 2} {
+X	puts stderr "Usage: mseq [input.seq [output.mid]]"
+X	exit 1
+X}
+X
+Xset InFile stdin
+Xset OutFile stdout
+Xif {$argc > 0} {
+X	set InFileName [lindex $argv 0]
+X	if {[catch {open $InFileName "r"} InFile]} {
+X		puts stderr $InFile
+X		exit 1
+X	}
+X	if {$argc > 1} {
+X		set OutFileName [lindex $argv 1]
+X		set OutFile [open $OutFileName "w"]
+X		if {[catch {open $OutFileName "w"} OutFile]} {
+X			puts stderr $OutFile
+X			exit 1
+X		}
+X	}
+X}
+X
+X
+X# pretty ugly huh?
+X# get a line and stick it into the variable line
+X# also get the length of that same line
+X# and stick that result in the variable line_length
+X# then check to see if that is zero
+Xwhile {[set line_length [llength [set line [ReadLine $InFile]]]] != 0} {
+X	set comment 0
+X	for {set i 0} {$i < $line_length} {incr i} {
+X		set word [lindex $line $i]
+X		case $word in {
+X		"*:" {
+X			# this is a label
+X			set ScopeList [linsert $ScopeList 0 $word]
+X			set CurrentScope $word
+X			set ScopeDuration short
+X		} "\{" {
+X			# this opens a block
+X			set ScopeDuration long
+X		} "\}" {
+X			# this closes a block
+X			set ScopeList [lrange $ScopeList 1 end]
+X			set CurrentScope [lindex $ScopeList 0]
+X		} "repeat" {
+X			if {[llength $ScopeList] == 0} {
+X				puts stderr "No track specified"
+X				puts stderr "Line $LineNumber File: $InFileName"
+X				exit 1
+X			}
+X			# our one and only command
+X			incr i
+X			if {$i == $line_length} {
+X				puts stderr [concat "Must follow \"repeat\" "\
+X				    "with a block name"]
+X				puts stderr "Line $LineNumber File: $InFileName"
+X				exit 1
+X			}
+X			set block [lindex $line $i]
+X			incr i
+X			if {$i < $line_length} {
+X				set num_repeats [lindex $line $i]
+X			} else {
+X				set num_repeats 1
+X			}
+X			for {set j 0} {$j < $num_repeats} {incr j} {
+X				# some major contortions to get
+X				# recursive variable names
+X				set var "\$${CurrentTrack}($block)"
+X
+X				foreach scope $ScopeList {
+X					eval "append ${CurrentTrack}($scope) \
+X					    { } $var"
+X				}
+X			}
+X		} "track" {
+X			if {[llength $ScopeList] > 1} {
+X				puts stderr "No nesting tracks"
+X				puts stderr "Line $LineNumber File: $InFileName"
+X				exit 1
+X			}
+X			set ScopeList main:
+X			set CurrentScope main:
+X			set CurrentTrack track${TrackNumber}
+X			incr TrackNumber
+X		} "#" {
+X			set comment 1
+X		} default {
+X			# other wise we're a file name
+X			# we must append word to all scopes in ScopeList
+X			if {[llength $ScopeList] == 0} {
+X				puts stderr "No track specified"
+X				puts stderr "Line $LineNumber File: $InFileName"
+X				exit 1
+X			}
+X			foreach scope $ScopeList {
+X				lappend ${CurrentTrack}($scope) $word
+X			}
+X			if {[string compare $ScopeDuration short] == 0} {
+X				set ScopeList [lrange $ScopeList 1 end]
+X				set CurrentScope [lindex $ScopeList 0]
+X				set ScopeDuration long
+X			}
+X		}
+X		}
+X		if {$comment} {
+X			break
+X		}
+X	}
+X}
+X
+Xfor {set i 0} {$i < $TrackNumber} {incr i} {
+X	puts stderr "Track [expr {$i + 1}]:"
+X	set var track${i}(main:)
+X	puts stderr [eval "set $var"]
+X	puts stderr ""
+X
+X	# we want to collapse and concat each track to a mfile
+X	set mfile [midimake]
+X	midiconfig $mfile format 1
+X	midiconfig $mfile tracks 2
+X	lappend MFileList $mfile
+X
+X	# initially we are at the begining of the track
+X	set track_time "0 0"
+X	foreach filename [eval "set $var"] {
+X		set track_time [CollapseAndAdd $mfile $filename $track_time]
+X	}
+X
+X	# set the division to what was determined by CollapseAndAdd
+X	midiconfig $mfile division $Division
+X
+X	# stick eot's on tracks 0 and 1
+X	midiput $mfile 0 [lindex $track_time 0] metaeot
+X	midiput $mfile 1 [lindex $track_time 1] metaeot
+X
+X	# and rewind it for future use
+X	midirewind $mfile
+X
+X}
+X
+X# and then create one final mfile from each individual track mfile
+X# track 0's must merge - other tracks stay separate
+Xset moutfile [midimake]
+Xmidiconfig $moutfile format 1
+Xmidiconfig $moutfile track [expr {$TrackNumber + 1}]
+Xmidiconfig $moutfile division $Division
+X
+X# by now everything is in the same division so we can use tscalars of 1
+X
+Xputs stderr "Final Merge"
+X
+X# make track 0 merge list
+X# and append other tracks
+Xset track 1
+Xforeach mfile $MFileList {
+X	lappend mlist "$mfile 0 1"
+X	set d [midimerge "$moutfile $track" "\"$mfile 1 1\"" 0]
+X	midiput $moutfile $track $d metaeot
+X	incr track
+X}
+X
+Xset delta0 [midimerge "$moutfile 0" $mlist 0]
+Xmidiput $moutfile 0 $delta0 metaeot
+X
+Xforeach mfile $MFileList {
+X	midifree $mfile
+X}
+X
+Xmidiwrite $moutfile $OutFile
+Xmidifree $moutfile
+Xclose $OutFile
+Xexit 0
+END_OF_FILE
+  if test 7875 -ne `wc -c <'tclm-1.0/mseq'`; then
+    echo shar: \"'tclm-1.0/mseq'\" unpacked with wrong size!
+  fi
+  chmod +x 'tclm-1.0/mseq'
+  # end of 'tclm-1.0/mseq'
+fi
+if test -f 'tclm-1.0/tclmPlay.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tclm-1.0/tclmPlay.c'\"
+else
+  echo shar: Extracting \"'tclm-1.0/tclmPlay.c'\" \(16902 characters\)
+  sed "s/^X//" >'tclm-1.0/tclmPlay.c' <<'END_OF_FILE'
+X/*-
+X * Copyright (c) 1993 Michael B. Durian.  All rights reserved.
+X *
+X * Redistribution and use in source and binary forms, with or without
+X * modification, are permitted provided that the following conditions
+X * are met:
+X * 1. Redistributions of source code must retain the above copyright
+X *    notice, this list of conditions and the following disclaimer.
+X * 2. Redistributions in binary form must reproduce the above copyright
+X *    notice, this list of conditions and the following disclaimer in the
+X *    documentation and/or other materials provided with the distribution.
+X * 3. All advertising materials mentioning features or use of this software
+X *    must display the following acknowledgement:
+X *	This product includes software developed by Michael B. Durian.
+X * 4. The name of the the Author may be used to endorse or promote 
+X *    products derived from this software without specific prior written 
+X *    permission.
+X *
+X * THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+X * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+X * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  
+X * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+X * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+X * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+X * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+X * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+X * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+X * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+X * SUCH DAMAGE.
+X */
+X/*
+X * tclmPlay.c,v 1.9 1993/05/07 17:45:11 durian Exp
+X */
+X#ifdef MIDIPLAY
+X
+Xstatic char cvsid[] = "tclmPlay.c,v 1.9 1993/05/07 17:45:11 durian Exp";
+X
+X#include <signal.h>
+X#include <sys/ioctl.h>
+X#include <i386/isa/midiioctl.h>
+X#include "tclInt.h"
+X#include "tclUnix.h"
+X#include "mutil.h"
+X#include "mdevice.h"
+X#include "tclm.h"
+X#include "tclmPlay.h"
+X
+Xstatic int now_playing = 0;
+Xstatic int Dev;
+Xstatic PlayMode Mode;
+Xstatic int Pipe[2];
+X
+Xstatic char *play_usage = "midiplay [bg | background] [repeat] \
+X[tracks track_list] [reltempo tempo_scalar] mfileId";
+Xstatic char *record_usage = "midirecord [bg | background] [play play_mfileId \
+X[repeat] [tracks track_list] [reltempo tempo_scalar]] record_mfileId";
+X
+Xvoid
+XTclm_InitPlay(interp)
+X	Tcl_Interp *interp;
+X{
+X
+X	Tcl_CreateCommand(interp, "midiplay", Tclm_MidiPlay, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midirecord", Tclm_MidiRecord, NULL, NULL);
+X	Tcl_CreateCommand(interp, "midistop", Tclm_MidiStop, NULL, NULL);
+X	signal(SIGCHLD, watchdog);
+X	signal(SIGHUP, Tclm_CatchStop);
+X}
+X
+X
+Xint
+XTclm_MidiPlay(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	double reltempo;
+X	MIDI_FILE *mfile;
+X	char *mfile_name;
+X	int *tracks;
+X	int background;
+X	int i;
+X	int num_tracks;
+X	int pid;
+X	int repeat;
+X	int result;
+X	
+X
+X	if (argc < 2) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    play_usage, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	reltempo = 1.0;
+X	repeat = 0;
+X	background = 0;
+X	mfile_name = NULL;
+X	tracks = NULL;
+X	num_tracks = 0;
+X
+X	for (i = 1; i < argc; i++) {
+X		switch(argv[i][0]) {
+X		case 'b':
+X			if (strncmp(argv[i], "bg", sizeof(argv[i])) == 0 ||
+X			    strncmp(argv[i], "background", sizeof(argv[i]))
+X			    == 0)
+X				background = 1;
+X			else if (mfile_name == NULL)
+X				mfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", play_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			break;
+X		case 'r':
+X			if (strncmp(argv[i], "reltempo", strlen(argv[i]))
+X			    == 0)
+X				reltempo = atof(argv[++i]);
+X			else if (strncmp(argv[i], "repeat", strlen(argv[i]))
+X			    == 0)
+X				repeat = 1;
+X			else if (mfile_name == NULL)
+X				mfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", play_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X
+X			break;
+X		case 't':
+X			if (strncmp(argv[i], "tracks", strlen(argv[i]))
+X			    == 0) {
+X				if ((num_tracks = Tclm_ParseTracks(interp,
+X				    argv[i + 1], &tracks)) == -1)
+X					return (TCL_ERROR);
+X				i++;
+X			} else if (mfile_name == NULL) {
+X				mfile_name = argv[i];
+X			} else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", play_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			break;
+X		default:
+X			if (mfile_name == NULL)
+X				mfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", play_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X		}
+X	}
+X
+X	if ((result = Tclm_GetMFile(interp, mfile_name, &mfile)) != TCL_OK) {
+X		if (tracks != NULL)
+X			free(tracks);
+X		return (result);
+X	}
+X
+X	/* If track list isn't set use all tracks */
+X	if (num_tracks == 0) {
+X		num_tracks = mfile->hchunk.num_trks;
+X		if ((tracks = (int *)malloc(sizeof(int) * num_tracks))
+X		    == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		for (i = 0; i < num_tracks; i++)
+X			tracks[i] = i;
+X	}
+X
+X	Mode = PLAY;
+X	if ((Dev = open_midi_device(Mode)) == -1) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!init_midi_device(Dev, &mfile->hchunk, reltempo)) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!start_midi_device(Dev, Mode)) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!background) {
+X		now_playing = 1;
+X		if (!play_tracks(Dev, mfile->tchunks, tracks, num_tracks,
+X		    repeat)) {
+X			Tcl_AppendResult(interp, "Couldn't play tracks\n",
+X			    MidiError, (char *)NULL);
+X			free(tracks);
+X			return (TCL_ERROR);
+X		}
+X		now_playing = 0;
+X		if (!stop_midi_device(Dev, Mode)) {
+X			Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X			free(tracks);
+X			return (TCL_ERROR);
+X		}
+X
+X		/*
+X		 * give time for the stop to take effect
+X		 * since stop might not happen until next clock
+X		 */
+X		 sleep(1);
+X
+X		if (!close_midi_device(Dev)) {
+X			Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X			free(tracks);
+X			return (TCL_ERROR);
+X		}
+X		Tcl_AppendResult(interp, "0", (char *)NULL);
+X	} else {
+X		switch(pid = fork()) {
+X		case -1:
+X			Tcl_AppendResult(interp, "Couldn't fork",
+X			    (char *)NULL);
+X			free(tracks);
+X			return (TCL_ERROR);
+X		case 0:
+X			/* child */
+X			now_playing = 1;
+X			if (!play_tracks(Dev, mfile->tchunks, tracks,
+X			    num_tracks, repeat)) {
+X				Tcl_AppendResult(interp,
+X				    "Couldn't play tracks\n", MidiError,
+X				    (char *)NULL);
+X				free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			now_playing = 0;
+X			if (!stop_midi_device(Dev, Mode)) {
+X				Tcl_AppendResult(interp, MidiError,
+X				    (char *)NULL);
+X				free(tracks);
+X				return (TCL_ERROR);
+X			}
+X
+X			/*
+X			 * give time for the stop to take effect
+X			 * since stop might not happen until next clock
+X			 */
+X			 sleep(1);
+X
+X			if (!close_midi_device(Dev)) {
+X				Tcl_AppendResult(interp, MidiError,
+X				    (char *)NULL);
+X				free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			exit(0);
+X		default:
+X			if (!close_midi_device(Dev)) {
+X				Tcl_AppendResult(interp, MidiError,
+X				    (char *)NULL);
+X				free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			sprintf(interp->result, "%d", pid);
+X			break;
+X		}
+X	}
+X
+X	free(tracks);
+X	return (TCL_OK);
+X}
+X
+Xint
+XTclm_MidiRecord(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	double reltempo;
+X	MIDI_FILE *pfile;
+X	MIDI_FILE *rfile;
+X	TCHUNK *play_tracks;
+X	TCHUNK *tmp_track;
+X	char *pfile_name;
+X	char *rfile_name;
+X	int *tracks;
+X	int background;
+X	int i;
+X	int num_tracks;
+X	int pid;
+X	int repeat;
+X	int result;
+X	
+X
+X	if (argc < 2) {
+X		Tcl_AppendResult(interp, "wrong # args: should be \"",
+X		    record_usage, "\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	reltempo = 1.0;
+X	repeat = 0;
+X	background = 0;
+X	pfile = NULL;
+X	rfile = NULL;
+X	pfile_name = NULL;
+X	rfile_name = NULL;
+X	tracks = NULL;
+X	num_tracks = 0;
+X
+X	for (i = 1; i < argc; i++) {
+X		switch(argv[i][0]) {
+X		case 'b':
+X			if (strncmp(argv[i], "bg", sizeof(argv[i])) == 0 ||
+X			    strncmp(argv[i], "background", sizeof(argv[i]))
+X			    == 0)
+X				background = 1;
+X			else if (rfile_name == NULL)
+X				rfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", record_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			break;
+X		case 'p':
+X			if (strncmp(argv[i], "play", sizeof(argv[i])) == 0)
+X				pfile_name = argv[++i];
+X			else if (rfile_name == NULL)
+X				rfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", record_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			break;
+X		case 'r':
+X			if (strncmp(argv[i], "reltempo", strlen(argv[i]))
+X			    == 0)
+X				reltempo = atof(argv[++i]);
+X			else if (strncmp(argv[i], "repeat", strlen(argv[i]))
+X			    == 0)
+X				repeat = 1;
+X			else if (rfile_name == NULL)
+X				rfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", record_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X
+X			break;
+X		case 't':
+X			if (strncmp(argv[i], "tracks", strlen(argv[i]))
+X			    == 0) {
+X				if ((num_tracks = Tclm_ParseTracks(interp,
+X				    argv[i + 1], &tracks)) == -1)
+X					return (TCL_ERROR);
+X				i++;
+X			} else if (rfile_name == NULL) {
+X				rfile_name = argv[i];
+X			} else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", record_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			break;
+X		default:
+X			if (rfile_name == NULL)
+X				rfile_name = argv[i];
+X			else {
+X				Tcl_AppendResult(interp, "bad option: ",
+X				    "should be \"", record_usage, "\"",
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X		}
+X	}
+X
+X	if (rfile_name == NULL) {
+X		Tcl_AppendResult(interp, "Must specify rfile", (char *)NULL);
+X		if (tracks != NULL)
+X			free(tracks);
+X		return (TCL_ERROR);
+X	} else {
+X		if ((result = Tclm_GetMFile(interp, rfile_name, &rfile))
+X		    != TCL_OK) {
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (result);
+X		}
+X	}
+X
+X
+X	if (pfile_name == NULL)
+X		play_tracks = NULL;
+X	else {
+X		if ((result = Tclm_GetMFile(interp, pfile_name, &pfile)) !=
+X		    TCL_OK) {
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (result);
+X		}
+X		play_tracks = pfile->tchunks;
+X	}
+X
+X	/* If track list isn't set use all tracks */
+X	if (pfile != NULL && num_tracks == 0) {
+X		num_tracks = pfile->hchunk.num_trks;
+X		if ((tracks = (int *)malloc(sizeof(int) * num_tracks))
+X		    == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory",
+X			    (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X		for (i = 0; i < num_tracks; i++)
+X			tracks[i] = i;
+X	}
+X	if (pfile != NULL)
+X		Mode = PLAYRECORD;
+X	else {
+X		num_tracks = 0;
+X		Mode = RECORD;
+X	}
+X
+X	if ((Dev = open_midi_device(Mode)) == -1) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		if (tracks != NULL)
+X			free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!init_midi_device(Dev, &rfile->hchunk, reltempo)) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		if (tracks != NULL)
+X			free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!start_midi_device(Dev, Mode)) {
+X		Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X		if (tracks != NULL)
+X			free(tracks);
+X		return (TCL_ERROR);
+X	}
+X
+X	if (!background) {
+X		now_playing = 1;
+X		if (!record_tracks(Dev, play_tracks, tracks, num_tracks,
+X		    &rfile->tchunks[0], repeat)) {
+X			Tcl_AppendResult(interp, "Couldn't record track\n",
+X			    MidiError, (char *)NULL);
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (TCL_ERROR);
+X		}
+X		now_playing = 0;
+X		if (!stop_midi_device(Dev, Mode)) {
+X			Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (TCL_ERROR);
+X		}
+X
+X		/*
+X		 * give time for the stop to take effect
+X		 * since stop might not happen until next clock
+X		 */
+X		 sleep(1);
+X
+X		if (!close_midi_device(Dev)) {
+X			Tcl_AppendResult(interp, MidiError, (char *)NULL);
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (TCL_ERROR);
+X		}
+X		Tcl_AppendResult(interp, "0", (char *)NULL);
+X	} else {
+X		if (pipe(Pipe) == -1) {
+X			Tcl_AppendResult(interp, "Couldn't open pipe: ",
+X			    sys_errlist[errno]);
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (TCL_ERROR);
+X		}
+X		switch(pid = fork()) {
+X		case -1:
+X			Tcl_AppendResult(interp, "Couldn't fork",
+X			    (char *)NULL);
+X			if (tracks != NULL)
+X				free(tracks);
+X			return (TCL_ERROR);
+X		case 0:
+X			/* child */
+X			close(Pipe[0]);
+X			now_playing = 1;
+X			if (!record_tracks(Dev, play_tracks, tracks,
+X			    num_tracks, &rfile->tchunks[0], repeat))
+X				exit(1);
+X			now_playing = 0;
+X			if (!stop_midi_device(Dev, Mode))
+X				exit(1);
+X
+X			/*
+X			 * give time for the stop to take effect
+X			 * since stop might not happen until next clock
+X			 */
+X			 sleep(1);
+X
+X			if (!close_midi_device(Dev))
+X				exit(1);
+X			/*
+X			 * write new track back to parent
+X			 */
+X			if (mwrite(Pipe[1], (char *)&rfile->tchunks[0].length,
+X			    sizeof(rfile->tchunks[0].length)) !=
+X			    sizeof(rfile->tchunks[0].length))
+X				exit(1);
+X			if (mwrite(Pipe[1],
+X			    (char *)rfile->tchunks[0].event_start,
+X			    rfile->tchunks[0].length) !=
+X			    rfile->tchunks[0].length)
+X				exit(1);
+X			close(Pipe[1]);
+X			free(tmp_track);
+X			exit(0);
+X		default:
+X			close(Pipe[1]);
+X			if (!close_midi_device(Dev)) {
+X				Tcl_AppendResult(interp, MidiError,
+X				    (char *)NULL);
+X				if (tracks != NULL)
+X					free(tracks);
+X				return (TCL_ERROR);
+X			}
+X			sprintf(interp->result, "%d", pid);
+X			break;
+X		}
+X	}
+X
+X	if (tracks != NULL)
+X		free(tracks);
+X	return (TCL_OK);
+X}
+X
+Xvoid
+Xwatchdog()
+X{
+X#ifdef UNION_WAIT
+X	union wait wstatus;
+X#else
+X	int wstatus;
+X#endif
+X
+X	(void)wait(&wstatus);
+X}
+X
+Xint
+XTclm_ParseTracks(interp, list, tracks)
+X	Tcl_Interp *interp;
+X	char *list;
+X	int **tracks;
+X{
+X	char **track_strs;
+X	char *chk_ptr;
+X	int i;
+X	int num_tracks;
+X
+X	if (Tcl_SplitList(interp, list, &num_tracks, &track_strs) != TCL_OK) {
+X		Tcl_AppendResult(interp, "Bad track list", (char *)NULL);
+X		return (-1);
+X	}
+X	if ((*tracks = (int *)malloc(sizeof(int) * num_tracks)) == NULL) {
+X		Tcl_AppendResult(interp, "No more memory", (char *)NULL);
+X		return (-1);
+X	}
+X	for (i = 0; i < num_tracks; i++) {
+X		(*tracks)[i] = (int)strtol(track_strs[i], &chk_ptr, 0);
+X		if (chk_ptr == track_strs[i]) {
+X			Tcl_AppendResult(interp, "Bad track value ",
+X			    track_strs[i], (char *)NULL);
+X			free(*tracks);
+X			return (-1);
+X		}
+X	}
+X	free((char *)track_strs);
+X	return (num_tracks);
+X}
+X
+Xint
+XTclm_MidiStop(dummy, interp, argc, argv)
+X	ClientData dummy;
+X	Tcl_Interp *interp;
+X	int argc;
+X	char **argv;
+X{
+X	MIDI_FILE *rfile;
+X	char *chk_ptr;
+X	unsigned char *events;
+X	long length;
+X	int pid;
+X	int result;
+X
+X	/*
+X	 * argv[0] - midistop
+X	 * argv[1] - pid
+X	 * argv[2] - [rfile]
+X	 */
+X	if (argc < 2 || argc > 3) {
+X		Tcl_AppendResult(interp, "wrong # args: should be\"",
+X		    argv[0], " pid [rfile]\"", (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X
+X	pid = (int)strtol(argv[1], &chk_ptr, 0);
+X	if (chk_ptr == argv[1] || pid <= 0) {
+X		Tcl_AppendResult(interp, "bad pid value: ", argv[1],
+X		    (char *)NULL);
+X		return (TCL_ERROR);
+X	}
+X	if (kill(pid, SIGHUP) != -1)
+X		Tcl_AppendResult(interp, "1", (char *)NULL);
+X	else {
+X		if (errno == ESRCH)
+X			Tcl_AppendResult(interp, "0", (char *)NULL);
+X		else {
+X			Tcl_AppendResult(interp, "Error killing process: ",
+X			    sys_errlist[errno], (char *)NULL);
+X			return (TCL_ERROR);
+X		}
+X	}
+X	/* pick up recorded file if specified */
+X	if (argc == 3) {
+X		if ((result = Tclm_GetMFile(interp, argv[2], &rfile))
+X		    != TCL_OK)
+X			return (result);
+X		if (mread(Pipe[0], (char *)&length, sizeof(length)) !=
+X		    sizeof(length)) {
+X			Tcl_AppendResult(interp, "Couldn't read rfile: ",
+X			    sys_errlist[errno]);
+X			close(Pipe[0]);
+X			return (TCL_ERROR);
+X		}
+X		if ((events = (unsigned char *) malloc(length)) == NULL) {
+X			Tcl_AppendResult(interp, "Not enough memory ",
+X			    "for record file", (char *)NULL);
+X			close(Pipe[0]);
+X			return (TCL_ERROR);
+X		}
+X		if (mread(Pipe[0], (char *)events, length) != length) {
+X			Tcl_AppendResult(interp, "Couldn't read record ",
+X			    "track: ", sys_errlist[errno], (char *)NULL);
+X			close(Pipe[0]);
+X			free(events);
+X			return (TCL_ERROR);
+X		}
+X		if (!put_smf_event(&rfile->tchunks[0], events, length)) {
+X			Tcl_AppendResult(interp, "Couldn't add to ",
+X			    "record track: ", MidiError, (char *)NULL);
+X			close(Pipe[0]);
+X			free(events);
+X			return (TCL_ERROR);
+X		}
+X		free(events);
+X		close(Pipe[0]);
+X	}
+X
+X	return (TCL_OK);
+X}
+X
+Xvoid
+XTclm_CatchStop()
+X{
+X	int ret;
+X
+X	ret = stop_processing(Dev);
+X}
+X#endif
+END_OF_FILE
+  if test 16902 -ne `wc -c <'tclm-1.0/tclmPlay.c'`; then
+    echo shar: \"'tclm-1.0/tclmPlay.c'\" unpacked with wrong size!
+  fi
+  # end of 'tclm-1.0/tclmPlay.c'
+fi
+echo shar: End of archive 2 \(of 5\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 5 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

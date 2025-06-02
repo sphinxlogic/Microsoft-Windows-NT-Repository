@@ -1,0 +1,1489 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i058:  imagemagic - X11 image processing and display, Part02/38
+Message-ID: <1993Jul14.175231.630@sparky.sterling.com>
+X-Md4-Signature: 7f31abd84be4aca6e0ea850ba5b2c8f7
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:52:31 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 58
+Archive-name: imagemagic/part02
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.02 (part 2 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/utilities/Makefile continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/utilities/Makefile'
+else
+echo 'x - continuing file ImageMagick/utilities/Makefile'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/utilities/Makefile' &&
+#JPEG_LIBRARIES= -L$(TOP)/jpeg -ljpeg
+#TIFF_DEFINES= -DHasTIFF
+#TIFF_INCLUDES= -I$(TOP)/tiff/libtiff
+#TIFF_LIBRARIES= -L$(TOP)/tiff/libtiff -ltiff
+X
+XXLIB= -L/usr/lib/X11R5 -lX11
+X
+CC= cc -O -I/usr/include/X11R5
+DESTDIR= /usr/local/bin
+INSTALL = install -c
+RM= /bin/rm -f
+X
+DEFINES= -I.. $(JPEG_DEFINES) $(JPEG_INCLUDES) $(TIFF_DEFINES) $(TIFF_INCLUDES)
+SYS_LIBRARIES= $(XLIB) $(JPEG_LIBRARIES) $(TIFF_LIBRARIES) -lm
+X
+MagickObjects= ../X.o ../image.o ../shear.o ../quantize.o ../colors.o \
+X  ../signature.o ../decode.o ../encode.o ../compress.o ../utility.o \
+X  ../PreRvIcccm.o
+X
+CombineObjects= combine.o $(MagickObjects)
+ConvertObjects= convert.o $(MagickObjects)
+MogrifyObjects= mogrify.o $(MagickObjects)
+SegmentObjects= segment.o $(MagickObjects)
+X
+PROGRAMS= convert mogrify combine segment
+X
+CFLAGS= $(DEFINES)
+X
+all: $(PROGRAMS)
+X
+convert: $(ConvertObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(ConvertObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) convert
+X
+install:: convert
+X	$(INSTALL) convert $(DESTDIR)
+X
+mogrify: $(MogrifyObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(MogrifyObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) mogrify
+X
+install:: mogrify
+X	$(INSTALL) mogrify $(DESTDIR)
+X
+combine: $(CombineObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(CombineObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) combine
+X
+install:: combine
+X	$(INSTALL) combine $(DESTDIR)
+X
+segment: $(SegmentObjects)
+X	$(RM) $@
+X	$(CC) -o $@ $(SegmentObjects) $(SYS_LIBRARIES)
+X
+clean::
+X	$(RM) segment
+X
+install:: segment
+X	$(INSTALL) segment $(DESTDIR)
+X
+clean::
+X	$(RM) *.ln *.bak *.o core errs ,* *~ *.a .emacs_* make.log MakeOut
+SHAR_EOF
+echo 'File ImageMagick/utilities/Makefile is complete' &&
+chmod 0644 ImageMagick/utilities/Makefile ||
+echo 'restore of ImageMagick/utilities/Makefile failed'
+Wc_c="`wc -c < 'ImageMagick/utilities/Makefile'`"
+test 3074 -eq "$Wc_c" ||
+	echo 'ImageMagick/utilities/Makefile: original size 3074, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/utilities/convert.c ==============
+if test -f 'ImageMagick/utilities/convert.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/utilities/convert.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/utilities/convert.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/utilities/convert.c' &&
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                CCCC   OOO   N   N  V   V  EEEEE  RRRR   TTTTT               %
+%               C      O   O  NN  N  V   V  E      R   R    T                 %
+%               C      O   O  N N N  V   V  EEE    RRRR     T                 %
+%               C      O   O  N  NN   V V   E      R R      T                 %
+%                CCCC   OOO   N   N    V    EEEEE  R  R     T                 %
+%                                                                             %
+%                                                                             %
+%                 Convert a image from one format to another.                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%                              Software Design                                %
+%                                John Cristy                                  %
+%                                April 1992                                   %
+%                                                                             %
+%                                                                             %
+%  Copyright 1993 E. I. Dupont de Nemours & Company                           %
+%                                                                             %
+%  Permission to use, copy, modify, distribute, and sell this software and    %
+%  its documentation for any purpose is hereby granted without fee,           %
+%  provided that the above Copyright notice appear in all copies and that     %
+%  both that Copyright notice and this permission notice appear in            %
+%  supporting documentation, and that the name of E. I. Dupont de Nemours     %
+%  & Company not be used in advertising or publicity pertaining to            %
+%  distribution of the software without specific, written prior               %
+%  permission.  E. I. Dupont de Nemours & Company makes no representations    %
+%  about the suitability of this software for any purpose.  It is provided    %
+%  "as is" without express or implied warranty.                               %
+%                                                                             %
+%  E. I. Dupont de Nemours & Company disclaims all warranties with regard     %
+%  to this software, including all implied warranties of merchantability      %
+%  and fitness, in no event shall E. I. Dupont de Nemours & Company be        %
+%  liable for any special, indirect or consequential damages or any           %
+%  damages whatsoever resulting from loss of use, data or profits, whether    %
+%  in an action of contract, negligence or other tortious action, arising     %
+%  out of or in connection with the use or performance of this software.      %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Convert converts an input file using one image format to an output file
+%  with a differing image format.
+%
+%  Convert recognizes the following image formats:
+%
+%    Tag   Description
+%    ---------------------------------------------------
+%    ALPHA Raw alpha bytes.
+%    AVS   AVS X image file.
+%    BMP   Microsoft Windows bitmap image file.
+%    CMYK  Raw cyan, magenta, yellow, and black bytes.
+%    EPS   Adobe Encapsulated PostScript file.
+%    FAX   Group 3.
+%    GIF   Compuserve Graphics image file.
+%    GRAY  Raw gray bytes.
+%    HISTOGRAM
+%    IRIS  SGI RGB image file.
+%    JPEG
+%    MIFF  Machine Independant file format.
+%    MTV
+%    PCX       ZSoft IBM PC Paintbrush file
+%    PICT  Apple Macintosh QuickDraw/PICT file.
+%    PNM   Portable bitmap.
+%    PS    Adobe PostScript file.
+%    PS2   Adobe Level II PostScript file.
+%    RGB   Raw red, green, and blue bytes.
+%    RLE   Utah Run length encoded image file; read only.
+%    SUN   SUN Rasterfile.
+%    TEXT  raw text file; read only.
+%    TGA   Truevision Targa image file.
+%    TIFF  Tagged Image File Format.
+%    VICAR read only.
+%    VIFF  Khoros Visualization image file.
+%    X     select image from X server screen.
+%    XC    constant image of X server border color.
+%    XBM   X11 bitmap file.
+%    XWD   X Window System window dump image file.
+%    YUV   Raw Y, U, and V bytes.  U and V, normally -0.5 through
+%          0.5, are normalized to the range 0 through 255 to fit
+%          within a byte.
+%
+%  The convert program syntax is:
+%
+%  Usage: convert [options ...] input_file output_file
+%
+%  Where options include:
+%    -alpha              store alpha channel if the image has one
+%    -colors value       preferred number of colors in the image
+%    -clip geometry      preferred size and location of the clipped image
+%    -colorspace type    GRAY, RGB, XYZ, YCbCr, YIQ, or YUV
+%    -compress type      RunlengthEncoded or QEncoded
+%    -density geometry   vertical and horizonal density of the image
+%    -display server     obtain image or font from this X server
+%    -dither             apply Floyd/Steinberg error diffusion to image
+%    -font name          X11 font for displaying text
+%    -geometry geometry  width and height of the image
+%    -interlace type     NONE, LINE, or PLANE
+%    -monochrome         transform image to black and white
+%    -page geometry      size and location of the Postscript page
+%    -quality value      JPEG quality setting
+%    -scale geometry     preferred size factors of the image
+%    -scene value        image scene number
+%    -treedepth value    depth of the color classification tree
+%    -verbose            print detailed information about the image
+%
+%  Change '-' to '+' in any option above to reverse its effect.  For
+%  example,  specify +alpha to store the image without its alpha channel.
+%
+%  By default, the image format of `file' is determined by its magic
+%  number.  To specify a particular image format, precede the filename
+%  with an image format name and a colon (i.e. ps:image) or specify the
+%  image type as the filename suffix (i.e. image.ps).  Specify 'file' as
+%  '-' for standard input or output.
+%
+%
+*/
+X
+#include "display.h"
+#include "image.h"
+#include "X.h"
+X
+/*
+X  Global declarations.
+*/
+char
+X  *client_name;
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   E r r o r                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function Error displays an error message and then terminates the program.
+%
+%  The format of the Error routine is:
+%
+%      Error(message,qualifier)
+%
+%  A description of each parameter follows:
+%
+%    o message: Specifies the message to display before terminating the
+%      program.
+%
+%    o qualifier: Specifies any qualifier to the message.
+%
+%
+*/
+void Error(message,qualifier)
+char
+X  *message,
+X  *qualifier;
+{
+X  (void) fprintf(stderr,"%s: %s",client_name,message);
+X  if (qualifier != (char *) NULL)
+X    (void) fprintf(stderr," (%s)",qualifier);
+X  (void) fprintf(stderr,".\n");
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   U s a g e                                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure Usage displays the program usage;
+%
+%  The format of the Usage routine is:
+%
+%      Usage()
+%
+%
+*/
+static void Usage()
+{
+X  char
+X    **p;
+X
+X  static char
+X    *ImageTypes[]=
+X    {
+X      "Tag   Description",
+X      "------------------------------------------------------------",
+X      "ALPHA Raw alpha bytes.",
+X      "AVS   AVS X image file.",
+X      "BMP   Microsoft Windows bitmap image file.",
+X      "CMYK  Raw cyan, magenta, yellow, and black bytes.",
+X      "EPS   Adobe Encapsulated PostScript file.",
+X      "FAX   Group 3.",
+X      "GIF   Compuserve Graphics image file.",
+X      "GRAY  Raw gray bytes.",
+X      "HISTOGRAM",
+X      "IRIS  SGI RGB image file.",
+X      "JPEG",
+X      "MIFF  Machine Independant file format.",
+X      "MTV",
+X      "PCX   ZSoft IBM PC Paintbrush file.",
+X      "PICT  Apple Macintosh QuickDraw/PICT file.",
+X      "PNM   Portable bitmap.",
+X      "PS    Adobe PostScript file.",
+X      "PS2   Adobe Level II PostScript file.",
+X      "RGB   Raw red, green, and blue bytes.",
+X      "RLE   Utah Run length encoded image file; read only.",
+X      "SUN   SUN Rasterfile.",
+X      "TEXT  raw text file; read only.",
+X      "TGA   Truevision Targa image file.",
+X      "TIFF  Tagged Image File Format.",
+X      "VICAR read only.",
+X      "VIFF  Khoros Visualization image file.",
+X      "X     select image from X server screen.",
+X      "XC    constant image of X server border color.",
+X      "XBM   X11 bitmap file.",
+X      "XWD   X Window System window dump image file.",
+X      "YUV   Raw Y, U, and V bytes.  U and V, normally -0.5 through",
+X      "      0.5, are normalized to the range 0 through 255 to fit",
+X      "      within a byte.",
+X      (char *) NULL,
+X    },
+X    *options[]=
+X    {
+X      "-alpha              store alpha channel if the image has one",
+X      "-clip geometry      preferred size and location of the clipped image",
+X      "-colors value       preferred number of colors in the image",
+X      "-colorspace type    GRAY, RGB, XYZ, YCbCr, YIQ, or YUV",
+X      "-compress type      RunlengthEncoded or QEncoded",
+X      "-density geometry   vertical and horizonal density of the image",
+X      "-display server     obtain image or font from this X server",
+X      "-dither             apply Floyd/Steinberg error diffusion to image",
+X      "-font name          X11 font for displaying text",
+X      "-geometry geometry  width and height of the image",
+X      "-interlace type     NONE, LINE, or PLANE",
+X      "-monochrome         transform image to black and white",
+X      "-page geometry      size and location of the Postscript page",
+X      "-quality value      JPEG quality setting",
+X      "-scale geometry     preferred size factors of the image",
+X      "-scene value        image scene number",
+X      "-treedepth value    depth of the color classification tree",
+X      "-verbose            print detailed information about the image",
+X      (char *) NULL
+X    };
+X  (void) fprintf(stderr,"Usage: %s [options ...] input_file output_file\n",
+X    client_name);
+X  (void) fprintf(stderr,"\nWhere options include:\n");
+X  for (p=options; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  (void) fprintf(stderr,
+X    "\nChange '-' to '+' in any option above to reverse its effect.  For\n");
+X  (void) fprintf(stderr,
+X    "example,  specify +alpha to store the image without an alpha channel.\n");
+X  (void) fprintf(stderr,
+X    "\nBy default, the image format of `file' is determined by its magic\n");
+X  (void) fprintf(stderr,
+X    "number.  To specify a particular image format, precede the filename\n");
+X  (void) fprintf(stderr,
+X    "with an image format name and a colon (i.e. ps:image) or specify the\n");
+X  (void) fprintf(stderr,
+X    "image type as the filename suffix (i.e. image.ps).  Specify 'file' as\n");
+X  (void) fprintf(stderr,"'-' for standard input or output.\n");
+X  (void) fprintf(stderr,"\nThe following image formats are recognized: \n\n");
+X  for (p=ImageTypes; *p != (char *) NULL; p++)
+X    (void) fprintf(stderr,"  %s\n",*p);
+X  exit(1);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  M a i n                                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  *argv[];
+{
+#define NotInitialized  (unsigned int) (~0)
+X
+X  char
+X    *border_color,
+X    *clip_geometry,
+X    *density,
+X    *filename,
+X    *font,
+X    *image_geometry,
+X    *option,
+X    *page_geometry,
+X    *scale_geometry,
+X    *server_name;
+X
+X  double
+X    normalized_maximum_error,
+X    normalized_mean_error;
+X
+X  Image
+X    *image,
+X    *next_image;
+X
+X  ImageInfo
+X    image_info;
+X
+X  int
+X    i,
+X    status,
+X    x;
+X
+X  time_t
+X    start_time;
+X
+X  unsigned int
+X    alpha,
+X    colorspace,
+X    compression,
+X    dither,
+X    interlace,
+X    monochrome,
+X    mean_error_per_pixel,
+X    number_colors,
+X    quality,
+X    scene,
+X    tree_depth,
+X    verbose;
+X
+X  unsigned long
+X    total_colors;
+X
+X  /*
+X    Initialize program variables.
+X  */
+X  client_name=argv[0];
+X  if (argc < 3)
+X    Usage();
+X  /*
+X    Read image and convert to MIFF format.
+X  */
+X  alpha=NotInitialized;
+X  border_color=(char *) NULL;
+X  clip_geometry=(char *) NULL;
+X  colorspace=RGBColorspace;
+X  compression=UndefinedCompression;
+X  density=(char *) NULL;
+X  dither=False;
+X  font=(char *) NULL;
+X  image=(Image *) NULL;
+X  image_geometry=(char *) NULL;
+X  interlace=NoneInterlace;
+X  monochrome=False;
+X  number_colors=0;
+X  page_geometry=(char *) NULL;
+X  quality=75;
+X  scale_geometry=(char *) NULL;
+X  scene=0;
+X  server_name=(char *) NULL;
+X  start_time=time((time_t *) NULL);
+X  tree_depth=0;
+X  verbose=False;
+X  /*
+X    Check command syntax.
+X  */
+X  filename=(char *) NULL;
+X  for (i=1; i < (argc-1); i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) < 2) || ((*option != '-') && (*option != '+')))
+X      {
+X        /*
+X          Read input image.
+X        */
+X        filename=option;
+X        GetImageInfo(&image_info);
+X        (void) strcpy(image_info.filename,filename);
+X        image_info.server_name=server_name;
+X        image_info.font=font;
+X        image_info.geometry=image_geometry;
+X        image_info.page=page_geometry;
+X        image_info.density=density;
+X        image_info.border_color=border_color;
+X        image_info.interlace=interlace;
+X        image_info.monochrome=monochrome;
+X        image_info.quality=quality;
+X        image_info.verbose=verbose;
+X        if (image != (Image *) NULL)
+X          Error("input image already specified",filename);
+X        image=ReadImage(&image_info);
+X        if (image == (Image *) NULL)
+X          exit(1);
+X      }
+X    else
+X      switch(*(option+1))
+X      {
+X        case 'a':
+X        {
+X          alpha=(*option == '-');
+X          break;
+X        }
+X        case 'b':
+X        {
+X          if (strncmp("bordercolor",option+1,7) == 0)
+X            {
+X              border_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -bordercolor",(char *) NULL);
+X                  border_color=argv[i];
+X                }
+X              break;
+X            }
+X          break;
+X        }
+X        case 'c':
+X        {
+X          if (strncmp("clip",option+1,2) == 0)
+X            {
+X              clip_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -clip",(char *) NULL);
+X                  clip_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("colors",option+1,7) == 0)
+X            {
+X              number_colors=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing colors on -colors",(char *) NULL);
+X                  number_colors=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("colorspace",option+1,7) == 0)
+X            {
+X              colorspace=RGBColorspace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colorspace",(char *) NULL);
+X                  option=argv[i];
+X                  colorspace=UndefinedColorspace;
+X                  if (Latin1Compare("gray",option) == 0)
+X                    colorspace=GRAYColorspace;
+X                  if (Latin1Compare("rgb",option) == 0)
+X                    colorspace=RGBColorspace;
+X                  if (Latin1Compare("xyz",option) == 0)
+X                    colorspace=XYZColorspace;
+X                  if (Latin1Compare("ycbcr",option) == 0)
+X                    colorspace=YCbCrColorspace;
+X                  if (Latin1Compare("yiq",option) == 0)
+X                    colorspace=YIQColorspace;
+X                  if (Latin1Compare("yuv",option) == 0)
+X                    colorspace=YUVColorspace;
+X                  if (colorspace == UndefinedColorspace)
+X                    Error("invalid colorspace type on -colorspace",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("compress",option+1,3) == 0)
+X            {
+X              compression=NoCompression;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -compress",(char *) NULL);
+X                  option=argv[i];
+X                  if (Latin1Compare("runlengthencoded",option) == 0)
+X                    compression=RunlengthEncodedCompression;
+X                  else
+X                    if (Latin1Compare("qencoded",option) == 0)
+X                      compression=QEncodedCompression;
+X                    else
+X                      Error("invalid compression type on -compress",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("density",option+1,3) == 0)
+X            {
+X              density=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -density",(char *) NULL);
+X                  density=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("dither",option+1,3) == 0)
+X            {
+X              dither=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'f':
+X        {
+X          font=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing font name on -font",(char *) NULL);
+X              font=argv[i];
+X            }
+X          break;
+X        }
+X        case 'g':
+X        {
+X          image_geometry=(char *) NULL;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if (i == argc)
+X                Error("missing geometry on -geometry",(char *) NULL);
+X              image_geometry=argv[i];
+X            }
+X          break;
+X        }
+X        case 'h':
+X        {
+X          Usage();
+X          break;
+X        }
+X        case 'i':
+X        {
+X          if (strncmp("interlace",option+1,3) == 0)
+X            {
+X              interlace=NoneInterlace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -interlace",(char *) NULL);
+X                  option=argv[i];
+X                  interlace=UndefinedInterlace;
+X                  if (Latin1Compare("none",option) == 0)
+X                    interlace=NoneInterlace;
+X                  if (Latin1Compare("line",option) == 0)
+X                    interlace=LineInterlace;
+X                  if (Latin1Compare("plane",option) == 0)
+X                    interlace=PlaneInterlace;
+X                  if (interlace == UndefinedInterlace)
+X                    Error("invalid interlace type on -interlace",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X        }
+X        case 'm':
+X        {
+X          if (strncmp("monochrome",option+1,2) == 0)
+X            {
+X              monochrome=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X        }
+X        case 'p':
+X        {
+X          if (strncmp("page",option+1,2) == 0)
+X            {
+X              page_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing page geometry on -page",(char *) NULL);
+X                  page_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'q':
+X        {
+X          i++;
+X          if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X            Error("missing quality on -quality",(char *) NULL);
+X          quality=atoi(argv[i]);
+X          break;
+X        }
+X        case 's':
+X        {
+X          if (strncmp("scale",option+1,3) == 0)
+X            {
+X              scale_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                    Error("missing scale geometry on -scale",(char *) NULL);
+X                  scale_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("scene",option+1,3) == 0)
+X            {
+X              scene=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing scene number on -scene",(char *) NULL);
+X                  scene=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 't':
+X        {
+X          tree_depth=0;
+X          if (*option == '-')
+X            {
+X              i++;
+X              if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                Error("missing depth on -treedepth",(char *) NULL);
+X              tree_depth=atoi(argv[i]);
+X            }
+X          break;
+X        }
+X        case 'v':
+X        {
+X          verbose=(*option == '-');
+X          break;
+X        }
+X        default:
+X        {
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X      }
+X  }
+X  if (image == (Image *) NULL)
+X    Error("missing an image file name",(char *) NULL);
+X  /*
+X    Write images.
+X  */
+X  do
+X  {
+X    total_colors=0;
+X    if (alpha != NotInitialized)
+X      image->alpha=alpha;
+X    if (compression != UndefinedCompression)
+X      image->compression=compression;
+X    if (scene != 0)
+X      image->scene=scene;
+X    (void) strcpy(image->filename,argv[i]);
+X    if (image->previous != (Image *) NULL)
+X      (void) sprintf(image->filename,"%s.%u",argv[i],image->scene);
+X    /*
+X      Transform image as defined by the clip, image and scale geometries.
+X    */
+X    TransformImage(&image,clip_geometry,image_geometry,scale_geometry);
+X    if (monochrome)
+X      QuantizeImage(image,2,8,dither,GRAYColorspace,True);
+X    if (colorspace == GRAYColorspace)
+X      QuantizeImage(image,256,8,dither,GRAYColorspace,True);
+X    if (number_colors != 0)
+X      if ((image->class == DirectClass) || (image->colors > number_colors))
+X        {
+X          /*
+X            Reduce the number of colors in the image.
+X          */
+X          QuantizeImage(image,number_colors,tree_depth,dither,colorspace,True);
+X          if (verbose)
+X            {
+X              /*
+X                Measure quantization error.
+X              */
+X              QuantizationError(image,&mean_error_per_pixel,
+X                &normalized_mean_error,&normalized_maximum_error);
+X              total_colors=NumberColors(image,(FILE *) NULL);
+X            }
+X          SyncImage(image);
+X        }
+X    status=WriteImage(&image_info,image);
+X    if (verbose)
+X      {
+X        /*
+X          Display detailed info about the image.
+X        */
+X        (void) fprintf(stderr,"[%u] %s=>%s %ux%u",image->scene,filename,
+X          image->filename,image->columns,image->rows);
+X        if (image->class == DirectClass)
+X          (void) fprintf(stderr," DirectClass");
+X        else
+X          if (total_colors == 0)
+X            (void) fprintf(stderr," PseudoClass %uc",image->colors);
+X          else
+X            {
+X              (void) fprintf(stderr," PseudoClass %lu=>%uc",total_colors,
+X                image->colors);
+X              (void) fprintf(stderr," %u/%.6f/%.6fe",mean_error_per_pixel,
+X                normalized_mean_error,normalized_maximum_error);
+X            }
+X        (void) fprintf(stderr," %s %lds\n",image->magick,
+X          time((time_t *) NULL)-start_time+1);
+X      }
+X    next_image=image->next;
+X    DestroyImage(image);
+X    image=next_image;
+X  } while (image != (Image *) NULL);
+X  return(!status);
+}
+SHAR_EOF
+chmod 0644 ImageMagick/utilities/convert.c ||
+echo 'restore of ImageMagick/utilities/convert.c failed'
+Wc_c="`wc -c < 'ImageMagick/utilities/convert.c'`"
+test 26574 -eq "$Wc_c" ||
+	echo 'ImageMagick/utilities/convert.c: original size 26574, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/utilities/convert.man ==============
+if test -f 'ImageMagick/utilities/convert.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/utilities/convert.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/utilities/convert.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/utilities/convert.man' &&
+.ad l
+.nh
+.TH convert 1 "10 October 1992" "ImageMagick"
+.SH NAME
+convert - converts an input file using one image format to an output
+file with a differing image format.
+.SH SYNOPSIS
+.B "convert"
+[ \fIoptions\fP ... ] \fIinput_file\fP \fIoutput_file\fP
+.SH DESCRIPTION
+\fBconvert\fP converts an input file using one image format to an output file
+with a differing image format.
+X
+\fBconvert\fP recognizes the following image formats:
+X
+.TP 6
+.B Tag
+\fBDescription\fP
+.PP
+-------------------------------------------------------------------------------
+.TP 6
+.B ALPHA
+Raw alpha bytes.
+.TP 6
+.B AVS
+AVS X image file.
+.TP 6
+.B BMP
+Microsoft Windows bitmap image file.
+.TP 6
+.B CMYK
+Raw cyan, magenta, yellow, and black bytes.
+.TP 6
+.B EPS
+Adobe Encapsulated PostScript file.
+.TP 6
+.B FAX
+Group 3.
+.TP 6
+.B GIF
+Compuserve Graphics image file.
+.TP 6
+.B GRAY
+Raw gray bytes.
+.TP 6
+.B HISTOGRAM
+.TP 6
+.B IRIS
+SGI RGB image file.
+.TP 6
+.B JPEG
+.TP 6
+.B MIFF
+Machine Independant file format.
+.TP 6
+.B MTV
+.TP 6
+.B PCX
+ZSoft IBM PC Paintbrush file.
+.TP 6
+.B PICT
+Apple Macintosh QuickDraw/PICT file.
+.TP 6
+.B PNM
+Portable bitmap.
+.TP 6
+.B PS
+Adobe PostScript file.
+.TP 6
+.B PS2
+Adobe Level II PostScript file.
+.TP 6
+.B RGB
+Raw red, green, and blue bytes.
+.TP 6
+.B RLE
+Utah Run length encoded image file; read only.
+.TP 6
+.B SUN
+SUN Rasterfile.
+.TP 6
+.B TEXT
+raw text file; read only.
+.TP 6
+.B TGA
+Truevision Targa image file.
+.TP 6
+.B TIFF
+Tagged Image File Format.
+.TP 6
+.B VICAR
+read only.
+.TP 6
+.B VIFF
+Khoros Visualization image file.
+.TP 6
+.B X
+select image from X server screen.
+.TP 6
+.B XC
+constant image of X server border color.
+.TP 6
+.B XBM
+XX11 bitmap file.
+.TP 6
+.B XWD
+XX Window System window dump image file.
+.TP 6
+.B YUV
+Raw Y, U, and V bytes.  U and V, normally -0.5 through 0.5, are normalized
+to the range 0 through 255 to fit within a byte.
+.PP
+.SH EXAMPLES
+.PP
+To convert a \fIMIFF\fP image of a cockatoo to a SUN raster image, use:
+.PP
+.B
+X     convert cockatoo.miff sun:cockatoo.ras
+.PP
+To convert a multi-page \fIPostscript\fP document to individual FAX pages, use:
+.PP
+.B
+X     convert -monochrome document.ps fax:page
+.PP
+To convert a TIFF image to a \fIPostscript\fP A4 page with the image in
+the lower left-hand corner, use:
+.PP
+.B
+X     convert -page 595x842+0+0 image.tiff document.ps
+.PP
+To convert a raw \fBGRAY\fP image to a portable graymap, use:
+.PP
+.B
+X     convert -geometry 768x512 gray:raw image.pnm
+.SH OPTIONS
+.TP 5
+.B "-alpha"
+store alpha channel if the image has one.
+.TP 5
+.B "-clip \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the clipped image.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+Use clipping to crop a particular area of an image.
+.TP 5
+.B "-colors \fIvalue\fP"
+preferred number of colors in the image.
+X
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to \fBquantize(9)\fP for more details.
+X
+Note, options \fB-dither\fP, \fB-colorspace\fP, and \fB-treedepth\fP affect
+the color reduction algorithm.
+.TP 5
+.B "-colorspace \fIvalue\fP"
+the type of colorspace: \fBGRAY\fP, \fBRGB\fP, \fBXYZ\fP, \fBYCbCr\fP,
+\fBYIQ\fP, or \fBYUV\fP.
+X
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to \fBquantize(9)\fP for
+more details.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required for this option
+to take effect.
+.TP 5
+.B "-compress \fItype\fP"
+the type of image compression: \fIQEncoded\fP or \fIRunlengthEncoded\fP.
+X
+Specify \fB\+compress\fP to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+.TP 5
+.B "-density \fI<width>x<height>
+vertical and horizonal density of the image.
+X
+This option specifies an image density whose interpretation changes
+with the type of image.  The default is 72 dots per inch in the
+horizonal and vertical direction for Postscript.  Text files default to
+80 characters in width and 60 lines in height.  Use this option to
+alter the default density.
+.TP 5
+.B "-display \fIhost:display[.screen]\fP"
+specifies the X server to contact; see \fBX(1)\fP.
+.TP 5
+.B "-dither"
+apply Floyd/Steinberg error diffusion to the image.
+X
+The basic strategy of dithering is to trade intensity resolution for
+spatial resolution by averaging the intensities of several neighboring
+pixels.  Images which suffer from severe contouring when reducing colors
+can be improved with this option.
+X
+The \fB-colors\fP option is required for dithering to take effect.
+.TP 5
+.B "-font \fIname\fP"
+This option specifies the font to be used  for displaying normal text.
+The default is \fBfixed\fP.
+.TP 5
+.B "-geometry \fI<width>x<height>\fP"
+the width and height of the image.  
+X
+If the specified image size is smaller than the actual image size, the
+image is first reduced to an integral of the specified image size with
+an antialias digital filter.  The image is then scaled to the exact
+specified image size with pixel replication.  If the specified image
+size is greater than the actual image size, the image is first enlarged
+to an integral of the specified image size with bilinear
+interpolation.  The image is then scaled to the exact specified image
+size with pixel replication.
+X
+Use this option to specify the width and height of raw images whose
+dimensions are unknown such as \fBGRAY\fP, \fBRGB\fP, and \fBCMYK\fP.
+This option can also change the default 8.5 by 11 width and height of
+the Postscript canvas.
+.TP 5
+.B "-interlace \fItype\fP"
+the type of interlacing scheme: \fBNONE\fP, \fBLINE\fP, or \fBPLANE\fP.
+X
+This option is used to specify the type of interlacing scheme for raw
+image formats such as \fBRGB\fP or \fBYUV\fP.  \fBNONE\fP means do not
+interlace (RGBRGBRGBRGBRGBRGB...), \fBLINE\fP uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and \fBPLANE\fP uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+.TP 5
+.B "-monochrome"
+transform the image to black and white.
+X
+Monochrome images can benefit from error diffusion.  Use \fB-dither\fP with
+this option to diffuse the error.
+.TP 5
+.B "-page \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the Postscript page.
+X
+Use this option to specify the dimensions of the Postscript page in picas.  The
+default is to center the image on a letter page, 612 by 792 picas.
+Other common sizes are:
+X
+X    540x720   Note
+X    612x1008  Legal
+X    842x1190  A3
+X    595x842   A4
+X    421x595   A5
+X    297x421   A6
+X    709x1002  B4
+X    612x936   U.S. Foolscap
+X    612x936   European Foolscap
+X    396x612   Half Letter
+X    792x1224  11x17
+X    1224x792  Ledger
+X
+The page geometry is relative to the vertical and horizonal density of the
+Postscript page.  See \fB-density\fP for details.
+.TP 5
+.B "-quality \fIvalue\fP"
+JPEG quality setting.
+X
+Quality is 0 (worst) to 100 (best). The default is 75.
+.TP 5
+.B "-scale \fI<width factor>x<height factor>\fP"
+preferred size factors of the image.
+X
+This option behaves like \fB-geometry\fP except the width and height values
+are relative instead of absolute.  The image size is multiplied by the
+width and height factors to obtain the final image dimensions.  If only
+one factor is specified, both the width and height factors assume the
+value.
+X
+Factors may be fractional.  To increase the size of an image, use a
+scale factor greater than 1.0.  To decrease an image's size, use a
+scale factor less than 1.0.  Default is 1.0.
+.TP 5
+.B "-scene \fIvalue\fP"
+image scene number.
+.TP 5
+.B "-treedepth \fIvalue\fP"
+Normally, this integer value is zero or one.  A zero or one tells
+\fBconvert\fP to choose a optimal tree depth for the color reduction
+algorithm.
+X
+An optimal depth generally allows the best representation of the source
+image with the fastest computational speed and the least amount of
+memory.  However, the default depth is inappropriate for some images.
+To assure the best representation, try values between 2 and 8 for this
+parameter.  Refer to \fBquantize(9)\fP for more details.
+X
+The \fB-colors\fP option is required for this option to take effect.
+.TP 5
+.B -verbose
+print detailed information about the image.
+X
+This information is printed: image scene number;  image name;  converted
+image name;  image size;  the image class (\fIDirectClass\fP or 
+\fIPseudoClass\fP);  the total number of unique colors;  and the number
+of seconds to read and convert the image.
+.PP
+Change '-' to '+' in any option above to reverse its effect.  For
+example, specify +alpha to store the image without its alpha channel.
+.PP
+By default, the image format is determined by its magic number. To
+specify a particular image format, precede the filename with an image
+format name and a colon (i.e. ps:image) or specify the image type as
+the filename suffix (i.e. image.ps).  See \fBDESCRIPTION\fP for a list
+of valid formats.
+.PP
+When you specify \fBX\fP as your image type, the filename has special
+meaning.  It specifies an X window by id, name, or \fBroot\fP.  If no
+filename is specified, the window is selected by clicking the mouse in
+the desired window.
+.PP
+Specify \fIinput_file\fP as \fI-\fP for standard input,
+\fIoutput_file\fP as \fI-\fP for standard output.  If \fIinput_file\fP
+has the extension \fB.Z\fP or \fB.gz\fP, the file is uncompressed with
+\fBuncompress\fP or \fBgunzip\fP respectively.  If \fIoutput_file\fP
+has the extension \fB.Z\fP or \fB.gz\fP, the file size is compressed
+using with \fBcompress\fP or \fBgzip\fP respectively.  If
+\fIoutput_file\fP already exists, you will be prompted as to whether it
+should be overwritten.
+.SH ENVIRONMENT
+.PP
+.TP 5
+.B display
+To get the default host, display number, and screen.
+.SH SEE ALSO
+.B
+display(1), animate(1), mogrify(1), quantize(9), X(1), miff(5)
+.SH COPYRIGHT
+Copyright 1993 E. I. du Pont de Nemours & Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+& Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours & Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. du Pont de Nemours & Company disclaims all warranties with regard
+to this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours & Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortious action, arising
+out of or in connection with the use or performance of this software.
+.SH AUTHORS
+John Cristy, E.I. du Pont De Nemours & Company Incorporated
+SHAR_EOF
+chmod 0644 ImageMagick/utilities/convert.man ||
+echo 'restore of ImageMagick/utilities/convert.man failed'
+Wc_c="`wc -c < 'ImageMagick/utilities/convert.man'`"
+test 11344 -eq "$Wc_c" ||
+	echo 'ImageMagick/utilities/convert.man: original size 11344, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/utilities/mogrify.man ==============
+if test -f 'ImageMagick/utilities/mogrify.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/utilities/mogrify.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/utilities/mogrify.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/utilities/mogrify.man' &&
+.ad l
+.nh
+.TH mogrify 1 "10 October 1992" "ImageMagick"
+.SH NAME
+mogrify - transform an image or sequence of images
+.SH SYNOPSIS
+.B "mogrify" [ \fIoptions\fP ...] \fIfile\fP
+[ [ \fIoptions\fP ...] \fIfile\fP ...]
+.SH DESCRIPTION
+\fBmogrify\fP transforms an image or a sequence of images.  These
+transforms include image scaling, image rotation, color reduction, and
+others.  The transmogrified image overwrites the original image.
+.SH EXAMPLES
+To scale an image of a cockatoo to exactly 640 pixels in width and 480
+pixels in height, use:
+.PP
+.B
+X    mogrify -geometry 640x480 cockatoo.miff
+.PP
+To create a single colormap for a sequence of bird images, use:
+.PP
+.B
+X    mogrify -colors 256 scenes/birds.*
+.SH OPTIONS
+.TP 5
+.B "-border \fI<width>x<height>fP"
+surround the image with a border or color.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+The color of the border is obtained from the X server and is defined as
+\fBbackground\fP (class \fBBackground\fP).  See \fBX(1)\fP for details.
+.TP 5
+.B "-clip \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the clipped image.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+Use clipping to apply image processing options, or transmogrify, only a
+particular area of an image.
+.TP 5
+.B "-colormap \fIfilename\fP"
+choose a particular set of colors from this image.
+X
+By default, color reduction chooses an optimal set of colors that
+best represent the original image.  Alternatively, you can choose a
+particular set of colors with this option.  This is useful when
+you want to create a sequence of images with one particular set of
+colors for each image.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required
+for this option to take effect.
+.TP 5
+.B "-colors \fIvalue\fP"
+preferred number of colors in the image.
+X
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to \fBquantize(9)\fP for more details.
+X
+If more than one image is specified on the command line, a single
+colormap is created and saved with each image.
+X
+Note, options \fB-colormap\fP, \fB-dither\fP, \fB-colorspace\fP, and
+\fB-treedepth\fP affect the color reduction algorithm.
+.TP 5
+.B "-colorspace \fIvalue\fP"
+the type of colorspace: \fBGRAY\fP, \fBRGB\fP, \fBXYZ\fP, \fBYCbCr\fP,
+\fBYIQ\fP, or \fBYUV\fP.
+X
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to \fBquantize(9)\fP for
+more details.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required
+for this option to take effect.
+.TP 5
+.B "-compress \fItype\fP"
+the type of image compression: \fIQEncoded\fP or \fIRunlengthEncoded\fP.
+X
+Specify \fB\+compress\fP to store the binary image in an uncompressed format.
+The default is the compression type of the specified image file.
+.TP 5
+.B "-density \fI<width>x<height>
+vertical and horizonal density of the image.
+X
+This option specifies an image density whose interpretation changes
+with the type of image.  The default is 72 dots per inch in the
+horizonal and vertical direction for Postscript.  Text files default to
+80 characters in width and 60 lines in height.  Use this option to
+alter the default density.
+.TP 5
+.B "-display \fIhost:display[.screen]\fP"
+specifies the X server to contact; see \fBX(1)\fP.
+.TP 5
+.B "-dither"
+apply Floyd/Steinberg error diffusion to the image.
+X
+The basic strategy of dithering is to trade intensity resolution for
+spatial resolution by averaging the intensities of several neighboring
+pixels.  Images which suffer from severe contouring when reducing colors
+can be improved with this option.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required for this option
+to take effect.
+.TP 5
+.B "-enhance"
+apply a digital filter to enhance a noisy image.
+.TP 5
+.B "-gamma \fIvalue\fP"
+level of gamma correction.
+X
+The same color image displayed on two different workstations may look
+different due to differences in the display monitor.  Use gamma
+correction to adjust for this color difference.  Reasonable values
+extend from 0.8 to 2.3.
+.TP 5
+.B "-font \fIname\fP"
+This option specifies the font to be used  for displaying normal text.
+The default is \fBfixed\fP.
+.TP 5
+.B "-geometry \fI<width>x<height>\fP"
+preferred size of the image window.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+If the specified image size is smaller than the actual image size, the
+image is first reduced to an integral of the specified image size with
+an antialias digital filter.  The image is then scaled to the exact
+specified image size with pixel replication.  If the specified image
+size is greater than the actual image size, the image is first enlarged
+to an integral of the specified image size with bilinear
+interpolation.  The image is then scaled to the exact specified image
+size with pixel replication.
+.TP 5
+.B "-interlace \fItype\fP"
+the type of interlacing scheme: \fBNONE\fP, \fBLINE\fP, or \fBPLANE\fP.
+X
+This option is used to specify the type of interlacing scheme for raw
+image formats such as \fBRGB\fP or \fBYUV\fP.  \fBNONE\fP means do not
+interlace (RGBRGBRGBRGBRGBRGB...), \fBLINE\fP uses scanline
+interlacing (RRR...GGG...BBB...RRR...GGG...BBB...), and \fBPLANE\fP uses
+plane interlacing (RRRRRR...GGGGGG...BBBBBB...).
+.TP 5
+.B "-inverse"
+apply color inversion to image.
+X
+The red, green, and blue intensities of an image are negated.
+.TP 5
+.B "-monochrome"
+transform the image to black and white.
+X
+Monochrome images can benefit from error diffusion.  Use \fB-dither\fP with
+this option to diffuse the error.
+.TP 5
+.B "-noise"
+reduce the noise in an image with a noise peak elimination filter.
+X
+The principal function of noise peak elimination filter is to smooth
+the objects within an image without losing edge information and without
+creating undesired structures.  The central idea of the algorithm is to
+replace a pixel with its next neighbor in value within a 3 x 3 window,
+if this pixel has been found to be noise.  A pixel is defined as noise
+if and only if this pixel is a maximum or minimum within the 3 x 3 window.
+.TP 5
+.B "-normalize"
+tranform image to span the full range of color values.
+X
+This is a contrast enhancement technique.
+.TP 5
+.B "-page \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the Postscript page.
+X
+Use this option to specify the dimensions of the Postscript page in picas.  The
+default is to center the image on a letter page, 612 by 792 picas.
+Other common sizes are:
+X
+X    540x720   Note
+X    612x1008  Legal
+X    842x1190  A3
+X    595x842   A4
+X    421x595   A5
+X    297x421   A6
+X    709x1002  B4
+X    612x936   U.S. Foolscap
+X    612x936   European Foolscap
+X    396x612   Half Letter
+X    792x1224  11x17
+X    1224x792  Ledger
+X
+The page geometry is relative to the vertical and horizonal density of the
+Postscript page.  See \fB-density\fP for details.
+.TP 5
+.B "-quality \fIvalue\fP"
+JPEG quality setting.
+X
+Quality is 0 (worst) to 100 (best). The default is 75.
+.TP 5
+.B "-reflect"
+create a "mirror image" by reflecting the image scanlines.
+.TP 5
+.B "-roll \fI{\+-}<x offset>{\+-}<y offset>\fP"
+roll an image vertically or horizontally.  See \fBX(1)\fP for details
+about the geometry specification.
+X 
+A negative \fIx offset\fP rolls the image left-to-right.  A negative
+\fIy offset\fP rolls the image top-to-bottom.
+SHAR_EOF
+true || echo 'restore of ImageMagick/utilities/mogrify.man failed'
+fi
+echo 'End of ImageMagick part 2'
+echo 'File ImageMagick/utilities/mogrify.man is continued in part 3'
+echo 3 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

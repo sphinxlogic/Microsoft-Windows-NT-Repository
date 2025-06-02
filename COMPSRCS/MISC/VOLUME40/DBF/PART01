@@ -1,0 +1,3222 @@
+Newsgroups: comp.sources.misc
+From: beacker@tomahawk.asd.sgi.com (Brad Eacker)
+Subject: v40i073:  dbf - xbase manipulation package, Part01/01
+Message-ID: <1993Nov1.221353.9979@sparky.sterling.com>
+X-Md4-Signature: d8c43c2ae245e2bba4f3ff6759f2b29e
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Mon, 1 Nov 1993 22:13:53 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: beacker@sgi.com (Brad Eacker)
+Posting-number: Volume 40, Issue 73
+Archive-name: dbf/part01
+Environment: xbase
+
+DBF is a set of tools and library routines to manipulate xbase files.
+
+        dbflst [-v] <file>
+
+is used to list all the records in the file out to the stdout
+
+        dbfget [-v] <file> [<record> <record>...]
+
+lists to stdout the specified records
+
+        dbfadd <file> <field> <field> ...
+
+used to add a record to the end of a .dbf file
+
+        dbfdel <file> [<record> <record> ...]
+
+allows you to mark as deleted a record in a .dbf file
+
+        dbfpack <file>
+
+removes deleted records from the specified .dbf file
+
+	tmpl
+
+builds the tmpl.dbf.  This .dbf file is the one that all others get built from
+
+	dbfcreat [-v] <file> <target xbase>
+
+is used to create a database from a properly structured database that
+uses the field structure defined in tmpl.dbf
+
+This package also includes a basic grammar recognizer for xbase .prg files
+
+To build this package, make should be able to build it just fine.  It has
+been built on a couple of machine types.  Though you may need to take a
+look at the defines at the top of the makefile to see if you need to
+modify it to build in your environment.
+
+Author: Brad Eacker
+beacker@sgi.com
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README dbf.h dbf_head.c dbf_rec.c dbf_misc.c dbftst.c
+#   dbflst.c token.l gram.y dbinter.c dbf_sym.h yyerr.c tmpl.c
+#   dbfadd.c dbfdel.c dbfpack.c dbfget.c dbf_ndx.h dbf_ndx.c dbfndx.c
+#   dbfcreat.c Makefile HISTORY
+# Wrapped by beacker@tomahawk on Wed Oct 27 17:27:05 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2251 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XDBF
+X
+Xby Brad Eacker
+XMusic, Intuition, Software, and Computers (MISC)
+X
+XDBF is a set of tools and library routines to manipulate xbase files.
+X
+X        dbflst [-v] <file>
+X
+Xis used to list all the records in the file out to the stdout
+X
+X        dbfget [-v] <file> [<record> <record>...]
+X
+Xlists to stdout the specified records
+X
+X        dbfadd <file> <field> <field> ...
+X
+Xused to add a record to the end of a .dbf file
+X
+X        dbfdel <file> [<record> <record> ...]
+X
+Xallows you to mark as deleted a record in a .dbf file
+X
+X        dbfpack <file>
+X
+Xremoves deleted records from the specified .dbf file
+X
+X	tmpl
+X
+Xbuilds the tmpl.dbf.  This .dbf file is the one that all others get built from
+X
+X	dbfcreat [-v] <file> <target xbase>
+X
+Xis used to create a database from a properly structured database that
+Xuses the field structure defined in tmpl.dbf
+X
+XThis package also includes a basic grammar recognizer for xbase .prg files
+X
+XTo build this package, make should be able to build it just fine.  It has
+Xbeen built on a couple of machine types.  Though you may need to take a
+Xlook at the defines at the top of the makefile to see if you need to
+Xmodify it to build in your environment.
+X
+X	DBF - xbase manipulation package
+X        Copyright (c) Brad Eacker, 1991, 1992, 1993
+X
+X        Permission is granted to distribute and use the source,
+X        documentation files and/or compiled binaries associated with dbf
+X        for non-commercial use. No charges may be made for such
+X        distributions.
+X
+X        This notice and a all documentation must be passed along with
+X        all distributed copies.
+X
+X        No responsibility is taken for any errors or inaccuracies
+X        inherent either to the documentation or the code for this
+X        program, but, if reported to me, an attempt will be made to fix
+X        them.
+X
+X	Author: Brad Eacker
+X		beacker@sgi.com
+X
+XNO WARRANTY
+X	THERE IS NO WARRANTY FOR THIS PROGRAM, TO THE EXTENT PERMITTED
+X	BY APPLICABLE LAW.  THIS SET OF PROGRAMS IS PROVIDED "AS IS"
+X	WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED.
+X
+X	IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR DAMAGES,
+X	INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL
+X	DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THESE
+X	PROGRAMS.
+X
+X$Revision: 1.4 $
+END_OF_FILE
+if test 2251 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'dbf.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf.h'\"
+else
+echo shar: Extracting \"'dbf.h'\" \(2198 characters\)
+sed "s/^X//" >'dbf.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X/*
+X * dbf header structure on disk (pc dbase III)
+X *
+X *  Basic info taken from:
+X *	"File Formats for Popular PC Software"
+X *	Jeff Walden
+X *	(c) 1986 John Wiley & Sons, Inc.
+X */
+X
+X#ifndef	_DBF_H_
+X#define	_DBF_H_
+X
+X#if !defined(UCHAR)
+Xtypedef	unsigned char	u_char;
+X#endif
+X
+Xstruct dbf_dhead {
+X	u_char	dbh_dbt;		/* memo (dbt) file present */
+X	u_char	dbh_date[3];		/* last update YY, MM, DD */
+X	u_char	dbh_records[4];		/* number of records LE */
+X	u_char	dbh_hlen[2];		/* header length LE */
+X	u_char	dbh_rlen[2];		/* record length LE */
+X	u_char	dbh_res[20];		/* padding */
+X};
+X#define	DBH_DATE_YEAR	0		/* byte offset for year in dbh_date */
+X#define	DBH_DATE_MONTH	1
+X#define	DBH_DATE_DAY	2
+X
+X/*
+X * field description on disk
+X */
+X
+X#define	DBF_NAMELEN	11
+X
+Xstruct dbf_dfield {
+X	u_char	dbf_name[DBF_NAMELEN];	/* name of field */
+X	u_char	dbf_type;		/* type of field */
+X	u_char	dbf_fda[4];		/* something for dbase III */
+X	u_char	dbf_flen[2];		/* field length [and decimal if N] */
+X	u_char	dbf_res[14];		/* padding */
+X};
+X
+Xstruct db_field {
+X	u_char	db_fname[DBF_NAMELEN+1];	/* 0 terminated */
+X	u_char	db_type;		/* type of field */
+X	int	db_flen;		/* length of field */
+X	int	db_fdc;			/* number of decimals in field */
+X
+X	u_char	*db_format;		/* format for printing %s etc */
+X	int	db_foffset;		/* offset within record */
+X};
+Xtypedef struct db_field	dbfield_t;
+X
+Xstruct db_head {
+X	int	db_fd;
+X	u_char	db_dbt;			/* dbt present */
+X	u_char	db_date[9];		/* date of last update in db format */
+X	long	db_records;		/* number of records */
+X	int	db_hlen;		/* header length */
+X	int	db_rlen;		/* record length */
+X
+X	int	db_nfields;		/* number of fields */
+X	dbfield_t	*db_fields;	/* field info */
+X};
+Xtypedef struct db_head	dbhead_t;
+X
+X#define	DBH_TYPE_NORMAL	0x03
+X#define	DBH_TYPE_MEMO	0x83
+X
+X#define	VALID_RECORD	' '
+X#define	DELETED_RECORD	'*'
+X
+Xextern dbhead_t *get_dbf_head();
+Xextern u_char *get_dbf_record();
+Xextern u_char *get_dbf_f_fmt();
+Xextern long get_long();
+Xextern unsigned char *db_cur_date();
+X
+X#if defined(MEMSET)
+X#define	bzero(_ptr, _len)	memset(_ptr, 0, _len)
+X#endif
+X
+X#endif	/* _DBF_H_ */
+END_OF_FILE
+if test 2198 -ne `wc -c <'dbf.h'`; then
+    echo shar: \"'dbf.h'\" unpacked with wrong size!
+fi
+# end of 'dbf.h'
+fi
+if test -f 'dbf_head.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_head.c'\"
+else
+echo shar: Extracting \"'dbf_head.c'\" \(4611 characters\)
+sed "s/^X//" >'dbf_head.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+X/*
+X * get the header info from the file
+X *	basic header info & field descriptions
+X */
+Xdbhead_t *
+Xget_dbf_head(fd)
+Xint fd;
+X{
+X	dbhead_t *dbh;
+X	struct dbf_dhead  dbhead;
+X	dbfield_t *dbf, *cur_f;
+X	int ret, nfields, offset;
+X
+X	if ((dbh = (dbhead_t *)malloc(sizeof(dbhead_t))) == NULL)
+X		return NULL;
+X	if (lseek(fd, 0, 0) < 0)
+X		return NULL;
+X	if ((ret = read(fd, &dbhead, sizeof(dbhead))) < 0)
+X		return NULL;
+X
+X	/* build in core info */
+X	dbh->db_fd = fd;
+X	dbh->db_dbt = dbhead.dbh_dbt;
+X	dbh->db_records = get_long(dbhead.dbh_records);
+X	dbh->db_hlen = get_short(dbhead.dbh_hlen);
+X	dbh->db_rlen = get_short(dbhead.dbh_rlen);
+X
+X	db_set_date(dbh->db_date, dbhead.dbh_date[DBH_DATE_YEAR] + 1900,
+X		dbhead.dbh_date[DBH_DATE_MONTH],
+X		dbhead.dbh_date[DBH_DATE_DAY]);
+X
+X	dbh->db_nfields = nfields = (dbh->db_hlen - sizeof(struct dbf_dhead)) /
+X				sizeof(struct dbf_dfield);
+X
+X	/* get all the field info */
+X	dbf = (dbfield_t *)malloc(sizeof(dbfield_t) * nfields);
+X
+X	offset = 1;
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		if (get_dbf_field(dbh, cur_f) < 0) {
+X			free_dbf_head(dbh);
+X			return NULL;
+X		}
+X		cur_f->db_foffset = offset;
+X		offset += cur_f->db_flen;
+X	}
+X	dbh->db_fields = dbf;
+X
+X	return dbh;
+X}
+X
+X/*
+X * free up the header info built above
+X */
+Xfree_dbf_head(dbh)
+Xdbhead_t *dbh;
+X{
+X	dbfield_t *dbf, *cur_f;
+X	int nfields;
+X	u_char *fp;
+X
+X	dbf = dbh->db_fields;
+X	nfields = dbh->db_nfields;
+X	for (cur_f = dbf; cur_f < &dbf[nfields]; cur_f++) {
+X		if (cur_f->db_format) {
+X			free(cur_f->db_format);
+X		}
+X	}
+X
+X	free(dbf);
+X	free(dbh);
+X}
+X
+X/*
+X * put out the header info
+X */
+Xput_dbf_head(dbh)
+Xdbhead_t *dbh;
+X{
+X	int fd = dbh->db_fd;
+X	struct dbf_dhead  dbhead;
+X	int	ret;
+X
+X	bzero(&dbhead, sizeof dbhead);
+X
+X	/* build on disk info */
+X	dbhead.dbh_dbt = dbh->db_dbt;
+X	put_long(dbhead.dbh_records, dbh->db_records);
+X	put_short(dbhead.dbh_hlen, dbh->db_hlen);
+X	put_short(dbhead.dbh_rlen, dbh->db_rlen);
+X
+X	/* put the date spec'd into the on disk header */
+X	dbhead.dbh_date[DBH_DATE_YEAR] =(u_char)(db_date_year(dbh->db_date) -
+X						1900);
+X	dbhead.dbh_date[DBH_DATE_MONTH]=(u_char)(db_date_month(dbh->db_date));
+X	dbhead.dbh_date[DBH_DATE_DAY] =(u_char)(db_date_day(dbh->db_date));
+X
+X	if (lseek(fd, 0, 0) < 0)
+X		return -1;
+X	if ((ret = write(fd, &dbhead, sizeof(dbhead))) < 0)
+X		return -1;
+X}
+X
+X/*
+X * get a field off the disk from the current file offset
+X */
+Xget_dbf_field(dbh, dbf)
+Xdbhead_t *dbh;
+Xdbfield_t *dbf;
+X{
+X	struct dbf_dfield	dbfield;
+X	unsigned char	*scp, *dcp;
+X	unsigned char	format[100];
+X	int ret;
+X
+X	if ((ret = read(dbh->db_fd, &dbfield, sizeof(dbfield))) < 0) {
+X		return ret;
+X	}
+X
+X	/* build the field name */
+X	copy_crimp(dbf->db_fname, dbfield.dbf_name, DBF_NAMELEN);
+X
+X	dbf->db_type = dbfield.dbf_type;
+X	switch (dbf->db_type) {
+X	    case 'N':
+X		dbf->db_flen = dbfield.dbf_flen[0];
+X		dbf->db_fdc = dbfield.dbf_flen[1];
+X		break;
+X	    default:
+X	    	dbf->db_flen = get_short(dbfield.dbf_flen);
+X	}
+X
+X	if ((dbf->db_format = get_dbf_f_fmt(dbf)) == NULL) {
+X		return 1;
+X	}
+X
+X	return 0;
+X}
+X
+X/*
+X * put a field out on the disk at the current file offset
+X */
+Xput_dbf_field(dbh, dbf)
+Xdbhead_t *dbh;
+Xdbfield_t *dbf;
+X{
+X	struct dbf_dfield	dbfield;
+X	unsigned char		*scp, *dcp;
+X	int			c_left = DBF_NAMELEN;
+X	int			ret;
+X
+X	bzero(&dbfield, sizeof dbfield);
+X
+X	/* build the on disk field info */
+X	scp = dbf->db_fname; dcp = dbfield.dbf_name;
+X
+X	strncpy(dbfield.dbf_name, dbf->db_fname, DBF_NAMELEN);
+X
+X	dbfield.dbf_type = dbf->db_type;
+X	switch (dbf->db_type) {
+X	    case 'N':		
+X		dbfield.dbf_flen[0] = dbf->db_flen;
+X		dbfield.dbf_flen[1] = dbf->db_fdc;
+X		break;
+X	    default:
+X	    	put_short(dbfield.dbf_flen, dbf->db_flen);
+X	}
+X
+X	/* now write it out to disk */
+X	if ((ret = write(dbh->db_fd, &dbfield, sizeof(dbfield))) < 0) {
+X		return ret;
+X	}
+X	return 1;
+X}
+X
+X/*
+X * put out all the info at the top of the file...
+X */
+Xstatic char end_stuff[2] = {0x0d, 0};
+X
+Xput_dbf_info(dbh)
+Xdbhead_t *dbh;
+X{
+X	dbfield_t	*dbf, *cur_f;
+X	int		fcnt;
+X
+X	put_dbf_head(dbh);
+X	dbf = dbh->db_fields;
+X	for (fcnt = dbh->db_nfields; fcnt > 0; fcnt--, dbf++)
+X		put_dbf_field(dbh, dbf);
+X	write(dbh->db_fd, end_stuff, 2);
+X}
+X
+Xu_char *
+Xget_dbf_f_fmt(dbf)
+Xdbfield_t *dbf;
+X{
+X	u_char format[100];
+X
+X	/* build the field format for printf */
+X	switch (dbf->db_type) {
+X	   case 'C':
+X		sprintf(format, "%%-%ds", dbf->db_flen);
+X		break;
+X	   case 'N':
+X	   case 'L':
+X	   case 'D':
+X		sprintf(format, "%%%ds", dbf->db_flen);
+X		break;
+X	   case 'M':
+X		strcpy(format, "%s");
+X		break;
+X	}
+X	return (u_char *)strdup(format);
+X}
+END_OF_FILE
+if test 4611 -ne `wc -c <'dbf_head.c'`; then
+    echo shar: \"'dbf_head.c'\" unpacked with wrong size!
+fi
+# end of 'dbf_head.c'
+fi
+if test -f 'dbf_rec.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_rec.c'\"
+else
+echo shar: Extracting \"'dbf_rec.c'\" \(2274 characters\)
+sed "s/^X//" >'dbf_rec.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+X/*
+X * get a record off the database
+X */
+Xu_char *
+Xget_dbf_record(dbh, rec_num)
+Xdbhead_t *dbh;
+Xlong rec_num;
+X{
+X	long	offset;
+X	u_char	*cp;
+X
+X	if ((cp = (u_char *)malloc(dbh->db_rlen)) == NULL) {
+X		return NULL;
+X	}
+X	if (rec_num > dbh->db_records) {
+X		return NULL;
+X	}
+X
+X	/* go to the correct spot on the file */
+X	offset = dbh->db_hlen + (rec_num - 1) * dbh->db_rlen;
+X
+X	if ( lseek(dbh->db_fd, offset, 0) < 0 ) {
+X		free(cp);
+X		return NULL;
+X	}
+X
+X	/* read the record into the allocated space */
+X	if ( read(dbh->db_fd, cp, dbh->db_rlen) < 0 ) {
+X		free(cp);
+X		return NULL;
+X	}
+X
+X	return cp;
+X}
+X
+X/*
+X * get a record off the database
+X */
+Xput_dbf_record(dbh, rec_num, cp)
+Xdbhead_t *dbh;
+Xlong rec_num;
+Xu_char *cp;
+X{
+X	long	offset;
+X
+X	if (rec_num == 0) {
+X		rec_num = dbh->db_records;
+X	}
+X	if (rec_num > dbh->db_records) {
+X		return NULL;
+X	}
+X	/* go to the correct spot on the file */
+X	offset = dbh->db_hlen + (rec_num - 1) * dbh->db_rlen;
+X
+X	if ( lseek(dbh->db_fd, offset, 0) < 0 ) {
+X		return -1;
+X	}
+X
+X	/* write the record into the file */
+X	if ( write(dbh->db_fd, cp, dbh->db_rlen) < 0 ) {
+X		return -1;
+X	}
+X
+X	return rec_num;
+X}
+X
+Xdel_dbf_record(dbh, rec_num)
+Xdbhead_t *dbh;
+Xlong rec_num;
+X{
+X	int ret;
+X	u_char *cp;
+X
+X	if (rec_num > dbh->db_records)
+X		return -1;
+X	if (cp = get_dbf_record(dbh, rec_num)) {
+X		*cp = DELETED_RECORD;
+X		if ( (ret = put_dbf_record(dbh, rec_num, cp)) < 0 ) {
+X			return ret;
+X		}
+X	}
+X	return 0;
+X}
+X
+Xpack_dbf(dbh)
+Xdbhead_t *dbh;
+X{
+X	long	out_off, in_off;
+X	int	rec_cnt, new_cnt;
+X	u_char	*cp;
+X
+X	if ((cp = (u_char *)malloc(dbh->db_rlen)) == NULL) {
+X		return -1;
+X	}
+X	in_off = out_off = dbh->db_hlen;
+X
+X	new_cnt = 0;
+X	rec_cnt = dbh->db_records;
+X	while (rec_cnt > 0) {
+X		if ( lseek(dbh->db_fd, in_off, 0) < 0 )
+X			break;
+X		if ( read(dbh->db_fd, cp, dbh->db_rlen) < 0 )
+X			break;
+X
+X		if (*cp != DELETED_RECORD) {
+X			/* write the record into the file */
+X			if ( lseek(dbh->db_fd, out_off, 0) < 0 )
+X				break;
+X			if ( write(dbh->db_fd, cp, dbh->db_rlen) < 0 )
+X				break;
+X			out_off += dbh->db_rlen;
+X			new_cnt++;
+X		}
+X		in_off += dbh->db_rlen;
+X		rec_cnt--;
+X	}
+X	free(cp);
+X	if (rec_cnt == 0)
+X		dbh->db_records = new_cnt;
+X}
+END_OF_FILE
+if test 2274 -ne `wc -c <'dbf_rec.c'`; then
+    echo shar: \"'dbf_rec.c'\" unpacked with wrong size!
+fi
+# end of 'dbf_rec.c'
+fi
+if test -f 'dbf_misc.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_misc.c'\"
+else
+echo shar: Extracting \"'dbf_misc.c'\" \(2135 characters\)
+sed "s/^X//" >'dbf_misc.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X/*
+X * routine to change little endian long to host long
+X */
+Xlong
+Xget_long(cp)
+Xunsigned char *cp;
+X{
+X	int ret;
+X
+X	ret = *cp++;
+X	ret += ((*cp++)<<8);
+X	ret += ((*cp++)<<16);
+X	ret += ((*cp++)<<24);
+X
+X	return ret;
+X}
+X
+Xput_long(cp, lval)
+Xunsigned char *cp;
+Xlong lval;
+X{
+X	*cp++ = lval & 0xff;
+X	*cp++ = (lval >> 8) & 0xff;
+X	*cp++ = (lval >> 16) & 0xff;
+X	*cp++ = (lval >> 24) & 0xff;
+X}
+X
+X/*
+X * routine to change little endian short to host short
+X */
+Xget_short(cp)
+Xunsigned char *cp;
+X{
+X	int ret;
+X
+X	ret = *cp++;
+X	ret += ((*cp++)<<8);
+X
+X	return ret;
+X}
+X
+Xput_short(cp, sval)
+Xunsigned char *cp;
+X{
+X	*cp++ = sval & 0xff;
+X	*cp++ = (sval >> 8) & 0xff;
+X}
+X
+Xcopy_fill(dp, sp, len)
+Xunsigned char	*dp, *sp;
+Xint		len;
+X{
+X	while (*sp && len > 0) {
+X		*dp++ = *sp++;
+X		len--;
+X	}
+X	while (len-- > 0)
+X		*dp++ = ' ';
+X}
+X
+Xcopy_crimp(dp, sp, len)
+Xunsigned char	*dp, *sp;
+Xint		len;
+X{
+X	while (len-- > 0) {
+X		*dp++ = *sp++;
+X	}
+X	*dp = 0;
+X	for (dp-- ; *dp == ' '; dp--) {
+X		*dp = 0;
+X	}
+X
+X}
+X
+Xdb_set_date(cp, year, month, day)
+Xunsigned char *cp;
+Xint year, month, day;
+X{
+X	if (month > 12)
+X		month = 0;
+X	if (day > 31)
+X		day = 0;
+X	sprintf(cp, "%d", year);
+X	cp[4] = month / 10 + '0';
+X	cp[5] = month % 10 + '0';
+X	cp[6] = day / 10 + '0';
+X	cp[7] = day % 10 + '0';
+X	cp[8] = 0;
+X}
+X
+Xdb_date_year(cp)
+Xunsigned char *cp;
+X{
+X	int	year, i;
+X
+X	for (year = 0, i = 0; i < 4; i++)
+X		year = year * 10 + (cp[i] - '0');
+X	return year;
+X}
+X
+Xdb_date_month(cp)
+Xunsigned char *cp;
+X{
+X	int	month, i;
+X
+X	for (month = 0, i = 4; i < 6; i++)
+X		month = month * 10 + (cp[i] - '0');
+X	return month;
+X}
+X
+Xdb_date_day(cp)
+Xunsigned char *cp;
+X{
+X	int	day, i;
+X
+X	for (day = 0, i = 6; i < 8; i++)
+X		day = day * 10 + (cp[i] - '0');
+X	return day;
+X}
+X
+X#include <time.h>
+X
+Xunsigned char *
+Xdb_cur_date(cp)
+Xunsigned char *cp;
+X{
+X	struct tm *ctm;
+X	time_t	  c_time;
+X
+X	c_time = time((time_t *)NULL);
+X	ctm = localtime(&c_time);
+X	if (cp == NULL)
+X		cp = (unsigned char *)malloc(9);
+X
+X	if (ctm == NULL || cp == NULL)
+X		return NULL;
+X
+X	db_set_date(cp, ctm->tm_year + 1900, ctm->tm_mon + 1, ctm->tm_mday);
+X
+X	return cp;
+X}
+END_OF_FILE
+if test 2135 -ne `wc -c <'dbf_misc.c'`; then
+    echo shar: \"'dbf_misc.c'\" unpacked with wrong size!
+fi
+# end of 'dbf_misc.c'
+fi
+if test -f 'dbftst.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbftst.c'\"
+else
+echo shar: Extracting \"'dbftst.c'\" \(1103 characters\)
+sed "s/^X//" >'dbftst.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbftst <file>\n"
+X
+X/*
+X * test routine to check out the header and fields
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	int	fd, nfields;
+X	u_char	*cp;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	argv++;
+X	if ((fd = open(*argv, O_RDONLY)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		if ((fd = open(cp, O_RDONLY)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X		free(cp);
+X	}
+X
+X	/* go get the header */
+X	if ((dbh = get_dbf_head(fd)) == NULL) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	nfields = dbh->db_nfields;
+X
+X	printf("# fields: %d, record len: %d\n", nfields, dbh->db_rlen);
+X
+X	/* step thru the field info */
+X	dbf = dbh->db_fields;
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		printf("  %s, %c, %d, %d\n", cur_f->db_fname, cur_f->db_type,
+X			cur_f->db_flen, cur_f->db_fdc);
+X	}
+X}
+END_OF_FILE
+if test 1103 -ne `wc -c <'dbftst.c'`; then
+    echo shar: \"'dbftst.c'\" unpacked with wrong size!
+fi
+# end of 'dbftst.c'
+fi
+if test -f 'dbflst.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbflst.c'\"
+else
+echo shar: Extracting \"'dbflst.c'\" \(2370 characters\)
+sed "s/^X//" >'dbflst.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbflst [-v] <file>\n"
+X
+X/*
+X * display the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	char	*fnp;
+X	u_char	*cp;
+X	int	fd, nfields;
+X	int	rec_cnt, i;
+X	extern int optind;
+X	extern char *optarg;
+X	int	verbose = 0;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	while ((i = getopt(argc, argv, "v")) != EOF) {
+X		switch (i) {
+X		    case 'v':
+X			verbose++;
+X			break;
+X		    default:
+X			printf(USAGE);
+X			exit(1);
+X		}
+X	}
+X	argc -= optind;  argv = &argv[optind];
+X	if ((fd = open(*argv, O_RDONLY)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		if ((fd = open(cp, O_RDONLY)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X		free(cp);
+X	}
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X	nfields = dbh->db_nfields;
+X	if (verbose) {
+X		printf("# fields: %d, record len: %d, total records %d\n",
+X			nfields, dbh->db_rlen, dbh->db_records);
+X	}
+X	dbf = dbh->db_fields;
+X	if (verbose) {
+X		for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X			printf("# %s, %c, %d, %d\n", cur_f->db_fname,
+X				cur_f->db_type, cur_f->db_flen, cur_f->db_fdc);
+X		}
+X	}
+X
+X	/* put out the field headings */
+X	printf(" ");
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		fnp = (char *)strdup(cur_f->db_fname);
+X		if (strlen(fnp) > cur_f->db_flen) {
+X			fnp[cur_f->db_flen] = 0;
+X		}
+X		printf(" ");
+X		printf(cur_f->db_format, fnp);
+X		free((char *)fnp);
+X	}
+X	printf("\n");
+X
+X	/* step thru the records */
+X	for (rec_cnt = 1; rec_cnt <= dbh->db_records; rec_cnt++) {
+X		if ((cp = get_dbf_record(dbh, rec_cnt)) == NULL) {
+X			printf("tried to read bad record %d\n", rec_cnt);
+X			break;
+X		}
+X		out_rec(dbh, dbf, cp);
+X		free(cp);
+X	}
+X}
+X
+X/*
+X * output a record
+X */
+Xout_rec(dbh, dbf, cp)
+Xdbhead_t	*dbh;
+Xdbfield_t	*dbf;
+Xchar	*cp;
+X{
+X	dbfield_t	*cur_f;
+X	int	nfields = dbh->db_nfields;
+X	char	*fnp = (char *)alloca(dbh->db_rlen);
+X
+X	printf("%c", *cp++);
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		printf(" ");
+X		strncpy(fnp, cp, cur_f->db_flen);
+X		fnp[cur_f->db_flen] = 0;
+X		printf(cur_f->db_format, fnp);
+X		cp += cur_f->db_flen;
+X	}
+X	printf("\n");
+X}
+END_OF_FILE
+if test 2370 -ne `wc -c <'dbflst.c'`; then
+    echo shar: \"'dbflst.c'\" unpacked with wrong size!
+fi
+# end of 'dbflst.c'
+fi
+if test -f 'token.l' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'token.l'\"
+else
+echo shar: Extracting \"'token.l'\" \(7070 characters\)
+sed "s/^X//" >'token.l' <<'END_OF_FILE'
+X%{
+X/*
+X * Copyright (c) 1991, 1992 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X/*
+X *	tokenizer for dbf
+X */
+X#ifdef DEBUG		/* debugging version */
+Xmain()
+X{
+X	char	*p;
+X
+X	while (p = (char *)yylex())
+X		printf("%-10.10s is \"%s\"\n", p, yytext);
+X}
+X
+Xs_lookup() {}
+Xyymark() {}
+X
+Xint yynerrrs = 0;
+X
+X#define	token(x)	(int) "x"
+X
+X#else /* ! DEBUG (ie production version) */
+X
+X#include "gram.tab.h"
+X#define token(x)	x
+X
+X#endif /* DEBUG */
+X
+X#define	END_OF(v)	(v-1 + sizeof v / sizeof v[0])
+Xstatic int screen();
+X%}
+X
+Xletter			[a-zA-Z_]
+Xdigit			[0-9]
+Xletter_or_digit		[a-zA-Z0-9_]
+Xcar_ret			[\n]
+Xblank			[ \t]
+Xslash			[/]
+Xdouble_quote		["]
+Xsingle_quote		[']
+Xnot_d_quote		[^"]
+Xnot_s_quote		[^']
+Xother			.
+Xperiod			[.]
+X
+X%%
+X
+X";"{car_ret}		;
+X{car_ret}		return token(CR);
+X
+X^{blank}*"*".*\n	;
+X"&&".*\n		return token(CR);
+X
+X{period}		return token(PERIOD);
+X
+X{double_quote}{not_d_quote}*{double_quote}		return token(STRING);
+X{single_quote}{not_s_quote}*{single_quote}		return token(STRING);
+X
+X"("			return token(L_PAREN);
+X")"			return token(R_PAREN);
+X"@"			return token(AT);
+X"?"			return token(QUEST);
+X"??"			return token(QUEST);
+X"&"			return token(AMPER);
+X
+X"*"			return token(MULT);
+X"/"			return token(DIVIDE);
+X
+X"+"			return token(PLUS);
+X"-"			return token(MINUS);
+X
+X","			return token(COMMA);
+X";"			;
+X":"			return token(COLON);
+X"!"			return token(BANG);
+X
+X"="			return token(EQUAL);
+X"<>"			return token(NOT_EQUAL);
+X">"			return token(GREATER);
+X">="			return token(GREATER_EQUAL);
+X"<"			return token(LESS);
+X"<="			return token(LESS_EQUAL);
+X"$"			return token(DOLLAR);
+X"->"			return token(PTR);
+X
+X"\.OR\."		return token(OR);
+X"\.AND\."		return token(AND);
+X"\.NOT\."		return token(NOT);
+X
+X{letter}{letter_or_digit}*	{
+X#ifdef DEBUG
+X				return screen();
+X#else
+X				int retval;
+X				if ((retval = screen()) == token(Identifier)){
+X					s_lookup(token(Identifier));
+X				}
+X				return retval;
+X#endif
+X				}
+X{digit}+			{ s_lookup(token(Constant));
+X				  return token(Constant);
+X				}
+X{period}{digit}+		{ s_lookup(token(Constant));
+X				  return token(Constant);
+X				}
+X{digit}+{period}{digit}+	{ s_lookup(token(Constant));
+X				  return token(Constant);
+X				}
+X
+X{blank}+			;
+X
+X{other}				return token(yytext[0]);
+X
+X%%
+X
+Xstatic struct rwtable {		/* reserved word table */
+X	char	*rw_name;	/* representations */
+X	int	rw_yylex;	/* yylex(value) */
+X} rwtable[] = {			/* sorted */
+X	"ACCE",		token(ACCEPT),
+X	"ACCEPT",	token(ACCEPT),
+X	"ALIA",		token(ALIAS),
+X	"ALIAS",	token(ALIAS),
+X	"ALL",		token(ALL),
+X	"APPE",		token(APPEND),
+X	"APPEND",	token(APPEND),
+X	"ASSI",		token(ASSIST),
+X	"ASSIST",	token(ASSIST),
+X	"AVER",		token(AVERAGE),
+X	"AVERAGE",	token(AVERAGE),
+X	"BLAN",		token(BLANK),
+X	"BLANK",	token(BLANK),
+X	"BOTTOM",	token(BOTTOM),
+X	"BROW",		token(BROWSE),
+X	"BROWSE",	token(BROWSE),
+X	"CALL",		token(CALL),
+X	"CANC",		token(CANCEL),
+X	"CANCEL",	token(CANCEL),
+X	"CASE",		token(CASE),
+X	"CHANGE",	token(CHANGE),
+X	"CLEA",		token(CLEAR),
+X	"CLEAR",	token(CLEAR),
+X	"CLOS",		token(CLOSE),
+X	"CLOSE",	token(CLOSE),
+X	"CONT",		token(CONTINUE),
+X	"CONTINUE",	token(CONTINUE),
+X	"COPY",		token(COPY),
+X	"COUNT",	token(COUNT),
+X	"DATABASES",	token(DATABASES),
+X	"DELETE",	token(DELETE),
+X	"DELI",		token(DELIMITED),
+X	"DELIMITED",	token(DELIMITED),
+X	"DISP",		token(DISPLAY),
+X	"DISPLAY",	token(DISPLAY),
+X	"DO",		token(DO),
+X	"EDIT",		token(EDIT),
+X	"EJEC",		token(EJECT),
+X	"EJECT",	token(EJECT),
+X	"ELSE",		token(ELSE),
+X	"ENDC",		token(ENDCASE),
+X	"ENDCASE",	token(ENDCASE),
+X	"ENDD",		token(ENDDO),
+X	"ENDDO",	token(ENDDO),
+X	"ENDI",		token(ENDIF),
+X	"ENDIF",	token(ENDIF),
+X	"ENDTEXT",	token(ENDTEXT),
+X	"ERASE",	token(ERASE),
+X	"EXCL",		token(EXCLUSIVE),
+X	"EXCLUSIVE",	token(EXCLUSIVE),
+X	"EXIT",		token(EXIT),
+X	"EXPO",		token(EXPORT),
+X	"EXPORT",	token(EXPORT),
+X	"FIEL",		token(FIELDS),
+X	"FIELDS",	token(FIELDS),
+X	"FILE",		token(FILE_T),
+X	"FIND",		token(FIND),
+X	"FOR",		token(FOR),
+X	"FORM",		token(FORM),
+X	"FROM",		token(FROM),
+X	"GET",		token(GET),
+X	"GO",		token(GO),
+X	"GOTO",		token(GO),
+X	"HEAD",		token(HEADING),
+X	"HEADING",	token(HEADING),
+X	"HELP",		token(HELP),
+X	"IF",		token(IF),
+X	"INDE",		token(INDEX),
+X	"INDEX",	token(INDEX),
+X	"INPU",		token(INPUT),
+X	"INPUT",	token(INPUT),
+X	"INSE",		token(INSERT),
+X	"INSERT",	token(INSERT),
+X	"JOIN",		token(JOIN),
+X	"LABE",		token(LABEL),
+X	"LABEL",	token(LABEL),
+X	"LIST",		token(LIST),
+X	"LOAD",		token(LOAD),
+X	"LOCA",		token(LOCATE),
+X	"LOCATE",	token(LOCATE),
+X	"LOCK",		token(LOCK),
+X	"LOGO",		token(LOGOUT),
+X	"LOGOUT",	token(LOGOUT),
+X	"LOOP",		token(LOOP),
+X	"MENU",		token(MENU),
+X	"MODI",		token(MODIFY),
+X	"MODIFY",	token(MODIFY),
+X	"NEXT",		token(NEXT),
+X	"NOEJ",		token(NOEJECT),
+X	"NOEJECT",	token(NOEJECT),
+X	"NOTE",		token(NOTE),
+X	"OFF",		token(OFF),
+X	"ON",		token(ON),
+X	"OTHE",		token(OTHERWISE),
+X	"OTHERWISE",	token(OTHERWISE),
+X	"PACK",		token(PACK),
+X	"PARA",		token(PARAMETERS),
+X	"PARAMETERS",	token(PARAMETERS),
+X	"PICT",		token(PICTURE),
+X	"PICTURE",	token(PICTURE),
+X	"PLAIN",	token(PLAIN),
+X	"PLAI",		token(PLAIN),
+X	"PRIN",		token(PRINT),
+X	"PRINT",	token(PRINT),
+X	"PRIV",		token(PRIVATE),
+X	"PRIVATE",	token(PRIVATE),
+X	"PROC",		token(PROCEDURE),
+X	"PROCEDURE",	token(PROCEDURE),
+X	"PROM",		token(PROMPT),
+X	"PROMPT",	token(PROMPT),
+X	"PUBL",		token(PUBLIC),
+X	"PUBLIC",	token(PUBLIC),
+X	"QUIT",		token(QUIT),
+X	"RANGE",	token(RANGE),
+X	"READ",		token(READ),
+X	"RECA",		token(RECALL),
+X	"RECALL",	token(RECALL),
+X	"RECO",		token(RECORD),
+X	"RECORD",	token(RECORD),
+X	"REIN",		token(REINDEX),
+X	"REINDEX",	token(REINDEX),
+X	"RELE",		token(RELEASE),
+X	"RELEASE",	token(RELEASE),
+X	"RENA",		token(RENAME),
+X	"RENAME",	token(RENAME),
+X	"REPL",		token(REPLACE),
+X	"REPLACE",	token(REPLACE),
+X	"REPO",		token(REPORT),
+X	"REPORT",	token(REPORT),
+X	"RESTORE",	token(RESTORE),
+X	"REST",		token(REST),
+X	"RESU",		token(RESUME),
+X	"RESUME",	token(RESUME),
+X	"RETR",		token(RETRY),
+X	"RETRY",	token(RETRY),
+X	"RETU",		token(RETURN),
+X	"RETURN",	token(RETURN),
+X	"RUN",		token(RUN),
+X	"SAY",		token(SAY),
+X	"SEEK",		token(SEEK),
+X	"SELE",		token(SELECT),
+X	"SELECT",	token(SELECT),
+X	"SET",		token(SET),
+X	"SKIP",		token(SKIP),
+X	"SORT",		token(SORT),
+X	"STORE",	token(STORE),
+X	"STRU",		token(STRUCTURE),
+X	"STRUCTURE",	token(STRUCTURE),
+X	"SUM",		token(SUM),
+X	"SUMM",		token(SUMMARY),
+X	"SUMMARY",	token(SUMMARY),
+X	"SUSP",		token(SUSPEND),
+X	"SUSPEND",	token(SUSPEND),
+X	"TEXT",		token(TEXT),
+X	"TO",		token(TO),
+X	"TOP",		token(TOP),
+X	"TOTAL",	token(TOTAL),
+X	"TYPE",		token(TYPE),
+X	"UNLO",		token(UNLOCK),
+X	"UNLOCK",	token(UNLOCK),
+X	"UNIQ",		token(UNIQUE),
+X	"UNIQUE",	token(UNIQUE),
+X	"USE",		token(USE),
+X	"VIEW",		token(VIEW),
+X	"WAIT",		token(WAIT),
+X	"WHIL",		token(WHILE),
+X	"WHILE",	token(WHILE),
+X	"WITH",		token(WITH),
+X	"ZAP",		token(ZAP),
+X	};
+X
+Xstatic int screen()
+X{
+X	struct rwtable	*low = rwtable,
+X			*high = END_OF(rwtable),
+X			*mid;
+X	register char	*yptr, *op, ochar[100];
+X	int c;
+X
+X	op = ochar;
+X	for (yptr = yytext; *yptr; yptr++)
+X		*op++ = toupper(*yptr);
+X	*op = 0;
+X	op = ochar;
+X	while (low <= high) {
+X		mid = low + (high - low)/2;
+X		if ((c = strcmp(mid->rw_name, op)) == 0)
+X			return mid->rw_yylex;
+X		else if (c < 0)
+X			low = mid + 1;
+X		else
+X			high = mid - 1;
+X	}
+X	s_lookup(token(Identifier));
+X	return token(Identifier);
+X}
+END_OF_FILE
+if test 7070 -ne `wc -c <'token.l'`; then
+    echo shar: \"'token.l'\" unpacked with wrong size!
+fi
+# end of 'token.l'
+fi
+if test -f 'gram.y' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gram.y'\"
+else
+echo shar: Extracting \"'gram.y'\" \(7776 characters\)
+sed "s/^X//" >'gram.y' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X%token	L_PAREN
+X%token	R_PAREN
+X%token	AT
+X%token	QUEST
+X%token	AMPER
+X%token	CR
+X
+X%token	PLUS
+X%token	MINUS
+X
+X%token	MULT
+X%token	DIVIDE
+X
+X%token	COMMA
+X%token	COLON
+X%token	BANG
+X
+X%token	EQUAL
+X%token	NOT_EQUAL
+X%token	GREATER
+X%token	GREATER_EQUAL
+X%token	LESS
+X%token	LESS_EQUAL
+X%token	DOLLAR
+X%token	PTR
+X%token	PERIOD
+X
+X%token	OR
+X%token	AND
+X%token	NOT
+X
+X%token	STRING
+X%token	Identifier
+X%token	Constant
+X
+X%token	ACCEPT
+X%token	ALIAS
+X%token	ALL
+X%token	APPEND
+X%token	ASSIST
+X%token	AVERAGE
+X%token	BLANK
+X%token	BOTTOM
+X%token	BROWSE
+X%token	CALL
+X%token	CANCEL
+X%token	CASE
+X%token	CHANGE
+X%token	CLEAR
+X%token	CLOSE
+X%token	CONTINUE
+X%token	COPY
+X%token	COUNT
+X%token	DATABASES
+X%token	DELETE
+X%token	DELIMITED
+X%token	DISPLAY
+X%token	DO
+X%token	EDIT
+X%token	EJECT
+X%token	ELSE
+X%token	ENDCASE
+X%token	ENDDO
+X%token	ENDIF
+X%token	ENDTEXT
+X%token	ERASE
+X%token	EXCLUSIVE
+X%token	EXIT
+X%token	EXPORT
+X%token	FIELDS
+X%token	FILE_T
+X%token	FIND
+X%token	FOR
+X%token	FORM
+X%token	FROM
+X%token	GET
+X%token	GO
+X%token	HELP
+X%token	HEADING
+X%token	IF
+X%token	INDEX
+X%token	INPUT
+X%token	INSERT
+X%token	JOIN
+X%token	LABEL
+X%token	LIST
+X%token	LOAD
+X%token	LOCATE
+X%token	LOCK
+X%token	LOGOUT
+X%token	LOOP
+X%token	MENU
+X%token	MODIFY
+X%token	NEXT
+X%token	NOEJECT
+X%token	NOTE
+X%token	OFF
+X%token	ON
+X%token	OTHERWISE
+X%token	PACK
+X%token	PARAMETERS
+X%token	PICTURE
+X%token	PLAIN
+X%token	PRINT
+X%token	PRIVATE
+X%token	PROMPT
+X%token	PROCEDURE
+X%token	PUBLIC
+X%token	QUIT
+X%token	RANGE
+X%token	READ
+X%token	RECALL
+X%token	RECORD
+X%token	REINDEX
+X%token	RELEASE
+X%token	RENAME
+X%token	REPLACE
+X%token	REPORT
+X%token	RESTORE
+X%token	REST
+X%token	RESUME
+X%token	RETRY
+X%token	RETURN
+X%token	RUN
+X%token	SAY
+X%token	SEEK
+X%token	SELECT
+X%token	SET
+X%token	SKIP
+X%token	SORT
+X%token	STORE
+X%token	STRUCTURE
+X%token	SUM
+X%token	SUMMARY
+X%token	SUSPEND
+X%token	TEXT
+X%token	TO
+X%token	TOP
+X%token	TOTAL
+X%token	TYPE
+X%token	UNLOCK
+X%token	UNIQUE
+X%token	USE
+X%token	VIEW
+X%token	WAIT
+X%token	WHILE
+X%token	WITH
+X%token	ZAP
+X
+X%left	NOT_EQUAL LESS LESS_EQUAL GREATER GREATER_EQUAL
+X%left	AND OR NOT
+X%left	PLUS MINUS
+X%left	MULT DIVIDE
+X%left	EQUAL
+X
+X%%
+X
+Xfile
+X	: statements
+X
+Xstatements
+X	:		/* NULL */
+X	| statements statement
+X
+Xstatement
+X	: CR
+X	| set_statement CR
+X	| do_statement CR
+X	| at_statement CR
+X	| store_statement CR
+X	| clear_statement CR
+X	| quest_statement CR
+X	| go_statement CR
+X	| replace_statement CR
+X	| if_statement CR
+X	| use_statement CR
+X	| count_statement CR
+X	| skip_statement CR
+X	| index_statement CR
+X	| append_statement CR
+X	| recall_statement CR
+X	| delete_statement CR
+X	| assign_statement CR
+X	| proc_statement CR
+X	| select_statement CR
+X	| find_statement CR
+X	| copy_statement CR
+X	| report_statement CR
+X	| wait_statement CR
+X	| close_statement CR
+X	| erase_statement CR
+X	| simple_statement CR
+X
+Xset_statement
+X	: SET Identifier set_list
+X	| SET spec_ident set_list
+X	| SET INDEX TO ident_list
+X	| SET VIEW TO ident_list
+X
+Xset_list
+X	: ON
+X	| OFF
+X	| TO Identifier
+X	| TO spec_ident
+X	| TO Constant
+X
+Xdo_statement
+X	: DO WHILE expression statements ENDDO
+X	| DO CASE cases ENDCASE
+X	| DO Identifier
+X
+Xcases
+X	: case
+X	| case cases
+X
+Xcase
+X	: CR
+X	| CASE expression statements
+X	| OTHERWISE statements
+X
+Xat_statement
+X	: AT expression COMMA expression at_extras
+X
+Xat_extras
+X	: at_extra
+X	| at_extras at_extra
+X
+Xat_extra
+X	: SAY expression
+X	| SAY expression PICTURE STRING
+X	| GET ident_or_ref
+X	| GET ident_or_ref get_stuff
+X	| GET spec_ident
+X	| GET spec_ident get_stuff
+X	| CLEAR
+X
+Xget_stuff
+X	: PICTURE STRING
+X	| RANGE expression COMMA expression
+X
+Xstore_statement
+X	: STORE expression TO ident_or_ref
+X	| STORE expression TO spec_ident
+X
+Xwait_statement
+X	: WAIT STRING
+X	| WAIT STRING TO ident_or_ref
+X	| WAIT STRING TO spec_ident
+X
+Xclear_statement
+X	: CLEAR
+X	| CLEAR ALL
+X	| CLEAR Identifier
+X
+Xcopy_statement
+X	: COPY TO ident_or_ref copy_list
+X	| COPY TO ident_or_ref STRUCTURE
+X	| COPY ident_or_ref TO ident_or_ref
+X
+Xcopy_list
+X	: 			/* blank is ok */
+X	| copy_list scope
+X	| copy_list FIELDS ident_list
+X	| copy_list FOR expression
+X	| copy_list WHILE expression
+X
+Xfind_statement
+X	: FIND ident_or_ref
+X
+Xquest_statement
+X	: QUEST opt_list
+X
+Xgo_statement
+X	: GO ident_or_ref
+X	| GO spec_ident
+X	| GO AMPER spec_ident
+X	| GO BOTTOM
+X	| GO TOP
+X
+Xreplace_statement
+X	: REPLACE repl_list repl_cond
+X	| REPLACE scope repl_list repl_cond
+X
+Xrepl_cond
+X	:			/* blank coditions ok */
+X	| FOR expression repl_cond
+X	| WHILE expression repl_cond
+X
+Xif_statement
+X	: IF expression statements ENDIF
+X	| IF expression statements ELSE statements ENDIF
+X
+Xuse_statement
+X	: USE use_list
+X	| USE ident_or_ref use_list
+X
+Xuse_list
+X	:			/* blank line is valid */
+X	| use_list INDEX ident_list
+X	| use_list ALIAS Identifier
+X	| use_list EXCLUSIVE
+X
+Xcount_statement
+X	: COUNT count_list
+X
+Xcount_list
+X	:
+X	| scope count_list
+X	| FOR expression count_list
+X	| WHILE expression count_list
+X	| TO Identifier
+X
+Xident_list
+X	: ident_or_ref
+X	| spec_ident
+X	| AMPER spec_ident
+X	| ident_list COMMA ident_or_ref
+X
+Xskip_statement
+X	: SKIP
+X	| SKIP expression
+X
+Xindex_statement
+X	: INDEX ON expression TO ident_or_ref
+X	| INDEX ON expression TO ident_or_ref UNIQUE
+X
+Xappend_statement
+X	: APPEND append_list
+X
+Xappend_list
+X	:		/* blank is reasonable */
+X	| BLANK
+X	| FROM Identifier from_extras
+X
+Xfrom_extras
+X	:		/* from not reqired */
+X	| FOR expression
+X	| TYPE DELIMITED from_type
+X
+Xfrom_type
+X	:		/* not required */
+X	| WITH STRING
+X	| WITH BLANK
+X	| Identifier
+X
+Xrecall_statement
+X	: RECALL recall_extras
+X
+Xrecall_extras
+X	:		/* can be blank */
+X	| scope recall_extras
+X	| FOR expression recall_extras
+X	| WHILE expression recall_extras
+X
+Xdelete_statement
+X	: DELETE recall_extras
+X	| DELETE FILE_T ident_or_ref
+X
+Xassign_statement
+X	: Identifier EQUAL expression
+X
+Xproc_statement
+X	: PROCEDURE Identifier
+X
+Xreport_statement
+X	: REPORT FORM Identifier rep_list
+X	| REPORT FORM spec_ident rep_list
+X	| REPORT FORM AMPER spec_ident rep_list
+X
+Xrep_list
+X	:			/* blank is ok */
+X	| rep_list scope
+X	| rep_list FOR expression
+X	| rep_list WHILE expression
+X	| rep_list NOEJECT
+X	| rep_list PLAIN
+X	| rep_list SUMMARY
+X	| rep_list HEADING expression
+X	| rep_list TO PRINT
+X	| rep_list TO FILE_T Identifier
+X
+Xsimple_statement
+X	: CANCEL
+X	| EJECT
+X	| LOOP
+X	| PACK
+X	| READ
+X	| REINDEX
+X	| RETURN
+X	| SEEK expression
+X
+Xclose_statement
+X	: CLOSE ALL
+X	| CLOSE DATABASES
+X
+Xerase_statement
+X	: ERASE file_name
+X
+Xfile_name
+X	: Identifier
+X	| Identifier PERIOD Identifier
+X
+Xrepl_list
+X	: ident_or_ref WITH expression
+X	| repl_list COMMA ident_or_ref WITH expression
+X
+Xscope
+X	: ALL
+X	| NEXT expression
+X	| RECORD expression
+X	| REST
+X
+Xselect_statement
+X	: SELECT Identifier
+X	| SELECT Constant
+X
+Xspec_ident
+X	: BLANK
+X	| COUNT
+X	| DELETE
+X	| TOTAL
+X	| COPY
+X	| INDEX
+X	| REPORT
+X	| HEADING
+X	| PRINT
+X	| RECORD
+X	| AMPER RECORD
+X
+Xident_or_ref
+X	: Identifier
+X	| AMPER Identifier
+X	| ident_or_ref PTR Identifier
+X	| ident_or_ref PERIOD Identifier
+X
+Xexpression
+X	: Constant
+X	| ident_or_ref
+X	| spec_ident
+X	| STRING
+X	| STRING DOLLAR ident_or_ref
+X	| L_PAREN expression R_PAREN
+X	| Identifier L_PAREN opt_list R_PAREN
+X	| spec_ident L_PAREN opt_list R_PAREN
+X	| MINUS expression
+X	| PLUS expression
+X	| NOT expression
+X	| expression PLUS expression		%prec PLUS
+X	| expression MINUS expression		%prec PLUS
+X	| expression MULT expression		%prec MULT
+X	| expression DIVIDE expression		%prec MULT
+X	| expression AND expression		%prec AND
+X	| expression OR expression		%prec AND
+X	| expression EQUAL expression		%prec EQUAL
+X	| expression NOT_EQUAL expression	%prec NOT_EQUAL
+X	| expression GREATER expression		%prec NOT_EQUAL
+X	| expression GREATER_EQUAL expression	%prec NOT_EQUAL
+X	| expression LESS expression		%prec NOT_EQUAL
+X	| expression LESS_EQUAL expression	%prec NOT_EQUAL
+X
+Xopt_list
+X	:		/* no actual args */
+X	| arg_list
+X
+Xarg_list
+X	: expression
+X	| arg_list COMMA expression
+X
+X%%
+X
+Xmain()
+X{
+X	int	yyret;
+X#ifdef YYDEBUG
+X	extern int yydebug;
+X
+X	yydebug = 1;
+X#endif
+X	yyret = yyparse();
+X	printf("yyparse() == %d\n", yyret);
+X	exit(yyret);
+X}
+END_OF_FILE
+if test 7776 -ne `wc -c <'gram.y'`; then
+    echo shar: \"'gram.y'\" unpacked with wrong size!
+fi
+# end of 'gram.y'
+fi
+if test -f 'dbinter.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbinter.c'\"
+else
+echo shar: Extracting \"'dbinter.c'\" \(995 characters\)
+sed "s/^X//" >'dbinter.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#include <stdio.h>
+X#include "dbf_sym.h"
+X
+Xchar *strsave();
+X
+Xstruct sym_def sym_tab[100];
+Xint	sym_len = 0;
+X
+Xchar *
+Xs_lookup(yylex)
+Xint	yylex;		/* Constant or Identifier */
+X{
+X	extern YYSTYPE yylval;
+X	extern char yytext[];
+X	extern char *strsave();
+X	register struct sym_def *low = sym_tab,
+X				*high = &sym_tab[sym_len],
+X				*mid;
+X	int c;
+X
+X	if (sym_len > 0) {
+X		while (low <= high) {
+X			mid = low + (high - low)/2;
+X			if ((c = strcmp(mid->sig_name, yytext)) == 0)
+X				return mid->sig_name;
+X			else if (c < 0)
+X				low = mid + 1;
+X			else
+X				high = mid - 1;
+X		}
+X	} else {
+X		mid = sym_tab;
+X	}
+X	for (high = &sym_tab[sym_len]; high >= mid; high--) {
+X		high[1] = high[0];
+X	}
+X	mid->sig_name = strsave(yytext);
+X	yylval = mid->sig_name;
+X}
+X
+Xchar *
+Xstrsave(cp)
+Xchar *cp;
+X{
+X	int len;
+X	char *np;
+X
+X	len = strlen(cp);
+X	if (np = (char *)malloc(len+1))
+X		strcpy(np, cp);
+X	return np;
+X}
+END_OF_FILE
+if test 995 -ne `wc -c <'dbinter.c'`; then
+    echo shar: \"'dbinter.c'\" unpacked with wrong size!
+fi
+# end of 'dbinter.c'
+fi
+if test -f 'dbf_sym.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_sym.h'\"
+else
+echo shar: Extracting \"'dbf_sym.h'\" \(207 characters\)
+sed "s/^X//" >'dbf_sym.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	YYSTYPE	char *
+X
+Xstruct sym_def {
+X	char	*sig_name;
+X	int	sig_num;
+X};
+END_OF_FILE
+if test 207 -ne `wc -c <'dbf_sym.h'`; then
+    echo shar: \"'dbf_sym.h'\" unpacked with wrong size!
+fi
+# end of 'dbf_sym.h'
+fi
+if test -f 'yyerr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'yyerr.c'\"
+else
+echo shar: Extracting \"'yyerr.c'\" \(1472 characters\)
+sed "s/^X//" >'yyerr.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#include <stdio.h>
+X
+XFILE *yyerfp = stdout;		/* error stream */
+X
+Xextern char yytext[];		/* current token */
+Xextern int yyleng;		/* and it's length */
+Xextern yylineno;		/* current input line number */
+X
+Xstatic char *source;		/* current input line number */
+X
+Xyywhere()
+X{
+X	char colon = 0;		/* a flag */
+X
+X	if (source && *source && strcmp(source, "\"\"")) {
+X		char *cp = source;
+X		int len = strlen(source);
+X
+X		if (*cp == '"')
+X			++cp, len -= 2;
+X		if (strncmp(cp, "./",2) == 0)
+X			cp += 2, len -= 2;
+X		fprintf(yyerfp, "file %.*s", len, cp);
+X		colon = 1;
+X	}
+X	if (yylineno > 0) {
+X		if (colon)
+X			fputs(", ", yyerfp);
+X		fprintf(yyerfp, "line %d",
+X			yylineno - (*yytext == '\n' || ! *yytext));
+X		colon = 1;
+X	}
+X	if (*yytext) {
+X		register int i;
+X
+X		for (i = 0; i < 20; ++i)
+X			if (!yytext[i] || yytext[i] == '\n')
+X				break;
+X		if (i) {
+X			if (colon)
+X				putc(' ', yyerfp);
+X			fprintf(yyerfp, "near \"%.*s\"", i, yytext);
+X			colon = 1;
+X		}
+X	}
+X	if (colon)
+X		fputs(": ", yyerfp);
+X}
+X
+Xyymark()		/* retrieve from '# digits text' */
+X{
+X	if (source)
+X		cfree(source);
+X	source = (char *) calloc(yyleng, sizeof(char));
+X	if (source)
+X		sscanf(yytext, "# %d %s", &yylineno, source);
+X}
+X
+Xyyerror(s)
+Xregister char *s;
+X{
+X	extern int yynerrs;	/* total number off errs */
+X
+X	fprintf(yyerfp, "[error %d] ", yynerrs + 1);
+X	yywhere();
+X	fputs(s, yyerfp);
+X	putc('\n', yyerfp);
+X}
+X
+END_OF_FILE
+if test 1472 -ne `wc -c <'yyerr.c'`; then
+    echo shar: \"'yyerr.c'\" unpacked with wrong size!
+fi
+# end of 'yyerr.c'
+fi
+if test -f 'tmpl.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tmpl.c'\"
+else
+echo shar: Extracting \"'tmpl.c'\" \(1349 characters\)
+sed "s/^X//" >'tmpl.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X/*
+X * build the template file for creating databases
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+X#define	TEMPL_FILE	"tmpl.dbf"
+X#define	OPEN_FLAGS	(O_RDWR | O_CREAT | O_TRUNC)
+X
+Xstruct db_field creat_f[] = {
+X	{"FIELD_NAME", 'C', 10, 0, NULL,  1},
+X	{"FIELD_TYPE", 'C',  1, 0, NULL, 11},
+X	{"FIELD_LEN",  'N',  3, 0, NULL, 12},
+X	{"FIELD_DEC",  'N',  4, 0, NULL, 15},
+X};
+X
+Xstruct db_head creat_h = {
+X	0, DBH_TYPE_NORMAL, '1','9','9','3','0','8','0','5',
+X	0, 0, 0, 18+1, 4, creat_f
+X};
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh = &creat_h;
+X	dbfield_t	*dbf, *cur_f;
+X	int		fd, ret, nfields;
+X	unsigned char	*cp;
+X
+X	if ((fd = open(TEMPL_FILE, OPEN_FLAGS, 0644)) < 0) {
+X		perror("open");
+X		exit(1);
+X	}
+X
+X	nfields = dbh->db_nfields;
+X	printf("# fields: %d, record len: %d\n", nfields, dbh->db_rlen);
+X
+X	/* step thru the field info */
+X	dbf = dbh->db_fields;
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		printf("  %s, %c, %d\n", cur_f->db_fname, cur_f->db_type,
+X			cur_f->db_flen);
+X	}
+X
+X	dbh->db_fd = fd;
+X	dbh->db_hlen = sizeof(struct dbf_dhead) + 2 +
+X			dbh->db_nfields * sizeof(struct dbf_dfield);
+X
+X	if (cp = db_cur_date(NULL)) {
+X		strncpy(dbh->db_date, cp, 8);
+X	}
+X
+X	put_dbf_info(dbh);
+X	exit(0);
+X}
+END_OF_FILE
+if test 1349 -ne `wc -c <'tmpl.c'`; then
+    echo shar: \"'tmpl.c'\" unpacked with wrong size!
+fi
+# end of 'tmpl.c'
+fi
+if test -f 'dbfadd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfadd.c'\"
+else
+echo shar: Extracting \"'dbfadd.c'\" \(1458 characters\)
+sed "s/^X//" >'dbfadd.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbfadd <file> <field> <field> ...\n"
+X
+X/*
+X * display the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	char	*fnp;
+X	u_char	*cp, *t_cp;
+X	int	fd, nfields;
+X	int	rec_cnt;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	argv++;	argc--;
+X	if ((fd = open(*argv, O_RDWR)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		free(cp);
+X		if ((fd = open(cp, O_RDWR)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X	}
+X	argv++;	argc--;
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	nfields = dbh->db_nfields;
+X	if (nfields != argc) {
+X		fprintf(stderr, "mismatch of field count, %d vs %d inputs\n",
+X				nfields, argc);
+X		exit(1);
+X	}
+X	cp = t_cp = (u_char *)malloc(dbh->db_rlen + 1);
+X	*t_cp++ = VALID_RECORD;
+X
+X	dbf = dbh->db_fields;
+X	for (cur_f = dbf; cur_f < &dbf[nfields]; cur_f++, argv++) {
+X		sprintf(t_cp, cur_f->db_format, *argv);
+X		t_cp += cur_f->db_flen;
+X	}
+X	dbh->db_records++;
+X	if ( put_dbf_record(dbh, dbh->db_records, cp) < 0 ) {
+X		fprintf(stderr, "unable to put record at %d\n",
+X				dbh->db_records);
+X	}
+X	if (cp = db_cur_date(NULL)) {
+X		strncpy(dbh->db_date, cp, 8);
+X	}
+X	put_dbf_info(dbh);
+X}
+END_OF_FILE
+if test 1458 -ne `wc -c <'dbfadd.c'`; then
+    echo shar: \"'dbfadd.c'\" unpacked with wrong size!
+fi
+# end of 'dbfadd.c'
+fi
+if test -f 'dbfdel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfdel.c'\"
+else
+echo shar: Extracting \"'dbfdel.c'\" \(1246 characters\)
+sed "s/^X//" >'dbfdel.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbfdel <file> [<record> <record> ...]\n"
+X
+X/*
+X * display the records of the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	char	*fnp;
+X	u_char	*cp, *t_cp;
+X	int	fd, nfields;
+X	int	rec_num;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	argv++;	argc--;
+X	if ((fd = open(*argv, O_RDWR)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		free(cp);
+X		if ((fd = open(cp, O_RDWR)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X	}
+X	argv++;	argc--;
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	while (argc-- > 0) {
+X		rec_num = strtol(*argv++, NULL, 0);
+X		if (del_dbf_record(dbh, rec_num) < 0) {
+X			if (rec_num > dbh->db_records) {
+X				fprintf(stderr, "record %d out of bounds\n",
+X						 rec_num);
+X				continue;
+X			} else {
+X				fprintf(stderr, "unable to delete record %d\n",
+X						 rec_num);
+X			}
+X		}
+X	}
+X	if (cp = db_cur_date(NULL)) {
+X		strncpy(dbh->db_date, cp, 8);
+X	}
+X	put_dbf_info(dbh);
+X}
+END_OF_FILE
+if test 1246 -ne `wc -c <'dbfdel.c'`; then
+    echo shar: \"'dbfdel.c'\" unpacked with wrong size!
+fi
+# end of 'dbfdel.c'
+fi
+if test -f 'dbfpack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfpack.c'\"
+else
+echo shar: Extracting \"'dbfpack.c'\" \(913 characters\)
+sed "s/^X//" >'dbfpack.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbfpack <file>\n"
+X
+X/*
+X * display the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	char	*fnp;
+X	u_char	*cp, *t_cp;
+X	int	fd, nfields;
+X	int	rec_num;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	argv++;	argc--;
+X	if ((fd = open(*argv, O_RDWR)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		free(cp);
+X		if ((fd = open(cp, O_RDWR)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X	}
+X	argv++;	argc--;
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	pack_dbf(dbh);
+X	if (cp = db_cur_date(NULL)) {
+X		strncpy(dbh->db_date, cp, 8);
+X	}
+X	put_dbf_info(dbh);
+X}
+END_OF_FILE
+if test 913 -ne `wc -c <'dbfpack.c'`; then
+    echo shar: \"'dbfpack.c'\" unpacked with wrong size!
+fi
+# end of 'dbfpack.c'
+fi
+if test -f 'dbfget.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfget.c'\"
+else
+echo shar: Extracting \"'dbfget.c'\" \(2412 characters\)
+sed "s/^X//" >'dbfget.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X/*
+X * display selected records of the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#define	USAGE	"usage: dbfget [-v] <file> [<record> <record>...]\n"
+X
+X#include "dbf.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh;
+X	dbfield_t	*dbf, *cur_f;
+X	char	*fnp;
+X	u_char	*cp;
+X	int	fd, nfields;
+X	int	rec_cnt, i;
+X	extern int optind;
+X	extern char *optarg;
+X	int	verbose = 0;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	while ((i = getopt(argc, argv, "v")) != EOF) {
+X		switch (i) {
+X		    case 'v':
+X			verbose++;
+X			break;
+X		    default:
+X			printf(USAGE);
+X			exit(1);
+X		}
+X	}
+X	argc -= optind;  argv += optind;
+X	if ((fd = open(*argv, O_RDONLY)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		if ((fd = open(cp, O_RDONLY)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X		free(cp);
+X	}
+X	argv++; argc--;
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	nfields = dbh->db_nfields;
+X	if (verbose)
+X	  	printf("# fields: %d, record len: %d, total records %d\n",
+X			nfields, dbh->db_rlen, dbh->db_records);
+X
+X	dbf = dbh->db_fields;
+X
+X	if (verbose) {
+X		for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X			printf("# %s, %c, %d, %d\n", cur_f->db_fname,
+X				cur_f->db_type, cur_f->db_flen, cur_f->db_fdc);
+X		}
+X	}
+X
+X	/* put out the field headings */
+X	printf(" ");
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		fnp = (char *)strdup(cur_f->db_fname);
+X		if (strlen(fnp) > cur_f->db_flen) {
+X			fnp[cur_f->db_flen] = 0;
+X		}
+X		printf(" ");
+X		printf(cur_f->db_format, fnp);
+X		free((char *)fnp);
+X	}
+X	printf("\n");
+X
+X	/* step thru the records */
+X	while (argc-- > 0) {
+X		rec_cnt = strtol(*argv++, NULL, 0);
+X		if ((cp = get_dbf_record(dbh, rec_cnt)) == NULL) {
+X			printf("tried to read bad record %d\n", rec_cnt);
+X			break;
+X		}
+X		out_rec(dbh, dbf, cp);
+X		free(cp);
+X	}
+X}
+X
+X/*
+X * output a record
+X */
+Xout_rec(dbh, dbf, cp)
+Xdbhead_t	*dbh;
+Xdbfield_t	*dbf;
+Xchar	*cp;
+X{
+X	dbfield_t	*cur_f;
+X	int	nfields = dbh->db_nfields;
+X	char	*fnp = (char *)alloca(dbh->db_rlen);
+X
+X	printf("%c", *cp++);
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++) {
+X		printf(" ");
+X		strncpy(fnp, cp, cur_f->db_flen);
+X		fnp[cur_f->db_flen] = 0;
+X		printf(cur_f->db_format, fnp);
+X		cp += cur_f->db_flen;
+X	}
+X	printf("\n");
+X}
+END_OF_FILE
+if test 2412 -ne `wc -c <'dbfget.c'`; then
+    echo shar: \"'dbfget.c'\" unpacked with wrong size!
+fi
+# end of 'dbfget.c'
+fi
+if test -f 'dbf_ndx.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_ndx.h'\"
+else
+echo shar: Extracting \"'dbf_ndx.h'\" \(2545 characters\)
+sed "s/^X//" >'dbf_ndx.h' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X/*
+X * dbf .ndx header structure on disk and in memory
+X *
+X *  Basic info taken from:
+X *	"Clipper Programming Guide, 3rd Edition, Version 5.01"
+X *	by Rick Spence
+X */
+X
+X#ifndef _DBF_NDX_H_
+X#define	 _DBF_NDX_H_
+X
+X#include "dbf.h"
+X
+X#define	NDX_PAGE_SZ	512
+X
+X/* on disk ndx header */
+Xstruct dndx_header {
+X	u_char	dndx_st_pg[4];		/* starting page number */
+X	u_char	dndx_tot_pg[4];		/* total number of pages */
+X	u_char	dndx_filler1[4];	/* space */
+X	u_char	dndx_key_len[2];	/* key length */
+X	u_char	dndx_keys_ppg[2];	/* number of keys per page */
+X	u_char	dndx_key_type[2];	/* key type */
+X	u_char	dndx_size_key[4];	/* size of the key record */
+X	u_char	dndx_filler2;		/* space */
+X	u_char	dndx_unique;		/* whether or not done with unique */
+X	u_char	dndx_key_name[488];	/* string defining the key */
+X};
+Xtypedef struct dndx_header dndx_header_t;
+X
+X/* in memory ndx header */
+Xstruct ndx_header {
+X	long	ndx_start_pg;
+X	long	ndx_total_pgs;
+X	unsigned short	ndx_key_len;
+X	unsigned short	ndx_keys_ppg;
+X	unsigned short	ndx_key_type;
+X	u_char	ndx_unique;
+X	long	ndx_key_size;
+X	u_char	*ndx_key_name;
+X	int	ndx_fd;
+X	struct ndx_page	*ndx_fp;
+X	dndx_header_t *ndx_hpage;
+X	struct ndx_record *ndx_cur_rec;
+X};
+Xtypedef struct ndx_header ndx_header_t;
+X
+X/* these are the possible values in the key type field */
+X#define	NDX_CHAR_TYPE	00
+X#define	NDX_NUM_TYPE	01
+X
+X/* on disk key record */
+Xstruct dndx_record {
+X	u_char	dndx_left_pg[4];	/* number of left page */
+X	u_char	dndx_dbf_rec[4];	/* dbf record number */
+X	u_char	dndx_key_data;		/* key data */
+X};
+Xtypedef struct dndx_record dndx_record_t;
+X
+Xstruct ndx_record {
+X	long	ndxr_left;
+X	long	ndxr_rec;
+X	u_char	*ndxr_key_data;
+X	struct ndx_page *ndxr_page;	/* page pointer to where we are from*/
+X	int	ndxr_p_nrec;		/* number of the record within page */
+X};
+Xtypedef struct ndx_record ndx_record_t;
+X
+Xstruct dndx_page {
+X	u_char	dndxp_num_keys[4];	/* number of keys on this page */
+X	struct dndx_record dndx_rp;
+X};
+Xtypedef struct dndx_page dndx_page_t;
+X
+Xstruct ndx_page {
+X	long		ndxp_page_no;
+X	long		ndxp_num_keys;
+X	dndx_page_t	*ndxp_page_data;
+X	ndx_header_t	*ndxp_header_p;
+X	long		ndxp_last_key;
+X	struct ndx_page	*ndxp_parent;	/* parent page */
+X	int		ndxp_par_rno;	/* record number within parent */
+X	struct ndx_record *ndxp_records;
+X};
+Xtypedef struct ndx_page ndx_page_t;
+X
+Xextern ndx_header_t *ndx_get_header();
+X
+Xextern ndx_record_t *ndx_get_first_rec();
+Xextern ndx_record_t *ndx_get_next_rec();
+X
+X#endif /* _DBF_NDX_H_ */
+END_OF_FILE
+if test 2545 -ne `wc -c <'dbf_ndx.h'`; then
+    echo shar: \"'dbf_ndx.h'\" unpacked with wrong size!
+fi
+# end of 'dbf_ndx.h'
+fi
+if test -f 'dbf_ndx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbf_ndx.c'\"
+else
+echo shar: Extracting \"'dbf_ndx.c'\" \(4230 characters\)
+sed "s/^X//" >'dbf_ndx.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X#include "dbf_ndx.h"
+X
+X#define	DEBUG	0
+X
+X/*
+X * get the ndx header for this file
+X */
+Xndx_header_t *
+Xndx_get_header(fd)
+Xint fd;
+X{
+X	dndx_header_t	*dp;
+X	ndx_header_t	*np;
+X
+X	if ((dp = (dndx_header_t *)malloc(NDX_PAGE_SZ)) == NULL)
+X		return NULL;
+X	if ((np = (ndx_header_t *)malloc(sizeof(ndx_header_t))) == NULL) {
+X		free(dp);
+X		return NULL;
+X	}
+X	if ((lseek(fd, 0, 0) < 0) || (read(fd, dp, NDX_PAGE_SZ) < 0)) {
+X		free(dp); free(np);
+X		return NULL;
+X	}
+X	np->ndx_hpage = dp;
+X	np->ndx_fd = fd;
+X	np->ndx_start_pg = get_long(dp->dndx_st_pg);
+X	np->ndx_total_pgs = get_long(dp->dndx_tot_pg);
+X	np->ndx_key_len = get_short(dp->dndx_key_len);
+X	np->ndx_keys_ppg = get_short(dp->dndx_keys_ppg);
+X	np->ndx_key_type = get_short(dp->dndx_key_type);
+X	np->ndx_key_size = get_long(dp->dndx_size_key);
+X	np->ndx_key_name = dp->dndx_key_name;
+X	np->ndx_unique = dp->dndx_unique;
+X
+X	np->ndx_fp = NULL;
+X
+X	return np;
+X}
+X
+Xndx_page_t *
+Xndx_get_page(hp, pageno)
+Xndx_header_t *hp;
+Xint	pageno;
+X{
+X	ndx_page_t	*fp;
+X	dndx_page_t	*dp;
+X	ndx_record_t	*rp;
+X
+X#if DEBUG
+X	printf("getting page %d", pageno);
+X#endif
+X	if ((fp = (ndx_page_t *)malloc(sizeof(ndx_page_t))) == NULL)
+X		return NULL;
+X	if ((dp = (dndx_page_t *)malloc(NDX_PAGE_SZ)) == NULL) {
+X		free(fp);
+X		return NULL;
+X	}
+X	if ((rp = (ndx_record_t *)malloc(sizeof(ndx_record_t) * hp->ndx_keys_ppg)) == NULL) {
+X		free(dp); free(fp);
+X		return NULL;
+X	}
+X	fp->ndxp_page_data = dp;
+X	if ((lseek(hp->ndx_fd, pageno * NDX_PAGE_SZ, 0) < 0) ||
+X		(read(hp->ndx_fd, dp, NDX_PAGE_SZ) < 0)) {
+X		free(fp); free(dp);
+X		return NULL;
+X	}
+X	fp->ndxp_parent = NULL;
+X	fp->ndxp_page_no = pageno;
+X	fp->ndxp_num_keys = get_long(dp->dndxp_num_keys);
+X	bzero(rp, sizeof(ndx_record_t) * hp->ndx_keys_ppg);
+X	fp->ndxp_records = rp;
+X	fp->ndxp_header_p = hp;
+X#if DEBUG
+X	printf(", n_keys %d\n", fp->ndxp_num_keys);
+X#endif
+X	return fp;
+X}
+X
+X/*
+X * get the first entry for this ndx
+X */
+Xndx_page_t *
+Xndx_get_first_pg(hp)
+Xndx_header_t *hp;
+X{
+X	ndx_page_t	*fp, *cp;
+X	dndx_page_t	*dp;
+X
+X	if (hp->ndx_fp)
+X		return hp->ndx_fp;
+X	if (fp = ndx_get_page(hp, hp->ndx_start_pg)) {
+X		hp->ndx_fp = fp;
+X	}
+X	return fp;
+X}
+X
+Xndx_record_t *
+Xndx_get_record(fp, rec_no)
+Xndx_page_t *fp;
+Xint	rec_no;
+X{
+X	ndx_record_t		*rp;
+X	ndx_header_t		*hp = fp->ndxp_header_p;
+X	struct dndx_record	*drp;
+X
+X#if DEBUG
+X	printf("page %d, rec %d: ", fp->ndxp_page_no, rec_no);
+X#endif
+X	if (rec_no >= fp->ndxp_num_keys)
+X		return NULL;
+X	rp = &(fp->ndxp_records[rec_no]);
+X	if (!rp->ndxr_page) {
+X		rp->ndxr_page = fp;
+X		drp = (dndx_record_t *)((u_char *)&fp->ndxp_page_data->dndx_rp
+X				+ rec_no * hp->ndx_key_size);
+X		rp->ndxr_left = get_long(drp->dndx_left_pg);
+X		rp->ndxr_rec = get_long(drp->dndx_dbf_rec);
+X		rp->ndxr_key_data = &drp->dndx_key_data;
+X		rp->ndxr_p_nrec = rec_no;
+X	}
+X#if DEBUG
+X	printf("left %d, dbf_rec %d, data '%s'\n", rp->ndxr_left,
+X		rp->ndxr_rec, rp->ndxr_key_data);
+X#endif
+X	return rp;
+X}
+X
+Xndx_record_t *
+Xndx_scan_down(hp, fp, recno)
+Xndx_header_t	*hp;
+Xndx_page_t	*fp;
+Xint	recno;
+X{
+X	ndx_page_t	*np;
+X	ndx_record_t	*rp;
+X
+X	while ((rp = ndx_get_record(fp, recno)) && (rp->ndxr_rec == 0)) {
+X		np = ndx_get_page(hp, rp->ndxr_left);
+X		np->ndxp_parent = fp;
+X		np->ndxp_par_rno = recno;
+X		fp = np;
+X		recno = 0;
+X	}
+X	return rp;
+X}
+X
+Xndx_record_t *
+Xndx_scan_up(hp, fp, recno)
+Xndx_header_t	*hp;
+Xndx_page_t	*fp;
+Xint	recno;
+X{
+X	ndx_page_t	*np;
+X	ndx_record_t	*rp;
+X
+X	if (fp == NULL)
+X		rp = NULL;
+X	else if (recno < fp->ndxp_num_keys) {
+X		rp = ndx_scan_down(hp, fp, recno);
+X	} else {
+X		rp = ndx_scan_up(hp, fp->ndxp_parent, fp->ndxp_par_rno + 1);
+X	}
+X	return rp;
+X}
+X
+Xndx_record_t *
+Xndx_get_first_rec(hp)
+Xndx_header_t *hp;
+X{
+X	ndx_page_t	*fp;
+X	ndx_record_t	*rp = NULL;
+X
+X	if (fp = ndx_get_first_pg(hp)) {
+X		fp->ndxp_last_key = 0;
+X		rp = ndx_scan_down(hp, fp, 0);
+X	}
+X	hp->ndx_cur_rec = rp;
+X	return rp;
+X}
+X
+Xndx_record_t *
+Xndx_get_next_rec(hp, rp)
+Xndx_header_t *hp;
+Xndx_record_t *rp;
+X{
+X	ndx_page_t	*fp, *np;
+X	int		rec_no;
+X
+X	fp = rp->ndxr_page;
+X	rec_no = rp->ndxr_p_nrec + 1;
+X	if (rec_no < fp->ndxp_num_keys) {
+X		rp = ndx_scan_down(hp, fp, rec_no);
+X	} else {
+X		rp = ndx_scan_up(hp, fp->ndxp_parent, fp->ndxp_par_rno + 1);
+X	}
+X	return rp;
+X}
+X
+END_OF_FILE
+if test 4230 -ne `wc -c <'dbf_ndx.c'`; then
+    echo shar: \"'dbf_ndx.c'\" unpacked with wrong size!
+fi
+# end of 'dbf_ndx.c'
+fi
+if test -f 'dbfndx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfndx.c'\"
+else
+echo shar: Extracting \"'dbfndx.c'\" \(1690 characters\)
+sed "s/^X//" >'dbfndx.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbfndx [-v] <ndx file>\n"
+X
+X/*
+X * list the records in question to std out using the specified
+X * index file.
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X#include "dbf_ndx.h"
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	ndx_header_t 	*ndh;
+X	char	*fnp;
+X	u_char	*cp;
+X	int	fd, i;
+X	extern int optind;
+X	extern char *optarg;
+X	int	verbose = 0;
+X	ndx_record_t	*rp;
+X
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	while ((i = getopt(argc, argv, "v")) != EOF) {
+X		switch (i) {
+X		    case 'v':
+X			verbose++;
+X			break;
+X		    default:
+X			printf(USAGE);
+X			exit(1);
+X		}
+X	}
+X	argc -= optind;  argv = &argv[optind];
+X	cp = (u_char *)malloc(256);
+X	if ((fd = open(*argv, O_RDONLY)) < 0) {
+X		strcpy(cp, *argv); strcat(cp, ".ndx");
+X		if ((fd = open(cp, O_RDONLY)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X	}
+X
+X	if ((ndh = ndx_get_header(fd)) == 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X
+X	if (verbose) {
+X		fprintf(stderr, "# starting page %d, total pages %d\n",
+X			ndh->ndx_start_pg, ndh->ndx_total_pgs);
+X		fprintf(stderr, "# key length %d, keys/page %d, key size %d\n",
+X			ndh->ndx_key_len, ndh->ndx_keys_ppg,
+X			ndh->ndx_key_size);
+X		fprintf(stderr, "# key type %d, unique %d\n",
+X			ndh->ndx_key_type, ndh->ndx_unique);
+X		fprintf(stderr, "# key name '%s'\n", ndh->ndx_key_name);
+X	}
+X	rp = ndx_get_first_rec(ndh);
+X	while (rp) {
+X		if ( !verbose )
+X			printf("%d\n", rp->ndxr_rec);
+X		else {
+X			strncpy(cp, rp->ndxr_key_data, ndh->ndx_key_len);
+X			printf("%d : '%s'\n", rp->ndxr_rec, cp);
+X		}
+X		rp = ndx_get_next_rec(ndh, rp);
+X	}
+X}
+END_OF_FILE
+if test 1690 -ne `wc -c <'dbfndx.c'`; then
+    echo shar: \"'dbfndx.c'\" unpacked with wrong size!
+fi
+# end of 'dbfndx.c'
+fi
+if test -f 'dbfcreat.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbfcreat.c'\"
+else
+echo shar: Extracting \"'dbfcreat.c'\" \(4503 characters\)
+sed "s/^X//" >'dbfcreat.c' <<'END_OF_FILE'
+X/*
+X * Copyright (c) 1993 Brad Eacker,
+X *              (Music, Intuition, Software, and Computers)
+X * All Rights Reserved
+X */
+X
+X#define	USAGE	"usage: dbfcreat [-v] <file> <target xbase>\n"
+X
+X/*
+X * display the database in question to the stdout
+X */
+X#include <stdio.h>
+X#include <fcntl.h>
+X
+X#include "dbf.h"
+X
+X#define	OPEN_RDWR	(O_RDWR | O_CREAT | O_TRUNC)
+X#define	OPEN_RDONLY	(O_RDONLY)
+X
+Xstruct db_field creat_f[] = {
+X	{"FIELD_NAME", 'C', 10, 0, NULL},
+X	{"FIELD_TYPE", 'C',  1, 0, NULL},
+X	{"FIELD_LEN",  'N',  3, 0, NULL},
+X	{"FIELD_DEC",  'N',  4, 0, NULL},
+X};
+X
+Xmain(argc, argv)
+Xint	argc;
+Xchar	**argv;
+X{
+X	dbhead_t 	*dbh, *tdbh;
+X	dbfield_t	*dbf, *cur_f, *tdbf, *tcur_f;
+X	char	*fnp;
+X	u_char	*cp, *tcp;
+X	int	fd, nfields;
+X	int	tfd, tnfields;
+X	int	rec_cnt, i;
+X	extern int optind;
+X	extern char *optarg;
+X	int	verbose = 0;
+X	int	fail = 0;
+X
+X	while ((i = getopt(argc, argv, "v")) != EOF) {
+X		switch (i) {
+X		    case 'v':
+X			verbose++;
+X			break;
+X		    default:
+X			printf(USAGE);
+X			exit(1);
+X		}
+X	}
+X	argc -= optind;  argv = &argv[optind];
+X	if (argc < 2) {
+X		printf(USAGE);
+X		exit(1);
+X	}
+X	if ((fd = open(*argv, OPEN_RDONLY)) < 0) {
+X		cp = (u_char *)malloc(256);
+X		strcpy(cp, *argv); strcat(cp, ".dbf");
+X		if ((fd = open(cp, OPEN_RDONLY)) < 0) {
+X			perror("open");
+X			exit(1);
+X		}
+X		free(cp);
+X	}
+X	argv++;
+X
+X	cp = (u_char *)malloc(256);
+X	strcpy(cp, *argv);
+X	if (strchr(cp, ".dbf") == NULL)
+X		strcat(cp, ".dbf");
+X	if ((tfd = open(cp, OPEN_RDWR, 0644)) < 0) {
+X		perror("open");
+X		exit(1);
+X	}
+X	free(cp);
+X
+X	if ((dbh = get_dbf_head(fd)) ==	 0) {
+X		fprintf(stderr, "Unable to get header\n");
+X		exit(1);
+X	}
+X	if (verbose) {
+X		printf("# total field records %d\n", dbh->db_records);
+X	}
+X	dbf = dbh->db_fields;
+X	if ((nfields = dbh->db_nfields) != 4) {
+X		fprintf(stderr, "number of fields must be 4");
+X		exit(1);
+X	}
+X	tcur_f = creat_f;
+X	for (cur_f = dbf; cur_f < &dbf[nfields] ; cur_f++, tcur_f++) {
+X		if (strcmp(cur_f->db_fname, tcur_f->db_fname) != 0) {
+X			fprintf(stderr, "field name mismatch, '%s' != '%s'\n",
+X				cur_f->db_fname, tcur_f->db_fname);
+X			fail = 1;
+X		}
+X		if (cur_f->db_type != tcur_f->db_type) {
+X			fprintf(stderr, "field type mismatch, '%c' != '%c'\n",
+X				cur_f->db_type, tcur_f->db_type);
+X			fail = 1;
+X		}
+X	}
+X	if (fail) {
+X		exit(1);
+X	}
+X
+X	tdbh = (dbhead_t *)malloc(sizeof(dbhead_t));
+X	tdbf = (dbfield_t *)malloc(sizeof(dbfield_t) * dbh->db_records);
+X	if (tdbh == NULL || tdbf == NULL) {
+X		fprintf(stderr, "unable to get memory for header info\n");
+X		exit(1);
+X	}
+X	tdbh->db_fields = tdbf;
+X	tdbh->db_fd = tfd;
+X	tdbh->db_dbt = DBH_TYPE_NORMAL;
+X	strcpy(tdbh->db_date, "19930818");
+X	tdbh->db_records = 0;
+X
+X	/* step thru the records */
+X	tcp = (u_char *)malloc(256);
+X	tcur_f = tdbf; nfields = 0;
+X	for (rec_cnt = 1; rec_cnt <= dbh->db_records; rec_cnt++) {
+X		if ((cp = get_dbf_record(dbh, rec_cnt)) == NULL) {
+X			printf("tried to read bad record %d\n", rec_cnt);
+X			break;
+X		}
+X		if (*cp == DELETED_RECORD) {
+X			free(cp);
+X			continue;
+X		}
+X		cur_f = dbf;
+X		copy_crimp(tcur_f->db_fname, &cp[cur_f->db_foffset],
+X					cur_f->db_flen);
+X		cur_f++;
+X		tcur_f->db_type = cp[cur_f->db_foffset];
+X		cur_f++;
+X		strncpy(tcp, &cp[cur_f->db_foffset], cur_f->db_flen);
+X		tcp[cur_f->db_flen] = 0;
+X		tcur_f->db_flen = strtol(tcp, (char *)NULL, 0);
+X		cur_f++;
+X		strncpy(tcp, &cp[cur_f->db_foffset], cur_f->db_flen);
+X		tcp[cur_f->db_flen] = 0;
+X		tcur_f->db_fdc = strtol(tcp, (char *)NULL, 0);
+X
+X		switch (tcur_f->db_type) {
+X		    case 'L':
+X			if (tcur_f->db_flen != 1) {
+X				fprintf(stderr, "Logical field len != 1\n");
+X				fail = 1;
+X			}
+X			break;
+X		    case 'M':
+X			if (tcur_f->db_flen != 9) {
+X				fprintf(stderr, "Memo Field len != 9\n");
+X				fail = 1;
+X			}
+X			tdbh->db_dbt = DBH_TYPE_MEMO;
+X			break;
+X		    case 'C':
+X		    case 'D':
+X		    case 'N':
+X			break;
+X		    default:
+X			fprintf(stderr, "unknown field type - %c",
+X					 cur_f->db_type);
+X			fail = 1;
+X		}
+X		free(cp);
+X		tcur_f->db_format = get_dbf_f_fmt(tcur_f);
+X		tcur_f++; nfields++;
+X	}
+X	free(tcp);
+X
+X	if (fail) {
+X		exit(1);
+X	}
+X
+X	tdbh->db_nfields = nfields;
+X	tdbh->db_hlen = sizeof(struct dbf_dhead) + 2 +
+X				nfields * sizeof(struct dbf_dfield);
+X
+X	if (verbose) {
+X		printf("# total fields %d\n", tdbh->db_nfields);
+X
+X		/* put out the field headings */
+X                for (cur_f = tdbf; cur_f < &tdbf[nfields] ; cur_f++) {
+X                        printf("# %s, %c, %d, %d\n", cur_f->db_fname,
+X                                cur_f->db_type, cur_f->db_flen, cur_f->db_fdc);
+X                }
+X	}
+X
+X	if (cp = db_cur_date(NULL)) {
+X		strncpy(tdbh->db_date, cp, 8);
+X	}
+X
+X	put_dbf_info(tdbh);
+X	exit(0);
+X}
+END_OF_FILE
+if test 4503 -ne `wc -c <'dbfcreat.c'`; then
+    echo shar: \"'dbfcreat.c'\" unpacked with wrong size!
+fi
+# end of 'dbfcreat.c'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(2450 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X
+X# Copyright (c) 1991, 1992, 1993 Brad Eacker,
+X#              (Music, Intuition, Software, and Computers)
+X# All Rights Reserved
+X
+X# if you don't have alloca uncomment the next lines
+XALLOCA='-Dalloca=malloc'
+X# ALLOCA_OBJ=alloca.o
+X
+X# if u_char is already defined in your system uncomment the following
+XEX_FLAGS=-DUCHAR
+X
+X# if you need to use bison uncomment the following
+X# YACC='bison -y'
+X
+XCFLAGS=-O $(ALLOCA) $(EX_FLAGS)
+XYFLAGS=-d
+X
+XSHELL=/bin/sh
+X
+XTARGETS = dbflst tmpl dbfadd dbfdel dbfpack dbfget dbfndx dbfcreat
+XTHINGS = tmpl.dbf
+XTEST_TARGS = dbftst lexi gram
+X
+XDBF_SRCS=dbf.h dbf_head.c dbf_rec.c dbf_misc.c dbftst.c dbflst.c \
+X	token.l gram.y dbinter.c dbf_sym.h yyerr.c tmpl.c dbfadd.c \
+X	dbfdel.c dbfpack.c dbfget.c dbf_ndx.h dbf_ndx.c dbfndx.c \
+X	dbfcreat.c
+XDBF_OBJS=dbf_head.o dbf_rec.o dbf_misc.o dbf_ndx.o
+XOBJS=dbinter.o $(ALLOCA_OBJ)
+X
+Xall: $(TARGETS) $(THINGS)
+X
+Xtest: $(TEST_TARGS)
+X
+Xeverything: all test
+X
+Xextras: tmpl.dbf
+X
+Xdbftst: dbftst.o $(DBF_OBJS)
+X	$(CC) -o $@ dbftst.o $(DBF_OBJS)
+X
+Xdbflst: dbflst.o $(DBF_OBJS)
+X	$(CC) -o $@ dbflst.o $(DBF_OBJS)
+X
+Xlexi: lex.yy.c
+X	$(CC) $(CFLAGS) -DDEBUG lex.yy.c -o $@ -ll
+X
+Xgram: gram.tab.c lex.yy.c yyerr.o $(OBJS)
+X	$(CC) $(CFLAGS) -DYYDEBUG gram.tab.c lex.yy.c yyerr.o $(OBJS) -o $@ -ll
+X
+Xtmpl.dbf: tmpl
+X	./tmpl
+X
+Xtmpl: tmpl.o $(DBF_OBJS)
+X	$(CC) -o $@ tmpl.o $(DBF_OBJS)
+X
+Xdbfadd: dbfadd.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfadd.o $(DBF_OBJS)
+X
+Xdbfdel: dbfdel.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfdel.o $(DBF_OBJS)
+X
+Xdbfpack: dbfpack.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfpack.o $(DBF_OBJS)
+X
+Xdbfget: dbfget.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfget.o $(DBF_OBJS)
+X
+Xdbfcreat: dbfcreat.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfcreat.o $(DBF_OBJS)
+X
+Xdbfndx: dbfndx.o $(DBF_OBJS)
+X	$(CC) -o $@ dbfndx.o $(DBF_OBJS)
+X
+Xlex.yy.c: token.l
+X	lex token.l
+X
+Xgram.tab.c: gram.y
+X	$(YACC) $(YFLAGS) gram.y
+X	if [ -f y.tab.c ] ; then \
+X		mv y.tab.c gram.tab.c; \
+X		mv y.tab.h gram.tab.h; \
+X	fi
+X
+Xshar:
+X	shar README $(DBF_SRCS) Makefile HISTORY >dbf.shar
+X
+Xclean:
+X	rm -f *.o lex.yy.c y.tab.[ch] y.output gram.tab.[ch]
+X	rm -f errs output *~ tg.out
+X
+Xclobber: clean
+X	rm -f $(TEST_TARGS) $(TARGETS) $(THINGS)
+X
+Xdbf_head.o: dbf.h dbf_head.c
+Xdbf_rec.o: dbf.h dbf_rec.c
+Xdbf_misc.o: dbf.h dbf_misc.c
+Xdbf_ndx.o: dbf.h dbf_ndx.h dbf_ndx.c
+Xyyerr.o: yyerr.c
+Xdbinter.o: dbinter.c
+Xdbflst.o: dbf.h dbflst.c
+Xdbftst.o: dbf.h dbftst.c
+Xdbfadd.o: dbf.h dbfadd.c
+Xdbfdel.o: dbf.h dbfdel.c
+Xdbfpack.o: dbf.h dbfpack.c
+Xdbfget.o: dbf.h dbfget.c
+Xdbfndx.o: dbf.h dbf_ndx.h dbfndx.c
+Xtmpl.o: dbf.h tmpl.c
+END_OF_FILE
+if test 2450 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'HISTORY' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'HISTORY'\"
+else
+echo shar: Extracting \"'HISTORY'\" \(606 characters\)
+sed "s/^X//" >'HISTORY' <<'END_OF_FILE'
+XRevision History of DBF
+X
+XVersion 1.5		10/27/93
+X	released to comp.sources.misc
+X
+X	added the SHELL variable to the Makefile so that the embedded
+X	scripts will function properly
+X
+X	added the dbfcreat program to use a database of the proper structure
+X	to create a new database
+X
+X	modified all the programs that modify the database to change the
+X	last modified field in the header of the database to the current date
+X
+X	added this HISTORY file to the package
+X
+XVersion 1.4		8/17/93
+X	initial release to the net as a whole (comp.database)
+X
+XVersion 1.1-1.3
+X	various point releases to specific people.
+X
+X$Revision: 1.4 $
+END_OF_FILE
+if test 606 -ne `wc -c <'HISTORY'`; then
+    echo shar: \"'HISTORY'\" unpacked with wrong size!
+fi
+# end of 'HISTORY'
+fi
+echo shar: End of shell archive.
+exit 0
+
+
+
+
+
+exit 0 # Just in case...

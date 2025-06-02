@@ -1,0 +1,2020 @@
+Newsgroups: comp.sources.x
+Path: uunet!darwin.sura.net!mips!msi!dcmartin
+From: vojta%math.Berkeley.EDU@ucbvax.Berkeley.EDU (Paul Vojta)
+Subject: v17i106: xdvi, Patch14, Part01/01, Patch14, Part01/01
+Message-ID: <1992Jun29.160850.9316@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i106-xdvi@uunet.UU.NET>
+Date: Mon, 29 Jun 1992 16:08:50 GMT
+Approved: dcmartin@msi.com
+Lines: 2007
+
+Submitted-by: vojta%math.Berkeley.EDU@ucbvax.Berkeley.EDU (Paul Vojta)
+Posting-number: Volume 17, Issue 106
+Archive-name: xdvi/patch14
+Patch-To: xdvi: Volume 17, Issues 23, 24, 25, 40, 41, 27, 53
+
+This patch implements some greyscale anti-aliasing patches which have been
+requested by many people.  It also fixes the usual round of bugs.
+
+Thanks go to Till Brychcy, Scott Allendorf, and many others for work
+on the greyscale patches.
+
+--Paul Vojta, vojta@math.berkeley.edu
+
+-- cut here --
+diff -cr xdvi_old/MAKE_VMS.COM xdvi_new/MAKE_VMS.COM
+*** xdvi_old/MAKE_VMS.COM	Sat Feb  8 14:07:52 1992
+--- xdvi_new/MAKE_VMS.COM	Sun Jun  7 11:30:44 1992
+***************
+*** 1,16 ****
+  $ DEFINE X11 DECW$INCLUDE 
+  $ DEFINE SYS SYS$LIBRARY
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) DVI_INIT
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) DVI_DRAW
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) FONTFMTS
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) VF
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) UTIL
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL, -
+!      "DEFAULT_FONT_PATH=""TEX_FONTS""", -
+       "DEFAULT_VF_PATH=""TEX_FONTS""", -
+!      "DEFAULT_FONT_SIZES=""300/328.6/360/432/518.4/622/746.4""") FONT_OPEN
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) TPIC
+! $ CC /DEFINE = (BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL) XDVI
+! $ LINK XDVI, DVI_INIT, DVI_DRAW, FONTFMTS, VF, UTIL, FONT_OPEN, TPIC, -
+!      VMS_C.OPT /OPTION
+  $ EXIT
+--- 1,16 ----
+  $ DEFINE X11 DECW$INCLUDE 
+  $ DEFINE SYS SYS$LIBRARY
+! $ DEFS = "BMLONG, NOTOOL, USE_PK, USE_GF, USE_PXL, TEXXET, GREY"
+! $ CC /DEFINE = ('DEFS') DVI_INIT.C
+! $ CC /DEFINE = ('DEFS') DVI_DRAW.C
+! $ CC /DEFINE = ('DEFS') FONTFMTS.C
+! $ CC /DEFINE = ('DEFS') VF.C
+! $ CC /DEFINE = ('DEFS') UTIL.C
+! $ CC /DEFINE = ('DEFS', "DEFAULT_FONT_PATH=""TEX_FONTS""", -
+       "DEFAULT_VF_PATH=""TEX_FONTS""", -
+!      "DEFAULT_FONT_SIZES=""300/328.6/360/432/518.4/622/746.4""") FONT_OPEN.C
+! $ CC /DEFINE = ('DEFS') TPIC.C
+! $ CC /DEFINE = ('DEFS') XDVI.C
+! $ LINK XDVI.OBJ, DVI_INIT.OBJ, DVI_DRAW.OBJ, FONTFMTS.OBJ, VF.OBJ, UTIL.OBJ, -
+!      FONT_OPEN.OBJ, TPIC.OBJ, VMS_C.OPT /OPTION
+  $ EXIT
+diff -cr xdvi_old/README xdvi_new/README
+*** xdvi_old/README	Fri Mar 27 21:03:14 1992
+--- xdvi_new/README	Mon Jun  1 16:25:55 1992
+***************
+*** 79,84 ****
+--- 79,86 ----
+  			definition of drawingWidgetClass.
+  	TEXXET		(everything)  Enables op-codes 250 and 251 (used for
+  			right-to-left languages).
++ 	GREY		(everything)  Use greyscale anti-aliasing for
++ 			displaying shrunken bitmaps.
+  
+  All flags should be set in the appropriate Makefile via the variable ``DEFS''.
+  
+***************
+*** 244,248 ****
+--- 246,252 ----
+     30.	X11R5 support, and numerous bug fixes.
+  --  Patchlevel 13: --
+     31.  Added support for TeXXeT.
++ --  Patchlevel 14: --
++    32.  Added support for greyscale anti-aliasing.
+  
+  Paul Vojta, vojta@math.berkeley.edu
+diff -cr xdvi_old/README.VMS xdvi_new/README.VMS
+*** xdvi_old/README.VMS	Mon Feb  4 13:08:20 1991
+--- xdvi_new/README.VMS	Sun Jun  7 22:47:16 1992
+***************
+*** 8,15 ****
+  
+     XDVI [+[page]] [-s shrink] [-density density] [-p pixels] [-l] [-rv]
+          [-bw width] [-fg color] [-bg color] [-hl color] [-bd color] [-cr color]
+!         [-margins dimen] [-sidemargin dimen] [-topmargin dimen]
+!         [-offsets dimen] [-xoffset dimen] [-yoffset dimen] [-keep]
+          [-hushspecials] [-hushchars] [-hush] [-paper papertype] [-mgs[n] size]
+          [-altfont font] [-thorough] [-copy] [-geometry geometry]
+          [-icongeometry geometry] [-iconic] [-display display] dvi_file
+--- 8,15 ----
+  
+     XDVI [+[page]] [-s shrink] [-density density] [-p pixels] [-l] [-rv]
+          [-bw width] [-fg color] [-bg color] [-hl color] [-bd color] [-cr color]
+!         [-margins dimen] [-sidemargin dimen] [-topmargin dimen] [-version]
+!         [-offsets dimen] [-xoffset dimen] [-yoffset dimen] [-keep] [-nogrey]
+          [-hushspecials] [-hushchars] [-hush] [-paper papertype] [-mgs[n] size]
+          [-altfont font] [-thorough] [-copy] [-geometry geometry]
+          [-icongeometry geometry] [-iconic] [-display display] dvi_file
+***************
+*** 107,112 ****
+--- 107,114 ----
+     -topmargin <dimen>    (.topMargin)  Specifies the top and bottom margins (see
+                           above).
+  
++    -version              Print information on the version of XDVI.
++ 
+     -offsets <dimen>      (.Offset)  Specifies the size of both the horizontal
+                           and vertical offsets of the output on the page.  This
+                           should be a decimal number optionally followed by "cm",
+***************
+*** 127,132 ****
+--- 129,140 ----
+                           should not move to the home position when moving to a
+                           new page.  See also the `k' keystroke.
+  
++    -nogrey               (.grey)  Turns off the use greyscale anti-aliasing
++                          when printing shrunken bitmaps.  In this case, the
++                          logic of the corresponding resource is the reverse;
++                          -nogrey corresponds to grey:off; +nogrey to grey:on.
++                          See also the 'G' keystroke.
++ 
+     -hushspecials         (.hushSpecials)  Causes XDVI to suppress warnings about
+                           \special strings which it cannot process.
+  
+***************
+*** 258,263 ****
+--- 266,275 ----
+          will keep the same position when moving between pages.  Also `0k' and
+          `1k' clear and set this flag, respectively.  See also the -keep option.
+  
++    G   This key toggles the use of greyscale anti-aliasing for displaying
++        shrunken bitmaps.  In addition, the key sequences `0G' and `1G' clear and
++        set this flag, respectively.  See also the -nogrey option.
++ 
+  MOUSE ACTIONS
+  -------------
+  
+***************
+*** 301,310 ****
+  
+     For compatibilty with some versions of TeX, you may also use the logical name
+     "TEXFONTS" in place of "XDVIFONTS", although in that case the string should
+!    not include any "%" specifiers.
+  
+     The logical name "XDVISIZES" must be set to indicate which sizes of fonts are
+!    available.  It should consists of a list of numbers separated by slashes.  If
+     the list begins with a slash, the system default sizes are used, as well.
+     Sizes are expressed in dots per inch; decimals may be used for "pxl" files:
+     for example, a 300 dots per inch file magnified by half a step comes out to
+--- 313,337 ----
+  
+     For compatibilty with some versions of TeX, you may also use the logical name
+     "TEXFONTS" in place of "XDVIFONTS", although in that case the string should
+!    not include any "%" specifiers.  The reason for recognizing "TEXFONTS" is
+!    that certain version of TeX also support the convention regarding an extra
+!    slash in the font path; therefore, users who create their own fonts can put
+!    both their .TFM and raster files in the same directory and do
+  
++         $ DEFINE TEXFONTS "/MFDIR"
++ 
++    or
++ 
++         $ DEFINE TEXFONTS "MFDIR/"
++ 
++    in order to get both TeX and XDVI to search their directory in addition to
++    the system standard directories.  The "XDVIFONTS" logical name overrides the
++    "TEXFONTS" logical name, so that on those sites where "TEXFONTS" must be set
++    explicitly, and therefore this feature is not useful, the "XDVIFONTS" logical
++    name be set to an empty string to cause XDVI to ignore "TEXFONTS".
++ 
+     The logical name "XDVISIZES" must be set to indicate which sizes of fonts are
+!    available.  It should consist of a list of numbers separated by slashes.  If
+     the list begins with a slash, the system default sizes are used, as well.
+     Sizes are expressed in dots per inch; decimals may be used for "pxl" files:
+     for example, a 300 dots per inch file magnified by half a step comes out to
+***************
+*** 312,317 ****
+--- 339,350 ----
+     default set of sizes is 300/328.6/360/432/518.4/622/746.4.  XDVI will also
+     try the actual size of the font before trying any of the given sizes.
+  
++    Virtual fonts are also supported, although XDVI does not have any built-in
++    fonts to which they can refer.  The search path for .VF files can be
++    specified with the "XDVIVFS" logical name in a similar manner to that for the
++    "XDVIFONTS" logical name.  Virtual fonts are searched for immediately after
++    looking for the font as a normal font in the exact size specified.
++ 
+  FILES
+  -----
+  
+***************
+*** 362,371 ****
+           $ LIBRARY /INSERT HELPLIB.HLB XDVI.HLP
+  
+     4) Modify the command file you use to set up the TEX commands so that it
+!       defines the foreign symbol XDVI, and the logical names XDVIFONTS and
+!       XDVISIZES.  For more information on the expected contents of the logical
+!       names, see the LOGICAL NAMES section of this document.  The following
+!       lines are what I use locally:
+  
+        $ PROC      = F$ENVIRONMENT ("PROCEDURE")
+        $ TEXDIR    = F$PARSE (PROC, , , "DEVICE", "NO_CONCEAL") + -
+--- 395,404 ----
+           $ LIBRARY /INSERT HELPLIB.HLB XDVI.HLP
+  
+     4) Modify the command file you use to set up the TEX commands so that it
+!       defines the foreign symbol XDVI, and the logical names "XDVIFONTS",
+!       "XDVIVFS", and "XDVISIZES".  For more information on the expected contents
+!       of the logical names, see the LOGICAL NAMES section of this document.  The
+!       following lines are what I use locally:
+  
+        $ PROC      = F$ENVIRONMENT ("PROCEDURE")
+        $ TEXDIR    = F$PARSE (PROC, , , "DEVICE", "NO_CONCEAL") + -
+***************
+*** 390,395 ****
+--- 423,429 ----
+        $!
+        $ XDVI :== "$TEX_EXE:XDVI"
+        $ DEFINE XDVIFONTS "TEX_PIXELS:[DPI%d]%f.%p"
++       $ DEFINE XDVIVFS   XDVIFONTS
+        $ DEFINE XDVISIZES -
+                "300/328.6/360/432/518.4/600/622/746.4/895.8/1075/1200/1290/1548"
+        $ EXIT
+***************
+*** 407,413 ****
+                      Iowa City, IA 52242
+  
+                      Phone: (319) 335-1960
+!                     Email: allendorf@iowasp.physics.uiowa.edu
+  
+  AUTHORS
+  -------
+--- 441,447 ----
+                      Iowa City, IA 52242
+  
+                      Phone: (319) 335-1960
+!                     Email: scott-allendorf@uiowa.edu
+  
+  AUTHORS
+  -------
+diff -cr xdvi_old/XDVI.RNH xdvi_new/XDVI.RNH
+*** xdvi_old/XDVI.RNH	Mon Feb  4 13:09:35 1991
+--- xdvi_new/XDVI.RNH	Sun Jun  7 22:47:17 1992
+***************
+*** 9,14 ****
+--- 9,15 ----
+  .! Merged with patchlevel 8.001 help file for VMS by Scott Allendorf.
+  .! Added new switches for patchlevel 10.  Scott Allendorf.
+  .! Added new switches for patchlevel 11.  Scott Allendorf.
++ .! Added new switches for patchlevel 14.  Scott Allendorf.
+  .!
+  .NO PAGING
+  .NO FLAGS ALL
+***************
+*** 227,232 ****
+--- 228,244 ----
+  .SKIP
+  The resource name is ".listFonts".
+  .INDENT -1
++ 3 -nogrey
++ .BREAK
++ -nogrey
++ .SKIP
++ Turns off the use of greyscale anti-aliasing when printing shrunken bitmaps.
++ (In this case, the logic of the corresponding resource is the reverse;
++ -nogrey corresponds to grey:off; +nogrey to grey:on).
++ See also 'G' under the Keystrokes help entry.
++ .SKIP
++ The resource name is ".grey".
++ .INDENT -1
+  3 -offsets
+  .BREAK
+  -offsets <dimen>
+***************
+*** 342,347 ****
+--- 354,365 ----
+  .SKIP
+  The resource name is ".topMargin".
+  .INDENT -1
++ 3 -version
++ .BREAK
++ -version
++ .SKIP
++ Print information on the version of XDVI.
++ .INDENT -1
+  3 -xoffset
+  .BREAK
+  -xoffset <dimen>
+***************
+*** 457,462 ****
+--- 475,486 ----
+  well.  The `k' keystroke toggles a `keep-position' flag which, when
+  set, will keep the same position when moving between pages.  Also `0k'
+  and `1k' clear and set this flag, respectively.  See also the -keep option.
++ .INDENT -1
++ 3 G
++ .BREAK
++ The key toggles the use of greyscale anti-aliasing for displaying shrunken 
++ bitmaps.  In addition, the key sequences `0G' and `1G' clear and set this flag,
++ respectively.  See also the -nogrey option.
+  
+  .INDENT -1
+  2 Mouse_Actions
+***************
+*** 528,533 ****
+--- 552,566 ----
+  inches, which should be encoded as 328.6.  The current default set of
+  sizes is 300/328.6/360/432/518.4/622/746.4.  XDVI will also try the actual
+  size of the font before trying any of the given sizes.
++ 
++ .INDENT -1
++ 3 XDVIVFS
++ .BREAK
++ Virtual fonts are supported, although XDVI does not have any built-in fonts to
++ which they can refer.  The search path for .VF files can be specified with the
++ "XDVIVFS" logical name in a similar manner to that for the "XDVIFONTS" logical
++ name.  Virtual fonts are searched for immediately after looking for the font
++ as a normal font in the exact size specified.
+  
+  .INDENT -1
+  2 Resource_Names
+diff -cr xdvi_old/dvi_draw.c xdvi_new/dvi_draw.c
+*** xdvi_old/dvi_draw.c	Sat Mar 28 13:00:26 1992
+--- xdvi_new/dvi_draw.c	Mon Jun  1 18:08:40 1992
+***************
+*** 14,19 ****
+--- 14,20 ----
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
++  * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 27,32 ****
+--- 28,34 ----
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
+   *	TEXXET	support reflection dvi codes (right-to-left typesetting)
++  *	GREY	use grey levels to shrink fonts
+   */
+  
+  #include <ctype.h>
+***************
+*** 37,42 ****
+--- 39,54 ----
+  #include <stdlib.h>
+  #endif
+  
++ #if	NeedVarargsPrototypes		/* this is for tell_oops */
++ #include <stdarg.h>
++ #else
++ #include <varargs.h>
++ #endif
++ 
++ #ifdef	DOPRNT	/* define this if vfprintf gives you trouble */
++ #define	vfprintf(stream, message, args)	_doprnt(message, args, stream)
++ #endif
++ 
+  static	struct frame	frame0;		/* dummy head of list */
+  #ifdef	TEXXET
+  static	struct frame	*scan_frame;	/* head frame for scanning */
+***************
+*** 96,107 ****
+  
+  extern	char	*xmalloc();
+  
+! #ifndef VMS
+! extern	off_t	lseek();
+! #else
+! extern	int	lseek();
+  #endif
+! extern	long	tell();
+  
+  #ifndef	SEEK_SET	/* if <unistd.h> is not provided (or for <X11R5) */
+  #define	SEEK_SET	0
+--- 108,117 ----
+  
+  extern	char	*xmalloc();
+  
+! #ifdef	VMS
+! #define	off_t	int
+  #endif
+! extern	off_t	lseek();
+  
+  #ifndef	SEEK_SET	/* if <unistd.h> is not provided (or for <X11R5) */
+  #define	SEEK_SET	0
+***************
+*** 111,117 ****
+--- 121,223 ----
+  
+  static	void	draw_part();
+  
++ /*
++  *	Byte reading routines for dvi file.
++  */
++ 
++ #define	xtell(pos)	(lseek(fileno(dvi_file), 0L, SEEK_CUR) - \
++ 			    (currinf.end - (pos)))
++ 
++ static	ubyte
++ xxone()
++ {
++ 	if (currinf.virtual) {
++ 	    ++currinf.pos;
++ 	    return EOP;
++ 	}
++ 	currinf.end = dvi_buffer +
++ 	    read(fileno(dvi_file), (char *) (currinf.pos = dvi_buffer),
++ 		DVI_BUFFER_LEN);
++ 	return currinf.end > dvi_buffer ? *(currinf.pos)++ : EOF;
++ }
++ 
++ #define	xone()  (currinf.pos < currinf.end ? *(currinf.pos)++ : xxone())
++ 
++ static	unsigned long
++ xnum(size)
++ 	register ubyte size;
++ {
++ 	register long x = 0;
++ 
++ 	while (size--) x = (x << 8) | xone();
++ 	return x;
++ }
++ 
++ static	long
++ xsnum(size)
++ 	register ubyte size;
++ {
++ 	register long x;
++ 
++ #ifdef	__STDC__
++ 	x = (signed char) xone();
++ #else
++ 	x = xone();
++ 	if (x & 0x80) x -= 0x100;
++ #endif
++ 	while (--size) x = (x << 8) | xone();
++ 	return x;
++ }
++ 
++ #define	xsfour()	xsnum(4)
++ 
+  static	void
++ xskip(offset)
++ 	long	offset;
++ {
++ 	currinf.pos += offset;
++ 	if (!currinf.virtual && currinf.pos > currinf.end)
++ 	    (void) lseek(fileno(dvi_file), (long) (currinf.pos - currinf.end),
++ 		SEEK_CUR);
++ }
++ 
++ #if	NeedVarargsPrototypes
++ static	volatile void
++ tell_oops(_Xconst char *message, ...)
++ #else
++ /* VARARGS */
++ static	volatile void
++ tell_oops(va_alist)
++ 	va_dcl
++ #endif
++ {
++ #if	!NeedVarargsPrototypes
++ 	_Xconst char *message;
++ #endif
++ 	va_list	args;
++ 
++ 	Fprintf(stderr, "%s: ", prog);
++ #if	NeedVarargsPrototypes
++ 	va_start(args, message);
++ #else
++ 	va_start(args);
++ 	message = va_arg(args, _Xconst char *);
++ #endif
++ 	(void) vfprintf(stderr, message, args);
++ 	va_end(args);
++ 	if (currinf.virtual)
++ 	    Fprintf(stderr, " in virtual font %s\n", currinf.virtual->fontname);
++ 	else
++ 	    Fprintf(stderr, ", offset %d\n", xtell(currinf.pos - 1));
++ 	exit(1);
++ }
++ 
++ 
++ /*
++  *	Code for debugging options.
++  */
++ 
++ static	void
+  print_bitmap(bitmap)
+  	register struct bitmap *bitmap;
+  {
+***************
+*** 183,253 ****
+  	else s = dvi_table2[ch - (FNTNUM0 + 64)];
+  	if (s) puts(s);
+  	else
+! 	    if (currinf.virtual)
+! 		oops("Unknown op-code %d in virtual font", ch);
+! 	    else
+! 		oops("Unknown op-code %d, offset %d", ch,
+! 		    tell(fileno(dvi_file)) - (currinf.end - currinf.pos + 1));
+  }
+  
+- /*
+-  *	Byte reading routines for dvi file.
+-  */
+  
+- static	ubyte
+- xxone()
+- {
+- 	if (currinf.virtual) {
+- 	    ++currinf.pos;
+- 	    return EOP;
+- 	}
+- 	currinf.end = dvi_buffer +
+- 	    read(fileno(dvi_file), (char *) (currinf.pos = dvi_buffer),
+- 		DVI_BUFFER_LEN);
+- 	return currinf.end > dvi_buffer ? *(currinf.pos)++ : EOF;
+- }
+- 
+- #define	xone()  (currinf.pos < currinf.end ? *(currinf.pos)++ : xxone())
+- 
+- static	unsigned long
+- xnum(size)
+- 	register ubyte size;
+- {
+- 	register long x = 0;
+- 
+- 	while (size--) x = (x << 8) | xone();
+- 	return x;
+- }
+- 
+- static	long
+- xsnum(size)
+- 	register ubyte size;
+- {
+- 	register long x;
+- 
+- #ifdef	__STDC__
+- 	x = (signed char) xone();
+- #else
+- 	x = xone();
+- 	if (x & 0x80) x -= 0x100;
+- #endif
+- 	while (--size) x = (x << 8) | xone();
+- 	return x;
+- }
+- 
+- #define	xsfour()	xsnum(4)
+- 
+- static	void
+- xskip(offset)
+- 	long	offset;
+- {
+- 	currinf.pos += offset;
+- 	if (!currinf.virtual && currinf.pos > currinf.end)
+- 	    (void) lseek(fileno(dvi_file), (long) (currinf.pos - currinf.end),
+- 		SEEK_CUR);
+- }
+- 
+- 
+  /*
+   *	Count the number of set bits in a given region of the bitmap
+   */
+--- 289,298 ----
+  	else s = dvi_table2[ch - (FNTNUM0 + 64)];
+  	if (s) puts(s);
+  	else
+! 	    tell_oops("unknown op-code %d", ch);
+  }
+  
+  
+  /*
+   *	Count the number of set bits in a given region of the bitmap
+   */
+***************
+*** 303,309 ****
+--- 348,468 ----
+  	return n;
+  }
+  
++ #ifdef	GREY
+  static	void
++ shrink_glyph_grey(g)
++ 	register struct glyph *g;
++ {
++ 	int	shrunk_bytes_wide, shrunk_height;
++ 	int	rows_left, rows, init_cols, cols_left;
++ 	register int	cols;
++ 	int	x, y;
++ 	long	thesample;
++ 	BMUNIT	*old_ptr, *new_ptr;
++ 	register BMUNIT	m, *cp;
++ 	int	min_sample = shrink_factor * shrink_factor * density / 100;
++ 
++ 	/* These machinations ensure that the character is shrunk according to
++ 	   its hot point, rather than its upper left-hand corner. */
++ 	g->x2 = g->x / shrink_factor;
++ 	init_cols = g->x - g->x2 * shrink_factor;
++ 	if (init_cols <= 0) init_cols += shrink_factor;
++ 	else ++g->x2;
++ 	g->bitmap2.w = g->x2 + ROUNDUP(g->bitmap.w - g->x, shrink_factor);
++ 	/* include row zero with the positively numbered rows */
++ 	cols = g->y + 1; /* spare register variable */
++ 	g->y2 = cols / shrink_factor;
++ 	rows = cols - g->y2 * shrink_factor;
++ 	if (rows <= 0) {
++ 	    rows += shrink_factor;
++ 	    --g->y2;
++ 	}
++ 	g->bitmap2.h = shrunk_height = g->y2 +
++ 	    ROUNDUP(g->bitmap.h - cols, shrink_factor) + 1;
++ 	if (g->bitmap2.bits) free(g->bitmap2.bits);
++ 	alloc_bitmap(&g->bitmap2);
++ 
++ 	if (g->pixmap2)
++ 	    XDestroyImage(g->image2);
++ 
++ 	g->pixmap2 = xmalloc((unsigned) (g->bitmap2.bytes_wide * g->bitmap2.h *
++ 			       DefaultDepthOfScreen(SCRN)), "character pixmap");
++ 	g->image2 = XCreateImage(DISP,DefaultVisualOfScreen(SCRN),
++ 				 DefaultDepthOfScreen(SCRN),
++ 				 XYPixmap, 0, g->pixmap2,
++ 				 g->bitmap2.w, g->bitmap2.h,
++ 				 BITS_PER_BMUNIT, 0);
++ 
++ 	old_ptr = (BMUNIT *) g->bitmap.bits;
++ 	new_ptr = (BMUNIT *) g->bitmap2.bits;
++ 	shrunk_bytes_wide = g->bitmap2.bytes_wide;
++ 	rows_left = g->bitmap.h;
++ 	bzero((char *) new_ptr, shrunk_bytes_wide * shrunk_height);
++ 	y = 0;
++ 	while (rows_left) {
++ 	    x = 0;
++ 	    if (rows > rows_left) rows = rows_left;
++ 	    cols_left = g->bitmap.w;
++ #ifndef	MSBITFIRST
++ 	    m = (1 << 0);
++ #else
++ 	    m = (1 << (BITS_PER_BMUNIT-1));
++ #endif
++ 	    cp = new_ptr;
++ 	    cols = init_cols;
++ 	    while (cols_left) {
++ 		if (cols > cols_left) cols = cols_left;
++ 		if ((thesample = sample(old_ptr, g->bitmap.bytes_wide,
++ 			g->bitmap.w - cols_left, cols, rows)) >= min_sample)
++ 		    *cp |= m;
++ #ifndef	MSBITFIRST
++ 		if (m == (BMUNIT)(1 << (BITS_PER_BMUNIT-1))) {
++ 		    m = (1 << 0);
++ 		    ++cp;
++ 		}
++ 		else m <<= 1;
++ #else
++ 		if (m == (1 << 0)) {
++ 		    m = (1 << (BITS_PER_BMUNIT-1));
++ 		    ++cp;
++ 		}
++ 		else m >>= 1;
++ #endif
++ 		cols_left -= cols;
++ 		cols = shrink_factor;
++ 
++ 		if (shrink_factor == 2)
++ 		    XPutPixel(g->image2, x, y, pixel2[thesample]);
++ 		else if (shrink_factor == 3)
++ 		    XPutPixel(g->image2, x, y, pixel3[thesample]);
++ 		else if (shrink_factor == 4)
++ 		    XPutPixel(g->image2, x, y, pixel4[thesample]);
++ 		else
++ 		    XPutPixel(g->image2, x, y,
++ 			pixel4[thesample * 16 / shrink_factor / shrink_factor]);
++ 
++ 		x++;
++ 	    }
++ 	    *((char **) &new_ptr) += shrunk_bytes_wide;
++ 	    *((char **) &old_ptr) += rows * g->bitmap.bytes_wide;
++ 	    rows_left -= rows;
++ 	    rows = shrink_factor;
++ 	    y++;
++ 	}
++ 
++ 	while (y < g->bitmap2.h) {
++ 	    for (x = 0; x < g->bitmap2.w; x++)
++ 		XPutPixel(g->image2, x, y, pixel2[0]);
++ 	    y++;
++ 	}
++ 
++ 	g->y2 = g->y / shrink_factor;
++ 	if (debug & DBG_BITMAP)
++ 	    print_bitmap(&g->bitmap2);
++ }
++ #endif	/* GREY */
++ 
++ static	void
+  shrink_glyph(g)
+  	register struct glyph *g;
+  {
+***************
+*** 397,403 ****
+  		    load_font(currinf.fontp);
+  		break;
+  	    }
+! 	if (currinf.fontp == NULL) oops("Non-existent font #%d", n);
+  	maxchar = currinf.fontp->maxchar;
+  	currinf.set_char_p = currinf.fontp->set_char_p;
+  }
+--- 556,562 ----
+  		    load_font(currinf.fontp);
+  		break;
+  	    }
+! 	if (currinf.fontp == NULL) tell_oops("non-existent font #%d", n);
+  	maxchar = currinf.fontp->maxchar;
+  	currinf.set_char_p = currinf.fontp->set_char_p;
+  }
+***************
+*** 470,479 ****
+--- 629,652 ----
+  	    if (shrink_factor == 1)
+  		put_bitmap(&g->bitmap, PXL_H - g->x, PXL_V - g->y);
+  	    else {
++ #ifdef	GREY
++ 		if (use_grey) {
++ 		    if (g->pixmap2 == NULL) {
++ 			shrink_glyph_grey(g);
++ 		    }
++ 		    put_image(g->image2, PXL_H - g->x2, PXL_V - g->y2);
++ 		} else {
++ 		    if (g->bitmap2.bits == NULL) {
++ 			shrink_glyph(g);
++ 		    }
++ 		    put_bitmap(&g->bitmap2, PXL_H - g->x2, PXL_V - g->y2);
++ 		}
++ #else
+  		if (g->bitmap2.bits == NULL) {
+  		    shrink_glyph(g);
+  		}
+  		put_bitmap(&g->bitmap2, PXL_H - g->x2, PXL_V - g->y2);
++ #endif
+  	    }
+  #ifndef	TEXXET
+  	return g->dvi_adv;
+***************
+*** 524,533 ****
+  	    currinf.tn_head = currinf.fontp->vf_chain;
+  	    currinf.pos = m->pos;
+  	    currinf.end = m->end;
+! 	    currinf.virtual = True;
+  	    draw_part(current_frame, currinf.fontp->dimconv);
+  	    if (currinf.pos != currinf.end + 1)
+! 		oops("Virtual character macro does not end correctly.");
+  	    currinf = oldinfo;
+  	    maxchar = oldmaxchar;
+  #ifndef	TEXXET
+--- 697,706 ----
+  	    currinf.tn_head = currinf.fontp->vf_chain;
+  	    currinf.pos = m->pos;
+  	    currinf.end = m->end;
+! 	    currinf.virtual = currinf.fontp;
+  	    draw_part(current_frame, currinf.fontp->dimconv);
+  	    if (currinf.pos != currinf.end + 1)
+! 		tell_oops("virtual character macro does not end correctly");
+  	    currinf = oldinfo;
+  	    maxchar = oldmaxchar;
+  #ifndef	TEXXET
+***************
+*** 553,559 ****
+  	ubyte	ch;
+  {
+  	if (currinf.virtual) {
+! 	    currinf.fontp = currinf.fontp->first_font;
+  	    if (currinf.fontp != NULL) {
+  		if (!(currinf.fontp->flags & FONT_LOADED))
+  		    load_font(currinf.fontp);
+--- 726,732 ----
+  	ubyte	ch;
+  {
+  	if (currinf.virtual) {
+! 	    currinf.fontp = currinf.virtual->first_font;
+  	    if (currinf.fontp != NULL) {
+  		if (!(currinf.fontp->flags & FONT_LOADED))
+  		    load_font(currinf.fontp);
+***************
+*** 567,573 ****
+  #endif
+  	    }
+  	}
+! 	oops("Dvi file or vf macro sets character of unknown font.");
+  	/* NOTREACHED */
+  }
+  
+--- 740,746 ----
+  #endif
+  	    }
+  	}
+! 	tell_oops("attempt to set character of unknown font");
+  	/* NOTREACHED */
+  }
+  
+***************
+*** 639,645 ****
+  #ifdef	TEXXET
+  	struct drawinf	oldinfo;
+  	ubyte	oldmaxchar;
+! 	long	file_pos;
+  	int	refl_count;
+  #endif
+  
+--- 812,818 ----
+  #ifdef	TEXXET
+  	struct drawinf	oldinfo;
+  	ubyte	oldmaxchar;
+! 	off_t	file_pos;
+  	int	refl_count;
+  #endif
+  
+***************
+*** 715,721 ****
+  
+  		    case EOP:
+  			if (current_frame != minframe)
+! 			    oops("Stack not empty at EOP");
+  			return;
+  
+  		    case PUSH:
+--- 888,894 ----
+  
+  		    case EOP:
+  			if (current_frame != minframe)
+! 			    tell_oops("stack not empty at EOP");
+  			return;
+  
+  		    case PUSH:
+***************
+*** 732,738 ****
+  
+  		    case POP:
+  			if (current_frame == minframe)
+! 			    oops("More POPs than PUSHes");
+  			currinf.data = current_frame->data;
+  			current_frame = current_frame->prev;
+  			break;
+--- 905,911 ----
+  
+  		    case POP:
+  			if (current_frame == minframe)
+! 			    tell_oops("more POPs than PUSHes");
+  			currinf.data = current_frame->data;
+  			current_frame = current_frame->prev;
+  			break;
+***************
+*** 744,751 ****
+  			    oldinfo = currinf;
+  			    oldmaxchar = maxchar;
+  			    if (!currinf.virtual)
+! 				file_pos = tell(fileno(dvi_file)) -
+! 				    (currinf.end - currinf.pos);
+  			    scan_frame = current_frame; /* now we're scanning */
+  			    refl_count = 0;
+  			    break;
+--- 917,923 ----
+  			    oldinfo = currinf;
+  			    oldmaxchar = maxchar;
+  			    if (!currinf.virtual)
+! 				file_pos = xtell(currinf.pos);
+  			    scan_frame = current_frame; /* now we're scanning */
+  			    refl_count = 0;
+  			    break;
+***************
+*** 773,780 ****
+  				current_frame->data = currinf.data;
+  				/* next:  restore old file position, XX, etc. */
+  				if (!currinf.virtual) {
+! 				    long bgn_pos = tell(fileno(dvi_file))
+! 					 - (currinf.end - dvi_buffer);
+  				    if (file_pos >= bgn_pos) {
+  					oldinfo.pos = dvi_buffer
+  					    + (file_pos - bgn_pos);
+--- 945,952 ----
+  				current_frame->data = currinf.data;
+  				/* next:  restore old file position, XX, etc. */
+  				if (!currinf.virtual) {
+! 				    off_t bgn_pos = xtell(dvi_buffer);
+! 
+  				    if (file_pos >= bgn_pos) {
+  					oldinfo.pos = dvi_buffer
+  					    + (file_pos - bgn_pos);
+***************
+*** 882,896 ****
+  			xskip((long) xone() + (long) xone());
+  			break;
+  
+  		    case PRE:
+  		    case POST:
+  		    case POSTPOST:
+! 			oops("Shouldn't happen: %s encountered.",
+  				dvi_table2[ch - (FNTNUM0 + 64)]);
+  			break;
+  
+  		    default:
+! 			oops("Unknown op-code %d", ch);
+  		} /* end switch*/
+  	    } /* end else (ch not a SETCHAR or FNTNUM) */
+  	} /* end for */
+--- 1054,1072 ----
+  			xskip((long) xone() + (long) xone());
+  			break;
+  
++ #ifndef	TEXXET
++ 		    case SREFL:
++ 		    case EREFL:
++ #endif
+  		    case PRE:
+  		    case POST:
+  		    case POSTPOST:
+! 			tell_oops("shouldn't happen: %s encountered",
+  				dvi_table2[ch - (FNTNUM0 + 64)]);
+  			break;
+  
+  		    default:
+! 			tell_oops("unknown op-code %d", ch);
+  		} /* end switch*/
+  	    } /* end else (ch not a SETCHAR or FNTNUM) */
+  	} /* end for */
+***************
+*** 912,917 ****
+  	bzero((char *) &currinf.data, sizeof(currinf.data));
+  	currinf.tn_head = tn_head;
+  	currinf.pos = currinf.end = dvi_buffer;
+! 	currinf.virtual = False;
+  	draw_part(current_frame = &frame0, dimconv);
+  }
+--- 1088,1093 ----
+  	bzero((char *) &currinf.data, sizeof(currinf.data));
+  	currinf.tn_head = tn_head;
+  	currinf.pos = currinf.end = dvi_buffer;
+! 	currinf.virtual = NULL;
+  	draw_part(current_frame = &frame0, dimconv);
+  }
+diff -cr xdvi_old/dvi_init.c xdvi_new/dvi_init.c
+*** xdvi_old/dvi_init.c	Sat Mar 28 12:50:09 1992
+--- xdvi_new/dvi_init.c	Mon Jun  1 16:26:40 1992
+***************
+*** 14,19 ****
+--- 14,20 ----
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
++  * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 27,32 ****
+--- 28,34 ----
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
+   *	TEXXET	support reflection dvi codes (right-to-left typesetting)
++  *	GREY	use grey levels to shrink fonts
+   */
+  
+  #include "xdvi.h"
+***************
+*** 104,114 ****
+  
+  	for (f = font_head; f != NULL; f = f->next)
+  	    if ((f->flags & FONT_LOADED) && !(f->flags & FONT_VIRTUAL))
+! 		for (g = f->glyph; g <= f->glyph + f->maxchar; ++g)
+  		    if (g->bitmap2.bits) {
+  			free(g->bitmap2.bits);
+  			g->bitmap2.bits = NULL;
+  		    }
+  }
+  
+  /*
+--- 106,123 ----
+  
+  	for (f = font_head; f != NULL; f = f->next)
+  	    if ((f->flags & FONT_LOADED) && !(f->flags & FONT_VIRTUAL))
+! 		for (g = f->glyph; g <= f->glyph + f->maxchar; ++g) {
+  		    if (g->bitmap2.bits) {
+  			free(g->bitmap2.bits);
+  			g->bitmap2.bits = NULL;
+  		    }
++ #ifdef	GREY
++ 		    if (g->pixmap2) {
++ 			XDestroyImage(g->image2);
++ 			g->pixmap2 = NULL;
++ 		    }
++ #endif
++ 		}
+  }
+  
+  /*
+***************
+*** 295,302 ****
+  	     *	into SPELL units by multiplying by
+  	     *		(pixels_per_inch * 2**16) / (72.27 * 2**20).
+  	     */
+! 	    fsize = (0.001 * 72.27 * (1<<4)) * vfparent->dimconv * scale
+! 		/ design * magnification;
+  	    scale_dimconv = vfparent->dimconv;
+  	}
+  	size = 5 * fsize + 0.5;
+--- 304,310 ----
+  	     *	into SPELL units by multiplying by
+  	     *		(pixels_per_inch * 2**16) / (72.27 * 2**20).
+  	     */
+! 	    fsize = (72.27 * (1<<4)) * vfparent->dimconv * scale / design;
+  	    scale_dimconv = vfparent->dimconv;
+  	}
+  	size = 5 * fsize + 0.5;
+***************
+*** 466,471 ****
+--- 474,482 ----
+  				g <= fontp->glyph + fontp->maxchar; ++g) {
+  			    if (g->bitmap.bits != NULL) free(g->bitmap.bits);
+  			    if (g->bitmap2.bits != NULL) free(g->bitmap2.bits);
++ #ifdef	GREY
++ 			    if (g->pixmap2 != NULL) XDestroyImage(g->image2);
++ #endif
+  			}
+  			free((char *) fontp->glyph);
+  		    }
+diff -cr xdvi_old/font_open.c xdvi_new/font_open.c
+*** xdvi_old/font_open.c	Thu Mar 26 18:05:45 1992
+--- xdvi_new/font_open.c	Tue May 19 15:09:48 1992
+***************
+*** 74,80 ****
+--- 74,83 ----
+  #endif
+  
+  char	*xmalloc(), *getenv();
++ 
++ #ifndef	atof
+  double	atof();
++ #endif
+  
+  #ifdef	SEARCH_SUBDIRECTORIES
+  /* We will need some system include files to deal with directories.  */
+***************
+*** 457,463 ****
+  	    }
+  	    else *n++ = c;
+  	}
+! 	if (!p_used && first_try) return NULL;
+  	*n = '\0';
+  	if (debug & DBG_OPEN) Printf("Trying font file %s\n", nm);
+  	f = xfopen(nm);
+--- 460,466 ----
+  	    }
+  	    else *n++ = c;
+  	}
+! 	if (!p_used && !first_try) return NULL;
+  	*n = '\0';
+  	if (debug & DBG_OPEN) Printf("Trying font file %s\n", nm);
+  	f = xfopen(nm);
+***************
+*** 571,595 ****
+  	return NULL;
+  }
+  
+  /*
+   *	Try a given font name
+   */
+  
+  static	FILE *
+! pre_font_open(font, mag, mag_ret, name)
+  	_Xconst char	*font;
+! 	float	mag;
+  	int	*mag_ret;
+  	char	**name;
+  {
+  	FILE	*f;
+  	int	*p1, *p2;
+! 	int	imag	= mag + 0.5;
+! 	int	pxlmag	= 5 * mag + 0.5;
+  #ifndef	VMS
+  	_Xconst char	*path_to_use;
+  	_Xconst char	*vf_path_to_use;
+  #endif
+  
+  	/*
+  	 * Loop over sizes.  Try actual size first, then closest sizes.
+--- 574,665 ----
+  	return NULL;
+  }
+  
++ #ifdef	MAKEPKCMD
++ #define	MAKEPK
++ #endif
++ 
++ #ifdef	MAKEPK
++ 
++ #ifndef	MAKEPKCMD
++ #define	MAKEPKCMD	"MakeTeXPK"
++ #endif
++ 
+  /*
++  *	Create the string for magstep() values.
++  */
++ 
++ static	char *
++ magstring(mdpi)
++ 	int	mdpi;
++ {
++ 	int	m;
++ 	double	fdpi;
++ 	int	tdpi;
++ 	static	char	str[24];
++ 
++ 	if (mdpi != 0) {
++ 	    fdpi = pixels_per_inch;
++ 	    m = 0;
++ 	    if (mdpi >= pixels_per_inch) {
++ 		while ((tdpi = fdpi + 0.5) < mdpi) {
++ 		    fdpi *= 1.095445115;
++ 		    ++m;
++ 		}
++ 		if (tdpi == mdpi) {
++ 		    Sprintf(str, "magstep\\(%d%s\\)", m / 2, m % 2 ? ".5" : "");
++ 		    return str;
++ 		}
++ 	    }
++ 	    else {
++ 		do {
++ 		    fdpi *= 0.9128709292;
++ 		    ++m;
++ 		}
++ 		while ((tdpi = fdpi + 0.5) > mdpi);
++ 		if (tdpi == mdpi) {
++ 		    Sprintf(str, "magstep\\(-%d%s\\)", m / 2, m % 2 ? ".5" :"");
++ 		    return str;
++ 		}
++ 	    }
++ 	}
++ 	Sprintf(str, "%d+%d/%d", mdpi / pixels_per_inch, mdpi % pixels_per_inch,
++ 	    pixels_per_inch);
++ 	return str;
++ }
++ #endif	/* MAKEPK */
++ 
++ /*
+   *	Try a given font name
+   */
+  
++ #ifndef	MAKEPK
++ #define	PRE_FONT_OPEN(font, fmag, mag_ret, name, ignore) \
++ 		pre_font_open(font, fmag, mag_ret, name)
++ #else
++ #define	PRE_FONT_OPEN	pre_font_open
++ #endif
++ 
+  static	FILE *
+! PRE_FONT_OPEN(font, fmag, mag_ret, name, try_make)
+  	_Xconst char	*font;
+! 	float	fmag;
+  	int	*mag_ret;
+  	char	**name;
++ #ifdef	MAKEPK
++ 	Boolean	try_make;
++ #endif
+  {
+  	FILE	*f;
+  	int	*p1, *p2;
+! 	int	mag	= 5 * fmag + 0.5;
+! 	int	tmag;
+  #ifndef	VMS
+  	_Xconst char	*path_to_use;
+  	_Xconst char	*vf_path_to_use;
+  #endif
++ #ifdef	MAKEPK
++ 	char	mkpk[80];
++ #endif
+  
+  	/*
+  	 * Loop over sizes.  Try actual size first, then closest sizes.
+***************
+*** 614,646 ****
+  #define	vf_path_to_use	vf_path
+  #endif	/* VMS */
+  
+! 	if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+  		default_font_path)) != NULL)
+  	    return f;
+  
+  	/* Try at one away from the size we just tried, to account
+  	   for rounding error.  */
+! 	if (pxlmag < 5 * mag) ++pxlmag; else --pxlmag;
+! 	if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+! 		default_font_path)) != NULL)
+  	    return f;
+  
+  	/* Try a virtual font. */
+  	if ((f = try_vf(font, name, vf_path_to_use, default_vf_path)) != NULL)
+  	    return f;
+  
+  	/* Now try at all the sizes. */
+! 	for (p2 = sizes; p2 < sizend; ++p2) if (*p2 >= pxlmag) break;
+  	p1 = p2;
+  	for (;;) {
+  		/* find another magnification */
+  	    if (p1 <= sizes)
+  		if (p2 >= sizend) return NULL;
+! 		else pxlmag = *p2++;
+! 	    else if (p2 >= sizend || imag * imag <= p1[-1] * *p2)
+! 		    pxlmag = *--p1;
+! 		else pxlmag = *p2++;
+! 	    if ((f = try_size(font, *mag_ret = pxlmag, name, path_to_use,
+  		    default_font_path)) != NULL)
+  		return f;
+  	}
+--- 684,732 ----
+  #define	vf_path_to_use	vf_path
+  #endif	/* VMS */
+  
+! 	if ((f = try_size(font, *mag_ret = mag, name, path_to_use,
+  		default_font_path)) != NULL)
+  	    return f;
+  
+  	/* Try at one away from the size we just tried, to account
+  	   for rounding error.  */
+! 	tmag = mag + (mag < 5 * fmag ? 1 : -1);
+! 	if ((f = try_size(font, tmag, name, path_to_use, default_font_path))
+! 		!= NULL) {
+! 	    *mag_ret = tmag;
+  	    return f;
++ 	}
+  
+  	/* Try a virtual font. */
+  	if ((f = try_vf(font, name, vf_path_to_use, default_vf_path)) != NULL)
+  	    return f;
+  
++ #ifdef	MAKEPK
++ 	/* Try to create the font. */
++ 	    if (try_make) {
++ 	    Sprintf(mkpk, "%s %s %d %d %s", MAKEPKCMD, font, mag / 5,
++ 		pixels_per_inch, magstring(mag / 5));
++ 	    Printf("- %s\n", mkpk);
++ 	    if (system(mkpk) == 0
++ 		&& (f = try_size(font, mag, name, path_to_use,
++ 			default_font_path))
++ 		    != NULL)
++ 		return f;
++ 	}
++ #endif
++ 
+  	/* Now try at all the sizes. */
+! 	for (p2 = sizes; p2 < sizend; ++p2) if (*p2 >= mag) break;
+  	p1 = p2;
+  	for (;;) {
+  		/* find another magnification */
+  	    if (p1 <= sizes)
+  		if (p2 >= sizend) return NULL;
+! 		else tmag = *p2++;
+! 	    else if (p2 >= sizend || (long) mag * mag <= (long) p1[-1] * *p2)
+! 		    tmag = *--p1;
+! 		else tmag = *p2++;
+! 	    if ((f = try_size(font, *mag_ret = tmag, name, path_to_use,
+  		    default_font_path)) != NULL)
+  		return f;
+  	}
+***************
+*** 658,664 ****
+  	int	actual_pt, low_pt, high_pt, trial_pt;
+  	char	fn[50], *fnend;
+  
+! 	f = pre_font_open(font, mag, mag_ret, name);
+  	if (f != NULL) {
+  	    *font_ret = NULL;
+  	    return f;
+--- 744,750 ----
+  	int	actual_pt, low_pt, high_pt, trial_pt;
+  	char	fn[50], *fnend;
+  
+! 	f = PRE_FONT_OPEN(font, mag, mag_ret, name, True);
+  	if (f != NULL) {
+  	    *font_ret = NULL;
+  	    return f;
+***************
+*** 678,685 ****
+  		else if (high_pt > actual_pt + 5) break;
+  		else trial_pt = high_pt++;
+  		Sprintf(fnend, "%d", trial_pt);
+! 		f = pre_font_open(fn, mag * actual_pt / trial_pt, mag_ret,
+! 		    name);
+  		if (f != NULL) {
+  		    *font_ret = strcpy(xmalloc((unsigned) strlen(fn) + 1,
+  			"name of font used"), fn);
+--- 764,771 ----
+  		else if (high_pt > actual_pt + 5) break;
+  		else trial_pt = high_pt++;
+  		Sprintf(fnend, "%d", trial_pt);
+! 		f = PRE_FONT_OPEN(fn, mag * actual_pt / trial_pt, mag_ret,
+! 		    name, False);
+  		if (f != NULL) {
+  		    *font_ret = strcpy(xmalloc((unsigned) strlen(fn) + 1,
+  			"name of font used"), fn);
+***************
+*** 688,694 ****
+  	    }
+  	}
+  	if (alt_font != NULL) {
+! 	    f = pre_font_open(alt_font, mag, mag_ret, name);
+  	    if (f != NULL)
+  		*font_ret = strcpy(xmalloc((unsigned) strlen(alt_font) + 1,
+  		    "name of font used"), alt_font);
+--- 774,780 ----
+  	    }
+  	}
+  	if (alt_font != NULL) {
+! 	    f = PRE_FONT_OPEN(alt_font, mag, mag_ret, name, False);
+  	    if (f != NULL)
+  		*font_ret = strcpy(xmalloc((unsigned) strlen(alt_font) + 1,
+  		    "name of font used"), alt_font);
+diff -cr xdvi_old/mksedscript xdvi_new/mksedscript
+*** xdvi_old/mksedscript	Thu Dec  5 17:43:12 1991
+--- xdvi_new/mksedscript	Mon Jun  1 16:26:49 1992
+***************
+*** 7,12 ****
+--- 7,13 ----
+  	if ($x == -DA4)		set a4
+  	if ($x == -DSEARCH_SUBDIRECTORIES) set subdir
+  	if ($x == -DXDVIFONTS_ONLY) set texfonts
++ 	if ($x == -DGREY)	set grey
+  end
+  if ($?x10) then
+  	echo	/^\#ifx11/,/^\#/d
+***************
+*** 18,23 ****
+--- 19,25 ----
+  if (! $?buttons)	echo /^\#ifbuttons/,/^\#/d
+  if (! $?subdir)		echo /^\#ifsubdir/,/^\#/d
+  if ($?texfonts)		echo /^\#iftexfonts/,/^\#/d
++ if (! $?grey)		echo /^\#ifgrey/,/^\#/d
+  echo	/^\#/d
+  if ($?a4) then
+  	echo	's/%%defaultpagesize%%/21 x 29.7 cm (A4 size)/'
+diff -cr xdvi_old/patchlevel.h xdvi_new/patchlevel.h
+*** xdvi_old/patchlevel.h	Sat Mar 28 00:22:24 1992
+--- xdvi_new/patchlevel.h	Tue Apr  7 12:44:34 1992
+***************
+*** 1 ****
+! #define PATCHLEVEL 13
+--- 1 ----
+! #define PATCHLEVEL 14
+diff -cr xdvi_old/pk.c xdvi_new/pk.c
+*** xdvi_old/pk.c	Thu Jan 23 12:54:49 1992
+--- xdvi_new/pk.c	Thu Apr  9 12:57:16 1992
+***************
+*** 135,141 ****
+  	/*
+  	 * now read rest of character preamble
+  	 */
+! 	if (n != 4) fpwidth = snum(fp, 3);
+  	else {
+  	    fpwidth = sfour(fp);
+  	    (void) four(fp);	/* horizontal escapement */
+--- 135,141 ----
+  	/*
+  	 * now read rest of character preamble
+  	 */
+! 	if (n != 4) fpwidth = num(fp, 3);
+  	else {
+  	    fpwidth = sfour(fp);
+  	    (void) four(fp);	/* horizontal escapement */
+diff -cr xdvi_old/pxl.c xdvi_new/pxl.c
+*** xdvi_old/pxl.c	Mon Mar 23 19:03:00 1992
+--- xdvi_new/pxl.c	Mon Jun  1 16:26:54 1992
+***************
+*** 119,124 ****
+--- 119,127 ----
+  	for (g = fontp->glyph; g < fontp->glyph + 128; ++g) {
+  	    g->bitmap.bits = NULL;
+  	    g->bitmap2.bits = NULL;
++ #ifdef	GREY
++ 	    g->pixmap2 = NULL;
++ #endif
+  	    g->bitmap.w = two(fp);
+  	    g->bitmap.h = two(fp);
+  	    g->x = stwo(fp);
+diff -cr xdvi_old/util.c xdvi_new/util.c
+*** xdvi_old/util.c	Sat Mar 28 12:50:28 1992
+--- xdvi_new/util.c	Mon Jun  1 17:08:35 1992
+***************
+*** 52,57 ****
+--- 52,61 ----
+  #include <varargs.h>
+  #endif
+  
++ #ifdef	DOPRNT	/* define this if vfprintf gives you trouble */
++ #define	vfprintf(stream, message, args)	_doprnt(message, args, stream)
++ #endif
++ 
+  /*
+   *	General utility routines.
+   */
+diff -cr xdvi_old/vf.c xdvi_new/vf.c
+*** xdvi_old/vf.c	Mon Mar 23 19:06:49 1992
+--- xdvi_new/vf.c	Wed Apr 15 17:46:25 1992
+***************
+*** 53,58 ****
+--- 53,59 ----
+  /*
+   *	Read the fonts.
+   */
++ 	fontp->vf_chain = NULL;
+  	fontp->first_font = NULL;
+  	while ((cmnd = one(VF_file)) >= FNTDEF1 && cmnd <= FNTDEF4) {
+  	    define_font(VF_file, cmnd, fontp, &fontp->vf_chain);
+diff -cr xdvi_old/xdvi.c xdvi_new/xdvi.c
+*** xdvi_old/xdvi.c	Tue Mar 31 12:23:41 1992
+--- xdvi_new/xdvi.c	Sun Jun  7 11:34:21 1992
+***************
+*** 14,19 ****
+--- 14,20 ----
+   * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+   * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+   * 7/1990	Added reflection mode	--Michael Pak, Hebrew U of Jerusalem
++  * 1/1992	Added greyscale code	--Till Brychcy, Techn. Univ. Muenchen
+   *
+   *	Compilation options:
+   *	SYSV	compile for System V
+***************
+*** 27,32 ****
+--- 28,34 ----
+   *	ALTFONT	default for -altfont option
+   *	A4	use European size paper
+   *	TEXXET	support reflection dvi codes (right-to-left typesetting)
++  *	GREY	use grey levels to shrink fonts
+   */
+  
+  #ifndef	ALTFONT
+***************
+*** 52,58 ****
+  #define	INIT(x)	=x
+  #include "xdvi.h"
+  
+- #ifndef lint
+  #include "patchlevel.h"
+  static	struct {_Xconst char	a[36], b, c, d;}
+  #ifndef X10
+--- 54,59 ----
+***************
+*** 62,68 ****
+  	header = {"$Header: xdvi.c (X10), patchlevel = ", '0' + PATCHLEVEL / 10,
+  		'0' + PATCHLEVEL % 10, 0};
+  #endif
+- #endif	/* lint */
+  
+  #ifndef	X_NOT_STDC_ENV
+  #include <stdlib.h>
+--- 63,68 ----
+***************
+*** 69,76 ****
+  #endif
+  
+  #ifndef X10
+! /* Xlib is already included */
+! #include <X11/Xutil.h>
+  #include <X11/cursorfont.h>
+  #include <X11/keysym.h>
+  #include "xdvi.icon"
+--- 69,75 ----
+  #endif
+  
+  #ifndef X10
+! /* Xlib and Xutil are already included */
+  #include <X11/cursorfont.h>
+  #include <X11/keysym.h>
+  #include "xdvi.icon"
+***************
+*** 88,93 ****
+--- 87,93 ----
+  #include <X11/Shell.h>	/* needed for def. of XtNiconX */
+  #ifndef	XtSpecificationRelease
+  #define	XtSpecificationRelease	0
++ #define	XtPointer caddr_t
+  #endif
+  #if	XtSpecificationRelease >= 4
+  #include <X11/Xaw/Viewport.h>
+***************
+*** 119,127 ****
+  #endif
+  
+  #ifndef X10
+  static	Display	*DISP;
+- #define	DPY	DISP,
+  static	Screen	*SCRN;
+  static	Cursor	redraw_cursor, ready_cursor;
+  
+  #ifdef	VMS
+--- 119,129 ----
+  #endif
+  
+  #ifndef X10
++ #ifndef	GREY
+  static	Display	*DISP;
+  static	Screen	*SCRN;
++ #endif
++ #define	DPY	DISP,
+  static	Cursor	redraw_cursor, ready_cursor;
+  
+  #ifdef	VMS
+***************
+*** 194,199 ****
+--- 196,202 ----
+  
+  static	int	pageno_correct	= 1;
+  static	Boolean	keep_flag	= False;
++ static	Boolean	version		= False;
+  #ifdef	BUTTONS
+  Boolean	expert		= False;
+  #endif
+***************
+*** 486,496 ****
+--- 489,539 ----
+  #endif	/* X10 */
+  #endif	/* lint */
+  
++ #ifdef	GREY
++ static	void
++ make_one_pixel_map(pixel, hi)
++ 	long pixel[];
++ 	int hi;
++ {
++ 	int i;
++ 	int level;
++ 	XColor color;
++ 
++ 	for (i = 0; i <= hi; i++) {
++ 	    level = (hi - i) * 65535 / hi;
++ 	    color.red = color.green = color.blue = level;
++ 	    color.flags = DoRed | DoGreen | DoBlue;
++ 	    if (XAllocColor(DISP, DefaultColormapOfScreen(SCRN), &color) == 0)
++ 		pixel[i] = (level >= 32768) ? BlackPixelOfScreen(SCRN)
++ 					    : WhitePixelOfScreen(SCRN);
++ 	    else
++ 		pixel[i] = color.pixel;
++ 	}
++ }
++ 
++ static	void
++ init_pix()
++ {
++ 	static	Boolean	pixels_allocated = False;
++ 
++ 	if (pixels_allocated)
++ 	    return;
++ 
++ 	make_one_pixel_map(pixel2, 2*2);
++ 	make_one_pixel_map(pixel3, 3*3);
++ 	make_one_pixel_map(pixel4, 4*4);
++ 
++ 	pixels_allocated = True;
++ }
++ #endif	/* GREY */
++ 
+  #ifdef	sun
+  extern	char	*sprintf();
+  #endif
+  
++ #ifndef	atof	/* on the Next it's a macro */
+  extern	double	atof();
++ #endif
+  
+  /********************************
+   *	  tpic routines		*
+***************
+*** 621,626 ****
+--- 664,694 ----
+  	}
+  }
+  
++ #ifdef	GREY
++ void
++ put_image(img, x, y)
++ 	register XImage *img;
++ 	register int x, y;
++ {
++ 	if (x < max_x && x + img->width >= min_x &&
++ 	    y < max_y && y + img->height >= min_y) {
++ 
++ 	    if (--event_counter == 0) read_events (False);
++ 
++ 	    XPutImage(DISP, WINDOW(currwin), foreGC, img,
++ 	    	    0, 0,
++ 		    x - currwin.base_x, y - currwin.base_y,
++ 		    img->width, img->height);
++ 
++ 	    if (foreGC2)
++ 		XPutImage(DISP, WINDOW(currwin), foreGC2, img,
++ 			0, 0,
++ 			x - currwin.base_x, y - currwin.base_y,
++ 			img->width, img->height);
++ 	}
++ }
++ #endif	/* GREY */
++ 
+  /*
+   *	Event-handling routines
+   */
+***************
+*** 728,734 ****
+  {
+  	if (!scrl) XUnmapWindow(DISP, WINDOW(mane));
+  	get_xy();
+! 	if (page_w > clip_w) {
+  	    register int coord = (page_w - clip_w) / 2;
+  	    if (coord > home_x / mane.shrinkfactor)
+  		coord = home_x / mane.shrinkfactor;
+--- 796,802 ----
+  {
+  	if (!scrl) XUnmapWindow(DISP, WINDOW(mane));
+  	get_xy();
+! 	if (x_bar != NULL) {
+  	    register int coord = (page_w - clip_w) / 2;
+  	    if (coord > home_x / mane.shrinkfactor)
+  		coord = home_x / mane.shrinkfactor;
+***************
+*** 735,741 ****
+  	    XtCallCallbacks(x_bar, XtNscrollProc,
+  		(XtPointer) (window_x + coord));
+  	}
+! 	if (page_h > clip_h) {
+  	    register int coord = (page_h - clip_h) / 2;
+  	    if (coord > home_y / mane.shrinkfactor)
+  		coord = home_y / mane.shrinkfactor;
+--- 803,809 ----
+  	    XtCallCallbacks(x_bar, XtNscrollProc,
+  		(XtPointer) (window_x + coord));
+  	}
+! 	if (y_bar != NULL) {
+  	    register int coord = (page_h - clip_h) / 2;
+  	    if (coord > home_y / mane.shrinkfactor)
+  		coord = home_y / mane.shrinkfactor;
+***************
+*** 1212,1219 ****
+  	if (windowrec == &alt)
+  	    if (alt_stat < 0) {	/* destroy upon exposure */
+  		alt_stat = 0;
+! 		handle_release(widget, (caddr_t) NULL, (XButtonEvent *) event,
+! 			(Boolean *) NULL);
+  		return;
+  	    }
+  	    else
+--- 1280,1286 ----
+  	if (windowrec == &alt)
+  	    if (alt_stat < 0) {	/* destroy upon exposure */
+  		alt_stat = 0;
+! 		handle_release(widget, (caddr_t) NULL, ev, (Boolean *) NULL);
+  		return;
+  	    }
+  	    else
+***************
+*** 1436,1441 ****
+--- 1503,1515 ----
+  		reset_fonts();
+  		if (mane.shrinkfactor == 1) return;
+  		break;
++ #ifdef GREY
++ 	    case 'G':
++ 		use_grey = (arg0 ? number0 : !use_grey);
++ 		if (use_grey) init_pix();
++ 		reset_fonts();
++ 		break;
++ #endif
+  	    case 'R':
+  		/* reread DVI file */
+  		--dvi_time;	/* then it will notice a change */
+***************
+*** 1497,1503 ****
+  	    if (resized) get_geom();
+  	    if (event.xany.window == WINDOW(alt) &&
+  		    event.type == Expose) {
+! 		handle_exp((Widget) NULL, &alt, &event.xexpose, (Boolean*)NULL);
+  		continue;
+  	    }
+  	    if (event.type != KeyPress) {
+--- 1571,1577 ----
+  	    if (resized) get_geom();
+  	    if (event.xany.window == WINDOW(alt) &&
+  		    event.type == Expose) {
+! 		handle_exp((Widget) NULL, &alt, &event, (Boolean *) NULL);
+  		continue;
+  	    }
+  	    if (event.type != KeyPress) {
+***************
+*** 1837,1843 ****
+  	[-expert] [-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+--- 1911,1917 ----
+  	[-expert] [-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+***************
+*** 1849,1855 ****
+  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+--- 1923,1929 ----
+  	[-paper <papertype>] [-mgs[n] <size>] [-altfont <font>]\n\
+  	[-margins <dimen>] [-sidemargin <dimen>] [-topmargin <dimen>]\n\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+***************
+*** 1864,1870 ****
+  \n", stderr);
+  	Fputs("\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+--- 1938,1944 ----
+  \n", stderr);
+  	Fputs("\
+  	[-offsets <dimen>] [-xoffset <dimen>] [-yoffset <dimen>] [-keep]\n\
+! 	[-hushspecials] [-hushchars] [-hush] [-nogrey] [-version]\n\
+  	[-fg <color>] [-bg <color>] [-hl <color>] [-bd <color>] \
+  [-cr <color>]\n\
+  	[-bw <width>] [-geometry <geometry>] [-icongeometry <geometry>]\n\
+***************
+*** 1945,1950 ****
+--- 2019,2026 ----
+  {"+copy",	".copy",	XrmoptionNoArg,		(caddr_t) "off"},
+  {"-thorough",	".thorough",	XrmoptionNoArg,		(caddr_t) "on"},
+  {"+thorough",	".thorough",	XrmoptionNoArg,		(caddr_t) "off"},
++ {"-version",	".version",	XrmoptionNoArg,		(caddr_t) "on"},
++ {"+version",	".version",	XrmoptionNoArg,		(caddr_t) "off"},
+  #ifdef	BUTTONS
+  {"-expert",	".expert",	XrmoptionNoArg,		(caddr_t) "on"},
+  {"+expert",	".expert",	XrmoptionNoArg,		(caddr_t) "off"},
+***************
+*** 1955,1960 ****
+--- 2031,2040 ----
+  {"-mgs3",	".magnifierSize3",XrmoptionSepArg,	(caddr_t) NULL},
+  {"-mgs4",	".magnifierSize4",XrmoptionSepArg,	(caddr_t) NULL},
+  {"-mgs5",	".magnifierSize5",XrmoptionSepArg,	(caddr_t) NULL},
++ #ifdef	GREY
++ {"-nogrey",	".grey",	XrmoptionNoArg,		(caddr_t) "off"},
++ {"+nogrey",	".grey",	XrmoptionNoArg,		(caddr_t) "on"},
++ #endif
+  };
+  
+  static	XtResource	resources[] = {
+***************
+*** 2014,2019 ****
+--- 2094,2101 ----
+    (Cardinal)&copy, XtRBoolean, (caddr_t) &copy},
+  {"thorough", "Thorough", XtRBoolean, sizeof(Boolean),
+    (Cardinal)&thorough, XtRBoolean, (caddr_t) &thorough},
++ {"version", "Version", XtRBoolean, sizeof(Boolean),
++   (Cardinal)&version, XtRBoolean, (caddr_t) &version},
+  #ifdef	BUTTONS
+  {"expert", "Expert", XtRBoolean, sizeof(Boolean),
+    (Cardinal)&expert, XtRBoolean, (caddr_t) &expert},
+***************
+*** 2028,2033 ****
+--- 2110,2119 ----
+    (Cardinal) &mg_size[3], XtRInt, (caddr_t) &mg_size[3]},
+  {"magnifierSize5", "MagnifierSize", XtRInt, sizeof(int),
+    (Cardinal) &mg_size[4], XtRInt, (caddr_t) &mg_size[4]},
++ #ifdef	GREY
++ {"grey", "Grey", XtRBoolean, sizeof (Boolean),
++  (Cardinal) &use_grey, XtRBoolean, (caddr_t) &use_grey},
++ #endif
+  };
+  
+  static	Arg	temp_args1[] = {
+***************
+*** 2148,2153 ****
+--- 2234,2241 ----
+  {"+copy",	"copy",		FalseArg, BooleanArg, 1,(caddr_t) &copy},
+  {"-thorough",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &thorough},
+  {"+thorough",	"thorough",	FalseArg, BooleanArg, 1,(caddr_t) &thorough},
++ {"-version",	NULL,		TrueArg, BooleanArg, 2,	(caddr_t) &version},
++ {"+version",	"version",	FalseArg, BooleanArg, 1,(caddr_t) &version},
+  #endif	/* X10 */
+  {"-mgs",	NULL,		SepArg, NumberArg, 2,	(caddr_t) &mg_size[0]},
+  {"-mgs1",	"magnifierSize1",SepArg, NumberArg, 1,	(caddr_t) &mg_size[0]},
+***************
+*** 2157,2162 ****
+--- 2245,2254 ----
+  {"-mgs4",	"magnifierSize4",SepArg, NumberArg, 1,	(caddr_t) &mg_size[3]},
+  {"-mgs5",	"magnifierSize5",SepArg, NumberArg, 1,	(caddr_t) &mg_size[4]},
+  #endif
++ #ifdef	GREY
++ {"-nogrey",	NULL,		FalseArg, BooleanArg, 2,(caddr_t) &use_grey},
++ {"+nogrey",	"grey",		TrueArg, BooleanArg, 1,	(caddr_t) &use_grey},
++ #endif
+  };
+  
+  /*
+***************
+*** 2478,2484 ****
+--- 2570,2584 ----
+  		current_page = (*curr_page ? atoi(curr_page) : total_pages) - 1;
+  		if (current_page < 0 || current_page >= total_pages) usage();
+  	}
++ 	if (version) puts((_Xconst char *) &header);
+  
++ #ifdef	GREY
++ 	if (DefaultDepthOfScreen(SCRN) == 1)
++ 	    use_grey = False;
++ 	if (use_grey)
++ 	    init_pix();
++ #endif
++ 
+  #ifndef X10
+  
+  	/*
+***************
+*** 2503,2509 ****
+  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+  			GCFunction|GCForeground|GCBackground, &values))
+  
+! 	    if (copy == 2) copy = (PlanesOfScreen(SCRN) > 1);
+  	    if (copy || (set_bits && clr_bits))
+  		ruleGC = MakeGC(GXcopy, fore_Pixel, back_Pixel);
+  	    if (copy) foreGC = ruleGC;
+--- 2603,2609 ----
+  		XCreateGC(DISP, RootWindowOfScreen(SCRN),\
+  			GCFunction|GCForeground|GCBackground, &values))
+  
+! 	    if (copy == 2) copy = (DefaultDepthOfScreen(SCRN) > 1);
+  	    if (copy || (set_bits && clr_bits))
+  		ruleGC = MakeGC(GXcopy, fore_Pixel, back_Pixel);
+  	    if (copy) foreGC = ruleGC;
+diff -cr xdvi_old/xdvi.h xdvi_new/xdvi.h
+*** xdvi_old/xdvi.h	Fri Mar 27 18:15:28 1992
+--- xdvi_new/xdvi.h	Mon Jun  1 16:28:20 1992
+***************
+*** 8,13 ****
+--- 8,14 ----
+  
+  #ifndef X10
+  #include <X11/Xlib.h>	/* include Xfuncs.h, if available */
++ #include <X11/Xutil.h>	/* needed for XDestroyImage */
+  #include <X11/Xos.h>	/* same as below */
+  #else	/* X10 */
+  #include <X/Xlib.h>	/* get type of Window */
+***************
+*** 181,187 ****
+  	set_char_proc	set_char_p;
+  	struct tn	*tn_head;
+  	ubyte		*pos, *end;
+! 	Boolean		virtual;
+  #ifdef	TEXXET
+  	int		dir;
+  #endif
+--- 182,188 ----
+  	set_char_proc	set_char_p;
+  	struct tn	*tn_head;
+  	ubyte		*pos, *end;
+! 	struct font	*virtual;
+  #ifdef	TEXXET
+  	int		dir;
+  #endif
+***************
+*** 245,250 ****
+--- 246,255 ----
+  	short x, y;		/* x and y offset in pixels */
+  	struct bitmap bitmap;	/* bitmap for character */
+  	short x2, y2;		/* x and y offset in pixels (shrunken bitmap) */
++ #ifdef	GREY
++ 	XImage *image2;
++ 	char *pixmap2;
++ #endif
+  	struct bitmap bitmap2;	/* shrunken bitmap for character */
+  };
+  
+***************
+*** 358,363 ****
+--- 363,381 ----
+  
+  EXTERN	jmp_buf	dvi_env;	/* mechanism to communicate dvi file errors */
+  
++ #ifdef	GREY
++ #ifndef	X10
++ EXTERN	Display	*DISP;
++ EXTERN	Screen	*SCRN;
++ EXTERN	long	pixel4[17];
++ EXTERN	long	pixel3[10];
++ EXTERN	long	pixel2[5];
++ EXTERN	Boolean	use_grey	INIT(True);
++ #else	/* Sorry - GREY works only with X11 */
++ #undef	GREY
++ #endif	/* X10 */
++ #endif	/* GREY */
++ 
+  /********************************
+   *	   Procedures		*
+   *******************************/
+***************
+*** 369,374 ****
+--- 387,395 ----
+  extern	void	dot_at(int, int);
+  extern	void	do_attribute_path(int, int, int, int);
+  extern	void	put_bitmap(struct bitmap *, int, int);
++ #ifdef	GREY
++ extern	void	put_image(XImage *, int, int);
++ #endif
+  extern	void	put_rectangle(int, int, int, int, WIDEARG(Boolean, int));
+  extern	void	redraw_page(void);
+  #if	NeedVarargsPrototypes
+***************
+*** 413,418 ****
+--- 434,442 ----
+  extern	void	dot_at();
+  extern	void	do_attribute_path();
+  extern	void	put_bitmap();
++ #ifdef	GREY
++ extern	void	put_image();
++ #endif
+  extern	void	put_rectangle();
+  extern	void	redraw_page();
+  extern	volatile void	oops();
+diff -cr xdvi_old/xdvi_man.sed xdvi_new/xdvi_man.sed
+*** xdvi_old/xdvi_man.sed	Thu Dec  5 17:27:34 1991
+--- xdvi_new/xdvi_man.sed	Sun Jun  7 11:36:01 1992
+***************
+*** 18,25 ****
+--- 18,28 ----
+  #ifx11
+  [\-geometry \fIgeometry\fP] [\-icongeometry \fIgeometry\fP] [\-iconic]
+  [\-display \fIdisplay\fP] [\-copy] [\-thorough]
++ #endif
+  #ifbuttons
+  [\-expert]
++ #endif
++ [\-version]
+  #ifx10
+  [\-geometry \fIgeometry\fP | =\fIgeometry\fP]
+  [\-display \fIhost\fP:\fIdisplay\fP | \fIhost\fP:\fIdisplay\fP]
+***************
+*** 179,184 ****
+--- 182,190 ----
+  Prevent the buttons from appearing.  See also the `x' keystroke.
+  #endif
+  .TP
++ .BI \-version
++ Print information on the version of \fIxdvi\fR.
++ .TP
+  .BI \-margins " dimen"
+  (%%dot%%Margin)
+  Specifies the size of both the top margin and side margin.
+***************
+*** 230,236 ****
+--- 236,251 ----
+  legal (8.5x14), foolscap (13.5x17), as well as the ISO sizes a1-a7,
+  b1-b7, c1-c7, a1r-a7r (a1-a7 rotated), etc.  The default size is
+  %%defaultpagesize%%.
++ #ifgrey
+  .TP
++ .B \-nogrey
++ (.grey)
++ Turns off the use of greyscale anti-aliasing when printing shrunken bitmaps.
++ (In this case, the logic of the corresponding resource is the reverse:
++ -nogrey corresponds to grey:off; +nogrey to grey:on.)
++ See also the `G' keystroke.
++ #endif
++ .TP
+  #ifx11
+  .BI "\-mgs[n]" " size"
+  (.magnifierSize[n])
+***************
+*** 367,372 ****
+--- 382,394 ----
+  .B x
+  Toggles expert mode (in which the buttons do not appear).  Also `0x' and `1x'
+  clear and reset this mode, respectively.  See also the \fB\-expert\fR option.
++ #endif
++ #ifgrey
++ .TP
++ .B G
++ This key toggles the use of greyscale anti-aliasing for displaying shrunken
++ bitmaps.  In addition, the key sequences `0G' and `1G' clear and
++ set this flag, respectively.  See also the \fB\-nogrey\fR option.
+  #endif
+  .SH MOUSE ACTIONS
+  If the shrink factor is set to any number other than one, then clicking
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

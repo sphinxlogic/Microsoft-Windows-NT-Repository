@@ -1,0 +1,1967 @@
+Newsgroups: comp.sources.x
+From: jck@kimba.catt.citri.edu.au (Justin Kibell)
+Subject: v20i113:  xboing - a simple blockout type game, Part06/26
+Message-ID: <1993Sep3.123124.7005@sparky.sterling.com>
+X-Md4-Signature: bf255de538b1f2535654a751bfec63c4
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 3 Sep 1993 12:31:24 GMT
+Approved: chris@sterling.com
+
+Submitted-by: jck@kimba.catt.citri.edu.au (Justin Kibell)
+Posting-number: Volume 20, Issue 113
+Archive-name: xboing/part06
+Environment: X11, xpm, color
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bitmaps/digit4.xpm bonus.c xaa
+# Wrapped by chris@sparky on Fri Sep  3 07:14:43 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 26)."'
+if test -f 'bitmaps/digit4.xpm' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bitmaps/digit4.xpm'\"
+else
+  echo shar: Extracting \"'bitmaps/digit4.xpm'\" \(1438 characters\)
+  sed "s/^X//" >'bitmaps/digit4.xpm' <<'END_OF_FILE'
+X/* XPM */
+Xstatic char * digit4_xpm[] = {
+X"30 40 2 1",
+X" 	c None",
+X".	c red",
+X"                              ",
+X"                              ",
+X"                              ",
+X"                              ",
+X"                              ",
+X"   .                       .  ",
+X"   ..                     ..  ",
+X"   ...                   ...  ",
+X"   ....                 ....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .....               .....  ",
+X"   .... ............... ....  ",
+X"   ... ................. ...  ",
+X"      ...................     ",
+X"       ................. ...  ",
+X"        ............... ....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                       .....  ",
+X"                        ....  ",
+X"                         ...  ",
+X"                          ..  ",
+X"                           .  ",
+X"                              ",
+X"                              ",
+X"                              "};
+END_OF_FILE
+  if test 1438 -ne `wc -c <'bitmaps/digit4.xpm'`; then
+    echo shar: \"'bitmaps/digit4.xpm'\" unpacked with wrong size!
+  fi
+  # end of 'bitmaps/digit4.xpm'
+fi
+if test -f 'bonus.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bonus.c'\"
+else
+  echo shar: Extracting \"'bonus.c'\" \(18804 characters\)
+  sed "s/^X//" >'bonus.c' <<'END_OF_FILE'
+X#include "copyright.h"
+X
+X/*
+X *  Include file dependencies:
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <stddef.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xos.h>
+X#include <xpm.h>
+X
+X#include "error.h"
+X#include "audio.h"
+X#include "highscore.h"
+X#include "misc.h"
+X#include "main.h"
+X#include "gun.h"
+X#include "init.h"
+X#include "stage.h"
+X#include "blocks.h"
+X#include "sfx.h"
+X#include "ball.h"
+X#include "score.h"
+X#include "paddle.h"
+X#include "level.h"
+X#include "mess.h"
+X#include "intro.h"
+X
+X#include "bitmaps/titleSmall.xpm"
+X
+X#include "bonus.h"
+X
+X/*
+X *  Internal macro definitions:
+X */
+X
+X#define GAP					30
+X#define KEY_TYPE_VOL		50
+X#define LINE_DELAY			15
+X
+X#define BONUS_SCORE			3000
+X#define SUPER_BONUS_SCORE	50000
+X#define BULLET_SCORE		500
+X#define LEVEL_SCORE			1000
+X#define TIME_BONUS			100
+X
+X#define BORDER_LEFT			55
+X#define BORDER_RIGHT		((PLAY_WIDTH + MAIN_WIDTH) - 50)
+X#define BORDER_TOP			73
+X#define BORDER_BOTTOM		((PLAY_HEIGHT + MAIN_HEIGHT) - 85)
+X
+X/*
+X *  Internal type declarations:
+X */
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoBullets(Display *display, Window window);
+Xstatic void DoTimeBonus(Display *display, Window window);
+X#else
+Xstatic void DoTimeBonus();
+Xstatic void DoBullets();
+X#endif
+X
+X/*
+X *  Internal variable declarations:
+X */
+X
+Xstatic int 		nextFrame = 0;
+Xstatic int 		count, numBonus;
+Xenum BonusStates BonusState;
+Xstatic Pixmap 	titlePixmap, titlePixmapM;
+Xstatic int 		ypos;
+Xstatic int 		waitingFrame, waitMode;
+Xstatic char 	string[80];
+Xstatic Pixmap 	backingStoreTitle = (Pixmap) NULL;
+Xstatic u_long 	bonusScore;
+Xstatic int 		firstTime = True;
+X
+X
+X#if NeedFunctionPrototypes
+Xvoid SetUpBonus(Display *display, Window window, Colormap colormap)
+X#else
+Xvoid SetUpBonus(display, window, colormap)
+X	Display *display;
+X	Window window;
+X	Colormap colormap;
+X#endif
+X{
+X	XpmAttributes   attributes;
+X	int             XpmErrorStatus;
+X
+X	attributes.valuemask = XpmColormap;
+X	attributes.colormap = colormap;
+X
+X	/* Create the small title pixmap */
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, titleSmall_xpm,
+X		&titlePixmap, &titlePixmapM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBonus()");
+X
+X    /* Free the xpm pixmap attributes */
+X	XpmFreeAttributes(&attributes);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DecNumberBonus(void)
+X#else
+Xvoid DecNumberBonus()
+X#endif
+X{
+X	/* bump down the number of bonuses. sic */
+X	numBonus--;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid IncNumberBonus(void)
+X#else
+Xvoid IncNumberBonus()
+X#endif
+X{
+X	/* bump up the number of bonuses. sic */
+X	numBonus++;
+X}
+X
+X#if NeedFunctionPrototypes
+Xint GetNumberBonus(void)
+X#else
+Xint GetNumberBonus()
+X#endif
+X{
+X	/* Umm - return the number of bonuses */
+X	return numBonus;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid ResetNumberBonus(void)
+X#else
+Xvoid ResetNumberBonus()
+X#endif
+X{
+X	/* No more bonuses thanks */
+X	numBonus = 0;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DrawBallBorder(Display *display, Window window)
+X#else
+Xvoid DrawBallBorder(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int x, y;
+X	static int slide = 0;
+X
+X	/* Draw a row of balls along the top and bottom of screen */
+X	for (x = BORDER_LEFT; x < BORDER_RIGHT; x += 22)
+X	{
+X		DrawTheBall(display, window, x, BORDER_TOP, slide);
+X		DrawTheBall(display, window, x, BORDER_BOTTOM, slide);
+X
+X		/* Next frame of ball animation */
+X		slide++;
+X
+X		/* Wrap around animation */
+X		if (slide == BALL_SLIDES) slide = 0;
+X	}
+X
+X	/* Draw a row of balls along both sides of the screen */
+X	for (y = BORDER_TOP; y < BORDER_BOTTOM; y += 22)
+X	{
+X		DrawTheBall(display, window, BORDER_LEFT, y, slide);
+X		DrawTheBall(display, window, BORDER_RIGHT, y, slide);
+X
+X		/* Next frame of ball animation */
+X		slide++;
+X
+X		/* Wrap around animation */
+X		if (slide == BALL_SLIDES) slide = 0;
+X	}
+X
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DrawSmallIntroTitle(Display *display, Window window, int x, int y)
+X#else
+Xvoid DrawSmallIntroTitle(display, window, x, y)
+X	Display *display;
+X	Window window;
+X	int x;
+X	int y;
+X#endif
+X{
+X	/* Draw the small title pixmap */
+X	RenderShape(display, window, titlePixmap, titlePixmapM,
+X		x - SMALL_TITLE_WC, y - SMALL_TITLE_HC, 
+X		SMALL_TITLE_WIDTH, SMALL_TITLE_HEIGHT, False);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid MoveSmallIntroTitle(Display *display, Window window, int x, int y)
+X#else
+Xvoid MoveSmallIntroTitle(display, window, x, y)
+X	Display *display;
+X	Window window;
+X	int x;
+X	int y;
+X#endif
+X{
+X	static int oldx, oldy;
+X
+X    /* Make a copy of the new titles position */
+X    if (backingStoreTitle != (Pixmap) NULL)
+X        XCopyArea(display, backingStoreTitle, window, gc,
+X            0, 0, SMALL_TITLE_WIDTH, SMALL_TITLE_HEIGHT, oldx, oldy);
+X    else
+X    {
+X        /* Create a pixmap for the backing store title */
+X        backingStoreTitle = XCreatePixmap(display, window,
+X            SMALL_TITLE_WIDTH, SMALL_TITLE_HEIGHT,
+X            DefaultDepth(display, XDefaultScreen(display)));
+X    }
+X
+X    /* Update the variables for the title position */
+X    oldx = x - SMALL_TITLE_WC; oldy = y - SMALL_TITLE_HC;
+X
+X    /* Copy back the old position picture */
+X    if (backingStoreTitle)
+X        XCopyArea(display, window, backingStoreTitle, gc,
+X            x - SMALL_TITLE_WC, y - SMALL_TITLE_HC, 
+X			SMALL_TITLE_WIDTH, SMALL_TITLE_HEIGHT, 0, 0);
+X
+X    DrawSmallIntroTitle(display, window, x, y);
+X}
+X
+X
+X#if NeedFunctionPrototypes
+Xvoid SetupBonusScreen(Display *display, Window window)
+X#else
+Xvoid SetupBonusScreen(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	/* Clear the background again */
+X	ClearMainWindow(display, window);
+X
+X	/* Draw the rectangular border of balls */
+X	DrawBallBorder(display, window);
+X
+X	/* Draw the main title pixmap */
+X	DrawSmallIntroTitle(display, window, TOTAL_WIDTH / 2, 120);
+X
+X	/* The new state will be the text */
+X	ResetBonus();
+X
+X	/* Remove the window to show bonus stuff */
+X	XUnmapWindow(display, playWindow);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DrawTitleText(Display *display, Window window)
+X#else
+Xvoid DrawTitleText(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	SetCurrentMessage(display, messWindow, "- Bonus Tally -", True);
+X	
+X	/* Indicate which level the bonus is for */
+X	sprintf(string, "- Level %d -", level);
+X	DrawShadowCentredText(display, window, titleFont, 
+X		string, ypos, red, TOTAL_WIDTH);
+X	ypos += (titleFont->ascent + GAP);
+X
+X	strcpy(string, "Press space for next level");
+X	DrawShadowCentredText(display, window, textFont, 
+X		string, PLAY_HEIGHT - 12, tann, TOTAL_WIDTH);
+X
+X	BonusState = BONUS_SCORE;
+X
+X	/* Just in case it has changed */
+X	SetGameSpeed(FAST_SPEED);
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoScore(Display *display, Window window)
+X#else
+Xstatic void DoScore(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	SetGameSpeed(MEDIUM_SPEED);
+X
+X	/* Nice message rewarding you for your efforts */
+X	strcpy(string, "Congratulations on finishing this level.");
+X	DrawShadowCentredText(display, window, textFont, 
+X		string, ypos, white, TOTAL_WIDTH);
+X	XFlush(display);
+X
+X	count = 0;
+X	ypos += (35 + GAP);
+X	SetBonusWait(BONUS_BONUS, frame + LINE_DELAY);
+X	SetGameSpeed(SLOW_SPEED);
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoBonuses(Display *display, Window window)
+X#else
+Xstatic void DoBonuses(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int x, plen;
+X	static int maxLen;
+X
+X	if (firstTime)
+X	{
+X		/* Set up the bonus coin sequence */
+X		firstTime = False;
+X
+X		if (numBonus == 0)
+X		{
+X			/* No bonus coins - so tell user */
+X			strcpy(string, "Sorry, no bonus coins collected.");
+X			DrawShadowCentredText(display, window, textFont, 
+X				string, ypos, blue, TOTAL_WIDTH);
+X
+X			SetGameSpeed(MEDIUM_SPEED);
+X
+X			/* Now skip to the next sequence */
+X			SetBonusWait(BONUS_LEVEL, frame + LINE_DELAY);
+X			count = 0;
+X			firstTime = True;
+X			ypos += (textFont->ascent + GAP * 2);
+X			return;
+X		}
+X
+X		if (numBonus > MAX_BONUS)
+X		{
+X			/* Play the sound for the super bonus */
+X			if (noSound == False) 
+X				playSoundFile("superbonus", 80);
+X
+X			/* More than 10 coins collected - super bonus reward */
+X			sprintf(string, "Super Bonus - %d", SUPER_BONUS_SCORE);
+X				DrawShadowCentredText(display, window, titleFont, 
+X					string, ypos, blue, TOTAL_WIDTH);
+X
+X			/* Update the score with more points */
+X			bonusScore += SUPER_BONUS_SCORE;
+X			DisplayScore(display, scoreWindow, bonusScore);
+X	
+X			SetGameSpeed(MEDIUM_SPEED);
+X
+X			/* Now skip to the next sequence */
+X			SetBonusWait(BONUS_LEVEL, frame + LINE_DELAY);
+X			count = 0;
+X			firstTime = True;
+X			ypos += (textFont->ascent + GAP * 2);
+X			return;
+X		}
+X
+X		/* Calculate where to draw these coins centred */
+X		maxLen = ((numBonus * 27) + (10 * numBonus) + 5);
+X	}
+X
+X	/* Find out where the next bonus coin will go next */
+X	plen = ((numBonus * 27) + (10 * numBonus));
+X	x = (((PLAY_WIDTH + MAIN_WIDTH) / 2) + (maxLen / 2)) - plen;
+X
+X	/* Draw the bonus coin shape */
+X	DrawTheBlock(display, window, x, ypos, BONUS_BLK, 0);
+X
+X	/* Play the sound for the bonus */
+X	if (noSound == False) 
+X		playSoundFile("bonus", 50);
+X
+X	/* Increment the score by the value of the bonus */
+X	bonusScore += BONUS_SCORE;
+X	DisplayScore(display, scoreWindow, bonusScore);
+X
+X	/* Reduce number of bonuses */
+X	DecNumberBonus();
+X
+X	if (numBonus <= 0)
+X	{
+X		/* Set up bonus state for next sequence */
+X		SetBonusWait(BONUS_LEVEL, frame + LINE_DELAY);
+X		count = 0;
+X
+X		/* Make sure bonus is reset */
+X		ResetNumberBonus();
+X
+X		ypos += (textFont->ascent + GAP * 1.5);
+X		firstTime = True;
+X
+X		SetGameSpeed(MEDIUM_SPEED);
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoLevel(Display *display, Window window)
+X#else
+Xstatic void DoLevel(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int secs, theLevel;
+X
+X	SetGameSpeed(MEDIUM_SPEED);
+X
+X	/* Get the number of seconds left on the clock */
+X	secs = GetLevelTimeBonus();
+X
+X	if (secs > 0)
+X	{
+X    	/* Adjust the level so that the starting level is taken into account */
+X    	theLevel = (int) level - GetStartingLevel() + 1;
+X
+X		/* Draw level bonus text */
+X		sprintf(string, "Level bonus - level %d x %d = %d points", 
+X			theLevel, LEVEL_SCORE, theLevel * LEVEL_SCORE);
+X		DrawShadowCentredText(display, window, textFont, 
+X			string, ypos, yellow, TOTAL_WIDTH);
+X
+X		/* Increment the score by the value of the level bonus */
+X		bonusScore += (LEVEL_SCORE * theLevel);
+X		DisplayScore(display, scoreWindow, bonusScore);
+X	}
+X	else
+X	{
+X		strcpy(string, "No level bonus - Timer ran out.");
+X		DrawShadowCentredText(display, window, textFont, 
+X			string, ypos, yellow, TOTAL_WIDTH);
+X	}
+X
+X	count = 0;
+X
+X	/* Next section setup */
+X	ypos += (textFont->ascent + GAP * 1.5);
+X	SetBonusWait(BONUS_BULLET, frame + LINE_DELAY);
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoBullets(Display *display, Window window)
+X#else
+Xstatic void DoBullets(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int x, plen;
+X	static int maxLen;
+X
+X	if (firstTime)
+X	{
+X		/* For the first time setup the bullet bonus seq. */
+X		firstTime = False;
+X
+X		if (GetNumberBullets() == 0)
+X		{
+X			/* No bullets - say so */
+X			strcpy(string, "You have used all your bullets. No bonus!");
+X			DrawShadowCentredText(display, window, textFont, 
+X				string, ypos, blue, TOTAL_WIDTH);
+X			
+X			SetGameSpeed(MEDIUM_SPEED);
+X
+X			/* Get ready for the next sequence */
+X			SetBonusWait(BONUS_TIME, frame + LINE_DELAY);
+X			count = 0;
+X			firstTime = True;
+X			ypos += (textFont->ascent + GAP/2);
+X			return;
+X		}
+X
+X		/* Position where the first bullet will be drawn */
+X		maxLen = ((GetNumberBullets() * 7) + (3 * GetNumberBullets()));
+X	}
+X
+X	/* Find out where the next bonus bullet will go next */
+X	plen = ((GetNumberBullets() * 7) + (3 * GetNumberBullets()));
+X	x = (((PLAY_WIDTH + MAIN_WIDTH) / 2) + (maxLen / 2)) - plen;
+X
+X	DrawTheBullet(display, window, x, ypos);
+X
+X	/* Play the sound for the bullets */
+X	if (noSound == False) 
+X		playSoundFile("key", 50);
+X
+X	/* Increment the score by the value of the bullet bonus */
+X	bonusScore += BULLET_SCORE;
+X	DisplayScore(display, scoreWindow, bonusScore);
+X
+X	/* Ummm. Draw a bullet */
+X	DeleteABullet(display);	
+X
+X	if (GetNumberBullets() == 0)
+X	{
+X		/* Reset bullets and get ready for next sequence */
+X		SetBonusWait(BONUS_TIME, frame + LINE_DELAY);
+X		count = 0;
+X		ypos += (textFont->ascent + GAP/2);
+X		firstTime = True;
+X		SetGameSpeed(MEDIUM_SPEED);
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoTimeBonus(Display *display, Window window)
+X#else
+Xstatic void DoTimeBonus(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int secs = 0;
+X
+X	SetGameSpeed(MEDIUM_SPEED);
+X
+X	/* Get the number of seconds left on the clock */
+X	secs = GetLevelTimeBonus();
+X
+X	if (secs > 0)
+X	{
+X		/* Draw time bonus text */
+X		sprintf(string, "Time bonus - %d seconds x %d = %d points", 
+X			secs, TIME_BONUS, secs * TIME_BONUS);
+X		DrawShadowCentredText(display, window, textFont, 
+X			string, ypos, yellow, TOTAL_WIDTH);
+X
+X		/* Increment the score by the value of the time bonus */
+X		bonusScore += (TIME_BONUS * secs);
+X		DisplayScore(display, scoreWindow, bonusScore);
+X	}
+X	else
+X	{
+X		/* Draw no time bonus text */
+X		strcpy(string, "No time bonus - not quick enough!");
+X		DrawShadowCentredText(display, window, textFont, 
+X			string, ypos, yellow, TOTAL_WIDTH);
+X	}
+X
+X	/* Next section setup */
+X	ypos += (textFont->ascent + GAP/2);
+X	SetBonusWait(BONUS_HSCORE, frame + LINE_DELAY);
+X	count = 0;
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoHighScore(Display *display, Window window)
+X#else
+Xstatic void DoHighScore(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int myrank = 0;
+X	char str[5];
+X
+X	SetGameSpeed(MEDIUM_SPEED);
+X
+X	/* Obtain current ranking for this score */
+X	myrank = GetHighScoreRanking(score);
+X
+X	if (myrank > 0)
+X	{
+X		/* Special case for first place */
+X		if (myrank == 1)
+X			sprintf(string, "You are ranked 1st. Well done!");
+X		else
+X		{
+X			/* Add the correct grammer for the sentence */
+X			switch (myrank)
+X			{
+X				case 1:
+X					strcpy(str, "st");
+X					break;
+X				
+X				case 2:
+X					strcpy(str, "nd");
+X					break;
+X				
+X				case 3:
+X					strcpy(str, "rd");
+X					break;
+X				
+X				case 4:
+X				case 5:
+X				case 6:
+X				case 7:
+X				case 8:
+X				case 9:
+X				case 10:
+X					strcpy(str, "th");
+X					break;
+X				
+X				default:
+X					strcpy(str, "");
+X					break;
+X			}
+X
+X			/* Construct beautiful sentence */
+X			sprintf(string, "You are currently ranked %d%s.", 
+X				myrank, str);
+X		}
+X	}
+X	else
+X		/* What a loser ;-) */
+X		strcpy(string, "You haven't even qualified for a highscore!");
+X
+X	/* Draw the text for the game ranking */
+X	DrawShadowCentredText(display, window, textFont, 
+X		string, ypos, red, TOTAL_WIDTH);
+X	ypos += (textFont->ascent + GAP/2);
+X
+X	count = 0;
+X	SetBonusWait(BONUS_END_TEXT, frame + LINE_DELAY);
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoEndText(Display *display, Window window)
+X#else
+Xstatic void DoEndText(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	SetGameSpeed(MEDIUM_SPEED);
+X
+X	/* Finishing sentence - so you know what level to do */
+X	sprintf(string, "Prepare for level %d", level+1);
+X	DrawShadowCentredText(display, window, textFont, 
+X		string, ypos, yellow, TOTAL_WIDTH);
+X	XFlush(display);
+X
+X	count = 0;
+X	SetBonusWait(BONUS_FINISH, frame + 60);
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic void DoFinish(Display *display, Window window)
+X#else
+Xstatic void DoFinish(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	/* Setup game window for the next level */
+X	level++;
+X	SetupStage(display, playWindow);
+X
+X	BonusState = BONUS_TEXT;
+X	SetGameSpeed(FAST_SPEED);
+X
+X	mode = MODE_GAME;
+X
+X	XMapWindow(display, playWindow);
+X
+X	/* Only redraw if the server hasn't backing store on */
+X	if (DoesBackingStore(XDefaultScreenOfDisplay(display)) != Always)
+X		SelectiveRedraw(display);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid SetBonusWait(int newMode, int waitFrame)
+X#else
+Xvoid SetBonusWait(newMode, waitFrame)
+X	int newMode;
+X	int waitFrame;
+X#endif
+X{
+X	waitingFrame = waitFrame;
+X	waitMode = newMode;
+X	BonusState = BONUS_WAIT;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DoBonusWait(void)
+X#else
+Xvoid DoBonusWait()
+X#endif
+X{
+X	/* Wait for the frame we want to come along - then change modes */
+X	if (frame == waitingFrame)
+X		BonusState = waitMode;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid DoBonus(Display *display, Window window)
+X#else
+Xvoid DoBonus(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	/* The states within the bonus mode */
+X	switch (BonusState)
+X	{
+X		case BONUS_TEXT:
+X			DrawTitleText(display, window);
+X			break;
+X
+X		case BONUS_SCORE:
+X			DoScore(display, window);
+X			break;
+X
+X		case BONUS_BONUS:
+X			DoBonuses(display, window);
+X			break;
+X
+X		case BONUS_LEVEL:
+X			DoLevel(display, window);
+X			break;
+X
+X		case BONUS_BULLET:
+X			DoBullets(display, window);
+X			break;
+X
+X		case BONUS_TIME:
+X			DoTimeBonus(display, window);
+X			break;
+X
+X		case BONUS_HSCORE:
+X			DoHighScore(display, window);
+X			break;
+X
+X		case BONUS_END_TEXT:
+X			DoEndText(display, window);
+X			break;
+X
+X		case BONUS_FINISH:
+X			DoFinish(display, window);
+X			break;
+X
+X		case BONUS_WAIT:
+X			DoBonusWait();
+X			break;
+X
+X		default:
+X			break;
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid RedrawBonus(Display *display, Window window)
+X#else
+Xvoid RedrawBonus(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	/* This will redraw the entire screen */
+X	SetupBonusScreen(display, mainWindow);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid FreeBonus(Display *display)
+X#else
+Xvoid FreeBonus(display)
+X	Display *display;
+X#endif
+X{
+X	/* Free all the hungry memory leaks */
+X	if (titlePixmap)	XFreePixmap(display, titlePixmap);
+X	if (titlePixmapM)	XFreePixmap(display, titlePixmapM);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid ComputeAndAddBonusScore(void)
+X#else
+Xvoid ComputeAndAddBonusScore()
+X#endif
+X{
+X	/* This function will pre compute the bonus score and add it to the
+X	 * score. The bonus screen will only change the score by updating the
+X	 * score display and not the score value. This means the user can hit
+X	 * space and go to the next screen without delay. Cool.
+X	 */
+X	int secs = 0;
+X	int theLevel = 0;
+X
+X	/* Compute bonus coin bonus */
+X	if (numBonus > MAX_BONUS)
+X	{
+X		/* More than MAX_BONUS bonus so give super bonus */
+X		AddToScore((u_long) SUPER_BONUS_SCORE);
+X	}
+X	else
+X	{
+X		/* Less than MAX_BONUS so work out bonus score */
+X		AddToScore((u_long) (numBonus * BONUS_SCORE));
+X	}
+X
+X   	/* Adjust the level so that the starting level is taken into account */
+X   	theLevel = (int) level - GetStartingLevel() + 1;
+X
+X	/* Increment the score by the value of the level bonus */
+X	AddToScore((u_long) (LEVEL_SCORE * theLevel));
+X
+X	/* Increment the score by the value of the bullet bonus */
+X	if (GetNumberBullets() != 0)
+X		AddToScore((u_long) (GetNumberBullets() * BULLET_SCORE));
+X
+X    /* Get the number of seconds left on the clock */
+X    secs = GetLevelTimeBonus();
+X    if (secs > 0)
+X    {
+X        /* Increment the score by the value of the time bonus */
+X        AddToScore((u_long) (TIME_BONUS * secs));
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid ResetBonus(void)
+X#else
+Xvoid ResetBonus()
+X#endif
+X{
+X	/* Setup for bonus screen from start */
+X	BonusState = BONUS_TEXT;
+X	nextFrame = frame + 500;
+X	count = 0;
+X	firstTime = True;
+X	bonusScore = score;
+X	ComputeAndAddBonusScore();
+X	ypos = 180;
+X	SetGameSpeed(FAST_SPEED);
+X}
+END_OF_FILE
+  if test 18804 -ne `wc -c <'bonus.c'`; then
+    echo shar: \"'bonus.c'\" unpacked with wrong size!
+  fi
+  # end of 'bonus.c'
+fi
+if test -f 'xaa' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xaa'\"
+else
+  echo shar: Extracting \"'xaa'\" \(31252 characters\)
+  sed "s/^X//" >'xaa' <<'END_OF_FILE'
+X#include "copyright.h"
+X
+X/*
+X *  Include file dependencies:
+X */
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <stddef.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xos.h>
+X#include <xpm.h>
+X
+X#include "bitmaps/blueblock.xpm"
+X#include "bitmaps/exblueblock1.xpm"
+X#include "bitmaps/exblueblock2.xpm"
+X#include "bitmaps/exblueblock3.xpm"
+X
+X#include "bitmaps/redblock.xpm"
+X#include "bitmaps/exredblock1.xpm"
+X#include "bitmaps/exredblock2.xpm"
+X#include "bitmaps/exredblock3.xpm"
+X
+X#include "bitmaps/yellowblock.xpm"
+X#include "bitmaps/exyellowblock1.xpm"
+X#include "bitmaps/exyellowblock2.xpm"
+X#include "bitmaps/exyellowblock3.xpm"
+X
+X#include "bitmaps/greenblock.xpm"
+X#include "bitmaps/exgreenblock1.xpm"
+X#include "bitmaps/exgreenblock2.xpm"
+X#include "bitmaps/exgreenblock3.xpm"
+X
+X#include "bitmaps/tanblock.xpm"
+X#include "bitmaps/extanblock1.xpm"
+X#include "bitmaps/extanblock2.xpm"
+X#include "bitmaps/extanblock3.xpm"
+X
+X#include "bitmaps/purpleblock.xpm"
+X#include "bitmaps/expurpleblock1.xpm"
+X#include "bitmaps/expurpleblock2.xpm"
+X#include "bitmaps/expurpleblock3.xpm"
+X
+X#include "bitmaps/bombblock.xpm"
+X#include "bitmaps/exbombblock1.xpm"
+X#include "bitmaps/exbombblock2.xpm"
+X#include "bitmaps/exbombblock3.xpm"
+X
+X#include "bitmaps/counterblock1.xpm"
+X#include "bitmaps/counterblock2.xpm"
+X#include "bitmaps/counterblock3.xpm"
+X#include "bitmaps/counterblock4.xpm"
+X#include "bitmaps/counterblock5.xpm"
+X#include "bitmaps/counterblock.xpm"
+X#include "bitmaps/excounterblock1.xpm"
+X#include "bitmaps/excounterblock2.xpm"
+X#include "bitmaps/excounterblock3.xpm"
+X
+X#include "bitmaps/blackblock.xpm"
+X#include "bitmaps/reverse.xpm"
+X#include "bitmaps/hyperspace.xpm"
+X#include "bitmaps/machinegun.xpm"
+X#include "bitmaps/walloff.xpm"
+X#include "bitmaps/multiballblock.xpm"
+X#include "bitmaps/stickyblock.xpm"
+X#include "bitmaps/paddleshrink.xpm"
+X#include "bitmaps/paddleexpand.xpm"
+X
+X#include "bitmaps/xtraball.xpm"
+X#include "bitmaps/xtraball2.xpm"
+X
+X#include "bitmaps/x2bonus1.xpm"
+X#include "bitmaps/x2bonus2.xpm"
+X#include "bitmaps/x2bonus3.xpm"
+X#include "bitmaps/x2bonus4.xpm"
+X
+X#include "bitmaps/x4bonus1.xpm"
+X#include "bitmaps/x4bonus2.xpm"
+X#include "bitmaps/x4bonus3.xpm"
+X#include "bitmaps/x4bonus4.xpm"
+X
+X#include "bitmaps/bonus1.xpm"
+X#include "bitmaps/bonus2.xpm"
+X#include "bitmaps/bonus3.xpm"
+X#include "bitmaps/bonus4.xpm"
+X
+X#include "bitmaps/exx2bonus1.xpm"
+X#include "bitmaps/exx2bonus2.xpm"
+X#include "bitmaps/exx2bonus3.xpm"
+X
+X#include "bitmaps/death1.xpm"
+X#include "bitmaps/death2.xpm"
+X#include "bitmaps/death3.xpm"
+X#include "bitmaps/death4.xpm"
+X#include "bitmaps/death5.xpm"
+X
+X#include "bitmaps/exdeath1.xpm"
+X#include "bitmaps/exdeath2.xpm"
+X#include "bitmaps/exdeath3.xpm"
+X#include "bitmaps/exdeath4.xpm"
+X
+X#include "audio.h"
+X#include "misc.h"
+X#include "mess.h"
+X#include "gun.h"
+X#include "error.h"
+X#include "bonus.h"
+X#include "special.h"
+X#include "main.h"
+X#include "init.h"
+X#include "stage.h"
+X#include "ball.h"
+X#include "score.h"
+X#include "paddle.h"
+X#include "level.h"
+X#include "sfx.h"
+X
+X#include "blocks.h"
+X
+X/*
+X *  Internal macro definitions:
+X */
+X
+X#define EXPLODE_DELAY				10	
+X#define BONUS_DELAY					150	
+X#define BONUS_LENGTH				2000
+X#define NUMBER_OF_BULLETS_NEW_LEVEL 4
+X#define DEATH_DELAY1				100
+X#define DEATH_DELAY2				700
+X#define EXTRABALL_DELAY				300
+X#define RANDOM_DELAY				500
+X
+X/*
+X *  Internal type declarations:
+X */
+X
+X#if NeedFunctionPrototypes
+Xstatic void ClearBlock(int row, int col);
+Xstatic void CalculateBlockGeometry(int row, int col);
+Xstatic void SetBlockUpForExplosion(int row, int col, int frame);
+X#else
+Xstatic void SetBlockUpForExplosion();
+Xstatic void ClearBlock();
+Xstatic void CalculateBlockGeometry();
+X#endif
+X
+X/*
+X *  Internal variable declarations:
+X */
+X
+Xstatic Pixmap	exredblock[3],		exredblockM[3];
+Xstatic Pixmap	extanblock[3],		extanblockM[3];
+Xstatic Pixmap	exyellowblock[3],	exyellowblockM[3];
+Xstatic Pixmap	exgreenblock[3],	exgreenblockM[3];
+Xstatic Pixmap	exblueblock[3],		exblueblockM[3];
+Xstatic Pixmap	expurpleblock[3],	expurpleblockM[3];
+Xstatic Pixmap	exbombblock[3],		exbombblockM[3];
+Xstatic Pixmap	excounterblock[3],	excounterblockM[3];
+Xstatic Pixmap	exx2bonus[3],		exx2bonusM[3];
+Xstatic Pixmap	x2bonus[4],			x2bonusM[4];
+Xstatic Pixmap	x4bonus[4],			x4bonusM[4];
+Xstatic Pixmap	Bonus[4],			BonusM[4];
+Xstatic Pixmap	death[5],			deathM[5];
+Xstatic Pixmap	exdeath[5],			exdeathM[5];
+Xstatic Pixmap	counterblock[6],	counterblockM[6];
+Xstatic Pixmap	extraball[3],		extraballM[3];
+X
+Xstatic Pixmap	redblock, greenblock, blueblock, yellowblock, purpleblock;	
+Xstatic Pixmap	tanblock, blackblock, bombblock, revblock, 	hyperblock;
+Xstatic Pixmap	mgunblock, walloffblock, multiball, sticky, paddleshrink;
+Xstatic Pixmap	paddleexpand;
+X
+Xstatic Pixmap	redblockM, greenblockM, blueblockM, yellowblockM, purpleblockM;	
+Xstatic Pixmap	tanblockM, blackblockM, bombblockM, revblockM, 	hyperblockM;
+Xstatic Pixmap	mgunblockM, walloffblockM, multiballM, stickyM, paddleshrinkM;
+Xstatic Pixmap	paddleexpandM;
+X
+Xstruct aBlock 	blocks[MAX_ROW][MAX_COL];
+Xint			blocksExploding = 0;
+Xint			rowHeight;
+Xint			colWidth;
+X
+X#if NeedFunctionPrototypes
+Xvoid InitialiseBlocks(Display *display, Window window, Colormap colormap)
+X#else
+Xvoid InitialiseBlocks(display, window, colormap)
+X	Display *display;
+X	Window window;
+X	Colormap colormap;
+X#endif
+X{
+X	XpmAttributes   attributes;
+X	int 			XpmErrorStatus;
+X
+X	attributes.valuemask = XpmColormap;
+X	attributes.colormap = colormap;
+X
+X	/* Create all xpm pixmap blocks from the files */
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, redblock_xpm, 
+X		&redblock, &redblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(red)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, blueblock_xpm, 
+X		&blueblock, &blueblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(blue)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, greenblock_xpm, 
+X		&greenblock, &greenblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(green)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, yellowblock_xpm, 
+X		&yellowblock, &yellowblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(yellow)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, tanblock_xpm, 
+X		&tanblock, &tanblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(tan)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, purpleblock_xpm, 
+X		&purpleblock, &purpleblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(purple)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, blackblock_xpm, 
+X		&blackblock, &blackblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(wall)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, bombblock_xpm, 
+X		&bombblock, &bombblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(bomb)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, reverse_xpm, 
+X		&revblock, &revblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(reverse)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, hyperspace_xpm, 
+X		&hyperblock, &hyperblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(hyperspace)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, machinegun_xpm, 
+X		&mgunblock, &mgunblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(machinegun)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, walloff_xpm, 
+X		&walloffblock, &walloffblockM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(walloff)");
+X
+X	/* Explosion for yellow block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exyellowblock1_xpm, &exyellowblock[0], &exyellowblockM[0], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exyellow)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exyellowblock2_xpm, &exyellowblock[1], &exyellowblockM[1], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exyellow)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exyellowblock3_xpm, &exyellowblock[2], &exyellowblockM[2], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exyellow)");
+X
+X	/* Explosion for red block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, exredblock1_xpm, 
+X		&exredblock[0], &exredblockM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exred)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, exredblock2_xpm, 
+X		&exredblock[1], &exredblockM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exred)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, exredblock3_xpm, 
+X		&exredblock[2], &exredblockM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exred)");
+X
+X	/* Explosion for green block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exgreenblock1_xpm, &exgreenblock[0], &exgreenblockM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exgreen)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exgreenblock2_xpm, &exgreenblock[1], &exgreenblockM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exgreen)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exgreenblock3_xpm, &exgreenblock[2], &exgreenblockM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exgreen)");
+X
+X	/* Explosion for blue block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exblueblock1_xpm, &exblueblock[0], &exblueblockM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exblue)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exblueblock2_xpm, &exblueblock[1], &exblueblockM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exblue)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exblueblock3_xpm, &exblueblock[2], &exblueblockM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exblue)");
+X
+X	/* Explosion for tan block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		extanblock1_xpm, &extanblock[0], &extanblockM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(extan)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		extanblock2_xpm, &extanblock[1], &extanblockM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(extan)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		extanblock3_xpm, &extanblock[2], &extanblockM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(extan)");
+X
+X	/* Explosion for purple block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		expurpleblock1_xpm, &expurpleblock[0], &expurpleblockM[0], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(expurple)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		expurpleblock2_xpm, &expurpleblock[1], &expurpleblockM[1], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(expurple)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		expurpleblock3_xpm, &expurpleblock[2], &expurpleblockM[2], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(expurple)");
+X
+X	/* Explosion for bomb block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exbombblock1_xpm, &exbombblock[0], &exbombblockM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbomb)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exbombblock2_xpm, &exbombblock[1], &exbombblockM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbomb)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exbombblock3_xpm, &exbombblock[2], &exbombblockM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbomb)");
+X
+X	/* Explosion for counter block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		excounterblock1_xpm, &excounterblock[0], &excounterblockM[0], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(excounter)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		excounterblock2_xpm, &excounterblock[1], &excounterblockM[1], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(excounter)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		excounterblock3_xpm, &excounterblock[2], &excounterblockM[2], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(excounter)");
+X
+X	/* countdown for counter block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock_xpm, &counterblock[0], &counterblockM[0], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter0)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock1_xpm, &counterblock[1], &counterblockM[1], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter1)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock2_xpm, &counterblock[2], &counterblockM[2], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter2)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock3_xpm, &counterblock[3], &counterblockM[3], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter3)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock4_xpm, &counterblock[4], &counterblockM[4], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter4)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		counterblock5_xpm, &counterblock[5], &counterblockM[5], 
+X		&attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(counter5)");
+X
+X	/* Bonus block stuff */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x2bonus1_xpm, &x2bonus[0], &x2bonusM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x2bonus1)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x2bonus2_xpm, &x2bonus[1], &x2bonusM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x2bonus2)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x2bonus3_xpm, &x2bonus[2], &x2bonusM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x2bonus3)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x2bonus4_xpm, &x2bonus[3], &x2bonusM[3], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x2bonus4)");
+X
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x4bonus1_xpm, &x4bonus[0], &x4bonusM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x4bonus1)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x4bonus2_xpm, &x4bonus[1], &x4bonusM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x4bonus2)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x4bonus3_xpm, &x4bonus[2], &x4bonusM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x4bonus3)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		x4bonus4_xpm, &x4bonus[3], &x4bonusM[3], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(x4bonus4)");
+X
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		bonus1_xpm, &Bonus[0], &BonusM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(bonus1)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		bonus2_xpm, &Bonus[1], &BonusM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(bonus2)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		bonus3_xpm, &Bonus[2], &BonusM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(bonus3)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		bonus4_xpm, &Bonus[3], &BonusM[3], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(bonus4)");
+X
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exx2bonus1_xpm, &exx2bonus[0], &exx2bonusM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbonus)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exx2bonus2_xpm, &exx2bonus[1], &exx2bonusM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbonus)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exx2bonus3_xpm, &exx2bonus[2], &exx2bonusM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exbonus)");
+X
+X	/* Death block initialisation */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		death1_xpm, &death[0], &deathM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(death)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		death2_xpm, &death[1], &deathM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(death)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		death3_xpm, &death[2], &deathM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(death)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		death4_xpm, &death[3], &deathM[3], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(death)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		death5_xpm, &death[4], &deathM[4], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(death)");
+X
+X	/* Death block explosion init */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exdeath1_xpm, &exdeath[0], &exdeathM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exdeath)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exdeath2_xpm, &exdeath[1], &exdeathM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exdeath)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exdeath3_xpm, &exdeath[2], &exdeathM[2], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exdeath)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		exdeath4_xpm, &exdeath[3], &exdeathM[3], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(exdeath)");
+X
+X	/* Extra balll pixmaps */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		xtraball_xpm, &extraball[0], &extraballM[0], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(extraball)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		xtraball2_xpm, &extraball[1], &extraballM[1], &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(extraball)");
+X
+X	/* Multiple ball pixmap */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		multiballblock_xpm, &multiball, &multiballM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(multiball)");
+X
+X	/* Sticky block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		stickyblock_xpm, &sticky, &stickyM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(sticky)");
+X
+X	/* paddle shrink and expand block */
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		paddleshrink_xpm, &paddleshrink, &paddleshrinkM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(paddleshrink)");
+X
+X	XpmErrorStatus = XpmCreatePixmapFromData(display, window, 
+X		paddleexpand_xpm, &paddleexpand, &paddleexpandM, &attributes);
+X	HandleXPMError(display, XpmErrorStatus, "InitialiseBlocks(paddleexpand)");
+X
+X	/* Free the xpm pixmap attributes */
+X	XpmFreeAttributes(&attributes);
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid PlaySoundForBlock(int type)
+X#else
+Xvoid PlaySoundForBlock(type)
+X	int type;
+X#endif
+X{
+X	/* If no sound the no sound */
+X	if (noSound == True) return;
+X
+X	/* Play the sound effect for the block being hit */
+X	switch (type)
+X	{
+X		case BOMB_BLK:		
+X			playSoundFile("bomb", 50);
+X			break;
+X
+X		case BULLET_BLK:
+X			playSoundFile("ammo", 50);
+X			break;
+X
+X		case RED_BLK:
+X		case GREEN_BLK:		
+X		case BLUE_BLK:	
+X		case TAN_BLK:
+X		case PURPLE_BLK:	
+X		case YELLOW_BLK:
+X		case COUNTER_BLK:
+X		case RANDOM_BLK:
+X			playSoundFile("touch", 100);
+X			break;
+X
+X		case BONUSX2_BLK:	
+X		case BONUSX4_BLK:	
+X		case BONUS_BLK:	
+X		case MGUN_BLK:	
+X		case EXTRABALL_BLK:	
+X		case WALLOFF_BLK:	
+X		case REVERSE_BLK:	
+X		case MULTIBALL_BLK:
+X		case STICKY_BLK:
+X		case PAD_SHRINK_BLK:
+X		case PAD_EXPAND_BLK:
+X			playSoundFile("bonus", 50);
+X			break;
+X
+X		case DEATH_BLK:	
+X			playSoundFile("evillaugh", 100);
+X			break;
+X
+X		case BLACK_BLK:		
+X			playSoundFile("touch", 50);
+X			break;
+X
+X		case HYPERSPACE_BLK:
+X			playSoundFile("hyperspace", 70);
+X			break;
+X
+X		case KILL_BLK:
+X			ErrorMessage("Error: kill block type in PlaySoundForBlock()");
+X			break;
+X
+X		default:
+X			ErrorMessage("Error: Unknown block type in PlaySoundForBlock()");
+X			break;
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid ExplodeBlockType(Display *display, Window window, int x, int y, 
+X	int type, int slide)
+X#else
+Xvoid ExplodeBlockType(display, window, x, y, type, slide)
+X	Display *display;
+X	Window window;
+X	int x;
+X	int y; 
+X	int type;
+X	int slide;
+X#endif
+X{
+X	/* Draw a frame from the blocks explode animation */
+X	switch (type)
+X	{
+X		case BOMB_BLK:		/* Draw the bomb block explosion slide */
+X			RenderShape(display, window, exbombblock[slide], 
+X				exbombblockM[slide], x, y, 30, 30, True);
+X			break;
+X
+X		case MULTIBALL_BLK:
+X		case RED_BLK:		/* Draw a red block explosion slide */
+X			RenderShape(display, window, exredblock[slide], 
+X				exredblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case GREEN_BLK:		/* Draw a green block explosion slide */
+X			RenderShape(display, window, exgreenblock[slide], 
+X				exgreenblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case BLUE_BLK:		/* Draw a blue block explosion slide */
+X			RenderShape(display, window, exblueblock[slide], 
+X				exblueblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case TAN_BLK:		/* Draw a tan block explosion slide */
+X			RenderShape(display, window, extanblock[slide], 
+X				extanblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case PURPLE_BLK:	/* Draw a purple block explosion slide */
+X			RenderShape(display, window, expurpleblock[slide], 
+X				expurpleblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case BULLET_BLK:	/* Draw a bullet block explosion slide */
+X		case YELLOW_BLK:	/* Draw a yellow block explosion slide */
+X			RenderShape(display, window, exyellowblock[slide], 
+X				exyellowblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case COUNTER_BLK:	/* Draw a counter block explosion slide */
+X			RenderShape(display, window, excounterblock[slide], 
+X				excounterblockM[slide], x, y, 40, 20, True);
+X			break;
+X
+X		case BONUS_BLK:		/* Draw a bonus coin block explosion slide */
+X		case BONUSX4_BLK:	/* Draw a bonus x2 oin block explosion slide */
+X		case BONUSX2_BLK:	/* Draw a bonus x4 coin block explosion slide */
+X			RenderShape(display, window, exx2bonus[slide], 
+X				exx2bonusM[slide], x, y, 27, 27, True);
+X			break;
+X
+X		case DEATH_BLK:		/* Draw a pirate death block explosion slide */
+X			RenderShape(display, window, exdeath[slide], 
+X				exdeathM[slide], x, y, 30, 30, True);
+X			break;
+X
+X		case BLACK_BLK:		/* The wall doesn't have any animation */
+X		case REVERSE_BLK:	/* The reverse doesn't have any animation */
+X		case HYPERSPACE_BLK:/* The hyperspace doesn't have any animation */
+X		case EXTRABALL_BLK:	/* The extra ball doesn't have any animation */
+X		case MGUN_BLK:		/* The machine gun doesn't have any animation */
+X		case WALLOFF_BLK:	/* The wall off doesn't have any animation */
+X		case STICKY_BLK:	/* No animation for sticky block either */
+X		case PAD_SHRINK_BLK:
+X		case PAD_EXPAND_BLK:
+X			break;
+X
+X			break;
+X
+X		default:
+X			ErrorMessage("Error: Unknown block type in ExplodeBlockType()");
+X			break;
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid AddBonusBlock(Display *display, Window window, int *row, int *col, 
+X	int type)
+X#else
+Xvoid AddBonusBlock(display, window, row, col, type)
+X	Display *display;
+X	Window window;
+X	int *row;
+X	int *col;
+X	int type;
+X#endif
+X{
+X	int r, c;
+X	struct aBlock *blockP;
+X
+X	/* Give me a new random block position */
+X	r = rand() % (MAX_ROW - 4);
+X	c = rand() % MAX_COL;
+X
+X	/* Pointer to the correct block we need - speed things up */
+X	blockP = &blocks[r][c];
+X
+X	/* Add a bonus coin in this block only if it isn't occupied and 
+X	 * it isn't exploding.
+X	 */
+X	if ((blockP->occupied == False) && (blockP->explodeStartFrame == 0))
+X	{
+X		AddNewBlock(display, window, r, c, type, 0);
+X		bonusBlock = True;
+X
+X		/* Setup the block structure for new block */
+X		blockP->nextFrame 		= frame + BONUS_DELAY;
+X		blockP->lastFrame 		= frame + BONUS_LENGTH;
+X		blockP->bonusSlide 		= 3;
+X
+X		/* Return the new bonus row & coloumn position */
+X		*row = r; *col = c;
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xstatic int GetRandomType(void)
+X#else
+Xstatic int GetRandomType()
+X#endif
+X{
+X	/* This function will return a random new block block type */
+X	switch (rand() % 7)
+X	{
+X		case 0:
+X			return RED_BLK;
+X
+X		case 1:
+X			return BLUE_BLK;
+X
+X		case 2:
+X			return GREEN_BLK;
+X
+X		case 3:
+X			return TAN_BLK;
+X
+X		case 4:
+X			return YELLOW_BLK;
+X
+X		case 5:
+X			return PURPLE_BLK;
+X
+X		case 6:
+X			return BULLET_BLK;
+X	}
+X
+X	/* Shouldn't get here but it stops warnings on compiler */
+X	return YELLOW_BLK;
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid HandlePendingBonuses(Display *display, Window window, int type, 
+X	int r, int c)
+X#else
+Xvoid HandlePendingBonuses(display, window, type, r, c)
+X	Display *display;
+X	Window window;
+X	int type;
+X	int r, c;
+X#endif
+X{
+X	struct aBlock *blockP;
+X
+X	blockP = &blocks[r][c];
+X
+X	if (blockP->nextFrame == frame) 
+X	{
+X		if (frame <= blockP->lastFrame)
+X		{
+X			/* Advance to the next frame of animation */
+X			DrawTheBlock(display, window, 
+X				blockP->x, blockP->y, 
+X				type, blockP->bonusSlide);
+X
+X				blockP->nextFrame = frame + BONUS_DELAY;
+X				blockP->bonusSlide--;
+X
+X				if (blockP->bonusSlide < 0)
+X				blockP->bonusSlide = 3;
+X		}
+X		else
+X		{
+X			/* Kill off bonus block */
+X			bonusBlock = False;
+X			blockP->occupied = False;
+X			XClearArea(display, window, 
+X				blockP->x, blockP->y,
+X				blockP->width, blockP->height, 
+X				False);
+X		}
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid HandlePendingAnimations(Display *display, Window window)
+X#else
+Xvoid HandlePendingAnimations(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int r, c;
+X	struct aBlock *blockP;
+X
+X	/* Cycle through all rows and columns and update any animations that
+X	 * need to be done every frame. ie: bonus etc
+X	 */
+X	for (r = 0; r < MAX_ROW; r++)
+X	{
+X		for (c = 0; c < MAX_COL; c++)
+X		{
+X			blockP = &blocks[r][c];
+X
+X			/* Only bother if the block is occupied! */
+X			if (blockP->occupied == True) 
+X			{
+X				switch (blockP->blockType)
+X				{
+X					case BONUS_BLK:	/* Bonus coin symbol */
+X						HandlePendingBonuses(display, window, BONUS_BLK, r, c);
+X						break;
+X
+X					case BONUSX2_BLK:	/* Bonus x2 coin symbol */
+X						HandlePendingBonuses(display, window, BONUSX2_BLK, r,c);
+X						break;
+X
+X					case BONUSX4_BLK:	/* Bonus x4 coin symbol */
+X						HandlePendingBonuses(display, window, BONUSX4_BLK, r,c);
+X						break;
+X
+X					case DEATH_BLK:	/* Death block animation */
+X						if (blockP->nextFrame == frame) 
+X						{
+X							/* Advance to the next frame of animation */
+X							DrawTheBlock(display, window, 
+X								blockP->x, blockP->y, 
+X								DEATH_BLK, blockP->bonusSlide);
+X
+X							blockP->nextFrame = frame + DEATH_DELAY1;
+X							blockP->bonusSlide++;
+X
+X							/* Have the delay bit between winks */
+X							if (blockP->bonusSlide > 4)
+X							{
+X								blockP->bonusSlide = 0;
+X								blockP->nextFrame = frame + DEATH_DELAY2;
+X								DrawTheBlock(display, window, 
+X									blockP->x, blockP->y, 
+X									DEATH_BLK, blockP->bonusSlide);
+X							}
+X						}
+X						break;
+X
+X					case EXTRABALL_BLK:	/* extra ball block animation */
+X						if (blockP->nextFrame == frame) 
+X						{
+X							/* Advance to the next frame of animation */
+X							DrawTheBlock(display, window, 
+X								blockP->x, blockP->y, 
+X								EXTRABALL_BLK, blockP->bonusSlide);
+X
+X							blockP->nextFrame = frame + EXTRABALL_DELAY;
+X							blockP->bonusSlide++;
+X
+X							/* Have the delay bit between flashes */
+X							if (blockP->bonusSlide > 1)
+X								blockP->bonusSlide = 0;
+X						}
+X						break;
+X				}
+X
+X				/* If it is a random block then change? */
+X				if (blockP->random == True)
+X				{
+X					if (blockP->nextFrame == frame) 
+X					{
+X						/* Change the block to a new block block. We should
+X						 * be allright in just changing the blocktype etc.
+X						 * as the blocks are all the same .
+X						 */
+X						blockP->blockType = GetRandomType();
+X						blockP->bonusSlide = 0;
+X
+X						DrawTheBlock(display, window, 
+X							blockP->x, blockP->y, 
+X							blockP->blockType, blockP->bonusSlide);
+X
+X						blockP->nextFrame = 
+X							frame + (rand() % RANDOM_DELAY) + 300;
+X					}	
+X				}
+X			}
+X		}
+X	}
+X}
+X
+X#if NeedFunctionPrototypes
+Xvoid ExplodeBlocksPending(Display *display, Window window)
+X#else
+Xvoid ExplodeBlocksPending(display, window)
+X	Display *display;
+X	Window window;
+X#endif
+X{
+X	int r, c, x, y, type;
+X	struct aBlock *blockP;
+X	char str[50];
+X
+X	/* If none are exploding then bug out */
+X	if (blocksExploding == 0) return;
+X
+X	/* Cycle through all blocks exploding pending animation blocks */
+X	for (r = 0; r < MAX_ROW; r++)
+X	{
+X		for (c = 0; c < MAX_COL; c++)
+X		{
+X			/* Get the pointer to the block we need */
+X			blockP = &blocks[r][c];
+X
+X			/* Will be non-zero if animation is required */
+X			if (blockP->explodeStartFrame)
+X			{
+X				/* Is it time to explode this frame */
+X				if (blockP->explodeNextFrame == frame) 
+X				{
+X					x = blockP->x;
+X					y = blockP->y;
+X					type = blockP->blockType;
+X
+X					/* Switch on slide of animation */
+X					switch (blockP->explodeSlide)
+X					{
+X						case 1:	/* First frame of animation */
+X							ExplodeBlockType(display, window, x, y, type, 0);
+X							blockP->explodeNextFrame =
+X								blockP->explodeStartFrame;
+X							break;
+X	
+X						case 2:	/* Second frame of animation */
+X							ExplodeBlockType(display, window, x, y, type, 1);
+X							break;
+X	
+X						case 3:	/* Third frame of animation */
+X							ExplodeBlockType(display, window, x, y, type, 2);
+X							break;
+X	
+X						case 4:	/* Last frame of animation  - clear */
+X							XClearArea(display, window, x, y, 
+X								blockP->width, 
+X								blockP->height, False);
+X							break;
+X					}
+X	
+X					/* procede to next frame in animation */
+X					blockP->explodeSlide++;
+X					blockP->explodeNextFrame += EXPLODE_DELAY;
+X	
+X					/* last frame so clean up animation and block */
+X					if (blockP->explodeSlide > 4)
+X					{
+X						blocksExploding--;
+X						blockP->occupied = 0;
+X						blockP->exploding = False;
+X
+X						AddToScore((u_long) blockP->hitPoints);
+X						DisplayScore(display, scoreWindow, score);
+X
+X						switch (blockP->blockType)
+X						{
+X							case BLACK_BLK:
+X							case PAD_SHRINK_BLK:
+X							case PAD_EXPAND_BLK:
+X								break;
+X
+X							case BOMB_BLK:
+X								/* Explode all the ones around it */
+X								SetBlockUpForExplosion(r+1, c, 
+END_OF_FILE
+  if test 31252 -ne `wc -c <'xaa'`; then
+    echo shar: \"'xaa'\" unpacked with wrong size!
+  fi
+  # end of 'xaa'
+fi
+echo shar: End of archive 6 \(of 26\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "merging split files..."
+    cat blocks.c[12] > blocks.c
+    rm blocks.c[12]
+    echo "blocks.c done"
+    cat bitmaps/earth.xpm.Z.u.[ab] > bitmaps/earth.xpm.Z.uue
+    rm bitmaps/earth.xpm.Z.u.[ab]
+    echo "bitmaps/earth.xpm.Z.uue done"
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

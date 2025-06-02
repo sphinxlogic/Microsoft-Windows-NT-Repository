@@ -1,0 +1,1570 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i081:  imagemagic - X11 image processing and display, Part25/38
+Message-ID: <1993Jul14.232002.22341@sparky.sterling.com>
+X-Md4-Signature: 84d3a45eb540f6690e85acca38ba5ec4
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:20:02 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 81
+Archive-name: imagemagic/part25
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.25 (part 25 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/display.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 25; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/display.c'
+else
+echo 'x - continuing file ImageMagick/display.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/display.c' &&
+%                                                                             %
+%                                                                             %
+%   X T i l e I m a g e W i n d o w                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XTileImageWindow determines which individual tile of a composite
+%  image was choosen with a button press and then displays it.
+%
+%  The format of the XTileImageWindow routine is:
+%
+%    tiled_image=XTileImageWindow(display,resource_info,window,image,event)
+%
+%  A description of each parameter follows:
+%
+%    o tiled_image:  XTileImageWindow reads the tiled image and returns
+%      it.  A null image is returned if an error occurs.
+%
+%    o display: Specifies a connection to an X server;  returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure; returned from
+%      ReadImage.
+%
+%    o event: Specifies a pointer to a XEvent structure.  If it is NULL,
+%      the entire image is refreshed.
+%
+%
+*/
+static Image *XTileImageWindow(display,resource_info,window,image,event)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+Image
+X  *image;
+X
+XXEvent
+X  *event;
+{
+X  char
+X    filename[2048],
+X    text[2048];
+X
+X  Image
+X    *tiled_image;
+X
+X  int
+X    tile,
+X    x,
+X    y;
+X
+X  register char
+X    *p,
+X    *q;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  unsigned long
+X    scale_factor;
+X
+X  /*
+X    Tile image is relative to composite image configuration.
+X  */
+X  x=0;
+X  y=0;
+X  width=image->columns;
+X  height=image->rows;
+X  if (window->image.clip_geometry != (char *) NULL)
+X    (void) XParseGeometry(window->image.clip_geometry,&x,&y,&width,&height);
+X  scale_factor=UpShift(width)/window->image.ximage->width;
+X  event->xbutton.x+=window->image.x;
+X  event->xbutton.x=DownShift(event->xbutton.x*scale_factor)+x;
+X  scale_factor=UpShift(height)/window->image.ximage->height;
+X  event->xbutton.y+=window->image.y;
+X  event->xbutton.y=DownShift(event->xbutton.y*scale_factor)+y;
+X  /*
+X    Determine size and location of individual tiles of the composite.
+X  */
+X  x=0;
+X  y=0;
+X  width=image->columns;
+X  height=image->rows;
+X  (void) XParseGeometry(image->montage,&x,&y,&width,&height);
+X  tile=((event->xbutton.y-y)/height)*((image->columns-x)/width)+
+X    (event->xbutton.x-x)/width;
+X  if (tile < 0)
+X    {
+X      /*
+X        Button press is outside any tile.
+X      */
+X      XBell(display,0);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Determine file name from the tile directory.
+X  */
+X  p=image->directory;
+X  while ((tile != 0) && (*p != '\0'))
+X  {
+X    if (*p == '\n')
+X      tile--;
+X    p++;
+X  }
+X  if (*p == '\0')
+X    {
+X      /*
+X        Button press is outside any tile.
+X      */
+X      XBell(display,0);
+X      return((Image *) NULL);
+X    }
+X  q=p;
+X  while ((*q != '\n') && (*q != '\0'))
+X    q++;
+X  (void) strncpy(filename,p,q-p);
+X  filename[q-p]='\0';
+X  /*
+X    Map info window.
+X  */
+X  (void) strcpy(text," Loading image... ");
+X  XSetWindowExtents(display,&window->info,text);
+X  XMapWindow(display,window->info.id);
+X  XDisplayInfoString(display,&window->info,text);
+X  /*
+X    Load tile image.
+X  */
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  XFlush(display);
+X  (void) strcpy(resource_info->image_info->filename,filename);
+X  tiled_image=ReadImage(resource_info->image_info);
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  XWithdrawWindow(display,window->info.id,window->info.screen);
+X  if (tiled_image == (Image *) NULL)
+X    XPopupAlert(display,&window->popup,"unable to load image",filename);
+X  return(tiled_image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X S e t C l i p G e o m e t r y                                           %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XSetClipGeometry accepts a clipping geometry relative to the
+%  image window and translates it to a clipping geometry relative to the
+%  image.
+%
+%  The format of the XSetClipGeometry routine is:
+%
+%    XSetClipGeometry(display,window,clip_info,image)
+%
+%  A description of each parameter follows:
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o clip_info:  A pointer to a RectangleInfo that defines a region of the
+%      image window to clip.
+%
+%    o image: Specifies a pointer to a Image structure.
+%
+%
+*/
+static void XSetClipGeometry(display,window,clip_info,image)
+Display
+X  *display;
+X
+XXWindows
+X  *window;
+X
+RectangleInfo
+X  *clip_info;
+X
+Image
+X  *image;
+{
+X  char
+X    text[2048];
+X
+X  int
+X    x,
+X    y;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  unsigned long
+X    scale_factor;
+X
+X  /*
+X    Display info on clipping rectangle.
+X  */
+X  (void) sprintf(text," %ux%u+%u+%u ",window->image.width,
+X    window->image.height,window->image.width,window->image.height);
+X  XSetWindowExtents(display,&window->info,text);
+X  XMapWindow(display,window->info.id);
+X  (void) sprintf(text," %ux%u%+d%+d",clip_info->width,clip_info->height,
+X    clip_info->x,clip_info->y);
+X  XDisplayInfoString(display,&window->info,text);
+X  /*
+X    Clipping geometry is relative to any previous clip geometry.
+X  */
+X  x=0;
+X  y=0;
+X  width=image->columns;
+X  height=image->rows;
+X  if (window->image.clip_geometry != (char *) NULL)
+X    (void) XParseGeometry(window->image.clip_geometry,&x,&y,&width,&height);
+X  else
+X    {
+X      /*
+X        Allocate clip geometry string.
+X      */
+X      window->image.clip_geometry=(char *) malloc(2048*sizeof(char));
+X      if (window->image.clip_geometry == (char *) NULL)
+X        Error("unable to clip X image",window->image.name);
+X    }
+X  /*
+X    Define the clip geometry string from the clipping rectangle.
+X  */
+X  scale_factor=UpShift(width)/window->image.ximage->width;
+X  clip_info->x+=window->image.x;
+X  if (clip_info->x > 0)
+X    x+=DownShift(clip_info->x*scale_factor);
+X  width=DownShift(clip_info->width*scale_factor);
+X  if (width == 0)
+X    width=1;
+X  scale_factor=UpShift(height)/window->image.ximage->height;
+X  clip_info->y+=window->image.y;
+X  if (clip_info->y > 0)
+X    y+=DownShift(clip_info->y*scale_factor);
+X  height=DownShift(clip_info->height*scale_factor);
+X  if (height == 0)
+X    height=1;
+X  (void) sprintf(window->image.clip_geometry,"%ux%u%+d%+d",width,height,x,y);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   X W r i t e I m a g e W i n d o w                                         %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function XWriteImageWindow writes an image to a file.
+%
+%  The format of the XWriteImageWindow routine is:
+%
+%    status=XWriteImageWindow(display,resource_info,window,image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function XWriteImageWindow return True if the image is
+%      loaded.  False is returned is there is a memory shortage or if the
+%      image fails to load.
+%
+%    o display: Specifies a connection to an X server; returned from
+%      XOpenDisplay.
+%
+%    o resource_info: Specifies a pointer to a X11 XResourceInfo structure.
+%
+%    o window: Specifies a pointer to a XWindows structure.
+%
+%    o image: Specifies a pointer to a Image structure;  returned from
+%      ReadImage.
+%
+%
+*/
+static unsigned int XWriteImageWindow(display,resource_info,window,image)
+Display
+X  *display;
+X
+XXResourceInfo
+X  *resource_info;
+X
+XXWindows
+X  *window;
+X
+Image
+X  **image;
+{
+X  char
+X    filename[2048],
+X    text[2048];
+X
+X  Image
+X    *output_image;
+X
+X  /*
+X    Request file name from user.
+X  */
+X  (void) strcpy(filename,(*image)->filename);
+X  if (resource_info->write_filename != (char *) NULL)
+X    (void) strcpy(filename,resource_info->write_filename);
+X  XPopupQuery(display,&window->popup,"File name:",filename);
+X  if (*filename == '\0')
+X    return(True);
+X  /*
+X    Alert user we are busy.
+X  */
+X  XDefineCursor(display,window->image.id,window->image.busy_cursor);
+X  (void) strcpy(text," Writing image... ");
+X  XSetWindowExtents(display,&window->info,text);
+X  XMapWindow(display,window->info.id);
+X  XDisplayInfoString(display,&window->info,text);
+X  XFlush(display);
+X  /*
+X    Copy image before applying image transforms.
+X  */
+X  (*image)->orphan=True;
+X  output_image=CopyImage(*image,(*image)->columns,(*image)->rows,True);
+X  (*image)->orphan=False;
+X  if (output_image == (Image *) NULL)
+X    {
+X      XPopupAlert(display,&window->popup,"unable to write X image",
+X        window->image.name);
+X      XDefineCursor(display,window->image.id,window->image.cursor);
+X      XWithdrawWindow(display,window->info.id,window->info.screen);
+X      return(False);
+X    }
+X  if ((window->image.clip_geometry != (char *) NULL) ||
+X     (output_image->columns != window->image.ximage->width) ||
+X     (output_image->rows != window->image.ximage->height))
+X    {
+X      char
+X        image_geometry[2048];
+X
+X      /*
+X        Clip and/or scale image.
+X      */
+X      (void) sprintf(image_geometry,"%dx%d",window->image.ximage->width,
+X        window->image.ximage->height);
+X      TransformImage(&output_image,window->image.clip_geometry,
+X        image_geometry,(char *) NULL);
+X    }
+X  if (resource_info->colorspace == GRAYColorspace)
+X    QuantizeImage(output_image,256,8,resource_info->dither,GRAYColorspace,True);
+X  if (resource_info->monochrome)
+X    QuantizeImage(output_image,2,8,resource_info->dither,GRAYColorspace,True);
+X  if (resource_info->number_colors != 0)
+X    if ((output_image->class == DirectClass) ||
+X        (output_image->colors > resource_info->number_colors))
+X      {
+X        QuantizeImage(output_image,resource_info->number_colors,
+X          resource_info->tree_depth,resource_info->dither,
+X          resource_info->colorspace,True);
+X        SyncImage(output_image);
+X      }
+X  (void) strcpy(output_image->filename,filename);
+X  (void) WriteImage(resource_info->image_info,output_image);
+X  DestroyImage(output_image);
+X  XDefineCursor(display,window->image.id,window->image.cursor);
+X  XWithdrawWindow(display,window->info.id,window->info.screen);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%    M a i n                                                                  %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%
+*/
+int main(argc,argv)
+int
+X  argc;
+X
+char
+X  **argv;
+{
+X  char
+X    *clip_geometry,
+X    *density,
+X    *option,
+X    *page_geometry,
+X    *resource_value,
+X    *scale_geometry,
+X    *server_name,
+X    *window_id;
+X
+X  Display
+X    *display;
+X
+X  double
+X    gamma;
+X
+X  int
+X    degrees,
+X    i,
+X    x;
+X
+X  unsigned int
+X    compression,
+X    enhance,
+X    *image_marker,
+X    image_number,
+X    interlace,
+X    inverse,
+X    noise,
+X    normalize,
+X    quality,
+X    reflect,
+X    scene,
+X    verbose;
+X
+X  unsigned long
+X    state;
+X
+X  XrmDatabase
+X    resource_database,
+X    server_database;
+X
+X  XResourceInfo
+X    resource_info;
+X
+X  /*
+X    Display usage profile if there are no command line arguments.
+X  */
+X  client_name=(*argv);
+X  if (argc < 2)
+X    Usage(True);
+X  /*
+X    Set defaults.
+X  */
+X  display=(Display *) NULL;
+X  image_marker=(unsigned int *) malloc(argc*sizeof(unsigned int));
+X  if (image_marker == (unsigned int *) NULL)
+X    Error("unable to display image","memory allocation failed");
+X  for (i=0; i < argc; i++)
+X    image_marker[i]=argc;
+X  image_number=0;
+X  resource_database=(XrmDatabase) NULL;
+X  server_name=(char *) NULL;
+X  state=DefaultState;
+X  window_id=(char *) NULL;
+X  /*
+X    Check for server name specified on the command line.
+X  */
+X  for (i=1; i < argc; i++)
+X  {
+X    /*
+X      Check command line for server name.
+X    */
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      if (strncmp("display",option+1,3) == 0)
+X        {
+X          /*
+X            User specified server name.
+X          */
+X          i++;
+X          if (i == argc)
+X            Error("missing server name on -display",(char *) NULL);
+X          server_name=argv[i];
+X          break;
+X        }
+X  }
+X  /*
+X    Open X server connection.
+X  */
+X  display=XOpenDisplay(server_name);
+X  if (display == (Display *) NULL)
+X    Error("unable to connect to X server",XDisplayName(server_name));
+X  /*
+X    Set our forgiving error handler.
+X  */
+X  XSetErrorHandler(XError);
+X  /*
+X    Initialize resource database.
+X  */
+X  XrmInitialize();
+X  XGetDefault(display,client_name,"dummy");
+X  resource_database=XrmGetDatabase(display);
+X  resource_value=XResourceManagerString(display);
+X  if (resource_value == (char *) NULL)
+X    resource_value="";
+X  server_database=XrmGetStringDatabase(resource_value);
+X  XrmMergeDatabases(server_database,&resource_database);
+X  /*
+X    Get user defaults from X resource database.
+X  */
+X  XGetResourceInfo(resource_database,client_name,&resource_info);
+X  clip_geometry=
+X    XGetResource(resource_database,client_name,"clipGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"compression",
+X    "RunlengthEncoded");
+X  if (Latin1Compare("qencoded",resource_value) == 0)
+X    compression=QEncodedCompression;
+X  else
+X    compression=RunlengthEncodedCompression;
+X  density=XGetResource(resource_database,client_name,"density",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"enhance","False");
+X  enhance=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"gamma","0.0");
+X  gamma=atof(resource_value);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"interlace","none");
+X  interlace=UndefinedInterlace;
+X  if (Latin1Compare("none",resource_value) == 0)
+X    interlace=NoneInterlace;
+X  if (Latin1Compare("line",resource_value) == 0)
+X    interlace=LineInterlace;
+X  if (Latin1Compare("plane",resource_value) == 0)
+X    interlace=PlaneInterlace;
+X  if (interlace == UndefinedInterlace)
+X    Warning("unrecognized interlace type",resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"inverse","False");
+X  inverse=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"noise","False");
+X  noise=IsTrue(resource_value);
+X  resource_value=
+X    XGetResource(resource_database,client_name,"normalize","False");
+X  normalize=IsTrue(resource_value);
+X  page_geometry=
+X    XGetResource(resource_database,client_name,"pageGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"quality","75");
+X  quality=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"reflect","False");
+X  reflect=IsTrue(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"rotate","0");
+X  degrees=atoi(resource_value);
+X  scale_geometry=
+X    XGetResource(resource_database,client_name,"scaleGeometry",(char *) NULL);
+X  resource_value=XGetResource(resource_database,client_name,"scene","0");
+X  scene=atoi(resource_value);
+X  resource_value=XGetResource(resource_database,client_name,"verbose","False");
+X  verbose=IsTrue(resource_value);
+X  window_id=
+X    XGetResource(resource_database,client_name,"windowId",(char *) NULL);
+X  /*
+X    Parse command line.
+X  */
+X  for (i=1; ((i < argc) && !(state & ExitState)); i++)
+X  {
+X    option=argv[i];
+X    if (((int) strlen(option) > 1) && ((*option == '-') || (*option == '+')))
+X      switch (*(option+1))
+X      {
+X        case 'b':
+X        {
+X          if (strncmp("backdrop",option+1,5) == 0)
+X            {
+X              resource_info.backdrop=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("background",option+1,5) == 0)
+X            {
+X              resource_info.background_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -background",(char *) NULL);
+X                  resource_info.background_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("bordercolor",option+1,7) == 0)
+X            {
+X              resource_info.border_color=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing color on -bordercolor",(char *) NULL);
+X                  resource_info.border_color=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("borderwidth",option+1,7) == 0)
+X            {
+X              resource_info.border_width=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing width on -borderwidth",(char *) NULL);
+X                  resource_info.border_width=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'c':
+X        {
+X          if (strncmp("clip",option+1,2) == 0)
+X            {
+X              clip_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -clip",(char *) NULL);
+X                  clip_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("colormap",option+1,6) == 0)
+X            {
+X              resource_info.colormap=PrivateColormap;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colormap",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colormap=UndefinedColormap;
+X                  if (Latin1Compare("private",option) == 0)
+X                    resource_info.colormap=PrivateColormap;
+X                  if (Latin1Compare("shared",option) == 0)
+X                    resource_info.colormap=SharedColormap;
+X                  if (resource_info.colormap == UndefinedColormap)
+X                    Error("invalid colormap type on -colormap",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("colors",option+1,7) == 0)
+X            {
+X              resource_info.number_colors=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing colors on -colors",(char *) NULL);
+X                  resource_info.number_colors=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("colorspace",option+1,7) == 0)
+X            {
+X              resource_info.colorspace=RGBColorspace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -colorspace",(char *) NULL);
+X                  option=argv[i];
+X                  resource_info.colorspace=UndefinedColorspace;
+X                  if (Latin1Compare("gray",option) == 0)
+X                    resource_info.colorspace=GRAYColorspace;
+X                  if (Latin1Compare("rgb",option) == 0)
+X                    resource_info.colorspace=RGBColorspace;
+X                  if (Latin1Compare("xyz",option) == 0)
+X                    resource_info.colorspace=XYZColorspace;
+X                  if (Latin1Compare("ycbcr",option) == 0)
+X                    resource_info.colorspace=YCbCrColorspace;
+X                  if (Latin1Compare("yiq",option) == 0)
+X                    resource_info.colorspace=YIQColorspace;
+X                  if (Latin1Compare("yuv",option) == 0)
+X                    resource_info.colorspace=YUVColorspace;
+X                  if (resource_info.colorspace == UndefinedColorspace)
+X                    Error("invalid colorspace type on -colorspace",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("compress",option+1,3) == 0)
+X            {
+X              compression=NoCompression;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -compress",(char *) NULL);
+X                  option=argv[i];
+X                  if (Latin1Compare("runlengthencoded",option) == 0)
+X                    compression=RunlengthEncodedCompression;
+X                  else
+X                    if (Latin1Compare("qencoded",option) == 0)
+X                      compression=QEncodedCompression;
+X                    else
+X                      Error("invalid compression type on -compress",option);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'd':
+X        {
+X          if (strncmp("debug",option+1,3) == 0)
+X            {
+X              resource_info.debug=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("delay",option+1,3) == 0)
+X            {
+X              resource_info.delay=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing seconds on -delay",(char *) NULL);
+X                  resource_info.delay=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("density",option+1,3) == 0)
+X            {
+X              density=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -density",(char *) NULL);
+X                  density=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("display",option+1,3) == 0)
+X            {
+X              server_name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing server name on -display",(char *) NULL);
+X                  server_name=argv[i];
+X                }
+X              resource_info.server_name=server_name;
+X              break;
+X            }
+X          if (strncmp("dither",option+1,3) == 0)
+X            {
+X              resource_info.dither=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'e':
+X        {
+X          if (strncmp("enhance",option+1,2) == 0)
+X            {
+X              enhance=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'f':
+X        {
+X          if (strncmp("font",option+1,3) == 0)
+X            {
+X              resource_info.font=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing font name on -font",(char *) NULL);
+X                  resource_info.font=argv[i];
+X                }
+X              break;
+X            }
+X         if (strncmp("foreground",option+1,3) == 0)
+X           {
+X             resource_info.foreground_color=(char *) NULL;
+X             if (*option == '-')
+X               {
+X                 i++;
+X                 if (i == argc)
+X                   Error("missing foreground on -foreground",(char *) NULL);
+X                 resource_info.foreground_color=argv[i];
+X               }
+X              break;
+X           }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'g':
+X        {
+X          if (strncmp("gamma",option+1,2) == 0)
+X            {
+X              gamma=0.0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing gamma on -gamma",(char *) NULL);
+X                  gamma=atof(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("geometry",option+1,2) == 0)
+X            {
+X              resource_info.image_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -geometry",(char *) NULL);
+X                  resource_info.image_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'h':
+X        {
+X          Usage(True);
+X          break;
+X        }
+X        case 'i':
+X        {
+X          if (strncmp("iconGeometry",option+1,5) == 0)
+X            {
+X              resource_info.icon_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing geometry on -iconGeometry",(char *) NULL);
+X                  resource_info.icon_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("iconic",option+1,5) == 0)
+X            {
+X              resource_info.iconic=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("interlace",option+1,3) == 0)
+X            {
+X              interlace=NoneInterlace;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing type on -interlace",(char *) NULL);
+X                  option=argv[i];
+X                  interlace=UndefinedInterlace;
+X                  if (Latin1Compare("none",option) == 0)
+X                    interlace=NoneInterlace;
+X                  if (Latin1Compare("line",option) == 0)
+X                    interlace=LineInterlace;
+X                  if (Latin1Compare("plane",option) == 0)
+X                    interlace=PlaneInterlace;
+X                  if (interlace == UndefinedInterlace)
+X                    Error("invalid interlace type on -interlace",option);
+X                }
+X              break;
+X            }
+X          if (strncmp("inverse",option+1,2) == 0)
+X            {
+X              inverse=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'm':
+X        {
+X          if (strncmp("magnify",option+1,3) == 0)
+X            {
+X              resource_info.magnify=2;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing level on -magnify",(char *) NULL);
+X                  resource_info.magnify=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("map",option+1,3) == 0)
+X            {
+X              resource_info.map_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing map type on -map",(char *) NULL);
+X                  resource_info.map_type=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("monochrome",option+1,2) == 0)
+X            {
+X              resource_info.monochrome=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'n':
+X        {
+X          if (strncmp("name",option+1,2) == 0)
+X            {
+X              resource_info.name=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing name on -name",(char *) NULL);
+X                  resource_info.name=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("noise",option+1,3) == 0)
+X            {
+X              noise=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("normalize",option+1,3) == 0)
+X            {
+X              normalize=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'p':
+X        {
+X          if (strncmp("page",option+1,2) == 0)
+X            {
+X              page_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing page geometry on -page",(char *) NULL);
+X                  page_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'q':
+X        {
+X          i++;
+X          if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X            Error("missing quality on -quality",(char *) NULL);
+X          quality=atoi(argv[i]);;
+X          break;
+X        }
+X        case 'r':
+X        {
+X          if (strncmp("reflect",option+1,2) == 0)
+X            {
+X              reflect=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("rotate",option+1,3) == 0)
+X            {
+X              degrees=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing degrees on -rotate",(char *) NULL);
+X                  degrees=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 's':
+X        {
+X          if (strncmp("scale",option+1,3) == 0)
+X            {
+X              scale_geometry=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%f",(float *) &x))
+X                    Error("missing scale geometry on -scale",(char *) NULL);
+X                  scale_geometry=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("scene",option+1,3) == 0)
+X            {
+X              scene=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing scene number on -scene",(char *) NULL);
+X                  scene=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 't':
+X        {
+X          if (strncmp("title",option+1,2) == 0)
+X            {
+X              resource_info.title=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing title on -title",(char *) NULL);
+X                  resource_info.title=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("treedepth",option+1,2) == 0)
+X            {
+X              resource_info.tree_depth=0;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing depth on -treedepth",(char *) NULL);
+X                  resource_info.tree_depth=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'u':
+X        {
+X          if (strncmp("update",option+1,2) == 0)
+X            {
+X              resource_info.update=(*option == '-');
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if ((i == argc) || !sscanf(argv[i],"%d",&x))
+X                    Error("missing seconds on -update",(char *) NULL);
+X                  resource_info.delay=atoi(argv[i]);
+X                }
+X              break;
+X            }
+X          if (strncmp("use_pixmap",option+1,2) == 0)
+X            {
+X              resource_info.use_pixmap=(*option == '-');
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'v':
+X        {
+X          if (strncmp("verbose",option+1,2) == 0)
+X            {
+X              verbose=(*option == '-');
+X              break;
+X            }
+X          if (strncmp("visual",option+1,2) == 0)
+X            {
+X              resource_info.visual_type=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing visual class on -visual",(char *) NULL);
+X                  resource_info.visual_type=argv[i];
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        case 'w':
+X        {
+X          if (strncmp("window",option+1,2) == 0)
+X            {
+X              window_id=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing id, name, or 'root' on -window",
+X                      (char *) NULL);
+X                  window_id=argv[i];
+X                }
+X              break;
+X            }
+X          if (strncmp("write",option+1,2) == 0)
+X            {
+X              resource_info.write_filename=(char *) NULL;
+X              if (*option == '-')
+X                {
+X                  i++;
+X                  if (i == argc)
+X                    Error("missing file name on -write",(char *) NULL);
+X                  resource_info.write_filename=argv[i];
+X                  if (access(resource_info.write_filename,0) == 0)
+X                    {
+X                      char
+X                        answer[2];
+X
+X                      (void) fprintf(stderr,"Overwrite %s? ",
+X                        resource_info.write_filename);
+X                      (void) gets(answer);
+X                      if (!((*answer == 'y') || (*answer == 'Y')))
+X                        exit(1);
+X                    }
+X                }
+X              break;
+X            }
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X        default:
+X        {
+X          Error("unrecognized option",option);
+X          break;
+X        }
+X      }
+X    else
+X      {
+X        double
+X          normalized_maximum_error,
+X          normalized_mean_error;
+X
+X        Image
+X          *image,
+X          info_image,
+X          *next_image;
+X
+X        ImageInfo
+X          image_info;
+X
+X        time_t
+X          start_time;
+X
+X        unsigned int
+X          mean_error_per_pixel;
+X
+X        unsigned long
+X          total_colors;
+X
+X        /*
+X          Option is a file name: begin by reading image from specified file.
+X        */
+X        start_time=time((time_t *) NULL);
+X        GetImageInfo(&image_info);
+X        (void) strcpy(image_info.filename,option);
+X        image_info.server_name=resource_info.server_name;
+X        image_info.font=resource_info.font;
+X        image_info.geometry=resource_info.image_geometry;
+X        image_info.page=page_geometry;
+X        image_info.density=density;
+X        image_info.border_color=resource_info.border_color;
+X        image_info.interlace=interlace;
+X        image_info.monochrome=resource_info.monochrome;
+X        image_info.quality=quality;
+X        image_info.verbose=verbose;
+X        resource_info.image_info=(&image_info);
+X        image=ReadImage(&image_info);
+X        if (image == (Image *) NULL)
+X          if (*option == '-')
+X            break;
+X          else
+X            continue;
+X        do
+X        {
+X          info_image=(*image);
+X          if (scene != 0)
+X            image->scene=scene;
+X          total_colors=0;
+X          /*
+X            Transform image as defined by the clip, image and scale geometries.
+X          */
+X          TransformImage(&image,clip_geometry,resource_info.image_geometry,
+X            scale_geometry);
+X          if (reflect)
+X            {
+X              Image
+X                *reflected_image;
+X
+X              /*
+X                Reverse image scanlines.
+X              */
+X              reflected_image=ReflectImage(image);
+X              if (reflected_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=reflected_image;
+X                }
+X            }
+X          if ((degrees % 360) != 0)
+X            {
+X              Image
+X                *rotated_image;
+X
+X              /*
+X                Rotate image.
+X              */
+X              rotated_image=RotateImage(image,(double) degrees,False);
+X              if (rotated_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=rotated_image;
+X                }
+X            }
+X          if (enhance)
+X            {
+X              Image
+X                *enhanced_image;
+X
+X              /*
+X                Enhance image.
+X              */
+X              enhanced_image=EnhanceImage(image);
+X              if (enhanced_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=enhanced_image;
+X                }
+X            }
+X          if (noise)
+X            {
+X              Image
+X                *noisy_image;
+X
+X              /*
+X                Reduce noise in image.
+X              */
+X              noisy_image=NoisyImage(image);
+X              if (noisy_image != (Image *) NULL)
+X                {
+X                  DestroyImage(image);
+X                  image=noisy_image;
+X                }
+X            }
+X          if (gamma > 0.0)
+X            GammaImage(image,gamma);
+X          if (inverse)
+X            InverseImage(image);
+X          if (normalize)
+X            NormalizeImage(image);
+X          if (resource_info.monochrome)
+X            QuantizeImage(image,2,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.colorspace == GRAYColorspace)
+X            QuantizeImage(image,256,8,resource_info.dither,GRAYColorspace,True);
+X          if (resource_info.number_colors != 0)
+X            if ((image->class == DirectClass) ||
+X                (image->colors > resource_info.number_colors))
+X              {
+X                /*
+X                  Reduce the number of colors in the image.
+X                */
+X                QuantizeImage(image,resource_info.number_colors,
+X                  resource_info.tree_depth,resource_info.dither,
+X                  resource_info.colorspace,True);
+X                if (verbose)
+X                  {
+X                    /*
+X                      Measure quantization error.
+X                    */
+X                    QuantizationError(image,&mean_error_per_pixel,
+X                      &normalized_mean_error,&normalized_maximum_error);
+X                    total_colors=NumberColors(image,(FILE *) NULL);
+X                  }
+X                SyncImage(image);
+X              }
+X          /*
+X            Display image to X server.
+X          */
+X          if (compression != UndefinedCompression)
+X            image->compression=compression;
+X          else
+X            image->compression=info_image.compression;
+X          if (window_id != (char *) NULL)
+X            {
+X              /*
+X                Display image to a specified X window.
+X              */
+X              XDisplayBackgroundImage(display,&resource_info,window_id,image);
+X              state&=ExitState;
+X            }
+X          else
+X            do
+X            {
+X              Image
+X                *loaded_image;
+X
+X              /*
+X                Display montage image.
+X              */
+X              loaded_image=
+X                XDisplayImage(display,&resource_info,argv,argc,&image,&state);
+X              if (loaded_image == (Image *) NULL)
+X                break;
+X              while ((loaded_image != (Image *) NULL) && (!(state & ExitState)))
+X              {
+X                next_image=XDisplayImage(display,&resource_info,argv,argc,
+X                  &loaded_image,&state);
+X                DestroyImage(loaded_image);
+X                loaded_image=next_image;
+X              }
+X            } while (!(state & ExitState));
+X          if (resource_info.write_filename != (char *) NULL)
+X            {
+X              /*
+X                Write image.
+X              */
+X              (void) strcpy(image->filename,resource_info.write_filename);
+X              (void) WriteImage(&image_info,image);
+X            }
+X          if (verbose)
+X            {
+X              /*
+X                Display detailed info about the image.
+X              */
+X              (void) fprintf(stderr,"[%u] %s",
+X                image->scene == 0 ? image_number : image->scene,
+X                info_image.filename);
+X              if (resource_info.write_filename != (char *) NULL)
+X                (void) fprintf(stderr,"=>%s",resource_info.write_filename);
+X              (void) fprintf(stderr," %ux%u",info_image.columns,
+X                info_image.rows);
+X              if ((info_image.columns != image->columns) ||
+X                  (info_image.rows != image->rows))
+X                (void) fprintf(stderr,"=>%ux%u",image->columns,image->rows);
+X              if (image->class == DirectClass)
+X                (void) fprintf(stderr," DirectClass ");
+X              else
+X                if (total_colors == 0)
+X                  (void) fprintf(stderr," PseudoClass %uc",image->colors);
+X                else
+X                  {
+X                    (void) fprintf(stderr," PseudoClass %lu=>%uc",total_colors,
+X                      image->colors);
+X                    (void) fprintf(stderr," %u/%.6f/%.6fe",mean_error_per_pixel,
+X                      normalized_mean_error,normalized_maximum_error);
+X                  }
+X              (void) fprintf(stderr," %s %lds\n",image->magick,
+X                time((time_t *) NULL)-start_time+1);
+X            }
+X          /*
+X            Proceed to next/previous image.
+X          */
+X          if (state & LastImageState)
+X            next_image=image->previous;
+X          else
+X            next_image=image->next;
+X          if (next_image != (Image *) NULL)
+X            image=next_image;
+X        } while ((next_image != (Image *) NULL) && !(state & ExitState));
+X        /*
+X          Free image resources.
+X        */
+X        DestroyImages(image);
+X        if (!(state & LastImageState))
+X          image_marker[i]=image_number++;
+X        else
+X          {
+X            /*
+X              Proceed to previous image.
+X            */
+X            for (i--; i > 0; i--)
+X              if (image_marker[i] == (image_number-2))
+X                break;
+X            if (image_number != 0)
+X              image_number--;
+X          }
+X      }
+X    if (i == (argc-1))
+X      if ((resource_info.delay != 0) && (image_number != 1))
+X        {
+X          /*
+X            Proceed to first image.
+X          */
+X          i=0;
+X          image_number=0;
+X        }
+X  }
+X  if (image_number == 0)
+X    Error("missing an image file name",(char *) NULL);
+X  XCloseDisplay(display);
+X  (void) free((char *) image_marker);
+X  return(False);
+}
+SHAR_EOF
+echo 'File ImageMagick/display.c is complete' &&
+chmod 0644 ImageMagick/display.c ||
+echo 'restore of ImageMagick/display.c failed'
+Wc_c="`wc -c < 'ImageMagick/display.c'`"
+test 202798 -eq "$Wc_c" ||
+	echo 'ImageMagick/display.c: original size 202798, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= ImageMagick/display.man ==============
+if test -f 'ImageMagick/display.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping ImageMagick/display.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting ImageMagick/display.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'ImageMagick/display.man' &&
+.ad l
+.nh
+.TH display 1 "10 October 1992" "ImageMagick"
+.SH NAME
+display - display an image on any workstation running X
+.SH SYNOPSIS
+.B "display" [ \fIoptions\fP ...] \fIfile\fP
+[ [ \fIoptions\fP ...] \fIfile\fP ...]
+.SH DESCRIPTION
+\fBdisplay\fP is a machine architecture independent image processing
+and display program.  It can display an image on any workstation
+display running an X server.  \fBdisplay\fP first determines the
+hardware capabilities of the workstation.  If the number of unique
+colors in the image is less than or equal to the number the workstation
+can support, the image is displayed in an X window.  Otherwise the
+number of colors in the image is first reduced to match the color
+resolution of the workstation before it is displayed.
+.PP
+This means that a continuous-tone 24 bits-per-pixel image can display on a
+8 bit pseudo-color device or monochrome device.  In most instances the
+reduced color image closely resembles the original.  Alternatively, a
+monochrome or pseudo-color image can display on a continuous-tone 24
+bits-per-pixel device.
+.SH EXAMPLES
+To scale an image of a cockatoo to exactly 640 pixels in width and 480
+pixels in height and position the window at location (200,200), use:
+.PP
+.B
+X     display -geometry 640x480\+200\+200 cockatoo.miff
+.PP
+To display an image of a cockatoo without a border centered on a
+backdrop, use:
+.PP
+.B
+X     display +borderwidth -backdrop cockatoo.miff
+.PP
+To tile an image of a cockatoo onto the root window, use:
+.PP
+.B
+X     display -window root cockatoo.miff
+.SH OPTIONS
+.TP 5
+.B "-backdrop"
+display the image centered on a backdrop.
+X
+This backdrop covers the entire workstation screen and is useful for
+hiding other X window activity while viewing the image.   The color of
+the backdrop is specified as the background color.  Refer to \fBX
+RESOURCES\fP for details.
+.TP 5
+.B "-clip \fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP"
+preferred size and location of the clipped image.  See \fBX(1)\fP for details
+about the geometry specification.
+X
+Use clipping to apply image processing options to, or display, a
+particular area of an image.
+X
+The equivalent X resource for this option is \fBclipGeometry\fP
+(class \fBClipGeometry\fP).  See \fBX RESOURCES\fP for details.
+.TP 5
+.B "-colormap \fItype\fP"
+the type of colormap: \fBShared\fP or \fBPrivate\fP.
+X
+This option only applies when the default X server visual is
+\fIPseudoColor\fP or \fIGrayScale\fP.  Refer to \fB-visual\fP for more
+details.  By default, a shared colormap is allocated.  The image shares
+colors with other X clients.  Some image colors could be approximated,
+therefore your image may look very different than intended.  Choose
+\fBPrivate\fP and the image colors appear exactly as they are
+defined.  However, other clients may go "technicolor" when the image
+colormap is installed.
+.TP 5
+.B "-colors \fIvalue\fP"
+preferred number of colors in the image.
+X
+The actual number of colors in the image may be less than your request,
+but never more.  Note, this is a color reduction option.  Images with
+less unique colors than specified with this option will remain unchanged.
+Refer to \fBquantize(9)\fP for more details.
+X
+Note, options \fB-dither\fP, \fB-colorspace\fP, and \fB-treedepth\fP affect
+the color reduction algorithm.
+.TP 5
+.B "-colorspace \fIvalue\fP"
+the type of colorspace: \fBGRAY\fP, \fBRGB\fP, \fBXYZ\fP, \fBYCbCr\fP,
+\fBYIQ\fP, or \fBYUV\fP.
+X
+Color reduction, by default, takes place in the RGB color space.
+Empirical evidence suggests that distances in color spaces such as YUV
+or YIQ correspond to perceptual color differences more closely
+than do distances in RGB space.  These color spaces may give better
+results when color reducing an image.  Refer to \fBquantize(9)\fP for
+more details.
+X
+The \fB-colors\fP or \fB-monochrome\fP option is required for this option
+SHAR_EOF
+true || echo 'restore of ImageMagick/display.man failed'
+fi
+echo 'End of ImageMagick part 25'
+echo 'File ImageMagick/display.man is continued in part 26'
+echo 26 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

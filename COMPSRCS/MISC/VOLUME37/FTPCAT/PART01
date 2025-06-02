@@ -1,0 +1,2032 @@
+Newsgroups: comp.sources.misc
+From: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Subject: v37i061:  ftpcat - Cat an anon-FTP'd file, Part01/01
+Message-ID: <1993May16.021954.23993@sparky.imd.sterling.com>
+X-Md4-Signature: 8889ae363efc72e174ab6829d17e6bea
+Date: Sun, 16 May 1993 02:19:54 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: lmjm@doc.ic.ac.uk (Lee M J McLoughlin)
+Posting-number: Volume 37, Issue 61
+Archive-name: ftpcat/part01
+Environment: UNIX, Perl, INET
+
+This is version 1.3 of ftpcat. ftpcat gets a file via anonymous-FTP and 
+sends it to standard output.
+
+ftpcat is all writen in perl.  It uses two support libraries ftp.pl and
+chat2.pl.
+
+To install edit the values in the makefile and do a make install.
+------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README ftpcat.man ftpcat chat2.pl ftp.pl makefile
+# Wrapped by lmjm@swan.doc.ic.ac.uk on Wed May 12 22:27:56 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(220 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+Xftpcat - Get a file via anonymous-FTP and send it to standard
+Xoutput.
+X
+Xftpcat is all writen in perl.  It uses two support libraries ftp.pl and
+Xchat2.pl.
+X
+XTo install edit the values in the makefile and do a make install.
+END_OF_FILE
+if test 220 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'ftpcat.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftpcat.man'\"
+else
+echo shar: Extracting \"'ftpcat.man'\" \(1238 characters\)
+sed "s/^X//" >'ftpcat.man' <<'END_OF_FILE'
+X.\" $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpcat/RCS/ftpcat.man,v 1.3 1993/05/12 21:27:51 lmjm Exp lmjm $
+X.\" $Log: ftpcat.man,v $
+X.\" Revision 1.3  1993/05/12  21:27:51  lmjm
+X.\" Cleaner english!
+X.\"
+X.\" Revision 1.2  1993/05/12  21:14:11  lmjm
+X.\" Document -a flag.
+X.\"
+X.\" Revision 1.1  1993/04/21  00:02:38  lmjm
+X.\" Initial revision
+X.\"
+X.\"
+X.TH FTPCAT 1L "19 March 1993"
+X.SH NAME
+Xftpcat \- Get a file via anonymous-FTP and send it to standard output.
+X.SH SYNOPSIS
+X.B ftpcat
+X.B [\-v]
+X.B [-a] \fIsite\fP:\fIpathname\fP
+X.SH DESCRIPTION
+X.B Ftpcat
+XFetch a file using anonymous-FTP and send it to standard output.  The
+Xfile is transfered in binary mode.
+XThe
+X.SH OPTIONS
+X.TP
+X.B \-v
+Xshow the conversation with the remote ftp daemon on stderr.
+X.B \-a
+Xtransfer the file in ascii mode (default is binary which is fine
+Xfor Unix to Unix).
+X.SH EXAMPLES
+X.LP
+X.RS
+X.ft B
+X.nf
+Xftpcat src.doc.ic.ac.uk:weather/images/uk/uk.gif | xv -
+X.fi
+X.ft R
+X.RE
+X.SH SEE ALSO
+Xmirror(1), ftp(1)
+X.SH BUGS
+XOnly supports username anonymous.
+X.SH FEATURES
+XFtpcat will never, ever be expanded.  ftpcat is comes from mirror which suffers
+Xfrom rampant featurism and ftpcat is not going to follow it.
+X.SH AUTHOR
+XWritten by Lee McLoughlin <lmjm@doc.ic.ac.uk>.
+END_OF_FILE
+if test 1238 -ne `wc -c <'ftpcat.man'`; then
+    echo shar: \"'ftpcat.man'\" unpacked with wrong size!
+fi
+# end of 'ftpcat.man'
+fi
+if test -f 'ftpcat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftpcat'\"
+else
+echo shar: Extracting \"'ftpcat'\" \(1959 characters\)
+sed "s/^X//" >'ftpcat' <<'END_OF_FILE'
+X#!/usr/local/bin/perl -s
+X# Get a file via FTP and send it to standard output.
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/ftpcat/RCS/ftpcat,v 1.3 1993/05/12 21:14:10 lmjm Exp lmjm $
+X# $Log: ftpcat,v $
+X# Revision 1.3  1993/05/12  21:14:10  lmjm
+X# Just use -v for debugging.
+X# Use -a for text mode transfers.
+X#
+X# Revision 1.2  1993/05/07  23:28:06  lmjm
+X# Assed missing newline.
+X#
+X# Revision 1.1  1993/04/21  00:02:37  lmjm
+X# Initial revision
+X#
+X
+Xpush( @INC, '/usr/local/lib/perl.extra' );
+X
+Xrequire 'ftp.pl';
+Xrequire 'chat2.pl';
+X
+X# Some systems hold the username in $USER, some in $LOGNAME.
+X$me = $ENV{'USER'} || $ENV{'LOGNAME'};
+Xchop( $hostname = `hostname` );
+Xif( $hn = (gethostbyname( "$hostname" ))[ 0 ] ){
+X	$hostname = $hn;
+X}
+X
+X$remote_user = 'anonymous';
+X$remote_password = "$me@$hostname";
+X
+X$retry_call = 1;
+X$attempts = 2;
+X$ftp_port = 21;
+X
+Xif( $v ){
+X	&ftp'debug( 1 );
+X}
+X
+X$xfer = shift;
+Xif( $xfer !~ /^([^:]+):(.*)$/ ){
+X	die "Usage: ftpcat [-v] [-a] site:filename\n";
+X}
+X$site = $1;
+X$filename = $2;
+X
+Xif( &ftp'open( $site, $ftp_port, $retry_call, $attempts ) != 1 ){
+X	&msg( "Cannot open connection\n" );
+X	&disconnect();
+X	exit( -1 );
+X}
+X
+X$connected = $site;
+X
+Xif( ! &ftp'login( $remote_user, $remote_password ) ){
+X	&msg( "Cannot login\n" );
+X	&disconnect();
+X	exit( -1 );
+X}
+X
+X$rempwd = &ftp'pwd();
+X
+Xif( ! &ftp'type( $a ? 'A' : 'I' ) ){
+X	&msg( "Cannot set type\n" );
+X}
+X
+Xif( ! &ftp'get( $filename, '-', 0 ) ){
+X	&msg( "Failed to get $filename\n" );
+X	&disconnect();
+X	exit( -1 );
+X}
+X
+X&disconnect();
+Xexit( 0 );
+X
+Xsub disconnect
+X{
+X	if( $connected ){
+X		&msg( "disconnecting from $connected\n" ) if $v;
+X		if( ! $ftp'fatalerror ){
+X			&ftp'quit();
+X		}
+X	}
+X	&chat'close();
+X	$connected = '';
+X}
+X
+Xsub msg
+X{
+X	local( $todo, $msg );
+X
+X	if( $#_ == 1 ){
+X		($todo, $msg) = @_;
+X	}
+X	else {
+X		$todo = 0;
+X		$msg = @_[ 0 ];
+X	}
+X
+X	if( $todo & $log ){
+X		push( @log, $msg );
+X	}
+X# Not sure about this one.  always print the message even if its a log msg.
+X#	else {
+X		print $msg;
+X#	}
+X}
+END_OF_FILE
+if test 1959 -ne `wc -c <'ftpcat'`; then
+    echo shar: \"'ftpcat'\" unpacked with wrong size!
+fi
+chmod +x 'ftpcat'
+# end of 'ftpcat'
+fi
+if test -f 'chat2.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chat2.pl'\"
+else
+echo shar: Extracting \"'chat2.pl'\" \(9620 characters\)
+sed "s/^X//" >'chat2.pl' <<'END_OF_FILE'
+X# chat.pl: chat with a server
+X# Based on: V2.01.alpha.7 91/06/16
+X# Randal L. Schwartz (was <merlyn@iwarp.intel.com>)
+X# multihome additions by A.Macpherson@bnr.co.uk
+X# allow for /dev/pts based systems by Joe Doupnik <JRD@CC.USU.EDU>
+X
+Xpackage chat;
+X
+Xif( defined( &main'PF_INET ) ){
+X	$pf_inet = &main'PF_INET;
+X	$sock_stream = &main'SOCK_STREAM;
+X	local($name, $aliases, $proto) = getprotobyname( 'tcp' );
+X	$tcp_proto = $proto;
+X}
+Xelse {
+X	# XXX hardwired $PF_INET, $SOCK_STREAM, 'tcp'
+X	# but who the heck would change these anyway? (:-)
+X	$pf_inet = 2;
+X	$sock_stream = 1;
+X	$tcp_proto = 6;
+X}
+X
+X
+X$sockaddr = 'S n a4 x8';
+Xchop($thishost = `hostname`);
+X
+X# *S = symbol for current I/O, gets assigned *chatsymbol....
+X$next = "chatsymbol000000"; # next one
+X$nextpat = "^chatsymbol"; # patterns that match next++, ++, ++, ++
+X
+X
+X## $handle = &chat'open_port("server.address",$port_number);
+X## opens a named or numbered TCP server
+X
+Xsub open_port { ## public
+X	local($server, $port) = @_;
+X
+X	local($serveraddr,$serverproc);
+X
+X	# We may be multi-homed, start with 0, fixup once connexion is made
+X	$thisaddr = "\0\0\0\0" ;
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X
+X	*S = ++$next;
+X	if ($server =~ /^(\d+)+\.(\d+)\.(\d+)\.(\d+)$/) {
+X		$serveraddr = pack('C4', $1, $2, $3, $4);
+X	} else {
+X		local(@x) = gethostbyname($server);
+X		return undef unless @x;
+X		$serveraddr = $x[4];
+X	}
+X	$serverproc = pack($sockaddr, 2, $port, $serveraddr);
+X	unless (socket(S, $pf_inet, $sock_stream, $tcp_proto)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (bind(S, $thisproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X	unless (connect(S, $serverproc)) {
+X		($!) = ($!, close(S)); # close S while saving $!
+X		return undef;
+X	}
+X# We opened with the local address set to ANY, at this stage we know
+X# which interface we are using.  This is critical if our machine is
+X# multi-homed, with IP forwarding off, so fix-up.
+X	local($fam,$lport);
+X	($fam,$lport,$thisaddr) = unpack($sockaddr, getsockname(S));
+X	$thisproc = pack($sockaddr, 2, 0, $thisaddr);
+X# end of post-connect fixup
+X	select((select(S), $| = 1)[0]);
+X	$next; # return symbol for switcharound
+X}
+X
+X## ($host, $port, $handle) = &chat'open_listen([$port_number]);
+X## opens a TCP port on the current machine, ready to be listened to
+X## if $port_number is absent or zero, pick a default port number
+X## process must be uid 0 to listen to a low port number
+X
+Xsub open_listen { ## public
+X
+X	*S = ++$next;
+X	local($thisport) = shift || 0;
+X	local($thisproc_local) = pack($sockaddr, 2, $thisport, $thisaddr);
+X	local(*NS) = "__" . time;
+X	unless (socket(NS, $pf_inet, $sock_stream, $tcp_proto)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (bind(NS, $thisproc_local)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	unless (listen(NS, 1)) {
+X		($!) = ($!, close(NS));
+X		return undef;
+X	}
+X	select((select(NS), $| = 1)[0]);
+X	local($family, $port, @myaddr) =
+X		unpack("S n C C C C x8", getsockname(NS));
+X	$S{"needs_accept"} = *NS; # so expect will open it
+X	(@myaddr, $port, $next); # returning this
+X}
+X
+X## $handle = &chat'open_proc("command","arg1","arg2",...);
+X## opens a /bin/sh on a pseudo-tty
+X
+Xsub open_proc { ## public
+X	local(@cmd) = @_;
+X
+X	*S = ++$next;
+X	local(*TTY) = "__TTY" . time;
+X	local($pty,$tty) = &_getpty(S,TTY);
+X	die "Cannot find a new pty" unless defined $pty;
+X	$pid = fork;
+X	die "Cannot fork: $!" unless defined $pid;
+X	unless ($pid) {
+X		close STDIN; close STDOUT; close STDERR;
+X		setpgrp(0,$$);
+X		if (open(DEVTTY, "/dev/tty")) {
+X		    ioctl(DEVTTY,0x20007471,0);		# XXX s/b &TIOCNOTTY
+X		    close DEVTTY;
+X		}
+X		open(STDIN,"<&TTY");
+X		open(STDOUT,">&TTY");
+X		open(STDERR,">&STDOUT");
+X		die "Oops" unless fileno(STDERR) == 2;	# sanity
+X		close(S);
+X		exec @cmd;
+X		die "Cannot exec @cmd: $!";
+X	}
+X	close(TTY);
+X	$next; # return symbol for switcharound
+X}
+X
+X# $S is the read-ahead buffer
+X
+X## $return = &chat'expect([$handle,] $timeout_time,
+X## 	$pat1, $body1, $pat2, $body2, ... )
+X## $handle is from previous &chat'open_*().
+X## $timeout_time is the time (either relative to the current time, or
+X## absolute, ala time(2)) at which a timeout event occurs.
+X## $pat1, $pat2, and so on are regexs which are matched against the input
+X## stream.  If a match is found, the entire matched string is consumed,
+X## and the corresponding body eval string is evaled.
+X##
+X## Each pat is a regular-expression (probably enclosed in single-quotes
+X## in the invocation).  ^ and $ will work, respecting the current value of $*.
+X## If pat is 'TIMEOUT', the body is executed if the timeout is exceeded.
+X## If pat is 'EOF', the body is executed if the process exits before
+X## the other patterns are seen.
+X##
+X## Pats are scanned in the order given, so later pats can contain
+X## general defaults that won't be examined unless the earlier pats
+X## have failed.
+X##
+X## The result of eval'ing body is returned as the result of
+X## the invocation.  Recursive invocations are not thought
+X## through, and may work only accidentally. :-)
+X##
+X## undef is returned if either a timeout or an eof occurs and no
+X## corresponding body has been defined.
+X## I/O errors of any sort are treated as eof.
+X
+X$nextsubname = "expectloop000000"; # used for subroutines
+X
+Xsub expect { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	local($endtime) = shift;
+X
+X	local($timeout,$eof) = (1,1);
+X	local($caller) = caller;
+X	local($rmask, $nfound, $timeleft, $thisbuf);
+X	local($cases, $pattern, $action, $subname);
+X	$endtime += time if $endtime < 600_000_000;
+X
+X	if (defined $S{"needs_accept"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_accept"};
+X		delete $S{"needs_accept"};
+X		$S{"needs_close"} = *NS;
+X		unless(accept(S,NS)) {
+X			($!) = ($!, close(S), close(NS));
+X			return undef;
+X		}
+X		select((select(S), $| = 1)[0]);
+X	}
+X
+X	# now see whether we need to create a new sub:
+X
+X	unless ($subname = $expect_subname{$caller,@_}) {
+X		# nope.  make a new one:
+X		$expect_subname{$caller,@_} = $subname = $nextsubname++;
+X
+X		$cases .= <<"EDQ"; # header is funny to make everything elsif's
+Xsub $subname {
+X	LOOP: {
+X		if (0) { ; }
+XEDQ
+X		while (@_) {
+X			($pattern,$action) = splice(@_,0,2);
+X			if ($pattern =~ /^eof$/i) {
+X				$cases .= <<"EDQ";
+X		elsif (\$eof) {
+X	 		package $caller;
+X			$action;
+X		}
+XEDQ
+X				$eof = 0;
+X			} elsif ($pattern =~ /^timeout$/i) {
+X			$cases .= <<"EDQ";
+X		elsif (\$timeout) {
+X		 	package $caller;
+X			$action;
+X		}
+XEDQ
+X				$timeout = 0;
+X			} else {
+X				$pattern =~ s#/#\\/#g;
+X			$cases .= <<"EDQ";
+X		elsif (\$S =~ /$pattern/) {
+X			\$S = \$';
+X		 	package $caller;
+X			$action;
+X		}
+XEDQ
+X			}
+X		}
+X		$cases .= <<"EDQ" if $eof;
+X		elsif (\$eof) {
+X			undef;
+X		}
+XEDQ
+X		$cases .= <<"EDQ" if $timeout;
+X		elsif (\$timeout) {
+X			undef;
+X		}
+XEDQ
+X		$cases .= <<'ESQ';
+X		else {
+X			$rmask = "";
+X			vec($rmask,fileno(S),1) = 1;
+X			($nfound, $rmask) =
+X		 		select($rmask, undef, undef, $endtime - time);
+X			if ($nfound) {
+X				$nread = sysread(S, $thisbuf, 1024);
+X				if ($nread > 0) {
+X					$S .= $thisbuf;
+X				} else {
+X					$eof++, redo LOOP; # any error is also eof
+X				}
+X			} else {
+X				$timeout++, redo LOOP; # timeout
+X			}
+X			redo LOOP;
+X		}
+X	}
+X}
+XESQ
+X		eval $cases; die "$cases:\n$@" if $@;
+X	}
+X	$eof = $timeout = 0;
+X	do $subname();
+X}
+X
+X## &chat'print([$handle,] @data)
+X## $handle is from previous &chat'open().
+X## like print $handle @data
+X
+Xsub print { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X		*S = shift;
+X	}
+X	print S @_;
+X	if( $chat'debug ){
+X		print STDERR "printed:";
+X		print STDERR @_;
+X	}
+X}
+X
+X## &chat'close([$handle,])
+X## $handle is from previous &chat'open().
+X## like close $handle
+X
+Xsub close { ## public
+X	if ($_[0] =~ /$nextpat/) {
+X	 	*S = shift;
+X	}
+X	close(S);
+X	if (defined $S{"needs_close"}) { # is it a listen socket?
+X		local(*NS) = $S{"needs_close"};
+X		delete $S{"needs_close"};
+X		close(NS);
+X	}
+X}
+X
+X## @ready_handles = &chat'select($timeout, @handles)
+X## select()'s the handles with a timeout value of $timeout seconds.
+X## Returns an array of handles that are ready for I/O.
+X## Both user handles and chat handles are supported (but beware of
+X## stdio's buffering for user handles).
+X
+Xsub select { ## public
+X	local($timeout) = shift;
+X	local(@handles) = @_;
+X	local(%handlename) = ();
+X	local(%ready) = ();
+X	local($caller) = caller;
+X	local($rmask) = "";
+X	for (@handles) {
+X		if (/$nextpat/o) { # one of ours... see if ready
+X			local(*SYM) = $_;
+X			if (length($SYM)) {
+X				$timeout = 0; # we have a winner
+X				$ready{$_}++;
+X			}
+X			$handlename{fileno($_)} = $_;
+X		} else {
+X			$handlename{fileno(/'/ ? $_ : "$caller\'$_")} = $_;
+X		}
+X	}
+X	for (sort keys %handlename) {
+X		vec($rmask, $_, 1) = 1;
+X	}
+X	select($rmask, undef, undef, $timeout);
+X	for (sort keys %handlename) {
+X		$ready{$handlename{$_}}++ if vec($rmask,$_,1);
+X	}
+X	sort keys %ready;
+X}
+X
+X# ($pty,$tty) = $chat'_getpty(PTY,TTY):
+X# internal procedure to get the next available pty.
+X# opens pty on handle PTY, and matching tty on handle TTY.
+X# returns undef if can't find a pty.
+X# Modify "/dev/pty" to "/dev/pts" for Dell Unix v2.2 (aka SVR4.04). Joe Doupnik.
+X
+Xsub _getpty { ## private
+X	local($_PTY,$_TTY) = @_;
+X	$_PTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	$_TTY =~ s/^([^']+)$/(caller)[$[]."'".$1/e;
+X	local($pty, $tty, $kind);
+X	if( -e "/dev/pts000" ){		## mods by Joe Doupnik Dec 1992
+X		$kind = "pts";		## SVR4 Streams
+X	} else {
+X		$kind = "pty";		## BSD Clist stuff
+X	}
+X	for $bank (112..127) {
+X		next unless -e sprintf("/dev/$kind%c0", $bank);
+X		for $unit (48..57) {
+X			$pty = sprintf("/dev/$kind%c%c", $bank, $unit);
+X			open($_PTY,"+>$pty") || next;
+X			select((select($_PTY), $| = 1)[0]);
+X			($tty = $pty) =~ s/pty/tty/;
+X			open($_TTY,"+>$tty") || next;
+X			select((select($_TTY), $| = 1)[0]);
+X			system "stty nl>$tty";
+X			return ($pty,$tty);
+X		}
+X	}
+X	undef;
+X}
+X
+X1;
+END_OF_FILE
+if test 9620 -ne `wc -c <'chat2.pl'`; then
+    echo shar: \"'chat2.pl'\" unpacked with wrong size!
+fi
+# end of 'chat2.pl'
+fi
+if test -f 'ftp.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ftp.pl'\"
+else
+echo shar: Extracting \"'ftp.pl'\" \(28699 characters\)
+sed "s/^X//" >'ftp.pl' <<'END_OF_FILE'
+X#-*-perl-*-
+X# This is a wrapper to the chat2.pl routines that make life easier
+X# to do ftp type work.
+X# Mostly by Lee McLoughlin <lmjm@doc.ic.ac.uk>
+X# based on original version by Alan R. Martello <al@ee.pitt.edu>
+X# And by A.Macpherson@bnr.co.uk for multi-homed hosts
+X#
+X# Basic usage:
+X#  $ftp_port = 21;
+X#  $retry_call = 1;
+X#  $attempts = 2;
+X#  if( &ftp'open( $site, $ftp_port, $retry_call, $attempts ) != 1 ){
+X#   die "failed to open ftp connection";
+X#  }
+X#  if( ! &ftp'login( $user, $pass ) ){
+X#   die "failed to login";
+X#  }
+X#  &ftp'type( $text_mode ? 'A' : 'I' );
+X#  if( ! &ftp'get( $remote_filename, $local_filename, 0 ) ){
+X#   die "failed to get file;
+X#  }
+X#  &ftp'quit();
+X#
+X#
+X# $Header: /a/swan/home/swan/staff/csg/lmjm/src/perl/mirror/RCS/ftp.pl,v 1.25 1993/05/07 23:36:07 lmjm Exp lmjm $
+X# $Log: ftp.pl,v $
+X# Revision 1.25  1993/05/07  23:36:07  lmjm
+X# Corrected typo in expect code causing long continuations to fail.
+X# Timeouts are no longer a fatal error.
+X# Improved the balance in the timeouts.
+X#
+X# Revision 1.24  1993/05/06  23:13:29  lmjm
+X# Major cleanup.
+X# Reset ALRM when done.
+X# Try to reset if cannot write local file on get.
+X# Spot unreadable remote files.
+X# Cleaned up *MAJOR* dumb code in open_data_socket.
+X#
+X# Revision 1.23  1993/05/06  21:14:19  lmjm
+X# Use the new mapin.
+X# Correct put code.
+X#
+X# Revision 1.22  1993/04/29  23:31:26  lmjm
+X# Added sample prog as a comment.
+X# Clear out chat string that may be large.
+X# Moved some declarations out of loops and used packageless functin names to
+X# save space.
+X#
+X# Revision 1.21  1993/04/28  20:45:26  lmjm
+X# Made the RETR/STOR commands report the file.
+X#
+X# Revision 1.20  1993/04/27  19:53:49  lmjm
+X# Allow for filename mapping before Xfer.  Useful for VMS -> unix.
+X#
+X# Revision 1.19  1993/04/26  19:58:33  lmjm
+X# Added missing trailing ; - for older perl's
+X#
+X# Revision 1.18  1993/04/25  13:15:43  lmjm
+X# Keep track of wether the service is open and avoid writing to dead sockets.
+X# Added SIGPIPE handler if ftp'set_signals called.
+X# Added a version var.
+X#
+X# Revision 1.17  1993/04/21  10:06:54  lmjm
+X# Send all status reports to STDERR not to STDOUT (to allow use by ftpcat).
+X# Allow target file to be '-' meaning STDOUT
+X# Added ftp'quote
+X#
+X# Revision 1.16  1993/01/28  18:59:05  lmjm
+X# Allow socket arguemtns to come from main.
+X# Minor cleanups - removed old comments.
+X#
+X# Revision 1.15  1992/11/25  21:09:30  lmjm
+X# Added another REST return code.
+X#
+X# Revision 1.14  1992/08/12  14:33:42  lmjm
+X# Fail ftp'write if out of space.
+X#
+X# Revision 1.13  1992/03/20  21:01:03  lmjm
+X# Added in the proxy ftp code from Edwards Reed <err@cinops.xerox.com>
+X# Added  ftp'delete from Aaron Wohl <aw0g+@andrew.cmu.edu>
+X#
+X# Revision 1.12  1992/02/06  23:25:56  lmjm
+X# Moved code around so can use this as a lib for both mirror and ftpmail.
+X# Time out opens.  In case Unix doesn't bother to.
+X#
+X# Revision 1.11  1991/11/27  22:05:57  lmjm
+X# Match the response code number at the start of a line allowing
+X# for any leading junk.
+X#
+X# Revision 1.10  1991/10/23  22:42:20  lmjm
+X# Added better timeout code.
+X# Tried to optimise file transfer
+X# Moved open/close code to not leak file handles.
+X# Cleaned up the alarm code.
+X# Added $fatalerror to show wether the ftp link is really dead.
+X#
+X# Revision 1.9  1991/10/07  18:30:35  lmjm
+X# Made the timeout-read code work.
+X# Added restarting file gets.
+X# Be more verbose if ever have to call die.
+X#
+X# Revision 1.8  1991/09/17  22:53:16  lmjm
+X# Spot when open_data_socket fails and return a failure rather than dying.
+X#
+X# Revision 1.7  1991/09/12  22:40:25  lmjm
+X# Added Andrew Macpherson's patches for hosts without ip forwarding.
+X#
+X# Revision 1.6  1991/09/06  19:53:52  lmjm
+X# Relaid out the code the way I like it!
+X# Changed the debuggin to produce more "appropriate" messages
+X# Fixed bugs in the ordering of put and dir listing.
+X# Allow for hash printing when getting files (a la ftp).
+X# Added the new commands from Al.
+X# Don't print passwords in debugging.
+X#
+X# Revision 1.5  1991/08/29  16:23:49  lmjm
+X# Timeout reads from the remote ftp server.
+X# No longer call die expect on fatal errors.  Just return fail codes.
+X# Changed returns so higher up routines can tell whats happening.
+X# Get expect/accept in correct order for dir listing.
+X# When ftp_show is set then print hashes every 1k transfered (like ftp).
+X# Allow for stripping returns out of incoming data.
+X# Save last error in a global string.
+X#
+X# Revision 1.4  1991/08/14  21:04:58  lmjm
+X# ftp'get now copes with ungetable files.
+X# ftp'expect code changed such that the string_to_print is
+X# ignored and the string sent back from the remote system is printed
+X# instead.
+X# Implemented patches from al.  Removed spuiours tracing statements.
+X#
+X# Revision 1.3  1991/08/09  21:32:18  lmjm
+X# Allow for another ok code on cwd's
+X# Rejigger the log levels
+X# Send \r\n for some odd ftp daemons
+X#
+X# Revision 1.2  1991/08/09  18:07:37  lmjm
+X# Don't print messages unless ftp_show says to.
+X#
+X# Revision 1.1  1991/08/08  20:31:00  lmjm
+X# Initial revision
+X#
+X
+Xrequire 'chat2.pl';
+Xrequire 'socket.ph';
+X
+X
+Xpackage ftp;
+X
+Xif( defined( &main'PF_INET ) ){
+X	$pf_inet = &main'PF_INET;
+X	$sock_stream = &main'SOCK_STREAM;
+X	local($name, $aliases, $proto) = getprotobyname( 'tcp' );
+X	$tcp_proto = $proto;
+X}
+Xelse {
+X	# XXX hardwired $PF_INET, $SOCK_STREAM, 'tcp'
+X	# but who the heck would change these anyway? (:-)
+X	$pf_inet = 2;
+X	$sock_stream = 1;
+X	$tcp_proto = 6;
+X}
+X
+X# If the remote ftp daemon doesn't respond within this time presume its dead
+X# or something.
+X$timeout = 100;
+X
+X# Timeout a read if I don't get data back within this many seconds
+X$timeout_read = 2 * $timeout;
+X
+X# Timeout an open
+X$timeout_open = $timeout;
+X
+X$ftp'version = '$Revision: 1.25 $';
+X
+X# This is a "global" it contains the last response from the remote ftp server
+X# for use in error messages
+X$ftp'response = "";
+X# Also ftp'NS is the socket containing the data coming in from the remote ls
+X# command.
+X
+X# The size of block to be read or written when talking to the remote
+X# ftp server
+X$ftp'ftpbufsize = 4096;
+X
+X# How often to print a hash out, when debugging
+X$ftp'hashevery = 1024;
+X# Output a newline after this many hashes to prevent outputing very long lines
+X$ftp'hashnl = 70;
+X
+X# Is there a connection open?
+X$ftp'service_open = 0;
+X
+X# If a proxy connection then who am I really talking to?
+X$real_site = "";
+X
+X# Where error/log reports are sent to
+X$ftp'showfd = 'STDERR';
+X
+X# Name of a function to call on a pathname to map it into a remote
+X# pathname.
+X$ftp'mapunixout = '';
+X$ftp'manunixin = '';
+X
+X# This is just a tracing aid.
+X$ftp_show = 0;
+X
+Xsub ftp'debug
+X{
+X	$ftp_show = @_[0];
+X#	if( $ftp_show ){
+X#		print $ftp'showfd "ftp debugging on\n";
+X#	}
+X}
+X
+Xsub ftp'set_timeout
+X{
+X	local( $to ) = @_;
+X	return if $to == $timeout;
+X	$timeout = $to;
+X	$timeout_open = $timeout;
+X	$timeout_read = 2 * $timeout;
+X	if( $ftp_show ){
+X		print $ftp'showfd "ftp timeout set to $timeout\n";
+X	}
+X}
+X
+X
+Xsub ftp'open_alarm
+X{
+X	die "timeout: open";
+X}
+X
+Xsub ftp'timed_open
+X{
+X	local( $site, $ftp_port, $retry_call, $attempts ) = @_;
+X	local( $connect_site, $connect_port );
+X	local( $res );
+X
+X	alarm( $timeout_open );
+X
+X	while( $attempts-- ){
+X		if( $ftp_show ){
+X			print $ftp'showfd "proxy connecting via $proxy_gateway [$proxy_ftp_port]\n" if $proxy;
+X			print $ftp'showfd "Connecting to $site";
+X			if( $ftp_port != 21 ){
+X				print $ftp'showfd " [port $ftp_port]";
+X			}
+X			print $ftp'showfd "\n";
+X		}
+X		
+X		if( $proxy ) {
+X			if( ! $proxy_gateway ) {
+X				# if not otherwise set
+X				$proxy_gateway = "internet-gateway";
+X			}
+X			if( $debug ) {
+X				print $ftp'showfd "using proxy services of $proxy_gateway, ";
+X				print $ftp'showfd "at $proxy_ftp_port\n";
+X			}
+X			$connect_site = $proxy_gateway;
+X			$connect_port = $proxy_ftp_port;
+X			$real_site = $site;
+X		}
+X		else {
+X			$connect_site = $site;
+X			$connect_port = $ftp_port;
+X		}
+X		if( ! &chat'open_port( $connect_site, $connect_port ) ){
+X			if( $retry_call ){
+X				print $ftp'showfd "Failed to connect\n" if $ftp_show;
+X				next;
+X			}
+X			else {
+X				print $ftp'showfd "proxy connection failed " if $proxy;
+X				print $ftp'showfd "Cannot open ftp to $connect_site\n" if $ftp_show;
+X				return 0;
+X			}
+X		}
+X		$res = &ftp'expect( $timeout,
+X			120, "service unavailable to $site", 0, 
+X			220, "ready for login to $site", 1,
+X			421, "service unavailable to $site, closing connection", 0);
+X		if( ! $res ){
+X			&chat'close();
+X			next;
+X		}
+X		return 1;
+X	}
+X	continue {
+X		print $ftp'showfd "Pausing between retries\n";
+X		sleep( $retry_pause );
+X	}
+X	return 0;
+X}
+X
+Xsub main'ftp__sighandler
+X{
+X	local( $sig ) = @_;
+X	local( $msg ) = "Caught a SIG$sig flagging connection down";
+X	$ftp'service_open = 0;
+X	if( $ftp_logger ){
+X		eval "&$ftp_logger( \$msg )";
+X	}
+X}
+X
+Xsub ftp'set_signals
+X{
+X	$ftp_logger = @_;
+X	$SIG{ 'PIPE' } = "ftp__sighandler";
+X}
+X
+X# Set the mapunixout and mapunixin functions
+Xsub ftp'set_namemap
+X{
+X	($ftp'mapunixout, $ftp'mapunixin) = @_;
+X	if( $debug ) {
+X		print $ftp'showfd "mapunixout = $ftp'mapunixout, $mapunixin = $ftp'mapunixin\n";
+X	}
+X}
+X
+X
+Xsub ftp'open
+X{
+X	local( $site, $ftp_port, $retry_call, $attempts ) = @_;
+X
+X	local( $old_sig ) = $SIG{ 'ALRM' };
+X	$SIG{ 'ALRM' } = "ftp\'open_alarm";
+X
+X	local( $ret ) = eval "&timed_open( '$site', $ftp_port, $retry_call, $attempts )";
+X	alarm( 0 );
+X	$SIG{ 'ALRM' } = $old_sig;
+X
+X	if( $@ =~ /^timeout/ ){
+X		return -1;
+X	}
+X
+X	if( $ret ){
+X		$ftp'service_open = 1;
+X	}
+X
+X	return $ret;
+X}
+X
+Xsub ftp'login
+X{
+X	local( $remote_user, $remote_password ) = @_;
+X        local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $proxy ){
+X		&ftp'send( "USER $remote_user@$site" );
+X	}
+X	else {
+X		&ftp'send( "USER $remote_user" );
+X	}
+X	$ret = &ftp'expect( $timeout,
+X		230, "$remote_user logged in", 1,
+X		331, "send password for $remote_user", 2,
+X
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X		332, "account for login not supported", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	if( $ret == 2 ){
+X		# A password is needed
+X		&ftp'send( "PASS $remote_password" );
+X
+X		$ret = &ftp'expect( $timeout,
+X			230, "$remote_user logged in", 1,
+X
+X			202, "command not implemented", 0,
+X			332, "account for login not supported", 0,
+X
+X			530, "not logged in", 0,
+X			500, "syntax error", 0,
+X			501, "syntax error", 0,
+X			503, "bad sequence of commands", 0, 
+X
+X			421, "service unavailable, closing connection", 99 );
+X		if( $ret == 99 ){
+X			&service_closed();
+X			$ret = 0;
+X		}
+X		if( $ret == 1 ){
+X			# Logged in
+X			return 1;
+X		}
+X	}
+X	# If I got here I failed to login
+X	return 0;
+X}
+X
+Xsub service_closed
+X{
+X	$ftp'service_open = 0;
+X	&chat'close();
+X}
+X
+Xsub ftp'close
+X{
+X	&ftp'quit();
+X	$ftp'service_open = 0;
+X	&chat'close();
+X}
+X
+X# Change directory
+X# return 1 if successful
+X# 0 on a failure
+Xsub ftp'cwd
+X{
+X	local( $dir ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$dir = eval "&$ftp'mapunixout( \$dir, 'd' )";
+X	}
+X
+X	&ftp'send( "CWD $dir" );
+X
+X	$ret = &ftp'expect( $timeout,
+X		200, "working directory = $dir", 1,
+X		250, "working directory = $dir", 1,
+X
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X                502, "command not implemented", 0,
+X		530, "not logged in", 0,
+X                550, "cannot change directory", 0,
+X		421, "service unavailable, closing connection", 99 );
+X
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	return $ret;
+X}
+X
+X# Get a full directory listing:
+X# &ftp'dir( remote LIST options )
+X# Start a list going with the given options.
+X# Presuming that the remote deamon uses the ls command to generate the
+X# data to send back then then you can send it some extra options (eg: -lRa)
+X# return 1 if sucessful and 0 on a failure
+Xsub ftp'dir_open
+X{
+X	local( $options ) = @_;
+X	local( $ret );
+X	
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( ! &ftp'open_data_socket() ){
+X		return 0;
+X	}
+X	
+X	if( $options ){
+X		&ftp'send( "LIST $options" );
+X	}
+X	else {
+X		&ftp'send( "LIST" );
+X	}
+X	
+X	$ret = &ftp'expect( $timeout,
+X		150, "reading directory", 1,
+X	
+X		125, "data connection already open?", 0,
+X	
+X		450, "file unavailable", 0,
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "command not implemented", 0,
+X		530, "not logged in", 0,
+X	
+X	        421, "service unavailable, closing connection", 99 );
+X	
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	if( ! $ret ){
+X		&ftp'close_data_socket;
+X		return 0;
+X	}
+X	
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	# now accept
+X	accept(NS,S) || die "accept failed $!";
+X	
+X	return 1;
+X}
+X
+X
+X# Close down reading the result of a remote ls command
+X# return 1 if successful and 0 on failure
+Xsub ftp'dir_close
+X{
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	# read the close
+X	#
+X	$ret = &ftp'expect($timeout,
+X        	226, "", 1,     # transfer complete, closing connection
+X        	250, "", 1,     # action completed
+X
+X	        425, "can't open data connection", 0,
+X        	426, "connection closed, transfer aborted", 0,
+X	        451, "action aborted, local error", 0,
+X	        421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	# shut down our end of the socket
+X	&ftp'close_data_socket;
+X
+X	if( ! $ret ){
+X		return 0;
+X	}
+X
+X	return 1;
+X}
+X
+X# Quit from the remote ftp server
+X# return 1 if successful and 0 on failure
+Xsub ftp'quit
+X{
+X	local( $ret );
+X
+X	$site_command_check = 0;
+X	@site_command_list = ();
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	&ftp'send( "QUIT" );
+X
+X	$ret = &ftp'expect( $timeout, 
+X		221, "Goodbye", 1,     # transfer complete, closing connection
+X		500, "error quitting??", 0,
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+Xsub ftp'read_alarm
+X{
+X	die "timeout: read";
+X}
+X
+Xsub ftp'timed_read
+X{
+X	alarm( $timeout_read );
+X	return sysread( NS, $buf, $ftpbufsize );
+X}
+X
+Xsub ftp'read
+X{
+X	$SIG{ 'ALRM' } = "ftp\'read_alarm";
+X
+X	if( ! $ftp'service_open ){
+X		return -1;
+X	}
+X
+X	local( $ret ) = eval '&timed_read()';
+X	alarm( 0 );
+X
+X	if( $@ =~ /^timeout/ ){
+X		return -1;
+X	}
+X	return $ret;
+X}
+X
+X# Get a remote file back into a local file.
+X# If no loc_fname passed then uses rem_fname.
+X# returns 1 on success and 0 on failure
+Xsub ftp'get
+X{
+X	local($rem_fname, $loc_fname, $restart ) = @_;
+X	local( $ret );
+X	
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $loc_fname eq "" ){
+X		$loc_fname = $rem_fname;
+X	}
+X	
+X	if( ! &ftp'open_data_socket() ){
+X		print $ftp'showfd "Cannot open data socket\n";
+X		return 0;
+X	}
+X
+X	if( $loc_fname ne '-' ){
+X		# Find the size of the target file
+X		local( $restart_at ) = &ftp'filesize( $loc_fname );
+X		if( $restart && $restart_at > 0 && &ftp'restart( $restart_at ) ){
+X			$restart = 1;
+X			# Make sure the file can be updated
+X			chmod( 0644, $loc_fname );
+X		}
+X		else {
+X			$restart = 0;
+X			unlink( $loc_fname );
+X		}
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$rem_fname = eval "&$ftp'mapunixout( \$rem_fname, 'f' )";
+X	}
+X
+X	&ftp'send( "RETR $rem_fname" );
+X	
+X	$ret = &ftp'expect( $timeout, 
+X		150, "receiving $rem_fname", 1,
+X
+X		125, "data connection already open?", 0,
+X		450, "file unavailable", 2,
+X		550, "file unavailable", 2,
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	if( $ret != 1 ){
+X		print $ftp'showfd "Failure on 'RETR $rem_fname' command\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X	# 
+X	# the data should be coming at us now
+X	#
+X
+X	# now accept
+X	accept( NS, S ) || die "accept failed: $!";
+X
+X	#
+X	#  open the local fname
+X	#  concatenate on the end if restarting, else just overwrite
+X	if( !open( FH, ($restart ? '>>' : '>') . $loc_fname ) ){
+X		print $ftp'showfd "Cannot create local file $loc_fname\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X	local( $start_time ) = time;
+X	local( $bytes, $lasthash, $hashes ) = (0, 0, 0);
+X	while( ($len = &ftp'read()) > 0 ){
+X		$bytes += $len;
+X		if( $strip_cr ){
+X			$ftp'buf =~ s/\r//g;
+X		}
+X		if( $ftp_show ){
+X			while( $bytes > ($lasthash + $ftp'hashevery) ){
+X				print $ftp'showfd '#';
+X				$lasthash += $ftp'hashevery;
+X				$hashes++;
+X				if( ($hashes % $ftp'hashnl) == 0 ){
+X					print $ftp'showfd "\n";
+X				}
+X			}
+X		}
+X		if( ! print FH $ftp'buf ){
+X			print $ftp'showfd "\nfailed to write data";
+X			$bytes = -1;
+X			last;
+X		}
+X	}
+X	close( FH );
+X
+X	# shut down our end of the socket
+X	&ftp'close_data_socket;
+X
+X	if( $len < 0 ){
+X		print $ftp'showfd "\ntimed out reading data!\n";
+X
+X		return 0;
+X	}
+X		
+X	if( $ftp_show && $bytes > 0 ){
+X		if( $hashes && ($hashes % $ftp'hashnl) != 0 ){
+X			print $ftp'showfd "\n";
+X		}
+X		local( $secs ) = (time - $start_time);
+X		if( $secs <= 0 ){
+X			$secs = 1; # To avoid a divide by zero;
+X		}
+X
+X		local( $rate ) = int( $bytes / $secs );
+X		print $ftp'showfd "Got $bytes bytes ($rate bytes/sec)\n";
+X	}
+X
+X	#
+X	# read the close
+X	#
+X
+X	$ret = &ftp'expect( $timeout, 
+X		226, "Got file", 1,     # transfer complete, closing connection
+X	        250, "Got file", 1,     # action completed
+X	
+X	        110, "restart not supported", 0,
+X	        425, "can't open data connection", 0,
+X	        426, "connection closed, transfer aborted", 0,
+X	        451, "action aborted, local error", 0,
+X		550, "permission denied", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	if( $ret && $bytes < 0 ){
+X		$ret = 0;
+X	}
+X
+X	return $ret;
+X}
+X
+Xsub ftp'delete
+X{
+X	local( $rem_fname ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$rem_fname = eval "&$ftp'mapunixout( \$rem_fname, 'f' )";
+X	}
+X
+X	&ftp'send( "DELE $rem_fname" );
+X
+X	$ret = &ftp'expect( $timeout, 
+X		250, "Deleted $rem_fname", 1,
+X		550, "Permission denied", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	return $ret == 1;
+X}
+X
+Xsub ftp'deldir
+X{
+X    local( $fname ) = @_;
+X
+X    # not yet implemented
+X    # RMD
+X}
+X
+X# UPDATE ME!!!!!!
+X# Add in the hash printing and newline conversion
+Xsub ftp'put
+X{
+X	local( $loc_fname, $rem_fname ) = @_;
+X	local( $strip_cr );
+X	
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $loc_fname eq "" ){
+X		$loc_fname = $rem_fname;
+X	}
+X	
+X	if( ! &ftp'open_data_socket() ){
+X		return 0;
+X	}
+X	
+X	if( $ftp'mapunixout ){
+X		$rem_fname = eval "&$ftp'mapunixout( \$rem_fname, 'f' )";
+X	}
+X
+X	&ftp'send( "STOR $rem_fname" );
+X	
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	local( $ret ) =
+X	&ftp'expect( $timeout, 
+X		150, "sending $loc_fname", 1,
+X
+X		125, "data connection already open?", 0,
+X		450, "file unavailable", 0,
+X		532, "need account for storing files", 0,
+X		452, "insufficient storage on system", 0,
+X		553, "file name not allowed", 0,
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	if( $ret != 1 ){
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X
+X
+X	# 
+X	# the data should be coming at us now
+X	#
+X	
+X	# now accept
+X	accept(NS,S) || die "accept failed: $!";
+X	
+X	#
+X	#  open the local fname
+X	#
+X	if( !open(FH, "<$loc_fname") ){
+X		print $ftp'showfd "Cannot open local file $loc_fname\n";
+X
+X		# shut down our end of the socket
+X		&ftp'close_data_socket;
+X
+X		return 0;
+X	}
+X	
+X	while( <FH> ){
+X		if( ! $ftp'service_open ){
+X			last;
+X		}
+X		print NS ;
+X	}
+X	close( FH );
+X	
+X	# shut down our end of the socket to signal EOF
+X	&ftp'close_data_socket;
+X	
+X	#
+X	# read the close
+X	#
+X	
+X	$ret = &ftp'expect( $timeout, 
+X		226, "file put", 1,     # transfer complete, closing connection
+X		250, "file put", 1,     # action completed
+X	
+X		110, "restart not supported", 0,
+X		425, "can't open data connection", 0,
+X		426, "connection closed, transfer aborted", 0,
+X		451, "action aborted, local error", 0,
+X		551, "page type unknown", 0,
+X		552, "storage allocation exceeded", 0,
+X	
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	if( ! $ret ){
+X		print $ftp'showfd "Failure on 'STOR $loc_fname' command\n";
+X	}
+X	return $ret;
+X}
+X
+Xsub ftp'restart
+X{
+X	local( $restart_point, $ret ) = @_;
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	&ftp'send( "REST $restart_point" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		350, "restarting at $restart_point", 1,
+X			   
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "REST not implemented", 2,
+X		530, "not logged in", 0,
+X		554, "REST not implemented", 2,
+X			   
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+X# Set the file transfer type
+Xsub ftp'type
+X{
+X	local( $type ) = @_;
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	&ftp'send( "TYPE $type" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		200, "file type set to $type", 1,
+X			   
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		504, "Invalid form or byte size for type $type", 0,
+X			   
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+X$site_command_check = 0;
+X@site_command_list = ();
+X
+X# routine to query the remote server for 'SITE' commands supported
+Xsub ftp'site_commands
+X{
+X	local( $ret );
+X	
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	# if we havent sent a 'HELP SITE', send it now
+X	if( !$site_command_check ){
+X	
+X		$site_command_check = 1;
+X	
+X		&ftp'send( "HELP SITE" );
+X	
+X		# assume the line in the HELP SITE response with the 'HELP'
+X		# command is the one for us
+X		$ret = &ftp'expect( $timeout,
+X			".*HELP.*", "", "\$1",
+X			214, "", "0",
+X			202, "", "0",
+X			421, "service unavailable, closing connection", "99" );
+X		if( $ret == 99 ){
+X			&service_closed();
+X			$ret = "0";
+X		}
+X	
+X		if( $ret eq "0" ){
+X			print $ftp'showfd "No response from HELP SITE\n" if( $ftp_show );
+X		}
+X	
+X		@site_command_list = split(/\s+/, $ret);
+X	}
+X	
+X	return @site_command_list;
+X}
+X
+X# return the pwd, or null if we can't get the pwd
+Xsub ftp'pwd
+X{
+X	local( $ret, $cwd );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	&ftp'send( "PWD" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		257, "working dir is", 1,
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "PWD not implemented", 0,
+X		550, "file unavailable", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	if( $ret ){
+X		if( $ftp'response =~ /^257\s"(.*)"\s.*$/ ){
+X			$cwd = $1;
+X		}
+X	}
+X	return $cwd;
+X}
+X
+X# return 1 for success, 0 for failure
+Xsub ftp'mkdir
+X{
+X	local( $path ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$path = eval "&$ftp'mapunixout( \$path, 'f' )";
+X	}
+X
+X	&ftp'send( "MKD $path" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		257, "made directory $path", 1,
+X			   
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "MKD not implemented", 0,
+X		530, "not logged in", 0,
+X		550, "file unavailable", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+X# return 1 for success, 0 for failure
+Xsub ftp'chmod
+X{
+X	local( $path, $mode ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$path = eval "&$ftp'mapunixout( \$path, 'f' )";
+X	}
+X
+X	&ftp'send( sprintf( "SITE CHMOD %o $path", $mode ) );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		200, "chmod $mode $path succeeded", 1,
+X			   
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "CHMOD not implemented", 0,
+X		530, "not logged in", 0,
+X		550, "file unavailable", 0,
+X
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+X# rename a file
+Xsub ftp'rename
+X{
+X	local( $old_name, $new_name ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	if( $ftp'mapunixout ){
+X		$old_name = eval "&$ftp'mapunixout( \$old_name, 'f' )";
+X	}
+X
+X	&ftp'send( "RNFR $old_name" );
+X
+X	# 
+X	# see what they say
+X
+X	$ret = &ftp'expect( $timeout, 
+X		350, "", 1,
+X			   
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		502, "RNFR not implemented", 0,
+X		530, "not logged in", 0,
+X		550, "file unavailable", 0,
+X		450, "file unavailable", 0,
+X			   
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X
+X	# check if the "rename from" occurred ok
+X	if( $ret ){
+X		if( $ftp'mapunixout ){
+X			$new_name = eval "&$ftp'mapunixout( \$new_name, 'f' )";
+X		}
+X
+X		&ftp'send( "RNTO $new_name" );
+X	
+X		# 
+X		# see what they say
+X	
+X		$ret = &ftp'expect( $timeout, 
+X			250, "rename $old_name to $new_name", 1, 
+X
+X			500, "syntax error", 0,
+X			501, "syntax error", 0,
+X			502, "RNTO not implemented", 0,
+X			503, "bad sequence of commands", 0,
+X			530, "not logged in", 0,
+X			532, "need account for storing files", 0,
+X			553, "file name not allowed", 0,
+X				   
+X			421, "service unavailable, closing connection", 99 );
+X		if( $ret == 99 ){
+X			&service_closed();
+X			$ret = 0;
+X		}
+X	}
+X
+X	return $ret;
+X}
+X
+X
+Xsub ftp'quote
+X{
+X	local( $cmd ) = @_;
+X	local( $ret );
+X
+X	if( ! $ftp'service_open ){
+X		return 0;
+X	}
+X
+X	&ftp'send( $cmd );
+X
+X	$ret = &ftp'expect( $timeout, 
+X		200, "Remote '$cmd' OK", 1,
+X		500, "error in remote '$cmd'", 0,
+X		421, "service unavailable, closing connection", 99 );
+X	if( $ret == 99 ){
+X		&service_closed();
+X		$ret = 0;
+X	}
+X	return $ret;
+X}
+X
+X# ------------------------------------------------------------------------------
+X# These are the lower level support routines
+X
+Xsub ftp'expectgot
+X{
+X	($ftp'response, $ftp'fatalerror) = @_;
+X	if( $ftp_show ){
+X		print $ftp'showfd "$ftp'response\n";
+X	}
+X	# Zap the chat2 buffer
+X	undef( $chat'S );
+X}
+X
+X#
+X#  create the list of parameters for chat'expect
+X#
+X#  ftp'expect(time_out, {value, string_to_print, return value});
+X#     if the string_to_print is "" then nothing is printed
+X#  the last response is stored in $ftp'response
+X#
+X# NOTE: lmjm has changed this code such that the string_to_print is
+X# ignored and the string sent back from the remote system is printed
+X# instead.
+X#
+Xsub ftp'expect {
+X	local( $ret );
+X	local( $time_out );
+X	local( @expect_args );
+X	local( $code, $pre );
+X	
+X	$ftp'response = '';
+X	$ftp'fatalerror = 0;
+X
+X	$time_out = shift( @_ );
+X	
+X	while( @_ ){
+X		$code = shift( @_ );
+X		$pre = '^';
+X		if( $code =~ /^\d+$/ ){
+X			$pre = "[.|\n]*^";
+X		}
+X		push( @expect_args, "$pre(" . $code . " .*)\\015\\n" );
+X		shift( @_ );
+X		push( @expect_args, 
+X			"&expectgot( \$1, 0 ); " . shift( @_ ) );
+X	}
+X	
+X	# Treat all unrecognised lines as continuations
+X	push( @expect_args, "^(.*)\\015\\n" );
+X	push( @expect_args, "&expectgot( \$1, 0 ); 100" );
+X	
+X	# add patterns TIMEOUT and EOF
+X	
+X	push( @expect_args, 'TIMEOUT' );
+X	push( @expect_args, "&expectgot( 'timed out', 0 ); 0" );
+X	
+X	push( @expect_args, 'EOF' );
+X	push( @expect_args, "&expectgot( 'remote server gone away', 1 ); 99" );
+X	
+X	if( $ftp_show > 9 ){
+X		&printargs( $time_out, @expect_args );
+X	}
+X	
+X	$ret = &chat'expect( $time_out, @expect_args );
+X	if( $ret == 100 ){
+X		# we saw a continuation line, wait for the end
+X		push( @expect_args, "^.*\n" );
+X		push( @expect_args, "100" );
+X	
+X		while( $ret == 100 ){
+X			if( $ftp_show > 9 ){
+X				&printargs( $time_out, @expect_args );
+X			}
+X			$ret = &chat'expect( $time_out, @expect_args );
+X		}
+X	}
+X
+X	return $ret;
+X}
+X
+X
+X
+X#
+X#  opens NS for io
+X#
+Xsub ftp'open_data_socket
+X{
+X	local( $sockaddr, $port );
+X	local( $type, $myaddr, $a, $b, $c, $d );
+X	local( $mysockaddr, $family, $hi, $lo );
+X	
+X	$sockaddr = 'S n a4 x8';
+X
+X	($a,$b,$c,$d) = unpack( 'C4', $chat'thisaddr );
+X	$this = $chat'thisproc;
+X	
+X	socket( S, $pf_inet, $sock_stream, $tcp_proto ) || die "socket: $!";
+X	bind( S, $this ) || die "bind: $!";
+X	
+X	# get the port number
+X	$mysockaddr = getsockname( S );
+X	($family, $port, $myaddr) = unpack( $sockaddr, $mysockaddr );
+X	
+X	$hi = ($port >> 8) & 0x00ff;
+X	$lo = $port & 0x00ff;
+X	
+X	#
+X	# we MUST do a listen before sending the port otherwise
+X	# the PORT may fail
+X	#
+X	listen( S, 5 ) || die "listen";
+X	
+X	&ftp'send( "PORT $a,$b,$c,$d,$hi,$lo" );
+X	
+X	return &ftp'expect($timeout,
+X		200, "PORT command successful", 1,
+X		250, "PORT command successful", 1 ,
+X
+X		500, "syntax error", 0,
+X		501, "syntax error", 0,
+X		530, "not logged in", 0,
+X
+X		421, "service unavailable, closing connection", 0);
+X}
+X	
+Xsub ftp'close_data_socket
+X{
+X	close(NS);
+X}
+X
+Xsub ftp'send
+X{
+X	local($send_cmd) = @_;
+X
+X	if( $send_cmd =~ /\n/ ){
+X		print $ftp'showfd "ERROR, \\n in send string for $send_cmd\n";
+X	}
+X	
+X	if( $ftp_show ){
+X		local( $sc ) = $send_cmd;
+X
+X		if( $send_cmd =~ /^PASS/){
+X			$sc = "PASS <somestring>";
+X		}
+X		print $ftp'showfd "---> $sc\n";
+X	}
+X	
+X	&chat'print( "$send_cmd\r\n" );
+X}
+X
+Xsub ftp'printargs
+X{
+X	while( @_ ){
+X		print $ftp'showfd shift( @_ ) . "\n";
+X	}
+X}
+X
+Xsub ftp'filesize
+X{
+X	local( $fname ) = @_;
+X
+X	if( ! -f $fname ){
+X		return -1;
+X	}
+X
+X	return (stat( _ ))[ 7 ];
+X	
+X}
+X
+X# make this package return true
+X1;
+END_OF_FILE
+if test 28699 -ne `wc -c <'ftp.pl'`; then
+    echo shar: \"'ftp.pl'\" unpacked with wrong size!
+fi
+# end of 'ftp.pl'
+fi
+if test -f 'makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'makefile'\"
+else
+echo shar: Extracting \"'makefile'\" \(552 characters\)
+sed "s/^X//" >'makefile' <<'END_OF_FILE'
+X# Where to install ftpcat and its manual pages
+XINSTBIN=/usr/local/bin
+XINSTLIB=/usr/local/lib/perl
+XINSTMAN=/usr/local/man/manl
+X# The manual page section (normally l or 1)
+XS=l
+XALL=README ftpcat.man ftpcat chat2.pl ftp.pl makefile
+X
+Xall:
+X	echo Only make install means anything
+X
+Xinstall:
+X	cp buffer $(INSTBIN)
+X	chmod 755 $(INSTBIN)/buffer
+X	cp ftpcat.man $(INSTMAN)/buffer.$S
+X	chmod 444 $(INSTMAN)/buffer.$S
+X	cp ftp.pl chat2.pl $(INSTLIB)
+X	chmod 444 $(INSTLIB)/ftp.pl $(INSTLIB)/chat2.pl
+X
+Xftpcat.shar: $(ALL)
+X	$(RM) -f buffer.shar
+X	shar $(ALL) > ftpcat.shar
+END_OF_FILE
+if test 552 -ne `wc -c <'makefile'`; then
+    echo shar: \"'makefile'\" unpacked with wrong size!
+fi
+# end of 'makefile'
+fi
+echo shar: End of shell archive.
+exit 0
+
+-- 
+--
+Lee McLoughlin.                          Phone: +44 71 589 5111 X 5085
+Dept of Computing, Imperial College,     Fax: +44 71 581 8024
+180 Queens Gate, London, SW7 2BZ, UK.    Email: L.McLoughlin@doc.ic.ac.uk
+
+exit 0 # Just in case...

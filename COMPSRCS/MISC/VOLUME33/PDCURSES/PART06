@@ -1,0 +1,1996 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i086:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part06/11
+Message-ID: <1992Nov19.040424.7480@sparky.imd.sterling.com>
+X-Md4-Signature: d45a941076ef5ca9821df6abc6b3c457
+Date: Thu, 19 Nov 1992 04:04:24 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 86
+Archive-name: pdcurses/part06
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  nonport/resize.c portable/doupdate.c portable/hascolor.c
+#   portable/mvprintw.c portable/mvwprint.c portable/mvwscanw.c
+#   portable/newpad.c portable/newwin.c portable/overlay.c
+#   portable/overwrit.c portable/prefresh.c portable/subwin.c
+#   private/_chins.c private/_gbiosky.c private/_getrows.c
+#   private/_scroll.c private/_scropen.c private/_setfont.c
+# Wrapped by kent@sparky on Wed Nov 18 21:44:08 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 11)."'
+if test -f 'nonport/resize.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nonport/resize.c'\"
+else
+  echo shar: Extracting \"'nonport/resize.c'\" \(2953 characters\)
+  sed "s/^X//" >'nonport/resize.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	resize
+X
+X#ifndef NDEBUG
+Xchar *rcsid_resize = "$Header: c:/curses/nonport/RCS/resize.c%v 2.0 1992/11/15 03:18:27 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  resize()	- Resizes PDCurses; Changes video text size if necessary.
+X
+X  PDCurses Description:
+X 	Does necessary initializations for the PDCurses package when
+X 	doing screen size changes. The user is responsible for
+X 	deleting and/or resizing windows after this call is made.
+X
+X 	See the call _resize_win().
+X
+X 	WARNING: This routine deallocated the existing stdscr, curscr
+X 	and modifies LINES, COLS and other internal PDCurses
+X 	variables.
+X
+X  PDCurses Return Value:
+X 	The resize() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function before calling initscr().
+X 	Also, an error will be generated if we fail to create a newly
+X 	sized replacement window for _cursvar.tmpwin, curscr, or stdscr.
+X 	This will typically happen when increasing the window size.
+X
+X 	NOTE:  If this happens, the previously successfully allocated
+X 	windows are left alone.  i.e. The resize is NOT cancelled for
+X 	those windows.
+X
+X  PDCurses BUGS:
+X
+X 	At this time, there is no support for any 40-column screen modes.
+X
+X  Portability:
+X 	PDCurses	int	resize( int newlines );
+X
+X**man-end**********************************************************************/
+X
+Xint	resize(int newlines)
+X{
+X	WINDOW*	tmp;
+X
+X	if (stdscr == (WINDOW *)NULL)
+X		return(ERR);
+X
+X#ifdef	FLEXOS
+X	/*
+X	 * Under FlexOS, this is functionally equivalent to a recallable
+X	 * initscr() because FlexOS does not yet support determination of
+X	 * screen fonts and therefore font loading and therefore text mode
+X	 * screen resolution changes...
+X	 */
+X	return( ERR );
+X#endif
+X#if !defined(OS2)
+X	switch (_cursvar.adapter)
+X	{
+X	case _EGACOLOR:
+X		if (newlines >= 43)		PDC_set_font(_FONT8);
+X		else				PDC_set_80x25();
+X		break;
+X
+X	case _VGACOLOR:
+X		if	(newlines > 28)		PDC_set_font(_FONT8);
+X		else	if (newlines > 25)	PDC_set_font(_FONT14);
+X		else				PDC_set_80x25();
+X		break;
+X
+X	default:
+X		break;
+X	}
+X#endif
+X#ifdef     OS2
+X	if (newlines >= 43)		PDC_set_font(_FONT8);
+X	else	if (newlines > 25)	PDC_set_font(_FONT14);
+X	else				PDC_set_80x25();
+X#endif
+X	_cursvar.lines = LINES = PDC_get_rows();
+X	_cursvar.cols  = COLS  = PDC_get_columns();
+X
+X	if (curscr->_pmaxy > LINES)
+X	{
+X		PDC_scroll(0, 0, curscr->_pmaxy - 1, COLS - 1, 0, _cursvar.orig_attr);
+X	}
+X	else
+X	{
+X		PDC_scroll(0, 0, LINES - 1, COLS - 1, 0, _cursvar.orig_attr);
+X	}
+X	if ((tmp = resize_win(tmpwin, LINES, COLS)) != (WINDOW *) NULL)
+X	{
+X		tmpwin = tmp;
+X	}
+X	else
+X	{
+X		return (ERR);
+X	}
+X	if ((tmp = resize_win(curscr, LINES, COLS)) != (WINDOW *) NULL)
+X	{
+X		curscr = tmp;
+X	}
+X	else
+X	{
+X		return (ERR);
+X	}
+X	if ((tmp = resize_win(stdscr, LINES, COLS)) != (WINDOW *) NULL)
+X	{
+X		stdscr = tmp;
+X		touchwin(stdscr);
+X		wnoutrefresh(stdscr);
+X	}
+X	else
+X	{
+X		return (ERR);
+X	}
+X	return (OK);
+X}
+END_OF_FILE
+  if test 2953 -ne `wc -c <'nonport/resize.c'`; then
+    echo shar: \"'nonport/resize.c'\" unpacked with wrong size!
+  fi
+  # end of 'nonport/resize.c'
+fi
+if test -f 'portable/doupdate.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/doupdate.c'\"
+else
+  echo shar: Extracting \"'portable/doupdate.c'\" \(2951 characters\)
+  sed "s/^X//" >'portable/doupdate.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	doupdate
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_doupdate = "$Header: c:/curses/portable/RCS/doupdate.c%v 2.0 1992/11/15 03:28:50 MH Rel $";
+X#endif
+X
+XWINDOW *twin;			/* used by many routines */
+X
+X
+X/*man-start*********************************************************************
+X
+X  doupdate()	- do effiecient refresh
+X
+X  X/Open Description: (part of the wnoutrefresh() description.)
+X 	These two routines allow multiple updates with more efficiency
+X 	than wrefresh() alone.  In addition to all of the window
+X 	structures representing the terminal screen: a physical screen,
+X 	describing what is actually on the screen and a virtual screen,
+X 	describing what the programmer wants to have on  the screen.
+X
+X 	The wrefresh() function works by first calling wnoutrefresh(),
+X 	which copies the named window to the virtual screen.  It then
+X 	calls doupdate(), which compares the virtual screen to the
+X 	physical screen and does the actual update.  If the programmer
+X 	wishes to output several windows at once, a series of cals to
+X 	wrefresh() will result in alternating calls to wnoutrefresh()
+X 	and doupdate(), causing several bursts of output to the
+X 	screen.  By first calling wnoutrefresh() for each window, it
+X 	is then possible to call doupdate() once.  This results in
+X 	only one burst of output, with probably fewer total characters
+X 	transmitted and certainly less CPU time used.
+X
+X  PDCurses Description:
+X 	In addition to the above, if REGISTERWINDOWS is TRUE when the
+X 	library was compiled, any windows registered (true by default
+X 	with PDCurses and _cursvar.refreshall is TRUE, then all
+X 	registered windows will be called via wnoutrefresh() before
+X 	the actual screen update begins.
+X
+X  X/Open Return Value:
+X 	The doupdate() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int doupdate( void );
+X 	X/Open Dec '88	int doupdate( void );
+X 	BSD Curses	int doupdate( void );
+X 	SYS V Curses	int doupdate( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	doupdate(void)
+X{
+Xregister int	i;
+X#ifdef	REGISTERWINDOWS
+X	WINDS*	next = _cursvar.visible;
+X
+X	if (_cursvar.refreshall)
+X	{
+X		while (next != NULL)
+X		{
+X			if (next->w->_parent != NULL)
+X			{
+X				touchwin(next->w->_parent);
+X				wnoutrefresh(next->w->_parent);
+X			}
+X			touchwin(next->w);
+X			wnoutrefresh(next->w);
+X			next = next->next;
+X		}
+X	}
+X#endif
+X	if  (_cursvar.shell)
+X		reset_prog_mode();
+X
+X	twin = tmpwin;
+X	if (twin == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	if (curscr->_clear)
+X	{
+X		PDC_clr_update(curscr);
+X	}
+X	else
+X	{
+X		if (twin->_clear)
+X		{
+X			PDC_clr_update(twin);
+X		}
+X		else
+X		{
+X			for (i = 0; i < LINES; i++)
+X			{
+X				if (twin->_firstch[i] != _NO_CHANGE)
+X					if (PDC_transform_line(i))
+X						break;
+X			}
+X		}
+X	}
+X	curscr->_curx = twin->_curx;
+X	curscr->_cury = twin->_cury;
+X	PDC_gotoxy(curscr->_cury, curscr->_curx);
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2951 -ne `wc -c <'portable/doupdate.c'`; then
+    echo shar: \"'portable/doupdate.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/doupdate.c'
+fi
+if test -f 'portable/hascolor.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/hascolor.c'\"
+else
+  echo shar: Extracting \"'portable/hascolor.c'\" \(763 characters\)
+  sed "s/^X//" >'portable/hascolor.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef has_colors
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_hascolor = "$Header: c:/curses/portable/RCS/hascolor.c%v 2.0 1992/11/15 03:28:54 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  has_colors()	- Indicates if the terminal supports color.
+X
+X  PDCurses Description:
+X
+X 	This routine indicates if the terminal supports and can maniplulate
+X 	color.
+X
+X  PDCurses Return Value:
+X 	This function returns TRUE on success and FALSE on error.
+X
+X  PDCurses Errors:
+X 	N/A
+X
+X  Portability:
+X 	PDCurses	int has_colors( void );
+X
+X**man-end**********************************************************************/
+X
+Xint has_colors(void)
+X{
+X	if (_cursvar.mono)
+X		return(FALSE);
+X	return(TRUE);
+X}
+END_OF_FILE
+  if test 763 -ne `wc -c <'portable/hascolor.c'`; then
+    echo shar: \"'portable/hascolor.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/hascolor.c'
+fi
+if test -f 'portable/mvprintw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/mvprintw.c'\"
+else
+  echo shar: Extracting \"'portable/mvprintw.c'\" \(2365 characters\)
+  sed "s/^X//" >'portable/mvprintw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	mvprintw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_mvprintw = "$Header: c:/curses/portable/RCS/mvprintw.c%v 2.0 1992/11/15 03:29:31 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  mvprintw()	- formatted write to a window
+X
+X  X/Open Description:
+X 	The printw routine adds a string to the default window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by addstr.
+X
+X 	The routine wprintw adds a string to the specified window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by waddstr.
+X
+X 	The routine mvprintw adds a string to the default window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by addstr.
+X
+X 	The routine mvwprintw adds a string to the specified window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by waddstr.
+X
+X 	All these routines are analogous to printf.  It is advisable
+X 	to use the field width options of printf to avoid leaving
+X 	unwanted characters on the screen from earlier calls.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	The mvprintw() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int mvprintw( int y, int x, char* fmt, ... );
+X 	X/Open Dec '88	int mvprintw( int y, int x, char* fmt, ... );
+X 	BSD Curses	int mvprintw( int y, int x, char* fmt, ... );
+X 	SYS V Curses	int mvprintw( int y, int x, char* fmt, ... );
+X
+X**man-end**********************************************************************/
+X
+Xint	mvprintw(int y, int x, char *fmt, ...)
+X{
+X	int	retval = ERR;
+X	va_list args;
+X
+X	if (stdscr == (WINDOW *)NULL)
+X		return (retval);
+X
+X	if (wmove(stdscr, y, x) == ERR)
+X		return( retval );
+X
+X	va_start(args, fmt);
+X	vsprintf(c_printscanbuf, fmt, args);
+X	va_end(args);
+X
+X	if (waddstr(stdscr, c_printscanbuf) == ERR)
+X		return( retval );
+X	retval = (strlen(c_printscanbuf));
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2365 -ne `wc -c <'portable/mvprintw.c'`; then
+    echo shar: \"'portable/mvprintw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/mvprintw.c'
+fi
+if test -f 'portable/mvwprint.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/mvwprint.c'\"
+else
+  echo shar: Extracting \"'portable/mvwprint.c'\" \(2414 characters\)
+  sed "s/^X//" >'portable/mvwprint.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	mvwprintw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_mvwprint = "$Header: c:/curses/portable/RCS/mvwprint.c%v 2.0 1992/11/15 03:29:32 MH Rel $";
+X#endif
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  mvwprintw()	- formatted write to a window
+X
+X  X/Open Description:
+X 	The printw routine adds a string to the default window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by addstr.
+X
+X 	The routine wprintw adds a string to the specified window
+X 	starting at the current cursor position.  This routine causes
+X 	the string that would normally be output by printf to be
+X 	output by waddstr.
+X
+X 	The routine mvprintw adds a string to the default window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by addstr.
+X
+X 	The routine mvwprintw adds a string to the specified window
+X 	starting at the specified cursor position.  This routine
+X 	causes the string that would normally be output by printf to
+X 	be output by waddstr.
+X
+X 	All these routines are analogous to printf.  It is advisable
+X 	to use the field width options of printf to avoid leaving
+X 	unwanted characters on the screen from earlier calls.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	The mvprintw() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int mvwprintw(WINDOW* win, int y, int x, char *fmt, ...)
+X 	X/Open Dec '88	int mvwprintw(WINDOW* win, int y, int x, char *fmt, ...)
+X 	BSD Curses	int mvwprintw(WINDOW* win, int y, int x, char *fmt, ...)
+X 	SYS V Curses	int mvwprintw(WINDOW* win, int y, int x, char *fmt, ...)
+X
+X**man-end**********************************************************************/
+X
+Xint	mvwprintw(WINDOW * win, int y, int x, char *fmt, ...)
+X{
+X	int	retval = ERR;
+X	va_list args;
+X
+X	if (win == (WINDOW *)NULL)
+X		return (retval);
+X
+X	if (wmove(win, y, x) == ERR)
+X		return (retval);
+X
+X	va_start(args, fmt);
+X	vsprintf(c_printscanbuf, fmt, args);
+X	va_end(args);
+X
+X	if (waddstr(win, c_printscanbuf) == ERR)
+X		return (retval);
+X	retval = (strlen(c_printscanbuf));
+X	return (retval);
+X}
+END_OF_FILE
+  if test 2414 -ne `wc -c <'portable/mvwprint.c'`; then
+    echo shar: \"'portable/mvwprint.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/mvwprint.c'
+fi
+if test -f 'portable/mvwscanw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/mvwscanw.c'\"
+else
+  echo shar: Extracting \"'portable/mvwscanw.c'\" \(2341 characters\)
+  sed "s/^X//" >'portable/mvwscanw.c' <<'END_OF_FILE'
+X#include <stdarg.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	mvwscanw
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_mvwscanw = "$Header: c:/curses/portable/RCS/mvwscanw.c%v 2.0 1992/11/15 03:29:02 MH Rel $";
+X#endif
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  mvwscanw()	- read formatted from window
+X
+X  X/Open Description:
+X 	These routines correspond to scanf.  The function scanw reads
+X 	input from the default window.  The function wscanw reads
+X 	input from the specified window.  The function mvscanw moves
+X 	the cursor to the specified position and then reads input from
+X 	the default window.  The function mvwscanw moves the cursor to
+X 	the specified position and then reads input from the specified
+X 	window.
+X
+X 	For all the functions, the routine wgetstr is called to get a
+X 	string from the window, and the resulting line is used as
+X 	input for the scan.  All character interpretation is carried
+X 	out according to the scanf function rules.
+X
+X  PDCurses Description:
+X 	The old Bjorn Larssen code for the 68K platform has been removed
+X 	from this module.
+X
+X  X/Open Return Value:
+X 	Upon successful completion, the scanw, mvscanw, mvwscanw and
+X 	wscanw functions return the number of items successfully
+X 	matched.  On end-of-file, they return EOF.  Otherwise they
+X 	return ERR.
+X
+X  PDCurses Errors:
+X 	No errors.
+X
+X  Portability:
+X 	PDCurses	int mvwscanw(WINDOW* win, int y, int x, char *fmt, ...);
+X 	X/Open Dec '88	int mvwscanw(WINDOW* win, int y, int x, char *fmt, ...);
+X 	BSD Curses	int mvwscanw(WINDOW* win, int y, int x, char *fmt, ...);
+X 	SYS V Curses	int mvwscanw(WINDOW* win, int y, int x, char *fmt, ...);
+X
+X**man-end**********************************************************************/
+X
+Xint	mvwscanw(WINDOW * win, int y, int x, char *fmt,...)
+X{
+X	va_list args;
+X	int	retval = ERR;
+X
+X#if	!defined (HC)
+X	if (win == (WINDOW *)NULL)
+X		return( retval );
+X
+X	if (wmove(win, y, x) == ERR)
+X		return( retval );
+X
+X	wrefresh(win);		/* set cursor position */
+X
+X	/*
+X	 * get string
+X	 */
+X	c_printscanbuf[0] = '\0';  /* reset to empty string */
+X	if (wgetstr(win, c_printscanbuf) == ERR)
+X		return( retval );
+X	va_start(args, fmt);
+X#ifdef NO_VSSCANF
+X	retval = PDC_vsscanf(c_printscanbuf, fmt, args);
+X#else
+X	retval = vsscanf(c_printscanbuf, fmt, args);
+X#endif
+X	va_end(args);
+X#endif
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2341 -ne `wc -c <'portable/mvwscanw.c'`; then
+    echo shar: \"'portable/mvwscanw.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/mvwscanw.c'
+fi
+if test -f 'portable/newpad.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/newpad.c'\"
+else
+  echo shar: Extracting \"'portable/newpad.c'\" \(2641 characters\)
+  sed "s/^X//" >'portable/newpad.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	newpad
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_newpad = "$Header: c:/curses/portable/RCS/newpad.c%v 2.0 1992/11/15 03:29:27 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  newpad()	- Create new pad
+X
+X  X/Open Description:
+X 	Creates a new pad data structure.  A pad is a special case of a
+X 	window, which is not restricted by the screen size, and is not
+X 	necessarily associated with a particular part of the screen.  A
+X 	pad can be used when a large window is needed, and only a part
+X 	of the window will be on the screen at one tme.  Automatic
+X 	refreshes of pads (e.g., from scrolling or echoing of input) do
+X 	not occur.  It is not legal to call refresh() with a pad as an
+X 	argument; the routines prefresh() or pnoutrefresh() should be
+X 	called instead.  Note that these routines require additional
+X 	parameters to specify the part of the pad to be displayed and
+X 	the location on the screen to be used for display.
+X
+X  PDCurses Description:
+X 	PDCurses (as a library) provides the developer with the ability to
+X 	hook in their own malloc debugging  package.  See the details in
+X 	INITSCR.C for details on how to accomplish this.
+X
+X  X/Open Return Value:
+X 	The newpad() function returns a pointer to the new WINDOW structure
+X 	created on success and returns a null pointer on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	WINDOW* newpad( int nlines, int ncols );
+X 	X/Open Dec '88	WINDOW* newpad( int nlines, int ncols );
+X 	BSD Curses	WINDOW* newpad( int nlines, int ncols );
+X 	SYS V Curses	WINDOW* newpad( int nlines, int ncols );
+X
+X**man-end**********************************************************************/
+X
+XWINDOW* newpad( int nlines, int ncols )
+X{
+Xextern	void*	(*mallc)( size_t );
+Xextern	void*	(*callc)( size_t, size_t );
+Xextern	void	(*fre)( void* );
+X
+X	WINDOW* win;
+X	chtype* ptr;
+X	int	i;
+X	int	j;
+X
+X	if ((win = PDC_makenew( nlines, ncols, -1, -1 )) == (WINDOW *)NULL)
+X		return( (WINDOW *)NULL );
+X
+X	for (i = 0; i < nlines; i++)
+X	{
+X		/*
+X		 * make and clear the lines
+X		 */
+X		if ((win->_y[i] = (*callc)(ncols, sizeof(chtype))) == NULL)
+X		{
+X			for (j = 0; j < i; j++)
+X			{
+X				/*
+X				 * if error, free all the data
+X				 */
+X				(*fre)(win->_y[j]);
+X			}
+X			(*fre)(win->_firstch);
+X			(*fre)(win->_lastch);
+X			(*fre)(win->_y);
+X			(*fre)(win);
+X			return( (WINDOW *)NULL );
+X		}
+X		else
+X		{
+X			for (ptr = win->_y[i];
+X			     ptr < win->_y[i] + ncols;)
+X			{
+X				/*
+X				* Retain the original screen attributes...
+X				*/
+X
+X				*ptr++ = _cursvar.blank;	
+X			}
+X		}
+X	}
+X	win->_flags = _PAD;
+X	return( win );
+X}
+END_OF_FILE
+  if test 2641 -ne `wc -c <'portable/newpad.c'`; then
+    echo shar: \"'portable/newpad.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/newpad.c'
+fi
+if test -f 'portable/newwin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/newwin.c'\"
+else
+  echo shar: Extracting \"'portable/newwin.c'\" \(2602 characters\)
+  sed "s/^X//" >'portable/newwin.c' <<'END_OF_FILE'
+X#include <stdlib.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	newwin
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_newwin = "$Header: c:/curses/portable/RCS/newwin.c%v 2.0 1992/11/15 03:29:28 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  newwin()	- create new window
+X
+X  X/Open Description:
+X 	Create a new window with the given number of lines, nlines and
+X 	columns, ncols. The upper left corner of the window is at line
+X 	begy, column begx. If either nlines or ncols is zero,
+X 	they will be defaulted to LINES - begy and COLS - begx. A
+X 	new full-screen window is created by calling newwin(0, 0, 0, 0).
+X
+X  PDCurses Description:
+X 	PDCurses allows developers to provide a hook into the malloc
+X 	package used.  See initscr(3c) for more details.
+X
+X 	Also, when a window is created, it uses the default screen
+X 	colors and attributes in effect when initscr() was called.
+X
+X  X/Open Return Value:
+X 	On success the newwin() function returns a pointer to the new
+X 	WINDOW structure created. On failure the function returns a
+X 	null pointer.
+X
+X  PDCurses Errors:
+X 	The following conditions are errors:
+X 		o  number of lines   == 0,
+X 		o  number of columns == 0,
+X 		o  failure to allocate memory for the window structure
+X
+X  Portability:
+X 	PDCurses	WINDOW* newwin(int nlines,int ncols,int begy,int begx);
+X 	X/Open Dec '88	WINDOW* newwin(int nlines,int ncols,int begy,int begx);
+X 	BSD Curses	WINDOW* newwin(int nlines,int ncols,int begy,int begx);
+X 	SYS V Curses	WINDOW* newwin(int nlines,int ncols,int begy,int begx);
+X
+X**man-end**********************************************************************/
+X
+XWINDOW*	newwin(int nlines, int ncols, int begy, int begx)
+X{
+Xextern	void*	(*mallc)( size_t );
+Xextern	void*	(*callc)( size_t, size_t );
+Xextern	void	(*fre)( void* );
+X
+X	WINDOW*	win;
+X	chtype*	ptr;
+X	int	i;
+X	int	j;
+X
+X	if (nlines == 0)	nlines = LINES - begy;
+X	if (ncols  == 0)	ncols  = COLS  - begx;
+X
+X	if ((win = PDC_makenew(nlines, ncols, begy, begx)) == (WINDOW *) NULL)
+X		return( (WINDOW *)NULL );
+X
+X	for (i = 0; i < nlines; i++)
+X	{
+X		/*
+X		 * make and clear the lines
+X		 */
+X		if ((win->_y[i] = (*callc)(ncols, sizeof(chtype))) == NULL)
+X		{
+X			for (j = 0; j < i; j++)
+X			{
+X				/*
+X				 * if error, free all the data
+X				 */
+X				(*fre)(win->_y[j]);
+X			}
+X			(*fre)(win->_firstch);
+X			(*fre)(win->_lastch);
+X			(*fre)(win->_y);
+X			(*fre)(win);
+X			return( (WINDOW *)NULL );
+X		}
+X		else
+X		{
+X			for (ptr = win->_y[i];
+X			     ptr < win->_y[i] + ncols;)
+X			{
+X				/*
+X				 * Retain the original screen attributes...
+X				 */
+X				*ptr++ = _cursvar.blank;
+X			}
+X		}
+X	}
+X	return( win );
+X}
+END_OF_FILE
+  if test 2602 -ne `wc -c <'portable/newwin.c'`; then
+    echo shar: \"'portable/newwin.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/newwin.c'
+fi
+if test -f 'portable/overlay.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/overlay.c'\"
+else
+  echo shar: Extracting \"'portable/overlay.c'\" \(2366 characters\)
+  sed "s/^X//" >'portable/overlay.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	overlay
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_overlay = "$Header: c:/curses/portable/RCS/overlay.c%v 2.0 1992/11/15 03:29:35 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  overlay()	- Overlay windows
+X
+X  X/Open Description:	overlay() and overwrite()
+X 	These functions overlay src_w on top of dst_w; that is,
+X 	all text in src_w is copied into dst_w. The windows
+X 	src_w and dst_w are not required to be the same size. The
+X 	copy starts at (0, 0) on each window. The difference between
+X 	the two functions is that overlay() is non-destructive
+X 	(blanks are not copied) while overwrite() is destructive
+X 	(blanks are copied).
+X
+X  PDCurses Description:
+X 	No additional PDCurses functionality.
+X
+X  X/Open Return Value:
+X 	The overlay() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int	overlay( WINDOW* src_w, WINDOW* dst_w );
+X 	X/Open Dec '88	int	overlay( WINDOW* src_w, WINDOW* dst_w );
+X 	BSD Curses	int	overlay( WINDOW* src_w, WINDOW* dst_w );
+X 	SYS V Curses	int	overlay( WINDOW* src_w, WINDOW* dst_w );
+X
+X**man-end**********************************************************************/
+X
+Xint	overlay(WINDOW *src_w, WINDOW *dst_w)
+X{
+X	int*	minchng;
+X	int*	maxchng;
+X	chtype*	w1ptr;
+X	chtype*	w2ptr;
+X	chtype	attrs;
+X	int	col;
+X	int	line;
+X	int	last_line;
+X	int	last_col;
+X
+X	if (src_w == (WINDOW *)NULL)	return( ERR );
+X	if (dst_w == (WINDOW *)NULL)	return( ERR );
+X
+X	minchng	  = dst_w->_firstch;
+X	maxchng   = dst_w->_lastch;
+X	last_col  = min(src_w->_maxx, dst_w->_maxx) - 1;
+X	last_line = min(src_w->_maxy, dst_w->_maxy) - 1;
+X	attrs	  = dst_w->_attrs;
+X
+X	for (line = 0; line <= last_line; line++)
+X	{
+X		register int fc;
+X		register int lc;
+X
+X		w1ptr = src_w->_y[line];
+X		w2ptr = dst_w->_y[line];
+X		fc    = _NO_CHANGE;
+X
+X		for (col = 0; col <= last_col; col++)
+X		{
+X			if ((*w1ptr & A_CHARTEXT) != src_w->_blank)
+X			{
+X				*w2ptr = (*w1ptr & A_CHARTEXT) | attrs;
+X				if (fc == _NO_CHANGE)
+X				{
+X					fc = col;
+X				}
+X				lc = col;
+X			}
+X			w1ptr++;
+X			w2ptr++;
+X		}
+X
+X		if (*minchng == _NO_CHANGE)
+X		{
+X			*minchng = fc;
+X			*maxchng = lc;
+X		}
+X		else	if (fc != _NO_CHANGE)
+X		{
+X			if (fc < *minchng)	*minchng = fc;
+X			if (lc > *maxchng)	*maxchng = lc;
+X		}
+X		minchng++;
+X		maxchng++;
+X	}
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2366 -ne `wc -c <'portable/overlay.c'`; then
+    echo shar: \"'portable/overlay.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/overlay.c'
+fi
+if test -f 'portable/overwrit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/overwrit.c'\"
+else
+  echo shar: Extracting \"'portable/overwrit.c'\" \(2396 characters\)
+  sed "s/^X//" >'portable/overwrit.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	overwrite
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_overwrit = "$Header: c:/curses/portable/RCS/overwrit.c%v 2.0 1992/11/15 03:29:36 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  overwrite()	- Overwrite windows
+X
+X  X/Open Description:	overlay() and overwrite()
+X 	These functions overlay src_w on top of dst_w; that is,
+X 	all text in src_w is copied into dst_w. The windows
+X 	src_w and dst_w are not required to be the same size. The
+X 	copy starts at (0, 0) on each window. The difference between
+X 	the two functions is that overlay() is non-destructive
+X 	(blanks are not copied) while overwrite() is destructive
+X 	(blanks are copied).
+X
+X  PDCurses Description:
+X 	No additional PDCurses functionality.
+X
+X  X/Open Return Value:
+X 	The overwrite() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int	overwrite( WINDOW* src_w, WINDOW* dst_w );
+X 	X/Open Dec '88	int	overwrite( WINDOW* src_w, WINDOW* dst_w );
+X 	BSD Curses	int	overwrite( WINDOW* src_w, WINDOW* dst_w );
+X 	SYS V Curses	int	overwrite( WINDOW* src_w, WINDOW* dst_w );
+X
+X**man-end**********************************************************************/
+X
+Xint	overwrite(WINDOW *src_w, WINDOW *dst_w)
+X{
+X	int*	minchng;
+X	int*	maxchng;
+X	chtype*	w1ptr;
+X	chtype*	w2ptr;
+X	chtype	attrs;
+X	int	col;
+X	int	line;
+X	int	last_line;
+X	int	last_col;
+X
+X	if (src_w == (WINDOW *)NULL)	return( ERR );
+X	if (dst_w == (WINDOW *)NULL)	return( ERR );
+X
+X	minchng	  = dst_w->_firstch;
+X	maxchng	  = dst_w->_lastch;
+X	last_col  = min(src_w->_maxx, dst_w->_maxx) - 1;
+X	last_line = min(src_w->_maxy, dst_w->_maxy) - 1;
+X	attrs	  = dst_w->_attrs;
+X
+X 	for (line = 0; line <= last_line; line++)
+X	{
+X		register int fc;
+X		register int lc;
+X
+X		w1ptr = src_w->_y[line];
+X		w2ptr = dst_w->_y[line];
+X		fc    = _NO_CHANGE;
+X
+X		for (col = 0; col <= last_col; col++)
+X		{
+X			if ((*w1ptr & A_CHARTEXT) != (*w2ptr & A_CHARTEXT))
+X			{
+X				*w2ptr = (*w1ptr & A_CHARTEXT) | attrs;
+X				if (fc == _NO_CHANGE)
+X				{
+X					fc = col;
+X				}
+X				lc = col;
+X			}
+X			w1ptr++;
+X			w2ptr++;
+X		}
+X
+X		if (*minchng == _NO_CHANGE)
+X		{
+X			*minchng = fc;
+X			*maxchng = lc;
+X		}
+X		else	if (fc != _NO_CHANGE)
+X		{
+X			if (fc < *minchng)	*minchng = fc;
+X			if (lc > *maxchng)	*maxchng = lc;
+X		}
+X		minchng++;
+X		maxchng++;
+X	}
+X	return( OK );
+X}
+X
+END_OF_FILE
+  if test 2396 -ne `wc -c <'portable/overwrit.c'`; then
+    echo shar: \"'portable/overwrit.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/overwrit.c'
+fi
+if test -f 'portable/prefresh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/prefresh.c'\"
+else
+  echo shar: Extracting \"'portable/prefresh.c'\" \(2499 characters\)
+  sed "s/^X//" >'portable/prefresh.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	prefresh
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_prefresh = "$Header: c:/curses/portable/RCS/prefresh.c%v 2.0 1992/11/15 03:29:08 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  prefresh()	- refresh pad
+X
+X  X/Open Description:
+X 	The prefresh routine copies the specified pad to the physical
+X 	terminal screen.  It takes account of what is already
+X 	displayed on the screen to optimize cursor movement.
+X
+X 	The pnoutrefresh routine copies the named pad to the virtual
+X 	screen. It then compares the virtual screen with the physical
+X 	screen and performs the actual update.
+X
+X 	These routines are analogous to the routines wrefresh and
+X 	wnoutrefresh except that pads, instead of windows, are
+X 	involved.  Additional parameters are also needed to indicate
+X 	what part of the pad and screen are involved. The upper left
+X 	corner of the part of the pad to be displayed is specified by
+X 	py and px.  The coordinates sy1, sx1, sy2, and sx2 specify the
+X 	edges of the screen rectangle that will contain the selected
+X 	part of the pad.
+X
+X 	The lower right corner of the pad rectangle to be displayed is
+X 	calculated from the screen co-ordinates.  This ensures that
+X 	the screen rectangle and the pad rectangle are the same size.
+X
+X 	Both rectangles must be entirely contained within their
+X 	respective structures.
+X
+X  PDCurses Description:
+X 	Contrary to the statements above, the pnoutrefresh() routine
+X 	will not perform an update to the physical screen.  This task
+X 	is performed by doupdate().
+X
+X  X/Open Return Value:
+X 	The prefresh() function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to pass a null WINDOW* pointer.
+X
+X  Portability:
+X 	PDCurses	int prefresh( WINDOW* win, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X 	X/Open Dec '88	int prefresh( WINDOW* win, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X 	BSD Curses	int prefresh( WINDOW* win, int pminrow, int pmincol,
+X 						int sminrow, int smincol,
+X 						int smaxrow, int smaxcol );
+X 	SYS V Curses	int prefresh( WINDOW* win, int py, int px,
+X 						int sy1, int sx1,
+X 						int sy2, int sx2 );
+X
+X**man-end**********************************************************************/
+X
+Xint	prefresh(WINDOW* win,int py,int px,int sy1,int sx1,int sy2,int sx2)
+X{
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	pnoutrefresh(win, py, px, sy1, sx1, sy2, sx2);
+X	doupdate();
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2499 -ne `wc -c <'portable/prefresh.c'`; then
+    echo shar: \"'portable/prefresh.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/prefresh.c'
+fi
+if test -f 'portable/subwin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/subwin.c'\"
+else
+  echo shar: Extracting \"'portable/subwin.c'\" \(2915 characters\)
+  sed "s/^X//" >'portable/subwin.c' <<'END_OF_FILE'
+X#include <stdlib.h>
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef subwin
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_subwin = "$Header: c:/curses/portable/RCS/subwin.c%v 2.0 1992/11/15 03:29:24 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  subwin()	- create subwindow
+X
+X  X/Open Description:
+X 	This routine creates a new sub-window within a window.  The
+X 	dimensions of the sub-window are nlines lines and ncols
+X 	columns.  The sub-window is at position (begin_y, begin_x) on
+X 	the screen.  This position is relative to the screen, and not
+X 	to the window orig.
+X
+X 	The sub-window is made in the middle of the window orig, so
+X 	that changes made to either window will affect both.  When
+X 	using this routine, it will often be necessary to call
+X 	touchwin before calling wrefresh.
+X
+X  PDCurses Description:
+X 	No additional PDCurses functionality.
+X
+X  X/Open Return Value:
+X 	On success the subwin function returns a pointer to the new
+X 	WINDOW structure created.  On failure the function returns a
+X 	null pointer.
+X
+X  PDCurses Errors:
+X 	It is an error to pass sub-window coordinates that are out of
+X 	range or a NULL WINDOW pointer.  subwin() may also return an
+X 	error if it fails to allocate enough memory for the window
+X 	structure.
+X
+X  Portability:
+X 	PDCurses	WINDOW*	subwin( WINDOW* orig, int nlines,
+X 				int ncols, int begin_y, int begin_x );
+X 	X/Open Dec '88	WINDOW*	subwin( WINDOW* orig, int nlines,
+X 				int ncols, int begin_y, int begin_x );
+X 	BSD Curses	WINDOW*	subwin( WINDOW* orig, int nlines,
+X 				int ncols, int begin_y, int begin_x );
+X 	SYS V Curses	WINDOW*	subwin( WINDOW* orig, int nlines,
+X 				int ncols, int begin_y, int begin_x );
+X
+X**man-end**********************************************************************/
+X
+XWINDOW*	subwin(WINDOW* orig,int nlines,int ncols,int begin_y,int begin_x)
+X{
+Xextern	void*	(*mallc)( size_t );
+Xextern	void*	(*callc)( size_t, size_t );
+Xextern	void	(*fre)( void* );
+X
+X	WINDOW*	win;
+X	int	i;
+X	int	j = begin_y - orig->_begy;
+X	int	k = begin_x - orig->_begx;
+X
+X	if (!orig)
+X		return( (WINDOW *)NULL );
+X
+X	/*
+X	 * make sure window fits inside the original one
+X	 */
+X	if ((begin_y < orig->_begy) ||
+X	    (begin_x < orig->_begx) ||
+X	    (begin_y + nlines) > (orig->_begy + orig->_maxy) ||
+X	    (begin_x + ncols)  > (orig->_begx + orig->_maxx))
+X	{
+X		return( (WINDOW *)NULL );
+X	}
+X	if (!nlines)	nlines = orig->_maxy - 1 - j;
+X	if (!ncols)	ncols  = orig->_maxx - 1 - k;
+X	if ((win = PDC_makenew(nlines, ncols, begin_y, begin_x)) == (WINDOW *) NULL)
+X	{
+X		return( (WINDOW *)NULL );
+X	}
+X
+X	/*
+X	 * initialize window variables
+X	 */
+X	win->_attrs	= orig->_attrs;
+X	win->_leave	= orig->_leave;
+X	win->_scroll	= orig->_scroll;
+X	win->_nodelay	= orig->_nodelay;
+X	win->_use_keypad	= orig->_use_keypad;
+X	win->_parent	= orig;
+X
+X	for (i = 0; i < nlines; i++)
+X	{
+X		win->_y[i] = (orig->_y[j++]) + k;
+X	}
+X
+X	win->_flags |= _SUBWIN;
+X	return (win);
+X}
+END_OF_FILE
+  if test 2915 -ne `wc -c <'portable/subwin.c'`; then
+    echo shar: \"'portable/subwin.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/subwin.c'
+fi
+if test -f 'private/_chins.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_chins.c'\"
+else
+  echo shar: Extracting \"'private/_chins.c'\" \(2338 characters\)
+  sed "s/^X//" >'private/_chins.c' <<'END_OF_FILE'
+X#include <string.h>
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__chins = "$Header: c:/curses/private/RCS/_chins.c%v 2.0 1992/11/15 03:24:24 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_chins()	- Low-level insert character in window
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	This routine provides the basic functionality for the X/Open
+X 	[mv][w]insch() routines.  The xlat flag indicates that normal
+X 	character translation is performed or not.  If not, then the
+X 	character is output as is.
+X
+X 	The 'xlat' flag is TRUE for the normal curses routines.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int PDC_chins( WINDOW* win, chtype c, bool xlat );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_chins(WINDOW *win, chtype c, bool xlat)
+X{
+X	int	retval = ERR;
+X	int	x;
+X	int	y;
+X	int	maxx;
+X	int	offset;
+X	chtype* temp1;
+X	register chtype*	dstp;
+X	register chtype*	srcp;
+X	char	ch	= (c & A_CHARTEXT);
+X
+X	if (win == (WINDOW *)NULL)
+X		return( retval );
+X
+X	x	= win->_curx;
+X	y	= win->_cury;
+X	maxx	= win->_maxx;
+X	offset	= 1;
+X	temp1	= &win->_y[y][x];
+X
+X/*
+X	if ((ch < ' ') &&
+X	    ((ch == '\n') ||
+X	     (ch == '\r') ||
+X	     (ch == '\t') ||
+X	     (ch == '\b')))
+X	{
+X		retval = PDC_chadd(win, c, xlat,FALSE);
+X		return( retval );
+X	}
+X*/
+X	if ((ch < ' ') && xlat)
+X	{
+X		offset++;
+X	}
+X
+X#ifdef	DOS
+X#  if	SMALL || MEDIUM
+X	srcp = temp1;
+X	dstp = temp1+offset;
+X	movedata(FP_SEG(srcp), FP_OFF(srcp),
+X		 FP_SEG(dstp), FP_OFF(dstp),
+X		 (maxx - x -offset) * sizeof(chtype));
+X#  else
+X	/* Changed from memcpy to memmove. Should work with
+X	 * TC and MSC.
+X	 *	-- MH	920605
+X	 */
+X/*	memmove( temp1 + sizeof(chtype), temp1, (maxx - x -1) * sizeof(chtype) );*/
+X	memmove( temp1+offset, temp1, (maxx - x -offset) * sizeof(chtype) );
+X#  endif
+X#endif
+X#ifdef OS2
+X	memmove( temp1+offset, temp1, (maxx - x -offset) * sizeof(chtype) );
+X#endif
+X
+X	win->_lastch[y] = maxx-1;
+X
+X	if ((win->_firstch[y] == _NO_CHANGE) ||
+X	    (win->_firstch[y] > x))
+X	{
+X		win->_firstch[y] = x;
+X	}
+X	/*
+X	 * PDC_chadd() fixes CTRL-chars too
+X	 */
+X	retval = (PDC_chadd(win, c, xlat,FALSE));
+X	return( retval );
+X}
+END_OF_FILE
+  if test 2338 -ne `wc -c <'private/_chins.c'`; then
+    echo shar: \"'private/_chins.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_chins.c'
+fi
+if test -f 'private/_gbiosky.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_gbiosky.c'\"
+else
+  echo shar: Extracting \"'private/_gbiosky.c'\" \(2473 characters\)
+  sed "s/^X//" >'private/_gbiosky.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__gbiosky = "$Header: c:/curses/private/RCS/_gbiosky.c%v 2.0 1992/11/15 03:24:21 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_get_bios_key()	- Returns the next key available from the BIOS.
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Returns the next key code struck at the keyboard. If the low 8
+X 	bits are 0, the upper bits contain the extended character
+X 	code. If bit 0-7 are non-zero, the upper bits = 0.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_get_bios_key( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_get_bios_key(void)
+X{
+X#ifdef	FLEXOS
+Xunsigned ch	= 0;
+X
+X	retcode = s_read(0x00, 0L, (char *) &ch, 2L, 0L);
+X	return( (retcode < 0L) ? ERR : ch );
+X#endif
+X#if	defined (DOS) || defined (OS2)
+X	int ascii,scan;
+X#ifdef	DOS
+X	static unsigned char keyboard_function=0xFF;
+X	unsigned char far *enhanced_keyboard;
+X	
+X	if (keyboard_function == 0xFF)
+X		{
+X		enhanced_keyboard = (unsigned char far *) 0x0496L;
+X		regs.h.ah = 0x02;             /* get shift status for all keyboards */
+X		int86(0x16, &regs, &regs);
+X		scan = regs.h.al;
+X		regs.h.ah = 0x12;             /* get shift status for enhanced keyboards */
+X		int86(0x16, &regs, &regs);
+X		if (scan == regs.h.al
+X		&&  *enhanced_keyboard == 0x10)
+X			keyboard_function = 0x10;
+X		else
+X			keyboard_function = 0x0;
+X		}
+X	 regs.h.ah = keyboard_function;
+X	int86(0x16, &regs, &regs);
+X	ascii = regs.h.al;
+X	scan = regs.h.ah;
+X#endif
+X#ifdef	OS2
+X	KBDKEYINFO keyInfo;
+X	
+X	KbdCharIn(&keyInfo, IO_WAIT, 0);	/* get a character	*/
+X	ascii = keyInfo.chChar;
+X	scan = keyInfo.chScan;
+X#endif
+X	if (scan == 0x1c && ascii == 0x0a)  /* ^Enter */
+X		return ((int) (0xfc00));
+X	if ((scan == 0x03 && ascii == 0x00)  /* ^@ - Null */
+X	||  (scan == 0xe0 && ascii == 0x0d)  /* PadEnter */
+X	||  (scan == 0xe0 && ascii == 0x0a)) /* ^PadEnter */
+X		return ((int) (ascii << 8));
+X	if ((scan == 0x37 && ascii == 0x2a)  /* Star */
+X	||  (scan == 0x4a && ascii == 0x2d)  /* Minus */
+X	||  (scan == 0x4e && ascii == 0x2b)  /* Plus */
+X	||  (scan == 0xe0 && ascii == 0x2f)) /* Slash */
+X		return ((int) ((ascii & 0x0f) | 0xf0) << 8);
+X	if (ascii == 0x00 || ascii == 0xe0)
+X		return ((int) (scan << 8));
+X		return ((int) (ascii));
+X#endif
+X}
+END_OF_FILE
+  if test 2473 -ne `wc -c <'private/_gbiosky.c'`; then
+    echo shar: \"'private/_gbiosky.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_gbiosky.c'
+fi
+if test -f 'private/_getrows.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_getrows.c'\"
+else
+  echo shar: Extracting \"'private/_getrows.c'\" \(2370 characters\)
+  sed "s/^X//" >'private/_getrows.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__getrows = "$Header: c:/curses/private/RCS/_getrows.c%v 2.0 1992/11/15 03:24:26 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_get_rows()	- Return number of screen rows.
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Returns the maximum number of rows supported by the display.
+X 	e.g.  25, 28, 43, 50, 60, 66...
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_get_rows( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_get_rows(void)
+X{
+X#ifdef	FLEXOS
+X		return (vir.vc_size.rs_nrows);
+X#endif
+X#ifdef	DOS
+X	char far*	ROWS;
+X	int		rows;
+X	char *env_rows;
+X/* use the value from LINES environment variable, if set. MH 10-Jun-92 */
+X/* and use the minimum of LINES and *ROWS.                MH 18-Jun-92 */
+X	ROWS = (char far *) 0x0484L;
+X	rows = *ROWS + 1;
+X	env_rows = (char *)getenv("LINES");
+X	if (env_rows != (char *)NULL)
+X		rows = min(atoi(env_rows),rows);
+X
+X	if ((rows == 1) && (_cursvar.adapter == _MDS_GENIUS))
+X		rows = 66;
+X	if ((rows == 1) && (_cursvar.adapter == _MDA))
+X		rows = 25;  /* new test MH 10-Jun-92 */
+X	if (rows == 1)
+X	{
+X		rows = _default_lines;	/* Allow pre-setting LINES	 */
+X		_cursvar.direct_video = FALSE;
+X	}
+X	switch (_cursvar.adapter)
+X	{
+X	case _EGACOLOR:
+X	case _EGAMONO:
+X		switch (rows)
+X		{
+X		case 25:
+X		case 43:
+X			break;
+X		default:
+X			rows = 25;
+X		}
+X		break;
+X
+X	case _VGACOLOR:
+X	case _VGAMONO:
+X/* lets be reasonably flexible with VGAs - they could be Super VGAs */
+X/* capable of displaying any number of lines. MH 10-Jun-92          */
+X/*
+X		switch (rows)
+X		{
+X		case 25:
+X		case 28:
+X		case 50:
+X			break;
+X		default:
+X			rows = 25;
+X		}
+X*/
+X		break;
+X
+X	default:
+X		rows = 25;
+X		break;
+X	}
+X	return (rows);
+X#endif
+X#ifdef	OS2
+X	VIOMODEINFO modeInfo;
+X	int		rows;
+X	char *env_rows;
+X/* use the value from LINES environment variable, if set. MH 10-Jun-92 */
+X/* and use the minimum of LINES and *ROWS.                MH 18-Jun-92 */
+X
+X	modeInfo.cb = sizeof(modeInfo);
+X	VioGetMode(&modeInfo, 0);
+X	rows = modeInfo.row;
+X	env_rows = (char *)getenv("LINES");
+X	if (env_rows != (char *)NULL)
+X		rows = min(atoi(env_rows),rows);
+X	return(rows);
+X#endif
+X}
+END_OF_FILE
+  if test 2370 -ne `wc -c <'private/_getrows.c'`; then
+    echo shar: \"'private/_getrows.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_getrows.c'
+fi
+if test -f 'private/_scroll.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_scroll.c'\"
+else
+  echo shar: Extracting \"'private/_scroll.c'\" \(2928 characters\)
+  sed "s/^X//" >'private/_scroll.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__scroll = "$Header: c:/curses/private/RCS/_scroll.c%v 2.0 1992/11/15 03:24:34 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_scroll()	- low level screen scroll
+X
+X  PDCurses Description:
+X 	Scrolls a window in the current page up or down. Urow, lcol,
+X 	lrow, rcol are the window coordinates.	Lines is the number of
+X 	lines to scroll. If 0, clears the window, if < 0 scrolls down,
+X 	if > 0 scrolls up.  Blanks areas that are left, and sets
+X 	character attributes to attr. If in a colour graphics mode,
+X 	fills them with the colour 'attr' instead.
+X
+X  PDCurses Return Value:
+X 	The PDC_scroll() function returns OK on success otherwise ERR is returned.
+X
+X  PDCurses Errors:
+X 	An error will only be returned on the Flexos platform if s_copy()
+X 	fails.
+X
+X  Portability:
+X 	PDCurses	int PDC_scroll( int urow, int lcol, int rcol,
+X 				     int lines, chtype attr );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_scroll(int urow, int lcol, int lrow, int rcol, int lines, chtype attr)
+X{
+X#ifdef	FLEXOS
+X	int	srow;
+X	int	scol;
+X	int	drow;
+X	int	dcol;
+X	int	nrows
+X	int	ncols;
+X	char	blank = (char) _cursvar.blank;
+X
+X	if (lines == 0)
+X	{
+X		sframe.fr_pl[0] = (UBYTE *) & blank;
+X		sframe.fr_pl[1] = (UBYTE *) & attr;
+X		sframe.fr_pl[2] = (UBYTE *) " ";
+X		sframe.fr_nrow = 1;
+X		sframe.fr_ncol = 1;
+X		sframe.fr_use = 0x00;
+X		nrows = lrow;
+X		ncols = rcol;
+X		srow = drow = 0;
+X		scol = dcol = 0;
+X	}
+X	else
+X	if (lines < 0)
+X	{
+X		srow = urow;
+X		scol = lcol;
+X		drow = lrow;
+X		dcol = rcol;
+X	}
+X	else
+X	if (lines > 0)
+X	{
+X		srow = urow;
+X		scol = lcol;
+X		drow = lrow;
+X		dcol = lcol;
+X	}
+X
+X	drect.r_row = drow;
+X	drect.r_col = dcol;
+X	drect.r_nrow = nrows;
+X	drect.r_ncol = ncols;
+X
+X	srect.r_col = scol;
+X	srect.r_row = srow;
+X	srect.r_nrow = nrows;
+X	srect.r_ncol = ncols;
+X
+X	if (lines != 0)
+X		retcode = s_copy(0x03, 0x01L, 0L, (far unsigned short *) &drect, 0L, (far unsigned short *) &srect);
+X	else
+X		retcode = s_copy(0x03, 0x01L, 0L, (far unsigned short *) &drect, (far unsigned short *) &sframe, (far unsigned short *) &srect);
+X	return( (retcode < 0L) ? ERR : OK );
+X#endif
+X#ifdef	DOS
+X	if (lines >= 0)
+X	{
+X		regs.h.ah = 0x06;
+X		regs.h.al = (unsigned char) lines;
+X	}
+X	else
+X	{
+X		regs.h.ah = 0x07;
+X		regs.h.al = (unsigned char) (-lines);
+X	}
+X	regs.h.bh = (unsigned char)((attr & A_ATTRIBUTES) >> 8);
+X	regs.h.ch = (unsigned char) urow;
+X	regs.h.cl = (unsigned char) lcol;
+X	regs.h.dh = (unsigned char) lrow;
+X	regs.h.dl = (unsigned char) rcol;
+X	int86(0x10, &regs, &regs);
+X	return( OK );
+X#endif
+X#ifdef	OS2
+X	USHORT ch=((attr << 8) & _cursvar.blank);
+X	if (lines > 0)
+X		VioScrollUp(urow, lcol, lrow, rcol, lines, (PBYTE)&ch, 0);
+X	else
+X		if (lines < 0)
+X			VioScrollDn(urow, lcol, lrow, rcol, lines, (PBYTE)&ch, 0);
+X		else
+X/* this clears the whole screen */
+X			VioScrollUp(0, 0, -1, -1, -1, (PBYTE)&ch, 0);
+X#endif
+X}
+END_OF_FILE
+  if test 2928 -ne `wc -c <'private/_scroll.c'`; then
+    echo shar: \"'private/_scroll.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_scroll.c'
+fi
+if test -f 'private/_scropen.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_scropen.c'\"
+else
+  echo shar: Extracting \"'private/_scropen.c'\" \(2851 characters\)
+  sed "s/^X//" >'private/_scropen.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__scropen = "$Header: c:/curses/private/RCS/_scropen.c%v 2.0 1992/11/15 03:24:35 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_scr_open()	- Internal low-level binding to open the physical screen
+X
+X  PDCurses Description:
+X 	This function provides a low-level binding for the Flexos
+X 	platform which must open the screen before writing to it.
+X
+X 	This function is provided in order to access the FlexOS 16 bit
+X 	character set for input rather than the limited input
+X 	character set associated with the VT52.
+X
+X  PDCurses Return Value:
+X 	This function returns OK on success, otherwise an ERR is returned.
+X
+X  PDCurses Errors:
+X 	The DOS platform will never fail.  The Flexos platform may fail
+X 	depending on the ability to open the current virtual console in
+X 	8 (as opposed to 16) bit mode.
+X
+X  Portability:
+X 	PDCurses	int	PDC_scr_open( SCREEN* internal, bool echo );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_scr_open(SCREEN *internal, bool echo)
+X{
+X#ifdef	FLEXOS
+X	retcode = s_get(T_VIRCON, 0L, (char *) &vir, (long) sizeof(vir));
+X	if (retcode < 0L)
+X		return( ERR );
+X
+X	kbmode = vir.vc_kbmode;
+X	cmode = vir.vc_mode;
+X	vir.vc_mode = 0;
+X
+X	if (!echo)	vir.vc_kbmode |= VCKM_NECHO;
+X	else		vir.vc_kbmode &= ~VCKM_NECHO;
+X
+X	smode = vir.vc_smode;
+X	retcode = s_set(T_VIRCON, 0L, (char *) &vir, (long) sizeof(vir));
+X	if  (retcode < 0L)
+X		return( ERR );
+X
+X	if (vir.vc_type & 0x03)	internal->mono = TRUE;
+X	else			internal->mono = FALSE;
+X
+X	internal->orig_attr = vir.vc_flcolor | vir.vc_blcolor;
+X	_flexos_16bitmode();
+X#endif
+X
+X#ifdef	DOS
+X	char far *INFO = (char far *) 0x0487L;
+X
+X	internal->orig_attr	 = 0;
+X	internal->orig_emulation = *INFO;
+X#endif
+X#ifdef	OS2
+X	internal->orig_attr	 = 0;
+X	internal->orig_emulation = 0;
+X#endif
+X
+X	PDC_get_cursor_pos(&internal->cursrow, &internal->curscol);
+X	internal->autocr	= TRUE;		/* lf -> crlf by default      */
+X	internal->raw_out	= FALSE;	/* tty I/O modes	      */
+X	internal->raw_inp	= FALSE;	/* tty I/O modes	      */
+X	internal->cbreak	= FALSE;
+X	internal->echo		= echo;
+X	internal->refrbrk	= FALSE;	/* no premature end of refresh*/
+X#if !defined OS2
+X	internal->video_seg	= 0xb000;	/* Base screen segment addr   */
+X	internal->video_ofs	= 0x0;		/* Base screen segment ofs    */
+X#endif
+X	internal->video_page	= 0;		/* Current Video Page	      */
+X	internal->direct_video	= TRUE;		/* Assume that we can	      */
+X	internal->visible_cursor= TRUE;		/* Assume that it is visible  */
+X	internal->cursor	= PDC_get_cursor_mode();
+X	internal->adapter	= PDC_query_adapter_type();
+X	internal->font		= PDC_get_font();
+X	internal->scrnmode	= PDC_get_scrn_mode();
+X	internal->lines		= PDC_get_rows();
+X	internal->cols		= PDC_get_columns();
+X	internal->audible	= TRUE;
+X	return( OK );
+X}
+END_OF_FILE
+  if test 2851 -ne `wc -c <'private/_scropen.c'`; then
+    echo shar: \"'private/_scropen.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_scropen.c'
+fi
+if test -f 'private/_setfont.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_setfont.c'\"
+else
+  echo shar: Extracting \"'private/_setfont.c'\" \(2836 characters\)
+  sed "s/^X//" >'private/_setfont.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef NDEBUG
+Xchar *rcsid__setfont = "$Header: c:/curses/private/RCS/_setfont.c%v 2.0 1992/11/15 03:24:36 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_set_font()	- sets the current font size
+X
+X  PDCurses Description:
+X 	This is a private PDCurses function.
+X
+X 	This routine sets the current font size, if the adapter allows
+X 	such a change.
+X
+X  PDCurses Return Value:
+X 	This function returns OK upon success otherwise ERR is returned.
+X
+X  PDCurses Errors:
+X 	It is an error to attempt to change the font size on a "bogus"
+X 	adapter.  The reason for this is that we have a known video
+X 	adapter identity problem.  e.g. Two adapters report the same
+X 	identifying characteristics.
+X
+X 	It is also an error to attempt to change the size of the Flexos
+X 	console (as there is currently no support for that).
+X
+X  Portability:
+X 	PDCurses	int	PDC_set_font( int size );
+X
+X**man-end**********************************************************************/
+X
+Xint	PDC_set_font(int size)
+X{
+X#ifdef	FLEXOS
+X	return( ERR );
+X#endif
+X#ifdef	DOS
+X	if (_cursvar.bogus_adapter)
+X		return( ERR );
+X
+X	switch (_cursvar.adapter)
+X	{
+X	case _CGA:
+X	case _MDA:
+X	case _MCGACOLOR:
+X	case _MCGAMONO:
+X	case _MDS_GENIUS:
+X		break;
+X
+X	case _EGACOLOR:
+X	case _EGAMONO:
+X		if (_cursvar.sizeable && (_cursvar.font != size))
+X		{
+X			switch (size)
+X			{
+X			case _FONT8:
+X				regs.h.ah = 0x11;
+X				regs.h.al = 0x12;
+X				regs.h.bl = 0x00;
+X				int86(0x10, &regs, &regs);
+X				break;
+X			case _FONT14:
+X				regs.h.ah = 0x11;
+X				regs.h.al = 0x11;
+X				regs.h.bl = 0x00;
+X				int86(0x10, &regs, &regs);
+X				break;
+X			default:
+X				break;
+X			}
+X		}
+X		break;
+X
+X	case _VGACOLOR:
+X	case _VGAMONO:
+X		if (_cursvar.sizeable && (_cursvar.font != size))
+X		{
+X			switch (size)
+X			{
+X			case _FONT8:
+X				regs.h.ah = 0x11;
+X				regs.h.al = 0x12;
+X				regs.h.bl = 0x00;
+X				int86(0x10, &regs, &regs);
+X				break;
+X			case _FONT14:
+X				regs.h.ah = 0x11;
+X				regs.h.al = 0x11;
+X				regs.h.bl = 0x00;
+X				int86(0x10, &regs, &regs);
+X				break;
+X			case _FONT16:
+X				regs.h.ah = 0x11;
+X				regs.h.al = 0x14;
+X				regs.h.bl = 0x00;
+X				int86(0x10, &regs, &regs);
+X				break;
+X			default:
+X				break;
+X			}
+X		}
+X		break;
+X	default:
+X		break;
+X	}
+X	if (_cursvar.visible_cursor)
+X		curson();
+X	else
+X		cursoff();
+X	_cursvar.font = PDC_get_font();
+X	return( OK );
+X#endif
+X#ifdef	OS2
+X	VIOMODEINFO modeInfo;
+X	if (_cursvar.sizeable && (_cursvar.font != size))
+X	{
+X	       modeInfo.cb = sizeof(modeInfo);
+X	       /* set most parameters of modeInfo */
+X	       VioGetMode(&modeInfo, 0);
+X	       modeInfo.cb = 8;     /* ignore horiz an vert resolution */
+X               modeInfo.row = modeInfo.vres / size;
+X	       VioSetMode(&modeInfo, 0);
+X	}
+X	if (_cursvar.visible_cursor)
+X		curson();
+X	else
+X		cursoff();
+X	_cursvar.font = PDC_get_font();
+X	return( OK );
+X#endif
+X}
+END_OF_FILE
+  if test 2836 -ne `wc -c <'private/_setfont.c'`; then
+    echo shar: \"'private/_setfont.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_setfont.c'
+fi
+echo shar: End of archive 6 \(of 11\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

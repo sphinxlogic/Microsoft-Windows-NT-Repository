@@ -1,0 +1,2034 @@
+Newsgroups: comp.sources.misc
+From: M.Hessling@gu.edu.au (Mark Hessling)
+Subject:  v33i084:  pdcurses - Public Domain curses library for DOS and OS/2 v2.0, Part04/11
+Message-ID: <1992Nov19.040136.6902@sparky.imd.sterling.com>
+X-Md4-Signature: ebe688e70f43af466ce636695e9cddcf
+Date: Thu, 19 Nov 1992 04:01:36 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: M.Hessling@gu.edu.au (Mark Hessling)
+Posting-number: Volume 33, Issue 84
+Archive-name: pdcurses/part04
+Environment: DOS,OS/2,ANSI-C
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  cursos2.h demos/newdemo.c doc/intro.man
+#   portable/flushinp.c portable/initscr.c portable/keyname.c
+#   portable/wgetch.c portable/wnoutref.c private/_queryad.c
+#   private/_xfrmlin.c
+# Wrapped by kent@sparky on Wed Nov 18 21:44:07 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 4 (of 11)."'
+if test -f 'cursos2.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'cursos2.h'\"
+else
+  echo shar: Extracting \"'cursos2.h'\" \(6500 characters\)
+  sed "s/^X//" >'cursos2.h' <<'END_OF_FILE'
+X/* $Header: c:/curses/RCS/cursos2.h%v 2.0 1992/11/16 22:40:44 MH Rel $ */
+X#ifndef CURSOS2_INCL
+X#define CURSOS2_INCL 1
+X
+X#ifdef CURSES__32BIT__
+X
+X#define KbdSetStatus Kbd32SetStatus
+X#define KbdGetStatus Kbd32GetStatus
+X#define KbdCharIn Kbd32CharIn
+X#define KbdPeek   Kbd32Peek
+X#define KbdFlushBuffer Kbd32FlushBuffer
+X
+X#define VioGetMode Vio32GetMode
+X#define VioSetMode Vio32SetMode
+X#define VioGetCurPos Vio32GetCurPos
+X#define VioSetCurPos Vio32SetCurPos
+X#define VioGetCurType Vio32GetCurType
+X#define VioSetCurType Vio32SetCurType
+X#define VioScrollDn Vio32ScrollDn
+X#define VioScrollUp Vio32ScrollUp
+X#define VioGetConfig Vio32GetConfig
+X#define VioWrtTTY Vio32WrtTTY
+X#define VioReadCellStr Vio32ReadCellStr
+X#define VioWrtCellStr Vio32WrtCellStr
+X#define VioWrtNAttr Vio32WrtNAttr
+X
+X#define FARKeyword
+X
+X#define CURS_INCL_VIO_KBD
+X
+X
+X#ifdef __EMX__
+X#  ifndef USE_OS2_H
+X#     define USE_OS2_H
+X#  endif
+X#  define APIENTRY
+X#else
+X#  define APIRET ULONG
+X#endif
+X
+X#else
+X
+X
+X#   define FARKeyword far
+X#   define APIRET USHORT
+X
+X#ifdef USE_OS2_H
+X#   define INCL_VIO
+X#   define INCL_KBD
+X#else
+X#   define CURS_INCL_VIO_KBD
+X#endif
+X
+X
+X#endif   /* __32BIT__ */
+X
+X
+X/* if USE_OS2_H is defined then use the os2.h that comes with your compiler ...*/
+X
+X#ifdef USE_OS2_H
+X#  include <os2.h>
+X#else
+X
+X/* ... otherwise use these definitions */
+X
+X#  include <os2def.h>
+X
+X#endif
+X
+X#ifdef CURS_INCL_VIO_KBD
+X
+Xtypedef SHANDLE         HKBD;
+Xtypedef HKBD    FARKeyword *   PHKBD;
+X
+X
+Xtypedef SHANDLE         HVIO;
+Xtypedef HVIO    FARKeyword *   PHVIO;
+X
+X
+X
+Xtypedef struct _KBDINFO {
+X        USHORT cb;
+X        USHORT fsMask;
+X        USHORT chTurnAround;
+X        USHORT fsInterim;
+X        USHORT fsState;
+X        }KBDINFO;
+Xtypedef KBDINFO FARKeyword *PKBDINFO;
+X
+X
+XUSHORT APIENTRY KbdSetStatus(
+X        PKBDINFO    pkbdinfo,
+X        HKBD        hkbd );
+X
+X
+XUSHORT APIENTRY KbdGetStatus(
+X        PKBDINFO    pkbdinfo,
+X        HKBD        hdbd  );
+X
+X
+Xtypedef struct _KBDKEYINFO {
+X        UCHAR    chChar;    /* ASCII character code                     */
+X        UCHAR    chScan;    /* Scan Code                                */
+X        UCHAR    fbStatus;
+X        UCHAR    bNlsShift;
+X        USHORT   fsState;
+X        ULONG    time;
+X        }KBDKEYINFO;
+Xtypedef KBDKEYINFO FARKeyword *PKBDKEYINFO;
+X
+X#define IO_WAIT     0
+X#define IO_NOWAIT   1
+X
+XUSHORT APIENTRY KbdCharIn(
+X        PKBDKEYINFO pkbci,
+X        USHORT      fWait,      /* IO_WAIT, IO_NOWAIT     */
+X        HKBD        hkbd);
+X
+XUSHORT APIENTRY KbdFlushBuffer(
+X        HKBD hkbd);
+X
+X
+Xtypedef struct _VIOMODEINFO {
+X        USHORT cb;
+X        UCHAR  fbType;
+X        UCHAR  color;
+X        USHORT col;     /* number of text columns                       */
+X        USHORT row;     /* number of text rows                          */
+X        USHORT hres;    /* horizontal resolution                        */
+X        USHORT vres;    /* vertical resolution                          */
+X        UCHAR  fmt_ID;
+X        UCHAR  attrib;  /* number of attributes                         */
+X        ULONG  buf_addr;
+X        ULONG  buf_length;
+X        ULONG  full_length;
+X        ULONG  partial_length;
+X        PCH    ext_data_addr;
+X        } VIOMODEINFO;
+Xtypedef VIOMODEINFO FARKeyword *PVIOMODEINFO;
+X
+X
+XUSHORT APIENTRY VioGetMode(
+X        PVIOMODEINFO  pvioModeInfo,
+X        HVIO          hvio);
+X
+X
+XUSHORT APIENTRY VioSetMode(
+X        PVIOMODEINFO  pvioModeInfo,
+X        HVIO          hvio);
+X
+X
+XUSHORT APIENTRY VioGetCurPos(
+X        PUSHORT    pusRow,
+X        PUSHORT    pusColumn,
+X        HVIO       hvio );
+X
+X
+XUSHORT APIENTRY VioSetCurPos(
+X        USHORT  usRow,
+X        USHORT  usColumn,
+X        HVIO    hvio);
+X
+Xtypedef struct _VIOCURSORINFO {
+X        USHORT   yStart;
+X        USHORT   cEnd;
+X        USHORT   cx;
+X        USHORT   attr;   /* -1=hidden cursor, any other=normal cursor   */
+X        } VIOCURSORINFO;
+Xtypedef VIOCURSORINFO FARKeyword *PVIOCURSORINFO;
+X
+X
+XUSHORT APIENTRY VioGetCurType(
+X       PVIOCURSORINFO pvioCursorInfo,
+X       HVIO           hvio );
+X
+X
+XUSHORT APIENTRY VioSetCurType(
+X        PVIOCURSORINFO pvioCursorInfo,
+X        HVIO           hvio );
+X
+XUSHORT APIENTRY VioScrollDn(
+X        USHORT  usTopRow,
+X        USHORT  usLeftCol,
+X        USHORT  usBotRow,
+X        USHORT  usRightCol,
+X        USHORT  cbLines,
+X        PBYTE   pCell,
+X        HVIO    hvio );
+X
+X
+X
+XUSHORT APIENTRY VioScrollUp(
+X        USHORT  usTopRow,
+X        USHORT  usLeftCol,
+X        USHORT  usBotRow,
+X        USHORT  usRightCol,
+X        USHORT  cbLines,
+X        PBYTE   pCell,
+X        HVIO    hvio );
+X
+X
+X   /* VIOCONFIGINFO.adapter constants */
+X
+X   #define DISPLAY_MONOCHROME      0x0000
+X   #define DISPLAY_CGA             0x0001
+X   #define DISPLAY_EGA             0x0002
+X   #define DISPLAY_VGA             0x0003
+X   #define DISPLAY_8514A           0x0007
+X
+X   /* VIOCONFIGINFO.display constants */
+X
+X   #define MONITOR_MONOCHROME      0x0000
+X   #define MONITOR_COLOR           0x0001
+X   #define MONITOR_ENHANCED        0x0002
+X   #define MONITOR_8503            0x0003
+X   #define MONITOR_851X_COLOR      0x0004
+X   #define MONITOR_8514            0x0009
+X
+Xtypedef struct _VIOCONFIGINFO {
+X        USHORT  cb;
+X        USHORT  adapter;
+X        USHORT  display;
+X        ULONG   cbMemory;
+X        USHORT  Configuration;
+X        USHORT  VDHVersion;
+X        USHORT  Flags;
+X        ULONG   HWBufferSize;
+X        ULONG   FullSaveSize;
+X        ULONG   PartSaveSize;
+X        USHORT  EMAdaptersOFF;
+X        USHORT  EMDisplaysOFF;
+X        } VIOCONFIGINFO;
+Xtypedef VIOCONFIGINFO FARKeyword *PVIOCONFIGINFO;
+X
+X
+XUSHORT APIENTRY VioGetConfig(
+X        USHORT         usConfigId,  /* Reserved (must be 0)             */
+X        PVIOCONFIGINFO pvioin,
+X        HVIO           hvio );
+X
+XUSHORT APIENTRY VioWrtTTY(
+X        PCH     pch,
+X        USHORT  cb,
+X        HVIO    hvio );
+X
+XUSHORT APIENTRY VioReadCellStr(
+X        PCH       pchCellStr,
+X        PUSHORT   pcb,
+X        USHORT    usRow,
+X        USHORT    usColumn,
+X        HVIO      hvio );
+X
+XUSHORT APIENTRY VioWrtCellStr(
+X        PCH      pchCellStr,
+X        USHORT   cb,
+X        USHORT   usRow,
+X        USHORT   usColumn,
+X        HVIO     hvio );
+X
+XUSHORT APIENTRY VioWrtNAttr(
+X        PBYTE     pAttr,
+X        USHORT    cb,
+X        USHORT    usRow,
+X        USHORT    usColumn,
+X        HVIO      hvio );
+X
+X
+XUSHORT APIENTRY VioWrtNCell(
+X        PBYTE   pCell,
+X        USHORT  cb,
+X        USHORT  usRow,
+X        USHORT  usColumn,
+X        HVIO    hvio );
+X
+X#endif
+X
+X#endif
+X
+X
+X#ifndef KEYBOARD_ASCII_MODE
+X#define KEYBOARD_ASCII_MODE 0x0008
+X#endif
+X
+X#ifndef KEYBOARD_BINARY_MODE
+X#define KEYBOARD_BINARY_MODE 0x0004
+X#endif
+END_OF_FILE
+  if test 6500 -ne `wc -c <'cursos2.h'`; then
+    echo shar: \"'cursos2.h'\" unpacked with wrong size!
+  fi
+  # end of 'cursos2.h'
+fi
+if test -f 'demos/newdemo.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'demos/newdemo.c'\"
+else
+  echo shar: Extracting \"'demos/newdemo.c'\" \(8479 characters\)
+  sed "s/^X//" >'demos/newdemo.c' <<'END_OF_FILE'
+X/* $Header: c:/curses/demos/RCS/newdemo.c%v 2.0 1992/11/15 03:32:03 MH Rel $
+X *
+X *  DEMO.CPP	-	A demo program using PDCurses. The program illustrate
+X *  	 		the use of colours for text output.
+X */
+X
+X#include <stdio.h>
+X#include <signal.h>
+X#include <time.h>
+X#include <curses.h>
+X
+X/*
+X *  The Australian map
+X */
+Xchar    *AusMap[16] =
+X{
+X    "           A           A ",
+X    "    N.T. AAAAA       AAAA ",
+X    "     AAAAAAAAAAA  AAAAAAAA ",
+X    "   AAAAAAAAAAAAAAAAAAAAAAAAA Qld.",
+X    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAA ",
+X    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ",
+X    " AAAAAAAAAAAAAAAAAAAAAAAAAAAA ",
+X    "   AAAAAAAAAAAAAAAAAAAAAAAAA N.S.W.",
+X    "W.A. AAAAAAAAA      AAAAAA Vic.",
+X    "       AAA   S.A.     AA",
+X    "                       A  Tas.",
+X    ""
+X};
+X
+X/*
+X *  Funny messages
+X */
+X#define NMESSAGES   6
+X
+Xchar    *messages[] =
+X{
+X    "Hello from the Land Down Under",
+X    "The Land of crocs. and a big Red Rock",
+X    "Where the sunflower runs along the highways",
+X    "the dusty red roads lead one to loneliness",
+X    "Blue sky in the morning and",
+X    "freezing nights and twinkling stars",
+X    ""
+X};
+X
+X/*
+X *  Main driver
+X */
+Xmain()
+X{
+XWINDOW  *win;
+Xint     w, x, y, i, j, c, len;
+Xtime_t  t;
+Xchar    buffer[80], *message;
+Xint     width, height;
+Xchtype  save[80];
+Xvoid    trap();
+X
+X    initscr();
+X    start_color();
+X    signal(SIGINT, trap);
+X    width  = 48;
+X    height = 13;                /* Create a drawing window */
+X    win = newwin(height, width, (LINES-height)/2, (COLS-width)/2);
+X    if(win == NULL)
+X    {   endwin();
+X        return 1;
+X    }
+X
+X    while(1)
+X    {   init_pair(1,COLOR_WHITE,COLOR_BLUE);
+X        wattrset(win, COLOR_PAIR(1));
+X        werase(win);
+X
+X        init_pair(2,COLOR_RED,COLOR_RED);
+X        wattrset(win, COLOR_PAIR(2));
+X        box(win, 0xba, 0xcd);
+X        wrefresh(win);
+X                                /* Do ramdom output of a character */
+X        wattrset(win, COLOR_PAIR(1));
+X        c = 'a';
+X        for(i=0; i < 5000; ++i)
+X        {   x = rand() % (width-2)  + 1;
+X            y = rand() % (height-2) + 1;
+X            mvwaddch(win, y, x, c);
+X            wrefresh(win);
+X            if(typeahead(stdin))
+X                break;
+X            if(i == 2000)
+X            {   c = 'b';
+X                init_pair(3,COLOR_CYAN,COLOR_YELLOW);
+X                wattron(win, COLOR_PAIR(3));
+X            }
+X        }
+X
+X        SubWinTest(win);
+X                                /* Erase and draw green window */
+X        init_pair(4,COLOR_YELLOW,COLOR_GREEN);
+X        wattrset(win, COLOR_PAIR(4) | A_BOLD);
+X        werase(win);
+X        wrefresh(win);
+X                                /* Draw RED bounding box */
+X        wattrset(win, COLOR_PAIR(2));
+X        box(win, ' ', ' ');
+X        wrefresh(win);
+X                                /* Display Australia map */
+X	wattrset(win, COLOR_PAIR(4) | A_BOLD);
+X        i = 0;
+X        while(*AusMap[i])
+X	{   mvwaddstr(win, i+1, 8, AusMap[i]);
+X            wrefresh(win);
+X            delay_output(100);
+X            ++i;
+X        }
+X
+X        init_pair(5,COLOR_BLUE,COLOR_WHITE);
+X        wattrset(win, COLOR_PAIR(5) | A_BLINK);
+X	mvwaddstr(win, height-2, 1, " PDCurses 2.0 for DOS and OS/2");
+X	wrefresh(win);
+X
+X				/* Draw running messages */
+X	init_pair(6,COLOR_YELLOW,COLOR_WHITE);
+X	wattrset(win, COLOR_PAIR(6));
+X	message = messages[0];
+X	len = strlen(message);
+X	j = 0;
+X	i = 2;
+X	w = width-2;
+X        while(j < NMESSAGES)
+X        {   strncpy(buffer, message, w - i);
+X            buffer[w-i] = 0;
+X	    mvwaddstr(win, height/2, i, buffer);
+X            if(w - i < len)
+X            {   memset(buffer, ' ', i);
+X                strcpy(buffer, message + (w - i));
+X                buffer[strlen(buffer)]   = ' ';
+X                buffer[i-2] = '\0';
+X                mvwaddstr(win, height/2, 2, buffer);
+X	    }
+X            wrefresh(win);
+X            if(typeahead(stdin))
+X            {   flushinp();
+X		break;
+X            }
+X            mvwaddch(win, height/2, i, ' ');
+X            i = ++i % w;
+X            if(i < 2)
+X            {   message = messages[++j%NMESSAGES];
+X                memset(buffer, ' ', w-2);
+X		buffer[w-2] = 0;
+X                mvwaddstr(win, height/2, 2, buffer);
+X                i = 2;
+X            }
+X	    delay_output(300);
+X        }
+X
+X        j = 0;
+X                                /*  Draw running As across in RED */
+X        init_pair(7,COLOR_RED,COLOR_GREEN);
+X        wattron(win, COLOR_PAIR(7));
+X	for(i=2; i < width - 4; ++i)
+X        {   c = mvwinch(win, 4, i);
+X            save[j++] = c;
+X            c = c & 0x7f;
+X	    mvwaddch(win, 4, i, c);
+X        }
+X        wrefresh(win);
+X
+X                                /* Put a message up wait for a key */
+X        i = height-2;
+X        wattrset(win, COLOR_PAIR(5));
+X	mvwaddstr(win, i, 1, " Type a key to continue or ESC to quit ");
+X        wrefresh(win);
+X
+X        if(WaitForUser() == 0x1b)
+X	    break;
+X
+X        j = 0;                  /* Restore the old line */
+X        for(i=2; i < width - 4; ++i)
+X            mvwaddch(win, 4, i, save[j++]);
+X        wrefresh(win);
+X
+X	BouncingBalls(win);
+X                                /* Put a message up wait for a key */
+X        i = height-2;
+X        wattrset(win, COLOR_PAIR(5));
+X	mvwaddstr(win, i, 1, " Type a key to continue or ESC to quit ");
+X        wrefresh(win);
+X        if(WaitForUser() == 0x1b)
+X            break;
+X    }
+Xexit:
+X    endwin();
+X    return 0;
+X}
+X
+X/*
+X * Test sub windows
+X */
+XSubWinTest(WINDOW *win)
+X{
+Xint     w, h, sw, sh, bx, by;
+XWINDOW  *swin1, *swin2, *swin3;
+X
+X    w  = win->_maxx;
+X    h  = win->_maxy;
+X    bx = win->_begx;
+X    by = win->_begy;
+X    sw = w / 3;
+X    sh = h / 3;
+X    if((swin1 = subwin(win, sh, sw, by+3, bx+5)) == NULL)
+X        return  1;
+X    if((swin2 = subwin(win, sh, sw, by+4, bx+8)) == NULL)
+X        return  1;
+X    if((swin3 = subwin(win, sh, sw, by+5, bx+11)) == NULL)
+X	return  1;
+X
+X    init_pair(8,COLOR_RED,COLOR_BLUE);
+X    wattrset(swin1, COLOR_PAIR(8));
+X    werase(swin1);
+X    mvwaddstr(swin1, 0, 3, "Sub-window 1");
+X    wrefresh(swin1);
+X
+X    init_pair(8,COLOR_CYAN,COLOR_MAGENTA);
+X    wattrset(swin2, COLOR_PAIR(8));
+X    werase(swin2);
+X    mvwaddstr(swin2, 0, 3, "Sub-window 2");
+X    wrefresh(swin2);
+X
+X    init_pair(8,COLOR_YELLOW,COLOR_GREEN);
+X    wattrset(swin3, COLOR_PAIR(8));
+X    werase(swin3);
+X    mvwaddstr(swin3, 0, 3, "Sub-window 3");
+X    wrefresh(swin3);
+X
+X    delwin(swin1);
+X    delwin(swin2);
+X    delwin(swin3);
+X    WaitForUser();
+X    return  0;
+X}
+X
+X/*
+X *  Bouncing balls
+X */
+XBouncingBalls(WINDOW *win)
+X{
+Xchtype     c1, c2, c3;
+Xint	w, h;
+Xint     x1, y1, xd1, yd1;
+Xint     x2, y2, xd2, yd2;
+Xint     x3, y3, xd3, yd3;
+X
+X    w    = win->_maxx;
+X    h    = win->_maxy;
+X    x1   = 2 + rand() % (w - 4);
+X    y1   = 2 + rand() % (h - 4);
+X    x2   = 2 + rand() % (w - 4);
+X    y2   = 2 + rand() % (h - 4);
+X    x3   = 2 + rand() % (w - 4);
+X    y3   = 2 + rand() % (h - 4);
+X    xd1  = 1; yd1 = 1;
+X    xd2  = 1; yd2 = 0;
+X    xd3  = 0; yd3 = 1;
+X    while(!typeahead(stdin))
+X    {   x1 = xd1 > 0 ? ++x1 : --x1;
+X        if(x1 <= 1 || x1 >= w - 2)
+X            xd1 = xd1 ? 0 : 1;
+X        y1 = yd1 > 0 ? ++y1 : --y1;
+X        if(y1 <= 1 || y1 >= h - 2)
+X	    yd1 = yd1 ? 0 : 1;
+X
+X        x2 = xd2 > 0 ? ++x2 : --x2;
+X        if(x2 <= 1 || x2 >= w - 2)
+X            xd2 = xd2 ? 0 : 1;
+X        y2 = yd2 > 0 ? ++y2 : --y2;
+X        if(y2 <= 1 || y2 >= h - 2)
+X            yd2 = yd2 ? 0 : 1;
+X
+X        x3 = xd3 > 0 ? ++x3 : --x3;
+X        if(x3 <= 1 || x3 >= w - 2)
+X	    xd3 = xd3 ? 0 : 1;
+X        y3 = yd3 > 0 ? ++y3 : --y3;
+X        if(y3 <= 1 || y3 >= h - 2)
+X            yd3 = yd3 ? 0 : 1;
+X
+X        c1 = mvwinch(win, y1, x1);
+X        c2 = mvwinch(win, y2, x2);
+X        c3 = mvwinch(win, y3, x3);
+X
+X        init_pair(8,COLOR_RED,COLOR_BLUE);
+X        wattrset(win, COLOR_PAIR(8));
+X	mvwaddch(win, y1, x1, 'O');
+X        init_pair(8,COLOR_BLUE,COLOR_RED);
+X        wattrset(win, COLOR_PAIR(8));
+X        mvwaddch(win, y2, x2, '*');
+X        init_pair(8,COLOR_YELLOW,COLOR_WHITE);
+X        wattrset(win, COLOR_PAIR(8));
+X        mvwaddch(win, y3, x3, '@');
+X        wmove(win, 0, 0);
+X        wrefresh(win);
+X	mvwaddch(win, y1, x1, c1);
+X	mvwaddch(win, y2, x2, c2);
+X	mvwaddch(win, y3, x3, c3);
+X	delay_output(150);
+X    }
+X    return 0;
+X}
+X
+X/*
+X *  Wait for user
+X */
+XWaitForUser()
+X{
+Xtime_t  t;
+X
+X    t = time((time_t *)0);
+X    while(1)
+X    {   if(typeahead(stdin))
+X        {   if(PDC_get_bios_key()  == 0x1b)
+X                return  0x1b;
+X            else
+X                return  0;
+X        }
+X        if(time((time_t *)0) - t > 5)
+X            return  0;
+X    }
+X}
+X
+X/*
+X *  Trap interrupt
+X */
+Xvoid trap()
+X{
+X    endwin();
+X    exit(0);
+X}
+X
+X/*  End of DEMO.C */
+END_OF_FILE
+  if test 8479 -ne `wc -c <'demos/newdemo.c'`; then
+    echo shar: \"'demos/newdemo.c'\" unpacked with wrong size!
+  fi
+  # end of 'demos/newdemo.c'
+fi
+if test -f 'doc/intro.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/intro.man'\"
+else
+  echo shar: Extracting \"'doc/intro.man'\" \(6418 characters\)
+  sed "s/^X//" >'doc/intro.man' <<'END_OF_FILE'
+X/*man-start*********************************************************************
+X
+X		Introduction to XSI Curses Interface
+X
+XThe X/Open Group has identified a strong need for a generic terminal
+Xinterface for applications that wish to be independent of terminal
+Xhardware and connection method.
+X
+XThis interface should allow the attachment of character and
+Xblock-oriented terminals.  Furthermore, it should not put any
+Xconstraints on how the terminals are attached (e.g., Local Area
+XNetworks, PADs on X.25, etc.). 
+X
+XThe curses library interfaces provides the user with a method of
+Xupdating screens with reasonable optimisation. 
+X
+XThe X/Open group has found it impossible to define a totally portable
+Xset of curses interface routines that cover asynchronous, networked,
+Xand synchronous terminals.  The functions are oriented towards locally
+Xconnected asynchronous terminals.  For such terminals, applications
+Xconforming to this interface are portable.  The interface routines
+Xcurses may, however, also be used with synchronous and networked
+Xterminals, provided the restrictions below are considered. 
+X
+XThese functions have been included been included in the X/Open
+Xdefinition in the "optional" category.  This means that although they
+Xare likely to appear on many X/Open compliant systems, they are not
+Xguaranteed to be on all systems.  Where they are supported, they will
+Xconform to the given definition. 
+X
+X
+X----------------------------------------------------------------------
+X
+X	    Synchronous and Networked Asynchronous Terminals
+X
+XThese notes indicate to the application writer some considerations to
+Xbe borne in mind when driving synchronous, networked asynchronous
+X(NWA) or non-standard directly connected asynchronous terminals.
+X
+XSuch terminals are often used in a mainframe environment and
+Xcommunicatie to the host in block mode.  That is, the user types
+Xcharacters at the terminal then presses a special key to initiate
+Xtransmission of the characters to the host. 
+X
+XFrequently, although it may be possible to send arbitrary sized blocks
+Xto the host, it may not be possible or desireable to cause a character
+Xto be transmitted with only a single keystroke. 
+X
+XThis can cause severe problems to an application wishing to make use
+Xof single character input. 
+X
+X
+X
+XOUTPUT
+X
+XThe curses package can be used in the normal way for all operations
+Xpertaining to output to the terminal, with the possible exception that
+Xon some terminals the refresh() routine may have to redraw the entire
+Xscreen contents in order to perform any update.
+X
+XIf it is additionally necessary to clear the screen before each such
+Xoperation, the result could be unacceptable. 
+X
+X
+XINPUT
+X
+XBecause of the nature of operation of synchronous (block-mode) and NWA
+Xterminals, it may not be possible to support all or any of the curses
+Xinput functions.  In particular, the following points should be noted:
+X
+X* Single-character input may not be possible.  It may be necessary to
+X  press a special key to cause all characters typed at the terminal to
+X  be transmitted to the host. 
+X
+X* It may not be possibel to disable echo.  Character echo may be performed
+X  directly by the terminal.  On terminals that behave this way, any curses
+X  application that performs input should be aware that any characters
+X  type will appear on the screen wherever the cursor is positioned.
+X  This may not necessarily correspond to the position of the cursor in
+X  the window.
+X
+X
+X----------------------------------------------------------------------
+X
+X		Data Types and the <curses.h> Header
+X
+XThe data types supported by curses are described in this section.
+X
+XAs the library supports a procedural interface to the data types,
+Xactual structure contents are not described.  All curses data are
+Xmanipulated using the routines provided. 
+X
+X
+XTHE <curses.h> HEADER
+X
+XThe <curses.h> header defines various constants and declares the data types
+Xthat are available to the application.
+X
+X
+XDATA TYPES
+X
+XThe following data types are declared:
+X
+X	WINDOW*		pointer to screen representation
+X	SCREEN*		pointer to terminal descriptor
+X	bool		boolean data type
+X	chtype		representation of a character in a window
+X
+XThe actual WINDOW and SCREEN objects used to store information are
+Xcreated by the corresponding routiens and a pointer to them is
+Xprovided.  All manipulation is through that pointer. 
+X
+X
+XCONSTANTS
+X
+XThe following constants are defined. 
+X
+X
+XGENERAL
+X
+X	COLS		number of columns on terminal screen
+X	ERR		value returned on error condition
+X	FALSE		boolean false value
+X	LINES		number of lines on terminal screen
+X	OK		value returned on successful completion
+X	NULL		zero pointer value
+X	TRUE		boolean true value
+X
+XVIDEO ATTRIBUTES
+X
+X	A_BLINK		blinking
+X	A_BOLD		extra bright or bold
+X	A_DIM		half bright
+X	A_REVERSE	reverse video
+X	A_STANDOUT	terminal's best highlighting mode
+X	A_UNDERLINE	underlining
+X	A_ATTRIBUTES	bit-mask to extract attributes
+X	A_CHARTEXT	bit-mask to extract a character
+X
+XNormally, attributres are a property of the character. 
+X
+X
+XINPUT VALUES
+X
+XThe following constants might be returned by getch() if keypad() has
+Xbeen enabled.  Note that not all of these may be supported on a
+Xparticular terminal if the terminal does not transmit a unique code
+Xwhen the key is pressed or the definition for the key is not present
+Xin the underlying table of terminal capabilities. 
+X
+X	KEY_BREAK	break key
+X	KEY_DOWN	the four arrow keys
+X	KEY_UP
+X	KEY_LEFT
+X	KEY_RIGHT
+X	KEY_HOME	home key (upward+left arrow)
+X	KEY_BACKSPACE	backspace
+X	KEY_F0		function keys; space for 64 keys is reserved
+X	KEY_F(n)	(KEY_F0+(n))
+X	KEY_DL		delete line
+X	KEY_IL		insert line
+X	KEY_DC		delete character
+X	KEY_IC		insert character
+X	KEY_EIC		exit insert character mode
+X	KEY_CLEAR	clear screen
+X	KEY_EOS		clear to end of screen
+X	KEY_EOL		clear to end of line
+X	KEY_SF		scroll 1 line forwards
+X	KEY_SR		scroll 1 line backwards (reverse)
+X	KEY_NPAGE	next page
+X	KEY_PPAGE	previous page
+X	KEY_STAB	set tab
+X	KEY_CTAB	clear tab
+X	KEY_CATAB	clear all tabs
+X	KEY_ENTER	enter or send
+X	KEY_SRESET	soft (partial) reset
+X	KEY_RESET	reset or hard reset
+X	KEY_PRINT	print or copy
+X	KEY_LL		home down or bottom (lower left)
+X	KEY_A1		upper left of virtual keypad
+X	KEY_A3		upper right of virtual keypad
+X	KEY_B2		centre of virtual keypad
+X	KEY_C1		lower left of virtual keypad
+X	KEY_C3		lower right of virtual keypad
+X
+XThe virtual keypad is arranged like this:
+X
+X	A1	up	A3
+X	left	B2	right
+X	C1	down	C3
+X
+X**man-end**********************************************************************/
+END_OF_FILE
+  if test 6418 -ne `wc -c <'doc/intro.man'`; then
+    echo shar: \"'doc/intro.man'\" unpacked with wrong size!
+  fi
+  # end of 'doc/intro.man'
+fi
+if test -f 'portable/flushinp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/flushinp.c'\"
+else
+  echo shar: Extracting \"'portable/flushinp.c'\" \(1744 characters\)
+  sed "s/^X//" >'portable/flushinp.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	flushinp
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_flushinp = "$Header: c:/curses/portable/RCS/flushinp.c%v 2.0 1992/11/15 03:28:52 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  flushinp()	- discard type-ahead
+X
+X  X/Open Description:
+X 	Throws away any type-ahead that has been typed by the user and
+X 	has not yet been read by the program.
+X
+X  PDCurses Description:
+X 	If the PDCurses library is compiled under DOS with the FAST_VIDEO
+X 	define true, then we will poke the BIOS keyboard buffer head and
+X 	tail pointers, resetting the typeahead.
+X
+X 	If this is not true, then we will be unable to reliably flush
+X 	the typeahead.
+X
+X  X/Open Return Value:
+X 	The flushinp() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int flushinp( void );
+X 	X/Open Dec '88	int flushinp( void );
+X 	BSD Curses	int flushinp( void );
+X 	SYS V Curses	int flushinp( void );
+X
+X**man-end**********************************************************************/
+X
+Xint	flushinp(void)
+X{
+Xextern int	c_pindex;		/* putter index */
+Xextern int	c_gindex;		/* getter index */
+Xextern int	c_ungind;		/* wungetch() push index */
+X
+X
+X#if defined(DOS) && defined(FAST_VIDEO)
+X	short  *KB_HEAD = (short *) 0x041aL;	/* 40:1A  BIOS KB head	*/
+X	short  *KB_TAIL = (short *) 0x041cL;	/* 40:1A  BIOS KB tail	*/
+X
+X	*KB_HEAD = *KB_TAIL;		/* Force the BIOS kbd buf	*/
+X					/* head/tail pointers to be the */
+X					/* same...  Real nasty trick... */
+X
+X#endif
+X#ifdef OS2
+X	KbdFlushBuffer(0);
+X#endif
+X	c_gindex = 1;			/* set indices to kill buffer	 */
+X	c_pindex = 0;
+X	c_ungind = 0;			/* clear c_ungch array		 */
+X	return( OK );
+X}
+END_OF_FILE
+  if test 1744 -ne `wc -c <'portable/flushinp.c'`; then
+    echo shar: \"'portable/flushinp.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/flushinp.c'
+fi
+if test -f 'portable/initscr.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/initscr.c'\"
+else
+  echo shar: Extracting \"'portable/initscr.c'\" \(4451 characters\)
+  sed "s/^X//" >'portable/initscr.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#define	LOCAL_VAR
+X#include <curses.h>
+X#undef	initscr
+X
+X
+X
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_initscr = "$Header: c:/curses/portable/RCS/initscr.c%v 2.0 1992/11/15 03:29:35 MH Rel $";
+X#else
+Xchar*	_curses_notice = "PDCurses 2.0 - Public Domain 1992";
+X#endif
+X
+X
+X
+XSCREEN _cursvar;		/* curses variables		*/
+X
+XWINDOW*	curscr;			/* the current screen image	*/
+XWINDOW*	stdscr;			/* the default screen window	*/
+XWINDOW*	tmpwin;			/* the temporary screen image. formally in _cursvar */
+Xint	_default_lines = 25;	/* default terminal height	*/
+Xint	LINES;			/* current terminal height	*/
+Xint	COLS;			/* current terminal width	*/
+X
+X#if defined	DOS
+XRegs regs;
+X#endif
+X
+X/*
+X * Global definitions for charget routines
+X */
+Xint	c_pindex = 0;		/* putter index */
+Xint	c_gindex = 1;		/* getter index */
+Xint	c_ungind = 0;		/* wungetch() push index */
+Xchtype	c_ungch[NUNGETCH];	/* array of ungotten chars */
+XWINDOW*	_getch_win_;
+X
+X/*
+X * Global definitions for setmode routines
+X */
+Xstruct cttyset c_sh_tty = {0};	/* tty modes for def_shell_mode */
+Xstruct cttyset c_pr_tty = {0};	/* tty modes for def_prog_mode  */
+Xstruct cttyset c_save_tty = {0};
+Xstruct cttyset c_save_trm = {0};
+X
+X/*
+X * Global definitions for printscan routines
+X */
+Xchar c_printscanbuf[513];	/* buffer used during I/O */
+X
+X/*
+X * Global definitions for strget routines
+X */
+Xchar *c_strbeg;
+X
+X#if	EMALLOC
+Xvoid*	emalloc( size_t );
+Xvoid*	ecalloc( size_t, size_t );
+Xvoid	efree( void* );
+X	
+Xextern	void*	emalloc();	/* user's emalloc(size)		*/
+Xextern	void*	ecalloc();	/* user's ecalloc(num,size)	*/
+Xextern	void	efree();	/* user's efree(ptr)		*/
+X#endif
+X
+Xextern	void*	malloc();	/* runtime's malloc(size)	*/
+Xextern	void*	calloc();	/* runtime's calloc(num,size)	*/
+Xextern	void	free();		/* runtime's free(ptr)		*/
+X
+Xvoid*	(*mallc)();		/* ptr to some malloc(size)	*/
+Xvoid*	(*callc)();		/* ptr to some ecalloc(num,size)*/
+Xvoid	(*fre)();		/* ptr to some free(ptr)	*/
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  initscr()	- Initialize terminal environment
+X
+X  X/Open Description:
+X 	The first routine called should be initscr().  This will
+X 	deterine the terminal type and initialize all curses data
+X 	structures.  The initscr() function also arranges that the
+X 	first call to refresh() will clear the screen.  If errors
+X 	occur, initscr() will write an appropriate error message to
+X 	standard error and exit.  If the program wants an indication
+X 	of error conditions, newterm() should be used instead of
+X 	initscr().
+X
+X  PDCurses Description:
+X 	Due to the fact that newterm() does not yet exist in PDCurses,
+X 	there is no way to recover from an error in initscr().
+X
+X  X/Open Return Value:
+X 	The initscr() function returns stdscr on success and calls
+X 	exit() on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	WINDOW* initscr( void );
+X 	X/Open Dec '88	WINDOW* initscr( void );
+X 	BSD Curses	WINDOW* initscr( void );
+X 	SYS V Curses	WINDOW* initscr( void );
+X
+X**man-end**********************************************************************/
+X
+XWINDOW*	initscr(void)
+X{
+X	if  (_cursvar.alive)
+X		return( ERR );
+X
+X	if  (_cursvar.emalloc == EMALLOC_MAGIC)
+X	{
+X#if	EMALLOC
+X		memset(&_cursvar, 0, sizeof(SCREEN));
+X		_cursvar.emalloc = TRUE;
+X		mallc = emalloc;
+X		callc = ecalloc;
+X		fre   = efree;
+X#endif
+X	}
+X	else
+X	{
+X		memset(&_cursvar, 0, sizeof(SCREEN));
+X		mallc = malloc;
+X		callc = calloc;
+X		fre   = free;
+X	}
+X	PDC_scr_open(&_cursvar, 0);
+X	_cursvar.orig_cursor = _cursvar.cursor;
+X/*	_cursvar.orig_font = PDC_get_font();*/
+X	_cursvar.orig_font = _cursvar.font;
+X	_cursvar.orgcbr = PDC_get_ctrl_break();
+X	_cursvar.blank = ' ';
+X#ifdef	FLEXOS
+X	_flexos_16bitmode();
+X#endif
+X/*	savetty();*/
+X/*	LINES = PDC_get_rows();*/
+X/*	COLS = PDC_get_columns(); */
+X	LINES = _cursvar.lines;
+X	COLS = _cursvar.cols;
+X
+X	if ((tmpwin = newwin(LINES, COLS, 0, 0)) == (WINDOW *) ERR)
+X	{
+X		fprintf( stderr, "initscr(): Unable to create tmpwin.\n" );
+X		exit( 3 );
+X	}
+X	if ((curscr = newwin(LINES, COLS, 0, 0)) == (WINDOW *) ERR)
+X	{
+X		fprintf( stderr, "initscr(): Unable to create curscr.\n" );
+X		exit( 2 );
+X	}
+X	if ((stdscr = newwin(LINES, COLS, 0, 0)) == (WINDOW *) ERR)
+X	{
+X		fprintf( stderr, "initscr(): Unable to create stdscr.\n" );
+X		exit( 1 );
+X	}
+X	curscr->_clear = FALSE;
+X#ifdef	REGISTERWINDOWS
+X	_cursvar.refreshall = FALSE;
+X	_inswin(stdscr, (WINDOW *)NULL);
+X#endif
+X	_cursvar.alive = TRUE;
+X	def_shell_mode();
+X	return( stdscr );
+X}
+END_OF_FILE
+  if test 4451 -ne `wc -c <'portable/initscr.c'`; then
+    echo shar: \"'portable/initscr.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/initscr.c'
+fi
+if test -f 'portable/keyname.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/keyname.c'\"
+else
+  echo shar: Extracting \"'portable/keyname.c'\" \(4209 characters\)
+  sed "s/^X//" >'portable/keyname.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef keyname
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_keyname = "$Header: c:/curses/portable/RCS/keyname.c%v 2.0 1992/11/15 03:28:57 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  keyname()	- returns pointer to name of key.
+X
+X  X/Open Description:
+X 	Returns a pointer to a character string containing a symbolic name
+X 	corresponding to that specified in the argument key. key may be any
+X 	key returned by wgetch().
+X
+X  X/Open Return Value:
+X 	The keyname() function a pointer to the symbolic name of a key or
+X 	a pointer to NULL if an invalid key is passed.
+X
+X  X/Open Errors:
+X 	It is an error to pass a key value less than KEY_MIN or greater
+X 	than KEY_MAX (these values defined in curses.h.
+X
+X  Portability:
+X 	PDCurses	char *keyname( int );
+X 	X/Open Dec '88	char * keyname( int );
+X 	BSD Curses	
+X 	SYS V Curses	char *keyname( int );
+X
+X**man-end**********************************************************************/
+X
+Xchar *	keyname(int key)
+X{
+X	static char *key_name[] =
+X	{
+X "KEY_BREAK","KEY_DOWN","KEY_UP","KEY_LEFT","KEY_RIGHT","KEY_HOME","KEY_BACKSPACE",
+X "KEY_F0","KEY_F(1)","KEY_F(2)","KEY_F(3)","KEY_F(4)","KEY_F(5)",
+X "KEY_F(6)","KEY_F(7)","KEY_F(8)","KEY_F(9)","KEY_F(10)",
+X "KEY_F(11)","KEY_F(12)","KEY_F(13)","KEY_F(14)","KEY_F(15)",
+X "KEY_F(16)","KEY_F(17)","KEY_F(18)","KEY_F(19)","KEY_F(20)",
+X "KEY_F(21)","KEY_F(22)","KEY_F(23)","KEY_F(24)","KEY_F(25)",
+X "KEY_F(26)","KEY_F(27)","KEY_F(28)","KEY_F(29)","KEY_F(30)",
+X "KEY_F(31)","KEY_F(32)","KEY_F(33)","KEY_F(34)","KEY_F(35)",
+X "KEY_F(36)","KEY_F(37)","KEY_F(38)","KEY_F(39)","KEY_F(40)",
+X "KEY_F(41)","KEY_F(42)","KEY_F(43)","KEY_F(44)","KEY_F(45)",
+X "KEY_F(46)","KEY_F(47)","KEY_F(48)","KEY_F(49)","KEY_F(50)",
+X "KEY_F(51)","KEY_F(52)","KEY_F(53)","KEY_F(54)","KEY_F(55)",
+X "KEY_F(56)","KEY_F(57)","KEY_F(58)","KEY_F(59)","KEY_F(60)",
+X "KEY_F(61)","KEY_F(62)","KEY_F(63)",
+X "KEY_DL","KEY_IL","KEY_DC","KEY_IC","KEY_EIC","KEY_CLEAR","KEY_EOS","KEY_EOL",
+X "KEY_SF","KEY_SR","KEY_NPAGE","KEY_PPAGE","KEY_STAB","KEY_CTAB","KEY_CATAB",
+X "KEY_ENTER","KEY_SRESET","KEY_RESET","KEY_PRINT","KEY_LL","KEY_ABORT","KEY_SHELP",
+X "KEY_LHELP","KEY_BTAB","KEY_BEG","KEY_CANCEL","KEY_CLOSE","KEY_COMMAND","KEY_COPY",
+X "KEY_CREATE","KEY_END","KEY_EXIT","KEY_FIND","KEY_HELP","KEY_MARK","KEY_MESSAGE",
+X "KEY_MOVE","KEY_NEXT","KEY_OPEN","KEY_OPTIONS","KEY_PREVIOUS","KEY_REDO",
+X "KEY_REFERENCE","KEY_REFRESH","KEY_REPLACE","KEY_RESTART","KEY_RESUME","KEY_SAVE",
+X "KEY_SBEG","KEY_SCANCEL","KEY_SCOMMAND","KEY_SCOPY","KEY_SCREATE","KEY_SDC","KEY_SDL",
+X "KEY_SELECT","KEY_SEND","KEY_SEOL","KEY_SEXIT","KEY_SFIND","KEY_SHOME","KEY_SIC",
+X "NO KEY NAME",
+X "KEY_SLEFT","KEY_SMESSAGE","KEY_SMOVE","KEY_SNEXT","KEY_SOPTIONS","KEY_SPREVIOUS",
+X "KEY_SPRINT","KEY_SREDO","KEY_SREPLACE","KEY_SRIGHT","KEY_SRSUME","KEY_SSAVE",
+X "KEY_SSUSPEND","KEY_SUNDO","KEY_SUSPEND","KEY_UNDO",
+X "ALT_0","ALT_1","ALT_2","ALT_3","ALT_4","ALT_5","ALT_6","ALT_7","ALT_8","ALT_9",
+X "ALT_A","ALT_B","ALT_C","ALT_D","ALT_E","ALT_F","ALT_G","ALT_H","ALT_I","ALT_J",
+X "ALT_K","ALT_L","ALT_M","ALT_N","ALT_O","ALT_P","ALT_Q","ALT_R","ALT_S","ALT_T",
+X "ALT_U","ALT_V","ALT_W","ALT_X","ALT_Y","ALT_Z","CTL_LEFT","CTL_RIGHT","CTL_PGUP",
+X "CTL_PGDN","CTL_HOME","CTL_END","KEY_BACKTAB","KEY_A1","KEY_A2","KEY_A3","KEY_B1",
+X "KEY_B2","KEY_B3","KEY_C1","KEY_C2","KEY_C3","PADSLASH","PADENTER","CTL_PADENTER",
+X "ALT_PADENTER","SHF_PADSTOP","PADSTAR","PADMINUS","PADPLUS","CTL_PADSTOP",
+X "CTL_PADCENTER","CTL_PADPLUS","CTL_PADMINUS","CTL_PADSLASH","CTL_PADSTAR","ALT_PADPLUS",
+X "ALT_PADMINUS","ALT_PADSLASH","ALT_PADSTAR","CTL_INS","ALT_DEL","ALT_INS","CTL_UP",
+X "CTL_DOWN","CTL_TAB","ALT_TAB","ALT_MINUS","ALT_EQUAL","ALT_HOME","ALT_PGUP","ALT_PGDN",
+X "ALT_END","ALT_UP","ALT_DOWN","ALT_RIGHT","ALT_LEFT","ALT_ENTER","ALT_ESC","ALT_BQUOTE",
+X "ALT_LBRACKET","ALT_RBRACKET","ALT_SEMICOLON","ALT_FQUOTE","ALT_COMMA","ALT_STOP",
+X "ALT_FSLASH","ALT_BKSP","CTL_BKSP","CTL_PAD0","CTL_PAD1","CTL_PAD2","CTL_PAD3","CTL_PAD4",
+X "CTL_PAD5","CTL_PAD6","CTL_PAD7","CTL_PAD8","CTL_PAD9","CTL_DEL","ALT_BSLASH","CTL_ENTER"
+X	};
+X	if (key < KEY_MIN
+X	||  key > KEY_MAX)
+X		return((char *)"NO KEY NAME");
+X	return( key_name[key-KEY_MIN] );
+X}
+END_OF_FILE
+  if test 4209 -ne `wc -c <'portable/keyname.c'`; then
+    echo shar: \"'portable/keyname.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/keyname.c'
+fi
+if test -f 'portable/wgetch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wgetch.c'\"
+else
+  echo shar: Extracting \"'portable/wgetch.c'\" \(4290 characters\)
+  sed "s/^X//" >'portable/wgetch.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wgetch
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wgetch = "$Header: c:/curses/portable/RCS/wgetch.c%v 2.0 1992/11/15 03:29:25 MH Rel $";
+X#endif
+X
+Xstatic WINDOW *w;			/* to reduce stack usage   */
+X
+X
+X
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wgetch()	- read character
+X
+X  X/Open Description:
+X 	A character is read from the terminal associated with the
+X 	window.  In nodelay mode, if there is no input waiting,
+X 	the value ERR is returned.  In delay mode, the program will
+X 	hang until the system passes text through to the program.
+X 	Depending on the setting of cbreak(), this will be after one
+X 	character or after the first newline.  Unless noecho() has
+X 	been set, the character will also be echoed into the designated
+X 	window.
+X
+X 	If keypad() is TRUE, and a function key is pressed, the token for
+X 	that function key will be returned instead of the raw characters.
+X 	Possible function keys are defined in <curses.h> with integers
+X 	beginning with 0401, whose names begin with KEY_.  If a character
+X 	is received that could be the beginning of a function key (such as
+X 	escape), curses will set a timer.  If the remainder of the sequence
+X 	does not come in within the designated time, the character will be
+X 	passed through, otherwise the function key value will be returned.
+X 	For this reason, on many terminals, there will be a delay after a
+X 	user presses the escape key before the escape is returned to the
+X 	program.  (Use by a programmer of the escape key for a single
+X 	character function is discouraged.)
+X
+X 	NOTE: getch(), mvgetch() and mvwgetch() are macros.
+X
+X  PDCurses Description:
+X 	Given the nature of the PC, there is no such timer set for an
+X 	incoming ESCAPE value, because function keys generate unique
+X 	scan codes that are not prefixed with the ESCAPE character.
+X
+X 	Also, note that the getch() definition will conflict  with
+X 	many DOS compiler's runtime libraries.
+X
+X  X/Open Return Value:
+X 	These functions return OK on success and ERR on error.
+X
+X  PDCurses Errors:
+X 	It is an error to call this function with a NULL window pointer.
+X
+X  Portability:
+X 	PDCurses	int wgetch( WINDOW* win );
+X 	X/Open Dec '88	int wgetch( WINDOW* win );
+X 	BSD Curses	int wgetch( WINDOW* win );
+X 	SYS V Curses	int wgetch( WINDOW* win );
+X
+X**man-end**********************************************************************/
+X
+Xint	wgetch(WINDOW *win)
+X{
+Xextern	short	c_pindex;		/* putter index		   */
+Xextern	short	c_gindex;		/* getter index		   */
+Xextern	short	c_ungind;		/* wungetch() push index   */
+Xextern	chtype	c_ungch[NUNGETCH];	/* array of ungotten chars */
+Xextern  WINDOW*	_getch_win_;
+X
+X	signed	key;
+X	bool	cbr;
+Xstatic	chtype	buffer[_INBUFSIZ];	/* character buffer */
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	_getch_win_ = win;
+X	if (c_ungind)				/* if ungotten char exists */
+X		return( c_ungch[--c_ungind] );	/* remove and return it */
+X	if ((!_cursvar.raw_inp) &&
+X	    (!_cursvar.cbreak))
+X	{
+X		/*
+X		 * if normal
+X		 */
+X		if (c_gindex < c_pindex)
+X		{
+X			/*
+X			 * and data in buffer
+X			 */
+X			return( buffer[c_gindex++] );
+X		}
+X	}
+X
+X	w = win;		/* static for speed & stack */
+X	c_pindex = 0;		/* prepare to buffer data */
+X	c_gindex = 0;
+X	for(;;)			/* loop for any buffering */
+X	{
+X		if (_cursvar.raw_inp)
+X		{
+X			/*
+X			 * get a raw character
+X			 */
+X			key = PDC_rawgetch();
+X		}
+X		else
+X		{
+X			/*
+X			 * get a system character
+X			 * if break return proper
+X			 */
+X			cbr = PDC_get_ctrl_break();
+X			PDC_set_ctrl_break(_cursvar.orgcbr);
+X			key = PDC_sysgetch();
+X			PDC_set_ctrl_break(cbr);	/* restore as it was */
+X		}
+X		if (w->_nodelay && (key == -1))
+X		{
+X			/*
+X			 * if nodelay and no char
+X			 */
+X			return( ERR );
+X		}
+X		if ((key == '\r') &&
+X		    (_cursvar.autocr) &&
+X		    (!_cursvar.raw_inp))
+X		{
+X			/*
+X			 * translate CR
+X			 */
+X			key = '\n';
+X		}
+X		if (_cursvar.echo && (key < 0x100))
+X		{
+X			/*
+X			 * if echo is enabled
+X			 */
+X			waddch(w, key);
+X			wrefresh(w);
+X		}
+X		if (_cursvar.raw_inp || _cursvar.cbreak)
+X		{
+X			/*
+X			 * if no buffering
+X			 */
+X			return( key );
+X		}
+X
+X		if (c_pindex < _INBUFSIZ - 2)
+X		{
+X			/*
+X			 * if no overflow, put data in buffer
+X			 */
+X			buffer[c_pindex++] = key;
+X		}
+X		if ((key == '\n') || (key == '\r'))
+X		{
+X			/*
+X			 * if we got a line
+X			 */
+X			return( buffer[c_gindex++] );
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 4290 -ne `wc -c <'portable/wgetch.c'`; then
+    echo shar: \"'portable/wgetch.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wgetch.c'
+fi
+if test -f 'portable/wnoutref.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'portable/wnoutref.c'\"
+else
+  echo shar: Extracting \"'portable/wnoutref.c'\" \(4158 characters\)
+  sed "s/^X//" >'portable/wnoutref.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X#undef	wnoutrefresh
+X
+X#ifndef	NDEBUG
+Xchar *rcsid_wnoutref = "$Header: c:/curses/portable/RCS/wnoutref.c%v 2.0 1992/11/15 03:29:36 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  wnoutrefresh()	- do effiecient refresh
+X
+X  X/Open Description: (part of the wnoutrefresh() description.)
+X 	These two routines allow multiple updates with more efficiency
+X 	than wrefresh() alone.  In addition to all of the window
+X 	structures representing the terminal screen: a physical screen,
+X 	describing what is actually on the screen and a virtual screen,
+X 	describing what the programmer wants to have on  the screen.
+X
+X 	The wrefresh() function works by first calling wnoutrefresh(),
+X 	which copies the named window to the virtual screen.  It then
+X 	calls doupdate(), which compares the virtual screen to the
+X 	physical screen and does the actual update.  If the programmer
+X 	wishes to output several windows at once, a series of cals to
+X 	wrefresh() will result in alternating calls to wnoutrefresh()
+X 	and doupdate(), causing several bursts of output to the
+X 	screen.  By first calling wnoutrefresh() for each window, it
+X 	is then possible to call doupdate() once.  This results in
+X 	only one burst of output, with probably fewer total characters
+X 	transmitted and certainly less CPU time used.
+X
+X  PDCurses Description:
+X 	In addition to the above, if REGISTERWINDOWS is TRUE when the
+X 	library was compiled, any windows registered (true by default
+X 	with PDCurses and _cursvar.refreshall is TRUE, then all
+X 	registered windows will be called via wnoutrefresh() before
+X 	the actual screen update begins.
+X
+X  X/Open Return Value:
+X 	The doupdate() function returns OK on success and ERR on error.
+X
+X  X/Open Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int wnoutrefresh( WINDOW* w );
+X 	X/Open Dec '88	int wnoutrefresh( WINDOW* w );
+X 	BSD Curses	int wnoutrefresh( WINDOW* w );
+X 	SYS V Curses	int wnoutrefresh( WINDOW* w );
+X
+X**man-end**********************************************************************/
+X
+Xint	wnoutrefresh(register WINDOW *win)
+X{
+Xregister chtype*	dstp;
+Xregister chtype*	srcp;
+Xregister int		first;	/* first changed char on line */
+Xregister int		last;	/* last changed char on line  */
+X	int		begy;	/* window's place on screen   */
+X	int		begx;
+X	WINDOW*		s;
+X	int		i;
+X	int		j;
+X	int		y;
+X	int		x;
+X	int		len;
+X	chtype		attrs;
+X
+X	if (win == (WINDOW *)NULL)
+X		return( ERR );
+X
+X	y = win->_cury;
+X	x = win->_curx;
+X	attrs = win->_attrs;
+X	if (win->_title != NULL)
+X		len = strlen(win->_title);
+X	/*
+X	 * There may be a better place to implement window titles, but this
+X	 * seems to be the best place. -- Frotz
+X	 */
+X	if ((len > 0) && (win->_title != NULL) && !(win->_flags & _SUBWIN))
+X	{
+X		wattrset(win, win->_title_attr);
+X		mvwprintw(win, 0, (win->_title_ofs), "%s", (long) win->_title);
+X		wmove(win, y, x);	/* restore cursor postion */
+X		wattrset(win, attrs);	/* restore attributes	  */
+X	}
+X
+X	if (win->_flags & _PAD)
+X		return( ERR );
+X
+X	s = tmpwin;
+X	begy = win->_begy;
+X	begx = win->_begx;
+X
+X	for (i = 0, j = begy; i < win->_maxy; i++, j++)
+X	{
+X		if (win->_firstch[i] != _NO_CHANGE)
+X		{
+X			first = win->_firstch[i];
+X			last = win->_lastch[i];
+X
+X#if 	defined(DOS) || defined(OS2)
+X#  if	SMALL || MEDIUM
+X			srcp = &(win->_y[i][first]);
+X			dstp = &(s->_y[j][begx + first]);
+X			movedata( FP_SEG(srcp), FP_OFF(srcp),
+X				  FP_SEG(dstp), FP_OFF(dstp),
+X				  (last - first + 1) * sizeof(chtype));
+X#  else
+X			memcpy(&(s->_y[j][begx + first]),
+X			       &(win->_y[i][first]),
+X			       (last - first + 1) * sizeof(chtype));
+X#  endif
+X#endif
+X			first += begx;	/* s's min/max change positions */
+X			last += begx;
+X
+X			if (s->_firstch[j] != _NO_CHANGE)
+X				s->_firstch[j] = min(s->_firstch[j], first);
+X			else
+X				s->_firstch[j] = first;
+X
+X			s->_lastch[j] = max(s->_lastch[j], last);
+X
+X			win->_firstch[i] = _NO_CHANGE;	/* updated now */
+X		}
+X		win->_lastch[i] = _NO_CHANGE;	/* updated now */
+X	}
+X
+X	if (win->_clear)
+X	{
+X		win->_clear = FALSE;
+X		s->_clear = TRUE;
+X	}
+X
+X	if (!win->_leave)
+X	{
+X		s->_cury = win->_cury + begy;
+X		s->_curx = win->_curx + begx;
+X	}
+X	return( OK );
+X}
+END_OF_FILE
+  if test 4158 -ne `wc -c <'portable/wnoutref.c'`; then
+    echo shar: \"'portable/wnoutref.c'\" unpacked with wrong size!
+  fi
+  # end of 'portable/wnoutref.c'
+fi
+if test -f 'private/_queryad.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_queryad.c'\"
+else
+  echo shar: Extracting \"'private/_queryad.c'\" \(4567 characters\)
+  sed "s/^X//" >'private/_queryad.c' <<'END_OF_FILE'
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__queryad = "$Header: c:/curses/private/RCS/_queryad.c%v 2.0 1992/11/15 03:24:30 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_query_adapter_type()	- Determine PC video adapter type
+X
+X  PDCurses Description:
+X 	This is a private PDCurses routine.
+X
+X 	Thanks to Jeff Duntemann, K16RA for providing the impetus
+X 	(through the Dr. Dobbs Journal, March 1989 issue) for getting
+X 	the routines below merged into Bjorn Larsson's PDCurses 1.3...
+X 		-- frotz@dri.com	900730
+X
+X  PDCurses Return Value:
+X 	This function returns a macro identifier indicating the adapter
+X 	type.  See the list of adapter types in PRIVATE/CURSPRIV.H.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this function.
+X
+X  Portability:
+X 	PDCurses	int PDC_query_adapter_type( void );
+X
+X**man-end**********************************************************************/
+X
+X#ifdef     OS2
+XVIOCONFIGINFO	PDC_query_adapter_type(void)
+X#else
+Xint	PDC_query_adapter_type(void)
+X#endif
+X{
+X#ifdef	FLEXOS
+X	return (_FLEXOS);
+X#endif
+X#ifdef	DOS
+X	int	retval = _NONE;
+X	int	equip;
+X	short far *VIDEO_BASE;
+X
+X	/*
+X	 * Attempt to call VGA Identify Adapter Function...
+X	 */
+X	regs.h.ah = 0x1a;
+X	regs.h.al = 0;
+X	int86(0x10, &regs, &regs);
+X	if ((regs.h.al == 0x1a) && (retval == _NONE))
+X	{
+X		/*
+X		 * We know that the PS/2 video BIOS is alive and well.
+X		 */
+X		switch (regs.h.al)
+X		{
+X		case 0:
+X			retval = _NONE;
+X			break;
+X		case 1:
+X			retval = _MDA;
+X			break;
+X		case 2:
+X			retval = _CGA;
+X			break;
+X		case 4:
+X			retval = _EGACOLOR;
+X			_cursvar.sizeable = TRUE;
+X			break;
+X		case 5:
+X			retval = _EGAMONO;
+X			break;
+X		case 26:
+X			retval = _VGACOLOR;	/* ...alt. VGA BIOS... */
+X		case 7:
+X			retval = _VGACOLOR;
+X			_cursvar.sizeable = TRUE;
+X			break;
+X		case 8:
+X			retval = _VGAMONO;
+X			break;
+X		case 10:
+X		case 13:
+X			retval = _MCGACOLOR;
+X			break;
+X		case 12:
+X			retval = _MCGAMONO;
+X			break;
+X		default:
+X			retval = _CGA;
+X			break;
+X		}
+X	}
+X	else
+X	{
+X		/*
+X		 * No VGA BIOS, check for an EGA BIOS by selecting an
+X		 * Alternate Function Service...
+X		 *
+X		 * bx == 0x0010	 -->  return EGA information
+X		 */
+X		regs.h.ah = 0x12;
+X		regs.x.bx = 0x10;
+X		int86(0x10, &regs, &regs);
+X		if ((regs.h.bl != 0x10) && (retval == _NONE))
+X		{
+X			/*
+X			 * An EGA BIOS exists...
+X			 */
+X			regs.h.ah = 0x12;
+X			regs.h.bl = 0x10;
+X			int86(0x10, &regs, &regs);
+X			if (regs.h.bh == 0)
+X				retval = _EGACOLOR;
+X			else
+X				retval = _EGAMONO;
+X		}
+X		else
+X		if (retval == _NONE)
+X		{
+X			/*
+X			 * Now we know we only have CGA or MDA...
+X			 */
+X			int86(0x11, &regs, &regs);
+X			equip = (regs.h.al & 0x30) >> 4;
+X			switch (equip)
+X			{
+X			case 1:
+X			case 2:
+X				retval = _CGA;
+X				break;
+X			case 3:
+X				retval = _MDA;
+X				break;
+X			default:
+X				retval = _NONE;
+X				break;
+X			}
+X		}
+X	}
+X	VIDEO_BASE = (void far *) 0x0463L;
+X	if (*VIDEO_BASE == 0x3d4)
+X	{
+X		_cursvar.video_seg = 0xb800;
+X		switch (retval)
+X		{
+X		case _EGAMONO:
+X			retval = _EGACOLOR;
+X			break;
+X		case _VGAMONO:
+X			retval = _VGACOLOR;
+X			break;
+X		default:
+X			break;
+X		}
+X	}
+X	if (*VIDEO_BASE == 0x3b4)
+X	{
+X		_cursvar.video_seg = 0xb000;
+X		switch (retval)
+X		{
+X		case _EGACOLOR:
+X			retval = _EGAMONO;
+X			break;
+X		case _VGACOLOR:
+X			retval = _VGAMONO;
+X			break;
+X		default:
+X			break;
+X		}
+X	}
+X	if ((retval == _NONE) ||
+X	    (retval == _CGA))
+X	{
+X		_cursvar.direct_video = FALSE;
+X	}
+X	if ((unsigned int) _cursvar.video_seg == 0xb000)
+X		_cursvar.mono = TRUE;
+X	else
+X		_cursvar.mono = FALSE;
+X	if  (!_cursvar.adapter)
+X		_cursvar.adapter = retval;
+X	return (PDC_sanity_check(retval));
+X#endif
+X#ifdef	OS2
+X	int	retval = _NONE;
+X	VIOCONFIGINFO configInfo;
+X
+X	VioGetConfig(0, &configInfo, 0);
+X	_cursvar.sizeable = TRUE;
+X        return configInfo;
+X#  if     0
+X	switch (configInfo.adapter)
+X	{
+X		case 0:
+X			retval = _MDA;
+X			_cursvar.mono =TRUE;
+X			break;
+X		case 1:
+X			retval = _CGA;
+X			_cursvar.mono = FALSE;
+X			break;
+X		case 2: switch (configInfo.display)
+X			{
+X				case 0:
+X				case 3:
+X					retval = _EGAMONO;
+X					_cursvar.mono = TRUE;
+X					break;
+X				case 1:
+X				case 2:
+X				case 4:
+X				case 9:
+X					retval = _EGACOLOR;
+X					_cursvar.mono = FALSE;
+X					break;
+X			}
+X			break;
+X		case 3: switch (configInfo.display)
+X			{
+X				case 0:
+X				case 3:
+X					retval = _VGAMONO;
+X					_cursvar.sizeable = TRUE;
+X					_cursvar.mono = TRUE;
+X					break;
+X				case 1:
+X				case 2:
+X				case 4:
+X				case 9:
+X					retval = _VGACOLOR;
+X					_cursvar.sizeable = TRUE;
+X					_cursvar.mono = FALSE;
+X					break;
+X			}
+X			break;
+X		default:
+X			retval = _CGA;
+X			_cursvar.mono = FALSE;
+X			break;
+X	}
+X	return (PDC_sanity_check(retval));
+X#  endif
+X#endif
+X}
+END_OF_FILE
+  if test 4567 -ne `wc -c <'private/_queryad.c'`; then
+    echo shar: \"'private/_queryad.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_queryad.c'
+fi
+if test -f 'private/_xfrmlin.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'private/_xfrmlin.c'\"
+else
+  echo shar: Extracting \"'private/_xfrmlin.c'\" \(4281 characters\)
+  sed "s/^X//" >'private/_xfrmlin.c' <<'END_OF_FILE'
+X#ifndef NO_MEMORY_H
+X#include <memory.h>
+X#endif
+X#define	CURSES_LIBRARY	1
+X#include <curses.h>
+X
+X#ifndef	NDEBUG
+Xchar *rcsid__xfrmlin = "$Header: c:/curses/private/RCS/_xfrmlin.c%v 2.0 1992/11/15 03:24:38 MH Rel $";
+X#endif
+X
+X
+X
+X
+X/*man-start*********************************************************************
+X
+X  PDC_transform_line()	- transform
+X
+X  PDCurses Description:
+X 	This is a private PDCurses function.
+X
+X 	Updates the given physical line to look like the corresponding
+X 	line in _cursvar.tmpwin.
+X
+X  PDCurses Return Value:
+X 	This routine returns TRUE if a premature refresh end
+X 	is allowed, and there is an input character pending.  Otherwise,
+X 	FALSE is returned.
+X
+X  PDCurses Errors:
+X 	No errors are defined for this routine.
+X
+X  Portability:
+X 	PDCurses	bool	PDC_transform_line( int lineno );
+X
+X**man-end**********************************************************************/
+X
+Xbool	PDC_transform_line(register int lineno)
+X{
+X#if defined (MSC) && defined (DOS)
+Xchtype*	dstp;
+Xchtype*	srcp;
+X#else
+Xregister chtype*	dstp;
+Xregister chtype*	srcp;
+X#endif
+X	int rc;
+X	int		x;
+X	int		endx;
+X	int		len;
+X	chtype*	ch;
+X	extern unsigned	char atrtab[MAX_ATRTAB];
+X	chtype temp_line[256]; /* this should be enough for the maximum width of a screen. MH-920715 */
+X	chtype chr;
+X	register int j;
+X#ifdef	FLEXOS
+X	char	line[80];
+X	char	attr[80];
+X	FFRAME	sframe;
+X	RECT	drect;
+X	RECT	srect;
+X#endif
+X
+X	if (twin == (WINDOW *)NULL)
+X		return( FALSE );
+X
+X	x = twin->_firstch[lineno];
+X	endx = twin->_lastch[lineno];
+X	dstp = curscr->_y[lineno] + x;
+X	srcp = twin->_y[lineno] + x;
+X	len = endx-x+1;
+X
+X	ch = temp_line; /* now have ch pointing to area to contain real attributes. MH-920715 */
+X#ifdef 	DOS
+X#  if	SMALL || MEDIUM
+X		movedata(FP_SEG(srcp), FP_OFF(srcp),
+X			FP_SEG(ch), FP_OFF(ch),len * sizeof(chtype));
+X#  else
+X		memcpy(ch, srcp, len * sizeof(chtype));
+X#  endif
+X#else
+X		memcpy(ch, srcp, len * sizeof(chtype));
+X#endif
+X	for (j=0;j<len;j++)          /* for each chtype in the line... */
+X	   {
+X	    chr = temp_line[j] & A_CHARTEXT;
+X	    temp_line[j] = chtype_attr(temp_line[j]) | chr;
+X	   }
+X
+X	if (_cursvar.direct_video)
+X	{
+X#ifdef 	DOS
+X#  if	SMALL || MEDIUM
+X		movedata(FP_SEG(srcp), FP_OFF(srcp),
+X			FP_SEG(dstp), FP_OFF(dstp),len * sizeof(chtype));
+X#  else
+X		memcpy(dstp, srcp, len * sizeof(chtype));
+X#  endif
+X#endif
+X#ifdef OS2
+X		memcpy(dstp, srcp, len * sizeof(chtype));
+X#endif
+X#ifdef	FLEXOS
+X		_split_plane(curscr, &line[0], &attr[0], lineno, x, lineno, endx);
+X
+X		drect.r_row = lineno;
+X		drect.r_col = x;
+X		drect.r_nrow = 1;
+X		drect.r_ncol = len;
+X
+X		sframe.fr_pl[0] = (UBYTE *) line;
+X		sframe.fr_pl[1] = (UBYTE *) attr;
+X		sframe.fr_nrow = 1;
+X		sframe.fr_ncol = len;
+X		sframe.fr_use = 0x03;
+X
+X		srect.r_col = 0;
+X		srect.r_row = 0;
+X		srect.r_nrow = 1;
+X		srect.r_ncol = len;
+X
+X		s_copy(0x03, 0x01L, 0L, (far unsigned short *) &drect,
+X			(far unsigned short *) &sframe, (far unsigned
+X			short *) &srect);
+X
+X#endif
+X#ifdef	DOS
+X#  if	SMALL || MEDIUM || MSC
+X		movedata(FP_SEG(ch), FP_OFF(ch),
+X			_cursvar.video_seg,
+X			_cursvar.video_ofs+(((lineno*curscr->_maxx)+x)*sizeof(chtype)),
+X		        len * sizeof(chtype));
+X#  else
+X		memcpy(MK_FP(_cursvar.video_seg,
+X			     _cursvar.video_ofs + (((lineno * curscr->_maxx) + x) * sizeof(chtype))),
+X		       ch, len * sizeof(chtype));
+X#  endif
+X#endif
+X#ifdef	OS2
+X					VioWrtCellStr ((PCH)ch, (USHORT)(len*sizeof(chtype)), (USHORT)lineno, (USHORT)x, 0);
+X#endif
+X	}
+X	else
+X	{
+X		for (; x <= endx; x++)
+X		{
+X			PDC_gotoxy(lineno, x);
+X			PDC_putc( (*ch & A_CHARTEXT),(*ch & A_ATTRIBUTES) >> 8 );
+X			ch++;
+X		}
+X	}
+X	twin->_firstch[lineno] = _NO_CHANGE;
+X	twin->_lastch[lineno] = _NO_CHANGE;
+X
+X/*****************************************************************/
+X/*****************************************************************/
+X/*****************************************************************/
+X/*****************************************************************/
+X/* temporarily turn off check for typeahead() */
+X/*
+X rc = typeahead(stdin);
+X if (_cursvar.refrbrk && rc)
+X    return(TRUE);
+X else
+X    return(FALSE);
+X*/
+X/*****************************************************************/
+X/*****************************************************************/
+X/*****************************************************************/
+X/*****************************************************************/
+X return(FALSE);
+X}
+END_OF_FILE
+  if test 4281 -ne `wc -c <'private/_xfrmlin.c'`; then
+    echo shar: \"'private/_xfrmlin.c'\" unpacked with wrong size!
+  fi
+  # end of 'private/_xfrmlin.c'
+fi
+echo shar: End of archive 4 \(of 11\).
+cp /dev/null ark4isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,1630 @@
+Newsgroups: comp.sources.misc
+From: dfs@doe.carleton.ca (David F. Skoll)
+Subject: v35i018:  remind - A replacement for calendar, Patch02a/3
+Message-ID: <csm-v35i018=remind.165629@sparky.IMD.Sterling.COM>
+X-Md4-Signature: db1f5641f4951d9f3863bf352f582b12
+Date: Thu, 4 Feb 1993 22:57:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dfs@doe.carleton.ca (David F. Skoll)
+Posting-number: Volume 35, Issue 18
+Archive-name: remind/patch02a
+Environment: UNIX, MS-DOS
+Patch-To: remind: Volume 33, Issue 58-69
+
+The following is Official Patch 2 for Remind version 3.0.1, a
+sophisticated calendar/reminder program:
+
+Quick summary:
+
+- Added support for non-English languages (and am soliciting more languages!)
+- Made the code generally more "international"
+- Added ISO encoding to PostScript output
+- Allowed more flexible formatting of both ASCII and PostScript calendars.
+
+FTP site:
+
+- Available via ftp to ftp.doe.carleton.ca (134.117.9.35) 
+in /pub/remind-3.0.  The files are:
+
+man-ps.tar.Z		Man pages in PostScript
+man-txt.tar.Z		Man pages in formatted ASCII
+msdos-exe.tar.Z		MS-DOS executables (English-language only)
+patch01.tar.Z		Patch to go from 03.00.00 to 03.00.01
+patch02.tar.Z		Patch to go from 03.00.01 to 03.00.02
+remind-3.0.2.tar.Z	Complete 03.00.02 distribution/
+
+Long summary of changes from WHATSNEW.30 file:
+
+- Added the -u option to Remind so that root can run it as any user.
+  This simplifies the remind-all scripts, and makes them more efficient.
+  If you are worried that this option is a security hole, you can
+  disable it in config.h
+
+- Changed the RUN command so that RUN OFF can be used anywhere, even
+  though RUN ON only works in the top-level file.  This eases the
+  management of global files which may want to switch RUN OFF.
+
+- Added ISO encoding (ISO 8859-1) to the PostScript output, courtesy of
+  Michael Salmon.  This can be selected with the '-i' option in rem2ps.
+
+- Added support for the '-' date separator as well as the '/' separator.
+
+- Added support for languages other than English.  Note that this support
+  is not complete - error messages are still in English.  The idea and
+  German translation came from Wolfgang Thronicke.
+
+- Changed the -w option to include the "padding" and "spacing" options.
+  NOTE INCOMPATIBILITY:  In the previous patch level, creating a weekly
+  calendar using the -c+n option left no blank lines between the day
+  number and the first reminder entry.  This has been changed so that one
+  blank line is left.  To revert to the old behaviour, use the "-w,,0"
+  option.
+
+- Added the -o option to Rem2ps.  This allows you to specify the margins
+  when producing a PostScript calendar.
+
+- Updated the copyright notices in all the files. :-)
+
+- Added 'make clobber' and 'make test' targets to the Unix makefile.
+
+- Corrected typos in WHATSNEW.30 and remind.1 man page.  Thanks to
+  Dave Wolfe <dwolfe@pffft.sps.mot.com>
+
+- Changed Remind so that supplying the -a option causes timed reminders
+  not to be placed into the calendar in calendar mode.
+
+David F. Skoll
+---------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  lang.h patch.02.B
+# Wrapped by kent@sparky on Tue Feb  2 08:40:56 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 3)."'
+if test -f 'lang.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'lang.h'\"
+else
+  echo shar: Extracting \"'lang.h'\" \(1941 characters\)
+  sed "s/^X//" >'lang.h' <<'END_OF_FILE'
+X/***************************************************************/
+X/*                                                             */
+X/*  LANG.H                                                     */
+X/*                                                             */
+X/*  Header file for language support for various languages.    */
+X/*                                                             */
+X/*  This file is part of REMIND.                               */
+X/*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X/*                                                             */
+X/***************************************************************/
+X
+X/* I'm chauvinistic and name each language with its English name... */
+X
+X#define ENGLISH    0
+X#define GERMAN     1
+X
+X/* Add more languages here - but please e-mail dfs@doe.carleton.ca
+X   to have your favorite language assigned a number.  If you add a
+X   language, please send me the header file, and permission to include
+X   it in future releases of Remind.  Note that you'll get no remuneration
+X   for this service - just everlasting fame. :-)
+X
+X   Use the file tstlang.rem to test your new language file. */
+X
+X/************************************************************************
+X *                                                                      *
+X *       Define the language you want to use here                       *
+X *                                                                      *
+X ************************************************************************/
+X#define LANG ENGLISH
+X
+X/* If LANG is not defined, it defaults to English. */
+X#ifndef LANG
+X#define LANG ENGLISH
+X#endif
+X
+X
+X/* Pick up the appropriate header file */
+X#if LANG == ENGLISH
+X#include "english.h"
+X#elif LANG == GERMAN
+X#include "german.h"
+X
+X/* If no sensible language, choose English.  I intended to use
+X   the #error directive here, but some C compilers barf. */
+X#else
+X#include "english.h"
+X#endif
+END_OF_FILE
+  if test 1941 -ne `wc -c <'lang.h'`; then
+    echo shar: \"'lang.h'\" unpacked with wrong size!
+  fi
+  # end of 'lang.h'
+fi
+if test -f 'patch.02.B' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patch.02.B'\"
+else
+  echo shar: Extracting \"'patch.02.B'\" \(54669 characters\)
+  sed "s/^X//" >'patch.02.B' <<'END_OF_FILE'
+X*** ../patch1/main.c	Wed Dec 16 10:51:37 1992
+X--- ./main.c	Fri Jan 22 14:22:16 1993
+X***************
+X*** 6,12 ****
+X  /*  routines, etc.                                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X--- 6,12 ----
+X  /*  routines, etc.                                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X***************
+X*** 1043,1055 ****
+X  {
+X     int r;
+X  
+X-    if (!TopLevel())
+X-       return OK; /* Silently ignore RUN command in included file */
+X- 
+X     if (r=ParseToken(p, TokBuffer)) return r;
+X  
+X     if (StriEq(TokBuffer, "ON"))
+X!       RunDisabled &= ~RUN_SCRIPT;
+X     else if (StriEq(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X     else return E_PARSE_ERR;
+X--- 1043,1055 ----
+X  {
+X     int r;
+X  
+X     if (r=ParseToken(p, TokBuffer)) return r;
+X  
+X+ /* Only allow RUN ON in top-level script */
+X     if (StriEq(TokBuffer, "ON"))
+X!       if (TopLevel()) RunDisabled &= ~RUN_SCRIPT;
+X! 
+X! /* But allow RUN OFF anywhere */
+X     else if (StriEq(TokBuffer, "OFF"))
+X        RunDisabled |= RUN_SCRIPT;
+X     else return E_PARSE_ERR;
+X*** ../patch1/makefile.os2	Wed Dec 16 10:53:38 1992
+X--- ./makefile.os2	Mon Jan 25 15:39:23 1993
+X***************
+X*** 25,35 ****
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.01
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h
+X  
+X! STDHDRS= config.h types.h protos.h globals.h err.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X--- 25,35 ----
+X  # YOU SHOULDN'T EDIT ANYTHING BELOW HERE.  You may want to change some things
+X  # in config.h; then, you should be able to type 'make'.
+X  #-----------------------------------------------------------------------------
+X! VERSION= 03.00.02
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X! STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X***************
+X*** 37,43 ****
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+X! defs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X--- 37,44 ----
+X  MANIFEST= README.UNIX README.DOS COPYRIGHT $(HDRS) $(SRCS) Makefile rem rem.1 \
+X  remind.1 remind-all.csh remind-all.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc MANIFEST.UNX MANIFEST.DOS WHATSNEW.30 kall kall.1 \
+X! defs.rem README.OS2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1 \
+X! lang.h english.h german.h tstlang.rem
+X  
+X  OBJS= $(SRCS:.c=$O)
+X  
+X***************
+X*** 45,51 ****
+X  	copy remind.def rem2ps.def
+X  	$(LINK) -o $@ $(LFLAGS) $<
+X  
+X! rem2ps.obj: rem2ps.c
+X  	$(CC) -c $(CFLAGS) rem2ps.c
+X  
+X  remind.exe: $(OBJS) remind.def
+X--- 46,52 ----
+X  	copy remind.def rem2ps.def
+X  	$(LINK) -o $@ $(LFLAGS) $<
+X  
+X! rem2ps.obj: rem2ps.c rem2ps.h lang.h config.h
+X  	$(CC) -c $(CFLAGS) rem2ps.c
+X  
+X  remind.exe: $(OBJS) remind.def
+X***************
+X*** 70,76 ****
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X! globals$O: globals.c config.h types.h globals.h err.h
+X  init$O: init.c $(STDHDRS) expr.h version.h
+X  main$O: main.c $(STDHDRS) expr.h
+X  omit$O: omit.c $(STDHDRS)
+X--- 71,77 ----
+X  expr$O: expr.c $(STDHDRS) expr.h
+X  files$O: files.c $(STDHDRS)
+X  funcs$O: funcs.c $(STDHDRS) expr.h version.h
+X! globals$O: globals.c config.h types.h globals.h err.h lang.h
+X  init$O: init.c $(STDHDRS) expr.h version.h
+X  main$O: main.c $(STDHDRS) expr.h
+X  omit$O: omit.c $(STDHDRS)
+X*** ../patch1/makefile.tc	Wed Dec 16 10:51:51 1992
+X--- ./makefile.tc	Mon Jan 25 15:39:12 1993
+X***************
+X*** 1,10 ****
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.01
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h
+X  
+X! STDHDRS= config.h types.h protos.h globals.h err.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X--- 1,10 ----
+X  # Makefile for REMIND for Turbo C for MSDOS
+X  
+X! VERSION= 03.00.02
+X  
+X! HDRS= config.h err.h expr.h globals.h protos.h types.h version.h lang.h
+X  
+X! STDHDRS= config.h types.h protos.h globals.h err.h lang.h
+X  
+X  SRCS= calendar.c dorem.c dosubst.c expr.c files.c funcs.c globals.c init.c \
+X  main.c omit.c token.c trigger.c userfns.c utils.c var.c
+X***************
+X*** 16,22 ****
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc manifest.dos manifest.unx whatsnew.30 kall kall.1 \
+X! defs.rem readme.os2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1
+X  
+X  all: remind.exe rem2ps.exe
+X  
+X--- 16,23 ----
+X  MANIFEST= readme.uni readme.dos copyrigh $(HDRS) $(SRCS) makefile rem rem.1 \
+X  remind.1 remind-a.csh remind-a.sh test.rem test-rem test.cmp makefile.tc \
+X  makefile.msc lnk.msc lnk.tc manifest.dos manifest.unx whatsnew.30 kall kall.1 \
+X! defs.rem readme.os2 makefile.os2 rem2ps.c rem2ps.h remind.def rem2ps.1 \
+X! lang.h english.h german.h tstlang.rem
+X  
+X  all: remind.exe rem2ps.exe
+X  
+X***************
+X*** 29,35 ****
+X  .c.obj:
+X  	tcc -A -w-pia -c -O -ms {$< }
+X  
+X! rem2ps.obj: rem2ps.c rem2ps.h config.h
+X  
+X  calendar.obj: calendar.c $(STDHDRS) expr.h
+X  
+X--- 30,36 ----
+X  .c.obj:
+X  	tcc -A -w-pia -c -O -ms {$< }
+X  
+X! rem2ps.obj: rem2ps.c rem2ps.h config.h lang.h
+X  
+X  calendar.obj: calendar.c $(STDHDRS) expr.h
+X  
+X***************
+X*** 43,49 ****
+X  
+X  funcs.obj: funcs.c $(STDHDRS) expr.h version.h
+X  
+X! globals.obj: globals.c config.h types.h globals.h err.h
+X  
+X  init.obj: init.c $(STDHDRS) expr.h version.h
+X  
+X--- 44,50 ----
+X  
+X  funcs.obj: funcs.c $(STDHDRS) expr.h version.h
+X  
+X! globals.obj: globals.c config.h types.h globals.h err.h lang.h
+X  
+X  init.obj: init.c $(STDHDRS) expr.h version.h
+X  
+X*** ../patch1/omit.c	Wed Dec 16 10:51:38 1992
+X--- ./omit.c	Fri Jan  8 13:24:53 1993
+X***************
+X*** 6,12 ****
+X  /*  the data structures for OMITted dates.                     */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X--- 6,12 ----
+X  /*  the data structures for OMITted dates.                     */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X*** ../patch1/protos.h	Wed Dec 16 10:51:26 1992
+X--- ./protos.h	Fri Jan  8 13:24:46 1993
+X***************
+X*** 5,11 ****
+X  /*  Function Prototypes.                                       */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X--- 5,11 ----
+X  /*  Function Prototypes.                                       */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #ifdef HAVE_PROTOS
+X*** ../patch1/queue.c	Wed Dec 16 10:51:38 1992
+X--- ./queue.c	Fri Jan  8 13:24:41 1993
+X***************
+X*** 5,11 ****
+X  /*  Queue up reminders for subsequent execution.               */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X--- 5,11 ----
+X  /*  Queue up reminders for subsequent execution.               */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X*** ../patch1/rem2ps.1	Wed Dec 16 10:52:07 1992
+X--- ./rem2ps.1	Fri Jan 29 13:37:01 1993
+X***************
+X*** 1,4 ****
+X! .TH REM2PS 1 "25 November 1992"
+X  .UC4
+X  .SH NAME
+X  rem2ps \- draw a PostScript calendar from Remind output
+X--- 1,4 ----
+X! .TH REM2PS 1 "8 January 1993"
+X  .UC4
+X  .SH NAME
+X  rem2ps \- draw a PostScript calendar from Remind output
+X***************
+X*** 19,24 ****
+X--- 19,28 ----
+X  default, these small calendars are generated and placed on the main
+X  calendar.
+X  .TP
+X+ .B \-i
+X+ Use ISO 8859-1 standard encoding for the PostScript fonts.  If you do
+X+ not use this option, the default encoding is used.
+X+ .TP
+X  .B \-m media
+X  Set the page size.  You must specify the media type, which can be one of the
+X  following.  (Sizes are approximate.  For a list of media types, type
+X***************
+X*** 106,111 ****
+X--- 110,129 ----
+X  \fB\-t\fR \fIsize\fR
+X  Set the thickness of the black calendar grid lines.  The default is 1,
+X  for a line thickness of one point (1/72 in.)
+X+ .TP
+X+ \fB\-o\fR[\fBlrtb\fR] \fIsize\fR
+X+ Set the left, right, top, and/or bottom margins to \fIsize\fR points.
+X+ For this option only, \fIsize\fR must be an integer.  It represents the
+X+ margin size in units of 1/72 in.  The default margin sizes are 36, for
+X+ half-inch margins.  If you wish to punch holes in the calendar page to insert
+X+ it into a binder, you may wish to increase the left margin to one inch.
+X+ In that case, you should also decrease the heading font size to 12 points
+X+ for good output:
+X+ .PP
+X+ .nf
+X+ 	# This gives good results for putting into a binder
+X+ 	rem2ps -ol 72 -sh 12
+X+ .fi
+X  .SH USAGE
+X  To use \fBRem2ps\fR, you should pipe the output of \fBRemind\fR with the \fB\-p\fR
+X  option to \fBRem2ps\fR, and then send the result to a printer.  This is most easily
+X***************
+X*** 129,138 ****
+X  .SH AUTHOR
+X  David F. Skoll
+X  .SH BUGS
+X! All \fBRem2ps\fR options are case-sensitive, unlike \fBRemind\fR.  Any time you supply
+X  a font name or size, line thickness, or border width, it is treated as a
+X  string and sent straight to the PostScript interpreter.  Thus, if you
+X! supply invalid fonts or sizes, \fBRem2ps\fR will not complain, but the resulting
+X! PostScript output will probably not work.
+X  .SH SEE ALSO
+X  \fBRemind\fR
+X--- 147,161 ----
+X  .SH AUTHOR
+X  David F. Skoll
+X  .SH BUGS
+X! All \fBRem2ps\fR options are case-sensitive, unlike \fBRemind\fR.
+X! Any time you supply
+X  a font name or size, line thickness, or border width, it is treated as a
+X  string and sent straight to the PostScript interpreter.  Thus, if you
+X! supply invalid fonts or sizes, \fBRem2ps\fR will not complain, but the
+X! resulting PostScript output will probably not work.
+X! .PP
+X! You should ensure that the values you supply for margin widths are sensible.
+X! If they are too big for the media size, \fBRem2ps\fR will not complain,
+X! but again, the PostScript output will probably not work.
+X  .SH SEE ALSO
+X  \fBRemind\fR
+X*** ../patch1/rem2ps.c	Wed Dec 16 10:52:04 1992
+X--- ./rem2ps.c	Fri Jan 29 13:33:44 1993
+X***************
+X*** 5,14 ****
+X  /*  Print a PostScript calendar.                               */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X  #include <stdio.h>
+X  #include <string.h>
+X  #include <ctype.h>
+X--- 5,15 ----
+X  /*  Print a PostScript calendar.                               */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X+ #include "lang.h"
+X  #include <stdio.h>
+X  #include <string.h>
+X  #include <ctype.h>
+X***************
+X*** 40,46 ****
+X     int xsize, ysize;
+X  } PageType;
+X  
+X! char Days[]="SMTWTFS";
+X  
+X  PageType Pages[] =
+X  {
+X--- 41,47 ----
+X     int xsize, ysize;
+X  } PageType;
+X  
+X! char Days[]=L_DAYINIT;
+X  
+X  PageType Pages[] =
+X  {
+X***************
+X*** 66,71 ****
+X--- 67,73 ----
+X  PageType *CurPage;
+X  char PortraitMode;
+X  char NoSmallCal;
+X+ char UseISO;
+X  
+X  char LineBuffer[LINELEN];
+X  
+X***************
+X*** 87,92 ****
+X--- 89,96 ----
+X  int DayNum;
+X  int WkDayNum;
+X  
+X+ int LeftMarg, RightMarg, TopMarg, BotMarg;
+X+ 
+X  void Init ARGS ((int argc, char *argv[]));
+X  void Usage ARGS ((char *s));
+X  void DoPsCal ARGS ((void));
+X***************
+X*** 184,189 ****
+X--- 188,198 ----
+X     WkDayNum = wkday;
+X  
+X     while(1) {
+X+       if (feof(stdin)) {
+X+          fprintf(stderr, "Input from REMIND is corrupt!\n");
+X+ 	 exit(1);
+X+       }
+X+ 	 
+X        gets(LineBuffer);
+X        if (!strcmp(LineBuffer, PSEND)) break;
+X  
+X***************
+X*** 266,276 ****
+X--- 275,291 ----
+X     int i;
+X     int x = CurPage->xsize;
+X     int y = CurPage->ysize;
+X+    char *isostuff;
+X  
+X     if (!PortraitMode) {
+X        i = x; x = y; y = i;
+X     }
+X  
+X+    if (UseISO)
+X+       isostuff = "reencodeISO";
+X+    else
+X+       isostuff = "findfont definefont pop";
+X+ 
+X  /* Write the document structuring stuff */
+X     printf("%%!PS-Adobe-\n");
+X     printf("%%%%DocumentFonts: %s", HeadFont);
+X***************
+X*** 283,308 ****
+X     putchar('\n');
+X     printf("%%%%Creator: Rem2PS\n");
+X     printf("%%%%Pages: (atend)\n");
+X     printf("%%%%EndComments\n");
+X!    for (i=0; PSProlog[i]; i++) puts(PSProlog[i]);
+X!    printf("/HeadFont /%s def\n", HeadFont);
+X!    if (!NoSmallCal) printf("/SmallFont /%s def\n", SmallFont);
+X!    printf("/DayFont /%s def\n", DayFont);
+X!    printf("/EntryFont /%s def\n", EntryFont);
+X     printf("/HeadSize %s def\n", HeadSize);
+X     printf("/DaySize %s def\n", DaySize);
+X     printf("/EntrySize %s def\n", EntrySize);
+X     printf("/XSIZE %d def\n", CurPage->xsize);
+X!    printf("/MinX 36 def\n");
+X!    printf("/MinY 36 def\n");
+X!    printf("/MaxX %d def\n", x-36);
+X!    printf("/MaxY %d def\n", y-36);
+X     printf("/Border %s def\n", BorderSize);
+X     printf("%s setlinewidth\n", LineWidth);
+X  
+X  /* Check if smallfont is fixed pitch */
+X     if (!NoSmallCal) {
+X!       printf("SmallFont findfont /FontInfo get /isFixedPitch get\n");
+X  
+X  /* Define SmallString used to set smallfont size */
+X        printf("{/SmallString (WW ) def}\n");
+X--- 298,330 ----
+X     putchar('\n');
+X     printf("%%%%Creator: Rem2PS\n");
+X     printf("%%%%Pages: (atend)\n");
+X+    printf("%%%%Orientation: %s\n", PortraitMode ? "Portrait" : "Landscape");
+X     printf("%%%%EndComments\n");
+X! 
+X!    for (i=0; PSProlog1[i]; i++) puts(PSProlog1[i]);
+X!    printf("[(%s) (%s) (%s) (%s) (%s) (%s) (%s)]\n",
+X! 	  L_SUNDAY, L_MONDAY, L_TUESDAY, L_WEDNESDAY,
+X! 	  L_THURSDAY, L_FRIDAY, L_SATURDAY);
+X!    for (i=0; PSProlog2[i]; i++) puts(PSProlog2[i]);
+X! 
+X!    printf("/HeadFont /%s %s\n", HeadFont, isostuff);
+X!    if (!NoSmallCal) printf("/SmallFont /%s %s\n", SmallFont, isostuff);
+X!    printf("/DayFont /%s %s\n", DayFont, isostuff);
+X!    printf("/EntryFont /%s %s\n", EntryFont, isostuff);
+X     printf("/HeadSize %s def\n", HeadSize);
+X     printf("/DaySize %s def\n", DaySize);
+X     printf("/EntrySize %s def\n", EntrySize);
+X     printf("/XSIZE %d def\n", CurPage->xsize);
+X!    printf("/MinX %d def\n", LeftMarg);
+X!    printf("/MinY %d def\n", BotMarg);
+X!    printf("/MaxX %d def\n", x-RightMarg);
+X!    printf("/MaxY %d def\n", y-TopMarg);
+X     printf("/Border %s def\n", BorderSize);
+X     printf("%s setlinewidth\n", LineWidth);
+X  
+X  /* Check if smallfont is fixed pitch */
+X     if (!NoSmallCal) {
+X!       printf("/SmallFont findfont /FontInfo get /isFixedPitch get\n");
+X  
+X  /* Define SmallString used to set smallfont size */
+X        printf("{/SmallString (WW ) def}\n");
+X***************
+X*** 417,425 ****
+X--- 439,453 ----
+X     char *s, *t;
+X     int i=1;
+X     int j;
+X+    int offset;
+X  
+X     PortraitMode = 1;
+X     NoSmallCal = 0;
+X+    LeftMarg = 36;
+X+    RightMarg = 36;
+X+    TopMarg = 36;
+X+    BotMarg = 36;
+X+    UseISO = 0;
+X  
+X     CurPage = Pages;  /* Letter size by default */
+X  
+X***************
+X*** 476,481 ****
+X--- 504,525 ----
+X              }
+X  	    break;
+X  
+X+ 	 case 'o':
+X+ 	    if (i == argc) Usage("Offset must be supplied");
+X+ 	    offset = atoi(argv[i++]);
+X+ 	    if (offset < 36) offset = 36;
+X+ 	    if (!*s) Usage("Offset must specify l, r, t or b");
+X+ 	    while(*s) {
+X+ 	       switch(*s++) {
+X+ 	          case 'l': LeftMarg = offset; break;
+X+ 		  case 'r': RightMarg = offset ; break;
+X+ 		  case 't': TopMarg = offset; break;
+X+ 		  case 'b': BotMarg = offset; break;
+X+ 		  default: Usage("Offset must specify l, r, t or b");
+X+ 	       }
+X+ 	    }
+X+ 	    break;
+X+ 
+X           case 'b':
+X  	    if (i == argc) Usage("Border must be supplied");
+X  	    BorderSize = argv[i++];
+X***************
+X*** 488,493 ****
+X--- 532,539 ----
+X  
+X  	 case 'l': PortraitMode = 0; break;
+X  
+X+ 	 case 'i': UseISO = 1; break;
+X+ 
+X  	 case 'c': NoSmallCal = 1; break;
+X  
+X  	 default: Usage("Unrecognized option");
+X***************
+X*** 515,525 ****
+X--- 561,573 ----
+X     fprintf(stderr, "-l            Do calendar in landscape mode.\n");
+X     fprintf(stderr, "-c            Do NOT generate small calendars for previous\n");
+X     fprintf(stderr, "              and next month.\n");
+X+    fprintf(stderr, "-i            Use ISO 8859-1 encoding in PostScript output\n");
+X     fprintf(stderr, "-m media      Set page size (eg, Letter, Legal, A4.)  Case sensitive!\n");
+X     fprintf(stderr, "-f[shed] font Set font for small cal, hdr, cal entries and/or day numbers.\n");
+X     fprintf(stderr, "-s[hed] size  Set size for header, calendar entries and/or day numbers.\n");
+X     fprintf(stderr, "-b size       Set border size for calendar entries.\n");
+X     fprintf(stderr, "-t size       Set line thickness.\n");
+X+    fprintf(stderr, "-o[lrtb] marg Specify left, right, top and bottom margins.\n");
+X     exit(1);
+X  }
+X  
+X***************
+X*** 544,554 ****
+X     /* Figure out the font size */
+X  
+X     printf("/SmallFontSize MinBoxSize Border sub Border sub 8 div 2 sub def\n");
+X!    printf("SmallFont findfont setfont\n");
+X     printf("SmallString stringwidth pop /SmallWidth exch def\n");
+X     printf("SmallWidth 7 mul xincr Border sub Border sub exch div /tmp exch def\n");
+X     printf("tmp SmallFontSize lt {/SmallFontSize tmp def} if\n");
+X!    printf("SmallFont findfont SmallFontSize scalefont setfont\n");
+X  
+X     /* Recalculate SmallWidth */
+X     printf("SmallString stringwidth pop /SmallWidth exch def\n");
+X--- 592,602 ----
+X     /* Figure out the font size */
+X  
+X     printf("/SmallFontSize MinBoxSize Border sub Border sub 8 div 2 sub def\n");
+X!    printf("/SmallFont findfont setfont\n");
+X     printf("SmallString stringwidth pop /SmallWidth exch def\n");
+X     printf("SmallWidth 7 mul xincr Border sub Border sub exch div /tmp exch def\n");
+X     printf("tmp SmallFontSize lt {/SmallFontSize tmp def} if\n");
+X!    printf("/SmallFont findfont SmallFontSize scalefont setfont\n");
+X  
+X     /* Recalculate SmallWidth */
+X     printf("SmallString stringwidth pop /SmallWidth exch def\n");
+X*** ../patch1/rem2ps.h	Wed Dec 16 10:52:04 1992
+X--- ./rem2ps.h	Fri Jan 22 10:55:22 1993
+X***************
+X*** 5,16 ****
+X  /*  Define the PostScript prologue                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! char *PSProlog[] =
+X  {
+X     "% L - Draw a line",
+X     "/L {",
+X     "   newpath moveto lineto stroke",
+X--- 5,44 ----
+X  /*  Define the PostScript prologue                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X! char *PSProlog1[] =
+X  {
+X+    "/ISOLatin1Encoding where { pop save true }{ false } ifelse",
+X+    "  /ISOLatin1Encoding [ StandardEncoding 0 45 getinterval aload pop /minus",
+X+    "    StandardEncoding 46 98 getinterval aload pop /dotlessi /grave /acute",
+X+    "    /circumflex /tilde /macron /breve /dotaccent /dieresis /.notdef /ring",
+X+    "    /cedilla /.notdef /hungarumlaut /ogonek /caron /space /exclamdown /cent",
+X+    "    /sterling /currency /yen /brokenbar /section /dieresis /copyright",
+X+    "    /ordfeminine /guillemotleft /logicalnot /hyphen /registered /macron",
+X+    "    /degree /plusminus /twosuperior /threesuperior /acute /mu /paragraph",
+X+    "    /periodcentered /cedilla /onesuperior /ordmasculine /guillemotright",
+X+    "    /onequarter /onehalf /threequarters /questiondown /Agrave /Aacute",
+X+    "    /Acircumflex /Atilde /Adieresis /Aring /AE /Ccedilla /Egrave /Eacute",
+X+    "    /Ecircumflex /Edieresis /Igrave /Iacute /Icircumflex /Idieresis /Eth",
+X+    "    /Ntilde /Ograve /Oacute /Ocircumflex /Otilde /Odieresis /multiply",
+X+    "    /Oslash /Ugrave /Uacute /Ucircumflex /Udieresis /Yacute /Thorn",
+X+    "    /germandbls /agrave /aacute /acircumflex /atilde /adieresis /aring /ae",
+X+    "    /ccedilla /egrave /eacute /ecircumflex /edieresis /igrave /iacute",
+X+    "    /icircumflex /idieresis /eth /ntilde /ograve /oacute /ocircumflex",
+X+    "    /otilde /odieresis /divide /oslash /ugrave /uacute /ucircumflex",
+X+    "    /udieresis /yacute /thorn /ydieresis ] def",
+X+    "{ restore } if",
+X+    "",
+X+    "/reencodeISO { %def",
+X+    "    findfont dup length dict begin",
+X+    "    { 1 index /FID ne { def }{ pop pop } ifelse } forall",
+X+    "    /Encoding ISOLatin1Encoding def",
+X+    "    currentdict end definefont pop",
+X+    "} bind def",
+X+    "",
+X     "% L - Draw a line",
+X     "/L {",
+X     "   newpath moveto lineto stroke",
+X***************
+X*** 30,36 ****
+X     "{",
+X     "   /monthyr exch def",
+X     "   ",
+X!    "   HeadFont findfont",
+X     "   HeadSize scalefont setfont   ",
+X     "   monthyr stringwidth",
+X     "   pop",
+X--- 58,64 ----
+X     "{",
+X     "   /monthyr exch def",
+X     "   ",
+X!    "   /HeadFont findfont",
+X     "   HeadSize scalefont setfont   ",
+X     "   monthyr stringwidth",
+X     "   pop",
+X***************
+X*** 43,49 ****
+X     "% Do the days of the week",
+X     "   MaxX MinX sub 7 div /xincr exch def",
+X     "   /x MinX def",
+X!    "  [(Sunday) (Monday) (Tuesday) (Wednesday) (Thursday) (Friday) (Saturday)]",
+X     "  {",
+X     "     HeadSize x y HeadSize 2 mul sub x xincr add y CenterText",
+X     "     x xincr add /x exch def",
+X--- 71,80 ----
+X     "% Do the days of the week",
+X     "   MaxX MinX sub 7 div /xincr exch def",
+X     "   /x MinX def",
+X!    NULL
+X! };
+X! char *PSProlog2[] =
+X! {
+X     "  {",
+X     "     HeadSize x y HeadSize 2 mul sub x xincr add y CenterText",
+X     "     x xincr add /x exch def",
+X***************
+X*** 151,162 ****
+X     "   /yt exch def",
+X     "   /border exch def",
+X     "% Do the day number",
+X!    "   DayFont findfont DaySize scalefont setfont",
+X     "   xl wid add border sub daynum stringwidth pop sub",
+X     "   yt border sub DaySize sub moveto daynum show",
+X     "% Do the text entries.  Precharge the stack with current y pos.",
+X     "   /ycur yt border sub DaySize sub DaySize sub 2 add def",
+X!    "   EntryFont findfont EntrySize scalefont setfont",
+X     "   ycur",
+X     "   textarr",
+X     "   { exch 2 sub /ycur exch def xl border add wid border sub border sub EntrySize 2 add neg",
+X--- 182,193 ----
+X     "   /yt exch def",
+X     "   /border exch def",
+X     "% Do the day number",
+X!    "   /DayFont findfont DaySize scalefont setfont",
+X     "   xl wid add border sub daynum stringwidth pop sub",
+X     "   yt border sub DaySize sub moveto daynum show",
+X     "% Do the text entries.  Precharge the stack with current y pos.",
+X     "   /ycur yt border sub DaySize sub DaySize sub 2 add def",
+X!    "   /EntryFont findfont EntrySize scalefont setfont",
+X     "   ycur",
+X     "   textarr",
+X     "   { exch 2 sub /ycur exch def xl border add wid border sub border sub EntrySize 2 add neg",
+X*** ../patch1/remind-all.csh	Wed Dec 16 10:51:49 1992
+X--- ./remind-all.csh	Mon Feb  1 15:48:16 1993
+X***************
+X*** 6,15 ****
+X  # On our system, we have the following in our crontab:
+X  # 05 5 * * * /usr/share/lib/remind/remind-all > /dev/null 2>&1
+X  
+X! # Also, you MUST use the -r and -q options on REMIND, otherwise SEVERE
+X! # security hole could develop.  I recommend making this script
+X! # readable and executable only by root to minimize security problems.
+X! # DO NOT make the script setuid!
+X  
+X  # The following line gets a list of users for systems using SUN's
+X  # NIS service:
+X--- 6,15 ----
+X  # On our system, we have the following in our crontab:
+X  # 05 5 * * * /usr/share/lib/remind/remind-all > /dev/null 2>&1
+X  
+X! # This script must be run by root.  The -u option MUST be supplied
+X! # to Remind, or a severe security hole will exist.  Note that Remind
+X! # must be compiled to support the -u option for this script to work.
+X! # Also, the -r and -q options must be used.
+X  
+X  # The following line gets a list of users for systems using SUN's
+X  # NIS service:
+X***************
+X*** 34,40 ****
+X  
+X  #     echo "$i has a .reminders file."     DEBUGGING PURPOSES ONLY
+X  
+X!       su - $i -c "$REMIND -rqh ~$i/.reminders" < /dev/null > $REMFILE
+X        if (! -z $REMFILE) then
+X  #        echo "Sending mail to $i"         DEBUGGING PURPOSES ONLY
+X  
+X--- 34,40 ----
+X  
+X  #     echo "$i has a .reminders file."     DEBUGGING PURPOSES ONLY
+X  
+X!       $REMIND -u$i -h -r -q ~$i/.reminders < /dev/null > $REMFILE
+X        if (! -z $REMFILE) then
+X  #        echo "Sending mail to $i"         DEBUGGING PURPOSES ONLY
+X  
+X*** ../patch1/remind-all.sh	Wed Dec 16 10:51:49 1992
+X--- ./remind-all.sh	Mon Feb  1 15:47:59 1993
+X***************
+X*** 6,15 ****
+X  # On our system, we have the following in our crontab:
+X  # 02 00 * * * /usr/local/adm/remind-all >/dev/null 2>&1
+X  
+X! # Also, you MUST use the -r and -q options on REMIND, otherwise a SEVERE
+X! # security hole could develop.  I recommend making this script
+X! # readable and executable only by root to minimize security problems.
+X! # DO NOT make the script setuid!
+X  
+X  # The following line gets a list of users for systems using SUN's
+X  # NIS service:
+X--- 6,15 ----
+X  # On our system, we have the following in our crontab:
+X  # 02 00 * * * /usr/local/adm/remind-all >/dev/null 2>&1
+X  
+X! # This script must be run by root.  The -u option MUST be supplied
+X! # to Remind, or a severe security hole will exist.  Note that Remind
+X! # must be compiled to support the -u option for this script to work.
+X! # Also, the -r and -q options must be used.
+X  
+X  # The following line gets a list of users for systems using SUN's
+X  # NIS service:
+X***************
+X*** 36,42 ****
+X  
+X  #     echo "$i has a .reminders file."     DEBUGGING PURPOSES ONLY
+X  
+X!       su - $i -c "$REMIND -rqh $HOME/.reminders" < /dev/null > $REMFILE
+X        if [ -s $REMFILE ]; then
+X  #        echo "Sending mail to $i"         DEBUGGING PURPOSES ONLY
+X           $MAIL -s "Reminders" $i < $REMFILE
+X--- 36,42 ----
+X  
+X  #     echo "$i has a .reminders file."     DEBUGGING PURPOSES ONLY
+X  
+X!       $REMIND -u$i -h -r -q $HOME/.reminders < /dev/null > $REMFILE
+X        if [ -s $REMFILE ]; then
+X  #        echo "Sending mail to $i"         DEBUGGING PURPOSES ONLY
+X           $MAIL -s "Reminders" $i < $REMFILE
+X*** ../patch1/remind.1	Wed Dec 16 10:51:48 1992
+X--- ./remind.1	Mon Feb  1 16:21:27 1993
+X***************
+X*** 1,5 ****
+X! .TH REMIND 1 "11 November 1992"
+X! .UC4
+X  .SH NAME
+X  remind \- a sophisticated reminder service
+X  .SH SYNOPSIS
+X--- 1,5 ----
+X! .TH REMIND 1 "22 January 1993"
+X! .UC 4
+X  .SH NAME
+X  remind \- a sophisticated reminder service
+X  .SH SYNOPSIS
+X***************
+X*** 27,36 ****
+X  default, a calendar for only the current month is produced.  If \fIn\fR
+X  starts with '+', then a calendar for \fIn\fR weeks is produced.
+X  .TP
+X! .B \-w\fR\fIn\fR
+X! The \fB\-w\fR option specifies the output width of the formatted calendar,
+X! in columns.  By default, the calendar is formatted for an 80-column
+X! device.
+X  .TP
+X  .B \-s\fR\fIn\fR
+X  The \fB\-s\fR option is very similar to the \fB\-c\fR option, except
+X--- 27,45 ----
+X  default, a calendar for only the current month is produced.  If \fIn\fR
+X  starts with '+', then a calendar for \fIn\fR weeks is produced.
+X  .TP
+X! .B \-w\fR\fIcol\fR[,\fIpad\fR[,\fIspc\fR]]]
+X! The \fB\-w\fR option specifies the output width, padding and spacing
+X! of the formatted calendar output.  \fICol\fR specifies the number of
+X! columns in the output device, and defaults to 80.  \fIPad\fR specifies
+X! how many lines to use to "pad" empty calendar boxes.  This defaults to
+X! 5.  If you have many reminders on certain days, which make your calendar
+X! too large to fit on a page, you can try reducing \fIpad\fR to make the
+X! empty boxes smaller.  \fISpc\fR specifies how many blank lines to leave
+X! between the day number and the first reminder entry.  It defaults to 1.
+X! .RS
+X! Any of \fIcol\fR, \fIpad\fR or \fIspc\fR can be omitted, providing you
+X! provide the correct number of commas.  Don't use any spaces in the option.
+X! .RE
+X  .TP
+X  .B \-s\fR\fIn\fR
+X  The \fB\-s\fR option is very similar to the \fB\-c\fR option, except
+X***************
+X*** 54,66 ****
+X  regardless of the \fIdelta\fR supplied for each reminder.
+X  .TP
+X  .B \-h
+X! The \fB\-h\fR option ("hush...") supresses certain warning and information
+X  messages.  In particular, if no reminders are triggered, this mode
+X  produces no output.
+X  .TP
+X  .B \-a
+X  The \fB\-a\fR option causes \fBRemind\fR not to immediately trigger timed
+X! reminders which would also be queued.
+X  .TP
+X  .B \-q
+X  The \fB\-q\fR option causes \fBRemind\fR not to queue timed reminders
+X--- 63,76 ----
+X  regardless of the \fIdelta\fR supplied for each reminder.
+X  .TP
+X  .B \-h
+X! The \fB\-h\fR option ("hush...") suppresses certain warning and information
+X  messages.  In particular, if no reminders are triggered, this mode
+X  produces no output.
+X  .TP
+X  .B \-a
+X  The \fB\-a\fR option causes \fBRemind\fR not to immediately trigger timed
+X! reminders which would also be queued.  It also causes \fBRemind\fR not to
+X! place timed reminders in a calendar.
+X  .TP
+X  .B \-q
+X  The \fB\-q\fR option causes \fBRemind\fR not to queue timed reminders
+X***************
+X*** 113,118 ****
+X--- 123,136 ----
+X  check if the reminder script has been changed.  \fIN\fR defaults
+X  to 5, and can range from 5 to 60.  Note that the use of the
+X  \fB\-z\fR option also enables the \fB\-f\fR option.
+X+ .TP
+X+ \fB\-u\fR\fIname\fR
+X+ Runs \fBRemind\fR with the uid and gid of the user specified by \fIname\fR.
+X+ The \fB\-u\fR option is available only to root, and cannot be used by normal
+X+ users.  The option changes the uid and gid as described, and sets the
+X+ environment variables HOME, SHELL and USER to the home directory, shell,
+X+ and user name, respectively, of the specified user.  This option is meant for
+X+ use in shell scripts which mail reminders to all users.
+X  .PP
+X  If you supply a \fIdate\fR on the command line, it must consist of
+X  \fIday month year\fR, where \fIday\fR is the day of the month,
+X***************
+X*** 138,144 ****
+X  .PP
+X  .nf
+X  	REM [trigger(date(thisyear, 1, 1) + 180)] ++5 OMIT \\
+X! 	sat sun SKIP MSG [ord(thisyear-1980)] payment due %b!
+X  .fi
+X  .PP
+X  A reminder file consists of commands, with one command per line.  Several
+X--- 156,162 ----
+X  .PP
+X  .nf
+X  	REM [trigger(date(thisyear, 1, 1) + 180)] ++5 OMIT \\
+X! 	sat sun BEFORE MSG [ord(thisyear-1980)] payment due %b!
+X  .fi
+X  .PP
+X  A reminder file consists of commands, with one command per line.  Several
+X***************
+X*** 194,200 ****
+X  reminder also passes the \fIbody\fR through the substitution filter, but
+X  then executes the result as a system command.  A \fBCAL\fR-type reminder
+X  is used only to place entries in the calendar produced when \fBRemind\fR
+X! is run with the \-c or \-s options.
+X  .PP
+X  .B DATE SPECIFICATIONS
+X  .PP
+X--- 212,218 ----
+X  reminder also passes the \fIbody\fR through the substitution filter, but
+X  then executes the result as a system command.  A \fBCAL\fR-type reminder
+X  is used only to place entries in the calendar produced when \fBRemind\fR
+X! is run with the \fB\-c\fR, \fB\-s\fR or \fB\-p\fR options.
+X  .PP
+X  .B DATE SPECIFICATIONS
+X  .PP
+X***************
+X*** 858,866 ****
+X  %"
+X  (percent-doublequote) is removed.  This sequence is not 
+X  used by the substitution filter,
+X! but is used to tell \fBremind\fR which text to include in a calendar
+X! entry when the \fB\-c\fR option is chosen.  See "Calendar
+X! Mode"
+X  .PP
+X  Notes:
+X  .TP
+X--- 876,884 ----
+X  %"
+X  (percent-doublequote) is removed.  This sequence is not 
+X  used by the substitution filter,
+X! but is used to tell \fBRemind\fR which text to include in a calendar
+X! entry when the \fB\-c\fR, \fB\-s\fR or \fB\-p\fR option is chosen.
+X! See "Calendar Mode"
+X  .PP
+X  Notes:
+X  .TP
+X***************
+X*** 897,903 ****
+X  All other characters following a "%" sign are simply copied.  In particular,
+X  to get a "%" sign out, use "%%" in the body.  To start the body of a reminder
+X  with a space, use "% ", since
+X! .B remind
+X  normally scans for the first non-space character after a
+X  .B MSG,
+X  .B CAL
+X--- 915,921 ----
+X  All other characters following a "%" sign are simply copied.  In particular,
+X  to get a "%" sign out, use "%%" in the body.  To start the body of a reminder
+X  with a space, use "% ", since
+X! .B Remind
+X  normally scans for the first non-space character after a
+X  .B MSG,
+X  .B CAL
+X***************
+X*** 1017,1026 ****
+X  this:  If you include the command \fBRUN OFF\fR in your top-level reminder
+X  script, any reminder or expression which would normally execute a system
+X  command is disabled.  \fBRUN ON\fR will re-enable the execution of
+X! system commands.  Note that the \fBRUN\fR command can \fIonly\fR be used
+X  in your top-level reminder script; it will \fInot\fR work in any files
+X  accessed by the \fBINCLUDE\fR command.  This is to protect you from someone
+X! placing a \fBRUN ON\fR command in an included file.
+X  .PP
+X  If you run \fBRemind\fR with the \fB\-r\fR command-line option,
+X  \fBRUN\fR-type reminders and the \fBshell()\fR function will be disabled,
+X--- 1035,1045 ----
+X  this:  If you include the command \fBRUN OFF\fR in your top-level reminder
+X  script, any reminder or expression which would normally execute a system
+X  command is disabled.  \fBRUN ON\fR will re-enable the execution of
+X! system commands.  Note that the \fBRUN ON\fR command can \fIonly\fR be used
+X  in your top-level reminder script; it will \fInot\fR work in any files
+X  accessed by the \fBINCLUDE\fR command.  This is to protect you from someone
+X! placing a \fBRUN ON\fR command in an included file.  However, the
+X! \fBRUN OFF\fR command can be used at top level or in an included file.
+X  .PP
+X  If you run \fBRemind\fR with the \fB\-r\fR command-line option,
+X  \fBRUN\fR-type reminders and the \fBshell()\fR function will be disabled,
+X***************
+X*** 1154,1175 ****
+X  .RE
+X  .TP
+X  .B DATE constants
+X! \fBDATE\fR constants are expressed as 'yyyy/mm/dd', and the single
+X  quotes \fImust\fR be supplied.  This distinguishes date constants
+X! from division of integers.  Examples:
+X  .PP
+X  .RS
+X! '1993/02/22', '1992/12/25', '1999/01/01'
+X  .PP
+X! Note that \fBDATE\fR constants are \fIprinted\fR as
+X! \fIyyyy\fR/\fImm\fR/\fIdd\fR without the quotes.  Note also that versions
+X  of \fBRemind\fR prior to 03.00.01 did not support date constants.  In those
+X! versions, you must create dates using the \fBdate()\fR function.
+X  .RE
+X  .PP
+X  .B OPERATORS
+X  .PP
+X! \fIRemind\fR has the following operators.  Operators on the same line
+X  have equal precedence, while operators on lower lines have lower precedence
+X  than those on higher lines.  The operators approximately correspond to
+X  C operators.
+X--- 1173,1199 ----
+X  .RE
+X  .TP
+X  .B DATE constants
+X! \fBDATE\fR constants are expressed as 'yyyy/mm/dd' or 'yyyy-mm-dd',
+X! and the single
+X  quotes \fImust\fR be supplied.  This distinguishes date constants
+X! from division or subtraction of integers.  Examples:
+X  .PP
+X  .RS
+X! \'1993/02/22', '1992-12-25', '1999/01/01'
+X  .PP
+X! Note that \fBDATE\fR constants are \fIprinted\fR
+X! without the quotes.  Although either '-' or '/' is accepted as a date
+X! separator on input, when dates are printed, only one will be used.  The
+X! choice of whether to use '-' or '/' is made at compile-time.
+X! Note also that versions
+X  of \fBRemind\fR prior to 03.00.01 did not support date constants.  In those
+X! versions, you must create dates using the \fBdate()\fR function.  Also,
+X! versions prior to 03.00.02 did not support the '-' date separator.
+X  .RE
+X  .PP
+X  .B OPERATORS
+X  .PP
+X! \fBRemind\fR has the following operators.  Operators on the same line
+X  have equal precedence, while operators on lower lines have lower precedence
+X  than those on higher lines.  The operators approximately correspond to
+X  C operators.
+X***************
+X*** 1219,1225 ****
+X  obtained by adding \fBINT\fR days to the original \fBDATE\fR.
+X  .PP
+X  \fBSTRING\fR + \fBSTRING\fR - returns a \fBSTRING\fR which is the
+X! concatenation of the two orignal
+X  \fBSTRING\fRs.
+X  .PP
+X  \fBSTRING\fR + anything or anything + \fBSTRING\fR -
+X--- 1243,1249 ----
+X  obtained by adding \fBINT\fR days to the original \fBDATE\fR.
+X  .PP
+X  \fBSTRING\fR + \fBSTRING\fR - returns a \fBSTRING\fR which is the
+X! concatenation of the two original
+X  \fBSTRING\fRs.
+X  .PP
+X  \fBSTRING\fR + anything or anything + \fBSTRING\fR -
+X***************
+X*** 1380,1389 ****
+X--- 1404,1415 ----
+X  Note that none of the arguments can be 0, unless there is only one
+X  argument.  As a special case, \fBchar(0)\fR returns "".
+X  .PP
+X+ .RS
+X  Note that because \fBRemind\fR does not support escaping of characters
+X  in strings, the only way to get a double-quote in a string is to use
+X  \fBchar(34)\fR.  Yes, I know it's not portable - it assumes ASCII
+X  coding.
+X+ .RE
+X  .TP
+X  .B choose(i_index, x_arg1 [,x_arg2...])
+X  \fBChoose\fR must take at least two arguments, the first of which is
+X***************
+X*** 1503,1508 ****
+X--- 1529,1542 ----
+X  Returns 1 if \fIdate\fR is omitted, given the current global \fBOMIT\fR
+X  context.  Returns 0 otherwise.
+X  .TP
+X+ .B language()
+X+ Returns a \fBSTRING\fR naming the language supported by \fBRemind\fR.
+X+ (See "Foreign Language Support.") By default, \fBRemind\fR is compiled
+X+ to support English messages, so this function returns "English".  For
+X+ other languages, this function will return the English name of the
+X+ language (e.g. "German") Note that \fBlanguage()\fR is not available
+X+ in versions of \fBRemind\fR prior to 03.00.02.
+X+ .TP
+X  .B lower(s_string)
+X  Returns a \fBSTRING\fR with all upper-case characters in \fIstring\fR
+X  converted to lower-case.
+X***************
+X*** 1629,1635 ****
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.01, returns "03.00.01".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X--- 1663,1669 ----
+X  .TP
+X  .B version()
+X  Returns a string specifying the version of \fBRemind\fR.  For version 
+X! 03.00.02, returns "03.00.02".  It is guaranteed that as new versions of
+X  \fBRemind\fR are released, the value returned by \fBversion()\fR will
+X  strictly increase, according to the rules for string ordering.
+X  .TP
+X***************
+X*** 1776,1782 ****
+X  		INCLUDE /usr/share/remind/holidays
+X  	ENDIF
+X  
+X! 	IF today() > date(1992, 2, 10)
+X  		set missed_ap "You missed it!"
+X  	ELSE
+X  		set missed_ap "Still have time..."
+X--- 1810,1816 ----
+X  		INCLUDE /usr/share/remind/holidays
+X  	ENDIF
+X  
+X! 	IF today() > '1992/2/10'
+X  		set missed_ap "You missed it!"
+X  	ELSE
+X  		set missed_ap "Still have time..."
+X***************
+X*** 2030,2035 ****
+X--- 2064,2072 ----
+X  in the calendar.  Reminders which trigger are saved in internal buffers,
+X  and then inserted into the calendar in the appropriate places.
+X  .PP
+X+ If you also supply the \fB\-a\fR option, then \fBRemind\fR will not
+X+ include timed reminders in the calendar.
+X+ .PP
+X  The \fB\-p\fR option is used in conjunction with the \fBrem2ps\fR
+X  program to produce a calendar in PostScript format.  For example, the
+X  following command will send PostScript code to standard output:
+X***************
+X*** 2095,2101 ****
+X  		set initialized 1
+X  		set me shell("whoami")
+X  		set hostname shell("hostname")
+X! 		fset func complex_expr()
+X  		preserve initialized me hostname
+X  	ENDIF
+X  .fi
+X--- 2132,2138 ----
+X  		set initialized 1
+X  		set me shell("whoami")
+X  		set hostname shell("hostname")
+X! 		fset func(x) complex_expr
+X  		preserve initialized me hostname
+X  	ENDIF
+X  .fi
+X***************
+X*** 2139,2146 ****
+X  .fi
+X  .PP
+X  If you use \fBsh\fR or \fBbash\fR, you may have to use the "nohup" command
+X! to ensure that the daemon is not killed whn you log out.
+X  .PP
+X  .SH MISCELLANEOUS
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X--- 2176,2198 ----
+X  .fi
+X  .PP
+X  If you use \fBsh\fR or \fBbash\fR, you may have to use the "nohup" command
+X! to ensure that the daemon is not killed when you log out.
+X  .PP
+X+ .SH FOREIGN LANGUAGE SUPPORT
+X+ .PP
+X+ Your version of \fBRemind\fR may have been compiled to support a
+X+ language other than English.  This support is not complete - for
+X+ example, all error and usage messages, as well as documentation, are
+X+ still in English.  However, foreign-language versions of \fBRemind\fR
+X+ will output names of months and weekdays in the foreign language.
+X+ Also, the substitution mechanism may substitute constructs suitable
+X+ for the foreign language rather than for English.
+X+ .PP
+X+ A foreign-language version of \fBRemind\fR will accept either the English
+X+ or foreign-language names of weekdays and months in a reminder script.
+X+ However, for compatibility between versions of \fBRemind\fR, you should
+X+ use only the English names in your scripts.
+X+ .PP
+X  .SH MISCELLANEOUS
+X  .PP
+X  .B COMMAND ABBREVIATIONS
+X***************
+X*** 2195,2201 ****
+X  .fi
+X  .PP
+X  This reminder will run at one minute to midnight.  It will cause a new
+X! remind process to start at one minute past midnight.  This allows you to
+X  have a continuous reminder service so you can work through the night and
+X  still get timed reminders for early in the morning.  Note that this
+X  trick is no longer necessary, providing you run \fBRemind\fR in
+X--- 2247,2253 ----
+X  .fi
+X  .PP
+X  This reminder will run at one minute to midnight.  It will cause a new
+X! \fBRemind\fR process to start at one minute past midnight.  This allows you to
+X  have a continuous reminder service so you can work through the night and
+X  still get timed reminders for early in the morning.  Note that this
+X  trick is no longer necessary, providing you run \fBRemind\fR in
+X***************
+X*** 2205,2211 ****
+X  	remind \-c12 /dev/null Jan 1993
+X  .fi
+X  .PP
+X! This invocation of \fBremind\fR will cause it to print a calendar for
+X  1993, with all entries left blank.
+X  .PP
+X  .nf
+X--- 2257,2263 ----
+X  	remind \-c12 /dev/null Jan 1993
+X  .fi
+X  .PP
+X! This invocation of \fBRemind\fR will cause it to print a calendar for
+X  1993, with all entries left blank.
+X  .PP
+X  .nf
+X*** ../patch1/test-rem	Wed Dec 16 10:51:51 1992
+X--- ./test-rem	Fri Jan  8 13:31:17 1993
+X***************
+X*** 1,4 ****
+X--- 1,15 ----
+X  #!/bin/sh
+X+ # ---------------------------------------------------------------------------
+X+ # TEST-REM
+X+ #
+X+ # This file runs an acceptance test for Remind.  To use it, type:
+X+ #      sh test-rem  OR make test
+X+ # in the build directory.
+X+ #
+X+ # This file is part of REMIND.
+X+ # Copyright (C) 1992, 1993 by David F. Skoll
+X+ # ---------------------------------------------------------------------------
+X+ 
+X  TEST_GETENV="foo bar baz" ; export TEST_GETENV
+X  ./remind -e -dxtev ./test.rem 16 feb 1991 > ./test.out
+X  cmp -s ./test.out ./test.cmp
+X*** ../patch1/test.cmp	Wed Dec 16 10:51:51 1992
+X--- ./test.cmp	Wed Jan  6 18:57:29 1993
+X***************
+X*** 349,355 ****
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.01"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X--- 349,355 ----
+X  "a05" + "6" => "a056"
+X  value("a056") => "SDFJHSDF KSJDFH KJSDFH KSJDFH"
+X  set a058 version()
+X! version() => "03.00.02"
+X  set a059 wkday(today())
+X  today() => 1991/02/16
+X  wkday(1991/02/16) => "Saturday"
+X***************
+X*** 453,459 ****
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.01"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X--- 453,459 ----
+X          a048  "foo"
+X          a067  "INT"
+X          a039  "February"
+X!         a058  "03.00.02"
+X          a049  21
+X          a068  "STRING"
+X          a059  "Saturday"
+X*** ../patch1/token.c	Wed Dec 16 10:51:39 1992
+X--- ./token.c	Thu Jan 21 16:45:40 1993
+X***************
+X*** 6,12 ****
+X  /*  classifying the tokens parsed.                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X--- 6,12 ----
+X  /*  classifying the tokens parsed.                             */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X***************
+X*** 91,96 ****
+X--- 91,123 ----
+X     { "wednesday",	3,	T_WkDay,	2 }
+X  };
+X  
+X+ /* If language != English, we must also search the following... */
+X+ #if LANG != ENGLISH
+X+ Token NonEnglishToks[] = {
+X+    /* NAME          MINLEN      TYPE           VALUE */
+X+ 
+X+    { L_MONDAY,	       3,       T_WkDay,        0 },
+X+    { L_TUESDAY,	       3,       T_WkDay,        1 },
+X+    { L_WEDNESDAY,      3,       T_WkDay,        2 },
+X+    { L_THURSDAY,       3,       T_WkDay,        3 },
+X+    { L_FRIDAY,	       3,       T_WkDay,        4 },
+X+    { L_SATURDAY,       3,       T_WkDay,        5 },
+X+    { L_SUNDAY,	       3,       T_WkDay,        6 },
+X+    { L_JAN,            3,       T_Month,        0 },
+X+    { L_FEB,            3,       T_Month,        1 },
+X+    { L_MAR,            3,       T_Month,        2 },
+X+    { L_APR,            3,       T_Month,        3 },
+X+    { L_MAY,            3,       T_Month,        4 },
+X+    { L_JUN,            3,       T_Month,        5 },
+X+    { L_JUL,            3,       T_Month,        6 },
+X+    { L_AUG,            3,       T_Month,        7 },
+X+    { L_SEP,            3,       T_Month,        8 },
+X+    { L_OCT,            3,       T_Month,        9 },
+X+    { L_NOV,            3,       T_Month,        10 },
+X+    { L_DEC,            3,       T_Month,        11 }
+X+ };
+X+ #endif
+X+ 
+X  PRIVATE int TokStrCmp ARGS((const Token *t, const char *s));
+X  
+X  /***************************************************************/
+X***************
+X*** 177,182 ****
+X--- 204,222 ----
+X        }
+X        if (r > 0) top = mid-1; else bot=mid+1;
+X     }
+X+ 
+X+ /* If language is other than English, search the DayNames[] and MonthNames[]
+X+    array. */
+X+ #if LANG != ENGLISH
+X+     for (r=0; r<(sizeof(NonEnglishToks) / sizeof(Token)); r++) {
+X+        if (!TokStrCmp(&NonEnglishToks[r], s)) {
+X+           tok->type = NonEnglishToks[r].type;
+X+           tok->val = NonEnglishToks[r].val;
+X+ 	  return;
+X+        }
+X+     }
+X+ #endif
+X+  
+X     return;
+X  }
+X  
+X*** ../patch1/trigger.c	Wed Dec 16 10:51:40 1992
+X--- ./trigger.c	Fri Jan  8 13:23:30 1993
+X***************
+X*** 5,11 ****
+X  /*  Routines for figuring out the trigger date of a reminder   */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X--- 5,11 ----
+X  /*  Routines for figuring out the trigger date of a reminder   */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X*** ../patch1/types.h	Wed Dec 16 10:51:26 1992
+X--- ./types.h	Fri Jan  8 13:23:23 1993
+X***************
+X*** 5,11 ****
+X  /*  Type definitions all dumped here.                          */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  /* Values */
+X--- 5,11 ----
+X  /*  Type definitions all dumped here.                          */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  /* Values */
+X*** ../patch1/userfns.c	Wed Dec 16 10:51:41 1992
+X--- ./userfns.c	Fri Jan  8 13:23:16 1993
+X***************
+X*** 6,12 ****
+X  /*  functions.                                                 */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X--- 6,12 ----
+X  /*  functions.                                                 */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  #include "config.h"
+X*** ../patch1/utils.c	Wed Dec 16 10:51:41 1992
+X--- ./utils.c	Thu Jan 21 16:33:51 1993
+X***************
+X*** 5,11 ****
+X  /*  Useful utility functions.                                  */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X--- 5,11 ----
+X  /*  Useful utility functions.                                  */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X*** ../patch1/var.c	Wed Dec 16 10:51:42 1992
+X--- ./var.c	Fri Jan  8 13:23:00 1993
+X***************
+X*** 6,12 ****
+X  /*  user- and system-defined variables.                        */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992 by David F. Skoll.                      */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+X--- 6,12 ----
+X  /*  user- and system-defined variables.                        */
+X  /*                                                             */
+X  /*  This file is part of REMIND.                               */
+X! /*  Copyright (C) 1992, 1993 by David F. Skoll.                */
+X  /*                                                             */
+X  /***************************************************************/
+X  
+END_OF_FILE
+  if test 54669 -ne `wc -c <'patch.02.B'`; then 
+    echo shar: \"'patch.02.B'\" unpacked with wrong size!
+  elif test -f 'patch.02.A'; then
+    echo shar: Combining  \"'patch.02'\" \(113702 characters\)    
+    cat 'patch.02.A' 'patch.02.B' > 'patch.02'
+    if test 113702 -ne `wc -c <'patch.02'`; then
+      echo shar: \"'patch.02'\" combined with wrong size!
+    else
+      rm patch.02.A patch.02.B 
+    fi
+  fi
+  # end of 'patch.02.B' 
+fi
+echo shar: End of archive 1 \(of 3\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 3 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 3 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

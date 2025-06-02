@@ -1,0 +1,1418 @@
+Newsgroups: comp.sources.x
+From: dmd@gradient.cis.upenn.edu (Douglas DeCarlo)
+Subject: v19i067:  xspringies - it's a spring simulator...no, it's a game, Part15/16
+Message-ID: <1993Mar26.161429.10523@sparky.imd.sterling.com>
+X-Md4-Signature: cbc236e059bfcffcc03e93c3e70c0ed3
+Date: Fri, 26 Mar 1993 16:14:29 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: dmd@gradient.cis.upenn.edu (Douglas DeCarlo)
+Posting-number: Volume 19, Issue 67
+Archive-name: xspringies/part15
+Environment: X11
+Supersedes: xspringies: Volume 14, Issue 25-30
+
+#!/bin/sh
+# to extract, remove the header and type "sh filename"
+if `test ! -s ./Imakefile`
+then
+echo "writting ./Imakefile"
+cat > ./Imakefile << '\BARFOO\'
+# Imakefile for XSpringies
+
+SRCS = xdisp.c misc.c keypress.c widget.c obj.c file.c phys.c
+OBJS = xdisp.o misc.o keypress.o widget.o obj.o file.o phys.o
+
+DEPLIBS =
+LOCAL_LIBRARIES = $(XLIB)
+SYS_LIBRARIES = -lm
+
+# Because the X consortium people are dip-heads
+MKDIRHIER = BourneShell `which mkdirhier`
+
+# Destination directory for xspringies demo files, executable and manpage
+# (Change this to where you want files installed)
+DDIR = /usr/games/
+
+XSPDIR = $(DDIR)lib/xspringies
+BINDIR = $(DDIR)bin
+MANDIR = $(DDIR)man/manx
+
+DEFINES = -DDEF_PATH=\"$(XSPDIR)/\"
+
+MakeDirectories(install, $(XSPDIR))
+MakeDirectories(install, $(BINDIR))
+MakeDirectories(install, $(MANDIR))
+
+ComplexProgramTarget(xspringies)
+
+install:: install.man install.lib
+
+# I hate imake
+XSPLIB = lib/
+
+install.lib:
+	/bin/cp $(XSPLIB)* $(XSPDIR)
+\BARFOO\
+else
+  echo "will not over write ./Imakefile"
+fi
+if `test ! -s ./Makefile.std`
+then
+echo "writting ./Makefile.std"
+cat > ./Makefile.std << '\BARFOO\'
+# Default Makefile for XSpringies
+
+OBJS = xdisp.o misc.o keypress.o widget.o obj.o file.o phys.o
+SRCS = xdisp.c misc.c keypress.c widget.c obj.c file.c phys.c
+
+DDIR = /usr/games/
+
+XSPDIR = $(DDIR)lib/xspringies
+BINDIR = $(DDIR)bin
+MANDIR = $(DDIR)man/manx
+
+LIBS = -lm -lX11
+CFLAGS = -O -DDEF_PATH=\"$(XSPDIR)/\"
+
+xspringies: $(OBJS)
+	$(CC) $(CFLAGS) -o xspringies $(OBJS) $(LIBS)
+
+$(OBJS): defs.h
+file.o xdisp.o obj.o phys.o: obj.h
+xdisp.o: bitmap.h title.h bfbm.h
+
+install:: xspringies
+	-@mkdirhier $(BINDIR)
+	install -c -s xspringies $(BINDIR)
+	-@mkdirhier $(MANDIR)
+	install -c xspringies.man $(MANDIR)
+
+install::
+	-@mkdirhier $(XSPDIR)
+	/bin/cp lib/* $(XSPDIR)
+
+clean:
+	rm -f $(OBJS) xspringies
+\BARFOO\
+else
+  echo "will not over write ./Makefile.std"
+fi
+if `test ! -s ./README`
+then
+echo "writting ./README"
+cat > ./README << '\BARFOO\'
+README file for XSpringies 1.1                                    March 1, 1993
+==============================
+
+General info:
+-------------
+  XSpringies is a mass and spring simulation system.  It's intended use is more
+like that of a game, than some design package.
+
+  It's written using Xlib only.  No Motif or any other widgets sets are used.
+
+  The animation in XSpringies is done using an off-screen Pixmap.  The next
+frame is drawn on this pixmap, then is blitted onto the screen.  Since the
+frame rate is about 30 frames per second, slower machines (or machines which
+have poorly written bit-blitting code) will be deathly slow and blinky.
+
+Installation info:
+------------------
+First, edit the Imakefile/Makefile.std and change the value of DDIR to reflect
+where you want to install the xspringies files.  Don't forget the trailing /
+on the end of your filename.
+
+If you are using the Imakefile, type "xmkmf".
+
+    If you have problems at the beginning, and you are using the
+    Imakefile, it might be caused by the strange definition I have for
+    "MKDIRHIER", which I had to redefine because of the silly way Imake
+    is set up.  If this happens, type "which mkdirhier" to see what the
+    full path for mkdirhier is, and put this in place of the backquoted
+    expression in the Imakefile. (i.e. - if the full path is
+    "/usr/local/bin/mkdirhier", then you change the line to
+    "MKDIRHIER = BourneShell /usr/local/bin/mkdirhier").
+
+Then, type "make install".
+
+Then, just run xspringies and have fun.
+
+Updates
+-------
+For version 1.1:
+ Bugs fixed:
+ - Compiles for NEWS system
+ - Keyboard input now works under openlook window manager
+ - Animation no longer gets 'stuck' after like 35 minutes
+ - File format is more compact by removing unnecessary zeros
+   (i.e. - before 1.500000, now 1.5) and has more precision to eliminate
+   tiny errors perceived when saving and reloading a file
+ - Strange ~-expansion behavior for filenames is gone
+ - The GO! button replaces the hard to find Action checkbox
+ - A Delete button was added, which is the same as the Delete key
+
+ New features:
+ - Spring thickness can be specified using the "-st <number>" command
+   line switch (0 is default width - thin line)
+ - Instead of the entire screen being bit-blitted, only the bounding box
+   necessary to draw new objects and cover old objects is drawn.  This
+   greatly speeds up the animation when drawing small objects (such as
+   a "jello").  If the bounding box changes size periodically (as in the
+   "pendbees" file), the "-nbb" command line switch disables this feature
+   to allow for slower, but smoother animation.
+ - A cursor, and filename editing features were added.  It uses emacs-like
+   keys:
+      ^B/^F = back/forward
+      ^A/^E = goto beginning/end of line
+      ^K/^Y = kill to end of line/yank from kill buffer
+      ^D    = delete character under cursor
+      ^U    = kill all input
+      ^T    = transpose character under cursor with previous character
+      ESC   = exit from filename edit mode
+
+Misc info:
+----------
+  The author of xspringies is Douglas DeCarlo.
+  Email address:  dmd@gradient.cis.upenn.edu
+  Please send any bug-reports/comments/suggestions/demo-files to this address.
+\BARFOO\
+else
+  echo "will not over write ./README"
+fi
+if `test ! -s ./bfbm.h`
+then
+echo "writting ./bfbm.h"
+cat > ./bfbm.h << '\BARFOO\'
+#define BF_SIZ	24
+
+static char b_bits[][BF_SIZ*BF_SIZ/8] = {
+    {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x1f, 0x00,
+	0x00, 0x1f, 0x00, 0x00, 0x1f, 0x00, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00,
+	0x00, 0x04, 0x00, 0x00, 0x04, 0x1e, 0x00, 0x04, 0x11, 0x00, 0x04, 0x11,
+	0x00, 0x04, 0x11, 0x00, 0x04, 0x1e, 0x00, 0x04, 0x10, 0x80, 0x24, 0x10,
+	0x80, 0x35, 0x11, 0x00, 0x1f, 0x0e, 0x00, 0x0e, 0x00, 0x00, 0x04, 0x00
+    }, {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0xff, 0x01, 0x30, 0x00, 0x03,
+	0x98, 0x89, 0x06, 0x48, 0xda, 0x04, 0x48, 0xa8, 0x04, 0x48, 0x8a, 0x04,
+	0x98, 0x89, 0x06, 0x30, 0x00, 0x03, 0xe0, 0xff, 0x01, 0x00, 0x00, 0x00,
+	0x00, 0x10, 0x00, 0x00, 0x20, 0x00, 0x00, 0x40, 0x00, 0x00, 0x80, 0x04,
+	0x00, 0x00, 0x05, 0x00, 0x00, 0x06, 0x00, 0x80, 0x07, 0x00, 0x00, 0x30,
+	0x00, 0x00, 0x78, 0x00, 0x00, 0x78, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00
+    }, {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x00,
+	0x00, 0x10, 0x00, 0x00, 0x54, 0x00, 0x00, 0x7c, 0x00, 0x00, 0x38, 0x00,
+	0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x60, 0x38, 0x0c, 0xc0, 0x7c, 0x06,
+	0xfc, 0x7d, 0xff, 0xc0, 0x7c, 0x06, 0x60, 0x38, 0x0c, 0x00, 0x00, 0x00,
+	0x00, 0x10, 0x00, 0x00, 0x38, 0x00, 0x00, 0x7c, 0x00, 0x00, 0x54, 0x00,
+	0x00, 0x10, 0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x00
+    }, {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x92,
+	0x00, 0x00, 0x26, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x92, 0x00, 0x00, 0x26,
+	0x1c, 0x22, 0x4a, 0x3e, 0x41, 0x92, 0xbe, 0xff, 0x26, 0x3e, 0x41, 0x4a,
+	0x1c, 0x22, 0x92, 0x00, 0x00, 0x26, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x92,
+	0x00, 0x00, 0x26, 0x00, 0x00, 0x4a, 0x00, 0x00, 0x92, 0x00, 0x00, 0x26,
+	0x00, 0x00, 0x4a, 0x00, 0x00, 0x92, 0x00, 0x00, 0x26, 0x00, 0x00, 0x4a
+    }
+};
+\BARFOO\
+else
+  echo "will not over write ./bfbm.h"
+fi
+if `test ! -s ./bitmap.h`
+then
+echo "writting ./bitmap.h"
+cat > ./bitmap.h << '\BARFOO\'
+#define edit_width 32
+#define edit_height 32
+static char edit_bits[] = {
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00,
+   0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00,
+   0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00, 0x80, 0x7f, 0xff, 0x00,
+   0x80, 0x00, 0x80, 0x00, 0x80, 0x7f, 0xff, 0x00, 0x00, 0x40, 0x01, 0x00,
+   0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00,
+   0x00, 0x40, 0x01, 0x00, 0x00, 0x40, 0x01, 0x00, 0x00, 0xc0, 0x01, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+#define mass_width 32
+#define mass_height 32
+static char mass_bits[] = {
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x0f, 0x00, 0x00, 0xf8, 0x3f, 0x00,
+   0x00, 0xfe, 0xff, 0x00, 0x00, 0xff, 0xff, 0x01, 0x80, 0xff, 0xff, 0x03,
+   0xc0, 0xff, 0xff, 0x07, 0xc0, 0xff, 0xff, 0x07, 0xe0, 0xff, 0xff, 0x0f,
+   0xe0, 0xff, 0xff, 0x0f, 0xf0, 0x17, 0xe1, 0x1f, 0xf0, 0xe7, 0xde, 0x1f,
+   0xf0, 0xf7, 0xde, 0x1f, 0xf0, 0xf7, 0xde, 0x1f, 0xf0, 0xf7, 0xde, 0x1f,
+   0xf0, 0xf7, 0xde, 0x1f, 0xf0, 0xf7, 0xde, 0x1f, 0xe0, 0xff, 0xff, 0x0f,
+   0xe0, 0xff, 0xff, 0x0f, 0xc0, 0xff, 0xff, 0x07, 0xc0, 0xff, 0xff, 0x07,
+   0x80, 0xff, 0xff, 0x03, 0x00, 0xff, 0xff, 0x01, 0x00, 0xfe, 0xff, 0x00,
+   0x00, 0xf8, 0x3f, 0x00, 0x00, 0xe0, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+#define spring_width 32
+#define spring_height 32
+static char spring_bits[] = {
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18,
+   0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x42, 0x00, 0x00, 0x00, 0x42,
+   0x00, 0x00, 0x1c, 0x24, 0x00, 0x00, 0x22, 0x02, 0x00, 0x00, 0x47, 0x01,
+   0x00, 0x80, 0x8a, 0x00, 0x00, 0x40, 0x12, 0x00, 0x00, 0x40, 0x22, 0x00,
+   0x00, 0x70, 0x44, 0x00, 0x00, 0xa8, 0x88, 0x00, 0x00, 0x24, 0x91, 0x00,
+   0x00, 0x24, 0x62, 0x00, 0x00, 0x47, 0x04, 0x00, 0x80, 0x8a, 0x08, 0x00,
+   0x40, 0x12, 0x09, 0x00, 0x40, 0x22, 0x06, 0x00, 0x40, 0x44, 0x00, 0x00,
+   0x80, 0x88, 0x00, 0x00, 0x00, 0x91, 0x00, 0x00, 0x00, 0x62, 0x00, 0x00,
+   0x00, 0x01, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00,
+   0x84, 0x00, 0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x48, 0x00, 0x00, 0x00,
+   0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+#define go_width 58
+#define go_height 24
+static char go_bits[] = {
+   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0xfe, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0x0f, 0x00,
+   0x00, 0x00, 0x18, 0x00, 0x80, 0x8f, 0x1f, 0x80, 0x0f, 0x00, 0x3c, 0x00,
+   0x80, 0x07, 0x1e, 0xe0, 0x3f, 0x00, 0x7e, 0x00, 0xc0, 0x03, 0x1c, 0xf0,
+   0x7f, 0x00, 0x7e, 0x00, 0xc0, 0x01, 0x00, 0xf8, 0xfc, 0x00, 0x7e, 0x00,
+   0xe0, 0x01, 0x00, 0x3c, 0xf0, 0x00, 0x3f, 0x00, 0xe0, 0x80, 0x03, 0x1c,
+   0xe0, 0x01, 0x3f, 0x00, 0xe0, 0x80, 0x0f, 0x1e, 0xe0, 0x01, 0x3f, 0x00,
+   0xe0, 0x81, 0x3f, 0x0e, 0xc0, 0x01, 0x1f, 0x00, 0xc0, 0x01, 0x7f, 0x0e,
+   0xc0, 0x81, 0x0f, 0x00, 0xc0, 0x03, 0x7c, 0x1e, 0xc0, 0x81, 0x07, 0x00,
+   0x80, 0x03, 0x0e, 0x1c, 0xe0, 0xc1, 0x03, 0x00, 0x80, 0x8f, 0x0f, 0x3c,
+   0xe0, 0x80, 0x03, 0x00, 0x00, 0xff, 0x07, 0x38, 0x70, 0x00, 0x01, 0x00,
+   0x00, 0xfe, 0x03, 0xf8, 0x7c, 0x00, 0x00, 0x00, 0x00, 0x78, 0x00, 0xf0,
+   0x3f, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0xe0, 0x1f, 0xf8, 0x00, 0x00,
+   0x00, 0x00, 0x00, 0x80, 0x03, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+   0x00, 0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x70, 0x00, 0x00};
+\BARFOO\
+else
+  echo "will not over write ./bitmap.h"
+fi
+if `test ! -s ./defs.h`
+then
+echo "writting ./defs.h"
+cat > ./defs.h << '\BARFOO\'
+#include <stdio.h>
+#include <math.h>
+
+typedef char boolean;
+
+#define TRUE            1
+#define FALSE           0
+
+/* Window size info */
+#define D_WID	640
+#define D_HT	548
+#define B_WID	200
+#define T_WID	D_WID
+#define T_HT	(F_HT + 4)
+#define B_HT	(D_HT + T_HT + 1)
+#define M_WID	(B_WID + D_WID + 1)
+#define M_HT	B_HT
+
+#define COORD_X(x)	(x)
+#define COORD_Y(y)	(draw_ht - (y))
+#define COORD_DX(dx)	(dx)
+#define COORD_DY(dy)	(-(dy))
+
+/* Font size info */
+#define F_NAME	"6x10"
+#define F_WID	6
+#define F_HT	10
+
+/* File operations */
+#define F_NONE		0
+#define F_LOAD		1
+#define F_SAVE		2
+#define F_INSERT	3
+
+/* Longest filename */
+#define MAXPATH		256
+
+#define SQR(x)          ((x) * (x))
+#define SGN(x)          ((x) < 0 ? (-1) : 1)
+#ifndef ABS
+#define ABS(x)          ((x) < 0 ? (-(x)) : (x))
+#endif
+#ifndef MIN
+#define MIN(x,y)        ((x) < (y) ? (x) : (y))
+#define MAX(x,y)        ((x) < (y) ? (y) : (x))
+#endif
+
+/* Key codes used */
+#define K_DELETE	(-1)
+#define K_RETURN	(-2)
+#define K_ESCAPE	(-3)
+
+/* Types of widgets */
+#define O_NOTHING	(-1)
+#define O_ACTING	0
+#define O_BUTTON	1
+#define O_SLIDER	2
+#define O_CHECKBOX	3
+#define O_MBUTTON	4
+#define O_LSLIDER	5
+#define O_RSLIDER	6
+#define O_TSLIDER	7
+
+/* Types of mouse actions */
+#define M_DOWN		0
+#define M_UP		1
+#define M_DRAG		2
+#define M_HOLD		3
+#define M_REDISPLAY	4
+
+/* Forces */
+#define FR_GRAV		0
+#define FR_CMASS	1
+#define FR_PTATTRACT	2
+#define FR_WALL		3
+
+#define BF_NUM		4
+
+/* Defaults */
+#define DEF_TSTEP	0.025
+
+typedef struct {
+    double cur_mass, cur_rest;
+    double cur_ks, cur_kd;
+    boolean fix_mass, show_spring;
+    int center_id;
+    int bf_mode[BF_NUM];
+    double cur_grav_val[BF_NUM];
+    double cur_misc_val[BF_NUM];
+    double cur_visc, cur_stick;
+    double cur_dt, cur_prec;
+    boolean adaptive_step, grid_snap;
+    double cur_gsnap;
+    boolean w_top, w_left, w_right, w_bottom;
+} t_state;
+
+/* -------- Functions/variables defined --------- */
+
+/* widget.c */
+extern boolean scan_flag, key_widgets(), check_widgets();
+extern void init_widgets(), add_button(), add_modebutton(), add_checkbox(), add_slider(), redraw_widgets();
+extern void update_slider(), activate_mbutton();
+extern int slider_valno();
+
+/* xdisp.c */
+extern int main_wid, main_ht, draw_wid, draw_ht;
+extern char filename[];
+extern int cursor_pos, spthick;
+extern int file_op, mass_radius();
+extern void fatal(), disp_filename(), redraw_system(), review_system();
+extern t_state mst;
+
+/* keypress.c */
+extern void key_press();
+
+/* misc.c */
+extern char *xmalloc(), *xrealloc();
+
+/* obj.c */
+extern void init_objects(), delete_mass(), delete_spring(), delete_selected(), add_massparent(), del_massparent();
+extern void select_object(), select_objects(), unselect_all(), select_all(), translate_selobj(), set_center();
+extern boolean anything_selected();
+extern int create_mass(), create_spring(), nearest_object();
+
+/* phys.c */
+extern boolean animate_obj();
+\BARFOO\
+else
+  echo "will not over write ./defs.h"
+fi
+if `test ! -s ./file.c`
+then
+echo "writting ./file.c"
+cat > ./file.c << '\BARFOO\'
+/* file.c -- file loading and saving for xspringies
+ * Copyright (C) 1991,1992  Douglas M. DeCarlo
+ *
+ * This file is part of XSpringies, a mass and spring simulation system for X
+ *
+ * XSpringies is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 1, or (at your option)
+ * any later version.
+ *
+ * XSpringies is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with XSpringies; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+#include "defs.h"
+#include "obj.h"
+#include <pwd.h>
+
+#define USERNAMELEN	8
+#define MAGIC_CMD	"#1.0"
+#define FILE_EXT	".xsp"
+
+/* tilde_expand: expand ~/.. and ~bar/.. in filenames and put
+   the result in filename
+   filename is assumed to be null terminated, and after the
+   expansion will not exceed MAXPATH in length
+
+   tilde_expand returns its argument, or NULL if the user
+   is unknown
+   */
+char *tilde_expand(fname)
+char *fname;
+{
+    register int prelen, len, restlen, i;
+    register char *prefix, *s, *u;
+    struct passwd *pw;
+    char user[USERNAMELEN+1];
+    extern char *getenv();
+
+    if (*fname == '~') {
+	if (*(fname + 1) == '/' || !*(fname + 1)) {
+	    len = 1;
+	    /* Do ~/ expansion */
+	    if ((prefix = getenv("HOME")) == NULL) {
+		/* Use . as home directory if HOME not set */
+		prefix = ".";
+	    }
+	} else {
+	    /* Do ~user/ expansion */
+	    for (len = 1, s = fname + 1, u = user; len <= USERNAMELEN && *s && *s != '/'; *u++ = *s++, len++);
+	    *u = '\0';
+
+	    /* Get name */
+	    if ((pw = getpwnam(user)) == NULL)
+	      return NULL;
+	    prefix = pw->pw_dir;
+	}
+
+	prelen = strlen(prefix);
+	restlen = strlen(fname + len);
+
+	/* Move over pathname */
+	if (prelen < len) {
+	    for (i = 0; i <= restlen; i++) {
+		fname[prelen+i] = fname[len+i];
+	    }
+	} else {
+	    for (i = restlen; i >= 0; i--) {
+		fname[prelen+i] = fname[len+i];
+	    }
+	}
+	/* Copy in prefix */
+	(void)memcpy(fname, prefix, prelen);
+    }
+
+    return fname;
+}
+
+void skip_to_eol(f)
+FILE *f;
+{
+    int ch;
+
+    while ((ch = fgetc(f)) != EOF && ch != '\n');
+}
+
+char *extend_file(file)
+char *file;
+{
+    static char buf[MAXPATH];
+    int len, felen;
+
+    strcpy(buf, file);
+
+    felen = strlen(FILE_EXT);
+    len = strlen(buf);
+    
+    if (len < felen || strcmp(buf + len - felen, FILE_EXT)) {
+	strcat(buf, FILE_EXT);
+    }
+
+    return buf;
+}
+
+#define IS_CMD(s)	(!strncmp(cmd, s, 4))
+	    
+boolean file_command(file, command)
+char *file;
+int command;
+{
+    FILE *f;
+    char cmd[5];
+    int i, which, spring_start, temp;
+    int *mapfrom, *mapto, num_map, num_map_alloc;
+    boolean selectnew = FALSE;
+
+    if (strlen(file) == 0)
+      return FALSE;
+
+    tilde_expand(file);
+
+    switch (command) {
+      case F_INSERT:
+      case F_LOAD:	
+	if ((f = fopen(extend_file(file), "r")) == NULL) {
+	    return FALSE;
+	}
+
+	/* Check first line */
+	if (fgets(cmd, 5, f) != NULL && IS_CMD(MAGIC_CMD)) {
+	    skip_to_eol(f);
+
+	    if (command == F_LOAD) {
+		delete_all();
+		init_objects();
+	    } else {
+		if (!anything_selected())
+		  selectnew = TRUE;
+	    }
+	    spring_start = num_spring;
+
+	    num_map = 0;
+	    num_map_alloc = ALLOC_SIZE;
+	    mapfrom = (int *)xmalloc(sizeof(int) * num_map_alloc);
+	    mapto = (int *)xmalloc(sizeof(int) * num_map_alloc);
+
+	    while (fgets(cmd, 5, f) != NULL) {
+		if (IS_CMD("mass")) {
+		    if (num_map >= num_map_alloc) {
+			num_map_alloc += ALLOC_SIZE;
+			mapfrom = (int *)xrealloc(mapfrom, sizeof(int) * num_map_alloc);
+			mapto = (int *)xrealloc(mapto, sizeof(int) * num_map_alloc);
+		    }
+		    
+		    which = create_mass();
+		    mapto[num_map] = which;
+		    fscanf(f, "%d %lf %lf %lf %lf %lf %lf\n", &mapfrom[num_map], &masses[which].x, &masses[which].y,
+			   &masses[which].vx, &masses[which].vy, &masses[which].mass, &masses[which].elastic);
+		    num_map++;
+		    if (masses[which].mass < 0) {
+			masses[which].mass = -masses[which].mass;
+			masses[which].status |= S_FIXED;
+		    }
+		    masses[which].radius = mass_radius(masses[which].mass);
+		    if (selectnew) {
+			select_object(which, TRUE, FALSE);
+		    }
+		} else if (IS_CMD("spng")) {
+		    int bogus;
+		    
+		    which = create_spring();
+		    fscanf(f, "%d %d %d %lf %lf %lf\n", &bogus, &springs[which].m1, &springs[which].m2,
+			   &springs[which].ks, &springs[which].kd, &springs[which].restlen);
+		    if (selectnew) {
+			select_object(which, FALSE, FALSE);
+		    }
+
+		} else if (command == F_INSERT) {
+		    /* skip non mass/spring commands if in insert mode */
+		} else if (IS_CMD("cmas")) {
+		    fscanf(f, "%lf\n", &(mst.cur_mass));
+		} else if (IS_CMD("elas")) {
+		    fscanf(f, "%lf\n", &(mst.cur_rest));
+		} else if (IS_CMD("kspr")) {
+		    fscanf(f, "%lf\n", &(mst.cur_ks));
+		} else if (IS_CMD("kdmp")) {
+		    fscanf(f, "%lf\n", &(mst.cur_kd));
+		} else if (IS_CMD("fixm")) {
+		    fscanf(f, "%d\n", &temp);
+		    mst.fix_mass = temp ? TRUE : FALSE;
+		} else if (IS_CMD("shws")) {
+		    fscanf(f, "%d\n", &temp);
+		    mst.show_spring = temp ? TRUE : FALSE;
+		} else if (IS_CMD("cent")) {
+		    fscanf(f, "%d\n", &(mst.center_id));
+
+		} else if (IS_CMD("frce")) {
+		    int which, temp;
+		    
+		    fscanf(f, "%d", &which);
+		    if (which >= 0 && which < BF_NUM) {
+			fscanf(f, "%d %lf %lf\n", &temp, &(mst.cur_grav_val[which]), &(mst.cur_misc_val[which]));
+			
+			activate_mbutton(&(mst.bf_mode[which]), temp);
+		    }
+		} else if (IS_CMD("visc")) {
+		    fscanf(f, "%lf\n", &(mst.cur_visc));
+		} else if (IS_CMD("stck")) {
+		    fscanf(f, "%lf\n", &(mst.cur_stick));
+		} else if (IS_CMD("step")) {
+		    fscanf(f, "%lf\n", &(mst.cur_dt));
+		} else if (IS_CMD("prec")) {
+		    fscanf(f, "%lf\n", &(mst.cur_prec));
+		} else if (IS_CMD("adpt")) {
+		    fscanf(f, "%d\n", &temp);
+		    mst.adaptive_step = temp ? TRUE : FALSE;
+
+		} else if (IS_CMD("gsnp")) {
+		    fscanf(f, "%lf %d\n", &(mst.cur_gsnap), &temp);
+		    mst.grid_snap = temp ? TRUE : FALSE;
+		} else if (IS_CMD("wall")) {
+		    int wt, wl, wr, wb;
+		    fscanf(f, "%d %d %d %d\n", &wt, &wl, &wr, &wb);
+		    mst.w_top = (boolean)wt;
+		    mst.w_left = (boolean)wl;
+		    mst.w_right = (boolean)wr;
+		    mst.w_bottom = (boolean)wb;
+		} else {
+		    /* unknown command */
+		    fprintf(stderr, "Unknown command: %4.4s\n", cmd);
+		    skip_to_eol(f);
+		}
+	    }
+
+	    /* Connect springs to masses */
+	    for (i = spring_start; i < num_spring; i++) {
+		int j;
+		boolean m1done, m2done;
+
+		m1done = m2done = FALSE;
+
+		if (i == fake_spring)
+		  continue;
+
+		for (j = 0; (!m1done || !m2done) && j < num_map; j++) {
+		    if (!m1done && springs[i].m1 == mapfrom[j]) {
+			springs[i].m1 = mapto[j];
+			m1done = TRUE;
+		    }
+		    if (!m2done && springs[i].m2 == mapfrom[j]) {
+			springs[i].m2 = mapto[j];
+			m2done = TRUE;
+		    }
+		}
+		if (!m1done && !m2done) {
+		    /* delete spring */
+		    delete_spring(i);
+		    fprintf(stderr, "Spring %d not connected to existing mass\n", i);
+		}
+	    }
+
+	    free(mapfrom);
+	    free(mapto);
+	    reconnect_masses();
+	    review_system(TRUE);
+	    redisplay_widgets();
+	} else {
+	    return FALSE;
+	}
+	
+	(void)fclose(f);
+
+	break;
+      case F_SAVE:
+	if ((f = fopen(extend_file(file), "w")) == NULL) {
+	    return FALSE;
+	}
+	fprintf(f, "%s *** XSpringies data file\n", MAGIC_CMD);
+	/* Settings */
+	fprintf(f, "cmas %.12lg\n", mst.cur_mass);
+	fprintf(f, "elas %.12lg\n", mst.cur_rest);
+	fprintf(f, "kspr %.12lg\n", mst.cur_ks);
+	fprintf(f, "kdmp %.12lg\n", mst.cur_kd);
+	fprintf(f, "fixm %d\n", mst.fix_mass);
+	fprintf(f, "shws %d\n", mst.show_spring);
+	fprintf(f, "cent %d\n", mst.center_id);
+
+	for (i = 0; i < BF_NUM; i++)
+	  fprintf(f, "frce %d %d %.12lg %.12lg\n", i, (mst.bf_mode[i] >= 0) ? 1 : 0, mst.cur_grav_val[i], mst.cur_misc_val[i]);
+
+	fprintf(f, "visc %.12lg\n", mst.cur_visc);
+	fprintf(f, "stck %.12lg\n", mst.cur_stick);
+	fprintf(f, "step %.12lg\n", mst.cur_dt);
+	fprintf(f, "prec %.12lg\n", mst.cur_prec);
+	fprintf(f, "adpt %d\n", mst.adaptive_step);
+
+	fprintf(f, "gsnp %.12lg %d\n", mst.cur_gsnap, mst.grid_snap);
+	fprintf(f, "wall %d %d %d %d\n", (int)mst.w_top, (int)mst.w_left, (int)mst.w_right, (int)mst.w_bottom);
+
+	/* Masses and springs */
+	for (i = 0; i < num_mass; i++) {
+	    if (masses[i].status & S_ALIVE) {
+		fprintf(f, "mass %d %.18lg %.18lg %.12lg %.12lg %.8lg %.8lg\n", i, masses[i].x, masses[i].y, masses[i].vx, masses[i].vy,
+		       (masses[i].status & S_FIXED) ? -masses[i].mass : masses[i].mass, masses[i].elastic);
+	    }
+	}
+	for (i = 0; i < num_spring; i++) {
+	    if (springs[i].status & S_ALIVE) {
+		fprintf(f, "spng %d %d %d %.8lg %.8lg %.18lg\n", i, springs[i].m1, springs[i].m2,
+			springs[i].ks, springs[i].kd, springs[i].restlen);
+	    }
+	}
+
+	if (fclose(f) == EOF)
+	  return FALSE;
+	break;
+    }
+
+    return TRUE;
+}
+\BARFOO\
+else
+  echo "will not over write ./file.c"
+fi
+if `test ! -s ./keypress.c`
+then
+echo "writting ./keypress.c"
+cat > ./keypress.c << '\BARFOO\'
+/* keypress.c -- keyboard input support for xspringies
+ * Copyright (C) 1991,1992  Douglas M. DeCarlo
+ *
+ * This file is part of XSpringies, a mass and spring simulation system for X
+ *
+ * XSpringies is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 1, or (at your option)
+ * any later version.
+ *
+ * XSpringies is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with XSpringies; see the file COPYING.  If not, write to
+ * the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+#include "defs.h"
+#include <X11/Xlib.h>
+#include <X11/keysym.h>
+
+/* key_press: process a key press of key */
+void key_press(key, ksym, win)
+int key;
+KeySym ksym;
+Window win;
+{
+    int i;
+    static char cutbuff[MAXPATH];
+
+    switch (ksym) {
+      case XK_BackSpace:
+      case XK_Delete:
+	key = K_DELETE;
+	break;
+      case XK_Return:
+	key = K_RETURN;
+	break;
+      case XK_Escape:
+	key = K_ESCAPE;
+	break;
+    }
+
+    /* Check for widget keyboard input */
+    if (key_widgets(key, win))
+      return;
+
+    if (file_op != F_NONE) {
+	int len;
+
+	len = strlen(filename);
+
+	if (ksym == XK_BackSpace || ksym == XK_Delete) {
+	    if (len > 0 && cursor_pos > 0) {
+		for (i = cursor_pos-1; i < len; i++) {
+		    filename[i] = filename[i+1];
+		}
+		cursor_pos--;
+	    }
+	} else if (ksym == XK_Return) {
+	    if (!file_command(filename, file_op))
+	      file_error();
+	    file_op = F_NONE;
+	} else if (ksym == XK_Escape) {
+	    file_op = F_NONE;
+	} else if (ksym == XK_Left || key == '\002') {
+	    /* control-b */
+	    if (cursor_pos > 0)
+	      cursor_pos--;
+	} else if (ksym == XK_Right || key == '\006') {
+	    /* control-f */
+	    if (cursor_pos < len)
+	      cursor_pos++;
+	} else if (ksym == XK_Begin || ksym == XK_Home || key == '\001') {
+	    /* control-a */
+	    cursor_pos = 0;
+	} else if (ksym == XK_End || key == '\005') {
+	    /* control-e */
+	    cursor_pos = len;
+	} else if (ksym == XK_Clear || key == '\025') {
+	    /* control-u */
+	    filename[0] = '\0';
+	    cursor_pos = 0;
+	} else if (ksym == XK_Tab) {
+	    /* File complete ... */
+
+	} else if (key != '\0') {
+	    switch (key) {
+	      case '\004': /* control-d */
+		if (len > 0 && cursor_pos < len) {
+		    for (i = cursor_pos; i < len; i++) {
+			filename[i] = filename[i+1];
+		    }
+		}
+		break;
+
+	      case '\013': /* control-k */
+		strcpy(cutbuff, filename + cursor_pos);
+		filename[cursor_pos] = '\0';
+		break;
+	      case '\031': /* control-y */
+		{
+		    int cblen = strlen(cutbuff);
+		    
+		    if (len + cblen < MAXPATH) {
+			for (i = len; i >= cursor_pos; i--) {
+			    filename[i + cblen] = filename[i];
+			}
+			for (i = 0; i < cblen; i++) {
+			    filename[i + cursor_pos] = cutbuff[i];
+			}
+			cursor_pos += cblen;		
+		    }
+		}
+		break;
+		
+	      case '\024': /* control-t */
+		if (cursor_pos > 0 && len > 1) {
+		    char tempc;
+		    int cpos;
+		    
+		    cpos = (cursor_pos == len) ? cursor_pos-1 : cursor_pos;
+		    
+		    tempc = filename[cpos-1];
+		    filename[cpos-1] = filename[cpos];
+		    filename[cpos] = tempc;
+		    
+		    if (cursor_pos < len)
+		      cursor_pos++;
+		}
+		break;
+
+	      default:
+		if (len < MAXPATH - 1 && key >= ' ') {
+		    for (i = len+1; i > cursor_pos; i--) {
+			filename[i] = filename[i-1];
+		    }
+		    filename[cursor_pos] = key;
+		    cursor_pos++;
+		}	  
+	    }
+	}
+
+	disp_filename(FALSE);
+	return;
+    }
+
+    switch (key) {
+      case K_DELETE:
+	delete_selected();
+	review_system(TRUE);
+	break;
+      case 'Q':
+	fatal(NULL);
+	break;
+      case 0x0c:
+	/* ^L is redraw screen */
+	review_system(TRUE);
+	break;
+      default:
+	break;
+    }
+}
+\BARFOO\
+else
+  echo "will not over write ./keypress.c"
+fi
+if `test ! -d ./lib`
+then
+  mkdir ./lib
+  echo "mkdir ./lib"
+fi
+if `test ! -s ./lib/plane.xsp`
+then
+echo "writting ./lib/plane.xsp"
+cat > ./lib/plane.xsp << '\BARFOO\'
+#1.0 *** XSpringies data file
+cmas 1
+elas 1
+kspr 1
+kdmp 1
+fixm 0
+shws 1
+cent -1
+frce 0 0 10 0
+frce 1 0 5 2
+frce 2 0 10 0
+frce 3 0 10000 1
+visc 0
+stck 0
+step 0.025
+prec 1
+adpt 0
+gsnp 10 1
+wall 0 1 0 0
+mass 1 786 219 -198 -6 1 1
+mass 2 814 226 -198 -6 1 1
+mass 3 954 226 -198 -6 0.8 1
+mass 4 944 256 -198 -6 1 1
+mass 5 964 256 -198 -6 1 1
+mass 6 835 226 -198 -6 0.3 1
+mass 7 835 234 -198 -6 1 1
+mass 8 914 216 -198 -6 1 1
+mass 9 819 213 -198 -6 1 1
+mass 10 830 218 -198 -6 1 1
+mass 11 884 218 -198 -6 1 1
+mass 12 884 200 -198 -6 1 1
+mass 13 902 200 -198 -6 1 1
+mass 14 881 214 -198 -6 0.11 1
+mass 15 890 205 -198 -6 0.11 1
+mass 16 962 247 -198 -6 0.11 1
+mass 17 957 233 -198 -6 0.11 1
+mass 18 949 233 -198 -6 0.11 1
+mass 19 955 247 -198 -6 0.11 1
+mass 20 839 230 -198 -6 0.3 1
+mass 21 842 235 -198 -6 0.3 1
+mass 22 845 235 -198 -6 0.3 1
+mass 23 843 232 -198 -6 0.3 1
+mass 24 910 226 -198 -6 0.3 1
+mass 25 948 255 -198 -6 0.3 1
+mass 26 954 219 -198 -6 0.8 1
+mass 27 957 225 -198 -6 0.2 1
+mass 28 908 228 -198 -6 1 1
+mass 30 0 328 0 0 1 1
+mass 31 0 278 0 0 1 1
+mass 32 0 228 0 0 1 1
+mass 33 0 178 0 0 1 1
+mass 34 0 128 0 0 1 1
+mass 35 0 78 0 0 1 1
+mass 36 10 78 0 0 1 1
+mass 37 10 128 0 0 1 1
+mass 38 10 178 0 0 1 1
+mass 39 10 228 0 0 1 1
+mass 40 10 278 0 0 1 1
+mass 41 10 328 0 0 1 1
+spng 1 1 2 1 1 28.8617393793236232
+spng 2 5 3 1 1 31.6227766016837926
+spng 3 4 5 1 1 20
+spng 4 2 6 1 1 21
+spng 5 6 7 1 1 8
+spng 6 7 2 1 1 22.4722050542442311
+spng 7 1 9 1 1 33.5410196624968435
+spng 8 9 8 1 1 95.0473566176356144
+spng 9 10 12 1 1 56.9209978830308287
+spng 10 12 13 1 1 18
+spng 11 13 11 1 1 25.4558441227157104
+spng 12 11 10 1 1 54
+spng 13 14 15 1 1 12.7279220613578552
+spng 14 14 11 1 1 5
+spng 15 15 13 1 1 13
+spng 16 19 18 1 1 15.2315462117278173
+spng 17 19 16 1 1 7
+spng 18 18 17 1 1 8
+spng 19 6 20 1 1 5.65685424949238058
+spng 20 20 7 1 1 5.65685424949238058
+spng 21 20 22 1 1 7.81024967590665398
+spng 22 24 25 1 1 47.8016736108684768
+spng 23 8 26 1 1 40.1123422402631604
+spng 24 7 28 1 1 73.2461603089199542
+spng 25 28 3 1 1 46.0434577328853507
+spng 26 28 4 1 1 45.6070170039655167
+spng 27 27 26 1 1 6.70820393249936942
+spng 28 3 26 1 1 7
+spng 29 30 31 1 1 50
+spng 30 31 32 1 1 50
+spng 31 32 33 1 1 50
+spng 32 33 34 1 1 50
+spng 33 34 35 1 1 50
+spng 34 30 40 1 1 50.9901951359278485
+spng 35 40 32 1 1 50.9901951359278485
+spng 36 32 38 1 1 50.9901951359278485
+spng 37 38 34 1 1 50.9901951359278485
+spng 38 34 36 1 1 50.9901951359278485
+spng 39 35 37 1 1 50.9901951359278485
+spng 40 37 33 1 1 50.9901951359278485
+spng 41 38 39 1 1 50
+spng 42 33 39 1 1 50.9901951359278485
+spng 43 39 31 1 1 50.9901951359278485
+spng 44 31 41 1 1 50.9901951359278485
+\BARFOO\
+else
+  echo "will not over write ./lib/plane.xsp"
+fi
+if `test ! -s ./lib/2snake.xsp`
+then
+echo "writting ./lib/2snake.xsp"
+cat > ./lib/2snake.xsp << '\BARFOO\'
+#1.0 *** XSpringies data file
+cmas 1.0
+elas 1.0
+kspr 200.0
+kdmp 1.500000
+fixm 0
+shws 1
+cent -1
+frce 0 0 10.0 0.0
+frce 1 0 5.0 2.0
+frce 2 0 10.0 0.0
+frce 3 0 10000.0 1.0
+visc 0.0
+stck 0.0
+step 0.025000
+prec 1.0
+adpt 0
+gsnp 18.0 0
+wall 1 1 1 1
+mass 1 19.0 328.0 0.0 0.0 1.0 1.0
+mass 2 36.0 328.0 0.0 0.0 1.0 1.0
+mass 3 54.0 328.0 0.0 0.0 1.0 1.0
+mass 4 72.0 328.0 0.0 0.0 1.0 1.0
+mass 5 90.0 328.0 0.0 0.0 1.0 1.0
+mass 6 108.0 328.0 0.0 0.0 1.0 1.0
+mass 7 126.0 328.0 0.0 0.0 1.0 1.0
+mass 8 144.0 328.0 0.0 0.0 1.0 1.0
+mass 9 162.0 328.0 0.0 0.0 1.0 1.0
+mass 10 180.0 328.0 0.0 0.0 1.0 1.0
+mass 11 198.0 328.0 0.0 0.0 1.0 1.0
+mass 12 216.0 328.0 0.0 0.0 1.0 1.0
+mass 13 234.0 328.0 0.0 0.0 1.0 1.0
+mass 14 252.0 328.0 0.0 0.0 1.0 1.0
+mass 15 270.0 328.0 0.0 0.0 1.0 1.0
+mass 16 288.0 328.0 0.0 0.0 1.0 1.0
+mass 17 306.0 328.0 0.0 0.0 1.0 1.0
+mass 18 324.0 328.0 0.0 0.0 1.0 1.0
+mass 19 342.0 328.0 0.0 0.0 1.0 1.0
+mass 20 360.0 328.0 0.0 0.0 1.0 1.0
+mass 21 378.0 328.0 0.0 0.0 1.0 1.0
+mass 22 396.0 328.0 0.0 0.0 1.0 1.0
+mass 23 414.0 328.0 0.0 0.0 1.0 1.0
+mass 24 432.0 328.0 0.0 0.0 1.0 1.0
+mass 25 450.0 328.0 0.0 0.0 1.0 1.0
+mass 26 468.0 328.0 0.0 0.0 1.0 1.0
+mass 27 504.0 328.0 0.0 0.0 1.0 1.0
+mass 28 486.0 328.0 0.0 0.0 1.0 1.0
+mass 29 522.0 328.0 0.0 0.0 1.0 1.0
+mass 30 540.0 328.0 0.0 0.0 1.0 1.0
+mass 31 558.0 328.0 0.0 0.0 1.0 1.0
+mass 32 576.0 328.0 0.0 0.0 1.0 1.0
+mass 33 594.0 328.0 0.0 0.0 1.0 1.0
+mass 34 612.0 328.0 0.0 0.0 1.0 1.0
+mass 35 630.0 328.0 0.0 0.0 1.0 1.0
+spng 1 1 2 200.0 1.500000 18.0
+spng 2 3 2 200.0 1.500000 18.0
+spng 3 3 4 200.0 1.500000 18.0
+spng 4 4 5 200.0 1.500000 18.0
+spng 5 5 6 200.0 1.500000 18.0
+spng 6 6 7 200.0 1.500000 18.0
+spng 7 7 8 200.0 1.500000 18.0
+spng 8 8 9 200.0 1.500000 18.0
+spng 9 9 10 200.0 1.500000 18.0
+spng 10 10 11 200.0 1.500000 18.0
+spng 11 11 12 200.0 1.500000 18.0
+spng 12 12 13 200.0 1.500000 18.0
+spng 13 13 14 200.0 1.500000 18.0
+spng 14 14 15 200.0 1.500000 18.0
+spng 15 15 16 200.0 1.500000 18.0
+spng 16 16 17 200.0 1.500000 18.0
+spng 17 17 18 200.0 1.500000 18.0
+spng 18 18 19 200.0 1.500000 18.0
+spng 19 19 20 200.0 1.500000 18.0
+spng 20 20 21 200.0 1.500000 18.0
+spng 21 21 22 200.0 1.500000 18.0
+spng 22 22 23 200.0 1.500000 18.0
+spng 23 23 24 200.0 1.500000 18.0
+spng 24 24 25 200.0 1.500000 18.0
+spng 25 25 26 200.0 1.500000 18.0
+spng 26 26 28 200.0 1.500000 18.0
+spng 27 28 27 200.0 1.500000 18.0
+spng 28 27 29 200.0 1.500000 18.0
+spng 29 29 30 200.0 1.500000 18.0
+spng 30 30 31 200.0 1.500000 18.0
+spng 31 31 32 200.0 1.500000 18.0
+spng 32 32 33 200.0 1.500000 18.0
+spng 33 33 34 200.0 1.500000 18.0
+spng 34 34 35 200.0 1.500000 18.0
+spng 35 1 3 200.0 1.500000 36.0
+spng 36 2 4 200.0 1.500000 36.0
+spng 37 3 5 200.0 1.500000 36.0
+spng 38 4 6 200.0 1.500000 36.0
+spng 39 5 7 200.0 1.500000 36.0
+spng 40 6 8 200.0 1.500000 36.0
+spng 41 7 9 200.0 1.500000 36.0
+spng 42 8 10 200.0 1.500000 36.0
+spng 43 9 11 200.0 1.500000 36.0
+spng 44 10 12 200.0 1.500000 36.0
+spng 45 11 13 200.0 1.500000 36.0
+spng 46 12 14 200.0 1.500000 36.0
+spng 47 13 15 200.0 1.500000 36.0
+spng 48 14 16 200.0 1.500000 36.0
+spng 49 15 17 200.0 1.500000 36.0
+spng 50 16 18 200.0 1.500000 36.0
+spng 51 17 19 200.0 1.500000 36.0
+spng 52 18 20 200.0 1.500000 36.0
+spng 53 19 21 200.0 1.500000 36.0
+spng 54 20 22 200.0 1.500000 36.0
+spng 55 21 23 200.0 1.500000 36.0
+spng 56 22 24 200.0 1.500000 36.0
+spng 57 23 25 200.0 1.500000 36.0
+spng 58 24 26 200.0 1.500000 36.0
+spng 59 25 28 200.0 1.500000 36.0
+spng 60 26 27 200.0 1.500000 36.0
+spng 61 28 29 200.0 1.500000 36.0
+spng 62 27 30 200.0 1.500000 36.0
+spng 63 29 31 200.0 1.500000 36.0
+spng 64 30 32 200.0 1.500000 36.0
+spng 65 31 33 200.0 1.500000 36.0
+spng 66 32 34 200.0 1.500000 36.0
+spng 67 33 35 200.0 1.500000 36.0
+\BARFOO\
+else
+  echo "will not over write ./lib/2snake.xsp"
+fi
+if `test ! -s ./lib/2x2snake.xsp`
+then
+echo "writting ./lib/2x2snake.xsp"
+cat > ./lib/2x2snake.xsp << '\BARFOO\'
+#1.0 *** XSpringies data file
+cmas 1.0
+elas 1.0
+kspr 200.0
+kdmp 1.500000
+fixm 0
+shws 1
+cent -1
+frce 0 0 10.0 0.0
+frce 1 0 5.0 2.0
+frce 2 0 10.0 0.0
+frce 3 0 10000.0 1.0
+visc 0.0
+stck 0.0
+step 0.025000
+prec 1.0
+adpt 0
+gsnp 18.0 0
+wall 1 1 1 1
+mass 1 147.0 324.0 0.0 0.0 1.0 1.0
+mass 2 164.0 324.0 0.0 0.0 1.0 1.0
+mass 3 182.0 324.0 0.0 0.0 1.0 1.0
+mass 4 200.0 324.0 0.0 0.0 1.0 1.0
+mass 5 218.0 324.0 0.0 0.0 1.0 1.0
+mass 6 236.0 324.0 0.0 0.0 1.0 1.0
+mass 7 254.0 324.0 0.0 0.0 1.0 1.0
+mass 8 272.0 324.0 0.0 0.0 1.0 1.0
+mass 9 290.0 324.0 0.0 0.0 1.0 1.0
+mass 10 308.0 324.0 0.0 0.0 1.0 1.0
+mass 11 326.0 324.0 0.0 0.0 1.0 1.0
+mass 12 344.0 324.0 0.0 0.0 1.0 1.0
+mass 13 362.0 324.0 0.0 0.0 1.0 1.0
+mass 14 380.0 324.0 0.0 0.0 1.0 1.0
+mass 15 398.0 324.0 0.0 0.0 1.0 1.0
+mass 16 416.0 324.0 0.0 0.0 1.0 1.0
+mass 17 434.0 324.0 0.0 0.0 1.0 1.0
+mass 18 452.0 324.0 0.0 0.0 1.0 1.0
+mass 19 470.0 324.0 0.0 0.0 1.0 1.0
+mass 20 147.0 298.0 0.0 0.0 1.0 1.0
+mass 21 164.0 298.0 0.0 0.0 1.0 1.0
+mass 22 182.0 298.0 0.0 0.0 1.0 1.0
+mass 23 200.0 298.0 0.0 0.0 1.0 1.0
+mass 24 218.0 298.0 0.0 0.0 1.0 1.0
+mass 25 236.0 298.0 0.0 0.0 1.0 1.0
+mass 26 254.0 298.0 0.0 0.0 1.0 1.0
+mass 27 272.0 298.0 0.0 0.0 1.0 1.0
+mass 28 290.0 298.0 0.0 0.0 1.0 1.0
+mass 29 308.0 298.0 0.0 0.0 1.0 1.0
+mass 30 326.0 298.0 0.0 0.0 1.0 1.0
+mass 31 344.0 298.0 0.0 0.0 1.0 1.0
+mass 32 362.0 298.0 0.0 0.0 1.0 1.0
+mass 33 380.0 298.0 0.0 0.0 1.0 1.0
+mass 34 398.0 298.0 0.0 0.0 1.0 1.0
+mass 35 416.0 298.0 0.0 0.0 1.0 1.0
+mass 36 434.0 298.0 0.0 0.0 1.0 1.0
+mass 37 452.0 298.0 0.0 0.0 1.0 1.0
+mass 38 470.0 298.0 0.0 0.0 1.0 1.0
+spng 1 1 2 200.0 1.500000 18.0
+spng 2 3 2 200.0 1.500000 18.0
+spng 3 3 4 200.0 1.500000 18.0
+spng 4 4 5 200.0 1.500000 18.0
+spng 5 5 6 200.0 1.500000 18.0
+spng 6 6 7 200.0 1.500000 18.0
+spng 7 7 8 200.0 1.500000 18.0
+spng 8 8 9 200.0 1.500000 18.0
+spng 9 9 10 200.0 1.500000 18.0
+spng 10 10 11 200.0 1.500000 18.0
+spng 11 11 12 200.0 1.500000 18.0
+spng 12 12 13 200.0 1.500000 18.0
+spng 13 13 14 200.0 1.500000 18.0
+spng 14 14 15 200.0 1.500000 18.0
+spng 15 15 16 200.0 1.500000 18.0
+spng 16 16 17 200.0 1.500000 18.0
+spng 17 17 18 200.0 1.500000 18.0
+spng 18 18 19 200.0 1.500000 18.0
+spng 19 1 3 200.0 1.500000 36.0
+spng 20 2 4 200.0 1.500000 36.0
+spng 21 3 5 200.0 1.500000 36.0
+spng 22 4 6 200.0 1.500000 36.0
+spng 23 5 7 200.0 1.500000 36.0
+spng 24 6 8 200.0 1.500000 36.0
+spng 25 7 9 200.0 1.500000 36.0
+spng 26 8 10 200.0 1.500000 36.0
+spng 27 9 11 200.0 1.500000 36.0
+spng 28 10 12 200.0 1.500000 36.0
+spng 29 11 13 200.0 1.500000 36.0
+spng 30 12 14 200.0 1.500000 36.0
+spng 31 13 15 200.0 1.500000 36.0
+spng 32 14 16 200.0 1.500000 36.0
+spng 33 15 17 200.0 1.500000 36.0
+spng 34 16 18 200.0 1.500000 36.0
+spng 35 17 19 200.0 1.500000 36.0
+spng 36 20 21 200.0 1.500000 18.0
+spng 37 22 21 200.0 1.500000 18.0
+spng 38 22 23 200.0 1.500000 18.0
+spng 39 23 24 200.0 1.500000 18.0
+spng 40 24 25 200.0 1.500000 18.0
+spng 41 25 26 200.0 1.500000 18.0
+spng 42 26 27 200.0 1.500000 18.0
+spng 43 27 28 200.0 1.500000 18.0
+spng 44 28 29 200.0 1.500000 18.0
+spng 45 29 30 200.0 1.500000 18.0
+spng 46 30 31 200.0 1.500000 18.0
+spng 47 31 32 200.0 1.500000 18.0
+spng 48 32 33 200.0 1.500000 18.0
+spng 49 33 34 200.0 1.500000 18.0
+spng 50 34 35 200.0 1.500000 18.0
+spng 51 35 36 200.0 1.500000 18.0
+spng 52 36 37 200.0 1.500000 18.0
+spng 53 37 38 200.0 1.500000 18.0
+spng 54 20 22 200.0 1.500000 36.0
+spng 55 21 23 200.0 1.500000 36.0
+spng 56 22 24 200.0 1.500000 36.0
+spng 57 23 25 200.0 1.500000 36.0
+spng 58 24 26 200.0 1.500000 36.0
+spng 59 25 27 200.0 1.500000 36.0
+spng 60 26 28 200.0 1.500000 36.0
+spng 61 27 29 200.0 1.500000 36.0
+spng 62 28 30 200.0 1.500000 36.0
+spng 63 29 31 200.0 1.500000 36.0
+spng 64 30 32 200.0 1.500000 36.0
+spng 65 31 33 200.0 1.500000 36.0
+spng 66 32 34 200.0 1.500000 36.0
+spng 67 33 35 200.0 1.500000 36.0
+spng 68 34 36 200.0 1.500000 36.0
+spng 69 35 37 200.0 1.500000 36.0
+spng 70 36 38 200.0 1.500000 36.0
+spng 71 1 20 200.0 1.500000 26.0
+spng 72 2 21 200.0 1.500000 26.0
+spng 73 3 22 200.0 1.500000 26.0
+spng 74 4 23 200.0 1.500000 26.0
+spng 75 5 24 200.0 1.500000 26.0
+spng 76 25 6 200.0 1.500000 26.0
+spng 77 7 26 200.0 1.500000 26.0
+spng 78 27 8 200.0 1.500000 26.0
+spng 79 9 28 200.0 1.500000 26.0
+spng 80 29 10 200.0 1.500000 26.0
+spng 81 11 30 200.0 1.500000 26.0
+spng 82 31 12 200.0 1.500000 26.0
+spng 83 13 32 200.0 1.500000 26.0
+spng 84 33 14 200.0 1.500000 26.0
+spng 85 15 34 200.0 1.500000 26.0
+spng 86 35 16 200.0 1.500000 26.0
+spng 87 17 36 200.0 1.500000 26.0
+spng 88 37 18 200.0 1.500000 26.0
+spng 89 19 38 200.0 1.500000 26.0
+spng 90 1 21 200.0 1.500000 31.064449
+spng 91 2 20 200.0 1.500000 31.064449
+spng 92 2 22 200.0 1.500000 31.622777
+spng 93 3 21 200.0 1.500000 31.622777
+spng 94 3 23 200.0 1.500000 31.622777
+spng 95 4 22 200.0 1.500000 31.622777
+spng 96 4 24 200.0 1.500000 31.622777
+spng 97 5 23 200.0 1.500000 31.622777
+spng 98 5 25 200.0 1.500000 31.622777
+spng 99 6 24 200.0 1.500000 31.622777
+spng 100 6 26 200.0 1.500000 31.622777
+spng 101 7 25 200.0 1.500000 31.622777
+spng 102 7 27 200.0 1.500000 31.622777
+spng 103 8 26 200.0 1.500000 31.622777
+spng 104 8 28 200.0 1.500000 31.622777
+spng 105 9 27 200.0 1.500000 31.622777
+spng 106 9 29 200.0 1.500000 31.622777
+spng 107 10 28 200.0 1.500000 31.622777
+spng 108 10 30 200.0 1.500000 31.622777
+spng 109 11 29 200.0 1.500000 31.622777
+spng 110 11 31 200.0 1.500000 31.622777
+spng 111 12 30 200.0 1.500000 31.622777
+spng 112 12 32 200.0 1.500000 31.622777
+spng 113 13 31 200.0 1.500000 31.622777
+spng 114 13 33 200.0 1.500000 31.622777
+spng 115 14 32 200.0 1.500000 31.622777
+spng 116 14 34 200.0 1.500000 31.622777
+spng 117 15 33 200.0 1.500000 31.622777
+spng 118 15 35 200.0 1.500000 31.622777
+spng 119 16 34 200.0 1.500000 31.622777
+spng 120 16 36 200.0 1.500000 31.622777
+spng 121 17 35 200.0 1.500000 31.622777
+spng 122 17 37 200.0 1.500000 31.622777
+spng 123 18 36 200.0 1.500000 31.622777
+spng 124 18 38 200.0 1.500000 31.622777
+spng 125 19 37 200.0 1.500000 31.622777
+spng 126 1 22 200.0 1.500000 43.600459
+spng 127 3 20 200.0 1.500000 43.600459
+spng 128 2 23 200.0 1.500000 44.407207
+spng 129 4 21 200.0 1.500000 44.407207
+spng 130 3 24 200.0 1.500000 44.407207
+spng 131 5 22 200.0 1.500000 44.407207
+spng 132 4 25 200.0 1.500000 44.407207
+spng 133 6 23 200.0 1.500000 44.407207
+spng 134 5 26 200.0 1.500000 44.407207
+spng 135 7 24 200.0 1.500000 44.407207
+spng 136 6 27 200.0 1.500000 44.407207
+spng 137 8 25 200.0 1.500000 44.407207
+spng 138 7 28 200.0 1.500000 44.407207
+spng 139 9 26 200.0 1.500000 44.407207
+spng 140 8 29 200.0 1.500000 44.407207
+spng 141 10 27 200.0 1.500000 44.407207
+spng 142 9 30 200.0 1.500000 44.407207
+spng 143 11 28 200.0 1.500000 44.407207
+spng 144 10 31 200.0 1.500000 44.407207
+spng 145 12 29 200.0 1.500000 44.407207
+spng 146 11 32 200.0 1.500000 44.407207
+spng 147 13 30 200.0 1.500000 44.407207
+spng 148 12 33 200.0 1.500000 44.407207
+spng 149 14 31 200.0 1.500000 44.407207
+spng 150 13 34 200.0 1.500000 44.407207
+spng 151 15 33 200.0 1.500000 31.622777
+spng 152 32 15 200.0 1.500000 44.407207
+spng 153 14 35 200.0 1.500000 44.407207
+spng 154 16 33 200.0 1.500000 44.407207
+spng 155 15 36 200.0 1.500000 44.407207
+spng 156 34 17 200.0 1.500000 44.407207
+spng 157 16 37 200.0 1.500000 44.407207
+spng 158 18 35 200.0 1.500000 44.407207
+spng 159 17 38 200.0 1.500000 44.407207
+spng 160 19 36 200.0 1.500000 44.407207
+\BARFOO\
+else
+  echo "will not over write ./lib/2x2snake.xsp"
+fi
+echo "Finished archive 15 of 16"
+exit
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

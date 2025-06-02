@@ -1,0 +1,565 @@
+Newsgroups: comp.sources.misc
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v34i098: imagemagick - X11 image processing and display v2.2, Patch04
+Message-ID: <1993Jan7.042714.15882@sparky.imd.sterling.com>
+X-Md4-Signature: 25418f9de6626460535ee87d2132c059
+Date: Thu, 7 Jan 1993 04:27:14 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cristy@dupont.com (Cristy)
+Posting-number: Volume 34, Issue 98
+Archive-name: imagemagick/patch04
+Environment: UNIX, VMS, X11, SGI, DEC, Cray, Sun, Vax
+Patch-To: imagemagick: Volume 34, Issue 28-54
+
+                    ImageMagick 2.2 Patch #4
+
+To apply this patch:
+
+cd to the top of the source tree (to the directory containing the
+"ImageMagick" subdirectories) and do:
+
+  patch -p < ThisFile
+
+Prereq - ImageMagick 2.2.2 (posted from comp.sources.misc, Volume 34,
+Issue 28 + Patch 1 - 3).
+
+Alternatively get the entire distribution as contrib/ImageMagick.tar.Z
+on export.lcs.mit.edu.
+-------------------
+diff -r -c ImageMagick/ChangeLog ImageMagick2.2.4/ChangeLog
+*** ImageMagick/ChangeLog	Wed Dec 23 18:10:05 1992
+--- ImageMagick2.2.4/ChangeLog	Wed Jan  6 17:57:53 1993
+***************
+*** 1,3 ****
+--- 1,13 ----
++ ImageMagick 2.2.4
++ 
++   o time between images did not always match the value specified on
++     -delay.
++ 
++   o Sped up and reduced memory requirement of dithering.
++ 
++   o GIF files were corrupted on SVR4.
++ 
++ 
+  ImageMagick 2.2.3
+  
+    o Non-color reduced images were being written even though the color
+diff -r -c ImageMagick/X.c ImageMagick2.2.4/X.c
+*** ImageMagick/X.c	Wed Dec 23 18:10:01 1992
+--- ImageMagick2.2.4/X.c	Wed Jan  6 17:56:06 1993
+***************
+*** 656,663 ****
+      *image;
+  
+    int
+-     display_width,
+      display_height,
+      number_colors,
+      status,
+      x,
+--- 656,663 ----
+      *image;
+  
+    int
+      display_height,
++     display_width,
+      number_colors,
+      status,
+      x,
+***************
+*** 4634,4639 ****
+--- 4634,4640 ----
+  #define MinWindowSize  64
+  
+    int
++     mask,
+      status;
+  
+    XSizeHints
+***************
+*** 4714,4722 ****
+      window_info->id=XCreateWindow(display,parent,window_info->x,window_info->y,
+        window_info->width,window_info->height,window_info->border_width,
+        window_info->depth,InputOutput,window_info->visual_info->visual,
+!       CWBackingStore | CWBackPixel | CWBackPixmap | CWBitGravity |
+!       CWBorderPixel | CWColormap | CWCursor | CWDontPropagate | CWEventMask |
+!       CWOverrideRedirect | CWSaveUnder | CWWinGravity,&window_info->attributes);
+    else
+      {
+        unsigned int
+--- 4715,4721 ----
+      window_info->id=XCreateWindow(display,parent,window_info->x,window_info->y,
+        window_info->width,window_info->height,window_info->border_width,
+        window_info->depth,InputOutput,window_info->visual_info->visual,
+!       window_info->mask,&window_info->attributes);
+    else
+      {
+        unsigned int
+***************
+*** 4731,4740 ****
+        /*
+          Window already exists;  change relevant attributes.
+        */
+!       XChangeWindowAttributes(display,window_info->id,CWBackingStore |
+!         CWBackPixel | CWBackPixmap | CWBitGravity | CWBorderPixel |
+!         CWColormap | CWCursor | CWDontPropagate | CWEventMask |
+!         CWOverrideRedirect | CWSaveUnder | CWWinGravity,
+          &window_info->attributes);
+        XSync(display,False);
+        while (XCheckTypedWindowEvent(display,window_info->id,ConfigureNotify,
+--- 4730,4736 ----
+        /*
+          Window already exists;  change relevant attributes.
+        */
+!       XChangeWindowAttributes(display,window_info->id,window_info->mask,
+          &window_info->attributes);
+        XSync(display,False);
+        while (XCheckTypedWindowEvent(display,window_info->id,ConfigureNotify,
+diff -r -c ImageMagick/X.h ImageMagick2.2.4/X.h
+*** ImageMagick/X.h	Wed Dec 23 18:10:04 1992
+--- ImageMagick2.2.4/X.h	Wed Jan  6 17:56:09 1993
+***************
+*** 222,227 ****
+--- 222,230 ----
+      pixmap,
+      *pixmaps;
+  
++   int
++     mask;
++ 
+    XSetWindowAttributes
+      attributes;
+  } XWindowInfo;
+diff -r -c ImageMagick/animate.c ImageMagick2.2.4/animate.c
+*** ImageMagick/animate.c	Wed Dec 23 18:10:02 1992
+--- ImageMagick2.2.4/animate.c	Wed Jan  6 17:56:07 1993
+***************
+*** 810,815 ****
+--- 810,818 ----
+    window->superclass.immutable=True;
+    window->superclass.ximage=(XImage *) NULL;
+    window->superclass.pixmap=(Pixmap) NULL;
++   window->superclass.mask=CWBackingStore | CWBackPixel | CWBackPixmap |
++     CWBitGravity | CWBorderPixel | CWColormap | CWCursor | CWDontPropagate |
++     CWEventMask | CWOverrideRedirect | CWSaveUnder | CWWinGravity;
+    window->superclass.attributes.background_pixel=
+      pixel_info.background_color.pixel;
+    window->superclass.attributes.background_pixmap=(Pixmap) NULL;
+diff -r -c ImageMagick/compress.c ImageMagick2.2.4/compress.c
+*** ImageMagick/compress.c	Wed Dec 23 18:10:02 1992
+--- ImageMagick2.2.4/compress.c	Wed Jan  6 17:56:07 1993
+***************
+*** 967,976 ****
+  unsigned int
+    data_size;
+  {
+! #define MaxCode(number_bits)  (((short int) (1 << (number_bits)))-1)
+  #define MaxHashTable  5003
+  #define MaxLZWBits  12
+! #define MaxLZWTable  ((short int) 1 << MaxLZWBits)
+  #define LZWOutputCode(code) \
+  { \
+    /*  \
+--- 967,976 ----
+  unsigned int
+    data_size;
+  {
+! #define MaxCode(number_bits)  ((1 << (number_bits))-1)
+  #define MaxHashTable  5003
+  #define MaxLZWBits  12
+! #define MaxLZWTable  (1 << MaxLZWBits)
+  #define LZWOutputCode(code) \
+  { \
+    /*  \
+***************
+*** 979,985 ****
+    if (bits > 0) \
+      datum|=((long int) code << bits); \
+    else \
+!     datum=code; \
+    bits+=number_bits; \
+    while (bits >= 8)  \
+    { \
+--- 979,985 ----
+    if (bits > 0) \
+      datum|=((long int) code << bits); \
+    else \
+!     datum=(long int) code; \
+    bits+=number_bits; \
+    while (bits >= 8)  \
+    { \
+***************
+*** 1031,1036 ****
+--- 1031,1037 ----
+      free_code,
+      *hash_code,
+      *hash_prefix,
++     index,
+      max_code,
+      waiting_code;
+  
+***************
+*** 1067,1073 ****
+      Encode pixels.
+    */
+    p=image->pixels;
+!   waiting_code=(short int) (p->index & 0xff);
+    for (i=0; i < image->packets; i++)
+    {
+      for (j=0; j <= ((int) p->length); j++)
+--- 1068,1074 ----
+      Encode pixels.
+    */
+    p=image->pixels;
+!   waiting_code=p->index;
+    for (i=0; i < image->packets; i++)
+    {
+      for (j=0; j <= ((int) p->length); j++)
+***************
+*** 1075,1087 ****
+        /*
+          Probe hash table.
+        */
+!       k=((int) (p->index) << (MaxLZWBits-8))+waiting_code;
+        if (k >= MaxHashTable)
+          k-=MaxHashTable;
+!       if (hash_code[k] >= 0)
+          {
+!           if ((hash_prefix[k] == waiting_code) &&
+!               (hash_suffix[k] == (unsigned char) (p->index & 0xff)))
+              {
+                waiting_code=hash_code[k];
+                continue;
+--- 1076,1088 ----
+        /*
+          Probe hash table.
+        */
+!       index=p->index & 0xff;
+!       k=(int) ((int) index << (MaxLZWBits-8))+waiting_code;
+        if (k >= MaxHashTable)
+          k-=MaxHashTable;
+!       if (hash_code[k] > 0)
+          {
+!           if ((hash_prefix[k] == waiting_code) && (hash_suffix[k] == index))
+              {
+                waiting_code=hash_code[k];
+                continue;
+***************
+*** 1098,1105 ****
+                k+=MaxHashTable;
+              if (hash_code[k] == 0)
+                break;
+!             if ((hash_prefix[k] == waiting_code) &&
+!                 (hash_suffix[k] == (unsigned char) (p->index & 0xff)))
+                {
+                  waiting_code=hash_code[k];
+                  next_pixel=True;
+--- 1099,1105 ----
+                k+=MaxHashTable;
+              if (hash_code[k] == 0)
+                break;
+!             if ((hash_prefix[k] == waiting_code) && (hash_suffix[k] == index))
+                {
+                  waiting_code=hash_code[k];
+                  next_pixel=True;
+***************
+*** 1114,1120 ****
+          {
+            hash_code[k]=free_code++;
+            hash_prefix[k]=waiting_code;
+!           hash_suffix[k]=(unsigned char) (p->index & 0xff);
+          }
+        else
+          {
+--- 1114,1120 ----
+          {
+            hash_code[k]=free_code++;
+            hash_prefix[k]=waiting_code;
+!           hash_suffix[k]=index;
+          }
+        else
+          {
+***************
+*** 1131,1137 ****
+            number_bits=data_size;
+            max_code=MaxCode(number_bits);
+          }
+!       waiting_code=(short int) (p->index & 0xff);
+      }
+      p++;
+    }
+--- 1131,1137 ----
+            number_bits=data_size;
+            max_code=MaxCode(number_bits);
+          }
+!       waiting_code=index;
+      }
+      p++;
+    }
+diff -r -c ImageMagick/display.c ImageMagick2.2.4/display.c
+*** ImageMagick/display.c	Wed Dec 23 18:10:03 1992
+--- ImageMagick2.2.4/display.c	Wed Jan  6 17:56:08 1993
+***************
+*** 2649,2654 ****
+--- 2649,2657 ----
+    window->superclass.immutable=True;
+    window->superclass.ximage=(XImage *) NULL;
+    window->superclass.pixmap=(Pixmap) NULL;
++   window->superclass.mask=CWBackingStore | CWBackPixel | CWBackPixmap |
++     CWBitGravity | CWBorderPixel | CWColormap | CWCursor | CWDontPropagate |
++     CWEventMask | CWOverrideRedirect | CWSaveUnder | CWWinGravity;
+    window->superclass.attributes.background_pixel=
+      pixel_info.background_color.pixel;
+    window->superclass.attributes.background_pixmap=(Pixmap) NULL;
+***************
+*** 2928,2937 ****
+    *state&=(~LastImageState);
+    *state&=(~NextImageState);
+    *state&=(~TileImageState);
+!   if (resource_info->delay == 0)
+!     timeout=(unsigned long) (~0);
+!   else
+!     timeout=(unsigned long) time((time_t *) 0)+resource_info->delay;
+    do
+    {
+      /*
+--- 2931,2937 ----
+    *state&=(~LastImageState);
+    *state&=(~NextImageState);
+    *state&=(~TileImageState);
+!   timeout=(unsigned long) (~0);
+    do
+    {
+      /*
+***************
+*** 3181,3189 ****
+                /*
+                  Reset timeout after expose.
+                */
+!               if (resource_info->delay == 0)
+!                 timeout=(unsigned long) (~0);
+!               else
+                  timeout=(unsigned long) time((time_t *) 0)+resource_info->delay;
+                break;
+              }
+--- 3181,3187 ----
+                /*
+                  Reset timeout after expose.
+                */
+!               if (resource_info->delay != 0)
+                  timeout=(unsigned long) time((time_t *) 0)+resource_info->delay;
+                break;
+              }
+diff -r -c ImageMagick/image.c ImageMagick2.2.4/image.c
+*** ImageMagick/image.c	Wed Dec 23 18:10:03 1992
+--- ImageMagick2.2.4/image.c	Wed Jan  6 17:56:08 1993
+***************
+*** 5189,5195 ****
+  {
+    register int
+      i,
+!     j;
+  
+    register RunlengthPacket
+      *p,
+--- 5189,5196 ----
+  {
+    register int
+      i,
+!     j,
+!     length;
+  
+    register RunlengthPacket
+      *p,
+***************
+*** 5203,5217 ****
+    /*
+      Uncompress runlength-encoded packets.
+    */
+!   uncompressed_pixels=(RunlengthPacket *)
+!     malloc(image->columns*image->rows*sizeof(RunlengthPacket));
+    if (uncompressed_pixels == (RunlengthPacket *) NULL)
+      return(False);
+!   p=image->pixels;
+!   q=uncompressed_pixels;
+    for (i=0; i < image->packets; i++)
+    {
+!     for (j=0; j <= ((int) p->length); j++)
+      {
+        q->red=p->red;
+        q->green=p->green;
+--- 5204,5220 ----
+    /*
+      Uncompress runlength-encoded packets.
+    */
+!   uncompressed_pixels=(RunlengthPacket *) realloc((char *) image->pixels,
+!     image->columns*image->rows*sizeof(RunlengthPacket));
+    if (uncompressed_pixels == (RunlengthPacket *) NULL)
+      return(False);
+!   image->pixels=uncompressed_pixels;
+!   p=image->pixels+image->packets-1;
+!   q=uncompressed_pixels+image->columns*image->rows-1;
+    for (i=0; i < image->packets; i++)
+    {
+!     length=p->length;
+!     for (j=0; j <= length; j++)
+      {
+        q->red=p->red;
+        q->green=p->green;
+***************
+*** 5218,5229 ****
+        q->blue=p->blue;
+        q->index=p->index;
+        q->length=0;
+!       q++;
+      }
+!     p++;
+    }
+-   (void) free((char *) image->pixels);
+-   image->pixels=uncompressed_pixels;
+    image->packets=image->columns*image->rows;
+    return(True);
+  }
+--- 5221,5230 ----
+        q->blue=p->blue;
+        q->index=p->index;
+        q->length=0;
+!       q--;
+      }
+!     p--;
+    }
+    image->packets=image->columns*image->rows;
+    return(True);
+  }
+Common subdirectories: ImageMagick/images and ImageMagick2.2.4/images
+diff -r -c ImageMagick/montage.c ImageMagick2.2.4/montage.c
+*** ImageMagick/montage.c	Wed Dec 23 18:10:04 1992
+--- ImageMagick2.2.4/montage.c	Wed Jan  6 17:56:08 1993
+***************
+*** 1297,1303 ****
+              malloc(((strlen(image->filename)+2048)*sizeof(char)));
+            if (image->label == (char *) NULL)
+              Error("unable to montage images","memory allocation failed");
+!           (void) sprintf(image->label,"%s %ux%u\0",image->filename,
+              image->columns,image->rows);
+            /*
+              Tile size maintains the aspect ratio of the image.
+--- 1297,1303 ----
+              malloc(((strlen(image->filename)+2048)*sizeof(char)));
+            if (image->label == (char *) NULL)
+              Error("unable to montage images","memory allocation failed");
+!           (void) sprintf(image->label,"%s  %ux%u\0",image->filename,
+              image->columns,image->rows);
+            /*
+              Tile size maintains the aspect ratio of the image.
+diff -r -c ImageMagick/quantize.c ImageMagick2.2.4/quantize.c
+*** ImageMagick/quantize.c	Wed Dec 23 18:10:04 1992
+--- ImageMagick2.2.4/quantize.c	Wed Jan  6 17:56:08 1993
+***************
+*** 1545,1558 ****
+    if (number_colors > MaxColormapSize)
+      number_colors=MaxColormapSize;
+    InitializeCube(number_colors,tree_depth,image->columns*image->rows,optimal);
+!   if ((image->compression == RunlengthEncodedCompression) &&
+!       (image->packets == (image->columns*image->rows)))
+!     CompressImage(image);
+    if (colorspace != RGBColorspace)
+      RGBTransformImage(image,colorspace);
+    Classification(image);
+-   if (!optimal)
+-     dither|=(cube.colors > (1 << (cube.depth-1)));
+    Reduction(number_colors);
+    Assignment(image,dither,optimal);
+    if (colorspace != RGBColorspace)
+--- 1545,1558 ----
+    if (number_colors > MaxColormapSize)
+      number_colors=MaxColormapSize;
+    InitializeCube(number_colors,tree_depth,image->columns*image->rows,optimal);
+!   if (!optimal)
+!     dither|=cube.depth > 3;
+!   if (!dither)
+!     if (image->packets == (image->columns*image->rows))
+!       CompressImage(image);
+    if (colorspace != RGBColorspace)
+      RGBTransformImage(image,colorspace);
+    Classification(image);
+    Reduction(number_colors);
+    Assignment(image,dither,optimal);
+    if (colorspace != RGBColorspace)
+***************
+*** 1662,1676 ****
+      Reduce the number of colors in the continuous tone image sequence.
+    */
+    InitializeCube(number_colors,tree_depth,~0,optimal);
+    if (colormap_image != (Image *) NULL)
+      {
+        /*
+          Reduce images to a set of colors represented by the colormap image.
+        */
+!       if ((colormap_image->compression == RunlengthEncodedCompression) &&
+!           (colormap_image->packets ==
+!            (colormap_image->columns*colormap_image->rows)))
+!         CompressImage(colormap_image);
+        if (colorspace != RGBColorspace)
+          RGBTransformImage(colormap_image,colorspace);
+        Classification(colormap_image);
+--- 1662,1678 ----
+      Reduce the number of colors in the continuous tone image sequence.
+    */
+    InitializeCube(number_colors,tree_depth,~0,optimal);
++   if (!optimal)
++     dither|=cube.depth > 3;
+    if (colormap_image != (Image *) NULL)
+      {
+        /*
+          Reduce images to a set of colors represented by the colormap image.
+        */
+!       if (!dither)
+!         if (colormap_image->packets ==
+!              (colormap_image->columns*colormap_image->rows))
+!           CompressImage(colormap_image);
+        if (colorspace != RGBColorspace)
+          RGBTransformImage(colormap_image,colorspace);
+        Classification(colormap_image);
+***************
+*** 1680,1695 ****
+      }
+    for (i=0; i < number_images; i++)
+    {
+!     if ((images[i]->compression == RunlengthEncodedCompression) &&
+!         (images[i]->packets == (images[i]->columns*images[i]->rows)))
+!       CompressImage(images[i]);
+      if (colorspace != RGBColorspace)
+        RGBTransformImage(images[i],colorspace);
+      if (colormap_image == (Image *) NULL)
+        Classification(images[i]);
+    }
+-   if (!optimal)
+-     dither|=(cube.colors > (1 << (cube.depth-1)));
+    Reduction(number_colors);
+    for (i=0; i < number_images; i++)
+    {
+--- 1682,1695 ----
+      }
+    for (i=0; i < number_images; i++)
+    {
+!     if (!dither)
+!       if (images[i]->packets == (images[i]->columns*images[i]->rows))
+!         CompressImage(images[i]);
+      if (colorspace != RGBColorspace)
+        RGBTransformImage(images[i],colorspace);
+      if (colormap_image == (Image *) NULL)
+        Classification(images[i]);
+    }
+    Reduction(number_colors);
+    for (i=0; i < number_images; i++)
+    {
+Common subdirectories: ImageMagick/scenes and ImageMagick2.2.4/scenes
+Common subdirectories: ImageMagick/utilities and ImageMagick2.2.4/utilities
+Common subdirectories: ImageMagick/xtp and ImageMagick2.2.4/xtp
+-- 
+cristy@dupont.com
+
+exit 0 # Just in case...

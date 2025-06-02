@@ -1,0 +1,502 @@
+Newsgroups: vmsnet.sources.games
+Path: uunet!zaphod.mps.ohio-state.edu!rpi!usenet.coe.montana.edu!news.uoregon.edu!news.u.washington.edu!raven.alaska.edu!acad2.alaska.edu!asdmf
+From: asdmf@acad2.alaska.edu
+Subject: Vmsnetrek 42/47
+Message-ID: <1992Nov20.210123.1@acad2.alaska.edu>
+Lines: 490
+Sender: news@raven.alaska.edu (USENET News System)
+Nntp-Posting-Host: acad2.alaska.edu
+Organization: University of Alaska
+Date: Sat, 21 Nov 1992 01:01:23 GMT
+Xref: uunet vmsnet.sources.games:542
+
+-+-+-+-+-+-+-+-+ START OF PART 42 -+-+-+-+-+-+-+-+
+X`009`009UDPDIAG(("Connected to server's UDP port\n"));
+X`009`009commStatus = STAT_VERIFY_UDP;
+X`009`009if (udpWin)
+X`009`009    udprefresh(UDP_STATUS);
+X`009`009response.request = COMM_VERIFY;`009/* send verify request on UDP */
+X`009`009response.port = 0;
+X`009`009commSwitchTimeout = 25;`009/* wait 25 updates */
+Xsend:
+X`009`009sendServerPacket(&response);
+X`009    `125
+X`009`125
+X
+X`009break;
+X    case SWITCH_DENIED:
+X`009if (ntohs(packet->port)) `123
+X`009    UDPDIAG(("Switch to UDP failed (different version)\n"));
+X`009    warning("UDP protocol request failed (bad version)");
+X`009`125 else `123
+X`009    UDPDIAG(("Switch to UDP denied\n"));
+X`009    warning("UDP protocol request denied");
+X`009`125
+X`009commModeReq = commMode;
+X`009commStatus = STAT_CONNECTED;
+X`009commSwitchTimeout = 0;
+X`009if (udpWin)
+X`009    udprefresh(UDP_STATUS);
+X`009if (udpSock >= 0)
+X`009    closeUdpConn();
+X`009break;
+X    case SWITCH_VERIFY:
+X`009UDPDIAG(("Received UDP verification\n"));
+X`009break;
+X    default:
+X`009fprintf(stderr, "netrek: Got funny reply (%d) in UDP_REPLY packet\n",
+X`009`009packet->reply);
+X`009break;
+X    `125
+X`125
+X
+X#define MAX_PORT_RETRY`00910
+XopenUdpConn()
+X`123
+X    struct sockaddr_in addr;
+X    struct hostent *hp;
+X    int attempts;
+X
+X    if (udpSock >= 0) `123
+X`009fprintf(stderr, "netrek: tried to open udpSock twice\n");
+X`009return (0);`009/* pretend we succeeded (this could be bad) */
+X    `125
+X
+X    if ((udpSock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) `123
+X`009perror("netrek: unable to create DGRAM socket");
+X`009return (-1);
+X    `125
+X
+X    addr.sin_addr.s_addr = INADDR_ANY;
+X    addr.sin_family = AF_INET;
+X
+X    errno = 0;
+X    udpLocalPort = (getpid() & 32767) + (random() % 256);
+X    for (attempts = 0; attempts < MAX_PORT_RETRY; attempts++) `123
+X`009while (udpLocalPort < 2048) `123
+X`009    udpLocalPort = (udpLocalPort + 10687) & 32767;
+X`009`125
+X#ifdef GATEWAY
+X`009/* we need the gateway to know where to find us */
+X`009if (!strcmp(serverName, gw_mach)) `123
+X`009    UDPDIAG(("+ gateway test: binding to %d\n", gw_local_port));
+X`009    udpLocalPort = gw_local_port;
+X`009`125
+X#endif
+X`009addr.sin_port = htons(udpLocalPort);
+X`009if (bind(udpSock, &addr, sizeof(addr)) >= 0)
+X`009    break;
+X    `125
+X    if (attempts == MAX_PORT_RETRY) `123
+X`009perror("netrek: bind");
+X`009UDPDIAG(("Unable to find a local port to bind to\n"));
+X`009close(udpSock);
+X`009udpSock = -1;
+X`009return (-1);
+X    `125
+X
+X    UDPDIAG(("Local port is %d\n", udpLocalPort));
+X
+X    /* determine the address of the server */
+X    if (!serveraddr) `123
+X`009if ((addr.sin_addr.s_addr = inet_addr(serverName)) == -1) `123
+X`009    if ((hp = gethostbyname(serverName)) == NULL) `123
+X`009`009printf("Who is %s?\n", serverName);
+X`009`009exit(0);
+X`009    `125 else `123
+X`009`009addr.sin_addr.s_addr = *(long *) hp->h_addr;
+X`009    `125
+X`009`125
+X`009serveraddr = addr.sin_addr.s_addr;
+X`009UDPDIAG(("Found serveraddr == 0x%x\n", serveraddr));
+X    `125
+X    return (0);
+X`125
+X
+X#ifdef USE_PORTSWAP
+XconnUdpConn()
+X`123
+X    struct sockaddr_in addr;
+X
+X    addr.sin_addr.s_addr = serveraddr;
+X    addr.sin_family = AF_INET;
+X    addr.sin_port = htons(udpServerPort);
+X
+X    UDPDIAG(("Connecting to host 0x%x on port %d\n", serveraddr,udpServerPor
+Vt));
+X    if (connect(udpSock, &addr, sizeof(addr)) < 0) `123
+X`009fprintf(stderr, "Error %d: ");
+X`009perror("netrek: unable to connect UDP socket");
+X`009printUdpInfo();`009`009/* debug */
+X`009return (-1);
+X    `125
+X
+X    return (0);
+X`125
+X#endif
+X
+X#ifndef USE_PORTSWAP
+XrecvUdpConn()
+X`123
+X    fd_set readfds;
+X    struct timeval to;
+X    struct sockaddr_in from;
+X    struct sockaddr_in addr;
+X    int fromlen, res;
+X
+X    bzero(&from, sizeof(from));`009`009/* don't get garbage if really broken
+V */
+X
+X    /* we patiently wait until the server sends a packet to us */
+X    /* (note that we silently eat the first one) */
+X    UDPDIAG(("Issuing recvfrom() call\n"));
+X    printUdpInfo();
+X    fromlen = sizeof(from);
+X    FD_ZERO(&readfds);
+X    FD_SET(udpSock, &readfds);
+X    to.tv_sec = 6;`009`009/* wait 6 seconds, then abort */
+X    to.tv_usec = 0;
+X    if ((res = select(32, &readfds, 0, 0, &to)) <= 0) `123
+X`009if (!res) `123
+X`009    UDPDIAG(("timed out waiting for response\n"));
+X`009    warning("UDP connection request timed out");
+X`009    return (-1);
+X`009`125 else `123
+X`009    perror("select() before recvfrom()");
+X`009    return (-1);
+X`009`125
+X    `125
+X    if (recvfrom(udpSock, buf, BUFSIZ, 0, &from, &fromlen) < 0) `123
+X        perror("recvfrom");
+X`009UDPDIAG(("recvfrom failed, aborting UDP attempt"));
+X`009return (-1);
+X    `125
+X
+X    if (from.sin_addr.s_addr != serveraddr) `123
+X`009UDPDIAG(("Warning: from 0x%x, but server is 0x%x\n",
+X`009`009from.sin_addr.s_addr, serveraddr));
+X    `125
+X    if (from.sin_family != AF_INET) `123
+X`009UDPDIAG(("Warning: not AF_INET (%d)\n", from.sin_family));
+X    `125
+X    udpServerPort = ntohs(from.sin_port);
+X    UDPDIAG(("recvfrom() succeeded; will use server port %d\n", udpServerPor
+Vt));
+X#ifdef GATEWAY
+X    if (!strcmp(serverName, gw_mach)) `123
+X`009UDPDIAG(("+ actually, I'm going to use %d\n", gw_port));
+X`009udpServerPort = gw_port;
+X`009from.sin_port = htons(udpServerPort);
+X    `125
+X#endif
+X
+X    if (connect(udpSock, &from, sizeof(from)) < 0) `123
+X`009perror("netrek: unable to connect UDP socket after recvfrom()");
+X`009close(udpSock);
+X`009udpSock = -1;
+X`009return (-1);
+X    `125
+X
+X    return (0);
+X`125
+X#endif
+X
+XcloseUdpConn()
+X`123
+X    V_UDPDIAG(("Closing UDP socket\n"));
+X    if (udpSock < 0) `123
+X`009fprintf(stderr, "netrek: tried to close a closed UDP socket\n");
+X`009return (-1);
+X    `125
+X    shutdown(udpSock, 2);
+X    close(udpSock);
+X    udpSock = -1;
+X`125
+X
+X/* debugging info */
+XprintUdpInfo()
+X`123
+X    struct sockaddr_in addr;
+X    int len;
+X
+X    len = sizeof(addr);
+X    if (getsockname(udpSock, &addr, &len) < 0) `123
+X/*`009perror("printUdpInfo: getsockname");*/
+X`009return;
+X    `125
+X    UDPDIAG(("LOCAL: addr=0x%x, family=%d, port=%d\n", addr.sin_addr.s_addr,
+X`009addr.sin_family, ntohs(addr.sin_port)));
+X
+X    if (getpeername(udpSock, &addr, &len) < 0) `123
+X/*`009perror("printUdpInfo: getpeername");*/
+X`009return;
+X    `125
+X    UDPDIAG(("PEER : addr=0x%x, family=%d, port=%d\n", addr.sin_addr.s_addr,
+X`009addr.sin_family, ntohs(addr.sin_port)));
+X`125
+X
+X/* handles both SP_SEQUENCE and SP_SC_SEQUENCE */
+XhandleSequence(packet)
+Xstruct sequence_spacket *packet;
+X`123
+X    static int recent_count=0, recent_dropped=0;
+X    long newseq;
+X
+X    drop_flag = 0;
+X    if (chan != udpSock)
+X`009return;`009`009/* don't pay attention to TCP sequence #s */
+X
+X    udpTotal++;
+X    recent_count++;
+X
+X    /* update percent display every 256 updates (`12650 seconds usually) */
+X    if (!(udpTotal & 0xff))
+X`009if (udpWin) udprefresh(UDP_DROPPED);
+X
+X    newseq = (long) ntohs(packet->sequence);
+X/*    printf("read %d - ", newseq);*/
+X
+X    if (((unsigned short) sequence) > 65000 &&
+X`009((unsigned short) newseq) < 1000) `123
+X`009/* we rolled, set newseq = 65536+sequence and accept it */
+X`009sequence = ((sequence + 65536) & 0xffff0000) `124 newseq;
+X    `125 else `123
+X`009/* adjust newseq and do compare */
+X`009newseq `124= (sequence & 0xffff0000);
+X
+X`009if (!udpSequenceChk) `123`009/* put this here so that turning seq check
+V */
+X`009    sequence = newseq;`009/* on and off doesn't make us think we lost */
+X`009    return;`009`009/* a whole bunch of packets. */
+X`009`125
+X
+X`009if (newseq > sequence) `123
+X`009    /* accept */
+X`009    if (newseq != sequence+1) `123
+X`009`009udpDropped += (newseq-sequence)-1;
+X`009`009udpTotal += (newseq-sequence)-1;`009/* want TOTAL packets */
+X`009`009recent_dropped += (newseq-sequence)-1;
+X`009`009recent_count += (newseq-sequence)-1;
+X`009`009if (udpWin)
+X`009`009    udprefresh(UDP_DROPPED);
+X`009`009UDPDIAG(("sequence=%d, newseq=%d, we lost some\n",
+X`009`009    sequence, newseq));
+X`009    `125
+X`009    sequence = newseq;
+X`009`125 else `123
+X`009    /* reject */
+X`009    if (packet->type == SP_SC_SEQUENCE) `123
+X`009`009V_UDPDIAG(("(ignoring repeat %d)\n", newseq));
+X`009    `125 else `123
+X`009`009UDPDIAG(("sequence=%d, newseq=%d, ignoring transmission\n",
+X`009`009    sequence, newseq));
+X`009    `125
+X`009    drop_flag = 1;
+X`009`125
+X    `125
+X/*    printf("newseq %d, sequence %d\n", newseq, sequence);*/
+X
+X    if (recent_count > UDP_RECENT_INTR) `123
+X`009/* once a minute (at 5 upd/sec), report on how many were dropped */
+X`009/* during the last UDP_RECENT_INTR updates                       */
+X`009udpRecentDropped = recent_dropped;
+X`009recent_count = recent_dropped = 0;
+X`009if (udpWin)
+X`009    udprefresh(UDP_DROPPED);
+X    `125
+X`125
+X
+$ CALL UNPACK SOCKET.C;1 643885165
+$ create/nolog 'f'
+X/*
+X * stats.c
+X */
+X#include "copyright.h"
+X
+X#include <stdio.h>
+X#include "Wlib.h"
+X#include "defs.h"
+X#include "struct.h"
+X#include "data.h"
+X
+X#define`009MIN(a,b)`009(((a) < (b)) ? (a) : (b))
+X
+X#define`009BX_OFF()`009((textWidth + 1) * W_Textwidth + S_IBORDER)
+X#define`009BY_OFF(line)`009((line) * (W_Textheight + S_IBORDER) + S_IBORDER)
+X#define`009TX_OFF(len)`009((textWidth - len) * W_Textwidth + S_IBORDER)
+X#define`009TY_OFF(line)`009BY_OFF(line)
+X
+X#define STAT_WIDTH`009`009160
+X#define STAT_HEIGHT`009`009BY_OFF(NUM_SLIDERS)
+X#define STAT_BORDER`009`0092
+X#define S_IBORDER`009`0095
+X#define STAT_X`009`009`009422
+X#define STAT_Y`009`009`00913
+X
+X#define SL_WID`009`009`009\
+X`009(STAT_WIDTH - 2 * S_IBORDER - (textWidth + 1) * W_Textwidth)
+X#define SL_HEI`009`009`009(W_Textheight)
+X
+X#define NUM_ELS(a)`009`009(sizeof (a) / sizeof (*(a)))
+X#define NUM_SLIDERS`009`009NUM_ELS(sliders)
+X
+Xtypedef struct slider `123
+X`009char`009*label;
+X`009int`009min, max;
+X`009int`009low_red, high_red;
+X`009int`009label_length;
+X`009int`009diff;
+X`009int`009*var;
+X`009int`009lastVal;
+X`125 SLIDER;
+X
+Xtypedef struct record `123
+X`009int`009*data;
+X`009int`009last_value;
+X`125 RECORD;
+X
+Xstatic SLIDER`009sliders`091`093 = `123
+X`009`123 "Shields",`009`0090,`009100,`00920,`009100`009`125,
+X`009`123 "Damage",`009`0090,`009100,`0090,`0090`009`125,
+X`009`123 "Fuel",`009`0090,`00910000,`0092000,`00910000`009`125,
+X`009`123 "Warp",`009`0090,`0099,`0090,`0099`009`125,
+X`009`123 "Weapon Temp",`0090,`0091200,`0090,`009800`009`125,
+X`009`123 "Engine Temp",`0090,`0091200,`0090,`009800`009`125,
+X`125;
+X
+Xstatic int`009`009textWidth = 0;
+Xstatic int `009`009initialized = 0;
+X
+XinitStats()
+X`123
+X    int`009i;
+X    /*char`009*str;*/
+X
+X    if (initialized) return;
+X    initialized=1;
+X    sliders`0910`093.var = &(me->p_shield);
+X    sliders`0911`093.var = &(me->p_damage);
+X    sliders`0912`093.var = &(me->p_fuel);
+X    sliders`0913`093.var = &(me->p_speed);
+X    sliders`0914`093.var = &(me->p_wtemp);
+X    sliders`0915`093.var = &(me->p_etemp);
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009sliders`091i`093.label_length = strlen(sliders`091i`093.label);
+X`009textWidth = MAX(textWidth, sliders`091i`093.label_length);
+X`009sliders`091i`093.diff = sliders`091i`093.max - sliders`091i`093.min;
+X`009sliders`091i`093.lastVal=0;
+X    `125
+X`125
+X
+XredrawStats()
+X`123
+X    int`009i;
+X
+X    W_ClearWindow(statwin);
+X    initStats();
+X    for (i=0; i<NUM_SLIDERS; i++) `123
+X`009sliders`091i`093.lastVal=0;
+X    `125
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009W_WriteText(statwin, TX_OFF(sliders`091i`093.label_length), TY_OFF(i),
+X`009    textColor, sliders`091i`093.label, sliders`091i`093.label_length,
+X`009    W_RegularFont);
+X#ifdef VMS
+X`009boxf(0, BX_OFF() - 1, BY_OFF(i) - 1, SL_WID+2, SL_HEI+2, borderColor);
+X#else
+X`009box(0, BX_OFF() - 1, BY_OFF(i) - 1, SL_WID+2, SL_HEI+2, borderColor);
+X#endif
+X`009sliders`091i`093.lastVal=0;
+X    `125
+X`125
+X
+XupdateStats()
+X`123
+X    int`009i, value, diff, old_x, new_x;
+X    W_Color color;
+X    SLIDER`009*s;
+X
+X    initStats();
+X    for (i = 0; i < NUM_SLIDERS; i++) `123
+X`009s = &sliders`091i`093;
+X`009value= *(s->var);
+X`009if (value < s->min)
+X`009    value = s->min;
+X`009else if (value > s->max)
+X`009    value = s->max;
+X`009if (value == s->lastVal)
+X`009    continue;
+X`009diff = value - s->lastVal;
+X`009if (diff < 0) `123
+X`009    old_x = s->lastVal * SL_WID / s->diff;
+X`009    new_x = value * SL_WID / s->diff;
+X#ifdef VMS
+X`009    boxf(1, BX_OFF()+new_x, BY_OFF(i), old_x-new_x, SL_HEI, backColor);
+X#else
+X`009    box(1, BX_OFF()+new_x, BY_OFF(i), old_x-new_x, SL_HEI, backColor);
+X#endif
+X
+X`009    if (s->lastVal >= s->low_red && value < s->low_red)`032
+X#ifdef VMS
+X`009`009boxf(1, BX_OFF(), BY_OFF(i), new_x, SL_HEI, warningColor);
+X#else
+X`009`009box(1, BX_OFF(), BY_OFF(i), new_x, SL_HEI, warningColor);
+X#endif
+X`009    else if (s->lastVal > s->high_red && value <= s->high_red)`032
+X#ifdef VMS
+X`009`009boxf(1, BX_OFF(), BY_OFF(i), new_x, SL_HEI, myColor);
+X#else
+X`009`009box(1, BX_OFF(), BY_OFF(i), new_x, SL_HEI, myColor);
+X#endif
+X`009`125 else `123
+X`009    if (value < s->low_red)
+X`009`009color = warningColor;
+X`009    else if (value > s->high_red) `123
+X`009`009color = warningColor;
+X`009`009if (s->lastVal <= s->high_red)
+X`009`009    s->lastVal = 0;
+X`009    `125 else `123
+X`009`009color = myColor;
+X`009`009if (s->lastVal < s->low_red)
+X`009`009    s->lastVal = 0;
+X`009    `125
+X`009    old_x = s->lastVal * SL_WID / s->diff;
+X`009    new_x = value * SL_WID / s->diff;
+X#ifdef VMS
+X`009    boxf(1, BX_OFF() + old_x, BY_OFF(i), new_x - old_x, SL_HEI, color);
+X#else
+X`009    box(1, BX_OFF() + old_x, BY_OFF(i), new_x - old_x, SL_HEI, color);
+X#endif
+X`009`125
+X`009s->lastVal=value;
+X    `125
+X`125
+X
+X#ifdef VMS
+Xboxf(filled, x, y, wid, hei, color)
+X#else
+Xbox(filled, x, y, wid, hei, color)
+X#endif
+Xint filled, x, y, wid, hei;
+XW_Color color;
+X`123
+X    if (wid==0) return;
+X
+X    if (filled) `123
+X`009W_ClearArea(statwin, x, y, wid+1, hei+1, color);
+X`009return;
+X    `125
+X
+X    W_MakeLine(statwin,x,y,x+wid,y,color);
+X    W_MakeLine(statwin,x+wid,y,x+wid,y+hei,color);
+X    W_MakeLine(statwin,x+wid,y+hei,x,y+hei,color);
+X    W_MakeLine(statwin,x,y+hei,x,y,color);
+X`125
+X
+X
+Xcalibrate_stats()
+X`123
+X    register int i;
+X
+X    sliders`0910`093.max = me->p_ship.s_maxshield;
++-+-+-+-+-+-+-+-  END  OF PART 42 +-+-+-+-+-+-+-+-

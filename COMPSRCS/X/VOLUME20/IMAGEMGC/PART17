@@ -1,0 +1,1716 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i073:  imagemagic - X11 image processing and display, Part17/38
+Message-ID: <1993Jul14.175713.1733@sparky.sterling.com>
+X-Md4-Signature: 0203825b920bb48f08b81c0d8f347843
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 17:57:13 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 73
+Archive-name: imagemagic/part17
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.17 (part 17 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/decode.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 17; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/decode.c'
+else
+echo 'x - continuing file ImageMagick/decode.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/decode.c' &&
+X          *p,
+X          *pixels;
+X
+X        /*
+X          Convert TIFF image to DirectClass MIFF image.
+X        */
+X        image->alpha=samples_per_pixel > 3;
+X        pixels=(unsigned long *)
+X          malloc(image->columns*image->rows*sizeof(unsigned long));
+X        if (pixels == (unsigned long *) NULL)
+X          {
+X            Warning("unable to allocate memory",(char *) NULL);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        if (quantum > 1)
+X          Warning("not enough memory","cropping required");
+X        status=TIFFReadRGBAImage(tiff,image->columns,image->rows,pixels,0);
+X        if (status == False)
+X          {
+X            Warning("unable to read TIFF image",(char *) NULL);
+X            (void) free((char *) pixels);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        /*
+X          Convert image to DirectClass runlength-encoded packets.
+X        */
+X        q=image->pixels;
+X        for (y=image->rows-1; y >= 0; y--)
+X        {
+X          p=pixels+y*image->columns;
+X          for (x=0; x < image->columns; x++)
+X          {
+X            q->red=TIFFGetR(*p);
+X            q->green=TIFFGetG(*p);
+X            q->blue=TIFFGetB(*p);
+X            q->index=(unsigned short) (image->alpha ? TIFFGetA(*p) : 0);
+X            q->length=0;
+X            p++;
+X            q++;
+X          }
+X        }
+X        (void) free((char *) pixels);
+X        if (samples_per_pixel == 1)
+X          QuantizeImage(image,(unsigned int) range,8,False,RGBColorspace,True);
+X      }
+X    else
+X      {
+X        unsigned char
+X          *p,
+X          *scanline;
+X
+X        /*
+X          Convert TIFF image to PseudoClass MIFF image.
+X        */
+X        image->class=PseudoClass;
+X        image->colors=range+1;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        scanline=(unsigned char *) malloc(TIFFScanlineSize(tiff));
+X        if ((image->colormap == (ColorPacket *) NULL) ||
+X            (scanline == (unsigned char *) NULL))
+X          {
+X            Warning("unable to allocate memory",(char *) NULL);
+X            DestroyImages(image);
+X            TIFFClose(tiff);
+X            return((Image *) NULL);
+X          }
+X        /*
+X          Create colormap.
+X        */
+X        switch (photometric)
+X        {
+X          case PHOTOMETRIC_MINISBLACK:
+X          {
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=(MaxRGB*i)/range;
+X              image->colormap[i].green=(MaxRGB*i)/range;
+X              image->colormap[i].blue=(MaxRGB*i)/range;
+X            }
+X            break;
+X          }
+X          case PHOTOMETRIC_MINISWHITE:
+X          {
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=((range-i)*MaxRGB)/range;
+X              image->colormap[i].green=((range-i)*MaxRGB)/range;
+X              image->colormap[i].blue=((range-i)*MaxRGB)/range;
+X            }
+X            break;
+X          }
+X          case PHOTOMETRIC_PALETTE:
+X          {
+X            unsigned short
+X              *blue_colormap,
+X              *green_colormap,
+X              *red_colormap;
+X
+X            TIFFGetField(tiff,TIFFTAG_COLORMAP,&red_colormap,&green_colormap,
+X              &blue_colormap);
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=((int) red_colormap[i]*MaxRGB)/65535;
+X              image->colormap[i].green=((int) green_colormap[i]*MaxRGB)/65535;
+X              image->colormap[i].blue=((int) blue_colormap[i]*MaxRGB)/65535;
+X            }
+X            break;
+X          }
+X          default:
+X            break;
+X        }
+X        /*
+X          Convert image to PseudoClass runlength-encoded packets.
+X        */
+X        if (quantum > 1)
+X          Warning("not enough memory","subsampling required");
+X        q=image->pixels;
+X        for (y=0; y < image->rows; y++)
+X        {
+X          for (i=0; i < quantum; i++)
+X            TIFFReadScanline(tiff,scanline,y*quantum+i,0);
+X          p=scanline;
+X          switch (photometric)
+X          {
+X            case PHOTOMETRIC_MINISBLACK:
+X            case PHOTOMETRIC_MINISWHITE:
+X            {
+X              switch (bits_per_sample)
+X              {
+X                case 1:
+X                {
+X                  register int
+X                    bit;
+X
+X                  for (x=0; x < (image->columns-7); x+=8)
+X                  {
+X                    for (bit=7; bit >= 0; bit--)
+X                    {
+X                      q->index=((*p) & (0x01 << bit) ? 0x01 : 0x00);
+X                      q->length=0;
+X                      q++;
+X                    }
+X                    p+=quantum;
+X                  }
+X                  if ((image->columns % 8) != 0)
+X                    {
+X                      for (bit=7; bit >= (8-(image->columns % 8)); bit--)
+X                      {
+X                        q->index=((*p) & (0x01 << bit) ? 0x00 : 0x01);
+X                        q->length=0;
+X                        q++;
+X                      }
+X                      p+=quantum;
+X                    }
+X                  break;
+X                }
+X                case 2:
+X                {
+X                  for (x=0; x < (image->columns-3); x+=4)
+X                  {
+X                    q->index=(*p >> 6) & 0x3;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p >> 4) & 0x3;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p >> 2) & 0x3;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p) & 0x3;
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  if ((image->columns % 4) != 0)
+X                    {
+X                      for (i=3; i >= (4-(image->columns % 4)); i--)
+X                      {
+X                        q->index=(*p >> (i*2)) & 0x03;
+X                        q->length=0;
+X                        q++;
+X                      }
+X                      p++;
+X                    }
+X                  break;
+X                }
+X                case 4:
+X                {
+X                  for (x=0; x < (image->columns-1); x+=2)
+X                  {
+X                    q->index=(*p >> 4) & 0xf;
+X                    q->length=0;
+X                    q++;
+X                    q->index=(*p) & 0xf;
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  if ((image->columns % 2) != 0)
+X                    {
+X                      q->index=(*p >> 4) & 0xf;
+X                      q->length=0;
+X                      q++;
+X                      p+=quantum;
+X                    }
+X                  break;
+X                }
+X                case 8:
+X                {
+X                  for (x=0; x < image->columns; x++)
+X                  {
+X                    q->index=(*p);
+X                    q->length=0;
+X                    q++;
+X                    p+=quantum;
+X                  }
+X                  break;
+X                }
+X                default:
+X                  break;
+X              }
+X              break;
+X            }
+X            case PHOTOMETRIC_PALETTE:
+X            {
+X              for (x=0; x < image->columns; x++)
+X              {
+X                q->index=(*p);
+X                q->length=0;
+X                q++;
+X                p+=quantum;
+X              }
+X              break;
+X            }
+X            default:
+X              break;
+X          }
+X        }
+X        (void) free((char *) scanline);
+X        SyncImage(image);
+X        CompressColormap(image);
+X      }
+X    /*
+X      Proceed to next image.
+X    */
+X    status=TIFFReadDirectory(tiff);
+X    if (status == True)
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("TIFF");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u",image_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->previous=image;
+X        image=image->next;
+X      }
+X  } while (status == True);
+X  TIFFClose(tiff);
+X  while (image->previous != (Image *) NULL)
+X    image=image->previous;
+X  return(image);
+}
+#else
+static Image *ReadTIFFImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  Warning("TIFF library is not available",image_info->filename);
+X  return(ReadMIFFImage(image_info));
+}
+#endif
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e a d V I C A R I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadVICARImage reads a VICAR image file and returns it.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the ReadVICARImage routine is:
+%
+%      image=ReadVICARImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image: Function ReadVICARImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or if
+%      the image cannot be read.
+%
+%    o filename: Specifies the name of the image to read.
+%
+%
+*/
+static Image *ReadVICARImage(image_info)
+ImageInfo
+X  *image_info;
+{
+#define MaxKeywordLength  2048
+X
+X  char
+X    keyword[MaxKeywordLength],
+X    value[MaxKeywordLength];
+X
+X  Image
+X    *image;
+X
+X  long
+X    count;
+X
+X  register int
+X    c,
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    *vicar_pixels;
+X
+X  unsigned int
+X    header_length,
+X    status,
+X    value_expected;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("VICAR");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Decode image header.
+X  */
+X  c=fgetc(image->file);
+X  count=1;
+X  if (c == EOF)
+X    {
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  header_length=0;
+X  while (isgraph(c) && ((image->columns*image->rows) == 0))
+X  {
+X    register char
+X      *p;
+X
+X    if (!isalnum(c))
+X      {
+X        c=fgetc(image->file);
+X        count++;
+X      }
+X    else
+X      {
+X        /*
+X          Determine a keyword and its value.
+X        */
+X        p=keyword;
+X        do
+X        {
+X          if ((p-keyword) < (MaxKeywordLength-1))
+X            *p++=(char) c;
+X          c=fgetc(image->file);
+X          count++;
+X        } while (isalnum(c) || (c == '_'));
+X        *p='\0';
+X        value_expected=False;
+X        while (isspace(c) || (c == '='))
+X        {
+X          if (c == '=')
+X            value_expected=True;
+X          c=fgetc(image->file);
+X          count++;
+X        }
+X        if (value_expected == False)
+X          continue;
+X        p=value;
+X        while (isalnum(c))
+X        {
+X          if ((p-value) < (MaxKeywordLength-1))
+X            *p++=(char) c;
+X          c=fgetc(image->file);
+X          count++;
+X        }
+X        *p='\0';
+X        /*
+X          Assign a value to the specified keyword.
+X        */
+X        if (strcmp(keyword,"LABEL_RECORDS") == 0)
+X          header_length=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"LBLSIZE") == 0)
+X          header_length=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"RECORD_BYTES") == 0)
+X          image->columns=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"NS") == 0)
+X          image->columns=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"LINES") == 0)
+X          image->rows=(unsigned int) atoi(value);
+X        if (strcmp(keyword,"NL") == 0)
+X          image->rows=(unsigned int) atoi(value);
+X      }
+X    while (isspace(c))
+X    {
+X      c=fgetc(image->file);
+X      count++;
+X    }
+X  }
+X  /*
+X    Read the rest of the header.
+X  */
+X  while (count < header_length)
+X  {
+X    c=fgetc(image->file);
+X    count++;
+X  }
+X  /*
+X    Verify that required image information is defined.
+X  */
+X  if ((image->columns*image->rows) == 0)
+X    {
+X      Warning("incorrect image header in file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create linear colormap.
+X  */
+X  image->class=PseudoClass;
+X  image->colors=256;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  for (i=0; i < image->colors; i++)
+X  {
+X    image->colormap[i].red=(unsigned char) i;
+X    image->colormap[i].green=(unsigned char) i;
+X    image->colormap[i].blue=(unsigned char) i;
+X  }
+X  /*
+X    Create image.
+X  */
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  image->comments=(char *)
+X    malloc((strlen(image->filename)+2048)*sizeof(char));
+X  vicar_pixels=(unsigned char *)
+X    malloc((unsigned int) image->packets*sizeof(unsigned char));
+X  if ((image->pixels == (RunlengthPacket *) NULL) ||
+X      (image->comments == (char *) NULL) ||
+X      (vicar_pixels == (unsigned char *) NULL))
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from VICAR image:  %s\n",
+X    image->filename);
+X  /*
+X    Convert vicar pixels to runlength-encoded packets.
+X  */
+X  status=ReadData((char *) vicar_pixels,1,(int) image->packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("insufficient image data in file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert vicar pixels to runlength-encoded packets.
+X  */
+X  p=vicar_pixels;
+X  q=image->pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    q->red=(*p);
+X    q->green=(*p);
+X    q->blue=(*p);
+X    q->index=(unsigned short) *p;
+X    q->length=0;
+X    p++;
+X    q++;
+X  }
+X  (void) free((char *) vicar_pixels);
+X  CompressColormap(image);
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   R e a d V I F F I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadVIFFImage reads a Khoros Visualization image file and returns
+%  it.  It allocates the memory necessary for the new Image structure and
+%  returns a pointer to the new image.
+%
+%  The format of the ReadVIFFImage routine is:
+%
+%      image=ReadVIFFImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image: Function ReadVIFFImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or if
+%      the image cannot be read.
+%
+%    o filename: Specifies the name of the image to read.
+%
+%
+*/
+static Image *ReadVIFFImage(image_info)
+ImageInfo
+X  *image_info;
+{
+#define VFF_CM_genericRGB  15
+#define VFF_CM_ntscRGB  1
+#define VFF_CM_NONE  0
+#define VFF_DEP_DECORDER  0x4
+#define VFF_DEP_NSORDER  0x8
+#define VFF_DES_RAW  0
+#define VFF_LOC_IMPLICIT  1
+#define VFF_MAPTYP_NONE  0
+#define VFF_MAPTYP_1_BYTE  1
+#define VFF_MS_NONE  0
+#define VFF_MS_ONEPERBAND  1
+#define VFF_MS_SHARED  3
+#define VFF_TYP_BIT  0
+#define VFF_TYP_1_BYTE  1
+X
+X  typedef struct _ViffHeader
+X  {
+X    unsigned char
+X      identifier,
+X      file_type,
+X      release,
+X      version,
+X      machine_dependency,
+X      reserve[3],
+X      comment[512];
+X
+X    unsigned long
+X      rows,
+X      columns,
+X      subrows;
+X
+X    long
+X      x_offset,
+X      y_offset;
+X
+X    float
+X      x_pixel_size,
+X      y_pixel_size;
+X
+X    unsigned long
+X      location_type,
+X      location_dimension,
+X      number_of_images,
+X      number_data_bands,
+X      data_storage_type,
+X      data_encode_scheme,
+X      map_scheme,
+X      map_storage_type,
+X      map_rows,
+X      map_columns,
+X      map_subrows,
+X      map_enable,
+X      maps_per_cycle,
+X      color_space_model;
+X  } ViffHeader;
+X
+X  Image
+X    *image;
+X
+X  register int
+X    bit,
+X    i,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    *p;
+X
+X  unsigned char
+X    buffer[7],
+X    *viff_pixels;
+X
+X  unsigned int
+X    status;
+X
+X  unsigned long
+X    packets;
+X
+X  ViffHeader
+X    viff_header;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("VIFF");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read VIFF header (1024 bytes).
+X  */
+X  status=ReadData((char *) &viff_header.identifier,1,1,image->file);
+X  do
+X  {
+X    /*
+X      Verify VIFF identifier.
+X    */
+X    if ((status == False) || ((unsigned char) viff_header.identifier != 0xab))
+X      {
+X        Warning("not a VIFF raster,",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    /*
+X      Initialize VIFF image.
+X    */
+X    (void) ReadData((char *) buffer,1,7,image->file);
+X    viff_header.file_type=buffer[0];
+X    viff_header.release=buffer[1];
+X    viff_header.version=buffer[2];
+X    viff_header.machine_dependency=buffer[3];
+X    (void) ReadData((char *) viff_header.comment,1,512,image->file);
+X    if ((viff_header.machine_dependency == VFF_DEP_DECORDER) ||
+X        (viff_header.machine_dependency == VFF_DEP_NSORDER))
+X      {
+X        viff_header.rows=LSBFirstReadLong(image->file);
+X        viff_header.columns=LSBFirstReadLong(image->file);
+X        viff_header.subrows=LSBFirstReadLong(image->file);
+X        viff_header.x_offset=LSBFirstReadLong(image->file);
+X        viff_header.y_offset=LSBFirstReadLong(image->file);
+X        viff_header.x_pixel_size=(float) LSBFirstReadLong(image->file);
+X        viff_header.y_pixel_size=(float) LSBFirstReadLong(image->file);
+X        viff_header.location_type=LSBFirstReadLong(image->file);
+X        viff_header.location_dimension=LSBFirstReadLong(image->file);
+X        viff_header.number_of_images=LSBFirstReadLong(image->file);
+X        viff_header.number_data_bands=LSBFirstReadLong(image->file);
+X        viff_header.data_storage_type=LSBFirstReadLong(image->file);
+X        viff_header.data_encode_scheme=LSBFirstReadLong(image->file);
+X        viff_header.map_scheme=LSBFirstReadLong(image->file);
+X        viff_header.map_storage_type=LSBFirstReadLong(image->file);
+X        viff_header.map_rows=LSBFirstReadLong(image->file);
+X        viff_header.map_columns=LSBFirstReadLong(image->file);
+X        viff_header.map_subrows=LSBFirstReadLong(image->file);
+X        viff_header.map_enable=LSBFirstReadLong(image->file);
+X        viff_header.maps_per_cycle=LSBFirstReadLong(image->file);
+X        viff_header.color_space_model=LSBFirstReadLong(image->file);
+X      }
+X    else
+X      {
+X        viff_header.rows=MSBFirstReadLong(image->file);
+X        viff_header.columns=MSBFirstReadLong(image->file);
+X        viff_header.subrows=MSBFirstReadLong(image->file);
+X        viff_header.x_offset=MSBFirstReadLong(image->file);
+X        viff_header.y_offset=MSBFirstReadLong(image->file);
+X        viff_header.x_pixel_size=(float) MSBFirstReadLong(image->file);
+X        viff_header.y_pixel_size=(float) MSBFirstReadLong(image->file);
+X        viff_header.location_type=MSBFirstReadLong(image->file);
+X        viff_header.location_dimension=MSBFirstReadLong(image->file);
+X        viff_header.number_of_images=MSBFirstReadLong(image->file);
+X        viff_header.number_data_bands=MSBFirstReadLong(image->file);
+X        viff_header.data_storage_type=MSBFirstReadLong(image->file);
+X        viff_header.data_encode_scheme=MSBFirstReadLong(image->file);
+X        viff_header.map_scheme=MSBFirstReadLong(image->file);
+X        viff_header.map_storage_type=MSBFirstReadLong(image->file);
+X        viff_header.map_rows=MSBFirstReadLong(image->file);
+X        viff_header.map_columns=MSBFirstReadLong(image->file);
+X        viff_header.map_subrows=MSBFirstReadLong(image->file);
+X        viff_header.map_enable=MSBFirstReadLong(image->file);
+X        viff_header.maps_per_cycle=MSBFirstReadLong(image->file);
+X        viff_header.color_space_model=MSBFirstReadLong(image->file);
+X      }
+X    for (i=0; i < 420; i++)
+X      (void) fgetc(image->file);
+X    /*
+X      Verify that we can read this VIFF image.
+X    */
+X    if ((viff_header.columns*viff_header.rows) == 0)
+X      {
+X        Warning("image column or row size is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if ((viff_header.data_storage_type != VFF_TYP_BIT) &&
+X        (viff_header.data_storage_type != VFF_TYP_1_BYTE))
+X      {
+X        Warning("data storage type is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if (viff_header.data_encode_scheme != VFF_DES_RAW)
+X      {
+X        Warning("data encoding scheme is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if ((viff_header.map_storage_type != VFF_MAPTYP_NONE) &&
+X        (viff_header.map_storage_type != VFF_MAPTYP_1_BYTE))
+X      {
+X        Warning("map storage type is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if ((viff_header.color_space_model != VFF_CM_NONE) &&
+X        (viff_header.color_space_model != VFF_CM_ntscRGB) &&
+X        (viff_header.color_space_model != VFF_CM_genericRGB))
+X      {
+X        Warning("color space model is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if (viff_header.location_type != VFF_LOC_IMPLICIT)
+X      {
+X        Warning("location type is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    if (viff_header.number_of_images != 1)
+X      {
+X        Warning("number of images is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    switch (viff_header.map_scheme)
+X    {
+X      case VFF_MS_NONE:
+X      {
+X        if (viff_header.number_data_bands < 3)
+X          {
+X            /*
+X              Create linear color ramp.
+X            */
+X            if (viff_header.data_storage_type == VFF_TYP_BIT)
+X              image->colors=2;
+X            else
+X              image->colors=1 << (viff_header.number_data_bands*8);
+X            image->colormap=(ColorPacket *)
+X              malloc(image->colors*sizeof(ColorPacket));
+X            if (image->colormap == (ColorPacket *) NULL)
+X              {
+X                Warning("memory allocation error",(char *) NULL);
+X                return((Image *) NULL);
+X              }
+X            for (i=0; i < image->colors; i++)
+X            {
+X              image->colormap[i].red=(255*i)/(image->colors-1);
+X              image->colormap[i].green=(255*i)/(image->colors-1);
+X              image->colormap[i].blue=(255*i)/(image->colors-1);
+X            }
+X          }
+X        break;
+X      }
+X      case VFF_MS_ONEPERBAND:
+X      case VFF_MS_SHARED:
+X      {
+X        unsigned char
+X          *viff_colormap;
+X
+X        /*
+X          Read VIFF raster colormap.
+X        */
+X        image->colors=viff_header.map_columns;
+X        image->colormap=(ColorPacket *)
+X          malloc(image->colors*sizeof(ColorPacket));
+X        viff_colormap=(unsigned char *)
+X          malloc(image->colors*sizeof(unsigned char));
+X        if ((image->colormap == (ColorPacket *) NULL) ||
+X            (viff_colormap == (unsigned char *) NULL))
+X          {
+X            Warning("memory allocation error",(char *) NULL);
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        (void) ReadData((char *) viff_colormap,1,(int) image->colors,
+X          image->file);
+X        for (i=0; i < image->colors; i++)
+X        {
+X          image->colormap[i].red=viff_colormap[i];
+X          image->colormap[i].green=viff_colormap[i];
+X          image->colormap[i].blue=viff_colormap[i];
+X        }
+X        if (viff_header.map_rows > 1)
+X          {
+X            (void) ReadData((char *) viff_colormap,1,(int) image->colors,
+X              image->file);
+X            for (i=0; i < image->colors; i++)
+X              image->colormap[i].green=viff_colormap[i];
+X          }
+X        if (viff_header.map_rows > 2)
+X          {
+X            (void) ReadData((char *) viff_colormap,1,(int) image->colors,
+X              image->file);
+X            for (i=0; i < image->colors; i++)
+X              image->colormap[i].blue=viff_colormap[i];
+X          }
+X        (void) free((char *) viff_colormap);
+X        break;
+X      }
+X      default:
+X      {
+X        Warning("colormap type is not supported",image->filename);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    }
+X    /*
+X      Allocate VIFF pixels.
+X    */
+X    if (viff_header.data_storage_type == VFF_TYP_BIT)
+X      packets=((viff_header.columns+7) >> 3)*viff_header.rows;
+X    else
+X      packets=
+X        viff_header.columns*viff_header.rows*viff_header.number_data_bands;
+X    viff_pixels=(unsigned char *) malloc(packets*sizeof(unsigned char));
+X    if (viff_pixels == (unsigned char *) NULL)
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    (void) ReadData((char *) viff_pixels,1,(int) packets,image->file);
+X    /*
+X      Create image.
+X    */
+X    image->alpha=(viff_header.number_data_bands == 4);
+X    image->class=
+X      (viff_header.number_data_bands < 3 ? PseudoClass : DirectClass);
+X    image->columns=viff_header.rows;
+X    image->rows=viff_header.columns;
+X    image->packets=image->columns*image->rows;
+X    image->pixels=(RunlengthPacket *)
+X      malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X    image->comments=(char *)
+X      malloc((strlen(image->filename)+2048)*sizeof(char));
+X    (void) sprintf(image->comments,
+X      "\n  Imported from VIFF raster image:  %s\n",image->filename);
+X    if ((image->pixels == (RunlengthPacket *) NULL) ||
+X        (image->comments == (char *) NULL))
+X      {
+X        Warning("memory allocation error",(char *) NULL);
+X        DestroyImages(image);
+X        return((Image *) NULL);
+X      }
+X    /*
+X      Convert VIFF raster image to runlength-encoded packets.
+X    */
+X    p=viff_pixels;
+X    q=image->pixels;
+X    if (viff_header.data_storage_type == VFF_TYP_BIT)
+X      {
+X        unsigned int
+X          polarity;
+X
+X        /*
+X          Convert bitmap scanline to runlength-encoded color packets.
+X        */
+X        polarity=(viff_header.machine_dependency == VFF_DEP_DECORDER) ||
+X          (viff_header.machine_dependency == VFF_DEP_NSORDER);
+X        for (y=0; y < image->rows; y++)
+X        {
+X          /*
+X            Convert bitmap scanline to runlength-encoded color packets.
+X          */
+X          for (x=0; x < (image->columns >> 3); x++)
+X          {
+X            for (bit=0; bit < 8; bit++)
+X            {
+X              q->index=((*p) & (0x01 << bit) ? polarity : !polarity);
+X              q->length=0;
+X              q++;
+X            }
+X            p++;
+X          }
+X          if ((image->columns % 8) != 0)
+X            {
+X              for (bit=0; bit < (image->columns % 8); bit++)
+X              {
+X                q->index=((*p) & (0x01 << bit) ? polarity : !polarity);
+X                q->length=0;
+X                q++;
+X              }
+X              p++;
+X            }
+X        }
+X      }
+X    else
+X      if (image->class == PseudoClass)
+X        for (y=0; y < image->rows; y++)
+X        {
+X          /*
+X            Convert PseudoColor scanline to runlength-encoded color packets.
+X          */
+X          for (x=0; x < image->columns; x++)
+X          {
+X            q->index=(*p++);
+X            q->length=0;
+X            q++;
+X          }
+X        }
+X      else
+X        {
+X          unsigned long
+X            offset;
+X
+X          /*
+X            Convert DirectColor scanline to runlength-encoded color packets.
+X          */
+X          offset=image->columns*image->rows;
+X          for (y=0; y < image->rows; y++)
+X          {
+X            for (x=0; x < image->columns; x++)
+X            {
+X              q->red=(*p);
+X              q->green=(*(p+offset));
+X              q->blue=(*(p+offset*2));
+X              if (image->colors != 0)
+X                {
+X                  q->red=image->colormap[q->red].red;
+X                  q->green=image->colormap[q->green].green;
+X                  q->blue=image->colormap[q->blue].blue;
+X                }
+X              q->index=(unsigned short) (image->alpha ? (*(p+offset*3)) : 0);
+X              q->length=0;
+X              p++;
+X              q++;
+X            }
+X          }
+X        }
+X    (void) free((char *) viff_pixels);
+X    if (image->class == PseudoClass)
+X      {
+X        SyncImage(image);
+X        CompressColormap(image);
+X      }
+X    /*
+X      Proceed to next image.
+X    */
+X    status=ReadData((char *) &viff_header.identifier,1,1,image->file);
+X    if ((status == True) && (viff_header.identifier == 0xab))
+X      {
+X        /*
+X          Allocate image structure.
+X        */
+X        image->next=AllocateImage("VIFF");
+X        if (image->next == (Image *) NULL)
+X          {
+X            DestroyImages(image);
+X            return((Image *) NULL);
+X          }
+X        image->next->file=image->file;
+X        (void) sprintf(image->next->filename,"%s.%u",image_info->filename,
+X          image->scene+1);
+X        image->next->scene=image->scene+1;
+X        image->next->previous=image;
+X        image=image->next;
+X      }
+X  } while ((status == True) && (viff_header.identifier == 0xab));
+X  while (image->previous != (Image *) NULL)
+X    image=image->previous;
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d X B M I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadXBMImage reads an X11 bitmap image file and returns it.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the ReadXBMImage routine is:
+%
+%      image=ReadXBMImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadXBMImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadXBMImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  char
+X    data[2048];
+X
+X  Image
+X    *image;
+X
+X  register int
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned char
+X    bit;
+X
+X  register unsigned short
+X    index;
+X
+X  unsigned int
+X    byte;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("XBM");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Read X bitmap header.
+X  */
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"#define %*32s %u",&image->columns) == 1)
+X      break;
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"#define %*32s %u",&image->rows) == 1)
+X      break;
+X  if ((image->columns == 0) || (image->rows == 0))
+X    {
+X      Warning("XBM file is not in the correct format",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  while (fgets(data,sizeof(data)-1,image->file) != (char *) NULL)
+X    if (sscanf(data,"%*[^#] char"))
+X      break;
+X  if (feof(image->file))
+X    {
+X      Warning("XBM file is not in the correct format",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create image.
+X  */
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  if (image->pixels == (RunlengthPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Create colormap.
+X  */
+X  image->class=PseudoClass;
+X  image->colors=2;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  image->colormap[0].red=0;
+X  image->colormap[0].green=0;
+X  image->colormap[0].blue=0;
+X  image->colormap[1].red=255;
+X  image->colormap[1].green=255;
+X  image->colormap[1].blue=255;
+X  /*
+X    Initial image comment.
+X  */
+X  image->comments=(char *) malloc((strlen(image->filename)+2048)*sizeof(char));
+X  if (image->comments == (char *) NULL)
+X    {
+X      Warning("memory allocation error",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from X11 bitmap file:  %s\n",
+X    image->filename);
+X  /*
+X    Convert X bitmap image to runlength-encoded packets.
+X  */
+X  q=image->pixels;
+X  for (y=0; y < image->rows; y++)
+X  {
+X    bit=0;
+X    for (x=0; x < image->columns; x++)
+X    {
+X      if (bit == 0)
+X        (void) fscanf(image->file,"%i,",&byte);
+X      index=(byte & 0x01) ? 0 : 1;
+X      q->red=image->colormap[index].red;
+X      q->green=image->colormap[index].green;
+X      q->blue=image->colormap[index].blue;
+X      q->index=index;
+X      q->length=0;
+X      q++;
+X      bit++;
+X      byte>>=1;
+X      if (bit == 8)
+X        bit=0;
+X    }
+X  }
+X  CloseImage(image);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d X C I m a g e                                                      %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadXCImage creates a constant image and initializes to the
+%  background color of the X server and returns it.  It allocates the memory
+%  necessary for the new Image structure and returns a pointer to the new
+%  image.
+%
+%  The format of the ReadXCImage routine is:
+%
+%      image=ReadXCImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadXCImage returns a pointer to the image after
+%      creating it. A null image is returned if there is a a memory shortage
+%      or if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadXCImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  char
+X    *resource_value;
+X
+X  Display
+X    *display;
+X
+X  Image
+X    *image;
+X
+X  int
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  unsigned int
+X    height,
+X    width;
+X
+X  XPixelInfo
+X    pixel_info;
+X
+X  XResourceInfo
+X    resource_info;
+X
+X  XrmDatabase
+X    resource_database,
+X    server_database;
+X
+X  XStandardColormap
+X    map_info;
+X
+X  XVisualInfo
+X    *visual_info;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("XC");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  (void) strcpy(image->filename,image_info->filename);
+X  /*
+X    Open X server connection.
+X  */
+X  display=XOpenDisplay(image_info->server_name);
+X  if (display == (Display *) NULL)
+X    {
+X      Warning("unable to connect to X server",
+X        XDisplayName(image_info->server_name));
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Set our forgiving error handler.
+X  */
+X  XSetErrorHandler(XError);
+X  /*
+X    Initialize resource database.
+X  */
+X  XrmInitialize();
+X  resource_database=XrmGetDatabase(display);
+X  resource_value=XResourceManagerString(display);
+X  if (resource_value == (char *) NULL)
+X    resource_value="";
+X  server_database=XrmGetStringDatabase(resource_value);
+X  XrmMergeDatabases(server_database,&resource_database);
+X  /*
+X    Get user defaults from X resource database.
+X  */
+X  XGetResourceInfo(resource_database,client_name,&resource_info);
+X  if (image_info->border_color != (char *) NULL)
+X    resource_info.border_color=image_info->border_color;
+X  /*
+X    Initialize visual info.
+X  */
+X  visual_info=XBestVisualInfo(display,"default",(char *) NULL,
+X    (XStandardColormap *) NULL);
+X  if (visual_info == (XVisualInfo *) NULL)
+X    {
+X      Warning("unable to get visual",resource_info.visual_type);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Determine border color.
+X  */
+X  map_info.colormap=XDefaultColormap(display,visual_info->screen);
+X  XGetPixelInfo(display,visual_info,&map_info,&resource_info,(Image *) NULL,
+X    &pixel_info);
+X  /*
+X    Initialize Image structure.
+X  */
+X  width=512;
+X  height=512;
+X  if (image_info->geometry != (char *) NULL)
+X    (void) XParseGeometry(image_info->geometry,&x,&y,&width,&height);
+X  image->columns=width;
+X  image->rows=height;
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  image->comments=(char *) malloc((strlen(image->filename)+2048)*sizeof(char));
+X  if ((image->pixels == (RunlengthPacket *) NULL) ||
+X      (image->comments == (char *) NULL))
+X    {
+X      Warning("unable to allocate image","memory allocation error");
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from constant file:  %s\n",
+X    image->filename);
+X  /*
+X    Create colormap.
+X  */
+X  image->colors=1;
+X  image->colormap=(ColorPacket *) malloc(image->colors*sizeof(ColorPacket));
+X  if (image->colormap == (ColorPacket *) NULL)
+X    {
+X      Warning("unable to create image","memory allocation failed");
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  image->colormap[0].red=pixel_info.border_color.red >> 8;
+X  image->colormap[0].green=pixel_info.border_color.green >> 8;
+X  image->colormap[0].blue=pixel_info.border_color.blue >> 8;
+X  q=image->pixels;
+X  for (i=0; i < (image->columns*image->rows); i++)
+X  {
+X    q->red=image->colormap[0].red;
+X    q->green=image->colormap[0].green;
+X    q->blue=image->colormap[0].blue;
+X    q->index=0;
+X    q->length=0;
+X    q++;
+X  }
+X  /*
+X    Free resources.
+X  */
+X  XFree((void *) visual_info);
+X  XCloseDisplay(display);
+X  return(image);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  R e a d X W D I m a g e                                                    %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function ReadXWDImage reads an X Window System window dump image file and
+%  returns it.  It allocates the memory necessary for the new Image structure
+%  and returns a pointer to the new image.
+%
+%  The format of the ReadXWDImage routine is:
+%
+%      image=ReadXWDImage(image_info)
+%
+%  A description of each parameter follows:
+%
+%    o image:  Function ReadXWDImage returns a pointer to the image after
+%      reading.  A null image is returned if there is a a memory shortage or
+%      if the image cannot be read.
+%
+%    o image_info: Specifies a pointer to an ImageInfo structure.
+%
+%
+*/
+static Image *ReadXWDImage(image_info)
+ImageInfo
+X  *image_info;
+{
+X  char
+X    *window_name;
+X
+X  Display
+X    display;
+X
+X  Image
+X    *image;
+X
+X  int
+X    status,
+X    x,
+X    y;
+X
+X  register int
+X    i;
+X
+X  register RunlengthPacket
+X    *q;
+X
+X  register unsigned short
+X    index;
+X
+X  register unsigned long
+X    pixel;
+X
+X  unsigned long
+X    lsb_first,
+X    packets;
+X
+X  ScreenFormat
+X    screen_format;
+X
+X  XColor
+X    *colors;
+X
+X  XImage
+X    *ximage;
+X
+X  XWDFileHeader
+X    header;
+X
+X  /*
+X    Allocate image structure.
+X  */
+X  image=AllocateImage("XWD");
+X  if (image == (Image *) NULL)
+X    return((Image *) NULL);
+X  /*
+X    Open image file.
+X  */
+X  (void) strcpy(image->filename,image_info->filename);
+X  OpenImage(image,"r");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X     Read in header information.
+X  */
+X  status=ReadData((char *) &header,sizeof(header),1,image->file);
+X  if (status == False)
+X    {
+X      Warning("Unable to read dump file header",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Ensure the header byte-order is most-significant byte first.
+X  */
+X  lsb_first=1;
+X  if (*(char *) &lsb_first)
+X    MSBFirstOrderLong((char *) &header,sizeof(header));
+X  /*
+X    Check to see if the dump file is in the proper format.
+X  */
+X  if (header.file_version != XWD_FILE_VERSION)
+X    {
+X      Warning("XWD file format version mismatch",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  if (header.header_size < sizeof(header))
+X    {
+X      Warning("XWD header size is too small",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  packets=(header.header_size-sizeof(header));
+X  window_name=(char *) malloc((unsigned int) packets*sizeof(char));
+X  if (window_name == (char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  status=ReadData((char *) window_name,1,(int) packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("unable to read window name from dump file",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Initialize the X image.
+X  */
+X  display.byte_order=header.byte_order;
+X  display.bitmap_unit=header.bitmap_unit;
+X  display.bitmap_bit_order=header.bitmap_bit_order;
+X  display.pixmap_format=(&screen_format);
+X  display.nformats=1;
+X  screen_format.depth=header.pixmap_depth;
+X  screen_format.bits_per_pixel=(int) header.bits_per_pixel;
+X  ximage=XCreateImage(&display,(Visual *) NULL,
+X    (unsigned int) header.pixmap_depth,(int) header.pixmap_format,
+X    (int) header.xoffset,(char *) NULL,(unsigned int) header.pixmap_width,
+X    (unsigned int) header.pixmap_height,(int) header.bitmap_pad,
+X    (int) header.bytes_per_line);
+X  ximage->red_mask=header.red_mask;
+X  ximage->green_mask=header.green_mask;
+X  ximage->blue_mask=header.blue_mask;
+X  /*
+X    Read colormap.
+X  */
+X  colors=(XColor *) NULL;
+X  if (header.ncolors != 0)
+X    {
+X      colors=(XColor *) malloc((unsigned int) header.ncolors*sizeof(XColor));
+X      if (colors == (XColor *) NULL)
+X        {
+X          Warning("unable to allocate memory",(char *) NULL);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      status=ReadData((char *) colors,sizeof(XColor),(int) header.ncolors,
+X        image->file);
+X      if (status == False)
+X        {
+X          Warning("unable to read color map from dump file",image->filename);
+X          DestroyImage(image);
+X          return((Image *) NULL);
+X        }
+X      /*
+X        Ensure the header byte-order is most-significant byte first.
+X      */
+X      lsb_first=1;
+X      if (*(char *) &lsb_first)
+X        for (i=0; i < header.ncolors; i++)
+X        {
+X          MSBFirstOrderLong((char *) &colors[i].pixel,sizeof(unsigned long));
+X          MSBFirstOrderShort((char *) &colors[i].red,3*sizeof(unsigned short));
+X        }
+X    }
+X  /*
+X    Allocate the pixel buffer.
+X  */
+X  if (ximage->format == ZPixmap)
+X    packets=ximage->bytes_per_line*ximage->height;
+X  else
+X    packets=ximage->bytes_per_line*ximage->height*ximage->depth;
+X  ximage->data=(char *) malloc(packets*sizeof(unsigned char));
+X  if (ximage->data == (char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  status=ReadData(ximage->data,1,(int) packets,image->file);
+X  if (status == False)
+X    {
+X      Warning("unable to read dump pixmap",image->filename);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  /*
+X    Convert image to MIFF format.
+X  */
+X  image->columns=ximage->width;
+X  image->rows=ximage->height;
+X  /*
+X    Initial image comment.
+X  */
+X  if ((ximage->red_mask > 0) || (ximage->green_mask > 0) ||
+X      (ximage->blue_mask > 0))
+X    image->class=DirectClass;
+X  else
+X    image->class=PseudoClass;
+X  image->colors=header.ncolors;
+X  image->packets=image->columns*image->rows;
+X  image->pixels=(RunlengthPacket *)
+X    malloc((unsigned int) image->packets*sizeof(RunlengthPacket));
+X  image->comments=(char *)
+X    malloc((strlen(image->filename)+2048)*sizeof(char));
+X  if ((image->pixels == (RunlengthPacket *) NULL) ||
+X      (image->comments == (char *) NULL))
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      DestroyImage(image);
+X      return((Image *) NULL);
+X    }
+X  (void) sprintf(image->comments,"\n  Imported from X11 dump file:  %s\n",
+X    image->filename);
+X  q=image->pixels;
+X  switch (image->class)
+X  {
+X    case DirectClass:
+X    {
+X      register unsigned long
+X        color;
+X
+X      unsigned long
+X        blue_mask,
+X        blue_shift,
+X        green_mask,
+X        green_shift,
+X        red_mask,
+X        red_shift;
+X
+X      /*
+X        Determine shift and mask for red, green, and blue.
+X      */
+X      red_mask=ximage->red_mask;
+X      red_shift=0;
+X      while ((red_mask & 0x01) == 0)
+X      {
+X        red_mask>>=1;
+X        red_shift++;
+X      }
+X      green_mask=ximage->green_mask;
+X      green_shift=0;
+X      while ((green_mask & 0x01) == 0)
+X      {
+X        green_mask>>=1;
+X        green_shift++;
+X      }
+X      blue_mask=ximage->blue_mask;
+X      blue_shift=0;
+X      while ((blue_mask & 0x01) == 0)
+X      {
+X        blue_mask>>=1;
+X        blue_shift++;
+X      }
+X      /*
+X        Convert X image to DirectClass packets.
+X      */
+X      if (image->colors != 0)
+X        for (y=0; y < image->rows; y++)
+X        {
+X          for (x=0; x < image->columns; x++)
+X          {
+X            pixel=XGetPixel(ximage,x,y);
+X            index=(unsigned short) ((pixel >> red_shift) & red_mask);
+X            q->red=(unsigned char) (colors[index].red >> 8);
+X            index=(unsigned short) ((pixel >> green_shift) & green_mask);
+X            q->green=(unsigned char) (colors[index].green >> 8);
+X            index=(unsigned short) ((pixel >> blue_shift) & blue_mask);
+X            q->blue=(unsigned char) (colors[index].blue >> 8);
+X            q->index=0;
+SHAR_EOF
+true || echo 'restore of ImageMagick/decode.c failed'
+fi
+echo 'End of ImageMagick part 17'
+echo 'File ImageMagick/decode.c is continued in part 18'
+echo 18 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

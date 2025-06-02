@@ -1,0 +1,1181 @@
+From gww@beatnix.UUCP Sat Mar 12 18:58:54 1988
+Path: uunet!lll-winken!lll-tis!elxsi!beatnix!gww
+From: gww@beatnix.UUCP (Gary Winiger)
+Newsgroups: alt.sources
+Subject: Password aging package for 4.3BSD Part 1 of 3.
+Message-ID: <743@elxsi.UUCP>
+Date: 12 Mar 88 23:58:54 GMT
+Sender: nobody@elxsi.UUCP
+Reply-To: gww@beatnix.UUCP (Gary Winiger)
+Organization: ELXSI Super Computers, San Jose
+Lines: 1166
+
+
+	Some time ago a request was posted to the net (comp.bugs.4bsd, I
+believe) for a password aging package for 4.3BSD.  At that time I was thinking
+about doing one, but didn't post a follow up.  I've since completed the package
+I was thinking about.  The kind folk at Elxsi have allowed me to post it for
+the use of the Berkeley Unix community.  Since it's rather long (3 shar's), I
+don't feel it's right to post it to a bugs group.  I've mailed a copy to Keith
+Bostic (ucbvax!bostic).  This posting and the following 2 postings are what
+was mailed to Keith and is running at Elxsi.
+
+	The package is three shars.  Parts 1 and 2 are diffs and documentation,
+Part 3 is new administrative code.
+
+	The package provides a shadow password file that is read only to root
+that contains the passwords.  /etc/passwd retains a place holder for the
+passwords.  The GECOS field in the shadow password file is formated to contain
+password aging information.  Login(1) will check to see if the users password
+has expired and demand the user change password before completing the login
+process.
+
+	On Monday 14 Mar, I'll be starting a new position at Sun.  At least
+for a little while, I'll still be getting Email through Elxsi so I can respond
+to any immediate questions or requests.
+
+The following is the README from the shars:
+   ``The files in this shar comprise enhancements made to the 4.3BSD password
+system at ELXSI they will be avaliable on ELXSI ENIX BSD systems with the
+forthcoming 4.3BSD release of ENIX BSD.  They are offered to the UNIX community
+so that they may be of use to others.  There are context diffs for the 4.3
+utilities and man pages modified as well as two new utilities and accompaning
+man pages.  The file ``readme.ms'' is an extract from the ELXSI document
+``Installing and Operating ENIX BSD'' which is part of the ELXSI 4.3BSD ENIX
+release.
+	
+	The new code and man pages is available for all to use with the
+following provisos:
+
+	o It is copyrighted by ELXSI.
+ 	o It may be distributed within the following restrictions:
+ 		(1) It may not be sold at a profit.
+ 		(2) The credit and Copyright notice must remain intact.
+ 	o It may be distributed with other software by a commercial
+	  vendor, provided that it is included at no additional charge.
+
+	Please report bugs to "...!{sun,uunet}!elxsi!gww".
+
+Gary..''
+
+Gary..
+{ucbvax!sun,uunet,lll-lcc!lll-tis,amdahl!altos86,bridge2}!elxsi!gww
+#	This is a shell archive.
+#	Remove everything above and including the cut line.
+#	Then run the rest of the file through sh.
+-----cut here-----cut here-----cut here-----cut here-----
+#!/bin/sh
+# shar:	Shell Archiver
+#	Run the following text with /bin/sh to create:
+#	README
+#	adduser.8e.diff
+#	getpwent.3e.diff
+#	mkshadow.8e
+#	passwd.1e.diff
+#	passwd.5e.diff
+#	pwadm.8e
+#	pwd.h.diff
+#	readme.ms
+#	vipw.8e.diff
+# This archive created: Sat Mar 12 14:58:21 1988
+echo shar: extracting README '(1006 characters)'
+sed 's/^XX//' << \SHAR_EOF > README
+XX	The files in this shar comprise enhancements made to the 4.3BSD password
+XXsystem at ELXSI they will be avaliable on ELXSI ENIX BSD systems with the
+XXforthcoming 4.3BSD release of ENIX BSD.  They are offered to the UNIX community
+XXso that they may be of use to others.  There are context diffs for the 4.3
+XXutilities and man pages modified as well as two new utilities and accompaning
+XXman pages.  The file ``readme.ms'' is an extract from the ELXSI document
+XX``Installing and Operating ENIX BSD'' which is part of the ELXSI 4.3BSD ENIX
+XXrelease.
+XX	
+XX	The new code and man pages is available for all to use with the
+XXfollowing provisos:
+XX
+XX	o It is copyrighted by ELXSI.
+XX 	o It may be distributed within the following restrictions:
+XX 		(1) It may not be sold at a profit.
+XX 		(2) The credit and Copyright notice must remain intact.
+XX 	o It may be distributed with other software by a commercial
+XX	  vendor, provided that it is included at no additional charge.
+XX
+XX	Please report bugs to "...!{sun,uunet}!elxsi!gww".
+XX
+XXGary..
+SHAR_EOF
+if test 1006 -ne "`wc -c README`"
+then
+echo shar: error transmitting README '(should have been 1006 characters)'
+fi
+echo shar: extracting adduser.8e.diff '(7181 characters)'
+sed 's/^XX//' << \SHAR_EOF > adduser.8e.diff
+XX*** /tmp/,RCSt1001915	Wed Jan 13 18:12:40 1988
+XX--- adduser.8e	Wed Jan 13 18:07:26 1988
+XX***************
+XX*** 1,6 ****
+XX! .\"	$Header: adduser.8e,v 1.1 87/12/24 13:12:49 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	adduser.8e,v $
+XX  .\" Revision 1.1  87/12/24  13:12:49  gww
+XX  .\" Initial revision
+XX  .\" 
+XX--- 1,9 ----
+XX! .\"	$Header: adduser.8e,v 1.2 88/01/13 18:07:15 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	adduser.8e,v $
+XX+ .\" Revision 1.2  88/01/13  18:07:15  gww
+XX+ .\" Add password aging information.
+XX+ .\" 
+XX  .\" Revision 1.1  87/12/24  13:12:49  gww
+XX  .\" Initial revision
+XX  .\" 
+XX***************
+XX*** 11,17 ****
+XX  .\"
+XX  .\"	@(#)adduser.8	6.2 (Berkeley) 5/23/86
+XX  .\"
+XX! .TH ADDUSER 8 "May 23, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  adduser \- procedure for adding new users
+XX--- 14,20 ----
+XX  .\"
+XX  .\"	@(#)adduser.8	6.2 (Berkeley) 5/23/86
+XX  .\"
+XX! .TH ADDUSER 8E "May 23, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  adduser \- procedure for adding new users
+XX***************
+XX*** 20,77 ****
+XX  .I /etc/passwd.
+XX  An account can be added by editing a line into the passwd file; this must
+XX  be done with the password file locked e.g. by using
+XX! .IR vipw (8).
+XX  .PP
+XX  A new user is given a group and user id.
+XX  User id's should be distinct across a system, since they
+XX  are used to control access to files.
+XX  Typically, users working on
+XX! similar projects will be put in the same group.  Thus at UCB we have
+XX! groups for system staff, faculty, graduate students, and a few special
+XX! groups for large projects.  System staff is group \*(lq10\*(rq for historical
+XX! reasons, and the super-user is in this group.
+XX  .PP
+XX! A skeletal account for a new user \*(lqernie\*(rq would look like:
+XX  .IP
+XX! ernie::235:20:& Kovacs,508E,7925,6428202:/mnt/grad/ernie:/bin/csh
+XX  .PP
+XX! The first field is the login name \*(lqernie\*(rq.  The next field is the
+XX! encrypted password which is not given and must be initialized using
+XX  .IR passwd (1E).
+XX  The next two fields are the user and group id's.
+XX! Traditionally, users in group 20 are graduate students and have account
+XX! names with numbers in the 200's.
+XX! The next field gives information about ernie's real name, office and office
+XX  phone and home phone.
+XX  This information is used by the
+XX  .IR finger (1)
+XX  program.
+XX! From this information we can tell that ernie's real name is
+XX! \*(lqErnie Kovacs\*(rq (the & here serves to repeat \*(lqernie\*(rq
+XX! with appropriate capitalization), that his office is 508 Evans Hall,
+XX! his extension is x2-7925, and this his home phone number is 642-8202.
+XX! You can modify the
+XX! .IR finger (1)
+XX! program if necessary to allow different information to be encoded in
+XX! this field.  The UCB version of finger knows several things particular
+XX! to Berkeley \- that phone extensions start \*(lq2\-\*(rq, that offices ending
+XX! in \*(lqE\*(rq are in Evans Hall and that offices ending in \*(lqC\*(rq are
+XX! in Cory Hall. The 
+XX  .IR chfn (1)
+XX  program allows users to change this information.
+XX  .PP
+XX  The final two fields give a login directory and a login shell name.
+XX  Traditionally, user files live on a file system different from /usr.
+XX! Typically the user file systems are mounted on a directories in the root
+XX! named sequentially starting from from the beginning of the alphabet,
+XX! eg /a, /b, /c, etc.
+XX  On each such file system there are subdirectories there for each group
+XX! of users, i.e.: \*(lq/a/staff\*(rq and \*(lq/b/prof\*(rq.
+XX  This is not strictly necessary but keeps the number of files in the
+XX  top level directories reasonably small.
+XX  .PP
+XX  The login shell will default to \*(lq/bin/sh\*(rq if none is given.
+XX! Most users at Berkeley choose \*(lq/bin/csh\*(rq so this is usually
+XX  specified here. The 
+XX  .IR chsh (1)
+XX  program allows users to change their login shell to one of the
+XX--- 23,71 ----
+XX  .I /etc/passwd.
+XX  An account can be added by editing a line into the passwd file; this must
+XX  be done with the password file locked e.g. by using
+XX! .IR vipw (8E).
+XX  .PP
+XX  A new user is given a group and user id.
+XX  User id's should be distinct across a system, since they
+XX  are used to control access to files.
+XX  Typically, users working on
+XX! similar projects will be put in the same group.  Thus at \s-1ELXSI\s0 we have
+XX! groups for system staff, general users, outside users, and a few special
+XX! groups for large projects.
+XX  .PP
+XX! A skeletal account for a new user \*(lqjoe\*(rq would look like:
+XX  .IP
+XX! joe:***:51:3:& Kool,ELXSI San Jose,7000,4085551212:/usr1/staff/joe:/bin/csh
+XX  .PP
+XX! The first field is the login name \*(lqjoe\*(rq.  The next field is
+XX! a place holder for the
+XX  .IR passwd (1E).
+XX  The next two fields are the user and group id's.
+XX! The next field gives information about joe's real name, office and office
+XX  phone and home phone.
+XX  This information is used by the
+XX  .IR finger (1)
+XX  program.
+XX! From this information we can tell that joe's real name is
+XX! \*(lqJoe Kool\*(rq (the & here serves to repeat \*(lqjoe\*(rq
+XX! with appropriate capitalization), that his office is at ELXSI San Jose,
+XX! his extension is x7000, and his home phone number is 408-555-1212.
+XX! The 
+XX  .IR chfn (1)
+XX  program allows users to change this information.
+XX  .PP
+XX  The final two fields give a login directory and a login shell name.
+XX  Traditionally, user files live on a file system different from /usr.
+XX! Typically the user file systems are mounted on directories in the root
+XX! named sequentially,
+XX! eg /usr1, /usr2, /usr3, etc.
+XX  On each such file system there are subdirectories there for each group
+XX! of users, i.e.: \*(lq/usr1/staff\*(rq and \*(lq/usr2/guest\*(rq.
+XX  This is not strictly necessary but keeps the number of files in the
+XX  top level directories reasonably small.
+XX  .PP
+XX  The login shell will default to \*(lq/bin/sh\*(rq if none is given.
+XX! Most users at \s-1ELXSI\s0 choose \*(lq/bin/csh\*(rq so this is usually
+XX  specified here. The 
+XX  .IR chsh (1)
+XX  program allows users to change their login shell to one of the
+XX***************
+XX*** 90,103 ****
+XX  New users should be given copies of these files which, for instance,
+XX  arrange to use
+XX  .IR tset (1)
+XX  automatically at each login.
+XX  .SH FILES
+XX  .ta 2i
+XX  /etc/passwd	password file
+XX  .br
+XX  /usr/skel	skeletal login directory
+XX  .SH SEE ALSO
+XX! passwd(1), finger(1), chsh(1), chfn(1), passwd(5), vipw(8)
+XX  .SH BUGS
+XX  User information should be stored in its own data base separate from
+XX  the password file.
+XX--- 84,113 ----
+XX  New users should be given copies of these files which, for instance,
+XX  arrange to use
+XX  .IR tset (1)
+XX+ and
+XX+ .IR msgs (1)
+XX  automatically at each login.
+XX+ .PP
+XX+ After a new user has been added to the password file,
+XX+ .IR passwd (1E)
+XX+ must be used to provide the initial password.
+XX+ If a shadow password file has been implemented,
+XX+ .IR pwadm (8E)
+XX+ may now be used to initialize password aging and/or change the password
+XX+ criteria.
+XX  .SH FILES
+XX  .ta 2i
+XX  /etc/passwd	password file
+XX  .br
+XX  /usr/skel	skeletal login directory
+XX+ .br
+XX+ /etc/shadowpw	shadow password file
+XX  .SH SEE ALSO
+XX! passwd(1E), finger(1), chsh(1), chfn(1), passwd(5E), mkshadow(8E), pwadm(8E),
+XX! vipw(8E)
+XX! .br
+XX! ``PASSWORD SECURITY ENHANCEMENTS'' in
+XX! .I Installing and Operating ENIX BSD
+XX  .SH BUGS
+XX  User information should be stored in its own data base separate from
+XX  the password file.
+SHAR_EOF
+if test 7181 -ne "`wc -c adduser.8e.diff`"
+then
+echo shar: error transmitting adduser.8e.diff '(should have been 7181 characters)'
+fi
+echo shar: extracting getpwent.3e.diff '(2340 characters)'
+sed 's/^XX//' << \SHAR_EOF > getpwent.3e.diff
+XX*** /tmp/,RCSt1010256	Mon Jan 11 12:55:42 1988
+XX--- getpwent.3e	Mon Jan 11 12:51:10 1988
+XX***************
+XX*** 1,6 ****
+XX! .\"	$Header: getpwent.3e,v 1.1 87/03/24 10:50:16 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	getpwent.3e,v $
+XX  .\" Revision 1.1  87/03/24  10:50:16  gww
+XX  .\" Initial revision
+XX  .\" 
+XX--- 1,9 ----
+XX! .\"	$Header: getpwent.3e,v 1.2 88/01/11 12:50:59 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	getpwent.3e,v $
+XX+ .\" Revision 1.2  88/01/11  12:50:59  gww
+XX+ .\" Add shadow password file information.
+XX+ .\" 
+XX  .\" Revision 1.1  87/03/24  10:50:16  gww
+XX  .\" Initial revision
+XX  .\" 
+XX***************
+XX*** 7,13 ****
+XX  .\"
+XX  .\"	@(#)getpwent.3	6.3 (Berkeley) 5/15/86
+XX  .\"
+XX! .TH GETPWENT 3  "May 15, 1986"
+XX  .AT 3
+XX  .SH NAME
+XX  getpwent, getpwuid, getpwnam, setpwent, endpwent, setpwfile \- get password file entry
+XX--- 10,16 ----
+XX  .\"
+XX  .\"	@(#)getpwent.3	6.3 (Berkeley) 5/15/86
+XX  .\"
+XX! .TH GETPWENT 3E  "May 15, 1986"
+XX  .AT 3
+XX  .SH NAME
+XX  getpwent, getpwuid, getpwnam, setpwent, endpwent, setpwfile \- get password file entry
+XX***************
+XX*** 53,59 ****
+XX  and
+XX  .I pw_comment
+XX  are unused; the others have meanings described in
+XX! .IR passwd (5).
+XX  .PP
+XX  Searching of the password file is done using the \fIndbm\fP
+XX  database access routines.
+XX--- 56,62 ----
+XX  and
+XX  .I pw_comment
+XX  are unused; the others have meanings described in
+XX! .IR passwd (5E).
+XX  .PP
+XX  Searching of the password file is done using the \fIndbm\fP
+XX  database access routines.
+XX***************
+XX*** 90,99 ****
+XX  If this is desired,
+XX  .I endpwent
+XX  should be called prior to it.
+XX  .SH FILES
+XX! /etc/passwd
+XX  .SH "SEE ALSO"
+XX! getlogin(3), getgrent(3), passwd(5)
+XX  .SH DIAGNOSTICS
+XX  The routines
+XX  .IR getpwent ,
+XX--- 93,117 ----
+XX  If this is desired,
+XX  .I endpwent
+XX  should be called prior to it.
+XX+ .SH NOTES
+XX+ If it is necessary to access the encrypted password, code similar to the
+XX+ following may be used to detect the presence of the shadow password file
+XX+ and set the appropriate password file name before calling the
+XX+ .IR getpwent (3E)
+XX+ routines:
+XX+ .sp
+XX+ .RS
+XX+ 	if (access(SHADOWPW, F_OK) == 0)
+XX+ .br
+XX+ 		setpwfile(SHADOWPW);
+XX+ .RE
+XX  .SH FILES
+XX! .ta \w'/etc/shadowpw'u+0.5i
+XX! /etc/passwd	readable password file
+XX! .br
+XX! /etc/shadowpw	shadow password file
+XX  .SH "SEE ALSO"
+XX! access(2), getlogin(3), getgrent(3), passwd(5E)
+XX  .SH DIAGNOSTICS
+XX  The routines
+XX  .IR getpwent ,
+SHAR_EOF
+if test 2340 -ne "`wc -c getpwent.3e.diff`"
+then
+echo shar: error transmitting getpwent.3e.diff '(should have been 2340 characters)'
+fi
+echo shar: extracting mkshadow.8e '(2222 characters)'
+sed 's/^XX//' << \SHAR_EOF > mkshadow.8e
+XX.\"	$Header: mkshadow.8e,v 1.1 87/12/24 13:21:12 gww Exp $ ENIX BSD
+XX.\"
+XX.\" $Log:	mkshadow.8e,v $
+XX.\" Revision 1.1  87/12/24  13:21:12  gww
+XX.\" Initial revision
+XX.\" 
+XX.\"
+XX.\" Copyright (c) 1987 by ELXSI.
+XX.\"
+XX.\" This manual page was written by Gary Winiger at ELXSI. It may be
+XX.\" distributed within the following restrictions:
+XX.\" 	(1) It may not be sold at a profit.
+XX.\" 	(2) This credit and Copyright notice must remain intact.
+XX.\" This software may be distributed with other software by a commercial
+XX.\" vendor, provided that it is included at no additional charge.
+XX.\"
+XX.\" Please report bugs to "...!{sun,uunet}!elxsi!gww".
+XX.\"
+XX.TH MKSHADOW 8E "December 25, 1987"
+XX.UC 4
+XX.SH NAME
+XXmkshadow \- make a shadow password file from \fI/etc/passwd\fP
+XX.SH SYNOPSIS
+XX.B mkshadow
+XX.SH DESCRIPTION
+XX.PP
+XX.I Mkshadow
+XXtakes a normal BSD password file and creates a shadow password file from it.
+XXThe user passwords are removed from
+XX.IR /etc/passwd ,
+XXreplaced with ``***'', and placed in the shadow password file.
+XXThe GECOS field of the shadow password file is formatted for different
+XXpassword criteria and password aging information.
+XXThe default password criteria is set to the normal BSD criteria.
+XXPassword aging is not enabled.
+XXThe shadow password file is only accessible to root.
+XX.PP
+XXThis program is meant to be used once when setting up the shadow password file.
+XXA guard is made against subsequent use which would destroy the password
+XXinformation in the shadow password file.
+XX.PP
+XX.I /etc/passwd
+XXand the shadow password file are sorted by user ID and user name so that
+XXthey may be easily kept in sync by
+XX.IR vipw (8E).
+XX.SH DIAGNOSTICS
+XX\fB A shadow password file already exists, remaking will destroy
+XXexisting passwords
+XX.br
+XXMkshadow aborted \fR
+XX.br
+XXIf mkshadow were to run, it would destroy the existing passwords.
+XXAn exit value of 1 is returned.
+XX.SH SEE ALSO
+XXpasswd(5E),
+XXadduser(8E),
+XXpwadm(8E),
+XXvipw(8E)
+XX.br
+XX``PASSWORD SECURITY ENHANCEMENTS'' in
+XX.I Installing and Operating ENIX BSD
+XX.SH FILES
+XX.ta \w'/etc/shadowpw'u+0.5i
+XX/etc/passwd	readable password file
+XX.br
+XX/etc/shadowpw	shadow password file
+XX.SH BUGS
+XXThe password file and shadow password file are sorted as described above.
+XX.SH AUTHOR
+XXGary Winiger
+XX.br
+XXCopyright \(co 1987 by ELXSI
+SHAR_EOF
+if test 2222 -ne "`wc -c mkshadow.8e`"
+then
+echo shar: error transmitting mkshadow.8e '(should have been 2222 characters)'
+fi
+echo shar: extracting passwd.1e.diff '(2639 characters)'
+sed 's/^XX//' << \SHAR_EOF > passwd.1e.diff
+XX*** /tmp/,RCSt1003019	Thu Mar 10 10:32:03 1988
+XX--- passwd.1e	Thu Mar 10 10:31:34 1988
+XX***************
+XX*** 1,6 ****
+XX! .\"	$Header: passwd.1e,v 1.1 88/03/10 10:27:17 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	passwd.1e,v $
+XX  .\" Revision 1.1  88/03/10  10:27:17  gww
+XX  .\" Initial revision
+XX  .\" 
+XX--- 1,9 ----
+XX! .\"	$Header: passwd.1e,v 1.2 88/03/10 10:31:19 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	passwd.1e,v $
+XX+ .\" Revision 1.2  88/03/10  10:31:19  gww
+XX+ .\" Describe strong password criteria.
+XX+ .\" 
+XX  .\" Revision 1.1  88/03/10  10:27:17  gww
+XX  .\" Initial revision
+XX  .\" 
+XX***************
+XX*** 11,17 ****
+XX  .\"
+XX  .\"	@(#)passwd.1	6.4 (Berkeley) 6/5/86
+XX  .\"
+XX! .TH PASSWD 1 "June 5, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  chfn, chsh, passwd \- change password file information
+XX--- 14,20 ----
+XX  .\"
+XX  .\"	@(#)passwd.1	6.4 (Berkeley) 6/5/86
+XX  .\"
+XX! .TH PASSWD 1E "June 5, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  chfn, chsh, passwd \- change password file information
+XX***************
+XX*** 38,47 ****
+XX  The caller must supply both.
+XX  The new password must be typed twice to forestall mistakes.
+XX  .PP
+XX! New passwords must be at least four characters long if they use
+XX  a sufficiently rich alphabet and at least six characters long
+XX  if monocase.
+XX  These rules are relaxed if you are insistent enough.
+XX  .PP
+XX  Only the owner of the name or the super-user may change a password;
+XX  the owner must prove he knows the old password.
+XX--- 41,57 ----
+XX  The caller must supply both.
+XX  The new password must be typed twice to forestall mistakes.
+XX  .PP
+XX! The system administrator may select password criteria for a user.
+XX! The ``standard'' BSD criteria requires that
+XX! new passwords must be at least four characters long if they use
+XX  a sufficiently rich alphabet and at least six characters long
+XX  if monocase.
+XX  These rules are relaxed if you are insistent enough.
+XX+ The ``strong'' password criteria requires that
+XX+ new passwords must be at least seven characters long and be selected from
+XX+ the full printable ASCII character set.
+XX+ At least one but no more than four lower case, upper case, and digits and 
+XX+ special characters may be selected.
+XX  .PP
+XX  Only the owner of the name or the super-user may change a password;
+XX  the owner must prove he knows the old password.
+XX***************
+XX*** 105,111 ****
+XX  .br
+XX  /etc/shells	The list of approved shells
+XX  .SH "SEE ALSO"
+XX! login(1), finger(1), passwd(5), crypt(3)
+XX  .br
+XX  Robert Morris and Ken Thompson,
+XX  .I UNIX password security
+XX--- 115,121 ----
+XX  .br
+XX  /etc/shells	The list of approved shells
+XX  .SH "SEE ALSO"
+XX! login(1), finger(1), passwd(5E), crypt(3), pwadm(8E)
+XX  .br
+XX  Robert Morris and Ken Thompson,
+XX  .I UNIX password security
+SHAR_EOF
+if test 2639 -ne "`wc -c passwd.1e.diff`"
+then
+echo shar: error transmitting passwd.1e.diff '(should have been 2639 characters)'
+fi
+echo shar: extracting passwd.5e.diff '(4755 characters)'
+sed 's/^XX//' << \SHAR_EOF > passwd.5e.diff
+XX*** /tmp/,RCSt1010243	Mon Jan 11 12:55:03 1988
+XX--- passwd.5e	Mon Jan 11 11:26:53 1988
+XX***************
+XX*** 1,6 ****
+XX! .\"	$Header: passwd.5e,v 1.1 87/12/24 12:52:26 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	passwd.5e,v $
+XX  .\" Revision 1.1  87/12/24  12:52:26  gww
+XX  .\" Initial revision
+XX  .\" 
+XX--- 1,9 ----
+XX! .\"	$Header: passwd.5e,v 1.2 88/01/11 11:26:42 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	passwd.5e,v $
+XX+ .\" Revision 1.2  88/01/11  11:26:42  gww
+XX+ .\" Add shadow password file information.
+XX+ .\" 
+XX  .\" Revision 1.1  87/12/24  12:52:26  gww
+XX  .\" Initial revision
+XX  .\" 
+XX***************
+XX*** 7,13 ****
+XX  .\"
+XX  .\"	@(#)passwd.5	6.2 (Berkeley) 1/8/86
+XX  .\"
+XX! .TH PASSWD 5  "January 8, 1986"
+XX  .AT 3
+XX  .SH NAME
+XX  passwd \- password file
+XX--- 10,16 ----
+XX  .\"
+XX  .\"	@(#)passwd.5	6.2 (Berkeley) 1/8/86
+XX  .\"
+XX! .TH PASSWD 5E  "January 8, 1986"
+XX  .AT 3
+XX  .SH NAME
+XX  passwd \- password file
+XX***************
+XX*** 22,27 ****
+XX--- 25,33 ----
+XX  .HP 10
+XX  encrypted password
+XX  .br
+XX+ or, if a shadow password file exists, a place holder for the password
+XX+ (\*(lq***\*(rq)
+XX+ .br
+XX  .ns
+XX  .HP 10
+XX  numerical user ID
+XX***************
+XX*** 42,48 ****
+XX  .HP 10
+XX  program to use as Shell
+XX  .PP
+XX! The name may contain `&', meaning insert the login name.
+XX  This information is set by the
+XX  .IR chfn (1)
+XX  command and used by the
+XX--- 48,55 ----
+XX  .HP 10
+XX  program to use as Shell
+XX  .PP
+XX! The user's real name may contain `&', meaning insert the login name with
+XX! appropriate capitalization.
+XX  This information is set by the
+XX  .IR chfn (1)
+XX  command and used by the
+XX***************
+XX*** 49,76 ****
+XX  .IR finger (1)
+XX  command.
+XX  .PP
+XX! This is an ASCII file.  Each field within each user's entry
+XX  is separated from the next by a colon.
+XX  Each user is separated from the next by a new-line.
+XX! If the password field is null, no password is demanded;
+XX  if the Shell field is null, then
+XX  .I /bin/sh
+XX  is used.
+XX  .PP
+XX! This file resides in directory /etc.
+XX! Because of the encrypted
+XX! passwords, it can and does have general read
+XX! permission and can be used, for example,
+XX  to map numerical user ID's to names.
+XX  .PP
+XX  Appropriate precautions must be taken to lock the file against changes
+XX  if it is to be edited with a text editor;
+XX! .IR vipw (8)
+XX  does the necessary locking.
+XX  .SH FILES
+XX! /etc/passwd
+XX  .SH "SEE ALSO"
+XX! getpwent(3), login(1), crypt(3), passwd(1), group(5), chfn(1), finger(1),
+XX! vipw(8), adduser(8)
+XX  .SH BUGS
+XX  User information (name, office, etc.) should be stored elsewhere.
+XX--- 56,141 ----
+XX  .IR finger (1)
+XX  command.
+XX  .PP
+XX! If a shadow password file exists, it contains for each user the following 
+XX! information:
+XX! .HP 10
+XX! name (login name, contains no upper case)
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! encrypted password
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! numerical user ID
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! numerical group ID
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! password criteria, aging period, time of last password change, time old
+XX! password saved, old password
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! initial working directory
+XX! .br
+XX! .ns
+XX! .HP 10
+XX! program to use as Shell
+XX! .PP
+XX! These are ASCII files.  Each field within each user's entry
+XX  is separated from the next by a colon.
+XX  Each user is separated from the next by a new-line.
+XX! If the encrypted password field is null, no password is demanded;
+XX  if the Shell field is null, then
+XX  .I /bin/sh
+XX  is used.
+XX  .PP
+XX! These files resides in directory /etc.
+XX! .I Passwd
+XX! has general read
+XX  to map numerical user ID's to names.
+XX+ If a shadow password file exists, it contains the encrypted passwords and
+XX+ is only accessible to root.
+XX  .PP
+XX  Appropriate precautions must be taken to lock the file against changes
+XX  if it is to be edited with a text editor;
+XX! .IR vipw (8E)
+XX  does the necessary locking.
+XX+ .PP
+XX+ If a shadow password file exists, it and
+XX+ .I /etc/passwd
+XX+ are sorted by user ID and login name, and kept in sync by
+XX+ .IR vipw .
+XX+ .SH NOTES
+XX+ If it is necessary to access the encrypted password, code similar to the
+XX+ following may be used to detect the presence of the shadow password file
+XX+ and set the appropriate password file name before calling the
+XX+ .IR getpwent (3E)
+XX+ routines:
+XX+ .sp
+XX+ .RS
+XX+ 	if (access(SHADOWPW, F_OK) == 0)
+XX+ .br
+XX+ 		setpwfile(SHADOWPW);
+XX+ .RE
+XX  .SH FILES
+XX! .ta \w'/etc/shadowpw'u+0.5i
+XX! /etc/passwd	readable password file
+XX! .br
+XX! /etc/shadowpw	shadow password file
+XX  .SH "SEE ALSO"
+XX! access(2),
+XX! getpwent(3E), login(1), crypt(3), passwd(1), group(5), chfn(1), finger(1),
+XX! vipw(8E), adduser(8E), mkshadow(8E), pwadm(8E)
+XX  .SH BUGS
+XX  User information (name, office, etc.) should be stored elsewhere.
+XX+ .PP
+XX+ If a shadow password file exists, the password files are sorted
+XX+ by user ID and user name.
+XX+ If more than one user name has the same user ID, the user name listed by
+XX+ .IR ls (1)
+XX+ will be based on the order of the sort.
+SHAR_EOF
+if test 4755 -ne "`wc -c passwd.5e.diff`"
+then
+echo shar: error transmitting passwd.5e.diff '(should have been 4755 characters)'
+fi
+echo shar: extracting pwadm.8e '(3708 characters)'
+sed 's/^XX//' << \SHAR_EOF > pwadm.8e
+XX.\"	$Header: pwadm.8e,v 1.2 88/01/13 18:09:32 gww Exp $ ENIX BSD
+XX.\"
+XX.\" $Log:	pwadm.8e,v $
+XX.\" Revision 1.2  88/01/13  18:09:32  gww
+XX.\" Describe change in exempt user interpretation.
+XX.\" 
+XX.\" Revision 1.1  87/12/24  13:21:13  gww
+XX.\" Initial revision
+XX.\" 
+XX.\"
+XX.\" Copyright (c) 1987 by ELXSI.
+XX.\"
+XX.\" This manual page was written by Gary Winiger at ELXSI. It may be
+XX.\" distributed within the following restrictions:
+XX.\" 	(1) It may not be sold at a profit.
+XX.\" 	(2) This credit and Copyright notice must remain intact.
+XX.\" This software may be distributed with other software by a commercial
+XX.\" vendor, provided that it is included at no additional charge.
+XX.\"
+XX.\" Please report bugs to "...!{sun,uunet}!elxsi!gww".
+XX.\"
+XX.TH PWADM 8E "December 25, 1987"
+XX.UC 4
+XX.SH NAME
+XXpwadm \- administer password criteria and aging
+XX.SH SYNOPSIS
+XX.B pwadm
+XX[
+XX.B \-c
+XX|
+XX.B \-l
+XX|
+XX.B \-r
+XX|
+XX.B \-s
+XX] [
+XX.B \-p
+XXdays] [
+XX.B \-t
+XXcriteria] [user[\-user] ...]
+XX.SH DESCRIPTION
+XX.PP
+XXPwadm allows a system administrator to list or modify the contents of the
+XXshadow password file.
+XXIt operates on the specified user range providing an interface to the
+XXpassword criteria and aging information maintained in the GECOS field
+XXof the shadow password file.
+XX.PP
+XXThe available commands are:
+XX.TP 8
+XX.B \-c
+XXClear the password aging history.
+XX.TP
+XX.B \-l
+XXList shadow password file contents.
+XX.TP
+XX.B \-r
+XXReset the last password changed time to force a change at next login.
+XX.TP
+XX.B \-s
+XXSet (enable) password aging.
+XX.TP
+XX.BI \-p " days"
+XXDefine the aging period to be
+XX.I days
+XXdays.
+XX.TP
+XX.BI \-t " criteria"
+XXDefine the valid password criteria to be of
+XX.I criteria
+XXtype.
+XXValid password criteria are
+XX.B b
+XX(normal BSD criteria)
+XXand
+XX.B s
+XX(strong criteria).
+XX.PP
+XXOnly one of 
+XX.BR \-c ,
+XX.BR \-l ,
+XX.BR \-r ,
+XXor
+XX.B \-s
+XXmay be specified at a time.
+XXAn aging period of zero (0) days disables password aging.
+XXThe default aging period is 90 days for the
+XX\fB\-s\fP(et) command, for all other commands it is the aging period currently
+XXenabled.
+XXThe password criteria will only be changed if the 
+XX.B \-t
+XXcommand is used, the default is the normal BSD criteria.
+XXThe strong password criteria requires passwords be at least 7 characters in
+XXlength and that characters be selected from the full printable ASCII character
+XXset.
+XX.PP
+XXThe user range to be acted on may be specified as a single 
+XX.I user
+XXor 
+XX.I user1\c
+XX\-
+XX.IR user2 .
+XXWhere 
+XX.I user
+XXis either a user ID or login name.
+XXIf more than one user has the same user ID, and user ID is specified,
+XXall users with that user ID will be affected.
+XXIf no user range is specified, all users except those listed in
+XX.I /etc/exemptpw
+XXwill be acted on.
+XX.I /etc/exemptpw
+XXlists exempt user names one per line starting in the first column.
+XXLines beginning with an ``#'' in the first column are ignored and may
+XXbe used for comments.
+XXIf no exempt file exists, ``root'' and ``uucp'' are declared exempt.
+XX.PP
+XXIf a requested multi-user range includes ``exempt'' users, a message will be
+XXwritten to the standard error file and the action for those users will be
+XXskipped.
+XXIf a requested single user is an ``exempt'' user, a message requesting
+XXconfirmation of the action will be written to the standard error file and
+XXconfirmation read from the standard input file.
+XX.IR Yes (1)
+XXmay be used from within a shell to provide an appropriate blanket response.
+XX.SH DIAGNOSTICS
+XXSelf explanatory.
+XX.SH SEE ALSO
+XXyes(1),
+XXpasswd(5E),
+XXadduser(8E),
+XXmkshadow(8E),
+XXvipw(8E)
+XX.br
+XX``PASSWORD SECURITY ENHANCEMENTS'' in
+XX.I Installing and Operating ENIX BSD
+XX.SH FILES
+XX.ta \w'/etc/exemptpw'u+0.5i
+XX/etc/exemptpw	list of exempt user names.
+XX.br
+XX/etc/shadowpw	shadow password file
+XX.SH BUGS
+XXMore password criteria should exist.
+XX.SH AUTHOR
+XXGary Winiger
+XX.br
+XXCopyright \(co 1987 by ELXSI
+SHAR_EOF
+if test 3708 -ne "`wc -c pwadm.8e`"
+then
+echo shar: error transmitting pwadm.8e '(should have been 3708 characters)'
+fi
+echo shar: extracting pwd.h.diff '(2255 characters)'
+sed 's/^XX//' << \SHAR_EOF > pwd.h.diff
+XX*** /tmp/,RCSt1007012	Thu Dec 24 11:16:48 1987
+XX--- pwd.h	Thu Dec 24 11:16:17 1987
+XX***************
+XX*** 1,6 ****
+XX! /*	$Header: pwd.h,v 1.1 86/12/18 14:08:37 gww Exp $ ENIX BSD
+XX   *
+XX   * $Log:	pwd.h,v $
+XX   * Revision 1.1  86/12/18  14:08:37  gww
+XX   * Initial revision
+XX   * 
+XX--- 1,9 ----
+XX! /*	$Header: pwd.h,v 1.2 87/12/24 11:15:46 gww Exp $ ENIX BSD
+XX   *
+XX   * $Log:	pwd.h,v $
+XX+  * Revision 1.2  87/12/24  11:15:46  gww
+XX+  * Add shadow password file, password criteria, and password aging information.
+XX+  * 
+XX   * Revision 1.1  86/12/18  14:08:37  gww
+XX   * Initial revision
+XX   * 
+XX***************
+XX*** 20,22 ****
+XX--- 23,75 ----
+XX  };
+XX  
+XX  struct passwd *getpwent(), *getpwuid(), *getpwnam();
+XX+ 	
+XX+ #ifdef	elxsi
+XX+ 
+XX+ /* Name of the shadow password file. Contains password and aging info */
+XX+ 
+XX+ #define	SHADOWPW "/etc/shadowpw"
+XX+ #define	SHADOWPW_PAG "/etc/shadowpw.pag"
+XX+ #define	SHADOWPW_DIR "/etc/shadowpw.dir"
+XX+ 
+XX+ /*
+XX+  *	Shadow password file pwd->pw_gecos field contains:
+XX+  *
+XX+  *	<type>,<period>,<last_time>,<old_time>,<old_password>
+XX+  *
+XX+  *	<type>		= Type of password criteria to enforce (type int).
+XX+  *			  BSD_CRIT (0), normal BSD.
+XX+  *			  STR_CRIT (1), strong passwords.
+XX+  *	<period>	= Password aging period (type long).
+XX+  *			  0, no aging.
+XX+  *			  else, number of seconds in aging period.
+XX+  *	<last_time>	= Time (seconds from epoch) of the last password 
+XX+  *			  change (type long).
+XX+  *			  0, never changed.
+XX+  *	<old_time>	= Time (seconds from epoch) that the current password
+XX+  *			  was made the <old_password> (type long).
+XX+  *			  0, never changed.
+XX+  *	<old_password>	= Password (encrypted) saved for an aging <period> to
+XX+  *			  prevent reuse during that period (type char [20]).
+XX+  *			  "*******", no <old_password>.
+XX+  */
+XX+ 
+XX+ /* number of tries to change an aged password */
+XX+ 
+XX+ #define	CHANGE_TRIES 3
+XX+ 
+XX+ /* program to execute to change passwords */
+XX+ 
+XX+ #define	PASSWD_PROG "/bin/passwd"
+XX+ 
+XX+ /* Name of the password aging exempt user names and max number of entires */
+XX+ 
+XX+ #define	EXEMPTPW "/etc/exemptpw"
+XX+ #define MAX_EXEMPT 100
+XX+ 
+XX+ /* Password criteria to enforce */
+XX+ 
+XX+ #define BSD_CRIT 0		/* Normal BSD password criteria */
+XX+ #define STR_CRIT 1		/* Strong password criteria */
+XX+ #define MAX_CRIT 1
+XX+ #endif	elxsi
+SHAR_EOF
+if test 2255 -ne "`wc -c pwd.h.diff`"
+then
+echo shar: error transmitting pwd.h.diff '(should have been 2255 characters)'
+fi
+echo shar: extracting readme.ms '(3745 characters)'
+sed 's/^XX//' << \SHAR_EOF > readme.ms
+XX.SH
+XXPASSWORD SECURITY ENHANCEMENTS
+XX.PP
+XXPasswords are the primary method of user identification and authentication
+XXin UNIX.
+XXIf a user's password is compromised, there is no credibility to the
+XXlogin authentication.
+XXThe \*Qstandard\*U
+XX.I /etc/passwd
+XXfile is readable by all users and contains the encrypted user passwords.
+XXThis leaves these passwords open to attack.
+XXFurthermore, there is no standard mechanism in 4.3BSD to require users
+XXto periodically change passwords or to require stronger passwords.
+XX.PP
+XXThe security of a password is based on the alphabet from which it is chosen,
+XXits length, its life time and the rate at which guesses can be generated
+XXand tested.
+XXIncreasing the alphabet, increasing the length, or decreasing the lifetime
+XXor guess rate increases the security of a password.
+XX(For a discussion of password security, see \*QDepartment of Defense Password
+XXManagement Guideline\*U, CSC-STD-002-85, 12 April 1985.)
+XX.PP
+XXThe 4.3BSD password system commands have been modified and administrative
+XXcommands written to increase the security of the UNIX password system and
+XXthereby increase the credibility of user identification and authentication.
+XXThis package addresses the \*Qstandard\*U 4.3BSD shortcomings by providing a
+XXshadow password file, password aging, and selectable password criteria.
+XXWhen activated, the password field in
+XX.I /etc/passwd
+XXcontains a place holder.
+XXThe actual passwords are kept in the shadow password file (only accessible to
+XXroot).
+XXThe GECOS field in the shadow password file contains fields for password
+XXcriteria, the password aging period, and one level of retained password to
+XXguard against reuse of the same password within the password aging period.
+XX.PP
+XXIf the administrator takes no action, the password system will continue
+XXas in a \*Qstandard\*U 4.3BSD system.
+XXTo gain any of these password security enhancements a shadow password file
+XXmust exist.
+XXAll password system involved UNIX utilities (\fIlogin\fP(1), \fIpasswd\fP(1E),
+XX\fIsu\fP(1), \fIftpd\fP(8C), \fIuucpd\fP(8C), and \fIvipw\fP(8E))
+XXkey on the existence of a shadow password file to activate the enhancements.
+XXThe administrator may create the shadow password file with the
+XX\fImkshadow\fP(8E) command.
+XXOnce created, password aging and password criteria may be set for any user
+XXwith the \fIpwadm\fP(8E) command.
+XXAn example of adding new users is found in the \fIadduser\fP(8E) manual page.
+XXA description of the shadow password file is found in
+XX.I /usr/include/pwd.h
+XXand the \fIpasswd\fP(5E) manual page.
+XX.PP
+XXFor locally written code that must access the encrypted password, code similar
+XXto the following may be used to detect the presence of the shadow password
+XXfile and set the appropriate password file name before calling the
+XX\fIgetpwent\fP(3) routines:
+XX.BD
+XX	if (access(SHADOWPW, F_OK) == 0)
+XX		setpwfile(SHADOWPW);
+XX.DE
+XX.PP
+XXA stronger password criteria in addition to the \*Qstandard\*U 4.3BSD
+XXcriteria is provided.
+XXSource sites will find it easy to add their own criteria.
+XXBinary sites may request additional password criteria from ELXSI through
+XXtheir sales representative.
+XXThe stronger criteria requires password be chosen from the full printable
+XXASCII character set and be of at least 7 characters long.
+XX(The superuser may set any password.)
+XX.PP
+XXWhen password aging is first activated for a user or when a user's password
+XXaging history is cleared (with \fBpwadm -c\fP \fI user\fP), he will be
+XXrequired to change his password during the next login.
+XXWhenever an activated user's current password expires or when a user's
+XXaging history is reset (with \fBpwadm -r\fP \fI user\fP), he will be
+XXrequired to change his password at during the next login.
+XXIf the user does not successfully change his password, he will not be permitted
+XXto login.
+SHAR_EOF
+if test 3745 -ne "`wc -c readme.ms`"
+then
+echo shar: error transmitting readme.ms '(should have been 3745 characters)'
+fi
+echo shar: extracting vipw.8e.diff '(2095 characters)'
+sed 's/^XX//' << \SHAR_EOF > vipw.8e.diff
+XX*** /tmp/,RCSt1008437	Thu Dec 24 13:36:54 1987
+XX--- vipw.8e	Thu Dec 24 13:36:28 1987
+XX***************
+XX*** 1,6 ****
+XX! .\"	$Header: vipw.8e,v 1.1 87/06/10 14:38:27 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	vipw.8e,v $
+XX  .\" Revision 1.1  87/06/10  14:38:27  gww
+XX  .\" Initial revision
+XX  .\" 
+XX--- 1,9 ----
+XX! .\"	$Header: vipw.8e,v 1.2 87/12/24 13:36:16 gww Exp $ ENIX BSD
+XX  .\"
+XX  .\" $Log:	vipw.8e,v $
+XX+ .\" Revision 1.2  87/12/24  13:36:16  gww
+XX+ .\" Add shadow password file information.
+XX+ .\" 
+XX  .\" Revision 1.1  87/06/10  14:38:27  gww
+XX  .\" Initial revision
+XX  .\" 
+XX***************
+XX*** 11,17 ****
+XX  .\"
+XX  .\"	@(#)vipw.8	6.2 (Berkeley) 5/19/86
+XX  .\"
+XX! .TH VIPW 8 "May 19, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  vipw \- edit the password file
+XX--- 14,20 ----
+XX  .\"
+XX  .\"	@(#)vipw.8	6.2 (Berkeley) 5/19/86
+XX  .\"
+XX! .TH VIPW 8E "May 19, 1986"
+XX  .UC 4
+XX  .SH NAME
+XX  vipw \- edit the password file
+XX***************
+XX*** 31,37 ****
+XX  .IR root ,
+XX  and will not allow a password file with a ``mangled'' root entry
+XX  to be installed.
+XX  .SH SEE ALSO
+XX! passwd(1), passwd(5), adduser(8), mkpasswd(8)
+XX  .SH FILES
+XX  /etc/ptmp
+XX--- 34,65 ----
+XX  .IR root ,
+XX  and will not allow a password file with a ``mangled'' root entry
+XX  to be installed.
+XX+ .PP
+XX+ If a shadow password exists,
+XX+ .I /etc/passwd
+XX+ is passed to the editor to be updated.
+XX+ From the updated
+XX+ .I /etc/passwd
+XX+ and the old shadow password file, a new shadow password file is created.
+XX  .SH SEE ALSO
+XX! passwd(1E), passwd(5E), adduser(8E), mkpasswd(8), mkshadow(8E)
+XX  .SH FILES
+XX  /etc/ptmp
+XX+ .br
+XX+ /etc/sptmp
+XX+ .SH BUGS
+XX+ If a shadow password file exists, the password files are sorted
+XX+ by user ID and user name.
+XX+ If more than one user name has the same user ID, the user name listed by
+XX+ .IR ls (1)
+XX+ will be based on the order of the sort.
+XX+ .PP
+XX+ To disable an account by changing its password to an ungeneratable password
+XX+ in the shadow password file, it is safest to first delete that account's
+XX+ line in 
+XX+ .I /etc/passwd
+XX+ with 
+XX+ .IR vipw (8E)
+XX+ and then re\-install the account with a password field of \*(lq***\*(rq with
+XX+ a second invocation of
+XX+ .IR vipw .
+SHAR_EOF
+if test 2095 -ne "`wc -c vipw.8e.diff`"
+then
+echo shar: error transmitting vipw.8e.diff '(should have been 2095 characters)'
+fi
+#	End of shell archive
+exit 0
+
+

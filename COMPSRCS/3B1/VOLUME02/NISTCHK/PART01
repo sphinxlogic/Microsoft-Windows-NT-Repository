@@ -1,0 +1,959 @@
+Path: comp-sources-3b1
+From: zebra!vern (Vernon C. Hoxie)
+Subject:  v02i029:  NIST.timechk, version 2.1, Part01/02
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 41c2cca0 a782d1f2 eca4b6b8 ee982173
+
+Submitted-by: zebra!vern (Vernon C. Hoxie)
+Posting-number: Volume 2, Issue 29
+Archive-name: nistchk/part01
+
+[ Hello Boys and Girls..                                                   ]
+[ I have finally returned from my vacation and managed to wade my way all  ]
+[ the way through my mailbox.  This was the only source submitted during   ]
+[ the month I was away, so source postings are now up to date.  By the     ]
+[ time you read this, the corrupted files in the osu/uunet archives should ]
+[ be corrected.                                                            ]
+[ Keep those source postings coming and maybe I will be encouraged to dig  ]
+[ through my pile of floppies to find some more goodies for you all.       ]
+[ Maybe Santa will bring you another set of Dave's nifty utilities!        ]
+[ -- Dave                                                                  ]
+
+Dave:
+	This is revised version of NBS.timechk which is archived at osu
+as NBSchk.cpio.Z.  There will be some confusion with the current
+NISTime.cpio.Z.  That is from someone else.
+
+Vernon C. Hoxie                            {ncar,boulder}!scicom!zebra!vern
+3975 W. 29th Ave.                                       voice: 303-477-1780
+Denver, Colo., 80212                                     uucp: 303-455-2670
+
+------------------------------- cut here ----------------------------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 1 (of 2)."
+# Contents:  Files MANIFEST Makefile NIST.info NISTtime.h README
+#   log.boot modem.c
+# Wrapped by vern@zebra on Thu Aug 27 11:06:30 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f Files -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Files\"
+else
+echo shar: Extracting \"Files\" \(93 characters\)
+sed "s/^X//" >Files <<'END_OF_Files'
+XFiles
+XMANIFEST
+XMakefile
+XNIST.info
+XNISTtime.c
+XNISTtime.h
+XREADME
+Xcalc.c
+Xlog.boot
+Xmodem.c
+Xobm.c
+END_OF_Files
+if test 93 -ne `wc -c <Files`; then
+    echo shar: \"Files\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f MANIFEST -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"MANIFEST\"
+else
+echo shar: Extracting \"MANIFEST\" \(683 characters\)
+sed "s/^X//" >MANIFEST <<'END_OF_MANIFEST'
+X   File Name		Archive #	Description
+X-----------------------------------------------------------
+X Files                     1	A list for producing a cpio file
+X MANIFEST                  1	
+X Makefile                  1	The cook book
+X NIST.info                 1	Explaination of NIST time signals
+X NISTtime.c                2	The working section
+X NISTtime.h                1	Generic includes and variables
+X README                    1	Substitute for a manual
+X calc.c                    2	Update calculations
+X log.boot                  1	To reset clocks when rebooting
+X modem.c                   1	Interface to 'smart' modems
+X obm.c                     2	Interface to 3b1 On Board Modem
+END_OF_MANIFEST
+if test 683 -ne `wc -c <MANIFEST`; then
+    echo shar: \"MANIFEST\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f Makefile -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile\"
+else
+echo shar: Extracting \"Makefile\" \(2291 characters\)
+sed "s/^X//" >Makefile <<'END_OF_Makefile'
+X#sccs	"@(#)	NIST.time:Makefile	2.1"	8/27/92
+X
+X# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X#                                                                      *
+X#   Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X#                                                                      *
+X#       This source code may be freely distributed as long as this     *
+X#       copyright notice is included.  No monetary charges should      *
+X#       be made in excess of the cost of copying and distribution.     *
+X#                                                                      *
+X#       Any profits which might be derived from the sale of this       *
+X#       work must be shared with me.  Other monetary contributions     *
+X#       will be gratefully accepted.                                   *
+X#                                                                      *
+X#          Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X#                                                                      *
+X#  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X
+X
+X
+X# Comment the next line for operational version
+X# CFLAGS     = -g -DDEBUG -DNOSET
+X
+X#Comment the next two lines for DEBUGing
+XCFLAGS     = -v -O
+XLDFLAGS    = -s
+X
+XLIBS       =
+X
+XOBJS       = calc.o NISTtime.o modem.o obm.o
+XTARGET     = NIST.time
+XDEST       = /etc
+XSHAREDLIB  = /lib/crt0s.o /lib/shlib.ifile
+X
+X$(TARGET): $(OBJS)
+X	$(LD) $(LDFLAGS) -o $(TARGET) $(OBJS) $(SHAREDLIB)
+X
+X$(OBJS):  NISTtime.h Makefile
+X.c.o:
+X	$(CC) $(CFLAGS) -c $<
+X
+X# You should check "log.boot" to see that it call the correct port.
+X# Also, only run this once or you will end up with a whole bunch of
+X# these in /etc/rc.
+Xboot:
+X	cat log.boot >> /etc/rc
+X
+Xinstall: $(TARGET)
+X	chmod 550 ${TARGET}
+X	chgrp bin ${TARGET}
+X	chown bin ${TARGET}
+X	mv ${TARGET} ${DEST}/${TARGET}
+X
+XLINTFLAGS = -u -x
+XLINTLIB   =
+XLINTOBJS  = calc.c NISTtime.c modem.c obm.c
+Xlint:
+X	lint $(LINTFLAGS) $(LINTLIB) $(LINTOBJS)
+X
+Xclean:
+X	rm -f *.o core MANIFEST.BAK
+X
+Xclobber:	clean
+X	rm -rf kit
+X	rm -f NIST.time NIST.log NIST.errs
+X
+XFiles:	clobber
+X	find . -print > Files
+X	sort Files -o Files
+X
+Xcpio:
+X	cpio -oBvcd < Files > NIST.cpio
+X	rm -f NIST.cpio.Z
+X	compress NIST.cpio
+X
+Xkit:
+X	mkdir kit
+X	makekit -m -s38k -n./kit/Part
+END_OF_Makefile
+if test 2291 -ne `wc -c <Makefile`; then
+    echo shar: \"Makefile\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f NIST.info -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"NIST.info\"
+else
+echo shar: Extracting \"NIST.info\" \(5294 characters\)
+sed "s/^X//" >NIST.info <<'END_OF_NIST.info'
+X                             DESCRIPTION OF THE
+X                 AUTOMATED COMPUTER TELEPHONE SERVICE (ACTS)
+X
+X
+XThe following is transmitted (at 1200 Baud) after completion of the
+Xtelephone connection.
+X
+X             ? = HELP
+X             National Institute of Standards and Technology
+X             Telephone Time Service
+X
+X                                     D  L D
+X              MJD  YR MO DA H  M  S  ST S UT1 msADV        <OTM>
+X             47999 90-04-18 21:39:15 50 0 +.1 045.0 UTC(NIST) *
+X             47999 90-04-18 21:39:16 50 0 +.1 045.0 UTC(NIST) *
+X             47999 90-04-18 21:39:17 50 0 +.1 045.0 UTC(NIST) *
+X             47999 90-04-18 21:39:18 50 0 +.1 045.0 UTC(NIST) *
+X             47999 90-04-18 21:39:19 50 0 +.1 037.6 UTC(NIST) #
+X             47999 90-04-18 21:39:20 50 0 +.1 037.6 UTC(NIST) #
+X             etc..etc...etc.......
+X
+XUTC = Universal Time Coordinated, the official world time referred to the
+Xzero meridian.
+X_________________________________________________________________________
+X
+XDST = Daylight savings time characters, valid for the continental U.S., are
+Xset as follows:
+X  00 = We are on standard time (ST).    50 = We are on DST.
+X  99 to 51 = Now on ST, go to DST when your local time is 2:00 am and the
+X    count is 51.  The count is decremented daily at 00 (UTC).
+X  49 to 01 = Now on DST, go to ST when your local time is 2:00 am and the
+X    count is 01.  The count is decremented daily at 00 (UTC).
+XThe two DST characters provide up to 48 days advance notice of a change in
+Xtime.  The count remains at 00 or 50 at other times.
+X_________________________________________________________________________
+X
+XLS = Leap second flag is set to "1" to indicate that a leap second is to be
+Xadded as 23:59:60 (UTC) on the last day of the current UTC month.  The LS
+Xflag will be reset to "0" starting with 23:59:60 (UTC).  The flag will
+Xremain on for the entire month before the second is added.  Leap seconds
+Xare added as needed at the end of any month.  Usually June and/or December
+Xare chosen.
+X
+X__________________________________________________________________________
+X
+XDUT1 = Approximate difference between earth rotation time (UT1) and UTC, in
+Xsteps of 0.1 second.         DUT1 = UT1 - UTC
+X___________________________________________________________________________
+X
+XMJD = Modified Julian Date, often used to tag certain scientific data.
+X___________________________________________________________________________
+X
+XThe full time format is sent at 1200 Baud, 8 bit, 1 stop, no parity.
+XThe format at 300 Baud is also 8 bit, 1 stop, no parity. 
+XAt 300 Baud the MJD and DUT1 values are deleted and the
+Xtime is transmitted only on even seconds.
+X___________________________________________________________________________
+X
+XMaximum on line time will be 56 seconds.  If all lines are busy at any time,
+Xthe oldest call will be terminated if it has been on line more than 28
+Xseconds, else, the call that first reaches 28 seconds will be terminated. 
+X___________________________________________________________________________
+X
+XCurrent time is valid at the "on-time" marker (OTM), either "*" or "#". 
+XThe nominal on-time marker (*) will be transmitted 45 ms early to account
+Xfor the 8 ms required to send 1 character at 1200 Baud, plus an additional
+X7 ms for delay from NIST to the user, and approximately 30 ms "scrambler"
+Xdelay inherent in 1200 Baud modems.  If the caller echoes all characters,
+XNIST will measure the round trip delay and advance the on-time marker so
+Xthat the midpoint of the stop bit arrives at the user on time.  The amount
+Xof msADV will reflect the actual required advance in milliseconds and the
+XOTM will be a "#".  The NIST system requires 4 or 5 consecutive delay
+Xmeasurements which are consistent before switching from "*" to "#".
+XIf the user has a 1200 Baud modem with the same internal delay as that used
+Xby NIST, then the "#" OTM should arrive at the user within +-2 ms of the
+Xcorrect time.  However, NIST has studied different brands of 1200 Baud
+Xmodems and found internal delays from 24 ms to 40 ms and offsets of the
+X"#" OTM of +-10 ms.  For many computer users, +-10 ms accuracy should be
+Xmore than adequate since many computer internal clocks can only be set with
+Xgranularity of 20 to 50 ms.  In any case, the repeatability of the offset
+Xfor the "#" OTM should be within +-2 ms, if the dial-up path is reciprocal
+Xand the user doesn't change the brand or model of modem used. This should
+Xbe true even if the dial-up path on one day is a land-line of less than
+X40 ms (one way) and on the next day is a satellite link of 260 to 300 ms.
+XIn the rare event that the path is one way by satellite and the other way
+Xby land line with a round trip measurement in the range of 90 to 260 ms,
+Xthe OTM will remain a "*" indicating 45 ms advance.
+X___________________________________________________________________________
+X
+XFor user comments write:
+XNIST-ACTS
+XTime and Frequency Division
+XMail Stop 524
+X325 Broadway
+XBoulder, CO  80303
+X
+XSoftware for setting (PC)DOS compatable machines is available
+Xon a 360-kbyte diskette for $35.00 from:
+XNIST Office of Standard Reference Materials
+XB311-Chemistry Bldg, NIST, Gaithersburg, MD, 20899, (301) 975-6776
+X
+X--------------------------------------------------------------------------
+X--------TIME CODE GENERATOR C
+END_OF_NIST.info
+if test 5294 -ne `wc -c <NIST.info`; then
+    echo shar: \"NIST.info\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f NISTtime.h -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"NISTtime.h\"
+else
+echo shar: Extracting \"NISTtime.h\" \(4584 characters\)
+sed "s/^X//" >NISTtime.h <<'END_OF_NISTtime.h'
+X#sccs	"@(#)	NIST.time:NISTtime.h	2.1"	8/27/92
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X *                                                                     *
+X *  Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X *                                                                     *
+X *      This source code may be freely distributed as long as this     *
+X *      copyright notice is included.  No monetary charges should      *
+X *      be made in excess of the cost of copying and distribution.     *
+X *                                                                     *
+X *      Any profits which might be derived from the sale of this       *
+X *      work must be shared with me.  Other monetary contributions     *
+X *      will be gratefully accepted.                                   *
+X *                                                                     *
+X *         Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X *                                                                     *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X
+X
+X
+X#include <errno.h>
+X#include <fcntl.h>
+X#include <malloc.h>
+X#include <setjmp.h>
+X#include <stdio.h>
+X#include <termio.h>
+X#include <sys/ioctl.h>
+X#include <sys/signal.h>
+X#include <sys/param.h>
+X#include <sys/phone.h>
+X
+X#define DEVPATH "/dev/"
+X#define LCKPATH "/usr/spool/uucp/LCK.."
+X
+X	/* Comment out the options you don't want. */
+X#define UNIXPC			/* Updates the real time clock also.   */
+X#define OBM 			/* If you want a 'ph0' or 'ph1' option */
+X/* #define QUIET		/* Turns the modem speaker off         */
+X#define TONE			/* Sets OBM for Touch Tone dialing.    */
+X	/* On a UNIXPC, you can have both OBM and EXTERNAL  */
+X#define EXTERNAL		/* If you want a 'tty###' option */
+X
+X/* Set these values appropiate for your system.  The value for           */
+X/* INIT_BAUD is termio.h macro for the baud rate your modem uses for   */
+X/* the quiesent state.                                                 */
+X/* RUN_BAUD is the speed the computer should use when talking to NIST. */
+X/* RUN_CHAT is a series of commands to the modem for use during        */
+X/* the conversation.                                                   */
+X
+X/* Set this to quiesent speed of your modem.  B19200 works on my       */
+X/* TrailBlazer for 'uucico' but it has to be B9600 here.  I don't      */
+X/* know why. */
+X#define INIT_BAUD B9600					              /*  */
+X
+X/* For modems set to autobaud, use these options. */
+X#define RUN_BAUD B1200										/*  */
+X#define RUN_CHAT "ATS0=0S50=2S51=1S95=0\r\n"			/*  */
+X
+X/* For modems lacked at 19200, use these options. */
+X/* #define RUN_BAUD B19200									/*  */
+X/* #define RUN_CHAT "ATS0=0S50=2S51=5S95=0\r\n"		/*  */
+X
+X/* You should be sure that all modems are set to not echo commands     */
+X/* during the run state.  Try these settings for MICOM.                */
+X/* #define RUN_BAUD B1200			/*  */
+X/* #define RUN_CHAT "ATQ\r\n"		/*  */
+X
+X/* There is a section in 'modem.c' which dials the number.  This code   */
+X/* uses the ATDT sequence of commands.  If your modem requires some     */
+X/* other protocol, the code will have to be altered.                    */
+X
+X/* This is  long distance number, for Local calls use 494-4774          */
+X/* Notes to users who may require specal dialing sequences such         */
+X/* as needed on PBX's:                                                  */
+X/* The OBM uses 'phone(7)'.   Refer to the 'phone(7)' manual, page 4,   */
+X/* for special commands.  The trailing '@' is compiled in.              */
+X
+X/* #define PHNUM "13034944774"	/* */
+X#define PHNUM "4944774" 			/* */
+X
+X	/* Comment this out if you don't have a 'uugetty'      */
+X	/* running.  It is not needed if you use a call        */
+X	/* out only line.  It is gennerally required for       */
+X   /* the OBM.                                            */
+X#define DUMPGETTY							/*  */
+X
+X#ifdef DEBUG
+X/* #define NOSET		/* Disable corrections during DEBUG */
+X#define LOG_NAME "NIST.log"
+X#define LOG_ERRS "NIST.errs"
+X#define TMP_ERRS "NIST.tmp"
+X#else
+X#define LOG_NAME "/usr/adm/NIST.log"
+X#define LOG_ERRS "/usr/adm/NIST.errs"
+X#define TMP_ERRS "/tmp/NIST"
+X#endif
+X#define LOG_SIZE 23           /* size in lines ( One full screen ) */
+X#define ERR_SIZE 2048         /* 2048 size in bytes */
+X
+Xint tiofd;
+Xint hasLock;
+Xint boot;
+Xchar lck_file[ 30 ];
+Xchar nist_file[ 30 ];
+Xjmp_buf place;
+Xstruct termio old_getty;
+X
+Xextern char *sys_errlist;
+Xextern int errno;
+X
+X#ifdef OBM
+Xstruct updata old_phset;
+X#endif
+X
+X#ifdef DUMPGETTY
+Xchar had_getty;
+X#endif
+END_OF_NISTtime.h
+if test 4584 -ne `wc -c <NISTtime.h`; then
+    echo shar: \"NISTtime.h\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"README\"
+else
+echo shar: Extracting \"README\" \(9465 characters\)
+sed "s/^X//" >README <<'END_OF_README'
+X	This program calls the National Institute of Standards and
+XTechnology ( NIST ) in Boulder, Colorado.  It accesses their modem which
+Xtransmits precision time in ASCII format.  Eight samples of the time
+Xdifferences are collected and the average difference is calculated.  The
+Xsystem software time clock and the hardware Real Time Clock ( RTC ) are
+Xthen corrected by that average amount.
+X
+X	When invoked with the '-i' ( for initialize ), the first sample
+Xis used to set the complete date.  Eight samples are then collected to
+Xrefine the seconds value.  The '-c' ( for correction ) assumes that the
+Xclock is correct to the nearest day, will only make corrections to
+Xhours, minutes and seconds.
+X
+X	Although the NIST data is accurate to milli-seconds, corrections
+Xare made only to one second accuracy.  NIST does have a program which
+Xwill provide the fullest accuracy possible.  This is available via FTP
+Xfrom them.  More information about this may be obtained from the Time
+Xand Frequency Division of the National Institute of Standards and
+XTechnology.  Their phone number is 1-303-497-3276.
+X
+X	This program is intended to be run from the '/usr/lib/crontab'
+Xwith an entry of:
+Xmm hh * * * /bin/su root % /etc/NIST.time -c tty###
+X
+Xor:
+Xmm hh * * * /bin/su root % /etc/NIST.time -c ph#
+X
+Xwhere 'mm' and 'hh' are minutes and hours of your choice.  If experience
+Xshows that your clock is accurate over longer periods, appropriate
+Xrevisions to this entry can be made.  See cron(1M).
+X
+X	I have tried to implement this so that it will create the least
+Xdisturbance to the 'cron' controlled functions.  You should avoid
+Xscheduling anything in the same minute or the minute following
+X'NIST.time'.
+X
+X	Every time the program is run, an entry is made into the file
+X"/usr/adm/NIST.log".  The size of this log is limited to 23 lines which
+Xis one screen full on the 3b1 when called by more(1) .  The new entries
+Xare made to the top of the page and the oldest is deleted.  Entries are
+Xof the form:
+X
+XSat Aug  8 09:23:44 1992, Sys. Corr:  -2 sec. RTC Corr:  -1 sec.  50 dst
+X
+XThe initial date and time are the time prior to correction of the
+Xclocks.  Following are the corrections to the System clock and RTC.  In
+Xthis example, the system clock was 2 seconds fast and was corrected by
+Xminus 2 seconds.  The last entry is merely a notation copied from the
+XNIST data.  Read the NIST.info files to understand the meaning of this
+Xentry.
+X
+X	Error messages are logged in "/usr/adm/NIST.errs".  This file is
+Xmaintained at less than 2024 bytes in reverse chronological order.
+XHopefully they are sufficient to explain failures.
+X
+X	The shell script. 'log.boot', is included if you want to reset
+Xyour clock when you reboot.  It should be placed as the very last
+Xitem in '/etc/rc'.  This gives the user the option to call or not call
+Xfor a time correction.  When the user opts to call the NIST, the program
+Xwill run in the background with 'nohup' so that he/she can proceed
+Xthrough the login process while the corrections to the clock are being
+Xmade.  This is particularily helpful if the hardware clock battery has
+Xgone dead.
+X
+X	Installation of this feature is not part of the "make install"
+Xscript.  You can install it with this command:
+X$ cat log.boot >> /etc/rc
+X
+X**************************  Reference Manual *************************
+X
+X	Command line options are:
+X
+X	-c	This compares the system time with the time received
+X		from NIST.  Corrections are parsed at 30 seconds per
+X		minute.  This is the option to use from cron.
+X
+X	-i	This zeroes the system time and resets it with the
+X		information received from NIST.  This can be run in
+X		'/etc/rc' during boot or from the shell by 'su'.
+X		It is intended for systems with dead batteries for
+X		the clock.  See the file "log.boot" for a recommended
+X		script.
+X
+X	tty###	This field should contain the device to which a modem
+X	ph#	is connected to make the call to NIST.
+X
+XNote:  Lenny Tropiano's 'dstconvert' should be installed to correct the
+Xdate which the spring daylight savings time is made.
+X
+XCAUTION:  The use of 'ph0' or 'ph1' must agree with the way your system
+Xis configured from the "Install" window.  If you have a single line and
+Xselect 'ph0' for 'NIST.time' you are OK.  If you have two lines and
+Xhave the system configured for data on 'ph1' and 'NIST.time'
+Xcalls out on 'ph1', you are OK.  But if you have the system configured
+Xwith 'ph1' as data and you call 'NIST.time' with 'ph0', you will find
+Xtrouble, the 'phtoggle(1)' used in this program will toggle 'ph1' to
+XVOICE instead of toggling 'ph0' to DATA.
+X
+XTesting:
+X
+X	If the beginning of the Makefile is changed from:
+X
+X#CFLAGS     = -g -DDEBUG -DNOSET
+X
+XCFLAGS     = -v -O
+XLDFLAGS    = -s
+X
+X	to:
+X
+XCFLAGS     = -g -DDEBUG -DNOSET
+X
+X#CFLAGS     = -v -O
+X#LDFLAGS    = -s
+X
+X
+Xthe result will be writen to the NIST.log file in the current
+Xdirectory. Error messages will be writen to NIST.errs, also in the
+Xcurrent directory.  Additional 'debugging' messages will be printed to
+Xthe screen.  The test program must be run by 'su' because of the parts
+Xwhich dump the 'uugetty'.
+X
+X	Corrections to the clocks will be made in DEBUG mode if the
+XNOSET flag in 'time.h' is commented out and deleted from the Makefile.
+X
+X	This was designed for possible use on other systems so some of
+Xthe complexity is superfluous.  For instance, 'geton.sh' and 'getoff.sh'
+Xcould have been used instead of the 'dump_getty' function.  Also, the
+Xcompile options to exclude the OBM add to the confusion.
+X
+X	If you are not using a 'uugetty' on the port, make the appropriate
+Xchanges to the #defines in 'NIST.time.h', then the testing procedure
+Xmay be run in 'user' mode.  Operations with the OBM always require you
+Xto be 'root' durinf testing/
+X
+XInstallation:
+X
+XThe options in 'NIST.time.h' are:
+X
+X	DEVPATH, The pathname to where where your device drivers are
+Xstored.
+X
+X	LCKPATH, The pathname and file prefix to where the uucp lock
+Xfiles are kept.
+X 
+X	UNIXPC, the includes code to update the Real Time Clock ( RTC )
+Xas well as systime(2).  Other systems which require special commands to
+Xchange a hardware clocks will have to make their own modifications to
+Xthe code.
+X
+X	OBM, this allows the selection of either "ph0" or "ph1" as the
+Xport from a Unix-pc.  You must have the system configured for the line you
+Xtell 'NIST.time' to use.
+X
+X	QUIET, only pertinent to the On Board Modem for the UnixPc. 
+XCauses the call to be made without using the system speaker.
+X
+X	EXTERNAL,  this allows you to select a port "/dev/tty###" for
+Xuse with an external modem.
+X
+X	TRAILBLAZER, the 'chat' script in 'modem.c' is set up for a
+XTelebit TrailBlazer.  You will have to make your own revisions if you
+Xare using another make or model.  Send these revisions to me so that
+Xthey may be included in future releases.  Options are included for
+Xoperations with the computer/modem baud rate locked at 19200.
+X
+X	MICOM, issues a command to wake up the modem.  See the comments
+Xin time.h.
+X
+X	DUMPGETTY, this removes a 'uugetty' that might be running on the
+Xselected external port.  It is not needed if the port is 'call out' only.
+XIt is coded in for the OBM operation.  When included, the program may be
+Xrun only by 'su' whether compiled with DEBUG set or not.
+X
+X	NOSET, inhibits corrections to the clock.  It is only effective
+Xwhen the -DDEBUG option is set in the 'Makefile'.
+X
+X	The 'Makefile' references the Unix-pc calls to the systems
+Xshared library.  You may have to revise these to the libraries which are
+Xused on your system.
+X
+XAcknowledgments:
+X
+X	The present incarnation includes a 'Makefile" generated by
+Xprogram called 'mmk'.  It was kindly supplied to me by Tanya Katz.
+XAn 'install:' option has been added.
+X
+X	There is also a function called 'do_getty()' which is a
+Xvariation of a program posted to the net by John Milton.
+X
+X	A handy little function called 'mpause()' is a direct steal from
+XKermit.  Other parts of this program were also inspired by the Kermit
+Xrelease.  ( Check this in 'utils.c' for the clock freq of your system. )
+X
+X	Augustine Cano provided the chat script for using a WORLDBLAZER
+Xwith the interface speed locked to 19200.
+X
+XTo Do:
+X
+X	Include options for other modems.  (Depending upon feedback from
+X		other users).
+X	Someone else to port it to versions of Unix other than SysV.
+X
+XRevised Jan 3, 1990.
+X1.	Deleted reference to options for daylight savings time date
+X	changes.  See the comments above about 'dstconvert()'.
+X2.	Changed location of 'log.boot' reccomendation from '/etc/daemons'
+X	to '/etc/rc'.
+X
+XRevised May 30, 1990
+X1.	Added reference to MICOM and ACTIVE.
+X2.	Rewrote part pf open_tty() per suggestion from Karl Swartz ( ditka ).
+X
+XRevised July 26, 1991
+X1.	Added sleep(2) to modem.c and obm.c.
+X2.	Revised some of the error messages.
+X3. Revised LCK.. file sequence per suggestion from Karl Swartz.
+X3.	Rewrote trunc_errs().
+X
+XVersion 2.0, August 8, 1992.
+X1.	Major rewrite of the OBM run_obm() sequence.
+X2.	Made only one 'struct termio'.  Revisons made at appropiate time
+X	with the code.
+X3.	Changed the reading of data from reading at a line at time to
+X	reading single characters and forming the test line within the
+X	code.  This is because of problems with the OBM reading correctly.
+X4. Also changed the read technique in 'modem.c' for consistency.
+X4.	Changed the name from "NBS.timechk" to "NIST.time" in accordance
+X	with the name change of the facility.  Other references to NBS
+X	also changed.
+X
+XVernon C. Hoxie		       {ncar,nbires,boulder,isis}!scicom!zebra!vern
+X3975 W. 29th Ave.					voice: 303-477-1780
+XDenver, Colo., 80212				( TB+ )  uucp: 303-455-2670
+END_OF_README
+if test 9465 -ne `wc -c <README`; then
+    echo shar: \"README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f log.boot -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"log.boot\"
+else
+echo shar: Extracting \"log.boot\" \(655 characters\)
+sed "s/^X//" >log.boot <<'END_OF_log.boot'
+X# This can be added to the end of your '/etc/rc' script to query the
+X# user about calling NIST for a time check during reboot.  It will
+X# make the call in the background while you continue to login.
+X# Revised May 30, 1990
+X# Revised Aug 8, 1992
+X
+Xmessage -i "Do you wish to call the National Institute
+X	of Standards and Technology to reset the time?\n
+XEnter <Cancel> to cancel the call.
+XEnter <Return> to make the call. "
+Xif [ $? -eq 0 ]
+Xthen
+X	nohup /etc/NIST.time -i ph0 &
+Xfi
+XTMPFILE=/usr/adm/old.log
+XLOGFILE=/usr/adm/NIST.log
+Xmv $LOGFILE $TMPFILE
+Xnow=`date '+%a %h %d %H:%M:%S 19%y'`
+Xecho "$now, Rebooted." > $LOGFILE
+Xcat $TMPFILE >> $LOGFILE
+Xrm $TMPFILE
+END_OF_log.boot
+if test 655 -ne `wc -c <log.boot`; then
+    echo shar: \"log.boot\" unpacked with wrong size!
+fi
+chmod +x log.boot
+# end of overwriting check
+fi
+if test -f modem.c -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"modem.c\"
+else
+echo shar: Extracting \"modem.c\" \(5396 characters\)
+sed "s/^X//" >modem.c <<'END_OF_modem.c'
+X#sccs	"@(#)	NIST.time:modem.c	2.1"	8/27/92
+X
+X/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+X *                                                                     *
+X *  Copyright (c) July, 24, 1989, August 8, 1992 by Vernon C. Hoxie    *
+X *                                                                     *
+X *      This source code may be freely distributed as long as this     *
+X *      copyright notice is included.  No monetary charges should      *
+X *      be made in excess of the cost of copying and distribution.     *
+X *                                                                     *
+X *      Any profits which might be derived from the sale of this       *
+X *      work must be shared with me.  Other monetary contributions     *
+X *      will be gratefully accepted.                                   *
+X *                                                                     *
+X *         Vernon C. Hoxie, zebra!vern, vern@zebra.alphacdc.com        *
+X *                                                                     *
+X * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+X
+X
+X
+X#include "NISTtime.h"
+X
+Xextern struct termio my_getty;
+X 
+X#ifdef EXTERNAL
+X
+X	/* Return values from this function have the following meaning: */
+X	/*    -1 System failure, abort.                                 */
+X	/*     0 Success, proceed to perform 'update()'                 */
+X	/*    NN A failure in the communication link.  The value        */
+X	/*       returned to 'main()' signifies the amount of           */
+X	/*       seconds to sleep before retrying.                      */
+X
+Xint run_mod( dev )
+Xchar *dev;
+X{
+X	extern void sig_sleep( );
+X	extern void sig_timeout( );
+X	extern int lock_it( );
+X	extern int open_tty( );
+X#ifdef DUMPGETTY
+X	extern int do_getty( );
+X#endif
+X	int chat();
+X	int c_flag;
+X
+X	int j, k;
+X	char buf[85];
+X	char *err_msg;
+X	tiofd = 0;
+X
+X	if (( j = lock_it( dev )) != 0 )
+X	{
+X		printf( "lock_it() returned %d\n", j );
+X		return( j );
+X	}
+X#ifdef DUMPGETTY
+X	if (( j = do_getty( dev, ':' )) < 0 ) return( -1 );
+X#endif 	/* DUMPGETTY */
+X
+X	if (( tiofd = open_tty( dev ) ) < 0 ) return( -1 );
+X 
+X	err_msg = "Setting up modem.\n";
+X	alarm( 20 );
+X	signal( SIGALRM, sig_timeout );
+X	if (( j = setjmp( place ) ) != 0 )
+X	{
+X		fprintf( stderr, err_msg );
+X		return( 5 );
+X	}
+X
+X/* Start of modem specific sequences, modify to your own modem */
+X
+X		/* Sends "A's" for the modem to sync on */
+X	
+X 	for ( j = 0; j < 5; j++ )
+X	{
+X		write( tiofd, "A\n\r", 4 );
+X		mpause( 5 );
+X	}
+X#ifdef DEBUG
+X	printf( "Running first 'AT OK'.\n" );
+X#endif
+X
+X	if (( j = chat( 5, "AT\r\n", "OK" ) ) != 0 ) return( j );
+X
+X	err_msg = "Changing speed.\n";
+X#ifdef DEBUG
+X	printf( "Setting speed to %o.\n", RUN_BAUD );
+X#endif
+X	if (( j = chat( 5, RUN_CHAT, "OK" ) ) != 0 )
+X		return( j );
+X	c_flag = my_getty.c_cflag & ~(CBAUD | CLOCAL );
+X
+X	my_getty.c_cflag = c_flag | RUN_BAUD;
+X	if (( ioctl( tiofd, TCSETA, &my_getty ) ) < 0 )
+X	{
+X		fprintf( stderr, "run_mod(), TCSETA my_getty, %s\n",
+X				sys_errlist[errno] );
+X		return( -1 );
+X	}
+X
+X#ifdef DEBUG
+X	printf( "Dialing.\n" );
+X#endif
+X
+X	mpause( 500 );							/* 1/2 seconds */
+X	err_msg = "Dialing modem.\n";
+X	strcat( strcat (strcpy( buf, "ATDTW" ), PHNUM ), "\r\n" );
+X
+X			/* Key on the first word received
+X			 * instead of CONNECT from the modem. */
+X	if (( j = chat( 35, buf, "HELP" )) != 0 )
+X				 return( j );
+X
+X#ifdef DEBUG
+X	printf( "Starting to read.\n" );
+X#endif
+X	alarm( 20 );
+X	if (( j = setjmp( place ) ) != 0 ) {
+X		fprintf( stderr, err_msg );
+X		return( 5 );
+X	}
+X
+X	err_msg = "Reading modem.\n";
+X 	for( k = 0; k < 8; ) {
+X		register char *p, *q;
+X
+X		q = buf + sizeof( buf );
+X		for ( p = buf; p < q; *p++ = '\0' );
+X		for ( p = buf; *p != '\n' && p < q; ) {
+X			read( tiofd, p, 1 );
+X			if (( *p >= ' ' && *p <= '~' )) *p++;
+X		}
+X#ifdef DEBUG
+X		if (( j = p - buf ) > 0 )
+X			printf( "%d %d >%c< %s", k, j, *(p-1), buf );
+X#endif
+X		for ( q = buf; q < p; q++ ) {
+X			char *bpt, *npt;
+X
+X			bpt = q;
+X			npt = "NO CARRIER" ;
+X			while ( *bpt == *npt ) bpt++, npt++;
+X			if ( ! *npt )
+X			{
+X				fprintf( stderr, "Lost Carrier\n" );
+X				return( 20 );
+X			}
+X		}
+X		if ( *--p == '*' || *p == '#' ) k += get_data( buf );
+X	}
+X	return( 0 );
+X}
+X
+Xint chat( secs, tx, rx )
+Xint secs;
+Xchar *tx, *rx;
+X{
+X	int j;
+X	char buf[30];
+X	char *busy = "BUSY";
+X	char *expect, *bpt, *pbusy;
+X	
+X	alarm( secs );
+X 	if (( j = write( tiofd, tx, strlen( tx ) )) < 0 )
+X	{
+X		fprintf( stderr, "Couldn't write to modem.\n" );
+X		return( -1 );
+X	}
+X#ifdef DEBUG
+X	printf( "Send: >%s<\nExpect: >%s<\n", tx, rx );
+X#endif
+X
+X	pbusy = busy;
+X	expect = rx;
+X	while ( 1 )
+X	{
+X		j = read( tiofd, buf, sizeof( buf ));
+X		if ( j < 0 )
+X		{
+X			fprintf( stderr, "Couldn't read from modem.\n" );
+X			return( -1 );
+X		}
+X#ifdef DEBUG
+X		if ( j > 0 ) printf( "j = %d bytes, Got: >%s<\n", j, buf );
+X#endif
+X		bpt = buf;
+X		while ( j > 0 )
+X		{
+X			if ( *bpt == *expect ) expect++;
+X			else expect = rx;
+X			if ( ! *expect ) return( 0 );
+X				/* Test for "BUSY" */
+X			if ( *bpt == *pbusy ) pbusy++;
+X			else pbusy = busy;
+X			if ( ! *pbusy )
+X			{
+X				fprintf( stderr,
+X					"Line busy, wait 3 min.\n");
+X				return( 180 );
+X			}
+X			bpt++;
+X			j--;
+X		}
+X	}
+X}		/* chat() */
+X
+X#else
+X	/* Dummy if compiled as OBM only */
+Xint run_mod( dev )
+Xchar *dev;
+X
+X{
+X	fprintf( stderr,
+X "You need to set the EXTERNAL flag in NIST.time.h' and recompile \n" );
+X	fprintf( stderr,
+X "in order to use a modem connected to the '/dev/%s port.\n", dev );
+X	return( 0 );
+X}
+X
+X#endif		/* EXTERNAL */
+X
+END_OF_modem.c
+if test 5396 -ne `wc -c <modem.c`; then
+    echo shar: \"modem.c\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of archive 1 \(of 2\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+ 
+-- 
+Vernon C. Hoxie                            {ncar,boulder}!scicom!zebra!vern
+3975 W. 29th Ave.                                       voice: 303-477-1780
+Denver, Colo., 80212                                     uucp: 303-455-2670
+-- 
+David H. Brierley
+Home: dave@galaxia.network23.com; Work: dhb@quahog.ssd.ray.com
+Send comp.sources.3b1 submissions to comp-sources-3b1@galaxia.network23.com
+%% Can I be excused, my brain is full. **

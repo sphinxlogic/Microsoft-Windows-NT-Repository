@@ -1,0 +1,1800 @@
+Newsgroups: comp.sources.misc
+From: cruiser1@u.washington.edu (Walter D. Pullen)
+Subject:  v30i064:  astrolog - Generation of astrology charts v2.25, Part03/08
+Message-ID: <1992Jun18.185618.12543@sparky.imd.sterling.com>
+X-Md4-Signature: 2cf02497839094002869f0377b042646
+Date: Thu, 18 Jun 1992 18:56:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cruiser1@u.washington.edu (Walter D. Pullen)
+Posting-number: Volume 30, Issue 64
+Archive-name: astrolog/part03
+Environment: UNIX, VMS
+Supersedes: astrolog: Volume 28, Issue 104-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 3 (of 8)."
+# Contents:  xcharts.c driver.c
+# Wrapped by cruiser1@milton.u.washington.edu on Thu Jun 11 21:53:37 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'xcharts.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xcharts.c'\"
+else
+echo shar: Extracting \"'xcharts.c'\" \(31047 characters\)
+sed "s/^X//" >'xcharts.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: xcharts.c
+X** (Initially programmed 10/23-29/1991)
+X**
+X** IMPORTANT: the graphics database and chart display routines used in
+X** this program are Copyright (C) 1991-1992 by Walter D. Pullen. Permission
+X** is granted to freely use and distribute these routines provided one
+X** doesn't sell, restrict, or profit from them in any way. Modification
+X** is allowed provided these notices remain with any altered or edited
+X** versions of the program.
+X*/
+X
+X#include "astrolog.h"
+X
+X#ifdef X11
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X
+X#define ISLEGAL(X, Y) \
+X  ((X) >= 0 && (X) < chartx && (Y) >= 0 && (Y) < chartx)
+X#define edge(X1, Y1, X2, Y2, O) \
+X  rect(X1, Y1, X2, Y2, 1, 1, O)
+X#define rectall(XSIZ, YSIZ, O) \
+X  rect(0, 0, chartx-1, charty-1, XSIZ, YSIZ, O)
+X
+Xchar string[STRING];
+Xdouble symbol[TOTAL+1], circx[360+1], circy[360+1];
+X
+X
+X/*
+X*******************************************************************************
+X** Main subprograms
+X*******************************************************************************
+X*/
+X
+Xint proper(i)
+Xint i;
+X{
+X  int j = TRUE;
+X  if (modex == 'l')
+X    j = (i <= THINGS || i > objects+4);
+X  else if (modex == 'z' || modex == 'g')
+X    j = (i < THINGS || i > objects+4);
+X  else if (modex == 's')
+X    j = (i != 2 && (i < THINGS || i > objects+4));
+X  return j && !ignore[i];
+X}
+X
+Xdrawobject(i, x, y)
+Xint i, x, y;
+X{
+X  if (!label)
+X    return;
+X  if (modex != 's' && ((i == centerplanet && i > 2) ||
+X		       (centerplanet == 0 && i == 1)))
+X    i = 0;
+X  if (i <= objects)
+X    turtle(objectdraw[i], x, y, objectcolor[i]);
+X  else if (!xbitmap) {
+X    Xcolor(objectcolor[i]);
+X    sprintf(string, "%c%c%c", OBJNAM(i));
+X    XDrawImageString(disp, pixmap, gc, x-strlen(string)*FONT_X/2, y+FONT_Y/2,
+X		     string, strlen(string));
+X  }
+X}
+X
+Xfillsymbolring(symbol)
+Xdouble *symbol;
+X{
+X  int i, j, k = 1, l, k1, k2;
+X  double orb = DEFORB*256.0/(double)charty*(double)scale/100.0, temp;
+X  for (l = 0; k && l < 100; l++) {
+X    k = 0;
+X    for (i = 1; i <= total; i++) if (proper(i)) {
+X      k1 = 1000; k2 = -1000;
+X      for (j = 1; j <= total; j++)
+X	if (proper(j) && i != j) {
+X	  temp = symbol[j]-symbol[i];
+X	  if (dabs(temp) > 180.0)
+X	    temp -= DEGREES*sgn(temp);
+X	  if (temp<k1 && temp>=0.0)
+X	    k1 = temp;
+X	  else if (temp>k2 && temp<=0.0)
+X	    k2 = temp;
+X	}
+X      if (k2>-orb && k1>orb) {
+X	k = 1; symbol[i] = mod(symbol[i]+orb*0.51+k2*0.49);
+X      } else if (k1<orb && k2<-orb) {
+X	k = 1; symbol[i] = mod(symbol[i]-orb*0.51+k1*0.49);
+X      } else if (k2>-orb && k1<orb) {
+X	k = 1; symbol[i] = mod(symbol[i]+(k1+k2)*0.5);
+X      }
+X    }
+X  }
+X}
+X
+X#define POINT(U, R, S) ((int) ((R)*(double)(U)*(S)+0.5))
+X#define PX(A) COSD(180.0-(A)+Asc)
+X#define PY(A) SIND(180.0-(A)+Asc)
+X
+Xxchartwheel()
+X{
+X  int cx = chartx / 2, cy = charty / 2, unit, i, j, count = 0;
+X  double Asc, orb = DEFORB*256.0/(double)charty*(double)scale/100.0, temp;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rectall(1, 1, hilite);
+X  unit = MIN(cx, cy);
+X  Asc = house[1];
+X  for (i = 0; i < 360; i++) {
+X    circx[i] = cos((double) i / DEGTORAD);
+X    circy[i] = sin((double) i / DEGTORAD);
+X  }
+X  circx[360] = circx[0]; circy[360] = circy[0];
+X  drawline(cx+POINT(unit, 0.99, PX(house[1])),
+X       cy+POINT(unit, 0.99, PY(house[1])),
+X       cx+POINT(unit, 0.99, PX(house[7])),
+X       cy+POINT(unit, 0.99, PY(house[7])), hilite, 1-xcolor);
+X  drawline(cx+POINT(unit, 0.99, PX(house[10])),
+X       cy+POINT(unit, 0.99, PY(house[10])),
+X       cx+POINT(unit, 0.99, PX(house[4])),
+X       cy+POINT(unit, 0.99, PY(house[4])), hilite, 1-xcolor);
+X  for (i = 0; i < 360; i += 5-xcolor*4) {
+X    temp = (double) i;
+X    drawline(cx+POINT(unit, 0.80, PX(temp)), cy+POINT(unit, 0.80, PY(temp)),
+X	     cx+POINT(unit, 0.75, PX(temp)), cy+POINT(unit, 0.75, PY(temp)),
+X	     i%5 ? gray : on, 0);
+X  }
+X  for (i = 0; i < 360; i++) {
+X    drawline(cx+POINT(unit, 0.95, circx[i]), cy+POINT(unit, 0.95, circy[i]),
+X	 cx+POINT(unit, 0.95, circx[i+1]), cy+POINT(unit, 0.95, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.80, circx[i]), cy+POINT(unit, 0.80, circy[i]),
+X	 cx+POINT(unit, 0.80, circx[i+1]), cy+POINT(unit, 0.80, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.75, circx[i]), cy+POINT(unit, 0.75, circy[i]),
+X	 cx+POINT(unit, 0.75, circx[i+1]), cy+POINT(unit, 0.75, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.65, circx[i]), cy+POINT(unit, 0.65, circy[i]),
+X	 cx+POINT(unit, 0.65, circx[i+1]), cy+POINT(unit, 0.65, circy[i+1]),
+X	 on, 0);
+X  }
+X  for (i = 1; i <= SIGNS; i++) {
+X    temp = (double) (i-1)*30.0;
+X    drawline(cx+POINT(unit, 0.95, PX(temp)),
+X	 cy+POINT(unit, 0.95, PY(temp)),
+X	 cx+POINT(unit, 0.80, PX(temp)),
+X	 cy+POINT(unit, 0.80, PY(temp)), on, 0);
+X    drawline(cx+POINT(unit, 0.75, PX(house[i])),
+X	 cy+POINT(unit, 0.75, PY(house[i])),
+X	 cx+POINT(unit, 0.65, PX(house[i])),
+X	 cy+POINT(unit, 0.65, PY(house[i])), on, 0);
+X    if (xcolor && i%3 != 1)
+X      drawline(cx, cy, cx+POINT(unit, 0.65, PX(house[i])),
+X	       cy+POINT(unit, 0.65, PY(house[i])), gray, 1);
+X    temp += 15.0;
+X    turtle(signdraw[i], cx+POINT(unit, 0.875, PX(temp)),
+X	   cy+POINT(unit, 0.875, PY(temp)), elemcolor[(i-1)%4]);
+X    temp = midpoint(house[i], house[mod12(i+1)]);
+X    turtle(housedraw[i], cx+POINT(unit, 0.70, PX(temp)),
+X	   cy+POINT(unit, 0.70, PY(temp)), elemcolor[(i-1)%4]);
+X  }
+X  for (i = 1; i <= total; i++) {
+X    symbol[i] = planet[i];
+X  }
+X  fillsymbolring(symbol);
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    temp = symbol[i];
+X    drawline(cx+POINT(unit, 0.52, PX(planet[i])),
+X	     cy+POINT(unit, 0.52, PY(planet[i])),
+X	     cx+POINT(unit, 0.56, PX(temp)),
+X	     cy+POINT(unit, 0.56, PY(temp)),
+X	     ret[i] < 0.0 ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X    drawobject(i, cx+POINT(unit, 0.60, PX(temp)),
+X	       cy+POINT(unit, 0.60, PY(temp)));
+X    drawpoint(cx+POINT(unit, 0.50, PX(planet[i])),
+X	      cy+POINT(unit, 0.50, PY(planet[i])), objectcolor[i]);
+X  }
+X  if (bonus)
+X    return;
+X  creategrid(FALSE);
+X  for (j = total; j >= 2; j--)
+X    for (i = j-1; i >= 1; i--)
+X      if (gridname[i][j] && proper(i) && proper(j))
+X	drawline(cx+POINT(unit, 0.48, PX(planet[i])),
+X		 cy+POINT(unit, 0.48, PY(planet[i])),
+X		 cx+POINT(unit, 0.48, PX(planet[j])),
+X		 cy+POINT(unit, 0.48, PY(planet[j])),
+X		 aspectcolor[gridname[i][j]], abs(grid[i][j]/20));
+X}
+X
+Xxchartwheelrelation()
+X{
+X  int cx = chartx / 2, cy = charty / 2, unit, i, j;
+X  double Asc, temp;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rectall(1, 1, hilite);
+X  unit = MIN(cx, cy);
+X  Asc = house1[1];
+X  for (i = 0; i < 360; i++) {
+X    circx[i] = cos((double) i / DEGTORAD);
+X    circy[i] = sin((double) i / DEGTORAD);
+X  }
+X  circx[360] = circx[0]; circy[360] = circy[0];
+X  drawline(cx+POINT(unit, 0.99, PX(house1[1])),
+X       cy+POINT(unit, 0.99, PY(house1[1])),
+X       cx+POINT(unit, 0.99, PX(house1[7])),
+X       cy+POINT(unit, 0.99, PY(house1[7])), hilite, 1-xcolor);
+X  drawline(cx+POINT(unit, 0.99, PX(house1[10])),
+X       cy+POINT(unit, 0.99, PY(house1[10])),
+X       cx+POINT(unit, 0.99, PX(house1[4])),
+X       cy+POINT(unit, 0.99, PY(house1[4])), hilite, 1-xcolor);
+X  for (i = 0; i < 360; i += 5-xcolor*4) {
+X    temp = (double) i;
+X    drawline(cx+POINT(unit, 0.82, PX(temp)), cy+POINT(unit, 0.82, PY(temp)),
+X	     cx+POINT(unit, 0.78, PX(temp)), cy+POINT(unit, 0.78, PY(temp)),
+X	     i%5 ? gray : on, 0);
+X  }
+X  for (i = 0; i < 360; i++) {
+X    drawline(cx+POINT(unit, 0.95, circx[i]), cy+POINT(unit, 0.95, circy[i]),
+X	 cx+POINT(unit, 0.95, circx[i+1]), cy+POINT(unit, 0.95, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.82, circx[i]), cy+POINT(unit, 0.82, circy[i]),
+X	 cx+POINT(unit, 0.82, circx[i+1]), cy+POINT(unit, 0.82, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.78, circx[i]), cy+POINT(unit, 0.78, circy[i]),
+X	 cx+POINT(unit, 0.78, circx[i+1]), cy+POINT(unit, 0.78, circy[i+1]),
+X	 on, 0);
+X    drawline(cx+POINT(unit, 0.70, circx[i]), cy+POINT(unit, 0.70, circy[i]),
+X	 cx+POINT(unit, 0.70, circx[i+1]), cy+POINT(unit, 0.70, circy[i+1]),
+X	 on, 0);
+X  }
+X  for (i = 1; i <= SIGNS; i++) {
+X    temp = (double) (i-1)*30.0;
+X    drawline(cx+POINT(unit, 0.95, PX(temp)),
+X	 cy+POINT(unit, 0.95, PY(temp)),
+X	 cx+POINT(unit, 0.82, PX(temp)),
+X	 cy+POINT(unit, 0.82, PY(temp)), on, 0);
+X    drawline(cx+POINT(unit, 0.78, PX(house1[i])),
+X	 cy+POINT(unit, 0.78, PY(house1[i])),
+X	 cx+POINT(unit, 0.70, PX(house1[i])),
+X	 cy+POINT(unit, 0.70, PY(house1[i])), on, 0);
+X    if (xcolor && i%3 != 1)
+X      drawline(cx, cy, cx+POINT(unit, 0.70, PX(house1[i])),
+X	       cy+POINT(unit, 0.70, PY(house1[i])), gray, 1);
+X    temp += 15.0;
+X    turtle(signdraw[i], cx+POINT(unit, 0.885, PX(temp)),
+X	   cy+POINT(unit, 0.885, PY(temp)), elemcolor[(i-1)%4]);
+X    temp = midpoint(house1[i], house1[mod12(i+1)]);
+X    turtle(housedraw[i], cx+POINT(unit, 0.74, PX(temp)),
+X	   cy+POINT(unit, 0.74, PY(temp)), elemcolor[(i-1)%4]);
+X  }
+X  for (i = 1; i <= total; i++) {
+X    symbol[i] = planet2[i];
+X  }
+X  fillsymbolring(symbol);
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    temp = symbol[i];
+X    drawline(cx+POINT(unit, 0.58, PX(planet2[i])),
+X	     cy+POINT(unit, 0.58, PY(planet2[i])),
+X	     cx+POINT(unit, 0.61, PX(temp)),
+X	     cy+POINT(unit, 0.61, PY(temp)),
+X	     ret2[i] < 0.0 ? gray : on, (ret2[i] < 0.0 ? 1 : 0) - xcolor);
+X    drawobject(i, cx+POINT(unit, 0.65, PX(temp)),
+X	       cy+POINT(unit, 0.65, PY(temp)));
+X    drawpoint(cx+POINT(unit, 0.56, PX(planet2[i])),
+X	      cy+POINT(unit, 0.56, PY(planet2[i])), objectcolor[i]);
+X    drawpoint(cx+POINT(unit, 0.43, PX(planet2[i])),
+X	      cy+POINT(unit, 0.43, PY(planet2[i])), objectcolor[i]);
+X    drawline(cx+POINT(unit, 0.45, PX(planet2[i])),
+X	     cy+POINT(unit, 0.45, PY(planet2[i])),
+X	     cx+POINT(unit, 0.54, PX(planet2[i])),
+X	     cy+POINT(unit, 0.54, PY(planet2[i])),
+X	     ret2[i] < 0.0 ? gray : on, 2-xcolor);
+X  }
+X  for (i = 1; i <= total; i++) {
+X    symbol[i] = planet1[i];
+X  }
+X  fillsymbolring(symbol);
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    temp = symbol[i];
+X    drawline(cx+POINT(unit, 0.45, PX(planet1[i])),
+X	     cy+POINT(unit, 0.45, PY(planet1[i])),
+X	     cx+POINT(unit, 0.48, PX(temp)),
+X	     cy+POINT(unit, 0.48, PY(temp)),
+X	     ret1[i] < 0.0 ? gray : on, (ret1[i] < 0.0 ? 1 : 0) - xcolor);
+X    drawobject(i, cx+POINT(unit, 0.52, PX(temp)),
+X	       cy+POINT(unit, 0.52, PY(temp)));
+X    drawpoint(cx+POINT(unit, 0.43, PX(planet1[i])),
+X	      cy+POINT(unit, 0.43, PY(planet1[i])), objectcolor[i]);
+X  }
+X  if (bonus)
+X    return;
+X  createrelationgrid(FALSE);
+X  for (j = total; j >= 1; j--)
+X    for (i = total; i >= 1; i--)
+X      if (gridname[i][j] && proper(i) && proper(j))
+X	drawline(cx+POINT(unit, 0.41, PX(planet1[j])),
+X		 cy+POINT(unit, 0.41, PY(planet1[j])),
+X		 cx+POINT(unit, 0.41, PX(planet2[i])),
+X		 cy+POINT(unit, 0.41, PY(planet2[i])),
+X		 aspectcolor[gridname[i][j]], abs(grid[i][j]/20));
+X}
+X
+X#define GLOBECALC \
+Xif (modex == 'g') { \
+X  x1 = mod(x1+(double)deg); \
+X  if (tilt != 0.0) { \
+X    x1 = DTOR(x1); y1 = DTOR(90.0-y1); \
+X    coorxform(&x1, &y1, tilt / DEGTORAD); \
+X    x1 = mod(RTOD(x1)); y1 = 90.0-RTOD(y1); } \
+X  o = x1 > 180.0; \
+X  v = cy + (int) ((double)(ry+1)*-COSD(y1)); \
+X  u = cx + (int) ((double)(rx+1)*-COSD(x1)*SIND(y1)); \
+X} else { \
+X  if (bonus ? y1 < 90.0 : y1 > 90.0) \
+X    o = 1; \
+X  j = bonus ? 90.0+x1+deg : 270.0-x1-deg; \
+X  v = cy + (int) (SIND(y1)*(double)(ry+1)*SIND(j)); \
+X  u = cx + (int) (SIND(y1)*(double)(rx+1)*COSD(j)); \
+X}
+X
+Xdrawglobe(deg)
+Xint deg;
+X{
+X  char *nam, *loc, *lin;
+X  int X[TOTAL+1], Y[TOTAL+1], M[TOTAL+1], N[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, rx, ry, lon, lat, unit = 12*scale/100,
+X    x, y, m, n, u, v, o = 0, i, J, k, l;
+X  double planet1[TOTAL+1], planet2[TOTAL+1], x1, y1, j;
+X  color c;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rx = cx-1; ry = cy-1;
+X  while (readworlddata(&nam, &loc, &lin)) {
+X    i = nam[0]-'0';
+X    c = (modex == 'g' && bonus) ? gray : (i ? rainbowcolor[i] : maincolor[6]);
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    x = 180-lon;
+X    y = 90-lat;
+X    x1 = (double) x; y1 = (double) y; GLOBECALC; m = u; n = v;
+X    for (i = 0; lin[i]; i++) {
+X      if (lin[i] == 'L' || lin[i] == 'H' || lin[i] == 'G')
+X	x--;
+X      else if (lin[i] == 'R' || lin[i] == 'E' || lin[i] == 'F')
+X	x++;
+X      if (lin[i] == 'U' || lin[i] == 'H' || lin[i] == 'E')
+X	y--;
+X      else if (lin[i] == 'D' || lin[i] == 'G' || lin[i] == 'F')
+X	y++;
+X      if (x > 359)
+X	x = 0;
+X      else if (x < 0)
+X	x = 359;
+X      x1 = (double) x; y1 = (double) y; GLOBECALC;
+X      if (!o)
+X	drawline(m, n, u, v, c, 0);
+X      else
+X	o = 0;
+X      m = u; n = v;
+X    }
+X  }
+X  m = cx+rx+1; n = cy;
+X  for (i = 0; i <= 360; i++) {
+X    u = cx+(rx+1)*COSD(i); v = cy+(ry+1)*SIND(i);
+X    u = MIN(u, cx+rx); v = MIN(v, cy+ry);
+X    drawline(m, n, u, v, on, 0); m = u; n = v;
+X  }
+X  if (modex != 'g' || !bonus)
+X    return;
+X  j = Lon;
+X  if (j < 0.0)
+X    j += DEGREES;
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    x1 = planet1[18]-planet1[i];
+X    if (x1 < 0.0)
+X      x1 += 2.0*PI;
+X    if (x1 > PI)
+X      x1 -= 2.0*PI;
+X    x1 = mod(180.0-j-RTOD(x1));
+X    y1 = 90.0-RTOD(planet2[i]);
+X    GLOBECALC;
+X    X[i] = o ? -1000 : u; Y[i] = v; M[i] = X[i]; N[i] = Y[i]+unit/2;
+X  }
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    k = l = chartx+charty;
+X    for (J = 1; J < i; J++) if (proper(J)) {
+X      k = MIN(k, abs(M[i]-M[J])+abs(N[i]-N[J]));
+X      l = MIN(l, abs(M[i]-M[J])+abs(N[i]-unit-N[J]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X	N[i] -= unit;
+X  }
+X  for (i = total; i >= 1; i--) if (X[i] >= 0 && proper(i))
+X    drawobject(i, M[i], N[i]);
+X  for (i = total; i >= 1; i--) if (X[i] >= 0 && proper(i)) {
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X    drawspot(X[i], Y[i], objectcolor[i]);
+X  }
+X}
+X
+Xdrawleyline(l1, f1, l2, f2, o)
+Xdouble l1, f1, l2, f2;
+Xbit o;
+X{
+X  l1 = mod(l1); l2 = mod(l2);
+X  f1 = 90.0-ASIN(f1)/(PI/2.0)*90.0; f2 = 90.0-ASIN(f2)/(PI/2.0)*90.0;
+X  drawline2((int) (l1*(double)(scale/100)+0.5)+1,
+X	    (int) (f1*(double)(scale/100)+0.5)+1,
+X	    (int) (l2*(double)(scale/100)+0.5)+1,
+X	    (int) (f2*(double)(scale/100)+0.5)+1, o);
+X}
+X
+Xdrawleylines()
+X{
+X  color icosa, dodeca;
+X  float off = 0.0, phi, h, h1, h2, r, i;
+X  icosa = aspectcolor[5]; dodeca = hilite;
+X  phi = (sqrt(5.0)+1.0)/2.0;
+X  h = 1.0/(phi*2.0-1.0);
+X  for (i = off; i < DEGREES+off; i += 72.0) {
+X    drawleyline(i, h, i+72.0, h, icosa);
+X    drawleyline(i-36.0, -h, i+36.0, -h, icosa);
+X    drawleyline(i, h, i, 1.0, icosa);
+X    drawleyline(i+36.0, -h, i+36.0, -1.0, icosa);
+X    drawleyline(i, h, i+36.0, -h, icosa);
+X    drawleyline(i, h, i-36.0, -h, icosa);
+X  }
+X  r = 1.0/sqrt(3.0)/phi/cos(DTOR(54.0));
+X  h2 = sqrt(1.0-r*r); h1 = h2/(phi*2.0+1.0);
+X  for (i = off; i < DEGREES+off; i += 72.0) {
+X    drawleyline(i-36.0, h2, i+36.0, h2, dodeca);
+X    drawleyline(i, -h2, i+72.0, -h2, dodeca);
+X    drawleyline(i+36.0, h2, i+36.0, h1, dodeca);
+X    drawleyline(i, -h2, i, -h1, dodeca);
+X    drawleyline(i+36.0, h1, i+72.0, -h1, dodeca);
+X    drawleyline(i+36.0, h1, i, -h1, dodeca);
+X  }
+X}
+X
+Xdrawworld()
+X{
+X  char *nam, *loc, *lin;
+X  int lon, lat, x, y, xold, yold, i;
+X  color c;
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for worldmap.\n", scale);
+X    exit(1);
+X  }
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rectall(1, 1, hilite);
+X  while (readworlddata(&nam, &loc, &lin)) {
+X    i = nam[0]-'0';
+X    c = modex == 'l' ? on : (i ? rainbowcolor[i] : maincolor[6]);
+X    lon = (loc[0] == '+' ? 1 : -1)*
+X      ((loc[1]-'0')*100 + (loc[2]-'0')*10 + (loc[3]-'0'));
+X    lat = (loc[4] == '+' ? 1 : -1)*((loc[5]-'0')*10 + (loc[6]-'0'));
+X    xold = x = 180-lon;
+X    yold = y = 91-lat;
+X    for (i = 0; lin[i]; i++) {
+X      if (lin[i] == 'L' || lin[i] == 'H' || lin[i] == 'G')
+X	x--;
+X      else if (lin[i] == 'R' || lin[i] == 'E' || lin[i] == 'F')
+X	x++;
+X      if (lin[i] == 'U' || lin[i] == 'H' || lin[i] == 'E')
+X	y--;
+X      else if (lin[i] == 'D' || lin[i] == 'G' || lin[i] == 'F')
+X	y++;
+X      if (x > 360) {
+X	x = 1;
+X	xold = 0;
+X      }
+X      drawline(xold*scale/100, yold*scale/100,
+X	       x*scale/100, y*scale/100, c, 0);
+X      if (x < 1)
+X	x = 360;
+X      xold = x; yold = y;
+X    }
+X  }
+X}
+X
+Xdrawline2(xold, yold, xnew, ynew, o)
+Xint xold, yold, xnew, ynew;
+Xbit o;
+X{
+X  int xmid, ymid, i;
+X  if (xold < 0) {
+X    drawpoint(xnew, ynew, o);
+X    return;
+X  }
+X  xmid = 180*scale/100;
+X  if (dabs((double)(xnew-xold)) < (double) xmid) {
+X    drawline(xold, yold, xnew, ynew, o, 0);
+X    return;
+X  }
+X  i = xold < xmid ? xold+chartx-xnew-2 : xnew+chartx-xold-2;
+X  ymid = yold+(int)((double)(ynew-yold)*
+X    (xold < xmid ? (double)(xold-1) : (double)(chartx-xold-2))/(double)i);
+X  drawline(xold, yold, xold < xmid ? 1 : chartx-2, ymid, o, 0);
+X  drawline(xnew < xmid ? 1 : chartx-2, ymid, xnew, ynew, o, 0);
+X}
+X
+Xfillsymbolline(symbol)
+Xdouble *symbol;
+X{
+X  double orb = DEFORB*1.35*(double)scale/100.0,
+X    max = DEGREES*(double)scale/100.0, temp;
+X  int i, j, k = 1, l, k1, k2;
+X  for (l = 0; k && l < 100; l++) {
+X    k = 0;
+X    for (i = 1; i <= TOTAL*2; i++) {
+X      if (proper((i+1)/2) && symbol[i] >= 0.0) {
+X	k1 = max-symbol[i]; k2 = -symbol[i];
+X	for (j = 1; j <= THINGS*2; j++) {
+X	  if (proper((j+1)/2) && i != j) {
+X	    temp = symbol[j]-symbol[i];
+X	    if (temp<k1 && temp>=0.0)
+X	      k1 = temp;
+X	    else if (temp>k2 && temp<=0.0)
+X	      k2 = temp;
+X	  }
+X	}
+X	if (k2>-orb && k1>orb) {
+X	  k = 1; symbol[i] = symbol[i]+orb*0.51+k2*0.49;
+X	} else if (k1<orb && k2<-orb) {
+X	  k = 1; symbol[i] = symbol[i]-orb*0.51+k1*0.49;
+X	} else if (k2>-orb && k1<orb) {
+X	  k = 1; symbol[i] = symbol[i]+(k1+k2)*0.5;
+X	}
+X      }
+X    }
+X  }
+X}
+X
+Xxchartastrograph()
+X{
+X  double planet1[TOTAL+1], planet2[TOTAL+1],
+X    end1[TOTAL*2+1], end2[TOTAL*2+1],
+X    symbol1[TOTAL*2+1], symbol2[TOTAL*2+1],
+X    lon = deflong, longm, x, y, z, ad, oa, am, od, dm, lat;
+X  int unit, lat1 = -60, lat2 = 75, y1, y2, xold1, xold2, i, j, k;
+X  unit = scale/100;
+X  y1 = (91-lat1)*scale/100.0;
+X  y2 = (91-lat2)*scale/100.0;
+X  block(1, 1, chartx-2, y2-1, off);
+X  block(1, charty-2, chartx-2, y1+1, off);
+X  drawline(0, charty/2, chartx-2, charty/2, hilite, 4);
+X  drawline(1, y2, chartx-2, y2, on, 0);
+X  drawline(1, y1, chartx-2, y1, on, 0);
+X  for (i = 1; i <= total*2; i++)
+X    end1[i] = end2[i] = -1000.0;
+X  for (i = lat1; i <= lat2; i += 5) {
+X    j = (91-i)*scale/100.0;
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(1, j, k, j, hilite, 0);
+X    drawline(chartx-2, j, chartx-1-k, j, hilite, 0);
+X  }
+X  for (i = -180; i < 180; i += 5) {
+X    j = (180-i)*scale/100.0;
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0)+(i/90*90 == i ? 1 : 0);
+X    drawline(j, y2+1, j, y2+k, hilite, 0);
+X    drawline(j, y1-1, j, y1-k, hilite, 0);
+X  }
+X  for (i = 1; i <= total; i++) {
+X    planet1[i] = DTOR(planet[i]);
+X    planet2[i] = DTOR(planetalt[i]);
+X    ecltoequ(&planet1[i], &planet2[i]);
+X  }
+X  if (lon < 0.0)
+X    lon += DEGREES;
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    x = planet1[18]-planet1[i];
+X    if (x < 0.0)
+X      x += 2.0*PI;
+X    if (x > PI)
+X      x -= 2.0*PI;
+X    z = lon+RTOD(x);
+X    if (z > 180.0)
+X      z -= DEGREES;
+X    j = (int) ((180.0-z)*(double)scale/100.0);
+X    drawline(j, y1+unit*4, j, y2-unit*1, elemcolor[1], 0);
+X    end2[i*2-1] = (double) j;
+X    y = RTOD(planet2[i]);
+X    k = (int) ((91.0-y)*(double)scale/100.0);
+X    block(j-1, k-1, j+1, k+1, hilite);
+X    block(j, k, j, k, off);
+X    if (!bonus) {
+X      j += 180*scale/100;
+X      if (j > chartx-2)
+X	j -= (chartx-2);
+X      end1[i*2-1] = (double) j;
+X      drawline(j, y1+unit*2, j, y2-unit*2, elemcolor[3], 0);
+X    }
+X  }
+X  longm = DTOR(mod(RTOD(planet1[18])+lon));
+X  if (!bonus) for (i = 1; i <= total; i++) if (proper(i)) {
+X    xold1 = xold2 = -1000;
+X    for (lat = (double) lat1; lat <= (double) lat2;
+X	 lat += 100.0/(double)scale) {
+X      j = (int) ((91.0-lat)*(double)scale/100.0);
+X      ad = tan(planet2[i])*tan(DTOR(lat));
+X      if (ad*ad > 1.0)
+X	ad = 1000.0;
+X      else {
+X	ad = ASIN(ad);
+X	oa = planet1[i]-ad;
+X	if (oa < 0.0)
+X	  oa += 2.0*PI;
+X	am = oa-PI/2.0;
+X	if (am < 0.0)
+X	  am += 2.0*PI;
+X	z = longm-am;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	z = RTOD(z);
+X	k = (int) ((180.0-z)*(double)scale/100.0);
+X	drawline2(xold1, j+1, k, j, elemcolor[0]);
+X	if (lat == (double) lat1) {
+X	  drawline(k, y1, k, y1+unit*4, elemcolor[0], 0);
+X	  end2[i*2] = (double) k;
+X	}
+X	xold1 = k;
+X      }
+X      if (ad == 1000.0) {
+X	if (xold1 >= 0) {
+X	  drawline2(xold1, j+1, xold2, j+1, gray);
+X	  lat = 90.0;
+X	}
+X      } else {
+X	od = planet1[i]+ad;
+X	dm = od+PI/2.0;
+X	z = longm-dm;
+X	if (z < 0.0)
+X	  z += 2.0*PI;
+X	if (z > PI)
+X	  z -= 2.0*PI;
+X	z = RTOD(z);
+X	k = (int) ((180.0-z)*(double)scale/100.0);
+X	drawline2(xold2, j+1, k, j, elemcolor[2]);
+X	if (xold2 < 0)
+X	  drawline2(xold1, j, k, j, elemcolor[2]);
+X	if (lat == (double) lat1)
+X	  drawline(k, y1, k, y1+unit*2, elemcolor[2], 0);
+X	xold2 = k;
+X      }
+X    }
+X    if (ad != 1000.0) {
+X      drawline(xold1, y2, xold1, y2-unit*1, elemcolor[0], 0);
+X      drawline(k, y2, k, y2-unit*2, elemcolor[2], 0);
+X      end1[i*2] = (double) k;
+X    }
+X    if (!xbitmap)
+X      Xcolor(on);
+X  }
+X  for (i = 1; i <= total*2; i++) {
+X    symbol1[i] = end1[i];
+X    symbol2[i] = end2[i];
+X  }
+X  fillsymbolline(symbol1);
+X  fillsymbolline(symbol2);
+X  for (i = 1; i <= total*2; i++) {
+X    j = (i+1)/2;
+X    if (proper(j)) {
+X      if ((turtlex = (int) symbol1[i]) > 0) {
+X	drawline((int) end1[i], y2-unit*2, (int) symbol1[i], y2-unit*4,
+X		 ret[j] ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X	drawobject(j, turtlex, y2-unit*10);
+X      }
+X      if ((turtlex = (int) symbol2[i]) > 0) {
+X	drawline((int) end2[i], y1+unit*4, (int) symbol2[i], y1+unit*8,
+X		 ret[j] ? gray : on, (ret[i] < 0.0 ? 1 : 0) - xcolor);
+X	drawobject(j, turtlex, y1+unit*14);
+X	turtle(objectdraw[i & 1 ? 18 : 19], (int) symbol2[i],
+X	       y1+unit*24, objectcolor[j]);
+X      }
+X    }
+X  }
+X}
+X
+Xxchartaspectgrid()
+X{
+X  int unit, siz, x, y, i, j, k;
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for aspect grid.\n", scale);
+X    exit(1);
+X  }
+X  unit = CELLSIZE*scale/100; siz = objects*unit;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  creategrid(TRUE+bonus);
+X  for (y = 1, j = 0; y <= objects; y++) {
+X    do {
+X      j++;
+X    } while (ignore[j] && j <= total);
+X    drawline(0, y*unit, siz, y*unit, gray, 1-xcolor);
+X    drawline(y*unit, 0, y*unit, siz, gray, 1-xcolor);
+X    if (j <= total) for (x = 1, i = 0; x <= objects; x++) {
+X      do {
+X	i++;
+X      } while (ignore[i] && i <= total);
+X      if (i <= total) {
+X	turtlex = x*unit-unit/2;
+X	turtley = y*unit-unit/2 - (scale > 200 ? 5 : 0);
+X	if (bonus ? x > y : x < y)
+X	  turtle(aspectdraw[gridname[i][j]], turtlex,
+X		 turtley, aspectcolor[gridname[i][j]]);
+X	else if (bonus ? x < y : x > y)
+X	  turtle(signdraw[gridname[i][j]], turtlex,
+X		 turtley, elemcolor[(gridname[i][j]-1)%4]);
+X	else {
+X	  edge((y-1)*unit, (y-1)*unit, y*unit, y*unit, hilite);
+X	  drawobject(i, turtlex, turtley);
+X	}
+X	if (!xbitmap && scale > 200 && label) {
+X	  k = abs(grid[i][j]);
+X	  if (bonus ? x > y : x < y) {
+X	    if (gridname[i][j])
+X	      sprintf(string, "%c%d %d%d'", k != grid[i][j] ? '-' : '+',
+X		      k/60, (k%60)/10, (k%60)%10);
+X	    else
+X	      sprintf(string, "");
+X	  } else if (bonus ? x < y : x > y)
+X	    sprintf(string, "%d%d %d%d'",
+X		    (k/60)/10, (k/60)%10, (k%60)/10, (k%60)%10);
+X	  else {
+X	    Xcolor(elemcolor[(gridname[i][j]-1)%4]);
+X	    sprintf(string, "%c%c%c %d%d", SIGNAM(gridname[i][j]), k/10, k%10);
+X	  }
+X	  XDrawImageString(disp, pixmap, gc, x*unit-unit/2-FONT_X*3, y*unit-3,
+X			   string, strlen(string));
+X	}
+X      }
+X    }
+X  }
+X  rectall(1, 1, hilite);
+X}
+X
+Xxchartrelationaspectgrid()
+X{
+X  int unit, siz, x, y, i, j, k, l;
+X  if (chartx > BITMAPX) {
+X    fprintf(stderr, "Scale factor of %d too large for aspect grid.\n", scale);
+X    exit(1);
+X  }
+X  unit = CELLSIZE*scale/100; siz = (objects+1)*unit;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  createrelationgrid(TRUE+bonus);
+X  for (y = 0, j = -1; y <= objects; y++) {
+X    do {
+X      j++;
+X    } while (ignore[j] && j <= total);
+X    drawline(0, (y+1)*unit, siz, (y+1)*unit, gray, 1-xcolor);
+X    drawline((y+1)*unit, 0, (y+1)*unit, siz, gray, 1-xcolor);
+X    edge(0, y*unit, unit, (y+1)*unit, hilite);
+X    edge(y*unit, 0, (y+1)*unit, unit, hilite);
+X    if (j <= total) for (x = 0, i = -1; x <= objects; x++) {
+X      do {
+X	i++;
+X      } while (ignore[i] && i <= total);
+X      if (i <= total) {
+X	turtlex = x*unit+unit/2;
+X	turtley = y*unit+unit/2 - (!xbitmap && scale > 200 ? 5 : 0);
+X	if (y == 0 || x == 0) {
+X	  if (x+y > 0)
+X	    drawobject(j == 0 ? i : j, turtlex, turtley);
+X	} else {
+X	  if (!bonus)
+X	    turtle(aspectdraw[gridname[i][j]], turtlex, turtley,
+X		   aspectcolor[gridname[i][j]]);
+X	  else
+X	    turtle(signdraw[gridname[i][j]], turtlex, turtley,
+X		   elemcolor[(gridname[i][j]-1)%4]);
+X	}
+X	if (!xbitmap && scale > 200 && label) {
+X	  if (y == 0 || x == 0) {
+X	    if (x+y > 0) {
+X	      k = (int)((y == 0 ? planet2[i] : planet1[j])/30.0)+1;
+X	      l = (int)((y == 0 ? planet2[i] : planet1[j])-(double)(k-1)*30.0);
+X	      Xcolor(elemcolor[(k-1)%4]);
+X	      sprintf(string, "%c%c%c %d%d", SIGNAM(k), l/10, l%10);
+X	    } else {
+X	      Xcolor(hilite);
+X	      sprintf(string, "1v 2->");
+X	    }
+X	  } else {
+X	    k = abs(grid[i][j]);
+X	    if (!bonus)
+X	      if (gridname[i][j])
+X		sprintf(string, "%c%d %d%d'", k != grid[i][j] ? '-' : '+',
+X			k/60, (k%60)/10, (k%60)%10);
+X	      else
+X		sprintf(string, "");
+X	    else
+X	      sprintf(string, "%d%d %d%d'",
+X		      (k/60)/10, (k/60)%10, (k%60)/10, (k%60)%10);
+X	  }
+X	  XDrawImageString(disp, pixmap, gc, x*unit+unit/2-FONT_X*3,
+X			   (y+1)*unit-3, string, strlen(string));
+X	}
+X      }
+X    }
+X  }
+X  rectall(1, 1, hilite);
+X}
+X
+Xdrawspot(x, y, o)
+Xint x, y;
+Xbit o;
+X{
+X  drawpoint(x, y, o);
+X  drawpoint(x, y-1, o);
+X  drawpoint(x-1, y, o);
+X  drawpoint(x+1, y, o);
+X  drawpoint(x, y+1, o);
+X}
+X
+Xxcharthorizon()
+X{
+X  double lon, lat,
+X    lonz[TOTAL+1], latz[TOTAL+1], azi[TOTAL+1], alt[TOTAL+1];
+X  int x[TOTAL+1], y[TOTAL+1], m[TOTAL+1], n[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*scale/100,
+X    x1, y1, x2, y2, xs, ys, i, j, k, l;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  rectall(1, 1, hilite);
+X  x1 = y1 = unit/2; x2 = chartx-x1; y2 = charty-y1;
+X  xs = x2-x1; ys = y2-y1;
+X  for (i = 0; i < 180; i += 5) {
+X    j = y1+(int)((double)(i*ys)/180.0);
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(x1+1, j, x1+1+k, j, hilite, 0);
+X    drawline(x2-1, j, x2-1-k, j, hilite, 0);
+X  }
+X  for (i = 0; i < 360; i += 5) {
+X    j = x1+(int)((double)(i*xs)/DEGREES);
+X    k = 2+(i/10*10 == i ? 1 : 0)+(i/30*30 == i ? 2 : 0);
+X    drawline(j, y1+1, j, y1+1+k, hilite, 0);
+X    drawline(j, y2-1, j, y2-1-k, hilite, 0);
+X  }
+X  drawline(cx, y1, cx, y2, gray, 1);
+X  drawline((cx+x1)/2, y1, (cx+x1)/2, y2, gray, 1);
+X  drawline((cx+x2)/2, y1, (cx+x2)/2, y2, gray, 1);
+X  edge(x1, y1, x2, y2, on);
+X  drawline(x1, cy, x2, cy, on, 1);
+X  lon = DTOR(mod(Lon)); lat = DTOR(Lat);
+X  for (i = 1; i <= total; i++) {
+X    lonz[i] = DTOR(planet[i]); latz[i] = DTOR(planetalt[i]);
+X    ecltoequ(&lonz[i], &latz[i]);
+X  }
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    lonz[i] = DTOR(mod(RTOD(lonz[18]-lonz[i]+PI/2.0)));
+X    equtolocal(&lonz[i], &latz[i], PI/2.0-lat);
+X    azi[i] = DEGREES-RTOD(lonz[i]); alt[i] = RTOD(latz[i]);
+X    x[i] = x1+(int)((double)xs*(mod(90.0-azi[i]))/DEGREES+0.5);
+X    y[i] = y1+(int)((double)ys*(90.0-alt[i])/180.0+0.5);
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X  for (i = 1; i <= total; i++) if (proper(i)) {
+X    k = l = chartx+charty;
+X    for (j = 1; j < i; j++) if (proper(j)) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X	n[i] -= unit;
+X  }
+X  for (i = total; i >= 1; i--) if (proper(i))
+X    drawobject(i, m[i], n[i]);
+X  for (i = total; i >= 1; i--) if (proper(i)) {
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X    if (!bonus || i > BASE)
+X      drawpoint(x[i], y[i], objectcolor[i]);
+X    else
+X      drawspot(x[i], y[i], objectcolor[i]);
+X  }
+X}
+X
+Xdouble angle(x, y)
+Xdouble x, y;
+X{
+X  double a;
+X  a = atan(y/x);
+X  if (a < 0.0)
+X    a += PI;
+X  if (y < 0.0)
+X    a += PI;
+X  return mod(RTOD(a));
+X}
+X
+Xxchartspace()
+X{
+X  int x[TOTAL+1], y[TOTAL+1], m[TOTAL+1], n[TOTAL+1],
+X    cx = chartx / 2, cy = charty / 2, unit = 12*scale/100, i, j, k, l;
+X  double sx, sy, sz = 30.0, x1, y1, a;
+X  if (scale < 200)
+X    sz = 90.0;
+X  else if (scale > 200)
+X    sz = 6.0;
+X  sx = (double)cx/sz; sy = (double)cy/sz;
+X  if (xbitmap)
+X    block(0, 0, chartx - 1, charty - 1, off);
+X  for (i = 0; i <= total; i++) if (proper(i)) {
+X    if (centerplanet == 0)
+X      j = i < 2 ? 1-i : i;
+X    else if (centerplanet == 1)
+X      j = i;
+X    else
+X      j = i == 0 ? centerplanet : (i == centerplanet ? 0 : i);
+X    x1 = spacex[j]; y1 = spacey[j];
+X    x[i] = cx-(int)(x1*sx); y[i] = cy+(int)(y1*sy);
+X    m[i] = x[i]; n[i] = y[i]+unit/2;
+X  }
+X  for (i = 0; i <= total; i++) if (proper(i)) {
+X    k = l = chartx+charty;
+X    for (j = 0; j < i; j++) if (proper(j)) {
+X      k = MIN(k, abs(m[i]-m[j])+abs(n[i]-n[j]));
+X      l = MIN(l, abs(m[i]-m[j])+abs(n[i]-unit-n[j]));
+X    }
+X    if (k < unit || l < unit)
+X      if (k < l)
+X	n[i] -= unit;
+X  }
+X  a = mod(angle(spacex[3], spacey[3])-planet[3]);
+X  for (i = 0; i < SIGNS; i++) {
+X    k = cx+2*(int)((double)cx*COSD((double)i*30.0+a));
+X    l = cy+2*(int)((double)cy*SIND((double)i*30.0+a));
+X    drawclip(cx, cy, k, l, gray, 1);
+X  }
+X  for (i = total; i >= 0; i--) if (proper(i) && ISLEGAL(m[i], n[i]))
+X    drawobject(i, m[i], n[i]);
+X  for (i = total; i >= 0; i--) if (proper(i) && ISLEGAL(x[i], y[i])) {
+X    if (!xbitmap)
+X      Xcolor(objectcolor[i]);
+X    if (!bonus || i > BASE)
+X      drawpoint(x[i], y[i], objectcolor[i]);
+X    else
+X      drawspot(x[i], y[i], objectcolor[i]);
+X  }
+X  rectall(1, 1, hilite);
+X}
+X
+Xvoid xchart()
+X{
+X  int i, j, k, l;
+X  switch (modex) {
+X  case 'c':
+X    if (relation != -1)
+X      xchartwheel();
+X    else
+X      xchartwheelrelation();
+X    break;
+X  case 'l':
+X    drawworld();
+X    xchartastrograph();
+X    break;
+X  case 'a':
+X    if (relation != -1)
+X      xchartaspectgrid();
+X    else
+X      xchartrelationaspectgrid();
+X    break;
+X  case 'z':
+X    xcharthorizon();
+X    break;
+X  case 's':
+X    xchartspace();
+X    break;
+X  case 'w':
+X    drawworld();
+X    if (bonus)
+X      drawleylines();
+X    break;
+X  case 'p':
+X  case 'g':
+X    drawglobe(degree);
+X    break;
+X  }
+X  if (!xbitmap) {
+X    Xcolor(on);
+X    if (xtext && modex != 'w' && modex != 'p' && modex != 'g') {
+X      if (Mon == -1)
+X	sprintf(string, "(no time or space)");
+X      else if (relation == 2)
+X	sprintf(string, "(composite)");
+X      else {
+X	i = (int) Mon; l = (int) ((Tim-floor(Tim))*100.0+0.1);
+X	sprintf(string, "%2.0f %c%c%c %.0f %2.0f:%d%d (%.2f GMT) %s",
+X		Day, monthname[i][0], monthname[i][1], monthname[i][2], Yea,
+X		floor(Tim), l/10, l%10, -Zon, stringlocation(Lon, Lat, 100.0));
+X      }
+X      XDrawImageString(disp, pixmap, gc, (chartx-strlen(string)*FONT_X)/2,
+X		       charty-3, string, strlen(string));
+X    }
+X  }
+X}
+X#endif
+X
+X/**/
+END_OF_FILE
+if test 31047 -ne `wc -c <'xcharts.c'`; then
+    echo shar: \"'xcharts.c'\" unpacked with wrong size!
+fi
+# end of 'xcharts.c'
+fi
+if test -f 'driver.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'driver.c'\"
+else
+echo shar: Extracting \"'driver.c'\" \(21062 characters\)
+sed "s/^X//" >'driver.c' <<'END_OF_FILE'
+X/*
+X** Astrolog (Version 2.25) File: driver.c
+X*/
+X
+X#include "astrolog.h"
+X
+Xchar *filenameout, **extralines;
+Xint prog = FALSE, extracount = 0;
+X
+X/*
+X*******************************************************************************
+X** Option processing
+X*******************************************************************************
+X*/
+X
+Xdisplayswitches()
+X{
+X  printf("Astrolog command switches (version %s) (%s):\n", VERSION, DATE); 
+X  printf(" -H: Display this help message.\n");
+X  printf(" -O: Display available planets and other celestial objects.\n");
+X  printf(" -O0: Line -O but ignore any restrictions.\n");
+X  printf(" -R [<obj1> [<obj2> ..]: Restrict specific bodies from displays.\n");
+X  printf(" -R0 [<obj1> ..]: Like -R but restrict everything first.\n");
+X  printf(" -R[C,u,U]: Restrict all minor cusps, all uranians, or stars.\n");
+X  printf(" -C: Include non-angular house cusps in charts.\n");
+X  printf(" -u: Include transneptunian/uranian bodies in charts.\n");
+X  printf(" -U: Include locations of fixed background stars in charts.\n");
+X  printf(" -U[z,l,n,b]: Order by azimuth, altitude, name, or brightness.\n");
+X  printf(" -A [<0-18>]: Display available aspects or limit their number.\n");
+X  printf(" -Ao <orb1> [<orb2> ..]: Specify max orbs for each aspect.\n");
+X  printf(" -AO [..]: Like -Ao but suspend objects' max orb restrictions.\n\n");
+X  printf("Switches which affect how a chart is computed:\n");
+X  printf(" -c <value>: Select a different default system of houses.\n");
+X  printf("     (0 = Placidus, 1 = Koch, 2 = Equal, 3 = Campanus, ");
+X  printf("4 = Meridian,\n     5 = Regiomontanus, 6 = Porphry, ");
+X  printf("7 = Morinus, 8 = Topocentric, 9 = None.)\n");
+X  printf(" -s: Compute siderial instead of the normal tropical chart.\n");
+X  printf(" -s0: Display locations as right ascension instead of degrees.\n");
+X  printf(" -h [<objnum>]: Compute positions centered on specified object.\n");
+X  printf(" -p <month> <day> <year>: Cast progressed chart based for date.\n");
+X#ifdef TIME
+X  printf(" -pn: Cast progressed chart based on current date now.\n");
+X#endif
+X  printf(" -p0 <days>: Set no. of days to progress / day (default 365.25).\n");
+X  printf(" -x <1-360>: Cast harmonic chart based on specified factor.\n");
+X  printf(" -1 [<objnum>]: Cast chart with specified object on ascendant.\n");
+X  printf(" -3: Display objects in their zodiac decan positions.\n");
+X  printf(" -f: Display houses as sign positions (flip them).\n");
+X  printf(" -G: Display houses based on geographic location only.\n");
+X  printf(" -+ <days>: Cast chart for specified no. of days in the future.\n");
+X  printf(" -- <days>: Cast chart for specified no. of days in the past.\n\n");
+X  printf("Switches which determine in what format the chart is displayed:\n");
+X  printf(" -v: Display list of object positions (chosen by default).\n");
+X  printf(" -v0: Like -v but express velocities relative to average speed.\n");
+X  printf(" -w: Display chart on screen in a graphic house wheel format.\n");
+X  printf(" -w0: Like -w but show objects in houses 4..9 in reverse order.\n");
+X  printf(" -g: Display aspect and midpoint grid among planets.\n");
+X  printf(" -g0: Like -g but flag aspect configurations (e.g. Yod's) too.\n");
+X  printf(" -g0: For comparison charts, show midpoints instead of aspects.\n");
+X  printf(" -ga: Like -g but indicate applying instead of difference orbs.\n");
+X  printf(" -Z: Display planet locations with respect to the local horizon.\n");
+X  printf(" -S: Display x,y,z coordinate positions of planets.\n");
+X  printf(" -I: Display interpretation of planetary influences.\n");
+X  printf(" -L [<step>]: Display astro-graph locations of planetary angles.\n");
+X  printf(" -L0 [..]: Like -L but display list of latitude crossings too.\n");
+X  printf(" -d: Print all aspects and changes occurring in a day.\n");
+X  printf(" -d0: Like -d but print all aspects for the entire month.\n");
+X  printf(" -dp <month> <year>: Print aspects within progressed chart.\n");
+X  printf(" -e: Print all options for chart (i.e. -v-w-g0-Z-S-I-L0-d).\n\n");
+X  printf("Switches which affect how the chart parameters are obtained:\n");
+X#ifdef TIME
+X  printf(" -n: Compute chart for this exact moment using current time.\n");
+X#endif
+X  printf(" -a <month> <date> <year> <time> <zone> <long> <lat>:\n");
+X  printf("     Compute chart automatically given specified data.\n");
+X  printf(" -z: Assume Daylight time (change default zone appropriately).\n");
+X  printf(" -z <zone>: Change the default time zone (for -d-q-T-E options).\n");
+X  printf(" -l <long> <lat>: ");
+X  printf("Change the default longitude & latitude.\n");
+X  printf(" -q <month> <date> <year>: Compute chart for noon on date.\n");
+X  printf(" -q0 <month> <date> <year> <time>: Like -q but include time too.\n");
+X  printf(" -i <file>: Compute chart based on info in file.\n");
+X  printf(" -o <file> [..]: Write parameters of current chart to file.\n");
+X  printf(" -o0 <file> [..]: Like -o but output planet/house positions.\n\n");
+X  printf("Other features or major modes:\n");
+X  printf(" -r <file1> <file2>: Compute a relationship synastry chart.\n");
+X  printf(" -rc <file1> <file2>: Compute a composite chart.\n");
+X  printf(" -rm <file1> <file2>: Compute a time space midpoint chart.\n");
+X  printf(" -r0 <file1> <file2>: Keep the charts separate in comparison.\n");
+X#ifdef TIME
+X  printf(" -t <file>: Compute current house transits for particular chart.\n");
+X#endif
+X  printf(" -T <file> <month> <year>: ");
+X  printf("Compute all transits in month for chart.\n");
+X  printf(" -T0 <..>: Like -T but include transits of the Moon as well.\n");
+X  printf(" -Tp <file> <month> <year>: ");
+X  printf("Compute all progressions in month for chart.\n");
+X  printf(" -E <month> <year>: Display ephemeris for given month.\n");
+X  printf(" -E0 <..>: Like -E but include Chiron and the asteroids as well.\n");
+X#ifdef X11
+X  xdisplayswitches();
+X#endif
+X}
+X
+Xprintobjects(all)
+Xint all;
+X{
+X  int i, j;
+X  double Off;
+X  if (!cusp)
+X    for (i = objects+1; i <= objects+4; i++)
+X      ignore[i] = TRUE;
+X  if (!uranian)
+X    for (i = objects+5; i <= BASE; i++)
+X      ignore[i] = TRUE;
+X  printf("Astrolog planets and objects:\n");
+X  printf("No. Name       Rule Co-Rule Fall Co-Fall Exalt Debilitate\n\n");
+X  if (all || universe) {
+X    Off = processinput(TRUE);
+X    caststar(siderial ? 0.0 : Off);
+X  }
+X  for (i = 1; i <= BASE; i++) if (all || !ignore[i]) {
+X    printf("%2d %s", i, objectname[i]);
+X    printtab(' ', 12-stringlen(objectname[i]));
+X    if (i <= objects) {
+X      if (ruler1[i]) {
+X	j = ruler2[i];
+X	printf("%c%c%c  %c%c%c     ", SIGNAM(ruler1[i]),
+X	       j ? signname[j][0] : ' ', j ? signname[j][1] : ' ',
+X	       j ? signname[j][2] : ' ');
+X	printf("%c%c%c  %c%c%c     ", SIGNAM(mod12(ruler1[i]+6)),
+X	       j ? signname[mod12(j+6)][0] : ' ',
+X	       j ? signname[mod12(j+6)][1] : ' ',
+X	       j ? signname[mod12(j+6)][2] : ' ');
+X	printf("%c%c%c   %c%c%c", SIGNAM(exalt[i]),
+X	       SIGNAM(mod12(exalt[i]+6)));
+X      }
+X    } else if (i <= objects+4)
+X      printf("Minor House Cusp #%d", i-objects);
+X    else
+X      printf("Uranian #%d", i-objects-4);
+X    putchar('\n');
+X  }
+X  if (all || universe)
+X    for (i = BASE+1; i <= total; i++) if (all | !ignore[i]) {
+X      j = BASE+starname[i-BASE];
+X      printf("%2d %s", i, objectname[j]);
+X      printtab(' ', 12-stringlen(objectname[j]));
+X      printf("Star #%2d    ", i-BASE);
+X      printminute(planet[j]);
+X      printf("  ");
+X      printaltitude(planetalt[j]);
+X      printf(" %5.2f\n", starbright[j-BASE]);
+X    }
+X}
+X
+Xprintaspects()
+X{
+X  int i;
+X  printf("Astrolog aspects:\nNo. Angle    Orb       Abbrev. Name");
+X  printf("          Description of glyph\n\n");
+X  for (i = 1; i <= ASPECTS; i++) {
+X    printf("%2d %6.2f +/- %1.0f degrees (%s) %s", i,
+X	   aspectangle[i], aspectorb[i], aspectabbrev[i], aspectname[i]);
+X    printtab(' ', 15-stringlen(aspectname[i]));
+X    printf("%s\n", aspectglyph[i]);
+X  }
+X}
+X
+X#define NEXTDEFAULT while(getc(data) != '=');
+X
+Xint inputdefaults()
+X{
+X  char name[STRING];
+X  int i;
+X  filename = DEFAULT_INFOFILE;
+X  data = fopen(filename, "r");
+X  if (data == NULL) {
+X    sprintf(name, "%s%s", DEFAULT_DIR, filename);
+X    data = fopen(name, "r");
+X    if (data == NULL)
+X      return FALSE;
+X  }
+X  NEXTDEFAULT; fscanf(data, "%lf", &defzone);
+X  NEXTDEFAULT; fscanf(data, "%lf", &deflong);
+X  NEXTDEFAULT; fscanf(data, "%lf", &deflat);
+X  NEXTDEFAULT; fscanf(data, "%d",  &aspects);
+X  NEXTDEFAULT; fscanf(data, "%d",  &housesystem);
+X  NEXTDEFAULT;
+X  for (i = 1; i <= objects; i++)
+X    fscanf(data, "%d", &ignore[i]);
+X  NEXTDEFAULT;
+X  for (i = 1; i <= ASPECTS; i++)
+X    fscanf(data, "%lf", &aspectorb[i]);
+X  NEXTDEFAULT;
+X  for (i = 1; i <= objects; i++)
+X    fscanf(data, "%lf", &objectinf[i]);
+X  for (i = 1; i <= SIGNS; i++)
+X    fscanf(data, "%lf", &houseinf[i]);
+X  for (i = 1; i <= ASPECTS; i++)
+X    fscanf(data, "%lf", &aspectinf[i]);
+X  fclose(data);
+X  return TRUE;
+X}
+X
+Xoutputdata()
+X{
+X  int i, j;
+X  double k;
+X  data = fopen(filenameout, "w");
+X  if (data == NULL) {
+X    fprintf(stderr, "File %s can not be created.\n", filenameout);
+X    exit(1);
+X  }
+X  if (!(todisplay & 4096)) {
+X    if (Mon < 1) {
+X      fprintf(stderr, "\nCan't output chart with no time/space to file.\n");
+X      fclose(data);
+X      exit(1);
+X    }
+X    fprintf(data, "%.0f\n%.0f\n%.0f\n%.2f\n%.2f\n%.2f\n%.2f\n",
+X	    Mon, Day, Yea, Tim, Zon, Lon, Lat);
+X  } else {
+X    for (i = 1; i <= objects; i++) {
+X      j = (int) planet[i];
+X      fprintf(data, "%c%c%c: %2d %2d %10.7f\n", OBJNAM(i),
+X	      j%30, j/30+1, (planet[i]-floor(planet[i]))*60.0);
+X      k = planetalt[i];
+X      fprintf(data, "[%c]: %3d %12.8f\n",
+X	      ret[i] >= 0.0 ? 'D' : 'R', (int)(sgn(k)*
+X              floor(dabs(k))), (k-(double)(int)k)*60.0);
+X    }
+X    for (i = 1; i <= SIGNS/2; i++) {
+X      j = (int) house[i];
+X      fprintf(data, "H_%c: %2d %2d %10.7f\n",
+X	      'a'+i-1, j%30, j/30+1, (house[i]-floor(house[i]))*60.0);
+X    }
+X  }
+X  for (i = 1; i < extracount; i++) {
+X    extralines++;
+X    fprintf(data, "%s\n", extralines[1]);
+X  }
+X  fclose(data);
+X}
+X
+Xaction()
+X{
+X  int i;
+X  if (!cusp)
+X    for (i = objects+1; i <= objects+4; i++)
+X      ignore[i] = TRUE;
+X  if (!uranian)
+X    for (i = objects+5; i <= BASE; i++)
+X      ignore[i] = TRUE;
+X  if (!universe)
+X    for (i = BASE+1; i <= total; i++)
+X      ignore[i] = TRUE;
+X  if (operation & 2)
+X    printtransit(prog);
+X  else if (operation & 4)
+X    printephemeris();
+X  else {
+X    if (!relation) {
+X      if (!autom)
+X	inputdata("tty");
+X      Mon = M; Day = D; Yea = Y; Tim = F; Zon = X; Lon = L5; Lat = LA;
+X      castchart(TRUE);
+X    } else
+X      castrelation();
+X#ifdef X11
+X    if (operation & 8)
+X      xaction();
+X    else
+X#endif
+X      printchart(prog);
+X  }
+X  if (operation & 1)
+X    outputdata();
+X}
+X
+X#ifndef SWITCHES
+X#define MAXSWITCHES 20
+Xint inputswitches(argv)
+Xchar argv[MAXSWITCHES][10];
+X{
+X  int argc = 0;
+X  printf("** Astrolog version %s (cruiser1@milton.u.washington.edu) **\n",
+X    VERSION); 
+X  printf("Enter all the switch parameters below. (Enter -H for help.)\n");
+X  printf("Press return after each switch or number parameter input.\n");
+X  printf("Input a '.' on a line by itself when done.\n\n");
+X  do {
+X    argc++;
+X    printf("Input parameter string #%2d: ", argc);
+X    if (gets(argv[argc]) == (char *) NULL) {
+X      printf("\nAstrolog terminated.\n");
+X      exit(1);
+X    }
+X  } while (argc < MAXSWITCHES && (argv[argc][0] != '.' || argv[argc][1] != 0));
+X  printf("\n");
+X  return argc;
+X}
+X#endif
+X
+X
+X/*
+X*******************************************************************************
+X** Main program
+X*******************************************************************************
+X*/
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X#ifdef TIME
+X  struct tm curtime;
+X  int curtimer;
+X#endif
+X  int pos, i, j;
+X  double k;
+X  char c;
+X#ifndef SWITCHES
+X  char strings[MAXSWITCHES][10];
+X  char *pointers[MAXSWITCHES];
+X  inputdefaults();
+X  for (i = 0; i < MAXSWITCHES; i++)
+X    pointers[i] = strings[i];
+X  argc = inputswitches(strings);
+X  argv = pointers;
+X#else
+X  inputdefaults();
+X#endif
+X  argc--; argv++;
+X  while (argc) {
+X    pos = 1;
+X    if (argv[0][0] == '-')
+X      pos++;
+X    switch (argv[0][pos-1]) {
+X    case 'H':
+X      displayswitches();
+X      exit(0);
+X    case 'O':
+X      printobjects(argv[0][pos] == '0');
+X      exit(0);
+X    case 'R':
+X      if (argv[0][pos] == '0')
+X	for (i = 1; i <= total; i++)
+X	  ignore[i] = TRUE;
+X      else if (argv[0][pos] == 'C')
+X	for (i = objects+1; i <= objects+4; i++)
+X	  ignore[i] = TRUE;
+X      else if (argv[0][pos] == 'u')
+X	for (i = objects+5; i <= BASE; i++)
+X	  ignore[i] = TRUE;
+X      else if (argv[0][pos] == 'U')
+X	for (i = BASE+1; i <= total; i++)
+X	  ignore[i] = TRUE;
+X      else if (argc <= 1 || (!atoi(argv[1]))) {
+X	for (i = 11; i <= 15; i++)
+X	  ignore[i] = 1-ignore[i];
+X	ignore[17] = 1-ignore[17]; ignore[20] = 1-ignore[20];
+X      }
+X      while (argc > 1 && (i = atoi(argv[1])))
+X	if (i < 1 || i > total) {
+X	  fprintf(stderr, "Bad value %d to switch -R\n", i);
+X	  exit(1);
+X	} else {
+X	  ignore[i] = 1-ignore[i];
+X	  argc--; argv++;
+X	}
+X      break;
+X    case 'u':
+X      uranian = TRUE;
+X      break;
+X    case 'U':
+X      if (argv[0][pos] == 'n' || argv[0][pos] == 'b' ||
+X	  argv[0][pos] == 'z' || argv[0][pos] == 'l')
+X	universe = argv[0][pos];
+X      else
+X	universe = TRUE;
+X      break;
+X    case 'C':
+X      cusp = TRUE;
+X      break;
+X    case 'A':
+X      if (argc <= 1) {
+X	printaspects();
+X	exit(0);
+X      }
+X      if (argv[0][pos] != 'o' && argv[0][pos] != 'O') {
+X	aspects = atoi(argv[1]);
+X	if (aspects < 0 || aspects > ASPECTS) {
+X	  fprintf(stderr, "Bad value %d to switch -A\n", aspects);
+X	  exit(1);
+X	}
+X	argc--; argv++;
+X      } else {
+X	if (argv[0][pos] == 'O')
+X	  orb(0, 0, 0);
+X	i = 1;
+X	while (argc > 1 && ((k = atof(argv[1])) || argv[1][0] == '0'))
+X	  if (k < -180.0 || k > 180.0 || i > ASPECTS) {
+X	    fprintf(stderr, "Bad value %.1f to switch -Ao\n", k);
+X	    exit(1);
+X	  } else {
+X	    aspectorb[i++] = k;
+X	    argc--; argv++;
+X	  }
+X      }
+X      break;
+X    case 's':
+X      if (argv[0][pos] == '0')
+X	right = TRUE;
+X      else
+X	siderial = TRUE;
+X      break;
+X    case 'h':
+X      if (argc > 1 && (centerplanet = atoi(argv[1]))) {
+X	argc--; argv++;
+X      } else
+X	centerplanet = 1;
+X      if (centerplanet < 0 || centerplanet == 2 || (centerplanet >= THINGS &&
+X	  centerplanet < objects+5) || centerplanet > BASE) {
+X	fprintf(stderr, "Bad value %d to switch -h\n", centerplanet);
+X	exit(1);
+X      }
+X      for (i = 0; i <= 11; i++) {
+X	c = objectname[0][i]; objectname[0][i] = objectname[centerplanet][i];
+X	objectname[centerplanet][i] = c;
+X      }
+X      if (centerplanet < 2)
+X	centerplanet = 1-centerplanet;
+X      break;
+X    case 'c':
+X      if (argc <= 1)
+X	toofew("c");
+X      housesystem = atoi(argv[1]);
+X      if (housesystem < 0 || housesystem >= SYSTEMS) {
+X	fprintf(stderr, "Bad value %d to switch -c\n", housesystem);
+X	exit(1);
+X      }
+X      argc--; argv++;
+X      break;
+X    case 'x':
+X      if (argc <= 1)
+X	toofew("x");
+X      multiplyfactor = atoi(argv[1]);
+X      if (multiplyfactor < 1 || multiplyfactor > DEGREES) {
+X	fprintf(stderr, "Bad value %d to switch -x\n", multiplyfactor);
+X	exit(1);
+X      }
+X      argc--; argv++;
+X      break;
+X    case '1':
+X      if (argc > 1 && (onasc = atoi(argv[1]))) {
+X	argc--; argv++;
+X      } else
+X	onasc = 1;
+X      if (onasc < 1 || onasc > objects) {
+X	fprintf(stderr, "Bad value %d to switch -1\n", onasc);
+X	exit(1);
+X      }
+X      break;
+X    case 'f':
+X      flip = TRUE;
+X      break;
+X    case '3':
+X      decan = TRUE;
+X      break;
+X    case 'G':
+X      geodetic = TRUE;
+X      break;
+X    case 'p':
+X#ifdef TIME
+X      if (argv[0][pos] == 'n') {
+X	progress = TRUE;
+X	curtimer = (int) time((int *) 0);
+X	curtime = *localtime(&curtimer);
+X	Mon = (double) curtime.tm_mon + 1.0;
+X	Day = (double) curtime.tm_mday;
+X	Yea = (double) curtime.tm_year + 1900.0;
+X	Jdp = mdytojulian(Mon, Day, Yea);
+X	break;
+X      }
+X#endif
+X      if (argv[0][pos] == '0') {
+X	if (argc <= 1)
+X	  toofew("p0");
+X	progday = atof(argv[1]);
+X	if (progday == 0.0) {
+X	  fprintf(stderr, "Bad progression value %.2f to switch -p0\n",
+X		  progday);
+X	  exit(1);
+X	}
+X	argc--; argv++;
+X	break;
+X      }
+X      if (argc <= 3)
+X	toofew("p");
+X      progress = TRUE;
+X      Mon = atof(argv[1]);
+X      Day = atof(argv[2]);
+X      Yea = atof(argv[3]);
+X      if (Mon < 1.0 || Mon > 12.0 || Day < 1.0 || Day > 31.0) {
+X	fprintf(stderr, "Bad date value %.0f,%.0f,%.0f to switch -p\n",
+X		Mon, Day, Yea);
+X	exit(1);
+X      }
+X      Jdp = mdytojulian(Mon, Day, Yea);
+X      argc -= 3; argv += 3;
+X      break;
+X    case '+':
+X      if (argc <= 1)
+X	toofew("+");
+X      Delta = atof(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case '-': case '\0':
+X      if (argc <= 1)
+X	toofew("-");
+X      Delta = -atof(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case 'v':
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 32768;
+X      todisplay = todisplay | 1;
+X      break;
+X    case 'w':
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 2048;
+X      todisplay = todisplay | 2;
+X      break;
+X    case 'g':
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 8192;
+X      if (argv[0][pos] == 'a') {
+X	todisplay = todisplay | 65536;
+X	if (argv[0][pos+1] == '0')
+X	  todisplay = todisplay | 8192;
+X      }
+X      todisplay = todisplay | 4;
+X      break;
+X    case 'Z':
+X      todisplay = todisplay | 8;
+X      break;
+X    case 'S':
+X      todisplay = todisplay | 16;
+X      break;
+X    case 'I':
+X      todisplay = todisplay | 32;
+X      break;
+X    case 'L':
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 16384;
+X      if (argc > 1 && (i = atoi(argv[1]))) {
+X	graphstep = i;
+X	argc--; argv++;
+X      }
+X      if (graphstep < 1 || 160%graphstep > 0) {
+X	fprintf(stderr, "Bad value %d to switch -L\n", graphstep);
+X	exit(1);
+X      }
+X      todisplay = todisplay | 64;
+X      break;
+X    case 'd':
+X      if (argv[0][pos] == 'p') {
+X	if (argc <= 2)
+X	  toofew("dp");
+X	prog = TRUE;
+X	todisplay = todisplay | 256;
+X	Mon2 = atof(argv[1]);
+X	Yea2 = atof(argv[2]);
+X	if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	  fprintf(stderr, "Bad date value %.0f to switch -dp\n", Mon2);
+X	  exit(1);
+X	}
+X	argc -= 2; argv += 2;
+X      } else if (argv[0][pos] == '0')
+X	todisplay = todisplay | 256;
+X      todisplay = todisplay | 128;
+X      break;
+X    case 'e':
+X      todisplay = 255 | 8192 | 16384;
+X      break;
+X#ifdef TIME
+X    case 'n':
+X      inputdata("now");
+X      break;
+X#endif
+X    case 'l':
+X      if (argc <= 2)
+X	toofew("l");
+X      deflong = atof(argv[1]);
+X      deflat  = atof(argv[2]);
+X      argc -= 2; argv += 2;
+X      break;
+X    case 'z':
+X      if (argc <= 1 || atoi(argv[1]) == 0)
+X	defzone--;
+X      else {
+X	defzone = atof(argv[1]);
+X	if (defzone < -24.0 || defzone > 24.0) {
+X	  fprintf(stderr, "Bad value %.0f to switch -z\n", defzone);
+X	  exit(1);
+X	}
+X	argc--; argv++;
+X      }
+X      break;
+X    case 'a':
+X      if (argc <= 7)
+X	toofew("a");
+X      autom = TRUE;
+X      M = atof(argv[1]); D = atof(argv[2]); Y = atof(argv[3]);
+X      F = atof(argv[4]); X = atof(argv[5]);
+X      L5 = atof(argv[6]); LA = atof(argv[7]);
+X      argc -= 7; argv += 7;
+X      break;
+X    case 'q':
+X      i = (argv[0][pos] == '0');
+X      if (argc <= 3+i)
+X	toofew("q");
+X      autom = TRUE;
+X      M = atof(argv[1]); D = atof(argv[2]); Y = atof(argv[3]);
+X      F = i ? atof(argv[4]) : 12.0; X = defzone; L5 = deflong; LA = deflat;
+X      argc -= 3+i; argv += 3+i;
+X      break;
+X    case 'i':
+X      if (argc <= 1)
+X	toofew("i");
+X      inputdata(argv[1]);
+X      argc--; argv++;
+X      break;
+X    case 'o':
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 4096;
+X      if (argc <= 1)
+X	toofew("o");
+X      operation = operation | 1;
+X      filenameout = argv[1];
+X      extralines = argv;
+X      do {
+X	argc--; argv++;
+X	extracount++;
+X      } while (argc > 1 && argv[1][0] != '-');
+X      break;
+X    case 'r':
+X      if (argc <= 2)
+X	toofew("r");
+X      if (argv[0][pos] == 'c')
+X	relation = 2;
+X      else if (argv[0][pos] == 'm')
+X	relation = 3;
+X      else if (argv[0][pos] == '0')
+X	relation = -1;
+X      else
+X	relation = 1;
+X      filename = argv[1]; filename2 = argv[2];
+X      argc -= 2; argv += 2;
+X      break;
+X#ifdef TIME
+X    case 't':
+X      if (argc <= 1)
+X	toofew("t");
+X      relation = -1;
+X      filename = argv[1]; filename2 = "now";
+X      argc--; argv++;
+X      break;
+X#endif
+X    case 'T':
+X      if (argc <= 3)
+X	toofew("T");
+X      if (argv[0][pos] == 'p') {
+X	prog = TRUE;
+X	todisplay = todisplay | 512;
+X      } else if (argv[0][pos] == '0')
+X	todisplay = todisplay | 512;
+X      operation = 2;
+X      filename = argv[1];
+X      Mon2 = atof(argv[2]);
+X      Yea2 = atof(argv[3]);
+X      if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	fprintf(stderr, "Bad date value %.0f to switch -T\n", Mon2);
+X	exit(1);
+X      }
+X      argc -= 3; argv += 3;
+X      break;
+X    case 'E':
+X      if (argc <= 2)
+X	toofew("E");
+X      if (argv[0][pos] == '0')
+X	todisplay = todisplay | 1024;
+X      operation = 4;
+X      Mon2 = atof(argv[1]);
+X      Yea2 = atof(argv[2]);
+X      if (Mon2 < 0.0 || Mon2 > 12.0) {
+X	fprintf(stderr, "Bad date value %.0f to switch -E\n", Mon2);
+X	exit(1);
+X      }
+X      argc -= 2; argv += 2;
+X      break;
+X#ifdef X11
+X    case 'X':
+X      i = xprocess(argc, argv, pos);
+X      operation = 8;
+X      argc -= i; argv += i;
+X      break;
+X#endif
+X    default:
+X      fprintf(stderr, "Unknown switch '%s'\n", argv[0]);
+X      exit(1);
+X    }
+X    argc--; argv++;
+X  }
+X  action();
+X}
+X
+X/**/
+END_OF_FILE
+if test 21062 -ne `wc -c <'driver.c'`; then
+    echo shar: \"'driver.c'\" unpacked with wrong size!
+fi
+# end of 'driver.c'
+fi
+echo shar: End of archive 3 \(of 8\).
+cp /dev/null ark3isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 8 archives.
+    echo "See the README file for further instructions."
+    rm -f ark[1-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2007 @@
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: envbvs@bea.lbl.gov (Brian V. Smith)
+Newsgroups: comp.sources.x
+Subject: v16i013: Xfig 2.1.3, Part08/25
+Message-ID: <1992Feb4.145851.661@msi.com>
+Date: 4 Feb 92 14:58:51 GMT
+References: <csx-16i006-xfig-2.1.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1994
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: envbvs@bea.lbl.gov (Brian V. Smith)
+Posting-number: Volume 16, Issue 13
+Archive-name: xfig-2.1.3/part08
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 8 (of 25)."
+# Contents:  u_search.c w_fontpanel.c w_rulers.c
+# Wrapped by dcmartin@fascet on Tue Feb  4 06:42:28 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'u_search.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_search.c'\"
+else
+echo shar: Extracting \"'u_search.c'\" \(20471 characters\)
+sed "s/^X//" >'u_search.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "object.h"
+X#include "mode.h"
+X#include "u_list.h"
+X#include "w_zoom.h"
+X
+X#define TOLERANCE 3
+X
+Xstatic		(*manipulate) ();
+Xstatic		(*handlerproc_left) ();
+Xstatic		(*handlerproc_middle) ();
+Xstatic		(*handlerproc_right) ();
+Xstatic int	type;
+Xstatic long	objectcount;
+Xstatic long	n;
+Xstatic int	csr_x, csr_y;
+X
+Xstatic F_point	point1, point2;
+X
+Xstatic F_arc   *a;
+Xstatic F_ellipse *e;
+Xstatic F_line  *l;
+Xstatic F_spline *s;
+Xstatic F_text  *t;
+Xstatic F_compound *c;
+X
+Xchar
+Xnext_arc_found(x, y, tolerance, px, py, shift)
+X    int		    x, y, tolerance, *px, *py;
+X    int		    shift;
+X{				/* (px, py) is the control point on the
+X				 * circumference of an arc which is the
+X				 * closest to (x, y)				 */
+X
+X    int		    i;
+X
+X    if (!arc_in_mask())
+X	return (0);
+X    if (a == NULL)
+X	a = last_arc(objects.arcs);
+X    else if (shift)
+X	a = prev_arc(objects.arcs, a);
+X
+X    for (; a != NULL; a = prev_arc(objects.arcs, a), n++) {
+X	for (i = 0; i < 3; i++)
+X	    if ((abs(a->point[i].x - x) <= tolerance) &&
+X		(abs(a->point[i].y - y) <= tolerance)) {
+X		*px = a->point[i].x;
+X		*py = a->point[i].y;
+X		return (1);
+X	    }
+X    }
+X    return (0);
+X}
+X
+X
+Xchar
+Xnext_ellipse_found(x, y, tolerance, px, py, shift)
+X    int		    x, y, tolerance, *px, *py;
+X    int		    shift;
+X{				/* (px, py) is the point on the circumference
+X				 * of an ellipse which is the closest to (x,
+X				 * y)				 */
+X
+X    int		    a, b, dx, dy;
+X    float	    dis, r, tol;
+X
+X    if (!ellipse_in_mask())
+X	return (0);
+X    if (e == NULL)
+X	e = last_ellipse(objects.ellipses);
+X    else if (shift)
+X	e = prev_ellipse(objects.ellipses, e);
+X
+X    tol = (float) tolerance;
+X    for (; e != NULL; e = prev_ellipse(objects.ellipses, e), n++) {
+X	dx = x - e->center.x;
+X	dy = y - e->center.y;
+X	a = e->radiuses.x;
+X	b = e->radiuses.y;
+X	/* prevent sqrt(0) core dumps */
+X	if (dx == 0 && dy == 0)
+X	    dis = 0;		/* so we return below */
+X	else
+X	    dis = sqrt((double) (dx * dx + dy * dy));
+X	if (dis < tol) {
+X	    *px = e->center.x;
+X	    *py = e->center.y;
+X	    return (1);
+X	}
+X	if (abs(x - e->start.x) <= tolerance && abs(y - e->start.y) <= tolerance) {
+X	    *px = e->start.x;
+X	    *py = e->start.y;
+X	    return (1);
+X	}
+X	if (abs(x - e->end.x) <= tolerance && abs(y - e->end.y) <= tolerance) {
+X	    *px = e->end.x;
+X	    *py = e->end.y;
+X	    return (1);
+X	}
+X	if (a * dy == 0 && b * dx == 0)
+X	    r = 0;		/* prevent core dumps */
+X	else
+X	    r = a * b * dis / sqrt((double) (1.0 * b * b * dx * dx + 1.0 * a * a * dy * dy));
+X	if (fabs(dis - r) <= tol) {
+X	    *px = (int) (r * dx / dis + ((dx < 0) ? -.5 : .5)) + e->center.x;
+X	    *py = (int) (r * dy / dis + ((dy < 0) ? -.5 : .5)) + e->center.y;
+X	    return (1);
+X	}
+X    }
+X    return (0);
+X}
+X
+Xchar
+Xnext_line_found(x, y, tolerance, px, py, shift)
+X    int		    x, y, tolerance, *px, *py, shift;
+X{				/* return the pointer to lines object if the
+X				 * search is successful otherwise return
+X				 * NULL.  The value returned via (px, py) is
+X				 * the closest point on the vector to point
+X				 * (x, y)					 */
+X
+X    F_point	   *point;
+X    int		    x1, y1, x2, y2;
+X    float	    tol2;
+X
+X    tol2 = (float) tolerance *tolerance;
+X
+X    if (!anyline_in_mask())
+X	return (0);
+X    if (l == NULL)
+X	l = last_line(objects.lines);
+X    else if (shift)
+X	l = prev_line(objects.lines, l);
+X
+X    for (; l != NULL; l = prev_line(objects.lines, l))
+X	if (validline_in_mask(l)) {
+X	    n++;
+X	    point = l->points;
+X	    x1 = point->x;
+X	    y1 = point->y;
+X	    if (abs(x - x1) <= tolerance && abs(y - y1) <= tolerance) {
+X		*px = x1;
+X		*py = y1;
+X		return (1);
+X	    }
+X	    for (point = point->next; point != NULL; point = point->next) {
+X		x2 = point->x;
+X		y2 = point->y;
+X		if (close_to_vector(x1, y1, x2, y2, x, y, tolerance, tol2,
+X				    px, py))
+X		    return (1);
+X		x1 = x2;
+X		y1 = y2;
+X	    }
+X	}
+X    return (0);
+X}
+X
+Xchar
+Xnext_spline_found(x, y, tolerance, px, py, shift)
+X    int		    x, y, tolerance, *px, *py;
+X    int		    shift;
+X{				/* return the pointer to lines object if the
+X				 * search is successful otherwise return
+X				 * NULL.  */
+X
+X    F_point	   *point;
+X    int		    x1, y1, x2, y2;
+X    float	    tol2;
+X
+X    if (!anyspline_in_mask())
+X	return (0);
+X    if (s == NULL)
+X	s = last_spline(objects.splines);
+X    else if (shift)
+X	s = prev_spline(objects.splines, s);
+X
+X    tol2 = (float) tolerance *tolerance;
+X
+X    for (; s != NULL; s = prev_spline(objects.splines, s))
+X	if (validspline_in_mask(s)) {
+X	    n++;
+X	    point = s->points;
+X	    x1 = point->x;
+X	    y1 = point->y;
+X	    for (point = point->next; point != NULL; point = point->next) {
+X		x2 = point->x;
+X		y2 = point->y;
+X		if (close_to_vector(x1, y1, x2, y2, x, y, tolerance, tol2,
+X				    px, py))
+X		    return (1);
+X		x1 = x2;
+X		y1 = y2;
+X	    }
+X	}
+X    return (0);
+X}
+X
+Xchar
+Xnext_text_found(x, y, tolerance, dummy1, dummy2, shift)
+X    int		    x, y;
+X    int		    tolerance, dummy1, dummy2, shift;
+X{
+X    int		    halflen, dx, dy;
+X
+X    if (!anytext_in_mask())
+X	return (0);
+X    if (t == NULL)
+X	t = last_text(objects.texts);
+X    else if (shift)
+X	t = prev_text(objects.texts, t);
+X
+X    for (; t != NULL; t = prev_text(objects.texts, t))
+X	if (validtext_in_mask(t)) {
+X	    /* adjust for text angle */
+X	    dy = (int) ((double) t->height * cos(t->angle));
+X	    dx = (int) ((double) t->height * sin(t->angle));
+X	    n++;
+X	    if (abs(x - t->base_x) <= tolerance &&
+X		abs(y - t->base_y) <= tolerance)
+X		return (1);
+X	    if (abs(x - (t->base_x - dx)) <= tolerance &&
+X		abs(y - (t->base_y - dy)) <= tolerance)
+X		return (1);
+X	    halflen = t->length / 2;
+X	    if (t->base_y - t->height > y)
+X		continue;
+X	    if (t->base_y < y)
+X		continue;
+X	    if (((t->type == T_LEFT_JUSTIFIED) && t->base_x > x) ||
+X	     ((t->type == T_CENTER_JUSTIFIED) && t->base_x - halflen > x) ||
+X	      ((t->type == T_RIGHT_JUSTIFIED) && t->base_x - t->length > x))
+X		continue;
+X	    if (((t->type == T_LEFT_JUSTIFIED) && t->base_x + t->length < x) ||
+X	     ((t->type == T_CENTER_JUSTIFIED) && t->base_x + halflen < x) ||
+X		((t->type == T_RIGHT_JUSTIFIED) && t->base_x < x))
+X		continue;
+X	    return (1);
+X	}
+X    return (0);
+X}
+X
+Xint
+Xnext_compound_found(x, y, tolerance, px, py, shift)
+X    int		    x, y, tolerance, *px, *py;
+X    int		    shift;
+X{
+X    float	    tol2;
+X
+X    if (!compound_in_mask())
+X	return (0);
+X    if (c == NULL)
+X	c = last_compound(objects.compounds);
+X    else if (shift)
+X	c = prev_compound(objects.compounds, c);
+X
+X    tol2 = tolerance * tolerance;
+X
+X    for (; c != NULL; c = prev_compound(objects.compounds, c), n++) {
+X	if (close_to_vector(c->nwcorner.x, c->nwcorner.y, c->nwcorner.x,
+X			    c->secorner.y, x, y, tolerance, tol2, px, py))
+X	    return (1);
+X	if (close_to_vector(c->secorner.x, c->secorner.y, c->nwcorner.x,
+X			    c->secorner.y, x, y, tolerance, tol2, px, py))
+X	    return (1);
+X	if (close_to_vector(c->secorner.x, c->secorner.y, c->secorner.x,
+X			    c->nwcorner.y, x, y, tolerance, tol2, px, py))
+X	    return (1);
+X	if (close_to_vector(c->nwcorner.x, c->nwcorner.y, c->secorner.x,
+X			    c->nwcorner.y, x, y, tolerance, tol2, px, py))
+X	    return (1);
+X    }
+X    return (0);
+X}
+X
+Xshow_objecthighlight()
+X{
+X    if (highlighting)
+X	return;
+X    highlighting = 1;
+X    toggle_objecthighlight();
+X}
+X
+Xerase_objecthighlight()
+X{
+X    if (!highlighting)
+X	return;
+X    highlighting = 0;
+X    toggle_objecthighlight();
+X    if (type == -1) {
+X	e = NULL;
+X	type = O_ELLIPSE;
+X    }
+X}
+X
+Xtoggle_objecthighlight()
+X{
+X    switch (type) {
+X    case O_ELLIPSE:
+X	toggle_ellipsehighlight(e);
+X	break;
+X    case O_POLYLINE:
+X	toggle_linehighlight(l);
+X	break;
+X    case O_SPLINE:
+X	toggle_splinehighlight(s);
+X	break;
+X    case O_TEXT:
+X	toggle_texthighlight(t);
+X	break;
+X    case O_ARC:
+X	toggle_archighlight(a);
+X	break;
+X    case O_COMPOUND:
+X	toggle_compoundhighlight(c);
+X	break;
+X    default:
+X	toggle_csrhighlight(csr_x, csr_y);
+X    }
+X}
+X
+Xstatic void
+Xinit_search()
+X{
+X    if (highlighting)
+X	erase_objecthighlight();
+X    else {
+X	objectcount = 0;
+X	if (ellipse_in_mask())
+X	    for (e = objects.ellipses; e != NULL; e = e->next)
+X		objectcount++;
+X	if (anyline_in_mask())
+X	    for (l = objects.lines; l != NULL; l = l->next)
+X		if (validline_in_mask(l))
+X		    objectcount++;
+X	if (anyspline_in_mask())
+X	    for (s = objects.splines; s != NULL; s = s->next)
+X		if (validspline_in_mask(s))
+X		    objectcount++;
+X	if (anytext_in_mask())
+X	    for (t = objects.texts; t != NULL; t = t->next)
+X		if (validtext_in_mask(t))
+X		    objectcount++;
+X	if (arc_in_mask())
+X	    for (a = objects.arcs; a != NULL; a = a->next)
+X		objectcount++;
+X	if (compound_in_mask())
+X	    for (c = objects.compounds; c != NULL; c = c->next)
+X		objectcount++;
+X	e = NULL;
+X	type = O_ELLIPSE;
+X    }
+X}
+X
+Xvoid
+Xdo_object_search(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    int		    px, py;
+X    char	    found = 0;
+X
+X    init_search();
+X    for (n = 0; n < objectcount;) {
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    found = next_ellipse_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_POLYLINE:
+X	    found = next_line_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_SPLINE:
+X	    found = next_spline_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_TEXT:
+X	    found = next_text_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_ARC:
+X	    found = next_arc_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_COMPOUND:
+X	    found = next_compound_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	}
+X
+X	if (found)
+X	    break;
+X
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    type = O_POLYLINE;
+X	    l = NULL;
+X	    break;
+X	case O_POLYLINE:
+X	    type = O_SPLINE;
+X	    s = NULL;
+X	    break;
+X	case O_SPLINE:
+X	    type = O_TEXT;
+X	    t = NULL;
+X	    break;
+X	case O_TEXT:
+X	    type = O_ARC;
+X	    a = NULL;
+X	    break;
+X	case O_ARC:
+X	    type = O_COMPOUND;
+X	    c = NULL;
+X	    break;
+X	case O_COMPOUND:
+X	    type = O_ELLIPSE;
+X	    e = NULL;
+X	    break;
+X	}
+X    }
+X    if (!found) {		/* nothing found */
+X	csr_x = x;
+X	csr_y = y;
+X	type = -1;
+X	show_objecthighlight();
+X    } else if (shift) {		/* show selected object */
+X	show_objecthighlight();
+X    } else {			/* user selected an object */
+X	erase_objecthighlight();
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    manipulate(e, type, x, y, px, py);
+X	    break;
+X	case O_POLYLINE:
+X	    manipulate(l, type, x, y, px, py);
+X	    break;
+X	case O_SPLINE:
+X	    manipulate(s, type, x, y, px, py);
+X	    break;
+X	case O_TEXT:
+X	    manipulate(t, type, x, y, px, py);
+X	    break;
+X	case O_ARC:
+X	    manipulate(a, type, x, y, px, py);
+X	    break;
+X	case O_COMPOUND:
+X	    manipulate(c, type, x, y, px, py);
+X	    break;
+X	}
+X    }
+X}
+X
+Xobject_search_left(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_left;
+X    do_object_search(x, y, shift);
+X}
+X
+Xobject_search_middle(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_middle;
+X    do_object_search(x, y, shift);
+X}
+X
+Xobject_search_right(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_right;
+X    do_object_search(x, y, shift);
+X}
+X
+Xchar
+Xnext_ellipse_point_found(x, y, tol, point_num, shift)
+X    int		    x, y, tol, shift, *point_num;
+X
+X/* dirty trick - point_num is called as a `F_point *point_num' */
+X{
+X
+X    if (!ellipse_in_mask())
+X	return (0);
+X    if (e == NULL)
+X	e = last_ellipse(objects.ellipses);
+X    else if (shift)
+X	e = prev_ellipse(objects.ellipses, e);
+X
+X    for (; e != NULL; e = prev_ellipse(objects.ellipses, e), n++) {
+X	if (abs(e->start.x - x) <= tol && abs(e->start.y - y) <= tol) {
+X	    *point_num = 0;
+X	    return (1);
+X	}
+X	if (abs(e->end.x - x) <= tol && abs(e->end.y - y) <= tol) {
+X	    *point_num = 1;
+X	    return (1);
+X	}
+X    }
+X    return (0);
+X}
+X
+Xchar
+Xnext_arc_point_found(x, y, tol, point_num, shift)
+X    int		    x, y, tol, shift, *point_num;
+X
+X/* dirty trick - point_num is called as a `F_point *point_num' */
+X{
+X    int		    i;
+X
+X    if (!arc_in_mask())
+X	return (0);
+X    if (a == NULL)
+X	a = last_arc(objects.arcs);
+X    else if (shift)
+X	a = prev_arc(objects.arcs, a);
+X
+X    for (; a != NULL; a = prev_arc(objects.arcs, a), n++) {
+X	for (i = 0; i < 3; i++) {
+X	    if (abs(a->point[i].x - x) <= tol &&
+X		abs(a->point[i].y - y) <= tol) {
+X		*point_num = i;
+X		return (1);
+X	    }
+X	}
+X    }
+X    return (0);
+X}
+X
+Xchar
+Xnext_spline_point_found(x, y, tol, p, q, shift)
+X    int		    x, y, tol, shift;
+X    F_point	  **p, **q;
+X{
+X    if (!anyspline_in_mask())
+X	return (0);
+X    if (s == NULL)
+X	s = last_spline(objects.splines);
+X    else if (shift)
+X	s = prev_spline(objects.splines, s);
+X
+X    for (; s != NULL; s = prev_spline(objects.splines, s))
+X	if (validspline_in_mask(s)) {
+X	    n++;
+X	    *p = NULL;
+X	    for (*q = s->points; *q != NULL; *p = *q, *q = (*q)->next) {
+X		if (abs((*q)->x - x) <= tol && abs((*q)->y - y) <= tol)
+X		    return (1);
+X	    }
+X	}
+X    return (0);
+X}
+X
+Xchar
+Xnext_line_point_found(x, y, tol, p, q, shift)
+X    int		    x, y, tol, shift;
+X    F_point	  **p, **q;
+X{
+X    F_point	   *a, *b;
+X
+X    if (!anyline_in_mask())
+X	return (0);
+X    if (l == NULL)
+X	l = last_line(objects.lines);
+X    else if (shift)
+X	l = prev_line(objects.lines, l);
+X
+X    for (; l != NULL; l = prev_line(objects.lines, l))
+X	if (validline_in_mask(l)) {
+X	    n++;
+X	    for (a = NULL, b = l->points; b != NULL; a = b, b = b->next) {
+X		if (abs(b->x - x) <= tol && abs(b->y - y) <= tol) {
+X		    *p = a;
+X		    *q = b;
+X		    return (1);
+X		}
+X	    }
+X	}
+X    return (0);
+X}
+X
+Xchar
+Xnext_compound_point_found(x, y, tol, p, q, shift)
+X    int		    x, y, tol, shift, *p, *q;
+X
+X/* dirty trick - p and q are called with type `F_point' */
+X{
+X    if (!compound_in_mask())
+X	return (0);
+X    if (c == NULL)
+X	c = last_compound(objects.compounds);
+X    else if (shift)
+X	c = prev_compound(objects.compounds, c);
+X
+X    for (; c != NULL; c = prev_compound(objects.compounds, c), n++) {
+X	if (abs(c->nwcorner.x - x) <= tol &&
+X	    abs(c->nwcorner.y - y) <= tol) {
+X	    *p = c->nwcorner.x;
+X	    *q = c->nwcorner.y;
+X	    return (1);
+X	}
+X	if (abs(c->nwcorner.x - x) <= tol &&
+X	    abs(c->secorner.y - y) <= tol) {
+X	    *p = c->nwcorner.x;
+X	    *q = c->secorner.y;
+X	    return (1);
+X	}
+X	if (abs(c->secorner.x - x) <= tol &&
+X	    abs(c->nwcorner.y - y) <= tol) {
+X	    *p = c->secorner.x;
+X	    *q = c->nwcorner.y;
+X	    return (1);
+X	}
+X	if (abs(c->secorner.x - x) <= tol &&
+X	    abs(c->secorner.y - y) <= tol) {
+X	    *p = c->secorner.x;
+X	    *q = c->secorner.y;
+X	    return (1);
+X	}
+X    }
+X    return (0);
+X}
+X
+Xvoid
+Xinit_searchproc_left(handlerproc)
+X    int		    (*handlerproc) ();
+X
+X{
+X    handlerproc_left = handlerproc;
+X}
+X
+Xvoid
+Xinit_searchproc_middle(handlerproc)
+X    int		    (*handlerproc) ();
+X
+X{
+X    handlerproc_middle = handlerproc;
+X}
+X
+Xvoid
+Xinit_searchproc_right(handlerproc)
+X    int		    (*handlerproc) ();
+X
+X{
+X    handlerproc_right = handlerproc;
+X}
+X
+Xvoid
+Xdo_point_search(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    F_point	   *px, *py;
+X    char	    found = 0;
+X
+X    px = &point1;
+X    py = &point2;
+X    init_search();
+X    for (n = 0; n < objectcount;) {
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    /* dirty trick - px returns point_num */
+X	    found = next_ellipse_point_found(x, y, TOLERANCE, &px, shift);
+X	    break;
+X	case O_POLYLINE:
+X	    found = next_line_point_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_SPLINE:
+X	    found = next_spline_point_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	case O_ARC:
+X	    /* dirty trick - px returns point_num */
+X	    found = next_arc_point_found(x, y, TOLERANCE, &px, shift);
+X	    break;
+X	case O_COMPOUND:
+X	    found = next_compound_point_found(x, y, TOLERANCE, &px, &py, shift);
+X	    break;
+X	}
+X	if (found) {
+X	    if (shift)
+X		show_objecthighlight();
+X	    break;
+X	}
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    type = O_POLYLINE;
+X	    l = NULL;
+X	    break;
+X	case O_POLYLINE:
+X	    type = O_SPLINE;
+X	    s = NULL;
+X	    break;
+X	case O_SPLINE:
+X	    type = O_ARC;
+X	    a = NULL;
+X	    break;
+X	case O_ARC:
+X	    type = O_COMPOUND;
+X	    c = NULL;
+X	    break;
+X	case O_COMPOUND:
+X	    type = O_ELLIPSE;
+X	    e = NULL;
+X	    break;
+X	}
+X    }
+X    if (!found) {
+X	csr_x = x;
+X	csr_y = y;
+X	type = -1;
+X	show_objecthighlight();
+X    } else if (shift) {
+X	show_objecthighlight();
+X    } else {
+X	erase_objecthighlight();
+X	switch (type) {
+X	case O_ELLIPSE:
+X	    manipulate(e, type, x, y, px, py);
+X	    break;
+X	case O_POLYLINE:
+X	    manipulate(l, type, x, y, px, py);
+X	    break;
+X	case O_SPLINE:
+X	    manipulate(s, type, x, y, px, py);
+X	    break;
+X	case O_ARC:
+X	    manipulate(a, type, x, y, px, py);
+X	    break;
+X	case O_COMPOUND:
+X	    manipulate(c, type, x, y, px, py);
+X	    break;
+X	}
+X    }
+X}
+X
+Xpoint_search_left(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_left;
+X    do_point_search(x, y, shift);
+X}
+X
+Xpoint_search_middle(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_middle;
+X    do_point_search(x, y, shift);
+X}
+X
+Xpoint_search_right(x, y, shift)
+X    int		    x, y;
+X    unsigned int    shift;	/* Shift Key Status from XEvent */
+X{
+X    manipulate = handlerproc_right;
+X    do_point_search(x, y, shift);
+X}
+X
+X/* =============================================================== */
+X
+X/* These are some of the original search subroutines which are still in use */
+X
+XF_text	       *
+Xtext_search(x, y)
+X    int		    x, y;
+X{
+X    F_text	   *t;
+X    int		    length;
+X
+X    for (t = objects.texts; t != NULL; t = t->next) {
+X	if (t->base_y - t->height > y)
+X	    continue;
+X	if (t->base_y < y)
+X	    continue;
+X	length = text_length(t);
+X	if (((t->type == T_LEFT_JUSTIFIED) && t->base_x > x) ||
+X	  ((t->type == T_CENTER_JUSTIFIED) && t->base_x - length / 2 > x) ||
+X	    ((t->type == T_RIGHT_JUSTIFIED) && t->base_x - length > x))
+X	    continue;
+X	if (((t->type == T_LEFT_JUSTIFIED) && t->base_x + length < x) ||
+X	  ((t->type == T_CENTER_JUSTIFIED) && t->base_x + length / 2 < x) ||
+X	    ((t->type == T_RIGHT_JUSTIFIED) && t->base_x < x))
+X	    continue;
+X	return (t);
+X    }
+X    return (NULL);
+X}
+X
+XF_compound     *
+Xcompound_search(x, y, tolerance, px, py)
+X    int		    x, y, tolerance, *px, *py;
+X{
+X    F_compound	   *c;
+X    float	    tol2;
+X
+X    tol2 = tolerance * tolerance;
+X
+X    for (c = objects.compounds; c != NULL; c = c->next) {
+X	if (close_to_vector(c->nwcorner.x, c->nwcorner.y, c->nwcorner.x,
+X			    c->secorner.y, x, y, tolerance, tol2, px, py))
+X	    return (c);
+X	if (close_to_vector(c->secorner.x, c->secorner.y, c->nwcorner.x,
+X			    c->secorner.y, x, y, tolerance, tol2, px, py))
+X	    return (c);
+X	if (close_to_vector(c->secorner.x, c->secorner.y, c->secorner.x,
+X			    c->nwcorner.y, x, y, tolerance, tol2, px, py))
+X	    return (c);
+X	if (close_to_vector(c->nwcorner.x, c->nwcorner.y, c->secorner.x,
+X			    c->nwcorner.y, x, y, tolerance, tol2, px, py))
+X	    return (c);
+X    }
+X    return (NULL);
+X}
+X
+XF_compound     *
+Xcompound_point_search(x, y, tol, cx, cy, fx, fy)
+X    int		    x, y, tol, *cx, *cy, *fx, *fy;
+X{
+X    F_compound	   *c;
+X
+X    for (c = objects.compounds; c != NULL; c = c->next) {
+X	if (abs(c->nwcorner.x - x) <= tol &&
+X	    abs(c->nwcorner.y - y) <= tol) {
+X	    *cx = c->nwcorner.x;
+X	    *cy = c->nwcorner.y;
+X	    *fx = c->secorner.x;
+X	    *fy = c->secorner.y;
+X	    return (c);
+X	}
+X	if (abs(c->nwcorner.x - x) <= tol &&
+X	    abs(c->secorner.y - y) <= tol) {
+X	    *cx = c->nwcorner.x;
+X	    *cy = c->secorner.y;
+X	    *fx = c->secorner.x;
+X	    *fy = c->nwcorner.y;
+X	    return (c);
+X	}
+X	if (abs(c->secorner.x - x) <= tol &&
+X	    abs(c->nwcorner.y - y) <= tol) {
+X	    *cx = c->secorner.x;
+X	    *cy = c->nwcorner.y;
+X	    *fx = c->nwcorner.x;
+X	    *fy = c->secorner.y;
+X	    return (c);
+X	}
+X	if (abs(c->secorner.x - x) <= tol &&
+X	    abs(c->secorner.y - y) <= tol) {
+X	    *cx = c->secorner.x;
+X	    *cy = c->secorner.y;
+X	    *fx = c->nwcorner.x;
+X	    *fy = c->nwcorner.y;
+X	    return (c);
+X	}
+X    }
+X    return (NULL);
+X}
+END_OF_FILE
+if test 20471 -ne `wc -c <'u_search.c'`; then
+    echo shar: \"'u_search.c'\" unpacked with wrong size!
+fi
+# end of 'u_search.c'
+fi
+if test -f 'w_fontpanel.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_fontpanel.c'\"
+else
+echo shar: Extracting \"'w_fontpanel.c'\" \(9291 characters\)
+sed "s/^X//" >'w_fontpanel.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X * Added by Brian V. Smith
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "u_fonts.h"		/* printer font names */
+X#include "w_setup.h"
+X#include "w_util.h"
+X
+X/********************  global variables	 ***************************/
+X
+Xextern char    *psfont_menu_bits[];
+Xextern char    *latexfont_menu_bits[];
+Xextern Pixmap	psfont_menu_bitmaps[];
+Xextern Pixmap	latexfont_menu_bitmaps[];
+Xextern struct _fstruct ps_fontinfo[];	/* font names */
+Xextern struct _fstruct latex_fontinfo[];	/* font names */
+X
+X/* LOCAL VARIABLES */
+X
+Xstatic int     *font_ps_sel;	/* ptr to store selected ps font in */
+Xstatic int     *font_latex_sel; /* ptr to store selected latex font */
+Xstatic int     *flag_sel;	/* pointer to store ps/latex flag */
+Xstatic TOOL	font_widget;	/* widget adr to store font image in */
+Xstatic int	(*font_setimage) ();
+X
+X/********************  local variables	***************************/
+X
+Xstatic MENUITEM ps_fontmenu_items[NUM_PS_FONTS + 1];
+Xstatic MENUITEM latex_fontmenu_items[NUM_LATEX_FONTS];
+X
+Xstatic void	fontpane_select();
+Xstatic void	fontpane_cancel();
+Xstatic void	fontpane_swap();
+X
+Xstatic XtCallbackRec pane_callbacks[] =
+X{
+X    {fontpane_select, NULL},
+X    {NULL, NULL},
+X};
+X
+Xstatic TOOL	ps_fontpanes, ps_buttons;
+Xstatic TOOL	latex_fontpanes, latex_buttons;
+Xstatic TOOL	ps_fontpane[NUM_PS_FONTS + 1];
+Xstatic TOOL	latex_fontpane[NUM_LATEX_FONTS];
+X
+Xinit_fontmenu(tool)
+X    TOOL	    tool;
+X{
+X    TOOL	    tmp_but;
+X    register int    i;
+X    register MENUITEM *mi;
+X    XtTranslations  pane_actions;
+X
+X    DeclareArgs(8);
+X
+X    FirstArg(XtNborderWidth, POPUP_BW);
+X    NextArg(XtNmappedWhenManaged, False);
+X    NextArg(XtNtitle, "Xfig: Font menu");
+X
+X    ps_fontmenu = XtCreatePopupShell("xfig_ps_font_menu",
+X				     transientShellWidgetClass, tool,
+X				     Args, ArgCount);
+X    latex_fontmenu = XtCreatePopupShell("xfig_latex_font_menu",
+X					transientShellWidgetClass, tool,
+X					Args, ArgCount);
+X
+X    FirstArg(XtNvSpace, -INTERNAL_BW);
+X    NextArg(XtNhSpace, 0);
+X
+X    ps_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X					 ps_fontmenu, Args, ArgCount);
+X    latex_fontpanes = XtCreateManagedWidget("menu", boxWidgetClass,
+X					    latex_fontmenu, Args, ArgCount);
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X	ps_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X							 * menu */
+X	ps_fontmenu_items[i].label = ps_fontinfo[i].name;
+X	ps_fontmenu_items[i].info = (caddr_t) i - 1;	/* index for font # */
+X    }
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; i++) {
+X	latex_fontmenu_items[i].type = MENU_IMAGESTRING;	/* put the fontnames in
+X								 * menu */
+X	latex_fontmenu_items[i].label = latex_fontinfo[i].name;
+X	latex_fontmenu_items[i].info = (caddr_t) i;	/* index for font # */
+X    }
+X
+X    FirstArg(XtNwidth, PS_FONTPANE_WD);
+X    NextArg(XtNdefaultDistance, INTERNAL_BW);
+X    NextArg(XtNborderWidth, 0);
+X    ps_buttons = XtCreateManagedWidget("buttons", formWidgetClass,
+X				       ps_fontpanes, Args, ArgCount);
+X    latex_buttons = XtCreateManagedWidget("buttons", formWidgetClass,
+X					  latex_fontpanes, Args, ArgCount);
+X
+X    i = (int) ((PS_FONTPANE_WD - INTERNAL_BW) / 3);
+X    FirstArg(XtNwidth, i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				    ps_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNfromHoriz, tmp_but);
+X    NextArg(XtNwidth, PS_FONTPANE_WD - INTERNAL_BW - i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("use_latex_fonts", commandWidgetClass,
+X				    ps_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_swap, (XtPointer) NULL);
+X
+X    FirstArg(XtNwidth, i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				    latex_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNfromHoriz, tmp_but);
+X    NextArg(XtNwidth, PS_FONTPANE_WD - INTERNAL_BW - i);
+X    NextArg(XtNborderWidth, 0);
+X    tmp_but = XtCreateManagedWidget("use_postscript_fonts", commandWidgetClass,
+X				    latex_buttons, Args, ArgCount);
+X    XtAddEventHandler(tmp_but, ButtonReleaseMask, (Boolean) 0,
+X		      fontpane_swap, (XtPointer) NULL);
+X
+X    pane_actions = XtParseTranslationTable("<EnterWindow>:set()\n\
+X		<Btn1Up>:notify()unset()\n");
+X
+X    FirstArg(XtNwidth, PS_FONTPANE_WD);
+X    NextArg(XtNheight, PS_FONTPANE_HT);
+X    NextArg(XtNcallback, pane_callbacks);
+X    NextArg(XtNbitmap, NULL);
+X    NextArg(XtNinternalWidth, 0);	/* space between pixmap and edge */
+X    NextArg(XtNinternalHeight, 0);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    NextArg(XtNresize, False);	/* don't allow resize */
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; ++i) {
+X	mi = &ps_fontmenu_items[i];
+X	pane_callbacks[0].closure = (caddr_t) mi;
+X	ps_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X					       ps_fontpanes, Args, ArgCount);
+X	XtOverrideTranslations(ps_fontpane[i], pane_actions);
+X    }
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; ++i) {
+X	mi = &latex_fontmenu_items[i];
+X	pane_callbacks[0].closure = (caddr_t) mi;
+X	latex_fontpane[i] = XtCreateManagedWidget("pane", commandWidgetClass,
+X					   latex_fontpanes, Args, ArgCount);
+X	XtOverrideTranslations(latex_fontpane[i], pane_actions);
+X    }
+X
+X    return (1);
+X}
+X
+X/* create the bitmaps for the font menu */
+X
+Xsetup_fontmenu()
+X{
+X    register int    i;
+X
+X    DeclareArgs(2);
+X
+X    Pixel	    bg, fg;
+X
+X    /* get the foreground/background of the widget */
+X    FirstArg(XtNforeground, &fg);
+X    NextArg(XtNbackground, &bg);
+X    GetValues(ps_fontpane[0]);
+X
+X    /* Create the bitmaps */
+X
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++)
+X	psfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X				   XtWindow(ind_panel), psfont_menu_bits[i],
+X				     PS_FONTPANE_WD, PS_FONTPANE_HT, fg, bg,
+X					     XDefaultDepthOfScreen(tool_s));
+X
+X    for (i = 0; i < NUM_LATEX_FONTS; i++)
+X	latexfont_menu_bitmaps[i] = XCreatePixmapFromBitmapData(tool_d,
+X				XtWindow(ind_panel), latexfont_menu_bits[i],
+X			       LATEX_FONTPANE_WD, LATEX_FONTPANE_HT, fg, bg,
+X					     XDefaultDepthOfScreen(tool_s));
+X
+X    /* Store the bitmaps in the menu panes */
+X    for (i = 0; i < NUM_PS_FONTS + 1; i++) {
+X	FirstArg(XtNbitmap, psfont_menu_bitmaps[i]);
+X	SetValues(ps_fontpane[i]);
+X    }
+X    for (i = 0; i < NUM_LATEX_FONTS; i++) {
+X	FirstArg(XtNbitmap, latexfont_menu_bitmaps[i]);
+X	SetValues(latex_fontpane[i]);
+X    }
+X
+X    FirstArg(XtNbackground, BlackPixelOfScreen(tool_s));
+X    SetValues(ps_buttons);
+X    SetValues(latex_buttons);
+X
+X    XtRealizeWidget(ps_fontmenu);
+X    XtRealizeWidget(latex_fontmenu);
+X    /* at this point the windows are realized but not drawn */
+X    XDefineCursor(tool_d, XtWindow(ps_fontpanes), arrow_cursor);
+X    XDefineCursor(tool_d, XtWindow(latex_fontpanes), arrow_cursor);
+X}
+X
+Xvoid
+Xfontpane_popup(psfont_adr, latexfont_adr, psflag_adr, showfont_fn, show_widget)
+X    int		   *psfont_adr, *latexfont_adr, *psflag_adr;
+X    int		    (*showfont_fn) ();
+X    Widget	    show_widget;
+X
+X{
+X    DeclareArgs(2);
+X    Position	    xposn, yposn, dummy;
+X
+X    font_ps_sel = psfont_adr;
+X    font_latex_sel = latexfont_adr;
+X    flag_sel = psflag_adr;
+X    font_setimage = showfont_fn;
+X    font_widget = show_widget;
+X    XtTranslateCoords(show_widget, (Position) 0, (Position) 0, &xposn, &dummy);
+X    XtTranslateCoords(tool, (Position) 0, (Position) 0, &dummy, &yposn);
+X    FirstArg(XtNx, xposn);
+X    NextArg(XtNy, yposn - 20);	/* up a little bit from top of tool */
+X    SetValues(ps_fontmenu);
+X    SetValues(latex_fontmenu);
+X    XtPopup(*flag_sel ? ps_fontmenu : latex_fontmenu, XtGrabExclusive);
+X}
+X
+Xstatic void
+Xfontpane_select(widget, mi)
+X    TOOL	    widget;
+X    MENUITEM	   *mi;
+X{
+X    char	   *font_name = mi->label;
+X
+X    if (*flag_sel)
+X	*font_ps_sel = (int) mi->info;	/* set ps font to one selected */
+X    else
+X	*font_latex_sel = (int) mi->info;	/* set latex font to one
+X						 * selected */
+X    put_msg("Font: %s", font_name);
+X    /* put image of font in indicator window */
+X    (*font_setimage) (font_widget);
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X}
+X
+Xstatic void
+Xfontpane_cancel()
+X{
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X}
+X
+Xstatic void
+Xfontpane_swap()
+X{
+X    XtPopdown(*flag_sel ? ps_fontmenu : latex_fontmenu);
+X    *flag_sel = 1 - *flag_sel;
+X    /* put image of font in indicator window */
+X    (*font_setimage) (font_widget);
+X    XtPopup(*flag_sel ? ps_fontmenu : latex_fontmenu, XtGrabExclusive);
+X}
+END_OF_FILE
+if test 9291 -ne `wc -c <'w_fontpanel.c'`; then
+    echo shar: \"'w_fontpanel.c'\" unpacked with wrong size!
+fi
+# end of 'w_fontpanel.c'
+fi
+if test -f 'w_rulers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_rulers.c'\"
+else
+echo shar: Extracting \"'w_rulers.c'\" \(21814 characters\)
+sed "s/^X//" >'w_rulers.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "paintop.h"
+X#include "w_drawprim.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X#include "w_zoom.h"
+X
+X/*
+X * The following will create rulers the same size as the initial screen size.
+X * if the user resizes the xfig window, the rulers won't have numbers there.
+X * Should really reset the sizes if the screen resizes.
+X */
+X
+X/*
+X * set maximum ruler size:
+X * color servers for Vaxstations screw up the pixmaps if the rulers are
+X * made too big (they can't handle pixmaps much larger than the screen)
+X */
+X
+X#define			INCH_MARK		8
+X#define			HALF_MARK		8
+X#define			QUARTER_MARK		6
+X#define			SIXTEENTH_MARK		4
+X
+X#define			TRM_WID			16
+X#define			TRM_HT			8
+X#define			SRM_WID			8
+X#define			SRM_HT			16
+X
+Xextern		pan_origin();
+X
+Xstatic GC	tr_gc, tr_xor_gc, tr_erase_gc;
+Xstatic GC	sr_gc, sr_xor_gc, sr_erase_gc;
+Xstatic int	lasty = -100, lastx = -100;
+Xstatic int	troffx = -8, troffy = -10;
+Xstatic int	orig_zoomoff;
+Xstatic int	last_drag_x, last_drag_y;
+Xstatic char	tr_marker_image[16] = {
+X    0xFE, 0xFF,		/* ***************  */
+X    0x04, 0x40,		/*  *           *  */
+X    0x08, 0x20,		/*   *         *  */
+X    0x10, 0x10,		/*    *       *  */
+X    0x20, 0x08,		/*     *     *  */
+X    0x40, 0x04,		/*      *   *  */
+X    0x80, 0x02,		/*       * *  */
+X    0x00, 0x01,		/*        *  */
+X};
+Xstatic		mpr_static(trm_pr, TRM_WID, TRM_HT, 1, tr_marker_image);
+Xstatic int	srroffx = 2, srroffy = -7;
+Xstatic char	srr_marker_image[16] = {
+X    0x80,		/*        *  */
+X    0xC0,		/*       **  */
+X    0xA0,		/*      * *  */
+X    0x90,		/*     *  *  */
+X    0x88,		/*    *   *  */
+X    0x84,		/*   *    *  */
+X    0x82,		/*  *     *  */
+X    0x81,		/* *      *  */
+X    0x82,		/*  *     *  */
+X    0x84,		/*   *    *  */
+X    0x88,		/*    *   *  */
+X    0x90,		/*     *  *  */
+X    0xA0,		/*      * *  */
+X    0xC0,		/*       **  */
+X    0x80,		/*        *  */
+X    0x00
+X};
+Xstatic		mpr_static(srrm_pr, SRM_WID, SRM_HT, 1, srr_marker_image);
+X
+Xstatic int	srloffx = -10, srloffy = -7;
+Xstatic char	srl_marker_image[16] = {
+X    0x01,		/* *	      */
+X    0x03,		/* **	      */
+X    0x05,		/* * *	      */
+X    0x09,		/* *  *	      */
+X    0x11,		/* *   *      */
+X    0x21,		/* *    *     */
+X    0x41,		/* *     *    */
+X    0x81,		/* *      *   */
+X    0x41,		/* *     *    */
+X    0x21,		/* *    *     */
+X    0x11,		/* *   *      */
+X    0x09,		/* *  *	      */
+X    0x05,		/* * *	      */
+X    0x03,		/* **	      */
+X    0x01,		/* *	      */
+X    0x00
+X};
+Xstatic		mpr_static(srlm_pr, SRM_WID, SRM_HT, 1, srl_marker_image);
+X
+Xstatic Pixmap	toparrow_pm = 0, sidearrow_pm = 0;
+Xstatic Pixmap	topruler_pm = 0, sideruler_pm = 0;
+X
+XDeclareStaticArgs(14);
+X
+Xstatic		topruler_selected();
+Xstatic		topruler_exposed();
+Xstatic		sideruler_selected();
+Xstatic		sideruler_exposed();
+X
+Xredisplay_rulers()
+X{
+X    redisplay_topruler();
+X    redisplay_sideruler();
+X}
+X
+Xsetup_rulers()
+X{
+X    setup_topruler();
+X    setup_sideruler();
+X}
+X
+Xreset_rulers()
+X{
+X    reset_topruler();
+X    reset_sideruler();
+X}
+X
+Xset_rulermark(x, y)
+X    int		    x, y;
+X{
+X    if (appres.TRACKING) {
+X	set_siderulermark(y);
+X	set_toprulermark(x);
+X    }
+X}
+X
+Xerase_rulermark()
+X{
+X    if (appres.TRACKING) {
+X	erase_siderulermark();
+X	erase_toprulermark();
+X    }
+X}
+X
+X#define HINCH	(PIX_PER_INCH / 2)
+X#define QINCH	(PIX_PER_INCH / 4)
+X#define SINCH	(PIX_PER_INCH / 16)
+X#define TWOMM	(PIX_PER_CM / 5)
+X
+X/************************* UNITBOX ************************/
+X
+XXtActionsRec	unitbox_actions[] =
+X{
+X    {"EnterUnitBox", (XtActionProc) draw_mousefun_unitbox},
+X    {"LeaveUnitBox", (XtActionProc) clear_mousefun},
+X    {"HomeRulers", (XtActionProc) pan_origin},
+X};
+X
+Xstatic String	unitbox_translations =
+X"<EnterWindow>:EnterUnitBox()\n\
+X    <LeaveWindow>:LeaveUnitBox()\n\
+X    <Btn1Down>:HomeRulers()\n";
+X
+Xint
+Xinit_unitbox(tool)
+X    TOOL	    tool;
+X{
+X    FirstArg(XtNwidth, RULER_WD);
+X    NextArg(XtNheight, RULER_WD);
+X    NextArg(XtNlabel, appres.INCHES ? "in" : "cm");
+X    NextArg(XtNfont, button_font);
+X    NextArg(XtNfromHoriz, canvas_sw);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, mousefun);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    unitbox_sw = XtCreateWidget("unitbox", labelWidgetClass, tool,
+X				Args, ArgCount);
+X    XtAppAddActions(tool_app, unitbox_actions, XtNumber(unitbox_actions));
+X    XtOverrideTranslations(unitbox_sw,
+X			   XtParseTranslationTable(unitbox_translations));
+X    return (1);
+X}
+X
+X/************************* TOPRULER ************************/
+X
+XXtActionsRec	topruler_actions[] =
+X{
+X    {"EventTopRuler", (XtActionProc) topruler_selected},
+X    {"ExposeTopRuler", (XtActionProc) topruler_exposed},
+X    {"EnterTopRuler", (XtActionProc) draw_mousefun_topruler},
+X    {"LeaveTopRuler", (XtActionProc) clear_mousefun},
+X};
+X
+Xstatic String	topruler_translations =
+X"Any<BtnDown>:EventTopRuler()\n\
+X    Any<BtnUp>:EventTopRuler()\n\
+X    <Btn2Motion>:EventTopRuler()\n\
+X    <EnterWindow>:EnterTopRuler()\n\
+X    <LeaveWindow>:LeaveTopRuler()\n\
+X    <Expose>:ExposeTopRuler()\n";
+X
+Xstatic
+Xtopruler_selected(tool, event, params, nparams)
+X    TOOL	    tool;
+X    INPUTEVENT	   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XButtonEvent   *be = (XButtonEvent *) event;
+X
+X    switch (event->type) {
+X    case ButtonPress:
+X	switch (be->button) {
+X	case Button1:
+X	    XDefineCursor(tool_d, topruler_win, l_arrow_cursor);
+X	    break;
+X	case Button2:
+X	    XDefineCursor(tool_d, topruler_win, bull_cursor);
+X	    orig_zoomoff = zoomxoff;
+X	    last_drag_x = event->x;
+X	    break;
+X	case Button3:
+X	    XDefineCursor(tool_d, topruler_win, r_arrow_cursor);
+X	    break;
+X	}
+X	break;
+X    case ButtonRelease:
+X	switch (be->button) {
+X	case Button1:
+X	    pan_left();
+X	    break;
+X	case Button2:
+X	    if (orig_zoomoff != zoomxoff)
+X		setup_grid(cur_gridmode);
+X	    break;
+X	case Button3:
+X	    pan_right();
+X	    break;
+X	}
+X	XDefineCursor(tool_d, topruler_win, lr_arrow_cursor);
+X	break;
+X    case MotionNotify:
+X	if (event->x != last_drag_x)
+X	    if ((zoomxoff != 0) || (event->x < last_drag_x)) {
+X		zoomxoff -= (event->x - last_drag_x);
+X		if (zoomxoff < 0)
+X		    zoomxoff = 0;
+X		reset_topruler();
+X		redisplay_topruler();
+X	    }
+X	last_drag_x = event->x;
+X	break;
+X    }
+X}
+X
+Xerase_toprulermark()
+X{
+X    XClearArea(tool_d, topruler_win, ZOOMX(lastx) + troffx,
+X	       TOPRULER_HT + troffy, trm_pr.width,
+X	       trm_pr.height, False);
+X}
+X
+Xset_toprulermark(x)
+X    int		    x;
+X{
+X    XClearArea(tool_d, topruler_win, ZOOMX(lastx) + troffx,
+X	       TOPRULER_HT + troffy, trm_pr.width,
+X	       trm_pr.height, False);
+X    XCopyArea(tool_d, toparrow_pm, topruler_win, tr_xor_gc,
+X	      0, 0, trm_pr.width, trm_pr.height,
+X	      ZOOMX(x) + troffx, TOPRULER_HT + troffy);
+X    lastx = x;
+X}
+X
+Xstatic
+Xtopruler_exposed(tool, event, params, nparams)
+X    TOOL	    tool;
+X    INPUTEVENT	   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    if (((XExposeEvent *) event)->count > 0)
+X	return;
+X    redisplay_topruler();
+X}
+X
+Xredisplay_topruler()
+X{
+X    XClearWindow(tool_d, topruler_win);
+X}
+X
+Xint
+Xinit_topruler(tool)
+X    TOOL	    tool;
+X{
+X    TOPRULER_HT = RULER_WD;
+X    FirstArg(XtNwidth, TOPRULER_WD);
+X    NextArg(XtNheight, TOPRULER_HT);
+X    NextArg(XtNlabel, "");
+X    NextArg(XtNfromHoriz, mode_panel);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, msg_panel);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    topruler_sw = XtCreateWidget("topruler", labelWidgetClass, tool,
+X				 Args, ArgCount);
+X
+X    XtAppAddActions(tool_app, topruler_actions, XtNumber(topruler_actions));
+X    XtOverrideTranslations(topruler_sw,
+X			   XtParseTranslationTable(topruler_translations));
+X    return (1);
+X}
+X
+Xsetup_topruler()
+X{
+X    unsigned long   bg, fg;
+X    XGCValues	    gcv;
+X    unsigned long   gcmask;
+X
+X    topruler_win = XtWindow(topruler_sw);
+X    gcv.font = roman_font->fid;
+X    gcmask = GCFunction | GCForeground | GCBackground | GCFont;
+X
+X    /* set up the GCs */
+X    FirstArg(XtNbackground, &bg);
+X    NextArg(XtNforeground, &fg);
+X    GetValues(topruler_sw);
+X
+X    gcv.foreground = bg;
+X    gcv.background = bg;
+X    gcv.function = GXcopy;
+X    tr_erase_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    gcv.foreground = fg;
+X    tr_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X    /*
+X     * The arrows will be XORed into the rulers. We want the foreground color
+X     * in the arrow to result in the foreground or background color in the
+X     * display. so if the source pixel is fg^bg, it produces fg when XOR'ed
+X     * with bg, and bg when XOR'ed with bg. If the source pixel is zero, it
+X     * produces fg when XOR'ed with fg, and bg when XOR'ed with bg.
+X     */
+X    /* first make a temporary xor gc */
+X    gcv.foreground = fg ^ bg;
+X    gcv.background = (unsigned long) 0;
+X    gcv.function = GXcopy;
+X    tr_xor_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    /* make pixmaps for top ruler arrow */
+X    toparrow_pm = XCreatePixmap(tool_d, topruler_win, trm_pr.width,
+X				trm_pr.height, DefaultDepthOfScreen(tool_s));
+X    XPutImage(tool_d, toparrow_pm, tr_xor_gc, &trm_pr, 0, 0, 0, 0,
+X	      trm_pr.width, trm_pr.height);
+X
+X    /* now make the real xor gc */
+X    gcv.background = bg;
+X    gcv.function = GXxor;
+X    tr_xor_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    XDefineCursor(tool_d, topruler_win, lr_arrow_cursor);
+X
+X    topruler_pm = XCreatePixmap(tool_d, topruler_win,
+X				TOPRULER_WD, TOPRULER_HT,
+X				DefaultDepthOfScreen(tool_s));
+X
+X    reset_topruler();
+X}
+X
+Xresize_topruler()
+X{
+X    XFreePixmap(tool_d, topruler_pm);
+X    topruler_pm = XCreatePixmap(tool_d, topruler_win,
+X				TOPRULER_WD, TOPRULER_HT,
+X				DefaultDepthOfScreen(tool_s));
+X
+X    reset_topruler();
+X}
+X
+Xreset_topruler()
+X{
+X    register int    i, j;
+X    register Pixmap p = topruler_pm;
+X    char	    number[3];
+X    int		    X0;
+X
+X    /* top ruler, adjustments for digits are kludges based on 6x13 char */
+X    XFillRectangle(tool_d, p, tr_erase_gc, 0, 0, TOPRULER_WD, TOPRULER_HT);
+X
+X    X0 = BACKX(0);
+X    if (appres.INCHES) {
+X	X0 -= (X0 % SINCH);
+X	for (i = X0 + SINCH - 1; i <= X0 + TOPRULER_WD; i += SINCH) {
+X	    j = i + 1;
+X	    if (j % PIX_PER_INCH == 0) {
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - INCH_MARK - 1);
+X		sprintf(number, "%d", j / PIX_PER_INCH);
+X		XDrawString(tool_d, p, tr_gc, ZOOMX(i) - 3,
+X			    TOPRULER_HT - INCH_MARK - 5, number,
+X			    j < PIX_PER_INCH * 10 ? 1 : 2);
+X	    } else if (j % HINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - HALF_MARK - 1);
+X	    else if (j % QINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - QUARTER_MARK - 1);
+X	    else if (j % SINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - SIXTEENTH_MARK - 1);
+X	}
+X    } else {
+X	X0 -= (X0 % TWOMM);
+X	for (i = X0 + TWOMM - 1; i <= X0 + TOPRULER_WD; i++) {
+X	    j = i + 1;
+X	    if (j % PIX_PER_CM == 0) {
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - INCH_MARK - 1);
+X		sprintf(number, "%d", j / PIX_PER_CM);
+X		XDrawString(tool_d, p, tr_gc, ZOOMX(i) - 3,
+X			    TOPRULER_HT - INCH_MARK - 5, number,
+X			    j < PIX_PER_CM * 10 ? 1 : 2);
+X	    } else if (j % TWOMM == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - QUARTER_MARK - 1);
+X	}
+X    }
+X    FirstArg(XtNbackgroundPixmap, p);
+X    SetValues(topruler_sw);
+X}
+X
+X/************************* SIDERULER ************************/
+X
+XXtActionsRec	sideruler_actions[] =
+X{
+X    {"EventSideRuler", (XtActionProc) sideruler_selected},
+X    {"ExposeSideRuler", (XtActionProc) sideruler_exposed},
+X    {"EnterSideRuler", (XtActionProc) draw_mousefun_sideruler},
+X    {"LeaveSideRuler", (XtActionProc) clear_mousefun},
+X};
+X
+Xstatic String	sideruler_translations =
+X"Any<BtnDown>:EventSideRuler()\n\
+X    Any<BtnUp>:EventSideRuler()\n\
+X    <Btn2Motion>:EventSideRuler()\n\
+X    <EnterWindow>:EnterSideRuler()\n\
+X    <LeaveWindow>:LeaveSideRuler()\n\
+X    <Expose>:ExposeSideRuler()\n";
+X
+Xstatic
+Xsideruler_selected(tool, event, params, nparams)
+X    TOOL	    tool;
+X    INPUTEVENT	   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XButtonEvent   *be = (XButtonEvent *) event;
+X
+X    switch (event->type) {
+X    case ButtonPress:
+X	switch (be->button) {
+X	case Button1:
+X	    XDefineCursor(tool_d, sideruler_win, u_arrow_cursor);
+X	    break;
+X	case Button2:
+X	    XDefineCursor(tool_d, sideruler_win, bull_cursor);
+X	    orig_zoomoff = zoomyoff;
+X	    last_drag_y = event->y;
+X	    break;
+X	case Button3:
+X	    XDefineCursor(tool_d, sideruler_win, d_arrow_cursor);
+X	    break;
+X	}
+X	break;
+X    case ButtonRelease:
+X	switch (be->button) {
+X	case Button1:
+X	    pan_up();
+X	    break;
+X	case Button2:
+X	    if (orig_zoomoff != zoomyoff)
+X		setup_grid(cur_gridmode);
+X	    break;
+X	case Button3:
+X	    pan_down();
+X	    break;
+X	}
+X	XDefineCursor(tool_d, sideruler_win, ud_arrow_cursor);
+X	break;
+X    case MotionNotify:
+X	if (event->y != last_drag_y)
+X	    if ((zoomyoff != 0) || (event->y < last_drag_y)) {
+X		zoomyoff -= (event->y - last_drag_y);
+X		if (zoomyoff < 0)
+X		    zoomyoff = 0;
+X		reset_sideruler();
+X		redisplay_sideruler();
+X	    }
+X	last_drag_y = event->y;
+X	break;
+X    }
+X}
+X
+Xstatic
+Xsideruler_exposed(tool, event, params, nparams)
+X    TOOL	    tool;
+X    INPUTEVENT	   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    if (((XExposeEvent *) event)->count > 0)
+X	return;
+X    redisplay_sideruler();
+X}
+X
+Xint
+Xinit_sideruler(tool)
+X    TOOL	    tool;
+X{
+X    SIDERULER_WD = RULER_WD;
+X    FirstArg(XtNwidth, SIDERULER_WD);
+X    NextArg(XtNheight, SIDERULER_HT);
+X    NextArg(XtNlabel, "");
+X    NextArg(XtNfromHoriz, canvas_sw);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, topruler_sw);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    sideruler_sw = XtCreateWidget("sideruler", labelWidgetClass, tool,
+X				  Args, ArgCount);
+X
+X    XtAppAddActions(tool_app, sideruler_actions, XtNumber(sideruler_actions));
+X    XtOverrideTranslations(sideruler_sw,
+X			   XtParseTranslationTable(sideruler_translations));
+X    return (1);
+X}
+X
+Xredisplay_sideruler()
+X{
+X    XClearWindow(tool_d, sideruler_win);
+X}
+X
+Xsetup_sideruler()
+X{
+X    unsigned long   bg, fg;
+X    XGCValues	    gcv;
+X    unsigned long   gcmask;
+X
+X    sideruler_win = XtWindow(sideruler_sw);
+X    gcv.font = roman_font->fid;
+X    gcmask = GCFunction | GCForeground | GCBackground | GCFont;
+X
+X    /* set up the GCs */
+X    FirstArg(XtNbackground, &bg);
+X    NextArg(XtNforeground, &fg);
+X    GetValues(sideruler_sw);
+X
+X    gcv.foreground = bg;
+X    gcv.background = bg;
+X    gcv.function = GXcopy;
+X    sr_erase_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X
+X    gcv.foreground = fg;
+X    sr_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X    /*
+X     * The arrows will be XORed into the rulers. We want the foreground color
+X     * in the arrow to result in the foreground or background color in the
+X     * display. so if the source pixel is fg^bg, it produces fg when XOR'ed
+X     * with bg, and bg when XOR'ed with bg. If the source pixel is zero, it
+X     * produces fg when XOR'ed with fg, and bg when XOR'ed with bg.
+X     */
+X    /* first make a temporary xor gc */
+X    gcv.foreground = fg ^ bg;
+X    gcv.background = (unsigned long) 0;
+X    gcv.function = GXcopy;
+X    sr_xor_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    /* make pixmaps for side ruler arrow */
+X    if (appres.RHS_PANEL) {
+X	sidearrow_pm = XCreatePixmap(tool_d, sideruler_win,
+X				     srlm_pr.width, srlm_pr.height,
+X				     DefaultDepthOfScreen(tool_s));
+X	XPutImage(tool_d, sidearrow_pm, sr_xor_gc, &srlm_pr, 0, 0, 0, 0,
+X		  srlm_pr.width, srlm_pr.height);
+X    } else {
+X	sidearrow_pm = XCreatePixmap(tool_d, sideruler_win,
+X				     srrm_pr.width, srrm_pr.height,
+X				     DefaultDepthOfScreen(tool_s));
+X	XPutImage(tool_d, sidearrow_pm, sr_xor_gc, &srrm_pr, 0, 0, 0, 0,
+X		  srrm_pr.width, srrm_pr.height);
+X    }
+X
+X    /* now make the real xor gc */
+X    gcv.background = bg;
+X    gcv.function = GXxor;
+X    sr_xor_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X
+X    XDefineCursor(tool_d, sideruler_win, ud_arrow_cursor);
+X
+X    sideruler_pm = XCreatePixmap(tool_d, sideruler_win,
+X				 SIDERULER_WD, SIDERULER_HT,
+X				 DefaultDepthOfScreen(tool_s));
+X
+X    reset_sideruler();
+X}
+X
+Xresize_sideruler()
+X{
+X    XFreePixmap(tool_d, sideruler_pm);
+X    sideruler_pm = XCreatePixmap(tool_d, sideruler_win,
+X				 SIDERULER_WD, SIDERULER_HT,
+X				 DefaultDepthOfScreen(tool_s));
+X    reset_sideruler();
+X}
+X
+Xreset_sideruler()
+X{
+X    register int    i, j;
+X    register Pixmap p = sideruler_pm;
+X    char	    number[3];
+X    int		    Y0;
+X
+X    /* side ruler, adjustments for digits are kludges based on 6x13 char */
+X    XFillRectangle(tool_d, p, sr_erase_gc, 0, 0, SIDERULER_WD,
+X		   (int) (SIDERULER_HT));
+X
+X    Y0 = BACKY(0);
+X    if (appres.INCHES) {
+X	Y0 -= (Y0 % SINCH);
+X	if (appres.RHS_PANEL) {
+X	    for (i = Y0 + SINCH - 1; i <= Y0 + SIDERULER_HT; i += SINCH) {
+X		j = i + 1;
+X		if (j % PIX_PER_INCH == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, RULER_WD - INCH_MARK,
+X			      ZOOMY(i), RULER_WD, ZOOMY(i));
+X		    sprintf(number, "%2d", j / PIX_PER_INCH);
+X		    XDrawString(tool_d, p, sr_gc,
+X				RULER_WD - INCH_MARK - 14, ZOOMY(i) + 3,
+X				number, 2);
+X		} else if (j % HINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      RULER_WD - HALF_MARK, ZOOMY(i),
+X			      RULER_WD, ZOOMY(i));
+X		else if (j % QINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      RULER_WD - QUARTER_MARK, ZOOMY(i),
+X			      RULER_WD, ZOOMY(i));
+X		else if (j % SINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      RULER_WD - SIXTEENTH_MARK, ZOOMY(i),
+X			      RULER_WD, ZOOMY(i));
+X	    }
+X	} else {
+X	    for (i = Y0 + SINCH - 1; i <= Y0 + SIDERULER_HT; i += SINCH) {
+X		j = i + 1;
+X		if (j % PIX_PER_INCH == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      INCH_MARK - 1, ZOOMY(i));
+X		    sprintf(number, "%2d", j / PIX_PER_INCH);
+X		    XDrawString(tool_d, p, sr_gc, INCH_MARK + 3,
+X				ZOOMY(i) + 3, number, 2);
+X		} else if (j % HINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      HALF_MARK - 1, ZOOMY(i));
+X		else if (j % QINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      QUARTER_MARK - 1, ZOOMY(i));
+X		else if (j % SINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      SIXTEENTH_MARK - 1, ZOOMY(i));
+X	    }
+X	}
+X    } else {
+X	Y0 -= (Y0 % TWOMM);
+X	if (appres.RHS_PANEL) {
+X	    for (i = Y0 + TWOMM - 1; i <= Y0 + SIDERULER_HT; i++) {
+X		j = i + 1;
+X		if (j % PIX_PER_CM == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, RULER_WD - INCH_MARK,
+X			      ZOOMY(i), RULER_WD, ZOOMY(i));
+X		    sprintf(number, "%2d", j / PIX_PER_CM);
+X		    XDrawString(tool_d, p, sr_gc,
+X				RULER_WD - INCH_MARK - 14, ZOOMY(i) + 3,
+X				number, 2);
+X		} else if (j % TWOMM == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      RULER_WD - QUARTER_MARK, ZOOMY(i),
+X			      RULER_WD, ZOOMY(i));
+X	    }
+X	} else {
+X	    for (i = Y0 + TWOMM - 1; i <= Y0 + SIDERULER_HT; i++) {
+X		j = i + 1;
+X		if (j % PIX_PER_CM == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      INCH_MARK - 1, ZOOMY(i));
+X		    sprintf(number, "%2d", j / PIX_PER_CM);
+X		    XDrawString(tool_d, p, sr_gc, INCH_MARK + 3,
+X				ZOOMY(i) + 3, number, 2);
+X		} else if (j % TWOMM == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      QUARTER_MARK - 1, ZOOMY(i));
+X	    }
+X	}
+X    }
+X    FirstArg(XtNbackgroundPixmap, p);
+X    SetValues(sideruler_sw);
+X}
+X
+Xerase_siderulermark()
+X{
+X    if (appres.RHS_PANEL)
+X	XClearArea(tool_d, sideruler_win,
+X		   RULER_WD + srloffx, ZOOMY(lasty) + srloffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X    else
+X	XClearArea(tool_d, sideruler_win,
+X		   srroffx, ZOOMY(lasty) + srroffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X}
+X
+Xset_siderulermark(y)
+X    int		    y;
+X{
+X    if (appres.RHS_PANEL) {
+X	/*
+X	 * Because the ruler uses a background pixmap, we can win here by
+X	 * using XClearArea to erase the old thing.
+X	 */
+X	XClearArea(tool_d, sideruler_win,
+X		   RULER_WD + srloffx, ZOOMY(lasty) + srloffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X	XCopyArea(tool_d, sidearrow_pm, sideruler_win,
+X		  sr_xor_gc, 0, 0, srlm_pr.width,
+X		  srlm_pr.height, RULER_WD + srloffx, ZOOMY(y) + srloffy);
+X    } else {
+X	/*
+X	 * Because the ruler uses a background pixmap, we can win here by
+X	 * using XClearArea to erase the old thing.
+X	 */
+X	XClearArea(tool_d, sideruler_win,
+X		   srroffx, ZOOMY(lasty) + srroffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X	XCopyArea(tool_d, sidearrow_pm, sideruler_win,
+X		  sr_xor_gc, 0, 0, srrm_pr.width,
+X		  srrm_pr.height, srroffx, ZOOMY(y) + srroffy);
+X    }
+X    lasty = y;
+X}
+END_OF_FILE
+if test 21814 -ne `wc -c <'w_rulers.c'`; then
+    echo shar: \"'w_rulers.c'\" unpacked with wrong size!
+fi
+# end of 'w_rulers.c'
+fi
+echo shar: End of archive 8 \(of 25\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

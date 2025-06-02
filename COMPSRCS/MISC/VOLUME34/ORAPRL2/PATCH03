@@ -1,0 +1,1123 @@
+Newsgroups: comp.sources.misc
+From: Kevin Stock <kstock@encore.com>
+Subject:  v34i021:  oraperl-v2 - Extensions to Perl to access Oracle database, Patch03
+Message-ID: <1992Dec12.200913.29773@sparky.imd.sterling.com>
+X-Md4-Signature: 99b0ae8a2b00e4094c5bd93417a7d07d
+Date: Sat, 12 Dec 1992 20:09:13 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: Kevin Stock <kstock@encore.com>
+Posting-number: Volume 34, Issue 21
+Archive-name: oraperl-v2/patch03
+Environment: Perl, Oracle with OCI, optionally Curses
+Patch-To: oraperl-v2: Volume 30, Issue 87-91
+
+This is patch 3 to version 2 of Oraperl, a set of usersubs which
+allow Perl to access Oracle databases. You need Perl (v3.0.27 or
+better) and Oracle (including the Oracle Call Interface) to build
+Oraperl. If you can build Larry's Curseperl, then you can also
+build Coraperl, which is Oraperl with Curses.
+
+Oraperl version 2 appeared as 5 postings in comp.sources.misc
+volume 30, issues 87 to 91. Patch 01 appeared shortly afterwards
+as issue 99, and Patch 02 as volume 32, issue 93.
+
+  Principal changes:
+  ------------------
+* The functions &ora_bind() and &ora_do() now return a row-count
+  for successful statements. The return values are as follows:
+
+	undef	for bad statements (eg, bad syntax)
+	'OK'	for good statements which affected no rows
+	count	for good statements which affected count rows
+
+  This means that the standard idiom
+
+	&ora_do($lda, $stmt) || die "$stmt failed - $ora_errstr\n";
+
+  still works properly. However, if you tested the exact return
+  value from these functions, you will have to change your programs.
+
+* The return type from malloc() can now be configured in Makefile.
+  The default is (char *).
+
+* In &ora_do, a cursor was left dangling if oclose() failed. This is
+  no longer the case.
+
+  Minor Changes:
+  --------------
+* examples/sql has been fixed:
+
+  The new -c option allows the size of the fetch row cache to be set
+  The new -n option allows a string to be printed for NULL fields
+  The damage done by the change to &ora_titles() has been undone
+
+* examples/japh has been added:
+
+  This is a simple 'Just another Perl hacker' program, using a table to
+  store the information. A slightly modified version has been added to
+  testdir as well.
+
+* examples/tabinfo has been modified
+
+  the output format is slightly changed
+  it will now accept multiple table names and print the description of each
+
+  What to do
+  ----------
+Unshar this file in your Oraperl source directory. This will create
+three new files:
+
+	patch3
+	examples/japh
+	testdir/japh.pl
+
+Apply the patch using:
+
+	patch -p <patch3
+
+then make, make test, optionally make coraperl, and make install.
+
+	Kevin Stock
+	kstock@encore.com
+
+
+#!/bin/sh
+# This is a shell archive (produced by shar 3.49)
+# To extract the files from this archive, save it to a file, remove
+# everything above the "!/bin/sh" line above, and type "sh file_name".
+#
+# made 12/08/1992 15:53 UTC by kstock@mmcompta
+# Source directory /usr/local/src/cmd/oraperl-v2
+#
+# existing files will NOT be overwritten unless -c is specified
+#
+# This shar contains:
+# length  mode       name
+# ------ ---------- ------------------------------------------
+#  23409 -rw-r--r-- patch3
+#   1061 -rwxr-xr-x examples/japh
+#   1056 -rw-r--r-- testdir/japh.pl
+#
+# ============= patch3 ==============
+if test -f 'patch3' -a X"$1" != X"-c"; then
+	echo 'x - skipping patch3 (File already exists)'
+else
+echo 'x - extracting patch3 (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'patch3' &&
+X*** /user/mis/kstock/tmp/patchlevel.h	Tue Dec  8 16:45:52 1992
+X--- ./patchlevel.h	Tue Nov 17 10:23:44 1992
+X***************
+X*** 1,4 ****
+X  /* patchlevel.h */
+X  
+X  #define	VERSION		2
+X! #define	PATCHLEVEL	2
+X--- 1,4 ----
+X  /* patchlevel.h */
+X  
+X  #define	VERSION		2
+X! #define	PATCHLEVEL	3
+X*** /user/mis/kstock/tmp/Changes	Tue Dec  8 16:45:52 1992
+X--- ./Changes	Wed Dec  2 11:45:42 1992
+X***************
+X*** 4,9 ****
+X--- 4,17 ----
+X  Version 2
+X  =========
+X  
+X+ Patch 03
+X+ ========
+X+ Modify &ora_bind() and &ora_do() to return the row count
+X+ malloc() doesn't return a char * on all systems
+X+ A cursor was left dangling if the ora_close() within &ora_do failed
+X+ The change to &ora_titles() broke examples/sql
+X+ Added -n option to examples/sql to replace NULL fields with a string
+X+ 
+X  Patch 02
+X  ========
+X  Added a BUGS section to the manual page
+X*** /user/mis/kstock/tmp/Makefile	Tue Dec  8 16:42:57 1992
+X--- ./Makefile	Tue Nov 17 15:02:14 1992
+X***************
+X*** 53,58 ****
+X--- 53,62 ----
+X  # If your system library does not include strtoul, uncomment the next line
+X  STRTOUL	= strtoul.o
+X  #
+X+ # If your malloc() returns anything other than a char *, set the appropriate
+X+ # type here (don't include the *)
+X+ # MALLOC_PTR_TYPE=void
+X+ #
+X  # If you are using Perl v3 instead of v4, uncomment the next line
+X  # STR_2MORTAL	= -Dstr_2mortal=str_2static
+X  
+X*** /user/mis/kstock/tmp/Readme	Tue Dec  8 16:45:53 1992
+X--- ./Readme	Tue Nov 17 15:06:16 1992
+X***************
+X*** 25,31 ****
+X  	DBUG_O		the debugging library, if debugging is required
+X  	CACHE		default fetch cache size, if you want to change it
+X  	BIND		if defined, do not pad empty bind values
+X! 	STRTOUL		\_ system dependent - see Makefile for details
+X  	STR_2MORTAL	/
+X  	TESTDATA	database, username and password for testing Oraperl
+X  
+X--- 25,32 ----
+X  	DBUG_O		the debugging library, if debugging is required
+X  	CACHE		default fetch cache size, if you want to change it
+X  	BIND		if defined, do not pad empty bind values
+X! 	STRTOUL		\
+X! 	MALLOC_PTR_TYPE	 +- system dependent - see Makefile for details
+X  	STR_2MORTAL	/
+X  	TESTDATA	database, username and password for testing Oraperl
+X  
+X*** /user/mis/kstock/tmp/doc/oraperl.1	Tue Dec  8 16:45:53 1992
+X--- ./doc/oraperl.1	Wed Dec  2 11:37:46 1992
+X***************
+X*** 169,174 ****
+X--- 169,178 ----
+X  &ora_bind($csr, 70, 'marketing', undef);
+X  .if t .fi P
+X  
+X+ \fI&ora_bind()\fP returns an undefined value if an error occurred.
+X+ Otherwise, it returns the number of rows affected by the command
+X+ or the string \fB'OK'\fP if the command was successful but modified no rows.
+X+ 
+X  This function is equivalent to the \fIOCI obndrn\fP and \fIoexec\fP statements.
+X  
+X  The \fIOCI obndrn\fP function does not allow empty strings to be bound.
+X***************
+X*** 277,282 ****
+X--- 281,290 ----
+X  &ora_close(&ora_open($lda,\ $statement))\c
+X  .if t .ft P
+X  \&.
+X+ 
+X+ \fI&ora_do()\fP returns an undefined value if an error occurred.
+X+ Otherwise, it returns the number of rows affected by the command
+X+ or the string \fB'OK'\fP if the command was successful but modified no rows.
+X  .\"
+X  .SH "&ora_logoff($lda)"
+X  .\"
+X***************
+X*** 677,682 ****
+X--- 685,709 ----
+X  
+X  Debugging option \fB32\fP only reports internal string/numeric translations,
+X  not those performed on the data retrieved from the database.
+X+ 
+X+ When calling \fI&ora_open()\fP or \fI&ora_do()\fP with long SQL statements,
+X+ \fIPerl\fP's \fIHere Document\fP may be used to good effect for clarity.
+X+ 
+X+ For example:
+X+ 
+X+ .nf
+X+ .in +.5i
+X+ .if t .ft CW
+X+ $csr = &ora_open($lda, <<END_OF_QUERY, 10) || die $ora_errstr;
+X+ .in +.5i
+X+ select name, fname, telno from address_book
+X+ where lower(position) like '%director%'
+X+ order by name
+X+ .in -.5i
+X+ END_OF_QUERY
+X+ .in -.5i
+X+ .if t .ft P
+X+ .fi
+X  .SH SEE ALSO
+X  .nf
+X  \fIOracle\fP Documentation:
+X*** /user/mis/kstock/tmp/examples/Readme	Tue Dec  8 16:45:54 1992
+X--- ./examples/Readme	Wed Dec  2 10:56:23 1992
+X***************
+X*** 14,19 ****
+X--- 14,22 ----
+X  		it using a format. It also illustrates how to recognise NULL
+X  		fields.
+X  
+X+ japh		Just another Perl hacker, written in Oraperl
+X+ 		This is no one-liner, but it demonstrates a few things.
+X+ 
+X  mkdb.pl		Creates a database, puts some data into it, drops it. The nice
+X  		thing about this is that it detects whether it is running under
+X  		Oraperl or Coraperl, and changes its output accordingly. It
+X*** /user/mis/kstock/tmp/examples/bind.pl	Tue Dec  8 16:43:17 1992
+X--- ./examples/bind.pl	Wed Dec  2 11:48:15 1992
+X***************
+X*** 17,22 ****
+X--- 17,25 ----
+X  	chop;
+X  	&ora_bind($csr, $_)	|| die $ora_errstr;
+X  
+X+ 	# Note that $phone is placed in brackets to give it array context
+X+ 	# Without them, &ora_fetch() returns the number of columns available
+X+ 
+X  	if (($phone) = &ora_fetch($csr))
+X  	{
+X  		print "$phone\n";
+X*** /user/mis/kstock/tmp/examples/mkdb.pl	Tue Dec  8 16:45:55 1992
+X--- ./examples/mkdb.pl	Wed Dec  2 12:08:39 1992
+X***************
+X*** 50,56 ****
+X  
+X  	sub during
+X  	{
+X! 		&addstr(sprintf("%2d   %-15s%3d\n", $lineno++, $name, $ext));
+X  	}
+X  
+X  	sub after
+X--- 50,56 ----
+X  
+X  	sub during
+X  	{
+X! 		&addstr(sprintf("%2d   %-15s%3s\n", $lineno++, $name, $ext));
+X  	}
+X  
+X  	sub after
+X*** /user/mis/kstock/tmp/examples/sql	Tue Dec  8 16:43:05 1992
+X--- ./examples/sql	Wed Dec  2 11:21:51 1992
+X***************
+X*** 7,45 ****
+X  # Script to run an Oracle statement from the command line.
+X  # Written in response to <nirad.690285085@newdelphi> in alt.sources.wanted.
+X  #
+X! # Usage:
+X! #	sql [-#debug] [-bbase] [-ddelim] [-f|-h] [-lpage_len] name/pass stmt
+X  #
+X! #	-#debug			debugging control string
+X! #				MUST be first argument
+X! #	-b base			database to use (default $ENV{'ORACLE_SID'})
+X! #	-d delim		specifies the field delimiter (default TAB)
+X! #	-f			formatted output, similar to sqlplus
+X! #	-h			add headers, no formatting
+X! #	-l page_len		lines per page, only used by -f (default 60)
+X! #	name/pass		Oracle username and password
+X! #	stmt			Oracle statement to be executed
+X  #
+X  # Author:	Kevin Stock
+X  # Date:		18th November 1991
+X  #
+X  
+X  $ora_debug = shift if $ARGV[0] =~ /^-#/;
+X  
+X! $USAGE = "[-bbase] [-ddelim] [-f|-h] [-lpage_len] username/password statement";
+X  $, = "\t";			# default delimiter is a tab
+X  $\ = "\n";			# each record terminated with newline
+X  
+X  require 'getopts.pl';		# option parsing
+X! do Getopts('b:d:fhl:');
+X  die "$0: only one of -f and -h may be specified\n" if ($opt_f && $opt_h);
+X  
+X  $USER = shift;			# get the user name and password
+X  die "Usage: $0 $USAGE\n" unless $#ARGV >= 0;		# must have a statement
+X  
+X  $, = $opt_d if defined($opt_d);				# set column delimiter
+X  $= = $opt_l if defined($opt_l);				# set page length
+X- $ENV{'ORACLE_SID'} = $opt_b if defined($opt_b);		# set database
+X  
+X  die "ORACLE_SID not set\n" unless defined($ENV{'ORACLE_SID'});
+X  
+X--- 7,49 ----
+X  # Script to run an Oracle statement from the command line.
+X  # Written in response to <nirad.690285085@newdelphi> in alt.sources.wanted.
+X  #
+X! # Parameters (* = mandatory)
+X  #
+X! #	-#debug		  debugging control string (must be first argument)
+X! #	-b base		  database to use (default $ENV{'ORACLE_SID'})
+X! #	-c cache	  SQL fetch cache size
+X! #	-d delim	  specifies the field delimiter (default TAB)
+X! #	-f		  formatted output, similar to sqlplus
+X! #	-h		  add headers, no formatting
+X! #	-l page_len	  lines per page, only used by -f (default 60)
+X! #	-n string	  replace NULL fields by string
+X! #	name/pass	* Oracle username and password
+X! #	stmt		* Oracle statement to be executed
+X  #
+X  # Author:	Kevin Stock
+X  # Date:		18th November 1991
+X+ # Last change:	18th November 1992
+X  #
+X  
+X  $ora_debug = shift if $ARGV[0] =~ /^-#/;
+X  
+X! $USAGE = <<;
+X!     [-bbase] [-ccache] [-ddelim] [-f|-h] [-lpage_len] [-nstring] name/pass stmt
+X! 
+X  $, = "\t";			# default delimiter is a tab
+X  $\ = "\n";			# each record terminated with newline
+X  
+X  require 'getopts.pl';		# option parsing
+X! do Getopts('b:c:d:fhl:n:');
+X  die "$0: only one of -f and -h may be specified\n" if ($opt_f && $opt_h);
+X  
+X  $USER = shift;			# get the user name and password
+X  die "Usage: $0 $USAGE\n" unless $#ARGV >= 0;		# must have a statement
+X  
+X+ $ENV{'ORACLE_SID'} = $opt_b if defined($opt_b);		# set database
+X+ $ora_cache = $opt_c if defined($opt_c);			# set fetch cache
+X  $, = $opt_d if defined($opt_d);				# set column delimiter
+X  $= = $opt_l if defined($opt_l);				# set page length
+X  
+X  die "ORACLE_SID not set\n" unless defined($ENV{'ORACLE_SID'});
+X  
+X***************
+X*** 54,66 ****
+X  {
+X  	if ($opt_f)			# formatted output
+X  	{
+X! 		@titles = &ora_titles($csr);
+X! 		$format .= "format STDOUT_TOP =\n" . join($,, @titles) . "\n";
+X! 		grep(tr//-/c, @titles);
+X! 		$format .= join($,, @titles) . "\n.\n";
+X  
+X! 		grep((s/^-/@/, tr/-/</), @titles);
+X! 		$format .= "format STDOUT =\n" . join($,, @titles) . "\n";
+X  		foreach $i (0 .. $nfields - 1)
+X  		{
+X  			$format .= "\$result[$i],";
+X--- 58,89 ----
+X  {
+X  	if ($opt_f)			# formatted output
+X  	{
+X! 		# Build up format statements for the data
+X! 
+X! 		# First, the header - a list of field names, formatted
+X! 		# in columns of the appropriate width
+X! 
+X! 		$fmt = '';
+X! 		grep($fmt .= "%-${_}.${_}s|", &ora_lengths($csr));
+X! 		chop $fmt;
+X! 		$fmt = sprintf($fmt, &ora_titles($csr, 0));
+X! 		$format .= "format STDOUT_TOP =\n" . $fmt . "\n";
+X! 
+X! 		# Then underlines for the field names
+X  
+X! 		$fmt =~ tr/|/-/c;
+X! 		$fmt =~ tr/|/+/;
+X! 		$format .= $fmt . "\n.\n";
+X! 
+X! 		# Then for the data format, a @<<... field per column
+X! 
+X! 		$fmt =~ tr/-+/<|/;
+X! 		$fmt =~ s/(^|\|)</\1@/g;
+X! 		$format .= "format STDOUT =\n" . $fmt . "\n";
+X! 
+X! 		# Finally the variable associated with each column
+X! 		# Why doesn't Perl let us specify an array here?
+X! 
+X  		foreach $i (0 .. $nfields - 1)
+X  		{
+X  			$format .= "\$result[$i],";
+X***************
+X*** 72,78 ****
+X  	}
+X  	elsif ($opt_h)
+X  	{
+X! 		@titles = &ora_titles($csr);
+X  		grep(s/  *$//, @titles);
+X  		print @titles;
+X  		grep(tr//-/c, @titles);
+X--- 95,103 ----
+X  	}
+X  	elsif ($opt_h)
+X  	{
+X! 		# Simple headers with underlines
+X! 
+X! 		@titles = &ora_titles($csr, 0);
+X  		grep(s/  *$//, @titles);
+X  		print @titles;
+X  		grep(tr//-/c, @titles);
+X***************
+X*** 81,86 ****
+X--- 106,112 ----
+X  
+X  	while (@result = &ora_fetch($csr))
+X  	{
+X+ 		grep(defined $_ || ($_ = $opt_n), @result) if $opt_n;
+X  		($opt_f) ? (write) : (print @result);
+X  	}
+X  	warn "$ora_errstr\n" if ($ora_errno != 0);
+X***************
+X*** 104,110 ****
+X  .nr % 0			\" start at page 1
+X  ';<<'.ex'; ############## From here on it's a standard manual page ############
+X  .ll 80
+X! .TH SQL L "18th November 1991"
+X  .ad
+X  .nh
+X  .SH NAME
+X--- 130,136 ----
+X  .nr % 0			\" start at page 1
+X  ';<<'.ex'; ############## From here on it's a standard manual page ############
+X  .ll 80
+X! .TH SQL L "18th November 1992"
+X  .ad
+X  .nh
+X  .SH NAME
+X***************
+X*** 112,120 ****
+X--- 138,148 ----
+X  .SH SYNOPSIS
+X  \fBsql\fP
+X  [\fB\-b\fP\fIbase\fP]
+X+ [\fB\-c\fP\fIcache\fP]
+X  [\fB\-d\fP\fIdelim\fP]
+X  [\fB\-f\fP|\fB\-h\fP]
+X  [\fB\-l\fP\fIpage_len\fP]
+X+ [\fB\-n\fP\fIstring\fP]
+X  \fIname\fP\fB/\fP\fIpassword\fP
+X  \fIstatement\fP
+X  .SH DESCRIPTION
+X***************
+X*** 129,134 ****
+X--- 157,170 ----
+X  If it is not given, the database specified by the environment variable
+X  \fBORACLE_SID\fP is used.
+X  
+X+ The \fB\-c\fP\fIcache\fP flag may be supplied to set the size of fetch cache
+X+ to be used. If it is not given, the system default is used.
+X+ 
+X+ If the \fB\-n\fP\fIstring\fP flag is supplied,
+X+ \fBNULL\fP fields (in the \fIOracle\fP sense)
+X+ will replaced in the output by \fIstring\fP.
+X+ Normally, they are left blank.
+X+ 
+X  The \fB\-f\fP and \fB\-h\fP flags may be used to modify the form of the output.
+X  Without either flag, no field headers are printed
+X  and fields are not padded.
+X***************
+X*** 136,153 ****
+X  field headers are added to the top of the output,
+X  but the format is otherwise unchanged.
+X  With the \fB\-f\fP flag,
+X! the output is formatted in a fashion similar to that used by \fIsqlplus\fP,
+X  except that all fields are left\-justified, regardless of their data type.
+X  Column headers are printed at the top of each page;
+X  a page is assumed to be 60 lines long,
+X  but this may be overridden with the \fB\-l\fP\fIpage_len\fP flag.
+X  
+X! Normally, fields are separated with tabs;
+X  this may be changed to any desired string (\fIdelim\fP)
+X  using the \fB\-d\fP flag.
+X  .SH ENVIRONMENT
+X  The environment variable \fBORACLE_SID\fP
+X! determines the Oracle database to be used.
+X  .SH DIAGNOSTICS
+X  .in +5
+X  .ti -5
+X--- 172,190 ----
+X  field headers are added to the top of the output,
+X  but the format is otherwise unchanged.
+X  With the \fB\-f\fP flag,
+X! the output is formatted in a tabular form similar to that used by \fIsqlplus\fP,
+X  except that all fields are left\-justified, regardless of their data type.
+X  Column headers are printed at the top of each page;
+X  a page is assumed to be 60 lines long,
+X  but this may be overridden with the \fB\-l\fP\fIpage_len\fP flag.
+X  
+X! Without the \fB\-f\fP flag, fields are separated with tabs;
+X  this may be changed to any desired string (\fIdelim\fP)
+X  using the \fB\-d\fP flag.
+X  .SH ENVIRONMENT
+X  The environment variable \fBORACLE_SID\fP
+X! determines the Oracle database to be used
+X! if the \fB\-b\fP\fIbase\fP flag is not supplied.
+X  .SH DIAGNOSTICS
+X  .in +5
+X  .ti -5
+X*** /user/mis/kstock/tmp/examples/tabinfo.pl	Tue Dec  8 16:45:59 1992
+X--- ./examples/tabinfo.pl	Thu Oct 15 09:57:19 1992
+X***************
+X*** 18,24 ****
+X  (($base = shift)	&&
+X   ($user = shift)	&&
+X   ($pass = shift)	&&
+X!  ($table = shift))	|| die "Usage: $0 base user password table\n";
+X  
+X  # we need this for the table of datatypes
+X  #
+X--- 18,24 ----
+X  (($base = shift)	&&
+X   ($user = shift)	&&
+X   ($pass = shift)	&&
+X!  ($table = shift))	|| die "Usage: $0 base user password table ...\n";
+X  
+X  # we need this for the table of datatypes
+X  #
+X***************
+X*** 28,53 ****
+X  Structure of @<<<<<<<<<<<<<<<<<<<<<<<
+X  $table
+X  
+X! Field name          | Length | Type | Type description
+X! --------------------+--------+------+-------------------------------------------
+X  .
+X  
+X  format STDOUT =
+X! @<<<<<<<<<<<<<<<<<<<| @>>>>> | @>>> | @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+X  $name[$i], $length[$i], $type[$i], $ora_types{$type[$i]}
+X  .
+X  
+X  $lda = &ora_login($base, $user, $pass) || die $ora_errstr . "\n";
+X- $csr = &ora_open($lda, "select * from $table") || die $ora_errstr . "\n";
+X  
+X! (@name = &ora_titles($csr, 0)) || die $ora_errstr . "\n";
+X! (@length = &ora_lengths($csr)) || die $ora_errstr . "\n";
+X! (@type = &ora_types($csr)) || die $ora_errstr . "\n";
+X! 
+X! foreach $i (0 .. $#name)
+X  {
+X! 	write;
+X! }
+X  
+X- &ora_close($csr);
+X  &ora_logoff($lda);
+X--- 28,60 ----
+X  Structure of @<<<<<<<<<<<<<<<<<<<<<<<
+X  $table
+X  
+X! Field name                                    | Length | Type | Type description
+X! ----------------------------------------------+--------+------+-----------------
+X  .
+X  
+X  format STDOUT =
+X! @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< | @>>>>> | @>>> | @<<<<<<<<<<<<<<<
+X  $name[$i], $length[$i], $type[$i], $ora_types{$type[$i]}
+X  .
+X  
+X  $lda = &ora_login($base, $user, $pass) || die $ora_errstr . "\n";
+X  
+X! do
+X  {
+X! 	$csr = &ora_open($lda, "select * from $table") || die "$ora_errstr\n";
+X! 
+X! 	(@name = &ora_titles($csr, 0)) || die $ora_errstr . "\n";
+X! 	(@length = &ora_lengths($csr)) || die $ora_errstr . "\n";
+X! 	(@type = &ora_types($csr)) || die $ora_errstr . "\n";
+X! 
+X! 	foreach $i (0 .. $#name)
+X! 	{
+X! 		write;
+X! 	}
+X! 
+X! 	&ora_close($csr);
+X! 
+X! 	$- = 0;
+X! } while ($table = shift);
+X  
+X  &ora_logoff($lda);
+X*** /user/mis/kstock/tmp/oracle.mus	Tue Dec  8 16:45:59 1992
+X--- ./oracle.mus	Tue Nov 17 11:27:43 1992
+X***************
+X*** 227,233 ****
+X  	else {
+X  	    char *csr		= (char *) str_get(st[1]);
+X  	    char **vars		= (char **) malloc((items-1) * sizeof(char *));
+X! 	    int retval;
+X  
+X  	    if (vars == NULL)
+X  	    {
+X--- 227,233 ----
+X  	else {
+X  	    char *csr		= (char *) str_get(st[1]);
+X  	    char **vars		= (char **) malloc((items-1) * sizeof(char *));
+X! 	    long retval;
+X  
+X  	    if (vars == NULL)
+X  	    {
+X***************
+X*** 252,265 ****
+X  		free(vars);
+X  	    }
+X  
+X! 	    str_numset(st[0], (double) retval);
+X  	}
+X  	return sp;
+X  
+X! CASE	char *	ora_do
+X! I	char *	lda
+X! I	char *	stmt
+X! END
+X  
+X  CASE	char *	ora_close
+X  I	char *	csr
+X--- 252,284 ----
+X  		free(vars);
+X  	    }
+X  
+X! 	    if (retval < 0)
+X! 		str_set(st[0], (char *) NULL);
+X! 	    else if (retval == 0)
+X! 		str_set(st[0], "OK");
+X! 	    else
+X! 		str_numset(st[0], (double) retval);
+X  	}
+X  	return sp;
+X  
+X!     case US_ora_do:
+X! 	if (items != 2)
+X! 	    fatal("Usage: &ora_do($lda, $stmt)");
+X! 	else {
+X! 	    long retval;
+X! 	    char *	lda =		(char *)	str_get(st[1]);
+X! 	    char *	stmt =		(char *)	str_get(st[2]);
+X! 
+X! 	    retval = ora_do(lda, stmt);
+X! 
+X! 	    if (retval < 0L)
+X! 		str_set(st[0], (char *) NULL);
+X! 	    else if (retval == 0L)
+X! 		str_set(st[0], "OK");
+X! 	    else
+X! 		str_numset(st[0], (double) retval);
+X! 	}
+X! 	return sp;
+X  
+X  CASE	char *	ora_close
+X  I	char *	csr
+X*** /user/mis/kstock/tmp/orafns.c	Tue Dec  8 16:46:00 1992
+X--- ./orafns.c	Tue Nov 17 11:39:08 1992
+X***************
+X*** 767,778 ****
+X   * binds actual values to the SQL statement associated with csr
+X   */
+X  
+X! int ora_bind(csr_s, vars, nitems)
+X  char *csr_s, **vars;
+X  int nitems;
+X  {
+X  	int i;
+X  	short null_flag = -1;
+X  #ifndef	NO_BIND_PADDING
+X  	static char small_buf[2] = " ";
+X  #endif
+X--- 767,779 ----
+X   * binds actual values to the SQL statement associated with csr
+X   */
+X  
+X! long ora_bind(csr_s, vars, nitems)
+X  char *csr_s, **vars;
+X  int nitems;
+X  {
+X  	int i;
+X  	short null_flag = -1;
+X+ 	long rowcount;
+X  #ifndef	NO_BIND_PADDING
+X  	static char small_buf[2] = " ";
+X  #endif
+X***************
+X*** 787,793 ****
+X  	{
+X  		ora_errno = ORAP_INVCSR;
+X  		DBUG_PRINT("exit", ("not a csr"));
+X! 		DBUG_RETURN(0);
+X  	}
+X  	else if (csr->varfields != nitems)
+X  	{
+X--- 788,794 ----
+X  	{
+X  		ora_errno = ORAP_INVCSR;
+X  		DBUG_PRINT("exit", ("not a csr"));
+X! 		DBUG_RETURN(-1L);
+X  	}
+X  	else if (csr->varfields != nitems)
+X  	{
+X***************
+X*** 794,800 ****
+X  		ora_errno = ORAP_NUMVARS;
+X  		DBUG_PRINT("exit", ("expected %d items, got %d",
+X  		    csr->varfields, nitems));
+X! 		DBUG_RETURN(0);
+X  	}
+X  
+X  	for (i = 0 ; i < nitems ; i++)
+X--- 795,801 ----
+X  		ora_errno = ORAP_NUMVARS;
+X  		DBUG_PRINT("exit", ("expected %d items, got %d",
+X  		    csr->varfields, nitems));
+X! 		DBUG_RETURN(-1L);
+X  	}
+X  
+X  	for (i = 0 ; i < nitems ; i++)
+X***************
+X*** 807,813 ****
+X  			ora_errno = csr->csr->csrrc;
+X  			DBUG_PRINT("exit", ("obndrn failed on field %d, <NULL>",
+X  			    i + 1));
+X! 			DBUG_RETURN(0);
+X  		}
+X  
+X  		DBUG_PRINT("info", ("obndrn %d, <NULL> OK", (i + 1), vars[i]));
+X--- 808,814 ----
+X  			ora_errno = csr->csr->csrrc;
+X  			DBUG_PRINT("exit", ("obndrn failed on field %d, <NULL>",
+X  			    i + 1));
+X! 			DBUG_RETURN(-1L);
+X  		}
+X  
+X  		DBUG_PRINT("info", ("obndrn %d, <NULL> OK", (i + 1), vars[i]));
+X***************
+X*** 827,833 ****
+X  			ora_errno = csr->csr->csrrc;
+X  			DBUG_PRINT("exit", ("obndrn failed on field %d, \"%s\"",
+X  			    i + 1, vars[i]));
+X! 			DBUG_RETURN(0);
+X  		}
+X  
+X  		DBUG_PRINT("info", ("obndrn %d, \"%s\" OK", (i + 1), vars[i]));
+X--- 828,834 ----
+X  			ora_errno = csr->csr->csrrc;
+X  			DBUG_PRINT("exit", ("obndrn failed on field %d, \"%s\"",
+X  			    i + 1, vars[i]));
+X! 			DBUG_RETURN(-1L);
+X  		}
+X  
+X  		DBUG_PRINT("info", ("obndrn %d, \"%s\" OK", (i + 1), vars[i]));
+X***************
+X*** 838,844 ****
+X  	{
+X  		ora_errno = csr->csr->csrrc;
+X  		DBUG_PRINT("exit", ("oexec failed"));
+X! 		DBUG_RETURN(0);
+X  	}
+X  
+X  	/* any cached data is now out of date, as is the end_of data flag */
+X--- 839,845 ----
+X  	{
+X  		ora_errno = csr->csr->csrrc;
+X  		DBUG_PRINT("exit", ("oexec failed"));
+X! 		DBUG_RETURN(-1L);
+X  	}
+X  
+X  	/* any cached data is now out of date, as is the end_of data flag */
+X***************
+X*** 845,852 ****
+X  	csr->in_cache = 0;
+X  	csr->end_of_data = 0;
+X  
+X! 	DBUG_PRINT("exit", ("returning OK"));
+X! 	DBUG_RETURN(1);
+X  }
+X  
+X  
+X--- 846,856 ----
+X  	csr->in_cache = 0;
+X  	csr->end_of_data = 0;
+X  
+X! 	rowcount = csr->csr->csrrpc;
+X! 	DBUG_PRINT("info", ("%ld rows processed", rowcount));
+X! 
+X! 	DBUG_PRINT("exit", ("returning %ld", rowcount));
+X! 	DBUG_RETURN(rowcount);
+X  }
+X  
+X  
+X***************
+X*** 858,868 ****
+X   * sets and executes the specified sql statement, without leaving a cursor open
+X   */
+X  
+X! char *ora_do(lda_s, stmt)
+X  char *lda_s;
+X  char *stmt;
+X  {
+X  	char *csr_s;
+X  
+X  	DBUG_ENTER("ora_do");
+X  	DBUG_PRINT("entry", ("ora_do(%s, \"%s\")", lda_s, stmt));
+X--- 862,874 ----
+X   * sets and executes the specified sql statement, without leaving a cursor open
+X   */
+X  
+X! long ora_do(lda_s, stmt)
+X  char *lda_s;
+X  char *stmt;
+X  {
+X+ 	long rowcount;
+X  	char *csr_s;
+X+ 	struct cursor *csr;
+X  
+X  	DBUG_ENTER("ora_do");
+X  	DBUG_PRINT("entry", ("ora_do(%s, \"%s\")", lda_s, stmt));
+X***************
+X*** 869,886 ****
+X  
+X  	if ((csr_s = ora_open(lda_s, stmt)) == NULL)
+X  	{
+X! 		DBUG_PRINT("exit", ("ora_open failed"));
+X! 		DBUG_RETURN(NULL);
+X  	}
+X! 	else if (ora_close(csr_s) == NULL)
+X  	{
+X! 		DBUG_PRINT("exit", ("ora_close failed"));
+X! 		DBUG_RETURN(NULL);
+X  	}
+X  	else
+X  	{
+X! 		DBUG_PRINT("exit", ("command successful"));
+X! 		DBUG_RETURN(OK);
+X  	}
+X  
+X  	/* NOTREACHED */
+X--- 875,901 ----
+X  
+X  	if ((csr_s = ora_open(lda_s, stmt)) == NULL)
+X  	{
+X! 		DBUG_PRINT("exit", ("ora_open failed - returning -1"));
+X! 		DBUG_RETURN(-1L);
+X  	}
+X! 
+X! 	csr = (struct cursor *) strtoul(csr_s, (char **) NULL, 0);
+X! 	DBUG_PRINT("conv", ("string %s converted to address $#lx",
+X! 		csr_s, (long) csr));
+X! 
+X! 	rowcount = csr->csr->csrrpc;
+X! 	DBUG_PRINT("info", ("%ld rows processed", rowcount));
+X! 
+X! 	if (ora_close(csr_s) == NULL)
+X  	{
+X! 		ora_dropcursor(csr);
+X! 		DBUG_PRINT("exit", ("ora_close failed - returning -1"));
+X! 		DBUG_RETURN(-1L);
+X  	}
+X  	else
+X  	{
+X! 		DBUG_PRINT("exit", ("returning %ld", rowcount));
+X! 		DBUG_RETURN(rowcount);
+X  	}
+X  
+X  	/* NOTREACHED */
+X*** /user/mis/kstock/tmp/orafns.h	Tue Dec  8 16:43:08 1992
+X--- ./orafns.h	Wed Dec  2 11:53:14 1992
+X***************
+X*** 14,33 ****
+X  
+X  void		ora_version();
+X  
+X! int		ora_bind(),
+X! 		ora_fetch(),
+X  		ora_titles();
+X  
+X  char		*ora_login(),
+X  		*ora_open(),
+X  		*ora_close(),
+X- 		*ora_do(),
+X  		*ora_logoff(),
+X  		*ora_commit(),
+X  		*ora_rollback(),
+X  		*ora_autocommit();
+X  
+X  
+X  /* These functions are internal to the system, not for public consumption */
+X  
+X  int		ora_dropcursor(),
+X--- 14,34 ----
+X  
+X  void		ora_version();
+X  
+X! int		ora_fetch(),
+X  		ora_titles();
+X  
+X  char		*ora_login(),
+X  		*ora_open(),
+X  		*ora_close(),
+X  		*ora_logoff(),
+X  		*ora_commit(),
+X  		*ora_rollback(),
+X  		*ora_autocommit();
+X  
+X+ long		ora_do(),
+X+ 		ora_bind();
+X  
+X+ 
+X  /* These functions are internal to the system, not for public consumption */
+X  
+X  int		ora_dropcursor(),
+X***************
+X*** 93,101 ****
+X  
+X  int		count_colons();
+X  unsigned long	strtoul();
+X! char		*getenv(), *malloc();
+X  void		my_setenv();
+X  
+X  
+X  /* variables accesible to the outside world */
+X  
+X--- 94,107 ----
+X  
+X  int		count_colons();
+X  unsigned long	strtoul();
+X! char		*getenv();
+X  void		my_setenv();
+X  
+X+ #ifndef	MALLOC_PTR_TYPE
+X+ #	define	MALLOC_PTR_TYPE	char
+X+ #endif
+X+ 
+X+ MALLOC_PTR_TYPE	*malloc();
+X  
+X  /* variables accesible to the outside world */
+X  
+X*** /user/mis/kstock/tmp/testdir/Standard-Results	Tue Dec  8 16:46:02 1992
+X--- ./testdir/Standard-Results	Wed Dec  2 11:54:55 1992
+X***************
+X*** 10,15 ****
+X--- 10,16 ----
+X  Only values up to 11 should appear.
+X  
+X  2 3 5 7 11 
+X+ just another Oraperl hacker, 
+X  2 fields, lengths 10, 40
+X  	types 1, 2
+X  	names NAME, EXT
+SHAR_EOF
+chmod 0644 patch3 ||
+echo 'restore of patch3 failed'
+Wc_c="`wc -c < 'patch3'`"
+test 23409 -eq "$Wc_c" ||
+	echo 'patch3: original size 23409, current size' "$Wc_c"
+fi
+# ============= examples/japh ==============
+if test ! -d 'examples'; then
+    echo 'x - creating directory examples'
+    mkdir 'examples'
+fi
+if test -f 'examples/japh' -a X"$1" != X"-c"; then
+	echo 'x - skipping examples/japh (File already exists)'
+else
+echo 'x - extracting examples/japh (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'examples/japh' &&
+X#!/usr/local/bin/oraperl
+X#
+X# This is an example of how we could code a JAPH in Oraperl.
+X#
+X# Author:	Kevin Stock
+X# Date:		1st December 1992
+X#
+X
+X# supply debugging output if desired
+X
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X# login to the database and create the table
+X
+X$lda = &ora_login('t', 'kstock', 'kstock') || die $ora_errstr;
+X&ora_do($lda, <<) || die $ora_errstr;
+X	create table japh (word char(7), posn number(1))
+X
+X# Loop to insert data into the table
+X
+X$csr = &ora_open($lda, <<) || die $ora_errstr;
+X	insert into japh values(:1, :2)
+X
+Xwhile (<DATA>)
+X{
+X	chop;
+X	&ora_bind($csr, split(':')) || warn "$_: $ora_errstr";
+X}
+X&ora_close($csr) || warn $ora_errstr;
+X
+X# Now retrieve the data, printing it word by word
+X
+X$csr = &ora_open($lda, <<) || die $ora_errstr;
+X	select word from japh order by posn
+X
+Xwhile (($word) = &ora_fetch($csr))
+X{
+X	print "$word ";
+X}
+X&ora_close($csr) || warn $ora_errstr;
+X
+Xprint "\n";
+X
+X# delete the table
+X
+X&ora_do($lda, 'drop table japh') || warn $ora_errstr;
+X&ora_logoff($lda) || die $ora_errstr;
+X
+X__END__
+XOraperl:3
+Xanother:2
+Xhacker:4
+Xjust:1
+SHAR_EOF
+chmod 0755 examples/japh ||
+echo 'restore of examples/japh failed'
+Wc_c="`wc -c < 'examples/japh'`"
+test 1061 -eq "$Wc_c" ||
+	echo 'examples/japh: original size 1061, current size' "$Wc_c"
+fi
+# ============= testdir/japh.pl ==============
+if test ! -d 'testdir'; then
+    echo 'x - creating directory testdir'
+    mkdir 'testdir'
+fi
+if test -f 'testdir/japh.pl' -a X"$1" != X"-c"; then
+	echo 'x - skipping testdir/japh.pl (File already exists)'
+else
+echo 'x - extracting testdir/japh.pl (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'testdir/japh.pl' &&
+X# supply debugging output if desired
+X
+X$ora_debug = shift if $ARGV[0] =~ /^-#/;
+X
+X$USAGE = "Usage: $0 database username password\n";
+X
+X$base = shift || die $USAGE;
+X$name = shift || die $USAGE;
+X$pass = shift || die $USAGE;
+X
+X# login to the database and create the table
+X
+X$lda = &ora_login($base, $name, $pass) || die $ora_errstr;
+X&ora_do($lda, <<) || die $ora_errstr;
+X	create table japh (word char(7), posn number(1))
+X
+X# Loop to insert data into the table
+X
+X$csr = &ora_open($lda, <<) || die $ora_errstr;
+X	insert into japh values(:1, :2)
+X
+Xwhile (<DATA>)
+X{
+X	chop;
+X	&ora_bind($csr, split(':')) || warn "$_: $ora_errstr";
+X}
+X&ora_close($csr) || warn $ora_errstr;
+X
+X# Now retrieve the data, printing it word by word
+X
+X$csr = &ora_open($lda, <<) || die $ora_errstr;
+X	select word from japh order by posn
+X
+Xwhile (($word) = &ora_fetch($csr))
+X{
+X	print "$word ";
+X}
+X&ora_close($csr) || warn $ora_errstr;
+X
+Xprint "\n";
+X
+X# delete the table
+X
+X&ora_do($lda, 'drop table japh') || warn $ora_errstr;
+X&ora_logoff($lda) || die $ora_errstr;
+X
+X__END__
+XOraperl:3
+Xanother:2
+Xhacker,:4
+Xjust:1
+SHAR_EOF
+chmod 0644 testdir/japh.pl ||
+echo 'restore of testdir/japh.pl failed'
+Wc_c="`wc -c < 'testdir/japh.pl'`"
+test 1056 -eq "$Wc_c" ||
+	echo 'testdir/japh.pl: original size 1056, current size' "$Wc_c"
+fi
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,2261 @@
+Newsgroups: comp.sources.misc
+From: iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE (Iain Lea)
+Subject:  v28i054:  tin - threaded full screen newsreader v1.1, Part10/11
+Message-ID: <1992Feb18.043951.13475@sparky.imd.sterling.com>
+X-Md4-Signature: b0824f74a338be8f8333cce08accf43b
+Date: Tue, 18 Feb 1992 04:39:51 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE (Iain Lea)
+Posting-number: Volume 28, Issue 54
+Archive-name: tin/part10
+Environment: BSD, SCO, ISC, SUNOS, SYSVR3, SYSVR4, ULTRIX, XENIX
+Supersedes: tin: Volume 23, Issue 15-23
+
+#!/bin/sh
+# this is tin.shar.10 (part 10 of tin1.1)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file signal.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 10; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping signal.c'
+else
+echo 'x - continuing file signal.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'signal.c' &&
+X		fprintf (stderr, "%s: send a bug report to %s\n",
+X			progname, BUG_REPORT_ADDRESS);
+X	}
+X	fflush (stderr);
+X	exit (1);
+}
+X
+X
+void set_win_size (num_lines, num_cols)
+X	int *num_lines;
+X	int *num_cols;
+{
+#ifdef TIOCGWINSZ
+X	char buf[64];
+X	int old_lines, old_cols;
+X	struct winsize win;
+X
+X	if (debug) {
+X		old_lines = *num_lines;
+X		old_cols = *num_cols;
+X	}
+#endif
+X
+X	init_screen_array (FALSE);		/* deallocate screen array */
+X
+#ifdef TIOCGWINSZ
+X	if (ioctl (0, TIOCGWINSZ, &win) == 0) {
+X		if (win.ws_row != 0) {
+X			*num_lines = win.ws_row - 1;
+X		}
+X		if (win.ws_col != 0) {
+X			*num_cols = win.ws_col;
+X		}
+X	}
+X
+X	if (debug) {
+X		sprintf (buf, "RESIZED lines %d to %d  cols %d to %d",
+X			old_lines, *num_lines, old_cols, *num_cols);
+X		info_message (buf);
+X	}
+#endif
+X
+X	init_screen_array (TRUE);		/* allocate screen array for resize */
+X
+X	if (show_author == SHOW_FROM_BOTH) {
+X		max_subj = (*num_cols / 2) - 2;
+X	} else {
+X		max_subj = (*num_cols / 2) + 5;
+X	}
+X	max_from = (*num_cols - max_subj) - 17;
+X	RIGHT_POS = *num_cols - 18;
+X	MORE_POS  = *num_cols - 15;
+X	NOTESLINES = *num_lines - INDEX_TOP - 1;
+X	if (NOTESLINES <= 0) {
+X		NOTESLINES = 1;
+X	}
+}
+X
+X
+void set_signals_art ()
+{
+#ifdef SIGTSTP
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&art_act.sa_mask);
+X		art_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		art_act.sa_handler = art_suspend;
+X		sigaction (SIGTSTP, &art_act, 0L);
+#else
+X		signal (SIGTSTP, art_suspend);
+#endif
+X	}
+#endif
+X
+#ifdef SIGWINCH
+X	signal (SIGWINCH, art_resize);
+#endif
+}
+X
+X
+void set_signals_group ()
+{
+#ifdef SIGTSTP
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&group_act.sa_mask);
+X		group_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		group_act.sa_handler = group_suspend;
+X		sigaction (SIGTSTP, &group_act, 0L);
+#else
+X		signal (SIGTSTP, group_suspend);
+#endif
+X	}
+#endif
+X
+#ifdef SIGWINCH
+X	signal (SIGWINCH, group_resize);
+#endif
+}
+X
+X
+void set_signals_page ()
+{
+#ifdef SIGTSTP
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&page_act.sa_mask);
+X		page_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		page_act.sa_handler = page_suspend;
+X		sigaction (SIGTSTP, &page_act, 0L);
+#else
+X		signal (SIGTSTP, page_suspend);
+#endif
+X	}
+#endif
+X
+#ifdef SIGWINCH
+X	signal (SIGWINCH, page_resize);
+#endif
+}
+X
+X
+void set_signals_select ()
+{
+#ifdef SIGTSTP
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&select_act.sa_mask);
+X		select_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		select_act.sa_handler = select_suspend;
+X		sigaction (SIGTSTP, &select_act, 0L);
+#else
+X		signal (SIGTSTP, select_suspend);
+#endif
+X	}
+#endif
+X
+#ifdef SIGWINCH
+X	signal (SIGWINCH, select_resize);
+#endif
+}
+X
+X
+void set_signals_thread ()
+{
+#ifdef SIGTSTP
+X	if (do_sigtstp) {
+#ifdef POSIX_JOB_CONTROL
+X		sigemptyset (&thread_act.sa_mask);
+X		thread_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X		thread_act.sa_handler = thread_suspend;
+X		sigaction (SIGTSTP, &thread_act, 0L);
+#else
+X		signal (SIGTSTP, thread_suspend);
+#endif
+X	}
+#endif
+X
+#ifdef SIGWINCH
+X	signal (SIGWINCH, thread_resize);
+#endif
+}
+X
+X
+#ifdef SIGTSTP
+X
+/* ARGSUSED0 */
+void art_suspend (sig)
+X	int sig;
+{
+X	char buf[LEN];
+X	
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&art_act.sa_mask);
+X	art_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	art_act.sa_handler = art_suspend;
+X	sigaction (SIGTSTP, &art_act, 0L);
+#else
+X	signal (SIGTSTP, art_suspend);
+#endif
+X
+X	if (! update) {
+X		mail_setup ();
+X	
+X		Raw (TRUE);
+X
+X		ClearScreen ();
+X		sprintf (buf, txt_group, glob_art_group);
+X		wait_message (buf);
+X	}
+}
+X
+X
+/* ARGSUSED0 */
+void main_suspend (sig)
+X	int sig;
+{
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&main_act.sa_mask);
+X	main_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	main_act.sa_handler = main_suspend;
+X	sigaction (SIGTSTP, &main_act, 0L);
+#else
+X	signal (SIGTSTP, main_suspend);
+#endif
+X
+X	mail_setup ();
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+}
+X
+X
+/* ARGSUSED0 */
+void select_suspend (sig)
+X	int sig;
+{
+X
+X	Raw (FALSE);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&select_act.sa_mask);
+X	select_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	select_act.sa_handler = select_suspend;
+X	sigaction (SIGTSTP, &select_act, 0L);
+#else
+X	signal (SIGTSTP, select_suspend);
+#endif
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	mail_setup ();
+X	group_selection_page ();
+}
+X
+X
+/* ARGSUSED0 */
+void group_suspend (sig)
+X	int sig;
+{
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&group_act.sa_mask);
+X	group_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	group_act.sa_handler = group_suspend;
+X	sigaction (SIGTSTP, &group_act, 0L);
+#else
+X	signal (SIGTSTP, group_suspend);
+#endif
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	mail_setup ();
+X	show_group_page (glob_group);
+}
+X
+X
+/* ARGSUSED0 */
+void page_suspend (sig)
+X	int sig;
+{
+X
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&page_act.sa_mask);
+X	page_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	page_act.sa_handler = page_suspend;
+X	sigaction (SIGTSTP, &page_act, 0L);
+#else
+X	signal (SIGTSTP, page_suspend);
+#endif
+X
+X	mail_setup ();
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	redraw_page (glob_respnum, glob_page_group);
+}
+X
+X
+/* ARGSUSED0 */
+void thread_suspend (sig)
+X	int sig;
+{
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask (0);
+#else
+X	signal (SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&thread_act.sa_mask);
+X	thread_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	thread_act.sa_handler = thread_suspend;
+X	sigaction (SIGTSTP, &thread_act, 0L);
+#else
+X	signal (SIGTSTP, thread_suspend);
+#endif
+X
+X	if (! update) {
+X		Raw (TRUE);
+X	}
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	mail_setup ();
+X	show_thread_page ();
+}
+X
+X
+/* ARGSUSED0 */
+void rcfile_suspend (sig)
+X	int sig;
+{
+X	Raw (FALSE);
+X	putchar ('\n');
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigsetmask(0);
+#else
+X	signal(SIGTSTP, SIG_DFL);
+#ifdef BSD
+X	sigsetmask (sigblock(0) & ~(1 << (SIGTSTP -1)));
+#endif
+#endif
+X
+X	kill (0, SIGTSTP);
+X
+#ifdef POSIX_JOB_CONTROL
+X	sigemptyset (&rcfile_act.sa_mask);
+X	rcfile_act.sa_flags = SA_RESTART | SA_RESETHAND;
+X	rcfile_act.sa_handler = rcfile_suspend;
+X	sigaction (SIGTSTP, &rcfile_act, 0L);
+#else
+X	signal (SIGTSTP, rcfile_suspend);
+#endif
+X
+X	Raw (TRUE);
+X	show_rcfile_menu ();	
+}
+X
+#endif /* SIGTSTP */	
+X
+X
+#ifdef SIGWINCH
+X
+/* ARGSUSED0 */
+void art_resize (sig)
+X	int sig;
+{
+X	char buf[LEN];
+X
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, art_resize);
+X
+X	ClearScreen ();
+X	sprintf (buf, txt_group, glob_art_group);
+X	wait_message (buf);
+}
+X
+X
+/* ARGSUSED0 */
+void main_resize (sig)
+X	int sig;
+{
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, main_resize);
+}
+X
+X
+/* ARGSUSED0 */
+void select_resize (sig)
+X	int sig;
+{
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, select_resize);
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	group_selection_page ();
+}
+X
+X
+/* ARGSUSED0 */
+void group_resize (sig)
+X	int sig;
+{
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, group_resize);
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	show_group_page (glob_group);
+}
+X
+X
+/* ARGSUSED0 */
+void page_resize (sig)
+X	int sig;
+{
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, page_resize);
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	redraw_page (glob_respnum, glob_page_group);
+}
+X
+X
+/* ARGSUSED0 */
+void thread_resize (sig)
+X	int sig;
+{
+X	info_message (txt_resizing_window);
+X	set_win_size (&LINES, &COLS);
+X	signal (SIGWINCH, thread_resize);
+X	
+#ifndef USE_CLEARSCREEN
+X	ClearScreen ();
+#endif
+X	show_thread_page ();
+}
+X
+#endif /* SIGWINCH */	
+X
+SHAR_EOF
+echo 'File signal.c is complete' &&
+chmod 0600 signal.c ||
+echo 'restore of signal.c failed'
+Wc_c="`wc -c < 'signal.c'`"
+test 10822 -eq "$Wc_c" ||
+	echo 'signal.c: original size 10822, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= thread.c ==============
+if test -f 'thread.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping thread.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting thread.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'thread.c' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : thread.c
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 08-02-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *	            You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	"tin.h"
+X
+extern int index_point;
+int threaded_on_subject;
+static int top_thread = 0;
+static int thread_index_point = 0;
+static int thread_basenote = 0;
+static int thread_respnum = 0;
+static int first_thread_on_screen = 0;
+static int last_thread_on_screen = 0;
+X
+X
+/*
+X * show current thread. If threaded on Subject: show
+X *   <respnum> <name>    <respnum> <name>
+X * If threaded on Archive-name: show
+X *   <respnum> <subject> <name>
+X */
+X 
+int show_thread (respnum, group, group_path)
+X	int respnum;
+X	char *group;
+X	char *group_path;
+{
+X	int ch;
+X	int flag, i, index, n;
+X	int scroll_lines;
+X	int	thread_marked_unread;
+X
+X	thread_respnum = respnum;
+X	thread_basenote = which_thread (thread_respnum);
+X	top_thread = num_of_responses (thread_basenote);
+X
+X	if (debug) {
+X		sprintf (msg, "THREAD respnum=[%d]  basenote=[%d]  num=[%d]",
+X			thread_respnum, thread_basenote, top_thread);
+X		info_message (msg);
+X		sleep (2);
+X	}
+X
+X	if (top_thread <= 0) {
+X		info_message (txt_no_resps_in_thread);
+X		return FALSE;
+X	}
+X
+X	if (arts[thread_respnum].archive != (char *) 0) {
+X		threaded_on_subject = FALSE;
+X	} else {
+X		threaded_on_subject = TRUE;
+X	}
+X
+X	if (space_mode) {
+X		if (i = new_responses (thread_basenote)) {
+X			for (n=0, i = thread_basenote; i >= 0 ; i = arts[i].thread, n++) {
+X				if (arts[i].unread == ART_UNREAD) {
+X					thread_index_point = n;
+X					break;
+X				}
+X			}
+X		} else {
+X			thread_index_point = top_thread;
+X		}
+X	} else {
+X		thread_index_point = top_thread;
+X	}
+X
+X	if (thread_index_point < 0) {
+X		thread_index_point = 0;
+X	}
+X
+X	show_thread_page ();
+X
+X	while (TRUE) {
+X		ch = (char) ReadCh();
+X
+X		if (ch >= '0' && ch <= '9') {	/* 0 goes to basenote */
+X			prompt_thread_num (ch);
+X		} else switch (ch) {
+X			case ESC:	/* common arrow keys */
+X				switch (get_arrow_key ()) {
+X					case KEYMAP_UP:
+X						goto thread_up;
+X
+X					case KEYMAP_DOWN:
+X						goto thread_down;
+X
+X					case KEYMAP_PAGE_UP:
+X						goto thread_page_up;
+X
+X					case KEYMAP_PAGE_DOWN:
+X						goto thread_page_down;
+X
+X					case KEYMAP_HOME:
+X						if (thread_index_point != 0) {
+X							thread_index_point = 0;
+X							show_thread_page ();
+X						}
+X						break;
+X					
+X					case KEYMAP_END:
+X						goto end_of_thread;
+X				}
+X				break;
+X
+X			case '$':	/* show last page of threads */
+end_of_thread:			
+X				if (thread_index_point != top_thread) {
+X					thread_index_point = top_thread;
+X					show_thread_page ();
+X				}
+X				break;
+X				
+X			case '\r':
+X			case '\n':	/* read current article within thread */
+X				n = choose_response (thread_basenote, thread_index_point);
+X				n = show_page (n, group, group_path);
+X				if (n == thread_basenote) {
+X					show_thread_page ();
+X				} else {
+X					index_point = n;	
+X					goto thread_done;
+X				}
+X				break;
+X
+X			case '\t':
+X 				space_mode = TRUE;
+X				if (thread_index_point == 0) {
+X					n = thread_respnum;
+X				} else {
+X					n = choose_response (thread_basenote, thread_index_point);
+X				}
+X				index = thread_index_point;
+X				for (i = n ; i != -1 ; i = arts[i].thread) {
+X					if (arts[i].unread == ART_UNREAD) {
+X						n = show_page (i, group, group_path);
+X						break;
+X					}
+X					index++;
+X				}
+X				if (n == thread_basenote) {
+X					thread_index_point = index;
+X					show_thread_page ();
+X				} else {
+X					index_point = which_thread (n);	
+X					goto thread_done;
+X				}
+X				break;
+X	
+X			case ' ':			/* page down */
+X			case ctrl('D'):		/* vi style */
+X			case ctrl('V'):		/* emacs style */
+thread_page_down:
+X				if (thread_index_point == top_thread)
+X					break;
+X
+X				erase_thread_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				thread_index_point = ((thread_index_point + scroll_lines) /
+X									scroll_lines) * scroll_lines;
+X				if (thread_index_point > top_thread) {
+X					thread_index_point = (top_thread / scroll_lines) * scroll_lines;
+X					if (thread_index_point < top_thread) {
+X						thread_index_point = top_thread;
+X					}
+X				}
+X				if (thread_index_point < first_thread_on_screen ||
+X					thread_index_point >= last_thread_on_screen) {
+X					show_thread_page ();
+X				} else {
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('L'):		/* redraw screen */
+X			case ctrl('R'):
+X			case ctrl('W'):
+#ifndef USE_CLEARSCREEN
+X				ClearScreen ();
+#endif
+X				show_thread_page ();
+X				break;
+X
+X			case ctrl('N'):
+X			case 'j':		/* line down */
+thread_down:
+X				if (thread_index_point + 1 > top_thread)
+X					break;
+/*
+X				if (thread_index_point + 1 >= top_thread)
+X					break;
+*/
+X
+X				if (thread_index_point + 1 > last_thread_on_screen) {
+/*
+X				if (thread_index_point + 1 >= last_thread_on_screen) {
+*/
+#ifndef USE_CLEARSCREEN
+X					erase_thread_arrow ();
+#endif					
+X					thread_index_point++;
+X					show_thread_page ();
+X				} else {
+X					erase_thread_arrow ();
+X					thread_index_point++;
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('P'):
+X			case 'k':		/* line up */
+thread_up:
+X				if (! thread_index_point)
+X					break;
+X
+X				if (thread_index_point <= first_thread_on_screen) {
+X					thread_index_point--;
+X					show_thread_page ();
+X				} else {
+X					erase_thread_arrow ();
+X					thread_index_point--;
+X					draw_thread_arrow ();
+X				}
+X				break;
+X
+X			case ctrl('U'):		/* page up */
+X			case 'b':
+thread_page_up:
+#ifndef USE_CLEARSCREEN
+X				clear_message ();
+#endif
+X				erase_thread_arrow ();
+X				scroll_lines = (full_page_scroll ? NOTESLINES : NOTESLINES / 2);
+X				if ((n = thread_index_point % scroll_lines) > 0) {
+X					thread_index_point = thread_index_point - n;
+X				} else {
+X					thread_index_point = ((thread_index_point - scroll_lines) / scroll_lines) * scroll_lines;
+X				}
+X				if (thread_index_point < 0) {
+X					thread_index_point = 0;
+X				}
+X				if (thread_index_point < first_thread_on_screen
+X				|| thread_index_point >= last_thread_on_screen)
+X					show_thread_page ();
+X				else
+X					draw_thread_arrow ();
+X				break;
+X
+X			case 'h':	/* help */
+X				show_info_page (HELP_INFO, help_thread, txt_thread_com);
+X				show_thread_page ();
+X				break;
+X
+X			case 'I':	/* toggle inverse video */
+X				toggle_inverse_video ();
+X				show_thread_page ();
+X				break;
+X
+X			case 'i':	/* return */
+X			case 'q':
+X			case 't':
+X				goto thread_done;
+X
+X			case 'K':	/* mark thread as read */
+X				for (i = (int) base[thread_basenote] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].unread = ART_READ;
+X				}
+X				goto thread_done;
+X				break;
+X
+X			case 'v':	/* version */
+X				info_message (cvers);
+X				break;
+X
+X			case 'z':	/* mark article as unread */
+X				if (thread_index_point == 0) {
+X					n = thread_respnum;
+X				} else {
+X					n = choose_response (thread_basenote, thread_index_point);
+X				}
+X				if (n >= 0) {
+X					arts[n].unread = ART_UNREAD;
+X					show_thread_page ();
+X					info_message (txt_art_marked_as_unread);
+X				}
+X				break;
+X
+X			case 'Z':	/* mark thread as unread */
+X				for (i = (int) base[thread_basenote] ; i != -1 ; i = arts[i].thread) {
+X					arts[i].unread = ART_UNREAD;
+X				}
+X				show_thread_page ();
+X				info_message (txt_thread_marked_as_unread);
+X				break;
+X				
+X			default:
+X			    info_message (txt_bad_command);
+X		}
+X	}
+X
+thread_done:
+/*
+X	fix_new_highest (sav_groupnum);
+X	update_newsrc (group, my_group[sav_groupnum], FALSE);
+*/
+X	clear_note_area ();
+X	return TRUE;
+}
+X
+X
+void show_thread_page ()
+{
+X	extern int index_point;
+X	char buf[LEN];
+X	char new_resps[8];
+X	char resps[8];
+X	char from[LEN];
+X	char subject[LEN];
+X	int col, i, j, n;
+X	static int index = 0;
+X	int len_from;
+X	int len_subj;
+X
+X	set_signals_thread ();
+X	
+X	ClearScreen ();
+X
+X	if (threaded_on_subject) {
+X		sprintf (msg, "Thread (%s)", arts[thread_respnum].subject);
+X	} else {
+X		sprintf (msg, "List Thread (%d of %d)", index_point+1, top_base);
+X	}
+X	show_title (msg);
+X
+X	MoveCursor (INDEX_TOP, 0);
+X	if (thread_index_point > top_thread) {
+X		thread_index_point = top_thread - 1;
+X	}
+X
+X	if (NOTESLINES <= 0) {
+X		first_thread_on_screen = 0;
+X	} else {
+X		first_thread_on_screen = (thread_index_point / NOTESLINES) * NOTESLINES;
+X		if (first_thread_on_screen < 0) {
+X			first_thread_on_screen = 0;
+X		}
+X	}
+X
+X	last_thread_on_screen = first_thread_on_screen + NOTESLINES;
+X
+X	if (last_thread_on_screen >= top_thread) {
+X		last_thread_on_screen = top_thread;
+X		first_thread_on_screen = (top_thread / NOTESLINES) * NOTESLINES;
+X
+X		if (first_thread_on_screen == last_thread_on_screen ||
+X			first_thread_on_screen < 0) {
+X			if (first_thread_on_screen < 0) {
+X				first_thread_on_screen = 0;
+X			} else {
+X				first_thread_on_screen = last_thread_on_screen - NOTESLINES;
+X			}
+X		}
+X	}
+X
+X	if (top_thread == 0) {
+X		first_thread_on_screen = 0;
+X		last_thread_on_screen = 0;
+X	}
+X
+X	index = choose_response (thread_basenote, thread_index_point);
+X
+if (debug) {
+sprintf (msg, "first=[%d] last=[%d] index=[%d] thread_index_point=[%d]",
+X	first_thread_on_screen, last_thread_on_screen,
+X	index, thread_index_point);
+info_message (msg);
+sleep (2);
+MoveCursor (INDEX_TOP, 0);
+}
+X
+X	for (j=0, i = first_thread_on_screen; j < NOTESLINES && i <= last_thread_on_screen; i++, j++) {
+X		if (i == 0) {
+X			index = thread_respnum;
+X		} else {
+X			if ((index = next_response (index)) == -1) {
+X				break;
+X			}
+X		}
+X
+X		if (arts[index].tagged) {
+X			sprintf (new_resps, "%3d", arts[index].tagged);
+X		} else if (arts[index].unread == ART_UNREAD) {
+X			sprintf (new_resps, "  %c", UNREAD_ART_MARK);
+X		} else {
+X			strcpy (new_resps, "   ");
+X		}
+X
+X		get_author (TRUE, index, from);
+X
+X		if (draw_arrow_mark) {
+X			if (threaded_on_subject) {
+X				printf ("  %4d%3s  %s\r\n", i, new_resps, from);
+X			} else {
+X				my_strncpy (subject, arts[index].subject, max_subj);
+X				printf ("  %4d%3s  %-*s   %-*s\r\n",
+X					i, new_resps, max_subj, subject, max_from, from);
+X			}
+X		} else {
+X			if (threaded_on_subject) {
+X				sprintf (screen[j].col, "  %4d%3s  %-*s\r\n", i, new_resps, max_subj+max_from+5, from);
+X			} else {
+X				my_strncpy (subject, arts[index].subject, max_subj+2);
+X				sprintf (screen[j].col, "  %4d%3s  %-*s   %-*s\r\n",
+X					i, new_resps, max_subj+2, subject, max_from, from);
+X			}
+X			printf ("%s", screen[j].col);
+X		}
+X	}
+X
+#ifndef USE_CLEARSCREEN
+X	CleartoEOS ();
+#endif
+X
+X	if (last_thread_on_screen == top_thread) {
+X		info_message (txt_end_of_thread);
+X	}
+X
+X	draw_thread_arrow ();
+}
+X
+X
+void draw_thread_arrow ()
+{
+X	draw_arrow (INDEX_TOP + (thread_index_point-first_thread_on_screen));
+}
+X
+X
+void erase_thread_arrow ()
+{
+X	erase_arrow (INDEX_TOP + (thread_index_point-first_thread_on_screen));
+}
+X
+X
+int prompt_thread_num (ch)
+X	char ch;
+{
+X	int num;
+X
+X	clear_message ();
+X
+X	if ((num = prompt_num (ch, txt_read_art)) == -1) {
+X		clear_message ();
+X		return FALSE;
+X	}
+X
+X	if (num >= top_thread)
+X		num = top_thread - 1;
+X
+X	if (num >= first_thread_on_screen
+X	&&  num < last_thread_on_screen) {
+X		erase_thread_arrow ();
+X		thread_index_point = num;
+X		draw_thread_arrow ();
+X	} else {
+#ifndef USE_CLEARSCREEN
+X		erase_thread_arrow ();
+#endif		
+X		thread_index_point = num;
+X		show_thread_page ();
+X	}
+X	return TRUE;
+}
+X
+/*
+X *  Return the number of unread articles there are within a thread
+X */
+X
+int new_responses (thread)
+X	int thread;
+{
+X	int i;
+X	int sum = 0;
+X
+X	for (i = (int) base[thread]; i >= 0; i = arts[i].thread) {
+X		if (arts[i].unread) {
+X			sum++;
+X		}
+X	}
+X	
+X	return sum;
+}
+X
+/*
+X *  Which base note (an index into base[]) does a respnum
+X *  (an index into arts[]) corresponsd to?
+X *
+X *  In other words, base[] points to an entry in arts[] which is
+X *  the head of a thread, linked with arts[].thread.  For any q: arts[q],
+X *  find i such that base[i]->arts[n]->arts[o]->...->arts[q]
+X */
+X
+int which_thread (n)
+X	int n;
+{
+X	register int i, j;
+X
+X	for (i = 0; i < top_base; i++) {
+X		for (j = (int) base[i] ; j >= 0 ; j = arts[j].thread) {
+X			if (j == n) {
+X				return i;
+X			}
+X		}
+X	}
+X
+X	sprintf (msg, "%d", n);
+X	error_message (txt_cannot_find_base_art, msg);
+X	return -1;
+}
+X
+/*
+X *  Find how deep in a thread a response is.  Start counting at zero
+X */
+X
+int which_response (n)
+X	int n;
+{
+X	int i, j;
+X	int num = 0;
+X
+X	i = which_thread (n);
+X
+X	for (j = (int) base[i]; j != -1; j = arts[j].thread)
+X		if (j == n)
+X			break;
+X		else
+X			num++;
+X
+X	return num;
+}
+X
+/*
+X *  Given an index into base[], find the number of responses for
+X *  that basenote
+X */
+X
+int num_of_responses (n)
+X	int n;
+{
+X	int i;
+X	int oldi = -3;
+X	int sum = 0;
+X
+X	assert (n < top_base);
+X
+X	for (i = (int) base[n]; i != -1; i = arts[i].thread) {
+X		assert (i != -2);
+X		assert (i != oldi);
+X		oldi = i;
+X		sum++;
+X	}
+X
+X	return sum - 1;
+}
+X
+/*
+X *  Find the next response.  Go to the next basenote if there
+X *  are no more responses in this thread
+X */
+X
+int next_response (n)
+X	int n;
+{
+X	int i;
+X
+X	if (arts[n].thread >= 0)
+X		return arts[n].thread;
+X
+X	i = which_thread (n) + 1;
+X
+X	if (i >= top_base)
+X		return -1;
+X
+X	return (int) base[i];
+}
+X
+/*
+X *  Given a respnum (index into arts[]), find the respnum of the
+X *  next basenote
+X */
+X
+int next_thread (n)
+X	int n;
+{
+X	int i;
+X
+X	i = which_thread (n) + 1;
+X	if (i >= top_base)
+X		return -1;
+X
+X	return (int) base[i];
+}
+X
+/*
+X *  Find the previous response.  Go to the last response in the previous
+X *  thread if we go past the beginning of this thread.
+X */
+X
+int prev_response (n)
+X	int n;
+{
+X	int resp;
+X	int i;
+X
+X	resp = which_response (n);
+X
+X	if (resp > 0)
+X		return choose_response (which_thread (n), resp-1);
+X
+X	i = which_thread (n) - 1;
+X
+X	if (i < 0)
+X		return -1;
+X
+X	return choose_response (i, num_of_responses (i));
+}
+X
+/*
+X *  return response number n from thread i
+X */
+X
+int choose_response (i, n)
+X	int i;
+X	int n;
+{
+X	int j;
+X
+X	j = (int) base[i];
+X
+X	while (n-- && arts[j].thread >= 0) {
+X		j = arts[j].thread;
+X	}
+X
+X	return j;
+}
+X
+/*
+X *  Find the next unread response in this group 
+X */
+X
+int next_unread (n)
+X	int n;
+{
+X	while (n >= 0) {
+X		if (arts[n].unread == ART_UNREAD) {
+X			return n;
+X		}
+X		n = next_response (n);
+X	}
+X
+X	return -1;
+}
+X
+X
+/*
+X *  Find the previous unread response in this thread
+X */
+X
+int prev_unread (n)
+X	int n;
+{
+X	while (n >= 0) {
+X		if (arts[n].unread == ART_UNREAD) {
+X			return n;
+X		}
+X		n = prev_response (n);
+X	}
+X
+X	return -1;
+}
+SHAR_EOF
+chmod 0600 thread.c ||
+echo 'restore of thread.c failed'
+Wc_c="`wc -c < 'thread.c'`"
+test 14120 -eq "$Wc_c" ||
+	echo 'thread.c: original size 14120, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= wildmat.c ==============
+if test -f 'wildmat.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping wildmat.c (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting wildmat.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'wildmat.c' &&
+/*  $Revision: 1.5 $
+**
+**  Do shell-style pattern matching for ?, \, [], and * characters.
+**  Might not be robust in face of malformed patterns; e.g., "foo[a-"
+**  could cause a segmentation violation.  It is 8bit clean.
+**
+**  Written by Rich $alz, mirror!rs, Wed Nov 26 19:03:17 EST 1986.
+**  Rich $alz is now <rsalz@bbn.com>.
+**  April, 1991:  Replaced mutually-recursive calls with in-line code
+**  for the star character.
+**
+**  Special thanks to Lars Mathiesen <thorinn@diku.dk> for the ABORT code.
+**  This can greatly speed up failing wildcard patterns.  For example:
+**	pattern: -*-*-*-*-*-*-12-*-*-*-m-*-*-*
+**	text 1:	 -adobe-courier-bold-o-normal--12-120-75-75-m-70-iso8859-1
+**	text 2:	 -adobe-courier-bold-o-normal--12-120-75-75-X-70-iso8859-1
+**  Text 1 matches with 51 calls, while text 2 fails with 54 calls.  Without
+**  the ABORT, then it takes 22310 calls to fail.  Ugh.  The following
+**  explanation is from Lars:
+**  The precondition that must be fulfilled is that DoMatch will consume
+**  at least one character in text.  This is true if *p is neither '*' nor
+**  '\0'.)  The last return has ABORT instead of FALSE to avoid quadratic
+**  behaviour in cases like pattern "*a*b*c*d" with text "abcxxxxx".  With
+**  FALSE, each star-loop has to run to the end of the text; with ABORT
+**  only the last one does.
+**
+**  Once the control of one instance of DoMatch enters the star-loop, that
+**  instance will return either TRUE or ABORT, and any calling instance
+**  will therefore return immediately after (without calling recursively
+**  again).  In effect, only one star-loop is ever active.  It would be
+**  possible to modify the code to maintain this context explicitly,
+**  eliminating all recursive calls at the cost of some complication and
+**  loss of clarity (and the ABORT stuff seems to be unclear enough by
+**  itself).  I think it would be unwise to try to get this into a
+**  released version unless you have a good test data base to try it out
+**  on.
+*/
+X
+#define TRUE			1
+#define FALSE			0
+#define ABORT			-1
+X
+X
+X    /* What character marks an inverted character class? */
+#define NEGATE_CLASS		'^'
+X    /* Is "*" a common pattern? */
+#define OPTIMIZE_JUST_STAR
+X    /* Do tar(1) matching rules, which ignore a trailing slash? */
+#undef MATCH_TAR_PATTERN
+X
+X
+/*
+**  Match text and p, return TRUE, FALSE, or ABORT.
+*/
+static int
+DoMatch(text, p)
+X    register char	*text;
+X    register char	*p;
+{
+X    register int	last;
+X    register int	matched;
+X    register int	reverse;
+X
+X    for ( ; *p; text++, p++) {
+X	if (*text == '\0' && *p != '*')
+X	    return ABORT;
+X	switch (*p) {
+X	case '\\':
+X	    /* Literal match with following character. */
+X	    p++;
+X	    /* FALLTHROUGH */
+X	default:
+X	    if (*text != *p)
+X		return FALSE;
+X	    continue;
+X	case '?':
+X	    /* Match anything. */
+X	    continue;
+X	case '*':
+X	    while (*++p == '*')
+X		/* Consecutive stars act just like one. */
+X		continue;
+X	    if (*p == '\0')
+X		/* Trailing star matches everything. */
+X		return TRUE;
+X	    while (*text)
+X		if ((matched = DoMatch(text++, p)) != FALSE)
+X		    return matched;
+X	    return ABORT;
+X	case '[':
+X	    reverse = p[1] == NEGATE_CLASS ? TRUE : FALSE;
+X	    if (reverse)
+X		/* Inverted character class. */
+X		p++;
+X	    matched = FALSE;
+X	    if (p[1] == ']' || p[1] == '-')
+X		if (*++p == *text)
+X		    matched = TRUE;
+X	    for (last = *p; *++p && *p != ']'; last = *p)
+X		/* This next line requires a good C compiler. */
+X		if (*p == '-' && p[1] != ']'
+X		    ? *text <= *++p && *text >= last : *text == *p)
+X		    matched = TRUE;
+X	    if (matched == reverse)
+X		return FALSE;
+X	    continue;
+X	}
+X    }
+X
+#ifdef	MATCH_TAR_PATTERN
+X    if (*text == '/')
+X	return TRUE;
+#endif	/* MATCH_TAR_ATTERN */
+X    return *text == '\0';
+}
+X
+X
+/*
+**  User-level routine.  Returns TRUE or FALSE.
+*/
+int
+wildmat(text, p)
+X    char	*text;
+X    char	*p;
+{
+#ifdef	OPTIMIZE_JUST_STAR
+X    if (p[0] == '*' && p[1] == '\0')
+X	return TRUE;
+#endif	/* OPTIMIZE_JUST_STAR */
+X    return DoMatch(text, p) == TRUE;
+}
+X
+X
+X
+#ifdef	TEST
+#include <stdio.h>
+X
+/* Yes, we use gets not fgets.  Sue me. */
+extern char	*gets();
+X
+X
+main()
+{
+X    char	 p[80];
+X    char	 text[80];
+X
+X    printf("Wildmat tester.  Enter pattern, then strings to test.\n");
+X    printf("A blank line gets prompts for a new pattern; a blank pattern\n");
+X    printf("exits the program.\n");
+X
+X    for ( ; ; ) {
+X	printf("\nEnter pattern:  ");
+X	(void)fflush(stdout);
+X	if (gets(p) == NULL || p[0] == '\0')
+X	    break;
+X	for ( ; ; ) {
+X	    printf("Enter text:  ");
+X	    (void)fflush(stdout);
+X	    if (gets(text) == NULL)
+X		exit(0);
+X	    if (text[0] == '\0')
+X		/* Blank line; go back and get a new pattern. */
+X		break;
+X	    printf("      %s\n", wildmat(text, p) ? "YES" : "NO");
+X	}
+X    }
+X
+X    exit(0);
+X    /* NOTREACHED */
+}
+#endif	/* TEST */
+SHAR_EOF
+chmod 0600 wildmat.c ||
+echo 'restore of wildmat.c failed'
+Wc_c="`wc -c < 'wildmat.c'`"
+test 4749 -eq "$Wc_c" ||
+	echo 'wildmat.c: original size 4749, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= tin.h ==============
+if test -f 'tin.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping tin.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting tin.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'tin.h' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : tin.h
+X *  Author    : R.Skrenta / I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 21-01-92
+X *  Notes     : #include files, #defines & struct's
+X *  Copyright : (c) Copyright 1991-92 by Rich Skrenta & Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+#include	<stdio.h>
+#include	<signal.h>
+#include	<sys/types.h>
+#include	<pwd.h>
+#ifndef MINIX
+#	include	<memory.h>
+#endif
+#include	<ctype.h>
+#include	<time.h>
+#include	<sys/stat.h>
+X
+#ifdef BSD
+#	include	<strings.h>
+#else
+#	include	<string.h>
+#	ifndef MINIX
+#		include	<malloc.h>
+#	else
+#		include	<stdlib.h>
+#	endif
+#endif
+X
+#ifdef SCO_UNIX
+#	include	<sys/streams.h>
+#	include	<sys/ptem.h>
+#endif
+X
+#ifdef M_XENIX
+#	include	<prototypes.h>
+#endif
+X
+#if defined(SIGWINCH) || defined(SINIX)
+#	include	<sys/ioctl.h>
+#	ifdef AUTO_RESIZE
+#		include	<sys/ttold.h>		/* needed for resizing under an xterm */
+#	endif
+#endif
+X
+#if __STDC__
+#	define	SIGTYPE	void
+#else
+#	define	SIGTYPE	int
+#endif
+X
+#ifndef SPOOLDIR
+#	define		SPOOLDIR	"/usr/spool/news"
+#endif
+#ifndef LIBDIR
+#	define		LIBDIR		"/usr/lib/news"
+#endif
+#ifndef INEWSDIR
+#	define		INEWSDIR	LIBDIR
+#endif
+X
+#define		DEFAULT_SHELL	"/bin/sh"
+X
+#ifdef BSD
+#	define		DEFAULT_EDITOR	"/usr/ucb/vi"
+#	define		DEFAULT_MAILER	"/bin/rmail"
+#	define		DEFAULT_MAILBOX	"/usr/spool/mail"
+#	define		DEFAULT_PRINTER	"/usr/ucb/lpr"
+#	define		DEFAULT_SUM		"sum"
+#	ifndef USE_LONG_FILENAMES
+#		define USE_LONG_FILENAMES
+#	endif
+#	define		DEFAULT_ACTIVE_NUM	1600	/* initial size of active array */
+#	define		DEFAULT_ARTICLE_NUM	400		/* initial size of art array */ 
+#else
+#	ifdef M_XENIX
+#		define		DEFAULT_EDITOR	"/bin/vi"
+#		define		DEFAULT_MAILBOX	"/usr/spool/mail"
+#	else
+#		define		DEFAULT_EDITOR	"/usr/bin/vi"
+#		define		DEFAULT_MAILBOX	"/usr/mail"
+#	endif
+#	ifdef NCR
+#		define		DEFAULT_MAILER	"/usr/bin/mailx"
+#	endif
+#	ifdef RS6000
+#		define		DEFAULT_PRINTER	"/bin/lp"
+#	endif
+#	ifdef UNIXPC
+#		define		DEFAULT_MAILER	"/bin/rmail"
+#	endif
+#	ifdef SINIX
+#		define		DEFAULT_MAILER	"/bin/rmail"
+#		define		DEFAULT_PRINTER	"/bin/lpr"
+#		ifndef USE_LONG_FILENAMES
+#			define USE_LONG_FILENAMES
+#		endif
+#	endif
+#	ifndef DEFAULT_MAILER
+#		define		DEFAULT_MAILER	"/usr/bin/mail"
+#	endif
+#	ifndef DEFAULT_PRINTER
+#		define		DEFAULT_PRINTER	"/usr/bin/lp"
+#	endif
+#	define		DEFAULT_SUM		"sum -r"
+#	define		DEFAULT_ACTIVE_NUM	400		/* initial size of active array */
+#	define		DEFAULT_ARTICLE_NUM	200		/* initial size of art array */ 
+#endif
+X
+#ifdef USE_LONG_FILENAMES
+#	define		LONG_PATH_PART	"part"
+#	define		LONG_PATH_PATCH	"patch"
+#else
+#	define		LONG_PATH_PART	""
+#	define		LONG_PATH_PATCH	"p"
+#endif
+X
+#ifdef LOG_USER
+#	define		LOG_USER_FILE	"/tmp/.tin_log" 
+#endif
+X
+#define		DEFAULT_KILL_NUM	10		/* initial size of kill array */ 
+#define		DEFAULT_SAVE_NUM	10		/* initial size of save array */ 
+X
+#define		RCDIR			".tin"
+#define		RCFILE			"tinrc"
+#define		INDEXDIR		".index"
+#define		KILLFILE		"kill"
+#define		POSTFILE		"posted"
+#define		UNTHREADFILE	"unthread"
+#define		DEFAULT_MAILDIR	"Mail"
+X
+/*
+#define BUG_REPORT_ADDRESS	"iain@estevax.uucp"
+*/
+#define BUG_REPORT_ADDRESS	"iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE"
+X
+#ifdef TRUE
+#	undef TRUE
+#	define		TRUE		1
+#else	
+#	define		TRUE		1
+#endif
+X
+#ifdef FALSE
+#	undef FALSE
+#	define		FALSE		0
+#else	
+#	define		FALSE		0
+#endif
+X
+#define		LEN				1024
+#define		MODULO_COUNT_NUM	5
+#define		HEADER_LEN		1024
+#define		TABLE_SIZE		1409
+#define		MAX_PAGES		1000
+#define		ctrl(c)			((c) & 0x1F)
+X
+#define		DEFAULT_COMMENT	": "	/* used when by follow-ups & replys */
+#ifndef UNREAD_ART_MARK
+#	define		UNREAD_ART_MARK	'+'		/* used to show that an art is unread */
+#endif
+X
+#ifdef USE_INVERSE_HACK
+#	define		BLANK_SELECT_COLS		60
+#	define		BLANK_GROUP_COLS		2
+#	define		BLANK_PAGE_COLS			2
+#else
+#	define		BLANK_SELECT_COLS		58
+#	define		BLANK_GROUP_COLS		0
+#	define		BLANK_PAGE_COLS			0
+#endif
+X
+#define		SCREEN_READ_UNREAD		6		/* position for "  +" / "   " */
+#define		DEFAULT_COLS			132		/* used when updating indexes */
+#define		INDEX_TOP				2
+X
+/*
+X *  used by get_arrow_key()
+X */
+X
+#define		KEYMAP_UNKNOWN			0
+#define		KEYMAP_UP				1
+#define		KEYMAP_DOWN				2
+#define		KEYMAP_PAGE_UP			3
+#define		KEYMAP_PAGE_DOWN		4
+#define		KEYMAP_HOME				5
+#define		KEYMAP_END				6
+X
+/*
+X *  used by feed.c - feed_articles()
+X */
+X 
+#define		SELECT_LEVEL			1
+#define		GROUP_LEVEL				2
+#define		PAGE_LEVEL				3
+X
+#define		FEED_MAIL				1
+#define		FEED_PIPE				2
+#define		FEED_PRINT				3
+#define		FEED_SAVE				4
+X
+/*
+X *  used in art.c & rcfile.c
+X */
+X 
+#define		SORT_BY_NOTHING			0		/* sort types on arts[] array */
+#define		SORT_BY_SUBJ_DESCEND	1
+#define		SORT_BY_SUBJ_ASCEND		2
+#define		SORT_BY_FROM_DESCEND	3
+#define		SORT_BY_FROM_ASCEND		4
+#define		SORT_BY_DATE_DESCEND	5
+#define		SORT_BY_DATE_ASCEND		6
+X
+#define		SHOW_FROM_NONE			0
+#define		SHOW_FROM_ADDR			1
+#define		SHOW_FROM_NAME			2
+#define		SHOW_FROM_BOTH			3
+X
+/*
+X *  used in help.c
+X */
+X
+#define		HELP_INFO				0
+#define		POST_INFO				1
+X
+/*
+X *  used in save.c
+X */
+X
+#define		CHECK_ANY_NEWS			0
+#define		START_ANY_NEWS			1
+#define		MAIL_ANY_NEWS			2
+#define		SAVE_ANY_NEWS			3
+X
+/*
+X *  used in help.c
+X */
+X
+#define		HEADER_TO				0
+#define		HEADER_SUBJECT			1
+X
+/*
+X *  used in page.c & post.c
+X */
+X
+#define		POSTED_NONE			0
+#define		POSTED_REDRAW			1
+#define		POSTED_OK			2
+X
+/*
+X *  Assertion verifier
+X */
+X
+#if __STDC__
+#	define	assert(p)	if(! (p)) asfail(__FILE__, __LINE__, #p); else
+#else
+#	define	assert(p)	if(! (p)) asfail(__FILE__, __LINE__, "p"); else
+#endif
+X
+#define		ESC		27
+#if defined(BSD) || defined(MINIX)
+#	define		CR		'\r'
+#else
+#	define		CR		10
+#endif
+X
+/*
+X * return codes for change_rcfile ()
+X */
+X
+#define		NO_KILLING		0
+#define		KILLING			1
+X
+/*
+X *  art.thread
+X */
+X
+#define		ART_NORMAL		-1
+#define		ART_EXPIRED		-2
+X
+/*
+X *  art.unread
+X */
+X
+#define		ART_READ		0
+#define		ART_UNREAD		1
+#define		ART_WILL_RETURN	2
+X
+/*
+X * used by group_t & my_group[]
+X */
+X 
+#define		UNSUBSCRIBED	0x01	/* haven't put in my_group[] yet */
+#define		SUBSCRIBED		0x02	/* subscribed to */
+X
+/*
+X * kill_type used in struct kill_t
+X */
+X 
+#define KILL_SUBJ	1
+#define KILL_FROM	2
+#define KILL_BOTH	3
+X
+/*
+X * used in feed.c & save.c
+X */
+X 
+#define POST_PROC_NONE			0
+#define POST_PROC_SHAR			1
+#define POST_PROC_UUDECODE		2
+#define POST_PROC_UUD_LST_ZOO	3
+#define POST_PROC_UUD_EXT_ZOO	4
+X
+/*
+X *  struct article_t - article header
+X *
+X *  article.artnum:
+X *	article number in spool directory for group
+X *
+X *  article.thread:
+X *	initially -1
+X *	points to another arts[] (struct article_t): zero and up
+X *	-2 means article has expired (wasn't found in file search
+X *	of spool directory for the group)
+X *
+X *  article.inthread:
+X *	FALSE for the first article in a thread, TRUE for all
+X *	following articles in thread
+X *
+X *  article.unread:
+X *	boolean, has this article been read or not
+X *
+X *  article.date
+X *  date: line used for sorting articles by date order
+X *
+X *  article.archive:
+X *	archive name used in *source* groups
+X *
+X *  article.part:
+X *	part no. of archive
+X *
+X *  article.patch:
+X *	patch no. of archive
+X *
+X *  article.killed:
+X *	boolean, has this article been killed
+X *
+X *  article.tagged:
+X *	boolean, has this article been tagged for saving or not
+X */
+X
+struct article_t {
+X	long artnum;
+X	char *subject;	/* Subject: line from mail header */
+X	char *from;		/* From: line from mail header (address) */
+X	char *name;		/* From: line from mail header (full name) */
+X	int thread;
+X	int inthread;
+X	int unread;		/* 0 = read, 1 = unread, 2 = will return */
+X	char date[16];	/* Date: line from mail header */
+X	char *archive;	/* Archive-name: line from mail header */
+X	char *part;		/* part no. of archive */
+X	char *patch;	/* patch no. of archive */
+X	int killed;		/* 0 = not killed, 1 = killed */
+X	int tagged;		/* 0 = not tagged, 1 = tagged */
+};
+X
+/*
+X *  struct group_t - newsgroup info from active file
+X */
+X
+struct group_t {
+X	char *name;
+X	long max;
+X	long min;
+X	char moderated;
+X	int next;		/* next active entry in hash chain */
+X	int flag;
+X	int read;		/* marked TRUE if group was entered during session */
+X	int thread;		/* marked FALSE if group is not to be threaded */
+};
+X
+/*
+X *  used in hashstr.c
+X */
+X 
+struct hashnode {
+X	char *s;						/* the string we're saving */
+X	struct hashnode *next;			/* chain for spillover */
+};
+X
+/*
+X *  used in kill.c
+X */
+X 
+struct kill_t {
+X	int kill_type;
+X	long kill_group;
+X	char *kill_subj;
+X	char *kill_from;
+};
+X
+struct save_t {
+X	char *subject;
+X	char *dir;
+X	char *file;
+X	char *archive;
+X	char *part;
+X	char *patch;
+X	int index;	
+X	int saved;	
+X	int is_mailbox;	
+};
+X
+struct screen_t {
+X	char *col;
+};
+X
+struct posted_t {
+X	char date[10];
+X	char group[80];
+X	char subj[120];
+};
+X
+/*
+X *  function prototypes	& extern definitions	
+X */ 
+X
+#include	"patchlev.h"
+#include	"extern.h"
+#include	"proto.h"
+SHAR_EOF
+chmod 0600 tin.h ||
+echo 'restore of tin.h failed'
+Wc_c="`wc -c < 'tin.h'`"
+test 8937 -eq "$Wc_c" ||
+	echo 'tin.h: original size 8937, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= extern.h ==============
+if test -f 'extern.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping extern.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting extern.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'extern.h' &&
+/*
+X *  Project   : tin - a threaded Netnews reader
+X *  Module    : lang.h
+X *  Author    : I.Lea
+X *  Created   : 01-04-91
+X *  Updated   : 08-02-92
+X *  Notes     :
+X *  Copyright : (c) Copyright 1991-92 by Iain Lea
+X *              You may  freely  copy or  redistribute  this software,
+X *              so  long as there is no profit made from its use, sale
+X *              trade or  reproduction.  You may not change this copy-
+X *              right notice, and it must be included in any copy made
+X */
+X
+extern char *help_group[];
+extern char *help_page[];
+extern char *help_select[];
+extern char *help_thread[];
+extern char active_file[LEN];
+extern char add_addr[LEN];
+extern char art_search_string[LEN];
+extern char article[LEN];
+extern char author_search_string[LEN];
+extern char bug_addr[LEN];
+extern char cvers[LEN];
+extern char dead_article[LEN];
+extern char default_mail_address[LEN];
+extern char default_pipe_command[LEN];
+extern char default_post_subject[LEN];
+extern char default_regex_pattern[LEN];
+extern char default_save_file[LEN];
+extern char default_shell_command[LEN];
+extern char delgroups[LEN];
+extern char group_search_string[LEN];
+extern char homedir[LEN];
+extern char indexdir[LEN];
+extern char killfile[LEN];
+extern char killfrom[LEN];
+extern char killsubj[LEN];
+extern char mail_news_user[LEN];
+extern char mailbox[LEN];
+extern char maildir[LEN];
+extern char mailer[LEN];
+extern char msg[LEN];
+extern char my_org[LEN];
+extern char newnewsrc[LEN];
+extern char newsrc[LEN];
+extern char nntp_server[LEN];
+extern char page_header[LEN];
+extern char postfile[LEN];
+extern char printer[LEN];
+extern char cmd_line_printer[LEN];
+extern char proc_ch_default;				/* set in change_rcfile () */
+extern char progname[LEN];
+extern char rcdir[LEN];
+extern char rcfile[LEN];
+extern char redirect_output[LEN];
+extern char reply_to[LEN];
+extern char savedir[LEN];
+extern char sig[LEN];
+extern char signature[LEN];
+extern char spooldir[LEN];
+extern char subject_search_string[LEN];
+extern char txt_help_bug_report[LEN];
+extern char unthreadfile[LEN];
+extern char userid[LEN];
+X
+extern char txt_group[];
+extern char txt_cannot_open_art[];
+extern char txt_indexing[];
+extern char txt_indexing_num[];
+extern char txt_corrupt_index[];
+extern char txt_checking_for_news[];
+extern char txt_there_is_no_news[];
+extern char txt_killing_arts[];
+extern char txt_unkilling_arts[];
+extern char txt_art_thread_regex_tag[];
+extern char txt_post_process_type[];
+extern char txt_feed_pattern[];
+extern char txt_no_command[];
+extern char txt_piping[];
+extern char txt_cannot_post[];
+extern char txt_tagged_art[];
+extern char txt_untagged_art[];
+extern char txt_inverse_on[];
+extern char txt_inverse_off[];
+extern char txt_subscribed_to[];
+extern char txt_unsubscribed_to[];
+extern char txt_mark_all_read[];
+extern char txt_no_more_groups[];
+extern char txt_no_prev_group[];
+extern char txt_no_arts[];
+extern char txt_no_groups[];
+extern char txt_end_of_thread[];
+extern char txt_end_of_arts[];
+extern char txt_end_of_groups[];
+extern char txt_no_next_unread_art[];
+extern char txt_no_prev_unread_art[];
+extern char txt_no_last_message[];
+extern char txt_bad_command[];
+extern char txt_you_have_mail[];
+extern char txt_type_h_for_help[];
+extern char txt_read_art[];
+extern char txt_author_search_forwards[];
+extern char txt_author_search_backwards[];
+extern char txt_search_forwards[];
+extern char txt_search_backwards[];
+extern char txt_no_search_string[];
+extern char txt_no_match[];
+extern char txt_post_subject[];
+extern char txt_no_subject[];
+extern char txt_cannot_open[];
+extern char txt_posting[];
+extern char txt_art_posted[];
+extern char txt_art_rejected[];
+extern char txt_abort_edit_post[];
+extern char txt_index_page_com[];
+extern char txt_thread_com[];
+extern char txt_help_i_4[];
+extern char txt_help_ctrl_k[];
+extern char txt_help_ctrl_l[];
+extern char txt_help_ctrl_d[];
+extern char txt_help_i_cr[];
+extern char txt_help_i_tab[];
+extern char txt_help_d[];
+extern char txt_help_l[];
+extern char txt_help_m[];
+extern char txt_help_M[];
+extern char txt_help_a[];
+extern char txt_help_sel_c[];
+extern char txt_help_c[];
+extern char txt_help_g[];
+extern char txt_help_I[];
+extern char txt_help_K[];
+extern char txt_help_t_K[];
+extern char txt_help_j[];
+extern char txt_help_i_n[];
+extern char txt_help_i_p[];
+extern char txt_help_q[];
+extern char txt_help_s[];
+extern char txt_help_S[];
+extern char txt_help_t[];
+extern char txt_help_T[];
+extern char txt_help_u[];
+extern char txt_help_U[];
+extern char txt_help_v[];
+extern char txt_help_w[];
+extern char txt_help_i_search[];
+extern char txt_help_thread[];
+#ifndef NO_SHELL_ESCAPE
+extern char txt_help_shell[];
+#endif
+extern char txt_help_dash[];
+extern char txt_save_pattern[];
+extern char txt_saved_pattern_to[];
+extern char txt_saved_to_mailbox[];
+extern char txt_switch_on_kill_art_menu[];
+extern char txt_post_history_menu[];
+extern char txt_hit_space_for_more[];
+extern char txt_kill_menu[];
+extern char txt_kill_subject[];
+extern char txt_kill_from[];
+extern char txt_kill_text[];
+extern char txt_kill_text_type[];
+extern char txt_kill_group[];
+extern char txt_help_kill_subject[];
+extern char txt_help_kill_from[];
+extern char txt_help_kill_text[];
+extern char txt_help_kill_text_type[];
+extern char txt_help_kill_group[];
+extern char txt_abort_edit_save_killfile[];
+extern char txt_quit[];
+extern char txt_art_unavailable[];
+extern char txt_art_marked_as_unread[];
+extern char txt_thread_marked_as_unread[];
+extern char txt_begin_of_art[];
+extern char txt_next_resp[];
+extern char txt_last_resp[];
+extern char txt_more_percent[];
+extern char txt_more[];
+extern char txt_thread_x_of_n[];
+extern char txt_art[];
+extern char txt_resp_x_of_n[];
+extern char txt_no_resp[];
+extern char txt_1_resp[];
+extern char txt_x_resp[];
+extern char txt_s_at_s[];
+extern char txt_thread_resp_page[];
+extern char txt_thread_page[];
+extern char txt_read_resp[];
+extern char txt_art_pager_com[];
+extern char txt_help_p_0[];
+extern char txt_help_p_4[];
+extern char txt_help_p_cr[];
+extern char txt_help_p_tab[];
+extern char txt_help_b[];
+extern char txt_help_C[];
+extern char txt_help_bug[];
+extern char txt_help_p_f[];
+extern char txt_help_ctrl_h[];
+extern char txt_help_h[];
+extern char txt_help_p_i[];
+extern char txt_help_p_k[];
+extern char txt_help_p_m[];
+extern char txt_help_p_n[];
+extern char txt_help_o[];
+extern char txt_help_p_p[];
+extern char txt_help_p_r[];
+extern char txt_help_p_s[];
+extern char txt_help_p_z[];
+extern char txt_help_p_ctrl_r[];
+extern char txt_help_p_g[];
+extern char txt_help_p_d[];
+extern char txt_help_pipe[];
+extern char txt_help_p_search[];
+extern char txt_mail_art_to[];
+extern char txt_no_mail_address[];
+extern char txt_abort_edit_send[];
+extern char txt_abort_edit_cancel[];
+extern char txt_cancelling[];
+extern char txt_art_cancelled[];
+extern char txt_mailing_to[];
+extern char txt_message_sent[];
+extern char txt_command_failed_s[];
+extern char txt_in_art_you_write[];
+extern char txt_resp_to_poster[];
+extern char txt_resp_redirect[];
+extern char txt_continue[];
+extern char txt_writes[];
+extern char txt_writes_name[];
+extern char txt_save_filename[];
+extern char txt_art_not_saved[];
+extern char txt_no_filename[];
+extern char txt_saving[];
+extern char txt_art_saved_to[];
+extern char txt_thread_not_saved[];
+extern char txt_thread_saved_to_many[];
+extern char txt_thread_saved_to[];
+extern char txt_pipe_to_command[];
+extern char txt_command_failed[];
+extern char txt_printing[];
+extern char txt_printed[];
+extern char txt_append_to_file[];
+extern char txt_hit_any_key[];
+extern char txt_nntp_not_enabled[];
+extern char txt_recompile_with_nntp_option[];
+extern char txt_not_in_active_file[];
+extern char txt_screen_init_failed[];
+extern char txt_bad_active_file[];
+extern char txt_creating_newsrc[];
+extern char txt_reading_active_file[];
+extern char txt_cannot_find_base_art[];
+extern char txt_out_of_memory[];
+extern char txt_rename_error[];
+extern char txt_shell_escape[];
+extern char txt_connecting[];
+extern char txt_cannot_get_nntp_server_name[];
+extern char txt_server_name_in_file_env_var[];
+extern char txt_failed_to_connect_to_server[];
+extern char txt_rejected_by_nntpserver[];
+extern char txt_connection_to_server_broken[];
+extern char txt_stuff_nntp_cannot_open[];
+extern char txt_nntp_to_fp_cannot_reopen[];
+extern char txt_nntp_to_fd_cannot_reopen[];
+extern char txt_toggled_rot13[];
+extern char txt_no_arts_posted[];
+extern char txt_post_an_article[];
+extern char txt_post_a_followup[];
+extern char txt_mail_bug_report[];
+extern char txt_reply_to_author[];
+extern char txt_opt_autosave[];
+extern char txt_opt_save_separate[];
+extern char txt_opt_mark_saved_read[];
+extern char txt_opt_kill_articles[];
+extern char txt_opt_show_author[];
+extern char txt_opt_draw_arrow[];
+extern char txt_opt_post_process[];
+extern char txt_opt_print_header[];
+extern char txt_opt_pos_first_unread[];
+extern char txt_opt_page_scroll[];
+extern char txt_opt_catchup_groups[];
+extern char txt_opt_thread_arts[];
+extern char txt_opt_show_only_unread[];
+extern char txt_opt_process_type[];
+extern char txt_opt_sort_type[];
+extern char txt_show_from_none[];
+extern char txt_show_from_addr[];
+extern char txt_show_from_name[];
+extern char txt_show_from_both[];
+extern char txt_post_process_none[];
+extern char txt_post_process_sh[];
+extern char txt_post_process_uudecode[];
+extern char txt_post_process_uud_lst_zoo[];
+extern char txt_post_process_uud_ext_zoo[];
+extern char txt_sort_by_nothing[];
+extern char txt_sort_by_subj_descend[];
+extern char txt_sort_by_subj_ascend[];
+extern char txt_sort_by_from_descend[];
+extern char txt_sort_by_from_ascend[];
+extern char txt_sort_by_date_descend[];
+extern char txt_sort_by_date_ascend[];
+extern char txt_opt_savedir[];
+extern char txt_opt_maildir[];
+extern char txt_opt_printer[];
+extern char txt_options_menu[];
+extern char txt_help_autosave[];
+extern char txt_help_save_separate[];
+extern char txt_help_print_header[];
+extern char txt_help_pos_first_unread[];
+extern char txt_help_show_author[];
+extern char txt_help_draw_arrow[];
+extern char txt_help_kill_articles[];
+extern char txt_help_mark_saved_read[];
+extern char txt_help_page_scroll[];
+extern char txt_help_catchup_groups[];
+extern char txt_help_thread_arts[];
+extern char txt_help_show_only_unread[];
+SHAR_EOF
+true || echo 'restore of extern.h failed'
+fi
+echo 'End of tin1.1 part 10'
+echo 'File extern.h is continued in part 11'
+echo 11 > _shar_seq_.tmp
+exit 0
+
+--
+NAME   Iain Lea
+EMAIL  iain%estevax.uucp@unido.Informatik.Uni-Dortmund.DE
+SNAIL  Bruecken Strasse 12, 8500 Nuernberg 90, Germany
+PHONE  +49-911-331963 (home)  +49-911-3089-407 (work)
+-- 
+ Dr. med. dipl.-math Dieter Becker           Tel.: (0 / +49) 6841 - 16 3046
+ Medizinische Universitaets- und Poliklinik  Fax.: (0 / +49) 6841 - 16 3369
+ Innere Medizin III                         
+ D - 6650 Homburg / Saar                     Email: becker@med-in.uni-sb.de
+exit 0 # Just in case...

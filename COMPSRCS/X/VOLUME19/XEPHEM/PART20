@@ -1,0 +1,2725 @@
+Newsgroups: comp.sources.x
+From: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Subject: v19i108:  xephem - astronomical ephemeris program, Part20/21
+Message-ID: <1993May10.221438.9804@sparky.imd.sterling.com>
+X-Md4-Signature: a68ea7bcc2365e4f0aca1a92069c8660
+Date: Mon, 10 May 1993 22:14:38 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: ecdowney@pobox.cca.cr.rockwell.com (Elwood Downey)
+Posting-number: Volume 19, Issue 108
+Archive-name: xephem/part20
+Environment: X11r4, OSF/Motif
+Supersedes: xephem: Volume 16, Issue 112-134
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  dbmenu.c ephem.plt listmenu.c marsmenu.c moonmenu.c
+#   versionmenu.c
+# Wrapped by chris@nova on Mon May 10 16:41:54 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 20 (of 21)."'
+if test -f 'dbmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dbmenu.c'\"
+else
+  echo shar: Extracting \"'dbmenu.c'\" \(7177 characters\)
+  sed "s/^X//" >'dbmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "database" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#include <errno.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/SelectioB.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Obj *db_next P_((Obj *op, HowNext how));
+Xextern int db_n P_((void));
+Xextern int db_read P_((FILE *fp, int append));
+Xextern void all_newdb P_((int appended));
+Xextern void get_xmstring P_((Widget w, char *resource, char **txtp));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void watch_cursor P_((int want));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid db_manage P_((void));
+Xvoid db_cursor P_((Cursor c));
+Xstatic void db_create_form P_((void));
+Xstatic void db_set_title P_((void));
+Xstatic FILE *fileopen P_((char *name));
+Xstatic void db_cb P_((Widget w, XtPointer client, XtPointer data));
+Xstatic void db_help_cb P_((Widget w, XtPointer client, XtPointer data));
+X
+X#undef P_
+X
+Xextern char *sys_errlist[];
+Xextern Widget	toplevel_w;
+Xextern char *myclass;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+Xstatic Widget dbform_w;
+X
+Xstatic char dbfdef[] = "ephem.db";      /* default database file name */
+X
+Xvoid
+Xdb_manage()
+X{
+X	if (!dbform_w)
+X	    db_create_form();
+X
+X	if (XtIsManaged(dbform_w))
+X	    XtUnmanageChild (dbform_w);
+X	else {
+X	    db_set_title();
+X	    XtManageChild (dbform_w);
+X	}
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xdb_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (dbform_w && (win = XtWindow(dbform_w))) {
+X	    Display *dsp = XtDisplay(dbform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* create a prompt dialog to allow user to enter a db file name. */
+Xstatic void
+Xdb_create_form ()
+X{
+X	Widget w;
+X	XmString title;
+X	Arg args[20];
+X	char *deffn;
+X	int n;
+X	
+X	title = XmStringCreateLtoR ("xephem Data Base",
+X						    XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg(args[n], XmNdefaultPosition, False);  n++;
+X	XtSetArg(args[n], XmNdialogTitle, title);  n++;
+X	XtSetArg(args[n], XmNautoUnmanage, False);  n++;
+X	dbform_w = XmCreatePromptDialog(toplevel_w, "DBPromptD", args, n);
+X	XtAddCallback (dbform_w, XmNmapCallback, prompt_map_cb, NULL);
+X	XmStringFree (title);
+X
+X	get_xmstring (dbform_w, XmNtextString, &deffn);
+X	if (strlen (deffn) == 0)
+X	    set_xmstring (dbform_w, XmNtextString, dbfdef);
+X	XtFree (deffn);
+X
+X	/* use the Ok button to mean Append */
+X	XtAddCallback (dbform_w, XmNokCallback, db_cb, NULL);
+X	set_xmstring (dbform_w, XmNokLabelString, "Append");
+X
+X	/* use the Apply button to mean Replace */
+X	XtAddCallback (dbform_w, XmNapplyCallback, db_cb, NULL);
+X	XtManageChild (XmSelectionBoxGetChild(dbform_w, XmDIALOG_APPLY_BUTTON));
+X	set_xmstring (dbform_w, XmNapplyLabelString, "Replace");
+X
+X	/* allow cancel to unmanage and call it Close */
+X	XtAddCallback (dbform_w, XmNcancelCallback, db_cb, NULL);
+X	set_xmstring (dbform_w, XmNcancelLabelString, "Close");
+X
+X	/* allow for help */
+X	/* connecting to XmNhelpCallback doesn't work */
+X	XtAddCallback (XmSelectionBoxGetChild(dbform_w, XmDIALOG_HELP_BUTTON),
+X					XmNactivateCallback, db_help_cb, NULL);
+X
+X#if XmVersion >= 1001
+X	w = XmSelectionBoxGetChild (dbform_w, XmDIALOG_TEXT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT);
+X	XmProcessTraversal (w, XmTRAVERSE_CURRENT); /* yes, twice!! */
+X#endif
+X}
+X
+X/* set up the title to the dialog.
+X * this is a cheap way to indicate the number of objects in the db.
+X */
+Xstatic void
+Xdb_set_title()
+X{
+X	char title[1024];
+X	Obj *op;
+X	int ne=0, np=0, nh=0;
+X	int nc=0, ng=0, nn=0, npn=0, nq=0, ns=0, no=0;
+X	int npl=0;
+X	int t=0;
+X
+X	for (op= db_next((Obj *)NULL, OBJS_ALL); op; op= db_next(op, OBJS_ALL)){
+X	    switch (op->type) {
+X	    case FIXED:
+X		switch (op->f_class) {
+X		case 'C': case 'U': case 'O': nc++; t++; break;
+X		case 'G': case 'H': case 'A': ng++; t++; break;
+X		case 'N': case 'F': case 'K': nn++; t++; break;
+X		case 'P': npn++; t++; break;
+X		case 'Q': nq++; t++; break;
+X		case 'T': case 'B': case 'D': case 'M': case 'S': case 'V': 
+X		    ns++; t++; break;
+X		default: no++; t++; break;
+X		}
+X		break;
+X	    case ELLIPTICAL: ne++; t++; break;
+X	    case HYPERBOLIC: nh++; t++; break;
+X	    case PARABOLIC: np++; t++; break;
+X	    case PLANET: npl++; t++; break;
+X	    case UNDEFOBJ: break;
+X	    default:
+X		printf ("Unknown object type: %d\n", op->type);
+X		exit (1);
+X	    }
+X	}
+X
+X	if (db_n() - t > 2) {
+X	    printf (">2 objects unaccounted for: t=%d n=%d\n", t, db_n());
+X	    exit(1);
+X	}
+X
+X	(void) sprintf (title,
+X"%6d Sol -- elliptical\n\
+X%6d Sol -- hyperbolic\n\
+X%6d Sol -- parabolic\n\
+X%6d Sol -- planets+sun+moon\n\
+X%6d Clusters (C,U,O)\n\
+X%6d Galaxies (G,H,A)\n\
+X%6d Planetary Nebulea (P)\n\
+X%6d Nebulea (N,F,K)\n\
+X%6d Quasars (Q)\n\
+X%6d Stars (S,V,D,B,M,T)\n\
+X%6d Undefined\n\
+X------\n\
+X%6d Total objects in memory\n\
+X \n\
+XEnter name of database file to read:",
+X		ne, nh, np, npl, nc, ng, npn, nn, nq, ns, no, t);
+X	set_xmstring (dbform_w, XmNselectionLabelString, title);
+X}
+X
+X/* try to open name for read access.
+X * if successful, return FILE *, else print a message and return NULL.
+X */
+Xstatic FILE *
+Xfileopen (name)
+Xchar *name;
+X{
+X	FILE *fp;
+X	
+X	fp = fopen (name, "r");
+X	if (!fp) {
+X	    char msg[128];
+X	    (void) sprintf (msg, "Can not open %.75s: %.25s", name,
+X							sys_errlist[errno]);
+X	    xe_msg (msg, 1);
+X	}
+X	return (fp);
+X}
+X
+X/* callback from any of the buttons */
+X/* ARGSUSED */
+Xstatic void
+Xdb_cb (w, client, data)
+XWidget w;
+XXtPointer client;
+XXtPointer data;
+X{
+X	static char me[] = "db_cb()";
+X	XmSelectionBoxCallbackStruct *s = (XmSelectionBoxCallbackStruct *)data;
+X	char *sp;
+X	FILE *fp;
+X
+X	watch_cursor(1);
+X
+X	switch (s->reason) {
+X	case XmCR_OK: /* append */
+X	    XmStringGetLtoR (s->value, XmSTRING_DEFAULT_CHARSET, &sp);
+X	    fp = fileopen (sp);
+X	    if (fp) {
+X		if (db_read (fp, 1) < 0) {
+X		    char msg[128];
+X		    (void) sprintf (msg, "Error reading `%.100s'", sp);
+X		    xe_msg (msg, 1);
+X		}
+X		all_newdb(1);
+X		(void) fclose (fp);
+X	    }
+X	    XtFree (sp);
+X	    db_set_title();
+X	    break;
+X	case XmCR_APPLY:	/* replace */
+X	    XmStringGetLtoR (s->value, XmSTRING_DEFAULT_CHARSET, &sp);
+X	    fp = fileopen (sp);
+X	    if (fp) {
+X		if (db_read (fp, 0) < 0) {
+X		    char msg[128];
+X		    (void) sprintf (msg, "Error reading `%.100s'", sp);
+X		    xe_msg (msg, 1);
+X		}
+X		all_newdb(0);
+X		(void) fclose (fp);
+X	    }
+X	    XtFree (sp);
+X	    db_set_title();
+X	    break;
+X	case XmCR_CANCEL:
+X	    XtUnmanageChild (w);
+X	    break;
+X	default:
+X	    printf ("%s: Unknown reason = 0x%x\n", me, s->reason);
+X	    exit(1);
+X	}
+X
+X	watch_cursor(0);
+X}
+X
+X/* ARGSUSED */
+Xstatic void
+Xdb_help_cb (w, client, data)
+XWidget w;
+XXtPointer client;
+XXtPointer data;
+X{
+X	static char *msg[] = {
+X"This displays a count of the various types of objects currently in memory.",
+X"Database files may be read in to replace to add to this list."
+X};
+X
+X	hlp_dialog ("DataBase menu", msg, XtNumber(msg));
+X}
+END_OF_FILE
+  if test 7177 -ne `wc -c <'dbmenu.c'`; then
+    echo shar: \"'dbmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'dbmenu.c'
+fi
+if test -f 'ephem.plt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ephem.plt'\"
+else
+  echo shar: Extracting \"'ephem.plt'\" \(5549 characters\)
+  sed "s/^X//" >'ephem.plt' <<'END_OF_FILE'
+X! Analemma: Sun's az/alt at Noon local time at 40N 90W
+X! Jan 1 - Dec 31, 1992, every other day.
+XA,179.018370221,27.0345819991
+XA,178.775488694,27.2196664652
+XA,178.537524904,27.4342027071
+XA,178.305134548,27.6778201868
+XA,178.078891361,27.9501244611
+XA,177.859355421,28.2506869355
+XA,177.64700484,28.5790499874
+XA,177.442331391,28.93469623
+XA,177.24586783,29.3170536348
+XA,177.058256194,29.7254852868
+XA,176.880152181,30.1593115821
+XA,176.712184169,30.6178324264
+XA,176.555021516,31.100303329
+XA,176.409210638,31.6059558936
+XA,176.275202326,32.1339909882
+XA,176.153406393,32.6835719144
+XA,176.044191668,33.2538448988
+XA,175.947749397,33.8439664129
+XA,175.864229844,34.4530860982
+XA,175.793755952,35.0803570112
+XA,175.736314061,35.7249219632
+XA,175.691904171,36.3859135201
+XA,175.660512622,37.0624198517
+XA,175.642221375,37.7535188825
+XA,175.637085073,38.4582646312
+XA,175.64530862,39.1756803809
+XA,175.667096924,39.904772339
+XA,175.70235436,40.6445979393
+XA,175.751190213,41.3941633894
+XA,175.81354984,42.1524885571
+XA,175.889282978,42.9186240461
+XA,175.97819838,43.6916204601
+XA,176.080063822,44.4705523085
+XA,176.194442169,45.2545350818
+XA,176.320800669,46.0427081762
+XA,176.458565585,46.8342075727
+XA,176.60714952,47.6281794977
+XA,176.76603338,48.4237496869
+XA,176.934834676,49.2200097253
+XA,177.113157254,50.0160409523
+XA,177.300550324,50.8109656886
+XA,177.496522112,51.6038857645
+XA,177.700567183,52.3939235005
+XA,177.912139123,53.1802148777
+XA,178.130664195,53.9618958773
+XA,178.355541344,54.7381263859
+XA,178.585896304,55.5081175167
+XA,178.820595264,56.2711350244
+XA,179.058477092,57.0264549088
+XA,179.298230392,57.7733804908
+XA,179.538502787,58.5112185061
+XA,179.778133144,59.2392415395
+XA,180.015864708,59.9567187609
+XA,180.250358763,60.6629330003
+XA,180.480358553,61.3571534275
+XA,180.704607324,62.0386492124
+XA,180.92183466,62.7066963547
+XA,181.130852109,63.3605776847
+XA,181.330498538,63.9995692023
+XA,181.519312288,64.623001549
+XA,181.695708753,65.2302053662
+XA,181.857939407,65.8205659369
+XA,182.004105455,66.3934822045
+XA,182.132212483,66.9483804331
+XA,182.240361698,67.4846800565
+XA,182.326695289,68.0017800182
+XA,182.389423747,68.4990929218
+XA,182.426866844,68.9759972203
+XA,182.438041033,69.4318235549
+XA,182.42168956,69.8659913597
+XA,182.377129406,70.2778722572
+XA,182.304032722,70.6668651908
+XA,182.202399507,71.032375934
+XA,182.072434667,71.3738170907
+XA,181.914643637,71.6906422455
+XA,181.72954551,71.9823391344
+XA,181.517809646,72.2484706252
+XA,181.280405931,72.4886132462
+XA,181.018782365,72.7023708465
+XA,180.734783099,72.8893745958
+XA,180.43077138,73.0492624941
+XA,180.109520262,73.1817135224
+XA,179.774157974,73.2864817941
+XA,179.428236213,73.3633624034
+XA,179.075866754,73.4122392371
+XA,178.721571181,73.4330371632
+XA,178.370062326,73.4257630117
+XA,178.025916414,73.3904714242
+XA,177.693286202,73.3272990046
+XA,177.375832669,73.2364369981
+XA,177.076779667,73.1181586122
+XA,176.798995873,72.9727643754
+XA,176.5450631,72.8006026271
+XA,176.317044065,72.602049028
+XA,176.116523371,72.3774792382
+XA,175.944634831,72.1273030693
+XA,175.802143424,71.8519713137
+XA,175.68971851,71.5519689148
+XA,175.607974806,71.2278422877
+XA,175.557349444,70.8801583382
+XA,175.537856084,70.509483972
+XA,175.549180538,70.1164134154
+XA,175.590585145,69.7015204045
+XA,175.660908773,69.2653923354
+XA,175.758771723,68.8086166045
+XA,175.882644034,68.3318079287
+XA,176.030667894,67.835505893
+XA,176.200848887,67.320270573
+XA,176.391096976,66.7866074026
+XA,176.599308463,66.2350559667
+XA,176.823406969,65.6661558504
+XA,177.061616647,65.0804944498
+XA,177.312270929,64.478686482
+XA,177.573853514,63.8613466641
+XA,177.844998364,63.2291238639
+XA,178.124407742,62.5826874401
+XA,178.410674631,61.9226930908
+XA,178.702432991,61.2498033444
+XA,178.998275805,60.5646875593
+XA,179.296973638,59.8680424149
+XA,179.597010188,59.1604894584
+XA,179.897101379,58.4426843879
+XA,180.195799212,57.7152624111
+XA,180.491710327,56.9788450752
+XA,180.783605292,56.2340949085
+XA,181.070336633,55.4817051752
+XA,181.350961785,54.722386215
+XA,181.624784069,53.9569098392
+XA,181.891229749,53.1860820102
+XA,182.149684107,52.4107018602
+XA,182.399600728,51.6315890118
+XA,182.64048784,50.8495733329
+XA,182.871812687,50.0654846917
+XA,183.093110816,49.2801632013
+XA,183.303958756,48.4944592203
+XA,183.503810091,47.7091923714
+XA,183.691981802,46.9251583717
+XA,183.867872834,46.1431597683
+XA,184.030895789,45.3640025237
+XA,184.180572555,44.588526751
+XA,184.316602602,43.8176169597
+XA,184.438835668,43.0521849802
+XA,184.547066845,42.2931494728
+XA,184.641159531,41.5414359283
+XA,184.721100065,40.7979937428
+XA,184.786888447,40.0637688976
+XA,184.83863396,39.3397210342
+XA,184.876445888,38.6268097943
+XA,184.90037887,37.9259743288
+XA,184.910350947,37.2381196379
+XA,184.906293814,36.5641370612
+XA,184.88809819,35.9049076931
+XA,184.855695773,35.2612853072
+XA,184.809154864,34.6341475829
+XA,184.748557426,34.0243721994
+XA,184.674040062,33.4328402513
+XA,184.585821338,32.8604328328
+XA,184.484242765,32.3080310384
+XA,184.369700493,31.7764852266
+XA,184.242740936,31.266645756
+XA,184.103828549,30.7793049286
+XA,183.953564387,30.3152687065
+XA,183.792508527,29.8752918259
+XA,183.621152741,29.4601085319
+XA,183.439975143,29.0703813529
+XA,183.249385544,28.7067318362
+XA,183.049821077,28.369743963
+XA,182.841759855,28.0599641482
+XA,182.62569365,27.7779234393
+XA,182.402223521,27.5241289777
+XA,182.171977844,27.2990452162
+XA,181.935639639,27.103090504
+XA,181.693960225,26.9366200109
+XA,181.447786547,26.7999376804
+XA,181.198074831,26.6933013519
+XA,180.945740322,26.6169227616
+XA,180.691739247,26.5709675413
+XA,180.436904889,26.5555313137
+XA,180.18201589,26.5706499375
+XA,179.927741608,26.6162892615
+XA,179.674751401,26.6923690311
+XA,179.423755609,26.7987645954
+XA,179.175423591,26.9353137373
+END_OF_FILE
+  if test 5549 -ne `wc -c <'ephem.plt'`; then
+    echo shar: \"'ephem.plt'\" unpacked with wrong size!
+  fi
+  # end of 'ephem.plt'
+fi
+if test -f 'listmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'listmenu.c'\"
+else
+  echo shar: Extracting \"'listmenu.c'\" \(13104 characters\)
+  sed "s/^X//" >'listmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "listing" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/LabelG.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Separator.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/Text.h>
+X
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern int access();	/* don't know whether to include unistd.h */
+X
+Xextern void all_selection_mode P_((int whether));
+Xextern void f_string P_((Widget w, char *s));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void query P_((Widget tw, char *msg, char *label1, char *label2, char *label3, void (*func1)(), void (*func2)(), void (*func3)()));
+Xextern void set_xmstring P_((Widget w, char *resource, char *txt));
+Xextern void xe_msg P_((char *msg, int app_modal));
+X
+Xvoid lst_manage P_((void));
+Xvoid lst_selection P_((char *name));
+Xvoid lst_log P_((char *name, char *str));
+Xvoid listing P_((void));
+Xint listing_ison P_((void));
+Xvoid lst_cursor P_((Cursor c));
+Xstatic void lst_select P_((int whether));
+Xstatic void lst_create_form P_((void));
+Xstatic void lst_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void lst_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void lst_help_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void lst_reset P_((void));
+Xstatic void lst_stop_selecting P_((void));
+Xstatic void lst_turn_off P_((void));
+Xstatic void lst_try_append P_((void));
+Xstatic void lst_try_overwrite P_((void));
+Xstatic void lst_try_cancel P_((void));
+Xstatic void lst_try_turn_on P_((void));
+Xstatic void lst_turn_on P_((char *how));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+X
+X#ifdef VMS
+X#include <perror.h>
+X#include <errno.h>
+X#else
+Xextern char *sys_errlist[];
+Xextern errno;
+X#endif
+X
+X#define	errsys	(sys_errlist[errno])
+X
+X/* max number of fields we can keep track of at once to list */
+X#define MAXLSTFLDS	10
+X#define MAXLSTSTR	32	/* longest string we can list */
+X#define MAXFLDNAM	32	/* longest allowed field name */
+X
+Xstatic Widget lstform_w;
+Xstatic Widget select_w, active_w, prompt_w;
+Xstatic Widget title_w, filename_w;
+Xstatic Widget table_w[MAXLSTFLDS];	/* row indeces follow.. */
+X
+X#define	DEF_LSTFN	"ephem.lst"	/* default plot file name */
+Xstatic FILE *lst_fp;            /* the listing file; == 0 means don't plot */
+X
+X
+X/* lst_activate_cb client values. */
+X#define	SELECT	0
+X#define	ACTIVE	1
+X
+X/* store the name and string value of each field to track.
+X * we get the label straight from the Text widget in the table as needed.
+X */
+Xtypedef struct {
+X    char l_name[MAXFLDNAM];	/* name of field we are listing */
+X    char l_str[MAXLSTSTR];	/* last know string value of field */
+X} LstFld;
+Xstatic LstFld lstflds[MAXLSTFLDS];
+Xstatic int nlstflds;		/* number of lstflds[] in actual use */
+X
+X/* called when the list menu is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xlst_manage ()
+X{
+X	if (!lstform_w)
+X	    lst_create_form();
+X	
+X	if (XtIsManaged(lstform_w))
+X	    XtUnmanageChild (lstform_w);
+X	else
+X	    XtManageChild (lstform_w);
+X}
+X
+X/* called by the other menus (data, etc) as their buttons are
+X * selected to inform us that that button is to be included in a listing.
+X */
+Xvoid
+Xlst_selection (name)
+Xchar *name;
+X{
+X	Widget tw;
+X
+X
+X	if (!lstform_w
+X		|| !XtIsManaged(lstform_w)
+X		|| !XmToggleButtonGetState(select_w))
+X		    return;
+X
+X	tw = table_w[nlstflds];
+X	set_xmstring (tw, XmNlabelString, name);
+X	XtManageChild (tw);
+X
+X	(void) strncpy (lstflds[nlstflds].l_name, name, MAXFLDNAM);
+X	if (++nlstflds == MAXLSTFLDS)
+X	    lst_stop_selecting();
+X}
+X
+X/* called as each different field is written -- just save in lstflds[]
+X * if we are potentially interested.
+X */
+Xvoid
+Xlst_log (name, str)
+Xchar *name;
+Xchar *str;
+X{
+X	if (listing_ison()) {
+X	    LstFld *lp;
+X	    for (lp = lstflds; lp < &lstflds[nlstflds]; lp++)
+X		if (strcmp (name, lp->l_name) == 0) {
+X		    (void) strncpy (lp->l_str, str, MAXLSTSTR-1);
+X		    break;
+X		}
+X	}
+X}
+X
+X/* called when all fields have been updated and it's time to
+X * write the active listing to the current listing file, if one is open.
+X */
+Xvoid
+Xlisting()
+X{
+X	if (lst_fp) {
+X	    /* list in order of original selection */
+X	    LstFld *lp;
+X	    for (lp = lstflds; lp < &lstflds[nlstflds]; lp++)
+X		(void) fprintf (lst_fp, "%s  ", lp->l_str);
+X	    (void) fprintf (lst_fp, "\n");
+X	}
+X}
+X
+Xlisting_ison()
+X{
+X	return (lst_fp != 0);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xlst_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (lstform_w && (win = XtWindow(lstform_w))) {
+X	    Display *dsp = XtDisplay(lstform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* inform the other menues whether we are setting up for them to tell us
+X * what fields to list.
+X */
+Xstatic void
+Xlst_select(whether)
+Xint whether;
+X{
+X	all_selection_mode(whether);
+X}
+X
+Xstatic void
+Xlst_create_form()
+X{
+X	static struct {
+X	    char *title;
+X	    int cb_data;
+X	    Widget *wp;
+X	} tbs[] = {
+X	    {"Select fields", SELECT, &select_w},
+X	    {"List to file", ACTIVE, &active_w}
+X	};
+X	XmString str;
+X	Widget w, rc_w, f_w;
+X	Arg args[20];
+X	char *deffn;
+X	int i, n;
+X
+X	/* create form dialog */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	lstform_w = XmCreateFormDialog (toplevel_w, "List", args, n);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Listing Control"); n++;
+X	XtSetValues (XtParent(lstform_w), args, n);
+X
+X	/* make a RowColumn to hold everything */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNisAligned, False); n++;
+X	XtSetArg (args[n], XmNadjustMargin, False); n++;
+X	rc_w = XmCreateRowColumn (lstform_w, "ListRC", args, n);
+X	XtManageChild (rc_w);
+X
+X	/* make the control toggle buttons */
+X
+X	for (i = 0; i < XtNumber(tbs); i++) {
+X	    str = XmStringCreate(tbs[i].title, XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    w = XmCreateToggleButton(rc_w, "ListTB", args, n);
+X	    XmStringFree (str);
+X	    XtManageChild (w);
+X	    XtAddCallback(w, XmNvalueChangedCallback, lst_activate_cb,
+X						    (XtPointer)tbs[i].cb_data);
+X	    if (tbs[i].wp)
+X		*tbs[i].wp = w;
+X	}
+X
+X	/* create filename text area and its label */
+X
+X	n = 0;
+X	str = XmStringCreate("File name:", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (rc_w, "ListFnL", args, n);
+X	XmStringFree (str);
+X	XtManageChild (w);
+X
+X	n = 0;
+X	filename_w = XmCreateText (rc_w, "Filename", args, n);
+X	deffn = XmTextGetString (filename_w);
+X	if (strlen(deffn) == 0)
+X	    XmTextSetString (filename_w, DEF_LSTFN);
+X	XtFree (deffn);
+X	XtManageChild (filename_w);
+X
+X	/* create title text area and its label */
+X
+X	n = 0;
+X	str = XmStringCreate("Title:", XmSTRING_DEFAULT_CHARSET);
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (rc_w, "ListTL", args, n);
+X	XtManageChild (w);
+X	XmStringFree (str);
+X
+X	n = 0;
+X	title_w = XmCreateText (rc_w, "ListTitle", args, n);
+X	XtManageChild (title_w);
+X
+X	/* create prompt line -- it will be managed as necessary */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	prompt_w = XmCreateLabel (rc_w, "ListPrompt", args, n);
+X
+X	/* make the field name table, but don't manage them now */
+X	for (i = 0; i < MAXLSTFLDS; i++) {
+X	    n = 0;
+X	    table_w[i] = XmCreateLabel(rc_w, "ListLabel", args, n);
+X	}
+X
+X	/* create a separator */
+X
+X	n = 0;
+X	w = XmCreateSeparator (rc_w, "Sep", args, n);
+X	XtManageChild (w);
+X
+X	/* make a form to hold the close and help buttons evenly */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 7); n++;
+X	f_w = XmCreateForm (rc_w, "ListCF", args, n);
+X	XtManageChild(f_w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 3); n++;
+X	    w = XmCreatePushButton (f_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, lst_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 4); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 6); n++;
+X	    w = XmCreatePushButton (f_w, "Help", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, lst_help_cb, 0);
+X	    XtManageChild (w);
+X}
+X
+X/* callback from any of the listing menu toggle buttons being activated.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xlst_activate_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+X	int what = (int) client;
+X
+X	switch (what) {
+X	case SELECT:
+X	    if (t->set) {
+X		/* first turn off listing, if on, while we change things */
+X		if (XmToggleButtonGetState(active_w))
+X		    XmToggleButtonSetState(active_w, False, True);
+X		lst_reset();	/* reset lstflds array and unmanage the table*/
+X		lst_select(1);	/* inform other menus to inform us of fields */
+X		XtManageChild (prompt_w);
+X		f_string (prompt_w, "Select quantity for next column...");
+X	    } else
+X		lst_stop_selecting();
+X	    break;
+X	case ACTIVE:
+X	    if (t->set) {
+X		/* first turn off selecting, if on */
+X		if (XmToggleButtonGetState(select_w))
+X		    XmToggleButtonSetState(select_w, False, True);
+X		lst_try_turn_on();
+X	    } else
+X		lst_turn_off();
+X	    break;
+X	}
+X}
+X
+X/* callback from the Close button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xlst_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (lstform_w);
+X}
+X
+X/* callback from the Help
+X */
+X/* ARGSUSED */
+Xstatic void
+Xlst_help_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char *msg[] = {
+X"Select fields to become each column of a listing, then run xephem. Each step",
+X"will yield one line in the output file. The filename may be specified in the",
+X"text area provided."
+X};
+X
+X	hlp_dialog ("Listing", msg, sizeof(msg)/sizeof(msg[0]));
+X}
+X
+X/* forget our list, and unmanage the table.
+X */
+Xstatic void
+Xlst_reset()
+X{
+X	int i;
+X
+X	for (i = 0; i < nlstflds; i++)
+X	    XtUnmanageChild (table_w[i]);
+X
+X	nlstflds = 0;
+X}
+X
+X/* stop selecting: tell everybody else to drop their buttons, make sure toggle
+X * is off.
+X */
+Xstatic void
+Xlst_stop_selecting()
+X{
+X	XmToggleButtonSetState (select_w, False, False);
+X	lst_select(0);
+X	XtUnmanageChild (prompt_w);
+X}
+X
+Xstatic void
+Xlst_turn_off ()
+X{
+X	if (lst_fp) {
+X	    (void) fclose (lst_fp);
+X	    lst_fp = 0;
+X	}
+X}
+X
+X/* called from the query routine when want to append to an existing list file.*/
+Xstatic void
+Xlst_try_append()
+X{
+X	lst_turn_on("a");
+X}
+X
+X/* called from the query routine when want to overwrite to an existing list
+X * file.
+X */
+Xstatic void
+Xlst_try_overwrite()
+X{
+X	lst_turn_on("w");
+X}
+X
+X/* called from the query routine when decided not to make a listing file.  */
+Xstatic void
+Xlst_try_cancel()
+X{
+X	XmToggleButtonSetState (active_w, False, False);
+X}
+X
+X/* attempt to open file for use as a listing file.
+X * if it doesn't exist, then go ahead and make it.
+X * but if it does, first ask wheher to append or overwrite.
+X */
+Xstatic void
+Xlst_try_turn_on()
+X{
+X	char *txt = XmTextGetString (filename_w);
+X	if (access (txt, 0) == 0) {
+X	    char *buf;
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "%s exists: Append or Overwrite?", txt);
+X	    query (toplevel_w, buf, "Append", "Overwrite", "Cancel",
+X			    lst_try_append, lst_try_overwrite, lst_try_cancel);
+X	    XtFree (buf);
+X	} else
+X	    lst_turn_on("w");
+X	XtFree (txt);
+X}
+X
+X/* turn on listing facility.
+X * establish a file to use (and thereby set lst_fp, the "listing-is-on" flag).
+X */
+Xstatic void
+Xlst_turn_on (how)
+Xchar *how;	/* fopen how argument */
+X{
+X	char *txt;
+X
+X	/* listing is on if file opens ok */
+X	txt = XmTextGetString (filename_w);
+X	lst_fp = fopen (txt, how);
+X	if (!lst_fp) {
+X	    char *buf;
+X	    XmToggleButtonSetState (active_w, False, False);
+X	    buf = XtMalloc (strlen(txt)+100);
+X	    (void) sprintf (buf, "Can not open %s: %s", txt, errsys);
+X	    xe_msg (buf, 1);
+X	    XtFree (buf);
+X	}
+X	XtFree (txt);
+X	
+X	if (lst_fp) {
+X	    /* add a title if desired */
+X	    txt = XmTextGetString (title_w);
+X	    if (txt[0] != '\0')
+X		(void) fprintf (lst_fp, "* %s\n", txt);
+X	    XtFree (txt);
+X	}
+X}
+END_OF_FILE
+  if test 13104 -ne `wc -c <'listmenu.c'`; then
+    echo shar: \"'listmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'listmenu.c'
+fi
+if test -f 'marsmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'marsmenu.c'\"
+else
+  echo shar: Extracting \"'marsmenu.c'\" \(15322 characters\)
+  sed "s/^X//" >'marsmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the "mars" menu.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/RowColumn.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Separator.h>
+X#include <Xm/ToggleB.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "map.h"
+X
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern Obj *db_basic P_((int id));
+Xextern int any_ison P_((void));
+Xextern void db_update P_((Obj *op));
+Xextern void f_double P_((Widget w, char *fmt, double f));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+Xextern void range P_((double *v, double r));
+Xextern void register_selection P_((char *name));
+Xextern void timestamp P_((Now *np, Widget w));
+X
+Xvoid mars_manage P_((void));
+Xvoid mars_update P_((Now *np, int force));
+Xint mars_ison P_((void));
+Xvoid mars_selection_mode P_((int whether));
+Xvoid mars_cursor P_((Cursor c));
+Xstatic void mars_create_form P_((void));
+Xstatic void mars_cml_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mars_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mars_help_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mars_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void mars_set_buttons P_((int whether));
+Xstatic double mars_cml P_((Now *np));
+Xstatic void mars_map P_((Now *np, double cml));
+X
+X#undef P_
+X
+Xextern MRegion mreg[];
+Xextern int nmreg;
+X
+Xextern Widget toplevel_w;
+X#define	XtD	XtDisplay(toplevel_w)
+X
+X#define	M_CML0	degrad(325.845)		/* Mars' CML towards Aries at M_MJD0 */
+X#define	M_PER	degrad(350.891962)	/* Mars' rotation period, rads/day */
+X#define	M_MJD0	(2418322.0 - MJD0)	/* mjd date of M_CML0 */
+X
+Xstatic int mars_selecting;	/* set while our fields are being selected */
+X
+Xstatic Widget marsform_w;	/* main form dialog */
+Xstatic Widget mars_cml_w;	/* CML numberic display widget */
+Xstatic Widget mars_da_w;	/* map DrawingArea widget */
+Xstatic Widget mars_dt_w;	/* data/time stamp label widget */
+X
+X#define	DSIN(x)		sin(degrad(x))
+X#define	DCOS(x)		cos(degrad(x))
+X
+X#ifdef __STDC__
+Xstatic double mars_cml(Now *np);
+X#else
+Xstatic double mars_cml();
+X#endif
+X
+Xvoid
+Xmars_manage()
+X{
+X	if (!marsform_w)
+X	    mars_create_form();
+X
+X	if (XtIsManaged(marsform_w))
+X	    XtUnmanageChild(marsform_w);
+X	else {
+X	    XtManageChild(marsform_w);
+X	    mars_set_buttons(mars_selecting);
+X	}
+X}
+X
+X/* display the map and CML info for circumstances described by *np..
+X * don't bother with the computation of CML unless we are managed or someone
+X *   cares.
+X * don't bother with the map unless we are managed.
+X */
+Xvoid
+Xmars_update(np, force)
+XNow *np;
+Xint force;
+X{
+X	double cml;
+X
+X	if (!marsform_w)
+X	    return;
+X	if (!XtIsManaged(marsform_w) && !any_ison() && !force)
+X	    return;
+X
+X	cml = mars_cml (np);
+X	f_double (mars_cml_w, "%5.1f", cml);
+X
+X	if (XtIsManaged(marsform_w))
+X	    mars_map (np, cml);
+X}
+X
+Xmars_ison()
+X{
+X	return (marsform_w && XtIsManaged(marsform_w));
+X}
+X
+X/* called by other menus as they want to hear from our buttons or not.
+X * the ons and offs stack.
+X */
+Xvoid
+Xmars_selection_mode (whether)
+Xint whether;
+X{
+X	mars_selecting += whether ? 1 : -1;
+X
+X	if (mars_ison())
+X	    if (whether && mars_selecting == 1	   /* first one to want on */
+X		|| !whether && mars_selecting == 0 /* first one to want off */)
+X		mars_set_buttons (whether);
+X}
+X
+Xvoid
+Xmars_cursor(c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (marsform_w && (win = XtWindow(marsform_w))) {
+X	    Display *dsp = XtDisplay(marsform_w);
+X	    if (c)
+X		XDefineCursor(dsp, win, c);
+X	    else
+X		XUndefineCursor(dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xmars_create_form()
+X{
+X	static struct {
+X	    char *name;
+X	    void (*cb)();
+X	} ctls[] = {
+X	    {"Close", mars_close_cb},
+X	    {"Help", mars_help_cb}
+X	};
+X	Widget w;
+X	Widget fr_w;
+X	Widget f_w;
+X	Widget sep_w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X	int i;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_NONE); n++;
+X	XtSetArg (args[n], XmNhorizontalSpacing, 4); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 4); n++;
+X	marsform_w = XmCreateFormDialog (toplevel_w, "Mars", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Mars view"); n++;
+X	XtSetValues (XtParent(marsform_w), args, n);
+X
+X	/* make the bottom control panel form */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNfractionBase, 9); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	f_w = XmCreateForm (marsform_w, "CtlF", args, n);
+X	XtManageChild (f_w);
+X
+X	    for (i = 0; i < XtNumber(ctls); i++) {
+X		n = 0;
+X		XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X		XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNleftPosition, 1+i*4); n++;
+X		XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X		XtSetArg (args[n], XmNrightPosition, 4+i*4); n++;
+X		w = XmCreatePushButton (f_w, ctls[i].name, args, n);
+X		XtManageChild (w);
+X		XtAddCallback (w, XmNactivateCallback, ctls[i].cb, NULL);
+X	    }
+X
+X	/* make a separator */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, f_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	sep_w = XmCreateSeparator (marsform_w, "Sep", args, n);
+X	XtManageChild(sep_w);
+X
+X	/* make the "cml" label and push button pair */
+X
+X	str = XmStringCreateLtoR("Central Meridian Longitude (degs): ",
+X					    XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	w = XmCreateLabel (marsform_w, "CMLLbl", args, n);
+X	XtManageChild (w);
+X	XmStringFree(str);
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, sep_w); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNleftWidget, w); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_END); n++;
+X	XtSetArg (args[n], XmNuserData, "Mars.CML"); n++;
+X	mars_cml_w = XmCreatePushButton (marsform_w, "CMLVal", args, n);
+X	XtAddCallback (mars_cml_w, XmNactivateCallback, mars_cml_cb, 0);
+X	XtManageChild (mars_cml_w);
+X
+X	/* make the date/time indicator label */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, mars_cml_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNalignment, XmALIGNMENT_CENTER); n++;
+X	mars_dt_w = XmCreateLabel (marsform_w, "DTstamp", args, n);
+X	XtManageChild (mars_dt_w);
+X
+X	/* make a drawing area in a frame on top */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, mars_dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	fr_w = XmCreateFrame (marsform_w, "MarsFrame", args, n);
+X	XtManageChild (fr_w);
+X
+X	    n = 0;
+X	    mars_da_w = XmCreateDrawingArea (fr_w, "Map", args, n);
+X	    XtAddCallback (mars_da_w, XmNexposeCallback, mars_exp_cb, NULL);
+X	    XtManageChild (mars_da_w);
+X}
+X
+X/* callback for when the mars CML button is activated. */
+X/* ARGSUSED */
+Xstatic void
+Xmars_cml_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (mars_selecting) {
+X	    char *userD;
+X	    get_something (w, XmNuserData, (char *)&userD);
+X	    register_selection (userD);
+X	}
+X}
+X
+X/* callback for when the Close button is activated. */
+X/* ARGSUSED */
+Xstatic void
+Xmars_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (marsform_w);
+X}
+X
+X/* callback from the Help button
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmars_help_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	static char *msg[] = {
+X"This is a simple schematic depiction of the Martian surface at the given time.",
+X"Also included is the current Central Meridian Longitude, in degrees.",
+X"South is up and longitude increases to the right; therefore, the planet",
+X"appears to rotate CW as seen from above."
+X};
+X
+X	hlp_dialog ("Mars", msg, XtNumber(msg));
+X}
+X
+X/* called whenever the mars drawing area gets an expose.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xmars_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	/* filter out a few oddball cases */
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand.
+X	     */
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window, 
+X							    CWBitGravity, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected marsform_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	mars_update (mm_get_now(), 1);
+X}
+X
+X/* go through all the buttons and set whether they
+X * should appear to look like buttons or just flat labels.
+X */
+Xstatic void
+Xmars_set_buttons (whether)
+Xint whether;	/* whether setting up for plotting or for not plotting */
+X{
+X	static Arg look_like_button[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) True},
+X	};
+X	static Arg look_like_label[] = {
+X	    {XmNtopShadowColor, (XtArgVal) 0},
+X	    {XmNbottomShadowColor, (XtArgVal) 0},
+X	    {XmNfillOnArm, (XtArgVal) False},
+X	};
+X	static int called;
+X	Arg *ap;
+X	int na;
+X
+X	if (!called) {
+X	    /* get baseline label and shadow appearances.
+X	     */
+X	    Pixel topshad, botshad, bgcol;
+X	    Arg args[20];
+X	    int n;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopShadowColor, &topshad); n++;
+X	    XtSetArg (args[n], XmNbottomShadowColor, &botshad); n++;
+X	    XtSetArg (args[n], XmNbackground, &bgcol); n++;
+X	    XtGetValues (mars_cml_w, args, n);
+X
+X	    look_like_button[0].value = topshad;
+X	    look_like_button[1].value = botshad;
+X	    look_like_label[0].value = bgcol;
+X	    look_like_label[1].value = bgcol;
+X
+X	    called = 1;
+X	}
+X
+X	if (whether) {
+X	    ap = look_like_button;
+X	    na = XtNumber(look_like_button);
+X	} else {
+X	    ap = look_like_label;
+X	    na = XtNumber(look_like_label);
+X	}
+X
+X	XtSetValues (mars_cml_w, ap, na);
+X}
+X
+X/* return the Martian central meridian longitude at np, in degrees. */
+Xstatic double
+Xmars_cml(np)
+XNow *np;
+X{
+X	Obj *sp, *mp;
+X	double a;	/* angle from Sun ccw to Earth seen from Mars, rads */
+X	double Ae;	/* planetocentric longitude of Earth from Mars, rads */
+X	double cml0;	/* Mar's CML towards Aries, rads */
+X	double lc;	/* Mars rotation correction for light travel, rads */
+X	double cml;
+X
+X	sp = db_basic (SUN);
+X	db_update (sp);
+X	mp = db_basic (MARS);
+X	db_update (mp);
+X
+X	a = asin (sp->s_edist/mp->s_edist*sin(mp->s_hlong-sp->s_hlong));
+X	Ae = mp->s_hlong + PI + a;
+X	cml0 = M_CML0 + M_PER*(mjd-M_MJD0) + PI/2;
+X	range(&cml0, 2*PI);
+X	lc = LTAU * mp->s_edist/SPD*M_PER;
+X	cml = cml0 - Ae - lc;
+X	range (&cml, 2*PI);
+X	cml = raddeg(cml);
+X	/*
+X	printf ("a=%g Ae=%g cml0=%g lc=%g cml=%g\n", raddeg(a), raddeg(Ae),
+X					    raddeg(cml0), raddeg(lc), cml);
+X	 */
+X	return (cml);
+X}
+X
+Xstatic void
+Xmars_map(np, cml)
+XNow *np;
+Xdouble cml;
+X{
+X	static unsigned long last_w, last_h;
+X	static Pixmap mars_pm;
+X	static GC mars_gc;
+X	static Pixel mars_fg, mars_bg;
+X	Display *dsp = XtDisplay(mars_da_w);
+X	Window win = XtWindow(mars_da_w);
+X	int x, y;
+X	unsigned w, h, b, d;
+X	MRegion *rp;
+X	XPoint p[128];
+X	int npts;
+X	Window root;
+X	int wb, hb, r;
+X	MCoord *cp;
+X	int maxx, minx, maxy, miny;
+X
+X	/* make the GC if this is our first time */
+X	if (!mars_gc) {
+X	    XGCValues gcv;
+X	    unsigned long gcm;
+X
+X	    gcm = 0;
+X	    mars_gc = XCreateGC (dsp, win, gcm, &gcv);
+X
+X	    get_something (mars_da_w, XmNforeground, (char *)&mars_fg);
+X	    get_something (mars_da_w, XmNbackground, (char *)&mars_bg);
+X	}
+X
+X	/* set up width and height borders and the radius so the
+X	 * planetary sphere is a circle centered within the window.
+X	 */
+X	XGetGeometry (dsp, win, &root, &x, &y, &w, &h, &b, &d);
+X	if (w > h) {
+X	    wb = (w - h)/2;
+X	    hb = 0;
+X	    r = h/2;
+X	} else {
+X	    wb = 0;
+X	    hb = (h - w)/2;
+X	    r = w/2;
+X	}
+X
+X	/* make the pixmap if this is our first time or the size has changed */
+X	if (!mars_pm || w != last_w || h != last_h) {
+X	    last_w = w;
+X	    last_h = h;
+X	    if (mars_pm)
+X		XFreePixmap (dsp, mars_pm);
+X	    mars_pm = XCreatePixmap (dsp, win, w, h, d);
+X	}
+X
+X	/* clear the scene, draw filled circle in foreground then fill in
+X	 * regions in background. Then make another pass and overlay the names.
+X	 * we draw south (negative latitudes) downwards (in X's +y diretion)
+X	 * and with increasing longitudes progressing to the right. this
+X	 * means the planet appears to rotate CW as seen from above.
+X	 */
+X	XSetFunction (dsp, mars_gc, GXcopy);
+X	XSetForeground (dsp, mars_gc, mars_bg);
+X	XFillRectangle (dsp, mars_pm, mars_gc, 0, 0, w, h);
+X	XSetForeground (dsp, mars_gc, mars_fg);
+X	XFillArc (dsp, mars_pm, mars_gc, wb, hb, 2*r, 2*r, 0, 360*64);
+X	XSetForeground (dsp, mars_gc, mars_bg);
+X	for (rp = mreg; rp < mreg+nmreg; rp++) {
+X	    npts = 0;
+X	    for (cp = rp->mcp; cp < rp->mcp+rp->nmcp; cp++) {
+X		double dlg = cp->lg - cml;
+X		range (&dlg, 360.0);
+X		if (dlg >= 90 && dlg <= 270)
+X		    goto skip_region;
+X		p[npts].x = wb + r*(1 + DSIN(dlg)*DCOS(cp->lt));
+X		p[npts].y = hb + r*(1 + DSIN(cp->lt));
+X		npts++;
+X	    }
+X	    XFillPolygon (dsp, mars_pm, mars_gc, p, npts,Nonconvex,CoordModeOrigin);
+X
+X	  skip_region:
+X		continue;
+X	}
+X
+X	XSetFunction (dsp, mars_gc, GXxor);
+X	XSetForeground (dsp, mars_gc, mars_fg^mars_bg);
+X	for (rp = mreg; rp < mreg+nmreg; rp++) {
+X	    maxx = 0; minx = w; maxy = 0; miny = h;
+X	    for (cp = rp->mcp; cp < rp->mcp+rp->nmcp; cp++) {
+X		double dlg = cp->lg - cml;
+X		range (&dlg, 360.0);
+X		if (dlg >= 90 && dlg <= 270)
+X		    goto skip_name;
+X		x = wb + r*(1 + DSIN(dlg)*DCOS(cp->lt));
+X		y = hb + r*(1 + DSIN(cp->lt));
+X		if (x > maxx) maxx = x;
+X		if (x < minx) minx = x;
+X		if (y > maxy) maxy = y;
+X		if (y < miny) miny = y;
+X	    }
+X	    XDrawString (dsp, mars_pm, mars_gc, (minx+maxx)/2, (miny+maxy)/2,
+X		rp->rname, strlen(rp->rname));
+X
+X	  skip_name:
+X		continue;
+X	}
+X
+X	XSetFunction (dsp, mars_gc, GXcopy);
+X	XCopyArea (dsp, mars_pm, win, mars_gc, 0, 0, w, h, 0, 0);
+X
+X	timestamp (np, mars_dt_w);
+X}
+END_OF_FILE
+  if test 15322 -ne `wc -c <'marsmenu.c'`; then
+    echo shar: \"'marsmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'marsmenu.c'
+fi
+if test -f 'moonmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'moonmenu.c'\"
+else
+  echo shar: Extracting \"'moonmenu.c'\" \(14914 characters\)
+  sed "s/^X//" >'moonmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the moon display.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Text.h>
+X#include "astro.h"
+X#include "circum.h"
+X
+X
+Xextern Widget toplevel_w;
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern Now *mm_get_now P_((void));
+Xextern Obj *db_basic P_((int id));
+Xextern void db_update P_((Obj *op));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+Xextern void timestamp P_((Now *np, Widget w));
+X
+Xvoid m_manage P_((void));
+Xint m_ison P_((void));
+Xvoid m_update P_((Now *np, int how_much));
+Xvoid m_cursor P_((Cursor c));
+Xstatic void m_create_form P_((void));
+Xstatic void m_close_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void m_mapvw_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void m_eshine_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void m_da_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void m_draw P_((int force));
+Xstatic void m_draw_mapview P_((double el));
+Xstatic void m_draw_grview P_((double el));
+X
+X#undef P_
+X
+X/* get the small moonbit map and its dimension defines.
+X * moon is roughly centered within the map, with a radius of some 200 pixels.
+X * exact values set by trial and error.
+X */
+X#include "smallfm.xbm"
+X#define	MRAD	191				/* radius of moon image */
+X#define	TOPMAR	(smallfm_height/2 - MRAD + 2)	/* top margin */
+X#define	LEFTMAR	(smallfm_width/2 - MRAD)	/* left margin */
+X
+X#define	NSTARS	300	/* number of fake background stars in graphical view */
+X
+Xstatic Widget mform_w;		/* main moon form dialog */
+Xstatic Widget mda_w;		/* moon drawring area */
+Xstatic Widget eshine_w;		/* whether we want to show earthshine */
+Xstatic Widget mapvw_w;		/* toggle button that selects which view */
+Xstatic Widget dt_w;		/* date/time stamp widget */
+X
+X#define	MAPVW_W	(smallfm_width+20)
+X#define	MAPVW_H	(smallfm_height+40)
+X
+X/* called when the moon view is activated via the main menu pulldown.
+X * if never called before, create and manage all the widgets as a child of a
+X * form. otherwise, just toggle whether the form is managed.
+X */
+Xvoid
+Xm_manage ()
+X{
+X	if (!mform_w)
+X	    m_create_form();
+X	
+X	if (XtIsManaged(mform_w))
+X	    XtUnmanageChild (mform_w);
+X	else {
+X	    XtManageChild (mform_w);
+X	    /* let the initial expose do the drawing */
+X	}
+X}
+X
+Xm_ison()
+X{
+X	return (mform_w && XtIsManaged(mform_w));
+X}
+X
+Xvoid
+Xm_update (np, how_much)
+XNow *np;
+Xint how_much;
+X{
+X	if (!mform_w || !XtIsManaged(mform_w))
+X	    return;
+X
+X	m_draw (how_much);
+X	timestamp (np, dt_w);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xm_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (mform_w && (win = XtWindow(mform_w))) {
+X	    Display *dsp = XtDisplay(mform_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+Xstatic void
+Xm_create_form()
+X{
+X	Widget frame_w;
+X	Widget f_w, fr_w;
+X	Widget w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X
+X	/* create master form */
+X	n = 0;
+X	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+X	XtSetArg (args[n], XmNhorizontalSpacing, 5); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+X	mform_w = XmCreateFormDialog (toplevel_w, "Moon", args, n);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Moon View"); n++;
+X	XtSetValues (XtParent(mform_w), args, n);
+X
+X	/* make a Form to hold the bottom controls */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNfractionBase, 13); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	f_w = XmCreateForm (mform_w, "MoonCtlForm", args, n);
+X	XtManageChild (f_w);
+X
+X	    /* make the close button */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 4); n++;
+X	    w = XmCreatePushButton (f_w, "Close", args, n);
+X	    XtAddCallback (w, XmNactivateCallback, m_close_cb, 0);
+X	    XtManageChild (w);
+X
+X	    /* make the earthshine toggle button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 5); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 8); n++;
+X	    fr_w = XmCreateFrame (f_w, "EarthshineFr", args, n);
+X	    XtManageChild (fr_w);
+X	    eshine_w = XmCreateToggleButton (fr_w, "Earthshine", args, n);
+X	    XtAddCallback (eshine_w, XmNvalueChangedCallback, m_eshine_cb, 0);
+X	    XtManageChild (eshine_w);
+X
+X	    /* make the view option toggle button in a frame */
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNleftPosition, 9); n++;
+X	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	    XtSetArg (args[n], XmNrightPosition, 12); n++;
+X	    fr_w = XmCreateFrame(f_w,"MMapViewFr", args, n);
+X	    XtManageChild (fr_w);
+X	    str = XmStringCreate("Bitmap View", XmSTRING_DEFAULT_CHARSET);
+X	    n = 0;
+X	    XtSetArg (args[n], XmNlabelString, str); n++;
+X	    mapvw_w = XmCreateToggleButton(fr_w, "BitmapView", args, n);
+X	    XtAddCallback(mapvw_w, XmNvalueChangedCallback, m_mapvw_cb, 0);
+X	    XtManageChild (mapvw_w);
+X	    XmStringFree (str);
+X
+X	/* make a label for the date stamp */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, f_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrecomputeSize, False); n++;
+X	dt_w = XmCreateLabel (mform_w, "DateStamp", args, n);
+X	timestamp (mm_get_now(), dt_w);	/* sets initial size */
+X	XtManageChild (dt_w);
+X
+X	/* make a frame for the drawing area */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, dt_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	frame_w = XmCreateFrame (mform_w, "MoonFrame", args, n);
+X	XtManageChild (frame_w);
+X
+X	/* make a drawing area in the frame for the sky */
+X	n = 0;
+X	XtSetArg (args[n], XmNwidth, MAPVW_W); n++;
+X	XtSetArg (args[n], XmNheight, MAPVW_H); n++;
+X	XtSetArg (args[n], XmNmarginWidth, 0); n++;
+X	XtSetArg (args[n], XmNmarginHeight, 0); n++;
+X	mda_w = XmCreateDrawingArea (frame_w, "MoonDA", args, n);
+X	XtManageChild (mda_w);
+X	XtAddCallback (mda_w, XmNexposeCallback, m_da_exp_cb, 0);
+X}
+X
+X/* callback from the Close button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xm_close_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XtUnmanageChild (mform_w);
+X}
+X
+X/* callback from the Map view toggle button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xm_mapvw_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	m_update (mm_get_now(), 1);
+X}
+X
+X/* callback from the earthshine toggle button.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xm_eshine_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	m_update (mm_get_now(), 1);
+X}
+X
+X/* expose (or reconfig) of moon drawing area.
+X * just redraw the scene to the current window size.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xm_da_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_EXPOSE: {
+X	    /* turn off gravity so we get expose events for either shrink or
+X	     * expand.
+X	     */
+X	    static before;
+X	    XExposeEvent *e = &c->event->xexpose;
+X
+X	    if (!before) {
+X		XSetWindowAttributes swa;
+X		swa.bit_gravity = ForgetGravity;
+X		XChangeWindowAttributes (e->display, e->window,
+X							    CWBitGravity, &swa);
+X		before = 1;
+X	    }
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected mda_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	m_update (mm_get_now(), 1);
+X}
+X
+X/* draw moon, always if force or scene has changed.
+X */
+Xstatic void
+Xm_draw (force)
+Xint force;
+X{
+X	static double last_el;
+X	Obj *op;
+X	double el;
+X
+X	/* get new elongation */
+X	op = db_basic (MOON);
+X	db_update (op);
+X	el = degrad(op->s_elong);
+X
+X	/* don't bother if not forcing and hasn't changed 1 degree */
+X	if (!force && fabs (el - last_el) < degrad(1.0))
+X	    return;
+X	last_el = el;
+X
+X	if (XmToggleButtonGetState(mapvw_w)) {
+X	    /* drawing pixmap view so insure a good initial size at least
+X	     */
+X	    Arg args[20];
+X	    int n;
+X
+X	    n = 0;
+X	    XtSetArg (args[n], XmNwidth, MAPVW_W); n++;
+X	    XtSetArg (args[n], XmNheight, MAPVW_H); n++;
+X	    XtSetValues (mda_w, args, n);
+X	    XtManageChild (XtParent(eshine_w));
+X	    XtManageChild (eshine_w);
+X	    m_draw_mapview (el);
+X	} else {
+X	    /* want graphical view */
+X	    XtUnmanageChild (eshine_w);
+X	    XtUnmanageChild (XtParent(eshine_w));
+X	    m_draw_grview (el);
+X	}
+X}
+X
+X/* version that draws moon using genuine bitmap image. */
+Xstatic void
+Xm_draw_mapview (el)
+Xdouble el;
+X{
+X	static GC m_fgc;
+X	Display *dsp = XtDisplay (mda_w);
+X	Window win = XtWindow (mda_w);
+X	double cosel;
+X	XImage *xim;
+X	unsigned char *m;
+X	int y;	/* y coord: 0 is center, up is + */
+X	int earthshine = XmToggleButtonGetState(eshine_w);
+X
+X	if (!m_fgc) {
+X	    /* make gc from MoonDA colors
+X	     */
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X
+X	    gcm = GCForeground | GCBackground;
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.background);
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.foreground);
+X
+X	    m_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X	/* make a copy so we can darken some of it */
+X	m = (unsigned char *)XtMalloc(smallfm_width*smallfm_height/8);
+X	(void) memcpy (m, smallfm_bits, smallfm_width*smallfm_height/8);
+X
+X	cosel = cos(el);
+X	for (y = MRAD; y > -MRAD; y--) {
+X	    int lx, rx;	/* left and right edge of scan line to darken */
+X	    int r, c;	/* X row/col coords */
+X	    lx = -sqrt((double)(MRAD*MRAD - y*y));
+X	    rx = -lx * cosel;
+X	    if (el < 0) {
+X		int tmp = rx;
+X		rx = -lx;
+X		lx = -tmp;
+X	    }
+X	    r = TOPMAR + MRAD - y;
+X	    for (c = LEFTMAR + MRAD + lx; c < LEFTMAR + MRAD + rx; c++)
+X		if (!earthshine || (c & 3) != 3 || (y & 3) != 3)
+X		    m[r*smallfm_width/8 + c/8] |= (1 << (c%8)); /* 1 is bkgnd */
+X	}
+X
+X	xim = XCreateImage (dsp, XDefaultVisual (dsp, 0),
+X	    /* depth */		1,
+X	    /* format */	XYBitmap, 
+X	    /* offset */	0,
+X	    /* data */		(char *)m,
+X	    /* width */		smallfm_width, 
+X	    /* height */	smallfm_height,
+X	    /* pad */		8,
+X	    /* bpl */		0);
+X	xim->bitmap_bit_order = LSBFirst;
+X	xim->byte_order = LSBFirst;
+X
+X	XPutImage (dsp, win, m_fgc, xim, 0, 0, 0, 0,
+X					    smallfm_width, smallfm_height);
+X	XDestroyImage (xim);	/* also frees m */
+X}
+X
+X/* version that draws moon using just simple graphics */
+Xstatic void
+Xm_draw_grview (el)
+Xdouble el;
+X{
+X	static GC m_fgc, m_bgc;
+X	static XPoint *stars;
+X	static int last_w, last_h;
+X	Display *dsp = XtDisplay (mda_w);
+X	Window win = XtWindow (mda_w);
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	unsigned w, h;		/* actual size of drawing area window */
+X	unsigned md;		/* moon circle diameter */
+X	int la1, la2, ta1, ta2; /* limb and terminator start and extent */
+X	int wid;		/* distance from meridian to terminator */
+X	int xb, yb;		/* x and y borders, eg, (w-nx)/2 */
+X	Pixmap pm;
+X
+X	if (!m_fgc) {
+X	    /* make gcs from MoonDA colors
+X	     */
+X	    XGCValues gcv;
+X	    unsigned int gcm;
+X
+X	    gcm = GCForeground | GCBackground;
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.foreground);
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.background);
+X	    m_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X
+X	    get_something (mda_w, XmNbackground, (char *)&gcv.foreground);
+X	    get_something (mda_w, XmNforeground, (char *)&gcv.background);
+X	    m_bgc = XCreateGC (dsp, win, gcm, &gcv);
+X	}
+X
+X
+X	/* get size of window now and make a fresh pixmap to match.
+X	 * we draw the scene in the pixmap then copy it to the window.
+X	 * otherwise, you can see it drawing and it flashes and looks ugly.
+X	 */
+X	XGetGeometry (dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X	pm = XCreatePixmap (dsp, win, w, h, d);
+X	XFillRectangle (dsp, pm, m_bgc, 0, 0, w, h);
+X
+X	/* set moon diameter so it is centered within the bounding rectangle
+X	 * of the window.
+X	 * this code sets it to match the borders of the map view and makes
+X	 * the diameter even so it divides evenly.
+X	 */
+X	md = ((w > h) ? MRAD*h/(MRAD+TOPMAR) : MRAD*w/(MRAD+LEFTMAR)) & (~1);
+X	xb = (w - md)/2;
+X	yb = (h - md)/2;
+X
+X	la1 = el >= 0.0 ? -90*64 : 90*64;
+X	la2 = 180*64;
+X	wid = fabs(md/2*cos(el))+0.5;
+X	ta1 = el >= PI/2 || (el <= 0 && el >= -PI/2) ? 90*64 : -90*64;
+X	ta2 = 180*64;
+X
+X	/* dsp, win, gc, x, y, w, h, start_ang, ang_extent */
+X	/* draw the lit hemisphere to the limb */
+X	XFillArc (dsp, pm, m_fgc, xb, yb, md, md, la1, la2);
+X
+X	/* draw the portion from the terminator to the meridian */
+X	if (la1 < 0 && ta1 < 0 || la1 > 0 && ta1 > 0) {
+X	    /* crescent, so draw in background color */
+X	    XFillArc (dsp, pm, m_bgc, md/2-wid+xb, yb, 2*wid, md, ta1, ta2);
+X	} else {
+X	    /* gibbous, so draw in foreground color */
+X	    XFillArc (dsp, pm, m_fgc, md/2-wid+xb, yb, 2*wid, md, ta1, ta2);
+X	}
+X
+X	/* add in the background stars */
+X	if (!stars || last_w != w || last_h != h) {
+X	    /* sprinkle NSTARS stars outside the moon's circle of radius r.
+X	     */
+X	    double rr = 0.25*md*md; /* = (md/2)*(md/2); */
+X	    int i;
+X	    if (stars)
+X		XtFree ((char *)stars);
+X	    stars = (XPoint *) XtMalloc (NSTARS * sizeof(XPoint));
+X	    for (i = 0; i < NSTARS; ) {
+X		x = ((rand() >> 2) & 0xfff) * (w-1) / 0xfff;
+X		y = ((rand() >> 2) & 0xfff) * (h-1) / 0xfff;
+X		/* compare the candidate y with the y on the ellipse at the
+X		 * candidate x to decide whether to draw the point.
+X		 */
+X#define		SQR(x) ((x)*(x))
+X		if (SQR(y-h/2) > rr - SQR(x-w/2)) {
+X		    stars[i].x = (short)x;
+X		    stars[i].y = (short)y;
+X		    i++;
+X		}
+X	    }
+X	}
+X	XDrawPoints (dsp, pm, m_fgc, stars, NSTARS, CoordModeOrigin);
+X
+X	XCopyArea (dsp, pm, win, m_fgc, 0, 0, w, h, 0, 0);
+X	XFreePixmap (dsp, pm);
+X
+X	last_w = w;
+X	last_h = h;
+X}
+END_OF_FILE
+  if test 14914 -ne `wc -c <'moonmenu.c'`; then
+    echo shar: \"'moonmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'moonmenu.c'
+fi
+if test -f 'versionmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'versionmenu.c'\"
+else
+  echo shar: Extracting \"'versionmenu.c'\" \(15208 characters\)
+  sed "s/^X//" >'versionmenu.c' <<'END_OF_FILE'
+X/* code to manage the stuff on the version display.
+X * first thing is our modification history, then code to put up the dialog.
+X */
+X
+X/* add a note after each change.
+X */
+X
+X/*
+X * 2.4b 5/10	changed to using memcpy() instead of struct assign (for Alpha).
+X * 2.4a 4/23    changed usage of time() (just needed for DEC's Alpha CPUs)
+X * 2.4 4/21     fixed blank jup and sat views (unsigned).
+X * 2.3 4/12	add ecliptic option to sky view.
+X *     4/15	ephem.db: fix Yale names and improve asteroid a/n accuracy.
+X *     4/20	add cursor location tracking to sky view.
+X *		add "All labels" to sky view.
+X *     4/21	add central cross-hair to Earth subsolar view.
+X * 2.2 4/3/93	fixed infinite loop when assigning new objx/y with trails on.
+X *		removed erroneous grid lines at some pointing directions.
+X *		reinstate neglected nutation correction (!) cir_sky().
+X *		just show blanks for sun's SnDst and Phase.
+X *		fast buttons for 00:00:00 for UT and "Today" under the calendar.
+X *		change Epoch-of-date prompts a bit.
+X *		cleaned up type casting and add function prototypes.
+X *		fixed bad mix of malloc() with XtFree() in db.c
+X *     4/5	use pixmap in skyview for much smoother display.
+X *     4/6	fix bug that pops up skyfilt when pop down skyview from main.
+X *     4/7	improve conversion from helio period to daily motion.
+X *     4/8	all datamenu fields are now fixed-width for more stable sizing.
+X * 2.1 3/17/93	fixed bug in reading dates from the database.
+X *              main menu fields are fixed-width for more stable size.
+X * 2.0 3/15/93	major release
+X * 2.0A 2/16/93	2.0 alpha put on export and notice posted to sci.astro.
+X * 1.1		update sent to export.lcs.mit.edu
+X * 1.0 2/24/92	baseline release to comp.sources.x and export.
+X * 0.1 12/13/90 first viable beginnings. main three menus working ok.
+X */
+X
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <math.h>
+X#if defined(__STDC__)
+X#include <stdlib.h>
+X#endif
+X#include <X11/Xlib.h>
+X#include <X11/keysym.h>
+X#include <Xm/Xm.h>
+X#include <Xm/Form.h>
+X#include <Xm/Frame.h>
+X#include <Xm/DrawingA.h>
+X#include <Xm/Label.h>
+X#include <Xm/PushB.h>
+X#include <Xm/ToggleB.h>
+X#include <Xm/Text.h>
+X#include <Xm/Scale.h>
+X#include "astro.h"
+X#include "circum.h"
+X#include "patchlevel.h"
+X
+X#if defined(__STDC__) || defined(__cplusplus)
+X#define P_(s) s
+X#else
+X#define P_(s) ()
+X#endif
+X
+Xextern void set_something P_((Widget w, char *resource, char *value));
+Xextern void get_something P_((Widget w, char *resource, char *value));
+X
+Xvoid version P_((void));
+Xvoid v_cursor P_((Cursor c));
+Xstatic void v_makew P_((void));
+Xstatic void fill_msg P_((Widget w));
+Xstatic void v_unmap_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void v_da_exp_cb P_((Widget w, XtPointer client, XtPointer call));
+Xstatic void v_draw P_((void));
+Xstatic void v_timer_cb P_((XtPointer client, XtIntervalId *id));
+Xstatic void drawComet P_((Display *dsp, Window win, GC gc, double ang, int rad, int tlen, int w, int h));
+Xstatic void drawPlanet P_((Display *dsp, Window win, GC gc, int sx, int sy, int w, int h));
+Xstatic void v_define_fgc P_((void));
+X
+X#undef P_
+X
+Xextern Widget toplevel_w;
+Xextern XtAppContext xe_app;
+X
+Xstatic char *msg[] = {
+X"xephem - An Interactive Astronomical Ephemeris Program for X",
+XPATCHLEVEL,
+X"",
+X"Copyright (c) 1990,1991,1992,1993 by Elwood Charles Downey",
+X"",
+X"Permission is granted to make and distribute copies of this program free of",
+X"charge, provided the copyright notice and this permission notice are",
+X"preserved on all copies.  All other rights reserved.  No representation is",
+X"made about the suitability of this software for any purpose.  It is provided",
+X"\"as is\" without express or implied warranty, to the extent permitted by",
+X"applicable law.",
+X};
+X
+X
+X#define	NMSGR	(sizeof(msg)/sizeof(msg[0]))
+X
+X/* generate a random number between min and max, of the same type as the
+X * highest type of either.
+X */
+X#define	RAND(min,max)	(((rand() & 0xfff)*((max)-(min))/0xfff) + min)
+X
+Xstatic Widget v_w;
+Xstatic Widget vda_w;
+Xstatic XtIntervalId v_timer_id;
+Xstatic GC v_fgc;
+Xstatic double rotrate;	/* rotation rate constant - filled on first manage */
+X
+X/* table of circular orbit radii to portray and the last screen coords.
+X * the real solar system has planet radii from .3 to 30, but the 100:1 ratio is
+X * so large we don't try and include everything.
+X */
+Xtypedef struct {
+X    double r;		/* radius, AU */
+X    double theta;	/* angle */
+X    int x, y;		/* last X x,y coord drawn */
+X} Orbit;
+X
+X#define	UNDEFX	(-1)		/* value of x when never drawn yet */
+Xstatic Orbit orbit[] = {
+X    {1.6, 0.0, UNDEFX, 0},
+X    {5.4, 0.0, UNDEFX, 0},
+X    {10., 0.0, UNDEFX, 0},
+X    {19., 0.0, UNDEFX, 0},
+X    {30., 0.0, UNDEFX, 0}
+X};
+X#define NORBIT	(sizeof(orbit)/sizeof(orbit[0]))
+X#define	MAXRAD	(orbit[NORBIT-1].r)	/* N.B.use orbit[] with largest radius*/
+X#define	MINRAD	(orbit[0].r)	/* N.B. use orbit[] with smallest radius */
+X#define PR 	4		/* radius of planet, pixels */
+X#define	DT	100		/* pause between screen steps, ms */
+X#define	NSTARS	100		/* number of background stars to sprinkle in */
+X#define	DPI	30		/* inner orbit motion per step, degrees*/
+X
+X/* comet state and info */
+X#define	CMAXPERI 30		/* max comet perihelion, pixels */
+X#define	CMAXTAIL 50		/* max comet tail length, pixels */
+X#define	CMINTAIL 3		/* min comet tail length, pixels */
+X#define	CMAXDELA 20		/* max comet area per step, sqr pixels */
+X#define	CMINDELA 10		/* min comet area per step, sqr pixels */
+X
+Xstatic double angle;		/* angle ccw from straight right, rads */
+Xstatic double rotation;		/* whole scene rot, rads */
+Xstatic int radius;		/* dist from sun, pixels (0 means undefined) */
+Xstatic int taillen;		/* tail length, pixels */
+Xstatic int delta_area;		/* change in area per step, sqr pixels */
+Xstatic int perihelion;		/* min dist from sun, pixels */
+Xstatic int maxtail;		/* max tail len (ie, tail@peri), pixels */
+X
+X/* called when mainmenu "on Version" help is selected.
+X */
+Xvoid
+Xversion()
+X{
+X	/* make the version form if this is our first time.
+X	 * also take this opportunity to do things once to init the
+X	 * planet locations and set the rotation rate.
+X	 */
+X	if (!v_w) {
+X	    int i;
+X	    v_makew();
+X	    for (i = 0; i < NORBIT; i++)
+X		orbit[i].theta = RAND(0,2*PI);
+X	    rotrate = degrad(DPI)/pow(MINRAD/MAXRAD, -3./2.);
+X	}
+X	    
+X	/* toggle whether up now.
+X	 * autoUnmanage can bring back down too.
+X	 */
+X	if (XtIsManaged(v_w))
+X	    XtUnmanageChild (v_w);
+X	else
+X	    XtManageChild (v_w);
+X}
+X
+X/* called to put up or remove the watch cursor.  */
+Xvoid
+Xv_cursor (c)
+XCursor c;
+X{
+X	Window win;
+X
+X	if (v_w && (win = XtWindow(v_w))) {
+X	    Display *dsp = XtDisplay(v_w);
+X	    if (c)
+X		XDefineCursor (dsp, win, c);
+X	    else
+X		XUndefineCursor (dsp, win);
+X	}
+X}
+X
+X/* make the v_w widget.
+X */
+Xstatic void
+Xv_makew()
+X{
+X	Widget ok_w;
+X	Widget frame_w;
+X	Widget text_w;
+X	XmString str;
+X	Arg args[20];
+X	int n;
+X
+X	/* create form */
+X	n = 0;
+X	XtSetArg (args[n], XmNresizePolicy, XmRESIZE_ANY); n++;
+X	XtSetArg (args[n], XmNautoUnmanage, True); n++;
+X	XtSetArg (args[n], XmNhorizontalSpacing, 5); n++;
+X	XtSetArg (args[n], XmNverticalSpacing, 5); n++;
+X	v_w = XmCreateFormDialog (toplevel_w, "Version", args, n);
+X	XtAddCallback (v_w, XmNunmapCallback, v_unmap_cb, 0);
+X
+X	/* set some stuff in the parent DialogShell.
+X	 * setting XmNdialogTitle in the Form didn't work..
+X	 */
+X	n = 0;
+X	XtSetArg (args[n], XmNtitle, "xephem Version"); n++;
+X	XtSetValues (XtParent(v_w), args, n);
+X
+X	/* make text widget for the version info */
+X
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNbottomPosition, 50); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNeditMode, XmMULTI_LINE_EDIT); n++;
+X	XtSetArg (args[n], XmNeditable, False); n++;
+X	XtSetArg (args[n], XmNcolumns, 80); n++;
+X	XtSetArg (args[n], XmNrows, NMSGR); n++;
+X	text_w = XmCreateScrolledText (v_w, "VText", args, n);
+X	fill_msg (text_w);
+X	XtManageChild (text_w);
+X
+X	/* make the "Ok" push button */
+X
+X	str = XmStringCreate("Ok", XmSTRING_DEFAULT_CHARSET);
+X	n = 0;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+X	XtSetArg (args[n], XmNshowAsDefault, True); n++;
+X	XtSetArg (args[n], XmNlabelString, str); n++;
+X	ok_w = XmCreatePushButton (v_w, "VOk", args, n);
+X	XtManageChild (ok_w);
+X	XmStringFree (str);
+X	set_something (v_w, XmNdefaultButton, (char *)ok_w);
+X
+X	/* make a frame for the drawing area */
+X
+X	n = 0;
+X	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNtopWidget, XtParent(text_w)); n++;
+X	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_WIDGET); n++;
+X	XtSetArg (args[n], XmNbottomWidget, ok_w); n++;
+X	XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNleftPosition, 20); n++;
+X	XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+X	XtSetArg (args[n], XmNrightPosition, 80); n++;
+X	XtSetArg (args[n], XmNshadowType, XmSHADOW_ETCHED_OUT); n++;
+X	frame_w = XmCreateFrame (v_w, "VFrame", args, n);
+X	XtManageChild (frame_w);
+X
+X	/* make a drawing area for drawing the solar system */
+X
+X	n = 0;
+X	vda_w = XmCreateDrawingArea (frame_w, "VersionMap", args, n);
+X	XtAddCallback (vda_w, XmNexposeCallback, v_da_exp_cb, 0);
+X	XtAddCallback (vda_w, XmNresizeCallback, v_da_exp_cb, 0);
+X	XtManageChild (vda_w);
+X}
+X
+Xstatic void
+Xfill_msg (w)
+XWidget w;
+X{
+X	char m[100*NMSGR], *mp = m;
+X	int i;
+X
+X	/* Generate message to display as one string */
+X	for (i = 0; i < NMSGR; i++) {
+X	    (void) sprintf (mp, "%*s%s\n", (78 - (int)strlen(msg[i]))/2, "",
+X									msg[i]);
+X	    mp += strlen(mp);
+X	}
+X
+X	/* remove final \n to avoid extra blank line at end */
+X	*--mp = '\0';
+X
+X	XmTextSetString (w, m);
+X}
+X
+X/* version dialog is going away.
+X * stop the rotation timer.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xv_unmap_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	if (v_timer_id) {
+X	    XtRemoveTimeOut (v_timer_id);
+X	    v_timer_id = 0;
+X	}
+X}
+X
+X/* expose version drawing area.
+X * redraw the scene to the (new?) size.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xv_da_exp_cb (w, client, call)
+XWidget w;
+XXtPointer client;
+XXtPointer call;
+X{
+X	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+X
+X	switch (c->reason) {
+X	case XmCR_RESIZE:
+X	    /* seems we can get one resize before the first expose.
+X	     * hence, we don't have a good window to use yet. just let it
+X	     * go; we'll get the expose soon.
+X	     */
+X	    if (!XtWindow(w))
+X		return;
+X	    break;
+X	case XmCR_EXPOSE: {
+X	    XExposeEvent *e = &c->event->xexpose;
+X	    /* wait for the last in the series */
+X	    if (e->count != 0)
+X		return;
+X	    break;
+X	    }
+X	default:
+X	    printf ("Unexpected v_w event. type=%d\n", c->reason);
+X	    exit(1);
+X	}
+X
+X	v_draw();
+X}
+X
+Xstatic void
+Xv_draw()
+X{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	unsigned int w, h;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	int i;
+X
+X	if (!v_fgc)
+X	    v_define_fgc();
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X	XClearWindow (dsp, win);
+X
+X	/* draw the orbit ellipsii and forget last drawn locs */
+X	for (i = 0; i < NORBIT; i++) {
+X	    int lx, ty;	/* left and top x */
+X	    int nx, ny; /* width and height */
+X	    lx = w/2 - orbit[i].r/MAXRAD*w/2 + 0.5;
+X	    nx = orbit[i].r/MAXRAD*w + 0.5;
+X	    ty = h/2 - orbit[i].r/MAXRAD*h/2 + 0.5;
+X	    ny = orbit[i].r/MAXRAD*h + 0.5;
+X	    XDrawArc (dsp, win, v_fgc, lx, ty, nx-1, ny-1, 0, 360*64);
+X	    orbit[i].x = UNDEFX;
+X	}
+X
+X	/* forget the comet */
+X	radius = 0;
+X
+X	/* draw sun at the center */
+X	drawPlanet (dsp, win, v_fgc, w/2-PR, h/2-PR, 2*PR-1, 2*PR-1);
+X
+X	/* draw some background stars */
+X	for (i = 0; i < NSTARS; i++) {
+X	    int sx, sy;
+X	    sx = RAND(0,w-1);
+X	    sy = RAND(0,h-1);
+X	    XDrawPoint (dsp, win, v_fgc, sx, sy);
+X	}
+X
+X	if (!v_timer_id)
+X	    v_timer_cb (0, 0);
+X
+X}
+X
+X/* called whenever the timer goes off.
+X * we advance all the planets, draw any that have moved at least a few
+X * pixels, and restart a timer.
+X */
+X/* ARGSUSED */
+Xstatic void
+Xv_timer_cb (client, id)
+XXtPointer client;
+XXtIntervalId *id;
+X{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	unsigned int w, h;
+X	Window root;
+X	int x, y;
+X	unsigned int bw, d;
+X	int i;
+X
+X	XGetGeometry(dsp, win, &root, &x, &y, &w, &h, &bw, &d);
+X
+X	for (i = 0; i < NORBIT; i++) {
+X	    int px, py;	/* planets new center position */
+X	    double f = orbit[i].r/MAXRAD;	/* fraction of largest radius */
+X	    orbit[i].theta += rotrate*pow(f, -3./2.);
+X	    px = w/2 + cos(orbit[i].theta)*w*f/2 + 0.5;
+X	    py = h/2 - sin(orbit[i].theta)*h*f/2 + 0.5;
+X	    if (px != orbit[i].x || py != orbit[i].y) {
+X		/* erase then redraw at new pos, using the XOR GC */
+X		if (orbit[i].x != UNDEFX)
+X		    drawPlanet (dsp, win, v_fgc,
+X				orbit[i].x-PR, orbit[i].y-PR, 2*PR-1, 2*PR-1);
+X		drawPlanet (dsp, win, v_fgc, px-PR, py-PR, 2*PR-1, 2*PR-1);
+X		orbit[i].x = px;
+X		orbit[i].y = py;
+X	    }
+X	}
+X
+X	/* erase last comet position.
+X	 * N.B. use radius == 0 to mean the very first loop.
+X	 */
+X	if (radius != 0)
+X	    drawComet (dsp, win, v_fgc, angle, radius, taillen, w, h);
+X
+X	/* comet is definitely outside scene, set fresh initial conditions.
+X	 */
+X	if (radius <= 0 || radius > (w+h)/2) {
+X	    radius = (w+h)/2;
+X	    rotation = RAND(0,2*PI);
+X	    perihelion = RAND(PR,CMAXPERI);
+X	    maxtail = RAND(CMINTAIL,CMAXTAIL);
+X	    delta_area = RAND(CMINDELA,CMAXDELA);
+X	    angle = acos(1.0 - 2.0*perihelion/radius) + rotation;
+X#if 0
+X	    printf ("initial rad=%d rot=%g peri=%d maxt=%d da=%d angle=%g\n",
+X		    radius, rotation, perihelion, maxtail, delta_area, angle);
+X#endif
+X	}
+X
+X	/* recompute next step location and draw new comet
+X	 */
+X#if 0
+X	printf ("rad=%d rot=%g peri=%d maxt=%d da=%d angle=%g\n",
+X		    radius, rotation, perihelion, maxtail, delta_area, angle);
+X#endif
+X	angle += (double)delta_area/(radius*radius);
+X	radius = 2*perihelion/(1.0 - cos(angle - rotation));
+X	taillen = (maxtail*perihelion*perihelion)/(radius*radius);
+X	drawComet (dsp, win, v_fgc, angle, radius, taillen, w, h);
+X
+X	v_timer_id = XtAppAddTimeOut (xe_app, DT, v_timer_cb, 0);
+X}
+X
+X/* draw the comet
+X */
+Xstatic void
+XdrawComet (dsp, win, gc, ang, rad, tlen, w, h)
+XDisplay *dsp;
+XWindow win;
+XGC gc;
+Xdouble ang;	/* desired angle ccw from +x, in rads */
+Xint rad;	/* in pixels from center */
+Xint tlen;	/* length of tail, in pixels */
+Xint w, h;	/* window width and height */
+X{
+X	double ca, sa;
+X	int sx, sy;
+X	int ex, ey;
+X
+X	if (tlen < CMINTAIL)
+X	    tlen = CMINTAIL;
+X
+X	/* angle is made <0 to get ccw rotation with X's y-down coord system */
+X	ang = -ang;
+X	ca = cos(ang);
+X	sa = sin(ang);
+X
+X	sx = w/2 + rad * ca;
+X	sy = h/2 + rad * sa;
+X	ex = w/2 + (rad+tlen) * ca;
+X	ey = h/2 + (rad+tlen) * sa;
+X
+X	XDrawLine (dsp, win, gc, sx, sy, ex, ey);
+X}
+X
+X/* draw the planet.
+X */
+Xstatic void
+XdrawPlanet (dsp, win, gc, sx, sy, w, h)
+XDisplay *dsp;
+XWindow win;
+XGC gc;
+Xint sx, sy, w, h;
+X{
+X	XFillArc (dsp, win, gc, sx, sy, w, h, 0, 360*64);
+X}
+X
+Xstatic void
+Xv_define_fgc()
+X{
+X	Display *dsp = XtDisplay(vda_w);
+X	Window win = XtWindow(vda_w);
+X	XGCValues gcv;
+X	unsigned int gcm;
+X	Pixel fg, bg;
+X
+X	gcm = GCForeground | GCFunction;
+X	get_something (vda_w, XmNforeground, (char *)&fg);
+X	get_something (vda_w, XmNbackground, (char *)&bg);
+X	gcv.foreground = fg ^ bg;
+X	gcv.function = GXxor;
+X	v_fgc = XCreateGC (dsp, win, gcm, &gcv);
+X}
+END_OF_FILE
+  if test 15208 -ne `wc -c <'versionmenu.c'`; then
+    echo shar: \"'versionmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'versionmenu.c'
+fi
+echo shar: End of archive 20 \(of 21\).
+cp /dev/null ark20isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 21 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Building ephem.db
+    cat > ephem.db.Z.uu ephem.db.Z.uu.?
+    uudecode ephem.db.Z.uu
+    rm ephem.db.Z.uu ephem.db.Z.uu.?
+    uncompress ephem.db.Z
+    echo Building skyviewmenu.c
+    cat > skyviewmenu.c skyviewmenu.c.?
+    rm skyviewmenu.c.?
+    echo Building smallfm.xbm
+    cat > smallfm.xbm smallfm.xbm.?
+    rm smallfm.xbm.?
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

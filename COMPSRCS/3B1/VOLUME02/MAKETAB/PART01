@@ -1,0 +1,596 @@
+Path: comp-sources-3b1
+From: adh@rambla.East.Sun.COM (Sandwich Maker)
+Subject:  v02i043:  Printer table assembler and disassembler for old nroff, Part01/01
+Newsgroups: comp.sources.3b1
+Approved: dave@galaxia.network23.com
+X-Checksum-Snefru: 30ae1188 50380154 29424859 a025555d
+
+Submitted-by: adh@rambla.East.Sun.COM (Sandwich Maker)
+Posting-number: Volume 2, Issue 43
+Archive-name: maketab/part01
+
+This is a printer table assembler and disassembler for old nroff from
+Andrew Hay.  Andrew did not have shar available on his system so with
+his permission I took the pieces and built a shar file.  Andrews
+original comments from his email messages are collected into the README
+file.
+	Dave B.
+
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README maketab.c printertab.c tab850p.src
+# Wrapped by dave@galaxia on Wed Nov 24 22:56:51 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2577 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XThe original posting from Andrew did not contain a README.  In fact it was
+Xnot even packed with shar.  The following are Andrews comments for the 3
+Xpieces of this package.   -- Dave
+X
+X
+X*******************************************************************************
+X> > > > > > > > > > > > original comments for maketab.c < < < < < < < < < < < <
+X*******************************************************************************
+X
+Xmaketab takes one argument, the name of the tabXX file that you want
+Xto create.  it reads its input from a file with the same name and
+Xextension .src.
+Xit has limitations:
+X	it doesn't handle blank or comment lines in the .src file
+X	there can only be *2* un-escaped quotes ["] on a line
+X	since the octal conversion is *not* restricted to 3 digits,
+X	    \0335 [esc-5] will *not* do what you expect - use \033\065
+X	the numbers at the top of the file must be integers, not
+X	'INCH/4' stuff.
+X
+Xon the other hand, the numbers at the top of the .src file can be
+Xoctal [0], hex [0x], or decimal notation.
+X
+Xi don't know why i put INCH in -- i don't use it.
+X
+X******************************************************************************
+X> > > > > > > > > > > original comments for printertab.c < < < < < < < < < < <
+X******************************************************************************
+X
+Xhere's printertab.
+X
+Xthis has one limitation -- you can't feed its output directly to
+Xmaketab; it must be massaged first.
+X
+Xby design, it doesn't name the codetab strings individually; that was
+Xtoo complicated.  keep a copy of term(5) handy.
+X
+Xprintertab takes one argument, the tabXX file you want to read.
+X
+X*****************************************************************************
+X> > > > > > > > > > > original comments for tab850p.src < < < < < < < < < < <
+X*****************************************************************************
+X
+Xthis should be valid for all printers that have an epson lq850
+Xemulation mode.
+X
+Xsave this as tab850p.src, run maketab on it, move the resulting
+Xtab850p to /usr/lib/term, and you should be able to nroff -T850p <doc>
+Xand have it come out proportionally spaced!
+Xthis presumes that you have the old nroff that uses
+X/usr/lib/term/tabXX files.
+X
+Xn.b.  i haven't tried this yet.  i suspect strings with embedded nulls
+Xwon't work, and the carriage-left motion also.
+X
+Xi'm not sure if 'Em' is the width of an 'm' or a space.
+X--
+X		although you should be doing something productive
+X		with your life, you are instead wasting your time
+X		reading this inane mindless rambling drivel from
+X		the keyboard of:	Andrew Hay, adh@turbo.east.sun.com
+X
+END_OF_FILE
+if test 2577 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'maketab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'maketab.c'\"
+else
+echo shar: Extracting \"'maketab.c'\" \(2562 characters\)
+sed "s/^X//" >'maketab.c' <<'END_OF_FILE'
+X/* maketab.c - create /usr/lib/term/tabXX files */
+X/* ver 1.0 11/10/93 adh */
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#define	INCH	240	/* calculates in 240ths,
+X					therefore 1 in. = 240 thingies */
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	struct {
+X		int	bset;
+X		int	breset;
+X		int	Hor;
+X		int	Vert;
+X		int	Newline;
+X		int	Char;
+X		int	Em;
+X		int	Halfline;
+X		int	Adj;
+X		char	*twinit;
+X		char	*twrest;
+X		char	*twnl;
+X		char	*hlr;
+X		char	*hlf;
+X		char	*flr;
+X		char	*bdon;
+X		char	*bdoff;
+X		char	*iton;
+X		char	*itoff;
+X		char	*ploton;
+X		char	*plotoff;
+X		char	*up;
+X		char	*down;
+X		char	*right;
+X		char	*left;
+X		char	*codetab[211];
+X		char	*zzz;
+X	} printer;
+X
+X	int *int_ptr, in_quote, string_space;
+X
+X	char strings[2048], *string_pointer, **tab_ptr, tab_buf[256], *p;
+X
+X	FILE *roffsrc, *rofftab;
+X^L
+X	sprintf(tab_buf, "%s.src", argv[1]);
+X	roffsrc = fopen(tab_buf, "r");
+X
+X	/* all the ints */
+X	for(int_ptr = &printer.bset; int_ptr <= &printer.Adj; int_ptr++)
+X	{
+X		fgets(tab_buf, sizeof(tab_buf), roffsrc);
+X		for(p = tab_buf; !isdigit(*p) && p < tab_buf + strlen(tab_buf); p++);
+X		*int_ptr = strtol(p, (char *)NULL, 0);
+X	}
+X
+X	string_pointer = strings;
+X
+X	/* all the char*s */
+X	for(tab_ptr = &printer.twinit; tab_ptr < &printer.zzz; tab_ptr++)
+X	{
+X		*tab_ptr = (char*)(string_pointer - strings);
+X		fgets(tab_buf, sizeof(tab_buf), roffsrc);
+X		in_quote = 0;
+X		for(p = tab_buf + strlen(tab_buf); p >= tab_buf; p--)
+X		{
+X			if (*p == '"' && *(p-1) != '\\')
+X				if ( in_quote )
+X					break;
+X				else
+X				{
+X					in_quote = 1;
+X					*p = '\0';
+X				}
+X		}
+X		p++;
+X		while(*p != '\0')
+X		{
+X			if(*p == '\\')
+X				switch(*(++p))
+X				{
+X				case '"': *string_pointer++ = '"';	p++; break;
+X				case '\\': *string_pointer++ = '\\';	p++; break;
+X				case 'a': *string_pointer++ = '\007';	p++; break;
+X				case 'b': *string_pointer++ = '\b';	p++; break;
+X				case 'e': *string_pointer++ = '\033';	p++; break;
+X				case 'f': *string_pointer++ = '\f';	p++; break;
+X				case 'n': *string_pointer++ = '\n';	p++; break;
+X				case 'r': *string_pointer++ = '\r';	p++; break;
+X				case 't': *string_pointer++ = '\t';	p++; break;
+X				default:
+X					if(isdigit(*p))
+X						*string_pointer++ = (char)strtol(p, &p, 8);
+X					else
+X						*string_pointer++ = *p++;
+X				}
+X			else
+X				*string_pointer++ = *p++;
+X		}
+X		*string_pointer++ = '\0';
+X	}
+X
+X	fclose(roffsrc);
+X
+X	string_space = string_pointer - strings;
+X
+X	rofftab = fopen(argv[1], "w");
+X
+X	fwrite((char*)&string_space, sizeof(string_space), 1, rofftab);
+X	fwrite((char*)&printer, sizeof(printer), 1, rofftab);
+X	fwrite(strings, string_space, 1, rofftab);
+X
+X	fclose(rofftab);
+X
+X	exit(0);
+X}
+END_OF_FILE
+if test 2562 -ne `wc -c <'maketab.c'`; then
+    echo shar: \"'maketab.c'\" unpacked with wrong size!
+fi
+# end of 'maketab.c'
+fi
+if test -f 'printertab.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'printertab.c'\"
+else
+echo shar: Extracting \"'printertab.c'\" \(2649 characters\)
+sed "s/^X//" >'printertab.c' <<'END_OF_FILE'
+X/* printertab.c - read /usr/lib/term/tabXX files */
+X/* ver 1.0 11/4/93 adh */
+X
+X#include <stdio.h>
+X#include <string.h>
+X
+X#define	INCH	240	/* calculates in 240ths,
+X					therefore 1 in. = 240 thingies */
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X	struct {
+X		int	bset;
+X		int	breset;
+X		int	Hor;
+X		int	Vert;
+X		int	Newline;
+X		int	Char;
+X		int	Em;
+X		int	Halfline;
+X		int	Adj;
+X		char	*twinit;
+X		char	*twrest;
+X		char	*twnl;
+X		char	*hlr;
+X		char	*hlf;
+X		char	*flr;
+X		char	*bdon;
+X		char	*bdoff;
+X		char	*iton;
+X		char	*itoff;
+X		char	*ploton;
+X		char	*plotoff;
+X		char	*up;
+X		char	*down;
+X		char	*right;
+X		char	*left;
+X		char	*codetab[211];
+X		char	*zzz;
+X	} printer, print_out;
+X
+X	int fd, string_space;
+X
+X	char *strings, *string_pointer, **tab_ptr, **tout_ptr, tab_buf[256], c_o[5];
+X
+X	FILE *rofftab;
+X^L
+X	rofftab = fopen(argv[1], "r");
+X
+X	fread((char*)&string_space, sizeof(string_space), 1, rofftab);
+X	fread((char*)&printer, sizeof(printer), 1, rofftab);
+X
+X	strings = (char*)malloc(string_space);
+X
+X	fread(strings, string_space, 1, rofftab);
+X
+X	fclose(rofftab);
+X
+X	for( tab_ptr = &printer.twinit, tout_ptr = &print_out.twinit; tab_ptr < &printer.zzz; tab_ptr++, tout_ptr++)
+X	{
+X		*tab_ptr = strings + ((int) *tab_ptr);
+X		strcpy(tab_buf, "\0");
+X		for( string_pointer = *tab_ptr; *string_pointer != '\0'; string_pointer++)
+X		{
+X			if (isprint((int)*string_pointer&0377))
+X				strncat(tab_buf, string_pointer, 1);
+X			else
+X			{
+X				sprintf(c_o, "\\%03o", ((int)*string_pointer)&0377);
+X				strcat(tab_buf, c_o);
+X			}
+X		}
+X		*tout_ptr = strcpy((char*)malloc(strlen(tab_buf)+1), tab_buf);
+X	}
+X	
+X	/* all the ints */
+X	fprintf(stdout, "bset\t= %o\nbreset\t= %o\nhor\t= %d\nvert\t= %d\nnewline\t= %d\nchar\t= %d\nem\t= %d\nhalfline= %d\nadj\t= %d\n",
+X		printer.bset, printer.breset, printer.Hor, printer.Vert,
+X		printer.Newline, printer.Char, printer.Em, printer.Halfline, printer.Adj);
+X
+X	/* all the misc. char*s */
+X	fprintf(stdout, "twinit\t= \"%s\"\ntwrest\t= \"%s\"\ntwnl\t= \"%s\"\nhlr\t= \"%s\"\nhlf\t= \"%s\"\nflr\t= \"%s\"\nbdon\t= \"%s\"\nbdoff\t= \"%s\"\niton\t= \"%s\"\nitoff\t= \"%s\"\nploton\t= \"%s\"\nplotoff\t= \"%s\"\nup\t= \"%s\"\ndown\t= \"%s\"\nright\t= \"%s\"\nleft\t= \"%s\"\n",
+X		print_out.twinit, print_out.twrest, print_out.twnl,
+X		print_out.hlr, print_out.hlf, print_out.flr,
+X		print_out.bdon, print_out.bdoff, print_out.iton,
+X		print_out.itoff, print_out.ploton, print_out.plotoff,
+X		print_out.up, print_out.down, print_out.right, print_out.left);
+X
+X	/* all the codetab char*s */
+X	for ( fd = 0; fd < 211; fd++ )
+X		fprintf(stdout, "codetab[%3d] = \"%s\"\n", fd, print_out.codetab[fd]);
+X
+X	/* the zzz char* */
+X	/* printf( "zzz\t= \"%s\"\n", print_out.zzz); */
+X
+X	exit(0);
+X}
+END_OF_FILE
+if test 2649 -ne `wc -c <'printertab.c'`; then
+    echo shar: \"'printertab.c'\" unpacked with wrong size!
+fi
+# end of 'printertab.c'
+fi
+if test -f 'tab850p.src' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tab850p.src'\"
+else
+echo shar: Extracting \"'tab850p.src'\" \(6883 characters\)
+sed "s/^X//" >'tab850p.src' <<'END_OF_FILE'
+X/* bset		*/	0
+X/* breset	*/	0
+X/* Hor		*/	4	/* must be consistent with plot incrmts	*/
+X/* Vert		*/	4	/* likewise	*/
+X/* Newline	*/	40
+X/* Char		*/	4	/* character unit size for codetab	*/
+X/* Em		*/	28	/* size of a space	*/
+X/* Halfline	*/	20
+X/* Adj		*/	4	/* whitespace resulting from plot moves	*/
+X/* twinit	*/	"\033@\033CB\033\062\033a\000\033p\001\033P\033x\001\033U\000\033<\033s\000\033#"	/* set printer for proportional mode	*/
+X/* twrest	*/	"\033@\007"	/* reset printer to 'normal'	*/
+X/* twnl		*/	"\n"		/* newline	*/
+X/* hlr		*/	"\033j\015"	/* half lf back	*/
+X/* hlf		*/	"\033J\015"	/* half lf forw	*/
+X/* flr		*/	"\033j\030"	/* lf back	*/
+X/* bdon		*/	"\033E"		/* \fB or .B	*/
+X/* bdoff	*/	"\033F"		/* \fR or .R [pica, actually]*/
+X/* iton		*/	"\033t\000\033\064", /* \fI or .I	*/
+X/* itoff	*/	"\033\065"	/* \fR or .R [pica, actually]*/
+X/* ploton	*/	""		/* start plot mode	*/
+X/* plotoff	*/	""		/* end plot mode	*/
+X/* up		*/	"\033j\003"	/* move up	*/
+X/* down		*/	"\033J\003"	/* move down	*/
+X/* right	*/	"\033\\\003\000" /* move right	*/
+X/* left		*/	"\033\\\375\377" /* move left	*/
+X"\005 "		/* space */
+X"\003!"		/* !	*/
+X"\005\""	/* quote */
+X"\005#"		/* #	*/
+X"\005$"		/* $	*/
+X"\006%"		/* %	*/
+X"\006&"		/* &	*/
+X"\003'"		/* '	*/
+X"\004("		/* (	*/
+X"\004)"		/* )	*/
+X"\005*"		/* *	*/
+X"\005+"		/* +	*/
+X"\003,"		/* ,	*/
+X"\005-"		/* -	*/
+X"\003."		/* .	*/
+X"\005/"		/* /	*/
+X"\205\060"		/* 0	*/
+X"\205\061"		/* 1	*/
+X"\205\062"		/* 2	*/
+X"\205\063"		/* 3	*/
+X"\205\064"		/* 4	*/
+X"\205\065"		/* 5	*/
+X"\205\066"		/* 6	*/
+X"\205\067"		/* 7	*/
+X"\205\070"		/* 8	*/
+X"\205\071"		/* 9	*/
+X"\003:"		/* :	*/
+X"\003;"		/* ;	*/
+X"\005<"		/* <	*/
+X"\005="		/* =	*/
+X"\005>"		/* >	*/
+X"\005?"		/* ?	*/
+X"\006@"		/* @	*/
+X"\206A"		/* A	*/
+X"\206B"		/* B	*/
+X"\206C"		/* C	*/
+X"\206D"		/* D	*/
+X"\206E"		/* E	*/
+X"\206F"		/* F	*/
+X"\206G"		/* G	*/
+X"\206H"		/* H	*/
+X"\204I"		/* I	*/
+X"\205J"		/* J	*/
+X"\206K"		/* K	*/
+X"\206L"		/* L	*/
+X"\207M"		/* M	*/
+X"\206N"		/* N	*/
+X"\206O"		/* O	*/
+X"\206P"		/* P	*/
+X"\206Q"		/* Q	*/
+X"\206R"		/* R	*/
+X"\206S"		/* S	*/
+X"\206T"		/* T	*/
+X"\207U"		/* U	*/
+X"\206V"		/* V	*/
+X"\207W"		/* W	*/
+X"\206X"		/* X	*/
+X"\206Y"		/* Y	*/
+X"\205Z"		/* Z	*/
+X"\004["		/* [	*/
+X"\005\\"	/* \	*/
+X"\004]"		/* ]	*/
+X"\005^"		/* ^	*/
+X"\005_"		/* _	*/
+X"\003`"		/* `	*/
+X"\205a"		/* a	*/
+X"\206b"		/* b	*/
+X"\205c"		/* c	*/
+X"\206d"		/* d	*/
+X"\205e"		/* e	*/
+X"\204f"		/* f	*/
+X"\206g"		/* g	*/
+X"\206h"		/* h	*/
+X"\203i"		/* i	*/
+X"\204j"		/* j	*/
+X"\206k"		/* k	*/
+X"\203l"		/* l	*/
+X"\207m"		/* m	*/
+X"\206n"		/* n	*/
+X"\205o"		/* o	*/
+X"\206p"		/* p	*/
+X"\206q"		/* q	*/
+X"\205r"		/* r	*/
+X"\205s"		/* s	*/
+X"\204t"		/* t	*/
+X"\206u"		/* u	*/
+X"\206v"		/* v	*/
+X"\207w"		/* w	*/
+X"\205x"		/* x	*/
+X"\206y"		/* y	*/
+X"\205z"		/* z	*/
+X"\004{"		/* {	*/
+X"\003|"		/* |	*/
+X"\004}"		/* }	*/
+X"\005~"		/* ~	*/
+X"\002\033\\\006\000"	/* narrow sp	*/
+X"\003\016-\024"		/* hyphen	*/
+X"\005\033t\001\033\064\172\033\065"	/* bullet	!!*/
+X"\005\033t\001\033\064\176\033\065"	/* square	!!*/
+X"\006\016--\024"		/* 3/4 em dash	*/
+X"\005_"			/* rule	*/
+X"\005\033t\001\033\064\054\033\065"		/* 1/4	!!*/
+X"\005\033t\001\033\064\053\033\065"		/* 1/2	!!*/
+X"\007\033S\000\063\033T\242/\242\033S\001\064\033T"	/* 3/4	*/
+X"\005-"			/* minus	*/
+X"\206f\241i"		/* fi	*/
+X"\206f\241l"		/* fl	*/
+X"\207f\241f"		/* ff	*/
+X"\211f\241f\241i"	/* ffi	*/
+X"\211f\241f\241l"	/* ffl	*/
+X"\004\033R\100[\033R\000"	/* degree	*/
+X"\004\033R\100}\033R\000"	/* dagger	*/
+X"\005\021"		/* section	*/
+X"\003'"		/* foot mark	*/
+X"\003'"		/* acute accent	*/
+X"\003`"		/* grave accent	*/
+X"\005_"		/* underrule	*/
+X"\005/"		/* long slash	*/
+X"\001\033\\\003\000"		/* half narrow space	*/
+X"\005 "		/* unpaddable space	*/
+X"\005\033t\001\033\064\140\033\065"	/* alpha	*/
+X"\005\033t\001\033\064\141\033\065"	/* beta	*/
+X"\000\0"	/* gamma	*/
+X"\000\0"	/* delta	*/
+X"\000\0"	/* epsilon	*/
+X"\000\0"	/* zeta	*/
+X"\000\0"	/* eta	*/
+X"\000\0"	/* theta	*/
+X"\000\0"	/* iota	*/
+X"\000\0"	/* kappa	*/
+X"\000\0"	/* lambda	*/
+X"\005\033t\001\033\064\146\033\065"	/* mu	*/
+X"\000\0"	/* nu	*/
+X"\000\0"	/* xi	*/
+X"\005o"		/* omicron	*/
+X"\005\033t\001\033\064\143\033\065"	/* pi	*/
+X"\000\0"	/* rho	*/
+X"\005\033t\001\033\064\145\033\065"	/* sigma	*/
+X"\005\033t\001\033\064\147\033\065"	/* tau	*/
+X"\000\0"	/* upsilon	*/
+X"\005o\243|\203"		/* phi	*/
+X"\000\0"	/* chi	*/
+X"\000\0"	/* psi	*/
+X"\000\0"	/* omega	*/
+X"\005\033t\001\033\064\142\033\065"	/* Gamma	*/
+X"\000\0"	/* Delta	*/
+X"\005\033t\001\033\064\151\033\065"	/* Theta	*/
+X"\000\0"	/* Lambda	*/
+X"\000\0"	/* Xi	*/
+X"\000\0"	/* Pi	*/
+X"\005\033t\001\033\064\144\033\065"	/* Sigma	*/
+X"\006T"		/* Tau? [adh]	*/
+X"\000\0"	/* Upsilon	*/
+X"\005\033t\001\033\064\150\033\065"	/* Phi	*/
+X"\000\0"	/* Psi	*/
+X"\005\033t\001\033\064\155\033\065"	/* Omega	*/
+X"\005\033t\001\033\064\173\033\065"	/* square root	*/
+X"\006\016Y\017"		/* terminal sigma - \(ts yields script-l	*/
+X"\005\033(-\003\000\001\003\001 \033(-\003\000\001\003\000"	/* root en	*/
+X"\005\033t\001\033\064\162\033\065"	/* >=	*/
+X"\005\033t\001\033\064\163\033\065"	/* <=	*/
+X"\005\033t\001\033\064\157\033\065"	/* identically equal	*/
+X"\005-"			/* equation minus	*/
+X"\005\033t\001\033\064\167\033\065"	/* approx =	*/
+X"\005~"			/* approximates	*/
+X"\005=\243/\203"	/* not equal	*/
+X"\000\0"		/* right arrow	*/
+X"\000\0"		/* left arrow	*/
+X"\000\0"		/* up arrow	*/
+X"\000\0"		/* down arrow	*/
+X"\005="			/* equation equal	*/
+X"\000\0"		/* multiply	*/
+X"\005\033t\001\033\064\166\033\065"	/* divide	*/
+X"\005\033t\001\033\064\161\033\065"	/* plus-minus	*/
+X"\000\0"		/* cup (union)	*/
+X"\005\033t\001\033\064\156\033\065"	/* cap (intersection)	*/
+X"\000\0"		/* subset of	*/
+X"\000\0"		/* superset of	*/
+X"\000\0"		/* improper subset	*/
+X"\000\0"		/* improper superset	*/
+X"\005\033t\001\033\064\154\033\065"	/* infinity	*/
+X"\000\0"		/* partial derivative	*/
+X"\000\0"		/* gradient	*/
+X"\005\033t\001\033\064\052\033\065"	/* not	*/
+X"\000\0"		/* integral sign	*/
+X"\000\0"		/* proportional to	*/
+X"\005\033t\001\033\064\155\033\065"	/* empty set	*/
+X"\005\033t\001\033\064\160\033\065"	/* member of	*/
+X"\005+"			/* equation plus	*/
+X"\004\033R\100|\033R\000"	/* registered	*/
+X"\004\033R\100{\033R\000"	/* copyright	*/
+X"\003|"			/* box rule	*/
+X"\005\033t\001\033\064\033\033\065"	/* cent sign	*/
+X"\000\0"		/* double dagger	*/
+X"\012=>"		/* right hand	*/
+X"\012<="		/* left hand	*/
+X"\005*"			/* math *	*/
+X"\000\0"		/* \(bs yields small sigma	*/
+X"\003|"			/* or (was star)	*/
+X"\006O"			/* circle	*/
+X"\000\0"		/* left top of big brace	*/
+X"\000\0"		/* left bot of big brace	*/
+X"\000\0"		/* right top of big brace	*/
+X"\000\0"		/* right bot of big brace	*/
+X"\000\0"		/* left center of big brace	*/
+X"\000\0"		/* right center of big brace	*/
+X"\006\033t\001\033\064\063\033\065"	/* bold vertical	*/
+X"\006\033t\001\033\064\100\033\065"	/* left floor (lb of big bracket)	*/
+X"\006\033t\001\033\064\131\033\065"	/* right floor (rb of big bracket)	*/
+X"\006\033t\001\033\064\132\033\065"	/* left ceiling (lt of big bracket)	*/
+X"\006\033t\001\033\064\077\033\065"	/* right ceiling (rt of big bracket)	*/
+X"EOF"
+END_OF_FILE
+if test 6883 -ne `wc -c <'tab850p.src'`; then
+    echo shar: \"'tab850p.src'\" unpacked with wrong size!
+fi
+# end of 'tab850p.src'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+David H. Brierley                            Work: dhb@ssd.ray.com
+3B1 Hacker Extraordinaire                    Home: dave@galaxia.network23.com

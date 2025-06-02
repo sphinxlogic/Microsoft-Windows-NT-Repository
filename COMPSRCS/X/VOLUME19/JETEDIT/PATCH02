@@ -1,0 +1,380 @@
+Newsgroups: comp.sources.x
+From: duane@blacks.jpl.nasa.gov (Duane Clark)
+Subject: v19i086:  Jetedit - A Motif text editor, Patch02
+Message-ID: <1993Apr21.190712.13330@sparky.imd.sterling.com>
+X-Md4-Signature: d8dbc2f3ea6615a02ee38e0de38b1722
+Date: Wed, 21 Apr 1993 19:07:12 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: duane@blacks.jpl.nasa.gov (Duane Clark)
+Posting-number: Volume 19, Issue 86
+Archive-name: Jetedit/patch02
+Environment: X11, OSF/Motif
+Patch-To: Jetedit: Volume 19, Issue 80-84
+
+ This patch updates jetedit1.21 to jetedit1.22. See below to determine 
+ the current version. To apply:
+ 1) Copy this file as "je122.sh" to the directory containing the source
+  for jetedit.
+ 2) Delete all this stuff down to the "cut here" line.
+ 3) Type "sh je122.sh". This will create the patch file je122 and a copy
+  of these notes as NOTES122.
+ 4) Type "patch < je122".
+ 5) Recompile.
+
+ You can determine the current version of jetedit by seeing if the file
+ patchlevel.h is included in the directory with the source. If it is, 
+ you have at least version 1.2. If not, you will have to get version 1.2
+ off the archives, or email me - duane@blacks.jpl.nasa.gov.
+ 
+ Compare the contents of patchlevel.h to the following lines:
+ #define PATCHLEVEL 0    - Indicates jetedit1.2
+ #define PATCHLEVEL 1    - Indicates jetedit1.21
+ Beginning in version 1.22, patchlevel.h contains the line:
+ #define VERSION n.nn
+
+ Changes in this version:
+
+ In version 1.21, I neglected to credit a contributor, and no I don't
+ know why he capitalizes the last letter of his first name.
+ DaviD W. Sanderson (dws@ssec.wisc.edu)
+        "The Noah Webster of smileys is David Sanderson"
+                - The Wall Street Journal, 15 Sep 1992
+ He suggested that perhaps I should be using <unistd.h> rather than 
+ <sys/unistd.h>.  He also did some fixes on my man page, on which he has
+ in the past done considerable work.  The corrected version is available
+ on request from duane@blacks.jpl.nasa.gov.
+
+ Martin Wunderli <wunderli@inf.ethz.ch>
+ Pointed out a bug in the use of mktemp, which caused a crash on some 
+ systems anytime an attempt was made to save a file. I also added a
+ save failure warning dialog.
+
+ I added the ability to remove the regular expressions code with a
+ define in the makefile, since several people were getting undefined
+ externals ("compile" and "step") and didn't want to figure out 
+ what library they needed. To disable the regular expressions, add the 
+ compile flag "-DNOREGEXP" to your makefile or Imakefile.
+
+
+
+#---------------------------------- cut here ----------------------------------
+# This is a shell archive.  Remove anything before this line,
+# then unpack it by saving it in a file and typing "sh file".
+#
+# Wrapped by Duane Clark <duane@underdog> on Sun Apr 18 19:04:45 1993
+#
+# This archive contains:
+#	je122		NOTES122	
+#
+# Error checking via wc(1) will be performed.
+# Error checking via sum(1) will be performed.
+
+LANG=""; export LANG
+PATH=/bin:/usr/bin:$PATH; export PATH
+
+if sum -r </dev/null >/dev/null 2>&1
+then
+	sumopt='-r'
+else
+	sumopt=''
+fi
+
+echo x - je122
+cat >je122 <<'@EOF'
+*** ../xm1.21/patchlevel.h	Sat Apr 17 17:54:28 1993
+--- patchlevel.h	Sat Apr 17 18:17:33 1993
+***************
+*** 1 ****
+! #define PATCHLEVEL 1
+--- 1,2 ----
+! #define PATCHLEVEL 2
+! #define VERSION 1.22
+*** ../xm1.21/xme.h	Sat Apr 17 17:54:29 1993
+--- xme.h	Sun Apr 18 17:14:52 1993
+***************
+*** 112,117 ****
+--- 112,118 ----
+  WHERE Widget new_warning;		/* save changes warning dialog		*/
+  WHERE Widget file_exists_dialog;	/* save duplicate file warning dialog	*/
+  WHERE Widget save_as_dialog;		/* save as prompt dialog	 	*/
++ WHERE Widget save_warning;		/* failed save warning dialog		*/
+  WHERE Widget exists_as_dialog;		/* saveas duplicate file warning dialog	*/
+  WHERE Widget file_mode_dialog;		/* no write permission dialog		*/
+  WHERE Widget refused_dialog;		/* file access denied dialog		*/
+*** ../xm1.21/xmedialg.c	Sat Apr 17 17:54:30 1993
+--- xmedialg.c	Sun Apr 18 17:47:34 1993
+***************
+*** 23,28 ****
+--- 23,29 ----
+  #define DIALOG_F_MODE		312
+  #define DIALOG_EXISTS_AS	313
+  #define DIALOG_PREF		314
++ #define DIALOG_SWARNING		315
+  
+  extern char warningBits[];
+  
+***************
+*** 257,265 ****
+          SaveFile();
+          break;  
+      
+-     case DIALOG_F_MODE:
+-         break;
+-     
+      case DIALOG_GOTO:
+          {
+          XmSelectionBoxCallbackStruct *scb =
+--- 258,263 ----
+***************
+*** 271,278 ****
+          }
+          break;
+  
+      case DIALOG_HELP:
+!         /* no help at this time */
+          break;
+  
+      default:
+--- 269,277 ----
+          }
+          break;
+  
++     case DIALOG_F_MODE:
+      case DIALOG_HELP:
+!     case DIALOG_SWARNING:
+          break;
+  
+      default:
+***************
+*** 521,526 ****
+--- 520,545 ----
+      XtAddCallback (save_as_dialog, XmNokCallback,
+             (XtCallbackProc)DialogAcceptCB, (XtPointer)DIALOG_SAVE_AS);
+      button = XmSelectionBoxGetChild (save_as_dialog, XmDIALOG_HELP_BUTTON);
++     XtUnmanageChild (button);
++ 
++     ac = 0;
++     XtSetArg(al[ac], XmNmessageString, XmStringCreateLtoR
++            ("Unable to Save File!", charset));  ac++;
++     XtSetArg(al[ac], XmNokLabelString,
++          XmStringCreateLtoR("Bummer!", charset)); ac++;
++     XtSetArg(al[ac], XmNdialogStyle, XmDIALOG_APPLICATION_MODAL); ac++;
++ #ifdef HARDCODE
++     XtSetArg (al[ac], XmNtextFontList, fontlist);  ac++;
++ #endif
++     XtSetArg (al[ac], XmNdialogTitle, 
++         XmStringCreateLtoR("Save Warning", charset));  ac++;
++     save_warning = XmCreateWarningDialog(menu_bar,
++            "save_warning", al, ac);
++     XtAddCallback (save_warning, XmNokCallback,
++             (XtCallbackProc) DialogAcceptCB, (XtPointer) DIALOG_SWARNING);
++     button = XmMessageBoxGetChild (save_warning, XmDIALOG_HELP_BUTTON);
++     XtUnmanageChild (button);
++     button = XmMessageBoxGetChild (save_warning, XmDIALOG_CANCEL_BUTTON);
+      XtUnmanageChild (button);
+  
+      ac = 0;
+*** ../xm1.21/xmefile.c	Sat Apr 17 17:54:31 1993
+--- xmefile.c	Sun Apr 18 17:45:16 1993
+***************
+*** 99,104 ****
+--- 99,105 ----
+      char    pathname[60];
+      Arg     al[1];
+      unsigned int theLength;
++     char    *tmpmask = "jeXXXXXX";
+      
+      sprintf (message_string, " Saved:  %s", thefile);
+      
+***************
+*** 114,125 ****
+      }
+      
+      /* Create a temporary file name by changing /users/user/file_name
+!        to /users/user/xmeditXXXXXX. The result is in pathname. */
+      strcpy (pathname, thefile);
+      if ((tempname = strrchr (pathname, '/')) == NULL)
+          tempname = pathname;
+      else tempname = (char *)((long)tempname + 1);
+!     strcpy(tempname, mktemp("xmeditXXXXXX"));
+      
+      if ((tfd = open(pathname, O_WRONLY | O_CREAT, file_mode)) == -1) {
+          strcat (message_string, 
+--- 115,136 ----
+      }
+      
+      /* Create a temporary file name by changing /users/user/file_name
+!        to /users/user/jeXXXXXX. The result is in pathname. */
+      strcpy (pathname, thefile);
+      if ((tempname = strrchr (pathname, '/')) == NULL)
+          tempname = pathname;
+      else tempname = (char *)((long)tempname + 1);
+!     strcpy(tmpmask, "jeXXXXXX");
+!     if (!mktemp(tmpmask)) {
+!         strcat (message_string, 
+!             "   \7Warning: unable to create temp file %s.", pathname);
+!         XtSetArg(al[0], XmNlabelString, 
+!             XmStringCreateLtoR(message_string, charset));
+!         XtSetValues(message, al, 1);
+!         XtManageChild(save_warning);
+!         return(False);;
+!     }
+!     strcpy(tempname, tmpmask);
+      
+      if ((tfd = open(pathname, O_WRONLY | O_CREAT, file_mode)) == -1) {
+          strcat (message_string, 
+***************
+*** 127,132 ****
+--- 138,144 ----
+          XtSetArg(al[0], XmNlabelString, 
+              XmStringCreateLtoR(message_string, charset));
+          XtSetValues(message, al, 1);
++         XtManageChild(save_warning);
+          return(False);;
+      }
+      
+***************
+*** 153,159 ****
+      if (rename(pathname, thefile) == 0) {
+          file_saved = True;
+      } else {
+!         strcat (message_string, "   \7Warning: unable to save file.");
+          XtSetArg(al[0], XmNlabelString, 
+              XmStringCreateLtoR(message_string, charset));
+          XtSetValues(message, al, 1);
+--- 165,172 ----
+      if (rename(pathname, thefile) == 0) {
+          file_saved = True;
+      } else {
+!         strcat (message_string, "   \7Warning: unable to rename file.");
+!         fprintf(stderr, "\n  Warning: File saved as %s\n", pathname);
+          XtSetArg(al[0], XmNlabelString, 
+              XmStringCreateLtoR(message_string, charset));
+          XtSetValues(message, al, 1);
+*** ../xm1.21/xmespec.c	Sat Apr 17 17:54:34 1993
+--- xmespec.c	Sat Apr 17 18:17:25 1993
+***************
+*** 21,26 ****
+--- 21,27 ----
+  char	*seg_string;
+  char	*find_string;
+  #define EXPSIZE 4096
++ #ifndef NOREGEXP
+  #define INIT register char *sp = find_string; 
+  #define GETC() (*sp++)
+  #define PEEKC() (*sp)
+***************
+*** 28,33 ****
+--- 29,35 ----
+  #define RETURN(c) return;
+  #define ERROR(c) fprintf (stderr, "\7")
+  #include <regexp.h>
++ #endif
+  
+  /* bits for exclamation point in dialog */
+  char warningBits[] = {
+***************
+*** 249,254 ****
+--- 251,260 ----
+          
+      XtSetArg (al[0], XmNset, &reg_exp);
+      XtGetValues (regular_exp, al, 1);
++ #ifdef NOREGEXP
++     if (0) {
++     }
++ #else
+      if (reg_exp) {
+          compile (find_string, expbuf, &expbuf[EXPSIZE], '\0'); 	
+          if (step (seg_string, expbuf)) {
+***************
+*** 268,273 ****
+--- 274,280 ----
+              return (False);
+          }
+      }
++ #endif
+      else {
+          if ((found = strstr (seg_string, find_string)) != NULL) {
+              cursorPos = (XmTextPosition)((long)found + (long)cursorPos - (long)seg_string);
+@EOF
+set `sum $sumopt <je122`; if test $1 -ne 45395
+then
+	echo ERROR: je122 checksum is $1 should be 45395
+fi
+set `wc -lwc <je122`
+if test $1$2$3 != 2157456748
+then
+	echo ERROR: wc results of je122 are $* should be 215 745 6748
+fi
+
+chmod 644 je122
+
+echo x - NOTES122
+cat >NOTES122 <<'@EOF'
+This patch updates jetedit1.21 to jetedit1.22. See below to determine 
+the current version. To apply:
+1) Copy this file as "je122.sh" to the directory containing the source
+ for jetedit.
+2) Delete all this stuff down to the "cut here" line.
+3) Type "sh je122.sh". This will create the patch file je122 and a copy
+ of these notes as NOTES122.
+4) Type "patch < je122".
+5) Recompile.
+
+You can determine the current version of jetedit by seeing if the file
+patchlevel.h is included in the directory with the source. If it is, 
+you have at least version 1.2. If not, you will have to get version 1.2
+off the archives, or email me - duane@blacks.jpl.nasa.gov.
+ 
+Compare the contents of patchlevel.h to the following lines:
+#define PATCHLEVEL 0    - Indicates jetedit1.2
+#define PATCHLEVEL 1    - Indicates jetedit1.21
+Beginning in version 1.22, patchlevel.h contains the line:
+#define VERSION n.nn
+
+Changes in this version:
+
+In version 1.21, I neglected to credit a contributor, and no I don't
+know why he capitalizes the last letter of his first name.
+DaviD W. Sanderson (dws@ssec.wisc.edu)
+        "The Noah Webster of smileys is David Sanderson"
+                - The Wall Street Journal, 15 Sep 1992
+He suggested that perhaps I should be using <unistd.h> rather than 
+<sys/unistd.h>.  He also did some fixes on my man page, on which he has
+in the past done considerable work.  The corrected version is available
+on request from duane@blacks.jpl.nasa.gov.
+
+Martin Wunderli <wunderli@inf.ethz.ch>
+Pointed out a bug in the use of mktemp, which caused a crash on some 
+systems anytime an attempt was made to save a file. I also added a
+save failure warning dialog.
+
+I added the ability to remove the regular expressions code with a
+define in the makefile, since several people were getting undefined
+externals ("compile" and "step") and didn't want to figure out 
+what library they needed. To disable the regular expressions, add the 
+compile flag "-DNOREGEXP" to your makefile or Imakefile.
+
+
+@EOF
+set `sum $sumopt <NOTES122`; if test $1 -ne 27763
+then
+	echo ERROR: NOTES122 checksum is $1 should be 27763
+fi
+set `wc -lwc <NOTES122`
+if test $1$2$3 != 453211988
+then
+	echo ERROR: wc results of NOTES122 are $* should be 45 321 1988
+fi
+
+chmod 644 NOTES122
+
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

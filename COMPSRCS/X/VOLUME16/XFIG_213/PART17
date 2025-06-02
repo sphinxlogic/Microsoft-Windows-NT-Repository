@@ -1,0 +1,1959 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: envbvs@bea.lbl.gov (Brian V. Smith)
+Newsgroups: comp.sources.x
+Subject: v16i022: Xfig 2.1.3, Part17/25
+Message-ID: <1992Feb4.150149.1201@msi.com>
+Date: 4 Feb 92 15:01:49 GMT
+References: <csx-16i006-xfig-2.1.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1946
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: envbvs@bea.lbl.gov (Brian V. Smith)
+Posting-number: Volume 16, Issue 22
+Archive-name: xfig-2.1.3/part17
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 17 (of 25)."
+# Contents:  Doc/FORMAT1.4 Doc/FORMAT2.0 d_ellipse.c e_addpt.c
+#   e_delete.c object.h
+# Wrapped by dcmartin@fascet on Tue Feb  4 06:42:31 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Doc/FORMAT1.4' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/FORMAT1.4'\"
+else
+echo shar: Extracting \"'Doc/FORMAT1.4'\" \(9377 characters\)
+sed "s/^X//" >'Doc/FORMAT1.4' <<'END_OF_FILE'
+X****** This is the old format 1.4. ******
+X
+XThe following is the format of fig output (fig 1.4).
+X
+X(1) The very first line is a comment line containing the name and version:
+X	#FIG 1.4
+X
+X    The character # at the first column of a line indicates that the line
+X    is a comment line which will be ignored.
+X
+X(2) The first non-comment line consists of two numbers :
+X
+X	int	fig_resolution		(pixels/inch)
+X	int	coordinate_system	(1 : origin is at the lower left corner
+X					 2 : Upper left)
+X
+X    Fig_resolution is the resolution fig is using for the current file.
+X    It may not be the same as screen resolution (which can be higher or
+X    lower).  I assume that a pixel is square, therefore this number
+X    represents drawing resolution in both direction.  I've experimented
+X    with fig automatically changing this number according to the resolution
+X    of the monitor it is running on (The screen resolution, width and height
+X    in pixels, not pixel/inch, can be done by doing a ioctl on the /dev/fb).
+X    I've found that for monitors with higher resolution but same size
+X    (19" diagonal), I preferred using the pixels for other things than
+X    having fig occupying most of the screen.  Thus I opted for a fixed
+X    pixel-per-inch number which make fig window smaller on higher resolution
+X    monitor (than the standard sun monitor).  This however may change in
+X    the future version.
+X
+X(3) The rest of the file contains various objects.  An object can be one
+X    of six classes (or types).
+X
+X	  i)	Arc.
+X	 ii)	Ellipse which is a generalization of circle.
+X	iii)	Polyline which includes polygon and box.
+X	 iv)	Spline which includes closed/open control/interpolated spline.
+X	  v)	Text.
+X	 vi)	Compound object which is composed of one or more objects.
+X
+X    In the following elaboration on object formats, every value of fig
+X    output are separated by blank characters or new line ('\n').  The
+X    value of the not-used parameters will be -1.
+X
+X    A number of values are described as unused or not applicable to some
+X    object even though they are defined for those objects.  These value
+X    will (hopefully) be used in the future version of fig.  The intention
+X    of their uses are the following.
+X
+X	Value			Usage
+X	-----			-----
+X	area_fill	The stipple pattern (which will be align) for
+X			filling object internals.  For example, an filled
+X			arc will look like a piece of pie.
+X
+X	pen		This will be a structure defining the shape of
+X			pen used in drawing objects.  It also includes
+X			the the stipple pattern for line filling.
+X			The default pen is a circular pen with black
+X			filling.
+X
+X	thickness	Every pen has the thickness of one.
+X			Thickness scales the size of a pen. 
+X
+X	depth		This value adds a half dimension to fig.
+X			It is useful when we have overlapping filled
+X			objects and we want one to obliterate another.
+X			An object can have only one depth (including
+X			compound object).  An object that is in less
+X			depth can obscure the one with greater depth
+X			if they overlap.
+X	
+X	line_style	Only polyline (including polygon and box) can
+X			be rendered with dashed line.  However the
+X			objects created when the dash-line mode was on
+X			will be recorded as such.  Currently the filter
+X			f2ps (1) is able to render the desired line style
+X			effect on hard copy.  Three line styles are defined.
+X
+X				0 : SOLID_LINE
+X				1 : DASH_LINE
+X				2 : DOTTED_LINE
+X
+X	style_val	For dash style, it is the length of a dash.
+X			For dotted line it indicates the approximated
+X			gap of consecutive dots. 
+X
+X    (3.1) ARC
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 5)
+X	int	sub_type		(always	1)
+X	int	line_style		(See the end of this section)
+X	int	line_thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	direction		(0 : clockwise, 1 : counterclockwise)
+X	int	forward_arrow		(0: no forward arrow, 1: on)
+X	int	backward_arrow		(0: no forward arrow, 1: on)
+X	float	center_x, center_y	(center of the arc)
+X	int	x1, y1			(pixels, the 1st point the user entered)
+X	int	x2, y2			(pixels, the 2nd point)
+X	int	x3, y3			(pixels, the last point)
+X
+X    Forward arrow line (Optional; absent if forward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	int	arrow_thickness		(not used)
+X	int	arrow_width		(pixels)
+X	int	arrow_height		(pixels)
+X
+X    Backward arrow line (Optional; absent if backward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	int	arrow_thickness		(not used)
+X	int	arrow_width		(pixels)
+X	int	arrow_height		(pixels)
+X
+X    (3.2) COMPOUND
+X
+X    A line with object code 6 signifies the start of a compound.
+X    There are four more numbers on this line which indicate the
+X    upper right corner and the lower left corner of the bounding
+X    box of this compound.  A line with object code -6 signifies
+X    the end of the compound.  Compound may be nested.
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 6)
+X	int	upperright_corner_x	(pixels)
+X	int	upperright_corner_y	(pixels)
+X	int	lowerleft_corner_x	(pixels)
+X	int	lowerleft_corner_y	(pixels)
+X
+X    Subsequent lines :
+X	objects
+X	.
+X	.
+X
+X    Last line :
+X	-6
+X
+X    (3.3) ELLIPSE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : ellipse defined by radiuses
+X					 2 : ellipse defined by diameters
+X					 3 : circle defined by radius
+X					 4 : circle defined by diameter)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	direction		(always 1)
+X	float	angle			(radian, the angle of the x-axis)
+X	int	center_x, center_y	(pixels)
+X	int	radius_x, radius_y	(pixels)
+X	int	start_x, start_y	(pixels; the 1st point entered)
+X	int	end_x, end_y		(pixels; the last point entered)
+X
+X    (3.4) POLYLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : polyline, 2 : box, 3 : polygon)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	x1, y1			(pixels)
+X	int	x2, y2			(pixels)
+X	  .
+X	  .
+X	int	xn, yn			(this will be the same as the 1st
+X					point for polygon and box)
+X	int	x, y			(always 9999, 9999; marks the end of
+X					point for polygon and box)
+X
+X    (3.5) SPLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : open spline
+X					 2 : closed spline
+X					 3 : open interpolated spline
+X					 4 : closed interpolated spline)
+X	int	line_style		(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(not used)
+X	float	style_val		(pixels, not used)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line : same as POLYLINE object
+X
+X    Control points line (absent if sub_type is 1 or 2) :
+X	Control points of interpolated spline.  There are two control
+X	points for each knots.  A section i, of the spline is drawn
+X	using Bezier cubic with the following four points:
+X		(x ,y ), (rx ,ry ), (lx	  , ly   ), (x   , y   ).
+X		  i  i	    i	i      i+1    i+1     i+1   i+1
+X	For closed interpolated spline the last pair of control points,
+X	(lxn,lyn) and (rxn,ryn) (which can be ignored), are the same as
+X	(lx1,ly1) and (rx1,ry1) respectively.
+X
+X	type	name			(brief description)
+X	----	----			-------------------
+X	float	lx1, ly1		(pixels)
+X	float	rx1, ry1		(pixels)
+X	float	lx2, ly2		(pixels)
+X	float	rx2, ry2		(pixels)
+X	  .
+X	  .
+X	float	lxn, lyn		(pixels)
+X	float	rxn, ryn		(pixels)
+X
+X    (3.6) TEXT
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object 			(always 4)
+X	int	sub_type		(0 : Left justified
+X					 1 : Center justified
+X					 2 : Right justified)
+X	int	font 			(not used)
+X	int	font_size 		(not used)
+X	int	pen			(not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	angle			(radian, not used, the angle of the
+X					the base line of the string)
+X	int	font_style		(not used)
+X	int	height			(pixels)
+X	int	length			(pixels)
+X	int	x, y			(pixels, coordinate of the origin
+X					 of the string.  If sub_type = 0, it is
+X					 the lower left corner of the string.
+X					 If sub_type = 1, it is the lower
+X					 center.  Otherwise it is the lower
+X					 right corner of the string.)
+X	char	string[]		(ascii characters; starts after a blank
+X					character following the last number and
+X					ends before the character '\1'.  This
+X					character is not part of the string.
+X					Note that the string may contain '\n'.)
+END_OF_FILE
+if test 9377 -ne `wc -c <'Doc/FORMAT1.4'`; then
+    echo shar: \"'Doc/FORMAT1.4'\" unpacked with wrong size!
+fi
+# end of 'Doc/FORMAT1.4'
+fi
+if test -f 'Doc/FORMAT2.0' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Doc/FORMAT2.0'\"
+else
+echo shar: Extracting \"'Doc/FORMAT2.0'\" \(9404 characters\)
+sed "s/^X//" >'Doc/FORMAT2.0' <<'END_OF_FILE'
+XThe following is the format of fig output for Protocol version 2.0:
+X
+X(1) The very first line is a comment line containing the name and version:
+X	#FIG 2.0
+X
+X    The character # at the first column of a line indicates that the line
+X    is a comment line which will be ignored.
+X
+X(2) The first non-comment line consists of two numbers :
+X
+X	int	fig_resolution		(pixels/inch)
+X	int	coordinate_system	(1 : origin is at the lower left corner
+X					 2 : Upper left)
+X
+X    Fig_resolution is the resolution fig is using for the current file.
+X    It may not be the same as screen resolution (which can be higher or
+X    lower).  I assume that a pixel is square, therefore this number
+X    represents drawing resolution in both direction.  I've experimented
+X    with fig automatically changing this number according to the resolution
+X    of the monitor it is running on (The screen resolution, width and height
+X    in pixels, not pixel/inch, can be done by doing a ioctl on the /dev/fb).
+X    I've found that for monitors with higher resolution but same size
+X    (19" diagonal), I preferred using the pixels for other things than
+X    having fig occupying most of the screen.  Thus I opted for a fixed
+X    pixel-per-inch number which make fig window smaller on higher resolution
+X    monitor (than the standard sun monitor).  This however may change in
+X    the future version.
+X
+X(3) The rest of the file contains various objects.  An object can be one
+X    of six classes (or types).
+X
+X	  i)	Ellipse which is a generalization of circle.
+X	 ii)	Polyline which includes polygon and box.
+X	iii)	Spline which includes closed/open control/interpolated spline.
+X	 iv)	Text.
+X	  v)	Arc.
+X	 vi)	Compound object which is composed of one or more objects.
+X
+X    In the following elaboration on object formats, every value of fig
+X    output are separated by blank characters or new line ('\n').  The
+X    value of the not-used parameters will be -1.
+X
+X    A number of values are described as unused or not applicable to some
+X    object even though they are defined for those objects.  These value
+X    will (hopefully) be used in the future version of fig.  The intention
+X    of their uses are the following.
+X
+X	Value			Usage
+X	-----			-----
+X	area_fill	The gray color for filling object internals.
+X			Non-TFX:(gray color; 0=no fill,1=white,21=black)
+X			TFX:	(gray color; 0=no fill,1=black, 5=white)
+X
+X	pen		This will be a structure defining the shape of
+X			pen used in drawing objects.  It also includes
+X			the the stipple pattern for line filling.
+X			The default pen is a circular pen with black
+X			filling.
+X
+X	thickness	Every pen has the thickness of one.
+X			Thickness scales the size of a pen. 
+X
+X	depth		This value adds a half dimension to fig.
+X			It is useful when we have overlapping filled
+X			objects and we want one to obliterate another.
+X			An object can have only one depth (including
+X			compound object).  An object that is in less
+X			depth can obscure the one with greater depth
+X			if they overlap.
+X	
+X	style		Three line styles are defined.
+X
+X				0 : SOLID_LINE
+X				1 : DASH_LINE
+X				2 : DOTTED_LINE
+X
+X	style_val	For dash style, it is the length of a dash.
+X			For dotted line it indicates the approximated
+X			gap of consecutive dots. 
+X	
+X	radius		For rounded-corner boxes, this is the radius of
+X			the corners.
+X
+X    (3.1) ELLIPSE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 1)
+X	int	sub_type		(1 : ellipse defined by radiuses
+X					 2 : ellipse defined by diameters
+X					 3 : circle defined by radius
+X					 4 : circle defined by diameter)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	direction		(always 1)
+X	float	angle			(radian, the angle of the x-axis)
+X	int	center_x, center_y	(pixels)
+X	int	radius_x, radius_y	(pixels)
+X	int	start_x, start_y	(pixels; the 1st point entered)
+X	int	end_x, end_y		(pixels; the last point entered)
+X
+X    (3.2) POLYLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 2)
+X	int	sub_type		(1 : polyline, 2 : box, 
+X					 3 : polygon, 4 : rounded-corner box)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill	*	(gray color)
+X	float	style_val		(pixels)
+X	int	radius		**	(pixels, radius of rounded-corner boxes)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X*  Fill only available for box, polygon and rounded-corner box, not polyline.
+X** This component exists only in rounded-corner box object.
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	x1, y1			(pixels)
+X	int	x2, y2			(pixels)
+X	  .
+X	  .
+X	int	xn, yn			(this will be the same as the 1st
+X					point for polygon and box)
+X	int	x, y			(always 9999, 9999; marks the end of
+X					point for polygon and box)
+X
+X    (3.3) SPLINE
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 3)
+X	int	sub_type		(0 : open spline
+X					 1 : closed spline
+X					 2 : open interpolated spline
+X					 3 : closed interpolated spline)
+X	int	style			(See the end of this section)
+X	int	thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	forward_arrow		(0: off, 1: on)
+X	int	backward_arrow		(0: off, 1: on)
+X
+X    Forward arrow line : same as ARC object
+X
+X    Backward arrow line : same as ARC object
+X
+X    Points line : same as POLYLINE object
+X
+X    Control points line (absent if sub_type is 1 or 2) :
+X	Control points of interpolated spline.  There are two control
+X	points for each knots.  A section i, of the spline is drawn
+X	using Bezier cubic with the following four points:
+X		(x ,y ), (rx ,ry ), (lx	  , ly   ), (x   , y   ).
+X		  i  i	    i	i      i+1    i+1     i+1   i+1
+X	For closed interpolated spline the last pair of control points,
+X	(lxn,lyn) and (rxn,ryn) (which can be ignored), are the same as
+X	(lx1,ly1) and (rx1,ry1) respectively.
+X
+X	type	name			(brief description)
+X	----	----			-------------------
+X	float	lx1, ly1		(pixels)
+X	float	rx1, ry1		(pixels)
+X	float	lx2, ly2		(pixels)
+X	float	rx2, ry2		(pixels)
+X	  .
+X	  .
+X	float	lxn, lyn		(pixels)
+X	float	rxn, ryn		(pixels)
+X
+X    (3.4) TEXT
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object 			(always 4)
+X	int	sub_type		(0 : Left justified
+X					 1 : Center justified
+X					 2 : Right justified)
+X	int	font 			(font number 0-...)
+X	int	font_size 		(point size)
+X	int	pen			(not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	float	angle			(radian, not used, the angle of the
+X					the base line of the string)
+X	int	font_style		(not used)
+X	int	height			(pixels)
+X	int	length			(pixels)
+X	int	x, y			(pixels, coordinate of the origin
+X					 of the string.  If sub_type = 0, it is
+X					 the lower left corner of the string.
+X					 If sub_type = 1, it is the lower
+X					 center.  Otherwise it is the lower
+X					 right corner of the string.)
+X	char	string[]		(ascii characters; starts after a blank
+X					character following the last number and
+X					ends before the character '\1'.  This
+X					character is not part of the string.
+X					Note that the string may contain '\n'.)
+X    (3.5) ARC
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 5)
+X	int	sub_type		(always	1)
+X	int	style			(See the end of this section)
+X	int	line_thickness		(pixels, not used)
+X	int	color			(not used)
+X	int	depth			(not used)
+X	int	pen			(not used)
+X	int	area_fill		(gray color)
+X	float	style_val		(pixels, not used)
+X	int	direction		(0 : clockwise, 1 : counterclockwise)
+X	int	forward_arrow		(0: no forward arrow, 1: on)
+X	int	backward_arrow		(0: no forward arrow, 1: on)
+X	float	center_x, center_y	(center of the arc)
+X	int	x1, y1			(pixels, the 1st point the user entered)
+X	int	x2, y2			(pixels, the 2nd point)
+X	int	x3, y3			(pixels, the last point)
+X
+X    Forward arrow line (Optional; absent if forward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	float	arrow_thickness		(not used)
+X	float	arrow_width		(pixels)
+X	float	arrow_height		(pixels)
+X
+X    Backward arrow line (Optional; absent if backward_arrow is 0) :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	arrow_type		(not used)
+X	int	arrow_style		(not used)
+X	float	arrow_thickness		(not used)
+X	float	arrow_width		(pixels)
+X	float	arrow_height		(pixels)
+X
+X    (3.6) COMPOUND
+X
+X    A line with object code 6 signifies the start of a compound.
+X    There are four more numbers on this line which indicate the
+X    upper right corner and the lower left corner of the bounding
+X    box of this compound.  A line with object code -6 signifies
+X    the end of the compound.  Compound may be nested.
+X
+X    First line :
+X	type	name			(brief description)
+X	----	----			-------------------
+X	int	object_code		(always 6)
+X	int	upperright_corner_x	(pixels)
+X	int	upperright_corner_y	(pixels)
+X	int	lowerleft_corner_x	(pixels)
+X	int	lowerleft_corner_y	(pixels)
+X
+X    Subsequent lines :
+X	objects
+X	.
+X	.
+X
+X    Last line :
+X	-6
+X
+X
+END_OF_FILE
+if test 9404 -ne `wc -c <'Doc/FORMAT2.0'`; then
+    echo shar: \"'Doc/FORMAT2.0'\" unpacked with wrong size!
+fi
+# end of 'Doc/FORMAT2.0'
+fi
+if test -f 'd_ellipse.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'d_ellipse.c'\"
+else
+echo shar: Extracting \"'d_ellipse.c'\" \(9065 characters\)
+sed "s/^X//" >'d_ellipse.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_elastic.h"
+X#include "u_list.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+X/*************************  local procedures  ********************/
+X
+Xstatic int	init_ellipsebyradius_drawing();
+Xstatic int	init_ellipsebydiameter_drawing();
+Xstatic int	init_circlebyradius_drawing();
+Xstatic int	init_circlebydiameter_drawing();
+Xstatic int	create_ellipsebydia();
+Xstatic int	create_ellipsebyrad();
+Xstatic int	create_circlebyrad();
+Xstatic int	create_circlebydia();
+Xstatic int	cancel_ellipsebydia();
+Xstatic int	cancel_ellipsebyrad();
+Xstatic int	cancel_circlebyrad();
+Xstatic int	cancel_circlebydia();
+X
+Xellipsebyradius_drawing_selected()
+X{
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    canvas_leftbut_proc = init_ellipsebyradius_drawing;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(arrow_cursor);
+X    set_mousefun("center point", "", "");
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_ellipsebyradius_drawing(x, y)
+X    int		    x, y;
+X{
+X    cur_x = fix_x = x;
+X    cur_y = fix_y = y;
+X    center_marker(fix_x, fix_y);
+X    set_mousefun("corner point", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_locmove_proc = resizing_ebr;
+X    canvas_rightbut_proc = cancel_ellipsebyrad;
+X    canvas_leftbut_proc = create_ellipsebyrad;
+X    set_temp_cursor(null_cursor);
+X    elastic_ebr();
+X    set_action_on();
+X}
+X
+Xstatic
+Xcancel_ellipsebyrad()
+X{
+X    elastic_ebr();
+X    center_marker(fix_x, fix_y);
+X    ellipsebyradius_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcreate_ellipsebyrad(x, y)
+X    int		    x, y;
+X{
+X    F_ellipse	   *ellipse;
+X
+X    elastic_ebr();
+X    center_marker(fix_x, fix_y);
+X    if ((ellipse = create_ellipse()) == NULL)
+X	return;
+X
+X    ellipse->type = T_ELLIPSE_BY_RAD;
+X    ellipse->style = cur_linestyle;
+X    ellipse->thickness = cur_linewidth;
+X    ellipse->style_val = cur_styleval * (cur_linewidth + 1) / 2;
+X    ellipse->angle = cur_angle;
+X    ellipse->color = cur_color;
+X    ellipse->depth = 0;
+X    ellipse->pen = 0;
+X    ellipse->fill_style = cur_fillstyle;
+X    ellipse->direction = 1;
+X    ellipse->center.x = fix_x;
+X    ellipse->center.y = fix_y;
+X    ellipse->radiuses.x = abs(x - fix_x) + 1;
+X    ellipse->radiuses.y = abs(y - fix_y) + 1;
+X    ellipse->start.x = fix_x;
+X    ellipse->start.y = fix_y;
+X    ellipse->end.x = x;
+X    ellipse->end.y = y;
+X    ellipse->next = NULL;
+X    draw_ellipse(ellipse, PAINT);
+X    add_ellipse(ellipse);
+X    ellipsebyradius_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xellipsebydiameter_drawing_selected()
+X{
+X    set_mousefun("first corner", "", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    canvas_leftbut_proc = init_ellipsebydiameter_drawing;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(arrow_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_ellipsebydiameter_drawing(x, y)
+X    int		    x, y;
+X{
+X    cur_x = fix_x = x;
+X    cur_y = fix_y = y;
+X    center_marker(fix_x, fix_y);
+X    set_mousefun("final corner", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_locmove_proc = resizing_ebd;
+X    canvas_rightbut_proc = cancel_ellipsebydia;
+X    canvas_leftbut_proc = create_ellipsebydia;
+X    set_temp_cursor(null_cursor);
+X    elastic_ebd();
+X    set_action_on();
+X}
+X
+Xstatic
+Xcancel_ellipsebydia()
+X{
+X    elastic_ebd();
+X    center_marker(fix_x, fix_y);
+X    ellipsebydiameter_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcreate_ellipsebydia(x, y)
+X    int		    x, y;
+X{
+X    F_ellipse	   *ellipse;
+X
+X    elastic_ebd();
+X    center_marker(fix_x, fix_y);
+X    if ((ellipse = create_ellipse()) == NULL)
+X	return;
+X
+X    ellipse->type = T_ELLIPSE_BY_DIA;
+X    ellipse->style = cur_linestyle;
+X    ellipse->thickness = cur_linewidth;
+X    ellipse->style_val = cur_styleval * (cur_linewidth + 1) / 2;
+X    ellipse->angle = cur_angle;
+X    ellipse->color = cur_color;
+X    ellipse->depth = 0;
+X    ellipse->pen = NULL;
+X    ellipse->fill_style = cur_fillstyle;
+X    ellipse->direction = 1;
+X    ellipse->center.x = (fix_x + x) / 2;
+X    ellipse->center.y = (fix_y + y) / 2;
+X    ellipse->radiuses.x = abs(ellipse->center.x - fix_x);
+X    ellipse->radiuses.y = abs(ellipse->center.y - fix_y);
+X    ellipse->start.x = fix_x;
+X    ellipse->start.y = fix_y;
+X    ellipse->end.x = x;
+X    ellipse->end.y = y;
+X    ellipse->next = NULL;
+X    draw_ellipse(ellipse, PAINT);
+X    add_ellipse(ellipse);
+X    ellipsebydiameter_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+X/***************************  circle  section  ************************/
+X
+Xcirclebyradius_drawing_selected()
+X{
+X    set_mousefun("center point", "", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    canvas_leftbut_proc = init_circlebyradius_drawing;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(arrow_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_circlebyradius_drawing(x, y)
+X    int		    x, y;
+X{
+X    cur_x = fix_x = x;
+X    cur_y = fix_y = y;
+X    center_marker(fix_x, fix_y);
+X    set_mousefun("set radius", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_locmove_proc = resizing_cbr;
+X    canvas_rightbut_proc = cancel_circlebyrad;
+X    canvas_leftbut_proc = create_circlebyrad;
+X    set_temp_cursor(null_cursor);
+X    elastic_cbr();
+X    set_action_on();
+X}
+X
+Xstatic
+Xcancel_circlebyrad()
+X{
+X    elastic_cbr();
+X    center_marker(fix_x, fix_y);
+X    circlebyradius_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcreate_circlebyrad(x, y)
+X    int		    x, y;
+X{
+X    F_ellipse	   *c;
+X    int		    rx, ry;
+X
+X    elastic_cbr();
+X    center_marker(fix_x, fix_y);
+X    if ((c = create_ellipse()) == NULL)
+X	return;
+X
+X    c->type = T_CIRCLE_BY_RAD;
+X    c->style = cur_linestyle;
+X    c->thickness = cur_linewidth;
+X    c->style_val = cur_styleval * (cur_linewidth + 1) / 2;
+X    c->angle = 0.0;
+X    c->color = cur_color;
+X    c->depth = 0;
+X    c->pen = NULL;
+X    c->fill_style = cur_fillstyle;
+X    c->direction = 1;
+X    c->center.x = fix_x;
+X    c->center.y = fix_y;
+X    rx = fix_x - x;
+X    ry = fix_y - y;
+X    c->radiuses.x = c->radiuses.y = round(sqrt((double) (rx * rx + ry * ry)));
+X    c->start.x = fix_x;
+X    c->start.y = fix_y;
+X    c->end.x = fix_x + c->radiuses.x;
+X    c->end.y = fix_y + c->radiuses.y;
+X    c->next = NULL;
+X    draw_ellipse(c, PAINT);
+X    add_ellipse(c);
+X    circlebyradius_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xcirclebydiameter_drawing_selected()
+X{
+X    set_mousefun("diameter point", "", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    canvas_leftbut_proc = init_circlebydiameter_drawing;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(arrow_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_circlebydiameter_drawing(x, y)
+X    int		    x, y;
+X{
+X    cur_x = fix_x = x;
+X    cur_y = fix_y = y;
+X    center_marker(fix_x, fix_y);
+X    set_mousefun("final point", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_locmove_proc = resizing_cbd;
+X    canvas_leftbut_proc = create_circlebydia;
+X    canvas_rightbut_proc = cancel_circlebydia;
+X    set_temp_cursor(null_cursor);
+X    elastic_cbd();
+X    set_action_on();
+X}
+X
+Xstatic
+Xcancel_circlebydia()
+X{
+X    elastic_cbd();
+X    center_marker(fix_x, fix_y);
+X    circlebydiameter_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcreate_circlebydia(x, y)
+X    int		    x, y;
+X{
+X    F_ellipse	   *c;
+X    int		    rx, ry;
+X
+X    elastic_cbd();
+X    center_marker(fix_x, fix_y);
+X    if ((c = create_ellipse()) == NULL)
+X	return;
+X
+X    c->type = T_CIRCLE_BY_DIA;
+X    c->style = cur_linestyle;
+X    c->thickness = cur_linewidth;
+X    c->style_val = cur_styleval * (cur_linewidth + 1) / 2;
+X    c->angle = 0.0;
+X    c->color = cur_color;
+X    c->depth = 0;
+X    c->pen = NULL;
+X    c->fill_style = cur_fillstyle;
+X    c->direction = 1;
+X    c->center.x = (fix_x + x) / 2 + .5;
+X    c->center.y = (fix_y + y) / 2 + .5;
+X    rx = x - c->center.x;
+X    ry = y - c->center.y;
+X    c->radiuses.x = c->radiuses.y = round(sqrt((double) (rx * rx + ry * ry)));
+X    c->start.x = fix_x;
+X    c->start.y = fix_y;
+X    c->end.x = x;
+X    c->end.y = y;
+X    c->next = NULL;
+X    draw_ellipse(c, PAINT);
+X    add_ellipse(c);
+X    circlebydiameter_drawing_selected();
+X    draw_mousefun_canvas();
+X}
+END_OF_FILE
+if test 9065 -ne `wc -c <'d_ellipse.c'`; then
+    echo shar: \"'d_ellipse.c'\" unpacked with wrong size!
+fi
+# end of 'd_ellipse.c'
+fi
+if test -f 'e_addpt.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_addpt.c'\"
+else
+echo shar: Extracting \"'e_addpt.c'\" \(8363 characters\)
+sed "s/^X//" >'e_addpt.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_elastic.h"
+X#include "u_search.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+Xextern void	force_positioning();
+Xextern void	force_nopositioning();
+X
+Xstatic int	init_point_adding();
+Xstatic int	fix_linepoint_adding();
+Xstatic int	mm_fix_linepoint_adding();
+Xstatic int	fix_splinepoint_adding();
+Xstatic int	init_splinepointadding();
+Xstatic int	init_linepointadding();
+Xstatic int	find_endpoints();
+X
+Xpoint_adding_selected()
+X{
+X    set_mousefun("break/add here", "", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_point_adding);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_middlebut_proc = null_proc;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick9_cursor);
+X    force_nopositioning();
+X    constrained = MOVE_ARB;
+X}
+X
+Xstatic int
+Xinit_point_adding(p, type, x, y, px, py)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X{
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) p;
+X	/* the search routine will ensure that we don't have a box */
+X	init_linepointadding(px, py);
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) p;
+X	init_splinepointadding(px, py);
+X	break;
+X    default:
+X	return;
+X    }
+X    force_positioning();
+X}
+X
+Xstatic
+Xwrapup_pointadding()
+X{
+X    reset_action_on();
+X    point_adding_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xcancel_pointadding()
+X{
+X    elastic_linelink();
+X    wrapup_pointadding();
+X}
+X
+Xstatic
+Xcancel_line_pointadding()
+X{
+X    if (left_point != NULL && right_point != NULL)
+X	pw_vector(canvas_win, left_point->x, left_point->y,
+X		  right_point->x, right_point->y, INV_PAINT,
+X		  cur_l->thickness, cur_l->style, cur_l->style_val,
+X		  cur_l->color);
+X    cancel_pointadding();
+X}
+X
+X/**************************  spline  *******************************/
+X
+Xstatic int
+Xinit_splinepointadding(px, py)
+X    int		    px, py;
+X{
+X    set_action_on();
+X    set_mousefun("place new point", "", "cancel");
+X    draw_mousefun_canvas();
+X    find_endpoints(cur_s->points, px, py, &left_point, &right_point);
+X    set_temp_cursor(null_cursor);
+X    cur_x = px;
+X    cur_y = py;
+X    if (left_point == NULL && closed_spline(cur_s)) {
+X	/* The added_point is between the 1st and 2nd point. */
+X	left_point = right_point;
+X	right_point = right_point->next;
+X    }
+X    elastic_linelink();
+X    canvas_locmove_proc = extending_line;
+X    canvas_leftbut_proc = fix_splinepoint_adding;
+X    canvas_rightbut_proc = cancel_pointadding;;
+X}
+X
+Xstatic
+Xfix_splinepoint_adding(x, y)
+X    int		    x, y;
+X{
+X    F_point	   *p;
+X
+X    if ((p = create_point()) == NULL) {
+X	wrapup_pointadding();
+X	return;
+X    }
+X    p->x = x;
+X    p->y = y;
+X    elastic_linelink();
+X    splinepoint_adding(cur_s, left_point, p, right_point);
+X    wrapup_pointadding();
+X}
+X
+X/*
+X * Added_point is always inserted between left_point and
+X * right_point, except in two cases. (1) left_point is NULL, the added_point
+X * will be prepended to the list of points. This case will never occur if the
+X * spline is closed (periodic). (2) right_point is NULL, the added_point will
+X * be appended to the end of the list.
+X */
+X
+Xsplinepoint_adding(spline, left_point, added_point, right_point)
+X    F_spline	   *spline;
+X    F_point	   *left_point, *added_point, *right_point;
+X{
+X    F_control	   *c;
+X
+X    if (int_spline(spline)) {	/* Interpolated spline */
+X	if ((c = create_cpoint()) == NULL)
+X	    return;
+X    }
+X    set_temp_cursor(wait_cursor);
+X    mask_toggle_splinemarker(spline);
+X    draw_spline(spline, ERASE); /* erase old spline */
+X    if (left_point == NULL) {
+X	added_point->next = spline->points;
+X	spline->points = added_point;
+X    } else {
+X	added_point->next = right_point;
+X	left_point->next = added_point;
+X    }
+X
+X    if (int_spline(spline)) {	/* Interpolated spline */
+X	c->next = spline->controls;
+X	spline->controls = c;
+X	remake_control_points(spline);
+X    }
+X    draw_spline(spline, PAINT); /* draw the modified spline */
+X    mask_toggle_splinemarker(spline);
+X    clean_up();
+X    set_modifiedflag();
+X    set_last_prevpoint(left_point);
+X    set_last_selectedpoint(added_point);
+X    set_action_object(F_ADD_POINT, O_SPLINE);
+X    set_latestspline(spline);
+X    reset_cursor();
+X}
+X
+X/***************************  line  ********************************/
+X
+Xstatic int
+Xinit_linepointadding(px, py)
+X    int		    px, py;
+X{
+X    set_action_on();
+X    set_mousefun("place new point", "", "cancel");
+X    draw_mousefun_canvas();
+X    find_endpoints(cur_l->points, px, py, &left_point, &right_point);
+X    set_temp_cursor(null_cursor);
+X    win_setmouseposition(canvas_win, px, py);
+X
+X    /* set cur_x etc at new point coords */
+X    cur_x = fix_x = px;
+X    cur_y = fix_y = py;
+X    if (left_point == NULL && cur_l->type == T_POLYGON) {
+X	left_point = right_point;
+X	right_point = right_point->next;
+X    }
+X    /* erase line segment where new point is */
+X    if (left_point != NULL && right_point != NULL)
+X	pw_vector(canvas_win, left_point->x, left_point->y,
+X		  right_point->x, right_point->y, ERASE,
+X		  cur_l->thickness, cur_l->style, cur_l->style_val,
+X		  cur_l->color);
+X
+X    /* draw in rubber-band line */
+X    elastic_linelink();
+X    if (latexline_mode || latexarrow_mode) {
+X	canvas_locmove_proc = latex_line;
+X	canvas_leftbut_proc = mm_fix_linepoint_adding;
+X    }
+X    if ((mountain_mode || manhattan_mode) &&
+X	(left_point == NULL || right_point == NULL)) {
+X	canvas_locmove_proc = constrainedangle_line;
+X	canvas_leftbut_proc = mm_fix_linepoint_adding;
+X    } else {
+X	canvas_locmove_proc = reshaping_line;
+X	canvas_leftbut_proc = fix_linepoint_adding;
+X    }
+X    canvas_rightbut_proc = cancel_line_pointadding;;
+X}
+X
+Xstatic
+Xfix_linepoint_adding(x, y)
+X    int		    x, y;
+X{
+X    F_point	   *p;
+X
+X    if ((p = create_point()) == NULL) {
+X	wrapup_pointadding();
+X	return;
+X    }
+X    p->x = x;
+X    p->y = y;
+X    elastic_linelink();
+X    linepoint_adding(cur_l, left_point, p, right_point);
+X    wrapup_pointadding();
+X}
+X
+Xstatic
+Xmm_fix_linepoint_adding()
+X{
+X    F_point	   *p;
+X
+X    if ((p = create_point()) == NULL) {
+X	wrapup_pointadding();
+X	return;
+X    }
+X    p->x = cur_x;
+X    p->y = cur_y;
+X    elastic_linelink();
+X    linepoint_adding(cur_l, left_point, p, right_point);
+X    wrapup_pointadding();
+X}
+X
+Xlinepoint_adding(line, left_point, added_point, right_point)
+X    F_line	   *line;
+X    F_point	   *left_point, *added_point, *right_point;
+X{
+X    mask_toggle_linemarker(line);
+X    draw_line(line, ERASE);
+X    if (left_point == NULL) {
+X	added_point->next = line->points;
+X	line->points = added_point;
+X    } else {
+X	added_point->next = left_point->next;
+X	left_point->next = added_point;
+X    }
+X    draw_line(line, PAINT);
+X    clean_up();
+X    mask_toggle_linemarker(line);
+X    set_action_object(F_ADD_POINT, O_POLYLINE);
+X    set_latestline(line);
+X    set_last_prevpoint(left_point);
+X    set_last_selectedpoint(added_point);
+X    set_modifiedflag();
+X}
+X
+X/*******************************************************************/
+X
+X/*
+X * If (x,y) is close to a point, q, fp points to q and sp points to q->next
+X * (right).  However if q is the first point, fp contains NULL and sp points
+X * to q.
+X */
+X
+Xstatic int
+Xfind_endpoints(p, x, y, fp, sp)
+X    F_point	   *p, **fp, **sp;
+X    int		    x, y;
+X{
+X    int		    d;
+X    F_point	   *a = NULL, *b = p;
+X
+X    if (x == b->x && y == b->y) {
+X	*fp = a;
+X	*sp = b;
+X	return;
+X    }
+X    for (a = p, b = p->next; b != NULL; a = b, b = b->next) {
+X	if (x == b->x && y == b->y) {
+X	    *fp = b;
+X	    *sp = b->next;
+X	    return;
+X	}
+X	if (close_to_vector(a->x, a->y, b->x, b->y, x, y, 1, 1.0, &d, &d)) {
+X	    *fp = a;
+X	    *sp = b;
+X	    return;
+X	}
+X    }
+X    *fp = a;
+X    *sp = b;
+X}
+END_OF_FILE
+if test 8363 -ne `wc -c <'e_addpt.c'`; then
+    echo shar: \"'e_addpt.c'\" unpacked with wrong size!
+fi
+# end of 'e_addpt.c'
+fi
+if test -f 'e_delete.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_delete.c'\"
+else
+echo shar: Extracting \"'e_delete.c'\" \(6252 characters\)
+sed "s/^X//" >'e_delete.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_search.h"
+X#include "u_list.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X
+Xstatic int	init_delete();
+Xstatic int	init_delete_region(), delete_region(), cancel_delete_region();
+Xstatic int	init_delete_to_scrap();
+X
+Xdelete_selected()
+X{
+X    set_mousefun("delete object", "delete region", "del to cut buf");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_delete);
+X    init_searchproc_right(init_delete_to_scrap);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_rightbut_proc = object_search_right;
+X    canvas_middlebut_proc = init_delete_region;
+X    set_cursor(buster_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_delete(p, type, x, y, px, py)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X{
+X    switch (type) {
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) p;
+X	delete_compound(cur_c);
+X	redisplay_compound(cur_c);
+X	break;
+X    case O_POLYLINE:
+X	cur_l = (F_line *) p;
+X	delete_line(cur_l);
+X	redisplay_line(cur_l);
+X	break;
+X    case O_TEXT:
+X	cur_t = (F_text *) p;
+X	delete_text(cur_t);
+X	redisplay_text(cur_t);
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) p;
+X	delete_ellipse(cur_e);
+X	redisplay_ellipse(cur_e);
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) p;
+X	delete_arc(cur_a);
+X	redisplay_arc(cur_a);
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) p;
+X	delete_spline(cur_s);
+X	redisplay_spline(cur_s);
+X	break;
+X    default:
+X	return;
+X    }
+X}
+X
+Xstatic
+Xinit_delete_region(x, y)
+X    int		    x, y;
+X{
+X    init_box_drawing(x, y);
+X    set_mousefun("", "final corner", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_leftbut_proc = null_proc;
+X    canvas_middlebut_proc = delete_region;
+X    canvas_rightbut_proc = cancel_delete_region;
+X}
+X
+Xstatic
+Xcancel_delete_region()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    delete_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xdelete_region(x, y)
+X    int		    x, y;
+X{
+X    F_compound	   *c;
+X
+X    if ((c = create_compound()) == NULL)
+X	return;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    c->nwcorner.x = min2(fix_x, x);
+X    c->nwcorner.y = min2(fix_y, y);
+X    c->secorner.x = max2(fix_x, x);
+X    c->secorner.y = max2(fix_y, y);
+X    tag_obj_in_region(c->nwcorner.x,c->nwcorner.y,c->secorner.x,c->secorner.y);
+X    if (compose_compound(c) == 0) {
+X	free((char *) c);
+X	delete_selected();
+X	draw_mousefun_canvas();
+X	put_msg("Empty region, figure unchanged");
+X	return;
+X    }
+X    clean_up();
+X    toggle_markers_in_compound(c);
+X    set_tags(c,0);
+X    set_latestobjects(c);
+X    tail(&objects, &object_tails);
+X    append_objects(&objects, &saved_objects, &object_tails);
+X    cut_objects(&objects, &object_tails);
+X    set_action_object(F_DELETE, O_ALL_OBJECT);
+X    set_modifiedflag();
+X    redisplay_compound(c);
+X    delete_selected();
+X    draw_mousefun_canvas();
+X}
+X
+Xstatic
+Xinit_delete_to_scrap(p, type, x, y, px, py)
+X    char	   *p;
+X    int		    type;
+X    int		    x, y;
+X    int		    px, py;
+X{
+X    extern char	    cut_buf_name[];
+X    extern char	    file_header[];
+X
+X    FILE	   *fp;
+X    struct stat	    file_status;
+X
+X    if (stat(cut_buf_name, &file_status) == 0) {	/* file exists */
+X	if (file_status.st_mode & S_IFDIR) {
+X	    put_msg("Error: \"%s\" is a directory", cut_buf_name);
+X	    return;
+X	}
+X	if (file_status.st_mode & S_IWRITE) {	/* writing is permitted */
+X	    if (file_status.st_uid != geteuid()) {
+X		put_msg("Error: access denied to cut file");
+X		return;
+X	    }
+X	} else {
+X	    put_msg("Error: cut file is read only");
+X	    return;
+X	}
+X    } else if (errno != ENOENT) {
+X	put_msg("Error: cut file didn't pass stat check");
+X	return;			/* file does exist but stat fails */
+X    }
+X    if ((fp = fopen(cut_buf_name, "w")) == NULL) {
+X	put_msg("Error: couldn't open cut file %s", sys_errlist[errno]);
+X	return;
+X    } else {
+X	(void) fprintf(fp, "%s\n", file_header);
+X	(void) fprintf(fp, "%d %d\n", PIX_PER_INCH, 2);
+X    }
+X
+X    switch (type) {
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) p;
+X	write_compound(fp, cur_c);
+X	delete_compound(cur_c);
+X	redisplay_compound(cur_c);
+X	break;
+X    case O_POLYLINE:
+X	cur_l = (F_line *) p;
+X	write_line(fp, cur_l);
+X	delete_line(cur_l);
+X	redisplay_line(cur_l);
+X	break;
+X    case O_TEXT:
+X	cur_t = (F_text *) p;
+X	write_text(fp, cur_t);
+X	delete_text(cur_t);
+X	redisplay_text(cur_t);
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) p;
+X	write_ellipse(fp, cur_e);
+X	delete_ellipse(cur_e);
+X	redisplay_ellipse(cur_e);
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) p;
+X	write_arc(fp, cur_a);
+X	delete_arc(cur_a);
+X	redisplay_arc(cur_a);
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) p;
+X	write_spline(fp, cur_s);
+X	delete_spline(cur_s);
+X	redisplay_spline(cur_s);
+X	break;
+X    default:
+X	fclose(fp);
+X	return;
+X    }
+X    put_msg("Object deleted to scrap");
+X    fclose(fp);
+X}
+X
+Xdelete_all()
+X{
+X    clean_up();
+X    set_action_object(F_DELETE, O_ALL_OBJECT);
+X
+X    /*
+X     * Aggregate assignment between variables is allowed, but not from
+X     * constant (weird!?)
+X     */
+X
+X    set_latestobjects(&objects);
+X
+X    objects.arcs = NULL;
+X    objects.compounds = NULL;
+X    objects.ellipses = NULL;
+X    objects.lines = NULL;
+X    objects.splines = NULL;
+X    objects.texts = NULL;
+X
+X    object_tails.arcs = NULL;
+X    object_tails.compounds = NULL;
+X    object_tails.ellipses = NULL;
+X    object_tails.lines = NULL;
+X    object_tails.splines = NULL;
+X    object_tails.texts = NULL;
+X}
+END_OF_FILE
+if test 6252 -ne `wc -c <'e_delete.c'`; then
+    echo shar: \"'e_delete.c'\" unpacked with wrong size!
+fi
+# end of 'e_delete.c'
+fi
+if test -f 'object.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'object.h'\"
+else
+echo shar: Extracting \"'object.h'\" \(9014 characters\)
+sed "s/^X//" >'object.h' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#define		DEFAULT		      (-1)
+X#define		SOLID_LINE		0
+X#define		DASH_LINE		1
+X#define		DOTTED_LINE		2
+X#define		RUBBER_LINE		3
+X#define		PANEL_LINE		4
+X
+X#define		Color			long
+X
+X#define		BLACK			0
+X#define		WHITE			7
+X
+Xtypedef struct f_pattern {
+X    int		    w, h;
+X    int		   *p;
+X}
+X		F_pattern;
+X
+Xtypedef struct f_point {
+X    int		    x, y;
+X    struct f_point *next;
+X}
+X		F_point;
+X
+Xtypedef struct f_pos {
+X    int		    x, y;
+X}
+X		F_pos;
+X
+Xtypedef struct f_arrow {
+X    int		    type;
+X    int		    style;
+X    float	    thickness;
+X    float	    wid;
+X    float	    ht;
+X}
+X		F_arrow;
+X
+Xtypedef struct f_ellipse {
+X    int		    tagged;
+X    int		    type;
+X#define					T_ELLIPSE_BY_RAD	1
+X#define					T_ELLIPSE_BY_DIA	2
+X#define					T_CIRCLE_BY_RAD		3
+X#define					T_CIRCLE_BY_DIA		4
+X    int		    style;
+X    int		    thickness;
+X    Color	    color;
+X    int		    depth;
+X    int		    direction;
+X    float	    style_val;
+X    float	    angle;
+X    int		    pen;
+X    int		    fill_style;
+X#define					UNFILLED	0
+X#define					WHITE_FILL	1
+X#define					BLACK_FILL	21
+X    struct f_pos    center;
+X    struct f_pos    radiuses;
+X    struct f_pos    start;
+X    struct f_pos    end;
+X    struct f_ellipse *next;
+X}
+X		F_ellipse;
+X
+Xtypedef struct f_arc {
+X    int		    tagged;
+X    int		    type;
+X#define					T_3_POINTS_ARC		1
+X    int		    style;
+X    int		    thickness;
+X    Color	    color;
+X    int		    depth;
+X    int		    pen;
+X    int		    fill_style;
+X    float	    style_val;
+X    int		    direction;
+X    struct f_arrow *for_arrow;
+X    struct f_arrow *back_arrow;
+X    struct {
+X	float		x, y;
+X    }		    center;
+X    struct f_pos    point[3];
+X    struct f_arc   *next;
+X}
+X		F_arc;
+X
+X#define		CLOSED_PATH		0
+X#define		OPEN_PATH		1
+X#define		DEF_BOXRADIUS		7
+X#define		DEF_DASHLENGTH		4
+X#define		DEF_DOTGAP		3
+X
+Xtypedef struct f_eps {
+X    char	    file[256];
+X    int		    flipped;
+X    unsigned char  *bitmap;
+X    float	    hw_ratio;
+X    int		    size_x, size_y;
+X    struct f_pos    bit_size;
+X    Pixmap	    pixmap;
+X    int		    pix_rotation, pix_width, pix_height, pix_flipped;
+X}
+X		F_eps;
+X
+Xextern char	EMPTY_EPS[];
+X
+Xtypedef struct f_line {
+X    int		    tagged;
+X    int		    type;
+X#define					T_POLYLINE	1
+X#define					T_BOX		2
+X#define					T_POLYGON	3
+X#define					T_ARC_BOX	4
+X#define					T_EPS_BOX	5
+X    int		    style;
+X    int		    thickness;
+X    Color	    color;
+X    int		    depth;
+X    float	    style_val;
+X    int		    pen;
+X    int		    fill_style;
+X    int		    radius;	/* corner radius for T_ARC_BOX */
+X    struct f_arrow *for_arrow;
+X    struct f_arrow *back_arrow;
+X    struct f_point *points;
+X    struct f_eps   *eps;
+X    struct f_line  *next;
+X}
+X		F_line;
+X
+Xtypedef struct f_text {
+X    int		    tagged;
+X    int		    type;
+X#define					T_LEFT_JUSTIFIED	0
+X#define					T_CENTER_JUSTIFIED	1
+X#define					T_RIGHT_JUSTIFIED	2
+X    int		    font;
+X    int		    size;	/* point size */
+X    Color	    color;
+X    int		    depth;
+X    float	    angle;	/* in radian */
+X
+X    int		    flags;
+X#define					RIGID_TEXT		1
+X#define					SPECIAL_TEXT		2
+X#define					PSFONT_TEXT		4
+X#define					HIDDEN_TEXT		8
+X
+X    int		    height;	/* pixels */
+X    int		    length;	/* pixels */
+X    int		    base_x;
+X    int		    base_y;
+X    int		    pen;
+X    char	   *cstring;
+X    struct f_text  *next;
+X}
+X		F_text;
+X
+X#define MAXFONT(T) (psfont_text(T) ? NUM_PS_FONTS : NUM_LATEX_FONTS)
+X
+X#define		rigid_text(t) \
+X			(t->flags == DEFAULT \
+X				|| (t->flags & RIGID_TEXT))
+X
+X#define		special_text(t) \
+X			((t->flags != DEFAULT \
+X				&& (t->flags & SPECIAL_TEXT)))
+X
+X#define		psfont_text(t) \
+X			(t->flags != DEFAULT \
+X				&& (t->flags & PSFONT_TEXT))
+X
+X#define		hidden_text(t) \
+X			(t->flags != DEFAULT \
+X				&& (t->flags & HIDDEN_TEXT))
+X
+X#define		text_length(t) \
+X			(hidden_text(t) ? hidden_text_length : t->length)
+X
+X#define		using_ps	(cur_textflags & PSFONT_TEXT)
+X
+Xtypedef struct f_control {
+X    float	    lx, ly, rx, ry;
+X    struct f_control *next;
+X}
+X		F_control;
+X
+X#define		int_spline(s)		(s->type & 0x2)
+X#define		normal_spline(s)	(!(s->type & 0x2))
+X#define		closed_spline(s)	(s->type & 0x1)
+X#define		open_spline(s)		(!(s->type & 0x1))
+X
+Xtypedef struct f_spline {
+X    int		    tagged;
+X    int		    type;
+X#define					T_OPEN_NORMAL	0
+X#define					T_CLOSED_NORMAL 1
+X#define					T_OPEN_INTERP	2
+X#define					T_CLOSED_INTERP 3
+X    int		    style;
+X    int		    thickness;
+X    Color	    color;
+X    int		    depth;
+X    float	    style_val;
+X    int		    pen;
+X    int		    fill_style;
+X    struct f_arrow *for_arrow;
+X    struct f_arrow *back_arrow;
+X    /*
+X     * For T_OPEN_NORMAL and T_CLOSED_NORMAL points are control points while
+X     * they are knots for T_OPEN_INTERP and T_CLOSED_INTERP whose control
+X     * points are stored in controls.
+X     */
+X    struct f_point *points;
+X    struct f_control *controls;
+X    struct f_spline *next;
+X}
+X		F_spline;
+X
+Xtypedef struct f_compound {
+X    int		    tagged;
+X    struct f_pos    nwcorner;
+X    struct f_pos    secorner;
+X    struct f_line  *lines;
+X    struct f_ellipse *ellipses;
+X    struct f_spline *splines;
+X    struct f_text  *texts;
+X    struct f_arc   *arcs;
+X    struct f_compound *compounds;
+X    struct f_compound *next;
+X}
+X		F_compound;
+X
+Xtypedef struct f_linkinfo {
+X    struct f_line  *line;
+X    struct f_point *endpt;
+X    struct f_point *prevpt;
+X    int		    two_pts;
+X    struct f_linkinfo *next;
+X}
+X		F_linkinfo;
+X
+X#define		ARROW_SIZE		sizeof(struct f_arrow)
+X#define		POINT_SIZE		sizeof(struct f_point)
+X#define		CONTROL_SIZE		sizeof(struct f_control)
+X#define		ELLOBJ_SIZE		sizeof(struct f_ellipse)
+X#define		ARCOBJ_SIZE		sizeof(struct f_arc)
+X#define		LINOBJ_SIZE		sizeof(struct f_line)
+X#define		TEXOBJ_SIZE		sizeof(struct f_text)
+X#define		SPLOBJ_SIZE		sizeof(struct f_spline)
+X#define		COMOBJ_SIZE		sizeof(struct f_compound)
+X#define		EPS_SIZE		sizeof(struct f_eps)
+X#define		LINKINFO_SIZE		sizeof(struct f_linkinfo)
+X
+X/**********************	 object codes  **********************/
+X
+X#define		O_ELLIPSE		1
+X#define		O_POLYLINE		2
+X#define		O_SPLINE		3
+X#define		O_TEXT			4
+X#define		O_ARC			5
+X#define		O_COMPOUND		6
+X#define		O_END_COMPOUND		-O_COMPOUND
+X#define		O_ALL_OBJECT		99
+X
+X/*********************	object masks  ************************/
+X
+X#define M_NONE			0x000
+X#define M_POLYLINE_POLYGON	0x001
+X#define M_POLYLINE_LINE		0x002
+X#define M_POLYLINE_BOX		0x004	/* includes ARCBOX */
+X#define M_SPLINE_O_NORMAL	0x008
+X#define M_SPLINE_C_NORMAL	0x010
+X#define M_SPLINE_O_INTERP	0x020
+X#define M_SPLINE_C_INTERP	0x040
+X#define M_TEXT_NORMAL		0x080
+X#define M_TEXT_HIDDEN		0x100
+X#define M_ARC			0x200
+X#define M_ELLIPSE		0x400
+X#define M_COMPOUND		0x800
+X
+X#define M_TEXT		(M_TEXT_HIDDEN | M_TEXT_NORMAL)
+X#define M_SPLINE_O	(M_SPLINE_O_NORMAL | M_SPLINE_O_INTERP)
+X#define M_SPLINE_C	(M_SPLINE_C_NORMAL | M_SPLINE_C_INTERP)
+X#define M_SPLINE_NORMAL (M_SPLINE_O_NORMAL | M_SPLINE_C_NORMAL)
+X#define M_SPLINE_INTERP (M_SPLINE_O_INTERP | M_SPLINE_C_INTERP)
+X#define M_SPLINE	(M_SPLINE_NORMAL | M_SPLINE_INTERP)
+X#define M_POLYLINE	(M_POLYLINE_LINE | M_POLYLINE_POLYGON | M_POLYLINE_BOX)
+X#define M_VARPTS_OBJECT (M_POLYLINE_LINE | M_POLYLINE_POLYGON | M_SPLINE)
+X#define M_OPEN_OBJECT	(M_POLYLINE_LINE | M_SPLINE_O | M_ARC)
+X#define M_ROTATE_ANGLE	(M_VARPTS_OBJECT | M_ARC | M_TEXT | M_COMPOUND)
+X#define M_OBJECT	(M_ELLIPSE | M_POLYLINE | M_SPLINE | M_TEXT | M_ARC)
+X#define M_NO_TEXT	(M_ELLIPSE | M_POLYLINE | M_SPLINE | M_COMPOUND | M_ARC)
+X#define M_ALL		(M_OBJECT | M_COMPOUND)
+X
+X/************************  Objects  **********************/
+X
+Xextern F_compound objects;
+X
+X/************  global working pointers ************/
+X
+Xextern F_line  *cur_l, *new_l, *old_l;
+Xextern F_arc   *cur_a, *new_a, *old_a;
+Xextern F_ellipse *cur_e, *new_e, *old_e;
+Xextern F_text  *cur_t, *new_t, *old_t;
+Xextern F_spline *cur_s, *new_s, *old_s;
+Xextern F_compound *cur_c, *new_c, *old_c;
+Xextern F_point *first_point, *cur_point;
+Xextern F_linkinfo *cur_links;
+X
+X/*************** object attribute settings ***********/
+X
+X/*  Lines  */
+Xextern int	cur_linewidth;
+Xextern int	cur_linestyle;
+Xextern float	cur_dashlength;
+Xextern float	cur_dotgap;
+Xextern float	cur_styleval;
+Xextern int	pen_size;
+Xextern int	pen_type;
+Xextern Color	cur_color;
+Xextern int	cur_boxradius;
+Xextern int	cur_fillstyle;
+Xextern int	cur_arrowmode;
+X
+X/* Text */
+Xextern int	cur_fontsize;	/* font size */
+Xextern int	cur_latex_font;
+Xextern int	cur_ps_font;
+Xextern int	cur_textjust;
+Xextern int	cur_textflags;
+X
+X/* Misc */
+Xextern float	cur_angle;
+END_OF_FILE
+if test 9014 -ne `wc -c <'object.h'`; then
+    echo shar: \"'object.h'\" unpacked with wrong size!
+fi
+# end of 'object.h'
+fi
+echo shar: End of archive 17 \(of 25\).
+cp /dev/null ark17isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

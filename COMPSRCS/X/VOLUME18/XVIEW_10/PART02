@@ -1,0 +1,1361 @@
+Path: uunet!ogicse!uwm.edu!zaphod.mps.ohio-state.edu!sdd.hp.com!mips!msi!dcmartin
+From: jung@dia.informatik.uni-stuttgart.de (Norbert Jung)
+Newsgroups: comp.sources.x
+Subject: v18i058: xvier v1.0 - cute GO'ish game, Part02/02
+Message-ID: <1992Jul23.141649.27434@msi.com>
+Date: 23 Jul 92 14:16:49 GMT
+Article-I.D.: msi.1992Jul23.141649.27434
+References: <csx-18i057-xview-1.0@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 1347
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: Norbert Jung <jung@dia.informatik.uni-stuttgart.de>
+Posting-number: Volume 18, Issue 58
+Archive-name: xview-1.0/part02
+
+#!/bin/sh
+# this is part.02 (part 2 of a multipart archive)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file xvier.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 2; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping xvier.c'
+else
+echo 'x - continuing file xvier.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'xvier.c' &&
+X	  goto usage;
+X      }
+X    else if (strcmp(argv[i], "-iconic") == 0)
+X      iconic++;
+X    else if (strcmp(argv[i], "-level") == 0)
+X      if (++i == argc)
+X	goto usage;
+X      else {
+X	if (argv[i][0] == '+' ||
+X	    ('0' <= argv[i][0] && argv[i][0] <= '9'))
+X	  level = atoi(argv[i]);
+X	else
+X	  level = -1;
+X	if (level < 0 || level > 9) {
+X	  fprintf(stderr, "%s: level should be in the range 0..9\n", *argv);
+X	  exit(1);
+X	}
+X      }
+X    else {
+X    usage:
+X      fprintf(stderr, "usage: %s\t[-display <display>]\
+\n\t\t[-geometry <geometry>]\n\t\t[-fn <fontpattern>]\n\t\t[-iconic]\
+\n\t\t[-rows <rows>]\n\t\t[-columns <columns>]\
+\n\t\t[-prog <path>]\n\t\t[-level <num>]\n", *argv);
+X      exit(1);
+X    }
+X  }
+X  if ((mydisplay = XOpenDisplay(displayname)) == NULL) {
+X    if (displayname != NULL)
+X      fprintf(stderr, "%s: Couldn't open display \"%s\".\n",
+X	      *argv, displayname);
+X    else
+X      fprintf(stderr, "%s: Couldn't open display.\n", *argv);
+X    exit(1);
+X  }
+X  if (pipe(pipeo) < 0 || pipe(pipei) < 0) {
+X    perror("xvier pipe failed");
+X    exit(1);
+X  }
+X  switch (pid = fork()) {
+X  case -1:
+X    perror("xvier fork failed");
+X    exit(1);
+X  case 0:
+X    if (dup2(pipeo[0], 0) < 0 || dup2(pipei[1], 1) < 0) {
+X      perror("xvier dup2 failed");
+X      exit(1);
+X    }
+#ifdef NO_GETDTABSIZE
+#ifdef hpux
+X    for (i = _NFILE; i > 2; i--)
+#else
+X    for (i = sysconf(_SC_OPEN_MAX); i > 2; i--)
+#endif
+#else
+X    for (i = getdtablesize(); i > 2; i--)
+#endif
+X      close(i);
+X    for (i = 0; i < NSIG; i++)
+X      signal(i, SIG_DFL);
+X    sprintf(row_string, "%d", rows);
+X    sprintf(column_string, "%d", columns);
+X    av[0] = "xvier_prog";
+X    av[1] = row_string;
+X    av[2] = column_string;
+X    av[3] = (char *) NULL;
+X    execvp(progname, av);
+X    perror("xvier child exec");
+X    exit(1);
+X  default:
+X    close(pipeo[0]);
+X    close(pipei[1]);
+X  }
+#ifdef NO_SELECT
+X  pfd[0].fd = ConnectionNumber(mydisplay);
+X  pfd[1].fd = pipei[0];
+X  pfd[0].events = pfd[1].events = POLLIN;
+X  npfd = 2L;
+#else
+#ifdef NO_FD_SET
+X  fullfds = (1 << ConnectionNumber(mydisplay)) | (1 << pipei[0]);
+#else
+X  FD_ZERO(&fullfds);
+X  FD_SET(ConnectionNumber(mydisplay), &fullfds);
+X  FD_SET(pipei[0], &fullfds);
+#endif
+#endif
+X  for (i = 0; i < 6; i++) {
+X    if (read(pipei[0], &text[i], 1) < 1) {
+X      fprintf(stderr, "%s: read from xvier_prog failed\n", *argv);
+X      exit(1);
+X    }
+X    if (text[i] == 'C') {
+X      text[i+1] = '\0';
+X      break;
+X    }
+X  }
+X  text[6] = '\0';
+X  if (sscanf(text, "%dR%dC", &rows, &columns) != 2 ||
+X      rows < 4 || rows > MAXRC || columns < 4 || columns > MAXRC) {
+X    fprintf(stderr, "%s: wrong format from xvier_prog\n", *argv);
+X    exit(1);
+X  }
+X  columnfill = (int *)malloc(columns * sizeof(int));
+X  for (i = 0; i < columns; i++)
+X    columnfill[i] = 0;
+X  stone_x[0] = (int *)malloc(((columns * rows + 1) >> 1) * sizeof(int));
+X  stone_x[1] = (int *)malloc(((columns * rows + 1) >> 1) * sizeof(int));
+X  stone_y[0] = (int *)malloc(((columns * rows + 1) >> 1) * sizeof(int));
+X  stone_y[1] = (int *)malloc(((columns * rows + 1) >> 1) * sizeof(int));
+X  stone[0] = (XArc *)malloc(((columns * rows + 1) >> 1) * sizeof(XArc));
+X  stone[1] = (XArc *)malloc(((columns * rows + 1) >> 1) * sizeof(XArc));
+X  holes = (XArc *)malloc((columns * rows) * sizeof(XArc));
+X  myscreen = DefaultScreen(mydisplay);
+X  if (geostring != NULL) {
+X    char defaultstring[10];
+X
+X    sprintf(defaultstring, "%dx%d", DEFAULTWIDTH, DEFAULTHEIGHT);
+X    geo_ret = XGeometry(mydisplay, myscreen, geostring, defaultstring,
+X			TOPBORDERWIDTH, 1, 1, 0, 0,
+X			&userx, &usery, &userwidth, &userheight);
+X  } else
+X    geo_ret = 0;
+X  for (i = 0; i < ((columns * rows + 1) >> 1); i++) {
+X    stone[0][i].angle1 = stone[1][i].angle1 = 0;
+X    stone[0][i].angle2 = stone[1][i].angle2 = 360 * 64;
+X  }
+X  for (i = 0; i < columns * rows; i++) {
+X    holes[i].angle1 = 0;
+X    holes[i].angle2 = 360 * 64;
+X  }
+X  valuemask = 0;
+X  playercolor[0] = "WHITE";
+X  playercolor[1] = "BLACK";
+X  if (DefaultDepth(mydisplay, myscreen) == 1) {
+X    WHITE = YELLOW = WhitePixel(mydisplay, myscreen);
+X    BLACK = BLUE = RED = BlackPixel(mydisplay, myscreen);
+X  } else {
+X    Visual *vis = DefaultVisual(mydisplay, myscreen);
+X
+X    if (vis->class == GrayScale || vis->class == StaticGray ||
+X	vis->map_entries < 5)
+X      rgb_values = gray_values;
+X    else {
+X      rgb_values = color_values;
+X      playercolor[0] = "YELLOW";
+X      playercolor[1] = "RED";
+X    }
+X    cmap = DefaultColormap(mydisplay, myscreen);
+X    for (i = 0; i < 5; i++) {
+X      XColor color;
+X
+X      color.red   = rgb_values[i].red;
+X      color.green = rgb_values[i].green;
+X      color.blue  = rgb_values[i].blue;
+X      color.flags = DoRed | DoGreen | DoBlue;
+X    retry:
+X      if (XAllocColor(mydisplay, cmap, &color) == 0)
+X	if (!private_cmap) {
+X	  private_cmap = 1;
+X	  cmap = XCopyColormapAndFree(mydisplay, cmap);
+X	  goto retry;
+X	} else {
+X	  fprintf(stderr, "%s: Couldn't allocate color %d\n", *argv, i);
+X	  exit(2);
+X	}
+X      PixelArray[i] = color.pixel;
+X    }
+X    if (private_cmap) {
+X      attributes.colormap = cmap;
+X      valuemask |= CWColormap;
+X    }
+X  }
+X  sprintf(yellowmovestring, "%s to move", playercolor[0]);
+X  sprintf(redmovestring, "%s to move", playercolor[1]);
+X  messagestring[0] = yellowmovestring;
+X  messagestring[1] = redmovestring;
+X  messagestring[2] = "I win";
+X  messagestring[3] = "You win!";
+X  messagestring[4] = "Draw";
+X  attributes.background_pixel = WHITE;
+X  valuemask |= CWBackPixel;
+X  attributes.border_pixel = BLACK;
+X  valuemask |= CWBorderPixel;
+X  attributes.cursor = cursor_normal = XCreateFontCursor(mydisplay, XC_hand2);
+X  valuemask |= CWCursor;
+X  attributes.event_mask = KeyPressMask | ExposureMask | StructureNotifyMask;
+X  valuemask |= CWEventMask;
+X  attributes.do_not_propagate_mask = ButtonPressMask;
+X  valuemask |= CWDontPropagate;
+X  switch (geo_ret & (WidthValue | HeightValue)) {
+X  case 0:
+X    myhint.width = DEFAULTWIDTH;
+X    myhint.height = DEFAULTHEIGHT;
+X    myhint.flags = PSize;
+X    break;
+X  case WidthValue | HeightValue:
+X    if (userwidth < MINWIDTH) {
+X      if (geo_ret & XNegative)
+X	userx += userwidth - MINWIDTH;
+X      userwidth = MINWIDTH;
+X    }
+X    if (userheight < MINHEIGHT) {
+X      if (geo_ret & YNegative)
+X	usery += userheight - MINHEIGHT;
+X      userheight = MINHEIGHT;
+X    }
+#ifndef XVIER_WM_ASPECT_BUG
+X    if (userwidth * MINASPECTHEIGHT < userheight * MINASPECTWIDTH) {
+X      if (geo_ret & XNegative)
+X	userx += userwidth -
+X	  (userheight * MINASPECTWIDTH) / MINASPECTHEIGHT;
+X      userwidth = (userheight * MINASPECTWIDTH) / MINASPECTHEIGHT;
+X    }
+X    if (userwidth * MAXASPECTHEIGHT > userheight * MAXASPECTWIDTH) {
+X      if (geo_ret & YNegative)
+X	usery += userheight -
+X	  (userwidth * MAXASPECTHEIGHT) / MAXASPECTWIDTH;
+X      userheight = (userwidth * MAXASPECTHEIGHT) / MAXASPECTWIDTH;
+X    }
+#endif
+X    myhint.width = userwidth;
+X    myhint.height = userheight;
+X    myhint.flags = USSize;
+X    break;
+X  case WidthValue:
+X    if (userwidth < MINWIDTH) {
+X      if (geo_ret & XNegative)
+X	userx += userwidth - MINWIDTH;
+X      userwidth = MINWIDTH;
+X    }
+X    if (geo_ret & YNegative)
+X      usery += DEFAULTHEIGHT - (userwidth * DEFAULTHEIGHT) / DEFAULTWIDTH;
+X    myhint.width = userwidth;
+X    myhint.height = (userwidth * DEFAULTHEIGHT) / DEFAULTWIDTH;
+X    myhint.flags = USSize;
+X    break;
+X  case HeightValue:
+X    if (userheight < MINHEIGHT) {
+X      if (geo_ret & YNegative)
+X	usery += userheight - MINHEIGHT;
+X      userheight = MINHEIGHT;
+X    }
+X    if (geo_ret & XNegative)
+X      userx += DEFAULTWIDTH - (userheight * DEFAULTWIDTH) / DEFAULTHEIGHT;
+X    myhint.width = (userheight * DEFAULTWIDTH) / DEFAULTHEIGHT;
+X    myhint.height = userheight;
+X    myhint.flags = USSize;
+X    break;
+X  }
+X  if (geo_ret & XValue)
+X    myhint.x = userx;
+X  else
+X    myhint.x = (DisplayWidth(mydisplay, myscreen) - myhint.width) / 2;
+X  if (geo_ret & YValue)
+X    myhint.y = usery;
+X  else
+X    myhint.y = (DisplayHeight(mydisplay, myscreen) - myhint.height) / 2;
+X  if (geo_ret & (XValue | YValue))
+X    myhint.flags |= USPosition;
+X  else
+X    myhint.flags |= PPosition;
+X  topwindow = XCreateWindow(mydisplay, DefaultRootWindow(mydisplay),
+X			    myhint.x, myhint.y, myhint.width, myhint.height,
+X			    TOPBORDERWIDTH, CopyFromParent, InputOutput,
+X			    CopyFromParent, valuemask, &attributes);
+X  qup = XCreateBitmapFromData(mydisplay, topwindow, qup_bits,
+X			      qup_width, qup_height);
+X  qupmask = XCreateBitmapFromData(mydisplay, topwindow, qupmask_bits,
+X				  qupmask_width, qupmask_height);
+X  qright = XCreateBitmapFromData(mydisplay, topwindow, qright_bits,
+X				 qright_width, qright_height);
+X  qrightmask = XCreateBitmapFromData(mydisplay, topwindow, qrightmask_bits,
+X				     qrightmask_width, qrightmask_height);
+X  qdown = XCreateBitmapFromData(mydisplay, topwindow, qdown_bits,
+X				qdown_width, qdown_height);
+X  qdownmask = XCreateBitmapFromData(mydisplay, topwindow, qdownmask_bits,
+X				    qdownmask_width, qdownmask_height);
+X  qleft = XCreateBitmapFromData(mydisplay, topwindow, qleft_bits,
+X				qleft_width, qleft_height);
+X  qleftmask = XCreateBitmapFromData(mydisplay, topwindow, qleftmask_bits,
+X				    qleftmask_width, qleftmask_height);
+X  cursorforeground.red = cursorforeground.green = cursorforeground.blue = 0;
+X  cursorforeground.flags = DoRed | DoGreen | DoBlue;
+X  cursorbackground.red = cursorbackground.green = cursorbackground.blue = 65535;
+X  cursorbackground.flags = DoRed | DoGreen | DoBlue;
+X  if ((cursor_q[0] = XCreatePixmapCursor(mydisplay, qup, qupmask,
+X					 &cursorforeground, &cursorbackground,
+X					 qup_x_hot, qup_y_hot)) == None ||
+X      (cursor_q[1] = XCreatePixmapCursor(mydisplay, qright, qrightmask,
+X					 &cursorforeground, &cursorbackground,
+X					 qright_x_hot, qright_y_hot)) == None ||
+X      (cursor_q[2] = XCreatePixmapCursor(mydisplay, qdown, qdownmask,
+X					 &cursorforeground, &cursorbackground,
+X					 qdown_x_hot, qdown_y_hot)) == None ||
+X      (cursor_q[3] = XCreatePixmapCursor(mydisplay, qleft, qleftmask,
+X					 &cursorforeground, &cursorbackground,
+X					 qleft_x_hot, qleft_y_hot)) == None) {
+X    fprintf(stderr, "%s: couldn't create cursors\n", *argv);
+X    exit(1);
+X  }
+#ifndef NO_SELECT
+X  selectval.tv_sec = 0;
+X  selectval.tv_usec = 500000;
+#endif
+X  iconsize = 0;
+X  if (XGetIconSizes(mydisplay, topwindow, &Ilist, &Ilistsize) != 0)
+X    for (i = 0; i < Ilistsize; i++) {
+X      if (Ilist[i].max_width < Ilist[i].max_height) {
+X	if (Ilist[i].max_width > iconsize &&
+X	    (Ilist[i].max_width == Ilist[i].max_height ||
+X	     (Ilist[i].max_width < Ilist[i].max_height &&
+X	      Ilist[i].max_width >= Ilist[i].min_height &&
+X	      (Ilist[i].max_width - Ilist[i].min_height) %
+X	      Ilist[i].height_inc == 0)))
+X	  iconsize = Ilist[i].max_width;
+X      } else
+X	if (Ilist[i].max_height > iconsize &&
+X	    (Ilist[i].max_height == Ilist[i].max_width ||
+X	     (Ilist[i].max_height < Ilist[i].max_width &&
+X	      Ilist[i].max_height >= Ilist[i].min_width &&
+X	      (Ilist[i].max_height - Ilist[i].min_width) %
+X	      Ilist[i].width_inc == 0)))
+X	  iconsize = Ilist[i].max_height;
+X    }
+X  if (iconsize == 0)
+X    iconsize = DEFAULTICONSIZE;
+X  {
+X    GC iconpgc;
+X    int spacing, width;
+X
+X    spacing = iconsize / 16;
+X    width = (iconsize - 4 * spacing) / 4;
+X    iconpixmap = XCreatePixmap(mydisplay, DefaultRootWindow(mydisplay),
+X			       iconsize, iconsize, 1);
+X    iconpgc = XCreateGC(mydisplay, iconpixmap, 0, 0);
+X    XSetForeground(mydisplay, iconpgc, 0L);
+X    XFillRectangle(mydisplay, iconpixmap, iconpgc, 0, 0, iconsize, iconsize);
+X    XSetForeground(mydisplay, iconpgc, ~0L);
+X    for (i = 0; i < 6; i++)
+X      XDrawArc(mydisplay, iconpixmap, iconpgc,
+X	       spacing / 2 + icon_w_x[i] * (spacing + width),
+X	       spacing / 2 + icon_w_y[i] * (spacing + width),
+X	       width, width, 0, 360 * 64);
+X    for (i = 0; i < 6; i++)
+X      XFillArc(mydisplay, iconpixmap, iconpgc,
+X	       spacing / 2 + icon_b_x[i] * (spacing + width),
+X	       spacing / 2 + icon_b_y[i] * (spacing + width),
+X	       width, width, 0, 360 * 64);
+X    XFreeGC(mydisplay, iconpgc);
+X  }
+X  myhint.min_width = MINWIDTH;
+X  myhint.min_height = MINHEIGHT;
+X  myhint.flags |= PMinSize;
+#ifndef XVIER_WM_ASPECT_BUG
+X  myhint.min_aspect.x = MINASPECTWIDTH;
+X  myhint.min_aspect.y = MINASPECTHEIGHT;
+X  myhint.max_aspect.x = MAXASPECTWIDTH;
+X  myhint.max_aspect.y = MAXASPECTHEIGHT;
+X  myhint.flags |= PAspect;
+#endif
+X  XSetStandardProperties(mydisplay, topwindow, Title, Title, iconpixmap,
+X			 argv, argc, &myhint);
+X  myclass.res_name = "xvier";
+X  myclass.res_class = "Xvier";
+X  XSetClassHint(mydisplay, topwindow, &myclass);
+X  if (iconic) {
+X    mywmhints = XGetWMHints(mydisplay, topwindow);
+X    mywmhints->initial_state = IconicState;
+X    mywmhints->flags |= StateHint;
+X    XSetWMHints(mydisplay, topwindow, mywmhints);
+X  }
+X  valuemask = 0;
+X  if (DefaultDepth(mydisplay, myscreen) == 1) {
+X    unsigned int w, h, w_8;
+X    char *data;
+X
+X    XQueryBestStipple(mydisplay, topwindow, 8, 8, &w, &h);
+X    if (w & 1)
+X      w *= 2;
+X    if (h & 1)
+X      h *= 2;
+X    w_8 = (w + 7) / 8;
+X    data = malloc(w_8 * h);
+X    for (j = 0; j < h; j++)
+X      for (i = 0; i < w_8; i++)
+X	data[j * w_8 + i] = ((j & 1) ? 0xaa : 0x55);
+X    bgpixmap = XCreateBitmapFromData(mydisplay, topwindow, data, w, h);
+X    attributes.background_pixmap = bgpixmap;
+X    valuemask |= CWBackPixmap;
+X    free(data);
+X  } else {
+X    attributes.background_pixel = BLUE;
+X    valuemask |= CWBackPixel;
+X  }
+X  attributes.event_mask = ButtonPressMask | ExposureMask;
+X  valuemask |= CWEventMask;
+X  attributes.override_redirect = True;
+X  valuemask |= CWOverrideRedirect;
+X  attributes.win_gravity = UnmapGravity;
+X  valuemask |= CWWinGravity;
+X  boardwindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			      CopyFromParent, InputOutput, CopyFromParent,
+X			      valuemask, &attributes);
+X  valuemask = 0;
+X  attributes.background_pixel = WHITE;
+X  valuemask |= CWBackPixel;
+X  attributes.border_pixel = BLACK;
+X  valuemask |= CWBorderPixel;
+X  attributes.event_mask = ButtonPressMask | ExposureMask;
+X  valuemask |= CWEventMask;
+X  attributes.override_redirect = True;
+X  valuemask |= CWOverrideRedirect;
+X  attributes.win_gravity = UnmapGravity;
+X  valuemask |= CWWinGravity;
+X  quitwindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			     CopyFromParent, InputOutput, CopyFromParent,
+X			     valuemask, &attributes);
+X  newwindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			    CopyFromParent, InputOutput, CopyFromParent,
+X			    valuemask, &attributes);
+X  undowindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			     CopyFromParent, InputOutput, CopyFromParent,
+X			     valuemask, &attributes);
+X  startwindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			       CopyFromParent, InputOutput, CopyFromParent,
+X			       valuemask, &attributes);
+X  changewindow = XCreateWindow(mydisplay, topwindow, 0, 0, 10, 10, 0,
+X			       CopyFromParent, InputOutput, CopyFromParent,
+X			       valuemask, &attributes);
+X  if (fontpattern != NULL) {
+X    fontnames = XListFonts(mydisplay, fontpattern, MAXFONTS, &fontnum);
+X    if (fontnames != NULL && fontnum > 0) {
+X      for (i = 0; i < fontnum; i++)
+X	fontstructarray[i] = XLoadQueryFont(mydisplay, fontnames[i]);
+X      qsort((char *) fontstructarray, fontnum, sizeof(XFontStruct *), font_cmp);
+X      XFreeFontNames(fontnames);
+X      goto got_fonts;
+X    } else
+X      fprintf(stderr, "%s: no fonts found with pattern %s.\n",
+X	      *argv, fontpattern);
+X  }
+X  fontnames = XListFonts(mydisplay, DEFAULTFONTPATTERN, MAXFONTS, &fontnum);
+X  if (fontnames == NULL || fontnum == 0) {
+X    fontstructarray[0] = XLoadQueryFont(mydisplay, "fixed");
+X    fontnum = 1;
+X  } else {
+X    for (i = 0; i < fontnum; i++)
+X      fontstructarray[i] = XLoadQueryFont(mydisplay, fontnames[i]);
+X    qsort((char *) fontstructarray, fontnum, sizeof(XFontStruct *), font_cmp);
+X    XFreeFontNames(fontnames);
+X  }
+X got_fonts:
+X  stonegc[0] = XCreateGC(mydisplay, topwindow, 0, 0);
+X  XSetForeground(mydisplay, stonegc[0], YELLOW);
+X  stonegc[1] = XCreateGC(mydisplay, topwindow, 0, 0);
+X  XSetForeground(mydisplay, stonegc[1], RED);
+X  buttongc = XCreateGC(mydisplay, topwindow, 0, 0);
+X  XSetBackground(mydisplay, buttongc, WHITE);
+X  XSetForeground(mydisplay, buttongc, BLACK);
+X  textgc = XCreateGC(mydisplay, topwindow, 0, 0);
+X  XSetBackground(mydisplay, textgc, WHITE);
+X  XSetForeground(mydisplay, textgc, BLACK);
+X  recalculate(myhint.width, myhint.height);
+X  levelnumstring[0] = '0' + level;
+X  write_prog(levelnumstring[0]);
+X  XMapSubwindows(mydisplay, topwindow);
+X  XMapRaised(mydisplay, topwindow);
+X  while (1) {
+X    while (XEventsQueued(mydisplay, QueuedAfterReading) > 0) {
+X      XNextEvent(mydisplay, &myevent);
+X      switch (myevent.type) {
+X      case Expose:
+X	if (myevent.xexpose.count == 0) {
+X	  if (myevent.xexpose.window == boardwindow) {
+X	    XDrawArcs(mydisplay, boardwindow, textgc, holes, columns * rows);
+X	    if (stone_n[0] > 0)
+X	      XFillArcs(mydisplay, boardwindow,
+X			stonegc[0], stone[0], stone_n[0]);
+X	    if (stone_n[1] > 0)
+X	      XFillArcs(mydisplay, boardwindow,
+X			stonegc[1], stone[1], stone_n[1]);
+X	  } else if (myevent.xexpose.window == quitwindow) {
+X	    XDrawImageString(mydisplay, quitwindow, buttongc,
+X			     quitposx, quitposy, "Quit", 4);
+X	  } else if (myevent.xexpose.window == newwindow) {
+X	    XDrawImageString(mydisplay, newwindow, buttongc,
+X			     newposx, newposy, "New", 3);
+X	  } else if (myevent.xexpose.window == undowindow) {
+X	    XDrawImageString(mydisplay, undowindow, buttongc,
+X			     undoposx, undoposy, "Undo", 4);
+X	  } else if (myevent.xexpose.window == startwindow) {
+X	    XDrawImageString(mydisplay, startwindow, buttongc,
+X			     startposx, startposy, "Start", 5);
+X	  } else if (myevent.xexpose.window == changewindow) {
+X	    XDrawImageString(mydisplay, changewindow, buttongc,
+X			     changeposx, changeposy, "Change", 6);
+X	  } else if (myevent.xexpose.window == topwindow) {
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text1x, levely, "Level: ", 7);
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text2x, levely, levelnumstring, 1);
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text1x, humany, "You: ", 5);
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text2x, humany, playercolor[1 - c_index],
+X			     strlen(playercolor[1 - c_index]));
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text1x, compy, "Me: ", 4);
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text2x, compy, playercolor[c_index],
+X			     strlen(playercolor[c_index]));
+X	    XDrawImageString(mydisplay, topwindow, textgc,
+X			     text1x, movey, messagestring[message_index],
+X			     strlen(messagestring[message_index]));
+X	  }
+X	}
+X	break;
+X      case MappingNotify:
+X	XRefreshKeyboardMapping((XMappingEvent *) &myevent);
+X	break;
+X      case ConfigureNotify:
+X	recalculate(myevent.xconfigure.width, myevent.xconfigure.height);
+X	XMapSubwindows(mydisplay, topwindow);
+X	break;
+X      case ButtonPress:
+X	if (myevent.xbutton.window == quitwindow)
+X	  goto xvier_end;
+X	if (myevent.xbutton.window == newwindow)
+X	  write_prog('n');
+X	else if (myevent.xbutton.window == undowindow)
+X	  write_prog('u');
+X	else if (myevent.xbutton.window == changewindow) {
+X	  GC tmpgc;
+X	  char *stmp;
+X
+X	  tmpgc = stonegc[0];
+X	  stonegc[0] = stonegc[1];
+X	  stonegc[1] = tmpgc;
+X	  stmp = playercolor[0];
+X	  playercolor[0] = playercolor[1];
+X	  playercolor[1] = stmp;
+X	  stmp = messagestring[0];
+X	  messagestring[0] = messagestring[1];
+X	  messagestring[1] = stmp;
+X	  if (stone_n[0] > 0)
+X	    XFillArcs(mydisplay, boardwindow, stonegc[0], stone[0], stone_n[0]);
+X	  if (stone_n[1] > 0)
+X	    XFillArcs(mydisplay, boardwindow, stonegc[1], stone[1], stone_n[1]);
+X	  Repaint_topwindow();
+X	} else if (myevent.xbutton.window == startwindow) {
+X	  if (processing || message_index > 1 ||
+X	      stone_n[0] > 0 || stone_n[1] > 0)
+X	    XBell(mydisplay, 0);
+X	  else {
+X	    GC tmpgc;
+X	    char *stmp;
+X
+X	    write_prog('s');
+X	    tmpgc = stonegc[0];
+X	    stonegc[0] = stonegc[1];
+X	    stonegc[1] = tmpgc;
+X	    stmp = playercolor[0];
+X	    playercolor[0] = playercolor[1];
+X	    playercolor[1] = stmp;
+X	    stmp = messagestring[0];
+X	    messagestring[0] = messagestring[1];
+X	    messagestring[1] = stmp;
+X	    c_index = 1 - c_index;
+X	    Repaint_topwindow();
+X	  }
+X	} else if (myevent.xbutton.window == boardwindow) {
+X	  if (processing || message_index > 1)
+X	    XBell(mydisplay, 0);
+X	  else {
+X	    if ((myevent.xbutton.x % (piece_width + piece_dx)) > piece_dx) {
+X	      int col = myevent.xbutton.x / (piece_width + piece_dx);
+X
+X	      if (col < columns)
+X		if (columnfill[col] < rows) {
+X		  write_prog('a' + col);
+X		  domove(1 - c_index, col);
+X		  message(1 - message_index);
+X		} else
+X		  XBell(mydisplay, 0);
+X	    }
+X	  }
+X	}
+X	break;
+X      case KeyPress:
+X	if (XLookupString((XKeyEvent *) &myevent, text, 10, &mykey, 0) == 1) {
+X	  switch (text[0]) {
+X	  case 'q': case 'Q':
+X	    goto xvier_end;
+X	  case 'a': case 'b': case 'c': case 'd': case 'e':
+X	  case 'f': case 'g': case 'h': case 'i': case 'j':
+X	  case 'k': case 'l': case 'm':
+X	    if (processing || message_index > 1 ||
+X		text[0] - 'a' >= columns || columnfill[text[0] - 'a'] >= rows)
+X	      XBell(mydisplay, 0);
+X	    else {
+X	      write_prog(text[0]);
+X	      domove(1 - c_index, text[0] - 'a');
+X	      message(1 - message_index);
+X	    }
+X	    break;
+X	  case 's': case 'S':
+X	    if (processing || message_index > 1 ||
+X		stone_n[0] > 0 || stone_n[1] > 0)
+X	      XBell(mydisplay, 0);
+X	    else {
+X	      GC tmpgc;
+X	      char *stmp;
+X
+X	      write_prog('s');
+X	      tmpgc = stonegc[0];
+X	      stonegc[0] = stonegc[1];
+X	      stonegc[1] = tmpgc;
+X	      stmp = playercolor[0];
+X	      playercolor[0] = playercolor[1];
+X	      playercolor[1] = stmp;
+X	      stmp = messagestring[0];
+X	      messagestring[0] = messagestring[1];
+X	      messagestring[1] = stmp;
+X	      c_index = 1 - c_index;
+X	      Repaint_topwindow();
+X	    }
+X	    break;
+X	  case 'N': case 'U':
+X	    text[0] += 'a' - 'A';
+X	  case 'n': case 'u':
+X	  case '0': case '1': case '2': case '3': case '4':
+X	  case '5': case '6': case '7': case '8': case '9':
+X	    write_prog(text[0]);
+X	    break;
+X	  case 'C':
+X	    {
+X	      GC tmpgc;
+X	      char *stmp;
+X
+X	      tmpgc = stonegc[0];
+X	      stonegc[0] = stonegc[1];
+X	      stonegc[1] = tmpgc;
+X	      stmp = playercolor[0];
+X	      playercolor[0] = playercolor[1];
+X	      playercolor[1] = stmp;
+X	      stmp = messagestring[0];
+X	      messagestring[0] = messagestring[1];
+X	      messagestring[1] = stmp;
+X	    }
+X	    if (stone_n[0] > 0)
+X	      XFillArcs(mydisplay, boardwindow,
+X			stonegc[0], stone[0], stone_n[0]);
+X	    if (stone_n[1] > 0)
+X	      XFillArcs(mydisplay, boardwindow,
+X			stonegc[1], stone[1], stone_n[1]);
+X	    Repaint_topwindow();
+X	    break;
+X	  default:
+X	    XBell(mydisplay, 0);
+X	    break;
+X	  }
+X	}
+X	break;
+X      }
+X    }
+X    XFlush(mydisplay);
+#ifdef NO_SELECT
+X    poll(pfd, npfd, 500);
+X    if (pfd[1].revents == POLLIN) {
+#else
+X    readfds = fullfds;
+#ifdef NO_FD_SET
+X    select(32, &readfds, 0, 0, &selectval);
+X    if (readfds & (1 << pipei[0])) {
+#else
+X    select(FD_SETSIZE, &readfds, (fd_set *) 0, (fd_set *) 0, &selectval);
+X    if (FD_ISSET(pipei[0], &readfds)) {
+#endif
+#endif
+X      char answer;
+X
+X      if (read(pipei[0], &answer, 1) < 1) {
+X	fprintf(stderr, "%s: read from xvier_prog failed\n", *argv);
+X	exit(1);
+X      }
+X      if (processing == 0) {
+X	fprintf(stderr, "%s: unexpected read from xvier_prog\n", *argv);
+X	goto xvier_end;
+X      }
+X      processing = 0;
+X      XDefineCursor(mydisplay, topwindow, cursor_normal);
+X      switch (answer) {
+X      case 'a': case 'b': case 'c': case 'd': case 'e': case 'f': case 'g':
+X      case 'h': case 'i': case 'j': case 'k': case 'l': case 'm':
+X	if (answer - 'a' >= columns ||
+X	    columnfill[answer - 'a'] >= rows) {
+X	  fprintf(stderr, "%s: wrong move %c from xvier_prog\n",
+X		  *argv, answer);
+X	  goto xvier_end;
+X	}
+X	domove(c_index, answer - 'a');
+X	message(1 - message_index);
+X	break;
+X      case 'A': case 'B': case 'C': case 'D': case 'E': case 'F': case 'G':
+X      case 'H': case 'I': case 'J': case 'K': case 'L': case 'M':
+X	if (answer - 'A' >= columns ||
+X	    columnfill[answer - 'A'] >= rows) {
+X	  fprintf(stderr, "%s: wrong move %c from xvier_prog\n",
+X		  *argv, answer);
+X	  goto xvier_end;
+X	}
+X	domove(c_index, answer - 'A');
+X	message(2);
+X	break;
+X      case 'N': case 'O': case 'P': case 'Q': case 'R': case 'S': case 'T':
+X      case 'U': case 'V': case 'W': case 'X': case 'Y': case 'Z':
+X	if (answer - 'N' >= columns ||
+X	    columnfill[answer - 'N'] >= rows) {
+X	  fprintf(stderr, "%s: wrong move %c from xvier_prog\n",
+X		  *argv, answer);
+X	  goto xvier_end;
+X	}
+X	domove(c_index, answer - 'N');
+X      case 'z':
+X	message(4);
+X	break;
+X      case 'w':
+X	message(3);
+X	break;
+X      case '0': case '1': case '2': case '3': case '4':
+X      case '5': case '6': case '7': case '8': case '9':
+X	levelnumstring[0] = answer;
+X	Repaint_topwindow();
+X	break;
+X      case 'n':
+X	XClearArea(mydisplay, boardwindow, 0, 0, 0, 0, False);
+X	XDrawArcs(mydisplay, boardwindow, textgc, holes, columns * rows);
+X	stone_n[0] = stone_n[1] = 0;
+X	for (i = 0; i < columns; i++)
+X	  columnfill[i] = 0;
+X	message_index = 1 - c_index;
+X	Repaint_topwindow();
+X	break;
+X      case 'u':
+X	undomove(c_index);
+X      case 'v':
+X	undomove(1 - c_index);
+X	message_index = 1 - c_index;
+X	Repaint_topwindow();
+X	break;
+X      default:
+X	XBell(mydisplay, 0);
+X	break;
+X      }
+X    }
+X    if (processing)
+X      change_cursor();
+X  }
+X xvier_end:
+X  XCloseDisplay(mydisplay);
+X  kill(pid, SIGKILL);
+X  exit(0);
+}
+SHAR_EOF
+echo 'File xvier.c is complete' &&
+chmod 0644 xvier.c ||
+echo 'restore of xvier.c failed'
+Wc_c="`wc -c < 'xvier.c'`"
+test 39330 -eq "$Wc_c" ||
+	echo 'xvier.c: original size 39330, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xvier.h ==============
+if test -f 'xvier.h' -a X"$1" != X"-c"; then
+	echo 'x - skipping xvier.h (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xvier.h (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xvier.h' &&
+#define MAXRC 13
+X
+#if defined(hpux) || defined(__hpux)
+#define NO_GETDTABSIZE
+#define NO_FD_SET
+#endif
+X
+#if defined(_IBMR2)
+#define NO_FD_SET
+#endif
+SHAR_EOF
+chmod 0644 xvier.h ||
+echo 'restore of xvier.h failed'
+Wc_c="`wc -c < 'xvier.h'`"
+test 149 -eq "$Wc_c" ||
+	echo 'xvier.h: original size 149, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= xvier.man ==============
+if test -f 'xvier.man' -a X"$1" != X"-c"; then
+	echo 'x - skipping xvier.man (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting xvier.man (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xvier.man' &&
+.TH XVIER 6 "21 April 1992"
+.SH NAME
+xvier \- a X11 board game.
+.SH SYNOPSIS
+.B "xvier
+[
+.B \-display
+.I displayname
+] [
+.B \-geometry
+.I geometry
+] [
+.B \-fn
+.I fontpattern
+] [
+.B \-iconic
+] [
+.B \-rows
+.I rows
+] [
+.B \-columns
+.I columns
+] [
+.B \-prog
+.I programpath
+] [
+.B \-level
+.I levelnumber
+]
+.SH DESCRIPTION
+.I Xvier
+is a board game where you and the computer alternately throw stones
+into free columns. The stones pile up in the columns, and the goal is
+to get four stones in a row, in a column or diagonally. You can choose
+various board sizes and levels of difficulty.
+.LP
+During the game you click with the mouse onto the column where you
+want to put your stone. Another possibility is a lower case letter in
+the range 'a' to 'm' (maximally) where 'a' is the left column. If you
+want to change the level of difficulty, you must use the keyboard.
+Simply type the number of the desired level. These levels correspond
+to the search depth of the game program. The meaning of the command
+line options and buttons is given below.
+.LP
+While the game program computes a move, everything besides
+.I "Change"
+and
+.I "Quit"
+is blocked.
+.SH OPTIONS
+.TP
+.BI \-display " displayname"
+The X11 screen you want to use.
+.TP
+.BI \-geometry " geometry"
+The desired geometry of the game window.
+.TP
+.BI \-fn " fontpattern"
+A pattern describing the fonts which are used for the buttons and
+messages.
+.I Xvier
+chooses the biggest font that fits into the window. Therefore the
+pattern should describe different sizes of one font. The default is
+\fB*-Helvetica-Medium-R-Normal-*\fP.
+.TP
+.B \-iconic
+Start in iconic state.
+.TP
+.BI \-rows " rows"
+The number of rows of the board. The possible range is 4 to 13. The
+default is 6.
+.TP
+.BI \-columns " columns"
+The number of columns of the board. The possible range is 4 to 13. The
+default is 7.
+.TP
+.BI \-prog " programpath"
+The path of the game program.
+.TP
+.BI \-level " levelnumber"
+The level of difficulty to start with. The possible range is 0 to 9.
+The default is 0.
+.SH BUTTONS
+The keyboard equivalents of the buttons are given in brackets.
+.LP
+.IP "\fBQuit ['q' or 'Q']\fP" 20
+Finish the game.
+.IP "\fBNew ['n' or 'N']\fP" 20
+Start a new game.
+.IP "\fBUndo ['u' or 'U']\fP" 20
+Undo one move.
+.IP "\fBStart ['s' or 'S']\fP" 20
+Let the computer begin with the first move. The board must be empty.
+.IP "\fBChange ['C']\fP" 20
+Exchange the colours of your and the computer's stones.
+.SH AUTHOR
+.br
+Norbert Jung	jung@dia.informatik.uni-stuttgart.de
+SHAR_EOF
+chmod 0644 xvier.man ||
+echo 'restore of xvier.man failed'
+Wc_c="`wc -c < 'xvier.man'`"
+test 2486 -eq "$Wc_c" ||
+	echo 'xvier.man: original size 2486, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+# ============= Makefile ==============
+if test -f 'Makefile' -a X"$1" != X"-c"; then
+	echo 'x - skipping Makefile (File already exists)'
+	rm -f _shar_wnt_.tmp
+else
+> _shar_wnt_.tmp
+echo 'x - extracting Makefile (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'Makefile' &&
+# Makefile generated by imake - do not edit!
+# $XConsortium: imake.c,v 1.65 91/07/25 17:50:17 rws Exp $
+#
+# The cpp used on this machine replaces all newlines and multiple tabs and
+# spaces in a macro expansion with a single space.  Imake tries to compensate
+# for this, but is not always successful.
+#
+X
+# -------------------------------------------------------------------------
+# Makefile generated from "Imake.tmpl" and </tmp/IIf.a01593>
+# $XConsortium: Imake.tmpl,v 1.139 91/09/16 08:52:48 rws Exp $
+#
+# Platform-specific parameters may be set in the appropriate <vendor>.cf
+# configuration files.  Site-specific parameters should be set in the file
+# site.def.  Full rebuilds are recommended if any parameters are changed.
+#
+# If your C preprocessor does not define any unique symbols, you will need
+# to set BOOTSTRAPCFLAGS when rebuilding imake (usually when doing
+# "make World" the first time).
+#
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that need to come before
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+# -------------------------------------------------------------------------
+# platform-specific configuration parameters - edit sun.cf to change
+X
+# platform:  $XConsortium: sun.cf,v 1.68 91/07/30 11:34:39 rws Exp $
+X
+# operating system:  SunOS 4.1.1
+X
+# $XConsortium: sunLib.rules,v 1.6 91/03/24 17:55:58 rws Exp $
+X
+# -------------------------------------------------------------------------
+# site-specific configuration parameters that go after
+# the platform-specific parameters - edit site.def to change
+X
+# site:  $XConsortium: site.def,v 1.2 91/07/30 20:26:44 rws Exp $
+X
+X            SHELL = /bin/sh
+X
+X              TOP = .
+X      CURRENT_DIR = .
+X
+X               AR = ar clq
+X  BOOTSTRAPCFLAGS =
+X               CC = cc
+X               AS = as
+X
+X         COMPRESS = compress
+X              CPP = /lib/cpp $(STD_CPP_DEFINES)
+X    PREPROCESSCMD = cc -E $(STD_CPP_DEFINES)
+X          INSTALL = install
+X               LD = ld
+X             LINT = lint
+X      LINTLIBFLAG = -C
+X         LINTOPTS = -axz
+X               LN = ln -s
+X             MAKE = make
+X               MV = mv
+X               CP = cp
+X
+X           RANLIB = ranlib
+X  RANLIBINSTFLAGS =
+X
+X               RM = rm -f
+X            TROFF = psroff
+X         MSMACROS = -ms
+X              TBL = tbl
+X              EQN = eqn
+X     STD_INCLUDES =
+X  STD_CPP_DEFINES =
+X      STD_DEFINES =
+X EXTRA_LOAD_FLAGS =
+X  EXTRA_LIBRARIES =
+X             TAGS = ctags
+X
+X    SHAREDCODEDEF = -DSHAREDCODE
+X         SHLIBDEF = -DSUNSHLIB
+X
+X    PROTO_DEFINES =
+X
+X     INSTPGMFLAGS =
+X
+X     INSTBINFLAGS = -m 0755
+X     INSTUIDFLAGS = -m 4755
+X     INSTLIBFLAGS = -m 0644
+X     INSTINCFLAGS = -m 0444
+X     INSTMANFLAGS = -m 0444
+X     INSTDATFLAGS = -m 0444
+X    INSTKMEMFLAGS = -m 4755
+X
+X      PROJECTROOT = /usr/X11/R5
+X
+X     TOP_INCLUDES = -I$(INCROOT)
+X
+X      CDEBUGFLAGS = -O
+X        CCOPTIONS = -pipe
+X
+X      ALLINCLUDES = $(INCLUDES) $(EXTRA_INCLUDES) $(TOP_INCLUDES) $(STD_INCLUDES)
+X       ALLDEFINES = $(ALLINCLUDES) $(STD_DEFINES) $(EXTRA_DEFINES) $(PROTO_DEFINES) $(DEFINES)
+X           CFLAGS = $(CDEBUGFLAGS) $(CCOPTIONS) $(ALLDEFINES)
+X        LINTFLAGS = $(LINTOPTS) -DLINT $(ALLDEFINES)
+X
+X           LDLIBS = $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+X        LDOPTIONS = $(CDEBUGFLAGS) $(CCOPTIONS) $(LOCAL_LDFLAGS) -L$(USRLIBDIR)
+X
+X   LDCOMBINEFLAGS = -X -r
+X      DEPENDFLAGS =
+X
+X        MACROFILE = sun.cf
+X           RM_CMD = $(RM) *.CKP *.ln *.BAK *.bak *.o core errs ,* *~ *.a .emacs_* tags TAGS make.log MakeOut
+X
+X    IMAKE_DEFINES =
+X
+X         IRULESRC = $(CONFIGDIR)
+X        IMAKE_CMD = $(IMAKE) -DUseInstalled -I$(IRULESRC) $(IMAKE_DEFINES)
+X
+X     ICONFIGFILES = $(IRULESRC)/Imake.tmpl $(IRULESRC)/Imake.rules \
+X			$(IRULESRC)/Project.tmpl $(IRULESRC)/site.def \
+X			$(IRULESRC)/$(MACROFILE) $(EXTRA_ICONFIGFILES)
+X
+# -------------------------------------------------------------------------
+# X Window System Build Parameters
+# $XConsortium: Project.tmpl,v 1.138 91/09/10 09:02:12 rws Exp $
+X
+# -------------------------------------------------------------------------
+# X Window System make variables; this need to be coordinated with rules
+X
+X          PATHSEP = /
+X        USRLIBDIR = /usr/X11/R5/lib
+X           BINDIR = /usr/X11/R5/bin
+X          INCROOT = /usr/X11/R5/include
+X     BUILDINCROOT = $(TOP)
+X      BUILDINCDIR = $(BUILDINCROOT)/X11
+X      BUILDINCTOP = ..
+X           INCDIR = $(INCROOT)/X11
+X           ADMDIR = /usr/adm
+X           LIBDIR = $(USRLIBDIR)/X11
+X        CONFIGDIR = $(LIBDIR)/config
+X       LINTLIBDIR = $(USRLIBDIR)/lint
+X
+X          FONTDIR = $(LIBDIR)/fonts
+X         XINITDIR = $(LIBDIR)/xinit
+X           XDMDIR = $(LIBDIR)/xdm
+X           TWMDIR = $(LIBDIR)/twm
+X          MANPATH = /usr/X11/R5/man
+X    MANSOURCEPATH = $(MANPATH)/man
+X        MANSUFFIX = n
+X     LIBMANSUFFIX = 3
+X           MANDIR = $(MANSOURCEPATH)$(MANSUFFIX)
+X        LIBMANDIR = $(MANSOURCEPATH)$(LIBMANSUFFIX)
+X           NLSDIR = $(LIBDIR)/nls
+X        PEXAPIDIR = $(LIBDIR)/PEX
+X      XAPPLOADDIR = $(LIBDIR)/app-defaults
+X       FONTCFLAGS = -t
+X
+X     INSTAPPFLAGS = $(INSTDATFLAGS)
+X
+X            IMAKE = imake
+X           DEPEND = makedepend
+X              RGB = rgb
+X
+X            FONTC = bdftopcf
+X
+X        MKFONTDIR = mkfontdir
+X        MKDIRHIER = /bin/sh $(BINDIR)/mkdirhier
+X
+X        CONFIGSRC = $(TOP)/config
+X       DOCUTILSRC = $(TOP)/doc/util
+X        CLIENTSRC = $(TOP)/clients
+X          DEMOSRC = $(TOP)/demos
+X           LIBSRC = $(TOP)/lib
+X          FONTSRC = $(TOP)/fonts
+X       INCLUDESRC = $(TOP)/X11
+X        SERVERSRC = $(TOP)/server
+X          UTILSRC = $(TOP)/util
+X        SCRIPTSRC = $(UTILSRC)/scripts
+X       EXAMPLESRC = $(TOP)/examples
+X       CONTRIBSRC = $(TOP)/../contrib
+X           DOCSRC = $(TOP)/doc
+X           RGBSRC = $(TOP)/rgb
+X        DEPENDSRC = $(UTILSRC)/makedepend
+X         IMAKESRC = $(CONFIGSRC)
+X         XAUTHSRC = $(LIBSRC)/Xau
+X          XLIBSRC = $(LIBSRC)/X
+X           XMUSRC = $(LIBSRC)/Xmu
+X       TOOLKITSRC = $(LIBSRC)/Xt
+X       AWIDGETSRC = $(LIBSRC)/Xaw
+X       OLDXLIBSRC = $(LIBSRC)/oldX
+X      XDMCPLIBSRC = $(LIBSRC)/Xdmcp
+X      BDFTOSNFSRC = $(FONTSRC)/bdftosnf
+X      BDFTOSNFSRC = $(FONTSRC)/clients/bdftosnf
+X      BDFTOPCFSRC = $(FONTSRC)/clients/bdftopcf
+X     MKFONTDIRSRC = $(FONTSRC)/clients/mkfontdir
+X         FSLIBSRC = $(FONTSRC)/lib/fs
+X    FONTSERVERSRC = $(FONTSRC)/server
+X     EXTENSIONSRC = $(TOP)/extensions
+X         XILIBSRC = $(EXTENSIONSRC)/lib/xinput
+X      PHIGSLIBSRC = $(EXTENSIONSRC)/lib/PEX
+X
+# $XConsortium: sunLib.tmpl,v 1.11 91/07/31 11:32:08 rws Exp $
+X
+SHLIBLDFLAGS = -assert pure-text
+PICFLAGS = -pic
+X
+X  DEPEXTENSIONLIB =
+X     EXTENSIONLIB = -lXext
+X
+X          DEPXLIB = $(DEPEXTENSIONLIB)
+X             XLIB = $(EXTENSIONLIB) -lX11
+X
+X        DEPXMULIB = $(USRLIBDIR)/libXmu.sa.$(SOXMUREV)
+X           XMULIB = -lXmu
+X
+X       DEPOLDXLIB =
+X          OLDXLIB = -loldX
+X
+X      DEPXTOOLLIB = $(USRLIBDIR)/libXt.sa.$(SOXTREV)
+X         XTOOLLIB = -lXt
+X
+X        DEPXAWLIB = $(USRLIBDIR)/libXaw.sa.$(SOXAWREV)
+X           XAWLIB = -lXaw
+X
+X        DEPXILIB =
+X           XILIB = -lXi
+X
+X        SOXLIBREV = 4.10
+X          SOXTREV = 4.10
+X         SOXAWREV = 5.0
+X        SOOLDXREV = 4.10
+X         SOXMUREV = 4.10
+X        SOXEXTREV = 4.10
+X      SOXINPUTREV = 4.10
+X
+X      DEPXAUTHLIB = $(USRLIBDIR)/libXau.a
+X         XAUTHLIB =  -lXau
+X      DEPXDMCPLIB = $(USRLIBDIR)/libXdmcp.a
+X         XDMCPLIB =  -lXdmcp
+X
+X        DEPPHIGSLIB = $(USRLIBDIR)/libphigs.a
+X           PHIGSLIB =  -lphigs
+X
+X       DEPXBSDLIB = $(USRLIBDIR)/libXbsd.a
+X          XBSDLIB =  -lXbsd
+X
+X LINTEXTENSIONLIB = $(LINTLIBDIR)/llib-lXext.ln
+X         LINTXLIB = $(LINTLIBDIR)/llib-lX11.ln
+X          LINTXMU = $(LINTLIBDIR)/llib-lXmu.ln
+X        LINTXTOOL = $(LINTLIBDIR)/llib-lXt.ln
+X          LINTXAW = $(LINTLIBDIR)/llib-lXaw.ln
+X           LINTXI = $(LINTLIBDIR)/llib-lXi.ln
+X        LINTPHIGS = $(LINTLIBDIR)/llib-lphigs.ln
+X
+X          DEPLIBS = $(DEPXAWLIB) $(DEPXMULIB) $(DEPXTOOLLIB) $(DEPXLIB)
+X
+X         DEPLIBS1 = $(DEPLIBS)
+X         DEPLIBS2 = $(DEPLIBS)
+X         DEPLIBS3 = $(DEPLIBS)
+X
+# -------------------------------------------------------------------------
+# Imake rules for building libraries, programs, scripts, and data files
+# rules:  $XConsortium: Imake.rules,v 1.123 91/09/16 20:12:16 rws Exp $
+X
+# -------------------------------------------------------------------------
+# start of Imakefile
+X
+# I've seen window managers which couldn't handle aspect ratio hints.
+# Uncomment if you have resize problems.
+#XVIER_ASPECT	= -DXVIER_WM_ASPECT_BUG
+X
+# Some systems don't provide FD_SET #define's. HP 9000 and IBM RS6000
+# are handled in xvier.h, but on other systems you can uncomment this.
+#NO_FD_SET = -DNO_FD_SET
+X
+# If "select" is missing, but you have "poll", try this:
+#NO_SELECT = -DNO_SELECT
+X
+# And if "getdtablesize" is missing, use the following:
+#NO_GETDTABSIZE = -DNO_GETDTABSIZE
+X
+PROGNAME	= $(LIBDIR)$(PATHSEP)xvier_prog
+DEFINES		= $(XVIER_ASPECT) $(NO_FD_SET) $(NO_SELECT) \
+X			$(NO_GETDTABSIZE) -DPROGNAME=\"$(PROGNAME)\"
+X
+PROGRAMS	= xvier xvier_prog
+X
+SRCS1		= xvier.c
+OBJS1		= xvier.o
+SRCS2		= vierinit.c vier.c
+OBJS2		= vierinit.o vier.o
+X
+X OBJS = $(OBJS1) $(OBJS2) $(OBJS3)
+X SRCS = $(SRCS1) $(SRCS2) $(SRCS3)
+X
+all:: $(PROGRAMS)
+X
+xvier: $(OBJS1) $(DEPLIBS1)
+X	$(RM) $@
+X	$(CC) -o $@ $(LDOPTIONS) $(OBJS1)  $(XLIB) $(LDLIBS)   $(EXTRA_LOAD_FLAGS)
+X
+install:: xvier
+X	@if [ -d $(DESTDIR)$(BINDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(BINDIR)); fi
+X	$(INSTALL) -c $(INSTPGMFLAGS)  xvier $(DESTDIR)$(BINDIR)
+X
+install.man:: xvier.man
+X	@if [ -d $(DESTDIR)$(MANDIR) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR)$(MANDIR)); fi
+X	$(INSTALL) -c $(INSTMANFLAGS) xvier.man $(DESTDIR)$(MANDIR)/xvier.$(MANSUFFIX)
+X
+saber_xvier:: $(SRCS1)
+X	# load $(ALLDEFINES) $(SRCS1)  $(XLIB) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+osaber_xvier:: $(OBJS1)
+X	# load $(ALLDEFINES) $(OBJS1)  $(XLIB) $(SYS_LIBRARIES) $(EXTRA_LIBRARIES)
+X
+depend::
+X	$(DEPEND) $(DEPENDFLAGS) -s "# DO NOT DELETE" -- $(ALLDEFINES) -- $(SRCS)
+X
+lint:
+X	$(LINT) $(LINTFLAGS) $(SRCS) $(LINTLIBS)
+lint1:
+X	$(LINT) $(LINTFLAGS) $(FILE) $(LINTLIBS)
+X
+clean::
+X	$(RM) $(PROGRAMS)
+X
+xvier_prog:  $(OBJS2)
+X	$(RM) $@
+X	$(CC) -o $@  $(OBJS2) $(LDOPTIONS)   $(LDLIBS)   $(EXTRA_LOAD_FLAGS)
+X
+clean::
+X	$(RM) xvier_prog
+X
+install:: xvier_prog
+X	@if [ -d $(DESTDIR) $(PROGNAME) ]; then set +x; \
+X	else (set -x; $(MKDIRHIER) $(DESTDIR) $(PROGNAME)); fi
+X	$(INSTALL) -c $(INSTPGMFLAGS)  xvier_prog $(DESTDIR) $(PROGNAME)
+X
+# -------------------------------------------------------------------------
+# common rules for all Makefiles - do not edit
+X
+emptyrule::
+X
+clean::
+X	$(RM_CMD) "#"*
+X
+Makefile::
+X	-@if [ -f Makefile ]; then set -x; \
+X	$(RM) Makefile.bak; $(MV) Makefile Makefile.bak; \
+X	else exit 0; fi
+X	$(IMAKE_CMD) -DTOPDIR=$(TOP) -DCURDIR=$(CURRENT_DIR)
+X
+tags::
+X	$(TAGS) -w *.[ch]
+X	$(TAGS) -xw *.[ch] > TAGS
+X
+saber:
+X	# load $(ALLDEFINES) $(SRCS)
+X
+osaber:
+X	# load $(ALLDEFINES) $(OBJS)
+X
+# -------------------------------------------------------------------------
+# empty rules for directories that do not have SUBDIRS - do not edit
+X
+install::
+X	@echo "install in $(CURRENT_DIR) done"
+X
+install.man::
+X	@echo "install.man in $(CURRENT_DIR) done"
+X
+Makefiles::
+X
+includes::
+X
+# -------------------------------------------------------------------------
+# dependencies generated by makedepend
+X
+SHAR_EOF
+chmod 0644 Makefile ||
+echo 'restore of Makefile failed'
+Wc_c="`wc -c < 'Makefile'`"
+test 11332 -eq "$Wc_c" ||
+	echo 'Makefile: original size 11332, current size' "$Wc_c"
+rm -f _shar_wnt_.tmp
+fi
+rm -f _shar_seq_.tmp
+echo You have unpacked the last part
+exit 0
+-- 
+---
+Senior Systems Scientist		mail: dcmartin@msi.com
+Molecular Simulations, Inc.		uucp: uunet!dcmartin
+796 North Pastoria Avenue		at&t: 408/522-9236

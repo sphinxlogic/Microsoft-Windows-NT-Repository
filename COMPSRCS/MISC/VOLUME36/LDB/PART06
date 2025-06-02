@@ -1,0 +1,910 @@
+Newsgroups: comp.sources.misc
+From: ross@teserv.den.mmc.com (Perry R. Ross)
+Subject: v36i103:  ldb - Play backgammon by e-mail, v1.3, Part06/12
+Message-ID: <1993Apr11.233041.18281@sparky.imd.sterling.com>
+X-Md4-Signature: 930de1f65eeb0ed01c04599b5836edf9
+Date: Sun, 11 Apr 1993 23:30:41 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: ross@teserv.den.mmc.com (Perry R. Ross)
+Posting-number: Volume 36, Issue 103
+Archive-name: ldb/part06
+Environment: UNIX, C, VMS, VAXC, CURSES, 32BIT
+Supersedes: ldb: Volume 28, Issue 93-97
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 6 (of 12)."
+# Contents:  main.c
+# Wrapped by ross@teserv.den.mmc.com on Tue Apr  6 14:52:21 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'main.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'main.c'\"
+else
+echo shar: Extracting \"'main.c'\" \(35683 characters\)
+sed "s/^X//" >'main.c' <<'END_OF_FILE'
+X/*	main.c		8/3/91
+X *
+X * Copyright 1991  Perry R. Ross
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation without fee is hereby granted, subject to the restrictions
+X * detailed in the README file, which is included here by reference.
+X * Any other use requires written permission from the author.  This software
+X * is distributed "as is" without any warranty, including any implied
+X * warranties of merchantability or fitness for a particular purpose.
+X * The author shall not be liable for any damages resulting from the
+X * use of this software.  By using this software, the user agrees
+X * to these terms.
+X */
+X
+X#include "ldb.h"
+X
+X/*============================================================================
+X *	ldb --	Long Distance Backgammon
+X *
+X * The following arguments are recognized:
+X *	-read		Mail is read, and the games are updated and saved.
+X *			The user is not prompted for his moves.
+X *	-play		Any games that are waiting for local input are
+X *			displayed for the user to process.  No mail is read.
+X *	-color xy	The colors for any games started are set to x and y.
+X *			The first color is played by the local user, and the
+X *			other is played by the opponent.  Legal color
+X *			characters are upper and lower case letters.
+X *			The default is "-color rw".
+X *	-direction up/down
+X *			The direction of play for the local user is set
+X *			to the specified value.  The default is
+X *			"-direction up".
+X *	-myaddr addr	Override the "myaddr" field of .ldbrc for any
+X *			games started by this invocation of ldb.
+X *	-newaddr	This argument tells ldb to notify all opponents that
+X *			your e-mail address has changed.  The new address is
+X *			obtained from .ldbrc and stored in the people file.
+X *			Each packet you send after using -newaddr will include
+X *			a field telling your opponent(s) of your new address;
+X *			when a packet is received from an opponent, that
+X *			opponent is considered notified and the newaddr is
+X *			cancelled.  This is done for all opponents until all
+X *			have been notified.  Opponents using pre-1.3 versions
+X *			of ldb are not notified, and a warning message is
+X *			printed locally.  These users must change your
+X *			address manually with a text editor.  If the address
+X *			in .ldbrc is not correct for some of your opponents,
+X *			you must:
+X *				1. Put the most common address in .ldbrc
+X *				2. run: ldb -read -newaddr
+X *				3. edit .ldbpeople and change the myaddr=
+X *				   fields for those opponents
+X *				   that need different addresses.  Do the
+X *				   same with .ldbdata.
+X *				4. Resume using ldb normally.
+X *				5. Oh well, sorry.
+X *	-start user	A game is started with the specified user.  User may
+X *			be either an e-mail address or an alias for an
+X *			opponent that has been played previously.
+X *	-remotestart user1 user2
+X *			A game is started between user1 and user2.  The local
+X *			host sends a remote start message to user1 instructing
+X *			it to start a game with user2.  The local host
+X *			does not participate thereafter in the game.
+X *			For the purposes of the -color and -direction options,
+X *			user1 is considered the local user.
+X *	-broadcast file
+X *			A file is mailed to all opponents.  This is useful
+X *			for announcing vacation absences, etc.
+X *	-help		A summary of available options is printed.  This
+X *			list may be more up to date than these comments.
+X *	-jacoby		Enables the jacoby rule for any games subsequently
+X *			started.  This rule states that gammons or backgammons
+X *			only count as 1 when neither player doubled during
+X *			the game.
+X *	-crawford	Enables the crawford rule for any games subsequently
+X *			started.  This rule prevents doubling when either
+X *			player is within 1 point of winning the match.
+X *	-european	Enables european scoring for any subsequently
+X *			created games.  This rule makes backgammons count
+X *			as double games, rather than triple.
+X *	-permanent	Marks any subsequently created games as permanent.
+X *			Permanent games will be restarted whenever they
+X *			end.  This is for people you play all the time.
+X *			Permanent games must be deleted via -control.
+X *	-match points	Marks any subsequently created games as matches
+X *			that play to the specified number of points.
+X *			Games will be restarted until one player wins
+X *			this number of points.
+X *	-control	Enters control mode.  No games may be started
+X *			or played.  Each game is displayed, along with
+X *			a menu that allows various administrative
+X *			functions to be performed.
+X *	-reconstruct file
+X *			This option allows you to recover your .ldbdata
+X *			file even if you lose all copies.  Simply have
+X *			all your opponents send you their .ldbdata files
+X *			and, one by one, feed them into ldb with the
+X *			-reconstruct option.  Ldb will scan the file,
+X *			find any games that have your name as the
+X *			opponent, and rebuild your game data using the
+X *			data in that game.
+X *	-score		Print the cumulative score for all your opponents.
+X *
+X * If neither -read or -play is given, the default is to do both; incoming mail
+X * is read, then any games requiring the user's attention are displayed.
+X *
+X *----------------------------------------------------------------------------
+X *				REVISION HISTORY
+X *** Version 01   Rev 0   Patch 0
+X * 1.	Initial release.  Countless helpful suggestions from Karen Ward.
+X *
+X *** Version 01   Rev 1   Patch 0
+X * 1.	The personal name and e-mail address printed on the top line
+X *	were switched.  It makes more sense to be playing a person rather
+X *	than an address.  If the e-mail address is too long to fit on
+X *	the top line, it is truncated and an ellipsis is added.
+X * 2.	Pressing ESC while entering a comment now returns you to the
+X *	previous menu and discards the comment.  This allows you to
+X *	change your mind after hitting "Send", for example.  Suggested
+X *	by Franc,ois Pinard.
+X * 3.	The checkpoint code was moved to sendpkt(), where the games
+X *	are saved before the packet is sent.  This removes a window
+X *	where a packet could be sent but ldb could croak before saving
+X *	the game.  Suggested by Earle Ake.
+X * 4.	Ldb will not ask for the second digit of a point number when:
+X *		The first digit is 3 - 9,
+X *		The first digit is 1 and there is no point in 10 - 19
+X *			that could use the selected roll, or
+X *		The first digit is 2 and there is no point in 20 - 24
+X *			that could use the selected roll.
+X *	Suggested by Earle Ake and Franc,ois Pinard.
+X * 5.	When a roll is selected and a piece is on the bar, no point is
+X *	prompted for, since moving off the bar is the only legal move.
+X *	Suggested by Franc,ois Pinard.
+X * 6.	The Makefile now used $(CC) instead of cc.  Suggested by
+X *	Franc,ois Pinard.
+X * 7.	A number of patches to make ldb run under SCO Xenix (and probably
+X *	SCO UNIX as well) were sent by Dinesh Vichare.
+X * 8.	A bare bones rename function is included for those systems that
+X *	don't have one.  Suggested by Franc,ois Pinard.
+X * 9.	Comments are now rot13'd before they are sent.  This keeps
+X *	them from being read while mail is extracted.  They are
+X *	rotated back when ldb displays them.  This is disabled if the
+X *	opponent is using the old (1.0) ldb version, so 1.1 and 1.0
+X *	ldb's will still work together.  The only catch is when you switch
+X *	from 1.0 to 1.1 with games in progress, your opponents won't know
+X *	you've switched until you send them a move.  As a result, the
+X *	comment from their next message will be garbled.  To avoid this,
+X *	do "ldb -read" under 1.0, then switch to 1.1 to play.  This is
+X *	only necessary once, after that your opponent's will know you
+X *	are using 1.1 and the messages will work normally.
+X *	Suggested by Franc,ois Pinard.
+X * 10.	Ldb now clears the screen before exiting.  Keeps wandering
+X *	manager types from seeing the remnants of a game.
+X * 11.	The sequence number warning was removed for leftover messages
+X *	from dead games.
+X * 12.	There is now a "Press <return> to continue" before the screen
+X *	is drawn if any messages were printed.  This lets you read
+X *	the messages before the screen is cleared.  Suggested by
+X *	practically everybody.
+X * 13.	Default file names for vms are now ldb.rc, ldb.data,  and ldb.olddata.
+X *	This keeps the ldb files together and out of the way, since vms
+X *	doesn't treat filenames with a leading '.' like UNIX does.
+X *	Suggested by Earle Ake.
+X * 14.	There is now a debug setting in .ldbrc.  It is a mask, with each
+X *	bit enabling debug info from a different piece of code.  The
+X *	bits are defined as DB_* in ldb.h Suggested by Earle Ake.
+X * 15.	A sum of all rolls is kept in the "rolls" and "doubles" fields
+X *	of the game structure.  This counts the number of each type of
+X *	roll you get, and the number of doubles of each type.
+X *	The same is true for your opponent's rolls and doubles in
+X *	the oprolls and opdoubles fields.  Suggested by Earle Ake.
+X * 16.	The crawford and jacoby rules are now supported.  They are activated
+X *	by the -crawford and -jacoby command line options, and can only
+X *	be enabled by whoever starts the game.  If they are used to start
+X *	a game with a version of ldb that does not support them, a message
+X *	is printed and they are disabled.
+X * 17.	Ldb now allows a game to be declared "permanent", meaning that
+X *	it is automatically restarted when it is over.  This is activated
+X *	the the -permanent command line option, and can only be enabled
+X *	by whoever starts the game.
+X * 18.	Ldb now supports match play.  This is activated by the -match
+X *	command line options, which takes a numeric argument specifying
+X *	how many points the match plays to.  When a game that is part of
+X *	a match ends, and the specified number of points has not been reached,
+X *	the game is restarted.
+X * 19.	The "buttons" in the menu in fe_curses now light up to show the
+X *	item that was chosen.
+X * 20.	Ldb now supports the "european rule", which states that backgammons
+X *	only count double, not triple, the game value.
+X * 21.	Ldb now creates a lock file when it starts in such a way as to
+X *	prevent multiple ldb processes from running in the same account at the
+X *	same time.  The lock code does not depend on any operating system
+X *	locking features, other than O_EXCL, and so should be fairly portable.
+X * 22.	There is now an option in .ldbrc to automatically delete mail
+X *	files after they have been read.  It will refuse to delete
+X *	files that begin with '/' (on UNIX only) to help prevent
+X *	catastrophic mistakes.  This option is off by default,
+X *	and should only be used with great care.
+X *	You should also read the disclaimer at the top of this (and all
+X *	other) files, where it says I'm not responsible.  Caveat User.
+X * 23.	A "timeout" setting has been added to .ldbrc.  Games that have
+X *	not been accessed for more than "timeout" days (default 7),
+X *	and are waiting on remote input, have the last packet automatically
+X *	resent.  If timeout is set to 0, automatic resends are disabled.
+X * 24.	A "keepold" setting has been added to .ldbrc.  Games that are over
+X *	are retained in .ldbdata for "keepold" days (default 7), allowing
+X *	time for the last move to be resent if necessary.  If "keepold" is
+X *	set to 0, games are deleted as soon as they are over.
+X * 25.	Old start packets are now rejected.  To do this, a new file
+X *	called the "people" file is maintained.  This file is organised
+X *	by opponent address, and stores the start time of the newest completed
+X *	game, called the "fence".  Any start packets not newer than the
+X *	fence are discarded.  The only way a legitimate start packet would be
+X *	rejected is if it were not fed to ldb until after another game with
+X *	the same opponent had been started and finished.  This should never
+X *	happen, but if it did, all that would be required to fix it would
+X *	be to have the opponent resend the start packet via -control.
+X * 26.	The people file also stores the opponent's name and
+X *	an alias, or nickname, for the opponent.  The alias is initialized
+X *	to the first word of the opponent's name with all capitals changed
+X *	to lower case.  To change an opponent's alias, a text editor may
+X *	be used on the people file.  The -start command will take an
+X *	alias in place of an e-mail address.  There is no check for
+X *	duplicate aliases, and if one is used in a -start command, the
+X *	game will be started with the first record found in the people
+X *	file with that alias.
+X * 27.	The people file also stores a record of all games won/lost to
+X *	that opponent.  The data stored includes games won/lost, points
+X *	won/lost, gammons won/lost, backgammons won/lost, and matches won/lost.
+X *	There is currently no utility to print these out, but they can
+X *	be extracted from the people file manually.  See the definitions
+X *	for SC_* in ldb.h to see which number is which.
+X * 28.	There is now a way to reconstruct the .ldbdata file from your
+X *	opponents' .ldbdata files.  Just have them mail their ldbdata
+X *	files to you, remove the mail header, and run:
+X *		ldb -reconstruct file
+X *	where file is the file containing the opponent's ldbdata file.
+X *	Each game in that file showing you as the opponent is extracted
+X *	and inserted into your game list.  You will be prompted for the
+X *	address of your opponent (and name, if they are not in the
+X *	people file) for each game found.
+X * 29.	The people file has a method for handling people with multiple
+X *	e-mail addresses.  When a new opponent is found with the
+X *	same name as an existing one, but a different address, the
+X *	user is asked if these addresses refer to the same person.
+X *	If they do, an "equiv" record is added to the people file,
+X *	which merely records that the second address refers to the
+X *	same person as the first.  If they don't (e.g. John Smith),
+X *	two separate people records are created for the different people.
+X * 30.	There is now a way to request a resend from your opponent under
+X *	-control.  The menu item is "Get Resend", since "Request Resend"
+X *	would have used the same first letter as "Resend". (oh well)
+X *	A special packet is sent to your opponent; when his ldb receives it,
+X *	it will perform a resend automatically.  This feature is disabled
+X *	if the opversion field of the game structure indicates your
+X *	opponent is using a pre-1.1 version of ldb.  Sending the resend
+X *	packet to an ldb older than 1.1 would cause it to abort.  Oops.
+X * 31.	Any upper or lower case letters may now be used to draw the
+X *	pieces on the board.  Previously only r, w, and b were used.
+X *	As r, w, and b stood for red, white, and black, the option
+X *	to set them was called -color.  While the letters no longer
+X *	(necessarily) represent colors, the option is still -color.
+X * 32.	A screen dump of a game may be obtained via the -control menu.
+X *	The dump goes to ldb_screen.dmp.
+X *
+X * ---  The following modifications made by Earle Ake.
+X *
+X * 1.	A context-sensitive help function was added that is activated by
+X *	pressing 'h' or '?' at any time other than while composing a message.
+X * 2.	The redraw key now works under VMS.  Clearok() needed to be called
+X *	to force a redraw.
+X * 3.	The superkey function now works under VMS.  It was rewritten to
+X *	spawn a subprocess and execute the supercmd if specified.
+X *	The user must logout of the subprocess to resume the game.
+X * 4.	The .ldbrc file now contains reasonable defaults for VMS when
+X *	the VMS-compiled ldb creates it.  The sendcmd setting calls
+X *	the IN% mailer by default.
+X * 5.	Old versions of .oldldbdata are now purged.
+X * 6.	setattr() and clrattr() are used instead of standout() and
+X *	standend() to get reverse video on VMS.  standout() on VMS
+X *	used bold instead of reverse video, which made the cube
+X *	look non-cubical.
+X * 7.	The current pip count for you and your opponent are displayed
+X *	above the board.  These change depending on which board is
+X *	displayed, and are updated as you move.
+X * 8.	An extensive display of statistics regarding the number and
+X *	frequency of rolls and doubles for both users can be displayed
+X *	by pressing the % or # keys.  This data can also be displayed
+X *	as a histogram.
+X *
+X *** Version 01   Rev 2   Patch 0
+X *** Note Rev 2 was never officially released.  A number of beta versions
+X *** of 1.2 were distributed, and this led to so much confusion that the
+X *** official release was called 1.3.
+X * 1.	The "Get Resend" option in -control is disabled for games
+X *	that are over.  Patch by Earle Ake.
+X * 2.	All occurrences of "gets" have been replaced by "fgets" to
+X *	avoid buffer overrun problems.
+X * 3.	Ldb now detects games where no further contact is possible and
+X *	changes the "BAR" indicator to "---".
+X * 4.	The "Resend" option in -control is disabled for games that are in
+X *	a "local" state (i.e. it is the local player's turn).
+X * 5.	The cumulative score from the people file can now be displayed
+X *	via the -score command line argument.  This is similar to a
+X *	system implemented by Doug Parisek, but uses the info from the
+X *	people file rather than from a separate standings file.
+X * 6.	An option has been added to make ldb notify the game starter
+X *	when a game started by -remotestart has ended.  If a
+X *	-notify <addr> option is on the command line before the
+X *	-remotestart, the ldb from both players will send a message
+X *	to <addr> when the game ends.  This message will look like
+X *	a normal ldb packet, but the opcode will be NOTIFY, and
+X *	the comment field will contain three numbers; these are
+X *	the termination code (T_* in ldb.h), the game value, and
+X *	the backgammon flag (1 = gammon, 2 = backgammon, 0 = neither).
+X *	Note that the integer values of the termination codes changed
+X *	between rev 1.0 and rev 1.1 -- the one in the comment field
+X *	corresponds to the new codes (the ones found in ldb.h from
+X *	rev 1.1 or higher).  The comment2 field contains the address
+X *	of the opponent played.  Ldb itself has no provisions to read
+X *	notify packets, and would not be able to do anything useful
+X *	with them if it could.  They are purely for the use of a
+X *	game starter, if anyone feels like writing one.
+X * 7.	Remote start packets left in the mail file no longer start
+X *	a new game every time ldb is run.  This is done by scanning
+X *	the game list for a game where both opaddr and starttime match
+X *	those shown in the remotestart packet, and discarding it if
+X *	one is found.  If it is not found, the address is looked up in
+X *	the people list and the fence time, if any, is checked.
+X *	This catches the case where the game started by that remotestart
+X *	packet has already finished.  Bug found by Mark Rubin.
+X * 8.	The -remotestart option now supports the crawford, jacoby, europe,
+X *	and permanent options, as well as match play.
+X * 9.	The crawford rule code has been rewritten.  It now (correctly)
+X *	only disallows doubling for the first game after either player
+X *	reaches match score - 1.  Subsequent games allow doubling.
+X *	During the crawford rule game, the C indicator above the board
+X *	is drawn in reverse video.
+X * 10.	Concede now scores a gammon if the loser has not borne off any
+X *	pieces, and a backgammon if the loser has any pieces in the winners
+X *	inner table.  This fixes a bug where Concede could be used to
+X *	avoid a gammon/backgammon.
+X * 11.	Ldb now scans the mail file(s) before checking for access timeouts.
+X *	Previously, it would perform automatic resends for games when
+X *	a message for that game was waiting in the mail, resulting in an
+X *	unnecessary resend.  This was common when returning from vacation,
+X *	for example, when all games would time out.
+X * 12.	The error messages displayed when a move is rejected have been
+X *	made more understandable.  Previously the same set of messages
+X *	were used for the local player and for received moves, and the
+X *	wording was somewhat awkward to allow this double usage.  Local
+X *	errors now use the messages in rejlcl[], while received moves still
+X *	use the messages in rejmsg[].
+X * 13.	A serious bug was fixed in rcvop.c.  restart() and mstart() did not
+X *	call legalmoves() to regenerate the maxused and hiused fields of
+X *	the game structure.  The consequence of this for restart() is that
+X *	move checking will not work for the first move of any game that had
+X *	a tie on an opening roll.  For mstart(), which starts the next
+X *	game of a match, maxused and hiused will still be whatever they
+X *	were for the last move of the previous game, which could result in
+X *	either allowing an illegal move or disallowing a legal one.
+X *	Bug found by Earle Ake.
+X * 14.	Cbreak is now turned off during the supercmd.
+X * 15.	Any printing character (other than space) is allowed to be used
+X *	to draw game pieces.  These can be upper or lower case letters,
+X *	numbers, or punctuation.  The only restriction is that the characters
+X *	used may not be the same for both players.  This includes using
+X *	the upper and lower case of the same letter.
+X * 16.	Command line options may now be abbreviated by the shortest
+X *	unique string.
+X * 17.	If the -broadcast option is given without a file argument, it
+X *	reads from stdin.  -broadcast also reads the people file instead
+X *	of the game file, so duplicate messages are not sent to opponents
+X *	with more than one game in progress.
+X * 18.	The -start and -remotestart options are deferred until after all
+X *	options have been scanned.  This removes order dependencies in
+X *	command line options, so that:
+X *		ldb -match 7 -start joe
+X *	and	ldb -start joe -match 7
+X *	have identical effect.  Because of this change, only one -start and
+X *	one -remotestart may be used per run of ldb.  Suggested by Earle Ake.
+X * 19.	findppl now detects infinite loops in equiv records.  Should never
+X *	happen, but ...
+X *** Version 01   Rev 2   Patch 0
+X * 1.	A warning is printed if the crawford rule is used with a pre-1.3
+X *	version of ldb.  The Crawford rule was fixed during 1.2, but many
+X *	beta versions were distributed before this fix was included.
+X * 2.	The -newaddr option was added.  I was going to wait on this, but
+X *	my employment situation is such that I may need to use it soon. :-(
+X *============================================================================
+X */
+X
+Xmain(argc,argv)
+Xint argc;
+Xchar *argv[];
+X{
+Xstruct game *g;
+Xstruct people *p;
+XFILE *fp;
+Xchar subj[128];
+Xchar *bcfile;
+Xint i, j, Newaddr;
+Xchar c, c2;
+Xint done;
+Xint ldbsignal();
+Xint flags, match;
+Xchar *start_addr;
+Xchar *rst1, *rst2;
+X
+Xghead = NULL;			/* init game list to empty */
+Xgtail = NULL;
+Xsignal(SIGINT,ldbsignal);	/* set up interrupt trap to save games */
+XRflag = 1;		/* should we try to extract incoming mail? */
+XPflag = 1;		/* should we process waiting games? */
+XNewaddr = 0;
+XRandomInit(time((long *)0));	/* seed the random number generator */
+X
+Xreadldbrc();		/* read startup file */
+X
+Xget_lock(rc.lockfile);	/* is another ldb already running? */
+X
+Xcr_mycolor = rc.defclrs[0];	/* default color when creating games */
+Xcr_opcolor = rc.defclrs[1];
+Xcr_mydir = (*rc.defdir == 'u') ? 1 : -1;	/* default direction */
+X
+Xreadgames();		/* load games in progress */
+X
+Xmatch = 0;		/* default to no match play */
+Xflags = 0;		/* default to no special rules or perm games */
+Xnotify = NULL;		/* default to no notify address */
+Xstart_addr = NULL;	/* default to no game started */
+Xrst1 = NULL;		/* default to no remote start game */
+Xrst2 = NULL;
+Xfor (i = 1; (i < argc) && (argv[i][0] == '-'); i++) {
+X	j = optlookup(&argv[i][1]);
+X	if (j == -2) {
+X		printf("%s:\tambiguous option: %s\n\n",*argv,argv[i]);
+X		usage(0);		/* print short help */
+X		ldbexit(STAT_ABORT);
+X		}
+X	if (j < 0) {
+X		printf("%s:\tunrecognized option: %s\n\n",*argv,argv[i]);
+X		usage(0);		/* print short help */
+X		ldbexit(STAT_ABORT);
+X		}
+X	switch (options[j].index) {
+X	case OPT_START:			/* start a game */
+X		i++;
+X		if (argv[i] == NULL) {
+X			printf("%s: -start needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		if (start_addr != NULL) {
+X			printf("%s: only one -start allowed.\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		start_addr = argv[i];
+X		break;
+X	case OPT_RSTART:		/* remote start */
+X		i++;
+X		if ( (argv[i] == NULL) || (argv[i+1] == NULL) ) {
+X			printf("%s: -remotestart needs two arguments\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		if (rst1 != NULL) {
+X			printf("%s: only one -remotestart allowed.\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		rst1 = argv[i];
+X		rst2 = argv[i+1];
+X		i++;
+X		break;
+X	case OPT_READ:
+X		Pflag = 0;		/* just read, no processing */
+X		break;
+X	case OPT_PLAY:
+X		Rflag = 0;		/* just process, no read */
+X		break;
+X	case OPT_MYADDR:		/* set my e-mail address */
+X		i++;
+X		if (argv[i] == NULL) {
+X			printf("%s: -myaddr needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		strcpy(rc.myaddr,argv[i]);	/* copy in new address */
+X		break;
+X	case OPT_NEWADDR:		/* send new address to all opponents */
+X		Newaddr++;		/* process this opt after mail read */
+X		break;
+X	case OPT_HELP:			/* print long help */
+X		usage(1);
+X		ldbexit(STAT_NORM);
+X	case OPT_NOTIFY:
+X		i++;
+X		if (argv[i] == NULL) {
+X			printf("%s: -notify needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		notify = argv[i];
+X		break;
+X	case OPT_COLOR:			/* set colors */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -color option needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		cr_mycolor = argv[i][0];	/* first char is my color */
+X		cr_opcolor = argv[i][1]; /* second char is opponent's color */
+X		if ( (! isprint(cr_mycolor)) || (cr_mycolor == ' ') ) {
+X			printf("%s: invalid color: %d\n",*argv,cr_mycolor);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		if ( (! isprint(cr_opcolor)) || (cr_opcolor == ' ') ) {
+X			printf("%s: invalid color: %d\n",*argv,cr_opcolor);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		c = cr_mycolor;
+X		if (isupper(c))
+X			c = tolower(c);
+X		c2 = cr_opcolor;
+X		if (isupper(c2))
+X			c2 = tolower(c2);
+X		if (c == c2) {
+X			printf("%s: duplicate color: %c\n",*argv,cr_mycolor);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		break;
+X	case OPT_DIRECTION:		/* set direction */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -direction option needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		c = argv[i][0];
+X		if (isupper(c))
+X			c = tolower(c);
+X		if (c == 'u')
+X			cr_mydir = 1;		/* I play up */
+X		else if (c == 'd')
+X			cr_mydir = -1;		/* I play down */
+X		else {
+X			printf("%s: invalid direction: %s\n",*argv,argv[i]);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		break;
+X	case OPT_JACOBY:
+X		flags |= F_JACOBY;
+X		break;
+X	case OPT_CRAWFORD:
+X		flags |= F_CRAWFORD;
+X		break;
+X	case OPT_EUROPE:
+X		flags |= F_EUROPE;
+X		break;
+X	case OPT_PERM:
+X		flags |= F_PERM;
+X		break;
+X	case OPT_MATCH:
+X		if (argv[++i] == NULL) {
+X			printf("%s: -match option needs argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		if (! isdigit(*argv[i])) {
+X			printf("%s: -match needs numeric argument\n",*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		match = atoi(argv[i]);
+X		break;
+X	case OPT_SCORE:
+X		if (start_addr != NULL)
+X			printf("warning: -start not processed.\n");
+X		if (rst1 != NULL)
+X			printf("warning: -remotestart not processed.\n");
+X		printscore();
+X		ldbexit(STAT_NORM);
+X	case OPT_BCAST:				/* broadcast a message */
+X		if (argv[++i] == NULL) {	/* no arg, read stdin */
+X			if ( (fp = fopen(rc.tempfile,"w")) == NULL) {
+X				printf("%s: can't write temp file %s\n",
+X					*argv,rc.tempfile);
+X				ldbexit(STAT_ABORT);
+X				}
+X			while (fgets(subj,sizeof(subj),stdin) != NULL)
+X				fputs(subj,fp);
+X			fclose(fp);
+X			bcfile = rc.tempfile;
+X			}
+X		else
+X			bcfile = argv[i];	/* just read named file */
+X		sprintf(subj,"LDB Broadcast Message from %s",rc.myname);
+X		for (p = phead; p != NULL; p = p->next)	{ /* for all people */
+X			if (p->equiv != NULL)	/* it's an equiv record */
+X				continue;	/* skip it */
+X			for (g = ghead; g != NULL; g = g->next)	/* cur opp? */
+X				if (strcmp(g->opaddr,p->addr) == 0)
+X					break;
+X			if (g == NULL)	/* not a current opponent */
+X				continue;	/* skip it */
+X			TSendFile(p->addr,bcfile,subj); /* send msg */
+X			}
+X		break;
+X	case OPT_CONTROL:			/* control my games */
+X		control();
+X		if (start_addr != NULL)
+X			printf("warning: -start not processed.\n");
+X		if (rst1 != NULL)
+X			printf("warning: -remotestart not processed.\n");
+X		ldbexit(STAT_NORM);
+X	case OPT_RECONS:			/* reconstruct a game */
+X		if (argv[++i] == NULL) {
+X			printf("%s: -reconstruct option needs argument\n",
+X				*argv);
+X			usage(0);
+X			ldbexit(STAT_ABORT);
+X			}
+X		recons(argv[i]);
+X		if (start_addr != NULL)
+X			printf("warning: -start not processed.\n");
+X		if (rst1 != NULL)
+X			printf("warning: -remotestart not processed.\n");
+X		ldbexit(STAT_NORM);
+X	default:
+X		fprintf(stderr,
+X		   "Sorry, the %s option is not implemented yet.\n",
+X			options[j].name);
+X		ldbexit(STAT_ABORT);
+X		}
+X	}
+X
+Xif (start_addr != NULL)
+X	startgame(start_addr,cr_mydir,cr_mycolor,cr_opcolor,flags,match,0);
+Xif (rst1 != NULL)
+X	remotestart(rst1,rst2,flags,match);
+X
+Xif ( (Pflag == 0) && (Rflag == 0) ) {	/* user gave both -play and -read */
+X	Pflag = 1;			/* turn both back on */
+X	Rflag = 1;
+X	}
+Xwhile (i < argc)		/* if files given on command line, read them */
+X	readmail(argv[i++]);
+Xif (Rflag)			/* if we are supposed to read default file */
+X	readmail(rc.mfile);	/* do that too */
+X
+X	/* process the newaddr option, if necessary */
+Xif (Newaddr) {
+X	for (g = ghead; g != NULL; g = g->next)		/* for all games */
+X		if (strcmp(g->myaddr,rc.myaddr) != 0) {	/* if addr different */
+X			free(g->myaddr);		/* change it */
+X			g->myaddr = save(rc.myaddr);
+X			}
+X	i = 0;
+X	for (p = phead; p != NULL; p = p->next) {	/* for all op's */
+X		if (p->equiv != NULL)		/* ignore equiv records */
+X			continue;
+X		if (strcmp(rc.myaddr,p->myaddr) == 0)	/* addr unchanged */
+X			continue;
+X		free(p->myaddr);	/* free old string */
+X		p->myaddr = save(rc.myaddr);	/* save new addr */
+X		if (p->opver < 130)	/* old ldb can't newaddr */
+X			message(
+X			"%s uses old ldb -- must change addr manually.\n",
+X			p->addr);
+X		else {
+X			p->newaddr = NA_PEND;	/* newaddr is pending*/
+X			i++;			/* keep count */
+X			}
+X		}
+X	message("newaddr: %d opponents to notify.\n",i);
+X	}
+X
+Xi = 0;
+Xfor (g = ghead; g != NULL; g = g->next)	{ /* does any game need our input? */
+X	check_timeout(g);	/* check for access timeouts */
+X	if ( (g->state >= OPSTATES) &&
+X	     ! ( (g->state == ST_GAMEOVER) && (g->flags & F_DISPLAYED) ) )
+X		i++;
+X	}
+Xif ( (i == 0) || (Pflag == 0) ) {		/* if not, exit */
+X	writegames(rc.gfile,rc.gbackup,rc.pfile);	/* save games */
+X	ldbexit(STAT_NORM);
+X	}
+XTInitialize();					/* fire up the transport */
+XFeInitialize();					/* fire up the front end */
+XFeDrawScreen();				/* draw the screen outline */
+Xfor (g = ghead, done = 0; (g != NULL) && (done >= 0); g = g->next)
+X	while ( (done = process(g)) > 0);	/* process game til done */
+XFeFinishSession();				/* close down the front end */
+XTFinishSession();				/* close down the transport */
+Xwritegames(rc.gfile,rc.gbackup,rc.pfile);	/* save the games in a file */
+Xldbexit(STAT_NORM);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	ldbsignal -- signal handler
+X *
+X * This function is called when the user hits the interrupt character.
+X * It is currently a very simple function; it saves the games in the
+X * INTGFILE file, closes down the front end and the transport, and exits.
+X *----------------------------------------------------------------------
+X */
+X
+Xldbsignal()
+X{
+X
+Xwritegames(INTGFILE,NULL,INTPFILE);
+XFeFinishSession();	/* let front-end close down gracefully */
+XTFinishSession();	/* let transport close down gracefully */
+Xfprintf(stderr,"WARNING: games saved in %s and %s\n",INTGFILE,INTPFILE);
+Xldbexit(STAT_ABORT);
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	usage -- print command line options.
+X *
+X * This function prints a help message.  This can be either in the
+X * short or long format.  The short format merely lists all options
+X * in a very dense format.  The long format prints each option on
+X * a separate line, along with a short explanation of its purpose.
+X *----------------------------------------------------------------------
+X */
+X
+Xusage(help)
+Xint help;		/* 0 = short message, 1 = long message */
+X{
+Xstruct opt *o;
+Xint l;
+X
+Xprintf("options:\n");
+Xif (help) {		/* print out the whole shootin' match */
+X	for (o = options; o->name != NULL; o++)
+X		printf("\t-%s%s%s\n",o->name,o->args,o->help);
+X#if PATCHLEVEL == 0
+X	printf("\nLdb version %d.%d by Perry R. Ross.  Mail comments\n",
+X		VERSION,REVISION);
+X#else
+X	printf(
+X	"\nLdb version %d.%d (patch %d) by Perry R. Ross.  Mail\ncomments",
+X	VERSION,REVISION,PATCHLEVEL);
+X#endif
+X	printf("or suggestions to \"%s\".\n",AUTHOR_EMAIL);
+X	}
+Xelse {
+X	l = 0;
+X	printf("\t");
+X	for (o = options; o->name != NULL; o++) {
+X		if ( (l += (strlen(o->name)+strlen(o->args)+3)) > 55) {
+X			printf("\n\t");
+X			l = 0;
+X			}
+X		printf("[-%s%s] ",o->name,o->args);
+X		}
+X	printf("\n\n");
+X	}
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	remotestart -- start a game between two other people
+X *
+X * This function tells a user to start a game with another user.
+X * Neither user needs to be the one running remotestart; although
+X * this would work, -start is a more efficient way to do that.
+X * Remotestart could be used to start games between opponents in
+X * a tournament, or to set up a pickup game facility, where people
+X * wanting to play would mail to a central machine, which would
+X * pair players by some criteria (such as ability) and start a
+X * game between them.
+X *----------------------------------------------------------------------
+X */
+X
+Xremotestart(u1,u2,flags,match)
+Xchar *u1, *u2;
+Xint flags;
+Xint match;
+X{
+Xstruct packet p;
+Xchar colors[4];
+Xchar mbuf[8];
+X
+Xp.version = LDB_VER;		/* fill in a packet */
+Xp.timestamp = time( (long *)0);	/* give it a timestamp */
+Xp.gameid = "REMOTESTART";	/* give it a phony gameid */
+Xp.opcode = RSTART;		/* remote start opcode */
+Xp.name = NULL;			/* we don't need to send a name */
+Xp.addr = u2;			/* put opponent's address in packet */
+Xp.comment = NULL;		/* don't have a comment */
+Xp.comment2 = NULL;
+Xp.seq = 1;			/* start with sequence number 1 */
+Xp.notify = notify;		/* send notify address if any */
+Xclearmvs(p.mvs);		/* no moves to send */
+Xsprintf(colors,"%c%c",cr_mycolor,cr_opcolor);
+Xp.colors = colors;
+Xp.dir = (cr_mydir > 0) ? "up" : "down";
+Xp.autodbl = NULL;
+Xp.jacoby = (flags & F_JACOBY) ? "yes" : NULL;		/* jacoby rule? */
+Xp.crawford = (flags & F_CRAWFORD) ? "yes" : NULL;	/* crawford rule? */
+Xp.european = (flags & F_EUROPE) ? "yes" : NULL;		/* european scoring? */
+Xp.perm = (flags & F_PERM) ? "yes" : NULL;		/* perm game? */
+Xif (match > 0) {		/* match play */
+X	sprintf(mbuf,"%d",match);	/* make it a string */
+X	p.match = mbuf;			/* and put it in the packet */
+X	}
+Xelse
+X	p.match = NULL;			/* not a match, omit this field */
+Xp.gameptr = NULL;		/* just in case */
+XTSendPacket(&p,u1);		/* send the remote start command to u1 */
+X}
+X
+X
+X/*----------------------------------------------------------------------
+X *	optlookup -- find command line option in options table
+X *
+X * This function looks up a command line switch in the options table,
+X * returning the index into options[].  It returns -1 if the option
+X * was not found, and -2 if the option was ambiguous.  Options may be
+X * abbreviated to the shortest unique substring of the option.
+X *----------------------------------------------------------------------
+X */
+X
+Xoptlookup(optstr)
+Xchar *optstr;
+X{
+Xint i, j, l, n;
+X
+Xn = 0;
+Xif ( (l = strlen(optstr)) == 0)			/* empty option string */
+X	return(-1);				/* that's no good */
+Xfor (i = 0; options[i].name != NULL; i++)	/* look for arg */
+X	if (strncmp(options[i].name,optstr,l) == 0) {	/* found it */
+X		j = i;				/* remember index */
+X		n++;				/* count how many */
+X		}
+Xif (n == 0)					/* didn't find it */
+X	return(-1);				/* return error */
+Xif (n > 1)					/* found more than 1 match */
+X	return(-2);				/* return error */
+Xreturn(j);					/* return the index */
+X}
+END_OF_FILE
+if test 35683 -ne `wc -c <'main.c'`; then
+    echo shar: \"'main.c'\" unpacked with wrong size!
+fi
+# end of 'main.c'
+fi
+echo shar: End of archive 6 \(of 12\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

@@ -1,0 +1,1619 @@
+Newsgroups: comp.sources.misc
+From: amc@wuecl.wustl.edu (Adam Costello)
+Subject: v39i041:  par - paragraph reformatter, v1.30, Part02/03
+Message-ID: <1993Aug22.014902.29581@sparky.sterling.com>
+X-Md4-Signature: e666e0037263feb1153e34077ce65809
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 22 Aug 1993 01:49:02 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: amc@wuecl.wustl.edu (Adam Costello)
+Posting-number: Volume 39, Issue 41
+Archive-name: par/part02
+Environment: ANSI-C
+Supersedes: par: Volume 38, Issue 114-116
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  Par130 Par130/par.1 Par130/buffer.h Par130/buffer.c
+# Wrapped by amc@wuecl on Fri Aug 20 19:16:23 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test ! -d 'Par130' ; then
+    echo shar: Creating directory \"'Par130'\"
+    mkdir 'Par130'
+fi
+if test -f 'Par130/par.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par130/par.1'\"
+else
+echo shar: Extracting \"'Par130/par.1'\" \(31620 characters\)
+sed "s/^X//" >'Par130/par.1' <<'END_OF_FILE'
+X.\"*********************
+X.\"* par.1             *
+X.\"* for Par 1.30      *
+X.\"* Copyright 1993 by *
+X.\"* Adam M. Costello  *
+X.\"*********************
+X.\"
+X.\" This is nroff -man (or troff -man) code.
+X.\"
+X.TH par 1 "18 August 1993" "Par 1.30" "USER COMMANDS"
+X.SH NAME
+Xpar \- filter for reformatting paragraphs
+X.SH SYNOPSIS
+X.ds O \fR[\fP
+X.ds C \fR]\fP
+X.de OP
+X.BI \*O\ \\$1 \\$2\ \*C
+X..
+X.TP .5i
+X.B par
+X.na
+X.OP version
+X.OP h \*Ohang\*C
+X.OP p prefix
+X.OP s suffix
+X.OP w width
+X.OP d \*Odiv\*C
+X.OP f \*Ofit\*C
+X.OP g \*Oguess\*C
+X.OP j \*Ojust\*C
+X.OP l \*Olast\*C
+X.OP q \*Oquote\*C
+X.OP R \*OReport\*C
+X.OP t \*Otouch\*C
+X.br
+X.ad
+X.SH DESCRIPTION
+X.ie t .ds Q ``
+X.el .ds Q ""
+X.ie t .ds U ''
+X.el .ds U ""
+X.de IT
+X.LP
+X\h'-\w"\\$1\ "u'\\$1\ \\$2 \\$3 \\$4 \\$5 \\$6 \\$7 \\$8 \\$9
+X..
+X.LP
+X.B par
+Xis a filter which copies its input to its output,
+Xchanging all white characters (except newlines) to
+Xspaces, and reformatting each paragraph.  Paragraphs are
+Xdelimited by protected, blank, and vacant lines, (see the
+X.SM TERMINOLOGY
+Xsection for definitions), and
+Xoptionally by indentation (see the
+X.B d
+Xoption in the
+X.SM OPTIONS
+Xsection).
+X.LP
+XEach output paragraph is generated from the
+Xcorresponding input paragraph as follows:
+X.RS
+X.LP
+X.IT 1) An optional prefix and/or suffix
+Xis removed from each input line.
+X.IT 2) The remainder is divided into
+Xwords (delimited by spaces).
+X.IT 3) The words are joined into lines
+Xto make an eye-pleasing paragraph.
+X.IT 4) The prefixes and suffixes are reattached.
+X.RE
+X.LP
+XIf there are suffixes, spaces are inserted before
+Xthem so that they all end in the same column.
+X.SH TERMINOLOGY
+X.LP
+XMiscellaneous terms:
+X.RS
+X.IP error
+XA condition which causes
+X.B par
+Xto abort.  See the
+X.SM DIAGNOSTICS
+Xsection.
+X.IP IP
+XInput paragraph.
+X.IP OP
+XOutput paragraph.
+X.IP parameter
+XA symbol which may take on unsigned integral values.  There
+Xare several parameters whose values affect the behavior of
+X.BR par .
+XParameters can be assigned values
+Xusing command line options.
+X.RE
+X.LP
+XTypes of characters:
+X.RS
+X.IP "alphanumeric character"
+XAn upper case letter, lower case letter, or decimal digit.
+X.IP "body character"
+XA member of the set of characters defined by the
+X.SM PARBODY
+Xenvironment variable (see the
+X.SM ENVIRONMENT
+Xsection).
+X.IP "protective character"
+XA member  of the set of characters defined by the
+X.SM PARPROTECT
+Xenvironment variable (see the
+X.SM ENVIRONMENT
+Xsection).
+X.IP "quote character"
+XA member of the set of characters defined by the
+X.SM PARQUOTE
+Xenvironment variable (see the
+X.SM ENVIRONMENT
+Xsection).
+X.IP "terminal character"
+XA period, question mark, exclamation point, or colon.
+X.IP "white character"
+XA space, formfeed, newline, carriage
+Xreturn, tab, or vertical tab.
+X.RE
+X.LP
+XFunctions:
+X.RS
+X.IP comprelen
+XThe comprelen of a non-empty set of lines is the
+Xlength of the longest string of non-body characters
+Xappearing at the beginning of every line in the set.
+X.IP comsuflen
+XGiven a non-empty set
+X.I S
+Xof lines, let
+X.I p
+Xbe the comprelen of
+X.IR S .
+XLet
+X.I T
+Xbe the set of lines which result from stripping the first
+X.I p
+Xcharacters from each line in
+X.IR S .
+XLet
+X.I c
+Xbe the longest string of non-body characters
+Xappearing at the end of every line in
+X.IR T .
+XStrip
+X.I c
+Xof all initial spaces except the last.  The length of
+X.I c
+Xis the comsuflen of
+X.IR S .
+X.IP quoteprefix
+XThe quoteprefix of a line is the longest string of quote
+Xcharacters appearing at the beginning of the line, after
+Xthis string has been stripped of any trailing spaces.
+X.RE
+X.LP
+XTypes of lines:
+X.RS
+X.IP "blank line"
+XAn empty line, or a line whose first character is
+Xnot protective and which contains only spaces.
+X.IP "protected line"
+XAn input line whose first character is protective.
+X.IP "vacant line"
+XAny line which can be shown to be vacant by a finite number
+Xof applications of the following recursive rule:  Suppose
+X.I S
+Xis a subsequence of a segment (see below)
+Xbounded above and below by vacant lines or
+Xby the beginning/end of the segment.  Let
+X.I p
+Xand
+X.I s
+Xbe the comprelen and comsuflen of
+X.IR S .
+XAny member of
+X.I S
+Xwhich, if stripped of its first
+X.I p
+Xcharacters and last
+X.I s
+Xcharacters, would be blank, is vacant.
+X.RE
+X.LP
+XGroups of lines:
+X.RS
+X.IP segment
+XA contiguous sequence of input lines containing no protected
+Xor blank lines, bounded above and below by protected
+Xlines, blank lines, and/or the beginning/end of the input.
+X.IP block
+XA contiguous subsequence of a segment containing
+Xno vacant lines, bounded above and below by vacant
+Xlines and/or the beginning/end of the segment.
+X.RE
+X.LP
+XTypes of words:
+X.RS
+X.IP "capitalized word"
+XA word which contains at least one alphanumeric
+Xcharacter, whose first alphanumeric
+Xcharacter is not a lower case letter.
+X.IP "curious word"
+XA word which contains a terminal character
+X.I c
+Xsuch that there are no alphanumeric
+Xcharacters in the word after
+X.IR c ,
+Xbut there is at least one alphanumeric character in the word before
+X.IR c .
+X.RE
+X.SH OPTIONS
+X.LP
+XAny command line argument may begin with one minus
+Xsign (\-) which is ignored.  Generally, more
+Xthan one option may appear in a single command
+Xline argument, but there is one exception:  The
+X.B version
+Xoption must have a whole argument all to itself.
+X.TP 1i
+X.B version
+XCauses all remaining arguments to be ignored.  No input
+Xis read.  \*Qpar 1.30\*U is printed on the output.  Of
+Xcourse, this will change in future releases of Par.
+X.LP
+XAll remaining options are used to set values of
+Xparameters.  Values set by command line options hold
+Xfor all paragraphs.  Unset parameters are given default
+Xvalues.  Any unset parameters whose default values depend
+Xon the IP are recomputed separately for each paragraph.
+X.LP
+XThe approximate role of each
+Xvariable is described here.  See the
+X.SM DETAILS
+Xsection for the rest of the story.
+X.LP
+XThe first four parameters,
+X.IR hang ,
+X.IR prefix ,
+X.IR suffix ,
+Xand
+X.IR width ,
+Xmay be set to any unsigned decimal integer less than 10000.
+X.TP 1i
+X.BI h\fR[ hang\fR]
+XMainly affects the default values of
+X.I prefix
+Xand
+X.IR suffix .
+XDefaults to 0.  If the
+X.B h
+Xoption is given without a number, the
+Xvalue 1 is inferred.  (See also the
+X.B p
+Xand
+X.B s
+Xoptions.)
+X.TP
+X.BI p prefix
+XThe first
+X.I prefix
+Xcharacters of each line of the OP are copied from the first
+X.I prefix
+Xcharacters of the corresponding line
+Xof the IP.  If there are more than
+X.IR hang \ +\ 1
+Xlines in the IP, the default value is the comprelen
+Xof all the lines in the IP except the first
+X.I hang
+Xof them.  If there are exactly
+X.IR hang \ +\ 1
+Xlines in the IP and
+X.I quote
+Xis 1, the default value is the number of
+Xleading quote characters in the last line.
+XOtherwise, the default value is 0.  (See also the
+X.B h
+Xand
+X.B q
+Xoptions.)
+X.TP
+X.BI s suffix
+XThe last
+X.I suffix
+Xcharacters of each line of the OP are copied from the last
+X.I suffix
+Xcharacters of the corresponding line
+Xof the IP.  If there are more than
+X.IR hang \ +\ 1
+Xlines in the IP, the default value is the comsuflen
+Xof all the lines of the IP except the first
+X.I hang
+Xof them.  Otherwise the default value is 0.  (See also the
+X.B h
+Xoption.)
+X.TP
+X.BI w width
+XNo line in the OP will contain more than
+X.I width
+Xcharacters, not including the
+Xtrailing newlines.  Defaults to 72.
+X.LP
+XThe remaining eight parameters,
+X.IR div,
+X.IR fit,
+X.IR guess,
+X.IR just,
+X.IR last,
+X.IR quote,
+X.IR Report,
+Xand
+X.IR touch,
+Xmay be set to either 0 or 1.  If the number is
+Xabsent in the option, the value 1 is inferred.
+X.TP 1i
+X.BI d\fR[ div\fR]
+XIf
+X.I div
+Xis 0, then each block becames an IP.  If
+X.I div
+Xis 1, then each block is subdivided into IPs as follows:  Let
+X.I p
+Xbe the comprelen of the block.
+XLet a line's status be 1 if its
+X.RI ( p \ +\ 1)st
+Xcharacter is a space, 0 otherwise.  Every line in the
+Xblock whose status is the same as the status of the
+Xfirst line will begin a new paragraph.  Defaults to 0.
+X.TP
+X.BI f\fR[ fit\fR]
+XIf
+X.I fit
+Xis 1 and
+X.I just
+Xis 0,
+X.B par
+Xwill try to make the lines in the OP as nearly the
+Xsame length as possible, even if it means making
+Xthe OP narrower.  Defaults to 0.  (See also the
+X.B j
+Xoption.)
+X.TP
+X.BI g\fR[ guess\fR]
+XIf
+X.I guess
+Xis 1, then when
+X.B par
+Xis choosing line breaks, whenever it encounters a curious
+Xword followed by a capitalized word, it take one of two
+Xspecial actions.  If the two words are separated by a single
+Xspace in the input, they will be merged into one word with
+Xan embedded non-breaking space.  If the two words are
+Xseparated by more than one space, or by a line break, then
+X.B par
+Xwill insure that they are separated by two spaces,
+Xor by a line break, in the output.  Defaults to 0.
+X.TP
+X.BI j\fR[ just\fR]
+XIf
+X.I just
+Xis 1,
+X.B par
+Xjustifies the OP, inserting spaces between words
+Xso that all lines in the OP have length
+X.I width
+X(except the last, if
+X.I last
+Xis 0).
+X.I fit
+Xhas no effect if
+X.I just
+Xis 1.  Defaults to 0.  (See also the
+X.BR w ,
+X.BR l ,
+Xand
+X.B f
+Xoptions.)
+X.TP
+X.BI l\fR[ last\fR]
+XIf
+X.I last
+Xis 1,
+X.B par
+Xtries to make the last line of the OP about
+Xthe same length as the others.  Defaults to 0.
+X.TP
+X.BI q\fR[ quote\fR]
+XIf
+X.I quote
+Xis 1, then before each segment is scanned for vacant lines,
+X.B par
+Xwill insert some new lines as follows:  For each pair of
+Xadjacent lines in the segment, if the quoteprefix of one
+Xis a prefix of (but not the same as) the quoteprefix of
+Xthe other, and each of the two lines contains at least
+Xone non-quote character, then a line consisting of the
+Xsmaller quoteprefix will be inserted between the two lines.
+X.I quote
+Xalso affects the default value of
+X.IR prefix .
+XDefaults to 0.  (See also the
+X.B p
+Xoption.)
+X.TP
+X.BI R\fR[ Report\fR]
+XIf
+X.I Report
+Xis 1, then it will be considered an error
+Xfor an input word to contain more than
+X.IR L \ =
+X.RI ( width \ -
+X.IR prefix \ -
+X.IR suffix )
+Xcharacters.  Otherwise, such
+Xwords will be chopped after each
+X.IR L th
+Xcharacter into shorter words.  Defaults to 0.  It
+Xis recommended that this option be included in
+X.SM PARINIT
+X(see the
+X.SM ENVIRONMENT
+Xsection).
+X.TP
+X.BI t\fR[ touch\fR]
+XHas no effect if
+X.I suffix
+Xis 0 or
+X.I just
+Xis 1.  Otherwise, if
+X.I touch
+Xis 0, all lines in the OP have length
+X.IR width .
+XIf
+X.I touch
+Xis 1, then the length of the lines is decreased until the
+Xsuffixes touch the body of the OP.  Defaults to the logical
+X.SM OR
+Xof
+X.I fit
+Xand
+X.IR last .
+X(See also the
+X.BR s ,
+X.BR j ,
+X.BR w ,
+X.BR f ,
+Xand
+X.B l
+Xoptions.)
+X.LP
+XIf the value of any parameter is set more
+Xthan once, the last value is used.  When
+Xunset parameters are assigned default values,
+X.I hang
+Xand
+X.I quote
+Xare assigned before
+X.IR prefix ,
+Xand
+X.I fit
+Xand
+X.I last
+Xare assigned before
+X.I touch
+X(because of the dependencies).
+X.LP
+XIt is an error if
+X.I width
+X<=
+X.I prefix
+X+
+X.IR suffix .
+X.SH ENVIRONMENT
+X.TP 1i
+X.SM PARBODY
+XAll and only the characters appearing in the value of
+X.SM PARBODY
+Xcount as body characters (which are used for determining
+Xcomprelens and comsuflens).  The underscore is an escape
+Xcharacter, which may begin the following escape sequences:
+X.RS 2i
+X.IT __\ = an underscore
+X.IT _s\ = a space
+X.IT _A\ = all upper case letters
+X.IT _a\ = all lower case letters
+X.IT _0\ = all decimal digits
+X.IT _x\fIhh\fP\ = the character represented
+Xby the two hexadecimal digits
+X.I hh
+X(which may be upper or lower case)
+X.RE
+X.RS 1i
+X.LP
+XIf
+X.SM PARBODY
+Xis not set, there are no body characters.
+X.LP
+XA good value for
+X.SM PARBODY
+Xmight be \*Q_A_a.\*U, but it depends on the application.
+X.RE
+X.TP
+X.SM PARINIT
+XIf set,
+X.B par
+Xwill read command line options from
+X.SM PARINIT
+Xbefore it reads them from the command line.
+X.TP
+X.SM PARPROTECT
+XDetermines the set of protective
+Xcharacters, using the same syntax as
+X.SM PARBODY\s0.
+XIf
+X.SM PARPROTECT
+Xis not set, there are no protective characters.
+X.TP
+X.SM PARQUOTE
+XDetermines the set of quote characters, using the same syntax as
+X.SM PARBODY\s0.
+XIf
+X.SM PARQUOTE
+Xis not set, then the quote characters
+Xare the greater-than sign and the space.
+X.LP
+XIf a
+X.SM NUL
+Xcharacter appears in the value of an environment variable,
+Xit and the rest of the string will not be seen by
+X.BR par .
+X.SH DETAILS
+X.LP
+XLines are terminated by newline characters, but the
+Xnewlines are not considered to be included in the lines.
+XIf the last character of the input is a non-newline,
+Xthen a newline will be inferred immediately after
+Xit (but if the input is empty, no newline will be
+Xinferred; the number of input lines will be 0).  Thus,
+Xthe input can always be viewed as a sequence of lines.
+X.LP
+XProtected lines are copied unchanged from the input to the
+Xoutput.  All other input lines, as they are read, have any
+X.SM NUL
+Xcharacters removed, and every white character
+X(except newlines) turned into a space.
+X.LP
+XBlank lines in the input are transformed into empty
+Xlines in the output.  Vacant lines in the input are
+Xstripped of trailing spaces before being output.
+X.LP
+XThe input is divided into segments, which are
+Xdivided into blocks, which are divided into
+XIPs.  The exact process depends on the values of
+X.I quote
+Xand
+X.I div
+X(see
+X.B q
+Xand
+X.B d
+Xin the
+X.SM OPTIONS
+Xsection).  The remainder of this section describes
+Xthe process which is applied independently to
+Xeach IP to construct the corresponding OP.
+X.LP
+XAfter the values of the parameters are determined (see the
+X.SM OPTIONS
+Xsection), the first
+X.I prefix
+Xcharacters and the last
+X.I suffix
+Xcharacters of each input line are removed and remembered.
+XIt is an error for any line to contain fewer than
+X.IR prefix \ +\  suffix
+Xcharacters.
+X.LP
+XThe remaining text is treated as a sequence of
+Xcharacters, not lines.  The text is broken into
+Xwords, which are delimited by spaces.  That is, a
+Xword
+Xis a maximal sub-sequence of non-spaces.  If
+X.I guess
+Xis 1, then some words might be merged (see
+X.B g
+Xin the
+X.SM OPTIONS
+Xsection).  The first word includes any
+Xspaces that preceed it on the same line.
+X.LP
+XLet
+X.I L
+X=
+X.I width
+X\-
+X.I prefix
+X\-
+X.IR suffix .
+X.LP
+XIf
+X.I Report
+Xis 0, then some words may get chopped up at this point (see
+X.B R
+Xin the
+X.SM
+XOPTIONS
+Xsection).
+X.LP
+XThe words are reassembled, preserving
+Xtheir order, into lines.  If
+X.I just
+Xis 0, adjacent words within a line are separated
+Xby a single space, (or sometimes two if
+X.I guess
+Xis 1), and line breaks are chosen so that
+Xthe paragraph satisfies the following properties:
+X.RS 1i
+X.IT 1) No line contains more than
+X.I L
+Xcharacters.
+X.IT 2) If
+X.I fit
+Xis 1, the difference between the lengths of the
+Xshortest and longest lines is as small as possible.
+X.IT 3) The shortest line is as long as
+Xpossible, subject to properties 1 and 2.
+X.IT 4) Let
+X.I target
+Xbe
+X.I L
+Xif
+X.I fit
+Xis 0, or the length of the longest line if
+X.I fit
+Xis 1.  The sum of the squares of the differences between
+X.I target
+Xand the lengths of the lines is as small as
+Xpossible, subject to properties 1, 2, and 3.
+X.RE
+X.RS .5i
+X.LP
+XIf
+X.I last
+Xis 0, then the last line does not count as a line
+Xfor the purposes of properties 2, 3, and 4 above.
+X.LP
+XIf all the words fit on a single line, then
+Xthe properties as worded above don't make much
+Xsense.  In that case, no line breaks are inserted.
+X.RE
+X.LP
+XIf
+X.I just
+Xis 1, then adjacent words within a line are
+Xseparated by one space (or sometimes two if
+X.I guess
+Xis 1) plus zero or more extra spaces.  The value of
+X.I fit
+Xis disregarded, and line breaks are chosen so that
+Xthe paragraph satisfies the following properties:
+X.RS 1i
+X.IT 1) Every line contains exactly
+X.I L
+Xcharacters.
+X.IT 2) The largest inter-word gap is as small as
+Xpossible, subject to property 1.  (An inter-word gap
+Xconsists only of the extra spaces, not the regular spaces.)
+X.IT 3) The sum of the squares of the lengths
+Xof the inter-word gaps is as small as
+Xpossible, subject to properties 1 and 2.
+X.RE
+X.RS .5i
+X.LP
+XIf
+X.I last
+Xis 0, then the last line does not count as a
+Xline for the purposes of property 1, and it
+Xdoes not require or contain any extra spaces.
+X.LP
+XExtra spaces are distributed as uniformly as
+Xpossible among the inter-word gaps in each line.
+X.LP
+XIn a justified paragraph, every line must
+Xcontain at least two words, but that's not
+Xalways possible to accomplish.  If the paragraph
+Xcannot be justified, it is considered an error.
+X.RE
+X.LP
+XIf the number of lines in the
+Xresulting paragraph is less than
+X.IR hang ,
+Xthen empty lines are added at the end
+Xto bring the number of lines up to
+X.IR hang .
+X.LP
+XIf
+X.I just
+Xis 0 and
+X.I touch
+Xis 1, then
+X.I L
+Xis changed to be the length of the longest line.
+X.LP
+XIf
+X.I suffix
+Xis not 0, then each line is padded at the
+Xend with spaces to bring its length up to
+X.IR L .
+X.LP
+XTo each line is prepended
+X.I prefix
+Xcharacters.  Let
+X.I n
+Xbe the number of lines in the IP.  The
+Xcharacters which are prepended to the
+X.IR i th
+Xline are chosen as follows:
+X.RS
+X.LP
+X.IT 1) If
+X.I i
+X<=
+X.IR n ,
+Xthen the characters are copied from the ones
+Xthat were removed from the beginning of the
+X.IR n th
+Xinput line.
+X.IT 2) If
+X.I i
+X>
+X.I n
+X>
+X.IR hang ,
+Xthen the characters are copied from the ones that were
+Xremoved from the beginning of the last input line.
+X.IT 3) If
+X.I i
+X>
+X.I n
+Xand
+X.I n
+X<=
+X.IR hang ,
+Xthen the characters are all spaces.
+X.RE
+X.LP
+XThen to each line is appended
+X.I suffix
+Xcharacters.  The characters which are appended to the
+X.IR i th
+Xline are chosen as follows:
+X.RS
+X.LP
+X.IT 1) If
+X.I i
+X<=
+X.IR n ,
+Xthen the characters are copied from the
+Xones that were removed from the end of the
+X.IR n th
+Xinput line.
+X.IT 2) If
+X.I i
+X>
+X.I n
+X> 0, then the characters are copied from the ones that
+Xwere removed from the end of the last input line.
+X.IT 3) If
+X.I n
+X= 0, then the characters are all spaces.
+X.RE
+X.LP
+XFinally, the lines are printed to the output as the OP.
+X.SH DIAGNOSTICS
+X.LP
+XIf there are no errors,
+X.B par
+Xreturns
+X.SM EXIT_SUCCESS
+X(see
+X.BR <stdlib.h> ).
+X.LP
+XIf there is an error, then an error
+Xmessage will be printed to the output, and
+X.B par
+Xwill return
+X.SM EXIT_FAILURE\s0\.
+XIf the error is local to a single paragraph, then the
+Xpreceeding paragraphs will have been output before the
+Xerror was detected.  Line numbers in error messages are
+Xlocal to the IP in which the error occurred.  All error
+Xmessages begin with \*Qpar error:\*U on a line by itself.
+X.LP
+XOf course, trying to print an error message would be
+Xfutile if an error resulted from an output function, so
+X.B par
+Xdoesn't bother doing any error checking on output functions.
+X.SH EXAMPLES
+X.de VS
+X.RS -.5i
+X.LP
+X.nf
+X.ps -1p
+X.vs -2p
+X.cs R 20
+X..
+X.de VE
+X.cs R
+X.vs
+X.ps
+X.fi
+X.RE
+X..
+X.de CM
+X\&\*Q\fB\\$1\fP\\*U:
+X..
+X.LP
+XThe superiority of
+X.BR par 's
+Xdynamic programming algorithm over a
+Xgreedy algorithm (such as the one used by
+X.BR fmt )
+Xcan be seen in the following example:
+X.LP
+XOriginal paragraph (note that
+Xeach line begins with 8 spaces):
+X.VS
+X        We the people of the United States,
+X        in order to form a more perfect union,
+X        establish justice,
+X        insure domestic tranquility,
+X        provide for the common defense,
+X        promote the general welfare,
+X        and secure the blessing of liberty
+X        to ourselves and our posterity,
+X        do ordain and establish the Constitution
+X        of the United States of America.
+X.VE
+X.LP
+XAfter a greedy algorithm with width = 39:
+X.VS
+X        We the people of the United
+X        States, in order to form a more
+X        perfect union, establish
+X        establish justice, insure
+X        domestic tranquility, provide
+X        for the common defense, promote
+X        the general welfare, and secure
+X        the blessing of liberty to
+X        ourselves and our posterity, do
+X        ordain and establish the
+X        Constitution of the United
+X        States of America.
+X.VE
+X.LP
+XAfter
+X.CM "par 39"
+X.VS
+X        We the people of the United
+X        States, in order to form a
+X        more perfect union, establish
+X        justice, insure domestic
+X        tranquility, provide for the
+X        common defense, promote the
+X        general welfare, and secure
+X        the blessing of liberty to
+X        ourselves and our posterity,
+X        do ordain and establish the
+X        Constitution of the United
+X        States of America.
+X.VE
+X.LP
+XThe line breaks chosen by
+X.B par
+Xare clearly more eye-pleasing.
+X.LP
+X.B par
+Xis most useful in conjunction with the text-filtering
+Xfeatures of an editor, such as the ! commands of
+X.BR vi .
+X.LP
+XThe rest of this section is a series of
+Xbefore-and-after pictures showing some typical uses of
+X.BR par .
+X.LP
+XBefore:
+X.VS
+X        /*   We the people of the United States, */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, */
+X        /* insure domestic tranquility, */
+X        /* provide for the common defense, */
+X        /* promote the general welfare, */
+X        /* and secure the blessing of liberty */
+X        /* to ourselves and our posterity, */
+X        /* do ordain and establish the Constitution */
+X        /* of the United States of America. */
+X.VE
+X.LP
+XAfter
+X.CM "par 59"
+X.VS
+X        /*   We the people of the United States, in      */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility, provide */
+X        /* for the common defense, promote the general   */
+X        /* welfare, and secure the blessing of liberty   */
+X        /* to ourselves and our posterity, do ordain     */
+X        /* and establish the Constitution of the United  */
+X        /* States of America.                            */
+X.VE
+X.LP
+XOr after
+X.CM "par 59f"
+X.VS
+X        /*   We the people of the United States,  */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, insure domestic     */
+X        /* tranquility, provide for the common    */
+X        /* defense, promote the general welfare,  */
+X        /* and secure the blessing of liberty to  */
+X        /* ourselves and our posterity, do ordain */
+X        /* and establish the Constitution of the  */
+X        /* United States of America.              */
+X.VE
+X.LP
+XOr after
+X.CM "par 59l"
+X.VS
+X        /*   We the people of the United States, in      */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility,         */
+X        /* provide for the common defense, promote       */
+X        /* the general welfare, and secure the           */
+X        /* blessing of liberty to ourselves and our      */
+X        /* posterity, do ordain and establish the        */
+X        /* Constitution of the United States of America. */
+X.VE
+X.LP
+XOr after
+X.CM "par 59lf"
+X.VS
+X        /*   We the people of the United States,  */
+X        /* in order to form a more perfect union, */
+X        /* establish justice, insure domestic     */
+X        /* tranquility, provide for the common    */
+X        /* defense, promote the general welfare,  */
+X        /* and secure the blessing of liberty     */
+X        /* to ourselves and our posterity, do     */
+X        /* ordain and establish the Constitution  */
+X        /* of the United States of America.       */
+X.VE
+X.LP
+XOr after
+X.CM "par 59lft0"
+X.VS
+X        /*   We the people of the United States,         */
+X        /* in order to form a more perfect union,        */
+X        /* establish justice, insure domestic            */
+X        /* tranquility, provide for the common           */
+X        /* defense, promote the general welfare,         */
+X        /* and secure the blessing of liberty            */
+X        /* to ourselves and our posterity, do            */
+X        /* ordain and establish the Constitution         */
+X        /* of the United States of America.              */
+X.VE
+X.LP
+XOr after
+X.CM "par 59j"
+X.VS
+X        /*   We  the people  of  the  United States,  in */
+X        /* order to form a more perfect union, establish */
+X        /* justice, insure domestic tranquility, provide */
+X        /* for the  common defense, promote  the general */
+X        /* welfare, and  secure the blessing  of liberty */
+X        /* to ourselves and our posterity, do ordain and */
+X        /* establish  the  Constitution  of  the  United */
+X        /* States of America.                            */
+X.VE
+X.LP
+XOr after
+X.CM "par 59jl"
+X.VS
+X        /*   We  the   people  of  the   United  States, */
+X        /* in   order    to   form   a    more   perfect */
+X        /* union,  establish  justice,  insure  domestic */
+X        /* tranquility, provide for  the common defense, */
+X        /* promote  the  general   welfare,  and  secure */
+X        /* the  blessing  of  liberty to  ourselves  and */
+X        /* our  posterity, do  ordain and  establish the */
+X        /* Constitution of the United States of America. */
+X.VE
+X.LP
+XBefore:
+X.VS
+X        Preamble      We the people of the United States,
+X        to the US     in order to form
+X        Constitution  a more perfect union,
+X                      establish justice,
+X                      insure domestic tranquility,
+X                      provide for the common defense,
+X                      promote the general welfare,
+X                      and secure the blessing of liberty
+X                      to ourselves and our posterity,
+X                      do ordain and establish
+X                      the Constitution
+X                      of the United States of America.
+X.VE
+X.LP
+XAfter
+X.CM "par 52h3"
+X.VS
+X        Preamble      We the people of the United
+X        to the US     States, in order to form a
+X        Constitution  more perfect union, establish
+X                      justice, insure domestic
+X                      tranquility, provide for the
+X                      common defense, promote the
+X                      general welfare, and secure
+X                      the blessing of liberty to
+X                      ourselves and our posterity,
+X                      do ordain and establish the
+X                      Constitution of the United
+X                      States of America.
+X.VE
+X.LP
+XBefore:
+X.VS
+X         1  We the people of the United States,
+X         2  in order to form a more perfect union,
+X         3  establish justice,
+X         4  insure domestic tranquility,
+X         5  provide for the common defense,
+X         6  promote the general welfare,
+X         7  and secure the blessing of liberty
+X         8  to ourselves and our posterity,
+X         9  do ordain and establish the Constitution
+X        10  of the United States of America.
+X.VE
+X.LP
+XAfter
+X.CM "par 59p12l"
+X.VS
+X         1  We the people of the United States, in order to
+X         2  form a more perfect union, establish justice,
+X         3  insure domestic tranquility, provide for the
+X         4  common defense, promote the general welfare,
+X         5  and secure the blessing of liberty to ourselves
+X         6  and our posterity, do ordain and establish the
+X         7  Constitution of the United States of America.
+X.VE
+X.LP
+XBefore:
+X.VS
+X        > > We the people
+X        > > of the United States,
+X        > > in order to form a more perfect union,
+X        > > establish justice,
+X        > > ensure domestic tranquility,
+X        > > provide for the common defense,
+X        >
+X        > Promote the general welfare,
+X        > and secure the blessing of liberty
+X        > to ourselves and our posterity,
+X        > do ordain and establish
+X        > the Constitution of the United States of America.
+X.VE
+X.LP
+XAfter
+X.CM "par 52"
+X.VS
+X        > > We the people of the United States, in
+X        > > order to form a more perfect union,
+X        > > establish justice, ensure domestic
+X        > > tranquility, provide for the common
+X        > > defense,
+X        >
+X        > Promote the general welfare, and secure
+X        > the blessing of liberty to ourselves and
+X        > our posterity, do ordain and establish
+X        > the Constitution of the United States of
+X        > America.
+X.VE
+X.LP
+XBefore:
+X.VS
+X        >   We the people
+X        > of the United States,
+X        > in order to form a more perfect union,
+X        > establish justice,
+X        > ensure domestic tranquility,
+X        > provide for the common defense,
+X        >   Promote the general welfare,
+X        > and secure the blessing of liberty
+X        > to ourselves and our posterity,
+X        > do ordain and establish
+X        > the Constitution of the United States of America.
+X.VE
+X.LP
+XAfter
+X.CM "par 52d"
+X.VS
+X        >   We the people of the United States,
+X        > in order to form a more perfect union,
+X        > establish justice, ensure domestic
+X        > tranquility, provide for the common
+X        > defense,
+X        >   Promote the general welfare, and secure
+X        > the blessing of liberty to ourselves and
+X        > our posterity, do ordain and establish
+X        > the Constitution of the United States of
+X        > America.
+X.VE
+X.LP
+XBefore:
+X.VS
+X        Joe Public writes:
+X        > Jane Doe writes:
+X        > > I can't find the source for uncompress.
+X        > Oh no, not again!!!
+X        >
+X        > Isn't there a FAQ for this?
+X        That wasn't very helpful, Joe. Jane,
+X        just make a link from uncompress to compress.
+X.VE
+X.LP
+XAfter
+X.CM "par 40q"
+X.VS
+X        Joe Public writes:
+X
+X        > Jane Doe writes:
+X        >
+X        > > I can't find the source for
+X        > > uncompress.
+X        >
+X        > Oh no, not again!!!
+X        >
+X        > Isn't there a FAQ for this?
+X
+X        That wasn't very helpful, Joe.
+X        Jane, just make a link from
+X        uncompress to compress.
+X.VE
+X.LP
+XBefore:
+X.VS
+X        I sure hope there's still room
+X        in Dr. Jones' section of archaeology.
+X        I've heard he's the best.
+X.VE
+X.LP
+XAfter
+X.CM "par 50g"
+X.VS
+X        I sure hope there's still room in
+X        Dr. Jones' section of archaeology.  I've
+X        heard he's the best.
+X.VE
+X.SH SEE ALSO
+X.LP
+X.B par.doc
+X.SH LIMITATIONS
+X.LP
+XThe
+X.I guess
+Xfeature guesses wrong in cases like the following:
+X.VS
+X        I calc'd the approx.
+X        Fermi level to 3 sig. digits.
+X.VE
+X.LP
+XWith
+X.I guess
+X= 1,
+X.B par
+Xwill incorrectly assume that \*Qapprox.\*U
+Xends a sentence.  If the input were:
+X.VS
+X        I calc'd the approx. Fermi
+X        level to 3 sig. digits.
+X.VE
+X.LP
+Xthen
+X.B par
+Xwould refuse to put a line break between
+X\*Qapprox.\*U and \*QFermi\*U in the output,
+Xmainly to avoid creating the first situation (in
+Xcase the paragraph were to be fed back through
+X.B par
+Xagain).  This non-breaking space policy does come in handy
+Xfor cases like \*QMr.\ Johnson\*U and \*QJan.\ 1\*U, though.
+X.LP
+XThe
+X.I guess
+Xfeature only goes one way.
+X.B par
+Xcan preserve wide sentence breaks in a
+Xparagraph, or remove them, but it can't insert
+Xthem if they aren't already in the input.
+X.LP
+XIf you use tabs, you probably won't like the way
+X.B par
+Xhandles (or doesn't handle) them.  It turns them into
+Xspaces.  I didn't bother trying to make sense of tabs
+Xbecause they don't make sense to begin with.  Not everyone's
+Xterminal has the same tab settings, so text files containing
+Xtabs are sometimes mangled.  In fact, almost every text
+Xfile containing tabs gets mangled when something is
+Xinserted at the beginning of each line (when quoting
+Xe-mail or commenting out a section of a shell script, for
+Xexample), making them a pain to edit.  In my opinion, the
+Xworld would be a nicer place if everyone stopped using
+Xtabs (so I'm doing my part by not supporting them in
+X.BR par .)
+X(Thanks to ets1@cs.wustl.edu (Eric T. Stuebe)
+Xfor showing me the light about tabs.)
+X.LP
+XThere is currently no way for the length of the
+Xoutput prefix to differ from the length of the
+Xinput prefix.  Ditto for the suffix.  I may consider
+Xadding this capability in a future release, but
+Xright now I'm not sure how I'd want it to work.
+X.SH BUGS
+X.LP
+XIf I knew of any bugs, I wouldn't release the package.  Of
+Xcourse, there may be bugs that I haven't yet discovered.
+X.LP
+XIf you find any bugs (in the program or
+Xin the documentation), or if you have
+Xany suggestions, please send e-mail to:
+X.RS
+X.LP
+Xamc@ecl.wustl.edu
+X.RE
+X.LP
+Xor send paper mail to:
+X.RS
+X.LP
+X.nf
+XAdam M. Costello
+XCampus Box 1045
+XWashington University
+XOne Brookings Dr.
+XSt. Louis, MO 63130
+XUSA
+X.fi
+X.RE
+X.LP
+XNote that both addresses could
+Xchange anytime after June 1994.
+X.LP
+XWhen reporting a bug, please include the exact input and
+Xcommand line options used, and the version number of
+X.BR par ,
+Xso that I can reproduce it.
+END_OF_FILE
+if test 31620 -ne `wc -c <'Par130/par.1'`; then
+    echo shar: \"'Par130/par.1'\" unpacked with wrong size!
+fi
+# end of 'Par130/par.1'
+fi
+if test -f 'Par130/buffer.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par130/buffer.h'\"
+else
+echo shar: Extracting \"'Par130/buffer.h'\" \(2446 characters\)
+sed "s/^X//" >'Par130/buffer.h' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.h          */
+X/* for Par 1.30      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* Note: Those functions declared here which do not use errmsg    */
+X/* always succeed, provided that they are passed valid arguments. */
+X
+X
+X#include "errmsg.h"
+X
+X#include <stddef.h>
+X
+X
+Xstruct buffer;
+X
+X
+Xstruct buffer *newbuffer(size_t itemsize, errmsg_t errmsg);
+X
+X  /* newbuffer(itemsize,errmsg) returns a pointer to a */
+X  /* new empty struct buffer which holds items of size */
+X  /* itemsize.  Any struct buffer *buf passed to any   */
+X  /* function declared in this header must have been   */
+X  /* obtained from this function.  itemsize must not   */
+X  /* be 0.  Returns NULL on failure.                   */
+X
+X
+Xvoid freebuffer(struct buffer *buf);
+X
+X  /* freebuffer(buf) frees the memory associated with */
+X  /* *buf.  buf may not be used after this call.      */
+X
+X
+Xvoid clearbuffer(struct buffer *buf);
+X
+X  /* clearbuffer(buf) removes  */
+X  /* all items from *buf, but  */
+X  /* does not free any memory. */
+X
+X
+Xvoid additem(struct buffer *buf, const void *item, errmsg_t errmsg);
+X
+X  /* additem(buf,item,errmsg) copies *item to the end of     */
+X  /* *buf.  item must point to an object of the proper size  */
+X  /* for *buf.  If additem() fails, *buf will be unaffected. */
+X
+X
+Xint numitems(struct buffer *buf);
+X
+X  /* numitems(buf) returns the number of items in *buf. */
+X
+X
+Xvoid *copyitems(struct buffer *buf, errmsg_t errmsg);
+X
+X  /* copyitems(buf,errmsg) returns an array of objects of the proper size */
+X  /* for *buf, one for each item in *buf, or (void *) 0 if there are no   */
+X  /* items in buf.  The elements of the array are copied from the items   */
+X  /* in *buf, in order.  The array is allocated with malloc(), so it may  */
+X  /* be freed with free().  Returns NULL on failure.                      */
+X
+X
+Xvoid *nextitem(struct buffer *buf);
+X
+X  /* When buf was created by newbuffer, a pointer associated with buf   */
+X  /* was initialized to point at the first slot in buf.  If there is an */
+X  /* item in this slot, nextitem(buf) advances the pointer to the next  */
+X  /* slot and returns the old value.  If there is no item in the slot,  */
+X  /* nextitem(buf) leaves the pointer where it is and returns NULL.     */
+X
+X
+Xvoid rewindbuffer(struct buffer *buf);
+X
+X  /* rewindbuffer(buf) resets the pointer used by  */
+X  /* nextitem() to point at the first slot in buf. */
+END_OF_FILE
+if test 2446 -ne `wc -c <'Par130/buffer.h'`; then
+    echo shar: \"'Par130/buffer.h'\" unpacked with wrong size!
+fi
+# end of 'Par130/buffer.h'
+fi
+if test -f 'Par130/buffer.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Par130/buffer.c'\"
+else
+echo shar: Extracting \"'Par130/buffer.c'\" \(4689 characters\)
+sed "s/^X//" >'Par130/buffer.c' <<'END_OF_FILE'
+X/*********************/
+X/* buffer.c          */
+X/* for Par 1.30      */
+X/* Copyright 1993 by */
+X/* Adam M. Costello  */
+X/*********************/
+X
+X/* This is ANSI C code. */
+X
+X
+X/* additem(), copyitems(), and nextitem() rely on the fact that */
+X/* sizeof (char) is 1.  See section A7.4.8 of The C Programming */
+X/* Language, Second Edition, by Kerninghan and Ritchie.         */
+X
+X
+X#include "buffer.h"  /* Makes sure we're consistent with the prototypes. */
+X                     /* Also includes <stddef.h> and "errmsg.h".         */
+X
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#undef NULL
+X#define NULL ((void *) 0)
+X
+X#ifdef DONTFREE
+X#define free(ptr)
+X#endif
+X
+X
+Xstruct buffer {
+X  struct block *firstblk, /* The first block.                    */
+X               *current,  /* The last non-empty block, or        */
+X                          /* firstblk if all are empty.          */
+X               *nextblk;  /* The block containing the item to be */
+X                          /* returned by nextitem(), or NULL.    */
+X  int nextindex;          /* Index of item in nextblock->items.  */
+X  size_t itemsize;        /* The size of an item.                */
+X};
+X
+Xstruct block {
+X  struct block *next;  /* The next block, or NULL if none.              */
+X  void *items;         /* Storage for the items in this block.          */
+X  int maxhere,         /* Number of items that fit in *items.           */
+X      numprevious,     /* Total of numhere for all previous blocks.     */
+X      numhere;         /* The first numhere slots in *items are filled. */
+X};
+X
+X
+Xstruct buffer *newbuffer(size_t itemsize, errmsg_t errmsg)
+X{
+X  struct buffer *buf;
+X  struct block *blk;
+X  void *items;
+X  int maxhere;
+X
+X  maxhere = 124 / itemsize;
+X  if (maxhere < 4) maxhere = 4;
+X
+X  buf = (struct buffer *) malloc(sizeof (struct buffer));
+X  blk = (struct block *) malloc(sizeof (struct block));
+X  items = malloc(maxhere * itemsize);
+X  if (!buf || !blk || !items) {
+X    strcpy(errmsg,outofmem);
+X    goto nberror;
+X  }
+X
+X  buf->itemsize = itemsize;
+X  buf->firstblk = buf->current = buf->nextblk = blk;
+X  buf->nextindex = 0;
+X  blk->next = NULL;
+X  blk->numprevious = blk->numhere = 0;
+X  blk->maxhere = maxhere;
+X  blk->items = items;
+X
+X  *errmsg = '\0';
+X  return buf;
+X
+X  nberror:
+X  if (buf) free(buf);
+X  if (blk) free(blk);
+X  if (items) free(items);
+X  return NULL;
+X}
+X
+X
+Xvoid freebuffer(struct buffer *buf)
+X{
+X  struct block *blk, *tmp;
+X
+X  blk = buf->firstblk;
+X  while (blk) {
+X    tmp = blk;
+X    blk = blk->next;
+X    if (tmp->items) free(tmp->items);
+X    free(tmp);
+X  }
+X
+X  free(buf);
+X}
+X
+X
+Xvoid clearbuffer(struct buffer *buf)
+X{
+X  struct block *blk;
+X
+X  for (blk = buf->firstblk;  blk;  blk = blk->next)
+X    blk->numhere = 0;
+X
+X  buf->current = buf->firstblk;
+X}
+X
+X
+Xvoid additem(struct buffer *buf, const void *item, errmsg_t errmsg)
+X{
+X  struct block *blk, *new;
+X  void *items;
+X  int maxhere;
+X  size_t itemsize = buf->itemsize;
+X
+X  blk = buf->current;
+X
+X  if (blk->numhere == blk->maxhere) {
+X    new = blk->next;
+X    if (!new) {
+X      maxhere = 2 * blk->maxhere;
+X      new = (struct block * ) malloc(sizeof (struct block));
+X      items = malloc(maxhere * itemsize);
+X      if (!new || !items) {
+X        strcpy(errmsg,outofmem);
+X        goto aierror;
+X      }
+X      blk->next = new;
+X      new->next = NULL;
+X      new->maxhere = maxhere;
+X      new->numprevious = blk->numprevious + blk->numhere;
+X      new->numhere = 0;
+X      new->items = items;
+X    }
+X    blk = buf->current = new;
+X  }
+X
+X  memcpy( ((char *) blk->items) + (blk->numhere * itemsize), item, itemsize );
+X
+X  ++blk->numhere;
+X
+X  *errmsg = '\0';
+X  return;
+X
+X  aierror:
+X  if (new) free(new);
+X  if (items) free(items);
+X}
+X
+X
+Xint numitems(struct buffer *buf)
+X{
+X  struct block *blk = buf->current;
+X  return blk->numprevious + blk->numhere;
+X}
+X
+X
+Xvoid *copyitems(struct buffer *buf, errmsg_t errmsg)
+X{
+X  int n;
+X  void *r;
+X  struct block *blk, *b;
+X  size_t itemsize = buf->itemsize;
+X
+X  b = buf->current;
+X  n = b->numprevious + b->numhere;
+X  if (!n) return NULL;
+X
+X  r = malloc(n * itemsize);
+X  if (!r) {
+X    strcpy(errmsg,outofmem);
+X    return NULL;
+X  }
+X
+X  b = b->next;
+X
+X  for (blk = buf->firstblk;  blk != b;  blk = blk->next)
+X    memcpy( ((char *) r) + (blk->numprevious * itemsize),
+X            blk->items, blk->numhere * itemsize);
+X
+X  *errmsg = '\0';
+X  return r;
+X}
+X
+X
+Xvoid rewindbuffer(struct buffer *buf)
+X{
+X  buf->nextblk = buf->firstblk;
+X  buf->nextindex = 0;
+X}
+X
+X
+Xvoid *nextitem(struct buffer *buf)
+X{
+X  void *r;
+X
+X  if (!buf->nextblk || buf->nextindex >= buf->nextblk->numhere)
+X    return NULL;
+X
+X  r = ((char *) buf->nextblk->items) + (buf->nextindex * buf->itemsize);
+X
+X  if (++buf->nextindex >= buf->nextblk->maxhere) {
+X    buf->nextblk = buf->nextblk->next;
+X    buf->nextindex = 0;
+X  }
+X
+X  return r;
+X}
+END_OF_FILE
+if test 4689 -ne `wc -c <'Par130/buffer.c'`; then
+    echo shar: \"'Par130/buffer.c'\" unpacked with wrong size!
+fi
+# end of 'Par130/buffer.c'
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

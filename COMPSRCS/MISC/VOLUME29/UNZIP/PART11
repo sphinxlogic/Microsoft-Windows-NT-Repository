@@ -1,0 +1,1464 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i041:  unzip - Info-ZIP's portable UnZip v4.2, Part11/12
+Message-ID: <1992Apr3.063405.29262@sparky.imd.sterling.com>
+X-Md4-Signature: 28b86160fdbc5ee932077f01ec625de2
+Date: Fri, 3 Apr 1992 06:34:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 41
+Archive-name: unzip/part11
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  AMIGA/stat.c ATARI/tc.cfg.uu BUGS CONTRIBS MAC/macfile.c
+#   MAC/make.mpw.uu MSDOS/Contents MSDOS/bcc/tcconfig.tc.uu
+#   MSDOS/tcc/tcconfig.tc.uu MSDOS/tcc/zipinfo.prj OS2/Contents
+#   VMS/crypt/descrip.mms VMS/descrip.mms VMS/fatdef.h VMS/fchdef.h
+#   VMS/unzip.rnh unzip.1 unzip.man
+# Wrapped by kent@sparky on Mon Mar 30 01:45:56 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 11 (of 12)."'
+if test -f 'AMIGA/stat.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'AMIGA/stat.c'\"
+else
+  echo shar: Extracting \"'AMIGA/stat.c'\" \(3402 characters\)
+  sed "s/^X//" >'AMIGA/stat.c' <<'END_OF_FILE'
+X/* stat.c -- for Lattice 4.01 */
+X
+X#include <exec/types.h>
+X#include <exec/exec.h>
+X#include <libraries/dos.h>
+X#include <libraries/dosextens.h>
+X#include <proto/exec.h>
+X#include <proto/dos.h>
+X
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X
+X/* I can't find the defines for DirEntryType or EntryType... */
+X#define DOSDIR  (2L)
+X#define DOSFILE (-3L)   /* actually, < 0 */
+X
+X#ifndef SUCCESS
+X#define SUCCESS (-1)
+X#define FAILURE (0)
+X#endif
+X
+Xextern int stat(char *file,struct stat *buf);
+X
+Xstat(file,buf)
+Xchar *file;
+Xstruct stat *buf;
+X{
+X
+X        struct FileInfoBlock *inf;
+X        struct FileLock *lock;
+X        long ftime;
+X
+X        if( (lock = (struct FileLock *)Lock(file,SHARED_LOCK))==0 )
+X                /* file not found */
+X                return(-1);
+X
+X        if( !(inf = (struct FileInfoBlock *)AllocMem(
+X                (long)sizeof(struct FileInfoBlock),MEMF_PUBLIC|MEMF_CLEAR)) )
+X        {
+X                UnLock((BPTR)lock);
+X                return(-1);
+X        }
+X
+X        if( Examine((BPTR)lock,inf)==FAILURE )
+X        {
+X                FreeMem((char *)inf,(long)sizeof(*inf));
+X                UnLock((BPTR)lock);
+X                return(-1);
+X        }
+X
+X        /* fill in buf */
+X
+X        buf->st_dev                =
+X        buf->st_nlink        =
+X        buf->st_uid                =
+X        buf->st_gid                =
+X        buf->st_rdev        = 0;
+X        
+X        buf->st_ino                = inf->fib_DiskKey;
+X        buf->st_blocks        = inf->fib_NumBlocks;
+X        buf->st_size        = inf->fib_Size;
+X        buf->st_blksize        = 512;
+X
+X        /* now the date.  AmigaDOG has weird datestamps---
+X         *      ds_Days is the number of days since 1-1-1978;
+X         *      however, as Unix wants date since 1-1-1970...
+X         */
+X
+X        ftime =
+X                (inf->fib_Date.ds_Days * 86400 )                +
+X                (inf->fib_Date.ds_Minute * 60 )                 +
+X                (inf->fib_Date.ds_Tick / TICKS_PER_SECOND )     +
+X                (86400 * 8 * 365 )                              +
+X                (86400 * 2 );  /* two leap years, I think */
+X
+X/*  ftime += timezone;  */
+X
+X        buf->st_ctime =
+X        buf->st_atime =
+X        buf->st_mtime =
+X        buf->st_mtime = ftime;
+X
+X        switch( inf->fib_DirEntryType )
+X        {
+X        case DOSDIR:
+X                buf->st_mode = S_IFDIR;
+X                break;
+X
+X        case DOSFILE:
+X                buf->st_mode = S_IFREG;
+X                break;
+X
+X        default:
+X                buf->st_mode = S_IFDIR | S_IFREG;
+X                /* an impossible combination?? */
+X        }
+X
+X        /* lastly, throw in the protection bits */
+X
+X        if((inf->fib_Protection & FIBF_READ) == 0)
+X                buf->st_mode |= S_IREAD;
+X
+X        if((inf->fib_Protection & FIBF_WRITE) == 0)
+X                buf->st_mode |= S_IWRITE;
+X
+X        if((inf->fib_Protection & FIBF_EXECUTE) == 0)
+X                buf->st_mode |= S_IEXECUTE;
+X
+X        if((inf->fib_Protection & FIBF_DELETE) == 0)
+X                buf->st_mode |= S_IDELETE;
+X
+X        if((inf->fib_Protection & (long)FIBF_ARCHIVE))
+X                buf->st_mode |= S_IARCHIVE;
+X
+X        if((inf->fib_Protection & (long)FIBF_PURE))
+X                buf->st_mode |= S_IPURE;
+X
+X        if((inf->fib_Protection & (long)FIBF_SCRIPT))
+X                buf->st_mode |= S_ISCRIPT;
+X
+X        FreeMem((char *)inf, (long)sizeof(*inf));
+X        UnLock((BPTR)lock);
+X
+X        return(0);
+X
+X}
+END_OF_FILE
+  if test 3402 -ne `wc -c <'AMIGA/stat.c'`; then
+    echo shar: \"'AMIGA/stat.c'\" unpacked with wrong size!
+  fi
+  # end of 'AMIGA/stat.c'
+fi
+if test -f 'ATARI/tc.cfg.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ATARI/tc.cfg.uu'\"
+else
+  echo shar: Extracting \"'ATARI/tc.cfg.uu'\" \(3361 characters\)
+  sed "s/^X//" >'ATARI/tc.cfg.uu' <<'END_OF_FILE'
+Xbegin 644 ATARI/tc.cfg
+XM @( "C0                                                     
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM            93I<=&-<:6YC;'5D90                              
+XM     $%405))7U-4/3$                                         
+XM                                                    ,C4  #$P
+XM,  S,@  ,@                                                  
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM              0                                         93I<
+XM=&-<;&EB                                                    
+XM                                                            
+XM                                                            
+XM                                                            
+XM1CI<54Y:25!<54Y:25 N4%)*                                    
+XM                                                            
+XM                                                  !&.EQ53EI)
+XM4%P 12Y/                                                    
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                                            
+XM                                /S\_                        
+XM 0 " $8 %$8Z7%5.6DE07%5.6DE0+D@ 4%Q53EI)4"Y(    *     ,     
+XM       )^:8  #>* P  ")&6    $" @ I8   !A    $             C 
+XM=B @ I8    !    $                0 (  $ "  !     0   !  "=(B
+XM      #+    RP    $ 1@ 41CI<54Y:25!<54Y:25 N4%)* %5.6DE0+D@ 
+XM   H     P            GYI@  -XH#   (D98    0(" "E@   &$    0
+XM            ",!V(" "E@    $    0               !  @  0 (  $ 
+XM   !    $  )TB(  0   +(   "R     0!& !1-97-S86=E<P          
+XM                                                            
+XM                                                            
+XM                               "                            
+XM                                                            
+XM                                                            
+XA                                            
+X 
+Xend
+END_OF_FILE
+  if test 3361 -ne `wc -c <'ATARI/tc.cfg.uu'`; then
+    echo shar: \"'ATARI/tc.cfg.uu'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'ATARI/tc.cfg.uu'\"
+    cat ATARI/tc.cfg.uu | uudecode
+    if [ -f ATARI/tc.cfg.uu ]; then
+       rm ATARI/tc.cfg.uu
+    fi
+  fi
+  # end of 'ATARI/tc.cfg.uu'
+fi
+if test -f 'BUGS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'BUGS'\"
+else
+  echo shar: Extracting \"'BUGS'\" \(3189 characters\)
+  sed "s/^X//" >'BUGS' <<'END_OF_FILE'
+XBugs (real and/or imagined):
+X---------------------------
+X
+X - pkbug error:  zipfile with incorrect csize and/or ucsize--check for end of
+X    compressed (csize) data in uncompression routines:
+X      unimplod.c:    while ((!zipeof) && ((outpos + outcnt) < ucsize)) {
+X      unreduce.c:    while (((outpos + outcnt) < ucsize) && (!zipeof)) {
+X    (James Birdsall, Mark, bottom of BUGS.long)
+X - add SEGV signal handler to avoid core dumps (Jean-loup, BUGS.long)
+X - if PK signature not found, append .zip and try again without error 
+X    messages (Jean-loup, others, bottom of BUGS.long)
+X - stdlib.h non-existent some systems?  (IBM BSD 4.3, Apollo Domain?)
+X - disk full:  a few files clear some pointer; continuing beyond "Continue?"
+X    prompt, regardless of answer, kills unzip--stack too small? (doesn't seem
+X    to matter)  Bug in MSC write() function?  Subsequent write code isn't any 
+X    different from -t option, so unlikely to be bug in uncompress routines...
+X    File descriptor bad/close() failure?  (workaround:  ^C at prompt)
+X - textfile conversions on a PC system add extra CR to lines which already have
+X    CR/LF combo; probably don't work in all directions, either (Mac/Unix/...)
+X - compressed symlinks are allowed:  revise symlink code
+X - malloc/free main storage as needed (esp. stack[])
+X - fix "no errors detected" message for errors occurring *before* extract_or_
+X    test_files(); count errors?  differentiate between errors and warnings?
+X - add new extended local header capability for piped zipfiles
+X
+X
+XFeatures (possible and/or definite):
+X-----------------------------------
+X
+X - add loop (2 or 3) for multiple password attempts with decryption
+X - test/incorporate Martin Schulz optimization patch
+X - add -oo option (overwrite and override):  no user queries (if bad password,
+X    skip file; if disk full, take default action; if VMS special on non-VMS,
+X    unpack anyway; etc.)
+X - add -Q[Q[Q]] option (quiet mode on comments, cautions, warnings and errors):
+X    forget -oo, or make synonym?  Default level -Q?  Override with +Q?  -Q# ?
+X - allow wildcards in zipfile name (loop through each one)
+X - build in capability to check text/binary type and warn if -a (if version
+X    < 1.1 and not made on DOS--i.e., not early Info-ZIP versions)
+X - change use of __STDC__ to PROTO or something similar:  too much awkwardness
+X - incorporate Atari patches
+X - modify set_file_time routines to share common code (macro?)
+X - use lrec.whatever instead of pInfo (crec), whenever possible (see next item)
+X - modify to decompress input stream if part of a pipe, but continue
+X    using central directory if not (BIG job!)
+X - assembly-language version of CRC check; write unimplode in assembler?
+X - check for environment variable ("UNZIP") for default options--override
+X    with +[options]
+X - -v#, -l# instead of "q"?  combine with UNZIP variable
+X - add -i (ignore case for internal filename match) option?  hmmmm...
+X - mapname() should be rewritten
+X - CP/M version (Jeffery Foy)
+X - VM/CMS version (Chua Kong Sian, others)
+X - MS-DOS Power C support (need predefined token:  see ship 1.1)
+X - put man pages in more "proper" nroff format
+X - add OS/2 .INF format helpfiles for UnZip and ZipInfo
+X
+END_OF_FILE
+  if test 3189 -ne `wc -c <'BUGS'`; then
+    echo shar: \"'BUGS'\" unpacked with wrong size!
+  fi
+  # end of 'BUGS'
+fi
+if test -f 'CONTRIBS' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'CONTRIBS'\"
+else
+  echo shar: Extracting \"'CONTRIBS'\" \(2686 characters\)
+  sed "s/^X//" >'CONTRIBS' <<'END_OF_FILE'
+XThis is a partial list of contributors to Info-ZIP UnZip and the code upon
+Xwhich it is based.  Many, many others have also contributed, and if you are
+Xamong them, please let us know.  Aside from the Info-ZIP digest archives,
+Xwe have not kept very good track of who contributed what.  Also, contributors
+Xto the makefile are listed at the bottom of Makefile.
+X
+X  Mark Adler            decryption code; inflate code; misc. casts
+X  Joel Aycock           descrip.mms bugfix
+X  Allan Bjorklund       in misc.c
+X  Wim Bonner            OS/2 stuff
+X  John Cowan            original case insensitivity in match.c
+X  Frank da Cruz         xxu.c, on which mapname.c is based
+X  Bill Davidsen         -q(q); mapname stuff; memset/memcpy(?); etc.
+X  Arjan de Vet          various things, but I don't remember exactly what...
+X  James Dugal           in mapname.c
+X  Jim Dumser            -z stuff; umask bugfixes; etc.
+X  Mark Edwards          in mapname.c, misc.c
+X  Mike Freeman          VMS GCC makefiles; etc.
+X  Jean-loup Gailly      decryption code; much prodding to fix bugs :-)
+X  Hunter Goatley        VMS RUNOFF source (documentation)
+X  Dave Heiland          new usage screen [, new documentation...?]
+X  Thom Henderson        arcmatch.c, on which match.c is based
+X  Larry Jones           in mapname.c, misc.c
+X  David Kirschbaum      mapname port; general-purpose meddling; M. Python jokes
+X  Bo Kullmar            -z code; bugfixes: umask, do_string, BSD time; etc.
+X  Johnny Lee            Mac port
+X  Warner Losh           in misc.c
+X  Igor Mandrichenko     vms.c; many improvements and VMS modifications
+X  Carl Mascott          original Unix port; unimplode stuff; etc.
+X  Gene McManus          -o code
+X  Joe Meadows           file.c, on which VMSmunch.c is based
+X  Mike O'Carroll        OS/2 stuff
+X  Keith Petersen        former Info-ZIP list maintainer
+X  Antonio Querubin, Jr  descrip.mms (VMS makefile)
+X  Greg Roelofs          central directory code; ZipInfo; VMS; major meddling
+X  Kai Uwe Rommel        much OS/2 code; bugfixes; etc.
+X  Georg Sassen          Amiga DICE compiler port
+X  Jon Saxton            date formats
+X  Hugh Schmidt          VMS stuff
+X  Martin Schulz         Atari patches
+X  Chris Seaman          Unix time stuff; match stuff
+X  Alex Sergejew         file_io.c bugfix; stat() bugfix; Down Under jokes
+X  Samuel H. Smith       original unzip code (Pascal and C) for PC
+X  Cliff Stanford        file_io.c umask bug
+X  Mike Stump            original SysV port of arcmatch.c
+X  Antoine Verheijen     MTS/EBCDIC stuff; FILENAME_MAX stuff; 4.2 Mac fixes...
+X  Rich Wales            current Info-ZIP moderator and zip guy
+X  Paul Wells            original Amiga port for SAS/C and Lattice C (?)
+END_OF_FILE
+  if test 2686 -ne `wc -c <'CONTRIBS'`; then
+    echo shar: \"'CONTRIBS'\" unpacked with wrong size!
+  fi
+  # end of 'CONTRIBS'
+fi
+if test -f 'MAC/macfile.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/macfile.c'\"
+else
+  echo shar: Extracting \"'MAC/macfile.c'\" \(3696 characters\)
+  sed "s/^X//" >'MAC/macfile.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  mac.c
+X
+X  This source file is used by the mac port to support commands not available
+X  directly on the Mac, i.e. mkdir().
+X  It also helps determine if we're running on a Mac with HFS and a disk
+X  formatted for HFS (HFS - Hierarchical File System; compared to its predecessor,
+X  MFS - Macintosh File System).
+X  
+X  ---------------------------------------------------------------------------*/
+X
+X#include "unzip.h"
+X
+X#ifdef MACOS
+X#ifndef THINK_C
+X#define FSFCBLen    (*(short *)0x3F6)
+X#define CtoPstr     c2pstr
+X#define PtoCstr     p2cstr
+X#endif
+X
+Xstatic short wAppVRefNum;
+Xstatic long lAppDirID;
+Xint hfsflag;            /* set if disk has hierarchical file system */
+X
+Xstatic int IsHFSDisk(short wRefNum)
+X{
+X    /* get info about the specified volume */
+X    if (hfsflag == true) {
+X        HParamBlockRec    hpbr;
+X        Str255 temp;
+X        short wErr;
+X        
+X        hpbr.volumeParam.ioCompletion = 0;
+X        hpbr.volumeParam.ioNamePtr = temp;
+X        hpbr.volumeParam.ioVRefNum = wRefNum;
+X        hpbr.volumeParam.ioVolIndex = 0;
+X        wErr = PBHGetVInfo(&hpbr, 0);
+X
+X        if (wErr == noErr && hpbr.volumeParam.ioVFSID == 0
+X            && hpbr.volumeParam.ioVSigWord == 0x4244) {
+X                return true;
+X        }
+X    }
+X
+X    return false;
+X} /* IsHFSDisk */
+X
+Xvoid macfstest(int vrefnum)
+X{
+X    Str255 st;
+X
+X    /* is this machine running HFS file system? */
+X    if (FSFCBLen <= 0) {
+X        hfsflag = false;
+X    }
+X    else
+X    {
+X        hfsflag = true;
+X    }
+X
+X    /* get the file's volume reference number and directory ID */
+X    if (hfsflag == true) {
+X        WDPBRec    wdpb;
+X        OSErr err = noErr;
+X
+X        if (vrefnum != 0) {
+X            wdpb.ioCompletion = false;
+X            wdpb.ioNamePtr = st;
+X            wdpb.ioWDIndex = 0;
+X            wdpb.ioVRefNum = vrefnum;
+X            err = PBHGetVol(&wdpb, false);
+X        
+X            if (err == noErr) {
+X                wAppVRefNum = wdpb.ioWDVRefNum;
+X                lAppDirID = wdpb.ioWDDirID;
+X            }
+X        }
+X
+X        /* is the disk we're using formatted for HFS? */
+X        hfsflag = IsHFSDisk(wAppVRefNum);
+X    }
+X} /* mactest */
+X
+Xint mkdir(char *path)
+X{
+X    OSErr    err = -1;
+X
+X    if (path != 0 && strlen(path)<256 && hfsflag == true) {
+X        HParamBlockRec    hpbr;
+X        Str255    st;
+X        short     wVol;
+X        long      lDirID;
+X
+X        CtoPstr(path);
+X        hpbr.fileParam.ioNamePtr = st;
+X        hpbr.fileParam.ioCompletion = NULL;
+X        err = PBHGetVol((WDPBPtr)&hpbr, false);
+X        if (err == noErr) {
+X            wVol = hpbr.wdParam.ioWDVRefNum;
+X            lDirID = hpbr.wdParam.ioWDDirID;
+X            hpbr.fileParam.ioCompletion = NULL;
+X            hpbr.fileParam.ioVRefNum = wVol;
+X            hpbr.fileParam.ioDirID = lDirID;
+X            hpbr.fileParam.ioNamePtr = (StringPtr)path;
+X            err = PBDirCreate(&hpbr, false);
+X        }    
+X        PtoCstr(path);
+X    }
+X
+X    return (int)err;
+X} /* mkdir */
+X
+Xvoid SetMacVol(char *pch, short wVRefNum)
+X{
+X    OSErr err = -1;
+X
+X    if (hfsflag == true) {
+X        HParamBlockRec  hpbr;
+X        Str255  st;
+X
+X        hpbr.wdParam.ioCompletion = NULL;
+X        hpbr.wdParam.ioNamePtr = st;
+X        hpbr.wdParam.ioVRefNum = wVRefNum;
+X        hpbr.wdParam.ioWDIndex = 0;
+X        hpbr.wdParam.ioWDProcID = 0;
+X        hpbr.wdParam.ioWDVRefNum = 0;
+X        err = PBGetWDInfo((WDPBPtr)&hpbr, false);
+X        if (err == noErr) {
+X            hpbr.wdParam.ioCompletion = NULL;
+X            hpbr.wdParam.ioNamePtr = NULL;
+X            err = PBHSetVol((WDPBPtr)&hpbr, false);
+X        }
+X    } else {
+X        err = SetVol((StringPtr)pch, wVRefNum);
+X    }
+X} /* SetMacVol */
+X#endif /* MACOS */
+END_OF_FILE
+  if test 3696 -ne `wc -c <'MAC/macfile.c'`; then
+    echo shar: \"'MAC/macfile.c'\" unpacked with wrong size!
+  fi
+  # end of 'MAC/macfile.c'
+fi
+if test -f 'MAC/make.mpw.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MAC/make.mpw.uu'\"
+else
+  echo shar: Extracting \"'MAC/make.mpw.uu'\" \(1677 characters\)
+  sed "s/^X//" >'MAC/make.mpw.uu' <<'END_OF_FILE'
+Xbegin 644 MAC/unzip.make.mpw
+XM(R @(%1H:7,@35!7(&UA:V5F:6QE(&ES(&1E<VEG;F5D('1O(&)E('5S960@
+XM=&\@8V]M<&EL92!A;B!-4%<@=F5R<VEO;@HC(" @;V8@=6YZ:7 @=7-I;F<@
+XM=&AE($U05R!#(&-O;7!I;&5R+"!V97)S:6]N(#,N,BX@4VEM<&QY(')E;F%M
+XM90HC(" @=&AI<R!F:6QE(&%S('5N>FEP+FUA:V4@86YD(&1O(&%N($U05R!B
+XM=6EL9"X*"@HC(" @1FEL93H@(" @(" @=6YZ:7 N;6%K90HC(" @5&%R9V5T
+XM.B @(" @=6YZ:7 *(R @(%-O=7)C97,Z(" @('5N>FEP+F,*(R @(" @(" @
+XM(" @(" @(&5X=')A8W0N8PHC(" @(" @(" @(" @(" @9FEL95]I;RYC"B,@
+XM(" @(" @(" @(" @("!M86-F:6QE+F,*(R @(" @(" @(" @(" @(&UA8W-T
+XM870N8PHC(" @(" @(" @(" @(" @;6%P;F%M92YC"B,@(" @(" @(" @(" @
+XM("!M871C:"YC"B,@(" @(" @(" @(" @("!M:7-C+F,*(R @(" @(" @(" @
+XM(" @('5N:6UP;&]D+F,*(R @(" @(" @(" @(" @('5N<F5D=6-E+F,*(R @
+XM(" @(" @(" @(" @('5N<VAR:6YK+F,*(R @($-R96%T960Z(" @(%-A='5R
+XM9&%Y+"!&96)R=6%R>2 R.2P@,3DY,B W.C U.C P(%!-"@H*0T9,04=3(#T@
+XM+60@35!7"@I,1DQ!1U,@/2 M;0H*"BYC+F\@Q" N8R!U;GII<"YH('5N>FEP
+XM+FUA:V4*(" @(" @("!#('M#1DQ!1U-]('M$969A=6QT?2YC"@I/0DI%0U13
+XM(#T@M@H@(" @(" @('5N>FEP+F,N;R"V"B @(" @(" @97AT<F%C="YC+F\@
+XMM@H@(" @(" @(&9I;&5?:6\N8RYO(+8*(" @(" @("!M86-F:6QE+F,N;R"V
+XM"B @(" @(" @;6%C<W1A="YC+F\@M@H@(" @(" @(&UA<&YA;64N8RYO(+8*
+XM(" @(" @("!M871C:"YC+F\@M@H@(" @(" @(&UI<V,N8RYO(+8*(" @(" @
+XM("!U;FEM<&QO9"YC+F\@M@H@(" @(" @('5N<F5D=6-E+F,N;R"V"B @(" @
+XM(" @=6YS:')I;FLN8RYO"@IU;GII<"#$('M/0DI%0U13?0H@(" @(" @($QI
+XM;FL@+60@+6,@)TU04R G("UT($U04U0@M@H@(" @(" @(" @(" @(" @>T]"
+XM2D5#5%-](+8*(" @(" @(" @(" @(" @(")[0TQI8G)A<FEE<WTB4W1D0VQI
+XM8BYO(+8*(" @(" @(" @(" @(" @(")[3&EB<F%R:65S?2)3='5B<RYO(+8*
+XM(" @(" @(" @(" @(" @(")[3&EB<F%R:65S?2)2=6YT:6UE+F\@M@H@(" @
+XM(" @(" @(" @(" @(GM,:6)R87)I97-](DEN=&5R9F%C92YO(+8*(" @(" @
+X3(" @(" @(" @("UO('5N>FEP"G)I
+X 
+Xend
+END_OF_FILE
+  if test 1677 -ne `wc -c <'MAC/make.mpw.uu'`; then
+    echo shar: \"'MAC/make.mpw.uu'\" unpacked with wrong size!
+  else
+    echo shar: Uudecoding \"'MAC/make.mpw.uu'\" 
+    cat MAC/make.mpw.uu | uudecode 
+    if [ -f MAC/make.mpw.uu ]; then 
+       rm MAC/make.mpw.uu
+    fi
+  fi
+  # end of 'MAC/make.mpw.uu'
+fi
+if test -f 'MSDOS/Contents' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/Contents'\"
+else
+  echo shar: Extracting \"'MSDOS/Contents'\" \(2322 characters\)
+  sed "s/^X//" >'MSDOS/Contents' <<'END_OF_FILE'
+XContents of the MSDOS sub-archive for UnZip 4.2 and later:
+X
+X  Contents          this file
+X  makefile          makefile for Turbo C, Borland C++, and old Microsoft C
+X  makefile.cr       ditto, for decryption version of UnZip (need crypt.c)
+X  tcc/tcconfig.tc   Turbo C general configuration file (binary)
+X  tcc/unzip.prj     Turbo C project file for UnZip
+X  tcc/unzip_cr.prj  Turbo C project file for UnZip + decryption (need crypt.c)
+X  tcc/zipinfo.prj   outline for Turbo C project file for ZipInfo
+X  tcc/makeship.bat  batch file to make Ship with Turbo C
+X  bcc/tcconfig.tc   BC++ general configuration file (binary)
+X  bcc/unz42_bc.dif  patch to avoid BC++ compilation warning
+X  bcc/unzip.dsk     BC++ context file for UnZip (binary)
+X  bcc/unzip.mak     BC++ makefile for UnZip
+X  bcc/unzip.prj     BC++ project file for UnZip (binary)
+X  bcc/unzip_cr.dsk  BC++ context file for UnZip/decryption (binary; need crypt)
+X  bcc/unzip_cr.mak  BC++ makefile for UnZip + decryption (need crypt.c)
+X  bcc/unzip_cr.prj  BC++ project file for UnZip/decryption (binary; need crypt)
+X  bcc/zipinfo.dsk   BC++ context file for ZipInfo (binary)
+X  bcc/zipinfo.mak   BC++ makefile for ZipInfo
+X  bcc/zipinfo.prj   BC++ project file for ZipInfo (binary)
+X  bcc/makeship.bat  batch file to make Ship with Borland C++
+X
+XNote:  despite the similarity in names to the corresponding Turbo C files,
+Xthe Borland C++ files apparently are NOT compatible with the older compilers
+X(although they seem to be compatible with Turbo C++).  Such was the claim of
+Xone of our testers, at least.  So the old TC makefiles are also included.  I 
+Xhave tried to update them appropriately, but I don't know for sure that they 
+Xwork.  The ZipInfo project file needs to specify that misc.c be compiled with
+X-DZIPINFO (it might work as it stands, but the executable will be unnecessarily
+Xlarge).
+X
+XNote also:  for MSC 6.0 or later, use the msc_dos, zi_dos and ship_dos (or
+Xmsc_os2, zi_os2 and ship_os2) targets in the main Unix Makefile--with NMAKE,
+Xnot MAKE.  The msc_dos target is very close to the DOS 128-character command-
+Xline limit--124 characters, if -DCRYPT and -FPi87 are among the CFLAGS--but
+Xit should work.  If it's too long, remove the -nologo from CFLAGS (and, option-
+Xally, the /nol from LDFLAGS).  The compile will be slightly "noisier," but no
+Xharm is done.
+END_OF_FILE
+  if test 2322 -ne `wc -c <'MSDOS/Contents'`; then
+    echo shar: \"'MSDOS/Contents'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS/Contents'
+fi
+if test -f 'MSDOS/bcc/tcconfig.tc.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/bcc/tcconfig.tc.uu'\"
+else
+  echo shar: Extracting \"'MSDOS/bcc/tcconfig.tc.uu'\" \(2548 characters\)
+  sed "s/^X//" >'MSDOS/bcc/tcconfig.tc.uu' <<'END_OF_FILE'
+Xbegin 644 MSDOS/bcc/tcconfig.tc
+XM5'5R8F\@0R!#;VYF:6=U<F%T:6]N($9I;&4@&@ !#1(7 1H   L( 'P D0$"
+XM    D@$"  $ E0$!  26 0(   "7 0( &0"8 0(   "9 0( !P"< 00 .   
+XM )T! @ " )\! @ ' * ! @ B Z$! @"'_Z(! @   *,! @   *0! @   *4!
+XM 0  I@$"  $ IP$"    J $"    J0$"    __\   D EP,7 ^\"        
+XM_\!____A?___X                     #_^___               !    
+XM                 5@ %@"P !, _  : &0!& #$ 08  0 # @, _P$$ .T!
+XM!0#Q 08 !0('  D""  ' @D :0(+ -P!# #' @X 90(/ .(!$ "U A$ WP$2
+XM /L!$P#O 10 $ (6 -L"%P#X 1@ \P$9  L"&@#U 0X !P() &D"1P 2 D@ 
+XM\0%) /L!2P#O 4T [0%/ !0"4 #S 5$ _P%2 -L"4P ) G,  P)T  4"=0 9
+XM G8 'P)W !8"A  < AL 3P(" 28" P%5 @0!MP(( 5,""0%A @L!*@(, 2X"
+XM$ '7 A$!MP(2 ;\"$P'G A0!.0(5 6,"%@%9 A<!NP(9 5T", !K C$ ;@(R
+XM '$",P!T C0 =P(U 'H"-@!] C< @ (X (,".0"& @$!RP(" 40" P$? @0!
+XM% (% 18"!@'# @L!2 (0 4P"$@$< A,!$@(8 1D"&0$. C  B0(Q (T",@"1
+XM C, E0(T )D"-0"= C8 H0(W *4". "I CD K0(; ;$"'0&S @8!X0() =T"
+XM#P$B A(!Y0(4 >,"%0'? @(" 0(# 0($ 1(!$0$3 10!5 %5 14!%@$9/0$:
+XM/0$^5CT!/E<] 1<!& $I 2@!)1T!)@$G 1T!'@$S'P$S( $S(0$S(@$>.0T!
+XM3BHL 4XK+ %.01X3*Q0=*BQ" 4Y!$1=+*Q<J+$(!,RX_ 3,O/P$T/P%; 5P!
+XM+0$P+#\!,2P_ 3(_3@%% 48!.0T4 5,!-P !-P$!-P(!-P,!-P0!-P4!-P8!
+XM-P<!-P@!-PD!-@ _ 38!/P$V C\!-@,_ 38$/P$V!3\!-@8_ 38'/P$V"#\!
+XM-@D_ 4P!30$Y 0,!  $# @ ! P,  0,$  $#!0 ! P8  0,)  $#"@ ! PL 
+XM 2,!1P%) 5(!4 %9 0,2  $#$P ! "\J*B\!*  I  %; %T  7L ?0 !/  ^
+XM   B "(  "< )P "                                            
+XM                                                            
+XM                                                            
+XM            "P#3 @AP('!X="0(<"!P>'0D<' @<'AT)!<7<1X73A\?&A,Q
+XM,3!/  <'?P]_3@\/"A,Q,0<  #$Q*S$_3C\_.A,Q,0   #$Q*S$_3C\_.A,Q
+XM,0     W/C >,0 Q,3$3$P  ,# ^,!XQ/S\Z,1,3?G .<0  =' ?<0 ?&A,Q
+XM,0                                           #$Q*S$_3C\_.A,Q
+XM,0   #$Q*S$_3C\_.A,Q,0   ']_ '      >C$Q$P   ']^<'YP?G]^>!,;
+XM'APO+BLN("YX&R\?+Q\>$!X7'QHP/B\X/SXP/C@'!W '#P\/!P=P!P\/#P<'
+XM< </#P\'!W '!W /#P]W#P\/<  '!W '#W /#P]W#P\'   '!W '#W /#P]W
+XM#P\    '!W '#W /#P]W#P\    /!P\'< \/#P]W#P\   \'#P=P#P\/#W</
+XM#W!P#W    \'<'< #P]W#P\                                     
+XM       '!W '#W /#P]W#P\    '!W '#W /#P]W#P\    /< !P     '!W
+XM#P\    /< =P!W /<'@'!P<'#W '< =P> =P#W '#P</> \/!P=P> ]P!P]X
+XM"'@'>'AP#PAX!WAX< \(> =X>' /!P=P#P]P#P\/=P\/#W  !P=P!P\/#P\/
+XM=P\/!P  !P=P!P\/#P\/=P\/    !P=P!P\/#P\/=P\/    #P</!W (#P\/
+XM=P\/   /!P\'< @/#P]W#P]P< ]X   /!W!P  \/=P\/                
+XM                            !P=P!P\/#P\/=P\/    !P=P!P\/#P\/
+XM=P\/    #W  <     !P=P\/    #W '< =P#W!X!P<'!P]P!W '<'@'< ]P
+X4!P\'#W@/#P<'<'@/< </>/__    
+X 
+Xend
+END_OF_FILE
+  if test 2548 -ne `wc -c <'MSDOS/bcc/tcconfig.tc.uu'`; then
+    echo shar: \"'MSDOS/bcc/tcconfig.tc.uu'\" unpacked with wrong size!
+  else 
+    echo shar: Uudecoding \"'MSDOS/bcc/tcconfig.tc.uu'\" 
+    cat MSDOS/bcc/tcconfig.tc.uu | uudecode 
+    if [ -f MSDOS/bcc/tcconfig.tc.uu ]; then 
+       rm MSDOS/bcc/tcconfig.tc.uu 
+    fi 
+  fi
+  # end of 'MSDOS/bcc/tcconfig.tc.uu'
+fi
+if test -f 'MSDOS/tcc/tcconfig.tc.uu' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/tcc/tcconfig.tc.uu'\"
+else
+  echo shar: Extracting \"'MSDOS/tcc/tcconfig.tc.uu'\" \(2370 characters\)
+  sed "s/^X//" >'MSDOS/tcc/tcconfig.tc.uu' <<'END_OF_FILE'
+Xbegin 644 MSDOS/tcc/tcconfig.tc
+XM5'5R8F\@0R!#;VYF:6=U<F%T:6]N($9I;&4@&@ !#1(7 1H  @$!  (    "
+XM  (  0 #  (  @ $  $   4  0  !@ !   (  $  0D  @    T  @ !  X 
+XM @   !$  0 $$@ "    $P " !D %  "  $ %0 "  $ %@ "  ( %P "    
+XM&  "    9  !  %E  $  68  0 !9P !  %H  $  6D  0 !:@ !  %K  $ 
+XM 6P  0 !;0 !  %N  $  6\  0 !<  !  %Q  $  7(  0 !<P !  %T  $ 
+XM 74  0 !=@ !  %W  $  7@  0 !>0 !  %Z  $  7L  0  ?  !  %]  $ 
+XM 7X  0 !?P !  &   $  8(  0  A  !  "%  $  <@  0  R0 !  '*  $ 
+XM <L  0 !S  !  '-  $  ,X  0 !SP !  #0  $ &=$  0!DT@ ! "#5  $ 
+XM -<  0  V  !  #9  $  =H  0 !VP !  #<  $  -T  0 !W@ !  '?  $ 
+XM .   0  X0 !  #B  $  2P!1                                   
+XM                                                         "T!
+XM@ !#.EQ40UQ)3D-,541%                                        
+XM                                                            
+XM                                                     "X!@ !#
+XM.EQ40UQ,24(                                                 
+XM                                                            
+XM                                                 "\!4 !53EI)
+XM4"Y04DH                                                     
+XM                                         # !!  S,@  ,0$% #(U
+XM    ,@$% #$P,   ,P%_                                        
+XM                                                            
+XM                                                            
+XM           T 1X *@                                      -0$>
+XM "H                                      #8!'@ J            
+XM                           W 1X *@                          
+XM            . $> "H                                      #D!
+XM'@ J                                       Z 1X *@          
+XM                            .P$> "H                         
+XM             #P!'@ J                                       ]
+XM 8                                                          
+XM                                                            
+XM                                                       ^ 00 
+XM-    #\!4   0U!)0TLN5$-0                                    
+XM                                                         $ !
+XM1 !#.EQ40P                                                  
+XM                                 $$!4 !53EI)4"Y#            
+XM                                                            
+X9                         /__ @ :    
+X 
+Xend
+END_OF_FILE
+  if test 2370 -ne `wc -c <'MSDOS/tcc/tcconfig.tc.uu'`; then
+    echo shar: \"'MSDOS/tcc/tcconfig.tc.uu'\" unpacked with wrong size!
+  else  
+    echo shar: Uudecoding \"'MSDOS/tcc/tcconfig.tc.uu'\"  
+    cat MSDOS/tcc/tcconfig.tc.uu | uudecode  
+    if [ -f MSDOS/tcc/tcconfig.tc.uu ]; then  
+       rm MSDOS/tcc/tcconfig.tc.uu  
+    fi  
+  fi
+  # end of 'MSDOS/tcc/tcconfig.tc.uu'
+fi
+if test -f 'MSDOS/tcc/zipinfo.prj' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'MSDOS/tcc/zipinfo.prj'\"
+else
+  echo shar: Extracting \"'MSDOS/tcc/zipinfo.prj'\" \(57 characters\)
+  sed "s/^X//" >'MSDOS/tcc/zipinfo.prj' <<'END_OF_FILE'
+Xzipinfo.c	(unzip.h)
+Xmatch.c		(unzip.h)
+Xmisc.c		(unzip.h)
+END_OF_FILE
+  if test 57 -ne `wc -c <'MSDOS/tcc/zipinfo.prj'`; then
+    echo shar: \"'MSDOS/tcc/zipinfo.prj'\" unpacked with wrong size!
+  fi
+  # end of 'MSDOS/tcc/zipinfo.prj'
+fi
+if test -f 'OS2/Contents' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'OS2/Contents'\"
+else
+  echo shar: Extracting \"'OS2/Contents'\" \(1614 characters\)
+  sed "s/^X//" >'OS2/Contents' <<'END_OF_FILE'
+XContents of the OS2 sub-archive for UnZip 4.2 and later:
+X
+X  Contents      this file
+X  dosname.c     OS/2 HPFS/FAT support routines (required)
+X  unzip.bad     support file for Kai Uwe Rommel's CS program (optional)
+X  unzip.cs      script for Kai Uwe Rommel's CS program (optional)
+X  unzip.def     OS/2 linker definition file (required)
+X  ship.def      OS/2 linker definition file (required for ship)
+X  zipinfo.cs    script for Kai Uwe Rommel's CS program (optional)
+X  zipinfo.def   OS/2 linker definition file (required for zipinfo)
+X  ship.dif      patch to allow ship to be compiled with IBM C Set/2 (32-bit)
+X
+XMake targets for OS/2 are provided in other makefiles.  For MSC 6.0 or later
+Xand NMAKE, or for IBM C Set/2, or for GNU C and Eberhard Mattes' EMX environ-
+Xment, use the main (Unix) Makefile and its msc_os2, ship_os2 and zi_os2 (or
+Xicc_os2, ship_icc and zi_icc, or gcc_os2, ship_gcc and zi_gcc, respectively)
+Xtargets.  For MSC 5.1 and possibly 5.0, use the makefile in the MSDOS sub-
+Xarchive (edit appropriately).  There is, as yet, no support for the Zortech
+Xcompiler, and the Borland OS/2 compiler doesn't exist yet.
+X
+XNote about the ship patch:  *only* use it for the 32-bit IBM compiler; it
+Xwill break under Microsoft C.  The same problem *may* occur with the IBM
+Xcompiler--namely, that stdin and stdout are not treated as binary file han-
+Xdles, with the result that piping things into and out of ship won't work 
+Xright.  This has to do with the reliance on fopen() to set the binary mode,
+Xrather than the original setmode().  (It may have been intended to use
+Xfdopen() for this, rather than fopen().)
+END_OF_FILE
+  if test 1614 -ne `wc -c <'OS2/Contents'`; then
+    echo shar: \"'OS2/Contents'\" unpacked with wrong size!
+  fi
+  # end of 'OS2/Contents'
+fi
+if test -f 'VMS/crypt/descrip.mms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/crypt/descrip.mms'\"
+else
+  echo shar: Extracting \"'VMS/crypt/descrip.mms'\" \(2045 characters\)
+  sed "s/^X//" >'VMS/crypt/descrip.mms' <<'END_OF_FILE'
+X! =========================================================================
+X! MMS description file for UnZip 4.2.
+X! Version:  decrypt + no inflate
+X! =========================================================================
+X!
+X!   Original by Antonio Querubin, Jr., <querubin@uhccvx.uhcc.hawaii.edu>
+X!     (23 Dec 90)
+X!   Enhancements by Igor Mandrichenko, <mandrichenko@mx.decnet.ihep.su>
+X!     (9 Feb 92)
+X
+X! To build unzip that uses shared libraries,
+X!	mms
+X! (One-time users will find it easier to use the MAKE_UNZIP_VAXC.COM command
+X! file, which generates both unzip and zipinfo.  Just type "@MAKE_UNZIP_VAXC";
+X! or "@MAKE_UNZIP_GCC" if you have GNU C.)
+X
+X! To build unzip without shared libraries,
+X!	mms noshare
+X
+X! To delete unnecessary OBJ files,
+X!	mms clean
+X
+XCC = cc
+XCFLAGS = /def=(CRYPT)
+XLD = link
+XLDFLAGS =
+XEXE =
+XO = .obj;
+XOBJS = unzip$(O), crypt$(O), extract$(O), file_io$(O), mapname$(O), match$(O),\
+X      misc$(O), unimplod$(O), unreduce$(O), unshrink$(O), VMSmunch$(O), vms$(O)
+XOBJI = zipinfo$(O), misc.obj_, match$(O), VMSmunch$(O)
+X
+XLDFLAGS2 =
+X
+Xdefault	:	unzip.exe, zipinfo.exe
+X	@	!	Do nothing.
+X
+Xunzip.exe :	$(OBJS), vmsshare.opt
+X	$(LD) $(LDFLAGS) $(OBJS), \
+X		vmsshare.opt/options
+X
+Xzipinfo.exe :	$(OBJI), vmsshare.opt
+X	$(LD) $(LDFLAGS) $(OBJI), \
+X		vmsshare.opt/options
+X
+X
+Xnoshare :	$(OBJS)
+X	$(LD) $(LDFLAGS) $(OBJS), \
+X		sys$library:vaxcrtl.olb/library $(LDFLAGS2)
+X
+Xclean :
+X	delete $(OBJS)	! you may want to change this to 'delete *.obj;*'
+X
+XVMSmunch$(O) :	VMSmunch.h fatdef.h fchdef.h fjndef.h
+Xcrypt$(O) :	crypt.c unzip.h zip.h	! may or may not be included in distrib
+Xextract$(O) :	extract.c unzip.h
+Xfile_io$(O) :	file_io.c unzip.h
+X! inflate$(O) :	inflate.c unzip.h	! may or may not be included in distrib
+Xmapname$(O) :	mapname.c unzip.h
+Xmatch$(O) :	match.c unzip.h
+Xmisc$(O) :	misc.c unzip.h
+Xunimplod$(O) :	unimplod.c unzip.h
+Xunreduce$(O) :	unreduce.c unzip.h
+Xunshrink$(O) :	unshrink.c unzip.h
+Xunzip$(O) :	unzip.c unzip.h fatdef.h
+Xvms$(O)	  :	vms.c unzip.h
+Xmisc.obj_ :	misc.c unzip.h
+X	$(CC)/object=misc.obj_/define="ZIPINFO" misc.c
+END_OF_FILE
+  if test 2045 -ne `wc -c <'VMS/crypt/descrip.mms'`; then
+    echo shar: \"'VMS/crypt/descrip.mms'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/crypt/descrip.mms'
+fi
+if test -f 'VMS/descrip.mms' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/descrip.mms'\"
+else
+  echo shar: Extracting \"'VMS/descrip.mms'\" \(2026 characters\)
+  sed "s/^X//" >'VMS/descrip.mms' <<'END_OF_FILE'
+X! =========================================================================
+X! MMS description file for UnZip 4.2.
+X! Version:  no decrypt + no inflate
+X! =========================================================================
+X!
+X!   Original by Antonio Querubin, Jr., <querubin@uhccvx.uhcc.hawaii.edu>
+X!     (23 Dec 90)
+X!   Enhancements by Igor Mandrichenko, <mandrichenko@mx.decnet.ihep.su>
+X!     (9 Feb 92)
+X
+X! To build unzip that uses shared libraries,
+X!	mms
+X! (One-time users will find it easier to use the MAKE_UNZIP_VAXC.COM command
+X! file, which generates both unzip and zipinfo.  Just type "@MAKE_UNZIP_VAXC";
+X! or "@MAKE_UNZIP_GCC" if you have GNU C.)
+X
+X! To build unzip without shared libraries,
+X!	mms noshare
+X
+X! To delete unnecessary OBJ files,
+X!	mms clean
+X
+XCC = cc
+XCFLAGS =
+XLD = link
+XLDFLAGS =
+XEXE =
+XO = .obj;
+XOBJS = unzip$(O), extract$(O), file_io$(O), mapname$(O), match$(O),\
+X      misc$(O), unimplod$(O), unreduce$(O), unshrink$(O), VMSmunch$(O), vms$(O)
+XOBJI = zipinfo$(O), misc.obj_, match$(O), VMSmunch$(O)
+X
+XLDFLAGS2 =
+X
+Xdefault	:	unzip.exe, zipinfo.exe
+X	@	!	Do nothing.
+X
+Xunzip.exe :	$(OBJS), vmsshare.opt
+X	$(LD) $(LDFLAGS) $(OBJS), \
+X		vmsshare.opt/options
+X
+Xzipinfo.exe :	$(OBJI), vmsshare.opt
+X	$(LD) $(LDFLAGS) $(OBJI), \
+X		vmsshare.opt/options
+X
+X
+Xnoshare :	$(OBJS)
+X	$(LD) $(LDFLAGS) $(OBJS), \
+X		sys$library:vaxcrtl.olb/library $(LDFLAGS2)
+X
+Xclean :
+X	delete $(OBJS)	! you may want to change this to 'delete *.obj;*'
+X
+XVMSmunch$(O) :	VMSmunch.h fatdef.h fchdef.h fjndef.h
+X! crypt$(O) :	crypt.c unzip.h zip.h	! may or may not be included in distrib
+Xextract$(O) :	extract.c unzip.h
+Xfile_io$(O) :	file_io.c unzip.h
+X! inflate$(O) :	inflate.c unzip.h	! may or may not be included in distrib
+Xmapname$(O) :	mapname.c unzip.h
+Xmatch$(O) :	match.c unzip.h
+Xmisc$(O) :	misc.c unzip.h
+Xunimplod$(O) :	unimplod.c unzip.h
+Xunreduce$(O) :	unreduce.c unzip.h
+Xunshrink$(O) :	unshrink.c unzip.h
+Xunzip$(O) :	unzip.c unzip.h fatdef.h
+Xvms$(O)	  :	vms.c unzip.h
+Xmisc.obj_ :	misc.c unzip.h
+X	$(CC)/object=misc.obj_/define="ZIPINFO" misc.c
+END_OF_FILE
+  if test 2026 -ne `wc -c <'VMS/descrip.mms'`; then
+    echo shar: \"'VMS/descrip.mms'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/descrip.mms'
+fi
+if test -f 'VMS/fatdef.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/fatdef.h'\"
+else
+  echo shar: Extracting \"'VMS/fatdef.h'\" \(2069 characters\)
+  sed "s/^X//" >'VMS/fatdef.h' <<'END_OF_FILE'
+X/* This header file was created by Joe Meadows, and is not copyrighted
+X   in any way. No guarantee is made as to the accuracy of the contents
+X   of this header file. This header file was last modified on Sep. 22th,
+X   1987. (Modified to include this statement) */
+X#define FAT$K_LENGTH 32
+X#define FAT$C_LENGTH 32
+X#define FAT$S_FATDEF 32
+X
+Xstruct fatdef {
+X  union  {
+X    unsigned char fat$b_rtype;
+X    struct  {
+X      unsigned fat$v_rtype : 4;
+X      unsigned fat$v_fileorg : 4;
+X    } fat$r_rtype_bits;
+X  } fat$r_rtype_overlay;
+X# define FAT$S_RTYPE 4
+X# define FAT$V_RTYPE 0
+X#   define FAT$C_UNDEFINED 0
+X#   define FAT$C_FIXED 1
+X#   define FAT$C_VARIABLE 2
+X#   define FAT$C_VFC 3
+X#   define FAT$C_STREAM 4
+X#   define FAT$C_STREAMLF 5
+X#   define FAT$C_STREAMCR 6
+X# define FAT$S_FILEORG 4
+X# define FAT$V_FILEORG 4
+X#   define FAT$C_SEQUENTIAL 0
+X#   define FAT$C_RELATIVE 1
+X#   define FAT$C_INDEXED 2
+X#   define FAT$C_DIRECT 3
+X  union  {
+X    unsigned char fat$b_rattrib;
+X    struct  {
+X      unsigned fat$v_fortrancc : 1;
+X      unsigned fat$v_impliedcc : 1;
+X      unsigned fat$v_printcc : 1;
+X      unsigned fat$v_nospan : 1;
+X    } fat$r_rattrib_bits;
+X  } fat$r_rattrib_overlay;
+X#   define FAT$V_FORTRANCC 0
+X#   define FAT$M_FORTRANCC 1
+X#   define FAT$V_IMPLIEDCC 1
+X#   define FAT$M_IMPLIEDCC 2
+X#   define FAT$V_PRINTCC 2
+X#   define FAT$M_PRINTCC 4
+X#   define FAT$V_NOSPAN 3
+X#   define FAT$M_NOSPAN 8
+X  unsigned short int fat$w_rsize;
+X  union
+X  {
+X    unsigned long int fat$l_hiblk;
+X    struct
+X    {
+X      unsigned short int fat$w_hiblkh;
+X      unsigned short int fat$w_hiblkl;
+X    } fat$r_hiblk_fields;
+X  } fat$r_hiblk_overlay;
+X  union
+X  {
+X    unsigned long int fat$l_efblk;
+X    struct
+X    {
+X      unsigned short int fat$w_efblkh;
+X      unsigned short int fat$w_efblkl;
+X    } fat$r_efblk_fields;
+X  } fat$r_efblk_overlay;
+X  unsigned short int fat$w_ffbyte;
+X  unsigned char fat$b_bktsize;
+X  unsigned char fat$b_vfcsize;
+X  unsigned short int fat$w_maxrec;
+X  unsigned short int fat$w_defext;
+X  unsigned short int fat$w_gbc;
+X  char fat$fill[8];
+X  unsigned short int fat$w_versions;
+X};
+END_OF_FILE
+  if test 2069 -ne `wc -c <'VMS/fatdef.h'`; then
+    echo shar: \"'VMS/fatdef.h'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/fatdef.h'
+fi
+if test -f 'VMS/fchdef.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/fchdef.h'\"
+else
+  echo shar: Extracting \"'VMS/fchdef.h'\" \(1746 characters\)
+  sed "s/^X//" >'VMS/fchdef.h' <<'END_OF_FILE'
+X/* This header file was created by Joe Meadows, and is not copyrighted
+X   in any way. No guarantee is made as to the accuracy of the contents
+X   of this header file. This header file was last modified on Sep. 22th,
+X   1987. (Modified to include this statement) */
+X
+X#define FCH$V_BADACL 0x00B
+X#define FCH$M_BADACL (1 << FCH$V_ACL)
+X#define FCH$V_BADBLOCK 0x00E
+X#define FCH$M_BADBLOCK (1 << FCH$V_BADBLOCK)
+X#define FCH$V_CONTIG 0x007
+X#define FCH$M_CONTIG (1 << FCH$V_CONTIG)
+X#define FCH$V_CONTIGB 0x005
+X#define FCH$M_CONTIGB (1 << FCH$V_CONTIGB)
+X#define FCH$V_DIRECTORY 0x00D
+X#define FCH$M_DIRECTORY (1 << FCH$V_DIRECTORY)
+X#define FCH$V_ERASE 0x011
+X#define FCH$M_ERASE (1 << FCH$V_ERASE)
+X#define FCH$V_LOCKED 0x006
+X#define FCH$M_LOCKED (1 << FCH$V_LOCKED)
+X#define FCH$V_MARKDEL 0x00F
+X#define FCH$M_MARKDEL (1 << FCH$V_MARKDEL)
+X#define FCH$V_NOBACKUP 0x001
+X#define FCH$M_NOBACKUP (1 << FCH$V_NOBACKUP)
+X#define FCH$V_NOCHARGE 0x010
+X#define FCH$M_NOCHARGE (1 << FCH$V_NOCHARGE)
+X#define FCH$V_READCHECK 0x003
+X#define FCH$M_READCHECK (1 << FCH$V_READCHECK)
+X#define FCH$V_SPOOL 0x00C
+X#define FCH$M_SPOOL (1 << FCH$V_SPOOL)
+X#define FCH$V_WRITCHECK 0x004
+X#define FCH$M_WRITCHECK (1 << FCH$V_WRITCHECK)
+X#define FCH$V_WRITEBACK 0x002
+X#define FCH$M_WRITEBACK (1 << FCH$V_WRITEBACK)
+X
+Xstruct fchdef  {
+X  unsigned : 1;
+X  unsigned fch$v_nobackup : 1 ;
+X  unsigned fch$v_writeback : 1;
+X  unsigned fch$v_readcheck : 1;
+X  unsigned fch$v_writcheck : 1;
+X  unsigned fch$v_contigb : 1;
+X  unsigned fch$v_locked : 1;
+X  unsigned fch$v_contig : 1;
+X  unsigned : 3;
+X  unsigned fch$v_badacl : 1;
+X  unsigned fch$v_spool : 1;
+X  unsigned fch$v_directory : 1;
+X  unsigned fch$v_badblock : 1;
+X  unsigned fch$v_markdel : 1;
+X  unsigned fch$v_nocharge : 1;
+X  unsigned fch$v_erase : 1;
+X};
+END_OF_FILE
+  if test 1746 -ne `wc -c <'VMS/fchdef.h'`; then
+    echo shar: \"'VMS/fchdef.h'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/fchdef.h'
+fi
+if test -f 'VMS/unzip.rnh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMS/unzip.rnh'\"
+else
+  echo shar: Extracting \"'VMS/unzip.rnh'\" \(3749 characters\)
+  sed "s/^X//" >'VMS/unzip.rnh' <<'END_OF_FILE'
+X.!
+X.!  File:	UNZIP.RNH
+X.!
+X.!  Author:	Hunter Goatley
+X.!
+X.!  Date:	October 23, 1991
+X.!
+X.!  Description:
+X.!
+X.!	RUNOFF source file for portable UNZIP on-line help for VMS.
+X.!	Adapted from UNZIP.MAN, distributed with UNZIP.
+X.!
+X.!	To build:	$ RUNOFF UNZIP.RNH
+X.!			$ LIBR/HELP/INSERT libr UNZIP
+X.!
+X.!  Modification history:
+X.!
+X.!	01-001		Hunter Goatley		23-OCT-1991 09:21
+X.!		Genesis.
+X.!	01-002		Cave Newt		16-MAR-1992 22:37
+X.!		Update for UnZip 4.2.
+X.!
+X.noflags
+X.lm4 .rm72
+X.indent -4
+X1 UNZIP
+X.br
+XUnZip is used to extract files compressed and packaged by Zip (see HELP ZIP
+Xfor information on ZIP).
+X.sk
+XFor a brief help on Zip and Unzip, run each without specifying any
+Xparameters on the command line.
+X.sk
+XUNZIP will list, test, or extract from a ZIP archive.  ZIP archives are commonly
+Xfound on MS-DOS systems; a VMS version of ZIP can also be found here.
+X.sk
+XArchive member extraction is implied by the absence of the -c, -p, -t, -l, -v or
+X-z options.  All archive members are processed unless a filespec is provided to
+Xspecify a subset of the archive members.  The filespec is similar to an egrep
+Xexpression, and may contain:
+X.sk
+X.literal
+X     *       matches a sequence of 0 or more characters
+X     ?       matches exactly 1 character
+X     \nnn    matches the character having octal code nnn
+X     [...]   matches any single character found inside the brackets;
+X             ranges are specified by a beginning character,
+X             a hyphen, and an ending character.  If a '!' follows
+X             the left bracket, then the range of characters
+X             matched is complemented with respect to the ASCII
+X             character set.
+X.end literal
+X.sk
+XFormat:
+X.sk;.lm+1;.literal
+XUNZIP [-cflptuvxz[ajnoqUV]] file[.zip] [filespec...]
+X.end literal;.lm-1
+X.!------------------------------------------------------------------------------
+X.indent -4
+X2 Parameters
+X.sk;.indent -4
+Xfile[.zip]
+X.sk
+XFile specification for the ZIP archive.  The suffix .ZIP is applied if the
+Xspecified file does not exist.  Note that self-extracting ZIP files are
+Xsupported; just specify the .EXE suffix yourself.
+X.sk;.indent -4
+X[filespec]
+X.sk
+XAn optional list of archive members to be processed.  Expressions may be
+Xused to match multiple members.  Expressions should be enclosed in double-quotes
+Xto prevent interpretation by DCL.  Multiple filenames should be separated by
+Xblanks.
+X.!------------------------------------------------------------------------------
+X.indent -4
+X2 Options
+X.br
+XThe default action of UnZip is to extract all zipfile entries.  The following
+Xoptions and modifiers can be provided:
+X.sk;.literal
+X   -c   extract files to SYS$OUTPUT (terminal)
+X   -f   freshen existing files (replace if newer); create none
+X   -l   list archive files (short format)
+X   -p   extract files to SYS$OUTPUT; no informational messages
+X   -t   test archive files
+X   -u   update existing files; create new ones if needed
+X   -v   list archive files (verbose format)
+X   -x   extract files in archive (default)
+X   -z   display only the archive comment
+X.end literal;.sk;.literal
+X MODIFIERS
+X   -a   convert to VMS textfile format (only use for TEXT files!)
+X   -j   junk paths (don't recreate archive's directory structure)
+X   -n   never overwrite existing files; don't prompt
+X   -o   OK to overwrite files without prompting
+X   -q   perform operations quietly (-qq => even quieter)
+X   -U   leave filenames uppercase if created under MS-DOS, VMS, etc.
+X   -V   retain (VMS) file version numbers
+X   -X   restore owner/protection info (may require privileges)
+X.end literal
+X.!-----------------------------------------------------------------------------
+X.indent -4
+X2 Authors
+X.br
+XSamuel H. Smith, Usenet contributors, and Info-ZIP.
+X.sk
+XVMS on-line help ported from UNZIP.MAN by Hunter Goatley.
+END_OF_FILE
+  if test 3749 -ne `wc -c <'VMS/unzip.rnh'`; then
+    echo shar: \"'VMS/unzip.rnh'\" unpacked with wrong size!
+  fi
+  # end of 'VMS/unzip.rnh'
+fi
+if test -f 'unzip.1' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unzip.1'\"
+else
+  echo shar: Extracting \"'unzip.1'\" \(2958 characters\)
+  sed "s/^X//" >'unzip.1' <<'END_OF_FILE'
+X.TH unzip 1 "UnZip version 4.2"
+X.SH NAME
+Xunzip - list/test/extract from a ZIP archive file
+X.SH SYNOPSIS
+Xunzip [ -cflptuvxz[ajnoqUV] ] file[.zip] [filespec...]
+X.SH ARGUMENTS
+X.in +12
+X.ti -12
+Xfile[.zip]  Path of the ZIP archive.  The suffix ``.zip'' is applied
+Xif the file specified does not exist.  Note that
+Xself-extracting ZIP files are supported; just specify
+Xthe ``.exe'' suffix yourself.
+X.sp 1
+X.ti -12
+X[filespec]  An optional list of archive members to be processed.
+XExpressions may be used to match multiple members; be sure to quote
+Xexpressions that contain characters interpreted by the operating
+Xsystem. See DESCRIPTION (below) for more details.
+X.SH OPTIONS
+X.nf
+X-c   extract files to stdout/screen (``CRT'')
+X-f   freshen existing files (replace if newer); create none
+X-l   list archive files (short format)
+X-p   extract files to pipe; no informational messages
+X-t   test archive files
+X-u   update existing files; create new ones if needed
+X-v   list archive files (verbose format)
+X-x   extract files in archive (default)
+X-z   display only the archive comment
+X.fi
+X.SH MODIFIERS
+X.nf
+X-a   convert to MS-DOS textfile format (CR LF), Mac format (CR),
+X       Unix/VMS format (LF), OR from ASCII to EBCDIC, depending on 
+X       your system (only use for TEXT files!)
+X-j   junk paths (don't recreate archive's directory structure)
+X-n   never overwrite existing files; don't prompt
+X-o   OK to overwrite files without prompting
+X-q   perform operations quietly (-qq => even quieter)
+X-s   [OS/2, MS-DOS] allow spaces in filenames (e.g., "EA DATA. SF")
+X-U   leave filenames uppercase if created under MS-DOS, VMS, etc.
+X-V   retain (VMS) file version numbers
+X-X   [VMS] restore owner/protection info (may require privileges)
+X.fi
+X.SH DESCRIPTION
+X.B unzip
+Xwill list, test, or extract from a ZIP archive, commonly found on MSDOS
+Xsystems.
+XArchive member extraction is implied by the absence of the -c, -p, -t, 
+X-l, -v or -z options.  All archive members are processed unless a
+X.B filespec
+Xis provided to specify a subset of the archive members.
+XThe
+X.B filespec
+Xis similar to an egrep expression, and may contain:
+X.sp 1
+X.in +8
+X.ti -8
+X*       matches a sequence of 0 or more characters
+X.ti -8
+X?       matches exactly 1 character
+X.ti -8
+X\\nnn    matches the character having octal code nnn
+X.ti -8
+X[...]   matches any single character found inside the brackets; ranges
+Xare specified by a beginning character, a hyphen, and an ending
+Xcharacter.  If a '!' follows the left bracket, then the range
+Xof characters matched is complemented with respect to the ASCII
+Xcharacter set.
+X.SH VERSIONS
+X.nf
+Xv1.2   3/15/89    Samuel H. Smith
+Xv2.0   9/9/89     Samuel H. Smith
+Xv2.x   fall 1989  many Usenet contributors
+Xv3.0   5/1/90     Info-ZIP workgroup (David Kirschbaum, consolidator)
+Xv3.1   8/15/90    Info-ZIP
+Xv4.0   12/1/90    Info-ZIP
+Xv4.1   5/12/91    Info-ZIP
+Xv4.2   3/20/92    Info-ZIP (zip-bugs subgroup)
+Xv5.0   ~4/92      Info-ZIP (zip-bugs subgroup) [will have deflation!]
+X.fi
+END_OF_FILE
+  if test 2958 -ne `wc -c <'unzip.1'`; then
+    echo shar: \"'unzip.1'\" unpacked with wrong size!
+  fi
+  # end of 'unzip.1'
+fi
+if test -f 'unzip.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'unzip.man'\"
+else
+  echo shar: Extracting \"'unzip.man'\" \(3627 characters\)
+  sed "s/^X//" >'unzip.man' <<'END_OF_FILE'
+X
+X
+X
+Xunzip(1)                 USER COMMANDS                   unzip(1)
+X
+X
+X
+XNAME
+X     unzip - list/test/extract from a ZIP archive file
+X
+XSYNOPSIS
+X     unzip [ -cflptuvxz[ajnoqUV] ] file[.zip] [filespec...]
+X
+XARGUMENTS
+X     file[.zip]  Path of the ZIP archive.  The suffix ``.zip'' is
+X                 applied  if  the  file specified does not exist.
+X                 Note that self-extracting  ZIP  files  are  sup-
+X                 ported;  just  specify the ``.exe'' suffix your-
+X                 self.
+X
+X     [filespec]  An optional list of archive members to  be  pro-
+X                 cessed.  Expressions may be used to match multi-
+X                 ple members; be sure to quote  expressions  that
+X                 contain  characters interpreted by the operating
+X                 system.  See  DESCRIPTION   (below)   for   more
+X                 details.
+X
+XOPTIONS
+X     -c   extract files to stdout/screen (``CRT'')
+X     -f   freshen existing files (replace if newer); create none
+X     -l   list archive files (short format)
+X     -p   extract files to pipe; no informational messages
+X     -t   test archive files
+X     -u   update existing files; create new ones if needed
+X     -v   list archive files (verbose format)
+X     -x   extract files in archive (default)
+X     -z   display only the archive comment
+X
+XMODIFIERS
+X     -a   convert to MS-DOS textfile format (CR LF), Mac format (CR),
+X            Unix/VMS format (LF), OR from ASCII to EBCDIC, depending on
+X            your system (only use for TEXT files!)
+X     -j   junk paths (don't recreate archive's directory structure)
+X     -n   never overwrite existing files; don't prompt
+X     -o   OK to overwrite files without prompting
+X     -q   perform operations quietly (-qq => even quieter)
+X     -s   [OS/2, MS-DOS] allow spaces in filenames (e.g., "EA DATA. SF")
+X     -U   leave filenames uppercase if created under MS-DOS, VMS, etc.
+X     -V   retain (VMS) file version numbers
+X     -X   [VMS] restore owner/protection info (may require privileges)
+X
+XDESCRIPTION
+X     unzip will list, test, or extract from a ZIP  archive,  com-
+X     monly  found on MSDOS systems.  Archive member extraction is
+X     implied by the absence of the -c,  -p,  -t,  -l,  -v  or  -z
+X     options.    All  archive  members  are  processed  unless  a
+X     filespec is provided to specify  a  subset  of  the  archive
+X     members.   The  filespec  is similar to an egrep expression,
+X     and may contain:
+X
+X
+X
+X                           UnZip version 4.2                    1
+X
+X
+X
+X
+X
+X
+Xunzip(1)                 USER COMMANDS                   unzip(1)
+X
+X
+X
+X     *       matches a sequence of 0 or more characters
+X     ?       matches exactly 1 character
+X     \nnn    matches the character having octal code nnn
+X     [...]   matches any single character found inside the brack-
+X             ets;  ranges are specified by a beginning character,
+X             a hyphen, and an ending character.  If a '!' follows
+X             the  left  bracket,  then  the  range  of characters
+X             matched is complemented with respect  to  the  ASCII
+X             character set.
+X
+XVERSIONS
+X     v1.2   3/15/89    Samuel H. Smith
+X     v2.0   9/9/89     Samuel H. Smith
+X     v2.x   fall 1989  many Usenet contributors
+X     v3.0   5/1/90     Info-ZIP workgroup (David Kirschbaum, consolidator)
+X     v3.1   8/15/90    Info-ZIP
+X     v4.0   12/1/90    Info-ZIP
+X     v4.1   5/12/91    Info-ZIP
+X     v4.2   3/20/92    Info-ZIP (zip-bugs subgroup)
+X     v5.0   ~4/92      Info-ZIP (zip-bugs subgroup) [will have deflation!]
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X                           UnZip version 4.2                    2
+X
+X
+X
+END_OF_FILE
+  if test 3627 -ne `wc -c <'unzip.man'`; then
+    echo shar: \"'unzip.man'\" unpacked with wrong size!
+  fi
+  # end of 'unzip.man'
+fi
+echo shar: End of archive 11 \(of 12\).
+cp /dev/null ark11isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+
+exit 0 # Just in case...

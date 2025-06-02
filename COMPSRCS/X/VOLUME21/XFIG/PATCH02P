@@ -1,0 +1,1061 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb12.lbl.gov (Brian V. Smith)
+Subject: v21i036:  xfig - Draw amd manipulate objects in an X-Window, Patch02p/16
+Message-ID: <1993Oct21.190018.7794@sparky.sterling.com>
+X-Md4-Signature: 54dc4d1ca25f6d37f635320aeb08e3f2
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 19:00:18 GMT
+Approved: chris@sterling.com
+
+Submitted-by: envbvs@epb12.lbl.gov (Brian V. Smith)
+Posting-number: Volume 21, Issue 36
+Archive-name: xfig/patch02p
+Environment: patch, X11, xfig
+Patch-To: xfig: Volume 19, Issue 113-139
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  xfig.11
+# Wrapped by chris@sparky on Thu Oct 21 13:40:08 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 16 (of 16)."'
+if test -f 'xfig.11' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xfig.11'\"
+else
+  echo shar: Extracting \"'xfig.11'\" \(28014 characters\)
+  sed "s/^X//" >'xfig.11' <<'END_OF_FILE'
+X!     if(style.magnify!=1.) {
+X! 	item->cols_in=old_cols_in;
+X! 	item->rows_in=old_rows_in;
+X!     }
+X! 
+X! 
+X! #ifdef CACHE_BITMAPS
+X! 
+X!     /* create a bitmap to hold rotated text */
+X!     item->bitmap=XCreatePixmap(dpy, DefaultRootWindow(dpy),
+X! 			       item->cols_out, item->rows_out, 1);
+X!     
+X!     /* make the text bitmap from XImage */
+X!     XPutImage(dpy, item->bitmap, font_gc, item->ximage, 0, 0, 0, 0,
+X! 	      item->cols_out, item->rows_out);
+X! 
+X!     XDestroyImage(item->ximage);
+X! 
+X! #endif /*CACHE_BITMAPS*/
+X! 
+X!     XFreeGC(dpy, font_gc);
+X!     XFreePixmap(dpy, canvas);
+X! 
+X!     return item;
+X  }
+X  
+X  
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  Adds a text item to the end of the cache, removing as many items      */
+X! /*      from the front as required to keep cache size below limit         */
+X! /**************************************************************************/
+X  
+X! static void XRotAddToLinkedList(dpy, item)
+X!     Display *dpy;
+X!     RotatedTextItem *item;
+X! {
+X!     
+X!     static long int current_size=0;
+X!     static RotatedTextItem *last=NULL;
+X!     RotatedTextItem *i1=first_text_item, *i2=NULL;
+X  
+X! #ifdef CACHE_BITMAPS
+X  
+X!     /* I don't know how much memory a pixmap takes in the server -
+X!            probably this + a bit more we can't account for */
+X  
+X!     item->size=((item->cols_out-1)/8+1)*item->rows_out;
+X  
+X! #else
+X  
+X!     /* this is pretty much the size of a RotatedTextItem */
+X  
+X!     item->size=((item->cols_out-1)/8+1)*item->rows_out +
+X! 	sizeof(XImage) + strlen(item->text) + 
+X! 	    item->nl*8*sizeof(float) + sizeof(RotatedTextItem);
+X  
+X!     if(item->font_name!=NULL)
+X! 	item->size+=strlen(item->font_name);
+X!     else
+X! 	item->size+=sizeof(Font);
+X  
+X! #endif /*CACHE_BITMAPS */
+X  
+X!     /* count number of items in cache, for debugging */
+X!     if (appres.DEBUG) {
+X! 	int i=0;
+X  
+X! 	while(i1) {
+X! 	    i++;
+X! 	    i1=i1->next;
+X! 	}
+X! 	DEBUG_PRINT2("Cache has %d items.\n", i);
+X! 	i1=first_text_item;
+X!     }
+X  
+X!     DEBUG_PRINT4("current cache size=%ld, new item=%ld, limit=%ld\n",
+X! 		 current_size, item->size, CACHE_SIZE_LIMIT*1024);
+X  
+X!     /* if this item is bigger than whole cache, forget it */
+X!     if(item->size>CACHE_SIZE_LIMIT*1024) {
+X! 	DEBUG_PRINT1("Too big to cache\n\n");
+X! 	item->cached=0;
+X! 	return;
+X!     }
+X  
+X!     /* remove elements from cache as needed */
+X!     while(i1 && current_size+item->size>CACHE_SIZE_LIMIT*1024) {
+X  
+X! 	DEBUG_PRINT2("Removed %d bytes\n", i1->size);
+X  
+X! 	if(i1->font_name!=NULL)
+X! 	    DEBUG_PRINT5("  (`%s'\n   %s\n   angle=%f align=%d)\n",
+X! 			 i1->text, i1->font_name, i1->angle, i1->align);
+X  
+X! #ifdef CACHE_FID
+X! 	if(i1->font_name==NULL)
+X! 	    DEBUG_PRINT5("  (`%s'\n  FID=%ld\n   angle=%f align=%d)\n",
+X!                          i1->text, i1->fid, i1->angle, i1->align);
+X! #endif /*CACHE_FID*/
+X  
+X! 	current_size-=i1->size;
+X  
+X! 	i2=i1->next;
+X! 
+X! 	/* free resources used by the unlucky item */
+X! 	XRotFreeTextItem(dpy, i1);
+X! 
+X! 	/* remove it from linked list */
+X! 	first_text_item=i2;
+X! 	i1=i2;
+X!     }
+X! 
+X!     /* add new item to end of linked list */
+X!     if(first_text_item==NULL) {
+X! 	item->next=NULL;
+X! 	first_text_item=item;
+X! 	last=item;
+X!     }
+X!     else {
+X! 	item->next=NULL;
+X! 	last->next=item;
+X! 	last=item;
+X!     }
+X! 
+X!     /* new cache size */
+X!     current_size+=item->size;
+X! 
+X!     item->cached=1;
+X! 
+X!     DEBUG_PRINT1("Added item to cache.\n");
+X  }
+X! 
+X! 
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /*  Free the resources used by a text item                                */
+X! /**************************************************************************/
+X  
+X! static void XRotFreeTextItem(dpy, item)
+X!     Display *dpy;
+X!     RotatedTextItem *item;
+X  {
+X!     free(item->text);
+X! 
+X!     if(item->font_name!=NULL)
+X! 	free(item->font_name);
+X! 
+X!     free((char *)item->corners_x);
+X!     free((char *)item->corners_y);
+X! 
+X! #ifdef CACHE_BITMAPS
+X!     XFreePixmap(dpy, item->bitmap);
+X! #else
+X!     XDestroyImage(item->ximage);
+X! #endif /* CACHE_BITMAPS */
+X! 
+X!     free((char *)item);
+X  }
+X  
+X  
+X***************
+X*** 609,782 ****
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* *** A front end to XRotPaintAlignedString : uses XRotDrawImageString *** */
+X  
+X! void XRotDrawAlignedImageString(dpy, drawable, rotfont, gc, x, y,
+X!                                   text, align)
+X!  Display *dpy;
+X!  Drawable drawable;  
+X!  XRotFontStruct *rotfont;
+X!  GC gc;
+X!  int x, y;
+X!  char *text;
+X!  int align;
+X  {
+X!  XRotPaintAlignedString(dpy, drawable, rotfont, gc, x, y, text, align, 1);
+X! }
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X!                    
+X!                    
+X! /* *** Routine to paint a string, possibly containing newline characters,
+X!                                                        with alignment *** */
+X  
+X! /* *** The user should use one of the front ends above *** */
+X  
+X! void XRotPaintAlignedString(dpy, drawable, rotfont, gc, x, y, text,
+X!                             align, paintbg)
+X!  Display *dpy;
+X!  Drawable drawable;
+X!  XRotFontStruct *rotfont;
+X!  GC gc;
+X!  int x, y;
+X!  char *text;
+X!  int align;
+X!  int paintbg;
+X! {  
+X!  int xp, yp, dir;
+X!  int i, nl=1, max_width=0, this_width;
+X!  char *str1, *str2="\n\0", *str3;
+X  
+X!  if(text==NULL) return;
+X!   
+X!  dir=rotfont->dir;
+X  
+X!  /* count number of sections in string ... */
+X!  for(i=0; i<strlen(text); i++) if(text[i]=='\n') nl++;
+X  
+X!  /* find width of longest section ... */
+X!  str1=my_strdup(text);
+X!  str3=my_strtok(str1, str2);
+X!  max_width=XRotTextWidth(rotfont, str3, strlen(str3));
+X  
+X!  do
+X!   { str3=my_strtok((char *)NULL, str2);
+X!     if(str3)
+X!       max_width=XROTMAX(max_width,
+X!                         XRotTextWidth(rotfont, str3, strlen(str3))); }
+X!  while(str3!=NULL);
+X!  
+X!  /* calculate vertical starting point according to alignment policy and
+X!       rotation angle ... */
+X!  if(dir==0)
+X!  { if((align==TLEFT)||(align==TCENTRE)||(align==TRIGHT))
+X!      yp=y+rotfont->max_ascent;
+X  
+X!   else if((align==BLEFT)||(align==BCENTRE)||(align==BRIGHT))
+X!      yp=y-(nl-1)*rotfont->height - rotfont->max_descent;
+X  
+X!   else 
+X!      yp=y-(nl-1)/2*rotfont->height + rotfont->max_ascent -rotfont->height/2 -
+X!                          ( (nl%2==0)?rotfont->height/2:0 ); }
+X  
+X!  else if(dir==1)
+X!  { if((align==TLEFT)||(align==TCENTRE)||(align==TRIGHT))
+X!      xp=x+rotfont->max_ascent;
+X  
+X!    else if((align==BLEFT)||(align==BCENTRE)||(align==BRIGHT))
+X!      xp=x-(nl-1)*rotfont->height - rotfont->max_descent;
+X  
+X!    else 
+X!      xp=x-(nl-1)/2*rotfont->height + rotfont->max_ascent -rotfont->height/2 -
+X!                          ( (nl%2==0)?rotfont->height/2:0 ); }
+X  
+X!  else if(dir==2)
+X!  { if((align==TLEFT)||(align==TCENTRE)||(align==TRIGHT))
+X!      yp=y-rotfont->max_ascent;
+X!      
+X!    else if((align==BLEFT)||(align==BCENTRE)||(align==BRIGHT))
+X!      yp=y+(nl-1)*rotfont->height + rotfont->max_descent;
+X!      
+X!    else 
+X!      yp=y+(nl-1)/2*rotfont->height - rotfont->max_ascent +rotfont->height/2 +
+X!                          ( (nl%2==0)?rotfont->height/2:0 ); }
+X  
+X!  else
+X!  { if((align==TLEFT)||(align==TCENTRE)||(align==TRIGHT))
+X!      xp=x-rotfont->max_ascent;
+X      
+X!    else if((align==BLEFT)||(align==BCENTRE)||(align==BRIGHT))
+X!      xp=x+(nl-1)*rotfont->height + rotfont->max_descent;
+X!   
+X!    else 
+X!      xp=x+(nl-1)/2*rotfont->height - rotfont->max_ascent +rotfont->height/2 +
+X!                          ( (nl%2==0)?rotfont->height/2:0 ); }
+X  
+X!  str1=my_strdup(text);
+X!  str3=my_strtok(str1, str2);
+X!   
+X!  /* loop through each section in the string ... */
+X!  do
+X!  {
+X!   /* width of this section ... */
+X!   this_width=XRotTextWidth(rotfont, str3, strlen(str3));
+X  
+X-   /* horizontal alignment ... */
+X-   if(dir==0)
+X-   { if((align==TLEFT)||(align==MLEFT)||(align==BLEFT))
+X-       xp=x;
+X-   
+X-     else if((align==TCENTRE)||(align==MCENTRE)||(align==BCENTRE))
+X-       xp=x-this_width/2;
+X-  
+X-     else 
+X-       xp=x-max_width; }
+X  
+X-   else if(dir==1)
+X-   { if((align==TLEFT)||(align==MLEFT)||(align==BLEFT))
+X-       yp=y;
+X  
+X!     else if((align==TCENTRE)||(align==MCENTRE)||(align==BCENTRE))
+X!       yp=y+this_width/2;
+X  
+X-     else 
+X-       yp=y+max_width; }
+X  
+X!   else if(dir==2)
+X!   { if((align==TLEFT)||(align==MLEFT)||(align==BLEFT))
+X!       xp=x;
+X!   
+X!     else if((align==TCENTRE)||(align==MCENTRE)||(align==BCENTRE))
+X!       xp=x+this_width/2;
+X!  
+X!     else 
+X!       xp=x+max_width; }
+X  
+X!   else
+X!   { if((align==TLEFT)||(align==MLEFT)||(align==BLEFT))  
+X!       yp=y;
+X!      
+X!     else if((align==TCENTRE)||(align==MCENTRE)||(align==BCENTRE))
+X!       yp=y-this_width/2;
+X!      
+X!     else 
+X!       yp=y-max_width; }
+X  
+X!   /* draw the section ... */
+X!   if(!paintbg)  XRotDrawString(dpy, drawable, rotfont, gc, xp, yp,
+X!                                str3, strlen(str3));
+X!   else          XRotDrawImageString(dpy, drawable, rotfont, gc, xp, yp, 
+X!                                str3, strlen(str3));  
+X  
+X!   str3=my_strtok((char *)NULL, str2);
+X  
+X!   /* advance position ... */
+X!   if(dir==0)      yp+=rotfont->height;
+X!   else if(dir==1) xp+=rotfont->height;
+X!   else if(dir==2) yp-=rotfont->height;
+X!   else            xp-=rotfont->height;
+X!  }
+X!  while(str3!=NULL);
+X  }
+X  
+X--- 1311,1562 ----
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /* Magnify an XImage using bilinear interpolation                         */
+X! /**************************************************************************/
+X  
+X! static XImage *XRotMagnifyImage(dpy, ximage)
+X!     Display *dpy;
+X!     XImage *ximage;
+X  {
+X!     int i, j;
+X!     float x, y;
+X!     float u,t;
+X!     XImage *I_out;
+X!     int cols_in, rows_in;
+X!     int cols_out, rows_out;
+X!     register int i2, j2;
+X!     float z1, z2, z3, z4;
+X!     int byte_width_in, byte_width_out;
+X!     float mag_inv;
+X  
+X+     /* size of input image */
+X+     cols_in=ximage->width;
+X+     rows_in=ximage->height;
+X  
+X!     /* size of final image */
+X!     cols_out=(float)cols_in*style.magnify;
+X!     rows_out=(float)rows_in*style.magnify;
+X  
+X!     /* this will hold final image */
+X!     I_out=MakeXImage(dpy, cols_out, rows_out);
+X!     if(I_out==NULL)
+X! 	return NULL;
+X  
+X!     /* width in bytes of input, output images */
+X!     byte_width_in=(cols_in-1)/8+1;
+X!     byte_width_out=(cols_out-1)/8+1;
+X  
+X!     /* for speed */
+X!     mag_inv=1./style.magnify;
+X  
+X!     y=0.;
+X  
+X!     /* loop over magnified image */
+X!     for(j2=0; j2<rows_out; j2++) {
+X! 	x=0;
+X! 	j=y;
+X  
+X! 	for(i2=0; i2<cols_out; i2++) {
+X! 	    i=x;
+X  
+X! 	    /* bilinear interpolation - where are we on bitmap ? */
+X! 	    /* right edge */
+X! 	    if(i==cols_in-1 && j!=rows_in-1) {
+X! 		t=0;
+X! 		u=y-(float)j;
+X  
+X! 		z1=(ximage->data[j*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 		z2=z1;
+X! 		z3=(ximage->data[(j+1)*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 		z4=z3;
+X! 	    }
+X! 	    /* top edge */
+X! 	    else if(i!=cols_in-1 && j==rows_in-1) {
+X! 		t=x-(float)i;
+X! 		u=0;
+X  
+X! 		z1=(ximage->data[j*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 		z2=(ximage->data[j*byte_width_in+(i+1)/8] & 128>>((i+1)%8))>0;
+X! 		z3=z2;
+X! 		z4=z1;
+X! 	    }
+X! 	    /* top right corner */
+X! 	    else if(i==cols_in-1 && j==rows_in-1) {
+X! 		u=0;
+X! 		t=0;
+X  
+X! 		z1=(ximage->data[j*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 		z2=z1;
+X! 		z3=z1;
+X! 		z4=z1;
+X! 	    }
+X! 	    /* somewhere `safe' */
+X! 	    else {
+X! 		t=x-(float)i;
+X! 		u=y-(float)j;
+X  
+X! 		z1=(ximage->data[j*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 		z2=(ximage->data[j*byte_width_in+(i+1)/8] & 128>>((i+1)%8))>0;
+X! 		z3=(ximage->data[(j+1)*byte_width_in+(i+1)/8] &
+X! 		    128>>((i+1)%8))>0;
+X! 		z4=(ximage->data[(j+1)*byte_width_in+i/8] & 128>>(i%8))>0;
+X! 	    }
+X  
+X! 	    /* if interpolated value is greater than 0.5, set bit */
+X! 	    if(((1-t)*(1-u)*z1 + t*(1-u)*z2 + t*u*z3 + (1-t)*u*z4)>0.5)
+X! 		I_out->data[j2*byte_width_out+i2/8]|=128>>i2%8;
+X  
+X! 	    x+=mag_inv;
+X! 	}
+X! 	y+=mag_inv;
+X!     }
+X      
+X!     /* destroy original */
+X!     XDestroyImage(ximage);
+X  
+X!     /* return big image */
+X!     return I_out;
+X! }
+X  
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /**************************************************************************/
+X! /* Calculate the bounding box some text will have when painted            */
+X! /**************************************************************************/
+X  
+X! XPoint *XRotTextExtents(dpy, font, angle, x, y, text, align)
+X!     Display *dpy;
+X!     XFontStruct *font;
+X!     float angle;
+X!     int x, y;
+X!     char *text;
+X!     int align;
+X! {
+X!     register int i;
+X!     char *str1, *str2, *str3;
+X!     char *str2_a="\0", *str2_b="\n\0";
+X!     int height;
+X!     float sin_angle, cos_angle;
+X!     int nl, max_width;
+X!     int cols_in, rows_in;
+X!     float hot_x, hot_y;
+X!     XPoint *xp_in, *xp_out;
+X!     int dir, asc, desc;
+X!     XCharStruct overall;
+X!     
+X!     /* manipulate angle to 0<=angle<2*PI radians */
+X!     while(angle<0.0)
+X!         angle+=M_2PI;
+X!     
+X!     while(angle>=M_2PI)
+X!         angle-=M_2PI;
+X!     
+X!     /* count number of sections in string */
+X!     nl=1;
+X!     if(align!=NONE)
+X! 	for(i=0; i<strlen(text)-1; i++)
+X! 	    if(text[i]=='\n')
+X! 		nl++;
+X!     
+X!     /* ignore newline characters if not doing alignment */
+X!     if(align==NONE)
+X! 	str2=str2_a;
+X!     else
+X! 	str2=str2_b;
+X!     
+X!     /* find width of longest section */
+X!     str1=my_strdup(text);
+X!     if(str1==NULL)
+X! 	return NULL;
+X!     
+X!     str3=my_strtok(str1, str2);
+X  
+X!     XTextExtents(font, str3, strlen(str3), &dir, &asc, &desc,
+X! 		 &overall);
+X  
+X!     max_width=overall.rbearing;
+X!     
+X!     /* loop through each section */
+X!     do {
+X! 	str3=my_strtok((char *)NULL, str2);
+X  
+X! 	if(str3!=NULL) {
+X! 	    XTextExtents(font, str3, strlen(str3), &dir, &asc, &desc,
+X! 			 &overall);
+X! 
+X! 	    if(overall.rbearing>max_width)
+X! 		max_width=overall.rbearing;
+X! 	}
+X!     }
+X!     while(str3!=NULL);
+X!     
+X!     free(str1);
+X!     
+X!     /* overall font height */
+X!     height=font->ascent+font->descent;
+X!     
+X!     /* dimensions horizontal text will have */
+X!     cols_in=max_width;
+X!     rows_in=nl*height;
+X!     
+X!     /* pre-calculate sin and cos */
+X!     sin_angle=sin(angle);
+X!     cos_angle=cos(angle);
+X!     
+X!     /* y position */
+X!     if(align==TLEFT || align==TCENTRE || align==TRIGHT)
+X!         hot_y=(float)rows_in/2*style.magnify;
+X!     else if(align==MLEFT || align==MCENTRE || align==MRIGHT)
+X! 	hot_y=0;
+X!     else if(align==BLEFT || align==BCENTRE || align==BRIGHT)
+X! 	hot_y= -(float)rows_in/2*style.magnify;
+X!     else
+X! 	hot_y= -((float)rows_in/2-(float)font->descent)*style.magnify;
+X!     
+X!     /* x position */
+X!     if(align==TLEFT || align==MLEFT || align==BLEFT || align==NONE)
+X! 	hot_x= -(float)max_width/2*style.magnify;
+X!     else if(align==TCENTRE || align==MCENTRE || align==BCENTRE)
+X! 	hot_x=0;
+X!     else
+X!         hot_x=(float)max_width/2*style.magnify;
+X!     
+X!     /* reserve space for XPoints */
+X!     xp_in=(XPoint *)malloc((unsigned)(5*sizeof(XPoint)));
+X!     if(!xp_in)
+X! 	return NULL;
+X! 
+X!     xp_out=(XPoint *)malloc((unsigned)(5*sizeof(XPoint)));
+X!     if(!xp_out)
+X! 	return NULL;
+X! 
+X!     /* bounding box when horizontal, relative to bitmap centre */
+X!     xp_in[0].x= -(float)cols_in*style.magnify/2-style.bbx_pad;
+X!     xp_in[0].y= (float)rows_in*style.magnify/2+style.bbx_pad;
+X!     xp_in[1].x= (float)cols_in*style.magnify/2+style.bbx_pad;
+X!     xp_in[1].y= (float)rows_in*style.magnify/2+style.bbx_pad;
+X!     xp_in[2].x= (float)cols_in*style.magnify/2+style.bbx_pad;
+X!     xp_in[2].y= -(float)rows_in*style.magnify/2-style.bbx_pad;
+X!     xp_in[3].x= -(float)cols_in*style.magnify/2-style.bbx_pad;
+X!     xp_in[3].y= -(float)rows_in*style.magnify/2-style.bbx_pad;
+X!     xp_in[4].x=xp_in[0].x;
+X!     xp_in[4].y=xp_in[0].y;
+X! 	
+X!     /* rotate and translate bounding box */
+X!     for(i=0; i<5; i++) {
+X! 	xp_out[i].x=(float)x + ( ((float)xp_in[i].x-hot_x)*cos_angle +
+X! 				 ((float)xp_in[i].y+hot_y)*sin_angle);
+X! 	xp_out[i].y=(float)y + (-((float)xp_in[i].x-hot_x)*sin_angle +
+X! 				 ((float)xp_in[i].y+hot_y)*cos_angle);
+X!     }
+X! 
+X!     free((char *)xp_in);
+X! 
+X!     return xp_out;
+X  }
+X+ 
+X  
+Xdiff -rc xfig.2.1.7a/w_rottext.h xfig.2.1.8/w_rottext.h
+X*** xfig.2.1.7a/w_rottext.h	Wed Dec  9 17:36:44 1992
+X--- xfig.2.1.8/w_rottext.h	Mon Aug 23 09:21:38 1993
+X***************
+X*** 1,73 ****
+X! /*
+X!  * FIG : Facility for Interactive Generation of figures
+X!  * Copyright (c) 1992 by Alan Richardson
+X!  *
+X!  * "Permission to use, copy, modify, distribute, and sell this software and its
+X!  * documentation for any purpose is hereby granted without fee, provided that
+X!  * the above copyright notice appear in all copies and that both the copyright
+X!  * notice and this permission notice appear in supporting documentation. 
+X!  * No representations are made about the suitability of this software for 
+X!  * any purpose.  It is provided "as is" without express or implied warranty."
+X!  */
+X  
+X- #define TLEFT	 1
+X- #define TCENTRE	 2
+X- #define TRIGHT	 3
+X- #define MLEFT	 4
+X- #define MCENTRE	 5
+X- #define MRIGHT	 6
+X- #define BLEFT	 7
+X- #define BCENTRE	 8
+X- #define BRIGHT	 9
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* *** The font structures *** */
+X  
+X! typedef struct
+X! { int		 bit_w;
+X!   int		 bit_h;
+X  
+X-   Pixmap	 bm; 		} BitmapStruct;
+X  
+X! typedef struct
+X! { int		 ascent;
+X!   int		 descent;
+X!   int	 	 lbearing;
+X!   int		 rbearing;
+X!   int		 width;
+X  
+X-   BitmapStruct	 glyph;		} XRotCharStruct;
+X  
+X! typedef struct
+X! { int		 dir;
+X!   int		 height;	/* max_ascent+max_descent */
+X!   int		 width;		/* max_bounds.width from XFontStruct */
+X!   int		 max_ascent;
+X!   int		 max_descent;
+X!   int		 max_char;
+X!   int		 min_char;
+X!   char		*name;
+X  
+X-   XFontStruct	*xfontstruct;
+X  
+X!   XRotCharStruct per_char[95];	} XRotFontStruct;
+X  
+X  
+X  /* ---------------------------------------------------------------------- */
+X  
+X  
+X! extern XRotFontStruct		 *XRotLoadFont();
+X! extern void                       XRotUnloadFont();
+X! extern int                        XRotTextWidth();
+X! extern int                        XRotTextHeight();
+X! extern void                       XRotDrawString();
+X! extern void                       XRotDrawImageString();
+X! extern void                       XRotDrawAlignedString();
+X! extern void                       XRotDrawAlignedImageString();
+X  
+X  
+X  
+X  
+X--- 1,79 ----
+X! /* ************************************************************************ */
+X  
+X  
+X+ /* Header file for the `xvertext 5.0' routines.
+X  
+X!    Copyright (c) 1993 Alan Richardson (mppa3@uk.ac.sussex.syma) */
+X  
+X  
+X! /* ************************************************************************ */
+X  
+X! #ifndef _XVERTEXT_INCLUDED_ 
+X! #define _XVERTEXT_INCLUDED_
+X  
+X  
+X! #define XV_VERSION      5.0
+X! #define XV_COPYRIGHT \
+X!       "xvertext routines Copyright (c) 1993 Alan Richardson"
+X  
+X  
+X! /* ---------------------------------------------------------------------- */
+X  
+X  
+X! /* text alignment */
+X  
+X+ #define NONE             0
+X+ #define TLEFT            1
+X+ #define TCENTRE          2
+X+ #define TRIGHT           3
+X+ #define MLEFT            4
+X+ #define MCENTRE          5
+X+ #define MRIGHT           6
+X+ #define BLEFT            7
+X+ #define BCENTRE          8
+X+ #define BRIGHT           9
+X  
+X+ 
+X  /* ---------------------------------------------------------------------- */
+X  
+X+ /* this shoulf be C++ compliant, thanks to 
+X+      vlp@latina.inesc.pt (Vasco Lopes Paulo) */
+X  
+X! #if defined(__cplusplus) || defined(c_plusplus)
+X  
+X+ extern "C" {
+X+ float   XRotVersion(char*, int);
+X+ void    XRotSetMagnification(float);
+X+ void    XRotSetBoundingBoxPad(int);
+X+ int     XRotDrawString(Display*, XFontStruct*, float,
+X+                        Drawable, GC, int, int, char*);
+X+ int     XRotDrawImageString(Display*, XFontStruct*, float,
+X+                             Drawable, GC, int, int, char*);
+X+ int     XRotDrawAlignedString(Display*, XFontStruct*, float,
+X+                               Drawable, GC, int, int, char*, int);
+X+ int     XRotDrawAlignedImageString(Display*, XFontStruct*, float,
+X+                                    Drawable, GC, int, int, char*, int);
+X+ XPoint *XRotTextExtents(Display*, XFontStruct*, float,
+X+ 			int, int, char*, int);
+X+ }
+X+ 
+X+ #else
+X+ 
+X+ extern float   XRotVersion();
+X+ extern void    XRotSetMagnification();
+X+ extern void    XRotSetBoundingBoxPad();
+X+ extern int     XRotDrawString();
+X+ extern int     XRotDrawImageString();
+X+ extern int     XRotDrawAlignedString();
+X+ extern int     XRotDrawAlignedImageString();
+X+ extern XPoint *XRotTextExtents();
+X+ 
+X+ #endif /* __cplusplus */
+X+ 
+X+ /* ---------------------------------------------------------------------- */
+X+ 
+X+ 
+X+ #endif /* _XVERTEXT_INCLUDED_ */
+X  
+X  
+X  
+Xdiff -rc xfig.2.1.7a/w_rulers.c xfig.2.1.8/w_rulers.c
+X*** xfig.2.1.7a/w_rulers.c	Fri Mar 19 16:19:42 1993
+X--- xfig.2.1.8/w_rulers.c	Tue Aug 31 14:00:52 1993
+X***************
+X*** 226,233 ****
+X      {"SetUnit", (XtActionProc) unit_panel_set},
+X  };
+X  
+X! static Widget	unit_popup, form, cancel, set, beside, below, newvalue,
+X! 		label;
+X  
+X  /* handle unit/scale settings */
+X  
+X--- 226,232 ----
+X      {"SetUnit", (XtActionProc) unit_panel_set},
+X  };
+X  
+X! static Widget	unit_popup, form, cancel, set, beside, below, label;
+X  
+X  /* handle unit/scale settings */
+X  
+X***************
+X*** 252,258 ****
+X      XButtonEvent   *ev;
+X  {
+X      int old_rul_unit;
+X-     char	    buf[32];
+X  
+X      old_rul_unit = appres.INCHES;
+X      appres.INCHES = rul_unit_setting ? 1 : 0;
+X--- 251,256 ----
+X***************
+X*** 276,283 ****
+X  		appres.INCHES ? "in" : "cm", appres.user_scale);
+X      }
+X  
+X!     if (old_rul_unit != appres.INCHES)
+X  	reset_rulers();
+X      unit_panel_dismiss();
+X  }
+X  
+X--- 274,285 ----
+X  		appres.INCHES ? "in" : "cm", appres.user_scale);
+X      }
+X  
+X!     if (old_rul_unit != appres.INCHES) {
+X! 	/* change the label in the widget */
+X! 	FirstArg(XtNlabel, appres.INCHES ? "in" : "cm");
+X! 	SetValues(unitbox_sw);
+X  	reset_rulers();
+X+     }
+X      unit_panel_dismiss();
+X  }
+X  
+Xdiff -rc xfig.2.1.7a/w_setup.c xfig.2.1.8/w_setup.c
+X*** xfig.2.1.7a/w_setup.c	Fri Feb 19 14:16:05 1993
+X--- xfig.2.1.8/w_setup.c	Tue Jul 20 09:32:19 1993
+X***************
+X*** 15,20 ****
+X--- 15,22 ----
+X  #include "w_setup.h"
+X  #include "w_util.h"
+X  
+X+ #define	NUM_DRAW_SW 16 /* kludge - shouldn't have to edit this by hand */
+X+ 
+X  int		TOOL_WD, TOOL_HT;
+X  int		CMDPANEL_WD, CMDPANEL_HT = 22;
+X  int		MODEPANEL_WD, MODEPANEL_HT;
+X***************
+X*** 68,77 ****
+X      if (CMDPANEL_WD < 5 * NUM_CMD_SW)
+X  	CMDPANEL_WD = 5 * NUM_CMD_SW;
+X      MSGFORM_WD = CMDPANEL_WD;
+X! 
+X!     MODEPANEL_SPACE = CANVAS_HT + RULER_WD -
+X! 	SW_PER_COL * (MODE_SW_HT + INTERNAL_BW);
+X      if (MODEPANEL_SPACE < 2)
+X  	MODEPANEL_SPACE = 2;
+X-     INDPANEL_WD = MODEPANEL_WD + CANVAS_WD + SIDERULER_WD + INTERNAL_BW*2;
+X  }
+X--- 70,79 ----
+X      if (CMDPANEL_WD < 5 * NUM_CMD_SW)
+X  	CMDPANEL_WD = 5 * NUM_CMD_SW;
+X      MSGFORM_WD = CMDPANEL_WD;
+X!     INDPANEL_WD = MODEPANEL_WD + CANVAS_WD + SIDERULER_WD + INTERNAL_BW*2;
+X!     MODEPANEL_SPACE = CANVAS_HT + RULER_WD - (MODE_SW_HT + INTERNAL_BW) *
+X! 	(ceil((double)NUM_DRAW_SW/SW_PER_ROW) +
+X! 	ceil((double)(NUM_MODE_SW-NUM_DRAW_SW)/SW_PER_ROW));
+X      if (MODEPANEL_SPACE < 2)
+X  	MODEPANEL_SPACE = 2;
+X  }
+Xdiff -rc xfig.2.1.7a/w_setup.h xfig.2.1.8/w_setup.h
+X*** xfig.2.1.7a/w_setup.h	Thu Feb 11 14:55:52 1993
+X--- xfig.2.1.8/w_setup.h	Fri Jun 18 18:07:32 1993
+X***************
+X*** 33,46 ****
+X  
+X  #define		MAXDEPTH		999
+X  
+X- #define		SW_PER_ROW_PORT 2	/* switches/row in mode panel */
+X- #define		SW_PER_ROW_LAND 2	/* same for landscape mode */
+X- #define		SW_PER_COL_PORT 17
+X- #define		SW_PER_COL_LAND 17
+X- 
+X  #define		MODE_SW_HT	32	/* height of a mode switch icon */
+X  #define		MODE_SW_WD	36	/* width of a mode switch icon */
+X  
+X  #define		DEF_INTERNAL_BW		1
+X  #define		POPUP_BW		2
+X  
+X--- 33,43 ----
+X  
+X  #define		MAXDEPTH		999
+X  
+X  #define		MODE_SW_HT	32	/* height of a mode switch icon */
+X  #define		MODE_SW_WD	36	/* width of a mode switch icon */
+X  
+X+ #define		DEF_SW_PER_ROW		2 /* def num of btns per row in mode panel */
+X+ 
+X  #define		DEF_INTERNAL_BW		1
+X  #define		POPUP_BW		2
+X  
+X***************
+X*** 56,59 ****
+X  extern int	INTERNAL_BW;
+X  extern int	TOPRULER_WD, TOPRULER_HT;
+X  extern int	SIDERULER_WD, SIDERULER_HT;
+X! extern int	SW_PER_ROW, SW_PER_COL;
+X--- 53,57 ----
+X  extern int	INTERNAL_BW;
+X  extern int	TOPRULER_WD, TOPRULER_HT;
+X  extern int	SIDERULER_WD, SIDERULER_HT;
+X! extern int	SW_PER_ROW;
+X! extern int	NUM_MODE_SW;
+Xdiff -rc xfig.2.1.7a/w_util.c xfig.2.1.8/w_util.c
+X*** xfig.2.1.7a/w_util.c	Tue Mar 23 10:50:45 1993
+X--- xfig.2.1.8/w_util.c	Tue Aug 24 16:32:34 1993
+X***************
+X*** 126,132 ****
+X      XtAddEventHandler(query_yes, ButtonReleaseMask, (Boolean) 0,
+X  		      (XtEventHandler)accept_yes, (XtPointer) NULL);
+X  
+X!     if (query_type == QUERY_YESNO) {
+X  	ArgCount = 4;
+X  	NextArg(XtNhorizDistance, 25);
+X  	NextArg(XtNlabel, "  No  ");
+X--- 126,132 ----
+X      XtAddEventHandler(query_yes, ButtonReleaseMask, (Boolean) 0,
+X  		      (XtEventHandler)accept_yes, (XtPointer) NULL);
+X  
+X!     if (query_type == QUERY_YESNO || query_type == QUERY_YESNOCAN) {
+X  	ArgCount = 4;
+X  	NextArg(XtNhorizDistance, 25);
+X  	NextArg(XtNlabel, "  No  ");
+X***************
+X*** 144,154 ****
+X  	NextArg(XtNfromHoriz, query_yes);
+X      }
+X  
+X!     NextArg(XtNlabel, "Cancel");
+X!     query_cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X  					 query_form, Args, ArgCount);
+X!     XtAddEventHandler(query_cancel, ButtonReleaseMask, (Boolean) 0,
+X  		      (XtEventHandler)accept_cancel, (XtPointer) NULL);
+X  
+X      XtPopup(query_popup, XtGrabExclusive);
+X      (void) XSetWMProtocols(XtDisplay(query_popup), XtWindow(query_popup),
+X--- 144,156 ----
+X  	NextArg(XtNfromHoriz, query_yes);
+X      }
+X  
+X!     if (query_type == QUERY_YESCAN || query_type == QUERY_YESNOCAN) {
+X! 	NextArg(XtNlabel, "Cancel");
+X! 	query_cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X  					 query_form, Args, ArgCount);
+X! 	XtAddEventHandler(query_cancel, ButtonReleaseMask, (Boolean) 0,
+X  		      (XtEventHandler)accept_cancel, (XtPointer) NULL);
+X+     }
+X  
+X      XtPopup(query_popup, XtGrabExclusive);
+X      (void) XSetWMProtocols(XtDisplay(query_popup), XtWindow(query_popup),
+Xdiff -rc xfig.2.1.7a/w_util.h xfig.2.1.8/w_util.h
+X*** xfig.2.1.7a/w_util.h	Wed Dec  9 17:37:08 1992
+X--- xfig.2.1.8/w_util.h	Tue Aug 24 16:32:46 1993
+X***************
+X*** 12,19 ****
+X  
+X  /* constant values used for popup_query */
+X  
+X! #define QUERY_YES	0
+X  #define QUERY_YESNO	1
+X  #define RESULT_NO	-1
+X  #define RESULT_YES	1
+X  #define RESULT_CANCEL	0
+X--- 12,20 ----
+X  
+X  /* constant values used for popup_query */
+X  
+X! #define QUERY_YESCAN	0
+X  #define QUERY_YESNO	1
+X+ #define QUERY_YESNOCAN	2
+X  #define RESULT_NO	-1
+X  #define RESULT_YES	1
+X  #define RESULT_CANCEL	0
+X***************
+X*** 40,46 ****
+X   *	}
+X   */
+X  
+X! #include "assert.h"
+X  
+X  #define ArgCount	_fooArgCount
+X  #define Args		_fooArgList
+X--- 41,47 ----
+X   *	}
+X   */
+X  
+X! #include <assert.h>
+X  
+X  #define ArgCount	_fooArgCount
+X  #define Args		_fooArgList
+Xdiff -rc xfig.2.1.7a/w_zoom.c xfig.2.1.8/w_zoom.c
+X*** xfig.2.1.7a/w_zoom.c	Wed Jan  6 12:08:49 1993
+X--- xfig.2.1.8/w_zoom.c	Tue Aug 10 14:14:23 1993
+X***************
+X*** 29,36 ****
+X  
+X  /* extern int		   gc_thickness[NUMOPS]; */
+X  
+X! static		do_zoom();
+X! static		zoom_up();
+X  static		init_zoombox_drawing();
+X  
+X  static int	(*save_kbd_proc) ();
+X--- 29,35 ----
+X  
+X  /* extern int		   gc_thickness[NUMOPS]; */
+X  
+X! static		do_zoom(), cancel_zoom();
+X  static		init_zoombox_drawing();
+X  
+X  static int	(*save_kbd_proc) ();
+X***************
+X*** 104,109 ****
+X--- 103,109 ----
+X      canvas_locmove_proc = my_box;
+X      canvas_leftbut_proc = do_zoom;
+X      canvas_middlebut_proc = canvas_rightbut_proc = null_proc;
+END_OF_FILE
+  if test 28014 -ne `wc -c <'xfig.11'`; then
+    echo shar: \"'xfig.11'\" unpacked with wrong size!
+  fi
+  # end of 'xfig.11'
+fi
+echo shar: End of archive 16 \(of 16\).
+cp /dev/null ark16isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 16 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo Creating merged patch file xfig.p2
+    cat xfig.[01][0-9] > xfig.p2
+    rm -f xfig.[01][0-9]
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

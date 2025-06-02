@@ -1,0 +1,1297 @@
+Newsgroups: comp.sources.misc
+From: spike@world.std.com (Joe Ilacqua)
+Subject: v36i019:  msend - a write/wall/rwall/talk replacement, v1.2, Part02/02
+Message-ID: <1993Mar19.193321.1830@sparky.imd.sterling.com>
+X-Md4-Signature: 298bd413929526a53429679941507436
+Date: Fri, 19 Mar 1993 19:33:21 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: spike@world.std.com (Joe Ilacqua)
+Posting-number: Volume 36, Issue 19
+Archive-name: msend/part02
+Environment: UNIX, networking
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  Copyright History Makefile config.h domessage.c
+#   establish.c fwdloop.c gnugets.c msend.h msend.man msendd.c
+#   network.h patchlevel utmp.c whoami.c
+# Wrapped by kent@sparky on Fri Mar 19 13:24:30 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 2)."'
+if test -f 'Copyright' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Copyright'\"
+else
+  echo shar: Extracting \"'Copyright'\" \(1136 characters\)
+  sed "s/^X//" >'Copyright' <<'END_OF_FILE'
+X#ifndef _COPYRIGHT_
+X/* (c) Copyright 1988, 1989, 1990, 1991 Jim Frost
+X * All Rights Reserved
+X *
+X * Permission to use, copy, modify, distribute, and sell this software
+X * and its documentation for any purpose is hereby granted without fee,
+X * provided that the above copyright notice appear in all copies and
+X * that both that copyright notice and this permission notice appear
+X * in supporting documentation.  The author makes no representations
+X * about the suitability of this software for any purpose.  It is
+X * provided "as is" without express or implied warranty.
+X *
+X * THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
+X * NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+X * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE
+X * USE OR PERFORMANCE OF THIS SOFTWARE.
+X */
+X
+Xstatic char *Copyright= "Copyright 1988, 1989, 1990, 1991 Jim Frost";
+X#define _COPYRIGHT_
+X#endif
+END_OF_FILE
+  if test 1136 -ne `wc -c <'Copyright'`; then
+    echo shar: \"'Copyright'\" unpacked with wrong size!
+  fi
+  # end of 'Copyright'
+fi
+if test -f 'History' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'History'\"
+else
+  echo shar: Extracting \"'History'\" \(1833 characters\)
+  sed "s/^X//" >'History' <<'END_OF_FILE'
+X5.16.88  Original version
+X5.18.88  Add forward loop checking to sendmsg() and add -clean option to
+X         msend.
+X5.21.88  Break up application, packet, and network sections in a
+X         cleaner manner.  Add the ability to maintain a connection for
+X         more than one message.  Add uid managing to keep root
+X         uid-ness for only short periods of time and to properly
+X         handle files from the daemon.
+X5.22.88  Fix ndbm bug in home.c.  Fix setuid bug in sendrecv.c.  Add
+X         code segment to msend.c to open connection before going
+X         interactive.
+X2.7.90   Fix bug in SIGCHLD handler in msendd.c.  If wait3 returned
+X         zero the daemon would infinite loop.  Add TIOCNOTTY ioctl to
+X         disassociate daemon from tty.
+X6.4.90   Fix bug in daemon where setgid was called with only one argument.
+X10.12.90 Added code to support use of the GNU readline package for
+X         input line editing. ->Spike
+X10.15.90 Remove domain name for signature after first message is sent.
+X         For the poor folks at slopoke.mbl.semi.harris.com.  Fix host
+X         connection to use h_errno, and fake h_errno/h_errlist on
+X         systems that lack it. ->Spike
+X5.7.91   Fixed bug that caused random behavor on routed messages.
+X         Cleaned up readline support.  Rearranged source a bit and
+X         added prototypes.  Makefile overhauled.  Miscellaneous SYSV
+X         fixes for the SGI. ->Spike
+X5.9.91   Slightly better SysV/POSIX support.  Other misc. cleanups.
+X5.9.91   Support for hosts with multiple IP addresses and for using IP
+X         addresses instead of hostnames. ->Spike
+X6.26.91  Ported to HP-UX. ->Spike
+X9.4.91   Add secure port code. ->Spike
+X12.11.91 Cleanup for release after 3 years. ->Spike
+X3.5.91   Minor security fix and SCO UNIX-ODT port from Chris Riney
+X         (chris@tisdec.tis.tandy.com).
+END_OF_FILE
+  if test 1833 -ne `wc -c <'History'`; then
+    echo shar: \"'History'\" unpacked with wrong size!
+  fi
+  # end of 'History'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(3393 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# (c) Copyright 1988 Jim Frost.  All Rights Reserved.  Please see
+X# the accompanying file "Copyright" for more information.
+X#
+X# Be sure to read "Configuration" and make necessary changes to "config.h"
+X# before compiling.
+X
+X# Send bugs, fixes, and ports to 'msend-bugs@world.std.com'.
+X
+X# DESTDIR is the directory to install msend in.
+XDESTDIR = /usr/local/bin
+X
+X# DAEMONDIR is the directory to install the msend daemon in.
+XDAEMONDIR = /usr/etc
+X
+X# DAEMONNAME is what to call the daemon.  Sun likes "in.msendd", others may
+X# prefer "msendd".
+XDAEMONNAME = in.msendd
+X#DAEMONNAME = msendd
+X
+X# MANDIR is the directory to install the man page in
+XMANDIR = /usr/man/manl
+X# MANSEC is the section the man page is to be installed it.
+XMANSEC = l
+X
+X# SPOOLDIR should be the same as the #define in config.h
+XSPOOLDIR = /usr/spool/msend
+X
+XCFLAGS = -O
+X
+X# Under SUNOS you may need "-lresolv" see Configuration
+X#LIBS = -lresolv
+X# Under IRIX  you may need "-lsun -lbsd" see Configuration
+X#LIBS = -lsun -lbsd
+X# Under SCO UNIX-ODT you will need: -lx -lsocket
+X#LIBS= -lx -lsocket
+X
+X#READLINELIBS = -lreadline -ltermcap
+X
+X# It is unlikely you will need to change anything bellow.
+X
+X# grrr
+XSHELL = /bin/sh
+X
+XMISC = Configuration Copyright History Makefile patchlevel Protocol README \
+X       msend.man msend.h network.h config.h
+XSRCS = domessage.c establish.c fwdloop.c gnugets.c misc.c msend.c \
+X       msendd.c network.c sendrecv.c utmp.c whoami.c write.c
+XALL = $(MISC) $(SRCS)
+X
+XDSRCS = domessage.c establish.c fwdloop.c misc.c network.c msendd.c \
+X        sendrecv.c utmp.c write.c 
+XCSRCS = gnugets.c misc.c msend.c network.c sendrecv.c whoami.c
+XDOBJS = domessage.o establish.o fwdloop.o misc.o network.o msendd.o \
+X        sendrecv.o utmp.o write.o 
+XCOBJS = gnugets.o misc.o msend.o network.o sendrecv.o whoami.o
+X
+Xall: msend msendd
+X
+X
+Xmsend: $(COBJS)
+X	$(CC) $(CFLAGS) $(COBJS) -o msend $(LIBS) $(READLINELIBS)
+X
+Xmsendd:  $(DOBJS)
+X	$(CC) $(CFLAGS) $(DOBJS) -o msendd $(LIBS)
+X
+Xinstall: msend msendd
+X	install -c -s -m 6555 -g tty msend $(DESTDIR)
+X	install -c -s -m 2555 -g tty msendd $(DAEMONDIR)/$(DAEMONNAME)
+X	install -c -m 444 msend.man $(MANDIR)/msend.$(MANSEC)
+X	if [ ! -d $(SPOOLDIR) ]; then \
+X	 mkdir $(SPOOLDIR); \
+X	 chmod 2771 $(SPOOLDIR); \
+X	 chgrp tty $(SPOOLDIR); \
+X	fi
+X
+Xinstall-sysv: msend msendd
+X	strip msend msendd
+X	cp msend $(DESTDIR)
+X	cp msendd $(DAEMONDIR)/$(DAEMONNAME)
+X	chgrp tty $(DESTDIR)/msend $(DAEMONDIR)/$(DAEMONNAME)
+X	chmod 6555 $(DESTDIR)/msend
+X	chmod 2555 $(DAEMONDIR)/$(DAEMONNAME)
+X	cp msend.man $(MANDIR)/msend.$(MANSEC)
+X	chmod 444 $(MANDIR)/msend.$(MANSEC)
+X	if [ ! -d $(SPOOLDIR) ]; then \
+X	 mkdir $(SPOOLDIR); \
+X	 chmod 2771 $(SPOOLDIR); \
+X	 chgrp tty $(SPOOLDIR); \
+X	fi
+X
+Xshar: 
+X	rm -f shar.*
+X	shar -l 60 -o shar $(ALL)
+X
+Xmsend.tar:
+X	tar cf msend.tar $(ALL)
+X
+Xtar: msend.tar
+X
+Xtar.Z: msend.tar
+X	compress msend.tar
+X
+Xsrcinsaber:: $(DSRCS)
+X	#load $(DSRCS)
+X
+Xsrcinsaber:: $(CSRCS)
+X	#load $(CSRCS)
+X
+Xclean:
+X	rm -f *.o *~ shar.* doshar msend msendd buildshar msend.tar msend.tar.Z
+X
+Xdomessage.o:  msend.h network.h config.h patchlevel
+Xestablish.o: msend.h network.h
+Xfwdloop.o: msend.h network.h
+Xgnugets.o: config.h
+Xmisc.o: msend.h network.h config.h
+Xmsend.o: msend.h network.h config.h Copyright patchlevel
+Xmsendd.o: msend.h network.h config.h
+Xnetwork.o: msend.h network.h config.h
+Xsendrecv.o: msend.h network.h config.h
+Xutmp.o: msend.h network.h
+Xwhoami.o: msend.h network.h
+Xwrite.o: msend.h network.h config.h
+END_OF_FILE
+  if test 3393 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'config.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'config.h'\"
+else
+  echo shar: Extracting \"'config.h'\" \(2665 characters\)
+  sed "s/^X//" >'config.h' <<'END_OF_FILE'
+X/* config.h:
+X *
+X * configuration file for 'msend'
+X *
+X * (c) Copyright 1991 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#define ON 1
+X#define OFF 0
+X
+X/* system dependencies and options
+X */
+X
+X#define PORTNUM      56060   /* port number that we use.  should be under
+X                               1024 for installed versions to make sure
+X                               we're getting real data.  note that an
+X                               /etc/services entry overrides this */
+X
+X#define DBROADCAST    /* allow broadcasting at daemon host */
+X#define CBROADCAST    /* allow broadcasting from user interface */
+X#define ROUTE         /* allow message routing at daemon host */
+X#define SECURE_PORT   /* connect from a secure port to allow authentication */
+X/* #define GNUREADLINE   /* use GNU readline for the user interface. */
+X/* #define EDIT OFF      /* should gnureadline editing be ON/OFF by default */
+X/* #define ALONE      /* not running under inetd - build standalone daemon */
+X
+X/* this is the name of the log file msend will use.  /usr/adm/msend.log is
+X * usually good.
+X */
+X#define LOGFILE     "/usr/adm/msend.log"
+X
+X/* if you would rather have the spool files in individual users' directories,
+X * comment this line out.
+X */
+X#define SPOOLDIR    "/usr/spool/msend"
+X
+X/* a few common systems' definitions
+X */
+X#ifdef sun
+X/* nothing special about a Sun */
+X#endif
+X
+X#ifdef _AIX
+X#define USE_LOCKF
+X#define SYSV_WAIT_STATUS
+X#endif
+X
+X#if defined(sgi) && defined(mips)
+X#define SYSVUTMP
+X#endif
+X
+X#ifdef M_SYSV
+X#define SYSVUTMP
+X#define SYSV_WAIT_STATUS
+X#define SYSV_SETUID
+X#define NO_BZERO
+X#endif
+X
+X/* system-dependent definitions
+X */
+X/* #define USE_LOCKF  /* Use lockf() instead of flock() */
+X/* #define NEEDS_LOCK /* OS lacks both flock() and locfk() */
+X/* #define SYSVUTMP   /* system uses SYSV style utmp file */
+X/* #define NOHERROR  /* systems libraries do not contain h_errno. */
+X/* #define SYSV_WAIT_STATUS /* wait status is int not union */
+X/* #define SYSV_SETUID /* if your system uses SYSV setuid semantics*/
+X/* #define NO_BZERO  /* to use mem{set,copy}() instead of b{zero,copy}() */
+X
+X#ifdef SYSV_SETUID
+X#define seteuid(uid) setuid(uid) /* If OS lacks seteuid(2) and setruid(2) */
+X#define setruid(uid) 0 /* and has SYSV setuid(2) semantics */
+X#endif
+X
+X/* BSD systems define wait status as a union, while SYSV as an int.
+X */
+X#ifdef SYSV_WAIT_STATUS
+X#define WAIT_STATUS int        /* SYSV-style wait status */
+X#else
+X#define WAIT_STATUS union wait /* BSD-style wait status */
+X#endif
+X
+X#ifdef NO_BZERO
+X#define bzero(address,size) memset(address, '\0', size)
+X#define bcopy(b1,b2,lenght) memcopy(b2,b1,lenght)
+X#endif
+END_OF_FILE
+  if test 2665 -ne `wc -c <'config.h'`; then
+    echo shar: \"'config.h'\" unpacked with wrong size!
+  fi
+  # end of 'config.h'
+fi
+if test -f 'domessage.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'domessage.c'\"
+else
+  echo shar: Extracting \"'domessage.c'\" \(3606 characters\)
+  sed "s/^X//" >'domessage.c' <<'END_OF_FILE'
+X/* domessage.c:
+X *
+X * this handles each incoming message
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X#include "patchlevel"
+X
+Xextern char *sys_errlist[];
+Xextern int  errno;
+Xextern short doroute, dobroadcast;
+X
+X/* in case we somehow get caught in an inconsistent state, we
+X * kill ourselves after an arbitrary time.
+X */
+X
+Xstatic void suicide()
+X{ error("child killed after lifetime expired");
+X  die(1);
+X}
+X
+X/* handle the incoming message
+X */
+X
+Xvoid domessage(s)
+Xint s;
+X{ struct simsg   si;
+X  struct rimsg   ri;
+X  extern int     errno;
+X  char   localhost[MAXHOSTNAME+1];
+X  char   tmphost[MAXHOSTNAME+1];
+X  struct hostent *hp;
+X
+X  for (;;) {
+X
+X    /* anything we say can and will be used against us in the court of
+X     * law, so it's a good idea to keep our mouth shut except with the
+X     * right people.  In other words, nobody but root and the owner
+X     * should be able to see message files.
+X     */
+X
+X    umask(006);
+X
+X    /* this is our guarantee that we won't have processes sitting in
+X     * funny states for very long.  unfortunately it can also cause
+X     * valid connections to die if the user ignores them for long
+X     * enough, but we reset the timer every time there's a packet.
+X     */
+X
+X    alarm(LIFETIME);
+X    signal(SIGALRM,suicide);
+X
+X    gethostname(tmphost,MAXHOSTNAME);
+X    if ((hp = gethostbyname(tmphost)) == NULL);
+X    (void) strncpy(localhost,hp->h_name,MAXHOSTNAME);
+X    
+X
+X    /* hello?  what do you want? */
+X
+X    recvmessage(s,&si);
+X
+X    /* look to see if we are supposed to route this to somewhere.  if so,
+X     * then do it.
+X     */
+X
+X    if (striphost(si.taddr,si.tohost) != NULL) {
+X#ifdef ROUTE
+X      if(doroute)
+X	sendmessage(&si,&ri,si.mode); /* route the message and get reply */
+X
+X      /* routing is disabled so return an error message
+X       */
+X      else {
+X#endif
+X	ri.h.errno= RE_NOROUTE;
+X	sprintf(ri.msg,"%s: Message routing is disabled at this host",localhost);
+X#ifdef ROUTE
+X      }
+X#endif
+X    }
+X    else if (si.mode & SM_VERSION) {
+X      ri.h.errno= RE_OK;
+X      sprintf(ri.msg,"%s: msendd version %s patchlevel %s  %s",
+X	      localhost,VERSION,PATCHLEVEL,Copyright);
+X    }
+X    else if (si.msg[0] == '\0') { /* null messages are ignored */
+X      ri.h.errno= RE_OK;
+X      ri.msg[0]= '\0';
+X    }
+X
+X    else if (si.mode & SM_BROADCAST) {
+X
+X#ifdef DBROADCAST
+X      /* broadcast to everyone in utmp
+X       */
+X
+X      if (dobroadcast) {
+X	broadcast(&si);
+X	ri.h.errno= RE_OK;
+X	ri.msg[0]= '\0';
+X      } else {
+X#endif
+X	ri.h.errno= RE_NOBROAD;
+X	sprintf(ri.msg,"%s: Broadcasting is disabled at this host",localhost);
+X#ifdef DBROADCAST
+X      }
+X#endif
+X
+X    }
+X    else {
+X
+X      /* write to a single user or tty
+X       */
+X
+X      switch (writeuser(&si)) {
+X      case RE_OK :
+X	ri.h.errno= RE_OK;
+X	ri.msg[0]= '\0';
+X	break;
+X      case RE_NOMSGS :
+X	ri.h.errno= RE_NOMSGS;
+X	sprintf(ri.msg,"%s@%s: User's messages are off, try mail instead",
+X		si.taddr,localhost);
+X	break;
+X      case RE_NOTTHERE :
+X	ri.h.errno= RE_NOTTHERE;
+X	sprintf(ri.msg,"%s@%s: User not found",si.taddr,localhost);
+X	break;
+X      case RE_NOUSER :
+X	ri.h.errno= RE_NOUSER;
+X	sprintf(ri.msg,"%s@%s: No such user",si.taddr,localhost);
+X	break;
+X      case RE_SYSERR :
+X	ri.h.errno= RE_SYSERR;
+X	strcpy(ri.msg,sys_errlist[errno]);
+X	break;
+X	default :
+X	  error("internal error (this cannot happen!)");
+X	blderr(&ri,RE_INTERR,"Internal error in receiving daemon\n");
+X      }
+X    }
+X    sendreply(s,&ri,si.mode);
+X    if ((si.mode & SM_CLOSE) || (ri.h.errno != RE_OK))
+X      exit(0);
+X  }
+X}
+END_OF_FILE
+  if test 3606 -ne `wc -c <'domessage.c'`; then
+    echo shar: \"'domessage.c'\" unpacked with wrong size!
+  fi
+  # end of 'domessage.c'
+fi
+if test -f 'establish.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'establish.c'\"
+else
+  echo shar: Extracting \"'establish.c'\" \(938 characters\)
+  sed "s/^X//" >'establish.c' <<'END_OF_FILE'
+X/* establish.c:
+X *
+X * routine to establish a port for incoming connections
+X *
+X * this routine was originally written by Barry Shein (bzs@bu-it.bu.edu).
+X */
+X
+X#include "config.h"
+X#include "msend.h"
+X
+Xint establish(port)
+X#ifndef M_SYSV
+X     u_short port;
+X#else
+X     int port;
+X#endif
+X{ char   myname[MAXHOSTNAME+1];
+X  int    s;
+X  struct sockaddr_in sa;
+X  struct hostent *hp;
+X
+X  gethostname(myname,MAXHOSTNAME);            /* who are we? */
+X  bzero(&sa,sizeof(struct sockaddr_in));
+X  hp= gethostbyname(myname);                  /* get our address info */
+X  if (hp == NULL)                             /* we don't exist !? */
+X    return(-1);
+X  sa.sin_family= hp->h_addrtype;              /* set up info for new socket */
+X  sa.sin_port= htons(port);
+X  if ((s= socket(AF_INET,SOCK_STREAM,0)) < 0) /* make new socket */
+X    return(-1);
+X  if (bind(s,&sa,sizeof sa) < 0)
+X    return(-1);                               /* bind socket */
+X  return(s);
+X}
+END_OF_FILE
+  if test 938 -ne `wc -c <'establish.c'`; then
+    echo shar: \"'establish.c'\" unpacked with wrong size!
+  fi
+  # end of 'establish.c'
+fi
+if test -f 'fwdloop.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'fwdloop.c'\"
+else
+  echo shar: Extracting \"'fwdloop.c'\" \(720 characters\)
+  sed "s/^X//" >'fwdloop.c' <<'END_OF_FILE'
+X/* fwdloop.c:
+X *
+X * check for obvious forwarding loops
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X
+X/* check for a local forwarding loop
+X */
+X
+Xint fwdloop(host)
+Xchar *host;
+X{ struct hostent *h;
+X  char hname[MAXHOSTNAME+1];
+X
+X  gethostname(hname,MAXHOSTNAME);
+X  h= gethostbyname(hname);
+X  if (strcmp(h->h_name,host)) {  /* obvious match? */
+X
+X    /* look through alias list to see if it's one of the possible names
+X     */
+X
+X    for (; (*h->h_aliases) && strcmp(*h->h_aliases,host); h->h_aliases++)
+X      ;
+X    return(*h->h_aliases != NULL);  
+X  }
+X  return(1);
+X}
+END_OF_FILE
+  if test 720 -ne `wc -c <'fwdloop.c'`; then
+    echo shar: \"'fwdloop.c'\" unpacked with wrong size!
+  fi
+  # end of 'fwdloop.c'
+fi
+if test -f 'gnugets.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnugets.c'\"
+else
+  echo shar: Extracting \"'gnugets.c'\" \(602 characters\)
+  sed "s/^X//" >'gnugets.c' <<'END_OF_FILE'
+X/* This file builds a simple case interface for the GNU 
+X * readline & history stuff.
+X * Spike (Spike@world.std.com) 10.11.90
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X
+X#ifdef GNUREADLINE
+X#include <stdio.h>
+X
+Xchar *GNUGets (prompt)
+X     char *prompt;
+X{
+X  char *readline_buf, *readline();
+X
+X  /* Get a line from the user. */
+X  readline_buf = readline (prompt ? prompt : "");
+X
+X  /* If the line has any text in it, save it on the history. */
+X  if (readline_buf && *readline_buf)
+X    add_history (readline_buf);
+X
+X  return (readline_buf);
+X}
+X
+X#else
+Xstatic int boguscompilertrick;
+X#endif
+END_OF_FILE
+  if test 602 -ne `wc -c <'gnugets.c'`; then
+    echo shar: \"'gnugets.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnugets.c'
+fi
+if test -f 'msend.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msend.h'\"
+else
+  echo shar: Extracting \"'msend.h'\" \(4068 characters\)
+  sed "s/^X//" >'msend.h' <<'END_OF_FILE'
+X/* msend.h:
+X *
+X * header file for 'msend'
+X *
+X * (c) Copyright 1988 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#ifndef _MSEND_H_
+X#define _MSEND_H_
+X
+X#include "network.h"
+X#include <errno.h>
+X#include <pwd.h>
+X#include <signal.h>
+X#include <stdio.h>
+X#include <utmp.h>
+X#include <sys/types.h>
+X#include <sys/file.h>
+X#include <sys/ioctl.h>
+X#include <sys/socket.h>
+X#include <sys/stat.h>
+X#include <sys/wait.h>
+X#include <netinet/in.h>
+X#include <netdb.h>
+X
+X#define ROOTUID      0       /* system superuser uid */
+X#define DAEMONUID    1       /* system daemon uid */
+X#define MAXHOSTNAME  255     /* longest hostname we allow */
+X#define MAXFILENAME  1024    /* longest filename we allow */
+X#define MAXDEST      1024    /* longest destination path */
+X#define MAXUSERNAME  10      /* longest username we allow */
+X#define MAXTTY       10      /* longest tty (from utmp.h) */
+X#define MAXSIGNATURE 40      /* longest signature */
+X#define MAXMSG       1024    /* longest message text (includes signature) */
+X#define MAXLINE      128     /* longest text line in options file */
+X#define MAXTOKEN     30      /* longest allowable options file token */
+X#define MAXFORWARD   5       /* never forward more than this many hosts
+X                               (this prevents multiple host loops) */
+X#define BACKLOG      5       /* request backlog */
+X#define LIFETIME     (10*60) /* how long we live before we give up */
+X
+X/* message header for requests send to a daemon
+X */
+X
+Xstruct sheader {
+X  u_short taddrlen;  /* length of destination address field */
+X  u_short tttylen;   /* length of destination tty field */
+X  u_short msglen;    /* length of message field (includes signature) */
+X};
+X
+X#define SM_CLOSE     0x01 /* close connection after reply */
+X#define SM_TTY       0x02 /* send to tty */
+X#define SM_BROADCAST 0x04 /* broadcast */
+X#define SM_VERSION   0x08 /* version request */
+X
+X/* message header for replies sent back to the caller
+X */
+X
+Xstruct rheader {
+X  u_short  errno;
+X  u_short  msglen;
+X};
+X
+X#define RE_OK       0 /* message delivered ok */
+X#define RE_SYSERR   1 /* system error */
+X#define RE_NOUSER   2 /* user doesn't exist on this host */
+X#define RE_NOMSGS   3 /* user's terminal may not be written to */
+X#define RE_NOTTHERE 4 /* user is not logged on at the destination */
+X#define RE_NOROUTE  5 /* routing is denied at this host */
+X#define RE_NOBROAD  6 /* broadcasting is denied at this host */
+X#define RE_FWDLOOP  7 /* forwarding loop (too many forwards) */
+X#define RE_INTERR   8 /* something really really bad happened */
+X#define RE_NOTFATAL 9 /* non-fatal error print message don't exit */
+X
+X/* structures used for internal handling of messages
+X */
+X
+Xstruct simsg {
+X  u_short fwdcount;              /* number of times this has been forwarded */
+X  u_short mode;
+X  char    taddr[MAXDEST+1];
+X  char    ttty[MAXTTY+1];
+X  char    msg[MAXMSG+1];
+X  char    tohost[MAXHOSTNAME+1]; /* hostname to send message to */
+X};
+X
+Xstruct rimsg {
+X  struct rheader h;
+X  char   msg[MAXMSG+1];
+X};
+X
+X/* all global functions are defined here to make compilers and checkers
+X * happier.
+X */
+X
+X#undef A
+X#ifdef __STDC__
+X#define A(ARGS) ARGS
+X#else
+X#define A(ARGS) ()
+X#endif
+X
+Xint main A((int argc, char **argv));
+Xvoid domessage A((int s));
+Xint establish A((int port));
+Xint fwdloop A((char *host));
+Xvoid blderr A((struct rimsg *ri, int errno, char *msg));
+Xvoid die A((int i));
+Xvoid error A((char *s));
+Xint portnum A((void));
+Xchar *striphost A((char addr[], char *host));
+Xchar *gethome A((char *user));
+Xint getid A((char *user));
+X
+Xvoid sendmessage A((struct simsg *si, struct rimsg *ri, int mode));
+Xvoid sendreply A((int s, struct rimsg *ri, int mode));
+Xvoid recvmessage A((int s, struct simsg *si));
+Xstruct utmp *getutent A((void));
+Xvoid endutent A((void));
+Xchar *whoami A((void));
+Xvoid broadcast A((struct simsg *si));
+Xint writeuser A((struct simsg *si));
+X
+X#ifdef NEEDS_LOCK
+X#ifndef LOCK_EX /* sometimes fcntl has these even though there's no flock */
+X#define LOCK_EX 1
+X#define LOCK_UN 2
+X#endif
+Xint flock A((int fd, int how));
+X#endif
+X
+X#endif _MSEND_H_
+END_OF_FILE
+  if test 4068 -ne `wc -c <'msend.h'`; then
+    echo shar: \"'msend.h'\" unpacked with wrong size!
+  fi
+  # end of 'msend.h'
+fi
+if test -f 'msend.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msend.man'\"
+else
+  echo shar: Extracting \"'msend.man'\" \(4198 characters\)
+  sed "s/^X//" >'msend.man' <<'END_OF_FILE'
+X.TH MSEND 1 "11 Dec member 1991"
+X.SH NAME
+Xmsend \- send an immediate message to another user
+X.SH SYNOPSIS
+X.B msend
+Xuser[@host] [message]
+X.br
+X.B msend .
+X[message]
+X.br
+X.B msend
+X\-clean
+X.br
+X.B msend
+X\-Tttyname [@host] [message]
+X.br
+X.B msend
+X\-B @host [message]
+X.br
+X.B msend
+X\-huh [# of messages]
+X.SH DESCRIPTION
+X\fIMsend\fR is used to send immediate messages to other users.  It
+Xoperates both locally and between hosts.  If configured to do so, it
+Xhas the ability to broadcast to all users on a machine and/or allow
+Xmanual routing of messages to other hosts.
+X.PP
+XA dot (.) in place of a username indicates an attempt to send to the
+Xsame user as the last invocation.  The username of the last send is
+Xstored in ~/.lastmsend.
+X.PP
+X
+XIf a message is specified on the command line, an attempt is made to
+Xsend the message to the specified user, tty, or host.  If no message
+Xis specified, \fImsend\fR goes into an interactive mode, sending each
+Xtyped line to the specified user.  Interactive mode can be exited via
+Xend-of-file or a dot (.) alone on a line.
+X.SH ROUTING
+XIn some environments, it may be necessary to route a message by hand
+Xin order to reach a specific host.  \fIMsend\fR allows you to specify
+Xa list of host names which will be read from right to left until an
+Xerror occurs or until the last host in the list.  Routing is allowed
+Xanywhere @host may be used.
+X.PP
+XSince some administrators may not want users routing messages to
+Xnon-local systems, routing may be disabled at compilation time.  An
+Xerror message is returned whenever a daemon with disabled routing is
+Xencountered.
+X.SH OPTIONS
+XThe following options are available with \fImsend\fR.
+X.TP 8
+X\fB-Tttyname [@host]\fR
+XSpecify a specific terminal (optionally on a different host) to send a
+Xmessage to.
+X.TP
+X\fB-B @host\fR
+XAttempt to broadcast to all users on the indicated system.
+XBroadcasting can be disabled at the client and/or the daemon at
+Xcompilation time, allowing the system administrator to control
+Xincoming or outgoing broadcast messages.  All broadcast messages are
+Xlogged.
+X.TP
+X\fB-clean\fR
+XErase the file of old messages.
+X.TP
+X\fB-edit\fR
+XToggle command line editing if using the GNU Readline interface.
+X.TP
+X\fB-huh [# of messages]\fR
+XReprint the last message (or messages) that were sent to you on this
+Xhost.
+X.SH OPTIONS FILE
+XTo allow a user to tailor his message environment, the send programs
+Xlook for .msendrc in the user's home directory.  The "signature" option
+Xis the only option that affects outgoing messages; all others affect
+Xincoming messages.  The options are:
+X.TP
+X\fBsignature "format string"\fR
+XThis is used to allow customization of messages that you send to other
+Xusers.  The string within quotes will be appended to your name and
+Xhost when the message is sent.  If %d or %t is included in the string,
+Xthe date or your tty (respectively) will be inserted in its place.
+X.TP
+X\fBallttys\fR
+XAttempt to write to all ttys owned by the intended recipient on the
+Xlocal host.
+X.TP
+X\fBforward-to-user user[@host]\fR
+XInstead of writing to this user, forward the message to another user.
+XThis is especially useful when you have multiple accounts.
+X.TP
+X\fBwrite-and-forward user[@host]\fR
+XThis is similar to forward-to-user, but will also attempt to write to
+Xthe user locally.
+X.TP
+X\fBwrite-on-tty ttyname\fR
+XAttempt to write to a particular local tty.  This is
+Xuseful with workstations to force writes to a particular window.
+X.TP
+X\fBforward-to-tty ttyname @host\fP
+XAttempt to write to a given tty on the indicated host.
+X.TP
+X\fBhistory number\fP
+XNumber of lines of history to keep if using the GNU Readline
+Xinterface.  The default is unlimited.
+X.TP
+X\fBediting_mode "emacs"|"vi"\fP
+XUse emacs- or vi-style command line editing if using the GNU Readline
+Xinterface.  The default is emacs-style.
+X.TP
+X\fBedit "on"|"off"\fP
+XEnable or disable command line editing if using the GNU Readline
+Xinterface.  The default is site dependant, but tends to be off as GNU
+XReadline interface has problems on some terminals.
+X.SH AUTHORS
+X.nf
+XJim Frost
+X\fBjimf@centerline.com\fP
+X.LP
+XJoe Ilacqua
+X\fBspike@world.std.com\fP
+X.fi
+X.SH FILES
+X.PP
+X~/.lastmsend
+X.br
+X~/.msendrc
+X.br
+X/usr/spool/msend/*
+X.br
+X/usr/adm/msend.log
+X.SH BUGS
+XIf you find any, let us know.
+X
+END_OF_FILE
+  if test 4198 -ne `wc -c <'msend.man'`; then
+    echo shar: \"'msend.man'\" unpacked with wrong size!
+  fi
+  # end of 'msend.man'
+fi
+if test -f 'msendd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msendd.c'\"
+else
+  echo shar: Extracting \"'msendd.c'\" \(3790 characters\)
+  sed "s/^X//" >'msendd.c' <<'END_OF_FILE'
+X/* msendd.c:
+X *
+X * daemon required to allow msend to operate.  works with inetd also.
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X *
+X * special thanks to Barry Shein (bzs@bu-it.bu.edu) for the skeleton
+X * that this was built from.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X
+X#ifdef ROUTE
+Xshort doroute = 1;
+X#endif
+X
+X#ifdef DBROADCAST
+Xshort dobroadcast = 1;
+X#endif
+X
+X#ifdef SECURE_PORT
+Xshort notsecure = 1;
+X#endif
+X
+Xstatic void fireman()	/* catches falling babies */
+X{ WAIT_STATUS wstatus;
+X
+X  while(wait3(&wstatus,WNOHANG,NULL) > 0);
+X}
+X
+Xstatic void sigint()
+X{ error("SIGINT interrupt received");
+X  die(0);
+X}
+X
+Xstatic void sigterm()
+X{ error("SIGTERM interrupt received");
+X  die(0);
+X}
+X
+X
+Xmain(argc,argv)
+X     int argc;
+X     char *argv[];
+X{ 
+X  char c;
+X  int s,t;
+X  int i;
+X  struct sockaddr_in isa;
+X  extern int errno;
+X
+X
+X  while ((c = getopt(argc, argv, "rb")) != (char) -1) {
+X    switch(c) {
+X    case 'r':
+X#ifdef ROUTE
+X      doroute = 0;
+X#endif
+X      break;
+X    case 'b':
+X#ifdef DBROADCAST
+X      dobroadcast = 0;
+X#endif
+X      break;
+X    }
+X  }
+X
+X#ifndef ALONE
+X  /* inetd(8), don't leave home without it */
+X#ifdef SECURE_PORT
+X  i = sizeof(isa);
+X  s = 0; /* stdin */
+X  if (getpeername(s,(struct sockaddr *)&isa,&i) >= 0){
+X    if ((ntohs(isa.sin_port) < IPPORT_RESERVED)
+X	&& (ntohs(isa.sin_port) > IPPORT_RESERVED/2))
+X      notsecure = 0;
+X  }
+X#endif
+X  domessage(0);
+X  exit(0);
+X
+X#else
+X  /* disassociate ourselves from any terminal
+X   */
+X
+X  for (i= 0; i < getdtablesize(); i++)
+X    close(i);
+X  if ((i= open("/dev/tty", O_RDWR)) >= 0) {
+X    if (ioctl(i, TIOCNOTTY, NULL) < 0)
+X      error("Can't disassociate from tty\n");
+X    close(i);
+X  }
+X
+X  /* normal daemon.  set up for listening and then go into an infinite
+X   * loop for connections
+X   */
+X
+X  error("msendd started");           /* remember when it all started */
+X  if ((s= establish(portnum())) < 0) { /* bind to a socket */
+X    if (errno == EADDRINUSE) {
+X      printf("msendd: cannot allocate port (daemon already active?)\n");
+X    }
+X    else
+X      perror("msendd: establish");
+X    die(1);
+X  }
+X
+X  /* an ioctl should go here after openning /dev/tty but i can't remember
+X   * which ioctl
+X   */
+X
+X  switch (fork()) {
+X  case -1: /* oh well */
+X    error("can't fork, sorry\n");
+X  case 0:
+X    break;
+X  default:
+X    exit(0);
+X  }
+X
+X  /* after establishing ourselves, become DAEMONUID
+X   */
+X
+X  if (getuid() == ROOTUID)
+X    seteuid(DAEMONUID);
+X
+X  i = sizeof(isa);                   /* find it's "name" */
+X  getsockname(s,&isa,&i);
+X  signal(SIGHUP,SIG_IGN);
+X  signal(SIGSTOP,SIG_IGN);           /* bad things happened w/o this */
+X  signal(SIGTSTP,SIG_IGN);           /* seems to get this sometimes */
+X  signal(SIGINT,sigint);
+X  signal(SIGTERM,sigterm);
+X  signal(SIGCHLD,fireman);           /* set up to catch dead children */
+X  listen(s,BACKLOG);                 /* set maximum backlog */
+X
+X  for(;;) {
+X    i = sizeof isa ;
+X    if((t = accept(s,&isa,&i)) < 0) {
+X      if(errno != EINTR)             /* we'll get an EINTR when child dies */
+X	error("accept error");
+X      continue;	                     /* try again */
+X    }
+X
+X    if (fork() == 0) {
+X      close(s);                      /* i have no need for you */
+X      setpgrp(0, getpid());          /* parent doesn't want signals! */
+X#ifdef SECURE_PORT
+X      if (getpeername(t,(struct sockaddr *)&isa,&i) >= 0){
+X	if ((ntohs(isa.sin_port) < IPPORT_RESERVED)
+X	    && (ntohs(isa.sin_port) > IPPORT_RESERVED/2))
+X	  notsecure = 0;
+X      }
+X#endif
+X      domessage(t);                  /* process the message(s) */
+X      exit(0);                       /* domessage does this too */
+X    }
+X
+X    /* fork errors disconnect immediately, tough luck on the user
+X     */
+X
+X    else
+X      close(t);
+X  }
+X#endif
+X}
+X
+X
+END_OF_FILE
+  if test 3790 -ne `wc -c <'msendd.c'`; then
+    echo shar: \"'msendd.c'\" unpacked with wrong size!
+  fi
+  # end of 'msendd.c'
+fi
+if test -f 'network.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'network.h'\"
+else
+  echo shar: Extracting \"'network.h'\" \(483 characters\)
+  sed "s/^X//" >'network.h' <<'END_OF_FILE'
+X/* network.h:
+X *
+X * definitions for the raw network interface
+X *
+X * (c) Copyright 1988 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#ifndef __NETWORK__
+X#undef A
+X#ifdef __STDC__
+X#define A(ARGS) ARGS
+X#else
+X#define A(ARGS) ()
+X#endif
+X
+Xint hopen A((char *hostname));
+Xvoid hclose A((int s));
+Xvoid hcleanup A((void));
+Xint hread A((int s, char *buf, int n));
+Xint hwrite A((int s, char *buf, int n));
+X#define __NETWORK__
+X#endif
+END_OF_FILE
+  if test 483 -ne `wc -c <'network.h'`; then
+    echo shar: \"'network.h'\" unpacked with wrong size!
+  fi
+  # end of 'network.h'
+fi
+if test -f 'patchlevel' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'patchlevel'\"
+else
+  echo shar: Extracting \"'patchlevel'\" \(301 characters\)
+  sed "s/^X//" >'patchlevel' <<'END_OF_FILE'
+X/* patchlevel:
+X *
+X * version information for 'msend'
+X *
+X * (c) Copyright 1991 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#define VERSION "1"
+X#define PATCHLEVEL "2"
+X#define MADD "jimf@centerline.com"
+X#define SPIKE "spike@world.std.com"
+END_OF_FILE
+  if test 301 -ne `wc -c <'patchlevel'`; then
+    echo shar: \"'patchlevel'\" unpacked with wrong size!
+  fi
+  # end of 'patchlevel'
+fi
+if test -f 'utmp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'utmp.c'\"
+else
+  echo shar: Extracting \"'utmp.c'\" \(1347 characters\)
+  sed "s/^X//" >'utmp.c' <<'END_OF_FILE'
+X/* utmp.c:
+X *
+X * these routines are for manipulating the utmp file.  these were written
+X * by Phil Budne (budd@bu-it.bu.edu) originally.
+X */
+X
+X#include "config.h"
+X#include "msend.h"
+X
+Xstatic FILE *uf;			/* utmp file */
+X#ifndef _PATH_UTMP
+X#define _PATH_UTMP      "/etc/utmp"
+X#endif
+X
+Xstatic char *utmpfile = _PATH_UTMP;	/* utmp file name */
+X
+X/* open the utmp file if necessary and read one entry at a time
+X */
+X
+Xstruct utmp *getutent()
+X{ static struct utmp ubuf;
+X  struct stat   stb;
+X
+X  /* verify that utmp file is a reasonable size
+X   */
+X
+X  if (uf == NULL) {
+X    if (stat(utmpfile,&stb) == 0 ) {
+X      if ((stb.st_size % sizeof(struct utmp)) != 0) {
+X        return(NULL);
+X      }
+X    }
+X    else
+X      return(NULL);
+X
+X    /* open utmp
+X     */
+X
+X    if ((uf= fopen(utmpfile,"r")) == NULL) /* was '< 0' -20 Mar 89-composer */
+X      return(NULL);
+X  }
+X
+X  /* read next utmp entry and return it if we can
+X   */
+X
+X  if (fread(&ubuf,sizeof(ubuf),1,uf) == 0 ) {
+X    fseek(uf,0L,0);
+X    return(NULL);
+X  }
+X
+X/* fix for problem with ut_name containing both ut_name and ut_host */
+X/*   when the size of ut_name = 8 .. - 20 Mar 89 - composer         */
+X/*   one slight side effect - kills 1st char of ut_host             */
+X  ubuf.ut_name[8] = '\0';
+X  return(&ubuf);
+X}
+X
+X/* close utmp file
+X */
+X
+Xvoid endutent()
+X{
+X  if(uf != NULL) {
+X    fclose(uf);
+X    uf= NULL;
+X  }
+X}
+X
+X
+X
+END_OF_FILE
+  if test 1347 -ne `wc -c <'utmp.c'`; then
+    echo shar: \"'utmp.c'\" unpacked with wrong size!
+  fi
+  # end of 'utmp.c'
+fi
+if test -f 'whoami.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'whoami.c'\"
+else
+  echo shar: Extracting \"'whoami.c'\" \(723 characters\)
+  sed "s/^X//" >'whoami.c' <<'END_OF_FILE'
+X/* whoami.c:
+X *
+X * this attempts to figure out who ran the program
+X *
+X * (c) Copyright 1988, 1989, 1990 Jim Frost.  All Rights Reserved.  Please see
+X * the accompanying file "Copyright" for more information.
+X */
+X
+X#include "Copyright"
+X#include "config.h"
+X#include "msend.h"
+X#ifndef M_SYSV
+X#include <string.h>
+Xextern char *getlogin();
+X#endif
+X
+Xchar *whoami()
+X{ struct passwd *pwd;
+X  static char   name[MAXUSERNAME+1];
+X  static int    unknown= 1;
+X
+X  if (unknown) {
+X    if ((pwd= getpwuid(getuid())) == NULL) {
+X      if (strcpy(name,getlogin()) == NULL) {
+X        printf("Who are you?  (No password file entry?)\n");
+X        exit(1);
+X      }
+X    }
+X    else
+X      strcpy(name,pwd->pw_name);
+X    unknown= 0;
+X  }
+X  return(name);
+X}
+END_OF_FILE
+  if test 723 -ne `wc -c <'whoami.c'`; then
+    echo shar: \"'whoami.c'\" unpacked with wrong size!
+  fi
+  # end of 'whoami.c'
+fi
+echo shar: End of archive 2 \(of 2\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked both archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

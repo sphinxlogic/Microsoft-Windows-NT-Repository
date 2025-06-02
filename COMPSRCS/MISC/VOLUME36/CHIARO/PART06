@@ -1,0 +1,1675 @@
+Newsgroups: comp.sources.misc
+From: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Subject: v36i076:  chiaro - Image Utilities, Part06/18
+Message-ID: <1993Mar25.181105.20262@sparky.imd.sterling.com>
+X-Md4-Signature: 7381dd77afba41ed385c9cf7145d4b09
+Date: Thu, 25 Mar 1993 18:11:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: jwbirdsa@picarefy.picarefy.com (James W. Birdsall)
+Posting-number: Volume 36, Issue 76
+Archive-name: chiaro/part06
+Environment: UNIX, Sun, DECstation, 3B1
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  src/gld.c src/tga.c
+# Wrapped by kent@sparky on Thu Mar 25 11:20:03 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 18)."'
+if test -f 'src/gld.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/gld.c'\"
+else
+  echo shar: Extracting \"'src/gld.c'\" \(40825 characters\)
+  sed "s/^X//" >'src/gld.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   GLD.C                                                                  *
+X*   MODULE:  GIF/LZW decode                                                *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1992 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   GIF copyright CompuServe etc.                                          *
+X*                                                                          *
+X*   $Id: gld.c,v 1.5 1993/03/02 00:54:20 jwbirdsa Exp $
+X*                                                                          *
+X*   This is the LZW decompressor for GIF images.                           *
+X*                                                                          *
+X*       gld_init      - initializes the decompressor for a new image       *
+X*       gld_process   - processes a block of data bytes                    *
+X*       gld_errstring - converts GLD module error code to message string   *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STDLIB
+X#include <stdlib.h>
+X#endif
+X#ifndef NO_MEMOP
+X#include <memory.h>
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X
+X#include "gld.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/* Indicators for special codes. */
+X
+X#define CLEARCODE          -1
+X#define EOICODE            -2
+X#define BADCODE            -3
+X
+X/* Convert a bit offset to a byte offset. */
+X
+X#define BIT2IND(x)         ((x) >> 3)
+X
+X/* Round bit offset down to nearest byte boundary. */
+X
+X#define CHROUND(x)         ((x) & 0xFFF8)
+X
+X/* Size of the internal handoff buffer. */
+X
+X#define HANDBUFSIZ         640
+X
+X/* Default number of hops to allow before expanding into holding buffer. */
+X
+X#define DEFAULT_HOPS       4
+X
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/* Controls how many hops to allow before expanding into holding buffer. */
+X
+Xunsigned int gld_hopsmax = DEFAULT_HOPS;
+X
+X/* Statistics on decompression process. */
+X
+Xunsigned int gld_holdmax;
+XULONG gld_codes;
+XUCHAR gld_indused[256];
+Xunsigned int gld_colors;
+Xunsigned int gld_clears;
+XULONG gld_pixout;
+X
+X
+X/*
+X** static globals
+X*/
+X
+X/* Initial and current code size, in bits. */
+X
+Xstatic int init_codesize;
+Xstatic int cur_codesize;
+X
+X/* Index in code table for next new code. */
+X
+Xstatic int newcodeindex;
+X
+X/* Flag to stop adding to code table. */
+X
+Xstatic int stop_adding = 0;
+X
+X/* The code table itself. */
+X
+Xstatic codeinfo *codetable;
+X
+X/* Store bits from previous data block in codebuf; valid when bufvalid != 0. */
+X
+Xstatic int bufvalid = 0;
+Xstatic unsigned int codebuf;
+X
+X/* Previous code. */
+X
+Xstatic unsigned int oldcode;
+X
+X/* The highest code table entry which is a root entry. */
+X
+Xstatic unsigned int maxroot;
+X
+X/* Final output buffer pointer, length, and position in buffer. */
+X
+Xstatic UCHAR *finbuf;
+Xstatic long finbuflen;
+Xstatic long finalpos;
+X
+X/* Callback function for when final buffer is full, EOI, end of block, etc. */
+X
+X#ifdef __STDC__
+Xstatic VOID (*finalcall)(long, UCHAR **, long *, long *);
+X#else
+Xstatic VOID (*finalcall)();
+X#endif
+X
+X#ifndef MINIMAL
+X/* Internal handoff buffer to increase performance. */
+X
+Xstatic UCHAR hndbuf[HANDBUFSIZ];
+Xstatic int hndbufind = 0;
+X#endif
+X
+X/* Holding buffer pointer, length, and next free position in buffer. */
+X
+Xstatic UCHAR *hldbuf;
+Xstatic unsigned int hldbuflen;
+Xstatic unsigned int hldbufhi = 0;
+X
+X
+Xstatic char CONST rcsid[] = "$Id: gld.c,v 1.5 1993/03/02 00:54:20 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef __STDC__
+X# define P_(s) s
+X#else
+X# define P_(s) ()
+X#endif
+X
+Xstatic ULONG proc_code P_((unsigned int code));
+X
+X#ifndef MINIMAL
+Xstatic ULONG extract P_((unsigned int code, UCHAR *firstout));
+X
+Xstatic VOID handchar P_((UCHAR c));
+Xstatic VOID flushhand();
+Xstatic VOID handoff P_((UCHAR *input, unsigned int inlen));
+Xstatic VOID dohand P_((UCHAR *input, unsigned int inlen));
+X#endif
+X
+Xstatic ULONG reinit();
+X
+X#undef P_
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION: GLD_INIT                                                     *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Initializes decompressor for next image. Must be called between    *
+X*       images.                                                            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       min_codesize - the starting code size                              *
+X*       truebits     - the actual number of bits/pixel (needed to          *
+X*                      distinguish between 2 colors and 4, both of which   *
+X*                      have codesize of 2)                                 *
+X*       table        - pointer to code table                               *
+X*       savebuf      - pointer to holding buffer                           *
+X*       savebufsiz   - size of holding buffer attached to code table       *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgld_init(int min_codesize, int truebits, codeinfo *table, UCHAR *savebuf,
+X         unsigned int savebufsiz)
+X#else
+Xgld_init(min_codesize, truebits, table, savebuf, savebufsiz)
+Xint min_codesize;
+Xint truebits;
+Xcodeinfo *table;
+XUCHAR *savebuf;
+Xunsigned int savebufsiz;
+X#endif
+X{
+X    int loop;
+X
+X    /* Store codesize. */
+X
+X    init_codesize = min_codesize + 1;
+X
+X    /* Store table pointer. */
+X
+X    codetable = table;
+X
+X    /* Initialize decode table. */
+X
+X    for (loop = 0; loop < (0x1 << min_codesize); loop++)
+X    {
+X        codetable[loop].stringlen = 1;
+X        codetable[loop].firstchar = (UCHAR) loop;
+X        codetable[loop].lastchar = (UCHAR) loop;
+X    }
+X    codetable[loop].stringlen = CLEARCODE;
+X    codetable[(loop + 1)].stringlen = EOICODE;
+X
+X    /* If truebits == 1, then codes 2 and 3 are bad. */
+X
+X    if (truebits == 1)
+X    {
+X        codetable[2].stringlen = BADCODE;
+X        codetable[3].stringlen = BADCODE;
+X    }
+X
+X    /* Set max root size. */
+X
+X    maxroot = (0x1 << truebits) - 1;
+X
+X    /* Reset global variables. */
+X
+X    hldbuflen = savebufsiz;
+X    hldbuf = savebuf;
+X    bufvalid = 0;
+X    gld_holdmax = 0;
+X    gld_codes = 0;
+X    for (loop = 0; loop < 256; loop++)
+X    {
+X        gld_indused[loop] = 0;
+X    }
+X    gld_colors = 0;
+X    gld_clears = 0;
+X    gld_pixout = 0;
+X
+X    /* Initialize position in final output buffer. */
+X
+X    finalpos = 0;
+X
+X    /* Finish initialization and return. */
+X
+X    return (reinit());
+X} /* end of gld_init() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: GLD_PROCESS                                                  *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Processes a block of packed codes.                                 *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       length   - length in bytes of code block                           *
+X*       codes    - pointer to code block                                   *
+X*       buffer   - pointer to final output buffer                          *
+X*       buflen   - length of final output buffer                           *
+X*       callback - pointer to callback function                            *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xgld_process(int length, UCHAR *codes, UCHAR *buffer, long buflen,
+X            VOID (*callback)(long, UCHAR **, long *, long *))
+X#else
+Xgld_process(length, codes, buffer, buflen, callback)
+Xint length;
+XUCHAR *codes;
+XUCHAR *buffer;
+Xlong buflen;
+XVOID (*callback)();
+X#endif
+X{
+X    unsigned int curcode;
+X    unsigned int mask;
+X    unsigned int temp;
+X    int bitindex;
+X    int bitoffset;
+X    int bitsgot;
+X    ULONG status;
+X
+X    /* Set up. */
+X
+X    bitindex = 0;
+X    finbuf = buffer;
+X    finbuflen = buflen;
+X    finalcall = callback;
+X
+X    /* If leftover bits, use them first. */
+X
+X    if (bufvalid != 0)
+X    {
+X        /* Get bits into curcode. */
+X
+X        curcode = codebuf;
+X        bitsgot = bufvalid;
+X
+X        /* Extract more bits from codes array. */
+X
+X        if ((cur_codesize - bitsgot) >= 8)
+X        {
+X            temp = (unsigned int) codes[0];
+X            temp <<= bitsgot;
+X            curcode |= temp;
+X            bitsgot += 8;
+X            bitindex = 8;
+X        }
+X        if (bitsgot != cur_codesize)
+X        {
+X            bitoffset = cur_codesize - bitsgot;
+X            mask = (0x1 << bitoffset) - 1;
+X            temp = mask & ((unsigned int) codes[BIT2IND(bitindex)]);
+X            temp <<= bitsgot;
+X            curcode |= temp;
+X            bitindex += bitoffset;
+X        }
+X
+X        /* Process the code. */
+X
+X        if (SUCCESS(status = proc_code(curcode)) != ST_SUCCESS)
+X        {
+X            return status;
+X        }
+X
+X        /* Check for end of info. */
+X
+X        if (status == GLD_EOI_S)
+X        {
+X#ifndef MINIMAL
+X            /* Force a callback. */
+X
+X            flushhand();
+X#endif
+X
+X            /* All done with this image. */
+X
+X            return GLD_EOI_S;
+X        }
+X
+X        /* Reset bufvalid. */
+X
+X        bufvalid = 0;
+X    }
+X
+X    /* Now process rest of codes array. */
+X
+X    while (1)
+X    {
+X        /* Check for overflow. */
+X
+X        if ((bitindex + cur_codesize - 1) >= (length * 8))
+X        {
+X            /* Get number of leftover bits. */
+X
+X            temp = (length * 8) - bitindex;
+X            if (temp == 0)
+X            {
+X                /* If no leftovers, break out of loop now. */
+X
+X                codebuf = 0;
+X                bufvalid = 0;
+X                break;
+X            }
+X
+X            /* Store whatever bits are left over in codebuf. */
+X
+X            bitoffset = bitindex - CHROUND(bitindex);
+X            codebuf = ((unsigned int) codes[BIT2IND(bitindex)]) >> bitoffset;
+X            bufvalid = 8 - bitoffset;
+X            temp -= bufvalid;
+X            if (temp != 0)
+X            {
+X                temp = (unsigned int) codes[BIT2IND(bitindex) + 1];
+X                temp <<= bufvalid;
+X                codebuf |= temp;
+X                bufvalid += 8;
+X            }
+X
+X            /* Break out of loop. */
+X
+X            break;
+X        }
+X
+X        /* Extract next code. */
+X
+X        bitoffset = bitindex - CHROUND(bitindex);
+X        curcode = ((unsigned int) codes[BIT2IND(bitindex)]) >> bitoffset;
+X        bitsgot = 8 - bitoffset;
+X        if (bitsgot > cur_codesize)
+X        {
+X            mask = (0x1 << cur_codesize) - 1;
+X            curcode &= mask;
+X            bitsgot = cur_codesize;
+X        }
+X        bitindex += bitsgot;
+X
+X        if ((cur_codesize - bitsgot) >= 8)
+X        {
+X            temp = (unsigned int) codes[BIT2IND(bitindex)];
+X            temp <<= bitsgot;
+X            curcode |= temp;
+X            bitsgot += 8;
+X            bitindex += 8;
+X        }
+X
+X        if (bitsgot != cur_codesize)
+X        {
+X            bitoffset = cur_codesize - bitsgot;
+X            mask = (0x1 << bitoffset) - 1;
+X            temp = ((unsigned int) codes[BIT2IND(bitindex)]) & mask;
+X            temp <<= bitsgot;
+X            curcode |= temp;
+X            bitsgot = cur_codesize;
+X            bitindex += bitoffset;
+X        }
+X
+X        /* Process the code. */
+X
+X        if (SUCCESS(status = proc_code(curcode)) != ST_SUCCESS)
+X        {
+X            return status;
+X        }
+X
+X        /* Check for end of info. */
+X
+X        if (status == GLD_EOI_S)
+X        {
+X#ifndef MINIMAL
+X            /* Force a callback. */
+X
+X            flushhand();
+X#endif
+X
+X            /* All done with this image. */
+X
+X            return GLD_EOI_S;
+X        }
+X
+X        /* Otherwise do it all again. */
+X    }
+X
+X    /* If we got this far, must be OK. */
+X
+X#ifndef MINIMAL
+X    /* Force a callback. */
+X
+X    flushhand();
+X#endif
+X
+X    return ST_SUCCESS;
+X} /* end of gld_process() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: gld_errstring                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Returns a string corresponding to an error code.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      errcode - error code to be translated                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns a pointer to the appropriate string, or NULL if there is    *
+X*      no appropriate string.                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xgld_errstring(ULONG errcode)
+X#else
+Xgld_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if (MODULE(errcode) != MODULE(GLD_MODULE))
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(GLD_EOI_S):
+X            temp = "End of Information code found.";
+X            break;
+X        case ERRSEV(GLD_CLEARED_S):
+X            temp = "Code table cleared.";
+X            break;
+X
+X        case ERRSEV(GLD_NOMEM_E):
+X            temp = "Could not allocate memory in GLD module.";
+X            break;
+X        case ERRSEV(GLD_BADHOLDSIZE_E):
+X            temp = "Size of code table + holding buffer exceeds 64K.";
+X            break;
+X
+X        case ERRSEV(GLD_BADCODE_F):
+X            temp = "Bad code found in codestream.";
+X            break;
+X        case ERRSEV(GLD_BUG_F):
+X            temp = "Internal error. Should never happen.";
+X            break;
+X        case ERRSEV(GLD_LENOVERFLOW_F):
+X            temp = "The string expansion of a code is > 32767 bytes.";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of gld_errstring() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: PROC_CODE  (STATIC)                                          *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Processes a single code.                                           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       code - code to be processed                                        *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG 
+X#ifdef __STDC__
+Xproc_code(unsigned int code)
+X#else
+Xproc_code(code)
+Xunsigned int code;
+X#endif
+X{
+X    codeinfo *entry;
+X    codeinfo *tracer;
+X#ifndef MINIMAL
+X    ULONG status;
+X    UCHAR firstout;
+X#endif
+X
+X
+X#ifdef CODE_CHECK
+X    printf("%u\n", code);
+X#endif
+X
+X    /* Increment counter. */
+X
+X    gld_codes++;
+X
+X    /*
+X    ** CHECK CODE
+X    ** While it is possible to get codes that are not in the string
+X    ** table, such codes will never be more than (maximum_valid_code + 1).
+X    ** Since newcodeindex is (maximum_valid_code + 1), if code is <=
+X    ** newcodeindex, we're OK; otherwise, error.
+X    */
+X
+X    if (code > newcodeindex)
+X    {
+X        /* Bad code! */
+X
+X        return GLD_BADCODE_F;
+X    }
+X
+X    /* Extract entry from codetable. */
+X
+X    entry = (codetable + code);
+X
+X    /* Check for other special-function codes. */
+X
+X    if (entry->stringlen == CLEARCODE)
+X    {
+X        /* Clear code table. */
+X
+X        gld_clears++;
+X        reinit();
+X        return GLD_CLEARED_S;
+X    }
+X    if (entry->stringlen == EOICODE)
+X    {
+X        return GLD_EOI_S;
+X    }
+X
+X    /* Check code again. */
+X
+X    if (entry->stringlen == BADCODE)
+X    {
+X        return GLD_BADCODE_F;
+X    }
+X    if (entry->stringlen < 0)
+X    {
+X        return GLD_LENOVERFLOW_F;
+X    }
+X
+X#ifndef MINIMAL
+X    /* OK, is code in string table? */
+X
+X    if (code < newcodeindex)
+X    {
+X        /* It is, call extract() on it. */
+X
+X        if (SUCCESS(status = extract(code, &firstout)) != ST_SUCCESS)
+X        {
+X            return status;
+X        }
+X    }
+X    else
+X    {
+X        /* Not in table, output string for oldcode. */
+X
+X        if (SUCCESS(status = extract(oldcode, &firstout)) != ST_SUCCESS)
+X        {
+X            return status;
+X        }
+X
+X        /* Then re-output first character */
+X
+X        handchar(firstout);
+X    }
+X#endif
+X
+X    /* Mark use tables. */
+X
+X    if (code <= maxroot)
+X    {
+X        if (gld_indused[code] == 0)
+X        {
+X            gld_colors++;
+X            gld_indused[code] = 1;
+X        }
+X    }
+X
+X    /* Add to the string table, maybe. */
+X
+X    if ((oldcode != (unsigned int) BADCODE) &&
+X        (oldcode != (unsigned int) EOICODE) &&
+X        (oldcode != (unsigned int) CLEARCODE) &&
+X        (stop_adding == 0))
+X    {
+X        entry = (codetable + newcodeindex++);
+X        tracer = (codetable + oldcode);
+X
+X        /* Update codesize. */
+X
+X        if (newcodeindex == (0x1 << cur_codesize))
+X        {
+X            if (cur_codesize == MAXCODEBITS)
+X            {
+X                stop_adding = 1;
+X            }
+X            else
+X            {
+X                cur_codesize++;
+X                stop_adding = 0;
+X            }
+X        }
+X        entry->stringlen = tracer->stringlen + 1;
+X        if (entry->stringlen < 0)
+X        {
+X            return GLD_LENOVERFLOW_F;
+X        }
+X#ifndef MINIMAL
+X        entry->firstchar = tracer->firstchar;
+X        entry->lastchar = firstout;
+X
+X        switch (entry->stringlen)
+X        {
+X            case 3:
+X                entry->pb.buf[0] = tracer->lastchar;
+X                break;
+X
+X            case 4:
+X                entry->pb.buf[0] = tracer->pb.buf[0];
+X                entry->pb.buf[1] = tracer->lastchar;
+X                break;
+X
+X            default:
+X                entry->pb.prevind = oldcode;
+X                break;
+X        }
+X#endif
+X    }
+X
+X    /* Add length of this string to total output length. */
+X
+X    entry = (codetable + code);
+X    gld_pixout += entry->stringlen;
+X
+X    /* Update oldcode. */
+X
+X    oldcode = code;
+X
+X    /* Return OK. */
+X
+X    return ST_SUCCESS;
+X} /* end of static proc_code() */
+X
+X
+X#ifndef MINIMAL
+X
+X/***************************************************************************
+X*   FUNCTION: EXTRACT  (STATIC)                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Actually decompresses the code by extracting the expansion from    *
+X*       the code table.                                                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       code     - code to be processed                                    *
+X*       firstout - pointer to unsigned char in which the first character   *
+X*                  of the code extracted is returned                       *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xextract(unsigned int code, UCHAR *firstout)
+X#else
+Xextract(code, firstout)
+Xunsigned int code;
+XUCHAR *firstout;
+X#endif
+X{
+X    codeinfo *entry;
+X    codeinfo *tracer;
+X    unsigned int index;
+X    UCHAR *temp;
+X    unsigned int localhops;
+X    UCHAR *trans;
+X    UCHAR *trans2;
+X    UCHAR tempbuf[4];
+X
+X    /* Set entry. */
+X
+X    entry = codetable + code;
+X
+X    /* Extract string. */
+X
+X    switch (entry->stringlen)
+X    {
+X        case 0:
+X            /* ERROR! */
+X            return GLD_BUG_F;
+X
+X        case 1:
+X            /* String is lastchar. */
+X            handchar(entry->lastchar);
+X            *firstout = entry->lastchar;
+X            break;
+X
+X        case 2:
+X            /* String is firstchar, lastchar. */
+X            handchar(entry->firstchar);
+X            *firstout = entry->firstchar;
+X            handchar(entry->lastchar);
+X            break;
+X
+X        case 3:
+X            /* String is firstchar, pb.buf[0], lastchar. */
+X            *firstout = tempbuf[0] = entry->firstchar;
+X            tempbuf[1] = entry->pb.buf[0];
+X            tempbuf[2] = entry->lastchar;
+X            handoff(tempbuf, 3);
+X            break;
+X
+X        case 4:
+X            /* String is firstchar, pb.buf[0], pb.buf[1], lastchar. */
+X            *firstout = tempbuf[0] = entry->firstchar;
+X            tempbuf[1] = entry->pb.buf[0];
+X            tempbuf[2] = entry->pb.buf[1];
+X            tempbuf[3] = entry->lastchar;
+X            handoff(tempbuf, 4);
+X            break;
+X
+X        default:
+X            /* Long string, have to get it the hard way. */
+X
+X            if (entry->pb.prevind > CODES)
+X            {
+X                /* Grab it out of memory, preassembled. */
+X
+X                handoff((hldbuf + (entry->pb.prevind - CODES - 1)),
+X                        entry->stringlen);
+X                *firstout = hldbuf[entry->pb.prevind - CODES - 1];
+X            }
+X            else
+X            {
+X                localhops = 0;
+X                tracer = entry;
+X                temp = (UCHAR *) malloc(entry->stringlen - 4);
+X                if (temp == (UCHAR *) NULL)
+X                {
+X                    return GLD_NOMEM_E;
+X                }
+X                for (index = entry->stringlen; index > 4; index--)
+X                {
+X                    /* Check for bad length. */
+X
+X                    if (tracer->stringlen != index)
+X                    {
+X                        /* Chain is corrupt! */
+X
+X                        return GLD_BUG_F;
+X                    }
+X
+X                    /* Get character. */
+X
+X                    temp[(index - 5)] = tracer->lastchar;
+X
+X                    /* Check for bad index. */
+X
+X                    if (tracer->pb.prevind >= newcodeindex)
+X                    {
+X                        if (tracer->pb.prevind > CODES)
+X                        {
+X                            /*
+X                            ** Chained back to another long one. First, hand
+X                            ** off stuff that is here.
+X                            */
+X
+X                            handoff((hldbuf + (tracer->pb.prevind - CODES - 1)),
+X                                    tracer->stringlen);
+X
+X                            /* 
+X                            ** Now hand off what's in temp. Use (index-4)
+X                            ** instead of (index-5) because the character
+X                            ** just transferred into temp[index-5] above
+X                            ** is also on the end of the buffer handed off
+X                            ** immediately above; hence we don't want to hand
+X                            ** it off again, so skip it by using (index-4).
+X                            */
+X
+X                            handoff((temp + (index - 4)),
+X                                    (entry->stringlen - index));
+X
+X                            /* Set firstout. */
+X
+X                            *firstout = hldbuf[tracer->pb.prevind - CODES - 1];
+X
+X                            /* Break out of loop. */
+X
+X                            break;
+X                        }
+X                        else
+X                        {
+X                            /* Chains to code not in table! */
+X
+X                            return GLD_BUG_F;
+X                        }
+X                    }
+X
+X                    /* Trace to previous entry. */
+X
+X                    tracer = (codetable + tracer->pb.prevind);
+X                    localhops++;
+X                }
+X
+X                /* If length is 4, need to extract from firstchar etc. */
+X
+X                if (tracer->stringlen == 4)
+X                {
+X                    /* Get the first four characters. */
+X
+X                    *firstout = tempbuf[0] = entry->firstchar;
+X                    tempbuf[1] = tracer->pb.buf[0];
+X                    tempbuf[2] = tracer->pb.buf[1];
+X                    tempbuf[3] = tracer->lastchar;
+X                    handoff(tempbuf, 4);
+X                    handoff(temp, (entry->stringlen - 4));
+X                }
+X
+X                /* Check number of hops required. */
+X
+X                if (localhops > gld_hopsmax)
+X                {
+X                    /* If too many, try to allocate holding space. */
+X
+X                    if ((hldbuflen - hldbufhi) >= entry->stringlen)
+X                    {
+X                        /*
+X                        ** Enough room, so allocate it and stick its offset
+X                        ** into entry->pb.prevind. Note that we can and do
+X                        ** use entry->pb.prevind directly, below, because
+X                        ** CODES+1 hasn't been added to it yet.
+X                        */
+X
+X                        entry->pb.prevind = hldbufhi;
+X                        hldbufhi += entry->stringlen;
+X                        gld_holdmax = max(gld_holdmax, hldbufhi);
+X
+X                        if (tracer->stringlen == 4)
+X                        {
+X                            /*
+X                            ** We ended at a short one, so copy stuff from
+X                            ** its various fields first, then memcpy() from
+X                            ** temp.
+X                            */
+X
+X                            hldbuf[entry->pb.prevind] = tracer->firstchar;
+X                            hldbuf[entry->pb.prevind + 1] = tracer->pb.buf[0];
+X                            hldbuf[entry->pb.prevind + 2] = tracer->pb.buf[1];
+X                            hldbuf[entry->pb.prevind + 3] = tracer->lastchar;
+X                            trans = hldbuf + entry->pb.prevind + 4;
+X                            memcpy(trans, temp, (entry->stringlen - 4));
+X                        }
+X                        else
+X                        {
+X                            /*
+X                            ** We ended at a long one. So copy stuff from
+X                            ** its holding buffer into ours, then finish
+X                            ** up with whatever was in temp. Use (index-4)
+X                            ** instead of (index-5) for same reasons as 
+X                            ** discussed in comment above.
+X                            */
+X
+X                            trans = hldbuf + (tracer->pb.prevind - CODES - 1);
+X                            trans2 = hldbuf + entry->pb.prevind;
+X                            memcpy(trans2, trans, tracer->stringlen);
+X                            trans = (UCHAR *) (temp + (index - 4));
+X                            trans2 = hldbuf + entry->pb.prevind +
+X                                     tracer->stringlen;
+X                            memcpy(trans2, trans, (entry->stringlen - index));
+X                        }
+X
+X                        /*
+X                        ** Add CODES+1 to prevind to distinguish it from
+X                        ** table indices.
+X                        */
+X
+X                        entry->pb.prevind += (CODES + 1);
+X                    }
+X                }
+X                free(temp);
+X            }
+X            break;
+X    }
+X
+X    return ST_SUCCESS;
+X} /* end of static extract() */
+X
+X#endif /* !MINIMAL */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: REINIT  (STATIC)                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Reinitializes the code table and other global variables.           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic ULONG
+X#ifdef __STDC__
+Xreinit(VOID)
+X#else
+Xreinit()
+X#endif
+X{
+X    int loop;
+X
+X    /* Reset code size. */
+X
+X    cur_codesize = init_codesize;
+X
+X    /* Reset new code index. */
+X
+X    newcodeindex = (0x1 << (init_codesize - 1)) + 2;
+X
+X    /* Reset all entries. */
+X
+X    for (loop = newcodeindex; loop < CODES; loop++)
+X    {
+X        codetable[loop].stringlen = 0;
+X    }
+X
+X    /* Reset stop-adding-codes flag. */
+X
+X    stop_adding = 0;
+X
+X    /* Reset old code index. */
+X
+X    oldcode = BADCODE;
+X
+X    /* Reset holding buffer used. */
+X
+X    hldbufhi = 0;
+X
+X    return ST_SUCCESS;
+X} /* end of static reinit() */
+X
+X
+X#ifndef MINIMAL
+X
+X/***************************************************************************
+X*   FUNCTION: HANDCHAR  (STATIC)                                           *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Put a single char in the internal handoff buffer and flush if      *
+X*       needed.                                                            *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       c - character to be placed in the handoff buffer                   *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xhandchar(UCHAR c)
+X#else
+Xhandchar(c)
+XUCHAR c;
+X#endif
+X{
+X    hndbuf[hndbufind++] = c;
+X
+X    if (hndbufind == HANDBUFSIZ)
+X    {
+X        hndbufind = 0;
+X        dohand(hndbuf, HANDBUFSIZ);
+X    }
+X
+X    return;
+X} /* end of static handchar() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: FLUSHHAND  (STATIC)                                          *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Forces a flush of the internal handoff buffer and a call to the    *
+X*       callback function.                                                 *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xflushhand(VOID)
+X#else
+Xflushhand()
+X#endif
+X{
+X    if (hndbufind != 0)
+X    {
+X        dohand(hndbuf, hndbufind);
+X        hndbufind = 0;
+X    }
+X
+X    (*finalcall)((finalpos + 1), &finbuf, &finbuflen, &finalpos);
+X
+X    return;
+X} /* end of flushhand() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: HANDOFF  (STATIC)                                            *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Places a block of characters in the internal handoff buffer and    *
+X*       flushes if as necessary.                                           *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       input - pointer to block of characters to place in buffer          *
+X*       inlen - length of block                                            *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xhandoff(UCHAR *input, unsigned int inlen)
+X#else
+Xhandoff(input, inlen)
+XUCHAR *input;
+Xunsigned int inlen;
+X#endif
+X{
+X    if (inlen < (HANDBUFSIZ - hndbufind - 1))
+X    {
+X        memcpy((hndbuf + hndbufind), input, inlen);
+X        hndbufind += inlen;
+X    }
+X    else
+X    {
+X        /* Buffer overflow, flush buffer first. */
+X
+X        dohand(hndbuf, hndbufind);
+X        hndbufind = 0;
+X        dohand(input, inlen);
+X    }
+X
+X    return;
+X} /* end of static handoff() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: DOHAND  (STATIC)                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Places a block of characters in the final output buffer, flushing  *
+X*       the final output buffer via a call to the callback function as     *
+X*       necessary.                                                         *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       input - pointer to block of characters to place in buffer          *
+X*       inlen - length of block                                            *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Nothing.                                                           *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xstatic VOID
+X#ifdef __STDC__
+Xdohand(UCHAR *input, unsigned int inlen)
+X#else
+Xdohand(input, inlen)
+XUCHAR *input;
+Xunsigned int inlen;
+X#endif
+X{
+X    unsigned int copylen;
+X    UCHAR *trans2;
+X
+X    /* Get length of (first) copy. */
+X
+X    if ((finalpos + inlen) > finbuflen)
+X    {
+X        copylen = (int) (finbuflen - finalpos);
+X    }
+X    else
+X    {
+X        copylen = inlen;
+X    }
+X
+X    /* Do the (first) copy. */
+X
+X    trans2 = finbuf + finalpos;
+X    memcpy(trans2, input, copylen);
+X
+X    finalpos += copylen;
+X
+X    /* Do we need another copy? */
+X
+X    if (copylen != inlen)
+X    {
+X        /* First, do callback to flush present buffer. */
+X
+X        (*finalcall)(finbuflen, &finbuf, &finbuflen, &finalpos);
+X
+X        /* Call dohand() again. */
+X
+X        dohand((input + copylen), (inlen - copylen));
+X    }
+X
+X    return;
+X} /* end of static dohand() */
+X
+X#endif /* !MINIMAL */
+X
+END_OF_FILE
+  if test 40825 -ne `wc -c <'src/gld.c'`; then
+    echo shar: \"'src/gld.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/gld.c'
+fi
+if test -f 'src/tga.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'src/tga.c'\"
+else
+  echo shar: Extracting \"'src/tga.c'\" \(11280 characters\)
+  sed "s/^X//" >'src/tga.c' <<'END_OF_FILE'
+X/***************************************************************************
+X*   TGA.C                                                                  *
+X*   MODULE:  TGA (Targa)                                                   *
+X*   OS:      UNIX                                                          *
+X*                                                                          *
+X*   Copyright (c) 1993 James W. Birdsall. All Rights Reserved.             *
+X*                                                                          *
+X*   $Id: tga.c,v 1.1 1993/03/02 01:00:20 jwbirdsa Exp $
+X*                                                                          *
+X*   This file contains functions to process Targa format files.            *
+X*   Functions:                                                             *
+X*      tga_verify    - checks filename to see if it is an Targa file       *
+X*      tga_getheader - extracts header data from TGA file                  *
+X*                                                                          *
+X*      tga_errstring - converts error code into message                    *
+X*                                                                          *
+X***************************************************************************/
+X
+X#include "config.h"
+X
+X/*
+X** system includes <>
+X*/
+X
+X#include <stdio.h>
+X#ifndef NO_STR_INC
+X#ifdef STRING_PLURAL
+X#include <strings.h>
+X#else
+X#include <string.h>
+X#endif
+X#endif
+X
+X
+X/*
+X** custom includes ""
+X*/
+X
+X#include "depend.h"
+X#include "formats.h"
+X#include "tga.h"
+X
+X
+X/*
+X** local #defines
+X*/
+X
+X/*
+X** misc: copyright strings, version macros, etc.
+X*/
+X
+X/*
+X** typedefs
+X*/
+X
+X/*
+X** global variables
+X*/
+X
+X/*
+X** static globals
+X*/
+X
+Xstatic char CONST rcsid[] = "$Id: tga.c,v 1.1 1993/03/02 01:00:20 jwbirdsa Exp $";
+X
+X
+X/*
+X** function prototypes
+X*/
+X
+X#ifdef NO_STR_INC
+Xextern char *strrchr();
+Xextern int strcmp();
+X#endif
+X
+X
+X/*
+X** functions
+X*/
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    tga_verify                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Verifies that a file is a Targa file by checking filename against  *
+X*       list of extensions.                                                *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       filename - name of file to be verified                             *
+X*       version  - pointer to unsigned long in which format/version value  *
+X*                  is returned                                             *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xtga_verify(char *filename, ULONG *version, char **exts)
+X#else
+Xtga_verify(filename, version, exts)
+Xchar *filename;
+XULONG *version;
+Xchar **exts;
+X#endif
+X{
+X    char *extptr;
+X    FILE *tgafile;
+X    UCHAR verbuf[4];
+X    int loop;
+X    ULONG retval;
+X
+X    /* Search for '.' marking extension. */
+X
+X    extptr = strrchr(filename, '.');
+X    if (NULL == extptr)
+X    {
+X        /* No extension, cannot classify. */
+X
+X        *version = TGA_NOT;
+X        return 0;
+X    }
+X    extptr++;
+X
+X    /* Now we have the extension, check against list. */
+X
+X    for (loop = 0; exts[loop] != NULL; loop++)
+X    {
+X        /* Case-sensitive string compare. */
+X
+X        if (strcmp(extptr, exts[loop]) == 0)
+X        {
+X            /*  Match, so break out of loop. */
+X
+X            break;
+X        }
+X    }
+X
+X    /* Check exit from loop. */
+X
+X    if (NULL == exts[loop])
+X    {
+X        /* No match, return. */
+X
+X        *version = TGA_NOT;
+X        return 0;
+X    }
+X
+X    /* Extension is valid for type Targa, check format byte. */
+X
+X    if ((tgafile = fopen(filename, FOPEN_READ_BINARY)) == (FILE *) NULL)
+X    {
+X        return TGA_FILEERR_E;
+X    }
+X
+X    if (fread(verbuf, sizeof(UCHAR), 4, tgafile) != 4)
+X    {
+X        *version = TGA_NOT;
+X        retval = (feof(tgafile) ? ST_SUCCESS : TGA_FILEERR_E);
+X        fclose(tgafile);
+X        return retval;
+X    }
+X
+X    /* Close file. */
+X
+X    if (fclose(tgafile))
+X    {
+X        return TGA_FILEERR_E;
+X    }
+X
+X    switch (verbuf[2])
+X    {
+X        case 0:
+X        case 1:
+X        case 2:
+X        case 3:
+X        case 9:
+X        case 10:
+X        case 11:
+X        case 32:
+X        case 33:
+X            /* Is OK format byte. Assume file is Targa. */
+X            *version = TGA_1;
+X            break;
+X
+X        default:
+X            /* Is unknown format byte. Assume file is not Targa. */
+X            *version = TGA_NOT;
+X            break;
+X    }
+X
+X    return ST_SUCCESS;
+X} /* end of tga_verify() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION:    tga_getheader                                             *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*       Assumes that file is an TGA file. Reads header from file, extracts *
+X*       data into TGA_HDR structure.                                       *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*       infile  - file to be processed                                     *
+X*       results - pointer to TGA_HDR structure in which data from header   *
+X*                 is returned                                              *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*       Returns an error/status code.                                      *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X*       Leaves file pointing to beginning of image data.                   *
+X*                                                                          *
+X***************************************************************************/
+XULONG
+X#ifdef __STDC__
+Xtga_getheader(FILE *infile, TGA_HDR *results)
+X#else
+Xtga_getheader(infile, results)
+XFILE *infile;
+XTGA_HDR *results;
+X#endif
+X{
+X    UCHAR rawhdr[TGA_HDR_LEN];
+X
+X    /* Make sure we're at beginning of file. */
+X
+X    if (fseek(infile, 0L, SEEK_SET))
+X    {
+X        return TGA_FILEERR_E;
+X    }
+X
+X    /* Read raw bytes into buffer. */
+X
+X    if (fread(rawhdr, 1, TGA_HDR_LEN, infile) != TGA_HDR_LEN)
+X    {
+X        return (feof(infile) ? TGA_UNEOF_E : TGA_FILEERR_E);
+X    }
+X
+X    /* Extract info from raw header. */
+X
+X    results->idfieldlen = (int)(*(rawhdr + TGA_HDR_IDLEN_OFF));
+X    results->maptype = (int)(*(rawhdr + TGA_HDR_MTYPE_OFF));
+X    results->type = (int)(*(rawhdr + TGA_HDR_TYPE_OFF));
+X    results->maporg = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_MORG_OFF);
+X    results->maplen = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_MLEN_OFF);
+X    results->mapentsize = (int)(*(rawhdr + TGA_HDR_MESIZ_OFF));
+X    results->imxorg = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_IMXORG_OFF);
+X    results->imyorg = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_IMYORG_OFF);
+X    results->imwid = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_IMWID_OFF);
+X    results->imhi = CONSTRUCT_I_UINT(rawhdr + TGA_HDR_IMHI_OFF);
+X    results->pixelbits = (int)(*(rawhdr + TGA_HDR_BITS_OFF));
+X    results->raw = *(rawhdr + TGA_HDR_RAW_OFF);
+X
+X    results->attrbits = (int)(results->raw & TGA_MASK_ATTRBITS);
+X    results->attrbits >>= TGA_SHIFT_ATTRBITS;
+X    results->interleave = (int)(results->raw & TGA_MASK_INTERLEAVE);
+X    results->interleave >>= TGA_SHIFT_INTERLEAVE;
+X
+X    /* Set file to point to start of data. */
+X
+X    if (fseek(infile, (long) (TGA_HDR_LEN + 
+X                              ((results->maplen * results->mapentsize) / 8) + 
+X                              results->idfieldlen), SEEK_SET))
+X    {
+X        return TGA_FILEERR_E;
+X    }
+X
+X    /* Return OK. */
+X
+X    return ST_SUCCESS;
+X} /* end of tga_getheader() */
+X
+X
+X/***************************************************************************
+X*   FUNCTION: tga_errstring                                                *
+X*                                                                          *
+X*   DESCRIPTION:                                                           *
+X*                                                                          *
+X*      Returns a string corresponding to an error code.                    *
+X*                                                                          *
+X*   ENTRY:                                                                 *
+X*                                                                          *
+X*      errcode - error code to be translated                               *
+X*                                                                          *
+X*   EXIT:                                                                  *
+X*                                                                          *
+X*      Returns a pointer to the appropriate string, or NULL if there is    *
+X*      no appropriate string.                                              *
+X*                                                                          *
+X*   CONSTRAINTS/SIDE EFFECTS:                                              *
+X*                                                                          *
+X***************************************************************************/
+Xchar *
+X#ifdef __STDC__
+Xtga_errstring(ULONG errcode)
+X#else
+Xtga_errstring(errcode)
+XULONG errcode;
+X#endif
+X{
+X    char *temp;
+X
+X    /* If error code not from this module, return NULL. */
+X
+X    if ((errcode & ST_MOD_MASK) != TGA_MODULE)
+X    {
+X        return NULL;
+X    }
+X
+X    /* Process by code. */
+X
+X    switch (ERRSEV(errcode))
+X    {
+X        case ERRSEV(TGA_NOTTGA_E):
+X            temp = "File is not a TGA format file.";
+X            break;
+X        case ERRSEV(TGA_FILEERR_E):
+X            temp = "Error accessing file.";
+X            break;
+X        case ERRSEV(TGA_UNEOF_E):
+X            temp = "Unexpected End of File";
+X            break;
+X
+X        default:
+X            temp = NULL;
+X            break;
+X    }
+X
+X    return temp;
+X} /* end of tga_errstring() */
+X
+END_OF_FILE
+  if test 11280 -ne `wc -c <'src/tga.c'`; then
+    echo shar: \"'src/tga.c'\" unpacked with wrong size!
+  fi
+  # end of 'src/tga.c'
+fi
+echo shar: End of archive 6 \(of 18\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 18 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

@@ -1,0 +1,2065 @@
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: envbvs@bea.lbl.gov (Brian V. Smith)
+Newsgroups: comp.sources.x
+Subject: v16i010: Xfig 2.1.3, Part05/25
+Message-ID: <1992Feb4.145753.480@msi.com>
+Date: 4 Feb 92 14:57:53 GMT
+References: <csx-16i006-xfig-2.1.3@uunet.UU.NET>
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+Lines: 2052
+Approved: dcmartin@msi.com
+Originator: dcmartin@fascet
+
+Submitted-by: envbvs@bea.lbl.gov (Brian V. Smith)
+Posting-number: Volume 16, Issue 10
+Archive-name: xfig-2.1.3/part05
+
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# If this archive is complete, you will see the following message at the end:
+#		"End of archive 5 (of 25)."
+# Contents:  e_scale.c u_draw.c
+# Wrapped by dcmartin@fascet on Tue Feb  4 06:42:27 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'e_scale.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'e_scale.c'\"
+else
+echo shar: Extracting \"'e_scale.c'\" \(25873 characters\)
+sed "s/^X//" >'e_scale.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "u_elastic.h"
+X#include "u_search.h"
+X#include "u_undo.h"
+X#include "w_canvas.h"
+X#include "w_mousefun.h"
+X
+Xstatic int	init_box_scale();
+Xstatic Boolean	init_boxscale_ellipse();
+Xstatic Boolean	init_boxscale_line();
+Xstatic Boolean	init_boxscale_compound();
+Xstatic int	assign_newboxpoint();
+Xstatic int	boxrelocate_ellipsepoint();
+X
+Xstatic int	init_center_scale();
+Xstatic int	init_scale_arc();
+Xstatic int	init_scale_compound();
+Xstatic int	init_scale_ellipse();
+Xstatic int	init_scale_line();
+Xstatic int	init_scale_spline();
+Xstatic int	rescale_points();
+Xstatic int	relocate_ellipsepoint();
+Xstatic int	relocate_arcpoint();
+X
+Xstatic int	fix_scale_arc();
+Xstatic int	fix_scale_spline();
+Xstatic int	fix_scale_line();
+Xstatic int	fix_scale_ellipse();
+Xstatic int	fix_boxscale_ellipse();
+Xstatic int	fix_boxscale_line();
+Xstatic int	fix_scale_compound();
+Xstatic int	fix_boxscale_compound();
+X
+Xstatic int	cancel_scale_arc();
+Xstatic int	cancel_scale_spline();
+Xstatic int	cancel_scale_line();
+Xstatic int	cancel_scale_ellipse();
+Xstatic int	cancel_boxscale_ellipse();
+Xstatic int	cancel_boxscale_line();
+Xstatic int	cancel_scale_compound();
+Xstatic int	cancel_boxscale_compound();
+Xstatic int	prescale_compound();
+X
+Xscale_selected()
+X{
+X    set_mousefun("scale box", "scale about center", "");
+X    canvas_kbd_proc = null_proc;
+X    canvas_locmove_proc = null_proc;
+X    init_searchproc_left(init_box_scale);
+X    init_searchproc_middle(init_center_scale);
+X    canvas_leftbut_proc = object_search_left;
+X    canvas_middlebut_proc = object_search_middle;
+X    canvas_rightbut_proc = null_proc;
+X    set_cursor(pick15_cursor);
+X    reset_action_on();
+X}
+X
+Xstatic
+Xinit_box_scale(obj, type, x, y, px, py)
+X    char	   *obj;
+X    int		    type, x, y;
+X    int		    px, py;
+X{
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	if (!init_boxscale_line(px, py))	/* non-box line */
+X	    return;
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) obj;
+X	if (!init_boxscale_ellipse(px, py))	/* selected center, ignore */
+X	    return;
+X	break;
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) obj;
+X	if (!init_boxscale_compound(px, py))	/* non-box compound */
+X	    return;
+X	break;
+X    default:
+X	return;
+X    }
+X    set_mousefun("new posn", "", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_middlebut_proc = null_proc;
+X}
+X
+Xstatic
+Xinit_center_scale(obj, type, x, y, px, py)
+X    char	   *obj;
+X    int		    type, x, y, px, py;
+X{
+X    double	    dx, dy, l;
+X
+X    cur_x = from_x = px;
+X    cur_y = from_y = py;
+X    constrained = BOX_SCALE;
+X    switch (type) {
+X    case O_POLYLINE:
+X	cur_l = (F_line *) obj;
+X	if (!init_scale_line()) /* selected center */
+X	    return;
+X	break;
+X    case O_SPLINE:
+X	cur_s = (F_spline *) obj;
+X	if (!init_scale_spline())	/* selected center */
+X	    return;
+X	break;
+X    case O_ELLIPSE:
+X	cur_e = (F_ellipse *) obj;
+X	if (!init_scale_ellipse())	/* selected center */
+X	    return;
+X	break;
+X    case O_ARC:
+X	cur_a = (F_arc *) obj;
+X	if (!init_scale_arc())	/* selected center */
+X	    return;
+X	break;
+X    case O_COMPOUND:
+X	cur_c = (F_compound *) obj;
+X	init_scale_compound();
+X	break;
+X    }
+X
+X    dx = (double) (from_x - fix_x);
+X    dy = (double) (from_y - fix_y);
+X    l = sqrt(dx * dx + dy * dy);
+X    cosa = fabs(dx / l);
+X    sina = fabs(dy / l);
+X
+X    set_mousefun("", "new posn", "cancel");
+X    draw_mousefun_canvas();
+X    canvas_leftbut_proc = null_proc;
+X}
+X
+Xstatic
+Xwrapup_scale()
+X{
+X    reset_action_on();
+X    scale_selected();
+X    draw_mousefun_canvas();
+X}
+X
+X/*************************  ellipse  *******************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    double	    dx, dy, l;
+X
+X    if (cur_e->type == T_ELLIPSE_BY_RAD ||
+X	cur_e->type == T_CIRCLE_BY_RAD) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    if (x == cur_e->start.x && y == cur_e->start.y) {
+X	fix_x = cur_e->end.x;
+X	fix_y = cur_e->end.y;
+X	cur_x = from_x = x;
+X	cur_y = from_y = y;
+X    } else if (x == cur_e->end.x && y == cur_e->end.y) {
+X	fix_x = cur_e->start.x;
+X	fix_y = cur_e->start.y;
+X	cur_x = from_x = x;
+X	cur_y = from_y = y;
+X    } else {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X
+X    if (cur_x == fix_x || cur_y == fix_y) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_ellipsemarker(cur_e);
+X    constrained = BOX_SCALE;
+X    dx = (double) (cur_x - fix_x);
+X    dy = (double) (cur_y - fix_y);
+X    l = sqrt(dx * dx + dy * dy);
+X    cosa = fabs(dx / l);
+X    sina = fabs(dy / l);
+X
+X    set_temp_cursor(crosshair_cursor);
+X    if (cur_e->type == T_CIRCLE_BY_DIA) {
+X	canvas_locmove_proc = constrained_resizing_cbd;
+X	elastic_cbd();
+X    } else {
+X	canvas_locmove_proc = constrained_resizing_ebd;
+X	elastic_ebd();
+X    }
+X    canvas_leftbut_proc = fix_boxscale_ellipse;
+X    canvas_rightbut_proc = cancel_boxscale_ellipse;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_ellipse()
+X{
+X    if (cur_e->type == T_CIRCLE_BY_DIA)
+X	elastic_cbd();
+X    else
+X	elastic_ebd();
+X    toggle_ellipsemarker(cur_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    if (cur_e->type == T_CIRCLE_BY_DIA)
+X	elastic_cbd();
+X    else
+X	elastic_ebd();
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    new_e = copy_ellipse(cur_e);
+X    boxrelocate_ellipsepoint(new_e, cur_x, cur_y);
+X    change_ellipse(cur_e, new_e);
+X    toggle_ellipsemarker(new_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xboxrelocate_ellipsepoint(ellipse, x, y)
+X    F_ellipse	   *ellipse;
+X    int		    x, y;
+X{
+X    int		    dx, dy;
+X
+X    set_temp_cursor(wait_cursor);
+X    draw_ellipse(ellipse, ERASE);
+X    if (ellipse->start.x == fix_x)
+X	ellipse->end.x = x;
+X    if (ellipse->start.y == fix_y)
+X	ellipse->end.y = y;
+X    if (ellipse->end.x == fix_x)
+X	ellipse->start.x = x;
+X    if (ellipse->end.y == fix_y)
+X	ellipse->start.y = y;
+X    if (ellipse->type == T_CIRCLE_BY_DIA) {
+X	dx = ellipse->center.x = (fix_x + x) / 2 + .5;
+X	dy = ellipse->center.y = (fix_y + y) / 2 + .5;
+X	dx -= x;
+X	dy -= y;
+X	ellipse->radiuses.x = sqrt((double) (dx * dx + dy * dy)) + .5;
+X	ellipse->radiuses.y = ellipse->radiuses.x;
+X    } else {
+X	ellipse->center.x = (fix_x + x) / 2;
+X	ellipse->center.y = (fix_y + y) / 2;
+X	ellipse->radiuses.x = abs(ellipse->center.x - fix_x);
+X	ellipse->radiuses.y = abs(ellipse->center.y - fix_y);
+X    }
+X    draw_ellipse(ellipse, PAINT);
+X    reset_cursor();
+X}
+X
+Xstatic
+Xinit_scale_ellipse()
+X{
+X    fix_x = cur_e->center.x;
+X    fix_y = cur_e->center.y;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_ellipsemarker(cur_e);
+X    set_temp_cursor(crosshair_cursor);
+X    canvas_locmove_proc = scaling_ellipse;
+X    elastic_scaleellipse(cur_e);
+X    canvas_middlebut_proc = fix_scale_ellipse;
+X    canvas_rightbut_proc = cancel_scale_ellipse;
+X    return True;		/* all is Ok */
+X}
+X
+Xstatic
+Xcancel_scale_ellipse()
+X{
+X    elastic_scaleellipse(cur_e);
+X    toggle_ellipsemarker(cur_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_ellipse(x, y)
+X    int		    x, y;
+X{
+X    elastic_scaleellipse(cur_e);
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    new_e = copy_ellipse(cur_e);
+X    relocate_ellipsepoint(new_e, cur_x, cur_y);
+X    change_ellipse(cur_e, new_e);
+X    toggle_ellipsemarker(new_e);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrelocate_ellipsepoint(ellipse, x, y)
+X    F_ellipse	   *ellipse;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    set_temp_cursor(wait_cursor);
+X    draw_ellipse(ellipse, ERASE);
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X    scalefact = newd / oldd;
+X
+X    ellipse->radiuses.x = ellipse->radiuses.x * scalefact;
+X    ellipse->radiuses.y = ellipse->radiuses.y * scalefact;
+X    ellipse->end.x = fix_x + (ellipse->end.x - fix_x) * scalefact;
+X    ellipse->end.y = fix_y + (ellipse->end.y - fix_y) * scalefact;
+X    ellipse->start.x = fix_x + (ellipse->start.x - fix_x) * scalefact;
+X    ellipse->start.y = fix_y + (ellipse->start.y - fix_y) * scalefact;
+X    draw_ellipse(ellipse, PAINT);
+X    reset_cursor();
+X}
+X
+X/***************************  arc  *********************************/
+X
+Xstatic
+Xinit_scale_arc()
+X{
+X    fix_x = cur_a->center.x;
+X    fix_y = cur_a->center.y;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_arcmarker(cur_a);
+X    elastic_scalearc(cur_a);
+X    set_temp_cursor(crosshair_cursor);
+X    canvas_locmove_proc = scaling_arc;
+X    canvas_middlebut_proc = fix_scale_arc;
+X    canvas_rightbut_proc = cancel_scale_arc;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_arc()
+X{
+X    elastic_scalearc(cur_a);
+X    toggle_arcmarker(cur_a);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_arc(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalearc(cur_a);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_a = copy_arc(cur_a);
+X    relocate_arcpoint(new_a, x, y);
+X    change_arc(cur_a, new_a);
+X    toggle_arcmarker(new_a);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrelocate_arcpoint(arc, x, y)
+X    F_arc	   *arc;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact, xx, yy;
+X    F_pos	    p0, p1, p2;
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X
+X    scalefact = newd / oldd;
+X
+X    p0 = arc->point[0];
+X    p1 = arc->point[1];
+X    p2 = arc->point[2];
+X    p0.x = fix_x + (p0.x - fix_x) * scalefact;
+X    p0.y = fix_y + (p0.y - fix_y) * scalefact;
+X    p1.x = fix_x + (p1.x - fix_x) * scalefact;
+X    p1.y = fix_y + (p1.y - fix_y) * scalefact;
+X    p2.x = fix_x + (p2.x - fix_x) * scalefact;
+X    p2.y = fix_y + (p2.y - fix_y) * scalefact;
+X    if (compute_arccenter(p0, p1, p2, &xx, &yy)) {
+X	set_temp_cursor(wait_cursor);
+X	draw_arc(arc, ERASE);	/* erase old arc */
+X	arc->point[0].x = p0.x;
+X	arc->point[0].y = p0.y;
+X	arc->point[1].x = p1.x;
+X	arc->point[1].y = p1.y;
+X	arc->point[2].x = p2.x;
+X	arc->point[2].y = p2.y;
+X	arc->center.x = xx;
+X	arc->center.y = yy;
+X	arc->direction = compute_direction(p0, p1, p2);
+X	draw_arc(arc, PAINT);	/* draw new arc */
+X	reset_cursor();
+X    }
+X    set_modifiedflag();
+X}
+X
+X/**************************  spline  *******************************/
+X
+Xstatic
+Xinit_scale_spline()
+X{
+X    int		    sumx, sumy, cnt;
+X    F_point	   *p;
+X
+X    p = cur_s->points;
+X    if (closed_spline(cur_s))
+X	p = p->next;
+X    for (sumx = 0, sumy = 0, cnt = 0; p != NULL; p = p->next) {
+X	sumx = sumx + p->x;
+X	sumy = sumy + p->y;
+X	cnt++;
+X    }
+X    fix_x = sumx / cnt;
+X    fix_y = sumy / cnt;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    set_temp_cursor(crosshair_cursor);
+X    toggle_splinemarker(cur_s);
+X    draw_spline(cur_s, ERASE);
+X    elastic_scalepts(cur_s->points);
+X    canvas_locmove_proc = scaling_spline;
+X    canvas_middlebut_proc = fix_scale_spline;
+X    canvas_rightbut_proc = cancel_scale_spline;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_spline()
+X{
+X    elastic_scalepts(cur_s->points);
+X    draw_spline(cur_s, PAINT);
+X    toggle_splinemarker(cur_s);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_spline(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalepts(cur_s->points);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_s = copy_spline(cur_s);
+X    clean_up();
+X    set_latestspline(old_s);
+X    set_action_object(F_CHANGE, O_SPLINE);
+X    old_s->next = cur_s;
+X    /* now change the original to become the new object */
+X    rescale_points(cur_s->points, x, y);
+X    if (int_spline(cur_s))
+X	remake_control_points(cur_s);
+X    draw_spline(cur_s, PAINT);
+X    toggle_splinemarker(cur_s);
+X    wrapup_scale();
+X}
+X
+X/***************************  compound	********************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_compound(x, y)
+X    int		    x, y;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    double	    dx, dy, l;
+X
+X    xmin = min2(cur_c->secorner.x, cur_c->nwcorner.x);
+X    ymin = min2(cur_c->secorner.y, cur_c->nwcorner.y);
+X    xmax = max2(cur_c->secorner.x, cur_c->nwcorner.x);
+X    ymax = max2(cur_c->secorner.y, cur_c->nwcorner.y);
+X
+X    if (xmin == xmax || ymin == ymax) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_compoundmarker(cur_c);
+X    draw_compoundelements(cur_c, ERASE);
+X    set_temp_cursor(crosshair_cursor);
+X
+X    if (x == xmin) {
+X	fix_x = xmax;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else if (x == xmax) {
+X	fix_x = xmin;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else {
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	} else {		/* y == ymax */
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	}
+X    }
+X
+X    cur_x = from_x;
+X    cur_y = from_y;
+X
+X    if (constrained == BOX_SCALE) {
+X	dx = (double) (cur_x - fix_x);
+X	dy = (double) (cur_y - fix_y);
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    canvas_locmove_proc = constrained_resizing_box;
+X    canvas_leftbut_proc = fix_boxscale_compound;
+X    canvas_rightbut_proc = cancel_boxscale_compound;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_compound()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_compound(x, y)
+X    int		    x, y;
+X{
+X    float	    scalex, scaley;
+X
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_c = copy_compound(cur_c);
+X    scalex = ((float) (x - fix_x)) / (from_x - fix_x);
+X    scaley = ((float) (y - fix_y)) / (from_y - fix_y);
+X    scale_compound(new_c, scalex, scaley, fix_x, fix_y);
+X    change_compound(cur_c, new_c);
+X    draw_compoundelements(new_c, PAINT);
+X    toggle_compoundmarker(new_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xinit_scale_compound()
+X{
+X    fix_x = (cur_c->nwcorner.x + cur_c->secorner.x) / 2;
+X    fix_y = (cur_c->nwcorner.y + cur_c->secorner.y) / 2;
+X    set_action_on();
+X    toggle_compoundmarker(cur_c);
+X    set_temp_cursor(crosshair_cursor);
+X    draw_compoundelements(cur_c, ERASE);
+X    elastic_scalecompound(cur_c);
+X    canvas_locmove_proc = scaling_compound;
+X    canvas_middlebut_proc = fix_scale_compound;
+X    canvas_rightbut_proc = cancel_scale_compound;
+X}
+X
+Xstatic
+Xcancel_scale_compound()
+X{
+X    elastic_scalecompound(cur_c);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_compound(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalecompound(cur_c);
+X    adjust_box_pos(x, y, from_x, from_y, &cur_x, &cur_y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_c = copy_compound(cur_c);
+X    clean_up();
+X    set_latestcompound(old_c);
+X    set_action_object(F_CHANGE, O_COMPOUND);
+X    old_c->next = cur_c;
+X    /* now change the original to become the new object */
+X    prescale_compound(cur_c, cur_x, cur_y);
+X    draw_compoundelements(cur_c, PAINT);
+X    toggle_compoundmarker(cur_c);
+X    wrapup_scale();
+X}
+X
+Xstatic int
+Xprescale_compound(c, x, y)
+X    F_compound	   *c;
+X    int		    x, y;
+X{
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X    scalefact = newd / oldd;
+X    scale_compound(c, scalefact, scalefact, fix_x, fix_y);
+X}
+X
+Xscale_compound(c, sx, sy, refx, refy)
+X    F_compound	   *c;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_ellipse	   *e;
+X    F_text	   *t;
+X    F_arc	   *a;
+X    F_compound	   *c1;
+X    int		    x1, y1, x2, y2;
+X
+X    x1 = round(refx + (c->nwcorner.x - refx) * sx);
+X    y1 = round(refy + (c->nwcorner.y - refy) * sy);
+X    x2 = round(refx + (c->secorner.x - refx) * sx);
+X    y2 = round(refy + (c->secorner.y - refy) * sy);
+X    c->nwcorner.x = min2(x1, x2);
+X    c->nwcorner.y = min2(y1, y2);
+X    c->secorner.x = max2(x1, x2);
+X    c->secorner.y = max2(y1, y2);
+X
+X    for (l = c->lines; l != NULL; l = l->next) {
+X	scale_line(l, sx, sy, refx, refy);
+X    }
+X    for (s = c->splines; s != NULL; s = s->next) {
+X	scale_spline(s, sx, sy, refx, refy);
+X    }
+X    for (a = c->arcs; a != NULL; a = a->next) {
+X	scale_arc(a, sx, sy, refx, refy);
+X    }
+X    for (e = c->ellipses; e != NULL; e = e->next) {
+X	scale_ellipse(e, sx, sy, refx, refy);
+X    }
+X    for (t = c->texts; t != NULL; t = t->next) {
+X	scale_text(t, sx, sy, refx, refy);
+X    }
+X    for (c1 = c->compounds; c1 != NULL; c1 = c1->next) {
+X	scale_compound(c1, sx, sy, refx, refy);
+X    }
+X}
+X
+Xscale_line(l, sx, sy, refx, refy)
+X    F_line	   *l;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_point	   *p;
+X
+X    for (p = l->points; p != NULL; p = p->next) {
+X	p->x = round(refx + (p->x - refx) * sx);
+X	p->y = round(refy + (p->y - refy) * sy);
+X    }
+X}
+X
+Xscale_spline(s, sx, sy, refx, refy)
+X    F_spline	   *s;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    F_point	   *p;
+X    F_control	   *c;
+X
+X    for (p = s->points; p != NULL; p = p->next) {
+X	p->x = round(refx + (p->x - refx) * sx);
+X	p->y = round(refy + (p->y - refy) * sy);
+X    }
+X    for (c = s->controls; c != NULL; c = c->next) {
+X	c->lx = refx + (c->lx - refx) * sx;
+X	c->ly = refy + (c->ly - refy) * sy;
+X	c->rx = refx + (c->rx - refx) * sx;
+X	c->ry = refy + (c->ry - refy) * sy;
+X    }
+X}
+X
+Xscale_arc(a, sx, sy, refx, refy)
+X    F_arc	   *a;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    int		    i;
+X
+X    for (i = 0; i < 3; i++) {
+X	a->point[i].x = round(refx + (a->point[i].x - refx) * sx);
+X	a->point[i].y = round(refy + (a->point[i].y - refy) * sy);
+X    }
+X    compute_arccenter(a->point[0], a->point[1], a->point[2],
+X		      &a->center.x, &a->center.y);
+X    a->direction = compute_direction(a->point[0], a->point[1], a->point[2]);
+X}
+X
+Xscale_ellipse(e, sx, sy, refx, refy)
+X    F_ellipse	   *e;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    e->center.x = round(refx + (e->center.x - refx) * sx);
+X    e->center.y = round(refy + (e->center.y - refy) * sy);
+X    e->start.x = round(refx + (e->start.x - refx) * sx);
+X    e->start.y = round(refy + (e->start.y - refy) * sy);
+X    e->end.x = round(refx + (e->end.x - refx) * sx);
+X    e->end.y = round(refy + (e->end.y - refy) * sy);
+X    e->radiuses.x = abs(round(e->radiuses.x * sx));
+X    e->radiuses.y = abs(round(e->radiuses.y * sy));
+X}
+X
+Xscale_text(t, sx, sy, refx, refy)
+X    F_text	   *t;
+X    float	    sx, sy;
+X    int		    refx, refy;
+X{
+X    t->base_x = round(refx + (t->base_x - refx) * sx);
+X    t->base_y = round(refy + (t->base_y - refy) * sy);
+X    if (!rigid_text(t)) {
+X	t->size = round(t->size * sx);
+X	t->height = round(t->height * sx);
+X	t->length = round(t->length * sx);
+X    }
+X}
+X
+X
+X/***************************  line  ********************************/
+X
+Xstatic		Boolean
+Xinit_boxscale_line(x, y)
+X    int		    x, y;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X    F_point	   *p0, *p1, *p2;
+X    double	    dx, dy, l;
+X
+X    if (cur_l->type != T_BOX &&
+X	cur_l->type != T_ARC_BOX &&
+X	cur_l->type != T_EPS_BOX) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    p0 = cur_l->points;
+X    p1 = p0->next;
+X    p2 = p1->next;
+X    xmin = min3(p0->x, p1->x, p2->x);
+X    ymin = min3(p0->y, p1->y, p2->y);
+X    xmax = max3(p0->x, p1->x, p2->x);
+X    ymax = max3(p0->y, p1->y, p2->y);
+X
+X    if (xmin == xmax || ymin == ymax) {
+X	put_msg("Can't use box scale on selected object");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_linemarker(cur_l);
+X
+X    if (x == xmin) {
+X	fix_x = xmax;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else if (x == xmax) {
+X	fix_x = xmin;
+X	from_x = x;
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else if (y == ymax) {
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    constrained = BOX_SCALE;
+X	} else {
+X	    fix_y = ymax;
+X	    from_y = ymin;
+X	    constrained = BOX_HSTRETCH;
+X	}
+X    } else {
+X	if (y == ymin) {
+X	    fix_y = ymax;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	} else {		/* y == ymax */
+X	    fix_y = ymin;
+X	    from_y = y;
+X	    fix_x = xmax;
+X	    from_x = xmin;
+X	    constrained = BOX_VSTRETCH;
+X	}
+X    }
+X
+X    cur_x = from_x;
+X    cur_y = from_y;
+X    set_temp_cursor(crosshair_cursor);
+X    draw_line(cur_l, ERASE);
+X
+X    if (constrained == BOX_SCALE) {
+X	dx = (double) (cur_x - fix_x);
+X	dy = (double) (cur_y - fix_y);
+X	l = sqrt(dx * dx + dy * dy);
+X	cosa = fabs(dx / l);
+X	sina = fabs(dy / l);
+X    }
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    canvas_locmove_proc = constrained_resizing_box;
+X    canvas_leftbut_proc = fix_boxscale_line;
+X    canvas_rightbut_proc = cancel_boxscale_line;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_boxscale_line()
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_boxscale_line(x, y)
+X    int		    x, y;
+X{
+X    elastic_box(fix_x, fix_y, cur_x, cur_y);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    new_l = copy_line(cur_l);
+X    draw_line(cur_l, ERASE);
+X    assign_newboxpoint(new_l, fix_x, fix_y, x, y);
+X    if (new_l->type == T_EPS_BOX) {
+X	if (signof(fix_x - from_x) != signof(fix_x - x))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X	if (signof(fix_y - from_y) != signof(fix_y - y))
+X	    new_l->eps->flipped = 1 - new_l->eps->flipped;
+X    }
+X    change_line(cur_l, new_l);
+X    draw_line(new_l, PAINT);
+X    toggle_linemarker(new_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xassign_newboxpoint(b, x1, y1, x2, y2)
+X    F_line	   *b;
+X    int		    x1, y1, x2, y2;
+X{
+X    F_point	   *p;
+X
+X    p = b->points;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X    p = p->next;
+X    if (p->x != x1)
+X	p->x = x2;
+X    if (p->y != y1)
+X	p->y = y2;
+X}
+X
+Xstatic
+Xinit_scale_line()
+X{
+X    int		    sumx, sumy, cnt;
+X    F_point	   *p;
+X
+X    p = cur_l->points;
+X    if (cur_l->type != T_POLYLINE)
+X	p = p->next;
+X    for (sumx = 0, sumy = 0, cnt = 0; p != NULL; p = p->next) {
+X	sumx = sumx + p->x;
+X	sumy = sumy + p->y;
+X	cnt++;
+X    }
+X    fix_x = sumx / cnt;
+X    fix_y = sumy / cnt;
+X    if (from_x == fix_x && from_y == fix_y) {
+X	put_msg("Center point selected, ignored");
+X	return False;
+X    }
+X    set_action_on();
+X    toggle_linemarker(cur_l);
+X    set_temp_cursor(crosshair_cursor);
+X    draw_line(cur_l, ERASE);
+X    elastic_scalepts(cur_l->points);
+X    canvas_locmove_proc = scaling_line;
+X    canvas_middlebut_proc = fix_scale_line;
+X    canvas_rightbut_proc = cancel_scale_line;
+X    return True;
+X}
+X
+Xstatic
+Xcancel_scale_line()
+X{
+X    elastic_scalepts(cur_l->points);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xfix_scale_line(x, y)
+X    int		    x, y;
+X{
+X    elastic_scalepts(cur_l->points);
+X    adjust_box_pos(x, y, from_x, from_y, &x, &y);
+X    /* make a copy of the original and save as unchanged object */
+X    old_l = copy_line(cur_l);
+X    clean_up();
+X    set_latestline(old_l);
+X    set_action_object(F_CHANGE, O_POLYLINE);
+X    old_l->next = cur_l;
+X    /* now change the original to become the new object */
+X    rescale_points(cur_l->points, x, y);
+X    draw_line(cur_l, PAINT);
+X    toggle_linemarker(cur_l);
+X    wrapup_scale();
+X}
+X
+Xstatic
+Xrescale_points(pts, x, y)
+X    F_point	   *pts;
+X    int		    x, y;
+X{
+X    F_point	   *p;
+X    int		    newx, newy, oldx, oldy;
+X    float	    newd, oldd, scalefact;
+X
+X    p = pts;
+X    newx = x - fix_x;
+X    newy = y - fix_y;
+X    newd = sqrt((double) (newx * newx + newy * newy));
+X
+X    oldx = from_x - fix_x;
+X    oldy = from_y - fix_y;
+X    oldd = sqrt((double) (oldx * oldx + oldy * oldy));
+X
+X    scalefact = newd / oldd;
+X    for (p = pts; p != NULL; p = p->next) {
+X	p->x = fix_x + (p->x - fix_x) * scalefact;
+X	p->y = fix_y + (p->y - fix_y) * scalefact;
+X    }
+X    set_modifiedflag();
+X}
+END_OF_FILE
+if test 25873 -ne `wc -c <'e_scale.c'`; then
+    echo shar: \"'e_scale.c'\" unpacked with wrong size!
+fi
+# end of 'e_scale.c'
+fi
+if test -f 'u_draw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_draw.c'\"
+else
+echo shar: Extracting \"'u_draw.c'\" \(25598 characters\)
+sed "s/^X//" >'u_draw.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty."
+X *
+X */
+X
+X/*
+X * Routines for drawing and filling objects under the following headings:
+X *	ARC, ELLIPSE, LINE, SPLINE, TEXT, COMPOUND,
+X *	ARROWS, CURVES FOR ARCS AND ELLIPSES, CURVES FOR SPLINES.
+X *
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_bound.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "w_canvas.h"
+X#include "w_drawprim.h"
+X#include "w_zoom.h"
+X
+Xtypedef unsigned char byte;
+X
+X#define			PI		3.14159
+X
+X/************** POLYGON/CURVE DRAWING FACILITIES ****************/
+X
+X#define	  MaxNumPts	  10000
+Xstatic int	npoints;
+Xstatic int	max_points;
+Xstatic XPoint  *points;
+Xstatic int	allocstep;
+X
+Xstatic		Boolean
+Xinit_point_array(init_size, step_size)
+X    int		    init_size, step_size;
+X{
+X    npoints = 0;
+X    max_points = init_size;
+X    allocstep = step_size;
+X    if (max_points > MaxNumPts) {
+X	fprintf(stderr, "xfig: warning: too many points in polyline\n");
+X	fprintf(stderr, "  Only first %d points are displayed\n", MaxNumPts);
+X	fprintf(stderr, "  Recompile with MaxNumPts > %d in %s\n",
+X		init_size, __FILE__);
+X	max_points = MaxNumPts;
+X    }
+X    if ((points = (XPoint *) malloc(max_points * sizeof(XPoint))) == 0) {
+X	fprintf(stderr, "xfig: insufficient memory to allocate point array\n");
+X	return False;
+X    }
+X    return True;
+X}
+X
+Xstatic		Boolean
+Xadd_point(x, y)
+X    int		    x, y;
+X{
+X    if (npoints >= (max_points - 1)) {
+X	XPoint	       *tmp_p;
+X
+X	max_points += allocstep;
+X	if (max_points >= MaxNumPts)
+X	    return False;	/* stop; it is not closing */
+X
+X	if ((tmp_p = (XPoint *) realloc(points,
+X					max_points * sizeof(XPoint))) == 0) {
+X	    fprintf(stderr,
+X		    "xfig: insufficient memory to reallocate point array\n");
+X	    return False;
+X	}
+X	points = tmp_p;
+X    }
+X    points[npoints].x = (short) x;
+X    points[npoints].y = (short) y;
+X    npoints++;
+X    return True;
+X}
+X
+Xstatic void
+Xdraw_point_array(w, op, line_width, line_style, style_val, fill_style, color)
+X    Window	    w;
+X    int		    op;
+X    int		    line_width, line_style;
+X    float	    style_val;
+X    int		    fill_style;
+X    Color	    color;
+X{
+X    pw_lines(w, points, npoints, op,
+X	     line_width, line_style, style_val, fill_style, color);
+X    free(points);
+X}
+X
+X/*********************** ARC ***************************/
+X
+Xdraw_arc(a, op)
+X    F_arc	   *a;
+X    int		    op;
+X{
+X    int		    radius, rx, ry;
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    arc_bound(a, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    rx = a->point[0].x - a->center.x;
+X    ry = a->center.y - a->point[0].y;
+X    radius = round(sqrt((double) (rx * rx + ry * ry)));
+X
+X    curve(canvas_win, round(a->point[0].x - a->center.x),
+X	  round(a->center.y - a->point[0].y),
+X	  round(a->point[2].x - a->center.x),
+X	  round(a->center.y - a->point[2].y),
+X	  a->direction, radius, radius,
+X	  round(a->center.x), round(a->center.y), op,
+X	  a->thickness, a->style, a->style_val, a->fill_style, a->color);
+X
+X    draw_arcarrows(a, op);
+X}
+X
+X/*********************** ELLIPSE ***************************/
+X
+Xdraw_ellipse(e, op)
+X    F_ellipse	   *e;
+X    int		    op;
+X{
+X    int		    a, b, xmin, ymin, xmax, ymax;
+X
+X    ellipse_bound(e, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    if (op != ERASE && (e->style == DOTTED_LINE || e->style == DASH_LINE)) {
+X	a = e->radiuses.x;
+X	b = e->radiuses.y;
+X	curve(canvas_win, a, 0, a, 0, e->direction, (b * b), (a * a),
+X	      e->center.x, e->center.y, op,
+X	      e->thickness, e->style, e->style_val, e->fill_style, e->color);
+X    } else {
+X	pw_curve(canvas_win, xmin, ymin, xmax, ymax, op,
+X		 e->thickness, e->style, e->style_val, e->fill_style,
+X		 e->color);
+X    }
+X}
+X
+X/*********************** LINE ***************************/
+X
+Xdraw_line(line, op)
+X    F_line	   *line;
+X    int		    op;
+X{
+X    F_point	   *point;
+X    int		    num_pts;
+X    int		    xx, yy, x, y;
+X    int		    xmin, ymin, xmax, ymax;
+X    char	   *string;
+X    F_point	   *p0, *p1, *p2;
+X    pr_size	    txt;
+X
+X    line_bound(line, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    /* is it an arcbox? */
+X    if (line->type == T_ARC_BOX) {
+X	draw_arcbox(line, op);
+X	return;
+X    }
+X    /* is it an eps file? */
+X    if (line->type == T_EPS_BOX) {
+X	if (line->eps->bitmap != NULL) {
+X	    draw_eps_pixmap(line, op);
+X	    return;
+X	} else {		/* label empty eps bounding box */
+X	    if (line->eps->file[0] == '\0')
+X		string = EMPTY_EPS;
+X	    else {
+X		string = rindex(line->eps->file, '/');
+X		if (string == NULL)
+X		    string = line->eps->file;
+X		else
+X		    string++;
+X	    }
+X	    p0 = line->points;
+X	    p1 = p0->next;
+X	    p2 = p1->next;
+X	    xmin = min3(p0->x, p1->x, p2->x);
+X	    ymin = min3(p0->y, p1->y, p2->y);
+X	    xmax = max3(p0->x, p1->x, p2->x);
+X	    ymax = max3(p0->y, p1->y, p2->y);
+X	    txt = pf_textwidth(0, 0, 12, strlen(string), string);
+X	    x = (xmin + xmax) / 2 - txt.x / 2;
+X	    y = (ymin + ymax) / 2;
+X	    pw_text(canvas_win, x, y, op, 0, 0, 12, string,
+X		    DEFAULT_COLOR);
+X	    /* return; */
+X	}
+X    }
+X    /* get first point and coordinates */
+X    point = line->points;
+X    x = point->x;
+X    y = point->y;
+X
+X    /* is it a single point? */
+X    if (line->points->next == NULL) {
+X	/* draw but don't fill */
+X	pw_point(canvas_win, x, y, line->thickness, op, line->color);
+X	return;
+X    }
+X    if (line->back_arrow)	/* backward arrow  */
+X	draw_arrow(point->next->x, point->next->y, x, y,
+X		   line->back_arrow, op, line->color);
+X
+X    num_pts = 0;
+X    /* count number of points in this object */
+X    for (; point != NULL; point = point->next)
+X	num_pts++;
+X
+X    /* accumulate the points in an array */
+X    if (!init_point_array(num_pts, 0))
+X	return;
+X
+X    for (point = line->points; point != NULL; point = point->next) {
+X	xx = x;
+X	yy = y;
+X	x = point->x;
+X	y = point->y;
+X	add_point(x, y);
+X    }
+X
+X    draw_point_array(canvas_win, op, line->thickness, line->style,
+X		     line->style_val, line->fill_style, line->color);
+X
+X    if (line->for_arrow)
+X	draw_arrow(xx, yy, x, y, line->for_arrow, op, line->color);
+X}
+X
+Xdraw_arcbox(line, op)
+X    F_line	   *line;
+X    int		    op;
+X{
+X    F_point	   *point;
+X    int		    xmin, xmax, ymin, ymax;
+X
+X    point = line->points;
+X    xmin = xmax = point->x;
+X    ymin = ymax = point->y;
+X    while (point->next) {	/* find lower left (upper-left on screen) */
+X	/* and upper right (lower right on screen) */
+X	point = point->next;
+X	if (point->x < xmin)
+X	    xmin = point->x;
+X	else if (point->x > xmax)
+X	    xmax = point->x;
+X	if (point->y < ymin)
+X	    ymin = point->y;
+X	else if (point->y > ymax)
+X	    ymax = point->y;
+X    }
+X    pw_arcbox(canvas_win, xmin, ymin, xmax, ymax, line->radius, op,
+X	    line->thickness, line->style, line->style_val, line->fill_style,
+X	      line->color);
+X}
+X
+Xdraw_eps_pixmap(box, op)
+X    F_line	   *box;
+X    int		    op;
+X{
+X    int		    xmin, ymin;
+X    int		    xmax, ymax;
+X    int		    width, height, rotation;
+X    F_pos	    origin;
+X    F_pos	    opposite;
+X
+X    origin.x = ZOOMX(box->points->x);
+X    origin.y = ZOOMY(box->points->y);
+X    opposite.x = ZOOMX(box->points->next->next->x);
+X    opposite.y = ZOOMY(box->points->next->next->y);
+X
+X    xmin = min2(origin.x, opposite.x);
+X    ymin = min2(origin.y, opposite.y);
+X    xmax = max2(origin.x, opposite.x);
+X    ymax = max2(origin.y, opposite.y);
+X    if (op == ERASE) {
+X	clear_region(xmin, ymin, xmax, ymax);
+X	return;
+X    }
+X    width = abs(origin.x - opposite.x);
+X    height = abs(origin.y - opposite.y);
+X    rotation = 0;
+X    if (origin.x > opposite.x && origin.y > opposite.y)
+X	rotation = 180;
+X    if (origin.x > opposite.x && origin.y <= opposite.y)
+X	rotation = 270;
+X    if (origin.x <= opposite.x && origin.y > opposite.y)
+X	rotation = 90;
+X
+X    if (box->eps->pix_rotation != rotation ||
+X	box->eps->pix_width != width ||
+X	box->eps->pix_height != height ||
+X	box->eps->pix_flipped != box->eps->flipped)
+X	create_eps_pixmap(box, rotation, width, height, box->eps->flipped);
+X
+X    XCopyArea(tool_d, box->eps->pixmap, canvas_win, gccache[op],
+X	      0, 0, xmax - xmin, ymax - ymin, xmin, ymin);
+X    XFlush(tool_d);
+X}
+X
+X/*
+X * The input to this routine is the bitmap which is the "preview"
+X * section of an encapsulated postscript file. That input bitmap
+X * has an arbitrary number of rows and columns. This routine
+X * re-samples the input bitmap creating an output bitmap of dimensions
+X * width-by-height. This output bitmap is made into an X-windows pixmap
+X * for display purposes.
+X */
+Xcreate_eps_pixmap(box, rotation, width, height, flipped)
+X    F_line	   *box;
+X    int		    rotation, width, height, flipped;
+X{
+X    int		    i;
+X    int		    j;
+X    byte	   *data;
+X    byte	   *tdata;
+X    int		    nbytes;
+X    int		    bbytes;
+X    int		    ibit;
+X    int		    jbit;
+X    int		    wbit;
+X
+X    if (box->eps->pixmap != 0)
+X	XFreePixmap(tool_d, box->eps->pixmap);
+X
+X    nbytes = (width + 7) / 8;
+X    bbytes = (box->eps->bit_size.x + 7) / 8;
+X    data = (byte *) malloc(nbytes * height);
+X    tdata = (byte *) malloc(nbytes);
+X    memset((char *) data, NULL, nbytes * height);	/* clear memory */
+X
+X    /* create a new bitmap at the specified size (requires interpolation) */
+X    if ((!flipped && (rotation == 0 || rotation == 180)) ||
+X	(flipped && !(rotation == 0 || rotation == 180))) {
+X	for (j = 0; j < height; j++)
+X	    for (i = 0; i < width; i++) {
+X		ibit = box->eps->bit_size.x * i / width;
+X		jbit = box->eps->bit_size.y * j / height;
+X		wbit = *(box->eps->bitmap + jbit * bbytes + ibit / 8);
+X		if (wbit & (1 << (7 - (ibit & 7))))
+X		    *(data + j * nbytes + i / 8) += (1 << (i & 7));
+X	    }
+X    } else {
+X	for (j = 0; j < height; j++)
+X	    for (i = 0; i < width; i++) {
+X		ibit = box->eps->bit_size.x * j / height;
+X		jbit = box->eps->bit_size.y * i / width;
+X		wbit = *(box->eps->bitmap + jbit * bbytes + ibit / 8);
+X		if (wbit & (1 << (7 - (ibit & 7))))
+X		    *(data + (height - j) * nbytes + i / 8) += (1 << (i & 7));
+X	    }
+X    }
+X
+X    /* horizontal swap */
+X    if (rotation == 180 || rotation == 270)
+X	for (j = 0; j < height; j++) {
+X	    memset((char *) tdata, NULL, nbytes);
+X	    for (i = 0; i < width; i++)
+X		if (*(data + j * nbytes + (width - i - 1) / 8) & (1 << ((width - i - 1) & 7)))
+X		    *(tdata + i / 8) += (1 << (i & 7));
+X	    bcopy(tdata, data + j * nbytes, nbytes);
+X	}
+X
+X    /* vertical swap */
+X    if ((!flipped && (rotation == 180 || rotation == 270)) ||
+X	(flipped && !(rotation == 180 || rotation == 270)))
+X	for (j = 0; j < (height + 1) / 2; j++) {
+X	    bcopy(data + j * nbytes, tdata, nbytes);
+X	    bcopy(data + (height - j - 1) * nbytes, data + j * nbytes, nbytes);
+X	    bcopy(tdata, data + (height - j - 1) * nbytes, nbytes);
+X	}
+X
+X    box->eps->pixmap = XCreatePixmapFromBitmapData(tool_d, canvas_win,
+X					       (char *) data, width, height,
+X			       (box->color >= 0 && box->color < NUMCOLORS) ?
+X				appres.color[box->color] : x_fg_color.pixel,
+X						   x_bg_color.pixel,
+X					      DefaultDepthOfScreen(tool_s));
+X    free(data);
+X    free(tdata);
+X
+X    box->eps->pix_rotation = rotation;
+X    box->eps->pix_width = width;
+X    box->eps->pix_height = height;
+X    box->eps->pix_flipped = flipped;
+X}
+X
+X/*********************** SPLINE ***************************/
+X
+Xdraw_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    spline_bound(spline, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    if (int_spline(spline))
+X	draw_intspline(spline, op);
+X    else if (spline->type == T_CLOSED_NORMAL)
+X	draw_closed_spline(spline, op);
+X    else if (spline->type == T_OPEN_NORMAL)
+X	draw_open_spline(spline, op);
+X}
+X
+Xdraw_intspline(s, op)
+X    F_spline	   *s;
+X    int		    op;
+X{
+X    F_point	   *p1, *p2;
+X    F_control	   *cp1, *cp2;
+X
+X    p1 = s->points;
+X    cp1 = s->controls;
+X    cp2 = cp1->next;
+X    if (s->back_arrow)
+X	draw_arrow(round(cp2->lx), round(cp2->ly), p1->x, p1->y,
+X		   s->back_arrow, op, s->color);
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    for (p2 = p1->next, cp2 = cp1->next; p2 != NULL;
+X	 p1 = p2, cp1 = cp2, p2 = p2->next, cp2 = cp2->next) {
+X	bezier_spline((float) p1->x, (float) p1->y, cp1->rx, cp1->ry,
+X		      cp2->lx, cp2->ly, (float) p2->x, (float) p2->y, op,
+X		      s->thickness, s->style, s->style_val);
+X    }
+X
+X    add_point(p1->x, p1->y);
+X
+X    draw_point_array(canvas_win, op, s->thickness, s->style,
+X		     s->style_val, s->fill_style, s->color);
+X
+X    if (s->for_arrow)
+X	draw_arrow(round(cp1->lx), round(cp1->ly), p1->x,
+X		   p1->y, s->for_arrow, op, s->color);
+X}
+X
+Xdraw_open_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    F_point	   *p;
+X    float	    cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4;
+X    float	    x1, y1, x2, y2;
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    p = spline->points;
+X    x1 = p->x;
+X    y1 = p->y;
+X    p = p->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx1 = (x1 + x2) / 2;
+X    cy1 = (y1 + y2) / 2;
+X    cx2 = (cx1 + x2) / 2;
+X    cy2 = (cy1 + y2) / 2;
+X    if (spline->back_arrow)	/* backward arrow  */
+X	draw_arrow((int) x2, (int) y2, (int) x1, (int) y1,
+X		   spline->back_arrow, op, spline->color);
+X    add_point((int) x1, (int) y1);
+X
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x1 = x2;
+X	y1 = y2;
+X	x2 = p->x;
+X	y2 = p->y;
+X	cx4 = (x1 + x2) / 2;
+X	cy4 = (y1 + y2) / 2;
+X	cx3 = (x1 + cx4) / 2;
+X	cy3 = (y1 + cy4) / 2;
+X	quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X			 spline->thickness, spline->style, spline->style_val,
+X			 spline->color);
+X	cx1 = cx4;
+X	cy1 = cy4;
+X	cx2 = (cx1 + x2) / 2;
+X	cy2 = (cy1 + y2) / 2;
+X    }
+X
+X    add_point(round(cx1), round(cy1));
+X    add_point((int) x2, (int) y2);
+X
+X    draw_point_array(canvas_win, op, spline->thickness, spline->style,
+X		     spline->style_val, spline->fill_style, spline->color);
+X
+X    if (spline->for_arrow)	/* forward arrow  */
+X	draw_arrow((int) x1, (int) y1, (int) x2, (int) y2,
+X		   spline->for_arrow, op, spline->color);
+X}
+X
+Xdraw_closed_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    F_point	   *p;
+X    float	    cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4;
+X    float	    x1, y1, x2, y2;
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    p = spline->points;
+X    x1 = p->x;
+X    y1 = p->y;
+X    p = p->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx1 = (x1 + x2) / 2;
+X    cy1 = (y1 + y2) / 2;
+X    cx2 = (x1 + 3 * x2) / 4;
+X    cy2 = (y1 + 3 * y2) / 4;
+X
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x1 = x2;
+X	y1 = y2;
+X	x2 = p->x;
+X	y2 = p->y;
+X	cx4 = (x1 + x2) / 2;
+X	cy4 = (y1 + y2) / 2;
+X	cx3 = (x1 + cx4) / 2;
+X	cy3 = (y1 + cy4) / 2;
+X	quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X			 spline->thickness, spline->style, spline->style_val,
+X			 spline->color);
+X	cx1 = cx4;
+X	cy1 = cy4;
+X	cx2 = (cx1 + x2) / 2;
+X	cy2 = (cy1 + y2) / 2;
+X    }
+X    x1 = x2;
+X    y1 = y2;
+X    p = spline->points->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx4 = (x1 + x2) / 2;
+X    cy4 = (y1 + y2) / 2;
+X    cx3 = (x1 + cx4) / 2;
+X    cy3 = (y1 + cy4) / 2;
+X    quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X		     spline->thickness, spline->style, spline->style_val,
+X		     spline->color);
+X
+X    add_point((int) cx4, (int) cy4);
+X
+X    draw_point_array(canvas_win, op, spline->thickness, spline->style,
+X		     spline->style_val, spline->fill_style, spline->color);
+X}
+X
+X
+X/*********************** TEXT ***************************/
+X
+Xstatic char    *hidden_text_string = "<<>>";
+X
+Xdraw_text(text, op)
+X    F_text	   *text;
+X    int		    op;
+X{
+X    PR_SIZE	    size;
+X    int		    x;
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    text_bound(text, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X
+X    x = text->base_x;
+X    if (text->type == T_CENTER_JUSTIFIED || text->type == T_RIGHT_JUSTIFIED) {
+X	size = pf_textwidth(text->font, psfont_text(text), text->size,
+X			    strlen(text->cstring), text->cstring);
+X	if (text->type == T_CENTER_JUSTIFIED)
+X	    x -= size.x / 2;
+X	else
+X	    x -= size.x;
+X    }
+X    if (hidden_text(text))
+X	pw_text(canvas_win, x, text->base_y, op, 0, 0, 12,
+X		hidden_text_string, DEFAULT_COLOR);
+X    else
+X	pw_text(canvas_win, x, text->base_y,
+X		op, text->font, psfont_text(text), text->size, text->cstring, text->color);
+X}
+X
+X/*********************** COMPOUND ***************************/
+X
+Xvoid
+Xdraw_compoundelements(c, op)
+X    F_compound	   *c;
+X    int		    op;
+X{
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_ellipse	   *e;
+X    F_text	   *t;
+X    F_arc	   *a;
+X    F_compound	   *c1;
+X
+X    if (!overlapping(c->nwcorner.x, c->nwcorner.y, c->secorner.x, c->secorner.y,
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    for (l = c->lines; l != NULL; l = l->next) {
+X	draw_line(l, op);
+X    }
+X    for (s = c->splines; s != NULL; s = s->next) {
+X	draw_spline(s, op);
+X    }
+X    for (a = c->arcs; a != NULL; a = a->next) {
+X	draw_arc(a, op);
+X    }
+X    for (e = c->ellipses; e != NULL; e = e->next) {
+X	draw_ellipse(e, op);
+X    }
+X    for (t = c->texts; t != NULL; t = t->next) {
+X	draw_text(t, op);
+X    }
+X    for (c1 = c->compounds; c1 != NULL; c1 = c1->next) {
+X	draw_compoundelements(c1, op);
+X    }
+X}
+X
+X/*************************** ARROWS ****************************
+X
+X draw arrow heading from (x1, y1) to (x2, y2)
+X
+X****************************************************************/
+X
+Xdraw_arrow(x1, y1, x2, y2, arrow, op, color)
+X    int		    x1, y1, x2, y2, op;
+X    F_arrow	   *arrow;
+X    Color	    color;
+X{
+X    float	    x, y, xb, yb, dx, dy, l, sina, cosa;
+X    int		    xc, yc, xd, yd;
+X    float	    wid = arrow->wid, ht = arrow->ht;
+X
+X    dx = x2 - x1;
+X    dy = y1 - y2;
+X    l = sqrt((double) (dx * dx + dy * dy));
+X    if (l == 0)
+X	return;
+X    sina = dy / l;
+X    cosa = dx / l;
+X    xb = x2 * cosa - y2 * sina;
+X    yb = x2 * sina + y2 * cosa;
+X    x = xb - ht;
+X    y = yb - wid / 2;
+X    xc = x * cosa + y * sina + .5;
+X    yc = -x * sina + y * cosa + .5;
+X    y = yb + wid / 2;
+X    xd = x * cosa + y * sina + .5;
+X    yd = -x * sina + y * cosa + .5;
+X    pw_vector(canvas_win, xc, yc, x2, y2, op,
+X	      (int) arrow->thickness, arrow->style, 0.0, color);
+X    pw_vector(canvas_win, xd, yd, x2, y2, op,
+X	      (int) arrow->thickness, arrow->style, 0.0, color);
+X}
+X
+Xdraw_arcarrows(a, op)
+X    F_arc	   *a;
+X    int		    op;
+X{
+X    int		    x, y;
+X
+X    if (a->for_arrow) {
+X	compute_normal(a->center.x, a->center.y, a->point[2].x,
+X		       a->point[2].y, a->direction, &x, &y);
+X	draw_arrow(x, y, a->point[2].x, a->point[2].y, a->for_arrow, op,
+X		   a->color);
+X    }
+X    if (a->back_arrow) {
+X	compute_normal(a->center.x, a->center.y, a->point[0].x,
+X		       a->point[0].y, a->direction ^ 1, &x, &y);
+X	draw_arrow(x, y, a->point[0].x, a->point[0].y,
+X		   a->back_arrow, op, a->color);
+X    }
+X}
+X
+X/********************* CURVES FOR ARCS AND ELLIPSES ***************
+X
+X This routine plot two dimensional curve defined by a second degree
+X polynomial of the form : 2    2 f(x, y) = ax + by + g = 0
+X
+X (x0,y0) is the starting point as well as ending point of the curve. The curve
+X will translate with the offset xoff and yoff.
+X
+X This algorithm is derived from the eight point algorithm in : "An Improved
+X Algorithm for the generation of Nonparametric Curves" by Bernard W.
+X Jordan, William J. Lennon and Barry D. Holm, IEEE Transaction on Computers
+X Vol C-22, No. 12 December 1973.
+X
+X Will fill the curve if fill_style is != 0
+X
+X****************************************************************/
+X
+Xcurve(window, xstart, ystart, xend, yend, direction,
+X      a, b, xoff, yoff, op, thick, style, style_val, fill_style, color)
+X    Window	    window;
+X    int		    xstart, ystart, xend, yend, a, b, xoff, yoff;
+X    int		    direction, op, thick, style, fill_style;
+X    float	    style_val;
+X    int		    color;
+X{
+X    register int    deltax, deltay, dfx, dfy, x, y;
+X    int		    dfxx, dfyy;
+X    int		    falpha, fx, fy, fxy, absfx, absfy, absfxy;
+X    int		    margin, test_succeed, inc, dec;
+X
+X    if (a == 0 || b == 0)
+X	return;
+X
+X    if (!init_point_array(a + b + 1, a + b))	/* the +1 is for end point */
+X	return;
+X
+X    x = xstart;
+X    y = ystart;
+X    dfx = 2 * a * xstart;
+X    dfy = 2 * b * ystart;
+X    dfxx = 2 * a;
+X    dfyy = 2 * b;
+X
+X    falpha = 0;
+X    if (direction) {
+X	inc = 1;
+X	dec = -1;
+X    } else {
+X	inc = -1;
+X	dec = 1;
+X    }
+X    if (xstart == xend && ystart == yend) {
+X	test_succeed = margin = 1;
+X    } else {
+X	test_succeed = 3;
+X	margin = 3;
+X    }
+X
+X    while (test_succeed) {
+X	if (!add_point(xoff + x, yoff - y))
+X	    break;
+X
+X	deltax = (dfy < 0) ? inc : dec;
+X	deltay = (dfx < 0) ? dec : inc;
+X	fx = falpha + dfx * deltax + a;
+X	fy = falpha + dfy * deltay + b;
+X	fxy = fx + fy - falpha;
+X	absfx = abs(fx);
+X	absfy = abs(fy);
+X	absfxy = abs(fxy);
+X
+X	if ((absfxy <= absfx) && (absfxy <= absfy))
+X	    falpha = fxy;
+X	else if (absfy <= absfx) {
+X	    deltax = 0;
+X	    falpha = fy;
+X	} else {
+X	    deltay = 0;
+X	    falpha = fx;
+X	}
+X	x += deltax;
+X	y += deltay;
+X	dfx += (dfxx * deltax);
+X	dfy += (dfyy * deltay);
+X	if (abs(x - xend) < margin && abs(y - yend) < margin)
+X	    test_succeed--;
+X    }
+X
+X    if (margin == 1)		/* end points should touch */
+X	add_point(xoff + xstart, yoff - ystart);
+X
+X    draw_point_array(window, op, thick, style, style_val, fill_style, color);
+X}
+X
+X/********************* CURVES FOR SPLINES *****************************
+X
+X	The following spline drawing routine is from
+X
+X	"An Algorithm for High-Speed Curve Generation"
+X	by George Merrill Chaikin,
+X	Computer Graphics and Image Processing, 3, Academic Press,
+X	1974, 346-349.
+X
+X	and
+X
+X	"On Chaikin's Algorithm" by R. F. Riesenfeld,
+X	Computer Graphics and Image Processing, 4, Academic Press,
+X	1975, 304-310.
+X
+X***********************************************************************/
+X
+X#define		half(z1, z2)	((z1+z2)/2.0)
+X#define		THRESHOLD	5
+X
+X/* iterative version */
+X/*
+X * because we draw the spline with small line segments, the style parameter
+X * doesn't work
+X */
+X
+Xquadratic_spline(a1, b1, a2, b2, a3, b3, a4, b4, op, thick, style,
+X		 style_val, color)
+X    float	    a1, b1, a2, b2, a3, b3, a4, b4;
+X    int		    op, thick, style;
+X    float	    style_val;
+X    int		    color;
+X{
+X    register float  xmid, ymid;
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X
+X    clear_stack();
+X    push(a1, b1, a2, b2, a3, b3, a4, b4);
+X
+X    while (pop(&x1, &y1, &x2, &y2, &x3, &y3, &x4, &y4)) {
+X	xmid = half(x2, x3);
+X	ymid = half(y2, y3);
+X	if (fabs(x1 - xmid) < THRESHOLD && fabs(y1 - ymid) < THRESHOLD &&
+X	    fabs(xmid - x4) < THRESHOLD && fabs(ymid - y4) < THRESHOLD) {
+X	    add_point(round(x1), round(y1));
+X	    add_point(round(xmid), round(ymid));
+X	} else {
+X	    push(xmid, ymid, half(xmid, x3), half(ymid, y3),
+X		 half(x3, x4), half(y3, y4), x4, y4);
+X	    push(x1, y1, half(x1, x2), half(y1, y2),
+X		 half(x2, xmid), half(y2, ymid), xmid, ymid);
+X	}
+X    }
+X}
+X
+X/*
+X * the style parameter doesn't work for splines because we use small line
+X * segments
+X */
+X
+Xbezier_spline(a0, b0, a1, b1, a2, b2, a3, b3, op, thick, style, style_val)
+X    float	    a0, b0, a1, b1, a2, b2, a3, b3;
+X    int		    op, thick, style;
+X    float	    style_val;
+X{
+X    register float  tx, ty;
+X    float	    x0, y0, x1, y1, x2, y2, x3, y3;
+X    float	    sx1, sy1, sx2, sy2, tx1, ty1, tx2, ty2, xmid, ymid;
+X
+X    clear_stack();
+X    push(a0, b0, a1, b1, a2, b2, a3, b3);
+X
+X    while (pop(&x0, &y0, &x1, &y1, &x2, &y2, &x3, &y3)) {
+X	if (fabs(x0 - x3) < THRESHOLD && fabs(y0 - y3) < THRESHOLD) {
+X	    add_point(round(x0), round(y0));
+X	} else {
+X	    tx = half(x1, x2);
+X	    ty = half(y1, y2);
+X	    sx1 = half(x0, x1);
+X	    sy1 = half(y0, y1);
+X	    sx2 = half(sx1, tx);
+X	    sy2 = half(sy1, ty);
+X	    tx2 = half(x2, x3);
+X	    ty2 = half(y2, y3);
+X	    tx1 = half(tx2, tx);
+X	    ty1 = half(ty2, ty);
+X	    xmid = half(sx2, tx1);
+X	    ymid = half(sy2, ty1);
+X
+X	    push(xmid, ymid, tx1, ty1, tx2, ty2, x3, y3);
+X	    push(x0, y0, sx1, sy1, sx2, sy2, xmid, ymid);
+X	}
+X    }
+X}
+X
+X/* utilities used by spline drawing routines */
+X
+X#define		STACK_DEPTH		20
+X
+Xtypedef struct stack {
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X}
+X		Stack;
+X
+Xstatic Stack	stack[STACK_DEPTH];
+Xstatic Stack   *stack_top;
+Xstatic int	stack_count;
+X
+Xclear_stack()
+X{
+X    stack_top = stack;
+X    stack_count = 0;
+X}
+X
+Xpush(x1, y1, x2, y2, x3, y3, x4, y4)
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X{
+X    stack_top->x1 = x1;
+X    stack_top->y1 = y1;
+X    stack_top->x2 = x2;
+X    stack_top->y2 = y2;
+X    stack_top->x3 = x3;
+X    stack_top->y3 = y3;
+X    stack_top->x4 = x4;
+X    stack_top->y4 = y4;
+X    stack_top++;
+X    stack_count++;
+X}
+X
+Xint
+Xpop(x1, y1, x2, y2, x3, y3, x4, y4)
+X    float	   *x1, *y1, *x2, *y2, *x3, *y3, *x4, *y4;
+X{
+X    if (stack_count == 0)
+X	return (0);
+X    stack_top--;
+X    stack_count--;
+X    *x1 = stack_top->x1;
+X    *y1 = stack_top->y1;
+X    *x2 = stack_top->x2;
+X    *y2 = stack_top->y2;
+X    *x3 = stack_top->x3;
+X    *y3 = stack_top->y3;
+X    *x4 = stack_top->x4;
+X    *y4 = stack_top->y4;
+X    return (1);
+X}
+END_OF_FILE
+if test 25598 -ne `wc -c <'u_draw.c'`; then
+    echo shar: \"'u_draw.c'\" unpacked with wrong size!
+fi
+# end of 'u_draw.c'
+fi
+echo shar: End of archive 5 \(of 25\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+-- 
+Molecular Simulations, Inc.             mail: dcmartin@msi.com
+796 N. Pastoria Avenue                  uucp: uunet!dcmartin
+Sunnyvale, California 94086             at&t: 408/522-9236

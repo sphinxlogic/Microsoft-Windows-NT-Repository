@@ -1,0 +1,2028 @@
+Newsgroups: comp.sources.misc
+From: Panos Tsirigotis (panos@cs.colorado.edu)
+Subject: v40i176:  pst - extract text from a postscript file, Part05/06
+Message-ID: <1993Nov26.170823.6636@sparky.sterling.com>
+X-Md4-Signature: 99de9b72e3cd6cac54e2366315ec0a36
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Fri, 26 Nov 1993 17:08:23 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Panos Tsirigotis (panos@cs.colorado.edu)
+Posting-number: Volume 40, Issue 176
+Archive-name: pst/part05
+Environment: BSD, SUNOS, ULTRIX, SYSVR4, SYSVR3, POSIX
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  INSTALL Makefile libs/src/sio/CHANGELOG
+#   libs/src/sio/COPYRIGHT libs/src/sio/suite/Makefile
+#   libs/src/sio/suite/README libs/src/sio/suite/buftest.c
+#   libs/src/sio/suite/example.c libs/src/sio/suite/fdtest.c
+#   libs/src/sio/suite/sprint_test libs/src/sio/suite/testlib
+#   libs/src/sio/suite/tietest.c libs/src/str/CHANGELOG
+#   libs/src/str/COPYRIGHT libs/src/str/ss_bf.c libs/src/str/ss_bmh.c
+#   libs/src/str/ss_kmp.h libs/src/str/ss_rk.c libs/src/str/ss_rk.h
+#   libs/src/str/ss_sbm.c libs/src/str/ss_sbm.h
+#   libs/src/str/strparse.h libs/src/str/strutil.3 pst/CHANGELOG
+#   pst/defs.h pst/dit.c pst/options.c pst/pst.man pst/wp.c
+# Wrapped by kent@sparky on Fri Nov 26 11:02:47 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 6)."'
+if test -f 'INSTALL' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'INSTALL'\"
+else
+  echo shar: Extracting \"'INSTALL'\" \(2452 characters\)
+  sed "s/^X//" >'INSTALL' <<'END_OF_FILE'
+X---------------------------------------------------------------------------
+XNOTE: You may want to set your tabstop to 3; this will make everything
+X      look properly indented.
+X---------------------------------------------------------------------------
+X
+X
+X1. Distribution
+X
+Xpst comes as a group of shar archive kits. When you unshar all of
+Xthe kits you should have the following directory structure:
+X
+X	README      			:		what pst is about
+X	INSTALL      			:		this file
+X	Makefile					:		top level Makefile
+X	./pst					:		program source
+X   ./libs/src/{sio,str} :     source of libraries
+X   ./libs/include       :     library include files will be placed here
+X   ./libs/man           :     library man pages will be placed here
+X   ./libs/lib           :     library .a files will be placed here
+X
+X----------------------------------------------------------------------
+X
+X2. Compiling pst
+X
+XThe top level makefile can be used to compile the libraries, and
+Xthe program. All you need to do is type "make", after setting
+Xcertain variables appropriately in that makefile. Although the
+Xpst program should compile on all systems, the libraries it
+Xdepends on may need to be customized (via compile-time flags)
+Xfor your system. The makefile contains information about what
+Xflags need to be set.
+X
+XTo install the program, you should first set the makefile variables
+XINSTALLDIR and MANPATHDIR, and then type "make install".
+XINSTALLDIR is the directory where the program will be installed.
+XThe manpage for the program will be installed in $(MANPATHDIR)/man1
+XIf you want to uninstall the program, use "make uninstall".
+XTo clean up after installation is complete, use "make clean".
+X
+XOn systems that don't need the 'ranlib' command to create a library
+Xarchive, set the RANLIB variable of the Makefile to 'true' (an easy
+Xway to tell if 'ranlib' is needed is to use the command 'man ranlib';
+Xif there is a man page for 'ranlib', then it is probably needed).
+X
+XThe INSTALL variable in the Makefile determines the 'install' command
+Xto use. A BSD-compatible install command is needed. On systems like
+XSunOS 4.x (aka, Solaris 1.x), or Ultrix 4.x, this is the default
+Xinstall command. On other systems there may be a BSD-compatible install
+Xcommand in a special directory (for example, on Solaris 2.x, the
+XBSD-compatible install command is in the /usr/ucb directory).  If your
+Xsystem system does not have the appropriate install command, you can
+Xalways set the INSTALL variable to 'cp'.
+X
+END_OF_FILE
+  if test 2452 -ne `wc -c <'INSTALL'`; then
+    echo shar: \"'INSTALL'\" unpacked with wrong size!
+  fi
+  # end of 'INSTALL'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(2163 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X
+X#
+X# You may want to customize the following variables
+X#
+X# INSTALLDIR	:	where the program will be installed
+X# MANPATHDIR	:	the program man page will be installed in the directory
+X#						$(MANPATHDIR)/man1
+X# INSTALL		:	the pathname of the 'install' command to use for installation
+X# RANLIB			:	set this to 'true' if the ranlib command is not required
+X#						in creating a library archive
+X#
+XINSTALLDIR		= 			# /usr/local/bin
+XMANPATHDIR		= 			# /usr/local/man
+X
+XDEBUG				= -O		# should be -g or -O
+X
+XRANLIB			= ranlib
+XINSTALL			= install -c
+X
+X#
+X# LIBDEFS is used to specify compile-time flags for the SIO and STR libraries.
+X#
+X# If the native word size of your machine is 32 bits, you don't need to set 
+X# any flags in LIBDEFS for the STR library. If that is not the case, please 
+X# read the Makefile of the STR library for what flags you need to set.
+X#
+X# For the SIO library, I have included appropriate flags for some popular
+X# operating systems. If your system is not among these, please read the
+X# README file of the SIO library for additional information on how to
+X# configure that library.
+X#		1) SunOS 4.x
+X#				-DHAS_MMAP -DHAS_ONEXIT -DHAS_MEMOPS -DHAS_ISATTY
+X#		2) SunOS 5.x (aka, Solaris 2.x)
+X#				-DHAS_MMAP -DHAS_ATEXIT -DHAS_MEMOPS -DHAS_ISATTY
+X#		3) Ultrix 4.x
+X#				-DHAS_MEMOPS -DHAS_ATEXIT -DHAS_ISATTY
+X#		4) Any posix-compatible operating system
+X#				-DHAS_MEMOPS -DHAS_ATEXIT -DHAS_ISATTY
+X#
+X
+XLIBDEFS			=
+X
+X
+X#
+X# Do not change the following variables
+X#
+XINCLUDEDIR		= -I../libs/include
+XLIBDIR			= ../libs/lib
+X
+Xall: makelibs
+X	cd pst ; make LIBDIR=$(LIBDIR) "INCLUDEDIR=$(INCLUDEDIR)" "DEBUG=$(DEBUG)"
+X
+X
+Xmakelibs:
+X	cd libs/src ;\
+X	for i in * ; do ( cd $$i ; rm -f lib$$i.a ; make "DEFS=$(LIBDEFS)" "DEBUG=$(DEBUG)" MANDIR=../../man INCLUDEDIR=../../include LIBDIR=../../lib "INSTALL=$(INSTALL)" RANLIB=$(RANLIB) install ) ; done
+X
+X
+Xinstall:
+X	cd pst ;\
+X	make INSTALLDIR=$(INSTALLDIR) "INSTALL=$(INSTALL)" install ;\
+X	make MANPATHDIR=$(MANPATHDIR) "INSTALL=$(INSTALL)" install.man
+X
+Xuninstall:
+X	cd pst ;\
+X	make INSTALLDIR=$(INSTALLDIR) MANPATHDIR=$(MANPATHDIR) uninstall
+X
+Xclean:
+X	cd libs/src ; for i in * ; do ( cd $$i ; make clean ) ; done
+X	cd pst ; make clean
+X
+END_OF_FILE
+  if test 2163 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'libs/src/sio/CHANGELOG' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/CHANGELOG'\"
+else
+  echo shar: Extracting \"'libs/src/sio/CHANGELOG'\" \(1106 characters\)
+  sed "s/^X//" >'libs/src/sio/CHANGELOG' <<'END_OF_FILE'
+X
+X1.0.x-1.4.x:
+X	-	These version have not been released.
+X
+X1.5.0:
+X	-	Added the function Smorefds
+X	-	Improved the handling of pointers in Sprint
+X
+X1.5.3:
+X	-	Fixed a bug in Srdline
+X
+X1.5.6:
+X	-	Added multiple ways of determining the number of available fds
+X
+X1.6.0:
+X	-	Updated the way SIO is configured. Instead of multiple configuration
+X		files, one per OS/machine, there is now a single configuration header
+X		file where the user can define via preprocessor flags the features
+X		supported by the particular OS/machine.
+X
+X1.6.1:
+X	-	Simplified the Sprint-related configuration flags
+X	-	Fixed a bug in the events code
+X	-	Replaced all uses of memcpy with sio_memcopy
+X
+X1.6.2:
+X	-	Fixed a bug in the INS_CHAR macro: the buffer size was not respected
+X		when printing to strings. This had no effect on the SIO library,
+X		but it did affect the strx_* functions of the STR library
+X
+X1.6.3:
+X	-	The values for INCLUDEDIR and MANDIR in the Makefile were reversed
+X		(this might have been confusing to people trying to install the
+X		library).
+X	-	Updated the sio manpage with respect to the handling of interrupted
+X		system calls.
+X
+END_OF_FILE
+  if test 1106 -ne `wc -c <'libs/src/sio/CHANGELOG'`; then
+    echo shar: \"'libs/src/sio/CHANGELOG'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/CHANGELOG'
+fi
+if test -f 'libs/src/sio/COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/COPYRIGHT'\"
+else
+  echo shar: Extracting \"'libs/src/sio/COPYRIGHT'\" \(1332 characters\)
+  sed "s/^X//" >'libs/src/sio/COPYRIGHT' <<'END_OF_FILE'
+XThis software is
+X
+X(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X
+XThe author (Panagiotis Tsirigotis) grants permission to use, copy,
+Xand distribute this software and its documentation for any purpose 
+Xand without fee, provided that a) the above copyright notice extant in
+Xfiles in this distribution is not removed from files included in any
+Xredistribution, and b) this file is also included in any redistribution.
+X
+XModifications to this software may be distributed, either by distributing
+Xthe modified software or by distributing patches to the original software,
+Xunder the following additional terms:
+X
+X1. The version number will be modified as follows:
+X      a. The first 3 components of the version number
+X         (i.e. <number>.<number>.<number>) will remain unchanged.
+X      b. A new component will be appended to the version number to indicate
+X         the modification level. The form of this component is up to the 
+X         author of the modifications.
+X
+X2. The author of the modifications will include his/her name by appending it 
+X   along with the new version number to this file and will be responsible for 
+X   any wrong behavior of the modified software.
+X
+XThe author makes no representations about the suitability of this 
+Xsoftware for any purpose.  It is provided "as is" without any express 
+Xor implied warranty.
+X
+END_OF_FILE
+  if test 1332 -ne `wc -c <'libs/src/sio/COPYRIGHT'`; then
+    echo shar: \"'libs/src/sio/COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/COPYRIGHT'
+fi
+if test -f 'libs/src/sio/suite/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/Makefile'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/Makefile'\" \(2571 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/Makefile' <<'END_OF_FILE'
+X# (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X# All rights reserved.  The file named COPYRIGHT specifies the terms 
+X# and conditions for redistribution.
+X
+X#
+X# $Id: Makefile,v 8.2 1993/09/08 06:00:25 panos Exp $
+X#
+X
+XCC					= cc -I..
+X
+X#
+X# NOTE: When using the test scripts, DEFS is provided as an
+X#		  argument to make, the setting of it here has no effect.
+X#
+XDEFS				=
+XCFLAGS			= -g $(DEFS) $(MORE_DEFS)
+XLIBOBJS			= ../libsio.a
+X
+XDISTRIBUTION_FILES=copytest.c example.c print.c tietest.c buftest.c fdtest.c tester sprint_test testlib README
+X
+XALL=Sread Swrite Sputchar Sgetchar Srdline \
+X	 Sgetc Sputc Sfetch Sflush Sundo switch \
+X	 Sprint buftest tietest switch2 example fdtest evtest
+X
+Xevtest: evtest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ evtest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xfdtest: fdtest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ fdtest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xbuftest: buftest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ buftest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSprint: print.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ print.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSputchar: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSgetchar: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSrdline: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) || rm -f $@
+X
+XSread: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSwrite: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSgetc: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSputc: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSfetch: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSflush: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+XSundo: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xswitch: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xswitch2: copytest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ copytest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xtietest: tietest.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ tietest.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xexample: example.c $(LIBOBJS)
+X	$(CC) $(CFLAGS) -o $@ example.c $(LIBOBJS) $(LDFLAGS) || rm -f $@
+X
+Xclean:
+X	rm -f $(ALL) core
+X
+Xcheckout: $(DISTRIBUTION_FILES)
+X
+X$(DISTRIBUTION_FILES):
+X	co $@
+X
+Xdist:
+X	-co -q $(DISTRIBUTION_FILES)
+END_OF_FILE
+  if test 2571 -ne `wc -c <'libs/src/sio/suite/Makefile'`; then
+    echo shar: \"'libs/src/sio/suite/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/Makefile'
+fi
+if test -f 'libs/src/sio/suite/README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/README'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/README'\" \(1753 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/README' <<'END_OF_FILE'
+X
+XThe 'testlib' script will exercise most of the functions in the SIO
+Xlibrary.  It invokes the 'tester' script which does the real work.
+X'tester' is a Bourne shell script. However, it expects that the shell
+Xsupports functions and /bin/sh does not support functions on all
+Xoperating systems. Therefore, 'testlib' decides what shell to use to
+Xexecute 'tester'. On Suns, it uses /bin/sh. On DECstations, it uses
+X/usr/bin/ksh. The decision is made by checking the ARCH environment
+Xvariable.
+X
+XExercising some of the SIO functions in an automatic fashion is a
+Xdifficult task, so you will have to do it manually by visually
+Xinspecting the results of programs that exercise them.  The following
+Xis a list of functions and programs testing them (with a description of
+Xthe expected behavior):
+X
+X1. Sbuftype
+X
+X	PROGRAM: buftest.c
+X	DESCRIPTION:
+X		This program prints two groups of lines. The first group is printed
+X		using line-buffering while the second group is printed using
+X		full-buffering.
+X		The first group of lines should appear one line at a time every
+X		3 seconds. The second group of lines should appear all lines together
+X		after about 10 seconds.
+X
+X2. Stie, Suntie
+X	
+X	PROGRAM: tietest.c
+X	DESCRIPTION:
+X		This program ties stdin to stdout and then prompts for input.
+X		The prompts do *not* include a NEWLINE. Since the stdout is
+X		*line buffered* when connected to a terminal, the Stie call
+X		is what causes the prompt to appear.
+X		The first 2 prompts happen with tied stdin, stdout. For the
+X		3rd prompt, stdin is untied from stdout. This will cause
+X		the prompt to appear *after* you type something and hit RETURN.
+X
+X
+X
+XPS. If you can make testing of these functions automatic, please send
+X	 me your code so that I can include in a future SIO distribution.
+X
+END_OF_FILE
+  if test 1753 -ne `wc -c <'libs/src/sio/suite/README'`; then
+    echo shar: \"'libs/src/sio/suite/README'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/README'
+fi
+if test -f 'libs/src/sio/suite/buftest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/buftest.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/buftest.c'\" \(748 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/buftest.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: buftest.c,v 8.1 1993/03/13 01:23:09 panos Exp $" ;
+X
+X#include "sio.h"
+X
+Xmain()
+X{
+X	int i ;
+X	int sleep_interval = 3 ;
+X
+X	if ( Sbuftype( 1, SIO_LINEBUF ) == SIO_ERR )
+X	{
+X		Sprint( 2, "Sbuftype failed\n" ) ;
+X		exit( 1 ) ;
+X	}
+X
+X	for ( i = 0 ; i < 10 ; i++ )
+X	{
+X		Sprint( 1, "Line %d\n", i ) ;
+X		if ( i == 5 )
+X		{
+X			Sprint( 1, "Now switching to full buffering\n" ) ;
+X			sleep_interval = 2 ;
+X			if ( Sbuftype( 1, SIO_FULLBUF ) == SIO_ERR )
+X			{
+X				Sprint( 2, "2nd Sbuftype failed\n" ) ;
+X				exit( 1 ) ;
+X			}
+X		}
+X		sleep( sleep_interval ) ;
+X	}
+X	exit( 0 ) ;
+X}
+X
+END_OF_FILE
+  if test 748 -ne `wc -c <'libs/src/sio/suite/buftest.c'`; then
+    echo shar: \"'libs/src/sio/suite/buftest.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/buftest.c'
+fi
+if test -f 'libs/src/sio/suite/example.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/example.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/example.c'\" \(569 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/example.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: example.c,v 8.1 1993/03/13 01:21:48 panos Exp $" ;
+X
+X#include "sio.h"
+X
+Xmain( argc, argv )
+X   int argc ;
+X   char *argv[] ;
+X{
+X   char *file = (argc > 1) ? argv[ 1 ] : "tee.file" ;
+X   int fd = creat( file, 0644 ) ;
+X   long length ;
+X   char *s ;
+X
+X   while ( s = Sfetch( 0, &length ) )
+X   {
+X      Swrite( 1, s, length ) ;
+X      Swrite( fd, s, length ) ;
+X   }
+X   exit( 0 ) ;
+X}
+X
+END_OF_FILE
+  if test 569 -ne `wc -c <'libs/src/sio/suite/example.c'`; then
+    echo shar: \"'libs/src/sio/suite/example.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/example.c'
+fi
+if test -f 'libs/src/sio/suite/fdtest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/fdtest.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/fdtest.c'\" \(1150 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/fdtest.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X
+X#include <sys/time.h>
+X#include <sys/resource.h>
+X
+X#include "sio.h"
+X
+X#ifndef NULL
+X#define NULL 0
+X#endif
+X
+Xint main( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X#ifdef RLIMIT_NOFILE
+X	struct rlimit rl ;
+X	int fd ;
+X	int duped_fd ;
+X	char *s ;
+X
+X	if ( getrlimit( RLIMIT_NOFILE, &rl ) == -1 )
+X	{
+X		perror( "getrlimit" ) ;
+X		exit( 1 ) ;
+X	}
+X	if ( rl.rlim_cur != getdtablesize() )
+X	{
+X		printf( "rl.rlim_cur != getdtablesize()\n" ) ;
+X		exit( 1 ) ;
+X	}
+X	if ( rl.rlim_cur == rl.rlim_max )
+X		exit( 0 ) ;
+X
+X	rl.rlim_cur++ ;
+X	if ( setrlimit( RLIMIT_NOFILE, &rl ) == -1 )
+X	{
+X		perror( "setrlimit" ) ;
+X		exit( 1 ) ;
+X	}
+X	if ( Smorefds() == SIO_ERR )
+X	{
+X		perror( "Smorefds" ) ;
+X		exit( 1 ) ;
+X	}
+X	fd = open( "/etc/passwd", 0 ) ;
+X	if ( fd == -1 )
+X	{
+X		perror( "open" ) ;
+X		exit( 1 ) ;
+X	}
+X	duped_fd = getdtablesize()-1 ;
+X	if ( dup2( fd, duped_fd ) == -1 )
+X	{
+X		perror( "dup2" ) ;
+X		exit( 1 ) ;
+X	}
+X	s = Srdline( duped_fd ) ;
+X	if ( s == NULL )
+X	{
+X		perror( "Srdline" ) ;
+X		exit( 1 ) ;
+X	}
+X#endif
+X	exit( 0 ) ;
+X}
+END_OF_FILE
+  if test 1150 -ne `wc -c <'libs/src/sio/suite/fdtest.c'`; then
+    echo shar: \"'libs/src/sio/suite/fdtest.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/fdtest.c'
+fi
+if test -f 'libs/src/sio/suite/sprint_test' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/sprint_test'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/sprint_test'\" \(1146 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/sprint_test' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X# (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X# All rights reserved.  The file named COPYRIGHT specifies the terms 
+X# and conditions for redistribution.
+X
+X
+X#
+X# $Id: sprint_test,v 8.1 1993/03/13 01:21:48 panos Exp $
+X#
+X
+Xcompare()
+X{
+X	cmp -s PRINTF.DATA SPRINT.DATA
+X	if [ $? -ne 0 ]
+X	then
+X		echo TEST $1 FAILED
+X		echo Check files PRINTF.DATA and SPRINT.DATA for differences
+X		exit 1
+X	else
+X		echo TEST $1 PASSED
+X		rm -f PRINTF.DATA SPRINT.DATA
+X	fi
+X}
+X
+Xformat_test()
+X{
+X	Sprint $@ 1>PRINTF.DATA 2>SPRINT.DATA
+X	compare "$*"
+X}
+X
+Xformat_test ALL
+X
+Xformat_test -W10 -F0 -c
+Xformat_test -W10 -F- -c
+X
+Xecho
+Xecho PRECISION TEST
+Xi=13
+Xwhile test $i -ne 0
+Xdo
+X	format_test -P$i -F# -X
+X	i=`expr $i - 1`
+Xdone
+Xecho END OF PRECISION TEST
+Xecho
+X
+Xformat_test -Vi -4 4 1 -o "-F#"
+X
+Xformat_test -Vf -1.0 1.0 0.3 -W30 -P13 -F+ -f
+Xformat_test -Vf -1.0 1.0 0.3 -W30 -P13 -F+ -e
+Xformat_test -Vf -1.0 2.0 0.3 -W30 -P13 -F+ -g
+X
+Xformat_test -Vf -1.0 1.0 0.3 -W30 -P13 -F+- -f
+Xformat_test -Vf -1.0 1.0 0.3 -W30 -P13 -F+- -e
+Xformat_test -Vf -1.0 2.0 0.3 -W30 -P13 -F+- -g
+X
+Xformat_test -W10 "-F " -x
+X
+Xformat_test -W40 -u -Vi 8 100 3 -F0
+X
+Xformat_test -b
+Xformat_test -b -P10
+END_OF_FILE
+  if test 1146 -ne `wc -c <'libs/src/sio/suite/sprint_test'`; then
+    echo shar: \"'libs/src/sio/suite/sprint_test'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/sprint_test'
+fi
+if test -f 'libs/src/sio/suite/testlib' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/testlib'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/testlib'\" \(1172 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/testlib' <<'END_OF_FILE'
+X#!/bin/sh
+X
+X# (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X# All rights reserved.  The file named COPYRIGHT specifies the terms 
+X# and conditions for redistribution.
+X
+X
+X#
+X# $Id: testlib,v 8.2 1993/09/08 05:59:01 panos Exp $
+X#
+X
+X#
+X# Purpose:
+X#		Invoke the tester script. This is necessary because the tester
+X#		script requires functions and /bin/sh does not support functions
+X#		on all OS's. This script decides what shell to use to execute
+X#		tester. On Suns, it uses /bin/sh. On DECstations, it uses
+X#		/usr/bin/ksh
+X#		The decision is made by checking $ARCH
+X#		
+X
+Xcase "$ARCH" in
+X	"")
+X		echo "ARCH not defined. Please define it."
+X		exit 1
+X		;;
+X	
+X	sun4|sun3)
+X		TESTSHELL=/bin/sh
+X		LDFLAGS="-Bstatic -lm"
+X		;;
+X
+X	dec-mips)
+X		TESTSHELL=/usr/bin/ksh
+X		LDFLAGS=
+X		;;
+X	
+X	#
+X	# The following case was provided by Stephen House.
+X	# It applies to HP-UX 8.0 (and later, probably).
+X	#
+X	# The addition of MORE_DEFS was by me (Panos Tsirigotis)
+X	#
+X	hp)
+X		TESTSHELL=/bin/ksh
+X		LDFLAGS=
+X		MORE_DEFS="-DRANDOM=lrand48"
+X		;;
+X
+X	*) echo "Unknown architecture: $ARCH"
+X		exit 2
+X		;;
+Xesac
+X
+Xexport LDFLAGS
+Xexport TESTSHELL
+Xif test "$MORE_DEFS" ; then export MORE_DEFS ; fi
+X$TESTSHELL tester $*
+X
+END_OF_FILE
+  if test 1172 -ne `wc -c <'libs/src/sio/suite/testlib'`; then
+    echo shar: \"'libs/src/sio/suite/testlib'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/testlib'
+fi
+if test -f 'libs/src/sio/suite/tietest.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/sio/suite/tietest.c'\"
+else
+  echo shar: Extracting \"'libs/src/sio/suite/tietest.c'\" \(669 characters\)
+  sed "s/^X//" >'libs/src/sio/suite/tietest.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: tietest.c,v 8.1 1993/03/13 01:24:07 panos Exp $" ;
+X
+X#include "sio.h"
+X#include <stdio.h>
+X
+Xmain()
+X{
+X	char *s ;
+X
+X	Stie( 0, 1 ) ;
+X	Sprint( 1, "Enter 1st command --> " ) ;
+X	s = Srdline( 0 ) ;
+X	Sprint( 1, "Received command: %s\n", s ) ;
+X	Sprint( 1, "Enter 2nd command --> " ) ;
+X	s = Srdline( 0 ) ;
+X	Sprint( 1, "Received command: %s\n", s ) ;
+X	Suntie( 0 ) ;
+X	Sprint( 1, "Enter 3rd command --> " ) ;
+X	s = Srdline( 0 ) ;
+X	Sprint( 1, "Received command: %s\n", s ) ;
+X	exit( 0 ) ;
+X}
+END_OF_FILE
+  if test 669 -ne `wc -c <'libs/src/sio/suite/tietest.c'`; then
+    echo shar: \"'libs/src/sio/suite/tietest.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/sio/suite/tietest.c'
+fi
+if test -f 'libs/src/str/CHANGELOG' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/CHANGELOG'\"
+else
+  echo shar: Extracting \"'libs/src/str/CHANGELOG'\" \(507 characters\)
+  sed "s/^X//" >'libs/src/str/CHANGELOG' <<'END_OF_FILE'
+X
+X1.2.0: 
+X	First release (as part of xinetd 1.3)
+X
+X1.3.2:
+X	Added the string matching functions
+X
+X1.3.3: (posted to alt.sources)
+X	Changed the way the library is configured
+X
+X1.4.0:
+X	Added the shift-or string matching algorithm
+X	Implemented the automatic switching to the proper search algorithm
+X	Added the STRS_NOSWITCH flag to disallow switching
+X	Added the STRS_PATLEN flag
+X
+X1.4.1:
+X	Moved definition of u_wide_int from ss_rk.h to ss_impl.h
+X
+X1.4.2:
+X	Update the README file to remove all references to mystique.
+X
+END_OF_FILE
+  if test 507 -ne `wc -c <'libs/src/str/CHANGELOG'`; then
+    echo shar: \"'libs/src/str/CHANGELOG'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/CHANGELOG'
+fi
+if test -f 'libs/src/str/COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/COPYRIGHT'\"
+else
+  echo shar: Extracting \"'libs/src/str/COPYRIGHT'\" \(1329 characters\)
+  sed "s/^X//" >'libs/src/str/COPYRIGHT' <<'END_OF_FILE'
+XThis software is
+X
+X(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X
+XThe author (Panagiotis Tsirigotis) grants permission to use, copy,
+Xand distribute this software and its documentation for any purpose 
+Xand without fee, provided that the above copyright notice extant in
+Xfiles in this distribution is not removed from files included in any
+Xredistribution and that this file is also included in any redistribution.
+X
+XModifications to this software may be distributed, either by distributing
+Xthe modified software or by distributing patches to the original software,
+Xunder the following additional terms:
+X
+X1. The version number will be modified as follows:
+X      a. The first 3 components of the version number
+X         (i.e <number>.<number>.<number>) will remain unchanged.
+X      b. A new component will be appended to the version number to indicate
+X         the modification level. The form of this component is up to the 
+X         author of the modifications.
+X
+X2. The author of the modifications will include his/her name by appending it 
+X   along with the new version number to this file and will be responsible for 
+X   any wrong behavior of the modified software.
+X
+XThe author makes no representations about the suitability of this 
+Xsoftware for any purpose.  It is provided "as is" without any express 
+Xor implied warranty.
+X
+END_OF_FILE
+  if test 1329 -ne `wc -c <'libs/src/str/COPYRIGHT'`; then
+    echo shar: \"'libs/src/str/COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/COPYRIGHT'
+fi
+if test -f 'libs/src/str/ss_bf.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_bf.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_bf.c'\" \(1305 characters\)
+  sed "s/^X//" >'libs/src/str/ss_bf.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id" ;
+X
+X#include "ss_impl.h"
+X
+XPRIVATE int bf_setup() ;
+XPRIVATE char *bf_match() ;
+XPRIVATE void bf_done() ;
+X
+Xstruct ss_ops __strs_bfops = { bf_setup, bf_match, bf_done } ;
+X
+X
+XPRIVATE int bf_setup( hp )
+X	header_s *hp ;
+X{
+X#ifdef lint
+X	hp = hp ;
+X#endif
+X	return( SS_OK ) ;
+X}
+X
+X
+XPRIVATE char *bf_match( hp, str, len )
+X	header_s		*hp ;
+X	char			*str ;
+X	int			len ;
+X{
+X	register int	pfc		= SS_PATTERN( hp )[ 0 ] ;	/* pattern first char */
+X	register char	*pos		= str ;
+X	register char	*endpos	= &str[ len - SS_PATLEN( hp ) + 1 ] ;
+X	char				*endpat	= &SS_PATTERN( hp )[ SS_PATLEN( hp ) ] ;
+X
+X	while ( pos < endpos )
+X	{
+X		register int strc = SS_MAP( hp, *pos ) ;
+X		register char *pp ;									/* pattern pointer */
+X		register char *sp ;									/* string pointer */
+X
+X		pos++ ;
+X		if ( strc != pfc )
+X			continue ;
+X
+X		for ( pp = &SS_PATTERN( hp )[ 1 ], sp = pos ;; sp++, pp++ )
+X		{
+X			if ( pp == endpat )			/* we are guaranteed a non-empty pattern */
+X				return( pos-1 ) ;
+X			if ( *pp != SS_MAP( hp, *sp ) )
+X				break ;
+X		}
+X	}
+X	return( CHAR_NULL ) ;
+X}
+X
+X
+XPRIVATE void bf_done( hp )
+X	header_s *hp ;
+X{
+X#ifdef lint
+X	hp = hp ;
+X#endif
+X}
+X
+END_OF_FILE
+  if test 1305 -ne `wc -c <'libs/src/str/ss_bf.c'`; then
+    echo shar: \"'libs/src/str/ss_bf.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_bf.c'
+fi
+if test -f 'libs/src/str/ss_bmh.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_bmh.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_bmh.c'\" \(1721 characters\)
+  sed "s/^X//" >'libs/src/str/ss_bmh.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id" ;
+X
+Xchar *malloc() ;
+X
+X#include "ss_impl.h"
+X
+XPRIVATE int bmh_setup() ;
+XPRIVATE char *bmh_match() ;
+XPRIVATE void bmh_done() ;
+X
+Xstruct ss_ops __strs_bmhops = { bmh_setup, bmh_match, bmh_done } ;
+X
+X
+XPRIVATE int bmh_setup( hp )
+X	header_s *hp ;
+X{
+X	register int	patlen	= SS_PATLEN( hp ) ;
+X	register int	limit		= patlen - 1 ;			/* patlen is > 0 */
+X	register char	*pattern = SS_PATTERN( hp ) ;
+X	register int	i ;
+X	shift_int		*shift ;
+X
+X	shift = (shift_int *) malloc( ALPHABET_SIZE * sizeof( shift_int ) ) ;
+X	if ( shift == (shift_int *)NULL )
+X		return( SS_ERR ) ;
+X
+X	for ( i = 0 ; i < ALPHABET_SIZE ; i++ )
+X		shift[ i ] = patlen ;
+X	
+X	for ( i = 0 ; i < limit ; i++ )
+X		shift[ (unsigned char) pattern[ i ] ] = limit - i ;
+X
+X	BMH_HEADER( hp )->shift = shift ;
+X	return( SS_OK ) ;
+X}
+X
+X
+XPRIVATE char *bmh_match( hp, str, len )
+X	header_s			*hp ;
+X	register char	*str ;
+X	int				len ;
+X{
+X	register int	i ;
+X	int				patlen	= SS_PATLEN( hp ) ;
+X	char				*pattern = SS_PATTERN( hp ) ;
+X	register char	lpc		= pattern[ patlen-1 ] ;	/* last pattern character */
+X	shift_int		*shift	= BMH_HEADER( hp )->shift ;
+X
+X	i = patlen - 1 ;
+X	while ( i < len )
+X	{
+X		char c = SS_MAP( hp, str[ i ] ) ;
+X
+X		if ( c == lpc )
+X		{
+X			int j, k ;
+X
+X			for ( j = patlen-1, k = i ;; )
+X			{
+X				if ( j == 0 )
+X					return( &str[ k ] ) ;
+X				j--, k-- ;
+X				if ( pattern[ j ] != SS_MAP( hp, str[ k ] ) )
+X					break ;
+X			}
+X		}
+X		i += shift[ (unsigned char) c ] ;
+X	}
+X	return( CHAR_NULL ) ;
+X}
+X
+X
+XPRIVATE void bmh_done( hp )
+X	header_s *hp ;
+X{
+X	(void) free( (char *)BMH_HEADER( hp )->shift ) ;
+X}
+X
+END_OF_FILE
+  if test 1721 -ne `wc -c <'libs/src/str/ss_bmh.c'`; then
+    echo shar: \"'libs/src/str/ss_bmh.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_bmh.c'
+fi
+if test -f 'libs/src/str/ss_kmp.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_kmp.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_kmp.h'\" \(381 characters\)
+  sed "s/^X//" >'libs/src/str/ss_kmp.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X#ifndef SS_KMP_H
+X#define SS_KMP_H
+X
+X/*
+X * $Id: ss_kmp.h,v 3.1 1993/06/13 02:44:52 panos Exp $
+X */
+X
+Xtypedef int next_int ;			/* must be signed */
+X
+Xstruct kmp_header
+X{
+X	next_int *next ;
+X} ;
+X
+X#endif	/* SS_KMP_H */
+X
+END_OF_FILE
+  if test 381 -ne `wc -c <'libs/src/str/ss_kmp.h'`; then
+    echo shar: \"'libs/src/str/ss_kmp.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_kmp.h'
+fi
+if test -f 'libs/src/str/ss_rk.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_rk.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_rk.c'\" \(2625 characters\)
+  sed "s/^X//" >'libs/src/str/ss_rk.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: ss_rk.c,v 3.1 1993/06/13 02:45:04 panos Exp $" ;
+X
+X#include "ss_impl.h"
+X
+X/*
+X * Multiply a number by the radix we are using
+X */
+X#define RADIX_MULT( n )						( (n) << NBIC )
+X
+X#define UCHAR( c )							((unsigned char)(c))
+X
+X
+XPRIVATE int rk_setup() ;
+XPRIVATE char *rk_match() ;
+XPRIVATE void rk_done() ;
+X
+Xstruct ss_ops __strs_rkops = { rk_setup, rk_match, rk_done } ;
+X
+X
+XPRIVATE int rk_setup( hp )
+X	register header_s *hp ;
+X{
+X	register int		i ;
+X	struct rk_header	*rkp		= RK_HEADER( hp ) ;
+X	u_wide_int			patval	= 0 ;
+X	u_wide_int			digit_1	= 1 ;
+X
+X	/*
+X	 * Compute pattern value
+X	 */
+X	for ( i = 0 ; i < SS_PATLEN( hp ) ; i++ )
+X		patval = ( RADIX_MULT( patval ) + UCHAR( SS_PATTERN( hp )[i] ) ) % PRIME ;
+X	
+X	for ( i = 0 ; i < SS_PATLEN( hp )-1 ; i++ )
+X		digit_1 = RADIX_MULT( digit_1 ) % PRIME ;
+X
+X	rkp->rk_patval = patval ;
+X	rkp->rk_digit1 = digit_1 ;
+X	return( SS_OK ) ;
+X}
+X
+X
+XPRIVATE void rk_done( hp ) 
+X	header_s *hp ;
+X{
+X#ifdef lint
+X	hp = hp ;
+X#endif
+X}
+X
+X
+XPRIVATE char *rk_match( hp, str, len )
+X	register header_s		*hp ;
+X	char						*str ;
+X	int						len ;
+X{
+X	register int				i ;
+X	register unsigned char	uc ;
+X	register u_wide_int		strval	= 0 ;
+X	register u_wide_int		patval	= RK_HEADER( hp )->rk_patval ;
+X	register u_wide_int		digit_1	= RK_HEADER( hp )->rk_digit1 ;
+X	int							patlen	= SS_PATLEN( hp ) ;
+X	char							*endpat	= &SS_PATTERN( hp )[ patlen ] ;
+X
+X	/*
+X	 * Calculate initial value of 'str'
+X	 * Note that we are guaranteed that len >= pattern length
+X	 */
+X	for ( i = 0 ; i < patlen ; i++ )
+X	{
+X		uc = UCHAR( SS_MAP( hp, str[i] ) ) ;
+X		strval = ( RADIX_MULT( strval ) + uc ) % PRIME ;
+X	}
+X
+X	for ( i = 0 ;; i++ )
+X	{
+X		register u_wide_int t1 ;
+X
+X		if ( strval == patval )
+X		{
+X			char *pp, *sp ;
+X
+X			for ( pp = SS_PATTERN( hp ), sp = &str[i] ;; sp++, pp++ )
+X			{
+X				if ( pp == endpat )
+X					return( &str[i] ) ;
+X				if ( *pp != SS_MAP( hp, *sp ) )
+X					break ;
+X			}
+X		}
+X
+X		if ( i == len-patlen+1 )
+X			break ;
+X
+X		/*
+X		 * The formula we evaluate is:
+X		 *
+X		 *	strval = ( RADIX_MULT( ( strval - UCHAR( str[i] )*digit_1 ) ) + 
+X		 *						UCHAR( str[i+patlen] ) ) % PRIME ;
+X		 *
+X		 * We have to make sure that the subtraction does not produce
+X		 * a negative number since that causes strval to be wrong.
+X		 */
+X		uc = UCHAR( SS_MAP( hp, str[i] ) ) ;
+X		t1 = ( uc * digit_1 ) % PRIME ;
+X		if ( t1 > strval )
+X			strval += PRIME ;
+X		uc = UCHAR( SS_MAP( hp, str[i+patlen] ) ) ;
+X		strval = ( RADIX_MULT( strval - t1 ) + uc ) % PRIME ;
+X	}
+X	return( NULL ) ;
+X}
+X
+X
+END_OF_FILE
+  if test 2625 -ne `wc -c <'libs/src/str/ss_rk.c'`; then
+    echo shar: \"'libs/src/str/ss_rk.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_rk.c'
+fi
+if test -f 'libs/src/str/ss_rk.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_rk.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_rk.h'\" \(579 characters\)
+  sed "s/^X//" >'libs/src/str/ss_rk.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X#ifndef SS_RK_H
+X#define SS_RK_H
+X
+X/*
+X * $Id: ss_rk.h,v 3.2 1993/06/16 00:06:34 panos Exp $
+X */
+X
+Xstruct rk_header
+X{
+X	u_wide_int rk_digit1 ;				/* in the appropriate radix */
+X	u_wide_int rk_patval ;
+X} ;
+X
+X#if WIDE_INT_SIZE == 32
+X#	define PRIME						16777213
+X#else
+X#	if WIDE_INT_SIZE == 16
+X#		define PRIME					251
+X#	else
+X		int WIDE_INT_SIZE_has_bad_value = or_is_undefined ;
+X#	endif 
+X#endif
+X
+X#endif	/* SS_RK_H */
+X
+END_OF_FILE
+  if test 579 -ne `wc -c <'libs/src/str/ss_rk.h'`; then
+    echo shar: \"'libs/src/str/ss_rk.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_rk.h'
+fi
+if test -f 'libs/src/str/ss_sbm.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_sbm.c'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_sbm.c'\" \(1825 characters\)
+  sed "s/^X//" >'libs/src/str/ss_sbm.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: ss_sbm.c,v 3.1 1993/06/13 02:45:45 panos Exp $" ;
+X
+Xchar *malloc() ;
+X
+X#include "ss_impl.h"
+X#include "ss_sbm.h"
+X
+XPRIVATE int sbm_setup() ;
+XPRIVATE char *sbm_match() ;
+XPRIVATE void sbm_done() ;
+X
+X
+Xstruct ss_ops __strs_sbmops = { sbm_setup, sbm_match, sbm_done } ;
+X
+X
+XPRIVATE int sbm_setup( hp )
+X	header_s *hp ;
+X{
+X	last_int			*last_occurrence ;
+X	register int	i ;
+X	int				patlen	= SS_PATLEN( hp ) ;
+X	char				*pattern = SS_PATTERN( hp ) ;
+X
+X	last_occurrence = (last_int *) malloc( ALPHABET_SIZE * sizeof( last_int ) ) ;
+X	if ( last_occurrence == (last_int *)0 )
+X		return( SS_ERR ) ;
+X	
+X	for ( i = 0 ; i < ALPHABET_SIZE ; i++ )
+X		last_occurrence[ i ] = -1 ;
+X	for ( i = 0 ; i < patlen ; i++ )
+X		last_occurrence[ (unsigned char) pattern[ i ] ] = i ;
+X
+X	SBM_HEADER( hp )->last_occurrence = last_occurrence ;
+X	return( SS_OK ) ;
+X}
+X
+X
+X
+XPRIVATE char *sbm_match( hp, str, len )
+X	header_s		*hp ;
+X	char			*str ;
+X	int			len ;
+X{
+X	register int	j ;
+X	register int	s						= 0 ;
+X	char				*pattern				= SS_PATTERN( hp ) ;
+X	int				patlen				= SS_PATLEN( hp ) ;
+X	last_int			*last_occurrence	= SBM_HEADER( hp )->last_occurrence ;
+X
+X	while ( s <= len - patlen )
+X	{
+X		register char c ;
+X		last_int lo ;
+X
+X		/*
+X		 * Try matching pattern right-to-left
+X		 */
+X		for ( j = patlen-1 ;; )
+X		{
+X			c = SS_MAP( hp, str[ s+j ] ) ;
+X			if ( pattern[ j ] == c )
+X				if ( j )
+X					j-- ;
+X				else
+X					return( &str[ s ] ) ;
+X			else
+X				break ;
+X		}
+X		lo = last_occurrence[ (unsigned char) c ] ;
+X		if ( j > lo )
+X			s += j - lo ;
+X		else
+X			s++ ;
+X	}
+X	return( CHAR_NULL ) ;
+X}
+X
+X
+XPRIVATE void sbm_done( hp )
+X	header_s *hp ;
+X{
+X	(void) free( (char *) SBM_HEADER( hp )->last_occurrence ) ;
+X}
+X
+END_OF_FILE
+  if test 1825 -ne `wc -c <'libs/src/str/ss_sbm.c'`; then
+    echo shar: \"'libs/src/str/ss_sbm.c'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_sbm.c'
+fi
+if test -f 'libs/src/str/ss_sbm.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/ss_sbm.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/ss_sbm.h'\" \(393 characters\)
+  sed "s/^X//" >'libs/src/str/ss_sbm.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X
+X#ifndef SS_SBM_H
+X#define SS_SBM_H
+X
+X/*
+X * $Id: ss_sbm.h,v 3.1 1993/06/13 02:46:00 panos Exp $
+X */
+X
+Xtypedef int last_int ;			/* must be signed */
+X
+Xstruct sbm_header
+X{
+X	last_int *last_occurrence ;
+X} ;
+X
+X#endif	/* SS_SBM_H */
+X
+END_OF_FILE
+  if test 393 -ne `wc -c <'libs/src/str/ss_sbm.h'`; then
+    echo shar: \"'libs/src/str/ss_sbm.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/ss_sbm.h'
+fi
+if test -f 'libs/src/str/strparse.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strparse.h'\"
+else
+  echo shar: Extracting \"'libs/src/str/strparse.h'\" \(1514 characters\)
+  sed "s/^X//" >'libs/src/str/strparse.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X
+X/*
+X * $Id: strparse.h,v 3.1 1993/06/13 02:48:35 panos Exp $
+X */
+X
+Xstruct str_handle
+X{
+X   char *string ;
+X   char *separator ;
+X   char *pos ;
+X   int flags ;
+X   int *errnop ;
+X   int no_more ;
+X} ;
+X
+Xint str_errno ;
+X
+X#ifndef NULL
+X#define NULL         0
+X#endif
+X
+X#ifndef FALSE
+X#define FALSE        0
+X#define TRUE         1
+X#endif
+X
+X#define PRIVATE		static
+X
+X#define TERMINATE( msg )   {                                         \
+X                              char *s = msg ;                        \
+X                                                                     \
+X                              (void) write( 2, s, strlen( s ) ) ;    \
+X                              (void) abort() ;                       \
+X                              _exit( 1 ) ;                           \
+X                              /* NOTREACHED */                       \
+X                           }
+X
+X
+X#define HANDLE_ERROR( flags, retval, errp, errval, msg )    \
+X            if ( flags & STR_RETURN_ERROR )                 \
+X            {                                               \
+X               *errp = errval ;                             \
+X               return( retval ) ;                           \
+X            }                                               \
+X            else                                            \
+X               TERMINATE( msg )
+X
+X
+END_OF_FILE
+  if test 1514 -ne `wc -c <'libs/src/str/strparse.h'`; then
+    echo shar: \"'libs/src/str/strparse.h'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strparse.h'
+fi
+if test -f 'libs/src/str/strutil.3' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'libs/src/str/strutil.3'\"
+else
+  echo shar: Extracting \"'libs/src/str/strutil.3'\" \(1367 characters\)
+  sed "s/^X//" >'libs/src/str/strutil.3' <<'END_OF_FILE'
+X.\"(c) Copyright 1992, 1993 by Panagiotis Tsirigotis
+X.\"All rights reserved.  The file named COPYRIGHT specifies the terms 
+X.\"and conditions for redistribution.
+X.\"
+X.\" $Id: strutil.3,v 3.1 1993/06/13 02:49:23 panos Exp $
+X.TH STRUTIL 3X "30 September 1992"
+X.SH NAME
+Xstr_find, str_casefind, str_fill, str_lower, str_upper -- string utility functions
+X.SH SYNOPSIS
+X.LP
+X.nf
+X.ft B
+X#include "str.h"
+X.LP
+X.ft B
+Xchar *str_find( s1, s2 )
+Xchar *s1, *s2 ;
+X.LP
+X.ft B
+Xchar *str_casefind( s1, s2 )
+Xchar *s1, *s2 ;
+X.LP
+X.ft B
+Xvoid str_fill( s, c )
+Xchar *s ;
+Xchar c ;
+X.LP
+X.ft B
+Xchar *str_lower( s )
+Xchar *s ;
+X.LP
+X.ft B
+Xchar *str_upper( s )
+Xchar *s ;
+X.SH DESCRIPTION
+X.B str_find()
+Xreturns a pointer to the first instance of string \fIs2\fR in string \fIs1\fR.
+XIf \fIs2\fR is the empty string a pointer to \fIs1\fR is returned.
+X.LP
+X.B str_casefind()
+Xperforms the same function as
+X.B str_find()
+Xexcept that it performs case insensitive character comparisons.
+X.LP
+X.B str_fill()
+Xfills the string \fIs\fR with the character \fIc\fR.
+X.LP
+X.B str_lower()
+Xand
+X.B str_upper()
+Xconvert their argument in place to a lower or upper case string respectively.
+X.SH "RETURN VALUES"
+X.LP
+X\fBstr_find()\fR 
+Xand
+X.B str_casefind()
+Xreturn a pointer to the first occurrence of \fIs2\fR
+Xin \fIs1\fR or
+X.SM NULL
+Xif \fIs2\fR does not exist in \fIs1\fR.
+X.LP
+X\fBstr_lower()\fR and \fBstr_upper()\fR return \fIs\fR.
+END_OF_FILE
+  if test 1367 -ne `wc -c <'libs/src/str/strutil.3'`; then
+    echo shar: \"'libs/src/str/strutil.3'\" unpacked with wrong size!
+  fi
+  # end of 'libs/src/str/strutil.3'
+fi
+if test -f 'pst/CHANGELOG' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/CHANGELOG'\"
+else
+  echo shar: Extracting \"'pst/CHANGELOG'\" \(38 characters\)
+  sed "s/^X//" >'pst/CHANGELOG' <<'END_OF_FILE'
+X
+X1.0.0:
+X	Posted to comp.sources.misc
+X
+END_OF_FILE
+  if test 38 -ne `wc -c <'pst/CHANGELOG'`; then
+    echo shar: \"'pst/CHANGELOG'\" unpacked with wrong size!
+  fi
+  # end of 'pst/CHANGELOG'
+fi
+if test -f 'pst/defs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/defs.h'\"
+else
+  echo shar: Extracting \"'pst/defs.h'\" \(1426 characters\)
+  sed "s/^X//" >'pst/defs.h' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X/*
+X * $Id: defs.h,v 1.1 1993/02/05 01:25:53 panos Exp $
+X */
+X
+X#define PRIVATE							static
+X
+X#define FALSE								0
+X#define TRUE								1
+X
+X#define NULL								0
+X
+X#define NUL									'\0'
+X#define SPACE								' '
+X#define NEWLINE							'\n'
+X#define CARRIAGE_RETURN					'\015'
+X#define TAB									'\t'
+X#define BACKSLASH							'\\'
+X#define OPEN_PAREN						'('
+X#define CLOSE_PAREN						')'
+X#define OPEN_CURLY_BRACKET				'{'
+X#define CLOSED_CURLY_BRACKET			'}'
+X#define OPEN_BRACKET						'['
+X#define CLOSED_BRACKET					']'
+X#define LESS_THAN							'<'
+X#define GREATER_THAN						'>'
+X#define MINUS								'-'
+X#define SLASH								'/'
+X
+Xtypedef enum { TOK_STRING, TOK_NUMBER, TOK_OTHER, TOK_CMD } token_e ;
+X
+Xvoid error() ;
+Xvoid printout() ;
+X
+Xextern int line_count ;
+X
+X#define NUM( c )							( (c) - '0' )
+X
+X#define NEXT_CHAR( fd, c )				{									\
+X													c = Sgetchar( fd ) ;		\
+X													if ( c == NEWLINE )		\
+X														line_count++ ;			\
+X												}
+X
+X#define PUTBACK( fd, c )         {                                \
+X                                    Sundo( fd, SIO_UNDO_CHAR ) ;  \
+X                                    if ( c == NEWLINE )           \
+X                                       line_count-- ;             \
+X                                 }
+X
+X
+END_OF_FILE
+  if test 1426 -ne `wc -c <'pst/defs.h'`; then
+    echo shar: \"'pst/defs.h'\" unpacked with wrong size!
+  fi
+  # end of 'pst/defs.h'
+fi
+if test -f 'pst/dit.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/dit.c'\"
+else
+  echo shar: Extracting \"'pst/dit.c'\" \(2838 characters\)
+  sed "s/^X//" >'pst/dit.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: dit.c,v 1.3 1993/09/14 23:05:28 panos Exp $" ;
+X
+X#include "string.h"
+X
+X#include "sio.h"
+X
+X#define PAGE_ID						"%%Page:"
+X
+X#include "defs.h"
+X
+Xvoid decode_string() ;
+X
+X
+XPRIVATE void skip_to_first_page( fd )
+X	int fd ;
+X{
+X	char *line ;
+X	char *page_id = PAGE_ID ;
+X	int len = strlen( PAGE_ID ) ;
+X
+X	while ( line = Srdline( fd ) )
+X	{
+X		line_count++ ;
+X		if ( strncmp( line, page_id, len ) == 0 )
+X			return ;
+X	}
+X	error( "Failed to find 1st page\n" ) ;
+X}
+X
+X
+Xint get_line_char( sp )
+X	char **sp ;
+X{
+X	char *p = *sp ;
+X	char c = *p++ ;
+X
+X	if ( c == NUL )
+X		error( "Reached end of line while reading string\n" ) ;
+X	*sp = p ;
+X	return( c ) ;
+X}
+X
+X
+X/*
+X * Assumptions:
+X *		2 consecutive numbers ==> new line
+X *		first char of each line is a number
+X */
+Xvoid psdit_process( fd )
+X	int fd ;
+X{
+X	char *line ;
+X	char *p ;
+X	int output_string = FALSE ;
+X
+X	skip_to_first_page( fd ) ;
+X
+X	while ( line = Srdline( fd ) )
+X	{
+X		if ( isdigit( line[ 0 ] ) )
+X		{
+X			for ( p = &line[ 1 ] ; isdigit( *p ) ; p++ ) ;
+X
+X			while ( isspace( *p ) ) p++ ;
+X
+X			if ( isdigit( *p ) )
+X			{
+X				for ( p++ ; isdigit( *p ) ; p++ ) ;
+X				if ( output_string )
+X				{
+X					printout( NEWLINE ) ;
+X					output_string = FALSE ;
+X				}
+X			}
+X		}
+X		else
+X			p = line ;
+X
+X		p = strchr( p, OPEN_PAREN ) ;
+X		if ( p == NULL )
+X			continue ;
+X		p++ ;
+X		decode_string( get_line_char, (void *)&p ) ;
+X		output_string = TRUE ;
+X		if ( isalpha( *p ) )
+X			printout( SPACE ) ;
+X	}
+X}
+X
+X
+Xvoid ditroff_process( fd )
+X	int fd ;
+X{
+X	char *line ;
+X	char *page_id = PAGE_ID ;
+X	int len = strlen( PAGE_ID ) ;
+X
+X	skip_to_first_page( fd ) ;
+X
+X	while ( line = Srdline( fd ) )
+X	{
+X		char *p ;
+X
+X		if ( line[0] == '%' )
+X		{
+X			if ( strncmp( page_id, line, len ) == 0 )
+X				start_paragraph() ;
+X			continue ;
+X		}
+X		
+X		p = strchr( line, OPEN_PAREN ) ;
+X		if ( p == NULL )
+X			continue ;
+X		if ( p[-1] == 'Y' )
+X			printout( NEWLINE ) ;
+X		else if ( p[-1] == 'Z' )
+X			start_paragraph() ;
+X		p++ ;
+X		decode_string( get_line_char, (void *)&p ) ;
+X		printout( SPACE ) ;
+X	}
+X}
+X
+Xvoid troff_process( fd )
+X	int fd ;
+X{
+X	char *line ;
+X	int output_string = FALSE ;
+X
+X	skip_to_first_page( fd ) ;
+X
+X	while ( line = Srdline( fd ) )
+X	{
+X		char *p ;
+X
+X		if ( line[0] == '%' )
+X			continue ;
+X
+X		for ( p = line ; *p ; )
+X		{
+X			if ( *p == OPEN_PAREN )
+X			{
+X				p++ ;
+X				decode_string( get_line_char, (void *)&p ) ;
+X				output_string = TRUE ;
+X			}
+X			else if ( isdigit( *p ) )
+X			{
+X				while ( isdigit( *p ) ) p++ ;
+X				if ( isspace( *p ) )
+X				{
+X					while ( isspace( *p ) ) p++ ;
+X					if ( isdigit( *p ) )
+X					{
+X						while ( isdigit( *p ) ) p++ ;
+X						if ( output_string )
+X						{
+X							printout( NEWLINE ) ;
+X							output_string = FALSE ;
+X						}
+X					}
+X				}
+X			}
+X			else
+X				p++ ;
+X		}
+X	}
+X}
+X
+X
+END_OF_FILE
+  if test 2838 -ne `wc -c <'pst/dit.c'`; then
+    echo shar: \"'pst/dit.c'\" unpacked with wrong size!
+  fi
+  # end of 'pst/dit.c'
+fi
+if test -f 'pst/options.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/options.c'\"
+else
+  echo shar: Extracting \"'pst/options.c'\" \(1354 characters\)
+  sed "s/^X//" >'pst/options.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+X#include "options.h"
+X
+X/*
+X * $Id: options.opt,v 1.4 1993/11/14 05:24:11 panos Exp $
+X */
+X
+X#define NULL         0
+X
+Xvoid exit() ;
+X
+Xint l_option ;
+Xint v_option ;
+Xint n_option ;
+Xint d_option ;
+Xint a_option ;
+Xchar * a_option_arg_1 ;
+X
+Xchar *program_name ;
+X
+Xint opt_recognize( argc, argv )
+X	int argc ;
+X	char *argv[] ;
+X{
+X	int arg ;
+X	char *strrchr() ;
+X
+X	program_name = strrchr( argv[ 0 ], '/' ) ;
+X	program_name = ( program_name == NULL ) ? argv[ 0 ] : program_name + 1 ;
+X
+X	for ( arg = 1 ; arg < argc ; arg++ )
+X		if ( argv[ arg ][ 0 ] == '-' && argv[ arg ][ 1 ] != 0 )
+X		{
+X			if ( strcmp( &argv[ arg ][ 1 ], "l" ) == 0 ) 
+X				l_option = 1 ;
+X			else if ( strcmp( &argv[ arg ][ 1 ], "v" ) == 0 ) 
+X				v_option = 1 ;
+X			else if ( strcmp( &argv[ arg ][ 1 ], "n" ) == 0 ) 
+X				n_option = 1 ;
+X			else if ( strcmp( &argv[ arg ][ 1 ], "d" ) == 0 ) 
+X				d_option = 1 ;
+X			else if ( strcmp( &argv[ arg ][ 1 ], "a" ) == 0 ) 
+X			{
+X				if ( ++arg == argc )
+X					usage() ;
+X				a_option_arg_1 = ( argv[ arg ] ) ;
+X				a_option = 1 ;
+X			}
+X			else
+X				usage() ;
+X		}
+X		else
+X			break ;
+X
+X
+X	return( arg ) ;
+X}
+X
+Xvoid usage()
+X{
+X	Sprint( 2, "Usage: %s [-l] [-v] [-n] [-d] [-a algorithm] file\n", program_name ) ;
+X	exit( 1 ) ;
+X}
+END_OF_FILE
+  if test 1354 -ne `wc -c <'pst/options.c'`; then
+    echo shar: \"'pst/options.c'\" unpacked with wrong size!
+  fi
+  # end of 'pst/options.c'
+fi
+if test -f 'pst/pst.man' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/pst.man'\"
+else
+  echo shar: Extracting \"'pst/pst.man'\" \(1560 characters\)
+  sed "s/^X//" >'pst/pst.man' <<'END_OF_FILE'
+X.\"(c) Copyright 1993 by Panagiotis Tsirigotis
+X.\"All rights reserved.  The file named COPYRIGHT specifies the terms 
+X.\"and conditions for redistribution.
+X.\"
+X.\" $Id: pst.man,v 1.4 1993/11/14 05:24:41 panos Exp $
+X.TH PST 1L "4 February 1993"
+X.SH NAME
+Xpst \- extract the text of a postscript file
+X.SH SYNOPSIS
+X.B pst
+X[\fB-l\fP]
+X[\fB-v\fP]
+X[\fB-d\fP]
+X[\fB-n\fP]
+X[\fB-a algorithm\fP]
+X.IR "file"
+X.SH DESCRIPTION
+XThis program extracts the text contained in the specified postscript
+X.I file.
+XSuch files are typically produced by other programs.
+X.I pst
+Xneeds to identify how the file was produced in order to successfully
+Xextract the text from it.
+XIt currently understands files generated by the following programs:
+X.RS
+X.IP dvips
+X.IP "ditroff through psdit"
+X.IP WordPerfect
+X.IP idraw
+X.RE
+X.LP
+XIf
+X.I file
+Xis missing, the standard input is used.
+X.SH OPTIONS
+X.TP 12
+X.SB "-v"
+XPrint to standard error how the postscript file was derived
+X.TP
+X.SB "-n"
+XDo nothing
+X.TP
+X.SB "-d"
+XEnable debugging. Currently this option has no effect.
+X.TP
+X.SB "-a algorithm"
+XThis option directs
+X.I pst 
+Xto use the specified
+X.I algorithm
+Xto parse the file.
+XAvailable algorithms include:
+X.RS
+X.RS
+X.TP 10
+X.SB dvi
+X.TP
+X.SB psdit
+Xditroff through psdit
+X.TP
+X.SB dit
+Xditroff
+X.TP
+X.SB troff
+X.TP
+X.SB wp
+Xwordperfect
+X.RE
+X.RE
+X.TP
+X.SB "-l"
+XLists the name of available algorithms (those are the names that can be used
+Xas arguments to the
+X.I "-a"
+Xoption).
+X.SH AUTHOR
+XPanos Tsirigotis, CS dept, University of Colorado, Boulder
+X.SH BUGS
+X.I pst
+Xwill extract nothing if it can't determine how the file was generated.
+END_OF_FILE
+  if test 1560 -ne `wc -c <'pst/pst.man'`; then
+    echo shar: \"'pst/pst.man'\" unpacked with wrong size!
+  fi
+  # end of 'pst/pst.man'
+fi
+if test -f 'pst/wp.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'pst/wp.c'\"
+else
+  echo shar: Extracting \"'pst/wp.c'\" \(1076 characters\)
+  sed "s/^X//" >'pst/wp.c' <<'END_OF_FILE'
+X/*
+X * (c) Copyright 1993 by Panagiotis Tsirigotis
+X * All rights reserved.  The file named COPYRIGHT specifies the terms 
+X * and conditions for redistribution.
+X */
+X
+Xstatic char RCSid[] = "$Id: wp.c,v 1.2 1993/02/07 02:02:27 panos Exp $" ;
+X
+X#include "sio.h"
+X
+X#include "defs.h"
+X
+Xvoid wordperfect_process( fd )
+X	int fd ;
+X{
+X	char *line ;
+X	int output_string = FALSE ;
+X	void decode_string() ;
+X	int get_line_char() ;
+X
+X	while ( line = Srdline( fd ) )
+X	{
+X		char *p ;
+X
+X		if ( line[0] == '%' )
+X			continue ;
+X
+X		for ( p = line ; *p ; )
+X		{
+X			if ( *p == OPEN_PAREN )
+X			{
+X				if ( p > line && p[-1] == CARRIAGE_RETURN )
+X					printout( SPACE ) ;
+X				p++ ;
+X				decode_string( get_line_char, (void *)&p ) ;
+X				output_string = TRUE ;
+X			}
+X			else if ( isdigit( *p ) )
+X			{
+X				while ( isdigit( *p ) ) p++ ;
+X				if ( isspace( *p ) )
+X				{
+X					while ( isspace( *p ) ) p++ ;
+X					if ( isdigit( *p ) )
+X					{
+X						while ( isdigit( *p ) ) p++ ;
+X						if ( output_string )
+X						{
+X							printout( NEWLINE ) ;
+X							output_string = FALSE ;
+X						}
+X					}
+X				}
+X			}
+X			else
+X				p++ ;
+X		}
+X	}
+X}
+X
+X
+END_OF_FILE
+  if test 1076 -ne `wc -c <'pst/wp.c'`; then
+    echo shar: \"'pst/wp.c'\" unpacked with wrong size!
+  fi
+  # end of 'pst/wp.c'
+fi
+echo shar: End of archive 5 \(of 6\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 6 archives.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

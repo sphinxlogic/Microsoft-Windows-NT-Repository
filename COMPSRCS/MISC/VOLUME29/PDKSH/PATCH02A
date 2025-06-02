@@ -1,0 +1,690 @@
+Newsgroups: comp.sources.misc
+From: sjg@zen.void.oz.au (Simon J. Gerraty)
+Subject:  v29i081:  pdksh - Public Domain Korn Shell, v4, Patch02a/2
+Message-ID: <csm-v29i081=pdksh.230707@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 6894d9f506ccd1708b97530952e2b533
+Date: Sun, 26 Apr 1992 04:08:53 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sjg@zen.void.oz.au (Simon J. Gerraty)
+Posting-number: Volume 29, Issue 81
+Archive-name: pdksh/patch02a
+Environment: UNIX
+Patch-To: pdksh: Volume 25, Issue 47-55
+
+This patch and the next bring PD KSH to 4.3
+
+Sorry about long delay and the large number of diffs!  I've put
+all the source under RCS, so there are diffs to pretty well
+every file.
+
+This 4.3 contains fixes for a few bugs and adds the following
+features:
+
+1/	Automatic setting of edit mode.
+	This is not quite what ksh does, but seems cool.  We
+	check FCEDIT,EDITOR,VISUAL in that order.  The first one
+	that is set is checked for the work "emacs" or "vi".
+
+2/	History file.
+	This was a quick and dirty last night, but does the jobs
+	for now.
+
+3/	Job Control for System V
+	The shell uses XPG3's sigaction() interface for signals.
+	An implementation is provided for systems that lack it.
+	This arrangement has been tested on:
+		BSD:	sun386,sun4c
+		SYSV:	Bull DPX/2 (SYSV/POSIX)
+	I used gcc-2.1 on each.
+
+Enjoy!
+
+sjg
+
+Before applying this patch you must:
+
+	mv sh/ulimit.c sh/do_ulimit.c
+
+Apply the patch:
+
+	patch -p0 < patch02a
+	patch -p0 < patch02b
+
+Prereq: 09-Nov-91
+Prereq: 10-Nov-91
+Prereq: 25-Nov-91
+*** PATCHDATES.old	Sat Apr 25 17:44:07 1992
+--- PATCHDATES	Sat Apr 25 11:57:52 1992
+***************
+*** 2,4 ****
+--- 2,5 ----
+  09-Nov-91
+  10-Nov-91
+  25-Nov-91
++ 25-Apr-92
+*** ChangeLog.old	Sat Apr 25 17:44:08 1992
+--- ChangeLog	Sat Apr 25 10:57:37 1992
+***************
+*** 1,3 ****
+--- 1,7 ----
++ Sat Apr 25 10:53:20 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* Getting ready for 4.3 release.  
++ 
+  Fri Nov 22 22:24:29 1991  Simon J. Gerraty  (sjg at zen)
+  
+  	* Cleaned up the build process slightly.  Makefiles in ./std tree
+*** INSTALL.old	Sat Apr 25 17:44:08 1992
+--- INSTALL	Sat Apr 25 10:52:59 1992
+***************
+*** 12,18 ****
+  simpler.  Using -DNOSTDHDRS avoids attempts to include ANSI
+  headers that may be lacking.  I have built the shell this way on
+  all Sun platforms and on a Bull DPX/2 (which has good POSIX
+! support) as a test only since it already has a real ksh.
+  
+  It is recommended that you try using the ./std tree first.  This
+  avoids problems like BSD times() calls that do not return an
+--- 12,21 ----
+  simpler.  Using -DNOSTDHDRS avoids attempts to include ANSI
+  headers that may be lacking.  I have built the shell this way on
+  all Sun platforms and on a Bull DPX/2 (which has good POSIX
+! support).  The config file defines USE_SIGACT so that the shell
+! will use the XPG3 signalaction() and friends.  You should leave
+! USE_SIGACT defined, sh/sigact.c contains an implementation for
+! systems that lack this facility. 
+  
+  It is recommended that you try using the ./std tree first.  This
+  avoids problems like BSD times() calls that do not return an
+***************
+*** 84,93 ****
+  
+  	cd ./sh
+  	make CFLAGS="-D_SYSV" LDLIBS="-lc_s" LDFLAGS=""
+  
+- On this system you need to undefine JOBS in config.h, jobs.c
+- assumes a lot and may cause problems for System V machines.
+- 
+  INSTALLING:
+  ===========
+  
+--- 87,94 ----
+  
+  	cd ./sh
+  	make CFLAGS="-D_SYSV" LDLIBS="-lc_s" LDFLAGS=""
++ 	make CC=gcc CFLAGS="-D_POSIX_SOURCE" LDLIBS="-lc_s" LDFLAGS=""
+  
+  INSTALLING:
+  ===========
+  
+***************
+*** 134,141 ****
+--- 135,149 ----
+  system headers do not work unless they know what architecture is
+  in use.  
+  
++ On the Bull DPX/2 I used gcc-2.1, my gcc port will be available
++ as of release 2.2.  To save effort I found it necessary to copy
++ stdio.h and stdlib.h to gcc's private include directory and edit
++ them to remove unnecessary #ifdef's and unwanted #include's.
++ 
+  If you find and fix a problem please fill in a copy of
+  ./bug-report and e-mail it to pdksh-bug@zen.void.oz.au
+  
++ Enjoy!
+  
++ Simon J. Gerraty <sjg@zen.void.oz.au>
+  
+*** MACHINES.old	Sat Apr 25 17:44:09 1992
+--- MACHINES	Sat Apr 25 10:42:50 1992
+***************
+*** 2,8 ****
+  
+  Notes:
+  (1)	Built and tested by me (sjg), seems ok :-)
+! (2)	Reported ok
+  (3)	Reported no good
+  (4)	Built with ./std/lib*
+  (5)	Built without ./std/lib*
+--- 2,8 ----
+  
+  Notes:
+  (1)	Built and tested by me (sjg), seems ok :-)
+! (2)	Reported ok (may mean earlier version)
+  (3)	Reported no good
+  (4)	Built with ./std/lib*
+  (5)	Built without ./std/lib*
+***************
+*** 13,25 ****
+  
+  System, OS			Notes	Compiler/Flags
+  --------------------------	-----	--------------
+  sun386, SunOS 4.0.2		1,4	gcc-1.40 -D_BSD
+  sun4c,	SunOS 4.1.1		1,4	cc -D_BSD -DHAVE_SYS_STDTYPES
+  sun3,	SunOS 4.0.3		1,4	cc -D_BSD
+  sun386, SunOS 4.0.2		1,5	cc -DNOSTDHDRS -D_BSD
+  sun4c,	SunOS 4.1.1		1,5	cc -DNOSTDHDRS -D_BSD -DHAVE_SYS_STDTYPES
+  sun3,	SunOS 4.0.3		1,5	cc -DNOSTDHDRS -D_BSD
+! Bull DPX/2, B.O.S. 2.00.45	1,5,6	cc -D_SYSV
+  Bull XPS-100			2,6
+  
+  
+--- 13,27 ----
+  
+  System, OS			Notes	Compiler/Flags
+  --------------------------	-----	--------------
++ sun386, SunOS 4.0.2		1,4	gcc-2.1 -D_BSD
+  sun386, SunOS 4.0.2		1,4	gcc-1.40 -D_BSD
++ sun4c,	SunOS 4.1.1		1,4	gcc-2.1 -ansi -D_BSD -DHAVE_SYS_STDTYPES
+  sun4c,	SunOS 4.1.1		1,4	cc -D_BSD -DHAVE_SYS_STDTYPES
+  sun3,	SunOS 4.0.3		1,4	cc -D_BSD
+  sun386, SunOS 4.0.2		1,5	cc -DNOSTDHDRS -D_BSD
+  sun4c,	SunOS 4.1.1		1,5	cc -DNOSTDHDRS -D_BSD -DHAVE_SYS_STDTYPES
+  sun3,	SunOS 4.0.3		1,5	cc -DNOSTDHDRS -D_BSD
+! Bull DPX/2, B.O.S. 2.00.45	1,5	gcc-2.1 -ansi -D_POSIX_SOURCE
+  Bull XPS-100			2,6
+  
+  
+*** MANIFEST.old	Sat Apr 25 17:44:09 1992
+--- MANIFEST	Sat Apr 25 10:39:32 1992
+***************
+*** 45,51 ****
+--- 45,55 ----
+   sh/mail.c                 6	
+   sh/main.c                 6	
+   sh/misc.c                 6	
++  sh/patchlevel.h	   6	version/patch level.
++  sh/proto.h		   1	Prototypes for ANSI compilers.
+   sh/sh.h                   6	
++  sh/sigact.h		   6	Header for sigaction() implementation.
++  sh/sigact.c		   6	sigaction() implementation.
+   sh/stdh.h                 6	Centralise std header inclusion.
+   sh/syn.c                  7	
+   sh/table.c                7	
+***************
+*** 56,62 ****
+   sh/tree.c                 7	
+   sh/tree.h                 7	
+   sh/tty.h                  1	
+!  sh/ulimit.c               7	
+   sh/var.c                  8	
+   sh/version.c              3	
+   sh/vi.c                   8	
+--- 60,66 ----
+   sh/tree.c                 7	
+   sh/tree.h                 7	
+   sh/tty.h                  1	
+!  sh/do_ulimit.c            7	
+   sh/var.c                  8	
+   sh/version.c              3	
+   sh/vi.c                   8	
+*** Makefile.old	Sat Apr 25 17:44:10 1992
+--- Makefile	Sat Apr 25 18:17:41 1992
+***************
+*** 1,9 ****
+  # PD Bourne/Korn Shell
+! # @(#)Makefile 1.4 91/11/25 13:54:20
+  
+  SHELL = /bin/sh
+  MAKE  = make
+! 
+  LN=ln -s
+  #LN=ln
+  #CONFIG= -D_SYSV
+--- 1,9 ----
+  # PD Bourne/Korn Shell
+! # $Id: Makefile,v 1.2 1992/04/25 08:17:25 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+! CC=gcc -pipe -g -O
+  LN=ln -s
+  #LN=ln
+  #CONFIG= -D_SYSV
+*** README.old	Sat Apr 25 17:44:10 1992
+--- README	Sat Apr 25 17:59:10 1992
+***************
+*** 1,5 ****
+  		Public Domain Korn Shell
+! 		      Version 4.2
+  
+  PD KSH:
+  
+--- 1,5 ----
+  		Public Domain Korn Shell
+! 		      Version 4.3
+  
+  PD KSH:
+  
+***************
+*** 9,15 ****
+  is nice to have the same user interface on all.  I resisted
+  moving to the ksh on a Bull system at work for nearly a year due
+  to the lack of a ksh on my Sun systems.  When I first picked up
+! the 3.2 PD KSH a couple of years ago, it took any a few minutes
+  to convert a C-shell fan to a ksh fan :-)  Pdksh is not 100%
+  compatible with the ksh.  Having said that, I use it daily
+  beside a real ksh88 and find them virtually indistinguishable.
+--- 9,15 ----
+  is nice to have the same user interface on all.  I resisted
+  moving to the ksh on a Bull system at work for nearly a year due
+  to the lack of a ksh on my Sun systems.  When I first picked up
+! the 3.2 PD KSH a couple of years ago, it took only a few minutes
+  to convert a C-shell fan to a ksh fan :-)  Pdksh is not 100%
+  compatible with the ksh.  Having said that, I use it daily
+  beside a real ksh88 and find them virtually indistinguishable.
+***************
+*** 31,37 ****
+--- 31,41 ----
+  source.  Its bad enough being flamed for my own bugs let alone
+  anyone elses :-)
+  
++ WHATS NEW:
+  
++ This update includes Job Control for System V (POSIX), many bug
++ fixes and a simple history file mechanism.  See sh/ChangeLog.
++ 
+  HISTORY:
+  
+  This shell was written by Eric Gisin.  It is based on Charles
+***************
+*** 104,111 ****
+  
+  BUGS:
+  
+! Many folk have contributed to this shell.  There are surely
+! still plenty of bugs to be found/fixed.
+  
+  There is a template bug report in bug-report [borrowed from the
+  X11R5 mit tree], just fill in the blanks and mail to
+--- 108,117 ----
+  
+  BUGS:
+  
+! Many folk have contributed to this shell.  
+! I have attempted to credit (in sh/ChangeLog) the authors of bug
+! fixes received since the previous release.
+! There are surely still plenty of bugs to be found/fixed.
+  
+  There is a template bug report in bug-report [borrowed from the
+  X11R5 mit tree], just fill in the blanks and mail to
+*** ksh.1.old	Sat Apr 25 17:40:34 1992
+--- ksh.1	Sat Apr 25 18:15:59 1992
+***************
+*** 1,10 ****
+! .\" $Header: /usr/local/src/nksh/sh/RCS/ksh.1,v 3.1 88/11/22 10:44:17 egisin Exp $
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+  .ds OK [\|
+  .ds CK \|]
+! .TH KSH 1 "January 1988"
+  .SH NAME
+  ksh \- Bourne / Korn Shell (Public Domain)
+  .SH SYNOPSIS
+--- 1,10 ----
+! .\" $Id$
+  .nr OJ 1 \" Job Control
+  .nr OE 1 \" Command Editing
+  .nr OB 1 \" BSD enhanced ulimit options
+  .ds OK [\|
+  .ds CK \|]
+! .TH KSH 1 "April 1992"
+  .SH NAME
+  ksh \- Bourne / Korn Shell (Public Domain)
+  .SH SYNOPSIS
+***************
+*** 87,92 ****
+--- 87,96 ----
+  It typically contains function and alias definitions.
+  .IP FCEDIT
+  The editor used by the \fIfc\fP command.
++ During startup the shell checks the value of \fBFCEDIT\fP, 
++ \fBEDITOR\fP and finally \fBVISUAL\fP to try and determin what
++ command line edit mode to use.  Note that this is not strictly
++ ksh compatible behaviour.
+  .IP IFS
+  \fIInternal field separator\fP,
+  used during substitution and the \fIread\fP command.
+***************
+*** 125,130 ****
+--- 129,146 ----
+  The number of seconds since the shell timer was started or
+  reset.  Assigning an integer value to this variable resets
+  the timer.
++ .IP COLUMNS
++ The width to use for the commandline editing (emacs mode only).
++ .IP HISTFILE
++ The name of the file to read initial history from.  The default
++ is "\fB$HOME/.pdksh_hist\fP".  When the shell exits it will
++ overwrite this file with its current history.  This behaviour
++ will almost certainly cause grief when multiple shells are being
++ run by the same user.  Making the file read-only will allow each
++ shell to start with a set history and avoid overwriting the
++ file.
++ .IP HISTSIZE
++ The number of history items to save in \fBHISTFILE\fP.
+  .SS Substitution
+  In addition to the System Vr2 substitutions,
+  the following are available.
+***************
+*** 793,801 ****
+  .LP
+  System V and Korn modifications by Eric Gisin,
+  with contributions by
+! Ron Natalie, Arnold Robbins, Doug Gwyn, Erik Baalbergen, AT&T (getopt(3)).
+  .SH DIFFERENCES FROM AT&T VERSION
+- Vi editing mode is not implemented.
+  The \fBselect\fP statement is not implemented.
+  Variable arrays are not implemented.
+  Variable attributes other than integer are not implemented.
+--- 809,818 ----
+  .LP
+  System V and Korn modifications by Eric Gisin,
+  with contributions by
+! Ron Natalie, Arnold Robbins, Doug Gwyn, Erik Baalbergen, 
+! AT&T\ (getopt(3)), John McMillan and Simon Gerraty.
+! 
+  .SH DIFFERENCES FROM AT&T VERSION
+  The \fBselect\fP statement is not implemented.
+  Variable arrays are not implemented.
+  Variable attributes other than integer are not implemented.
+***************
+*** 804,810 ****
+  in the AT&T version.
+  Korn evaluates expressions differently [elaborate].
+  .SH BUGS
+! Interactive shells will occasionally hang while waiting for a job
+  in the BSD version.
+  .LP
+  The 8th bit is stripped in emacs mode.
+--- 821,827 ----
+  in the AT&T version.
+  Korn evaluates expressions differently [elaborate].
+  .SH BUGS
+! Interactive shells may occasionally hang while waiting for a job
+  in the BSD version.
+  .LP
+  The 8th bit is stripped in emacs mode.
+***************
+*** 811,819 ****
+  .LP
+  Quoting double-quote (") characters inside back-quote (`) inside
+  double-quotes does not behave properly.  Why are you doing this?
+- .LP
+- Job control on System V is not really job control.  In fact it is
+- not much of anything.
+  .LP
+  The emacs mode can ``lose'' stty command done by the user.
+  .LP
+--- 828,833 ----
+*** PATCHDATES.old	Sat Apr 25 17:44:07 1992
+--- PATCHDATES	Sat Apr 25 11:57:52 1992
+***************
+*** 2,4 ****
+--- 2,5 ----
+  09-Nov-91
+  10-Nov-91
+  25-Nov-91
++ 25-Apr-92
+*** std/Makefile.old	Sat Apr 25 17:44:39 1992
+--- std/Makefile	Sat Apr 25 18:18:33 1992
+***************
+*** 1,6 ****
+--- 1,8 ----
+  #
+  # Makefile for the compatibility libraries
+  #
++ # $Id: Makefile,v 1.2 1992/04/25 08:18:26 sjg Exp $
++ #
+  
+  SHELL = /bin/sh
+  MAKE  = make
+*** std/posix/ChangeLog.old	Sat Apr 25 17:44:41 1992
+--- std/posix/ChangeLog	Sat Apr 25 14:51:52 1992
+***************
+*** 1,3 ****
+--- 1,7 ----
++ Sat Apr 25 14:51:33 1992  Simon J. Gerraty  (sjg@zen)
++ 
++ 	* Added RCS keys to sources.
++ 
+  Mon Nov 25 13:17:04 1991  Simon J. Gerraty  (sjg at zen)
+  
+  	* wait.h: use "/./usr/include/sys/wait.h for sun's
+*** std/posix/Makefile.old	Sat Apr 25 17:44:41 1992
+--- std/posix/Makefile	Sat Apr 25 18:22:22 1992
+***************
+*** 1,5 ****
+  # POSIX P1003.1 compatability
+! # @(#)Makefile 1.3 91/11/25 13:33:57
+  
+  SHELL = /bin/sh
+  MAKE  = make
+--- 1,5 ----
+  # POSIX P1003.1 compatability
+! # $Id: Makefile,v 1.2 1992/04/25 08:22:14 sjg Exp $
+  
+  SHELL = /bin/sh
+  MAKE  = make
+*** std/posix/dirent.C.old	Sat Apr 25 17:41:51 1992
+--- std/posix/dirent.C	Sat Apr 25 18:22:25 1992
+***************
+*** 3,8 ****
+--- 3,9 ----
+   * completly untested. not designed to be efficient.
+   * missing telldir and seekdir.
+   */
++ /* $Id: dirent.C,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <sys/types.h>
+  #include <dirent.h>
+*** std/posix/dirent.H.old	Sat Apr 25 17:41:52 1992
+--- std/posix/dirent.H	Sat Apr 25 18:22:27 1992
+***************
+*** 6,11 ****
+--- 6,12 ----
+  
+  	prerequisite:	<sys/types.h>
+  */
++ /* $Id: dirent.H,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #define	MAXNAMLEN	16		/* maximum filename length */
+  
+*** std/posix/dup2.c.old	Sat Apr 25 17:42:28 1992
+--- std/posix/dup2.c	Sat Apr 25 18:22:30 1992
+***************
+*** 1,6 ****
+--- 1,7 ----
+  /*
+   * Cheap imitation of BSD dup2()
+   */
++ /* $Id: dup2.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <fcntl.h>
+  
+*** std/posix/fcntl.c.old	Sat Apr 25 17:41:53 1992
+--- std/posix/fcntl.c	Sat Apr 25 18:22:32 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+  /* fcntl emulation */
++ /* $Id: fcntl.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <errno.h>
+  #include <sys/types.h>
+*** std/posix/fcntl.h.old	Sat Apr 25 17:44:42 1992
+--- std/posix/fcntl.h	Sat Apr 25 18:22:34 1992
+***************
+*** 1,7 ****
+  /* P1003.1 fcntl/open definitions */
+  /* Based on a version by Terrence W. Holm */
+- /* @(#)fcntl.h	1.3 91/11/25 13:34:00 (sjg) */
+  /*  for fcntl(2)  */
+  
+  #define	F_DUPFD		0
+  #define	F_GETFD		1
+--- 1,7 ----
+  /* P1003.1 fcntl/open definitions */
+  /* Based on a version by Terrence W. Holm */
+  /*  for fcntl(2)  */
++ /* $Id: fcntl.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #define	F_DUPFD		0
+  #define	F_GETFD		1
+*** std/posix/io.h.old	Sat Apr 25 17:41:41 1992
+--- std/posix/io.h	Sat Apr 25 18:22:36 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+  /* POSIX IO functions */
++ /* $Id: io.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  /*
+   * the incomplete type "struct stat"
+*** std/posix/time.h.old	Sat Apr 25 17:42:29 1992
+--- std/posix/time.h	Sat Apr 25 18:22:38 1992
+***************
+*** 2,7 ****
+--- 2,8 ----
+   * Replacement for BSD <sys/time.h>
+   * because Ultrix screws it up.
+   */
++ /* $Id: time.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  struct timeval {
+  	long tv_sec;		/* time_t */
+*** std/posix/times.c.old	Sat Apr 25 17:41:56 1992
+--- std/posix/times.c	Sat Apr 25 18:22:40 1992
+***************
+*** 1,4 ****
+--- 1,5 ----
+  /* P1003.1 times emulation */
++ /* $Id: times.c,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #include <sys/times.h>
+  
+*** std/posix/times.h.old	Sat Apr 25 17:41:57 1992
+--- std/posix/times.h	Sat Apr 25 18:22:42 1992
+***************
+*** 1,6 ****
+--- 1,7 ----
+  /*
+   * sys/times.h: POSIX times()
+   */
++ /* $Id: times.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #if ! _TIMES_H
+  #define	_TIMES_H 1
+*** std/posix/unistd.c.old	Sat Apr 25 17:41:58 1992
+--- std/posix/unistd.c	Sat Apr 25 18:22:44 1992
+***************
+*** 1,6 ****
+  /* misc. POSIX emulation */
+  
+! /* $Header$ */
+  
+  #include <string.h>
+  #include <errno.h>
+--- 1,8 ----
+  /* misc. POSIX emulation */
+  
+! #ifndef lint
+! static char *RCSid = "$Id: unistd.c,v 1.2 1992/04/25 08:22:14 sjg Exp $";
+! #endif
+  
+  #include <string.h>
+  #include <errno.h>
+*** std/posix/unistd.h.old	Sat Apr 25 17:41:59 1992
+--- std/posix/unistd.h	Sat Apr 25 18:22:46 1992
+***************
+*** 1,5 ****
+--- 1,6 ----
+  /* unistd.h: misc. P1003.1 definitions */
+  /* Based on a version by Terrence W. Holm */
++ /* $Id: unistd.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  
+  #if ! _UNISTD_H
+  #define	_UNISTD_H 1
+***************
+*** 7,21 ****
+  #include <stddef.h>
+  
+  /* doesn't really belong here, but the library function need it */
+! /* todo: use _ARGS, _Void, _Const */
+  #if __STDC__
+  #define	ARGS(args)	args
+! #define Void	void
+! #define	Const	const
+  #else
+  #define	ARGS(args)	()
+! #define	Void	char
+! #define	Const
+  #endif
+  
+  #include <io.h>			/* POSIX IO functions */
+--- 8,22 ----
+  #include <stddef.h>
+  
+  /* doesn't really belong here, but the library function need it */
+! /* todo: use _ARGS, _void, _const */
+  #if __STDC__
+  #define	ARGS(args)	args
+! #define void	void
+! #define	const	const
+  #else
+  #define	ARGS(args)	()
+! #define	void	char
+! #define	const
+  #endif
+  
+  #include <io.h>			/* POSIX IO functions */
+*** std/posix/wait.h.old	Sat Apr 25 17:44:42 1992
+--- std/posix/wait.h	Sat Apr 25 18:22:48 1992
+***************
+*** 1,6 ****
+--- 1,7 ----
+  /*
+   * POSIX <sys/wait.h>
+   */
++ /* $Id: wait.h,v 1.2 1992/04/25 08:22:14 sjg Exp $ */
+  #if __STDC__
+  #define	ARGS(args)	args
+  #else
+***************
+*** 10,16 ****
+--- 11,20 ----
+  #ifdef HAVE_SYS_STDTYPES
+  # include <sys/stdtypes.h>
+  #else
++ # ifndef _PID_T
++ #   define _PID_T
+  typedef int pid_t;		/* belong in sys/types.h */
++ # endif
+  #endif
+  
+  #ifdef sun
+***************
+*** 35,43 ****
+  
+  pid_t wait ARGS((int *statp));
+  #if _BSD
+! pid_t wait3 ARGS((int *statp, int options, Void *));
+  /* todo: does not emulate pid argument */
+! #define	waitpid(pid, sp, opts)	wait3(sp, opts, (Void*)NULL)
+  #else
+  pid_t waitpid ARGS((pid_t pid, int *statp, int options));
+  #endif
+--- 39,47 ----
+  
+  pid_t wait ARGS((int *statp));
+  #if _BSD
+! pid_t wait3 ARGS((int *statp, int options, void *));
+  /* todo: does not emulate pid argument */
+! #define	waitpid(pid, sp, opts)	wait3(sp, opts, (void*)NULL)
+  #else
+  pid_t waitpid ARGS((pid_t pid, int *statp, int options));
+  #endif
+
+exit 0 # Just in case...

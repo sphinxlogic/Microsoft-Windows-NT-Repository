@@ -1,0 +1,1255 @@
+Newsgroups: comp.sources.misc
+From: dank@blacks.jpl.nasa.gov (Dan Kegel)
+Subject:  v31i038:  horton-1.8 - whois server & directory builder, Part01/01
+Message-ID: <1992Jul14.212100.28343@sparky.imd.sterling.com>
+X-Md4-Signature: ab9e25e5c5f315b2f93a8c0a9b4aee21
+Date: Tue, 14 Jul 1992 21:21:00 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: dank@blacks.jpl.nasa.gov (Dan Kegel)
+Posting-number: Volume 31, Issue 38
+Archive-name: horton-1.8/part01
+Environment: UNIX, INET, AWK, Csh, sendmail
+
+Horton automatically and silently creates a electronic mail address
+directory by 'finger'ing each host in your domain periodically,
+and lets users look up e-mail addresses with the 'whois' command.
+If your company or university doesn't yet have an e-mail directory,
+this package will provide you with one without much effort on your part.
+It can also be a useful adjunct to a manually maintained e-mail directory,
+because it is always up to date, whereas the manually maintained one can
+lag weeks or months behind changes in the real world.  (e.g. Caltech has
+both a manual whois server and a Horton whois server.)
+
+Version 1.8 of Horton is a bugfix release; it is more likely to work on
+your system than version 1.7.  It doesn't assume DNS is available, for
+instance.  The README also mentions Matt Powers' great list of whois
+servers.
+
+My modifications to the POP server, mentioned in the README, are
+available on request.
+- Dan Kegel (dank@blacks.jpl.nasa.gov)
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  README Makefile addhostname.awk dot.plan finger.c
+#   hosts.exclude hosts.xlat hourly.sh ls_finger.awk ls_finger.sh
+#   ls_hosts.sh ls_smtp.awk ls_smtp.sh mailself.sh monthly.sh net.c
+#   nukefortune.awk recvmail.awk sortdate.awk toshort.awk version
+#   whoisd.c
+# Wrapped by kent@sparky on Mon Jul 13 12:53:05 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+  echo shar: Extracting \"'README'\" \(9046 characters\)
+  sed "s/^X//" >'README' <<'END_OF_FILE'
+Xhorton - an e-mail directory daemon and whois server
+X@(#)README	1.12 7/8/92
+X
+XDESCRIPTION
+X    Horton automatically and silently creates a electronic mail address
+X    directory by 'finger'ing each host in your domain preiodically,
+X    and lets users look up e-mail addresses with the 'whois' command.
+X
+X    The command
+X	whois -h horton_server search_key
+X    where
+X	horton_server is the name of the computer running Horton
+X	search_key  is all or part of a person's name
+X    lists all people whose name or username match the pattern.
+X
+X    On VMS systems with Multinet TCP/IP, type
+X	whois /host=HOSTNAME search_key
+X    On systems without whois, type
+X	telnet HOSTNAME 43
+X	search_key
+X    A Macintosh MacTCP version of finger was written by Peter Lewis,
+X    peter@cujo.curtin.edu.au, and should be available at an FTP site near you.
+X
+XIMPLEMENTATION
+X    Horton simply runs 'finger @host' on a predetermined set of
+X    computers, and keep track of who logs in where.
+X    It works with the finger services provided by NeXTs, Suns,
+X    and even VMS systems running Multinet.
+X
+X    It also runs 'finger user' on all the users of the local
+X    computer; this is meant to catch users who never log 
+X    in but rather check their mail with Eudora via POPmail.
+X    (POPmail has to be modified to update /var/adm/lastlog for
+X    this to have any effect.)
+X
+X    A hacked version of finger which times out after ten seconds
+X    is used to avoid locking up when probing unknown hosts.
+X
+X    monthly.sh is run manually during startup to determine which
+X    hosts should go in hosts.poll, and monthly thereafter, e.g.
+X    by placing the line
+X	1 1 1 * * /bin/nice /etc/horton/monthly.sh podunk.edu /etc/horton >/tmp/horton_mlog 2>&1
+X    in the pseudouser's crontab.
+X    It takes two arguments: the domain name, and the working directory.
+X    It first checks each host in the domain to see whether it supports 
+X    finger; those that do, it checks with mconnect to see whether they
+X    support SMTP; for each host X that passes the above tests, it sends
+X    a mail message to itself via host X using RFC822 source routing.
+X    Only hosts that successfully deliver the mail message are added to
+X    hosts.poll.
+X
+X    hourly.sh is a c-shell script to be run periodically, e.g.
+X    by placing the line
+X	12 8-17 * * 1-5 /bin/nice /etc/horton/hourly.sh podunk.edu /etc/horton >/tmp/horton_h.log 2>&1
+X    in the pseudouser's crontab.
+X    It takes two arguments: the domain name, and the working directory.
+X
+X    in.whoisd is a server that accepts search patterns from
+X    clients running the program 'whois', and runs egrep
+X    on the database file.  It is invoked from /etc/inetd.conf, e.g.
+X	whois	stream	tcp	nowait	nobody	/etc/horton/in.whoisd in.whoisd /etc/horton/hourly.out
+X    It takes one argument: the data file to search.
+X
+XINPUT FILES
+X    hosts.xlat must exist and must be nonempty.  
+X    When you have Horton up and running, you will want to edit this
+X    file to add one line for each machine which remote mounts /var/spool/mail
+X    from another machine; the first word on the line is the client name,
+X    the second word on the line is the server name.
+X    Horton uses this info to report all users on the clients as if they
+X    only ever logged in to their server; this reduces the confusion of
+X    the user who is trying to decide which of the machines to send mail to.
+X 
+X    For example, if sparky and rover mount /var/spool/mail from dog,
+X    you should add the following lines to hosts.xlat:
+X	sparky dog
+X	rover dog
+X
+X    hosts.exclude must exist and must be nonempty.  Use this file
+X    to exclude hosts that don't want to be disturbed in any way
+X    by automatic fingering or mail-probing.  It can contain
+X    hostnames or IP addresses.  These are matched with fgrep,
+X    so partial names or addresses will act like wildcards.
+X    Careful, or you may exclude more hosts than you intend.
+X    The format is one pattern per line:
+X	scratchy
+X	128.149.77.
+X	128.149.80.5
+X
+XOUTPUT FILES
+X    hosts.poll lists the hosts to query with finger, one per line, e.g.
+X	sparky
+X	dog
+X	rover
+X    It is updated by monthly.sh, but you can add lines to it manually, too.
+X
+X    The revolving output data file is hourly.dat, which is in the format
+X	user@host	full name	last date logged in
+X    where the columns are separated by tabs.
+X    It is both read and written by hourly.sh.
+X
+X    The same data is placed in hourly.out, but with tabs expanded to spaces.
+X    It is written by hourly.sh, and read by in.whoisd.
+X
+XINSTALLATION
+X    1. As root, create a pseudouser (e.g. horton) to run monthly.sh.
+X       Copy dot.plan to the pseudouser's home directory as .plan.
+X       Edit the .plan file to reflect your TELEPHONE_NUMBER, E-MAIL-ADR,
+X       and the server's HOSTNAME.
+X       (When anxious sysops try to figure out why their machine is
+X       being finger'd and mail'd periodically by this strange user,
+X       the .plan file will explain the situation to them, and
+X       tell them whom to contact.)
+X       If pseudouser is not horton, edit the .plan file to reflect the name.
+X       Choose a working directory, perhaps /etc/horton or /home/horton/etc.
+X       Pseudouser must own this directory and its contents.
+X       Edit Makefile to set value of DIR to the working directory.
+X       If your host is a POPmail host, you may wish to activate
+X       the 'local users' loop in hourly.sh.
+X
+X    2. Compile the software with 'make', then 'make install', and 'make clean'.
+X
+X    3. Run monthly.sh to initialize hosts.poll.
+X       Verify that hosts.poll has good hosts in it.
+X
+X    4. Run hourly.sh to initialize hourly.out.
+X       Verify that hourly.out has good usernames and addresses in it.
+X
+X    5. As root, add the line
+X	whois	stream	tcp	nowait	nobody	/etc/horton/in.whoisd in.whoisd /etc/horton/hourly.out
+X    to /etc/inetd.conf as above, substituting your chosen directory for 
+X    /etc/horton.
+X       Cause it to take effect by sending inetd a kill -HUP.
+X
+X    6. Run whois -h localhost @ to verify that daemon is handling requests.
+X
+X    7. Add lines to invoke hourly.sh and monthly.sh from the pseudouser's 
+X       crontab:
+X	# ctontab -e horton
+X	1 1 1 * * /bin/nice /etc/horton/monthly.sh podunk.edu /etc/horton >/tmp/horton_mlog 2>&1
+X	12 8-17 * * 1-5 /bin/nice /etc/horton/hourly.sh podunk.edu /etc/horton >/tmp/horton_h.log 2>&1
+X       substituting your net's domain name for podunk.edu, and your chosen 
+X       directory for /etc/horton.
+X
+X    8. If any sysops complain about Horton's incessant fingering, and wish
+X       to be excluded from the directory, add their name or internet
+X       address to hosts.exclude, and delete them from hosts.poll.
+X
+X    9. If some hosts are e-mail clients of another host, and you wish to 
+X       reduce the ambiguity of the directory, add clientname-servername
+X       pairs to hosts.xlat.
+X
+X    10. (optional) I suggest you create an alias 'horton' in your network's 
+X       DNS host tables for the server machine.  This lets you move the whois 
+X       server to a different machine without making people relearn the 
+X       server's address.
+X
+X    11. (optional) Set the default server for whois queries to be 'horton'.
+X       You can do this by renaming the original whois to be whois.orig,
+X       installing the shell script
+X	#!/bin/sh
+X	if [ _$1 = _ ];
+X	then
+X	    whois.orig -h horton $*
+X	else
+X	    whois.orig $*
+X	fi
+X       in place of the original whois on all clients.
+X
+X    12. (optional) 
+X	Send e-mail to mhpower@athena.mit.edu announcing your whois server.
+X	Matt H. Power of MIT <mhpower@athena.mit.edu> has compiled and
+X	maintains an extensive list of sites that run "whois" servers.  The
+X	file can be retrieved via anonymous ftp from
+X	/pub/whois/whois-servers.list on sipb.mit.edu [18.70.0.224].
+X
+X
+XSECURITY
+X    You may wish to restrict whois server access to local hosts.  This
+X    can be done with log_tcp, a great TCP/IP access control package
+X    available from many ftp hosts.
+X
+X    It may be wise to make your local computers fairly secure before
+X    letting the outside world see your whois database.  Installing
+X    log_tcp to restrict outside login access, installing npasswd to
+X    prevent users from picking lame passwords, running COPS periodically
+X    to flush out random security holes, and keeping up-to-date on
+X    security patches from your OS vendor would go a long way towards
+X    preventing breakins at your site.
+X
+XBUGS
+X    Entries are never purged from hourly.out.
+X    Works with the finger output I've seen, but might not work
+X    with other finger daemons.
+X    Probably relies on something found only on Suns.
+X
+X    Relies on domain name always being the same case!  This can
+X    cause the output file to contain entries that are not stripped
+X    of the domain name.
+X
+X    Uses sendmail directly to send its mail probes; should use Mail or mailx.
+X
+X    hourly.sh doesn't understand the finger output of hosts running Charon.
+X    monthly.sh will ignore hosts that use an MX record or refuse to deliver
+X    non-local mail but support finger, such as Charon.
+X
+X    Poorly documented.
+X
+XAUTHOR
+X    Dan Kegel (dank@blacks.jpl.nasa.gov)
+END_OF_FILE
+  if test 9046 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+  fi
+  # end of 'README'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+  echo shar: Extracting \"'Makefile'\" \(1861 characters\)
+  sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# Makefile for Horton
+X# @(#)Makefile	1.6 2/22/92
+XSHELL = /bin/sh
+XCC = /bin/cc
+XCFLAGS= -g
+X
+X# Change DIR to where you want Horton installed
+XDIR = /etc/horton
+X
+XCFILES=net.c finger.c whoisd.c
+XEXEFILES= whoisd quickfinger
+XSHFILES= hourly.sh ls_finger.sh ls_hosts.sh ls_smtp.sh mailself.sh monthly.sh
+XAWKFILES= addhostname.awk ls_finger.awk ls_smtp.awk sortdate.awk toshort.awk \
+X	    recvmail.awk nukefortune.awk
+X#
+X
+Xall:	$(EXEFILES)
+X
+Xclean:
+X	rm *.o $(EXEFILES)
+X
+Xshar: README Makefile version $(SHFILES) $(AWKFILES) $(CFILES) dot.plan \
+X	    hosts.xlat hosts.exclude
+X	shar README Makefile version $(SHFILES) $(AWKFILES) $(CFILES) dot.plan \
+X	    hosts.xlat hosts.exclude > horton.shar
+X
+Xwhoisd:	 whoisd.o
+X	$(CC) $(CFLAGS) -o whoisd whoisd.o
+X
+Xquickfinger: finger.o net.o
+X	$(CC) $(CFLAGS) -o quickfinger finger.o net.o
+X
+Xinstall: $(EXEFILES) $(AWKFILES) $(SHFILES) hosts.xlat hosts.exclude
+X	install -m 555 whoisd $(DIR)/in.whoisd
+X	install -m 555 quickfinger $(DIR)/quickfinger
+X	install -m 644 addhostname.awk $(DIR)/addhostname.awk
+X	install -m 644 ls_finger.awk $(DIR)/ls_finger.awk
+X	install -m 644 ls_smtp.awk $(DIR)/ls_smtp.awk
+X	install -m 644 recvmail.awk $(DIR)/recvmail.awk
+X	install -m 644 sortdate.awk $(DIR)/sortdate.awk
+X	install -m 644 toshort.awk $(DIR)/toshort.awk
+X	install -m 644 nukefortune.awk $(DIR)/nukefortune.awk
+X	install -m 755 hourly.sh $(DIR)/hourly.sh
+X	install -m 755 monthly.sh $(DIR)/monthly.sh
+X	install -m 755 ls_finger.sh $(DIR)/ls_finger.sh
+X	install -m 755 ls_hosts.sh $(DIR)/ls_hosts.sh
+X	install -m 755 ls_smtp.sh $(DIR)/ls_smtp.sh
+X	install -m 755 mailself.sh $(DIR)/mailself.sh
+X	# Only install the example host files if none there.
+X	test -f $(DIR)/hosts.xlat || install -m 644 hosts.xlat $(DIR)/hosts.xlat
+X	test -f $(DIR)/hosts.exclude || install -m 644 hosts.exclude $(DIR)/hosts.exclude
+X	@echo Be sure to update /etc/inetd.conf and crontab.
+END_OF_FILE
+  if test 1861 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile'
+fi
+if test -f 'addhostname.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'addhostname.awk'\"
+else
+  echo shar: Extracting \"'addhostname.awk'\" \(231 characters\)
+  sed "s/^X//" >'addhostname.awk' <<'END_OF_FILE'
+X# Take output of many finger requests
+X# print it as if it came from one big host with extended usernames
+X# @(#)addhostname.awk	1.1 2/8/92
+X/^\[/ { host = $1; next }
+X/^[A-Za-z]/ {print $1 "@" host "\t" substr($0, 10, 19) "\t" date }
+END_OF_FILE
+  if test 231 -ne `wc -c <'addhostname.awk'`; then
+    echo shar: \"'addhostname.awk'\" unpacked with wrong size!
+  fi
+  # end of 'addhostname.awk'
+fi
+if test -f 'dot.plan' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'dot.plan'\"
+else
+  echo shar: Extracting \"'dot.plan'\" \(1113 characters\)
+  sed "s/^X//" >'dot.plan' <<'END_OF_FILE'
+XHorton is the keeper of the whois database on HOSTNAME.
+XWhois is an e-mail directory service.
+X
+XTo look up somebody's e-mail address:
+XOn most Unix systems, type
+X	whois -h HOSTNAME search_key
+XOn Unix systems without whois, type
+X	telnet HOSTNAME 43			# or telnet HOSTNAME whois
+X	search_key
+XOn VMS systems with Multinet TCP/IP, type
+X	whois /host=HOSTNAME search_key
+XA Macintosh MacTCP version of finger was written by Peter Lewis,
+Xpeter@cujo.curtin.edu.au, and should be available at an FTP site near you.
+X
+XThe search key can be a whole name, or just a fragment of a name.
+XIf there are no matches, nothing will be printed; try a shorter
+Xfragment.
+X
+XWhen Horton wants to update its idea of what hosts should be 
+Xpolled to generate the whois database, it runs a probe script 
+Xwhich fingers and sends mail thru each site; the sites that 
+Xrespond to both requests are placed in the list of sites to poll.
+X
+XTo prevent Horton from probing your machine in any way, or to
+Xreport any problems, send a message to E-MAIL-ADR, or call TELEPHONE_NUMBER.  
+XDo not send mail to Horton, it will be discarded.
+X
+X@(#)dot.plan	1.3 7/8/92
+END_OF_FILE
+  if test 1113 -ne `wc -c <'dot.plan'`; then
+    echo shar: \"'dot.plan'\" unpacked with wrong size!
+  fi
+  # end of 'dot.plan'
+fi
+if test -f 'finger.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'finger.c'\"
+else
+  echo shar: Extracting \"'finger.c'\" \(185 characters\)
+  sed "s/^X//" >'finger.c' <<'END_OF_FILE'
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)finger.c	1.1 2/8/92";
+X#endif
+X
+Xmain(argc, argv)
+X	int argc;
+X	char **argv;
+X{
+X	int i;
+X
+X	for (i=1; i<argc; i++)
+X		netfinger(argv[i], 0);
+X	exit(0);
+X}
+END_OF_FILE
+  if test 185 -ne `wc -c <'finger.c'`; then
+    echo shar: \"'finger.c'\" unpacked with wrong size!
+  fi
+  # end of 'finger.c'
+fi
+if test -f 'hosts.exclude' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hosts.exclude'\"
+else
+  echo shar: Extracting \"'hosts.exclude'\" \(15 characters\)
+  sed "s/^X//" >'hosts.exclude' <<'END_OF_FILE'
+Xdummy_hostname
+END_OF_FILE
+  if test 15 -ne `wc -c <'hosts.exclude'`; then
+    echo shar: \"'hosts.exclude'\" unpacked with wrong size!
+  fi
+  # end of 'hosts.exclude'
+fi
+if test -f 'hosts.xlat' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hosts.xlat'\"
+else
+  echo shar: Extracting \"'hosts.xlat'\" \(166 characters\)
+  sed "s/^X//" >'hosts.xlat' <<'END_OF_FILE'
+X# Translation table from hostname to mailhost name
+X# i.e. to send mail to somebody logged in at host,
+X# send it to mailhost.
+X#host	mailhost
+Xdummy_host dummy_mailhost
+END_OF_FILE
+  if test 166 -ne `wc -c <'hosts.xlat'`; then
+    echo shar: \"'hosts.xlat'\" unpacked with wrong size!
+  fi
+  # end of 'hosts.xlat'
+fi
+if test -f 'hourly.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'hourly.sh'\"
+else
+  echo shar: Extracting \"'hourly.sh'\" \(2513 characters\)
+  sed "s/^X//" >'hourly.sh' <<'END_OF_FILE'
+X#!/bin/csh -f -b
+X# Script to update directory of e-mail address vs. real name with Finger
+X# @(#)hourly.sh	1.8 7/8/92
+Xif ($#argv != 2) then
+X    echo Usage: $0 domain dir
+X    echo Updates dir/hourly.out.
+X    exit 1
+Xendif
+Xset DOMAIN = $1
+Xcd $2
+X#
+Xset TMPFILE = /tmp/hourly.tmp
+Xset DIRECTORY = hourly.dat
+Xset DIRECTORY_DETAB = hourly.out
+Xset HOSTS = hosts.poll
+Xset HOST_XLAT = hosts.xlat
+Xset QUICKFINGER = ./quickfinger
+Xset date = `date | awk '{print $1,$2,$3,$6}'`
+X#
+X/bin/rm -f $TMPFILE
+X
+X# Finger all the hosts.  Use a special finger that times out in 10 seconds.
+Xsed -e 's/^/@/' -e 's/ / @/g' $HOSTS | split -300 - /tmp/hourly.hosts
+Xforeach a (/tmp/hourly.hosts??)
+X    $QUICKFINGER `cat $a` > $a.out &
+Xend
+Xwait
+X# Generate script to map hostnames
+Xawk '{print "s/@"$1"/@"$2"/"}' < $HOST_XLAT > $HOST_XLAT.sed
+X# Parse output of the many finger requests.
+X# You may need to tweak these to match your local fingers if
+X# you find invalid entries in the output file.
+X# (Invalid entries are more of an annoyance than a real problem.)
+Xcat /tmp/hourly.hosts??.out | tr -d '\015' | \
+Xawk -f nukefortune.awk | \
+Xegrep -vi "no one logged|unknown|user|-----" | \
+Xegrep -vi "uucp|error|logging in|login | tty |load av|[ 0123][0-9], [12].*up" |\
+Xawk -f addhostname.awk date="`date | sed 's/ [0-9]*:.*T//' `" - | \
+Xsed -e 's/\[//' -e 's/\]//' -e 's/.'$DOMAIN'//' | uniq > $TMPFILE
+X
+X# Only enable this section if running on host that has e-mail users
+X# that show up in utmp but never log in.
+Xif (0) then
+X    # Also scan localhost with finger, to catch people who log in with POP
+X    # (requires Dan Kegel's mods to pop server)
+X    # Caution: contains literal TAB character in sed command.
+X    set host = `hostname`
+X    foreach user (`ypcat passwd | sed 's/:.*//' `)
+X	finger $user | awk -f toshort.awk | \
+X	sed 's/	/@'$host'	/' >> $TMPFILE
+X    end
+Xendif
+X
+X# Add in new results to old results; sort the whole thing
+X# and discard entries with identical username and realname.
+X# Caution: contains literal TAB character in sort command.
+X# Relies on the fact that a TAB character separates the
+X# three fields of the datafile.
+Xtouch $DIRECTORY
+Xset date=`date`
+Xset year=$date[6]
+Xsed -f $HOST_XLAT.sed $TMPFILE $DIRECTORY | sort -f -t'\008' +0 -1 | \
+X   awk -f sortdate.awk thisyear=$year - > $DIRECTORY.new
+Xmv $DIRECTORY $DIRECTORY.old
+Xmv $DIRECTORY.new $DIRECTORY
+X# Expand tabs.
+Xawk -F'	' '{printf("%-30s %-25s %-16s\n", $1, $2, $3); next}' $DIRECTORY > $DIRECTORY_DETAB
+Xrm $TMPFILE $HOST_XLAT.sed /tmp/hourly.hosts*
+X
+Xecho hourly: done
+Xexit 0
+END_OF_FILE
+  if test 2513 -ne `wc -c <'hourly.sh'`; then
+    echo shar: \"'hourly.sh'\" unpacked with wrong size!
+  fi
+  # end of 'hourly.sh'
+fi
+if test -f 'ls_finger.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ls_finger.awk'\"
+else
+  echo shar: Extracting \"'ls_finger.awk'\" \(304 characters\)
+  sed "s/^X//" >'ls_finger.awk' <<'END_OF_FILE'
+X# Awk script to print out hostname (surrounded by square brackets)
+X# if followed by a line that looks like Finger's short format header
+X# or Finger's "no users" message.
+X# @(#)ls_finger.awk	1.1 2/10/92
+X/^\[/ { host = $1; next }
+X/[Ll]og|[Pp]ort|[Ll]ine|[Uu]ser/ { if (host != "") { print host; host="" }}
+END_OF_FILE
+  if test 304 -ne `wc -c <'ls_finger.awk'`; then
+    echo shar: \"'ls_finger.awk'\" unpacked with wrong size!
+  fi
+  # end of 'ls_finger.awk'
+fi
+if test -f 'ls_finger.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ls_finger.sh'\"
+else
+  echo shar: Extracting \"'ls_finger.sh'\" \(1068 characters\)
+  sed "s/^X//" >'ls_finger.sh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X# @(#)ls_finger.sh	1.3 2/21/92
+Xif ($#argv != 1) then
+X    echo usage: ls_finger.sh domainname \< hostnames
+X    echo Lists hosts which support finger to ls_finger.out
+X    exit 1
+Xendif
+X
+Xset FINGER = ./quickfinger
+X
+X# Split up list of hosts into files of 300 hosts to avoid line length
+X# limitation on shell (and go faster, too).
+X# (Shell job status msgs seem to always go to stdout no matter what I do!
+X#  Thus this script has to write a file, it can't just be a filter. :-( )
+Xsed -e 's/^/@/' -e 's/ / @/g' | split -300 - ls_finger.host
+Xforeach a (ls_finger.host??)
+X    ($FINGER `cat $a` > $a.out ) >& /dev/null &
+Xend
+Xwait
+X
+X# Delete garbage on each line before last bracket (needed with some fingers
+X# which don't output newline between hosts),
+X# print out hostname of computers that responded with any user-ish info,
+X# strip brackets from around hostnames,
+X# delete domain name (and implied leading dot),
+X# and sort.
+Xsed 's/.* \(\[\)/\1/' ls_finger.*.out | awk -f ls_finger.awk | tr -d '\[\]' \
+X    | sed s/\\.$1// | sort > ls_finger.out
+Xrm ls_finger.host*
+END_OF_FILE
+  if test 1068 -ne `wc -c <'ls_finger.sh'`; then
+    echo shar: \"'ls_finger.sh'\" unpacked with wrong size!
+  fi
+  # end of 'ls_finger.sh'
+fi
+if test -f 'ls_hosts.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ls_hosts.sh'\"
+else
+  echo shar: Extracting \"'ls_hosts.sh'\" \(1204 characters\)
+  sed "s/^X//" >'ls_hosts.sh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X# @(#)ls_hosts.sh	1.3 7/7/92
+Xif ($#argv != 1) then
+X    echo Usage: ls_hosts  domain  
+X    echo Lists hostnames, stripped of domain suffix, to stdout.
+X    exit 1
+Xendif
+Xset echo
+X
+Xif ( -f /etc/resolv.conf && -e /usr/etc/nslookup ) then
+X    # Use DNS to get hostnames.  Delete any trailing dot (NeXT does this?).
+X    echo ls $1 | nslookup | egrep -v ':|localhost' | grep '[0-9]\.[0-9]' | \
+X	sed s/.$1// | sort +1 -u | awk '{print $1}' | tr A-Z a-z | sort -u \
+X	| sed 's/\.$//' > /tmp/ls_hosts.tmp
+X    # Sometimes the DNS server doesn't have a list of hosts
+X    # (e.g. if you use a caching-only server), so try other methods, too.
+Xendif
+X
+Xif ( -e /usr/bin/domainname && `domainname` != noname ) then
+X    # Use NIS to get hostnames.  Choose first FQDN on line.
+X    ypcat hosts | tr A-Z a-z | grep -i $1 | grep -v '^#' \
+X	| sed s/$1.\*/$1/ | tr ' \011' '\012\012' \
+X	| grep -i $1 | sed s/.$1// | sort -u >> /tmp/ls_hosts.tmp
+Xendif
+X
+X# Get hostnames from /etc/hosts
+Xcat /etc/hosts | tr A-Z a-z | grep -i $1 | grep -v '^#' \
+X    | sed s/$1.\*/$1/ | tr ' \011' '\012\012' \
+X    | grep -i $1 | sed s/.$1// | sort -u >> /tmp/ls_hosts.tmp
+X
+X# Gather results
+Xsort -u /tmp/ls_hosts.tmp
+Xrm /tmp/ls_hosts.tmp
+END_OF_FILE
+  if test 1204 -ne `wc -c <'ls_hosts.sh'`; then
+    echo shar: \"'ls_hosts.sh'\" unpacked with wrong size!
+  fi
+  # end of 'ls_hosts.sh'
+fi
+if test -f 'ls_smtp.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ls_smtp.awk'\"
+else
+  echo shar: Extracting \"'ls_smtp.awk'\" \(153 characters\)
+  sed "s/^X//" >'ls_smtp.awk' <<'END_OF_FILE'
+X# Awk script to print out names of hosts responding to an SMTP request
+X# @(#)ls_smtp.awk	1.2 2/10/92
+X/connecting/ {host = $4; next}
+X/^220 / {print host}
+END_OF_FILE
+  if test 153 -ne `wc -c <'ls_smtp.awk'`; then
+    echo shar: \"'ls_smtp.awk'\" unpacked with wrong size!
+  fi
+  # end of 'ls_smtp.awk'
+fi
+if test -f 'ls_smtp.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ls_smtp.sh'\"
+else
+  echo shar: Extracting \"'ls_smtp.sh'\" \(556 characters\)
+  sed "s/^X//" >'ls_smtp.sh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X# @(#)ls_smtp.sh	1.3 7/7/92
+X# Usage: ls_smtp.sh < hostnames 
+X# Result to ls_smtp.out
+X# Send a letter to myself via each given host
+X#
+X# Handle 300 hosts at a time to avoid line-length limitations.
+X# Don't send more than one letter at once, though; e-mail systems are
+X# fragile.
+Xsplit -300 - ls_smtp.host
+Xforeach a (ls_smtp.host??)
+X    (mailself.sh `cat $a` > $a.out ) >& /dev/null 
+Xend
+X# Create a list of those hosts that accepted the command
+Xawk -f ls_smtp.awk ls_smtp.host*.out | tr A-Z a-z | sort > ls_smtp.out
+Xrm ls_smtp.host* ls_smtp.tmp
+END_OF_FILE
+  if test 556 -ne `wc -c <'ls_smtp.sh'`; then
+    echo shar: \"'ls_smtp.sh'\" unpacked with wrong size!
+  fi
+  # end of 'ls_smtp.sh'
+fi
+if test -f 'mailself.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mailself.sh'\"
+else
+  echo shar: Extracting \"'mailself.sh'\" \(1360 characters\)
+  sed "s/^X//" >'mailself.sh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X# @(#)mailself.sh	1.2 2/22/92
+Xif ($#argv == 0) then
+X    echo usage: mailself.sh hostname ...
+X    echo Mails a letter back to the current user by way of each given host.
+X    echo Also prints out the name of each host that accepted a letter.
+X    exit 1
+Xendif
+X# Really, there's no reason to print out the hostname- the real check
+X# comes when you see if the mail comes back properly- but I do anyway.
+X# Uses RFC822 source routing, since many SMTP servers (notably TGV's) don't
+X# understand the user%host1@host2 shorthand.
+X# Boy, is this nonportable.
+Xset host = `hostname`
+Xforeach b ($*) 
+X    # mconnect returns 255 if host refuses connection; use this
+X    # to avoid sending mail to hosts that really don't support SMTP
+X    mconnect $b < /dev/null > /dev/null
+X    if ($status) continue
+X
+X    # Use System V echo; it knows \n means newline.
+X    # Use sendmail in 'interactive' mode so we can get status return.
+X    /usr/5bin/echo To: $user@$host\\nFrom: $user@$host\\nSubject: ls_sendlet_sent_to" "$b | \
+X    /usr/lib/sendmail -di '<@'$b':'$user'@'$host'>' >& /dev/null
+X    # 0 = success, 64 = bad host, 67 = remote host can't deliver letter
+X    if ($status == 0 || $status == 67) echo $b
+X    # Pause to avoid overloading the mail system.
+X    # System may still choke if hundreds of letters come back all at once,
+X    # so watch out!
+X    sleep 10
+Xend
+END_OF_FILE
+  if test 1360 -ne `wc -c <'mailself.sh'`; then
+    echo shar: \"'mailself.sh'\" unpacked with wrong size!
+  fi
+  # end of 'mailself.sh'
+fi
+if test -f 'monthly.sh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'monthly.sh'\"
+else
+  echo shar: Extracting \"'monthly.sh'\" \(1572 characters\)
+  sed "s/^X//" >'monthly.sh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X# @(#)monthly.sh	1.7 7/7/92
+X# Update $2/hosts.poll by probing for new hosts that support finger AND mail.
+X# Hosts that are in ls_smtp.out but not in recvmail.out may have mail
+X# configuration problems; they didn't get mail back to us.
+X# Dan Kegel (dank@blacks.jpl.nasa.gov)
+X#
+Xif ($#argv != 2) then
+X    echo Usage: $0 domain dir
+X    echo Updates dir/hosts.poll.
+X    exit 1
+Xendif
+Xset verbose
+Xset DOMAIN = $1
+Xcd $2
+X#
+X# Default path doesn't reach nslookup.
+Xset path=(/bin /usr/bin /usr/ucb /etc /usr/etc . $path)
+X#
+X# Delete old letters.  This is why this script should be run by a pseudo-user!
+X/bin/rm /usr/spool/mail/$USER
+X#
+X# Get list of all IP hosts in this domain that don't match an exlude list
+Xls_hosts.sh $DOMAIN | egrep -v -f hosts.exclude > hosts
+X# and that we don't already monitor
+Xtouch hosts.poll
+Xsort hosts.poll > ohosts
+Xcomm -23 hosts ohosts > nhosts
+X#
+X# Find subset of hosts which run fingerd; result to ls_finger.out.
+Xls_finger.sh $DOMAIN < nhosts 
+X#
+X# Find subset of hosts which run smtpd, and send letters; result to ls_smtp.out
+Xls_smtp.sh < ls_finger.out
+X#
+X# Wait for letters to come back.  Should wait longer, but...
+Xsleep 1000
+X# Find subset of hosts that returned letters to us successfully
+Xtr A-Z a-z < /usr/spool/mail/$USER | awk -f recvmail.awk | sort -u >recvmail.out
+X/bin/rm /usr/spool/mail/$USER
+X#
+X# Finally, generate list of hosts that support finger AND mail,
+Xjoin ls_finger.out recvmail.out > hosts.good
+X# and update old list.
+Xsort -u hosts.good hosts.poll > hosts.new
+Xmv hosts.poll hosts.poll.old
+Xmv hosts.new hosts.poll
+Xrm ?hosts
+END_OF_FILE
+  if test 1572 -ne `wc -c <'monthly.sh'`; then
+    echo shar: \"'monthly.sh'\" unpacked with wrong size!
+  fi
+  # end of 'monthly.sh'
+fi
+if test -f 'net.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'net.c'\"
+else
+  echo shar: Extracting \"'net.c'\" \(3308 characters\)
+  sed "s/^X//" >'net.c' <<'END_OF_FILE'
+X
+X#ifndef lint
+Xstatic char sccsid[] = "@(#)net.c	1.3 7/7/92 from net.c	5.5 (Berkeley) 6/1/90";
+X#endif /* not lint */
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <netinet/in.h>
+X#include <signal.h>
+X#include <netdb.h>
+X#include <stdio.h>
+X#include <ctype.h>
+X#include <setjmp.h>
+X
+Xjmp_buf env;
+X
+Xvoid handler()
+X{
+X	/* return to netfinger() and cause it to terminate.
+X	 */
+X	 longjmp(env, 1);
+X}
+X
+Xnetfinger(name, lflag)
+X	char *name;
+X	int lflag;
+X{
+X	FILE *fp;
+X	int c, lastc;
+X	struct in_addr defaddr;
+X	struct hostent *hp, def;
+X	struct servent *sp;
+X	struct sockaddr_in sin;
+X	int s;
+X	char *alist[1], *host, *rindex();
+X	u_long inet_addr();
+X
+X	if (!(host = rindex(name, '@')))
+X		return;
+X	*host++ = NULL;
+X	if (!(hp = gethostbyname(host))) {
+X		defaddr.s_addr = inet_addr(host);
+X		if (defaddr.s_addr == -1) {
+X			(void)fprintf(stderr,
+X			    "finger: unknown host: %s\n", host);
+X			return;
+X		}
+X		def.h_name = host;
+X		def.h_addr_list = alist;
+X		def.h_addr = (char *)&defaddr;
+X		def.h_length = sizeof(struct in_addr);
+X		def.h_addrtype = AF_INET;
+X		def.h_aliases = 0;
+X		hp = &def;
+X	}
+X	if (!(sp = getservbyname("finger", "tcp"))) {
+X		(void)fprintf(stderr, "finger: tcp/finger: unknown service\n");
+X		return;
+X	}
+X	sin.sin_family = hp->h_addrtype;
+X	bcopy(hp->h_addr, (char *)&sin.sin_addr, hp->h_length);
+X	sin.sin_port = sp->s_port;
+X	if ((s = socket(hp->h_addrtype, SOCK_STREAM, 0)) < 0) {
+X		perror("finger: socket");
+X		return;
+X	}
+X
+X	/* have network connection; identify the host connected with */
+X	if (hp->h_name == NULL)	{
+X	    fprintf(stderr, "h_name NULL??\n");
+X	    (void)close(s);
+X	    return;
+X	}
+X	(void)printf("[%s]\n", hp->h_name);
+X	fflush(stdout);
+X	if (setjmp(env)) {
+X		if (hp->h_name == NULL)	/* it happened once? */
+X		    fprintf(stderr, "Finger: timeout connect (h_name now NULL?!)\n");
+X		else
+X		    fprintf(stderr, "Finger: timeout connect %s\n", hp->h_name);
+X		(void)close(s);
+X		return;
+X	}
+X	alarm(10);
+X	signal(SIGALRM, handler);
+X	if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+X		perror("finger: connect");
+X		(void)close(s);
+X		return;
+X	}
+X	alarm(20);	/* once we've connected, give them 20 seconds */
+X	if (setjmp(env)) {
+X		printf("\n");
+X		fflush(stdout);
+X		fprintf(stderr, "Finger: timeout reading %s\n", hp->h_name);
+X		(void)close(s);
+X		return;
+X	}
+X	signal(SIGALRM, handler);
+X
+X	/* -l flag for remote fingerd  */
+X	if (lflag)
+X		write(s, "/W ", 3);
+X	/* send the name followed by <CR><LF> */
+X	(void)write(s, name, strlen(name));
+X	(void)write(s, "\r\n", 2);
+X
+X	/*
+X	 * Read from the remote system; once we're connected, we assume some
+X	 * data.  If none arrives, we hang until the user interrupts.
+X	 *
+X	 * If we see a <CR> or a <CR> with the high bit set, treat it as
+X	 * a newline; if followed by a newline character, only output one
+X	 * newline.
+X	 *
+X	 * Otherwise, all high bits are stripped; if it isn't printable and
+X	 * it isn't a space, we can simply set the 7th bit.  Every ASCII
+X	 * character with bit 7 set is printable.
+X	 */ 
+X	if (fp = fdopen(s, "r"))
+X		while ((c = getc(fp)) != EOF) {
+X			c &= 0x7f;
+X			if (c == 0x0d) {
+X				c = '\n';
+X				lastc = '\r';
+X			} else {
+X				if (!isprint(c) && !isspace(c))
+X					c |= 0x40;
+X				if (lastc != '\r' || c != '\n')
+X					lastc = c;
+X				else {
+X					lastc = '\n';
+X					continue;
+X				}
+X			}
+X			putchar(c);
+X		}
+X	if (lastc != '\n')
+X		putchar('\n');
+X	(void)fclose(fp);
+X}
+END_OF_FILE
+  if test 3308 -ne `wc -c <'net.c'`; then
+    echo shar: \"'net.c'\" unpacked with wrong size!
+  fi
+  # end of 'net.c'
+fi
+if test -f 'nukefortune.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'nukefortune.awk'\"
+else
+  echo shar: Extracting \"'nukefortune.awk'\" \(1049 characters\)
+  sed "s/^X//" >'nukefortune.awk' <<'END_OF_FILE'
+X# @(#)nukefortune.awk	1.1 2/21/92
+X# Take output of many finger requests
+X# Print out hostname and user lines; filter out garbage at end
+X#
+X# Finger output is assumed to follow the format
+X#  "[hostname]"
+X#  garbage
+X#  users header | "no one logged on"
+X#  users lines, one user per line
+X#  blank line
+X#  garbage
+X# repeated once for each system fingered.
+X#
+X# state  meaning
+X#  0     waiting for first hostname
+X#  1     waiting for users header line
+X#  2     getting users
+X#  3     ignoring garbage/waiting for next hostname
+X
+X# Detect hostname
+X/^\[/ { state=1; print; next }
+X# Detect users header or no users message
+X/[Nn]o one logged|unknown|-----|uucp|error|[Ll]ogging in|[Ll]ogin | tty | TTY | load av|LOAD AV|[ 0123][0-9], [12].*[Uu][Pp]/ {state=2; next}
+X# Print users lines
+X/^[A-Za-z]/ {
+X    if (state==1) state=2;
+X    if (state==2) { print; next}
+X}
+X# detect blank line before final garbage
+X/^ $/ { if (state==2) {state=3; next;} }
+X# Print final garbage (only during debugging, to make sure it's garbage)
+X#{ if (state==3) print "Garbage: " $0; next}
+END_OF_FILE
+  if test 1049 -ne `wc -c <'nukefortune.awk'`; then
+    echo shar: \"'nukefortune.awk'\" unpacked with wrong size!
+  fi
+  # end of 'nukefortune.awk'
+fi
+if test -f 'recvmail.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'recvmail.awk'\"
+else
+  echo shar: Extracting \"'recvmail.awk'\" \(751 characters\)
+  sed "s/^X//" >'recvmail.awk' <<'END_OF_FILE'
+X# @(#)recvmail.awk	1.1 2/11/92
+X# Awk script to do the following without MH.  Stdin is /var/spool/mail/$USER
+X# translated to lower case.
+X# Delete letters that are error messages
+X#rmm `pick -search error -or -search postmaster -or -search returned`
+X# Grab name of machine we sent each letter to
+X#show `pick -search ls_sendlet` |  awk '/ls_sendlet_sent_to/{print $3}' 
+X#
+X# "From:" at the start of a line is the mail message delimiter.
+X/^from:/ {bad=0; next}
+X# Bad messages contain one of the following words:
+X/error|postmaster|returned|undeliverable/ {bad=1;}
+X# If we got to the magic keyword "ls_sendlet_sent_to" without seeing
+X# an error word, it was a good letter.
+X/ls_sendlet_sent_to/{if (bad==0) print $3; next}
+X# Otherwise ignore the line.
+X{next;}
+END_OF_FILE
+  if test 751 -ne `wc -c <'recvmail.awk'`; then
+    echo shar: \"'recvmail.awk'\" unpacked with wrong size!
+  fi
+  # end of 'recvmail.awk'
+fi
+if test -f 'sortdate.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'sortdate.awk'\"
+else
+  echo shar: Extracting \"'sortdate.awk'\" \(1737 characters\)
+  sed "s/^X//" >'sortdate.awk' <<'END_OF_FILE'
+X# Script to take entries of the form
+X# aap@hanauma	Amy Pang   	Mon Jan 27 1992
+X# aaw@awolf	aron wolf   	Tue Feb 4 1992
+X# then delete all but the latest entry for a given address.
+X# Entries already sorted on address.
+X# Invoke as awk -f thisfile thisyear=1992 infile
+X# @(#)sortdate.awk	1.1 2/5/92
+XBEGIN { 
+X    # Note: variables set on commandline are not valid in BEGIN!
+X    FS="\t";
+X    mon["JAN"]=1; mon["jan"] = 1; mon["Jan"]=1;
+X    mon["FEB"]=2; mon["feb"] = 2; mon["Feb"]=2;
+X    mon["MAR"]=3; mon["mar"] = 3; mon["Mar"]=3;
+X    mon["APR"]=4; mon["apr"] = 4; mon["Apr"]=4;
+X    mon["MAY"]=5; mon["may"] = 5; mon["May"]=5;
+X    mon["JUN"]=6; mon["jun"] = 6; mon["Jun"]=6;
+X    mon["JUL"]=7; mon["jul"] = 7; mon["Jul"]=7;
+X    mon["AUG"]=8; mon["aug"] = 8; mon["Aug"]=8;
+X    mon["SEP"]=9; mon["sep"] = 9; mon["Sep"]=9;
+X    mon["OCT"]=10; mon["oct"] = 10; mon["Oct"]=10;
+X    mon["NOV"]=11; mon["nov"] = 11; mon["Nov"]=11; 
+X    mon["DEC"]=12; mon["dec"] = 12; mon["Dec"]=12;
+X}
+X{
+X    # Print result when new address comes along.
+X    if ($1 != o_adr) {
+X	if (o_adr != "") print o_line;
+X	o_adr = "";
+X	o_line = "";
+X	o_ndate = "";
+X
+X    }
+X    # Convert date to numerical date.
+X    weekday = substr($3, 1, 3);
+X    month = substr($3, 5, 3);
+X    day = substr($3, 9, 2);
+X    if (day ~ / $/) day = substr(day, 1, 1);
+X    year = substr($3, 11, 6);
+X    while (year ~ /^ /) year = substr(year, 2, 6);
+X    if (year ~ /[0-9]:[0-9]/) {
+X	# Year is actually a time of day!  Replace it with thisyear..
+X	year = thisyear;
+X    }
+X    ndate = year*10000+mon[month]*100+day;
+X
+X    # If later than old date, save.
+X    if (ndate > o_ndate) {
+X	o_ndate = ndate;
+X	o_line = $1 "\t" $2 "\t" weekday " " month " " day " " year;
+X	o_adr = $1;
+X    }
+X    next;
+X}
+XEND { print o_line }
+END_OF_FILE
+  if test 1737 -ne `wc -c <'sortdate.awk'`; then
+    echo shar: \"'sortdate.awk'\" unpacked with wrong size!
+  fi
+  # end of 'sortdate.awk'
+fi
+if test -f 'toshort.awk' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'toshort.awk'\"
+else
+  echo shar: Extracting \"'toshort.awk'\" \(345 characters\)
+  sed "s/^X//" >'toshort.awk' <<'END_OF_FILE'
+X# awk script to take multiline-per-user output of Finger's long
+X# format, and turn it into a one-line-per-user format with
+X# login name, real name, and last login time.
+X# @(#)toshort.awk	1.1 2/5/92
+X/Login name/{ uname = $3; rname = $7 " " $8 " " $9 " " $10 " " $11 }
+X/Last login/{ print uname "\t" rname "\t" $3 " " $4 " " $5 " " $6;}
+X{ next; }
+END_OF_FILE
+  if test 345 -ne `wc -c <'toshort.awk'`; then
+    echo shar: \"'toshort.awk'\" unpacked with wrong size!
+  fi
+  # end of 'toshort.awk'
+fi
+if test -f 'version' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version'\"
+else
+  echo shar: Extracting \"'version'\" \(506 characters\)
+  sed "s/^X//" >'version' <<'END_OF_FILE'
+X@(#)version	1.8 7/8/92
+X	Makefile	1.6 2/22/92
+X	README	1.12 7/8/92
+X	addhostname.awk	1.1 2/8/92
+X	dot.plan	1.3 7/8/92
+X	finger.c	1.1 2/8/92
+X	hourly.sh	1.8 7/8/92
+X	ls_finger.awk	1.1 2/10/92
+X	ls_finger.sh	1.3 2/21/92
+X	ls_hosts.sh	1.3 7/7/92
+X	ls_smtp.awk	1.2 2/10/92
+X	ls_smtp.sh	1.3 7/7/92
+X	mailself.sh	1.2 2/22/92
+X	monthly.sh	1.7 7/7/92
+X	net.c	1.3 7/7/92 from net.c	5.5 (Berkeley) 6/1/90
+X	nukefortune.awk	1.1 2/21/92
+X	recvmail.awk	1.1 2/11/92
+X	sortdate.awk	1.1 2/5/92
+X	toshort.awk	1.1 2/5/92
+X	whoisd.c	1.4 7/8/92
+END_OF_FILE
+  if test 506 -ne `wc -c <'version'`; then
+    echo shar: \"'version'\" unpacked with wrong size!
+  fi
+  # end of 'version'
+fi
+if test -f 'whoisd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'whoisd.c'\"
+else
+  echo shar: Extracting \"'whoisd.c'\" \(2222 characters\)
+  sed "s/^X//" >'whoisd.c' <<'END_OF_FILE'
+X/*-------------------------------------------------------------------------- 
+X whoisd.c
+X Simply runs egrep with the given search string
+X on our data file.
+X Modified from a whoisd.c found on the net somewhere.
+X - Dan Kegel (dank@blacks.jpl.nasa.gov)
+X--------------------------------------------------------------------------*/
+Xstatic char SCCSID[] = "@(#)whoisd.c	1.4 7/8/92";
+X
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <syslog.h>
+X
+X#define GREP "/usr/bin/egrep"
+X#define	WORKINGDIR "/tmp"
+X
+Xchar	*inet_ntoa();
+X
+Xchar *
+Xstream_gets()
+X{
+X	register char *cp;
+X	register i;
+X	int  loc;
+X	static char inp_buf[1024];
+X
+X	cp = inp_buf;
+X	loc = 0;
+X	while(loc < 1000) {
+X		i = read(5, cp, 1);
+X		if(!i) {
+X			*cp = 0;
+X			break;
+X		}
+X		if(i < 0) {
+X			perror("socket read");
+X			exit(1);
+X		}
+X		if(*cp == '\n') break;
+X		if(*cp == '\r') break;
+X		cp++;
+X		loc++;
+X	}
+X	*cp = '\0';
+X	return(inp_buf);
+X}
+X
+X
+X#define MAXARGS 10
+X
+Xchar  *grep_argv[MAXARGS];
+X
+Xmain(argc,argv)
+Xint  argc;
+Xchar **argv;
+X{
+X	char *cp,*lcp;
+X	int  i;
+X	int  argnum;
+X	struct sockaddr_in sin;
+X
+X	if (argc != 2) {
+X		fprintf(stderr, "Usage: %s datafile\n", argv[0]);
+X		exit(1);
+X	}
+X	if(chdir(WORKINGDIR) == -1) {
+X		perror("chdir");
+X		exit(1);
+X	}
+X#ifndef DEBUG
+X	i = sizeof(struct sockaddr_in);
+X	if(getpeername(0, &sin, &i) < 0) {
+X		perror("getpeername()");
+X		exit(1);
+X	}
+X
+X#ifdef ultrix
+X	/* Thanks to Dave Dittrich */
+X	openlog("whoisd", LOG_PID);
+X#else
+X	openlog("whoisd", LOG_PID, LOG_DAEMON);
+X#endif
+X	syslog(LOG_INFO,"Connection from host '%s'",inet_ntoa(sin.sin_addr));
+X#endif
+X
+X	dup2(0,5);
+X	fclose(stdin);
+X	fclose(stdout);
+X	fclose(stderr);
+X
+X	dup2(5,1);
+X	dup2(5,2);
+X
+X	_iob[1] = *fdopen(1,"w");
+X	_iob[0] = *fdopen(2,"w");
+X
+X
+X	cp = stream_gets();
+X	if (strlen(cp) == 0) {
+X	    printf("Type the name, username, or hostname of the person\n");
+X	    printf("you are searching for.\n");
+X	    exit(0);
+X	}
+X
+X	argnum = 0;
+X	grep_argv[argnum++] = "egrep";
+X	grep_argv[argnum++] = "-i";
+X	grep_argv[argnum++] = "-e";
+X	grep_argv[argnum++] = cp;
+X	grep_argv[argnum++] = argv[1];
+X
+X#ifndef DEBUG
+X	syslog(LOG_INFO,"REQUEST '%s'",cp);
+X	closelog();
+X#else
+X	printf("REQUEST '%s'\n", cp);
+X#endif
+X
+X	grep_argv[argnum++] = NULL;
+X	grep_argv[argnum++] = NULL;
+X
+X	execv(GREP,grep_argv);
+X	exit(0);
+X}
+END_OF_FILE
+  if test 2222 -ne `wc -c <'whoisd.c'`; then
+    echo shar: \"'whoisd.c'\" unpacked with wrong size!
+  fi
+  # end of 'whoisd.c'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

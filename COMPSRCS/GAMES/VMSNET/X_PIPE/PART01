@@ -1,0 +1,1643 @@
+Path: uunet!usc!elroy.jpl.nasa.gov!decwrl!waikato!waikato.ac.nz!cguthrey
+From: cguthrey@waikato.ac.nz
+Newsgroups: vmsnet.sources.games
+Subject: Pipeline for VT320 (part 1/3)
+Message-ID: <1993Aug5.030510.18755@waikato.ac.nz>
+Date: 5 Aug 93 03:05:10 +1200
+Organization: University of Waikato, Hamilton, New Zealand
+Lines: 1633
+Xref: uunet vmsnet.sources.games:768
+
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_VERIFY"))'
+$!
+$! This archive created by VMS_SHARE Version 7.2-007  22-FEB-1990
+$!   On  5-AUG-1993 02:48:32.27   By user CGUTHREY 
+$!
+$! This VMS_SHARE Written by:
+$!    Andy Harper, Kings College London UK
+$!
+$! Acknowledgements to:
+$!    James Gray       - Original VMS_SHARE
+$!    Michael Bednarek - Original Concept and implementation
+$!
+$!+ THIS PACKAGE DISTRIBUTED IN 3 PARTS, TO KEEP EACH PART
+$!  BELOW 100 BLOCKS
+$!
+$! TO UNPACK THIS SHARE FILE, CONCATENATE ALL PARTS IN ORDER
+$! AND EXECUTE AS A COMMAND PROCEDURE  (  @name  )
+$!
+$! THE FOLLOWING FILE(S) WILL BE CREATED AFTER UNPACKING:
+$!       1. AAAREADME.TXT;1
+$!       2. COMPILE.COM;1
+$!       3. MISC.PAS;19
+$!       4. PIPELINE.INST1;2
+$!       5. PIPELINE.INST2;3
+$!       6. PIPELINE.INTRO;1
+$!       7. PIPELINE.PAS;26
+$!       8. PIPELINE.VT320_FONT;28
+$!       9. VT100_ESC_SEQS.PAS;14
+$!
+$set="set"
+$set symbol/scope=(nolocal,noglobal)
+$f=f$parse("SHARE_TEMP","SYS$SCRATCH:.TMP_"+f$getjpi("","PID"))
+$e="write sys$error  ""%UNPACK"", "
+$w="write sys$output ""%UNPACK"", "
+$ if f$trnlnm("SHARE_LOG") then $ w = "!"
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto START
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$UNPACK: SUBROUTINE ! P1=filename, P2=checksum
+$ if f$search(P1) .eqs. "" then $ goto file_absent
+$ e "-W-EXISTS, File ''P1' exists. Skipped."
+$ delete 'f'*
+$ exit
+$file_absent:
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'."
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn'. File skipped."
+$ delete 'f'*
+$ exit
+$dirok:
+$ w "-I-PROCESS, Processing file ''P1'."
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT 'f'/OUT='P1'
+PROCEDURE Unpacker ON_ERROR ENDON_ERROR;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);f:=GET_INFO(COMMAND_LINE,"file_name");b:=
+CREATE_BUFFER(f,f);p:=SPAN(" ")@r&LINE_END;POSITION(BEGINNING_OF(b));
+LOOP EXITIF SEARCH(p,FORWARD)=0;POSITION(r);ERASE(r);ENDLOOP;POSITION(
+BEGINNING_OF(b));g:=0;LOOP EXITIF MARK(NONE)=END_OF(b);x:=ERASE_CHARACTER(1);
+IF g=0 THEN IF x="X" THEN MOVE_VERTICAL(1);ENDIF;IF x="V" THEN APPEND_LINE;
+MOVE_HORIZONTAL(-CURRENT_OFFSET);MOVE_VERTICAL(1);ENDIF;IF x="+" THEN g:=1;
+ERASE_LINE;ENDIF;ELSE IF x="-" THEN IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+")=
+1 THEN g:=0;ENDIF;ENDIF;ERASE_LINE;ENDIF;ENDLOOP;t:="0123456789ABCDEF";
+POSITION(BEGINNING_OF(b));LOOP r:=SEARCH("`",FORWARD);EXITIF r=0;POSITION(r);
+ERASE(r);x1:=INDEX(t,ERASE_CHARACTER(1))-1;x2:=INDEX(t,ERASE_CHARACTER(1))-1;
+COPY_TEXT(ASCII(16*x1+x2));ENDLOOP;WRITE_FILE(b,GET_INFO(COMMAND_LINE,
+"output_file"));ENDPROCEDURE;Unpacker;QUIT;
+$ delete/nolog 'f'*
+$ CHECKSUM 'P1'
+$ IF CHECKSUM$CHECKSUM .eqs. P2 THEN $ EXIT
+$ e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ ENDSUBROUTINE
+$START:
+$ create 'f'
+XHi fellow VMS Gamers.
+X
+XPipeline VT320 - A game for Digital VT320 Terminals
+X
+XLanguage: VAX PAscal
+X
+XThis is a game I hacked together a little while ago.  Its based on X-Pipe,
+Xbut does not have all the features. Its a simple and tiny subset of the`20
+Xthe X game.  Feel free to extend and improve it, if you so wish.
+X
+XThis game uses a downloadable soft character set. If this game is not
+Xplayed from an authentic Digital VT320, then it may not work.
+X
+XLike many other Waikato Uni games, this progam uses the Interact library.
+XHowever, since there are currently a few version-control problems with
+XInteract, I have extracted the routines used and placed them into the
+Xfile MISC.PAS.
+X
+XType '@compile'  to compile and link the game, then 'run pipeline' to
+Xplay the game. `20
+X
+XBTW, I guess I'd better mention that no warranty of any kind is provided.
+XThis game was written for the Waikato University VAX cluster, and I have
+Xnot tested it anywhere else.  The version of VAX PASCAL used is 4.2-55.
+X
+XPlease read and observe the text at the begining of MISC.PAS.  I have`20
+Xincluded it below:
+X
+X(****************** This file is a collection of routines from  ************
+V**
+X ******************    the INTERACT Pascal Games Library...     ************
+V**
+X *****************                                               ***********
+V**
+X ****************  (c) Waikato University, Hamilton, NEW ZEALAND  **********
+V**
+X *
+X *  The INTERACT Library was written by Paul Denize   PDENIZE@WAIKATO.AC.NZ`
+V20
+X *
+X *  Contributing authors: Rex Croft                   CCC_REX@WAIKATO.AC.NZ
+X *                        Lawrence D'Oliviero         LDO@WAIKATO.AC.NZ
+X *                        Chris Guthrey               CGUTHREY@WAIKATO.AC.NZ
+X *
+X *  Several improvements to the TOPTEN Score Table System`20
+X *  contributed by:
+X *                        Bill Brenessel      MASMUMMY@ubvmsc.cc.buffalo.edu
+X *
+X * You are granted permission to use the routines in this file or any other
+X * routines from any INTERACT Library File on condition that this header is
+X * retained and credit given where due.
+X *
+X * Note of course that there is no warranty of any kind whatsoever.
+X *
+X *)
+X
+XWell, there you go. I hope you enjoy the game!
+X
+XChris Guthrey.`20
+Xc.guthrey@waikato.ac.nz
+$ CALL UNPACK AAAREADME.TXT;1 2021551200
+$ create 'f'
+X$ ! quick instructions
+X$ !`20
+X$ pas/nodebug/opt/nolist misc
+X$ pas/nodebug/opt/nolist pipeline
+X$ link/nodebug pipeline,misc
+X$ !
+X$ exit
+$ CALL UNPACK COMPILE.COM;1 878852251
+$ create 'f'
+X(****************** This file is a collection of routines from  ************
+V**
+X ******************    the INTERACT Pascal Games Library...     ************
+V**
+X *****************                                               ***********
+V**
+X ****************  (c) Waikato University, Hamilton, NEW ZEALAND  **********
+V**
+X *
+X *  The INTERACT Library was written by Paul Denize   PDENIZE@WAIKATO.AC.NZ`
+V20
+X *
+X *  Contributing authors: Rex Croft                   CCC_REX@WAIKATO.AC.NZ
+X *                        Lawrence D'Oliviero         LDO@WAIKATO.AC.NZ
+X *                        Chris Guthrey               CGUTHREY@WAIKATO.AC.NZ
+X *
+X *  Several improvements to the TOPTEN Score Table System`20
+X *  contributed by:
+X *                        Bill Brenessel      MASMUMMY@ubvmsc.cc.buffalo.edu
+X *
+X * You are granted permission to use the routines in this file or any other
+X * routines from any INTERACT Library File on condition that this header is
+X * retained and credit given where due.
+X *
+X * Note of course that there is no warranty of any kind whatsoever.
+X *
+X *)
+X`5B
+X  Inherit(
+X    (*'GEN$:`5BPAS`5DVAXTYPES', *)
+X    'SYS$LIBRARY:PASCAL$LIB_ROUTINES',
+X    'SYS$LIBRARY:STARLET'`20
+X    (* 'GEN$:`5BPAS`5DVMSRTL' *)`20
+X  ),
+X  Environment
+X    ('MISC.PEN')
+X`5D
+XMODULE MISC( OUTPUT );
+X
+X(*****************************************************************
+X ** THIS FILE IS MERELY A CONCISE COMPILATION OF ROUTINES TAKEN **
+X ** FROM A NUMBER OF INTERACT GAMES LIBRARY SOURCE FILES. ONLY  **
+X ** THE ROUTINES NEEDED BY THIS PARTICULAR GAME ARE INCLUDED.   **
+X *****************************************************************)
+X
+X%INCLUDE 'VT100_ESC_SEQS.PAS'
+X
+XTYPE
+X      `7B signed integer types `7D
+X`09$byte = `5BBYTE`5D -128..127;
+X`09$word = `5BWORD`5D -32768..32767;
+X`09$quad = `5BQUAD,UNSAFE`5D RECORD
+X`09`09l0:UNSIGNED; l1:INTEGER; END;
+X`09$octa = `5BOCTA,UNSAFE`5D RECORD
+X`09`09l0,l1,l2:UNSIGNED; l3:INTEGER; END;
+X
+X      `7B unsigned integer types `7D
+X`09$ubyte = `5BBYTE`5D 0..255;
+X`09$uword = `5BWORD`5D 0..65535;
+X`09$uquad = `5BQUAD,UNSAFE`5D RECORD
+X`09`09l0,l1:UNSIGNED; END;
+X`09$uocta = `5BOCTA,UNSAFE`5D RECORD
+X`09`09l0,l1,l2,l3:UNSIGNED; END;
+X
+X      `7B miscellaneous types `7D
+X`09$packed_dec = `5BBIT(4),UNSAFE`5D 0..15;
+X`09$deftyp = `5BUNSAFE`5D INTEGER;
+X`09$defptr = `5BUNSAFE`5D `5E$DEFTYP;
+X
+X
+X`5BHIDDEN`5D
+XTYPE
+X  v_array = varying `5B256`5D of char;
+X
+X`5BGLOBAL`5D
+XFUNCTION System_Call ( ret_status : integer ) : Boolean;
+XBEGIN
+X  IF not odd(ret_status) then
+X    LIB$SIGNAL(ret_status);
+X  System_Call := odd(ret_status);
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  TERMINATE ( code : integer := 1 );
+XBEGIN
+X  $EXIT ( code );
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  KILL ( PID : `5BTRUNCATE`5D UNSIGNED );
+XBEGIN
+X  IF PRESENT(PID) then
+X    System_Call ($DELPRC(pidadr:=PID))
+X  ELSE
+X    System_Call ($DELPRC);
+XEND;
+X
+XVAR
+X  terminal_input_channel    : $UWORD;
+X  terminal_output_channel   : $UWORD;
+X  channel_initialized : Boolean := False;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  initialize_channel( input_device : v_array := 'TT:';
+X                               output_device : v_array := 'TT:' );
+XBEGIN
+X  IF not channel_initialized then
+X    BEGIN `20
+X      System_Call ($assign ( chan := terminal_output_channel , devnam := out
+Vput_device));
+X      IF input_device = output_device THEN     `7Bare in and out devices sam
+Ve?`7D
+X        terminal_input_channel := terminal_output_channel `7Bsame channel`7D
+X      ELSE
+X        System_Call ($assign ( chan := terminal_input_channel ,devnam := inp
+Vut_device ));
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XFUNCTION  QIO_1_char_now : char;
+XVAR
+X  buffer : packed array `5B1..1`5D of char;
+XBEGIN
+X  buffer`5B1`5D := chr(-1);
+X  System_Call ($qiow ( chan:= terminal_input_channel,
+X                        func:= io$_readvblk+io$m_timed+io$m_noecho+io$m_nofi
+Vltr,
+X                        p1:= buffer,
+X                        p2:= 1, `7B bufferlength `7D
+X                        p3:= 0 ));
+X   Qio_1_char_now := buffer`5B1`5D;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  QIO_readln ( characters : integer ) : v_array;
+XTYPE
+X  iosb_type = `5BQUAD`5D Record
+X                       Status : $uword;
+X                       Nrbytes : $uword;
+X                       Terminator : char;
+X                       Reserved : $ubyte;
+X                       Terminator_length : $ubyte;
+X                       Cursor_offset : $ubyte
+X                     End;
+XVAR
+X  temp : v_array;
+X  Read_iosb : iosb_type;
+XBEGIN
+X  system_Call ( $qiow ( chan:= terminal_input_channel,
+X                        func:= io$m_timed+io$_readvblk+io$m_noecho+io$m_nofi
+Vltr+io$m_escape,
+X                        iosb:= read_iosb,
+X                          p1:= temp.body,
+X                          p2:= characters,
+X                          p3:= 0 ));
+X   temp.length := ( read_iosb.Nrbytes );
+X   qio_readln := temp;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  QIO_1_char : char;
+XVAR
+X  buffer : packed array `5B1..1`5D of char;
+XBEGIN
+X  System_Call ($qiow ( chan:= terminal_input_channel,
+X                        func:= io$_readvblk+io$m_noecho+io$m_nofiltr,
+X                          p1:= buffer,
+X                          p2:= 1 ));
+X  Qio_1_char := buffer`5B1`5D;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  QIO_purge;
+XBEGIN
+X  System_Call ($qiow ( chan:= terminal_input_channel,
+X                        func:= io$_readvblk+io$m_purge ));
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  QIO_1_char_timed ( delay : integer ) : char;
+XVAR
+X  buffer : packed array `5B1..1`5D of char;
+XBEGIN
+X  buffer`5B1`5D := chr(255);
+X  System_Call ($qiow ( chan:= terminal_input_channel,
+X                        func:=io$m_timed+io$_readvblk+io$m_noecho+io$m_nofil
+Vtr+io$m_escape,
+X                          p1:= buffer,
+X                          p2:= 1,
+X                          p3:= delay ));
+X  Qio_1_char_timed := buffer`5B1`5D;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  QIO_write ( text : v_array );
+XBEGIN
+X  System_Call ($qiow (chan:= terminal_output_channel,
+X                       func:= io$_writevblk,
+X                         p1:= text.body,
+X                         p2:= text.length ));
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  QIO_writeln ( text : `5BTRUNCATE`5D v_array );
+XVAR
+X  outline     : v_array;
+XBEGIN
+X  IF present(text) then
+X    BEGIN
+X      outline := text + VT100_cr + VT100_lf;
+X      System_Call ($qiow (chan:= terminal_output_channel,
+X                           func:= io$_writevblk,
+X                             p1:= outline.body,
+X                             p2:= outline.length  ));
+X    END
+X  ELSE
+X    BEGIN
+X      outline := VT100_cr + VT100_lf;
+X      System_Call ($qiow (chan:= terminal_output_channel,
+X                           func:= io$_writevblk,
+X                             p1:= outline.body,
+X                             p2:= outline.length  ));
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Sleep ( sec : integer := 0; frac : `5BTRUNCATE`5D real );
+XVAR
+X  Hundredths : integer;
+X  delta_wake_time : $quad;
+XBEGIN
+X  Hundredths := sec*100;
+X  IF PRESENT(frac) then
+X    Hundredths := Hundredths + round(frac*100);
+X  IF ( hundredths > 0 ) then
+X    BEGIN
+X      System_Call (LIB$EMUL (Hundredths, -100000, 0, delta_wake_time));
+X      IF System_Call ($Schdwk ( daytim := delta_wake_time )) then
+X        System_Call ($Hiber);
+X    END;
+XEND;
+X
+XTYPE
+X  portiontype = (The_Screen,The_Line);
+X  cleartype   = (Wholething, To_Start, To_End);
+X `20
+X`5BHIDDEN`5D
+XVAR
+X  desblk : Record
+X             findlink   : integer;
+X             proc       : integer;
+X             arglist    : array `5B0..1`5D of integer;
+X             exitreason : integer;
+X           End;
+X
+X
+X`5BHIDDEN`5D
+XPROCEDURE  ctrlc_ast;
+XBEGIN
+X  $exit ( code := ss$_clifrcext );
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Force;
+XBEGIN
+X  System_Call ($qiow ( chan := terminal_output_channel,
+X                        func := io$_setmode + io$m_ctrlcast,
+X                        p1   := %immed iaddress (ctrlc_ast)));
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE Setup_handler ( handler_address : integer );
+XBEGIN
+X  WITH desblk do
+X    BEGIN
+X      proc       := handler_address;
+X      arglist`5B0`5D := 1;
+X      arglist`5B1`5D := iaddress(exitreason);
+X    END;
+X
+X  System_Call ($DCLEXH (desblk));
+XEND;`20
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  No_handler;
+XBEGIN
+X  System_Call ($CANEXH (desblk));
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Upper_case ( c : char ) : char;
+XBEGIN
+X  IF ( c in `5B'a'..'z'`5D ) then
+X    c := chr ( ord(c) - ord('a') + ord('A') );
+X  upper_case := c;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Clear ( portion : portiontype := The_Screen;
+X                   clear   : cleartype   := Wholething );
+XVAR
+X  outline : v_array;
+XBEGIN
+X  outline := VT100_ESC + '`5B';
+X
+X  IF ( clear = Wholething ) then
+X    outline := outline + '2'
+X  ELSE
+X  IF ( clear = To_Start ) then
+X    outline := outline + '1';
+X
+X  IF ( portion = The_Screen ) then
+X    outline := outline + 'J'
+X  ELSE
+X  IF ( portion = The_Line ) then
+X    outline := outline + 'K';
+X
+X  qio_write (outline);
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  ERROR ( text : `5BTRUNCATE`5D v_array );
+XBEGIN
+X  writeln ( VT100 + VT100_graphics_off + VT100_normal + VT100_normal_scroll
+V + VT100_no_application_keypad + VT100_ESC + '`5BJ' );
+X  IF present(text) then
+X    writeln (text)
+X  else
+X    writeln ('No Message');
+X  $EXIT;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Get_Posn ( x , y : integer ) : v_array;
+XVAR
+X  outline,sx,sy : v_array;
+XBEGIN
+X  outline := VT100_ESC + '`5B';
+X
+X  IF ( y > 1 ) then
+X    BEGIN
+X      writev (sy,y:1);
+X      outline := outline + sy;
+X    END;
+X
+X  IF ( x > 1 ) then
+X    BEGIN
+X      writev (sx,x:1);
+X      outline := outline + ';' + sx;
+X    END;
+X
+X  get_posn := outline + 'H';
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Posn ( x , y : integer );
+XBEGIN
+X  qio_write (get_posn(x,y));
+XEND;
+X
+X
+X`5BHIDDEN`5D
+XVAR
+X  seed : integer;
+X  seed_initialized : boolean;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Seed_initialize ( users_seed : `5BTRUNCATE`5D integer );
+XVAR
+X  time : packed array `5B0..1`5D of integer;
+XBEGIN
+X  seed_initialized := true;
+X  IF present(users_seed) then
+X    seed := users_seed
+X  ELSE
+X    BEGIN
+X      $gettim(time);
+X      seed := time`5B0`5D;
+X    END;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Random ( ub : integer ) : integer;
+X`7B Produce random integer between 1 & ub inclusive `7D
+X
+X        FUNCTION  Mth$Random ( VAR seed : integer ) : real;
+X          extern;
+X
+XBEGIN
+X  If not seed_initialized then
+X    seed_initialize;
+X  Random := Trunc (( Mth$Random ( seed ) * ub ) + 1);
+XEND; `7B Random `7D
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Rnd ( lb, ub : integer ) : integer;
+X`7B Produce random integer between lb & ub `7D
+X
+X        FUNCTION  Mth$Random ( VAR seed : integer ) : real;
+X          extern;
+X
+XBEGIN
+X  If not seed_initialized then
+X    seed_initialize;
+X  rnd := Trunc (( Mth$Random ( seed ) * (ub-lb+1) ) + lb );
+XEND; `7B Random `7D
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  _Dec ( number    : integer;
+X                pad_char  : char := ' ';
+X                pad_len   : integer := 0
+X              ) : v_array;
+XVAR
+X  Result : v_array;
+XBEGIN
+X  Writev (result,number:0);
+X  WHILE ( result.length < abs(pad_len) ) do
+X    IF ( pad_len < 0 ) then
+X      result := result + pad_char
+X    ELSE
+X      result := pad_char + result;
+X  _dec := result;
+XEND;
+X
+X`5BGLOBAL`5D
+XFUNCTION  Get_jpi_Str ( jpicode , retlen : integer ) : v_array;
+XVAR
+X  itemlist    : record
+X                  item : array `5B1..1`5D of`20
+X                    record
+X                      bufsize : $uword;
+X                      code    : $uword;
+X                      bufadr  : integer;
+X                      lenadr  : integer
+X                    end;
+X                  no_more : integer;
+X                end;
+X  name : packed array `5B1..256`5D of char;
+X  retname : v_array;
+XBEGIN
+X  WITH itemlist do
+X   BEGIN
+X     WITH item`5B1`5D do
+X       BEGIN
+X         Bufsize := retlen;
+X         Code := jpicode;
+X         Bufadr := iaddress(name);
+X         Lenadr := 0
+X       END;
+X     No_more := 0
+X   END;
+X  System_Call ($Getjpiw(itmlst := itemlist));
+X  retname := name;
+X  retname.length := retlen;
+X  get_jpi_str := retname;
+XEND;
+X
+XFUNCTION  Get_jpi_Val ( jpicode : INTEGER ) : UNSIGNED;
+XVAR
+X  itemlist    : record
+X                  item : array `5B1..1`5D of`20
+X                    record
+X                      bufsize : $uword;
+X                      code    : $uword;
+X                      bufadr  : integer;
+X                      lenadr  : integer
+X                    end;
+X                  no_more : integer;
+X                end;
+X  resulting_value : UNSIGNED;
+X  retname : v_array;
+XBEGIN
+X  WITH itemlist do
+X   BEGIN
+X     WITH item`5B1`5D do
+X       BEGIN
+X         Bufsize := 4;
+X         Code := jpicode;
+X         Bufadr := iaddress(resulting_value);
+X         Lenadr := 0
+X       END;
+X     No_more := 0
+X   END;
+X  System_Call ($Getjpiw(itmlst := itemlist));
+X  get_jpi_val := resulting_value;
+XEND;
+X
+X`5BHIDDEN`5DVAR
+X  image_dir_done : boolean;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Image_dir;
+XVAR
+X  itemlist    : record
+X                  item : array `5B1..1`5D of`20
+X                    record
+X                      bufsize : $uword;
+X                      code    : $uword;
+X                      bufadr  : integer;
+X                      lenadr  : integer
+X                    end;
+X                  no_more : integer;
+X                end;
+X  the_name : v_array;
+X  name_str : packed array `5B1..256`5D of char;
+XBEGIN
+X  IF not image_dir_done then
+X    BEGIN
+X      image_dir_done := true;
+X      the_name := Get_jpi_str(jpi$_imagname,100);
+X   `20
+X      WHILE ( index(the_name,'`5D`5B') <> 0 ) do
+X        BEGIN
+X          the_name := substr(the_name,1,index(the_name,'`5D`5B')-1) + substr
+V(the_name,index(the_name,'`5D`5B')+2,length(the_name)-(index(the_name,'`5D`5
+VB')+2));
+X        END;
+X   `20
+X      the_name := substr(the_name,1,index(the_name,'`5D'));
+X      name_str := the_name;
+X   `20
+X      WITH itemlist do
+X       BEGIN
+X         WITH item`5B1`5D do
+X           BEGIN
+X             Bufsize := length(the_name);
+X             Code := lnm$_string;
+X             Bufadr := iaddress(name_str);
+X             Lenadr := 0
+X           END;
+X         No_more := 0
+X       END;
+X
+X      System_Call ($Crelnm (tabnam:='LNM$PROCESS_TABLE',
+X                             lognam:='IMAGE_DIR',
+X                             itmlst:=itemlist ));
+X    END;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Square ( x1 , y1 , x2 , y2 : integer );
+XVAR
+X  i : integer;
+X  sx : v_array;
+X  buffer : v_array;
+XBEGIN
+X  IF ( x1 > x2 - 1 ) or ( y1 > y2 - 1 ) then
+X    ERROR ('%INTERACT-SQUARE, Top Corner Bottom Corner Overlap');
+X  IF ( abs(x2-x1) > 132 ) then
+X    ERROR ('%INTERACT-SQUARE, Size Error delta x distance too large.');
+X  IF ( abs(y2-y1) > 24 ) then
+X    ERROR ('%INTERACT-SQUARE, Size Error delta y distance too large.');
+X
+X  buffer := get_posn (x1,y1) + VT100_graphics_on + 'l';
+X  FOR i := x1+1 to x2-1 do
+X    buffer := buffer + 'q';
+X  buffer := buffer + 'k';
+X  qio_write (buffer);
+X  writev(sx,x2-x1-1:1);
+X  sx := 'x' + VT100_ESC + '`5B' + sx + 'C' + 'x';
+X  FOR i := y1+1 to y2-1 do
+X    qio_write ( get_posn(x1,i)+ sx );
+X  buffer := get_posn (x1,y2) + 'm';
+X  IF ( x1 < x2 - 1 ) then
+X    FOR i := x1+1 to x2-1 do
+X      buffer := buffer + 'q';
+X  buffer := buffer + 'j' + VT100_graphics_off;
+X  qio_write (buffer);
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XPROCEDURE  Reset_screen;
+XBEGIN
+X  qio_write ( VT100 + VT100_graphics_off + VT100_normal + VT100_normal_scrol
+Vl + VT100_no_application_keypad );
+XEND;
+X
+X`5BHIDDEN`5D
+XVAR
+X  ingraphedt     : text;
+X
+X`5BGLOBAL`5D
+XFUNCTION Show_graphedt ( filename : v_array; wait : boolean := true ) : CHAR
+V;
+X(*`20
+X  IF wait is true then the character that is pressed is returned, otherwise
+X   chr(255) is returned
+X*)
+XVAR
+X  line : v_array;
+X  rep : char := chr(255);
+X  ret_val : char;
+XBEGIN
+X  IF not image_dir_done then
+X    Image_dir;
+X  IF ( wait ) then
+X    rep := qio_1_char_now;
+X  OPEN (ingraphedt,'image_dir:'+filename,history:=readonly,error:=continue);
+X  IF status(ingraphedt) = 0 then
+X    BEGIN
+X      reset (ingraphedt);
+X      WHILE not eof(ingraphedt) and (( rep = chr(-1)) or ( not wait )) do
+X        BEGIN
+X          IF wait then
+X            rep := qio_1_char_now;
+X          readln (ingraphedt,line);
+X          qio_writeln(line);
+X        END;
+X      close (ingraphedt);
+X      posn (1,1);
+X      IF wait and ( rep = chr(-1) ) then
+X        rep := qio_1_char;
+X    END
+X  ELSE
+X    BEGIN
+X      clear;
+X      posn (18,10);
+X      qio_write ('couldn''t find filename .... '+filename);
+X      posn (28,20);
+X      qio_write (VT100_Bright+'Press  <'+VT100_Flash+'Return'+VT100_normal+V
+VT100_bright+'>'+VT100_normal);
+X      posn (1,1);
+X      IF ( rep  = chr(-1) ) then
+X        rep := qio_1_char;
+X    END;
+X  reset_screen;
+X  Show_GraphEdt := rep;
+XEND;
+X
+X`5BGLOBAL`5D
+XFUNCTION  Full_char ( character : char ) : v_array;
+XVAR
+X  c : integer;
+XBEGIN
+X  c := ord(character);
+X  IF ( c in `5B0..31,127`5D ) then
+X    full_char := VT100_inverse + chr(64+c) + VT100_normal
+X  ELSE
+X  IF ( c < 128 ) then
+X    full_char := character
+X  ELSE
+X  IF ( (c-128) in `5B0..31,127`5D ) then
+X    full_char := VT100_inverse + VT100_bright + chr(c-64) + VT100_normal
+X  ELSE
+X    full_char := VT100_bright + character;
+XEND;
+X
+X
+X`5BGlobal`5D
+XPROCEDURE  Formated_read
+X (VAR return_value   : v_array;
+X      picture_clause : v_array;
+X      x_posn         : integer;
+X      y_posn         : integer;
+X      default_value  : v_array := '';
+X      field_full_terminate : boolean := false;
+X      begin_brace    : v_array := '';
+X      end_brace      : v_array := ''
+X );
+XVAR
+X  i : integer;
+X  ch : char;
+X  outline : v_array;
+X
+X
+X    PROCEDURE  Go_left;
+X    BEGIN
+X      IF ( i <> 1 ) then
+X        BEGIN
+X          REPEAT
+X            i := i - 1;
+X          UNTIL ( i = 1 ) or ( picture_clause`5Bi`5D in `5B'9','X'`5D );
+X          IF not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) then
+X            BEGIN
+X              WHILE not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) do
+X                i := i + 1;
+X            END;
+X        END;
+X    END;
+X
+X
+X    PROCEDURE  Go_right;
+X    BEGIN
+X      IF ( i <> length(picture_clause) ) then
+X        BEGIN
+X          REPEAT
+X            i := i + 1;
+X          UNTIL ( i = length(picture_clause) ) or ( picture_clause`5Bi`5D in
+V `5B'9','X'`5D );
+X          IF not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) then
+X            BEGIN
+X              WHILE not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) do
+X                i := i - 1;
+X            END;
+X        END;
+X    END;
+X
+X
+X    PROCEDURE  Escape_sequence;
+X    BEGIN
+X      ch := qio_1_char;
+X      IF ( ch = '`5B' ) then
+X        BEGIN
+X          ch := qio_1_char;
+X          CASE ch of
+X            'C' : go_right;
+X            'D' : go_left;
+X            Otherwise
+X             qio_write (chr(7));               `20
+X          End;
+X        END
+X      ELSE
+X        qio_write (chr(7));               `20
+X    END;
+X
+X
+X    PROCEDURE  Delete;
+X    VAR
+X      last : integer;
+X    BEGIN
+X      IF ( i <> 1 ) then
+X        BEGIN
+X          last := length(picture_clause)+1;
+X          REPEAT
+X            last := last - 1;
+X          UNTIL ( last = 1 ) or ( picture_clause`5Blast`5D in `5B'9','X'`5D
+V );
+X
+X          IF ( i <> last ) or ( return_value`5Bi`5D = ' ' ) then
+X            REPEAT
+X              i := i - 1;
+X            UNTIL ( i = 1 ) or ( picture_clause`5Bi`5D in `5B'9','X'`5D );
+X
+X          IF not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) then
+X            BEGIN
+X              WHILE not ( picture_clause`5Bi`5D in `5B'9','X'`5D ) do
+X                i := i + 1;
+X            END
+X          ELSE
+X            BEGIN
+X              posn (x_posn+i-1,y_posn);
+X               qio_write (' '+VT100_bs);
+X              return_value`5Bi`5D := ' ';
+X            END;
+X        END;
+X    END;
+X
+X
+X    PROCEDURE  Key_control;
+X    BEGIN
+X      IF ( ch = chr(13) ) then
+X        BEGIN
+X          field_full_terminate := true;
+X          i := length(picture_clause) + 1;
+X        END
+X      ELSE
+X      IF ( ch = chr(27) ) then
+X        escape_sequence
+X      ELSE
+X      IF ( ch = chr(127) ) then
+X        delete
+X      ELSE
+X        qio_write (chr(7));               `20
+X    END;
+X
+X
+XBEGIN
+X  return_value := '';
+X
+X`7B get x & y if left out `7D
+X
+X  FOR i := 1 to length(picture_clause) do
+X      CASE picture_clause`5Bi`5D of
+X        '9' : IF length(default_value) < i then
+X                return_value := return_value + ' '
+X              ELSE
+X              IF ( default_value`5Bi`5D in `5B' ','0'..'9'`5D ) then
+X                return_value := return_value + default_value`5Bi`5D
+X              ELSE
+X                ERROR ('DEFAULT VALUE /'+default_value`5Bi`5D+'/ DOES NOT MA
+VTCH PICTURE CLAUSE /'+picture_clause`5Bi`5D+'/');
+X        'X' : IF length(default_value) < i then
+X                return_value := return_value + ' '
+X              ELSE
+X              IF ( default_value`5Bi`5D in `5B' '..'`7E'`5D ) then
+X                return_value := return_value + default_value`5Bi`5D
+X              ELSE
+X                ERROR ('%INTERACT-F-DVMM, DEFAULT VALUE /'+full_char(default
+V_value`5Bi`5D)+'/ DOES NOT MATCH PICTURE CLAUSE /'+picture_clause`5Bi`5D+'/'
+V);
+X       otherwise`20
+X          return_value := return_value + picture_clause`5Bi`5D;
+X      End;
+X
+X  outline := '';
+X
+X  posn (x_posn,y_posn);
+X  IF length(begin_brace) > 0 then
+X    outline := outline + begin_brace;
+X  outline := outline + return_value;
+X  IF length(end_brace) > 0 then
+X    outline := outline + end_brace;
+X
+X  qio_write (outline);
+X
+X  IF length(begin_brace) > 0 then
+X    x_posn := x_posn + length(begin_brace);
+X
+X  i := 1;
+X  REPEAT
+X    WHILE ( i <= length(picture_clause) ) do
+X      BEGIN
+X        posn (x_posn+i-1,y_posn);
+X        CASE picture_clause`5Bi`5D of
+X          '9' : BEGIN
+X                  ch := qio_1_char;
+X                  IF ( ch in `5B' ','0'..'9'`5D ) then
+X                    BEGIN
+X                      return_value`5Bi`5D := ch;
+X                      qio_write (ch);
+X                      i := i + 1;
+X                    END
+X                  ELSE
+X                    key_control;
+X                END;
+X          'X' : BEGIN
+X                  ch := qio_1_char;
+X                  IF ( ch in `5B' '..'`7E'`5D ) then
+X                    BEGIN
+X                      return_value`5Bi`5D := ch;
+X                      qio_write (ch);
+X                      i := i + 1;
+X                    END
+X                  ELSE
+X                    key_control;
+X                END;
+X         otherwise`20
+X            i := i + 1;
+X        End;
+X      END;
+X    IF ( i > length(picture_clause) ) and ( not field_full_terminate ) then
+X      i := length(picture_clause);
+X  UNTIL ( i > length(picture_clause) );
+XEND;
+X
+X
+X`5BASYNCHRONOUS, EXTERNAL(STR$TRIM)`5D
+XFUNCTION  $Trim
+X  ( VAR destination_str : `5BCLASS_S`5D PACKED ARRAY `5B$L1 .. $U1 : INTEGER
+V`5D OF CHAR;
+X        source_str      : `5BCLASS_S`5D PACKED ARRAY `5B$L2 .. $U2 : INTEGER
+V`5D OF CHAR;
+X    VAR return_length   : $UWORD
+X  ) : integer;
+XExtern;
+X
+X`5BGLOBAL`5D
+XFUNCTION  Trim ( text : v_array ) : v_array;
+XBEGIN
+X  System_Call ($trim (text.body,text,text.length));
+X  trim := text;
+XEND;
+X
+XTYPE
+X  date_time_type = array `5B1..7`5D of $uword;
+X
+X
+X`5BASYNCHRONOUS, EXTERNAL(LIB$DAY_OF_WEEK)`5D
+XFUNCTION  $Day_of_week
+X    (
+X        time     : $quad := %IMMED 0;
+X    VAR day_num  : integer
+X    ) : integer;
+XExtern;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Get_Date_time : date_time_type;
+XVAR
+X  Date_time : date_time_type;
+XBEGIN
+X  System_Call ($numtim (date_time));
+X  get_date_time := date_time;
+XEND;
+X
+X
+X`5BGLOBAL`5D
+XFUNCTION  Day_num ( Date_Time : date_time_type ) : integer;
+XVAR
+X  temp : integer;
+X  q : $quad;
+XBEGIN
+X  System_Call ($gettim(q));
+X  System_Call ($day_of_week(q,temp));
+X  day_num := temp;
+XEND;
+X
+X
+X`5BHIDDEN`5D
+XCONST
+X(* These values are returned by the predefined STATUS function. *)
+X
+X    PAS$K_SUCCESS    =    0;    (* last operation successful *)
+X    PAS$K_FILNOTFOU  =    3;    (* file not found *)
+X    PAS$K_ACCMETINC  =    5;    (* ACCESS_METHOD specified is incompatible w
+Vith this file *)
+X    PAS$K_RECLENINC  =    6;    (* RECORD_LENGTH specified is inconsistent w
+Vith this file *)
+X
+X`5BHIDDEN`5D
+XTYPE
+X  u_array = varying `5B8`5D of char;
+X  s_array = varying `5B12`5D of char;
+X  everything = Record
+X                 tot_games : integer;
+X                 month     : integer;
+X                 m_user    : array `5B1..12`5D of u_array;
+X                 m_name    : array `5B1..12`5D of s_array;
+X                 m_score   : array `5B1..12`5D of integer;
+X                 user      : array `5B0..19`5D of u_array;
+X                 name      : array `5B0..19`5D of s_array;
+X                 score     : array `5B0..19`5D of integer;
+X                 games     : array `5B0..19`5D of integer;
+X               End;
+X`5BHIDDEN`5D
+XVAR
+X  infile  : File of everything;
+X  newfile : File of everything;
+X  game_count_incremented : boolean := false;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Get_Image_dir_and_ACN_name ( VAR directory, gamename : v_array );
+XVAR
+X  the_name : v_array;
+XBEGIN
+X  the_name := Get_jpi_str(jpi$_imagname,100);
+X  WHILE ( index(the_name,'`5D`5B') <> 0 ) do
+X    BEGIN
+X      the_name := substr(the_name,1,index(the_name,'`5D`5B')-1) + substr(the
+V_name,index(the_name,'`5D`5B')+2,length(the_name)-(index(the_name,'`5D`5B')+
+V2));
+X    END;
+X  directory := substr(the_name,1,index(the_name,'`5D'));
+X  the_name := substr(the_name,index(the_name,'`5D')+1,the_name.length-index(
+Vthe_name,'`5D'));
+X  gamename := substr(the_name,1,index(the_name,'.')-1);
+XEND;
+X
+X`5BHIDDEN`5D
+XFUNCTION  month_of_year ( i : integer ) : v_array;
+XBEGIN
+X  month_of_year := substr('JanFebMarAprMayJunJulAugSepOctNovDec',(i*3)-2,3);
+XEND;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Display_Screen ( current_state : everything; date_time : date_tim
+Ve_type; me : integer; gamename : v_array; last_score : integer );
+XVAR
+X  i : integer;
+X  year_now  : integer;
+X  month_now : integer;
+XBEGIN
+X  year_now  := date_time`5B1`5D;
+X  month_now := date_time`5B2`5D;
+X  clear;
+X  posn (1,1);
+X  qio_write ('Immortal Players For '+_dec(year_now-1)+' - '+_dec(year_now)+'
+V               Top Players For '+month_of_year(month_now)+' ');
+X  qio_writeln (VT100_bright+_dec(current_state.tot_games,,6)+' Games'+VT100_
+Vnormal);
+X  qio_writeln (VT100_graphics_on+'oooooooooooooooooooooooooooooooo
+V               ooooooooooooooooooo'+VT100_graphics_off);
+X  qio_writeln ('Month  Username  Name         Score     Num Username  Name
+V         Score   Games');
+X  qio_writeln;
+X
+X  For i := month_now-1 downto 1 do
+X    IF ( current_state.m_score`5Bi`5D <> -maxint-1 ) then
+X      qio_writeln (' '+month_of_year(i)+'   '+current_state.m_user`5Bi`5D+'
+V  '+current_state.m_name`5Bi`5D+' '+_dec(current_state.m_score`5Bi`5D,,5))
+X    ELSE
+X      qio_writeln;
+X  For i := 12 downto month_now do
+X    IF ( current_state.m_score`5Bi`5D <> -maxint-1 ) then
+X      qio_writeln (' '+month_of_year(i)+'   '+current_state.m_user`5Bi`5D+'
+V  '+current_state.m_name`5Bi`5D+' '+_dec(current_state.m_score`5Bi`5D,,5))
+X    ELSE
+X      qio_writeln;
+X
+X  For i := 0 to 11 do
+X    IF ( current_state.score`5Bi`5D <> -maxint-1 ) then
+X      qio_write (get_posn(41,5+i)+_dec(i+1,,3)+' '+current_state.user`5Bi`5D
+V+'  '+current_state.name`5Bi`5D+' '+_dec(current_state.score`5Bi`5D,,5)+'
+V   '+_dec(current_state.games`5Bi`5D,,3));
+X
+X  posn (5,18);
+X  qio_write ('You Are Seated At '+_dec(me+1)+' In '+gamename);
+X
+X  IF ( last_score <> -maxint-1 ) THEN
+X    BEGIN
+X        `7B doing worse on or off board or better but still off board `7D
+X      posn (42,18);
+X      qio_writeln ('Previous Score '+_dec(last_score));
+X    END;
+XEND;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Display_Current_Score (last_score : integer; this_score : integer
+V );
+XBEGIN
+X  posn (42,20);
+X  qio_writeln ('Current Score '+_dec(this_score));
+XEND;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Display_Update_Prompts (me : integer; last_score : integer; this_
+Vscore : integer );
+XBEGIN
+X  IF ( me < 12 ) THEN
+X    BEGIN
+X      posn (5,20);
+X      qio_writeln (VT100_bright+'Enter Your Name `5B Return to Leave `5D'+VT
+V100_normal);
+X    END;
+XEND;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Create_new_score_file ( directory : v_array; gamename : v_array;
+V date_time : date_time_type );
+XVAR
+X  i : integer;
+X  month_now : integer;
+XBEGIN
+X  month_now := date_time`5B2`5D;
+X  OPEN(newfile,directory+gamename+'.ACN',new,,direct,error:=continue);
+X  IF status(newfile) <> PAS$K_SUCCESS THEN
+X    BEGIN
+X      qio_writeln ('Can''t Create '+gamename+'.ACN Insufficient priviledge.'
+V);
+X      $exit(1);
+X    END;
+X  rewrite (newfile);
+X  newfile`5E.tot_games := 0;
+X  newfile`5E.month     := month_now;
+X  FOR i := 1 to 12 do
+X    BEGIN
+X      newfile`5E.m_user`5Bi`5D := '        ';
+X      newfile`5E.m_name`5Bi`5D := '            ';
+X      newfile`5E.m_score`5Bi`5D := -maxint-1;
+X    END;
+X  FOR i := 0 to 19 do
+X    BEGIN
+X      newfile`5E.user`5Bi`5D := '        ';
+X      newfile`5E.name`5Bi`5D := '            ';
+X      newfile`5E.score`5Bi`5D := -maxint-1;
+X    END;
+X  newfile`5E.games := zero;
+X  put (newfile);
+X  close (newfile);
+XEND;
+X
+X`5BHIDDEN`5D
+XPROCEDURE  Update_Topten ( VAR current_state : everything;`20
+X                            date_time : date_time_type;`20
+X                            username : v_array;`20
+X                            this_score : integer;`20
+X                        VAR me : integer;`20
+X                        VAR last_score : integer;`20
+X                            newname : `5BTRUNCATE`5D s_array );
+XVAR
+X  i, j, k : integer;
+X  old_name  : s_array;
+X  old_games : integer;
+X  month_now : integer;
+XBEGIN
+X  `7B high score for the month `7D
+X  month_now := date_time`5B2`5D;
+X
+X  if not game_count_incremented then
+X    current_state.tot_games := current_state.tot_games + 1;
+X  IF ( current_state.month <> month_now ) and ( current_state.month <> 0 ) t
+Vhen
+X    BEGIN
+X      if month_now > current_state.month then
+X        FOR i := current_state.month to month_now-1 do
+X          BEGIN
+X            newfile`5E.m_user`5Bi`5D := '        ';
+X            newfile`5E.m_name`5Bi`5D := '            ';
+X            newfile`5E.m_score`5Bi`5D := -maxint-1;
+X          END
+X      else
+X        BEGIN
+X          FOR i := current_state.month to 12 do
+X            BEGIN
+X              newfile`5E.m_user`5Bi`5D := '        ';
+X              newfile`5E.m_name`5Bi`5D := '            ';
+X              newfile`5E.m_score`5Bi`5D := -maxint-1;
+X            END;
+X          IF month_now-1 >= 1 THEN
+X            FOR i := 1 to month_now-1 do
+X              BEGIN
+X                newfile`5E.m_user`5Bi`5D := '        ';
+X                newfile`5E.m_name`5Bi`5D := '            ';
+X                newfile`5E.m_score`5Bi`5D := -maxint-1;
+X              END;
+X        END;
+X      current_state.m_user`5Bcurrent_state.month`5D := current_state.user`5B
+V0`5D;
+X      current_state.m_name`5Bcurrent_state.month`5D := current_state.name`5B
+V0`5D;
+X      current_state.m_score`5Bcurrent_state.month`5D := current_state.score`
+V5B0`5D;
+X      FOR i := 0 to 19 do
+X        BEGIN
+X          current_state.user`5Bi`5D := '        ';
+X          current_state.name`5Bi`5D := '            ';
+X          current_state.score`5Bi`5D := -maxint-1;
+X        END;
+X      current_state.games := zero;
+X    END;
+X  current_state.month := month_now;
+X
+X`7B insert/find user somewhere `7D
+X
+X  i := 0;
+X  WHILE ( i<19 ) and ( current_state.user`5Bi`5D<>username ) do
+X    i := i + 1;
+X  IF ( current_state.user`5Bi`5D<>username ) then
+X    BEGIN
+X      current_state.user`5Bi`5D := username;
+X      current_state.name`5Bi`5D := '            ';
+X      current_state.score`5Bi`5D := -maxint-1;
+X      current_state.games`5Bi`5D := 1;
+X    END
+X  ELSE
+X    if not game_count_incremented then
+X      current_state.games`5Bi`5D := current_state.games`5Bi`5D + 1;
+X  last_score := current_state.score`5Bi`5D;
+X  me := i;
+X
+X`7B move user up `7D
+X
+X  IF this_score > current_state.score`5Bi`5D then
+X    BEGIN
+X      j := 0;
+X      WHILE this_score <= current_state.score`5Bj`5D do
+X        j := j + 1;
+X      IF j < i then
+X        BEGIN
+X          old_name := current_state.name`5Bi`5D;
+X          old_games := current_state.games`5Bi`5D;
+X          FOR k := i downto j+1 do
+X            BEGIN
+X              current_state.user`5Bk`5D := current_state.user`5Bk-1`5D;
+X              current_state.name`5Bk`5D := current_state.name`5Bk-1`5D;
+X              current_state.score`5Bk`5D := current_state.score`5Bk-1`5D;
+X              current_state.games`5Bk`5D := current_state.games`5Bk-1`5D;
+X            END;
+X          current_state.user`5Bj`5D := username;
+X          current_state.name`5Bj`5D := old_name;
+X          current_state.games`5Bj`5D := old_games;
+X          me := j;
+X        END;
+X      current_state.score`5Bme`5D := this_score;
+X      IF present(newname) then
+X        current_state.name`5Bme`5D := newname;
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  increment_game_count;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (newfile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(newfile) of
+X      PAS$K_SUCCESS,
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : ;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL (status(newfile)=PAS$K_SUCCESS) or
+X        (status(newfile)=PAS$K_FILNOTFOU) or
+X        (status(newfile)=PAS$K_ACCMETINC) or
+X        (status(newfile)=PAS$K_RECLENINC);
+X
+X  IF status(newfile)=PAS$K_SUCCESS THEN
+X    BEGIN
+X      reset (newfile);
+X      current_state := newfile`5E;
+X      date_time := Get_Date_time;`20
+X      update_topten (current_state,date_time,username,-maxint-1,me,last_scor
+Ve);
+X      rewrite (newfile);
+X      newfile`5E := current_state;
+X      Put (newfile);
+X      Close (newfile);
+X      game_count_incremented := true;
+X    END;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  read_top_ten;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  reset_screen;
+X  clear;
+X  posn (1,1);
+X
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU : BEGIN
+X            qio_writeln ('Can''t find file '+gamename+'.ACN Creating New Fil
+Ve ...');
+X            date_time := Get_Date_time;`20
+X            create_new_score_file(directory,gamename,date_time);
+X          END;
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Error in file format of '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL status(infile)=PAS$K_SUCCESS;
+X  reset (infile);
+X  current_state := infile`5E;
+X  close (infile);
+X
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,-maxint-1,me,last_score);
+X  Display_screen (current_state,date_time,me,gamename,last_score);
+XEND;
+X
+X`5BGLOBAL`5D
+XFUNCTION  read_last_score : integer;
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS,
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : last_score := -maxint-1;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL (status(infile)=PAS$K_SUCCESS) or
+X        (status(infile)=PAS$K_FILNOTFOU) or
+X        (status(infile)=PAS$K_ACCMETINC) or
+X        (status(infile)=PAS$K_RECLENINC);
+X `20
+X  IF status(infile)=PAS$K_SUCCESS THEN
+X    BEGIN
+X      reset (infile);
+X      current_state := infile`5E;
+X      close (infile);
+X      date_time := Get_Date_time;`20
+X      update_topten (current_state,date_time,username,-maxint-1,me,last_scor
+Ve);
+X    END;
+X  read_last_score := last_score;
+XEND;
+X
+X`5BGLOBAL`5D
+XPROCEDURE  top_ten ( this_score : integer );
+XVAR
+X  last_score : integer;
+X  directory : v_array;
+X  gamename  : v_array;
+X  username  : v_array;
+X  i,j,k, me : integer;
+X  v_name : v_array;
+X  newname : s_array;
+X  current_state : everything;
+X  date_time : date_time_type;
+XBEGIN
+X  reset_screen;
+X  clear;
+X  posn (1,1);
+X
+X  username := Get_jpi_str(jpi$_username,8);
+X  Get_Image_dir_and_ACN_name (directory,gamename);
+X
+X  REPEAT
+X    OPEN (infile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(infile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU : BEGIN
+X            qio_writeln ('Can''t find file '+gamename+'.ACN Creating New Fil
+Ve ...');
+X            date_time := Get_Date_time;`20
+X            create_new_score_file(directory,gamename,date_time);
+X          END;
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Error in file format of '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE sleep (1);
+X    END;
+X  UNTIL status(infile)=PAS$K_SUCCESS;
+X  reset (infile);
+X  current_state := infile`5E;
+X  close (infile);
+X
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,this_score,me,last_score);
+X  Display_screen (current_state,date_time,me,gamename,last_score);
+X  Display_current_score (last_score,this_score);
+X  Display_update_prompts(me,last_score,this_score);
+X
+X  newname := current_state.name`5Bme`5D;
+X  IF (( last_score < this_score ) or ( last_score = -maxint-1 )) AND ( me <
+V 12 ) THEN
+X    BEGIN
+X      Formated_read (v_name,'XXXXXXXXXXXX',55,5+me,newname);
+X      newname := v_name;
+X    END;
+X
+X  REPEAT
+X    OPEN (newfile,directory+gamename+'.ACN',old,,direct,error:=continue);
+X    CASE status(newfile) of
+X      PAS$K_SUCCESS : ;
+X      PAS$K_FILNOTFOU,
+X      PAS$K_ACCMETINC,
+X      PAS$K_RECLENINC : BEGIN
+X            qio_writeln ('Unknown File Error in '+gamename+'.ACN');
+X            $exit(1);
+X          END;
+X      OTHERWISE
+X          BEGIN
+X            sleep (1);
+X            clear;
+X            Posn(1,1);
+X            qio_writeln (trim(Username)+', Updating Please Wait ...');
+X          END;
+X    END;
+X  UNTIL status(newfile)=PAS$K_SUCCESS;
+X  reset (newfile);
+X  current_state := newfile`5E;
+X  date_time := Get_Date_time;`20
+X  update_topten (current_state,date_time,username,this_score,me,last_score,n
+Vewname);
+X  rewrite (newfile);
+X  newfile`5E := current_state;
+X  Put (newfile);
+X  Close (newfile);
+X  posn (1,23);
+XEND;
+X
+X
+XEND.
+$ CALL UNPACK MISC.PAS;19 2069850872
+$ create 'f'
+X`1B`5BH`1B`5BJ`1B(B`1B`5B0m`1B`5B1m
+X`1B`5B1;7H`1B#6Pipeline Instructions`1B`5B0m
+X
+X    Connect lengths of pipe together to enable the liquid to flow
+X    a required target distance.  In later levels the pipeline will
+X    need to terminate at an 'end-valve'.  Pipelines longer than`20
+X    the target length will receive a bonus.
+X
+X`1B#6   `0El`0F  Start Valve
+X
+X`1B#6   `0Em`0F  End Valve
+X
+X`1B#6   `0Eb`0F  Normal piece of pipe
+X
+X`1B#6   `0Ej`0F  One-Way piece of pipe
+X
+X`1B#6   `0E2`0F  Reservior (delays liquid flow)
+X
+X`1B#6   `0Ec`0F  Cross-Junction`20
+X
+X`1B#6   `0En`0F  Obstacle
+X
+X  Note: If your terminal is not a Digital VT320, then please hit 'Q' now!
+X            ( Press `5BI`5D for more info, or Space Bar to play )
+$ CALL UNPACK PIPELINE.INST1;2 22756330
+$ create 'f'
+X`1B`5B2J`1B`5B1H`1B#6Controls For Pipeline:
+X
+X                            up
+X                         7   8   9
+X                          \  `7C  /
+X
+X                       4 -       - 6
+X                  left               right
+X                          /  `7C  \
+X                         1   2   3
+X                            down
+X
+X  5 or Space : Place piece             Gain extra points by constructing
+X                                       pipelines longer than the required
+X           Q : Quit                    target length, and by making the
+X                                       pipeline cross over itself.
+X      E or - : Start Pump  `20
+X                                       Lose points for placing a piece
+X      CTRL-W : Re-Draw Screen          over an existing piece and for`20
+X                                       unused pieces left at end of round.
+X`20
+X             ( Press any key to begin, or Q to exit now. )
+$ CALL UNPACK PIPELINE.INST2;3 1818953400
+$ create 'f'
+X`1B`5BH`1B`5BJ`1B(B`1B`5B0m
+X`1B`5B3;25HVaxMagic Presents`1B*
+X`1B`5B5;30Ha game`1B*
+X`1B`5B7;20Hfor Digital VT320 terminals`1B*
+X`1B`5B10;1H`1B#3e`1B`5B11;1H`1B#4e`1B*
+X`1B`5B10;1Hn e`1B`5B11;1Hn e`1B*
+X`1B`5B10;1Hi n e`1B`5B11;1Hi n e`1B*
+X`1B`5B10;1Hl i n e`1B`5B11;1Hl i n e`1B*
+X`1B`5B10;1He l i n e`1B`5B11;1He l i n e`1B*
+X`1B`5B10;1Hp e l i n e`1B`5B11;1Hp e l i n e`1B*
+X`1B`5B10;1Hi p e l i n e`1B`5B11;1Hi p e l i n e`1B*
+X`1B`5B10;1HP i p e l i n e`1B`5B11;1HP i p e l i n e`1B*
+X`1B`5B10;1H P i p e l i n e`1B`5B11;1H P i p e l i n e`1B*
+X`1B`5B10;2H P i p e l i n e`1B`5B11;2H P i p e l i n e`1B*
+X`1B`5B10;3H P i p e l i n e`1B`5B11;3H P i p e l i n e`1B*
+X`1B`5B10;4H P i p e l i n e`1B`5B11;4H P i p e l i n e`1B*
+X`1B`5B10;5H P i p e l i n e`1B`5B11;5H P i p e l i n e`1B*
+X`1B`5B10;6H P i p e l i n e`1B`5B11;6H P i p e l i n e`1B*
+X`1B`5B10;7H P i p e l i n e`1B`5B11;7H P i p e l i n e`1B*
+X`1B`5B10;8H P i p e l i n e`1B`5B11;8H P i p e l i n e`1B*
+X`1B`5B10;9H P i p e l i n e`1B`5B11;9H P i p e l i n e`1B*
+X`1B`5B9;1H`1B#6`1B`5B9;40H`1B(0q`1B`5B12;1H`1B#6q`1B(B`1B*
+X`1B`5B9;39H`1B(0q`1B`5B12;2Hq`1B(B`1B*
++-+-+-+-+-+-+-+-  END  OF PART 1 +-+-+-+-+-+-+-+-

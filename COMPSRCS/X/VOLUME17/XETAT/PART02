@@ -1,0 +1,945 @@
+Newsgroups: comp.sources.x
+Path: uunet!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: pierre%system@uunet.UU.NET (Pierre Ficheux)
+Subject: v17i020: xetat : graphical system activity reporter, Part02/02
+Message-ID: <1992Mar18.213656.15962@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i019-xetat@uunet.UU.NET>
+Date: Wed, 18 Mar 1992 21:36:56 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: pierre%system@uunet.UU.NET (Pierre Ficheux)
+Posting-number: Volume 17, Issue 20
+Archive-name: xetat/part02
+
+#!/bin/sh
+# This is part 02 of a multipart archive
+# ============= xetat.c ==============
+if test -f 'xetat.c' -a X"$1" != X"-c"; then
+	echo 'x - skipping xetat.c (File already exists)'
+else
+echo 'x - extracting xetat.c (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xetat.c' &&
+/*
+X * xetat - graphical system activity reporter
+X *
+X * Copyright 1991 Lectra Systemes
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose and without fee is hereby granted, provided
+X * that the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of Lectra Systemes not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  Lectra Systemes makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * Auteur : Pierre FICHEUX 	Lectra Systemes R & D
+X *
+X */
+static char sccsid[] = "@(#)xetat.c	1.1 3/10/92";
+X
+/*
+X * Partie principale
+X */
+X
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/sysinfo.h>
+#include <string.h>
+X
+/* 
+X * Fichiers standards du toolkit Xt
+X */
+#include <X11/IntrinsicP.h>
+#include <X11/StringDefs.h>
+#include <X11/XawMisc.h>
+#include <X11/Form.h>
+#include <X11/Label.h>
+#include <X11/Shell.h>
+#include <X11/List.h>
+#include <X11/Paned.h>
+#include <X11/Xaw/StripChart.h>
+#include <X11/Viewport.h>
+#include <X11/Xmu.h>
+#include <X11/Xmu/SysUtil.h>
+X
+/*
+X * Public include files for widgets used in this file.
+X */
+#ifdef X11R3
+#include <X11/Command.h>
+#include <X11/Box.h>
+#else /* R4 or later */
+#include <X11/Xaw/Command.h>
+#include <X11/Xaw/Box.h>
+#endif /* X11R3 */
+X
+#include "xetat.bit"
+#include "processus.bit"
+#include "activite.bit"
+X
+Pixmap pixmap_icone = None, pixmap_xetat, pixmap_processus, pixmap_activite;
+X
+/*
+X * Widgets utilises pour Xetat
+X */
+X
+Widget topLevel, forme_base, forme_activite, forme_processus;
+Widget bouton_activite, bouton_processus, bouton_quit, bouton_quit_processus, bouton_quit_activite, bouton_mise_a_jour_liste;
+Widget shell_processus, shell_activite, liste_processus, viewport_processus;
+Widget titre_idle, titre_user, titre_kernel, titre_wait, titre_sxbrk, titre_freemem;
+Widget indicateur_idle, indicateur_user, indicateur_kernel, indicateur_wait, indicateur_sxbrk, indicateur_freemem;
+Widget afficheur_idle, afficheur_user, afficheur_kernel, afficheur_wait, afficheur_sxbrk, afficheur_freemem;
+X
+Widget prototype_bouton_quit, prototype_label_titre, prototype_afficheur, prototype_indicateur, prototype_paned;
+X
+Widget popup_copyright, copyright;
+X
+/* descripteur de la memoire noyau */
+int kmem;
+X
+/* tampon */
+static char buf[80];
+X
+/* Nom de la machine hote */
+char host[20];	
+X
+/* Table des noms de processus */
+extern String table_processus[];
+X
+X
+extern void Activite(), Mise_a_jour_idle(), Mise_a_jour_user(), Mise_a_jour_kernel();
+extern void Mise_a_jour_wait(), Mise_a_jour_sxbrk(), Mise_a_jour_freemem();
+extern void Quit_activite(), Quit_processus(), Processus(), Selection();
+extern void Mise_a_jour_liste();
+extern void mesure_charge_courante_systeme ();
+X
+/*
+X * quit button callback function
+X */
+/*ARGSUSED*/
+void Quit(w, client_data, call_data)
+Widget w;
+caddr_t client_data, call_data;
+{
+X    close (kmem);
+X
+X    exit(0); 
+}
+X
+/* efface le message de copyright */
+X
+void supprime_copyright (client_data, id_intervalle)
+caddr_t *client_data;
+XXtIntervalId *id_intervalle;
+{
+X    XtDestroyWidget (popup_copyright);
+}
+X
+/* 
+X * Partie principale 
+X */
+X
+static XtConvertArgRec screenConvertArg[] = {
+X    {XtBaseOffset, (caddr_t) XtOffset(Widget, core.screen), sizeof(Screen *)}
+};
+X
+X
+main(argc, argv)
+int argc;
+char **argv;
+{
+X    Arg args[20];
+X    register int n;
+X    int dummy;
+X    unsigned int largeur_ecran, hauteur_ecran;
+X    Dimension hauteur_copyright, largeur_copyright;
+X    Window root;
+X
+X    /*
+X     * Initialisation du toplevel
+X     */
+X    
+X    topLevel = XtInitialize(
+X			    argv[0], 	/* application name */
+X			    "XEtat", 	/* application class name */
+X			    NULL, 	/* application resources (not used) */
+X			    0, 		/* application resource count */
+X			    &argc, 	/* command line argument count */
+X			    argv);	/* command-line string */
+X
+X    /* nom du host */
+X    XmuGetHostname (host, 20);
+X    strcat (host, ":");
+X
+X    XGetGeometry (XtDisplay(topLevel), XtScreen(topLevel)->root, &root, &dummy, &dummy, &largeur_ecran, &hauteur_ecran, &dummy, &dummy);
+X
+X    pixmap_xetat = XCreateBitmapFromData(XtDisplay(topLevel), XtScreen(topLevel)->root, xetat_bits, xetat_width, xetat_height);
+X    pixmap_processus = XCreateBitmapFromData(XtDisplay(topLevel), XtScreen(topLevel)->root, processus_bits, processus_width, processus_height);
+X    pixmap_activite = XCreateBitmapFromData(XtDisplay(topLevel), XtScreen(topLevel)->root, activite_bits, activite_width, activite_height);
+X
+X
+X    /*
+X     * Creation du widget de base (formWidget)
+X     */
+X    
+X    forme_base = XtCreateManagedWidget(
+X				       "forme_base",	
+X				       formWidgetClass,	
+X				       topLevel,	
+X				       NULL,	
+X				       0	
+X				       );
+X
+X    /* popup copyright */
+X    popup_copyright = XtCreatePopupShell ("popup_copyright", overrideShellWidgetClass, forme_base, NULL, 0);
+X
+X    copyright = XtCreateManagedWidget(
+X	    "copyright",            
+X             labelWidgetClass,     
+X             popup_copyright,    
+X             NULL,           
+X             0            
+X             );
+X
+X    /* lecture des dimensions du label copyright */
+X    n = 0;
+X    XtSetArg (args[n], XtNwidth, &largeur_copyright); n++;
+X    XtSetArg (args[n], XtNheight, &hauteur_copyright); n++;
+X    XtGetValues (copyright, args, n);
+X
+X    /* calcule et fixe les coordonnees du popup copyright */
+X    n = 0;
+X    XtSetArg (args[n], XtNx, largeur_ecran - largeur_copyright - 10); n++;
+X    XtSetArg (args[n], XtNy, hauteur_ecran - hauteur_copyright - 10); n++;
+X    XtSetValues (popup_copyright, args, n);
+X
+X    /*
+X     * Creation des boutons 
+X     */
+X    
+X    /* Bouton activite */
+X    bouton_activite = XtCreateManagedWidget ("bouton_activite", commandWidgetClass, forme_base, NULL, 0);
+X    
+X    /* Bouton Processus */
+X    bouton_processus = XtCreateManagedWidget ("bouton_processus", commandWidgetClass, forme_base, NULL, 0);
+X    
+X    /* Bouton Quit */
+X    bouton_quit = XtCreateManagedWidget ("bouton_quit", commandWidgetClass, forme_base, NULL, 0);
+X
+X    
+X    /*
+X     * Creation des shells
+X     */
+X    
+X    /* Shell processus */
+X    n = 0;
+X    XtSetArg(args[n], XtNiconPixmap, pixmap_processus); n++;
+X    shell_processus = XtCreatePopupShell (strcat (strcpy (buf, host), "proc"), applicationShellWidgetClass, forme_base, args, n);
+X    
+X    /* Shell activite */
+X    n = 0;
+X    XtSetArg(args[n], XtNiconPixmap, pixmap_activite); n++;
+X
+X    shell_activite = XtCreatePopupShell (strcat (strcpy (buf, host), "act"), applicationShellWidgetClass, forme_base, args, n);
+X
+X    
+X    
+X    /* Forme de base pour l'activite */
+X    forme_activite = XtCreateManagedWidget ("forme_activite", formWidgetClass, shell_activite, NULL, 0);
+X
+X    /* Forme de base pour les processus */
+X    forme_processus = XtCreateManagedWidget ("forme_processus", formWidgetClass, shell_processus, NULL, 0);
+X
+X
+X    /* 
+X     * Creation du Viewport pour la liste 
+X     */
+X    viewport_processus = XtCreateManagedWidget ("viewport_processus", viewportWidgetClass, forme_processus, NULL, 0);
+X
+X    /* Bouton Quit du shell processus */
+X    bouton_quit_processus = XtCreateManagedWidget ("bouton_quit_processus", commandWidgetClass, forme_processus, NULL, 0);
+X
+X    /* Bouton Mise a jour du shell processus */
+X    bouton_mise_a_jour_liste = XtCreateManagedWidget ("bouton_mise_a_jour_liste", commandWidgetClass, forme_processus, NULL, 0);
+X
+X
+X    /* 
+X     * Liste des processus 
+X     */
+X    n = 0;
+X    XtSetArg (args[n], XtNlist, (String *)table_processus); n++;
+X    liste_processus = XtCreateManagedWidget("liste_processus", listWidgetClass, viewport_processus, args, n);
+X    
+X
+X    /*
+X     * Creation des lignes
+X     */ 
+X    /* IDLE */
+X    titre_idle = XtCreateManagedWidget("titre_idle", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_idle = XtCreateManagedWidget ("indicateur_idle", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_idle = XtCreateManagedWidget ("afficheur_idle", labelWidgetClass, forme_activite, NULL, 0);
+X
+X    
+X    /* USER */
+X    titre_user = XtCreateManagedWidget("titre_user", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_user = XtCreateManagedWidget ("indicateur_user", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_user = XtCreateManagedWidget ("afficheur_user", labelWidgetClass, forme_activite, NULL, 0);
+X
+X    
+X    /* KERNEL */
+X    titre_kernel = XtCreateManagedWidget("titre_kernel", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_kernel = XtCreateManagedWidget ("indicateur_kernel", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_kernel = XtCreateManagedWidget ("afficheur_kernel", labelWidgetClass, forme_activite, NULL, 0);
+X
+X    
+X    /* WAIT */
+X    titre_wait = XtCreateManagedWidget ("titre_wait", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_wait = XtCreateManagedWidget ("indicateur_wait", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_wait = XtCreateManagedWidget ("afficheur_wait", labelWidgetClass, forme_activite, NULL, 0);
+X
+X    
+X    /* SXBRK */
+X    titre_sxbrk = XtCreateManagedWidget("titre_sxbrk", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_sxbrk = XtCreateManagedWidget ("indicateur_sxbrk", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_sxbrk = XtCreateManagedWidget ("afficheur_sxbrk", labelWidgetClass, forme_activite, NULL, 0);
+X
+X
+X    /* FREEMEM */
+X    titre_freemem = XtCreateManagedWidget("titre_freemem", labelWidgetClass, forme_activite, NULL, 0);
+X    indicateur_freemem = XtCreateManagedWidget ("indicateur_freemem", stripChartWidgetClass, forme_activite, NULL, 0);
+X    afficheur_freemem = XtCreateManagedWidget ("afficheur_freemem", labelWidgetClass, forme_activite, NULL, 0);
+X
+X    
+X    /* Bouton Quit du shell activite */
+X    bouton_quit_activite = XtCreateManagedWidget ("bouton_quit_activite", commandWidgetClass, forme_activite, NULL, 0);
+X
+X    /* Prototype des boutons quit des fenetres processus */
+X    prototype_bouton_quit = XtCreateWidget ("prototype_bouton_quit", commandWidgetClass, forme_base, NULL, 0);
+X
+X    /* Prototype des boutons quit des fenetres processus */
+X    prototype_label_titre = XtCreateWidget ("prototype_label_titre", labelWidgetClass, forme_base, NULL, 0);
+X
+X    /* Prototype d'indicateur */
+X    prototype_indicateur = XtCreateWidget ("prototype_indicateur", stripChartWidgetClass, forme_base, NULL, 0);
+X
+X    /* Prototype d'afficheur */
+X    prototype_afficheur = XtCreateWidget ("prototype_afficheur", labelWidgetClass, forme_base, NULL, 0);
+X
+X    prototype_paned = XtCreateWidget ("prototype_paned", panedWidgetClass, forme_base, NULL, 0);
+X
+X    /* Callbacks  */
+X    XtAddCallback(bouton_quit, XtNcallback, Quit, 0);
+X    XtAddCallback(bouton_quit_processus, XtNcallback, Quit_processus, 0);
+X    XtAddCallback(bouton_mise_a_jour_liste, XtNcallback, Mise_a_jour_liste, 0);
+X    XtAddCallback(bouton_quit_activite, XtNcallback, Quit_activite, 0);
+X    XtAddCallback(bouton_processus, XtNcallback, Processus, 0);
+X    XtAddCallback(bouton_activite, XtNcallback, Activite, 0);
+X    XtAddCallback(liste_processus, XtNcallback, Selection, 0);
+X
+X    /* callbacks des widget stripChart */
+X    XtAddCallback(indicateur_idle, XtNgetValue, Mise_a_jour_idle, NULL);
+X    XtAddCallback(indicateur_user, XtNgetValue, Mise_a_jour_user, NULL);
+X    XtAddCallback(indicateur_kernel, XtNgetValue, Mise_a_jour_kernel, NULL);
+X    XtAddCallback(indicateur_wait, XtNgetValue, Mise_a_jour_wait, NULL);
+X    XtAddCallback(indicateur_sxbrk, XtNgetValue, Mise_a_jour_sxbrk, NULL);
+X    XtAddCallback(indicateur_freemem, XtNgetValue, Mise_a_jour_freemem, NULL);
+X
+X
+X    /* Affichage */
+X    XtRealizeWidget(topLevel);
+X
+X    n = 0;
+X    XtSetArg (args[n], XtNiconPixmap, &pixmap_icone); n++;
+X    XtGetValues(topLevel, args, n);
+X
+X    /*
+X     * Contruction de l'icone
+X     */
+X    n = 0;
+X    XtSetArg (args[n], XtNiconPixmap, &pixmap_icone); n++;
+X    XtGetValues(topLevel, args, n);
+X
+X    if (pixmap_icone == None) {
+X	n = 0;
+X	XtSetArg(args[n], XtNiconPixmap, pixmap_xetat); n++;
+X	XtSetValues (topLevel, args, n);
+X    }
+X
+X    XtPopup (popup_copyright, XtGrabNone);
+X
+X    /* ouverture pour la lecture du noyau */
+X    if ((kmem = open ("/dev/kmem", 0)) < 0) {
+X	perror ("main-open");
+X	exit (1);
+X    }
+X
+X    /* Lecture de l'etat initial */
+X    init_charge();
+X
+X    /* Initialise le comptage */
+X    XtAddTimeOut ((unsigned long)4000, mesure_charge_courante_systeme, (caddr_t)NULL);
+X
+X    /* Pour effacer le copyright au bout de 5 s */
+X    XtAddTimeOut ((unsigned long)5000, supprime_copyright, (caddr_t)NULL);
+X
+X    /* En route... */
+X    XtMainLoop();
+}
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0444 xetat.c ||
+echo 'restore of xetat.c failed'
+Wc_c="`wc -c < 'xetat.c'`"
+test 12724 -eq "$Wc_c" ||
+	echo 'xetat.c: original size 12724, current size' "$Wc_c"
+fi
+# ============= xetat.man.en ==============
+if test -f 'xetat.man.en' -a X"$1" != X"-c"; then
+	echo 'x - skipping xetat.man.en (File already exists)'
+else
+echo 'x - extracting xetat.man.en (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xetat.man.en' &&
+.\" Copyright (c) 1991 Lectra-Systemes
+.\"
+.TH XETAT n "Lectra-Systemes" "12/91"
+.UC 5
+.SH NAME
+xetat \- graphical system activity reporter
+.SH SYNOPSIS
+xetat
+.SH DESCRIPTION
+.I xetat
+displays the system activity about
+.B "CPU"
+and
+.B "processes" .
+.LP
+This program was created for System V 3.2 and X11R4.
+.LP 
+You can display the CPU activity by clicking on 
+.B Activity
+button in the main menu. The activity is displayed with
+.B 6 
+stripcharts and indicators inside a popup shell (Idle, User, Kernel, Wait, Sxbrk, 
+Freemem). 
+The 5 first indicators display the activity as a ratio (percentage), the last one
+indicates the size of free memory (freemem) in
+.B clicks
+(4 Kbytes)
+and the graphic displays the ratio of freemem to available memory (availrmem)
+.LP 
+If you click on the 
+.B Processes
+button of the main menu, the list of active processes is displayed in a
+viewport. If you click the name of a process, a popup shell is created in order to
+display (in real time) the process characteristics (UID, PID, PPID, system time, user
+time, size) 
+.LP
+If a process is destroyed, the popup shell disappears and the list is updated. 
+You can also update the list by clicking the
+.B "Update" 
+button.
+.SH AUTHOR
+Pierre FICHEUX R&D Lectra-Systemes ZI Marticot 33610 Cestas FRANCE
+X
+X
+SHAR_EOF
+chmod 0644 xetat.man.en ||
+echo 'restore of xetat.man.en failed'
+Wc_c="`wc -c < 'xetat.man.en'`"
+test 1279 -eq "$Wc_c" ||
+	echo 'xetat.man.en: original size 1279, current size' "$Wc_c"
+fi
+# ============= xetat.man.fr ==============
+if test -f 'xetat.man.fr' -a X"$1" != X"-c"; then
+	echo 'x - skipping xetat.man.fr (File already exists)'
+else
+echo 'x - extracting xetat.man.fr (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'xetat.man.fr' &&
+.\" Copyright (c) 1991 Lectra-Systemes
+.\"
+.TH XETAT 1 "Lectra-Systemes" "12/91"
+.UC 5
+.SH NAME
+xetat \- visualisation graphique de la charge d'un calculateur 
+.SH SYNOPSIS
+xetat
+.SH DESCRIPTION
+.I xetat
+permet de visualiser la charge d'un calculateur au niveau 
+.B "activite CPU"
+et
+.B "processus" .
+.LP
+Cet utilitaire est prevu pour System V 3.2 et X11R4.
+.LP 
+On peut afficher l'activite CPU en cliquant sur le bouton 
+.B Activite
+du menu
+principal. L'activite est alors affichee sous forme d'un popup-shell contenant
+.B 6
+indicateurs (Idle, User, Kernel, Wait, Sxbrk, Freemem). Les 5 premiers affichent
+le pourcentage d'activite par rapport a l'activite totale. Le dernier affiche
+la taille memoire disponible (freemem) en 
+.B clicks
+(4 Ko), le graphe indiquant le pourcentage de freemem par rapport a la taille de la
+memoire utilisateur disponible (availrmem).
+.LP 
+Si on clique sur le bouton 
+.B Processus
+du menu principal, on affiche la liste des processus actuellement actifs. Si l'on 
+clique sur le nom d'un processus, on ouvre un popup-shell visualisant les 
+caracteristiques du processus en temps reel (UID, PID, PPID, temps systeme, temps
+utilisateur, graphe d'occupation memoire).
+Le graphe d'occupation memoire affiche la taille du processus par rapport a la 
+valeur de freemem.
+.LP
+Si un processus en cours de visualisation disparait du systeme, le popup-shell est
+supprime de l'ecran et la liste des processus est mise a jour. On peut egalement
+mettre a jour la liste en cliquant sur le bouton 
+.B "Rafraichit" .
+.SH AUTHOR
+Pierre FICHEUX R&D Lectra-Systemes ZI Marticot 33610 Cestas FRANCE
+.SH BUGS
+Comment dites-vous ?
+X
+X
+SHAR_EOF
+chmod 0644 xetat.man.fr ||
+echo 'restore of xetat.man.fr failed'
+Wc_c="`wc -c < 'xetat.man.fr'`"
+test 1640 -eq "$Wc_c" ||
+	echo 'xetat.man.fr: original size 1640, current size' "$Wc_c"
+fi
+# ============= XEtat.ad.en ==============
+if test -f 'XEtat.ad.en' -a X"$1" != X"-c"; then
+	echo 'x - skipping XEtat.ad.en (File already exists)'
+else
+echo 'x - extracting XEtat.ad.en (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'XEtat.ad.en' &&
+!
+! Fichier de ressource du client XETAT (version anglaise)
+!
+! Auteur : Pierre FICHEUX             Lectra-Systemes Service R & D  
+!                                     ZI Marticot                    
+!                                     33610 Cestas    FRANCE         
+!
+XXEtat*copyright*label:			(C)1991 Lectra Systemes
+XXEtat*Label*resize:			False
+!!
+! Definition des titres des lignes
+!!
+! Label
+XXEtat*titre_idle*label:			Idle
+XXEtat*titre_user*label:			User
+XXEtat*titre_kernel*label:		Kernel
+XXEtat*titre_wait*label:			Wait
+XXEtat*titre_sxbrk*label:		Sxbrk
+XXEtat*titre_freemem*label:		Freemem
+! Justification : centre
+!XEtat*forme_activite*Label.justify:	center
+! Hauteur = 15 pixels
+XXEtat*forme_activite*Label.height:	15
+! Largeur = 65 pixels
+XXEtat*titre_idle*width:			65
+XXEtat*titre_user*width:			65
+XXEtat*titre_kernel*width:		65
+XXEtat*titre_wait*width:			65
+XXEtat*titre_sxbrk*width:		65
+XXEtat*titre_freemem*width:		65
+!!
+! Definition des afficheurs
+!!
+! Label par defaut
+XXEtat*afficheur_idle*label:		0   %
+XXEtat*afficheur_user*label:		0   %
+XXEtat*afficheur_kernel*label:        	0   %
+XXEtat*afficheur_wait*label:		0   %
+XXEtat*afficheur_sxbrk*label:		0   %
+XXEtat*afficheur_freemem*label:		0   
+! Largeur = 65 pixels
+XXEtat*afficheur_idle*width:		65
+XXEtat*afficheur_user*width:		65
+XXEtat*afficheur_kernel*width:		65
+XXEtat*afficheur_wait*width:		65
+XXEtat*afficheur_sxbrk*width:		65
+XXEtat*afficheur_freemem*width:		65
+!!
+! Definition des indicateurs
+!!
+! Largeur
+XXEtat*indicateur_idle*width:		65
+XXEtat*indicateur_user*width:		65
+XXEtat*indicateur_kernel*width:		65
+XXEtat*indicateur_wait*width:		65
+XXEtat*indicateur_sxbrk*width:		65
+XXEtat*indicateur_freemem*width:		65
+! Hauteur
+XXEtat*indicateur_idle*height:		60
+XXEtat*indicateur_user*height:		60
+XXEtat*indicateur_kernel*height:		60
+XXEtat*indicateur_wait*height:		60
+XXEtat*indicateur_sxbrk*height:		60
+XXEtat*indicateur_freemem*height:	60
+!
+! Positions
+!
+XXEtat*titre_user*fromHoriz:		titre_idle
+XXEtat*titre_kernel*fromHoriz:		titre_user
+XXEtat*titre_wait*fromHoriz:		titre_kernel
+XXEtat*titre_sxbrk*fromHoriz:		titre_wait
+XXEtat*titre_freemem*fromHoriz:		titre_sxbrk
+X
+XXEtat*indicateur_idle*fromVert:		titre_idle
+XXEtat*indicateur_user*fromVert:		titre_user
+XXEtat*indicateur_kernel*fromVert:	titre_kernel
+XXEtat*indicateur_wait*fromVert:		titre_wait
+XXEtat*indicateur_sxbrk*fromVert:	titre_sxbrk
+XXEtat*indicateur_freemem*fromVert:	titre_freemem
+X
+XXEtat*indicateur_user*fromHoriz:	indicateur_idle
+XXEtat*indicateur_kernel*fromHoriz:	indicateur_user
+XXEtat*indicateur_wait*fromHoriz:	indicateur_kernel
+XXEtat*indicateur_sxbrk*fromHoriz:	indicateur_wait
+XXEtat*indicateur_freemem*fromHoriz:	indicateur_sxbrk
+X
+!
+XXEtat*afficheur_user*fromHoriz:		afficheur_idle
+XXEtat*afficheur_kernel*fromHoriz:	afficheur_user
+XXEtat*afficheur_wait*fromHoriz:		afficheur_kernel
+XXEtat*afficheur_sxbrk*fromHoriz:	afficheur_wait
+XXEtat*afficheur_freemem*fromHoriz:	afficheur_sxbrk
+XXEtat*afficheur_idle*fromVert:		indicateur_idle
+XXEtat*afficheur_user*fromVert:		indicateur_user
+XXEtat*afficheur_kernel*fromVert:	indicateur_kernel
+XXEtat*afficheur_wait*fromVert:		indicateur_wait
+XXEtat*afficheur_sxbrk*fromVert:		indicateur_sxbrk
+XXEtat*afficheur_freemem*fromVert:	indicateur_freemem
+X
+!!
+! Boutons de l'ecran principal
+!!
+XXEtat*forme_base*Command.justify:		center
+XXEtat*forme_base*Command.vertDistance:		10
+XXEtat*bouton_activite*label:			Activity
+XXEtat*bouton_processus*label:			Processes
+XXEtat*bouton_processus*fromVert:		bouton_activite
+XXEtat*bouton_quit*label:			Quit
+XXEtat*bouton_quit*fromVert:			bouton_processus
+XXEtat*bouton_processus*width:			100
+XXEtat*bouton_activite*width:			100
+XXEtat*bouton_quit*width:			100
+!!
+! Viewport des processus
+!!
+XXEtat*viewport_processus*allowHoriz:		TRUE
+XXEtat*viewport_processus*allowVert:		TRUE
+XXEtat*viewport_processus*forceBars:		TRUE
+XXEtat*viewport_processus*useBottom:		TRUE
+!!
+! Bouton quit du shell processus
+!!
+XXEtat*bouton_quit_processus*horizDistance:	130
+XXEtat*bouton_quit_processus*vertDistance:	10
+XXEtat*bouton_quit_processus*width:		100
+XXEtat*bouton_quit_processus*label:		Quit
+XXEtat*bouton_quit_processus*fromVert:		viewport_processus
+!!
+! Bouton mise a jour du shell processus
+!!
+XXEtat*bouton_mise_a_jour_liste*horizDistance:	15
+XXEtat*bouton_quit_processus*width:		100
+XXEtat*bouton_mise_a_jour_liste*fromHoriz:	bouton_quit_processus
+XXEtat*bouton_mise_a_jour_liste*vertDistance:	10
+XXEtat*bouton_mise_a_jour_liste*label:		Update
+XXEtat*bouton_mise_a_jour_liste*fromVert:	viewport_processus
+!!
+! Bouton quit du shell activite
+!!
+XXEtat*bouton_quit_activite*horizDistance:	160
+XXEtat*bouton_quit_activite*vertDistance:	10
+XXEtat*bouton_quit_activite*width:		100
+XXEtat*bouton_quit_activite*label:		Quit
+XXEtat*bouton_quit_activite*fromVert:		afficheur_freemem
+!!
+! Prototype bouton quit
+!!
+XXEtat*prototype_bouton_quit*label:		Quit
+XXEtat*prototype_bouton_quit*horizDistance:	80
+XXEtat*prototype_bouton_quit*width:		100
+!!
+! Prototype label titre
+!!
+XXEtat*prototype_label_titre*label:		UID PID   PPID  System  User  
+XXEtat*prototype_label_titre*borderwidth:	0          
+!!
+! Prototype Paned
+!!
+XXEtat*showGrip:					FALSE
+XXEtat*internalBorderWidth:			0
+XXEtat*prototype_paned*width:			248
+XXEtat*prototype_paned*height:			50
+!!
+! Prototype de l'indicateur d'occupation memoire
+!!
+XXEtat*prototype_indicateur*width:		248
+XXEtat*prototype_indicateur*height:		30
+!!
+! Prototype de l'afficheur d'occupation memoire
+!!
+XXEtat*prototype_afficheur*label:		0 / 0  
+XXEtat*prototype_afficheur*height:		8
+!!
+! Liste des processus
+!!
+XXEtat*liste_processus*longest:			150
+XXEtat*liste_processus*defaultColumns:		3
+X
+X
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 XEtat.ad.en ||
+echo 'restore of XEtat.ad.en failed'
+Wc_c="`wc -c < 'XEtat.ad.en'`"
+test 5546 -eq "$Wc_c" ||
+	echo 'XEtat.ad.en: original size 5546, current size' "$Wc_c"
+fi
+# ============= XEtat.ad.fr ==============
+if test -f 'XEtat.ad.fr' -a X"$1" != X"-c"; then
+	echo 'x - skipping XEtat.ad.fr (File already exists)'
+else
+echo 'x - extracting XEtat.ad.fr (Text)'
+sed 's/^X//' << 'SHAR_EOF' > 'XEtat.ad.fr' &&
+!
+! Fichier de ressource du client XETAT
+!
+! Auteur : Pierre FICHEUX             Lectra-Systemes Service R & D  
+!                                     ZI Marticot                    
+!                                     33610 Cestas    FRANCE         
+!
+XXEtat*copyright*label:			(C)1991 Lectra Systemes
+XXEtat*Label*resize:			False
+!!
+! Definition des titres des lignes
+!!
+! Label
+XXEtat*titre_idle*label:			Idle
+XXEtat*titre_user*label:			User
+XXEtat*titre_kernel*label:		Kernel
+XXEtat*titre_wait*label:			Wait
+XXEtat*titre_sxbrk*label:		Sxbrk
+XXEtat*titre_freemem*label:		Freemem
+! Justification : centre
+!XEtat*forme_activite*Label.justify:	center
+! Hauteur = 15 pixels
+XXEtat*forme_activite*Label.height:	15
+! Largeur = 65 pixels
+XXEtat*titre_idle*width:			65
+XXEtat*titre_user*width:			65
+XXEtat*titre_kernel*width:		65
+XXEtat*titre_wait*width:			65
+XXEtat*titre_sxbrk*width:		65
+XXEtat*titre_freemem*width:		65
+!!
+! Definition des afficheurs
+!!
+! Label par defaut
+XXEtat*afficheur_idle*label:		0   %
+XXEtat*afficheur_user*label:		0   %
+XXEtat*afficheur_kernel*label:        	0   %
+XXEtat*afficheur_wait*label:		0   %
+XXEtat*afficheur_sxbrk*label:		0   %
+XXEtat*afficheur_freemem*label:		0   
+! Largeur = 65 pixels
+XXEtat*afficheur_idle*width:		65
+XXEtat*afficheur_user*width:		65
+XXEtat*afficheur_kernel*width:		65
+XXEtat*afficheur_wait*width:		65
+XXEtat*afficheur_sxbrk*width:		65
+XXEtat*afficheur_freemem*width:		65
+!!
+! Definition des indicateurs
+!!
+! Largeur
+XXEtat*indicateur_idle*width:		65
+XXEtat*indicateur_user*width:		65
+XXEtat*indicateur_kernel*width:		65
+XXEtat*indicateur_wait*width:		65
+XXEtat*indicateur_sxbrk*width:		65
+XXEtat*indicateur_freemem*width:		65
+! Hauteur
+XXEtat*indicateur_idle*height:		60
+XXEtat*indicateur_user*height:		60
+XXEtat*indicateur_kernel*height:		60
+XXEtat*indicateur_wait*height:		60
+XXEtat*indicateur_sxbrk*height:		60
+XXEtat*indicateur_freemem*height:	60
+!
+! Positions
+!
+XXEtat*titre_user*fromHoriz:		titre_idle
+XXEtat*titre_kernel*fromHoriz:		titre_user
+XXEtat*titre_wait*fromHoriz:		titre_kernel
+XXEtat*titre_sxbrk*fromHoriz:		titre_wait
+XXEtat*titre_freemem*fromHoriz:		titre_sxbrk
+X
+XXEtat*indicateur_idle*fromVert:		titre_idle
+XXEtat*indicateur_user*fromVert:		titre_user
+XXEtat*indicateur_kernel*fromVert:	titre_kernel
+XXEtat*indicateur_wait*fromVert:		titre_wait
+XXEtat*indicateur_sxbrk*fromVert:	titre_sxbrk
+XXEtat*indicateur_freemem*fromVert:	titre_freemem
+X
+XXEtat*indicateur_user*fromHoriz:	indicateur_idle
+XXEtat*indicateur_kernel*fromHoriz:	indicateur_user
+XXEtat*indicateur_wait*fromHoriz:	indicateur_kernel
+XXEtat*indicateur_sxbrk*fromHoriz:	indicateur_wait
+XXEtat*indicateur_freemem*fromHoriz:	indicateur_sxbrk
+X
+!
+XXEtat*afficheur_user*fromHoriz:		afficheur_idle
+XXEtat*afficheur_kernel*fromHoriz:	afficheur_user
+XXEtat*afficheur_wait*fromHoriz:		afficheur_kernel
+XXEtat*afficheur_sxbrk*fromHoriz:	afficheur_wait
+XXEtat*afficheur_freemem*fromHoriz:	afficheur_sxbrk
+XXEtat*afficheur_idle*fromVert:		indicateur_idle
+XXEtat*afficheur_user*fromVert:		indicateur_user
+XXEtat*afficheur_kernel*fromVert:	indicateur_kernel
+XXEtat*afficheur_wait*fromVert:		indicateur_wait
+XXEtat*afficheur_sxbrk*fromVert:		indicateur_sxbrk
+XXEtat*afficheur_freemem*fromVert:	indicateur_freemem
+X
+!!
+! Boutons de l'ecran principal
+!!
+XXEtat*forme_base*Command.justify:		center
+XXEtat*forme_base*Command.vertDistance:		10
+XXEtat*bouton_activite*label:			Activite
+XXEtat*bouton_processus*label:			Processus
+XXEtat*bouton_processus*fromVert:		bouton_activite
+XXEtat*bouton_quit*label:			Quitte
+XXEtat*bouton_quit*fromVert:			bouton_processus
+XXEtat*bouton_processus*width:			100
+XXEtat*bouton_activite*width:			100
+XXEtat*bouton_quit*width:			100
+!!
+! Viewport des processus
+!!
+XXEtat*viewport_processus*allowHoriz:		TRUE
+XXEtat*viewport_processus*allowVert:		TRUE
+XXEtat*viewport_processus*forceBars:		TRUE
+XXEtat*viewport_processus*useBottom:		TRUE
+!!
+! Bouton quit du shell processus
+!!
+XXEtat*bouton_quit_processus*horizDistance:	130
+XXEtat*bouton_quit_processus*vertDistance:	10
+XXEtat*bouton_quit_processus*width:		100
+XXEtat*bouton_quit_processus*label:		Quitte
+XXEtat*bouton_quit_processus*fromVert:		viewport_processus
+!!
+! Bouton mise a jour du shell processus
+!!
+XXEtat*bouton_mise_a_jour_liste*horizDistance:	15
+XXEtat*bouton_quit_processus*width:		100
+XXEtat*bouton_mise_a_jour_liste*fromHoriz:	bouton_quit_processus
+XXEtat*bouton_mise_a_jour_liste*vertDistance:	10
+XXEtat*bouton_mise_a_jour_liste*label:		Rafraichit
+XXEtat*bouton_mise_a_jour_liste*fromVert:	viewport_processus
+!!
+! Bouton quit du shell activite
+!!
+XXEtat*bouton_quit_activite*horizDistance:	160
+XXEtat*bouton_quit_activite*vertDistance:	10
+XXEtat*bouton_quit_activite*width:		100
+XXEtat*bouton_quit_activite*label:		Quitte
+XXEtat*bouton_quit_activite*fromVert:		afficheur_freemem
+!!
+! Prototype bouton quit
+!!
+XXEtat*prototype_bouton_quit*label:		Quitte
+XXEtat*prototype_bouton_quit*horizDistance:	80
+XXEtat*prototype_bouton_quit*width:		100
+!!
+! Prototype label titre
+!!
+XXEtat*prototype_label_titre*label:		UID PID   PPID  System  User  
+XXEtat*prototype_label_titre*borderwidth:	0          
+!!
+! Prototype Paned
+!!
+XXEtat*showGrip:					FALSE
+XXEtat*internalBorderWidth:			0
+XXEtat*prototype_paned*width:			248
+XXEtat*prototype_paned*height:			50
+!!
+! Prototype de l'indicateur d'occupation memoire
+!!
+XXEtat*prototype_indicateur*width:		248
+XXEtat*prototype_indicateur*height:		30
+!!
+! Prototype de l'afficheur d'occupation memoire
+!!
+XXEtat*prototype_afficheur*label:		0 / 0  
+XXEtat*prototype_afficheur*height:		8
+!!
+! Liste des processus
+!!
+XXEtat*liste_processus*longest:			150
+XXEtat*liste_processus*defaultColumns:		3
+X
+X
+X
+X
+X
+X
+X
+SHAR_EOF
+chmod 0644 XEtat.ad.fr ||
+echo 'restore of XEtat.ad.fr failed'
+Wc_c="`wc -c < 'XEtat.ad.fr'`"
+test 5539 -eq "$Wc_c" ||
+	echo 'XEtat.ad.fr: original size 5539, current size' "$Wc_c"
+fi
+exit 0
+
+ _____________________________________________________________________________
+| Pierre FICHEUX                     | Certains hommes n'ont que ce qu'ils    |
+| Lectra Systemes                    | meritent, les autres sont celibataires |
+| ZI Marticot  33610 CESTAS          |                                        |
+| FRANCE                             |                   Sacha Guitry         |
+|------------------------------------|----------------------------------------'
+|tel   : (33) 56 68 80 00            |
+|fax   : (33) 56 78 88 31            |
+|E-mail: pficheux@lectra.gna.org     |
+|____________________________________|
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

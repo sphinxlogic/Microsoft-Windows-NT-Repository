@@ -1,0 +1,1868 @@
+Newsgroups: comp.sources.x
+From: cristy@eplrx7.es.duPont.com (Cristy)
+Subject: v20i090:  imagemagic - X11 image processing and display, Part34/38
+Message-ID: <1993Jul14.232237.23439@sparky.sterling.com>
+X-Md4-Signature: e04331de8f6948c79caf9b45a170742e
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Wed, 14 Jul 1993 23:22:37 GMT
+Approved: chris@sterling.com
+
+Submitted-by: cristy@eplrx7.es.duPont.com (Cristy)
+Posting-number: Volume 20, Issue 90
+Archive-name: imagemagic/part34
+Environment: X11
+Supersedes: imagemagic: Volume 13, Issue 17-37
+
+#!/bin/sh
+# this is magick.34 (part 34 of ImageMagick)
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ImageMagick/encode.c continued
+#
+if test ! -r _shar_seq_.tmp; then
+	echo 'Please unpack part 1 first!'
+	exit 1
+fi
+(read Scheck
+ if test "$Scheck" != 34; then
+	echo Please unpack part "$Scheck" next!
+	exit 1
+ else
+	exit 0
+ fi
+) < _shar_seq_.tmp || exit 1
+if test ! -f _shar_wnt_.tmp; then
+	echo 'x - still skipping ImageMagick/encode.c'
+else
+echo 'x - continuing file ImageMagick/encode.c'
+sed 's/^X//' << 'SHAR_EOF' >> 'ImageMagick/encode.c' &&
+X      return(False);
+X    }
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Allocate alpha pixels.
+X  */
+X  alpha_pixels=(unsigned char *)
+X    malloc(image->columns*image->rows*sizeof(unsigned char));
+X  if (alpha_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  q=alpha_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X      *q++=(unsigned char) p->index;
+X    p++;
+X  }
+X  (void) fwrite((char *) alpha_pixels,1,(int) (image->columns*image->rows),
+X    image->file);
+X  (void) free((char *) alpha_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e A V S I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteAVSImage writes an image to a file in AVS X image format.
+%
+%  The format of the WriteAVSImage routine is:
+%
+%      status=WriteAVSImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteAVSImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteAVSImage(image)
+Image
+X  *image;
+{
+X  typedef struct _AVSHeader
+X  {
+X    int
+X      width,
+X      height;
+X  } AVSHeader;
+X
+X  AVSHeader
+X    avs_header;
+X
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *avs_pixels;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Initialize raster file header.
+X  */
+X  avs_header.width=image->columns;
+X  avs_header.height=image->rows;
+X  avs_pixels=(unsigned char *)
+X    malloc(4*image->columns*image->rows*sizeof(unsigned char));
+X  if (avs_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  (void) fwrite((char *) &avs_header,sizeof(AVSHeader),1,image->file);
+X  p=image->pixels;
+X  q=avs_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= (int) p->length; j++)
+X    {
+X      *q++=(unsigned char) (image->alpha ? p->index : 0);
+X      *q++=p->red;
+X      *q++=p->green;
+X      *q++=p->blue;
+X    }
+X    p++;
+X  }
+X  (void) fwrite((char *) avs_pixels,4,(int)(image->columns*image->rows),
+X    image->file);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e B M P I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteBMPImage writes an image in Microsoft Windows bitmap encoded
+%  image format.
+%
+%  The format of the WriteBMPImage routine is:
+%
+%      status=WriteBMPImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteBMPImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteBMPImage(image)
+Image
+X  *image;
+{
+X  typedef struct _BMPHeader
+X  {
+X    unsigned long
+X      file_size;
+X
+X    unsigned short
+X      reserved[2];
+X
+X    unsigned long
+X      offset_bits,
+X      size,
+X      width,
+X      height;
+X
+X    unsigned short
+X      planes,
+X      bit_count;
+X
+X    unsigned long
+X      compression,
+X      image_size,
+X      x_pixels,
+X      y_pixels,
+X      number_colors,
+X      colors_important;
+X  } BMPHeader;
+X
+X  BMPHeader
+X    bmp_header;
+X
+X  register int
+X    i,
+X    j,
+X    x,
+X    y;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *bmp_pixels;
+X
+X  unsigned int
+X    bytes_per_line;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Initialize BMP raster file header.
+X  */
+X  bmp_header.file_size=14+40;
+X  bmp_header.offset_bits=14+40;
+X  if ((image->class == DirectClass) || (image->colors > 256))
+X    {
+X      /*
+X        Full color BMP raster.
+X      */
+X      bmp_header.bit_count=24;
+X      bmp_header.number_colors=0;
+X    }
+X  else
+X    {
+X      unsigned int
+X        grayscale;
+X
+X      /*
+X        Determine if image is grayscale.
+X      */
+X      grayscale=True;
+X      for (i=0; i < image->colors; i++)
+X        if ((image->colormap[i].red != image->colormap[i].green) ||
+X            (image->colormap[i].green != image->colormap[i].blue))
+X          {
+X            grayscale=False;
+X            break;
+X          }
+X      if ((image->colors > 2) || !grayscale)
+X        bmp_header.bit_count=8;
+X      else
+X        bmp_header.bit_count=1;
+X      bmp_header.file_size+=image->colors*4;
+X      bmp_header.offset_bits+=image->colors*4;
+X      bmp_header.number_colors=image->colors;
+X    }
+X  bmp_header.reserved[0]=0;
+X  bmp_header.reserved[1]=0;
+X  bmp_header.size=40;
+X  bmp_header.width=image->columns;
+X  bmp_header.height=image->rows;
+X  bmp_header.planes=1;
+X  bmp_header.compression=0;
+X  bytes_per_line=((image->columns*bmp_header.bit_count+31)/32)*4;
+X  bmp_header.image_size=bytes_per_line*image->rows;
+X  bmp_header.file_size+=bmp_header.image_size;
+X  bmp_header.x_pixels=75*39;
+X  bmp_header.y_pixels=75*39;
+X  bmp_header.colors_important=bmp_header.number_colors;
+X  /*
+X    Write BMP header.
+X  */
+X  (void) fwrite("BM",1,2,image->file);
+X  LSBFirstWriteLong(bmp_header.file_size,image->file);
+X  LSBFirstWriteShort(bmp_header.reserved[0],image->file);
+X  LSBFirstWriteShort(bmp_header.reserved[1],image->file);
+X  LSBFirstWriteLong(bmp_header.offset_bits,image->file);
+X  LSBFirstWriteLong(bmp_header.size,image->file);
+X  LSBFirstWriteLong(bmp_header.width,image->file);
+X  LSBFirstWriteLong(bmp_header.height,image->file);
+X  LSBFirstWriteShort(bmp_header.planes,image->file);
+X  LSBFirstWriteShort(bmp_header.bit_count,image->file);
+X  LSBFirstWriteLong(bmp_header.compression,image->file);
+X  LSBFirstWriteLong(bmp_header.image_size,image->file);
+X  LSBFirstWriteLong(bmp_header.x_pixels,image->file);
+X  LSBFirstWriteLong(bmp_header.y_pixels,image->file);
+X  LSBFirstWriteLong(bmp_header.number_colors,image->file);
+X  LSBFirstWriteLong(bmp_header.colors_important,image->file);
+X  if (image->class == PseudoClass)
+X    {
+X      unsigned char
+X        *bmp_colormap;
+X
+X      /*
+X        Dump colormap to file.
+X      */
+X      bmp_colormap=(unsigned char *)
+X        malloc(4*image->colors*sizeof(unsigned char));
+X      if (bmp_colormap == (unsigned char *) NULL)
+X        {
+X          Warning("unable to allocate memory",(char *) NULL);
+X          return(False);
+X        }
+X      q=bmp_colormap;
+X      for (i=0; i < image->colors; i++)
+X      {
+X        *q++=image->colormap[i].blue;
+X        *q++=image->colormap[i].green;
+X        *q++=image->colormap[i].red;
+X        q++;
+X      }
+X      (void) fwrite((char *) bmp_colormap,4,(int) image->colors,image->file);
+X      (void) free((char *) bmp_colormap);
+X    }
+X  /*
+X    Convert MIFF to BMP raster pixels.
+X  */
+X  bmp_pixels=(unsigned char *)
+X     malloc(bmp_header.image_size*sizeof(unsigned char));
+X  if (bmp_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  x=0;
+X  y=image->rows-1;
+X  switch (bmp_header.bit_count)
+X  {
+X    case 1:
+X    {
+X      register unsigned char
+X        bit,
+X        byte,
+X        polarity;
+X
+X      /*
+X        Convert PseudoClass image to a BMP monochrome image.
+X      */
+X      polarity=(Intensity(image->colormap[0]) <
+X        Intensity(image->colormap[1]) ? 0 : 1);
+X      bit=0;
+X      byte=0;
+X      q=bmp_pixels+y*bytes_per_line;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= (int) p->length; j++)
+X        {
+X          byte<<=1;
+X          if (p->index == polarity)
+X            byte|=0x01;
+X          bit++;
+X          if (bit == 8)
+X            {
+X              *q++=byte;
+X              bit=0;
+X              byte=0;
+X            }
+X          x++;
+X          if (x == image->columns)
+X            {
+X              /*
+X                Advance to the next scanline.
+X              */
+X              if (bit != 0)
+X                *q++=byte << (8-bit);
+X              bit=0;
+X              byte=0;
+X              x=0;
+X              y--;
+X              q=bmp_pixels+y*bytes_per_line;
+X           }
+X        }
+X        p++;
+X      }
+X      break;
+X    }
+X    case 8:
+X    {
+X      /*
+X        Convert PseudoClass packet to BMP pixel.
+X      */
+X      q=bmp_pixels+y*bytes_per_line;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= (int) p->length; j++)
+X        {
+X          *q++=p->index;
+X          x++;
+X          if (x == image->columns)
+X            {
+X              x=0;
+X              y--;
+X              q=bmp_pixels+y*bytes_per_line;
+X            }
+X        }
+X        p++;
+X      }
+X      break;
+X    }
+X    case 24:
+X    {
+X      /*
+X        Convert DirectClass packet to BMP RGB pixel.
+X      */
+X      q=bmp_pixels+y*bytes_per_line;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= (int) p->length; j++)
+X        {
+X          *q++=p->blue;
+X          *q++=p->green;
+X          *q++=p->red;
+X          x++;
+X          if (x == image->columns)
+X            {
+X              x=0;
+X              y--;
+X              q=bmp_pixels+y*bytes_per_line;
+X            }
+X        }
+X        p++;
+X      }
+X      break;
+X    }
+X  }
+X  (void) fwrite((char *) bmp_pixels,1,(int) bmp_header.image_size,image->file);
+X  (void) free((char *) bmp_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e C M Y K I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteCMYKImage writes an image to a file in cyan, magenta,
+%  yellow, and black rasterfile format.
+%
+%  The format of the WriteCMYKImage routine is:
+%
+%      status=WriteCMYKImage(image,interlace,undercolor_geometry)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteCMYKImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%    o interlace:  An unsigned integer that specifies the interlacing
+%      scheme.
+%
+%    o undercolor_geometry: Specifies a pointer to a undercolor geometry
+%      string.  The specified undercolor removal and black generation of this
+%      geometry string are relative.
+%
+%
+*/
+static unsigned int WriteCMYKImage(image,interlace,undercolor_geometry)
+Image
+X  *image;
+X
+unsigned int
+X  interlace;
+X
+char
+X  *undercolor_geometry;
+{
+X  float
+X    black_generation,
+X    undercolor;
+X
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    black,
+X    cyan,
+X    magenta,
+X    *cmyk_pixels,
+X    yellow;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert MIFF to CMYK raster pixels.
+X  */
+X  cmyk_pixels=(unsigned char *)
+X    malloc(4*image->columns*image->rows*sizeof(unsigned char));
+X  if (cmyk_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  undercolor=1.0;
+X  black_generation=0.0;
+X  if (undercolor_geometry != (char *) NULL)
+X    {
+X      (void) sscanf(undercolor_geometry,"%fx%f",&undercolor,&black_generation);
+X      if (black_generation == 0.0)
+X        black_generation=undercolor;
+X    }
+X  q=cmyk_pixels;
+X  switch (interlace)
+X  {
+X    case NoneInterlace:
+X    default:
+X    {
+X      /*
+X        No interlacing:  CMYKCMYKCMYKCMYKCMYKCMYK...
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=cyan-undercolor*black;
+X          *q++=magenta-undercolor*black;
+X          *q++=yellow-undercolor*black;
+X          *q++=black_generation*black;
+X        }
+X        p++;
+X      }
+X      break;
+X    }
+X    case LineInterlace:
+X    {
+X      register int
+X        x,
+X        y;
+X
+X      /*
+X        Line interlacing:  CCC...MMM...YYY...CCC...MMM...YYY...
+X      */
+X      if (!UncompressImage(image))
+X        return(False);
+X      for (y=0; y < image->rows; y++)
+X      {
+X        p=image->pixels+(y*image->columns);
+X        for (x=0; x < image->columns; x++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=cyan-undercolor*black;
+X          p++;
+X        }
+X        p=image->pixels+(y*image->columns);
+X        for (x=0; x < image->columns; x++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=magenta-undercolor*black;
+X          p++;
+X        }
+X        p=image->pixels+(y*image->columns);
+X        for (x=0; x < image->columns; x++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=yellow-undercolor*black;
+X          p++;
+X        }
+X        p=image->pixels+(y*image->columns);
+X        for (x=0; x < image->columns; x++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=black_generation*black;
+X          p++;
+X        }
+X      }
+X      break;
+X    }
+X    case PlaneInterlace:
+X    {
+X      /*
+X        Plane interlacing:  CCCCCC...MMMMMM...YYYYYY...KKKKKK...
+X      */
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=cyan-undercolor*black;
+X        }
+X        p++;
+X      }
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=magenta-undercolor*black;
+X        }
+X        p++;
+X      }
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X           cyan=MaxRGB-p->red;
+X           magenta=MaxRGB-p->green;
+X           yellow=MaxRGB-p->blue;
+X           black=cyan;
+X           if (magenta < black)
+X             black=magenta;
+X           if (yellow < black)
+X             black=yellow;
+X           *q++=yellow-undercolor*black;
+X        }
+X        p++;
+X      }
+X      p=image->pixels;
+X      for (i=0; i < image->packets; i++)
+X      {
+X        for (j=0; j <= ((int) p->length); j++)
+X        {
+X          cyan=MaxRGB-p->red;
+X          magenta=MaxRGB-p->green;
+X          yellow=MaxRGB-p->blue;
+X          black=cyan;
+X          if (magenta < black)
+X            black=magenta;
+X          if (yellow < black)
+X            black=yellow;
+X          *q++=black_generation*black;
+X        }
+X        p++;
+X      }
+X      break;
+X    }
+X  }
+X  (void) fwrite((char *) cmyk_pixels,4,(int) (image->columns*image->rows),
+X    image->file);
+X  (void) free((char *) cmyk_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e F A X I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Procedure WriteFAXImage writes an image to a file in 1 dimensional Huffman
+%  encoded format.
+%
+%  The format of the WriteFAXImage routine is:
+%
+%      status=WriteFAXImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteFAXImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteFAXImage(image)
+Image
+X  *image;
+{
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert MIFF to monochrome.
+X  */
+X  QuantizeImage(image,2,8,False,GRAYColorspace,True);
+X  (void) HuffmanEncodeImage(image);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e G I F I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteGIFImage writes an image to a file in the Compuserve Graphics
+%  image format.
+%
+%  The format of the WriteGIFImage routine is:
+%
+%      status=WriteGIFImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteGIFImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteGIFImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  unsigned char
+X    bits_per_pixel,
+X    buffer[3];
+X
+X  unsigned int
+X    status;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    GIF colormap must be 256 entries or less.
+X  */
+X  if ((image->class == DirectClass) || (image->colors > 256))
+X    QuantizeImage(image,256,8,False,RGBColorspace,True);
+X  for (bits_per_pixel=1; bits_per_pixel < 8; bits_per_pixel++)
+X    if ((1 << bits_per_pixel) >= image->colors)
+X      break;
+X  /*
+X    Write GIF header.
+X  */
+X  (void) fwrite("GIF87a",1,6,image->file);
+X  LSBFirstWriteShort(image->columns,image->file);
+X  LSBFirstWriteShort(image->rows,image->file);
+X  *buffer=0x80;  /* global colormap */
+X  *buffer|=(bits_per_pixel-1) << 4;  /* color resolution */
+X  *buffer|=(bits_per_pixel-1);   /* size of global colormap */
+X  (void) fputc((char) *buffer,image->file);
+X  LSBFirstWriteShort(0,image->file);
+X  /*
+X    Write colormap.
+X  */
+X  for (i=0; i < image->colors; i++)
+X  {
+X    (void) fputc((char) image->colormap[i].red,image->file);
+X    (void) fputc((char) image->colormap[i].green,image->file);
+X    (void) fputc((char) image->colormap[i].blue,image->file);
+X  }
+X  buffer[0]=0;
+X  buffer[1]=0;
+X  buffer[2]=0;
+X  for ( ; i < (int) (1 << bits_per_pixel); i++)
+X    (void) fwrite((char *) buffer,1,3,image->file);
+X  (void) fputc(',',image->file);  /* separator */
+X  /*
+X    Write the image header.
+X  */
+X  LSBFirstWriteShort(0,image->file);
+X  LSBFirstWriteShort(0,image->file);
+X  LSBFirstWriteShort(image->columns,image->file);
+X  LSBFirstWriteShort(image->rows,image->file);
+X  buffer[0]=0;  /* no interlace */
+X  (void) fputc((char) *buffer,image->file);
+X  buffer[0]=Max(bits_per_pixel,2);
+X  (void) fputc((char) *buffer,image->file);
+X  status=LZWEncodeImage(image,Max(bits_per_pixel,2)+1);
+X  if (status == False)
+X    {
+X      Warning("unable to write image","memory allocation failed");
+X      return(False);
+X    }
+X  buffer[0]=0;
+X  (void) fputc((char) *buffer,image->file);
+X  (void) fputc(';',image->file); /* terminator */
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e G R A Y I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteGRAYImage writes an image to a file as gray scale intensity
+%  values [0..255].
+%
+%  The format of the WriteGRAYImage routine is:
+%
+%      status=WriteGRAYImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteGRAYImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteGRAYImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *gray_pixels;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert image to gray scale PseudoColor class.
+X  */
+X  gray_pixels=(unsigned char *)
+X    malloc(image->columns*image->rows*sizeof(unsigned char));
+X  if (gray_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  q=gray_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X      *q++=Intensity(*p);
+X    p++;
+X  }
+X  (void) fwrite((char *) gray_pixels,1,(int) (image->columns*image->rows),
+X    image->file);
+X  (void) free((char *) gray_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e H I S T O G R A M I m a g e                                     %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteHISTOGRAMImage writes an image to a file in HISTOGRAM format.
+%  A list of unique pixel values and the number of times each occurs in the
+%  image is written to the file.
+%
+%  The format of the WriteHISTOGRAMImage routine is:
+%
+%      status=WriteHISTOGRAMImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteHISTOGRAMImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteHISTOGRAMImage(image)
+Image
+X  *image;
+{
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  (void) NumberColors(image,image->file);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e I R I S I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteIRISImage writes an image in SGI RGB encoded image format.
+%
+%  The format of the WriteIRISImage routine is:
+%
+%      status=WriteIRISImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteIRISImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+X
+static int IRISEncode(pixels,count,packets)
+unsigned char
+X  *pixels;
+X
+int
+X  count;
+X
+unsigned char
+X  *packets;
+{
+X  short
+X    runlength;
+X
+X  unsigned char
+X    *limit,
+X    *mark,
+X    *p,
+X    *q;
+X
+X  p=pixels;
+X  limit=p+count*4;
+X  q=packets;
+X  while (p < limit)
+X  {
+X    mark=p;
+X    p+=8;
+X    while ((p < limit) && ((*(p-8) != *(p-4)) || (*(p-4) != *p)))
+X      p+=4;
+X    p-=8;
+X    count=(p-mark)/4;
+X    while (count)
+X    {
+X      runlength=count > 126 ? 126 : count;
+X      count-=runlength;
+X      *q++=0x80 | runlength;
+X      for ( ; runlength > 0; runlength--)
+X      {
+X        *q++=(*mark);
+X        mark+=4;
+X      }
+X    }
+X    mark=p;
+X    p+=4;
+X    while ((p < limit) && (*p == *mark))
+X      p+=4;
+X    count=(p-mark)/4;
+X    while (count)
+X    {
+X      runlength=count > 126 ? 126 : count;
+X      count-=runlength;
+X      *q++=runlength;
+X      *q++=(*mark);
+X    }
+X  }
+X  *q++=0;
+X  return(q-packets);
+}
+X
+static unsigned int WriteIRISImage(image)
+Image
+X  *image;
+{
+X  typedef struct _IRISHeader
+X  {
+X    unsigned short
+X      magic,
+X      type,
+X      dimension,
+X      columns,
+X      rows,
+X      depth;
+X
+X    unsigned long
+X      minimum_value,
+X      maximum_value;
+X
+X    unsigned char
+X      filler[492];
+X  } IRISHeader;
+X
+X  IRISHeader
+X    iris_header;
+X
+X  register int
+X    i,
+X    j,
+X    x,
+X    y,
+X    z;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *iris_pixels,
+X    *packets;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Initialize IRIS raster file header.
+X  */
+X  iris_header.magic=0x01DA;
+X  if (image->compression == NoCompression)
+X    iris_header.type=0;
+X  else
+X    iris_header.type=0x0100;
+X  iris_header.type|=(1 & 0x00ff);  /* one byte per pixel */
+X  iris_header.dimension=3;
+X  iris_header.columns=image->columns;
+X  iris_header.rows=image->rows;
+X  iris_header.depth=image->alpha ? 4 : 3;
+X  if ((image->class == PseudoClass) && (image->colors <= 256))
+X    {
+X      unsigned int
+X        grayscale;
+X
+X      /*
+X        Determine if image is grayscale.
+X      */
+X      grayscale=True;
+X      for (i=0; i < image->colors; i++)
+X        if ((image->colormap[i].red != image->colormap[i].green) ||
+X            (image->colormap[i].green != image->colormap[i].blue))
+X          {
+X            grayscale=False;
+X            break;
+X          }
+X      if (grayscale)
+X        {
+X          iris_header.dimension=2;
+X          iris_header.depth=1;
+X        }
+X    }
+X  iris_header.minimum_value=0;
+X  iris_header.maximum_value=MaxRGB;
+X  for (i=0; i < sizeof(iris_header.filler); i++)
+X    iris_header.filler[i]=0;
+X  /*
+X    Write IRIS header.
+X  */
+X  MSBFirstWriteShort(iris_header.magic,image->file);
+X  MSBFirstWriteShort(iris_header.type,image->file);
+X  MSBFirstWriteShort(iris_header.dimension,image->file);
+X  MSBFirstWriteShort(iris_header.columns,image->file);
+X  MSBFirstWriteShort(iris_header.rows,image->file);
+X  MSBFirstWriteShort(iris_header.depth,image->file);
+X  MSBFirstWriteLong(iris_header.minimum_value,image->file);
+X  MSBFirstWriteLong(iris_header.maximum_value,image->file);
+X  (void) fwrite(iris_header.filler,1,sizeof(iris_header.filler),image->file);
+X  /*
+X    Allocate IRIS pixels.
+X  */
+X  iris_pixels=(unsigned char *)
+X    malloc(4*image->columns*image->rows*sizeof(unsigned char));
+X  if (iris_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("memory allocation error",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert runlength-encoded packets to uncompressed IRIS pixels.
+X  */
+X  x=0;
+X  y=0;
+X  p=image->pixels;
+X  q=iris_pixels+(iris_header.rows-1)*(iris_header.columns*4);
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X    {
+X      *q++=p->red;
+X      *q++=p->green;
+X      *q++=p->blue;
+X      *q++=(unsigned char) p->index;
+X      x++;
+X      if (x == image->columns)
+X        {
+X          y++;
+X          q=iris_pixels+((iris_header.rows-1)-y)*(iris_header.columns*4);
+X          x=0;
+X        }
+X    }
+X    p++;
+X  }
+X  if (image->compression == NoCompression)
+X    {
+X      unsigned char
+X        *scanline;
+X
+X      /*
+X        Write uncompressed IRIS pixels.
+X      */
+X      scanline=(unsigned char *)
+X        malloc(iris_header.columns*sizeof(unsigned char));
+X      if (scanline == (unsigned char *) NULL)
+X        {
+X          Warning("memory allocation error",image->filename);
+X          return(False);
+X        }
+X      for (z=0; z < (int) iris_header.depth; z++)
+X      {
+X        q=iris_pixels+z;
+X        for (y=0; y < (int) iris_header.rows; y++)
+X        {
+X          for (x=0; x < (int) iris_header.columns; x++)
+X          {
+X            scanline[x]=(*q);
+X            q+=4;
+X          }
+X          (void) fwrite(scanline,sizeof(unsigned char),iris_header.columns,
+X            image->file);
+X        }
+X      }
+X      (void) free(scanline);
+X    }
+X  else
+X    {
+X      unsigned long
+X        length,
+X        number_packets,
+X        offset,
+X        *offsets,
+X        *runlength;
+X
+X      /*
+X        Convert IRIS uncompressed pixels to runlength-encoded pixels.
+X      */
+X      offsets=(unsigned long *)
+X        malloc(iris_header.rows*iris_header.depth*sizeof(unsigned long));
+X      packets=(unsigned char *)
+X        malloc(4*(2*iris_header.columns+10)*image->rows*sizeof(unsigned char));
+X      runlength=(unsigned long *)
+X        malloc(iris_header.rows*iris_header.depth*sizeof(unsigned long));
+X      if ((offsets == (unsigned long *) NULL) ||
+X          (packets == (unsigned char *) NULL) ||
+X          (runlength == (unsigned long *) NULL))
+X        {
+X          Warning("memory allocation error",image->filename);
+X          return(False);
+X        }
+X      offset=512+
+X        2*(iris_header.rows*iris_header.depth)*sizeof(unsigned long);
+X      number_packets=0;
+X      q=iris_pixels;
+X      for (y=0; y < (int) iris_header.rows; y++)
+X      {
+X        for (z=0; z < (int) iris_header.depth; z++)
+X        {
+X          length=
+X            IRISEncode(q+z,(int) iris_header.columns,packets+number_packets);
+X          number_packets+=length;
+X          offsets[y+z*iris_header.rows]=offset;
+X          runlength[y+z*iris_header.rows]=length;
+X          offset+=length;
+X        }
+X        q+=(iris_header.columns*4);
+X      }
+X      /*
+X        Write out line start and length tables and runlength-encoded pixels.
+X      */
+X      (void) fwrite(offsets,sizeof(unsigned long),
+X        iris_header.rows*iris_header.depth,image->file);
+X      (void) fwrite(runlength,sizeof(unsigned long),
+X        iris_header.rows*iris_header.depth,image->file);
+X      (void) fwrite(packets,sizeof(unsigned char),number_packets,image->file);
+X      /*
+X        Free memory.
+X      */
+X      (void) free(runlength);
+X      (void) free(packets);
+X      (void) free(offsets);
+X    }
+X  (void) free(iris_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+#ifdef HasJPEG
+#undef FREAD
+#undef FWRITE
+#undef const
+#include "jinclude.h"
+static Image
+X  *jpeg_image;
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%  W r i t e J P E G I m a g e                                                %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteJPEGImage writes a JPEG image file and returns it.  It
+%  allocates the memory necessary for the new Image structure and returns a
+%  pointer to the new image.
+%
+%  The format of the WriteJPEGImage routine is:
+%
+%      status=WriteJPEGImage(image,quality)
+%
+%  A description of each parameter follows:
+%
+%    o status:  Function WriteJPEGImage return True if the image is written.
+%      False is returned is there is of a memory shortage or if the image
+%      file cannot be opened for writing.
+%
+%    o jpeg_image:  A pointer to a Image structure.
+%
+%    o quality:  Specifies quality setting.  Quality is 0 (worst) to 100 (best).
+%
+%
+*/
+X
+METHODDEF void JPEGInitializeImage(jpeg_info)
+compress_info_ptr
+X  jpeg_info;
+{
+X  /*
+X    Initialize JPEG image.
+X  */
+X  jpeg_info->image_width=jpeg_image->columns;
+X  jpeg_info->image_height=jpeg_image->rows;
+X  jpeg_info->data_precision=8;
+X  jpeg_info->input_components=3;
+X  jpeg_info->in_color_space=CS_RGB;
+X  if ((jpeg_image->class == PseudoClass) && (jpeg_image->colors <= 256))
+X    {
+X      register int
+X        i;
+X
+X      unsigned int
+X        grayscale;
+X
+X      /*
+X        Determine if jpeg_image is grayscale.
+X      */
+X      grayscale=True;
+X      for (i=0; i < jpeg_image->colors; i++)
+X        if ((jpeg_image->colormap[i].red != jpeg_image->colormap[i].green) ||
+X            (jpeg_image->colormap[i].green != jpeg_image->colormap[i].blue))
+X          {
+X            grayscale=False;
+X            break;
+X          }
+X      if (grayscale)
+X        {
+X          jpeg_info->input_components=1;
+X          jpeg_info->in_color_space=CS_GRAYSCALE;
+X        }
+X    }
+X  jpeg_image->packet=jpeg_image->pixels;
+X  jpeg_image->runlength=jpeg_image->packet->length+1;
+}
+X
+static void JPEGInputTermMethod(jpeg_info)
+compress_info_ptr
+X  jpeg_info;
+{
+}
+X
+static void JPEGWriteGRAY(jpeg_info,pixel_data)
+compress_info_ptr
+X  jpeg_info;
+X
+JSAMPARRAY
+X  pixel_data;
+{
+X  register int
+X    column;
+X
+X  register JSAMPROW
+X    gray;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Convert run-length encoded grayscale MIFF packets to JPEG pixels.
+X  */
+X  gray=pixel_data[0];
+X  p=jpeg_image->packet;
+X  for (column=jpeg_info->image_width; column > 0; column--)
+X  {
+X    if (jpeg_image->runlength > 0)
+X      jpeg_image->runlength--;
+X    else
+X      {
+X        p++;
+X        jpeg_image->runlength=p->length;
+X      }
+X    *gray++=(JSAMPLE) p->red;
+X  }
+X  jpeg_image->packet=p;
+}
+X
+static void JPEGWriteRGB(jpeg_info,pixel_data)
+compress_info_ptr
+X  jpeg_info;
+X
+JSAMPARRAY
+X  pixel_data;
+{
+X  register int
+X    column;
+X
+X  register JSAMPROW
+X    blue,
+X    green,
+X    red;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  /*
+X    Convert run-length encoded MIFF packets to JPEG pixels.
+X  */
+X  red=pixel_data[0];
+X  green=pixel_data[1];
+X  blue=pixel_data[2];
+X  p=jpeg_image->packet;
+X  for (column=jpeg_info->image_width; column > 0; column--)
+X  {
+X    if (jpeg_image->runlength > 0)
+X      jpeg_image->runlength--;
+X    else
+X      {
+X        p++;
+X        jpeg_image->runlength=p->length;
+X      }
+X    *red++=(JSAMPLE) p->red;
+X    *green++=(JSAMPLE) p->green;
+X    *blue++=(JSAMPLE) p->blue;
+X  }
+X  jpeg_image->packet=p;
+}
+X
+static void JPEGSelectMethod(jpeg_info)
+compress_info_ptr
+X  jpeg_info;
+{
+X  jpeg_info->methods->get_input_row=JPEGWriteRGB;
+X  if (jpeg_info->in_color_space == CS_GRAYSCALE)
+X    {
+X      j_monochrome_default(jpeg_info);
+X      jpeg_info->methods->get_input_row=JPEGWriteGRAY;
+X    }
+}
+X
+static unsigned int WriteJPEGImage(image,quality)
+Image
+X  *image;
+X
+unsigned int
+X  quality;
+{
+X  struct Compress_info_struct
+X    jpeg_info;
+X
+X  struct Compress_methods_struct
+X    jpeg_methods;
+X
+X  struct External_methods_struct
+X    external_methods;
+X
+X  /*
+X    Open image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Initialize the JPEG system-dependent methods.
+X  */
+X  jpeg_image=image;
+X  jpeg_info.methods=(&jpeg_methods);
+X  jpeg_info.emethods=(&external_methods);
+X  jselerror(&external_methods);
+X  jselmemmgr(&external_methods);
+X  jpeg_info.methods->input_init=JPEGInitializeImage;
+X  jpeg_info.methods->input_term=JPEGInputTermMethod;
+X  jpeg_methods.c_ui_method_selection=JPEGSelectMethod;
+X  j_c_defaults(&jpeg_info,quality,False);
+X  jpeg_info.optimize_coding=True;
+X  jpeg_info.restart_in_rows=1;
+X  if ((image->class == PseudoClass) && (image->colors <= 256))
+X    jpeg_info.smoothing_factor=25;
+X  /*
+X    Write a JFIF JPEG file.
+X  */
+X  jpeg_info.input_file=(FILE *) NULL;
+X  jpeg_info.output_file=image->file;
+X  jselwjfif(&jpeg_info);
+X  jpeg_compress(&jpeg_info);
+X  CloseImage(image);
+X  return(True);
+}
+#else
+static unsigned int WriteJPEGImage(image,quality)
+Image
+X  *image;
+X
+unsigned int
+X  quality;
+{
+X  unsigned int
+X    status;
+X
+X  Warning("JPEG library is not available",image->filename);
+X  status=WriteMIFFImage(image);
+X  return(status);
+}
+#endif
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e M I F F I m a g e                                               %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteMIFFImage writes an image to a file.
+%
+%  The format of the WriteMIFFImage routine is:
+%
+%      status=WriteMIFFImage(image)
+%
+%  A description of each parameter follows:
+%
+%    o status: Function WriteMIFFImage return True if the image is written.
+%      False is returned if there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image: A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteMIFFImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i;
+X
+X  unsigned long
+X    packets;
+X
+X  if ((image->class != DirectClass) && (image->class != PseudoClass))
+X    {
+X      Warning("unable to write image","unknown image class");
+X      return(False);
+X    }
+X  if ((image->compression != RunlengthEncodedCompression) &&
+X      (image->compression != QEncodedCompression) &&
+X      (image->compression != NoCompression))
+X    {
+X      Warning("unable to write image","unknown image compression");
+X      return(False);
+X    }
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Pack image pixels.
+X  */
+X  if ((image->class == PseudoClass) &&
+X      (image->compression == QEncodedCompression))
+X    image->class=DirectClass;
+X  if (image->compression == RunlengthEncodedCompression)
+X    CompressImage(image);
+X  (void) RunlengthEncodeImage(image);
+X  packets=image->packets;
+X  if (image->compression != RunlengthEncodedCompression)
+X    packets=image->columns*image->rows;
+X  if (image->compression == QEncodedCompression)
+X    {
+X      unsigned char
+X        *compressed_pixels;
+X
+X      /*
+X        Compress image pixels with Q encoding.
+X      */
+X      compressed_pixels=(unsigned char *)
+X        malloc((unsigned int) packets*image->packet_size*sizeof(unsigned char));
+X      if (compressed_pixels == (unsigned char *) NULL)
+X        {
+X          Warning("unable to write image","memory allocation failed");
+X          return(False);
+X        }
+X      packets=QEncodeImage(image->packed_pixels,compressed_pixels,
+X        image->columns*(int) image->packet_size,image->rows);
+X      (void) free((char *) image->packed_pixels);
+X      image->packed_pixels=compressed_pixels;
+X      image->packet_size=1;
+X    }
+X  if (image->class == PseudoClass)
+X    ColormapSignature(image);
+X  /*
+X    Write header to file.
+X  */
+X  if (image->comments != (char *) NULL)
+X    (void) fprintf(image->file,"{%s}\n",image->comments);
+X  (void) fprintf(image->file,"id=ImageMagick\n");
+X  if (image->class == PseudoClass)
+X    (void) fprintf(image->file,"class=PseudoClass  colors=%u  signature=%s\n",
+X      image->colors,image->signature);
+X  else
+X    if (image->alpha)
+X      (void) fprintf(image->file,"class=DirectClass  alpha=True\n");
+X    else
+X      (void) fprintf(image->file,"class=DirectClass\n");
+X  if (image->compression == RunlengthEncodedCompression)
+X    (void) fprintf(image->file,"compression=RunlengthEncoded  packets=%lu\n",
+X      packets);
+X  else
+X    if (image->compression == QEncodedCompression)
+X      (void) fprintf(image->file,"compression=QEncoded  packets=%lu\n",packets);
+X  (void) fprintf(image->file,"columns=%u  rows=%u\n",image->columns,
+X    image->rows);
+X  if (image->scene != 0)
+X    (void) fprintf(image->file,"scene=%u\n",image->scene);
+X  if (image->montage != (char *) NULL)
+X    (void) fprintf(image->file,"montage=%s\n",image->montage);
+X  (void) fprintf(image->file,"\f\n:\n");
+X  if (image->montage != (char *) NULL)
+X    {
+X      /*
+X        Write montage tile directory.
+X      */
+X      if (image->directory != (char *) NULL)
+X        (void) fprintf(image->file,"%s",image->directory);
+X      (void) fputc('\0',image->file);
+X    }
+X  if (image->class == PseudoClass)
+X    {
+X      register unsigned char
+X        *q;
+X
+X      unsigned char
+X        *colormap;
+X
+X      /*
+X        Allocate colormap.
+X      */
+X      colormap=(unsigned char *) malloc(3*image->colors*sizeof(unsigned char));
+X      if (colormap == (unsigned char *) NULL)
+X        {
+X          Warning("unable to write image","memory allocation failed");
+X          return(False);
+X        }
+X      q=colormap;
+X      for (i=0; i < image->colors; i++)
+X      {
+X        *q++=image->colormap[i].red;
+X        *q++=image->colormap[i].green;
+X        *q++=image->colormap[i].blue;
+X      }
+X      /*
+X        Write colormap to file.
+X      */
+X      (void) fwrite((char *) colormap,3,(int) image->colors,image->file);
+X      (void) free((char *) colormap);
+X    }
+X  /*
+X    Write image pixels to file.
+X  */
+X  (void) fwrite((char *) image->packed_pixels,(int) image->packet_size,
+X    (int) packets,image->file);
+X  (void) free((char *) image->packed_pixels);
+X  image->packed_pixels=(unsigned char *) NULL;
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e M T V I m a g e                                                 %
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  Function WriteMTVImage writes an image to a file in red, green, and blue
+%  MTV rasterfile format.
+%
+%  The format of the WriteMTVImage routine is:
+%
+%      status=WriteMTVImage(image)
+%
+%  A description of each parameter follows.
+%
+%    o status: Function WriteMTVImage return True if the image is written.
+%      False is returned is there is a memory shortage or if the image file
+%      fails to write.
+%
+%    o image:  A pointer to a Image structure.
+%
+%
+*/
+static unsigned int WriteMTVImage(image)
+Image
+X  *image;
+{
+X  register int
+X    i,
+X    j;
+X
+X  register RunlengthPacket
+X    *p;
+X
+X  register unsigned char
+X    *q;
+X
+X  unsigned char
+X    *mtv_pixels;
+X
+X  /*
+X    Open output image file.
+X  */
+X  OpenImage(image,"w");
+X  if (image->file == (FILE *) NULL)
+X    {
+X      Warning("unable to open file",image->filename);
+X      return(False);
+X    }
+X  /*
+X    Convert MIFF to MTV raster pixels.
+X  */
+X  mtv_pixels=(unsigned char *)
+X    malloc(3*image->columns*image->rows*sizeof(unsigned char));
+X  if (mtv_pixels == (unsigned char *) NULL)
+X    {
+X      Warning("unable to allocate memory",(char *) NULL);
+X      return(False);
+X    }
+X  p=image->pixels;
+X  q=mtv_pixels;
+X  for (i=0; i < image->packets; i++)
+X  {
+X    for (j=0; j <= ((int) p->length); j++)
+X    {
+X      *q++=p->red;
+X      *q++=p->green;
+X      *q++=p->blue;
+X    }
+X    p++;
+X  }
+X  (void) fprintf(image->file,"%u %u\n",image->columns,image->rows);
+X  (void) fwrite((char *) mtv_pixels,3,(int) (image->columns*image->rows),
+X    image->file);
+X  (void) free((char *) mtv_pixels);
+X  CloseImage(image);
+X  return(True);
+}
+X
+/*
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                             %
+%                                                                             %
+%                                                                             %
+%   W r i t e P C X I m a g e                                                 %
+%                                                                             %
+SHAR_EOF
+true || echo 'restore of ImageMagick/encode.c failed'
+fi
+echo 'End of ImageMagick part 34'
+echo 'File ImageMagick/encode.c is continued in part 35'
+echo 35 > _shar_seq_.tmp
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

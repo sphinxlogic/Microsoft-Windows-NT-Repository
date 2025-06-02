@@ -1,0 +1,403 @@
+Newsgroups: comp.sources.misc
+From: mgleason@cse.unl.edu (Mike Gleason)
+Subject:  v34i020:  ncftp - Alternative User Interface for FTP, Patch01
+Message-ID: <1992Dec12.193605.27105@sparky.imd.sterling.com>
+X-Md4-Signature: c35507568c9083aa07b820fd3c505cf6
+Date: Sat, 12 Dec 1992 19:36:05 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: mgleason@cse.unl.edu (Mike Gleason)
+Posting-number: Volume 34, Issue 20
+Archive-name: ncftp/patch01
+Environment: UNIX, ANSI-C, getopt
+Patch-To: ncftp: Volume 34, Issue 14-16
+
+This is the first Official patch to ncftp.  It fixes the silly pdir
+bug and some other minor glitches (see patchlevel.h).  You can now also
+define GETPASS (see sys.h) if you have been having problems compiling near
+the getpass2() function in cmds.c (~line 2000).
+
+Save this file as 'pl1', and put it in the same directory as your ncftp
+source, then type 'patch -c < pl1'.
+
+diff -c ./Blurb ../new/Blurb
+*** ./Blurb	Tue Dec  8 16:58:32 1992
+--- ../new/Blurb	Tue Dec  8 16:58:40 1992
+***************
+*** 1,4 ****
+! Subject:  ncftp - Alternative User Interface for FTP, part 01/01
+  
+  Archive-name: ncftp/part01
+  Environment: UNIX, ANSI-C, getopt
+--- 1,4 ----
+! Subject:  ncftp - Alternative User Interface for FTP, Part01/01
+  
+  Archive-name: ncftp/part01
+  Environment: UNIX, ANSI-C, getopt
+diff -c ./Makefile ../new/Makefile
+*** ./Makefile	Tue Dec  8 16:58:32 1992
+--- ../new/Makefile	Tue Dec  8 16:58:41 1992
+***************
+*** 31,37 ****
+  #LFLAGS=-g
+  
+  # Additional libraries.
+! # Some may need any of -lsocket, -lnet, -linet. 
+  # You'll need -ltermcap if TCAP is defined
+  #
+  MORELIBS= 
+--- 31,37 ----
+  #LFLAGS=-g
+  
+  # Additional libraries.
+! # Some may need any of -lsocket, -lnet, -linet, or -lnsl. 
+  # You'll need -ltermcap if TCAP is defined
+  #
+  MORELIBS= 
+***************
+*** 116,120 ****
+--- 116,131 ----
+  mantst:
+  	nroff -man ncftp.1 > ncftp.man
+  	less ncftp.man
++ 
++ patch:
++ 	-rm -rf /tmp/old /tmp/new
++ 	-mkdir /tmp/old /tmp/new
++ 	cp ~/ncftp.shar /tmp/old/oldncftp.shar
++ 	(cd /tmp/old ; unshar -n oldncftp.shar )
++ 	make shar
++ 	cp ncftp.shar /tmp/new
++ 	(cd /tmp/new; unshar -n ncftp.shar )
++ 	rm /tmp/new/ncftp.shar /tmp/old/oldncftp.shar
++ 	(cd /tmp/old ; diff -c . ../new > ../pch)
+  
+  # eof
+diff -c ./cmds.c ../new/cmds.c
+*** ./cmds.c	Tue Dec  8 16:58:29 1992
+--- ../new/cmds.c	Tue Dec  8 16:58:37 1992
+***************
+*** 122,128 ****
+--- 122,132 ----
+  char *get_cwd(char *buf, int size)
+  {
+  #ifdef SYSV
++ #ifdef GETCWDSIZET
++ 	extern char *getcwd(char *, size_t);
++ #else
+  	extern char *getcwd(char *, int);
++ #endif
+  	return (getcwd(buf, size - 1));
+  #else
+  	extern char *getwd(char *);
+***************
+*** 1108,1114 ****
+  {
+  	char		*whichcmd, *remote, *local, *cp;
+  	str32		lsflags;
+- 	string		zpager;
+  	int			listmode, pagemode, defltFlags;
+  
+  #ifdef REDIR
+--- 1112,1117 ----
+***************
+*** 1148,1164 ****
+  		}	
+  	}
+  
+! 	if (pagemode) {
+! 		size_t len = strlen(remote);
+! 		if (remote[len - 1] == 'Z' && remote[len - 2] == '.') {
+! 			/* run uncompress first, then pipe through pager. */
+! 			(void) Strncpy(zpager, "|uncompress ");
+! 			(void) Strncat(zpager, pager);
+! 			local = zpager;
+! 		} else 
+! 			local = pager;
+! 	} else
+! 		local = "-";
+  	
+  	/* Possible scenarios:
+  		1.	ls
+--- 1151,1157 ----
+  		}	
+  	}
+  
+! 	local = pagemode ? pager : "-";
+  	
+  	/* Possible scenarios:
+  		1.	ls
+***************
+*** 1999,2004 ****
+--- 1992,1999 ----
+  }	/* create */
+  
+  
++ #ifndef GETPASS
++ 
+  /* Peter Jaspers-Fayer	pjf@osiris.cs.uoguelph.ca	Nov'92 */
+  char *getpass2(char *promptstr)
+  {
+***************
+*** 2025,2031 ****
+--- 2020,2029 ----
+  	return (pass);
+  }									   /* getpass2 */
+  
++ #endif /* GETPASS */
+  
++ 
++ 
+  /* show version info */
+  /*ARGSUSED*/
+  int show_version(int argc, char **argv)
+***************
+*** 2071,2076 ****
+--- 2069,2080 ----
+  #endif
+  #ifdef const
+  	DStrs[nDStrs++] = "const";
++ #endif
++ #ifdef GETPASS
++ 	DStrs[nDStrs++] = "GETPASS";
++ #endif
++ #ifdef GETCWDSIZET
++ 	DStrs[nDStrs++] = "GETCWDSIZET";
+  #endif
+  #ifdef HOSTNAME
+  	DStrs[nDStrs++] = "HOSTNAME";
+diff -c ./ftpdefs.h ../new/ftpdefs.h
+*** ./ftpdefs.h	Tue Dec  8 16:58:31 1992
+--- ../new/ftpdefs.h	Tue Dec  8 16:58:39 1992
+***************
+*** 3,9 ****
+  #ifndef _ftpdefs_h_
+  #define _ftpdefs_h_
+  
+! #define FTP_VERSION "NcFTP 1.0 (6 Dec 92)"
+  
+  typedef char string[128], str32[32];
+  
+--- 3,9 ----
+  #ifndef _ftpdefs_h_
+  #define _ftpdefs_h_
+  
+! #define FTP_VERSION "NcFTP 1.0 PL1 (8 Dec 92)"
+  
+  typedef char string[128], str32[32];
+  
+***************
+*** 15,26 ****
+  	int		uid;
+  };
+  
+! /* Your compiler may not like the 'const' directives.  If it chokes
+!  * here, add -Dconst to your SDEFS line in the Makefile, or delete the word
+!  * const here.
+   */
+  #define Strncpy(a,b) strncpy((a), (const char *) (b), (size_t) sizeof (a))
+  #define Strncat(a,b) strncat((a), (const char *) (b), (size_t) sizeof (a))
+  #define FGets(a,b) fgets((a), sizeof(a) - 1, (b))
+  
+  #endif /* _ftpdefs_h_ */
+--- 15,32 ----
+  	int		uid;
+  };
+  
+! /*
+!  * Your compiler may not like the 'const' directives.  If it chokes
+!  * here, add -Dconst="" to your SDEFS line in the Makefile.
+   */
++ #ifndef const
+  #define Strncpy(a,b) strncpy((a), (const char *) (b), (size_t) sizeof (a))
+  #define Strncat(a,b) strncat((a), (const char *) (b), (size_t) sizeof (a))
++ #else
++ #define Strncpy(a,b) strncpy((a), (char *) (b), (size_t) sizeof (a))
++ #define Strncat(a,b) strncat((a), (char *) (b), (size_t) sizeof (a))
++ #endif
++ 
+  #define FGets(a,b) fgets((a), sizeof(a) - 1, (b))
+  
+  #endif /* _ftpdefs_h_ */
+diff -c ./glob.c ../new/glob.c
+*** ./glob.c	Tue Dec  8 16:58:30 1992
+--- ../new/glob.c	Tue Dec  8 16:58:38 1992
+***************
+*** 26,31 ****
+--- 26,35 ----
+  #include "cmds.h"
+  #include "copyright.h"
+  
++ #ifndef NCARGS
++ #	define NCARGS  5120 		/* # characters in exec arglist */
++ #endif
++ 
+  #define	QUOTE 0200
+  #define	TRIM 0177
+  #define	eq(a,b)		(strcmp(a, b)==0)
+diff -c ./ncftp.1 ../new/ncftp.1
+*** ./ncftp.1	Tue Dec  8 16:58:32 1992
+--- ../new/ncftp.1	Tue Dec  8 16:58:41 1992
+***************
+*** 233,244 ****
+  In previous versions of
+  .I ftp
+  you could ``get\ myfile.txt\ |more'', but this wasn't widely known.
+  .TP
+  .I pls
+  This lets you view a
+  .I ls
+! command with your pager.  This command also lets you view compressed
+! files (ending in .Z), by piping the remote file through
+  .I zcat
+  first.
+  .TP
+--- 233,245 ----
+  In previous versions of
+  .I ftp
+  you could ``get\ myfile.txt\ |more'', but this wasn't widely known.
++ This command also lets you view compressed
++ files (ending in .Z), by piping the remote file through
+  .TP
+  .I pls
+  This lets you view a
+  .I ls
+! command with your pager.  
+  .I zcat
+  first.
+  .TP
+***************
+*** 526,532 ****
+  .SH BUGS
+  Correct execution of many commands depends upon proper behavior
+  by the remote server.
+! .SP
+  Termcap padding is not correctly displayed.
+  .SH "SEE ALSO"
+  .IR strftime (3),
+--- 527,536 ----
+  .SH BUGS
+  Correct execution of many commands depends upon proper behavior
+  by the remote server.
+! 
+! The remote server may drop the connection if you take a long time when you
+! page remote files.
+! 
+  Termcap padding is not correctly displayed.
+  .SH "SEE ALSO"
+  .IR strftime (3),
+diff -c ./patchlevel.h ../new/patchlevel.h
+*** ./patchlevel.h	Tue Dec  8 16:58:31 1992
+--- ../new/patchlevel.h	Tue Dec  8 16:58:40 1992
+***************
+*** 3,6 ****
+--- 3,18 ----
+  /*
+   * v1.0.0 - December 6, 1992.
+   *    Initial release.
++  *
++  * v1.0.1 - December 8, 1992.
++  * 	Added default value for NCARGS in glob.c for systems that don't define it.
++  *	Fixed pdir bug which was caused by me mistakenly adding the page-a-
++  *	compressed-file feature to ls instead of page.  Fixed bug in documentation,
++  *	which had the same error!  Added spec for Ultrix in sys.h.  Fixed error
++  *	in sys.h that recommended -Dconst instead of -Dconst="".  Added GETPASS
++  *	compile flag to use getpass() instead of getpass2(), which make compiling
++  *	easier if the compiler choked in cmds.c.  Added GETCWDSIZET for systems
++  *	whose getcwd() takes a size_t instead of an int.
+   */
++ 
++ 
+diff -c ./sys.h ../new/sys.h
+*** ./sys.h	Tue Dec  8 16:58:31 1992
+--- ../new/sys.h	Tue Dec  8 16:58:40 1992
+***************
+*** 9,14 ****
+--- 9,15 ----
+   *    Silicon Graphics IRIX
+   *    AIX
+   *    SINIX
++  *    Ultrix
+   *
+   * For those systems, you should be able to 'make' ncftp without any
+   * problems.  Otherwise you will have to configure ncftp manually.
+***************
+*** 37,47 ****
+   * If SYSV is defined, RINDEX is defined automatically because System V
+   * uses strrchr.
+   *
+!  * Add -Dconst if your compiler chokes on the const directive.
+   *
+   * Add -DSYSSELECTH if you need <sys/select.h> included for definitions
+   * of fd_set, etc.
+   *
+   * (Optional) Add -DHERROR if you know you have the herror() system
+   * call.
+   *
+--- 38,56 ----
+   * If SYSV is defined, RINDEX is defined automatically because System V
+   * uses strrchr.
+   *
+!  * Add -Dconst=\"\" if your compiler chokes on the const directive.
+   *
+   * Add -DSYSSELECTH if you need <sys/select.h> included for definitions
+   * of fd_set, etc.
+   *
++  * Add -DGETPASS if you would rather use the standard getpass() system
++  * call, instead of our version, getpass2(), which takes more than 8
++  * characters.  You may want to define this if you are having problems
++  * with compile errors around line 2010, where getpass2() is located.
++  *
++  * (Optional) Add -DGETCWDSIZET if your system's getcwd() takes a size_t
++  * as the second parameter instead of an int.
++  *
+   * (Optional) Add -DHERROR if you know you have the herror() system
+   * call.
+   *
+***************
+*** 88,97 ****
+  #	endif
+  #endif	/* SCO */
+  
+! #if defined(__hpux) || defined(HPUX)
+  #	define System "HP-UX"
+  #	ifndef _HPUX_SOURCE
+  #		define _HPUX_SOURCE 1
+  #	endif
+  #	define SYSV 1
+  #endif	/* HPUX */
+--- 97,125 ----
+  #	endif
+  #endif	/* SCO */
+  
+! #ifdef ultrix
+! #	define System "Ultrix"
+! #	ifndef BSD
+! #		define BSD 1
+! #	endif
+! #	ifndef const
+! #		define const
+! #	endif
+! #endif	/* ultrix */
+! 
+! #ifdef __hpux
+! #	ifndef HPUX
+! #		define HPUX 1
+! #	endif
+! #endif
+! 
+! #ifdef HPUX 
+  #	define System "HP-UX"
+  #	ifndef _HPUX_SOURCE
+  #		define _HPUX_SOURCE 1
++ #	endif
++ #	ifndef GETCWDSIZET
++ #		define GETCWDSIZET 1
+  #	endif
+  #	define SYSV 1
+  #endif	/* HPUX */
+--
+______________________________________________________________________________
+mike gleason                 mgleason@cse.unl.edu             NCEMRSoft, baby!
+
+exit 0 # Just in case...

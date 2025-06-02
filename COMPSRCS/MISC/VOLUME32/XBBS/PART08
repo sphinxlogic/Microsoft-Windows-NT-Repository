@@ -1,0 +1,2365 @@
+Newsgroups: comp.sources.misc
+From: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Subject:  v32i023:  xbbs - A Bulletin Board System for System V, Part08/11
+Message-ID: <1992Sep9.045357.26577@sparky.imd.sterling.com>
+X-Md4-Signature: 67fd836527509ddb1b8861a97f6013b8
+Date: Wed, 9 Sep 1992 04:53:57 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: sandy@godzilla.Quotron.COM (Sanford Zelkovitz)
+Posting-number: Volume 32, Issue 23
+Archive-name: xbbs/part08
+Environment: SYSV, Xenix
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  bbscarea.c bbscbult.c bbscmenu.c bbscsigs.c bbsczip.c
+#   chatbbs/chatbbs.c extra_info msgpack/msgpack.c purguser/purguser.c
+#   today/Makefile today/timetx.c
+# Wrapped by kent@sparky on Fri Sep  4 12:48:53 1992
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 8 (of 11)."'
+if test -f 'bbscarea.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscarea.c'\"
+else
+  echo shar: Extracting \"'bbscarea.c'\" \(5711 characters\)
+  sed "s/^X//" >'bbscarea.c' <<'END_OF_FILE'
+X/*------------------------------------------------------------------------
+X       Name: bbscarea.c
+X   Comments: Display file areas and select one
+X  ------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include "bbscdef.h"
+X
+Xint             set_yet = FALSE;
+Xextern int      user_priv;
+X
+X
+Xchange_area(type) int 
+X	type;
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char           *buf_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int		allx;
+X
+X	if(type == -1)
+X		return;
+X
+X	if(type > 1000) {
+X		type -=1000;
+X		allx = 1;
+X	}
+X	else
+X		allx = 0;
+X
+Xdo_again:
+X	strcpy(buf128, AREAS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rError Opening File Area List: Notify Sysop!\n\r");
+X		return (-1);
+X	}
+X	if(!type) {
+X		portsout("\n\r    Directory     Description                                      Upload Path\n\r");
+X		portsout("    ============= ==========================================       ============\n\r");
+X	}
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in File Area List: Notify Sysop!\n\r");
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, 5);
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X			if (!type) {
+X				strip(buf128);
+X				term_space(buf128);
+X				portsout(buf128);
+X				portsout("\n\r");
+X			}
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	if (set_yet && !type) {
+X		portsout(CRLF);
+X		portsout(" Q) Quit to Previous Menu");
+X	}
+X	if(!type)portsout(CRLF);
+X	fclose(fpt);
+X	if(!type)portsout(CRLF);
+X	if (line_cnt <= 1)
+X		return;
+X
+X	while (1) {
+X		if (!type) {
+X			portsout("Enter Selection ===> ");
+X			portsin_cmp(choice, 2, "Qq");
+X			portsout(CRLF);
+X			*choice = toupper(*choice);
+X
+X			if (*choice == 'Q' && set_yet)
+X				return (-1);
+X
+X
+X			index_value = atoi(choice);
+X		} else
+X			index_value = type;
+X		if(allx && index_value >= line_cnt)
+X			return(999);
+X		if (index_value > 0 && index_value < line_cnt) {
+X			if (dir_priv[index_value] <= user_priv) {
+X				parse_args(f_lines[index_value]);
+X				set_yet = TRUE;
+X				itoa(buf128, index_value);
+X				if( !allx) {
+X					if(index_value > 9)
+X						strcpy(l_f_base, buf128);
+X					else {
+X						strcpy(l_f_base, "0");
+X						strcat(l_f_base, buf128);
+X					}
+X					rewritx();
+X				}
+X				return (0);
+X			}
+X		}
+X		if( type != 0 ) {
+X			type = 0;
+X			if(allx)
+X				return(99);
+X			portsout("\n\rInvalid directory request!\n\r");
+X			goto do_again;
+X		}
+X	}
+X}
+X
+Xallnew()
+X{
+X	char savef[99], saveu[99];
+X	char savea[99], savep[99];
+X	char strg[15], choice[5];
+X	int i, ret, choi;
+X	char *fileptr;
+X	strcpy(savef, f_pathname);
+X	strcpy(saveu, u_pathname);
+X	strcpy(savea, area_name);
+X	strcpy(savep, f_pathtext);
+X	bbsmenu(5,0);
+X	portsin(choice, 1);
+X	portsout(CRLF);
+X	switch(choice[0]) {
+X	case ('L'):
+X	case ('l'):
+X		choi = 1;
+X		portsout("\n\r\n\rInput file name substring (max 14 characters): ");
+X		portsin(strg, 14);
+X		ret = strlen(strg);
+X		portsout(CRLF);
+X		if (!ret)
+X			return;
+X		fileptr = strchr(strg, '*');
+X		if( fileptr != NULL ) {
+X			portsout("\n\rDo not use an asterisk as part of the string.\n\r\n\r");
+X			return;
+X		}
+X		break;
+X	case ('F'):
+X	case ('f'):
+X		choi = 2;
+X		break;
+X	case ('N'):
+X	case ('n'):
+X		choi = 3;
+X		break;
+X	case ('R'):
+X	case ('r'):
+X		choi = 4;
+X		break;
+X	default:
+X		return;
+X	}
+X	for( i=1001; i<1100; i++) {
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			strcpy(f_pathname, savef);
+X			strcpy(u_pathname, saveu);
+X			strcpy(area_name, savea);
+X			strcpy(f_pathtext, savep);
+X			return;
+X		}
+X		ret = change_area(i);
+X		if (stop_that) {
+X			stop_that = FALSE;
+X			strcpy(f_pathname, savef);
+X			strcpy(u_pathname, saveu);
+X			strcpy(area_name, savea);
+X			strcpy(f_pathtext, savep);
+X			return;
+X		}
+X		if( ret == 999) {
+X			strcpy(f_pathname, savef);
+X			strcpy(u_pathname, saveu);
+X			strcpy(area_name, savea);
+X			strcpy(f_pathtext, savep);
+X			return;
+X		}
+X		if( ret == 99)
+X			continue;
+X		portsout("\n\r-------------------------------------------------------------------\n\r");
+X		portsout("\n\r\n\rFile listing for area '");
+X		portsout(area_name);
+X		portsout("'\n\r");
+X		switch(choi){
+X		case (1):
+X			file_loc(strg);
+X			break;
+X		case (2):
+X			file_l();
+X			break;
+X		case (3):
+X			file_n();
+X			break;
+X		case (4):
+X			file_r();
+X			break;
+X		}
+X	}
+X	strcpy(f_pathname, savef);
+X	strcpy(u_pathname, saveu);
+X	strcpy(area_name, savea);
+X	strcpy(f_pathtext, savep);
+X	return;
+X}
+X		
+X		
+X
+X
+X
+X
+Xparse_args(string)
+X	char           *string;
+X{
+X
+X	register char  *file_ptr, *name_ptr, *up_ptr, *desc_ptr;
+X	register int    i;
+X
+X	strcpy(f_pathname, ORGPATH);
+X	strcpy(u_pathname, ORGPATH);
+X	file_ptr = (f_pathname + strlen(f_pathname));
+X	up_ptr = (u_pathname + strlen(u_pathname));
+X
+X	name_ptr = area_name;
+X	desc_ptr = f_pathtext;
+X
+X	i = 0;
+X	while (string[i] != ' ') {
+X		*file_ptr = string[i];
+X		*name_ptr = string[i];
+X		++file_ptr;
+X		++name_ptr;
+X		++i;
+X	}
+X	*file_ptr = '/';
+X	++file_ptr;
+X	*file_ptr = '\0';
+X	*name_ptr = '\0';
+X
+X	for (i = 14; i < 61; ++i) {
+X		*desc_ptr = string[i];
+X		++desc_ptr;
+X	}
+X	*desc_ptr = '\0';
+X
+X	i = 63;
+X	while ((string[i] != ' ') && (string[i] != '\n')) {
+X		*up_ptr = string[i];
+X		++up_ptr;
+X		++i;
+X	}
+X	*up_ptr = '/';
+X	++up_ptr;
+X	*up_ptr = '\0';
+X}
+END_OF_FILE
+  if test 5711 -ne `wc -c <'bbscarea.c'`; then
+    echo shar: \"'bbscarea.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscarea.c'
+fi
+if test -f 'bbscbult.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscbult.c'\"
+else
+  echo shar: Extracting \"'bbscbult.c'\" \(5079 characters\)
+  sed "s/^X//" >'bbscbult.c' <<'END_OF_FILE'
+X/*------------------------------------------------------------------------
+X       Name: bbscbult.c
+X   Comments: Display file areas and select one
+X  ------------------------------------------------------------------------*/
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <time.h>
+X#include "bbscdef.h"
+X
+X
+Xextern int      user_priv;
+Xlong		atol();
+Xstatic int	indexb[99];
+Xstatic int	first_b_r = 1;
+X
+Xchange_bult()
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char           *buf_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int		j, k;
+X	int             length;
+X
+X	if(first_b_r)
+X		{
+X		first_b_r = 0;
+X		for(j=0; j<99; j++)
+X			indexb[j]=0;
+X		}
+X
+X	substr(z_date, z_mm, 1, 2);
+X	substr(z_date, z_dd, 4, 2);
+X	substr(z_date, z_yy, 7, 2);
+X	xmm = atol(z_mm);
+X	xdd = atol(z_dd);
+X	xyy = atol(z_yy);
+X	old_long_date = (xyy*10000L) + (xmm*100L) + xdd;
+X	while (1) {
+X
+Xdo_again:
+X	strcpy(buf128, BULLETINS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\r\n\rThere are no bulletins today!\n\r\n\r");
+X		return ;
+X	}
+X	portsout("\n\r\n\r\n\r                  *******************************\n\r");
+X	portsout("                  * Available Bulletins to Read *\n\r");
+X	portsout("                  *******************************\n\r\n\r");
+X	portsout("\n\r    Bulletin      Description                                      \n\r");
+X	portsout("    ============= ========================================== \n\r");
+X
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Bulletin List: Notify Sysop!\n\r");
+X				return;
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 57;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			*buf_ptr = '\0';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X			strip(buf128);
+X			term_space(buf128);
+X			portsout(buf128);
+X			portsout("\n\r");
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	if (line_cnt <= 1)
+X		{
+X		portsout("\n\r\n\rThere are no bulletins today!\n\r\n\r");
+X		return;
+X		}
+X	portsout(CRLF);
+X	portsout(" Q) Quit --- exit bulletin section");
+X	portsout(CRLF);
+X	fclose(fpt);
+X	portsout(CRLF);
+X	strcpy(buf128,"The following bulletins are new for you since the last day you called:  ");
+X	j = strlen(buf128);
+X	portsout(buf128);
+X	for (index_value=1; index_value<line_cnt; index_value++)
+X		{
+X		if(dir_priv[index_value] <= user_priv)
+X			{
+X			check_new(f_lines[index_value], index_value);
+X			k = strlen(buf128);
+X			j+=k;
+X			if( j >= 72)
+X				{
+X				j = 0;
+X				portsout(CRLF);
+X				}
+X			}
+X		}
+X	portsout(CRLF);
+X	portsout(CRLF);
+X		portsout("Enter Selection ===> ");
+X		portsin_cmp(choice, 2, "Qq");
+X		portsout(CRLF);
+X		*choice = toupper(*choice);
+X
+X		if (*choice == 'Q')
+X			return;
+X
+X
+X		index_value = atoi(choice);
+X		if (index_value > 0 && index_value < line_cnt) {
+X			if (dir_priv[index_value] <= user_priv) {
+X				parse_bul(f_lines[index_value]);
+X				indexb[index_value -1] = 1;
+X				continue;
+X			}
+X		}
+X	}
+X}
+X
+X
+X
+X
+X
+Xparse_bul(string)
+X	char           *string;
+X{
+X
+X	register char  *file_ptr, *xptr;
+X	register int    i;
+X
+X	strcpy(buf128, ORGPATH);
+X	file_ptr = (buf128 + strlen(buf128));
+X
+X	i = 0;
+X	while (string[i] != ' ') {
+X		*file_ptr = string[i];
+X		++file_ptr;
+X		++i;
+X	}
+X	*file_ptr = '\0';
+X	cmd_p(buf128);
+X
+X}
+Xcheck_new(string, indexer)
+X	char           *string;
+X	int		indexer;
+X{
+X	static char *dater[]={ "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+X		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec", };
+X	char		timeptr[30];
+X	int		result, j, k;
+X	struct	stat stater;
+X
+X	register char  *file_ptr, *xptr;
+X	register int    i;
+X
+X	if(indexb[indexer-1])
+X		{
+X		file_ptr = buf128;
+X		*file_ptr = '\0';
+X		return;
+X		}
+X
+X	strcpy(buf128, ORGPATH);
+X	file_ptr = (buf128 + strlen(buf128));
+X
+X	i = 0;
+X	while (string[i] != ' ') {
+X		*file_ptr = string[i];
+X		++file_ptr;
+X		++i;
+X	}
+X	*file_ptr = '\0';
+X	file_ptr = buf128;
+X	result = stat(buf128, &stater);
+X	if(result)
+X		{
+X		*file_ptr='\0';
+X		return;
+X		}
+X	xmm = stater.st_mtime;
+X	strcpy(timeptr, ctime(&xmm));
+X	substr(timeptr, buf128, 5,3);
+X	substr(timeptr, z_dd, 9, 2);
+X	substr(timeptr, z_yy, 23,2);
+X	xdd = atol(z_dd);
+X	xyy = atol(z_yy);
+X	for ( result =0; result < 12; result++)
+X		{
+X		i = strcmp(buf128, dater[result]);
+X		if(!i)
+X			{
+X			xmm = (long) result +1;
+X			new_long_date = (xyy*10000L) + (xmm*100L) + xdd;
+X			if(new_long_date >= old_long_date)
+X				{
+X				itoa(buf128, indexer);
+X				strcat(buf128, ", ");
+X				portsout(buf128);
+X				}
+X			else
+X				 *file_ptr='\0';
+X			return;
+X			}
+X		}
+X		*file_ptr='\0';
+X}
+END_OF_FILE
+  if test 5079 -ne `wc -c <'bbscbult.c'`; then
+    echo shar: \"'bbscbult.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscbult.c'
+fi
+if test -f 'bbscmenu.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscmenu.c'\"
+else
+  echo shar: Extracting \"'bbscmenu.c'\" \(6772 characters\)
+  sed "s/^X//" >'bbscmenu.c' <<'END_OF_FILE'
+X#include "bbsc12.h"
+X
+Xchar menubuf[1024], xmenubuf[64];
+Xint menu_items;
+X
+Xcheckoption(menubuf, xmenubuf, menu,menustr,priv,menu_items)
+Xchar    menubuf[];
+Xchar	xmenubuf[];
+Xchar	menu[];
+Xchar	menustr[];
+Xint	priv;
+Xint 	*menu_items;
+X{
+X	
+X	
+X	if(user_priv >= priv) {
+X		strcat(menubuf, menustr);
+X		if(*menu_items!=0)
+X			strcat(xmenubuf, ",");
+X		strcat(xmenubuf, menu);
+X		
+X		(*menu_items)++;
+X		if((*menu_items % 4) == 0) 
+X			strcat(menubuf, "\n\r");
+X		
+X	}
+X}
+X
+Xbbsmenu(type, aid)
+Xint type, aid;
+X{
+X	menubuf[0]='\0';
+X	xmenubuf[0]='\0';
+X	menu_items = 0;
+X	switch(type) {
+X		case(1):
+X			checkoption(menubuf, xmenubuf, "M",
+X				"M(essage section), ", mpMS, &menu_items);
+X			checkoption(menubuf, xmenubuf, "F",
+X				"F(ile section),    ", mpE, &menu_items);
+X			checkoption(menubuf, xmenubuf, "V",
+X				"V(ersion),         ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, "H",
+X				"H(umor),           ", mpH, &menu_items);
+X			checkoption(menubuf, xmenubuf, "T",
+X				"T(oggle page),     ", mpT, &menu_items);
+X			checkoption(menubuf, xmenubuf, "B",
+X				"B(ulletins),       ", mpB, &menu_items);
+X			checkoption(menubuf, xmenubuf, "A",
+X				"A(dditional),      ", mpA, &menu_items);
+X			checkoption(menubuf, xmenubuf, "N",
+X				"N(ew user msg),    ", mpN, &menu_items);
+X			checkoption(menubuf, xmenubuf, "X",
+X				"e(X)pert toggle,   ", mpX, &menu_items);
+X			checkoption(menubuf, xmenubuf, "W",
+X				"W(elcome message), ", mpW, &menu_items);
+X			checkoption(menubuf, xmenubuf, "D",
+X				"D(aily info),      ", mpD, &menu_items);
+X			checkoption(menubuf, xmenubuf, "U",
+X				"U(nix),            ", mpU, &menu_items);
+X			checkoption(menubuf, xmenubuf, "R",
+X				"R(ead files),      ", mpRF, &menu_items);
+X			checkoption(menubuf, xmenubuf, "P",
+X				"P(assword change), ", mpP, &menu_items);
+X			checkoption(menubuf, xmenubuf, "C",
+X				"C(hat request),    ", mpCHAT, &menu_items);
+X			checkoption(menubuf, xmenubuf, "Q",
+X				"Q(uestionaire),    ", mpQUEST, &menu_items);
+X			checkoption(menubuf, xmenubuf, "Z",
+X				"Z(ip mail),        ", mpY, &menu_items);
+X			checkoption(menubuf, xmenubuf, "O",
+X				"c(O)nference,      ", mpCONF, &menu_items);
+X			checkoption(menubuf, xmenubuf, "E",
+X				"in conferenc(E),   ", mpCONF, &menu_items);
+X			checkoption(menubuf, xmenubuf, "L",
+X				"L(ogged on),       ", mpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "G",
+X				"G(oodbye),         ", mpG, &menu_items);
+X			checkoption(menubuf, xmenubuf, "S",
+X				"u(S)enet access,   ", mpUSENET, &menu_items);
+X			checkoption(menubuf, xmenubuf, "I",
+X				"s(I)g access,      ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, " or ? ",
+X				"? --- help.        ", mpZ, &menu_items);
+X			break;
+X
+X		case (2):
+X			checkoption(menubuf, xmenubuf, "A",
+X				"A(rea change),     ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, "K",
+X				"K(ill message),    ", aid, &menu_items);
+X			checkoption(menubuf, xmenubuf, "Q",
+X				"Q(uick scan),      ", mpQ, &menu_items);
+X			checkoption(menubuf, xmenubuf, "S",
+X				"S(can messages),   ", mpS, &menu_items);
+X			checkoption(menubuf, xmenubuf, "R",
+X				"R(ead messages),   ", mpR, &menu_items);
+X			checkoption(menubuf, xmenubuf, "Y",
+X				"Y(our messages),   ", mpY, &menu_items);
+X			checkoption(menubuf, xmenubuf, "C",
+X				"C(heck messages),  ", mpC, &menu_items);
+X			checkoption(menubuf, xmenubuf, "E",
+X				"E(nter messages),  ", mpE, &menu_items);
+X			checkoption(menubuf, xmenubuf, "N",
+X				"e(N)ter blocked,   ", mpE, &menu_items);
+X			if( !sigreturn)
+X				checkoption(menubuf, xmenubuf, "M",
+X					"M(ain menu),       ", 1, &menu_items);
+X			else
+X				checkoption(menubuf, xmenubuf, "M",
+X					"M(ain SIG menu),   ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, "G",
+X				"G(oodbye),         ", mpG, &menu_items);
+X			checkoption(menubuf, xmenubuf, "X",
+X				"e(X)pert toggle,   ", mpX, &menu_items);
+X			checkoption(menubuf, xmenubuf, "B",
+X				"B(atch read sel),  ", mpR, &menu_items);
+X			checkoption(menubuf, xmenubuf, "T",
+X				"T(oggle page),     ", mpT, &menu_items);
+X			checkoption(menubuf, xmenubuf, " or ? ",
+X				"? --- help.        ", mpZ, &menu_items);
+X			break;
+X
+X
+X		case (3):
+X
+X			checkoption(menubuf, xmenubuf, "A",
+X				"A(rea change),     ", 1, &menu_items);
+X			if( !sigreturn)
+X				checkoption(menubuf, xmenubuf, "M",
+X					"M(ain menu),       ", 1, &menu_items);
+X			else
+X				checkoption(menubuf, xmenubuf, "M",
+X					"M(ain SIG menu),   ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, "U",
+X				"U(pload),          ", fpU, &menu_items);
+X			checkoption(menubuf, xmenubuf, "D",
+X				"D(ownload),        ", fpD, &menu_items);
+X			checkoption(menubuf, xmenubuf, "F",
+X				"F(ile list),       ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "R",
+X				"R(aw list),        ", fpR, &menu_items);
+X			checkoption(menubuf, xmenubuf, "N",
+X				"N(ew file list),   ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "Z",
+X				"Z(ip file menu)    ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "L",
+X				"L(ocate files),    ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "C",
+X				"C(ontent of),      ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "X",
+X				"e(X)pert toggle,   ", mpX, &menu_items);
+X			checkoption(menubuf, xmenubuf, "T",
+X				"T(oggle page),     ", mpT, &menu_items);
+X			checkoption(menubuf, xmenubuf, "G",
+X				"G(oodbye),         ", mpG, &menu_items);
+X			checkoption(menubuf, xmenubuf, "S",
+X				"S(ummary of dir),  ", mpG, &menu_items);
+X			checkoption(menubuf, xmenubuf, " or ? ",
+X				"? --- help.        ", mpZ, &menu_items);
+X			break;
+X		case (4):
+X			checkoption(menubuf, xmenubuf, "M",
+X				"M(essage section), ", mpMS, &menu_items);
+X			checkoption(menubuf, xmenubuf, "F",
+X				"F(ile section),    ", mpE, &menu_items);
+X			checkoption(menubuf, xmenubuf, "A",
+X				"A(dditional),      ", mpA, &menu_items);
+X			checkoption(menubuf, xmenubuf, "L",
+X				"L(eave SIGs),      ", 1, &menu_items);
+X			checkoption(menubuf, xmenubuf, "X",
+X				"e(X)pert toggle,   ", mpX, &menu_items);
+X			checkoption(menubuf, xmenubuf, "T",
+X				"T(oggle page),     ", mpT, &menu_items);
+X			checkoption(menubuf, xmenubuf, "G",
+X				"G(oodbye),         ", mpG, &menu_items);
+X			checkoption(menubuf, xmenubuf, " or ? ",
+X				"? --- help.        ", mpZ, &menu_items);
+X			break;
+X		case (5):
+X			checkoption(menubuf, xmenubuf, "F",
+X				"F(ile list),       ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "R",
+X				"R(aw list),        ", fpR, &menu_items);
+X			checkoption(menubuf, xmenubuf, "N",
+X				"N(ew file list),   ", fpL, &menu_items);
+X			checkoption(menubuf, xmenubuf, "L",
+X				"L(ocate files)     ", fpL, &menu_items);
+X			break;
+X		default:
+X			return;
+X
+X		}
+X		if(type == 5)
+X			strcat(menubuf, "\n\r");
+X		else
+X			strcat(menubuf, "\n\r\n\r");
+X		if(!xpert) {
+X			portsout(CRLF);
+X			portsout(menubuf);
+X		}
+X		portsout("Commands: ");
+X		portsout(xmenubuf);
+X		portsout("===> ");
+X}
+END_OF_FILE
+  if test 6772 -ne `wc -c <'bbscmenu.c'`; then
+    echo shar: \"'bbscmenu.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscmenu.c'
+fi
+if test -f 'bbscsigs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbscsigs.c'\"
+else
+  echo shar: Extracting \"'bbscsigs.c'\" \(7161 characters\)
+  sed "s/^X//" >'bbscsigs.c' <<'END_OF_FILE'
+X/*------------------------------------------------------------------------
+X       Name: bbscsigs.c
+X   Comments: Display file areas and select one
+X  ------------------------------------------------------------------------*/
+X
+X
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <signal.h>
+X#include "bbscdef.h"
+X#include <sys/locking.h>
+X
+X
+Xextern int      user_priv;
+Xextern int	first_time_in;
+Xextern int	first_msg_in;
+Xextern int	sigreturn;
+Xextern char     port_id[4];
+Xextern char	callers[99];
+Xextern timer(), mon_toggle(), sys_toggle(), chat(), hanged();
+X
+Xchar	save_info[99];
+X
+Xsig_access()
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char		signame[32], sigdisc[30], sigtype[10];
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int             length;
+X	int		x1, x2;
+X
+X	sigreturn = 1;
+X	while (1) {
+X
+Xdo_again:
+X	strcpy(buf128, SIGS);
+X
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\r\n\rThere are no SPECIAL INTEREST GROUPS today!\n\r\n\r");
+X		return ;
+X	}
+X		portsout("\n\r\n\r\n\r                  *********************************\n\r");
+X		portsout("                * Available Special Interest GROUPS *\n\r");
+X		portsout("                  *********************************\n\r\n\r");
+X		portsout("\n\r                SIGs                     Description           Type\n\r");
+X		portsout("    ============================== ======================     =======\n\r");
+X
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 83);
+X		if ((fgets(f_lines[line_cnt], 82, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Function List: Notify Sysop!\n\r");
+X				return;
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 74;
+X			if(length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 74, length);
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			substr(f_lines[line_cnt], signame, 1, 30);
+X			substr(f_lines[line_cnt], sigdisc, 52,22);
+X			x1 = strlen(signame);
+X			for(x2=x1; x2 < 30; x2++)
+X				strcat(signame, " ");
+X			x1 = strlen(sigdisc);
+X			for(x2=x1; x2 < 26; x2++)
+X				strcat(sigdisc," ");
+X			if(f_lines[line_cnt][78] == '*')
+X				strcpy(sigtype, "private");
+X			else
+X				strcpy(sigtype, "public");
+X			sprintf(who_am_i, "%s %s %s", signame, sigdisc, sigtype);
+X
+X
+X			strip(who_am_i);
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X			strip(buf128);
+X			term_space(buf128);
+X				portsout(buf128);
+X				portsout("\n\r");
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	if (line_cnt <= 1)
+X		{
+X		portsout("\n\r\n\rThere are no SPECIAL INTEREST GROUPS today!\n\r\n\r");
+X		return;
+X		}
+X		portsout(CRLF);
+X		portsout(" Q) Quit --- exit SIG function section");
+X		portsout(CRLF);
+X	fclose(fpt);
+X		portsout(CRLF);
+X
+X		portsout("Enter Selection ===> ");
+X		portsin_cmp(choice, 2, "Qq");
+X		portsout(CRLF);
+X		*choice = toupper(*choice);
+X
+X		if (*choice == 'Q')
+X			return;
+X
+X		index_value = atoi(choice);
+X		if (index_value > 0 && index_value < line_cnt) {
+X			if (dir_priv[index_value] <= user_priv) {
+X				parse_sig(f_lines[index_value]);
+X				if(!active) {
+X					sigreturn = 0;
+X					return;
+X				}
+X				continue;
+X			}
+X		}
+X	}
+X}
+X
+X
+X
+X
+X
+Xparse_sig(string, sn, sd, st )
+X	char           *string;
+X{
+X
+X	register char  *file_ptr, *xptr;
+X	register int    i, private;
+X	char tempr[100], temps[100], tempt[100], tempu[100], tempv[100];
+X	char tempw[100];
+X	char sigfile[99];
+X	char firstz[20], lastz[20];
+X	extern int fds;
+X	FILE *sigptr;
+X
+X	file_ptr = buf128;
+X	substr(string, buf128, 1, 50);
+X	strip(buf128);
+X	term_space(buf128);
+X	if(string[78] != '*')
+X		private = 0;
+X	else
+X		private = 1;
+X	strcpy(tempr, ORGPATH);
+X	file_ptr = (tempr + strlen(tempr));
+X	i = 0;
+X	who_am_I[0] = '\0';
+X	xptr = who_am_I;
+X	while ( string[i] != ' ') {
+X		*file_ptr = string[i];
+X		*xptr = string[i];
+X		file_ptr++;
+X		xptr++;
+X		i++;
+X	}
+X	*file_ptr = '\0';
+X	*xptr = '\0';
+X	strcat(tempr, "/");
+X	strcpy(temps, tempr);
+X	strcpy(tempt, tempr);
+X	strcpy(tempv, tempr);
+X	strcpy(tempw, tempr);
+X	strcpy(tempu, ORGPATH);
+X	strcat(tempu, "helpsig.bbs");
+X	strcat(tempt, "sigwelcome.bbs");
+X	strcat(tempv, "sigentry.bbs");
+X	strcat(tempw, "features.bbs");
+X	strcat(temps, "files/");
+X	strcat(tempr, "msgs/");
+X	strcpy( sigfile, ORGPATH);
+X	strcat( sigfile, who_am_I);
+X	strcat( sigfile, ".bbs");
+X	sigptr = fopen(sigfile, "r");
+X	if( sigptr == NULL ) {
+X		portsout("\n\r\n\rThat SIG is not available today.\n\r");
+X		return;
+X	}
+X	while(1) {
+X		if( fscanf( sigptr, "%s%s", firstz, lastz) == EOF ) {
+X			fclose(sigptr);
+X			if(private) {
+X				portsout("\n\rThis is a private SIG and your are not listed as a member.\n\r");
+X				sigptr = fopen(tempv, "r");
+X				if(sigptr != NULL)
+X					cmd_p(tempv);
+X				fclose(sigptr);
+X				return;
+X				}
+X			portsout("\n\rYou are being registered into this SIG.\n\r");
+X			sigptr = fopen(sigfile, "a");
+X			fds = fileno(sigptr);
+X			rewind(sigptr);
+X			locking(fds, LK_LOCK, 0L);
+X			fprintf( sigptr, "%s %s\n", w_fname, w_lname);
+X			rewind(sigptr);
+X			locking(fds, LK_UNLCK, 0L);
+X			fclose( sigptr);
+X			break;
+X		}
+X		if (( strcmp(firstz, w_fname) == 0) &&
+X		      (strcmp(lastz, w_lname) == 0)) {
+X			portsout("\n\rYou are listed in this SIG.\n\r");
+X			fclose( sigptr );
+X			break;
+X		}
+X	}	
+X	strcpy(save_info, who_am_I);
+X	if(private)
+X		strcat(save_info, "        - A Private SIG -");
+X	else
+X		strcat(save_info, "        - A Public SIG -");
+X	sigptr = fopen(tempt, "r");
+X	if( sigptr != NULL ) {
+X		portsout(CRLF);
+X		portsout(CRLF);
+X		cmd_p(tempt);
+X	}
+X	fclose(sigptr);
+X	if ((sigptr = fopen(callers, "a")) == NULL) {	/* create or open for
+X									 * append */
+X		portsout(CRLF);
+X		portsout("Can't open/create callers file!");
+X		portsout(CRLF);
+X		return;
+X	}
+X		i = fprintf(sigptr, "%s %s ","   Entered SIG ", save_info);
+X		if (i < 0) {
+X			portsout(CRLF);
+X			portsout("Caller file has problem writing");
+X			portsout(CRLF);
+X		} else {
+X			fputs("\n", sigptr);
+X		}
+X		fclose(sigptr);
+X	while (1) {
+X		if(!active)
+X			return;
+X		cmd_t();
+X		portsout("\n\rSIG = ");
+X		portsout(save_info);
+X		portsout(CRLF);
+X		bbsmenu(4,0);
+X		portsin(firstz, 1);
+X		portsout(CRLF);
+X		*firstz = toupper(*firstz);
+X		switch(firstz[0]) {
+X		case ('A'):
+X			if( !privmsg(mpZ))
+X				break;
+X			additional(tempw);
+X			break;
+X		case ('G'):
+X			if( !privmsg(mpG))
+X				break;
+X			cmd_c();
+X			break;
+X		case ('?'):
+X			if( !privmsg(mpZ))
+X				break;
+X			cmd_p(tempu);
+X			break;
+X		case ('M'):
+X			if( !privmsg(mpMS))
+X				break;
+X			strcpy(m_pathname, tempr);
+X			first_msg_in = FALSE;
+X			hdrread();
+X			check_mail();
+X			msg_section(mpK);
+X			break;
+X		case ('F'):
+X			if( !privmsg(mpF))
+X				break;
+X			strcpy(f_pathname, temps);
+X			strcpy(u_pathname, temps);
+X			first_time_in = FALSE;
+X			cmd_f();
+X			break;
+X		case ('L'):
+X			return;
+X			break;
+X		case ('X'):
+X			if( !privmsg(mpX))
+X				break;
+X			cmd_x();
+X			break;
+X		case ('T'):
+X			if( !privmsg(mpT))
+X				break;
+X			toggle = !toggle;
+X			if (toggle ) 
+X				portsout("\n\rStop Mode\n\r");
+X			else
+X				portsout("\n\rContinuous Mode\n\r");
+X		default:
+X			break;
+X		}
+X	}
+X}
+END_OF_FILE
+  if test 7161 -ne `wc -c <'bbscsigs.c'`; then
+    echo shar: \"'bbscsigs.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbscsigs.c'
+fi
+if test -f 'bbsczip.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'bbsczip.c'\"
+else
+  echo shar: Extracting \"'bbsczip.c'\" \(5093 characters\)
+  sed "s/^X//" >'bbsczip.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include "bbscdef.h"
+X
+X
+Xchar            save_old_m[99];
+Xextern int      user_priv, last_msg_read, read_flag, read_number, reply_sw;
+Xextern int      first_msg_in, blocked_m;
+Xint             cont_read;
+Xint             contin;
+Xint             zip;
+X
+X
+Xparse_zip(string)
+X	char           *string;
+X{
+X
+X	register char  *file_ptr, *xptr;
+X	register int    i;
+X
+X	strcpy(m_pathname, ORGPATH);
+X	file_ptr = (m_pathname + strlen(m_pathname));
+X	xptr = who_am_I;
+X
+X	i = 0;
+X	while (string[i] != ' ') {
+X		*file_ptr = string[i];
+X		*xptr = string[i];
+X		++xptr;
+X		++file_ptr;
+X		++i;
+X	}
+X	*file_ptr = '/';
+X	++file_ptr;
+X	*file_ptr = '\0';
+X	*xptr = '\0';
+X
+X}
+Xcmd_z()
+X{
+X	FILE           *fpt, *fopen();
+X	char           *fgets(), *getenv();
+X	char            choice[4];
+X#ifndef SYSV
+X	char            dir_priv_ascii[7];
+X#endif
+X#ifdef SYSV
+X	char            dir_priv_ascii[20];
+X#endif
+X	char           *buf_ptr, *file_ptr, *char_ptr;
+X	int             line_cnt, ret, i;
+X	int             index_value, ptr;
+X	int             length, strl, ii;
+X	int             read_type;
+X	int             ret_type;
+X
+X	strcpy(buf128, MSGS);
+X	strcpy(save_old_m, m_pathname);
+X	first_msg_in = TRUE;
+X	read_type = 0;
+X	stop_that = FALSE;
+X	zip = TRUE;
+X	portsout("\n\r\n\rY(our messages) or N(ew messages) Y/n? ");
+X	portsin(choice, 1);
+X	portsout(CRLF);
+X	if (choice[0] == 'n' || choice[0] == 'N') {
+X		read_type = 1;
+X		cont_read = 0;
+X		portsout("C(ontinous read) or S(ingle at a time) c/S? ");
+X		portsin(choice, 1);
+X		portsout(CRLF);
+X		if (choice[0] == 'c' || choice[0] == 'C') {
+X			cont_read = 1;
+X			contin = TRUE;
+X		}
+X	}
+X	if ((fpt = fopen(buf128, "r")) == NULL) {
+X		portsout("\n\rError Opening File Area List: Notify Sysop!\n\r");
+X		zip = FALSE;
+X		return (-1);
+X	}
+X	line_cnt = 0;
+X	while (fpt) {
+X		zfl(f_lines[line_cnt], 81);
+X		if ((fgets(f_lines[line_cnt], 80, fpt)) == NULL) {
+X			if (line_cnt == 0) {
+X				portsout("\n\rEOF Unexpected in Message Area List: Notify Sysop!\n\r");
+X				zip = FALSE;
+X				return (-1);
+X			}
+X			break;	/* if not 1st line */
+X		}		/* end of if ((fgets)) */
+X		if (line_cnt > 0) {
+X			length = strlen(f_lines[line_cnt]);
+X			length -= 57;
+X			if (length > 6)
+X				length = 6;
+X			substr(f_lines[line_cnt], dir_priv_ascii, 57, length);
+X			strl = strlen(dir_priv_ascii);
+X			if (strl == 0) {
+X				portsout("\n\rError reading privilege level\n\r");
+X				exit(1);
+X			}
+X			dir_priv[line_cnt] = atoi(dir_priv_ascii);
+X			if (dir_priv[line_cnt] > user_priv)
+X				goto next_read;
+X			strcpy(who_am_i, f_lines[line_cnt]);
+X			buf_ptr = who_am_i;
+X			buf_ptr += 56;
+X			for (ptr = 0; ptr < 5; ptr++)
+X				*buf_ptr++ = ' ';
+X			*buf_ptr = '\0';
+X			sprintf(buf128, "%2d) %s", line_cnt, who_am_i);
+X		}
+Xnext_read:
+X		++line_cnt;
+X	}			/* end of while (fpt) */
+X	fclose(fpt);
+X
+X	if (line_cnt <= 1) {
+X		zip = FALSE;
+X		return;
+X	}
+X	for (index_value = 1; index_value < line_cnt; index_value++) {
+X		if (dir_priv[index_value] <= user_priv) {
+X			if (stop_that)
+X				goto dats_all;
+X			parse_zip(f_lines[index_value]);
+X			hdrread();
+X			portsout("\n\rSwitching to area '");
+X			portsout(who_am_I);
+X			portsout("'\n\r");
+X			ret_type = 1;
+X			if (!read_type)
+X				cmd_y();
+X			else
+X				ret_type = new_msgs();
+X			if (ret_type == 0 || ret_type == ERROR)
+X				goto dats_all;
+X			portsout("\n\r*************************************************\n\r");
+X		}
+X	}
+Xdats_all:
+X	strcpy(m_pathname, save_old_m);
+X	i = strlen(m_pathname);
+X	if (i > 0) {
+X		hdrread();
+X		set_first_read();
+X	}
+X	if (contin == TRUE && cont_read == 1)
+X		contin = FALSE;
+X	stop_that = FALSE;
+X	zip = FALSE;
+X}
+Xint
+Xnew_msgs()
+X{
+X	int             rc, fd, q_msg;
+X	int             t1;
+X	char            chr[2];
+X	int             new_msg;
+X	int             how;
+X	set_first_read();
+X	new_msg = last_msg_read + 1;
+X	q_msg = new_msg;
+X	read_flag = TRUE;
+X	if ((fd = msgopen(0)) == ERROR) {
+X		zip = FALSE;
+X		return (ERROR);
+X	}
+X	how = 1;
+X	while ((rc = msgreadx(fd, q_msg++)) != ERROR) {
+X		if (rc == 0 || rc == -10) {
+X			continue;
+X		}
+X		read_number = atoi(msg_no);
+X		cmd_r();
+X		last_msg_read = read_number;
+X		set_write();
+X		if (cont_read == 1)
+X			goto cont_rd;
+X		if (user_priv >= mpE) {
+X			portsout("\n\rDo you wish to reply to this message? (y/N): ");
+X			portsin(chr, 1);
+X			portsout(CRLF);
+X			if (chr[0] == 'Y' || chr[0] == 'y') {
+X				portsout("\n\rDo you wish to use blocked (right justified) format?  (y/N: ");
+X				portsin(chr, 1);
+X				portsout(CRLF);
+X				if (chr[0] == 'y' || chr[0] == 'Y') 
+X					blocked_m = 1;
+X				else
+X					blocked_m = 0;
+X				reply_sw = TRUE;
+X				strcpy(msg_to, msg_from);
+X				strcpy(x_pathandfile, "(R) ");
+X				strcat(x_pathandfile, msg_subject);
+X				substr(x_pathandfile, msg_subject, 1, 20);
+X				cmd_e();
+X				reply_sw = FALSE;
+X			}
+X		}
+X		portsout("\n\r\n\rContinue reading messages within this message base? (Y/n): ");
+X		portsin(chr, 1);
+X		portsout(CRLF);
+X		if (chr[0] == 'n' || chr[0] == 'N')
+X			break;
+Xcont_rd:	if (stop_that) {
+X			stop_that = FALSE;
+X			read_flag = FALSE;
+X			how = 0;
+X			break;
+X		}
+X		if (cont_read == 1) {
+X			portsout(CRLF);
+X			portsout("----------------------------------------");
+X		}
+X		portsout(CRLF);
+X	}
+X	read_flag = FALSE;
+X	msgclose(fd);
+X	return (how);
+X}
+END_OF_FILE
+  if test 5093 -ne `wc -c <'bbsczip.c'`; then
+    echo shar: \"'bbsczip.c'\" unpacked with wrong size!
+  fi
+  # end of 'bbsczip.c'
+fi
+if test -f 'chatbbs/chatbbs.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'chatbbs/chatbbs.c'\"
+else
+  echo shar: Extracting \"'chatbbs/chatbbs.c'\" \(4201 characters\)
+  sed "s/^X//" >'chatbbs/chatbbs.c' <<'END_OF_FILE'
+X/*
+X *  This program allows the "sysop" to communicate with the bbs user(s) that
+X *  is/are on the system. Only one chat can be performed at a time. While the
+X *  chat is in progress, any other user that is on the system who requests a
+X *  chat will automatically be notified that the sysop is presently chatting
+X *  or has "turned off" the chat. To turn off the chat, just generate a null
+X *  length file called /tmp/ttydev and the bbs software will do the rest.
+X * 
+X *  Usage of the program is as follows:   chatbbs device_name
+X *
+X *  Please note that the device_name DOES NOT include the path ( /dev/ ). An
+X *  example of the usage is as follows:  chatbbs tty1A
+X *
+X *  To TERMINATE the chat, just depress the ESCAPE key ( esc --- '\033' ) and
+X *  the chat will terminate.
+X *
+X *  The sequence that the bbs software uses is as follows:
+X *
+X *  SIGPIPE ------ Go into chat
+X *  SIGUSR1 ------ Exit chat
+X *
+X *  Please note that SIGUSR1 is also used to toggle the local monitoring of the
+X *  bbs user. The bbs software will determine what to do when it intercepts
+X *  SIGUSR1.
+X *
+X *
+X *  FOR SysV.4, compile the code using a -DES54 ( cc -DES54 chatbbs.c -o chatbbs
+X *
+X *
+X *  Sanford J. Zelkovitz    XBBS  714-821-9671
+X *
+X */
+X#include <stdio.h>
+X#include <string.h>
+X#include <signal.h>
+X#include "chat.h"
+Xint             kill();
+Xint             atoi();
+Xmain(argc, argv) 
+X	int		argc;
+X	char           *argv[];
+X{
+X	FILE           *indev;
+X	FILE           *outdev;
+X	char            buffer[30];
+X	char           *tty, *buffer_ptr, *ttyname();
+X	char            temp[50], char_pid[30];
+X	int             ch;
+X	int             handle, i, pid;
+X	int             ret_kill;
+X#ifdef ESIX54
+X	char		tmpbuffer[100];
+X	FILE		*ttz;
+X	char		x1[20], x2[20], x3[20], x4[20], x5[20], x6[20];
+X	int		major, minor;
+X#endif
+X	setbuf(stdin, NULL);
+X	setbuf(stdout, NULL);
+X	if (argc != 2) {
+X		printf("\nError in usage, should be: chatbbs device.\n");
+X		exit(1);
+X	}
+X	strcpy(buffer, "/dev/");
+X	strcat(buffer, argv[1]);
+X	printf("\nDevice driver = %s\n", buffer);
+X	tty = ttyname(1);
+X#ifdef ESIX54
+X	unlink("/dev/bbschatter");
+X	sprintf(tmpbuffer, "ls -l %s > /tmp/chatinfo", tty);
+X	system(tmpbuffer);
+X	ttz = fopen("/tmp/chatinfo", "r");
+X	(void) fscanf(ttz, "%s%s%s%s%s%s", x1, x2, x3, x4, x5, x6);
+X	fclose(ttz);
+X	major = atoi(x5);
+X	minor = atoi(x6);
+X	printf( "major = %d    minor = %d\n", major, minor);
+X	sprintf(tmpbuffer, "/etc/mknod /dev/bbschatter c %d %d", major, minor);
+X	system(tmpbuffer);
+X	system("chmod 666 /dev/bbschatter");
+X	system("chown bbs /dev/bbschatter");
+X#endif
+X	if ((indev = fopen("/tmp/ttydev", "w")) == NULL) {
+X		printf("\nError opening /tmp/ttydev!\n");
+X		exit(1);
+X	}
+X#ifdef ESIX54
+X	(void) fprintf(indev, "%s\n", "/dev/bbschatter");
+X#else
+X	(void) fprintf(indev, "%s\n", tty);
+X#endif
+X	fclose(indev);
+X	if ((outdev = fopen(buffer, "r+")) == NULL) {
+X		unlink("/tmp/ttydev");
+X		unlink("/dev/bbschatter");
+X		printf("\nError opening BBS user's device driver!\n");
+X		exit(1);
+X	}
+X	setbuf(outdev, NULL);
+X	strcpy(temp, "/tmp/pid");
+X	i = strlen(buffer);
+X	buffer_ptr = buffer;
+X	buffer_ptr = buffer_ptr + i - 2;
+X	strcat(temp, buffer_ptr);
+X	if ((indev = fopen(temp, "r")) == NULL) {
+X		unlink("/tmp/ttydev");
+X		unlink("/dev/bbschatter");
+X		printf("\nError opening pid file!\n");
+X		exit(1);
+X	}
+X	(void) fscanf(indev, "%s", char_pid);
+X	fclose(indev);
+X	pid = atoi(char_pid);
+X	ret_kill = kill(pid, SIGPIPE);
+X	if (ret_kill == -1) {
+X		printf("\nIllegal pid????\n");
+X		unlink("/tmp/ttydev");
+X		unlink("/dev/bbschatter");
+X		exit(1);
+X	}
+X	sleep(2);
+X	setraw();
+X	while (1) {
+X		ch = getc(stdin);
+X		ch &= '\377';
+X		if (ch == '\033')
+X			break;
+X		putchar(ch);
+X		putc(ch, outdev);
+X		if (ch == '\n') {
+X			ch = '\r';
+X			putchar(ch);
+X			putc(ch, outdev);
+X		}
+X		if (ch == '\r') {
+X			ch = '\n';
+X			putchar(ch);
+X			putc(ch, outdev);
+X		}
+X		if (ch == '\b') {
+X			ch = ' ';
+X			putchar(ch);
+X			putc(ch, outdev);
+X			ch = '\b';
+X			putchar(ch);
+X			putc(ch, outdev);
+X		}
+X	}
+X	ch = '\r';
+X	putchar(ch);
+X	putc(ch, outdev);
+X	ch = '\n';
+X	for (i = 0; i <= 5; i++) {
+X		putchar(ch);
+X		putc(ch, outdev);
+X	}
+X	fclose(outdev);
+X	restore();
+X	unlink("/tmp/ttydev");
+X	unlink("/dev/bbschatter");
+X	ret_kill = kill(pid, SIGUSR1);
+X	if (ret_kill == -1) {
+X		printf("\nIllegal pid????\n");
+X		exit(1);
+X	}
+X}
+END_OF_FILE
+  if test 4201 -ne `wc -c <'chatbbs/chatbbs.c'`; then
+    echo shar: \"'chatbbs/chatbbs.c'\" unpacked with wrong size!
+  fi
+  # end of 'chatbbs/chatbbs.c'
+fi
+if test -f 'extra_info' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'extra_info'\"
+else
+  echo shar: Extracting \"'extra_info'\" \(7654 characters\)
+  sed "s/^X//" >'extra_info' <<'END_OF_FILE'
+X               Extra Information On How the BBS Operates
+X
+X1) All errors that are detected that would normally go to stderr are sent,
+X   instead to a file called /tmp/errors_out. Under normal conditions, this
+X   file should always have a 0 length.
+X
+X2) The file, callers.bbs, contains a time log of all of your bbs callers.
+X   In addition to the name and time, all uploads and downloads are logged
+X   into this file. If a file is uploaded as "SYSOP ONLY", the description of
+X   the file is also added to callers.bbs instead of files.bbs. This way, you
+X   can still get the description.
+X
+X3) A file, /tmp/files, is generated for each and every L(ist) command that is
+X   requested. This is a temporary file which is sent to the user.
+X
+X4) The file, users.bbs, contains the list of all of your users, with their
+X   passwords, first time called, last time called, and their address in the
+X   form of city and state.
+X
+X5) The file, messages.bbs, contain all of the messages. There are three codes
+X   used within this file : 0 - The message is active and not confidential
+X                           5 - The message is active and is confidential
+X                           9 - The message was deleted 
+X   ( Note: if you wish to reactivate a deleted message, just change the "9"
+X           to either a "0" or "5" ).
+X   ( A program will be available soon to "squeeze" the message file and
+X     remove deleted messages )
+X 
+X6) The file, crossref.bbs, contains the cross reference table between the
+X   message number and file record number. This way, RAPID message access
+X   is achieved. Presently, you can have up to 1000 messages within the system.
+X   ( active and deleted )
+X
+X7) The file, bulletin.bbs, contains your bulletin which is printed out
+X   whenever a user logs into the bbs or with the B command from the main
+X   menu.
+X
+X8) The file, header.bbs, contains the information to add the NEXT message
+X   into the message file. This way, a search is not required to find the
+X   proper entry point.
+X
+X9) The file, files.bbs, contains the download file information
+X
+XA) The file, help.bbs, contains the HELP information for your users.
+X
+XB) The file, humor.bbs, contains the humor file for your users!
+X
+XC) The file, lastcall.bbs, contains the information about your last user
+X   on the system.
+X
+XD) The file, newuser.bbs, contains the message you output to new users.
+X
+XE) The file, system.bbs, contains the terminate message you output to the
+X   user when he "logs off".
+X
+XF) The file, welcome.bbs, contains the "welcome" message you output when
+X   the user logs in. Please note that this is sent prior to the bulletin
+X   and may be your message of the day.
+X
+X
+X
+X
+XA quick note on how files are handled when they are uploaded. 
+X
+XFiles are sent, depending on the protocol used, either to your FILES 
+Xdirectory or to your /usr/bbs directory. In the case of the files
+Xbeing sent to /usr/bbs ( KERMIT UPLOAD ), they will be moved to FILES
+Xafter the transfer is completed. If the file(s) is/are marked as
+XSYSOP ONLY, they will be moved to your BBS directory to insure complete
+Xprivacy. Therefore, even if your user knows the name of the file, he
+Xcan not get to it!
+X
+X
+XWarning! DO NOT try to modify the following files with an editor like
+Xvi: users.bbs, header.bbs, crossref.bbs, messages.bbs since they are
+XNOT truely ASCII files and the files WILL BE damaged. In the case of
+Xcrossref.bbs, no ASCII information is even stored in it ( binary file ).
+X 
+X************************************************************************
+XUSER SIGNALS that are used:
+X 
+X1) SIGUSR1 Toggles the local monitoring of the BBS. An example of the SHELL
+X   Script that can be used is "toggle". This file can be found in the
+X   download section.
+X 
+X2) SIGUSR2 Toggles the privileges and time of the present user on the system.
+X   The time and privilege level is set to maximum so CARE should be used
+X   with this option since the user can now enter into Unix/Xenix with the
+X   U option in the main menu. An example of a SHELL SCRIPT that can be used
+X   is "systoggle". This file can be found in the download section.
+X*************************************************************************
+X 
+XNew features added on October 12, 1986:
+X 
+XThree new .bbs files have been added: filepriv.bbs, mainpriv.bbs, and
+Xuserpriv.bbs.
+X 
+X1) filepriv.bbs contains the privileges assigned to the file menu options.
+X   The file simply contains the letter and privilege assigned to the letter.
+X   The range of privileges can vary between 0 and 32767. The privileges are
+X   all relative so you may want to limit the range from 1 to 9. Warning,
+X   be sure that the G option is ALWAYS lower than the lowest individual
+X   privilege so you user can log off! An example of the file can be found
+X   in this download section called filepriv.bbs.
+X 
+X2) mainpriv.bbs contains the privileges assigned to the main menu options.
+X   It is in the same form as filepriv.bbs. An example of the file can be
+X   downloaded and is called mainpriv.bbs.
+X 
+X3) userpriv.bbs is a dynamically created/appended file which contains the
+X   individual user privileges along with their "delta time" allocation.
+X   The file contains entries for each of your users in the form of:
+X 
+X    FIRSTNAME LASTNAME PRIVILEGE_LEVEL DELTA_TIME EXTRA_KBYTES
+X 
+X    An example of a particular user maybe as follows:
+X 
+X    John Smith 5 600 5
+X 
+X    Basically, the above user has a privilege level of 5 and has 10 additional
+X    minutes allowed over the default time (RUNTIME in bbscdef.h). Also, he has
+X    an extra 5 kilobytes of downloading allowed ( added to MAXKBYTES in
+X    bbscdef.h ).
+X 
+X    An entry may also look like this:
+X 
+X    Joe Blow 2 -2400 -50
+X 
+X    This means that the above user has a privilege level of 2 and has
+X    been disallowed 40 minutes from the default time. If the default
+X    time is set at 60 minutes, his total usage time is only 20 minutes.
+X    His maximum allowable download in bytes has also been reduced by
+X    50K!
+X 
+X    The default privilege level can be found in bbscdef.h and is called
+X    NEWPRIV.
+X
+X***************************************************************************
+XNew features added on October 14, 1986
+X 
+X    The sysop, by using SIGUSR2, can now give the present user temporary
+X    maximum privileges and time on the system. Since this is a "toggle",
+X    by issuing this signal again, the user will be returned back to the
+X    logon time limits and privileges. An example of a SHELL SCRIPT that can
+X    be used is systoggle.
+X 
+X    You can now allow users to enter into Xenix/Unix! Care should be given
+X    when allocating the user such high privileges. This is the U option
+X    in the main menu. A suggestion would be to give this privilege the
+X    maximum allowed in this BBS, 32767. Remember, when SIGUSR2 is issued,
+X    that user WILL HAVE that privilege!
+X
+X***************************************************************************
+X                       New Nov 9th, 1986
+X 
+XYou must now have multiple versions of files.bbs. One, each, for EVERY
+Xdownload directory and it must be in that directory. The files.bbs file
+Xmust only contain the file listing for that particular directory!
+X***************************************************************************
+X                       New Nov 12, 1986
+X
+XNow, there are multiple message bases. The three files, crossref.bbs,
+Xheader.bbs, and messages.bbs are stored in each different message base.
+X***************************************************************************
+X                       New Dec 8, 1986
+X
+XA response time variable has been added to the bbs software. This variable
+Xis defined in bbscdef.h as WAITTIME. On this system, it is set to 300
+Xseconds or 5 minutes. 
+END_OF_FILE
+  if test 7654 -ne `wc -c <'extra_info'`; then
+    echo shar: \"'extra_info'\" unpacked with wrong size!
+  fi
+  # end of 'extra_info'
+fi
+if test -f 'msgpack/msgpack.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'msgpack/msgpack.c'\"
+else
+  echo shar: Extracting \"'msgpack/msgpack.c'\" \(4971 characters\)
+  sed "s/^X//" >'msgpack/msgpack.c' <<'END_OF_FILE'
+X#include "packdef.h"
+X#include <stdio.h>
+X#include <sys/types.h>
+X#include <sys/stat.h>
+X#include <signal.h>
+X#include <fcntl.h>
+X#include <sgtty.h>
+X#include <string.h>
+X#include <ctype.h>
+X#include <pwd.h>
+X
+Xstatic char     linkh[150], linkm[150], linkc[150];
+Xstatic char     header[150], messages[150], crossref[150];
+Xstatic char     newheader[150], newmsg[150], newxref[150];
+Xstatic char     log[150], newlog[150];
+Xstatic int      table[1001];
+Xstatic int      goodmsg;
+Xstatic char     foo[150];
+X
+Xmain()
+X{
+X	struct passwd  *p;
+X	struct passwd  *getpwnam();
+X	char           *ptr;
+X	int             counter, result;
+X	strcpy(foo, "bbs");
+X	while (1) {
+X		setpwent();
+X		p = getpwnam(foo);
+X		if (p == NULL) {
+X			printf("Unable to locate user %s, please enter the proper name: ", foo);
+X			scanf("%s", foo);
+X			endpwent();
+X		} else
+X			break;
+X	}
+X	strcpy(foo, p->pw_shell);
+X	ptr = strrchr(foo, '/');
+X	if (ptr == NULL) {
+X		printf("ERROR in shell location!\n");
+X		exit(1);
+X	}
+X	ptr++;
+X	*ptr = '\0';
+X	strcpy(ORGPATH, foo);
+X	strcpy(MSGS, ORGPATH);
+X	strcat(MSGS, MSGS1);
+X
+X	for (counter = 1; counter < 100; counter++) {
+X
+X		result = change_msga(counter);
+X		if (result != 1)
+X			exit(0);
+X		goodmsg = 0;
+X		strcpy(linkh, m_pathname);
+X		strcat(linkh, LINKH);
+X		strcpy(log, m_pathname);
+X		strcat(log, MSGLOG);
+X		strcpy(newlog, m_pathname);
+X		strcat(newlog, NEWLOG);
+X		strcpy(linkm, m_pathname);
+X		strcat(linkm, LINKM);
+X		strcpy(linkc, m_pathname);
+X		strcat(linkc, LINKC);
+X		strcpy(header, m_pathname);
+X		strcat(header, HEADER);
+X		strcpy(messages, m_pathname);
+X		strcat(messages, MESSAGES);
+X		strcpy(crossref, m_pathname);
+X		strcat(crossref, CROSSREF);
+X		strcpy(newheader, m_pathname);
+X		strcat(newheader, NEWHEADER);
+X		strcpy(newmsg, m_pathname);
+X		strcat(newmsg, NEWMSG);
+X		strcpy(newxref, m_pathname);
+X		strcat(newxref, NEWXREF);
+X		remove();
+X		hdrreadr();
+X		hdrreadw();
+X		hdrwrt();
+X		cmd_s();
+X		nlog();
+X		rename();
+X	}
+X
+X}
+X
+X
+Xsavemsg()
+X{				/* save a message */
+X	int             fd;
+X
+X
+X	if ((fd = msgopenw(2)) == ERROR) {	/* open i/o */
+X		return (ERROR);
+X	}
+X	msgwrt(fd);		/* write the message */
+X	msgclose(fd);
+X
+X	strcpy(h_date, msg_date);
+X	hdrwrt();		/* update the header file */
+X}
+X/* end of function		 */
+X
+Xcmd_s()
+X{
+X	int             q_msg, msgn, fd, msgnmbr, rc;
+X	msgnmbr = 1;
+X	for (fd = 0; fd <= 1000; fd++)
+X		table[fd] = 0;
+X	if ((fd = msgopenr(0)) == ERROR) {	/* open input */
+X		return (ERROR);
+X	}
+X	q_msg = 1;
+X	hdrreadr();
+X	while ((rc = msgread(fd, q_msg++)) != ERROR) {	/* read until eof or
+X							 * error */
+X		msgn = q_msg - 1;
+X		if (rc == 0) {
+X			goto lpp;	/* not a valid msg */
+X		}
+X		reduce();
+X		hdrreadw();
+X		goodmsg = 1;
+X		printf("\n%s%d\n", "Saving new message number ", msgnmbr);
+X		table[msgn] = msgnmbr;
+X		msgnmbr++;
+X		savemsg();
+Xlpp:
+X		hdrreadr();
+X	}
+X	if (!goodmsg) {
+X		strcpy(msg_delete, "5");
+X		reduce();
+X		hdrreadw();
+X		table[msgn] = msgnmbr;
+X		savemsg();
+X	}
+X	msgclose(fd);
+X}
+Xreduce()
+X{
+X	int             len;
+X	len = strlen(msg_text);
+X	len--;
+X	while (msg_text[len] == 32) {
+X		msg_text[len] = '\0';
+X		len--;
+X	}
+X}
+Xnlog()
+X{
+X	FILE           *input, *output;
+X	char            firstz[20], lastz[20], msgz[7];
+X	char            buffer[99], qwerty[10];
+X	int             i, newi;
+X	qwerty[0] = '\0';
+X	if ((input = fopen(log, "r")) == NULL) {
+X		printf("\nError opening message.log???\n");
+X		exit(1);
+X	}
+X	if ((output = fopen(newlog, "w")) == NULL) {
+X		printf("\nError opening Omessage.log??\n");
+X		exit(1);
+X	}
+X	while (fscanf(input, "%s%s%s", firstz, lastz, msgz) != EOF) {
+X		i = atoi(msgz);
+X		while (1) {
+X			if (table[i] || !i)
+X				break;
+X			--i;
+X		}
+X		newi = table[i];
+X		itoa(qwerty, newi);
+X		strcpy(buffer, firstz);
+X		strcat(buffer, " ");
+X		strcat(buffer, lastz);
+X		strcat(buffer, " ");
+X		strcat(buffer, qwerty);
+X		i = strlen(qwerty);
+X		i = 6 - i;
+X		while (i) {
+X			strcat(buffer, "_");
+X			--i;
+X		}
+X		fprintf(output, "%s\n", buffer);
+X	}
+X	fclose(input);
+X	fclose(output);
+X}
+Xrename()
+X{
+X	int             result;
+X	printf("\nRenaming files ...............");
+X	result = unlink(linkh);
+X	result = unlink(linkm);
+X	result = unlink(linkc);
+X	result = link(log, linkh);
+X	result = unlink(log);
+X	result = link(newlog, log);
+X	result = unlink(newlog);
+X	result = link(linkh, newlog);
+X	result = unlink(linkh);
+X	result = link(header, linkh);
+X	result = link(messages, linkm);
+X	result = link(crossref, linkc);
+X	result = unlink(header);
+X	result = unlink(messages);
+X	result = unlink(crossref);
+X	result = link(newheader, header);
+X	result = link(newmsg, messages);
+X	result = link(newxref, crossref);
+X	result = unlink(newheader);
+X	result = unlink(newmsg);
+X	result = unlink(newxref);
+X	result = link(linkh, newheader);
+X	result = link(linkm, newmsg);
+X	result = link(linkc, newxref);
+X	result = unlink(linkh);
+X	result = unlink(linkm);
+X	result = unlink(linkc);
+X	strcpy(msg_text, CHMOD);
+X	strcat(msg_text, m_pathname);
+X	strcat(msg_text, CHMOD1);
+X	result = system(msg_text);
+X	printf("DONE\n");
+X}
+Xremove()
+X{
+X	int             result;
+X	result = unlink(newheader);
+X	result = unlink(newmsg);
+X	result = unlink(newxref);
+X}
+X/* end of function		 */
+END_OF_FILE
+  if test 4971 -ne `wc -c <'msgpack/msgpack.c'`; then
+    echo shar: \"'msgpack/msgpack.c'\" unpacked with wrong size!
+  fi
+  # end of 'msgpack/msgpack.c'
+fi
+if test -f 'purguser/purguser.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'purguser/purguser.c'\"
+else
+  echo shar: Extracting \"'purguser/purguser.c'\" \(4375 characters\)
+  sed "s/^X//" >'purguser/purguser.c' <<'END_OF_FILE'
+X#include <stdio.h>
+X#include <string.h>
+X#include <pwd.h>
+X
+Xstruct name_list {
+X	char fname[99] ;
+X	char lname[99] ;
+X	struct name_list *next ;
+X} ;
+X
+Xstruct name_list *nlhead ;
+X
+Xvoid add_to_nl();
+Xvoid clean_up_nl() ;
+X
+Xmain()
+X{
+XFILE *inbuf, *outbuf;
+Xstruct passwd *pw ;
+Xint code;
+Xint count;
+Xchar infile[99], outfile[99];
+Xchar cut_off[99] ;
+Xchar u_fname[99], u_lname[99], u_password[99], u_time1[99];
+Xchar u_date1[99], u_time2[99], u_date2[99], u_city[99];
+Xchar l_m_base[5], l_f_base[5], xprt[3], toggle[3];
+Xlong priv, l1, l2 ;
+X
+Xnlhead = (struct name_list *)NULL ;
+Xprintf("\nPurguser : a user purge by date program for XBBS\n");
+Xprintf("by Chuck Brandt 89.10.12 CIMTECHNOLOGIES XBBS (515)232-0072\n");
+Xprintf("This program will remove users who have not logged on your XBBS\n");
+Xprintf("since the date you specify.  It modifies users.bbs and userpriv.bbs\n");
+Xprintf("and saves backups of each file with an additional extension of .o\n");
+Xprintf("If you don't want to do this press <DEL> now!\n") ;
+X
+Xprintf("\nInput the full path name of the user file: ");
+Xscanf("%s", outfile);
+Xprintf("\n");
+Xprintf("\nEnter cut off date in the form MM/DD/YY: ") ;
+Xscanf("%s", cut_off) ;
+Xprintf("\n") ;
+Xstrcpy(infile,outfile) ;
+Xstrcat(infile,".o") ;
+Xunlink(infile) ;
+Xlink(outfile,infile) ;
+Xunlink(outfile) ;
+Xif((inbuf = fopen(infile, "r" )) == NULL) {
+X	printf("\n\rError opening input users file.\n\r");
+X	exit(1);
+X}
+Xif((outbuf = fopen(outfile, "w" )) == NULL) {
+X	printf("\n\rError opening output users file.\n\r");
+X	exit(1);
+X}
+X
+Xwhile(1) {
+X	code = fscanf(inbuf,"%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~%[^~]~\n",
+X	u_fname, u_lname, u_password, u_time1, u_date1,
+X	u_time2, u_date2, u_city, l_m_base, l_f_base, xprt, toggle);
+X	if(code < 12 ) break;
+X	if ((date_compare(cut_off,u_date2)) <= 0) 
+X		fprintf(outbuf,"%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~%s~\n",
+X		u_fname, u_lname, u_password, u_time1, u_date1,
+X		u_time2, u_date2, u_city, l_m_base, l_f_base, xprt, toggle);
+X	else
+X		add_to_nl( u_fname, u_lname ) ;
+X}
+X
+Xfclose(inbuf);
+Xfclose(outbuf) ;
+Xchmod(outfile,0660) ;
+Xpw = getpwnam("bbs") ;
+X
+Xif (pw != (struct passwd *)NULL) 
+X	chown(outfile,pw->pw_uid,pw->pw_gid) ;	
+X
+X/* update userpriv.bbs */
+Xprintf("\nInput the full path name of the userpriv file: ");
+Xscanf("%s", outfile);
+Xprintf("\n");
+Xstrcpy(infile,outfile) ;
+Xstrcat(infile,".o") ;
+Xunlink(infile) ;
+Xlink(outfile,infile) ;
+Xunlink(outfile) ;
+Xif((inbuf = fopen(infile, "r" )) == NULL) {
+X	printf("\n\rError opening input userpriv file.\n\r");
+X	exit(1);
+X}
+Xif((outbuf = fopen(outfile, "w" )) == NULL) {
+X	printf("\n\rError opening output userpriv file.\n\r");
+X	exit(1);
+X}
+Xwhile (1) {
+X	code = fscanf(inbuf,"%s %s %ld %ld %ld\n",u_fname, u_lname, &priv, &l1, &l2) ;	
+X	if (code != 5) break ;
+X	if (!in_list(u_fname, u_lname))
+X		fprintf(outbuf,"%s %s %ld %ld %ld\n",u_fname, u_lname, priv, l1, l2) ;
+X}
+Xclean_up_nl() ;
+Xfclose(inbuf);
+Xfclose(outbuf) ;
+Xchmod(outfile,0660) ;
+Xpw = getpwnam("bbs") ;
+X
+Xif (pw != (struct passwd *)NULL) 
+X	chown(outfile,pw->pw_uid,pw->pw_gid) ;	
+X	
+X}
+X
+Xvoid add_to_nl( first, last ) 
+Xchar *first, *last ;
+X{
+Xstruct name_list *cur, *new ;
+X
+Xnew = (struct name_list *)malloc(sizeof(struct name_list)) ;
+Xif (new == (struct name_list *)NULL) {
+X	fprintf(stderr,"purguser : ran out of memory!\n") ;
+X	return;
+X}
+Xnew->next = (struct name_list *)NULL ;
+Xstrcpy(new->fname,first) ;
+Xstrcpy(new->lname,last) ;
+X
+Xif (nlhead == (struct name_list *)NULL)  {
+X	nlhead = new ;
+X	return ;
+X}
+Xcur = nlhead ;
+Xwhile (cur->next != (struct name_list *)NULL)
+X	cur = cur->next ;
+Xcur->next = new ;
+Xreturn ;
+X}
+X
+Xint in_list(first, last)
+Xchar *first, *last ;
+X{
+Xstruct name_list *cur ;
+X
+Xcur = nlhead ;
+Xwhile (cur) {
+X	if ((!strcmp(first,cur->fname)) && (!strcmp(last,cur->lname)))
+X		return(1) ;
+X	cur = cur->next ;
+X}
+Xreturn(0) ;
+X}
+X
+Xvoid clean_up_nl()
+X{
+Xstruct name_list *cur, *pv ;
+X
+Xcur = nlhead ;
+Xwhile (cur) {
+X	pv = cur ;
+X	cur = cur->next ;
+X	free(pv) ;
+X}
+X}
+X
+Xint date_compare( d1, d2 )
+Xchar *d1, *d2 ;
+X{
+Xint mon1, day1, yr1, mon2, day2, yr2 ;
+X
+Xsscanf(d1,"%d/%d/%d", &mon1, &day1, &yr1) ;
+Xsscanf(d2,"%d/%d/%d", &mon2, &day2, &yr2) ;
+Xyr1 = yr1 + 1900 ;
+Xyr2 = yr2 + 1900 ;
+X
+Xif (yr1 == yr2) {
+X	if (mon1 == mon2) {
+X		if (day1 == day2) 
+X			return(0) ;
+X		else { 
+X			if (day1 > day2) 
+X				return(1) ;
+X			else 
+X				return(-1) ;
+X		}
+X	}
+X	else  {
+X	      	if (mon1 > mon2) 
+X			return(1) ;
+X	 	else 
+X			return(-1) ;
+X	}
+X}
+Xif (yr1 > yr2) return(1) ;
+Xelse return(-1) ;
+X}
+X 
+END_OF_FILE
+  if test 4375 -ne `wc -c <'purguser/purguser.c'`; then
+    echo shar: \"'purguser/purguser.c'\" unpacked with wrong size!
+  fi
+  # end of 'purguser/purguser.c'
+fi
+if test -f 'today/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'today/Makefile'\"
+else
+  echo shar: Extracting \"'today/Makefile'\" \(466 characters\)
+  sed "s/^X//" >'today/Makefile' <<'END_OF_FILE'
+X##
+X#	Makefile for very verbose date command (today).
+X#
+XHOME	= /users/sun3/jad
+XBINDIR	= ${HOME}/bin
+XCFLAGS	= -Ox
+XTODAY	= datetx.o moontx.o nbrtxt.o timetx.o today.o sun.o
+XPOTM	= moontx.o potm.o
+XBIN	= potm today
+XLIB	= -lm
+X
+Xall:	${BIN}
+Xpotm:	${POTM}
+X	cc ${CFLAGS} -o $@ ${POTM} ${LIB}
+Xtoday:	${TODAY}
+X	cc ${CFLAGS} -o $@ ${TODAY} ${LIB}
+Xmoontx.o:	moontx.h
+X
+Xinstall:	all
+X	mv -f ${BIN} ${BINDIR}
+X	rm -f ,* *.o ERRS core a.out
+X
+Xclean:
+X	rm -f ${BIN} a.out core ERRS ,* *.o
+END_OF_FILE
+  if test 466 -ne `wc -c <'today/Makefile'`; then
+    echo shar: \"'today/Makefile'\" unpacked with wrong size!
+  fi
+  # end of 'today/Makefile'
+fi
+if test -f 'today/timetx.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'today/timetx.c'\"
+else
+  echo shar: Extracting \"'today/timetx.c'\" \(5255 characters\)
+  sed "s/^X//" >'today/timetx.c' <<'END_OF_FILE'
+X/*
+X *              Convert Time to a Readable Format.
+X *
+X * Synopsis:
+X *
+X *      char    *timetxt(buffer, hour, minute, second, daylight);
+X *      char    *buffer;        -- Where output goes
+X *      int     hour;           -- Hour,        range is 0 to 24
+X *      int     minute;         -- Minute,      range is -1 to 59
+X *      int     second;         -- Seconds,     range is -1 to 59
+X *      int     daylight;       -- Daylight savings time if non-zero.
+X *
+X * Note: if minute or second is less than zero, the value is not calculated.
+X * This distinguishes between "unknown seconds" and "exactly no seconds."
+X * If hour is less than zero, a null string is returned.
+X * Timetxt converts the time to a null-trailed string.  It returns a pointer
+X * to the first free byte (i.e. the null);
+X *
+X * The output follows the syntax of Robert J. Lurtsema, and includes:
+X *
+X *      In twenty-five seconds, the time will be ten minutes before noon.
+X *
+X *
+X * External routines called:
+X *
+X *      nbrtxt          (Number to ascii conversion)
+X *      copyst          (String copy routine)
+X */
+X
+Xextern char     *nbrtxt();
+Xextern char     *copyst();
+X
+Xchar *timetxt(buffer, hour, minute, second, daylight)
+Xchar    *buffer;                        /* Output buffer                */
+Xint     hour;                           /* Hours 00 - 23                */
+Xint     minute;                         /* Minutes                      */
+Xint     second;                         /* Seconds                      */
+Xint     daylight;                       /* Non-zero if savings time     */
+X/*
+X * Output time of day.
+X */
+X{
+X	char            *op;            /* Output pointer               */
+X	register int    late;           /* after hour or afternoon      */
+X	register int	sec;		/* Seconds temp			*/
+X	char		*stuff();	/* Buffer stuffer		*/
+X
+X	op = buffer;                    /* Setup buffer pointer         */
+X	if (hour < 0) {			/* If it's a dummy call,	*/
+X		*op = 0;		/* Return a null string		*/
+X		return(op);
+X	}
+X	if (daylight == 0101010) {      /* Secret flag                  */
+X		op = copyst(op, "The big hand is on the ");
+X		op = nbrtxt(op, (((minute + 2 + second/30)/5 + 11)%12)+1, 0);
+X		op = copyst(op," and the little hand is on the ");
+X		op = nbrtxt(op, ((hour + 11) % 12) + 1, 0);
+X		return(copyst(op, ".  "));
+X	}
+X	/*
+X	 * Check if the time is more than 30 minutes past the hour.
+X	 * If so, output the time before the next hour.
+X	 */
+X	if (minute < 0) second = (-2);  /* No minutes means no seconds  */
+X	else if ((late = (minute > 30 || (minute == 30 && second > 0)))) {
+X		if (second > 0) {       /* Before next hour             */
+X			second = 60 - second;
+X			minute += 1;    /* Diddle the minute, too       */
+X		}
+X		minute = 60 - minute;   /* Minutes before next hour     */
+X		hour += 1;              /* Frobozz next hour getter     */
+X	}
+X	/*
+X	 * Decisions, decisions:
+X	 *	Minutes	Seconds =>
+X	 *	  00	  00	Exactly Noon
+X	 *	  00	  01	One second after noon
+X	 *	  01	  00	Exactly one minute after noon
+X	 *	  30	  00	Exactly half past noon
+X	 *	  59	  00	Exactly one minute before noon
+X	 *	  59	  59	In one second, the time will be noon
+X	 */
+X	if (late > 0 && second > 0) {
+X		op = stuff(op, second, 1, "In ", " second");
+X		op = copyst(op, ", the time will be ");
+X		sec = -2;		/* We've done seconds already	*/
+X	}
+X	else if (daylight != -1) {
+X		op = copyst(op, "The time is ");
+X		sec = second;		/* Seconds still to be done	*/
+X	}
+X	if (sec == 0) {
+X		op = copyst(op, "exactly ");
+X		if (minute == 30)
+X			op = copyst(op, "half past ");
+X		else	op = stuff(op, minute, 1, " ", " minute");
+X	}
+X	else {				/* Non exact or missing seconds	*/
+X		op = stuff(op, minute, 0, " ",     " minute");
+X		if(second > 0)
+X	        op = stuff(op, sec, (sec > 0),  " and ", " second");
+X	}
+X	op = copyst(op, (minute < 0 || (minute == 0 && late)
+X			|| (second == 0
+X				&& ((minute == 0 && late == 0)
+X					|| minute == 30))) ? " "
+X		: (late) ? " before " : " after ");
+X	/*
+X	 * Hours are not quite so bad
+X	 */
+X	if (hour == 0 || hour == 24)
+X		op = copyst(op, "midnight");
+X	else if (hour == 12)
+X		op = copyst(op, "noon");
+X	else {
+X		if (late = (hour > 12))
+X			hour = hour - 12;
+X		op = nbrtxt(op, hour, 0);
+X		op = copyst(op, (late) ? " PM" : " AM");
+X	}
+X	if (daylight != -1) 
+X	    op = copyst(op, (daylight)
+X		? ", Pacific Daylight Time.  "
+X		: ", Pacific Standard Time.  ");
+X	return(op);
+X}
+X
+Xstatic char *
+Xstuff(buffer, value, flag, leading, trailing)
+Xchar    *buffer;                        /* Output goes here             */
+Xint     value;                          /* The value to print if > 0    */
+Xint     flag;                           /* flag is set to print leading */
+Xchar    *leading;                       /* preceeded by ...             */
+Xchar    *trailing;                      /* and followed by ...          */
+X/*
+X * If value <= zero, output nothing. Else, output "leading" value "trailing".
+X * Note: leading is output only if flag is set.
+X * If value is not one, output an "s", too.
+X */
+X{
+X	register char   *op;            /* Output pointer               */
+X
+X	op = buffer;                    /* Setup buffer pointer         */
+X	if (value > 0) {
+X		if (flag)
+X			op = copyst(op, leading);
+X		op = nbrtxt(op, value, 0);
+X		op = copyst(op, trailing);
+X		if (value != 1)
+X			op = copyst(op, "s");
+X	}
+X	return(op);
+X}
+END_OF_FILE
+  if test 5255 -ne `wc -c <'today/timetx.c'`; then
+    echo shar: \"'today/timetx.c'\" unpacked with wrong size!
+  fi
+  # end of 'today/timetx.c'
+fi
+echo shar: End of archive 8 \(of 11\).
+cp /dev/null ark8isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 11 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

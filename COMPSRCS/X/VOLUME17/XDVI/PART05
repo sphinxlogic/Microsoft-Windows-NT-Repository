@@ -1,0 +1,1251 @@
+Newsgroups: comp.sources.x
+Path: uunet!cis.ohio-state.edu!zaphod.mps.ohio-state.edu!mips!msi!dcmartin
+From: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Subject: v17i027: xdvi, dvi previewer, Part05/05
+Message-ID: <1992Mar23.173222.15498@msi.com>
+Originator: dcmartin@fascet
+Sender: dcmartin@msi.com (David C. Martin - Moderator)
+Organization: Molecular Simulations, Inc.
+References: <csx-17i023-xdvi@uunet.UU.NET>
+Date: Mon, 23 Mar 1992 17:32:22 GMT
+Approved: dcmartin@msi.com
+
+Submitted-by: vojta@powdermilk.berkeley.edu (Paul Vojta)
+Posting-number: Volume 17, Issue 27
+Archive-name: xdvi/part05
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  mksedscript tpic.c util.c xdvi.icon xdvi_man.sed
+# Wrapped by vojta@powdermilk.berkeley.edu on Tue Mar 17 17:50:25 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'mksedscript' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'mksedscript'\"
+else
+echo shar: Extracting \"'mksedscript'\" \(895 characters\)
+sed "s/^X//" >'mksedscript' <<'END_OF_FILE'
+X#! /bin/csh -f
+Xunset	x10 buttons a4
+Xset	noglob
+Xforeach x ($argv[4-])
+X	if ($x == -DX10)	set x10
+X	if ($x == -DBUTTONS)	set buttons
+X	if ($x == -DA4)		set a4
+X	if ($x == -DSEARCH_SUBDIRECTORIES) set subdir
+X	if ($x == -DXDVIFONTS_ONLY) set texfonts
+Xend
+Xif ($?x10) then
+X	echo	/^\#ifx11/,/^\#/d
+X	echo	s/%%dot%%//
+Xelse
+X	echo	/^\#ifx10/,/^\#/d
+X	echo	s/%%dot%%/./
+Xendif
+Xif (! $?buttons)	echo /^\#ifbuttons/,/^\#/d
+Xif (! $?subdir)		echo /^\#ifsubdir/,/^\#/d
+Xif ($?texfonts)		echo /^\#iftexfonts/,/^\#/d
+Xecho	/^\#/d
+Xif ($?a4) then
+X	echo	's/%%defaultpagesize%%/21 x 29.7 cm (A4 size)/'
+Xelse
+X	echo	s/%%defaultpagesize%%/8.5 x 11 inches/
+Xendif
+Xecho	"s@%%DEFAULT_FONT_PATH%%@.TP\\
+X$1@" | sed -e "s@:@\\\\
+X.TP\\\\
+X@g"
+Xecho	s/%%DEFAULT_FONT_SIZES%%/$2/ | sed -e "s/:/ :\\\\
+X/g"
+Xif ($3 != "") then
+X	echo	"s@%%DEFAULT_VF_PATH%%@.TP\\
+X$3@" | sed -e "s@:@\\\\
+X.TP\\\\
+X@g"
+Xelse
+X	echo	's@%%DEFAULT_VF_PATH%%.*$@@'
+Xendif
+END_OF_FILE
+if test 895 -ne `wc -c <'mksedscript'`; then
+    echo shar: \"'mksedscript'\" unpacked with wrong size!
+fi
+chmod +x 'mksedscript'
+# end of 'mksedscript'
+fi
+if test -f 'tpic.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'tpic.c'\"
+else
+echo shar: Extracting \"'tpic.c'\" \(10160 characters\)
+sed "s/^X//" >'tpic.c' <<'END_OF_FILE'
+X/*
+X * Support drawing routines for TeXsun and TeX
+X *
+X *      Copyright, (C) 1987, 1988 Tim Morgan, UC Irvine
+X *
+X * At the time these routines are called, the values of hh and vv should
+X * have been updated to the upper left corner of the graph (the position
+X * the \special appears at in the dvi file).  Then the coordinates in the
+X * graphics commands are in terms of a virtual page with axes oriented the
+X * same as the Imagen and the SUN normally have:
+X *
+X *                      0,0
+X *                       +-----------> +x
+X *                       |
+X *                       |
+X *                       |
+X *                      \ /
+X *                       +y
+X *
+X * Angles are measured in the conventional way, from +x towards +y.
+X * Unfortunately, that reverses the meaning of "counterclockwise"
+X * from what it's normally thought of.
+X *
+X * A lot of floating point arithmetic has been converted to integer
+X * arithmetic for speed.  In some places, this is kind-of kludgy, but
+X * it's worth it.
+X */
+X
+X#include <math.h>
+X#include <ctype.h>
+X
+X#include "xdvi.h"
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#endif
+X
+X#define	MAXPOINTS	300	/* Max points in a path */
+X#define	TWOPI		(3.14159265359*2.0)
+X#define	MAX_PEN_SIZE	7	/* Max pixels of pen width */
+X
+X
+Xstatic	int	xx[MAXPOINTS], yy[MAXPOINTS];	/* Path in milli-inches */
+Xstatic	int	path_len = 0;	/* # points in current path */
+Xstatic	int	pen_size = 1;	/* Pixel width of lines drawn */
+X
+Xstatic	Boolean	whiten = False;
+Xstatic	Boolean	shade = False;
+Xstatic	Boolean	blacken = False;
+X
+X/* Unfortunately, these values also appear in dvisun.c */
+X#define	xRESOLUTION	(pixels_per_inch/shrink_factor)
+X#define	yRESOLUTION	(pixels_per_inch/shrink_factor)
+X
+X
+X/*
+X * Issue warning messages
+X */
+Xstatic	void
+XWarning(fmt, msg)
+X	char	*fmt, *msg;
+X{
+X	Fprintf(stderr, fmt, msg);
+X	(void) fputc('\n', stderr);
+X}
+X
+X
+X/*
+X * Set the size of the virtual pen used to draw in milli-inches
+X */
+X/* ARGSUSED */
+Xstatic	void
+Xset_pen_size(cp)
+X	char *cp;
+X{
+X	int	ps;
+X
+X	if (sscanf(cp, " %d ", &ps) != 1) {
+X	    Warning("illegal .ps command format: %s", cp);
+X	    return;
+X	}
+X	pen_size = (ps * (xRESOLUTION + yRESOLUTION) + 1000) / 2000;
+X	if (pen_size < 1) pen_size = 1;
+X	else if (pen_size > MAX_PEN_SIZE) pen_size = MAX_PEN_SIZE;
+X}
+X
+X
+X/*
+X * Print the line defined by previous path commands
+X */
+Xstatic	void
+Xflush_path()
+X{
+X	register int i;
+X	int	last_min_x, last_max_x, last_min_y, last_max_y;
+X
+X	last_min_x = 30000;
+X	last_min_y = 30000;
+X	last_max_x = -30000;
+X	last_max_y = -30000;
+X	for (i = 1; i < path_len; i++) {
+X	    if (xx[i] > last_max_x) last_max_x = xx[i];
+X	    if (xx[i] < last_min_x) last_min_x = xx[i];
+X	    if (yy[i] > last_max_y) last_max_y = yy[i];
+X	    if (yy[i] < last_min_y) last_min_y = yy[i];
+X	    line_btw(xx[i], yy[i], xx[i+1], yy[i+1]);
+X	}
+X	if (xx[path_len] > last_max_x) last_max_x = xx[path_len];
+X	if (xx[path_len] < last_min_x) last_min_x = xx[path_len];
+X	if (yy[path_len] > last_max_y) last_max_y = yy[path_len];
+X	if (yy[path_len] < last_min_y) last_min_y = yy[path_len];
+X	path_len = 0;
+X	do_attribute_path(last_min_x, last_max_x, last_min_y, last_max_y);
+X}
+X
+X
+X/*
+X * Print a dashed line along the previously defined path, with
+X * the dashes/inch defined.
+X */
+X
+Xstatic	void
+Xflush_dashed(cp, dotted)
+X	char	*cp;
+X	int	dotted;
+X{
+X	int	i;
+X	int	numdots;
+X	int	lx0, ly0, lx1, ly1;
+X	int	cx0, cy0, cx1, cy1;
+X	float	inchesperdash;
+X	double	d, spacesize, a, b, dx, dy, milliperdash;
+X
+X	if (sscanf(cp, " %f ", &inchesperdash) != 1) {
+X	    Warning("illegal format for dotted/dashed line: %s", cp);
+X	    return;
+X	}
+X	if (path_len <= 1 || inchesperdash <= 0.0) {
+X	    Warning("illegal conditions for dotted/dashed line", "");
+X	    return;
+X	}
+X	milliperdash = inchesperdash * 1000.0;
+X	lx0 = xx[1];	ly0 = yy[1];
+X	lx1 = xx[2];	ly1 = yy[2];
+X	dx = lx1 - lx0;
+X	dy = ly1 - ly0;
+X	if (dotted) {
+X	    numdots = sqrt(dx*dx + dy*dy) / milliperdash + 0.5;
+X	    if (numdots == 0) numdots = 1;
+X	    for (i = 0; i <= numdots; i++) {
+X		a = (float) i / (float) numdots;
+X		cx0 = lx0 + a * dx + 0.5;
+X		cy0 = ly0 + a * dy + 0.5;
+X		dot_at(cx0, cy0);
+X	    }
+X	}
+X	else {
+X	    d = sqrt(dx*dx + dy*dy);
+X	    numdots = d / (2.0 * milliperdash) + 1.0;
+X	    if (numdots <= 1)
+X		line_btw(lx0, ly0, lx1, ly1);
+X	    else {
+X		spacesize = (d - numdots * milliperdash) / (numdots - 1);
+X		for (i = 0; i < numdots - 1; i++) {
+X		    a = i * (milliperdash + spacesize) / d;
+X		    b = a + milliperdash / d;
+X		    cx0 = lx0 + a * dx + 0.5;
+X		    cy0 = ly0 + a * dy + 0.5;
+X		    cx1 = lx0 + b * dx + 0.5;
+X		    cy1 = ly0 + b * dy + 0.5;
+X		    line_btw(cx0, cy0, cx1, cy1);
+X		    b += spacesize / d;
+X		}
+X		cx0 = lx0 + b * dx + 0.5;
+X		cy0 = ly0 + b * dy + 0.5;
+X		line_btw(cx0, cy0, lx1, ly1);
+X	    }
+X	}
+X	path_len = 0;
+X}
+X
+X
+X/*
+X * Add a point to the current path
+X */
+Xstatic	void
+Xadd_path(cp)
+X	char	*cp;
+X{
+X	int	pathx, pathy;
+X
+X	if (++path_len >= MAXPOINTS) oops("Too many points");
+X	if (sscanf(cp, " %d %d ", &pathx, &pathy) != 2)
+X	    oops("Malformed path command");
+X	xx[path_len] = pathx;
+X	yy[path_len] = pathy;
+X}
+X
+X
+X/*
+X * Draw to a floating point position
+X */
+Xstatic void
+Xim_fdraw(x, y)
+X	double	x,y;
+X{
+X	if (++path_len >= MAXPOINTS) oops("Too many arc points");
+X	xx[path_len] = x + 0.5;
+X	yy[path_len] = y + 0.5;
+X}
+X
+X
+X/*
+X * Draw an ellipse with the indicated center and radices.
+X */
+Xstatic	void
+Xdraw_ellipse(xc, yc, xr, yr)
+X	int	xc, yc, xr, yr;
+X{
+X	double	angle, theta;
+X	int	n;
+X	int	px0, py0, px1, py1;
+X
+X	angle = (xr + yr) / 2.0;
+X	theta = sqrt(1.0 / angle);
+X	n = TWOPI / theta + 0.5;
+X	if (n < 12) n = 12;
+X	else if (n > 80) n = 80;
+X	n /= 2;
+X	theta = TWOPI / n;
+X
+X	angle = 0.0;
+X	px0 = xc + xr;		/* cos(0) = 1 */
+X	py0 = yc;		/* sin(0) = 0 */
+X	while ((angle += theta) <= TWOPI) {
+X	    px1 = xc + xr*cos(angle) + 0.5;
+X	    py1 = yc + yr*sin(angle) + 0.5;
+X	    line_btw(px0, py0, px1, py1);
+X	    px0 = px1;
+X	    py0 = py1;
+X	}
+X	line_btw(px0, py0, xc + xr, yc);
+X}
+X
+X/*
+X * Draw an arc
+X */
+Xstatic	void
+Xarc(cp)
+X	char	*cp;
+X{
+X	int	xc, yc, xrad, yrad, n;
+X	float	start_angle, end_angle, angle, theta, r;
+X	double	xradius, yradius, xcenter, ycenter;
+X
+X	if (sscanf(cp, " %d %d %d %d %f %f ", &xc, &yc, &xrad, &yrad,
+X		&start_angle, &end_angle) != 6) {
+X	    Warning("illegal arc specification: %s", cp);
+X	    return;
+X	}
+X	/* We have a specialized fast way to draw closed circles/ellipses */
+X	if (start_angle <= 0.0 && end_angle >= 6.282) {
+X	    draw_ellipse(xc, yc, xrad, yrad);
+X	    return;
+X	}
+X	xcenter = xc;
+X	ycenter = yc;
+X	xradius = xrad;
+X	yradius = yrad;
+X	r = (xradius + yradius) / 2.0;
+X	theta = sqrt(1.0 / r);
+X	n = 0.3 * TWOPI / theta + 0.5;
+X	if (n < 12) n = 12;
+X	else if (n > 80) n = 80;
+X	n /= 2;
+X	theta = TWOPI / n;
+X	flush_path();
+X	im_fdraw(xcenter + xradius * cos(start_angle),
+X	    ycenter + yradius * sin(start_angle));
+X	angle = start_angle + theta;
+X	while (angle < end_angle) {
+X	    im_fdraw(xcenter + xradius * cos(angle),
+X		ycenter + yradius * sin(angle));
+X	    angle += theta;
+X	}
+X	im_fdraw(xcenter + xradius * cos(end_angle),
+X	    ycenter + yradius * sin(end_angle));
+X	flush_path();
+X}
+X
+X
+X/*
+X * APPROXIMATE integer distance between two points
+X */
+X#define	dist(x0, y0, x1, y1)	(abs(x0-x1)+abs(y0-y1))
+X
+X
+X/*
+X * Draw a spline along the previously defined path
+X */
+Xstatic	void
+Xflush_spline()
+X{
+X	int	xp, yp;
+X	int	N;
+X	int	lastx	= -1;
+X	int	lasty;
+X	int	t1, t2, t3;
+X	int	steps;
+X	int	j;
+X	register int i, w;
+X
+X#ifdef	lint
+X	lasty = -1;
+X#endif
+X	N = path_len + 1;
+X	xx[0] = xx[1];
+X	yy[0] = yy[1];
+X	xx[N] = xx[N-1];
+X	yy[N] = yy[N-1];
+X	for (i = 0; i < N - 1; i++) {	/* interval */
+X	    steps = (dist(xx[i], yy[i], xx[i+1], yy[i+1]) +
+X		dist(xx[i+1], yy[i+1], xx[i+2], yy[i+2])) / 80;
+X	    for (j = 0; j < steps; j++) {	/* points within */
+X		w = (j * 1000 + 500) / steps;
+X		t1 = w * w / 20;
+X		w -= 500;
+X		t2 = (750000 - w * w) / 10;
+X		w -= 500;
+X		t3 = w * w / 20;
+X		xp = (t1*xx[i+2] + t2*xx[i+1] + t3*xx[i] + 50000) / 100000;
+X		yp = (t1*yy[i+2] + t2*yy[i+1] + t3*yy[i] + 50000) / 100000;
+X		if (lastx > -1) line_btw(lastx, lasty, xp, yp);
+X		lastx = xp;
+X		lasty = yp;
+X	    }
+X	}
+X	path_len = 0;
+X}
+X
+X
+X/*
+X * Shade the last box, circle, or ellipse
+X */
+Xstatic	void
+Xshade_last()
+X{
+X	blacken = whiten = False;
+X	shade = True;
+X}
+X
+X
+X/*
+X * Make the last box, circle, or ellipse, white inside (shade with white)
+X */
+Xstatic	void
+Xwhiten_last()
+X{
+X	whiten = True;
+X	blacken = shade = False;
+X}
+X
+X
+X/*
+X * Make last box, etc, black inside
+X */
+Xstatic	void
+Xblacken_last()
+X{
+X	blacken = True;
+X	whiten = shade = False;
+X}
+X
+X
+X/*
+X *	The following copyright message applies to the rest of this file.  --PV
+X */
+X
+X/*
+X *	This program is Copyright (C) 1987 by the Board of Trustees of the
+X *	University of Illinois, and by the author Dirk Grunwald.
+X *
+X *	This program may be freely copied, as long as this copyright
+X *	message remaines affixed. It may not be sold, although it may
+X *	be distributed with other software which is sold. If the
+X *	software is distributed, the source code must be made available.
+X *
+X *	No warranty, expressed or implied, is given with this software.
+X *	It is presented in the hope that it will prove useful.
+X *
+X *	Hacked in ignorance and desperation by jonah@db.toronto.edu
+X */
+X
+X/*
+X *      The code to handle the \specials generated by tpic was modified
+X *      by Dirk Grunwald using the code Tim Morgan at Univ. of Calif, Irvine
+X *      wrote for TeXsun.
+X */
+X
+X#define	COMLEN	4
+X
+Xvoid
+XapplicationDoSpecial(cp)
+X	char	*cp;
+X{
+X	char	command[COMLEN], *orig_cp;
+X	register int len;
+X
+X	orig_cp = cp;
+X	while (isspace(*cp)) ++cp;
+X	len = 0;
+X	while (!isspace(*cp) && *cp && len < COMLEN-1) command[len++] = *cp++;
+X	command[len] = '\0';
+X	if (strcmp(command, "pn") == 0) set_pen_size(cp);
+X	else if (strcmp(command, "fp") == 0) flush_path();
+X	else if (strcmp(command, "da") == 0) flush_dashed(cp, 0);
+X	else if (strcmp(command, "dt") == 0) flush_dashed(cp, 1);
+X	else if (strcmp(command, "pa") == 0) add_path(cp);
+X	else if (strcmp(command, "ar") == 0) arc(cp);
+X	else if (strcmp(command, "sp") == 0) flush_spline();
+X	else if (strcmp(command, "sh") == 0) shade_last();
+X	else if (strcmp(command, "wh") == 0) whiten_last();
+X	else if (strcmp(command, "bk") == 0) blacken_last();
+X	/* throw away the path -- jansteen */
+X	else if (strcmp(command, "ip") == 0) path_len = 0;
+X	else if (!hush_spec_now)
+X	    Fprintf(stderr, "%s:  special \"%s\" not implemented\n", prog,
+X		orig_cp);
+X}
+END_OF_FILE
+if test 10160 -ne `wc -c <'tpic.c'`; then
+    echo shar: \"'tpic.c'\" unpacked with wrong size!
+fi
+# end of 'tpic.c'
+fi
+if test -f 'util.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'util.c'\"
+else
+echo shar: Extracting \"'util.c'\" \(3976 characters\)
+sed "s/^X//" >'util.c' <<'END_OF_FILE'
+X/*
+X * DVI previewer for X.
+X *
+X * Eric Cooper, CMU, September 1985.
+X *
+X * Code derived from dvi-imagen.c.
+X *
+X * Modification history:
+X * 1/1986	Modified for X.10 by Bob Scheifler, MIT LCS.
+X * 7/1988	Modified for X.11 by Mark Eichin, MIT
+X * 12/1988	Added 'R' option, toolkit, magnifying glass
+X *			--Paul Vojta, UC Berkeley.
+X * 2/1989	Added tpic support	--Jeffrey Lee, U of Toronto
+X * 4/1989	Modified for System V by Donald Richardson, Clarkson Univ.
+X * 3/1990	Added VMS support	--Scott Allendorf, U of Iowa
+X *
+X *	Compilation options:
+X *	SYSV	compile for System V
+X *	VMS	compile for VMS
+X *	X10	compile for X10
+X *	NOTOOL	compile without toolkit (X11 only)
+X *	BUTTONS	compile with buttons on the side of the window (needs toolkit)
+X *	MSBITFIRST	store bitmaps internally with most significant bit first
+X *	BMSHORT	store bitmaps in shorts instead of bytes
+X *	BMLONG	store bitmaps in longs instead of bytes
+X *	ALTFONT	default for -altfont option
+X *	A4	use European size paper
+X */
+X
+X#include "xdvi.h"
+X#include <errno.h>
+Xint	errno;
+X
+X#ifdef VMS
+X#include <rmsdef.h>
+X#endif /* VMS */
+X
+X#ifndef	X_NOT_STDC_ENV
+X#include <stdlib.h>
+X#else
+Xchar	*malloc();
+Xvolatile void	exit();
+X#endif
+X#if	defined(macII) && !defined(__STDC__) /* stdlib.h doesn't define these */
+Xchar	*malloc();
+X#endif /* macII */
+X
+X#if	NeedVarargsPrototypes		/* this is for oops */
+X#include <stdarg.h>
+X#else
+X#include <varargs.h>
+X#endif
+X
+X/*
+X *	General utility routines.
+X */
+X
+X/*
+X *	Print error message and quit.
+X */
+X
+X#if	NeedVarargsPrototypes
+Xvolatile void
+Xoops(_Xconst char *message, ...)
+X#else
+X/* VARARGS */
+Xvolatile void
+Xoops(va_alist)
+X	va_dcl
+X#endif
+X{
+X#if	!NeedVarargsPrototypes
+X	_Xconst char *message;
+X#endif
+X	va_list	args;
+X
+X	Fprintf(stderr, "%s: ", prog);
+X#if	NeedVarargsPrototypes
+X	va_start(args, message);
+X#else
+X	va_start(args);
+X	message = va_arg(args, _Xconst char *);
+X#endif
+X	(void) vfprintf(stderr, message, args);
+X	va_end(args);
+X	Putc('\n', stderr);
+X	exit(1);
+X}
+X
+X/*
+X *	Either allocate storage or fail with explanation.
+X */
+X
+Xchar *
+Xxmalloc(size, why)
+X	unsigned	size;
+X	_Xconst char	*why;
+X{
+X	char *mem = malloc(size);
+X
+X	if (mem == NULL)
+X	    oops("! Cannot allocate %u bytes for %s.\n", size, why);
+X	return mem;
+X}
+X
+X/*
+X *	Allocate bitmap for given font and character
+X */
+X
+Xvoid
+Xalloc_bitmap(bitmap)
+X	register struct bitmap *bitmap;
+X{
+X	register unsigned int	size;
+X
+X	/* width must be multiple of 16 bits for raster_op */
+X	bitmap->bytes_wide = ROUNDUP(bitmap->w, BITS_PER_BMUNIT) *
+X	    BYTES_PER_BMUNIT;
+X	size = bitmap->bytes_wide * bitmap->h;
+X	bitmap->bits = xmalloc(size != 0 ? size : 1, "character bitmap");
+X}
+X
+X
+X/*
+X *	Close the pixel file for the least recently used font.
+X */
+X
+Xstatic	void
+Xclose_a_file()
+X{
+X	register struct font *fontp;
+X	unsigned short oldest = ~0;
+X	struct font *f = NULL;
+X
+X	for (fontp = font_head; fontp != NULL; fontp = fontp->next)
+X	    if (fontp->file != NULL && fontp->timestamp <= oldest) {
+X		f = fontp;
+X		oldest = fontp->timestamp;
+X	    }
+X	if (f == NULL)
+X	    oops("Can't find an open pixel file to close");
+X	Fclose(f->file);
+X	f->file = NULL;
+X	++n_files_left;
+X}
+X
+X/*
+X *	Open a file in the given mode.
+X */
+X
+XFILE *
+Xxfopen(filename)
+X	_Xconst char	*filename;
+X{
+X	FILE	*f;
+X
+X	if (n_files_left == 0) close_a_file();
+X	f = fopen(filename, OPEN_MODE);
+X#ifndef	VMS
+X	if (f == NULL && errno == EMFILE)
+X#else	/* VMS */
+X	if (f == NULL && errno == EVMSERR && vaxc$errno == RMS$_ACC)
+X#endif	/* VMS */
+X	{
+X	    n_files_left = 0;
+X	    close_a_file();
+X	    f = fopen(filename, OPEN_MODE);
+X	}
+X	return f;
+X}
+X
+X
+X/*
+X *
+X *      Read size bytes from the FILE fp, constructing them into a
+X *      signed/unsigned integer.
+X *
+X */
+X
+Xunsigned long
+Xnum(fp, size)
+X	register FILE *fp;
+X	register ubyte size;
+X{
+X	register long x = 0;
+X
+X	while (size--) x = (x << 8) | one(fp);
+X	return x;
+X}
+X
+Xlong
+Xsnum(fp, size)
+X	register FILE *fp;
+X	register ubyte size;
+X{
+X	register long x;
+X
+X#ifdef	__STDC__
+X	x = (signed char) getc(fp);
+X#else
+X	x = (unsigned char) getc(fp);
+X	if (x & 0x80) x -= 0x100;
+X#endif
+X	while (--size) x = (x << 8) | one(fp);
+X	return x;
+X}
+END_OF_FILE
+if test 3976 -ne `wc -c <'util.c'`; then
+    echo shar: \"'util.c'\" unpacked with wrong size!
+fi
+# end of 'util.c'
+fi
+if test -f 'xdvi.icon' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi.icon'\"
+else
+echo shar: Extracting \"'xdvi.icon'\" \(1874 characters\)
+sed "s/^X//" >'xdvi.icon' <<'END_OF_FILE'
+X#define xdvi_width 48
+X#define xdvi_height 48
+Xstatic char xdvi_bits[] = {
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x22, 0x00, 0x00, 0x01, 0x00, 0x00, 0xa2, 0xe0, 0x44, 0x38, 0x95, 0x13,
+X   0x9e, 0x17, 0x45, 0x45, 0x55, 0xf4, 0x82, 0xf0, 0x28, 0x3d, 0xd5, 0x13,
+X   0x82, 0x10, 0x28, 0x05, 0x55, 0x10, 0x82, 0xe0, 0x10, 0x39, 0x8a, 0x13,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+X   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0xff, 0xff, 0xff, 0x1f, 0x00,
+X   0x79, 0x18, 0x18, 0x13, 0x16, 0x00, 0x69, 0x10, 0x18, 0x0e, 0x16, 0x00,
+X   0xcf, 0x20, 0x1c, 0x0e, 0xd6, 0x00, 0xe9, 0xc3, 0x7b, 0x84, 0x3f, 0x01,
+X   0x09, 0x00, 0x00, 0x00, 0x30, 0x00, 0x08, 0x00, 0x00, 0x00, 0x70, 0xcc,
+X   0x08, 0x00, 0x00, 0x00, 0x30, 0x52, 0x0a, 0x00, 0x00, 0x00, 0x30, 0x52,
+X   0x0a, 0xc0, 0xff, 0x03, 0x30, 0x4c, 0x0a, 0x00, 0x00, 0x00, 0x10, 0x00,
+X   0x0a, 0x00, 0x00, 0x00, 0x10, 0x00, 0x0a, 0xc0, 0xff, 0x03, 0x10, 0x00,
+X   0x0a, 0x00, 0x00, 0x00, 0x10, 0x00, 0x08, 0x00, 0x00, 0x00, 0x10, 0x00,
+X   0x0a, 0x00, 0x00, 0x00, 0x10, 0x00, 0x08, 0x00, 0x00, 0x00, 0xf0, 0x17,
+X   0x0b, 0x0c, 0x3c, 0xc0, 0x93, 0x20, 0x0c, 0x0e, 0x43, 0x20, 0x96, 0x40,
+X   0x0c, 0x8e, 0x81, 0x10, 0x96, 0xbe, 0x0a, 0x8d, 0x81, 0x19, 0x90, 0x82,
+X   0x8a, 0x8c, 0x81, 0x0d, 0x90, 0x42, 0x48, 0x8c, 0x81, 0xed, 0x91, 0x3e,
+X   0x6a, 0x0c, 0xc3, 0x1d, 0x96, 0x12, 0x38, 0x0c, 0xbc, 0x0d, 0x1c, 0x02,
+X   0xf8, 0x3f, 0x80, 0x0d, 0x1c, 0x3e, 0x0b, 0x0c, 0x80, 0x0c, 0x1c, 0x00,
+X   0x0b, 0x0c, 0xc3, 0x18, 0x1c, 0x00, 0x0a, 0x0c, 0x63, 0x10, 0x16, 0x00,
+X   0x89, 0x3f, 0x1e, 0xe0, 0x11, 0x00, 0x08, 0x00, 0x00, 0x00, 0x10, 0x00,
+X   0x08, 0x00, 0x00, 0x00, 0x10, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x10, 0x00,
+X   0xff, 0xff, 0xff, 0xff, 0x1f, 0xae, 0x0f, 0x00, 0x80, 0x84, 0x0a, 0xae,
+X   0x87, 0x64, 0x86, 0x84, 0x08, 0x42, 0x42, 0x45, 0xe2, 0x1c, 0x07, 0x42};
+END_OF_FILE
+if test 1874 -ne `wc -c <'xdvi.icon'`; then
+    echo shar: \"'xdvi.icon'\" unpacked with wrong size!
+fi
+# end of 'xdvi.icon'
+fi
+if test -f 'xdvi_man.sed' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xdvi_man.sed'\"
+else
+echo shar: Extracting \"'xdvi_man.sed'\" \(17227 characters\)
+sed "s/^X//" >'xdvi_man.sed' <<'END_OF_FILE'
+X#ifx11
+X.TH XDVI 1 "27 March 1990" "X Version 11"
+X#ifx10
+X.TH XDVI 1 "27 March 1990" "X Version 10"
+X#endif
+X.SH NAME
+Xxdvi \- DVI Previewer for the X Window System
+X.SH SYNOPSIS
+X.B xdvi
+X.nh
+X[+[\fIpage\fP]] [\-s \fIshrink\fP] [\-S \fIdensity\fP] [\-p \fIpixels\fP] [\-l]
+X[\-paper \fIpapertype\fP] [\-mgs[\fIn\fP] \fIsize\fP]
+X[\-hushspecials] [\-hushchars] [\-hush] [\-altfont \fIfont\fP]
+X[\-margins \fIdimen\fP] [\-sidemargin \fIdimen\fP] [\-topmargin \fIdimen\fP]
+X[\-offsets \fIdimen\fP] [\-xoffset \fIdimen\fP] [\-yoffset \fIdimen\fP]
+X[\-keep] [\-rv] [\-fg \fIcolor\fP] [\-bg \fIcolor\fP]
+X[\-hl \fIcolor\fP] [\-bd \fIcolor\fP] [\-cr \fIcolor\fP] [\-bw \fIwidth\fP]
+X#ifx11
+X[\-geometry \fIgeometry\fP] [\-icongeometry \fIgeometry\fP] [\-iconic]
+X[\-display \fIdisplay\fP] [\-copy] [\-thorough]
+X#ifbuttons
+X[\-expert]
+X#ifx10
+X[\-geometry \fIgeometry\fP | =\fIgeometry\fP]
+X[\-display \fIhost\fP:\fIdisplay\fP | \fIhost\fP:\fIdisplay\fP]
+X#endif
+Xdvi_file
+X.hy
+X.SH DESCRIPTION
+X.I Xdvi
+Xis a program which runs under the X window system. It is used to preview
+XDVI files, such as are produced by TeX.
+X.PP
+XThis program has the capability of showing the file shrunken by various
+X(integer) factors, and also has a ``magnifying glass'' which allows one
+Xto see a small part of the unshrunk image momentarily.
+X.PP
+XBefore displaying any page or part thereof, it checks to see if the dvi
+Xfile has changed since the last time it was displayed.  If this is the case,
+Xthen \fIxdvi\fR will reinitialize itself for the new dvi file.  For this reason,
+Xexposing parts of the \fIxdvi\fR window while \fITeX\fR is running should be
+Xavoided.  This feature allows you to preview many versions
+Xof the same file while running \fIxdvi\fR only once.
+X#ifbuttons
+X.PP
+XIn addition to using keystrokes to move within the file, \fIxdvi\fR provides
+Xbuttons on the right side of the window, which are synonymous with various
+Xsequences of keystrokes.
+X#endif
+X.SH OPTIONS
+XIn addition to specifying the .\fPdvi\fR file (with or without the .\fPdvi\fR),
+X\fIXdvi\fR supports the following command line options.
+XIf the option begins with a
+X.RB ` + '
+Xinstead of a
+X.RB ` \- ',
+X#ifx11
+Xthe option is restored to its default value.  By default, these options can
+Xbe set via the resource names given in parentheses in the description of
+Xeach option.
+X#ifx10
+Xthe option is restored to its default value.  These options override those
+Xset in the ``.Xdefaults'' file (via the resource names given in parentheses
+Xin the description of each option).
+X#endif
+X.TP
+X.IB + page
+XSpecifies the first page to show.  If \fI+\fR is given without a
+Xnumber, the last page is assumed; the first page is the default.
+X.TP
+X.BI \-s " shrink"
+X(%%dot%%shrinkFactor)
+XDefines the initial shrink factor.  The default value is 3.
+X.TP
+X.BI \-S " density"
+X(%%dot%%densityPercent)
+XDetermines the density used when shrinking bitmaps for fonts.
+XA higher value produces a lighter font.  The default value is 40.
+X.TP
+X.BI \-density " density"
+XSame as \fB-S\fR.
+X.TP
+X.BI \-p " pixels"
+X(%%dot%%pixelsPerInch)
+XDefines the size of the fonts to use, in pixels per inch.  The
+Xdefault value is 300.
+X.TP
+X.BI \-altfont " font"
+X(%%dot%%altFont)
+XDeclares a default font to use when the font in the dvi file cannot be found.
+XThis is useful, for example, with PostScript <tm> fonts.
+X.TP
+X.B \-l
+X(%%dot%%listFonts)
+XCauses the names of the fonts used to be listed.
+X.TP
+X.B \-hushspecials
+X(%%dot%%hushSpecials)
+XCauses \fIxdvi\fR to suppress warnings about \\special strings
+Xwhich it cannot process.
+X.TP
+X.B \-hushchars
+X(%%dot%%hushLostChars)
+XCauses \fIxdvi\fR to suppress warnings about references to characters which
+Xare not defined in the font.
+X.TP
+X.B \-hush
+X(%%dot%%Hush)
+XCauses \fIxdvi\fR to suppress all suppressable warnings.
+X.TP
+X.B \-rv
+X(%%dot%%reverseVideo)
+XCauses the page to be displayed with white characters on a
+Xblack background, instead of vice versa.
+X.TP
+X.BI \-bw " width"
+X(%%dot%%borderWidth)
+XSpecifies the width of the border of the window.
+X.TP
+X.BI \-borderwidth " width"
+XSame as \fB-bw\fR.
+X.TP
+X.BI \-fg " color"
+X(%%dot%%foreground)
+XDetermines the color of the text (foreground).
+X.TP
+X.BI \-foreground " color"
+XSame as \fB-fg\fR.
+X.TP
+X.BI \-bg " color"
+X(%%dot%%background)
+XDetermines the color of the background.
+X.TP
+X.BI \-background " color"
+XSame as \fB-bg\fR.
+X.TP
+X.BI \-hl " color"
+X(%%dot%%highlight)
+XDetermines the color of the page border.  The default is the foreground color.
+X.TP
+X.BI \-bd " color"
+X(%%dot%%borderColor)
+XDetermines the color of the window border.
+X.TP
+X.BI \-bordercolor " color"
+XSame as \fB-bd\fR.
+X.TP
+X.BI \-cr " color"
+X(%%dot%%cursorColor)
+XDetermines the color of the cursor.  The default is the color of the page
+Xborder.
+X#ifx11
+X.TP
+X.B \-thorough
+X(.thorough)
+X\fIXdvi\fR will usually try to ensure that overstrike characters (\fIe.g.\fR
+X\\notin) are printed correctly.  On monochrome displays, this is always
+Xpossible with one logical operation, either \fIand\fR or \fIor\fR.  On
+Xcolor displays, however, this may take two operations, one to set the
+Xappropriate bits and one to clear other bits.  If this is the case, then
+Xby default \fIxdvi\fR will instead use the \fIcopy\fR operation,
+Xwhich does not handle overstriking correctly.  The ``thorough'' option
+Xchooses the slower but more correct choice.  See also \fI-copy\fR, below.
+X.TP
+X.B \-copy
+X(.copy)
+XAlways use the \fIcopy\fR operation when writing characters to the display.
+XThis option may be necessary for correct operation on a color display, but
+Xoverstrike characters will be incorrect.
+X.TP
+X.B \-keep
+X(.keepPosition)
+XSets a flag to indicate that \fIxdvi\fR should not move to the home position
+Xwhen moving to a new page.  See also the `k' keystroke.
+X#ifbuttons
+X.TP
+X.B \-expert
+X(.expert)
+XPrevent the buttons from appearing.  See also the `x' keystroke.
+X#endif
+X.TP
+X.BI \-margins " dimen"
+X(%%dot%%Margin)
+XSpecifies the size of both the top margin and side margin.
+XThis should be a decimal number optionally followed by "cm", e.g., 1.5 or 3cm,
+Xgiving a measurement in inches or centimeters.  It determines
+Xthe ``home'' position of the page within the window as follows.  If the entire
+Xpage fits in the window, then the margin settings are ignored.  If, even
+Xafter removing the margins from the left, right, top, and bottom, the page
+Xstill cannot fit in the window, then the page is put in the window such that
+Xthe top and left margins are hidden, and presumably the upper left-hand corner
+Xof the text on the page will be in the upper left-hand corner of the window.
+XOtherwise, the text is centered in the window.  See also `\fBM\fR' under
+Xthe KEY\%STROKES section.
+X.TP
+X.BI \-sidemargin " dimen"
+X(%%dot%%sideMargin)
+XSpecifies the side margin (see above).
+X.TP
+X.BI \-topmargin " dimen"
+X(%%dot%%topMargin)
+XSpecifies the top and bottom margins (see above).
+X.TP
+X.BI \-offsets " dimen"
+X(%%dot%%Offset)
+XSpecifies the size of both the horizontal and vertical offsets of the
+Xoutput on the page.  This should be a decimal number optionally followed by
+X"cm", e.g., 1.5 or 3cm, giving a measurement in inches or centimeters.
+XBy decree
+Xof the Stanford TeX Project, the default TeX page origin is always 1 inch
+Xover and down from the top-left page corner, even when non-American paper
+Xsizes are used.  Therefore, the default offsets are 1.0 inch.
+X.TP
+X.BI \-xoffset " dimen"
+X(%%dot%%xOffset)
+XSpecifies the size of the horizontal offset of the output on the page
+X(see above).
+X.TP
+X.BI \-yoffset " dimen"
+X(%%dot%%yOffset)
+XSpecifies the size of the vertical offset of the output on the page
+X(see above).
+X.TP
+X.BI \-paper " papertype"
+X(%%dot%%paper)
+XSpecifies the size of the printed page.  This may be of the form
+X\fIw\fRx\fIh\fR (or \fIw\fRx\fIh\fRcm), where \fIw\fR is the width in
+Xinches (or cm) and \fIh\fR is the height in inches (or cm), respectively.
+XThere are also synonyms which may be used:  us (8.5x11), usr (11x8.5),
+Xlegal (8.5x14), foolscap (13.5x17), as well as the ISO sizes a1-a7,
+Xb1-b7, c1-c7, a1r-a7r (a1-a7 rotated), etc.  The default size is
+X%%defaultpagesize%%.
+X.TP
+X#ifx11
+X.BI "\-mgs[n]" " size"
+X(.magnifierSize[n])
+XSpecifies the size of the window to be used for the ``magnifying glass''
+Xfor Button \fIn\fR.  See the MOUSE ACTIONS section.  Defaults are 200,
+X350, 600, 900, and 1200.
+X.TP
+X.BI \-mgs " size"
+XSame as \fB-mgs1\fR.
+X#ifx10
+X.BI \-mgs " size"
+X(magnifierSize1)
+XSpecifies the size of the window to be used for the ``magnifying glass''
+Xfor the left button.  See the MOUSE ACTIONS section.  Default is 200.
+X.TP
+X.BI \-mgs1 " size"
+XSame as \fB-mgs\fR.
+X.TP
+X.BI \-mgs2 " size"
+X(magnifierSize2)
+XSpecifies the ``magnifying glass'' size for the middle
+Xbutton.  Default is 350.
+X.TP
+X.BI \-mgs3 " size"
+X(magnifierSize3)
+XSpecifies the ``magnifying glass'' size for the right
+Xbutton.  Default is 600.
+X#endif
+X.TP
+X#ifx11
+X.BI \-geometry " geometry"
+X(*geometry)
+XSpecifies the initial geometry of the window.
+X.TP
+X.BI \-icongeometry " geometry
+X(%%dot%%iconGeometry)
+XSpecifies the initial position for the icon.
+X.TP
+X.B \-iconic
+X(%%dot%%iconic)
+XCauses the XDVI window to start in the iconic state.  The default is to
+Xstart with the window open.
+X#ifx10
+X.BI = geometry
+X(geometry)
+XSpecifies the initial geometry of the window.
+X.TP
+X.BI \-geometry " geometry"
+XSame as above.
+X#endif
+X.TP
+X.BI \-display " host:display"
+XSpecifies the host and screen to be used for displaying the dvi file.
+XThis is normally obtained from the environment variable ``DISPLAY.''
+X.SH KEYSTROKES
+X\fBXdvi\fR recognizes the following keystrokes when typed in its window.
+XEach may optionally be preceded by a (positive or negative) number, whose
+Xinterpretation will depend on the particular keystroke.
+X#ifx11
+XAlso, the "Home", "Prior", "Next", and arrow cursor keys are synonyms for
+X`^', `b', `f', `l', `r', `u', and `d' keys, respectively.
+X#endif
+X.TP
+X.B q
+XQuits the program.  Control-C and control-D will do this, too.
+X.TP
+X.B n
+XMoves to the next page (or to the \fBn\fRth next page if a number is given).
+XSynonyms are `\fBf\fR', Space, Return, and Line Feed.
+X.TP
+X.B p
+XMoves to the previous page (or back \fBn\fR pages).  Synonyms are
+X`\fBb\fR', control-H, and Delete.
+X.TP
+X.B g
+XMoves to the page with the given number.  Initially, the first page is assumed
+Xto be page number 1, but this can be changed with the `\fBP\fR' keystroke,
+Xbelow.  If no page number is given, then it goes to the last page.
+X.TP
+X.B P
+X``This is page number \fBn\fR.''  This can be used to make the `\fBg\fR'
+Xkeystroke refer to actual page numbers instead of absolute page numbers.
+X.TP
+X.B Control-L
+XRedisplays the current page.
+X.TP
+X.B ^
+XMove to the ``home'' position of the page.  This is normally the upper
+Xleft-hand corner of the page, depending on the margins as described in
+Xthe \-\fBmargins\fR option, above.
+X.TP
+X.B u
+XMoves up two thirds of a window-full.
+X.TP
+X.B d
+XMoves down two thirds of a window-full.
+X.TP
+X.B l
+XMoves left two thirds of a window-full.
+X.TP
+X.B r
+XMoves right two thirds of a window-full.
+X.TP
+X.B c
+XMoves the page so that the point currently beneath the cursor is moved to
+Xthe middle of the window.  It also (gasp!) warps the cursor to the same place.
+X.TP
+X.B M
+XSets the margins so that the point currently under the cursor is the upper
+Xleft-hand corner of the text in the page.  Note that this command itself does
+Xnot move the image at all.  For details on how the margins are used, see
+Xthe \-\fBmargins\fR option.
+X.TP
+X.B s
+XChanges the shrink factor to the given number.  If no number is given, the
+Xsmallest factor that makes the entire page fit in the window will be used.
+X(Margins are ignored in this computation.)
+X.TP
+X.B S
+XSets the density factor to be used when shrinking bitmaps.  This should
+Xbe a number between 0 and 100; higher numbers produce lighter characters.
+X.TP
+X.B R
+XForces the dvi file to be reread.  This allows you to preview many versions
+Xof the same file while running \fIxdvi\fR only once.
+X.TP
+X.B k
+XNormally when \fIxdvi\fR switches pages, it moves to the home position as well.
+XThe `k' keystroke toggles a `keep-position' flag which, when set, will keep
+Xthe same position when moving between pages.  Also `0k' and `1k' clear and
+Xset this flag, respectively.  See also the \fB\-keep\fR option.
+X#ifbuttons
+X.TP
+X.B x
+XToggles expert mode (in which the buttons do not appear).  Also `0x' and `1x'
+Xclear and reset this mode, respectively.  See also the \fB\-expert\fR option.
+X#endif
+X.SH MOUSE ACTIONS
+XIf the shrink factor is set to any number other than one, then clicking
+Xany mouse button will pop up a ``magnifying glass'' which shows the unshrunk
+Ximage in the vicinity of the mouse click.  This subwindow disappears when
+Xthe mouse button is released.  Different mouse buttons produce different sized
+Xwindows, as indicated by the \fB\-mgs\fR option.  Moving the cursor
+Xwhile holding the button down will move the magnifying glass.
+X.PP
+XAlso, the scrollbars (if present) behave in the standard way:  pushing Button 2
+Xin a scrollbar moves the top or left edge of the scrollbar to that point
+Xand optionally drags it;
+Xpushing Button 1 moves the image up or right by an amount equal to the distance
+Xfrom the button press to the upper left-hand corner of the window; pushing
+XButton 3 moves the image down or left by the same amount.
+X.SH ENVIRONMENT
+XUses the environment variable ``DISPLAY'' to specify which bit map display
+Xterminal to use.
+X.PP
+XThe environment variable ``XDVIFONTS'' determines the path(s) searched for
+Xfonts in the following manner.  The string consists of one or more strings
+Xseparated by colons.  In each such string, the substring ``%f'' is
+Xchanged to the font name; ``%d'' is changed to the magnification; and
+X``%p'' is changed to the font family (``gf'', ``pk'', or ``pxl'').  If no
+X``%f'' appears in the string, then the string ``/%f.%d%p'' is added on
+Xthe end.  For example, if the string is ``/usr/local/tex/fonts'' and the font is
+Xcmr10 at 300dpi, then it searches for /usr/local/tex/fonts/cmr10.300gf,
+X/usr/local/tex/fonts/cmr10.300pk, and /usr/local/tex/fonts/cmr10.1500pxl,
+Xin that order.  An extra colon anywhere in the ``XDVIFONTS'' variable
+Xcauses the system default paths to be tried at that point.  If the font is not
+Xfound in the desired size, then \fIxdvi\fR will try to find the nearest size.
+XIf the font cannot be found at all, then \fIxdvi\fR will try to vary the point
+Xsize of the font (within a certain range), and if this fails, then it will
+Xuse the font specified as the alternate font (cf. \fB-altfont\fR).
+X#iftexfonts
+X.PP
+XFor compatibility with TeX, you may also use ``TEXFONTS'' in place of
+X``XDVIFONTS'', although in that case the variable should not include
+Xany ``%'' specifiers.  The reason for recognizing TEXFONTS is that
+Xcertain versions of TeX also support the convention regarding an extra
+Xcolon in the font path; therefore, users who create their own fonts can
+Xput both their .tfm and raster files in the same directory and do
+X``setenv TEXFONTS :MFdir'' or ``setenv TEXFONTS MFdir:'' in order to
+Xget both TeX and \fIxdvi\fR to search their directory in addition to
+Xthe system standard directories.  The XDVIFONTS variable overrides the
+XTEXFONTS variable, so that on those sites where TEXFONTS must be set
+Xexplicitly, and therefore this feature is not useful, the XDVIFONTS may
+Xbe set to an empty string (\fIi.e.,\fR ``setenv XDVIFONTS'') to cause
+X\fIxdvi\fR to ignore TEXFONTS.
+X#endif
+X#ifsubdir
+X.PP
+XYou can also enable recursive searching in the font path by using the ``*''
+Xand ``**'' specifiers.  At this point in the path, \fIxdvi\fR will recursively
+Xsearch subdirectories of the given directory in order to find font files.
+XA single asterisk limits the search to one level; a double asterisk will search
+Xthrough an arbitrary number of levels.  Also, the variable TEXFONTS_SUBDIR
+Xcan be used to give a colon-separated list of directories to recursively search.
+XThis is equivalent to including the specifiers with a ``*'' after each; the
+Xusual conventions regarding extra colons applies here, too, relative to a
+Xdefault subdirectory path.  Asterisks may not be preceded by a ``%'' specifier
+Xin any path component.
+X#endif
+X.PP
+XThe ``XDVISIZES'' variable must be set to indicate which sizes of fonts are
+Xavailable.  It should consist of a list of numbers separated by colons.  If
+Xthe list begins with a colon, the system default sizes are used, as well.
+XSizes are expressed in dots per inch; decimals may be used for ``pxl'' files:
+Xfor example, a 300 dots per inch file magnified by half a step comes out to
+X1643 dots per five inches, which should be encoded as 328.6.  The current
+Xdefault set of sizes is %%DEFAULT_FONT_SIZES%%.  \fIxdvi\fR will also try the
+Xactual size of the font before trying any of the given sizes.
+X.PP
+XVirtual fonts are also supported, although \fIxdvi\fR does not have any
+Xbuilt-in fonts to which they can refer.  The search path for .vf files
+Xcan be specified with the ``XDVIVFS'' environment variable in a similar
+Xmanner to that for the ``XDVIFONTS'' variable.  Virtual fonts are searched
+Xfor immediately after looking for the font as a normal font in the exact size
+Xspecified.
+X.SH FILES
+X.br
+X%%DEFAULT_FONT_PATH%%   Font pixel files.
+X%%DEFAULT_VF_PATH%%   Virtual font files.
+X.SH "SEE ALSO"
+XX(1).
+X.SH AUTHORS
+XEric Cooper, CMU, did a version for direct output to a QVSS.
+XModified for X by
+XBob Scheifler, MIT Laboratory for Computer Science.
+XModified for X11 by Mark Eichin, MIT SIPB.
+XAdditional enhancements by many others.
+END_OF_FILE
+if test 17227 -ne `wc -c <'xdvi_man.sed'`; then
+    echo shar: \"'xdvi_man.sed'\" unpacked with wrong size!
+fi
+# end of 'xdvi_man.sed'
+fi
+echo shar: End of shell archive.
+exit 0
+-- 
+--
+Molecular Simulations, Inc.			mail: dcmartin@msi.com
+796 N. Pastoria Avenue				uucp: uunet!dcmartin
+Sunnyvale, California 94086			at&t: 408/522-9236

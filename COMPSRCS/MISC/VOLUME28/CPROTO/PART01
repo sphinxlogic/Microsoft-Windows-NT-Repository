@@ -1,0 +1,2135 @@
+Newsgroups: comp.sources.misc
+From: cthuang@zerosan.UUCP (Chin Huang)
+Subject:  v28i100:  cproto - generate C function prototypes v3, Part01/02
+Message-ID: <csm-v28i100=cproto.162455@sparky.IMD.Sterling.COM>
+X-Md4-Signature: 0f243b9059e466ab126720065d4f96c1
+Date: Sat, 14 Mar 1992 22:25:46 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: cthuang@zerosan.UUCP (Chin Huang)
+Posting-number: Volume 28, Issue 100
+Archive-name: cproto/part01
+Environment: UNIX, MS-DOS, getopt, lex, yacc
+Supersedes: cproto: Volume 17, Issue 70-71
+
+This is version 3 of cproto, a program that generates function
+prototypes and variable declarations from C source code.  It has several
+bug fixes and one significant enhancement.  It can convert function
+definitions between the old style and the ANSI C style.  This conversion
+overwrites the original files, so make a backup copy of your files in
+case something goes wrong.
+
+Thanks to Alec Sharp, Dave Custer and Keith Brown for their comments,
+suggestions and bug reports.
+-----
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README CHANGES cproto.man cproto.1 Makefile.bc
+#   Makefile.msc Makefile.uni lex.l grammar.y
+# Wrapped by cthuang@zerosan.UUCP on Sat Mar 14 12:14:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f README -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"README\"
+else
+echo shar: Extracting \"README\" \(689 characters\)
+sed "s/^X//" >README <<'END_OF_README'
+XCproto is a program that generates function prototypes and variable
+Xdeclarations from C source code.  It can also convert function
+Xdefinitions between the old style and the ANSI C style.  This conversion
+Xoverwrites the original files, so make a backup copy of your files in
+Xcase something goes wrong.
+X
+XThe program isn't confused by complex function definitions as much as
+Xother prototype generators because it uses a yacc generated parser.  By
+Xignoring all the input between braces, I avoided implementing the entire
+XC language grammar.
+X
+XCproto is in the public domain.  If you have any comments or find any
+Xbugs, please let me know.
+X
+XChin Huang
+Xcthuang@zerosan.UUCP
+Xchin.huang@canrem.com
+END_OF_README
+if test 689 -ne `wc -c <README`; then
+    echo shar: \"README\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f CHANGES -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"CHANGES\"
+else
+echo shar: Extracting \"CHANGES\" \(3569 characters\)
+sed "s/^X//" >CHANGES <<'END_OF_CHANGES'
+XVersion 3
+X
+XPatchlevel 0
+X
+X- Added options to convert function definitions between the old style
+X  and ANSI C style.
+X- Options can be specified from the environment variable CPROTO.
+X- The MS-DOS version recognizes more Microsoft C and Borland C++ type
+X  modifiers (such as _cdecl, _far, _near).
+X- Fix: Formal parameters specified with typedef names were not promoted.
+X  For example, for the definition
+X
+X  	typedef unsigned short ushort;
+X
+X	void test (x)
+X	ushort x;
+X	{
+X	}
+X
+X  cproto generated the incorrect prototype
+X
+X  	void test(ushort x);
+X
+X  while the correct one is
+X
+X  	void test(int x);
+X
+X- Fix: Incorrect prototypes were generated for functions that returned
+X  function pointers.  For example, cproto generated an incorrect
+X  prototype for the function definition
+X
+X	void (*signal(int x, void (*func)(int y)))(int z)
+X	{
+X	}
+X
+X- Fix: Changed calls to memory allocation functions to abort the program
+X  if they fail.
+X
+XVersion 2
+X
+XPatchlevel 3
+X
+X- Made cproto compatible with GNU flex.
+X- After compiling with the preprocessor symbol TURBO_CPP defined, on
+X  MS-DOS systems, cproto will pipe its input through the Turbo C
+X  preprocessor.
+X- Fix: Typedef names may now be omitted from typedef declarations.
+X  For example, every C compiler I tried accepts
+X
+X	typedef int;
+X
+X  and some even give warnings when encountering this statement.
+X
+XPatchlevel 2
+X
+X- Cproto is now able to generate prototypes for functions defined in lex
+X  and yacc source files named on the command line.  Lex and yacc source
+X  files are recognized by the .l or .y extension.
+X- Fix: The memory allocated to the typedef symbol table was not being
+X  freed after scanning each source file.
+X- Fix: Failure to reset a variable during error recovery caused
+X  segmentation faults.
+X
+XPatchlevel 1
+X
+X- Fix: Cproto incorrectly generated the parameter "int ..." in
+X  prototypes of functions taking variable parameters.
+X- Fix: Function definitions can now be followed by an optional
+X  semicolon.  I found this feature in every C compiler I tried.
+X
+XPatchlevel 0
+X
+X- Added formal parameter promotion.
+X- Added prototype style that surrounds prototypes with a guard macro.
+X- Handles C++ style comment //.
+X- Nifty new way to set prototype output format.
+X- Got rid of the shell wrapper used to pipe the input through the C
+X  preprocessor (cpp).
+X- For the port to MS-DOS, I modified cproto to run without cpp, but
+X  since I didn't want to reimplement cpp, the program processes only the
+X  #include and #define directives and ignores all others.  Macro names
+X  defined by the #define directive are treated like typedef names if
+X  they appear in declaration specifiers.
+X
+XVersion 1
+X
+XPatchlevel 3
+X
+X- Fix: identical typedef names and struct tags should be allowed.
+X  For example:
+X
+X	typedef struct egg_salad egg_salad;
+X
+X	struct egg_salad {
+X	    int mayo;
+X	};
+X
+X	void dine(egg_salad l)
+X	{
+X	}
+X
+XPatchlevel 2
+X
+X- Fix: A typedef statement should allow a list of typedefs to be declared.
+X  Example:
+X
+X	typedef int a, *b;
+X
+X- Fix: When run with the -v option on this input, cproto did not output
+X  a declaration for variable "b":
+X
+X	char *a="one"; char *b="two";
+X
+X- The options were renamed.  Added new options that change the output
+X  format of the prototypes.
+X
+XPatchlevel 1
+X
+X- Fix: Incorrect prototypes were produced for functions that take
+X  function pointer parameters or return a function pointer.  For example,
+X  cproto produced an erroneous prototype for this function definition:
+X
+X	void
+X	(*signal (sig, func))()
+X	int sig;
+X	void (*func)();
+X	{
+X	    /* stuff */
+X	}
+X
+X- The lexical analyser now uses LEX.  It should still be compatible with
+X  FLEX.
+END_OF_CHANGES
+if test 3569 -ne `wc -c <CHANGES`; then
+    echo shar: \"CHANGES\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f cproto.man -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"cproto.man\"
+else
+echo shar: Extracting \"cproto.man\" \(7230 characters\)
+sed "s/^X//" >cproto.man <<'END_OF_cproto.man'
+X
+X
+XCPROTO(1)                  Unix Programmer's Manual                  CPROTO(1)
+X
+X
+XNAME
+X     cproto - generate C function prototypes and convert function definitions
+X
+XSYNOPSIS
+X     cproto [ option ... ] [ file ... ]
+X
+XDESCRIPTION
+X     Cproto  generates  function  prototypes  for  functions  defined  in  the
+X     specified   C   source  files  to  the  standard  output.   The  function
+X     definitions may be in the old style or ANSI C style.  Optionally,  cproto
+X     also  outputs  declarations for any variables defined in the file.  If no
+X     file argument is given, cproto reads its input from the standard input.
+X
+X     By giving a command  line  option,  cproto  will  also  convert  function
+X     definitions  in  the  specified  files  from  the old style to the ANSI C
+X     style.  The original source files along with files specified by
+X
+X           #include "file"
+X
+X     directives appearing in the source code  will  be  overwritten  with  the
+X     converted code.  If no file names are given on the command line, then the
+X     program reads the source code from the standard  input  and  outputs  the
+X     converted source to the standard output.
+X
+X     If any comments appear in  the  parameter  declarations  for  a  function
+X     definition, such as in the example,
+X
+X           main (argc, argv)
+X           int argc;       /* number of arguments */
+X           char *argv[];   /* arguments */
+X           {
+X            ...
+X           }
+X
+X     then the converted function definition will have the form
+X
+X           int
+X           main (
+X               int argc;       /* number of arguments */
+X               char *argv[];   /* arguments */
+X           )
+X           {
+X            ...
+X           }
+X
+X     Otherwise, the converted function definition will look like
+X
+X           int
+X           main (int argc, char *argv[])
+X           {
+X            ...
+X           }
+X
+X
+X
+X
+X
+X
+X                                March 6, 1992                                1
+X
+X
+X
+X
+XCPROTO(1)                  Unix Programmer's Manual                  CPROTO(1)
+X
+X
+X     Cproto can optionally convert function definitions from the ANSI style to
+X     the  old  style.   In  this  mode,  the  program  also  converts function
+X     declarators and prototypes that appear outside function bodies.  This  is
+X     not  a  complete ANSI C to old C conversion.  The program does not change
+X     anything within function bodies.
+X
+XOPTIONS
+X
+X     -a   Convert function definitions from the old style to the ANSI C style.
+X
+X     -e   Output the keyword extern  in  front  of  every  declaration  having
+X          global scope.
+X
+X     -fn  Set the style of function prototype where n is a number from 0 to 4.
+X          For example, consider the function definition
+X
+X                main (argc, argv)
+X                int argc;
+X                char *argv[];
+X                {
+X                 ...
+X                }
+X
+X          If the value is 0, then no prototypes are generated.  When set to 1,
+X          the output is:
+X
+X                int main(/*int argc, char *argv[]*/);
+X
+X          For a value of 2, the output has the form:
+X
+X                int main(int /*argc*/, char */*argv*/[]);
+X
+X          The default value is 3.  It produces the full function prototype:
+X
+X                int main(int argc, char *argv[]);
+X
+X          A value of 4 produces prototypes guarded by a macro:
+X
+X                int main P_((int argc, char *argv[]));
+X
+X
+X     -mname
+X          Set the name of the macro used to guard prototypes when  option  -f4
+X          is selected.  The default is "P_".
+X
+X     -d   Omit the definition of the prototype macro named by the -m option.
+X
+X     -n   Omit file name comments.  The default is to output the  source  file
+X          name in a comment before generating the prototypes for that file.
+X
+X     -p   Disable  promotion  of  formal  parameters  in  old  style  function
+X          definitions.   By  default,  parameters of type char or short in old
+X          style function definitions are promoted to type int in the  function
+X          prototype  or  converted  ANSI C function definition.  Parameters of
+X          type float get promoted to double as well.
+X
+X
+X
+X                                March 6, 1992                                2
+X
+X
+X
+X
+XCPROTO(1)                  Unix Programmer's Manual                  CPROTO(1)
+X
+X
+X     -s   By default, cproto only generates  declarations  for  functions  and
+X          variables  having  global  scope.   This  option  will output static
+X          declarations as well.
+X
+X     -t   Convert  function  definitions  from  the  ANSI  C  style   to   the
+X          traditional style.
+X
+X     -v   Also output declarations for variables defined in the source.
+X
+X     -Ptemplate
+X
+X     -Ftemplate
+X
+X     -Ctemplate
+X          Set  the  output   format   for   generated   prototypes,   function
+X          definitions,   and  function  definitions  with  parameter  comments
+X          respectively.  The format is specified by a template in the form
+X
+X                " int main ( a, b )"
+X
+X          but you may replace each space in this string  with  any  number  of
+X          whitespace characters.  For example, the option
+X
+X                -F"int main(\n\ta,\n\tb\n\t)"
+X
+X          will produce
+X
+X                int main(
+X                        int argc,
+X                        char *argv[]
+X                        )
+X
+X
+X     -Dname[=value]
+X          This option is passed through to the preprocessor  and  is  used  to
+X          define symbols for use with conditionals such as #ifdef.
+X
+X     -Uname
+X          This option is passed through to the preprocessor  and  is  used  to
+X          remove any definitions of this symbol.
+X
+X     -Idirectory
+X          This option is passed through to the preprocessor  and  is  used  to
+X          specify  a  directory  to  search for files that are referenced with
+X          #include.
+X
+X     -V   Print version information.
+X
+XENVIRONMENT
+X     The environment variable CPROTO is scanned for a list of options  in  the
+X     same format as the command line options.
+X
+X
+X
+X
+X
+X
+X
+X                                March 6, 1992                                3
+X
+X
+X
+X
+XCPROTO(1)                  Unix Programmer's Manual                  CPROTO(1)
+X
+X
+XBUGS
+X     If an untagged struct, union or enum declaration appears in  a  generated
+X     function  prototype  or converted function definition, the content of the
+X     declaration between the braces is empty.
+X
+X     The program does not pipe the source files  through  the  C  preprocessor
+X     when  it is converting function definitions.  Instead, it tries to handle
+X     preprocessor directives and macros itself and can be confused  by  tricky
+X     macro  expansions.   The  conversion  also  discards some comments in the
+X     function definition head.
+X
+X     When the program encounters an error, it usually  outputs  the  not  very
+X     descriptive message "syntax error".
+X
+X     Options that take string arguments only interpret the following character
+X     escape sequences:
+X
+X           \n   newline
+X           \t   tab
+X
+X
+XAUTHOR
+X     Chin Huang
+X     cthuang@zerosan.UUCP
+X     chin.huang@canrem.com
+X
+XSEE ALSO
+X     cc(1), cpp(1)
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X
+X                                March 6, 1992                                4
+X
+X
+END_OF_cproto.man
+if test 7230 -ne `wc -c <cproto.man`; then
+    echo shar: \"cproto.man\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f cproto.1 -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"cproto.1\"
+else
+echo shar: Extracting \"cproto.1\" \(5810 characters\)
+sed "s/^X//" >cproto.1 <<'END_OF_cproto.1'
+X.\" $Id: cproto.1 3.3 92/03/14 11:56:21 cthuang Exp $
+X.\"
+X.de EX          \"Begin example
+X.ne 5
+X.if n .sp 1
+X.if t .sp .5
+X.nf
+X.in +.5i
+X..
+X.de EE		\"End example
+X.fi
+X.in -.5i
+X.if n .sp 1
+X.if t .sp .5
+X..
+X.TH CPROTO 1 "March 6, 1992"
+X.SH NAME
+Xcproto \- generate C function prototypes and convert function definitions
+X.SH SYNOPSIS
+X.B cproto
+X[ 
+X.I option \fP...\fI
+X] [
+X.I file \fP...\fI
+X]
+X.SH DESCRIPTION
+X.B Cproto
+Xgenerates function prototypes for
+Xfunctions defined in the specified C source files to the standard output.
+XThe function definitions may be in the old style or ANSI C style.
+XOptionally,
+X.B cproto
+Xalso outputs declarations for any variables defined in the file.
+XIf no
+X.I file
+Xargument is given,
+X.B cproto
+Xreads its input from the standard input.
+X.LP
+XBy giving a command line option,
+X.B cproto
+Xwill also convert function definitions in the specified files from the
+Xold style to the ANSI C style.
+XThe original source files along with files specified by
+X.EX
+X#include "file"
+X.EE
+Xdirectives appearing in the source code will be overwritten
+Xwith the converted code.
+XIf no file names are given on the command line, then the program reads
+Xthe source code from the standard input and outputs the converted source
+Xto the standard output.
+X.LP
+XIf any comments appear in the parameter declarations for a function definition,
+Xsuch as in the example,
+X.EX
+Xmain (argc, argv)
+Xint argc;       /* number of arguments */
+Xchar *argv[];   /* arguments */
+X{
+X ...
+X}
+X.EE
+Xthen the converted function definition will have the form
+X.EX
+Xint
+Xmain (
+X    int argc;       /* number of arguments */
+X    char *argv[];   /* arguments */
+X)
+X{
+X ...
+X}
+X.EE
+XOtherwise, the converted function definition will look like
+X.EX
+Xint
+Xmain (int argc, char *argv[])
+X{
+X ...
+X}
+X.EE
+X.LP
+X.B Cproto
+Xcan optionally convert function definitions from the ANSI style to the old
+Xstyle.
+XIn this mode, the program also converts function declarators and prototypes
+Xthat appear outside function bodies.
+XThis is not a complete ANSI C to old C conversion.
+XThe program does not change anything within function bodies.
+X.SH OPTIONS
+X.TP
+X.B \-a
+XConvert function definitions from the old style to the ANSI C style.
+X.TP
+X.B \-e
+XOutput the keyword
+X.B extern
+Xin front of every declaration having global scope.
+X.TP
+X.BI \-f n
+XSet the style of function prototype where
+X.I n
+Xis a number from 0 to 4.
+XFor example, consider the function definition
+X.EX
+Xmain (argc, argv)
+Xint argc;
+Xchar *argv[];
+X{
+X ...
+X}
+X.EE
+XIf the value is 0, then no prototypes are generated.
+XWhen set to 1, the output is:
+X.EX
+Xint main(/*int argc, char *argv[]*/);
+X.EE
+XFor a value of 2, the output has the form:
+X.EX
+Xint main(int /*argc*/, char */*argv*/[]);
+X.EE
+XThe default value is 3.
+XIt produces the full function prototype:
+X.EX
+Xint main(int argc, char *argv[]);
+X.EE
+XA value of 4 produces prototypes guarded by a macro:
+X.EX
+Xint main P_((int argc, char *argv[]));
+X.EE
+X.TP
+X.BI \-m name
+XSet the name of the macro used to guard prototypes when option -f4 is selected.
+XThe default is "P_".
+X.TP
+X.B \-d
+XOmit the definition of the prototype macro named by the -m option.
+X.TP
+X.B \-n
+XOmit file name comments.
+XThe default is to output the source file name in a comment
+Xbefore generating the prototypes for that file.
+X.TP
+X.B \-p
+XDisable promotion of formal parameters in old style function definitions.
+XBy default, parameters of type
+X.B char
+Xor
+X.B short
+Xin old style function definitions are promoted to type
+X.B int
+Xin the function prototype or converted ANSI C function definition.
+XParameters of type
+X.B float
+Xget promoted to 
+X.B double
+Xas well.
+X.TP
+X.B \-s
+XBy default,
+X.B cproto
+Xonly generates declarations for functions and variables having global scope.
+XThis option will output
+X.B static
+Xdeclarations as well.
+X.TP
+X.B \-t
+XConvert function definitions from the ANSI C style to the traditional style.
+X.TP
+X.B \-v
+XAlso output declarations for variables defined in the source.
+X.TP
+X.BI \-P template
+X.TP
+X.BI \-F template
+X.TP
+X.BI \-C template
+XSet the output format for generated prototypes, function definitions,
+Xand function definitions with parameter comments respectively.
+XThe format is specified by a template in the form
+X.EX
+X" int main ( a, b )"
+X.EE
+Xbut you may replace each space in this string with any number of
+Xwhitespace characters.
+XFor example, the option
+X.EX
+X-F"int main(\\n\\ta,\\n\\tb\\n\\t)"
+X.EE
+Xwill produce
+X.EX
+Xint main(
+X        int argc,
+X        char *argv[]
+X        )
+X.EE
+X.TP
+X.BI \-D name[=value]
+XThis option is passed through to the preprocessor and is used to define 
+Xsymbols for use with conditionals such as
+X.I #ifdef.
+X.TP
+X.BI \-U name
+XThis option is passed through to the preprocessor and is used to remove
+Xany definitions of this symbol.
+X.TP
+X.BI \-I directory
+XThis option is passed through to the preprocessor and is used to specify
+Xa directory to search for files that are referenced with 
+X.I #include.
+X.TP
+X.B \-V
+XPrint version information.
+X.SH ENVIRONMENT
+XThe environment variable CPROTO is scanned for
+Xa list of options in the same format as the command line options.
+X.SH BUGS
+XIf an untagged struct, union or enum declaration appears in
+Xa generated function prototype or converted function definition,
+Xthe content of the declaration between the braces is empty.
+X.LP
+XThe program does not pipe the source files through the C preprocessor when
+Xit is converting function definitions.
+XInstead, it tries to handle preprocessor directives and macros itself
+Xand can be confused by tricky macro expansions.
+XThe conversion also discards some comments in the function definition
+Xhead.
+X.LP
+XWhen the program encounters an error, it usually outputs the not very
+Xdescriptive message "syntax error".
+X.LP
+XOptions that take string arguments only interpret the following
+Xcharacter escape sequences:
+X.EX
+X\\n	newline
+X\\t	tab
+X.EE
+X.SH AUTHOR
+X.nf
+XChin Huang
+Xcthuang@zerosan.UUCP
+Xchin.huang@canrem.com
+X.fi
+X.SH "SEE ALSO"
+Xcc(1),
+Xcpp(1)
+END_OF_cproto.1
+if test 5810 -ne `wc -c <cproto.1`; then
+    echo shar: \"cproto.1\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f Makefile.bc -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile.bc\"
+else
+echo shar: Extracting \"Makefile.bc\" \(1499 characters\)
+sed "s/^X//" >Makefile.bc <<'END_OF_Makefile.bc'
+X# $Id: makefile.bc 3.1 92/03/03 10:45:53 cthuang Exp $
+X#
+X# Borland C++ makefile for C prototype generator
+X
+X# Define MSDOS for MS-DOS compatibility.
+X# Define TURBO_CPP to pipe the input through the Turbo C preprocessor.
+XDEFINES = -DMSDOS -DTURBO_CPP
+X
+XLEX = lex
+XYACC = yacc
+XCC = bcc
+XCFLAGS = -mc $(DEFINES)
+XLIBS = \bc\lib\wildargs.obj
+X
+XDIST1 = README CHANGES cproto.man
+XDIST2 = cproto.1 Makefile.bc Makefile.msc Makefile.uni lex.l grammar.y
+XDIST3 = config.h cproto.h patchlev.h semantic.h symbol.h
+XDIST4 = cproto.c popen.c semantic.c strstr.c symbol.c
+X
+XOBJECTS = cproto.obj getopt.obj popen.obj semantic.obj symbol.obj y_tab.obj
+X
+Xall: cproto.exe
+X
+Xcproto.exe: $(OBJECTS)
+X	$(CC) $(CFLAGS) -e$*.exe $(OBJECTS) $(LIBS)
+X
+Xy_tab.obj: y_tab.c lex_yy.c config.h cproto.h symbol.h semantic.h
+X	$(CC) $(CFLAGS) -c $*.c
+X
+Xy_tab.c: grammar.y
+X	$(YACC) grammar.y
+X
+Xlex_yy.c: lex.l
+X	$(LEX) lex.l
+X
+Xcproto.man: cproto.1
+X	cawf -man $*.1 | bsfilt - >$*.man
+X
+Xclean:
+X	erase *.obj
+X	erase *.bak
+X	erase *.log
+X	erase lex_yy.c
+X	erase y_tab.c
+X	erase cproto.exe
+X
+Xci:
+X	ci -u3 $(DIST2) $(DIST3)
+X	ci -u3 $(DIST4)
+X
+Xshar:
+X	rmcr $(DIST1) $(DIST2)
+X	rmcr $(DIST3) $(DIST4)
+X	shar $(DIST1) $(DIST2) >cproto.sh1
+X	shar $(DIST3) $(DIST4) >cproto.sh2
+X
+Xinscr:
+X	inscr $(DIST1) $(DIST2)
+X	inscr $(DIST3) $(DIST4)
+X
+X# DO NOT DELETE THIS LINE -- make depend depends on it.
+X
+Xcproto.obj: config.h cproto.h symbol.h
+Xpopen.obj: config.h cproto.h
+Xsemantic.obj: config.h cproto.h symbol.h semantic.h
+Xstrstr.obj: config.h
+Xsymbol.obj: config.h cproto.h symbol.h
+END_OF_Makefile.bc
+if test 1499 -ne `wc -c <Makefile.bc`; then
+    echo shar: \"Makefile.bc\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f Makefile.msc -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile.msc\"
+else
+echo shar: Extracting \"Makefile.msc\" \(1521 characters\)
+sed "s/^X//" >Makefile.msc <<'END_OF_Makefile.msc'
+X# $Id: makefile.msc 3.2 92/03/14 11:56:40 cthuang Exp $
+X#
+X# Microsoft C makefile for C prototype generator
+X
+X# Define MSDOS for MS-DOS compatibility.
+X# Define TURBO_CPP to pipe the input through the Turbo C preprocessor.
+XDEFINES = -DMSDOS
+X
+XLEX = lex
+XYACC = yacc
+XCC = cl
+XCFLAGS = -AC $(DEFINES)
+XLIBS = \c6\lib\setargv.obj
+XLDFLAGS = /link /noe /stack:4096
+X
+XDIST1 = README CHANGES cproto.man
+XDIST2 = cproto.1 Makefile.bc Makefile.msc Makefile.uni lex.l grammar.y
+XDIST3 = config.h cproto.h patchlev.h semantic.h symbol.h
+XDIST4 = cproto.c popen.c semantic.c strstr.c symbol.c
+X
+XOBJECTS = cproto.obj getopt.obj semantic.obj symbol.obj y_tab.obj
+X
+Xall: cproto.exe
+X
+Xcproto.exe: $(OBJECTS)
+X	$(CC) $(CFLAGS) -Fe$*.exe $(OBJECTS) $(LIBS) $(LDFLAGS)
+X
+Xy_tab.obj: y_tab.c lex_yy.c config.h cproto.h symbol.h semantic.h
+X	$(CC) $(CFLAGS) -c $*.c
+X
+Xy_tab.c: grammar.y
+X	$(YACC) grammar.y
+X
+Xlex_yy.c: lex.l
+X	$(LEX) lex.l
+X
+Xcproto.man: cproto.1
+X	cawf -man $*.1 | bsfilt - >$*.man
+X
+Xclean:
+X	erase *.obj
+X	erase *.bak
+X	erase *.log
+X	erase lex_yy.c
+X	erase y_tab.c
+X	erase cproto.exe
+X
+Xci:
+X	ci -u3 $(DIST2) $(DIST3)
+X	ci -u3 $(DIST4)
+X
+Xshar:
+X	rmcr $(DIST1) $(DIST2)
+X	rmcr $(DIST3) $(DIST4)
+X	shar $(DIST1) $(DIST2) >cproto.sh1
+X	shar $(DIST3) $(DIST4) >cproto.sh2
+X
+Xinscr:
+X	inscr $(DIST1) $(DIST2)
+X	inscr $(DIST3) $(DIST4)
+X
+X# DO NOT DELETE THIS LINE -- make depend depends on it.
+X
+Xcproto.obj: config.h cproto.h symbol.h
+Xpopen.obj: config.h cproto.h
+Xsemantic.obj: config.h cproto.h symbol.h semantic.h
+Xstrstr.obj: config.h
+Xsymbol.obj: config.h cproto.h symbol.h
+END_OF_Makefile.msc
+if test 1521 -ne `wc -c <Makefile.msc`; then
+    echo shar: \"Makefile.msc\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f Makefile.uni -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"Makefile.uni\"
+else
+echo shar: Extracting \"Makefile.uni\" \(1128 characters\)
+sed "s/^X//" >Makefile.uni <<'END_OF_Makefile.uni'
+X# $Id: makefile.uni 3.2 92/03/14 11:56:46 cthuang Exp $
+X#
+X# UNIX makefile for C prototype generator
+X
+X# Define BSD for BSD, otherwise System V is assumed.
+X#DEFINES = -DBSD
+X
+XLEX = lex
+XYACC = yacc
+XCFLAGS = $(DEFINES)
+X
+XDIST1 = README CHANGES cproto.man
+XDIST2 = cproto.1 Makefile.bc Makefile.msc Makefile.uni lex.l grammar.y
+XDIST3 = config.h cproto.h patchlev.h semantic.h symbol.h
+XDIST4 = cproto.c popen.c semantic.c strstr.c symbol.c
+X
+XOBJECTS = cproto.o semantic.o strstr.o symbol.o y.tab.o
+X
+Xall: cproto cproto.man
+X
+Xcproto: $(OBJECTS)
+X	$(CC) $(CFLAGS) -o $@ $(OBJECTS)
+X
+Xy.tab.c: grammar.y
+X	$(YACC) grammar.y
+X
+Xlex.yy.c: lex.l
+X	$(LEX) lex.l
+X
+Xcproto.man: cproto.1
+X	nroff -man $*.1 >$@
+X
+Xclean:
+X	rm *.o *.bak *.log cproto
+X
+Xci:
+X	ci -u3 $(DIST2) $(DIST3) $(DIST4)
+X
+Xshar:
+X	shar $(DIST1) $(DIST2) >cproto.sh1
+X	shar $(DIST3) $(DIST4) >cproto.sh2
+X
+Xdepend:
+X	makedepend $(DIST4) y.tab.c
+X
+X# DO NOT DELETE THIS LINE -- make depend depends on it.
+X
+Xcproto.o: config.h cproto.h symbol.h
+Xsemantic.o: config.h cproto.h symbol.h semantic.h
+Xstrstr.o: config.h
+Xsymbol.o: config.h cproto.h symbol.h
+Xy.tab.o: config.h cproto.h symbol.h semantic.h lex.yy.c
+END_OF_Makefile.uni
+if test 1128 -ne `wc -c <Makefile.uni`; then
+    echo shar: \"Makefile.uni\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f lex.l -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"lex.l\"
+else
+echo shar: Extracting \"lex.l\" \(10774 characters\)
+sed "s/^X//" >lex.l <<'END_OF_lex.l'
+X%{
+X/* $Id: lex.l 3.3 92/03/14 11:56:49 cthuang Exp $
+X *
+X * Lexical analyzer for C function prototype generator
+X */
+X
+Xstatic int curly;	/* number of curly brace nesting levels */
+Xstatic int ly_count;	/* number of occurances of %% */
+Xlong begin_comment;	/* temporary file offset after last written ) or ; */
+Xlong end_comment;	/* temporary file offset after last comment */
+X
+X/* information about the current input file */
+Xtypedef struct {
+X    char *file_name;		/* input file name */
+X    FILE *file; 		/* input file */
+X    unsigned line_num;		/* current line number in input file */
+X    FILE *tmp_file;		/* temporary file */
+X    boolean convert;		/* if TRUE, convert function definitions */
+X    boolean changed;		/* TRUE if conversion done in this file */
+X#ifdef FLEX_SCANNER
+X    YY_BUFFER_STATE buffer;	/* flex scanner state */
+X#endif
+X} IncludeStack;
+X
+Xstatic int inc_depth;				/* include nesting level */
+Xstatic IncludeStack inc_stack[MAX_INC_DEPTH];	/* stack of included files */
+Xstatic IncludeStack *cur_file;			/* current file */
+Xstatic SymbolTable *included_files;		/* files already included */
+X
+Xstatic void save_text();
+Xstatic void save_text_offset();
+Xstatic void get_comment();
+Xstatic void get_cpp_directive();
+Xstatic void do_include();
+X
+X#ifdef yywrap
+X#undef yywrap
+X#endif
+Xstatic int yywrap();
+X%}
+X
+XWS		[ \t]
+XLETTER		[A-Za-z_]
+XDIGIT		[0-9]
+XID		{LETTER}({LETTER}|{DIGIT})*
+XQUOTED		(\"(\\\"|[^"\n])*\"|\'.\'|\\.)
+X
+X%s CPP1 INIT1 INIT2 CURLY LEXYACC ASM
+X%%
+X
+X\n			{ save_text(); cur_file->line_num++;
+X			    cur_declarator = NULL; }
+X
+X"/*"			{ save_text(); get_comment(); }
+X"//".*$ 		save_text();
+X
+X<LEXYACC>^"%%"		{ save_text(); if (++ly_count >= 2) BEGIN INITIAL; }
+X<LEXYACC>^"%{"		{ save_text(); BEGIN INITIAL; }
+X<LEXYACC>{QUOTED}|.	save_text();
+X<INITIAL>^"%}"		{ save_text(); BEGIN LEXYACC; }
+X
+X<INITIAL>#{WS}* 	{ save_text(); BEGIN CPP1; }
+X
+X<CPP1>define{WS}+{ID}	{
+X			    save_text();
+X			    sscanf(yytext, "define %s", buf);
+X			    get_cpp_directive();
+X			    new_symbol(typedef_names, buf, DS_EXTERN);
+X			}
+X
+X<CPP1>include{WS}+\"[^"]+\"     {
+X			    save_text();
+X			    sscanf(yytext, "include \"%[^\"]\"", buf);
+X			    get_cpp_directive();
+X			    do_include(buf, FALSE);
+X			}
+X<CPP1>include{WS}+\<[^>]+\>	{
+X			    save_text();
+X			    sscanf(yytext, "include <%[^>]>", buf);
+X			    get_cpp_directive();
+X			    do_include(buf, TRUE);
+X			}
+X
+X<CPP1>[0-9]+{WS}+\".*$  {
+X			    save_text();
+X			    sscanf(yytext, "%d \"%[^\"]\"", &cur_file->line_num,
+X				cur_file->file_name);
+X			    cur_file->line_num--;
+X			    BEGIN INITIAL;
+X			}
+X<CPP1>[0-9]+.*$ 	{
+X			    save_text();
+X			    sscanf(yytext, "%d ", &cur_file->line_num);
+X			    cur_file->line_num--;
+X			    BEGIN INITIAL;
+X			}
+X
+X<CPP1>. 		{ save_text(); get_cpp_directive(); }
+X
+X<INITIAL>"("		{ save_text_offset(); return '('; }
+X<INITIAL>")"		{
+X			    save_text();
+X			    if (cur_file->convert) {
+X				begin_comment = ftell(cur_file->tmp_file);
+X			    }
+X			    return ')';
+X			}
+X<INITIAL>"*"		{ save_text_offset(); return '*'; }
+X<INITIAL>","		{ save_text(); return ','; }
+X<INITIAL>";"		{
+X			    save_text();
+X			    if (cur_file->convert) {
+X				begin_comment = ftell(cur_file->tmp_file);
+X			    }
+X			    return ';';
+X			}
+X<INITIAL>"..."		{ save_text(); return T_ELLIPSIS; }
+X<INITIAL>\"C\"          { save_text(); return T_QUOTEC; }
+X
+X<INITIAL>asm		{ save_text(); BEGIN ASM; return T_ASM; }
+X<ASM>"("		save_text();
+X<ASM>")"		{ save_text(); BEGIN INITIAL; return T_ASMARG; }
+X<ASM>{QUOTED}|. 	save_text();
+X
+X<INITIAL>auto		{ save_text_offset(); return T_AUTO; }
+X<INITIAL>extern 	{ save_text_offset(); return T_EXTERN; }
+X<INITIAL>register	{ save_text_offset(); return T_REGISTER; }
+X<INITIAL>static 	{ save_text_offset(); return T_STATIC; }
+X<INITIAL>typedef	{ save_text_offset(); return T_TYPEDEF; }
+X<INITIAL>inline 	{ save_text_offset(); return T_INLINE; }
+X<INITIAL>char		{ save_text_offset(); return T_CHAR; }
+X<INITIAL>double 	{ save_text_offset(); return T_DOUBLE; }
+X<INITIAL>float		{ save_text_offset(); return T_FLOAT; }
+X<INITIAL>int		{ save_text_offset(); return T_INT; }
+X<INITIAL>void		{ save_text_offset(); return T_VOID; }
+X<INITIAL>long		{ save_text_offset(); return T_LONG; }
+X<INITIAL>short		{ save_text_offset(); return T_SHORT; }
+X<INITIAL>signed 	{ save_text_offset(); return T_SIGNED; }
+X<INITIAL>unsigned	{ save_text_offset(); return T_UNSIGNED; }
+X<INITIAL>enum		{ save_text_offset(); return T_ENUM; }
+X<INITIAL>struct 	{ save_text_offset(); return T_STRUCT; }
+X<INITIAL>union		{ save_text_offset(); return T_UNION; }
+X
+X<INITIAL>\[[^\]]*\]	{ save_text_offset(); return T_BRACKETS; }
+X
+X<INITIAL>{ID}		{
+X			    save_text_offset();
+X			    if (find_symbol(type_qualifiers, yytext) != NULL)
+X				return T_TYPE_QUALIFIER;
+X			    else if (find_symbol(typedef_names, yytext) != NULL)
+X				return T_TYPEDEF_NAME;
+X			    else
+X				return T_IDENTIFIER;
+X			}
+X
+X<INITIAL>"="		{ save_text(); BEGIN INIT1; return '='; }
+X<INIT1>"{"		{ save_text(); curly = 1; BEGIN INIT2; }
+X<INIT1>[,;]		{
+X			    unput(yytext[yyleng-1]);
+X			    BEGIN INITIAL;
+X			    return T_INITIALIZER;
+X			}
+X<INIT1>{QUOTED}|.	save_text();
+X
+X<INIT2>"{"		{ save_text(); ++curly; }
+X<INIT2>"}"		{
+X			    save_text();
+X			    if (--curly == 0) {
+X				BEGIN INITIAL;
+X				return T_INITIALIZER;
+X			    }
+X			}
+X<INIT2>{QUOTED}|.	save_text();
+X
+X<INITIAL>"{"		{
+X			    save_text();
+X			    curly = 1;
+X			    BEGIN CURLY;
+X			    return T_LBRACE;
+X			}
+X<CURLY>"{"		{ save_text(); ++curly; }
+X<CURLY>"}"		{
+X			    save_text();
+X			    if (--curly == 0) {
+X				BEGIN INITIAL;
+X				return T_MATCHRBRACE;
+X			    }
+X			}
+X<CURLY>{QUOTED}|.	save_text();
+X
+X[ \t\f]+		save_text();
+X.			{
+X			    save_text();
+X			    put_error();
+X			    fprintf(stderr, "bad character '%c'\n", yytext[0]);
+X			}
+X%%
+X
+X/* Record the current position in the output file and write the matched text
+X * to the file.
+X */
+Xstatic void
+Xsave_text ()
+X{
+X    if (cur_file->convert) {
+X	fputs(yytext, cur_file->tmp_file);
+X    }
+X}
+X
+X/* Save the matched text and set the parser stack value.
+X */
+Xstatic void
+Xsave_text_offset ()
+X{
+X    strcpy(yylval.text.text, yytext);
+X    if (cur_file->convert) {
+X	yylval.text.begin = ftell(cur_file->tmp_file);
+X	fputs(yytext, cur_file->tmp_file);
+X    }
+X}
+X
+X/* Scan to end of comment.
+X */
+Xstatic void
+Xget_comment ()
+X{
+X    int c, lastc = '\0';
+X
+X    while ((c = input()) != 0) {
+X	if (cur_file->convert)
+X	    fputc(c, cur_file->tmp_file);
+X	switch (c) {
+X	case '\n':
+X	    cur_file->line_num++;
+X	    break;
+X	case '/':
+X	    if (lastc == '*') {
+X		if (cur_file->convert && func_params && cur_declarator) {
+X		    cur_declarator->begin_comment = begin_comment;
+X		    begin_comment = ftell(cur_file->tmp_file);
+X		    cur_declarator->end_comment = begin_comment;
+X		    cur_declarator = NULL;
+X		} else {
+X		    end_comment = ftell(cur_file->tmp_file);
+X		}
+X		return;
+X	    }
+X	    break;
+X	}
+X	lastc = c;
+X    }
+X}
+X
+X/* Scan rest of preprocessor statement.
+X */
+Xstatic void
+Xget_cpp_directive ()
+X{
+X    int c, lastc = '\0';
+X
+X    while ((c = input()) != 0) {
+X	if (cur_file->convert)
+X	    fputc(c, cur_file->tmp_file);
+X	switch (c) {
+X	case '\n':
+X	    cur_file->line_num++;
+X	    if (lastc != '\\') {
+X		BEGIN INITIAL;
+X		return;
+X	    }
+X	    break;
+X	case '*':
+X	    if (lastc == '/')
+X		get_comment();
+X	    break;
+X	}
+X	lastc = c;
+X    }
+X}
+X
+X/* Return a pointer to the current file name.
+X */
+Xchar *
+Xcur_file_name ()
+X{
+X    return cur_file->file_name;
+X}
+X
+X/* Return the current line number.
+X */
+Xunsigned
+Xcur_line_num ()
+X{
+X    return cur_file->line_num;
+X}
+X
+X/* Return the current temporary output file.
+X */
+XFILE *
+Xcur_tmp_file ()
+X{
+X    return cur_file->tmp_file;
+X}
+X
+X/* Set the modify flag for the current file.
+X */
+Xvoid
+Xcur_file_changed ()
+X{
+X    cur_file->changed = TRUE;
+X}
+X
+X/* Push a file onto the include stack.	The stream yyin must already
+X * point to the file.
+X */
+Xstatic void
+Xinclude_file (name, convert)
+Xchar *name;		/* file name */
+Xboolean convert;	/* if TRUE, convert function definitions */
+X{
+X    ++inc_depth;
+X    cur_file = inc_stack + inc_depth;
+X    cur_file->file = yyin;
+X    cur_file->file_name = strcpy(xmalloc(MAX_TEXT_SIZE), name);
+X    cur_file->line_num = 1;
+X    cur_file->convert = convert;
+X    cur_file->changed = FALSE;
+X
+X#ifdef FLEX_SCANNER
+X    cur_file->buffer = yy_create_buffer(yyin, YY_BUF_SIZE);
+X    yy_switch_to_buffer(cur_file->buffer);
+X#endif
+X
+X    if (convert) {
+X	cur_file->tmp_file = tmpfile();
+X	if (cur_file->tmp_file == NULL) {
+X	    fprintf(stderr, "%s: cannot create temporary file %s\n", progname);
+X	    cur_file->convert = FALSE;
+X	}
+X    }
+X}
+X
+X#define BLOCK_SIZE 2048
+X
+X/* Copy converted C source from the temporary file to the output stream.
+X */
+Xstatic void
+Xput_file (outf)
+XFILE *outf;
+X{
+X    char block[BLOCK_SIZE];
+X    long filesize;
+X    unsigned nread, count;
+X
+X    filesize = ftell(cur_file->tmp_file);
+X    fseek(cur_file->tmp_file, 0L, 0);
+X    while (filesize > 0) {
+X	count = (filesize < BLOCK_SIZE) ? (unsigned)filesize : BLOCK_SIZE;
+X	nread = fread(block, sizeof(char), count, cur_file->tmp_file);
+X	if (nread == 0)
+X	    break;
+X	fwrite(block, sizeof(char), nread, outf);
+X	filesize -= nread;
+X    }
+X}
+X
+X/* Remove the top of the include stack.
+X */
+Xvoid
+Xpop_file ()
+X{
+X    FILE *outf;
+X
+X    if (yyin != stdin)
+X	fclose(yyin);
+X
+X    if (cur_file->convert) {
+X	if (cur_file->changed) {
+X	    if (yyin == stdin) {
+X		put_file(stdout);
+X	    } else if ((outf = fopen(cur_file->file_name, "w")) != NULL) {
+X		put_file(outf);
+X		fclose(outf);
+X	    } else {
+X		fprintf(stderr, "%s: cannot create file %s\n", progname,
+X		    cur_file->file_name);
+X	    }
+X	}
+X
+X	fclose(cur_file->tmp_file);
+X    }
+X    free(cur_file->file_name);
+X
+X#ifdef FLEX_SCANNER
+X    yy_delete_buffer(YY_CURRENT_BUFFER);
+X#endif
+X
+X    if (--inc_depth >= 0) {
+X	cur_file = inc_stack + inc_depth;
+X	yyin = cur_file->file;
+X
+X#ifdef FLEX_SCANNER
+X	yy_switch_to_buffer(cur_file->buffer);
+X#endif
+X    }
+X}
+X
+X/* Process include directive.
+X */
+Xstatic void
+Xdo_include (filename, stdinc)
+Xchar *filename; 	/* file to include */
+Xboolean stdinc; 	/* TRUE if file name specified with angle brackets */
+X{
+X    char path[MAX_TEXT_SIZE];
+X    int i;
+X    FILE *fp;
+X
+X    if (inc_depth >= MAX_INC_DEPTH-1) {
+X	put_error();
+X	fprintf(stderr, "includes too deeply nested\n");
+X	return;
+X    }
+X
+X    sprintf(path, stdinc ? "<%s>" : "\"%s\"", filename);
+X    if (find_symbol(included_files, path) != NULL)
+X	return;
+X    new_symbol(included_files, path, 0);
+X
+X    for (i = stdinc != 0; i < num_inc_dir; ++i) {
+X	if (strlen(inc_dir[i]) == 0) {
+X	    strcpy(path, filename);
+X	} else {
+X	    sprintf(path, "%s/%s", inc_dir[i], filename);
+X	}
+X	if ((fp = fopen(path, "r")) != NULL) {
+X	    yyin = fp;
+X	    include_file(path, func_style != FUNC_NONE && !stdinc);
+X	    return;
+X	}
+X    }
+X
+X    put_error();
+X    fprintf(stderr, "cannot read file %s\n", filename);
+X}
+X
+X/* When the end of the current input file is reached, pop a
+X * nested include file.
+X */
+Xstatic int
+Xyywrap ()
+X{
+X    if (inc_depth > 0) {
+X	pop_file();
+X	return 0;
+X    } else {
+X	return 1;
+X    }
+X}
+END_OF_lex.l
+if test 10774 -ne `wc -c <lex.l`; then
+    echo shar: \"lex.l\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+if test -f grammar.y -a "${1}" != "-c" ; then 
+  echo shar: Will not over-write existing file \"grammar.y\"
+else
+echo shar: Extracting \"grammar.y\" \(13969 characters\)
+sed "s/^X//" >grammar.y <<'END_OF_grammar.y'
+X/* $Id: grammar.y 3.3 92/03/14 11:56:55 cthuang Exp $
+X *
+X * yacc grammar for C function prototype generator
+X * This was derived from the grammar in Appendix A of
+X * "The C Programming Language" by Kernighan and Ritchie.
+X */
+X
+X%token
+X	/* identifiers that are not reserved words */
+X	T_IDENTIFIER T_TYPEDEF_NAME
+X
+X	/* storage class */
+X	T_AUTO T_EXTERN T_REGISTER T_STATIC T_TYPEDEF
+X	/* This keyword included for compatibility with C++. */
+X	T_INLINE
+X
+X	/* type specifiers */
+X	T_CHAR T_DOUBLE T_FLOAT T_INT T_VOID
+X	T_LONG T_SHORT T_SIGNED T_UNSIGNED
+X	T_ENUM T_STRUCT T_UNION
+X
+X	/* type qualifiers */
+X	T_TYPE_QUALIFIER
+X
+X	/* left brace */
+X	T_LBRACE
+X	/* all input to the matching right brace */
+X	T_MATCHRBRACE
+X
+X	/* paired square brackets and everything between them: [ ... ] */
+X	T_BRACKETS
+X
+X	/* three periods */
+X	T_ELLIPSIS
+X
+X	/* constant expression or paired braces following an equal sign */
+X	T_INITIALIZER
+X
+X	/* "C" */
+X	T_QUOTEC
+X
+X	/* asm */
+X	T_ASM
+X	/* ( "string literal" ) following asm keyword */
+X	T_ASMARG
+X
+X%type <decl_spec> decl_specifiers decl_specifier
+X%type <decl_spec> storage_class type_specifier type_qualifier
+X%type <decl_spec> struct_or_union_specifier enum_specifier
+X%type <decl_list> init_declarator_list
+X%type <declarator> init_declarator declarator direct_declarator
+X%type <declarator> abs_declarator direct_abs_declarator
+X%type <param_list> parameter_type_list parameter_list
+X%type <parameter> parameter_declaration
+X%type <param_list> opt_identifier_list identifier_list
+X%type <text>
+X	struct_or_union pointer opt_type_qualifiers type_qualifier_list any_id
+X	T_BRACKETS
+X	T_IDENTIFIER T_TYPEDEF_NAME
+X	T_AUTO T_EXTERN T_REGISTER T_STATIC T_TYPEDEF T_INLINE
+X	T_CHAR T_DOUBLE T_FLOAT T_INT T_VOID T_LONG T_SHORT T_SIGNED T_UNSIGNED
+X	T_ENUM T_STRUCT T_UNION
+X	T_TYPE_QUALIFIER
+X	'(' '*'
+X
+X%{
+X#include <stdio.h>
+X#include "cproto.h"
+X#include "symbol.h"
+X#include "semantic.h"
+X
+X#define YYMAXDEPTH 150
+X
+X/* Declaration specifier attributes for the typedef statement currently being
+X * scanned.
+X */
+Xstatic int cur_decl_spec_flags;
+X
+X/* Pointer to parameter list for the current function definition. */
+Xstatic ParameterList *func_params;
+X
+X/* Pointer to current declarator in function parameter declaration. */
+Xstatic Declarator *cur_declarator;
+X
+X/* temporary string buffer */
+Xstatic char buf[MAX_TEXT_SIZE];
+X
+X/* Table of typedef names */
+Xstatic SymbolTable *typedef_names;
+X
+X/* Table of type qualifiers */
+Xstatic SymbolTable *type_qualifiers;
+X%}
+X%%
+X
+Xprogram
+X	: /* empty */
+X	| translation_unit
+X	;
+X
+Xtranslation_unit
+X	: external_declaration
+X	| translation_unit external_declaration
+X	;
+X
+Xexternal_declaration
+X	: declaration
+X	| function_definition
+X	| function_definition ';'
+X	| T_ASM T_ASMARG ';'
+X	| T_EXTERN T_QUOTEC braces
+X	| T_EXTERN T_QUOTEC declaration
+X	| error ';'
+X	| error braces
+X	;
+X
+Xbraces
+X	: T_LBRACE T_MATCHRBRACE
+X	;
+X
+Xdeclaration
+X	: decl_specifiers ';'
+X	{
+X	    free_decl_spec(&$1);
+X	}
+X	| decl_specifiers init_declarator_list ';'
+X	{
+X	    check_untagged(&$1);
+X	    if (func_params != NULL) {
+X		set_param_types(func_params, &$1, &$2);
+X	    } else {
+X		gen_declarations(&$1, &$2);
+X		free_decl_list(&$2);
+X	    }
+X	    free_decl_spec(&$1);
+X	}
+X	| T_TYPEDEF decl_specifiers
+X	{
+X	    cur_decl_spec_flags = $2.flags;
+X	    free_decl_spec(&$2);
+X	}
+X	  opt_declarator_list ';'
+X	;
+X
+Xopt_declarator_list
+X	: /* empty */
+X	| declarator_list
+X	;
+X
+Xdeclarator_list
+X	: declarator
+X	{
+X	    new_symbol(typedef_names, $1->name, cur_decl_spec_flags);
+X	    free_declarator($1);
+X	}
+X	| declarator_list ',' declarator
+X	{
+X	    new_symbol(typedef_names, $3->name, cur_decl_spec_flags);
+X	    free_declarator($3);
+X	}
+X	;
+X
+Xfunction_definition
+X	: decl_specifiers declarator
+X	{
+X	    check_untagged(&$1);
+X	    if ($2->func_def == FUNC_NONE) {
+X		yyerror("syntax error");
+X		YYERROR;
+X	    }
+X	    func_params = &($2->head->params);
+X	    func_params->begin_comment = begin_comment;
+X	    func_params->end_comment = end_comment;
+X	}
+X	  opt_declaration_list T_LBRACE
+X	{
+X	    func_params = NULL;
+X
+X	    if (cur_file->convert)
+X		gen_func_definition(&$1, $2);
+X	    gen_prototype(&$1, $2);
+X	    free_decl_spec(&$1);
+X	    free_declarator($2);
+X	}
+X	  T_MATCHRBRACE
+X	| declarator
+X	{
+X	    if ($1->func_def == FUNC_NONE) {
+X		yyerror("syntax error");
+X		YYERROR;
+X	    }
+X	    func_params = &($1->head->params);
+X	    func_params->begin_comment = begin_comment;
+X	    func_params->end_comment = end_comment;
+X	}
+X	  opt_declaration_list T_LBRACE
+X	{
+X	    DeclSpec decl_spec;
+X
+X	    func_params = NULL;
+X
+X	    new_decl_spec(&decl_spec, "int", $1->begin, DS_EXTERN);
+X	    if (cur_file->convert)
+X		gen_func_definition(&decl_spec, $1);
+X	    gen_prototype(&decl_spec, $1);
+X	    free_decl_spec(&decl_spec);
+X	    free_declarator($1);
+X	}
+X	  T_MATCHRBRACE
+X	;
+X
+Xopt_declaration_list
+X	: /* empty */
+X	| declaration_list
+X	;
+X
+Xdeclaration_list
+X	: declaration
+X	| declaration_list declaration
+X	;
+X
+Xdecl_specifiers
+X	: decl_specifier
+X	| decl_specifiers decl_specifier
+X	{
+X	    join_decl_specs(&$$, &$1, &$2);
+X	    free($1.text);
+X	    free($2.text);
+X	}
+X	;
+X
+Xdecl_specifier
+X	: storage_class
+X	| type_specifier
+X	| type_qualifier
+X	;
+X
+Xstorage_class
+X	: T_AUTO
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_EXTERN
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_JUNK);
+X	}
+X	| T_REGISTER
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_STATIC
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_STATIC);
+X	}
+X	| T_INLINE
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_JUNK);
+X	}
+X	;
+X
+Xtype_specifier
+X	: T_CHAR
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN | DS_CHAR);
+X	}
+X	| T_DOUBLE
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_FLOAT
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN | DS_FLOAT);
+X	}
+X	| T_INT
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_LONG
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_SHORT
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN | DS_SHORT);
+X	}
+X	| T_SIGNED
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_UNSIGNED
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_VOID
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| struct_or_union_specifier
+X	| enum_specifier
+X	;
+X
+Xtype_qualifier
+X	: T_TYPE_QUALIFIER
+X	{
+X	    new_decl_spec(&$$, $1.text, $1.begin, DS_EXTERN);
+X	}
+X	| T_TYPEDEF_NAME
+X	{
+X	    /* A typedef name is actually a type specifier, but since the
+X	     * typedef symbol table also stores #define names, this production
+X	     * is here so the <pointer> nonterminal will scan #define names.
+X	     */
+X	    Symbol *s;
+X	    s = find_symbol(typedef_names, $1.text);
+X	    new_decl_spec(&$$, $1.text, $1.begin, s->flags);
+X	}
+X	;
+X
+Xstruct_or_union_specifier
+X	: struct_or_union any_id braces
+X	{
+X	    sprintf(buf, "%s %s", $1.text, $2.text);
+X	    new_decl_spec(&$$, buf, $1.begin, DS_EXTERN);
+X	}
+X	| struct_or_union braces
+X	{
+X	    sprintf(buf, "%s {}", $1.text);
+X	    new_decl_spec(&$$, buf, $1.begin, DS_EXTERN);
+X	}
+X	| struct_or_union any_id
+X	{
+X	    sprintf(buf, "%s %s", $1.text, $2.text);
+X	    new_decl_spec(&$$, buf, $1.begin, DS_EXTERN);
+X	}
+X	;
+X
+Xstruct_or_union
+X	: T_STRUCT
+X	| T_UNION
+X	;
+X
+Xinit_declarator_list
+X	: init_declarator
+X	{
+X	    new_decl_list(&$$, $1);
+X	}
+X	| init_declarator_list ',' init_declarator
+X	{
+X	    add_decl_list(&$$, &$1, $3);
+X	}
+X	;
+X
+Xinit_declarator
+X	: declarator
+X	{
+X	    if ($1->func_def != FUNC_NONE && func_params == NULL &&
+X		func_style == FUNC_TRADITIONAL && cur_file->convert) {
+X		gen_func_declarator($1);
+X		fputs(yytext, cur_file->tmp_file);
+X	    }
+X	    cur_declarator = $$;
+X	}
+X	| declarator '='
+X	{
+X	    if ($1->func_def != FUNC_NONE && func_params == NULL &&
+X		func_style == FUNC_TRADITIONAL && cur_file->convert) {
+X		gen_func_declarator($1);
+X		fputs(" =", cur_file->tmp_file);
+X	    }
+X	}
+X	  T_INITIALIZER
+X	;
+X
+Xenum_specifier
+X	: T_ENUM any_id braces
+X	{
+X	    sprintf(buf, "enum %s", $2.text);
+X	    new_decl_spec(&$$, buf, $1.begin, DS_EXTERN);
+X	}
+X	| T_ENUM braces
+X	{
+X	    new_decl_spec(&$$, "enum {}", $1.begin, DS_EXTERN);
+X	}
+X	| T_ENUM any_id
+X	{
+X	    sprintf(buf, "enum %s", $2.text);
+X	    new_decl_spec(&$$, buf, $1.begin, DS_EXTERN);
+X	}
+X	;
+X
+Xany_id
+X	: T_IDENTIFIER
+X	| T_TYPEDEF_NAME
+X	;
+X
+Xdeclarator
+X	: pointer direct_declarator
+X	{
+X	    $$ = $2;
+X	    sprintf(buf, "%s%s", $1.text, $$->text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	    $$->begin = $1.begin;
+X	}
+X	| direct_declarator
+X	;
+X
+Xdirect_declarator
+X	: T_IDENTIFIER
+X	{
+X	    $$ = new_declarator($1.text, $1.text, $1.begin);
+X	}
+X	| '(' declarator ')'
+X	{
+X	    $$ = $2;
+X	    sprintf(buf, "(%s)", $$->text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	    $$->begin = $1.begin;
+X	}
+X	| direct_declarator T_BRACKETS
+X	{
+X	    $$ = $1;
+X	    sprintf(buf, "%s%s", $$->text, $2.text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	}
+X	| direct_declarator '(' parameter_type_list ')'
+X	{
+X	    $$ = new_declarator("%s()", $1->name, $1->begin);
+X	    $$->params = $3;
+X	    $$->func_stack = $1;
+X	    $$->head = ($1->func_stack == NULL) ? $$ : $1->head;
+X	    $$->func_def = FUNC_ANSI;
+X	}
+X	| direct_declarator '(' opt_identifier_list ')'
+X	{
+X	    $$ = new_declarator("%s()", $1->name, $1->begin);
+X	    $$->params = $3;
+X	    $$->func_stack = $1;
+X	    $$->head = ($1->func_stack == NULL) ? $$ : $1->head;
+X	    $$->func_def = FUNC_TRADITIONAL;
+X	}
+X	;
+X
+Xpointer
+X	: '*' opt_type_qualifiers
+X	{
+X	    sprintf($$.text, "*%s", $2.text);
+X	    $$.begin = $1.begin;
+X	}
+X	| '*' opt_type_qualifiers pointer
+X	{
+X	    sprintf($$.text, "*%s%s", $2.text, $3.text);
+X	    $$.begin = $1.begin;
+X	}
+X	;
+X
+Xopt_type_qualifiers
+X	: /* empty */
+X	{
+X	    strcpy($$.text, "");
+X	    $$.begin = 0L;
+X	}
+X	| type_qualifier_list
+X	;
+X
+Xtype_qualifier_list
+X	: type_qualifier
+X	{
+X	    strcpy($$.text, $1.text);
+X	    $$.begin = $1.begin;
+X	    free($1.text);
+X	}
+X	| type_qualifier_list type_qualifier
+X	{
+X	    sprintf($$.text, "%s %s ", $1.text, $2.text);
+X	    $$.begin = $1.begin;
+X	    free($2.text);
+X	}
+X	;
+X
+Xparameter_type_list
+X	: parameter_list
+X	| parameter_list ',' T_ELLIPSIS
+X	{
+X	    add_ident_list(&$$, &$1, "...");
+X	}
+X	;
+X
+Xparameter_list
+X	: parameter_declaration
+X	{
+X	    new_param_list(&$$, &$1);
+X	}
+X	| parameter_list ',' parameter_declaration
+X	{
+X	    add_param_list(&$$, &$1, &$3);
+X	}
+X	;
+X
+Xparameter_declaration
+X	: decl_specifiers declarator
+X	{
+X	    check_untagged(&$1);
+X	    new_parameter(&$$, &$1, $2);
+X	}
+X	| decl_specifiers abs_declarator
+X	{
+X	    check_untagged(&$1);
+X	    new_parameter(&$$, &$1, $2);
+X	}
+X	| decl_specifiers
+X	{
+X	    check_untagged(&$1);
+X	    new_parameter(&$$, &$1, NULL);
+X	}
+X	;
+X
+Xopt_identifier_list
+X	: /* empty */
+X	{
+X	    new_ident_list(&$$);
+X	}
+X	| identifier_list
+X	;
+X
+Xidentifier_list
+X	: T_IDENTIFIER
+X	{
+X	    new_ident_list(&$$);
+X	    add_ident_list(&$$, &$$, $1.text);
+X	}
+X	| identifier_list ',' T_IDENTIFIER
+X	{
+X	    add_ident_list(&$$, &$1, $3.text);
+X	}
+X	;
+X
+Xabs_declarator
+X	: pointer
+X	{
+X	    $$ = new_declarator($1.text, "", $1.begin);
+X	}
+X	| pointer direct_abs_declarator
+X	{
+X	    $$ = $2;
+X	    sprintf(buf, "%s%s", $1.text, $$->text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	    $$->begin = $1.begin;
+X	}
+X	| direct_abs_declarator
+X	;
+X
+Xdirect_abs_declarator
+X	: '(' abs_declarator ')'
+X	{
+X	    $$ = $2;
+X	    sprintf(buf, "(%s)", $$->text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	    $$->begin = $1.begin;
+X	}
+X	| direct_abs_declarator T_BRACKETS
+X	{
+X	    $$ = $1;
+X	    sprintf(buf, "%s%s", $$->text, $2.text);
+X	    free($$->text);
+X	    $$->text = xstrdup(buf);
+X	}
+X	| T_BRACKETS
+X	{
+X	    $$ = new_declarator($1.text, "", $1.begin);
+X	}
+X	| direct_abs_declarator '(' parameter_type_list ')'
+X	{
+X	    $$ = new_declarator("%s()", "", $1->begin);
+X	    $$->params = $3;
+X	    $$->func_stack = $1;
+X	    $$->head = ($1->func_stack == NULL) ? $$ : $1->head;
+X	    $$->func_def = FUNC_ANSI;
+X	}
+X	| direct_abs_declarator '(' ')'
+X	{
+X	    $$ = new_declarator("%s()", "", $1->begin);
+X	    $$->func_stack = $1;
+X	    $$->head = ($1->func_stack == NULL) ? $$ : $1->head;
+X	    $$->func_def = FUNC_ANSI;
+X	}
+X	| '(' parameter_type_list ')'
+X	{
+X	    Declarator *d;
+X	    
+X	    d = new_declarator("", "", $1.begin);
+X	    $$ = new_declarator("%s()", "", $1.begin);
+X	    $$->params = $2;
+X	    $$->func_stack = d;
+X	    $$->head = $$;
+X	    $$->func_def = FUNC_ANSI;
+X	}
+X	| '(' ')'
+X	{
+X	    Declarator *d;
+X	    
+X	    d = new_declarator("", "", $1.begin);
+X	    $$ = new_declarator("%s()", "", $1.begin);
+X	    $$->func_stack = d;
+X	    $$->head = $$;
+X	    $$->func_def = FUNC_ANSI;
+X	}
+X	;
+X
+X%%
+X#ifdef MSDOS
+X#include "lex_yy.c"
+X#else
+X#include "lex.yy.c"
+X#endif
+X
+Xvoid
+Xyyerror (msg)
+Xchar *msg;
+X{
+X    func_params = NULL;
+X    put_error();
+X    fprintf(stderr, "%s\n", msg);
+X}
+X
+X/* Initialize the table of type qualifier keywords recognized by the lexical
+X * analyzer.
+X */
+Xvoid
+Xinit_parser ()
+X{
+X    static char *keywords[] = {
+X	"const", "volatile",
+X#ifdef MSDOS
+X	"_cdecl", "_export", "_far", "_fastcall", "_fortran", "_huge",
+X	"_interrupt", "_loadds", "_near", "_pascal", "_saveregs", "_segment",
+X	"_cs", "_ds", "_es", "_ss", "_seg",
+X	"cdecl", "far", "huge", "interrupt", "near", "pascal",
+X#endif
+X    };
+X    int i;
+X
+X    /* Initialize type qualifier table. */
+X    type_qualifiers = new_symbol_table();
+X    for (i = 0; i < sizeof(keywords)/sizeof(keywords[0]); ++i) {
+X	new_symbol(type_qualifiers, keywords[i], DS_EXTERN);
+X    }
+X}
+X
+X/* Process the C source file.  Write function prototypes to the standard
+X * output.  Convert function definitions and write the converted source
+X * code to a temporary file.
+X */
+Xvoid
+Xprocess_file (infile, name)
+XFILE *infile;
+Xchar *name;
+X{
+X    char *s;
+X
+X    if (strlen(name) > 2) {
+X	s = name + strlen(name) - 2;
+X	if (*s == '.') {
+X	    ++s;
+X	    if (*s == 'l' || *s == 'y')
+X		BEGIN LEXYACC;
+X#ifdef MSDOS
+X	    if (*s == 'L' || *s == 'Y')
+X		BEGIN LEXYACC;
+X#endif
+X	}
+X    }
+X
+X    included_files = new_symbol_table();
+X    typedef_names = new_symbol_table();
+X    inc_depth = -1;
+X    curly = 0;
+X    ly_count = 0;
+X    func_params = NULL;
+X    yyin = infile;
+X    include_file(name, func_style != FUNC_NONE);
+X    if (file_comment_out)
+X	printf("/* %s */\n", cur_file_name());
+X    yyparse();
+X    free_symbol_table(typedef_names);
+X    free_symbol_table(included_files);
+X}
+END_OF_grammar.y
+if test 13969 -ne `wc -c <grammar.y`; then
+    echo shar: \"grammar.y\" unpacked with wrong size!
+fi
+# end of overwriting check
+fi
+echo shar: End of shell archive.
+exit 0
+
+exit 0 # Just in case...

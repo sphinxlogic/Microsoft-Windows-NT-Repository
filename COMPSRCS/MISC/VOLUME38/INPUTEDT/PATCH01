@@ -1,0 +1,496 @@
+Newsgroups: comp.sources.misc
+From: thewalt@canuck.CE.Berkeley.EDU (Chris Thewalt)
+Subject: v38i004: input-edit - C input functions for line editing with history, Patch01
+Message-ID: <1993Jun17.182049.9245@sparky.imd.sterling.com>
+X-Md4-Signature: bcdadcdf5c245e8f44979013c69b038f
+Sender: kent@sparky.imd.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 17 Jun 1993 18:20:49 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: thewalt@canuck.CE.Berkeley.EDU (Chris Thewalt)
+Posting-number: Volume 38, Issue 4
+Archive-name: input-edit/patch01
+Environment: unix, vms, dos, posix
+Patch-To: input-edit: Volume 37, Issue 50
+
+Changes since v37i050:
+  * Added support for AIX, XENIX, TurboC, gcc (EMX) under OS/2
+  * Added ^U (kill line) functionality
+  * Added ESC-B/ESC-F backward/forward one word functionality
+  * Made it possible to preload history with gl_histadd() before calling
+    getline()
+  
+What is input-edit?
+
+  Many interactive programs read input line by line, but would like to
+  provide line editing and history functionality to the end-user that
+  runs the program.
+
+  The input-edit package provides that functionality.  As far as the
+  programmer is concerned, the program only asks for the next line
+  of input. However, until the user presses the RETURN key they can
+  use emacs-style line editing commands and can traverse the history of
+  lines previously typed.
+
+  Other packages, such as GNU's readline, have greater capability but are
+  also substantially larger.  Input-edit is small, since it uses neither
+  stdio nor any termcap features, and is also quite portable.  It only
+  uses \b to backspace and \007 to ring the bell on errors.  Since it
+  cannot edit multiple lines it scrolls long lines left and right on
+  the same line.
+
+  Input edit uses classic (not ANSI) C, and should run on any Unix
+  system (BSD, SYSV or POSIX), PC's under DOS with MSC or TurboC,
+  PC's under OS/2 with gcc (EMX), or Vax/VMS.  Porting the package to
+  new systems basicaly requires code to read a character when it is
+  typed without echoing it, everything else should be OK.
+---------------
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  v37i50.fix
+# Wrapped by kent@sparky on Thu Jun 17 13:18:39 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 1 (of 1)."'
+if test -f 'v37i50.fix' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'v37i50.fix'\"
+else
+  echo shar: Extracting \"'v37i50.fix'\" \(11427 characters\)
+  sed "s/^X//" >'v37i50.fix' <<'END_OF_FILE'
+Xin the directory containing the input-edit v37i050 source code type:
+X   patch -p < v37i50.fix
+X
+X*** CHANGES.orig	Sat May 15 11:49:16 1993
+X--- CHANGES	Sun May 16 19:41:15 1993
+X***************
+X*** 1,3 ****
+X--- 1,10 ----
+X+ Changes from last release (v37i050 in comp.sources.misc)
+X+ * Added support for AIX, XENIX, TurboC, gcc (EMX) under OS/2
+X+ * Added ^U (kill line) functionality
+X+ * Added ESC-B/ESC-F backward/forward one word functionality
+X+ * Made it possible to preload history with gl_histadd() before calling
+X+   getline()
+X+ 
+X  Changes from last release (v28i056 in comp.sources.misc)
+X  
+X  * type-ahead saved in BSD mode (was OK in SYSV and POSIX)
+X*** README.orig	Sat May 15 11:49:16 1993
+X--- README	Tue May 18 09:30:00 1993
+X***************
+X*** 17,26 ****
+X  edit multiple lines it scrolls long lines left and right on the same line.
+X  
+X  Input edit uses classic (not ANSI) C, and should run on any Unix 
+X! system (BSD, SYSV or POSIX), PC's with the MSC compiler, or 
+X! Vax/VMS (untested by me).  Porting the package to new systems basicaly 
+X! requires code to read a character when it is typed without echoing it, 
+X! everything else should be OK.
+X  
+X  I have run the package on:
+X  
+X--- 17,26 ----
+X  edit multiple lines it scrolls long lines left and right on the same line.
+X  
+X  Input edit uses classic (not ANSI) C, and should run on any Unix 
+X! system (BSD, SYSV or POSIX), PC's under DOS with MSC or TurboC,  PC's under
+X! OS/2 with gcc (EMX), or Vax/VMS.  Porting the package to new systems 
+X! basicaly requires code to read a character when it is typed without 
+X! echoing it, everything else should be OK.
+X  
+X  I have run the package on:
+X  
+X***************
+X*** 27,33 ****
+X  	DECstation 5000, Ultrix 4.3 with cc 2.1 and gcc 2.3.3
+X  	Sun Sparc 2, SunOS 4.1.1, with cc
+X  	SGI Iris, IRIX System V.3, with cc
+X! 	PC, DRDOS 5.0, with MSC 6.0
+X  
+X  The description below is broken into two parts, the end-user (editing) 
+X  interface and the programmer interface.  Send bug reports, fixes and 
+X--- 27,33 ----
+X  	DECstation 5000, Ultrix 4.3 with cc 2.1 and gcc 2.3.3
+X  	Sun Sparc 2, SunOS 4.1.1, with cc
+X  	SGI Iris, IRIX System V.3, with cc
+X! 	PC using DOS with MSC
+X  
+X  The description below is broken into two parts, the end-user (editing) 
+X  interface and the programmer interface.  Send bug reports, fixes and 
+X***************
+X*** 36,41 ****
+X--- 36,46 ----
+X  Chris Thewalt (thewalt@ce.berkeley.edu)   
+X  5/3/93
+X  
+X+ Thanks to the following people who have provided enhancements and fixes:
+X+   Ron Ueberschaer, Christoph Keller, Scott Schwartz, Steven List,
+X+   DaviD W. Sanderson, Goran Bostrom, Michael Gleason, Glenn Kasten,
+X+   Edin Hodzic, Eric J Bivona, Kai Uwe Rommel
+X+ 
+X  PS: I don't have, and don't want to add, a vi mode, sorry.
+X  
+X  ************************** End-User Interface ***************************
+X***************
+X*** 48,53 ****
+X--- 53,60 ----
+X  
+X  ^A/^E	: Move cursor to beginning/end of the line.
+X  ^F/^B   : Move cursor forward/backward one character.
+X+ ESC-F	: Move cursor forward one word.
+X+ ESC-B   : Move cursor backward one word.
+X  ^D	: Delete the character under the cursor.
+X  ^H, DEL : Delete the character to the left of the cursor.
+X  ^K	: Kill from the cursor to the end of line.
+X***************
+X*** 69,74 ****
+X--- 76,82 ----
+X  	  any other editing character accepts the current match and 
+X  	  loads it into the buffer, terminating the search.
+X  ^T	: Toggle the characters under and to the left of the cursor.
+X+ ^U      : Deletes the entire line
+X  ^Y	: Yank previously killed text back at current location.  Note that
+X  	  this will overwrite or insert, depending on the current mode.
+X  TAB	: By default adds spaces to buffer to get to next TAB stop 
+X*** getline.3.orig	Sat May 15 11:49:16 1993
+X--- getline.3	Sat May 15 12:09:07 1993
+X***************
+X*** 251,262 ****
+X  Move cursor to beginning of line.
+X  .Tp "^B"
+X  Move cursor left (back) 1 column.
+X  .Tp "^D"
+X  Delete the character under the cursor.
+X  .Tp "^E"
+X  Move cursor to end of line.
+X  .Tp "^F"
+X! Move point right (forward) 1 column.
+X  .Tp "^H"
+X  Delete the character left of the cursor.@
+X  .Tp "^I"
+X--- 251,266 ----
+X  Move cursor to beginning of line.
+X  .Tp "^B"
+X  Move cursor left (back) 1 column.
+X+ .Tp ESC-B
+X+ Move cursor back one word.
+X  .Tp "^D"
+X  Delete the character under the cursor.
+X  .Tp "^E"
+X  Move cursor to end of line.
+X  .Tp "^F"
+X! Move cursor right (forward) 1 column.
+X! .Tp ESC-F
+X! Move cursor forward one word.
+X  .Tp "^H"
+X  Delete the character left of the cursor.@
+X  .Tp "^I"
+X***************
+X*** 321,330 ****
+X  but in the opposite direction through the history list.
+X  .Tp "^T"
+X  Transpose current and previous character.
+X  .Tp "^Y"
+X! Yank previously killed
+X! .RB (\| ^K \|)
+X! text back at current location.
+X  .Tp BACKSPACE
+X  Delete the character left of the cursor.
+X  .Tp DEL
+X--- 325,335 ----
+X  but in the opposite direction through the history list.
+X  .Tp "^T"
+X  Transpose current and previous character.
+X+ .Tp "^U"
+X+ Kill the entire line (see
+X+ .BR "^Y" \|).
+X  .Tp "^Y"
+X! Yank previously killed text back at current location.
+X  .Tp BACKSPACE
+X  Delete the character left of the cursor.
+X  .Tp DEL
+X*** getline.c.orig	Fri May 14 14:37:47 1993
+X--- getline.c	Sun May 16 09:42:19 1993
+X***************
+X*** 1,6 ****
+X  #ifndef lint
+X  static char     rcsid[] =
+X! "$Id: getline.c,v 3.7 1993/05/03 20:57:50 thewalt Exp thewalt $";
+X  static char    *copyright = "Copyright (C) 1991, 1992, 1993, Chris Thewalt";
+X  #endif
+X  
+X--- 1,6 ----
+X  #ifndef lint
+X  static char     rcsid[] =
+X! "$Id: getline.c,v 3.8 1993/05/16 16:41:51 thewalt Exp thewalt $";
+X  static char    *copyright = "Copyright (C) 1991, 1992, 1993, Chris Thewalt";
+X  #endif
+X  
+X***************
+X*** 13,18 ****
+X--- 13,23 ----
+X   * copyright notice and this permission notice appear in supporting
+X   * documentation.  This software is provided "as is" without express or
+X   * implied warranty.
+X+  *
+X+  * Thanks to the following people who have provided enhancements and fixes:
+X+  *   Ron Ueberschaer, Christoph Keller, Scott Schwartz, Steven List,
+X+  *   DaviD W. Sanderson, Goran Bostrom, Michael Gleason, Glenn Kasten,
+X+  *   Edin Hodzic, Eric J Bivona, Kai Uwe Rommel
+X   */
+X  
+X  #include       "getline.h"
+X***************
+X*** 80,85 ****
+X--- 85,91 ----
+X  static void     gl_redraw();		/* issue \n and redraw all */
+X  static void     gl_transpose();		/* transpose two chars */
+X  static void     gl_yank();		/* yank killed text */
+X+ static void     gl_word();		/* move a word */
+X  
+X  static void     hist_init();	/* initializes hist pointers */
+X  static char    *hist_next();	/* return ptr to next item */
+X***************
+X*** 96,101 ****
+X--- 102,111 ----
+X  extern int      write();
+X  extern void     exit();
+X  
+X+ #ifdef _IBMR2
+X+ #define unix
+X+ #endif
+X+ 
+X  #ifdef MSDOS
+X  #include <bios.h>
+X  #endif
+X***************
+X*** 109,114 ****
+X--- 119,127 ----
+X  struct termios  new_termios, old_termios;
+X  #else /* not POSIX */
+X  #include <sys/ioctl.h>
+X+ #ifdef M_XENIX	/* does not really use bsd terminal interface */
+X+ #undef TIOCSETN
+X+ #endif /* M_XENIX */
+X  #ifdef TIOCSETN		/* use BSD interface */
+X  #include <sgtty.h>
+X  struct sgttyb   new_tty, old_tty;
+X***************
+X*** 216,221 ****
+X--- 229,253 ----
+X  #endif 
+X  }
+X  
+X+ #if MSDOS || __EMX__
+X+ int pc_keymap(c)
+X+ int c;
+X+ {
+X+     switch (c) {
+X+     case 72: c = 16;   /* up -> ^P */
+X+         break;
+X+     case 80: c = 14;   /* down -> ^N */
+X+         break;
+X+     case 75: c = 2;    /* left -> ^B */
+X+         break;
+X+     case 77: c = 6;    /* right -> ^F */
+X+         break;
+X+     default: c = 0;    /* make it garbage */
+X+     }
+X+     return c;
+X+ }
+X+ #endif /* MSDOS || __EMCX__ */
+X+ 
+X  static int
+X  gl_getc()
+X  /* get a character without echoing it to screen */
+X***************
+X*** 229,247 ****
+X  #ifdef MSDOS
+X      c = _bios_keybrd(_NKEYBRD_READ);
+X      if ((c & 0377) == 224) {
+X! 	switch (c = (c >> 8) & 0377) {
+X! 	  case 72: c = 16;   /* up -> ^P */
+X! 	    break;
+X!           case 80: c = 14;   /* down -> ^N */
+X! 	    break;
+X! 	  case 75: c = 2;    /* left -> ^B */
+X! 	    break;
+X!           case 77: c = 6;    /* right -> ^F */
+X! 	    break;
+X! 	  default: c = 0;    /* make it garbage */
+X! 	}
+X      } else {
+X! 	c = c & 0377;
+X      }
+X  #endif
+X  #ifdef vms
+X--- 261,283 ----
+X  #ifdef MSDOS
+X      c = _bios_keybrd(_NKEYBRD_READ);
+X      if ((c & 0377) == 224) {
+X! 	c = pc_keymap((c >> 8) & 0377);
+X!     } else {
+X! 	c &= 0377;
+X!     }
+X! #endif
+X! #ifdef __TURBOC__
+X!     while(!bioskey(1))
+X! 	;
+X!     c = bioskey(0) & 0xff;
+X! #endif
+X! #ifdef __EMX__
+X! #define getch() _read_kbd(0, 1, 0)
+X!     c = getch();
+X!     if (c == 224 || c == 0) {
+X!         c = pc_keymap(getch());
+X      } else {
+X!         c &= 0377;
+X      }
+X  #endif
+X  #ifdef vms
+X***************
+X*** 393,399 ****
+X  	                gl_fixup(gl_prompt, loc, tmp);
+X                  }
+X  		break;
+X! 	      case '\013': gl_kill();				/* ^K */
+X  		break;
+X  	      case '\014': gl_redraw();				/* ^L */
+X  		break;
+X--- 429,435 ----
+X  	                gl_fixup(gl_prompt, loc, tmp);
+X                  }
+X  		break;
+X! 	      case '\013': gl_kill(gl_pos);			/* ^K */
+X  		break;
+X  	      case '\014': gl_redraw();				/* ^L */
+X  		break;
+X***************
+X*** 417,422 ****
+X--- 453,460 ----
+X  		break;
+X  	      case '\024': gl_transpose();			/* ^T */
+X  		break;
+X+               case '\025': gl_kill(0);				/* ^U */
+X+ 		break;
+X  	      case '\031': gl_yank();				/* ^Y */
+X  		break;
+X  	      case '\033':				/* ansi arrow keys */
+X***************
+X*** 442,447 ****
+X--- 480,489 ----
+X  		      default: gl_putc('\007');         /* who knows */
+X  		        break;
+X  		    }
+X+ 		} else if (c == 'f' || c == 'F') {
+X+ 		    gl_word(1);
+X+ 		} else if (c == 'b' || c == 'B') {
+X+ 		    gl_word(-1);
+X  		} else
+X  		    gl_putc('\007');
+X  		break;
+X***************
+X*** 594,611 ****
+X  }
+X  
+X  static void
+X! gl_kill()
+X! /* delete from current position to the end of line */
+X! {
+X!     if (gl_pos < gl_cnt) {
+X! 	strcpy(gl_killbuf, gl_buf + gl_pos);
+X! 	gl_buf[gl_pos] = '\0';
+X! 	gl_fixup(gl_prompt, gl_pos, gl_pos);
+X      } else
+X  	gl_putc('\007');
+X  }
+X  
+X  static void
+X  gl_redraw()
+X  /* emit a newline, reset and redraw prompt and current input line */
+X  {
+X--- 636,679 ----
+X  }
+X  
+X  static void
+X! gl_kill(pos)
+X! int pos;
+X! /* delete from pos to the end of line */
+X! {
+X!     if (pos < gl_cnt) {
+X! 	strcpy(gl_killbuf, gl_buf + pos);
+X! 	gl_buf[pos] = '\0';
+X! 	gl_fixup(gl_prompt, pos, pos);
+X      } else
+X  	gl_putc('\007');
+X  }
+X  
+X  static void
+X+ gl_word(direction)
+X+ int direction;
+X+ /* move forward or backword one word */
+X+ {
+X+     int pos = gl_pos;
+X+ 
+X+     if (direction > 0) {		/* forward */
+X+         while (!isspace(gl_buf[pos]) && pos < gl_cnt) 
+X+ 	    pos++;
+X+ 	while (isspace(gl_buf[pos]) && pos < gl_cnt)
+X+ 	    pos++;
+X+     } else {				/* backword */
+X+ 	if (pos > 0)
+X+ 	    pos--;
+X+ 	while (isspace(gl_buf[pos]) && pos > 0)
+X+ 	    pos--;
+X+         while (!isspace(gl_buf[pos]) && pos > 0) 
+X+ 	    pos--;
+X+ 	if (pos < gl_cnt && isspace(gl_buf[pos]))   /* move onto word */
+X+ 	    pos++;
+X+     }
+X+     gl_fixup(gl_prompt, -1, pos);
+X+ }
+X+ 
+X+ static void
+X  gl_redraw()
+X  /* emit a newline, reset and redraw prompt and current input line */
+X  {
+X***************
+X*** 795,800 ****
+X--- 863,873 ----
+X      char *p = buf;
+X      int len;
+X  
+X+     /* in case we call gl_histadd() before we call getline() */
+X+     if (gl_init_done < 0) {		/* -1 only on startup */
+X+         hist_init();
+X+         gl_init_done = 0;
+X+     }
+X      while (*p == ' ' || *p == '\t' || *p == '\n') 
+X  	p++;
+X      if (*p) {
+END_OF_FILE
+  if test 11427 -ne `wc -c <'v37i50.fix'`; then
+    echo shar: \"'v37i50.fix'\" unpacked with wrong size!
+  fi
+  # end of 'v37i50.fix'
+fi
+echo shar: End of archive 1 \(of 1\).
+cp /dev/null ark1isdone
+MISSING=""
+for I in 1 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have the archive.
+    rm -f ark[1-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

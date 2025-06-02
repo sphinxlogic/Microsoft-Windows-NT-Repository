@@ -1,0 +1,890 @@
+Newsgroups: comp.sources.x
+From: demaree@imec.be (Antoon Demaree)
+Subject: v21i057:  xvig - XviG Graphics Library, Part10/10
+Message-ID: <1993Nov23.172908.17535@sparky.sterling.com>
+X-Md4-Signature: 8bb1da5c347903eb94872f7bd2b7be8b
+Sender: chris@sparky.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Tue, 23 Nov 1993 17:29:08 GMT
+Approved: chris@sterling.com
+
+Submitted-by: demaree@imec.be (Antoon Demaree)
+Posting-number: Volume 21, Issue 57
+Archive-name: xvig/part10
+Environment: X11
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  version_1.1/src/xvig.c
+# Wrapped by chris@sparky on Tue Nov 23 11:18:00 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 10 (of 10)."'
+if test -f 'version_1.1/src/xvig.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'version_1.1/src/xvig.c'\"
+else
+  echo shar: Extracting \"'version_1.1/src/xvig.c'\" \(26491 characters\)
+  sed "s/^X//" >'version_1.1/src/xvig.c' <<'END_OF_FILE'
+X/* File>>> xvig.c
+X--
+X-- %M% -- version %I% (IMEC)            last updated: %E%
+X--
+X-- Copyright (c) 1993
+X-- IMEC vzw
+X-- Kapeldreef 75
+X-- B-3001 LEUVEN
+X-- BELGIUM
+X--
+X-- Author   : A. Demaree
+X--
+X-- Date     : February 1, 1993
+X--
+X-- Function : The client program for the `XviG' system that opens the
+X--            graphics window, and processes the events.
+X--
+X-- Usage    : xvig <version> <win_name> <win_id> <x> <y> <width> <height>
+X--
+X-- Comment  : version   = a string to identify the version
+X--            win_name  = the name of the window
+X--            win_id    = the dummy window X-identifier from the parent process
+X--            x         = the initial x-position of the window
+X--            y         = the initial y-position of the window
+X--            width     = the initial width of the window
+X--            height    = the initial height of the window
+X--
+X--            If the x-position value and/or the y-position value are negative,
+X--            then the placement of the window is left to the window manager.
+X--
+X-- Review   :
+X--
+X*/
+X
+X
+X/*------------------------------------------------------------------------------
+X-- Global include files
+X------------------------------------------------------------------------------*/
+X
+X#include <stdlib.h>
+X#include <stdio.h>
+X#include <string.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/cursorfont.h>
+X
+X#define XK_MISCELLANY
+X#include <X11/keysymdef.h>
+X
+X/*------------------------------------------------------------------------------
+X-- Local include files
+X------------------------------------------------------------------------------*/
+X
+X#include "commondata.h"
+X#include "xvig.xbm"
+X#include "empty.xbm"
+X
+X/*------------------------------------------------------------------------------
+X-- Some general macro definitions
+X------------------------------------------------------------------------------*/
+X
+X#define ABS(n)    ((n) < 0 ? -(n) : (n))
+X#define MAX(a,b)  ((a) > (b) ? (a) : (b))
+X#define MIN(a,b)  ((a) < (b) ? (a) : (b))
+X
+X/*------------------------------------------------------------------------------
+X-- Static variable declarations
+X------------------------------------------------------------------------------*/
+X
+Xstatic Display *display;
+Xstatic int screen_nr;
+Xstatic Window dummy_window, window;
+Xstatic Cursor arrow_cursor, empty_cursor;
+Xstatic Pixmap pixmap, border_select, border_noselect, icon_pixmap;
+Xstatic GC gc;
+Xstatic XEvent event;
+Xstatic unsigned int window_width, window_height;
+Xstatic Atom wm_protocols_atom, wm_delete_window_atom;
+X
+X/*
+X-- The Atoms for the ClientMessage events
+X*/
+X
+Xstatic Atom MESSAGE_INIT_atom,
+X            MESSAGE_KEY_atom,
+X            MESSAGE_BUTTON_atom,
+X            MESSAGE_KEY_BUTTON_atom,
+X            MESSAGE_SIZE_atom,
+X            MESSAGE_SENSEKBD_ON_atom,
+X            MESSAGE_SENSEKBD_OFF_atom,
+X            MESSAGE_SENSEKBD_atom,
+X            MESSAGE_CURSOR_atom,
+X            MESSAGE_QUIT_atom;
+X
+X/*------------------------------------------------------------------------------
+X-- Local function declarations
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Parse_Commandline(int argc,
+X                              char *argv[],
+X                              int *x,
+X                              int *y,
+X                              unsigned int *width,
+X                              unsigned int *height);
+Xstatic void Set_WMproperties(char *window_name,
+X                             int x,
+X                             int y,
+X                             unsigned int width,
+X                             unsigned int height);
+Xstatic void Create_Cursors(void);
+Xstatic Pixmap New_Pixmap(unsigned int width,
+X                         unsigned int height,
+X                         unsigned int depth);
+Xstatic void Border_Pixmaps(unsigned int depth);
+Xstatic void Refresh_Screen(void);
+Xstatic void Window_Size(void);
+Xstatic void Cleanup(void);
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xmain(int argc, char *argv[])
+X{
+X  int init_x, init_y;
+X  unsigned int init_width, init_height;
+X  Window root_rtn;
+X  int x_rtn, y_rtn;
+X  unsigned int width_rtn, height_rtn, bwidth_rtn, depth_rtn;
+X  KeySym keysym;
+X  Bool sense_kbd_set = False,
+X       sense_kbd_save = False,
+X       sense_kbd = False;
+X  char sense_char, tmpstr[8];
+X  long cursor_type = DATA_CURSOR_ARROW;
+X  Bool cursor_on, cursor_drawn;
+X  unsigned int cursor_width, cursor_height;
+X  int cursor_hot_x, cursor_hot_y;
+X  int prev_cursor_x, prev_cursor_y;
+X  unsigned long xhair_color;
+X  unsigned int xhair_width, xhair_height;
+X  Bool do_event_loop = True;
+X
+X  /*
+X  -- Parsing the command line options
+X  */
+X
+X  Parse_Commandline(argc, argv, &init_x, &init_y, &init_width, &init_height);
+X
+X  /*
+X  -- Open the display
+X  */
+X
+X  if (!(display = XOpenDisplay(NULL)))
+X  {
+X    char *dname;
+X
+X    if (!(dname = getenv("DISPLAY")))
+X      fprintf(stderr,
+X       "ERROR (XviG) : Environment variable 'DISPLAY' has not been defined.\n");
+X    else
+X      fprintf(stderr,
+X              "ERROR (XviG) : Cannot open display '%s'.\n", dname);
+X    exit(1);
+X  }
+X
+X  screen_nr = DefaultScreen(display);
+X
+X  /*
+X  -- Take the default Graphic Context and set the GraphicsExposures off
+X  */
+X
+X  gc = DefaultGC(display, screen_nr);
+X  XSetGraphicsExposures(display, gc, False);
+X
+X  /*
+X  -- Create the real window, and set the 'Window Manager' properties
+X  */
+X
+X  if (!(window = XCreateSimpleWindow(display, RootWindow(display, screen_nr),
+X                                     init_x < 0 ? 0 : init_x,
+X                                     init_y < 0 ? 0 : init_y,
+X                                     init_width, init_height, BORDER_WIDTH,
+X                                     WhitePixel(display, screen_nr),
+X                                     BlackPixel(display, screen_nr))))
+X  {
+X    fprintf(stderr, "ERROR (XviG) : Cannot create window.\n");
+X    XCloseDisplay(display);
+X    exit(1);
+X  }
+X
+X  Set_WMproperties(argv[2], init_x, init_y, init_width, init_height);
+X
+X  /*
+X  -- Map the window and wait for the event that it is
+X  -- actually mapped (e.g. by the window manager),
+X  -- taking care of the appropriate event mask
+X  */
+X
+X  XSelectInput(display, window, ExposureMask | StructureNotifyMask);
+X
+X  XMapWindow(display, window);
+X
+X  while (1)
+X  {
+X    XNextEvent(display, &event);
+X
+X    if (event.type == MapNotify)
+X      break;
+X  }
+X
+X  XSelectInput(display, window, ExposureMask);
+X
+X  /*
+X  -- Set the default cursor for the window to an arrow
+X  -- and create an empty cursor
+X  */
+X
+X  Create_Cursors();
+X
+X  /*
+X  -- Create a pixmap with the same size as the window
+X  -- and set the Xhair cursor size
+X  */
+X
+X  if (XGetGeometry(display, window, &root_rtn, &x_rtn, &y_rtn,
+X                   &width_rtn, &height_rtn, &bwidth_rtn, &depth_rtn))
+X  {
+X    pixmap = New_Pixmap(width_rtn, height_rtn, depth_rtn);
+X    window_width  = xhair_width  = width_rtn;
+X    window_height = xhair_height = height_rtn;
+X  }
+X  else
+X  {
+X    printf("WARNING (XviG) : Cannot get size of initial window.\n");
+X
+X    pixmap = New_Pixmap(1, 1, DefaultDepth(display, screen_nr));
+X    window_width  = xhair_width  = 1;
+X    window_height = xhair_height = 1;
+X  }
+X
+X  /*
+X  -- Create the border pixmaps and set the window border to 'no cursor input'
+X  */
+X
+X  Border_Pixmaps(DefaultDepth(display, screen_nr));
+X
+X  XSetWindowBorderPixmap(display, window, border_noselect);
+X
+X  /*
+X  -- Create the Atoms (unique numbers) for the ClientMessage events
+X  */
+X
+X  MESSAGE_INIT_atom = XInternAtom(display, MESSAGE_INIT, False);
+X  MESSAGE_KEY_atom = XInternAtom(display, MESSAGE_KEY, False);
+X  MESSAGE_BUTTON_atom = XInternAtom(display, MESSAGE_BUTTON, False);
+X  MESSAGE_KEY_BUTTON_atom = XInternAtom(display, MESSAGE_KEY_BUTTON, False);
+X  MESSAGE_SIZE_atom = XInternAtom(display, MESSAGE_SIZE, False);
+X  MESSAGE_SENSEKBD_ON_atom = XInternAtom(display, MESSAGE_SENSEKBD_ON, False);
+X  MESSAGE_SENSEKBD_OFF_atom = XInternAtom(display, MESSAGE_SENSEKBD_OFF, False);
+X  MESSAGE_SENSEKBD_atom = XInternAtom(display, MESSAGE_SENSEKBD, False);
+X  MESSAGE_CURSOR_atom = XInternAtom(display, MESSAGE_CURSOR, False);
+X  MESSAGE_QUIT_atom = XInternAtom(display, MESSAGE_QUIT, False);
+X
+X  /*
+X  -- Send a ClientMessage to the dummy window with
+X  -- the real window ID, the pixmap ID and the window size
+X  */
+X
+X  event.xclient.message_type = MESSAGE_INIT_atom;
+X  event.xclient.window = window;
+X  event.xclient.format = 32;
+X  event.xclient.data.l[0] = (long) pixmap;
+X  event.xclient.data.l[1] = (long) window_width;
+X  event.xclient.data.l[2] = (long) window_height;
+X  event.type = ClientMessage;
+X
+X  if (!XSendEvent(display, dummy_window, False, NoEventMask, &event))
+X    fprintf(stderr, "ERROR (XviG) : Cannot send ClientMessage 'init'.\n");
+X
+X  /*
+X  -- Event loop for a keypress or a buttonpress
+X  */
+X
+X  while (do_event_loop)
+X  {
+X    XNextEvent(display, &event);
+X
+X    switch (event.type)
+X    {
+X      case KeyPress:
+X          /* printf("INFO (XviG) : KeyPress event ...\n"); */
+X          keysym = XLookupKeysym(&event.xkey, 0);
+X          if (IsModifierKey(keysym) == True)
+X            continue;
+X          if (sense_kbd_set)
+X          {
+X            if (XLookupString(&event.xkey, tmpstr, 8,
+X                              (KeySym *) NULL, (XComposeStatus *) NULL) == 1)
+X              if (tmpstr[0] == sense_char)
+X                sense_kbd = True;
+X            break;
+X          }
+X      case ButtonPress:
+X          /* printf("INFO (XviG) : ButtonPress event ...\n"); */
+X          if (cursor_on)
+X          {
+X            if (cursor_drawn)
+X            {
+X              XSetFunction(display, gc, GXxor);
+X              if (cursor_type == DATA_CURSOR_XHAIR)
+X              {
+X                XSetForeground(display, gc, xhair_color);
+X                XDrawLine(display, window, gc,
+X                          prev_cursor_x, 0, prev_cursor_x, (int) xhair_height);
+X                XDrawLine(display, window, gc,
+X                          0, prev_cursor_y, (int) xhair_width, prev_cursor_y);
+X              }
+X              else
+X              if (cursor_type != DATA_CURSOR_ARROW)
+X              {
+X                XCopyArea(display, (Pixmap) cursor_type, window, gc,
+X                          0, 0, cursor_width, cursor_height,
+X                          prev_cursor_x, prev_cursor_y);
+X              }
+X              cursor_drawn = False;
+X            }
+X            cursor_on = False;
+X            XDefineCursor(display, window, arrow_cursor);
+X          }
+X          if (!XSendEvent(display, dummy_window, False, NoEventMask, &event))
+X            fprintf(stderr,
+X                 "ERROR (XviG) : Cannot send KeyPress or ButtonPress event.\n");
+X          XSetWindowBorderPixmap(display, window, border_noselect);
+X          if (sense_kbd_save)
+X          {
+X            sense_kbd_set = True;
+X            XSelectInput(display, window, KeyPressMask | ExposureMask);
+X            sense_kbd = False;
+X          }
+X          else
+X            XSelectInput(display, window, ExposureMask);
+X          break;
+X      case MotionNotify:
+X          /* printf("INFO (XviG) : MotionNotify event ...\n"); */
+X          while (XCheckMaskEvent(display, PointerMotionMask, &event));
+X          if (cursor_on)
+X          {
+X            XSetFunction(display, gc, GXxor);
+X            if (cursor_type == DATA_CURSOR_XHAIR)
+X            {
+X              XSetForeground(display, gc, xhair_color);
+X              if (cursor_drawn)
+X              {
+X                XDrawLine(display, window, gc,
+X                          prev_cursor_x, 0, prev_cursor_x, (int) xhair_height);
+X                XDrawLine(display, window, gc,
+X                          0, prev_cursor_y, (int) xhair_width, prev_cursor_y);
+X              }
+X              prev_cursor_x = event.xmotion.x;
+X              prev_cursor_y = event.xmotion.y;
+X              XDrawLine(display, window, gc,
+X                        prev_cursor_x, 0, prev_cursor_x, (int) xhair_height);
+X              XDrawLine(display, window, gc,
+X                        0, prev_cursor_y, (int) xhair_width, prev_cursor_y);
+X            }
+X            else
+X            if (cursor_type != DATA_CURSOR_ARROW)
+X            {
+X              if (cursor_drawn)
+X              {
+X                XCopyArea(display, (Pixmap) cursor_type, window, gc,
+X                          0, 0, cursor_width, cursor_height,
+X                          prev_cursor_x, prev_cursor_y);
+X              }
+X              prev_cursor_x = event.xmotion.x - cursor_hot_x;
+X              prev_cursor_y = event.xmotion.y - cursor_hot_y;
+X              XCopyArea(display, (Pixmap) cursor_type, window, gc,
+X                        0, 0, cursor_width, cursor_height,
+X                        prev_cursor_x, prev_cursor_y);
+X            }
+X            cursor_drawn = True;
+X          }
+X          break;
+X      case Expose:
+X          /* printf("INFO (XviG) : Expose event ...\n"); */
+X          if (event.xexpose.count == 0)
+X          {
+X            Refresh_Screen();
+X            cursor_drawn = False;
+X            XGetGeometry(display, window, &root_rtn, &x_rtn, &y_rtn,
+X                         &xhair_width, &xhair_height, &bwidth_rtn, &depth_rtn);
+X          }
+X          break;
+X      case ClientMessage:
+X          /* printf("INFO (XviG) : ClientMessage event ...\n"); */
+X          if (event.xclient.message_type == MESSAGE_KEY_atom)
+X          {
+X            XSetWindowBorderPixmap(display, window, border_select);
+X            if (cursor_type)
+X            {
+X              XSelectInput(display, window,
+X                           KeyPressMask | PointerMotionMask | ExposureMask);
+X              XDefineCursor(display, window, empty_cursor);
+X              cursor_on = True;
+X            }
+X            else
+X            {
+X              XSelectInput(display, window, KeyPressMask | ExposureMask);
+X              cursor_on = False;
+X            }
+X            cursor_drawn = False;
+X            sense_kbd_set = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_BUTTON_atom)
+X          {
+X            XSetWindowBorderPixmap(display, window, border_select);
+X            if (cursor_type)
+X            {
+X              XSelectInput(display, window,
+X                           ButtonPressMask | PointerMotionMask | ExposureMask);
+X              XDefineCursor(display, window, empty_cursor);
+X              cursor_on = True;
+X            }
+X            else
+X            {
+X              XSelectInput(display, window, ButtonPressMask | ExposureMask);
+X              cursor_on = False;
+X            }
+X            cursor_drawn = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_KEY_BUTTON_atom)
+X          {
+X            XSetWindowBorderPixmap(display, window, border_select);
+X            if (cursor_type)
+X            {
+X              XSelectInput(display, window,
+X                           KeyPressMask | ButtonPressMask |
+X                           PointerMotionMask | ExposureMask);
+X              XDefineCursor(display, window, empty_cursor);
+X              cursor_on = True;
+X            }
+X            else
+X            {
+X              XSelectInput(display, window,
+X                           KeyPressMask | ButtonPressMask | ExposureMask);
+X              cursor_on = False;
+X            }
+X            cursor_drawn = False;
+X            sense_kbd_set = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_SIZE_atom)
+X          {
+X            Window_Size();
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_SENSEKBD_ON_atom)
+X          {
+X            sense_kbd_set = sense_kbd_save = True;
+X            sense_char = event.xclient.data.b[0];
+X            XSelectInput(display, window, KeyPressMask | ExposureMask);
+X            sense_kbd = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_SENSEKBD_OFF_atom)
+X          {
+X            sense_kbd_set = sense_kbd_save = False;
+X            XSelectInput(display, window, ExposureMask);
+X            sense_kbd = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_SENSEKBD_atom)
+X          {
+X            event.xclient.message_type = MESSAGE_SENSEKBD_atom;
+X            event.xclient.format = 8;
+X            event.xclient.data.b[0] = sense_kbd ? DATA_SENSEKBD_YES
+X                                                : DATA_SENSEKBD_NO;
+X            event.type = ClientMessage;
+X            if (!XSendEvent(display, dummy_window, False, NoEventMask, &event))
+X              fprintf(stderr,
+X                     "ERROR (XviG) : Cannot send ClientMessage 'sense_kbd'.\n");
+X            sense_kbd = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_CURSOR_atom)
+X          {
+X            cursor_type = event.xclient.data.l[0];
+X            if (cursor_type == DATA_CURSOR_XHAIR)
+X              xhair_color = (unsigned long) event.xclient.data.l[1];
+X            else
+X            if (cursor_type != DATA_CURSOR_ARROW)
+X            {
+X              cursor_width = (unsigned int) event.xclient.data.l[1];
+X              cursor_height = (unsigned int) event.xclient.data.l[2];
+X              cursor_hot_x = (int) event.xclient.data.l[3];
+X              cursor_hot_y = (int) event.xclient.data.l[4];
+X            }
+X            break;
+X          }
+X          if (event.xclient.message_type == MESSAGE_QUIT_atom)
+X          {
+X            do_event_loop = False;
+X            break;
+X          }
+X          if (event.xclient.message_type == wm_protocols_atom)
+X          {
+X            if ((Atom) event.xclient.data.l[0] != wm_delete_window_atom)
+X              printf("WARNING (XviG) : Unknown Protocols message received.\n");
+X            /*
+X            else
+X              printf("INFO (XviG) : WM_DELETE_WINDOW received.\n");
+X            */
+X            break;
+X          }
+X          /*
+X          printf("WARNING (XviG) : Unknown ClientMessage received .....\n");
+X          */
+X          break;
+X      default: ;
+X    }
+X  }
+X
+X  /*
+X  -- Quit .....
+X  */
+X
+X  Cleanup();
+X
+X  return 0;
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Parse_Commandline(int argc,
+X                              char *argv[],
+X                              int *x,
+X                              int *y,
+X                              unsigned int *width,
+X                              unsigned int *height)
+X{
+X  long nr;
+X  char *endptr;
+X
+X  if (argc != 8)
+X  {
+X    fprintf(stderr, "ERROR (XviG) : Wrong number of arguments.\n");
+X    exit(1);
+X  }
+X
+X  if (strcmp(argv[1], XviG_VERSION))
+X  {
+X    fprintf(stderr, "ERROR (XviG) : Wrong version of XviG.\n");
+X    fprintf(stderr, "               Please relink with the correct version.\n");
+X    exit(1);
+X  }
+X
+X  nr = strtol(argv[3], &endptr, 10);
+X  if ((*endptr != '\0') || (nr <= 0))
+X  {
+X    fprintf(stderr, "ERROR (XviG) : Invalid window number.\n");
+X    exit(1);
+X  }
+X  dummy_window = (Window) nr;
+X
+X  *x = (int) strtol(argv[4], &endptr, 10);
+X  if (*endptr != '\0')
+X  {
+X    printf("WARNING (XviG) : Invalid x-position, assuming not specified.\n");
+X    *x = -1;
+X  }
+X
+X  *y = (int) strtol(argv[5], &endptr, 10);
+X  if (*endptr != '\0')
+X  {
+X    printf("WARNING (XviG) : Invalid y-position, assuming not specified.\n");
+X    *y = -1;
+X  }
+X
+X  *width = (int) strtol(argv[6], &endptr, 10);
+X  if ((*endptr != '\0') || (*width <= 0))
+X  {
+X    printf("WARNING (XviG) : Invalid initial window width, setting to 300.\n");
+X    *width = 300;
+X  }
+X
+X  *height = (int) strtol(argv[7], &endptr, 10);
+X  if ((*endptr != '\0') || (*height <= 0))
+X  {
+X    printf("WARNING (XviG) : Invalid initial window height, setting to 300.\n");
+X    *height = 300;
+X  }
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Set_WMproperties(char *window_name,
+X                             int x,
+X                             int y,
+X                             unsigned int width,
+X                             unsigned int height)
+X{
+X  XTextProperty text_prop;
+X  XSizeHints size_hints;
+X  XWMHints wm_hints;
+X
+X  text_prop.value = (unsigned char *) window_name;
+X  text_prop.encoding = XA_STRING;
+X  text_prop.format = 8;
+X  text_prop.nitems = strlen(window_name);
+X  XSetWMName(display, window, &text_prop);
+X
+X  text_prop.value = (unsigned char *) window_name;
+X  text_prop.encoding = XA_STRING;
+X  text_prop.format = 8;
+X  text_prop.nitems = strlen(window_name);
+X  XSetWMIconName(display, window, &text_prop);
+X
+X  wm_hints.flags = IconPixmapHint;
+X  wm_hints.icon_pixmap = icon_pixmap
+X                       = XCreateBitmapFromData(display, window,
+X                                (char *) xvig_bits, xvig_width, xvig_height);
+X  XSetWMHints(display, window, &wm_hints);
+X
+X  if (!((x < 0) || (y < 0)))
+X  {
+X    size_hints.flags = USPosition | USSize;
+X    size_hints.x = x;
+X    size_hints.y = y;
+X    size_hints.width = width;
+X    size_hints.height = height;
+X    XSetWMNormalHints(display, window, &size_hints);
+X  }
+X
+X  /*
+X  -- Set the WM_PROTOCOLS property to catch an accidental close of the window
+X  */
+X
+X  wm_protocols_atom = XInternAtom(display, "WM_PROTOCOLS", False);
+X  wm_delete_window_atom = XInternAtom(display, "WM_DELETE_WINDOW", False);
+X  if (XSetWMProtocols(display, window, &wm_delete_window_atom, 1) == 0)
+X    printf("WARNING (XviG) : Cannot set WM_DELETE_WINDOW protocol.\n");
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Create_Cursors(void)
+X{
+X  Pixmap bitmap;
+X  XColor color;
+X
+X  if (!(arrow_cursor = XCreateFontCursor(display, XC_arrow)))
+X    printf("WARNING (XviG) : Cannot create arrow cursor.\n");
+X  else
+X    XDefineCursor(display, window, arrow_cursor);
+X
+X  if (!(bitmap = XCreateBitmapFromData(display, window,
+X                                       empty_bits, empty_width, empty_height)))
+X  {
+X    printf("WARNING (XviG) : Cannot create empty bitmap.\n");
+X    empty_cursor = None;
+X    return;
+X  }
+X
+X  if (!(empty_cursor = XCreatePixmapCursor(display, bitmap, bitmap,
+X                                           &color, &color, 0, 0)))
+X    printf("WARNING (XviG) : Cannot create empty cursor.\n");
+X
+X  XFreePixmap(display, bitmap);
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic Pixmap New_Pixmap(unsigned int width,
+X                         unsigned int height,
+X                         unsigned int depth)
+X{
+X  Pixmap pixmap;
+X
+X  pixmap = XCreatePixmap(display, window, width, height, depth);
+X  XSetForeground(display, gc, BlackPixel(display, screen_nr));
+X  XSetFillStyle(display, gc, FillSolid);
+X  XSetFunction(display, gc, GXcopy);
+X  XFillRectangle(display, pixmap, gc, 0, 0, width, height);
+X
+X  return pixmap;
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Border_Pixmaps(unsigned int depth)
+X{
+X  border_select = XCreatePixmap(display, window, 4, 4, depth);
+X  XSetForeground(display, gc, WhitePixel(display, screen_nr));
+X  XFillRectangle(display, border_select, gc, 0, 0, 4, 4);
+X
+X  border_noselect = XCreatePixmap(display, window, 4, 4, depth);
+X  XSetForeground(display, gc, BlackPixel(display, screen_nr));
+X  XFillRectangle(display, border_noselect, gc, 0, 0, 4, 4);
+X  XSetForeground(display, gc, WhitePixel(display, screen_nr));
+X  XDrawPoint(display, border_noselect, gc, 0, 0);
+X  XDrawPoint(display, border_noselect, gc, 2, 0);
+X  XDrawPoint(display, border_noselect, gc, 1, 1);
+X  XDrawPoint(display, border_noselect, gc, 3, 1);
+X  XDrawPoint(display, border_noselect, gc, 0, 2);
+X  XDrawPoint(display, border_noselect, gc, 2, 2);
+X  XDrawPoint(display, border_noselect, gc, 1, 3);
+X  XDrawPoint(display, border_noselect, gc, 3, 3);
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Refresh_Screen(void)
+X{
+X  /*
+X  -- To avoid that any 'rubbish' remains on the window
+X  -- (e.g. from a cursor), we clear the window first
+X  */
+X
+X  XClearWindow(display, window);
+X
+X  XSetFunction(display, gc, GXcopy);
+X  XCopyArea(display, pixmap, window, gc,
+X            0, 0, window_width, window_height, 0, 0);
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Window_Size(void)
+X{
+X  Window root_rtn;
+X  int x_rtn, y_rtn;
+X  unsigned int width_rtn, height_rtn, bwidth_rtn, depth_rtn;
+X  Pixmap new_pixmap;
+X
+X  event.xclient.message_type = MESSAGE_SIZE_atom;
+X  event.xclient.format = 32;
+X  event.type = ClientMessage;
+X
+X  if (XGetGeometry(display, window, &root_rtn, &x_rtn, &y_rtn,
+X                   &width_rtn, &height_rtn, &bwidth_rtn, &depth_rtn))
+X  {
+X    event.xclient.data.l[0] = (long) width_rtn;
+X    event.xclient.data.l[1] = (long) height_rtn;
+X
+X    if ((width_rtn != window_width) || (height_rtn != window_height))
+X    {
+X      new_pixmap = New_Pixmap(width_rtn, height_rtn, depth_rtn);
+X
+X      XCopyArea(display, pixmap, new_pixmap, gc,
+X                0, 0,
+X                MIN(width_rtn, window_width), MIN(height_rtn, window_height),
+X                0, 0);
+X
+X      XFreePixmap(display, pixmap);
+X      pixmap = new_pixmap;
+X      window_width = width_rtn;
+X      window_height = height_rtn;
+X    }
+X  }
+X  else
+X  {
+X    printf("WARNING (XviG) : Cannot get size of window.\n");
+X    event.xclient.data.l[0] = (long) window_width;
+X    event.xclient.data.l[1] = (long) window_height;
+X  }
+X
+X  event.xclient.data.l[2] = (long) pixmap;
+X
+X  if (!XSendEvent(display, dummy_window, False, NoEventMask, &event))
+X    fprintf(stderr, "ERROR (XviG) : Cannot send ClientMessage 'size'.\n");
+X}
+X
+X/*------------------------------------------------------------------------------
+X--
+X--
+X--
+X------------------------------------------------------------------------------*/
+X
+Xstatic void Cleanup(void)
+X{
+X  if (arrow_cursor)
+X    XFreeCursor(display, arrow_cursor);
+X  if (empty_cursor)
+X    XFreeCursor(display, empty_cursor);
+X
+X  XFreePixmap(display, pixmap);
+X  XFreePixmap(display, border_select);
+X  XFreePixmap(display, border_noselect);
+X
+X  if (icon_pixmap)
+X    XFreePixmap(display, icon_pixmap);
+X
+X  XDestroyWindow(display, window);
+X  XCloseDisplay(display);
+X}
+END_OF_FILE
+  if test 26491 -ne `wc -c <'version_1.1/src/xvig.c'`; then
+    echo shar: \"'version_1.1/src/xvig.c'\" unpacked with wrong size!
+  fi
+  # end of 'version_1.1/src/xvig.c'
+fi
+echo shar: End of archive 10 \(of 10\).
+cp /dev/null ark10isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+    echo "Merging xvig.ps parts... "
+    cat version_1.1/man/xvig.ps.? > version_1.1/man/xvig.ps
+    rm version_1.1/man/xvig.ps.?
+    echo "Done."
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@Sterling.COM           | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+

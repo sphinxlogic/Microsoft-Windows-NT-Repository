@@ -1,0 +1,1830 @@
+Newsgroups: comp.sources.x
+From: markham@cadence.com (Jeff Markham)
+Subject: v19i030:  xmail - X Window System interface to the mail program, Part05/10
+Message-ID: <1993Mar10.202902.10962@sparky.imd.sterling.com>
+X-Md4-Signature: 70ce6ebf5390ef82d9ad57359e837b6a
+Date: Wed, 10 Mar 1993 20:29:02 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: markham@cadence.com (Jeff Markham)
+Posting-number: Volume 19, Issue 30
+Archive-name: xmail/part05
+Environment: X11
+Supersedes: xmail: Volume 15, Issue 18-26
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  COPYRIGHT Mailwatch.c windows.c
+# Wrapped by chris@sparky on Wed Mar 10 14:17:47 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 5 (of 10)."'
+if test -f 'COPYRIGHT' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'COPYRIGHT'\"
+else
+  echo shar: Extracting \"'COPYRIGHT'\" \(2029 characters\)
+  sed "s/^X//" >'COPYRIGHT' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1989 The University of Texas at Austin
+X *
+X * Author:	Po Cheung
+X * Date:	March 10, 1989
+X *
+X * Permission to use, copy, modify, and distribute this software and
+X * its documentation for any purpose and without fee is hereby granted,
+X * provided that the above copyright notice appear in all copies and that
+X * both that copyright notice and this permission notice appear in
+X * supporting documentation.  The University of Texas at Austin makes no 
+X * representations about the suitability of this software for any purpose.  
+X * It is provided "as is" without express or implied warranty.
+X *
+X * Copyright 1990,1991 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTUOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+END_OF_FILE
+  if test 2029 -ne `wc -c <'COPYRIGHT'`; then
+    echo shar: \"'COPYRIGHT'\" unpacked with wrong size!
+  fi
+  # end of 'COPYRIGHT'
+fi
+if test -f 'Mailwatch.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Mailwatch.c'\"
+else
+  echo shar: Extracting \"'Mailwatch.c'\" \(28664 characters\)
+  sed "s/^X//" >'Mailwatch.c' <<'END_OF_FILE'
+X/*
+X * @(#)Mailwatch.c - MODIFIED for use as an active icon in the xmail program.
+X *
+X * Author:  Dan Heller <island!argv@sun.com>
+X * This code was stolen from Mailbox.c --the widget which supports "xbiff"
+X * written by Jim Fulton which was apparently stolen from Clock.c, the widget
+X * which supports "xclock."  Note, you are witnessing the big bang theory of
+X * software development (everything is a subclass of universeWidgetClass).
+X *
+X * Major changes:
+X * XtRemoveTimeOut() is called before calling XtAddTimeOut().  The original
+X * xbiff would eventually timeout all the time rather than every 30 seconds
+X * because the old timer was never removed.
+X *
+X * User can specify any icon he chooses for either the up flag or the down
+X * flag.  Icons don't need to be the same size (defaults to flagup/flagdown).
+X *
+X * When new mail comes in, a user supplied callback function is invoked.
+X *
+X * The mailbox flag goes up when there is new mail _and_ the user hasn't
+X * read it yet.  As soon as the user updates the access time on the mailbox,
+X * the flag goes down.  This removes the incredibly annoying habit xbiff
+X * had where you read some mail but not delete it from the mailbox and the
+X * flag would remain up.
+X *
+X * Destroy() will now destroy the flagup and flagdown pixmaps.
+X *
+X** July 1991 - Michael C. Wagnitz - National Semiconductor Corporation
+X** The following modifications were made for use in xmail.
+X**
+X** Added support for colored icons via the XPixMap format library libXpm.a
+X**
+X** November 1990 - Michael C. Wagnitz - National Semiconductor Corporation
+X** The following modifications were made for use in xmail.
+X**
+X** Added options to display username or host name in icon window.
+X**
+X** November 1989 - Michael C. Wagnitz - National Semiconductor Corporation
+X**
+X** Removed button handler, custom cursor, and 'from()' reader functions.
+X** Added reset_mailbox() function, my own icons (56x56 bits), and also
+X** added timer initialization to Initialize() routine (we might not ever be
+X** Realized, if the user never iconifies my parent).  This also fixes a Sun4
+X** bug for trying to remove an initial interval_id with a garbage address.
+X** Also changed check_mailbox() to test access time vs. modified and zero size
+X** of file, rather than trying to track our last access or increase in size.
+X**
+X** Copyright 1990,1991 by National Semiconductor Corporation
+X**
+X** Permission to use, copy, modify, and distribute this software and its
+X** documentation for any purpose is hereby granted without fee, provided that
+X** the above copyright notice appear in all copies and that both that
+X** copyright notice and this permission notice appear in supporting
+X** documentation, and that the name of National Semiconductor Corporation not
+X** be used in advertising or publicity pertaining to distribution of the
+X** software without specific, written prior permission.
+X**
+X** NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X** SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X** WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X** DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X** WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X** EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X** INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X** LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X** OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X** PERFORMANCE OF THIS SOFTWARE.
+X**
+X** The following software modules were created and are Copyrighted by National
+X** Semiconductor Corporation:
+X**
+X** 1. reset_mailbox,
+X** 2. set_host,
+X** 3. set_user,
+X** 4. set_none,
+X** 5. GetHostName, and
+X** 6. XMyLocateXPixmapFile.
+X**
+X** Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X*/
+X
+X
+X#include <X11/Xos.h>
+X#include <X11/IntrinsicP.h>		/* for toolkit stuff */
+X#include <X11/cursorfont.h>		/* for cursor constants */
+X#include <X11/StringDefs.h>		/* for useful atom names */
+X#include <X11/Xaw/XawInit.h>
+X#include "MailwatchP.h"			/* for implementation mailbox stuff */
+X#include <stdio.h>			/* for printing error messages */
+X#include <sys/stat.h>			/* for stat() */
+X#include <sys/param.h>			/* for MAXHOSTNAMELEN */
+X#include <pwd.h>			/* for getting username */
+X
+X#ifndef	XPM
+X#include <X11/Xmu/Converters.h>		/* for XmuCvtStringToBitmap */
+X#include "icon.mail"			/* for flag up (mail present) bits */
+X#include "icon.nomail"			/* for flag down (mail not here) */
+X#else
+X#include <X11/xpm.h>			/* for XPixMap colored icons */
+X#include <X11/Xmu/CvtCache.h>
+X#include "mail.xpm"			/* for flag up (mail present) bits */
+X#include "nomail.xpm"			/* for flag down (mail not here) */
+X
+X#define	mail_width	64
+X#define	mail_height	64
+X#define	nomail_width	64
+X#define	nomail_height	64
+X#endif
+X
+X#ifndef	MAXHOSTNAMELEN
+X#define	MAXHOSTNAMELEN	64
+X#endif
+X
+X#define between(x, i, y)   ((i) < (x) ? (x) : (i) > (y) ? (y) : (i))
+X
+X#define REMOVE_TIMEOUT(id) if (!id) ; else XtRemoveTimeOut(id)
+X
+Xextern XtActionProc	Quit();			/* termination procedure */
+X
+Xstatic struct stat	stbuf;
+Xstatic Boolean		SetValues();
+Xstatic Pixmap		make_pixmap();
+Xstatic GC		GetNormalGC(), GetInvertGC();
+Xstatic void		GetMailFile(), GetUserName(), GetHostName(),
+X			CloseDown(), check_mailbox(), redraw_mailbox(),
+X			ClassInitialize(), Initialize(), Destroy(),
+X			Realize(), Redisplay(), clock_tic(), set_title();
+Xextern void		reset_mailbox(), set_host(), set_user(), set_none();
+Xextern Widget		toplevel;
+X
+Xextern	int		RootWidth;
+Xextern	int		RootHeight;
+X
+X#define min(a,b) ((a) < (b) ? (a) : (b))
+X#define max(a,b) ((a) > (b) ? (a) : (b))
+X
+Xstatic char defaultTranslations[] =
+X    "<Key>h:		set-host()	\n\
+X     <Key>q:		Quit(q)		\n\
+X     <Key>u:		set-user()	\n\
+X     <Key>space:	set-none()";
+X
+Xstatic XtActionsRec actionsList[] = {
+X    { "set-host",	set_host	},
+X    { "set-user",	set_user	},
+X    { "set-none",	set_none	},
+X};
+X
+X/* Initialization of defaults */
+X#define offset(field) XtOffset(MailwatchWidget,mailbox.field)
+X#define goffset(field) XtOffset(Widget,core.field)
+X
+Xstatic XtResource resources[] = {
+X    {XtNupdate, XtCInterval, XtRInt, sizeof(int),
+X	offset(update), XtRImmediate, (caddr_t) 30 },
+X    {XtNforeground, XtCForeground, XtRPixel, sizeof(Pixel),
+X	offset(foreground_pixel), XtRString, XtDefaultForeground },
+X    {XtNbackground, XtCBackground, XtRPixel, sizeof(Pixel),
+X	goffset(background_pixel), XtRString, XtDefaultBackground },
+X    {XtNreverseVideo, XtCBoolean, XtRBoolean, sizeof(Boolean),
+X	offset(reverseVideo), XtRImmediate, (caddr_t) False },
+X    {XtNbell, XtCBoolean, XtRBoolean, sizeof(Boolean),
+X	offset(bell), XtRImmediate, (caddr_t) True },
+X    {XtNfile, XtCFile, XtRString, sizeof(String),
+X	offset(filename), XtRString, NULL},
+X#ifndef	XPM
+X    {XtNmailFlag, XtCMailFlag, XtRBitmap, sizeof(Pixmap),
+X	offset(mail.bitmap), XtRString, NULL},
+X    {XtNnoMailFlag, XtCNoMailFlag, XtRBitmap, sizeof(Pixmap),
+X	offset(nomail.bitmap), XtRString, NULL},
+X#else
+X    {XtNmailFlag, XtCMailFlag, XtRString, sizeof(String),
+X	offset(mail.bitmap), XtRString, NULL},
+X    {XtNnoMailFlag, XtCNoMailFlag, XtRString, sizeof(String),
+X  	offset(nomail.bitmap), XtRString, NULL},
+X#endif
+X    {XtNcallback, XtCCallback, XtRCallback, sizeof(caddr_t),
+X	offset(callback), XtRCallback, NULL},
+X    {"useName", XtCBoolean, XtRBoolean, sizeof(Boolean),
+X	offset(useName), XtRString, "FALSE" },
+X    {"useHost", XtCBoolean, XtRBoolean, sizeof(Boolean),
+X	offset(useHost), XtRString, "FALSE" },
+X    { XtNfont, XtCFont, XtRFontStruct, sizeof (XFontStruct *),
+X	offset(font), XtRString, XtDefaultFont},
+X};
+X
+X#undef offset
+X#undef goffset
+X
+XMailwatchClassRec mailwatchClassRec = {
+X    {	/* core fields */
+X	/* superclass		*/ &widgetClassRec,
+X	/* class_name		*/ "Mailwatch",
+X	/* widget_size		*/ sizeof(MailwatchRec),
+X	/* class_initialize	*/ ClassInitialize,
+X	/* class_part_initialize*/ NULL,
+X	/* class_inited 	*/ FALSE,
+X	/* initialize		*/ Initialize,
+X	/* initialize_hook	*/ NULL,
+X	/* realize		*/ Realize,
+X	/* actions		*/ actionsList,
+X	/* num_actions		*/ XtNumber(actionsList),
+X	/* resources		*/ resources,
+X	/* resource_count	*/ XtNumber(resources),
+X	/* xrm_class		*/ 0,
+X	/* compress_motion	*/ TRUE,
+X	/* compress_exposure	*/ TRUE,
+X	/* compress_enterleave	*/ TRUE,
+X	/* visible_interest	*/ FALSE,
+X	/* destroy		*/ Destroy,
+X	/* resize		*/ NULL,
+X	/* expose		*/ Redisplay,
+X	/* set_values		*/ SetValues,
+X	/* set_values_hook	*/ NULL,
+X	/* set_values_almost	*/ XtInheritSetValuesAlmost,
+X	/* get_values_hook	*/ NULL,
+X	/* accept_focus		*/ NULL,
+X	/* version		*/ XtVersion,
+X	/* callback_private	*/ NULL,
+X	/* tm_table		*/ defaultTranslations,
+X	/* query_geometry	*/ NULL,
+X    }
+X};
+X
+XWidgetClass mailwatchWidgetClass = (WidgetClass) & mailwatchClassRec;
+X
+X/*
+X * private procedures
+X */
+Xstatic Pixmap
+Xmake_pixmap (dpy, w, bitmap, depth, widthp, heightp)
+XDisplay		*dpy;
+XMailwatchWidget	w;
+XPixmap		bitmap;
+Xint		depth;
+Xint		*widthp, *heightp;
+X{
+X Window root;
+X int x, y;
+X unsigned int width, height, bw, dep;
+X unsigned long fore, back;
+X
+X 
+X if (bitmap == 0 ||
+X     ! XGetGeometry(dpy, bitmap, &root, &x, &y, &width, &height, &bw, &dep))
+X    return None;
+X
+X *widthp = (int) width;
+X *heightp = (int) height;
+X fore = w->mailbox.foreground_pixel;
+X back = w->core.background_pixel;
+X return XmuCreatePixmapFromBitmap(dpy, w->core.window, bitmap, 
+X				      width, height, depth, fore, back);
+X}
+X
+X
+Xstatic void
+XClassInitialize()
+X{
+X#ifndef XPM
+X static XtConvertArgRec screenConvertArg[] = {
+X    { XtWidgetBaseOffset, (caddr_t) XtOffset(Widget, core.screen), sizeof(Screen *) }
+X    };
+X#endif
+X
+X XawInitializeWidgetSet();
+X
+X#ifndef XPM
+X XtAddConverter (XtRString, XtRBitmap, XmuCvtStringToBitmap,
+X		    screenConvertArg, XtNumber(screenConvertArg));
+X#endif
+X
+X return;
+X} /* ClassInitialize */
+X
+X
+X/* ARGSUSED */
+Xstatic void
+XInitialize(request, new)
+XWidget request, new;
+X{
+X    MailwatchWidget w = (MailwatchWidget) new;
+X
+X    GetUserName(w);
+X
+X    GetHostName(w);
+X
+X    if (!w->mailbox.filename)
+X	GetMailFile(w);
+X
+X    if (w->mailbox.reverseVideo) {
+X	Pixel tmp;
+X
+X	tmp = w->mailbox.foreground_pixel;
+X	w->mailbox.foreground_pixel = w->core.background_pixel;
+X	w->core.background_pixel = tmp;
+X    }
+X
+X    GetNormalGC(w);
+X
+X    GetInvertGC(w);
+X
+X    w->mailbox.flag_up = FALSE;		/* because it hasn't been shown yet */
+X    w->mailbox.mail.pixmap = None;
+X    w->mailbox.nomail.pixmap = None;
+X
+X    w->mailbox.last_access = (stat(w->mailbox.filename, &stbuf) == 0) ?
+X                             stbuf.st_atime : 0 ;	/* last accessed */
+X    return;
+X}
+X
+X
+X/* ARGSUSED */
+Xstatic void
+Xclock_tic(client_data, id)
+Xcaddr_t client_data;
+XXtIntervalId *id;
+X{
+X    MailwatchWidget w = (MailwatchWidget) client_data;
+X
+X    check_mailbox(w, FALSE);
+X}
+X
+X
+Xstatic void
+Xset_title(str)
+XString	str;
+X{
+X String		c, name, title;
+X Window		win  = XtWindow(toplevel);
+X Display	*dpy = XtDisplay(toplevel);
+X
+X
+X (void) XFetchName(dpy, win, &name);
+X if (! name)
+X    name = XtNewString("xmail");
+X else
+X    if ((c = (char *)strrchr(name, '_')) != NULL)
+X        *c = '\0';
+X
+X if (! *str)
+X    title = (String) XtMalloc((unsigned) strlen(name) + 1);
+X else
+X    title = (String) XtMalloc((unsigned) strlen(name) + strlen(str) + 2);
+X
+X if (! title)
+X    XtError("xmail: Insufficient memory to allocate title space");
+X
+X if (! *str)
+X    (void) sprintf(title, "%s", name);
+X else
+X    (void) sprintf(title, "%s_%s", name, str);
+X
+X XStoreName(dpy, win, title);
+X
+X XtFree((String) title);
+X XtFree((String) name);
+X} /* end - set_title */
+X
+X
+Xvoid
+Xset_host(m)
+XMailwatchWidget		m;
+X{
+X register Display	*dpy = XtDisplay(m);
+X register Window	win = XtWindow(m);
+X register int		x, y, h, w;
+X
+X
+X set_title(m->mailbox.mailhost);
+X
+X m->mailbox.useHost = True;
+X m->mailbox.useName = False;
+X h = m->mailbox.font->max_bounds.width - m->mailbox.font->max_bounds.lbearing;
+X w = strlen(m->mailbox.mailhost);
+X h = (h * w) - 2;
+X x = max(m->core.width - h, 2);			/* if (x < 2) x = 2; */
+X x /= 2;
+X y = m->core.height - m->mailbox.font->descent;
+X
+X XFillRectangle(dpy, win, m->mailbox.invert_GC,
+X                      0, y - m->mailbox.font->ascent, m->core.width,
+X                      m->mailbox.font->ascent + m->mailbox.font->descent);
+X
+X XDrawString(dpy, win, m->mailbox.normal_GC, x, y, m->mailbox.mailhost, w);
+X} /* end - set_host */
+X
+X
+Xvoid
+Xset_user(m)
+XMailwatchWidget		m;
+X{
+X register Display	*dpy = XtDisplay(m);
+X register Window	win = XtWindow(m);
+X register int		x, y, h, w;
+X
+X
+X set_title(m->mailbox.username);
+X
+X m->mailbox.useHost = False;
+X m->mailbox.useName = True;
+X h = m->mailbox.font->max_bounds.width - m->mailbox.font->max_bounds.lbearing;
+X w = strlen(m->mailbox.username);
+X h = (h * w) - 2;
+X x = max(m->core.width - h, 2);			/* if (x < 2) x = 2; */
+X x /= 2;
+X y = m->core.height - m->mailbox.font->descent;
+X
+X XFillRectangle(dpy, win, m->mailbox.invert_GC,
+X                      0, y - m->mailbox.font->ascent, m->core.width,
+X                      m->mailbox.font->ascent + m->mailbox.font->descent);
+X
+X XDrawString(dpy, win, m->mailbox.normal_GC, x, y, m->mailbox.username, w);
+X} /* end - set_user */
+X
+X
+Xvoid
+Xset_none(m)
+XMailwatchWidget		m;
+X{
+X set_title("");
+X m->mailbox.useHost = m->mailbox.useName = False;
+X redraw_mailbox(m);
+X} /* end - set_none */
+X
+X
+Xstatic GC
+XGetNormalGC(w)
+XMailwatchWidget w;
+X{
+X    XtGCMask valuemask;
+X    XGCValues xgcv;
+X
+X    valuemask = GCForeground | GCBackground | GCFunction | GCGraphicsExposures;
+X    xgcv.foreground = w->mailbox.foreground_pixel;
+X    xgcv.background = w->core.background_pixel;
+X    xgcv.function = GXcopy;
+X    xgcv.graphics_exposures = False;
+X    w->mailbox.normal_GC = XtGetGC((Widget) w, valuemask, &xgcv);
+X}
+X
+Xstatic GC
+XGetInvertGC(w)
+XMailwatchWidget w;
+X{
+X    XtGCMask valuemask;
+X    XGCValues xgcv;
+X
+X    valuemask = GCForeground | GCBackground | GCFunction | GCGraphicsExposures;
+X    xgcv.foreground = w->core.background_pixel;
+X    xgcv.background = w->mailbox.foreground_pixel;
+X    xgcv.function = GXcopy;
+X    xgcv.graphics_exposures = False;	/* this is Bool, not Boolean */
+X    w->mailbox.invert_GC = XtGetGC((Widget) w, valuemask, &xgcv);
+X}
+X
+X
+X#ifdef XPM
+X/*
+X * split_path_string - split a colon-separated list into its constituent
+X * parts; to release, free list[0] and list.  From libXmu LocBitmap.c
+X */
+Xstatic char **
+Xsplit_path_string (src)
+XString	src;
+X{
+X int nelems = 1;
+X String	dst;
+X String	*elemlist, *elem;
+X
+X /* count the number of elements */
+X for (dst = src; *dst; dst++) if (*dst == ':') nelems++;
+X
+X /* get memory for everything */
+X dst = (String) XtMalloc ((unsigned) (dst - src) + 1);
+X if (!dst) return NULL;
+X elemlist = (String *) XtMalloc ((unsigned) (nelems + 1), sizeof(String));
+X if (!elemlist) {
+X    XtFree ((String) dst);
+X    return NULL;
+X   }
+X
+X /* copy to new list and walk up nulling colons and setting list pointers */
+X (void) strcpy (dst, src);
+X for (elem = elemlist, src = dst; *src; src++) {
+X     if (*src == ':') {
+X        *elem++ = dst;
+X        *src = '\0';
+X        dst = src + 1;
+X       }
+X    }
+X *elem = dst;
+X
+X return elemlist;
+X}
+X
+XString			*bitmap_file_paths = NULL;
+X
+X#ifndef MAXPATHLEN
+X#define MAXPATHLEN	256
+X#endif
+X
+X#ifndef BITMAPDIR
+X#define BITMAPDIR	"/usr/include/X11/bitmaps"
+X#endif
+X
+X
+X/*
+X** @(#)XMyLocateXPixmapFile() - Cloned from libXmu LocBitmap.c for use in XPM
+X*/
+Xstatic Pixmap
+XXMyLocateXPixmapFile(w, name, widthp, heightp)
+XWidget	w;
+Xchar	*name;
+Xint	*widthp, *heightp;	/* RETURN */
+X{
+X int			i;
+X Bool			try_plain_name = True;
+X Display		*dpy = XtDisplay(w);
+X Pixmap			pixmap;					/* RETURN */
+X XrmName		xrm_name[2];
+X XrmClass		xrm_class[2];
+X XrmRepresentation	rep_type;
+X XrmValue		value;
+X char			filename[MAXPATHLEN];
+X char			**file_paths = NULL;
+X XpmAttributes		pmAttr;
+X/*
+X** look for bitmap path (only once, because we're going to call this twice)
+X*/
+X if (bitmap_file_paths == NULL) {
+X    xrm_name[0] = XrmStringToName ("bitmapFilePath");
+X    xrm_name[1] = NULL;
+X    xrm_class[0] = XrmStringToClass ("BitmapFilePath");
+X    xrm_class[1] = NULL;
+X    /*
+X    ** XXX - warning, derefing Display * until XDisplayDatabase
+X    */
+X    if (!dpy->db)
+X       (void) XGetDefault (dpy, "", "");
+X
+X    if (XrmQGetResource (dpy->db, xrm_name, xrm_class, &rep_type, &value) &&
+X        rep_type == XrmStringToQuark(XtRString)) {
+X       bitmap_file_paths = split_path_string(value.addr);
+X      }
+X   }
+X file_paths = bitmap_file_paths;
+X/*
+X** Search order:
+X**    1.  name if it begins with / or ./
+X**    2.  "each prefix in file_paths"/name
+X**    3.  BITMAPDIR/name
+X**    4.  name if didn't begin with / or .
+X*/
+X for (i = 1; i <= 4; i++) {
+X     String fn = filename;
+X
+X     switch (i) {
+X       case 1:
+X            if (!(name[0] == '/' || (name[0] == '.') && name[1] == '/'))
+X              continue;
+X            fn = name;
+X            try_plain_name = False;
+X            break;
+X       case 2:
+X            if (file_paths && *file_paths) {
+X                (void) sprintf (filename, "%s/%s", *file_paths, name);
+X                file_paths++;
+X                i--;
+X                break;
+X            }
+X            continue;
+X       case 3:
+X            (void) sprintf (filename, "%s/%s", BITMAPDIR, name);
+X            break;
+X       case 4:
+X            if (!try_plain_name) continue;
+X            fn = name;
+X            break;
+X       }
+X
+X     pmAttr.valuemask = XpmReturnPixels;
+X     if (PixmapSuccess == XpmReadFileToPixmap(dpy, w->core.window, fn,
+X                         &pixmap, NULL, &pmAttr))
+X       {
+X        *widthp = pmAttr.width;
+X        *heightp = pmAttr.height;
+X        return pixmap;
+X       }
+X    }
+X return None;
+X}
+X#endif
+X
+X
+X
+Xstatic void
+XRealize(gw, valuemaskp, attr)
+XWidget gw;
+XXtValueMask *valuemaskp;
+XXSetWindowAttributes *attr;
+X{
+X#ifdef XPM
+X int			x, y;
+X Pixmap			bitmap, XmuLocateBitmapFile();
+X XpmAttributes		pmAttr;
+X#endif
+X MailwatchWidget	w = (MailwatchWidget) gw;
+X int			depth = w->core.depth;
+X register Display	*dpy = XtDisplay(w);
+X Arg			args[2];
+X
+X
+X XtCreateWindow(gw, InputOutput, (Visual *) CopyFromParent, *valuemaskp, attr);
+X/*
+X** build up the pixmaps that we'll put into the icon image
+X*/
+X if (w->mailbox.mail.bitmap == None) {	/* if user failed to specify an icon */
+X#ifndef	XPM			/* Non-XPM uses [no]mail.bitmap as a pixmap */
+X    w->mailbox.mail.bitmap = XCreateBitmapFromData(dpy, w->core.window,
+X					mail_bits, mail_width, mail_height);
+X
+X    w->mailbox.mail.pixmap = make_pixmap(dpy, w, w->mailbox.mail.bitmap, depth,
+X					 &w->mailbox.mail.width,
+X					 &w->mailbox.mail.height);
+X   } else {			/* non-XPM used XmuConvertStringToPixmap */
+X    w->mailbox.mail.pixmap = make_pixmap(dpy, w, w->mailbox.mail.bitmap, depth,
+X					 &w->mailbox.mail.width,
+X					 &w->mailbox.mail.height);
+X#else
+X    pmAttr.valuemask = XpmReturnPixels;
+X    XpmCreatePixmapFromData(dpy, w->core.window, mail_xpm,
+X			    &w->mailbox.mail.pixmap, NULL, &pmAttr);
+X    w->mailbox.mail.width = pmAttr.width;
+X    w->mailbox.mail.height = pmAttr.height;
+X   } else {
+X    /*
+X    ** Because for XPM we define mailbox.[no]mail.bitmap as a string,
+X    ** we must do the file conversion ourselves.  First, see if it is
+X    ** a plain old bitmap file.  Failing that, try for an XPM format
+X    ** file.  Failing that, default to our internally defined xpm icon.
+X    */
+X    if (bitmap = XmuLocateBitmapFile(w->core.screen, w->mailbox.mail.bitmap,
+X                                     NULL, 0, &w->mailbox.mail.width,
+X                                              &w->mailbox.mail.height, &x, &y))
+X       w->mailbox.mail.pixmap = make_pixmap(dpy, w, bitmap, depth,
+X                                            &w->mailbox.mail.width,
+X					    &w->mailbox.mail.height);
+X
+X    else if (! (w->mailbox.mail.pixmap = XMyLocateXPixmapFile((Widget) w,
+X                                                     w->mailbox.mail.bitmap,
+X                                                    &w->mailbox.mail.width,
+X                                                    &w->mailbox.mail.height))) {
+X	    pmAttr.valuemask = XpmReturnPixels;
+X	    XpmCreatePixmapFromData(dpy, w->core.window, mail_xpm,
+X				    &w->mailbox.mail.pixmap, NULL, &pmAttr);
+X	    w->mailbox.mail.width = pmAttr.width;
+X	    w->mailbox.mail.height = pmAttr.height;
+X    }
+X#endif
+X   }
+X
+X if (w->mailbox.nomail.bitmap == None) {
+X#ifndef	XPM
+X    w->mailbox.nomail.bitmap = XCreateBitmapFromData(dpy, w->core.window,
+X                                 no_mail_bits, no_mail_width, no_mail_height);
+X
+X    w->mailbox.nomail.pixmap = make_pixmap(dpy, w, w->mailbox.nomail.bitmap,
+X					 depth, &w->mailbox.nomail.width,
+X					 &w->mailbox.nomail.height);
+X   } else {
+X    w->mailbox.nomail.pixmap = make_pixmap(dpy, w, w->mailbox.nomail.bitmap,
+X					 depth, &w->mailbox.nomail.width,
+X					 &w->mailbox.nomail.height);
+X#else
+X    pmAttr.valuemask = XpmReturnPixels;
+X    XpmCreatePixmapFromData(dpy, w->core.window, nomail_xpm,
+X			    &w->mailbox.nomail.pixmap, NULL, &pmAttr);
+X    w->mailbox.nomail.width = pmAttr.width;
+X    w->mailbox.nomail.height = pmAttr.height;
+X   } else {
+X    if (bitmap = XmuLocateBitmapFile(w->core.screen, w->mailbox.nomail.bitmap,
+X                                        NULL, 0, &w->mailbox.nomail.width,
+X                                        &w->mailbox.nomail.height, &x, &y))
+X       w->mailbox.nomail.pixmap = make_pixmap(dpy, w, bitmap, depth,
+X					      &w->mailbox.nomail.width,
+X					      &w->mailbox.nomail.height);
+X
+X    else if (! (w->mailbox.nomail.pixmap = XMyLocateXPixmapFile((Widget) w,
+X                                                   w->mailbox.nomail.bitmap,
+X                                                  &w->mailbox.nomail.width,
+X                                                  &w->mailbox.nomail.height))) {
+X	    pmAttr.valuemask = XpmReturnPixels;
+X	    XpmCreatePixmapFromData(dpy, w->core.window, nomail_xpm,
+X				    &w->mailbox.nomail.pixmap, NULL, &pmAttr);
+X	    w->mailbox.nomail.width = pmAttr.width;
+X	    w->mailbox.nomail.height = pmAttr.height;
+X    }
+X#endif
+X   }
+X/*
+X** the size of the icon should be the size of the larger icon image.
+X*/
+X w->core.width  = max(w->mailbox.mail.width, w->mailbox.nomail.width);
+X w->core.height = max(w->mailbox.mail.height, w->mailbox.nomail.height);
+X
+X XtSetArg(args[0], XtNwidth,  (XtArgVal) w->core.width);
+X XtSetArg(args[1], XtNheight, (XtArgVal) w->core.height);
+X XtSetValues(XtNameToWidget(toplevel, "icon"), args, 2);
+X
+X/* set status check timer */
+X w->mailbox.interval_id = XtAddTimeOut(w->mailbox.update * 1000,
+X	                                        clock_tic, (caddr_t) w);
+X#ifdef XPM
+X if (bitmap_file_paths) {
+X    XtFree((String) bitmap_file_paths[0]);
+X    XtFree((String) bitmap_file_paths);
+X   }
+X#endif
+X}
+X
+Xstatic void
+XDestroy(gw)
+XWidget gw;
+X{
+X MailwatchWidget w = (MailwatchWidget) gw;
+X Display	*dpy = XtDisplay(gw);
+X
+X XtFree((String) w->mailbox.filename);
+X XtFree((String) w->mailbox.username);
+X XtFree((String) w->mailbox.mailhost);
+X REMOVE_TIMEOUT(w->mailbox.interval_id);
+X XtReleaseGC(w, w->mailbox.normal_GC);
+X#ifndef	XPM
+X XFreePixmap(dpy, w->mailbox.mail.bitmap);
+X XFreePixmap(dpy, w->mailbox.nomail.bitmap);
+X#endif
+X XFreePixmap(dpy, w->mailbox.mail.pixmap);
+X XFreePixmap(dpy, w->mailbox.nomail.pixmap);
+X}
+X
+Xstatic void
+XRedisplay(gw)
+XWidget gw;
+X{
+X    MailwatchWidget w = (MailwatchWidget) gw;
+X
+X    REMOVE_TIMEOUT(w->mailbox.interval_id);
+X    check_mailbox(w, TRUE);
+X}
+X
+X
+X/*
+X** Modified to NOT update the mail file timestamp via utimes(), and to
+X** ignore state change where mail adds a status record to the message.
+X** The first eliminates collisions with mail during delivery, and the
+X** second eliminates false triggers for new mail.  The number of times
+X** the terminal bell is rung is controlled by the same .mailrc resource
+X** (bell) used by Sunview's mailtool.
+X*/
+Xstatic void
+Xcheck_mailbox(w, force_redraw)
+XMailwatchWidget w;
+XBoolean force_redraw;
+X{
+X int		i, redraw = 0;
+X char		*p = NULL;
+X
+X
+X if (stat(w->mailbox.filename, &stbuf) < 0) {		/* no mail file */
+X    if (w->mailbox.flag_up == TRUE) {
+X       force_redraw = 0;
+X       UnsetNewmail(w, NULL, NULL);
+X      }
+X   } else {
+X    if (stbuf.st_atime > stbuf.st_mtime &&
+X        stbuf.st_atime >= w->mailbox.last_access) {	/* mail was seen */
+X       w->mailbox.last_access = stbuf.st_atime;
+X       if (w->mailbox.flag_up == TRUE) {
+X          force_redraw = 0;
+X          UnsetNewmail(w, NULL, NULL);
+X         }
+X      } else {
+X       if (stbuf.st_size != 0 && 
+X           stbuf.st_mtime > w->mailbox.last_access) {	/* got new mail */
+X          w->mailbox.last_access = stbuf.st_mtime;
+X          if (w->mailbox.flag_up == FALSE) {
+X             if (w->mailbox.bell) {
+X                i = 1;
+X                if (p = (char *)GetMailrc("bell"))
+X                   (void) sscanf(p, "%d", &i);
+X                i = between(1, i, 5);
+X                for (; i > 0; i--)
+X                    XBell(XtDisplay(w), MAILBOX_VOLUME);
+X               }
+X             w->mailbox.flag_up = TRUE;
+X             redraw = TRUE;
+X             XtCallCallbacks(w, XtNcallback, NULL);
+X            }
+X         }
+X      }
+X   }
+X
+X if (redraw || force_redraw)
+X    redraw_mailbox(w);
+X
+X /* reset timer */
+X w->mailbox.interval_id = XtAddTimeOut(w->mailbox.update * 1000,
+X	clock_tic, (caddr_t) w);
+X} /* check_mailbox */
+X
+X/*
+X** Retrieve the user's mailbox filename - use MAIL environment value, if set
+X*/
+Xstatic void
+XGetMailFile(w)
+XMailwatchWidget w;
+X{
+X if (! (w->mailbox.filename = (String) GetMailEnv("MAIL"))) {
+X    if (! (w->mailbox.filename = (String) XtMalloc((unsigned) strlen(MAILBOX_DIRECTORY)
+X	   + 2 + strlen(w->mailbox.username) + 1))) {
+X       (void) fprintf(stderr, "Mailbox widget: can't allocate enough memory.\n");
+X       CloseDown(w, 1);
+X      }
+X    (void) sprintf(w->mailbox.filename, "%s/%s\0", MAILBOX_DIRECTORY, w->mailbox.username);
+X   }
+X} /* GetMailFile */
+X
+X
+X/*
+X** Retrieve the mailbox user's name
+X*/
+Xstatic void
+XGetUserName(w)
+XMailwatchWidget w;
+X{
+X char *username = (char *)getlogin();
+X
+X if (! username) {
+X    struct passwd *pw = getpwuid((uid_t) getuid());
+X
+X    if (! pw) {
+X       (void) fprintf(stderr, "Mailbox widget: can't find your username.\n");
+X       CloseDown(w, 1);
+X      }
+X    username = pw->pw_name;
+X   }
+X
+X if (! (w->mailbox.username = XtNewString(username))) {
+X    XtWarning("Mailbox widget: can't allocate space for username.\n");
+X    CloseDown(w, 1);
+X   }
+X} /* GetUserName */
+X
+X
+X/*
+X** Retrieve the process host name
+X*/
+Xstatic void
+XGetHostName(w)
+XMailwatchWidget w;
+X{
+X char	hostname[MAXHOSTNAMELEN];
+X
+X
+X (void) gethostname(hostname, MAXHOSTNAMELEN);
+X
+X if (! (w->mailbox.mailhost = XtNewString(hostname))) {
+X    XtWarning("Mailbox widget: can't allocate space for hostname.\n");
+X    CloseDown(w, 1);
+X   }
+X} /* GetHostName */
+X
+X
+Xstatic void
+XCloseDown(w, status)
+XMailwatchWidget w;
+Xint status;
+X{
+X    Display *dpy = XtDisplay(w);
+X
+X    XtDestroyWidget(w);
+X    XCloseDisplay(dpy);
+X    _exit(status);
+X}
+X
+X/* ARGSUSED */
+Xstatic Boolean
+XSetValues(gcurrent, grequest, gnew)
+XWidget gcurrent, grequest, gnew;
+X{
+X    MailwatchWidget current = (MailwatchWidget) gcurrent;
+X    MailwatchWidget new = (MailwatchWidget) gnew;
+X    Boolean redisplay = FALSE;
+X
+X    if (current->mailbox.update != new->mailbox.update) {
+X	REMOVE_TIMEOUT(current->mailbox.interval_id);
+X	new->mailbox.interval_id = XtAddTimeOut(new->mailbox.update * 1000,
+X	    clock_tic,
+X	    (caddr_t) gnew);
+X    }
+X    if (current->mailbox.foreground_pixel != new->mailbox.foreground_pixel ||
+X	current->core.background_pixel != new->core.background_pixel) {
+X	XtReleaseGC(current, current->mailbox.normal_GC);
+X	GetNormalGC(new);
+X	redisplay = TRUE;
+X    }
+X    return (redisplay);
+X}
+X
+X/*
+X * drawing code
+X */
+Xstatic void
+Xredraw_mailbox(m)
+XMailwatchWidget m;
+X{
+X    register Display	*dpy = XtDisplay(m);
+X    register Window	win = XtWindow(m);
+X    register int	x, y;
+X    Pixel		back = m->core.background_pixel;
+X    GC			gc = m->mailbox.normal_GC;
+X    struct _mbimage	*im;
+X
+X
+X    if (m->mailbox.flag_up)			/* paint the "up" position */
+X	im = &m->mailbox.mail;
+X    else					/* paint the "down" position */
+X	im = &m->mailbox.nomail;
+X
+X    /* center the picture in the window */
+X    x = ((int)m->core.width - im->width) / 2;
+X    y = ((int)m->core.height - im->height) / 2;
+X
+X    XSetWindowBackground(dpy, win, back);
+X    XClearWindow(dpy, win);
+X    XCopyArea(dpy, im->pixmap, win, gc, 0, 0, im->width, im->height, x, y);
+X
+X    if (m->mailbox.useHost || m->mailbox.useName) {
+X       if (m->mailbox.useHost) set_host(m);
+X       else set_user(m);
+X      }
+X}
+X
+X
+Xvoid
+Xreset_mailbox(gw, down)
+XWidget	gw;
+Xint	down;
+X{
+X MailwatchWidget w = (MailwatchWidget) gw;
+X char	*p;
+X int	i;
+X
+X
+X if (down)
+X    w->mailbox.flag_up = FALSE;
+X else {
+X    if (w->mailbox.flag_up == FALSE) {
+X       if (w->mailbox.bell) {
+X          i = 1;
+X          if (p = (char *)GetMailrc("bell"))
+X             (void) sscanf(p, "%d", &i);
+X          i = between(1, i, 5);
+X          for (; i > 0; i--)
+X              XBell(XtDisplay(w), MAILBOX_VOLUME);
+X         }
+X      }
+X    w->mailbox.flag_up = TRUE;
+X   }
+X
+X redraw_mailbox(w);
+X} /* reset_mailbox */
+END_OF_FILE
+  if test 28664 -ne `wc -c <'Mailwatch.c'`; then
+    echo shar: \"'Mailwatch.c'\" unpacked with wrong size!
+  fi
+  # end of 'Mailwatch.c'
+fi
+if test -f 'windows.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'windows.c'\"
+else
+  echo shar: Extracting \"'windows.c'\" \(23700 characters\)
+  sed "s/^X//" >'windows.c' <<'END_OF_FILE'
+X/*
+X * xmail - X window system interface to the mail program
+X *
+X * Copyright 1990,1991,1992 by National Semiconductor Corporation
+X *
+X * Permission to use, copy, modify, and distribute this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of National Semiconductor Corporation not
+X * be used in advertising or publicity pertaining to distribution of the
+X * software without specific, written prior permission.
+X *
+X * NATIONAL SEMICONDUCTOR CORPORATION MAKES NO REPRESENTATIONS ABOUT THE
+X * SUITABILITY OF THIS SOFTWARE FOR ANY PURPOSE.  IT IS PROVIDED "AS IS"
+X * WITHOUT EXPRESS OR IMPLIED WARRANTY.  NATIONAL SEMICONDUCTOR CORPORATION
+X * DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL IMPLIED
+X * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.  IN NO
+X * EVENT SHALL NATIONAL SEMICONDUCTOR CORPORATION BE LIABLE FOR ANY SPECIAL,
+X * INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+X * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+X * OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X * PERFORMANCE OF THIS SOFTWARE.
+X *
+X * The following software modules were created and are Copyrighted by National
+X * Semiconductor Corporation:
+X *
+X * 1. AddHelpText:
+X * 2. AddInfoHandler:
+X * 3. AddMenuWindow:
+X * 4. AddSetMenu:
+X * 5. CreateFolderButton: and
+X * 6. CreateInputWindow.
+X *
+X * Author:  Michael C. Wagnitz - National Semiconductor Corporation
+X *
+X */
+X
+X
+X#include "global.h"
+X#include "MailwatchP.h"
+X#include "patchlevel.h"
+X#include "national.bm"
+X
+X#ifdef XPM
+X#define	mail_width	64
+X#define	mail_height	64
+X#else
+X#include "icon.mail"
+X#endif
+X
+X/*
+X** @(#)AddHelpText() - add help text to string resources for help widget
+X*/
+Xvoid
+XAddHelpText(parent, text)
+XWidget parent;
+XString	text;
+X{
+X Arg		args[2];
+X String		name;
+X helpText	*help_text;
+X Widget		hw = XtNameToWidget(toplevel, "topBox.help.helpWindow");
+X
+X static String	p_Trans = "!Shift<Btn2Down>: ShowHelp()\n<Btn2Up>: MenuPopdown(help)";
+X
+X
+X XtOverrideTranslations(parent, XtParseTranslationTable(p_Trans));
+X
+X if ((help_text = (helpText *) XtMalloc(sizeof(helpText))) == NULL)
+X    XtError("No memory for help text");
+X
+X name = parent->core.name;
+X help_text->name = XtNewString(name);
+X
+X XtSetArg(args[0], XtNstring, (XtArgVal) text);
+X XtSetArg(args[1], XtNlength, (XtArgVal) strlen(text));
+X
+X help_text->data = (AsciiSrcObject) XtCreateWidget(name, asciiSrcObjectClass, hw, args, 2);
+X
+X help_text->next = HelpList;
+X
+X HelpList = help_text;
+X} /* AddHelpText */
+X
+X
+Xvoid
+XAddInfoHandler(widget, message)
+XWidget widget;
+Xchar *message;
+X{
+X if (XMail.Show_Info)
+X    XtAddEventHandler(widget,
+X		  (EventMask) (EnterWindowMask|LeaveWindowMask),
+X		  False,
+X		  info_handler,
+X		  (caddr_t) message);
+X}
+X
+X
+X/* 
+X** @(#)AddMenuWindow() - create menu popup for the specified widget
+X*/
+Xvoid
+XAddMenuWindow(parent, action, list, info_text)
+XWidget		parent;
+XString		action;
+XmenuList_p	*list;
+XString		*info_text;
+X{
+X Arg	 	args[6];
+X Widget		menu, layout, previous, next;
+X int		j, k, n, indx;
+X char		tag[BUFSIZ], trans[BUFSIZ], *c;		
+X
+X static String p_Trans =
+X	"<Btn3Down>:	SetPopup(%s) MenuPopup(%s)";
+X
+X static String b_Trans =
+X	"<EnterWindow>:	highlight() set() \n\
+X	 <LeaveWindow>: unset()  unhighlight()\n\
+X	 <Btn3Up>:	notify() reset()";
+X
+X static String m_Trans =
+X	"<Btn3Up>:	MenuPopdown(%s)";
+X
+X static String L_Trans[] = { NULL,
+X	"! Shift      <Btn1Down>: %s(%s)",
+X	"!       Ctrl <Btn1Down>: %s(%s)",
+X	"! Shift Ctrl <Btn1Down>: %s(%s)",
+X	NULL };
+X
+X static String Labels[] = { NULL,
+X	" [Shift]",
+X	"        [Ctrl]",
+X	" [Shift][Ctrl]",
+X	NULL };
+X
+X
+X if (list[0]) {
+X    (void) sprintf(tag, "%s_menu", parent->core.name);
+X    (void) sprintf(trans, p_Trans, tag, tag);
+X    XtOverrideTranslations(parent, XtParseTranslationTable(trans));
+X
+X    (void) sprintf(trans, m_Trans, tag);
+X    XtSetArg(args[0], XtNtranslations, XtParseTranslationTable(trans));
+X    menu = XtCreatePopupShell(tag, overrideShellWidgetClass, parent, args, 1);
+X
+X    XtSetArg(args[0], XtNdefaultDistance, (XtArgVal) 1);
+X    layout = XtCreateManagedWidget("menu", formWidgetClass, menu, args, 1);
+X/*
+X** Find widest label for this menu
+X*/
+X    for (j = k = n = indx = 0; list[indx] != NULL; indx++)
+X        if ((k = strlen(list[indx]->label)) > j) {
+X           j = k;
+X           n = indx;
+X          }
+X    k = XTextWidth(XMail.buttonFont, list[n]->label, j) + 12;
+X
+X    if (--indx > 0)	/* add length for accelerator keys menu notes */
+X       k += XTextWidth(XMail.buttonFont, Labels[indx], strlen(Labels[indx]));
+X/*
+X** create the menu buttons
+X*/
+X    previous = NULL;
+X    XtSetArg(args[0], XtNwidth, k);
+X    XtSetArg(args[1], XtNfont, XMail.buttonFont);
+X    XtSetArg(args[2], XtNjustify, XtJustifyLeft);
+X    XtSetArg(args[3], XtNtranslations, XtParseTranslationTable(b_Trans));
+X    for (indx = 0; list[indx] != NULL; indx++) {
+X        (void) strcpy(tag, list[indx]->label);	/* set window name by label */
+X        if ((c = strchr(tag, ' '))) *c = '\0';	/* first word only */
+X        (void) sprintf(trans, "%-*.*s", j, j, list[indx]->label);
+X        if (Labels[indx])			/* add accel. note if needed */
+X           (void) strcat(trans, Labels[indx]);
+X
+X        XtSetArg(args[4], XtNlabel, trans);
+X        XtSetArg(args[5], XtNfromVert, previous);
+X        next = XtCreateManagedWidget(tag, commandWidgetClass, layout, args, 6);
+X
+X        if (info_text)
+X           AddInfoHandler(next, info_text[indx]);
+X
+X        XtAddCallback(next, XtNcallback, list[indx]->func, list[indx]->data);
+X        previous = next;
+X
+X	if (L_Trans[indx]) {
+X	   (void) sprintf(trans, L_Trans[indx], action, list[indx]->data);
+X           XtOverrideTranslations(parent, XtParseTranslationTable(trans));
+X          }
+X       }
+X/*
+X** Dummy out any remaining combinations of accelerators to do nothing
+X*/
+X    for (; L_Trans[indx] != NULL; indx++) {
+X	(void) sprintf(trans, L_Trans[indx], "DoNothing", "");
+X        XtOverrideTranslations(parent, XtParseTranslationTable(trans));
+X       }
+X   }
+X} /* AddMenuWindow */
+X
+X
+X/*
+X** @(#)AddButton() - add a button to the command window
+X**                   include help and an auxilary commands popup menu
+X*/
+Xvoid
+XAddButton(parent, name, action, command, list, info_text, help_text)
+XWidget		parent;			/* widget which holds this button */
+XString		name;			/* Label for button (and children) */
+XString		action;			/* name of the XtActionProc to call */
+XString		command;		/* passed as param(s) to ActionProc */
+XmenuList_p	*list;			/* aux. menu buttons list w/ cbacks */
+XString		*info_text;		/* pointer to button specific info */
+XString		help_text;		/* pointer to button specific help */
+X{
+X Arg		args[5];
+X Widget		button;
+X char		trans[BUFSIZ];
+X static String  b_Trans = "#override <Btn1Down>: %s(%s)";
+X static String  h_Trans = "#override \
+X    <Btn1Down>: %s(%s) \n\
+X    <Btn2Down>: ShowHelp()";
+X/*
+X** Insert name of XtActionProc (and parameter(s)) in the translation list
+X*/
+X if (help_text)
+X    (void) sprintf(trans, h_Trans, action, command);
+X else
+X    (void) sprintf(trans, b_Trans, action, command);
+X
+X XtSetArg(args[0], XtNwidth, XMail.buttonWidth);
+X XtSetArg(args[1], XtNheight, XMail.buttonHeight);
+X XtSetArg(args[2], XtNresize, False);
+X XtSetArg(args[3], XtNfont, XMail.buttonFont);
+X XtSetArg(args[4], XtNtranslations, XtParseTranslationTable(trans));
+X button = XtCreateManagedWidget(name, commandWidgetClass, parent, args, 5);
+X
+X if (info_text)
+X    AddInfoHandler(button, info_text[0]);
+X
+X if (help_text)
+X    AddHelpText(button, help_text);
+X
+X if (list)
+X    AddMenuWindow(button, action, list, info_text);
+X} /* AddButton */
+X
+X
+X/* 
+X** @(#)AddSetMenu() - add hook to create menu for toggling mail options
+X*/
+Xvoid
+XAddSetMenu(w)
+XWidget		w;
+X{
+X Widget		parent = XtNameToWidget(w, "preserve");
+X static String p_Trans = "<Btn3Down>: SetMenu() MenuPopup(set_menu)";
+X
+X XtOverrideTranslations(parent, XtParseTranslationTable(p_Trans));
+X} /* AddSetMenu */
+X
+X
+Xvoid
+XCreateButtons(parent)
+XWidget parent;
+X{
+X menuList_p	*list;
+X menuList	b1, b2, b3, b4;
+X
+X
+X list = (menuList **) XtMalloc((unsigned) 5 * sizeof(menuList *));
+X
+X b1.label = "next";        b1.func = (XtCallbackProc) DoWith;  b1.data = "n";
+X b2.label = "previous";    b2.func = (XtCallbackProc) DoWith;  b2.data = "-";
+X b3.label = "read";        b3.func = (XtCallbackProc) DoWith;  b3.data = "p";
+X b4.label = "full header"; b4.func = (XtCallbackProc) DoWith;  b4.data = "P";
+X list[0] = &b1; list[1] = &b2; list[2] = &b3; list[3] = &b4; list[4] = NULL;
+X AddButton(parent, "next", "DoSelected", "n", list, Read_Info, Read_Help);
+X
+X b1.label = "save";	b1.func = (XtCallbackProc) Save;	b1.data = "s";
+X b2.label = "Save to author"; b2.func = (XtCallbackProc) Save;	b2.data = "S";
+X b3.label = "write";	b3.func = (XtCallbackProc) Save;	b3.data = "w";
+X list[0] = &b1; list[1] = &b2; list[2] = &b3; list[3] = NULL;
+X AddButton(parent, "save", "DoSave", "s", list, Save_Info, Save_Help);
+X
+X CreateFolderButton(parent);
+X
+X b1.label = "copy";	b1.func = (XtCallbackProc) Save;	b1.data = "c";
+X b2.label = "Copy to author"; b2.func = (XtCallbackProc) Save;	b2.data = "C";
+X list[0] = &b1; list[1] = &b2; list[2] = NULL;
+X AddButton(parent, "copy", "DoSave", "c", list, Copy_Info, Copy_Help);
+X
+X AddButton(parent, "preserve", "DoSelected", "preserve", (menuList_p *)NULL, Hold_Info, Hold_Help);
+X
+X b1.label = "delete";	b1.func = (XtCallbackProc) DoWith;	b1.data = "d";
+X b2.label = "undelete";	b2.func = (XtCallbackProc) DoWith;	b2.data = "u";
+X list[0] = &b1; list[1] = &b2; list[2] = NULL;
+X AddButton(parent, "delete", "DoSelected", "d", list, Delete_Info, Delete_Help);
+X
+X b1.label = "Newmail"; b1.func = (XtCallbackProc) DoIt; b1.data = "file %";
+X b2.label = "inc (no commit)"; b2.func = (XtCallbackProc) DoIt; b2.data = "inc";
+X b3.label = "Drop Folders"; b3.func = (XtCallbackProc) DropIt; b3.data = "drop";
+X list[0] = &b1; list[1] = &b2; list[2] = &b3; list[3] = NULL;
+X AddButton(parent, "Newmail", "DoCmd", "file %", list, NewMail_Info, NewMail_Help);
+X
+X b1.label = "quit";	b1.func = (XtCallbackProc) DoQuit;	b1.data = "q";
+X b2.label = "exit";	b2.func = (XtCallbackProc) DoQuit;	b2.data = "x";
+X list[0] = &b1; list[1] = &b2; list[2] = NULL;
+X AddButton(parent, "quit", "Quit", "q", list, Quit_Info, Quit_Help);
+X
+X b1.label = "print"; b1.func = (XtCallbackProc) DoPrint; b1.data = "";
+X list[0] = &b1; list[1] = NULL;
+X AddButton(parent, "Print", "PrintMsg", "", list, Print_Info, Print_Help);
+X
+X b1.label="send a message";    b1.func = (XtCallbackProc) Reply; b1.data = "s";
+X b2.label="forward message";   b2.func = (XtCallbackProc) Reply; b2.data = "S";
+X list[0] = &b1; list[1] = &b2; list[2] = NULL;
+X AddButton(parent, "Send", "DoReply", "s", list, Send_Info, Send_Help);
+X
+X b1.label="reply";             b1.func = (XtCallbackProc) Reply; b1.data = "r";
+X b2.label="reply included";    b2.func = (XtCallbackProc) Reply; b2.data = "R";
+X b3.label="replyall";          b3.func = (XtCallbackProc) Reply; b3.data = "a";
+X b4.label="replyall included"; b4.func = (XtCallbackProc) Reply; b4.data = "A";
+X list[0] = &b1; list[1] = &b2; list[2] = &b3;
+X list[3] = &b4; list[4] = NULL;
+X AddButton(parent, "reply", "DoReply", "r", list, Reply_Info, Reply_Help);
+X
+X XtFree((menuList *) list);
+X
+X CreateFileWindow(parent);
+X
+X AddSetMenu(parent);		/* add a menu for toggling mail options */
+X
+X} /* CreateButtons */
+X
+X
+X/*
+X** @(#)CreateCommandPanel() - add buttons, and set up the file menu.
+X*/
+Xvoid
+XCreateCommandPanel(parent)
+XWidget parent;
+X{
+X Widget		cw;
+X Arg		args[8];
+X
+X static String w_Trans = "<Btn1Down>: DoNothing()\n<Btn2Down>: DoNothing()\n<Btn3Down>: DoNothing()";
+X
+X XtSetArg(args[0], XtNhSpace, XMail.commandHSpace);
+X XtSetArg(args[1], XtNvSpace, XMail.commandVSpace);
+X XtSetArg(args[2], XtNallowResize, (XtArgVal) False);
+X XtSetArg(args[3], XtNmax, XMail.commandHeight);
+X XtSetArg(args[4], XtNmin, XMail.commandHeight);
+X XtSetArg(args[5], XtNfont, XMail.buttonFont);
+X XtSetArg(args[6], XtNtranslations, XtParseTranslationTable(w_Trans));
+X XtSetArg(args[7], XtNshowGrip, (XtArgVal) False);
+X
+X cw = XtCreateManagedWidget("commandPanel", boxWidgetClass, parent, args, 8);
+X
+X CreateButtons(cw);
+X} /* CreateCommandPanel */
+X
+X
+X/*
+X** @(#)CreateFileWindow() - for user entry of file and folder names
+X** Includes a special set of action routines for the keys to do
+X** Delete/Backspace, Ctrl-U, Ctrl-W, and insert-selection().
+X*/
+Xvoid
+XCreateFileWindow(parent)
+XWidget parent;
+X{
+X Widget		w;
+X Arg		args[9];
+X
+X static String	trans = "#override \n\
+X  Ctrl <Key>a:		beginning-of-file() \n\
+X  Ctrl <Key>b:		backward-character() \n\
+X  Ctrl <Key>d:		CheckInsert() delete-next-character() \n\
+X  Ctrl <Key>e:		end-of-file() \n\
+X  Ctrl <Key>f:		forward-character() \n\
+X  Ctrl <Key>h:		DeleteChar() \n\
+X  Ctrl <Key>j:		DoNothing() \n\
+X  Ctrl <Key>m:		DoNothing() \n\
+X  Ctrl <Key>u:		DeleteLine() \n\
+X  Ctrl <Key>w:		DeleteWord() \n\
+X  Meta <Key>b:		backward-word() \n\
+X  Meta <Key>d:		CheckInsert() delete-next-word() \n\
+X  Meta <Key>f:		forward-word() \n\
+X       <Key>Delete:	DeleteChar() \n\
+X       <Key>BackSpace:	DeleteChar() \n\
+X       <Key>Linefeed:	DoNothing() \n\
+X       <Key>Return:	DoNothing() \n\
+X       <Key>Right:	forward-character() \n\
+X       <Key>Left:	backward-character() \n\
+X       <Key>:		CheckInsert() insert-char()\n\
+X       <Btn1Down>:	select-start() \n\
+X       <Btn2Down>:	CheckInsert() insert-selection(PRIMARY, CUT_BUFFER0)";
+X
+X
+X XtSetArg(args[0], XtNwidth, XMail.fileBoxWidth);
+X XtSetArg(args[1], XtNheight, XMail.buttonHeight);
+X XtSetArg(args[2], XtNborderWidth, 1);
+X XtSetArg(args[3], XtNfont, XMail.buttonFont);
+X XtSetArg(args[4], XtNeditType, XawtextEdit);
+X XtSetArg(args[5], XtNstring, (XtArgVal) "");
+X XtSetArg(args[6], XtNtranslations, XtParseTranslationTable(trans));
+X
+X w = XtCreateManagedWidget("fileWindow", asciiTextWidgetClass, parent, args, 7);
+X
+X writeTo(w, "File: ", REPLACE);		/* insert label and position cursor */
+X
+X AddInfoHandler(w, "Specify the name of a mail folder (or press <Shift><Button2> for help)");
+X
+X AddHelpText(w, File_Help);
+X} /* CreateFileWindow */
+X
+X
+X/*
+X** @(#)CreateFolderButton() - attach special Btn3 hook to list folders
+X*/
+Xvoid
+XCreateFolderButton(parent)
+XWidget	parent;
+X{
+X Widget		button;
+X Arg		args[5];
+X
+X static String	trans = "#override \n\
+X			<Btn1Down>: Folder() \n\
+X			<Btn2Down>: ShowHelp() \n\
+X			<Btn3Down>: SetFolders()";
+X
+X XtSetArg(args[0], XtNwidth, XMail.buttonWidth);
+X XtSetArg(args[1], XtNheight, XMail.buttonHeight);
+X XtSetArg(args[2], XtNresize, False);
+X XtSetArg(args[3], XtNfont, XMail.buttonFont);
+X XtSetArg(args[4], XtNtranslations, XtParseTranslationTable(trans));
+X button = XtCreateManagedWidget("Folder", commandWidgetClass, parent, args, 5);
+X
+X AddInfoHandler(button, Folder_Info[0]);
+X
+X AddHelpText(button, Folder_Help);
+X
+X XtRegisterGrabAction(SetFolders, True, ButtonPressMask | ButtonReleaseMask,
+X                       GrabModeAsync, GrabModeAsync);
+X
+X XtRegisterGrabAction(SetDirectory, True, ButtonPressMask | ButtonReleaseMask,
+X                       GrabModeAsync, GrabModeAsync);
+X} /* CreateFolderButton */
+X
+X
+X/* 
+X** @(#)CreateHelpWindow() - create popup window for the help text
+X*/
+Xvoid
+XCreateHelpWindow(parent)
+XWidget parent;
+X{
+X Arg	args[5];
+X Widget	w;
+X static String	trans = "#override \n\
+X  Ctrl <Key>J:		MenuPopdown(help) \n\
+X  <Key>Linefeed:	MenuPopdown(help)";
+X
+X XtSetArg(args[0], XtNborderWidth, 3);
+X w = XtCreatePopupShell("help", overrideShellWidgetClass, parent, args, 1);
+X
+X XtSetArg(args[0], XtNwidth, XMail.helpWidth);
+X XtSetArg(args[1], XtNheight, XMail.helpHeight);
+X XtSetArg(args[2], XtNfont, XMail.helpFont);
+X XtSetArg(args[3], XtNtranslations, XtParseTranslationTable(trans));
+X XtSetArg(args[4], XtNdisplayCaret, (XtArgVal) False);
+X
+X XtCreateManagedWidget("helpWindow", asciiTextWidgetClass, w, args, 5);
+X} /* CreateHelpWindow */
+X
+X
+X/* 
+X** Index window is a AsciiTextWidget, with special key assignments
+X*/
+Xvoid
+XCreateIndexWindow(parent)
+XWidget parent;
+X{
+X Arg	args[7];
+X Widget	w;
+X
+X
+X XtSetArg(args[0], XtNheight, XMail.indexHeight);
+X XtSetArg(args[1], XtNfont, XMail.textFont);
+X XtSetArg(args[2], XtNdisplayCaret, (XtArgVal) False);
+X XtSetArg(args[3], XtNeditType, XawtextEdit);
+X XtSetArg(args[4], XtNscrollVertical, XawtextScrollAlways);
+X XtSetArg(args[5], XtNwrap, XawtextWrapNever);
+X XtSetArg(args[6], XtNstring, "");
+X
+X w = XtCreateManagedWidget("indexWindow", asciiTextWidgetClass,parent,args,7);
+X
+X AddHelpText(w, Index_Help);
+X} /* CreateIndexWindow */
+X
+X
+X/*
+X** @(#)CreateStatusWindow() - place for messages from mail
+X*/
+Xvoid
+XCreateStatusWindow(parent)
+XWidget parent;
+X{
+X Arg		args[10];
+X Widget		w;
+X
+X static String w_Trans = "<Btn1Down>: DoNothing()\n<Btn2Down>: ShowHelp()\n<Btn3Down>: DoNothing()";
+X
+X XtSetArg(args[0], XtNallowResize, False);
+X XtSetArg(args[1], XtNmin, XMail.buttonHeight);
+X XtSetArg(args[2], XtNmax, XMail.buttonHeight);
+X XtSetArg(args[3], XtNshowGrip, False);
+X
+X XtSetArg(args[4], XtNwidth, XMail.shellWidth);
+X XtSetArg(args[5], XtNfont, XMail.textFont);
+X XtSetArg(args[6], XtNjustify, XtJustifyCenter);
+X XtSetArg(args[7], XtNlabel, "Establishing connections");
+X XtSetArg(args[8], XtNresize, False);
+X XtSetArg(args[9], XtNtranslations, XtParseTranslationTable(w_Trans));
+X
+X w = XtCreateManagedWidget("statusWindow", labelWidgetClass, parent, args, 10);
+X
+X AddHelpText(w, Status_Help);
+X} /* CreateStatusWindow */
+X
+X
+X/*
+X** @(#)CreateSubWindows() - create all the xmail subwindows.
+X*/
+Xvoid
+XCreateSubWindows(parent)
+XWidget parent;
+X{
+X int		n, x, y;
+X Widget	icon, mb, topbox;
+X Arg	args[4];
+X
+X
+X XtSetArg(args[0], XtNinput,      True);
+X XtSetArg(args[1], XtNwidth,      XMail.shellWidth);
+X XtSetArg(args[2], XtNgripIndent, 0);
+X XtSetArg(args[3], XtNskipAdjust, True);
+X
+X topbox = XtCreateManagedWidget("topBox", panedWidgetClass, parent, args, 4);
+X
+X CreateHelpWindow(topbox);
+X CreateTitleBar(topbox);
+X CreateIndexWindow(topbox);
+X CreateStatusWindow(topbox);
+X CreateCommandPanel(topbox);
+X CreateTextWindow(topbox);
+X/*
+X** Create an icon window for the mailwatchWidget
+X*/
+X XtSetArg(args[0], XtNwidth, (XtArgVal) mail_width);
+X XtSetArg(args[1], XtNheight, (XtArgVal) mail_height);
+X n = 2;
+X if (XMail.iconGeometry) {
+X    ParseIconGeometry(XMail.iconGeometry, &x, &y);
+X    XtSetArg(args[n], XtNx, (XtArgVal) x);		n++;
+X    XtSetArg(args[n], XtNy, (XtArgVal) y);		n++;
+X   }
+X icon = XtCreateWidget("icon", applicationShellWidgetClass, toplevel, args, n);
+X mb = XtCreateManagedWidget("mailbox", mailwatchWidgetClass, icon, args, 0);
+X XtAddCallback(mb, XtNcallback, SetNewmail, NULL);
+X} /* CreateSubWindows */ 
+X
+X
+X/* 
+X** @(#)CreateTextWindow() - AsciiTextWidget window, without special keys
+X*/
+Xvoid
+XCreateTextWindow(parent)
+XWidget parent;
+X{
+X Widget		form, tw;
+X helpText	*help_text;
+X Arg 		args[12];
+X
+X
+X XtSetArg(args[0], XtNmin, XMail.textHeight / 3);
+X XtSetArg(args[1], XtNheight, XMail.textHeight);
+X XtSetArg(args[2], XtNwidth, XMail.shellWidth);
+X form = XtCreateManagedWidget("textWindow", formWidgetClass, parent, args, 3);
+X
+X XtSetArg(args[0], XtNleft, XtChainRight);
+X XtSetArg(args[1], XtNright, XtChainRight);
+X XtSetArg(args[2], XtNtop, XtChainTop);
+X XtSetArg(args[3], XtNbottom, XtChainTop);
+X XtSetArg(args[4], XtNvertDistance, 0);
+X XtSetArg(args[5], XtNhorizDistance, XMail.shellWidth - 48);
+X XtSetArg(args[6], XtNborderWidth, 0);
+X XtSetArg(args[7], XtNheight, 48);
+X XtSetArg(args[8], XtNwidth, 48);
+X XtSetArg(args[9], XtNinternalWidth, 0);
+X XtCreateWidget("face", labelWidgetClass, form, args, 10);
+X
+X XtSetArg(args[0], XtNleft, XtChainLeft);
+X XtSetArg(args[1], XtNright, XtChainRight);
+X XtSetArg(args[2], XtNtop, XtChainTop);
+X XtSetArg(args[3], XtNbottom, XtChainBottom);
+X /* see above... */
+X XtSetArg(args[5], XtNhorizDistance, 0);
+X /* see above... */
+X XtSetArg(args[7], XtNheight, XMail.textHeight);
+X XtSetArg(args[8], XtNfont, XMail.textFont);
+X XtSetArg(args[9], XtNdisplayCaret, False);
+X XtSetArg(args[10], XtNstring, "");
+X XtSetArg(args[11], XtNscrollVertical, XawtextScrollAlways);
+X tw = XtCreateManagedWidget("text", asciiTextWidgetClass, form, args, 12);
+X
+X AddHelpText(tw, Text_Help);
+X
+X if ( (help_text = (helpText *) XtMalloc(sizeof(helpText))) == NULL)
+X    XtError("No memory for help text");
+X
+X help_text->name = XtNewString("text2");
+X
+X XtSetArg(args[0], XtNstring, (XtArgVal) Text2_Help);
+X XtSetArg(args[1], XtNlength, (XtArgVal) strlen(Text2_Help));
+X
+X help_text->data = (AsciiSrcObject) XtCreateWidget("text2", asciiSrcObjectClass,
+X                        XtNameToWidget(toplevel, "topBox.help.helpWindow"),
+X                        args, 2);
+X
+X help_text->next = HelpList;
+X HelpList = help_text;
+X} /* CreateTextWindow */
+X
+X
+X/*
+X** @(#)CreateTitleBar() - creates the title bar displayed at top of shell
+X**			  Include Nat. Semi. Corp. logo in top left corner.
+X*/
+Xvoid
+XCreateTitleBar(parent)
+XWidget parent;
+X{
+X Arg		args[8];
+X Pixmap		logo;
+X Widget		form, lg, tb;
+X char		buf[20];
+X
+X static String w_Trans = "<Btn1Down>: DoNothing()\n<Btn2Down>: ShowHelp()\n<Btn3Down>: DoNothing()";
+X
+X static String l_Trans = "<Btn1Down>: Iconify()\n<Btn2Down>: Iconify()\n<Btn3Down>: Iconify()";
+X
+X XtSetArg(args[0], XtNdefaultDistance, 1);
+X XtSetArg(args[1], XtNallowResize, (XtArgVal) False);
+X XtSetArg(args[2], XtNmax, (XtArgVal) XMail.buttonHeight);
+X XtSetArg(args[3], XtNmin, (XtArgVal) XMail.buttonHeight);
+X XtSetArg(args[4], XtNshowGrip, (XtArgVal) False);
+X
+X form = XtCreateManagedWidget("titleBar", formWidgetClass, parent, args, 5);
+X
+X logo = XCreateBitmapFromData(XtDisplay(toplevel), XtScreen(toplevel)->root,
+X                        national_bits, national_width, national_height);
+X
+X XtSetArg(args[0], XtNborderWidth, 0);
+X XtSetArg(args[1], XtNheight, (XtArgVal) XMail.buttonHeight);
+X XtSetArg(args[2], XtNwidth, national_width);
+X XtSetArg(args[3], XtNinternalWidth, 0);
+X XtSetArg(args[4], XtNbitmap, (XtArgVal) logo);
+X XtSetArg(args[5], XtNshapeStyle, XmuShapeRectangle);
+X XtSetArg(args[6], XtNtranslations, XtParseTranslationTable(l_Trans));
+X lg = XtCreateManagedWidget("logo", commandWidgetClass, form, args, 7);
+X
+X (void) sprintf(buf, "%s%d", TITLE, PATCHLEVEL);
+X
+X XtSetArg(args[2], XtNwidth, XMail.shellWidth - national_width - 2);
+X XtSetArg(args[3], XtNlabel, (XtArgVal) buf);
+X XtSetArg(args[4], XtNfont, XMail.textFont);
+X XtSetArg(args[5], XtNjustify, (XtArgVal) XtJustifyLeft);
+X XtSetArg(args[6], XtNfromHoriz, lg);
+X XtSetArg(args[7], XtNtranslations, XtParseTranslationTable(w_Trans));
+X tb = XtCreateManagedWidget("title", labelWidgetClass, form, args, 8);
+X
+X AddHelpText(tb, Title_Help);
+X} /* CreateTitleBar */
+X
+X
+X/*
+X** @(#)CreateInputWindow() - for specifying recipient, subject, and Cc list
+X** Has its own set of translations for editing.
+X** Special actions for Delete/Backspace, Ctrl-U, and Ctrl-W.
+X*/
+XWidget
+XCreateInputWindow(parent, name)
+XWidget	parent;
+XString	name;
+X{
+X int	n;
+X Widget	w;
+X Arg	args[7];
+X
+X n  = XMail.shellWidth - 26;	/* - (20 + 2 * (internal_width+def_dist)) */
+X n -= figureWidth(XMail.buttonFont)*9-10; /* less label width+fudge factor */
+X
+X XtSetArg(args[0], XtNinput, True);
+X XtSetArg(args[1], XtNwidth, n);
+X XtSetArg(args[2], XtNheight, XMail.buttonHeight + XMail.borderWidth);
+X XtSetArg(args[3], XtNborderWidth, 1);
+X XtSetArg(args[4], XtNfont, XMail.buttonFont);
+X XtSetArg(args[5], XtNstring, "");
+X XtSetArg(args[6], XtNeditType, XawtextEdit);
+X
+X w = XtCreateManagedWidget(name, asciiTextWidgetClass, parent, args, 7);
+X
+X return( w );
+X} /* CreateInputWindow */
+X
+X/* 
+X** @(#)ParseIconGeometry() - Parse the icon geometry
+X*/
+Xvoid
+XParseIconGeometry(str, x, y)
+XString		str;
+XCardinal	*x, *y;
+X{
+X int		res;
+X Cardinal	w, h;
+X
+X *x = 0;
+X *y = 0;
+X res = XParseGeometry(str, x, y, &w, &h);
+X if ((res & (XNegative|XValue)) == (XNegative|XValue))
+X    *x = RootWidth + *x - mail_width;
+X if ((res & (YNegative|YValue)) == (YNegative|YValue))
+X    *y = RootHeight + *y - mail_height;
+X} /* ParseIconGeometry */
+END_OF_FILE
+  if test 23700 -ne `wc -c <'windows.c'`; then
+    echo shar: \"'windows.c'\" unpacked with wrong size!
+  fi
+  # end of 'windows.c'
+fi
+echo shar: End of archive 5 \(of 10\).
+cp /dev/null ark5isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM            | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly!      |
+ "It's intuitively obvious to the most |    sources-x@imd.sterling.com
+  casual observer..."                  |

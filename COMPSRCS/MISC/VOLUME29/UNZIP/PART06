@@ -1,0 +1,1621 @@
+Newsgroups: comp.sources.misc
+From: info-zip@cs.ucla.edu (Info-Zip)
+Subject:  v29i036:  unzip - Info-ZIP's portable UnZip v4.2, Part06/12
+Message-ID: <1992Apr3.063218.28897@sparky.imd.sterling.com>
+X-Md4-Signature: b0fe195f36d8823912a214b16b8bd0af
+Date: Fri, 3 Apr 1992 06:32:18 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: info-zip@cs.ucla.edu (Info-Zip)
+Posting-number: Volume 29, Issue 36
+Archive-name: unzip/part06
+Environment: Unix, VMS, OS/2, MS-DOS, Amiga, Macintosh
+Supersedes: unzip, Volume 19, Issues 96-101
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  Makefile.cr file_io.c
+# Wrapped by kent@sparky on Mon Mar 30 01:45:53 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 6 (of 12)."'
+if test -f 'Makefile.cr' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile.cr'\"
+else
+  echo shar: Extracting \"'Makefile.cr'\" \(21865 characters\)
+  sed "s/^X//" >'Makefile.cr' <<'END_OF_FILE'
+X# ===========================================================================
+X# Makefile for UnZip, ZipInfo & Ship:  Unix, OS/2 and MS-DOS (MSC NMAKE only)
+X# Version:  decrypt + (conditionally) inflate
+X# ===========================================================================
+X#
+X#
+X# INSTRUCTIONS (such as they are):
+X#
+X# "make vax"	-- makes UnZip on a VAX 11-780 BSD 4.3 in current directory
+X#		   (or a SysV VAX, or an 8600 running Ultrix, or...)
+X# "make"	-- uses environment variable SYSTEM to set the type
+X#		   system to compile for.  This doesn't work for some
+X#		   particularly brain-damaged versions of make (VAX BSD,
+X#		   Gould, and SCO Unix are in this group).  If SYSTEM not
+X#		   set, gives instructions on what to try instead.
+X# "make list"	-- lists all supported systems (targets), including ship
+X#		   and zipinfo targets
+X# "make wombat" -- Chokes and dies if you haven't added the specifics
+X#		   for your Wombat 68000 (or whatever) to the systems list.
+X#
+X# CFLAGS are flags for the C compiler.  LDFLAGS are flags for the loader.
+X# LDFLAGS2 are more flags for the loader, if they need to be at the end of
+X# the line instead of at the beginning.
+X#
+X# My host (a VAX 11-780 running BSD 4.3) is hereafter referred to as "my host."
+X#
+X# My host's /usr/include/sys/param.h defines BSD for me.  You may have to add
+X# "-DBSD" to the list of CFLAGS for your system.
+X#
+X# Some versions of make do not define the macro "$(MAKE)" (my host did not).
+X# The makefile should now handle such systems correctly, more or less; the
+X# possible exception to this is if you've used a make command-line option
+X# (for example, the one which displays the commands which WOULD be executed,
+X# but doesn't actually execute them).  It probably needs some more tinkering.
+X# If things still don't work, use "make" instead of "$(MAKE)" in your system's
+X# makerule.  Or try adding the following line to your .login file:
+X#   setenv MAKE "make"
+X# (It didn't help on my host.)
+X#
+X# memcpy and memset are provided for those systems that don't have them;
+X# they're found in misc.c and will be used if -DZMEM is included in the list
+X# of CFLAGS.  These days ALMOST all systems have them (they're mandated by
+X# ANSI), but older systems might be lacking.  And at least ONE machine's
+X# version results in some serious performance degradation...
+X#
+X# SCO Unix 3.2.0:  Don't use -Ox with cc (derived from Microsoft 5.1); there
+X# is a bug in the loop optimization which causes bad CRC's.  [Onno van der
+X# Linden]
+X#
+X# Be sure to test your nice new UnZip; successful compilation does not always
+X# imply a working program.
+X
+X
+X#####################
+X# MACRO DEFINITIONS #
+X#####################
+X
+X# Defaults most systems use (use LOCAL_UNZIP in environment to add flags).
+X# To add inflation:  uncomment INFL_OBJ below or add it to your environment
+X# as appropriate, and add -DINFLATE to CFLAGS or to LOCAL_UNZIP.  (This
+X# won't work if you don't have inflate.c, so don't be a goober...)
+X
+XCC = cc
+XCR = -DCRYPT
+XCFLAGS = -O -DUNIX $(CR) $(LOCAL_UNZIP)
+XZC = -DZMEM
+XLD = cc
+XLDFLAGS = -o unzip
+XLDFLAGS2 = -s
+XZL = -o zipinfo
+XZL2 = -s
+XMV = mv
+XEXE =
+XO = .o
+X#INFL_OBJ = inflate.o  -or-  inflate.obj  (pick one)
+XOBJS = unzip$O crypt$O extract$O file_io$O $(INFL_OBJ)\
+X   mapname$O match$O misc$O unimplod$O unreduce$O unshrink$O
+XOS2_OBJS = unzip.obj crypt.obj dosname.obj extract.obj file_io.obj $(INFL_OBJ)\
+X   mapname.obj match.obj misc.obj unimplod.obj unreduce.obj unshrink.obj
+XZI_OBJS = zipinfo$O misc_$O match$O
+X
+XSHELL = /bin/sh
+X
+X# list of supported systems in this version
+XSYSTEMS1 = 386i 3Bx 7300 amdahl apollo aviion bsd bull coherent convex
+XSYSTEMS2 = cray cray_cc cyber_sgi dec dnix encore eta gcc_os2 generic
+XSYSTEMS3 = generic2 gould hk68 hp icc_os2 minix mips msc_dos msc_os2 next
+XSYSTEMS4 = p_iris pyramid rs6000 rtaix sco sco_dos sco_x286 sequent sgi
+XSYSTEMS5 = stellar sun sysv tahoe ultrix vax wombat
+X
+XSYS_UTIL1 = ship ship_dos ship_gcc ship_icc ship_os2 ship_sysv zi_dos
+XSYS_UTIL2 = zi_gcc zi_icc zi_os2 zipinfo 
+X
+X####################
+X# DEFAULT HANDLING #
+X####################
+X
+X# The below will try to use your shell variable "SYSTEM" as the type system
+X# to use (e.g., if you type "make" with no parameters at the command line).
+X# The test for $(MAKE) is necessary for VAX BSD make (and Gould, apparently),
+X# as is the "goober" (else stupid makes see an "else ;" statement, which they
+X# don't like).  "goober" must then be made into a valid target for machines
+X# which DO define MAKE properly (and have SYSTEM set).  Quel kluge, non?
+X# And to top it all off, it appears that the VAX, at least, can't pick SYSTEM
+X# out of the environment either (which, I suppose, should not be surprising).
+X# [Btw, if the empty "goober" target causes someone else's make to barf, just
+X# add an "@echo > /dev/null" command (or whatever).  Works OK on the Amdahl
+X# and Crays, though.]
+X
+Xdefault:
+X	@if test -z "$(MAKE)"; then\
+X		if test -z "$(SYSTEM)";\
+X		then make ERROR;\
+X		else make $(SYSTEM) MAKE="make";\
+X		fi;\
+X	else\
+X		if test -z "$(SYSTEM)";\
+X		then $(MAKE) ERROR;\
+X		else $(MAKE) $(SYSTEM) goober;\
+X		fi;\
+X	fi
+X
+Xgoober:
+X
+XERROR:
+X	@echo
+X	@echo\
+X "  If you're not sure about the characteristics of your system, try typing"
+X	@echo\
+X '  "make generic".  If the compiler barfs and says something unpleasant about'
+X	@echo\
+X '  "timezone redefined," try typing "make clean" followed by "make generic2".'
+X	@echo\
+X '  One of these actions should produce a working copy of unzip on most Unix'
+X	@echo\
+X '  systems.  If you know a bit more about the machine on which you work, you'
+X	@echo\
+X '  might try "make list" for a list of the specific systems supported herein.'
+X	@echo\
+X '  And as a last resort, feel free to read the numerous comments within the'
+X	@echo\
+X '  Makefile itself.  Have an excruciatingly pleasant day.'
+X	@echo
+X
+Xlist:
+X	@echo
+X	@echo\
+X 'Type "make <system>", where <system> is one of the following:'
+X	@echo
+X	@echo  "	$(SYSTEMS1)"
+X	@echo  "	$(SYSTEMS2)"
+X	@echo  "	$(SYSTEMS3)"
+X	@echo  "	$(SYSTEMS4)"
+X	@echo  "	$(SYSTEMS5)"
+X	@echo
+X	@echo\
+X 'Otherwise set the shell variable SYSTEM to one of these and just type "make".'
+X	@echo\
+X 'Targets for related utilities (ZipInfo and Ship) include:'
+X	@echo
+X	@echo  "	$(SYS_UTIL1)"
+X	@echo  "	$(SYS_UTIL2)"
+X	@echo
+X	@echo\
+X 'For further (very useful) information, please read the comments in Makefile.'
+X	@echo
+X
+X
+X###############################################
+X# BASIC COMPILE INSTRUCTIONS AND DEPENDENCIES #
+X###############################################
+X
+X.c$O :
+X	$(CC) -c $(CFLAGS) $*.c
+X
+Xunzip$(EXE):	$(OBJS)
+X	$(LD) $(LDFLAGS) $(OBJS) $(LDFLAGS2)
+X
+Xcrypt$O:        crypt.c unzip.h zip.h	# may or may not be in distribution
+Xdosname.obj:    dosname.c		# for OS/2 only
+Xextract$O:      extract.c unzip.h
+Xfile_io$O:      file_io.c unzip.h
+Xinflate$O:      inflate.c unzip.h	# may or may not be in distribution
+Xmapname$O:      mapname.c unzip.h
+Xmatch$O:        match.c unzip.h
+Xmisc$O:         misc.c unzip.h
+Xunimplod$O:     unimplod.c unzip.h
+Xunreduce$O:     unreduce.c unzip.h
+Xunshrink$O:     unshrink.c unzip.h
+Xunzip$O:        unzip.c unzip.h
+X
+Xclean:
+X	rm -f $(OBJS) unzip$(EXE)
+X
+X
+X################################
+X# INDIVIDUAL MACHINE MAKERULES #
+X################################
+X
+X# these are the makerules for various systems
+X# TABS ARE REQUIRED FOR MANY VERSIONS OF "MAKE"!
+X
+X
+X# ---------------------------------------------------------------------------
+X#   Generic targets (can't assume make utility groks "$(MAKE)")
+X# ---------------------------------------------------------------------------
+X
+Xgeneric:	unzip	# first try if unknown
+X
+Xgeneric2:		# second try if unknown:  hope make is called "make"...
+X	make unzip CFLAGS="$(CFLAGS) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   "Normal" group (both big- and little-endian, structure-padding or not):
+X# ---------------------------------------------------------------------------
+X
+X386i:		unzip	# sun386i, SunOS 4.0.2 ["sun:" works, too, but bigger]
+X3Bx:		unzip	# AT&T 3B2/1000-80; should work on any WE32XXX machine
+X7300:		unzip	# AT&T 7300 (M68000/SysV)
+Xapollo:		unzip	# Apollo Domain/OS machines
+Xaviion:         unzip	# Data General AViiONs, DG/UX 4.3x
+Xbull:		unzip	# Bull DPX/2, BOS 2.00.45 (doesn't require -Xk switch)
+Xcoherent:	unzip	# Coherent 3.10, Mark Williams C
+Xcray_cc:	unzip	# Cray-2 and Y-MP, using default (possibly old) compiler
+Xdec:		unzip	# DEC 5820 (MIPS RISC), test version of Ultrix v4.0
+Xdnix:		unzip	# 680X0, DIAB dnix 5.2/5.3 (a Swedish System V clone)
+Xencore:		unzip	# Multimax
+Xeta:		unzip	# ETA-10P*, hybrid SysV with BSD 4.3 enhancements
+Xgould:		unzip	# Gould PN9000 running UTX/32 2.1Bu01
+Xhp:		unzip	# HP 9000 series (68020), 4.3BSD or HP-UX A.B3.10 Ver D
+Xhp_ux:		unzip	# (to match zip's makefile entry)
+Xmips:		unzip	# MIPS M120-5(?), SysV R3 [error in sys/param.h file?]
+Xrs6000:		unzip	# IBM RS/6000 under AIX 3
+Xrtaix:		unzip	# IBM RT 6150 under AIX 2.2.1
+Xsco:		unzip	# Xenix/386 (tested on 2.3.1); SCO Unix 3.2.0.
+Xstellar:	unzip	# gs-2000
+Xsun:		unzip	# Sun 4/110, SunOS 4.0.3c; Sun 3 (68020), SunOS 4.0.3
+Xtahoe:		unzip	# tahoe (CCI Power6/32), 4.3BSD
+Xultrix:		unzip	# VAXen, DEC 58x0 (MIPS guts), DECstation 2100; v4.x
+Xvax:		unzip	# general-purpose VAX target (not counting VMS)
+X
+X# ---------------------------------------------------------------------------
+X#   BSD group (for timezone structs [struct timeb]):
+X# ---------------------------------------------------------------------------
+X
+Xbsd:		_bsd	# generic BSD (BSD 4.2, Ultrix handled in unzip.h)
+X
+X_bsd:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DBSD"
+X
+X# ---------------------------------------------------------------------------
+X#   SysV group (for extern long timezone and ioctl.h instead of sgtty.h):
+X# ---------------------------------------------------------------------------
+X
+Xsysv:		_sysv	# generic SysV
+Xamdahl:		_sysv	# Amdahl (IBM) mainframe, UTS (SysV) 1.2.4 and 2.0.1
+Xsgi:		_sysv	# Silicon Graphics Iris 4D, Irix SysV rel. 3.3.2
+X
+X_sysv:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DTERMIO"
+X
+X# ---------------------------------------------------------------------------
+X#   "Unique" group (require non-standard options):
+X# ---------------------------------------------------------------------------
+X
+X# Enclosed you'll find a context diff for the unzip41 makefile
+X# which enhances compilation on a convex.  The previous version
+X# probably worked great a couple of years ago, and would still do
+X# so if one compiles in our "backward compatible" pcc mode.   The
+X# following allows it to work better in a modern convexian environment
+X# (define __STDC__ manually because default compilation mode has
+X# extensions and thus doesn't do so).  [5 Mar 1992:  -D__STDC__ removed
+X# for now because of problems with stat.h]
+X#
+X#	$(MAKE) unzip CFLAGS="$(CFLAGS) -D__STDC__ -DCONVEX -ext" ...
+Xconvex:			# previous version was tested on C200/C400
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DCONVEX -ext"\
+X	 LDFLAGS="$(LDFLAGS) -ext"
+X
+X# Cray-2 and Y-MP, running Unicos 5.1 or 6.0 (SysV + BSD enhancements)
+X# and Standard (ANSI) C compiler 1.5, 2.0 or 3.0.
+Xcray:
+X	$(MAKE) unzip CC="scc" LD="scc"
+X
+X# The unzip41 build on a Cyber 910/SGI running Irix v3.3.3 was successful
+X# with the following change to Makefile:
+Xcyber_sgi:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -I/usr/include/bsd"\
+X	 LDFLAGS="-lbsd $(LDFLAGS)"
+X
+X# OS/2 2.0 (32-bit) with GNU C compiler (emx)
+Xgcc_os2:
+X	$(MAKE) unzip.exe CC=gcc LD=gcc EXE=.exe\
+X	 OBJS="$(OBJS) dosname.o"\
+X	 CFLAGS="-O -DOS2 -DEMX32 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-s" LDFLAGS2="-los2 -o unzip.exe"
+X
+X# Heurikon HK68 (68010), UniPlus+ System V 5.0, Green Hills C-68000
+Xhk68:
+X	$(MAKE) unzip CC="gcc" LD="gcc" LDFLAGS="-n $(LDFLAGS)" \
+X	CFLAGS="-ga -X138 -DUNIX $(CR) $(LOCAL_UNZIP) -Dlocaltime=localti -Dtimezone=timezon"
+X
+X# OS/2 2.0 (32-bit) with IBM C Set/2 compiler
+X#
+Xfile_io2.obj:		# compile this one module without optimization
+X	$(CC) -c $(CFLAGS) -O- -Fofile_io2.obj file_io.c
+X
+Xicc_os2:
+X	$(MAKE) -nologo unzip.exe CC=icc LD=icc EXE=.exe O=.obj\
+X	 OBJS="$(OS2_OBJS:file_io.obj=file_io2.obj)"\
+X	 CFLAGS="-Q -Sm -O -Gs -DOS2 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-Q" LDFLAGS2="unzip.def -Fe unzip.exe"
+X
+X# Minix 1.5 PC for the 386 with gcc or bcc
+Xminix:
+X	$(MAKE) unzip CC=gcc CFLAGS="$(CFLAGS) -DMINIX"
+X
+X# PCs (IBM-type), running MS-DOS, Microsoft C 6.00 and NMAKE.  Can't use the
+X# SYSTEM environment variable; that requires processing the "default:" target,
+X# which expands to some 200+ characters--well over DOS's 128-character limit.
+X# "nmake msc_dos" works fine, aside from an annoying message, "temporary file
+X# e:\ln023193 has been created."  I have no idea how to suppress this, but it
+X# appears to be benign (comes from the link phase; the file is always deleted).
+X# The environment variable LOCAL_UNZIP should be set to something appropriate
+X# if your library uses other than the default floating-point routines; for 
+X# example, SET LOCAL_UNZIP=-FPi87.  This target assumes the small-model library
+X# and an 80286 or better.  At present, everything should still fit within the
+X# 128-character command-line limit (barely); if not, remove the -nologo.  [GRR]
+X#
+Xmsc_dos:
+X	$(MAKE) unzip.exe\
+X	 CFLAGS="-Ox $(CR) $(LOCAL_UNZIP) -nologo -G2" CC=cl\
+X	 LD=link EXE=.exe O=.obj LDFLAGS="/noi /nol" LDFLAGS2=",unzip;"
+X
+X# The stack size for OS/2 must be increased to 0x1000, i.e. 
+X# "-F 1000" has to be added to LDFLAGS for msc_os2. Otherwise
+X# stack overflow occurs, which are only detected if compiled
+X# with debugging option, i.e. not with -Gs!! Otherwise something
+X# minor important seems to be overwritten :-)  [K. U. Rommel]
+X#
+X# Extra stack causes errors in GRR version ("/st:0x1000"); no problems
+X# encountered so far without.  EXEHDR /VERBOSE reports 0a00 bytes of
+X# extra stack already, so maybe the two versions are different... [GRR]
+X#
+X# $(LOCAL_UNZIP):  math libraries and/or any other personal or debugging
+X#                  definitions:  e.g., SET LOCAL_UNZIP=-FPi87 -DDEBUG_STRUC
+X# $(NOD):  intended to be used as   SET NOD=-link /nod:slibcep   to allow the
+X#          use of default library names (slibce.lib) instead of protected-mode
+X#          names (slibcep.lib), but it fails:  MSC adds its own /nod qualifier,
+X#          and there seems to be no way to override this.  Typical...
+X#
+X#msc_os2:		# old Newtware version (may not work)
+X#	$(MAKE) -nologo unzip.exe CC=cl LD=link EXE=.exe O=.obj\
+X#	  OBJS="$(OBJS) dosname.obj"\
+X#	  CFLAGS="-nologo -Ox -G2s -DOS2 $(CR) $(LOCAL_UNZIP) -Lp"\
+X#	  LDFLAGS="/noi /nol" LDFLAGS2=",unzip,,,unzip.def"
+X#	bind -nologo unzip.exe -n DOSSETPATHINFO
+Xmsc_os2:		# Kai Uwe Rommel version
+X	$(MAKE) -nologo unzip.exe CC=cl LD=cl EXE=.exe O=.obj\
+X	 OBJS="$(OS2_OBJS)"\
+X	 CFLAGS="-nologo -Ox -G2s -DOS2 $(CR) $(LOCAL_UNZIP)"\
+X	 LDFLAGS="-nologo $(LOCAL_UNZIP) -Lp -F 1000"\
+X	 LDFLAGS2="unzip.def -o unzip.exe $(NOD)"
+X	bind -nologo unzip.exe -n DOSSETPATHINFO
+X
+X# NeXT 2.x: make the executable smaller.
+Xnext:			# 68030 BSD 4.3+Mach
+X	$(MAKE) unzip LDFLAGS2="-object -s"
+X
+X# I successfully compiled and tested the unzip program (v30) for the
+X# Silicon Graphics environment (Personal Iris 4D20/G with IRIX v3.2.2)
+Xp_iris:			# Silicon Graphics Personal Iris 4D20
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -I/usr/include/bsd -DBSD"\
+X	 LDFLAGS="-lbsd $(LDFLAGS)"
+X
+X# I have finished porting unzip 3.0 to the Pyramid 90X under OSX4.1.
+X# The biggest problem was the default structure alignment yielding two
+X# extra bytes.  The compiler has the -q option to pack structures, and
+X# this was all that was needed.  To avoid needing ZMEMS we could compile in
+X# the att universe, but it runs slower!
+X#
+Xpyramid:	# Pyramid 90X, probably all, under >= OSx4.1, BSD universe
+X	make unzip CFLAGS="$(CFLAGS) -q -DBSD -DZMEM"
+X
+X# SCO cross compile from unix to DOS. Tested with Xenix/386 and
+X# OpenDeskTop. Should work with xenix/286 as well. (davidsen)
+X# Note that you *must* remove the unix objects and executable
+X# before doing this!
+X#
+Xsco_dos:
+X	$(MAKE) unzip CFLAGS="-O $(CR) $(LOCAL_UNZIP) -dos -M0" LDFLAGS="-dos"\
+X	 LDFLAGS2="-o unzip.exe"
+X
+X# SCO Xenix/286 2.2.1
+Xsco_x286:
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -Ml2" LDFLAGS="$(LDFLAGS) -Ml2"
+X
+X# Sequent Symmetry is a 386 but needs -DZMEM
+X# This should also work on Balance but I can't test it just yet.
+Xsequent:	# Sequent w/Dynix
+X	$(MAKE) unzip CFLAGS="$(CFLAGS) -DBSD -DZMEM"
+X
+X# I didn't do this.  I swear.  No, really.
+Xwombat:		# Wombat 68000 (or whatever)
+X	@echo
+X	@echo  '	Ha ha!  Just kidding.'
+X	@echo
+X
+X
+X##################
+X# SHIP MAKERULES #
+X##################
+X
+X# Ship section:  ship comes with the Zip distribution and is more properly
+X# supported there.  But the following targets should at least get you started
+X# if for some reason you're only interested in UnZip.  The comments near the
+X# top of ship.c explain how to use it, and a little further poking around
+X# should clear up any problems related to things which should be defined but
+X# aren't, or which shouldn't be defined but are.  As with ZipInfo below, we
+X# assume *some* competence...
+X
+X_ship:	ship.c $(DEF)
+X	$(CC) $(CFLAGS) ship.c $(DEF) $(LDFLAGS2)
+X
+Xship:			# most BSD-type systems, by default
+X	$(MAKE) _ship LDFLAGS2="-s -o ship"
+X
+Xship_sysv:		# not tested; DIRENT used only to determine mailer
+X	$(MAKE) _ship CFLAGS="$(CFLAGS) -DDIRENT" LDFLAGS2="-s -o ship"
+X
+Xship_dos:		# not tested
+X	$(MAKE) -nologo _ship CC=cl EXE=.exe\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -F 2000"\
+X	 LDFLAGS2="-o ship.exe"
+X
+Xship_os2:		# MSC 6.0, 16-bit OS/2
+X	$(MAKE) -nologo _ship CC=cl EXE=.exe DEF=ship.def\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2 -Lp -F 2000"\
+X	 LDFLAGS2="-o ship.exe"
+X	bind -nologo ship.exe
+X
+Xship_icc:		# IBM C Set/2, 32-bit OS/2
+X	$(MAKE) -nologo _ship CC=icc EXE=.exe DEF=ship.def\
+X	 CFLAGS="-Q -Sm -O $(LOCAL_UNZIP) -Gs -DOS2"\
+X	 LDFLAGS2="-Fe ship.exe"
+X
+Xship_gcc:		# GNU gcc / emx, 32-bit OS/2
+X	$(MAKE) _ship CC=gcc LD=gcc EXE=.exe\
+X	 CFLAGS="-O -DOS2" LDFLAGS2="-s -o ship.exe"
+X
+X
+X#####################
+X# ZIPINFO MAKERULES #
+X#####################
+X
+X# Zipinfo section:  it is assumed here that anyone competent enough to
+X# wonder about the internal guts of a zipfile is probably also competent
+X# enough to compile the program without a lot of hand-holding.  If not...
+X# oh well. :-)
+X
+Xzipinfo$O:	zipinfo.c unzip.h
+X	$(CC) -c $(CFLAGS) $(ZC) zipinfo.c
+X
+Xmisc_$O:	misc.c unzip.h
+X	$(MV) misc.c misc_.c
+X	$(CC) -c $(CFLAGS) $(ZC) -DZIPINFO misc_.c
+X	$(MV) misc_.c misc.c
+X
+Xzipinfo$(EXE):	$(ZI_OBJS)
+X	$(LD) $(ZL) $(ZI_OBJS) $(ZL2)
+X
+Xzi_dos:
+X	$(MAKE) zipinfo.exe CFLAGS="-Ox -nologo $(LOCAL_UNZIP) -G2" CC=cl\
+X	 LD=link EXE=.exe O=.obj ZL="/noi /nol" ZL2=",zipinfo;" ZC="" MV="ren"
+X
+X#zi_os2: 		# GRR (Newtware) version (do not delete!)
+X#	$(MAKE) -nologo zipinfo.exe CC=cl LD=link EXE=.exe O=.obj\
+X#	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2 -Lp" ZC="" MV="ren"\
+X#	 ZL="/nol /noi" ZL2=",zipinfo,,,zipinfo.def"
+X#	bind -nologo zipinfo.exe
+Xzi_os2: 		# Kai Uwe Rommel version (do not delete!)
+X	$(MAKE) -nologo zipinfo.exe CC=cl LD=cl EXE=.exe O=.obj\
+X	 CFLAGS="-nologo -Ox $(LOCAL_UNZIP) -G2s -DOS2" ZC="" MV="ren"\
+X	 ZL="-nologo $(LOCAL_UNZIP) -Lp -Fb" ZL2="zipinfo.def -o zipinfo.exe"
+X
+Xzi_icc:			# IBM C Set/2, 32-bit OS/2
+X	$(MAKE) -nologo zipinfo.exe CC=icc LD=icc EXE=.exe O=.obj\
+X	 CFLAGS="-Q -Sm -O -Gs -DOS2" ZC="" MV="ren"\
+X	 ZL="-Q" ZL2="zipinfo.def -Fe zipinfo.exe"
+X
+Xzi_gcc:			# GNU gcc / emx, 32-bit OS/2
+X	$(MAKE) zipinfo.exe CC=gcc LD=gcc EXE=.exe\
+X	 CFLAGS="-O -DOS2 -DEMX32" ZC="" MV="ren"\
+X	 ZL="-s" ZL2="-o zipinfo.exe"
+X
+X
+X################
+X# ATTRIBUTIONS #
+X################
+X
+X# Thanks to the following people for their help in testing and/or porting
+X# to various machines (and thanks to the many others who aren't listed
+X# here but should be):
+X#
+X#  (original Unix port:  Carl Mascott <cmascott@world.std.com>)
+X#  386i:	Richard Stephen <stephen@corp.telecom.co.nz>
+X#  3Bx:		Bob Kemp <hrrca!bobc@cbnewse.att.com>
+X#  7300:	Richard H. Gumpertz <rhg@cpsolv.CPS.COM>
+X#		Greg Roelofs <roelofs@amelia.nas.nasa.gov>
+X#  amdahl:	Kim DeVaughn <ked01@juts.ccc.amdahl.com>, Greg Roelofs
+X#  apollo:	Tim Geibelhaus
+X#  aviion:	Bruce Kahn <bkahn@archive.webo.dg.com>
+X#  bull:	Matt D'Errico <doc@magna.com>
+X#  coherent:	David Fenyes <dfenyes@thesis1.med.uth.tmc.edu>
+X#  convex:	Randy Wright <rwright@convex.com>
+X#  cray:	Greg Roelofs, Paul Borman <prb@cray.com>
+X#  cyber_sgi:	Clint Pulley <u001@cs910.cciw.ca>
+X#  dec:		"Moby" Dick O'Connor <djo7613@u.washington.edu>
+X#  dnix:	Bo Kullmar <bk@kullmar.se>
+X#  eta:		Greg Flint <afc@klaatu.cc.purdue.edu>
+X#  gould:	Onno van der Linden <linden@fwi.uva.nl>
+X#  hk68:	John Limpert <gronk!johnl@uunet.UU.NET>
+X#  hp:		Randy McCaskile <rmccask@seas.gwu.edu> (HP-UX)
+X#		Gershon Elber <gershon@cs.utah.edu> (HP BSD 4.3)
+X#  icc_os2:	Kai Uwe Rommel <rommel@informatik.tu-muenchen.de>
+X#  minix:	Kai Uwe Rommel (Minix 1.5)
+X#  mips:	Peter Jones <jones@mips1.uqam.ca>
+X#  msc_dos:	Greg Roelofs
+X#  msc_os2:	Wim Bonner <wbonner@yoda.eecs.wsu.edu>
+X#		Kai Uwe Rommel, Greg Roelofs
+X#  next:	Mark Adler <madler@piglet.caltech.edu>
+X#  p_iris:	Valter V. Cavecchia <root@itnsg1.cineca.it>
+X#  pyramid:	James Dugal <jpd@usl.edu>
+X#  rs6000:	Filip Gieszczykiewicz <fmg@smi.med.pitt.edu>
+X#  rtaix:	Erik-Jan Vens
+X#  sco:		Onno van der Linden (SCO Unix 3.2.0)
+X#   		Bill Davidsen <davidsen@crdos1.crd.ge.com> (Xenix/386)
+X#  sco_dos:	Bill Davidsen
+X#  sco_x286:	Ricky Mobley <ddi1!lrark!rick@uunet.UU.NET>
+X#  sequent:	Phil Howard <phil@ux1.cso.uiuc.edu>
+X#  sgi:		Greg Roelofs (Iris 4D/380?)
+X#  sun:		Onno van der Linden (Sun 4), Greg Roelofs (Sun 3, 4)
+X#  tahoe:	Mark Edwards <mce%sdcc10@ucsd.edu>
+X#  ultrix:	Greg Flint (VAX)
+X#		Michael Graff <explorer@iastate.edu> (DECstation 2100?)
+X#		Greg Roelofs (DEC 5810)
+X#		Alex A Sergejew <aas@brain.wph.uq.oz.au>
+X#  vax:		Forrest Gehrke <feg@dodger.att.com> (SysV)
+X#		David Kirschbaum <kirsch@usasoc.soc.mil> (BSD 4.3)
+X#		Jim Steiner <steiner@pica.army.mil> (8600+Ultrix)
+X#  wombat:	Joe Isuzu <joe@trustme.isuzu.com>
+X#  zi_dos:	Greg Roelofs
+X#  zi_icc:	Kai Uwe Rommel
+X#  zi_os2:	Greg Roelofs, Kai Uwe Rommel
+X#  zipinfo:	Greg Roelofs
+END_OF_FILE
+  if test 21865 -ne `wc -c <'Makefile.cr'`; then
+    echo shar: \"'Makefile.cr'\" unpacked with wrong size!
+  fi
+  # end of 'Makefile.cr'
+fi
+if test -f 'file_io.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'file_io.c'\"
+else
+  echo shar: Extracting \"'file_io.c'\" \(29594 characters\)
+  sed "s/^X//" >'file_io.c' <<'END_OF_FILE'
+X/*---------------------------------------------------------------------------
+X
+X  file_io.c
+X
+X  This file contains routines for doing direct input/output, file-related
+X  sorts of things.  Most of the system-specific code for unzip is contained
+X  here, including the non-echoing password code for decryption (bottom).
+X
+X  ---------------------------------------------------------------------------*/
+X
+X
+X#define const
+X#include "unzip.h"
+X
+X
+X/************************************/
+X/*  File_IO Local Prototypes, etc.  */
+X/************************************/
+X
+X#ifndef DOS_OS2
+X   static int dos2unix __((unsigned char *buf, int len));
+X   int CR_flag = 0;      /* when last char of buffer == CR (for dos2unix()) */
+X#endif
+X
+X#ifdef OS2
+X   extern int   longname;          /* set in mapname.c */
+X   extern char  longfilename[];
+X#endif
+X
+X#ifdef CRYPT
+X   typedef char  voidp;
+X#  if defined(DOS_OS2) || defined(VMS)
+X#    define MSVMS
+X#    ifdef DOS_OS2
+X#      include <conio.h>
+X#    else /* !DOS_OS2 */
+X#      define getch() getc(stderr)
+X#      define OFF 0   /* for echo control */
+X#      define ON 1
+X#      include <descrip.h>
+X#      include <iodef.h>
+X#      include <ttdef.h>
+X#      ifndef SS$_NORMAL
+X#        define SS$_NORMAL 1   /* only thing we need from <ssdef.h> */
+X#      endif
+X#    endif /* ?DOS_OS2 */
+X#  else /* !(DOS_OS2 || VMS) */
+X#    ifdef TERMIO	/* Amdahl, Cray, all SysV? */
+X#      ifdef CONVEX
+X#        include <sys/termios.h>
+X#	 include <sgtty.h>
+X#      else /* !CONVEX */
+X#        include <sys/termio.h>
+X#        define sgttyb termio
+X#        define sg_flags c_lflag
+X#      endif /* ?CONVEX */
+X       int ioctl OF((int, int, voidp *));
+X#      define GTTY(f,s) ioctl(f,TCGETA,(voidp *)s)
+X#      define STTY(f,s) ioctl(f,TCSETAW,(voidp *)s)
+X#    else /* !TERMIO */
+X#      ifndef MINIX
+X#	 include <sys/ioctl.h>
+X#      endif /* !MINIX */
+X#      include <sgtty.h>
+X       int gtty OF((int, struct sgttyb *));
+X       int stty OF((int, struct sgttyb *));
+X#      define GTTY gtty
+X#      define STTY stty
+X#    endif /* ?TERMIO */
+X     int isatty OF((int));
+X     char *ttyname OF((int));
+X     int open OF((char *, int, ...));
+X     int close OF((int));
+X     int read OF((int, voidp *, int));
+X#  endif /* ?(DOS_OS2 || VMS) */
+X#endif /* CRYPT */
+X
+X
+X
+X
+X
+X/******************************/
+X/* Function open_input_file() */
+X/******************************/
+X
+Xint open_input_file()
+X{                               /* return non-0 if open failed */
+X    /*
+X     *  open the zipfile for reading and in BINARY mode to prevent cr/lf
+X     *  translation, which would corrupt the bitstreams
+X     */
+X
+X#ifdef UNIX
+X    zipfd = open(zipfn, O_RDONLY);
+X#else
+X    zipfd = open(zipfn, O_RDONLY | O_BINARY);
+X#endif
+X    if (zipfd < 1) {
+X        fprintf(stderr, "error:  can't open zipfile [ %s ]\n", zipfn);
+X        return (1);
+X    }
+X    return 0;
+X}
+X
+X
+X
+X
+X
+X/**********************/
+X/* Function readbuf() */
+X/**********************/
+X
+Xint readbuf(buf, size)
+Xchar *buf;
+Xregister unsigned size;
+X{                               /* return number of bytes read into buf */
+X    register int count;
+X    int n;
+X
+X    n = size;
+X    while (size) {
+X        if (incnt == 0) {
+X            if ((incnt = read(zipfd, (char *)inbuf, INBUFSIZ)) <= 0)
+X                return (n-size);
+X            /* buffer ALWAYS starts on a block boundary:  */
+X            cur_zipfile_bufstart += INBUFSIZ;
+X            inptr = inbuf;
+X        }
+X        count = min(size, incnt);
+X        memcpy(buf, inptr, count);
+X        buf += count;
+X        inptr += count;
+X        incnt -= count;
+X        size -= count;
+X    }
+X    return (n);
+X}
+X
+X
+X
+X
+X
+X#ifndef VMS   /* for VMS use code in vms.c (old VMS code below is retained
+X               * in case of problems...will be removed in a later release) */
+X
+X/*********************************/
+X/* Function create_output_file() */
+X/*********************************/
+X
+Xint create_output_file()
+X{                               /* return non-0 if creat failed */
+X
+X
+X/*---------------------------------------------------------------------------
+X    Create the output file with appropriate permissions.  If we've gotten to
+X    this point and the file still exists, we have permission to blow it away.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifndef DOS_OS2
+X    CR_flag = 0;   /* hack to get CR at end of buffer working */
+X#endif
+X
+X#if defined(UNIX) && !defined(AMIGA)
+X    {
+X        int mask;
+X
+X#ifndef VMS
+X        if (!stat(filename, &statbuf) && (unlink(filename) < 0)) {
+X            fprintf(stderr, "\n%s:  cannot delete old copy\n", filename);
+X            return 1;
+X        }
+X#  define EXTRA_ARGS
+X#else /* VMS */
+X#  define EXTRA_ARGS   ,"rfm=stmlf","rat=cr"
+X#endif /* ?VMS */
+X
+X        mask = umask(0);   /* now know we own it */
+X        outfd = creat(filename, 0777 & pInfo->unix_attr  EXTRA_ARGS);
+X        umask(mask);                                            /* VMS, Unix */
+X    }
+X#else /* !UNIX || AMIGA */  /* file permissions set after file closed */
+X#if defined(MACOS) && defined(MPW) && !defined(MCH_MACINTOSH)
+X    outfd = creat(filename);                         /* Mac MPW C compiler */
+X#else /* !(Macintosh MPW 3.2 C) */
+X    outfd = creat(filename, S_IWRITE | S_IREAD);     /* DOS, OS2, Mac, Amiga */
+X#endif /* ?(Macintosh MPW 3.2 C) */
+X#endif /* ?(UNIX && !AMIGA) */
+X
+X    if (outfd < 1) {
+X        fprintf(stderr, "\n%s:  cannot create\n", filename);
+X        return 1;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    If newly created file is in text mode and should be binary (to disable
+X    automatic CR/LF translations), either close it and reopen as binary or
+X    else change the mode to binary (DOS, OS/2).  If it is already binary and
+X    should be text, change the mode to text (Mac).
+X  ---------------------------------------------------------------------------*/
+X
+X#ifndef UNIX
+X#ifdef THINK_C
+X    /*
+X     * THINKC's stdio routines have the horrible habit of
+X     * making any file you open look like generic files.
+X     * This code tells the OS that it's a text file.
+X     */
+X    if (aflag) {
+X        fileParam pb;
+X        OSErr err;
+X
+X        CtoPstr(filename);
+X        pb.ioNamePtr = (StringPtr)filename;
+X        pb.ioVRefNum = 0;
+X        pb.ioFVersNum = 0;
+X        pb.ioFDirIndex = 0;
+X        err = PBGetFInfo(&pb,0);
+X        if (err == noErr) {
+X            pb.ioFlFndrInfo.fdCreator = '\?\?\?\?';
+X            pb.ioFlFndrInfo.fdType = 'TEXT';
+X            err = PBSetFInfo(&pb, 0);
+X        }
+X        PtoCstr(filename);
+X    }
+X#endif /* THINK_C */
+X
+X    if (!aflag) {
+X#ifdef DOS_OS2
+X        if (setmode(outfd, O_BINARY) == -1) {
+X#else /* !DOS_OS2 */
+X        close(outfd);
+X        if ((outfd = open(filename, O_RDWR | O_BINARY)) < 1) {
+X#endif /* ?DOS_OS2 */
+X            fprintf(stderr, "Can't make output file binary:  %s\n", filename);
+X            return 1;
+X        }
+X    }
+X#endif /* !UNIX */
+X
+X    return 0;
+X}
+X
+X#endif /* !VMS */
+X
+X
+X
+X
+X
+X/****************************/
+X/* Function FillBitBuffer() */
+X/****************************/
+X
+Xint FillBitBuffer()
+X{
+X    /*
+X     * Fill bitbuf, which is 32 bits.  This function is only used by the
+X     * READBIT and PEEKBIT macros (which are used by all of the uncompression
+X     * routines).
+X     */
+X    UWORD temp;
+X
+X    zipeof = 1;
+X    while (bits_left < 25 && ReadByte(&temp) == 8)
+X    {
+X      bitbuf |= (ULONG)temp << bits_left;
+X      bits_left += 8;
+X      zipeof = 0;
+X    }
+X    return 0;
+X}
+X
+X
+X
+X
+X
+X/***********************/
+X/* Function ReadByte() */
+X/***********************/
+X
+Xint ReadByte(x)
+XUWORD *x;
+X{
+X    /*
+X     * read a byte; return 8 if byte available, 0 if not
+X     */
+X
+X
+X    if (csize-- <= 0)
+X        return 0;
+X
+X    if (incnt == 0) {
+X        if ((incnt = read(zipfd, (char *)inbuf, INBUFSIZ)) <= 0)
+X            return 0;
+X        /* buffer ALWAYS starts on a block boundary:  */
+X        cur_zipfile_bufstart += INBUFSIZ;
+X        inptr = inbuf;
+X#ifdef CRYPT
+X        if (pInfo->encrypted) {
+X            byte *p;
+X            int n, t;
+X
+X	    for (n = incnt > csize + 1 ? (int)csize + 1 : incnt, p = inptr;
+X                 n--; p++)
+X                *p = DECRYPT(*p);
+X        }
+X#endif /* CRYPT */
+X    }
+X    *x = *inptr++;
+X    --incnt;
+X    return 8;
+X}
+X
+X
+X
+X
+X
+X#ifndef VMS   /* for VMS use code in vms.c */
+X
+X/**************************/
+X/* Function FlushOutput() */
+X/**************************/
+X
+Xint FlushOutput()
+X{
+X    /*
+X     * flush contents of output buffer; return PK-type error code
+X     */
+X#ifndef DOS_OS2
+X#   define CTRLZ  26
+X    int saved_ctrlZ = FALSE;
+X#endif /* !DOS_OS2 */
+X    int len;
+X
+X
+X    if (disk_full) {
+X        outpos += outcnt;   /* fake emptied buffer */
+X        outcnt = 0;
+X        outptr = outbuf;
+X        return 50;          /* ignore rest of this file */
+X    }
+X
+X    if (outcnt) {
+X        UpdateCRC(outbuf, outcnt);
+X
+X        if (!tflag) {
+X#ifndef DOS_OS2
+X            if (aflag) {
+X                if (outbuf[outcnt-1] == CTRLZ) {
+X                    --outcnt;
+X                    saved_ctrlZ = TRUE;
+X                }
+X                len = dos2unix(outbuf, outcnt);
+X            } else
+X#endif /* !DOS_OS2 */
+X                len = outcnt;
+X            if (write(outfd, (char *)outout, len) != len)
+X#ifdef DOS_OS2
+X                if (!cflag)           /* ^Z treated as EOF, removed with -c */
+X#else /* !DOS_OS2 */
+X#ifdef MINIX
+X                if (errno == EFBIG)
+X                    if (write(fd, outout, len/2) != len/2  ||
+X                        write(fd, outout+len/2, len/2) != len/2)
+X#endif /* MINIX */
+X#endif /* ?DOS_OS2 */
+X                {
+X                    /* GRR: add test for force_flag when has its own switch */
+X                    fprintf(stderr,
+X                      "\n%s:  write error (disk full?).  Continue? (y/n/^C) ",
+X                      filename);
+X                    FFLUSH   /* for Amiga and Mac MPW */
+X                    fgets(answerbuf, 9, stdin);
+X                    if (*answerbuf == 'y')   /* stop writing to this file */
+X                        disk_full = 1;       /*  (outfd bad?), but new OK */
+X                    else
+X                        disk_full = 2;       /* no:  exit program */
+X                    return 50;    /* 50:  disk full */
+X                }
+X        }
+X        outpos += outcnt;
+X        outcnt = 0;
+X        outptr = outbuf;
+X#ifndef DOS_OS2
+X        if (saved_ctrlZ) {
+X            *outptr++ = CTRLZ;
+X            ++outcnt;
+X        }
+X#endif /* !DOS_OS2 */
+X    }
+X    return (0);                 /* 0:  no error */
+X}
+X
+X#endif /* !VMS */
+X
+X
+X
+X
+X
+X#ifndef DOS_OS2   /* GRR:  rewrite this for generic text conversions */
+X
+X/***********************/
+X/* Function dos2unix() */
+X/***********************/
+X
+Xstatic int dos2unix(buf, len)
+Xunsigned char *buf;
+Xint len;
+X{
+X    int new_len;
+X    int i;
+X    unsigned char *walker;
+X
+X    new_len = len;
+X    walker = outout;
+X#ifdef MACOS
+X    /*
+X     * Mac wants to strip LFs instead CRs from CRLF pairs
+X     */
+X    if (CR_flag && *buf == LF) {
+X        buf++;
+X        new_len--;
+X        len--;
+X        CR_flag = buf[len] == CR;
+X    }
+X    else
+X        CR_flag = buf[len - 1] == CR;
+X    for (i = 0; i < len; i += 1) {
+X        *walker++ = ascii_to_native(*buf);
+X        if (*buf == LF) walker[-1] = CR;
+X        if (*buf++ == CR && *buf == LF) {
+X            new_len--;
+X            buf++;
+X            i++;
+X        }
+X    }
+X#else
+X    if (CR_flag && *buf != LF)
+X        *walker++ = ascii_to_native(CR);
+X    CR_flag = buf[len - 1] == CR;
+X    for (i = 0; i < len; i += 1) {
+X        *walker++ = ascii_to_native(*buf);
+X        if (*buf++ == CR && *buf == LF) {
+X            new_len--;
+X            walker[-1] = ascii_to_native(*buf++);
+X            i++;
+X        }
+X    }
+X    /*
+X     * If the last character is a CR, then "ignore it" for now...
+X     */
+X    if (walker[-1] == ascii_to_native(CR))
+X        new_len--;
+X#endif
+X    return new_len;
+X}
+X
+X#endif /* !DOS_OS2 */
+X
+X
+X
+X
+X
+X#ifdef DOS_OS2
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * MS-DOS AND OS/2 VERSION (Mac, Unix/VMS versions are below)
+X  *
+X  * Set the output file date/time stamp according to information from the
+X  * zipfile directory record for this member, then close the file and set
+X  * its permissions (archive, hidden, read-only, system).  Aside from closing
+X  * the file, this routine is optional (but most compilers support it).
+X  */
+X{
+X/*---------------------------------------------------------------------------
+X    Allocate local variables needed by OS/2 and Turbo C.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef OS2              /* (assuming only MSC or MSC-compatible compilers
+X                         * for this part) */
+X
+X    union {
+X        FDATE fd;               /* system file date record */
+X        UWORD zdate;            /* date word */
+X    } ud;
+X
+X    union {
+X        FTIME ft;               /* system file time record */
+X        UWORD ztime;            /* time word */
+X    } ut;
+X
+X    FILESTATUS fs;
+X
+X#else                           /* !OS2 */
+X#ifdef __TURBOC__
+X
+X    union {
+X        struct ftime ft;        /* system file time record */
+X        struct {
+X            UWORD ztime;        /* date and time words */
+X            UWORD zdate;        /* .. same format as in .ZIP file */
+X        } zt;
+X    } td;
+X
+X#endif                          /* __TURBOC__ */
+X#endif                          /* !OS2 */
+X
+X/*---------------------------------------------------------------------------
+X     Do not attempt to set the time stamp on standard output.
+X  ---------------------------------------------------------------------------*/
+X
+X    if (cflag) {
+X        close(outfd);
+X        return;
+X    }
+X
+X/*---------------------------------------------------------------------------
+X    Copy and/or convert time and date variables, if necessary; then set the
+X    file time/date.
+X  ---------------------------------------------------------------------------*/
+X
+X#ifdef OS2
+X    DosQFileInfo(outfd, 1, &fs, sizeof(fs));
+X    ud.zdate = lrec.last_mod_file_date;
+X    ut.ztime = lrec.last_mod_file_time;
+X    fs.fdateLastWrite = ud.fd;
+X    fs.ftimeLastWrite = ut.ft;
+X    fs.attrFile = pInfo->dos_attr; /* hidden, system, archive, read-only */
+X    DosSetFileInfo(outfd, 1, (PBYTE) &fs, sizeof(fs));
+X#else /* !OS2 */
+X#ifdef __TURBOC__
+X    td.zt.ztime = lrec.last_mod_file_time;
+X    td.zt.zdate = lrec.last_mod_file_date;
+X    setftime(outfd, &td.ft);
+X#else /* !__TURBOC__ */
+X    _dos_setftime(outfd, lrec.last_mod_file_date, lrec.last_mod_file_time);
+X#endif /* ?__TURBOC__ */
+X#endif /* ?OS2 */
+X
+X/*---------------------------------------------------------------------------
+X    And finally we can close the file...at least everybody agrees on how to
+X    do *this*.  I think...  Oh yeah, also change the mode according to the
+X    stored file attributes, since we didn't do that when we opened the dude.
+X  ---------------------------------------------------------------------------*/
+X
+X    close(outfd);
+X
+X#ifdef OS2
+X    if (longname)
+X        SetLongNameEA(filename, longfilename);
+X#else /* !OS2 */
+X#ifdef __TURBOC__
+X    if (_chmod(filename, 1, pInfo->dos_attr) != pInfo->dos_attr)
+X        fprintf(stderr, "\nwarning:  file attributes may not be correct\n");
+X#else /* !__TURBOC__ */
+X    _dos_setfileattr(filename, pInfo->dos_attr);
+X#endif /* ?__TURBOC__ */
+X#endif /* ?OS2 */
+X
+X} /* end function set_file_time_and_close() (DOS, OS/2) */
+X
+X
+X
+X
+X
+X#else                           /* !DOS_OS2 */
+X#ifdef MACOS                    /* Mac */
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * MAC VERSION
+X  */
+X{
+X    long m_time;
+X    DateTimeRec dtr;
+X    ParamBlockRec pbr;
+X    OSErr err;
+X
+X    if (outfd != 1) {
+X        close(outfd);
+X
+X        /*
+X         * Macintosh bases all file modification times on the number of seconds
+X         * elapsed since Jan 1, 1904, 00:00:00.  Therefore, to maintain
+X         * compatibility with MS-DOS archives, which date from Jan 1, 1980,
+X         * with NO relation to GMT, the following conversions must be made:
+X         *      the Year (yr) must be incremented by 1980;
+X         *      and converted to seconds using the Mac routine Date2Secs(),
+X         *      almost similar in complexity to the Unix version :-)
+X         *                                     J. Lee
+X         */
+X
+X        dtr.year = (((lrec.last_mod_file_date >> 9) & 0x7f) + 1980);
+X        dtr.month = ((lrec.last_mod_file_date >> 5) & 0x0f);
+X        dtr.day = (lrec.last_mod_file_date & 0x1f);
+X
+X        dtr.hour = ((lrec.last_mod_file_time >> 11) & 0x1f);
+X        dtr.minute = ((lrec.last_mod_file_time >> 5) & 0x3f);
+X        dtr.second = ((lrec.last_mod_file_time & 0x1f) * 2);
+X
+X        Date2Secs(&dtr, (unsigned long *)&m_time);
+X        CtoPstr(filename);
+X        pbr.fileParam.ioNamePtr = (StringPtr)filename;
+X        pbr.fileParam.ioVRefNum = pbr.fileParam.ioFVersNum =
+X          pbr.fileParam.ioFDirIndex = 0;
+X        err = PBGetFInfo(&pbr, 0L);
+X        pbr.fileParam.ioFlMdDat = pbr.fileParam.ioFlCrDat = m_time;
+X        if (err == noErr)
+X            err = PBSetFInfo(&pbr, 0L);
+X        if (err != noErr)
+X            printf("error:  can't set the time for %s\n", filename);
+X
+X        /* set read-only perms if needed */
+X        if (err != noErr && pInfo->unix_attr != 0)
+X            err = SetFLock((ConstStr255Param)filename, 0);
+X        PtoCstr(filename);
+X    }
+X}
+X
+X
+X
+X
+X
+X#else                                /* !MACOS... */
+X#if !defined(MTS) && !defined(VMS)   /* && !MTS (can't do) && !VMS: only one
+X                                      * left is UNIX (for VMS use code in
+X                                      * vms.c--old VMS code below is retained
+X                                      * in case of problems and will be removed
+X                                      * in a later release) */
+X
+X/**************************************/
+X/* Function set_file_time_and_close() */
+X/**************************************/
+X
+Xvoid set_file_time_and_close()
+X /*
+X  * UNIX AND VMS VERSION (MS-DOS & OS/2, Mac versions are above)
+X  */
+X{
+X    static short yday[]={0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+X    long m_time;
+X    int yr, mo, dy, hh, mm, ss, leap, days=0;
+X#ifdef VMS
+X#   define YRBASE  0
+X    char timbuf[24];
+X    static char *month[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+X                            "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+X    struct VMStimbuf {
+X        char *actime;           /* VMS revision date, ASCII format */
+X        char *modtime;          /* VMS creation date, ASCII format */
+X    } ascii_times;
+X#else /* !VMS */
+X    struct utimbuf {
+X        time_t actime;          /* new access time */
+X        time_t modtime;         /* new modification time */
+X    } tp;
+X#ifdef AMIGA
+X#   define YRBASE  1978         /* in AmigaDos, counting begins 01-Jan-1978 */
+X    struct DateStamp myadate;
+X/*  extern char *_TZ;   no longer used? */
+X#else /* !AMIGA */
+X#   define YRBASE  1970
+X#ifdef BSD
+X    static struct timeb tbp;
+X#else /* !BSD */
+X    extern long timezone;
+X#endif /* ?BSD */
+X#endif /* ?AMIGA */
+X#endif /* ?VMS */
+X
+X
+X    /*
+X     * Close the file *before* setting its time under Unix, AmigaDos and VMS.
+X     */
+X#ifdef AMIGA
+X    if (cflag)                  /* can't set time on stdout */
+X        return;
+X    close(outfd);
+X#else /* !AMIGA */
+X    close(outfd);
+X    if (cflag)                  /* can't set time on stdout */
+X        return;
+X#endif /* ?AMIGA */
+X
+X    /*
+X     * These date conversions look a little weird, so I'll explain.
+X     * UNIX bases all file modification times on the number of seconds
+X     * elapsed since Jan 1, 1970, 00:00:00 GMT.  Therefore, to maintain
+X     * compatibility with MS-DOS archives, which date from Jan 1, 1980,
+X     * with NO relation to GMT, the following conversions must be made:
+X     *      the Year (yr) must be incremented by 10;
+X     *      the Date (dy) must be decremented by 1;
+X     *      and the whole mess must be adjusted by TWO factors:
+X     *          relationship to GMT (ie.,Pacific Time adds 8 hrs.),
+X     *          and whether or not it is Daylight Savings Time.
+X     * Also, the usual conversions must take place to account for leap years,
+X     * etc.
+X     *                                     C. Seaman
+X     */
+X
+X    /* dissect date */
+X    yr = ((lrec.last_mod_file_date >> 9) & 0x7f) + (1980 - YRBASE);
+X    mo = ((lrec.last_mod_file_date >> 5) & 0x0f) - 1;
+X    dy = (lrec.last_mod_file_date & 0x1f) - 1;
+X
+X    /* dissect time */
+X    hh = (lrec.last_mod_file_time >> 11) & 0x1f;
+X    mm = (lrec.last_mod_file_time >> 5) & 0x3f;
+X    ss = (lrec.last_mod_file_time & 0x1f) * 2;
+X
+X#ifdef VMS
+X    sprintf(timbuf, "%02d-%3s-%04d %02d:%02d:%02d.00", dy+1, month[mo],
+X      yr, hh, mm, ss);
+X
+X    ascii_times.actime = timbuf;
+X    ascii_times.modtime = timbuf;
+X
+X    if ((mm = VMSmunch(filename, SET_TIMES, &ascii_times)) != RMS$_NMF)
+X        fprintf(stderr, "error %d:  can't set the time for %s\n", mm, filename);
+X
+X#else /* !VMS */
+X    /* leap = # of leap years from BASE up to but not including current year */
+X    leap = ((yr + YRBASE - 1) / 4);   /* leap year base factor */
+X
+X    /* How many days from BASE to this year? (& add expired days this year) */
+X    days = (yr * 365) + (leap - 492) + yday[mo];
+X
+X    /* if year is a leap year and month is after February, add another day */
+X    if ((mo > 1) && ((yr+YRBASE)%4 == 0) && ((yr+YRBASE) != 2100))
+X        ++days;                 /* OK through 2199 */
+X
+X#ifdef AMIGA
+X/*  _TZ = getenv("TZ"); does Amiga not have TZ and tzset() after all? */
+X    myadate.ds_Days   =   days+dy-2;   /* off by one? */
+X    myadate.ds_Minute =   hh*60+mm;
+X    myadate.ds_Tick   =   ss*TICKS_PER_SECOND;
+X
+X    if (!(SetFileDate(filename, &myadate)))
+X        fprintf(stderr, "error:  can't set the time for %s\n", filename);
+X
+X#else /* !AMIGA */
+X    /* convert date & time to seconds relative to 00:00:00, 01/01/YRBASE */
+X    m_time = ((days + dy) * 86400) + (hh * 3600) + (mm * 60) + ss;
+X
+X#ifdef BSD
+X    ftime(&tbp);
+X    m_time += tbp.timezone * 60L;
+X#else /* !BSD */
+X    tzset();                    /* set `timezone' */
+X    m_time += timezone;         /* account for timezone differences */
+X#endif /* ?BSD */
+X
+X    if (localtime(&m_time)->tm_isdst)
+X        m_time -= 60L * 60L;    /* adjust for daylight savings time */
+X
+X    tp.actime = m_time;         /* set access time */
+X    tp.modtime = m_time;        /* set modification time */
+X
+X    /* set the time stamp on the file */
+X    if (utime(filename, &tp))
+X        fprintf(stderr, "error:  can't set the time for %s\n", filename);
+X#endif /* ?AMIGA */
+X#endif /* ?VMS */
+X}
+X
+X#endif                          /* !MTS && !VMS */
+X#endif                          /* ?MACOS */
+X#endif                          /* ?DOS_OS2 */
+X
+X
+X
+X
+X
+X/*******************************/
+X/*  Non-echoing password code  */
+X/*******************************/
+X
+X#ifdef EMX32
+X#  undef DOS_OS2
+X#  undef MSVMS
+X#endif
+X
+X#ifdef CRYPT
+X#ifndef DOS_OS2
+X#ifdef VMS
+X
+Xint echo(opt)
+X    int opt;
+X{
+X/*---------------------------------------------------------------------------
+X    Based on VMSmunch.c, which in turn was based on Joe Meadows' file.c code.
+X  ---------------------------------------------------------------------------
+X     * For VMS v5.x:
+X     *   IO$_SENSEMODE/SETMODE info:  Programming, Vol. 7A, System Programming,
+X     *     I/O User's: Part I, sec. 8.4.1.1, 8.4.3, 8.4.5, 8.6
+X     *   sys$assign(), sys$qio() info:  Programming, Vol. 4B, System Services,
+X     *     System Services Reference Manual, pp. sys-23, sys-379
+X     *   fixed-length descriptor info:  Programming, Vol. 3, System Services,
+X     *     Intro to System Routines, sec. 2.9.2
+X     * GRR, 15 Aug 91
+X  ---------------------------------------------------------------------------*/
+X    static struct dsc$descriptor_s DevDesc =
+X        {9, DSC$K_DTYPE_T, DSC$K_CLASS_S, "SYS$INPUT"};
+X     /* {dsc$w_length, dsc$b_dtype, dsc$b_class, dsc$a_pointer}; */
+X    static short           DevChan, iosb[4];
+X    static long            i, status;
+X    static unsigned long   oldmode[2], newmode[2];   /* each = 8 bytes */
+X  
+X
+X/*---------------------------------------------------------------------------
+X    Assign a channel to standard input.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$assign(&DevDesc, &DevChan, 0, 0);
+X#ifdef DEBUG
+X    printf("echo:  sys$assign returns status = %ld\n", status);
+X#endif /* DEBUG */
+X    if (!(status & 1)) return(status);
+X
+X/*---------------------------------------------------------------------------
+X    Use sys$qio and the IO$_SENSEMODE function to determine the current tty
+X    status (for password reading, could use IO$_READVBLK function instead,
+X    but echo on/off will be more general).
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$qio(0, DevChan, IO$_SENSEMODE, &iosb, 0, 0,
+X                     oldmode, 8, 0, 0, 0, 0);
+X#ifdef DEBUG
+X    printf("echo:  sys$qio(IO$_SENSEMODE) returns status = %ld\n", status);
+X    printf("echo:  sys$qio(IO$_SENSEMODE) returns iosb status = %d\n", 
+X      iosb[0]);
+X#endif /* DEBUG */
+X    if (!(status & 1)) return(status);
+X    status = iosb[0];
+X    if (!(status & 1)) return(status);
+X
+X/*---------------------------------------------------------------------------
+X    Copy old mode into new-mode buffer, then modify to be either NOECHO or
+X    ECHO (depending on function argument opt).
+X  ---------------------------------------------------------------------------*/
+X
+X    newmode[0] = oldmode[0];
+X    newmode[1] = oldmode[1];
+X    if (opt == OFF)
+X        newmode[1] |= TT$M_NOECHO;                      /* set NOECHO bit */
+X    else
+X        newmode[1] &= ~((unsigned long) TT$M_NOECHO);   /* clear NOECHO bit */
+X#ifdef DEBUG
+X    printf("echo:  current terminal status = %lx\n", oldmode[1]);
+X    printf("echo:  current echo status = %s\n",
+X      (oldmode[1] & TT$M_NOECHO)? "noecho" : "echo");
+X    printf("echo:  new terminal status = %lx\n", newmode[1]);
+X    printf("echo:  new echo status = %s\n",
+X      (newmode[1] & TT$M_NOECHO)? "noecho" : "echo");
+X#endif /* DEBUG */
+X
+X/*---------------------------------------------------------------------------
+X    Use the IO$_SETMODE function to change the tty status.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$qio(0, DevChan, IO$_SETMODE, &iosb, 0, 0,
+X                     newmode, 8, 0, 0, 0, 0);
+X#ifdef DEBUG
+X    printf("echo:  sys$qio(IO$_SETMODE) returns status = %ld\n", status);
+X    printf("echo:  sys$qio(IO$_SETMODE) returns iosb status = %d\n", iosb[0]);
+X#endif /* DEBUG */
+X    if (!(status & 1)) return(status);
+X    status = iosb[0];
+X    if (!(status & 1)) return(status);
+X
+X/*---------------------------------------------------------------------------
+X    Deassign the sys$input channel by way of clean-up, then exit happily.
+X  ---------------------------------------------------------------------------*/
+X
+X    status = sys$dassgn(DevChan);
+X#ifdef DEBUG
+X    printf("echo:  sys$dassgn returns status = %ld\n\n", status);
+X#endif /* DEBUG */
+X    if (!(status & 1)) return(status);
+X
+X    return SS$_NORMAL;   /* we be happy */
+X
+X} /* end function echo() */
+X
+X
+X
+X
+X
+X#else /* !VMS */
+X
+Xstatic int echofd = -1;	/* file descriptor whose echo is off */
+X
+Xvoid echoff(f)
+Xint f;			/* file descriptor to turn echo off on */
+X/* Turn echo off for file descriptor f.  Assumes that f is a tty device. */
+X{
+X  struct sgttyb sg;	/* tty device structure */
+X
+X  echofd = f;
+X  GTTY(f, &sg);					/* get settings */
+X  sg.sg_flags &= ~ECHO;				/* turn echo off */
+X  STTY(f, &sg);
+X}
+X
+X
+X
+Xvoid echon()
+X/* Turn echo back on for file descriptor echofd. */
+X{
+X  struct sgttyb sg;	/* tty device structure */
+X
+X  if (echofd != -1)
+X  {
+X    GTTY(echofd, &sg);				/* get settings */
+X    sg.sg_flags |= ECHO;			/* turn echo on */
+X    STTY(echofd, &sg);
+X    echofd = -1;
+X  }
+X}
+X
+X#endif /* ?VMS */
+X#endif /* !DOS_OS2 */
+X
+X
+X
+X
+X
+Xchar *getp(m, p, n)
+Xchar *m;		/* prompt for password */
+Xchar *p;		/* return value: line input */
+Xint n;			/* bytes available in p[] */
+X/* Get a password of length n-1 or less into *p using the prompt *m.
+X   The entered password is not echoed.  Return p on success, NULL on
+X   failure (can't get controlling tty). */
+X{
+X  char c;		/* one-byte buffer for read() to use */
+X  int i;		/* number of characters input */
+X  char *w;		/* warning on retry */
+X
+X#ifndef DOS_OS2
+X#ifdef VMS
+X  echo(OFF);                                    /* turn echo off */
+X#else /* !VMS */
+X  int f;		/* file decsriptor for tty device */
+X
+X  /* Turn off echo on tty */
+X  if (!isatty(2))
+X    return NULL;				/* error if not tty */
+X  if ((f = open(ttyname(2), 0, 0)) == -1)
+X    return NULL;
+X  echoff(f);					/* turn echo off */
+X#endif /* ?VMS */
+X#endif /* !DOS_OS2 */
+X
+X  /* Get password */
+X  w = "";
+X  do {
+X#ifdef VMS   /* bug:  VMS adds '\n' to NULL fputs (apparently) */
+X    if (*w)
+X#endif /* VMS */
+X    fputs(w, stderr);				/* warning if back again */
+X    fputs(m, stderr);				/* prompt */
+X    fflush(stderr);
+X    i = 0;
+X    do {					/* read line, keeping n */
+X#ifdef MSVMS
+X      if ((c = (char)getch()) == '\r')
+X        c = '\n';
+X#else /* !MSVMS */
+X      read(f, &c, 1);
+X#endif /* ?MSVMS */
+X      if (i < n)
+X	p[i++] = c;
+X    } while (c != '\n');
+X    putc('\n', stderr);  fflush(stderr);
+X    w = "(line too long--try again)\n";
+X  } while (p[i-1] != '\n');
+X  p[i-1] = 0;					/* terminate at newline */
+X
+X#ifndef DOS_OS2
+X#ifdef VMS
+X  echo(ON);                                     /* turn echo back on */
+X#else /* !VMS */
+X  /* Turn echo back on */
+X  echon();					/* turn echo back on */
+X  close(f);
+X#endif /* ?VMS */
+X#endif /* !DOS_OS2 */
+X
+X  /* Return pointer to password */
+X  return p;
+X}
+X
+X#endif /* CRYPT */
+END_OF_FILE
+  if test 29594 -ne `wc -c <'file_io.c'`; then
+    echo shar: \"'file_io.c'\" unpacked with wrong size!
+  fi
+  # end of 'file_io.c'
+fi
+echo shar: End of archive 6 \(of 12\).
+cp /dev/null ark6isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 12 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

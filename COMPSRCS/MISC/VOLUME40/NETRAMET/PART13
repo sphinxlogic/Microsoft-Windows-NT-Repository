@@ -1,0 +1,2094 @@
+Newsgroups: comp.sources.misc
+From: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Subject: v40i101:  netramet - Network Traffic Accounting Meter, Part13/25
+Message-ID: <1993Nov7.221152.12121@sparky.sterling.com>
+X-Md4-Signature: b4df06250bc3f4837d1d3789fae11928
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Sun, 7 Nov 1993 22:11:52 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: nevil@ccu1.aukuni.ac.nz (J Nevil Brownlee)
+Posting-number: Volume 40, Issue 101
+Archive-name: netramet/part13
+Environment: INET, UNIX, DOS
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  netramet/mib/mib.IAWG.txt netramet/src/apps/snmpd.c
+#   netramet/src/meter/include/flowhash.h
+# Wrapped by kent@sparky on Tue Nov  2 18:17:08 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin:$PATH ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 13 (of 25)."'
+if test -f 'netramet/mib/mib.IAWG.txt' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/mib/mib.IAWG.txt'\"
+else
+  echo shar: Extracting \"'netramet/mib/mib.IAWG.txt'\" \(46845 characters\)
+  sed "s/^X//" >'netramet/mib/mib.IAWG.txt' <<'END_OF_FILE'
+X-- Internet Accounting MIB $Revision: 2.2, 16 Sep 93 $
+X-- $Principal-Author: cbrooks $
+X-- $Current-Author: nbrownlee @
+X
+X-- Internet Accounting Management Information Base
+X-- This following text defines an initial SNMP MIB for Internet Accounting.
+X-- For additional details, see RFC 1272, "Internet Accounting: Background",
+X-- C. Mills, D. Hirsch, and G. Ruth, and the Internet Draft
+X-- "Internet Accounting Architecture", Mills, Laube, and Ruth.
+X
+X
+XACCOUNTING-MIB DEFINITIONS ::= BEGIN
+X
+XIMPORTS experimental, OBJECT-TYPE, ObjectName, Counter, Gauge,
+X    NetworkAddress, TimeTicks  FROM RFC1155-SMI
+X	TRAP-TYPE FROM RFC1215;
+X
+Xinternet-accounting OBJECT IDENTIFIER ::= { experimental 99 }
+X
+Xcontrol		OBJECT IDENTIFIER ::= { internet-accounting 1 }
+X
+Xflowdata	OBJECT IDENTIFIER ::= { internet-accounting 2 }
+X
+Xruledata	OBJECT IDENTIFIER ::= { internet-accounting 3 }
+X
+Xactiondata	OBJECT IDENTIFIER ::= { internet-accounting 4 }
+X
+X
+X-- The AddressTuple construct:
+X-- In future might have any address for any layer in the protocol stack
+X-- (session, presentation, transport, application).  The intent here is
+X-- to represent the fact that the address tuple field can contain many
+X-- attributes.
+X
+X-- AddressTuple ::= SEQUENCE {
+X--    interface	       [ 0] INTEGER OPTIONAL,		-- interface
+X
+X--    adjacent_type    [ 1] AddressType OPTIONAL,	-- adjacent
+X--    adjacent_address [ 2] NetWork_Address OPTIONAL,
+X--    adjacent_mask    [ 3] NetWork_Address OPTIONAL,
+X
+X--    peer_type        [ 4] AddressType OPTIONAL,	-- peer
+X--    peer_address     [ 5] NetWork_Address OPTIONAL,
+X--    peer_mask	       [ 6] NetWork_Address OPTIONAL,
+X
+X--    detail_type      [ 7] AddressType OPTIONAL,	-- transport
+X--    detail_address   [ 8] NetWork_Address OPTIONAL,
+X--    detail_mask      [ 9] NetWork_Address OPTIONAL,
+X
+X--    subscriber_id    [10] OCTET STRING OPTIONAL	-- subscriber
+X--    subscriber_mask  [11] OCTET STRING OPTIONAL
+X--    }
+X
+X-- Within an address tuple the mask attributes are used to specify
+X-- which parts of the addresses must match exactly when address tuples
+X-- are compared.  For example peer_type = ipaddress, peer_address =
+X-- 130.216.0.0, peer_mask = 255.255.0.0 would match any peer address
+X-- representing an IP interface within network 130.216.
+X
+X-- As an example of types and values, here is an address tuple for a flow
+X-- carrying a stream of SMTP data over an ethernet:
+X--    adjacent type = ethernet,  adjacent address = 02-07-01-04-ED-4A
+X--    peer type = IP, peer address = 130.216.240.7
+X--    detail type = TCP, detail address = 25 (port number)
+X
+X-- The Network Address construct:
+X-- The intent here is that this address type represent a choice of N-1
+X-- layer addresses based on the protocol layer at which accounting is
+X-- done.  For example, if accounting is being performed at the
+X-- presentation level, then this address might be a session layer
+X-- address; if done at the transport level it might be an IP address.
+X-- The level at which accounting is done is the "peer" level, N.
+X
+X-- In the following, "adjacent" means the level below the current level
+X-- and "detail" means the level above it.  For IP, the adjacent layer
+X-- address might be the ethernet or 802 MAC layer address.  A better
+X-- encoding convention may be needed so that addresses at any layer can
+X-- be specified unambiguously.
+X
+X-- NetWorkAddress ::= CHOICE {
+X--    adjacentLayerAddress  [1] IMPLICIT OCTET STRING,
+X
+X--    ipAddress	            [2] IMPLICIT IpAddress,
+X--    nsapAddress	    [3] IMPLICIT OCTET STRING,
+X--    idprAddress	    [4] IMPLICIT OCTET STRING,
+X--    decnetAddress	    [5] IMPLICIT OCTET STRING,
+X--    ipxnetAddress	    [6] IMPLICIT OCTET STRING,
+X--    ethertalkAddress      [7] IMPLICIT OCTET STRING,
+X
+X--    detailAddress         [7] IMPLICIT OCTET STRING
+X--    }
+X
+X-- The AddressType type:
+X-- The intent of this type is to indicate the type of address
+X-- that is being recorded.  This would probably be encoded as a
+X-- tag in the above NetworkAddress type if using full ASN.1.  Instead
+X-- we explicitly call it out as a separate value, and instantiate it
+X-- as a separate field.
+X
+XAddressType ::= INTEGER {
+X	adjacentlayer(1), ipaddress(2), nsapaddress(3),
+X	idpraddress(4), decnetaddress(5),
+X	ipxnetaddress(6), ethertalkaddress(7),
+X	detailaddress(8)
+X	}
+X
+X
+X--
+X-- The Control Group
+X--
+X
+XacctHighWaterMark OBJECT-TYPE
+X    SYNTAX  INTEGER (0..100)
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"A value expressed as a percent, interpreted by the meter as an
+X	indication of when to send a trap indicating that the management
+X	station should increase the polling frequency.  Values of 0% or
+X	100% disable the checking represented by this variable."
+X    ::= { control 1 }
+X
+XacctFloodMark OBJECT-TYPE
+X    SYNTAX  INTEGER (0..100)
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"A value expressed as a percent, interpreted by the meter as
+X	an indication of how full the flow record table should become
+X	before the meter should panic and start dumping the contents of
+X	the flow table to the management station in raw form.
+X	0% or 100% disables the checking represented by this variable."
+X    ::= { control 2 }
+X
+XacctInactivityTimeout OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The time in seconds since the last packet seen (and the last
+X	report) after which the flow may be terminated."
+X    DEFVAL { 600 } -- 10 minutes
+X    ::= { control 3 }
+X
+XacctFlowSamplingRate OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF FlowSamplingRate
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"One for each interface.  The paramater N for statistical counting.
+X	Set to zero to count every packet on this interface.  Set to N to
+X	count 1/Nth of the packets from this interface.  A meter should
+X	choose its own algorithm to introduce variance into the sampling
+X	so that exactly every Nth packet is not counted.  A sampling rate
+X	of 1 yields a normal counter."
+X    DEFVAL { 1 } -- Count every packet
+X    ::= { control 4 }
+X
+XFlowSamplingRate ::= SEQUENCE { rate INTEGER }
+X
+XacctCollectorInfo OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF acctCollectorInfoEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Information about snmp peers which have collected flow data
+X	from this meter."
+X    ::= { control 5 }
+X
+XacctCollectorInfoEntry OBJECT-TYPE
+X    SYNTAX  AcctCollectorInfoEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Information about a particular collector."
+X    INDEX  { acctCollectorIndex }
+X    ::= { acctCollectorInfo 1 }
+X
+XAcctCollectorInfoEntry ::= SEQUENCE {
+X    acctCollectorIndex	 		INTEGER,
+X    acctCollectorPeerAddress	 	OCTET STRING,
+X    acctCollectorLastTime		TIMETICKS,
+X    acctCollectorPreviousTime		TIMETICKS
+X    }
+X
+XacctCollectorIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Selects an entry from the array of collector info entries."
+X    ::= { acctCollectorInfoEntry 1 }
+X
+XacctCollectorPeerAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Peer address of this collector."
+X    ::= { acctCollectorInfoEntry 2 }
+X
+XcacctCollectorLastTime OBJECT-TYPE
+X    SYNTAX  TIMETICKS
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Time this collector last began a collection."
+X    ::= { acctCollectorInfoEntry 3 }
+X
+XacctCollectorPreviousTime OBJECT-TYPE
+X    SYNTAX  TIMETICKS
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Time this collector began the collection before last."
+X    ::= { acctCollectorInfoEntry 4 }
+X
+XacctLastCollectTime OBJECT-TYPE
+X    SYNTAX  TIMETICKS
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Time last collection of meter data began.  This variable will be
+X	written by a collector as the first step in making a collection.
+X	The meter will set its LastTime value to uptime and set its
+X	PreviousTime value to the old LastTime.  This allows the meter to
+X	recover flows which have been inactive since PreviousTime, for
+X	these have been collected at least once."
+X    ::= { control 6 }
+X
+XacctRuleSetInfo OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF acctRuleInfoEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Array of information about the rule sets held in the meter,
+X	i.e. about each rule table and its accompanying action table."
+X    ::= { control 7 }
+X
+XacctRuleInfoEntry OBJECT-TYPE
+X    SYNTAX  AcctRuleInfoEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Information about a particular rule set."
+X    INDEX  { acctRuleInfoIndex }
+X    ::= { acctRuleSetInfo 1 }
+X
+XAcctRuleInfoEntry ::= SEQUENCE {
+X    acctRuleInfoIndex		 	INTEGER,
+X    acctRuleInfoRuleSize		INTEGER,
+X    acctRuleInfoActionSize		INTEGER
+X    }
+X
+XacctRuleInfoIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Selects an entry from the array of rule set info entries."
+X    ::= { acctRuleInfoEntry 1 }
+X
+XacctRuleInfoRuleSize OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Number of rules in this table.  Setting this variable will
+X	cause the meter to allocate space for these rules."
+X    ::= { acctRuleInfoEntry 2 }
+X
+XacctRuleInfoActionSize OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Number of actions in this table.  Setting this variable will
+X	cause the meter to allocate space for these actions, and will
+X	set the values of all variables in them to zero."
+X    ::= { acctRuleInfoEntry 3 }
+X
+XacctCurrentRuleSet OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index to the arrays of rule and action tables.  Specifies which
+X	set of rules and actions is currently being used for accounting by
+X	the meter.  When the manager sets this variable the meter will
+X	close its current rule set and start using the new one.  Flows
+X	created by the old rule set remain in memory, orphaned until their
+X	data has been collected."
+X    ::= { control 8 }
+X
+XacctEmergencyRuleSet OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index to the arrays of rule and action tables.  After a
+X	declareDataLoss trap the meter may switch to using the emergency
+X	rule set.  For this to be effective the manager must have
+X	downloaded an emergency rule set which uses a coarser collecting
+X	granularity."
+X    ::= { control 9 }
+X
+X
+X--
+X-- The Flow Table
+X--
+X
+X-- This is a table kept by a meter, with one entry for every flow
+X-- currently being accounted for.
+X
+X-- The variables kept for each flow comprise:
+X--	Housekeeping information for the flow.
+X--	The flow's "counters", i.e. its octet and PDU counts for each
+X--		direction, and its first and last packet times.
+X--	The flow's "keys", i.e. the information used to distinguish
+X--		packets for this particular flow.
+X
+X-- Each flow has at least one key, but "aggregate" flows may have more
+X-- than one key.  Every key is associated with a single flow, and every
+X-- PDU matching a key is counted in its associated flow's counters.
+X
+X-- Each packet which arrives at a meter is examined, and values for all
+X-- the "key" variables are extracted and assembled into a "packet key".
+X-- The set of current keys is searched to see whether this flow has
+X-- already been seen.  If it has, the packet is simply counted;
+X-- if not, the rules are consulted to create a new flow in which this
+X-- packet may be counted.  Once a flow has been created in this way a
+X-- collector will have to read the flow's key data just once.  After
+X-- that the collector needs only to read the flow's counts from time to
+X-- time.
+X
+X-- Each key has two AddressTuples, one for each of its end points.
+X-- Flows are bidirectional and have two sets of counters, one for each
+X-- of the two possible directions.  Since we may be accounting for
+X-- packets observed in transit along a network segment the choice of
+X-- "to" and "from" direction is arbitrary; "source" and "destination"
+X-- (abbreviated to "dest" elsewhere in this MIB) are specified for each
+X-- flow by the rules in the current rule set.  In the special case where
+X-- the address tuples are identical all packets are counted in the "to"
+X-- direction's counters.
+X
+X-- From time to time a collector may sweep the flow table so as collect
+X-- counts.  To reduce the number of SNMP requests required to do this,
+X-- two further tables provide alternative windows into the flow table.
+X
+X-- The Creation Table allows a collector to find the first entry created
+X-- after a specified time, then make successive getnext requests to find
+X-- all other entries created since that time.  Similarly, the Activity Table
+X-- allows a collector to find all the entries last counted after a specified
+X-- time.  Note that it is not sensible for the meter to keep the Activity
+X-- Table in LastTime order, since that would result in very active flows
+X-- being counted many times during the same collection.
+X
+X-- This scheme allows multiple collectors to independently use the same
+X-- meter; the collectors do not have to be synchronised and they may use
+X-- different collection intervals.
+X
+X-- A meter may reclaim the memory space used by flows (or keys) for which
+X-- no packets have been seen since lastCollectTime, or for an interval
+X-- longer than the inactivityTimeout, whichever is the longer.  The meter
+X-- may reuse flow indexes for flows thus reclaimed.
+X
+XacctFlowTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctFlowEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The list of all flows being kept for
+X	accounting purposes on this system."
+X    ::= { flowdata 1 }
+X
+XacctFlowEntry OBJECT-TYPE
+X    SYNTAX  AcctFlowEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The flow record for a particular flow."
+X    INDEX { acctFlowIndex }
+X    ::= { acctFlowTable 1 }
+X
+XAcctFlowEntry ::= SEQUENCE {
+X    acctFlowIndex		   INTEGER,
+X    acctFlowStatus		   INTEGER,
+X
+X    acctFlowSourceInterface	   INTEGER,	  -- Source Address Tuple
+X    acctFlowSourceAdjacentType	   AddressType,
+X    acctFlowSourceAdjacentAddress  OCTET STRING,
+X    acctFlowSourceAdjacentMask	   OCTET STRING,
+X    acctFlowSourcePeerType	   AddressType,
+X    acctFlowSourcePeerTypeMask	   AddressType,
+X    acctFlowSourcePeerAddress	   OCTET STRING,
+X    acctFlowSourcePeerMask	   OCTET STRING,
+X    acctFlowSourceDetailType	   AddressType,
+X    acctFlowSourceDetailTypeMask   AddressType,
+X    acctFlowSourceDetailAddress	   OCTET STRING,
+X    acctFlowSourceDetailMask	   OCTET STRING,
+X    acctFlowSourceSubscriberID	   OCTET STRING,
+X    acctFlowSourceSubscriberMask   OCTET STRING,
+X
+X    acctFlowDestInterface	   INTEGER,	  -- Dest Address Tuple
+X    acctFlowDestAdjacentType	   AddressType,
+X    acctFlowDestAdjacentAddress	   OCTET STRING,
+X    acctFlowDestAdjacentMask	   OCTET STRING,
+X    acctFlowDestPeerType	   AddressType,
+X    acctFlowDestPeerTypeMask	   AddressType,
+X    acctFlowDestPeerAddress	   OCTET STRING,
+X    acctFlowDestPeerMask	   OCTET STRING,
+X    acctFlowDestDetailType	   AddressType,
+X    acctFlowDestDetailTypeMask	   AddressType,
+X    acctFlowDestDetailAddress	   OCTET STRING,
+X    acctFlowDestDetailMask	   OCTET STRING,
+X    acctFlowDestSubscriberID	   OCTET STRING,
+X    acctFlowDestSubscriberMask	   OCTET STRING,
+X
+X    acctFlowSubscriberID	   OCTET STRING,  -- Session attributes
+X    acctFlowSessionID		   INTEGER,
+X
+X    acctFlowPDUScale		   INTEGER,	  -- Rule Set attributes
+X    acctFlowOctetScale		   INTEGER,
+X    acctFlowRuleSet		   INTEGER,
+X    acctFlowType		   INTEGER,
+X
+X    acctFlowToOctets		   Counter,	  -- Source-to-Dest counters
+X    acctFlowToPDUs		   Counter,
+X    acctFlowFromOctets		   Counter,	  -- Dest-to-Source counters
+X    acctFlowFromPDUs		   Counter,
+X
+X    acctFlowFirstTime		   TimeTicks,	  -- Activity times
+X    acctFlowLastTime		   TimeTicks
+X    }
+XacctFlowIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The bucket number for this flow.  The different values for this
+X	variable need not be consecutive."
+X    ::= { acctFlowEntry 1 }
+X
+XacctFlowStatus OBJECT-TYPE
+X    SYNTAX  INTEGER { valid(1), invalid(2) }
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Status of this flow.  Allows all table rows to be collected
+X	via a simple table sweep, whilst throwing out all flows that are
+X	invalid."
+X    ::= { acctFlowEntry 2 }
+X
+XacctFlowSourceInterface OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index of the interface associated with the source address for
+X	this flow.  This value is one of the values contained in the
+X	ifIndex field of the interfaces table."
+X    ::= { acctFlowEntry 3 }
+X
+XacctFlowSourceAdjacentType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Adjacent address type of the source for this flow."
+X    ::= { acctFlowEntry 4 }
+X
+XacctFlowSourceAdjacentAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the adjacent device on the path for the source
+X	for this flow."
+X    ::= { acctFlowEntry 5 }
+X
+XacctFlowSourceAdjacentMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the adjacent source address for this flow."
+X    ::= { acctFlowEntry 6 }
+X
+XacctFlowSourcePeerType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Peer address type of the source for this flow."
+X    ::= { acctFlowEntry 7 }
+X
+XacctFlowSourcePeerTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the source peer type for this flow."
+X    ::= { acctFlowEntry 8 }
+X
+XacctFlowSourcePeerAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the peer device for the source of this flow."
+X    ::= { acctFlowEntry 9 }
+X
+XacctFlowSourcePeerMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the source peer address for this flow."
+X    ::= { acctFlowEntry 10 }
+X
+XacctFlowSourceDetailType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Detail address type of the source for this flow."
+X    ::= { acctFlowEntry 11 }
+X
+XacctFlowSourceDetailTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the source detail type for this flow."
+X    ::= { acctFlowEntry 12 }
+X
+XacctFlowSourceDetailAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the detail device for the source of this flow."
+X    ::= { acctFlowEntry 13 }
+X
+XacctFlowSourceDetailMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the detail source address for this flow."
+X    ::= { acctFlowEntry 14 }
+X
+XacctFlowSourceSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Subscriber ID associated with the source address for this flow."
+X    ::= { acctFlowEntry 15 }
+X
+XacctFlowSourceSubscriberMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the source Subsccriber ID for this flow."
+X    ::= { acctFlowEntry 16 }
+X
+XacctFlowDestInterface OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index of the interface associated with the dest address for
+X	this flow.  This value is one of the values contained in the
+X	ifIndex field of the interfaces table."
+X    ::= { acctFlowEntry 17 }
+X
+XacctFlowDestAdjacentType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Adjacent address type of the destination for this flow."
+X    ::= { acctFlowEntry 18 }
+X
+XacctFlowDestAdjacentAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the adjacent device on the path for the destination
+X	for this flow."
+X    ::= { acctFlowEntry 19 }
+X
+XacctFlowDestAdjacentMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the adjacent dest address for this flow."
+X    ::= { acctFlowEntry 20 }
+X
+XacctFlowDestPeerType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Peer address type of the destination for this flow."
+X    ::= { acctFlowEntry 21 }
+X
+XacctFlowDestPeerTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the dest peer address for this flow."
+X    ::= { acctFlowEntry 22 }
+X
+XacctFlowDestPeerAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the peer device for the destination of this flow."
+X    ::= { acctFlowEntry 23 }
+X
+XacctFlowDestPeerMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the dest peer type for this flow."
+X    ::= { acctFlowEntry 24 }
+X
+XacctFlowDestDetailType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Detail address type for the destination of this flow."
+X    ::= { acctFlowEntry 25 }
+X
+XacctFlowDestDetailTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the dest detail type for this flow."
+X    ::= { acctFlowEntry 26 }
+X
+XacctFlowDestDetailAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Address of the detail device for the destination of this flow."
+X    ::= { acctFlowEntry 27 }
+X
+XacctFlowDestDetailMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the detail destination address for this flow."
+X    ::= { acctFlowEntry 28 }
+X
+XacctFlowDestSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Subscriber ID associated with the dest address for this flow."
+X    ::= { acctFlowEntry 29 }
+X
+XacctFlowDestSubscriberMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"1-bits in this mask indicate which bits must match when
+X	comparing the dest Subsccriber ID for this flow."
+X    ::= { acctFlowEntry 30 }
+X
+XacctFlowSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Subscriber ID for this flow, not associated with flow direction."
+X    ::= { acctFlowEntry 31 }
+X
+XacctFlowSessionID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Session ID for this flow.  Such an ID might be allocated by a
+X	network access server to distinguish a series of sessions between
+X	the same pair of addresses, which would otherwise appear to be
+X	parts of the same accounting flow"
+X    ::= { acctFlowEntry 32 }
+X
+XacctFlowPDUScale OBJECT-TYPE
+X    SYNTAX  INTEGER (1..127)
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The scale factor applied to this particular flow.  Indicates
+X	the number of bits the PDU counter values should be moved left
+X	to obtain the actual values."
+X    ::= { acctFlowEntry 33 }
+X
+XacctFlowOctetScale OBJECT-TYPE
+X    SYNTAX  INTEGER (1..127)
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The scale factor applied to this particular flow.  Indicates
+X	the number of bits the octet counter values should be moved left
+X	to obtain the actual values."
+X    ::= { acctFlowEntry 34 }
+X
+XacctFlowRuleSet OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The rule set which created this flow."
+X    ::= { acctFlowEntry 35 }
+X
+XacctFlowType OBJECT-TYPE
+X    SYNTAX  INTEGER { count(1), tally(2), aggregate(3) }
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Type of flow.  Details are given for acctRuleAction (below)."
+X    ::= { acctFlowEntry 36 }
+X
+XacctFlowToOctets OBJECT-TYPE
+X    SYNTAX  Counter
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The count of octets flowing from source to dest address and
+X	being delivered to the protocol level being metered.  In the
+X	case of IP this would count the number of octets delivered to
+X	the IP level."
+X    ::= { acctFlowEntry 37 }
+X
+XacctFlowToPDUs OBJECT-TYPE
+X    SYNTAX  Counter
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The count of protocol packets flowing from source to dest
+X	address and being delivered to the protocol level being metered.
+X	In the case of IP, for example, this would count the IP packets
+X	delivered to the IP protocol level."
+X    ::= { acctFlowEntry 38 }
+X
+XacctFlowFromOctets OBJECT-TYPE
+X    SYNTAX  Counter
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The count of octets flowing from dest to source address and
+X	being delivered to the protocol level being metered."
+X    ::= { acctFlowEntry 39 }
+X
+XacctFlowFromPDUs OBJECT-TYPE
+X    SYNTAX  Counter
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The count of protocol packets flowing from dest to source
+X	address and being delivered to the protocol level being metered.
+X	In the case of IP, for example, this would count the IP packets
+X	delivered to the IP protocol level."
+X    ::= { acctFlowEntry 40 }
+X
+XacctFlowFirstTime OBJECT-TYPE
+X    SYNTAX  Timeticks
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The time at which this flow was first entered in the table"
+X    ::= { acctFlowEntry 41 }
+X
+XacctFlowLastTime OBJECT-TYPE
+X    SYNTAX  Timeticks
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The last time this flow had activity, i.e. the time of arrival
+X	of the last PDU belonging to this flow."
+X    ::= { acctFlowEntry 42 }
+X
+X
+X--
+X-- The Creation Table
+X--
+X
+XacctCreationTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctCreationEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Window into the Flow Table.  Allows a collector to find all
+X	flows wich were created after a given time."
+X    ::= { flowdata 2 }
+X
+XacctCreationEntry OBJECT-TYPE
+X    SYNTAX  AcctCreationEntry
+X    ACCESS  not-accessible
+X    STATUS   mandatory
+X    DESCRIPTION
+X	"The Creation Entry for a particular flow."
+X    INDEX { acctCreationTime, acctCreationIndex }
+X    ::= { acctCreationTable 1 }
+X
+XAcctCreationEntry ::= SEQUENCE {
+X    acctCreationTime		 TimeTicks,
+X    acctCreationIndex		 INTEGER
+X    }
+XacctCreationTime OBJECT-TYPE
+X    SYNTAX  TimeTicks
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Earliest time after which a required flow could
+X	have been created."
+X    ::= { acctCreationEntry 1 }
+X
+XacctCreationIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index of next entry in flow table created after Creation Time."
+X    ::= { acctCreationEntry 2 }
+X
+X
+X--
+X-- The Activity Table
+X--
+X
+XacctActivityTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctActivityEntry
+X    ACCESS  not-accessible
+X    STATUS   mandatory
+X    DESCRIPTION
+X	"Window into the Flow Table.  Allows a collector to find all
+X	flows wich were last used after a given time."
+X    ::= { flowdata 3 }
+X
+XacctActivityEntry OBJECT-TYPE
+X    SYNTAX  AcctActivityEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	    "The Activity Entry for a particular flow."
+X    INDEX { acctActivityTime, acctActivityIndex }
+X    ::= { acctActivityTable 1 }
+X
+XAcctActivityEntry ::= SEQUENCE {
+X    acctActivitytTime	 	TimeTicks,
+X    acctActivityIndex		INTEGER
+X    }
+XacctActivityTime OBJECT-TYPE
+X    SYNTAX  TimeTicks
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Earliest time after which a required flow could have
+X	been active."
+X    ::= { acctActivityEntry 1 }
+X
+XacctActivityIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index of next entry in flow table active after Active Time."
+X    ::= { acctActivityEntry 2 }
+X
+X
+X--
+X-- The Activity Column Table
+X--
+X
+XacctActivityColumnTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctColumnEntry
+X    ACCESS  not-accessible
+X    STATUS   mandatory
+X    DESCRIPTION
+X	"Window into the Flow Table.  Allows a collector to find all
+X	flows wich were last used after a given time, and to retrieve
+X	data values for a specified attribute of each active flow."
+X    ::= { flowdata 4 }
+X
+XacctColumnEntry OBJECT-TYPE
+X    SYNTAX  AcctColumnEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	    "The Activity Column Entry for a particular flow."
+X    INDEX { acctColumnAttribute, acctColumnTime, acctColumnIndex }
+X    ::= { acctActivityColumnTable 1 }
+X
+XAcctColumnEntry ::= SEQUENCE {
+X    acctColumnAttribute		INTEGER,
+X    acctColumntTime	 	TimeTicks,
+X    acctColumnIndex		INTEGER,
+X    acctColumnData		OPAQUE
+X    }
+XacctColumnAttribute OBJECT-TYPE
+X    SYNTAX  INTEGER { Null(0),
+X	FlowIndex(1),FlowStatus(2),
+X
+X	FlowSourceInterface(3),	-- Source Address Tuple
+X	FlowSourceAdjacentType(4),
+X	FlowSourceAdjacentAddress(5),FlowSourceAdjacentMask(6),
+X	FlowSourcePeerType(7),FlowSourcePeerTypeMask(8),
+X	FlowSourcePeerAddress(9),FlowSourcePeerMask(10),
+X	FlowSourceDetailType(11),FlowSourceDetailTypeMask(12),
+X	FlowSourceDetailAddress(13),FlowSourceDetailMask(14),
+X	FlowSourceSubscriberID(15),FlowSourceSubscriberMask(16),
+X
+X	FlowDestInterface(17),	-- Dest Address Tuple
+X	FlowDestAdjacentType(18),
+X	FlowDestAdjacentAddress(19),FlowDestAdjacentMask(20),
+X	FlowDestPeerType(21),FlowDestPeerTypeMask(22),
+X	FlowDestPeerAddress(23),FlowDestPeerMask(24),
+X	FlowDestDetailType(25),FlowDestDetailTypeMask(26),
+X	FlowDestDetailAddress(27),FlowDestDetailMask(28),
+X	FlowDestSubscriberID(29),FlowDestSubscriberMask(30),
+X
+X	FlowSubscriberID(31),	-- Session attributes
+X	FlowSessionID(32),
+X
+X	FlowPDUScale(33),	-- Rule Set attributes
+X	FlowOctetScale(34),
+X	FlowRuleSet(35),
+X	FlowType(36),
+X
+X	FlowToOctets(37),	-- Source-to-Dest counters
+X	FlowToPDUs(38),
+X	FlowFromOctets(39),	-- Dest-to-Source counters
+X	FlowFromPDUs(40),
+X
+X	FlowFirstTime(41),	-- Activity times
+X	FlowLastTime(42)
+X	}
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Attribute for which values are required from active flows."
+X    ::= { acctColumnEntry 1 }
+X
+XacctColumnTime OBJECT-TYPE
+X    SYNTAX  TimeTicks
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Earliest time after which a required flow could have
+X	been active."
+X    ::= { acctColumnEntry 2 }
+X
+XacctColumnIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Index of next entry in flow table active after acctColumnTime."
+X    ::= { acctColumnEntry 3 }
+X
+XacctColumnFlowData OBJECT-TYPE
+X    SYNTAX  OPAQUE
+X    ACCESS  read-only
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Collection of attribute data for flows active after
+X	acctColumnTime.  Within the opaque object is a sequence of
+X	{ flow -1, attribute value } pairs, one for each active flow.
+X	The end of the sequence is marked by a flow -1 value of 0
+X	if there are no more rows in this column, and 1 otherwise."
+X    ::= { acctColumnEntry 4 }
+X
+X
+X--
+X-- The Rule Table
+X--
+X
+X-- This is an array of rule tables; the one in use is selected by
+X-- CurrentRuleSet.  To change the rule set the manager chooses a set
+X-- number which is not in use, downloads the new rule set there, then
+X-- writes the new set number into CurrentRuleSet.  Several rule sets can
+X-- be held in a meter so that the manager can change thr rules easily,
+X-- for example with time of day.  Note that the manager may not change
+X-- rules in the current rule set!
+X
+XacctRuleTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctRuleEntry
+X    ACCESS  not-accessible
+X    STATUS   mandatory
+X    DESCRIPTION
+X	    "The list of rules used to determine the
+X	granularity of accounting data."
+X    ::= { ruledata 1 }
+X
+XacctRuleEntry OBJECT-TYPE
+X    SYNTAX  AcctRuleEntry
+X    ACCESS  not-accessible
+X    STATUS   mandatory
+X    DESCRIPTION
+X	    "The rule record itself."
+X    INDEX { acctRuleSet, acctRuleIndex }
+X    ::= { acctRuleTable 1 }
+X
+XAcctRuleEntry ::= SEQUENCE {
+X    acctRuleSet			 INTEGER,
+X    acctRuleIndex		 INTEGER,
+X    acctRuleSelector		 INTEGER,	 -- what to select on
+X    acctRuleMask		 OCTET STRING,	 -- mask value
+X    acctRuleMatchedValue	 OCTET STRING,	 -- matched value
+X    acctRuleAction 		 INTEGER,	 -- action to take
+X    acctRuleJumpIndex		 INTEGER	 -- where to go
+X    }
+X
+XacctRuleSet OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Selects a table from the array of rule tables."
+X    ::= { acctRuleEntry 1 }
+X
+XacctRuleIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The index into the Rule table.  N.B: These values will
+X	often be consecutive, given the fall-through semantics of
+X	processing the table."
+X    ::= { acctRuleEntry 2 }
+X
+XacctRuleSelector OBJECT-TYPE
+X    SYNTAX  INTEGER { Null(0),
+X--	FlowIndex(1),FlowStatus(2),
+X
+X	FlowSourceInterface(3),
+X	FlowSourceAdjacentType(4),FlowSourceAdjacentAddress(5),
+X--	FlowSourceAdjacentMask(6),
+X	FlowSourcePeerType(7),
+X--	FlowSourcePeerTypeMask(8),
+X	FlowSourcePeerAddress(9),
+X--	FlowSourcePeerMask(10),
+X	FlowSourceDetailType(11),
+X--	FlowSourceDetailTypeMask(12),
+X	FlowSourceDetailAddress(13),
+X--	FlowSourceDetailMask(14),
+X	FlowSourceSubscriberID(15),
+X--	FlowSourceSubscriberMask(16),
+X
+X	FlowDestInterface(17),
+X	FlowDestAdjacentType(18),FlowDestAdjacentAddress(19),
+X--	FlowDestAdjacentMask(20),
+X	FlowDestPeerType(21),
+X--	FlowDestPeerTypeMask(22),
+X	FlowDestPeerAddress(23),
+X--	FlowDestPeerMask(24),
+X	FlowDestDetailType(25),
+X--	FlowDestDetailTypeMask(26),
+X	FlowDestDetailAddress(27),
+X--	FlowDestDetailMask(28),
+X	FlowDestSubscriberID(29),
+X--	FlowDestSubscriberMask(30),
+X
+X	FlowSubscriberID(31),FlowSessionID(32),
+X	}
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Defines the source of the value to match.  Null(0) is a
+X	special case; it always succeeds."
+X    ::= { acctRuleEntry 3 }
+X
+XacctRuleMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The initial mask used to compute the desired value, encoded
+X	as an OCTET STRING."
+X    ::= { acctRuleEntry 4 }
+X
+XacctRuleMatchedValue OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The resulting value to be matched for equality.
+X	Specifically, if the attribute chosen by the acctRuleSelector
+X	logically ANDed with the mask specified by the acctRuleMask
+X	equals the value specified in the acctRuleMatchedValue, then
+X	continue processing the table entry based on the action
+X	specified by the acctRuleAction entry.  Otherwise, proceed to
+X	the next entry in the rule table."
+X    ::= { acctRuleEntry 5 }
+X
+XacctRuleAction OBJECT-TYPE
+X    SYNTAX  INTEGER { count(1), tally(2), aggregate(3),
+X	succeed(4), fail(5),
+X	pushto(6), popto(7),
+X	goto(8) }
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The action to be taken if there is a match between this rule
+X	and the PDU being considered.  The meter maintains a stack of
+X	indexes of rules which have been successfully matched, which
+X	provides information needed for counting and tallying.
+X
+X	Count(1) counts in a flowEntry which takes values from the PDU
+X	    and masks from the matched rules.  There is no ActionEntry
+X	    associated with a count flow.
+X	Tally(2) counts in a flowEntry which takes values from the PDU
+X	    and masks from acctAction[acctRuleJumpIndex].  Fields are
+X	    only tallied if the masks in their ActionEntry are non-zero.
+X	    Values for fields not being tallied are taken from the
+X	    ActionEntry.
+X	Aggregate(3) counts in a flowEntry which takes all its values
+X	    from acctAction[acctRuleJumpIndex].  An aggregate flow
+X	    makes no reference to the matched rules, and many rules
+X	    may count in the same aggregate flow.
+X
+X	Succeed(4) terminates rule matching and indicates that the PDU
+X	    was successfuly matched.  It will not be counted, and the
+X	    meter will not try to match it again.
+X	Fail(5) terminates rule matching and indicates that the PDU
+X	    was not matched.  The meter may try to match it again, for
+X	    example with the source and dest keys interchanged.
+X
+X	Pushto(6) tells the meter to use RuleJumpIndex as the index of
+X	    the next rule to match.  It also saves the current rule
+X	    -1 in the stack.
+X	Popto(7) tells the meter to use RuleJumpIndex as the index of
+X	    the next rule to match.  It also deletes the top entry
+X	    from the stack.
+X
+X	Goto(8) tells the meter to use RuleJumpIndex as the index of
+X	    the next rule to match.  The stack is not changed."
+X    ::= { acctRuleEntry 6 }
+X
+XacctRuleJumpIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"An index into the Rule table.  Where to restart the search.
+X	Must take on one of the values allowed for acctRuleIndex."
+X    ::= { acctRuleEntry 7 }
+X
+X
+X--
+X-- The Action Table
+X--
+X
+XacctActionTable OBJECT-TYPE
+X    SYNTAX  SEQUENCE OF AcctActionEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The list of values used to create flowEntries for flows
+X	matching entries in the rule table (above)."
+X    ::= { actiondata 1 }
+X
+XacctActionEntry OBJECT-TYPE
+X    SYNTAX  AcctActionEntry
+X    ACCESS  not-accessible
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The rule action record."
+X    INDEX { acctActionSet, acctActionIndex }
+X    ::= { acctActionTable 1 }
+X
+XAcctActionEntry ::= SEQUENCE {
+X    acctActionIndex		      INTEGER,
+X    acctActionStatus 		      INTEGER,
+X
+X    acctActionSourceInterface	      INTEGER,	      -- Source AddressTuple
+X    acctActionSourceAdjacentType      AddressType,
+X    acctActionSourceAdjacentAddress   OCTET STRING,
+X    acctActionSourceAdjacentMask      OCTET STRING,
+X    acctActionSourcePeerType	      AddressType,
+X    acctActionSourcePeerTypeMask      AddressType,
+X    acctActionSourcePeerAddress	      OCTET STRING,
+X    acctActionSourcePeerMask	      OCTET STRING,
+X    acctActionSourceDetailType        AddressType,
+X    acctActionSourceDetailTypeMask    AddressType,
+X    acctActionSourceDetailAddress     OCTET STRING,
+X    acctActionSourceDetailMask	      OCTET STRING,
+X    acctActionSourceSubscriberID      OCTET STRING,
+X    acctActionSourceSubscriberMask    OCTET STRING,
+X
+X    acctActionDestInterface	      INTEGER,	      -- Dest AddressTuple
+X    acctActionDestAdjacentType	      AddressType,
+X    acctActionDestAdjacentAddress     OCTET STRING,
+X    acctActionDestAdjacentMask	      OCTET STRING,
+X    acctActionDestPeerType	      AddressType,
+X    acctActionDestPeerTypeMask	      AddressType,
+X    acctActionDestPeerAddress	      OCTET STRING,
+X    acctActionDestPeerMask	      OCTET STRING,
+X    acctActionDestDetailType	      AddressType,
+X    acctActionDestDetailTypeMask      AddressType,
+X    acctActionDestDetailAddress       OCTET STRING,
+X    acctActionSoDestDetailMask	      OCTET STRING,
+X    acctActionDestSubscriberID	      OCTET STRING,
+X    acctActionDestSubscriberMask      OCTET STRING,
+X
+X    acctActionSubscriberID	      OCTET STRING,   -- Session attributes
+X    acctActionSessionID		      INTEGER,
+X
+X    acctActionPDUScale		      INTEGER,	      -- Rule Set attributes
+X    acctActionOctetScale	      INTEGER
+X    acctActionSet		      INTEGER,
+X    }
+X
+X-- Most of the variables in acctActionEntry provide values for the
+X-- corresponding variables in acctFlowEntry.  For their descriptions
+X-- please refer to their definitions in acctFlowEntry.
+X
+XacctActionIndex OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"The index into the Action table."
+X    ::= { acctActionEntry 1 }
+X
+XacctActionStatus OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 2 }
+X
+XacctActionSourceInterface OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 3 }
+X
+XacctActionSourceAdjacentType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 4 }
+X
+XacctActionSourceAdjacentAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 5 }
+X
+XacctActionSourceAdjacentMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 6 }
+X
+XacctActionSourcePeerType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 7 }
+X
+XacctActionSourcePeerTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 8 }
+X
+XacctActionSourcePeerAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 9 }
+X
+XacctActionSourcePeerMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 10 }
+X
+XacctActionSourceDetailType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 11 }
+X
+XacctActionSourceDetailTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 12 }
+X
+XacctActionSourceDetailAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 13 }
+X
+XacctActionSourceDetailMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 14 }
+X
+XacctActionSourceSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 15 }
+X
+XacctActionSourceSubscriberMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 16 }
+X
+XacctActionDestInterface OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 17 }
+X
+XacctActionDestAdjacentType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 18 }
+X
+XacctActionDestAdjacentAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 19 }
+X
+XacctActionDestAdjacentMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 20 }
+X
+XacctActionDestPeerType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 21 }
+X
+XacctActionDestPeerTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 22 }
+X
+XacctActionDestPeerAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 23 }
+X
+XacctActionDestPeerMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 24 }
+X
+XacctActionDestDetailType OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 25 }
+X
+XacctActionDestDetailTypeMask OBJECT-TYPE
+X    SYNTAX  AddressType
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 26 }
+X
+XacctActionDestDetailAddress OBJECT-TYPE
+X    SYNTAX  OCTET STRING -- actually NetworkAddress
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 27 }
+X
+XacctActionDestDetailMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 28 }
+X
+XacctActionDestSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 29 }
+X
+XacctActionDestSubscriberMask OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 30 }
+X
+XacctActionSubscriberID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 31 }
+X
+XacctActionSessionID OBJECT-TYPE
+X    SYNTAX  OCTET STRING
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 32 }
+X
+XacctActionPDUScale OBJECT-TYPE
+X    SYNTAX  INTEGER (1..127)
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 33 }
+X
+XacctActionOctetScale OBJECT-TYPE
+X    SYNTAX  INTEGER (1..127)
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION ""
+X    ::= { acctActionEntry 34 }
+X
+XacctActionSet OBJECT-TYPE
+X    SYNTAX  INTEGER
+X    ACCESS  read-write
+X    STATUS  mandatory
+X    DESCRIPTION
+X	"Selects a table from the array of action tables."
+X    ::= { acctActionEntry 35 }
+X
+X
+X--
+X-- Internet Accounting Traps
+X--
+X
+XdeclareHighWater TRAP-TYPE
+X    ENTERPRISE { internet-accounting }
+X    VARIABLES { highWaterMark }
+X    DESCRIPTION
+X	"Sent by the meter to the management host to
+X	indicate that the high water mark has been exceeded.
+X	This should be interpreted by the management host as a
+X	request to increase the polling frequency.  N.B: this
+X	trap is optional.  Meters are not required to implement
+X	this trap; management hosts are not required to
+X	increase their polling frequency."
+X    ::= 1
+X
+XdeclareDataLoss TRAP-TYPE
+X    ENTERPRISE { internet-accounting }
+X    DESCRIPTION
+X	"Sent by the meter to the management host to
+X	indicate that usage data is being lost."
+X    ::= 2
+X
+XdeclareFlood TRAP-TYPE
+X    ENTERPRISE { internet-accounting }
+X    DESCRIPTION
+X	"This trap contains, as part of the trap body, Internet
+X	Accounting flow records.  The assumption here is that
+X	these flow records will be send as Opaque values, allowing
+X	an escape to more detailed ASN.1 types."
+X    ::= 3
+X
+XEND
+END_OF_FILE
+  if test 46845 -ne `wc -c <'netramet/mib/mib.IAWG.txt'`; then
+    echo shar: \"'netramet/mib/mib.IAWG.txt'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/mib/mib.IAWG.txt'
+fi
+if test -f 'netramet/src/apps/snmpd.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/apps/snmpd.c'\"
+else
+  echo shar: Extracting \"'netramet/src/apps/snmpd.c'\" \(3756 characters\)
+  sed "s/^X//" >'netramet/src/apps/snmpd.c' <<'END_OF_FILE'
+X/*
+X * snmpd.c - send snmp GET requests to a network entity.
+X *
+X */
+X/***********************************************************
+X	Copyright 1988, 1989 by Carnegie Mellon University
+X
+X                      All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the name of CMU not be
+Xused in advertising or publicity pertaining to distribution of the
+Xsoftware without specific, written prior permission.  
+X
+XCMU DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XCMU BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X******************************************************************/
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <stdio.h>
+X#include <sys/socket.h>
+X#include <errno.h>
+X
+X#include "ausnmp.h"
+X#include "snmp.h"
+X#include "snmpimpl.h"
+X#include "asn1.h"
+X
+Xextern int  errno;
+Xint	snmp_dump_packet = 0;
+X
+Xmain(argc, argv)
+X    int	    argc;
+X    char    *argv[];
+X{
+X    int	arg;
+X    int sd;
+X    struct sockaddr_in	me;
+X
+X
+X    /*
+X     * usage: snmpd
+X     */
+X    for(arg = 1; arg < argc; arg++){
+X	if (argv[arg][0] == '-'){
+X	    switch(argv[arg][1]){
+X		case 'd':
+X		    snmp_dump_packet++;
+X		    break;
+X		default:
+X		    printf("invalid option: -%c\n", argv[arg][1]);
+X		    break;
+X	    }
+X	    continue;
+X	}
+X    }
+X    /* Set up connections */
+X    sd = socket(AF_INET, SOCK_DGRAM, 0);
+X    if (sd < 0){
+X	perror("socket");
+X	return 0;
+X    }
+X    me.sin_family = AF_INET;
+X    me.sin_addr.s_addr = INADDR_ANY;
+X    me.sin_port = htons(SNMP_PORT);
+X    if (bind(sd, (struct sockaddr *)&me, sizeof(me)) != 0){
+X	perror("bind");
+X	return 0;
+X    }
+X    init_snmp();
+X    receive(sd);
+X}
+X
+Xreceive(sd)
+X    int sd;
+X{
+X    int numfds;
+X    fd_set fdset;
+X    int count;
+X
+X    while(1){
+X	numfds = 0;
+X	FD_ZERO(&fdset);
+X	numfds = sd + 1;
+X	FD_SET(sd, &fdset);
+X	count = select(numfds, &fdset, 0, 0, 0);
+X	if (count > 0){
+X	    if(FD_ISSET(sd, &fdset))
+X		snmp_read(sd);
+X	} else switch(count){
+X	    case 0:
+X		break;
+X	    case -1:
+X		if (errno == EINTR){
+X		    continue;
+X		} else {
+X		    perror("select");
+X		}
+X		return -1;
+X	    default:
+X		printf("select returned %d\n", count);
+X		return -1;
+X	}
+X    }
+X}
+X
+Xsnmp_read(sd)
+X    int sd;
+X{
+X    struct sockaddr_in	from;
+X    int length, out_length, fromlength;
+X    u_char  packet[1500], outpacket[1500];
+X    fromlength = sizeof from;
+X    length = recvfrom(sd, packet, 1500, 0, (struct sockaddr *)&from, &fromlength);
+X    if (length == -1)
+X	perror("recvfrom");
+X    if (snmp_dump_packet){
+X	int count;
+X
+X	printf("recieved %d bytes from %s:\n", length, inet_ntoa(from.sin_addr));
+X	for(count = 0; count < length; count++){
+X	    printf("%02X ", packet[count]);
+X	    if ((count % 16) == 15)
+X		printf("\n");
+X	}
+X	printf("\n\n");
+X    }
+X    out_length = 1500;
+X    if (snmp_agent_parse(packet, length, outpacket, &out_length, from.sin_addr)){
+X	if (snmp_dump_packet){
+X	    int count;
+X
+X	    printf("sent %d bytes to %s:\n", out_length, inet_ntoa(from.sin_addr));
+X	    for(count = 0; count < out_length; count++){
+X		printf("%02X ", outpacket[count]);
+X		if ((count % 16) == 15)
+X		    printf("\n");
+X	    }
+X	    printf("\n\n");
+X	}
+X	if (sendto(sd, (char *)outpacket, out_length, 0, (struct sockaddr *)&from,
+X	    sizeof(from)) < 0){
+X		perror("sendto");
+X		return 0;
+X	}
+X
+X    }
+X    
+X}
+X
+END_OF_FILE
+  if test 3756 -ne `wc -c <'netramet/src/apps/snmpd.c'`; then
+    echo shar: \"'netramet/src/apps/snmpd.c'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/apps/snmpd.c'
+fi
+if test -f 'netramet/src/meter/include/flowhash.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'netramet/src/meter/include/flowhash.h'\"
+else
+  echo shar: Extracting \"'netramet/src/meter/include/flowhash.h'\" \(11145 characters\)
+  sed "s/^X//" >'netramet/src/meter/include/flowhash.h' <<'END_OF_FILE'
+X/* 1310, Tue 5 Oct 93
+X
+X   FLOWHASH.H:  Data structures for AU Meter
+X
+X   Copyright (C) 1992,1993 by Nevil Brownlee,
+X   Computer Centre,  University of Auckland */
+X
+X#ifndef EXTFLOW
+X#define EXTFLOW  extern
+X#define DECLARE  0
+X#define INIT(v)
+X#else
+X#define EXTFLOW
+X#define DECLARE  1
+X#define INIT(v)  = v
+X#endif
+X
+X#define DFMXFLOWS 4000  /* Default max nbr of traffic flows */
+X
+X#define MXCLCTRS    10  /* Max nbr of active Collectors */
+X#define MXNRTBLS    10  /* Max nbr of rule+action tables */
+X
+X#define RSTKSIZ     20  /* Max depth of rule matches */
+X#define HASHMOD    256  /* Size of flow hash tables */
+X#define MNCGRPSZ     5  /* Min nbr of rules in a compare group */
+X#define INITHSZ   1500  /* Initial rule_hash size (ints) */
+X#define FLOWBLOBSZ  55  /* Nbr of {index, info} pairs in a column blob */
+X
+Xstruct hash_tbl {
+X   struct flow far *hash_ent[HASHMOD];
+X   };
+X   
+X#define AT_IGNORE     0  /* Addr_type values */
+X#define AT_DUMMY      1
+X
+X#define AT_IP         2
+X#define AT_NOVELL     6
+X#define AT_DECNET     5
+X#define AT_ETHERTALK  7
+X
+X#define PT_ICMP       1  /* IP protocol types */
+X#define PT_TCP        6
+X#define PT_UDP       17
+X
+X#define MAC_ADDR_LEN     6  /* Ethernet */
+X#define PEER_ADDR_LEN    4  /* IP, IPX, Decnet, EtherTalk */
+X#define DETAIL_ADDR_LEN  2  /* TCP/UDP port, .. */
+X
+X#define RULE_ADDR_LEN    6  /* Max of above three */
+X
+Xstruct key {
+X   unsigned char AdjAddress[MAC_ADDR_LEN], AdjMask[MAC_ADDR_LEN];
+X   unsigned char PeerAddress[PEER_ADDR_LEN], PeerMask[PEER_ADDR_LEN];
+X   unsigned char DetailAddress[DETAIL_ADDR_LEN], DetailMask[DETAIL_ADDR_LEN];
+X   };
+X
+Xstruct flow {
+X   union {  /* Must be first to line up with hash_tbl entries */
+X      struct flow far *action;  /* For aggregates and tallies */
+X      struct rule far *count;  /* For counts */
+X      struct hash_tbl far *hash;  /* For tally action entries */
+X      struct flow far *next;  /* For hash chains */
+X      } link;
+X   unsigned long UpOctets,UpPDUs, DownOctets,DownPDUs,
+X      FirstTime,LastTime;
+X   unsigned char FlowRuleSet, FlowType;
+X   unsigned char PeerAddrType, PeerTypeMask,
+X      DetailAddrType, DetailTypeMask;
+X   struct key Low, High;
+X   };
+X
+Xstruct flow_key {
+X   unsigned char PeerAddrType, PeerTypeMask,
+X      DetailAddrType, DetailTypeMask;
+X   struct key Low, High;
+X   };
+X
+X#define Key(fp)  &fp->PeerAddrType
+X
+X#define FT_RULE       0  /* Flow types */
+X#define FT_COUNT      1
+X#define FT_TALLY      2
+X#define FT_AGGREGATE  3
+X
+XEXTFLOW unsigned int nflows,  /* Nbr of flows in use */
+X   mxflowsp1;  /* Max nbr of flows + 1 */
+XEXTFLOW struct flow far **flow_ix;  /* The flow table */
+X   /* Flow 1 is a dummy for the Create and Active tables */
+X   
+XEXTFLOW unsigned int empty_ix;  /* Last flow number used by number_flow */
+X
+XEXTFLOW unsigned int gcf_ix;  /* Next possible flow for garbage collector */
+X
+XEXTFLOW unsigned char  /* Parameters for garbage collector */
+X   gc_interval INIT(5),  /* Seconds between calls */
+X   gc_f INIT(4),  /* Non-zero (in-use) flow indexes */
+X   gc_e INIT(16);  /* Zero (unused) flow indexes */
+XEXTFLOW unsigned long GarbageCollectTime,
+X   /* OK to recover flows with LastTime greater than this */
+X   FlowsRecovered INIT(0);
+X
+Xstruct rule {
+X   unsigned char RuleSelector;  /* Rule's MIB variables */
+X   unsigned char RuleMask[RULE_ADDR_LEN];
+X   unsigned char RuleMatchedValue[RULE_ADDR_LEN];
+X   unsigned char RuleAction;
+X   unsigned int  RuleJumpIndex;
+X
+X   unsigned int  hash_tbl_index;  /* 0 => simple compare */
+X   unsigned int  hash_link;
+X   };
+X
+XEXTFLOW struct flow far *null_flow;  /* All fields zeroed */
+X
+XEXTFLOW struct rule far *rule_table[MXNRTBLS];
+XEXTFLOW unsigned int rt_size[MXNRTBLS];
+XEXTFLOW struct rule far *c_rt;  /* Current Rule Table */
+XEXTFLOW int c_rsz;  /* Nbr of rules in current rule table */
+X
+Xstruct rule_hash_tbl {
+X   unsigned int group_last;  /* Nbr of last rule in group */
+X   unsigned int hash_mask;  /* Group hash table size - 1 */
+X   int hash_ent[1];
+X   };
+X
+XEXTFLOW int far *rule_hash;
+XEXTFLOW unsigned int rh_size;
+X
+XEXTFLOW struct flow far *action_table[MXNRTBLS];
+XEXTFLOW unsigned int at_size[MXNRTBLS];
+XEXTFLOW struct flow far *c_at;  /* Current Action Table */
+XEXTFLOW int c_asz;  /* Nbr of actions in current action table */
+X
+X#define RA_COUNT      1  /* RuleAction values */
+X#define RA_TALLY      2
+X#define RA_AGGREGATE  3
+X#define RA_SUCCEED    4
+X#define RA_FAIL	      5
+X#define RA_PUSHTO     6
+X#define RA_POPTO      7
+X#define RA_GOTO       8
+X
+X#define RS_NULL                 0  /* Rule Selector dummy value */
+X
+X#define FTFLOWINDEX		1  /* Flow table attribute values */
+X#define FTFLOWSTATUS		2
+X
+X#define FTLOWINTERFACE          3
+X#define FTLOWADJACENTTYPE       4
+X#define FTLOWADJACENTADDRESS    5
+X#define FTLOWADJACENTMASK       6
+X#define FTLOWPEERTYPE		7
+X#define FTLOWPEERTYPEMASK	8
+X#define FTLOWPEERADDRESS	9
+X#define FTLOWPEERMASK	       10
+X#define FTLOWDETAILTYPE        11
+X#define FTLOWDETAILTYPEMASK    12
+X#define FTLOWDETAILADDRESS     13
+X#define FTLOWDETAILMASK        14
+X#define FTLOWSUBSCRIBERID      15
+X#define FTLOWSUBSCRIBERMASK    16
+X#define FTHIINTERFACE          17
+X#define FTHIADJACENTTYPE       18
+X#define FTHIADJACENTADDRESS    19
+X#define FTHIADJACENTMASK       20
+X#define FTHIPEERTYPE	       21
+X#define FTHIPEERTYPEMASK       22
+X#define FTHIPEERADDRESS	       23
+X#define FTHIPEERMASK	       24
+X#define FTHIDETAILTYPE         25
+X#define FTHIDETAILTYPEMASK     26
+X#define FTHIDETAILADDRESS      27
+X#define FTHIDETAILMASK         28
+X#define FTHISUBSCRIBERID       29
+X#define FTHISUBSCRIBERMASK     30
+X
+X#define FTSUBSCRIBERID         31
+X#define FTSUBSCRIBERMASK       32
+X
+X#define FTPDUSCALE             33
+X#define FTOCTETSCALE           34
+X#define FTRULESET              35
+X#define FTFLOWTYPE             36
+X
+X#define FTUPOCTETS	       37
+X#define FTUPPDUS	       38
+X#define FTDOWNOCTETS	       39
+X#define FTDOWNPDUS	       40
+X
+X#define FTFIRSTTIME	       41
+X#define FTLASTTIME	       42
+X
+Xstruct attrib_info {
+X   char *name;
+X   unsigned char index;
+X   unsigned char len;
+X   };
+X
+XEXTFLOW struct attrib_info attribs[1+FTLASTTIME]
+X   /* Serial search -> longest names first! */
+X#if DECLARE
+X   = {
+X      "null",                   0,                     0,
+X      "flowindex",              FTFLOWINDEX,           2,
+X      "flowstatus",             FTFLOWSTATUS,          1,
+X      "sourceinterface",        FTLOWINTERFACE,        1,
+X      "sourceadjacenttype",     FTLOWADJACENTTYPE,     1,
+X      "sourceadjacentaddress",  FTLOWADJACENTADDRESS,  MAC_ADDR_LEN,
+X      "sourceadjacentmask",     FTLOWADJACENTMASK,     MAC_ADDR_LEN,
+X      "sourcepeertypemask",     FTLOWPEERTYPEMASK,     1,
+X      "sourcepeertype",         FTLOWPEERTYPE,         1,
+X      "sourcepeeraddress",      FTLOWPEERADDRESS,      PEER_ADDR_LEN,
+X      "sourcepeermask",         FTLOWPEERMASK,         PEER_ADDR_LEN,
+X      "sourcedetailtypemask",   FTLOWDETAILTYPEMASK,   1,
+X      "sourcedetailtype",       FTLOWDETAILTYPE,       1,
+X      "sourcedetailaddress",    FTLOWDETAILADDRESS,    DETAIL_ADDR_LEN,
+X      "sourcedetailmask",       FTLOWDETAILMASK,       DETAIL_ADDR_LEN,
+X      "sourcesubscriberid",     FTLOWSUBSCRIBERID,     0,
+X      "sourcesubscribermask",   FTLOWSUBSCRIBERMASK,   0,
+X      "destinterface",          FTHIINTERFACE,         1,
+X      "destadjacenttype",       FTHIADJACENTTYPE,      1,
+X      "destadjacentaddress",    FTHIADJACENTADDRESS,   MAC_ADDR_LEN,
+X      "destadjacentmask",       FTHIADJACENTMASK,      MAC_ADDR_LEN,
+X      "destpeertypemask",       FTHIPEERTYPEMASK,      1,
+X      "destpeertype",           FTHIPEERTYPE,          1,
+X      "destpeeraddress",        FTHIPEERADDRESS,       PEER_ADDR_LEN,
+X      "destpeermask",           FTHIPEERMASK,          PEER_ADDR_LEN,
+X      "destdetailtypemask",     FTHIDETAILTYPEMASK,    1,
+X      "destdetailtype",         FTHIDETAILTYPE,        1,
+X      "destdetailaddress",      FTHIDETAILADDRESS,     DETAIL_ADDR_LEN,
+X      "destdetailmask",         FTHIDETAILMASK,        DETAIL_ADDR_LEN,
+X      "destsubscriberid",       FTHISUBSCRIBERID,      0,
+X      "destsubscribermask",     FTHISUBSCRIBERMASK,    0,
+X      "subscriberid",           FTSUBSCRIBERID,        0,
+X      "subscribermask",         FTSUBSCRIBERMASK,      0,
+X      "pduscale",               FTPDUSCALE,            0,
+X      "octetscale",             FTOCTETSCALE,          0,
+X      "flowruleset",            FTRULESET,             1,
+X      "flowtype",               FTFLOWTYPE,            1,
+X      "tooctets",               FTUPOCTETS,            4,
+X      "topdus",                 FTUPPDUS,              4,
+X      "fromoctets",             FTDOWNOCTETS,          4,
+X      "frompdus",               FTDOWNPDUS,            4,
+X      "firsttime",              FTFIRSTTIME,           4,
+X      "lasttime",               FTLASTTIME,            4
+X   }
+X#endif
+X   ;
+X
+X/* Global Variables */
+X
+XEXTFLOW unsigned char column_blob[(FLOWBLOBSZ+2)*(2+RULE_ADDR_LEN)];
+X
+X#ifdef AU_MSDOS  /* PC ntoh routines swap the byte order */
+X#define netshort(x)  x
+X#define netlong(x)   x
+X#else            /* SunOS ntoh routines don't */
+X#define netshort(x)  htons(x)
+X#define netlong(x)   htonl(x)
+X#endif
+X
+XEXTFLOW unsigned int n_hash_tables INIT(0),  /* Performance statistics */
+X   n_hash_ents INIT(0), t_hash_size INIT(0);
+XEXTFLOW unsigned long n_matches INIT(0),
+X   n_hash_compares INIT(0), n_hash_searches INIT(0);
+X
+XEXTFLOW unsigned long s_uptime;  /* uptime() value for current sample */
+X
+XEXTFLOW unsigned char kb_enabled;
+XEXTFLOW unsigned char display_enabled;
+X
+X/* MIB variables */
+X
+XEXTFLOW unsigned long InactivityTimeout INIT(600L);  /* 10 minutes */
+XEXTFLOW unsigned char HighWaterMark INIT(85);  /* 85 % */
+XEXTFLOW unsigned char FloodMark INIT(100);  /* Disabled */
+X
+Xstruct CTinfo {
+X   unsigned char LastCollectPeer[PEER_ADDR_LEN];
+X   unsigned long LastCollectTime;
+X   unsigned long PrevCollectTime;
+X   };
+X
+XEXTFLOW struct CTinfo CTi[MXCLCTRS];
+XEXTFLOW unsigned char n_collectors INIT(0);
+X
+XEXTFLOW unsigned long LastCollectTime INIT(0L);
+X
+XEXTFLOW unsigned char CurrentRuleSet INIT(0);
+XEXTFLOW unsigned char EmergencyRuleSet INIT(0);
+X
+X/* Flowhash functions */
+X
+X#define addrcpy(d,s,n) qmove(s,d,n)  /* Stick to d,s order for copies! */
+X
+Xstruct flow far *get_flow(void);
+Xvoid free_flow(struct flow far *q);
+X
+Xint open_rule_set(unsigned char doSet, unsigned char n);
+Xvoid close_rule_set(void);
+X
+Xvoid init_flow(struct flow far *f, unsigned char type);
+Xunsigned int number_flow(struct flow far *fp);
+Xvoid garbage_collect(void);
+X
+Xstruct flow far *find_flow(int x);
+X
+Xstruct flow far *search_hash_table(
+X   struct hash_tbl far *t,  /* Table to search */
+X   struct key far *Low,  /* Target keys */
+X   struct key far *High,
+X   struct flow far *pdu,
+X   struct flow far *ap,  /* Action with table's masks */
+X   unsigned char OK_to_add  /* 1 = add new flow if not found */
+X   );
+X
+Xint pkt_match(unsigned char forward, unsigned char OK_to_match,
+X   int len, struct flow far *pdu, struct key far *from, struct key far *to);
+X
+Xvoid build_flow_blob(unsigned long t_time, unsigned int fx);
+X
+Xvoid pkt_monitor(unsigned char far *pp,int len,unsigned char pt);
+X
+Xvoid open_log(void);
+Xvoid write_flows(void);
+X
+Xvoid show_stats(void);
+Xvoid show_time(void);
+X
+Xvoid init_monitor(void);
+X
+Xvoid show_help(void);
+Xvoid handle_kb(int ch);
+X
+END_OF_FILE
+  if test 11145 -ne `wc -c <'netramet/src/meter/include/flowhash.h'`; then
+    echo shar: \"'netramet/src/meter/include/flowhash.h'\" unpacked with wrong size!
+  fi
+  # end of 'netramet/src/meter/include/flowhash.h'
+fi
+echo shar: End of archive 13 \(of 25\).
+cp /dev/null ark13isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 25 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

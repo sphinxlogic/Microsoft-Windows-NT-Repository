@@ -1,0 +1,3075 @@
+Newsgroups: comp.sources.misc
+From: woo@playfair.stanford.edu ("Alexander Woo")
+Subject: v40i014:  gnuplot - interactive function plotting utility, Part02/33
+Message-ID: <1993Oct21.144207.1387@sparky.sterling.com>
+X-Md4-Signature: 0b488dae23dac977cc7908ceff183e1c
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Sterling Software
+Date: Thu, 21 Oct 1993 14:42:07 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: woo@playfair.stanford.edu ("Alexander Woo")
+Posting-number: Volume 40, Issue 14
+Archive-name: gnuplot/part02
+Environment: UNIX, MS-DOS, VMS
+Supersedes: gnuplot3: Volume 24, Issue 23-48
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# Contents:  gnuplot/setshow.c
+# Wrapped by kent@sparky on Wed Oct 20 17:14:38 1993
+PATH=/bin:/usr/bin:/usr/ucb:/usr/local/bin:/usr/lbin ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 2 (of 33)."'
+if test -f 'gnuplot/setshow.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'gnuplot/setshow.c'\"
+else
+  echo shar: Extracting \"'gnuplot/setshow.c'\" \(76221 characters\)
+  sed "s/^X//" >'gnuplot/setshow.c' <<'END_OF_FILE'
+Xstatic char *RCSid = "$Id: setshow.c%v 3.50.1.11 1993/08/10 03:55:03 woo Exp $";
+X
+X
+X/* GNUPLOT - setshow.c */
+X/*
+X * Copyright (C) 1986 - 1993   Thomas Williams, Colin Kelley
+X *
+X * Permission to use, copy, and distribute this software and its
+X * documentation for any purpose with or without fee is hereby granted, 
+X * provided that the above copyright notice appear in all copies and 
+X * that both that copyright notice and this permission notice appear 
+X * in supporting documentation.
+X *
+X * Permission to modify the software is granted, but not the right to
+X * distribute the modified code.  Modifications are to be distributed 
+X * as patches to released version.
+X *  
+X * This software is provided "as is" without express or implied warranty.
+X * 
+X *
+X * AUTHORS
+X * 
+X *   Original Software:
+X *     Thomas Williams,  Colin Kelley.
+X * 
+X *   Gnuplot 2.0 additions:
+X *       Russell Lang, Dave Kotz, John Campbell.
+X *
+X *   Gnuplot 3.0 additions:
+X *       Gershon Elber and many others.
+X *
+X * 19 September 1992  Lawrence Crowl  (crowl@cs.orst.edu)
+X * Added user-specified bases for log scaling.
+X * 
+X * There is a mailing list for gnuplot users. Note, however, that the
+X * newsgroup 
+X *	comp.graphics.gnuplot 
+X * is identical to the mailing list (they
+X * both carry the same set of messages). We prefer that you read the
+X * messages through that newsgroup, to subscribing to the mailing list.
+X * (If you can read that newsgroup, and are already on the mailing list,
+X * please send a message info-gnuplot-request@dartmouth.edu, asking to be
+X * removed from the mailing list.)
+X *
+X * The address for mailing to list members is
+X *	   info-gnuplot@dartmouth.edu
+X * and for mailing administrative requests is 
+X *	   info-gnuplot-request@dartmouth.edu
+X * The mailing list for bug reports is 
+X *	   bug-gnuplot@dartmouth.edu
+X * The list of those interested in beta-test versions is
+X *	   info-gnuplot-beta@dartmouth.edu
+X */
+X
+X#include <stdio.h>
+X#include <math.h>
+X#include "plot.h"
+X#include "setshow.h"
+X
+X#define DEF_FORMAT   "%g"	/* default format for tic mark labels */
+X#define SIGNIF (0.01)		/* less than one hundredth of a tic mark */
+X
+X/*
+X * global variables to hold status of 'set' options
+X *
+X */
+XTBOOLEAN		autoscale_r	= TRUE;
+XTBOOLEAN		autoscale_t	= TRUE;
+XTBOOLEAN		autoscale_u	= TRUE;
+XTBOOLEAN		autoscale_v	= TRUE;
+XTBOOLEAN		autoscale_x	= TRUE;
+XTBOOLEAN		autoscale_y	= TRUE;
+XTBOOLEAN		autoscale_z	= TRUE;
+XTBOOLEAN		autoscale_lt	= TRUE;
+XTBOOLEAN		autoscale_lu	= TRUE;
+XTBOOLEAN		autoscale_lv	= TRUE;
+XTBOOLEAN		autoscale_lx	= TRUE;
+XTBOOLEAN		autoscale_ly	= TRUE;
+XTBOOLEAN		autoscale_lz	= TRUE;
+Xdouble			boxwidth	= -1.0; /* box width (automatic) */
+XTBOOLEAN 		clip_points	= FALSE;
+XTBOOLEAN 		clip_lines1	= TRUE;
+XTBOOLEAN 		clip_lines2	= FALSE;
+XTBOOLEAN		draw_border	= TRUE;
+XTBOOLEAN		draw_surface    = TRUE;
+XTBOOLEAN		timedate	= FALSE;
+Xchar			dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1] = { "x", "y" };
+Xchar			xformat[MAX_ID_LEN+1] = DEF_FORMAT;
+Xchar			yformat[MAX_ID_LEN+1] = DEF_FORMAT;
+Xchar			zformat[MAX_ID_LEN+1] = DEF_FORMAT;
+Xenum PLOT_STYLE		data_style	= POINTSTYLE;
+Xenum PLOT_STYLE		func_style	= LINES;
+XTBOOLEAN		grid		= FALSE;
+Xint			key		= -1;	/* default position */
+Xdouble			key_x;
+Xdouble			key_y;	/* user specified position for key */
+Xdouble			key_z;
+XTBOOLEAN		is_log_x	= FALSE;
+XTBOOLEAN		is_log_y	= FALSE;
+XTBOOLEAN		is_log_z	= FALSE;
+Xdouble			base_log_x	= 0.0;
+Xdouble			base_log_y	= 0.0;
+Xdouble			base_log_z	= 0.0;
+Xdouble			log_base_log_x	= 0.0;
+Xdouble			log_base_log_y	= 0.0;
+Xdouble			log_base_log_z	= 0.0;
+XFILE*			outfile;
+Xchar			outstr[MAX_ID_LEN+1] = "STDOUT";
+XTBOOLEAN		parametric	= FALSE;
+XTBOOLEAN		polar		= FALSE;
+XTBOOLEAN		hidden3d	= FALSE;
+XTBOOLEAN		label_contours	= TRUE; /* different linestyles are used for contours when set */
+Xint			angles_format	= ANGLES_RADIANS;
+Xint			mapping3d	= MAP3D_CARTESIAN;
+Xint			samples		= SAMPLES; /* samples is always equal to samples_1 */
+Xint			samples_1	= SAMPLES;
+Xint			samples_2	= SAMPLES;
+Xint			iso_samples_1	= ISO_SAMPLES;
+Xint			iso_samples_2	= ISO_SAMPLES;
+Xfloat			xsize		= 1.0;  /* scale factor for size */
+Xfloat			ysize		= 1.0;  /* scale factor for size */
+Xfloat			zsize		= 1.0;  /* scale factor for size */
+Xfloat			surface_rot_z   = 30.0; /* Default 3d transform. */
+Xfloat			surface_rot_x   = 60.0;
+Xfloat			surface_scale   = 1.0;
+Xfloat			surface_zscale  = 1.0;
+Xint			term		= 0;		/* unknown term is 0 */
+Xchar			term_options[MAX_LINE_LEN+1] = "";
+Xchar			title[MAX_LINE_LEN+1] = "";
+Xchar			xlabel[MAX_LINE_LEN+1] = "";
+Xchar			ylabel[MAX_LINE_LEN+1] = "";
+Xchar			zlabel[MAX_LINE_LEN+1] = "";
+Xint			time_xoffset	= 0;
+Xint			time_yoffset	= 0;
+Xint			title_xoffset	= 0;
+Xint			title_yoffset	= 0;
+Xint			xlabel_xoffset	= 0;
+Xint			xlabel_yoffset	= 0;
+Xint			ylabel_xoffset	= 0;
+Xint			ylabel_yoffset	= 0;
+Xint			zlabel_xoffset	= 0;
+Xint			zlabel_yoffset	= 0;
+Xdouble			rmin		= -0.0;
+Xdouble			rmax		=  10.0;
+Xdouble			tmin		= -5.0;
+Xdouble			tmax		=  5.0;
+Xdouble			umin		= -5.0;
+Xdouble			umax		= 5.0;
+Xdouble			vmin		= -5.0;
+Xdouble			vmax		= 5.0;
+Xdouble			xmin		= -10.0;
+Xdouble			xmax		= 10.0;
+Xdouble			ymin		= -10.0;
+Xdouble			ymax		= 10.0;
+Xdouble			zmin		= -10.0;
+Xdouble			zmax		= 10.0;
+Xdouble			loff		= 0.0;
+Xdouble			roff		= 0.0;
+Xdouble			toff		= 0.0;
+Xdouble			boff		= 0.0;
+Xint			draw_contour	= CONTOUR_NONE;
+Xint			contour_pts	= 5;
+Xint			contour_kind	= CONTOUR_KIND_LINEAR;
+Xint			contour_order	= 4;
+Xint			contour_levels	= 5;
+Xdouble			zero		= ZERO;	/* zero threshold, not 0! */
+Xint			levels_kind	= LEVELS_AUTO;
+Xdouble			levels_list[MAX_DISCRETE_LEVELS];  /* storage for z levels to draw contours at */
+X
+Xint			dgrid3d_row_fineness = 10;
+Xint			dgrid3d_col_fineness = 10;
+Xint			dgrid3d_norm_value = 1;
+XTBOOLEAN		dgrid3d		= FALSE;
+X
+XTBOOLEAN 		xzeroaxis	= TRUE;
+XTBOOLEAN 		yzeroaxis	= TRUE;
+X
+XTBOOLEAN 		xtics		= TRUE;
+XTBOOLEAN 		ytics		= TRUE;
+XTBOOLEAN 		ztics		= TRUE;
+X
+Xfloat 			ticslevel	= 0.5;
+X
+Xstruct ticdef		xticdef		= {TIC_COMPUTED};
+Xstruct ticdef		yticdef		= {TIC_COMPUTED};
+Xstruct ticdef		zticdef		= {TIC_COMPUTED};
+X
+XTBOOLEAN		tic_in		= TRUE;
+X
+Xstruct text_label 	*first_label	= NULL;
+Xstruct arrow_def 	*first_arrow	= NULL;
+X
+X/*** other things we need *****/
+X#ifdef _Windows
+X#include <string.h>
+X#else
+X#if !defined(ATARI) && !defined (AMIGA_SC_6_1)
+Xextern char *strcpy(),*strcat();
+Xextern int      strlen();
+X#endif
+X#endif
+X
+X#if defined(unix) || defined(PIPES)
+Xextern FILE *popen();
+X#endif
+X
+X/* input data, parsing variables */
+Xextern struct lexical_unit token[];
+Xextern char input_line[];
+Xextern int num_tokens, c_token;
+Xextern TBOOLEAN interactive;	/* from plot.c */
+X
+Xextern char replot_line[];
+Xextern struct udvt_entry *first_udv;
+Xextern TBOOLEAN is_3d_plot;
+X
+Xextern double magnitude(),real();
+Xextern struct value *const_express();
+X
+X#ifdef _Windows
+Xextern FILE * open_printer();
+Xextern void close_printer();
+X#endif
+X
+X/******** Local functions ********/
+Xstatic void set_xyzlabel();
+Xstatic void set_label();
+Xstatic void set_nolabel();
+Xstatic void set_arrow();
+Xstatic void set_noarrow();
+Xstatic void load_tics();
+Xstatic void load_tic_user();
+Xstatic void free_marklist();
+Xstatic void load_tic_series();
+Xstatic void load_offsets();
+X
+Xstatic void show_style(), show_range(), show_zero(), show_border(), show_dgrid3d();
+Xstatic void show_offsets(), show_output(), show_samples(), show_isosamples();
+Xstatic void show_view(), show_size(), show_title(), show_xlabel();
+Xstatic void show_angles(), show_boxwidth();
+Xstatic void show_ylabel(), show_zlabel(), show_xzeroaxis(), show_yzeroaxis();
+Xstatic void show_label(), show_arrow(), show_grid(), show_key();
+Xstatic void show_polar(), show_parametric(), show_tics(), show_ticdef();
+Xstatic void show_time(), show_term(), show_plot(), show_autoscale(), show_clip();
+Xstatic void show_contour(), show_mapping(), show_format(), show_logscale();
+Xstatic void show_variables(), show_surface(), show_hidden3d(), show_label_contours();
+Xstatic void delete_label();
+Xstatic int assign_label_tag();
+Xstatic void delete_arrow();
+Xstatic int assign_arrow_tag();
+Xstatic TBOOLEAN set_one(), set_two(), set_three();
+Xstatic TBOOLEAN show_one(), show_two();
+X
+X/******** The 'set' command ********/
+Xvoid
+Xset_command()
+X{
+Xstatic char GPFAR setmess[] =
+X	"valid set options:  'angles' '{no}arrow', {no}autoscale', \n\
+X	'{no}border', 'boxwidth', '{no}clabel', '{no}clip', 'cntrparam', \n\
+X        '{no}contour', 'data style', '{no}dgrid3d', 'dummy', 'format', \n\
+X        'function style', '{no}grid', '{no}hidden3d', 'isosamples', '{no}key', \n\
+X	'{no}label', '{no}logscale', 'mapping', 'offsets', 'output', \n\
+X	'{no}parametric', '{no}polar', 'rrange', 'samples', 'size', \n\
+X	'{no}surface', 'terminal', 'tics', 'ticslevel', '{no}time', 'title', \n\
+X	'trange', 'urange', 'view', 'vrange', 'xlabel', 'xrange', '{no}xtics', \n\
+X	'xmtics', 'xdtics', '{no}xzeroaxis', 'ylabel', 'yrange', '{no}ytics', \n\
+X	'ymtics', 'ydtics', '{no}yzeroaxis', 'zero', '{no}zeroaxis', 'zlabel', \n\
+X	'zrange', '{no}ztics', 'zmtics', 'zdtics'";
+X
+X    c_token++;
+X
+X    if (!set_one() && !set_two() && !set_three())
+X	int_error(setmess, c_token);
+X}
+X
+X/* return TRUE if a command match, FALSE if not */
+Xstatic TBOOLEAN
+Xset_one()
+X{
+X	if (almost_equals(c_token,"ar$row")) {
+X		c_token++;
+X		set_arrow();
+X	}
+X	else if (almost_equals(c_token,"noar$row")) {
+X		c_token++;
+X		set_noarrow();
+X	}
+X     else if (almost_equals(c_token,"au$toscale")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		   autoscale_r=autoscale_t = autoscale_x = autoscale_y = autoscale_z = TRUE;
+X	    } else if (equals(c_token, "xy") || equals(c_token, "yx")) {
+X		   autoscale_x = autoscale_y = TRUE;
+X		   c_token++;
+X	    } else if (equals(c_token, "r")) {
+X		   autoscale_r = TRUE;
+X		   c_token++;
+X	    } else if (equals(c_token, "t")) {
+X		   autoscale_t = TRUE;
+X		   c_token++;
+X	    } else if (equals(c_token, "x")) {
+X		   autoscale_x = TRUE;
+X		   c_token++;
+X	    } else if (equals(c_token, "y")) {
+X		   autoscale_y = TRUE;
+X		   c_token++;
+X	    } else if (equals(c_token, "z")) {
+X		   autoscale_z = TRUE;
+X		   c_token++;
+X	    }
+X	} 
+X	else if (almost_equals(c_token,"noau$toscale")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		   autoscale_r=autoscale_t = autoscale_x = autoscale_y = autoscale_z = FALSE;
+X	    } else if (equals(c_token, "xy") || equals(c_token, "tyx")) {
+X		   autoscale_x = autoscale_y = FALSE;
+X		   c_token++;
+X	    } else if (equals(c_token, "r")) {
+X		   autoscale_r = FALSE;
+X		   c_token++;
+X	    } else if (equals(c_token, "t")) {
+X		   autoscale_t = FALSE;
+X		   c_token++;
+X	    } else if (equals(c_token, "x")) {
+X		   autoscale_x = FALSE;
+X		   c_token++;
+X	    } else if (equals(c_token, "y")) {
+X		   autoscale_y = FALSE;
+X		   c_token++;
+X	    } else if (equals(c_token, "z")) {
+X		   autoscale_z = FALSE;
+X		   c_token++;
+X	    }
+X	} 
+X	else if (almost_equals(c_token,"bor$der")) {
+X	    draw_border = TRUE;
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"nobor$der")) {
+X	    draw_border = FALSE;
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"box$width")) {
+X		struct value a;
+X		c_token++;
+X	    if (END_OF_COMMAND)
+X	    	boxwidth = -1.0;
+X	    else
+X			boxwidth = magnitude(const_express(&a));
+X	}
+X	else if (almost_equals(c_token,"c$lip")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND)
+X		 /* assuming same as points */
+X		 clip_points = TRUE;
+X	    else if (almost_equals(c_token, "p$oints"))
+X		 clip_points = TRUE;
+X	    else if (almost_equals(c_token, "o$ne"))
+X		 clip_lines1 = TRUE;
+X	    else if (almost_equals(c_token, "t$wo"))
+X		 clip_lines2 = TRUE;
+X	    else
+X		 int_error("expecting 'points', 'one', or 'two'", c_token);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"noc$lip")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		   /* same as all three */
+X		   clip_points = FALSE;
+X		   clip_lines1 = FALSE;
+X		   clip_lines2 = FALSE;
+X	    } else if (almost_equals(c_token, "p$oints"))
+X		 clip_points = FALSE;
+X	    else if (almost_equals(c_token, "o$ne"))
+X		 clip_lines1 = FALSE;
+X	    else if (almost_equals(c_token, "t$wo"))
+X		 clip_lines2 = FALSE;
+X	    else
+X		 int_error("expecting 'points', 'one', or 'two'", c_token);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"hi$dden3d")) {
+X#ifdef LITE
+X		printf(" Hidden Line Removal Not Supported in LITE version\n");
+X#else
+X	    hidden3d = TRUE;
+X#endif /* LITE */
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"nohi$dden3d")) {
+X#ifdef LITE
+X		printf(" Hidden Line Removal Not Supported in LITE version\n");
+X#else
+X	    hidden3d = FALSE;
+X#endif /* LITE */
+X	    c_token++;
+X	}
+X 	else if (almost_equals(c_token,"cla$bel")) {
+X 		label_contours = TRUE;
+X 		c_token++;
+X 	}
+X 	else if (almost_equals(c_token,"nocla$bel")) {
+X 		label_contours = FALSE;
+X 		c_token++;
+X  	}
+X	else if (almost_equals(c_token,"ma$pping3d")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND)
+X		 /* assuming same as points */
+X		 mapping3d = MAP3D_CARTESIAN;
+X	    else if (almost_equals(c_token, "ca$rtesian"))
+X		 mapping3d = MAP3D_CARTESIAN;
+X	    else if (almost_equals(c_token, "s$pherical"))
+X		 mapping3d = MAP3D_SPHERICAL;
+X	    else if (almost_equals(c_token, "cy$lindrical"))
+X		 mapping3d = MAP3D_CYLINDRICAL;
+X	    else
+X		 int_error("expecting 'cartesian', 'spherical', or 'cylindrical'", c_token);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"co$ntour")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND)
+X		 /* assuming same as points */
+X		 draw_contour = CONTOUR_BASE;
+X	    else if (almost_equals(c_token, "ba$se"))
+X		 draw_contour = CONTOUR_BASE;
+X	    else if (almost_equals(c_token, "s$urface"))
+X		 draw_contour = CONTOUR_SRF;
+X	    else if (almost_equals(c_token, "bo$th"))
+X		 draw_contour = CONTOUR_BOTH;
+X	    else
+X		 int_error("expecting 'base', 'surface', or 'both'", c_token);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"noco$ntour")) {
+X	    c_token++;
+X	    draw_contour = CONTOUR_NONE;
+X	}
+X	else if (almost_equals(c_token,"cntrp$aram")) {
+X	    struct value a;
+X
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		 /* assuming same as defaults */
+X		 contour_pts = 5;
+X		 contour_kind = CONTOUR_KIND_LINEAR;
+X		 contour_order = 4;
+X		 contour_levels = 5;
+X 		 levels_kind = LEVELS_AUTO;
+X	    }
+X	    else if (almost_equals(c_token, "p$oints")) {
+X		 c_token++;
+X		 contour_pts = (int) real(const_express(&a));
+X	    }
+X	    else if (almost_equals(c_token, "li$near")) {
+X		 c_token++;
+X		 contour_kind = CONTOUR_KIND_LINEAR;
+X	    }
+X	    else if (almost_equals(c_token, "c$ubicspline")) {
+X		 c_token++;
+X		 contour_kind = CONTOUR_KIND_CUBIC_SPL;
+X	    }
+X	    else if (almost_equals(c_token, "b$spline")) {
+X		 c_token++;
+X		 contour_kind = CONTOUR_KIND_BSPLINE;
+X	    }
+X
+X   		else if (almost_equals(c_token, "le$vels")) {
+X   			int i=0;  /* local counter */
+X   			c_token++;
+X			/*  RKC: I have modified the next two:
+X			 *   to use commas to separate list elements as in xtics
+X 			 *   so that incremental lists start,incr[,end]as in "
+X 			 */
+X   			if (almost_equals(c_token, "di$screte")) {
+X   			   levels_kind = LEVELS_DISCRETE;
+X   			   c_token++;
+X 			   if(END_OF_COMMAND)
+X			     int_error("expecting discrete level", c_token);
+X 			   else
+X 			     levels_list[i++] = real(const_express(&a));
+X 			   while(!END_OF_COMMAND){
+X 			     if (!equals(c_token, ","))
+X 			       int_error("expecting comma to separate discrete levels", c_token);
+X 			     c_token++;
+X 			     levels_list[i++] =  real(const_express(&a));
+X 			   }
+X   			   contour_levels = i;
+X   			}
+X   			else if (almost_equals(c_token, "in$cremental")) {
+X   			   levels_kind = LEVELS_INCREMENTAL;
+X   			   c_token++;
+X 			   levels_list[i++] =  real(const_express(&a));
+X 			   if (!equals(c_token, ","))
+X 			     int_error("expecting comma to separate start,incr levels", c_token);
+X 			   c_token++;
+X 			   if((levels_list[i++] = real(const_express(&a)))==0)
+X 			     int_error("increment cannot be 0", c_token);
+X  			   if(!END_OF_COMMAND){
+X 			     if (!equals(c_token, ","))
+X 			       int_error("expecting comma to separate incr,stop levels", c_token);
+X 			     c_token++;
+X			     contour_levels = (real(const_express(&a))-levels_list[0])/levels_list[1];
+X 			     }
+X   			}
+X   			else if (almost_equals(c_token, "au$to")) {
+X   				levels_kind = LEVELS_AUTO;
+X 				c_token++;
+X 				if(!END_OF_COMMAND)
+X 					contour_levels = (int) real(const_express(&a));
+X 			}
+X 			else {
+X			  if(levels_kind == LEVELS_DISCRETE)
+X			    int_error("Levels type is discrete, ignoring new number of contour levels", c_token);
+X			    contour_levels = (int) real(const_express(&a));
+X			}
+X 		}
+X	    else if (almost_equals(c_token, "o$rder")) {
+X		 int order;
+X		 c_token++;
+X		 order = (int) real(const_express(&a));
+X		 if ( order < 2 || order > 10 )
+X		     int_error("bspline order must be in [2..10] range.", c_token);
+X		 contour_order = order;
+X	    }
+X	    else
+X		 int_error("expecting 'linear', 'cubicspline', 'bspline', 'points', 'levels' or 'order'", c_token);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"da$ta")) {
+X		c_token++;
+X		if (!almost_equals(c_token,"s$tyle"))
+X			int_error("expecting keyword 'style'",c_token);
+X		data_style = get_style();
+X	}
+X	else if (almost_equals(c_token,"dg$rid3d")) {
+X		int i;
+X		TBOOLEAN was_comma = TRUE;
+X		int local_vals[3];
+X		struct value a;
+X
+X		local_vals[0] = dgrid3d_row_fineness;
+X		local_vals[1] = dgrid3d_col_fineness;
+X		local_vals[2] = dgrid3d_norm_value;
+X		c_token++;
+X		for (i = 0; i < 3 && !(END_OF_COMMAND);) {
+X			if (equals(c_token,",")) {
+X				if (was_comma) i++;
+X				was_comma = TRUE;
+X				c_token++;
+X			}
+X			else {
+X				if (!was_comma)
+X					int_error("',' expected",c_token);
+X				local_vals[i] = real(const_express(&a));
+X				i++;
+X				was_comma = FALSE;
+X			}
+X		}
+X
+X
+X		if (local_vals[0] < 2 || local_vals[0] > 1000)
+X			int_error("Row size must be in [2:1000] range; size unchanged",
+X				  c_token);
+X		if (local_vals[1] < 2 || local_vals[1] > 1000)
+X			int_error("Col size must be in [2:1000] range; size unchanged",
+X				  c_token);
+X		if (local_vals[2] < 1 || local_vals[2] > 100)
+X			int_error("Norm must be in [1:100] range; norm unchanged", c_token);
+X
+X		dgrid3d_row_fineness = local_vals[0];
+X		dgrid3d_col_fineness = local_vals[1];
+X		dgrid3d_norm_value = local_vals[2];
+X		dgrid3d = TRUE;
+X	}
+X	else if (almost_equals(c_token,"nodg$rid3d")) {
+X		c_token++;
+X		dgrid3d = FALSE;
+X	}
+X	else if (almost_equals(c_token,"du$mmy")) {
+X		c_token++;
+X		if (END_OF_COMMAND)
+X			int_error("expecting dummy variable name", c_token);
+X		else {
+X			if (!equals(c_token,","))
+X				copy_str(dummy_var[0],c_token++);
+X			if (!END_OF_COMMAND && equals(c_token,",")) {
+X				c_token++;
+X				if (END_OF_COMMAND)
+X					int_error("expecting second dummy variable name", c_token);
+X				copy_str(dummy_var[1],c_token++);
+X		    	}
+X		}
+X	}
+X	else if (almost_equals(c_token,"fo$rmat")) {
+X		TBOOLEAN setx, sety, setz;
+X		c_token++;
+X		if (equals(c_token,"x")) {
+X			setx = TRUE; sety = setz = FALSE;
+X			c_token++;
+X		}
+X		else if (equals(c_token,"y")) {
+X			setx = setz = FALSE; sety = TRUE;
+X			c_token++;
+X		}
+X		else if (equals(c_token,"z")) {
+X			setx = sety = FALSE; setz = TRUE;
+X			c_token++;
+X		}
+X		else if (equals(c_token,"xy") || equals(c_token,"yx")) {
+X			setx = sety = TRUE; setz = FALSE;
+X			c_token++;
+X		}
+X		else if (isstring(c_token) || END_OF_COMMAND) {
+X			/* Assume he wants all */
+X			setx = sety = setz = TRUE;
+X		}
+X		if (END_OF_COMMAND) {
+X			if (setx)
+X				(void) strcpy(xformat,DEF_FORMAT);
+X			if (sety)
+X				(void) strcpy(yformat,DEF_FORMAT);
+X			if (setz)
+X				(void) strcpy(zformat,DEF_FORMAT);
+X		}
+X		else {
+X			if (!isstring(c_token))
+X			  int_error("expecting format string",c_token);
+X			else {
+X				if (setx)
+X				 quote_str(xformat,c_token);
+X				if (sety)
+X				 quote_str(yformat,c_token);
+X				if (setz)
+X				 quote_str(zformat,c_token);
+X				c_token++;
+X			}
+X		}
+X	}
+X	else if (almost_equals(c_token,"fu$nction")) {
+X		c_token++;
+X		if (!almost_equals(c_token,"s$tyle"))
+X			int_error("expecting keyword 'style'",c_token);
+X		func_style = get_style();
+X	}
+X	else if (almost_equals(c_token,"la$bel")) {
+X		c_token++;
+X		set_label();
+X	}
+X	else if (almost_equals(c_token,"nola$bel")) {
+X		c_token++;
+X		set_nolabel();
+X	}
+X	else if (almost_equals(c_token,"lo$gscale")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		is_log_x = is_log_y = is_log_z = TRUE;
+X		base_log_x = base_log_y = base_log_z = 10.0;
+X		log_base_log_x = log_base_log_y = log_base_log_z = log(10.0);
+X	    } else {
+X		TBOOLEAN change_x = FALSE;
+X		TBOOLEAN change_y = FALSE;
+X		TBOOLEAN change_z = FALSE;
+X		if (chr_in_str(c_token, 'x'))
+X		    change_x = TRUE;
+X		if (chr_in_str(c_token, 'y'))
+X		    change_y = TRUE;
+X		if (chr_in_str(c_token, 'z'))
+X		    change_z = TRUE;
+X		c_token++;
+X                if (END_OF_COMMAND) {
+X		    if (change_x) {
+X			is_log_x = TRUE;
+X			base_log_x = 10.0;
+X			log_base_log_x = log(10.0);
+X		    }
+X		    if (change_y) {
+X			is_log_y = TRUE;
+X			base_log_y = 10.0;
+X			log_base_log_y = log(10.0);
+X		    }
+X		    if (change_z) {
+X			is_log_z = TRUE;
+X			base_log_z = 10.0;
+X			log_base_log_z = log(10.0);
+X		    }
+X		} else {
+X		    struct value a;
+X		    double newbase = magnitude(const_express(&a));
+X		    c_token++;
+X		    if (newbase < 1.1)
+X			int_error("log base must be >= 1.1; logscale unchanged",
+X				c_token);
+X		    else {
+X			if (change_x) {
+X			    is_log_x = TRUE;
+X			    base_log_x = newbase;
+X			    log_base_log_x = log(newbase);
+X			}
+X			if (change_y) {
+X			    is_log_y = TRUE;
+X			    base_log_y = newbase;
+X			    log_base_log_y = log(newbase);
+X			}
+X			if (change_z) {
+X			    is_log_z = TRUE;
+X			    base_log_z = newbase;
+X			    log_base_log_z = log(newbase);
+X			}
+X		    }
+X		}
+X	    }
+X	}
+X	else if (almost_equals(c_token,"nolo$gscale")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		is_log_x = is_log_y = is_log_z = FALSE;
+X	    } else {
+X		if (chr_in_str(c_token, 'x')) {
+X		    is_log_x = FALSE;
+X		    base_log_x = 0.0;
+X		    log_base_log_x = 0.0;
+X                }
+X		if (chr_in_str(c_token, 'y')) {
+X		    is_log_y = FALSE;
+X		    base_log_y = 0.0;
+X		    log_base_log_y = 0.0;
+X                }
+X		if (chr_in_str(c_token, 'z')) {
+X		    is_log_z = FALSE;
+X		    base_log_z = 0.0;
+X		    log_base_log_z = 0.0;
+X                }
+X		c_token++;
+X	    }
+X	} 
+X	else if (almost_equals(c_token,"of$fsets")) {
+X		c_token++;
+X		if (END_OF_COMMAND) {
+X			loff = roff = toff = boff = 0.0;  /* Reset offsets */
+X		}
+X		else {
+X			load_offsets (&loff,&roff,&toff,&boff);
+X		}
+X	}
+X	else
+X		return(FALSE);	/* no command match */
+X	return(TRUE);
+X}
+X
+X
+X/* return TRUE if a command match, FALSE if not */
+Xstatic TBOOLEAN
+Xset_two()
+X{
+X     char testfile[MAX_LINE_LEN+1];
+X#if defined(unix) || defined(PIPES)
+X     static TBOOLEAN pipe_open = FALSE;
+X#endif /* unix || PIPES */
+X
+X	if (almost_equals(c_token,"o$utput")) {
+X		register FILE *f;
+X
+X		c_token++;
+X		if (term && term_init)
+X			(*term_tbl[term].reset)();
+X		if (END_OF_COMMAND) {	/* no file specified */
+X 			UP_redirect (4);
+X			if (outfile != stdout) { /* Never close stdout */
+X#if defined(unix) || defined(PIPES)
+X				if ( pipe_open ) {
+X					(void) pclose(outfile);
+X					pipe_open = FALSE;
+X				} else
+X#endif /* unix || PIPES */
+X#ifdef _Windows
+X				  if ( !stricmp(outstr,"'PRN'") )
+X					close_printer();
+X				  else
+X#endif
+X					(void) fclose(outfile);
+X			}
+X			outfile = stdout; /* Don't dup... */
+X			term_init = FALSE;
+X			(void) strcpy(outstr,"STDOUT");
+X		} else if (!isstring(c_token))
+X			int_error("expecting filename",c_token);
+X		else {
+X			quote_str(testfile,c_token);
+X#if defined(unix) || defined(PIPES)
+X			if ( *testfile == '|' ) {
+X			  if ((f = popen(testfile+1,"w")) == (FILE *)NULL)
+X			    os_error("cannot create pipe; output not changed",c_token);
+X			  else
+X			    pipe_open = TRUE;
+X			} else
+X#endif /* unix || PIPES */
+X#ifdef _Windows
+X			if ( !stricmp(outstr,"'PRN'") ) {
+X				/* we can't call open_printer() while printer is open, so */
+X				close_printer();	/* close printer immediately if open */
+X			    outfile = stdout;	/* and reset output to stdout */
+X			    term_init = FALSE;
+X				(void) strcpy(outstr,"STDOUT");
+X			}
+X			if ( !stricmp(testfile,"PRN") ) {
+X			  if ((f = open_printer()) == (FILE *)NULL)
+X			    os_error("cannot open printer temporary file; output may have changed",c_token);
+X			} else
+X#endif
+X			  if ((f = fopen(testfile,"w")) == (FILE *)NULL)
+X			    os_error("cannot open file; output not changed",c_token);
+X			if (outfile != stdout) /* Never close stdout */
+X#if defined(unix) || defined(PIPES)
+X			    if( pipe_open ) {
+X				(void) pclose(outfile);
+X				pipe_open=FALSE;
+X			    } else
+X#endif /* unix || PIPES */
+X				(void) fclose(outfile);
+X			outfile = f;
+X			term_init = FALSE;
+X			outstr[0] = '\'';
+X			(void) strcat(strcpy(outstr+1,testfile),"'");
+X 			UP_redirect (1);
+X		}
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"tit$le")) {
+X		set_xyzlabel(title,&title_xoffset,&title_yoffset);
+X	}
+X	else if (almost_equals(c_token,"xl$abel")) {
+X		set_xyzlabel(xlabel,&xlabel_xoffset,&xlabel_yoffset);
+X	}
+X	else if (almost_equals(c_token,"yl$abel")) {
+X		set_xyzlabel(ylabel,&ylabel_xoffset,&ylabel_yoffset);
+X	}
+X	else if (almost_equals(c_token,"zl$abel")) {
+X		set_xyzlabel(zlabel,&zlabel_xoffset,&zlabel_yoffset);
+X	}
+X	else if (almost_equals(c_token,"xzero$axis")) {
+X		c_token++;
+X		xzeroaxis = TRUE;
+X	} 
+X	else if (almost_equals(c_token,"yzero$axis")) {
+X		c_token++;
+X		yzeroaxis = TRUE;
+X	} 
+X	else if (almost_equals(c_token,"zeroa$xis")) {
+X		c_token++;
+X		yzeroaxis = TRUE;
+X		xzeroaxis = TRUE;
+X	} 
+X	else if (almost_equals(c_token,"noxzero$axis")) {
+X		c_token++;
+X		xzeroaxis = FALSE;
+X	} 
+X	else if (almost_equals(c_token,"noyzero$axis")) {
+X		c_token++;
+X		yzeroaxis = FALSE;
+X	} 
+X	else if (almost_equals(c_token,"nozero$axis")) {
+X		c_token++;
+X		xzeroaxis = FALSE;
+X		yzeroaxis = FALSE;
+X	} 
+X	else if (almost_equals(c_token,"par$ametric")) {
+X		if (!parametric) {
+X		   parametric = TRUE;
+X		   strcpy (dummy_var[0], "t");
+X		   strcpy (dummy_var[1], "y");
+X		   if (interactive)
+X		     (void) fprintf(stderr,"\n\tdummy variable is t for curves, u/v for surfaces\n");
+X	    }
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"nopar$ametric")) {
+X		if (parametric) {
+X		   parametric = FALSE;
+X		   strcpy (dummy_var[0], "x");
+X		   strcpy (dummy_var[1], "y");
+X		   if (interactive)
+X		     (void) fprintf(stderr,"\n\tdummy variable is x for curves, x/y for surfaces\n");
+X	    }
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"pol$ar")) {
+X	    if (!polar) {
+X			polar = TRUE;
+X			if (parametric) {
+X				tmin = 0.0;
+X				tmax = 2*Pi;
+X			} else if (angles_format == ANGLES_DEGREES) {
+X				xmin = 0.0;
+X				xmax = 360.0;
+X			} else {
+X				xmin = 0.0;
+X				xmax = 2*Pi;
+X			}
+X	    }
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"nopo$lar")) {
+X	    if (polar) {
+X			polar = FALSE;
+X			if (parametric) {
+X				tmin = -5.0;
+X				tmax = 5.0;
+X			} else {
+X				xmin = -10.0;
+X				xmax = 10.0;
+X			}
+X	    }
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"an$gles")) {
+X	    c_token++;
+X	    if (END_OF_COMMAND) {
+X		/* assuming same as defaults */
+X		angles_format = ANGLES_RADIANS;
+X	    }
+X	    else if (almost_equals(c_token, "r$adians")) {
+X		angles_format = ANGLES_RADIANS;
+X		c_token++;
+X	    }
+X	    else if (almost_equals(c_token, "d$egrees")) {
+X		angles_format = ANGLES_DEGREES;
+X		c_token++;
+X	    }
+X	    else
+X		 int_error("expecting 'radians' or 'degrees'", c_token);
+X	}
+X	else if (almost_equals(c_token,"g$rid")) {
+X		grid = TRUE;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"nog$rid")) {
+X		grid = FALSE;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"su$rface")) {
+X		draw_surface = TRUE;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"nosu$rface")) {
+X		draw_surface = FALSE;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"k$ey")) {
+X		struct value a;
+X		c_token++;
+X		if (END_OF_COMMAND) {
+X			key = -1;
+X		} 
+X		else {
+X			key_x = real(const_express(&a));
+X			if (!equals(c_token,","))
+X				int_error("',' expected",c_token);
+X			c_token++;
+X			key_y = real(const_express(&a));
+X			if (equals(c_token,","))
+X			{
+X			        c_token++;
+X				key_z = real(const_express(&a));
+X			}
+X			key = 1;
+X		} 
+X	}
+X	else if (almost_equals(c_token,"nok$ey")) {
+X		key = 0;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"tic$s")) {
+X		tic_in = TRUE;
+X		c_token++;
+X		if (almost_equals(c_token,"i$n")) {
+X			tic_in = TRUE;
+X			c_token++;
+X		}
+X		else if (almost_equals(c_token,"o$ut")) {
+X			tic_in = FALSE;
+X			c_token++;
+X		}
+X	}
+X     else if (almost_equals(c_token,"xmt$ics")) {
+X	 xtics = TRUE;
+X	 c_token++;
+X	 if(xticdef.type == TIC_USER){
+X	     free_marklist(xticdef.def.user);
+X	     xticdef.def.user = NULL;
+X	 }
+X	xticdef.type = TIC_MONTH;
+X     }
+X     else if (almost_equals(c_token,"xdt$ics")) {
+X	 xtics = TRUE;
+X	 c_token++;
+X	 if(xticdef.type == TIC_USER){
+X	     free_marklist(xticdef.def.user);
+X	     xticdef.def.user = NULL;
+X	 }
+X	xticdef.type = TIC_DAY;
+X     }
+X     else if (almost_equals(c_token,"xt$ics")) {
+X	    xtics = TRUE;
+X	    c_token++;
+X	    if (END_OF_COMMAND) { /* reset to default */
+X		   if (xticdef.type == TIC_USER) {
+X			  free_marklist(xticdef.def.user);
+X			  xticdef.def.user = NULL;
+X		   }
+X		   xticdef.type = TIC_COMPUTED;
+X	    }
+X	    else
+X		 load_tics(&xticdef);
+X	} 
+X     else if (almost_equals(c_token,"noxt$ics")) {
+X	    xtics = FALSE;
+X	    c_token++;
+X	} 
+X     else if (almost_equals(c_token,"ymt$ics")) {
+X	 ytics = TRUE;
+X	 c_token++;
+X	 if(yticdef.type == TIC_USER){
+X	     free_marklist(yticdef.def.user);
+X	     yticdef.def.user = NULL;
+X	 }
+X	yticdef.type = TIC_MONTH;
+X     }
+X     else if (almost_equals(c_token,"ydt$ics")) {
+X	 ytics = TRUE;
+X	 c_token++;
+X	 if(yticdef.type == TIC_USER){
+X	     free_marklist(yticdef.def.user);
+X	     yticdef.def.user = NULL;
+X	 }
+X	yticdef.type = TIC_DAY;
+X     }
+X     else if (almost_equals(c_token,"yt$ics")) {
+X	    ytics = TRUE;
+X	    c_token++;
+X	    if (END_OF_COMMAND) { /* reset to default */
+X		   if (yticdef.type == TIC_USER) {
+X			  free_marklist(yticdef.def.user);
+X			  yticdef.def.user = NULL;
+X		   }
+X		   yticdef.type = TIC_COMPUTED;
+X	    }
+X	    else
+X		 load_tics(&yticdef);
+X	} 
+X     else if (almost_equals(c_token,"noyt$ics")) {
+X	    ytics = FALSE;
+X	    c_token++;
+X	} 
+X     else if (almost_equals(c_token,"zmt$ics")) {
+X	 ztics = TRUE;
+X	 c_token++;
+X	 if(zticdef.type == TIC_USER){
+X	     free_marklist(zticdef.def.user);
+X	     zticdef.def.user = NULL;
+X	 }
+X	zticdef.type = TIC_MONTH;
+X     }
+X     else if (almost_equals(c_token,"zdt$ics")) {
+X	 ztics = TRUE;
+X	 c_token++;
+X	 if(zticdef.type == TIC_USER){
+X	     free_marklist(zticdef.def.user);
+X	     zticdef.def.user = NULL;
+X	 }
+X	zticdef.type = TIC_DAY;
+X     }
+X     else if (almost_equals(c_token,"zt$ics")) {
+X	    ztics = TRUE;
+X	    c_token++;
+X	    if (END_OF_COMMAND) { /* reset to default */
+X		   if (zticdef.type == TIC_USER) {
+X			  free_marklist(zticdef.def.user);
+X			  zticdef.def.user = NULL;
+X		   }
+X		   zticdef.type = TIC_COMPUTED;
+X	    }
+X	    else
+X		 load_tics(&zticdef);
+X	} 
+X     else if (almost_equals(c_token,"nozt$ics")) {
+X	    ztics = FALSE;
+X	    c_token++;
+X	} 
+X    else if (almost_equals(c_token,"ticsl$evel")) {
+X		double tlvl;
+X		struct value a;
+X
+X		c_token++;
+X		tlvl = real(const_express(&a));
+X		if (tlvl < 0.0)
+X			int_error("tics level must be > 0; ticslevel unchanged",
+X				c_token);
+X		else {
+X			ticslevel = tlvl;
+X		}
+X    }
+X    else
+X	return(FALSE);	/* no command match */
+X
+X    return(TRUE);
+X}
+X 
+X
+X
+X/* return TRUE if a command match, FALSE if not */
+Xstatic TBOOLEAN
+Xset_three()
+X{
+X     if (almost_equals(c_token,"sa$mples")) {
+X		register int tsamp1, tsamp2;
+X		struct value a;
+X
+X		c_token++;
+X		tsamp1 = (int)magnitude(const_express(&a));
+X		tsamp2 = tsamp1;
+X		if (!END_OF_COMMAND) {
+X			if (!equals(c_token,","))
+X				int_error("',' expected",c_token);
+X			c_token++;
+X			tsamp2 = (int)magnitude(const_express(&a));
+X		}
+X		if (tsamp1 < 2 || tsamp2 < 2)
+X			int_error("sampling rate must be > 1; sampling unchanged",
+X				c_token);
+X		else {
+X		        extern struct surface_points *first_3dplot;
+X			register struct surface_points *f_3dp = first_3dplot;
+X
+X			first_3dplot = NULL;
+X			sp_free(f_3dp);
+X
+X			samples = tsamp1;
+X			samples_1 = tsamp1;
+X			samples_2 = tsamp2;
+X		}
+X    }
+X    else if (almost_equals(c_token,"isosa$mples")) {
+X		register int tsamp1, tsamp2;
+X		struct value a;
+X
+X		c_token++;
+X		tsamp1 = (int)magnitude(const_express(&a));
+X		tsamp2 = tsamp1;
+X		if (!END_OF_COMMAND) {
+X			if (!equals(c_token,","))
+X				int_error("',' expected",c_token);
+X			c_token++;
+X			tsamp2 = (int)magnitude(const_express(&a));
+X		}
+X		if (tsamp1 < 2 || tsamp2 < 2)
+X			int_error("sampling rate must be > 1; sampling unchanged",
+X				c_token);
+X		else {
+X		        extern struct curve_points *first_plot;
+X		        extern struct surface_points *first_3dplot;
+X			register struct curve_points *f_p = first_plot;
+X			register struct surface_points *f_3dp = first_3dplot;
+X
+X			first_plot = NULL;
+X			first_3dplot = NULL;
+X			cp_free(f_p);
+X			sp_free(f_3dp);
+X
+X			iso_samples_1 = tsamp1;
+X			iso_samples_2 = tsamp2;
+X		}
+X    }
+X    else if (almost_equals(c_token,"si$ze")) {
+X		struct value s;
+X		c_token++;
+X		if (END_OF_COMMAND) {
+X			xsize = 1.0;
+X			ysize = 1.0;
+X		} 
+X		else {
+X				xsize=real(const_express(&s));
+X				if (!equals(c_token,","))
+X					int_error("',' expected",c_token);
+X				c_token++;
+X				ysize=real(const_express(&s));
+X		} 
+X	} 
+X	else if (almost_equals(c_token,"t$erminal")) {
+X		c_token++;
+X		if (END_OF_COMMAND) {
+X			list_terms();
+X			screen_ok = FALSE;
+X		}
+X		else {
+X			if (term && term_init) {
+X				(*term_tbl[term].reset)();
+X				(void) fflush(outfile);
+X			}
+X			term = set_term(c_token);
+X			c_token++;
+X
+X			/* get optional mode parameters */
+X			if (term)
+X				(*term_tbl[term].options)();
+X			if (interactive && *term_options)
+X				fprintf(stderr,"Options are '%s'\n",term_options);
+X		}
+X	}
+X	else if (almost_equals(c_token,"tim$e")) {
+X		timedate = TRUE;
+X		c_token++;
+X		if (!END_OF_COMMAND) {
+X			struct value a;
+X
+X			/* We have x,y offsets specified */
+X			if (!equals(c_token,","))
+X			    time_xoffset = (int)real(const_express(&a));
+X			if (!END_OF_COMMAND && equals(c_token,",")) {
+X				c_token++;
+X				time_yoffset = (int)real(const_express(&a));
+X			}
+X		}
+X	}
+X	else if (almost_equals(c_token,"not$ime")) {
+X		timedate = FALSE;
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"rr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&rmin,&rmax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_r = FALSE;
+X	}
+X	else if (almost_equals(c_token,"tr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&tmin,&tmax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_t = FALSE;
+X	}
+X	else if (almost_equals(c_token,"ur$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&umin,&umax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_u = FALSE;
+X	}
+X	else if (almost_equals(c_token,"vi$ew")) {
+X		int i;
+X		TBOOLEAN was_comma = TRUE;
+X		double local_vals[4];
+X		struct value a;
+X
+X		local_vals[0] = surface_rot_x;
+X		local_vals[1] = surface_rot_z;
+X		local_vals[2] = surface_scale;
+X		local_vals[3] = surface_zscale;
+X		c_token++;
+X		for (i = 0; i < 4 && !(END_OF_COMMAND);) {
+X			if (equals(c_token,",")) {
+X				if (was_comma) i++;
+X				was_comma = TRUE;
+X				c_token++;
+X			}
+X			else {
+X				if (!was_comma)
+X					int_error("',' expected",c_token);
+X				local_vals[i] = real(const_express(&a));
+X				i++;
+X				was_comma = FALSE;
+X			}
+X		}
+X
+X		if (local_vals[0] < 0 || local_vals[0] > 180)
+X			int_error("rot_x must be in [0:180] degrees range; view unchanged",
+X				  c_token);
+X		if (local_vals[1] < 0 || local_vals[1] > 360)
+X			int_error("rot_z must be in [0:360] degrees range; view unchanged",
+X				  c_token);
+X		if (local_vals[2] < 1e-6)
+X			int_error("scale must be > 0; view unchanged", c_token);
+X		if (local_vals[3] < 1e-6)
+X			int_error("zscale must be > 0; view unchanged", c_token);
+X
+X		surface_rot_x = local_vals[0];
+X		surface_rot_z = local_vals[1];
+X		surface_scale = local_vals[2];
+X		surface_zscale = local_vals[3];
+X	}
+X	else if (almost_equals(c_token,"vr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&vmin,&vmax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_v = FALSE;
+X	}
+X	else if (almost_equals(c_token,"xr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&xmin,&xmax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_x = FALSE;
+X	}
+X	else if (almost_equals(c_token,"yr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&ymin,&ymax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_y = FALSE;
+X	}
+X	else if (almost_equals(c_token,"zr$ange")) {
+X	     TBOOLEAN changed;
+X		c_token++;
+X		if (!equals(c_token,"["))
+X			int_error("expecting '['",c_token);
+X		c_token++;
+X		changed = load_range(&zmin,&zmax);
+X		if (!equals(c_token,"]"))
+X		  int_error("expecting ']'",c_token);
+X		c_token++;
+X		if (changed)
+X		  autoscale_z = FALSE;
+X	}
+X	else if (almost_equals(c_token,"z$ero")) {
+X		struct value a;
+X		c_token++;
+X		zero = magnitude(const_express(&a));
+X	}
+X	else
+X		return(FALSE);	/* no command match */
+X	return(TRUE);
+X}
+X
+X/*********** Support functions for set_command ***********/
+X
+X/* process a 'set {x/y/z}label command */
+X/* set {x/y/z}label {label_text} {x}{,y} */
+Xstatic void set_xyzlabel(str,xpos,ypos)
+Xchar *str;
+Xint *xpos,*ypos;
+X{
+X	c_token++;
+X	if (END_OF_COMMAND) {	/* no label specified */
+X		str[0] = '\0';
+X	} else {
+X		if (isstring(c_token)) {
+X			/* We have string specified - grab it. */
+X			quotel_str(str,c_token);
+X			c_token++;
+X		}
+X		if (!END_OF_COMMAND) {
+X			struct value a;
+X
+X			/* We have x,y offsets specified */
+X			if (!equals(c_token,","))
+X			    *xpos = (int)real(const_express(&a));
+X			if (!END_OF_COMMAND && equals(c_token,",")) {
+X				c_token++;
+X				*ypos = (int)real(const_express(&a));
+X			}
+X		}
+X	}
+X}
+X
+X/* process a 'set label' command */
+X/* set label {tag} {label_text} {at x,y} {pos} */
+Xstatic void
+Xset_label()
+X{
+X    struct value a;
+X    struct text_label *this_label = NULL;
+X    struct text_label *new_label = NULL;
+X    struct text_label *prev_label = NULL;
+X    double x, y, z;
+X    char text[MAX_LINE_LEN+1];
+X    enum JUSTIFY just;
+X    int tag;
+X    TBOOLEAN set_text, set_position, set_just;
+X
+X    /* get tag */
+X    if (!END_OF_COMMAND 
+X	   && !isstring(c_token) 
+X	   && !equals(c_token, "at")
+X	   && !equals(c_token, "left")
+X	   && !equals(c_token, "center")
+X	   && !equals(c_token, "centre")
+X	   && !equals(c_token, "right")) {
+X	   /* must be a tag expression! */
+X	   tag = (int)real(const_express(&a));
+X	   if (tag <= 0)
+X		int_error("tag must be > zero", c_token);
+X    } else
+X	 tag = assign_label_tag(); /* default next tag */
+X	 
+X    /* get text */
+X    if (!END_OF_COMMAND && isstring(c_token)) {
+X	   /* get text */
+X	   quotel_str(text, c_token);
+X	   c_token++;
+X	   set_text = TRUE;
+X    } else {
+X	   text[0] = '\0';		/* default no text */
+X	   set_text = FALSE;
+X    }
+X	 
+X    /* get justification - what the heck, let him put it here */
+X    if (!END_OF_COMMAND && !equals(c_token, "at")) {
+X	   if (almost_equals(c_token,"l$eft")) {
+X		  just = LEFT;
+X	   }
+X	   else if (almost_equals(c_token,"c$entre")
+X			  || almost_equals(c_token,"c$enter")) {
+X		  just = CENTRE;
+X	   }
+X	   else if (almost_equals(c_token,"r$ight")) {
+X		  just = RIGHT;
+X	   }
+X	   else
+X		int_error("bad syntax in set label", c_token);
+X	   c_token++;
+X	   set_just = TRUE;
+X    } else {
+X	   just = LEFT;			/* default left justified */
+X	   set_just = FALSE;
+X    } 
+X
+X    /* get position */
+X    if (!END_OF_COMMAND && equals(c_token, "at")) {
+X	   c_token++;
+X	   if (END_OF_COMMAND)
+X		int_error("coordinates expected", c_token);
+X	   /* get coordinates */
+X	   x = real(const_express(&a));
+X	   if (!equals(c_token,","))
+X		int_error("',' expected",c_token);
+X	   c_token++;
+X	   y = real(const_express(&a));
+X	   if (equals(c_token,",")) {
+X		c_token++;
+X		z = real(const_express(&a));
+X	   }
+X	   else
+X	        z = 0;
+X	   set_position = TRUE;
+X    } else {
+X	   x = y = z = 0;			/* default at origin */
+X	   set_position = FALSE;
+X    }
+X
+X    /* get justification */
+X    if (!END_OF_COMMAND) {
+X	   if (set_just)
+X		int_error("only one justification is allowed", c_token);
+X	   if (almost_equals(c_token,"l$eft")) {
+X		  just = LEFT;
+X	   }
+X	   else if (almost_equals(c_token,"c$entre")
+X			  || almost_equals(c_token,"c$enter")) {
+X		  just = CENTRE;
+X	   }
+X	   else if (almost_equals(c_token,"r$ight")) {
+X		  just = RIGHT;
+X	   }
+X	   else
+X		int_error("bad syntax in set label", c_token);
+X	   c_token++;
+X	   set_just = TRUE;
+X    } 
+X
+X    if (!END_OF_COMMAND)
+X	 int_error("extraenous or out-of-order arguments in set label", c_token);
+X
+X    /* OK! add label */
+X    if (first_label != NULL) { /* skip to last label */
+X	   for (this_label = first_label; this_label != NULL ; 
+X		   prev_label = this_label, this_label = this_label->next)
+X		/* is this the label we want? */
+X		if (tag <= this_label->tag)
+X		  break;
+X    }
+X    if (this_label != NULL && tag == this_label->tag) {
+X	   /* changing the label */
+X	   if (set_position) {
+X		  this_label->x = x;
+X		  this_label->y = y;
+X		  this_label->z = z;
+X	   }
+X	   if (set_text)
+X		(void) strcpy(this_label->text, text);
+X	   if (set_just)
+X		this_label->pos = just;
+X    } else {
+X	   /* adding the label */
+X	   new_label = (struct text_label *) 
+X		alloc ( (unsigned long) sizeof(struct text_label), "label");
+X	   if (prev_label != NULL)
+X		prev_label->next = new_label; /* add it to end of list */
+X	   else 
+X		first_label = new_label; /* make it start of list */
+X	   new_label->tag = tag;
+X	   new_label->next = this_label;
+X	   new_label->x = x;
+X	   new_label->y = y;
+X	   new_label->z = z;
+X	   (void) strcpy(new_label->text, text);
+X	   new_label->pos = just;
+X    }
+X}
+X
+X/* process 'set nolabel' command */
+X/* set nolabel {tag} */
+Xstatic void
+Xset_nolabel()
+X{
+X    struct value a;
+X    struct text_label *this_label;
+X    struct text_label *prev_label; 
+X    int tag;
+X
+X    if (END_OF_COMMAND) {
+X	   /* delete all labels */
+X	   while (first_label != NULL)
+X		delete_label((struct text_label *)NULL,first_label);
+X    }
+X    else {
+X	   /* get tag */
+X	   tag = (int)real(const_express(&a));
+X	   if (!END_OF_COMMAND)
+X		int_error("extraneous arguments to set nolabel", c_token);
+X	   for (this_label = first_label, prev_label = NULL;
+X		   this_label != NULL;
+X		   prev_label = this_label, this_label = this_label->next) {
+X		  if (this_label->tag == tag) {
+X			 delete_label(prev_label,this_label);
+X			 return;		/* exit, our job is done */
+X		  }
+X	   }
+X	   int_error("label not found", c_token);
+X    }
+X}
+X
+X/* assign a new label tag */
+X/* labels are kept sorted by tag number, so this is easy */
+Xstatic int				/* the lowest unassigned tag number */
+Xassign_label_tag()
+X{
+X    struct text_label *this_label;
+X    int last = 0;			/* previous tag value */
+X
+X    for (this_label = first_label; this_label != NULL;
+X	    this_label = this_label->next)
+X	 if (this_label->tag == last+1)
+X	   last++;
+X	 else
+X	   break;
+X    
+X    return (last+1);
+X}
+X
+X/* delete label from linked list started by first_label.
+X * called with pointers to the previous label (prev) and the 
+X * label to delete (this).
+X * If there is no previous label (the label to delete is
+X * first_label) then call with prev = NULL.
+X */
+Xstatic void
+Xdelete_label(prev,this)
+X	struct text_label *prev, *this;
+X{
+X    if (this!=NULL)	{		/* there really is something to delete */
+X	   if (prev!=NULL)		/* there is a previous label */
+X		prev->next = this->next; 
+X	   else				/* this = first_label so change first_label */
+X		first_label = this->next;
+X	   free((char *)this);
+X    }
+X}
+X
+X
+X/* process a 'set arrow' command */
+X/* set arrow {tag} {from x,y} {to x,y} {{no}head} */
+Xstatic void
+Xset_arrow()
+X{
+X    struct value a;
+X    struct arrow_def *this_arrow = NULL;
+X    struct arrow_def *new_arrow = NULL;
+X    struct arrow_def *prev_arrow = NULL;
+X    double sx, sy, sz;
+X    double ex, ey, ez;
+X    int tag;
+X    TBOOLEAN set_start, set_end, head = 1;
+X
+X    /* get tag */
+X    if (!END_OF_COMMAND 
+X	   && !equals(c_token, "from")
+X	   && !equals(c_token, "to")) {
+X	   /* must be a tag expression! */
+X	   tag = (int)real(const_express(&a));
+X	   if (tag <= 0)
+X		int_error("tag must be > zero", c_token);
+X    } else
+X	 tag = assign_arrow_tag(); /* default next tag */
+X	 
+X    /* get start position */
+X    if (!END_OF_COMMAND && equals(c_token, "from")) {
+X	   c_token++;
+X	   if (END_OF_COMMAND)
+X		int_error("start coordinates expected", c_token);
+X	   /* get coordinates */
+X	   sx = real(const_express(&a));
+X	   if (!equals(c_token,","))
+X		int_error("',' expected",c_token);
+X	   c_token++;
+X	   sy = real(const_express(&a));
+X	   if (equals(c_token,",")) {
+X		c_token++;
+X		sz = real(const_express(&a));
+X	   }
+X	   else
+X	       sz = 0;
+X	   set_start = TRUE;
+X    } else {
+X	   sx = sy = sz = 0;			/* default at origin */
+X	   set_start = FALSE;
+X    }
+X
+X    /* get end position */
+X    if (!END_OF_COMMAND && equals(c_token, "to")) {
+X	   c_token++;
+X	   if (END_OF_COMMAND)
+X		int_error("end coordinates expected", c_token);
+X	   /* get coordinates */
+X	   ex = real(const_express(&a));
+X	   if (!equals(c_token,","))
+X		int_error("',' expected",c_token);
+X	   c_token++;
+X	   ey = real(const_express(&a));
+X	   if (equals(c_token,",")) {
+X		c_token++;
+X		ez = real(const_express(&a));
+X	   }
+X	   else
+X		ez = 0;
+X	   set_end = TRUE;
+X    } else {
+X	   ex = ey = ez = 0;			/* default at origin */
+X	   set_end = FALSE;
+X    }
+X
+X    /* get start position - what the heck, either order is ok */
+X    if (!END_OF_COMMAND && equals(c_token, "from")) {
+X	   if (set_start)
+X		int_error("only one 'from' is allowed", c_token);
+X	   c_token++;
+X	   if (END_OF_COMMAND)
+X		int_error("start coordinates expected", c_token);
+X	   /* get coordinates */
+X	   sx = real(const_express(&a));
+X	   if (!equals(c_token,","))
+X		int_error("',' expected",c_token);
+X	   c_token++;
+X	   sy = real(const_express(&a));
+X	   if (equals(c_token,",")) {
+X		c_token++;
+X		sz = real(const_express(&a));
+X	   }
+X	   else
+X	       sz = 0;
+X	   set_start = TRUE;
+X    }
+X
+X    if (!END_OF_COMMAND && equals(c_token, "nohead")) {
+X	   c_token++;
+X           head = 0;
+X    }
+X
+X    if (!END_OF_COMMAND && equals(c_token, "head")) {
+X	   c_token++;
+X           head = 1;
+X    }
+X
+X    if (!END_OF_COMMAND)
+X	 int_error("extraneous or out-of-order arguments in set arrow", c_token);
+X
+X    /* OK! add arrow */
+X    if (first_arrow != NULL) { /* skip to last arrow */
+X	   for (this_arrow = first_arrow; this_arrow != NULL ; 
+X		   prev_arrow = this_arrow, this_arrow = this_arrow->next)
+X		/* is this the arrow we want? */
+X		if (tag <= this_arrow->tag)
+X		  break;
+X    }
+X    if (this_arrow != NULL && tag == this_arrow->tag) {
+X	   /* changing the arrow */
+X	   if (set_start) {
+X		  this_arrow->sx = sx;
+X		  this_arrow->sy = sy;
+X		  this_arrow->sz = sz;
+X	   }
+X	   if (set_end) {
+X		  this_arrow->ex = ex;
+X		  this_arrow->ey = ey;
+X		  this_arrow->ez = ez;
+X	   }
+X	   this_arrow->head = head;
+X    } else {
+X	   /* adding the arrow */
+X	   new_arrow = (struct arrow_def *) 
+X		alloc ( (unsigned long) sizeof(struct arrow_def), "arrow");
+X	   if (prev_arrow != NULL)
+X		prev_arrow->next = new_arrow; /* add it to end of list */
+X	   else 
+X		first_arrow = new_arrow; /* make it start of list */
+X	   new_arrow->tag = tag;
+X	   new_arrow->next = this_arrow;
+X	   new_arrow->sx = sx;
+X	   new_arrow->sy = sy;
+X	   new_arrow->sz = sz;
+X	   new_arrow->ex = ex;
+X	   new_arrow->ey = ey;
+X	   new_arrow->ez = ez;
+X	   new_arrow->head = head;
+X    }
+X}
+X
+X/* process 'set noarrow' command */
+X/* set noarrow {tag} */
+Xstatic void
+Xset_noarrow()
+X{
+X    struct value a;
+X    struct arrow_def *this_arrow;
+X    struct arrow_def *prev_arrow; 
+X    int tag;
+X
+X    if (END_OF_COMMAND) {
+X	   /* delete all arrows */
+X	   while (first_arrow != NULL)
+X		delete_arrow((struct arrow_def *)NULL,first_arrow);
+X    }
+X    else {
+X	   /* get tag */
+X	   tag = (int)real(const_express(&a));
+X	   if (!END_OF_COMMAND)
+X		int_error("extraneous arguments to set noarrow", c_token);
+X	   for (this_arrow = first_arrow, prev_arrow = NULL;
+X		   this_arrow != NULL;
+X		   prev_arrow = this_arrow, this_arrow = this_arrow->next) {
+X		  if (this_arrow->tag == tag) {
+X			 delete_arrow(prev_arrow,this_arrow);
+X			 return;		/* exit, our job is done */
+X		  }
+X	   }
+X	   int_error("arrow not found", c_token);
+X    }
+X}
+X
+X/* assign a new arrow tag */
+X/* arrows are kept sorted by tag number, so this is easy */
+Xstatic int				/* the lowest unassigned tag number */
+Xassign_arrow_tag()
+X{
+X    struct arrow_def *this_arrow;
+X    int last = 0;			/* previous tag value */
+X
+X    for (this_arrow = first_arrow; this_arrow != NULL;
+X	    this_arrow = this_arrow->next)
+X	 if (this_arrow->tag == last+1)
+X	   last++;
+X	 else
+X	   break;
+X
+X    return (last+1);
+X}
+X
+X/* delete arrow from linked list started by first_arrow.
+X * called with pointers to the previous arrow (prev) and the 
+X * arrow to delete (this).
+X * If there is no previous arrow (the arrow to delete is
+X * first_arrow) then call with prev = NULL.
+X */
+Xstatic void
+Xdelete_arrow(prev,this)
+X	struct arrow_def *prev, *this;
+X{
+X    if (this!=NULL)	{		/* there really is something to delete */
+X	   if (prev!=NULL)		/* there is a previous arrow */
+X		prev->next = this->next; 
+X	   else				/* this = first_arrow so change first_arrow */
+X		first_arrow = this->next;
+X	   free((char *)this);
+X    }
+X}
+X
+X
+Xenum PLOT_STYLE			/* not static; used by command.c */
+Xget_style()
+X{
+Xregister enum PLOT_STYLE ps;
+X
+X	c_token++;
+X	if (almost_equals(c_token,"l$ines"))
+X		ps = LINES;
+X	else if (almost_equals(c_token,"i$mpulses"))
+X		ps = IMPULSES;
+X	else if (almost_equals(c_token,"p$oints"))
+X		ps = POINTSTYLE;
+X	else if (almost_equals(c_token,"linesp$oints"))
+X		ps = LINESPOINTS;
+X	else if (almost_equals(c_token,"d$ots"))
+X		ps = DOTS;
+X	else if (almost_equals(c_token,"e$rrorbars"))
+X		ps = ERRORBARS;
+X	else if (almost_equals(c_token,"b$oxes"))
+X		ps = BOXES;
+X	else if (almost_equals(c_token,"boxer$rorbars"))
+X		ps = BOXERROR;
+X	else if (almost_equals(c_token,"s$teps"))
+X		ps = STEPS;
+X	else
+X		int_error("expecting 'lines', 'points', 'linespoints', 'dots', 'impulses', \n\
+X        'errorbars', 'steps', 'boxes' or 'boxerrorbars'",c_token);
+X	c_token++;
+X	return(ps);
+X}
+X
+X/* For set [xy]tics... command*/
+Xstatic void
+Xload_tics(tdef)
+X	struct ticdef *tdef;	/* change this ticdef */
+X{
+X    if (equals(c_token,"(")) { /* set : TIC_USER */
+X	   c_token++;
+X	   load_tic_user(tdef);
+X    } else {				/* series : TIC_SERIES */
+X	   load_tic_series(tdef);
+X    }
+X}
+X
+X/* load TIC_USER definition */
+X/* (tic[,tic]...)
+X * where tic is ["string"] value
+X * Left paren is already scanned off before entry.
+X */
+Xstatic void
+Xload_tic_user(tdef)
+X	struct ticdef *tdef;
+X{
+X    struct ticmark *list = NULL; /* start of list */
+X    struct ticmark *last = NULL; /* end of list */
+X    struct ticmark *tic = NULL; /* new ticmark */
+X    char temp_string[MAX_LINE_LEN];
+X    struct value a;
+X
+X    while (!END_OF_COMMAND) {
+X	   /* parse a new ticmark */
+X	   tic = (struct ticmark *)alloc((unsigned long)sizeof(struct ticmark), (char *)NULL);
+X	   if (tic == (struct ticmark *)NULL) {
+X		  free_marklist(list);
+X		  int_error("out of memory for tic mark", c_token);
+X	   }
+X
+X	   /* has a string with it? */
+X	   if (isstring(c_token)) {
+X		  quote_str(temp_string,c_token);
+X		  tic->label = alloc((unsigned long)strlen(temp_string)+1, "tic label");
+X		  (void) strcpy(tic->label, temp_string);
+X		  c_token++;
+X	   } else
+X		tic->label = NULL;
+X
+X	   /* in any case get the value */
+X	   tic->position = real(const_express(&a));
+X	   tic->next = NULL;
+X
+X	   /* append to list */
+X	   if (list == NULL)
+X		last = list = tic;	/* new list */
+X	   else {				/* append to list */
+X		  last->next = tic;
+X		  last = tic;
+X	   }
+X
+X	   /* expect "," or ")" here */
+X	   if (!END_OF_COMMAND && equals(c_token, ","))
+X		c_token++;		/* loop again */
+X	   else
+X		break;			/* hopefully ")" */
+X    }
+X    
+X    if (END_OF_COMMAND || !equals(c_token, ")")) {
+X	   free_marklist(list);
+X	   int_error("expecting right parenthesis )", c_token);
+X    }
+X    c_token++;
+X    
+X    /* successful list */
+X    if (tdef->type == TIC_USER) {
+X	   /* remove old list */
+X		/* VAX Optimiser was stuffing up following line. Turn Optimiser OFF */
+X	   free_marklist(tdef->def.user);
+X	   tdef->def.user = NULL;
+X    }
+X    tdef->type = TIC_USER;
+X    tdef->def.user = list;
+X}
+X
+Xstatic void
+Xfree_marklist(list)
+X	struct ticmark *list;
+X{
+X    register struct ticmark *freeable;
+X
+X    while (list != NULL) {
+X	   freeable = list;
+X	   list = list->next;
+X	   if (freeable->label != NULL)
+X		free( (char *)freeable->label );
+X	   free( (char *)freeable );
+X    }
+X}
+X
+X/* load TIC_SERIES definition */
+X/* start,incr[,end] */
+Xstatic void
+Xload_tic_series(tdef)
+X	struct ticdef *tdef;
+X{
+X    double start, incr, end;
+X    struct value a;
+X    int incr_token;
+X
+X    start = real(const_express(&a));
+X    if (!equals(c_token, ","))
+X	 int_error("expecting comma to separate start,incr", c_token);
+X    c_token++;
+X
+X    incr_token = c_token;
+X    incr = real(const_express(&a));
+X
+X    if (END_OF_COMMAND)
+X	 end = VERYLARGE;
+X    else {
+X	   if (!equals(c_token, ","))
+X		int_error("expecting comma to separate incr,end", c_token);
+X	   c_token++;
+X
+X	   end = real(const_express(&a));
+X    }
+X    if (!END_OF_COMMAND)
+X	 int_error("tic series is defined by start,increment[,end]", 
+X			 c_token);
+X    
+X    if (start < end && incr <= 0)
+X	 int_error("increment must be positive", incr_token);
+X    if (start > end && incr >= 0)
+X	 int_error("increment must be negative", incr_token);
+X    if (start > end) {
+X	   /* put in order */
+X		double numtics;
+X		numtics = floor( (end*(1+SIGNIF) - start)/incr );
+X		end = start;
+X		start = end + numtics*incr;
+X		incr = -incr;
+X/*
+X	   double temp = start;
+X	   start = end;
+X	   end = temp;
+X	   incr = -incr;
+X */
+X    }
+X
+X    if (tdef->type == TIC_USER) {
+X	   /* remove old list */
+X		/* VAX Optimiser was stuffing up following line. Turn Optimiser OFF */
+X	   free_marklist(tdef->def.user);
+X	   tdef->def.user = NULL;
+X    }
+X    tdef->type = TIC_SERIES;
+X    tdef->def.series.start = start;
+X    tdef->def.series.incr = incr;
+X    tdef->def.series.end = end;
+X}
+X
+Xstatic void
+Xload_offsets (a, b, c, d)
+Xdouble *a,*b, *c, *d;
+X{
+Xstruct value t;
+X
+X	*a = real (const_express(&t));  /* loff value */
+X	c_token++;
+X	if (equals(c_token,","))
+X		c_token++;
+X	if (END_OF_COMMAND) 
+X	    return;
+X
+X	*b = real (const_express(&t));  /* roff value */
+X	c_token++;
+X	if (equals(c_token,","))
+X		c_token++;
+X	if (END_OF_COMMAND) 
+X	    return;
+X
+X	*c = real (const_express(&t));  /* toff value */
+X	c_token++;
+X	if (equals(c_token,","))
+X		c_token++;
+X	if (END_OF_COMMAND) 
+X	    return;
+X
+X	*d = real (const_express(&t));  /* boff value */
+X	c_token++;
+X}
+X
+X
+XTBOOLEAN					/* TRUE if a or b were changed */
+Xload_range(a,b)			/* also used by command.c */
+Xdouble *a,*b;
+X{
+Xstruct value t;
+XTBOOLEAN changed = FALSE;
+X
+X	if (equals(c_token,"]"))
+X		return(FALSE);
+X	if (END_OF_COMMAND) {
+X	    int_error("starting range value or ':' or 'to' expected",c_token);
+X	} else if (!equals(c_token,"to") && !equals(c_token,":"))  {
+X		*a = real(const_express(&t));
+X		changed = TRUE;
+X	}	
+X	if (!equals(c_token,"to") && !equals(c_token,":"))
+X		int_error("':' or keyword 'to' expected",c_token);
+X	c_token++;
+X	if (!equals(c_token,"]")) {
+X		*b = real(const_express(&t));
+X		changed = TRUE;
+X	 }
+X     return(changed);
+X}
+X
+X
+X
+X/******* The 'show' command *******/
+Xvoid
+Xshow_command()
+X{
+X    static char GPFAR showmess[] = 
+X	"valid show options:  'action_table', 'all', 'angles', 'arrow', \n\
+X	'autoscale', 'border', 'boxwidth', 'clip', 'contour', 'data', \n\
+X	'dgrid3d', 'dummy', 'format', 'function', 'grid', 'hidden', 'key', \n\
+X	'label', 'logscale', 'mapping',  'offsets', 'output', 'plot', \n\
+X	'parametric', 'polar', 'rrange', 'samples', 'isosamples', 'view', \n\
+X	'size', 'terminal', 'tics', 'ticslevel', 'time', 'title', 'trange', \n\
+X	'urange', 'vrange', 'variables', 'version', \n\
+X	'xlabel', 'xrange', '{no}xtics', 'xmtics', 'xdtics', '{no}xzeroaxis',\n\
+X	'ylabel', 'yrange', '{no}ytics', 'ymtics', 'ydtics', '{no}yzeroaxis',\n\
+X 	'zero', '{no}zeroaxis', 'zlabel', 'zrange', '{no}ztics',\n\
+X 	'zmtics', 'zdtics'";
+X
+X    c_token++;
+X
+X    if (!show_one() && !show_two())
+X	int_error(showmess, c_token);
+X	screen_ok = FALSE;
+X	(void) putc('\n',stderr);
+X}
+X
+X/* return TRUE if a command match, FALSE if not */
+Xstatic TBOOLEAN
+Xshow_one()
+X{
+X	if (almost_equals(c_token,"ac$tion_table") ||
+X			 equals(c_token,"at") ) {
+X		c_token++; 
+X		show_at();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"ar$row")) {
+X	    struct value a;
+X	    int tag = 0;
+X
+X	    c_token++;
+X	    if (!END_OF_COMMAND) {
+X		   tag = (int)real(const_express(&a));
+X		   if (tag <= 0)
+X			int_error("tag must be > zero", c_token);
+X	    }
+X
+X	    (void) putc('\n',stderr);
+X	    show_arrow(tag);
+X	}
+X	else if (almost_equals(c_token,"au$toscale")) {
+X		(void) putc('\n',stderr);
+X		show_autoscale();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"bor$der")) {
+X		(void) putc('\n',stderr);
+X		show_border();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"box$width")) {
+X		(void) putc('\n',stderr);
+X		show_boxwidth();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"c$lip")) {
+X		(void) putc('\n',stderr);
+X		show_clip();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"ma$pping")) {
+X		(void) putc('\n',stderr);
+X		show_mapping();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"co$ntour")) {
+X		(void) putc('\n',stderr);
+X		show_contour();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"da$ta")) {
+X		c_token++;
+X		if (!almost_equals(c_token,"s$tyle"))
+X			int_error("expecting keyword 'style'",c_token);
+X		(void) putc('\n',stderr);
+X		show_style("data",data_style);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"dg$rid3d")) {
+X		(void) putc('\n',stderr);
+X		show_dgrid3d();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"du$mmy")) {
+X	  	(void) fprintf(stderr,"\n\tdummy variables are \"%s\" and \"%s\"\n",
+X	    				dummy_var[0], dummy_var[1]);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"fo$rmat")) {
+X		show_format();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"fu$nctions")) {
+X		c_token++;
+X		if (almost_equals(c_token,"s$tyle"))  {
+X			(void) putc('\n',stderr);
+X			show_style("functions",func_style);
+X			c_token++;
+X		}
+X		else
+X			show_functions();
+X	}
+X	else if (almost_equals(c_token,"lo$gscale")) {
+X		(void) putc('\n',stderr);
+X		show_logscale();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"of$fsets")) {
+X		(void) putc('\n',stderr);
+X		show_offsets();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"o$utput")) {
+X		(void) putc('\n',stderr);
+X		show_output();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"tit$le")) {
+X		(void) putc('\n',stderr);
+X		show_title();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"xl$abel")) {
+X		(void) putc('\n',stderr);
+X		show_xlabel();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"yl$abel")) {
+X		(void) putc('\n',stderr);
+X		show_ylabel();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"zl$abel")) {
+X		(void) putc('\n',stderr);
+X		show_zlabel();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"xzero$axis")) {
+X		(void) putc('\n',stderr);
+X		show_xzeroaxis();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"yzero$axis")) {
+X		(void) putc('\n',stderr);
+X		show_yzeroaxis();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"zeroa$xis")) {
+X		(void) putc('\n',stderr);
+X		show_xzeroaxis();
+X		show_yzeroaxis();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"la$bel")) {
+X	    struct value a;
+X	    int tag = 0;
+X
+X	    c_token++;
+X	    if (!END_OF_COMMAND) {
+X		   tag = (int)real(const_express(&a));
+X		   if (tag <= 0)
+X			int_error("tag must be > zero", c_token);
+X	    }
+X
+X	    (void) putc('\n',stderr);
+X	    show_label(tag);
+X	}
+X	else if (almost_equals(c_token,"g$rid")) {
+X		(void) putc('\n',stderr);
+X		show_grid();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"k$ey")) {
+X		(void) putc('\n',stderr);
+X		show_key();
+X		c_token++;
+X	}
+X	else
+X		return (FALSE);
+X	return TRUE;
+X}
+X
+X/* return TRUE if a command match, FALSE if not */
+Xstatic TBOOLEAN
+Xshow_two()
+X{
+X	if (almost_equals(c_token,"p$lot")) {
+X		(void) putc('\n',stderr);
+X		show_plot();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"par$ametric")) {
+X		(void) putc('\n',stderr);
+X		show_parametric();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"pol$ar")) {
+X		(void) putc('\n',stderr);
+X		show_polar();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"an$gles")) {
+X		(void) putc('\n',stderr);
+X		show_angles();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"ti$cs")) {
+X		(void) putc('\n',stderr);
+X		show_tics(TRUE,TRUE,TRUE);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"tim$e")) {
+X		(void) putc('\n',stderr);
+X		show_time();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"su$rface")) {
+X		(void) putc('\n',stderr);
+X		show_surface();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"hi$dden3d")) {
+X		(void) putc('\n',stderr);
+X		show_hidden3d();
+X		c_token++;
+X	}
+X 	else if (almost_equals(c_token,"cla$bel")) {
+X 		(void) putc('\n',stderr);
+X 		show_label_contours();
+X 		c_token++;
+X 	}
+X	else if (almost_equals(c_token,"xti$cs")) {
+X	    show_tics(TRUE,FALSE,FALSE);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"yti$cs")) {
+X	    show_tics(FALSE,TRUE,FALSE);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"zti$cs")) {
+X	    show_tics(FALSE,FALSE,TRUE);
+X	    c_token++;
+X	}
+X	else if (almost_equals(c_token,"sa$mples")) {
+X		(void) putc('\n',stderr);
+X		show_samples();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"isosa$mples")) {
+X		(void) putc('\n',stderr);
+X		show_isosamples();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"si$ze")) {
+X		(void) putc('\n',stderr);
+X		show_size();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"t$erminal")) {
+X		(void) putc('\n',stderr);
+X		show_term();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"rr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('r',rmin,rmax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"tr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('t',tmin,tmax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"ur$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('u',umin,umax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"vi$ew")) {
+X		(void) putc('\n',stderr);
+X		show_view();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"vr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('v',vmin,vmax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"v$ariables")) {
+X		show_variables();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"ve$rsion")) {
+X		show_version();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"xr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('x',xmin,xmax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"yr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('y',ymin,ymax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"zr$ange")) {
+X		(void) putc('\n',stderr);
+X		show_range('z',zmin,zmax);
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"z$ero")) {
+X		(void) putc('\n',stderr);
+X		show_zero();
+X		c_token++;
+X	}
+X	else if (almost_equals(c_token,"a$ll")) {
+X		c_token++;
+X		show_version();
+X		show_autoscale();
+X		show_border();
+X		show_boxwidth();
+X		show_clip();
+X		show_contour();
+X		show_dgrid3d();
+X		show_mapping();
+X	  	(void) fprintf(stderr,"\tdummy variables are \"%s\" and \"%s\"\n",
+X	    				dummy_var[0], dummy_var[1]);
+X		show_format();
+X		show_style("data",data_style);
+X		show_style("functions",func_style);
+X		show_grid();
+X		show_label(0);
+X		show_arrow(0);
+X		show_key();
+X		show_logscale();
+X		show_offsets();
+X		show_output();
+X		show_parametric();
+X		show_polar();
+X		show_angles();
+X		show_samples();
+X		show_isosamples();
+X		show_view();
+X		show_surface();
+X#ifndef LITE
+X		show_hidden3d();
+X#endif
+X		show_size();
+X		show_term();
+X		show_tics(TRUE,TRUE,TRUE);
+X		show_time();
+X		if (parametric)
+X			if (!is_3d_plot)
+X				show_range('t',tmin,tmax);
+X			else {
+X				show_range('u',umin,umax);
+X				show_range('v',vmin,vmax);
+X			}
+X		if (polar)
+X		  show_range('r',rmin,rmax);
+X		show_range('x',xmin,xmax);
+X		show_range('y',ymin,ymax);
+X		show_range('z',zmin,zmax);
+X		show_title();
+X		show_xlabel();
+X		show_ylabel();
+X		show_zlabel();
+X		show_zero();
+X		show_plot();
+X		show_variables();
+X		show_functions();
+X		c_token++;
+X	}
+X	else
+X		return (FALSE);
+X	return (TRUE);
+X}
+X
+X
+X/*********** support functions for 'show'  **********/
+Xstatic void
+Xshow_style(name,style)
+Xchar name[];
+Xenum PLOT_STYLE style;
+X{
+X	fprintf(stderr,"\t%s are plotted with ",name);
+X	switch (style) {
+X		case LINES: fprintf(stderr,"lines\n"); break;
+X		case POINTSTYLE: fprintf(stderr,"points\n"); break;
+X		case IMPULSES: fprintf(stderr,"impulses\n"); break;
+X		case LINESPOINTS: fprintf(stderr,"linespoints\n"); break;
+X		case DOTS: fprintf(stderr,"dots\n"); break;
+X		case ERRORBARS: fprintf(stderr,"errorbars\n"); break;
+X		case BOXES: fprintf(stderr,"boxes\n"); break;
+X		case BOXERROR: fprintf(stderr,"boxerrorbars\n"); break;
+X		case STEPS: fprintf(stderr,"steps\n"); break;
+X	}
+X}
+X
+Xstatic void
+Xshow_boxwidth()
+X{
+X	if (boxwidth<0.0)
+X		fprintf(stderr,"\tboxwidth is auto\n");
+X	else
+X		fprintf(stderr,"\tboxwidth is %g\n",boxwidth);
+X}
+Xstatic void
+Xshow_dgrid3d()
+X{
+X	if (dgrid3d)
+X		fprintf(stderr,"\tdata grid3d is enabled for mesh of size %dx%d, norm=%d\n",
+X			dgrid3d_row_fineness,
+X			dgrid3d_col_fineness,
+X			dgrid3d_norm_value);
+X	else
+X		fprintf(stderr,"\tdata grid3d is disabled\n");
+X}
+X
+Xstatic void
+Xshow_range(name,min,max)
+Xchar name;
+Xdouble min,max;
+X{
+X	fprintf(stderr,"\t%crange is [%g : %g]\n",name,min,max);
+X}
+X
+Xstatic void
+Xshow_zero()
+X{
+X	fprintf(stderr,"\tzero is %g\n",zero);
+X}
+X
+Xstatic void
+Xshow_offsets()
+X{
+X	fprintf(stderr,"\toffsets are %g, %g, %g, %g\n",loff,roff,toff,boff);
+X}
+X
+Xstatic void
+Xshow_border()
+X{
+X	fprintf(stderr,"\tborder is %sdrawn\n", draw_border ? "" : "not ");
+X}
+X
+Xstatic void
+Xshow_output()
+X{
+X	fprintf(stderr,"\toutput is sent to %s\n",outstr);
+X}
+X
+Xstatic void
+Xshow_samples()
+X{
+X	fprintf(stderr,"\tsampling rate is %d, %d\n",samples_1, samples_2);
+X}
+X
+Xstatic void
+Xshow_isosamples()
+X{
+X	fprintf(stderr,"\tiso sampling rate is %d, %d\n",
+X		iso_samples_1, iso_samples_2);
+X}
+X
+Xstatic void
+Xshow_surface()
+X{
+X	fprintf(stderr,"\tsurface is %sdrawn\n", draw_surface ? "" : "not ");
+X}
+X
+Xstatic void
+Xshow_hidden3d()
+X{
+X#ifdef LITE
+X	printf(" Hidden Line Removal Not Supported in LITE version\n");
+X#else
+X	fprintf(stderr,"\thidden surface is %s\n", hidden3d ? "removed" : "drawn");
+X#endif /* LITE */
+X}
+X
+Xstatic void
+Xshow_label_contours()
+X{
+X	fprintf(stderr,"\tcontour line types are %s\n", label_contours ? "varied & labeled" : "all the same");
+X}
+X
+Xstatic void
+Xshow_view()
+X{
+X	fprintf(stderr,"\tview is %g rot_x, %g rot_z, %g scale, %g scale_z\n",
+X		surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
+X}
+X
+Xstatic void
+Xshow_size()
+X{
+X	fprintf(stderr,"\tsize is scaled by %g,%g\n",xsize,ysize);
+X}
+X
+Xstatic void
+Xshow_title()
+X{
+X	fprintf(stderr,"\ttitle is \"%s\", offset at %d, %d\n",
+X		title,title_xoffset,title_yoffset);
+X}
+X
+Xstatic void
+Xshow_xlabel()
+X{
+X	fprintf(stderr,"\txlabel is \"%s\", offset at %d, %d\n",
+X		xlabel,xlabel_xoffset,xlabel_yoffset);
+X}
+X
+Xstatic void
+Xshow_ylabel()
+X{
+X	fprintf(stderr,"\tylabel is \"%s\", offset at %d, %d\n",
+X		ylabel,ylabel_xoffset,ylabel_yoffset);
+X}
+Xstatic void
+Xshow_zlabel()
+X{
+X	fprintf(stderr,"\tzlabel is \"%s\", offset at %d, %d\n",
+X		zlabel,zlabel_xoffset,zlabel_yoffset);
+X}
+X
+Xstatic void
+Xshow_xzeroaxis()
+X{
+X	fprintf(stderr,"\txzeroaxis is %s\n",(xzeroaxis)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_yzeroaxis()
+X{
+X	fprintf(stderr,"\tyzeroaxis is %s\n",(yzeroaxis)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_label(tag)
+X    int tag;				/* 0 means show all */
+X{
+X    struct text_label *this_label;
+X    TBOOLEAN showed = FALSE;
+X
+X    for (this_label = first_label; this_label != NULL;
+X	    this_label = this_label->next) {
+X	   if (tag == 0 || tag == this_label->tag) {
+X		  showed = TRUE;
+X		  fprintf(stderr,"\tlabel %d \"%s\" at %g,%g,%g ",
+X				this_label->tag, this_label->text, 
+X				this_label->x, this_label->y, this_label->z);
+X		  switch(this_label->pos) {
+X			 case LEFT : {
+X				fprintf(stderr,"left");
+X				break;
+X			 }
+X			 case CENTRE : {
+X				fprintf(stderr,"centre");
+X				break;
+X			 }
+X			 case RIGHT : {
+X				fprintf(stderr,"right");
+X				break;
+X			 }
+X		  }
+X		  fputc('\n',stderr);
+X	   }
+X    }
+X    if (tag > 0 && !showed)
+X	 int_error("label not found", c_token);
+X}
+X
+Xstatic void
+Xshow_arrow(tag)
+X    int tag;				/* 0 means show all */
+X{
+X    struct arrow_def *this_arrow;
+X    TBOOLEAN showed = FALSE;
+X
+X    for (this_arrow = first_arrow; this_arrow != NULL;
+X	    this_arrow = this_arrow->next) {
+X	   if (tag == 0 || tag == this_arrow->tag) {
+X		  showed = TRUE;
+X		  fprintf(stderr,"\tarrow %d from %g,%g,%g to %g,%g,%g%s\n",
+X				this_arrow->tag, 
+X				this_arrow->sx, this_arrow->sy, this_arrow->sz,
+X				this_arrow->ex, this_arrow->ey, this_arrow->ez,
+X				this_arrow->head ? "" : " (nohead)");
+X	   }
+X    }
+X    if (tag > 0 && !showed)
+X	 int_error("arrow not found", c_token);
+X}
+X
+Xstatic void
+Xshow_grid()
+X{
+X	fprintf(stderr,"\tgrid is %s\n",(grid)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_key()
+X{
+X	switch (key) {
+X		case -1 : 
+X			fprintf(stderr,"\tkey is ON\n");
+X			break;
+X		case 0 :
+X			fprintf(stderr,"\tkey is OFF\n");
+X			break;
+X		case 1 :
+X			fprintf(stderr,"\tkey is at %g,%g,%g\n",key_x,key_y,key_z);
+X			break;
+X	}
+X}
+X
+Xstatic void
+Xshow_parametric()
+X{
+X	fprintf(stderr,"\tparametric is %s\n",(parametric)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_polar()
+X{
+X	fprintf(stderr,"\tpolar is %s\n",(polar)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_angles()
+X{
+X	fprintf(stderr,"\tAngles are in ");
+X	switch (angles_format) {
+X	    case ANGLES_RADIANS:
+X	        fprintf(stderr, "radians\n");
+X		break;
+X	    case ANGLES_DEGREES:
+X	        fprintf(stderr, "degrees\n");
+X		break;
+X	}
+X}
+X
+X
+Xstatic void
+Xshow_tics(showx, showy, showz)
+X	TBOOLEAN showx, showy, showz;
+X{
+X    fprintf(stderr,"\ttics are %s, ",(tic_in)? "IN" : "OUT");
+X    fprintf(stderr,"\tticslevel is %g\n",ticslevel);
+X
+X    if (showx)
+X	 show_ticdef(xtics, 'x', &xticdef);
+X    if (showy)
+X	 show_ticdef(ytics, 'y', &yticdef);
+X    if (showz)
+X	 show_ticdef(ztics, 'z', &zticdef);
+X    screen_ok = FALSE;
+X}
+X
+X/* called by show_tics */
+Xstatic void
+Xshow_ticdef(tics, axis, tdef)
+X	TBOOLEAN tics;			/* xtics ytics or ztics */
+X	char axis;			/* 'x' 'y' or 'z' */
+X	struct ticdef *tdef;	/* xticdef yticdef or zticdef */
+X{
+X    register struct ticmark *t;
+X
+X    fprintf(stderr, "\t%c-axis tic labelling is ", axis);
+X    if (!tics) {
+X	   fprintf(stderr, "OFF\n");
+X	   return;
+X    }
+X
+X    switch(tdef->type) {
+X	   case TIC_COMPUTED: {
+X		  fprintf(stderr, "computed automatically\n");
+X		  break;
+X	   }
+X	    case TIC_MONTH: {
+X		fprintf(stderr, "Months computed automatically\n");
+X		break;
+X	   }
+X	    case TIC_DAY:{
+X		fprintf(stderr, "Days computed automatically\n");
+X	    }
+X	   case TIC_SERIES: {
+X		  if (tdef->def.series.end == VERYLARGE)
+X		    fprintf(stderr, "series from %g by %g\n", 
+X				  tdef->def.series.start, tdef->def.series.incr);
+X		  else
+X		    fprintf(stderr, "series from %g by %g until %g\n", 
+X				  tdef->def.series.start, tdef->def.series.incr, 
+X				  tdef->def.series.end);
+X		  break;
+X	   }
+X	   case TIC_USER: {
+X		  fprintf(stderr, "list (");
+X		  for (t = tdef->def.user; t != NULL; t=t->next) {
+X			 if (t->label)
+X			   fprintf(stderr, "\"%s\" ", t->label);
+X			 if (t->next)
+X			   fprintf(stderr, "%g, ", t->position);
+X			 else
+X			   fprintf(stderr, "%g", t->position);
+X		  }
+X		  fprintf(stderr, ")\n");
+X		  break;
+X	   }
+X	   default: {
+X		  int_error("unknown ticdef type in show_ticdef()", NO_CARET);
+X		  /* NOTREACHED */
+X	   }
+X    }
+X}
+X
+Xstatic void
+Xshow_time()
+X{
+X	fprintf(stderr,"\ttime is %s, offset at %d, %d\n",
+X		(timedate)? "ON" : "OFF",
+X		time_xoffset,time_yoffset);
+X}
+X
+Xstatic void
+Xshow_term()
+X{
+X	fprintf(stderr,"\tterminal type is %s %s\n",
+X		term_tbl[term].name, term_options);
+X}
+X
+Xstatic void
+Xshow_plot()
+X{
+X	fprintf(stderr,"\tlast plot command was: %s\n",replot_line);
+X}
+X
+Xstatic void
+Xshow_autoscale()
+X{
+X	fprintf(stderr,"\tautoscaling is ");
+X	if (parametric)
+X		if (is_3d_plot)
+X			fprintf(stderr,"\tt: %s, ",(autoscale_t)? "ON" : "OFF");
+X		else
+X			fprintf(stderr,"\tu: %s, v: %s, ",
+X						(autoscale_u)? "ON" : "OFF",
+X						(autoscale_v)? "ON" : "OFF");
+X	else fprintf(stderr,"\t");
+X
+X	if (polar) fprintf(stderr,"r: %s, ",(autoscale_r)? "ON" : "OFF");
+X	fprintf(stderr,"x: %s, ",(autoscale_x)? "ON" : "OFF");
+X	fprintf(stderr,"y: %s, ",(autoscale_y)? "ON" : "OFF");
+X	fprintf(stderr,"z: %s\n",(autoscale_z)? "ON" : "OFF");
+X}
+X
+Xstatic void
+Xshow_clip()
+X{
+X	fprintf(stderr,"\tpoint clip is %s\n",(clip_points)? "ON" : "OFF");
+X
+X	if (clip_lines1)
+X	  fprintf(stderr,
+X         "\tdrawing and clipping lines between inrange and outrange points\n");
+X	else
+X	  fprintf(stderr,
+X         "\tnot drawing lines between inrange and outrange points\n");
+X
+X	if (clip_lines2)
+X	  fprintf(stderr,
+X         "\tdrawing and clipping lines between two outrange points\n");
+X	else
+X	  fprintf(stderr,
+X         "\tnot drawing lines between two outrange points\n");
+X}
+X
+Xstatic void
+Xshow_mapping()
+X{
+X	fprintf(stderr,"\tmapping for 3-d data is ");
+X
+X	switch (mapping3d) {
+X		case MAP3D_CARTESIAN:
+X			fprintf(stderr,"cartesian\n");
+X			break;
+X		case MAP3D_SPHERICAL:
+X			fprintf(stderr,"spherical\n");
+X			break;
+X		case MAP3D_CYLINDRICAL:
+X			fprintf(stderr,"cylindrical\n");
+X			break;
+X	}
+X}
+X
+Xstatic void
+Xshow_contour()
+X{
+X	fprintf(stderr,"\tcontour for surfaces are %s",
+X		(draw_contour)? "drawn" : "not drawn\n");
+X
+X	if (draw_contour) {
+X	        fprintf(stderr, " in %d levels on ", contour_levels);
+X		switch (draw_contour) {
+X			case CONTOUR_BASE:
+X				fprintf(stderr,"grid base\n");
+X				break;
+X			case CONTOUR_SRF:
+X				fprintf(stderr,"surface\n");
+X				break;
+X			case CONTOUR_BOTH:
+X				fprintf(stderr,"grid base and surface\n");
+X				break;
+X		}
+X		switch (contour_kind) {
+X			case CONTOUR_KIND_LINEAR:
+X				fprintf(stderr,"\t\tas linear segments\n");
+X				break;
+X			case CONTOUR_KIND_CUBIC_SPL:
+X				fprintf(stderr,"\t\tas cubic spline interpolation segments with %d pts\n",
+X					contour_pts);
+X				break;
+X			case CONTOUR_KIND_BSPLINE:
+X				fprintf(stderr,"\t\tas bspline approximation segments of order %d with %d pts\n",
+X					contour_order, contour_pts);
+X				break;
+X		}
+X		switch (levels_kind) {
+X			int i;
+X			case LEVELS_AUTO:
+X				fprintf(stderr,"\t\t%d automatic levels\n", contour_levels);
+X				break;
+X			case LEVELS_DISCRETE:
+X				fprintf(stderr,"\t\t%d discrete levels at ", contour_levels);
+X		                fprintf(stderr, "%g", levels_list[0]);
+X				for(i = 1; i < contour_levels; i++)
+X					fprintf(stderr,",%g ", levels_list[i]);
+X				fprintf(stderr,"\n");
+X				break;
+X			case LEVELS_INCREMENTAL:
+X				fprintf(stderr,"\t\t%d incremental levels starting at %g, step %g, end %g\n",
+X					contour_levels, levels_list[0], levels_list[1],
+X					levels_list[0]+contour_levels*levels_list[1]);
+X				break;
+X		}
+X		fprintf(stderr,"\t\tcontour line types are %s\n", label_contours ? "varied" : "all the same");
+X	}
+X}
+X
+Xstatic void
+Xshow_format()
+X{
+X	fprintf(stderr, "\ttic format is x-axis: \"%s\", y-axis: \"%s\", z-axis: \"%s\"\n",
+X		xformat, yformat, zformat);
+X}
+X
+Xstatic void
+Xshow_logscale()
+X{
+X	if (is_log_x) {
+X		fprintf(stderr,"\tlogscaling x (base %g)", base_log_x);
+X		if (is_log_y && is_log_z)
+X			fprintf(stderr,", y (base %g) and z (base %g)\n",
+X				base_log_y, base_log_z);
+X		else if (is_log_y)
+X			fprintf(stderr," and y (base %g)\n", base_log_y);
+X		else if (is_log_z)
+X			fprintf(stderr," and z (base %g)\n", base_log_z);
+X		else
+X			fprintf(stderr," only\n");
+X	} else if (is_log_y) {
+X		fprintf(stderr,"\tlogscaling y (base %g)", base_log_y);
+X		if (is_log_z)
+X			fprintf(stderr," and z (base %g)\n", base_log_z);
+X		else
+X			fprintf(stderr," only\n");
+X	} else if (is_log_z) {
+X		fprintf(stderr,"\tlogscaling z (base %g) only\n", base_log_z);
+X	} else {
+X		fprintf(stderr,"\tno logscaling\n");
+X	}
+X}
+X
+Xstatic void
+Xshow_variables()
+X{
+Xregister struct udvt_entry *udv = first_udv;
+Xint len;
+X
+X	fprintf(stderr,"\n\tVariables:\n");
+X	while (udv) {
+X	     len = instring(udv->udv_name, ' ');
+X		fprintf(stderr,"\t%-*s ",len,udv->udv_name);
+X		if (udv->udv_undef)
+X			fputs("is undefined\n",stderr);
+X		else {
+X			fputs("= ",stderr);
+X			disp_value(stderr,&(udv->udv_value));
+X			(void) putc('\n',stderr);
+X		}
+X		udv = udv->next_udv;
+X	}
+X}
+X
+Xchar *authors[] = {"Thomas Williams","Colin Kelley"}; /* primary */
+Xvoid				/* used by plot.c */
+Xshow_version()
+X{
+Xextern char version[];
+Xextern char patchlevel[];
+Xextern char date[];
+Xextern char copyright[];
+Xextern char bug_email[];
+Xextern char help_email[];
+Xint x;
+Xlong time();
+X
+X	x = time((long *)NULL) & 1;
+X	fprintf(stderr,"\n\t%s\n\t%sversion %s\n",
+X		PROGRAM, OS, version); 
+X	fprintf(stderr,"\tpatchlevel %s\n",patchlevel);
+X     fprintf(stderr, "\tlast modified %s\n", date);
+X	fprintf(stderr,"\n\t%s   %s, %s\n", copyright,authors[x],authors[1-x]);
+X    fprintf(stderr, "\n\tSend comments and requests for help to %s", help_email);
+X    fprintf(stderr, "\n\tSend bugs, suggestions and mods to %s\n", bug_email);
+X}
+END_OF_FILE
+  if test 76221 -ne `wc -c <'gnuplot/setshow.c'`; then
+    echo shar: \"'gnuplot/setshow.c'\" unpacked with wrong size!
+  fi
+  # end of 'gnuplot/setshow.c'
+fi
+echo shar: End of archive 2 \(of 33\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 33 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+exit 0 # Just in case...

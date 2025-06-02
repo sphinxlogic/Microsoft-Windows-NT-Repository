@@ -1,0 +1,1384 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki V 1.04 - part 27/32
+Keywords: Monster, a multiplayer adventure game
+Message-ID: <1992Jun14.091906.13440@klaava.Helsinki.FI>
+Date: 14 Jun 92 09:19:06 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 1372
+
+Archieve-name: monster_helsinki_104/part27
+Author: Kari.Hurtta@Helsinki.FI
+Product: Monster Helsinki V 1.04
+Environment: VMS, Pascal
+Part: 27/32
+
+-+-+-+-+-+-+-+-+ START OF PART 27 -+-+-+-+-+-+-+-+
+X`009write_ITEM(f,'REAL%',real_user.idents`091player`093);
+X
+X    `123 location must write later `125
+X    `123 don't write numrooms `125
+X
+X    getint(N_ALLOW); freeint;
+X    write_INTEGER(f,'ALLOW%',anint.int`091player`093);`032
+X
+X    `123 don't write accept `125
+X
+X    getint(N_EXPERIENCE); freeint;
+X    write_INTEGER(f,'EXP%',anint.int`091player`093);`032
+X
+X    getint(N_SELF); freeint;
+X    write_BLOCK(f,anint.int`091player`093);`032
+X   `032
+X    getint(N_PRIVILEGES); freeint;
+X    write_INTEGER(f,'PRIV%',anint.int`091player`093);`032
+X
+X    getint(N_HEALTH); freeint;
+X    write_INTEGER(f,'HEALTH%',anint.int`091player`093);`032
+X
+X    getint(N_LOCATION); freeint;
+X    write_NAME(f,'LOC%',T_NAM,anint.int`091player`093);`032
+X
+X    getspell(player); freespell;
+X    for i := 1 to maxspells do begin
+X`009if spell.level`091i`093 > 0 then begin
+X`009    write_NAME(f,'SPELL%',T_SPELL_NAME,i);
+X`009    write_INTEGER(f,'LEVEL%',spell.level`091i`093);
+X`009end;
+X    end;
+X
+Xend; `123 write_PLAYER `125
+X
+Xfunction read_PLAYER(var f: text; var name: integer): boolean;
+Xvar sp,i,owner: integer;
+X    flag: boolean;
+X    data: string;
+Xbegin
+X    if not read_NEWNAME(f,'PLAYER%',T_PERS,I_PLAYER,name) then read_PLAYER :
+V= false
+X    else if name = 0 then begin
+X`009writeln('Empty/null player name!');
+X`009read_ITEM(f,'USER%',data);
+X`009read_ITEM(f,'DATE%',data);
+X`009read_ITEM(f,'TIME%',data);
+X`009read_BINARY(f,'PASSWD%',data);
+X`009read_ITEM(f,'REAL%',data);
+X`009read_INTEGER(f,'ALLOW%',i);
+X`009read_INTEGER(f,'EXP%',i);
+X`009read_BLOCK(f,i);
+X`009read_INTEGER(f,'PRIV%',i);
+X`009read_INTEGER(f,'HEALTH%',i);
+X`009read_NAME(f,'LOC%',T_NAM,I_ROOM,i);
+X`009while read_NAME(f,'SPELL%',T_SPELL_NAME,I_SPELL,i) do begin
+X`009    read_INTEGER(f,'LEVEL%',i);
+X`009end;
+X`009read_PLAYER := true;
+X    end else begin
+X
+X`009getpers; freepers;
+X`009if debug then writeln('Reading player ',pers.idents`091name`093);
+X`009flag := true;
+X
+X`009getuser;
+X`009if not read_ITEM(f,'USER%',data) then begin
+X`009    `123 monster: username is :<MDL code number> `125
+X`009    `123 read_MONSTER update this later `125
+X`009    data := ':0';
+X`009end;
+X`009user.idents`091name`093 := data;
+X`009putuser;
+X
+X`009getdate;
+X`009if not read_ITEM(f,'DATE%',data) then flag := false;
+X`009adate.idents`091name`093 := data;
+X`009putdate;
+X
+X`009gettime;
+X`009if not read_ITEM(f,'TIME%',data) then flag := false;
+X`009atime.idents`091name`093 := data;
+X`009puttime;
+X
+X`009if read_BINARY(f,'PASSWD%',data) then begin
+X`009    getpasswd;
+X`009    passwd.idents`091name`093 := data;
+X`009    putpasswd;
+X`009end;
+X
+X`009if read_ITEM(f,'REAL%',data) then begin
+X`009    getreal_user;
+X`009    real_user.idents`091name`093 := data;
+X`009    putreal_user;
+X`009end;
+X
+X`009getint(N_ALLOW);
+X`009if not read_INTEGER(f,'ALLOW%',anint.int`091name`093) then flag := false
+V;
+X`009putint;
+X
+X`009getint(N_EXPERIENCE);
+X`009if not read_INTEGER(f,'EXP%',anint.int`091name`093) then flag := false;
+X`009putint;
+X
+X`009getint(N_SELF);
+X`009if not read_BLOCK(f,anint.int`091name`093) then flag := false;
+X`009putint;
+X
+X`009getint(N_PRIVILEGES);
+X`009if not read_INTEGER(f,'PRIV%',anint.int`091name`093) then flag := false;
+X`009putint;
+X
+X`009getint(N_HEALTH);
+X`009if not read_INTEGER(f,'HEALTH%',anint.int`091name`093) then flag := fals
+Ve;
+X`009putint;
+X
+X`009getint(N_LOCATION);
+X`009if not read_NAME(f,'LOC%',T_NAM,I_ROOM,anint.int`091name`093) then flag
+V := false;
+X`009putint;
+X
+X                     `123 initialize the record containing the
+X                       level of each spell they have to start;
+X                       all start at zero; since the spellfile is
+X                       directly parallel with mylog, we can hack
+X                       init it here without dealing with SYSTEM `125
+X
+X                     locate(spellfile,name);
+X                     for i := 1 to maxspells do
+X                        spellfile`094.level`091i`093 := 0;
+X                     spellfile`094.recnum := name;
+X                     put(spellfile);
+X
+X`009getspell(name);
+X`009for sp := 1 to maxspells do spell.level`091sp`093 := 0;
+X`009while read_NAME(f,'SPELL%',T_SPELL_NAME,I_SPELL,sp) do begin
+X`009    if not read_INTEGER(f,'LEVEL%',spell.level`091sp`093) then flag := f
+Valse;
+X`009end;
+X`009putspell;
+X
+X`009if not flag then writeln('Error in reading player ',pers.idents`091name`
+V093);
+X`009read_PLAYER := true;
+X    end;
+Xend; `123 read_PLAYER `125
+X
+X`123 EXIT `125
+X
+Xprocedure write_EXIT(var f: text; from,slot: integer; exitrec: exit);
+Xbegin
+X    if debug then writeln('Writing exit #',from:1,'/',slot:1);
+X    write_NAME(f,'EXITFROM%',T_NAM,from);
+X    write_INTEGER(f,'SLOT%',slot);`009    `123 must be same slot in `125
+X`009`009`009`009`009    `123 in BUILDed database `125
+X
+X    write_NAME(f,'TO%',T_NAM,exitrec.toloc);
+X    write_INTEGER(f,'KIND%',exitrec.kind);
+X    write_INTEGER(f,'TOSLOT%',exitrec.slot);
+X
+X    write_DESCLINE(f,exitrec.exitdesc);
+X    write_BLOCK(f,exitrec.fail);
+X    write_BLOCK(f,exitrec.success);
+X    write_BLOCK(f,exitrec.goin);`009`123  new for dump version 1.02 `125
+X    write_BLOCK(f,exitrec.comeout);
+X
+X   `032
+X    `123 write_INTEGER(f,'HIDDEN%',exitrec.hidden); WRONG !! `125
+X    write_BLOCK(f,exitrec.hidden);
+X   `032
+X    write_NAME(f,'OBJREQ%',T_OBJNAM,exitrec.objreq);
+X    write_ITEM(f,'ALIAS%',exitrec.alias);
+X    write_BOOLEAN(f,'REQVERB%',exitrec.reqverb);
+X    write_BOOLEAN(f,'REQALIAS%',exitrec.reqalias);
+X    write_BOOLEAN(f,'AUTOLOOK%',exitrec.autolook);
+X    `123 write_DESCLINE(f,exitrec.closed); not used yet ? `125
+Xend;
+X
+Xfunction read_EXIT(var f: text; var from,slot: integer;
+X`009    var exitrec: exit): boolean;
+Xvar flag: boolean;
+X    data: string;
+X    tmp: integer;
+Xbegin
+X    if not read_NAME(f,'EXITFROM%',T_NAM,I_ROOM,from) then
+X`009read_EXIT := false
+X    else begin
+X`009flag := true;
+X`009getnam; freenam;
+X`009if not read_INTEGER(f,'SLOT%',slot) then flag := false;
+X`009if debug and (from > 0) then writeln('Reading exit ',
+X`009    nam.idents`091from`093,'/',direct`091slot`093);
+X`009
+X`009if not read_NAME(f,'TO%',T_NAM,I_ROOM,exitrec.toloc) then flag := false;
+X`009if not read_INTEGER(f,'KIND%',exitrec.kind) then flag := false;
+X`009if not read_INTEGER(f,'TOSLOT%',exitrec.slot) then flag := false;
+X
+X`009if not read_DESCLINE(f,exitrec.exitdesc) then flag := false;
+X`009if not read_BLOCK(f,exitrec.fail) then flag := false;
+X`009if not read_BLOCK(f,exitrec.success) then flag := false;
+X`009if READ_vers_102 then begin`009    `123 new for version 1.02 `125
+X`009    if not read_BLOCK(f,exitrec.goin) then flag := false;
+X`009end else begin
+X`009    exitrec.goin := 0;`009    `123 none `125
+X`009end;
+X
+X`009if not read_BLOCK(f,exitrec.comeout) then flag := false;
+X
+X`009if READ_vers_101 then begin`009`123 was wrong in version 1.00 !! `125
+X`009    if not read_BLOCK(f,exitrec.hidden) then flag := false;
+X`009end else begin
+X`009    if not read_INTEGER(f,'HIDDEN%',tmp) then flag := false;
+X`009    if tmp <> 0 then writeln('Warning: Bad hidden field of exit in dump
+V due bug in database version 1.00');
+X`009    exitrec.hidden := 0;
+X`009end;
+X`009if not read_NAME(f,'OBJREQ%',T_OBJNAM,I_OBJECT,exitrec.objreq) then flag
+V := false;
+X
+X`009if not read_ITEM(f,'ALIAS%',data) then flag := false;
+X`009exitrec.alias := data;
+X`009if not read_BOOLEAN(f,'REQVERB%',exitrec.reqverb) then flag := false;
+X`009if not read_BOOLEAN(f,'REQALIAS%',exitrec.reqalias) then flag := false;
+X`009if not read_BOOLEAN(f,'AUTOLOOK%',exitrec.autolook) then flag := false;
+X`009if not read_DESCLINE(f,exitrec.closed) then`032
+X`009    exitrec.closed := 0; `123 not used yet `125
+X`009
+X`009if not flag then begin
+X`009    if (from > 0) then writeln('Error in loading exit ',
+X`009`009nam.idents`091from`093,'/',direct`091slot`093)
+X`009    else writeln('Error in loading exit #',from:1,'/',direct`091slot`093
+V);
+X`009end;
+X`009read_EXIT := true;
+X    end;
+Xend;`032
+X
+X`123 SPELL `125
+X
+Xprocedure write_SPELL(var f: text; spell: integer);
+Xbegin
+X    if debug then writeln('Writing spell #',spell:1);
+X    write_NAME(f,'SPELL%',T_SPELL_NAME,spell);
+X    getint(N_SPELL); freeint;
+X    write_MDL(f,anint.int`091spell`093);
+Xend;
+X
+Xfunction read_SPELL(var f: text; var spell: integer): boolean;
+Xvar flag: boolean;
+X    j: integer;
+Xbegin
+X    if not read_NEWNAME(f,'SPELL%',T_SPELL_NAME,I_SPELL,spell) then
+X`009read_SPELL := false
+X    else if spell = 0 then begin
+X`009writeln('Empty/null spell name!');
+X`009read_MDL(f,j);
+X`009read_SPELL := true;
+X    end else begin
+X`009getspell_name;freespell_name;
+X`009if debug then writeln('Reading spell ',spell_name.idents`091spell`093);
+X`009flag := true;
+X`009if not read_MDL(f,j) then flag := false;
+X`009getint(N_SPELL);
+X`009anint.int`091spell`093 := j;
+X`009putint;
+X
+X`009if not flag then writeln('Error in reading spell ',spell_name.idents`091
+Vspell`093);
+X`009read_SPELL := true;
+X    end;
+Xend;
+X
+X`123 ROOM `125
+X
+Xprocedure write_ROOM(var f: text; id: integer);
+Xvar i: integer;
+Xbegin
+X    getroom(id); freeroom;
+X    if debug then writeln('Writing room ',here.nicename);
+X   `032
+X    write_NAME(f,'ROOM%',T_NAM,id);
+X    `123 dont't write locnum `125
+X    write_ITEM(f,'OWNER%',here.owner);
+X    write_ITEM(f,'NICENAME%',here.nicename);
+X    write_INTEGER(f,'NAMEPRINT%',here.nameprint);
+X
+X    write_BLOCK(f,here.primary);
+X    write_BLOCK(f,here.secondary);
+X    write_INTEGER(f,'WHICH%',here.which);
+X   `032
+X    write_NAME(f,'MAGICOBJ%',T_OBJNAM,here.magicobj);
+X    `123 don't write effects `125
+X    `123 don't write parm `125
+X   `032
+X    `123 write exits later `125
+X
+X    `123 don't write pile `125
+X    for i := 1 to maxobjs do if here.objs`091i`093 > 0 then begin
+X`009write_NAME(f,'OBJHERE%',T_OBJNAM,here.objs`091i`093);
+X`009write_INTEGER(f,'OBJHIDE%',here.objhide`091i`093);
+X    end;
+X
+X    `123 write objdrop later `125
+X
+X    write_DESCLINE(f,here.objdesc);
+X    write_DESCLINE(f,here.objdest);
+X   `032
+X    `123 write monsters later `125
+X   `032
+X    `123 write grploc1 later `125
+X    `123 write grploc2 later `125
+X    write_ITEM(f,'GRPNAM1%',here.grpnam1);
+X    write_ITEM(f,'GRPNAM2%',here.grpnam2);
+X
+X    for i := 1 to maxdetail do if here.detaildesc`091i`093 <> 0 then begin
+X`009write_ITEM(f,'DETAIL%',here.detail`091i`093);
+X`009write_BLOCK(f,here.detaildesc`091i`093);
+X    end;
+X
+X    write_INTEGER(f,'TRAPTO%',here.trapto); `123 exit numbers are same also
+X`009`009`009`009`009      in BUILDed database `125
+X    write_INTEGER(f,'TRAPCHANCE%',here.trapchance);
+X    write_DESCLINE(f,here.rndmsg);
+X    write_BLOCK(f,here.xmsg2);
+X    write_MDL(f,here.hook);
+X    `123 don't write exp3, exp4 `125
+X    write_BLOCK(f,here.exitfail);   `123 is this in use ? `125
+X    write_BLOCK(f,here.ofail);      `123 is this in use ? `125
+Xend;
+X
+Xfunction read_ROOM(var f: text; var id: integer): boolean;
+Xvar flag: boolean;
+X    data: string;
+X    i: integer;
+X    intdata: integer;
+Xbegin
+X    if not read_NEWNAME(f,'ROOM%',T_NAM,I_ROOM,id) then
+X`009read_ROOM := false
+X    else if id = 0 then begin`032
+X`009writeln('Empty/null room name!');
+X`009read_ITEM(f,'OWNER%',data);
+X`009read_ITEM(f,'NICENAME%',data);
+X`009writeln(' Name: ',data);
+X`009read_INTEGER(f,'NAMEPRINT%',i);
+X`009read_BLOCK(f,i);
+X`009read_BLOCK(f,i);
+X`009read_INTEGER(f,'WHICH%',i);
+X`009read_NAME(f,'MAGICOBJ%',T_OBJNAM,I_OBJECT,i);
+X`009while read_NAME(f,'OBJHERE%',T_OBJNAM,I_OBJECT,i) do begin
+X`009    read_INTEGER(f,'OBJHIDE%',i);
+X`009end;
+X`009read_DESCLINE(f,here.objdesc);
+X`009read_DESCLINE(f,i);
+X`009read_ITEM(f,'GRPNAM1%',data);
+X`009read_ITEM(f,'GRPNAM2%',data);
+X`009while read_ITEM(f,'DETAIL%',data) do begin
+X    `009    read_BLOCK(f,i);
+X`009end;
+X`009read_INTEGER(f,'TRAPTO%',i);
+X`009read_INTEGER(f,'TRAPCHANCE%',i);
+X`009read_DESCLINE(f,i);
+X`009read_BLOCK(f,i);
+X`009read_MDL(f,i);
+X`009read_BLOCK(f,i);
+X`009read_BLOCK(f,i);
+X`009read_ROOM := true;
+X    end else begin
+X`009getnam; freenam;
+X`009if debug then writeln('Reading room ',nam.idents`091id`093);
+X`009flag := true;
+X`009getroom(id);
+X`009if not read_ITEM(f,'OWNER%',data) then flag := false;
+X`009here.owner := data;
+X`009getown;`032
+X`009own.idents`091id`093 := data;  `123 update owner `125
+X`009putown;
+X`009if not read_ITEM(f,'NICENAME%',data) then flag := false;
+X`009here.nicename := data;
+X`009if not read_INTEGER(f,'NAMEPRINT%',here.nameprint) then flag := false;
+X
+X`009if not read_BLOCK(f,here.primary) then flag := false;
+X`009if not read_BLOCK(f,here.secondary) then flag := false;
+X`009if not read_INTEGER(f,'WHICH%',here.which) then flag := false;
+X
+X`009if not read_NAME(f,'MAGICOBJ%',T_OBJNAM,I_OBJECT,here.magicobj) then fla
+Vg := false;
+X
+X`009for i := 1 to maxobjs do begin
+X`009    here.objs`091i`093 := 0;
+X`009    here.objhide`091i`093 := 0;
+X`009end;
+X`009i := 1;
+X`009while read_NAME(f,'OBJHERE%',T_OBJNAM,I_OBJECT,intdata) do begin
+X`009    here.objs`091i`093 := intdata;
+X`009    if not read_INTEGER(f,'OBJHIDE%',here.objhide`091i`093) then flag :=
+V false;
+X
+X`009    getobj(here.objs`091i`093);  `032
+X`009    obj.numexist := obj.numexist + 1;   `123 Update counter `125
+X`009    putobj;
+X
+X`009    i := i+1;
+X`009end;
+X
+X`009if not read_DESCLINE(f,here.objdesc) then flag := false;
+X`009if not read_DESCLINE(f,here.objdest) then flag := false;
+X`009
+X`009for i := 1 to maxpeople do here.people`091i`093.kind := 0;
+X
+X`009if not read_ITEM(f,'GRPNAM1%',data) then flag := false;
+X`009here.grpnam1 := data;
+X`009if not read_ITEM(f,'GRPNAM2%',data) then flag := false;
+X`009here.grpnam2 := data;
+X
+X`009for i := 1 to maxdetail do begin
+X`009    here.detaildesc`091i`093 := 0;
+X`009    here.detail`091i`093 := '';
+X`009end;
+X
+X`009i := 1;
+X`009while read_ITEM(f,'DETAIL%',data) do begin
+X`009    here.detail`091i`093 := data;
+X`009    if not read_BLOCK(f,here.detaildesc`091i`093) then flag := false;
+X`009    i := i +1;
+X`009end;
+X
+X`009if not read_INTEGER(f,'TRAPTO%',here.trapto) then flag := false;
+X`009if not read_INTEGER(f,'TRAPCHANCE%',here.trapchance) then flag := false;
+X`009if not read_DESCLINE(f,here.rndmsg) then flag := false;
+X`009if not read_BLOCK(f,here.xmsg2) then flag := false;
+X`009if not read_MDL(f,here.hook) then flag := false;
+X`009if not read_BLOCK(f,here.exitfail) then flag := false;
+X`009if not read_BLOCK(f,here.ofail) then flag := false;
+X
+X`009putroom;
+X`009if not flag then writeln('Error in reading room ',here.nicename);
+X`009read_ROOM := true;
+X    end;
+Xend;
+X
+X`123 ROOM2 `125
+X
+Xprocedure write_ROOM2(var f: text; id: integer);
+Xvar i: integer;
+Xbegin
+X    getroom(id); freeroom;
+X    if debug then writeln('Writing room ',here.nicename);
+X    write_NAME(f,'ROOM2%',T_NAM,id);
+X    for i := 1 to maxexit do write_EXIT(f,id,i,here.exits`091i`093);
+X    write_NAME(f,'OBJDROP%',T_NAM,here.objdrop);
+X    write_NAME(f,'GRPLOC1%',T_NAM,here.grploc1);
+X    write_NAME(f,'GRPLOC2%',T_NAM,here.grploc2);
+X
+X    for i := 1 to maxpeople do if here.people`091i`093.kind = P_MONSTER then
+X`009write_MONSTER(f,here.people`091i`093);
+X
+Xend;`032
+X
+Xfunction read_ROOM2(var f: text; var id: integer): boolean;
+Xvar i,j,k: integer;
+X    flag : boolean;
+X    tmp: exit;
+X    tmp2: peoplerec;
+X    ownerid: integer;
+Xbegin
+X    if not read_NAME(f,'ROOM2%',T_NAM,I_ROOM,id) then
+X`009read_ROOM2 := false
+X    else if id = 0 then begin
+X`009writeln('Empty/null/unknown room name!');
+X
+X`009for i := 1 to maxexit do begin
+X`009    read_EXIT(f,j,k,tmp);
+X`009end;
+X`009read_NAME(f,'OBJDROP%',T_NAM,I_ROOM,i);
+X`009read_NAME(f,'GRPLOC1%',T_NAM,I_ROOM,i);
+X`009read_NAME(f,'GRPLOC2%',T_NAM,I_ROOM,i);
+X
+X`009while read_MONSTER(f,tmp2) do;
+X`009read_ROOM2 := true;
+X    end else begin
+X`009getroom(id);
+X`009if debug then writeln('Reading room ',here.nicename);
+X`009flag := true;
+X
+X`009getuser; freeuser; getindex(I_PLAYER); freeindex;
+X`009ownerid := 0;
+X`009for i := 1 to indx.top do if not indx.free`091i`093 then
+X`009    if user.idents`091i`093 = here.owner then ownerid := i;
+X
+X`009for i := 1 to maxexit do begin
+X`009    if not read_EXIT(f,j,k,here.exits`091i`093) then flag := false;
+X`009    if j <> id then flag := false;
+X`009    if k <> i then flag := false;
+X`009end;
+X
+X`009change_owner(0,ownerid); `123 update owner's counters `125
+X
+X`009if not read_NAME(f,'OBJDROP%',T_NAM,I_ROOM,here.objdrop) then flag := fa
+Vlse;
+X`009if not read_NAME(f,'GRPLOC1%',T_NAM,I_ROOM,here.grploc1) then flag := fa
+Vlse;
+X`009if not read_NAME(f,'GRPLOC2%',T_NAM,I_ROOM,here.grploc2) then flag := fa
+Vlse;
+X
+X`009i := 1;
+X`009while read_MONSTER(f,tmp2) do begin
+X`009    here.people`091i`093 := tmp2;
+X`009    i := i+1;
+X`009end;
+X`009
+X`009putroom;
+X`009if not flag then writeln('Error in reading room ',here.nicename);
+X`009read_ROOM2 := true;
+X    end;
+Xend;
+X
+X`123 GVAL `125
+Xprocedure write_GVAL(var f: text; id: integer);
+Xbegin
+X    if debug then writeln('Writing global #',id);
+X    write_INTEGER(f,'GLOBAL%',id);
+X    getglobal; freeglobal;
+X    case GF_Types`091id`093 of
+X`009G_Flag: write_BOOLEAN(f,'GBOOL%',global.int`091id`093 > 0);
+X`009G_Int:  write_INTEGER(f,'GINT%',global.int`091id`093);
+X`009G_Text: write_BLOCK(f,global.int`091id`093);
+X`009G_Code: write_MDL(f,global.int`091id`093);
+X    end; `123 cases `125
+Xend;
+X
+Xfunction read_GVAL(var f: text; var id: integer): boolean;
+Xvar flag: boolean;
+X    tmp: boolean;
+Xbegin
+X    if not read_INTEGER(f,'GLOBAL%',id) then
+X`009read_GVAL := false
+X    else begin
+X`009if debug then writeln('Reading global #',id:1);
+X`009getglobal;
+X`009case Gf_Types`091id`093 of
+X`009    g_flag: begin
+X`009`009flag := read_BOOLEAN(f,'GBOOL%',tmp);
+X`009`009if tmp then global.int`091id`093 := 1 else global.int`091id`093 := 0
+V;
+X`009    end;
+X`009    G_Int: flag := read_INTEGER(f,'GINT%',global.int`091id`093);
+X`009    G_text: flag := read_BLOCK(f,global.int`091id`093);
+X`009    G_Code: flag := read_MDL(f,global.int`091id`093);
+X`009end `123 cases `125;
+X`009putglobal;
+X
+X`009if not flag then writeln('Error in reading global #',id);
+X`009read_GVAL := true;
+X    end;
+Xend;
+X
+X`123 DATABASE `125
+X
+Xprocedure write_DATABASE(var f: text);
+Xvar block_use,
+X    line_use,
+X    room_use,
+X    object_use,
+X    header_use: integer;
+X    tmp: indexrec;
+X    i: integer;
+Xbegin
+X    writeln('Database writing to ',dump_file,' started.');
+X    write_ITEM(f,'DATABASE%',VERSION);
+X    write_ITEM(f,'BY%',userid);
+X
+X    getindex(I_BLOCK); freeindex; block_use := indx.inuse;
+X    getindex(I_LINE); freeindex; line_use := indx.inuse;
+X    getindex(I_ROOM); freeindex; room_use := indx.inuse;
+X    getindex(I_OBJECT); freeindex; object_use := indx.inuse;
+X    getindex(I_HEADER); freeindex; header_use := indx.inuse;
+X
+X    writeln('Block descriptions: ',block_use:3);
+X    writeln('Line descriptions:  ',line_use:3);
+X    writeln('Rooms:              ',room_use:3);
+X    writeln('Objects:            ',object_use:3);
+X    writeln('MDL codes:          ',header_use:3);
+X
+X    write_INTEGER(f,'BLOCKCOUNT%',block_use);
+X    write_INTEGER(f,'LINECOUNT%',line_use);
+X    write_INTEGER(f,'ROOMCOUNT%',room_use);
+X    write_INTEGER(f,'OBJECTCOUNT%',object_use);
+X    write_INTEGER(f,'HEADERCOUNT%',header_use);
+X
+X    writeln('Writing spells');
+X    getindex(I_SPELL); freeindex; tmp := indx;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_SPELL(f,i);
+X
+X    writeln('Writing objects, pass 1');
+X    getindex(I_OBJECT); freeindex; tmp := indx;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_OBJECT(f,i)
+V;
+X
+X    writeln('Writing rooms, pass 1');
+X    getindex(I_ROOM); freeindex; tmp := indx;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_ROOM(f,i);
+X
+X    writeln('Writing players');
+X    getindex(i_PLAYER); freeindex; tmp := indx;
+X    getuser; freeuser;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_PLAYER(f,i)
+V;
+X
+X    writeln('Writing objects, pass 2');
+X    getindex(I_OBJECT); freeindex; tmp := indx;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_OBJECT2(f,i
+V);
+X
+X    writeln('Writing rooms, pass 2');
+X    getindex(I_ROOM); freeindex; tmp := indx;
+X    for i := 1 to tmp.top do if not tmp.free`091i`093 then write_ROOM2(f,i);
+X
+X    writeln('Writing global data');
+X    for i := 1 to GF_max do write_GVAL(f,i);
+X
+Xend;
+X
+Xprocedure read_DATABASE(var f: text);
+Xlabel loppu;
+Xvar block_use,
+X    line_use,
+X    room_use,
+X    object_use,
+X    header_use: integer;
+X    tmp: indexrec;
+X    i,j: integer;
+X    ver,user: string;
+X    error: boolean;
+Xbegin
+X    writeln('Database reading from ',dump_file,' started.');
+X    error := false;
+X    if not read_ITEM(f,'DATABASE%',ver) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    if not read_ITEM(f,'BY%',user) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    writeln('Database (version ',ver,') written by ',user);
+X
+X    READ_vers_101 := ver >= '1.01';
+X    READ_vers_102 := ver >= '1.02';
+X    if (ver > VERSION) then writeln('Unknown version!');
+X
+X    if not read_INTEGER(f,'BLOCKCOUNT%',block_use) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    if not read_INTEGER(f,'LINECOUNT%',line_use) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    if not read_INTEGER(f,'ROOMCOUNT%',room_use) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    if not read_INTEGER(f,'OBJECTCOUNT%',object_use) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    if not read_INTEGER(f,'HEADERCOUNT%',header_use) then begin
+X`009error := true;
+X`009goto loppu;
+X    end;
+X    writeln('Block descriptions: ',block_use:3);
+X    writeln('Line descriptions:  ',line_use:3);
+X    writeln('Rooms:              ',room_use:3);
+X    writeln('Objects:            ',object_use:3);
+X    writeln('MDL codes:          ',header_use:3);
+X
+X    mylog := 0;
+X    writeln('Creating index file 1-10');
+X    for i := 1 to 10 do begin
+X`009`009`009`123 1 is blocklist
+X`009`009`009  2 is linelist
+X`009`009`009  3 is roomlist
+X`009`009`009  4 is playeralloc
+X`009`009`009  5 is player awake (playing game)
+X`009`009`009  6 are objects
+X`009`009`009  7 is intfile`032
+X`009`009`009  8 is headerfile
+X`009`009`009  9 is ???
+X`009`009`009  10 is spells
+X`009`009`009`125
+X
+X`009`009locate(indexfile,i);
+X`009`009for j := 1 to maxindex do
+X`009`009`009indexfile`094.free`091j`093 := true;
+X`009`009indexfile`094.indexnum := i;
+X`009`009indexfile`094.top := 0; `123 none of each to start `125
+X`009`009indexfile`094.inuse := 0;
+X`009`009put(indexfile);
+X    end;
+X         `032
+X    writeln('Initializing roomfile with ',room_use:1,' rooms');
+X    addrooms(room_use);
+X
+X    writeln('Initializing block file with ',block_use:1,' description blocks
+V');
+X    addblocks(block_use);
+X
+X    writeln('Initializing line file with ',line_use:1,' lines');
+X    addlines(line_use);
+X
+X    writeln('Initializing object file with ',object_use:1,' objects');
+X    addobjects(object_use);  `032
+X
+X    writeln('Initializing header file for monsters with ',header_use:1,' hea
+Vders');
+X    addheaders(header_use);
+X
+X    writeln('Initializing namfile 1-',T_MAX:1);
+X    for j := 1 to T_MAX do begin
+X`009`009locate(namfile,j);
+X`009`009namfile`094.validate := j;
+X`009`009namfile`094.loctop := 0;
+X`009`009for i := 1 to maxroom do begin
+X`009`009`009namfile`094.idents`091i`093 := '';
+X`009`009end;
+X`009`009put(namfile);
+X    end;
+X
+X    writeln('Initializing eventfile');
+X    for i := 1 to numevnts + 1 do begin
+X`009`009locate(eventfile,i);
+X`009`009eventfile`094.validat := i;
+X`009`009eventfile`094.point := 1;
+X`009`009put(eventfile);
+X    end;
+X
+X    writeln('Initializing intfile'); `123 minor changes by leino@finuha, `12
+V5
+X    for i := 1 to 10 do begin`009`123 hurtta@finuh `125
+X`009`009locate(intfile,i);
+X `009`009intfile`094.intnum := i;
+X`009`009put(intfile);
+X    end;
+X
+X    getindex(I_INT);
+X    for i := 1 to 10 do
+X`009`009indx.free`091i`093 := false;
+X    indx.top := 10;
+X    indx.inuse := 10;
+X    putindex;
+X
+X    writeln('Initializing global values.'); `123 Record #10 in intfile `125
+X    getglobal;
+X    for I := 1 to GF_MAX do global.int`091i`093 := 0;
+X    putglobal;
+X
+X`009`123 Player log records should have all their slots initially,
+X`009  they don't have to be allocated because they use namrec
+X`009  and intfile for their storage; they don't have their own
+X`009  file to allocate
+X`009`125
+X    getindex(I_PLAYER);
+X    indx.top := maxplayers;
+X    putindex;  `032
+X    getindex(I_ASLEEP);
+X    indx.top := maxplayers;
+X    putindex;
+X
+X    `123 spells have constant amount `125
+X    getindex(I_SPELL);
+X    indx.top := maxspells;
+X    putindex;
+X
+X    writeln('Reading spells');
+X    j := 0;
+X    while read_SPELL(f,i) do j := j +1;
+X    writeln(j:3,' spells readed.');
+X   `032
+X    writeln('Reading objects, pass 1');
+X    j := 0;
+X    while read_OBJECT(f,i) do j := j +1;
+X    writeln(j:3,' objects readed.');
+X
+X
+X    writeln('Reading rooms, pass 1');
+X    j := 0;
+X    while read_ROOM(f,i) do j := j +1;
+X    writeln(j:3,' rooms readed.');
+X
+X    writeln('Reading players');
+X    j := 0;
+X    while read_PLAYER(f,i) do j := j + 1;
+X    writeln(j:3,' players readed.');
+X
+X    writeln('Reading objects, pass 2');`032
+X    j := 0;
+X    while read_OBJECT2(f,i) do j := j +1;
+X    writeln(j:3,' objects readed.');
+X
+X    writeln('Reading rooms, pass 2');
+X    j := 0;
+X    while read_ROOM2(f,i) do j := j +1;
+X    writeln(j:3,' rooms readed.');
+X
+X    writeln('Reading global data');
+X    j := 0;
+X    while read_GVAL(f,i) do j := j +1;
+X    writeln(j:3,' global data readed.');
+X
+Xloppu:
+X    if error then writeln('Dump file is invalid.');
+Xend;
+X
+Xvar play,exist: indexrec;
+X    userid: `091global`093 veryshortstring;`009`123 userid of this player `1
+V25
+X
+X    public_id, disowned_id, system_id: shortstring;
+X
+X    active: boolean;`032
+X
+X    dump: text;
+X
+XBEGIN
+X    Get_Environment;
+X
+X    if not lookup_class(system_id,'system') then
+X`009writeln('%error in main program: system');
+X    if not lookup_class(public_id,'public') then
+X`009writeln('%error in main program: public');
+X    if not lookup_class(disowned_id,'disowned') then
+X`009writeln('%error in main program: disowned');
+X
+X    Setup_Guts;
+X    userid := lowcase(get_userid);
+X    wizard := userid = MM_userid;
+X    Params;
+X
+X    if open_database(false) then begin
+X`009if dump_system then begin
+X`009    open(dump,dump_file,new,default := '.DMP');
+X`009    rewrite(dump);
+X`009    write_DATABASE(dump);
+X`009    close(dump);
+X`009end;
+X
+X`009if build_system then begin
+X`009    open(dump,dump_file,readonly,default := '.DMP');
+X`009    reset(dump);
+X`009    read_DATABASE(dump);
+X`009    close(dump);
+X`009end;
+X
+X`009close_database;
+X    end else writeln ('Can''t open database. Maybe someone is playing Monste
+Vr.');
+X
+X    Finish_Guts;
+XEND.
+X
+$ CALL UNPACK MONSTER_DUMP.PAS;194 880298139
+$ create/nolog 'f'
+X1 MONSTER
+X  Monster, a multiplayer adventure game where the players create the`032
+X  world and make the rules.
+X
+X  Command: MONSTER/qualifiers `091dump_file`093
+X
+X2 Parameters
+X
+X dump_file
+X `032
+X  Only with /DUMP or /BUILD -qualifiers.
+X
+X  This paramter specifies text form equivalant of database.  Default`032
+X  extension is .DMP.  This parameter required with /DUMP and  /BUILD`032
+X  -qualifiers.
+X
+X2 General_Qualifiers
+X
+X/VERSION
+X /VERSION
+X  Show version text of Monster.  Version -command  shows  same  text`032
+X  when playing Monster.
+X
+X  Incombatible with /WHO.
+X
+X/START
+X /START
+X /NOSTART
+X  Prevents or enables start  of  playing  after  handling  of  other`032
+X  qualifiers. Usefull with /VERSION or qualifiers for management.
+X
+X  Incombatible with /WHO, /DUMP and /BUILD.
+X
+X/OUTPUT
+X /OUTPUT`091=output-file-spec`093
+X /NOOUTPUT
+X  Redirects Monster's output  to  file.  Usefull  with  /VERSION  or`032
+X  qualifiers  for management.
+X
+X  Incombatible with /FIX, /WHO, /DUMP and /BUILD.
+X
+X2 Management_Qualifiers
+X
+X  These qualifeirs is only for Monster Manager.
+X
+X/REBUILD
+X /REBUILD
+X  Build new database for  monster.  Check  before  this  entries  of`032
+X  MONSTER.INIT -file.
+X
+X  Incombatible with /FIX, /REAL_USERID, /USERID, /BATCH, /WHO, /DUMP
+X  and /BUILD.
+X
+X/FIX
+X /FIX
+X  Activate  /FIX -system  in  interactive  mode.  With  this  system`032
+X  Monster Manager can fixs errors of database.
+X
+X  Incombatible with /OUTPUT, /REBUILD, /REAL_USERID, /USERID, /BATCH,`032
+X  /WHO, /DUMP and /BUILD.
+X
+X  Look Fixing_Database.
+X
+X/DEBUG
+X /DEBUG
+X /NODEBUG (D)
+X  Turn debug mode on or off. Same as  debug  -command  when  playing`032
+X  Monster.
+X
+X  Incombatible with /WHO.
+X
+X/REAL_USERID
+X /REAL_USERID
+X  Enable playing with someone other's name.
+X
+X  Incombatible with /REBUILD, /FIX, /USERID, /BATCH, /WHO, /DUMP and`032
+X  /BUILD.
+X
+X/BATCH
+X /BATCH=command-file-spec
+X  Runs /FIX -system in batch mode.`032
+X
+X  Incombatible with /REBUILD, /FIX,  /REAL_USERID,  /USERID, /BATCH,`032
+X  /WHO, /DUMP and /BUILD.
+X
+X/BUILD
+X /BUILD
+X  Same as /REBUILD, except that this read database from special text`032
+X  file. Parameter dump_file is required with this qualifier.
+X
+X  Look also /DUMP.
+X
+X  Incombatible with /REBUILD, /FIX, /REAL_USERID,  /USERID,  /BATCH,`032
+X  /BUILD, /OUTPUT and /START.
+X
+X/DUMP
+X  /DUMP
+X   Make text form copy of database for /BUILDing. Parameter dump_file
+X   is required with this qualifier.
+X
+X  Incombatible with /REBUILD, /FIX, /REAL_USERID,  /USERID,  /BATCH,`032
+X  /DUMP, /OUTPUT and /START.
+X
+X2 Playing_Qualifiers
+X
+X/USERID
+X /USERID=virtual_userid
+X  Enable playing with virtual userid. Virtual userids is indebendent`032
+X  of real userids. Virtual userids is protected with password.`032
+X
+X  Incombatible with   /REBUILD,  /FIX,  /REAL_USERID,  /BATCH,  /WHO,`032
+X  /DUMP and /BUILD.
+X
+X/WHO
+X /WHO
+X  Shows players what is currently  playing Monster,  but  not  start`032
+X  Monster. Good for LOGIN.COM.
+X
+X  Incombatible with all other qualifiers.
+X
+X2 Initialization_file
+X
+X  Monster read file MONSTER.INIT from directory where is  executable`032
+X  monster program. Monster gets directory from  process'  image_name`032
+X  entry. There is follow entries:
+X
+X3 MM_userid
+X
+X  This entry include userid  of  Monster  Manager.  Userid  must  be`032
+X  written by lowercase. The Monster Manager has the most power. This`032
+X  should be the game administrator.`032
+X
+X4 Example
+XMM_userid: leino
+X
+X3 gen_debug
+X  This tells whether everyone may use the debug command.  It must be`032
+X  able to be disabled  because  it  tells  players  too  much  about`032
+X  monsters.  On the other hand, it must also be able to be  enabled,`032
+X  if we want to do test runs under an unprivileged userid.
+X
+X4 Example
+Xgen_debug:   false
+X
+X3 REBUILD_OK
+X  If this is true,  the Monster Manager can blow away  and  reformat`032
+X  the entire universe.  It's a good idea to set this to false.  This`032
+X  must be true when Monster Manager want use /REBUILD option.
+X
+X4 Example
+XREBUILD_OK: false
+X
+X3 root
+X  This is where the Monster database goes. The root directory must be `032
+X  world:e and the datafiles Monster creates in it world:rw for people`032
+X  to be able to play.
+X
+X4 Example
+Xroot:    games_disk:monster.database.db>`009`009`032
+X
+X3 coderoot
+X  The  coderoot  directory  is  where  the codefiles for monsters  go.`032
+X  The directory must additionally have  an  ACL  default world:rw  for `032
+X  files  and ACL rw for the managers.
+X
+X4 Example
+Xcoderoot:games_disk:<monster.database.c>  `032
+X
+X3 LEVELTABLE
+X  Leveltable tells levels of  Monster.  There  is  certain  privileges`032
+X  associateden to levels.  Higger level there is Monster Manager  (not`032
+X  in leveltable).
+X
+X4 Privileges
+X  Value    Name      Meaning`032
+X  32       Monster   Can create Mosters what can modify player's contex.
+X  16       Special   Can make special items
+X  256      Spell     Can create spells what can modify player's contex.
+X  4        Global    Can modify global describtions and flags.
+X  8        Owner     Can customize other's stuff as owner of stuff.
+X  64       Experince Can make MDL code, what give score to players.
+X  1        Manager   Can execute system -command.
+X
+X4 Example
+XLEVELTABLE:
+X!  name`009`009    exp`009         priv`009 health`009   h.fac    pow    hid
+Vden`032
+XBeginner,           0,           0,      10,       40,      0,     nohidden
+XNovice,             1,           0,      10,       40,      2,     nohidden
+XRanger,             500,         0,      15,       50,      3,     nohidden
+XAdventurer,         1000,        0,      20,       60,      5,     nohidden
+XHero,               2000,        32,     30,       60,      10,    nohidden
+XChampion,           6000,        0,      40,       70,      10,    nohidden
+XConjurer,           12000,       16,     50,       70,      12,    nohidden
+XMagician,           20000,       0,      60,       70,      15,    nohidden
+XEnchanter,          40000,       2,      80,       75,      20,    nohidden
+XSorcerer,           70000,       256,      100,      80,      20,    nohidde
+Vn
+XWarlock,            120000,      4,      120,      85,      35,    nohidden
+XApprentice wizard,  300000,      8,      150,      85,      50,    nohidden
+XWizard,             700000,      64,     300,      90,      80,    nohidden
+XAlmost Dead,        1000100,     0,      10,       40,      2,     hidden
+XManager,            2000000,     1,      500,      100,     500,   hidden
+XDruid,              2001000,     0,      500,      100,     500,   hidden
+XCharlatan,          2008000,     0,      500,      100,     500,   hidden
+XWanderer,           2009000,     0,      500,      100,     500,   hidden
+XChief Architect,    3000000,     0,      500,      100,     500,   hidden
+XBug Hunter,         5000000,     0,      500,      100,     500,   hidden
+XEND OF LEVELTABLE
+X
+X3 Archpriv
+X  Experience entry for Monster Manager. Level of Monster manager isn't`032
+X  in leveltable.
+X
+X4 Example
+XArchpriv:   0
+X
+X3 Archhealth
+X  Health entry for Monster Manager.
+X
+X4 Example
+XArchhealth: 800
+X
+X3 Archfactor
+X  Hit factor for Monster Manager.
+X
+X4 Example
+XArchfactor: 100
+X
+X3 Archpower
+X  Power entry for Monster Manager.
+X
+X4 Example
+XArchpower:  1000
+X
+X3 maxexperience
+X  Maximun experience what player can reach.  Notice that experience of`032
+X  Monster manager is MAXINT.
+X
+X4 Example
+Xmaxexperience: 1000000
+X
+X3 protect_exp
+X  When player reach this experince, player is deadless.
+X
+X4 Example
+Xprotect_exp: 700000
+X
+X3 Playtime
+X  Tells time when Monster is playable in workdays.  Mark +  mean  that
+X  monster is playable and mark - mean that monster isn't. First mark is
+X  time from 00 to 01 and last mark is time from 23 to 24.
+X
+X4 Example
+XPlaytime: +++++++++--------+++++++
+X
+X3 default_allow
+X  How many rooms players made at default.
+X
+X4 Example
+Xdefault_allow: 20
+X
+X3 min_room
+X  How many rooms players can made without exit request.
+X
+X4 Example
+Xmin_room:      5
+X
+X3 min_accept
+X  How many accepts must players made.
+X
+X4 Example
+Xmin_accept:    5
+X
+X2 Installation
+X  For installing Monster your must make several  directories,  compile`032
+X  Monster, put files to right directories,  edit configurion files and`032
+X  build database for Monster.`032
+X
+X3 Directories
+X  Make four directories:
+X    Directory for sources, lets CALL it SOURCES directory.
+X    Directory for MONSTER.EXE and MONSTER_WHO.EXE, lets call it  IMAGE`032
+X      directory.
+X    Directory for *.MON files, lets call it DATABASE_MON directory.
+X    Directory for CODE*.MON files, lets call it DATABASE_CODE directory.
+X
+X4 SOURCE
+X  Files: CLI.PAS, CONVERT.BATCH, CUSTOM.PAS, DATABASE.PAS,  FIX.BATCH,`032
+X  GLOBAL.PAS, GUTS.PAS, INTERPRETER.PAS, KEYS.PAS, MAKEFILE.  MON.PAS,
+X  MONSTER_WHO.PAS, PARSER.PAS, PRIVUSERS.PAS, QUEUE.PAS, MONSTER_E.HLP,
+X  MONSTER_DUMP.PAS.
+X
+X4 IMAGE
+X  Files: MONSTER.CLD, MONSTER.INIT.
+X
+X  Compiled Files: MON.EXE, MONSTER_WHO.EXE, MONSTER_E.HLB,`032
+X  MONSTER_DUMP.EXE.
+X
+X4 DATABASE_MON
+X  Files: COMMANDS.PAPER, ILMOITUS.TXT, MONSTER.HELP.
+X
+X  Files created by /REBUILD: DESC.MON, EVENTS.MON, HEADER.MON, INDEX.MON,
+X  INTFILE.MON, LINE.MON, NAMS.MON, OBJECTS.MON, ROOMS.MON, SPELLS.MON.
+X
+X4 DATABASE_CODE
+X  Files created by /REBUILD: CODE1.MON, CODE2.MON, CODE3.MON, CODE4.MON,
+X  CODE5.MON.
+X
+X  Command H (Add header blocks) in System menu adds number of files in
+X  this directory!
+X
+X3 Compilation
+X  First: Edit KEYS.PAS (change gryp-keys !!)
+X
+X  Commands for compilation:
+X$ LIBRARIAN/CREATE/HELP MONSTER_E MONSTER_E
+X$ PASCAL /CHECK=ALL GLOBAL`009`009
+X$ PASCAL GUTS/CHECK=ALL
+X$ PASCAL /CHECK=ALL DATABASE`009`009
+X$ PASCAL  CLI
+X$ PASCAL  PRIVUSERS / CHECK = ALL
+X$ PASCAL /CHECK=ALL PARSER `009`009
+X$ PASCAL /CHECK=ALL QUEUE `009`009
+X$ PASCAL /CHECK=ALL INTERPRETER `009`009
+X$ PASCAL  KEYS /CHECK = ALL`009
+X$ PASCAL /CHECK=ALL MON`009`009`009
+X$ LINK MON,GUTS,INTERPRETER,KEYS,PRIVUSERS,QUEUE,PARSER,CLI,GLOBAL,DATABASE,
+VCUSTOM`009! Linkkaus
+X$ PASCAL /CHECK=ALL MONSTER_WHO
+X$ LINK MONSTER_WHO, DATABASE, GUTS, GLOBAL, PRIVUSERS, PARSER
+X$ PASCAL /CHECK=ALL MONSTER_DUMP
+X$ LINK MONSTER_DUMP, DATABASE, GUTS, GLOBAL, PRIVUSERS, PARSER
+X
+X  Put MON.EXE, MONSTER_WHO.EXE, MONSTER_DUMP.EXE and MONSTER_E.HLB`032
+X  to IMAGE directory.
+X
+X3 Editing
+X
+X  Edit follow files: KEYS.PAS, MONSTER.CLD, MONSTER.INIT and ILMOITUS.TXT.
+X  Edit KEYS.PAS before compilating Monster !
+X
+X4 KEYS.PAS
+X
+X  Edit keys array.  You can chage number of lines of keys -array,  but`032
+X  you can't change length of lines of keys -array. Put number of lines
+X  to maxkeys -const.
+X
+X4 MONSTER.CLD
+X   Put right full specification of IMAGE directory to follow places:
+X
+Xdefine syntax MONSTER_WHO
+X   image <IMAGE -directory>monster_who
+X   noqualifiers
+Xdefine verb MONSTER
+X   image <IMAGE -directory>mon
+X   qualifier WHO
+X      nonnegatable
+X      syntax = MONSTER_WHO
+X4 MONSTER.INIT
+X  Edit places marked with <> -marks:
+X
+XMM_userid: <your userid in lowcase>
+X
+Xgen_debug:   false
+X
+XREBUILD_OK: <put this true before /REBUILD and then false>
+X
+Xroot:     <full specificaton of DATABASE_MON -directory>
+Xcoderoot: <full specification of DATABASE_CODE -direcory>
+X      `032
+XLEVELTABLE:
+X* Leveltable removed: looke example from initialization_file -part of`032
+X  this help *
+XEND OF LEVELTABLE
+XArchpriv:   0
+XArchhealth: 800
+XArchfactor: 100
+XArchpower:  1000
+X
+Xmaxexperience: 1000000
+X
+Xprotect_exp: 700000
+X
+XPlaytime: <put right time to this: look example from initilization_file`032
+X           -part of this help>
+X
+Xdefault_allow: 20   `032
+Xmin_room:      5    `032
+Xmin_accept:    5   `032
+X4 ILMOITUS.TXT
+X  Monster print this file,  when Monster isn't playable in work  hours.
+X  Work hours are in Playtime -line in MONSTER.INIT.
+X
+X3 Protection
+X  Put follows ACls to DATABASE_MON and DATABASE_CODE directories`032
+X  (to *.DIR file).
+X          (IDENTIFIER=<your name>,ACCESS=READ+WRITE+EXECUTE+DELETE+CONTROL)
+X          (IDENTIFIER=<your name>,OPTIONS=DEFAULT,ACCESS=READ+WRITE+EXECUTE+
+VDELETE+CONTROL)
+X          (DEFAULT_PROTECTION,SYSTEM:RWED,OWNER:RWED,GROUP,WORLD:RW)
+X
+X  Put same kind ACL for all other managers (of monster) to DATABASE_CODE`032
+X  directory.
+X
+X  Put protection (world:execute) or (world:read+execute) to`032
+X                IMAGE, DATABASE_MON and DATABASE_CODE directory
+X
+X  Put protection (world:read) to`032
+X        ILMOITUS.TXT, MONSTER.CLD, MONSTER.INIT, MONSTER_E.HLB,
+X        and MONSTER.HELP files.
+X       `032
+X  Put protection (world:execute) to`032
+X        MON.EXE and MONSTER_WHO.EXE files`032
+X
+X  MONSTER_DUMP.EXE don't need to be executable by world.
+X
+X  After building database put protection (world:read+write) to
+X        *.MON files
+X  in DATABASE_MON and DATABASE_CODE direcories.
+X
+X3 Database
+X  Define monster command with command
+X      SET COMMAND MONSTER (in IMAGE directory)
+X
+X  Make monster universe with command MONSTER/REBUILD
+X
+X  or
+X
+X  copy your old (Skrenta's) monster database to DATABASE_MON directory
+X  and try MONSTER/BATCH=CONVERT (No warranty!)
+X
+X  or
+X
+X  MONSTER/BUILD CASTLE.DMP
+X  (where in file CASTLE.DMP have distributed starter's castle)
+X
+X  Put protection (world:read+write) to
+X        *.MON files
+X  in DATABASE_MON and DATABASE_CODE direcories.
+X3 Publishing
+X  Tell anybody that he can play monster
+X     after command
+X     SET COMMAND Your_Disk:<Your IMAGE directory>MONSTER
+X  with MONSTER command
+X3 Questions
+X  Questions to Kristallipallo@com.cc.Helsinki.FI
+X               Kari.Hurtta@Helsinki.FI        hurtta@cc.Helsinki.FI
+X               HURTTA@FINUH.BITNET
+X               Antti.Leino@Helsinki.FI        leino@cc.Helsinki.FI
+X               LEINO@FINUH.BITNET
+X               Juha.Laiho@Helsinki.FI         jlaiho@cc.Helsinki.FI
+X               JLAIHO@FINUH.BITNET
+X2 Original
+X  This text is from release of original Skrenta's Monster. I only
+X  put this to Help structure.
+X
+X3 Files`032
+X  Monster was written in VMS Pascal under VMS 4.6.  It uses file`032
+X  sharing and record locking for communication.  Outside of that,`032
+X  it doesn't do anything tricky.  However, after playing around with`032
+X  a VMS 4.2 system, I have doubts if it will work on a system that`032
+X  old.  If you've got a reasonably recent version of VMS and a Pascal`032
+X  compiler, you shouldn't have any problems.
+X`032
+X  The Monster source is in two files:  a short one, approx 300 lines,`032
+X  called guts.pas, and a big one, mon.pas, approx 13,000 lines.  The`032
+X  compiled program contains everything necessary to create and`032
+X  maintain  the Monster universe. There is no separate maintenance`032
+X  program.  Instead,  specific people in the game have priviledges,`032
+X  and are known as the  "Monster Managers".  The MMs can do system`032
+X  maintenance while playing, and  other players can even observe their`032
+X  work.
+X`032
+X  After reading the document, if you would still like to obtain Monster,
+X  send me a letter reaffirming your interest.  Thanks!
+X`032
+X3 Game
+X`032
+X  Monster is a text-oriented computer adventure game.  Like other`032
+X  traditional adventure games such as Zork and Adventure, Monster`032
+X  players issue simple commands to direct a "puppet" through an`032
+X  artificial world.  Players can explore the world, pick up and`032
+X  make use of objects, and solve puzzles.
+X`032
+X  However, Monster is quite different from other computer adventures`032
+X  in two respects:  first, Monster is a multiplayer game.  In addition`032
+X  to the normal actions a player can effect on the simulated environment,`03
+V2
+X  players can also interact with one another.  Player characters can`032
+X  fight, talk, trade items and explore territory together.  Monster`032
+X  is similar in this respect to some multiplayer games available on`032
+X  computer networks such as the Source and Compuserve.
+X`032
+X  However, Monster allows players to do something that very few, if any,`032
+X  other games allow:  the players themselves create the fantasy world as`032
+X  part of the game.  Players can create objects, make locations, and set`032
+X  up puzzles for other players to solve.  Game mechanisms allow players to:
+X`032
+X        o Create and describe new objects and locations
++-+-+-+-+-+-+-+-  END  OF PART 27 +-+-+-+-+-+-+-+-

@@ -1,0 +1,1646 @@
+Newsgroups: comp.sources.misc
+From: Raphael Manfredi <ram@acri.fr>
+Subject: v41i014:  mailagent - Flexible mail filtering and processing package, v3.0, Part14/26
+Message-ID: <1993Dec2.134033.18900@sparky.sterling.com>
+X-Md4-Signature: 4ed1e5b3c27f1a8b62f4fac33a8111b6
+Sender: kent@sparky.sterling.com (Kent Landfield)
+Organization: Advanced Computer Research Institute, Lyon, France.
+Date: Thu, 2 Dec 1993 13:40:33 GMT
+Approved: kent@sparky.sterling.com
+
+Submitted-by: Raphael Manfredi <ram@acri.fr>
+Posting-number: Volume 41, Issue 14
+Archive-name: mailagent/part14
+Environment: UNIX, Perl
+Supersedes: mailagent: Volume 33, Issue 93-109
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then feed it
+# into a shell via "sh file" or similar.  To overwrite existing files,
+# type "sh file -c".
+# The tool that generated this appeared in the comp.sources.unix newsgroup;
+# send mail to comp-sources-unix@uunet.uu.net if you want that tool.
+# Contents:  agent/mailpatch.SH agent/pl/plsave.pl
+#   agent/pl/queue_mail.pl agent/pl/sendfile.pl agent/pl/usrmac.pl
+#   misc/unkit/unkit.pl
+# Wrapped by ram@soft208 on Mon Nov 29 16:49:56 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+echo If this archive is complete, you will see the following message:
+echo '          "shar: End of archive 14 (of 26)."'
+if test -f 'agent/mailpatch.SH' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/mailpatch.SH'\"
+else
+  echo shar: Extracting \"'agent/mailpatch.SH'\" \(9188 characters\)
+  sed "s/^X//" >'agent/mailpatch.SH' <<'END_OF_FILE'
+Xcase $CONFIG in
+X'')
+X	if test -f config.sh; then TOP=.;
+X	elif test -f ../config.sh; then TOP=..;
+X	elif test -f ../../config.sh; then TOP=../..;
+X	elif test -f ../../../config.sh; then TOP=../../..;
+X	elif test -f ../../../../config.sh; then TOP=../../../..;
+X	else
+X		echo "Can't find config.sh."; exit 1
+X	fi
+X	. $TOP/config.sh
+X	;;
+Xesac
+Xcase "$0" in
+X*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+Xesac
+Xecho "Extracting agent/mailpatch (with variable substitutions)"
+X$spitshell >mailpatch <<!GROK!THIS!
+X$startperl
+X	eval "exec perl -S \$0 \$*"
+X		if \$running_under_some_shell;
+X
+X# $Id: mailpatch.SH,v 3.0 1993/11/29 13:48:25 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: mailpatch.SH,v $
+X# Revision 3.0  1993/11/29  13:48:25  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+X\$cat = '$cat';
+X\$zcat = '$zcat';
+X\$mversion = '$VERSION';
+X\$patchlevel = '$PATCHLEVEL';
+X!GROK!THIS!
+X$spitshell >>mailpatch <<'!NO!SUBS!'
+X
+X$prog_name = $0;				# Who I am
+X$prog_name =~ s|^.*/(.*)|$1|;	# Keep only base name
+X
+X&read_config;		# First, read configuration file (in ~/.mailagent)
+X
+X# take job number and command from environment
+X# (passed by mailagent)
+X$jobnum = $ENV{'jobnum'};
+X$fullcmd = $ENV{'fullcmd'};
+X$pack = $ENV{'pack'};
+X$path = $ENV{'path'};
+X
+X&read_dist;			# Read distributions
+X
+X$dest = shift;			# Who should the patches be sent to
+X$system = shift;		# Which system do patches belong
+X$version = shift;		# Which version it is
+X
+X# A single '-' as first argument stands for return path
+X$dest = $path if $dest eq '-';
+X
+X# A single '-' for version means "highest available" version.
+X$version = $Version{$system} if $version eq '-';
+X
+X# Full name of system for H table access
+X$pname = $system . "|" . $version;
+X
+X$maillist = "To obtain a list of what is available, send me the following mail:
+X
+X	Subject: Command
+X	@SH maillist $path
+X		^ note the l";
+X
+Xif (!$System{$system}) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No program called $system
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send patches for a program called $system.  Sorry.
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the patches anyway.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (UNKNOWN SYSTEM)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+Xif (!$Program{$pname}) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No patches for $system version $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI don't know how to send patches for version $version of $system.  Sorry.";
+X	if ($Version{$system} ne '') {
+X		print MAILER "
+X
+X[The highest version for $system is $Version{$system}.]";
+X		&add_log("MSG highest version is $Version{$system}") if $loglvl > 8;
+X	} else {
+X		print MAILER "
+X
+X[There is no version number for $system.]";
+X		&add_log("MSG no version number") if $loglvl > 8;
+X	}
+X	print MAILER "
+X
+X$maillist
+X
+XIf $cf'name can figure out what you meant, you'll get the patches anyway.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (BAD SYSTEM NUMBER)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+Xif (!($Maintained{$pname} || $Patches{$pname})) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: $system version $version is not maintained
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XI can't send you patches for version $version of $system, because this code
+Xis not maintained by $cf'name. There are no official patches available either...
+X
+X$maillist
+X
+XAnyway, if you discover a bug or have remarks about \"$system\", please
+Xlet me know. Better, if you know where patches for $system can be found,
+Xwell... you have my e-mail address ! :->
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (NOT MAINTAINED)") if $loglvl > 1;
+X    exit 0;
+X}
+X
+X# Create a temporary directory
+X$tmp = "$cf'tmpdir/dmp$$";
+Xmkdir($tmp, 0700) || &fatal("cannot create $tmp");
+X
+X# Need to unarchive the distribution
+Xif ($Archived{$pname}) {
+X	# Create a temporary directory for distribution
+X	$tmp_loc = "$cf'tmpdir/dmpl$$";
+X	mkdir($tmp_loc, 0700) || &fatal("cannot create $tmp_loc");
+X	$Location{$pname} =
+X		&unpack($Location{$pname}, $tmp_loc, $Compressed{$pname});
+X}
+X
+X# Go to bugs sub-directory. It is possible to ask for patches for
+X# old systems. Such systems are identified by having the `patches'
+X# field from the distrib file set to "old". In that case, patches
+X# are taken from a bugs-version directory. Version has to be non null.
+X
+Xif ($Patch_only{$pname}) {
+X	&abort("old system has no version number") if $version eq '';
+X	chdir "$Location{$pname}/bugs-$version" ||
+X		&abort("cannot go to $Location{$pname}/bugs-$version");
+X	# There is no patchlevel to look at -- compute by hand.
+X	for ($maxnum = 1; ; $maxnum++) {
+X		last unless -f "patch$maxnum" || -f "patch$maxnum.Z";
+X	}
+X	$maxnum--;		# We've gone too far
+X} else {
+X	chdir "$Location{$pname}/bugs" ||
+X		&abort("cannot go to $Location{$pname}/bugs");
+X	open(PATCHLEVEL, "../patchlevel.h") ||
+X		&abort("cannot open patchlevel.h");
+X	$maxnum = 0;
+X	while (<PATCHLEVEL>) {
+X		if (/.*PATCHLEVEL[ \t]*(\d+)/) {
+X			$maxnum = $1;
+X			last;
+X		}
+X	}
+X	close PATCHLEVEL;
+X}
+X
+Xif (!$maxnum) {
+X	# If we get here, it must be for one of our systems. Indeed,
+X	# if we do not have any patches for a third party program, there
+X	# should be a "no" in the patches field of distribution file, and
+X	# in that case an error would have been reported before.
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: No patches yet for $system version $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XThere are no patches (yet) for $system version $version. Sorry.
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (NO PATCHES YET)") if $loglvl > 1;
+X	&clean_tmp;
+X    exit 0;
+X}
+X
+X$patchlist = &rangeargs($maxnum, @ARGV);	# Generate patch list
+X
+Xif (! ($patchlist =~ /\d/)) {
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: Invalid patch request for $system $version
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X";
+X	if ($Patches{$pname}) {
+X		print MAILER "
+XThe highest patch I have for $system version $version is #$maxnum.";
+X	} else {
+X		print MAILER "
+XThe latest patch for $system version $version is #$maxnum.";
+X	}
+X	print MAILER "
+X(Your command was: $fullcmd)";
+X	if ($Version{$system} > $version) {
+X		print MAILER "
+X
+XPlease note that the latest version for $system is $Version{$system}.
+X
+X$maillist";
+X	}
+X	print MAILER "
+X
+X-- mailpatch speaking for $cf'user
+X";
+X	close MAILER;
+X    &add_log("FAILED (INVALID PATCH LIST)") if $loglvl > 1;
+X	&clean_tmp;
+X    exit 0;
+X}
+X
+X@numbers = split(/ /,$patchlist);
+X
+Xforeach $num (@numbers) {
+X	$patchfile = "patch" . $num;	# Base name of the patch
+X	if (-f $patchfile) {			# Normal patch
+X		$append = $cat;
+X		$extent = '';
+X	} elsif (-f "$patchfile.Z") {	# Compressed patch
+X		if ($zcat ne 'zcat') {		# Zcat found by Configure
+X			$append = $zcat;
+X			$extent = '.Z';
+X		} else {
+X			&add_log("ERROR no zcat to uncompress patch #$num ($system)")
+X				if $loglvl > 1;
+X			next;
+X		}
+X	} else {
+X		&add_log("ERROR no patch #$num ($system)") if $loglvl > 1;
+X		next;
+X	}
+X	open (TMP, ">$tmp/$patchfile");
+X	if ($Patches{$pname}) {
+X		print TMP "
+XThis is an official patch for $system version $version, please apply it.
+XThe highest patch I have for that version of $system is #$maxnum.";
+X	} else {
+X		print TMP "
+XThe latest patch for $system version $version is #$maxnum.";
+X	}
+X	print TMP "
+X
+X-- mailpatch speaking for $cf'user
+X
+X";
+X	close TMP;
+X	system "$append <$patchfile$extent >>$tmp/$patchfile";
+X	&add_log("copied file $patchfile into $tmp") if $loglvl > 17;
+X}
+X
+Xif ($#numbers > 0) {
+X	$subject = $#numbers + 1;		# Array count starts at 0
+X	$subject = "$system $version, $subject patches";
+X} else {
+X	$subject = "$system $version patch #$numbers[0]";
+X}
+X&sendfile($dest, $tmp, $pack, $subject);
+X&clean_tmp;
+X
+Xexit 0;		# Ok
+X
+Xsub clean_tmp {
+X	# Do not stay in the directories we are removing...
+X	chdir $cf'home;
+X	if ($tmp ne '') {
+X		system '/bin/rm', '-rf', $tmp;
+X		&add_log("removed dir $tmp") if $loglvl > 19;
+X	}
+X	if ($Archived{$pname}) {
+X		system '/bin/rm', '-rf', $tmp_loc;
+X		&add_log("removed dir $tmp_loc") if $loglvl > 19;
+X	}
+X}
+X
+X# Emergency exit with clean-up
+Xsub abort {
+X	local($reason) = shift(@_);		# Why we are exiting
+X	&clean_tmp;
+X	&fatal($reason);
+X}
+X
+X!NO!SUBS!
+X$grep -v '^;#' pl/fatal.pl >>mailpatch
+X$grep -v '^;#' pl/add_log.pl >>mailpatch
+X$grep -v '^;#' pl/read_conf.pl >>mailpatch
+X$grep -v '^;#' pl/unpack.pl >>mailpatch
+X$grep -v '^;#' pl/rangeargs.pl >>mailpatch
+X$grep -v '^;#' pl/sendfile.pl >>mailpatch
+X$grep -v '^;#' pl/distribs.pl >>mailpatch
+X$grep -v '^;#' pl/secure.pl >>mailpatch
+Xchmod 755 mailpatch
+X$eunicefix mailpatch
+END_OF_FILE
+  if test 9188 -ne `wc -c <'agent/mailpatch.SH'`; then
+    echo shar: \"'agent/mailpatch.SH'\" unpacked with wrong size!
+  fi
+  chmod +x 'agent/mailpatch.SH'
+  # end of 'agent/mailpatch.SH'
+fi
+if test -f 'agent/pl/plsave.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/plsave.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/plsave.pl'\" \(3915 characters\)
+  sed "s/^X//" >'agent/pl/plsave.pl' <<'END_OF_FILE'
+X;# $Id: plsave.pl,v 3.0 1993/11/29 13:49:06 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: plsave.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:06  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# This file relies on the following external conditions:
+X;#    - operation &fatal() available for fatal errors
+X;#    - the configuration variables are properly set
+X;#    - logging is done via &add_log()
+X;#    - routines for locking files are available
+X;#
+X# Read stored informations for archived systems. The format of
+X# the file is the following:
+X#	system version patchlevel mtime
+X# where:
+X#	- system is the name of the system
+X#	- version is the version number or --- if none
+X#	- patchlevel is the current patchlevel, or -2 if no PL
+X#	- mtime is the modification time of the archive
+X#
+X# The function builds the following associative array, indexed
+X# by the system's name and version number (which has to be a null
+X# string for systems with no version number, marked '---'):
+X#
+X# name          indexed by       information
+X#
+X# %PSystem      name + version   true if line seen
+X# %Patch_level  name + version   current patch level
+X# %Mtime        name + version   last modification time
+X#
+X# If the 'plsave' file is not found, a new empty one is created
+X#
+Xsub read_plsave {
+X	local($fullname);
+X	if (!open(PATLIST, "$cf'plsave")) {
+X		&add_log("creating new patlist file") if $loglvl > 8;
+X		system 'cp', '/dev/null', $cf'plsave;
+X		open(PATLIST, "$cf'plsave") ||
+X			&fatal("cannot open patlist file");
+X	}
+X	while (<PATLIST>) {
+X		next if /^\s*#/;	# skip comments
+X		next if /^\s*$/;	# skip empty lines
+X		next unless s/^\s*(\w+)\s+([\w\.]+)//;
+X		$fullname = $1 . "|" . ($2 eq '---'? "0" : $2);
+X		if (defined($PSystem{$fullname})) {
+X			&add_log("WARNING duplicate patlist entry $1 $2 ignored")
+X				if $loglvl > 5;
+X			next;
+X		}
+X		$PSystem{$fullname}++;
+X		unless (/^\s*([\-\d]+)\s+(\d+)/) {
+X			&add_log("WARNING bad patlist description line $.")
+X				if $loglvl > 5;
+X			next;	# Ignore, but it may corrupt further processing
+X		}
+X		$Patch_level{$fullname} = $1;
+X		$Mtime{$fullname} = $2;
+X	}
+X	close PATLIST;
+X}
+X
+X# Write the new 'plsave', but only if the distributions are found
+X# in the %Program array (I assume read_dist() has been called).
+X# The 'plsave' file is locked during the updating process, so that
+X# no conflicting access occurs. There is a small chance that the
+X# file we write is not correct, in case the distribution file changed
+X# while we were processing a mail. However, it isn't a big problem.
+Xsub write_plsave {
+X	local($lockext) = ".lock";		# Needed by checklock (via acs_rqst)
+X	local($system);
+X	local($version);
+X	if (0 != &acs_rqst($cf'plsave)) {
+X		&add_log("WARNING updating unlocked patlist file") if $loglvl > 5;
+X	}
+X	if (!open(PATLIST, ">$cf'plsave")) {
+X		&add_log("ERROR unable to update $cf'plsave") if $loglvl;
+X		return;
+X	}
+X	print PATLIST
+X"# This file was automatically generated by $prog_name.
+X# It records the archived distributions, their patch level if any, and
+X# the modification time of the archive, so that these informations can
+X# be updated when necessary. Do not edit this file.
+X
+X";
+X	foreach $pname (keys %PSystem) {
+X		if ($Archived{$pname}) {
+X			($system, $version) = $pname =~ /^(\w+)\|([\w\.]+)*$/;
+X			$version = '---' if $version eq '0';
+X			print PATLIST "$system $version ";
+X			print PATLIST "$Patch_level{$pname} $Mtime{$pname}\n";
+X			&add_log("updated patlist for $system $version") if $loglvl > 18;
+X		} else {
+X			&add_log("$system $version removed from patlist") if $loglvl > 18;
+X		}
+X	}
+X	close PATLIST;
+X	&free_file($cf'plsave);
+X}
+X
+END_OF_FILE
+  if test 3915 -ne `wc -c <'agent/pl/plsave.pl'`; then
+    echo shar: \"'agent/pl/plsave.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/plsave.pl'
+fi
+if test -f 'agent/pl/queue_mail.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/queue_mail.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/queue_mail.pl'\" \(8754 characters\)
+  sed "s/^X//" >'agent/pl/queue_mail.pl' <<'END_OF_FILE'
+X;# $Id: queue_mail.pl,v 3.0 1993/11/29 13:49:11 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: queue_mail.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:11  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# Queue a mail file. Needs add_log(). Calls fatal() in emergency situations.
+X;# Requires a parsed config file.
+X;# 
+X# Queue mail in a 'fm' file. The mail is held in memory. It returns 0 if the
+X# mail was queued, 1 otherwise.
+Xsub qmail {
+X	local(*array) = @_;			# In which array mail is located.
+X	local($queue_file);			# Where we attempt to save the mail
+X	local($failed) = 0;			# Be positive and look forward :-)
+X	$queue_file = "$cf'queue/Tqm$$";
+X	$queue_file = "$cf'queue/Tqmb$$" if -f "$queue_file";	# Paranoid
+X	unless (open(QUEUE, ">$queue_file")) {
+X		&add_log("ERROR unable to create $queue_file: $!") if $loglvl > 1;
+X		return 1;		# Failed
+X	}
+X	# Write mail on disk, making sure there is a first From line
+X	local($first_line) = 1;
+X	local($in_header) = 1;		# True while in mail header
+X	foreach $line (@array) {
+X		if ($first_line) {
+X			$first_line = 0;
+X			print QUEUE "$FAKE_FROM\n" unless $line =~ /^From\s+\S+/;
+X		}
+X		next if (print QUEUE $line, "\n");
+X		$failed = 1;
+X		&add_log("SYSERR write: $!") if $loglvl;
+X		last;
+X	}
+X	close QUEUE;
+X	unlink "$queue_file" if $failed;
+X	$failed = &queue_mail($queue_file) unless $failed;
+X	$failed;			# 0 means success
+X}
+X
+X# Queue mail in a 'fm' file. The mail is supposed to be either on disk or
+X# is expected from standard input. Returns 0 for success, 1 if failed.
+X# In case mail comes from stdin, may not return at all but raise a fatal error.
+Xsub queue_mail {
+X	local($file_name) = shift(@_);		# Where mail to-be-queued is
+X	local($deferred) = shift(@_);		# True when 'qm' mail wanted instead
+X	local($dirname);					# Directory name of processed file
+X	local($tmp_queue);					# Tempoorary storing of queued file
+X	local($queue_file);					# Final name of queue file
+X	local($ok) = 1;						# Print status
+X	local($_);
+X	&add_log("queuing mail for delayed processing") if $loglvl > 18;
+X	chdir $cf'queue || &fatal("cannot chdir to $cf'queue");
+X
+X	# The following ensures unique queue mails. As the mailagent itself may
+X	# queue intensively throughout the SPLIT command, a queue counter is kept
+X	# and is incremented each time a mail is successfully queued.
+X	local($base) = $deferred ? 'qm' : 'fm';
+X	$queue_file = "$base$$";		# 'fm' stands for Full Mail
+X	$queue_file = "$base$$x" . $queue_count if -f "$queue_file";
+X	$queue_file = "${queue_file}x" if -f "$queue_file";	# Paranoid
+X	++$queue_count;					# Counts amount of queued mails
+X	&add_log("queue file is $queue_file") if $loglvl > 19;
+X
+X	# Do not write directly in the fm file, otherwise the main
+X	# mailagent process could start its processing on it...
+X	$tmp_queue = "Tfm$$";
+X	local($sender) = "<someone>";	# Attempt to report the sender of message
+X	if ($file_name) {				# Mail is already on file system
+X		# Mail already in a file
+X		$ok = 0 if &mv($file_name, $tmp_queue);
+X		if ($ok && open(QUEUE, $tmp_queue)) {
+X			while (<QUEUE>) {
+X				$Header{'All'} .= $_ unless defined $Header{'All'};
+X				if (1 .. /^$/) {		# While in header of message
+X					/^From:[ \t]*(.*)/ && ($sender = $1 );
+X				}
+X			}
+X			close QUEUE;
+X		}
+X	} else {
+X		# Mail comes from stdin or has already been stored in %Header
+X		unless (defined $Header{'All'}) {	# Only if mail was not already read
+X			$Header{'All'} = '';			# Needed in case of emergency
+X			if (open(QUEUE, ">$tmp_queue")) {
+X				while (<STDIN>) {
+X					$Header{'All'} .= $_;
+X					if (1 .. /^$/) {		# While in header of message
+X						/^From:[ \t]*(.*)/ && ($sender = $1);
+X					}
+X					(print QUEUE) || ($ok = 0);
+X				}
+X				close QUEUE;
+X			} else {
+X				$ok = 0;		# Signals: was not able to queue mail
+X			}
+X		} else {							# Mail already in %Header
+X			if (open(QUEUE, ">$tmp_queue")) {
+X				local($in_header) = 1;
+X				foreach (split(/\n/, $Header{'All'})) {
+X					if ($in_header) {		# While in header of message
+X						$in_header = 0 if /^$/;
+X						/^From:[ \t]*(.*)/ && ($sender = $1);
+X					}
+X					(print QUEUE $_, "\n") || ($ok = 0);
+X				}
+X				close QUEUE;
+X			} else {
+X				$ok = 0;		# Signals: was not able to queue mail
+X			}
+X		}
+X	}
+X
+X	# If there has been some problem (like we ran out of disk space), then
+X	# attempt to record the temporary file name into the waiting file. If
+X	# mail came from stdin, there is not much we can do, so we panic.
+X	if (!$ok) {
+X		&add_log("ERROR could not queue message") if $loglvl > 0;
+X		unlink "$tmp_queue";
+X		if ($file_name) {
+X			# The file processed is already on the disk
+X			$dirname = $file_name;
+X			$dirname =~ s|^(.*)/.*|$1|;	# Keep only basename
+X			$cf'user = (getpwuid($<))[0] || "uid$<" if $cf'user eq '';
+X			$tmp_queue = $dirname/$cf'user.$$;
+X			$tmp_queue = $file_name if &mv($file_name, $tmp_queue);
+X			&add_log("NOTICE mail held in $tmp_queue") if $loglvl > 4;
+X		} else {
+X			&fatal("mail may be lost");	# Mail came from filter via stdin
+X		}
+X		# If the mail is on the disk, add its name to the file $agent_wait
+X		# in the queue directory. This file contains the names of the mails
+X		# stored outside of the mailagent's queue and waiting to be processed.
+X		$ok = &waiting_mail($tmp_queue);
+X		return 1 unless $ok;	# Queuing failed if not ok
+X		return 0;
+X	}
+X
+X	# We succeeded in writing the temporary queue mail. Now rename it so that
+X	# the mailagent may see it and process it.
+X	if (rename($tmp_queue, $queue_file)) {
+X		local($bytes) = (stat($queue_file))[7];	# Size of file
+X		local($s) = $bytes == 1 ? '' : 's';
+X		&add_log("QUEUED [$queue_file] ($bytes byte$s) from $sender")
+X			if $loglvl > 3;
+X	} else {
+X		&add_log("ERROR cannot rename $tmp_queue to $queue_file") if $loglvl;
+X		$ok = &waiting_mail($tmp_queue);
+X	}
+X	return 1 unless $ok;		# Queuing failed if not ok
+X	0;
+X}
+X
+X# Adds mail into the agent.wait file, if possible. This file records all the
+X# mails queued with a non-standard name or which are stored outside of the
+X# queue. Returns 1 if mail was successfully added to this list.
+Xsub waiting_mail {
+X	local($tmp_queue) = @_;
+X	local($status) = 0;
+X	if (open(WAITING, ">>$agent_wait")) {
+X		if (print WAITING "$tmp_queue\n") {
+X			$status = 1;			# Mail more or less safely queued
+X			&add_log("NOTICE processing deferred for $tmp_queue")
+X				if $loglvl > 3;
+X		} else {
+X			&add_log("ERROR could not record $tmp_queue in $agent_wait")
+X				if $loglvl > 1;
+X		}
+X		close WAITING;
+X	} else {
+X		&add_log("ERROR unable to open $agent_wait") if $loglvl > 0;
+X		&add_log("WARNING left mail in $tmp_queue") if $loglvl > 1;
+X	}
+X	$status;		# 1 means success
+X}
+X
+X# Performs a '/bin/mv' operation, but without the burden of an extra process.
+Xsub mv {
+X	local($from, $to) = @_;		# Original path and destination path
+X	# If the two files are on the same file system, then we may use the rename()
+X	# system call.
+X	if (&same_device($from, $to)) {
+X		&add_log("using rename system call") if $loglvl > 19;
+X		unless (rename($from, $to)) {
+X			&add_log("SYSERR rename: $!") if $loglvl;
+X			&add_log("ERROR could not rename $from into $to") if $loglvl;
+X			return 1;
+X		}
+X		return 0;
+X	}
+X	# Have to emulate a 'cp'
+X	&add_log("copying file $from to $to") if $loglvl > 19;
+X	unless (open(FROM, $from)) {
+X		&add_log("SYSERR open: $!") if $loglvl;
+X		&add_log("ERROR cannot open source $from") if $loglvl;
+X		return 1;
+X	}
+X	unless (open(TO, ">$to")) {
+X		&add_log("SYSERR open: $!") if $loglvl;
+X		&add_log("ERROR cannot open target $to") if $loglvl;
+X		close FROM;
+X		return 1;
+X	}
+X	local($ok) = 1;		# Assume all I/O went all right
+X	local($_);
+X	while (<FROM>) {
+X		next if print TO;
+X		$ok = 0;
+X		&add_log("SYSERR write: $!") if $loglvl;
+X		last;
+X	}
+X	close FROM;
+X	close TO;
+X	unless ($ok) {
+X		&add_log("ERROR could not copy $from to $to") if $loglvl;
+X		unlink "$to";
+X		return 1;
+X	}
+X	# Copy succeeded, remove original file
+X	unlink "$from";
+X	0;					# Denotes success
+X}
+X
+X# Look whether two paths refer to the same device.
+X# Compute basename and directory name for both files, as the file may
+X# not exist. However, if both directories are on the same file system,
+X# then so is it for the two files beneath each of them.
+Xsub same_device {
+X	local($from, $to) = @_;		# Original path and destination path
+X	local($fromdir, $fromfile) = $from =~ m|^(.*)/(.*)|;
+X	($fromdir, $fromfile) = ('.', $fromdir) if $fromfile eq '';
+X	local($todir, $tofile) = $to =~ m|^(.*)/(.*)|;
+X	($todir, $tofile) = ('.', $todir) if $tofile eq '';
+X	local($dev1) = stat($fromdir);
+X	local($dev2) = stat($todir);
+X	$dev1 == $dev2;
+X}
+X
+END_OF_FILE
+  if test 8754 -ne `wc -c <'agent/pl/queue_mail.pl'`; then
+    echo shar: \"'agent/pl/queue_mail.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/queue_mail.pl'
+fi
+if test -f 'agent/pl/sendfile.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/sendfile.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/sendfile.pl'\" \(9154 characters\)
+  sed "s/^X//" >'agent/pl/sendfile.pl' <<'END_OF_FILE'
+X;# $Id: sendfile.pl,v 3.0 1993/11/29 13:49:16 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: sendfile.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:16  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;#
+X;# This file contains two subroutines:
+X;#   - sendfile, sends a set of files
+X;#   - abort, called when something got wrong
+X;#
+X;# A routine clean_tmp must be defined in the program, for removing
+X;# possible temporary files in case abort is called.
+X;#
+X# Send a set of files
+Xsub sendfile {
+X	local($dest, $cf'tmpdir, $pack, $subject) = @_;
+X	&add_log("sending dir $cf'tmpdir to $dest, mode $pack") if $loglvl > 9;
+X
+X	# A little help message
+X	local($mail_help) = "Detailed intructions can be obtained by:
+X
+X	Subject: Command
+X	@SH mailhelp $dest";
+X
+X	# Go to tmpdir where files are stored
+X	chdir $cf'tmpdir || &abort("NO TMP DIRECTORY");
+X
+X	# Build a list of files to send
+X	local($list) = "";		# List of plain files
+X	local($dlist) = "";		# List with directories (for makekit)
+X	local($nbyte) = 0;
+X	local($nsend) = 0;
+X	open(FIND, "find . -print |") || &abort("CANNOT RUN FIND");
+X	while (<FIND>) {
+X		chop;
+X		next if $_ eq '.';		# Skip current directory `.'
+X		s|^\./||;
+X		$dlist .= $_ . " ";		# Save file/dir name
+X		if (-f $_) {			# If plain file
+X			$list .= $_ . " ";	# Save plain file
+X			$nsend++;			# One more file to send
+X			($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X				$blksize,$blocks) = stat($_);
+X			$nbyte += $size;	# Update total size
+X		}
+X	}
+X	close FIND;
+X
+X	&abort("NO FILE TO SEND") unless $nsend;
+X	if ($nsend > 1) {
+X		&add_log("$nsend files to pack ($nbyte bytes)") if $loglvl > 9;
+X	} else {
+X		&add_log("1 file to pack ($nbyte bytes)") if $loglvl > 9;
+X	}
+X
+X	# Pack files
+X	if ($pack =~ /kit/) {
+X		system "kit -n Part $list" || &abort("CANNOT KIT FILES");
+X		$packed = "kit";
+X	} elsif ($pack =~ /shar/) {
+X		# Create a manifest, so that we can easily run maniscan
+X		# Leave a PACKNOTES file with non-zero length if problems.
+X		local($mani) = $dlist;
+X		$mani =~ s/ /\n/g;
+X		local($packlist) = "pack.$$";	# Pack list used as manifest
+X		if (open(PACKLIST, ">$packlist")) {
+X			print PACKLIST $mani;
+X			close PACKLIST;
+X			system 'maniscan', "-i$packlist",
+X				"-o$packlist", '-w0', '-n', '-lPACKNOTES';
+X			&add_log("ERROR maniscan returned non-zero status")
+X				if $loglvl > 5 && $?;
+X			if (-s 'PACKNOTES') {		# Files split or uu-encoded
+X				system 'makekit', "-i$packlist", '-t',
+X					"Now run 'sh PACKNOTES'." || &abort("CANNOT SHAR FILES");
+X			} else {
+X				system 'makekit', "-i$packlist" || &abort("CANNOT SHAR FILES");
+X			}
+X		} else {
+X			&add_log("ERROR cannot create packlist") if $loglvl > 5;
+X			system "makekit $dlist" || &abort("CANNOT SHAR FILES");
+X		}
+X		$packed = "shar";
+X	} else {
+X		if ($nbyte > $cf'maxsize) {		# Defined in ~/.mailagent
+X			system "kit -M -n Part $list" || &abort("CANNOT KIT FILES");
+X			$packed = "minikit";		# The minikit is included
+X		} else {
+X			# Try with makekit first
+X			if (system "makekit $dlist") {	# If failed
+X				system "kit -M -n Part $list" || &abort("CANNOT KIT FILES");
+X				$packed = "minikit";	# The minikit is included
+X			} else {
+X				$packed = "shar";
+X			}
+X		}
+X	}
+X
+X	# How many parts are there ?
+X	@parts = <Part*>;
+X	$npart = $#parts + 1;		# Number of parts made
+X	&abort("NO PART TO SEND -- $packed failed") unless $npart;
+X	if ($npart > 1) {
+X		&add_log("$npart $packed parts to send") if $loglvl > 19;
+X	} else {
+X	&add_log("$npart $packed part to send") if $loglvl > 19;
+X	}
+X
+X	# Now send the parts
+X	$nbyte = 0;				# How many bytes do we send ?
+X	$part_num = 0;
+X	$signal="";				# To signal parts number if more than 1
+X	local($partsent) = 0;	# Number of parts actually sent
+X	local($bytesent) = 0;	# Amount of bytes actually sent
+X	foreach $part (@parts) {
+X		($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,
+X			$blksize,$blocks) = stat($part);
+X		$nbyte += $size;	# Update total size
+X
+X		&add_log("dealing with $part ($size bytes)") if $loglvl > 19;
+X
+X		# See if we need to signal other parts
+X		$part_num++;			# Update part number
+X		if ($npart > 1) {
+X			$signal=" (Part $part_num/$npart)";
+X		}
+X
+X		# Send part
+X		open(MAILER, "|$cf'sendmail $cf'mailopt $dest");
+X		print MAILER
+X"To: $dest
+XSubject: $subject$signal
+XPrecedence: bulk
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XHere is the answer to your request:
+X
+X	$fullcmd
+X
+X
+X";
+X		if ($packed eq 'minikit') {		# Kit with minikit included
+X			print MAILER
+X"This is a kit file. It will be simpler to unkit it if you own the kit
+Xpackage (latest patchlevel), but you can use the minikit provided with
+Xthis set of file (please see instructions provided by kit itself at the
+Xhead of each part). If you wish to get kit, send me the following mail:
+X
+X";
+X		} elsif ($packed eq 'kit') {	# Plain kit files
+X			print MAILER
+X"This is a kit file. You need the kit package (latest patchlevel) to
+Xunkit it. If you do not have kit, send me the following mail:
+X
+X";
+X		}
+X		if ($packed =~ /kit/) {		# Kit parts
+X			print MAILER
+X"	Subject: Command
+X	@PACK shar
+X	@SH maildist $dest kit -
+X
+Xand you will get the latest release of kit as shell archives.
+X
+X$mail_help
+X
+X";
+X			# Repeat instructions which should be provided by kit anyway
+X			if ($npart > 1) {
+X				print MAILER
+X"Unkit:	Save this mail into a file, e.g. \"foo$part_num\" and wait until
+X	you have received the $npart parts. Then, do \"unkit foo*\". To see
+X	what will be extracted, you may wish to do \"unkit -l foo*\" before.
+X";
+X			} else {
+X				print MAILER
+X"Unkit:	Save this mail into a file, e.g. \"foo\". Then do \"unkit foo\". To see
+X	what will be extracted, you may wish to do \"unkit -l foo\" before.
+X";
+X			}
+X			# If we used the minikit, signal where instruction may be found
+X			if ($packed eq 'minikit') {
+X				print MAILER
+X"	This kit archive also contains a minikit which will enable you to
+X	extract the files even if you do not have kit. Please follow the
+X	instructions kit has provided for you at the head of each part. Should
+X	the minikit prove itself useless, you may wish to get kit.
+X";
+X			}
+X		} else {			# Shar parts
+X			print MAILER
+X"This is a shar file. It will be simpler to unshar it if you own the Rich Salz's
+Xcshar package. If you do not have it, send me the following mail:
+X
+X	Subject: Command
+X	@PACK shar
+X	@SH maildist $dest cshar 3.0
+X
+Xand you will get cshar as shell archives.
+X
+X$mail_help
+X
+X";
+X			if (-s 'PACKNOTES') {		# Problems detected by maniscan
+X				print MAILER
+X"
+XWarning:
+X	Some minor problems were encountered during the building of the
+X	shell archives. Perhaps a big file has been split, a binary has been
+X	uu-encoded, or some lines were too long. Once you have unpacked the
+X	whole distribution, see file PACKNOTES for more information. You can
+X	run it through sh by typing 'sh PACKNOTES' to restore possible splited
+X	or encoded files.
+X
+X";
+X			}
+X			if ($npart > 1) {
+X				print MAILER
+X"Unshar: Save this mail into a file, e.g. \"foo$part_num\" and wait until
+X	you have received the $npart parts. Then, do \"unshar -n foo*\". If you
+X	do not own \"unshar\", edit the $npart files and remove the mail header
+X	by hand before feeding into sh.
+X";
+X			} else {
+X				print MAILER
+X"Unshar: Save this mail into a file, e.g. \"foo\". Then do \"unshar -n foo\". If
+X	you do not own \"unshar\", edit the file and remove the mail header by
+X	hand before feeding into sh.
+X";
+X			}
+X		}
+X		print MAILER
+X"
+X-- $prog_name speaking for $cf'user
+X
+X
+X";
+X		open(PART, $part) || &abort("CANNOT OPEN $part");
+X		while (<PART>) {
+X			print MAILER;
+X		}
+X		close PART;
+X		close MAILER;
+X		if ($?) {
+X			&add_log("ERROR couldn't send $size bytes to $dest")
+X				if $loglvl > 1;
+X		} else {
+X			&add_log("SENT $size bytes to $dest") if $loglvl > 2;
+X			$partsent++;
+X			$bytesent += $size;
+X		}
+X	}
+X
+X	# Prepare log message
+X	local($partof) = "";
+X	local($byteof) = "";
+X	local($part);
+X	local($byte);
+X	if ($partsent > 1) {
+X		$part = "parts";
+X	} else {
+X		$part = "part";
+X	}
+X	if ($bytesent > 1) {
+X		$byte = "bytes";
+X	} else {
+X		$byte = "byte";
+X	}
+X	if ($partsent != $npart) {
+X		$partof = " (of $npart)";
+X		$byteof = "/$nbyte";
+X	}
+X	&add_log(
+X		"SENT $partsent$partof $packed $part ($bytesent$byteof $byte) to $dest"
+X	) if $loglvl > 4;
+X}
+X
+X# In case something got wrong
+X# We call the clean_tmp routine, which must be defined in the
+X# main program that will use abort.
+Xsub abort {
+X	local($reason) = shift;		# Why do we abort ?
+X	local($cmd) = $fullcmd =~ /^(\S+)/;
+X	open(MAILER, "|$cf'sendmail $cf'mailopt $path $cf'user");
+X	print MAILER
+X"To: $path
+XBcc: $cf'user
+XSubject: $cmd failed
+XX-Mailer: mailagent [version $mversion PL$patchlevel]
+X
+XSorry, the $prog_name command failed while sending files.
+X
+XYour command was: $fullcmd
+XError message I got:
+X
+X	>>>> $reason <<<<
+X
+XIf $cf'name can figure out what you meant, he may answer anyway.
+X
+X-- $prog_name speaking for $cf'user
+X";
+X	close MAILER;
+X	&add_log("FAILED ($reason)") if $loglvl > 1;
+X	&clean_tmp;
+X	exit 0;			# Scheduled error
+X}
+X
+END_OF_FILE
+  if test 9154 -ne `wc -c <'agent/pl/sendfile.pl'`; then
+    echo shar: \"'agent/pl/sendfile.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/sendfile.pl'
+fi
+if test -f 'agent/pl/usrmac.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'agent/pl/usrmac.pl'\"
+else
+  echo shar: Extracting \"'agent/pl/usrmac.pl'\" \(9811 characters\)
+  sed "s/^X//" >'agent/pl/usrmac.pl' <<'END_OF_FILE'
+X;# $Id: usrmac.pl,v 3.0 1993/11/29 13:49:19 ram Exp ram $
+X;#
+X;#  Copyright (c) 1990-1993, Raphael Manfredi
+X;#  
+X;#  You may redistribute only under the terms of the Artistic License,
+X;#  as specified in the README file that comes with the distribution.
+X;#  You may reuse parts of this distribution only within the terms of
+X;#  that same Artistic License; a copy of which may be found at the root
+X;#  of the source tree for mailagent 3.0.
+X;#
+X;# $Log: usrmac.pl,v $
+X;# Revision 3.0  1993/11/29  13:49:19  ram
+X;# Baseline for mailagent 3.0 netwide release.
+X;#
+X;# 
+X;# User-defined macros are available. They all begin with %-, followed by one
+X;# character, for instance %-i for user-defined macro i. Once defined, they are
+X;# globally visible. When defining a new macro, it is possible to replace an
+X;# already existing definition or to stack a new definition (that is to say,
+X;# we define some sort of dynamic scope). It is possible to save the macro
+X;# state and then restore it later.
+X;#
+X;# The user may also define multi-character macros, which are then used thusly:
+X;# If the name is mac, then %-(mac) will expand that macro. It is also possible
+X;# to use %-(i) for %-i. Macro names may contain any character but '%' and ().
+X;#
+X;# At the interface level, the following calls (usrmac package) are recognized:
+X;#
+X;#   . new(name, value, type)
+X;#        replace or create a new macro %-(name).
+X;#   . delete(name)
+X;#        delete all values recorded for the macro.
+X;#   . push(name, value, type)
+X;#        stack a new macro, creating it if necessary.
+X;#   . pop(name)
+X;#        remove last macro definition (either push'ed or new'ed).
+X;#   . save
+X;#        save the currently defined macros in an array of names.
+X;#   . restore
+X;#        scan an array of names and keep only those macros listed there,
+X;#        the others being deleted.
+X;#
+X;# When specifying a macro, the value given may be one of the following types:
+X;#
+X;#   . SCALAR
+X;#        a scalar value is given, e.g.: 'red'.
+X;#   . EXPR
+X;#        a perl expression will be eval'ed to get the value, e.g: '$red'.
+X;#   . CONST
+X;#        a perl constant expression, eval'ed only once and then cached.
+X;#   . FN
+X;#        a perl function called with (name), the macro name.
+X;#   . PROG
+X;#        a program to be run to get the actual value. Only trailing newline
+X;#        is chopped, others are preserved. The program is forked each time.
+X;#        In the argument list given to the program, %n is expanded as the
+X;#        macro name we are trying to evaluate.
+X;#   . PROGC
+X;#        same as PROG but the program is forked only once and the value is
+X;#        cached for later perusal. The C stands for Cache or Constant,
+X;#        depending on your taste.
+X;# 
+X;# At the data structure level, we have:
+X;#
+X;#   . %Name
+X;#        returns the name of the array containing the macro stack value for
+X;#        that name. Stacked values are unshift'ed at the beginning so we can
+X;#        always read the first item regardless of the number of defined
+X;#        values.
+X;#   . @gensym
+X;#        the array ('gensym' is a place holder for whatever dynamic name was
+X;#        generated and stored as a value in %Name) containing the macro
+X;#        values, followed by its type.
+X;#   . %Type
+X;#        this table maps a macro type like FN on a function dealing with the
+X;#        macro substitution at this level.
+X;#
+X;# Saving the state means recording all the defined macro names we currently
+X;# have. Restoring the state simply deletes the extra values which may have
+X;# been added since the last save. Thus a function defining macros for its own
+X;# usage will perform a save, then define its own macros and call restore before
+X;# returning. Alternatively, it can call delete for each defined macro.
+X;#
+X;# new/delete should be used normally, and push/pop only when a temporary
+X;# override is needed for a macro. save/restore should not be interleaved with
+X;# push/pop since after the restore, some macros added by push might have
+X;# already been deleted completely. Likewise, pushed values on top of macros
+X;# saved by save will not be poped by a restore.
+X;#
+X#
+X# User-defined macros
+X#
+X
+Xpackage usrmac;
+X
+X$init_done = 0;
+X
+X# Defines known macro types. Each type is associated with a function which will
+X# be called to deal with the macro substitution for that type and returning the
+X# proper value. The arguments passed to it are the glob to the gensym array and
+X# the macro name, in case we have to deal with an FN-type value. The value for
+X# the macro is at index 0 in the gensym array.
+Xsub init {
+X	%Type = (
+X		'SCALAR',	'sub_scalar',		# Scalar value
+X		'EXPR',		'sub_expr',			# Expression to be eval'ed each time
+X		'CONST',	'sub_const',		# Constant eval'ed only once
+X		'FN',		'sub_fn',			# Perl function to be called
+X		'PROG',		'sub_prog',			# A program to call
+X		'PROGC',	'sub_progc',		# Program to call once, result cached
+X	);
+X}
+X
+X# Add a new macro in the table. If one already existed, the new value is pushed
+X# before the old one and will be used in subsequent substitutions.
+Xsub push {
+X	local($name, $value, $type) = @_;	# Name, value and type
+X	local($gensym);						# Generated array name storing values
+X	&init unless $init_done++;
+X	$gensym = defined $Name{$name} ? $Name{$name} : &'gensym;
+X	$Name{$name} = $gensym;				# Make a nested data structure
+X	eval "unshift(@$gensym, \$value, \$Type{\$type})";
+X}
+X
+X# Create a brand new macro or replace the one currently visible.
+Xsub new {
+X	local($name, $value, $type) = @_;	# Name, value and type
+X	local($gensym);						# Generated array name storing values
+X	&init unless $init_done++;
+X	$gensym = defined $Name{$name} ? $Name{$name} : &'gensym;
+X	$Name{$name} = $gensym;				# Make a nested data structure
+X	eval "@$gensym[0, 1] = (\$value, \$Type{\$type})";
+X}
+X
+X# Remove topmost macro definition
+Xsub pop {
+X	local($name) = @_;					# Macro to undefine at this level
+X	return unless defined $Name{$name};	# Nothing here it would seem
+X	local($gensym) = $Name{$name};		# Array storing macro definition
+X	eval "shift(@$gensym); shift(@$gensym)";
+X}
+X
+X# Delete the whole (possibly stacked) macro entries under a given name.
+Xsub delete {
+X	local($name) = @_;
+X	return unless defined $Name{$name};	# Ooops... Has already been done
+X	local($gensym) = $Name{$name};		# Array storing macro definition
+X	eval "undef @$gensym";				# Delete the value array
+X	delete $Name{$name};				# As well as the entry in name table
+X}
+X
+X# Save the valid macro names we currently have. Returns an array of names.
+Xsub save {
+X	keys %Name;		# List of currently defined macros
+X}
+X
+X# Restore the name space we had at the time the save was made, deleting all the
+X# macro names which are now defined and were not present at that time. Note
+X# that stacked macro definitions are deleted in one block.
+Xsub restore {
+X	local(@names) = @_;			# Names we had at that time
+X	local(%saved);				# Tell us whether a name was saved or not
+X	foreach $key (@names) {		# Build a hash table of names for faster access
+X		$saved{$key}++;
+X	}
+X	foreach $key (keys %Name) {	# Delete all macros not defined at save time
+X		&delete($key) unless $saved{$key};
+X	}
+X}
+X
+X#
+X# User-defined substitutions
+X#
+X
+X# Perform the user-defined macro substitution and return the value string.
+X# (called from macros_subst in macros.pl).
+Xsub macro'usr {
+X	local($name) = @_;		# Macro name
+X	return '' unless defined $Name{$name};	# Unknown macro
+X	local($gensym) = $Name{$name};			# Get value array
+X	return '' unless $gensym;				# Key present, but nothing there
+X	local($glob) = eval "*$gensym";			# Type glob to value array
+X	local(*array) = $glob;					# From now on, @array is set
+X	local($function) = $array[1];			# How to deal with that macro type
+X	$function = $Type{'SCALAR'} unless $function;
+X	&$function($glob, $name);				# Propagate return value
+X}
+X
+X#
+X# Type-dependant substitutions
+X#
+X
+X# Substitute a scalar value, simply return the verbatim value we got.
+Xsub sub_scalar {
+X	local(*ary, $name) = @_;
+X	$ary[0];
+X}
+X
+X# Evaluate a perl expression and return the scalar result
+Xsub sub_expr {
+X	local(*ary, $name) = @_;
+X	eval $ary[0];
+X}
+X
+X# Evaluate a perl expression and cache the result as a scalar value
+Xsub sub_const {
+X	local(*ary, $name) = @_;
+X	local($result) = eval $ary[0];
+X	&cache(*ary, $result);			# Cache and propagate result
+X}
+X
+X# Call a perl function to evaluate the macro. Function should be a fully
+X# qualified name, with package info, unless it is explicitely defined in
+X# the usrmac package.
+Xsub sub_fn {
+X	local(*ary, $name) = @_;
+X	eval "&$ary[0](\$name)";
+X}
+X
+X# Call an external program, grab its output and remove final character. Then
+X# return that as a result of the substitution. That program should execute
+X# quickly. Use a PROGC type to cache the result if the value returned does not
+X# change. In the argument list, %n is taken as the macro name.
+Xsub sub_prog {
+X	local(*ary, $name) = @_;
+X	local($prog) = $ary[0];
+X	$prog =~ s/%%/#%#/g;			# Escape %
+X	$prog =~ s/%n/$name/g;			# Replace %n by macro name
+X	$prog =~ s/#%#/%/g;				# %% turns out as a single %
+X	local($result);					# To store program output
+X	chop($result = `$prog 2>&1`);	# Invoke program, merge stdout and stderr
+X	$result;						# Return output
+X}
+X
+X# Same a sub_prog but cache the result as a scalar value to avoid other calls
+X# to that same program.
+Xsub sub_progc {
+X	local(*ary, $name) = @_;
+X	local($result) = &sub_prog(*ary, $name);
+X	&cache(*ary, $result);			# Cache and propagate result
+X}
+X
+X#
+X# Value caching
+X#
+X
+X# Cache computed value by making it a SCALAR-type macro value so that further
+X# calls to evaluate that macro will simply return that cached information.
+X# The result value passed as argument is returned unchanged.
+Xsub cache {
+X	local(*ary, $result) = @_;
+X	$ary[0] = $result;				# Cache result for further invocations
+X	$ary[1] = $Type{'SCALAR'};		# Make value a simple scalar
+X	$result;						# Return computed value
+X}
+X
+Xpackage main;
+X
+END_OF_FILE
+  if test 9811 -ne `wc -c <'agent/pl/usrmac.pl'`; then
+    echo shar: \"'agent/pl/usrmac.pl'\" unpacked with wrong size!
+  fi
+  # end of 'agent/pl/usrmac.pl'
+fi
+if test -f 'misc/unkit/unkit.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'misc/unkit/unkit.pl'\"
+else
+  echo shar: Extracting \"'misc/unkit/unkit.pl'\" \(9447 characters\)
+  sed "s/^X//" >'misc/unkit/unkit.pl' <<'END_OF_FILE'
+X# $Id: unkit.pl,v 3.0 1993/11/29 13:50:34 ram Exp ram $
+X#
+X#  Copyright (c) 1990-1993, Raphael Manfredi
+X#  
+X#  You may redistribute only under the terms of the Artistic License,
+X#  as specified in the README file that comes with the distribution.
+X#  You may reuse parts of this distribution only within the terms of
+X#  that same Artistic License; a copy of which may be found at the root
+X#  of the source tree for mailagent 3.0.
+X#
+X# $Log: unkit.pl,v $
+X# Revision 3.0  1993/11/29  13:50:34  ram
+X# Baseline for mailagent 3.0 netwide release.
+X#
+X
+X# This command automatically stores kit parts aside and runs unkit when all
+X# the kits have been received.
+X# Returns success if the file has been successfully stored onto disk, and a
+X# failure if the mail was not a kit part or could not be saved.
+X# The following (optional) config variables are used (~/.mailagent):
+X#
+X#  x_unkit_dir    : ~/tmp/unkit    # Directory where UNKIT works (default ~/kit)
+X#  x_unkit_remove : YES            # Remove temporary files upon exctraction
+X#  x_unkit_pname  : .kpart         # Leading temporary file name (default .kp)
+X#  x_unkit_opt    : -b             # Additional unkit option
+X#  x_unkit_log    : kitlog         # Logfile for UNKIT actions
+X#  x_unkit_notify : ~/mail/kitok   # Message to be sent when kit received
+X#  x_unkit_info   : README         # File name for kit-embeded instructions
+X#
+X# Not done yet but wanted:
+X#  x_unkit_sizemax: 1000000        # Do not automatically unkit past this size
+X#  x_unkit_timeout: 3d             # Timeout before discarding (3 days)
+X#  x_unkit_output : YES            # Do we want any output mailed back if ok?
+X#  x_unkit_trust  : ~/mail/trust   # Trusted people list (regexp form)
+X#
+X# The notify message recognizes the traditional mailagent set of macros, plus
+X# the following specific ones:
+X#
+X#  %-(name)   : kit name of the package received (from Subject: line)
+X#  %-(parts)  : number of parts received
+X#  %-(kitdir) : directory where files for this kit are stored
+X#
+X# Some reasonable defaults are hardwired within the command itself.
+X#
+X# BUGS:
+X#
+X# Will not save instructions embeded in each part, only when made separate as
+X# part #0. Moreover, if that information file arrives after all the other
+X# "real" parts, it will be silently saved and .frm and .cnt files will be
+X# recreated... That's a minor problem though.
+X#
+X
+Xsub unkit {
+X	local($cmd_line) = @_;			# The filter command line
+X
+X	# Options currently available at the ~/.mailagent level
+X	local($kitdir) = $cf'x_unkit_dir || "$cf'home/kit";
+X	local($remove) = $cf'x_unkit_remove =~ /^y/i;
+X	local($sizemax) = $cf'x_unkit_sizemax || 0;
+X	local($timeout) = $cf'x_unkit_timeout || '0d';
+X	local($info) = $cf'x_unkit_info || 'INFO';
+X	local($kl) = 'kitlog';
+X
+X	# If special logfile must be used, then open it right now. Otherwise,
+X	# logs will be redirected to agentlog. The 'kitlog' logfile (that's the
+X	# user-level name, which has "no" link to the x_unkit_log name specified)
+X	# does not cc to the 'default' log agentlog.
+X
+X	&usrlog'new($kl, "$cf'x_unkit_log", 0)
+X		if $cf'x_unkit_log ne '';
+X
+X	# Make sure it is a standard kit subject, otherwise reject mail message
+X	# immediately. Standard subjects follow this template:
+X	# Subject: package name - kit #5 / 7
+X
+X	local($name, $part, $total) = $subject =~ m|^(.*) - kit #(\d+) / (\d+)\s*$|;
+X	if ($name ne '') {
+X		&'usr_log($kl, "receiving $subject") if $'loglvl > 6;
+X	} else {
+X		&'usr_log($kl, "ERROR bad subject line: $subject") if $'loglvl > 1;
+X		return 1;			# Signal failure
+X	}
+X
+X	local($pname) = $cf'x_unkit_pname || '.kp';
+X	local($options) = $cf'x_unkit_opt;
+X	local($origname) = $name;	# Save name before mangling into 14 chars
+X
+X	# Escape all spaces in name, transforming them into '.'. Keep only the
+X	# first 14 characters and use that as a directory name.
+X
+X	$name =~ s/^\s+//;		# Strip leading spaces
+X	$name =~ s/\s+$//;		# Strip trailing spaces
+X	$name =~ s/\s+/./g;		# Escape all other spaces
+X	$name =~ s|/$||g;		# Remove trailing /
+X	$name =~ s|/|_|g;		# And transform all others into _
+X	$name = substr($name, 0, 14) if length($name) > 14;
+X
+X	$kitdir .= "/$name";	# Directory where unkit will proceed
+X	&'makedir($kitdir);		# Make directory if it does not exist
+X
+X	# Problem: we have to make sure there is no alien code in the directory.
+X	# If we were to receive to kits labelled the same way (say 'doc'), we must
+X	# not mix them in the same directory. The heuristic used here is not 100%
+X	# reliable, but at least will not lead to irreversible mixups:
+X	#
+X	# Temporaries are stored in a file 'kp.005' for part #5, and a count
+X	# of the parts already received is kept in 'kp.cnt'. A track of the total
+X	# amount of kits to be received is stored in 'kp.max' and the From: line
+X	# is stored in 'kp.frm'. If we receive a kit from someone else (as computed
+X	# by kp.frm) or we receive some kit with a different part count, we reject
+X	# it.
+X
+X	$pname = substr($pname, 0, 10) if length($pname) > 10;
+X	local($folder) = $kitdir . "/$pname" . sprintf(".%.3d", $part);
+X	$folder = "$kitdir/$info" if $part == 0;	# Part zero is info file
+X
+X	# Compute kp.max and kp.frm if they do not exist already or check if they
+X	# do. It is not really needed to make sure those files are created correctly
+X	# since the next time we'll receive a kit part, we will fail anyway if they
+X	# are not consistent. However, not being able to create them is an obvious
+X	# error we are catching immediately.
+X
+X	local($kmax) = "$kitdir/$pname.max";
+X	local($kfrom) = "$kitdir/$pname.frm";
+X
+X	if (-f $kmax) {
+X		local($sv_kmax, $sv_kfrom);
+X		open(KMAX, $kmax);
+X		chop($sv_kmax = <KMAX>);
+X		close KMAX;
+X		open(KFROM, $kfrom);
+X		chop($sv_kfrom = <KFROM>);
+X		close KFROM;
+X		if ($total != $sv_kmax) {
+X			&'usr_log($kl, "ERROR kit $name had $sv_kmax parts, now has $total")
+X				if $'loglvl > 1;
+X			return 1;
+X		}
+X		if ($from ne $sv_kfrom) {
+X			&'usr_log($kl, "ERROR kit $name was from $sv_kfrm, now from $from")
+X				if $'loglvl > 1;
+X			return 1;
+X		}
+X	} else {
+X		unless (open(KMAX, ">$kmax")) {
+X			&'usr_log($kl, "ERROR cannot create $kmax: $!") if $'loglvl;
+X			return 1;
+X		}
+X		print KMAX "$total\n";
+X		close KMAX;
+X		unless (open(KFROM, ">$kfrom")) {
+X			&'usr_log($kl, "ERROR cannot create $kfrom: $!") if $'loglvl;
+X			return 1;
+X		}
+X		print KFROM "$from\n";
+X		close KFROM;
+X	}
+X
+X	# Make sure there are no duplicates...
+X	if (-f $folder) {
+X		&'usr_log($kl, "WARNING duplicate part #$part for kit $name discarded")
+X			if $'loglvl > 5;
+X		return 1;			# Signal failure
+X	}
+X
+X	# Call the SAVE mailagent routine via the mailhook interface, which return
+X	# a success status, i.e. 0 for failure and 1 if ok.
+X	unless (&mailhook'save($folder)) {
+X		&'usr_log($kl, "ERROR cannot save part #$part for kit $name")
+X			if $'loglvl > 1;
+X		return 1;
+X	}
+X
+X	return 0 if $part == 0;		# Information file does not count...
+X
+X	# Now increase number of received parts
+X	local($received) = &unkit'one_more($kitdir, $pname);
+X	return 0 if $received < $total;		# Some parts still missing
+X
+X	# Everything was received, run unkit. Make sure the PATH variable is
+X	# correctly set by your ~/.mailagent.
+X	unless (opendir(DIR, $kitdir)) {
+X		&'usr_log($kl, "ERROR (unkit) cannot open directory $kitdir: $!")
+X			if $'loglvl > 1;
+X		&unkit'error;
+X		return 0;						# Not really an UNKIT error
+X	}
+X	local(@contents) = readdir DIR;		# Slurp the whole thing
+X	close DIR;
+X	@contents = grep(/^$pname\.\d+$/, @contents);
+X
+X	# Time to actually run unkit... Its output will be mailed back to the user.
+X
+X	if (0 == &main'shell_command(
+X		"unkit $option -Sd $kitdir @contents",
+X		$'NO_INPUT, $'NO_FEEDBACK)
+X	) {
+X		&'usr_log($kl, "OK kit $name left in dir $kitdir") if $'loglvl > 2;
+X		if (chdir $kitdir) {
+X			unlink "$pname.cnt";			# Unlink kit count anyway
+X			unlink @contents if $remove;	# Remove parts if unkit successful
+X		} else {
+X			&'usr_log($kl, "WARNING cannot chdir to $kitdir to cleanup: $!")
+X				if $'loglvl > 5;
+X		}
+X
+X		# Send mail to user if x_unkit_notify option is set. Special macros
+X		# needed by the UNKIT context are first declared before calling the
+X		# NOTIFY function via the perl interface.
+X
+X		&usrmac'push('name', $origname, 'SCALAR');
+X		&usrmac'push('parts', $total, 'SCALAR');
+X		&usrmac'push('kitdir', $kitdir, 'SCALAR');
+X
+X		&mailhook'notify($cf'x_unkit_notify, $cf'user) if $cf'x_unkit_notify;
+X		
+X		&usrmac'pop('name');
+X		&usrmac'pop('parts');
+X		&usrmac'pop('kitdir');
+X
+X	} else {
+X		&'usr_log($kl, "FAILED unkit returned non-zero status") if $'loglvl > 1;
+X		&unkit'error;
+X	}
+X	
+X	0;		# If we came here, then no error can really be reported
+X}
+X
+X# Maintain an accurate count of the parts received sofar. Return the actual
+X# number of parts we got.
+Xsub unkit'one_more {
+X	local($dir, $name) = @_;	# Dirname, basename for parts
+X	local($file) = $dir . "/$name.cnt";
+X	local($count) = 0;			# Actual number of files
+X	if (-1 == &main'acs_rqst($file)) {
+X		&'usr_log($kl, "WARNING cannot lock $file") if $'loglvl > 5;
+X	}
+X	if (-f $file) {				# Already a count
+X		open(COUNT, "$file");
+X		$count = int(<COUNT>);
+X		close COUNT;
+X	}
+X	$count++;
+X	unless (open(COUNT, ">$file")) {
+X		&'usr_log($kl, "ERROR cannot create $file: $!") if $'loglvl > 1;
+X	}
+X	local($error) = 0;
+X	(print COUNT "$count\n") || ($error++);
+X	close(COUNT) || ($error++);
+X	if ($error) {
+X		&'usr_log($kl, "ERROR cannot update file count (now $count)")
+X			if $'loglvl > 1;
+X	}
+X	&main'free_file($file);
+X	$count;						# Return new count
+X}
+X
+X# Report error in unkiting process
+Xsub unkit'error {
+X	&'usr_log($kl, "ERROR package $name left unkited in $kitdir")
+X		if $'loglvl > 1;
+X}
+X
+END_OF_FILE
+  if test 9447 -ne `wc -c <'misc/unkit/unkit.pl'`; then
+    echo shar: \"'misc/unkit/unkit.pl'\" unpacked with wrong size!
+  fi
+  # end of 'misc/unkit/unkit.pl'
+fi
+echo shar: End of archive 14 \(of 26\).
+cp /dev/null ark14isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 26 archives.
+    echo "Now run 'sh PACKNOTES', then read README and type Configure.'"
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still must unpack the following archives:
+    echo "        " ${MISSING}
+fi
+exit 0
+
+exit 0 # Just in case...

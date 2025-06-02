@@ -1,0 +1,838 @@
+Path: uunet!mcsun!news.funet.fi!hydra!klaava!hurtta
+From: Kari.Hurtta@Helsinki.FI (Kari. E. Hurtta)
+Newsgroups: vmsnet.sources.games
+Subject: Monster Helsinki, Delta from 1.04 to 1.05 - part 7/7
+Message-ID: <1992Jun30.225324.14026@klaava.Helsinki.FI>
+Date: 30 Jun 92 22:53:24 GMT
+Sender: hurtta@klaava.Helsinki.FI (Kari Hurtta)
+Followup-To: vmsnet.sources.d
+Organization: University of Helsinki
+Lines: 827
+
+Archive-name: monster_helsinki_104_to_105/delta7
+Environment: VMS, Pascal
+Author: Kari.Hurtta@Helsinki.FI
+
+-+-+-+-+-+-+-+-+ START OF PART 7 -+-+-+-+-+-+-+-+
+X  writeln ('Reallocation descriptions...');
+X  getindex(I_LINE);
+X  freeindex;
+X  ln := indx;
+X
+X  ln.inuse := 0;
+X  for i := 1 to maxindex do ln.free`091i`093 := true;
+X
+X  getindex(I_BLOCK);
+X  freeindex;
+X  bl := indx;
+X
+X  bl.inuse := 0;
+X  for i := 1 to maxindex do bl.free`091i`093 := true;
+X       `032
+X
+X  getindex (I_PLAYER);
+X  freeindex;
+X  pe := indx;
+X
+X  getindex(I_ROOM);
+X  freeindex;
+X  ro := indx;
+X
+X  getindex(I_OBJECT);
+X  freeindex;
+X  ob := indx;
+X
+X  writeln ('Scan self descriptions');
+X  getint(N_SELF);
+X  freeint;
+X  for i := 1 to pe.top do if not pe.free`091i`093 then alloc (anint.int`091i
+V`093);
+X
+X  writeln('Scan object file');
+X  for i := 1 to ob.top do if not ob.free`091i`093 then begin
+X    getobj(i);
+X    freeobj;
+X    with obj do begin
+X      alloc (-linedesc);
+X      alloc (homedesc);
+X      alloc (examine);
+X      alloc (getfail);
+X      alloc (getsuccess);`032
+X      alloc (usefail);
+X      alloc (usesuccess);
+X      alloc (d1);
+X      alloc (d2);
+X    end
+X  end;
+X `032
+X  writeln ('Scan room file');
+X  for i := 1 to ro.top do if not ro.free`091i`093 then begin
+X    getroom(i);
+X    freeroom;
+X    with here do begin
+X      for j := 1 to maxexit do with exits`091j`093 do begin
+X        alloc(-exitdesc);
+X        `123 alloc(-closed); This isn't use yet `125
+X        alloc(fail);
+X        alloc(success);`032
+X        alloc(goin);
+X        alloc(comeout);    `032
+X        alloc(hidden);      `123 is this in use ? `125
+X      end;                                   `032
+X      for j := 1 to maxdetail do alloc(here.detaildesc`091j`093);
+X      alloc(primary);
+X      alloc(secondary);
+X      alloc(-objdesc); `032
+X      alloc(-objdest);
+X      alloc(-rndmsg);                      `032
+X      alloc(xmsg2);
+X      alloc(exitfail);
+X      alloc(ofail);
+X    end
+X  end;              `032
+X
+X  writeln('Scan global codes');
+X  getglobal;
+X  freeglobal;
+X  for i := 1 to GF_MAX do if GF_Types`091i`093 = G_Text then alloc(global.in
+Vt`091i`093);
+X`032
+X  locate(indexfile,I_LINE);
+X  indexfile`094 := ln;
+X  put(indexfile);
+X
+X  locate(indexfile,I_BLOCK);
+X  indexfile`094 := bl;
+X  put(indexfile);
+X `032
+X  writeln ('Ready.');
+Xend;
+X
+Xprocedure fix_clear_privileges (batch: boolean);
+Xvar i,mm: integer;
+Xbegin
+X  if fix_sure('Do you want clear privileges database ? ',batch) then begin
+X     if not exact_user(mm,MM_userid) then mm := 0;
+X     int_in_use(N_PRIVILEGES);
+X     getint(N_PRIVILEGES);
+X     for i := 1 to maxplayers do anint.int`091i`093 := 0;
+X     if mm > 0 then anint.int`091mm`093 := all_privileges;`032
+X`009`123 more privilege for Monster Manager `125
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_privileges `125
+X
+Xprocedure fix_clear_experience (batch: boolean);
+Xvar i,mm: integer;
+Xbegin
+X  if fix_sure('Do you want clear experience database ? ',batch) then begin
+X     if not exact_user(mm,MM_userid) then mm := 0;
+X     int_in_use(N_EXPERIENCE);
+X     getint(N_EXPERIENCE);
+X     for i := 1 to maxplayers do anint.int`091i`093 := 0;
+X     if mm > 0 then anint.int`091mm`093 := MaxInt;`032
+X        `123 Monster Manager is Archwizard `125
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_privileges `125
+X
+Xprocedure fix_clear_health (batch: boolean);
+Xvar i: integer;
+X    exp: intrec;
+Xbegin
+X  if fix_sure('Do you want clear health database ? ',batch) then begin
+X     getint(N_EXPERIENCE);
+X     freeint;
+X     exp := anint;
+X     int_in_use(N_HEALTH);
+X     getint(N_HEALTH);
+X     for i := 1 to maxplayers do anint.int`091i`093 :=`032
+X         leveltable`091level(exp.int`091i`093)`093.health * goodhealth div 1
+V0;
+X     putint;
+X     writeln ('Ready.');
+X  end;
+Xend; `123 fix_clear_health `125
+X
+X
+Xprocedure fix_clear_password (batch: boolean);
+Xvar password: shortstring;
+X    i: integer;
+Xbegin
+X     if fix_sure('Want you really clear password database ? ',batch) then be
+Vgin
+X
+X        writeln('Intializing password record...');
+X        locate(namfile,T_PASSWD);
+X        namfile`094.validate := T_PASSWD;
+X        namfile`094.loctop := 0;
+X        for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X`009put(namfile);
+X
+X        writeln('Initializing real name record ...');
+X        locate(namfile,T_REAL_USER);
+X        namfile`094.validate := T_REAL_USER;
+X        namfile`094.loctop := 0;
+X        for i := 1 to maxroom do namfile`094.idents`091i`093 := '';
+X`009put(namfile);
+X
+X`009getuser;
+X`009freeuser;
+X
+X`009writeln ('Making pseudo passowords... (same as virtual userid)');
+X        for i := 1 to maxplayers do begin
+X            password := user.idents`091i`093;
+X            if password > '' then if password`0911`093 = '"' then begin
+X               encrypt(password,i);
+X               getpasswd;
+X               passwd.idents`091i`093 := password;
+X               putpasswd;
+X               getreal_user;
+X               real_user.idents`091i`093 := '';
+X               putreal_user;
+X            end;
+X        end;
+X        writeln ('Ready.');
+X     end
+Xend; `123 fix_clear_password `125
+X
+Xprocedure fix_clear_quotas(batch: boolean);
+Xvar numrooms,allow,accept: intrec;
+X    room,exit,player,acp,i: integer;`032
+X    roomindx: indexrec;
+Xbegin
+X    writeln('Scanning rooms....');
+X    for i := 1 to maxplayers do numrooms.int`091i`093 := 0;
+X    numrooms.intnum := N_NUMROOMS;
+X    for i := 1 to maxplayers do allow.int`091i`093 := default_allow;
+X    allow.intnum := N_ALLOW;
+X    for i := 1 to maxplayers do accept.int`091i`093 := 0;
+X    accept.intnum := N_ACCEPT;
+X    getindex(I_ROOM);
+X    freeindex;
+X    roomindx := indx;
+X    for room := 1 to roomindx.top do if not roomindx.free`091room`093 then b
+Vegin
+X`009gethere(room);
+X`009if exact_user(player,here.owner) then begin
+X`009    acp := 0;
+X`009    for exit := 1 to maxexit do`032
+X`009`009if here.exits`091exit`093.kind = 5 then acp := acp +1;
+X`009    numrooms.int`091player`093 := numrooms.int`091player`093 +1;
+X`009    accept.int`091player`093 := accept.int`091player`093     +acp;
+X`009end;
+X    end;
+X    writeln('Clearing quota database and writing results to it...');
+X    int_in_use(N_NUMROOMS);
+X    int_in_use(N_ALLOW);
+X    int_in_use(N_ACCEPT);
+X
+X    getint(N_NUMROOMS);
+X    anint := numrooms;
+X    putint;
+X
+X    getint(N_ALLOW);
+X    anint := allow;
+X    putint;
+X
+X    getint(N_ACCEPT);
+X    anint := accept;
+X    putint;
+X
+X    writeln('OK.');
+Xend;
+X
+X
+Xprocedure fix_repair_location(batch: boolean);
+Xvar id,loc,slot,code,room,true_loc,found_counter: integer;
+Xvar ex_indx,sleep_indx,room_indx,header_indx: indexrec;
+X    locs: intrec;
+X    temp: namrec;
+Xbegin
+X    writeln('Scanning monsters...');
+X    getpers;
+X    freepers;
+X    getuser;
+X    freeuser;
+X    getindex(I_PLAYER);
+X    freeindex;
+X    ex_indx := indx;
+X    getindex(I_ASLEEP);
+X    freeindex;
+X    sleep_indx := indx;
+X    getindex(I_ROOM);
+X    freeindex;
+X    room_indx := indx;
+X    getindex(I_HEADER);
+X    freeindex;
+X    header_indx := indx;
+X    getint(N_LOCATION);
+X    freeint;
+X    locs := anint;
+X    for id := 1 to ex_indx.top do if not ex_indx.free`091id`093 then`032
+X`009if user.idents`091id`093 = '' then begin
+X`009    writeln('Bad player username record #',id:1);
+X`009    writeln('    player name: ',pers.idents`091id`093);
+X`009end else if user.idents`091id`093`0911`093 = ':' then begin`032
+X`009    found_counter := 0;
+X`009    true_loc := 0;
+X`009    loc := locs.int`091id`093;
+X`009    for room := 1 to room_indx.top do if not room_indx.free`091room`093
+V then begin
+X`009`009gethere(room);
+X`009`009for slot := 1 to maxpeople do begin
+X`009`009    if (here.people`091slot`093.username = user.idents`091id`093) an
+Vd`032
+X`009`009`009(here.people`091slot`093.kind = P_MONSTER) then begin
+X`009`009`009found_counter := found_counter +1;
+X`009`009`009true_loc := room;
+X`009`009    end;
+X`009`009end;
+X`009    end;
+X`009    if (found_counter = 1) and (true_loc = loc) then
+X`009`009writeln(pers.idents`091id`093,': ok')
+X`009    else if found_counter = 0 then begin
+X`009`009writeln(pers.idents`091id`093,': not found from any room - deleted '
+V,
+X`009`009    '- can''t update code database.');
+X`009`009ex_indx.free`091id`093 := true;
+X`009`009ex_indx.inuse := ex_indx.inuse - 1;
+X`009`009if not sleep_indx.free`091id`093 then begin
+X`009`009    sleep_indx.free`091id`093 := true;
+X`009`009    sleep_indx.inuse := sleep_indx.inuse - 1;`032
+X`009`009`009`123 onkohan tarpeelista ? `125
+X`009`009end;
+X`009`009pers.idents`091id`093 := '';
+X`009`009user.idents`091id`093 := '';
+X`009`009getint(N_SELF);`009`009`123 destroy self description `125
+X`009`009delete_block(anint.int`091id`093);
+X`009`009putint;
+X`009    end else if (found_counter = 1) and ( loc <> true_loc) then begin
+X`009`009writeln(pers.idents`091id`093,': found from wrong location - updated
+V.');
+X`009`009locs.int`091id`093 := true_loc;
+X`009    end else if (found_counter > 1) then begin
+X`009`009writeln(pers.idents`091id`093,': duplicated monster - deleted.');
+X`009`009for room := 1 to room_indx.top do if not room_indx.free`091room`093
+V then begin
+X`009`009    code := 0;
+X`009`009    getroom(room); `123 locking `125
+X`009`009    for slot := 1 to maxpeople do begin
+X`009`009`009if (here.people`091slot`093.username = user.idents`091id`093) an
+Vd`032
+X`009`009`009(here.people`091slot`093.kind = P_MONSTER) then begin
+X`009`009`009    code := here.people`091slot`093.parm;
+X`009`009`009    here.people`091slot`093.username := '';
+X`009`009`009    here.people`091slot`093.kind     := 0;
+X`009`009`009    here.people`091slot`093.parm     := 0;
+X`009`009`009end;
+X`009`009    end;
+X`009`009    putroom;`009    `123 unlocking `125
+X`009`009    if code > 0 then begin
+X`009`009`009if not header_indx.free`091code`093 then begin
+X`009`009`009    header_indx.free`091code`093 := true;
+X`009`009`009    header_indx.inuse := sleep_indx.inuse - 1;`032
+X`009`009`009    delete_program(code);`009`009`009
+X`009`009`009end;
+X`009`009    end;
+X`009`009end; `123 end of room loop `125
+X`009`009ex_indx.free`091id`093 := true;
+X`009`009ex_indx.inuse := ex_indx.inuse - 1;
+X`009`009if not sleep_indx.free`091id`093 then begin
+X`009`009    sleep_indx.free`091id`093 := true;
+X`009`009    sleep_indx.inuse := sleep_indx.inuse - 1;`032
+X`009`009`009`123 onkohan tarpeelista ? `125
+X`009`009end;
+X`009`009pers.idents`091id`093 := '';
+X`009`009user.idents`091id`093 := '';
+X`009`009getint(N_SELF);`009`009`123 destroy self description `125
+X`009`009delete_block(anint.int`091id`093);
+X`009`009putint;
+X    `009    end else writeln('%',pers.idents`091id`093,': bad software error
+V.');
+X`009end;
+X    writeln('Updating database...');
+X
+X    temp := pers;
+X    getpers;
+X    pers := temp;
+X    putpers;
+X   `032
+X    temp := user;
+X    getuser;
+X    user := temp;
+X    putuser;
+X   `032
+X    getindex(I_PLAYER);
+X    indx := ex_indx;
+X    putindex;
+X    getindex(I_ASLEEP);
+X    indx := sleep_indx;
+X    putindex;
+X    getindex(I_ROOM);
+X    indx := room_indx;
+X    putindex;
+X    getindex(I_HEADER);
+X    indx := header_indx;
+X    freeindex;
+X    getint(N_LOCATION);
+X    anint := locs;
+X    putint;
+X    writeln('Ready.');
+Xend; `123 fix_repair_location `125
+X
+Xprocedure fix_calculate_existence(batch: boolean);
+Xvar table: array `0911 .. maxroom `093 of integer;
+X    i,room,slot,object,old_value,pslot,inv: integer;
+Xbegin
+X    writeln ('Calculate objects'' number in existence');
+X    for i := 1 to maxroom do table`091i`093 := 0;
+X    getindex(I_ROOM);
+X    freeindex;
+X    writeln ('Scan room file');
+X    for room := 1 to indx.top do if not indx.free`091room`093 then begin
+X`009gethere (room);
+X`009for slot := 1 to maxobjs do begin
+X`009    i := here.objs`091slot`093;
+X`009    if (i < 0) or (i > maxroom) then
+X`009`009writeln('Invalid object #',i:1,' entry #',slot:1,
+X`009`009    ' at room ',here.nicename)
+X`009    else if i > 0 then table`091i`093 := table`091i`093 +1;
+X`009end;
+X`009for pslot := 1 to maxpeople do begin
+X`009    if here.people`091pslot`093.kind > 0 then begin
+X`009`009for inv := 1 to maxhold do begin
+X`009`009    i := here.people`091pslot`093.holding`091inv`093;
+X`009`009    if (i < 0) or (i > maxroom) then
+X`009`009`009writeln('Invalid object #',i:1,' entry #',inv:1,
+X`009`009`009    ' at monster ',here.people`091pslot`093.name)
+X`009`009    else if i > 0 then table`091i`093 := table`091i`093 +1;
+X`009`009end;
+X`009    end;
+X`009end;
+X    end;
+X    writeln('Write result to object file');
+X    getindex(I_OBJECT);
+X    freeindex;
+X    for object := 1 to maxroom do begin
+X`009if (object > indx.top) or indx.free`091object`093 then begin
+X`009    if table`091object`093 > 0 then begin
+X`009`009writeln('Object #',object:1,' not exist but here is');
+X`009`009writeln('  ',table`091object`093,' entries in room file.');
+X`009    end;
+X`009end else begin
+X`009    getobj(object);
+X`009    old_value := obj.numexist;
+X`009    obj.numexist := table`091object`093;
+X`009    putobj;
+X`009    if old_value <> table`091object`093 then writeln(obj.oname,' fixed.'
+V);
+X`009end;
+X    end;
+X    writeln ('Ready.');
+Xend;`009`123 fix_calculate_existence `125
+X
+X
+Xprocedure fix_repair_paths(batch: boolean);
+Xvar room,exit,room_to,second_exit,exit2: integer;
+X
+X    procedure delete_exit(room,exit: integer);
+X    begin
+X`009getroom(room);
+X`009writeln('  Removing exit from ',here.nicename,
+X`009    ' to ',direct`091exit`093,'.');
+X`009here.exits`091exit`093.kind  := 0;
+X`009here.exits`091exit`093.toloc := 0;
+X`009here.exits`091exit`093.slot  := 0;
+X`009putroom;
+X    end; `123 delete_exit `125
+X`009
+Xbegin
+X    writeln('Repairing paths...');
+X   `032
+X    getindex(I_ROOM);
+X    freeindex;
+X    for room := 1 to indx.top do if not indx.free`091room`093 then begin
+X`009for exit := 1 to maxexit do begin
+X
+X`009    gethere(room);`009`123 reread here `125
+X`009    if not (here.exits`091exit`093.kind in `0910,5`093) then begin
+X`009`009room_to := here.exits`091exit`093.toloc;
+X`009`009second_exit := here.exits`091exit`093.slot;
+X
+X`009`009if (second_exit < 0) or (second_exit > maxexit) then begin
+X`009`009    writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009' is bad: target slot is out of range');
+X`009`009    delete_exit(room,exit);
+X`009`009
+X`009`009end else if room_to = 0 then begin
+X`009`009    writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009' is nowhere.');
+X
+X`009`009end else if (room_to < 1) or (room_to > indx.top) then begin
+X`009`009    writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009' is bad: target room is out of range.');
+X`009`009    delete_exit(room,exit);
+X
+X`009`009end else if indx.free`091room_to`093 then begin
+X`009`009    writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009' is bad: target room isn''t in use');
+X`009`009    delete_exit(room,exit);
+X
+X`009`009end else begin
+X`009`009    if room = room_to then
+X`009`009`009writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009    ' is loop.');
+X`009`009    if second_exit = 0 then begin
+X`009`009`009writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009    ' is bad: no target slot');
+X`009`009`009delete_exit(room,exit);
+X`009`009    end else begin
+X`009`009`009gethere(room_to);
+X`009`009`009if (here.exits`091second_exit`093.toloc <> room) or
+X`009`009`009   (here.exits`091second_exit`093.slot <> exit) then begin
+X`009`009`009    writeln('Exits from ',here.nicename,' to ',
+X`009`009`009`009direct`091second_exit`093,
+X`009`009`009`009' and');
+X`009`009`009    gethere(room);
+X`009`009`009    writeln(' from ',here.nicename,' to ',direct`091exit`093,
+X`009`009`009`009' are bad: bad link');
+X`009`009`009    delete_exit(room,exit);
+X`009`009`009end;
+X`009`009    end;
+X`009`009end;
+X`009    end else if here.exits`091exit`093.toloc <> 0 then begin
+X`009`009writeln('Exit from ',here.nicename,' to ',direct`091exit`093,
+X`009`009    ' isn''t exit.');
+X`009    end;`032
+X`009end;`009`123 exit `125
+X    end;    `123 room `125
+X    writeln ('Ready.');
+Xend;
+X
+X`123 fix_view_global_flags moved to DATABASE.PAS `125
+X
+X`091global`093
+Xfunction fix
+X`009(batch: string := ''):  `123 in this procedure you not have logged in `1
+V25
+X`009`009`009`009`123 system ! `125
+X`009boolean;
+Xvar s: string;
+X    done: boolean;
+X    batch_mode: boolean;
+Xbegin            `009
+X   done := batch > '';
+X   fix := true;
+X   repeat
+X      if batch > '' then begin
+X`009    s := batch;
+X`009    `123 writeln('Batch mode: ',s); `125
+X`009    batch_mode := true;
+X      end else begin
+X`009    write ('fix> '); readln (s); writeln;
+X`009    batch_mode := false;
+X      end;
+X      s := lowcase(s);
+X      if s = '' then writeln ('Enter h for help.')
+X      else case s`0911`093 of `032
+X`009'a'`009: fix_clear_privileges`009    (batch_mode);
+X`009'b'`009: fix_clear_health`009    (batch_mode);
+X        'c'`009: fix_initialize_event`009    (batch_mode);
+X        'd'     : fix_descriptions`009    (batch_mode);
+X        'f'     : fix_clear_experience`009    (batch_mode);
+X`009'g'`009:`032
+X`009begin
+X`009`009if s = 'g' then`009`009fix_calculate_existence`009(batch_mode)
+X`009`009else if s = 'gl' then`009fix_clear_global`009(batch_mode)
+X`009`009else if s = 'gs' then`009set_global_flag(GF_ACTIVE,FALSE)
+X`009`009else if s = 'gu' then   set_global_flag(GF_ACTIVE,TRUE)
+X`009`009else if s = 'g-' then`009set_global_flag(GF_VALID,FALSE)
+X`009`009else if s = 'g+' then   set_global_flag(GF_VALID,TRUE)
+X`009`009else if s = 'gv' then   fix_view_global_flags
+X`009`009else writeln ('Enter ? for help.');
+X`009end;
+X        'i'     : fix_repair_index`009    (batch_mode);
+X`009'j'`009: fix_repair_paths`009    (batch_mode);
+X`009'k'`009: fix_codes`009`009    (batch_mode);
+X`009'l'`009: fix_repair_location`009    (batch_mode);
+X        'm'     : fix_clear_monster`009    (batch_mode);
+X`009'n'`009: fix_clear_quotas`009    (batch_mode);
+X        'o'     :`032
+X`009begin
+X`009    if s = 'o' then fix_clear_object(batch_mode)
+X`009    else if s = 'ow' then fix_owner (batch_mode)
+X`009    else writeln('Enter ? for help.');
+X`009end;
+X        'p'     : fix_clear_player`009    (batch_mode);
+X        'r'     : fix_clear_room`009    (batch_mode);
+X        's'     :`032
+X`009begin
+X`009    if s = 's' then fix_clear_password`009    (batch_mode)
+X`009    else if s = 'sp' then fix_clear_spell   (batch_mode)
+X`009    else writeln('Enter ? for help.');
+X`009end;
+X        'v'     : system_view;
+X        'h','?' : fix_help;
+X        'e'     : done := true;
+X        'q'     : begin
+X`009`009`009fix := false;
+X`009`009`009done := true;
+X`009`009end;
+X        otherwise writeln ('Use ? for help');
+X      end; `123 case `125
+X   until done
+Xend;
+X
+Xfunction batch (file_name: string): boolean;
+Xvar line: string;
+X    pos,errorcode: integer;
+X    batch_file: text;
+X    quit: boolean;
+Xbegin
+X    batch := true;
+X    open(batch_file,file_name,history := readonly, error := continue);
+X    quit := false;
+X    errorcode := status(batch_file);
+X    if errorcode <> 0 then begin
+X`009case errorcode of
+X`009    -1: `123 PAS$K_EOF `125 writeln('Batch file is empty.');
+X`009    3:  `123 PAS$K_FILNOTFOU `125 writeln('Batch file not foud.');
+X`009    4:  `123 PAS$K_INVFILSYN `125 writeln('Illegal name of batch file.')
+V;
+X`009    otherwise writeln('Can''t open batch file, error code (status): ',
+X`009`009errorcode:1);
+X`009end; `123 case `125
+X`009quit := true;
+X    end else begin
+X`009reset(batch_file);
+X`009while not quit and not eof(batch_file) do begin
+X`009    readln(batch_file,line);
+X`009    writeln(line);
+X`009    if line > '' then begin
+X`009`009pos := index(line,'!');
+X`009`009if pos > 0 then line := substr(line,1,pos-1);
+X`009    end;
+X`009    if line > '' then quit := not fix (line);
+X`009end;
+X    end;
+X    batch  := not quit;
+Xend; `123 batch `125
+X
+XBEGIN
+X    Get_Environment;
+X
+X    if not lookup_class(system_id,'system') then
+X`009writeln('%error in main program: system');
+X    if not lookup_class(public_id,'public') then
+X`009writeln('%error in main program: public');
+X    if not lookup_class(disowned_id,'disowned') then
+X`009writeln('%error in main program: disowned');
+X
+X    rebuild_system := false;
+X    fix_system := false;
+X
+X    Setup_Guts;
+X    userid := lowcase(get_userid);
+X    wizard := userid = MM_userid;
+X    Params;
+X
+X    if open_database(false) then begin
+X
+X`009if rebuild_system then rebuild;
+X
+X`009if batch_system then batch(name);
+X
+X`009if fix_system then fix;
+X
+X`009close_database;
+X    end else writeln ('Can''t open database. Maybe someone is playing Monste
+Vr.');
+X
+X    Finish_Guts;
+XEND.
+X
+$ CALL UNPACK MONSTER_REBUILD.PAS;14 1309722618
+$ create/nolog 'f'
+X/
+$ CALL UNPACK MONSTER_WHO.DIF;1 47
+$ create/nolog 'f'
+X-  268,  278
+X`123 write_debug moved to DATABASE.PAS `125
+X/
+$ CALL UNPACK PARSER.DIF;1 892696612
+$ create/nolog 'f'
+X/
+$ CALL UNPACK PRIVUSERS.DIF;1 47
+$ create/nolog 'f'
+X/
+$ CALL UNPACK QUEUE.DIF;1 47
+$ create/nolog 'f'
+X                  MONSTER Helsinki V 1.05
+X                  -----------------------
+X
+X    Monster, a multiplayer adventure game where the players create the
+X    world and make the rules.
+X
+X    Derived from Rich Skrenta's Monster (from version 1).
+X
+X    Includes programmable non-player characters (NPC) with own programming
+X    language - MDL (Monster Defination Language). Also rooms and objects
+X    can program with it (via so called hooks). NPCs are called to 'monster',
+X    all other MDL-objects are called to 'hook'.
+X
+XEnvironment: VMS V4.x (MONSTER_INSTALL.COM requires V5.x)
+X             PASCAL`032
+X
+XTHIS IS DELTA POSTING AGAIST VERSION 1.04
+XVersion 1.04 is posted 14.6.1992
+X
+XNew to version 1.04:
+X - MONSTER /BUILD and /DUMP commands now correct handle passwords
+X   of virual userids created by MONSTER/USER (you can't do
+X     text dump of database and build new database where password
+X     of virtual userids have saved in available)
+X - MDL function 'or' accept now any number of parameters
+X - MDL function 'and' accept now more than two parameters
+X - New modules: VERSION.PAS (version number of monster)
+X                ALLOC.PAS
+X - New image MONSTER_REBUILD.EXE - here is now commands:
+X`009`009MONSTER/REBUILD
+X`009`009MONSTER/FIX
+X`009`009MONSTER/BATCH
+X - Document have updated little
+X
+XNew in version 1.04 to version 1.03 (posted 24.11.1990):
+X -  Several bugfixes (of course)
+X -  New commands MONSTER/DUMP and MONSTER/BUILD (via MONSTER_DUMP.EXE)
+X -  Reading of keyboard and database polling starategy have rewrote -
+X    should cause smaller IO-load to system (new GUTS.PAS).
+X -  MDL -parser now writes offending line and points error position when`032
+X    it detects error in MDL-program.
+X
+XRunning delta:
+X    Get MONSTER Version 1.04 distribution
+X      Put logical name MONSTER104 to point that directory
+X    Create directory for sources of version 1.05`032
+X      Put logical name MONSTER105 to point that directory
+X    Go to directory where is this delta distribution
+X      execute UPDATE.COM:
+X         $ @UPDATE
+X
+X    Go directory MONSTER105
+X
+X    Compilation and installation - three possibility:
+X1)  Compile MONSTER_E.HLP
+X         $ LIBRARIAN/HELP/CREATE MONSTER_E MONSTER_E
+X    Read installation help
+X         $ HELP/LIBRARY=SYS$DISK:<>MONSTER_E Installation
+X    and follow help.
+X2)  Run installation-script
+X         $ @MONSTER_INSTALL
+X    and answer to questions.
+X
+X3)  Compile with MMS (there if file MAKEFILE.)
+X         $ MMS ALL
+X    Install manually
+X
+X    Send notice to me (Kari.Hurtta@Helsinki.Fi) if you get this
+X    working or if you have problems.
+X
+X- K E H
+X( Kari.Hurtta@Helsinki.FI,
+X  hurtta@cc.Helsinki.FI,
+X  hurtta@cs.Helsinki.FI,
+X  HURTTA@FINUH.BITNET
+X)
+$ CALL UNPACK READ.ME;1 620791259
+$ create/nolog 'f'
+X/
+$ CALL UNPACK RECEPTIONIST.DIF;1 47
+$ create/nolog 'f'
+X$ IF F$TRNLNm("MONSTER104") .eqs. "" .or. F$TRNLNM("MONSTER105") .eqs. ""
+X$  THEN
+X$  write sys$OUTPUT "Define MONSTER104 to point Monster Version 1.04"
+X$  write sys$OUTPUT "    distribution directory"
+X$  write sys$OUTPUT "Create directory for Monster Version 1.05 and
+X$  write SYS$OUTPUT "   MONSTER105 to point that directory"
+X$ ENDIF
+X$ EDIT/SUM MONSTER104:BONE.MDL        /UPDATE=SYS$DISK:<>BONE.DIF /OUTPUT=MO
+VNSTER105:
+X$ EDIT/SUM MONSTER104:CASTLE.DMP      /UPDATE=SYS$DISK:<>CASTLE.DIF /OUTPUT=
+VMONSTER105:
+X$ EDIT/SUM MONSTER104:CLD.PROTO       /UPDATE=SYS$DISK:<>CLD.DIF /OUTPUT=MON
+VSTER105:
+X$ EDIT/SUM MONSTER104:CLI.PAS         /UPDATE=SYS$DISK:<>CLI.DIF /OUTPUT=MON
+VSTER105:
+X$ EDIT/SUM MONSTER104:COMMANDS.PAPER  /UPDATE=SYS$DISK:<>COMMANDS.DIF /OUTPU
+VT=MONSTER105:
+X$ EDIT/SUM MONSTER104:CONVERT.BATCH   /UPDATE=SYS$DISK:<>CONVERT.DIF /OUTPUT
+V=MONSTER105:
+X$ EDIT/SUM MONSTER104:CUSTOM.PAS      /UPDATE=SYS$DISK:<>CUSTOM.DIF /OUTPUT=
+VMONSTER105:
+X$ EDIT/SUM MONSTER104:DATABASE.PAS    /UPDATE=SYS$DISK:<>DATABASE.DIF /OUTPU
+VT=MONSTER105:
+X$ EDIT/SUM MONSTER104:DOG.MDL         /UPDATE=SYS$DISK:<>DOG.DIF /OUTPUT=MON
+VSTER105:
+X$ EDIT/SUM MONSTER104:FIX.BATCH       /UPDATE=SYS$DISK:<>FIX.DIF /OUTPUT=MON
+VSTER105:
+X$ EDIT/SUM MONSTER104:GLOBAL.PAS      /UPDATE=SYS$DISK:<>GLOBAL.DIF /OUTPUT=
+VMONSTER105:
+X$ EDIT/SUM MONSTER104:GREAT_HALL.MDL  /UPDATE=SYS$DISK:<>GREAT_HALL.DIF /OUT
+VPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:GUTS.PAS        /UPDATE=SYS$DISK:<>GUTS.DIF /OUTPUT=MO
+VNSTER105:
+X$ EDIT/SUM MONSTER104:ILMOITUS.TXT    /UPDATE=SYS$DISK:<>ILMOITUS.DIF /OUTPU
+VT=MONSTER105:
+X$ EDIT/SUM MONSTER104:INIT.PROTO      /UPDATE=SYS$DISK:<>INIT.DIF /OUTPUT=MO
+VNSTER105:
+X$ EDIT/SUM MONSTER104:INTERPRETER.PAS /UPDATE=SYS$DISK:<>INTERPRETER.DIF /OU
+VTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:KEYS.PAS        /UPDATE=SYS$DISK:<>KEYS.DIF /OUTPUT=MO
+VNSTER105:
+X$ EDIT/SUM MONSTER104:MON.PAS         /UPDATE=SYS$DISK:<>MON.DIF /OUTPUT=MON
+VSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER.CLD              /UPDATE=SYS$DISK:<>MONSTER.DI
+VF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER.HELP             /UPDATE=SYS$DISK:<>MONSTER.DI
+VF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER.INIT             /UPDATE=SYS$DISK:<>MONSTER.DI
+VF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER_DUMP.PAS         /UPDATE=SYS$DISK:<>MONSTER_DU
+VMP.DIF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER_E.HLP            /UPDATE=SYS$DISK:<>MONSTER_E.
+VDIF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER_INSTALL.COM      /UPDATE=SYS$DISK:<>MONSTER_IN
+VSTALL.DIF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:MONSTER_WHO.PAS          /UPDATE=SYS$DISK:<>MONSTER_WH
+VO.DIF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:PARSER.PAS               /UPDATE=SYS$DISK:<>PARSER.DIF
+V /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:PRIVUSERS.PAS            /UPDATE=SYS$DISK:<>PRIVUSERS.
+VDIF /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:QUEUE.PAS                /UPDATE=SYS$DISK:<>QUEUE.DIF
+V /OUTPUT=MONSTER105:
+X$ EDIT/SUM MONSTER104:RECEPTIONIST.MDL         /UPDATE=SYS$DISK:<>RECEPTIONI
+VST.DIF /OUTPUT=MONSTER105:
+X$ COPY/LOG ALLOC.PAS`009`009 MONSTER105:
+X$ COPY/LOG VERSION.PAS             MONSTER105:
+X$ COPY/LOG MONSTER_REBUILD.PAS     MONSTER105:
+X$ COPY/LOG MAKEFILE.               MONSTER105:
+$ CALL UNPACK UPDATE.COM;3 660238337
+$ create/nolog 'f'
+X`091inherit ('GlobaL') `093
+XMODULE Global;
+X
+XVAR
+X    `123 externally definated of this have in GLOBAL.PAS `125
+X
+X    VERSION : `091global`093 string
+X`009:= 'Monster Helsinki 1.05';
+X    DISTRIBUTED : `091global`093 string
+X`009:= '1.7.1992';
+X
+XEND.
+$ CALL UNPACK VERSION.PAS;8 1075601448
+$ EXIT

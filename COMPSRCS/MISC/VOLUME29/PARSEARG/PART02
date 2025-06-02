@@ -1,0 +1,2104 @@
+Newsgroups: comp.sources.misc
+From: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Subject:  v29i117:  parseargs - functions to parse command line arguments, Part02/10
+Message-ID: <1992May17.182252.28563@sparky.imd.sterling.com>
+X-Md4-Signature: 2c484de31185875751a3408ea9e7eb71
+Date: Sun, 17 May 1992 18:22:52 GMT
+Approved: kent@sparky.imd.sterling.com
+
+Submitted-by: brad@hcx1.ssd.csd.harris.com (Brad Appleton)
+Posting-number: Volume 29, Issue 117
+Archive-name: parseargs/part02
+Environment: UNIX, VMS, MS-DOS, OS/2, Amiga
+Supersedes: parseargs: Volume 17, Issue 46-57
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 2 (of 10)."
+# Contents:  Intro Makefile VMSbuild.com doc/Makefile
+#   doc/arg_macros.inc doc/argdesc.inc doc/argflags.inc doc/bugs.inc
+#   doc/env_args.inc doc/env_parse.inc doc/env_usage.inc
+#   doc/multivals.inc doc/parsecntls.inc doc/returns.inc
+#   doc/shells.inc parseargs.pl parseargs.tcl strfuncs.h test.csh
+#   test.ksh test.zsh
+# Wrapped by brad@hcx1 on Thu May  7 12:12:17 1992
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'Intro' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Intro'\"
+else
+echo shar: Extracting \"'Intro'\" \(5025 characters\)
+sed "s/^X//" >'Intro' <<'END_OF_FILE'
+X
+X                                  PARSEARGS
+X
+X                        extracted from Eric Allman's
+X
+X                            NIFTY UTILITY LIBRARY
+X
+X                          Created by Eric P. Allman
+X                             <eric@Berkeley.EDU>
+X
+X                         Modified by Peter da Silva
+X                            <peter@Ferranti.COM>
+X
+X                   Modified and Rewritten by Brad Appleton
+X                          <brad@SSD.CSD.Harris.COM>
+X
+X
+X Welcome to parseargs! Dont let the initial size of this package scare you.
+X over 75% of it is English text, and more than 50% of the source is comments.
+X
+X Parseargs is a set of functions to parse command-line arguments. Unlike
+X getopt and its variants, parseargs does more than just split up the
+X command-line into some canonical form. Parseargs will actually parse the
+X command-line, assigning the appropriate command-line values to the
+X corresponding variables, and will verify the command-line syntax (and print
+X a usage message if necessary). Furthermore, many features of it's parsing
+X behavior are configurable at run-time. Some of these features include the
+X following:
+X
+X     o  Prompting the user for missing arguments
+X     o  Allowing keywords (+count=4) and/or options (-c4)
+X     o  Checking for default arguments in an environment variable
+X     o  Ignoring bad syntax instead of terminating
+X     o  Ignoring upper/lower case on the command-line
+X     o  Controlling the location of non-positional parameters
+X     o  Controlling the contents (syntax and verbosity) of usage messages
+X     o  Having long usage messages piped through a paging program
+X
+X Parseargs also allows for options that take an optional argument, and
+X options that take a (possibly optional) list of one or more arguments.
+X In addition, parseargs may be configured at compile-time to parse
+X command-lines in accordance with the native command-syntax of any of the
+X following operating systems:
+X
+X     o  Unix
+X     o  VAX/VMS
+X     o  OS/2
+X     o  MS-DOS
+X     o  AmigaDOS
+X
+X Parseargs consists of a set of C-functions to parse arguments from the
+X command-line, from files, from strings, from linked-lists, and from
+X string-vectors. Also included is a command-line interface which will parse
+X arguments for shell scripts (sh, csh/tcsh/itcsh, ksh, bash, zsh, and rc),
+X awk-scripts, perl-scripts and tcl-scripts.
+X
+X The basic structure used by parseargs is the argument-descriptor (sometimes
+X called "argdesc" for brevity).  An array/string of argdescs is declared by
+X the user to describe the command in question.  The resulting argdesc-array
+X is passed to all the parseargs functions and is used to hold all information
+X about the command. a sample argdesc-array is shown below.
+X
+X    STARTOFARGS,
+X    { 'a', ARGVALOPT, argStr,   &area,    "AREAcode : optional area-code" },
+X    { 'g', ARGLIST,   argStr,   &groups,  "newsGROUPS : groups to test" },
+X    { 'r', ARGOPT,    argInt,   &count,   "REPcount : repetition factor" },
+X    { 's', ARGOPT,    argChar,  &sepch,   "SEPchar : field separator" },
+X    { 'x', ARGOPT,    argBool,  &xflag,   "Xflag : turn on X-mode" },
+X    { ' ', ARGREQ,    argStr,   &name,    "name : name to use" },
+X    { ' ', ARGLIST,   argStr,   &args,    "args : any remaining arguments" },
+X    ENDOFARGS
+X
+X Once the above array/string is declared it is a simple matter to invoke
+X parseargs from C as in the following example:
+X
+X    status = parseargs( argv, argdesc_array );
+X
+X or from a shell script as in the following example:
+X
+X    echo "$ARGDESC_STR" | parseargs -s sh -- "$0" "$@" >tmp$$
+X    test  $? = 0  &&  . tmp$$
+X    /bin/rm -f tmp$$
+X
+X And before you know it, your command-line had been parsed, all variables 
+X have been assigned their corresponding values from the command-line, syntax
+X have been verified, and a usage message (if required) has been printed. 
+X
+X Under UNIX, the command-line syntax (using single character options) for the
+X above command would be:
+X
+X    cmdname [-a [<areacode>]] [-g <newsgroups>...] [-r <repcount>]
+X            [-s <sepchar>] [-x]  <name>  [<args>...]
+X
+X The UNIX command-line syntax using keywords (or long options) would be:
+X
+X    cmdname [+area [<areacode>]] [+groups <newsgroups>...] [+rep <repcount>]
+X            [+sep <sepchar>] [+x]  <name>  [<args>...]
+X
+X The VMS command-line syntax would be the following:
+X
+X    cmdname [/AREA[=<areacode>]] [/GROUPS=<newsgroups>[,<newsgroups>...]]
+X            [/REP=<repcount>] [/SEP=<sepchar>] [/X]  <name>
+X            [<args>[,<args>...]]
+X
+X The MS-DOS and OS/2 command-line syntax would be the following (unless the
+X environment variable $SWITCHAR is '-' in which case UNIX syntax is used):
+X
+X    cmdname [/a[=<areacode>]] [/g=<newsgroups>...] [/r=<repcount>]
+X            [/s=<sepchar>] [/x]  <name>  [<args>...]
+X
+X The AmigaDOS command-line syntax would be the following:
+X
+X    cmdname [AREA [<areacode>]] [GROUPS <newsgroups>...] [REP <repcount>]
+X            [SEP <sepchar>] [X]  <name>  [<args>...]
+X
+X
+X Please look at the README files and manpages for more detailed information!
+END_OF_FILE
+if test 5025 -ne `wc -c <'Intro'`; then
+    echo shar: \"'Intro'\" unpacked with wrong size!
+fi
+# end of 'Intro'
+fi
+if test -f 'Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'Makefile'\"
+else
+echo shar: Extracting \"'Makefile'\" \(4720 characters\)
+sed "s/^X//" >'Makefile' <<'END_OF_FILE'
+X# $Header: Makefile,v 2.1 89/12/30 20:59:01 eric Exp $
+X
+X###
+X# operating-system dependent stuff
+X###
+X.UNIVERSE =	att
+X#.UNIVERSE =	ucb
+XOS_TYPE =	unix
+X# OS_DEFS =	-D${OS_TYPE} -D${.UNIVERSE}_universe
+X
+X###
+X# targets
+X###
+XNAME =	parseargs
+XPROGRAM =	${NAME}
+XLIBRARY =	${NAME}
+XSTYLE =	unix
+X
+X###
+X# target directories
+X###
+XLOCAL =  /usr/local
+XLIBDIR = ${LOCAL}/lib
+XINCDIR = ${LOCAL}/include
+XPERLLIB = ${LIB}/perl
+X
+X###
+X# compilation options
+X###
+XINCLUDES =	-I.
+X# MODEL =	-Ms
+X# MODELNAME =	S
+X# OPT =	-O
+XOPT =	-g
+XTEST_DEFS =	
+XUSR_DEFS =	-DUSE_PAGER
+XDEFINES =	${OS_DEFS} ${USR_DEFS} ${TEST_DEFS} -D${STYLE}_style
+XOPTIONS =
+XCFLAGS =	${OPT} ${MODEL} ${INCLUDES} ${DEFINES} ${OPTIONS}
+XLINTFLAGS =	${INCLUDES} ${DEFINES} ${OPTIONS}
+X
+X###
+X# libraries
+X###
+XLIBARGS =	${MODELNAME}lib${STYLE}_args.a
+XLIBFILE =	${MODELNAME}libparse.a
+XLOCLIBS =	${LIBARGS}
+X# SYSLIBS =	-lm -lcurses -ltermcap
+XLIBS =	${LOCLIBS} ${SYSLIBS}
+X
+X###
+X# commands
+X###
+XAR =	ar rvu
+XDEL =	rm -f
+XCOPY =	cp
+XCHDIR =	cd
+XLINT =	lint
+XMKTAGS =	ctags
+XPRINT =	pr
+XRANLIB =	ranlib
+XSHAR =	shar
+XSQZ =	compress -v
+XSTRIP =	strip
+X
+X###
+X# files used
+X###
+XDOCS=	doc/Makefile \
+X		doc/argtype.man3 \
+X		doc/parseargs.man1 \
+X		doc/parseargs.man3 \
+X		doc/parsecntl.man3 \
+X		doc/arg_macros.inc \
+X		doc/argdesc.inc \
+X		doc/argflags.inc \
+X		doc/argvalopt.inc \
+X		doc/bugs.inc \
+X		doc/caveats.inc \
+X		doc/cmd_macros.inc \
+X		doc/defargs.inc \
+X		doc/effects.inc \
+X		doc/env_args.inc \
+X		doc/env_parse.inc \
+X		doc/env_usage.inc \
+X		doc/fparseargs3.inc \
+X		doc/lib_bugs.inc \
+X		doc/lparseargs3.inc \
+X		doc/multivals.inc \
+X		doc/parseargs1.inc \
+X		doc/parseargs3.inc \
+X		doc/parsecntl3.inc \
+X		doc/parsecntls.inc \
+X		doc/parseflags.inc \
+X		doc/parsemodes.inc \
+X		doc/returns.inc \
+X		doc/sh_arrays.inc \
+X		doc/shells.inc \
+X		doc/sparseargs3.inc \
+X		doc/usage3.inc \
+X		doc/vparseargs3.inc
+XSCRIPTS =	test.sh  test.csh  test.ksh  test.rc  test.awk  test.pl
+XPERLSUB =	${NAME}.pl
+XXXFILES =	Intro  README  MANIFEST  Makefile  Makefile.cpp
+X
+XHDRS =	${NAME}.h \
+X		patchlevel.h \
+X		pgopen.h \
+X		strfuncs.h \
+X		useful.h
+X
+XSRCS =	${NAME}.c \
+X		argtype.c \
+X		arglist.c \
+X		amiga_args.c \
+X		ibm_args.c \
+X		pgopen.c \
+X		stest.c \
+X		strfuncs.c \
+X		syserr.c \
+X		unix_args.c \
+X		unix_man.c \
+X		vms_args.c \
+X		vprintf.c \
+X		winsize.c \
+X		xparse.c
+X
+XOBJS =  ${STYLE}_args.o \
+X		 arglist.o \
+X		 argtype.o \
+X		 pgopen.o \
+X		 strfuncs.o \
+X		 syserr.o \
+X		 vprintf.o \
+X		 winsize.o \
+X		 xparse.o
+X
+XPROG_OBJS =  ${NAME}.o   unix_man.o
+XTEST_OBJS =  stest.o
+X
+XFILES =	${XXFILES} ${DOCS} ${HDRS} ${SRCS} ${PERLSUB} ${SCRIPTS}
+X
+X###
+X# target dependencies
+X###
+Xall: ${LIBARGS} test ${PROGRAM}
+X
+Xtest: ${STYLE}_test
+X
+X${STYLE}_test :  stest.o ${LOCLIBS}
+X	${CC} ${CFLAGS} -o ${STYLE}_test  stest.o ${LOCLIBS} ${SYSLIBS}
+X
+X${LIBARGS}: ${OBJS}
+X	${AR} $@ ${OBJS}
+X	${RANLIB} $@
+X
+X${PROGRAM}: ${PROG_OBJS} ${LOCLIBS}
+X	${CC} ${CFLAGS} -o $@ ${PROG_OBJS} ${LOCLIBS} ${SYSLIBS}
+X
+X###
+X# object dependencies
+X###
+X${NAME}.o:	${NAME}.c ${NAME}.h patchlevel.h strfuncs.h useful.h
+Xamiga_args.o:	amiga_args.c ${NAME}.h pgopen.h strfuncs.h useful.h \
+X                exit_codes.h
+Xarglist.o:	arglist.c ${NAME}.h strfuncs.h useful.h
+Xargtype.o:	argtype.c ${NAME}.h strfuncs.h useful.h
+Xibm_args.o:	ibm_args.c ${NAME}.h pgopen.h strfuncs.h useful.h exit_codes.h
+Xpgopen.o:	pgopen.c useful.h exit_codes.h
+Xstest.o:	stest.c ${NAME}.h useful.h
+Xstrfuncs.o:	strfuncs.c useful.h
+Xsyserr.o:	syserr.c useful.h
+Xunix_args.o:	unix_args.c ${NAME}.h pgopen.h strfuncs.h useful.h exit_codes.h
+Xunix_man.o:	unix_man.c ${NAME}.h strfuncs.h useful.h
+Xvms_args.o:	vms_args.c ${NAME}.h pgopen.h strfuncs.h useful.h exit_codes.h
+Xvprintf.o:	vprintf.c useful.h
+Xwinsize.o:	winsize.c useful.h
+Xxparse.o:	xparse.c ${NAME}.h strfuncs.h useful.h exit_codes.h
+X
+X###
+X# installation dependencies
+X###
+Xinstall:  ${INCDIR}/${NAME}.h \
+X		 ${LIBDIR}/${LIBFILE} \
+X		 ${LOCAL}/${PROGRAM}
+X
+X ${INCDIR}/${NAME}.h: ${NAME}.h useful.h
+X	( ${CHDIR} ${INCDIR}; ${DEL} ${NAME}.h useful.h )
+X	${COPY} ${NAME}.h useful.h ${INCDIR}
+X
+X ${LIBDIR}/${LIBFILE}: ${LIBARGS}
+X	${DEL}   ${LIBDIR}/${LIBFILE}
+X	${COPY} ${LIBARGS}   ${LIBDIR}/${LIBFILE}
+X	${RANLIB}   ${LIBDIR}/${LIBFILE}
+X
+X ${LOCAL}/${PROGRAM}: ${PROGRAM} ${PERLSUB}
+X	${DEL} ${LOCAL}/${PROGRAM} ${PERLIB}/${PERLSUB}
+X	${COPY} ${PROGRAM} ${LOCAL}
+X	${STRIP} ${LOCAL}/${PROGRAM}
+X	${COPY} ${PERLSUB} ${PERLLIB}
+X
+X###
+X# maintenance dependencies
+X###
+Xlint: ${SRCS}
+X	${LINT} ${LINTFLAGS} ${SRCS}
+X
+Xshar: ${NAME}.shar
+X
+X${NAME}.shar: ${FILES}
+X	${DEL} ${NAME}.shar
+X	${SHAR} ${FILES}  >${NAME}.shar
+X
+Xclean:
+X	${DEL} ${OBJS} ${PROG_OBJS} ${TEST_OBJS}
+X	${DEL} tags core .exrc
+X
+Xclobber: clean
+X	${DEL} ${LIBARGS}  ${PROGRAM}  ${STYLE}_test
+X
+Xtags: ${SRCS} ${HDRS}
+X	${MKTAGS} ${SRCS} ${HDRS}
+X
+Xcollapse: clobber shar
+X	${SQZ} ${NAME}.shar
+X	${DEL} ${FILES}
+X
+Xprint: ${SRCS} ${HDRS}
+X	@${PRINT} ${SRCS} ${HDRS}
+X
+END_OF_FILE
+if test 4720 -ne `wc -c <'Makefile'`; then
+    echo shar: \"'Makefile'\" unpacked with wrong size!
+fi
+# end of 'Makefile'
+fi
+if test -f 'VMSbuild.com' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'VMSbuild.com'\"
+else
+echo shar: Extracting \"'VMSbuild.com'\" \(2417 characters\)
+sed "s/^X//" >'VMSbuild.com' <<'END_OF_FILE'
+X$! --- VMSbuild.com ---
+X$!
+X$! Build the ParseArgs suite under VMS
+X$!
+X$! Luke Brennan                             e-mail: brennan@coco.cchs.su.oz.AU
+X$! EDP Unit, S209                                   lukeb@casino.cchs.su.oz.AU
+X$!                                    brennan%coco.cchs.su.oz.au@cunyvm.BITNET
+X$! Cumberland College of Health Sciences,                              ,-_|\  
+X$! The University of Sydney                  voice: +61 2 646 6402    /     \ 
+X$! East Street, Lidcombe, NSW 2141             fax: +61 2 646 4853    \_,-._* 
+X$! AUSTRALIA                                                               v  
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$ If (P1 .nes. "")
+X$ Then OPSYS := 'P1'
+X$ Else OPSYS := 'f$getsyi("node_SWtype")'
+X$ EndIF
+X$!
+X$!
+X$ If (OPSYS .eqs. "UNIX")
+X$ Then use_pager := /Define="""USE_PAGER"""
+X$ Else use_pager :=
+X$ EndIF
+X$ os_style    = f$edit(OPSYS,"LOWERCASE") + "_style"
+X$ os_library := LIB'opsys'ARGS.OLB
+X$!
+X$!
+X$! compile the appropriate source files
+X$!
+X$ CC /Include=([]) 'OPSYS'_Args	/Define="''os_style'"
+X$ CC /Include=([]) Xparse		/Define="''os_style'"
+X$ CC /Include=([]) ArgType		/Define="''os_style'"
+X$ CC /Include=([]) STRfuncs		/Define="''os_style'"
+X$ CC /Include=([]) ArgList
+X$ CC /Include=([]) PgOpen		'use_pager'
+X$ CC /Include=([]) SYSerr
+X$ CC /Include=([]) Vprintf
+X$ CC /Include=([]) WinSize
+X$!
+X$! make the archive library
+X$!
+X$ If (f$search("''os_library'") .nes. "") Then Delete 'os_library';
+X$ Library/Object/Create 'os_library'		-
+X	'opsys'_args, arglist, argtype, pgopen,	-
+X	 strfuncs, syserr, vprintf, winsize, xparse
+X$!
+X$!
+X$! VMS requires an OPTIONS file for correct linkage with the C libraries
+X$ If (f$search("VMS_C_OPTIONS.OPT") .eqs. "") Then GoSub Make_Opts_File
+X$!
+X$!
+X$! now we can build the actual executables..
+X$!
+X$ CC /Include=([]) Stest
+X$ Link /Executable='OPSYS'_test -
+X		Stest,'os_library'/Library,VMS_C_Options/OPTION
+X$!
+X$ CC /Include=([]) Unix_Man
+X$ CC /Include=([]) ParseArgs
+X$ Link /Executable=ParseArgs -
+X		ParseArgs,Unix_Man,'os_library'/Library,VMS_C_Options/OPTION
+X$!
+X$ Exit
+X$!
+X$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+X$!
+X$MAKE_OPTS_FILE:
+X$ Open/WRITE fd VMS_C_Options.opt
+X$ Write fd -
+X"! Default system options file to link against the sharable C runtime library"
+X$ Write fd "!"
+X$ Write fd "Sys$Share:VaxCrtl/share"
+X$ Write fd " "
+X$ Close fd
+X$!
+X$ Return
+X
+END_OF_FILE
+if test 2417 -ne `wc -c <'VMSbuild.com'`; then
+    echo shar: \"'VMSbuild.com'\" unpacked with wrong size!
+fi
+# end of 'VMSbuild.com'
+fi
+if test -f 'doc/Makefile' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/Makefile'\"
+else
+echo shar: Extracting \"'doc/Makefile'\" \(3356 characters\)
+sed "s/^X//" >'doc/Makefile' <<'END_OF_FILE'
+X# $Header: Man.mk,v 1.0 90/03/05 09:21:28 brad Exp $
+X
+X###
+X# target directories
+X###
+XMAN1=	man1
+XMAN3=	man3
+XLOCALMAN=	local_man
+XMANDIR=	/usr/man/${LOCALMAN}
+XCATMANDIR=	/usr/catman/${LOCALMAN}
+X
+X###
+X# commands
+X###
+XCOL=	col
+XCOLFLAGS=	-b
+XSOELIM=	/usr/ucb/soelim
+XMANTOCATMAN=	/usr/ucb/mantocatman
+XTROFF=	roff
+XTRFLAGS=	-man -dimagen1
+XNROFF=	nroff
+XNRFLAGS=	-man
+XSPELL=	spell
+XCOPY=	/bin/cp
+XDEL=	/bin/rm -f
+X
+X###
+X# files used
+X###
+XINCS=	*.inc
+XSRCS=	argtype.man3  parseargs.man1  parseargs.man3  parsecntl.man3
+XMANIFEST=	Manifest
+XMAN3FILES=	argtype.3  parseargs.3  parsecntl.3
+XMAN1FILES=	parseargs.1
+XCATMAN3FILES=	argtype.3.z  parseargs.3.z  parsecntl.3.z
+XCATMAN1FILES=	parseargs.1.z
+X
+X###
+X# target dependencies
+X###
+X.SUFFIXES: .man1 .man3 .1 .3
+X
+X.man1.1:
+X	${SOELIM} $< >$*.1
+X	${MANTOCATMAN} $*.1
+X
+X.man3.3:
+X	${SOELIM} $< >$*.3
+X	${MANTOCATMAN} $*.3
+X
+X###
+X# give a usage message if no target is given
+X###
+Xusage:
+X	@echo "Usage: make <target>"
+X	@echo " "
+X	@echo "where <target> is one of the following: "
+X	@echo " "
+X	@echo "   install  -- to install the documentation"
+X	@echo "   installman  -- to install the unpacked documentation"
+X	@echo "   installcatman  -- to install the packed documentation"
+X	@echo "   print  -- to print the documentation"
+X	@echo "   view   -- to view the documentation"
+X	@echo "   text   -- to build text copies of the documentation"
+X	@echo "   spell  -- to spell check the documentation"
+X	@echo "   clean  -- to remove all intermediate files"
+X	@echo "   clobber  -- to remove all created files"
+X
+X###
+X# installation dependencies
+X###
+Xinstall: installman installcatman
+X
+Xinstallman: installman1 installman3
+X
+Xinstallcatman: installcatman1 installcatman3
+X
+Xinstallman1: ${MAN1FILES}
+X	${COPY} ${MAN1FILES} ${MANDIR}/${MAN1}
+X
+Xinstallcatman1: ${CATMAN1FILES}
+X	${COPY} ${CATMAN1FILES} ${CATMANDIR}/${MAN1}
+X
+Xinstallman3: ${MAN3FILES}
+X	${COPY} ${MAN3FILES} ${MANDIR}/${MAN3}
+X
+Xinstallcatman3: ${CATMAN3FILES}
+X	${COPY} ${CATMAN3FILES} ${CATMANDIR}/${MAN3}
+X
+X###
+X# include dependencies
+X###
+Xargtype.3:	argtype.man3
+X
+Xparseargs.1:	parseargs.man1 \
+X		../test.sh \
+X		argvalopt.inc \
+X		bugs.inc \
+X		caveats.inc \
+X		env_args.inc \
+X		env_parse.inc \
+X		env_usage.inc \
+X		parseargs1.inc \
+X		sh_arrays.inc \
+X		shells.inc
+X
+Xparseargs.3:	parseargs.man3 \
+X		arg_macros.inc \
+X		argdesc.inc \
+X		argflags.inc \
+X		caveats.inc \
+X		cmd_macros.inc \
+X		defargs.inc \
+X		effects.inc \
+X		env_args.inc \
+X		env_parse.inc \
+X		env_usage.inc \
+X		fparseargs3.inc \
+X		lib_bugs.inc \
+X		lparseargs3.inc \
+X		multivals.inc \
+X		parseargs3.inc \
+X		returns.inc \
+X		sparseargs3.inc \
+X		usage3.inc \
+X		vparseargs3.inc
+X
+Xparsecntl.3:	parsecntl.man3 \
+X		argflags.inc \
+X		effects.inc \
+X		parsecntl3.inc \
+X		parsecntls.inc \
+X		parseflags.inc \
+X		parsemodes.inc \
+X		returns.inc
+X
+X
+X###
+X# maintenance dependencies
+X###
+Xclean:
+X	${DEL} ${MAN1FILES} ${MAN3FILES} ${CATMAN1FILES} ${CATMAN3FILES}
+X
+Xclobber: clean
+X	${DEL} *.txt
+X
+Xspell: ${INCS} ${SRCS}
+X	${SPELL} ${SPELLFLAGS} ${INCS} ${SRCS}
+X
+Xprint: ${MANFILES} ${INCS}
+X	${TROFF} ${TRFLAGS} ${SRCS}
+X
+Xtext: ascii
+Xtxt: ascii
+Xascii:
+X	${NROFF} ${NRFLAGS} argtype.man3 | ${COL} ${COLFLAGS} >argtype3.txt
+X	${NROFF} ${NRFLAGS} parseargs.man1 | ${COL} ${COLFLAGS} >parseargs1.txt
+X	${NROFF} ${NRFLAGS} parseargs.man3 | ${COL} ${COLFLAGS} >parseargs3.txt
+X	${NROFF} ${NRFLAGS} parsecntl.man3 | ${COL} ${COLFLAGS} >parsecntl3.txt
+X
+Xview: ${MANFILES} ${INCS}
+X	${NROFF} ${NRFLAGS} ${SRCS}
+X
+END_OF_FILE
+if test 3356 -ne `wc -c <'doc/Makefile'`; then
+    echo shar: \"'doc/Makefile'\" unpacked with wrong size!
+fi
+# end of 'doc/Makefile'
+fi
+if test -f 'doc/arg_macros.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/arg_macros.inc'\"
+else
+echo shar: Extracting \"'doc/arg_macros.inc'\" \(3592 characters\)
+sed "s/^X//" >'doc/arg_macros.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s ARGDESC-MACROS ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH "ARGDESC MACROS"
+X.PP
+XThe following macros are used to extract and query the attributes
+Xof a pointer to a preprocessed arg-descriptor:
+X.\"---------------------------------------------
+X.IP "\fIarg_cname\fP(ad)"
+XReturn the single-character name of an argument.
+X.\"---------------------------------------------
+X.IP "\fIarg_flags\fP(ad)"
+XReturn the argument flags of an argument.  The flags themselves may be
+Xmanipulated using the \s-1BTEST\s+1, \s-1BSET\s+1, and \s-1BCLEAR\s+1
+Xmacros defined in <useful.h>.
+X.\"---------------------------------------------
+X.IP "\fIarg_type\fP(ad)"
+XReturn the pointer to the value-translation-routine of an argument.
+X.\"---------------------------------------------
+X.IP "\fIarg_valp\fP(ad)"
+XReturn the pointer to the value of this argument.
+X.\"---------------------------------------------
+X.IP "\fIarg_sname\fP(ad)"
+XReturn the string name of an argument.
+X.\"---------------------------------------------
+X.IP "\fIarg_sdesc\fP(ad)"
+XReturn the description of an argument. If a description was supplied,
+Xthe \fI\s-1ARGDESCRIBED\s+1\fP flag will be set and the description will
+Ximmediately follow the terminating NULL byte of the string name.
+X.\"---------------------------------------------
+X.IP "\fIARG_isDESCRIBED\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 only if an argument description was provided.
+X.\"---------------------------------------------
+X.IP "\fIarg_description\fP(ad)"
+XReturn the description string (or an empty string if no description
+Xwas given) for this argument.
+X.\"---------------------------------------------
+X.IP "\fIARG_isPOSITIONAL\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument may be positionally matched.
+X.\"---------------------------------------------
+X.IP "\fIARG_isPOSONLY\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument may only be positionally matched.
+X.\"---------------------------------------------
+X.IP "\fIARG_isLIST\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument is an arglist.
+X.\"---------------------------------------------
+X.IP "\fIARG_isVEC\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument is a vector.
+X.\"---------------------------------------------
+X.IP "\fIARG_isMULTIVAL\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument is an arglist or a vector.
+X.\"---------------------------------------------
+X.IP "\fIARG_isVALTAKEN\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument does NOT take a value.
+X.\"---------------------------------------------
+X.IP "\fIARG_isGIVEN\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument was given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fIARG_isVALGIVEN\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if the argument value was given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fIARG_isREQUIRED\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument is required.
+X.\"---------------------------------------------
+X.IP "\fIARG_isVALOPTIONAL\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if the argument value is optional.
+X.\"---------------------------------------------
+X.IP "\fIARG_isVALSEPARATE\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if the argument value is optional.
+X.\"---------------------------------------------
+X.IP "\fIARG_isHIDDEN\fP(ad)"
+XEvaluates to \s-1TRUE\s+1 if this argument is omitted from usage messages.
+X.\"---------------------------------------------
+END_OF_FILE
+if test 3592 -ne `wc -c <'doc/arg_macros.inc'`; then
+    echo shar: \"'doc/arg_macros.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/arg_macros.inc'
+fi
+if test -f 'doc/argdesc.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/argdesc.inc'\"
+else
+echo shar: Extracting \"'doc/argdesc.inc'\" \(3866 characters\)
+sed "s/^X//" >'doc/argdesc.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -t STRUCT=ARGDESC ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH "THE ARGUMENT STRUCTURE"
+XThe basic type used by the \fIparseargs\fP library is the argument descriptor
+X(or "argdesc" for short). An \s-1ARGDESC\s+1 structure is used to describe a
+Xcommand-line argument. Each command line argument contains various
+Xfields which need to be set and/or queried by the programmer.
+XThe individual fields of an \s-1ARGDESC\s+1 structure are desribed below:
+X.\"---------------------------------------------
+X.IP "\fIchar  ad_name;\fP"
+XThis is a single character which corresponds to the option-letter
+X(case-sensitive) from the command-line that matches the argument
+Xdescribed by this structure. Positional-arguments are denoted by
+Xputting a a space character in this field.
+X.\"---------------------------------------------
+X.IP "\fIargMask_t  ad_flags;\fP"
+XThis field contains the various bitflags that describe the semantics
+Xof this argument. See the \fB\s-1ARGUMENT FLAGS\s+1\fP section for more
+Xinformation on the possible combinations of bitmasks for this field.
+X.\"---------------------------------------------
+X.IP "\fIargTypePtr_t  ad_type;\fP"
+XThis field is a pointer to a type conversion function (such as the
+Xones provided in \fIargtype\fP(3)). The type conversion function is
+Xresponsible for verifying the validity of the argument, allocating any
+Xnecessary storage for its internal representation, and converting
+Xthe command-line argument into its required internal form. The type
+Xconversion function used may be one of the pre-defined \fIargtype\fP(3)
+Xfunctions. The function is given three parameters: The first is
+Xa pointer to the \s-1ARGDESC\s+1 struct in question, the second is the
+Xstring-value (if any) supplied on the command-line, and the third
+Xis a boolean value that is \s-1TRUE\s+1 only if the second parameter points
+Xto temporary storage (and hence may need to be copied).
+XIn the case of \fIparseargs\fP(1) this field must correspond to the name
+Xof one of the argument type functions described in \fIargtype\fP(3).
+X.\"---------------------------------------------
+X.IP "\fIARBPTR  ad_valp;\fP"
+XThis field is a generic pointer to the storage used to represent
+Xthe internal value of the command-line argument. It may be a
+Xpointer to a number, a boolean value, a string, a list, or anything
+Xelse for which there exists a corresponding arg-type function to
+Xuse in the \fIad_type\fP field. In the case of of \fIparseargs\fP(1) this
+Xfield must be the name of the corresponding shell variable which will
+Xeventually hold the value of the argument given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fIconst char  *ad_prompt;\fP"
+XThis field contains the long-name of the argument and an optional
+Xdescription (the description must be separated from the long-name by
+Xat least one whitespace character and may optionally be enclosed in
+Xa set of balanced delimiters (such as parentheses, curly-braces,
+Xsquare-brackets, or angle-brackets). The longname may be specifed
+Xin two parts: a keyword name and an argument name. The argument
+Xname may be separated from the keyword name by a single equal sign
+X(`='). No whitespace is allowed before or after the equal sign.
+X
+XAlternatatively, the keyword name may be distinguished from the
+Xargument name by character case: if the long-name contains any
+Xuppercase characters, then the substring of long-name consisting of
+Xall uppercase characters is used as the argument keyword and the
+Xentire long-name is used as the name of the argument (if a value may
+Xbe supplied). The long-name may be matched by supplying a unique
+Xprefix of either the argument keyword or the argument name.
+END_OF_FILE
+if test 3866 -ne `wc -c <'doc/argdesc.inc'`; then
+    echo shar: \"'doc/argdesc.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/argdesc.inc'
+fi
+if test -f 'doc/argflags.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/argflags.inc'\"
+else
+echo shar: Extracting \"'doc/argflags.inc'\" \(5234 characters\)
+sed "s/^X//" >'doc/argflags.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s ARG-FLAGS ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH "ARGUMENT FLAGS"
+X.PP
+XThese are the possible bitmasks that may be turned ON or OFF in
+Xthe \fIad_flags\fP field of an \fI\s-1ARGDESC\s+1\fP structure.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGOPT\s+1\fP"
+XThis flag is actually a dummy flag (i.e. it is the default). This flag
+Xspecifies that the command-line argument is optional (need not appear
+Xon the command-line). It is only needed if no other flags are used to
+Xdefine the given argument.  If other flags are given and \fI\s-1ARGREQ\s+1\fP
+Xis \s-1NOT\s+1 one of them, then \fI\s-1ARGOPT\s+1\fP is always assumed.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGREQ\s+1\fP"
+XThe associated command argument is required on the command-line.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGPOS\s+1\fP"
+XThe associated command argument is positonal. The difference between
+Xusing this flag to indicate a positional argument and between using
+Xa blank in the \fIad_name\fP field to indicate a positional arguments is
+Xthe following: If this flag is set but the \fIad_name\fP of the argument
+Xis non-blank, then this argument may be matched either positionally
+Xor by keyword. If the \fIad_name\fP field is blank, then this argument may
+Xonly be matched positionally.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGNOVAL\s+1\fP"
+XThe associated command argument takes no value (as in "\fB\-x\fI value\fR");
+XIts mere presence (or lack thereof) on the command-line is sufficient
+Xto determine the necessary action(s) to take (as in "\fB\-x\fP").
+XBoolean argument types and Pseudo-argument types automatically default to
+X\fI\s-1ARGNOVAL\s+1\fP.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGVALOPT\s+1\fP"
+XThis flag is used to indicate that the command-line argument takes a value
+X(as in "\fB\-s\fI string\fR" or "\fB/str\fP=\fIstring\fP") but that the value
+Xto this command-line argument is \s-1NOT\s+1 required (hence simply
+X"\fB\-s\fP" or "\fB/str\fP" is also permissable).
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGVALREQ\s+1\fP"
+XAnother "dummy" flag. Unless \fI\s-1ARGNOVAL\s+1\fP or \fI\s-1ARGVALOPT\s+1\fP
+Xis specified, \fI\s-1ARGVALREQ\s+1\fP is always assumed. This flag indicates
+Xthat the value to a command-line argument is required (hence
+X"\fB\-s\fI string\fR" is okay but just "\fB\-s\fP" is not).
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGHIDDEN\s+1\fP"
+XDon't display this argument in usage messages but still attempt to
+Xmatch it against strings given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGLIST\s+1\fP"
+XA variable number of values are used for this argument (and hence may
+Xuse more than one or two \f4argv\fP elements from the command-line as in
+X"\fB\-l\fI val1 val2\fR ..."). The list of values must be stored in an
+X.I ArgList
+Xstructure (\s-1NOT\s+1 a vector structure), an the corresponding argument-type
+Xfunction should be one of the \fIlistXxxx\fP functions.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGVEC\s+1\fP"
+XA variable number of values are used for this argument (and hence may
+Xuse more than one or two argv elements from the command-line as in
+Xin "\fB\-v\fI val1 val2\fR ..."). The list of values must be stored in a
+Xvector structure (\s-1NOT\s+1 an \fIArgList\fP structure).
+X.\"---------------------------------------------
+X.PP
+XThe following bitmasks may also be present, but, unlike the above masks
+Xwhich must be specified by the programmer at initialization time, the
+Xfollowing masks must only be read (never set) by the programmer. They may
+Xbe queried by using the \fIpc_\s-1ARGFLAGS\s+1\fP function code and the
+Xmode \fIpc_\s-1READ\s+1\fP with \fIparsecntl\fP(3).
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGGIVEN\s+1\fP"
+XThe argument \s-1WAS\s+1 given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGVALGIVEN\s+1\fP"
+XThe value for this argument was given on the command-line.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGVALSEP\s+1\fP"
+XThe value to this argument was supplied in a separate argv element
+Xfrom the argument itself (as in "\fB\-x\fI value\fR" as opposed to
+X"\fB\-x\fIvalue\fR").
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGKEYWORD\s+1\fP"
+XThis argument was matched as a keyword (long-form) on the command-line
+Xand not as a single character.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGDESCRIBED\s+1\fP"
+XThis argument was given a description by the programmer at
+Xinitialization.
+X.\"---------------------------------------------
+X.IP "\fI\s-1ARGCOPYF\s+1\fP"
+XThis flag is only used for lists and vectors (multivalued arguments)
+Xand is used on a per-item basis. If it is set, it means that the 
+Xcorresponding value in the vector/list required space to be allocated
+X(such as the duplication of a temporary string).
+X.\"---------------------------------------------
+END_OF_FILE
+if test 5234 -ne `wc -c <'doc/argflags.inc'`; then
+    echo shar: \"'doc/argflags.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/argflags.inc'
+fi
+if test -f 'doc/bugs.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/bugs.inc'\"
+else
+echo shar: Extracting \"'doc/bugs.inc'\" \(1956 characters\)
+sed "s/^X//" >'doc/bugs.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -n -p '[ \t]*' -I BUGS ../parseargs.c
+X.\"----------------------------------------------------------------------------
+X.SH BUGS
+X.PP
+XIt does not make sense to use any arguments of type \fIargTBool\fP
+Xsince \fBparseargs\fP currently has no way of knowing what the
+Xinitial value of the variable is. For this reason, \fIargTBool\fP
+Xis not recognized as a valid argument type (even though it is used
+Xby \fIparseargs\fP\s-1\^(3)\s+1\|). By the same token, since the
+Xuser cannot create their own arguments types on the fly from a shell-script,
+X\fI\s-1ARGNOVAL\s+1\fP is not recognized as a valid argument flag.
+X.PP
+XCommas will not be interpreted properly if any field in the
+Xargument specification string contains double quotes that are nested
+Xinside of double quotes, or single quotes that are nested inside of
+Xsingle quotes.
+X.PP
+XInside the argument specification string, any repeated string of commas
+Xthat does not appear inside of double or single quotes will be treated
+Xas a single comma.
+X.PP
+XText descriptions for argument entries are automatically formatted in
+Xusage messages. Any attempt by the user to include tabs and/or newlines
+Xin the description will cause it to be formatted improperly.
+X.PP
+X\fIParseargs\fP cannot properly preserve any newlines in shell variables
+Xif the \fBeval\fP command is used to read its output (this is a shortcoming
+Xof the \fBeval\fP command, not of \fBparseargs\fP). If the user is concerned
+Xabout this particular case, then the user should redirect the output from
+X\fBparseargs\fP to a temporary file and use the \fBsource\fP command in
+X\fIcsh\fP or the dot command (`\fB.\fP') in sh and ksh, to interpret the
+Xresults; otherwise, newlines will be translated into spaces, or characters
+Xfollowing a newline may be lost, in any variables that are set by
+X\fBparseargs\fP.
+END_OF_FILE
+if test 1956 -ne `wc -c <'doc/bugs.inc'`; then
+    echo shar: \"'doc/bugs.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/bugs.inc'
+fi
+if test -f 'doc/env_args.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/env_args.inc'\"
+else
+echo shar: Extracting \"'doc/env_args.inc'\" \(2008 characters\)
+sed "s/^X//" >'doc/env_args.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -n -p '[ \t]*' -I DESCRIPTION -f get_user_defaults ../xparse.c
+X.\"----------------------------------------------------------------------------
+X.SH "SUPPLYING DEFAULT ARGUMENTS"
+XPrograms that use \fIparseargs\fP may be given default arguments under UNIX
+Xand PCs through the use of environment variables (symbols are used for VMS
+Xsystems). If a  C-program or shell-script uses \fIparseargs\fP to implement a
+Xcommand named ``\fIcmd\fP'' then the environment variable ``\s-1CMD_ARGS\s+1''
+Xwill be parsed for any "default" arguments before the command-line is parsed.
+XThe command-line will over-ride any options that are specified in this
+Xenvironment variable (except that \s-1ARGLIST\s+1s and \s-1ARGVEC\s+1s set in
+X``\s-1CMD_ARGS\s+1'' will be appended from the command-line if they are
+Xselected).
+X
+XIt is important to note that the contents of the ``\s-1\fICMD\fP_ARGS\s+1''
+Xenvironment variable are NOT expanded by the shell and hence any special
+Xcharacters (such as quotes or back-slashes) will NOT be escaped or removed
+Xby \fIparseargs\fP. Furthermore, it will not be possible to try and use a
+Xtab, space, or newline character in the environment variable as anything
+Xother than an argument separator.
+X
+XLastly, parts of an option specification in ``\s-1CMD_ARGS\s+1'' may NOT be
+Xcontinued on the command-line. As an example, if \fB\-f\fP requires an argument
+Xand \s-1CMD_ARGS\s+1="\-f", then the command-line "\fIcmd  bah\fP" will NOT
+Xassign "\fIbah\fP" as the argument to \fB\-f\fP but will instead complain about
+Xa missing argument for \fB\-f\fP. Similarly, if \fB\-l\fP takes a list of
+Xarguments and \s-1CMD_ARGS\s+1="\-l item1 item2", then the command-line
+X"\fIcmd  bah\fP", will NOT assign "\fIbah\fP" to the end of the list
+Xcontaining "item1" and "item2" but will instead treat "\fIbah\fP" as 
+Xthe first positional parameter on the command-line.
+END_OF_FILE
+if test 2008 -ne `wc -c <'doc/env_args.inc'`; then
+    echo shar: \"'doc/env_args.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/env_args.inc'
+fi
+if test -f 'doc/env_parse.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/env_parse.inc'\"
+else
+echo shar: Extracting \"'doc/env_parse.inc'\" \(3662 characters\)
+sed "s/^X//" >'doc/env_parse.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -n -p '[ \t]*' -I DESCRIPTION -f get_parse_env ../xparse.c
+X.\"----------------------------------------------------------------------------
+X.SH PARSING BEHAVIOR
+XThe programmer may control parsing behavior through the use of
+X.IR parsecntl (3).
+XThe user may set his (or her) own desired parsing
+Xbehavior through the use of the ``\s-1PARSECNTL\s+1'' environment variable.
+XBy indicating any number of flags (possibly negated) the user will
+Xdirectly modify the behavior of the \fIparseargs\fP library. Flags may be
+Xcombined by placing a `+' or `|' character in between flags. A switch
+Xis negated by immediately preceding it with a `!' or `-' character.
+XThe possible ``flags'' are given by the following table. 
+XFlags are case-insensitive.
+X.sp 4p
+X.\"---------------------------------------------
+X.IP "\fIPrompt\fP"
+XPrompt the user for any missing arguments that are required on the
+Xcommand-line. No special escaping or quoting is performed on the
+Xuser input. Required arguments that expect a list of values will
+Xbe repeatedly prompted for (one item per line) until a blank line
+X(followed by a carriage return) is entered.
+X.\"---------------------------------------------
+X.IP "\fIIgnore\fP"
+XIgnore any unrecognized or improperly specified command-line arguments
+Xand continue execution of the program. Normally, if a required argument is
+Xunmatched (or an argument is improperly specified), a usage message is printed
+Xprogram execution is terminated.
+X.\"---------------------------------------------
+X.IP "\fIOptsOnly\fP"
+XUnder \s-1UNIX\s+1, setting this flag will disable the parsing of long-option
+Xsyntax. This will cause all arguments starting with `+' to always be
+Xtreated as a positional parameter (instead of a long-option).
+X.\"---------------------------------------------
+X.IP "\fIKwdsOnly\fP"
+XUnder \s-1UNIX\s+1, setting this flag disables the parsing of single-character
+Xoptions.  This will cause all arguments starting with `\-' to always
+Xbe treated as a positional parameter (instead of an option).
+X.\"---------------------------------------------
+X.IP "\fILoptsOnly\fP"
+XSame as \fIKwdsOnly\fP.
+X.\"---------------------------------------------
+X.IP "\fIFlags1st\fP"
+XSetting this flag causes the \fIparseargs\fP library to force any and all
+Xnon-positional arguments to be specified before any positional ones.
+XAs an example, under \s-1UNIX\s+1, if this flag is \s-1SET\s+1 then
+X.I parseargs
+Xwill consider the command line "\fBcmd \-x\fI arg\fR" to consist of one
+Xoption and one positional argument; however the command line
+X"\fBcmd\fI arg -x\fR" would be considered to consist of two positional
+Xarguments (the \fB\-x\fP option will be unmatched).
+X
+XIf this flag is \s-1UNSET\s+1, then both of the previous examples are
+Xconsidered to consist of one option and one positional argument.
+X.\"---------------------------------------------
+X.IP "\fICaseIgnore\fP"
+XSetting this flag will cause character-case to be ignored when attempting
+Xto match single-character argument names (i.e. causes "\fB\-i\fP" and
+X"\fB\-I\fP" to be considered equivalent).
+X.\"---------------------------------------------
+X.sp 4p
+X.PP
+XIf the environment variable ``\s-1PARSECNTL\s+1'' is empty or
+Xundefined, then the parsing behavior set by the programmer is used.
+XIf the programmer has not explicitly used
+X.IR parsecntl (3)
+Xto modify the parsing behavior, then the default behavior will be
+X``Flags1st'' for Unix systems, ``!Prompt + !Ignore'' for AmigaDOS
+Xsystems, ``CaseIgnore'' for MS-DOS and OS/2 systems, and ``Prompt''
+Xfor VMS systems.
+END_OF_FILE
+if test 3662 -ne `wc -c <'doc/env_parse.inc'`; then
+    echo shar: \"'doc/env_parse.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/env_parse.inc'
+fi
+if test -f 'doc/env_usage.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/env_usage.inc'\"
+else
+echo shar: Extracting \"'doc/env_usage.inc'\" \(2827 characters\)
+sed "s/^X//" >'doc/env_usage.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -n -p '[ \t]*' -I DESCRIPTION -f get_usage_env ../xparse.c
+X.\"----------------------------------------------------------------------------
+X.SH USAGE MESSAGES
+XThrough the use of an environment variable (or a VMS symbol), the user
+Xmay control the syntax and the verbosity of the command-usage messages
+Xthat are printed by \fIparseargs\fP. The desired level of verbosity may
+Xbe set by defining the environment variable ``\s-1USAGECNTL\s+1" to be
+Xa combination of strings (case insensitive). The value of each string
+Xcontrols one of three different ``modes'' of behavior in the displaying
+Xof usage messages:
+XThe first ``mode'' is ``verbose'' mode, which controls whether or not a
+Xdetailed description of each argument should accompany the usual command-line
+Xsysnopsis. If verbose mode is ``off'', then only a command-line synopsis is
+Xprinted (this is also refferred to as ``terse'' mode). The other two ``modes''
+Xcontrol the displaying of option syntax and long-option syntax. A mode may
+Xbe explicitly disabled by preceding its corresponding string with the `!'
+Xor `-' character. The ``modes'' which correspond to the possible values of the
+X``\s-1USAGECNTL\s+1'' environment variable are given by the following table.
+X.sp 4p
+X.\"---------------------------------------
+X.IP "\fIQuiet\fP"
+XNo usage message of any kind is displayed.
+X.\"---------------------------------------
+X.IP "\fISilent\fP"
+XSame as \fIQuiet\fP.
+X.\"---------------------------------------
+X.IP "\fIPaged\fP"
+XThe usage message is piped to a pager. The pager used is named
+Xby the ``\s-1USAGE_PAGER\s+1'' environment variable. If this
+Xvariable is unset or empty (or is not the name of an executable program)
+Xthen the pager named by the ``\s-1PAGER\s+1'' environment variable us used.
+XIf this variable is unset or empty (or is not the name of an executable
+Xprogram) then \fI/usr/ucb/more\fP is used.
+X.\"---------------------------------------
+X.IP "\fIDescription\fP"
+XThe command description is printed.
+X.\"---------------------------------------
+X.IP "\fITerse\fP"
+XTerse mode, just print command-line synopsis.
+X.\"---------------------------------------
+X.IP "\fIVerbose\fP"
+XVerbose mode, print descriptions for each argument
+X.\"---------------------------------------
+X.IP "\fIOptions\fP"
+XOption syntax is displayed.
+X.\"---------------------------------------
+X.IP "\fILongOpts\fP"
+XLong-option syntax is displayed.
+X.\"---------------------------------------
+X.IP "\fIKeyWords\fP"
+XSame as \fILongOpts\fP.
+X.\"---------------------------------------
+X.sp 4p
+X.PP
+XIf the environment variable ``\s-1USAGECNTL\s+1'' is empty or
+Xundefined, then the default usage level (which is presently
+X``Verbose + Options'') will be used.
+END_OF_FILE
+if test 2827 -ne `wc -c <'doc/env_usage.inc'`; then
+    echo shar: \"'doc/env_usage.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/env_usage.inc'
+fi
+if test -f 'doc/multivals.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/multivals.inc'\"
+else
+echo shar: Extracting \"'doc/multivals.inc'\" \(4794 characters\)
+sed "s/^X//" >'doc/multivals.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s MULTI-VALUED_ARGUMENTS ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH MULTI-VALUED ARGUMENTS
+X.PP
+X.I Parseargs
+Xsupports two different types of multi-valued arguments: linked-lists and
+Xvectors. The linked-lists are called argument lists (or arg-lists) and are 
+Xspecified by supplying the \s-1ARGLIST\s+1 flag along with an associated
+X\fIlistXxxx\fP argument-translation routine. The value associated with an
+Xarg-list should be a list structure of type ArgList. The include file
+X\f4<parseargs.h>\fP
+Xdefines four macros for manipulating ArgList structures:
+X\s-1ARGLISTNULL\s+1,
+X\s-1L_NEXT\s+1,
+X\s-1L_STRING\s+1,
+Xand \s-1L_FLAGS\s+1.
+X.PP
+X\s-1ARGLISTNULL\s+1 is simply the \s-1NULL\s+1 argument-list pointer.
+X\s-1L_NEXT\s+1 and \s-1L_STRING\s+1 each take a pointer to a non-\s-1NULL\s+1
+XArgList structure. \s-1L_NEXT\s+1 returns the address of the next item in the
+Xlist and \s-1L_STRING\s+1 returns the string-value of the current list-item.
+X\s-1L_FLAGS\s+1 return the arg-flags for a given item in the list. With
+Xnon-multivalued arguments, only the flags in the argument descriptor are
+Xneeded; lists and vectors however need a set of flags for each item they
+Xcontain. Once an arg-list has been created, it may be deallocated using
+Xthe function
+X.I listFree.
+X.I ListFree
+Xtakes one parameter: the address of the first item in the arg-list.
+X.PP
+XAn alternative to argument-lists is argument vectors (or arg-vectors).
+XArg-vectors use the \s-1ARGVEC\s+1 flag instead of the \s-1ARGLIST\s+1 flag
+Xand do not require a special \fIlistXxxx\fP function for each vector-type.
+XEach of the \fIargXxxx\fP functions is responsible for handling vectors of its
+Xtype (although some \fIargXxx\fP functions such as the boolean types do not
+Xsupport vectors). An arg-vector is a structure which contains a count, an
+Xarray of elements (i.e. an \f4argc,argv\fP pair), and an array of flags,
+Xone for each element of argv. There are two macros in defined in
+X\f4<parseargs.h>\fR which are used for arg-vectors. \s-1ARGVEC_T\s+1 may be
+Xused to declare a vector structure or a vector type;
+X\s-1ARGVEC_EMPTY\s+1 may be used to initialize the structure.
+XIt is strongly recommended that \s-1ARGVEC_T\s+1 be used to declare vector
+Xtypes in a typedef statement (particularly if one is using function prototypes)
+Xbut for those who insist, it may be used to directly declare a  structure.
+XString-vectors will always have an extra \s-1NULL\s+1-pointer at the end
+Xsuch that:
+X
+X.RS
+X.nf
+X.ft 4
+X( StrVec.array[ StrVec.count ] == (char *)NULL )
+X.ft R
+X.fi
+X.RE
+X
+Xis always true, and character-vectors will always have an extra
+X\s-1NUL\s+1-character at the end such that:
+X
+X.RS
+X.nf
+X.ft 4
+X( CharVec.array[ CharVec.count ] == '\\0' )
+X.ft R
+X.fi
+X.RE
+X
+Xis always true. Integer and floating point vectors contain no extra
+X"null" elements.
+X
+XOnce created, arg-vectors may be deallocated by calling the macro
+X\fIvecFree\fP or the macro \fIvecDeepFree\fP and passing it the
+Xarg-vector structure. The differemce between these two macros is 
+Xthat the latter will also free each item in the vector that required
+Xspace to be allocated (at the expense of traversing the vector).
+XAt this writing, the only predefined argument-types that would
+Xbenefit from \fIvecDeepFree\fP is \fIargStr\fP vectors.
+X.PP
+XAn example use of arg-lists, and of arg-vectors follows:
+X
+X.RS
+X.nf
+X.ft 4
+X#include <parseargs.h>
+X
+Xtypedef ARGVEC_T(char *) strvec_t;
+X
+Xstatic ArgList  *StringList = ARGLISTNULL;
+Xstatic strvec_t  StringVec = ARGVEC_EMPTY(char *);
+Xstatic ARGVEC_T(int)  NumberVec = ARGVEC_EMPTY(int);
+X
+Xstatic
+X  CMD_OBJECT  Args
+X  CMD_NAME    "foo -- do whatever foo does"
+X  CMD_DESCRIPTION  "put a brief paragraph here"
+X  CMD_ARGUMENTS
+X     'l', ARGLIST, listStr, __ &StrList, "LiSt {list of strings}",
+X     's', ARGVEC,  argStr,  __ &StrVec,  "STRing {vector of strings}",
+X     'i', ARGVEC,  argInt,  __ &NumVec,  "NUMber {vector of numbers}",
+X     END_ARGUMENTS
+X  CMD_END
+X
+Xmain( int argc, char *argv[] )
+X{
+X   int i, *ls;
+X
+X   if ( parseargs(argv, Args) )  syserr( "parseargs failed" );
+X
+X   for ( ls = StrList, i=1 ; ls ; ls = L_NEXT(ls), i++ )
+X      printf( "List item %d=%s, flags=%x\\n",
+X              i, L_STRING(ls), L_FLAGS(ls) );
+X
+X   for ( i = 0 ; i < StrVec.count ; i++ )
+X      printf( "String[%d]=%s, flags=%x\\n",
+X              i, StrVec.array[i], StrVec.flags[i] );
+X
+X   for ( i = 0 ; i < NumVec.count ; i++ )
+X      printf( "Number[%d]=%s, flags=%x\\n",
+X              i, NumVec.array[i], NumVec.flags[i] );
+X
+X   listFree( StrList );
+X   StrList = ARGLISTNULL;
+X
+X   vecDeepFree( StrVec, char * );
+X   vecFree( NumVec, int );
+X
+X   exit( 0 );
+X}
+X
+X.ft R
+X.fi
+X.RE
+END_OF_FILE
+if test 4794 -ne `wc -c <'doc/multivals.inc'`; then
+    echo shar: \"'doc/multivals.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/multivals.inc'
+fi
+if test -f 'doc/parsecntls.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/parsecntls.inc'\"
+else
+echo shar: Extracting \"'doc/parsecntls.inc'\" \(4891 characters\)
+sed "s/^X//" >'doc/parsecntls.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s PARSE-CNTLS ../parseargs.h
+X.\"----------------------------------------------------------------------------
+X.SH "FUNCTION CODES"
+X.PP
+XEach of the following function codes specifies an attribute that
+Xis to be manipulated by \fIparsecntl\fP.  The function code is the
+Xsecond parameter to \fIparsecntl\fP. With the exception of
+X.I pc_\s-1ARGFLAGS\s+1,
+Xeach of the function codes corresponds to a call to \fIparsecntl\fP
+Xusing four parameters (
+X.I pc_\s-1ARGFLAGS\s+1
+Xuses 5 parameters). In each case,
+Xthe last parameter is either the address of a buffer to write the
+Xattribute to, or the actual buffer to read the attribute from 
+X(depending upon the mode \- the third parameter to \fIparsecntl\fP).
+X.\"---------------------------------------------
+X.IP "\fIpc_\s-1PARSEFLAGS\s+1"
+XThis function code is used to read and/or modify the existing parsing 
+Xparsing behavior. The fourth parameter to \fIparsecntl\fP should be a 
+Xcombination of pc_XXXX bitmasks if the parse-flags are only being
+Xwritten, otherwise it should be a pointer to an \fIargMask_t\fP variable.
+X.\"---------------------------------------------
+X.IP "\fIpc_\s-1ARGFLAGS\s+1"
+XThis function code may only be used to read the argument-flags of
+Xa named argument. It is an error to specify a mode that attempts
+Xto write the argument-flags with this function code. The fourth
+Xparameter to \fIparsecntl\fP should be the keyword name of the argument
+Xwhose flags are to be read. The fifth (and final) argument should
+Xbe a pointer to the \fIargMask_t\fP variable which will receive the resulting
+Xargument-flags.
+X.\"---------------------------------------------
+X.IP "\fIpc_\s-1DEFARGS\s+1"
+XThis function code is used to query or modify the current default
+Xargument-descriptor list for the given command. The fourth parameter
+Xto \fIparsecntl\fP should be the argument-descriptor array to assign as the
+Xnew default-list (or the address of an argdesc-array if the default
+Xlist is being retrieved).
+X
+XIf a given option/qualifier does not appear to match any items in the
+Xargdesc-array, a  default argdesc-array is then searched to match the
+Xoption. If it is STILL unmatched then it is flagged as such. The
+Xdefault-argdesc array is automatically used by all programmer-defined
+Xargdesc-array but may be unset or reset using the
+X.I pc_\s-1DEFARGS\s+1
+Xfunction of
+X.I parsecntl.
+XIn such a  manner, a  programmer could specify a
+Xdifferent set of default-arguments to search for. Furthermore, default
+Xargdesc-arrays may also be assigned default argdesc-arrays, thus
+Xallowing the programmer to define a whole search-list of default
+Xargdesc-arrays for a given command.
+X
+XThis could prove useful in a situation where a set of commands have a
+Xfew common-options and differ in their remaining ones. If the same
+X\fImain()\fP were used for each command, then main could define one common
+Xargdesc-array and then a set of argdesc-arrays for each command. \fIMain\fP
+Xcould then figure out which argdesc-array to used based on the name in
+X\fIargv[0]\fP, and set its default argdesc-array to be the common
+Xargdesc-array, as in the following:
+X
+X.nf
+X.ft 4
+X#include <parseargs.h>
+X     .
+X     .  \fIvariable declarations\fP
+X     .
+X
+Xstatic ARGDESC common_args[] = {
+X   STARTOFARGS,
+X   { 'L', ARGOPT, argBool, __ &lflag, "list (list the items)" },
+X   { 'I', ARGOPT, argStr, __ &item, "item (item to use)" },
+X   ENDOFARGS
+X};
+X
+Xstatic ARGDESC cmd1_args[] = {
+X   STARTOFARGS,
+X   { 's', ARGOPT, argBool, __ &sflag, "S (set S)" },
+X   { 't', ARGOPT, argBool, __ &tflag, "T (set T)" },
+X   ENDOFARGS
+X};
+X
+Xstatic ARGDESC cmd2_args[] = {
+X   STARTOFARGS,
+X   { 'x', ARGOPT, argBool, __ &xflag, "X (set X)" },
+X   { 'y', ARGOPT, argBool, __ &yflag, "Y (set Y)" },
+X   ENDOFARGS
+X};
+X
+Xmain( int argc, char *argv[] )
+X{
+X   ARGDESC *cmd = cmd1_args;
+X   int  rc;
+X
+X   if ( strcmp(*argv, "cmd2") == 0 )
+X      cmd = cmd2_args;
+X
+X   rc = parsecntl( cmd, pc_DEFARGS, pc_WRITE, common_args );
+X   if ( rc != pe_SUCCESS )
+X      syserr( "unable to set default args" );
+X
+X   rc = parseargs( argv, cmd );
+X      .
+X      .
+X      .
+X}
+X.ft R
+X.fi
+X
+XNote that in the above call to \fIparsecntl\fP\^(3), that zero will be
+Xreturned upon success and non-zero upon failure. If pe_DEFARGS is
+Xreturned, then \f4cmd\fP is already on \f4common_args\fP's list of defaults
+X(and would result in an infinite loop while parsing).
+X.\"---------------------------------------------
+X.IP "\fIpc_\s-1NAME\s+1\fP"
+X.IP "\fIpc_\s-1PURPOSE\s+1\fP"
+X.IP "\fIpc_\s-1DESCRIPTION\s+1\fP"
+XEach of these last three function codes are used to modify or query the
+Xname, purpose, or description associated with a command. The fourth
+Xparameter to \fIparsecntl\fP should be the new string to use (or the address
+Xof the string, a \fIchar**\fP variable, to recieve the current value).
+END_OF_FILE
+if test 4891 -ne `wc -c <'doc/parsecntls.inc'`; then
+    echo shar: \"'doc/parsecntls.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/parsecntls.inc'
+fi
+if test -f 'doc/returns.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/returns.inc'\"
+else
+echo shar: Extracting \"'doc/returns.inc'\" \(2122 characters\)
+sed "s/^X//" >'doc/returns.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s RETURN-CODES ../parsearegs.h
+X.\"----------------------------------------------------------------------------
+X.SH "RETURN VALUE"
+X.PP
+XThe functions in the \fIparseargs\fP library will return a value of zero
+Xupon succesful completion. They may however, return any of
+Xthe following status codes (which are defined in <parseargs.h>):
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1SYSTEM\s+1\fP"
+XA system error occurred. The global variable \fIerrno\fP may indicate
+Xthe problem (then again, it may not).
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1SUCCESS\s+1\fP"
+XSuccess, no errors encountered (zero is returned).
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1SYNTAX\s+1\fP"
+XA command-line syntax error was encountered
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1DEFARGS\s+1\fP"
+XAn attempt (using \fIparsecntl\fP) was made to change the
+Xdefault arg-search list of a command to point to an argdesc-array
+Xwhich already has the given command on its default arg-search list
+X(which would cause an infinite loop when attempting to match an
+Xunknown command-line argument).
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1NOMATCH\s+1\fP"
+XUnable to match the named argument. This occurs
+Xwhen the argument keyword name passed to \fIparsecntl\fP (using the 
+X\fIpc_\s-1ARGFLAGS\s+1\fP functions code) was NOT found in the given
+Xargdesc-array or in its default-list.
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1BADMODE\s+1\fP"
+XBad mode for given command in \fIparsecntl\fP. This occurs when 
+X\fIpc_\s-1WRITE\s+1\fP or \fIpc_\s-1RDWR\s+1\fP mode is passed to
+X.I parsecntl
+Xin conjunction with the \fIpc_ARGFLAGS\fP functions code.
+X.I Parsecntl
+Xwill not modify existing arguments.
+X.\"---------------------------------------------
+X.IP "\fIpe_\s-1BADCNTL\s+1\fP"
+XBad command for parsecntl. This occurs if an unknown function-code
+Xwas passed to \fIparsecntl\fP.
+END_OF_FILE
+if test 2122 -ne `wc -c <'doc/returns.inc'`; then
+    echo shar: \"'doc/returns.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/returns.inc'
+fi
+if test -f 'doc/shells.inc' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'doc/shells.inc'\"
+else
+echo shar: Extracting \"'doc/shells.inc'\" \(2294 characters\)
+sed "s/^X//" >'doc/shells.inc' <<'END_OF_FILE'
+X.\"----------------------------------------------------------------------------
+X.\"-- This text was extracted using the following command:
+X.\"--   xdoc -man -p '[ \t]*' -s SHELLS ../parseargs.c
+X.\"----------------------------------------------------------------------------
+X.SH SHELLS
+X.PP
+XAfter the command line has been parsed, \fBparseargs\fP will print on
+Xstandard output, a script to set the shell variables which correspond to
+Xarguments that were present on the command-line.
+XThis script may be evaluated by redirecting it to a file and then executing
+Xthe file, or by directly evaluating the output from \fBparseargs\fP
+X(under most \s-1UNIX\s+1 shells, this could be done using \fBeval\fP).
+XIf any arguments on the command line contained any special characters that
+Xneeded to be escaped from the shell, these characters will remain intact
+X(not be evaluated by the shell) in the corresponding shell variable.
+X.PP
+XThe \fB\-s\fP \fIshell\fP option may be used to tell \fBparseargs\fP which
+Xshell syntax to use. At present, \fBparseargs\fP only recognizes the following
+Xshells as valid command-interpreters:
+X
+X.RS
+X.nf
+Xsh
+Xbash
+Xksh
+Xcsh
+Xtcsh
+Xitcsh
+Xzsh
+Xash
+Xrc
+Xawk
+Xperl
+Xtcl
+X.fi
+X.RE
+X
+X.PP
+X\fIAwk\fP output is slightly different from 
+Xthat of the other shells in that the actual variable settings are not
+Xprinted but each line of an associative array is printed (the first field
+Xis the array index, the second is the value for that index).
+XIf no shell is specified, then the Bourne shell (``sh'') will be assumed.
+X.PP
+XIf the user wishes to use a value other than ``\s-1TRUE\s+1'' for a boolean
+Xflag that is true, this may be done using the \fB\-T\fP \fIstring\fP option.
+XThe same may also be done for a boolean flag that is false using the
+X\fB\-F\fP \fIstring\fP option.
+X.PP
+X.B Parseargs
+Xwill only set the values of variables that correspond to arguments that
+Xwere given on the command line. If a particular argument was not supplied
+Xon the command line, then no assignment is made for the corresponding
+Xshell variable and it will have the same value that it had before
+X.B parseargs
+Xwas invoked. The only exception to this is that if the \fB\-u\fP option is
+Xspecified, then the positional parameters are unset before any shell variable
+Xassignments (which may reset the positional parameters) are made.
+END_OF_FILE
+if test 2294 -ne `wc -c <'doc/shells.inc'`; then
+    echo shar: \"'doc/shells.inc'\" unpacked with wrong size!
+fi
+# end of 'doc/shells.inc'
+fi
+if test -f 'parseargs.pl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parseargs.pl'\"
+else
+echo shar: Extracting \"'parseargs.pl'\" \(2715 characters\)
+sed "s/^X//" >'parseargs.pl' <<'END_OF_FILE'
+X;#########################################################################
+X;# ^FILE: parseargs.pl - parseargs for perl programs
+X;#
+X;# ^DESCRIPTION:
+X;#    This file defines a perl function named parseargs to parse
+X;#    command-line arguments for perl scripts.
+X;#
+X;# ^HISTORY:
+X;#    02/25/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X;##^^#####################################################################
+X
+X
+X;########
+X;# ^FUNCTION: parseargs - parse command-line argument vectors
+X;#
+X;# ^SYNOPSIS:
+X;#    rc = &parseargs( @argv, $argd )
+X;#
+X;# ^PARAMETERS:
+X;#    argv -- the vector of command-line arguments (usually ARGV).
+X;#    argd -- the argument-description string
+X;#
+X;# ^DESCRIPTION:
+X;#    Parseargs will invoke parseargs(1) to parse the command-line given
+X;#    in <argv> for the command defined by <argd>.  The resulting values
+X;#    will be assigned to the variables indicated by the argument-description
+X;#    string.
+X;#
+X;# ^REQUIREMENTS:
+X;#    Any desired initial values for variables from the argument-description
+X;#    string should be assigned BEFORE calling this function.
+X;#
+X;#    The following global variables from package "main" may be assigned
+X;#    before calling parseargs:
+X;#
+X;#       PARSEOPTS -- any extra options to pass to parseargs() (default="-u")
+X;#
+X;# ^SIDE-EFFECTS:
+X;#    The global variable PARSEARGS will contain the command-line used to
+X;#    invoke parseargs(1).
+X;#
+X;#    ARGV and (and any other variables named in <argd>) may be overwritten.
+X;#
+X;# ^RETURN-VALUE:
+X;#    The exit code returned by parseargs(1).
+X;#
+X;# ^ALGORITHM:
+X;#    - read $PARSECNTL environment variable and use corresponding syntax
+X;#      (long-options or short options) when invoking parseargs(1)
+X;#    - set defaults for PARSEOPTS
+X;#    - build the parseargs command (dont forget to quote arguments).
+X;#    - run parseargs(1) and evaluate the output unless $?
+X;##^^####
+X
+Xsub parseargs {
+X   local($argd, @argv) = ( pop(@_), $0, @_ );
+X   local($unset, $sh, $env, $end) = ( '-u', '-s', '-e', '--' );
+X   local($parse_output, $_);
+X
+X   $_ = $main'ENV{'PARSECNTL'};
+X   if ( /[^!~\^]\s*[KkLl]/ ) {  ## KeyWords only!
+X      ($unset, $sh, $env, $end) = ( '+unset', '+shell', '+env', '++' );
+X   }
+X
+X   if ( ! $main'PARSEOPTS )  { $main'PARSEOPTS = "$unset"; }
+X
+X   grep( s/'/'\\''/g, @argv );  ## escape embedded quotes
+X   $PARSEARGS = "parseargs $main'PARSEOPTS $sh perl $env ARGD $end ";
+X   $PARSEARGS .= "'" . join( "' '", @argv ) . "'";
+X
+X   $main'ENV{'ARGD'} = $argd;         ## put argd-array into environment
+X   $parse_output = `$PARSEARGS`;      ## invoke parseargs(1)
+X   eval $parse_output unless $?;      ## evaluate the output-script
+X   if ( $? ) {
+X      $! = 0;
+X      die "\n";
+X   }
+X   return $?;
+X}
+X
+X1;
+END_OF_FILE
+if test 2715 -ne `wc -c <'parseargs.pl'`; then
+    echo shar: \"'parseargs.pl'\" unpacked with wrong size!
+fi
+chmod +x 'parseargs.pl'
+# end of 'parseargs.pl'
+fi
+if test -f 'parseargs.tcl' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'parseargs.tcl'\"
+else
+echo shar: Extracting \"'parseargs.tcl'\" \(4852 characters\)
+sed "s/^X//" >'parseargs.tcl' <<'END_OF_FILE'
+X#########################################################################
+X# ^FILE: parseargs.tcl - parseargs for tcl scripts
+X#
+X# ^DESCRIPTION:
+X#    This file defines a tcl procedure named parseargs to parse
+X#    command-line arguments for tcl scripts.
+X#
+X# ^HISTORY:
+X#    05/07/92  Brad Appleton   <brad@ssd.csd.harris.com>   Created
+X##^^#####################################################################
+X
+X########
+X# ^PROCEDURE: parseargs - parse command-line argument lists
+X#
+X# ^SYNOPSIS:
+X#    parseargs <options> -- $scriptName arg [arg ...]
+X#
+X#        where <options> is any valid option combination for parseargs(1)
+X#
+X# ^DESCRIPTION:
+X#    Parseargs will invoke parseargs(1) with the options and arguments
+X#    specified by the caller.
+X#
+X# ^RETURN-VALUE:
+X#    A string of variable settings for the caller to evaluate
+X#
+X# ^EXAMPLE:
+X#     #!/usr/bin/tcl -q
+X#     
+X#     source parseargs.tcl
+X#     
+X#     set arguments {
+X#       { '?', ARGHIDDEN, argUsage, NULL,    "Help : print usage and exit" },
+X#       { 'S', ARGVALOPT, argStr,   string,  "STRing : optional string arg" },
+X#       { 'g', ARGLIST,   argStr,   groups,  "newsGROUPS : groups to test" },
+X#       { 'r', ARGOPT,    argInt,   count,   "REPcount : group repeat count" },
+X#       { 'd', ARGOPT,    argStr,   dirname, "DIRectory : working directory" },
+X#       { 'x', ARGOPT,    argBool,  xflag,   "Xflag : turn on X-mode" },
+X#       { 'y', ARGOPT,    argUBool, yflag,   "Yflag : turn off Y-mode" },
+X#       { 's', ARGOPT,    argChar,  sepch,   "SEPchar : field separator" },
+X#       { 'f', ARGLIST,   argStr,   files,   "files : files to process" },
+X#       { 'n', ARGREQ|ARGPOS, argStr, name,  "name : name to use" },
+X#       { ' ', ARGLIST,   argStr,   argv,    "argv : remaining arguments" },
+X#       ENDOFARGS
+X#     }
+X#     
+X#     set count 1 ;    set dirname "." ;   set sepch "," ;
+X#     set xflag "" ;   set yflag "TRUE" ;
+X#     set files {} ;   set groups {} ;  set name "" ;
+X#     set string "" ;  set string_flag "" ;
+X#     
+X#     eval [ parseargs -u -a $arguments $scriptName $argv ]
+X#
+X#
+X# ^ALGORITHM:
+X#    We need to do an "eval exec parseargs $args" in order have exec
+X#    treat $args as many arguments instead of just one argument. Before
+X#    we can do that however, we must quote each argument in $args and
+X#    escape any special characters that it contains.  Hence we have the
+X#    following algorithm:
+X#
+X#       - quote and escape special character for each arg in $args
+X#       - do an "eval exec $args" and save the results
+X#       - if parseargs(1) exit-status is non-zero than exit (and make
+X#            sure the parseargs message(s) is/are printed).
+X#         else
+X#            return the standard-output of parseargs(1)
+X#         endif
+X#
+X#
+X# ^BUGS:
+X#    Actually - this procedure doesnt work. It has some problems,
+X#    some of which I know about and can describe below:
+X#
+X# 1) TCL refuses to let ME do the error-checking after exec'ing parseargs(1).
+X#    What I need to do is look at the exit-status and exit if it is non-zero.
+X#    If parseargs happens to write anything to stderr (which it always does
+X#    if it prints usage or a syntax error) then TCL automatically terminates
+X#    my procedure (not the process) and doesnt let me check the exit-status.
+X#
+X# 2) Error messages printed by parseargs(1) are prefixed with "Error: "
+X#    and suffixed by some other error-message info added by TCL. I dont
+X#    want ANY of this, just let parseargs(1) print the error text and dont
+X#    embellish it. As a fix, I tried to have parseargs(1) write error messages
+X#    to stdout (for TCL only) and exit with a non-zero status. This didnt
+X#    work at all (and Im not completely sure as to why).
+X#
+X# 3) I ought to be able to use far fewer "regsub" statements below but I
+X#    couldnt seem to get "&" or "\0" to work as documented as substitution
+X#    strings.
+X#
+X# If you happen to get this procedure (along with test.tcl) working, then
+X# please, PLEASE let me know and tell me how you did it!!
+X#
+X###^^####
+Xproc parseargs args {
+X   set escaped_args {}
+X   foreach arg $args {
+X      regsub -all "\\\\" "$arg" "\\\\" arg
+X      regsub -all "\\\$" "$arg" "\\\$" arg
+X      regsub -all "\\\[" "$arg" "\\\[" arg
+X      regsub -all "\]" "$arg" "\\\]" arg
+X      regsub -all "\{" "$arg" "\\\{" arg
+X      regsub -all "\]" "$arg" "\\\]" arg
+X      regsub -all "\"" "$arg" "\\\"" arg
+X      regsub -all "\t" "$arg" "\\t" arg
+X      regsub -all "\n" "$arg" "\\n" arg
+X      regsub -all "\r" "$arg" "\\r" arg
+X      regsub -all "\v" "$arg" "\\v" arg
+X      regsub -all "\f" "$arg" "\\f" arg
+X      regsub -all "\b" "$arg" "\\b" arg
+X      append escaped_args " \"$arg\""
+X   }
+X   set  errorCode {}
+X   set  opt_settings [ eval exec parseargs -s tcl $escaped_args ]
+X   if {( $errorCode != {} )} { 
+X      ## echo $opt_settings
+X      exit [lindex $errorCode 2]
+X   }
+X   return  $opt_settings ;
+X}
+X
+END_OF_FILE
+if test 4852 -ne `wc -c <'parseargs.tcl'`; then
+    echo shar: \"'parseargs.tcl'\" unpacked with wrong size!
+fi
+# end of 'parseargs.tcl'
+fi
+if test -f 'strfuncs.h' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'strfuncs.h'\"
+else
+echo shar: Extracting \"'strfuncs.h'\" \(2118 characters\)
+sed "s/^X//" >'strfuncs.h' <<'END_OF_FILE'
+X/***************************************************************************
+X** ^FILE: strfuncs.h - string functions
+X**
+X** ^DESCRIPTION:
+X**    External declarations for the functions implemented in strfuncs.c
+X**
+X** ^HISTORY:
+X**    27/08/91 	Earl Chew 	<cechew@bruce.cs.monash.edu.au>
+X**    - Add extra argument to indent_para()
+X**    - Add new prototypes for get_argdesc() and get_argpfx()
+X**
+X**    01/07/91	Brad Appleton	<brad@ssd.csd.harris.com>	Created
+X***^^**********************************************************************/
+X
+X#ifndef STRFUNCS_H
+X#define STRFUNCS_H
+X
+X#include <useful.h>
+X
+XEXTERN  char  *strucpy      ARGS(( char *, const char * ));
+XEXTERN  char  *strlcpy      ARGS(( char *, const char * ));
+XEXTERN  char  *strupr       ARGS(( char * ));
+XEXTERN  char  *strlwr       ARGS(( char * ));
+XEXTERN  int    stricmp      ARGS(( const char *, const char * ));
+XEXTERN  int    strnicmp     ARGS(( const char *, const char *, size_t ));
+XEXTERN  char  *strndup      ARGS(( const char * ));
+XEXTERN  char  *strndup      ARGS(( const char * ));
+XEXTERN  char  *strdup       ARGS(( const char * ));
+X
+X#ifdef BSD
+X   EXTERN  char  *strpbrk   ARGS(( const char *, const char * ));
+X   EXTERN  int    strspn    ARGS(( const char *, const char * ));
+X   EXTERN  int    strcspn   ARGS(( const char *, const char * ));
+X#endif
+X
+XEXTERN  char  *strltrim     ARGS(( char *, const char * ));
+XEXTERN  char  *strrtrim     ARGS(( char *, const char * ));
+XEXTERN  char  *strtrim      ARGS(( char *, const char * ));
+XEXTERN  int    strsplit     ARGS(( char ***, char *, const char * ));
+XEXTERN  char  *strjoin      ARGS(( const char **, const char * ));
+X
+XEXTERN  char  *get_argname  ARGS(( const char *, char * ));
+XEXTERN  char  *get_kwdname  ARGS(( const char *, char * ));
+XEXTERN  char  *get_argdesc  ARGS(( const char *, int * ));
+XEXTERN  int    get_argpfx   ARGS(( const char * ));
+XEXTERN  int    match        ARGS(( const char *, const char * ));
+XEXTERN  char  *basename     ARGS(( char * ));
+XEXTERN  VOID   indent_para  ARGS(( FILE *, int, int,
+X                                   const char *, int, const char *, int ));
+X
+X#endif
+END_OF_FILE
+if test 2118 -ne `wc -c <'strfuncs.h'`; then
+    echo shar: \"'strfuncs.h'\" unpacked with wrong size!
+fi
+# end of 'strfuncs.h'
+fi
+if test -f 'test.csh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.csh'\"
+else
+echo shar: Extracting \"'test.csh'\" \(2024 characters\)
+sed "s/^X//" >'test.csh' <<'END_OF_FILE'
+X#!/bin/csh -f
+X#
+X#	test.csh - C-shell script to test out the parseargs command!
+X#
+Xset NAME="`basename $0`"
+X
+Xsetenv ARGUMENTS "\
+X  '?', ARGHIDDEN, argUsage, NULL,    'Help {print usage and exit}', \
+X  'S', ARGVALOPT, argStr,   string,  'STRing {optional string arg}', \
+X  'g', ARGLIST,   argStr,   groups,  'newsGROUPS {groups to test}', \
+X  'r', ARGOPT,    argInt,   count,   'REPcount {# to repeat each group}', \
+X  'd', ARGOPT,    argStr,   dirname, 'DIRectory {working directory}', \
+X  'x', ARGOPT,    argBool,  xflag,   'Xflag {turn on X-mode}', \
+X  'y', ARGOPT,    argUBool, yflag,   'Yflag {turn off Y-mode}', \
+X  's', ARGOPT,    argChar,  sepch,   'SEPchar {field separator}', \
+X  'f', ARGLIST,   argStr,   files,   'files {files to process}', \
+X  'n', ARGREQ|ARGPOS, argStr, name,  'name {name to use}', \
+X  ' ', ARGLIST,   argStr,   argv,    'argv {any remaining arguments}', \
+X  ENDOFARGS \
+X"
+X## set defaults ##
+Xset groups='mygroup'   ## default group used by everyone
+Xset count='1'          ## only do once unless otherwise specified
+Xset dirname='.'        ## default to current directory
+Xset xflag=''           ## default xflag is false
+Xset yflag='TRUE'       ## default yflag is true
+Xset sepch=','          ## default separator is a comma
+Xset files=()
+X
+X## parse command-line ##
+Xparseargs -s csh -e ARGUMENTS -u -- "$NAME" $argv:q > /tmp/tmp$$
+Xif ( $status != 0 ) then  ## improper syntax (or just wanted usage)
+X	rm -f /tmp/tmp$$
+X	exit 2
+Xendif
+X
+X## evaluate output from parseargs & remove temporary file
+Xsource /tmp/tmp$$
+Xrm -f /tmp/tmp$$
+X
+X## echo arguments ##
+Xecho "ARGUMENTS:"
+Xecho "=========="
+Xecho Groups=$groups:q
+Xecho Count=$count:q
+Xecho Directory=$dirname:q
+Xecho XFlag=$xflag:q
+Xecho YFlag=$yflag:q
+Xecho SepChar=$sepch:q
+Xecho Name=$name:q
+Xecho Files=$files:q
+Xif ( $?string_flag ) then
+X  if ( ! $?string ) set string="\!string arg ommited on cmd-line\!"
+Xelse
+X  set string="default string"
+Xendif
+Xecho String=$string:q
+Xecho New Positional Parameters=$argv:q
+X
+X## print usage ##
+Xparseargs -e ARGUMENTS -U "$NAME"
+END_OF_FILE
+if test 2024 -ne `wc -c <'test.csh'`; then
+    echo shar: \"'test.csh'\" unpacked with wrong size!
+fi
+chmod +x 'test.csh'
+# end of 'test.csh'
+fi
+if test -f 'test.ksh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.ksh'\"
+else
+echo shar: Extracting \"'test.ksh'\" \(2053 characters\)
+sed "s/^X//" >'test.ksh' <<'END_OF_FILE'
+X#!/bin/ksh
+X#
+X#	test.ksh - Korn shell script to test out the parseargs command!
+X#
+X
+XNAME="$(basename $0)"
+X
+XARGUMENTS="
+X  '?', ARGHIDDEN, argUsage, NULL,    'Help -- print usage and exit',
+X  'S', ARGVALOPT, argStr,   string,  'STRing -- optional string arg',
+X  'g', ARGLIST,   argStr,   groups,  'newsGROUPS -- groups to test',
+X  'r', ARGOPT,    argInt,   count,   'REPcount -- number to repeat each group',
+X  'd', ARGOPT,    argStr,   dirname, 'DIRectory -- working directory',
+X  'x', ARGOPT,    argBool,  xflag,   'Xflag -- turn on X-mode',
+X  'y', ARGOPT,    argUBool, yflag,   'Yflag -- turn off Y-mode',
+X  's', ARGOPT,    argChar,  sepch,   'SEPchar -- field separator',
+X  'f', ARGLIST,   argStr,   files,   'files -- files to process',
+X  'n', ARGREQ|ARGPOS, argStr, name,  'name -- name to use',
+X  ' ', ARGLIST,   argStr,    -- ,    'argv -- any remaining arguments',
+X  ENDOFARGS
+X"
+Xexport ARGUMENTS
+X
+X## set defaults ##
+Xtypeset count='1'          ## only do once unless otherwise specified
+Xtypeset dirname='.'        ## default to current directory
+Xtypeset xflag=''           ## default xflag is false
+Xtypeset yflag='TRUE'       ## default yflag is true
+Xtypeset sepch=','          ## default separator is a comma
+Xtypeset groups[]
+Xtypeset files[]
+X
+X## parse command-line ##
+Xparseargs -s ksh -e ARGUMENTS -uip -- "$NAME" "$@" >/tmp/tmp$$
+Xif [ $? -ne 0 ] ; then
+X  rm -f /tmp/tmp$$
+X  exit 2  ## improper syntax (or just wanted usage)
+Xfi
+X
+X## evaluate results from parseargs and remove temporary file ##
+XINTERPRET="."
+X$INTERPRET /tmp/tmp$$
+Xrm -f /tmp/tmp$$
+X
+X## print arguments ##
+Xprint "ARGUMENTS:"
+Xprint "=========="
+Xprint "Groups='${groups[@]}'"
+Xprint "Count='$count'"
+Xprint "Directory='$dirname'"
+Xprint "XFlag='$xflag'"
+Xprint "YFlag='$yflag'"
+Xprint "SepChar='$sepch'"
+Xprint "Name='$name'"
+Xprint "Files='${files[@]}'"
+Xif [ "$string_flag" ] ; then
+X  string=${string:-"!string arg ommitted on cmd-line!"}
+Xelse
+X  string="default string"
+Xfi
+Xprint "String='$string'"
+Xprint "New Positional Parameters='$*'"
+X
+X## print usage ##
+Xparseargs -a "$ARGUMENTS" -U "$NAME"
+END_OF_FILE
+if test 2053 -ne `wc -c <'test.ksh'`; then
+    echo shar: \"'test.ksh'\" unpacked with wrong size!
+fi
+chmod +x 'test.ksh'
+# end of 'test.ksh'
+fi
+if test -f 'test.zsh' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'test.zsh'\"
+else
+echo shar: Extracting \"'test.zsh'\" \(2052 characters\)
+sed "s/^X//" >'test.zsh' <<'END_OF_FILE'
+X#!/bin/zsh
+X#
+X#	test.zsh - Z shell script to test out the parseargs command!
+X#
+X
+XNAME="`basename $0`"
+X
+XARGUMENTS="
+X  '?', ARGHIDDEN, argUsage, NULL,    'Help -- print usage and exit',
+X  'S', ARGVALOPT, argStr,   string,  'STRing -- optional string arg',
+X  'g', ARGLIST,   argStr,   groups,  'newsGROUPS -- groups to test',
+X  'r', ARGOPT,    argInt,   count,   'REPcount -- number to repeat each group',
+X  'd', ARGOPT,    argStr,   dirname, 'DIRectory -- working directory',
+X  'x', ARGOPT,    argBool,  xflag,   'Xflag -- turn on X-mode',
+X  'y', ARGOPT,    argUBool, yflag,   'Yflag -- turn off Y-mode',
+X  's', ARGOPT,    argChar,  sepch,   'SEPchar -- field separator',
+X  'f', ARGLIST,   argStr,   files,   'files -- files to process',
+X  'n', ARGREQ|ARGPOS, argStr, name,  'name -- name to use',
+X  ' ', ARGLIST,   argStr,   args,    'args -- any remaining arguments',
+X  ENDOFARGS
+X"
+Xexport ARGUMENTS
+X
+X## set defaults ##
+Xtypeset count='1'          ## only do once unless otherwise specified
+Xtypeset dirname='.'        ## default to current directory
+Xtypeset xflag=''           ## default xflag is false
+Xtypeset yflag='TRUE'       ## default yflag is true
+Xtypeset sepch=','          ## default separator is a comma
+Xtypeset groups
+Xtypeset files  
+X
+X## parse command-line ##
+Xparseargs -s zsh -e ARGUMENTS -u -- "$NAME" $argv[@] >/tmp/tmp$$
+Xif [ $status -ne 0 ] ; then
+X  rm -f /tmp/tmp$$
+X  exit 2  ## improper syntax (or just wanted usage)
+Xfi
+X
+X## evaluate results from parseargs and remove temporary file ##
+XINTERPRET="."
+X$INTERPRET /tmp/tmp$$
+Xrm -f /tmp/tmp$$
+X
+X## print arguments ##
+Xecho "ARGUMENTS:"
+Xecho "=========="
+Xecho "Groups='${groups[@]}'"
+Xecho "Count='$count'"
+Xecho "Directory='$dirname'"
+Xecho "XFlag='$xflag'"
+Xecho "YFlag='$yflag'"
+Xecho "SepChar='$sepch'"
+Xecho "Name='$name'"
+Xecho "Files='${files[@]}'"
+Xif [ -z "$string_flag" ] ; then
+X  string="default string"
+Xelse
+X  string=${string:-'\!string arg ommitted on cmd-line\!'}
+Xfi
+Xecho "String='$string'"
+Xecho "New Positional Parameters='$args[@]'"
+X
+X## echo usage ##
+Xparseargs -a "$ARGUMENTS" -U "$NAME"
+END_OF_FILE
+if test 2052 -ne `wc -c <'test.zsh'`; then
+    echo shar: \"'test.zsh'\" unpacked with wrong size!
+fi
+chmod +x 'test.zsh'
+# end of 'test.zsh'
+fi
+echo shar: End of archive 2 \(of 10\).
+cp /dev/null ark2isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 10 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...

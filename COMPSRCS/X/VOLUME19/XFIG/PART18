@@ -1,0 +1,2379 @@
+Newsgroups: comp.sources.x
+From: envbvs@epb9.lbl.gov (Brian V. Smith)
+Subject: v19i130:  xfig - Draw amd manipulate objects in an X-Window, Part18/27
+Message-ID: <1993May21.021636.6948@sparky.imd.sterling.com>
+X-Md4-Signature: f7210be6a947313ca4081b682bf074c7
+Sender: chris@sparky.imd.sterling.com (Chris Olson)
+Organization: Sterling Software
+Date: Fri, 21 May 1993 02:16:36 GMT
+Approved: chris@sparky.imd.sterling.com
+
+Submitted-by: envbvs@epb9.lbl.gov (Brian V. Smith)
+Posting-number: Volume 19, Issue 130
+Archive-name: xfig/part18
+Environment: X11
+Supersedes: xfig: Volume 16, Issue 6-30,39
+
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of archive 18 (of 27)."
+# Contents:  u_draw.c w_rulers.c
+# Wrapped by envbvs@epb9.lbl.gov.lbl.gov on Mon May  3 12:06:02 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'u_draw.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'u_draw.c'\"
+else
+echo shar: Extracting \"'u_draw.c'\" \(34170 characters\)
+sed "s/^X//" >'u_draw.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X * Copyright (c) 1990 by Brian V. Smith
+X * Copyright (c) 1992 by James Tough
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "resources.h"
+X#include "object.h"
+X#include "paintop.h"
+X#include "u_bound.h"
+X#include "u_create.h"
+X#include "u_draw.h"
+X#include "w_canvas.h"
+X#include "w_drawprim.h"
+X#include "w_zoom.h"
+X
+Xtypedef unsigned char byte;
+Xextern PIX_ROT_FONT lookfont();
+X
+X/************** POLYGON/CURVE DRAWING FACILITIES ****************/
+X
+Xstatic int	npoints;
+Xstatic int	max_points;
+Xstatic XPoint  *points;
+Xstatic int	allocstep;
+X
+Xstatic		Boolean
+Xinit_point_array(init_size, step_size)
+X    int		    init_size, step_size;
+X{
+X    npoints = 0;
+X    max_points = init_size;
+X    allocstep = step_size;
+X    if (max_points > MAXNUMPTS) {
+X	put_msg("Too many points, recompile with MAXNUMPTS > %d in w_drawprim.h",
+X		MAXNUMPTS);
+X	max_points = MAXNUMPTS;
+X    }
+X    if ((points = (XPoint *) malloc(max_points * sizeof(XPoint))) == 0) {
+X	fprintf(stderr, "xfig: insufficient memory to allocate point array\n");
+X	return False;
+X    }
+X    return True;
+X}
+X
+Xstatic		Boolean
+Xadd_point(x, y)
+X    int		    x, y;
+X{
+X    if (npoints >= max_points) {
+X	XPoint	       *tmp_p;
+X
+X	max_points += allocstep;
+X	if (max_points >= MAXNUMPTS)
+X	    return False;	/* stop; it is not closing */
+X
+X	if ((tmp_p = (XPoint *) realloc(points,
+X					max_points * sizeof(XPoint))) == 0) {
+X	    fprintf(stderr,
+X		    "xfig: insufficient memory to reallocate point array\n");
+X	    return False;
+X	}
+X	points = tmp_p;
+X    }
+X    points[npoints].x = (short) x;
+X    points[npoints].y = (short) y;
+X    npoints++;
+X    return True;
+X}
+X
+Xstatic void
+Xdraw_point_array(w, op, line_width, line_style, style_val, fill_style, color)
+X    Window	    w;
+X    int		    op;
+X    int		    line_width, line_style;
+X    float	    style_val;
+X    int		    fill_style;
+X    Color	    color;
+X{
+X    pw_lines(w, points, npoints, op,
+X	     line_width, line_style, style_val, fill_style, color);
+X    free(points);
+X}
+X
+X/*********************** ARC ***************************/
+X
+Xdraw_arc(a, op)
+X    F_arc	   *a;
+X    int		    op;
+X{
+X    int		    radius, rx, ry;
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    arc_bound(a, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    rx = a->point[0].x - a->center.x;
+X    ry = a->center.y - a->point[0].y;
+X    radius = round(sqrt((double) (rx * rx + ry * ry)));
+X
+X    curve(canvas_win, round(a->point[0].x - a->center.x),
+X	  round(a->center.y - a->point[0].y),
+X	  round(a->point[2].x - a->center.x),
+X	  round(a->center.y - a->point[2].y),
+X	  a->direction, 7*radius, radius, radius,
+X	  round(a->center.x), round(a->center.y), op,
+X	  a->thickness, a->style, a->style_val, a->fill_style, a->color);
+X
+X    draw_arcarrows(a, op);
+X}
+X
+X/*********************** ELLIPSE ***************************/
+X
+Xdraw_ellipse(e, op)
+X    F_ellipse	   *e;
+X    int		    op;
+X{
+X    int		    a, b, xmin, ymin, xmax, ymax;
+X
+X    ellipse_bound(e, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    if (e->angle != 0.0) {
+X	angle_ellipse(e->center.x, e->center.y, e->radiuses.x, e->radiuses.y, 
+X		e->angle, op, e->thickness, e->style, 
+X		e->style_val, e->fill_style, e->color);
+X    /* it is much faster to use curve() for dashed and dotted lines that to
+X       use the server's sloooow algorithms for that */
+X    } else if (op != ERASE && (e->style == DOTTED_LINE || e->style == DASH_LINE)) {
+X	a = e->radiuses.x;
+X	b = e->radiuses.y;
+X	curve(canvas_win, a, 0, a, 0, e->direction, 7*max2(a,b), (b * b), (a * a),
+X	      e->center.x, e->center.y, op,
+X	      e->thickness, e->style, e->style_val, e->fill_style, e->color);
+X    /* however, for solid lines the server is muuuch faster even for thick lines */
+X    } else {
+X	xmin = e->center.x - e->radiuses.x;
+X	ymin = e->center.y - e->radiuses.y;
+X	xmax = e->center.x + e->radiuses.x;
+X	ymax = e->center.y + e->radiuses.y;
+X	pw_curve(canvas_win, xmin, ymin, xmax, ymax, op,
+X		 e->thickness, e->style, e->style_val, e->fill_style,
+X		 e->color);
+X    }
+X}
+X
+X/*
+X *  An Ellipse Generator.
+X *  Written by James Tough   7th May 92
+X *
+X *  The following routines displays a filled ellipse on the screen from the
+X *    semi-minor axis 'a', semi-major axis 'b' and angle of rotation
+X *    'phi'.
+X *
+X *  It works along these principles .....
+X *
+X *        The standard ellipse equation is
+X *
+X *             x*x     y*y
+X *             ---  +  ---
+X *             a*a     b*b
+X *
+X *
+X *        Rotation of a point (x,y) is well known through the use of
+X *
+X *            x' = x*COS(phi) - y*SIN(phi)
+X *            y' = y*COS(phi) + y*COS(phi)
+X *
+X *        Taking these to together, this gives the equation for a rotated
+X *      ellipse centered around the origin.
+X *
+X *           [x*COS(phi) - y*SIN(phi)]^2   [x*SIN(phi) + y*COS(phi)]^2
+X *           --------------------------- + ---------------------------
+X *                      a*a                           b*b
+X *
+X *        NOTE -  some of the above equation can be precomputed, eg,
+X *
+X *              i = COS(phi)/a        and        j = SIN(phi)/b
+X *       
+X *        NOTE -  y is constant for each line so,
+X *
+X *              m = -yk*SIN(phi)/a    and     n = yk*COS(phi)/b
+X *              where yk stands for the kth line ( y subscript k)
+X *
+X *        Where yk=y, we get a quadratic,
+X *
+X *              (i*x + m)^2 + (j*x + n)^2 = 1
+X *
+X *        Thus for any particular line, y, there is two corresponding x
+X *      values. These are the roots of the quadratic. To get the roots, 
+X *      the above equation can be rearranged using the standard method, 
+X *
+X *          -(i*m + j*n) +- sqrt[i^2 + j^2 - (i*n -j*m)^2]
+X *      x = ----------------------------------------------
+X *                           i^2 + j^2 
+X *
+X *        NOTE -  again much of this equation can be precomputed.
+X *     
+X *           c1 = i^2 + j^2 
+X *           c2 = [COS(phi)*SIN(phi)*(a-b)]
+X *           c3 = [b*b*(COS(phi)^2) + a*a*(SIN(phi)^2)]
+X *           c4 = a*b/c3
+X * 
+X *      x = c2*y +- c4*sqrt(c3 - y*y),    where +- must be evaluated once
+X *                                      for plus, and once for minus. 
+X *
+X *        We also need to know how large the ellipse is. This condition
+X *      arises when the sqrt of the above equation evaluates to zero.
+X *      Thus the height of the ellipse is give by 
+X * 
+X *              sqrt[ b*b*(COS(phi)^2) + a*a*(SIN(phi)^2) ]
+X *
+X *       which just happens to be equal to sqrt(c3).
+X *
+X *         It is now possible to create a routine that will scan convert 
+X *       the ellipse on the screen.
+X *
+X *        NOTE -  c2 is the gradient of the new ellipse axis.
+X *                c4 is the new semi-minor axis, 'a'.
+X *           sqr(c3) is the new semi-major axis, 'b'.
+X *
+X *         These values could be used in a 4WS or 8WS ellipse generator
+X *       that does not work on rotation, to give the feel of a rotated
+X *       ellipse. These ellipses are not very accurate and give visable
+X *       bumps along the edge of the ellipse. However, these routines
+X *       are very quick, and give a good approximation to a rotated ellipse.
+X *
+X *       NOTES on the code given.
+X * 
+X *           All the routines take there parameters as ( x, y, a, b, phi ),
+X *           where x,y are the center of the ellipse ( relative to the 
+X *           origin ), a and b are the vertical and horizontal axis, and
+X *           phi is the angle of rotation in RADIANS.
+X *
+X *           The 'moveto(x,y)' command moves the screen cursor to the 
+X *               (x,y) point.
+X *           The 'lineto(x,y)' command draws a line from the cursor to
+X *               the point (x,y).
+X *
+X *
+X *   Examples,
+X *
+X *       NOTE, all angles must be given in radians.
+X *
+X *       angle_ellipse(0,0,100,20,PI/4)         an ellipse at the origin,
+X *                                             major axis 100, minor 20
+X *                                             at angle 45 degrees.
+X *
+X *
+X */
+X
+X
+X/*
+X *  QuickEllipse, uses the same method as Ellipse, but uses incremental
+X *    methods to reduce the amount of work that has to be done inside
+X *    the main loop. The speed increase is very noticeable.
+X *
+X *  Written by James Tough
+X *  7th May 1992
+X * 
+X */
+X
+Xstatic int	x[MAXNUMPTS/4][4],y[MAXNUMPTS/4][4];
+Xstatic int	nump[4];
+Xstatic int	totpts,i,j;
+Xstatic int	order[4]={0,1,3,2};
+X
+Xangle_ellipse(center_x, center_y, radius_x, radius_y, angle,
+X	      op, thickness, style, style_val, fill_style, color)
+X    int		    center_x, center_y;
+X    int		    radius_x, radius_y;
+X    float	    angle;
+X    int		    op,thickness,style,fill_style,color;
+X    float	    style_val;
+X{
+X	float	xcen, ycen, a, b; 
+X
+X	double	c1, c2, c3, c4, c5, c6, v1, cphi, sphi, cphisqr, sphisqr;
+X	double	xleft, xright, d, asqr, bsqr;
+X	int	ymax, yy=0;
+X	int	k,m,dir;
+X	float	savezoom, savexoff, saveyoff;
+X	int	zoomthick;
+X	XPoint	*ipnts;
+X
+X	/* clear any previous error message */
+X	put_msg("");
+X	if (radius_x == 0 || radius_y == 0)
+X		return;
+X
+X	/* adjust for zoomscale so we iterate over zoomed pixels */
+X	xcen = ZOOMX(center_x);
+X	ycen = ZOOMY(center_y);
+X	a = radius_x*zoomscale;
+X	b = radius_y*zoomscale;
+X	zoomthick = round(zoomscale*thickness);
+X	if (zoomthick == 0 && thickness != 0)
+X		zoomthick=1;
+X	savezoom = zoomscale;
+X	savexoff = zoomxoff;
+X	saveyoff = zoomyoff;
+X	zoomscale = 1.0;
+X	zoomxoff = zoomyoff = 0.0;
+X
+X	cphi = cos((double)angle);
+X	sphi = sin((double)angle);
+X	cphisqr = cphi*cphi;
+X	sphisqr = sphi*sphi;
+X	asqr = a*a;
+X	bsqr = b*b;
+X	
+X	c1 = (cphisqr/asqr)+(sphisqr/bsqr);
+X	c2 = ((cphi*sphi/asqr)-(cphi*sphi/bsqr))/c1;
+X	c3 = (bsqr*cphisqr) + (asqr*sphisqr);
+X	ymax = sqrt(c3);
+X	c4 = a*b/c3;
+X	c5 = 0;
+X	v1 = c4*c4;
+X	c6 = 2*v1;
+X	c3 = c3*v1-v1;
+X	totpts = 0;
+X	for (i=0; i<=3; i++)
+X		nump[i]=0;
+X	i=0; j=0;
+X	/* odd first points */
+X	if (ymax % 2) {
+X		d = sqrt(c3);
+X		newpoint(xcen-d,ycen);
+X		newpoint(xcen+d,ycen);
+X		c5 = c2;
+X		yy=1;
+X	}
+X	while (c3>=0) {
+X		d = sqrt(c3);
+X		xleft = c5-d;
+X		xright = c5+d;                        
+X		newpoint(xcen+xleft,ycen+yy);
+X		newpoint(xcen+xright,ycen+yy);
+X		newpoint(xcen-xright,ycen-yy);
+X		newpoint(xcen-xleft,ycen-yy);
+X		c5+=c2;
+X		v1+=c6;
+X		c3-=v1;
+X		yy=yy+1;
+X	}
+X	dir=0;
+X	totpts++;	/* add another point to join with first */
+X	init_point_array(totpts, 0);
+X	ipnts = points;
+X	/* now go down the 1st column, up the 2nd, down the 4th 
+X	   and up the 3rd to get the points in the correct order */
+X	for (k=0; k<=3; k++) {
+X	    if (dir==0)
+X		for (m=0; m<nump[k]; m++) {
+X		    add_point(x[m][order[k]],y[m][order[k]]);
+X		}
+X	    else
+X		for (m=nump[k]-1; m>=0; m--) {
+X		    add_point(x[m][order[k]],y[m][order[k]]);
+X		}
+X	    dir = 1-dir;
+X	} /* next k */
+X	/* add another point to join with first */
+X	add_point(ipnts->x,ipnts->y);
+X	draw_point_array(canvas_win, op, zoomthick, style, style_val, 
+X		 fill_style, color);
+X
+X	zoomscale = savezoom;
+X	zoomxoff = savexoff;
+X	zoomyoff = saveyoff;
+X	return;
+X}
+X
+X/* store the points across (row-wise in) the matrix */
+X
+Xnewpoint(xp,yp)
+X    float	   xp,yp;
+X{
+X    if (totpts >= MAXNUMPTS/4) {
+X	if (totpts == MAXNUMPTS/4) {
+X	    put_msg("Too many points to fully display rotated ellipse. %d points max",
+X		MAXNUMPTS);
+X	    totpts++;
+X	}
+X	return;
+X    }
+X    x[i][j]=round(xp);
+X    y[i][j]=round(yp);
+X    nump[j]++;
+X    totpts++;
+X    if (++j > 3) {
+X	j=0; 
+X	i++;
+X    }
+X}
+X
+X
+X/*********************** LINE ***************************/
+X
+Xdraw_line(line, op)
+X    F_line	   *line;
+X    int		    op;
+X{
+X    F_point	   *point;
+X    int		    xx, yy, x, y;
+X    int		    xmin, ymin, xmax, ymax;
+X    char	   *string;
+X    F_point	   *p0, *p1, *p2;
+X    pr_size	    txt;
+X
+X    line_bound(line, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    /* is it an arcbox? */
+X    if (line->type == T_ARC_BOX) {
+X	draw_arcbox(line, op);
+X	return;
+X    }
+X    /* is it an eps file? */
+X    if (line->type == T_EPS_BOX) {
+X	if (line->eps->bitmap != NULL) {
+X	    draw_eps_pixmap(line, op);
+X	    return;
+X	} else {		/* label empty eps bounding box */
+X	    if (line->eps->file[0] == '\0')
+X		string = EMPTY_EPS;
+X	    else {
+X		string = rindex(line->eps->file, '/');
+X		if (string == NULL)
+X		    string = line->eps->file;
+X		else
+X		    string++;
+X	    }
+X	    p0 = line->points;
+X	    p1 = p0->next;
+X	    p2 = p1->next;
+X	    xmin = min3(p0->x, p1->x, p2->x);
+X	    ymin = min3(p0->y, p1->y, p2->y);
+X	    xmax = max3(p0->x, p1->x, p2->x);
+X	    ymax = max3(p0->y, p1->y, p2->y);
+X	    canvas_font = lookfont(0, 12, 0.0);	/* get a size 12 font */
+X	    txt = pf_textwidth(canvas_font, strlen(string), string);
+X	    x = (xmin + xmax) / 2 - txt.x / 2;
+X	    y = (ymin + ymax) / 2;
+X	    pw_text(canvas_win, x, y, op, canvas_font, string, DEFAULT_COLOR);
+X	    /* return; */
+X	}
+X    }
+X    /* get first point and coordinates */
+X    point = line->points;
+X    x = point->x;
+X    y = point->y;
+X
+X    /* is it a single point? */
+X    if (line->points->next == NULL) {
+X	/* draw but don't fill */
+X	pw_point(canvas_win, x, y, line->thickness, op, line->color);
+X	return;
+X    }
+X    if (line->back_arrow)	/* backward arrow  */
+X	draw_arrow(point->next->x, point->next->y, x, y,
+X		   line->back_arrow, op, line->color);
+X
+X    /* accumulate the points in an array - start with 50 */
+X    if (!init_point_array(50, 50))
+X	return;
+X
+X    for (point = line->points; point != NULL; point = point->next) {
+X	xx = x;
+X	yy = y;
+X	x = point->x;
+X	y = point->y;
+X	add_point(x, y);
+X    }
+X
+X    draw_point_array(canvas_win, op, line->thickness, line->style,
+X		     line->style_val, line->fill_style, line->color);
+X
+X    if (line->for_arrow)
+X	draw_arrow(xx, yy, x, y, line->for_arrow, op, line->color);
+X}
+X
+Xdraw_arcbox(line, op)
+X    F_line	   *line;
+X    int		    op;
+X{
+X    F_point	   *point;
+X    int		    xmin, xmax, ymin, ymax;
+X
+X    point = line->points;
+X    xmin = xmax = point->x;
+X    ymin = ymax = point->y;
+X    while (point->next) {	/* find lower left (upper-left on screen) */
+X	/* and upper right (lower right on screen) */
+X	point = point->next;
+X	if (point->x < xmin)
+X	    xmin = point->x;
+X	else if (point->x > xmax)
+X	    xmax = point->x;
+X	if (point->y < ymin)
+X	    ymin = point->y;
+X	else if (point->y > ymax)
+X	    ymax = point->y;
+X    }
+X    pw_arcbox(canvas_win, xmin, ymin, xmax, ymax, line->radius, op,
+X	    line->thickness, line->style, line->style_val, line->fill_style,
+X	      line->color);
+X}
+X
+Xdraw_eps_pixmap(box, op)
+X    F_line	   *box;
+X    int		    op;
+X{
+X    int		    xmin, ymin;
+X    int		    xmax, ymax;
+X    int		    width, height, rotation;
+X    F_pos	    origin;
+X    F_pos	    opposite;
+X
+X    origin.x = ZOOMX(box->points->x);
+X    origin.y = ZOOMY(box->points->y);
+X    opposite.x = ZOOMX(box->points->next->next->x);
+X    opposite.y = ZOOMY(box->points->next->next->y);
+X
+X    xmin = min2(origin.x, opposite.x);
+X    ymin = min2(origin.y, opposite.y);
+X    xmax = max2(origin.x, opposite.x);
+X    ymax = max2(origin.y, opposite.y);
+X    if (op == ERASE) {
+X	clear_region(xmin, ymin, xmax, ymax);
+X	return;
+X    }
+X    width = abs(origin.x - opposite.x);
+X    height = abs(origin.y - opposite.y);
+X    rotation = 0;
+X    if (origin.x > opposite.x && origin.y > opposite.y)
+X	rotation = 180;
+X    if (origin.x > opposite.x && origin.y <= opposite.y)
+X	rotation = 270;
+X    if (origin.x <= opposite.x && origin.y > opposite.y)
+X	rotation = 90;
+X
+X    if (box->eps->pix_rotation != rotation ||
+X	box->eps->pix_width != width ||
+X	box->eps->pix_height != height ||
+X	box->eps->pix_flipped != box->eps->flipped)
+X	create_eps_pixmap(box, rotation, width, height, box->eps->flipped);
+X
+X    XCopyArea(tool_d, box->eps->pixmap, canvas_win, gccache[op],
+X	      0, 0, xmax - xmin, ymax - ymin, xmin, ymin);
+X    XFlush(tool_d);
+X}
+X
+X/*
+X * The input to this routine is the bitmap which is the "preview"
+X * section of an encapsulated postscript file. That input bitmap
+X * has an arbitrary number of rows and columns. This routine
+X * re-samples the input bitmap creating an output bitmap of dimensions
+X * width-by-height. This output bitmap is made into an X-windows pixmap
+X * for display purposes.
+X */
+Xcreate_eps_pixmap(box, rotation, width, height, flipped)
+X    F_line	   *box;
+X    int		    rotation, width, height, flipped;
+X{
+X    int		    i;
+X    int		    j;
+X    byte	   *data;
+X    byte	   *tdata;
+X    int		    nbytes;
+X    int		    bbytes;
+X    int		    ibit;
+X    int		    jbit;
+X    int		    wbit;
+X
+X    if (box->eps->pixmap != 0)
+X	XFreePixmap(tool_d, box->eps->pixmap);
+X
+X    nbytes = (width + 7) / 8;
+X    bbytes = (box->eps->bit_size.x + 7) / 8;
+X    data = (byte *) malloc(nbytes * height);
+X    tdata = (byte *) malloc(nbytes);
+X    bzero(data, nbytes * height);	/* clear memory */
+X
+X    /* create a new bitmap at the specified size (requires interpolation) */
+X    if ((!flipped && (rotation == 0 || rotation == 180)) ||
+X	(flipped && !(rotation == 0 || rotation == 180))) {
+X	for (j = 0; j < height; j++)
+X	    for (i = 0; i < width; i++) {
+X		ibit = box->eps->bit_size.x * i / width;
+X		jbit = box->eps->bit_size.y * j / height;
+X		wbit = *(box->eps->bitmap + jbit * bbytes + ibit / 8);
+X		if (wbit & (1 << (7 - (ibit & 7))))
+X		    *(data + j * nbytes + i / 8) += (1 << (i & 7));
+X	    }
+X    } else {
+X	for (j = 0; j < height; j++)
+X	    for (i = 0; i < width; i++) {
+X		ibit = box->eps->bit_size.x * j / height;
+X		jbit = box->eps->bit_size.y * i / width;
+X		wbit = *(box->eps->bitmap + jbit * bbytes + ibit / 8);
+X		if (wbit & (1 << (7 - (ibit & 7))))
+X		    *(data + (height - j) * nbytes + i / 8) += (1 << (i & 7));
+X	    }
+X    }
+X
+X    /* horizontal swap */
+X    if (rotation == 180 || rotation == 270)
+X	for (j = 0; j < height; j++) {
+X	    bzero(tdata, nbytes);
+X	    for (i = 0; i < width; i++)
+X		if (*(data + j * nbytes + (width - i - 1) / 8) & (1 << ((width - i - 1) & 7)))
+X		    *(tdata + i / 8) += (1 << (i & 7));
+X	    bcopy(tdata, data + j * nbytes, nbytes);
+X	}
+X
+X    /* vertical swap */
+X    if ((!flipped && (rotation == 180 || rotation == 270)) ||
+X	(flipped && !(rotation == 180 || rotation == 270)))
+X	for (j = 0; j < (height + 1) / 2; j++) {
+X	    bcopy(data + j * nbytes, tdata, nbytes);
+X	    bcopy(data + (height - j - 1) * nbytes, data + j * nbytes, nbytes);
+X	    bcopy(tdata, data + (height - j - 1) * nbytes, nbytes);
+X	}
+X
+X    box->eps->pixmap = XCreatePixmapFromBitmapData(tool_d, canvas_win,
+X					       (char *) data, width, height,
+X			       (box->color >= 0 && box->color < NUMCOLORS) ?
+X				appres.color[box->color] : x_fg_color.pixel,
+X						   x_bg_color.pixel,
+X					      DefaultDepthOfScreen(tool_s));
+X    free(data);
+X    free(tdata);
+X
+X    box->eps->pix_rotation = rotation;
+X    box->eps->pix_width = width;
+X    box->eps->pix_height = height;
+X    box->eps->pix_flipped = flipped;
+X}
+X
+X/*********************** SPLINE ***************************/
+X
+Xdraw_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    int		    xmin, ymin, xmax, ymax;
+X
+X    spline_bound(spline, &xmin, &ymin, &xmax, &ymax);
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    if (int_spline(spline))
+X	draw_intspline(spline, op);
+X    else if (spline->type == T_CLOSED_NORMAL)
+X	draw_closed_spline(spline, op);
+X    else if (spline->type == T_OPEN_NORMAL)
+X	draw_open_spline(spline, op);
+X}
+X
+Xdraw_intspline(s, op)
+X    F_spline	   *s;
+X    int		    op;
+X{
+X    F_point	   *p1, *p2;
+X    F_control	   *cp1, *cp2;
+X
+X    p1 = s->points;
+X    cp1 = s->controls;
+X    cp2 = cp1->next;
+X    if (s->back_arrow)
+X	draw_arrow(round(cp2->lx), round(cp2->ly), p1->x, p1->y,
+X		   s->back_arrow, op, s->color);
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    for (p2 = p1->next, cp2 = cp1->next; p2 != NULL;
+X	 p1 = p2, cp1 = cp2, p2 = p2->next, cp2 = cp2->next) {
+X	bezier_spline((float) p1->x, (float) p1->y, cp1->rx, cp1->ry,
+X		      cp2->lx, cp2->ly, (float) p2->x, (float) p2->y, op,
+X		      s->thickness, s->style, s->style_val);
+X    }
+X
+X    add_point(p1->x, p1->y);
+X
+X    draw_point_array(canvas_win, op, s->thickness, s->style,
+X		     s->style_val, s->fill_style, s->color);
+X
+X    if (s->for_arrow)
+X	draw_arrow(round(cp1->lx), round(cp1->ly), p1->x,
+X		   p1->y, s->for_arrow, op, s->color);
+X}
+X
+Xdraw_open_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    F_point	   *p;
+X    float	    cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4;
+X    float	    x1, y1, x2, y2;
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    p = spline->points;
+X    x1 = p->x;
+X    y1 = p->y;
+X    p = p->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx1 = (x1 + x2) / 2;
+X    cy1 = (y1 + y2) / 2;
+X    cx2 = (cx1 + x2) / 2;
+X    cy2 = (cy1 + y2) / 2;
+X    if (spline->back_arrow)	/* backward arrow  */
+X	draw_arrow((int) x2, (int) y2, (int) x1, (int) y1,
+X		   spline->back_arrow, op, spline->color);
+X    add_point((int) x1, (int) y1);
+X
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x1 = x2;
+X	y1 = y2;
+X	x2 = p->x;
+X	y2 = p->y;
+X	cx4 = (x1 + x2) / 2;
+X	cy4 = (y1 + y2) / 2;
+X	cx3 = (x1 + cx4) / 2;
+X	cy3 = (y1 + cy4) / 2;
+X	quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X			 spline->thickness, spline->style, spline->style_val,
+X			 spline->color);
+X	cx1 = cx4;
+X	cy1 = cy4;
+X	cx2 = (cx1 + x2) / 2;
+X	cy2 = (cy1 + y2) / 2;
+X    }
+X
+X    add_point(round(cx1), round(cy1));
+X    add_point((int) x2, (int) y2);
+X
+X    draw_point_array(canvas_win, op, spline->thickness, spline->style,
+X		     spline->style_val, spline->fill_style, spline->color);
+X
+X    if (spline->for_arrow)	/* forward arrow  */
+X	draw_arrow((int) x1, (int) y1, (int) x2, (int) y2,
+X		   spline->for_arrow, op, spline->color);
+X}
+X
+Xdraw_closed_spline(spline, op)
+X    F_spline	   *spline;
+X    int		    op;
+X{
+X    F_point	   *p;
+X    float	    cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4;
+X    float	    x1, y1, x2, y2;
+X
+X    if (!init_point_array(300, 200))
+X	return;
+X
+X    p = spline->points;
+X    x1 = p->x;
+X    y1 = p->y;
+X    p = p->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx1 = (x1 + x2) / 2;
+X    cy1 = (y1 + y2) / 2;
+X    cx2 = (x1 + 3 * x2) / 4;
+X    cy2 = (y1 + 3 * y2) / 4;
+X
+X    for (p = p->next; p != NULL; p = p->next) {
+X	x1 = x2;
+X	y1 = y2;
+X	x2 = p->x;
+X	y2 = p->y;
+X	cx4 = (x1 + x2) / 2;
+X	cy4 = (y1 + y2) / 2;
+X	cx3 = (x1 + cx4) / 2;
+X	cy3 = (y1 + cy4) / 2;
+X	quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X			 spline->thickness, spline->style, spline->style_val,
+X			 spline->color);
+X	cx1 = cx4;
+X	cy1 = cy4;
+X	cx2 = (cx1 + x2) / 2;
+X	cy2 = (cy1 + y2) / 2;
+X    }
+X    x1 = x2;
+X    y1 = y2;
+X    p = spline->points->next;
+X    x2 = p->x;
+X    y2 = p->y;
+X    cx4 = (x1 + x2) / 2;
+X    cy4 = (y1 + y2) / 2;
+X    cx3 = (x1 + cx4) / 2;
+X    cy3 = (y1 + cy4) / 2;
+X    quadratic_spline(cx1, cy1, cx2, cy2, cx3, cy3, cx4, cy4, op,
+X		     spline->thickness, spline->style, spline->style_val,
+X		     spline->color);
+X
+X    add_point((int) cx4, (int) cy4);
+X
+X    draw_point_array(canvas_win, op, spline->thickness, spline->style,
+X		     spline->style_val, spline->fill_style, spline->color);
+X}
+X
+X
+X/*********************** TEXT ***************************/
+X
+Xstatic char    *hidden_text_string = "<<>>";
+X
+Xdraw_text(text, op)
+X    F_text	   *text;
+X    int		    op;
+X{
+X    PR_SIZE	    size;
+X    int		    x,y;
+X    float	    angle;
+X    int		    xmin, ymin, xmax, ymax;
+X    int		    x1,y1, x2,y2, x3,y3, x4,y4;
+X
+X    if (appres.textoutline)	/* get corners of rectangle at actual angle */
+X	text_bound_both(text, &xmin, &ymin, &xmax, &ymax, 
+X			  &x1,&y1, &x2,&y2, &x3,&y3, &x4,&y4);
+X    else
+X	text_bound(text, &xmin, &ymin, &xmax, &ymax);
+X
+X    if (!overlapping(ZOOMX(xmin), ZOOMY(ymin), ZOOMX(xmax), ZOOMY(ymax),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    /* outline the text bounds in red if textoutline resource is set */
+X    if (appres.textoutline && !hidden_text(text)) {
+X	pw_vector(canvas_win, x1, y1, x2, y2, op, 1, RUBBER_LINE, 0.0, 4);
+X	pw_vector(canvas_win, x2, y2, x3, y3, op, 1, RUBBER_LINE, 0.0, 4);
+X	pw_vector(canvas_win, x3, y3, x4, y4, op, 1, RUBBER_LINE, 0.0, 4);
+X	pw_vector(canvas_win, x4, y4, x1, y1, op, 1, RUBBER_LINE, 0.0, 4);
+X    }
+X
+X    x = text->base_x;
+X    y = text->base_y;
+X    angle = text->angle*180.0/M_PI;
+X    if (text->type == T_CENTER_JUSTIFIED || text->type == T_RIGHT_JUSTIFIED) {
+X	size = pf_textwidth(text->fontstruct, strlen(text->cstring), 
+X			    text->cstring);
+X	size.x = size.x/zoomscale;
+X	if (text->type == T_CENTER_JUSTIFIED) {
+X	    if (angle < 90.0 - 0.001)
+X		x -= size.x / 2;	/*   0 to  89 degrees */
+X	    else if (angle < 180.0 - 0.001)
+X		y += size.x / 2;	/*  90 to 179 degrees */
+X	    else if (angle < 270.0 - 0.001)
+X		x += size.x / 2;	/* 180 to 269 degrees */
+X	    else 
+X		y -= size.x / 2;	/* 270 to 359 degrees */
+X
+X	} else {	/* T_RIGHT_JUSTIFIED */
+X	    if (angle < 90.0 - 0.001)
+X		x -= size.x;		/*   0 to  89 degrees */
+X	    else if (angle < 180.0 - 0.001)
+X		y += size.x;		/*  90 to 179 degrees */
+X	    else if (angle < 270.0 - 0.001)
+X		x += size.x;		/* 180 to 269 degrees */
+X	    else 
+X		y -= size.x;		/* 270 to 359 degrees */
+X	}
+X    }
+X    if (hidden_text(text))
+X	pw_text(canvas_win, x, y, op, lookfont(0,12,text->angle),
+X		hidden_text_string, DEFAULT_COLOR);
+X    else
+X	pw_text(canvas_win, x, y, op, text->fontstruct,
+X		text->cstring, text->color);
+X}
+X
+X/*********************** COMPOUND ***************************/
+X
+Xvoid
+Xdraw_compoundelements(c, op)
+X    F_compound	   *c;
+X    int		    op;
+X{
+X    F_line	   *l;
+X    F_spline	   *s;
+X    F_ellipse	   *e;
+X    F_text	   *t;
+X    F_arc	   *a;
+X    F_compound	   *c1;
+X
+X    if (!overlapping(ZOOMX(c->nwcorner.x), ZOOMY(c->nwcorner.y), 
+X		     ZOOMX(c->secorner.x), ZOOMY(c->secorner.y),
+X		     clip_xmin, clip_ymin, clip_xmax, clip_ymax))
+X	return;
+X
+X    for (l = c->lines; l != NULL; l = l->next) {
+X	draw_line(l, op);
+X    }
+X    for (s = c->splines; s != NULL; s = s->next) {
+X	draw_spline(s, op);
+X    }
+X    for (a = c->arcs; a != NULL; a = a->next) {
+X	draw_arc(a, op);
+X    }
+X    for (e = c->ellipses; e != NULL; e = e->next) {
+X	draw_ellipse(e, op);
+X    }
+X    for (t = c->texts; t != NULL; t = t->next) {
+X	draw_text(t, op);
+X    }
+X    for (c1 = c->compounds; c1 != NULL; c1 = c1->next) {
+X	draw_compoundelements(c1, op);
+X    }
+X}
+X
+X/*************************** ARROWS ****************************
+X
+X draw arrow heading from (x1, y1) to (x2, y2)
+X
+X****************************************************************/
+X
+Xdraw_arrow(x1, y1, x2, y2, arrow, op, color)
+X    int		    x1, y1, x2, y2, op;
+X    F_arrow	   *arrow;
+X    Color	    color;
+X{
+X    float	    x, y, xb, yb, dx, dy, l, sina, cosa;
+X    int		    xc, yc, xd, yd;
+X    float	    wid = arrow->wid, ht = arrow->ht;
+X
+X    dx = x2 - x1;
+X    dy = y1 - y2;
+X    l = sqrt((double) (dx * dx + dy * dy));
+X    if (l == 0)
+X	return;
+X    sina = dy / l;
+X    cosa = dx / l;
+X    xb = x2 * cosa - y2 * sina;
+X    yb = x2 * sina + y2 * cosa;
+X    x = xb - ht;
+X    y = yb - wid / 2;
+X    xc = x * cosa + y * sina + .5;
+X    yc = -x * sina + y * cosa + .5;
+X    y = yb + wid / 2;
+X    xd = x * cosa + y * sina + .5;
+X    yd = -x * sina + y * cosa + .5;
+X    pw_vector(canvas_win, xc, yc, x2, y2, op,
+X	      (int) arrow->thickness, arrow->style, 0.0, color);
+X    pw_vector(canvas_win, xd, yd, x2, y2, op,
+X	      (int) arrow->thickness, arrow->style, 0.0, color);
+X}
+X
+Xdraw_arcarrows(a, op)
+X    F_arc	   *a;
+X    int		    op;
+X{
+X    int		    x, y;
+X
+X    if (a->for_arrow) {
+X	compute_normal(a->center.x, a->center.y, a->point[2].x,
+X		       a->point[2].y, a->direction, &x, &y);
+X	draw_arrow(x, y, a->point[2].x, a->point[2].y, a->for_arrow, op,
+X		   a->color);
+X    }
+X    if (a->back_arrow) {
+X	compute_normal(a->center.x, a->center.y, a->point[0].x,
+X		       a->point[0].y, a->direction ^ 1, &x, &y);
+X	draw_arrow(x, y, a->point[0].x, a->point[0].y,
+X		   a->back_arrow, op, a->color);
+X    }
+X}
+X
+X/********************* CURVES FOR ARCS AND ELLIPSES ***************
+X
+X This routine plot two dimensional curve defined by a second degree
+X polynomial of the form : 2    2 f(x, y) = ax + by + g = 0
+X
+X (x0,y0) is the starting point as well as ending point of the curve. The curve
+X will translate with the offset xoff and yoff.
+X
+X This algorithm is derived from the eight point algorithm in : "An Improved
+X Algorithm for the generation of Nonparametric Curves" by Bernard W.
+X Jordan, William J. Lennon and Barry D. Holm, IEEE Transaction on Computers
+X Vol C-22, No. 12 December 1973.
+X
+X Will fill the curve if fill_style is != 0
+X
+X****************************************************************/
+X
+Xcurve(window, xstart, ystart, xend, yend, direction, estnpts,
+X      a, b, xoff, yoff, op, thick, style, style_val, fill_style, color)
+X    Window	    window;
+X    int		    xstart, ystart, xend, yend, a, b, xoff, yoff;
+X    int		    direction, estnpts, op, thick, style, fill_style;
+X    float	    style_val;
+X    int		    color;
+X{
+X    register int    deltax, deltay, dfx, dfy, x, y;
+X    int		    dfxx, dfyy;
+X    int		    falpha, fx, fy, fxy, absfx, absfy, absfxy;
+X    int		    margin, test_succeed, inc, dec;
+X
+X    if (a == 0 || b == 0)
+X	return;
+X
+X    if (!init_point_array(estnpts,estnpts/2)) /* estimate of number of points */
+X	return;
+X
+X    x = xstart;
+X    y = ystart;
+X    dfx = 2 * a * xstart;
+X    dfy = 2 * b * ystart;
+X    dfxx = 2 * a;
+X    dfyy = 2 * b;
+X
+X    falpha = 0;
+X    if (direction) {
+X	inc = 1;
+X	dec = -1;
+X    } else {
+X	inc = -1;
+X	dec = 1;
+X    }
+X    if (xstart == xend && ystart == yend) {
+X	test_succeed = margin = 1;
+X    } else {
+X	test_succeed = margin = 1;
+X    }
+X
+X    if (!add_point(xoff + x, yoff - y))
+X	/* (error) */ ;
+X    else
+X      while (test_succeed) {
+X	deltax = (dfy < 0) ? inc : dec;
+X	deltay = (dfx < 0) ? dec : inc;
+X	fx = falpha + dfx * deltax + a;
+X	fy = falpha + dfy * deltay + b;
+X	fxy = fx + fy - falpha;
+X	absfx = abs(fx);
+X	absfy = abs(fy);
+X	absfxy = abs(fxy);
+X
+X	if ((absfxy <= absfx) && (absfxy <= absfy))
+X	    falpha = fxy;
+X	else if (absfy <= absfx) {
+X	    deltax = 0;
+X	    falpha = fy;
+X	} else {
+X	    deltay = 0;
+X	    falpha = fx;
+X	}
+X	x += deltax;
+X	y += deltay;
+X	dfx += (dfxx * deltax);
+X	dfy += (dfyy * deltay);
+X	if (!add_point(xoff + x, yoff - y))
+X	    break;
+X
+X	if (abs(x - xend) < margin && abs(y - yend) < margin)
+X	    test_succeed--;
+X    }
+X
+X    if (xstart == xend && ystart == yend)	/* end points should touch */
+X	add_point(xoff + xstart, yoff - ystart);
+X
+X    draw_point_array(window, op, thick, style, style_val, fill_style, color);
+X}
+X
+X/********************* CURVES FOR SPLINES *****************************
+X
+X	The following spline drawing routine is from
+X
+X	"An Algorithm for High-Speed Curve Generation"
+X	by George Merrill Chaikin,
+X	Computer Graphics and Image Processing, 3, Academic Press,
+X	1974, 346-349.
+X
+X	and
+X
+X	"On Chaikin's Algorithm" by R. F. Riesenfeld,
+X	Computer Graphics and Image Processing, 4, Academic Press,
+X	1975, 304-310.
+X
+X***********************************************************************/
+X
+X#define		half(z1, z2)	((z1+z2)/2.0)
+X#define		THRESHOLD	5
+X
+X/* iterative version */
+X/*
+X * because we draw the spline with small line segments, the style parameter
+X * doesn't work
+X */
+X
+Xquadratic_spline(a1, b1, a2, b2, a3, b3, a4, b4, op, thick, style,
+X		 style_val, color)
+X    float	    a1, b1, a2, b2, a3, b3, a4, b4;
+X    int		    op, thick, style;
+X    float	    style_val;
+X    int		    color;
+X{
+X    register float  xmid, ymid;
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X
+X    clear_stack();
+X    push(a1, b1, a2, b2, a3, b3, a4, b4);
+X
+X    while (pop(&x1, &y1, &x2, &y2, &x3, &y3, &x4, &y4)) {
+X	xmid = half(x2, x3);
+X	ymid = half(y2, y3);
+X	if (fabs(x1 - xmid) < THRESHOLD && fabs(y1 - ymid) < THRESHOLD &&
+X	    fabs(xmid - x4) < THRESHOLD && fabs(ymid - y4) < THRESHOLD) {
+X	    add_point(round(x1), round(y1));
+X	    add_point(round(xmid), round(ymid));
+X	} else {
+X	    push(xmid, ymid, half(xmid, x3), half(ymid, y3),
+X		 half(x3, x4), half(y3, y4), x4, y4);
+X	    push(x1, y1, half(x1, x2), half(y1, y2),
+X		 half(x2, xmid), half(y2, ymid), xmid, ymid);
+X	}
+X    }
+X}
+X
+X/*
+X * the style parameter doesn't work for splines because we use small line
+X * segments
+X */
+X
+Xbezier_spline(a0, b0, a1, b1, a2, b2, a3, b3, op, thick, style, style_val)
+X    float	    a0, b0, a1, b1, a2, b2, a3, b3;
+X    int		    op, thick, style;
+X    float	    style_val;
+X{
+X    register float  tx, ty;
+X    float	    x0, y0, x1, y1, x2, y2, x3, y3;
+X    float	    sx1, sy1, sx2, sy2, tx1, ty1, tx2, ty2, xmid, ymid;
+X
+X    clear_stack();
+X    push(a0, b0, a1, b1, a2, b2, a3, b3);
+X
+X    while (pop(&x0, &y0, &x1, &y1, &x2, &y2, &x3, &y3)) {
+X	if (fabs(x0 - x3) < THRESHOLD && fabs(y0 - y3) < THRESHOLD) {
+X	    add_point(round(x0), round(y0));
+X	} else {
+X	    tx = half(x1, x2);
+X	    ty = half(y1, y2);
+X	    sx1 = half(x0, x1);
+X	    sy1 = half(y0, y1);
+X	    sx2 = half(sx1, tx);
+X	    sy2 = half(sy1, ty);
+X	    tx2 = half(x2, x3);
+X	    ty2 = half(y2, y3);
+X	    tx1 = half(tx2, tx);
+X	    ty1 = half(ty2, ty);
+X	    xmid = half(sx2, tx1);
+X	    ymid = half(sy2, ty1);
+X
+X	    push(xmid, ymid, tx1, ty1, tx2, ty2, x3, y3);
+X	    push(x0, y0, sx1, sy1, sx2, sy2, xmid, ymid);
+X	}
+X    }
+X}
+X
+X/* utilities used by spline drawing routines */
+X
+X#define		STACK_DEPTH		20
+X
+Xtypedef struct stack {
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X}
+X		Stack;
+X
+Xstatic Stack	stack[STACK_DEPTH];
+Xstatic Stack   *stack_top;
+Xstatic int	stack_count;
+X
+Xclear_stack()
+X{
+X    stack_top = stack;
+X    stack_count = 0;
+X}
+X
+Xpush(x1, y1, x2, y2, x3, y3, x4, y4)
+X    float	    x1, y1, x2, y2, x3, y3, x4, y4;
+X{
+X    stack_top->x1 = x1;
+X    stack_top->y1 = y1;
+X    stack_top->x2 = x2;
+X    stack_top->y2 = y2;
+X    stack_top->x3 = x3;
+X    stack_top->y3 = y3;
+X    stack_top->x4 = x4;
+X    stack_top->y4 = y4;
+X    stack_top++;
+X    stack_count++;
+X}
+X
+Xint
+Xpop(x1, y1, x2, y2, x3, y3, x4, y4)
+X    float	   *x1, *y1, *x2, *y2, *x3, *y3, *x4, *y4;
+X{
+X    if (stack_count == 0)
+X	return (0);
+X    stack_top--;
+X    stack_count--;
+X    *x1 = stack_top->x1;
+X    *y1 = stack_top->y1;
+X    *x2 = stack_top->x2;
+X    *y2 = stack_top->y2;
+X    *x3 = stack_top->x3;
+X    *y3 = stack_top->y3;
+X    *x4 = stack_top->x4;
+X    *y4 = stack_top->y4;
+X    return (1);
+X}
+END_OF_FILE
+if test 34170 -ne `wc -c <'u_draw.c'`; then
+    echo shar: \"'u_draw.c'\" unpacked with wrong size!
+fi
+# end of 'u_draw.c'
+fi
+if test -f 'w_rulers.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'w_rulers.c'\"
+else
+echo shar: Extracting \"'w_rulers.c'\" \(31896 characters\)
+sed "s/^X//" >'w_rulers.c' <<'END_OF_FILE'
+X/*
+X * FIG : Facility for Interactive Generation of figures
+X * Copyright (c) 1985 by Supoj Sutanthavibul
+X *
+X * "Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both the copyright
+X * notice and this permission notice appear in supporting documentation. 
+X * No representations are made about the suitability of this software for 
+X * any purpose.  It is provided "as is" without express or implied warranty."
+X */
+X
+X#include "fig.h"
+X#include "figx.h"
+X#include "resources.h"
+X#include "mode.h"
+X#include "paintop.h"
+X#include "w_drawprim.h"
+X#include "w_mousefun.h"
+X#include "w_setup.h"
+X#include "w_util.h"
+X#include "w_zoom.h"
+X
+X/*
+X * The following will create rulers the same size as the initial screen size.
+X * if the user resizes the xfig window, the rulers won't have numbers there.
+X * Should really reset the sizes if the screen resizes.
+X */
+X
+X/*
+X * set maximum ruler size:
+X * color servers for Vaxstations screw up the pixmaps if the rulers are
+X * made too big (they can't handle pixmaps much larger than the screen)
+X */
+X
+X#define			INCH_MARK		8
+X#define			HALF_MARK		8
+X#define			QUARTER_MARK		6
+X#define			SIXTEENTH_MARK		4
+X
+X#define			TRM_WID			16
+X#define			TRM_HT			8
+X#define			SRM_WID			8
+X#define			SRM_HT			16
+X
+Xextern		pan_origin();
+XGC		tr_gc, tr_xor_gc, tr_erase_gc;
+XGC		sr_gc, sr_xor_gc, sr_erase_gc;
+X
+Xstatic int	lasty = -100, lastx = -100;
+Xstatic int	troffx = -8, troffy = -10;
+Xstatic int	orig_zoomoff;
+Xstatic int	last_drag_x, last_drag_y;
+Xstatic unsigned char	tr_marker_image[16] = {
+X    0xFE, 0xFF,		/* ***************  */
+X    0x04, 0x40,		/*  *           *  */
+X    0x08, 0x20,		/*   *         *  */
+X    0x10, 0x10,		/*    *       *  */
+X    0x20, 0x08,		/*     *     *  */
+X    0x40, 0x04,		/*      *   *  */
+X    0x80, 0x02,		/*       * *  */
+X    0x00, 0x01,		/*        *  */
+X};
+Xstatic		mpr_static(trm_pr, TRM_WID, TRM_HT, 1, tr_marker_image);
+Xstatic int	srroffx = 2, srroffy = -7;
+Xstatic unsigned char	srr_marker_image[16] = {
+X    0x80,		/*        *  */
+X    0xC0,		/*       **  */
+X    0xA0,		/*      * *  */
+X    0x90,		/*     *  *  */
+X    0x88,		/*    *   *  */
+X    0x84,		/*   *    *  */
+X    0x82,		/*  *     *  */
+X    0x81,		/* *      *  */
+X    0x82,		/*  *     *  */
+X    0x84,		/*   *    *  */
+X    0x88,		/*    *   *  */
+X    0x90,		/*     *  *  */
+X    0xA0,		/*      * *  */
+X    0xC0,		/*       **  */
+X    0x80,		/*        *  */
+X    0x00
+X};
+Xstatic		mpr_static(srrm_pr, SRM_WID, SRM_HT, 1, srr_marker_image);
+X
+Xstatic int	srloffx = -10, srloffy = -7;
+Xstatic unsigned char	srl_marker_image[16] = {
+X    0x01,		/* *	      */
+X    0x03,		/* **	      */
+X    0x05,		/* * *	      */
+X    0x09,		/* *  *	      */
+X    0x11,		/* *   *      */
+X    0x21,		/* *    *     */
+X    0x41,		/* *     *    */
+X    0x81,		/* *      *   */
+X    0x41,		/* *     *    */
+X    0x21,		/* *    *     */
+X    0x11,		/* *   *      */
+X    0x09,		/* *  *	      */
+X    0x05,		/* * *	      */
+X    0x03,		/* **	      */
+X    0x01,		/* *	      */
+X    0x00
+X};
+Xstatic		mpr_static(srlm_pr, SRM_WID, SRM_HT, 1, srl_marker_image);
+X
+Xstatic Pixmap	toparrow_pm = 0, sidearrow_pm = 0;
+Xstatic Pixmap	topruler_pm = 0, sideruler_pm = 0;
+X
+XDeclareStaticArgs(14);
+X
+Xstatic		topruler_selected();
+Xstatic		topruler_exposed();
+Xstatic		sideruler_selected();
+Xstatic		sideruler_exposed();
+X
+Xredisplay_rulers()
+X{
+X    redisplay_topruler();
+X    redisplay_sideruler();
+X}
+X
+Xsetup_rulers()
+X{
+X    setup_topruler();
+X    setup_sideruler();
+X}
+X
+Xreset_rulers()
+X{
+X    reset_topruler();
+X    reset_sideruler();
+X}
+X
+Xset_rulermark(x, y)
+X    int		    x, y;
+X{
+X    if (appres.TRACKING) {
+X	set_siderulermark(y);
+X	set_toprulermark(x);
+X    }
+X}
+X
+Xerase_rulermark()
+X{
+X    if (appres.TRACKING) {
+X	erase_siderulermark();
+X	erase_toprulermark();
+X    }
+X}
+X
+X#define HINCH	(PIX_PER_INCH / 2)
+X#define QINCH	(PIX_PER_INCH / 4)
+X#define SINCH	(PIX_PER_INCH / 16)
+X#define TWOMM	(PIX_PER_CM / 5)
+X
+X/************************* UNITBOX ************************/
+X
+Xextern Widget   make_popup_menu();
+Xextern Atom     wm_delete_window;
+Xextern char    *panel_get_value();
+Xvoid popup_unit_panel();
+Xstatic int      rul_unit_setting, fig_unit_setting=0, fig_scale_setting=0;
+Xstatic Widget   rul_unit_panel, fig_unit_panel, fig_scale_panel;
+Xstatic Widget   rul_unit_menu, fig_unit_menu, fig_scale_menu;
+Xstatic Widget   scale_factor_lab, scale_factor_panel;
+Xstatic Widget   user_unit_lab, user_unit_panel;
+X
+X
+XXtActionsRec	unitbox_actions[] =
+X{
+X    {"EnterUnitBox", (XtActionProc) draw_mousefun_unitbox},
+X    {"LeaveUnitBox", (XtActionProc) clear_mousefun},
+X    {"HomeRulers", (XtActionProc) pan_origin},
+X    {"PopupUnits", (XtActionProc) popup_unit_panel},
+X};
+X
+Xstatic String	unitbox_translations =
+X"<EnterWindow>:EnterUnitBox()\n\
+X    <LeaveWindow>:LeaveUnitBox()\n\
+X    <Btn1Down>:HomeRulers()\n\
+X    <Btn3Down>:PopupUnits()\n";
+X
+Xint
+Xinit_unitbox(tool)
+X    TOOL	    tool;
+X{
+X    FirstArg(XtNwidth, SIDERULER_WD);
+X    NextArg(XtNheight, RULER_WD);
+X    NextArg(XtNlabel, appres.INCHES ? "in" : "cm");
+X    NextArg(XtNfont, button_font);
+X    NextArg(XtNfromHoriz, canvas_sw);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, msg_form);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    if (strlen(cur_fig_units))
+X	fig_unit_setting = 1;
+X    else {
+X	strcpy(cur_fig_units, appres.INCHES ? "in" : "cm");
+X    }
+X
+X    if (appres.user_scale != 1.0)
+X	fig_scale_setting = 1;
+X
+X    unitbox_sw = XtCreateWidget("unitbox", labelWidgetClass, tool,
+X				Args, ArgCount);
+X    XtAppAddActions(tool_app, unitbox_actions, XtNumber(unitbox_actions));
+X    XtOverrideTranslations(unitbox_sw,
+X			   XtParseTranslationTable(unitbox_translations));
+X    return (1);
+X}
+X
+Xstatic String   unit_translations =
+X        "<Message>WM_PROTOCOLS: QuitUnits()\n";
+Xstatic void     unit_panel_cancel(), unit_panel_set();
+Xstatic XtActionsRec     unit_actions[] =
+X{
+X    {"QuitUnits", (XtActionProc) unit_panel_cancel},
+X    {"SetUnit", (XtActionProc) unit_panel_set},
+X};
+X
+Xstatic Widget	unit_popup, form, cancel, set, beside, below, newvalue,
+X		label;
+X
+X/* handle unit/scale settings */
+X
+Xstatic void
+Xunit_panel_dismiss()
+X{
+X    XtDestroyWidget(unit_popup);
+X    XtSetSensitive(unitbox_sw, True);
+X}
+X
+Xstatic void
+Xunit_panel_cancel(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    unit_panel_dismiss();
+X}
+X
+Xstatic void
+Xunit_panel_set(w, ev)
+X    Widget	    w;
+X    XButtonEvent   *ev;
+X{
+X    int old_rul_unit;
+X    char	    buf[32];
+X
+X    old_rul_unit = appres.INCHES;
+X    appres.INCHES = rul_unit_setting ? 1 : 0;
+X    init_grid();	/* change point positioning messages if necessary */
+X    if (fig_scale_setting)
+X	appres.user_scale = (float) atof(panel_get_value(scale_factor_panel));
+X    else
+X	appres.user_scale = 1.0;
+X
+X    if (fig_unit_setting) {
+X        strncpy(cur_fig_units,
+X	    panel_get_value(user_unit_panel),
+X	    sizeof(cur_fig_units));
+X	put_msg("Ruler scale: %s,  Figure scale: 1 %s = %.2f %s",
+X		appres.INCHES ? "in" : "cm",
+X		appres.INCHES ? "in" : "cm",
+X		appres.user_scale, cur_fig_units);
+X    } else {
+X	strcpy(cur_fig_units, appres.INCHES ? "in" : "cm");
+X	put_msg("Ruler scale: %s,  Figure scale = 1:%.2f",
+X		appres.INCHES ? "in" : "cm", appres.user_scale);
+X    }
+X
+X    if (old_rul_unit != appres.INCHES)
+X	reset_rulers();
+X    unit_panel_dismiss();
+X}
+X
+Xstatic void
+Xfig_unit_select(w, new_unit, garbage)
+X    Widget          w;
+X    XtPointer       new_unit, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(fig_unit_panel);
+X    fig_unit_setting = (int) new_unit;
+X    XtSetSensitive(user_unit_lab, fig_unit_setting ? True : False);
+X    XtSetSensitive(user_unit_panel, fig_unit_setting ? True : False);
+X    put_msg(fig_unit_setting ? "user defined figure units"
+X			     : "figure units = ruler units");
+X}
+X
+Xstatic void
+Xfig_scale_select(w, new_scale, garbage)
+X    Widget          w;
+X    XtPointer       new_scale, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(fig_scale_panel);
+X    fig_scale_setting = (int) new_scale;
+X    XtSetSensitive(scale_factor_lab, fig_scale_setting ? True : False);
+X    XtSetSensitive(scale_factor_panel, fig_scale_setting ? True : False);
+X    put_msg(fig_scale_setting ? "user defined scale factor"
+X			     : "figure scale = 1:1");
+X}
+X
+Xstatic void
+Xrul_unit_select(w, new_unit, garbage)
+X    Widget          w;
+X    XtPointer       new_unit, garbage;
+X{
+X    FirstArg(XtNlabel, XtName(w));
+X    SetValues(rul_unit_panel);
+X    rul_unit_setting = (int) new_unit;
+X    if (rul_unit_setting)
+X	put_msg("ruler scale : centimetres");
+X    else
+X	put_msg("ruler scale : inches");
+X}
+X
+Xvoid
+Xpopup_unit_panel()
+X{
+X    Position	    x_val, y_val;
+X    Dimension	    width, height;
+X    char	    buf[32];
+X    static int      actions_added=0;
+X    static char    *rul_unit_items[] = {
+X    "Metric (cm)  ", "Imperial (in)"};
+X    static char    *fig_unit_items[] = {
+X    "Ruler units ", "User defined"};
+X    static char    *fig_scale_items[] = {
+X    "Unity       ", "User defined"};
+X
+X    FirstArg(XtNwidth, &width);
+X    NextArg(XtNheight, &height);
+X    GetValues(tool);
+X    /* position the popup 2/3 in from left and 1/3 down from top */
+X    XtTranslateCoords(tool, (Position) (2 * width / 3), (Position) (height / 3),
+X		      &x_val, &y_val);
+X
+X    FirstArg(XtNx, x_val);
+X    NextArg(XtNy, y_val);
+X    NextArg(XtNwidth, 240);
+X
+X    unit_popup = XtCreatePopupShell("xfig_set_unit_panel",
+X				    transientShellWidgetClass, tool,
+X				    Args, ArgCount);
+X    XtOverrideTranslations(unit_popup,
+X                       XtParseTranslationTable(unit_translations));
+X    if (!actions_added) {
+X        XtAppAddActions(tool_app, unit_actions, XtNumber(unit_actions));
+X	actions_added = 1;
+X    }
+X
+X    form = XtCreateManagedWidget("form", formWidgetClass, unit_popup, NULL, 0);
+X
+X    FirstArg(XtNborderWidth, 0);
+X    sprintf(buf, "      Unit/Scale settings");
+X    label = XtCreateManagedWidget(buf, labelWidgetClass, form, Args, ArgCount);
+X
+X    /* make ruler units menu */
+X
+X    rul_unit_setting = appres.INCHES ? 1 : 0;
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget("Ruler Units  =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, label);
+X    NextArg(XtNfromHoriz, beside);
+X    rul_unit_panel = XtCreateManagedWidget(rul_unit_items[rul_unit_setting],
+X				menuButtonWidgetClass, form, Args, ArgCount);
+X    below = rul_unit_panel;
+X    rul_unit_menu = make_popup_menu(rul_unit_items, XtNumber(rul_unit_items),
+X                                     rul_unit_panel, rul_unit_select);
+X
+X    /* make figure units menu */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget("Figure units =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, beside);
+X    fig_unit_panel = XtCreateManagedWidget(fig_unit_items[fig_unit_setting],
+X				menuButtonWidgetClass, form, Args, ArgCount);
+X    below = fig_unit_panel;
+X    fig_unit_menu = make_popup_menu(fig_unit_items, XtNumber(fig_unit_items),
+X                                     fig_unit_panel, fig_unit_select);
+X
+X    /* user defined units */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    NextArg(XtNlabel, "Unit Name =");
+X    user_unit_lab = XtCreateManagedWidget("user_units",
+X                                labelWidgetClass, form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    NextArg(XtNfromHoriz, label);
+X    NextArg(XtNstring, cur_fig_units);
+X    NextArg(XtNinsertPosition, strlen(buf));
+X    NextArg(XtNeditType, "append");
+X    NextArg(XtNwidth, 40);
+X    user_unit_panel = XtCreateManagedWidget(buf, asciiTextWidgetClass,
+X                                    form, Args, ArgCount);
+X    below = user_unit_panel;
+X
+X    /* make figure scale menu */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    beside = XtCreateManagedWidget("Figure scale =", labelWidgetClass,
+X                                   form, Args, ArgCount);
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, beside);
+X    fig_scale_panel = XtCreateManagedWidget(fig_scale_items[fig_scale_setting],
+X				menuButtonWidgetClass, form, Args, ArgCount);
+X    below = fig_scale_panel;
+X    fig_scale_menu = make_popup_menu(fig_scale_items, XtNumber(fig_scale_items),
+X                                     fig_scale_panel, fig_scale_select);
+X
+X    /* scale factor widget */
+X
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, 0);
+X    NextArg(XtNlabel, "Scale factor =");
+X    scale_factor_lab = XtCreateManagedWidget("scale_factor",
+X                                labelWidgetClass, form, Args, ArgCount);
+X
+X    sprintf(buf, "%1.2f", appres.user_scale);
+X    FirstArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    NextArg(XtNfromHoriz, label);
+X    NextArg(XtNstring, buf);
+X    NextArg(XtNinsertPosition, strlen(buf));
+X    NextArg(XtNeditType, "append");
+X    NextArg(XtNwidth, 40);
+X    scale_factor_panel = XtCreateManagedWidget(buf, asciiTextWidgetClass,
+X                                        form, Args, ArgCount);
+X    below = scale_factor_panel;
+X
+X    /* standard cancel/set buttons */
+X
+X    FirstArg(XtNlabel, "cancel");
+X    NextArg(XtNfromVert, below);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    cancel = XtCreateManagedWidget("cancel", commandWidgetClass,
+X				   form, Args, ArgCount);
+X    XtAddEventHandler(cancel, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)unit_panel_cancel, (XtPointer) NULL);
+X
+X    FirstArg(XtNlabel, "set");
+X    NextArg(XtNfromVert, below);
+X    NextArg(XtNfromHoriz, cancel);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X    set = XtCreateManagedWidget("set", commandWidgetClass,
+X				form, Args, ArgCount);
+X    XtAddEventHandler(set, ButtonReleaseMask, (Boolean) 0,
+X		      (XtEventHandler)unit_panel_set, (XtPointer) NULL);
+X
+X    XtPopup(unit_popup, XtGrabExclusive);
+X
+X    XtSetSensitive(user_unit_lab, fig_unit_setting ? True : False);
+X    XtSetSensitive(user_unit_panel, fig_unit_setting ? True : False);
+X    XtSetSensitive(scale_factor_lab, fig_scale_setting ? True : False);
+X    XtSetSensitive(scale_factor_panel, fig_scale_setting ? True : False);
+X
+X    (void) XSetWMProtocols(XtDisplay(unit_popup), XtWindow(unit_popup),
+X                           &wm_delete_window, 1);
+X}
+X/************************* TOPRULER ************************/
+X
+XXtActionsRec	topruler_actions[] =
+X{
+X    {"EventTopRuler", (XtActionProc) topruler_selected},
+X    {"ExposeTopRuler", (XtActionProc) topruler_exposed},
+X    {"EnterTopRuler", (XtActionProc) draw_mousefun_topruler},
+X    {"LeaveTopRuler", (XtActionProc) clear_mousefun},
+X};
+X
+Xstatic String	topruler_translations =
+X"Any<BtnDown>:EventTopRuler()\n\
+X    Any<BtnUp>:EventTopRuler()\n\
+X    <Btn2Motion>:EventTopRuler()\n\
+X    Meta <Btn3Motion>:EventTopRuler()\n\
+X    <EnterWindow>:EnterTopRuler()\n\
+X    <LeaveWindow>:LeaveTopRuler()\n\
+X    <Expose>:ExposeTopRuler()\n";
+X
+Xstatic
+Xtopruler_selected(tool, event, params, nparams)
+X    TOOL	    tool;
+X    XButtonEvent   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XButtonEvent   *be = (XButtonEvent *) event;
+X
+X    switch (event->type) {
+X    case ButtonPress:
+X	if (be->button == Button3 && be->state & Mod1Mask) {
+X	    be->button = Button2;
+X	}
+X	switch (be->button) {
+X	case Button1:
+X	    XDefineCursor(tool_d, topruler_win, l_arrow_cursor);
+X	    break;
+X	case Button2:
+X	    XDefineCursor(tool_d, topruler_win, bull_cursor);
+X	    orig_zoomoff = zoomxoff;
+X	    last_drag_x = event->x;
+X	    break;
+X	case Button3:
+X	    XDefineCursor(tool_d, topruler_win, r_arrow_cursor);
+X	    break;
+X	}
+X	break;
+X    case ButtonRelease:
+X	if (be->button == Button3 && be->state & Mod1Mask) {
+X	    be->button = Button2;
+X	}
+X	switch (be->button) {
+X	case Button1:
+X	    pan_left();
+X	    break;
+X	case Button2:
+X	    if (orig_zoomoff != zoomxoff)
+X		setup_grid(cur_gridmode);
+X	    break;
+X	case Button3:
+X	    pan_right();
+X	    break;
+X	}
+X	XDefineCursor(tool_d, topruler_win, lr_arrow_cursor);
+X	break;
+X    case MotionNotify:
+X	if (event->x != last_drag_x)
+X	    if ((zoomxoff != 0) || (event->x < last_drag_x)) {
+X		zoomxoff -= (event->x - last_drag_x);
+X		if (zoomxoff < 0)
+X		    zoomxoff = 0;
+X		reset_topruler();
+X		redisplay_topruler();
+X	    }
+X	last_drag_x = event->x;
+X	break;
+X    }
+X}
+X
+Xerase_toprulermark()
+X{
+X    XClearArea(tool_d, topruler_win, ZOOMX(lastx) + troffx,
+X	       TOPRULER_HT + troffy, trm_pr.width,
+X	       trm_pr.height, False);
+X}
+X
+Xset_toprulermark(x)
+X    int		    x;
+X{
+X    XClearArea(tool_d, topruler_win, ZOOMX(lastx) + troffx,
+X	       TOPRULER_HT + troffy, trm_pr.width,
+X	       trm_pr.height, False);
+X    XCopyArea(tool_d, toparrow_pm, topruler_win, tr_xor_gc,
+X	      0, 0, trm_pr.width, trm_pr.height,
+X	      ZOOMX(x) + troffx, TOPRULER_HT + troffy);
+X    lastx = x;
+X}
+X
+Xstatic
+Xtopruler_exposed(tool, event, params, nparams)
+X    TOOL	    tool;
+X    XButtonEvent   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    if (((XExposeEvent *) event)->count > 0)
+X	return;
+X    redisplay_topruler();
+X}
+X
+Xredisplay_topruler()
+X{
+X    XClearWindow(tool_d, topruler_win);
+X}
+X
+Xint
+Xinit_topruler(tool)
+X    TOOL	    tool;
+X{
+X    FirstArg(XtNwidth, TOPRULER_WD);
+X    NextArg(XtNheight, TOPRULER_HT);
+X    NextArg(XtNlabel, "");
+X    NextArg(XtNfromHoriz, mode_panel);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, msg_form);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    topruler_sw = XtCreateWidget("topruler", labelWidgetClass, tool,
+X				 Args, ArgCount);
+X
+X    XtAppAddActions(tool_app, topruler_actions, XtNumber(topruler_actions));
+X    XtOverrideTranslations(topruler_sw,
+X			   XtParseTranslationTable(topruler_translations));
+X    return (1);
+X}
+X
+Xsetup_topruler()
+X{
+X    unsigned long   bg, fg;
+X    XGCValues	    gcv;
+X    unsigned long   gcmask;
+X
+X    topruler_win = XtWindow(topruler_sw);
+X    gcv.font = roman_font->fid;
+X    gcmask = GCFunction | GCForeground | GCBackground | GCFont;
+X
+X    /* set up the GCs */
+X    FirstArg(XtNbackground, &bg);
+X    NextArg(XtNforeground, &fg);
+X    GetValues(topruler_sw);
+X
+X    gcv.foreground = bg;
+X    gcv.background = bg;
+X    gcv.function = GXcopy;
+X    tr_erase_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    gcv.foreground = fg;
+X    tr_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X    /*
+X     * The arrows will be XORed into the rulers. We want the foreground color
+X     * in the arrow to result in the foreground or background color in the
+X     * display. so if the source pixel is fg^bg, it produces fg when XOR'ed
+X     * with bg, and bg when XOR'ed with bg. If the source pixel is zero, it
+X     * produces fg when XOR'ed with fg, and bg when XOR'ed with bg.
+X     */
+X    /* first make a temporary xor gc */
+X    gcv.foreground = fg ^ bg;
+X    gcv.background = (unsigned long) 0;
+X    gcv.function = GXcopy;
+X    tr_xor_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    /* make pixmaps for top ruler arrow */
+X    toparrow_pm = XCreatePixmap(tool_d, topruler_win, trm_pr.width,
+X				trm_pr.height, DefaultDepthOfScreen(tool_s));
+X    XPutImage(tool_d, toparrow_pm, tr_xor_gc, &trm_pr, 0, 0, 0, 0,
+X	      trm_pr.width, trm_pr.height);
+X    XFreeGC(tool_d, tr_xor_gc);
+X
+X    /* now make the real xor gc */
+X    gcv.background = bg;
+X    gcv.function = GXxor;
+X    tr_xor_gc = XCreateGC(tool_d, topruler_win, gcmask, &gcv);
+X
+X    XDefineCursor(tool_d, topruler_win, lr_arrow_cursor);
+X
+X    topruler_pm = XCreatePixmap(tool_d, topruler_win,
+X				TOPRULER_WD, TOPRULER_HT,
+X				DefaultDepthOfScreen(tool_s));
+X
+X    reset_topruler();
+X}
+X
+Xresize_topruler()
+X{
+X    XFreePixmap(tool_d, topruler_pm);
+X    topruler_pm = XCreatePixmap(tool_d, topruler_win,
+X				TOPRULER_WD, TOPRULER_HT,
+X				DefaultDepthOfScreen(tool_s));
+X
+X    reset_topruler();
+X}
+X
+Xreset_topruler()
+X{
+X    register int    i, j;
+X    register Pixmap p = topruler_pm;
+X    char	    number[4];
+X    int		    X0;
+X
+X    /* top ruler, adjustments for digits are kludges based on 6x13 char */
+X    XFillRectangle(tool_d, p, tr_erase_gc, 0, 0, TOPRULER_WD, TOPRULER_HT);
+X
+X    X0 = BACKX(0);
+X    if (appres.INCHES) {
+X	X0 -= (X0 % SINCH);
+X	for (i = X0+SINCH-1; i <= X0+round(TOPRULER_WD/zoomscale); i += SINCH) {
+X	    j = i + 1;
+X	    if (j % PIX_PER_INCH == 0) {
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - INCH_MARK - 1);
+X		sprintf(number, "%d", j / PIX_PER_INCH);
+X		XDrawString(tool_d, p, tr_gc, ZOOMX(i) - 3,
+X			    TOPRULER_HT - INCH_MARK - 5, number,
+X			    (j < PIX_PER_INCH*10)? 1 : (j<PIX_PER_INCH*100? 2:3));
+X	    } else if (j % HINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - HALF_MARK - 1);
+X	    else if (j % QINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - QUARTER_MARK - 1);
+X	    else if (j % SINCH == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - SIXTEENTH_MARK - 1);
+X	}
+X    } else {
+X	X0 -= (X0 % TWOMM);
+X	for (i = X0+TWOMM-1; i <= X0+round(TOPRULER_WD/zoomscale); i++) {
+X	    j = i + 1;
+X	    if (j % PIX_PER_CM == 0) {
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - INCH_MARK - 1);
+X		sprintf(number, "%d", j / PIX_PER_CM);
+X		XDrawString(tool_d, p, tr_gc, ZOOMX(i) - 3,
+X			    TOPRULER_HT - INCH_MARK - 5, number,
+X			    (j < PIX_PER_CM*10)? 1 : (j<PIX_PER_CM*100? 2:3));
+X	    } else if (j % TWOMM == 0)
+X		XDrawLine(tool_d, p, tr_gc, ZOOMX(i), TOPRULER_HT - 1, ZOOMX(i),
+X			  TOPRULER_HT - QUARTER_MARK - 1);
+X	}
+X    }
+X    /* change the pixmap ID to fool the intrinsics to actually set the pixmap */
+X    FirstArg(XtNbackgroundPixmap, 0);
+X    SetValues(topruler_sw);
+X    FirstArg(XtNbackgroundPixmap, p);
+X    SetValues(topruler_sw);
+X}
+X
+X/************************* SIDERULER ************************/
+X
+XXtActionsRec	sideruler_actions[] =
+X{
+X    {"EventSideRuler", (XtActionProc) sideruler_selected},
+X    {"ExposeSideRuler", (XtActionProc) sideruler_exposed},
+X    {"EnterSideRuler", (XtActionProc) draw_mousefun_sideruler},
+X    {"LeaveSideRuler", (XtActionProc) clear_mousefun},
+X};
+X
+Xstatic String	sideruler_translations =
+X"Any<BtnDown>:EventSideRuler()\n\
+X    Any<BtnUp>:EventSideRuler()\n\
+X    <Btn2Motion>:EventSideRuler()\n\
+X    Meta <Btn3Motion>:EventSideRuler()\n\
+X    <EnterWindow>:EnterSideRuler()\n\
+X    <LeaveWindow>:LeaveSideRuler()\n\
+X    <Expose>:ExposeSideRuler()\n";
+X
+Xstatic
+Xsideruler_selected(tool, event, params, nparams)
+X    TOOL	    tool;
+X    XButtonEvent   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    XButtonEvent   *be = (XButtonEvent *) event;
+X
+X    switch (event->type) {
+X    case ButtonPress:
+X	if (be->button == Button3 && be->state & Mod1Mask) {
+X	    be->button = Button2;
+X	}
+X	switch (be->button) {
+X	case Button1:
+X	    XDefineCursor(tool_d, sideruler_win, u_arrow_cursor);
+X	    break;
+X	case Button2:
+X	    XDefineCursor(tool_d, sideruler_win, bull_cursor);
+X	    orig_zoomoff = zoomyoff;
+X	    last_drag_y = event->y;
+X	    break;
+X	case Button3:
+X	    XDefineCursor(tool_d, sideruler_win, d_arrow_cursor);
+X	    break;
+X	}
+X	break;
+X    case ButtonRelease:
+X	if (be->button == Button3 && be->state & Mod1Mask) {
+X	    be->button = Button2;
+X	}
+X	switch (be->button) {
+X	case Button1:
+X	    pan_up();
+X	    break;
+X	case Button2:
+X	    if (orig_zoomoff != zoomyoff)
+X		setup_grid(cur_gridmode);
+X	    break;
+X	case Button3:
+X	    pan_down();
+X	    break;
+X	}
+X	XDefineCursor(tool_d, sideruler_win, ud_arrow_cursor);
+X	break;
+X    case MotionNotify:
+X	if (event->y != last_drag_y)
+X	    if ((zoomyoff != 0) || (event->y < last_drag_y)) {
+X		zoomyoff -= (event->y - last_drag_y);
+X		if (zoomyoff < 0)
+X		    zoomyoff = 0;
+X		reset_sideruler();
+X		redisplay_sideruler();
+X	    }
+X	last_drag_y = event->y;
+X	break;
+X    }
+X}
+X
+Xstatic
+Xsideruler_exposed(tool, event, params, nparams)
+X    TOOL	    tool;
+X    XButtonEvent   *event;
+X    String	   *params;
+X    Cardinal	   *nparams;
+X{
+X    if (((XExposeEvent *) event)->count > 0)
+X	return;
+X    redisplay_sideruler();
+X}
+X
+Xint
+Xinit_sideruler(tool)
+X    TOOL	    tool;
+X{
+X    FirstArg(XtNwidth, SIDERULER_WD);
+X    NextArg(XtNheight, SIDERULER_HT);
+X    NextArg(XtNlabel, "");
+X    NextArg(XtNfromHoriz, canvas_sw);
+X    NextArg(XtNhorizDistance, -INTERNAL_BW);
+X    NextArg(XtNfromVert, topruler_sw);
+X    NextArg(XtNvertDistance, -INTERNAL_BW);
+X    NextArg(XtNresizable, False);
+X    NextArg(XtNtop, XtChainTop);
+X    NextArg(XtNbottom, XtChainTop);
+X    NextArg(XtNleft, XtChainLeft);
+X    NextArg(XtNright, XtChainLeft);
+X    NextArg(XtNborderWidth, INTERNAL_BW);
+X
+X    sideruler_sw = XtCreateWidget("sideruler", labelWidgetClass, tool,
+X				  Args, ArgCount);
+X
+X    XtAppAddActions(tool_app, sideruler_actions, XtNumber(sideruler_actions));
+X    XtOverrideTranslations(sideruler_sw,
+X			   XtParseTranslationTable(sideruler_translations));
+X    return (1);
+X}
+X
+Xredisplay_sideruler()
+X{
+X    XClearWindow(tool_d, sideruler_win);
+X}
+X
+Xsetup_sideruler()
+X{
+X    unsigned long   bg, fg;
+X    XGCValues	    gcv;
+X    unsigned long   gcmask;
+X
+X    sideruler_win = XtWindow(sideruler_sw);
+X    gcv.font = roman_font->fid;
+X    gcmask = GCFunction | GCForeground | GCBackground | GCFont;
+X
+X    /* set up the GCs */
+X    FirstArg(XtNbackground, &bg);
+X    NextArg(XtNforeground, &fg);
+X    GetValues(sideruler_sw);
+X
+X    gcv.foreground = bg;
+X    gcv.background = bg;
+X    gcv.function = GXcopy;
+X    sr_erase_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X
+X    gcv.foreground = fg;
+X    sr_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X    /*
+X     * The arrows will be XORed into the rulers. We want the foreground color
+X     * in the arrow to result in the foreground or background color in the
+X     * display. so if the source pixel is fg^bg, it produces fg when XOR'ed
+X     * with bg, and bg when XOR'ed with bg. If the source pixel is zero, it
+X     * produces fg when XOR'ed with fg, and bg when XOR'ed with bg.
+X     */
+X    /* first make a temporary xor gc */
+X    gcv.foreground = fg ^ bg;
+X    gcv.background = (unsigned long) 0;
+X    gcv.function = GXcopy;
+X    sr_xor_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X
+X    /* make pixmaps for side ruler arrow */
+X    if (appres.RHS_PANEL) {
+X	sidearrow_pm = XCreatePixmap(tool_d, sideruler_win,
+X				     srlm_pr.width, srlm_pr.height,
+X				     DefaultDepthOfScreen(tool_s));
+X	XPutImage(tool_d, sidearrow_pm, sr_xor_gc, &srlm_pr, 0, 0, 0, 0,
+X		  srlm_pr.width, srlm_pr.height);
+X    } else {
+X	sidearrow_pm = XCreatePixmap(tool_d, sideruler_win,
+X				     srrm_pr.width, srrm_pr.height,
+X				     DefaultDepthOfScreen(tool_s));
+X	XPutImage(tool_d, sidearrow_pm, sr_xor_gc, &srrm_pr, 0, 0, 0, 0,
+X		  srrm_pr.width, srrm_pr.height);
+X    }
+X    XFreeGC(tool_d, sr_xor_gc);
+X
+X    /* now make the real xor gc */
+X    gcv.background = bg;
+X    gcv.function = GXxor;
+X    sr_xor_gc = XCreateGC(tool_d, sideruler_win, gcmask, &gcv);
+X
+X    XDefineCursor(tool_d, sideruler_win, ud_arrow_cursor);
+X
+X    sideruler_pm = XCreatePixmap(tool_d, sideruler_win,
+X				 SIDERULER_WD, SIDERULER_HT,
+X				 DefaultDepthOfScreen(tool_s));
+X
+X    reset_sideruler();
+X}
+X
+Xresize_sideruler()
+X{
+X    XFreePixmap(tool_d, sideruler_pm);
+X    sideruler_pm = XCreatePixmap(tool_d, sideruler_win,
+X				 SIDERULER_WD, SIDERULER_HT,
+X				 DefaultDepthOfScreen(tool_s));
+X    reset_sideruler();
+X}
+X
+Xreset_sideruler()
+X{
+X    register int    i, j;
+X    register Pixmap p = sideruler_pm;
+X    char	    number[4];
+X    int		    Y0;
+X
+X    /* side ruler, adjustments for digits are kludges based on 6x13 char */
+X    XFillRectangle(tool_d, p, sr_erase_gc, 0, 0, SIDERULER_WD,
+X		   (int) (SIDERULER_HT));
+X
+X    Y0 = BACKY(0);
+X    if (appres.INCHES) {
+X	Y0 -= (Y0 % SINCH);
+X	if (appres.RHS_PANEL) {
+X	    for (i = Y0+SINCH-1; i <= Y0+round(SIDERULER_HT/zoomscale); i += SINCH) {
+X		j = i + 1;
+X		if (j % PIX_PER_INCH == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, SIDERULER_WD - INCH_MARK,
+X			      ZOOMY(i), SIDERULER_WD, ZOOMY(i));
+X		    sprintf(number, "%3d", j / PIX_PER_INCH);
+X		    XDrawString(tool_d, p, sr_gc,
+X				SIDERULER_WD - INCH_MARK - 22, ZOOMY(i) + 3,
+X				number, 3);
+X		} else if (j % HINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      SIDERULER_WD - HALF_MARK, ZOOMY(i),
+X			      SIDERULER_WD, ZOOMY(i));
+X		else if (j % QINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      SIDERULER_WD - QUARTER_MARK, ZOOMY(i),
+X			      SIDERULER_WD, ZOOMY(i));
+X		else if (j % SINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      SIDERULER_WD - SIXTEENTH_MARK, ZOOMY(i),
+X			      SIDERULER_WD, ZOOMY(i));
+X	    }
+X	} else {
+X	    for (i = Y0+SINCH-1; i <= Y0+round(SIDERULER_HT/zoomscale); i += SINCH) {
+X		j = i + 1;
+X		if (j % PIX_PER_INCH == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      INCH_MARK - 1, ZOOMY(i));
+X		    sprintf(number, "%3d", j / PIX_PER_INCH);
+X		    XDrawString(tool_d, p, sr_gc, INCH_MARK + 3,
+X				ZOOMY(i) + 3, number, 3);
+X		} else if (j % HINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      HALF_MARK - 1, ZOOMY(i));
+X		else if (j % QINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      QUARTER_MARK - 1, ZOOMY(i));
+X		else if (j % SINCH == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      SIXTEENTH_MARK - 1, ZOOMY(i));
+X	    }
+X	}
+X    } else {
+X	Y0 -= (Y0 % TWOMM);
+X	if (appres.RHS_PANEL) {
+X	    for (i = Y0+TWOMM-1; i <= Y0+round(SIDERULER_HT/zoomscale); i++) {
+X		j = i + 1;
+X		if (j % PIX_PER_CM == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, SIDERULER_WD - INCH_MARK,
+X			      ZOOMY(i), SIDERULER_WD, ZOOMY(i));
+X		    sprintf(number, "%3d", j / PIX_PER_CM);
+X		    XDrawString(tool_d, p, sr_gc,
+X				SIDERULER_WD - INCH_MARK - 14, ZOOMY(i) + 3,
+X				number, 3);
+X		} else if (j % TWOMM == 0)
+X		    XDrawLine(tool_d, p, sr_gc,
+X			      SIDERULER_WD - QUARTER_MARK, ZOOMY(i),
+X			      SIDERULER_WD, ZOOMY(i));
+X	    }
+X	} else {
+X	    for (i = Y0+TWOMM-1; i <= Y0+round(SIDERULER_HT/zoomscale); i++) {
+X		j = i + 1;
+X		if (j % PIX_PER_CM == 0) {
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      INCH_MARK - 1, ZOOMY(i));
+X		    sprintf(number, "%3d", j / PIX_PER_CM);
+X		    XDrawString(tool_d, p, sr_gc, INCH_MARK + 3,
+X				ZOOMY(i) + 3, number, 3);
+X		} else if (j % TWOMM == 0)
+X		    XDrawLine(tool_d, p, sr_gc, 0, ZOOMY(i),
+X			      QUARTER_MARK - 1, ZOOMY(i));
+X	    }
+X	}
+X    }
+X    /* change the pixmap ID to fool the intrinsics to actually set the pixmap */
+X    FirstArg(XtNbackgroundPixmap, 0);
+X    SetValues(sideruler_sw);
+X    FirstArg(XtNbackgroundPixmap, p);
+X    SetValues(sideruler_sw);
+X}
+X
+Xerase_siderulermark()
+X{
+X    if (appres.RHS_PANEL)
+X	XClearArea(tool_d, sideruler_win,
+X		   SIDERULER_WD + srloffx, ZOOMY(lasty) + srloffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X    else
+X	XClearArea(tool_d, sideruler_win,
+X		   srroffx, ZOOMY(lasty) + srroffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X}
+X
+Xset_siderulermark(y)
+X    int		    y;
+X{
+X    if (appres.RHS_PANEL) {
+X	/*
+X	 * Because the ruler uses a background pixmap, we can win here by
+X	 * using XClearArea to erase the old thing.
+X	 */
+X	XClearArea(tool_d, sideruler_win,
+X		   SIDERULER_WD + srloffx, ZOOMY(lasty) + srloffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X	XCopyArea(tool_d, sidearrow_pm, sideruler_win,
+X		  sr_xor_gc, 0, 0, srlm_pr.width,
+X		  srlm_pr.height, SIDERULER_WD + srloffx, ZOOMY(y) + srloffy);
+X    } else {
+X	/*
+X	 * Because the ruler uses a background pixmap, we can win here by
+X	 * using XClearArea to erase the old thing.
+X	 */
+X	XClearArea(tool_d, sideruler_win,
+X		   srroffx, ZOOMY(lasty) + srroffy,
+X		   srlm_pr.width, srlm_pr.height, False);
+X	XCopyArea(tool_d, sidearrow_pm, sideruler_win,
+X		  sr_xor_gc, 0, 0, srrm_pr.width,
+X		  srrm_pr.height, srroffx, ZOOMY(y) + srroffy);
+X    }
+X    lasty = y;
+X}
+END_OF_FILE
+if test 31896 -ne `wc -c <'w_rulers.c'`; then
+    echo shar: \"'w_rulers.c'\" unpacked with wrong size!
+fi
+# end of 'w_rulers.c'
+fi
+echo shar: End of archive 18 \(of 27\).
+cp /dev/null ark18isdone
+MISSING=""
+for I in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 ; do
+    if test ! -f ark${I}isdone ; then
+	MISSING="${MISSING} ${I}"
+    fi
+done
+if test "${MISSING}" = "" ; then
+    echo You have unpacked all 27 archives.
+    rm -f ark[1-9]isdone ark[1-9][0-9]isdone
+else
+    echo You still need to unpack the following archives:
+    echo "        " ${MISSING}
+fi
+##  End of shell archive.
+exit 0
+
+exit 0 # Just in case...
+-- 
+  // chris@IMD.Sterling.COM       | Send comp.sources.x submissions to:
+\X/  Amiga - The only way to fly! |    sources-x@imd.sterling.com
+ "It's intuitively obvious to the |
+  most casual observer..."        | GCS d+/-- p+ c++ l+ m+ s++/+ g+ w+ t+ r+ x+
